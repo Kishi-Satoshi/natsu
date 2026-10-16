@@ -41,9 +41,9 @@ test('表示名は NaTsu（画面・録音バー・ウィンドウ・トレイ�
   assert.strictEqual(pkg.description, 'NaTsu — 完全オフラインの音声入力・議事録ツール（ローカルLLM要約 + 出典リンク付き）');
 });
 
-test('識別子: name は natsu・版は 0.1.0・productName は build の中だけ（userData は %APPDATA%\\natsu）', () => {
+test('識別子: name は natsu・版は 0.1.1・productName は build の中だけ（userData は %APPDATA%\\natsu）', () => {
   assert.strictEqual(pkg.name, 'natsu');
-  assert.strictEqual(pkg.version, '0.1.0');
+  assert.strictEqual(pkg.version, '0.1.1');
   assert.strictEqual(pkg.productName, undefined, 'top-level の productName は userData の名前を変える');
   assert.strictEqual(pkg.build.productName, 'NaTsu');
   assert.strictEqual(pkg.build.appId, 'local.natsu.app');
@@ -104,6 +104,11 @@ test('get-installer.ps1 の取得元は updater.REPO と同じで、タグは na
 
 test('CHANGELOG に今の版の節（## natsu-v<version>）がある（release.yml が本文に使う）', () => {
   assert.match(read('CHANGELOG.md'), new RegExp(`^## natsu-v${pkg.version.replace(/\./g, '\\.')}$`, 'm'));
+});
+
+test('CHANGELOG の先頭の節は今の版（新しい節は上に足す）', () => {
+  const heads = read('CHANGELOG.md').split('\n').filter((l) => l.startsWith('## '));
+  assert.strictEqual(heads[0], `## natsu-v${pkg.version}`);
 });
 
 // 守りのテスト（今は通る）。読んだ文字の U+FEFF を外さずに writePs1 へ渡すと BOM が2つになる（全体の決まり）

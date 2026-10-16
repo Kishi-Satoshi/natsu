@@ -10,6 +10,9 @@
 #   powershell -ExecutionPolicy Bypass -File .\setup-summarizer.ps1
 #   powershell -ExecutionPolicy Bypass -File .\setup-summarizer.ps1 -Model 7b
 #
+# エクスプローラーから起動したとき（右クリックの「PowerShell で実行」やダブルクリック）は、
+# 窓がすぐ閉じないよう、最後とエラーで止まったときに Enter を待ちます。待たせないときは -NoPause。
+#
 # -Model の選択肢:
 #   3b (既定) … Qwen2.5-3B-Instruct  約1.9GB。CPUでも実用速度
 #   7b        … Qwen2.5-7B-Instruct  約4.7GB。高品質だが要約に時間がかかる
@@ -18,11 +21,76 @@
 # =====================================================================
 param(
     [string]$Model = "3b",
-    [string]$Tag = ""
+    [string]$Tag = "",
+    [switch]$NoPause
 )
 
 $ErrorActionPreference = "Stop"
 try { [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12 } catch { }
+
+# ---------------------------------------------------------------------
+# エクスプローラーから起動したときは、閉じる前に Enter を待つ
+#   右クリックの「PowerShell で実行」やダブルクリックで起動すると、終わった瞬間に窓が閉じて、
+#   エラーも表示した内容も読めない。そのときだけ、最後とエラーで止まったときに Enter を待つ。
+#   開いてある PowerShell の窓から実行したときは、今までどおり待たない。-NoPause でも待たない。
+#   調べられなかったときは「待たない」にする（自動で実行したときに止まったままにならないように）。
+# ---------------------------------------------------------------------
+function Test-LaunchedFromExplorer {
+    param([string]$ScriptPath)
+    try {
+        if (-not $ScriptPath) { return $false }
+        $name = Split-Path -Leaf $ScriptPath
+        $cmd = [Environment]::CommandLine
+        if (-not $cmd) { return $false }
+        # このスクリプトのために開いた窓か。開いてある窓で .\ から実行したときは、起動の行に名前が無い
+        # （スタートメニューやアドレス欄から開いた窓も親は explorer.exe なので、親だけでは決めない）
+        if ($cmd.IndexOf($name, [StringComparison]::OrdinalIgnoreCase) -lt 0) { return $false }
+        # -NoExit なら窓は閉じない。-NonInteractive なら Enter を待てない
+        if ($cmd -match '\s-(noe|noni)') { return $false }
+        # 右クリックの「PowerShell で実行」は、次の形で起動する
+        #   powershell.exe "-Command" "if(...) { Set-ExecutionPolicy -Scope Process Bypass }; & '<このファイル>'"
+        if (($cmd -match '-Command') -and ($cmd -match 'Set-ExecutionPolicy -Scope Process Bypass') -and ($cmd -match "&\s*'")) { return $true }
+        # ダブルクリックなど: 親のプロセスが explorer.exe
+        $me = Get-CimInstance -ClassName Win32_Process -Filter ("ProcessId=" + $PID)
+        if (-not $me) { return $false }
+        $parent = Get-Process -Id $me.ParentProcessId -ErrorAction SilentlyContinue
+        if ($parent -and ($parent.ProcessName -eq "explorer")) { return $true }
+    }
+    catch { }
+    return $false
+}
+
+# エクスプローラーから起動していれば、ひとこと出して Enter を待つ
+function Wait-BeforeClose {
+    param([string]$Message)
+    if (-not $script:PauseOnExit) { return }
+    Write-Host ""
+    if ($Message) { Write-Host $Message -ForegroundColor Cyan }
+    try { [void](Read-Host "Enter キーを押すと閉じます") } catch { }
+}
+
+# 案内を出して止まるところは、ここを通して終わる（読めるように待ってから閉じる）
+function Exit-Script {
+    param([int]$Code = 1)
+    Wait-BeforeClose "セットアップを完了できませんでした。上の案内を読んでから閉じてください。"
+    exit $Code
+}
+
+$script:PauseOnExit = $false
+if (-not $NoPause) { $script:PauseOnExit = Test-LaunchedFromExplorer $PSCommandPath }
+
+# 思わぬエラー（ダウンロードや展開の失敗など）で止まったとき。
+# エクスプローラーから起動していれば、赤字でエラーと次の手を出し、Enter を待ってから閉じる。
+# 開いてある窓から実行したときは、今までどおり PowerShell のエラー表示に任せる（break）。
+trap {
+    if (-not $script:PauseOnExit) { break }
+    Write-Host ""
+    Write-Host ("エラーで止まりました: " + $_.Exception.Message) -ForegroundColor Red
+    Write-Host "PowerShell を開いて powershell -ExecutionPolicy Bypass -File .\setup-summarizer.ps1 で実行し直すと、詳しい内容が見えます。" -ForegroundColor Red
+    Write-Host ("  このフォルダです: " + $PSScriptRoot + "（アドレス欄に powershell と入力すると、ここで開けます）")
+    Wait-BeforeClose "上の赤い文字を控えてから閉じてください。"
+    exit 1
+}
 
 # --- 大容量ファイル用: 切断されても続きから再開するダウンロード ---
 function Get-BigFile {
@@ -62,7 +130,7 @@ elseif ($Model -eq "7b") {
 }
 else {
     Write-Host "不明なモデル名です: $Model （指定できる値: 3b / 7b）" -ForegroundColor Red
-    exit 1
+    Exit-Script 1
 }
 
 $root = Join-Path $PSScriptRoot "local-engine"
@@ -128,7 +196,7 @@ else {
 if ($candidates.Count -eq 0) {
     Write-Host "llama.cpp のリリース情報を取得できませんでした。" -ForegroundColor Red
     Write-Host "  $base"
-    exit 1
+    Exit-Script 1
 }
 
 $rel = $null
@@ -154,7 +222,7 @@ if (-not $asset) {
     Write-Host ""
     Write-Host "この一覧を伝えていただければ対応できます。"
     Write-Host "特定のリリースを使う場合: -Tag v0.3.0 のように指定してください。"
-    exit 1
+    Exit-Script 1
 }
 
 $tag = $rel.tag_name
@@ -168,7 +236,7 @@ if (-not $binOk) {
     Write-Host "llama.cpp バイナリを取得できませんでした。" -ForegroundColor Red
     Write-Host "ブラウザで次のURLを開いて $llmRoot に置き、もう一度実行してください:"
     Write-Host ("  " + $asset.browser_download_url)
-    exit 1
+    Exit-Script 1
 }
 
 $binDir = Join-Path $llmRoot "bin"
@@ -178,7 +246,7 @@ Expand-Archive -Path $binZip -DestinationPath $binDir -Force
 $server = Get-ChildItem -Path $binDir -Recurse -Include "llama-server.exe" | Select-Object -First 1
 if (-not $server) {
     Write-Host "llama-server.exe が見つかりませんでした。" -ForegroundColor Red
-    exit 1
+    Exit-Script 1
 }
 # 展開が途中で終わった・ウイルス対策ソフトに削られた等を捕まえる。ただし **exe の大きさでは
 # 判断しない**。llama.cpp は llama-server.exe を 9KB の薄いランチャにし、中身を
@@ -191,7 +259,7 @@ if ($null -eq $sum -or $sum -lt 5MB) {
     Write-Host "展開が途中で終わったか、ウイルス対策ソフトに削られた可能性があります。"
     Write-Host "もう一度実行してください。直らない場合は、ウイルス対策ソフトの除外設定に次のフォルダを追加してください:"
     Write-Host ("  " + $binDir)
-    exit 1
+    Exit-Script 1
 }
 # ここまで来て初めて zip を捨てる（失敗したら残しておき、再実行で取り直しから始めない）
 Remove-Item $binZip
@@ -220,7 +288,7 @@ if (-not (Test-Path $modelPath) -or ((Get-Item $modelPath).Length -lt $minBytes)
         Write-Host "再開を繰り返しても完了できませんでした。" -ForegroundColor Red
         Write-Host "ブラウザで次のURLを開いてダウンロードし、local-engine\llm フォルダに置いてください:"
         Write-Host "  $modelUrl"
-        exit 1
+        Exit-Script 1
     }
     $lenMB = [math]::Round((Get-Item $modelPath).Length / 1MB)
     Write-Host "ダウンロード完了（$lenMB MB・サイズ検証OK）" -ForegroundColor Green
@@ -237,3 +305,5 @@ Write-Host ("  llama-server.exe : " + $server.FullName) -ForegroundColor White
 Write-Host ("  モデルファイル   : " + $modelPath) -ForegroundColor White
 Write-Host ""
 Write-Host "詳細設定の「要約」にある「起動テスト」で OK が出れば、議事録の自動要約が完全オフラインで使えます。"
+
+Wait-BeforeClose "セットアップが終わりました。上のパスを NaTsu の設定に貼り付けてから閉じてください。"

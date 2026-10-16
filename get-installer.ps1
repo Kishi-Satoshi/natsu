@@ -11,15 +11,83 @@
 #   powershell -ExecutionPolicy Bypass -File .\get-installer.ps1
 #   powershell -ExecutionPolicy Bypass -File .\get-installer.ps1 -Version 0.1.0
 #
+# エクスプローラーから起動したとき（右クリックの「PowerShell で実行」やダブルクリック）は、
+# 窓がすぐ閉じないよう、最後とエラーで止まったときに Enter を待ちます。待たせないときは -NoPause。
+#
 # Windows PowerShell 5.1 / PowerShell 7 の両方で動作します。
 # =====================================================================
 param(
     [string]$Version = "",
-    [string]$OutDir = "."
+    [string]$OutDir = ".",
+    [switch]$NoPause
 )
 
 $ErrorActionPreference = "Stop"
 try { [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12 } catch { }
+
+# ---------------------------------------------------------------------
+# エクスプローラーから起動したときは、閉じる前に Enter を待つ
+#   右クリックの「PowerShell で実行」やダブルクリックで起動すると、終わった瞬間に窓が閉じて、
+#   エラーも表示した内容も読めない。そのときだけ、最後とエラーで止まったときに Enter を待つ。
+#   開いてある PowerShell の窓から実行したときは、今までどおり待たない。-NoPause でも待たない。
+#   調べられなかったときは「待たない」にする（自動で実行したときに止まったままにならないように）。
+# ---------------------------------------------------------------------
+function Test-LaunchedFromExplorer {
+    param([string]$ScriptPath)
+    try {
+        if (-not $ScriptPath) { return $false }
+        $name = Split-Path -Leaf $ScriptPath
+        $cmd = [Environment]::CommandLine
+        if (-not $cmd) { return $false }
+        # このスクリプトのために開いた窓か。開いてある窓で .\ から実行したときは、起動の行に名前が無い
+        # （スタートメニューやアドレス欄から開いた窓も親は explorer.exe なので、親だけでは決めない）
+        if ($cmd.IndexOf($name, [StringComparison]::OrdinalIgnoreCase) -lt 0) { return $false }
+        # -NoExit なら窓は閉じない。-NonInteractive なら Enter を待てない
+        if ($cmd -match '\s-(noe|noni)') { return $false }
+        # 右クリックの「PowerShell で実行」は、次の形で起動する
+        #   powershell.exe "-Command" "if(...) { Set-ExecutionPolicy -Scope Process Bypass }; & '<このファイル>'"
+        if (($cmd -match '-Command') -and ($cmd -match 'Set-ExecutionPolicy -Scope Process Bypass') -and ($cmd -match "&\s*'")) { return $true }
+        # ダブルクリックなど: 親のプロセスが explorer.exe
+        $me = Get-CimInstance -ClassName Win32_Process -Filter ("ProcessId=" + $PID)
+        if (-not $me) { return $false }
+        $parent = Get-Process -Id $me.ParentProcessId -ErrorAction SilentlyContinue
+        if ($parent -and ($parent.ProcessName -eq "explorer")) { return $true }
+    }
+    catch { }
+    return $false
+}
+
+# エクスプローラーから起動していれば、ひとこと出して Enter を待つ
+function Wait-BeforeClose {
+    param([string]$Message)
+    if (-not $script:PauseOnExit) { return }
+    Write-Host ""
+    if ($Message) { Write-Host $Message -ForegroundColor Cyan }
+    try { [void](Read-Host "Enter キーを押すと閉じます") } catch { }
+}
+
+# 案内を出して止まるところは、ここを通して終わる（読めるように待ってから閉じる）
+function Exit-Script {
+    param([int]$Code = 1)
+    Wait-BeforeClose "取得を完了できませんでした。上の案内を読んでから閉じてください。"
+    exit $Code
+}
+
+$script:PauseOnExit = $false
+if (-not $NoPause) { $script:PauseOnExit = Test-LaunchedFromExplorer $PSCommandPath }
+
+# 思わぬエラー（ダウンロードや展開の失敗など）で止まったとき。
+# エクスプローラーから起動していれば、赤字でエラーと次の手を出し、Enter を待ってから閉じる。
+# 開いてある窓から実行したときは、今までどおり PowerShell のエラー表示に任せる（break）。
+trap {
+    if (-not $script:PauseOnExit) { break }
+    Write-Host ""
+    Write-Host ("エラーで止まりました: " + $_.Exception.Message) -ForegroundColor Red
+    Write-Host "PowerShell を開いて powershell -ExecutionPolicy Bypass -File .\get-installer.ps1 で実行し直すと、詳しい内容が見えます。" -ForegroundColor Red
+    Write-Host ("  このフォルダです: " + $PSScriptRoot + "（アドレス欄に powershell と入力すると、ここで開けます）")
+    Wait-BeforeClose "上の赤い文字を控えてから閉じてください。"
+    exit 1
+}
 
 $repo = "Kishi-Satoshi/natsu"
 if ($Version -eq "") {
@@ -45,14 +113,14 @@ catch {
     catch {
         Write-Host "リリース情報を取得できませんでした。ネットワーク設定を確認してください。" -ForegroundColor Red
         Write-Host "  $api"
-        exit 1
+        Exit-Script 1
     }
 }
 
 $asset = $rel.assets | Where-Object { $_.name -like "*-setup.exe" } | Select-Object -First 1
 if (-not $asset) {
     Write-Host "インストーラーがリリースに添付されていません（$($rel.tag_name)）。" -ForegroundColor Red
-    exit 1
+    Exit-Script 1
 }
 
 $expected = [long]$asset.size
@@ -94,13 +162,13 @@ for ($i = 1; $i -le $maxTry; $i++) {
 # --- 検証 ---
 if (-not (Test-Path $out)) {
     Write-Host "ダウンロードできませんでした。" -ForegroundColor Red
-    exit 1
+    Exit-Script 1
 }
 $len = (Get-Item $out).Length
 if ($len -ne $expected) {
     Write-Host ("再開を繰り返しても完了できませんでした（" + $len + " / " + $expected + " バイト）。") -ForegroundColor Red
     Write-Host "もう一度このスクリプトを実行すると、続きから再開します。"
-    exit 1
+    Exit-Script 1
 }
 
 # GitHub が公開しているハッシュと突き合わせる（あれば）
@@ -114,7 +182,7 @@ if ($digest -like "sha256:*") {
         Write-Host ("  期待: " + $want)
         Write-Host ("  実際: " + $got)
         Write-Host "このファイルを削除して、もう一度実行してください。"
-        exit 1
+        Exit-Script 1
     }
     Write-Host "SHA256 検証 OK" -ForegroundColor Green
 }
@@ -165,3 +233,5 @@ if ($setups.Count -gt 0) {
     }
     Write-Host "  3. 表示されたパスを NaTsu の [設定] に貼り付ける"
 }
+
+Wait-BeforeClose "取得が終わりました。上の案内を控えてから閉じてください。"

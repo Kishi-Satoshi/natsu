@@ -9,6 +9,9 @@
 #   powershell -ExecutionPolicy Bypass -File .\setup-local-engine.ps1
 #   powershell -ExecutionPolicy Bypass -File .\setup-local-engine.ps1 -Model kotoba
 #
+# エクスプローラーから起動したとき（右クリックの「PowerShell で実行」やダブルクリック）は、
+# 窓がすぐ閉じないよう、最後とエラーで止まったときに Enter を待ちます。待たせないときは -NoPause。
+#
 # -Model の選択肢:
 #   kotoba (推奨・高速)       … kotoba-whisper v2.0。日本語特化のdistil-large-v3。
 #                               large-v3系の日本語精度のまま数倍高速。約577MB。日本語専用
@@ -19,11 +22,76 @@
 # =====================================================================
 param(
     [string]$Model = "kotoba",
-    [switch]$ForceBinary
+    [switch]$ForceBinary,
+    [switch]$NoPause
 )
 
 $ErrorActionPreference = "Stop"
 try { [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12 } catch { }
+
+# ---------------------------------------------------------------------
+# エクスプローラーから起動したときは、閉じる前に Enter を待つ
+#   右クリックの「PowerShell で実行」やダブルクリックで起動すると、終わった瞬間に窓が閉じて、
+#   エラーも表示した内容も読めない。そのときだけ、最後とエラーで止まったときに Enter を待つ。
+#   開いてある PowerShell の窓から実行したときは、今までどおり待たない。-NoPause でも待たない。
+#   調べられなかったときは「待たない」にする（自動で実行したときに止まったままにならないように）。
+# ---------------------------------------------------------------------
+function Test-LaunchedFromExplorer {
+    param([string]$ScriptPath)
+    try {
+        if (-not $ScriptPath) { return $false }
+        $name = Split-Path -Leaf $ScriptPath
+        $cmd = [Environment]::CommandLine
+        if (-not $cmd) { return $false }
+        # このスクリプトのために開いた窓か。開いてある窓で .\ から実行したときは、起動の行に名前が無い
+        # （スタートメニューやアドレス欄から開いた窓も親は explorer.exe なので、親だけでは決めない）
+        if ($cmd.IndexOf($name, [StringComparison]::OrdinalIgnoreCase) -lt 0) { return $false }
+        # -NoExit なら窓は閉じない。-NonInteractive なら Enter を待てない
+        if ($cmd -match '\s-(noe|noni)') { return $false }
+        # 右クリックの「PowerShell で実行」は、次の形で起動する
+        #   powershell.exe "-Command" "if(...) { Set-ExecutionPolicy -Scope Process Bypass }; & '<このファイル>'"
+        if (($cmd -match '-Command') -and ($cmd -match 'Set-ExecutionPolicy -Scope Process Bypass') -and ($cmd -match "&\s*'")) { return $true }
+        # ダブルクリックなど: 親のプロセスが explorer.exe
+        $me = Get-CimInstance -ClassName Win32_Process -Filter ("ProcessId=" + $PID)
+        if (-not $me) { return $false }
+        $parent = Get-Process -Id $me.ParentProcessId -ErrorAction SilentlyContinue
+        if ($parent -and ($parent.ProcessName -eq "explorer")) { return $true }
+    }
+    catch { }
+    return $false
+}
+
+# エクスプローラーから起動していれば、ひとこと出して Enter を待つ
+function Wait-BeforeClose {
+    param([string]$Message)
+    if (-not $script:PauseOnExit) { return }
+    Write-Host ""
+    if ($Message) { Write-Host $Message -ForegroundColor Cyan }
+    try { [void](Read-Host "Enter キーを押すと閉じます") } catch { }
+}
+
+# 案内を出して止まるところは、ここを通して終わる（読めるように待ってから閉じる）
+function Exit-Script {
+    param([int]$Code = 1)
+    Wait-BeforeClose "セットアップを完了できませんでした。上の案内を読んでから閉じてください。"
+    exit $Code
+}
+
+$script:PauseOnExit = $false
+if (-not $NoPause) { $script:PauseOnExit = Test-LaunchedFromExplorer $PSCommandPath }
+
+# 思わぬエラー（ダウンロードや展開の失敗など）で止まったとき。
+# エクスプローラーから起動していれば、赤字でエラーと次の手を出し、Enter を待ってから閉じる。
+# 開いてある窓から実行したときは、今までどおり PowerShell のエラー表示に任せる（break）。
+trap {
+    if (-not $script:PauseOnExit) { break }
+    Write-Host ""
+    Write-Host ("エラーで止まりました: " + $_.Exception.Message) -ForegroundColor Red
+    Write-Host "PowerShell を開いて powershell -ExecutionPolicy Bypass -File .\setup-local-engine.ps1 で実行し直すと、詳しい内容が見えます。" -ForegroundColor Red
+    Write-Host ("  このフォルダです: " + $PSScriptRoot + "（アドレス欄に powershell と入力すると、ここで開けます）")
+    Wait-BeforeClose "上の赤い文字を控えてから閉じてください。"
+    exit 1
+}
 
 # --- 大容量ファイル用: 切断されても続きから再開するダウンロード ---
 function Get-BigFile {
@@ -104,7 +172,7 @@ elseif ($Model -eq "medium-q5") {
 else {
     Write-Host "不明なモデル名です: $Model" -ForegroundColor Red
     Write-Host "指定できる値: kotoba / large-v3-turbo-q5 / small / medium-q5"
-    exit 1
+    Exit-Script 1
 }
 
 $root = Join-Path $PSScriptRoot "local-engine"
@@ -161,7 +229,7 @@ else {
         Write-Host "whisper.cpp バイナリを取得できませんでした。" -ForegroundColor Red
         Write-Host "ブラウザで次のURLを開いて $root に置き、もう一度実行してください:"
         Write-Host ("  " + $binUrl)
-        exit 1
+        Exit-Script 1
     }
 
     if (Test-Path $binDir) { Remove-Item -Recurse -Force $binDir }
@@ -170,7 +238,7 @@ else {
     $server = Get-ChildItem -Path $binDir -Recurse -Include "whisper-server.exe","server.exe" | Select-Object -First 1
     if (-not $server) {
         Write-Host "whisper-server.exe が見つかりませんでした。zipの内容が変わった可能性があります。" -ForegroundColor Red
-        exit 1
+        Exit-Script 1
     }
     # 展開が不完全でないかを **展開物ぜんたいの合計** で見る。exe の大きさでは判断しない
     # （上流は exe を薄いランチャにすることがある。llama.cpp が実際にそうした）
@@ -181,7 +249,7 @@ else {
         Write-Host "展開が途中で終わったか、ウイルス対策ソフトに削られた可能性があります。"
         Write-Host "もう一度実行してください。直らない場合は、ウイルス対策ソフトの除外設定に次のフォルダを追加してください:"
         Write-Host ("  " + $binDir)
-        exit 1
+        Exit-Script 1
     }
     # ここまで来て初めて zip を捨てる
     Remove-Item $binZip
@@ -214,7 +282,7 @@ if (-not (Test-Path $modelPath) -or ((Get-Item $modelPath).Length -lt $minBytes)
         Write-Host "再開を繰り返しても完了できませんでした。" -ForegroundColor Red
         Write-Host "ブラウザで次のURLを開いてダウンロードし、local-engine フォルダに置いてください:"
         Write-Host "  $modelUrl"
-        exit 1
+        Exit-Script 1
     }
     $lenMB = [math]::Round((Get-Item $modelPath).Length / 1MB)
     Write-Host "ダウンロード完了（$lenMB MB・サイズ検証OK）" -ForegroundColor Green
@@ -261,3 +329,5 @@ Write-Host ""
 Write-Host "「起動テスト」で OK が出れば、以後は完全オフラインで使えます。"
 Write-Host "※ 起動時にエラーが出る場合は Microsoft Visual C++ 再頒布可能パッケージ"
 Write-Host "   (https://aka.ms/vs/17/release/vc_redist.x64.exe) をインストールしてください。"
+
+Wait-BeforeClose "セットアップが終わりました。上のパスを NaTsu の設定に貼り付けてから閉じてください。"
