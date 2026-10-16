@@ -1,0 +1,184 @@
+# プッシュと PR ごとに、Linux と Windows で検査する。
+#
+#  - 両方の OS で npm test と変更危険度ゲートを回す。
+#  - Windows ではさらに、.ps1 を Windows PowerShell 5.1（配布先が使う版）で
+#    構文解析し、BOM と CRLF を確かめる。
+#
+# release.yml からも workflow_call で呼ぶ。リリースは、その commit で
+# 両方の OS が緑のときだけ出す。
+# 呼ばれた側で待ち合わせが起きないよう、top-level の concurrency は置かない。
+name: ci
+
+on:
+  push:
+    branches:
+      - '**'
+      - '!release/**' # release/v* は release.yml が ci を呼ぶので、ここでは動かさない
+  pull_request:
+  workflow_dispatch:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false # 片方が落ちても、もう片方の結果を見られるようにする
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      # checkout より前に止める。Windows の既定（autocrlf=true）のまま取ると、
+      # 改行が CRLF に変わり、\n を探すテストが落ちる。
+      - name: 改行の変換を止める
+        shell: bash
+        run: git config --global core.autocrlf false
+
+      # 履歴ごと取る。gate.test.js が古いコミットを読み、ゲートが前の commit と比べる。
+      - name: 取り出す（履歴ごと）
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # package.json の test は glob（"test/*.test.js"）を node に渡す。Node 21 以上が要る。
+      - name: Node を用意する
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      # 追加の npm 依存は無いので install は要らない（テストは Node 同梱のランナー）。
+      # 飛ばしたテストの数も見る。許すのは Linux で 0 件、Windows で 1 件
+      # （stage3.infra.test.js の pre-commit を sh で実際に走らせるテスト。Windows には sh が無い）。
+      # 環境のせいで静かに飛ばされるテストが増えたら、ここで止める。
+      - name: テスト
+        shell: bash
+        run: |
+          LOG="$RUNNER_TEMP/npm-test.log"
+          npm test 2>&1 | tee "$LOG"
+          SKIPPED="$(grep -E '^# skipped [0-9]+' "$LOG" | tail -n 1 | sed -E 's/^# skipped ([0-9]+).*/\1/' || true)"
+          ALLOW=0
+          if [ "$RUNNER_OS" = "Windows" ]; then ALLOW=1; fi
+          if [ -z "$SKIPPED" ]; then
+            echo "::error::npm test の出力に「# skipped」の行が無い"
+            exit 1
+          fi
+          echo "飛ばしたテスト: ${SKIPPED} 件（${RUNNER_OS} で許すのは ${ALLOW} 件まで）"
+          if [ "$SKIPPED" -gt "$ALLOW" ]; then
+            echo "::error::飛ばしたテストが ${SKIPPED} 件ある（${RUNNER_OS} で許すのは ${ALLOW} 件まで）"
+            exit 1
+          fi
+
+      # 「前の状態 → この commit」の差分をゲートに通す。
+      # 素の npm run gate は作業ツリーとしか比べないので、CI では必ず 0 件になる。
+      # 基準: PR なら分かれた点、push なら push の前の commit。
+      # risk.js は基準をそのまま git diff に渡すので、使えない基準だと落ちる。
+      # 使えない基準（空・0 の並び・履歴に無い・HEAD と同じ）は HEAD^ にし、それも無ければ最初の commit にする。
+      #   0 の並び: 新しいブランチの push と、タグの push（release.yml から呼ばれるリリースの道）
+      #   履歴に無い: force-push の後
+      - name: 変更危険度ゲート
+        shell: bash
+        env:
+          EVENT_BEFORE: ${{ github.event.before }}
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
+            BASE="$(git merge-base "origin/$BASE_REF" HEAD 2>/dev/null || true)"
+          else
+            BASE="$EVENT_BEFORE"
+          fi
+          HEAD_SHA="$(git rev-parse HEAD)"
+          if [ -z "$BASE" ] || [[ "$BASE" =~ ^0+$ ]] \
+             || ! git cat-file -e "$BASE^{commit}" 2>/dev/null \
+             || [ "$(git rev-parse "$BASE^{commit}")" = "$HEAD_SHA" ]; then
+            echo "基準「${BASE}」は使えないので、HEAD^ にする"
+            BASE="$(git rev-parse --verify --quiet 'HEAD^' || git rev-list --max-parents=0 HEAD | tail -n 1)"
+          fi
+          echo "基準: $BASE"
+          node tools/risk.js --base "$BASE" --head HEAD
+
+      # .ps1 を Windows PowerShell 5.1（Desktop 版）で構文解析する。PowerShell 7 ではない。
+      # ParseFile は BOM を見て読む。加えて、CP932（日本語の Windows の既定）を指定して読んだ文字も解析する。
+      # BOM があれば UTF-8 として、無ければ CP932 として読まれる。日本語の PC での読まれ方に合わせるため。
+      # run の中の文字は ASCII だけにする（PowerShell 5.1 がこの台本そのものを読み違えないように）。
+      - name: .ps1 を PowerShell 5.1 で構文解析する（Windows）
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: |
+          $v = $PSVersionTable
+          if ($v.PSEdition -ne 'Desktop' -or $v.PSVersion.Major -ne 5) {
+            Write-Output "::error::Not Windows PowerShell 5.1: $($v.PSEdition) $($v.PSVersion)"
+            exit 1
+          }
+          Write-Output "PowerShell $($v.PSVersion) ($($v.PSEdition))"
+          $files = @(git ls-files -- '*.ps1')
+          if ($files.Count -eq 0) {
+            Write-Output '::error::No tracked .ps1 files'
+            exit 1
+          }
+          $cp932 = [System.Text.Encoding]::GetEncoding(932)
+          $bad = 0
+          foreach ($f in $files) {
+            $p = Join-Path (Get-Location).Path $f
+            $tokens = $null
+            $perr = $null
+            [void][System.Management.Automation.Language.Parser]::ParseFile($p, [ref]$tokens, [ref]$perr)
+            foreach ($e in $perr) {
+              Write-Output "::error file=${f},line=$($e.Extent.StartLineNumber)::$($e.Message)"
+              $bad++
+            }
+            $text = [System.IO.File]::ReadAllText($p, $cp932)
+            [void][System.Management.Automation.Language.Parser]::ParseInput($text, [ref]$tokens, [ref]$perr)
+            foreach ($e in $perr) {
+              Write-Output "::error file=${f},line=$($e.Extent.StartLineNumber)::(read as CP932) $($e.Message)"
+              $bad++
+            }
+            Write-Output "parsed: ${f}"
+          }
+          if ($bad -gt 0) {
+            Write-Output "::error::${bad} parse error(s) in .ps1 files"
+            exit 1
+          }
+
+      # 取り出した .ps1 のバイトが BOM（EF BB BF）付きで、行末が全部 CRLF であること。
+      # 索引の側（git ls-files --eol の i/）も CRLF であること。
+      # run の中の文字は ASCII だけにする（上と同じ理由）。
+      - name: .ps1 の BOM と CRLF を確かめる（Windows）
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: |
+          $bad = 0
+          $files = @(git ls-files -- '*.ps1')
+          foreach ($f in $files) {
+            $b = [System.IO.File]::ReadAllBytes((Join-Path (Get-Location).Path $f))
+            if ($b.Length -lt 3 -or $b[0] -ne 0xEF -or $b[1] -ne 0xBB -or $b[2] -ne 0xBF) {
+              Write-Output "::error file=${f}::No UTF-8 BOM (EF BB BF)"
+              $bad++
+            }
+            $lf = 0
+            $crlf = 0
+            for ($i = 0; $i -lt $b.Length; $i++) {
+              if ($b[$i] -eq 10) {
+                $lf++
+                if ($i -gt 0 -and $b[$i - 1] -eq 13) { $crlf++ }
+              }
+            }
+            if ($lf -ne $crlf) {
+              Write-Output "::error file=${f}::Not CRLF: ${crlf} of ${lf} line endings are CRLF"
+              $bad++
+            }
+          }
+          $eol = @(git ls-files --eol -- '*.ps1')
+          if ($eol.Count -ne $files.Count) {
+            Write-Output "::error::git ls-files --eol listed $($eol.Count) of $($files.Count) .ps1 files"
+            $bad++
+          }
+          foreach ($line in $eol) {
+            if (-not $line.StartsWith('i/crlf ')) {
+              Write-Output "::error::Not i/crlf in the index: ${line}"
+              $bad++
+            }
+          }
+          if ($bad -gt 0) { exit 1 }
+          Write-Output "$($files.Count) .ps1 file(s): BOM and CRLF OK"

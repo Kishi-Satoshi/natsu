@@ -25,7 +25,7 @@ function trackedFiles() {
   } catch (_) { return null; }
 }
 
-const TEXT_EXT = new Set(['.js', '.html', '.json', '.md', '.ps1', '.bat', '.gitignore', '']);
+const TEXT_EXT = new Set(['.js', '.html', '.json', '.md', '.ps1', '.bat', '.yml', '.svg', '.gitignore', '']);
 
 // ---------------------------------------------------------------- 公開前の確認
 test('個人名・個人パス・社内固有名がコードに残っていない', () => {

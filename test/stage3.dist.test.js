@@ -6,7 +6,7 @@
  * GitHub Actions は手元で回せないので、YAML を文字列として読み、
  * 「どのジョブに・どの順で・どの旗が付いているか」を固定する。
  * YAML パーサは入れない（追加の npm 依存を増やさない）。
- * ジョブは 2 桁インデントのキー、ステップは 6 桁インデントの "- " で切る。
+ * ジョブは 2 桁インデントのキー、ステップは 6 桁インデントの "- " で切る（test/helpers/yml.js）。
  */
 'use strict';
 
@@ -21,31 +21,8 @@ const read = (f) => fs.readFileSync(path.join(ROOT, f), 'utf8');
 const YML = '.github/workflows/release.yml';
 const yml = read(YML);
 
-/** jobs: 配下を { 名前: 本文 } に切る */
-function jobs() {
-  const i = yml.indexOf('\njobs:\n');
-  assert.ok(i >= 0, `${YML} に jobs: が無い`);
-  const body = yml.slice(i + '\njobs:\n'.length);
-  const out = {};
-  const re = /^  ([\w-]+):[ \t]*\n/gm;
-  const hits = [...body.matchAll(re)];
-  hits.forEach((m, k) => {
-    const from = m.index + m[0].length;
-    const to = k + 1 < hits.length ? hits[k + 1].index : body.length;
-    out[m[1]] = body.slice(from, to);
-  });
-  return out;
-}
-
-/** ジョブ本文を steps の配列（各ステップの生テキスト）に切る。行頭コメントは落とす */
-function steps(job) {
-  const i = job.indexOf('\n    steps:\n');
-  assert.ok(i >= 0, 'steps: が無い');
-  return job.slice(i + '\n    steps:\n'.length)
-    .replace(/^[ \t]*#[^\n]*\n/gm, '')
-    .split(/^      - /m).filter((s) => s.trim());
-}
-const nameOf = (s) => (s.match(/^\s*name:\s*(.+)$/m) || [])[1] || (s.match(/^uses:\s*(.+)$/m) || [])[1] || '';
+const { jobsOf, stepsOf, nameOf } = require('./helpers/yml');
+const jobs = () => jobsOf(yml);
 const ifOf = (s) => (s.match(/^\s*if:\s*(.+)$/m) || [])[1] || '';
 /** `gh release <sub>` のコマンド行を取り出す（"\" の継続行は 1 行に繋ぐ） */
 function ghCommand(text, sub) {
@@ -58,7 +35,7 @@ test('release.yml が簡易に読める（タブ無し・ジョブは release �
   const j = jobs();
   assert.deepStrictEqual(Object.keys(j), ['release', 'installer']);
   for (const [name, body] of Object.entries(j)) {
-    const names = steps(body).map((s) => nameOf(s));
+    const names = stepsOf(body).map((s) => nameOf(s));
     names.forEach((n, k) => assert.ok(n, `${name} ジョブに名前の無いステップがある（${k + 1} 番目）`));
     assert.strictEqual(new Set(names).size, names.length, `${name} ジョブに同じ名前のステップが 2 つある（貼り間違い）: ${names.join(' / ')}`);
   }
@@ -91,7 +68,7 @@ test('#33 installer ジョブは exe を添付した後に --draft=false --lates
   const j = jobs();
   assert.match(j.installer, /^    permissions:\n(?:      [^\n]*\n)*?      contents:\s*write/m,
     'installer ジョブに contents: write が無い（公開と一時ブランチの削除に要る）');
-  const st = steps(j.installer);
+  const st = stepsOf(j.installer);
   const iUpload = st.findIndex((s) => /gh release upload[^\n]*-setup\.exe/.test(s));
   assert.ok(iUpload >= 0, 'exe を添付するステップが無い');
   const iPublish = st.findIndex((s) => ghCommand(s, 'edit').some((c) => /--draft=false/.test(c) && /--latest/.test(c)));
@@ -108,7 +85,7 @@ test('#33 installer ジョブは exe を添付した後に --draft=false --lates
 
 test('#33 一時ブランチ release/v* の削除は公開できた後（installer ジョブの最後・success()）', () => {
   const j = jobs();
-  const st = steps(j.installer);
+  const st = stepsOf(j.installer);
   const iPublish = st.findIndex((s) => /--draft=false/.test(s));
   const iDel = st.findIndex((s) => /git push origin --delete/.test(s));
   assert.ok(iDel >= 0, 'installer ジョブに一時ブランチの削除が無い');
@@ -126,7 +103,7 @@ test('#33 一時ブランチ release/v* の削除は公開できた後（install
 
 test('#33 installer が失敗したら draft のまま残し、要約に赤い見出しを出す', () => {
   const j = jobs();
-  const st = steps(j.installer);
+  const st = stepsOf(j.installer);
   const fail = st.find((s) => /^\s*if:\s*failure\(\)\s*$/m.test(s));
   assert.ok(fail, 'if: failure() のステップが無い');
   assert.ok(/::error::/.test(fail), '失敗の要約に ::error:: が無い（Actions の一覧で赤くならない）');

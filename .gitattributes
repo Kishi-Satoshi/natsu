@@ -1,0 +1,7 @@
+# 改行は LF に揃える（Windows で取り出しても変えない）。
+# .ps1 は BOM 付き UTF-8 + CRLF、.bat は CRLF のまま保つので、変換しない。
+* text=auto eol=lf
+*.ps1 -text
+*.bat -text
+*.png binary
+*.ico binary
