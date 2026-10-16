@@ -161,7 +161,7 @@ data/                  議事録の保存先
 インストーラーだけではエンジンが無いので文字起こしも要約も動かない。
 setup-*.ps1 の2本まで込みで「配布物」だと考えること。
 
-https://github.com/Kishi-Satoshi/Listener/releases/latest
+https://github.com/Kishi-Satoshi/natsu/releases/latest
 
 **ブラウザでのダウンロードが途中で止まる場合**（社内回線は大容量ダウンロードを
 切ることがあります）は、同じリリースに添付してある `get-installer.ps1` を使ってください。

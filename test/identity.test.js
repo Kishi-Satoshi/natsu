@@ -6,6 +6,7 @@
  *  - Windows の AppUserModelID とメッセージの窓の見出し
  *  - CHANGELOG は natsu-v0.1.0 から始める（Listener の古い節は持たない）
  *  - Listener の名前がリポジトリに残っていない（スクリプト・案内・テスト）
+ *  - get-installer.ps1 の取得元は updater.REPO（Kishi-Satoshi/natsu）と同じ
  */
 'use strict';
 
@@ -82,19 +83,23 @@ test('CHANGELOG は natsu-v0.1.0 から始まり、Listener の古い節（## v�
   assert.deepStrictEqual(heads.filter((h) => !/^## natsu-v\d+\.\d+\.\d+$/.test(h)), []);
 });
 
-// 後の作業で変える行。R3-3 で Kishi-Satoshi/Listener を消し、定数ごと消す（listener-src は R3-1 で消した）
-const UNTIL_R3 = /Kishi-Satoshi\/Listener/;
 const TEXT = /\.(js|html|json|md|ps1|bat|yml)$|(^|\/)[^./]+$/;
 test('Listener の名前がリポジトリに残っていない（CHANGELOG の履歴と計画書を除く）', () => {
   const hits = [];
   for (const f of tracked()) {
     if (f === 'CHANGELOG.md' || f.startsWith('docs/plans/') || f === 'test/identity.test.js' || !TEXT.test(f)) continue;
     read(f).split('\n').forEach((line, i) => {
-      if (/\blistener\b/i.test(line) && !UNTIL_R3.test(line)) hits.push(`${f}:${i + 1}`);
+      if (/\blistener\b/i.test(line)) hits.push(`${f}:${i + 1}`);
     });
   }
   assert.deepStrictEqual(hits, []);
   assert.deepStrictEqual(tracked().filter((f) => /listener/i.test(f)), []);
+});
+
+test('get-installer.ps1 の取得元は updater.REPO と同じで、タグは natsu-v', () => {
+  const ps = read('get-installer.ps1');
+  assert.strictEqual((ps.match(/\$repo = "([^"]+)"/) || [])[1], require('../src/updater').REPO);
+  assert.ok(ps.includes('releases/tags/natsu-v$Version'));
 });
 
 test('CHANGELOG に今の版の節（## natsu-v<version>）がある（release.yml が本文に使う）', () => {

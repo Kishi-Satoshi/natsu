@@ -16,7 +16,7 @@
 
 ブラウザで次のページを開きます。
 
-https://github.com/Kishi-Satoshi/Listener/releases/latest
+https://github.com/Kishi-Satoshi/natsu/releases/latest
 
 「Assets」の中から、次の **3つ** をダウンロードしてください。
 

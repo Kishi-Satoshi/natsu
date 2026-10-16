@@ -46,9 +46,7 @@ test('natsu-v のタグを読む: 1.0.0 も 0.x より新しい', () => {
   assert.ok(updater.ASSET_PATTERN.test('natsu-src-0.1.0.zip'));
 });
 
-test('配布元リポジトリが設定されている', () => {
-  assert.match(updater.REPO, /^[\w.-]+\/[\w.-]+$/, 'REPO は <アカウント>/<リポジトリ> 形式');
-});
+test('配布元は Kishi-Satoshi/natsu', () => { assert.strictEqual(updater.REPO, 'Kishi-Satoshi/natsu'); });
 
 // ---------------------------------------------------------------- check()
 test('check() がリリース情報を解釈する', { skip: !CAN_PACK && 'zip コマンドが無い' }, async (t) => {

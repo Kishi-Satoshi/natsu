@@ -9,7 +9,7 @@
 #
 # 実行方法（PowerShell）:
 #   powershell -ExecutionPolicy Bypass -File .\get-installer.ps1
-#   powershell -ExecutionPolicy Bypass -File .\get-installer.ps1 -Version 0.9.0
+#   powershell -ExecutionPolicy Bypass -File .\get-installer.ps1 -Version 0.1.0
 #
 # Windows PowerShell 5.1 / PowerShell 7 の両方で動作します。
 # =====================================================================
@@ -21,12 +21,12 @@ param(
 $ErrorActionPreference = "Stop"
 try { [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12 } catch { }
 
-$repo = "Kishi-Satoshi/Listener"
+$repo = "Kishi-Satoshi/natsu"
 if ($Version -eq "") {
     $api = "https://api.github.com/repos/$repo/releases/latest"
 }
 else {
-    $api = "https://api.github.com/repos/$repo/releases/tags/v$Version"
+    $api = "https://api.github.com/repos/$repo/releases/tags/natsu-v$Version"
 }
 
 # --- リリース情報の取得 ---

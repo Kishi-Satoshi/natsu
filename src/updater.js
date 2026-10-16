@@ -19,7 +19,7 @@ const path = require('path');
 const os = require('os');
 
 // 更新の配布元。fork した場合はここだけ書き換えれば動く。
-const REPO = 'Kishi-Satoshi/Listener';
+const REPO = 'Kishi-Satoshi/natsu';
 const API_LATEST = `https://api.github.com/repos/${REPO}/releases/latest`;
 const ASSET_PATTERN = /^natsu-src-.*\.zip$/i;
 // リリースのタグは natsu-v<x.y.z> だけ。旧名のころの v<x.y.z> が latest に残っていても取り違えない
