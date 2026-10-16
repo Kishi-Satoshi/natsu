@@ -603,8 +603,7 @@ test('設定カードの並びは指定通り', () => {
     'アップデート',
     '動作',
     'ユーザー辞書（認識ヒント）',
-    '文字起こしエンジン（whisper.cpp・オフライン）',
-    '要約エンジン（llama.cpp・オフライン）— 議事録の自動要約に使用',
+    'エンジン',
   ]);
 });
 
@@ -650,7 +649,7 @@ test('設定の各カードが同じ深さにある（枠の外に出ていな�
   const sec = appHtml.slice(a, appHtml.indexOf('    </section>', a));
   const { heads, depth } = divDepthMap(sec);
   assert.strictEqual(depth, 0, '設定セクションの div が閉じ切れていない');
-  assert.strictEqual(heads.length, 5);
+  assert.strictEqual(heads.length, 4);
   for (const h of heads) {
     assert.strictEqual(h.depth, heads[0].depth, `「${h.title}」だけ深さが違う（枠の外に出ている）`);
   }

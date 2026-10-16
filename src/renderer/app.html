@@ -114,6 +114,11 @@
   .save-msg { font-size: 12px; color: var(--muted); }
   .save-msg.ok { color: var(--green); }
   .save-msg.ng { color: var(--danger); }
+  /* エンジンの細かい設定。閉じたまま始め、開くと小見出しで3つに分かれる */
+  .adv { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--gline); }
+  .adv summary { cursor: pointer; font-size: 12px; color: var(--muted); margin-bottom: 4px; }
+  .adv summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .adv h3 { font-size: 12px; font-weight: 600; color: var(--muted); margin: 16px 0 10px; }
   .empty { text-align: center; color: var(--muted); padding: 48px 20px; line-height: 1.9; }
   .empty .big { font-size: 15px; color: var(--ink); margin-bottom: 6px; }
   kbd { background: rgba(var(--srf),.72); border: 1px solid rgba(var(--srf),.9);
@@ -485,17 +490,6 @@
             <div class="desc">※ 左右のAltは区別されません（どちらでも動作）。</div>
           </div>
           <div class="field">
-            <label for="segmentSec">議事録の文字起こし間隔（秒）</label>
-            <input type="text" id="segmentSec" />
-            <div class="desc">短いほど早く画面に出ますが、文の切れ目が増えます（既定75秒。最初の1回は20秒）。</div>
-            <div class="desc ng lockNote" hidden>記録中はエンジンの設定を変更できません</div>
-          </div>
-          <div class="field">
-            <label for="engineIdleMin">使わないエンジンを止めるまで（分）</label>
-            <input type="text" id="engineIdleMin" />
-            <div class="desc">記録も要約もしていない時間がこれを超えたらエンジンを止めてメモリを空けます（次に使うとき起動し直します。0 で止めない）</div>
-          </div>
-          <div class="field">
             <label for="pillPos">録音バーの表示位置（表示中はドラッグでも移動できます）</label>
             <select id="pillPos">
               <option value="bottom">下・中央（既定）</option>
@@ -569,88 +563,103 @@
                 上の辞書が優先で、余った分だけ使われます。</span></span></label>
         </div>
         <div class="card">
-          <h2>文字起こしエンジン（whisper.cpp・オフライン）</h2>
+          <h2>エンジン</h2>
           <div class="field lockNote" hidden><div class="desc ng">記録中はエンジンの設定を変更できません</div></div>
-          <div class="field">
-            <label for="localServerExe">whisper-server.exe のパス</label>
-            <div class="row">
-              <input type="text" id="localServerExe" placeholder="…\local-engine\bin\Release\whisper-server.exe" />
-              <button class="ghost" id="pickExeBtn" type="button">参照…</button>
-            </div>
-          </div>
-          <div class="field">
-            <label for="localModelPath">モデルファイル（ggml-*.bin）のパス</label>
-            <div class="row">
-              <input type="text" id="localModelPath" placeholder="…\local-engine\ggml-kotoba-whisper-v2.0-q5_0.bin" />
-              <button class="ghost" id="pickModelBtn" type="button">参照…</button>
-            </div>
-          </div>
-          <div class="field">
-            <div class="row">
-              <div style="flex:1"><label for="localThreads">スレッド数</label><input type="text" id="localThreads" /></div>
-              <div style="flex:1"><label for="localPort">ポート</label><input type="text" id="localPort" /></div>
-            </div>
-            <div class="desc">通常は変更不要です。スレッド数は文字起こしに使うCPUの数
-              （初期値はこのPCのコア数−2。増やすと速くなりますが、他の作業が重くなります）。
-              ポートはこのPCの中だけで使う通信の番号で、他のソフトと番号が
-              ぶつかってエンジンが起動できないときだけ変えてください。</div>
-          </div>
-          <label class="check">
-            <input type="checkbox" id="useVad" />
-            <span>VAD（無音スキップ）を使う<br />
-              <span class="d">無音を除いてから文字起こしするため高速化し、繰り返し誤認識も減ります。<span id="vadState"></span></span></span>
-          </label>
-          <div class="field">
-            <label for="vadModelPath">VADモデル（空欄なら上のモデルと同じフォルダから自動検出）</label>
-            <div class="row">
-              <input type="text" id="vadModelPath" placeholder="自動検出" />
-              <button class="ghost" id="pickVadBtn" type="button">参照…</button>
-            </div>
-          </div>
-          <label class="check">
-            <input type="checkbox" id="suppressNst" />
-            <span>非発話トークンを抑制する<br /><span class="d">咳・雑音が文字として出るのを抑えます。</span></span>
-          </label>
-          <div class="row" style="display:flex;gap:8px">
+          <div class="row" style="display:flex;gap:8px;align-items:center">
             <button class="ghost" id="testBtn" type="button">起動テスト</button>
-            <span class="desc save-msg" id="testMsg" style="align-self:center"></span>
           </div>
-        </div>
-        <div class="card">
-          <h2>要約エンジン（llama.cpp・オフライン）— 議事録の自動要約に使用</h2>
-          <div class="field lockNote" hidden><div class="desc ng">記録中はエンジンの設定を変更できません</div></div>
-          <div class="field">
-            <label for="sumServerExe">llama-server.exe のパス</label>
-            <div class="row">
-              <input type="text" id="sumServerExe" placeholder="…\local-engine\llm\bin\llama-server.exe" />
-              <button class="ghost" id="pickSumExeBtn" type="button">参照…</button>
+          <div class="row" style="display:flex;gap:12px;flex-wrap:wrap;margin-top:6px">
+            <span class="desc save-msg" id="testMsg"></span>
+            <span class="desc save-msg" id="testSumMsg"></span>
+          </div>
+          <details class="adv" id="engineAdv">
+            <summary>詳細設定</summary>
+            <h3>文字起こし（whisper.cpp・オフライン）</h3>
+            <div class="field">
+              <label for="localServerExe">whisper-server.exe のパス</label>
+              <div class="row">
+                <input type="text" id="localServerExe" placeholder="…\local-engine\bin\Release\whisper-server.exe" />
+                <button class="ghost" id="pickExeBtn" type="button">参照…</button>
+              </div>
             </div>
-          </div>
-          <div class="field">
-            <label for="sumModelPath">モデルファイル（*.gguf）のパス</label>
-            <div class="row">
-              <input type="text" id="sumModelPath" placeholder="…\local-engine\llm\Qwen2.5-3B-Instruct-Q4_K_M.gguf" />
-              <button class="ghost" id="pickSumModelBtn" type="button">参照…</button>
+            <div class="field">
+              <label for="localModelPath">モデルファイル（ggml-*.bin）のパス</label>
+              <div class="row">
+                <input type="text" id="localModelPath" placeholder="…\local-engine\ggml-kotoba-whisper-v2.0-q5_0.bin" />
+                <button class="ghost" id="pickModelBtn" type="button">参照…</button>
+              </div>
             </div>
-            <div class="desc">初回セットアップ: setup-summarizer.ps1 を実行。未設定でも文字起こしは使えます。</div>
-          </div>
-          <div class="field">
-            <div class="row">
-              <div style="flex:1"><label for="sumThreads">スレッド数</label><input type="text" id="sumThreads" /></div>
-              <div style="flex:1"><label for="sumPort">ポート</label><input type="text" id="sumPort" /></div>
+            <div class="field">
+              <div class="row">
+                <div style="flex:1"><label for="localThreads">スレッド数</label><input type="text" id="localThreads" /></div>
+                <div style="flex:1"><label for="localPort">ポート</label><input type="text" id="localPort" /></div>
+              </div>
+              <div class="desc">通常は変更不要です。スレッド数は文字起こしに使うCPUの数
+                （初期値はこのPCのコア数−2。増やすと速くなりますが、他の作業が重くなります）。
+                ポートはこのPCの中だけで使う通信の番号で、他のソフトと番号が
+                ぶつかってエンジンが起動できないときだけ変えてください。</div>
             </div>
-            <div class="desc">通常は変更不要です。意味は文字起こしエンジンの欄と同じです
-              （こちらは要約に使われます）。2つのエンジンのポートは別の番号にしてください。</div>
-          </div>
-          <div class="field">
-            <label for="sumCtx">要約の文脈長</label>
-            <input type="text" id="sumCtx" />
-            <div class="desc">要約エンジンに渡すトークン数（-c）。既定 32768。Qwen2.5-3B はここまで。大きいほどメモリを使い、小さいと長い会議の統合で足りなくなります</div>
-          </div>
-          <div class="row" style="display:flex;gap:8px">
-            <button class="ghost" id="testSumBtn" type="button">起動テスト</button>
-            <span class="desc save-msg" id="testSumMsg" style="align-self:center"></span>
-          </div>
+            <label class="check">
+              <input type="checkbox" id="useVad" />
+              <span>VAD（無音スキップ）を使う<br />
+                <span class="d">無音を除いてから文字起こしするため高速化し、繰り返し誤認識も減ります。<span id="vadState"></span></span></span>
+            </label>
+            <div class="field">
+              <label for="vadModelPath">VADモデル（空欄なら上のモデルと同じフォルダから自動検出）</label>
+              <div class="row">
+                <input type="text" id="vadModelPath" placeholder="自動検出" />
+                <button class="ghost" id="pickVadBtn" type="button">参照…</button>
+              </div>
+            </div>
+            <label class="check">
+              <input type="checkbox" id="suppressNst" />
+              <span>非発話トークンを抑制する<br /><span class="d">咳・雑音が文字として出るのを抑えます。</span></span>
+            </label>
+            <h3>要約（llama.cpp・オフライン）— 議事録の自動要約に使用</h3>
+            <div class="field">
+              <label for="sumServerExe">llama-server.exe のパス</label>
+              <div class="row">
+                <input type="text" id="sumServerExe" placeholder="…\local-engine\llm\bin\llama-server.exe" />
+                <button class="ghost" id="pickSumExeBtn" type="button">参照…</button>
+              </div>
+            </div>
+            <div class="field">
+              <label for="sumModelPath">モデルファイル（*.gguf）のパス</label>
+              <div class="row">
+                <input type="text" id="sumModelPath" placeholder="…\local-engine\llm\Qwen2.5-3B-Instruct-Q4_K_M.gguf" />
+                <button class="ghost" id="pickSumModelBtn" type="button">参照…</button>
+              </div>
+              <div class="desc">初回セットアップ: setup-summarizer.ps1 を実行。未設定でも文字起こしは使えます。</div>
+            </div>
+            <div class="field">
+              <div class="row">
+                <div style="flex:1"><label for="sumThreads">スレッド数</label><input type="text" id="sumThreads" /></div>
+                <div style="flex:1"><label for="sumPort">ポート</label><input type="text" id="sumPort" /></div>
+              </div>
+              <div class="desc">通常は変更不要です。意味は文字起こしエンジンの欄と同じです
+                （こちらは要約に使われます）。2つのエンジンのポートは別の番号にしてください。</div>
+            </div>
+            <div class="field">
+              <label for="sumCtx">要約の文脈長</label>
+              <input type="text" id="sumCtx" />
+              <div class="desc">要約エンジンに渡すトークン数（-c）。既定 32768。Qwen2.5-3B はここまで。大きいほどメモリを使い、小さいと長い会議の統合で足りなくなります</div>
+            </div>
+            <div class="row" style="display:flex;gap:8px">
+              <button class="ghost" id="testSumBtn" type="button">起動テスト</button>
+            </div>
+            <h3>記録とメモリ</h3>
+            <div class="field">
+              <label for="segmentSec">議事録の文字起こし間隔（秒）</label>
+              <input type="text" id="segmentSec" />
+              <div class="desc">短いほど早く画面に出ますが、文の切れ目が増えます（既定75秒。最初の1回は20秒）。</div>
+              <div class="desc ng lockNote" hidden>記録中はエンジンの設定を変更できません</div>
+            </div>
+            <div class="field">
+              <label for="engineIdleMin">使わないエンジンを止めるまで（分）</label>
+              <input type="text" id="engineIdleMin" />
+              <div class="desc">記録も要約もしていない時間がこれを超えたらエンジンを止めてメモリを空けます（次に使うとき起動し直します。0 で止めない）</div>
+            </div>
+          </details>
         </div>
 
         <div style="display:flex;align-items:center;gap:12px;padding-bottom:20px">

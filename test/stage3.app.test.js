@@ -239,26 +239,46 @@ async function 保存した(l) {
   return c[c.length - 1].args[0];
 }
 
-test('設定: 要約の文脈長の欄が要約エンジンのカードにあり、ラベルと説明が指定どおり', async () => {
+test('設定: 要約の文脈長の欄がエンジンのカードの詳細設定にあり、ラベルと説明が指定どおり', async () => {
   const l = await load(APP);
   const el = l.byId.get('sumCtx');
   assert.ok(el, '#sumCtx が無い');
-  assert.match(カード見出し(el), /^要約エンジン/, '要約エンジンのカードに無い');
+  assert.strictEqual(カード見出し(el), 'エンジン');
+  assert.ok(el.closest('#engineAdv'), '詳細設定の中に無い');
   const field = el.closest('.field');
   assert.strictEqual(field.querySelector('label').textContent, '要約の文脈長');
   assert.strictEqual(field.querySelector('.desc').textContent.trim(),
     '要約エンジンに渡すトークン数（-c）。既定 32768。Qwen2.5-3B はここまで。大きいほどメモリを使い、小さいと長い会議の統合で足りなくなります');
 });
 
-test('設定: エンジンの自動停止の欄が「動作」のカードにあり、単位「分」とラベル・説明が指定どおり', async () => {
+test('設定: エンジンの自動停止の欄がエンジンのカードの詳細設定にあり、単位「分」とラベル・説明が指定どおり', async () => {
   const l = await load(APP);
   const el = l.byId.get('engineIdleMin');
   assert.ok(el, '#engineIdleMin が無い');
-  assert.strictEqual(カード見出し(el), '動作');
+  assert.strictEqual(カード見出し(el), 'エンジン');
+  assert.ok(el.closest('#engineAdv'), '詳細設定の中に無い');
   const field = el.closest('.field');
   assert.strictEqual(field.querySelector('label').textContent, '使わないエンジンを止めるまで（分）');
   assert.strictEqual(field.querySelector('.desc').textContent.trim(),
     '記録も要約もしていない時間がこれを超えたらエンジンを止めてメモリを空けます（次に使うとき起動し直します。0 で止めない）');
+});
+
+// 第0a回 R6: エンジンの細かい設定は1枚のカード「エンジン」の閉じた「詳細設定」へまとめる。
+// 閉じたままでも見えなければならないもの（起動テスト・結果・記録中の理由）だけを外に置く
+test('設定: エンジンの細かい設定は閉じた「詳細設定」の中。外に出ているのは起動テスト・結果・注意だけ', async () => {
+  const l = await load(APP);
+  const adv = l.byId.get('engineAdv');
+  assert.ok(adv && !adv.hasAttribute('open'), '詳細設定が開いた状態で始まる');
+  assert.strictEqual(adv.querySelector('summary').textContent, '詳細設定');
+  for (const id of ['localServerExe', 'pickExeBtn', 'localModelPath', 'pickModelBtn', 'localThreads', 'localPort', 'useVad', 'vadModelPath', 'pickVadBtn', 'suppressNst',
+    'sumServerExe', 'pickSumExeBtn', 'sumModelPath', 'pickSumModelBtn', 'sumThreads', 'sumPort', 'sumCtx', 'testSumBtn', 'segmentSec', 'engineIdleMin']) {
+    assert.ok(l.byId.get(id).closest('#engineAdv'), `${id} が詳細設定の外にある`);
+  }
+  const card = adv.closest('.card');
+  const desc = (el) => el.children.flatMap((c) => [c, ...desc(c)]);   // simdom は [id] のセレクタを解さない（simdom.js の parseSimple）
+  const outside = desc(card).filter((e) => e.id && !e.closest('#engineAdv')).map((e) => e.id);
+  assert.deepStrictEqual(outside.sort(), ['testBtn', 'testMsg', 'testSumMsg']);
+  assert.ok(card.querySelectorAll('.lockNote').some((n) => !n.closest('#engineAdv')), '記録中の理由が閉じた中にしか無い');
 });
 
 test('設定: sumCtx / engineIdleMin を読み込んで欄に出し、無ければ既定（32768 / 10）。0 分は 0 のまま（既定に化けない）', async () => {

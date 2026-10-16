@@ -231,9 +231,9 @@ if (-not (Test-Path $modelPath) -or ((Get-Item $modelPath).Length -lt $minBytes)
 # ---------------------------------------------------------------------
 Write-Host ""
 Write-Host "========================= セットアップ完了 =========================" -ForegroundColor Green
-Write-Host "NaTsu の [設定] -> [要約エンジン（llama.cpp）] に以下を貼り付けてください。"
+Write-Host "NaTsu の [設定] -> [エンジン] -> [詳細設定] の「要約」に以下を貼り付けてください。"
 Write-Host ""
 Write-Host ("  llama-server.exe : " + $server.FullName) -ForegroundColor White
 Write-Host ("  モデルファイル   : " + $modelPath) -ForegroundColor White
 Write-Host ""
-Write-Host "「起動テスト」で OK が出れば、議事録の自動要約が完全オフラインで使えます。"
+Write-Host "詳細設定の「要約」にある「起動テスト」で OK が出れば、議事録の自動要約が完全オフラインで使えます。"

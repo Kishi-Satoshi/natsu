@@ -249,7 +249,7 @@ else {
 # ---------------------------------------------------------------------
 Write-Host ""
 Write-Host "========================= セットアップ完了 =========================" -ForegroundColor Green
-Write-Host "NaTsu の [設定] -> [文字起こしエンジン（whisper.cpp・オフライン）] に以下を貼り付けてください。"
+Write-Host "NaTsu の [設定] -> [エンジン] -> [詳細設定] の「文字起こし」に以下を貼り付けてください。"
 Write-Host ""
 Write-Host ("  whisper-server.exe : " + $server.FullName) -ForegroundColor White
 Write-Host ("  モデルファイル     : " + $modelPath) -ForegroundColor White

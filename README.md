@@ -114,7 +114,7 @@ npm start
 powershell -ExecutionPolicy Bypass -File .\setup-local-engine.ps1 -Model kotoba
 ```
 日本語特化の kotoba-whisper（高速）と VADモデルを取得します。
-表示されたパスを [設定] → [文字起こしエンジン] に貼り付け → 起動テスト。
+表示されたパスを [設定] → [エンジン] → [詳細設定] の「文字起こし」に貼り付け → 起動テスト。
 
 ### 要約エンジン（議事録の自動要約に必要）
 ```powershell
