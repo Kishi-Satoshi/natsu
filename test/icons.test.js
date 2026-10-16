@@ -6,6 +6,7 @@
  *  - 今の assets/icon.ico と src/assets/tray.ico を読める（検査が空振りしない）
  *  - ロゴ D: assets/icon.svg の3本の path、icon.ico と icon.png の大きさと色、端が切れていないこと（Q7）
  *  - tools/icon-render.js で icon.svg を描くと、icon.ico と icon.png に一致する（描き直し忘れを止める。Q6）
+ *  - トレイ: 待機はロゴ D、録音中はロゴ D の右下に赤い点の印。どちらも元の SVG を描いたものと一致する（Q8）
  *
  * 依存は足さない（node の zlib だけ）。
  */
@@ -217,4 +218,53 @@ test('icon-render.js: 描けないものは黙って飛ばさずに投げる', (
   assert.throws(() => renderSvg(svg('<path d="M0 0 H2" stroke="#ff0000" fill="none" stroke-linejoin="round"/>'), 4), /stroke-linecap/);
   assert.throws(() => renderSvg(svg('<path d="M0 0 H2 V2 Z" stroke="#ff0000" fill="none"/>'), 4), /stroke-linejoin/);
   assert.throws(() => renderSvg(svg('<path d="M0 0 H2 V2 Z" fill="#ff0000"/>', '0 0 4 3'), 4), /viewBox/);
+});
+
+// ---------------------------------------------------------------- トレイ（第0a回 R4-3。Q8 の答え）
+// 待機は assets/icon.svg（ロゴ D）そのもの。録音中は assets/tray-rec.svg（ロゴ D の右下に赤い点の印）。
+// 名前と大きさは今のまま（ICO は 16〜64 の6つ、PNG は 32）。main.js の makeTrayIcon は直さない。
+const TRAY_SIZES = [16, 20, 24, 32, 48, 64];
+const REC_RED = [229, 72, 77, 255]; // #e5484d（録音バーの --rec と同じ色）
+
+test('トレイ（待機）は ロゴ D', () => {
+  assert.deepStrictEqual(parseIco(fs.readFileSync(path.join(ROOT, 'src/assets/tray.ico'))).map((x) => x.width), [16, 20, 24, 32, 48, 64]);
+  const t = decodePng(fs.readFileSync(path.join(ROOT, 'src/assets/tray.png')));
+  const px = (x, y) => [...t.rgba.subarray((y * 32 + x) * 4, (y * 32 + x) * 4 + 4)];
+  assert.ok(near(px(17, 2), [14, 140, 174, 255]));   // SVG (35, 5) 波
+  assert.ok(near(px(11, 16), [21, 21, 21, 255]));    // SVG (23, 33) N の縦線
+});
+
+test('トレイ（録音中）は ロゴ D の右下に赤い点の印（16px でも見える。待機には無い）', () => {
+  const ico = parseIco(fs.readFileSync(path.join(ROOT, 'src/assets/tray-rec.ico')));
+  assert.deepStrictEqual(ico.map((x) => x.width), TRAY_SIZES);
+  const t = decodePng(fs.readFileSync(path.join(ROOT, 'src/assets/tray-rec.png')));
+  assert.deepStrictEqual([t.width, t.height], [32, 32]);
+  const px = pxOf(t);
+  assert.ok(near(px(17, 2), [14, 140, 174, 255]), '波（海の色）');   // SVG (35, 5)
+  assert.ok(near(px(11, 16), [21, 21, 21, 255]), 'N の縦線');        // SVG (23, 33)
+  assert.ok(near(px(26, 26), REC_RED), '右下の赤い点');               // SVG (53, 53) 印の中心
+  assert.ok(near(pxOf(decodePng(ico[0].png))(13, 13), REC_RED), '16px の右下の赤い点'); // SVG (54, 54)
+  const idle = pxOf(decodePng(fs.readFileSync(path.join(ROOT, 'src/assets/tray.png'))));
+  assert.ok(near(idle(26, 26), [255, 255, 255, 255]), '待機のトレイの同じ所は箱の中の白');
+});
+
+test('録音中の SVG は、ロゴ D の path を同じ順でそのまま持ち、印をその後に重ねる', () => {
+  const icon = fs.readFileSync(path.join(ROOT, 'assets/icon.svg'), 'utf8');
+  const rec = fs.readFileSync(path.join(ROOT, 'assets/tray-rec.svg'), 'utf8');
+  const paths = (s) => s.match(/<path\b[^>]*>/g) || [];
+  assert.strictEqual(paths(icon).length, D.length);
+  assert.ok(rec.includes('viewBox="0 0 64 64"'));
+  assert.deepStrictEqual(paths(rec).slice(0, D.length), paths(icon), 'ロゴ D の path が icon.svg と違う');
+  assert.ok(paths(rec).length > D.length, '印の path が無い');
+});
+
+test('トレイの ICO と PNG は、元の SVG を tools/icon-render.js で描いたものと同じ（描き直し忘れを止める）', () => {
+  const { renderSvg } = require('../tools/icon-render.js');
+  for (const [src, base] of [['assets/icon.svg', 'src/assets/tray'], ['assets/tray-rec.svg', 'src/assets/tray-rec']]) {
+    const svg = fs.readFileSync(path.join(ROOT, src), 'utf8');
+    for (const e of parseIco(fs.readFileSync(path.join(ROOT, `${base}.ico`)))) {
+      assert.ok(decodePng(e.png).rgba.equals(renderSvg(svg, e.width)), `${base}.ico の ${e.width} が ${src} と合わない（node tools/icon-render.js で描き直す）`);
+    }
+    assert.ok(decodePng(fs.readFileSync(path.join(ROOT, `${base}.png`))).rgba.equals(renderSvg(svg, 32)), `${base}.png が ${src} と合わない（node tools/icon-render.js で描き直す）`);
+  }
 });

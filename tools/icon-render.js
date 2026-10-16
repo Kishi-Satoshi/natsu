@@ -3,7 +3,10 @@
 // ロゴの SVG を、依存なしで各大きさの PNG に描き、ICO にまとめる（第0a回 R4。Q6 の答え）。
 // node だけで動くので、CI でも「SVG と書き出した PNG が同じか」を毎回確かめられる（test/icons.test.js）。
 //
-//   node tools/icon-render.js   … assets/icon.svg から assets/icon.png（256）と assets/icon.ico を書き出す
+//   node tools/icon-render.js   … 下の TARGETS をすべて書き出す
+//     - assets/icon.svg     → assets/icon.png（256）と assets/icon.ico（16〜256）
+//     - assets/icon.svg     → src/assets/tray.png（32）と src/assets/tray.ico（16〜64）       … トレイ（待機）
+//     - assets/tray-rec.svg → src/assets/tray-rec.png（32）と src/assets/tray-rec.ico（16〜64） … トレイ（録音中）
 //
 // 描けるのは、ロゴが使うものだけ:
 //   - 要素は <svg>（正方形の viewBox）と <path> だけ
@@ -22,6 +25,7 @@ const { encodePng, packIco, parseIco } = require('./ico.js');
 
 const ROOT = path.resolve(__dirname, '..');
 const ICON_SIZES = [16, 24, 32, 48, 64, 128, 256]; // 今の icon.ico と同じ並び（package.json の build.win.icon）
+const TRAY_SIZES = [16, 20, 24, 32, 48, 64];       // 今の tray*.ico と同じ並び（main.js の makeTrayIcon）
 const SUB = 8;      // 1画素あたりの点の数（縦横それぞれ）
 const Q_STEPS = 32; // 2次ベジェを折れ線にするときの分け数
 
@@ -221,9 +225,11 @@ function renderSvg(text, size) {
   return out;
 }
 
-// 書き出すもの。トレイ（第0a回 R4-3）を足すときは、ここに並べる。
+// 書き出すもの。トレイ（第0a回 R4-3。Q8）は名前と大きさを今のまま、src の下に置く（アプリ内の更新で入れ替わるように）。
 const TARGETS = [
   { svg: 'assets/icon.svg', png: { file: 'assets/icon.png', size: 256 }, ico: { file: 'assets/icon.ico', sizes: ICON_SIZES } },
+  { svg: 'assets/icon.svg', png: { file: 'src/assets/tray.png', size: 32 }, ico: { file: 'src/assets/tray.ico', sizes: TRAY_SIZES } },
+  { svg: 'assets/tray-rec.svg', png: { file: 'src/assets/tray-rec.png', size: 32 }, ico: { file: 'src/assets/tray-rec.ico', sizes: TRAY_SIZES } },
 ];
 
 function renderTargets(root = ROOT) {
@@ -243,7 +249,7 @@ function renderTargets(root = ROOT) {
   return written;
 }
 
-module.exports = { ICON_SIZES, TARGETS, parseSvg, renderSvg, renderTargets };
+module.exports = { ICON_SIZES, TRAY_SIZES, TARGETS, parseSvg, renderSvg, renderTargets };
 
 if (require.main === module) {
   for (const line of renderTargets()) console.log(line);
