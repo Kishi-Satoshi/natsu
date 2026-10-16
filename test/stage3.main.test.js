@@ -52,7 +52,7 @@ test('normalizeSettings: engineIdleMin は 0〜120 に丸め、0（止めない�
 });
 
 test('normalizeSettings: dataDir は文字列（前後の空白を落とす）。文字列でなければ既定の \'\'', () => {
-  assert.strictEqual(normalizeSettings({ ...DEF, dataDir: '  D:\\Listener\\data  ' }, DEF).dataDir, 'D:\\Listener\\data');
+  assert.strictEqual(normalizeSettings({ ...DEF, dataDir: '  D:\\NaTsu\\data  ' }, DEF).dataDir, 'D:\\NaTsu\\data');
   assert.strictEqual(normalizeSettings({ ...DEF, dataDir: 42 }, DEF).dataDir, '');
   assert.strictEqual(normalizeSettings({ ...DEF, dataDir: null }, DEF).dataDir, '');
   assert.strictEqual(normalizeSettings({ ...DEF }, DEF).dataDir, '');
@@ -71,7 +71,7 @@ const fsOf = (table) => ({
   exists: (p) => Object.prototype.hasOwnProperty.call(table, p.replace(/\\/g, '/')),
   listDir: (p) => table[p.replace(/\\/g, '/')] || [],
 });
-const FROM = 'C:\\U\\AppData\\Roaming\\Listener\\data';
+const FROM = 'C:\\U\\AppData\\Roaming\\natsu\\data';
 
 test('planDataMove: 空・相対パス・同じ場所・今の data の内側・data を含む親 を拒む', () => {
   const { exists, listDir } = fsOf({});
@@ -84,27 +84,27 @@ test('planDataMove: 空・相対パス・同じ場所・今の data の内側・
   assert.match(planDataMove(FROM, FROM.replace(/\\/g, '/'), exists, listDir), /同じ場所/);
   assert.match(planDataMove(FROM, `${FROM}\\inner`, exists, listDir), /中には移せません/);
   assert.match(planDataMove(FROM, `${FROM}\\segbuf\\x`, exists, listDir), /中には移せません/);
-  assert.match(planDataMove(FROM, 'C:\\U\\AppData\\Roaming\\Listener', exists, listDir), /親フォルダ/);
+  assert.match(planDataMove(FROM, 'C:\\U\\AppData\\Roaming\\natsu', exists, listDir), /親フォルダ/);
   assert.match(planDataMove(FROM, 'C:\\', exists, listDir), /親フォルダ/);
   // 名前が前方一致するだけの別フォルダは「内側」ではない
   assert.strictEqual(planDataMove(FROM, `${FROM}2`, exists, listDir), '');
 });
 
-test('planDataMove: 空でないだけのフォルダは拒み、無い・空・Listener のデータがある場所は通す', () => {
-  const t = 'D:/Listener';
+test('planDataMove: 空でないだけのフォルダは拒み、無い・空・NaTsu のデータがある場所は通す', () => {
+  const t = 'D:/NaTsu';
   const { exists, listDir } = fsOf({
     'D:/has-data': ['pages', 'index.json'], 'D:/has-data/pages': [], 'D:/has-data/index.json': [],
     'D:/has-pages-only': ['pages'], 'D:/has-pages-only/pages': [],
     'D:/busy': ['report.docx', 'photos'],
     'D:/empty': [],
   });
-  // Listener のデータがあるフォルダは通す（写さずに切り替える。元の保存先へ戻る道。R2）
-  assert.strictEqual(planDataMove(FROM, 'D:\\has-data', exists, listDir), '', 'Listener のデータがある場所へ戻せない');
+  // NaTsu のデータがあるフォルダは通す（写さずに切り替える。元の保存先へ戻る道。R2）
+  assert.strictEqual(planDataMove(FROM, 'D:\\has-data', exists, listDir), '', 'NaTsu のデータがある場所へ戻せない');
   assert.strictEqual(planDataMove(FROM, 'D:\\has-pages-only', exists, listDir), '');
   assert.match(planDataMove(FROM, 'D:\\busy', exists, listDir), /空のフォルダ/);
   assert.strictEqual(planDataMove(FROM, 'D:\\empty', exists, listDir), '', '空のフォルダを拒んでいる');
   assert.strictEqual(planDataMove(FROM, t, exists, listDir), '', '無いフォルダ（これから作る）を拒んでいる');
-  assert.strictEqual(planDataMove(FROM, '\\\\nas\\share\\listener', exists, listDir), '', 'UNC パスを絶対パスと見ていない');
+  assert.strictEqual(planDataMove(FROM, '\\\\nas\\share\\natsu', exists, listDir), '', 'UNC パスを絶対パスと見ていない');
   // 今の場所が既定でない（D:\a）ときも同じ規則
   assert.match(planDataMove('D:\\a', 'D:\\a\\b', exists, listDir), /中には移せません/);
   assert.match(planDataMove('D:\\a\\b', 'D:\\a', exists, listDir), /親フォルダ/);
@@ -407,16 +407,16 @@ test('dataDirFallback: 設定した保存先が開けなければ既定に落ち
   assert.deepStrictEqual(dataDirFallback('', { ok: true, empty: true }), { useDefault: false, notice: '' });
   assert.deepStrictEqual(dataDirFallback('', { ok: false, error: 'x' }), { useDefault: false, notice: '' });
   // 開けた・議事録がある → 黙る
-  assert.deepStrictEqual(dataDirFallback('E:\\Listener', { ok: true, empty: false }), { useDefault: false, notice: '' });
+  assert.deepStrictEqual(dataDirFallback('E:\\NaTsu', { ok: true, empty: false }), { useDefault: false, notice: '' });
   // 開けない（外付けを抜いた・ネットワークが落ちた）→ 既定に落ちて知らせる。設定は書き換えない
-  const f = dataDirFallback('E:\\Listener', { ok: false, error: 'ENOENT' });
+  const f = dataDirFallback('E:\\NaTsu', { ok: false, error: 'ENOENT' });
   assert.strictEqual(f.useDefault, true, '開けない保存先のまま起動しようとしている');
-  assert.match(f.notice, /E:\\Listener/); assert.match(f.notice, /ENOENT/);
+  assert.match(f.notice, /E:\\NaTsu/); assert.match(f.notice, /ENOENT/);
   assert.match(f.notice, /既定の場所/); assert.match(f.notice, /設定は変えていません/);
   // 結果が無い（呼び出し側の事故）も既定に落とす
-  assert.strictEqual(dataDirFallback('E:\\Listener', null).useDefault, true);
+  assert.strictEqual(dataDirFallback('E:\\NaTsu', null).useDefault, true);
   // 開けたが空（ドライブ文字の使い回し）→ 落とさずに知らせる（勝手に既定へ移すと二重管理になる）
-  const e = dataDirFallback('E:\\Listener', { ok: true, empty: true });
+  const e = dataDirFallback('E:\\NaTsu', { ok: true, empty: true });
   assert.strictEqual(e.useDefault, false, '空なだけで既定へ落としている');
   assert.match(e.notice, /議事録がありません/);
   assert.match(e.notice, /データ保存先/);
@@ -444,7 +444,7 @@ test('#29(R2) 既に議事録があるフォルダは「写さずに切り替え
   assert.strictEqual(dataMoveMode('D:\\empty', exists), 'copy');
   assert.strictEqual(dataMoveMode('D:/has-data/', exists), 'switch', '区切りと末尾の / で見落としている');
   // 元の場所へ戻せる（README が案内している経路）
-  const FROM2 = 'C:\\U\\AppData\\Roaming\\listener\\data';
+  const FROM2 = 'C:\\U\\AppData\\Roaming\\natsu\\data';
   assert.strictEqual(planDataMove('D:\\moved', FROM2, (p) => p.startsWith(FROM2), () => ['index.json']), '',
     '元の保存先へ戻す経路を拒んでいる（README はこれを案内している）');
   const mv = fnBody(code(main), 'async function moveDataDir(dir)', '\n}');

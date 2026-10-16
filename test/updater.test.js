@@ -21,7 +21,7 @@ const updater = require('../src/updater');
 const { packerAvailable, packRelease } = require('./helpers/pack');
 
 const CAN_PACK = packerAvailable();
-const work = fs.mkdtempSync(path.join(os.tmpdir(), 'listener-upd-'));
+const work = fs.mkdtempSync(path.join(os.tmpdir(), 'natsu-upd-'));
 
 // ---------------------------------------------------------------- 単体
 test('cmpVersion がバージョンを正しく比較する', () => {
@@ -49,7 +49,7 @@ test('check() がリリース情報を解釈する', { skip: !CAN_PACK && 'zip �
     if (req.url.startsWith('/asset.zip')) { res.writeHead(200); res.end(bytes); return; }
     if (req.url.includes('/no-asset')) {
       res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ tag_name: 'v0.9.0', assets: [{ name: 'Listener-0.9.0-setup.exe', browser_download_url: 'x', size: 1 }] }));
+      res.end(JSON.stringify({ tag_name: 'v0.9.0', assets: [{ name: 'NaTsu-0.9.0-setup.exe', browser_download_url: 'x', size: 1 }] }));
       return;
     }
     if (req.url.includes('/missing')) { res.writeHead(404); res.end('{}'); return; }
@@ -60,7 +60,7 @@ test('check() がリリース情報を解釈する', { skip: !CAN_PACK && 'zip �
       body: 'リリースノート本文',
       published_at: '2026-10-05T00:00:00Z',
       assets: [
-        { name: 'Listener-0.9.0-setup.exe', browser_download_url: `http://127.0.0.1:${port}/exe`, size: 90000000 },
+        { name: 'NaTsu-0.9.0-setup.exe', browser_download_url: `http://127.0.0.1:${port}/exe`, size: 90000000 },
         { name: 'listener-src-0.9.0.zip', browser_download_url: `http://127.0.0.1:${port}/asset.zip`, size: bytes.length },
       ],
     }));
@@ -168,7 +168,7 @@ test('apply() が src を差し替え、失敗時は元に戻す', { skip: !CAN_
   fs.writeFileSync(path.join(appRoot, 'src', 'renderer', 'app.html'), '<!-- 旧 -->');
   fs.writeFileSync(path.join(appRoot, 'src', 'REMOVED.js'), '旧版にしか無いファイル');
   fs.writeFileSync(path.join(appRoot, 'package.json'),
-    JSON.stringify({ name: 'listener', version: '0.7.0', main: 'src/main.js' }, null, 2), 'utf8');
+    JSON.stringify({ name: 'natsu', version: '0.7.0', main: 'src/main.js' }, null, 2), 'utf8');
   fs.mkdirSync(path.join(appRoot, 'src.backup-1'), { recursive: true });
 
   const progress = [];
@@ -217,7 +217,7 @@ test('BOM付きの package.json でもバージョンが更新される', { skip
   }
   fs.writeFileSync(path.join(stage, 'src', 'renderer', 'app.html'), `<!doctype html>\n<!-- ${filler()} -->`);
   fs.writeFileSync(path.join(stage, 'package.json'),
-    `﻿${JSON.stringify({ name: 'listener', version: '0.9.9' }, null, 2)}`, 'utf8');
+    `﻿${JSON.stringify({ name: 'natsu', version: '0.9.9' }, null, 2)}`, 'utf8');
   const zip = packDir(stage, path.join(work, 'bom.zip'));
   const bytes = fs.readFileSync(zip);
 
@@ -229,7 +229,7 @@ test('BOM付きの package.json でもバージョンが更新される', { skip
   fs.mkdirSync(path.join(appRoot, 'src'), { recursive: true });
   fs.writeFileSync(path.join(appRoot, 'src', 'main.js'), '// 旧');
   fs.writeFileSync(path.join(appRoot, 'package.json'),
-    JSON.stringify({ name: 'listener', version: '0.7.0' }, null, 2), 'utf8');
+    JSON.stringify({ name: 'natsu', version: '0.7.0' }, null, 2), 'utf8');
 
   const r = await updater.apply(`http://127.0.0.1:${server.address().port}/a.zip`, appRoot, work, () => {});
   assert.strictEqual(r.ok, true, r.error);
@@ -313,9 +313,9 @@ test('#34 apply() は zip の engines.electron を満たさなければ src を�
       return fs.readFileSync(packDir(stage, path.join(work, `${name}.zip`)));
     };
     const zips = {
-      '/need32.zip': mkZip('eng-need32', { name: 'listener', version: '9.9.9', engines: { electron: '>=32.0.0' } }),
-      '/need31.zip': mkZip('eng-need31', { name: 'listener', version: '9.9.9', engines: { electron: '>=31.0.0' } }),
-      '/none.zip': mkZip('eng-none', { name: 'listener', version: '9.9.9' }),
+      '/need32.zip': mkZip('eng-need32', { name: 'natsu', version: '9.9.9', engines: { electron: '>=32.0.0' } }),
+      '/need31.zip': mkZip('eng-need31', { name: 'natsu', version: '9.9.9', engines: { electron: '>=31.0.0' } }),
+      '/none.zip': mkZip('eng-none', { name: 'natsu', version: '9.9.9' }),
     };
     const server = http.createServer((req, res) => {
       const b = zips[req.url];
@@ -331,7 +331,7 @@ test('#34 apply() は zip の engines.electron を満たさなければ src を�
       fs.mkdirSync(path.join(appRoot, 'src'), { recursive: true });
       fs.writeFileSync(path.join(appRoot, 'src', 'main.js'), '// 旧版のまま残るべき');
       fs.writeFileSync(path.join(appRoot, 'package.json'),
-        JSON.stringify({ name: 'listener', version: '0.7.0', main: 'src/main.js' }, null, 2), 'utf8');
+        JSON.stringify({ name: 'natsu', version: '0.7.0', main: 'src/main.js' }, null, 2), 'utf8');
       return appRoot;
     };
     const mainOf = (appRoot) => fs.readFileSync(path.join(appRoot, 'src', 'main.js'), 'utf8');

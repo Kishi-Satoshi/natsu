@@ -1,5 +1,5 @@
 ﻿# =====================================================================
-# Listener 要約エンジン セットアップスクリプト（議事録の自動要約用・任意）
+# NaTsu 要約エンジン セットアップスクリプト（議事録の自動要約用・任意）
 #
 # llama.cpp のWindows版バイナリ（llama-server）と、日本語対応の
 # ローカルLLMモデル（GGUF形式）をダウンロードします。
@@ -231,7 +231,7 @@ if (-not (Test-Path $modelPath) -or ((Get-Item $modelPath).Length -lt $minBytes)
 # ---------------------------------------------------------------------
 Write-Host ""
 Write-Host "========================= セットアップ完了 =========================" -ForegroundColor Green
-Write-Host "Listener の [設定] -> [要約エンジン（llama.cpp）] に以下を貼り付けてください。"
+Write-Host "NaTsu の [設定] -> [要約エンジン（llama.cpp）] に以下を貼り付けてください。"
 Write-Host ""
 Write-Host ("  llama-server.exe : " + $server.FullName) -ForegroundColor White
 Write-Host ("  モデルファイル   : " + $modelPath) -ForegroundColor White

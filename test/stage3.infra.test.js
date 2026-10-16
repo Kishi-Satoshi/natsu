@@ -55,7 +55,7 @@ test('#38 src/cite.js を触ったコミットでは、射程外だと名指し�
 });
 
 test('#38 チェックリストにも、ゲートが見ていないものが書かれる', { skip: !hasGit && 'git が無い' }, () => {
-  const out = path.join(os.tmpdir(), `listener-checklist-${process.pid}.md`);
+  const out = path.join(os.tmpdir(), `natsu-checklist-${process.pid}.md`);
   try {
     cp.execFileSync(process.execPath, ['tools/risk.js', '--base', 'HEAD', '--head', 'HEAD', '--checklist', out], { cwd: ROOT });
     const md = fs.readFileSync(out, 'utf8');
@@ -69,15 +69,16 @@ test('#38 チェックリストにも、ゲートが見ていないものが書�
 // ---------------------------------------------------------------------------
 const { HOOK } = require('../tools/install-hook.js');
 
-test('#38 pre-commit はゲートの後に npm test --silent を走らせ、LISTENER_SKIP_TESTS で飛ばせる', () => {
+test('#38 pre-commit はゲートの後に npm test --silent を走らせ、NATSU_SKIP_TESTS で飛ばせる', () => {
   assert.ok(HOOK.startsWith('#!/bin/sh\n'), 'sh のスクリプトでない');
   const gate = HOOK.indexOf('tools/risk.js" --staged');
   const tests = HOOK.indexOf('npm test --silent');
   assert.ok(gate >= 0, 'ゲート（tools/risk.js --staged）を呼んでいない');
   assert.ok(tests >= 0, 'npm test --silent を呼んでいない');
   assert.ok(gate < tests, 'npm test がゲートより先に走る');
-  assert.ok(HOOK.includes('LISTENER_SKIP_TESTS'), 'テストを飛ばす合図（LISTENER_SKIP_TESTS）が無い');
-  assert.ok(HOOK.includes('LISTENER_GATE_OVERRIDE'), 'ゲートを越える合図（LISTENER_GATE_OVERRIDE）が無い');
+  assert.ok(HOOK.includes('NATSU_SKIP_TESTS'), 'テストを飛ばす合図（NATSU_SKIP_TESTS）が無い');
+  assert.ok(HOOK.includes('NATSU_GATE_OVERRIDE'), 'ゲートを越える合図（NATSU_GATE_OVERRIDE）が無い');
+  assert.ok(!/LISTENER_/.test(HOOK), '古い名前の合図（LISTENER_*）が残っている');
   assert.match(HOOK, /目安 15 秒/, '実行時間の目安が書かれていない');
   assert.match(HOOK, /src\/cite\.js/, 'なぜテストを走らせるか（ゲートの射程外）が書かれていない');
   // 設置する側のコメントにも同じことが書いてある（据えた人が読むのはこちら）
@@ -90,7 +91,7 @@ test('#38 pre-commit はゲートの後に npm test --silent を走らせ、LIST
  * 呼ばれた順と終了コードを見る（本物の npm test を 5 回走らせると 1 分かかる）。
  */
 function runHook(env) {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'listener-hook-'));
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'natsu-hook-'));
   const logFile = path.join(dir, 'calls.log');
   const shim = (name, body) => { const p = path.join(dir, name); fs.writeFileSync(p, `#!/bin/sh\necho "${name} $*" >> "$SHIM_LOG"\n${body}\n`, { mode: 0o755 }); };
   shim('node', 'case "$*" in *risk.js*) exit ${FAKE_GATE:-0};; esac\nexit 0');
@@ -98,7 +99,7 @@ function runHook(env) {
   shim('git', `echo "${dir}"`);
   const hook = path.join(dir, 'pre-commit');
   fs.writeFileSync(hook, HOOK, { mode: 0o755 });
-  const r = cp.spawnSync('sh', [hook], { cwd: dir, env: Object.assign({}, process.env, { PATH: `${dir}:${process.env.PATH}`, SHIM_LOG: logFile, LISTENER_GATE_OVERRIDE: '', LISTENER_SKIP_TESTS: '' }, env) });
+  const r = cp.spawnSync('sh', [hook], { cwd: dir, env: Object.assign({}, process.env, { PATH: `${dir}:${process.env.PATH}`, SHIM_LOG: logFile, NATSU_GATE_OVERRIDE: '', NATSU_SKIP_TESTS: '' }, env) });
   const calls = fs.existsSync(logFile) ? fs.readFileSync(logFile, 'utf8').trim().split('\n').map((l) => l.split(' ')[0]).filter((n) => n !== 'git') : [];
   fs.rmSync(dir, { recursive: true, force: true });
   return { status: r.status, out: r.stdout.toString() + r.stderr.toString(), calls };
@@ -114,7 +115,7 @@ test('#38 pre-commit を実際に走らせる: ゲート→テストの順、落
   assert.deepStrictEqual(gateNg.calls, ['node'], 'ゲートが落ちたのに npm test まで走っている');
   assert.match(gateNg.out, /危険な変更のため commit を止めた/);
 
-  const override = runHook({ FAKE_GATE: '1', LISTENER_GATE_OVERRIDE: '理由' });
+  const override = runHook({ FAKE_GATE: '1', NATSU_GATE_OVERRIDE: '理由' });
   assert.strictEqual(override.status, 0, '理由付きで越えたのに commit が止まる');
   assert.deepStrictEqual(override.calls, ['node', 'npm'], 'ゲートを越えてもテストは走る');
   assert.match(override.out, /ゲートを越えて commit する。理由: 理由/);
@@ -122,11 +123,11 @@ test('#38 pre-commit を実際に走らせる: ゲート→テストの順、落
   const testNg = runHook({ FAKE_TEST: '1' });
   assert.strictEqual(testNg.status, 1, 'npm test が落ちたのに commit が止まらない');
   assert.match(testNg.out, /npm test が落ちたため commit を止めた/);
-  assert.match(testNg.out, /LISTENER_SKIP_TESTS=1/, '飛ばし方が案内されていない');
+  assert.match(testNg.out, /NATSU_SKIP_TESTS=1/, '飛ばし方が案内されていない');
 
-  const skip = runHook({ FAKE_TEST: '1', LISTENER_SKIP_TESTS: '1' });
-  assert.strictEqual(skip.status, 0, 'LISTENER_SKIP_TESTS=1 なのに止まる');
-  assert.deepStrictEqual(skip.calls, ['node'], 'LISTENER_SKIP_TESTS=1 なのに npm test が走っている');
+  const skip = runHook({ FAKE_TEST: '1', NATSU_SKIP_TESTS: '1' });
+  assert.strictEqual(skip.status, 0, 'NATSU_SKIP_TESTS=1 なのに止まる');
+  assert.deepStrictEqual(skip.calls, ['node'], 'NATSU_SKIP_TESTS=1 なのに npm test が走っている');
   assert.match(skip.out, /npm test を飛ばして commit する/);
 });
 

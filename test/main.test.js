@@ -28,7 +28,7 @@ const { normalizeSettings } = require('../src/settings');
 // ---------------------------------------------------------------- #46 削除した議事録の復活
 let dir;
 test.before(() => {
-  dir = fs.mkdtempSync(path.join(os.tmpdir(), 'listener-main-'));
+  dir = fs.mkdtempSync(path.join(os.tmpdir(), 'natsu-main-'));
   store.init(dir);
 });
 test.after(() => { try { fs.rmSync(dir, { recursive: true, force: true }); } catch (_) { /* noop */ } });
@@ -521,7 +521,7 @@ test('engineFileIssue: blocks が取れない環境では実体の有無を判�
 // 実機で、この文を PowerShell に貼り付けて実行した人がいた（`llama-server.exe。setup-*.ps1` を
 // ひと続きのコマンドと読んだ）。パスの後ろに文を続けると必ずそう読まれるので、文末に置く。
 test('engineIssueMessage: パスを渡したら文は必ずそのパスで終わる（後ろに続けるとコマンドに見える）', () => {
-  const F = 'C:\\Users\\u\\AppData\\Local\\Programs\\Listener\\engine\\llama-server.exe';
+  const F = 'C:\\Users\\u\\AppData\\Local\\Programs\\NaTsu\\engine\\llama-server.exe';
   for (const issue of ['truncated', 'missing', 'placeholder']) {
     for (const kind of ['exe', 'model']) {
       const msg = engineIssueMessage(issue, kind, 0, F, 'setup-summarizer.ps1');
@@ -561,11 +561,11 @@ test('engineIssueMessage: どのファイルかを名指しし、切れている
 
 // ---------------------------------------------------------------- エンジンの置き場所（更新で消える）
 test('engineInAppDir: アプリのインストール先の中に置かれたエンジンだけを true にする', () => {
-  const APP = 'C:\\Users\\u\\AppData\\Local\\Programs\\Listener';
+  const APP = 'C:\\Users\\u\\AppData\\Local\\Programs\\NaTsu';
   assert.strictEqual(engineInAppDir(`${APP}\\engine\\llama-server.exe`, APP), true);
   assert.strictEqual(engineInAppDir(`${APP}/engine/llama-server.exe`, APP), true, '区切りの違いで見落としている');
   assert.strictEqual(engineInAppDir(`${APP.toLowerCase()}\\engine\\x.exe`, APP), true, '大文字小文字で見落としている');
-  assert.strictEqual(engineInAppDir('C:\\Users\\u\\AppData\\Local\\Listener-engine\\local-engine\\llm\\bin\\llama-server.exe', APP), false);
+  assert.strictEqual(engineInAppDir('C:\\Users\\u\\AppData\\Local\\natsu-engine\\local-engine\\llm\\bin\\llama-server.exe', APP), false);
   // 名前が前方一致するだけの別フォルダを巻き込まない
   assert.strictEqual(engineInAppDir(`${APP}-engine\\x.exe`, APP), false);
   assert.strictEqual(engineInAppDir(APP, APP), false, 'フォルダそのものは「中」ではない');
@@ -574,9 +574,9 @@ test('engineInAppDir: アプリのインストール先の中に置かれたエ�
 });
 
 test('engineDirWarning: インストール先に置かれていれば移動を促す一文、そうでなければ空', () => {
-  const APP = 'C:\\P\\Listener';
+  const APP = 'C:\\P\\NaTsu';
   const w = engineDirWarning([`${APP}\\engine\\llama-server.exe`, 'D:\\ok\\x.gguf'], APP);
-  assert.match(w, /インストール先/); assert.match(w, /更新/); assert.match(w, /Listener-engine/);
+  assert.match(w, /インストール先/); assert.match(w, /更新/); assert.match(w, /natsu-engine/);
   assert.strictEqual(engineDirWarning(['D:\\ok\\a.exe', 'D:\\ok\\b.gguf'], APP), '');
   assert.strictEqual(engineDirWarning([], APP), '');
   assert.strictEqual(engineDirWarning(['', null], APP), '');

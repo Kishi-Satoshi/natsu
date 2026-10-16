@@ -327,7 +327,7 @@ function engineIssueMessage(issue, kind, size, file, script) {
   return '';
 }
 
-// エンジンがアプリのインストール先（%LOCALAPPDATA%\Programs\Listener）の中に置かれていないか。
+// エンジンがアプリのインストール先（%LOCALAPPDATA%\Programs\NaTsu）の中に置かれていないか。
 // インストーラは更新のたびに旧版を消してから入れ直すので、そこへ置いたエンジンは更新のたびに
 // 消えうる（実機で llama-server.exe が 0 バイトになった）。appDir が分からないときは黙る。
 function engineInAppDir(enginePath, appDir) {
@@ -341,7 +341,7 @@ function engineDirWarning(paths, appDir) {
   const hit = (paths || []).some((p) => engineInAppDir(p, appDir));
   if (!hit) return '';
   return 'エンジンがアプリのインストール先に置かれています。更新のたびに消えることがあります。'
-    + '%LOCALAPPDATA%\\Listener-engine など別の場所へ移し、設定のパスを貼り直してください';
+    + '%LOCALAPPDATA%\\natsu-engine など別の場所へ移し、設定のパスを貼り直してください';
 }
 
 // ---------------------------------------------------------------- ポートの衝突（#28/#31）
@@ -645,7 +645,7 @@ function idleEnginesToStop(engines, now, idleMin, busy) {
 //   - 今と同じ場所
 //   - 今のデータフォルダの中（写す先が写す元に含まれ、終わらない）
 //   - 今のデータフォルダを含む親（写す元が写す先に含まれ、同じく終わらない）
-//   - 既に Listener のデータがある場所（別のデータを上書きする）・空でないフォルダ
+//   - 既に NaTsu のデータがある場所（別のデータを上書きする）・空でないフォルダ
 //     （利用者の書類の中に pages/ などが混ざる。空のフォルダを選んでもらう）
 const normPath = (p) => String(p ?? '').trim().replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase();
 const isAbsPath = (n) => /^([a-z]:(\/|$)|\/)/.test(n);   // C:/…（末尾の / を落とした C: も）か /（UNC の //server/share も）
@@ -658,15 +658,15 @@ function planDataMove(from, to, exists, listDir) {
   if (t.startsWith(`${f}/`)) return '今のデータフォルダの中には移せません';
   if (f.startsWith(`${t}/`)) return '今のデータフォルダを含むフォルダ（親フォルダ）には移せません';
   const raw = String(to ?? '').trim();
-  // 既に Listener のデータがあるフォルダは拒まない。写さずにそこへ切り替える（dataMoveMode）。
+  // 既に NaTsu のデータがあるフォルダは拒まない。写さずにそこへ切り替える（dataMoveMode）。
   // 拒むと、一度移した人が元の保存先へ戻せなくなる（元のフォルダにはデータが残っているため）。
   // 「空でないだけ」のフォルダは拒む（利用者の書類の中に pages/ が混ざる）
   if (dataMoveMode(raw, exists) === 'copy' && exists(raw) && (listDir(raw) || []).length > 0) {
-    return '移動先は空のフォルダにしてください（Listener のデータがあるフォルダを選べば、写さずにそこへ切り替えます）';
+    return '移動先は空のフォルダにしてください（NaTsu のデータがあるフォルダを選べば、写さずにそこへ切り替えます）';
   }
   return '';
 }
-// 移動先の扱い。既に Listener のデータ（index.json か pages/）があれば 'switch'（写さずに
+// 移動先の扱い。既に NaTsu のデータ（index.json か pages/）があれば 'switch'（写さずに
 // そこへ切り替える。元の保存先へ戻る道でもある）、無ければ 'copy'（今のデータを写す）。
 // exists は fs.existsSync 相当（Windows なので \ と / を区別しない前提）
 function dataMoveMode(to, exists) {

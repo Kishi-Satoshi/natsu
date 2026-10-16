@@ -17,7 +17,7 @@ const { STANDUP_SEGMENTS } = require('./fixtures');
 
 let dir;
 test.before(() => {
-  dir = fs.mkdtempSync(path.join(os.tmpdir(), 'listener-store-'));
+  dir = fs.mkdtempSync(path.join(os.tmpdir(), 'natsu-store-'));
   store.init(dir);
 });
 test.after(() => { try { fs.rmSync(dir, { recursive: true, force: true }); } catch (_) { /* noop */ } });
@@ -99,7 +99,7 @@ test('updateSegment: ページ本体（updatedAt）には触らない — ペー
 // 索引が壊れても pages/ が残っていれば議事録は消えていない。起動時に索引を作り直す。
 const extra = [];
 function fresh() {
-  const d = fs.mkdtempSync(path.join(os.tmpdir(), 'listener-store-x-'));
+  const d = fs.mkdtempSync(path.join(os.tmpdir(), 'natsu-store-x-'));
   extra.push(d);
   store.init(d);
   return d;

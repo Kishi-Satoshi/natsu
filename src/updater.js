@@ -98,7 +98,7 @@ function satisfiesRange(version, range) {
 async function check(currentVersion, userDataPath) {
   try {
     const res = await httpFetch(API_LATEST, {
-      headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'Listener' },
+      headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'NaTsu' },
       signal: AbortSignal.timeout(15000),
     });
     if (res.status === 404) return { ok: false, error: 'リリースが見つかりません（まだ公開されていない可能性があります）' };
@@ -142,7 +142,7 @@ async function download(url, dest, onProgress) {
   for (let attempt = 1; attempt <= 3; attempt++) {
     try {
       const res = await httpFetch(url, {
-        headers: { 'User-Agent': 'Listener' },
+        headers: { 'User-Agent': 'NaTsu' },
         signal: AbortSignal.timeout(120000),
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -208,7 +208,7 @@ async function apply(url, appRoot, userDataPath, onProgress, opts) {
   const readJson = (f) => JSON.parse(fs.readFileSync(f, 'utf8').replace(/^\uFEFF/, ''));
 
   try {
-    work = fs.mkdtempSync(path.join(os.tmpdir(), 'listener-up-'));
+    work = fs.mkdtempSync(path.join(os.tmpdir(), 'natsu-up-'));
     const zip = path.join(work, 'update.zip');
     const ext = path.join(work, 'extracted');
 

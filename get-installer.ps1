@@ -1,5 +1,5 @@
 ﻿# =====================================================================
-# get-installer.ps1 — Listener のインストーラーを確実に取得する
+# get-installer.ps1 — NaTsu のインストーラーを確実に取得する
 #
 # 社内回線は大容量ダウンロードを途中で切ることがある（115〜122MB付近で
 # 切断する実績あり）。ブラウザで落とすと止まったまま進まないため、
@@ -163,5 +163,5 @@ if ($setups.Count -gt 0) {
         Write-Host "  2. powershell -ExecutionPolicy Bypass -File .\setup-summarizer.ps1"
         Write-Host "     議事録の要約用。約 2GB"
     }
-    Write-Host "  3. 表示されたパスを Listener の [設定] に貼り付ける"
+    Write-Host "  3. 表示されたパスを NaTsu の [設定] に貼り付ける"
 }

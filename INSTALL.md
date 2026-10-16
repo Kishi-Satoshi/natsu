@@ -1,6 +1,6 @@
-# Listener インストール手順
+# NaTsu インストール手順
 
-社内の PC に Listener を入れて使えるようにするまでの手順です。
+社内の PC に NaTsu を入れて使えるようにするまでの手順です。
 所要時間は 30分ほど（ほとんどはダウンロードの待ち時間）。
 
 - **管理者権限は不要です。**
@@ -65,10 +65,10 @@ powershell -ExecutionPolicy Bypass -File .\get-installer.ps1
 先に置き場所を作って、そこへ 2つの `.ps1` を移してから実行してください。
 
 ```powershell
-mkdir "$env:LOCALAPPDATA\Listener-engine"
+mkdir "$env:LOCALAPPDATA\natsu-engine"
 ```
 
-エクスプローラーのアドレス欄に `%LOCALAPPDATA%\Listener-engine` と入れれば開けます。
+エクスプローラーのアドレス欄に `%LOCALAPPDATA%\natsu-engine` と入れれば開けます。
 
 > **OneDrive・Dropbox などの同期フォルダには置かないでください。**
 > 「ファイルオンデマンド」で中身がクラウド側にあるだけのファイル（プレースホルダ）は、
@@ -78,7 +78,7 @@ mkdir "$env:LOCALAPPDATA\Listener-engine"
 > **アプリのインストール先（`%LOCALAPPDATA%\Programs\NaTsu`）にもエンジンを置かないでください。**
 > インストーラーは更新のたびに旧版を消してから入れ直すので、そこへ置いたエンジンは
 > 更新で消えます（起動テストが「実行ファイルが壊れています（0.0MB）」になります）。
-> 起動テストでも注意が出ます。出たら上の `Listener-engine` などへ移し、設定のパスを貼り直してください。
+> 起動テストでも注意が出ます。出たら上の `natsu-engine` などへ移し、設定のパスを貼り直してください。
 ここに `setup-local-engine.ps1` と `setup-summarizer.ps1` を移動します。
 
 ### 実行する
@@ -114,7 +114,7 @@ llama.cpp 本体と Qwen2.5-3B（約 1.9GB）を取得します。
 
 ## 手順5. 設定にパスを貼る
 
-Listener を起動し、右上の歯車から［設定］を開きます。
+NaTsu を起動し、右上の歯車から［設定］を開きます。
 
 **文字起こしエンジン（whisper.cpp・オフライン）**
 - `whisper-server.exe のパス` … 手順3で表示されたもの
@@ -194,7 +194,7 @@ Web会議の音声も一緒に録りたい場合は、［設定］→［動作�
 
 - `%APPDATA%`（Roaming）配下は、社内のプロファイル同期（移動ユーザープロファイル等）で
   サーバーへ複製されることがあります。議事録を同期に載せたくない場合は、［設定］→「保存先を変更…」で
-  `%LOCALAPPDATA%\Listener\data` などへ移せます。移動しても元の場所のデータは消しません
+  `%LOCALAPPDATA%\NaTsu\data` などへ移せます。移動しても元の場所のデータは消しません
   （不要になったら手で消してください）。
 - OneDrive 等の同期フォルダやネットワークドライブは避けてください（記録中に書き込みが止まると、
   その区間の文字起こしが失敗します）。

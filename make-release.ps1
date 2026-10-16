@@ -9,7 +9,7 @@
 #
 # 生成物: release\listener-src-<Version>.zip
 # これを GitHub の Releases 画面にドラッグして公開すれば、
-# 各PCのListenerが「更新を確認」で検出します。
+# 各PCのNaTsuが「更新を確認」で検出します。
 # =====================================================================
 param(
     [Parameter(Mandatory=$true)][string]$Version
@@ -61,4 +61,4 @@ Write-Host "  3. 変更点を本文に書く（アプリの更新画面にその
 Write-Host "  4. 上記のzipをドラッグして添付"
 Write-Host "  5. Publish release"
 Write-Host ""
-Write-Host "各PCのListenerが起動時、または「更新を確認」で検出します。"
+Write-Host "各PCのNaTsuが起動時、または「更新を確認」で検出します。"

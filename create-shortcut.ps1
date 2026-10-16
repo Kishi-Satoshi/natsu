@@ -1,7 +1,7 @@
 ﻿# =====================================================================
-# Listener ショートカット作成スクリプト
-# デスクトップとスタートメニューに Listener.lnk を作成します。
-# スタートメニューに入るため、Windowsキー →「Listener」で検索・起動できる
+# NaTsu ショートカット作成スクリプト
+# デスクトップとスタートメニューに NaTsu.lnk を作成します。
+# スタートメニューに入るため、Windowsキー →「NaTsu」で検索・起動できる
 # 標準的なアプリと同じ起動導線になります（コンソールは一切出ません）。
 #
 # 実行方法（アプリのフォルダ内で実行してください）:
@@ -24,16 +24,16 @@ $startMenu = Join-Path $env:APPDATA "Microsoft\Windows\Start Menu\Programs"
 
 $shell = New-Object -ComObject WScript.Shell
 foreach ($dir in @($desktop, $startMenu)) {
-    $lnkPath = Join-Path $dir "Listener.lnk"
+    $lnkPath = Join-Path $dir "NaTsu.lnk"
     $lnk = $shell.CreateShortcut($lnkPath)
     $lnk.TargetPath       = $electron
     $lnk.Arguments        = '"' + $app + '"'
     $lnk.WorkingDirectory = $app
     if (Test-Path $icon) { $lnk.IconLocation = $icon }
-    $lnk.Description      = "Listener - 声で、書く。（完全オフライン音声入力・議事録）"
+    $lnk.Description      = "NaTsu - 声で、書く。（完全オフライン音声入力・議事録）"
     $lnk.Save()
     Write-Host ("作成: " + $lnkPath) -ForegroundColor Green
 }
 
 Write-Host ""
-Write-Host "完了しました。デスクトップのアイコン、または Windowsキー →「Listener」で起動できます。" -ForegroundColor Cyan
+Write-Host "完了しました。デスクトップのアイコン、または Windowsキー →「NaTsu」で起動できます。" -ForegroundColor Cyan

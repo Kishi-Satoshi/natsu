@@ -300,7 +300,7 @@ async function load(htmlPath, opt = {}) {
   const console2 = { log: noop, warn: noop, info: noop, debug: noop, error: (...a) => log.consoleErrors.push(a.map((x) => (x && x.message) || String(x)).join(' ')) };
 
   /* ---- 実行 ---- */
-  const mark = `listener-run-${++runSeq}.js`;
+  const mark = `natsu-run-${++runSeq}.js`;
   log.mark = mark;
   openRuns.set(mark, log);
   const scripts = root.querySelectorAll('script').filter((s) => !s.getAttribute('src'));

@@ -20,7 +20,7 @@ const store = require('../src/store');
 
 const dirs = [];
 function fresh() {
-  const d = fs.mkdtempSync(path.join(os.tmpdir(), 'listener-stage3-'));
+  const d = fs.mkdtempSync(path.join(os.tmpdir(), 'natsu-stage3-'));
   dirs.push(d);
   store.init(d);
   return d;

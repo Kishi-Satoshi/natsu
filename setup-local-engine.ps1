@@ -1,9 +1,9 @@
 ﻿# =====================================================================
-# Listener ローカルエンジン セットアップスクリプト
+# NaTsu ローカルエンジン セットアップスクリプト
 #
 # whisper.cpp のWindows版バイナリと音声認識モデルをダウンロードします。
 # ※ このスクリプトの実行時のみインターネット接続が必要です。
-#    ダウンロード完了後、Listenerは完全オフラインで動作します。
+#    ダウンロード完了後、NaTsuは完全オフラインで動作します。
 #
 # 実行方法（PowerShell）:
 #   powershell -ExecutionPolicy Bypass -File .\setup-local-engine.ps1
@@ -126,7 +126,7 @@ if ($server -and (-not $ForceBinary)) {
     Write-Host "      （再ダウンロードしたい場合は -ForceBinary を付けて実行）"
 }
 else {
-    # 使用中だと上書きできないため、Listenerが起動したエンジンを停止（DLLロック対策）
+    # 使用中だと上書きできないため、NaTsuが起動したエンジンを停止（DLLロック対策）
     Get-Process -Name "whisper-server","llama-server" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
     Start-Sleep -Milliseconds 800
 
@@ -249,7 +249,7 @@ else {
 # ---------------------------------------------------------------------
 Write-Host ""
 Write-Host "========================= セットアップ完了 =========================" -ForegroundColor Green
-Write-Host "Listener の [設定] -> [文字起こしエンジン（whisper.cpp・オフライン）] に以下を貼り付けてください。"
+Write-Host "NaTsu の [設定] -> [文字起こしエンジン（whisper.cpp・オフライン）] に以下を貼り付けてください。"
 Write-Host ""
 Write-Host ("  whisper-server.exe : " + $server.FullName) -ForegroundColor White
 Write-Host ("  モデルファイル     : " + $modelPath) -ForegroundColor White

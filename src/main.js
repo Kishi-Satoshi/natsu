@@ -270,7 +270,7 @@ async function moveDataDir(dir) {
   const why = planDataMove(from, raw, (p) => fs.existsSync(p), listDir);
   if (why) return { ok: false, error: why };
   const to = path.normalize(raw);
-  // 既に Listener のデータがあるフォルダなら写さずに切り替える（元の保存先へ戻る道。mainlib.dataMoveMode）
+  // 既に NaTsu のデータがあるフォルダなら写さずに切り替える（元の保存先へ戻る道。mainlib.dataMoveMode）
   const mode = dataMoveMode(to, (p) => fs.existsSync(p));
   try {
     if (mode === 'copy') {

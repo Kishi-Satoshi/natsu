@@ -1,4 +1,4 @@
-# Listener
+# NaTsu
 
 完全オフラインの音声入力・議事録ツール。文字起こし（whisper.cpp）も要約（llama.cpp）も
 すべてPC内で完結し、音声・テキストが外部へ送信されることはありません。
@@ -104,7 +104,7 @@ LLM が創作した内容をそこで見分けられるようにするためで�
 社内プロキシ環境では最初に一度: `setx NODE_USE_SYSTEM_CA 1` → PowerShellを開き直す
 
 ```powershell
-cd <Listenerを置いたフォルダ>
+cd <NaTsuを置いたフォルダ>
 npm install
 npm start
 ```
@@ -148,7 +148,7 @@ data/                  議事録の保存先（既定。設定で変えられる
 
 - `%APPDATA%`（Roaming）配下は、社内のプロファイル同期（移動ユーザープロファイル等）で
   サインイン時にサーバーへ複製されることがあります。議事録を同期に載せたくない、または
-  同期の容量に響く場合は、`%LOCALAPPDATA%\Listener\data` などへ移してください。
+  同期の容量に響く場合は、`%LOCALAPPDATA%\NaTsu\data` などへ移してください。
 - 移動は「新しい場所へコピー → 検証 → 切替」の順で行い、元の場所のデータは消しません。
   戻したくなったら元のフォルダを選び直せば済みます（不要になったら手で消してください）。
 - 記録中の音声の退避フォルダ `segbuf` は従来の場所（`%APPDATA%\natsu\data\segbuf`）のままです。
@@ -202,7 +202,7 @@ powershell -ExecutionPolicy Bypass -File .\get-installer.ps1
 デスクトップとスタートメニューにショートカットが作られます。
 エンジン（whisper / llama とモデル）は**このインストール先には置かないでください**。
 更新のたびに旧版を消してから入れ直すので、そこへ置いたエンジンは消えます
-（`%LOCALAPPDATA%\Listener-engine` などに置く。起動テストでも注意が出ます）。
+（`%LOCALAPPDATA%\natsu-engine` などに置く。起動テストでも注意が出ます）。
 設定の「Windowsサインイン時に自動起動」もこの形でのみ動作します。
 
 `build.asar` を `false` にしてあるため、`src/` は素のファイルとして置かれ、
@@ -216,7 +216,7 @@ npm start
 
 `create-shortcut.ps1` を一度実行すると、`node_modules` の electron を指す
 ショートカットがデスクトップとスタートメニューに作られます（コンソールは出ません）。
-`start-listener.bat` でも起動できます。
+`start-natsu.bat` でも起動できます。
 
 ### ポータブル版について
 
@@ -264,7 +264,7 @@ exe の添付に失敗すると draft のまま残り、Actions の要約に赤�
 Actions 画面の **Run workflow**、または `release/natsu-v0.1.0` という名前の
 ブランチを push しても同じ結果になります（そのブランチは公開後に自動で消えます）。
 
-各PCの Listener が起動時、または [設定] → [アップデート] → [更新を確認] で検出します。
+各PCの NaTsu が起動時、または [設定] → [アップデート] → [更新を確認] で検出します。
 
 手元でzipだけ作りたい場合（Releaseは手動で作る）:
 
@@ -312,13 +312,13 @@ node tools/hedit.js move  src/renderer/app.html --node '#x' --after '#y'
 
 ```bash
 npm run hook     # pre-commit フックを据える（クローン直後に1回）
-                 # フックはゲートの後に npm test も走らせる（約15秒。急ぐときは LISTENER_SKIP_TESTS=1）
+                 # フックはゲートの後に npm test も走らせる（約15秒。急ぐときは NATSU_SKIP_TESTS=1）
 ```
 
 危険な変更があると commit が止まります。意図的な場合だけ、理由を残して越えられます。
 
 ```bash
-LISTENER_GATE_OVERRIDE='理由' git commit -m "..."
+NATSU_GATE_OVERRIDE='理由' git commit -m "..."
 ```
 
 ### 実機で1件踏んだら、台帳に1行足す

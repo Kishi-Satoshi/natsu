@@ -5,6 +5,7 @@
  *  - 識別子（name・版・appId・exe の名前）と保存先 %APPDATA%\natsu
  *  - Windows の AppUserModelID とメッセージの窓の見出し
  *  - CHANGELOG は natsu-v0.1.0 から始める（Listener の古い節は持たない）
+ *  - Listener の名前がリポジトリに残っていない（スクリプト・案内・テスト）
  */
 'use strict';
 
@@ -12,6 +13,7 @@ const test = require('node:test');
 const assert = require('node:assert');
 const fs = require('node:fs');
 const path = require('node:path');
+const { execFileSync } = require('node:child_process');
 
 const ROOT = path.join(__dirname, '..');
 const read = (p) => fs.readFileSync(path.join(ROOT, p), 'utf8');
@@ -24,6 +26,8 @@ const readme = read('README.md');
 const install = read('INSTALL.md');
 // 行頭の // コメントと /* */ を落とす（コメントの中の文字で通らないように）
 const code = (t) => String(t).replace(/^[ \t]*\/\/.*$/gm, '').replace(/\/\*[\s\S]*?\*\//g, '');
+// git が登録しているファイル（index の一覧）
+const tracked = () => execFileSync('git', ['ls-files'], { cwd: ROOT, encoding: 'utf8' }).split('\n').map((s) => s.trim()).filter(Boolean);
 
 test('表示名は NaTsu（画面・録音バー・ウィンドウ・トレイ・インストーラーの説明）', () => {
   assert.ok(app.includes('<title>NaTsu</title>'));
@@ -76,4 +80,31 @@ test('CHANGELOG は natsu-v0.1.0 から始まり、Listener の古い節（## v�
   const heads = read('CHANGELOG.md').split('\n').filter((l) => l.startsWith('## '));
   assert.ok(heads.includes('## natsu-v0.1.0'), 'natsu-v0.1.0 の節が無い');
   assert.deepStrictEqual(heads.filter((h) => !/^## natsu-v\d+\.\d+\.\d+$/.test(h)), []);
+});
+
+// 後の作業で変える行。R3-1 で listener-src を、R3-3 で Kishi-Satoshi/Listener を消し、空になったら定数ごと消す
+const UNTIL_R3 = /listener-src|Kishi-Satoshi\/Listener/;
+const TEXT = /\.(js|html|json|md|ps1|bat|yml)$|(^|\/)[^./]+$/;
+test('Listener の名前がリポジトリに残っていない（CHANGELOG の履歴と計画書を除く）', () => {
+  const hits = [];
+  for (const f of tracked()) {
+    if (f === 'CHANGELOG.md' || f.startsWith('docs/plans/') || f === 'test/identity.test.js' || !TEXT.test(f)) continue;
+    read(f).split('\n').forEach((line, i) => {
+      if (/\blistener\b/i.test(line) && !UNTIL_R3.test(line)) hits.push(`${f}:${i + 1}`);
+    });
+  }
+  assert.deepStrictEqual(hits, []);
+  assert.deepStrictEqual(tracked().filter((f) => /listener/i.test(f)), []);
+});
+
+test('CHANGELOG に今の版の節（## natsu-v<version>）がある（release.yml が本文に使う）', () => {
+  assert.match(read('CHANGELOG.md'), new RegExp(`^## natsu-v${pkg.version.replace(/\./g, '\\.')}$`, 'm'));
+});
+
+// 守りのテスト（今は通る）。読んだ文字の U+FEFF を外さずに writePs1 へ渡すと BOM が2つになる（全体の決まり）
+test('.ps1 の BOM は1つだけ（4バイト目から EF BB BF が続かない）', () => {
+  for (const f of tracked().filter((x) => x.endsWith('.ps1'))) {
+    const b = fs.readFileSync(path.join(ROOT, f));
+    assert.ok(!(b[3] === 0xEF && b[4] === 0xBB && b[5] === 0xBF), `${f}: BOM が2つある`);
+  }
 });

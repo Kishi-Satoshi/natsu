@@ -167,7 +167,7 @@ test('#45 打鍵 → デバウンス → IPC が 1 回（タイマーを実際�
   // simrun はタイマーを起こさないので、タイマーを溜める boot で見る（preload はファイルで渡す）
   const os = require('os');
   const { boot } = require('./helpers/boot.js');
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'listener-stage3-'));
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'natsu-stage3-'));
   const pre = path.join(dir, 'preload.js');
   fs.writeFileSync(pre, STAGE3());
   try {
@@ -309,8 +309,8 @@ test('設定: 記録中は要約の文脈長（エンジン起動時の -c）は
 
 // ================= 設定: データ保存先 =================
 // dataDirGet() → { dir, isDefault }、dataDirMove(dir) → { ok, dir, error? }、pickFile('folder') → パスか ''。
-const DEF = 'C:\\Users\\someone\\AppData\\Roaming\\Listener';
-const 別 = 'D:\\Listener';
+const DEF = 'C:\\Users\\someone\\AppData\\Roaming\\natsu';
+const 別 = 'D:\\NaTsu';
 const 保存先欄 = (l) => l.byId.get('dataDirNow');
 const 移動ボタン = (l) => l.byId.get('dataDirMoveBtn');
 const 既定以外 = (l) => l.byId.get('dataDirNote');
@@ -367,7 +367,7 @@ test('データ保存先: 「保存先を変更…」はフォルダを選ばせ
 async function 起動して移す(replies) {
   const os = require('os');
   const { boot } = require('./helpers/boot.js');
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'listener-stage3-'));
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'natsu-stage3-'));
   const pre = path.join(dir, 'preload.js');
   fs.writeFileSync(pre, STAGE3());
   try {
