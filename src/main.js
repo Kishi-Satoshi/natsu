@@ -1969,6 +1969,8 @@ function setupIpc() {
     return ok ? { ok: true, info: '要約エンジンは起動済みです（オフライン動作可）', warning }
       : { ok: false, error: sumEng.lastError || '起動に失敗しました', warning };
   });
+  // 設定の「エンジン：正常／要確認」。置き場所のファイルを見るだけで、エンジンは起動しない（要約は約 3GB: #58）
+  ipcMain.handle('engine:status', () => ({ ok: true, whisper: engineCheck(whisperEng), sum: engineCheck(sumEng) }));
   // 辞書が初期プロンプトの予算に収まっているか（#23）。kept: 収まった語数、total: 辞書の語数。
   // 尻尾（直前の発言）は付けずに数える（辞書そのものの収まり具合を見せるため）
   ipcMain.handle('prompt:info', () => {

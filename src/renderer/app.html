@@ -119,6 +119,10 @@
   .adv summary { cursor: pointer; font-size: 12px; color: var(--muted); margin-bottom: 4px; }
   .adv summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   .adv h3 { font-size: 12px; font-weight: 600; color: var(--muted); margin: 16px 0 10px; }
+  /* 「エンジン：正常／要確認」。詳細設定を閉じたままでも見える */
+  .eng-state { font-size: 12px; font-weight: 600; color: var(--muted); }
+  .eng-state.ok { color: var(--green); }
+  .eng-state.ng { color: var(--danger); }
   .empty { text-align: center; color: var(--muted); padding: 48px 20px; line-height: 1.9; }
   .empty .big { font-size: 15px; color: var(--ink); margin-bottom: 6px; }
   kbd { background: rgba(var(--srf),.72); border: 1px solid rgba(var(--srf),.9);
@@ -566,6 +570,7 @@
           <h2>エンジン</h2>
           <div class="field lockNote" hidden><div class="desc ng">記録中はエンジンの設定を変更できません</div></div>
           <div class="row" style="display:flex;gap:8px;align-items:center">
+            <span class="eng-state" id="engineState"></span>
             <button class="ghost" id="testBtn" type="button">起動テスト</button>
           </div>
           <div class="row" style="display:flex;gap:12px;flex-wrap:wrap;margin-top:6px">
@@ -710,6 +715,11 @@
   $('tabBtnNotes').onclick = () => showTab('notes');
   $('tabBtnDictation').onclick = () => showTab('dictation');
   $('tabBtnSettings').onclick = () => showTab('settings');
+  // エンジンが未設定のときに連れて行く先。パスを貼る欄は閉じた「詳細設定」の中にあるので開いて見せる
+  function showEngineSettings() {
+    showTab('settings');
+    $('engineAdv').open = true;
+  }
 
   let toastT = null;
   function toast(m) {
@@ -1033,7 +1043,7 @@
       try { r = await window.koeApp.pageSummarize(pid); }
       catch (e) { r = { ok: false, error: e && e.message ? e.message : String(e) }; }
       finally { summarizing.delete(pid); }
-      if (!r || !r.ok) { toast((r && r.error) || '生成に失敗しました'); if (/未設定/.test((r && r.error) || '')) showTab('settings'); }
+      if (!r || !r.ok) { toast((r && r.error) || '生成に失敗しました'); if (/未設定/.test((r && r.error) || '')) showEngineSettings(); }
       else toast(`議事録を作成しました（出典 ${r.stat.linked}/${r.stat.total}）`);
       if (pid === curId) await openPage(pid);
     }, !curPage.blocks.length);
@@ -1610,7 +1620,7 @@
 
   $('mtToggleBtn').onclick = async () => {
     const r = await window.koeApp.meetingToggle();
-    if (r && r.ok === false && r.error) { toast(r.error); if (/未設定/.test(r.error)) showTab('settings'); }
+    if (r && r.ok === false && r.error) { toast(r.error); if (/未設定/.test(r.error)) showEngineSettings(); }
     setMeetingUi(await window.koeApp.meetingStatus());
   };
   $('mtDiscardBtn').onclick = async () => {
@@ -1641,7 +1651,7 @@
     }
     curPage = page; curSegs = segments; renderPage();
   });
-  window.koeApp.onNotice((m) => { if (/未設定/.test(m)) showTab('settings'); toast(m); });
+  window.koeApp.onNotice((m) => { if (/未設定/.test(m)) showEngineSettings(); toast(m); });
 
   // ================= 音声入力 =================
   function fmtChars(n) { return n >= 10000 ? `${(n/10000).toFixed(1)}万` : String(n); }
@@ -1860,18 +1870,46 @@
     } catch (_) { /* noop */ }
   }
 
+  // 結果を返す。保存に失敗して試さなかったときは null
   async function runTest(fn, msgId) {
     const m = $(msgId); m.className = 'save-msg';
     m.textContent = '確認中…（初回はモデル読み込みに時間がかかります）';
-    if (!await save(true)) { m.textContent = ''; return; }
+    if (!await save(true)) { m.textContent = ''; return null; }
     const r = await fn();
     // 置き場所の注意（エンジンがアプリのインストール先にある＝更新のたびに消えうる）は、
     // 成否にかかわらず同じ行に添える。成功していても次の更新で壊れるので黙ってはいけない
     const warn = r && r.warning ? `　⚠ ${r.warning}` : '';
     m.textContent = (r.ok ? `✓ ${r.info || 'OK'}` : `✗ ${r.error}`) + warn;
     m.className = r.ok && !warn ? 'save-msg ok' : (r.ok ? 'save-msg' : 'save-msg ng');
+    return r;
   }
-  $('testBtn').onclick = () => runTest(() => window.koeApp.testApi(), 'testMsg');
+
+  // 「エンジン：正常」= 置き場所のファイルがそろっていて（engine:status）、最後の起動テストが失敗していないこと。
+  // 動いている最中の故障（ポートの衝突・落ちた）は今までどおり通知で知らせ、ここには映さない。
+  // 要約エンジンは任意なので数えない。
+  let lastTestError = '';   // 最後にカードの［起動テスト］が失敗したときの理由。通れば ''
+  function setEngineState(ok, why) {
+    const el = $('engineState');
+    el.textContent = ok ? 'エンジン：正常' : `エンジン：要確認（${why}）`;
+    el.className = ok ? 'eng-state ok' : 'eng-state ng';
+    if (!ok) $('engineAdv').open = true;   // 直す欄を見せる
+  }
+  async function refreshEngineState() {
+    if (!window.koeApp.engineStatus) return;   // 古い preload
+    let s;
+    try { s = await window.koeApp.engineStatus(); } catch (_) { return; }
+    // lastTestError は答えの後で読む。保存のときに聞いた分の答えが起動テストの後に届いても、
+    // テストの失敗を「正常」で上書きしない
+    const why = (s && s.whisper) || lastTestError;
+    setEngineState(!why, why);
+  }
+  // カードの起動テスト。要約エンジンは起動しない（約 3GB が会議の間ずっと居座る: #58）。
+  // 要約エンジンを実際に起動して試すのは、詳細設定の中の［起動テスト］（testSumBtn）
+  $('testBtn').onclick = async () => {
+    const r = await runTest(() => window.koeApp.testApi(), 'testMsg');
+    if (r) lastTestError = r.ok ? '' : (r.error || '起動に失敗しました');
+    await refreshEngineState();
+  };
   $('testSumBtn').onclick = () => runTest(() => window.koeApp.testSum(), 'testSumMsg');
 
   // 設定を一度も読み込めていないうちは、絶対に保存しない。
@@ -1944,6 +1982,7 @@
       // 保存はできたが一部が効いていない（ホットキーを登録できなかった等）
       if (r.warning) toast(r.warning);
       refreshVad();
+      refreshEngineState();
       refreshHotkeyState();
       refreshPromptInfo();
       return true;
@@ -2085,6 +2124,7 @@
     fill(settings);
     settingsLoaded = true;   // ここを通るまで save() は書き込まない
     refreshVad();
+    refreshEngineState();
     refreshHotkeyState();
     refreshPromptInfo();
     mtypes = await window.koeApp.meetingTypes();
@@ -2097,7 +2137,7 @@
     await refreshList();
     renderPage();
     setMeetingUi(await window.koeApp.meetingStatus());
-    if (!settings.localServerExe || !settings.localModelPath) showTab('settings');
+    if (!settings.localServerExe || !settings.localModelPath) showEngineSettings();
   })();
 })();
 </script>

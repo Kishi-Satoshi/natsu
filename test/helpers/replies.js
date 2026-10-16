@@ -29,6 +29,8 @@ module.exports = {
   hotkeyState: { ok: true, failed: [], fallback: {}, message: '' },
   testApi: { ok: true, message: 'ok' },
   testSum: { ok: true, message: 'ok' },
+  // 設定の「エンジン：正常」（main 側の契約: 問題が無ければ ''、あれば利用者向けの一文）
+  engineStatus: { ok: true, whisper: '', sum: '' },
   vadStatus: { ready: true, message: '' },
   pickFile: 'C:\\x\\picked.bin',
   appVersion: '0.10.4',

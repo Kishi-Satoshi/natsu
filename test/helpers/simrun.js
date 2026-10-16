@@ -96,6 +96,7 @@ const RETURNS = {
   pageGet: () => null,
   testApi: () => ({ ok: true, info: 'OK' }),
   testSum: () => ({ ok: true, info: 'OK' }),
+  engineStatus: () => ({ ok: true, whisper: '', sum: '' }),
   updateCheck: () => ({ ok: true, update: false, version: '0.10.4', applyable: true }),
   pickFile: () => 'C:\\選んだ\\path.bin',
   copy: () => ({ ok: true }),

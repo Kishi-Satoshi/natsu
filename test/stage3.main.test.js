@@ -238,6 +238,12 @@ test('#58 トレイに「エンジンを停止（メモリを解放）」があ�
   assert.strictEqual((fnBody(m, 'function startEngine(eng)', '\nfunction stopEngine').match(/engineChanged\(\)/g) || []).length, 2, '起動と exit でトレイを更新していない');
 });
 
+// ---------------------------------------------------------------- 「エンジン：正常」（第0a回 R6）
+test('engine:status は engineCheck の結果を返すだけで、エンジンを起動しない', () => {
+  assert.ok(code(main).includes("ipcMain.handle('engine:status', () => ({ ok: true, whisper: engineCheck(whisperEng), sum: engineCheck(sumEng) }));"));
+  assert.ok(preload.includes("  engineStatus: () => ipcRenderer.invoke('engine:status'),"));
+});
+
 // ---------------------------------------------------------------- #54 貼り付け先の確認（判断）
 const { pasterScript, parsePasterLine } = require('../src/mainlib');
 

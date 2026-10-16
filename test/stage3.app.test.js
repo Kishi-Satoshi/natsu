@@ -277,8 +277,54 @@ test('設定: エンジンの細かい設定は閉じた「詳細設定」の中
   const card = adv.closest('.card');
   const desc = (el) => el.children.flatMap((c) => [c, ...desc(c)]);   // simdom は [id] のセレクタを解さない（simdom.js の parseSimple）
   const outside = desc(card).filter((e) => e.id && !e.closest('#engineAdv')).map((e) => e.id);
-  assert.deepStrictEqual(outside.sort(), ['testBtn', 'testMsg', 'testSumMsg']);
+  assert.deepStrictEqual(outside.sort(), ['engineState', 'testBtn', 'testMsg', 'testSumMsg']);
   assert.ok(card.querySelectorAll('.lockNote').some((n) => !n.closest('#engineAdv')), '記録中の理由が閉じた中にしか無い');
+});
+
+// ================= 設定: 「エンジン：正常／要確認」と起動テスト（第0a回 R6） =================
+// 「正常」= 置き場所のファイルがそろっていて（engine:status）、最後の起動テストが失敗していないこと。
+// カードの［起動テスト］は要約エンジンを起動しない（約 3GB が居座る: #58）。要約は engine:status でファイルを見るだけ。
+test('起動すると engineStatus を聞き、問題が無ければ「エンジン：正常」で詳細設定は閉じたまま', async () => {
+  const l = await load(APP);
+  assert.strictEqual(l.called('engineStatus').length, 1);
+  assert.strictEqual(l.byId.get('engineState').textContent, 'エンジン：正常');
+  const adv = l.byId.get('engineAdv');
+  // simdom は open の属性を .open に映さないので、属性も見る
+  assert.ok(!adv.open && !adv.hasAttribute('open'), '詳細設定が開いている');
+});
+
+test('engineStatus が問題を返すと「エンジン：要確認（…）」になり、詳細設定が開く', async () => {
+  const l = await load(APP, { returns: { engineStatus: () => ({ ok: true, whisper: '文字起こしエンジンの実行ファイルまたはモデルが見つかりません', sum: '' }) } });
+  assert.strictEqual(l.byId.get('engineState').textContent, 'エンジン：要確認（文字起こしエンジンの実行ファイルまたはモデルが見つかりません）');
+  assert.strictEqual(l.byId.get('engineAdv').open, true);
+});
+
+test('詳細設定にパスを貼って保存すると、状態を聞き直し、「要確認」が「正常」に戻る', async () => {
+  let st = { ok: true, whisper: '文字起こしエンジンの実行ファイルまたはモデルが見つかりません', sum: '' };
+  const l = await load(APP, { returns: { engineStatus: () => st } });
+  assert.match(l.byId.get('engineState').textContent, /^エンジン：要確認/);
+  st = { ok: true, whisper: '', sum: '' };
+  l.byId.get('tabSettings').dispatchEvent({ type: 'change' });   // 自動保存
+  await l.drain();
+  assert.strictEqual(l.byId.get('engineState').textContent, 'エンジン：正常');
+});
+
+test('起動テストは testApi の後に engineStatus を聞く。要約エンジン（約 3GB）は起動しない。失敗したら状態も要確認になる', async () => {
+  const l = await load(APP, { returns: { testApi: () => ({ ok: false, error: '起動に失敗しました' }) } });
+  const from = l.calls.length;
+  await l.byId.get('testBtn').onclick();
+  await l.drain();
+  const seq = l.calls.slice(from).map((c) => c.method).filter((m) => ['testApi', 'testSum', 'engineStatus'].includes(m));
+  assert.ok(!seq.includes('testSum'), '起動テストが要約エンジンまで起動した（#58: 約 3GB が居座る）');
+  assert.strictEqual(seq.filter((m) => m === 'testApi').length, 1);
+  assert.strictEqual(seq[seq.length - 1], 'engineStatus', '起動テストの後に状態を聞き直していない');
+  assert.ok(seq.indexOf('testApi') < seq.lastIndexOf('engineStatus'));
+  assert.strictEqual(l.byId.get('engineState').textContent, 'エンジン：要確認（起動に失敗しました）');
+});
+
+test('engineStatus の無い古い preload でも、設定画面は落ちない', async () => {
+  const l = await load(APP, { preloadSrc: PRELOAD.replace(/^  engineStatus:.*\n/m, '') });
+  assert.deepStrictEqual(l.errors.map(fmt), []);
 });
 
 test('設定: sumCtx / engineIdleMin を読み込んで欄に出し、無ければ既定（32768 / 10）。0 分は 0 のまま（既定に化けない）', async () => {
