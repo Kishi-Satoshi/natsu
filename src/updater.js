@@ -18,7 +18,7 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 
-// 更新の配布元。fork した場合はここだけ書き換えれば動く。
+// 更新の配布元。変えるときは get-installer.ps1 の $repo も同じにする（identity.test.js が突き合わせる）。
 const REPO = 'Kishi-Satoshi/natsu';
 const API_LATEST = `https://api.github.com/repos/${REPO}/releases/latest`;
 const ASSET_PATTERN = /^natsu-src-.*\.zip$/i;
