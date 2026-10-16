@@ -6,6 +6,7 @@
  *  - 履歴ごと取る（gate.test.js が古いコミットを読む）
  *  - ゲートの基準が使えない値（0 の並び・履歴に無い）でも落ちない
  *  - Windows では .ps1 を Windows PowerShell 5.1 で構文解析し、BOM と CRLF を確かめる
+ *  - release.yml は natsu-v* のタグだけで動き、ci が緑のときだけリリースする（G1-2）
  *
  * GitHub Actions は手元で回せないので、YAML を文字列として読む（test/helpers/yml.js）。
  */
@@ -50,4 +51,36 @@ test('ci.yml: Windows では .ps1 を Windows PowerShell 5.1 で構文解析し�
   const bom = st.find((s) => s.includes('0xEF') && s.includes('i/crlf'));
   assert.ok(bom, 'BOM と CRLF のステップが無い');
   assert.match(bom, /^\s*if: runner\.os == 'Windows'$/m);
+});
+
+// ---------------------------------------------------------------- release.yml（第0a回 G1-2）
+// タグは natsu-v<x.y.z>。古い v* では動かさない。リリースは ci（Linux と Windows）が緑のときだけ。
+const rel = () => read('.github/workflows/release.yml');
+
+test('release.yml: natsu-v* だけで動き、古い v* では動かない', () => {
+  assert.match(rel(), /^    tags:\n      - 'natsu-v\*'$/m);
+  assert.match(rel(), /^    branches:\n      - 'release\/natsu-v\*'$/m);
+  assert.ok(!/- 'v\*'|- 'release\/v\*'/.test(rel()));
+});
+
+test('release.yml: ci を呼び、release は ci が緑のときだけ走る', () => {
+  const j = jobsOf(rel());
+  assert.deepStrictEqual(Object.keys(j), ['ci', 'release', 'installer']);
+  assert.match(j.ci, /^    uses: \.\/\.github\/workflows\/ci\.yml$/m);
+  assert.match(j.release, /^    needs: ci$/m);
+});
+
+test('release.yml: タグは natsu-v<x.y.z> の形で、natsu-v を外した版が package.json と一致する', () => {
+  const r = jobsOf(rel()).release;
+  assert.ok(r.includes('TAG="${INPUT_TAG:-natsu-v${VER}}"'));
+  assert.ok(r.includes('^natsu-v[0-9]+\\.[0-9]+\\.[0-9]+$'));
+  assert.ok(r.includes('"${TAG#natsu-v}" != "$VER"'));
+  assert.ok(!r.includes('${TAG#v}'));
+});
+
+test('release.yml: ゲートとチェックリストは前の natsu-v タグから（無ければ前の v タグ）', () => {
+  const r = jobsOf(rel()).release;
+  assert.ok(r.includes("--match 'natsu-v*' HEAD^") && r.includes("--match 'v*' HEAD^"));
+  assert.ok(r.includes('node tools/risk.js --base "$PREV" --head HEAD --checklist RELEASE-CHECK.md'));
+  assert.ok(!r.includes('--base-tag'));
 });

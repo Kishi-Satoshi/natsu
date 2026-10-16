@@ -5,17 +5,24 @@
 # 更新のたびに失敗しかねないため、更新の配布はこのzipで行う。
 # リリース本文はアプリの [設定] -> [アップデート] にそのまま表示される。
 #
+# タグは natsu-v<x.y.z> の形にする（例: natsu-v0.1.0）。古い v* のタグでは動かない。
+# natsu-v を外した版が package.json の version と一致しないと止まる。
+#
 # 起動のしかたは3通り。どれも結果は同じ。
 #
 #  1. タグを push する（通常はこれ）
-#       git tag -a v0.8.1 -m "変更点をここに書く"
-#       git push origin v0.8.1
+#       git tag -a natsu-v0.1.0 -m "変更点をここに書く"
+#       git push origin natsu-v0.1.0
 #
 #  2. Actions 画面の "Run workflow"（ブラウザだけで完結する）
 #
-#  3. release/v0.8.1 という名前のブランチを push する
+#  3. release/natsu-v0.1.0 という名前のブランチを push する
 #       タグの push を通さないプロキシ環境のための逃げ道。
 #       公開できたらこのブランチは自動で消す。
+#
+# CI が緑のときだけ出す:
+#   最初に ci ジョブが ci.yml を呼び、その commit を Linux と Windows で検査する。
+#   release ジョブは needs: ci なので、両方の OS が緑のときだけ走る。
 #
 # 公開の順序（#33）:
 #   release ジョブは zip と ps1 を添付した「draft」を作るだけで、公開しない。
@@ -30,13 +37,13 @@ name: release
 on:
   push:
     tags:
-      - 'v*'
+      - 'natsu-v*'
     branches:
-      - 'release/v*'
+      - 'release/natsu-v*'
   workflow_dispatch:
     inputs:
       tag:
-        description: '作成するタグ（例: v0.8.0）。省略すると package.json の version から決める'
+        description: '作成するタグ（例: natsu-v0.1.0）。省略すると package.json の version から決める'
         required: false
         type: string
       notes:
@@ -48,7 +55,15 @@ permissions:
   contents: write # リリースとタグの作成に必要
 
 jobs:
+  # その commit を Linux と Windows で検査する（ci.yml と同じ中身）。
+  # 片方でも赤なら release に進まない。
+  ci:
+    uses: ./.github/workflows/ci.yml
+    permissions:
+      contents: read
+
   release:
+    needs: ci
     runs-on: ubuntu-latest
     permissions:
       contents: write # draft の作成と添付
@@ -73,7 +88,7 @@ jobs:
           VER="$(node -p "require('./package.json').version")"
           CLEANUP=''
           if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
-            TAG="${INPUT_TAG:-v${VER}}"
+            TAG="${INPUT_TAG:-natsu-v${VER}}"
           elif [ "${GITHUB_REF#refs/tags/}" != "$GITHUB_REF" ]; then
             TAG="$GITHUB_REF_NAME"
           elif [ "${GITHUB_REF#refs/heads/release/}" != "$GITHUB_REF" ]; then
@@ -83,8 +98,13 @@ jobs:
             echo "::error::想定外の ref です: $GITHUB_REF"
             exit 1
           fi
+          # タグの形は natsu-v<x.y.z> だけ。違う形のまま出すと、アプリの更新確認が読めない
+          if ! [[ "$TAG" =~ ^natsu-v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::タグ ($TAG) が natsu-v<x.y.z> の形ではありません"
+            exit 1
+          fi
           # 版ずれのまま公開すると、配布先が更新を受け取れない／取り違える
-          if [ "${TAG#v}" != "$VER" ]; then
+          if [ "${TAG#natsu-v}" != "$VER" ]; then
             echo "::error::タグ ($TAG) と package.json ($VER) のバージョンが一致しません"
             exit 1
           fi
@@ -101,16 +121,21 @@ jobs:
 
       # 前のタグからの差分で「新たに壊れたもの」を見る。
       # pre-commit を --no-verify で越えても、ここで必ず捕まる。
+      # 基準は前の natsu-v タグ。無ければ前の v タグ（Listener の最後の版）、それも無ければ最初の commit。
+      # 決めた基準は PREV として次のステップ（チェックリスト）へ渡す。
       - name: 変更危険度ゲート（前のタグ→HEAD）
         run: |
-          PREV=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || git rev-list --max-parents=0 HEAD)
+          PREV="$(git describe --tags --abbrev=0 --match 'natsu-v*' HEAD^ 2>/dev/null \
+            || git describe --tags --abbrev=0 --match 'v*' HEAD^ 2>/dev/null \
+            || git rev-list --max-parents=0 HEAD | tail -n 1)"
           echo "基準: $PREV"
+          echo "PREV=$PREV" >> "$GITHUB_ENV"
           node tools/risk.js --base "$PREV" --head HEAD
 
-      # 変更内容から、実機で見るべき項目だけを出す
+      # 変更内容から、実機で見るべき項目だけを出す（基準はゲートと同じ PREV）
       - name: 実機確認チェックリスト
         run: |
-          node tools/risk.js --base-tag --checklist RELEASE-CHECK.md || true
+          node tools/risk.js --base "$PREV" --head HEAD --checklist RELEASE-CHECK.md || true
           if [ -f RELEASE-CHECK.md ]; then cat RELEASE-CHECK.md >> "$GITHUB_STEP_SUMMARY"; fi
 
       - name: 配布zipを作る
@@ -141,7 +166,7 @@ jobs:
             NOTES="$(git tag -l --format='%(contents)' "$TAG")"
           fi
           if blank "$NOTES"; then
-            NOTES="Listener ${TAG}"
+            NOTES="NaTsu ${TAG}"
           fi
           # 前後の空行を落とす
           printf '%s\n' "$NOTES" | sed -e '/./,$!d' | tac | sed -e '/./,$!d' | tac > "$RUNNER_TEMP/notes.md"
@@ -273,10 +298,10 @@ jobs:
             echo ""
             echo "- リリース \`$TAG\` は draft のまま残っています。\`releases/latest\` には出ないので、配布先には前の版が見え続けます。"
             echo "- このワークフローを再実行するか、Releases ページで draft を確かめてください。"
-            echo "- 一時ブランチ \`release/v*\` を使った場合、そのブランチは消していません。"
+            echo "- 一時ブランチ \`release/natsu-v*\` を使った場合、そのブランチは消していません。"
           } >> "$GITHUB_STEP_SUMMARY"
 
-      # 一時ブランチ release/v* は「公開できた後」に消す。
+      # 一時ブランチ release/natsu-v* は「公開できた後」に消す。
       # draft の間はタグが無いので、先に消すとコミットが宙に浮く。
       # 削除にコミット履歴は要らない（checkout は浅いまま。資格情報だけ使う）。
       - name: 一時ブランチを片付ける

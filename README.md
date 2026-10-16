@@ -238,18 +238,20 @@ npm start
 ### リリース手順
 
 1. `package.json` の `version` を上げる
-2. `CHANGELOG.md` に `## v0.8.1` の節を足して変更点を書く
+2. `CHANGELOG.md` に `## natsu-v0.1.0` の節を足して変更点を書く
 3. コミットしてタグを push する
 
 ```bash
-git tag -a v0.8.1 -m "リリース"
-git push origin v0.8.1
+git tag -a natsu-v0.1.0 -m "リリース"
+git push origin natsu-v0.1.0
 ```
 
 `.github/workflows/release.yml` がテストを回し、zipを作り、Releaseを公開します。
+その commit で Linux と Windows の CI（`.github/workflows/ci.yml`）が両方緑のときだけ出ます。
 `CHANGELOG.md` の該当節がそのままリリース本文になり、アプリの
 [設定] → [アップデート] に表示されます。
-タグと `package.json` のバージョンが食い違うとワークフローが止まります。
+タグは `natsu-v<版>` の形にします（古い `v<版>` のタグでは動きません）。
+形が違うときと、`natsu-v` を外した版が `package.json` のバージョンと食い違うときは、ワークフローが止まります。
 
 Release はまず **draft** として作られ（zip と ps1 を添付）、Windows ランナーで
 `Listener-<版>-setup.exe` を添付できてから公開（latest）になります。
@@ -259,7 +261,7 @@ exe の添付に失敗すると draft のまま残り、Actions の要約に赤�
 そのときはワークフローを再実行するか、Releases ページで draft を確かめてください。
 
 タグを push できない環境（プロキシが `refs/tags` を拒否する等）では、
-Actions 画面の **Run workflow**、または `release/v0.8.1` という名前の
+Actions 画面の **Run workflow**、または `release/natsu-v0.1.0` という名前の
 ブランチを push しても同じ結果になります（そのブランチは公開後に自動で消えます）。
 
 各PCの Listener が起動時、または [設定] → [アップデート] → [更新を確認] で検出します。
@@ -267,7 +269,7 @@ Actions 画面の **Run workflow**、または `release/v0.8.1` という名前�
 手元でzipだけ作りたい場合（Releaseは手動で作る）:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\make-release.ps1 -Version 0.8.1
+powershell -ExecutionPolicy Bypass -File .\make-release.ps1 -Version 0.1.0
 ```
 
 適用前に現行の `src/` を `src.backup-*` として退避するので、

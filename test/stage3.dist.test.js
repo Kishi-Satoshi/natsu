@@ -30,11 +30,12 @@ function ghCommand(text, sub) {
   return joined.match(new RegExp(`gh release ${sub}[^\\n]*`, 'g')) || [];
 }
 
-test('release.yml が簡易に読める（タブ無し・ジョブは release と installer・各ステップに名前）', () => {
+test('release.yml が簡易に読める（タブ無し・ジョブは ci と release と installer・各ステップに名前）', () => {
   assert.ok(!/\t/.test(yml), 'YAML にタブがある');
   const j = jobs();
-  assert.deepStrictEqual(Object.keys(j), ['release', 'installer']);
+  assert.deepStrictEqual(Object.keys(j), ['ci', 'release', 'installer']);
   for (const [name, body] of Object.entries(j)) {
+    if (!body.includes('\n    steps:\n')) continue; // ci は ci.yml を呼ぶだけで、steps を持たない
     const names = stepsOf(body).map((s) => nameOf(s));
     names.forEach((n, k) => assert.ok(n, `${name} ジョブに名前の無いステップがある（${k + 1} 番目）`));
     assert.strictEqual(new Set(names).size, names.length, `${name} ジョブに同じ名前のステップが 2 つある（貼り間違い）: ${names.join(' / ')}`);

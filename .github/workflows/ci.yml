@@ -13,7 +13,7 @@ on:
   push:
     branches:
       - '**'
-      - '!release/**' # release/v* は release.yml が ci を呼ぶので、ここでは動かさない
+      - '!release/**' # release/natsu-v* は release.yml が ci を呼ぶので、ここでは動かさない
   pull_request:
   workflow_dispatch:
   workflow_call:
