@@ -139,26 +139,22 @@ function section(md, heading) {
   return j < 0 ? rest : rest.slice(0, j);
 }
 
-test('#29 README の「データ保存先」に、設定で変えられる・Roaming の注意・元は消さない・segbuf は従来の場所、が書いてある', () => {
+// 保存先は <userData>/data だけ（第0a回 R6）。移す案内は消し、Roaming の同期の注意は1行だけ残す（Q10）
+test('README の「データ保存先」は %APPDATA%\\natsu\\ だけを案内し、保存先の変更を書いていない', () => {
   const sec = section(read('README.md'), '## データ保存先');
-  assert.ok(sec, 'README に「## データ保存先」が無い');
-  // 既存テスト（READMEのデータ保存先が実際の保存先と一致する）が見ている文字列は残す
-  assert.ok(sec.includes('%APPDATA%\\natsu'), '既定の保存先 %APPDATA%\\natsu が節から消えた');
-  assert.ok(/既定は[^\n]*今まで通り|今まで通り[^\n]*既定/.test(sec), '既定が今まで通りであることが書いていない');
-  assert.ok(/保存先を変更/.test(sec), '設定の「保存先を変更…」で変えられることが書いていない');
-  assert.ok(/Roaming/.test(sec) && /同期/.test(sec), 'Roaming 配下がプロファイル同期で複製されうる注意が無い');
-  assert.ok(/%LOCALAPPDATA%/.test(sec), '%LOCALAPPDATA% 配下へ移せることが書いていない');
-  assert.ok(/元の場所[^\n]*消しません/.test(sec), '移動しても元の場所のデータは消さないことが書いていない');
-  assert.ok(/segbuf[^\n]*従来の場所|従来の場所[^\n]*segbuf/.test(sec), '退避フォルダ segbuf は従来の場所のまま、が書いていない');
+  assert.ok(sec.includes('%APPDATA%\\natsu\\'));
+  assert.ok(!/保存先を変更/.test(sec));
+  assert.ok(!/%LOCALAPPDATA%[^\n]*data/.test(sec));
+  assert.ok(!/設定で変えられる/.test(sec), 'data/ の行に「設定で変えられる」が残っている');
+  assert.ok(/Roaming[^\n]*同期|同期[^\n]*Roaming/.test(sec), 'Roaming の同期の注意（1行）が無い');
 });
 
-test('#29 INSTALL の「データの保存先とバックアップ」に Roaming の注意がある', () => {
+test('INSTALL の「データの保存先とバックアップ」は %APPDATA%\\natsu\\ だけを案内し、保存先の変更を書いていない', () => {
   const sec = section(read('INSTALL.md'), '## データの保存先とバックアップ');
-  assert.ok(sec, 'INSTALL に「## データの保存先とバックアップ」が無い');
-  assert.ok(sec.includes('%APPDATA%\\natsu'), '既定の保存先が節から消えた');
-  assert.ok(/Roaming/.test(sec) && /同期/.test(sec), 'Roaming の注意が無い');
-  assert.ok(/保存先を変更/.test(sec) && /%LOCALAPPDATA%/.test(sec), '設定で %LOCALAPPDATA% 配下へ移せることが書いていない');
-  assert.ok(/元の場所[^\n]*消しません/.test(sec), '元の場所のデータは消さないことが書いていない');
+  assert.ok(sec.includes('%APPDATA%\\natsu\\'));
+  assert.ok(!/保存先を変更/.test(sec));
+  assert.ok(!/%LOCALAPPDATA%[^\n]*data/.test(sec));
+  assert.ok(/Roaming[^\n]*同期|同期[^\n]*Roaming/.test(sec), 'Roaming の同期の注意（1行）が無い');
 });
 
 test('#58 INSTALL に「常駐メモリの目安」がある（whisper 0.8〜1.2GB・要約時に約 3GB・既定 10 分でアイドル解放・設定名）', () => {
