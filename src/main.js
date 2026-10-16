@@ -905,12 +905,17 @@ function positionOverlay() {
   setTimeout(() => { programmaticMove = false; }, 80);
 }
 
+// 窓（題名の帯・タスクバー）のアイコン。Windows では ICO を渡す。ICO なら OS が画面に合う大きさを選び、
+// 16px・24px では線を太くした小さい版（assets/icon-small.svg から描いたもの）が出る。
+// PNG（256px）を渡すと、それを縮めて使うので、16px で箱の上の波がほとんど見えなくなる。
+const WINDOW_ICON = path.join(__dirname, '..', 'assets', process.platform === 'win32' ? 'icon.ico' : 'icon.png');
+
 function createMainWindow() {
   if (mainWin && !mainWin.isDestroyed()) { mainWin.show(); mainWin.focus(); return; }
   mainWin = new BrowserWindow({
     width: 1120, height: 780, minWidth: 820, minHeight: 560,
     title: 'NaTsu',
-    icon: path.join(__dirname, '..', 'assets', 'icon.png'),
+    icon: WINDOW_ICON,
     // 地色は CSS が効く前の一瞬に見える色。ライト固定だとダークで
     // 開くたび・リサイズのたびに白くまたたく。
     backgroundColor: nativeTheme.shouldUseDarkColors ? '#171a21' : '#E9EDF5',

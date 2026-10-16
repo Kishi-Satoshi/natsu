@@ -7,6 +7,9 @@
  *  - ロゴ D: assets/icon.svg の3本の path、icon.ico と icon.png の大きさと色、端が切れていないこと（Q7）
  *  - tools/icon-render.js で icon.svg を描くと、icon.ico と icon.png に一致する（描き直し忘れを止める。Q6）
  *  - トレイ: 待機はロゴ D、録音中はロゴ D の右下に赤い点の印。どちらも元の SVG を描いたものと一致する（Q8）
+ *  - 小さい版: 32px 未満（ICO の 16・20・24）は assets/icon-small.svg と assets/tray-rec-small.svg から描く。
+ *    波を太く高く、枠と N も少し太くして、16px でも箱の上の波（海の色）が見える。線は viewBox の中に収まる
+ *  - 窓のアイコンは、Windows では icon.ico を渡す（OS が 16px・24px の小さい版を選べるように）
  *
  * 依存は足さない（node の zlib だけ）。
  */
@@ -145,6 +148,18 @@ const D = [
 const near = (a, b, d = 2) => a.every((v, i) => Math.abs(v - b[i]) <= d);
 const pxOf = (img) => (x, y) => [...img.rgba.subarray((y * img.width + x) * 4, (y * img.width + x) * 4 + 4)];
 
+// 小さい版（実機の 16px の題名の帯・タスクバーで、箱の上の波がほとんど見えなかった）。
+// 32px 未満は小さい版の SVG から描く。32px 以上は今の SVG のまま。
+const SMALL_BELOW = 32;
+const SEA = [14, 140, 174, 255]; // #0e8cae（夏の海の色）
+// 上から rows 段の中で、海の色にほぼそのままの画素（各色 ±16・不透明）を数える
+const seaCount = (img, rows) => {
+  const px = pxOf(img);
+  let c = 0;
+  for (let y = 0; y < rows; y++) for (let x = 0; x < img.width; x++) if (near(px(x, y), SEA, 16)) c++;
+  return c;
+};
+
 test('ロゴ D の SVG は指定の3本の path を、この順で持つ', () => {
   const svg = fs.readFileSync(path.join(ROOT, 'assets/icon.svg'), 'utf8');
   assert.ok(svg.includes('viewBox="0 0 64 64"'));
@@ -177,11 +192,13 @@ test('icon.png の上下左右の端の1列は透明（線が viewBox からは�
   assert.deepStrictEqual(hits.slice(0, 5), [], `線が端で切れている（${hits.length} 画素）`);
 });
 
-test('icon.png と icon.ico の各大きさは、icon.svg を tools/icon-render.js で描いたものと同じ（描き直し忘れを止める。Q6）', () => {
+test('icon.png と icon.ico の各大きさは、icon.svg（32 未満は icon-small.svg）を tools/icon-render.js で描いたものと同じ（描き直し忘れを止める。Q6）', () => {
   const { renderSvg } = require('../tools/icon-render.js');
   const svg = fs.readFileSync(path.join(ROOT, 'assets/icon.svg'), 'utf8');
+  const small = fs.readFileSync(path.join(ROOT, 'assets/icon-small.svg'), 'utf8');
   for (const e of parseIco(fs.readFileSync(path.join(ROOT, 'assets/icon.ico')))) {
-    assert.ok(decodePng(e.png).rgba.equals(renderSvg(svg, e.width)), `icon.ico の ${e.width} が icon.svg と合わない（node tools/icon-render.js で描き直す）`);
+    const [src, name] = e.width < SMALL_BELOW ? [small, 'icon-small.svg'] : [svg, 'icon.svg'];
+    assert.ok(decodePng(e.png).rgba.equals(renderSvg(src, e.width)), `icon.ico の ${e.width} が ${name} と合わない（node tools/icon-render.js で描き直す）`);
   }
   assert.ok(decodePng(fs.readFileSync(path.join(ROOT, 'assets/icon.png'))).rgba.equals(renderSvg(svg, 256)), 'icon.png が icon.svg と合わない（node tools/icon-render.js で描き直す）');
 });
@@ -258,13 +275,95 @@ test('録音中の SVG は、ロゴ D の path を同じ順でそのまま持ち
   assert.ok(paths(rec).length > D.length, '印の path が無い');
 });
 
-test('トレイの ICO と PNG は、元の SVG を tools/icon-render.js で描いたものと同じ（描き直し忘れを止める）', () => {
+test('トレイの ICO と PNG は、元の SVG（32 未満は小さい版）を tools/icon-render.js で描いたものと同じ（描き直し忘れを止める）', () => {
   const { renderSvg } = require('../tools/icon-render.js');
-  for (const [src, base] of [['assets/icon.svg', 'src/assets/tray'], ['assets/tray-rec.svg', 'src/assets/tray-rec']]) {
+  for (const [src, smallSrc, base] of [
+    ['assets/icon.svg', 'assets/icon-small.svg', 'src/assets/tray'],
+    ['assets/tray-rec.svg', 'assets/tray-rec-small.svg', 'src/assets/tray-rec'],
+  ]) {
     const svg = fs.readFileSync(path.join(ROOT, src), 'utf8');
+    const small = fs.readFileSync(path.join(ROOT, smallSrc), 'utf8');
     for (const e of parseIco(fs.readFileSync(path.join(ROOT, `${base}.ico`)))) {
-      assert.ok(decodePng(e.png).rgba.equals(renderSvg(svg, e.width)), `${base}.ico の ${e.width} が ${src} と合わない（node tools/icon-render.js で描き直す）`);
+      const [s, name] = e.width < SMALL_BELOW ? [small, smallSrc] : [svg, src];
+      assert.ok(decodePng(e.png).rgba.equals(renderSvg(s, e.width)), `${base}.ico の ${e.width} が ${name} と合わない（node tools/icon-render.js で描き直す）`);
     }
     assert.ok(decodePng(fs.readFileSync(path.join(ROOT, `${base}.png`))).rgba.equals(renderSvg(svg, 32)), `${base}.png が ${src} と合わない（node tools/icon-render.js で描き直す）`);
   }
+});
+
+// ---------------------------------------------------------------- 小さい版（16〜24px）
+// 実機の Windows で、16px の題名の帯・タスクバーのアイコンの、箱の上の波（海の色）がほとんど見えなかった。
+// 32px 未満は assets/icon-small.svg（録音中は assets/tray-rec-small.svg）から描く。
+// 形はロゴ D のまま、波を太く高く（山と谷を大きく）、枠と N も少し太くする。32px 以上は今のまま。
+
+test('小さい版（assets/icon-small.svg）はロゴ D と同じ3本・同じ色で、波は太く高く、枠と N も少し太い', () => {
+  const { parseSvg } = require('../tools/icon-render.js');
+  const big = parseSvg(fs.readFileSync(path.join(ROOT, 'assets/icon.svg'), 'utf8'));
+  const small = parseSvg(fs.readFileSync(path.join(ROOT, 'assets/icon-small.svg'), 'utf8'));
+  assert.deepStrictEqual([small.vx, small.vy, small.vw], [0, 0, 64]);
+  assert.strictEqual(small.paths.length, 3);
+  const colors = (s) => s.paths.map((p) => [p.fill, p.stroke]);
+  assert.deepStrictEqual(colors(small), colors(big), '色（白い箱と黒い枠・海の色の波・黒い N）が違う');
+  const [box, wave, n] = small.paths;
+  assert.ok(wave.half * 2 >= 6 && wave.half * 2 <= 7, `波の太さ ${wave.half * 2}（6〜7）`);
+  assert.ok(wave.half > box.half, '波が枠より細いと、波の縁から枠の黒がはみ出す');
+  assert.ok(box.half > big.paths[0].half, `枠が太くなっていない（${box.half * 2}）`);
+  assert.ok(n.half > big.paths[2].half, `N が太くなっていない（${n.half * 2}）`);
+  const ys = (p) => p.subs.flatMap((s) => s.pts.map((q) => q[1]));
+  const tall = (p) => Math.max(...ys(p)) - Math.min(...ys(p));
+  assert.ok(tall(wave) > tall(big.paths[1]), `波の高さ ${tall(wave)}（今の icon.svg は ${tall(big.paths[1])}）`);
+});
+
+test('小さい版の線は、太さの半分まで含めて viewBox の中に収まる（端が切れない）', () => {
+  const { parseSvg } = require('../tools/icon-render.js');
+  for (const f of ['assets/icon-small.svg', 'assets/tray-rec-small.svg']) {
+    const { vx, vy, vw, paths } = parseSvg(fs.readFileSync(path.join(ROOT, f), 'utf8'));
+    const out = [];
+    paths.forEach((p, i) => {
+      const r = p.stroke ? p.half : 0;
+      for (const s of p.subs) {
+        for (const [x, y] of s.pts) {
+          if (x - r < vx || y - r < vy || x + r > vx + vw || y + r > vy + vw) out.push(`${i + 1} 本目の (${x}, ${y})`);
+        }
+      }
+    });
+    assert.deepStrictEqual(out.slice(0, 5), [], `${f} の線が viewBox からはみ出す（${out.length} 点）`);
+  }
+});
+
+test('録音中の小さい版は、小さい版のロゴ D の path を同じ順でそのまま持ち、印は tray-rec.svg と同じ', () => {
+  const paths = (f) => fs.readFileSync(path.join(ROOT, f), 'utf8').match(/<path\b[^>]*>/g) || [];
+  const small = paths('assets/icon-small.svg');
+  const recSmall = paths('assets/tray-rec-small.svg');
+  assert.strictEqual(small.length, D.length);
+  assert.deepStrictEqual(recSmall.slice(0, D.length), small, 'ロゴ D の小さい版の path が icon-small.svg と違う');
+  assert.deepStrictEqual(recSmall.slice(D.length), paths('assets/tray-rec.svg').slice(D.length), '印が tray-rec.svg と違う');
+});
+
+test('icon.ico の 16 と 24 は小さい版で、上の段に海の色の波がはっきり見える（32 以上は今のまま）', () => {
+  const ico = parseIco(fs.readFileSync(path.join(ROOT, 'assets/icon.ico')));
+  const at = (w) => decodePng(ico.find((e) => e.width === w).png);
+  // 上の 1/4（SVG の y 0〜16。N の上端より上）に、海の色の画素がまとまってある
+  const c16 = seaCount(at(16), 4);
+  assert.ok(c16 >= 6, `16px の上の4段に海の色が ${c16} 画素しかない（6 以上）`);
+  const c24 = seaCount(at(24), 6);
+  assert.ok(c24 >= 14, `24px の上の6段に海の色が ${c24} 画素しかない（14 以上）`);
+});
+
+test('トレイの 16px（待機・録音中）も、上の段に海の色の波がはっきり見える', () => {
+  for (const f of ['src/assets/tray.ico', 'src/assets/tray-rec.ico']) {
+    const e = parseIco(fs.readFileSync(path.join(ROOT, f))).find((x) => x.width === 16);
+    const c = seaCount(decodePng(e.png), 4);
+    assert.ok(c >= 6, `${f} の 16px の上の4段に海の色が ${c} 画素しかない（6 以上）`);
+  }
+});
+
+test('窓のアイコンは、Windows では icon.ico を渡す（PNG の 256 を縮めると 16px で波が消える。ICO なら OS が小さい版を選ぶ）', () => {
+  const main = fs.readFileSync(path.join(ROOT, 'src/main.js'), 'utf8');
+  assert.match(main, /const WINDOW_ICON = path\.join\(__dirname, '\.\.', 'assets', process\.platform === 'win32' \? 'icon\.ico' : 'icon\.png'\);/);
+  const i = main.indexOf('function createMainWindow');
+  assert.ok(i >= 0, 'createMainWindow が無い');
+  const body = main.slice(i, main.indexOf('\n}\n', i));
+  assert.match(body, /\bicon:\s*WINDOW_ICON\s*,/, 'メインの窓が WINDOW_ICON を使っていない');
+  assert.ok(!/icon:\s*path\.join\([^)]*'icon\.png'\)/.test(main), '窓のアイコンに icon.png を直に渡している');
 });

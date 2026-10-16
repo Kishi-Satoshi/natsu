@@ -7,6 +7,8 @@
 //     - assets/icon.svg     → assets/icon.png（256）と assets/icon.ico（16〜256）
 //     - assets/icon.svg     → src/assets/tray.png（32）と src/assets/tray.ico（16〜64）       … トレイ（待機）
 //     - assets/tray-rec.svg → src/assets/tray-rec.png（32）と src/assets/tray-rec.ico（16〜64） … トレイ（録音中）
+//   32px 未満（ICO の 16・20・24）は、小さい版の SVG（assets/icon-small.svg・assets/tray-rec-small.svg）から描く。
+//   16px の題名の帯・タスクバーで箱の上の波が見えなかったため、小さい版は波を太く高く、枠と N も少し太くしてある。
 //
 // 描けるのは、ロゴが使うものだけ:
 //   - 要素は <svg>（正方形の viewBox）と <path> だけ
@@ -26,6 +28,7 @@ const { encodePng, packIco, parseIco } = require('./ico.js');
 const ROOT = path.resolve(__dirname, '..');
 const ICON_SIZES = [16, 24, 32, 48, 64, 128, 256]; // 今の icon.ico と同じ並び（package.json の build.win.icon）
 const TRAY_SIZES = [16, 20, 24, 32, 48, 64];       // 今の tray*.ico と同じ並び（main.js の makeTrayIcon）
+const SMALL_BELOW = 32; // これより小さい大きさは、小さい版の SVG（TARGETS の small）から描く
 const SUB = 8;      // 1画素あたりの点の数（縦横それぞれ）
 const Q_STEPS = 32; // 2次ベジェを折れ線にするときの分け数
 
@@ -226,22 +229,25 @@ function renderSvg(text, size) {
 }
 
 // 書き出すもの。トレイ（第0a回 R4-3。Q8）は名前と大きさを今のまま、src の下に置く（アプリ内の更新で入れ替わるように）。
+// small は SMALL_BELOW より小さい大きさに使う SVG（形は svg と同じで、線を太くした小さい版）。
 const TARGETS = [
-  { svg: 'assets/icon.svg', png: { file: 'assets/icon.png', size: 256 }, ico: { file: 'assets/icon.ico', sizes: ICON_SIZES } },
-  { svg: 'assets/icon.svg', png: { file: 'src/assets/tray.png', size: 32 }, ico: { file: 'src/assets/tray.ico', sizes: TRAY_SIZES } },
-  { svg: 'assets/tray-rec.svg', png: { file: 'src/assets/tray-rec.png', size: 32 }, ico: { file: 'src/assets/tray-rec.ico', sizes: TRAY_SIZES } },
+  { svg: 'assets/icon.svg', small: 'assets/icon-small.svg', png: { file: 'assets/icon.png', size: 256 }, ico: { file: 'assets/icon.ico', sizes: ICON_SIZES } },
+  { svg: 'assets/icon.svg', small: 'assets/icon-small.svg', png: { file: 'src/assets/tray.png', size: 32 }, ico: { file: 'src/assets/tray.ico', sizes: TRAY_SIZES } },
+  { svg: 'assets/tray-rec.svg', small: 'assets/tray-rec-small.svg', png: { file: 'src/assets/tray-rec.png', size: 32 }, ico: { file: 'src/assets/tray-rec.ico', sizes: TRAY_SIZES } },
 ];
 
 function renderTargets(root = ROOT) {
   const written = [];
   for (const t of TARGETS) {
-    const svg = fs.readFileSync(path.join(root, t.svg), 'utf8');
+    const big = fs.readFileSync(path.join(root, t.svg), 'utf8');
+    const small = t.small ? fs.readFileSync(path.join(root, t.small), 'utf8') : big;
+    const draw = (s) => renderSvg(s < SMALL_BELOW ? small : big, s);
     if (t.png) {
-      fs.writeFileSync(path.join(root, t.png.file), encodePng(t.png.size, t.png.size, renderSvg(svg, t.png.size)));
+      fs.writeFileSync(path.join(root, t.png.file), encodePng(t.png.size, t.png.size, draw(t.png.size)));
       written.push(`${t.png.file}: ${t.png.size} px`);
     }
     if (t.ico) {
-      const ico = packIco(t.ico.sizes.map((s) => encodePng(s, s, renderSvg(svg, s))));
+      const ico = packIco(t.ico.sizes.map((s) => encodePng(s, s, draw(s))));
       fs.writeFileSync(path.join(root, t.ico.file), ico);
       written.push(`${t.ico.file}: ${parseIco(ico).map((e) => e.width).join(', ')} px`);
     }
@@ -249,7 +255,7 @@ function renderTargets(root = ROOT) {
   return written;
 }
 
-module.exports = { ICON_SIZES, TRAY_SIZES, TARGETS, parseSvg, renderSvg, renderTargets };
+module.exports = { ICON_SIZES, TRAY_SIZES, SMALL_BELOW, TARGETS, parseSvg, renderSvg, renderTargets };
 
 if (require.main === module) {
   for (const line of renderTargets()) console.log(line);
