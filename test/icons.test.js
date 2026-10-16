@@ -358,12 +358,23 @@ test('トレイの 16px（待機・録音中）も、上の段に海の色の波
   }
 });
 
-test('窓のアイコンは、Windows では icon.ico を渡す（PNG の 256 を縮めると 16px で波が消える。ICO なら OS が小さい版を選ぶ）', () => {
+test('窓のアイコンは、Windows では ICO を渡す（PNG の 256 を縮めると 16px で波が消える。ICO なら OS が小さい版を選ぶ）', () => {
   const main = fs.readFileSync(path.join(ROOT, 'src/main.js'), 'utf8');
-  assert.match(main, /const WINDOW_ICON = path\.join\(__dirname, '\.\.', 'assets', process\.platform === 'win32' \? 'icon\.ico' : 'icon\.png'\);/);
+  assert.match(main, /const WINDOW_ICON = path\.join\(__dirname, 'assets', process\.platform === 'win32' \? 'window\.ico' : 'window\.png'\);/);
   const i = main.indexOf('function createMainWindow');
   assert.ok(i >= 0, 'createMainWindow が無い');
   const body = main.slice(i, main.indexOf('\n}\n', i));
   assert.match(body, /\bicon:\s*WINDOW_ICON\s*,/, 'メインの窓が WINDOW_ICON を使っていない');
   assert.ok(!/icon:\s*path\.join\([^)]*'icon\.png'\)/.test(main), '窓のアイコンに icon.png を直に渡している');
+});
+
+test('窓のアイコンは src/assets に置き、中身は assets/icon.ico・icon.png と同じ（アプリ内の更新は src/ だけを入れ替える。0.1.1）', () => {
+  for (const [inSrc, build] of [['src/assets/window.ico', 'assets/icon.ico'], ['src/assets/window.png', 'assets/icon.png']]) {
+    assert.ok(fs.readFileSync(path.join(ROOT, inSrc)).equals(fs.readFileSync(path.join(ROOT, build))),
+      `${inSrc} と ${build} が違う（node tools/icon-render.js で描き直す）`);
+  }
+  const main = fs.readFileSync(path.join(ROOT, 'src/main.js'), 'utf8');
+  // 窓とトレイの代わりの絵が、src の外（更新で届かない assets/）を指していない
+  assert.ok(!/path\.join\(__dirname, '\.\.', 'assets'/.test(main), 'src/main.js が src の外の assets/ を読んでいる');
+  assert.ok(require('../tools/icon-render.js').TARGETS.some((t) => t.ico && t.ico.file === 'src/assets/window.ico'), 'icon-render.js が window.ico を書き出さない');
 });

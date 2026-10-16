@@ -43,7 +43,7 @@ const {
   extractNotes, truncationMessage, buildPromptParts,
   publicSegments, settledSegments, pendingDurationMs, recoverSegments, staleSegbufDirs, nextSegmentMs, EtaTracker,
   skipPendingSegments, restoreAfterPaste,
-  estimateTokens, foldNotes, idleEnginesToStop,
+  estimateTokens, foldNotes, idleEnginesToStop, silentWav,
 } = require('./mainlib');
 
 // package.json の build.appId の写し。配る package.json から build は消えるので、ここに持つ
@@ -530,37 +530,85 @@ function restartEnginesIfNeeded() {
 async function transcribeLocal(wavBuffer, extraPromptTail, durationMs) {
   const ok = await ensureEngineReady(whisperEng);
   if (!ok) throw new Error(whisperEng.lastError || '文字起こしエンジンが起動していません');
-  const form = new FormData();
-  form.append('file', new Blob([wavBuffer], { type: 'audio/wav' }), 'audio.wav');
-  form.append('response_format', 'json');
-  form.append('temperature', '0.0');
-  if (settings.language && settings.language !== 'auto') form.append('language', settings.language);
-  const prompt = buildPrompt(extraPromptTail);
-  if (prompt) {
-    form.append('prompt', prompt);
-    // これが無いと語彙のヒントが各リクエストの最初の30秒にしか効かない。
-    // 1区間は75秒あるので、2/3が素の状態で書き起こされていた。
-    // 古いビルドでは黙って無視されるだけで害は無い。
-    form.append('carry_initial_prompt', 'true');
-  }
-
   // 処理時間は音声の長さにほぼ比例する。固定240秒だと、長くなった区間や
   // 長い音声入力が時間切れで丸ごと失われる（実機で9分の区間が消えた）。
   // 音声の5倍+60秒まで、上限30分で待つ。短い区間は今まで通り。
   // トレードオフ: エンジンが応答しないままハングした場合、この時間まで
   // 待ち続ける（議事録は「破棄」で抜けられる）。喪失よりは待ちを選ぶ。
   const waitMs = Math.min(1800000, Math.max(240000, Math.round(durationMs || 0) * 5 + 60000));
-  touchEngine(whisperEng);
-  const res = await fetch(`http://127.0.0.1:${settings.localPort}/inference`,
-    { method: 'POST', body: form, signal: AbortSignal.timeout(waitMs) });
-  touchEngine(whisperEng);
-  if (!res.ok) {
-    let detail = '';
-    try { detail = (await res.json())?.error || ''; } catch (_) { /* noop */ }
-    throw new Error(`文字起こしエンジンエラー (${res.status})${detail ? `: ${detail}` : ''}`);
+  const prompt = buildPrompt(extraPromptTail);
+  // 語彙のヒント（初期プロンプト）付きで空なら、ヒントなしでもう一度だけ送る。
+  // kotoba-whisper は長いヒントを渡すと、話し声があっても {"text":""} を返す
+  // （既定の語彙を全部載せた 376 バイトで再現。実機で全区間が消えて「0 区間」になった。0.1.1）。
+  // 本当に無音の区間は 2 回送ることになるが、VAD があれば 2 回目はすぐ返る
+  const tries = prompt ? [prompt, ''] : [''];
+  let text = '';
+  let retried = false;
+  for (let i = 0; i < tries.length; i++) {
+    const p = tries[i];
+    retried = i > 0;
+    const form = new FormData();
+    form.append('file', new Blob([wavBuffer], { type: 'audio/wav' }), 'audio.wav');
+    form.append('response_format', 'json');
+    form.append('temperature', '0.0');
+    if (settings.language && settings.language !== 'auto') form.append('language', settings.language);
+    if (p) {
+      form.append('prompt', p);
+      // これが無いと語彙のヒントが各リクエストの最初の30秒にしか効かない。
+      // 1区間は75秒あるので、2/3が素の状態で書き起こされていた。
+      // 古いビルドでは黙って無視されるだけで害は無い。
+      form.append('carry_initial_prompt', 'true');
+    }
+    touchEngine(whisperEng);
+    const res = await fetch(`http://127.0.0.1:${settings.localPort}/inference`,
+      { method: 'POST', body: form, signal: AbortSignal.timeout(waitMs) });
+    touchEngine(whisperEng);
+    if (!res.ok) {
+      let detail = '';
+      try { detail = (await res.json())?.error || ''; } catch (_) { /* noop */ }
+      throw new Error(`文字起こしエンジンエラー (${res.status})${detail ? `: ${detail}` : ''}`);
+    }
+    const data = await res.json();
+    // 古い whisper-server（1.7.6・1.8.0）は WAV を読めないとき 200 のまま {"error": …} を返す。
+    // 空の文として扱うと区間ごと黙って消えるので、失敗として残す（後で文字起こしし直せる）
+    if (data?.error) throw new Error(`文字起こしエンジンエラー: ${data.error}`);
+    text = cleanWhisperText(data?.text);
+    if (text || !p) break;
   }
-  const data = await res.json();
-  return (data?.text || '')
+  // 空になった理由を後から追えるように残す（以前は何も書かず、engine.log からは何も分からなかった）
+  if (retried) {
+    engineLog(`文字起こし: 語彙のヒント（${Buffer.byteLength(prompt, 'utf8')} バイト）付きでは空 → ヒントなしで${text ? ` ${text.length} 文字` : 'も空'}（音声 ${Math.round((durationMs || 0) / 1000)} 秒）`);
+  }
+  return text;
+}
+// 起動テストの仕上げ。/health に応えても、文字起こしができるとは限らない（古いビルドは
+// /inference で WAV を読めないと 200 のまま {"error"} を返す）。2 秒の無音を実際に送り、
+// 答えが JSON で、error を含まないことまで見る。問題があれば利用者向けの一文、無ければ ''
+async function probeInference() {
+  const form = new FormData();
+  form.append('file', new Blob([silentWav(2)], { type: 'audio/wav' }), 'probe.wav');
+  form.append('response_format', 'json');
+  form.append('temperature', '0.0');
+  if (settings.language && settings.language !== 'auto') form.append('language', settings.language);
+  touchEngine(whisperEng);
+  try {
+    const res = await fetch(`http://127.0.0.1:${settings.localPort}/inference`,
+      { method: 'POST', body: form, signal: AbortSignal.timeout(120000) });
+    let data = null;
+    try { data = await res.json(); } catch (_) { /* 下で扱う */ }
+    if (!res.ok) return `文字起こしを試せませんでした（${res.status}${data?.error ? `: ${data.error}` : ''}）`;
+    if (!data || typeof data !== 'object') return '文字起こしの答えを読めませんでした';
+    if (data.error) return `文字起こしを試せませんでした: ${data.error}`;
+    return '';
+  } catch (e) {
+    return `文字起こしを試せませんでした: ${e.message}`;
+  } finally {
+    touchEngine(whisperEng);
+  }
+}
+// whisper の文から、無音・音楽などの印を外して 1 行にする
+function cleanWhisperText(raw) {
+  return String(raw || '')
     .replace(/\[[^\]]*\]|\([^)]*\)/g, (m) => (/BLANK|MUSIC|音楽|拍手/i.test(m) ? '' : m))
     .replace(/\n+/g, '').trim();
 }
@@ -908,7 +956,9 @@ function positionOverlay() {
 // 窓（題名の帯・タスクバー）のアイコン。Windows では ICO を渡す。ICO なら OS が画面に合う大きさを選び、
 // 16px・24px では線を太くした小さい版（assets/icon-small.svg から描いたもの）が出る。
 // PNG（256px）を渡すと、それを縮めて使うので、16px で箱の上の波がほとんど見えなくなる。
-const WINDOW_ICON = path.join(__dirname, '..', 'assets', process.platform === 'win32' ? 'icon.ico' : 'icon.png');
+// 置き場所は src/assets（中身は assets/icon.ico・icon.png と同じ）。アプリ内の更新は src/ だけを
+// 入れ替えるので、src の外に置くと、描き直したアイコンがインストーラーを入れ直すまで届かない
+const WINDOW_ICON = path.join(__dirname, 'assets', process.platform === 'win32' ? 'window.ico' : 'window.png');
 
 function createMainWindow() {
   if (mainWin && !mainWin.isDestroyed()) { mainWin.show(); mainWin.focus(); return; }
@@ -1305,8 +1355,9 @@ function startMeeting() {
     // segmentMs: いま録音側に頼んでいる区間の長さ（背圧で伸縮する）
     // inFlightSince: 文字起こし中の区間の開始時刻（残り時間の見積もりで経過分を引く）
     // finalSeen: 録音側の最後の区間が届いたか。skipAll: 打ち切り後に届く区間も文字起こしせず数だけ残す
+    // emptySegs: 文字起こしが空で除いた区間の数（全部が空なら、締めるときに知らせる）
     gen: 0, skipped: 0, micFallback: false, segmentMs: (settings.segmentSec || 75) * 1000, inFlightSince: 0,
-    finalSeen: false, skipAll: false };
+    finalSeen: false, skipAll: false, emptySegs: 0 };
   segChain = Promise.resolve(); pendingSegs = 0;
   state = 'meeting';
   writeDraft();
@@ -1446,7 +1497,12 @@ function onMeetingSegment(buffer, durationMs, isFinal) {
     // 空・直前と同じ（繰り返しハルシネーション）は区間ごと消す
     const done = m.segments.filter((s) => !s.pending);
     const prev = done.length ? done[done.length - 1].text : '';
-    if (!text || (prev && text.length > 6 && prev === text)) { settleSegment(m, seg, null); return; }
+    if (!text || (prev && text.length > 6 && prev === text)) {
+      if (!text) m.emptySegs++;
+      engineLog(`区間 ${seg.id}（音声 ${Math.round(durationMs / 1000)} 秒）: ${text ? '直前と同じ文のため' : '文字起こしが空のため'}除きました`);
+      settleSegment(m, seg, null);
+      return;
+    }
     settleSegment(m, seg, { text });
   }).catch(() => {}).finally(() => {
     // 破棄済みの議事録の区間は、破棄時に数え直した件数を減らさない
@@ -1510,6 +1566,12 @@ async function maybeFinalizeMeeting() {
   sendToOverlay('overlay:phase', { phase: 'done', message: '議事録を保存しました' });
   sendToMainWin('pages:updated', store.listPages());
   sendToMainWin('page:open', page.id);
+  // 音声は届いたのに、文字起こしが全部空だった。黙っていると「0 区間」の理由が分からない
+  if (m.emptySegs > 0 && !settledSegments(m.segments).length) {
+    engineLog(`議事録を保存: 文字起こしが空の区間が ${m.emptySegs}、文字の残った区間は 0`);
+    sendToMainWin('app:notice', `${m.emptySegs} 区間の音声を受け取りましたが、文字起こしの結果がすべて空でした。`
+      + '設定の「使用するマイク」が話している人の声を拾うマイクになっているか確かめてください。');
+  }
 
   await runSummary(page.id);
   if (recoveryQueue) transcribeRecovered().catch((e) => engineLog(`retry failed: ${e.message}`));
@@ -1681,7 +1743,7 @@ function makeTrayIcon(recording) {
     if (!img.isEmpty()) return img;
   }
   // 見つからなければアプリのアイコンで代用する（透明なトレイよりはよい）
-  const fallback = nativeImage.createFromPath(path.join(__dirname, '..', 'assets', 'icon.png'));
+  const fallback = nativeImage.createFromPath(path.join(__dirname, 'assets', 'window.png'));
   return fallback.isEmpty() ? fallback : fallback.resize({ width: 16, height: 16 });
 }
 
@@ -1961,10 +2023,12 @@ function setupIpc() {
     if (problem) return { ok: false, error: problem, warning };
     const ok = await ensureEngineReady(whisperEng);
     if (!ok) return { ok: false, error: whisperEng.lastError || '起動に失敗しました', warning };
+    const tried = await probeInference();
+    if (tried) { engineLog(`起動テスト: ${tried}`); return { ok: false, error: tried, warning }; }
     const vad = settings.useVad ? resolveVadModel() : '';
     const notes = [vad ? `VAD有効（${path.basename(vad)}）` : 'VAD無効'];
     if (settings.suppressNst) notes.push('非発話トークン抑制');
-    return { ok: true, info: `文字起こしエンジンは起動済みです（${notes.join(' / ')}）`, warning };
+    return { ok: true, info: `文字起こしエンジンは起動し、試しの文字起こしにも答えました（${notes.join(' / ')}）`, warning };
   });
   ipcMain.handle('app:test-sum', async () => {
     const warning = engineDirNote(sumEng);

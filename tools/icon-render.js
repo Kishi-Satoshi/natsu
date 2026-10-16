@@ -5,6 +5,7 @@
 //
 //   node tools/icon-render.js   … 下の TARGETS をすべて書き出す
 //     - assets/icon.svg     → assets/icon.png（256）と assets/icon.ico（16〜256）
+//     - assets/icon.svg     → src/assets/window.png と src/assets/window.ico（上と同じ中身。窓のアイコン）
 //     - assets/icon.svg     → src/assets/tray.png（32）と src/assets/tray.ico（16〜64）       … トレイ（待機）
 //     - assets/tray-rec.svg → src/assets/tray-rec.png（32）と src/assets/tray-rec.ico（16〜64） … トレイ（録音中）
 //   32px 未満（ICO の 16・20・24）は、小さい版の SVG（assets/icon-small.svg・assets/tray-rec-small.svg）から描く。
@@ -232,6 +233,8 @@ function renderSvg(text, size) {
 // small は SMALL_BELOW より小さい大きさに使う SVG（形は svg と同じで、線を太くした小さい版）。
 const TARGETS = [
   { svg: 'assets/icon.svg', small: 'assets/icon-small.svg', png: { file: 'assets/icon.png', size: 256 }, ico: { file: 'assets/icon.ico', sizes: ICON_SIZES } },
+  // 窓のアイコン。中身は上と同じで、src の下に置く（アプリ内の更新で入れ替わるように。0.1.1）
+  { svg: 'assets/icon.svg', small: 'assets/icon-small.svg', png: { file: 'src/assets/window.png', size: 256 }, ico: { file: 'src/assets/window.ico', sizes: ICON_SIZES } },
   { svg: 'assets/icon.svg', small: 'assets/icon-small.svg', png: { file: 'src/assets/tray.png', size: 32 }, ico: { file: 'src/assets/tray.ico', sizes: TRAY_SIZES } },
   { svg: 'assets/tray-rec.svg', small: 'assets/tray-rec-small.svg', png: { file: 'src/assets/tray-rec.png', size: 32 }, ico: { file: 'src/assets/tray-rec.ico', sizes: TRAY_SIZES } },
 ];
