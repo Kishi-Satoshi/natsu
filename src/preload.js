@@ -52,8 +52,6 @@ contextBridge.exposeInMainWorld('koeApp', {
   pagesSearch: (q) => ipcRenderer.invoke('pages:search', q),
   pagesSearchFull: (q) => ipcRenderer.invoke('pages:searchFull', q),
   pagesActionView: ({ q, assignee }) => ipcRenderer.invoke('pages:actionView', { q, assignee }),
-  dataDirGet: () => ipcRenderer.invoke('data:dir'),
-  dataDirMove: (dir) => ipcRenderer.invoke('data:move', dir),
   meetingTypes: () => ipcRenderer.invoke('meta:types'),
   pageSetType: (id, type) => ipcRenderer.invoke('page:setType', { id, type }),
   blockSetAction: (pageId, blockId, assignee, dueRaw) => ipcRenderer.invoke('block:setAction', { pageId, blockId, assignee, dueRaw }),

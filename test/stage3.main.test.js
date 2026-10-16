@@ -12,10 +12,7 @@ const assert = require('node:assert');
 const fs = require('node:fs');
 const path = require('node:path');
 
-const {
-  planDataMove, sameTree,
-} = require('../src/mainlib');
-const { normalizeSettings } = require('../src/settings');
+const { normalizeSettings, REMOVED_KEYS } = require('../src/settings');
 
 const ROOT = path.join(__dirname, '..');
 const read = (p) => fs.readFileSync(path.join(ROOT, p), 'utf8');
@@ -30,8 +27,8 @@ const fnBody = (src, from, to) => {
   return src.slice(i, j > 0 ? j : src.length);
 };
 
-// ---------------------------------------------------------------- 設定キー（第3段で足した 3 つ）
-const DEF = { localPort: 8990, sumPort: 8991, localThreads: 8, sumThreads: 8, segmentSec: 75, sumCtx: 32768, engineIdleMin: 10, dataDir: '' };
+// ---------------------------------------------------------------- 設定キー（第3段で足した sumCtx / engineIdleMin）
+const DEF = { localPort: 8990, sumPort: 8991, localThreads: 8, sumThreads: 8, segmentSec: 75, sumCtx: 32768, engineIdleMin: 10 };
 
 test('normalizeSettings: sumCtx は 4096〜131072 に丸め、壊れた値は既定 32768', () => {
   assert.strictEqual(normalizeSettings({ ...DEF, sumCtx: 1000 }, DEF).sumCtx, 4096);
@@ -51,126 +48,43 @@ test('normalizeSettings: engineIdleMin は 0〜120 に丸め、0（止めない�
   assert.strictEqual(normalizeSettings({ ...DEF, engineIdleMin: 7.9 }, DEF).engineIdleMin, 7, '整数に切っていない');
 });
 
-test('normalizeSettings: dataDir は文字列（前後の空白を落とす）。文字列でなければ既定の \'\'', () => {
-  assert.strictEqual(normalizeSettings({ ...DEF, dataDir: '  D:\\NaTsu\\data  ' }, DEF).dataDir, 'D:\\NaTsu\\data');
-  assert.strictEqual(normalizeSettings({ ...DEF, dataDir: 42 }, DEF).dataDir, '');
-  assert.strictEqual(normalizeSettings({ ...DEF, dataDir: null }, DEF).dataDir, '');
-  assert.strictEqual(normalizeSettings({ ...DEF }, DEF).dataDir, '');
+test('normalizeSettings: 外した設定キー（dataDir）は読まず、書き戻さない', () => {
+  assert.deepStrictEqual(REMOVED_KEYS, ['dataDir']);
+  for (const v of ['D:\\x', '', 42, null]) {
+    assert.strictEqual(Object.hasOwn(normalizeSettings({ ...DEF, dataDir: v }, DEF), 'dataDir'), false);
+  }
 });
 
-test('DEFAULT_SETTINGS に sumCtx / engineIdleMin / dataDir がある', () => {
+test('DEFAULT_SETTINGS に sumCtx / engineIdleMin があり、dataDir は無い', () => {
   const defs = fnBody(code(main), 'const DEFAULT_SETTINGS = {', '\n};');
   assert.match(defs, /\n  sumCtx: 32768,/);
   assert.match(defs, /\n  engineIdleMin: 10,/);
-  assert.match(defs, /\n  dataDir: '',/);
+  assert.ok(!/dataDir/.test(defs), '外した設定キー dataDir が既定値に残っている');
 });
 
-// ---------------------------------------------------------------- #29 データ保存先の移動（判断）
-// exists(p) は fs.existsSync 相当、listDir(p) は readdirSync 相当（無ければ []）
-const fsOf = (table) => ({
-  exists: (p) => Object.prototype.hasOwnProperty.call(table, p.replace(/\\/g, '/')),
-  listDir: (p) => table[p.replace(/\\/g, '/')] || [],
-});
-const FROM = 'C:\\U\\AppData\\Roaming\\natsu\\data';
-
-test('planDataMove: 空・相対パス・同じ場所・今の data の内側・data を含む親 を拒む', () => {
-  const { exists, listDir } = fsOf({});
-  assert.match(planDataMove(FROM, '', exists, listDir), /指定されていません/);
-  assert.match(planDataMove(FROM, '   ', exists, listDir), /指定されていません/);
-  assert.match(planDataMove(FROM, 'data2', exists, listDir), /絶対パス/);
-  assert.match(planDataMove(FROM, FROM, exists, listDir), /同じ場所/);
-  // Windows は大文字小文字と区切り文字の違いで別の場所にならない
-  assert.match(planDataMove(FROM, FROM.toUpperCase() + '\\', exists, listDir), /同じ場所/);
-  assert.match(planDataMove(FROM, FROM.replace(/\\/g, '/'), exists, listDir), /同じ場所/);
-  assert.match(planDataMove(FROM, `${FROM}\\inner`, exists, listDir), /中には移せません/);
-  assert.match(planDataMove(FROM, `${FROM}\\segbuf\\x`, exists, listDir), /中には移せません/);
-  assert.match(planDataMove(FROM, 'C:\\U\\AppData\\Roaming\\natsu', exists, listDir), /親フォルダ/);
-  assert.match(planDataMove(FROM, 'C:\\', exists, listDir), /親フォルダ/);
-  // 名前が前方一致するだけの別フォルダは「内側」ではない
-  assert.strictEqual(planDataMove(FROM, `${FROM}2`, exists, listDir), '');
-});
-
-test('planDataMove: 空でないだけのフォルダは拒み、無い・空・NaTsu のデータがある場所は通す', () => {
-  const t = 'D:/NaTsu';
-  const { exists, listDir } = fsOf({
-    'D:/has-data': ['pages', 'index.json'], 'D:/has-data/pages': [], 'D:/has-data/index.json': [],
-    'D:/has-pages-only': ['pages'], 'D:/has-pages-only/pages': [],
-    'D:/busy': ['report.docx', 'photos'],
-    'D:/empty': [],
-  });
-  // NaTsu のデータがあるフォルダは通す（写さずに切り替える。元の保存先へ戻る道。R2）
-  assert.strictEqual(planDataMove(FROM, 'D:\\has-data', exists, listDir), '', 'NaTsu のデータがある場所へ戻せない');
-  assert.strictEqual(planDataMove(FROM, 'D:\\has-pages-only', exists, listDir), '');
-  assert.match(planDataMove(FROM, 'D:\\busy', exists, listDir), /空のフォルダ/);
-  assert.strictEqual(planDataMove(FROM, 'D:\\empty', exists, listDir), '', '空のフォルダを拒んでいる');
-  assert.strictEqual(planDataMove(FROM, t, exists, listDir), '', '無いフォルダ（これから作る）を拒んでいる');
-  assert.strictEqual(planDataMove(FROM, '\\\\nas\\share\\natsu', exists, listDir), '', 'UNC パスを絶対パスと見ていない');
-  // 今の場所が既定でない（D:\a）ときも同じ規則
-  assert.match(planDataMove('D:\\a', 'D:\\a\\b', exists, listDir), /中には移せません/);
-  assert.match(planDataMove('D:\\a\\b', 'D:\\a', exists, listDir), /親フォルダ/);
-});
-
-test('sameTree: ファイル数と合計バイト数が一致するときだけ同じ木とみなす', () => {
-  assert.strictEqual(sameTree({ files: 12, bytes: 34567 }, { files: 12, bytes: 34567 }), true);
-  assert.strictEqual(sameTree({ files: 0, bytes: 0 }, { files: 0, bytes: 0 }), true, '空のデータでも移せる');
-  assert.strictEqual(sameTree({ files: 12, bytes: 34567 }, { files: 11, bytes: 34567 }), false);
-  assert.strictEqual(sameTree({ files: 12, bytes: 34567 }, { files: 12, bytes: 34566 }), false);
-  assert.strictEqual(sameTree(null, { files: 0, bytes: 0 }), false);
-  assert.strictEqual(sameTree({ files: NaN, bytes: 0 }, { files: NaN, bytes: 0 }), false, '数えられなかったのに一致としている');
-});
-
-// ---------------------------------------------------------------- #29 データ保存先の移動（結線）
-test('#29 store.init に dataDir を渡し、data:dir は { dir, isDefault } を返す', () => {
+// ---------------------------------------------------------------- 保存先は userData/data だけ（第0a回 R6）
+test('保存先は userData/data だけ（store.init は1引数、移動の道は無い）。開けなければ画面に知らせる', () => {
   const m = code(main);
   const load = fnBody(m, 'function loadStores()', '\n}');
-  assert.ok(load.includes("const wanted = settings.dataDir || '';") && load.includes("store.init(app.getPath('userData'), wanted)"),
-    'store.init に第2引数（dataDir）を渡していない');
-  // store.root が無い版（統合前）でも動くよう typeof で守り、無ければ既定の場所
-  const root = fnBody(m, 'const dataRoot = ', '\n');
-  assert.ok(root.includes("typeof store.root === 'function'"), 'store.root の有無を見ていない');
-  assert.ok(root.includes("path.join(app.getPath('userData'), 'data')"), '無いときの既定の場所が違う');
-  assert.match(m, /ipcMain\.handle\('data:dir', \(\) => \(\{ dir: dataRoot\(\), isDefault: !settings\.dataDir \}\)\)/);
-  assert.match(m, /ipcMain\.handle\('data:move', /);
-  assert.ok(preload.includes("  dataDirGet: () => ipcRenderer.invoke('data:dir'),"), 'preload の dataDirGet が無い（書式込み）');
-  assert.ok(preload.includes("  dataDirMove: (dir) => ipcRenderer.invoke('data:move', dir),"), 'preload の dataDirMove が無い（書式込み）');
-  // 「データ保存先を開く」は今のデータフォルダ（移動後はそこ）
+  assert.ok(/try \{ store\.init\(app\.getPath\('userData'\)\); \} catch \(e\) \{ storeError = e\.message; engineLog\(/.test(load), '開けないときに窓が出なくなる／理由を持たない');
+  assert.ok(m.includes("if (storeError) mainWin.webContents.once('did-finish-load', () => sendToMainWin('app:notice', "), '開けなかったことを画面に知らせていない');
+  assert.strictEqual((m.match(/store\.init\(/g) || []).length, 1);
+  for (const k of ['dataDir', "'data:dir'", "'data:move'", 'moveDataDir', 'cpSync', 'dataDirNotice', "kind === 'folder'"]) assert.ok(!m.includes(k), k);
+  assert.ok(m.includes('const dataRoot = () => store.root();'));
   assert.match(m, /ipcMain\.handle\('app:open-data-dir', \(\) => \{ shell\.openPath\(dataRoot\(\)\); return true; \}\)/);
-});
-
-test('#29 data:move は idle かつ要約中・復旧中でないときだけ受け、写して確かめてから切り替え、元は消さない', () => {
-  const m = code(main);
-  const fn = fnBody(m, 'async function moveDataDir(', '\n}');
-  assert.ok(fn.includes("if (isBusy()) return { ok: false, error: '記録中・要約中は移動できません' };"), '忙しいときの拒み方が違う');
-  const busy = fnBody(m, 'const isBusy = () => ', '\n');
-  for (const k of ["state !== 'idle'", 'isSummarizing()', 'recoveryRunning', 'pendingSegs > 0']) assert.ok(busy.includes(k), `isBusy が ${k} を見ていない`);
-  // 判断は mainlib.planDataMove（'' なら通す）
-  assert.ok(fn.includes('planDataMove(from, raw, '), '拒む理由を mainlib.planDataMove で判断していない');
-  assert.ok(fn.indexOf('planDataMove(from, raw, ') < fn.indexOf('fs.mkdirSync('), '判断より先にフォルダを作っている');
-  assert.ok(fn.includes("if (mode === 'copy') {"), '既にデータがあるフォルダでも写している（R2）');
-  assert.ok(fn.includes('fs.mkdirSync(to, { recursive: true })'), '移動先を作っていない');
-  assert.ok(fn.includes('fs.cpSync(from, to, { recursive: true'), '再帰で写していない');
-  assert.match(m, /const SEGBUF_DIR = 'segbuf';/);
-  assert.ok(fn.includes('filter: (src) => src !== skipFrom') && fn.includes('path.join(from, SEGBUF_DIR)'), '一時物の segbuf を写す対象から外していない');
-  assert.ok(fn.includes('sameTree(treeSummary(from'), '写した結果を mainlib.sameTree で確かめていない');
-  // 確かめてから設定 → store.init のやり直し → 画面へ
-  // 確かめる → 新しい場所で開けることを確かめる → 設定を保存 → 画面へ（順を逆にすると、
-  // 開けなかったときに設定だけが壊れた場所を指して残る。R3）
-  const order = ['sameTree(', "store.init(app.getPath('userData'), to)", 'settings.dataDir = to', 'persistSettings()', "sendToMainWin('pages:updated'", 'return { ok: true, dir: to'];
-  let at = -1;
-  for (const k of order) { const i = fn.indexOf(k); assert.ok(i > at, `${k} の順番が違う（か無い）`); at = i; }
-  assert.ok(fn.includes('元の場所のデータは残しています'), '元を消さないことを伝えていない');
-  assert.ok(!/rmSync\(from|rmdirSync\(from|unlinkSync\(from/.test(fn), '元のフォルダを消している');
-  assert.match(m, /ipcMain\.handle\('data:move', \(_e, dir\) => moveDataDir\(dir\)\)/);
-  // 退避フォルダ segbuf は今まで通り <userData>/data/segbuf（一時物なので移さない）
   assert.match(m, /const segbufRoot = \(\) => path\.join\(app\.getPath\('userData'\), 'data', 'segbuf'\)/);
+  assert.ok(!preload.includes('dataDirGet') && !preload.includes("'data:"));
+  const lib = require('../src/mainlib');
+  for (const n of ['planDataMove', 'dataMoveMode', 'dataDirFallback', 'sameTree']) assert.strictEqual(lib[n], undefined, n);
 });
 
-test('#29 フォルダ選択（pickFile(\'folder\)）と pages:actionView の結線', () => {
+test('dialog:pick はファイルだけを選ばせ（フォルダの分岐は無い）、pages:actionView の結線', () => {
   const m = code(main);
   const pick = fnBody(m, "ipcMain.handle('dialog:pick'", '\n  });');
-  assert.ok(pick.includes("kind === 'folder'"), 'フォルダ選択の分岐が無い');
-  assert.ok(pick.includes("properties: ['openDirectory']"), 'フォルダを選ぶ指定が無い');
-  assert.match(pick, /return res\.canceled \? '' : \(res\.filePaths\[0\] \|\| ''\);/, 'フォルダ選択の戻り値がパスか \'\' になっていない');
+  assert.ok(!pick.includes("'folder'"), 'フォルダ選択の分岐が残っている（呼び手は無い）');
+  assert.ok(!pick.includes('openDirectory'), 'フォルダを選ぶ指定が残っている');
+  assert.ok(pick.includes("properties: ['openFile']"), 'ファイルを選ぶ指定が無い');
+  assert.match(pick, /return res\.canceled \? null : res\.filePaths\[0\];/, 'ファイル選択の戻り値が変わっている');
   assert.match(m, /ipcMain\.handle\('pages:actionView', \(_e, \{ q, assignee \} = \{\}\) => store\.actionView\(\{ q, assignee \}\)\)/);
   assert.ok(preload.includes("  pagesActionView: ({ q, assignee }) => ipcRenderer.invoke('pages:actionView', { q, assignee }),"), 'preload の pagesActionView が無い（書式込み）');
   // app が使わなくなったので、統合で openActions / assigneeList は preload と main から外した
@@ -302,6 +216,8 @@ test('#58 lastUsed は起動時と推論のたびに更新し、60 秒ごとに�
   assert.strictEqual((fnBody(m, 'async function transcribeLocal(', '\n}').match(/touchEngine\(whisperEng\)/g) || []).length, 2, '文字起こしの前後で lastUsed を更新していない');
   assert.strictEqual((fnBody(m, 'async function llmChat(', '\n}').match(/touchEngine\(sumEng\)/g) || []).length, 2, '要約の前後で lastUsed を更新していない');
   // 判断は mainlib.idleEnginesToStop。busy は isBusy()（idle・要約中でない・復旧中でない・待ち 0）
+  const busy = fnBody(m, 'const isBusy = () => ', '\n');
+  for (const k of ["state !== 'idle'", 'isSummarizing()', 'recoveryRunning', 'pendingSegs > 0']) assert.ok(busy.includes(k), `isBusy が ${k} を見ていない`);
   const rel = fnBody(m, 'function releaseIdleEngines()', '\n}');
   assert.ok(rel.includes('idleEnginesToStop([whisperEng, sumEng], Date.now(), settings.engineIdleMin, isBusy())'), '判断を mainlib.idleEnginesToStop で行っていない');
   assert.ok(rel.includes('stopEngine(eng)'), '止めていない');
@@ -397,57 +313,4 @@ test('#54 録音開始で前面ウィンドウを控え、貼り付けは控え�
   assert.ok(deliver.indexOf("result === 'fail'") < deliver.indexOf('restoreAfterPaste(prev, text)'), '貼れなかったのに元のクリップボードを戻している');
   // 既存の契約: 書く入口は copyPrivate だけ（repo.test.js #27 が見る）。ここでは deliverText が先に置くことだけ
   assert.ok(deliver.indexOf('await copyPrivate(text)') < deliver.indexOf('simulatePaste(hwnd)'));
-});
-
-// ---------------------------------------------------------------- R1 保存先が開けないとき（レビュー）
-const { dataDirFallback, dataMoveMode } = require('../src/mainlib');
-
-test('dataDirFallback: 設定した保存先が開けなければ既定に落ちて知らせ、空なら知らせるだけ、正常なら黙る', () => {
-  // 既定の場所を使っているとき（設定が空）は何も起きない
-  assert.deepStrictEqual(dataDirFallback('', { ok: true, empty: true }), { useDefault: false, notice: '' });
-  assert.deepStrictEqual(dataDirFallback('', { ok: false, error: 'x' }), { useDefault: false, notice: '' });
-  // 開けた・議事録がある → 黙る
-  assert.deepStrictEqual(dataDirFallback('E:\\NaTsu', { ok: true, empty: false }), { useDefault: false, notice: '' });
-  // 開けない（外付けを抜いた・ネットワークが落ちた）→ 既定に落ちて知らせる。設定は書き換えない
-  const f = dataDirFallback('E:\\NaTsu', { ok: false, error: 'ENOENT' });
-  assert.strictEqual(f.useDefault, true, '開けない保存先のまま起動しようとしている');
-  assert.match(f.notice, /E:\\NaTsu/); assert.match(f.notice, /ENOENT/);
-  assert.match(f.notice, /既定の場所/); assert.match(f.notice, /設定は変えていません/);
-  // 結果が無い（呼び出し側の事故）も既定に落とす
-  assert.strictEqual(dataDirFallback('E:\\NaTsu', null).useDefault, true);
-  // 開けたが空（ドライブ文字の使い回し）→ 落とさずに知らせる（勝手に既定へ移すと二重管理になる）
-  const e = dataDirFallback('E:\\NaTsu', { ok: true, empty: true });
-  assert.strictEqual(e.useDefault, false, '空なだけで既定へ落としている');
-  assert.match(e.notice, /議事録がありません/);
-  assert.match(e.notice, /データ保存先/);
-});
-
-test('#29(R1) 起動時に保存先を開けなくてもアプリは立ち上がり、理由を知らせる', () => {
-  const m = code(main);
-  const fn = fnBody(m, 'function loadStores()', '\n}');
-  assert.ok(/try \{[\s\S]*store\.init\(app\.getPath\('userData'\), wanted\)/.test(fn), '設定した保存先での init を try で囲っていない');
-  assert.ok(fn.includes('dataDirFallback(wanted, result)'), '判断を mainlib.dataDirFallback に任せていない');
-  assert.ok(fn.includes("store.init(app.getPath('userData'), '')"), '開けなかったときに既定の場所で開き直していない');
-  assert.ok(!fn.includes('settings.dataDir = '), '起動時に設定を書き換えている（繋ぎ直しても戻らなくなる）');
-  // 知らせは画面が出てから（起動直後は受け手が居ない）
-  const win = fnBody(m, 'function createMainWindow()', '\n  mainWin.on(');
-  assert.ok(win.includes('dataDirNotice'), '保存先の知らせを画面へ送っていない');
-  assert.ok(win.includes("did-finish-load"), '画面の読み込み前に送っている（受け手が居ない）');
-});
-
-test('#29(R2) 既に議事録があるフォルダは「写さずに切り替え」、空のフォルダは今まで通り写す', () => {
-  // 実機の fs.existsSync は \ と / を区別しない。偽物も同じにする
-  const norm = (p) => String(p).replace(/\//g, '\\');
-  const exists = (p) => ['D:\\has-data\\index.json', 'D:\\has-pages\\pages'].includes(norm(p));
-  assert.strictEqual(dataMoveMode('D:\\has-data', exists), 'switch');
-  assert.strictEqual(dataMoveMode('D:\\has-pages', exists), 'switch');
-  assert.strictEqual(dataMoveMode('D:\\empty', exists), 'copy');
-  assert.strictEqual(dataMoveMode('D:/has-data/', exists), 'switch', '区切りと末尾の / で見落としている');
-  // 元の場所へ戻せる（README が案内している経路）
-  const FROM2 = 'C:\\U\\AppData\\Roaming\\natsu\\data';
-  assert.strictEqual(planDataMove('D:\\moved', FROM2, (p) => p.startsWith(FROM2), () => ['index.json']), '',
-    '元の保存先へ戻す経路を拒んでいる（README はこれを案内している）');
-  const mv = fnBody(code(main), 'async function moveDataDir(dir)', '\n}');
-  assert.ok(mv.includes("dataMoveMode(") && mv.includes("mode === 'copy'"), '切り替えと写しを分けていない');
-  assert.ok(mv.indexOf('store.init(') < mv.indexOf('persistSettings()'), '保存先を開き直す前に設定を保存している（開けなければ次回起動で詰む）');
 });

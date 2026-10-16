@@ -43,7 +43,7 @@ const {
   extractNotes, truncationMessage, buildPromptParts,
   publicSegments, settledSegments, pendingDurationMs, recoverSegments, staleSegbufDirs, nextSegmentMs, EtaTracker,
   skipPendingSegments, restoreAfterPaste,
-  planDataMove, dataMoveMode, dataDirFallback, sameTree, estimateTokens, foldNotes, idleEnginesToStop,
+  estimateTokens, foldNotes, idleEnginesToStop,
 } = require('./mainlib');
 
 // package.json の build.appId の写し。配る package.json から build は消えるので、ここに持つ
@@ -103,8 +103,6 @@ const DEFAULT_SETTINGS = {
   sumCtx: 32768,
   // 使われないエンジンを止めるまでの分。0 = 止めない（#58。releaseIdleEngines）
   engineIdleMin: 10,
-  // データ保存先。'' = 既定の場所 <userData>/data（#29。store.init の第2引数）
-  dataDir: '',
 };
 
 // ---------------------------------------------------------------- 状態
@@ -168,8 +166,8 @@ const FG_REPLY_MS = 300;      // fg の応答待ち。常駐が起動中なら�
 const PASTE_REPLY_MS = 1500;  // paste の応答待ち。無応答なら貼れたものとして扱う（unknown）
 let programmaticMove = false;
 let recoveredPageId = null;
-// 保存先について画面が出てから知らせること（開けなかった／空だった。mainlib.dataDirFallback）
-let dataDirNotice = '';
+// データフォルダ（<userData>/data）を開けなかった理由。画面が出てから1回知らせる（createMainWindow）
+let storeError = '';
 
 let meeting = null;
 let segChain = Promise.resolve();
@@ -218,85 +216,14 @@ function loadStores() {
   }
   history = loadJson(historyPath(), []);
   if (!Array.isArray(history)) history = [];
-  // 第2引数が空でなければそこをデータフォルダにする（#29）。設定した場所が開けない
-  // （外付けディスクを抜いた・ネットワークが落ちた・ドライブ文字が変わった）と store.init は
-  // 投げる。ここは app.whenReady の中なので、投げるとウィンドウごと出ず、設定を直す手段まで
-  // 消える。既定の場所で開き直し、理由は画面が出てから知らせる（判断は mainlib.dataDirFallback）
-  const wanted = settings.dataDir || '';
-  let result;
-  try {
-    store.init(app.getPath('userData'), wanted);
-    result = { ok: true, empty: store.listPages().length === 0 };
-  } catch (e) {
-    result = { ok: false, error: e.message };
-  }
-  const fb = dataDirFallback(wanted, result);
-  if (fb.useDefault) {
-    engineLog(`データ保存先を開けないため既定の場所で起動: ${wanted} (${result.error})`);
-    store.init(app.getPath('userData'), '');
-  }
-  dataDirNotice = fb.notice;
+  // 保存先は <userData>/data だけ。開けない（容量・権限など）と store.init は投げる。ここは
+  // app.whenReady の中なので、投げると単一起動の鍵を持ったまま窓が出ず、次に起動しても何も
+  // 起きない。だから受け止めて理由を持ち、画面が出てから知らせる（黙って続けると、議事録が
+  // 保存されないまま録音できてしまう）
+  try { store.init(app.getPath('userData')); } catch (e) { storeError = e.message; engineLog(`データフォルダを開けません: ${e.message}`); }
 }
-// いまのデータフォルダの絶対パス。store.root が無い版でも動くよう守り、無ければ既定の場所
-const dataRoot = () => (typeof store.root === 'function' ? store.root() : path.join(app.getPath('userData'), 'data'));
-
-// ---------------------------------------------------------------- データ保存先の移動（#29）
-// 写す → 確かめる → 設定を切り替える → store を開き直す。元のフォルダは消さない（消すのは
-// 利用者。移せていなかったときに戻れる）。受けるかの判断は mainlib.planDataMove、写した結果の
-// 検証は mainlib.sameTree（ファイル数と合計バイト数の一致）。
-// 退避フォルダ segbuf（<userData>/data/segbuf）は一時物なので写さない（segbufRoot はデータ
-// フォルダを移しても変わらない）。
-const SEGBUF_DIR = 'segbuf';
-// dir 以下のファイル数と合計バイト数。skip（絶対パス）以下は数えない
-function treeSummary(dir, skip) {
-  let files = 0;
-  let bytes = 0;
-  const walk = (d) => {
-    for (const e of fs.readdirSync(d, { withFileTypes: true })) {
-      const p = path.join(d, e.name);
-      if (p === skip) continue;
-      if (e.isDirectory()) walk(p);
-      else if (e.isFile()) { files++; bytes += fs.statSync(p).size; }
-    }
-  };
-  walk(dir);
-  return { files, bytes };
-}
-async function moveDataDir(dir) {
-  if (isBusy()) return { ok: false, error: '記録中・要約中は移動できません' };
-  const from = dataRoot();
-  const raw = String(dir || '').trim();
-  const listDir = (p) => { try { return fs.readdirSync(p); } catch (_) { return []; } };
-  const why = planDataMove(from, raw, (p) => fs.existsSync(p), listDir);
-  if (why) return { ok: false, error: why };
-  const to = path.normalize(raw);
-  // 既に NaTsu のデータがあるフォルダなら写さずに切り替える（元の保存先へ戻る道。mainlib.dataMoveMode）
-  const mode = dataMoveMode(to, (p) => fs.existsSync(p));
-  try {
-    if (mode === 'copy') {
-      fs.mkdirSync(to, { recursive: true });
-      const skipFrom = path.join(from, SEGBUF_DIR);
-      fs.cpSync(from, to, { recursive: true, filter: (src) => src !== skipFrom });
-      if (!sameTree(treeSummary(from, skipFrom), treeSummary(to, path.join(to, SEGBUF_DIR)))) {
-        return { ok: false, error: '写した内容が元と一致しないため、保存先を切り替えませんでした。元の場所のデータはそのままです' };
-      }
-    }
-    // 設定を保存する前に、新しい場所で本当に開けることを確かめる。先に保存すると、
-    // 開けなかったときに設定だけが壊れた場所を指して残る
-    store.init(app.getPath('userData'), to);
-  } catch (e) {
-    try { store.init(app.getPath('userData'), settings.dataDir || ''); } catch (_) { /* 元の場所へ戻す */ }
-    return { ok: false, error: `移動に失敗しました: ${e.message}。元の場所のデータはそのままです` };
-  }
-  settings.dataDir = to;
-  persistSettings();
-  engineLog(`データ保存先を${mode === 'switch' ? '切り替え' : '移動'}: ${from} → ${to}`);
-  sendToMainWin('pages:updated', store.listPages());
-  sendToMainWin('app:notice', mode === 'switch'
-    ? `データの保存先を ${to} に切り替えました。そのフォルダにあった議事録を開いています（元の場所のデータはそのままです）`
-    : `データの保存先を ${to} に変えました。元の場所のデータは残しています（不要なら手で削除してください）`);
-  return { ok: true, dir: to, mode };
-}
+// いまのデータフォルダの絶対パス（「データ保存先を開く」）
+const dataRoot = () => store.root();
 
 // ---------------------------------------------------------------- テキスト整形
 function removeFillersRule(text) {
@@ -999,12 +926,8 @@ function createMainWindow() {
       sendToMainWin('page:open', id);
     });
   }
-  // 保存先を開けなかった／空だった知らせ（R1）。画面が出てから送る（起動直後は受け手が居ない）
-  if (dataDirNotice) {
-    const msg = dataDirNotice;
-    dataDirNotice = '';
-    mainWin.webContents.once('did-finish-load', () => sendToMainWin('app:notice', msg));
-  }
+  // データフォルダを開けなかった知らせ。画面が出てから送る（起動直後は受け手が居ない）
+  if (storeError) mainWin.webContents.once('did-finish-load', () => sendToMainWin('app:notice', `データフォルダを開けません。議事録は保存されません（${storeError}）`));
   // 閉じるボタンの挙動。既定はそのまま終了。設定でトレイ常駐に切り替えられる。
   mainWin.on('close', (e) => {
     if (quitting) return;
@@ -1596,7 +1519,7 @@ const runSummary = makeSummaryRunner(doRunSummary, () => updateTray());
 // 確かめる・更新と再起動を拒む。件数は mainlib.makeSummaryRunner が持つ。
 const isSummarizing = () => runSummary.running().length > 0;
 // 「手が塞がっている」: 記録・文字起こし・要約・復旧の文字起こしのどれかが動いている。
-// データ保存先の移動（#29）と、使われないエンジンの停止（#58）はこれが false のときだけ
+// 使われないエンジンの停止（#58）はこれが false のときだけ
 const isBusy = () => state !== 'idle' || isSummarizing() || recoveryRunning || pendingSegs > 0;
 
 // 要約の生成 → ブロック化 → 出典付与 → 保存
@@ -1942,9 +1865,6 @@ function setupIpc() {
   ipcMain.handle('pages:searchFull', (_e, q) => store.searchFullText(q || '', 60));
   // アクション一覧（絞り込み込み）。store.actionView の戻り値 { actions, people, total } をそのまま返す
   ipcMain.handle('pages:actionView', (_e, { q, assignee } = {}) => store.actionView({ q, assignee }));
-  // データ保存先（#29）。isDefault は「既定の場所 <userData>/data のまま」
-  ipcMain.handle('data:dir', () => ({ dir: dataRoot(), isDefault: !settings.dataDir }));
-  ipcMain.handle('data:move', (_e, dir) => moveDataDir(dir));
   ipcMain.handle('page:get', (_e, id) => {
     const page = store.getPage(id);
     if (!page) return null;
@@ -2059,7 +1979,7 @@ function setupIpc() {
     const p = resolveVadModel();
     return { path: p, auto: Boolean(p) && p !== settings.vadModelPath };
   });
-  // 開くのはいまのデータフォルダ（移動後はそこ。#29）
+  // 開くのはデータフォルダ <userData>/data（保存先はここだけ）
   ipcMain.handle('app:open-data-dir', () => { shell.openPath(dataRoot()); return true; });
   // Windows のサウンド設定を開く。録音されるスピーカーは「既定の再生デバイス」
   // で決まり、アプリ側から選ぶ手段は無いので、変える場所へ案内する。
@@ -2096,11 +2016,6 @@ function setupIpc() {
     return true;
   });
   ipcMain.handle('dialog:pick', async (_e, kind) => {
-    // フォルダ（データ保存先の移動先。#29）。戻り値はパスか ''
-    if (kind === 'folder') {
-      const res = await dialog.showOpenDialog(mainWin, { properties: ['openDirectory'] });
-      return res.canceled ? '' : (res.filePaths[0] || '');
-    }
     const filters = kind === 'exe'
       ? [{ name: '実行ファイル', extensions: process.platform === 'win32' ? ['exe'] : ['*'] }]
       : [{ name: 'モデルファイル', extensions: ['bin', 'gguf'] }];

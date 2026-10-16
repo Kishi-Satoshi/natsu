@@ -8,6 +8,10 @@
  */
 'use strict';
 
+// 外した設定キー。古い settings.json に残っていても読まず、書き戻さない（値のフォルダも開かない）
+//   dataDir: データ保存先の変更（#29）。保存先は userData/data だけにした（第0a回 R6）
+const REMOVED_KEYS = ['dataDir'];
+
 // 整数に直して範囲に収める。数にならない値と 0 は既定へ（0 は打ち間違い）
 function clampInt(v, min, max, fallback) {
   return Math.max(min, Math.min(max, parseInt(v, 10) || fallback));
@@ -30,11 +34,11 @@ function normalizeSettings(raw, defaults) {
   s.localThreads = clampInt(s.localThreads, 1, 64, d.localThreads || 4);
   s.sumThreads = clampInt(s.sumThreads, 1, 64, d.sumThreads || 4);
   s.segmentSec = clampInt(s.segmentSec, 20, 300, d.segmentSec || 75);
-  // 第3段（v0.11.0）で足した 3 つ。古い settings.json には無いので既定で埋める
+  // 第3段（v0.11.0）で足した 2 つ。古い settings.json には無いので既定で埋める
   s.sumCtx = clampInt(s.sumCtx, 4096, 131072, d.sumCtx || 32768);              // 要約の文脈長（#41）
   s.engineIdleMin = clampIntOrZero(s.engineIdleMin, 0, 120, d.engineIdleMin ?? 10);   // 使われないエンジンを止めるまでの分（#58）
-  s.dataDir = typeof s.dataDir === 'string' ? s.dataDir.trim() : '';           // データ保存先（'' = 既定の場所。#29）
+  for (const k of REMOVED_KEYS) delete s[k];
   return s;
 }
 
-module.exports = { normalizeSettings };
+module.exports = { normalizeSettings, REMOVED_KEYS };

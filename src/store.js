@@ -74,13 +74,9 @@ function localDate(d) {
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
 }
 
-// データフォルダを開く。dataRoot（省略可）が空でない文字列なら、userData/data の
-// 代わりにそこを使う（#29 データ保存先の設定。main が設定値を渡す）。root() は
-// 常に絶対パスを返すので、相対指定や末尾の区切りはここで正規化する。
-function init(userDataPath, dataRoot) {
-  ROOT = (typeof dataRoot === 'string' && dataRoot !== '')
-    ? path.resolve(dataRoot)
-    : path.join(userDataPath, 'data');
+// データフォルダ <userData>/data を開く。保存先は userData/data だけ（保存先を変える設定は無い）
+function init(userDataPath) {
+  ROOT = path.join(userDataPath, 'data');
   const d = dirs();
   fs.mkdirSync(d.pages, { recursive: true });
   fs.mkdirSync(d.transcripts, { recursive: true });
@@ -90,7 +86,7 @@ function init(userDataPath, dataRoot) {
   return ROOT;
 }
 
-// いま使っているデータフォルダの絶対パス（設定画面の表示・フォルダを開く用）
+// いま使っているデータフォルダの絶対パス（「データ保存先を開く」用）
 const root = () => ROOT;
 
 // 索引と pages/ の食い違いを直す。真実は常に pages/ 側（索引は一覧用の写しに過ぎない）。

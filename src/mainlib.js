@@ -327,6 +327,9 @@ function engineIssueMessage(issue, kind, size, file, script) {
   return '';
 }
 
+// パスの比較用の形。Windows 向けなので、区切り文字（\ と /）・大文字小文字・末尾の区切りの違いを無視する
+const normPath = (p) => String(p ?? '').trim().replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase();
+
 // エンジンがアプリのインストール先（%LOCALAPPDATA%\Programs\NaTsu）の中に置かれていないか。
 // インストーラは更新のたびに旧版を消してから入れ直すので、そこへ置いたエンジンは更新のたびに
 // 消えうる（実機で llama-server.exe が 0 バイトになった）。appDir が分からないときは黙る。
@@ -634,82 +637,6 @@ function idleEnginesToStop(engines, now, idleMin, busy) {
     && Number.isFinite(e.lastUsed) && now - e.lastUsed >= limit);
 }
 
-// ---------------------------------------------------------------- データ保存先の移動（#29）
-// 移動は「写す → 確かめる → 設定を切り替える」で、元のフォルダは消さない（消すのは利用者）。
-// ここは移動先を受けるかの判断。拒む理由の一文を返し、通すなら ''。
-//   from: いまのデータフォルダ、to: 移動先、exists(p): fs.existsSync 相当、
-//   listDir(p): fs.readdirSync 相当（無ければ []）。
-// Windows 向けなので、比較は区切り文字（\ と /）と大文字小文字の違いを無視する。
-// 拒むもの:
-//   - 空・相対パス（ダイアログは絶対パスを返す。相対だと作業フォルダ次第で別の場所になる）
-//   - 今と同じ場所
-//   - 今のデータフォルダの中（写す先が写す元に含まれ、終わらない）
-//   - 今のデータフォルダを含む親（写す元が写す先に含まれ、同じく終わらない）
-//   - 既に NaTsu のデータがある場所（別のデータを上書きする）・空でないフォルダ
-//     （利用者の書類の中に pages/ などが混ざる。空のフォルダを選んでもらう）
-const normPath = (p) => String(p ?? '').trim().replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase();
-const isAbsPath = (n) => /^([a-z]:(\/|$)|\/)/.test(n);   // C:/…（末尾の / を落とした C: も）か /（UNC の //server/share も）
-function planDataMove(from, to, exists, listDir) {
-  const t = normPath(to);
-  if (!t) return '移動先が指定されていません';
-  if (!isAbsPath(t)) return '移動先は絶対パスで指定してください';
-  const f = normPath(from);
-  if (t === f) return '今と同じ場所です';
-  if (t.startsWith(`${f}/`)) return '今のデータフォルダの中には移せません';
-  if (f.startsWith(`${t}/`)) return '今のデータフォルダを含むフォルダ（親フォルダ）には移せません';
-  const raw = String(to ?? '').trim();
-  // 既に NaTsu のデータがあるフォルダは拒まない。写さずにそこへ切り替える（dataMoveMode）。
-  // 拒むと、一度移した人が元の保存先へ戻せなくなる（元のフォルダにはデータが残っているため）。
-  // 「空でないだけ」のフォルダは拒む（利用者の書類の中に pages/ が混ざる）
-  if (dataMoveMode(raw, exists) === 'copy' && exists(raw) && (listDir(raw) || []).length > 0) {
-    return '移動先は空のフォルダにしてください（NaTsu のデータがあるフォルダを選べば、写さずにそこへ切り替えます）';
-  }
-  return '';
-}
-// 移動先の扱い。既に NaTsu のデータ（index.json か pages/）があれば 'switch'（写さずに
-// そこへ切り替える。元の保存先へ戻る道でもある）、無ければ 'copy'（今のデータを写す）。
-// exists は fs.existsSync 相当（Windows なので \ と / を区別しない前提）
-function dataMoveMode(to, exists) {
-  const raw = String(to ?? '').trim().replace(/[\\/]+$/, '');
-  if (!raw) return 'copy';
-  const sep = raw.includes('\\') ? '\\' : '/';
-  return (exists(`${raw}${sep}index.json`) || exists(`${raw}${sep}pages`)) ? 'switch' : 'copy';
-}
-
-// 設定した保存先を使えるかを見た結果から、どこで起動するかと知らせる文を決める（#29 の R1）。
-//   wanted: settings.dataDir（'' なら既定の場所を使っている）
-//   result: { ok:true, empty:bool }（その場所で開けた）/ { ok:false, error }（開けなかった）
-// 開けなければ既定の場所へ落とす。設定は書き換えない——外付けを繋ぎ直して起動し直せば
-// 元の保存先に戻るべきで、こちらが勝手に既定へ書き換えると戻れなくなる。
-// 開けたが議事録が1件も無いときは落とさずに知らせるだけ（勝手に既定へ移すとデータが二重になる）。
-function dataDirFallback(wanted, result) {
-  const w = String(wanted || '');
-  if (!w) return { useDefault: false, notice: '' };
-  if (!result || result.ok !== true) {
-    const why = (result && result.error) ? result.error : '理由不明';
-    return {
-      useDefault: true,
-      notice: `データ保存先「${w}」を開けませんでした（${why}）。既定の場所のデータで起動しています。`
-        + '外付けディスクやネットワークを繋ぎ直してアプリを起動し直すと、元の保存先に戻ります（設定は変えていません）。',
-    };
-  }
-  if (result.empty) {
-    return {
-      useDefault: false,
-      notice: `データ保存先「${w}」に議事録がありません。フォルダが空か、別のディスクが同じドライブ文字になっている可能性があります。`
-        + '設定の「データ保存先」を確かめてください。',
-    };
-  }
-  return { useDefault: false, notice: '' };
-}
-// 写した結果の検証。a / b は { files: ファイル数, bytes: 合計バイト数 }。両方一致で同じ木とみなす。
-// 数えられなかった（NaN）ときは一致としない（確かめていないのに切り替えない）
-function sameTree(a, b) {
-  if (!a || !b) return false;
-  const n = (v) => Number.isFinite(v);
-  return n(a.files) && n(b.files) && n(a.bytes) && n(b.bytes) && a.files === b.files && a.bytes === b.bytes;
-}
-
 const SEGBUF_MAX_AGE_MS = 7 * 86400000;
 function staleSegbufDirs(entries, nowMs, maxAgeMs = SEGBUF_MAX_AGE_MS) {
   const out = [];
@@ -732,6 +659,5 @@ module.exports = {
   extractNotes, truncationMessage, buildPromptParts,
   publicSegments, settledSegments, pendingDurationMs, recoverSegments, staleSegbufDirs,
   nextSegmentMs, EtaTracker, skipPendingSegments,
-  planDataMove, dataMoveMode, dataDirFallback, sameTree,
   estimateTokens, foldNotes, idleEnginesToStop,
 };
