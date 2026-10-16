@@ -60,6 +60,8 @@ test('ヒント付きで空なら、ヒントなしでもう一度送り、区�
   assert.ok(segs.every((s) => !s.failed && /^本日の議題は進捗の確認です。区間\d+$/.test(s.text)), JSON.stringify(segs));
   // 1 つ目の区間は「ヒント付き → ヒントなし」。2 つ目の区間からはヒントなしの 1 回だけ（毎回 2 回送らない）
   assert.deepStrictEqual(prompted(r), [true, false, false]);
+  // ヒントなしのやり直しも、前の要求（ヒント付き）の続きにしない
+  assert.ok(meetingReqs(r).every((l) => /nc=true/.test(l)), JSON.stringify(r.requests));
   assert.strictEqual(r.engineLog.filter((l) => /^文字起こし: 認識ヒント（\d+ バイト）付きでは空 → ヒントなしで \d+ 文字（音声 3 秒）$/.test(l)).length, 1,
     `やり直しが engine.log に残っていない: ${JSON.stringify(r.engineLog)}`);
   assert.ok(r.engineLog.includes('文字起こし: 以後、エンジンと認識ヒントの設定が変わるまで、認識ヒントを渡しません'), JSON.stringify(r.engineLog));
@@ -74,6 +76,8 @@ test('文字が取れたときは 1 回だけ送り、ヒントも止めない',
   assert.deepStrictEqual(prompted(r), [true, true]);
   // ヒント付きの要求には、区間全体に効かせる carry_initial_prompt と言語を必ず添える
   assert.ok(meetingReqs(r).every((l) => /lang=ja/.test(l) && /carry=true/.test(l)), JSON.stringify(r.requests));
+  // どの要求も前の要求の続きにしない（1.8.0 以前は既定で持ち越す）
+  assert.ok(r.requests.every((l) => /nc=true/.test(l)), JSON.stringify(r.requests));
   // 改行をはさんだ返事は 1 行にまとめて保存する
   assert.deepStrictEqual(r.pages[0].segments.map((s) => s.text), ['本日の議題は進捗の確認です。区間2', '本日の議題は進捗の確認です。区間3']);
   assert.ok(!r.engineLog.some((l) => /認識ヒント|除きました/.test(l)), JSON.stringify(r.engineLog));
@@ -133,7 +137,7 @@ test('起動テストは /inference に正しい WAV の無音を実際に送り
     const t = results[k].test;
     assert.strictEqual(t.ok, true, `${k}: ${JSON.stringify(t)}`);
     assert.match(t.info, /短い無音を試しに文字起こしさせ、返事があることも確かめました/);
-    assert.match(results[k].requests[0], /prompt=false probe=true lang=ja carry= wav=true/, `${k}: 起動テストの送り方が違う`);
+    assert.match(results[k].requests[0], /prompt=false probe=true lang=ja carry= nc=true wav=true/, `${k}: 起動テストの送り方が違う`);
   }
   const cases = {
     err200: /^文字起こしを試せませんでした: failed to read audio data$/,

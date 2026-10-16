@@ -575,6 +575,10 @@ async function transcribeLocal(wavBuffer, extraPromptTail, durationMs, opts = {}
     form.append('file', new Blob([wavBuffer], { type: 'audio/wav' }), 'audio.wav');
     form.append('response_format', 'json');
     form.append('temperature', '0.0');
+    // 前の要求の続きとして文字起こしさせない。1.8.0 以前の whisper-server は既定で前の要求の
+    // ヒントと文を次の要求に持ち越す（別の議事録や音声入力にまで漏れ、上の「ヒントなし」の
+    // やり直しにも前のヒントが残る）。1.9 以降は常にこの扱いで、この欄は読まれない
+    form.append('no_context', 'true');
     if (settings.language && settings.language !== 'auto') form.append('language', settings.language);
     if (p) {
       form.append('prompt', p);
@@ -624,6 +628,7 @@ async function probeInference() {
   form.append('file', new Blob([silentWav(2)], { type: 'audio/wav' }), 'probe.wav');
   form.append('response_format', 'json');
   form.append('temperature', '0.0');
+  form.append('no_context', 'true');
   if (settings.language && settings.language !== 'auto') form.append('language', settings.language);
   touchEngine(whisperEng);
   try {

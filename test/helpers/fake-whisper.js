@@ -74,7 +74,7 @@ http.createServer((req, res) => {
     const hasPrompt = 'prompt' in form.fields;
     const isProbe = form.filename === 'probe.wav';
     const okWav = wavOk(form.file);
-    note(`inference #${n} bytes=${body.length} prompt=${hasPrompt} probe=${isProbe} lang=${form.fields.language || ''} carry=${form.fields.carry_initial_prompt || ''} wav=${okWav}`);
+    note(`inference #${n} bytes=${body.length} prompt=${hasPrompt} probe=${isProbe} lang=${form.fields.language || ''} carry=${form.fields.carry_initial_prompt || ''} nc=${form.fields.no_context || ''} wav=${okWav}`);
     if (!okWav) { json(res, 200, { error: 'failed to read audio data' }); return; }
     if (isProbe && mode === 'probe500') { json(res, 500, { error: 'boom' }); return; }
     if (isProbe && mode === 'probe-badjson') { json(res, 200, 'not json'); return; }
