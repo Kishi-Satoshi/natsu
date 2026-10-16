@@ -21,7 +21,9 @@ const os = require('os');
 // 更新の配布元。fork した場合はここだけ書き換えれば動く。
 const REPO = 'Kishi-Satoshi/Listener';
 const API_LATEST = `https://api.github.com/repos/${REPO}/releases/latest`;
-const ASSET_PATTERN = /^listener-src-.*\.zip$/i;
+const ASSET_PATTERN = /^natsu-src-.*\.zip$/i;
+// リリースのタグは natsu-v<x.y.z> だけ。旧名のころの v<x.y.z> が latest に残っていても取り違えない
+const TAG_PATTERN = /^natsu-v(\d+\.\d+\.\d+)$/;
 
 /*
  * 通信は Electron の net 経由で行う。
@@ -50,8 +52,8 @@ function log(userDataPath, line) {
   } catch (_) { /* noop */ }
 }
 
-/** '1.2.3' / 'v1.2.3' / '1.2.3-beta.1' を数の配列にする（プレリリースは切り捨て） */
-const versionParts = (v) => String(v).trim().replace(/^v/, '').split('.').map((n) => parseInt(n, 10) || 0);
+/** '1.2.3' / 'v1.2.3' / 'natsu-v1.2.3' / '1.2.3-beta.1' を数の配列にする（プレリリースは切り捨て） */
+const versionParts = (v) => String(v).trim().replace(/^(natsu-)?v/, '').split('.').map((n) => parseInt(n, 10) || 0);
 
 /** '1.2.3' 同士を比較。a が新しければ 1 */
 function cmpVersion(a, b) {
@@ -104,11 +106,14 @@ async function check(currentVersion, userDataPath) {
     if (res.status === 404) return { ok: false, error: 'リリースが見つかりません（まだ公開されていない可能性があります）' };
     if (!res.ok) return { ok: false, error: `更新情報を取得できません (${res.status})` };
     const data = await res.json();
-    const latest = String(data.tag_name || '').replace(/^v/, '');
-    if (!latest) return { ok: false, error: 'リリースにバージョン情報がありません' };
+    const tag = String(data.tag_name || '');
+    if (!tag) return { ok: false, error: 'リリースにバージョン情報がありません' };
+    const m = tag.match(TAG_PATTERN);
+    if (!m) return { ok: false, error: `リリースのタグ（${tag}）が natsu-v<版> の形ではありません` };
+    const latest = m[1];
 
     const asset = (data.assets || []).find((a) => ASSET_PATTERN.test(a.name));
-    if (!asset) return { ok: false, error: '更新ファイル（listener-src-*.zip）がリリースに添付されていません' };
+    if (!asset) return { ok: false, error: '更新ファイル（natsu-src-*.zip）がリリースに添付されていません' };
 
     const newer = cmpVersion(latest, currentVersion) > 0;
     log(userDataPath, `check: current=${currentVersion} latest=${latest} newer=${newer}`);
@@ -300,4 +305,4 @@ async function apply(url, appRoot, userDataPath, onProgress, opts) {
   }
 }
 
-module.exports = { check, apply, cmpVersion, satisfiesRange, REPO };
+module.exports = { check, apply, cmpVersion, satisfiesRange, REPO, TAG_PATTERN, ASSET_PATTERN };

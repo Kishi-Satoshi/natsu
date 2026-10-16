@@ -7,7 +7,7 @@
 # 使い方:
 #   powershell -ExecutionPolicy Bypass -File .\make-release.ps1 -Version 0.7.0
 #
-# 生成物: release\listener-src-<Version>.zip
+# 生成物: release\natsu-src-<Version>.zip
 # これを GitHub の Releases 画面にドラッグして公開すれば、
 # 各PCのNaTsuが「更新を確認」で検出します。
 # =====================================================================
@@ -44,7 +44,7 @@ New-Item -ItemType Directory -Force -Path $stage | Out-Null
 Copy-Item (Join-Path $root "src") (Join-Path $stage "src") -Recurse
 Copy-Item $pkgPath (Join-Path $stage "package.json")
 
-$zip = Join-Path $rel ("listener-src-" + $Version + ".zip")
+$zip = Join-Path $rel ("natsu-src-" + $Version + ".zip")
 if (Test-Path $zip) { Remove-Item $zip -Force }
 Compress-Archive -Path (Join-Path $stage "*") -DestinationPath $zip
 Remove-Item -Recurse -Force $stage
@@ -56,7 +56,7 @@ Write-Host ("  " + $zip + "  (" + $sizeKB + " KB)")
 Write-Host ""
 Write-Host "次の手順:"
 Write-Host "  1. GitHub のリポジトリ画面で Releases -> Draft a new release"
-Write-Host ("  2. Tag に v" + $Version + " を入力（Create new tag を選ぶ）")
+Write-Host ("  2. Tag に natsu-v" + $Version + " を入力（Create new tag を選ぶ）")
 Write-Host "  3. 変更点を本文に書く（アプリの更新画面にそのまま表示されます）"
 Write-Host "  4. 上記のzipをドラッグして添付"
 Write-Host "  5. Publish release"

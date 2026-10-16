@@ -112,13 +112,13 @@ test('make-release.ps1 が updater の探すファイル名でzipを作る', () 
   const upd = read('src/updater.js');
   const pattern = upd.match(/ASSET_PATTERN\s*=\s*\/\^([^/]+)\$\/i/);
   assert.ok(pattern, 'ASSET_PATTERN が読み取れない');
-  const m = rel.match(/"(listener-src-)"\s*\+\s*\$Version\s*\+\s*"(\.zip)"/);
+  const m = rel.match(/"(natsu-src-)"\s*\+\s*\$Version\s*\+\s*"(\.zip)"/);
   assert.ok(m, 'make-release.ps1 のzip名が読み取れない');
   const produced = `${m[1]}0.8.0${m[2]}`;
   assert.match(produced, new RegExp(`^${pattern[1]}$`, 'i'),
     `make-release.ps1 が作る ${produced} を updater が拾えない`);
   // 添付漏れ時のエラー文が実際のファイル名を案内しているか
-  assert.ok(upd.includes('listener-src-*.zip'),
+  assert.ok(upd.includes('natsu-src-*.zip'),
     'updater のエラー文が実際のファイル名と違う（利用者が探せなくなる）');
 });
 

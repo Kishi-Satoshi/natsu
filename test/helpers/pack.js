@@ -43,7 +43,7 @@ function packRelease(repoRoot, workDir, version) {
   const pkg = JSON.parse(fs.readFileSync(path.join(repoRoot, 'package.json'), 'utf8'));
   pkg.version = version;
   fs.writeFileSync(path.join(stage, 'package.json'), JSON.stringify(pkg, null, 2), 'utf8');
-  return packDir(stage, path.join(workDir, `listener-src-${version}.zip`));
+  return packDir(stage, path.join(workDir, `natsu-src-${version}.zip`));
 }
 
 module.exports = { packerAvailable, packDir, packRelease };

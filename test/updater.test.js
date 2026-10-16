@@ -35,6 +35,17 @@ test('cmpVersion がバージョンを正しく比較する', () => {
   assert.strictEqual(updater.cmpVersion('0.8.1', '0.8'), 1);
 });
 
+test('natsu-v のタグを読む: 1.0.0 も 0.x より新しい', () => {
+  // 先頭の v しか外さないと natsu-v1.0.0 は 0.0.0 と読まれ、1.0.0 が配られない
+  assert.strictEqual(updater.cmpVersion('natsu-v1.0.0', '0.9.0'), 1);
+  assert.strictEqual(updater.cmpVersion('natsu-v0.2.0', '0.2.0'), 0);
+  assert.ok(updater.TAG_PATTERN.test('natsu-v0.1.0'));
+  assert.ok(!updater.TAG_PATTERN.test('v0.11.3'));
+  // 旧名の資産は拾わない。名前の走査に当たらないよう、文字を分けて書く
+  assert.ok(!updater.ASSET_PATTERN.test('listen' + 'er-src-0.11.3.zip'));
+  assert.ok(updater.ASSET_PATTERN.test('natsu-src-0.1.0.zip'));
+});
+
 test('配布元リポジトリが設定されている', () => {
   assert.match(updater.REPO, /^[\w.-]+\/[\w.-]+$/, 'REPO は <アカウント>/<リポジトリ> 形式');
 });
@@ -49,19 +60,22 @@ test('check() がリリース情報を解釈する', { skip: !CAN_PACK && 'zip �
     if (req.url.startsWith('/asset.zip')) { res.writeHead(200); res.end(bytes); return; }
     if (req.url.includes('/no-asset')) {
       res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ tag_name: 'v0.9.0', assets: [{ name: 'NaTsu-0.9.0-setup.exe', browser_download_url: 'x', size: 1 }] }));
+      res.end(JSON.stringify({ tag_name: 'natsu-v0.9.0', assets: [{ name: 'NaTsu-0.9.0-setup.exe', browser_download_url: 'x', size: 1 }] }));
       return;
     }
     if (req.url.includes('/missing')) { res.writeHead(404); res.end('{}'); return; }
     if (req.url.includes('/server-error')) { res.writeHead(500); res.end('{}'); return; }
+    // /one は 1.0.0、/old-tag は旧名のころの v タグ（資産は新しい名前でも拾わないこと）
+    const tag = req.url.includes('/one') ? 'natsu-v1.0.0'
+      : req.url.includes('/old-tag') ? 'v0.11.3' : 'natsu-v0.9.0';
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({
-      tag_name: 'v0.9.0',
+      tag_name: tag,
       body: 'リリースノート本文',
       published_at: '2026-10-05T00:00:00Z',
       assets: [
         { name: 'NaTsu-0.9.0-setup.exe', browser_download_url: `http://127.0.0.1:${port}/exe`, size: 90000000 },
-        { name: 'listener-src-0.9.0.zip', browser_download_url: `http://127.0.0.1:${port}/asset.zip`, size: bytes.length },
+        { name: 'natsu-src-0.9.0.zip', browser_download_url: `http://127.0.0.1:${port}/asset.zip`, size: bytes.length },
       ],
     }));
   });
@@ -101,8 +115,19 @@ test('check() がリリース情報を解釈する', { skip: !CAN_PACK && 'zip �
 
   const noAsset = await mkStub('/no-asset').check('0.8.0', work);
   assert.strictEqual(noAsset.ok, false);
-  assert.match(noAsset.error, /listener-src/,
+  assert.match(noAsset.error, /natsu-src/,
     'エラー文が実際に探しているファイル名と一致すること');
+
+  // 1.0.0 も 0.x より新しいと読む（natsu-v を外して比べる）
+  const one = await mkStub('/one').check('0.9.0', work);
+  assert.strictEqual(one.ok, true, one.error);
+  assert.strictEqual(one.update, true);
+  assert.strictEqual(one.version, '1.0.0');
+
+  // latest に古い v タグが残っていても、取り違えない
+  const old = await mkStub('/old-tag').check('0.1.0', work);
+  assert.strictEqual(old.ok, false);
+  assert.match(old.error, /natsu-v/);
 });
 
 test('check() は繋がらないときオフラインとして静かに諦める', async () => {

@@ -82,8 +82,8 @@ test('CHANGELOG は natsu-v0.1.0 から始まり、Listener の古い節（## v�
   assert.deepStrictEqual(heads.filter((h) => !/^## natsu-v\d+\.\d+\.\d+$/.test(h)), []);
 });
 
-// 後の作業で変える行。R3-1 で listener-src を、R3-3 で Kishi-Satoshi/Listener を消し、空になったら定数ごと消す
-const UNTIL_R3 = /listener-src|Kishi-Satoshi\/Listener/;
+// 後の作業で変える行。R3-3 で Kishi-Satoshi/Listener を消し、定数ごと消す（listener-src は R3-1 で消した）
+const UNTIL_R3 = /Kishi-Satoshi\/Listener/;
 const TEXT = /\.(js|html|json|md|ps1|bat|yml)$|(^|\/)[^./]+$/;
 test('Listener の名前がリポジトリに残っていない（CHANGELOG の履歴と計画書を除く）', () => {
   const hits = [];

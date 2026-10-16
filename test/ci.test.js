@@ -84,3 +84,10 @@ test('release.yml: ゲートとチェックリストは前の natsu-v タグか�
   assert.ok(r.includes('node tools/risk.js --base "$PREV" --head HEAD --checklist RELEASE-CHECK.md'));
   assert.ok(!r.includes('--base-tag'));
 });
+
+// 資産の名前は release.yml と updater.js で同じにする（第0a回 R3）
+test('release.yml が作る zip の名前を、updater の ASSET_PATTERN が拾う', () => {
+  const m = rel().match(/zip -q -r -X "\.\.\/([\w-]+)\$\{VER\}\.zip"/);
+  assert.ok(m, 'zip の名前が読めない');
+  assert.ok(require('../src/updater').ASSET_PATTERN.test(`${m[1]}0.1.0.zip`));
+});
