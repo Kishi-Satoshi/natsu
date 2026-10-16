@@ -126,7 +126,7 @@ llama.cpp と Qwen2.5-3B（約1.9GB）を取得します。`-Model 7b` で高品
 
 ## データ保存先
 
-`%APPDATA%\listener\`
+`%APPDATA%\natsu\`
 ```
 settings.json          設定
 history.json           音声入力の履歴
@@ -144,14 +144,14 @@ data/                  議事録の保存先（既定。設定で変えられる
 ### 保存先を変える
 
 議事録の保存先（上の `data/`）は、設定画面の「保存先を変更…」で別のフォルダにできます。
-既定は今まで通り `%APPDATA%\listener\data` です。
+既定は今まで通り `%APPDATA%\natsu\data` です。
 
 - `%APPDATA%`（Roaming）配下は、社内のプロファイル同期（移動ユーザープロファイル等）で
   サインイン時にサーバーへ複製されることがあります。議事録を同期に載せたくない、または
   同期の容量に響く場合は、`%LOCALAPPDATA%\Listener\data` などへ移してください。
 - 移動は「新しい場所へコピー → 検証 → 切替」の順で行い、元の場所のデータは消しません。
   戻したくなったら元のフォルダを選び直せば済みます（不要になったら手で消してください）。
-- 記録中の音声の退避フォルダ `segbuf` は従来の場所（`%APPDATA%\listener\data\segbuf`）のままです。
+- 記録中の音声の退避フォルダ `segbuf` は従来の場所（`%APPDATA%\natsu\data\segbuf`）のままです。
   設定（settings.json）と音声入力の履歴（history.json）も動きません。
 - OneDrive 等の同期フォルダやネットワークドライブは避けてください。記録中に書き込みが
   止まると、その区間の文字起こしが失敗します。
@@ -167,7 +167,7 @@ data/                  議事録の保存先（既定。設定で変えられる
 
 | ファイル | 用途 |
 | --- | --- |
-| `Listener-<版>-setup.exe` | アプリ本体（約75MB） |
+| `NaTsu-<版>-setup.exe` | アプリ本体（約75MB） |
 | `setup-local-engine.ps1` | 文字起こしエンジン（約0.6GB）を取ってくる |
 | `setup-summarizer.ps1` | 要約エンジン（約2GB）を取ってくる |
 
@@ -189,7 +189,7 @@ powershell -ExecutionPolicy Bypass -File .\get-installer.ps1
 
 この大きなファイルを落とすのは初回だけです。以降の更新は数百KBの差分のみを取得します。
 
-手元でビルドしたい場合は `npm run dist:installer` で `dist\Listener-<版>-setup.exe`
+手元でビルドしたい場合は `npm run dist:installer` で `dist\NaTsu-<版>-setup.exe`
 ができます。ただし electron-builder が取得する `winCodeSign` に macOS 用の
 シンボリックリンクが含まれるため、Windows では特権が無いと展開に失敗します
 （「クライアントは要求された特権を保有していません」）。その場合は
@@ -198,7 +198,7 @@ powershell -ExecutionPolicy Bypass -File .\get-installer.ps1
 通常はそちらを使えば足ります。
 
 インストーラーはユーザー単位のインストールなので
-管理者権限は不要で、`%LOCALAPPDATA%\Programs\Listener\Listener.exe` に入り、
+管理者権限は不要で、`%LOCALAPPDATA%\Programs\NaTsu\NaTsu.exe` に入り、
 デスクトップとスタートメニューにショートカットが作られます。
 エンジン（whisper / llama とモデル）は**このインストール先には置かないでください**。
 更新のたびに旧版を消してから入れ直すので、そこへ置いたエンジンは消えます
@@ -254,7 +254,7 @@ git push origin natsu-v0.1.0
 形が違うときと、`natsu-v` を外した版が `package.json` のバージョンと食い違うときは、ワークフローが止まります。
 
 Release はまず **draft** として作られ（zip と ps1 を添付）、Windows ランナーで
-`Listener-<版>-setup.exe` を添付できてから公開（latest）になります。
+`NaTsu-<版>-setup.exe` を添付できてから公開（latest）になります。
 exe の添付に失敗すると draft のまま残り、Actions の要約に赤い見出し
 「公開されていません（draft のまま）」が出ます。draft の間は `releases/latest` に
 出ないので、各PCの更新確認には前の版が出続けます（新しい版が見えないだけで、壊れはしません）。

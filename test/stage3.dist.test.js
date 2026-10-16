@@ -143,7 +143,7 @@ test('#29 README の「データ保存先」に、設定で変えられる・Roa
   const sec = section(read('README.md'), '## データ保存先');
   assert.ok(sec, 'README に「## データ保存先」が無い');
   // 既存テスト（READMEのデータ保存先が実際の保存先と一致する）が見ている文字列は残す
-  assert.ok(sec.includes('%APPDATA%\\listener'), '既定の保存先 %APPDATA%\\listener が節から消えた');
+  assert.ok(sec.includes('%APPDATA%\\natsu'), '既定の保存先 %APPDATA%\\natsu が節から消えた');
   assert.ok(/既定は[^\n]*今まで通り|今まで通り[^\n]*既定/.test(sec), '既定が今まで通りであることが書いていない');
   assert.ok(/保存先を変更/.test(sec), '設定の「保存先を変更…」で変えられることが書いていない');
   assert.ok(/Roaming/.test(sec) && /同期/.test(sec), 'Roaming 配下がプロファイル同期で複製されうる注意が無い');
@@ -155,7 +155,7 @@ test('#29 README の「データ保存先」に、設定で変えられる・Roa
 test('#29 INSTALL の「データの保存先とバックアップ」に Roaming の注意がある', () => {
   const sec = section(read('INSTALL.md'), '## データの保存先とバックアップ');
   assert.ok(sec, 'INSTALL に「## データの保存先とバックアップ」が無い');
-  assert.ok(sec.includes('%APPDATA%\\listener'), '既定の保存先が節から消えた');
+  assert.ok(sec.includes('%APPDATA%\\natsu'), '既定の保存先が節から消えた');
   assert.ok(/Roaming/.test(sec) && /同期/.test(sec), 'Roaming の注意が無い');
   assert.ok(/保存先を変更/.test(sec) && /%LOCALAPPDATA%/.test(sec), '設定で %LOCALAPPDATA% 配下へ移せることが書いていない');
   assert.ok(/元の場所[^\n]*消しません/.test(sec), '元の場所のデータは消さないことが書いていない');

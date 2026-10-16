@@ -1,6 +1,6 @@
 {
-  "name": "listener",
-  "version": "0.11.3",
+  "name": "natsu",
+  "version": "0.1.0",
   "description": "NaTsu — 完全オフラインの音声入力・議事録ツール（ローカルLLM要約 + 出典リンク付き）",
   "main": "src/main.js",
   "author": "Kishi-Satoshi",
@@ -24,8 +24,8 @@
     "electron": ">=31.3.0"
   },
   "build": {
-    "appId": "local.listener.app",
-    "productName": "Listener",
+    "appId": "local.natsu.app",
+    "productName": "NaTsu",
     "files": [
       "src/**/*",
       "assets/icon.png",
@@ -42,16 +42,16 @@
       "icon": "assets/icon.ico"
     },
     "portable": {
-      "artifactName": "Listener-${version}-portable.exe"
+      "artifactName": "NaTsu-${version}-portable.exe"
     },
     "nsis": {
-      "artifactName": "Listener-${version}-setup.exe",
+      "artifactName": "NaTsu-${version}-setup.exe",
       "oneClick": false,
       "perMachine": false,
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-      "shortcutName": "Listener"
+      "shortcutName": "NaTsu"
     }
   }
 }

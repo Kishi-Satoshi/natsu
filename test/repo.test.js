@@ -317,7 +317,7 @@ test('READMEのデータ保存先が実際の保存先と一致する', () => {
 test('package.json のバージョンが semver 形式', () => {
   const pkg = JSON.parse(read('package.json'));
   assert.match(pkg.version, /^\d+\.\d+\.\d+$/);
-  assert.strictEqual(pkg.name, 'listener');
+  assert.strictEqual(pkg.name, 'natsu');
 });
 
 test('配布物に必要なファイルが build.files に含まれている', () => {
@@ -1194,7 +1194,7 @@ test('セットアップは、展開が不完全でないかを確かめてか�
 test('アプリのインストール先にエンジンを置かないことが文書に書いてある', () => {
   for (const name of ['README.md', 'INSTALL.md']) {
     const s = read(name);
-    const i = s.indexOf('Programs\\Listener');
+    const i = s.indexOf('Programs\\NaTsu');
     assert.ok(i > 0, `${name}: インストール先に触れていない`);
     assert.match(s, /インストール先[^\n]*(置かない|置かないで)|エンジン[^\n]*インストール先[^\n]*消え/,
       `${name}: インストール先にエンジンを置かない注意が無い`);

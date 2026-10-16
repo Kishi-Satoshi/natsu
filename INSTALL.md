@@ -22,7 +22,7 @@ https://github.com/Kishi-Satoshi/Listener/releases/latest
 
 | ファイル | 用途 |
 | --- | --- |
-| `Listener-<版>-setup.exe` | アプリ本体（約 75MB） |
+| `NaTsu-<版>-setup.exe` | アプリ本体（約 75MB） |
 | `setup-local-engine.ps1` | 文字起こしエンジンの導入用 |
 | `setup-summarizer.ps1` | 要約エンジンの導入用 |
 
@@ -42,9 +42,9 @@ powershell -ExecutionPolicy Bypass -File .\get-installer.ps1
 
 ## 手順2. アプリを入れる
 
-`Listener-<版>-setup.exe` をダブルクリックするだけです。
+`NaTsu-<版>-setup.exe` をダブルクリックするだけです。
 
-- インストール先は `%LOCALAPPDATA%\Programs\Listener\`（自分専用）
+- インストール先は `%LOCALAPPDATA%\Programs\NaTsu\`（自分専用）
 - デスクトップとスタートメニューにショートカットができます
 - 管理者権限は聞かれません
 
@@ -75,7 +75,7 @@ mkdir "$env:LOCALAPPDATA\Listener-engine"
 > 見た目は正常でもエンジンが読めず、起動テストが「モデルの実体がこの PC にありません」で止まります。
 > `%LOCALAPPDATA%` 配下は同期の対象外なので安全です。
 
-> **アプリのインストール先（`%LOCALAPPDATA%\Programs\Listener`）にもエンジンを置かないでください。**
+> **アプリのインストール先（`%LOCALAPPDATA%\Programs\NaTsu`）にもエンジンを置かないでください。**
 > インストーラーは更新のたびに旧版を消してから入れ直すので、そこへ置いたエンジンは
 > 更新で消えます（起動テストが「実行ファイルが壊れています（0.0MB）」になります）。
 > 起動テストでも注意が出ます。出たら上の `Listener-engine` などへ移し、設定のパスを貼り直してください。
@@ -159,7 +159,7 @@ Web会議の音声も一緒に録りたい場合は、［設定］→［動作�
 
 > **更新が「Electron … が必要です。インストーラーで入れ直してください」で止まったら**
 > その版は差分だけでは入りません（アプリ本体を新しくする必要があります）。
-> 手順1のページから新しい `Listener-<版>-setup.exe` を落として、手順2と同じように
+> 手順1のページから新しい `NaTsu-<版>-setup.exe` を落として、手順2と同じように
 > 入れ直してください。設定・議事録・エンジンはそのまま残ります（保存先が別だからです）。
 
 ---
@@ -186,7 +186,7 @@ Web会議の音声も一緒に録りたい場合は、［設定］→［動作�
 議事録・文字起こし・設定は次の場所にあります。
 
 ```
-%APPDATA%\listener\
+%APPDATA%\natsu\
 ```
 
 ［設定］→［データ保存先を開く］から開けます。

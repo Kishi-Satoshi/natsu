@@ -46,6 +46,12 @@ const {
   planDataMove, dataMoveMode, dataDirFallback, sameTree, estimateTokens, foldNotes, idleEnginesToStop,
 } = require('./mainlib');
 
+// package.json の build.appId の写し。配る package.json から build は消えるので、ここに持つ
+// （identity.test.js が食い違いを見る）。インストーラーが付けるショートカットの AppUserModelID と同じ
+const APP_ID = 'local.natsu.app';
+// メッセージの窓の見出し。渡さないと Windows は app.name（小文字の natsu）を出す
+const APP_TITLE = 'NaTsu';
+
 const CPU_OLD_DEFAULT_THREADS = Math.max(4, Math.floor(os.cpus().length / 2));
 const CPU_DEFAULT_THREADS = Math.max(4, os.cpus().length - 2);
 const MIN_RECORD_MS = 400;
@@ -839,7 +845,7 @@ function quitFromTray() {
   const confirm = closeConfirm(state === 'meeting' || state === 'meeting-finalizing', isSummarizing());
   if (confirm) {
     const r = dialog.showMessageBoxSync({
-      type: 'warning', buttons: ['終了する', 'キャンセル'], defaultId: 1, cancelId: 1,
+      title: APP_TITLE, type: 'warning', buttons: ['終了する', 'キャンセル'], defaultId: 1, cancelId: 1,
       message: confirm.message, detail: confirm.detail,
     });
     if (r !== 0) return;
@@ -1008,7 +1014,7 @@ function createMainWindow() {
     const confirm = closeConfirm(state === 'meeting' || state === 'meeting-finalizing', isSummarizing());
     if (confirm) {
       const r = dialog.showMessageBoxSync(mainWin, {
-        type: 'warning', buttons: ['終了する', 'キャンセル'], defaultId: 1, cancelId: 1,
+        title: APP_TITLE, type: 'warning', buttons: ['終了する', 'キャンセル'], defaultId: 1, cancelId: 1,
         message: confirm.message, detail: confirm.detail,
       });
       if (r !== 0) { e.preventDefault(); return; }
@@ -1756,34 +1762,34 @@ async function checkUpdateFromTray() {
   const target = updateTarget();
   const r = await updater.check(app.getVersion(), app.getPath('userData'));
   if (!r.ok) {
-    dialog.showMessageBox({ type: 'error', message: '更新を確認できませんでした', detail: r.error || '' });
+    dialog.showMessageBox({ title: APP_TITLE, type: 'error', message: '更新を確認できませんでした', detail: r.error || '' });
     return;
   }
   if (!r.update) {
-    dialog.showMessageBox({ type: 'info', message: `最新です（${app.getVersion()}）` });
+    dialog.showMessageBox({ title: APP_TITLE, type: 'info', message: `最新です（${app.getVersion()}）` });
     return;
   }
   if (!target.ok) {
     const pick = dialog.showMessageBoxSync({
-      type: 'info', buttons: ['配布ページを開く', '閉じる'], defaultId: 0, cancelId: 1,
+      title: APP_TITLE, type: 'info', buttons: ['配布ページを開く', '閉じる'], defaultId: 0, cancelId: 1,
       message: `新しいバージョン ${r.version} があります`, detail: target.error || '',
     });
     if (pick === 0) shell.openExternal(`https://github.com/${updater.REPO}/releases/latest`);
     return;
   }
   const pick = dialog.showMessageBoxSync({
-    type: 'question', buttons: ['更新して再起動', 'あとで'], defaultId: 0, cancelId: 1,
+    title: APP_TITLE, type: 'question', buttons: ['更新して再起動', 'あとで'], defaultId: 0, cancelId: 1,
     message: `新しいバージョン ${r.version} があります`,
     detail: String(r.notes || '').slice(0, 800),
   });
   if (pick !== 0) return;
   if (isSummarizing()) {   // 確認の間に要約が始まっていることがある（#52）
-    dialog.showMessageBox({ type: 'info', message: '要約を作成中です', detail: '終わってから更新してください' });
+    dialog.showMessageBox({ title: APP_TITLE, type: 'info', message: '要約を作成中です', detail: '終わってから更新してください' });
     return;
   }
   const res = await updater.apply(r.url, target.root, app.getPath('userData'), () => {});
   if (!res.ok) {
-    dialog.showMessageBox({ type: 'error', message: '更新に失敗しました', detail: res.error || '' });
+    dialog.showMessageBox({ title: APP_TITLE, type: 'error', message: '更新に失敗しました', detail: res.error || '' });
     return;
   }
   quitting = true;
@@ -2162,6 +2168,9 @@ function setupIpc() {
 }
 
 // ---------------------------------------------------------------- 起動
+// タスクバーのまとまりと通知の名前を、ショートカットと同じ APP_ID にする。呼ばないと app.name
+// （小文字の natsu）から作られる。窓とトレイより先に呼ぶ。Windows だけの関数なので win32 のときだけ
+if (process.platform === 'win32') app.setAppUserModelId(APP_ID);
 const gotLock = app.requestSingleInstanceLock();
 if (!gotLock) {
   app.quit();
