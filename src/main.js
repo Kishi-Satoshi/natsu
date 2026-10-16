@@ -43,7 +43,7 @@ const {
   extractNotes, truncationMessage, buildPromptParts,
   publicSegments, settledSegments, pendingDurationMs, recoverSegments, staleSegbufDirs, nextSegmentMs, EtaTracker,
   skipPendingSegments, restoreAfterPaste,
-  estimateTokens, foldNotes, idleEnginesToStop, silentWav,
+  estimateTokens, foldNotes, idleEnginesToStop, silentWav, wavLevelDbfs,
 } = require('./mainlib');
 
 // package.json の build.appId の写し。配る package.json から build は消えるので、ここに持つ
@@ -527,26 +527,50 @@ function restartEnginesIfNeeded() {
 }
 
 // ---------------------------------------------------------------- 文字起こし
-async function transcribeLocal(wavBuffer, extraPromptTail, durationMs) {
+// 認識ヒントを渡すと空になり、渡さないと文字が取れた——を一度見たら、同じエンジン・同じヒントの間は
+// ヒントを渡さない。毎回 2 回送ると、遅い PC では文字起こしが録音に追いつかなくなり、音声入力も倍待たせる。
+// エンジンの設定かヒントの中身（辞書・業務の言葉・言語）が変われば、もう一度ヒント付きで試す。
+// 覚えるのはアプリが動いている間だけ（次の起動では、最初の 1 回だけまた 2 回送る）
+let promptOffSig = '';
+const promptSig = () => [engineSignature(whisperEng), JSON.stringify(settings.dictionary || []),
+  settings.useBuiltinTerms !== false, settings.language].join('|');
+const promptOff = () => promptOffSig !== '' && promptOffSig === promptSig();
+// ヒントなしでのやり直しを省く音の小ささ。VAD が無いと、ほぼ無音の音声をヒントなしで送り直したとき、
+// 作り話（「ご視聴ありがとうございました」など）が返りうる。話し声はふつう -40 dBFS より大きい
+const RETRY_MIN_DBFS = -50;
+
+// opts.isStale: やり直しの前に聞く。true なら（議事録の破棄・打ち切りの後）送り直さない
+async function transcribeLocal(wavBuffer, extraPromptTail, durationMs, opts = {}) {
   const ok = await ensureEngineReady(whisperEng);
   if (!ok) throw new Error(whisperEng.lastError || '文字起こしエンジンが起動していません');
   // 処理時間は音声の長さにほぼ比例する。固定240秒だと、長くなった区間や
   // 長い音声入力が時間切れで丸ごと失われる（実機で9分の区間が消えた）。
-  // 音声の5倍+60秒まで、上限30分で待つ。短い区間は今まで通り。
+  // 音声の5倍+60秒まで、上限30分で待つ。短い区間は今まで通り。下のやり直しも含めてこの時間の内。
   // トレードオフ: エンジンが応答しないままハングした場合、この時間まで
   // 待ち続ける（議事録は「破棄」で抜けられる）。喪失よりは待ちを選ぶ。
   const waitMs = Math.min(1800000, Math.max(240000, Math.round(durationMs || 0) * 5 + 60000));
-  const prompt = buildPrompt(extraPromptTail);
-  // 語彙のヒント（初期プロンプト）付きで空なら、ヒントなしでもう一度だけ送る。
-  // kotoba-whisper は長いヒントを渡すと、話し声があっても {"text":""} を返す
-  // （既定の語彙を全部載せた 376 バイトで再現。実機で全区間が消えて「0 区間」になった。0.1.1）。
-  // 本当に無音の区間は 2 回送ることになるが、VAD があれば 2 回目はすぐ返る
+  const deadline = Date.now() + waitMs;
+  const prompt = promptOff() ? '' : buildPrompt(extraPromptTail);
+  // 認識ヒント（初期プロンプト）付きで空なら、ヒントなしでもう一度だけ送る。
+  // kotoba-whisper は長いヒントを渡すと、話し声があっても {"text":""} を返すことがある
+  // （既定の言葉を全部載せた 376 バイトで再現。実機で全区間が消えて「0 区間」になった。0.1.1）
   const tries = prompt ? [prompt, ''] : [''];
+  const sec = Math.round((durationMs || 0) / 1000);
   let text = '';
   let retried = false;
   for (let i = 0; i < tries.length; i++) {
     const p = tries[i];
-    retried = i > 0;
+    if (i > 0) {
+      if (opts.isStale && opts.isStale()) break;
+      if (deadline - Date.now() < 10000) break;   // 1 回目で時間をほぼ使い切った
+      const vadOn = Boolean(settings.useVad && resolveVadModel());
+      const level = vadOn ? 0 : wavLevelDbfs(wavBuffer);
+      if (level < RETRY_MIN_DBFS) {
+        engineLog(`文字起こし: 認識ヒント付きでは空。音がほとんど無いため（${level === -Infinity ? '無音' : `${Math.round(level)} dBFS`}）、ヒントなしでのやり直しは省きました（音声 ${sec} 秒）`);
+        break;
+      }
+      retried = true;
+    }
     const form = new FormData();
     form.append('file', new Blob([wavBuffer], { type: 'audio/wav' }), 'audio.wav');
     form.append('response_format', 'json');
@@ -561,7 +585,7 @@ async function transcribeLocal(wavBuffer, extraPromptTail, durationMs) {
     }
     touchEngine(whisperEng);
     const res = await fetch(`http://127.0.0.1:${settings.localPort}/inference`,
-      { method: 'POST', body: form, signal: AbortSignal.timeout(waitMs) });
+      { method: 'POST', body: form, signal: AbortSignal.timeout(Math.max(1000, deadline - Date.now())) });
     touchEngine(whisperEng);
     if (!res.ok) {
       let detail = '';
@@ -577,13 +601,24 @@ async function transcribeLocal(wavBuffer, extraPromptTail, durationMs) {
   }
   // 空になった理由を後から追えるように残す（以前は何も書かず、engine.log からは何も分からなかった）
   if (retried) {
-    engineLog(`文字起こし: 語彙のヒント（${Buffer.byteLength(prompt, 'utf8')} バイト）付きでは空 → ヒントなしで${text ? ` ${text.length} 文字` : 'も空'}（音声 ${Math.round((durationMs || 0) / 1000)} 秒）`);
+    engineLog(`文字起こし: 認識ヒント（${Buffer.byteLength(prompt, 'utf8')} バイト）付きでは空 → ヒントなしで${text ? ` ${text.length} 文字` : 'も空'}（音声 ${sec} 秒）`);
+    if (text && !promptOff()) {
+      promptOffSig = promptSig();
+      engineLog('文字起こし: 以後、エンジンと認識ヒントの設定が変わるまで、認識ヒントを渡しません');
+    }
   }
   return text;
 }
+// fetch の失敗を、利用者に見せる一文にする（英語の "fetch failed" や時間切れの文をそのまま出さない）
+function fetchErrorText(e) {
+  if (e && (e.name === 'TimeoutError' || e.name === 'AbortError')) return '時間内に返事がありませんでした';
+  const code = e && e.cause && e.cause.code;
+  if (e && (/fetch failed/i.test(e.message || '') || /^E(CONNREFUSED|CONNRESET|PIPE)$/.test(code || ''))) return 'エンジンにつながりませんでした';
+  return (e && e.message) || '不明なエラー';
+}
 // 起動テストの仕上げ。/health に応えても、文字起こしができるとは限らない（古いビルドは
 // /inference で WAV を読めないと 200 のまま {"error"} を返す）。2 秒の無音を実際に送り、
-// 答えが JSON で、error を含まないことまで見る。問題があれば利用者向けの一文、無ければ ''
+// 返事が JSON で、error を含まないことまで見る。問題があれば利用者向けの一文、無ければ ''
 async function probeInference() {
   const form = new FormData();
   form.append('file', new Blob([silentWav(2)], { type: 'audio/wav' }), 'probe.wav');
@@ -597,11 +632,11 @@ async function probeInference() {
     let data = null;
     try { data = await res.json(); } catch (_) { /* 下で扱う */ }
     if (!res.ok) return `文字起こしを試せませんでした（${res.status}${data?.error ? `: ${data.error}` : ''}）`;
-    if (!data || typeof data !== 'object') return '文字起こしの答えを読めませんでした';
+    if (!data || typeof data !== 'object') return '文字起こしエンジンの返事を読めませんでした';
     if (data.error) return `文字起こしを試せませんでした: ${data.error}`;
     return '';
   } catch (e) {
-    return `文字起こしを試せませんでした: ${e.message}`;
+    return `文字起こしを試せませんでした: ${fetchErrorText(e)}`;
   } finally {
     touchEngine(whisperEng);
   }
@@ -1483,7 +1518,7 @@ function onMeetingSegment(buffer, durationMs, isFinal) {
     m.inFlightSince = t0;
     let text = '';
     try {
-      text = await transcribeLocal(buffer, tail, durationMs);
+      text = await transcribeLocal(buffer, tail, durationMs, { isStale: () => meeting !== m || m.gen !== gen });
     } catch (e) {
       if (meeting !== m || m.gen !== gen) return;
       m.inFlightSince = 0;
@@ -1570,7 +1605,8 @@ async function maybeFinalizeMeeting() {
   if (m.emptySegs > 0 && !settledSegments(m.segments).length) {
     engineLog(`議事録を保存: 文字起こしが空の区間が ${m.emptySegs}、文字の残った区間は 0`);
     sendToMainWin('app:notice', `${m.emptySegs} 区間の音声を受け取りましたが、文字起こしの結果がすべて空でした。`
-      + '設定の「使用するマイク」が話している人の声を拾うマイクになっているか確かめてください。');
+      + '設定の「使用するマイク」が話している人の声を拾うマイクになっているか確かめてください。'
+      + '続くときは、%APPDATA%\\natsu\\engine.log に理由が残っています。');
   }
 
   await runSummary(page.id);
@@ -2023,12 +2059,14 @@ function setupIpc() {
     if (problem) return { ok: false, error: problem, warning };
     const ok = await ensureEngineReady(whisperEng);
     if (!ok) return { ok: false, error: whisperEng.lastError || '起動に失敗しました', warning };
-    const tried = await probeInference();
-    if (tried) { engineLog(`起動テスト: ${tried}`); return { ok: false, error: tried, warning }; }
     const vad = settings.useVad ? resolveVadModel() : '';
     const notes = [vad ? `VAD有効（${path.basename(vad)}）` : 'VAD無効'];
     if (settings.suppressNst) notes.push('非発話トークン抑制');
-    return { ok: true, info: `文字起こしエンジンは起動し、試しの文字起こしにも答えました（${notes.join(' / ')}）`, warning };
+    // 記録・文字起こしの最中は試さない（エンジンは 1 件ずつ処理するので、前の区間を待って時間切れになりうる）
+    if (isBusy()) return { ok: true, info: `文字起こしエンジンは起動しています。記録や文字起こしの最中のため、試しの文字起こしは省きました（${notes.join(' / ')}）`, warning };
+    const tried = await probeInference();
+    if (tried) { engineLog(`起動テスト: ${tried}`); return { ok: false, error: tried, warning }; }
+    return { ok: true, info: `文字起こしエンジンは起動しています。短い無音を試しに文字起こしさせ、返事があることも確かめました（${notes.join(' / ')}）`, warning };
   });
   ipcMain.handle('app:test-sum', async () => {
     const warning = engineDirNote(sumEng);
@@ -2044,7 +2082,7 @@ function setupIpc() {
   // 尻尾（直前の発言）は付けずに数える（辞書そのものの収まり具合を見せるため）
   ipcMain.handle('prompt:info', () => {
     const r = promptParts('');
-    return { ok: true, kept: r.kept, total: r.total, over: r.over };
+    return { ok: true, kept: r.kept, total: r.total, over: r.over, off: promptOff() };
   });
   ipcMain.handle('app:vad-status', () => {
     const p = resolveVadModel();

@@ -660,6 +660,32 @@ function silentWav(sec) {
   return b;
 }
 
+// WAV（16bit PCM）の音の大きさ（RMS、dBFS）。0 が最大で、無音は -Infinity。data の塊が見つからなければ -Infinity。
+// 文字起こしのやり直しを、ほぼ無音の音声で省くのに使う（main.transcribeLocal）
+function wavLevelDbfs(buf) {
+  if (!Buffer.isBuffer(buf) || buf.length < 12 || buf.toString('ascii', 0, 4) !== 'RIFF' || buf.toString('ascii', 8, 12) !== 'WAVE') return -Infinity;
+  let off = 12;
+  let bits = 16;
+  while (off + 8 <= buf.length) {
+    const id = buf.toString('ascii', off, off + 4);
+    const size = buf.readUInt32LE(off + 4);
+    const body = off + 8;
+    if (id === 'fmt ' && body + 16 <= buf.length) bits = buf.readUInt16LE(body + 14);
+    if (id === 'data') {
+      if (bits !== 16) return -Infinity;
+      const end = Math.min(buf.length, body + size) & ~1;
+      const n = (end - body) / 2;
+      if (n <= 0) return -Infinity;
+      let sum = 0;
+      for (let i = body; i < end; i += 2) { const v = buf.readInt16LE(i); sum += v * v; }
+      const rms = Math.sqrt(sum / n) / 32768;
+      return rms > 0 ? 20 * Math.log10(rms) : -Infinity;
+    }
+    off = body + size + (size & 1);
+  }
+  return -Infinity;
+}
+
 module.exports = {
   saveIfExists, meetingDurationSec, promptTail,
   registerHotkeys, hotkeyFailureMessage, hotkeyStatus, resolveStartupHotkeys, saveHotkeys,
@@ -670,5 +696,5 @@ module.exports = {
   extractNotes, truncationMessage, buildPromptParts,
   publicSegments, settledSegments, pendingDurationMs, recoverSegments, staleSegbufDirs,
   nextSegmentMs, EtaTracker, skipPendingSegments,
-  estimateTokens, foldNotes, idleEnginesToStop, silentWav,
+  estimateTokens, foldNotes, idleEnginesToStop, silentWav, wavLevelDbfs,
 };

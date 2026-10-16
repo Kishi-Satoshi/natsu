@@ -777,6 +777,25 @@ test('辞書が認識ヒントの上限を超えていたら、辞書欄の下�
   assert.deepStrictEqual(l.errors.map(fmt), []);
 });
 
+test('認識ヒントで文字起こしが空になり main がヒントを止めているときは、辞書欄の下にそう出す（0.1.1）', async () => {
+  let info = { ok: true, kept: 3, total: 3, over: false, off: true };
+  const l = await load(APP, { preloadSrc: preloadWith('meetingSkipPending', 'promptInfo'), returns: { promptInfo: () => info } });
+  assert.deepStrictEqual(l.errors.map(fmt), []);
+  const w = l.byId.get('dictWarn');
+  assert.ok(w && !w.hidden, 'ヒントを止めているのに何も出ない');
+  assert.strictEqual(w.textContent, '認識ヒントを渡すと文字起こしが空になったため、いまは辞書と業務の言葉を渡していません（辞書かエンジンの設定を変えると、もう一度試します）');
+  // 上限超えと重なっても、止めている方を伝える（渡していないので、上限の話は意味が無い）
+  info = { ok: true, kept: 2, total: 9, over: true, off: true };
+  l.byId.get('tabSettings').dispatchEvent({ type: 'change' });
+  await l.drain();
+  assert.match(w.textContent, /^認識ヒントを渡すと文字起こしが空になったため/);
+  info = { ok: true, kept: 3, total: 3, over: false, off: false };
+  l.byId.get('tabSettings').dispatchEvent({ type: 'change' });
+  await l.drain();
+  assert.ok(w.hidden, '止めていないのに注意が残る');
+  assert.deepStrictEqual(l.errors.map(fmt), []);
+});
+
 test('promptInfo の無い古い preload と組んでも、設定画面は生きて注意は出ない', async () => {
   const l = await load(APP);
   assert.deepStrictEqual(l.errors.map(fmt), []);

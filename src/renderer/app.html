@@ -1854,9 +1854,12 @@
     let r;
     try { r = await window.koeApp.promptInfo(); } catch (_) { return; }
     const over = Boolean(r && r.ok !== false && r.over);
-    w.textContent = over
-      ? `辞書が認識ヒントの上限を超えています（先頭から ${Number(r.kept) || 0} 語まで有効。それ以降は渡されません）` : '';
-    w.hidden = !over;
+    // 認識ヒントを渡すと文字起こしが空になったので、main がヒントを止めている（0.1.1）
+    const off = Boolean(r && r.ok !== false && r.off);
+    w.textContent = off
+      ? '認識ヒントを渡すと文字起こしが空になったため、いまは辞書と業務の言葉を渡していません（辞書かエンジンの設定を変えると、もう一度試します）'
+      : over ? `辞書が認識ヒントの上限を超えています（先頭から ${Number(r.kept) || 0} 語まで有効。それ以降は渡されません）` : '';
+    w.hidden = !(off || over);
   }
 
   async function refreshVad() {

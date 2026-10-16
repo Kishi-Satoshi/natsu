@@ -883,3 +883,40 @@ test('restoreAfterPaste: 短い1行だけ戻す（空・同じ本文・改行入
   assert.strictEqual(restoreAfterPaste('a'.repeat(201), '本文'), false, '201 字を戻している');
   assert.strictEqual(restoreAfterPaste(null, '本文'), false);
 });
+
+// ================= 起動テストの無音と、やり直しの前の音の大きさ（0.1.1） =================
+const { silentWav, wavLevelDbfs } = require('../src/mainlib');
+
+test('silentWav は 16kHz・モノラル・16bit の正しい WAV で、指定の秒数ぶんの無音を持つ', () => {
+  const b = silentWav(2);
+  assert.strictEqual(b.toString('ascii', 0, 4), 'RIFF');
+  assert.strictEqual(b.readUInt32LE(4), b.length - 8);
+  assert.strictEqual(b.toString('ascii', 8, 16), 'WAVEfmt ');
+  assert.deepStrictEqual([b.readUInt32LE(16), b.readUInt16LE(20), b.readUInt16LE(22), b.readUInt32LE(24), b.readUInt32LE(28), b.readUInt16LE(32), b.readUInt16LE(34)],
+    [16, 1, 1, 16000, 32000, 2, 16]);
+  assert.strictEqual(b.toString('ascii', 36, 40), 'data');
+  assert.strictEqual(b.readUInt32LE(40), 2 * 16000 * 2);
+  assert.strictEqual(b.length, 44 + 2 * 16000 * 2);
+  assert.ok(b.subarray(44).every((x) => x === 0), '無音でない');
+});
+
+test('wavLevelDbfs は 16bit PCM の RMS を dBFS で返す（無音・壊れた WAV は -Infinity）', () => {
+  const tone = (amp, sec = 1) => {
+    const b = silentWav(sec);
+    for (let i = 0; i < 16000 * sec; i++) b.writeInt16LE(Math.round(amp * Math.sin(2 * Math.PI * 440 * i / 16000)), 44 + i * 2);
+    return b;
+  };
+  assert.strictEqual(wavLevelDbfs(silentWav(1)), -Infinity);
+  // 正弦波の RMS は振幅の 1/√2: 振幅 32767 で約 -3 dBFS、3276.7 で約 -23 dBFS、103.6 で約 -53 dBFS
+  assert.ok(Math.abs(wavLevelDbfs(tone(32767)) - -3.01) < 0.1, String(wavLevelDbfs(tone(32767))));
+  assert.ok(Math.abs(wavLevelDbfs(tone(3276.7)) - -23.01) < 0.1, String(wavLevelDbfs(tone(3276.7))));
+  assert.ok(wavLevelDbfs(tone(103.6)) < -50 && wavLevelDbfs(tone(103.6)) > -56);
+  assert.strictEqual(wavLevelDbfs(Buffer.from('not a wav at all, definitely not')), -Infinity);
+  assert.strictEqual(wavLevelDbfs(null), -Infinity);
+  // fmt と data の間に別の塊（LIST）があっても data を探して読む
+  const t = tone(3276.7);
+  const list = Buffer.alloc(8 + 4); list.write('LIST', 0, 'ascii'); list.writeUInt32LE(4, 4); list.write('INFO', 8, 'ascii');
+  const withList = Buffer.concat([t.subarray(0, 36), list, t.subarray(36)]);
+  withList.writeUInt32LE(withList.length - 8, 4);
+  assert.ok(Math.abs(wavLevelDbfs(withList) - -23.01) < 0.1);
+});

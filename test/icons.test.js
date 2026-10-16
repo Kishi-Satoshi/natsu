@@ -378,3 +378,20 @@ test('窓のアイコンは src/assets に置き、中身は assets/icon.ico・i
   assert.ok(!/path\.join\(__dirname, '\.\.', 'assets'/.test(main), 'src/main.js が src の外の assets/ を読んでいる');
   assert.ok(require('../tools/icon-render.js').TARGETS.some((t) => t.ico && t.ico.file === 'src/assets/window.ico'), 'icon-render.js が window.ico を書き出さない');
 });
+
+test('main.js が src/assets から読む絵は、すべてリポジトリにある（名前の打ち間違いで透明な窓やトレイにしない）', () => {
+  const main = fs.readFileSync(path.join(ROOT, 'src/main.js'), 'utf8');
+  const names = new Set();
+  for (const m of main.matchAll(/path\.join\(__dirname, 'assets', ([^)]*)\)/g)) {
+    // 比べる相手（process.platform === 'win32' の 'win32'）は名前ではない
+    for (const q of m[1].matchAll(/'([\w.-]+)'/g)) if (!/^(win32|darwin|linux)$/.test(q[1])) names.add(q[1]);
+  }
+  // トレイは 'tray-rec' / 'tray' に拡張子を足して読む（makeTrayIcon）
+  const files = [];
+  for (const n of names) {
+    if (/\.[a-z]+$/.test(n)) files.push(n);
+    else files.push(`${n}.ico`, `${n}.png`);
+  }
+  assert.ok(files.includes('window.ico') && files.includes('window.png') && files.includes('tray.ico'), `拾えていない: ${files.join(', ')}`);
+  for (const f of files) assert.ok(fs.existsSync(path.join(ROOT, 'src/assets', f)), `src/assets/${f} が無い`);
+});
