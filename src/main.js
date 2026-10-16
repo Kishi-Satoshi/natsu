@@ -1,5 +1,5 @@
 /*
- * Listener v0.5 — 完全オフラインの音声入力・議事録ツール
+ * NaTsu — 完全オフラインの音声入力・議事録ツール
  *
  * 文字起こし(whisper.cpp) も要約(llama.cpp) もすべてローカルで完結する。
  * 議事録は Notion 風のページ／ブロック構造で保存し、
@@ -425,7 +425,7 @@ function engineCheck(eng) {
   if (model !== 'ok') return `${eng.name}の${engineIssueMessage(model, 'model', fileSize(engineModel(eng)), engineModel(eng), ps)}`;
   return '';
 }
-// アプリのインストール先（Listener.exe のあるフォルダ）。開発中は Electron の実行ファイルの
+// アプリのインストール先（NaTsu.exe のあるフォルダ）。開発中は Electron の実行ファイルの
 // 場所になるが、その下にエンジンを置く人は居ないので誤検知しない
 const appInstallDir = () => path.dirname(process.execPath);
 // エンジンがインストール先の中にあれば移動を促す一文（更新のたびに消えうる。mainlib.engineDirWarning）
@@ -976,7 +976,7 @@ function createMainWindow() {
   if (mainWin && !mainWin.isDestroyed()) { mainWin.show(); mainWin.focus(); return; }
   mainWin = new BrowserWindow({
     width: 1120, height: 780, minWidth: 820, minHeight: 560,
-    title: 'Listener',
+    title: 'NaTsu',
     icon: path.join(__dirname, '..', 'assets', 'icon.png'),
     // 地色は CSS が効く前の一瞬に見える色。ライト固定だとダークで
     // 開くたび・リサイズのたびに白くまたたく。
@@ -1827,10 +1827,10 @@ function updateTray() {
   tray.setContextMenu(Menu.buildFromTemplate(items));
   // 出すのは設定のキーではなく実際に登録しているキー（退避中は設定のキーは効かない）
   tray.setToolTip(
-    state === 'meeting' ? 'Listener — 議事録を記録中'
-      : state === 'recording' ? 'Listener — 録音中'
-        : state === 'processing' || state === 'meeting-finalizing' ? 'Listener — 処理中'
-          : `Listener — ${activeHotkeys.hotkey}: 音声入力 / ${activeHotkeys.meetingHotkey || '未設定'}: 議事録${hotkeyNote}`,
+    state === 'meeting' ? 'NaTsu — 議事録を記録中'
+      : state === 'recording' ? 'NaTsu — 録音中'
+        : state === 'processing' || state === 'meeting-finalizing' ? 'NaTsu — 処理中'
+          : `NaTsu — ${activeHotkeys.hotkey}: 音声入力 / ${activeHotkeys.meetingHotkey || '未設定'}: 議事録${hotkeyNote}`,
   );
 }
 

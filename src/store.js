@@ -1,5 +1,5 @@
 /*
- * store.js — Listener のストレージ層
+ * store.js — NaTsu のストレージ層
  *
  * Notion のブロックモデルを踏襲しつつ、ネイティブ依存なしで実装する。
  *   index.json            一覧用の軽量インデックス（起動時にこれだけ読む）
