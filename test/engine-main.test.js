@@ -245,8 +245,10 @@ test('RF3: whenReady は 候補を読む → 今の起動の行（managed は空
   assert.ok(m.includes('let managed = { whisper: null, sum: null };'));
   const ready = fnBody(m, 'app.whenReady().then(', '\n  });');
   const a = ready.indexOf('engineInstall.managedCandidates('); const b = ready.indexOf('if (engineValid(whisperEng)) startEngine(whisperEng);');
-  const c = ready.indexOf('verifyManagedAtStartup();');
+  // 照らしは待たない。照らしの後の起動などで投げても unhandled にしないよう .catch を付ける（計画の 'verifyManagedAtStartup();' から、点検の指摘で変えた）
+  const c = ready.indexOf('verifyManagedAtStartup().catch(');
   assert.ok(a > 0 && a < b && b < c, `順が違う: ${a} ${b} ${c}`);
+  assert.ok(!/await\s+verifyManagedAtStartup/.test(ready), '照らしを待っている（窓やトレイが遅れる）');
   assert.ok(!/managed = /.test(ready.slice(0, b)), '照らす前に managed に入れている');
   const v = fnBody(m, 'async function verifyManagedAtStartup()', '\n}');
   const i1 = v.indexOf('await engineInstall.verifyCandidates(managedCands)'); const i2 = v.indexOf('managed = { whisper: v.whisper, sum: v.sum };'); const i3 = v.indexOf('restartEnginesIfNeeded();');

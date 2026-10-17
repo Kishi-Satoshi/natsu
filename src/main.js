@@ -1837,14 +1837,16 @@ async function doRunSummary(pageId) {
   }
   if (!engineValid(sumEng)) {
     // 取り込める PC で手の設定が無い側は［エンジンを取り込む］を指す（第0b回）。まだ取り込んでいなければ「未設定」の語を残す
-    // （画面はこの語で設定タブへ連れて行く）。取り込んだ組を確かめ中・壊れた・ランタイムで止めたときは、その理由を伝える
+    // （画面はこの語で設定タブへ連れて行く）。取り込んだ組を確かめ中・壊れた・ランタイムで止めたときは、その理由を伝える。
+    // 確かめ中・取り直し中は待てば使えるようになるので、終わってからすることを1つ書いて終える
     const fetchable = ENGINE_HOME.supported && !manualGroup(sumEng);
+    const waitable = managedState.sum === 'checking' || managedState.sum === 'broken';
     const err = !fetchable
       ? '要約エンジンが未設定のため、文字起こしのみ保存しました。'
         + 'setup-summarizer.ps1 を実行し、設定タブでパスを指定すると「要約を生成」で作成できます。'
       : managedState.sum === 'none'
         ? '要約エンジンが未設定のため、文字起こしのみ保存しました。設定タブの［エンジンを取り込む］で取り込むと「要約を生成」で作成できます。'
-        : `要約エンジンを使えないため、文字起こしのみ保存しました。${engineCheck(sumEng)}`;
+        : `要約エンジンを使えないため、文字起こしのみ保存しました。${engineCheck(sumEng)}${waitable ? '。終わったら「要約を生成」で作成できます。' : ''}`;
     const saved = saveIfExists(store, pageId, (p) => { p.summaryError = err; });
     if (!saved) return gone();
     clearUi();
@@ -2450,8 +2452,8 @@ if (!gotLock) {
     }
     createTray();
     if (engineValid(whisperEng)) startEngine(whisperEng);
-    // 照らし終えたら managed に入れて起動し直す（待たない）
-    verifyManagedAtStartup();
+    // 照らし終えたら managed に入れて起動し直す（待たない）。照らしの後の起動などで投げても、main で unhandled にしない
+    verifyManagedAtStartup().catch((e) => engineLog(`取り込んだエンジンの照らしと起動に失敗: ${e && e.message}`));
     // 使われないエンジンを 60 秒ごとに見て止める（#58。判断は mainlib.idleEnginesToStop）
     setInterval(releaseIdleEngines, ENGINE_IDLE_CHECK_MS);
     // 復旧ページに文字起こし待ちの音声が残っていれば、エンジンの用意を待って順に片付ける

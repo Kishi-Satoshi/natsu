@@ -23,6 +23,13 @@
 //     --managed-tamper … --managed と同じ組の whisper.dll を、大きさを変えずに書き換える（照らしで合わず、起動しない。RF3）
 //     --recover     … 前回落ちた会議の下書き（文字起こし待ちの区間 1 つと、その音声）を置いて起動し、復旧の文字起こしを待って終える
 //                     （記録はしない。--managed と組み合わせると、照らし終えた後に復旧が動くかを見る）
+//     --no-vc-runtime … --managed と組み合わせる。Visual C++ ランタイムが無い PC にする（RF4）。whenReady の後で System32 を
+//                     空のフォルダに向け、Windows の外では process.platform を win32 と読ませる（main.js の engineRuntimeIssue は
+//                     Windows でだけ DLL を読む）。記録はせず、engine:status・起動テスト・記録の開始の答えを見て終える
+//     --verify-throws … --managed と組み合わせる。照らし（verifyCandidates）が例外を投げる。記録はしない
+//     --sum-tamper  … --managed と組み合わせる。要約の組も置き、その llama.dll を大きさを変えずに書き換える（要約の組は壊れている）
+//     --no-engine=fetchable|unsupported … 詳細設定の文字起こしを空にし、何も取り込んでいない PC にする。fetchable は取り込める PC、
+//                     unsupported は取り込めない PC（engineRoot だけを差し替える）。記録はしない
 // 本物のエンジンで試すときは NATSU_E2E_EXE・NATSU_E2E_MODEL・NATSU_E2E_WAVS（; 区切り）を渡す。
 // 終わるときは、起動したエンジンを止め、一時フォルダを消す（npm test のたびに残さない）。
 
@@ -53,6 +60,11 @@ const FAKE_SUM = path.join(__dirname, 'fake-llama.js');
 const segCount = Number((flags.find((f) => f.startsWith('--segs=')) || '--segs=2').slice(7)) || 2;
 const managedMode = flags.includes('--managed') ? 'ok' : (flags.includes('--managed-tamper') ? 'tamper' : '');
 const recoverMode = flags.includes('--recover');
+const noVcRuntime = flags.includes('--no-vc-runtime');
+const verifyThrows = flags.includes('--verify-throws');
+const sumTamper = flags.includes('--sum-tamper');
+const noEngine = (flags.find((f) => f.startsWith('--no-engine=')) || '').slice(12);
+const REAL_PLATFORM = process.platform;
 
 const freePort = () => new Promise((resolve, reject) => {
   const srv = net.createServer();
@@ -152,7 +164,8 @@ process.on('exit', () => {
     });
     managedRoot = path.join(localAppData, 'natsu', 'engine');
     const home = { supported: true, root: managedRoot, reason: '' };
-    for (const it of items.filter((i) => i.group === 'whisper')) {   // 要約の組は取り込んでいない
+    // 要約の組は取り込んでいない（--sum-tamper のときだけ置く）
+    for (const it of items.filter((i) => i.group === 'whisper' || (sumTamper && i.group === 'sum'))) {
       if (it.kind === 'zip') {
         const zip = path.join(tmp, `${it.id}.zip`);
         fs.writeFileSync(zip, set.bodies[it.id]);
@@ -172,21 +185,31 @@ process.on('exit', () => {
       I.recordInstalled(home, it, { file: out });
     }
     managedExe = path.join(managedRoot, 'whisper-1.0.0', 'whisper-server.exe');
-    if (managedMode === 'tamper') {
-      const dll = path.join(managedRoot, 'whisper-1.0.0', 'whisper.dll');
+    const tamper = (dir, name) => {
+      const dll = path.join(managedRoot, dir, name);
       fs.writeFileSync(dll, Buffer.alloc(fs.statSync(dll).size, 7));   // 大きさは同じ・中身だけ違う
       // 記録の更新時刻も今のファイルに合わせる（大きさと更新時刻では見分けられない。SHA-256 の照らしだけが見つける）
       const instFile = path.join(managedRoot, 'installed.json');
       const inst = I.readInstalled(instFile);
       for (const rec of Object.values(inst.items)) {
-        for (const f of rec.files || []) if (f.name === 'whisper.dll') f.mtimeMs = fs.statSync(dll).mtimeMs;
+        for (const f of rec.files || []) if (f.name === name) f.mtimeMs = fs.statSync(dll).mtimeMs;
       }
       I.writeInstalled(instFile, inst);
-    }
+    };
+    if (managedMode === 'tamper') tamper('whisper-1.0.0', 'whisper.dll');
+    if (sumTamper) tamper('llama-b1', 'llama.dll');
     managedMods = {
-      install: { ...I, engineRoot: () => home },
+      install: { ...I, engineRoot: () => home,
+        ...(verifyThrows ? { verifyCandidates: async () => { throw new Error('照らしの試験の失敗𠮷'); } } : {}) },
       manifest: { ...realManifest, MANIFEST: Object.freeze({ schema: 1, items }) },
     };
+  }
+  // 何も取り込んでいない PC（取り込める・取り込めない）。置き場所だけを決め、フォルダは作らない
+  if (noEngine) {
+    const I = require(path.join(ROOT, 'src', 'engine-install.js'));
+    const home = noEngine === 'fetchable' ? { supported: true, root: path.join(localAppData, 'natsu', 'engine'), reason: '' }
+      : I.engineRoot({}, 'linux', 'x64');
+    managedMods = { install: { ...I, engineRoot: () => home }, manifest: require(path.join(ROOT, 'src', 'engine-manifest.js')) };
   }
   // 前回落ちた会議の下書き（main は起動のときに復旧ページを作り、残った音声を文字起こしし直す）
   if (recoverMode) {
@@ -198,7 +221,7 @@ process.on('exit', () => {
       segments: [{ id: 's1', atMs: 0, durationMs: 3000, pending: true, wav, text: '' }] }));
   }
   fs.writeFileSync(path.join(userData, 'settings.json'), JSON.stringify({
-    ...(managedMode ? {} : { localServerExe: exe, localModelPath: model }), localPort, sumPort, autoLaunch: false,
+    ...(managedMode || noEngine ? {} : { localServerExe: exe, localModelPath: model }), localPort, sumPort, autoLaunch: false,
     ...(withSum ? { sumServerExe: FAKE_SUM, sumModelPath: sumModel } : {}),
   }));
 
@@ -282,6 +305,14 @@ process.on('exit', () => {
     out.statusChecking = handlers['engine:status']();
     out.spawnsBeforeVerify = spawns.length;
     out.managedRoot = managedRoot;
+    if (noVcRuntime) {
+      // whenReady（トレイ・貼り付け・窓）は今の OS のまま済んだ。照らし終える前に、ランタイムの無い Windows にする
+      const winDir = path.join(tmp, 'Windows-空𠮷');
+      fs.mkdirSync(winDir);   // System32 は作らない（DLL は exe のフォルダにも System32 にも無い）
+      process.env.SystemRoot = winDir;
+      process.env.windir = winDir;
+      if (process.platform !== 'win32') Object.defineProperty(process, 'platform', { value: 'win32', configurable: true });
+    }
     // 照らし終えるのを待つ（最大 3 秒）
     const until = Date.now() + 3000;
     while (Date.now() < until && /確かめています/.test(handlers['engine:status']().whisper)) await sleep(20);
@@ -299,14 +330,16 @@ process.on('exit', () => {
     process.stdout.write(`\n${JSON.stringify(out)}\n`);
     process.exit(0);
   }
-  if (managedMode === 'tamper') {
-    // 照らしで合わなかった組は使わない。記録も始めない（区間を送らずに終える）
+  if (managedMode === 'tamper' || noVcRuntime || verifyThrows || noEngine) {
+    // 使えない組は使わない。記録も始めない（区間を送らずに終える）
     await sleep(300);
     out.engineStatus = handlers['engine:status']();
     out.engineFetchStatus = await handlers['engine:fetch-status']();
     out.start = await handlers['meeting:toggle']();
     out.test = await handlers['app:test']();
     out.spawns = spawns;
+    // 終わりの片付け（一時フォルダを消す）は今の OS のままで行う
+    Object.defineProperty(process, 'platform', { value: REAL_PLATFORM, configurable: true });
     const elog = path.join(userData, 'engine.log');
     out.engineLog = fs.existsSync(elog) ? fs.readFileSync(elog, 'utf8').split('\n').filter(Boolean).map((l) => l.replace(/^\[[^\]]+\] /, '')) : [];
     process.stdout.write(`\n${JSON.stringify(out)}\n`);
