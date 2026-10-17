@@ -23,8 +23,16 @@
  *  - makeRunner         5 つの項目を MANIFEST の順に取り、組がそろったら知らせる。start はすぐ返り、取り込みは裏で進む。
  *                       記録中（hold）は止めて待ち、待てば直る失敗（回線が切れた等）はあきらめずに待って続け（RF14）、
  *                       消された項目は同じ起動の中で1回だけ取り直す（2回目は defender で止める。RF3）。
- *                       起動のときの自動の開始は、大きな取り込み直しを始めない（押されるまで待つ。RF13）
+ *                       起動のときの自動の開始は、大きな取り込み直しを始めない（押されるまで待つ。RF13）。
+ *                       組がそろうたびに THIRD-PARTY-NOTICES.txt を書き直す（writeNotices。書けなくても止めない）
  *  - setActive          installed.json の active[group] に、今のピンのその組の SHA-256 の並びを書く（main が切り替えたとき）
+ *
+ * その4（Task 12c）: 古い版の片付けと、ライセンスの写し。
+ *  - cleanupOld         切り替えた後で、記録にあって今のピンにも active にも無いもの（前の版のフォルダとモデル）だけを消す。
+ *                       canDelete が偽（エンジンが動いている・起動の途中・忙しい）なら消さない。inUse のパスと、
+ *                       今のピン・残す記録・installed.json などと重なる置き場所は消さない。記録に無いものには触らない（RF8）
+ *  - writeNotices       THIRD-PARTY-NOTICES.txt に、各項目の名前・版・URL・ライセンスと著作権の行。Apache-2.0 の項目があれば
+ *                       最後に src/licenses/Apache-2.0.txt の全文を1回だけ。Qwen2.5-3B のときだけ Qwen の一文
  *
  * installed.json の形:
  *   { schema: 1, consent, userPaused,
@@ -139,7 +147,11 @@ const sleepSync = (ms) => {
  * 名前の変更が EPERM・EBUSY・EACCES なら少し待って試し直す（ウイルス対策が installed.json を開いているとき）。
  */
 function writeInstalled(file, obj) {
-  const data = `${JSON.stringify({ ...obj, schema: 1 }, null, 2)}\n`;
+  writeFileAtomicSync(file, `${JSON.stringify({ ...obj, schema: 1 }, null, 2)}\n`);
+}
+
+/** 一時ファイル（<file>.<pid>.tmp）に書いて確定し、名前を変える（installed.json と THIRD-PARTY-NOTICES.txt）。 */
+function writeFileAtomicSync(file, data) {
   fs.mkdirSync(path.dirname(file), { recursive: true });
   const part = `${file}.${process.pid}.tmp`;
   try {
@@ -838,6 +850,9 @@ function makeRunner(deps = {}) {
         const p = planNow();
         if (manifest.items.filter((x) => x.group === it.group).every((x) => p.get(x.id).state === 'ready')) {
           say(`${it.group} の組がそろいました`);
+          try { writeNotices(home, manifest); } catch (e) {
+            say(`ライセンスの写し（THIRD-PARTY-NOTICES.txt）を書けませんでした（${e && (e.code || e.message)}）`);
+          }
           call(onGroupReady, it.group);
         }
       }
@@ -1026,5 +1041,124 @@ function makeRunner(deps = {}) {
   return { start, done, pause, status, running };
 }
 
+// ---------------------------------------------------------------- その4: 古い版の片付けと、ライセンスの写し（Task 12c）
+
+// 記録が何と言っても消さない置き場所（root からの相対。記録・写し・取り込み途中のフォルダ）
+const SPECIAL_PLACES = ['installed.json', 'THIRD-PARTY-NOTICES.txt', '.download'];
+const lowSha = (s) => String(s).toLowerCase();
+// 同じ置き場所か、どちらかがもう一方の親（Windows は大文字と小文字を区別しないので、小文字で比べる）
+const placesOverlap = (a, b) => {
+  const x = String(a).toLowerCase(); const y = String(b).toLowerCase();
+  return x === y || y.startsWith(`${x}/`) || x.startsWith(`${y}/`);
+};
+
+/**
+ * 切り替えた後で、もう使わない前の版だけを消す（RF8）→ { removed: [place], kept: [place] }（place は記録の相対パス・並べ替え済み）。
+ *  - 消す候補: installed.items にあって、SHA-256 が今のピンにも active のどの組にも無い記録（エンジンの版のフォルダとモデルのファイル）。
+ *    同じ置き場所の記録が複数あれば、1つの候補にまとめる。
+ *  - 残すもの（kept）: inUse(絶対パス) が真（エンジンのフォルダは中のファイルのパスでも聞く）、今のピンの置き場所・残す記録の
+ *    置き場所・installed.json・THIRD-PARTY-NOTICES.txt・.download と重なるか、その親（壊れた記録で使っているものを消さない）、
+ *    root の外を指す、canDelete() が偽。
+ *  - canDelete() は消す前に毎回聞き、1度でも偽なら、その後は消さない（次の機会に回す。動いている exe・DLL・
+ *    llama がメモリに写した gguf は Windows では消せない）。canDelete が無いか投げたら偽とみなす。
+ *  - 消し方は fs.rm(p, { recursive: true, force: true, maxRetries: 10, retryDelay: 300 })。消せたものだけ記録から外す
+ *    （installed.json を読み直して、その SHA-256 の記録だけを外す）。記録に無いもの（利用者が置いたフォルダなど）には触らない。
+ */
+async function cleanupOld(home, manifest, installed, { inUse = () => false, canDelete } = {}) {
+  const out = { removed: [], kept: [] };
+  const root = home && home.supported && home.root;
+  if (!root) return out;
+  const items = installed && isObj(installed.items) ? installed.items : {};
+  const keepShas = new Set(manifest.items.map((i) => lowSha(i.sha256)));
+  for (const g of GROUPS) {
+    const act = installed && isObj(installed.active) ? installed.active[g] : null;
+    for (const s of Array.isArray(act) ? act : []) keepShas.add(lowSha(s));
+  }
+  const guarded = [...SPECIAL_PLACES, ...manifest.items.map(placeOf).filter((p) => typeof p === 'string')];
+  const byPlace = new Map();
+  for (const [s, rec] of Object.entries(items)) {
+    if (!isObj(rec)) continue;
+    const place = typeof rec.place === 'string' ? rec.place : '';
+    if (keepShas.has(lowSha(s))) { if (place) guarded.push(place); continue; }
+    if (!byPlace.has(place)) byPlace.set(place, { shas: [], names: [] });
+    const c = byPlace.get(place);
+    c.shas.push(s);
+    if (Array.isArray(rec.files)) for (const f of rec.files) if (isObj(f) && relParts(f.name)) c.names.push(f.name);
+  }
+  const asked = (fn, ...a) => { try { return Boolean(fn(...a)); } catch (_) { return null; } };
+  let allowed = true;
+  const gone = [];
+  for (const place of [...byPlace.keys()].sort()) {
+    const c = byPlace.get(place);
+    const parts = relParts(place);
+    const abs = parts ? path.join(root, ...parts) : null;
+    const used = abs && [abs, ...c.names.map((n) => path.join(abs, ...relParts(n)))].some((p) => asked(inUse, p) !== false);
+    if (!abs || used || guarded.some((g) => placesOverlap(place, g))) { out.kept.push(place); continue; }
+    if (allowed) allowed = typeof canDelete === 'function' && asked(canDelete) === true;
+    if (!allowed) { out.kept.push(place); continue; }
+    try {
+      await fs.promises.rm(abs, { recursive: true, force: true, maxRetries: 10, retryDelay: 300 });
+    } catch (_) { out.kept.push(place); continue; }
+    out.removed.push(place);
+    gone.push(...c.shas);
+  }
+  if (gone.length) {
+    const file = path.join(root, 'installed.json');
+    const inst = readInstalled(file);
+    for (const s of gone) delete inst.items[s];
+    writeInstalled(file, inst);
+  }
+  return out;
+}
+
+const APACHE_TEXT_FILE = path.join(__dirname, 'licenses', 'Apache-2.0.txt');
+// Qwen2.5-3B の LICENSE（Qwen RESEARCH LICENSE AGREEMENT）の 4.c が、配る写しの Notice のファイルに求める一文
+const QWEN_RESEARCH_NOTICE = 'Qwen is licensed under the Qwen RESEARCH LICENSE AGREEMENT, Copyright (c) Alibaba Cloud. All Rights Reserved.';
+const isApache = (it) => /^Apache-2\.0/.test(String(it.license || ''));
+const isQwenResearch = (it) => /qwen2\.5-3b/i.test([it.id, it.label, it.version, it.url, it.dest].join(' '))
+  || /^Qwen RESEARCH/i.test(String(it.license || ''));
+
+/**
+ * THIRD-PARTY-NOTICES.txt を書き直す → 書いたファイルのパス（取り込めない PC では null）。
+ *  各項目の名前・版・URL・ライセンスと著作権の行（「ライセンス」の表のとおり）。zip の中のライセンスの全文のファイル
+ *  （llama の LICENSE-LLVM-OpenMP）は置き場所を1行。Qwen2.5-3B のときは Qwen の一文。
+ *  ライセンスが Apache-2.0 で始まる項目があれば、最後に src/licenses/Apache-2.0.txt の全文を1回だけ、書き換えずに足す
+ *  （Apache-2.0 の §4(a)。Gemma 3 までの独自の条件の文は書かない）。
+ *  BOM 付きの UTF-8（古いメモ帳でも日本語が読める）。一時ファイルに書いてから名前を変える。
+ */
+function writeNotices(home, manifest) {
+  const root = home && home.root;
+  if (!root) return null;
+  const its = manifest.items;
+  const apache = its.some(isApache) ? fs.readFileSync(APACHE_TEXT_FILE, 'utf8') : '';
+  const lines = [
+    'NaTsu が取り込んだエンジンとモデルのライセンス（第三者のソフトウェアとモデル）',
+    `置き場所: ${SHOWN_ROOT}`,
+    'このファイルは、NaTsu が取り込みのたびに書き直します。',
+    '',
+  ];
+  for (const it of its) {
+    lines.push(it.label, `  版: ${it.version}`, `  取得元: ${it.url}`, `  ライセンス: ${it.license}`);
+    if (it.kind === 'zip') {
+      for (const f of Array.isArray(it.files) ? it.files : []) {
+        const name = stripped(it, f.name);
+        if (/^LICENSE/i.test(name) && relParts(it.dir) && relParts(name)) {
+          lines.push(`  ライセンスの全文: ${[...relParts(it.dir), ...relParts(name)].join('\\')}（このファイルと同じフォルダの下）`);
+        }
+      }
+    }
+    if (isApache(it)) lines.push('  ライセンスの全文: このファイルの最後の Apache License 2.0');
+    if (isQwenResearch(it)) lines.push(`  ${QWEN_RESEARCH_NOTICE}`);
+    lines.push('');
+  }
+  let text = lines.join('\n');
+  if (apache) {
+    text += `${'='.repeat(78)}\nApache License 2.0 の全文（https://www.apache.org/licenses/LICENSE-2.0.txt の写し）\n${'='.repeat(78)}\n${apache}`;
+  }
+  const file = path.join(root, 'THIRD-PARTY-NOTICES.txt');
+  writeFileAtomicSync(file, `﻿${text}`);
+  return file;
+}
+
 module.exports = { engineRoot, layout, readInstalled, writeInstalled, planInstall, managedCandidates, freeBytesOf, statusOf,
-  sha256File, installZip, recordInstalled, verifyCandidates, makeRunner, setActive };
+  sha256File, installZip, recordInstalled, verifyCandidates, makeRunner, setActive, cleanupOld, writeNotices };

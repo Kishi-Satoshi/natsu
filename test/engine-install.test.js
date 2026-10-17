@@ -7,6 +7,8 @@
  * 通信もフォルダ作りもせずに決める（第0b回 R7、RF13）。
  * その2（Task 12a）: zip から決めたファイルだけを <dir>.tmp に出して照らしてから置き（installZip）、
  * 記録を書き（recordInstalled）、使う前に exe と DLL を SHA-256 で照らす（verifyCandidates。RF3）。
+ * その3（Task 12b）: 取り込みの係（makeRunner）。その4（Task 12c）: 切り替えた後で前の版だけを消し（cleanupOld。RF8）、
+ * ライセンスの写し（writeNotices。Apache License 2.0 の全文は src/licenses/Apache-2.0.txt）を書く。
  * 小さな偽のピンの組は test/helpers/engine-small.js。一時フォルダの名前には日本語と 𠮷。
  */
 'use strict';
@@ -590,4 +592,108 @@ test('installed.json を書けない（EPERM が続く）は locked の文。取
     assert.strictEqual(s.state, 'unsupported'); assert.ok(!u.running());
     await u.done();
   } finally { fs.renameSync = orig; await set.close(); }
+});
+
+// ---------------------------------------------------------------- その4（Task 12c）: 古い版の片付けと、ライセンスの写し
+// 最初の3件は計画のテストのまま。各テストに { timeout: 5000 } だけ足した（5 秒の決まり）。その後の3件は足したもの
+test('RF8: 切り替えた後だけ、記録にあって今のピンにも active にも無いもの（前の版）を消す。記録に無いフォルダには触らない', { timeout: 5000 }, async () => {
+  const s1 = await smallSet(); const s2 = await smallSet({ gen: 2 });
+  try {
+    const home = homeOf(); const ins = () => I.readInstalled(path.join(home.root, 'installed.json'));
+    const a = I.makeRunner(depsOf(s1, home)); a.start({ user: true }); await a.done();
+    I.setActive(home, s1.manifest, 'whisper'); I.setActive(home, s1.manifest, 'sum');
+    const b = I.makeRunner(depsOf(s2, home)); b.start({ user: true }); await b.done();
+    fs.mkdirSync(path.join(home.root, 'my-own'));
+    const before = await I.cleanupOld(home, s2.manifest, ins(), { canDelete: () => true });
+    assert.deepStrictEqual(before.removed, [], 'まだ前の組を使っているのに消した');
+    I.setActive(home, s2.manifest, 'whisper'); I.setActive(home, s2.manifest, 'sum');
+    const r = await I.cleanupOld(home, s2.manifest, ins(), { canDelete: () => true });
+    assert.deepStrictEqual(r.removed.sort(), ['llama-b1', 'models/w-model.bin']);
+    for (const p of ['whisper-1.0.0', 'llama-b2', 'models/vad.bin', 'models/w-model-2.bin', 'models/s-model.gguf', 'my-own']) assert.ok(fs.existsSync(path.join(home.root, p)), p);
+    assert.ok(!Object.values(ins().items).some((x) => x.place === 'llama-b1'), '記録から外していない');
+  } finally { await s1.close(); await s2.close(); }
+});
+test('RF8: canDelete が偽なら何も消さない。inUse のパスは残す', { timeout: 5000 }, async () => {
+  const s1 = await smallSet(); const s2 = await smallSet({ gen: 2 });
+  try {
+    const home = homeOf(); const ins = () => I.readInstalled(path.join(home.root, 'installed.json'));
+    const a = I.makeRunner(depsOf(s1, home)); a.start({ user: true }); await a.done();
+    const b = I.makeRunner(depsOf(s2, home)); b.start({ user: true }); await b.done();
+    I.setActive(home, s2.manifest, 'whisper'); I.setActive(home, s2.manifest, 'sum');
+    assert.deepStrictEqual((await I.cleanupOld(home, s2.manifest, ins(), { canDelete: () => false })).removed, []);
+    const llama1 = path.join(home.root, 'llama-b1');
+    const r = await I.cleanupOld(home, s2.manifest, ins(), { canDelete: () => true, inUse: (p) => p === llama1 });
+    assert.deepStrictEqual(r.removed, ['models/w-model.bin']); assert.ok(fs.existsSync(llama1));
+  } finally { await s1.close(); await s2.close(); }
+});
+test('THIRD-PARTY-NOTICES.txt に各項目の名前・版・URL・ライセンスの行を書く。Apache-2.0 の全文は1回だけ。3B のときだけ Qwen の一文', { timeout: 5000 }, () => {
+  const home = homeOf(); fs.mkdirSync(home.root, { recursive: true });
+  I.writeNotices(home, MANIFEST);
+  const t = fs.readFileSync(path.join(home.root, 'THIRD-PARTY-NOTICES.txt'), 'utf8');
+  for (const it of MANIFEST.items) for (const k of [it.label, it.version, it.url, it.license]) assert.ok(t.includes(k), `${it.id}: ${k}`);
+  assert.ok(/^Apache-2\.0/.test(MANIFEST.items.find((i) => i.id === 'sum-model').license), '既定の要約のモデルが Apache-2.0 でない');
+  assert.strictEqual(t.split('TERMS AND CONDITIONS FOR USE, REPRODUCTION, AND DISTRIBUTION').length - 1, 1, 'Apache License 2.0 の全文が1回でない');
+  assert.ok(!/Gemma Terms of Use/.test(t), 'Gemma 4 に Gemma 3 までの条件を書いた');
+  assert.ok(!t.includes('Qwen RESEARCH LICENSE'));
+  const m3 = { ...MANIFEST, items: MANIFEST.items.map((i) => (i.id === 'sum-model' ? { ...i, dest: 'models/Qwen2.5-3B-Instruct-Q4_K_M.gguf' } : i)) };
+  I.writeNotices(home, m3);
+  assert.ok(fs.readFileSync(path.join(home.root, 'THIRD-PARTY-NOTICES.txt'), 'utf8').includes('Qwen is licensed under the Qwen RESEARCH LICENSE AGREEMENT'));
+});
+test('src/licenses/Apache-2.0.txt は https://www.apache.org/licenses/LICENSE-2.0.txt の写しのまま（書き換えない）。写しの最後にそのまま足す。Apache-2.0 の項目が無ければ足さない', { timeout: 5000 }, () => {
+  const crypto = require('node:crypto');
+  const b = fs.readFileSync(path.join(__dirname, '..', 'src', 'licenses', 'Apache-2.0.txt'));
+  assert.strictEqual(b.length, 11358);
+  assert.strictEqual(crypto.createHash('sha256').update(b).digest('hex'), 'cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30');
+  const home = homeOf(); const f = path.join(home.root, 'THIRD-PARTY-NOTICES.txt');
+  assert.strictEqual(I.writeNotices(home, MANIFEST), f);
+  const t = fs.readFileSync(f, 'utf8');
+  assert.ok(t.endsWith(b.toString('utf8')), '全文をそのまま最後に足していない');
+  assert.ok(t.includes('llama-b11669\\LICENSE-LLVM-OpenMP'), 'libomp のライセンスの全文の置き場所の行が無い');
+  assert.deepStrictEqual(fs.readdirSync(home.root), ['THIRD-PARTY-NOTICES.txt'], '一時ファイルが残った');
+  const mit = { ...MANIFEST, items: MANIFEST.items.filter((i) => !/^Apache-2\.0/.test(i.license)) };
+  I.writeNotices(home, mit);
+  const t2 = fs.readFileSync(f, 'utf8');
+  assert.ok(!t2.includes('TERMS AND CONDITIONS FOR USE, REPRODUCTION, AND DISTRIBUTION'), 'Apache-2.0 の項目が無いのに全文を足した');
+  assert.ok(t2.includes('LICENSE-LLVM-OpenMP'));
+  assert.strictEqual(I.writeNotices({ supported: false, root: null }, MANIFEST), null);
+});
+test('RF8: 今のピン・残す記録・installed.json などと同じ置き場所か、その親を指す古い記録は消さない。canDelete は消す前に毎回見る', { timeout: 5000 }, async () => {
+  const s1 = await smallSet(); const s2 = await smallSet({ gen: 2 });
+  try {
+    const home = homeOf(); const file = path.join(home.root, 'installed.json'); const ins = () => I.readInstalled(file);
+    const a = I.makeRunner(depsOf(s1, home)); a.start({ user: true }); await a.done();
+    const b = I.makeRunner(depsOf(s2, home)); b.start({ user: true }); await b.done();
+    I.setActive(home, s2.manifest, 'whisper'); I.setActive(home, s2.manifest, 'sum');
+    const odd = { ['a'.repeat(64)]: 'models/W-MODEL-2.bin', ['b'.repeat(64)]: 'models', ['c'.repeat(64)]: '../外', ['d'.repeat(64)]: 'installed.json', ['e'.repeat(64)]: '.download' };
+    const inst = ins();
+    for (const [s, place] of Object.entries(odd)) inst.items[s] = { id: 'whisper-model', role: 'model', place, size: 1, mtimeMs: 0 };
+    I.writeInstalled(file, inst);
+    let asked = 0;
+    const r = await I.cleanupOld(home, s2.manifest, ins(), { canDelete: () => ++asked === 1 });
+    assert.deepStrictEqual(r.removed, ['llama-b1'], '2 回目の canDelete が偽なのに消した');
+    for (const p of ['models/w-model.bin', ...Object.values(odd)]) assert.ok(r.kept.includes(p), `kept に ${p} が無い`);
+    for (const p of ['models/w-model.bin', 'models/w-model-2.bin', 'models/s-model.gguf', 'models/vad.bin', 'installed.json', 'whisper-1.0.0', 'llama-b2']) assert.ok(fs.existsSync(path.join(home.root, p)), p);
+    const left = ins().items;
+    for (const s of Object.keys(odd)) assert.ok(left[s], `消していない記録 ${odd[s]} を外した`);
+    assert.ok(Object.values(left).some((x) => x.place === 'models/w-model.bin'), '消していない記録を外した');
+    const r2 = await I.cleanupOld(home, s2.manifest, ins(), { canDelete: () => true });
+    assert.deepStrictEqual(r2.removed, ['models/w-model.bin']);
+    for (const p of ['models/w-model-2.bin', 'models/s-model.gguf', 'installed.json']) assert.ok(fs.existsSync(path.join(home.root, p)), p);
+    assert.deepStrictEqual(await I.cleanupOld({ supported: false, root: null }, s2.manifest, ins(), { canDelete: () => true }), { removed: [], kept: [] });
+  } finally { await s1.close(); await s2.close(); }
+});
+test('組がそろうたびに THIRD-PARTY-NOTICES.txt を書き直す。書けなくても取り込みは止めない', { timeout: 5000 }, async () => {
+  const set = await smallSet();
+  try {
+    const home = homeOf(); const f = path.join(home.root, 'THIRD-PARTY-NOTICES.txt');
+    const r = I.makeRunner(depsOf(set, home)); r.start({ user: true }); await r.done();
+    const t = fs.readFileSync(f, 'utf8');
+    for (const it of set.manifest.items) assert.ok(t.includes(it.url), it.id);
+    assert.ok(!t.includes('TERMS AND CONDITIONS FOR USE, REPRODUCTION, AND DISTRIBUTION'));
+    const home2 = homeOf(); fs.mkdirSync(path.join(home2.root, 'THIRD-PARTY-NOTICES.txt'), { recursive: true });
+    const lines = [];
+    const q = I.makeRunner(depsOf(set, home2, { log: (s) => lines.push(s) })); q.start({ user: true }); await q.done();
+    assert.strictEqual(q.status().state, 'ready', JSON.stringify(q.status().error));
+    assert.ok(lines.some((s) => s.includes('ライセンスの写し')), lines.join('\n'));
+  } finally { await set.close(); }
 });
