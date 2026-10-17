@@ -307,6 +307,7 @@ function openOnce(url, headers, c) {
  *      数 GB を取り直さない）。
  * 試しのたびにピンの URL から始める（前の試しの署名付きの CDN の URL は切れている。RF6）。
  * 記録の synced は、fh.sync() を済ませた長さ。始める前に .part をそこまで切り捨てる（電源断の末尾。RF9）。
+ * 途中の記録の書き込みの失敗（ENOSPC 以外）では止めない（記録は前の長さのままで安全）。
  * 取り消し・失敗で返る前にも、確定して今の長さを記録に書く（次はその長さから続く）。
  * 大きさがピンに達したら SHA-256 を照らし、違えば（ピンより大きい .part も）Range なしで1回だけ全部
  * 取り直す。それでも違えば hash（.part も記録も残さない）。206 の総量がピンと違えば size-changed で、
@@ -351,14 +352,15 @@ async function fetchFile(pin, opts = {}) {
   if (held > size) { held = 0; fullRetryUsed = true; }   // ピンより大きい .part は SHA-256 の違いと同じ扱い
 
   const fh = await openPart(part);
-  let synced = -1;
+  let synced = -1;       // 記録に書けた長さ（fh.sync() の後）
+  let nextSync = 0;      // 次に途中の確定をする長さ
   let discard = false;
   const writeRecord = async (n) => {
     const tmp = `${side}.tmp`;
     await fsp.writeFile(tmp, JSON.stringify({ url: pin.url, size, sha256, synced: n }));
     await fsp.rename(tmp, side);   // opts.rename は置く先の名前の変更だけに使う
   };
-  const commit = async () => { await fh.sync(); await writeRecord(held); synced = held; };
+  const commit = async () => { await fh.sync(); await writeRecord(held); synced = held; nextSync = held + syncEvery; };
   let hash;
   const reset = async () => { await fh.truncate(0); held = 0; hash = crypto.createHash('sha256'); await commit(); };
 
@@ -381,6 +383,14 @@ async function fetchFile(pin, opts = {}) {
     hash.update(chunk);
     held += chunk.length;
   };
+  // 途中の確定（syncEvery ごと）。fh.sync() の失敗では止める（ENOSPC は space）。記録の書き込みの失敗
+  // （ENOSPC 以外。ウイルス対策が .json.tmp → .json を止めたなど）では止めない: 前の記録は確定済みの長さを
+  // 指すので安全で、次の続きはそこまで切り捨てる。記録は次の syncEvery の後にまた試す
+  const checkpoint = async () => {
+    nextSync = held + syncEvery;
+    try { await fh.sync(); } catch (e) { throw diskFailure(e); }
+    try { await writeRecord(held); synced = held; } catch (e) { if (e && e.code === 'ENOSPC') throw diskFailure(e); }
+  };
 
   // 進み具合の done は増えるだけ（0 から取り直したときは、追いつくまで前の値のまま）
   let lastProgress = -Infinity;
@@ -393,12 +403,17 @@ async function fetchFile(pin, opts = {}) {
     onProgress({ done: shown, total: size });
   };
 
-  // 取り消されたら、今の要求を止める（待っている sleep も切り上げる）
+  // 取り消されたら、今の要求を止める
   let current = null;
-  let wake = () => {};
-  const onAbort = () => { if (current) { try { current.abort(); } catch (_) { /* 終わっている */ } } wake(); };
+  const onAbort = () => { if (current) { try { current.abort(); } catch (_) { /* 終わっている */ } } };
   if (signal) signal.addEventListener('abort', onAbort, { once: true });
-  const pause = (ms) => new Promise((resolve) => { wake = resolve; Promise.resolve(sleep(ms)).then(resolve, resolve); });
+  // 待つ。取り消されたらすぐ起きる（試し直しの待ちも、名前の変更の待ちも）
+  const pause = (ms) => new Promise((resolve) => {
+    if (aborted()) { resolve(); return; }
+    const done = () => { if (signal) signal.removeEventListener('abort', done); resolve(); };
+    if (signal) signal.addEventListener('abort', done, { once: true });
+    Promise.resolve(sleep(ms)).then(done, done);
+  });
 
   // 中身が違う（かピンより大きい）: 1回だけ Range なしで全部取り直す。それでも違えば hash で、何も残さない
   const mismatch = async () => {
@@ -463,7 +478,7 @@ async function fetchFile(pin, opts = {}) {
             if (held + chunk.length > size) { over = true; break; }   // ピンを超えた（圧縮された 200 など）
             await writeChunk(chunk);
             got = true;
-            if (held - synced >= syncEvery) { try { await commit(); } catch (e) { throw diskFailure(e); } }
+            if (held >= nextSync) await checkpoint();
             progress(false);
             arm();
           }
@@ -496,6 +511,9 @@ async function fetchFile(pin, opts = {}) {
       current = null;
     }
     progress(true);
+  } catch (e) {
+    // 始めの切り捨て・確定や、取り直しの切り捨ての ENOSPC も space（needBytes 付き）にする
+    throw e && e.code === 'ENOSPC' ? diskFailure(e) : e;
   } finally {
     if (signal) signal.removeEventListener('abort', onAbort);
     // 返る前に書き込みを確定し、その長さを記録する（取り消し・失敗でも、次はそこから続く）
@@ -511,8 +529,8 @@ async function fetchFile(pin, opts = {}) {
     try { await rename(part, dest); break; } catch (e) {
       if (!e || !LOCKED.has(e.code)) throw e;
       if (i >= RENAME_TRIES) throw failure('locked', { cause: e });
+      await pause(Math.min(300 * 2 ** (i - 1), 5000));   // 取り消されたらすぐ起きる
       if (aborted()) throw failure('cancelled');
-      await sleep(Math.min(300 * 2 ** (i - 1), 5000));
     }
   }
   await rmQuiet(side);

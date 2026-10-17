@@ -22,6 +22,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const crypto = require('node:crypto');
+const { Readable } = require('node:stream');
 
 const F = require('../src/engine-fetch');
 test('Content-Range を読む', () => {
@@ -428,5 +429,99 @@ test('書き込みが一部だけ（空きが尽きかけたときの短い書�
     };
     const r = await fetchFile(pinOf(s.originUrl), opts(tmp(), { openPart }));
     assert.ok(fs.readFileSync(r.file).equals(body), '穴のあいたファイルを置いた');
+  } finally { await s.close(); }
+});
+test('待っている間（Retry-After 60 秒）に取り消すと、待ちを切り上げてすぐ cancelled。記録は残る（Task 12b の［一時停止］）', { timeout: 5000 }, async () => {
+  const s = await startServers({ body, script: [{ status: 503, retryAfter: 60 }] });
+  try {
+    const dir = tmp(); const ac = new AbortController(); const waits = [];
+    // 本物の時計で待つ。待ち始めて 50ms で取り消す（取り消しで起きなければ 60 秒待って時間切れ）
+    const sleep = (ms) => { waits.push(ms); setTimeout(() => ac.abort(), 50); return new Promise((r) => setTimeout(r, ms).unref()); };
+    const t0 = Date.now();
+    await assert.rejects(fetchFile(pinOf(s.originUrl), opts(dir, { signal: ac.signal, sleep })), { code: 'cancelled' });
+    assert.ok(Date.now() - t0 < 2000, `待ちを切り上げていない ${Date.now() - t0}ms`);
+    assert.deepStrictEqual(waits, [60000]);
+    assert.ok(fs.existsSync(path.join(dir, `${SHA}.json`)), '記録が残っていない');
+  } finally { await s.close(); }
+});
+test('名前の変更の EBUSY・EACCES も、EPERM と同じく待って試し直す（ウイルス対策が抱えたファイル。RF9）', { timeout: 5000 }, async () => {
+  const s = await startServers({ body });
+  try {
+    for (const code of ['EBUSY', 'EACCES']) {
+      let n = 0;
+      const rename = async (a, b) => { if (++n <= 2) throw Object.assign(new Error('x'), { code }); return fs.promises.rename(a, b); };
+      const r = await fetchFile(pinOf(s.originUrl), opts(tmp(), { rename }));
+      assert.ok(fs.readFileSync(r.file).equals(body), code);
+      assert.strictEqual(n, 3, code);
+    }
+  } finally { await s.close(); }
+});
+test('見出しが来たら、見出しの待ちは headerTimeoutMs に戻る（倍にするのは続けて時間切れのときだけ）', { timeout: 5000 }, async () => {
+  const s = await startServers({ body, script: [{ noHeaders: true }, { noHeaders: true }, { noHeaders: true }, { cutAfter: 1000 }, { noHeaders: true }, {}] });
+  try {
+    await fetchFile(pinOf(s.originUrl), opts(tmp(), { headerTimeoutMs: 100 }));
+    const at = s.requests().filter((x) => x.name === 'cdn').map((x) => x.at);
+    assert.strictEqual(at.length, 6);
+    assert.ok(at[3] - at[2] >= 390, `3 回続けて時間切れの後の待ちが 400ms になっていない ${at[3] - at[2]}ms`);
+    assert.ok(at[5] - at[4] < 500, `見出しが来た後も待ちが 800ms のまま ${at[5] - at[4]}ms`);
+  } finally { await s.close(); }
+});
+test('途中の記録の書き込み（.json.tmp → .json）が EPERM で失敗しても、取り込みは続けて終える（記録は前の長さのまま。RF9）', { timeout: 5000 }, async () => {
+  const s = await startServers({ body });
+  // 記録の名前の変更は fs.promises.rename（opts.rename は置く先だけ）。2 回目（途中の確定）だけ失敗させる
+  const orig = fs.promises.rename; let k = 0;
+  fs.promises.rename = async (a, b) => {
+    if (String(a).endsWith('.json.tmp') && ++k === 2) throw Object.assign(new Error('x'), { code: 'EPERM' });
+    return orig.call(fs.promises, a, b);
+  };
+  // 本体を 4KB ずつ渡す（失敗の後も syncEvery ごとにしか記録を試さないことを、塊の大きさに左右されずに見る）
+  async function* pieces(src) { for await (const c of src) for (let i = 0; i < c.length; i += 4096) yield c.subarray(i, i + 4096); }
+  const small = (o) => {
+    const r = fakeRequest(o);
+    const emit = r.emit.bind(r);
+    r.emit = (ev, ...a) => {
+      if (ev !== 'response') return emit(ev, ...a);
+      const out = Readable.from(pieces(a[0]), { objectMode: false });
+      out.statusCode = a[0].statusCode; out.headers = a[0].headers;
+      return emit(ev, out);
+    };
+    return r;
+  };
+  try {
+    const dir = tmp();
+    const r = await fetchFile(pinOf(s.originUrl), opts(dir, { syncEvery: 64 * 1024, request: small }));
+    assert.ok(fs.readFileSync(r.file).equals(body));
+    // 始め 1・途中 4（64K・128K・192K・256K。2 回目の書き込みが失敗）・終わり 1
+    assert.strictEqual(k, 6, `記録を書いた回数 ${k}（失敗の後に書かない／syncEvery ごとより多く書いた）`);
+    assert.deepStrictEqual(leftovers(dir), []);
+  } finally { fs.promises.rename = orig; await s.close(); }
+});
+test('始めの確定（.part の続きを記録に書く前の fsync）で ENOSPC でも、space でやめ、needBytes に残りの大きさ', { timeout: 5000 }, async () => {
+  const s = await startServers({ body });
+  try {
+    const dir = tmp();
+    fs.writeFileSync(path.join(dir, `${SHA}.part`), body.subarray(0, 100000)); side(dir, { url: s.originUrl, synced: 100000 });
+    const openPart = async (f) => {
+      const fh = await fs.promises.open(f, 'r+'); let n = 0;
+      return new Proxy(fh, { get: (t, k) => (k === 'sync'
+        ? async () => { if (++n === 1) throw Object.assign(new Error('no space'), { code: 'ENOSPC' }); return t.sync(); }
+        : (typeof t[k] === 'function' ? t[k].bind(t) : t[k])) });
+    };
+    const e = await fetchFile(pinOf(s.originUrl), opts(dir, { openPart })).then(() => null, (x) => x);
+    assert.strictEqual(e && e.code, 'space', e && e.message);
+    assert.strictEqual(e.needBytes, body.length - 100000);
+    assert.strictEqual(s.requests().length, 0);
+  } finally { await s.close(); }
+});
+test('名前の変更を待っている間に取り消すと、待ちを切り上げてすぐ cancelled（.part と記録は残る）', { timeout: 5000 }, async () => {
+  const s = await startServers({ body });
+  try {
+    const dir = tmp(); const ac = new AbortController();
+    const rename = async () => { setTimeout(() => ac.abort(), 50); throw Object.assign(new Error('x'), { code: 'EPERM' }); };
+    const sleep = () => new Promise((r) => setTimeout(r, 60000).unref());   // 長い待ち（取り消しで起きなければ時間切れ）
+    const t0 = Date.now();
+    await assert.rejects(fetchFile(pinOf(s.originUrl), opts(dir, { signal: ac.signal, rename, sleep })), { code: 'cancelled' });
+    assert.ok(Date.now() - t0 < 2000, `待ちを切り上げていない ${Date.now() - t0}ms`);
+    assert.ok(fs.existsSync(path.join(dir, `${SHA}.part`)) && fs.existsSync(path.join(dir, `${SHA}.json`)));
   } finally { await s.close(); }
 });
