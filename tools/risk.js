@@ -19,7 +19,9 @@ const St = require('./lib/style');
 const MINES = require('./lib/mines');
 
 const ROOT = path.resolve(__dirname, '..');
-const git = (a) => execFileSync('git', a, { cwd: ROOT, maxBuffer: 64 << 20 }).toString();
+// git の stderr は画面に流さず、受け取っておく。基準の版に無いファイルを読むと fatal の行が出て、
+// BLOCK 0 でもリリースのゲートの記録では失敗に見える（失敗したときは、例外の文に stderr が入る）
+const git = (a) => execFileSync('git', a, { cwd: ROOT, maxBuffer: 64 << 20, stdio: ['ignore', 'pipe', 'pipe'] }).toString();
 // rev: null=作業ツリー / 'INDEX'=コミット予定の内容 / それ以外=git の版
 const at = (rev, f) => {
   try {
@@ -242,7 +244,8 @@ function firstArg(src, open) {
 }
 // 127.0.0.1 のエンジンへの呼び出し（文字列の頭が http://127.0.0.1 で、その後が「:ポート（数字か ${…}。
 // 足し算で作るなら空）」と道・? ・# か文字列の終わり）。:80@10.0.0.2 のような userinfo の @ は
-// 本当のホストが別なので数える
+// 本当のホストが別なので数える。足し算の後ろの文字（'…:' + port + '@…'）も見えないので、
+// 第1引数のどこかに @ があれば許さない
 const LOOPBACK_ARG = /^(['"`])http:\/\/127\.0\.0\.1(?::(?:\d+|\$\{[^}]*\})?)?(?=[/?#]|\1)/;
 function fetchArgs(src) {
   const out = new Map();
@@ -251,7 +254,7 @@ function fetchArgs(src) {
   // net.fetch・x.fetch は数えない。globalThis.fetch・global.fetch はグローバルの fetch なので数える
   for (const m of s.matchAll(/(?<![.\w$])(?:(?:globalThis|global)\s*\.\s*)?fetch\s*\(/g)) {
     const arg = firstArg(s, m.index + m[0].length - 1);
-    if (LOOPBACK_ARG.test(arg)) continue;
+    if (LOOPBACK_ARG.test(arg) && !arg.includes('@')) continue;
     out.set(arg, (out.get(arg) || 0) + 1);
   }
   return out;

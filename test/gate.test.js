@@ -110,6 +110,17 @@ test('RF2: analyze が変わった src の .js を fetchFindings に渡して BL
   // 127.0.0.1 の後に userinfo の @ が来るものは、本当のホストが別なので数える。ポートを足し算で作る形は今までどおり通す
   assert.strictEqual(R.fetchFindings('src/x.js', '', "fetch('http://127.0.0.1:80@10.0.0.2/');\n").length, 1);
   assert.deepStrictEqual(R.fetchFindings('src/x.js', '', "fetch('http://127.0.0.1:' + port + '/health');\n"), []);
+  // 足し算の後ろの文字に @ があるものも、本当のホストが別になりうるので数える
+  assert.strictEqual(R.fetchFindings('src/x.js', '', "fetch('http://127.0.0.1:' + port + '@example.invalid/');\n").length, 1);
+});
+
+test('RF2: 新しい src の .js がある範囲をゲートにかけても、git の fatal の行を出さない（リリースのゲートの記録が失敗に見えない）', { skip: !hasGit && 'git が無い' }, () => {
+  // 基準の版に無いファイルを git show で読むと、git が stderr に fatal の行を出す。結果は BLOCK 0 でも、記録では失敗に見える
+  const h = cp.execFileSync('git', ['log', '--diff-filter=A', '--format=%h', '-1', '--', ':(glob)src/*.js'], { cwd: ROOT }).toString().trim();
+  assert.ok(h, 'src の .js を足した commit が見つからない');
+  const r = cp.spawnSync(process.execPath, ['tools/risk.js', '--base', h + '^', '--head', h], { cwd: ROOT, encoding: 'utf8' });
+  assert.match(r.stdout, /結果: BLOCK 0 件/, r.stdout + r.stderr);
+  assert.ok(!/fatal:/.test(r.stderr), `git の fatal の行が出た:\n${r.stderr}`);
 });
 
 test('RF2: チェックリストに、ゲートが見る範囲（SCOPE.sees）が1行ずつ全部出る（main の外向きの通信を含む）', { skip: !hasGit && 'git が無い' }, () => {
