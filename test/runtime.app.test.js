@@ -819,6 +819,29 @@ test('設定のタブを開くたびに認識ヒントの状態を聞き直す�
   assert.deepStrictEqual(l.errors.map(fmt), []);
 });
 
+test('要約タイプ: 判定材料が無い議事録は「一般・その他／既定（判定材料なし）」。0.1.1 までの定例の議事録も同じ札（0.1.2）', async () => {
+  const types = require('../src/meetingType').listTypes();
+  const open = async (patch) => 開いた({
+    meetingTypes: () => types,
+    pageGet: (id) => ({ page: Object.assign(clone(PAGE), { id }, patch), segments: clone(STANDUP_SEGMENTS) }),
+  });
+  // 0.1.2 から: 判定材料が無ければ一般・その他
+  let l = await open({ meetingType: 'general', typeAuto: true, autoType: 'general' });
+  assert.strictEqual(l.byId.get('pType').value, 'general');
+  assert.match(l.byId.get('pTypeHint').textContent, /^既定（判定材料なし）/);
+  // 0.1.1 までに作った議事録（判定材料が無いので定例にしていた）
+  l = await open({ meetingType: 'standup', typeAuto: true, autoType: 'general' });
+  assert.strictEqual(l.byId.get('pType').value, 'standup');
+  assert.match(l.byId.get('pTypeHint').textContent, /^既定（判定材料なし）/);
+  // 要約の前（種類がまだ無い）は一般・その他を見せる
+  l = await open({ meetingType: undefined, typeAuto: undefined, autoType: undefined });
+  assert.strictEqual(l.byId.get('pType').value, 'general');
+  // 自動判定で定例になったものは「自動判定」
+  l = await open({ meetingType: 'standup', typeAuto: true, autoType: 'standup' });
+  assert.match(l.byId.get('pTypeHint').textContent, /^自動判定/);
+  assert.deepStrictEqual(l.errors.map(fmt), []);
+});
+
 test('promptInfo の無い古い preload と組んでも、設定画面は生きて注意は出ない', async () => {
   const l = await load(APP);
   assert.deepStrictEqual(l.errors.map(fmt), []);

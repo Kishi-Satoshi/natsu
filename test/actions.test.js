@@ -8,7 +8,7 @@
 
 const test = require('node:test');
 const assert = require('node:assert');
-const { parseDue, parseAction, cleanName, enrichActionBlocks } = require('../src/actions');
+const { parseDue, parseAction, cleanName, enrichActionBlocks, dueAnchors, dueGrounded, assigneeGrounded, groundActionFields } = require('../src/actions');
 
 const BASE = new Date(2026, 9, 5); // 2026-10-05 (月)
 const due = (s) => parseDue(s, BASE).date;
@@ -306,4 +306,57 @@ test('「再来月末中に」「再来週末中に」の期限も「再」を�
   const b = parseAction('再来週末中に片付ける', B);
   assert.strictEqual(b.dueRaw, '再来週末');
   assert.strictEqual(b.due, '2026-10-23');
+});
+
+// ================= 担当・期限の裏付け（0.1.2） =================
+// 実機で、発言に無い担当「石川」と期限が要約に付き、画面に担当と期限の札が出た。推測で埋めないので外す
+const SRC = 'インデックスの件は山田さんに実行計画を見てもらいます。来週金曜までにお願いします。'
+  + '佐藤さんに今月末までに改訂案を作ってもらえますか。リリースは11月15日で確定です。あさってまでに連絡します。';
+
+test('dueAnchors: 月日・日・曜日・言い換えても残る言葉を芯として取り出す', () => {
+  assert.deepStrictEqual(dueAnchors('10/23'), [['10月23日', '10/23']]);
+  assert.deepStrictEqual(dueAnchors('１１月１５日'), [['11月15日', '11/15']]);
+  assert.deepStrictEqual(dueAnchors('来週金曜'), [['金曜'], ['来週']]);
+  assert.deepStrictEqual(dueAnchors('今月末'), [['今月末']], '「今月末」を「今月」と「月末」に割らない');
+  assert.deepStrictEqual(dueAnchors('明後日'), [['明後日', 'あさって']]);
+  assert.deepStrictEqual(dueAnchors('23日'), [['23日']]);
+  assert.deepStrictEqual(dueAnchors('ASAP'), []);
+});
+
+test('dueGrounded: 発言にある期限は言い方が違っても通し、無い期限は通さない', () => {
+  for (const raw of ['来週金曜', '来週の金曜日', '今月末', '11月15日', '11/15', '明後日']) assert.strictEqual(dueGrounded(raw, SRC), true, raw);
+  for (const raw of ['10/23', '火曜日', '来月末', '8/30', 'ASAP', '再来週']) assert.strictEqual(dueGrounded(raw, SRC), false, raw);
+  // 芯が取れない言い方は、そのままの文字列で探す
+  assert.strictEqual(dueGrounded('ASAP', 'できればASAPで'), true);
+});
+
+test('assigneeGrounded: 敬称を外した名前が発言にあれば通す', () => {
+  assert.strictEqual(assigneeGrounded('山田', SRC), true);
+  assert.strictEqual(assigneeGrounded('佐藤さん', SRC), true);
+  assert.strictEqual(assigneeGrounded('山田部長', SRC), true);
+  assert.strictEqual(assigneeGrounded('石川', SRC), false);
+  assert.strictEqual(assigneeGrounded('', SRC), false);
+});
+
+test('groundActionFields: 発言に無い担当・期限だけを外し、本文は残す。数え直した数を返す', () => {
+  const blocks = [
+    { type: 'heading', text: 'アクションアイテム' },
+    { type: 'todo', text: '実行計画を確認する（担当: 山田 / 期限: 来週金曜）' },
+    { type: 'todo', text: '資料を配布する（担当: 石川 / 期限: 10/23）' },
+    { type: 'todo', text: '改訂案を作る（担当: 佐藤 / 期限: 火曜日）' },
+    { type: 'bullet', text: '担当: 石川（todo でない行は触らない）' },
+  ];
+  const before = enrichActionBlocks(blocks, BASE);
+  assert.deepStrictEqual(before, { total: 3, withAssignee: 3, withDue: 3 });
+  const r = groundActionFields(blocks, SRC);
+  assert.deepStrictEqual([r.droppedAssignee, r.droppedDue], [1, 2]);
+  assert.deepStrictEqual(r.stat, { total: 3, withAssignee: 2, withDue: 1 });
+  const todos = blocks.filter((b) => b.type === 'todo');
+  assert.deepStrictEqual(todos.map((b) => [b.text, b.assignee, b.dueRaw, b.due]), [
+    ['実行計画を確認する', '山田', '来週金曜', '2026-10-16'],
+    ['資料を配布する', '', '', ''],
+    ['改訂案を作る', '佐藤', '', ''],
+  ]);
+  assert.ok(todos.every((b) => b.dueApprox === false || b.due), '外した期限に「おおよそ」の印が残っている');
+  assert.strictEqual(blocks[4].text, '担当: 石川（todo でない行は触らない）');
 });

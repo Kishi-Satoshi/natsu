@@ -920,3 +920,23 @@ test('wavLevelDbfs は 16bit PCM の RMS を dBFS で返す（無音・壊れた
   withList.writeUInt32LE(withList.length - 8, 4);
   assert.ok(Math.abs(wavLevelDbfs(withList) - -23.01) < 0.1);
 });
+
+// ================= 要約の途中で会議タイプを選び直したとき（0.1.2） =================
+const { mergeSummaryType } = require('../src/mainlib');
+
+test('mergeSummaryType: 要約の途中で手で選んだ種類は残し、要約に使った種類と違えば作り直しを勧める', () => {
+  // 実機: 生成中に「一般・その他」を選んだのに、終わると「定例・進捗報告（既定）」に戻った
+  assert.deepStrictEqual(mergeSummaryType({ meetingType: 'general', typeAuto: false }, { meetingType: 'standup', typeAuto: true }),
+    { meetingType: 'general', typeAuto: false, changed: true });
+  // 始める前から手で選んでいた（途中で変えていない）
+  assert.deepStrictEqual(mergeSummaryType({ meetingType: 'review', typeAuto: false }, { meetingType: 'review', typeAuto: false }),
+    { meetingType: 'review', typeAuto: false, changed: false });
+  // 自動で決めた種類のまま（途中で何もしていない）
+  assert.deepStrictEqual(mergeSummaryType({ meetingType: undefined }, { meetingType: 'standup', typeAuto: true }),
+    { meetingType: 'standup', typeAuto: true, changed: false });
+  assert.deepStrictEqual(mergeSummaryType({ meetingType: 'standup', typeAuto: true }, { meetingType: 'sales', typeAuto: true }),
+    { meetingType: 'sales', typeAuto: true, changed: false });
+  // 途中で、自動と同じ種類をあえて手で選んだ: 手で選んだ印は残す
+  assert.deepStrictEqual(mergeSummaryType({ meetingType: 'standup', typeAuto: false }, { meetingType: 'standup', typeAuto: true }),
+    { meetingType: 'standup', typeAuto: false, changed: false });
+});

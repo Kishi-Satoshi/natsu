@@ -997,12 +997,13 @@
     // 会議タイプ
     const sel = $('pType'); sel.textContent = '';
     for (const t of mtypes) sel.add(new Option(t.label, t.key));
-    sel.value = curPage.meetingType || 'standup';   // 既定は「定例・進捗報告」
+    sel.value = curPage.meetingType || 'general';   // 既定は「一般・その他」（0.1.2。それまでは定例・進捗報告）
     const def = mtypes.find((t) => t.key === sel.value);
     // 手で選んだ場合も、自動判定が何と言ったかを併記する。
     // これが無いと自動判定の精度を実機で確かめる手段が無い。
     let src = '自動判定';
-    if (curPage.typeAuto !== false && curPage.autoType === 'general' && sel.value === 'standup') {
+    // 判定材料が無かった（自動判定が「一般・その他」）。0.1.1 までの議事録は、そのとき定例・進捗報告にしていた
+    if (curPage.typeAuto !== false && curPage.autoType === 'general' && (sel.value === 'general' || sel.value === 'standup')) {
       src = '既定（判定材料なし）';
     }
     if (curPage.typeAuto === false) {

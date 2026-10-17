@@ -64,10 +64,15 @@ const SCENES = {
   probeDrop: ['probe-drop', '--test'],
   busy: ['slow', '--test-during'],
   kotoba: ['prompt-empty', '--kotoba'],
+  sumGround: ['text', '--sum', '--text=山田さんが来週金曜までに進捗の確認をまとめます。'],
+  sumType: ['text', '--sum', '--set-type-during=standup'],
 };
 const results = {};
-const ready = reservePorts(Object.keys(SCENES).length).then((ports) =>
-  Promise.all(Object.entries(SCENES).map(async ([k, a], i) => { results[k] = await run([...a, `--port=${ports[i]}`]); })));
+// 場面ごとに 2 つ（文字起こしと要約のエンジン）
+const ready = reservePorts(Object.keys(SCENES).length * 2).then((ports) =>
+  Promise.all(Object.entries(SCENES).map(async ([k, a], i) => {
+    results[k] = await run([...a, `--port=${ports[2 * i]}`, `--sum-port=${ports[2 * i + 1]}`]);
+  })));
 const meetingReqs = (r) => r.requests.filter((l) => !/probe=true/.test(l));
 const prompted = (r) => meetingReqs(r).map((l) => /prompt=true/.test(l));
 
@@ -226,4 +231,36 @@ test('ヒントを止めた後で辞書を変えたら、またヒントを渡�
   assert.deepStrictEqual([r.promptInfo.off, r.promptInfo.offReason], [true, 'empty']);
   assert.strictEqual(r.saved && r.saved.ok, true, JSON.stringify(r.saved));
   assert.deepStrictEqual([r.promptInfoAfterDict.off, r.promptInfoAfterDict.offReason], [false, '']);
+});
+
+// ================= 要約（0.1.2）。偽の要約エンジン helpers/fake-llama.js を相手にする =================
+test('要約が文字起こしに無い担当・期限を書いても、議事録には載せない（発言にある担当・期限は残す）', async () => {
+  await ready;
+  const p = results.sumGround.pages[0];
+  // 偽の要約は「進捗の確認をまとめる（担当: 山田 / 期限: 来週金曜）」と「資料を配布する（担当: 石川 / 期限: 10/23）」を返す。
+  // 文字起こしは「山田さんが来週金曜までに…」なので、山田・来週金曜は残り、石川・10/23 は外れる
+  assert.deepStrictEqual(p.todos.map((t) => [t.text, t.assignee, t.dueRaw]), [
+    ['進捗の確認をまとめる', '山田', '来週金曜'],
+    ['資料を配布する', '', ''],
+  ]);
+  assert.match(p.todos[0].due, /^\d{4}-\d{2}-\d{2}$/);
+  assert.strictEqual(p.todos[1].due, '');
+  assert.deepStrictEqual(p.actionStat, { total: 2, withAssignee: 1, withDue: 1 });
+  assert.ok(results.sumGround.engineLog.includes('要約: 文字起こしに無い担当 1 件・期限 1 件を外しました'), JSON.stringify(results.sumGround.engineLog));
+  // engine.log に名前を書かない（1on1・面談の議事録は機微）
+  assert.ok(!results.sumGround.engineLog.some((l) => /石川|山田/.test(l)), JSON.stringify(results.sumGround.engineLog));
+});
+
+test('要約の途中で会議タイプを手で選び直したら、その選択を残し、作り直しを勧める', async () => {
+  await ready;
+  const r = results.sumType;
+  assert.strictEqual(r.setType && r.setType.meetingType, 'standup', JSON.stringify(r.setType));
+  const p = r.pages[0];
+  assert.strictEqual(p.todos.length > 0, true, '要約が保存されていない');
+  // 0.1.1 までは、要約を始めたときの種類（自動）で上書きしていた
+  assert.deepStrictEqual([p.meetingType, p.typeAuto], ['standup', false]);
+  assert.strictEqual(p.summaryError, 'この要約は「一般・その他」として作りました。途中で選んだ「定例・進捗報告」で作り直すには［要約を再生成］を押してください。');
+  // 途中で何も選ばなければ、自動で決めた種類のまま（判定材料が無いので一般・その他）で、添え書きも無い
+  const q = results.sumGround.pages[0];
+  assert.deepStrictEqual([q.meetingType, q.typeAuto, q.summaryError], ['general', true, '']);
 });

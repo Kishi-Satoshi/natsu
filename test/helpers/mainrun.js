@@ -13,6 +13,10 @@
 //     --port=N      … 文字起こしエンジンのポート（並べて走らせるとき、呼ぶ側が重ならないように決めて渡す）
 //     --discard-during … 最初の区間を送った直後に議事録を破棄する（返事を待つ間の破棄）
 //     --after-dict  … 記録の後で辞書を保存し、認識ヒントの状態を聞き直す
+//     --sum         … 要約エンジン（helpers/fake-llama.js）も置く。要約は文字起こしに無い担当・期限を混ぜて返す
+//     --sum-port=N  … 要約エンジンのポート（--port と同じく、呼ぶ側が重ならないように渡す）
+//     --set-type-during=T … 要約の途中で会議タイプを T に手で選び直す（要約は 1.5 秒かかる）
+//     --text=…      … 偽の文字起こしエンジンが返す文（既定は「本日の議題は進捗の確認です。区間N」）
 // 本物のエンジンで試すときは NATSU_E2E_EXE・NATSU_E2E_MODEL・NATSU_E2E_WAVS（; 区切り）を渡す。
 // 終わるときは、起動したエンジンを止め、一時フォルダを消す（npm test のたびに残さない）。
 
@@ -35,6 +39,11 @@ const kotoba = flags.includes('--kotoba');
 const fixedPort = Number((flags.find((f) => f.startsWith('--port=')) || '--port=0').slice(7)) || 0;
 const discardDuring = flags.includes('--discard-during');
 const afterDict = flags.includes('--after-dict');
+const withSum = flags.includes('--sum');
+const fixedSumPort = Number((flags.find((f) => f.startsWith('--sum-port=')) || '--sum-port=0').slice(11)) || 0;
+const setTypeDuring = (flags.find((f) => f.startsWith('--set-type-during=')) || '').slice(18);
+const fakeText = (flags.find((f) => f.startsWith('--text=')) || '').slice(7);
+const FAKE_SUM = path.join(__dirname, 'fake-llama.js');
 const segCount = Number((flags.find((f) => f.startsWith('--segs=')) || '--segs=2').slice(7)) || 2;
 
 const freePort = () => new Promise((resolve, reject) => {
@@ -103,9 +112,21 @@ process.on('exit', () => {
   process.env.FAKE_MODE = mode;
   process.env.FAKE_LOG = flog;
   const localPort = fixedPort || await freePort();
-  const sumPort = await freePort();
+  const sumPort = fixedSumPort || await freePort();
+  if (fakeText) process.env.FAKE_TEXT = fakeText;
+  // 偽の要約モデル。大きさの床（300MB）だけを超えればよい（残りは疎）
+  let sumModel = '';
+  if (withSum) {
+    sumModel = path.join(engDir, 'fake-sum.gguf');
+    const fd = fs.openSync(sumModel, 'w');
+    fs.writeSync(fd, Buffer.alloc(8192, 1));
+    fs.ftruncateSync(fd, 301 * 1024 * 1024);
+    fs.closeSync(fd);
+    if (setTypeDuring) process.env.FAKE_SUM_DELAY = '1500';
+  }
   fs.writeFileSync(path.join(userData, 'settings.json'), JSON.stringify({
     localServerExe: exe, localModelPath: model, localPort, sumPort, autoLaunch: false,
+    ...(withSum ? { sumServerExe: FAKE_SUM, sumModelPath: sumModel } : {}),
   }));
 
   const handlers = {}, listeners = {}, sent = [];
@@ -146,7 +167,7 @@ process.on('exit', () => {
   const childProcess = {
     ...cp,
     spawn(cmd, args, opts) {
-      if (cmd === exe) {
+      if (cmd === exe || (withSum && cmd === FAKE_SUM)) {
         const k = /\.js$/i.test(cmd) ? realSpawn(process.execPath, [cmd, ...args], opts) : realSpawn(cmd, args, opts);
         kids.push(k);
         return k;
@@ -188,16 +209,28 @@ process.on('exit', () => {
   if (discardDuring) await sleep(3000);   // 破棄の後にやり直しが送られないことを、返事が来るまで待って確かめる
   const deadline = Date.now() + (discardDuring ? 0 : Number(process.env.NATSU_E2E_WAIT_MS || 60000));
   while (Date.now() < deadline && !store.listPages().length) await sleep(50);
-  // 要約まで済む（summaryError が書かれる）のを待つ
+  // 要約の途中で会議タイプを手で選び直す（画面の［要約タイプ］と同じ IPC）
+  if (setTypeDuring && store.listPages().length) {
+    await sleep(300);
+    out.setType = await handlers['page:setType']({}, { id: store.listPages()[0].id, type: setTypeDuring });
+  }
+  // 要約まで済むのを待つ: 要約のブロックができるか、要約欄に理由が書かれるまで
+  // （新しいページは summaryError を空で持っているので、空かどうかでは決められない）
   while (Date.now() < deadline) {
     const p = store.listPages()[0];
-    if (p && store.getPage(p.id).summaryError !== undefined) break;
+    const page = p && store.getPage(p.id);
+    if (page && ((page.blocks && page.blocks.length) || page.summaryError)) break;
     await sleep(50);
   }
   await sleep(200);
   const pages = store.listPages().map((p) => {
     const page = store.getPage(p.id);
-    return { summaryError: page.summaryError, segments: store.getTranscript(p.id).map((s) => ({ text: s.text, failed: Boolean(s.failed) })) };
+    return {
+      summaryError: page.summaryError,
+      segments: store.getTranscript(p.id).map((s) => ({ text: s.text, failed: Boolean(s.failed) })),
+      meetingType: page.meetingType, typeAuto: page.typeAuto, actionStat: page.actionStat,
+      todos: (page.blocks || []).filter((b) => b.type === 'todo').map((b) => ({ text: b.text, assignee: b.assignee || '', due: b.due || '', dueRaw: b.dueRaw || '' })),
+    };
   });
   out.pages = pages;
   out.notices = sent.filter(([ch]) => ch === 'app:notice').map(([, p]) => p);

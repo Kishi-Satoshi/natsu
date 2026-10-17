@@ -41,9 +41,9 @@ test('表示名は NaTsu（画面・録音バー・ウィンドウ・トレイ�
   assert.strictEqual(pkg.description, 'NaTsu — 完全オフラインの音声入力・議事録ツール（ローカルLLM要約 + 出典リンク付き）');
 });
 
-test('識別子: name は natsu・版は 0.1.1・productName は build の中だけ（userData は %APPDATA%\\natsu）', () => {
+test('識別子: name は natsu・版は 0.1.2・productName は build の中だけ（userData は %APPDATA%\\natsu）', () => {
   assert.strictEqual(pkg.name, 'natsu');
-  assert.strictEqual(pkg.version, '0.1.1');
+  assert.strictEqual(pkg.version, '0.1.2');
   assert.strictEqual(pkg.productName, undefined, 'top-level の productName は userData の名前を変える');
   assert.strictEqual(pkg.build.productName, 'NaTsu');
   assert.strictEqual(pkg.build.appId, 'local.natsu.app');

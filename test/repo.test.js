@@ -354,9 +354,10 @@ test('会議の所要時間は開始から停止までで計る', () => {
   assert.ok(appHtml.includes('(mtStoppedAt || Date.now()) - mtStartedAt'));
 });
 
-test('判定材料が無いときの会議タイプは「定例・進捗報告」', () => {
-  assert.match(main, /autoType === 'general' \? 'standup' : autoType/);
-  assert.ok(appHtml.includes("curPage.meetingType || 'standup'"));
+test('判定材料が無いときの会議タイプは「一般・その他」（0.1.2。定例の型に合わせて担当・期限を作らせない）', () => {
+  assert.match(main, /page\.meetingType = autoType;/);
+  assert.ok(!/autoType === 'general' \? 'standup'/.test(main), '判定材料が無いときに定例へ寄せている');
+  assert.ok(appHtml.includes("curPage.meetingType || 'general'"));
 });
 
 test('Markdown保存は IPC ごと撤去済み', () => {
@@ -932,7 +933,9 @@ test('#16 分割要約が切れたら半分に割ってやり直し、それで�
   assert.match(gen, /return \{ md: one\.text, truncated: one\.truncated, truncatedParts: \[\], finalTruncated: one\.truncated \}/);
   assert.match(gen, /truncatedParts, finalTruncated: final\.truncated \}/);
   const run = fnBody(code(main), 'async function doRunSummary', '\nlet hotkeyState');
-  assert.ok(run.includes('saved.summaryError = truncationMessage(truncatedParts, finalTruncated)'), '文を mainlib.truncationMessage から取っていない');
+  // 文は mainlib.truncationMessage から取り、途中で種類を選び直したときの添え書き（0.1.2）と並べる
+  assert.ok(run.includes('const notes = [truncationMessage(truncatedParts, finalTruncated)];')
+    && run.includes("saved.summaryError = notes.filter(Boolean).join('\\n');"), '文を mainlib.truncationMessage から取っていない');
   assert.ok(!code(main).includes('要約が長さの上限で打ち切られた可能性があります'), '文が main.js に手書きのまま残っている');
 });
 

@@ -262,4 +262,76 @@ function enrichActionBlocks(blocks, base) {
   return { total, withAssignee, withDue };
 }
 
-module.exports = { parseAction, parseDue, cleanName, enrichActionBlocks };
+// ---------------------------------------------------------------- 担当・期限の裏付け
+// 要約のモデル（手元の 3B など）は、指示に反して文字起こしに無い担当・期限を書くことがある
+// （実機: 発言に無い「石川」「10/23」が付き、画面に担当と期限の札が出た）。担当・期限は
+// 推測で埋めないので、文字起こしとメモに出てこないものは外す。本文（何をするか）は残し、
+// その裏付けは出典の照合（「根拠なし」の札）に任せる。
+
+// 比べる前にそろえる: 全角英数を半角に、空白を除く
+const fold = (s) => String(s || '').normalize('NFKC').replace(/\s+/g, '');
+
+// 期限の言い方のうち、言い換えても残る芯（長いものから先に見る）。同じ組の言い方は、どれで書かれていても通す
+const DUE_WORDS = [['再来週'], ['今週末'], ['来週末'], ['今週'], ['来週'], ['週明け'], ['今月末'], ['来月末'], ['月末'],
+  ['今月'], ['来月'], ['明後日', 'あさって'], ['明日', 'あした'], ['本日', '今日'], ['年内'], ['年度末'], ['期末'],
+  ['月内'], ['週内'], ['月初']];
+
+// 期限の文字列から、文字起こしと突き合わせる芯を取り出す。
+// 返り値の要素は「どれか一つでも source にあれば足りる言い方」の配列
+function dueAnchors(raw) {
+  let s = fold(raw);
+  const out = [];
+  // 月日: 「10/23」「10月23日」はどちらの書き方でも通す
+  s = s.replace(/(\d{1,2})\s*(?:\/|月)\s*(\d{1,2})日?/g, (_m, mo, d) => {
+    out.push([`${Number(mo)}月${Number(d)}日`, `${Number(mo)}/${Number(d)}`]);
+    return ' ';
+  });
+  // 日だけ: 「23日」
+  s = s.replace(/(\d{1,2})日/g, (_m, d) => { out.push([`${Number(d)}日`]); return ' '; });
+  // 曜日: 「金曜」「金曜日」「（金）」
+  s = s.replace(/([月火水木金土日])曜日?/g, (_m, w) => { out.push([`${w}曜`]); return ' '; });
+  for (const group of DUE_WORDS) {
+    for (const w of group) {
+      if (s.includes(w)) { out.push(group); s = s.split(w).join(' '); break; }
+    }
+  }
+  return out;
+}
+
+// 期限が文字起こし（とメモ）で裏付けられるか。芯が取れない言い方は、そのままの文字列で探す
+function dueGrounded(raw, source) {
+  const src = fold(source);
+  const anchors = dueAnchors(raw);
+  if (!anchors.length) return src.includes(fold(raw));
+  return anchors.every((alts) => alts.some((a) => src.includes(fold(a))));
+}
+
+// 担当（敬称を外した名前）が文字起こし（とメモ）に出てくるか
+function assigneeGrounded(name, source) {
+  const n = fold(cleanName(name));
+  return Boolean(n) && fold(source).includes(n);
+}
+
+/**
+ * todo の担当・期限のうち、source（文字起こし＋メモ）に出てこないものを外す（破壊的）。
+ * enrichActionBlocks の後に呼ぶ。返り値は外した数と、外した後の数え直し
+ * （enrichActionBlocks の返り値と同じ形。actionStat に使う）。
+ */
+function groundActionFields(blocks, source) {
+  let droppedAssignee = 0; let droppedDue = 0;
+  let withAssignee = 0; let withDue = 0; let total = 0;
+  for (const b of blocks) {
+    if (b.type !== 'todo') continue;
+    if (b.assignee && !assigneeGrounded(b.assignee, source)) { b.assignee = ''; droppedAssignee++; }
+    if ((b.dueRaw || b.due) && !dueGrounded(b.dueRaw || '', source)) {
+      b.dueRaw = ''; b.due = ''; b.dueApprox = false; droppedDue++;
+    }
+    if (!b.text) continue;
+    total++;
+    if (b.assignee) withAssignee++;
+    if (b.due) withDue++;
+  }
+  return { droppedAssignee, droppedDue, stat: { total, withAssignee, withDue } };
+}
+
+module.exports = { parseAction, parseDue, cleanName, enrichActionBlocks, dueAnchors, dueGrounded, assigneeGrounded, groundActionFields };

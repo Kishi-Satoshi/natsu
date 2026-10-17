@@ -686,6 +686,16 @@ function wavLevelDbfs(buf) {
   return -Infinity;
 }
 
+// 要約を保存するときの会議タイプ。saved: いまディスクにあるページ、used: 要約を始めたときのページ
+// （meetingType は要約に使った種類）。要約の途中で利用者が種類を手で選んでいたら（saved.typeAuto === false）、
+// その選択を残す。changed: 残した種類が要約に使った種類と違う（作り直しを勧める）
+function mergeSummaryType(saved, used) {
+  if (saved && saved.typeAuto === false && saved.meetingType) {
+    return { meetingType: saved.meetingType, typeAuto: false, changed: saved.meetingType !== used.meetingType };
+  }
+  return { meetingType: used.meetingType, typeAuto: used.typeAuto, changed: false };
+}
+
 module.exports = {
   saveIfExists, meetingDurationSec, promptTail,
   registerHotkeys, hotkeyFailureMessage, hotkeyStatus, resolveStartupHotkeys, saveHotkeys,
@@ -696,5 +706,5 @@ module.exports = {
   extractNotes, truncationMessage, buildPromptParts,
   publicSegments, settledSegments, pendingDurationMs, recoverSegments, staleSegbufDirs,
   nextSegmentMs, EtaTracker, skipPendingSegments,
-  estimateTokens, foldNotes, idleEnginesToStop, silentWav, wavLevelDbfs,
+  estimateTokens, foldNotes, idleEnginesToStop, silentWav, wavLevelDbfs, mergeSummaryType,
 };

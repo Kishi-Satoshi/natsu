@@ -87,7 +87,7 @@ http.createServer((req, res) => {
     if (mode === 'mixed' && !isProbe && form.file.length > 80000) { json(res, 200, { text: '' }); return; }
     if (mode === 'big-prompt-empty' && hasPrompt && form.file.length > 80000) { json(res, 200, { text: '' }); return; }
     if (mode === 'slow-prompt-empty' && hasPrompt && !isProbe) { setTimeout(() => json(res, 200, { text: '' }), 1500); return; }
-    const reply = () => json(res, 200, { text: ` 本日の議題は\n進捗の確認です。区間${n}\n` });
+    const reply = () => json(res, 200, { text: process.env.FAKE_TEXT ? `${process.env.FAKE_TEXT}区間${n}` : ` 本日の議題は\n進捗の確認です。区間${n}\n` });
     if (mode === 'slow' && !isProbe) setTimeout(reply, 1500); else reply();
   });
 }).on('error', (e) => {

@@ -13,7 +13,7 @@ const assert = require('node:assert');
 
 const { markdownToBlocks, dropRedundantEmpty } = require('../src/minutes');
 const { attachCitations } = require('../src/cite');
-const { enrichActionBlocks } = require('../src/actions');
+const { enrichActionBlocks, groundActionFields } = require('../src/actions');
 const mtype = require('../src/meetingType');
 const { STANDUP_SEGMENTS, STANDUP_SUMMARY_MD, STANDUP_UNGROUNDED } = require('./fixtures');
 
@@ -24,7 +24,9 @@ function runPipeline(md, segments, baseDate) {
   // 「特になし」の混入を先に落とす。ここで落とさないと
   // 「- [ ] 特になし」がアクション1件として数えられる。
   const blocks = dropRedundantEmpty(markdownToBlocks(md));
-  const actionStat = enrichActionBlocks(blocks, baseDate);
+  enrichActionBlocks(blocks, baseDate);
+  // 文字起こしに無い担当・期限は外す（main.doRunSummary と同じ。0.1.2）
+  const actionStat = groundActionFields(blocks, segments.map((s) => s.text).join('\n')).stat;
   const citeStat = attachCitations(blocks, segments);
   return { blocks, citeStat, actionStat };
 }
@@ -280,4 +282,16 @@ test('3つの発言をまとめた要点に3つ全ての出典が付き、節が
   for (const b of blocks) for (const c of b.cites || []) assert.ok(ids.has(c), `存在しない id ${c}`);
   assert.strictEqual(citeStat.total, plain.citeStat.total + 1);
   assert.strictEqual(citeStat.linked, plain.citeStat.linked + 1);
+});
+
+test('要約が文字起こしに無い担当・期限を書いても外れる。発言にある担当・期限は残る（0.1.2）', () => {
+  const md = `${STANDUP_SUMMARY_MD}\n- [ ] 温泉の持ち込み計画をまとめる（担当: 石川 / 期限: 火曜日）`;
+  const { blocks, actionStat } = runPipeline(md, STANDUP_SEGMENTS, BASE);
+  const todos = blocks.filter((b) => b.type === 'todo');
+  const fake = todos.find((b) => b.text.startsWith('温泉の持ち込み計画'));
+  assert.ok(fake, '創作の行は本文として残る（根拠なしの札は出典の照合が付ける）');
+  assert.deepStrictEqual([fake.assignee, fake.due], ['', '']);
+  assert.strictEqual(todos.find((b) => b.text.includes('実行計画')).assignee, '山田');
+  assert.strictEqual(todos.find((b) => b.text.includes('求人票')).due, '2026-10-31');
+  assert.deepStrictEqual(actionStat, { total: todos.length, withAssignee: 2, withDue: 2 });
 });
