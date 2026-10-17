@@ -66,6 +66,17 @@ const verifyThrows = flags.includes('--verify-throws');
 const sumTamper = flags.includes('--sum-tamper');
 const noEngine = (flags.find((f) => f.startsWith('--no-engine=')) || '').slice(12);
 const REAL_PLATFORM = process.platform;
+// --no-vc-runtime が main の中だけ空のフォルダに向ける環境の変数の、元の値。エンジン（子のプロセス）には元の値を渡す
+// （本物のエンジンは本物の Windows の中で動く。Windows の node は SystemRoot が違うと Winsock を始められず code 134 で落ちる）
+const REAL_WINENV = { SystemRoot: process.env.SystemRoot, windir: process.env.windir };
+const childEnv = (env) => {
+  const out = { ...(env || process.env) };
+  for (const [k, v] of Object.entries(REAL_WINENV)) {
+    for (const key of Object.keys(out)) if (key.toLowerCase() === k.toLowerCase()) delete out[key];   // Windows は大文字と小文字を区別しない
+    if (v !== undefined) out[k] = v;
+  }
+  return out;
+};
 
 const freePort = () => new Promise((resolve, reject) => {
   const srv = net.createServer();
@@ -277,7 +288,8 @@ process.on('exit', () => {
         spawns.push({ cmd, args, cwd: (opts && opts.cwd) || '' });
         // 取り込んだ exe（中身は試験のバイト列）の代わりに、偽の whisper を node で起動する
         const js = managedExe && cmd === managedExe ? FAKE : cmd;
-        const k = /\.js$/i.test(js) ? realSpawn(process.execPath, [js, ...args], opts) : realSpawn(js, args, opts);
+        const o = { ...opts, env: childEnv(opts && opts.env) };
+        const k = /\.js$/i.test(js) ? realSpawn(process.execPath, [js, ...args], o) : realSpawn(js, args, o);
         kids.push(k);
         return k;
       }
