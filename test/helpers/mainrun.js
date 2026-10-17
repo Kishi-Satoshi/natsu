@@ -105,6 +105,15 @@ const freePort = () => new Promise((resolve, reject) => {
   srv.listen(0, '127.0.0.1', () => { const { port } = srv.address(); srv.close(() => resolve(port)); });
 });
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+// 場面が「終わった」と言える条件を待つ上限。条件が揃えばすぐ進むので、通る場面は速いまま。上限は、負荷のある遅い機械
+// （Windows の CI で、他の場面・他のテストのファイルと CPU を取り合う）でも届く長さにする。固定の短い上限（4 秒）では、
+// 51MB の偽のモデルの取り込みと照らしが間に合わず、場面が途中の写しを返していた（文字起こしの組までしか取れていない）
+const WAIT_MS = Number(process.env.NATSU_E2E_WAIT_MS || 60000);
+const waitFor = async (cond) => {
+  const until = Date.now() + WAIT_MS;
+  while (Date.now() < until && !cond()) await sleep(20);
+  return cond();
+};
 
 // 版（VS_FIXEDFILEINFO）だけを持つ DLL の偽物（main.js の vcRuntimeVersions が読む印 0xFEEF04BD と、その後の版）
 function peWithVersion(a, b, c, d) {
@@ -316,6 +325,12 @@ process.on('exit', () => {
       }
     }
   };
+  // 知らせ re を送った後に、組 key（w = whisperReady・s = sumReady）を「使える」と言う進み具合の写しが届いたか。main は
+  // 切り替えて知らせた後で、空きの測り（非同期）を挟んでからこの写しを送るので、知らせだけを見て終えると写しを取り逃がす
+  const switchedAfter = (re, key) => {
+    const at = seq.findIndex((x) => x.notice && re.test(x.notice));
+    return at >= 0 && seq.slice(at + 1).some((x) => !x.notice && x[key]);
+  };
   // 画面の読み込み（--slow-load のときだけ、finishLoad まで読み込み中）。読み込み中に送ったものは画面に届かない（lost）
   let loading = slowLoad;
   const loadWaiters = [];
@@ -421,22 +436,21 @@ process.on('exit', () => {
   readyResolve();
   const out = { mode };
   if (fetchMode) {
-    for (let i = 0; i < 100 && !handlers['engine:fetch-start']; i++) await sleep(20);
+    await waitFor(() => handlers['engine:fetch-start']);
     out.managedRoot = managedRoot;
     out.manifestShas = { whisper: fetchManifest.items.filter((i) => i.group === 'whisper').map((i) => i.sha256),
       sum: fetchManifest.items.filter((i) => i.group === 'sum').map((i) => i.sha256) };
-    // 起動のときの照らし（何も取り込んでいないので候補は無い）が済み、画面へ今の写しを送るのを待ってから押す（最大 2 秒）
-    for (let i = 0; i < 100 && !sent.some(([ch]) => ch === 'engine:fetch-progress'); i++) await sleep(20);
+    // 起動のときの照らし（何も取り込んでいないので候補は無い）が済み、画面へ今の写しを送るのを待ってから押す
+    await waitFor(() => sent.some(([ch]) => ch === 'engine:fetch-progress'));
     out.statusBefore = handlers['engine:status']();
     out.fetchStart = await handlers['engine:fetch-start']({}, {});
     // 取り込みの途中で記録を始めようとする（文字起こしの組はまだ。未設定の文に「取り込み中」）
     out.startDuring = await handlers['meeting:toggle']();
-    // 2 つの組がそろって切り替わり、係が止まって（省電力の抑止を外して）、文字起こしエンジンが起動するのを待つ（最大 4 秒）。
-    // 要約を手で設定しているとき（--sum）は、文字起こしの組だけを取る（最後の組は文字起こし）
-    const lastReady = () => sent.some(([ch, p]) => ch === 'app:notice'
-      && (withSum ? /^文字起こしが使えるようになりました。/ : /^要約のエンジンが使えるようになりました。/).test(p));
-    const until = Date.now() + 4000;
-    while (Date.now() < until && !(lastReady() && power.some(([k]) => k === 'stop') && spawns.length)) await sleep(20);
+    // 2 つの組がそろって切り替わり、係が止まって（省電力の抑止を外して）、文字起こしエンジンが起動し、切り替えた後の写し
+    //（最後の組を「使える」と言う進み具合）が届くのを待つ。要約を手で設定しているとき（--sum）は、文字起こしの組だけを取る
+    //（最後の組は文字起こし）
+    const lastNotice = withSum ? /^文字起こしが使えるようになりました。/ : /^要約のエンジンが使えるようになりました。/;
+    await waitFor(() => switchedAfter(lastNotice, withSum ? 'w' : 's') && power.some(([k]) => k === 'stop') && spawns.length);
     await sleep(100);
     out.seq = seq;
     out.atReady = atReady;
@@ -476,9 +490,8 @@ process.on('exit', () => {
     // 起動のときの照らしの途中に、60 秒ごとの見回り（releaseIdleEngines）が来る。照らしの結果を待ち、二重に照らさない（Task 14）
     out.ticksDuringCheck = ticks.length;
     for (const t of ticks) t();
-    // 照らし終えるのを待つ（最大 3 秒）
-    const until = Date.now() + 3000;
-    while (Date.now() < until && /確かめています/.test(handlers['engine:status']().whisper)) await sleep(20);
+    // 照らし終えるのを待つ
+    await waitFor(() => !/確かめています/.test(handlers['engine:status']().whisper));
     // --slow-load: 画面の読み込みはここで終わる（読み込み中に送った分は lost。main が読み終えるのを待って送る分は、ここで届く）
     out.lostWhileLoading = lost.map(([ch, p]) => (ch === 'app:notice' ? p : ch));
     finishLoad();
@@ -488,14 +501,13 @@ process.on('exit', () => {
     const elogFile = path.join(userData, 'engine.log');
     const elog = () => (fs.existsSync(elogFile) ? fs.readFileSync(elogFile, 'utf8').split('\n').filter(Boolean).map((l) => l.replace(/^\[[^\]]+\] /, '')) : []);
     const noticed = (re) => sent.some(([ch, p]) => ch === 'app:notice' && re.test(p));
-    const until = Date.now() + 4000;
     if (crashMode === 'broken') {
-      // 照らし直して使うのをやめ、取り直し、照らし直してから使い直す（要約の組も、同意済みなので続けて取る）。最大 4 秒
-      while (Date.now() < until && !(noticed(/^文字起こしが使えるようになりました。/) && noticed(/^要約のエンジンが使えるようになりました。/) && spawns.length >= 2)) await sleep(20);
+      // 照らし直して使うのをやめ、取り直し、照らし直してから使い直す（要約の組も、同意済みなので続けて取る）。切り替えた後の写しまで待つ
+      await waitFor(() => noticed(/^文字起こしが使えるようになりました。/) && switchedAfter(/^要約のエンジンが使えるようになりました。/, 's') && spawns.length >= 2);
       await sleep(100);
     } else {
       // 照らし直して合う: 組は使い続け、［起動テスト］で起動し直せる
-      while (Date.now() < until && !elog().some((l) => l.includes('落ちた後に取り込んだファイルを照らし直しました'))) await sleep(20);
+      await waitFor(() => elog().some((l) => l.includes('落ちた後に取り込んだファイルを照らし直しました')));
       await sleep(100);
       out.engineStatusAfterCrash = handlers['engine:status']();
       out.fetchStatusAfterCrash = await handlers['engine:fetch-status']();
@@ -515,12 +527,11 @@ process.on('exit', () => {
     process.stdout.write(`\n${JSON.stringify(out)}\n`);
     process.exit(0);
   }
-  for (let i = 0; i < 100 && !handlers['meeting:toggle']; i++) await sleep(20);
+  await waitFor(() => handlers['meeting:toggle']);
   if (recoverMode) {
-    // 復旧の文字起こしが済むのを待つ（最大 4 秒）
+    // 復旧の文字起こしが済むのを待つ
     const recovered = () => { const p = store.listPages()[0]; return p ? store.getTranscript(p.id) : []; };
-    const until = Date.now() + 4000;
-    while (Date.now() < until && !recovered().some((x) => !x.failed)) await sleep(50);
+    await waitFor(() => recovered().some((x) => !x.failed));
     out.recovered = recovered().map((x) => ({ text: x.text, failed: Boolean(x.failed) }));
     out.spawns = spawns;
     const elog = path.join(userData, 'engine.log');
@@ -529,10 +540,8 @@ process.on('exit', () => {
     process.exit(0);
   }
   if (repairMode) {
-    // 壊れていた組の取り直しと、照らし直した後の切り替えを待つ（最大 4 秒。要約の組も続けて取る）
-    const sumReady = () => sent.some(([ch, p]) => ch === 'app:notice' && /^要約のエンジンが使えるようになりました。/.test(p));
-    const until = Date.now() + 4000;
-    while (Date.now() < until && !(sumReady() && spawns.length)) await sleep(20);
+    // 壊れていた組の取り直しと、照らし直した後の切り替え（要約の組も続けて取る）と、切り替えた後の写しを待つ
+    await waitFor(() => switchedAfter(/^要約のエンジンが使えるようになりました。/, 's') && spawns.length);
     await sleep(100);
     out.seq = seq;
     out.atReady = atReady;
