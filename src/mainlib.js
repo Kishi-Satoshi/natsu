@@ -493,16 +493,18 @@ function engineExitHint(code, ms) {
 }
 // spawn の失敗（e.code）を案内の文にする。当てはまらなければ ''。Windows の元のエラー番号は libuv の
 // 対応表で消えるので、実行を止められたときは EPERM・EACCES・UNKNOWN のどれかで来る。
-// パスは文末に置く（engineIssueMessage と同じ。後ろの文と地続きに読ませない）。
+// することを1つ書いてから、パスを文末に置く（engineIssueMessage と同じ。後ろの文と地続きに読ませない）。
+// 「次のファイル」は文末のパスを指す。パスが無いときは「エンジンのファイル」と書く。
 function spawnErrorHint(errCode, file) {
   const at = file ? `今のパス: ${file}` : '';
+  const which = file ? '次のファイル' : 'エンジンのファイル';
   if (errCode === 'EPERM' || errCode === 'EACCES' || errCode === 'UNKNOWN') {
     return 'Windows のセキュリティ（Defender など）か会社の制限が、エンジンの起動を止めた可能性があります。'
-      + `情報システムの担当に、このファイルの許可を頼んでください。${at}`;
+      + `情報システムの担当に、${which}の許可を頼んでください。${at}`;
   }
   if (errCode === 'ENOENT') {
-    return 'エンジンのファイルが消えています。ウイルス対策が消した可能性があります'
-      + `（Windows セキュリティ → ウイルスと脅威の防止 → 保護の履歴）。${at}`;
+    return 'エンジンのファイルが消えています。ウイルス対策が消した可能性があります。'
+      + `［Windows セキュリティ］→［ウイルスと脅威の防止］→［保護の履歴］から${which}を復元するか、情報システムの担当に頼んでください。${at}`;
   }
   return '';
 }

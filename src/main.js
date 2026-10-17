@@ -394,6 +394,8 @@ function whisperProblem() {
 // ここでは止めない。止めるのは取り込んだ組だけで、Task 13 の managedIssue が runtimeGate で決める。
 const RUNTIME_OK = Object.freeze({ level: 'ok', min: '', message: '', versions: {} });
 const runtimeIssueCache = new Map();
+// 版の行を書いた exe のパス（ok でも最初の1回は書く。startEngine）
+const runtimeLogged = new Set();
 const system32Dir = () => path.join(process.env.SystemRoot || process.env.windir || 'C:\\Windows', 'System32');
 function readFileHead(file, max = 4 * 1048576) {
   let fd = null;
@@ -451,9 +453,12 @@ function startEngine(eng) {
   eng.startPromise = (async () => {
     const issue = engineCheck(eng);
     if (issue) { eng.lastError = issue; return; }
-    // ランタイムが無い・古いときは記録だけ（RF4）。手で入れたエンジンは今動いているので止めない
+    // ランタイムの版を記録するだけ（RF4）。手で入れたエンジンは今動いているので止めない。無い・古いときは起動のたびに、
+    // ok でも exe のパスごとに最初の1回は書く（版を読めたことを engine.log で確かめられるように。実機の 13）。
+    // Windows 以外は読まないので書かない
     const runtime = engineRuntimeIssue(eng);
-    if (runtime.level !== 'ok') {
+    if (runtime !== RUNTIME_OK && (runtime.level !== 'ok' || !runtimeLogged.has(engineExe(eng)))) {
+      runtimeLogged.add(engineExe(eng));
       engineLog(`${eng.name}: Visual C++ ランタイム ${runtime.level}（${Object.entries(runtime.versions || {}).map(([d, v]) => `${d} ${v || 'なし'}`).join('、')}）`);
     }
     eng.lastError = ''; eng.ready = false; eng.stopping = false; eng.stderrTail = '';

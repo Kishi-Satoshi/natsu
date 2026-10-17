@@ -148,6 +148,15 @@ test('RF3・RF4: 終了コードと spawn の失敗を、やさしい案内に�
   for (const c of ['EPERM', 'EACCES', 'UNKNOWN']) assert.match(spawnErrorHint(c, 'X.exe'), /Defender/);
   assert.match(spawnErrorHint('ENOENT', 'X.exe'), /保護の履歴/);
 });
+test('RF3: spawn の失敗の案内は、することを書いてから、そのファイルのパスを文末に置く（「次のファイル」が文末のパスを指す）', () => {
+  for (const c of ['EPERM', 'EACCES', 'UNKNOWN']) {
+    assert.match(spawnErrorHint(c, 'X.exe'), /情報システムの担当に、次のファイルの許可を頼んでください。今のパス: X\.exe$/, c);
+  }
+  const gone = spawnErrorHint('ENOENT', 'X.exe');
+  assert.match(gone, /次のファイルを復元するか、情報システムの担当に頼んでください。今のパス: X\.exe$/);
+  // パスが無いときは「次のファイル」と書かない（指す先が無い）
+  for (const c of ['EPERM', 'ENOENT']) assert.ok(!spawnErrorHint(c, '').includes('次のファイル'), c);
+});
 test('main: 起動の前にランタイムを見て記録だけし（止めない）、exit・error・spawn の失敗に案内を足す（engineChanged の数は変えない）', () => {
   const m = code(read('src/main.js'));
   const fn = fnBody(m, 'function startEngine(eng)', '\nfunction stopEngine');
@@ -155,6 +164,14 @@ test('main: 起動の前にランタイムを見て記録だけし（止めな�
   assert.ok(!/runtimeGate\(/.test(fn), 'startEngine で止めている（手で入れたエンジンまで止まる）');
   assert.ok(fnBody(m, 'function engineRuntimeIssue(eng)', '\n}').includes('vcRuntimeVersions(path.dirname(engineExe(eng))'));
   assert.strictEqual((fn.match(/engineChanged\(\)/g) || []).length, 2);
+  // runtimeGate を使わずに止める形（return・lastError）も見る。Linux では engineRuntimeIssue がいつも ok を返すので、
+  // 動かして確かめられない。止めると、14.3x の PC で今動いている手で入れたエンジンまで止まる（RF4）
+  const rt = fnBody(fn, 'const runtime = engineRuntimeIssue(eng);', "eng.lastError = ''; eng.ready = false;");
+  assert.ok(!/\breturn\b|lastError\s*=/.test(rt), 'ランタイムで止めている（手で入れたエンジンまで止まる）');
+  assert.strictEqual((fn.match(/engineRuntimeIssue\(/g) || []).length, 1, 'ランタイムを2か所で見ている');
+  assert.ok(!/\bruntime\b/.test(fn.slice(fn.indexOf("eng.lastError = ''; eng.ready = false;"))), '後ろでランタイムを見て止めうる');
+  // 版の行は、無い・古いときは起動のたびに、ok でも exe のパスごとに最初の1回は書く（実機の 13 で版を確かめる）
+  assert.ok(/runtime\.level !== 'ok' \|\| !runtimeLogged\.has\(engineExe\(eng\)\)/.test(rt), 'ok の PC では版の行が1つも出ない（実機の 13）');
 });
 test('engine-smoke.js --start は、頭で4つの DLL の版を vcRuntimeVersions で読んでログに出す（RF4。続きからの確かめより前）', () => {
   const s = code(read('tools/engine-smoke.js'));
