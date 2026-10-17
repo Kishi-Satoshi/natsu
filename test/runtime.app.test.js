@@ -96,7 +96,8 @@ test('自動保存は、設定を読み込んだ後の値で保存する', async
 test('要となるボタンに、実際にハンドラが付く', () => {
   const w = new Set(待機.wired().map((x) => x.id).filter(Boolean));
   // 更新の2つは「壊れたときに直すための道」なので、特に落ちてはいけない
-  for (const id of ['chkUpdBtn', 'applyUpdBtn', 'openDataBtn', 'testBtn', 'testSumBtn',
+  // engineFetchBtn は初めての PC でエンジンを取り込む唯一の道（第0b回 Task 15）
+  for (const id of ['chkUpdBtn', 'applyUpdBtn', 'openDataBtn', 'testBtn', 'testSumBtn', 'engineFetchBtn',
                     'tabBtnNotes', 'tabBtnDictation', 'tabBtnSettings']) {
     assert.ok(w.has(id), `${id} にハンドラが付いていない（ボタンが効かない）`);
   }

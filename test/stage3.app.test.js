@@ -264,8 +264,9 @@ test('設定: エンジンの自動停止の欄がエンジンのカードの詳
 });
 
 // 第0a回 R6: エンジンの細かい設定は1枚のカード「エンジン」の閉じた「詳細設定」へまとめる。
-// 閉じたままでも見えなければならないもの（起動テスト・結果・記録中の理由）だけを外に置く
-test('設定: エンジンの細かい設定は閉じた「詳細設定」の中。外に出ているのは起動テスト・結果・注意だけ', async () => {
+// 閉じたままでも見えなければならないもの（起動テスト・結果・記録中の理由）だけを外に置く。
+// 第0b回 R7（Task 15）: エンジンの取り込みの欄（同意のボタン・進み具合・取得元の表）も、詳細設定を開かずに見えるよう外に置く
+test('設定: エンジンの細かい設定は閉じた「詳細設定」の中。外に出ているのは起動テスト・結果・注意と、エンジンの取り込みの欄', async () => {
   const l = await load(APP);
   const adv = l.byId.get('engineAdv');
   assert.ok(adv && !adv.hasAttribute('open'), '詳細設定が開いた状態で始まる');
@@ -277,8 +278,9 @@ test('設定: エンジンの細かい設定は閉じた「詳細設定」の中
   const card = adv.closest('.card');
   const desc = (el) => el.children.flatMap((c) => [c, ...desc(c)]);   // simdom は [id] のセレクタを解さない（simdom.js の parseSimple）
   const outside = desc(card).filter((e) => e.id && !e.closest('#engineAdv')).map((e) => e.id);
-  // engineNote はモデルの勧め（kotoba のとき。0.1.1）。注意の一つ
-  assert.deepStrictEqual(outside.sort(), ['engineNote', 'engineState', 'testBtn', 'testMsg', 'testSumMsg']);
+  // engineNote はモデルの勧め（kotoba のとき。0.1.1）。注意の一つ。engineFetch… と engineDirBtn は取り込みの欄（第0b回 Task 15）
+  assert.deepStrictEqual(outside.sort(), ['engineDirBtn', 'engineFetch', 'engineFetchBar', 'engineFetchBtn', 'engineFetchCopy', 'engineFetchList',
+    'engineFetchMsg', 'engineFetchPause', 'engineFetchRows', 'engineFetchSummary', 'engineFetchSwitch', 'engineNote', 'engineState', 'testBtn', 'testMsg', 'testSumMsg']);
   assert.ok(card.querySelectorAll('.lockNote').some((n) => !n.closest('#engineAdv')), '記録中の理由が閉じた中にしか無い');
 });
 

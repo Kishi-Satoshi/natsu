@@ -125,6 +125,16 @@
   .eng-state.ng { color: var(--danger); }
   /* モデルの勧め（kotoba のとき。0.1.1）。カードの直下なので .field .desc の書式が効かない */
   #engineNote { font-size: 12px; color: var(--muted); margin-top: 8px; line-height: 1.6; }
+  /* エンジンの取り込みの欄（第0b回 R7）。詳細設定を閉じたままでも、何を・どれだけ・どこへ取り込むかと進み具合が見える */
+  #engineFetch { margin-top: 10px; margin-bottom: 0; }
+  #engineFetchSummary { font-size: 12px; color: var(--ink); line-height: 1.7; }
+  #engineFetchSummary .sub { color: var(--muted); }
+  #engineFetchBar { display: block; width: 100%; height: 6px; margin-top: 8px; accent-color: var(--accent); }
+  #engineFetchBar[hidden] { display: none; }
+  #engineFetchMsg { margin-top: 6px; line-height: 1.6; }
+  #engineFetchList { margin-top: 10px; padding-top: 8px; }
+  #engineFetchRows { font-size: 11px; color: var(--muted); line-height: 1.6; word-break: break-all; }
+  #engineFetchRows .item { padding: 4px 0; border-bottom: 1px solid var(--gline); }
   .empty { text-align: center; color: var(--muted); padding: 48px 20px; line-height: 1.9; }
   .empty .big { font-size: 15px; color: var(--ink); margin-bottom: 6px; }
   kbd { background: rgba(var(--srf),.72); border: 1px solid rgba(var(--srf),.9);
@@ -580,6 +590,19 @@
             <span class="desc save-msg" id="testSumMsg"></span>
           </div>
           <div class="desc" id="engineNote" hidden></div>
+          <div class="field" id="engineFetch" hidden>
+            <div class="desc" id="engineFetchSummary"></div>
+            <progress id="engineFetchBar" max="1000" value="0" hidden></progress>
+            <div class="row" style="display:flex;gap:8px;flex-wrap:wrap;margin-top:6px">
+              <button class="ghost" id="engineFetchBtn" type="button">エンジンを取り込む</button>
+              <button class="ghost" id="engineFetchPause" type="button" hidden>一時停止</button>
+              <button class="ghost" id="engineFetchSwitch" type="button" hidden>アプリの取り込みに切り替える</button>
+              <button class="ghost" id="engineDirBtn" type="button" hidden>取り込み先を開く</button>
+              <button class="ghost" id="engineFetchCopy" type="button" hidden>担当に渡す内容を写す</button>
+            </div>
+            <div class="desc save-msg" id="engineFetchMsg"></div>
+            <details class="adv" id="engineFetchList"><summary>取り込むもの（取得元・版・SHA-256・置き場所）</summary><div id="engineFetchRows"></div></details>
+          </div>
           <details class="adv" id="engineAdv">
             <summary>詳細設定</summary>
             <h3>文字起こし（whisper.cpp・オフライン）</h3>
@@ -719,11 +742,21 @@
   $('tabBtnDictation').onclick = () => showTab('dictation');
   // 設定を開くたびに認識ヒントの状態を聞き直す（記録の途中で main がヒントを止めることがある。0.1.1）
   $('tabBtnSettings').onclick = () => { showTab('settings'); refreshPromptInfo(); };
-  // エンジンが未設定のときに連れて行く先。パスを貼る欄は閉じた「詳細設定」の中にあるので開いて見せる
+  // 取り込みの欄（第0b回 R7）が最後に描いた main の写し（engineFetchStatus と進み具合の知らせ）。無ければ null
+  let lastFetch = null;
+  // 取り込める PC で、取り込んだエンジンを使う側（詳細設定のパスが空）の組がまだそろっていない（文字起こしでも要約でも）
+  const fetchWantsPanel = () => Boolean(lastFetch && lastFetch.supported && lastFetch.mode && ['whisper', 'sum'].some((g) => lastFetch.mode[g] === 'managed' && !lastFetch[g === 'whisper' ? 'whisperReady' : 'sumReady']));
+  // エンジンが未設定のときに連れて行く先。取り込める PC でまだ取り込んでいなければ、取り込みの欄（押せば取り込む）。
+  // それ以外は、パスを貼る欄が閉じた「詳細設定」の中にあるので開いて見せる。
+  // 記録開始の失敗・要約の失敗・知らせ・初回の4つの道は、全部ここを通る
   function showEngineSettings() {
     showTab('settings');
-    $('engineAdv').open = true;
+    if (fetchWantsPanel()) showEngineFetch(); else $('engineAdv').open = true;
     refreshPromptInfo();
+  }
+  function showEngineFetch() {
+    const el = $('engineFetch');
+    if (el && typeof el.scrollIntoView === 'function') el.scrollIntoView({ block: 'nearest' });
   }
 
   let toastT = null;
@@ -1486,6 +1519,7 @@
   const ENGINE_PICKERS = ['pickExeBtn', 'pickModelBtn', 'pickVadBtn', 'pickSumExeBtn', 'pickSumModelBtn'];
   function lockEngineFields(locked) {
     for (const id of [...ENGINE_KEYS, ...ENGINE_PICKERS]) $(id).disabled = locked;
+    $('engineFetchSwitch').disabled = locked;   // 取り込んだエンジンへの切り替えは詳細設定のパスを空にして保存する。記録中は押せない
     for (const n of $('tabSettings').querySelectorAll('.lockNote')) n.hidden = !locked;
   }
 
@@ -1904,7 +1938,8 @@
     const el = $('engineState');
     el.textContent = ok ? 'エンジン：正常' : `エンジン：要確認（${why}）`;
     el.className = ok ? 'eng-state ok' : 'eng-state ng';
-    if (!ok) $('engineAdv').open = true;   // 直す欄を見せる
+    // 直す欄を見せる。取り込める PC でまだ取り込んでいなければ、直す欄は取り込みの欄（詳細設定は開かない）
+    if (!ok && !fetchWantsPanel()) $('engineAdv').open = true;
   }
   async function refreshEngineState() {
     if (!window.koeApp.engineStatus) return;   // 古い preload
@@ -1926,6 +1961,164 @@
     await refreshEngineState();
   };
   $('testSumBtn').onclick = () => runTest(() => window.koeApp.testSum(), 'testSumMsg');
+
+  // ---------------- エンジンの取り込みの欄（第0b回 R7） ----------------
+  // 取り込む前に、何を・どこから・どれだけ・どこへ・どれくらいの時間かを見せ、押してから取り込む（押したことが同意。
+  // confirm() は使わない）。進み具合と失敗も、詳細設定を開かずにここで見せる。
+  // 描くのは main の写し（engineFetchStatus と進み具合の知らせ engine:fetch-progress）。写しが無い・items が無い
+  // （古い preload・偽の IPC の { ok: true }・でたらめな値）ときは欄を隠したまま、今までの挙動を何も変えない
+  // engine-fetch.js の fetchErrorMessage('waiting') と同じ文（待っている間は main が s.error を送らないので、画面に置く）
+  const FETCH_WAITING = 'つながるのを待っています（ここまでの分は残っています）。つながれば自動で続きから取り込みます。すぐ試すときは［今すぐ試す］を押してください。';
+  const FETCH_PATHS = ['localServerExe', 'localModelPath', 'vadModelPath', 'sumServerExe', 'sumModelPath'];   // 詳細設定の5つのパス
+  const FETCH_GROUPS = { whisper: { name: '文字起こし', engine: 'whisper-engine', tool: 'whisper.cpp' }, sum: { name: '要約', engine: 'sum-engine', tool: 'llama.cpp' } };
+  const FETCH_RF3 = ['defender', 'hash'];   // 取り込んだファイルが消えた・違った（取り込み先を開いて見られるようにする）
+  // 大きさ: GB は 10 億バイトで小数1桁、MB は 100 万バイトで整数。時間の目安は 10Mbps の回線で計算した分
+  const fetchGB = (b) => `${(Math.max(0, Number(b) || 0) / 1e9).toFixed(1)}GB`;
+  const fetchMB = (b) => `${Math.round(Math.max(0, Number(b) || 0) / 1e6)}MB`;
+  const fetchSize = (b) => (Number(b) >= 1e9 ? fetchGB(b) : fetchMB(b));
+  const fetchMinutes = (b) => Math.max(1, Math.round((Number(b) || 0) * 8 / 10e6 / 60));
+  const isFetchStatus = (s) => Boolean(s && typeof s === 'object' && Array.isArray(s.items) && s.mode && typeof s.mode === 'object');
+  const fetchReady = (s, g) => Boolean(s[g === 'whisper' ? 'whisperReady' : 'sumReady']);
+
+  function renderEngineFetch(s) {
+    const box = $('engineFetch');
+    if (!isFetchStatus(s)) { if (!lastFetch) box.hidden = true; return; }   // 出ている欄は、でたらめな値で壊さない
+    lastFetch = s;
+    const manual = ['whisper', 'sum'].filter((g) => s.mode[g] === 'manual');
+    const fetching = ['whisper', 'sum'].filter((g) => s.mode[g] !== 'manual');
+    const state = s.supported ? String(s.state || '') : 'unsupported';
+    if (state === 'unsupported' && !fetching.length) { box.hidden = true; return; }   // 取り込めない PC で、両方とも手の設定: 出すことが無い
+    const total = Number(s.totalBytes) || 0;
+    const done = Number(s.doneBytes) || 0;
+    const need = Number(s.needBytes) || 0;
+    const item = (id) => s.items.find((i) => i && i.id === id);
+    const imported = manual.every((g) => fetchReady(s, g));   // 手の設定の組も、取り込んだものがそろっている
+    const lines = [];                                          // [文, 薄い文か]
+    let btn = '', pause = false, sw = false, dir = false, copyIt = false, bar = false, msg = '', ng = false;
+    const handPrefix = manual.length === 1 ? `${FETCH_GROUPS[manual[0]].name}は手で設定したエンジンを使っています。` : '';
+    const versions = (gs) => gs.map((g) => { const it = item(FETCH_GROUPS[g].engine); return `${FETCH_GROUPS[g].tool}${it ? ` ${it.version}` : ''}`; }).join('・');
+    if (state === 'unsupported') {
+      lines.push(['この PC では自動の取り込みに対応していません（Windows の 64 ビット版だけ）。詳細設定でパスを指定してください。']);
+    } else if (state === 'running') {
+      const cur = s.current ? item(s.current) : null;
+      const pct = total > 0 ? Math.min(100, Math.floor(done * 100 / total)) : 0;
+      const eta = Number.isFinite(Number(s.etaSec)) && Number(s.etaSec) > 0 ? `・残り約 ${Math.max(1, Math.round(Number(s.etaSec) / 60))} 分` : '';
+      lines.push([`取り込み中${cur ? `: ${cur.label} ${fetchSize(cur.done)} / ${fetchSize(cur.size)}` : ''}（全体 ${pct}%）${eta}`]);
+      lines.push(['議事録の記録中は、Web 会議（Teams など）の回線を守るため取り込みを止めます。', true]);
+      pause = true; bar = true;
+    } else if (state === 'waiting') {
+      lines.push([FETCH_WAITING]);
+      btn = '今すぐ試す'; pause = true; bar = true;
+    } else if (state === 'held') {
+      lines.push(['記録中のため、取り込みを止めています。記録が終わると続きから取り込みます。']);
+      bar = true;
+    } else if (state === 'paused') {
+      lines.push([`一時停止中（${fetchSize(done)} 済み）。`]);
+      btn = '続きから取り込む'; bar = true;
+    } else if (state === 'error') {
+      msg = (s.error && s.error.message) || '取り込みに失敗しました。［もう一度］を押してください。'; ng = true;
+      btn = 'もう一度';
+      copyIt = Boolean(s.askIt);
+      dir = Boolean(s.error && FETCH_RF3.includes(s.error.code));
+    } else if (manual.length === 2) {
+      lines.push(['手で設定したエンジンを使っています（詳細設定のパス）。']);
+      sw = true;
+    } else if (state === 'update') {
+      lines.push([`${handPrefix}新しい版のエンジン（約 ${fetchSize(s.updateBytes)}）があります。今のエンジンはそのまま使えます。`]);
+      btn = '新しい版を取り込む'; sw = manual.length > 0;
+    } else if (state === 'ready') {
+      lines.push([`${handPrefix}${manual.length ? `${FETCH_GROUPS[fetching[0]].name}の` : ''}エンジンは取り込み済みです（${versions(fetching)}）。`]);
+      dir = true; sw = manual.length > 0;
+    } else {   // missing・partial
+      const what = manual.length ? `${handPrefix}${FETCH_GROUPS[fetching[0]].name}のエンジンを` : '文字起こしと要約のエンジンを';
+      const free = s.freeBytes !== null && s.freeBytes !== undefined && Number.isFinite(Number(s.freeBytes)) ? `・空き 約 ${fetchGB(s.freeBytes)}` : '';
+      lines.push([`${what}、この PC に取り込みます（${done > 0 ? '残り' : '合計'} 約 ${fetchGB(need)}・10Mbps の回線で約 ${fetchMinutes(need)} 分${free}）。音声や議事録は外に送りません。`]);
+      if (fetching.length === 2 && !s.whisperReady && !s.sumReady) {
+        lines.push([`文字起こしの分（約 ${fetchGB(s.whisperBytes)}）が済めば、要約の分を取り込んでいる間も文字起こしが使えます。`, true]);
+      }
+      lines.push(['議事録の記録中は、Web 会議（Teams など）の回線を守るため取り込みを止めます。', true]);
+      btn = state === 'partial' ? '続きから取り込む' : 'エンジンを取り込む';
+      sw = manual.length > 0;
+    }
+    // 取り込む組の Visual C++ ランタイムが無い・古い: 取り込む前にも出す（数 GB を落としてから知らせない。RF4）
+    const rt = s.runtime && (s.runtime.level === 'missing' || s.runtime.level === 'old') ? s.runtime.message : '';
+    if (!msg && rt && fetching.length && state !== 'unsupported') { msg = rt; ng = true; }
+
+    $('engineFetchSummary').replaceChildren(...lines.map(([t, sub]) => {
+      const d = document.createElement('div');
+      d.textContent = t;
+      if (sub) d.className = 'sub';
+      return d;
+    }));
+    const barEl = $('engineFetchBar');
+    barEl.hidden = !bar;
+    barEl.value = total > 0 ? Math.min(1000, Math.round(done * 1000 / total)) : 0;
+    const b = $('engineFetchBtn');
+    b.hidden = !btn;
+    if (btn) b.textContent = btn;
+    $('engineFetchPause').hidden = !pause;
+    const swb = $('engineFetchSwitch');
+    swb.hidden = !sw;
+    swb.textContent = imported ? '取り込んだエンジンに切り替える' : 'アプリの取り込みに切り替える';
+    $('engineDirBtn').hidden = !dir;
+    $('engineFetchCopy').hidden = !copyIt;
+    const m = $('engineFetchMsg');
+    m.textContent = msg;
+    m.className = ng ? 'desc save-msg ng' : 'desc save-msg';
+    // 取り込むものの表（項目ごとに1行。置き場所は %LOCALAPPDATA%\natsu\engine\… の形で、利用者名を出さない）
+    $('engineFetchRows').replaceChildren(...s.items.filter(Boolean).map((it) => {
+      const d = document.createElement('div');
+      d.className = 'item';
+      d.textContent = `${it.label}・版 ${it.version}・${it.file}・${fetchSize(it.size)}・SHA-256 ${it.sha256}・取得元 ${it.host}・置き場所 ${it.place}・${it.license}`;
+      return d;
+    }));
+    box.hidden = false;
+  }
+
+  async function refreshEngineFetch() {
+    if (typeof window.koeApp.engineFetchStatus !== 'function') return;   // 古い preload
+    let s;
+    try { s = await window.koeApp.engineFetchStatus(); } catch (_) { return; }
+    renderEngineFetch(s);
+  }
+  // ［エンジンを取り込む］・［続きから取り込む］・［もう一度］・［今すぐ試す］・［新しい版を取り込む］。main はすぐ写しを返す（取り込みは裏で進む）
+  async function engineFetchStart(o) {
+    let s;
+    try { s = await (o ? window.koeApp.engineFetchStart(o) : window.koeApp.engineFetchStart()); } catch (e) { toast((e && e.message) || '取り込みを始められませんでした'); return; }
+    renderEngineFetch(s);
+  }
+  $('engineFetchBtn').onclick = () => engineFetchStart();
+  $('engineFetchPause').onclick = async () => {
+    let s;
+    try { s = await window.koeApp.engineFetchPause(); } catch (_) { return; }
+    renderEngineFetch(s);
+  };
+  // まだ取り込んでいなければ、手の設定の組も含めて全部取り込む。取り込み済みなら、詳細設定の5つのパスを空にして保存する
+  // （画面が自分で欄を空にして保存するので、自動保存との競り合いは起きない。記録中は lockEngineFields が押せなくする）
+  $('engineFetchSwitch').onclick = async () => {
+    const s = lastFetch;
+    if (!s) return;
+    const manual = ['whisper', 'sum'].filter((g) => s.mode[g] === 'manual');
+    if (!manual.length) return;
+    if (!manual.every((g) => fetchReady(s, g))) { await engineFetchStart({ all: true }); return; }
+    for (const id of FETCH_PATHS) $(id).value = '';
+    await save();
+  };
+  $('engineDirBtn').onclick = () => window.koeApp.openEngineDir();
+  $('engineFetchCopy').onclick = async () => {
+    if (!lastFetch || !lastFetch.report) return;
+    await window.koeApp.copy(lastFetch.report);
+    toast('担当に渡す内容を写しました');
+  };
+  // 進み具合の知らせ。文字起こしか要約の組が使えるようになったら、エンジンの状態と VAD を聞き直す
+  if (typeof window.koeApp.onEngineFetchProgress === 'function') {
+    window.koeApp.onEngineFetchProgress((s) => {
+      const before = lastFetch;
+      renderEngineFetch(s);
+      if (!isFetchStatus(s)) return;
+      if (['whisper', 'sum'].some((g) => fetchReady(s, g) && !(before && fetchReady(before, g)))) { refreshEngineState(); refreshVad(); }
+    });
+  }
 
   // 設定を一度も読み込めていないうちは、絶対に保存しない。
   // 自動保存があるので、初期化に失敗して画面が空のまま何かに触れると、
@@ -1998,6 +2191,7 @@
       if (r.warning) toast(r.warning);
       refreshVad();
       refreshEngineState();
+      refreshEngineFetch();   // 詳細設定のパスを入れた・空にした側は、手の設定と取り込んだエンジンが入れ替わる（第0b回）
       refreshHotkeyState();
       refreshPromptInfo();
       return true;
@@ -2139,6 +2333,7 @@
     fill(settings);
     settingsLoaded = true;   // ここを通るまで save() は書き込まない
     refreshVad();
+    await refreshEngineFetch();   // 取り込みの欄を先に描く（エンジンが要確認のとき、どちらの欄を見せるかがこれで決まる。第0b回）
     refreshEngineState();
     refreshHotkeyState();
     refreshPromptInfo();
@@ -2152,7 +2347,9 @@
     await refreshList();
     renderPage();
     setMeetingUi(await window.koeApp.meetingStatus());
-    if (!settings.localServerExe || !settings.localModelPath) showEngineSettings();
+    // 詳細設定のパスが空でも、取り込んだ文字起こしの組がそろっていれば連れて行かない（そのエンジンを使う。第0b回）
+    const managedWhisper = Boolean(lastFetch && lastFetch.supported && lastFetch.mode.whisper === 'managed' && lastFetch.whisperReady);
+    if ((!settings.localServerExe || !settings.localModelPath) && !managedWhisper) showEngineSettings();
   })();
 })();
 </script>

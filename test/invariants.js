@@ -226,7 +226,8 @@ const INVARIANTS = [
       for (const e of o.fire('onTick')) v.push(`overlay: ${e}`);
       for (const e of o.fire('onStop', {})) v.push(`overlay: ${e}`);
       const a = w.run.app;
-      for (const n of ['onNotice', 'onHistoryUpdated', 'onPagesUpdated', 'onMeetingUpdate', 'onUpdateAvailable']) {
+      // onEngineFetchProgress（第0b回 Task 15）には、取り込みの写しでない値（items が無い）を送る。欄は出さず、落ちない
+      for (const n of ['onNotice', 'onHistoryUpdated', 'onPagesUpdated', 'onMeetingUpdate', 'onUpdateAvailable', 'onEngineFetchProgress']) {
         const arg = n === 'onNotice' ? 'お知らせ' : n === 'onHistoryUpdated' ? require('./helpers/replies.js').HISTORY
           : n === 'onPagesUpdated' ? [] : n === 'onUpdateAvailable' ? { version: '9.9.9', url: 'https://example.invalid/x.exe' } : { active: true, startedAt: Date.now() };
         for (const e of a.fire(n, arg)) v.push(`app: ${e}`);

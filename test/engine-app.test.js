@@ -1,0 +1,205 @@
+/*
+ * engine-app.test.js — 画面: エンジンのカードの取り込みの欄（第0b回 Task 15・R7-10）
+ *
+ * 取り込む前に「何を・どこから・どれだけ・どこへ・どれくらいの時間」を見せ、利用者が押してから取り込む。
+ * 進み具合と失敗を、詳細設定を開かずに見られるようにする。未設定のときに連れて行く先（showEngineSettings）は、
+ * 取り込める PC で取り込んだ組がまだなら、詳細設定ではなくこの欄にする。
+ *
+ * 画面は simrun（test/helpers/simrun.js）で実際に走らせる。simrun の confirm は false を返すので、
+ * ［エンジンを取り込む］は confirm() を使わない（押したことが同意）。
+ *
+ * 計画のテストから直したところ（今の preload と simrun に合わせた。意図は同じ）:
+ *  - クリップボードの API は preload の名前 copy（計画は copyText）。simrun の called は { args } を返すので c.args[0]。
+ *  - 記録の状態の知らせは preload の名前 onMeetingUpdate（計画は onMeetingState）。
+ *  - 進み具合の割合は、計画の数（doneBytes 286,000,000 / totalBytes 5,580,564,403）から出る 5%（計画は 18% と書いたが、
+ *    その数からは出ない。全体の割合 = doneBytes / totalBytes を見る意図は同じ）。
+ */
+'use strict';
+
+const test = require('node:test');
+const assert = require('node:assert');
+const fs = require('fs');
+const path = require('path');
+const { load } = require('./helpers/simrun.js');
+const { MANIFEST } = require('../src/engine-manifest');
+const { fetchErrorMessage } = require('../src/engine-fetch');
+
+const APP = path.join(__dirname, '..', 'src', 'renderer', 'app.html');
+const fmt = (e) => `${e.constructor.name}: ${e.message}`;
+const EMPTY = { localServerExe: '', localModelPath: '', vadModelPath: '', sumServerExe: '', sumModelPath: '' };
+const ST = (o = {}) => ({ ok: true, supported: true, mode: { whisper: 'managed', sum: 'managed' }, state: 'missing', totalBytes: 5580564403, doneBytes: 0,
+  needBytes: 5580564403, whisperBytes: 583854933, freeBytes: 120e9, whisperReady: false, sumReady: false, runtime: null, askIt: false, report: '',
+  items: MANIFEST.items.map((i) => ({ id: i.id, group: i.group, label: i.label, version: i.version, file: (i.dest || i.dir).split('/').pop(), url: i.url,
+    host: new URL(i.url).hostname, sha256: i.sha256, size: i.size, done: 0, state: 'missing', license: i.license, place: '%LOCALAPPDATA%\\natsu\\engine\\…' })), error: null, ...o });
+// パスが空の設定（simrun の既定の getSettings はパスが埋まっているので、初めての PC の形を自分で作る）
+const SET_EMPTY = () => ({ hotkey: 'Control+Shift+Space', meetingHotkey: 'Alt+M', language: 'ja', segmentSec: 75, pillPos: 'bottom',
+  theme: 'system', dictionary: [], useBuiltinTerms: true, localPort: 8990, sumPort: 8991, localThreads: 4, sumThreads: 4, useVad: true, ...EMPTY });
+const NOTSET = '文字起こしエンジンが未設定です。設定タブの［エンジンを取り込む］から取り込んでください。';
+const base = (st, extra = {}) => load(APP, { returns: { engineFetchStatus: () => st,
+  engineStatus: () => ({ ok: true, whisper: NOTSET, sum: '' }), ...extra } });
+
+test('取り込み前: 合計・10Mbps の時間・空き・0.6GB の知らせ・Teams の行・取得元の表と［エンジンを取り込む］。詳細設定は開かない', async () => {
+  const l = await base(ST(), { getSettings: SET_EMPTY });
+  assert.ok(!l.byId.get('engineFetch').hidden);
+  const t = l.byId.get('engineFetchSummary').textContent;
+  for (const k of [/約 5\.6GB/, /10Mbps の回線で約 74 分/, /空き 約 120\.0GB|空き 約 120GB/, /約 0\.6GB/, /Teams/]) assert.match(t, k);
+  const rows = l.byId.get('engineFetchRows').textContent;
+  for (const it of MANIFEST.items) { assert.ok(rows.includes(it.sha256), it.id); assert.ok(rows.includes(it.version), it.id); }
+  assert.strictEqual(l.byId.get('engineFetchBtn').textContent, 'エンジンを取り込む');
+  const adv = l.byId.get('engineAdv');
+  assert.ok(!adv.open && !adv.hasAttribute('open'), '取り込み前なのに詳細設定が開く');
+  assert.deepStrictEqual(l.errors.map(fmt), []);
+});
+
+test('［エンジンを取り込む］で engineFetchStart を呼ぶ（confirm は使わない）', async () => {
+  const l = await base(ST());
+  l.byId.get('engineFetchBtn').dispatchEvent({ type: 'click' }); await l.drain();
+  assert.strictEqual(l.called('engineFetchStart').length, 1);
+});
+
+test('記録開始で「未設定」が返ったら（showEngineSettings）、取り込みの欄を出し、詳細設定は閉じたまま', async () => {
+  const l = await base(ST(), { getSettings: SET_EMPTY, meetingToggle: () => ({ ok: false, error: NOTSET }) });
+  l.byId.get('mtToggleBtn').dispatchEvent({ type: 'click' }); await l.drain();
+  assert.ok(!l.byId.get('engineFetch').hidden);
+  assert.ok(!l.byId.get('engineAdv').open, '詳細設定が開いた');
+});
+
+test('要約の組だけがまだ（文字起こしは手の設定）でも、取り込みの欄へ案内し、取り込む組の名前を出す', async () => {
+  const l = await base(ST({ mode: { whisper: 'manual', sum: 'managed' }, whisperReady: true, needBytes: 1005586654 }));
+  assert.match(l.byId.get('engineFetchSummary').textContent, /文字起こしは手で設定したエンジン.*要約のエンジン/);
+  // 足した確かめ: 要約の「未設定」の知らせ（showEngineSettings を通る）でも、取り込みの欄へ案内し、詳細設定は開かない
+  //（計画の変異確認「fetchWantsPanel を whisper だけにする」を、このテストで赤にするため）
+  assert.ok(!l.byId.get('engineAdv').open, '要約の組だけがまだなのに詳細設定が開いた');
+  l.fire('onNotice', '要約エンジンが未設定のため、文字起こしのみ保存しました。設定タブの［エンジンを取り込む］から取り込んでください。'); await l.drain();
+  assert.ok(l.byId.get('tabSettings').classList.contains('active'), '設定タブへ連れて行かない');
+  assert.ok(!l.byId.get('engineFetch').hidden);
+  assert.ok(!l.byId.get('engineAdv').open, '要約の組だけがまだなのに詳細設定が開いた');
+});
+
+test('進み具合の知らせで、全体の割合と今の項目と残りの時間を出し、［一時停止］を出す', async () => {
+  const l = await base(ST());
+  l.fire('onEngineFetchProgress', ST({ state: 'running', current: 'whisper-model', doneBytes: 286000000, etaSec: 180,
+    items: ST().items.map((i) => (i.id === 'whisper-model' ? { ...i, done: 312000000, state: 'running' } : i)) }));
+  await l.drain();
+  assert.match(l.byId.get('engineFetchSummary').textContent, /文字起こしのモデル.*312MB \/ 574MB.*5%.*残り約 3 分/);
+  assert.ok(!l.byId.get('engineFetchPause').hidden);
+});
+
+test('待っている（waiting）: 待ちの文と［今すぐ試す］。記録中（held）: ボタンを出さない', async () => {
+  const l = await base(ST({ state: 'waiting' }));
+  assert.match(l.byId.get('engineFetchSummary').textContent + l.byId.get('engineFetchMsg').textContent, /つながるのを待っています/);
+  // 画面に置いた待ちの文は、main の fetchErrorMessage('waiting') と同じ（片方だけ直さない）
+  assert.ok((l.byId.get('engineFetchSummary').textContent + l.byId.get('engineFetchMsg').textContent).includes(fetchErrorMessage('waiting')));
+  assert.strictEqual(l.byId.get('engineFetchBtn').textContent, '今すぐ試す');
+  l.fire('onEngineFetchProgress', ST({ state: 'held' })); await l.drain();
+  assert.match(l.byId.get('engineFetchSummary').textContent, /記録中のため/);
+  for (const id of ['engineFetchBtn', 'engineFetchPause', 'engineFetchSwitch']) assert.ok(l.byId.get(id).hidden, id);
+});
+
+test('新しい版（update）: 今のエンジンはそのまま使えることと［新しい版を取り込む］', async () => {
+  const l = await base(ST({ state: 'update', updateBytes: 40e6, whisperReady: true, sumReady: true }));
+  assert.match(l.byId.get('engineFetchSummary').textContent, /そのまま使えます/);
+  assert.strictEqual(l.byId.get('engineFetchBtn').textContent, '新しい版を取り込む');
+});
+
+test('ランタイムが無い PC では、取り込む前に案内を出す（RF4）', async () => {
+  const l = await base(ST({ runtime: { level: 'missing', message: 'エンジンに必要な部品（Microsoft Visual C++ ランタイム）が…' } }));
+  assert.match(l.byId.get('engineFetchSummary').textContent + l.byId.get('engineFetchMsg').textContent, /Visual C\+\+ ランタイム/);
+});
+
+test('失敗の知らせ: 文をそのまま出し、［もう一度］にする。askIt なら［担当に渡す内容を写す］で report を写す', async () => {
+  const l = await base(ST());
+  l.fire('onEngineFetchProgress', ST({ state: 'error', error: { code: 'blocked', message: '取り込み元の代わりに別のページが…' }, askIt: true, report: '置き場所: X' }));
+  await l.drain();
+  assert.match(l.byId.get('engineFetchMsg').textContent, /別のページ/);
+  assert.strictEqual(l.byId.get('engineFetchBtn').textContent, 'もう一度');
+  assert.ok(!l.byId.get('engineFetchCopy').hidden);
+  l.byId.get('engineFetchCopy').dispatchEvent({ type: 'click' }); await l.drain();
+  assert.deepStrictEqual(l.called('copy').map((c) => c.args[0]), ['置き場所: X']);
+});
+
+test('手で設定している: 「手で設定したエンジンを使っています」と［アプリの取り込みに切り替える］だけ', async () => {
+  const l = await base(ST({ mode: { whisper: 'manual', sum: 'manual' } }));
+  assert.match(l.byId.get('engineFetchSummary').textContent, /手で設定したエンジンを使っています/);
+  assert.ok(!l.byId.get('engineFetchSwitch').hidden && l.byId.get('engineFetchBtn').hidden);
+});
+
+test('切り替え: 取り込み済みで押すと、詳細設定の 5 つのパスを空にして保存する。記録中は押せない', async () => {
+  const l = await base(ST({ mode: { whisper: 'manual', sum: 'manual' }, state: 'ready', whisperReady: true, sumReady: true }));
+  assert.strictEqual(l.byId.get('engineFetchSwitch').textContent, '取り込んだエンジンに切り替える');
+  l.byId.get('engineFetchSwitch').dispatchEvent({ type: 'click' }); await l.drain();
+  const saved = l.called('saveSettings').pop().args[0];
+  for (const k of Object.keys(EMPTY)) assert.strictEqual(saved[k], '', k);
+  l.fire('onMeetingUpdate', { active: true, startedAt: Date.now() }); await l.drain();
+  assert.strictEqual(l.byId.get('engineFetchSwitch').disabled, true);
+});
+
+test('engineFetchStatus が無い・{ok:true} だけ: 欄は出さず、今までどおり（要確認なら詳細設定を開く）', async () => {
+  const l = await load(APP, { returns: { engineStatus: () => ({ ok: true, whisper: '文字起こしエンジンの実行ファイルまたはモデルが見つかりません', sum: '' }) } });
+  assert.ok(l.byId.get('engineFetch').hidden);
+  assert.strictEqual(l.byId.get('engineAdv').open, true);
+});
+
+test('whisper が使えるようになったら engineStatus を聞き直し、「エンジン：正常」になる', async () => {
+  let n = 0;
+  const l = await base(ST(), { engineStatus: () => (++n === 1 ? { ok: true, whisper: NOTSET, sum: '' } : { ok: true, whisper: '', sum: '' }) });
+  l.fire('onEngineFetchProgress', ST({ state: 'running', whisperReady: true })); await l.drain();
+  assert.ok(n >= 2); assert.match(l.byId.get('engineState').textContent, /正常/);
+});
+
+// ---------------------------------------------------------------- 計画のテストに足したもの
+
+test('取り込み済み（詳細設定のパスは空・ready）で起動しても、設定タブへ連れて行かず、詳細設定も開かない', async () => {
+  const l = await base(ST({ state: 'ready', whisperReady: true, sumReady: true, needBytes: 0, doneBytes: 5580564403 }),
+    { getSettings: SET_EMPTY, engineStatus: () => ({ ok: true, whisper: '', sum: '' }) });
+  assert.ok(!l.byId.get('tabSettings').classList.contains('active'), '起動のたびに設定タブへ連れて行く');
+  assert.ok(!l.byId.get('engineAdv').open, '詳細設定が開いた');
+  assert.match(l.byId.get('engineFetchSummary').textContent, /エンジンは取り込み済みです（whisper\.cpp 1\.9\.5・llama\.cpp b11669）/);
+  assert.ok(!l.byId.get('engineDirBtn').hidden, '［取り込み先を開く］が無い');
+  assert.deepStrictEqual(l.errors.map(fmt), []);
+});
+
+test('取り込みの途中・一時停止・続き・この PC で取れない・RF3 の失敗の、ボタンと文', async () => {
+  const l = await base(ST({ state: 'partial', doneBytes: 1200000000, needBytes: 4380564403 }));
+  assert.strictEqual(l.byId.get('engineFetchBtn').textContent, '続きから取り込む');
+  l.fire('onEngineFetchProgress', ST({ state: 'paused', doneBytes: 1200000000 })); await l.drain();
+  assert.match(l.byId.get('engineFetchSummary').textContent, /一時停止中（1\.2GB 済み）/);
+  assert.strictEqual(l.byId.get('engineFetchBtn').textContent, '続きから取り込む');
+  assert.ok(l.byId.get('engineFetchPause').hidden);
+  l.fire('onEngineFetchProgress', ST({ state: 'error', error: { code: 'defender', message: '取り込んだ whisper-server.exe が、また消えました。' }, askIt: true })); await l.drain();
+  assert.ok(!l.byId.get('engineDirBtn').hidden, 'RF3 の失敗なのに［取り込み先を開く］が無い');
+  assert.ok(/\bng\b/.test(l.byId.get('engineFetchMsg').className), '失敗の文が ng の色でない');
+  l.fire('onEngineFetchProgress', ST({ state: 'unsupported', supported: false })); await l.drain();
+  assert.match(l.byId.get('engineFetchSummary').textContent, /この PC では自動の取り込みに対応していません（Windows の 64 ビット版だけ）/);
+  for (const id of ['engineFetchBtn', 'engineFetchPause', 'engineFetchSwitch', 'engineDirBtn', 'engineFetchCopy']) assert.ok(l.byId.get(id).hidden, id);
+  // main から来たでたらめな値（items が無い）は、出ている欄を壊さない
+  l.fire('onEngineFetchProgress', { active: true }); await l.drain();
+  assert.ok(!l.byId.get('engineFetch').hidden);
+  assert.deepStrictEqual(l.errors.map(fmt), []);
+});
+
+test('［一時停止］は engineFetchPause、まだ取り込んでいない手の設定の［アプリの取り込みに切り替える］は全部を取り込む（all）', async () => {
+  const l = await base(ST({ state: 'running' }));
+  l.byId.get('engineFetchPause').dispatchEvent({ type: 'click' }); await l.drain();
+  assert.strictEqual(l.called('engineFetchPause').length, 1);
+  l.fire('onEngineFetchProgress', ST({ mode: { whisper: 'manual', sum: 'manual' }, state: 'ready' })); await l.drain();
+  assert.strictEqual(l.byId.get('engineFetchSwitch').textContent, 'アプリの取り込みに切り替える');
+  l.byId.get('engineFetchSwitch').dispatchEvent({ type: 'click' }); await l.drain();
+  assert.deepStrictEqual(l.called('engineFetchStart').map((c) => c.args[0]), [{ all: true }]);
+  assert.strictEqual(l.called('saveSettings').length, 0, 'まだ取り込んでいないのにパスを消した');
+});
+
+// INSTALL.md の「手順3」と「困ったときは」は、画面のボタンと文を［…］「…」で引く。片方だけ直すと、利用者が案内の語を画面で探せない
+test('INSTALL の手順3 と困ったときに引いた［ボタン］と、取り込みの欄の「文」は、画面にある', () => {
+  const md = fs.readFileSync(path.join(__dirname, '..', 'INSTALL.md'), 'utf8');
+  const html = fs.readFileSync(APP, 'utf8');
+  const sec = (h) => { const i = md.indexOf(`\n${h}`); assert.ok(i >= 0, h); const rest = md.slice(i + 1); const j = rest.indexOf('\n## ', 1); return j < 0 ? rest : rest.slice(0, j); };
+  const text = sec('## 手順3. エンジンを取り込む') + sec('## 困ったときは');
+  const buttons = [...new Set([...text.matchAll(/［([^］]+)］/g)].map((m) => m[1]))];
+  assert.ok(buttons.length >= 8, `引いたボタンが少ない: ${buttons.join('・')}`);
+  for (const b of buttons) assert.ok(html.includes(b), `INSTALL の［${b}］が画面に無い`);
+  for (const s of ['取り込むもの（取得元・版・SHA-256・置き場所）', 'エンジンは取り込み済みです', 'つながるのを待っています']) {
+    assert.ok(text.includes(`「${s}`), `INSTALL が「${s}」を引いていない`);
+    assert.ok(html.includes(s), `INSTALL の「${s}」が画面に無い`);
+  }
+});
