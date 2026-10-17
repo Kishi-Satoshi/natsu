@@ -294,6 +294,9 @@ test('RF3: 大きさと更新時刻が同じでも中身の違う DLL の組は�
   assert.match(r.test.error, broken);
   assert.deepStrictEqual(r.spawns, [], '照らしで合わない組を起動した');
   assert.ok(r.engineLog.includes(`取り込んだエンジンの照らし: 合わない ${path.join(r.managedRoot, 'whisper-1.0.0', 'whisper.dll')}（changed）`), JSON.stringify(r.engineLog));
+  // 取り込みの欄の写しも、照らしで合わなかった組を「使える」と見せない（画面が取り込みの欄を隠さない。統合）
+  const s = r.engineFetchStatus;
+  assert.deepStrictEqual([s.mode.whisper, s.using.whisper, s.whisperReady], ['managed', null, false]);
 });
 
 test('起動のときの復旧の文字起こしは、取り込んだ組を照らし終えたらもう一度試す（照らす前は「確かめています」で保留になる。第0b回 Task 13）', async () => {
@@ -319,6 +322,18 @@ test('RF4: 取り込んだ組は、Visual C++ ランタイムが無い PC では
   assert.deepStrictEqual(r.engineFetchStatus.runtime, { level: 'missing', message: msg });
 });
 
+test('RF4: 担当にランタイムを入れてもらった後は、NaTsu を起動し直さなくても［起動テスト］で版を読み直し、取り込んだ組を起動する（統合）', async () => {
+  await need('managedNoRuntime');
+  const r = results.managedNoRuntime;
+  const msg = vcRuntimeIssue({}, { whisper: true }).message;
+  // ［起動テスト］を押すまでは、読んだ版を覚えたまま（engine:status のたびに DLL を読まない）
+  assert.strictEqual(r.engineStatusBeforeRetest.whisper, msg);
+  assert.deepStrictEqual([r.testAfterInstall.ok, r.testAfterInstall.error], [true, undefined], `起動し直さないと直らない: ${r.testAfterInstall.error}`);
+  assert.strictEqual(r.engineStatusAfterInstall.whisper, '');
+  assert.deepStrictEqual(r.spawnsAfterInstall.map((x) => x.cmd), [path.join(r.managedRoot, 'whisper-1.0.0', 'whisper-server.exe')]);
+  assert.ok(r.engineLog.some((l) => /文字起こしエンジン: Visual C\+\+ ランタイム ok（.*vcomp140\.dll 14\.51\.36247\.0/.test(l)), JSON.stringify(r.engineLog));
+});
+
 test('RF3: 照らしが例外で終わっても「確かめています」のまま残さず、壊れた組として使わない（第0b回 Task 13）', async () => {
   await need('managedVerifyThrows');
   const r = results.managedVerifyThrows;
@@ -327,6 +342,7 @@ test('RF3: 照らしが例外で終わっても「確かめています」のま
   assert.match(r.engineStatus.whisper, broken);
   assert.match(r.start.error, broken);
   assert.deepStrictEqual(r.spawns, []);
+  assert.deepStrictEqual([r.engineFetchStatus.using.whisper, r.engineFetchStatus.whisperReady], [null, false]);
 });
 
 test('要約の組が壊れていたら、議事録の欄は理由と、終わったら「要約を生成」で作れることを伝える（文字起こしは取り込んだ組で動く。第0b回 Task 13）', async () => {

@@ -268,6 +268,15 @@ test('engine:fetch-status は読むだけ（通信しない・フォルダを作
   assert.ok(f.includes('engineInstall.statusOf(') && f.includes('engineInstall.freeBytesOf('));
   assert.ok(read('src/preload.js').includes("  engineFetchStatus: () => ipcRenderer.invoke('engine:fetch-status'),"));
 });
+test('RF4: 2 つの［起動テスト］は、engineCheck の前に覚えたランタイムの版を忘れて読み直す（担当が入れた後に起動し直さなくてよい。統合）', () => {
+  const m = code(read('src/main.js'));
+  for (const ch of ['app:test', 'app:test-sum']) {
+    const h = fnBody(m, `ipcMain.handle('${ch}', async () => {`, '\n  });');
+    const a = h.indexOf('forgetRuntimeIssues();'); const b = h.indexOf('engineCheck(');
+    assert.ok(a > 0 && a < b, `${ch}: 読み直す前に engineCheck している（${a} ${b}）`);
+  }
+  assert.ok(fnBody(m, 'function forgetRuntimeIssues()', '\n}').includes('runtimeIssueCache.clear();'));
+});
 test('未設定の文は、取り込める PC では［エンジンを取り込む］を指し、「未設定」の語は残す', () => {
   const w = fnBody(code(read('src/main.js')), 'function whisperProblem()', '\n}');
   assert.ok(w.includes('［エンジンを取り込む］') && (w.match(/未設定/g) || []).length >= 2);

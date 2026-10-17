@@ -25,7 +25,8 @@
 //                     （記録はしない。--managed と組み合わせると、照らし終えた後に復旧が動くかを見る）
 //     --no-vc-runtime … --managed と組み合わせる。Visual C++ ランタイムが無い PC にする（RF4）。whenReady の後で System32 を
 //                     空のフォルダに向け、Windows の外では process.platform を win32 と読ませる（main.js の engineRuntimeIssue は
-//                     Windows でだけ DLL を読む）。記録はせず、engine:status・起動テスト・記録の開始の答えを見て終える
+//                     Windows でだけ DLL を読む）。記録はせず、engine:status・起動テスト・記録の開始の答えを見る。
+//                     その後で System32 に 14.51 の DLL を置き（担当がランタイムを入れた）、起動し直さずに起動テストをもう一度押す
 //     --verify-throws … --managed と組み合わせる。照らし（verifyCandidates）が例外を投げる。記録はしない
 //     --sum-tamper  … --managed と組み合わせる。要約の組も置き、その llama.dll を大きさを変えずに書き換える（要約の組は壊れている）
 //     --no-engine=fetchable|unsupported … 詳細設定の文字起こしを空にし、何も取り込んでいない PC にする。fetchable は取り込める PC、
@@ -72,6 +73,14 @@ const freePort = () => new Promise((resolve, reject) => {
   srv.listen(0, '127.0.0.1', () => { const { port } = srv.address(); srv.close(() => resolve(port)); });
 });
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// 版（VS_FIXEDFILEINFO）だけを持つ DLL の偽物（main.js の vcRuntimeVersions が読む印 0xFEEF04BD と、その後の版）
+function peWithVersion(a, b, c, d) {
+  const x = Buffer.alloc(4096);
+  x.writeUInt32LE(0xFEEF04BD, 1000); x.writeUInt32LE(0x00010000, 1004);
+  x.writeUInt32LE(((a << 16) | b) >>> 0, 1008); x.writeUInt32LE(((c << 16) | d) >>> 0, 1012);
+  return x;
+}
 
 // 220Hz の正弦波の WAV（16kHz・モノラル・16bit。amp=0 で無音）。区間になるには 4000 バイト以上が要る
 function toneWav(sec, amp = 8000) {
@@ -337,7 +346,17 @@ process.on('exit', () => {
     out.engineFetchStatus = await handlers['engine:fetch-status']();
     out.start = await handlers['meeting:toggle']();
     out.test = await handlers['app:test']();
-    out.spawns = spawns;
+    out.spawns = spawns.slice();
+    if (noVcRuntime) {
+      // 情報システムの担当がランタイムを入れた（System32 に 14.51 の DLL を置く）。NaTsu を起動し直さずに［起動テスト］を押す
+      const s32 = path.join(process.env.SystemRoot, 'System32');
+      fs.mkdirSync(s32);
+      for (const d of ['msvcp140.dll', 'vcruntime140.dll', 'vcruntime140_1.dll', 'vcomp140.dll']) fs.writeFileSync(path.join(s32, d), peWithVersion(14, 51, 36247, 0));
+      out.engineStatusBeforeRetest = handlers['engine:status']();
+      out.testAfterInstall = await handlers['app:test']();
+      out.engineStatusAfterInstall = handlers['engine:status']();
+      out.spawnsAfterInstall = spawns.slice();
+    }
     // 終わりの片付け（一時フォルダを消す）は今の OS のままで行う
     Object.defineProperty(process, 'platform', { value: REAL_PLATFORM, configurable: true });
     const elog = path.join(userData, 'engine.log');

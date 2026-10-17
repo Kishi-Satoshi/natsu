@@ -448,6 +448,12 @@ function engineRuntimeIssue(eng) {
   }
   return runtimeIssueCache.get(key);
 }
+// 覚えた版を忘れる。［起動テスト］（app:test・app:test-sum）の最初に呼ぶ。担当がランタイムを入れた後、
+// INSTALL の「入れてもらってから、もう一度お試しください」のとおり、NaTsu を起動し直さずに押せば読み直す（RF4）。
+// engine:status・記録の開始・エンジンの起動は、今までどおり覚えた版を使う（そのたびに DLL を読まない）
+function forgetRuntimeIssues() {
+  runtimeIssueCache.clear();
+}
 // 取り込む組のランタイム。取り込む前の欄にも出す（数 GB を落としてから知らせない。RF4・Task 15）。
 // whisper の置き場所 → System32 の順に読む（whisper は vcomp140 も要るので、llama の分も含む）。覚え方は engineRuntimeIssue と同じ。
 // Windows 以外・取り込めない PC は null
@@ -658,10 +664,13 @@ async function verifyManagedAtStartup() {
 function onManagedVerified(_v) { /* Task 14 */ }
 
 // 取り込みの欄の写し（設定タブの画面が読む。Task 15）。読むだけ: 通信もフォルダ作りもしない
+// 照らしで合わなかった組は候補から外す（using・whisperReady で「使える」と見せず、画面が取り込みの欄を隠さない。RF3）。
+// 確かめている間は候補のまま（起動のたびに欄がちらつかない）
 async function engineFetchStatus() {
   const installed = engineInstall.readInstalled(engineInstall.layout(ENGINE_HOME.root, MANIFEST).installed);
   const plan = engineInstall.planInstall(MANIFEST, installed, fs.statSync, ENGINE_HOME.root);
-  return engineInstall.statusOf({ home: ENGINE_HOME, manifest: MANIFEST, plan, candidates: managedCands, runner: engineFetch && engineFetch.status(),
+  const usable = (g) => (managedState[g] === 'broken' ? null : managedCands[g]);
+  return engineInstall.statusOf({ home: ENGINE_HOME, manifest: MANIFEST, plan, candidates: { whisper: usable('whisper'), sum: usable('sum') }, runner: engineFetch && engineFetch.status(),
     manual: { whisper: manualGroup(whisperEng), sum: manualGroup(sumEng) }, freeBytes: await engineInstall.freeBytesOf(ENGINE_HOME.root),
     runtime: managedRuntimeIssue(), installed });
 }
@@ -2260,6 +2269,7 @@ function setupIpc() {
 
   ipcMain.handle('clipboard:copy', async (_e, t) => { await copyPrivate(String(t ?? '')); return true; });
   ipcMain.handle('app:test', async () => {
+    forgetRuntimeIssues();   // ランタイムを入れた後の押し直しで読み直す（RF4）
     // 置き場所の注意は、動いていても動いていなくても添える（原因の説明にも予防にもなる）
     const warning = engineDirNote(whisperEng);
     const problem = engineCheck(whisperEng);   // 原因を名指しする（#32）
@@ -2277,6 +2287,7 @@ function setupIpc() {
     return { ok: true, info: `文字起こしエンジンは起動しています。短い無音を試しに文字起こしさせ、返事があることも確かめました（${notes.join(' / ')}）`, warning };
   });
   ipcMain.handle('app:test-sum', async () => {
+    forgetRuntimeIssues();   // ランタイムを入れた後の押し直しで読み直す（RF4）
     const warning = engineDirNote(sumEng);
     const problem = engineCheck(sumEng);
     if (problem) return { ok: false, error: problem, warning };
