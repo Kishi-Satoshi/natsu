@@ -78,6 +78,17 @@ test('RF1: llama は日本語のパスもそのまま渡す（UTF-8 で読み直
   const r = engineSpawnPlan('D:\\会議\\llama\\llama-server.exe', ['-m', 'E:\\会議\\q.gguf', '-c', '32768'], { whisper: false, p: path.win32 });
   assert.deepStrictEqual(r, { cwd: 'D:\\会議\\llama', args: ['-m', 'E:\\会議\\q.gguf', '-c', '32768'], problem: '' });
 });
+// 手で打った相対のパスは、アプリの今のフォルダから絶対にしてから決める。engineCheck（fs.statSync）が見るのは
+// アプリの今のフォルダからのパスなので、cwd を exe のフォルダにしたまま渡すと、別のファイルを探してしまう
+test('RF1: 相対のパスは、アプリの今のフォルダから絶対にしてから渡す（cwd を exe のフォルダにしても、engineCheck が見たのと同じファイル）', () => {
+  const at = (cwd) => ({ ...path.win32, resolve: (...a) => path.win32.resolve(cwd, ...a) });
+  const a = engineSpawnPlan('C:\\e\\bin\\whisper-server.exe', ['-m', 'models\\ggml-base.bin', '--vad-model', 'D:\\v\\silero.bin'], { whisper: true, p: at('D:\\app') });
+  assert.deepStrictEqual(a, { cwd: 'C:\\e\\bin', args: ['-m', 'D:\\app\\models\\ggml-base.bin', '--vad-model', 'D:\\v\\silero.bin'], problem: '' });
+  const b = engineSpawnPlan(`${ROOTJ}\\w\\whisper-server.exe`, ['-m', 'models\\ggml-base.bin'], { whisper: true, p: at(ROOTJ) });
+  assert.deepStrictEqual(b.args, ['-m', '..\\models\\ggml-base.bin']);
+  const c = engineSpawnPlan('C:\\l\\llama-server.exe', ['-m', 'q.gguf', '-c', '512'], { whisper: false, p: at('D:\\app') });
+  assert.deepStrictEqual(c.args, ['-m', 'D:\\app\\q.gguf', '-c', '512']);
+});
 test('RF1・RF11: startEngine は engineSpawnPlan の引数と cwd で起動し、engineCheck は whisper の問題を返す', () => {
   const m = code(read('src/main.js'));
   const fn = fnBody(m, 'function startEngine(eng)', '\nfunction stopEngine');
@@ -85,6 +96,8 @@ test('RF1・RF11: startEngine は engineSpawnPlan の引数と cwd で起動し�
   assert.match(fn, /p = spawn\(engineExe\(eng\), plan\.args, \{ cwd: plan\.cwd, windowsHide: true,/);
   const chk = fnBody(m, 'function engineCheck(eng)', '\n}');
   assert.ok(chk.includes('if (plan.problem) return plan.problem;'));
+  // whisper の形（{ whisper: true }）で見ないと、問題が出ないまま engine:status と起動テストを通り、文字起こしのたびに落ちる
+  assert.ok(chk.includes('engineSpawnPlan(engineExe(eng), engineSpawnArgs(eng), { whisper: true })'), 'engineCheck が whisper の形で見ていない');
 });
 
 // RF4・RF3: Visual C++ ランタイムの版を exe のフォルダ → System32 の順に読み、止めるのは取り込んだ組だけ。

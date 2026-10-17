@@ -374,7 +374,10 @@ function engineSpawnPlan(exe, args, { whisper = false, p = path } = {}) {
     if (!Object.prototype.hasOwnProperty.call(flags, out[i])) continue;
     const at = i + 1;
     i = at;   // 値は旗として読まない
-    const value = out[at];
+    let value = String(out[at] ?? '');
+    // 手で打った相対のパスは、アプリの今のフォルダから絶対にする。engineCheck（fs.statSync）が見たのはそのファイルで、
+    // cwd を exe のフォルダにしたまま渡すと、エンジンは別の場所を探す（cwd を変える前と同じファイルを開かせる）
+    if (value && !p.isAbsolute(value)) out[at] = value = p.resolve(value);
     if (isAscii(value)) continue;
     const rel = p.relative(cwd, value);
     if (rel && isAscii(rel)) { out[at] = rel; continue; }
