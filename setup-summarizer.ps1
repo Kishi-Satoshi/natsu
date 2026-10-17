@@ -13,14 +13,23 @@
 # エクスプローラーから起動したとき（右クリックの「PowerShell で実行」やダブルクリック）は、
 # 窓がすぐ閉じないよう、最後とエラーで止まったときに Enter を待ちます。待たせないときは -NoPause。
 #
+# ふつうは NaTsu の［設定］→［エンジン］の［エンジンを取り込む］で入れる。このスクリプトは詳しい人向け。
+#
 # -Model の選択肢:
-#   3b (既定) … Qwen2.5-3B-Instruct  約1.9GB。CPUでも実用速度
-#   7b        … Qwen2.5-7B-Instruct  約4.7GB。高品質だが要約に時間がかかる
+#   e4b (既定) … Gemma 4 E4B-it Q4_K_M  約5.0GB。Apache-2.0。アプリの取り込みと同じファイル（同じ commit で固定）
+#   3b         … Qwen2.5-3B-Instruct    約1.9GB。研究・評価のためだけのライセンス（Qwen RESEARCH LICENSE）。
+#                                       業務の議事録には使わない
+#   7b         … Qwen2.5-7B-Instruct    約4.7GB。Apache-2.0。高品質だが要約に時間がかかる
+#
+# llama.cpp は今までどおり最新のリリースを落とす（GitHub の API で引く）。Gemma 4 は b8637 より前の版では
+# 読めないが、最新なら読める。
+# Gemma 4 は考える手順（thinking）が既定で入ることがある（遅くなる）。気になるときはアプリの取り込みを使う
+# （アプリで取り込んだ llama には、それを止める旗を渡す。このスクリプトで入れたものには渡らない）。
 #
 # Windows PowerShell 5.1 / PowerShell 7 の両方で動作します。
 # =====================================================================
 param(
-    [string]$Model = "3b",
+    [string]$Model = "e4b",
     [string]$Tag = "",
     [switch]$NoPause
 )
@@ -121,7 +130,13 @@ function Get-BigFile {
 $modelUrl = ""
 $modelFile = ""
 $minMB = 0
-if ($Model -eq "3b") {
+if ($Model -eq "e4b") {
+    # アプリの取り込み（src/engine-manifest.js の sum-model）と同じファイル・同じ commit
+    $modelFile = "gemma-4-E4B-it-Q4_K_M.gguf"
+    $modelUrl  = "https://huggingface.co/unsloth/gemma-4-E4B-it-GGUF/resolve/bfc15c382204943c3a8fff0c750b94ae2364d7a3/gemma-4-E4B-it-Q4_K_M.gguf"
+    $minMB     = 4500
+}
+elseif ($Model -eq "3b") {
     $modelFile = "Qwen2.5-3B-Instruct-Q4_K_M.gguf"
     $modelUrl  = "https://huggingface.co/bartowski/Qwen2.5-3B-Instruct-GGUF/resolve/main/Qwen2.5-3B-Instruct-Q4_K_M.gguf"
     $minMB     = 1700
@@ -132,7 +147,7 @@ elseif ($Model -eq "7b") {
     $minMB     = 4300
 }
 else {
-    Write-Host "不明なモデル名です: $Model （指定できる値: 3b / 7b）" -ForegroundColor Red
+    Write-Host "不明なモデル名です: $Model （指定できる値: e4b / 3b / 7b）" -ForegroundColor Red
     Exit-Script 1
 }
 

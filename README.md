@@ -110,22 +110,26 @@ npm install
 npm start
 ```
 
-### 文字起こしエンジン（必須）
+### エンジン（文字起こしと要約）
+
+NaTsu を起動し、［設定］→［エンジン］の［エンジンを取り込む］を押すと、文字起こし（whisper.cpp・
+large-v3-turbo・VAD のモデル）と要約（llama.cpp・Gemma 4 E4B）のエンジンを取り込みます（約 5.6GB）。
+置き場所は `%LOCALAPPDATA%\natsu\engine`。版・取得元・SHA-256 はアプリの中（`src/engine-manifest.js`）に
+固定してあり、途中で切れても続きから取ります。記録中は止まります。
+
+#### 手で入れる（詳しい人向け）
+
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\setup-local-engine.ps1
-```
-文字起こしのモデル large-v3-turbo と VADモデルを取得します。
-（`-Model kotoba` で日本語特化の kotoba-whisper も選べますが、NaTsu の 75 秒ずつの文字起こしでは
-文の抜け落ちが多く、誤りが large-v3-turbo の約 3 倍でした。速さはほぼ同じです。）
-表示されたパスを [設定] → [エンジン] → [詳細設定] の「文字起こし」に貼り付け → 起動テスト。
-
-### 要約エンジン（議事録の自動要約に必要）
-```powershell
 powershell -ExecutionPolicy Bypass -File .\setup-summarizer.ps1
 ```
-llama.cpp と Qwen2.5-3B（約1.9GB）を取得します。`-Model 7b` で高品質版。
+表示されたパスを [設定] → [エンジン] → [詳細設定] に貼り付け → 起動テスト（手で入れたパスが優先されます）。
+要約のモデルの既定は、アプリの取り込みと同じ Gemma 4 E4B（`-Model 7b` で Qwen2.5-7B）。
+（`-Model kotoba` で日本語特化の kotoba-whisper も選べますが、NaTsu の 75 秒ずつの文字起こしでは
+文の抜け落ちが多く、誤りが large-v3-turbo の約 3 倍でした。速さはほぼ同じです。）
+エンジンの Visual C++ ランタイム（14.51 以上）は https://aka.ms/vc14/vc_redist.x64.exe（管理者の権限が要ります）。
 
-※ セットアップ時のみネット接続が必要です。以後は完全オフラインで動作します。
+※ ネット接続が必要なのは、エンジンを取り込む間だけです。以後は完全オフラインで動作します。
 
 ## データ保存先
 
@@ -152,17 +156,16 @@ data/                  議事録の保存先
 
 **渡す相手にはこの1枚を読んでもらえば足ります → [INSTALL.md](INSTALL.md)**
 
-リリースページに次の3つを添付しています。配布先はこれを落とすだけで、
-リポジトリを触る必要も、手元でビルドする必要もありません。
+配布先が落とすのはインストーラーだけです。リポジトリを触る必要も、手元でビルドする必要もありません。
 
 | ファイル | 用途 |
 | --- | --- |
 | `NaTsu-<版>-setup.exe` | アプリ本体（約75MB） |
-| `setup-local-engine.ps1` | 文字起こしエンジン（約0.6GB）を取ってくる |
-| `setup-summarizer.ps1` | 要約エンジン（約2GB）を取ってくる |
+| `setup-local-engine.ps1` | 文字起こしエンジンを手で入れる（詳しい人向け） |
+| `setup-summarizer.ps1` | 要約エンジンを手で入れる（詳しい人向け） |
 
-インストーラーだけではエンジンが無いので文字起こしも要約も動かない。
-setup-*.ps1 の2本まで込みで「配布物」だと考えること。
+エンジン（約 5.6GB）は、インストールした後にアプリが取り込む
+（［設定］→［エンジン］の［エンジンを取り込む］）。setup-*.ps1 は手で入れる人のために残している。
 
 https://github.com/Kishi-Satoshi/natsu/releases/latest
 
@@ -174,8 +177,7 @@ https://github.com/Kishi-Satoshi/natsu/releases/latest
 powershell -ExecutionPolicy Bypass -File .\get-installer.ps1
 ```
 
-このスクリプトは setup-*.ps1 も同じフォルダに揃えるので、上の3ファイルを
-個別に落とす必要はありません。
+このスクリプトが落とすのはインストーラーだけです（setup-*.ps1 は落としません）。
 
 この大きなファイルを落とすのは初回だけです。以降の更新は数百KBの差分のみを取得します。
 
@@ -192,7 +194,8 @@ powershell -ExecutionPolicy Bypass -File .\get-installer.ps1
 デスクトップとスタートメニューにショートカットが作られます。
 エンジン（whisper / llama とモデル）は**このインストール先には置かないでください**。
 更新のたびに旧版を消してから入れ直すので、そこへ置いたエンジンは消えます
-（`%LOCALAPPDATA%\natsu-engine` などに置く。起動テストでも注意が出ます）。
+（アプリで取り込んだエンジンは `%LOCALAPPDATA%\natsu\engine` に入る。手で入れるときは
+`%LOCALAPPDATA%\natsu-engine` などに置く。起動テストでも注意が出ます）。
 設定の「Windowsサインイン時に自動起動」もこの形でのみ動作します。
 
 `build.asar` を `false` にしてあるため、`src/` は素のファイルとして置かれ、
@@ -343,5 +346,5 @@ npm test
 ## 実装について
 
 オリジナル実装です。Notion・Typeless 等のコードやデザイン資産は含みません。
-whisper.cpp（MIT）、llama.cpp（MIT）、Qwen2.5（Apache 2.0）をローカル実行しています。
+whisper.cpp（MIT）、llama.cpp（MIT）、要約のモデル Gemma 4 E4B（Apache-2.0）をローカル実行しています。
 追加のnpm依存はなく、electron と electron-builder のみで動作します。

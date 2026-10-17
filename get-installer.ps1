@@ -190,30 +190,8 @@ if ($digest -like "sha256:*") {
     Write-Host "SHA256 検証 OK" -ForegroundColor Green
 }
 
-# --- セットアップスクリプトも一緒に取得する ---
-# エンジン（whisper.cpp / llama.cpp）を入れるのに使う。インストーラーだけでは
-# 文字起こしも要約も動かないので、同じフォルダに揃えておく。
-$setups = @()
-foreach ($a in $rel.assets) {
-    if ($a.name -like "setup-*.ps1") {
-        $sp = Join-Path $OutDir $a.name
-        $ok = $false
-        try {
-            & curl.exe -L -sS --retry 3 --retry-delay 2 -o $sp $a.browser_download_url
-            if ((Test-Path $sp) -and ((Get-Item $sp).Length -gt 0)) { $ok = $true }
-        }
-        catch { }
-        if (-not $ok) {
-            try {
-                Invoke-WebRequest -Uri $a.browser_download_url -OutFile $sp -UseBasicParsing
-                if ((Test-Path $sp) -and ((Get-Item $sp).Length -gt 0)) { $ok = $true }
-            }
-            catch { }
-        }
-        if ($ok) { $setups += $a.name }
-        else { Write-Host ("  " + $a.name + " を取得できませんでした。リリースページから手で落としてください。") -ForegroundColor Yellow }
-    }
-}
+# エンジン（whisper.cpp / llama.cpp とモデル）は、インストールした後にアプリが取り込む（第0b回）。
+# セットアップスクリプトは詳しい人向けに残すが、ここでは一緒に落とさない。
 
 Write-Host ""
 Write-Host "========================= 取得完了 =========================" -ForegroundColor Green
@@ -222,19 +200,8 @@ Write-Host ""
 Write-Host "このファイルを実行するとインストールされます（管理者権限は不要です）。"
 Write-Host "インストール後の更新は数百KBの差分だけを取得するので、"
 Write-Host "この大きなファイルを落とすのは初回だけです。"
-
-if ($setups.Count -gt 0) {
-    Write-Host ""
-    Write-Host "続けて、エンジンをこの順に入れてください（同じフォルダに置いてあります）:" -ForegroundColor Cyan
-    if ($setups -contains "setup-local-engine.ps1") {
-        Write-Host "  1. powershell -ExecutionPolicy Bypass -File .\setup-local-engine.ps1"
-        Write-Host "     文字起こし用。約 0.6GB"
-    }
-    if ($setups -contains "setup-summarizer.ps1") {
-        Write-Host "  2. powershell -ExecutionPolicy Bypass -File .\setup-summarizer.ps1"
-        Write-Host "     議事録の要約用。約 2GB"
-    }
-    Write-Host "  3. 表示されたパスを NaTsu の [設定] に貼り付ける"
-}
+Write-Host ""
+Write-Host "インストールしたら NaTsu を起動し、［設定］→［エンジン］の［エンジンを取り込む］を押してください。" -ForegroundColor Cyan
+Write-Host "文字起こしと要約のエンジン（約 5.6GB）は、アプリが取り込みます（途中で切れても続きから取ります）。"
 
 Wait-BeforeClose "取得が終わりました。上の案内を控えてから閉じてください。"

@@ -11,6 +11,10 @@
  *  - 案内を出して止まるところ（exit 1）も、待ってから閉じる
  *  - 開いてある窓からの実行は今までどおり（待たない。エラーは break で PowerShell の表示に任せる）
  *
+ * 第0b回（Task 17）: 案内は「アプリで［エンジンを取り込む］を押す」。スクリプトは詳しい人向けに残す。
+ *  - INSTALL の手順・常駐メモリの目安、get-installer.ps1 の終わりの案内、ランタイムの URL（aka.ms/vc14）
+ *  - setup-summarizer.ps1 の既定のモデルは、アプリの取り込みと同じファイル（URL も同じ commit で固定）
+ *
  * PowerShell は手元で回せないので、.ps1 を文字列として読む（構文は CI が PowerShell 5.1 で見る）。
  */
 'use strict';
@@ -36,7 +40,8 @@ function block(s, head) {
 const PROMPT = 'Read-Host "Enter キーを押すと閉じます"';
 const SCRIPTS = [
   { file: 'setup-local-engine.ps1', params: ['[string]$Model = "large-v3-turbo-q5"', '[switch]$ForceBinary'], done: 'セットアップ完了' },
-  { file: 'setup-summarizer.ps1', params: ['[string]$Model = "3b"', '[string]$Tag = ""'], done: 'セットアップ完了' },
+  // 要約のモデルの既定は、アプリの取り込みと同じ e4b（第0b回 Task 17。下の「既定のモデルはアプリの取り込みと同じファイル」）
+  { file: 'setup-summarizer.ps1', params: ['[string]$Model = "e4b"', '[string]$Tag = ""'], done: 'セットアップ完了' },
   { file: 'get-installer.ps1', params: ['[string]$Version = ""', '[string]$OutDir = "."'], done: '取得完了' },
 ];
 
@@ -157,4 +162,56 @@ test('setup-local-engine.ps1: 既定のモデルと「指定できる値」の�
   const m = /setup-local-engine\.ps1 -Model ([\w.-]+)';/.exec(read('src/main.js'));
   assert.ok(m, 'KOTOBA_NOTE のコマンドが読めない');
   assert.ok(ps.includes(`$Model -eq "${m[1]}"`), `勧めのコマンドの -Model ${m[1]} を、セットアップスクリプトが受け付けない`);
+});
+
+// ---------------------------------------------------------------- 第0b回 Task 17: 案内はアプリでの取り込み
+/** Markdown の "## 見出し" から次の "## " までを返す（無ければ ''）。stage3.dist.test.js と同じ */
+function section(md, heading) {
+  const i = md.indexOf(`\n${heading}\n`);
+  if (i < 0) return '';
+  const rest = md.slice(i + 1);
+  const j = rest.indexOf('\n## ');
+  return j < 0 ? rest : rest.slice(0, j);
+}
+
+test('INSTALL: 手順は［エンジンを取り込む］（約 5.6GB）。置き場所は %LOCALAPPDATA%\\natsu\\engine。スクリプトは詳しい人向けの節に残す', () => {
+  const s = read('INSTALL.md');
+  assert.ok(s.includes('［エンジンを取り込む］') && s.includes('%LOCALAPPDATA%\\natsu\\engine') && s.includes('約 5.6GB'));
+  const adv = section(s, '## 手で入れる（詳しい人向け）');
+  assert.ok(adv && adv.includes('setup-local-engine.ps1') && adv.includes('setup-summarizer.ps1'));
+  for (const h of ['github.com', 'huggingface.co', 'hf.co']) assert.ok(s.includes(h), h);
+  const step1 = section(s, '## 手順1. インストーラーを取得する');
+  assert.ok(step1 && !/setup-(local-engine|summarizer)\.ps1/.test(step1), '手順1 でスクリプトを取らせている');
+});
+
+test('INSTALL の常駐メモリの目安: 手で入れた 3B の「約 3GB」は残し、取り込んだモデルの行を足す', () => {
+  const sec = section(read('INSTALL.md'), '## 常駐メモリの目安');
+  assert.ok(/約\s*3\s*GB/.test(sec));
+  assert.ok(/取り込んだ[^\n]*約\s*4\s*GB/.test(sec), '取り込んだ要約のモデルのメモリが書いていない');
+});
+
+test('get-installer.ps1: セットアップスクリプトを落とさず、終わりの案内は［エンジンを取り込む］', () => {
+  const s = read('get-installer.ps1');
+  assert.ok(s.includes('［エンジンを取り込む］'));
+  assert.ok(!s.includes('setup-local-engine.ps1') && !s.includes('貼り付け'));
+});
+
+test('ランタイムの案内は aka.ms/vc14（14.51 以上）。aka.ms/vs/17（14.44）は残っていない', () => {
+  for (const f of ['INSTALL.md', 'setup-local-engine.ps1', 'src/mainlib.js']) {
+    const s = read(f);
+    // src/mainlib.js の案内の文（vcRuntimeIssue）は Task 10 が足す。その前は、古い URL が無いことだけを見る
+    if (f === 'src/mainlib.js' && !s.includes('vcRuntimeIssue')) { assert.ok(!s.includes('aka.ms/vs/17'), f); continue; }
+    assert.ok(s.includes('https://aka.ms/vc14/vc_redist.x64.exe'), f);
+    assert.ok(!s.includes('aka.ms/vs/17'), f);
+  }
+});
+
+test('setup-summarizer.ps1 の既定のモデルは、アプリの取り込みと同じファイル（全員同じモデル）。URL は commit で固定', () => {
+  const pin = require('../src/engine-manifest').MANIFEST.items.find((i) => i.id === 'sum-model');
+  const name = pin.dest.split('/').pop();
+  const s = read('setup-summarizer.ps1');
+  const def = (s.match(/\[string\]\$Model = "([^"]+)"/) || [])[1];
+  const block = s.slice(s.indexOf(`if ($Model -eq "${def}")`), s.indexOf('}', s.indexOf(`if ($Model -eq "${def}")`)));
+  assert.ok(block.includes(name), `既定 ${def} のファイルが ${name} でない`);
+  assert.ok(s.includes(pin.url), 'ピンと同じ commit の URL でない');
 });

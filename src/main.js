@@ -1430,7 +1430,7 @@ function startMeeting() {
   state = 'meeting';
   writeDraft();
   ensureEngineReady(whisperEng);
-  // 要約エンジンはここで先読みしない（#58）。記録開始で起動すると約 3GB が上がり、破棄しても
+  // 要約エンジンはここで先読みしない（#58）。記録開始で起動すると約 2〜3GB が上がり、破棄しても
   // 降りない（記録だけして要約しない会議でも掴んだまま）。要約直前の ensureEngineReady(sumEng)
   // （generateMinutes）に任せる。その分、最初の要約はモデル読み込みの待ちを含む
   positionOverlay();
@@ -2134,7 +2134,7 @@ function setupIpc() {
     return ok ? { ok: true, info: '要約エンジンは起動済みです（オフライン動作可）', warning }
       : { ok: false, error: sumEng.lastError || '起動に失敗しました', warning };
   });
-  // 設定の「エンジン：正常／要確認」。置き場所のファイルを見るだけで、エンジンは起動しない（要約は約 3GB: #58）
+  // 設定の「エンジン：正常／要確認」。置き場所のファイルを見るだけで、エンジンは起動しない（要約は約 2〜3GB: #58）
   ipcMain.handle('engine:status', () => ({ ok: true, whisper: engineCheck(whisperEng), sum: engineCheck(sumEng),
     whisperNote: isKotobaModel() ? KOTOBA_NOTE : '' }));
   // 辞書が初期プロンプトの予算に収まっているか（#23）。kept: 収まった語数、total: 辞書の語数。

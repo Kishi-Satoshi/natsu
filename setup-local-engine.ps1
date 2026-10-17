@@ -331,7 +331,7 @@ if (Test-Path $vadPath) {
 }
 Write-Host ""
 Write-Host "「起動テスト」で OK が出れば、以後は完全オフラインで使えます。"
-Write-Host "※ 起動時にエラーが出る場合は Microsoft Visual C++ 再頒布可能パッケージ"
-Write-Host "   (https://aka.ms/vs/17/release/vc_redist.x64.exe) をインストールしてください。"
+Write-Host "※ 起動時にエラーが出る場合は Microsoft Visual C++ 再頒布可能パッケージ（14.51 以上）"
+Write-Host "   (https://aka.ms/vc14/vc_redist.x64.exe) をインストールしてください（管理者の権限が要ります）。"
 
 Wait-BeforeClose "セットアップが終わりました。上のパスを NaTsu の設定に貼り付けてから閉じてください。"
