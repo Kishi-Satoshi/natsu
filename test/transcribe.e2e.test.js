@@ -66,6 +66,9 @@ const SCENES = {
   kotoba: ['prompt-empty', '--kotoba'],
   sumGround: ['text', '--sum', '--text=山田さんが来週金曜までに進捗の確認をまとめます。'],
   sumType: ['text', '--sum', '--set-type-during=standup'],
+  managed: ['text', '--managed', '--test'],
+  managedTamper: ['text', '--managed-tamper'],
+  managedRecover: ['text', '--managed', '--recover'],
 };
 const results = {};
 // 場面ごとに 2 つ（文字起こしと要約のエンジン）
@@ -204,6 +207,81 @@ test('モデルが kotoba-whisper なら認識ヒントを渡さず（1 回だ�
   assert.strictEqual(results.text.engineStatus.whisperNote, '');
   assert.strictEqual(results.text.promptInfo.offReason, '');
   assert.strictEqual(results.promptEmpty.promptInfo.offReason, 'empty');
+});
+
+test('取り込みの状態の受け口（engine:fetch-status）は実際に動き、手の設定の側は manual。置き場所は一時フォルダの LOCALAPPDATA の下（第0b回 Task 13）', async () => {
+  await ready;
+  const r = results.text;
+  const s = r.engineFetchStatus;
+  assert.ok(s && s.ok === true, JSON.stringify(s));
+  // この場面の settings.json は文字起こしだけ手のパス。要約は空なので取り込む側
+  assert.deepStrictEqual(s.mode, { whisper: 'manual', sum: 'managed' });
+  assert.deepStrictEqual([s.whisperReady, s.sumReady], [false, false]);
+  assert.strictEqual(r.engineStatus.whisper, '', '手の設定の文字起こしに取り込みの文を出した');
+  const win64 = process.platform === 'win32' && process.arch === 'x64';
+  assert.strictEqual(s.supported, win64);
+  if (win64) {
+    // 本当のプロファイルの natsu\engine を見ていない（mainrun が main.js を読む前に LOCALAPPDATA を替える）
+    assert.match(s.root, /LocalAppData-取込𠮷\\natsu\\engine$/);
+    assert.strictEqual(s.state, 'missing');
+    assert.match(r.engineStatus.sum, /^要約エンジンはまだ取り込んでいません。設定タブの［エンジンを取り込む］を押してください$/);
+  } else {
+    // 取り込めない PC では今までどおり（手の設定だけ）
+    assert.deepStrictEqual([s.root, s.state], [null, 'unsupported']);
+    assert.strictEqual(r.engineStatus.sum, '要約エンジンの実行ファイルまたはモデルが見つかりません');
+  }
+});
+
+test('設計 B・RF3: 詳細設定が空なら、照らし終えた取り込んだ組で起動する。照らす前は起動せず「確かめています」。設定には書かない（第0b回 Task 13）', async () => {
+  await ready;
+  const r = results.managed;
+  const W = r.managedRoot;
+  // 照らし終える前（マイクロタスクだけを待った時点）。取り込んだ側はまだ使えない
+  assert.strictEqual(r.statusChecking.whisper, '文字起こしエンジンを確かめています（数秒で終わります）');
+  assert.strictEqual(r.spawnsBeforeVerify, 0);
+  // 照らし終えた後: 取り込んだ exe を cwd = exe のフォルダで、モデルと VAD は英数字だけの相対パスで起動する（RF1）
+  assert.strictEqual(r.spawns.length, 1, JSON.stringify(r.spawns));
+  const sp = r.spawns[0];
+  assert.strictEqual(sp.cmd, path.join(W, 'whisper-1.0.0', 'whisper-server.exe'));
+  assert.strictEqual(sp.cwd, path.join(W, 'whisper-1.0.0'));
+  const arg = (f) => sp.args[sp.args.indexOf(f) + 1];
+  assert.strictEqual(arg('-m'), path.join('..', 'models', 'w-model.bin'));
+  assert.strictEqual(arg('--vad-model'), path.join('..', 'models', 'ggml-silero-v6.2.0.bin'), 'VAD の自動の発見が取り込んだ models で効いていない');
+  assert.ok(sp.args.every((a) => /^[\x20-\x7e]*$/.test(a)), `英数字以外の引数: ${sp.args}`);
+  // 起動テストと記録が通る
+  assert.strictEqual(r.test.ok, true, JSON.stringify(r.test));
+  assert.strictEqual(r.pages.length, 1, JSON.stringify(r.notices));
+  assert.ok(r.pages[0].segments.length === 2 && r.pages[0].segments.every((x) => !x.failed), JSON.stringify(r.pages[0].segments));
+  assert.strictEqual(r.engineStatus.whisper, '');
+  // 要約の組はまだ取り込んでいない: ［エンジンを取り込む］を指す。議事録の欄の文は「未設定」の語を残す（画面が設定タブへ案内する）
+  assert.strictEqual(r.engineStatus.sum, '要約エンジンはまだ取り込んでいません。設定タブの［エンジンを取り込む］を押してください');
+  assert.match(r.pages[0].summaryError, /^要約エンジンが未設定のため、文字起こしのみ保存しました。設定タブの［エンジンを取り込む］/);
+  // 取り込みの欄の写し
+  const s = r.engineFetchStatus;
+  assert.deepStrictEqual([s.supported, s.root, s.mode, s.using, s.whisperReady, s.sumReady],
+    [true, W, { whisper: 'managed', sum: 'managed' }, { whisper: 'current', sum: null }, true, false]);
+  // RF7: 取り込んだパスを設定に書いていない
+  for (const k of ['localServerExe', 'localModelPath', 'vadModelPath', 'sumServerExe', 'sumModelPath']) assert.ok(!r.savedSettings[k], `${k} を書いた: ${r.savedSettings[k]}`);
+});
+
+test('RF3: 大きさと更新時刻が同じでも中身の違う DLL の組は使わない。起動せず、記録・起動テスト・engine.log に理由を出す（第0b回 Task 13）', async () => {
+  await ready;
+  const r = results.managedTamper;
+  assert.strictEqual(r.statusChecking.whisper, '文字起こしエンジンを確かめています（数秒で終わります）');
+  const broken = /^文字起こしエンジンのファイルが消えたか変わっています。ウイルス対策が消した可能性があります（Windows セキュリティ → ウイルスと脅威の防止 → 保護の履歴）。/;
+  assert.match(r.engineStatus.whisper, broken);
+  assert.match(r.start.error, broken, '記録を始めた');
+  assert.match(r.test.error, broken);
+  assert.deepStrictEqual(r.spawns, [], '照らしで合わない組を起動した');
+  assert.ok(r.engineLog.includes(`取り込んだエンジンの照らし: 合わない ${path.join(r.managedRoot, 'whisper-1.0.0', 'whisper.dll')}（changed）`), JSON.stringify(r.engineLog));
+});
+
+test('起動のときの復旧の文字起こしは、取り込んだ組を照らし終えたらもう一度試す（照らす前は「確かめています」で保留になる。第0b回 Task 13）', async () => {
+  await ready;
+  const r = results.managedRecover;
+  assert.ok(r.engineLog.includes('復旧の文字起こしを保留: 文字起こしエンジンを確かめています（数秒で終わります）'), JSON.stringify(r.engineLog));
+  assert.deepStrictEqual(r.recovered, [{ text: '本日の議題は進捗の確認です。区間1', failed: false }], '照らし終えた後に復旧を試していない');
+  assert.deepStrictEqual(r.spawns.map((x) => x.cmd), [path.join(r.managedRoot, 'whisper-1.0.0', 'whisper-server.exe')]);
 });
 
 test('雑音の 1 区間だけヒント付きで空になっても、ヒントは止めない（続けて起きたときだけ止める）', async () => {

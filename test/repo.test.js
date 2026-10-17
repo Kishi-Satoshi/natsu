@@ -237,7 +237,8 @@ test('公開したのに画面から呼ばれない API がない', () => {
     return rest.slice(0, end > 0 ? end : rest.length);
   };
   // main 側が先に足し、画面がまだ使っていない API（先に足すときだけ入れ、画面が使い始めたら空に戻す）
-  const PENDING_APP = new Set();
+  // 第0b回 Task 13 の engineFetchStatus は、画面の取り込みの欄（Task 15）が呼び始めたら外す
+  const PENDING_APP = new Set(['engineFetchStatus']);
   for (const [ns, html] of [['koeApp', appHtml], ['koeOverlay', overlayHtml]]) {
     const names = all(/^\s{2}([A-Za-z][\w$]*):/gm, block(ns));
     const used = new Set(all(new RegExp(`${ns}\\.(\\w+)`, 'g'), html));

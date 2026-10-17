@@ -29,6 +29,7 @@ contextBridge.exposeInMainWorld('koeApp', {
   testApi: () => ipcRenderer.invoke('app:test'),
   testSum: () => ipcRenderer.invoke('app:test-sum'),
   engineStatus: () => ipcRenderer.invoke('engine:status'),
+  engineFetchStatus: () => ipcRenderer.invoke('engine:fetch-status'),
   vadStatus: () => ipcRenderer.invoke('app:vad-status'),
   promptInfo: () => ipcRenderer.invoke('prompt:info'),
   pickFile: (kind) => ipcRenderer.invoke('dialog:pick', kind),

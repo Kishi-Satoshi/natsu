@@ -35,13 +35,16 @@ const { markdownToBlocks, dropRedundantEmpty } = minutes;
 // まだ無い版でも動くよう、無ければ素通しにする。
 const dropTemplateEcho = minutes.dropTemplateEcho || ((b) => b);
 const { normalizeSettings } = require('./settings');
+// エンジンの取り込み（第0b回 R7）。置き場所・記録・照らし（通信しない）とピン（版・URL・大きさ・SHA-256）
+const engineInstall = require('./engine-install');
+const { MANIFEST } = require('./engine-manifest');
 const { localDateISO } = require('./dates');
 const {
   saveIfExists, meetingDurationSec, promptTail,
   registerHotkeys, resolveStartupHotkeys, saveHotkeys, makeSummaryRunner, tickStep,
   pasterScript, copyCommand, parsePasterLine,
   engineFileIssue, engineIssueMessage, engineInAppDir, engineDirWarning, portInUseError, guardEngineSettings, keptDifferent, closeConfirm,
-  engineSpawnPlan, vcRuntimeVersions, vcRuntimeIssue, engineExitHint, spawnErrorHint, speedLine,
+  engineSpawnPlan, vcRuntimeVersions, vcRuntimeIssue, runtimeGate, engineExitHint, spawnErrorHint, speedLine,
   extractNotes, truncationMessage, buildPromptParts,
   publicSegments, settledSegments, pendingDurationMs, recoverSegments, staleSegbufDirs, nextSegmentMs, EtaTracker,
   skipPendingSegments, restoreAfterPaste,
@@ -292,6 +295,13 @@ function makeEngine(name) {
 }
 const whisperEng = makeEngine('文字起こしエンジン');
 const sumEng = makeEngine('要約エンジン');
+// 取り込んだエンジン（第0b回 設計 B）。詳細設定の実行ファイルとモデルが両方空の側だけが使う。設定には書かない（RF7）。
+// 取り込み先は %LOCALAPPDATA%\natsu\engine（Windows の x64 だけ。それ以外の PC では supported が偽で、今までどおり）
+const ENGINE_HOME = engineInstall.engineRoot(process.env, process.platform, process.arch);
+let managed = { whisper: null, sum: null };            // この起動の中で照らし終えた組だけ（RF3）。暇なときだけ入れ替える（Task 14）
+let managedCands = { whisper: null, sum: null };       // 記録から見た候補（まだ照らしていない）
+let managedState = { whisper: 'none', sum: 'none' };   // 'none' | 'checking' | 'ok' | 'broken'
+let engineFetch = null;                                // 取り込みの係（Task 14 で作る）
 const touchEngine = (eng) => { eng.lastUsed = Date.now(); };
 // 起動・終了・停止のたびにトレイ（「エンジンを停止」の有効／無効）を追随させる。終了中は触らない
 function engineChanged() { if (!quitting) updateTray(); }
@@ -306,7 +316,7 @@ function engineLog(line) {
 function resolveVadModel() {
   if (settings.vadModelPath && fs.existsSync(settings.vadModelPath)) return settings.vadModelPath;
   try {
-    const dir = path.dirname(settings.localModelPath || '');
+    const dir = path.dirname(engineModel(whisperEng) || '');
     if (!dir || !fs.existsSync(dir)) return '';
     const hits = fs.readdirSync(dir).filter((f) => /^ggml-silero-.*\.bin$/i.test(f)).sort().reverse();
     return hits.length ? path.join(dir, hits[0]) : '';
@@ -316,7 +326,7 @@ function resolveVadModel() {
 function engineSpawnArgs(eng) {
   if (eng === whisperEng) {
     const args = [
-      '-m', settings.localModelPath,
+      '-m', engineModel(eng),
       '--host', '127.0.0.1',
       '--port', String(settings.localPort),
       '-t', String(settings.localThreads),
@@ -328,7 +338,7 @@ function engineSpawnArgs(eng) {
     return args;
   }
   return [
-    '-m', settings.sumModelPath,
+    '-m', engineModel(eng),
     '--host', '127.0.0.1',
     '--port', String(settings.sumPort),
     '-t', String(settings.sumThreads),
@@ -340,10 +350,11 @@ function engineSpawnArgs(eng) {
   ];
 }
 // 詳細設定の実行ファイルとモデルが両方空の側は、取り込んだエンジン（第0b回）。片方でも入っていれば今までどおり手の設定
-// （第0b回 Task 16 の要約の旗もこれで分ける。取り込んだ組を使う道は Task 13 で足す）
+// （第0b回 Task 16 の要約の旗もこれで分ける）。取り込んだ側は、照らし終えた組（managed）が無ければパスは空
 const manualGroup = (e) => (e === whisperEng ? Boolean(settings.localServerExe || settings.localModelPath) : Boolean(settings.sumServerExe || settings.sumModelPath));
-const engineExe = (e) => (e === whisperEng ? settings.localServerExe : settings.sumServerExe);
-const engineModel = (e) => (e === whisperEng ? settings.localModelPath : settings.sumModelPath);
+const managedFile = (e, k) => { const g = managed[e === whisperEng ? 'whisper' : 'sum']; return (g && g[k]) || ''; };
+const engineExe = (e) => (manualGroup(e) ? (e === whisperEng ? settings.localServerExe : settings.sumServerExe) : managedFile(e, 'exe'));
+const engineModel = (e) => (manualGroup(e) ? (e === whisperEng ? settings.localModelPath : settings.sumModelPath) : managedFile(e, 'model'));
 const enginePort = (e) => (e === whisperEng ? settings.localPort : settings.sumPort);
 const engineConfigured = (e) => Boolean(engineExe(e) && engineModel(e));
 // 実行ファイルとモデルは「あるか」だけでなく中身まで見る（#32。判断は mainlib.engineFileIssue）。
@@ -360,6 +371,8 @@ const ENGINE_MIN_BYTES = { whisper: 50_000_000, gguf: 300_000_000 };
 const fileSize = (f) => { try { return fs.statSync(f).size; } catch (_) { return 0; } };
 // 問題があれば利用者向けの一文、無ければ ''
 function engineCheck(eng) {
+  // 取り込んだ側は、確かめ中・壊れた・ランタイムで止める・まだ無い を先に伝える（第0b回 RF3・RF4）
+  if (!manualGroup(eng) && ENGINE_HOME.supported) { const m = managedIssue(eng); if (m) return m; }
   if (!engineConfigured(eng)) return `${eng.name}の実行ファイルまたはモデルが見つかりません`;
   const stat = (f) => fs.statSync(f);
   // 実行し直すスクリプトはエンジンごとに違う。名指ししないと利用者はどれか分からない
@@ -383,9 +396,27 @@ const appInstallDir = () => path.dirname(process.execPath);
 const engineDirNote = (eng) => engineDirWarning([engineExe(eng), engineModel(eng)], appInstallDir());
 const engineValid = (e) => !engineCheck(e);
 // 未設定なのか、設定はあるが中身に問題があるのかを分けて伝える
+// 取り込める PC で手の設定が無い側は［エンジンを取り込む］へ案内する。どちらの文も「未設定」の語を残す
+// （画面はこの語で設定タブへ連れて行く）。取り込んだ組を確かめている間・壊れていたときは、その文（engineCheck の頭）
 function whisperProblem() {
-  if (!engineConfigured(whisperEng)) return '文字起こしエンジンが未設定です。設定タブでパスを指定してください。';
+  const fetchable = ENGINE_HOME.supported && !manualGroup(whisperEng);
+  if (fetchable && (managedState.whisper === 'checking' || managedState.whisper === 'broken')) return engineCheck(whisperEng);
+  if (!engineConfigured(whisperEng)) {
+    return fetchable ? '文字起こしエンジンが未設定です。設定タブの［エンジンを取り込む］から取り込んでください。'
+      : '文字起こしエンジンが未設定です。設定タブでパスを指定してください。';
+  }
   return engineCheck(whisperEng);
+}
+// 取り込んだ側の、使えない理由（無ければ ''）。engineCheck の頭で見る（engine:status と起動テストにも同じ文が出る）
+function managedIssue(eng) {
+  const g = eng === whisperEng ? 'whisper' : 'sum';
+  if (managedState[g] === 'checking') return `${eng.name}を確かめています（数秒で終わります）`;
+  if (managedState[g] === 'broken') {
+    return `${eng.name}のファイルが消えたか変わっています。ウイルス対策が消した可能性があります（Windows セキュリティ → ウイルスと脅威の防止 → 保護の履歴）。取り直しています`;
+  }
+  // 取り込んだ組だけ、Visual C++ ランタイムが無い・古いなら起動しない（RF4。手で設定した組は記録だけ: Task 10）
+  if (managed[g]) return runtimeGate(engineRuntimeIssue(eng), { managed: true }) === 'block' ? engineRuntimeIssue(eng).message : '';
+  return `${eng.name}はまだ取り込んでいません。設定タブの［エンジンを取り込む］を押してください`;
 }
 
 // Visual C++ ランタイムの版（RF4。判断は mainlib.vcRuntimeIssue）。Windows のときだけ、exe のフォルダを先に、
@@ -415,6 +446,16 @@ function engineRuntimeIssue(eng) {
   if (!runtimeIssueCache.has(key)) {
     runtimeIssueCache.set(key, vcRuntimeIssue(vcRuntimeVersions(path.dirname(engineExe(eng)), system32Dir(), readFileHead), { whisper: eng === whisperEng }));
   }
+  return runtimeIssueCache.get(key);
+}
+// 取り込む組のランタイム。取り込む前の欄にも出す（数 GB を落としてから知らせない。RF4・Task 15）。
+// whisper の置き場所 → System32 の順に読む（whisper は vcomp140 も要るので、llama の分も含む）。覚え方は engineRuntimeIssue と同じ。
+// Windows 以外・取り込めない PC は null
+function managedRuntimeIssue() {
+  if (process.platform !== 'win32' || !ENGINE_HOME.supported) return null;
+  const exe = engineInstall.layout(ENGINE_HOME.root, MANIFEST).whisper.exe;
+  const key = `whisper|${exe}`;
+  if (!runtimeIssueCache.has(key)) runtimeIssueCache.set(key, vcRuntimeIssue(vcRuntimeVersions(path.dirname(exe), system32Dir(), readFileHead), { whisper: true }));
   return runtimeIssueCache.get(key);
 }
 
@@ -594,6 +635,37 @@ function restartEnginesIfNeeded() {
   if (!whisperEng.proc && engineValid(whisperEng)) startEngine(whisperEng);
 }
 
+// ---------------------------------------------------------------- 取り込んだエンジン（第0b回 設計 B・RF3）
+// 取り込んだ exe と DLL を、この起動の中で SHA-256 で照らし終えてから使う（RF3。whisper 約 11.9MB・llama 約 44.4MB）
+async function verifyManagedAtStartup() {
+  let v;
+  try {
+    v = await engineInstall.verifyCandidates(managedCands);
+  } catch (e) {
+    // 照らせなかった組は使わない（「確かめています」のまま残さない）
+    engineLog(`取り込んだエンジンの照らしに失敗: ${e && e.message}`);
+    v = { whisper: null, sum: null, bad: [] };
+  }
+  managed = { whisper: v.whisper, sum: v.sum };
+  for (const g of ['whisper', 'sum']) managedState[g] = !managedCands[g] ? 'none' : v[g] ? 'ok' : 'broken';
+  if (v.bad.length) engineLog(`取り込んだエンジンの照らし: 合わない ${v.bad.map((b) => `${b.file}（${b.why}）`).join('、')}`);
+  restartEnginesIfNeeded();
+  // 起動のときの復旧の文字起こしは、照らし終わる前に「確かめています」で保留になる。使えるようになった今もう一度試す
+  if (recoveryQueue && managed.whisper && !manualGroup(whisperEng)) transcribeRecovered().catch((e) => engineLog(`復旧の文字起こしに失敗: ${e.message}`));
+  onManagedVerified(v);   // Task 14（壊れていた組の取り直し）。この Task では空の関数
+}
+// 照らした後の続き（Task 14 で、壊れていた組の案内と取り直しを足す）
+function onManagedVerified(_v) { /* Task 14 */ }
+
+// 取り込みの欄の写し（設定タブの画面が読む。Task 15）。読むだけ: 通信もフォルダ作りもしない
+async function engineFetchStatus() {
+  const installed = engineInstall.readInstalled(engineInstall.layout(ENGINE_HOME.root, MANIFEST).installed);
+  const plan = engineInstall.planInstall(MANIFEST, installed, fs.statSync, ENGINE_HOME.root);
+  return engineInstall.statusOf({ home: ENGINE_HOME, manifest: MANIFEST, plan, candidates: managedCands, runner: engineFetch && engineFetch.status(),
+    manual: { whisper: manualGroup(whisperEng), sum: manualGroup(sumEng) }, freeBytes: await engineInstall.freeBytesOf(ENGINE_HOME.root),
+    runtime: managedRuntimeIssue(), installed });
+}
+
 // ---------------------------------------------------------------- 文字起こし
 // 議事録の区間で「認識ヒントを渡すと空、渡さないと文字が取れた」が続けて PROMPT_OFF_AFTER 回起きたら、
 // 同じエンジン・同じヒントの間はヒントを渡さない。毎回 2 回送ると、遅い PC では文字起こしが録音に
@@ -612,7 +684,7 @@ const promptOff = () => promptOffSig !== '' && promptOffSig === promptSig();
 // ヒントあり CER 67%（文の 54% が抜けた）、ヒントなし 57%。長いヒントでは話し声にも空を返す（0.1.0 の「0 区間」）。
 // kotoba は 5 秒前後の短い音声で学習されていて、ヒント付きの学習例は少ない。large-v3-turbo は
 // ヒントの有無で変わらない（どちらも 20%）ので、そちらには今までどおり渡す
-const isKotobaModel = () => /kotoba/i.test(path.basename(settings.localModelPath || ''));
+const isKotobaModel = () => /kotoba/i.test(path.basename(engineModel(whisperEng) || ''));
 // 設定のエンジン欄に出す、モデルの勧め。kotoba は同じ区間で large-v3-turbo の 3 倍ほど誤り、速さはほぼ同じ
 // コマンドは文末に札を付けて置く（文の途中に置くと、後ろの語までひと続きのコマンドと読まれる。engineIssueMessage と同じ）。
 // 前の版の setup-local-engine.ps1 は既定が kotoba なので、-Model を必ず付けて示す
@@ -1764,8 +1836,15 @@ async function doRunSummary(pageId) {
     return { ok: false, error: err };
   }
   if (!engineValid(sumEng)) {
-    const err = '要約エンジンが未設定のため、文字起こしのみ保存しました。'
-      + 'setup-summarizer.ps1 を実行し、設定タブでパスを指定すると「要約を生成」で作成できます。';
+    // 取り込める PC で手の設定が無い側は［エンジンを取り込む］を指す（第0b回）。まだ取り込んでいなければ「未設定」の語を残す
+    // （画面はこの語で設定タブへ連れて行く）。取り込んだ組を確かめ中・壊れた・ランタイムで止めたときは、その理由を伝える
+    const fetchable = ENGINE_HOME.supported && !manualGroup(sumEng);
+    const err = !fetchable
+      ? '要約エンジンが未設定のため、文字起こしのみ保存しました。'
+        + 'setup-summarizer.ps1 を実行し、設定タブでパスを指定すると「要約を生成」で作成できます。'
+      : managedState.sum === 'none'
+        ? '要約エンジンが未設定のため、文字起こしのみ保存しました。設定タブの［エンジンを取り込む］で取り込むと「要約を生成」で作成できます。'
+        : `要約エンジンを使えないため、文字起こしのみ保存しました。${engineCheck(sumEng)}`;
     const saved = saveIfExists(store, pageId, (p) => { p.summaryError = err; });
     if (!saved) return gone();
     clearUi();
@@ -2206,6 +2285,8 @@ function setupIpc() {
   // 設定の「エンジン：正常／要確認」。置き場所のファイルを見るだけで、エンジンは起動しない（要約は約 2〜3GB: #58）
   ipcMain.handle('engine:status', () => ({ ok: true, whisper: engineCheck(whisperEng), sum: engineCheck(sumEng),
     whisperNote: isKotobaModel() ? KOTOBA_NOTE : '' }));
+  // 取り込みの欄の写し（第0b回）。読むだけで、取り込みは始めない
+  ipcMain.handle('engine:fetch-status', () => engineFetchStatus());
   // 辞書が初期プロンプトの予算に収まっているか（#23）。kept: 収まった語数、total: 辞書の語数。
   // 尻尾（直前の発言）は付けずに数える（辞書そのものの収まり具合を見せるため）
   ipcMain.handle('prompt:info', () => {
@@ -2332,6 +2413,10 @@ if (!gotLock) {
   app.on('second-instance', () => createMainWindow());
   app.whenReady().then(() => {
     loadStores();
+    // 取り込んだエンジンの候補を記録から読む（読むだけ。フォルダは作らない）。照らし終えるまで managed は空なので、
+    // 取り込んだ側は下の起動の行では起動しない（RF3）。手で設定した側は今までどおり起動する
+    managedCands = engineInstall.managedCandidates(ENGINE_HOME, MANIFEST, engineInstall.readInstalled(engineInstall.layout(ENGINE_HOME.root, MANIFEST).installed), fs.statSync);
+    for (const g of ['whisper', 'sum']) if (managedCands[g]) managedState[g] = 'checking';
     recoverDraftIfAny();
     if (!recoveryQueue) recoveryQueue = loadSavedRecoveryQueue();   // 前回エンジンが無くて残した分
     cleanOrphanSegbuf(recoveryQueue ? recoveryQueue.dir : '');   // 復旧の後で（復旧中のフォルダは残す）
@@ -2365,6 +2450,8 @@ if (!gotLock) {
     }
     createTray();
     if (engineValid(whisperEng)) startEngine(whisperEng);
+    // 照らし終えたら managed に入れて起動し直す（待たない）
+    verifyManagedAtStartup();
     // 使われないエンジンを 60 秒ごとに見て止める（#58。判断は mainlib.idleEnginesToStop）
     setInterval(releaseIdleEngines, ENGINE_IDLE_CHECK_MS);
     // 復旧ページに文字起こし待ちの音声が残っていれば、エンジンの用意を待って順に片付ける

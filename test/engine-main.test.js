@@ -216,3 +216,65 @@ test('engine-smoke.js の llama も、取り込んだ llama と同じ旗で起�
   const s = read('tools/engine-smoke.js');
   for (const f of ["'--cache-ram', '0'", "'-np', '1'", "'-fa', 'on'", "'--reasoning', 'off'"]) assert.ok(s.includes(f), f);
 });
+
+// ---------------------------------------------------------------- Task 13（設計 B・RF3・RF7）
+// 詳細設定の実行ファイルとモデルが両方空の側は、この起動の中で exe と DLL を照らし終えた取り込んだ組を使う。
+// 設定には書かない（画面の自動保存が空の欄の値で書き戻す競り合いを作らない）
+test('設計 B: 実行ファイルとモデルが両方空の側だけ、取り込んだエンジンを使う。片方でも入っていれば手の設定', () => {
+  const m = code(read('src/main.js'));
+  assert.ok(m.includes('const manualGroup = (e) => (e === whisperEng ? Boolean(settings.localServerExe || settings.localModelPath) : Boolean(settings.sumServerExe || settings.sumModelPath));'));
+  assert.ok(m.includes("const engineExe = (e) => (manualGroup(e) ? (e === whisperEng ? settings.localServerExe : settings.sumServerExe) : managedFile(e, 'exe'));"));
+  assert.ok(m.includes("const engineModel = (e) => (manualGroup(e) ? (e === whisperEng ? settings.localModelPath : settings.sumModelPath) : managedFile(e, 'model'));"));
+});
+test('設計 B: VAD の自動の発見・kotoba の判定・-m は engineModel から（取り込んだモデルでも効く）', () => {
+  const m = code(read('src/main.js'));
+  assert.ok(fnBody(m, 'function resolveVadModel()', '\n}').includes("path.dirname(engineModel(whisperEng) || '')"));
+  assert.ok(m.includes("const isKotobaModel = () => /kotoba/i.test(path.basename(engineModel(whisperEng) || ''));"));
+  const args = fnBody(m, 'function engineSpawnArgs(eng)', '\n}');
+  assert.strictEqual((args.match(/'-m', engineModel\(eng\),/g) || []).length, 2);
+  assert.ok(!/settings\.(localModelPath|sumModelPath)/.test(args));
+});
+test('RF7: 取り込んでも settings を書かない（画面の自動保存との競り合いを作らない）', () => {
+  const m = code(read('src/main.js'));
+  for (const k of ['localServerExe', 'localModelPath', 'vadModelPath', 'sumServerExe', 'sumModelPath']) {
+    assert.ok(!new RegExp(`settings\\.${k}\\s*=[^=]`).test(m), `${k} を main が書いている`);
+  }
+});
+test('RF3: whenReady は 候補を読む → 今の起動の行（managed は空）→ 照らし の順。照らし終えてから managed に入れて起動し直す', () => {
+  const m = code(read('src/main.js'));
+  assert.ok(m.includes('let managed = { whisper: null, sum: null };'));
+  const ready = fnBody(m, 'app.whenReady().then(', '\n  });');
+  const a = ready.indexOf('engineInstall.managedCandidates('); const b = ready.indexOf('if (engineValid(whisperEng)) startEngine(whisperEng);');
+  const c = ready.indexOf('verifyManagedAtStartup();');
+  assert.ok(a > 0 && a < b && b < c, `順が違う: ${a} ${b} ${c}`);
+  assert.ok(!/managed = /.test(ready.slice(0, b)), '照らす前に managed に入れている');
+  const v = fnBody(m, 'async function verifyManagedAtStartup()', '\n}');
+  const i1 = v.indexOf('await engineInstall.verifyCandidates(managedCands)'); const i2 = v.indexOf('managed = { whisper: v.whisper, sum: v.sum };'); const i3 = v.indexOf('restartEnginesIfNeeded();');
+  assert.ok(i1 > 0 && i1 < i2 && i2 < i3, '照らす → 入れる → 起動し直す の順でない');
+});
+test('managedIssue: 確かめ中・壊れた・ランタイムで止める・まだ無い を返し、engineCheck の頭で見る', () => {
+  const m = code(read('src/main.js'));
+  const f = fnBody(m, 'function managedIssue(eng)', '\n}');
+  for (const k of ["'checking'", "'broken'", 'runtimeGate(engineRuntimeIssue(eng), { managed: true })', '［エンジンを取り込む］']) assert.ok(f.includes(k), k);
+  assert.ok(fnBody(m, 'function engineCheck(eng)', '\n}').includes('if (!manualGroup(eng) && ENGINE_HOME.supported) { const m = managedIssue(eng); if (m) return m; }'));
+});
+test('engine:fetch-status は読むだけ（通信しない・フォルダを作らない）。preload の名前がそろう', () => {
+  const m = code(read('src/main.js'));
+  assert.ok(m.includes("ipcMain.handle('engine:fetch-status', () => engineFetchStatus());"));
+  const f = fnBody(m, 'async function engineFetchStatus()', '\n}');
+  for (const k of ['request', 'mkdir', 'fetchFile', '.start(']) assert.ok(!f.includes(k), k);
+  assert.ok(f.includes('engineInstall.statusOf(') && f.includes('engineInstall.freeBytesOf('));
+  assert.ok(read('src/preload.js').includes("  engineFetchStatus: () => ipcRenderer.invoke('engine:fetch-status'),"));
+});
+test('未設定の文は、取り込める PC では［エンジンを取り込む］を指し、「未設定」の語は残す', () => {
+  const w = fnBody(code(read('src/main.js')), 'function whisperProblem()', '\n}');
+  assert.ok(w.includes('［エンジンを取り込む］') && (w.match(/未設定/g) || []).length >= 2);
+});
+test('mainrun は main.js を読む前に LOCALAPPDATA を一時フォルダ（日本語と 𠮷 の名前）に向ける（Windows の CI で本当のプロファイルの natsu\\engine を見ない）', () => {
+  const r = code(read('test/helpers/mainrun.js'));
+  const d = r.indexOf("const localAppData = path.join(tmp, '");
+  const i = r.indexOf('process.env.LOCALAPPDATA = localAppData;');
+  const j = r.indexOf("require(path.join(ROOT, 'src', 'main.js'));");
+  assert.ok(d > 0 && d < i && i < j, `順が違う: ${d} ${i} ${j}`);
+  assert.match(r.slice(d, r.indexOf('\n', d)), /𠮷/);
+});
