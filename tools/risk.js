@@ -240,8 +240,10 @@ function firstArg(src, open) {
   }
   return src.slice(open + 1, i).replace(/\s+/g, ' ').trim();
 }
-// 127.0.0.1 のエンジンへの呼び出し（文字列の頭が http://127.0.0.1 で、その後がポートか道か終わり）
-const LOOPBACK_ARG = /^['"`]http:\/\/127\.0\.0\.1(?=[:/'"`])/;
+// 127.0.0.1 のエンジンへの呼び出し（文字列の頭が http://127.0.0.1 で、その後が「:ポート（数字か ${…}。
+// 足し算で作るなら空）」と道・? ・# か文字列の終わり）。:80@10.0.0.2 のような userinfo の @ は
+// 本当のホストが別なので数える
+const LOOPBACK_ARG = /^(['"`])http:\/\/127\.0\.0\.1(?::(?:\d+|\$\{[^}]*\})?)?(?=[/?#]|\1)/;
 function fetchArgs(src) {
   const out = new Map();
   if (src == null) return out;

@@ -5,6 +5,7 @@
 const { test } = require('node:test');
 const assert = require('node:assert');
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 const cp = require('child_process');
 
@@ -104,6 +105,25 @@ test('RF2: analyze が変わった src の .js を fetchFindings に渡して BL
   assert.match(body, /add\('BLOCK', 'main の外向き通信'/, '見つけても BLOCK にしていない');
   assert.strictEqual(R.fetchFindings('src/x.js', '', "globalThis.fetch('https://example.invalid/a');\n").length, 1);
   assert.strictEqual(R.fetchFindings('src/x.js', '', "fetch('http://127.0.0.1.example.invalid/');\n").length, 1);
+  // 画面（src/renderer/）は main ではないので、.js でも数えない
+  assert.deepStrictEqual(R.fetchFindings('src/renderer/x.js', null, "fetch('https://example.invalid')\n"), []);
+  // 127.0.0.1 の後に userinfo の @ が来るものは、本当のホストが別なので数える。ポートを足し算で作る形は今までどおり通す
+  assert.strictEqual(R.fetchFindings('src/x.js', '', "fetch('http://127.0.0.1:80@10.0.0.2/');\n").length, 1);
+  assert.deepStrictEqual(R.fetchFindings('src/x.js', '', "fetch('http://127.0.0.1:' + port + '/health');\n"), []);
+});
+
+test('RF2: チェックリストに、ゲートが見る範囲（SCOPE.sees）が1行ずつ全部出る（main の外向きの通信を含む）', { skip: !hasGit && 'git が無い' }, () => {
+  const R = require('../tools/risk');
+  assert.ok(R.SCOPE.sees.includes('main プロセスの外向きの通信（グローバルの fetch）'));
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'natsu-取込𠮷-'));
+  try {
+    const out = path.join(dir, 'RELEASE-CHECK.md');
+    cp.execFileSync(process.execPath, ['tools/risk.js', '--base', 'HEAD', '--head', 'HEAD', '--checklist', out], { cwd: ROOT });
+    const lines = fs.readFileSync(out, 'utf8').split('\n');
+    for (const s of R.SCOPE.sees) {
+      assert.ok(lines.some((l) => l.startsWith(`- [x] ${s}: `) || l.startsWith(`- [ ] ${s}: `)), `チェックリストに「${s}」の行が無い`);
+    }
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
 
 test('復旧の導線が、画面を経由せずに main 側から到達できる', () => {

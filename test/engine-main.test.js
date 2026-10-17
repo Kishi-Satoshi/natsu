@@ -26,6 +26,10 @@ test('RF2: main のグローバル fetch は 127.0.0.1・localhost・::1 だけ�
   await assert.rejects(f({ url: 'https://huggingface.co/' }), /Electron の net/);
   assert.deepStrictEqual(seen, ['http://127.0.0.1:8991/v1/chat/completions']);
 });
+test('RF2: isLoopbackUrl は http: と https: だけ。ws:・ftp: などは 127.0.0.1・localhost・::1 でも偽', () => {
+  for (const u of ['ws://127.0.0.1:1/', 'ftp://localhost/', 'wss://[::1]:2/']) assert.ok(!isLoopbackUrl(u), u);
+  assert.ok(isLoopbackUrl('https://127.0.0.1:3/'));
+});
 test('RF2・#26: 読めない URL（ポートが 99999 など）は元の fetch に渡し、TypeError のまま返る', async () => {
   const g = loopbackOnlyFetch(globalThis.fetch);
   await assert.rejects(g('http://127.0.0.1:99999/health'), (e) => e instanceof TypeError && /URL/.test(e.message));
