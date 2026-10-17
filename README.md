@@ -125,7 +125,7 @@ powershell -ExecutionPolicy Bypass -File .\setup-summarizer.ps1
 ```
 表示されたパスを [設定] → [エンジン] → [詳細設定] に貼り付け → 起動テスト（手で入れたパスが優先されます）。
 要約のモデルの既定は、アプリの取り込みと同じ Gemma 4 E4B（`-Model 7b` で Qwen2.5-7B）。
-（`-Model kotoba` で日本語特化の kotoba-whisper も選べますが、NaTsu の 75 秒ずつの文字起こしでは
+（setup-local-engine.ps1 の `-Model kotoba` で日本語特化の kotoba-whisper も選べますが、NaTsu の 75 秒ずつの文字起こしでは
 文の抜け落ちが多く、誤りが large-v3-turbo の約 3 倍でした。速さはほぼ同じです。）
 エンジンの Visual C++ ランタイム（14.51 以上）は https://aka.ms/vc14/vc_redist.x64.exe（管理者の権限が要ります）。
 

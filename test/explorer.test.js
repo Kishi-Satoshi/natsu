@@ -194,6 +194,8 @@ test('get-installer.ps1: セットアップスクリプトを落とさず、終�
   const s = read('get-installer.ps1');
   assert.ok(s.includes('［エンジンを取り込む］'));
   assert.ok(!s.includes('setup-local-engine.ps1') && !s.includes('貼り付け'));
+  // 計画の2つの確かめは、名前を書かない `-like "setup-*.ps1"` の取得の繰り返しを見逃すので、注釈でない行に setup- が無いことも見る
+  assert.ok(!codeLines(s).some((l) => /setup-/.test(l)), 'get-installer.ps1 がまた setup-*.ps1 を落としている');
 });
 
 test('ランタイムの案内は aka.ms/vc14（14.51 以上）。aka.ms/vs/17（14.44）は残っていない', () => {
