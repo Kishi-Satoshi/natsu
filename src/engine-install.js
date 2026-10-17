@@ -644,7 +644,8 @@ function makeRunner(deps = {}) {
   const root = (home && home.supported && home.root) || null;
   const installedFile = root ? path.join(root, 'installed.json') : null;
   const dlDir = root ? path.join(root, '.download') : null;
-  const repaired = new Set();                 // この起動の中で取り直した項目（同じ項目は2回直さない。RF3）
+  const repaired = new Set();                 // この起動の中で取り直して置き終えた項目（同じ項目は2回直さない。RF3）
+  const repairing = new Set();                // 取り直しを始めたが、まだ置き終えていない項目（待ち・記録中・一時停止・locked の後は続きとして取る）
   let job = null;                             // 今の仕事（動いていなければ null）
   let snap = { state: null, error: null };    // 係の状態。null は止まっている（済んだ・何もしていない）
   let lastFree = null;                        // 最後に測った空き
@@ -924,18 +925,32 @@ function makeRunner(deps = {}) {
     return { code, extra };
   }
 
-  /** 使っている組（active）の置き場所に、違う SHA-256 のものを置こうとしているか（ピンの作り間違い）。 */
+  /**
+   * 使っている組（active）の置き場所に、違う SHA-256 のものを置こうとしているか（ピンの作り間違い）。
+   * Windows は大文字と小文字を区別しないので、小文字で比べる。
+   */
   function placeTaken(inst, it) {
-    const place = placeOf(it);
-    return GROUPS.some((g) => (inst.active[g] || []).some((s) => !sameSha(s, it.sha256) && isObj(inst.items[s]) && inst.items[s].place === place));
+    const place = String(placeOf(it)).toLowerCase();
+    return GROUPS.some((g) => (inst.active[g] || []).some((s) => !sameSha(s, it.sha256) && isObj(inst.items[s])
+      && String(inst.items[s].place).toLowerCase() === place));
   }
 
-  /** 置いたはずの項目が消えたか変わっていた。同じ起動の中で2回目なら、取らずに defender で止める（RF3）。 */
+  /**
+   * 置いたはずの項目が消えたか変わっていた。同じ起動の中で、取り直して置き終えた後の2回目なら、取らずに defender で止める（RF3）。
+   * 数えるのは置き終えたとき（repairDone）。取り直しの途中で待った・記録が始まった・一時停止した・フォルダをどけられなかった
+   * （locked）ときは、続きとして取り直す（取り込みを繰り返してはいないので、defender にしない）。
+   */
   function broken(it, file) {
     const shown = shownPathOf(root, file);
     if (repaired.has(it.id)) throw installError('defender', `${it.id} がまた消えたか変わった`, { file: shown });
-    repaired.add(it.id);
+    if (repairing.has(it.id)) return;
+    repairing.add(it.id);
     say(`${it.label} のファイルが消えたか変わっています。1回だけ取り直します（${shown}）`);
+  }
+
+  /** 取り直して置き終えた（この起動の中では、もう取り直さない）。 */
+  function repairDone(it) {
+    if (repairing.delete(it.id)) repaired.add(it.id);
   }
 
   /** 項目を照らし・取り・置き・記録する。 */
@@ -968,6 +983,7 @@ function makeRunner(deps = {}) {
     const r = await fetchItem(j, it, dest);
     if (r && r.reused) say(`${it.label} は置き場所にもう正しいものがありました`);
     recordInstalled(home, it);
+    repairDone(it);
   }
 
   async function placeZip(j, it, recheck) {
@@ -994,6 +1010,7 @@ function makeRunner(deps = {}) {
     await fetchItem(j, it, zipPath);
     const r = await installZip(it, zipPath, root, { sleep });
     recordInstalled(home, it, r);
+    repairDone(it);
   }
 
   /**

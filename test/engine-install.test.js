@@ -310,8 +310,16 @@ test('recordInstalled: zip は展開したファイルごと、ファイルは�
 // ---------------------------------------------------------------- その3（Task 12b）: 取り込みの係（順・空き・待ち・一時停止・取り直し）
 // 計画のテストのまま。各テストに { timeout: 5000 } だけ足した（係が止まらない誤りで npm test が終わらなくならないように。5 秒の決まり）
 const homeOf = () => ({ supported: true, root: path.join(tmp(), 'engine') });
-const depsOf = (set, home, o = {}) => ({ home, manifest: set.manifest, request: fakeRequest, sleep: async () => {}, now: () => 0,
-  statfs: async () => ({ bavail: 1e9, bsize: 4096 }), fetchOpts: { requireHttps: false, headerTimeoutMs: 1000, stallMs: 300 }, ...o });
+// depsOf は計画のとおり。ただし sleep（差し替えたものも）の呼ばれた数に上限をつけた（点検の指摘）。テストが done() を
+// 待たずに落ちたときや、係が止まらない誤りのときに、閉じたサーバーへの試しと待ちが回り続けて node --test が終わらなく
+// ならないように。上限を超えると sleep が投げ、係はそこで止まる（ふつうのテストは多くて数百回）
+const SLEEP_LIMIT = 20000;
+const depsOf = (set, home, o = {}) => {
+  const d = { home, manifest: set.manifest, request: fakeRequest, sleep: async () => {}, now: () => 0,
+    statfs: async () => ({ bavail: 1e9, bsize: 4096 }), fetchOpts: { requireHttps: false, headerTimeoutMs: 1000, stallMs: 300 }, ...o };
+  const inner = d.sleep; let n = 0;
+  return { ...d, sleep: async (ms) => { if (++n > SLEEP_LIMIT) throw new Error(`sleep が ${SLEEP_LIMIT} 回を超えた（係が止まらない）`); return inner(ms); } };
+};
 const ids = (set) => set.hits().map((h) => h.id);
 test('start はすぐ返り、動いている仕事をもう一度始めない（2 回押しても二重にならない）', { timeout: 5000 }, async () => {
   const set = await smallSet();
@@ -592,6 +600,102 @@ test('installed.json を書けない（EPERM が続く）は locked の文。取
     assert.strictEqual(s.state, 'unsupported'); assert.ok(!u.running());
     await u.done();
   } finally { fs.renameSync = orig; await set.close(); }
+});
+// ここから下は点検で足したテスト（変異が緑のまま残ったところと、取り直しの 1 回の数え方）
+test('一時停止中の取り直しは、その項目だけを取る。ほかの残りは取らず、そろっていない組の知らせも出さない', { timeout: 5000 }, async () => {
+  let hook = null;
+  const set = await smallSet({ onHit: (id) => { if (id === 'whisper-model' && hook) hook(); } });
+  try {
+    const home = homeOf(); const r = I.makeRunner(depsOf(set, home));
+    hook = () => { hook = null; r.pause('user'); };
+    r.start({ user: true }); await r.done();
+    const n0 = ids(set).length;
+    fs.rmSync(path.join(home.root, 'whisper-1.0.0', 'whisper-server.exe'));
+    const ready = []; const r2 = I.makeRunner(depsOf(set, home, { onGroupReady: (g) => ready.push(g) }));
+    r2.start({ repair: ['whisper-engine'] }); await r2.done();
+    assert.deepStrictEqual(ids(set).slice(n0), ['whisper-engine'], '一時停止中なのに、ほかの残りも取った');
+    assert.deepStrictEqual(ready, [], 'そろっていない組を知らせた');
+  } finally { await set.close(); }
+});
+test('触られて中身も違う（changed）ファイルは 1 回だけ取り直し、同じ起動の中でまた違えば defender', { timeout: 5000 }, async () => {
+  const set = await smallSet();
+  try {
+    const home = homeOf(); const r = I.makeRunner(depsOf(set, home)); r.start({ user: true }); await r.done();
+    const f = path.join(home.root, 'models', 'w-model.bin');
+    const spoil = () => { const b = fs.readFileSync(f); b[0] ^= 0xff; fs.writeFileSync(f, b); fs.utimesSync(f, new Date(), new Date(Date.now() + 60000)); };
+    spoil(); r.start({ user: true }); await r.done();
+    assert.strictEqual(r.status().state, 'ready'); assert.strictEqual(ids(set).filter((i) => i === 'whisper-model').length, 2);
+    spoil(); r.start({ user: true }); await r.done();
+    assert.strictEqual(r.status().error.code, 'defender'); assert.strictEqual(ids(set).filter((i) => i === 'whisper-model').length, 2);
+  } finally { await set.close(); }
+});
+test('壊れた版のフォルダをどけられない（locked）ときは、取り直しの 1 回を使わない。次に押せば取り直す', { timeout: 5000 }, async () => {
+  const set = await smallSet();
+  const orig = fs.promises.rename;
+  try {
+    const home = homeOf(); const r = I.makeRunner(depsOf(set, home));
+    r.start({ user: true }); await r.done();
+    const dir = path.join(home.root, 'whisper-1.0.0'); const exe = path.join(dir, 'whisper-server.exe');
+    fs.rmSync(exe);
+    fs.promises.rename = async (from, to) => { if (from === dir) throw Object.assign(new Error('x'), { code: 'EBUSY' }); return orig(from, to); };
+    try { r.start({ repair: ['whisper-engine'] }); await r.done(); } finally { fs.promises.rename = orig; }
+    assert.strictEqual(r.status().error.code, 'locked');
+    r.start({ user: true }); await r.done();
+    assert.strictEqual(r.status().state, 'ready', JSON.stringify(r.status().error));
+    assert.ok(fs.existsSync(exe)); assert.strictEqual(ids(set).filter((i) => i === 'whisper-engine').length, 2);
+    // 置き終えた取り直しは 1 回に数える（同じ起動の中でまた消えたら defender）
+    fs.rmSync(exe); r.start({ user: true }); await r.done();
+    assert.strictEqual(r.status().error.code, 'defender'); assert.strictEqual(ids(set).filter((i) => i === 'whisper-engine').length, 2);
+  } finally { fs.promises.rename = orig; await set.close(); }
+});
+test('取り直しの途中で回線が切れても、記録が始まっても、一時停止しても、defender にせず取り直しを続ける', { timeout: 5000 }, async () => {
+  const set = await smallSet();
+  try {
+    const E = require('../src/engine-fetch');
+    const home = homeOf(); let fail = null; let holding = false; let r;
+    r = I.makeRunner(depsOf(set, home, { hold: () => holding, sleep: async () => { holding = false; },
+      fetchFile: async (pin, o) => {
+        if (fail && fail.id === pin.id) { const f = fail; fail = null; f.act(); }
+        return E.fetchFile(pin, o);
+      } }));
+    r.start({ user: true }); await r.done();
+    const cancelled = () => Object.assign(new Error('x'), { code: 'cancelled' });
+    const spoil = (f) => { const b = fs.readFileSync(f); b[0] ^= 0xff; fs.writeFileSync(f, b); fs.utimesSync(f, new Date(), new Date(Date.now() + 60000)); };
+    // zip: 消えた exe の取り直しの最初の要求が、待てば直る失敗（net）
+    const exe = path.join(home.root, 'whisper-1.0.0', 'whisper-server.exe');
+    fs.rmSync(exe);
+    fail = { id: 'whisper-engine', act: () => { throw Object.assign(new Error('x'), { code: 'net' }); } };
+    r.start({ repair: ['whisper-engine'] }); await r.done();
+    assert.strictEqual(r.status().state, 'ready', JSON.stringify(r.status().error)); assert.ok(fs.existsSync(exe));
+    // ファイル: 中身の違うモデルの取り直しの途中で記録が始まる
+    const wm = path.join(home.root, 'models', 'w-model.bin');
+    spoil(wm);
+    fail = { id: 'whisper-model', act: () => { holding = true; throw cancelled(); } };
+    r.start({ user: true }); await r.done();
+    assert.strictEqual(r.status().state, 'ready', JSON.stringify(r.status().error));
+    assert.ok(fs.readFileSync(wm).equals(set.bodies['whisper-model']));
+    // ファイル: 取り直しの途中の［一時停止］の後に、また押す
+    const vad = path.join(home.root, 'models', 'vad.bin');
+    spoil(vad);
+    fail = { id: 'whisper-vad', act: () => { r.pause('user'); throw cancelled(); } };
+    r.start({ user: true }); await r.done();
+    assert.strictEqual(r.status().state, 'paused');
+    r.start({ user: true }); await r.done();
+    assert.strictEqual(r.status().state, 'ready', JSON.stringify(r.status().error));
+    assert.ok(fs.readFileSync(vad).equals(set.bodies['whisper-vad']));
+  } finally { await set.close(); }
+});
+test('使っている組の置き場所と、大文字と小文字だけが違う置き場所にも置かない（Windows では同じファイル）', { timeout: 5000 }, async () => {
+  const s1 = await smallSet(); const s2 = await smallSet({ gen: 2, sameDest: true });
+  try {
+    const home = homeOf();
+    const a = I.makeRunner(depsOf(s1, home)); a.start({ user: true }); await a.done();
+    I.setActive(home, s1.manifest, 'whisper');
+    const m2 = { ...s2.manifest, items: s2.manifest.items.map((i) => (i.id === 'whisper-model' ? { ...i, dest: 'models/W-Model.bin' } : i)) };
+    const b = I.makeRunner(depsOf(s2, home, { manifest: m2 })); b.start({ user: true }); await b.done();
+    assert.strictEqual(b.status().error.code, 'place-in-use');
+    assert.ok(!ids(s2).includes('whisper-model'));
+  } finally { await s1.close(); await s2.close(); }
 });
 
 // ---------------------------------------------------------------- その4（Task 12c）: 古い版の片付けと、ライセンスの写し
