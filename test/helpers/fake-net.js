@@ -6,7 +6,10 @@
 //  - Range などの見出しは、転送の先にも付ける（Chromium と同じ）。
 //  - 401/407 に WWW-Authenticate / Proxy-Authenticate があれば 'login'。受け手が無ければ取り消す。
 //  - abort() … 次の tick に 'abort'。応答の流れは 'error' 無しで壊す。
-//  - content-encoding が gzip / deflate / br の本体は、Chromium と同じく伸ばして渡し、見出しは元のまま。
+//  - Accept-Encoding を自分で付けなければ、Chromium と同じく、Range のときは identity、ほかは gzip, deflate
+//    （https は br も）を送る。応答の content-encoding（gzip / deflate / br）が送った Accept-Encoding に
+//    あれば伸ばして渡し、見出しは元のまま。無ければ（identity を頼んだのに gzip が来た）伸ばさずに
+//    net::ERR_CONTENT_DECODING_FAILED で死に、応答は渡さない（本物の Electron 31 がそうだった。第0b回 Task 9）。
 //  - 応答の headers は小文字のキー。時間切れの仕組みは持たない（本物にも無い）。
 //  - before(n) … n 回目の要求の前に呼ぶ。{ login: authInfo, error: 'net::ERR_…' } を返すと、
 //    サーバーへ行かずにその出来事を起こす（https のプロキシの 407 は、応答ではなく login と error で来る）。
@@ -14,6 +17,18 @@ const http = require('http');
 const https = require('https');
 const zlib = require('zlib');
 const { EventEmitter } = require('events');
+
+const hasHeader = (h, name) => Object.keys(h).some((k) => k.toLowerCase() === name);
+const headerValue = (h, name) => { const k = Object.keys(h).find((x) => x.toLowerCase() === name); return k === undefined ? '' : String(h[k]); };
+// Accept-Encoding の値から、受け取れる content-encoding の集まり（q=0 は除く。identity はいつも受け取れる）
+function acceptedEncodings(v) {
+  const out = new Set(['identity']);
+  for (const part of String(v).split(',')) {
+    const [name, ...params] = part.trim().toLowerCase().split(';').map((x) => x.trim());
+    if (name && !params.some((x) => /^q=0(\.0*)?$/.test(x))) out.add(name);
+  }
+  return out;
+}
 
 function makeFakeRequest({ before = null } = {}) {
   let n = 0;
@@ -40,7 +55,11 @@ function makeFakeRequest({ before = null } = {}) {
     };
     const go = (url) => {
       const lib = url.startsWith('https:') ? https : http;
-      cur = lib.get(url, { headers }, (res) => {
+      const wire = { ...headers };
+      if (!hasHeader(wire, 'accept-encoding')) {
+        wire['Accept-Encoding'] = hasHeader(wire, 'range') ? 'identity' : url.startsWith('https:') ? 'gzip, deflate, br' : 'gzip, deflate';
+      }
+      cur = lib.get(url, { headers: wire }, (res) => {
         const st = res.statusCode;
         if ([301, 302, 303, 307, 308].includes(st) && res.headers.location) {
           res.resume();
@@ -61,6 +80,9 @@ function makeFakeRequest({ before = null } = {}) {
         const deliver = () => {
           if (aborted) { res.resume(); return; }
           const enc = String(res.headers['content-encoding'] || 'identity').toLowerCase();
+          if (enc !== 'identity' && !acceptedEncodings(headerValue(wire, 'accept-encoding')).has(enc)) {
+            res.resume(); die(new Error('net::ERR_CONTENT_DECODING_FAILED')); return;
+          }
           let body = res;
           if (enc === 'gzip' || enc === 'deflate' || enc === 'br') {
             body = enc === 'gzip' ? zlib.createGunzip() : enc === 'deflate' ? zlib.createInflate() : zlib.createBrotliDecompress();

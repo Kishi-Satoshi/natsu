@@ -14,8 +14,11 @@
  *   5. cache: 'no-store' で、同じ URL の 2 回目もサーバーに届く
  *   6. Accept-Encoding: identity がサーバーに届く
  *   7. 本番の fetchFile に net.request を渡して、途中で切れる cdn から続きを取り、SHA-256 が合う
- *   8. cdn が gzip の 200 を返すと、本体は伸ばされて届き、見出しの content-encoding と content-length
- *      （圧縮した長さ）は元のまま（fake-net と engine-fetch の decide の前提）
+ *   8. 圧縮するプロキシ（cdn がいつも gzip で返す）。Accept-Encoding を自分で付けない要求は、Chromium が
+ *      gzip を頼んで伸ばし、見出しの content-encoding と content-length（圧縮した長さ）は元のまま（decide の
+ *      skipLength の前提）。本番の fetchFile も最後まで取り、SHA-256 が合う（identity を頼んで断られたら、
+ *      Accept-Encoding と Range を付けずに 0 から取り直す）。identity を頼んだ要求がどうなるかは参考に出す
+ *      （2026-10-17 の初回は net::ERR_CONTENT_DECODING_FAILED で断られた。伸ばして渡す前提は外れていた）
  * 結果は 1 行ずつ OK／NG で出す。全部 OK なら終了コード 0、1 つでも NG（か数が足りない）なら 1（exitCodeOf）。どこかで止まっても、
  * 120 秒の見張りで 1 で終わる（ジョブの 15 分を待たない）。
  *
@@ -197,13 +200,34 @@ async function checkFetchFile(c) {
 }
 
 async function checkGzip(c) {
-  const s = await c.serve({ body: TEXT, script: [{ gzip: true }] });
+  const s = await c.serve({ body: TEXT, script: [{ gzip: true }, { gzip: true }] });
   const zipped = zlib.gzipSync(TEXT).length;            // range-server と同じ圧縮なので、同じ長さ
-  const r = await exchange(c.request, s.originUrl, { headers: { 'Accept-Encoding': 'identity' } });
+  // 参考: identity を頼んだのに gzip が来たとき（結果の OK／NG には数えない）
+  let identity;
+  try {
+    const r0 = await exchange(c.request, s.originUrl, { headers: { 'Accept-Encoding': 'identity' } });
+    identity = `${r0.status}・本体 ${r0.body.length} バイト`;
+  } catch (e) { identity = `断られた ${(e && e.message) || e}`; }
+  // Accept-Encoding を付けない要求（fetchFile が断られた後に出す形）
+  const r = await exchange(c.request, s.originUrl);
   const enc = one(headerOf(r.headers, 'content-encoding'));
   const len = one(headerOf(r.headers, 'content-length'));
-  const ok = r.status === 200 && r.body.equals(TEXT) && enc === 'gzip' && String(len) === String(zipped);
-  return { ok, detail: `${r.status}、本体 ${r.body.length} バイト（元 ${TEXT.length}）、content-encoding ${JSON.stringify(enc)}、content-length ${JSON.stringify(len)}（圧縮した長さ ${zipped}）` };
+  const asked = s.requests().filter((x) => x.name === 'cdn').map((x) => x.enc).pop();
+  const plainOk = r.status === 200 && r.body.equals(TEXT) && enc === 'gzip' && String(len) === String(zipped);
+  // 本番の fetchFile で、いつも圧縮する cdn から最後まで取る
+  // maxFails（既定 6）より多く圧縮する（断られたまま identity を頼み続けると、最後に圧縮しない応答で通ってしまわないように）
+  const f = await c.serve({ body: BODY, script: Array.from({ length: 12 }, () => ({ gzip: true })) });
+  const dir = c.tmp();
+  const got = await fetchFile({ url: f.originUrl, size: BODY.length, sha256: BODY_SHA }, {
+    dir: path.join(dir, '.download'), dest: path.join(dir, 'models', 'z.bin'), request: c.request,
+    requireHttps: false, headerTimeoutMs: 10000, stallMs: 10000, sleep: (ms) => wait(Math.min(ms, 50)),
+  });
+  const same = sha(fs.readFileSync(got.file)) === BODY_SHA;
+  const cdn = f.requests().filter((x) => x.name === 'cdn');
+  const ok = plainOk && same;
+  return { ok, detail: `付けない要求: ${r.status}・本体 ${r.body.length} バイト（元 ${TEXT.length}）・頼んだ Accept-Encoding ${JSON.stringify(asked)}・`
+    + `content-encoding ${JSON.stringify(enc)}・content-length ${JSON.stringify(len)}（圧縮した長さ ${zipped}）／fetchFile: SHA-256 ${same ? '一致' : '不一致'}・`
+    + `cdn への要求 ${cdn.length} 回（Accept-Encoding ${JSON.stringify(cdn.map((x) => x.enc))}・Range ${JSON.stringify(cdn.map((x) => x.range))}）／参考: identity を頼んだ要求は ${identity}` };
 }
 
 const CHECKS = [
@@ -214,7 +238,7 @@ const CHECKS = [
   [5, "cache: 'no-store' で、同じ URL の 2 回目もサーバーに届く", checkNoStore],
   [6, 'Accept-Encoding: identity がサーバーに届く', checkIdentity],
   [7, '本番の fetchFile で、途中で切れる cdn から続きを取り、SHA-256 が合う', checkFetchFile],
-  [8, 'gzip の 200 は伸ばして届き、見出しの content-encoding と content-length（圧縮した長さ）は元のまま', checkGzip],
+  [8, '圧縮するプロキシ: Accept-Encoding を付けない要求は伸ばして届き、見出しは元のまま。本番の fetchFile も最後まで取る', checkGzip],
 ];
 
 /**

@@ -525,3 +525,56 @@ test('名前の変更を待っている間に取り消すと、待ちを切り�
     assert.ok(fs.existsSync(path.join(dir, `${SHA}.part`)) && fs.existsSync(path.join(dir, `${SHA}.json`)));
   } finally { await s.close(); }
 });
+
+// ---------------------------------------------------------------- 圧縮するプロキシ（第0b回 Task 9 の electron-net で分かったこと）
+// 本物の Electron 31（Chromium 126）は、送った Accept-Encoding に無い content-encoding の応答を、伸ばさずに
+// net::ERR_CONTENT_DECODING_FAILED で断る（identity を頼んだ要求に gzip が返ったとき。2026-10-17 の CI）。
+// Accept-Encoding を自分で付けなければ、Range のときは identity、ほかは gzip などを Chromium が頼み、伸ばして渡す。
+// fake-net はこれを真似る。fetchFile は断られたら、Accept-Encoding と Range を付けずに 0 から取り直し、
+// 圧縮された 200 は長さを見ずに SHA-256 で決める（decide の skipLength）。
+test('fake-net: identity を頼んで gzip が返ると ERR_CONTENT_DECODING_FAILED（応答は渡さない）。自分で付けなければ gzip を頼んで伸ばす。Range のときは identity', { timeout: 5000 }, async () => {
+  const s = await startServers({ body, script: [{ gzip: true }, { gzip: true }, {}] });
+  const one = (headers) => new Promise((resolve) => {
+    const req = fakeRequest({ method: 'GET', url: s.originUrl, redirect: 'manual', cache: 'no-store' });
+    req.on('redirect', () => req.followRedirect());
+    req.on('response', (res) => { const cs = []; res.on('data', (c) => cs.push(c)); res.on('end', () => resolve({ res, body: Buffer.concat(cs) })); });
+    req.on('error', (e) => resolve({ error: e.message }));
+    for (const [k, v] of Object.entries(headers)) req.setHeader(k, v);
+    req.end();
+  });
+  try {
+    const a = await one({ 'Accept-Encoding': 'identity' });
+    // 応答の流れの写しを比べると、失敗の表示が大きくなりすぎるので、値だけを比べる
+    assert.strictEqual(a.error, 'net::ERR_CONTENT_DECODING_FAILED', '頼んでいない圧縮を伸ばして渡した');
+    assert.ok(!a.res, '断るときは応答を渡さない');
+    const b = await one({});
+    assert.strictEqual(b.res.statusCode, 200);
+    assert.ok(b.body.equals(body), '伸ばしていない');
+    assert.strictEqual(b.res.headers['content-encoding'], 'gzip', '見出しは元のまま');
+    await one({ Range: 'bytes=10-' });
+    assert.deepStrictEqual(s.requests().filter((x) => x.name === 'cdn').map((x) => x.enc), ['identity', 'gzip, deflate', 'identity']);
+  } finally { await s.close(); }
+});
+test('通信の失敗: ERR_CONTENT_DECODING_FAILED は encoding（頼んでいない圧縮。待っても直らないので待たない）', () => {
+  assert.strictEqual(F.classifyNetError(new Error('net::ERR_CONTENT_DECODING_FAILED')), 'encoding');
+  assert.ok(!F.isTransient('encoding'), 'encoding で待ち続けると、圧縮するプロキシの PC で「つながるのを待っています」のまま');
+});
+test('圧縮するプロキシ: identity を頼んで断られたら、Accept-Encoding と Range を付けずに 0 から取り直し、伸ばした中身を SHA-256 で照らして使う', { timeout: 5000 }, async () => {
+  const s = await startServers({ body, script: Array.from({ length: 5 }, () => ({ gzip: true })) });
+  try {
+    const dir = tmp();
+    const r = await fetchFile(pinOf(s.originUrl), opts(dir));
+    assert.ok(fs.readFileSync(r.file).equals(body));
+    const cdn = s.requests().filter((x) => x.name === 'cdn');
+    assert.deepStrictEqual(cdn.map((x) => x.enc), ['identity', 'gzip, deflate'], '断られた後も identity を頼んでいる');
+    assert.deepStrictEqual(cdn.map((x) => x.range), [null, null]);
+    assert.deepStrictEqual(leftovers(dir), []);
+  } finally { await s.close(); }
+  // 途中まで取ってから圧縮が始まった: 続き（Range）は断られるので、0 から取り直す
+  const t = await startServers({ body, script: [{ cutAfter: 100000 }, ...Array.from({ length: 5 }, () => ({ gzip: true }))] });
+  try {
+    const r = await fetchFile(pinOf(t.originUrl), opts(tmp()));
+    assert.ok(fs.readFileSync(r.file).equals(body));
+    assert.deepStrictEqual(t.cdnRanges(), [null, 'bytes=100000-', null]);
+  } finally { await t.close(); }
+});

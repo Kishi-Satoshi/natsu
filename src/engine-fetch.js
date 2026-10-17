@@ -64,7 +64,9 @@ function backoffMs(fails, retryAfterSec, rand = Math.random) {
 /**
  * 通信の失敗を分ける。上から順に見る（proxy-auth は proxy より先。https のプロキシの認証は、
  * 407 の応答ではなく net::ERR_PROXY_AUTH_* か ERR_UNEXPECTED_PROXY_AUTH で来る）。
- * → 'cert' | 'proxy-auth' | 'proxy' | 'offline' | 'space' | 'net'
+ * → 'cert' | 'proxy-auth' | 'proxy' | 'offline' | 'space' | 'encoding' | 'net'
+ * encoding は ERR_CONTENT_DECODING_FAILED。Chromium は、送った Accept-Encoding に無い content-encoding を
+ * 伸ばさずに断る（identity を頼んだのに社内のプロキシが gzip にした。第0b回 Task 9 の electron-net で確かめた）。
  */
 function classifyNetError(e) {
   const s = e ? `${e.code || ''} ${e.message || ''}` : '';
@@ -73,6 +75,7 @@ function classifyNetError(e) {
   if (/ERR_TUNNEL_CONNECTION_FAILED|ERR_PROXY_/.test(s)) return 'proxy';
   if (/ERR_NAME_NOT_RESOLVED|ERR_INTERNET_DISCONNECTED|ERR_ADDRESS_UNREACHABLE|ERR_NETWORK_CHANGED|\bENOTFOUND\b/.test(s)) return 'offline';
   if (/\bENOSPC\b/.test(s)) return 'space';
+  if (/ERR_CONTENT_DECODING_FAILED/.test(s)) return 'encoding';
   return 'net';
 }
 
@@ -314,6 +317,9 @@ function openOnce(url, headers, c) {
  * .part と記録を捨てる（違うファイルの続きは使えない）。
  * 書き込みの ENOSPC はすぐ space でやめ（.part は確定して残す）、needBytes に残りの大きさを入れる。
  * 名前の変更の EPERM・EBUSY・EACCES（ウイルス対策の検査など）は、待って 10 回まで試してから locked。
+ * 頼んでいない圧縮（encoding: identity を頼んだのに社内のプロキシが圧縮し、Chromium が断った）の後は、この取り込みの
+ * 終わりまで Accept-Encoding と Range を付けずに 0 から取る。Chromium が gzip などを頼んで伸ばし、圧縮された 200 は
+ * 長さを見ずに SHA-256 で決める（decide の skipLength）。Range を付けると Chromium が identity を頼むので、続きからは取れない。
  */
 async function fetchFile(pin, opts = {}) {
   const {
@@ -431,6 +437,7 @@ async function fetchFile(pin, opts = {}) {
     }
     let fails = 0;
     let headerWait = headerTimeoutMs;
+    let plain = false;   // 頼んでいない圧縮で断られた後は、Accept-Encoding と Range を付けない
     for (;;) {
       if (aborted()) throw failure('cancelled');
       if (held === size) {
@@ -438,9 +445,9 @@ async function fetchFile(pin, opts = {}) {
         await mismatch();
         continue;
       }
-      log(`取り込み: ${name} ${held}/${size} から続ける`);
-      const headers = { 'Accept-Encoding': 'identity', 'User-Agent': userAgent };
-      if (held > 0) headers.Range = `bytes=${held}-`;   // If-Range は送らない（署名付きの CDN は無視する）
+      log(`取り込み: ${name} ${plain ? 0 : held}/${size} から続ける`);
+      const headers = plain ? { 'User-Agent': userAgent } : { 'Accept-Encoding': 'identity', 'User-Agent': userAgent };
+      if (held > 0 && !plain) headers.Range = `bytes=${held}-`;   // If-Range は送らない（署名付きの CDN は無視する）
       let got = false;
       try {
         const { req, res } = await openOnce(pin.url, headers,
@@ -503,6 +510,7 @@ async function fetchFile(pin, opts = {}) {
         if (aborted()) throw failure('cancelled');
         const e = err && err.code === 'ENOSPC' ? diskFailure(err) : err;   // 記録や切り捨ての ENOSPC も space
         if (!e.retry) throw e;
+        if (e.code === 'encoding') plain = true;        // 次からは Chromium に圧縮を頼ませて、伸ばしたものを取る
         if (e.code === 'header-timeout') headerWait = Math.min(headerWait * 2, Math.max(HEADER_MAX_MS, headerTimeoutMs));
         fails = got ? 1 : fails + 1;                     // バイトが届いたら数え直す
         if (fails > maxFails) throw failure(e.code, { cause: e.cause || e });
