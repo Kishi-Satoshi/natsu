@@ -182,3 +182,36 @@ jobs:
           }
           if ($bad -gt 0) { exit 1 }
           Write-Output "$($files.Count) .ps1 file(s): BOM and CRLF OK"
+
+  # 本物の Electron 31 の net.request が、取り込み（src/engine-fetch.js の fetchFile）とテストの偽物
+  # （test/helpers/fake-net.js）の前提どおりに動くかを、Windows で確かめる（第0b回 RF2）。
+  # 127.0.0.1 の偽の取得元と CDN だけを使う（外へはつながない）。結果は 1 行ずつ OK／NG で出る。
+  # Electron は一時フォルダに入れる（リポジトリの依存は変えない）。
+  electron-net:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - name: 改行の変換を止める
+        shell: bash
+        run: git config --global core.autocrlf false
+
+      - name: 取り出す
+        uses: actions/checkout@v4
+
+      - name: Node を用意する
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      # 版は作業フォルダ（リポジトリ）で読んでから移る。$GITHUB_WORKSPACE を JS の文字列に埋めると、
+      # Windows のパスの \a \n が文字の印として読まれて壊れるため。
+      - name: Electron を一時フォルダに入れる（package.json の devDependencies と同じ指定）
+        shell: bash
+        run: |
+          VER="$(node -p "require('./package.json').devDependencies.electron")"
+          mkdir -p "$RUNNER_TEMP/el" && cd "$RUNNER_TEMP/el" && npm init -y >/dev/null && npm install --no-audit --no-fund "electron@$VER"
+
+      # 1 つでも NG なら終了コード 1。どこかで止まっても 120 秒の見張りで 1 になる。
+      - name: 本物の Electron の net.request が、取り込みの前提どおりに動くか
+        shell: bash
+        run: '"$RUNNER_TEMP/el/node_modules/electron/dist/electron.exe" tools/net-smoke.js'

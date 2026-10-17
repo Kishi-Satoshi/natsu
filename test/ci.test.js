@@ -91,3 +91,49 @@ test('release.yml が作る zip の名前を、updater の ASSET_PATTERN が拾�
   assert.ok(m, 'zip の名前が読めない');
   assert.ok(require('../src/updater').ASSET_PATTERN.test(`${m[1]}0.1.0.zip`));
 });
+
+// ---------------------------------------------------------------- electron-net（第0b回 Task 9。RF2）
+// 取り込み（src/engine-fetch.js の fetchFile）とテストの偽物（test/helpers/fake-net.js）が頼る net.request の
+// 振る舞いを、Windows の CI で本物の Electron 31 に確かめさせる。
+test('ci.yml: Windows で、本物の Electron の net.request が取り込みの前提どおりかを見る（RF2）', () => {
+  const j = jobsOf(read('.github/workflows/ci.yml'))['electron-net'];
+  assert.ok(j, 'electron-net のジョブが無い');
+  assert.match(j, /^    runs-on: windows-latest$/m);
+  assert.match(j, /^    timeout-minutes: 15$/m);
+  const st = stepsOf(j);
+  assert.ok(st.some((s) => s.includes('$RUNNER_TEMP') && s.includes('npm install') && s.includes('devDependencies.electron')), 'Electron を一時フォルダに入れていない');
+  assert.ok(st.some((s) => s.includes('electron.exe" tools/net-smoke.js')));
+});
+test('net-smoke.js: 転送・Range・abort・no-store・identity・圧縮と、本番の fetchFile を本物の net.request で試し、必ず終わる', () => {
+  const s = read('tools/net-smoke.js');
+  for (const k of ["redirect: 'manual'", 'followRedirect()', "'Range'", 'abort()', "cache: 'no-store'", "'Accept-Encoding'", 'fetchFile(', 'net.request(',
+    'gzip: true', 'app.exit(0)', 'app.exit(1)', '120000']) assert.ok(s.includes(k), k);
+});
+
+// 本物の Electron はこの機械では動かさない。代わりに、同じ確かめを偽物の net.request の上で回し、
+// 確かめそのものが動くこと（偽物の前提と食い違わないこと）と、前提が崩れた net.request では NG を出して
+// 終わること（いつも OK を出す確かめではないこと）を見る。
+const { fakeRequest } = require('./helpers/fake-net');
+
+test('net-smoke.js: 偽物の net.request（fake-net）の上では、8 つの確かめが全部 OK で終わる', async () => {
+  const { runChecks } = require('../tools/net-smoke');
+  const lines = [];
+  const r = await runChecks({ request: fakeRequest, log: (l) => lines.push(l), checkMs: 4000 });
+  assert.deepStrictEqual(r.map((x) => x.n), [1, 2, 3, 4, 5, 6, 7, 8]);
+  assert.deepStrictEqual(r.filter((x) => !x.ok).map((x) => x.line), []);
+  assert.strictEqual(lines.filter((l) => /^OK [1-8] /.test(l)).length, 8, lines.join('\n'));
+});
+
+test('net-smoke.js: Range と Accept-Encoding を送らない net.request では、その確かめと続きからの取り込みが NG になり、残りは OK のまま終わる', async () => {
+  const { runChecks } = require('../tools/net-smoke');
+  const dropping = (o) => {
+    const req = fakeRequest(o);
+    const set = req.setHeader;
+    req.setHeader = (k, v) => { if (!/^(range|accept-encoding)$/i.test(k)) set(k, v); };
+    return req;
+  };
+  const lines = [];
+  const r = await runChecks({ request: dropping, log: (l) => lines.push(l), checkMs: 4000 });
+  assert.deepStrictEqual(r.filter((x) => !x.ok).map((x) => x.n), [3, 6, 7], lines.join('\n'));
+  assert.deepStrictEqual(lines.filter((l) => /^NG /.test(l)).map((l) => l.slice(0, 4)), ['NG 3', 'NG 6', 'NG 7']);
+});
