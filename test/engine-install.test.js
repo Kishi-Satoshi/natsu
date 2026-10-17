@@ -5,6 +5,8 @@
  * installed.json の読み書き、何が済んでいるか（planInstall）、使える組（managedCandidates。
  * ピンを上げた後も、新しい組がそろうまで前の組を返す）、空き、画面へ渡す写し（statusOf）を、
  * 通信もフォルダ作りもせずに決める（第0b回 R7、RF13）。
+ * その2（Task 12a）: zip から決めたファイルだけを <dir>.tmp に出して照らしてから置き（installZip）、
+ * 記録を書き（recordInstalled）、使う前に exe と DLL を SHA-256 で照らす（verifyCandidates。RF3）。
  * 小さな偽のピンの組は test/helpers/engine-small.js。一時フォルダの名前には日本語と 𠮷。
  */
 'use strict';
@@ -18,6 +20,7 @@ const path = require('node:path');
 const I = require('../src/engine-install');
 const { MANIFEST } = require('../src/engine-manifest');
 const { smallSet } = require('./helpers/engine-small');
+const { fakeRequest } = require('./helpers/fake-net');
 const { listZip, readEntry } = require('../src/zipread');
 const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), 'natsu-置場𠮷-'));
 // 小さな組を、取り込みを通さずに手で置き、記録も書く（Task 12a〜12c でも使う）
@@ -135,4 +138,105 @@ test('statusOf: 手で設定している組は manual。その組の項目は取
     candidates: { whisper: null, sum: null }, manual: { whisper: true, sum: false }, installed: inst });
   assert.deepStrictEqual(s.mode, { whisper: 'manual', sum: 'managed' });
   assert.strictEqual(s.needBytes, MANIFEST.items.filter((i) => i.group === 'sum').reduce((a, i) => a + i.size, 0));
+});
+
+// ---------------------------------------------------------------- その2（Task 12a）: zip の展開・記録・照らし
+test('zip: 決めたファイルだけを <dir>.tmp に出して照らし、名前を変えて置く。zip は消す。ほかのファイルは出さない', async () => {
+  const set = await smallSet();
+  try {
+    const root = path.join(tmp(), 'engine'); const it = set.manifest.items[0];
+    fs.mkdirSync(root, { recursive: true }); const zf = path.join(root, 'w.zip'); fs.writeFileSync(zf, set.bodies[it.id]);
+    const r = await I.installZip(it, zf, root);
+    assert.deepStrictEqual(fs.readdirSync(path.join(root, 'whisper-1.0.0')).sort(), ['ggml.dll', 'whisper-server.exe', 'whisper.dll']);
+    assert.ok(!fs.existsSync(zf) && !fs.existsSync(path.join(root, 'whisper-1.0.0.tmp')));
+    assert.deepStrictEqual(r.files.map((f) => f.sha256), it.files.map((f) => f.sha256));
+  } finally { await set.close(); }
+});
+test('zip: 1 つでも SHA-256 が違えば何も置かず（.tmp を消し）、installed.json も変えない', async () => {
+  const set = await smallSet();
+  try {
+    const root = path.join(tmp(), 'engine'); const it0 = set.manifest.items[0];
+    const it = { ...it0, files: it0.files.map((f, i) => (i === 1 ? { ...f, sha256: 'c'.repeat(64) } : f)) };
+    fs.mkdirSync(root, { recursive: true }); const zf = path.join(root, 'w.zip'); fs.writeFileSync(zf, set.bodies[it0.id]);
+    await assert.rejects(I.installZip(it, zf, root), { code: 'hash' });
+    assert.ok(!fs.existsSync(path.join(root, 'whisper-1.0.0')) && !fs.existsSync(path.join(root, 'whisper-1.0.0.tmp')));
+    assert.ok(!fs.existsSync(path.join(root, 'installed.json')));
+  } finally { await set.close(); }
+});
+test('zip: 置く先のフォルダが既にあり、中身が同じなら使う（記録が消えても取り直さない）', async () => {
+  const set = await smallSet();
+  try {
+    const root = path.join(tmp(), 'engine'); await putByHand(root, set, ['whisper-engine']);
+    const zf = path.join(root, 'w.zip'); fs.writeFileSync(zf, set.bodies['whisper-engine']);
+    const r = await I.installZip(set.manifest.items[0], zf, root);
+    assert.strictEqual(r.dir, path.join(root, 'whisper-1.0.0'));
+  } finally { await set.close(); }
+});
+test('RF3: verifyCandidates は exe と DLL を SHA-256 で照らす。大きさと更新時刻が同じでも、中身の違う DLL の組は使わない', async () => {
+  const set = await smallSet();
+  try {
+    const root = path.join(tmp(), 'engine'); const inst = await putByHand(root, set); const home = { supported: true, root };
+    const c = I.managedCandidates(home, set.manifest, inst, fs.statSync);
+    const ok = await I.verifyCandidates(c);
+    assert.ok(ok.whisper && ok.sum); assert.deepStrictEqual(ok.bad, []);
+    const dll = path.join(root, 'whisper-1.0.0', 'whisper.dll'); const st = fs.statSync(dll);
+    const b = fs.readFileSync(dll); b[0] ^= 0xff; fs.writeFileSync(dll, b); fs.utimesSync(dll, st.atime, st.mtime);   // 同じ大きさ・同じ更新時刻
+    const ng = await I.verifyCandidates(c);
+    assert.strictEqual(ng.whisper, null); assert.ok(ng.sum);
+    assert.deepStrictEqual(ng.bad, [{ group: 'whisper', file: dll, why: 'changed' }]);
+  } finally { await set.close(); }
+});
+test('RF3: verifyCandidates はモデルを大きさと更新時刻で照らす（数 GB を毎回読まない）。exe が消えていれば missing', async () => {
+  const set = await smallSet();
+  try {
+    const root = path.join(tmp(), 'engine'); const inst = await putByHand(root, set); const home = { supported: true, root };
+    const c = I.managedCandidates(home, set.manifest, inst, fs.statSync);
+    let hashed = [];
+    await I.verifyCandidates(c, { hash: async (f) => { hashed.push(path.basename(f)); return I.sha256File(f); } });
+    assert.ok(!hashed.some((f) => /\.(bin|gguf)$/.test(f)), `モデルを読んだ: ${hashed}`);
+    fs.utimesSync(path.join(root, 'models', 's-model.gguf'), new Date(), new Date(Date.now() + 60000));
+    fs.rmSync(path.join(root, 'whisper-1.0.0', 'whisper-server.exe'));
+    const r = await I.verifyCandidates(c);
+    assert.deepStrictEqual([r.whisper, r.sum], [null, null]);
+    assert.deepStrictEqual(r.bad.map((b) => [b.group, path.basename(b.file), b.why]),
+      [['whisper', 'whisper-server.exe', 'missing'], ['sum', 's-model.gguf', 'changed']]);
+  } finally { await set.close(); }
+});
+test('zip: <dir>.tmp から <dir> への名前の変更が EPERM で 2 回失敗、3 回目に通る。いつも EPERM なら locked で、何も置かず zip は残す', async () => {
+  const set = await smallSet();
+  try {
+    const it = set.manifest.items[0]; const waits = [];
+    const sleep = async (ms) => { waits.push(ms); };
+    const root = path.join(tmp(), 'engine'); fs.mkdirSync(root, { recursive: true });
+    const zf = path.join(root, 'w.zip'); fs.writeFileSync(zf, set.bodies[it.id]);
+    let n = 0;
+    const rename = async (a, b) => { if (++n <= 2) throw Object.assign(new Error('x'), { code: 'EPERM' }); return fs.promises.rename(a, b); };
+    const r = await I.installZip(it, zf, root, { rename, sleep });
+    assert.strictEqual(n, 3); assert.strictEqual(waits.length, 2); assert.ok(waits[0] >= 300 && waits[1] > waits[0], `待ち: ${waits}`);
+    assert.strictEqual(r.dir, path.join(root, 'whisper-1.0.0'));
+    const root2 = path.join(tmp(), 'engine'); fs.mkdirSync(root2, { recursive: true });
+    const zf2 = path.join(root2, 'w.zip'); fs.writeFileSync(zf2, set.bodies[it.id]);
+    let m = 0;
+    await assert.rejects(I.installZip(it, zf2, root2, { rename: async () => { m++; throw Object.assign(new Error('x'), { code: 'EBUSY' }); }, sleep }), { code: 'locked' });
+    assert.strictEqual(m, 10);
+    assert.ok(!fs.existsSync(path.join(root2, 'whisper-1.0.0')) && !fs.existsSync(path.join(root2, 'whisper-1.0.0.tmp')));
+    assert.ok(fs.existsSync(zf2), 'zip を消した（取り直しになる）');
+  } finally { await set.close(); }
+});
+test('recordInstalled: zip は展開したファイルごと、ファイルは置き場所の大きさと更新時刻を installed.json に書く（managedCandidates がそのまま使える）', async () => {
+  const set = await smallSet();
+  try {
+    const root = path.join(tmp(), 'engine'); const home = { supported: true, root };
+    const inst0 = await putByHand(root, set);
+    fs.rmSync(path.join(root, 'installed.json'));
+    for (const it of set.manifest.items) {
+      const info = it.kind === 'zip' ? { dir: path.join(root, it.dir), files: inst0.items[it.sha256].files } : { file: path.join(root, it.dest) };
+      I.recordInstalled(home, it, info);
+    }
+    const inst = I.readInstalled(path.join(root, 'installed.json'));
+    assert.deepStrictEqual(inst.items, inst0.items);
+    assert.deepStrictEqual(fs.readdirSync(root).filter((f) => /\.tmp$/.test(f)), []);
+    const c = I.managedCandidates(home, set.manifest, inst, fs.statSync);
+    assert.ok(c.whisper && c.whisper.current && c.sum && c.sum.current);
+  } finally { await set.close(); }
 });

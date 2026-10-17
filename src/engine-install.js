@@ -12,6 +12,13 @@
  *  - freeBytesOf        置き場所の空き（まだ無ければ、いちばん近い有る親のフォルダで測る）
  *  - statusOf           画面へ渡す写し
  *
+ * その2（Task 12a）: zip の展開・記録・照らし。
+ *  - sha256File         ファイルの SHA-256（流して読む。main を止めない）
+ *  - installZip         zip からピンの files だけを <dir>.tmp に出し、大きさと SHA-256 を照らしてから <dir> に名前を変える。
+ *                       1つでも違えば .tmp を消して hash（何も置かない）。<dir> が既にあれば、中を照らして同じなら使う
+ *  - recordInstalled    installed.json の items[ピンの SHA-256] に、置いたものの記録を書く
+ *  - verifyCandidates   使う前に、候補の exe と DLL を SHA-256 で、モデルと VAD を大きさと更新時刻で照らす（RF3）
+ *
  * installed.json の形:
  *   { schema: 1, consent, userPaused,
  *     items: { [sha256]: { id, role, place, size, mtimeMs, files?: [{ name, size, mtimeMs, sha256 }] } },
@@ -31,8 +38,10 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const crypto = require('crypto');
 const { hostOf } = require('./engine-manifest');
 const { askIt, fetchErrorMessage } = require('./engine-fetch');
+const { listZip, readEntry } = require('./zipread');
 
 const GROUPS = ['whisper', 'sum'];
 const SHOWN_ROOT = '%LOCALAPPDATA%\\natsu\\engine';
@@ -237,6 +246,181 @@ function managedCandidates(home, manifest, installed, statFn = fs.statSync) {
   return out;
 }
 
+// ---------------------------------------------------------------- その2: zip の展開・記録・照らし（Task 12a）
+
+/** code 付きの失敗（code は engine-fetch の fetchErrorMessage の文に合わせる: hash・locked）。 */
+const installError = (code, message, extra) => Object.assign(new Error(`取り込み: ${message}`), { code }, extra);
+// ウイルス対策が掴んでいるときの名前の変更の失敗（待って試し直す）
+const RENAME_BUSY = new Set(['EPERM', 'EBUSY', 'EACCES']);
+const RENAME_TRIES = 10;
+const sleepDefault = (ms) => new Promise((r) => setTimeout(r, ms));
+const sameSha = (a, b) => String(a).toLowerCase() === String(b).toLowerCase();
+const rmTreeQuiet = (p) => fs.promises.rm(p, { recursive: true, force: true }).catch(() => {});
+const unlinkQuiet = (p) => fs.promises.unlink(p).catch(() => {});   // zip は1つのファイル（渡された先を丸ごと消さない）
+
+/** ファイルの SHA-256（小文字の 16 進）。流して読むので、数十 MB でも main を止めない。 */
+function sha256File(file) {
+  return new Promise((resolve, reject) => {
+    const h = crypto.createHash('sha256');
+    const rs = fs.createReadStream(file);
+    rs.on('data', (c) => h.update(c));
+    rs.on('end', () => resolve(h.digest('hex')));
+    rs.on('error', reject);
+  });
+}
+
+/** zip の項目の、置き場所のフォルダの中の名前の部品（strip を外す）。外を指す名前は hash で断る。 */
+function placeParts(item, name) {
+  const parts = relParts(stripped(item, name));
+  if (!parts) throw installError('hash', `置けない名前 ${JSON.stringify(name)}`, { file: name });
+  return parts;
+}
+
+/**
+ * dir の中の、ピンの files を大きさと SHA-256 で照らす。
+ * 全部合えば [{ name, size, mtimeMs, sha256 }]（ピンの順。name は strip を外した名前）、1つでも違えば hash で投げる。
+ */
+async function checkPlaced(item, dir, hash) {
+  const out = [];
+  for (const f of item.files) {
+    const file = path.join(dir, ...placeParts(item, f.name));
+    let st = null;
+    try { st = await fs.promises.stat(file); } catch (_) { st = null; }
+    const got = st && st.isFile() && st.size === f.size ? await hash(file) : null;
+    if (!got || !sameSha(got, f.sha256)) throw installError('hash', `${f.name} がピンと合わない`, { file });
+    out.push({ name: stripped(item, f.name), size: st.size, mtimeMs: st.mtimeMs, sha256: String(got).toLowerCase() });
+  }
+  return out;
+}
+
+/** 名前の変更。EPERM・EBUSY・EACCES は 300ms から伸ばしながら 10 回まで試し、だめなら locked。 */
+async function renameWithWait(rename, from, to, sleep) {
+  for (let n = 1; ; n++) {
+    try { await rename(from, to); return; } catch (e) {
+      if (!e || !RENAME_BUSY.has(e.code)) throw e;
+      if (n >= RENAME_TRIES) throw installError('locked', `${path.basename(to)} に名前を変えられない（${e.code}）`, { cause: e, file: to });
+      await sleep(Math.min(300 * 2 ** (n - 1), 3000));
+    }
+  }
+}
+
+/** 中身を書いて確定する（名前を変えた後に電源が切れても、空のファイルを置かない）。 */
+async function writeSynced(file, data) {
+  const fh = await fs.promises.open(file, 'w');
+  try { await fh.writeFile(data); await fh.sync(); } finally { await fh.close(); }
+}
+
+/**
+ * zip からピンの files だけを置く → { dir, files: [{ name, size, mtimeMs, sha256 }] }。
+ *  1. <dir> が既にあれば（前に落ちた・記録が消えた）、中を照らす。全部同じならそれを使う（zip は消す。zip が無くてもよいので、
+ *     記録の changed を取り直さずに照らし直すのにも使える）。
+ *     違えば hash（動いているかもしれないフォルダを入れ替えない。版のフォルダはピンごとに違う名前なので、ふつうは起きない）。
+ *  2. 無ければ、files の名前だけを <dir>.tmp に出し（strip を外す）、1つずつ大きさと SHA-256 を照らし、
+ *     <dir>.tmp を <dir> に名前を変え（EPERM・EBUSY・EACCES は待って 10 回まで。だめなら locked）、zip を消す。
+ *  失敗したら .tmp を消して投げる（何も置かない）。zip は残す（次は取り直さずに出し直せる）。
+ *  記録は書かない（書くのは呼ぶ側の recordInstalled）。
+ *  opts の sleep（待ち）と hash（照らし）はテストで差し替える。
+ */
+async function installZip(item, zipFile, root, { rename = fs.promises.rename, sleep = sleepDefault, hash = sha256File } = {}) {
+  const dirParts = item && item.kind === 'zip' && root ? relParts(item.dir) : null;
+  if (!dirParts || !Array.isArray(item.files) || !item.files.length) throw installError('hash', 'zip の項目のピンが読めない');
+  const dir = path.join(root, ...dirParts);
+  const tmpDir = `${dir}.tmp`;
+  let have = false;
+  try { await fs.promises.lstat(dir); have = true; } catch (_) { have = false; }
+  try {
+    if (have) {
+      const files = await checkPlaced(item, dir, hash);
+      await unlinkQuiet(zipFile);
+      return { dir, files };
+    }
+    await rmTreeQuiet(tmpDir);   // 前に落ちたときの残り
+    const buf = await fs.promises.readFile(zipFile);
+    const entries = new Map(listZip(buf).map((e) => [e.name, e]));
+    for (const f of item.files) {
+      const parts = placeParts(item, f.name);
+      const ent = entries.get(f.name);
+      if (!ent) throw installError('hash', `zip に ${f.name} が無い`, { file: f.name });
+      const out = path.join(tmpDir, ...parts);
+      await fs.promises.mkdir(path.dirname(out), { recursive: true });
+      await writeSynced(out, await readEntry(buf, ent));
+    }
+    const files = await checkPlaced(item, tmpDir, hash);
+    await renameWithWait(rename, tmpDir, dir, sleep);
+    await unlinkQuiet(zipFile);
+    return { dir, files };
+  } catch (e) {
+    await rmTreeQuiet(tmpDir);
+    throw e;
+  }
+}
+
+/**
+ * installed.json の items[item.sha256] に記録を書く（一時ファイル → 名前の変更）→ 書いた記録。
+ *  - zip:      { id, role: 'engine', place: dir, size: zip の大きさ, mtimeMs: 0, files: info.files }（info は installZip の結果）
+ *  - ファイル: { id, role, place: dest, size, mtimeMs }（置き場所を見て書く。大きさがピンと違えば hash で書かない）
+ */
+function recordInstalled(home, item, info = {}) {
+  const root = home && home.root;
+  if (!root || !item || !item.sha256) throw installError('hash', '記録する先か項目が分からない');
+  let rec;
+  if (item.kind === 'zip') {
+    const files = info && Array.isArray(info.files) ? info.files : null;
+    if (!relParts(item.dir) || !files || !files.length) throw installError('hash', `${item.id} の展開の結果が無い`);
+    rec = { id: item.id, role: item.role || 'engine', place: item.dir, size: item.size, mtimeMs: 0,
+      files: files.map((f) => ({ name: f.name, size: f.size, mtimeMs: f.mtimeMs, sha256: f.sha256 })) };
+  } else {
+    const parts = relParts(item.dest);
+    if (!parts) throw installError('hash', `${item.id} の置き場所が読めない`);
+    const file = path.join(root, ...parts);
+    const st = fs.statSync(file);
+    if (!st.isFile() || st.size !== item.size) throw installError('hash', `${item.id} の大きさがピンと違う`, { file });
+    rec = { id: item.id, role: item.role, place: item.dest, size: st.size, mtimeMs: st.mtimeMs };
+  }
+  const file = path.join(root, 'installed.json');
+  const inst = readInstalled(file);
+  inst.items[item.sha256] = rec;
+  writeInstalled(file, inst);
+  return rec;
+}
+
+/** 照らした結果。合えば null、無ければ 'missing'、違えば（読めないときも）'changed'。 */
+async function fileIssue(file, same) {
+  let st;
+  try { st = await fs.promises.stat(file); } catch (e) { return e && (e.code === 'ENOENT' || e.code === 'ENOTDIR') ? 'missing' : 'changed'; }
+  if (!st.isFile()) return 'missing';
+  try { return (await same(st)) ? null : 'changed'; } catch (e) { return e && e.code === 'ENOENT' ? 'missing' : 'changed'; }
+}
+
+/**
+ * 使う前の照らし（RF3）→ { whisper: Cand | null, sum: Cand | null, bad: [{ group, file, why: 'missing' | 'changed' }] }。
+ *  - checkFiles（exe と DLL）は大きさと SHA-256 で照らす。大きさと更新時刻が同じでも、中身の違う DLL は見つける。
+ *  - models（モデルと VAD）は大きさと更新時刻で照らす（数 GB を毎回読まない。取り込んだときに SHA-256 を照らし済み）。
+ *  1つでも違えば、その組は null（使わない）で、違ったファイルを全部 bad に足す。候補の無い組は null のまま。
+ *  順に読む（同時に読んで記録中の書き込みと競らない）。
+ */
+async function verifyCandidates(cands, { hash = sha256File } = {}) {
+  const out = { whisper: null, sum: null, bad: [] };
+  for (const g of GROUPS) {
+    const c = cands && cands[g];
+    if (!c) continue;
+    const checks = Array.isArray(c.checkFiles) ? c.checkFiles : [];
+    const bad = [];
+    if (!checks.length) bad.push({ group: g, file: c.exe || c.dir || '', why: 'missing' });
+    for (const f of checks) {
+      const why = await fileIssue(f.file, async (st) => st.size === f.size && sameSha(await hash(f.file), f.sha256));
+      if (why) bad.push({ group: g, file: f.file, why });
+    }
+    for (const m of Array.isArray(c.models) ? c.models : []) {
+      const why = await fileIssue(m.file, async (st) => st.size === m.size && st.mtimeMs === m.mtimeMs);
+      if (why) bad.push({ group: g, file: m.file, why });
+    }
+    out[g] = bad.length ? null : c;
+    out.bad.push(...bad);
+  }
+  return out;
+}
+
 // ---------------------------------------------------------------- 空き
 
 /** 置き場所の空き（bavail * bsize）。まだ無ければ、いちばん近い有る親のフォルダで測る。失敗は null。 */
@@ -368,4 +552,5 @@ function statusOf({ home, manifest, plan = null, candidates = null, runner = nul
   };
 }
 
-module.exports = { engineRoot, layout, readInstalled, writeInstalled, planInstall, managedCandidates, freeBytesOf, statusOf };
+module.exports = { engineRoot, layout, readInstalled, writeInstalled, planInstall, managedCandidates, freeBytesOf, statusOf,
+  sha256File, installZip, recordInstalled, verifyCandidates };
