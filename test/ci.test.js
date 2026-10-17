@@ -73,6 +73,9 @@ test('engine-smoke.js: é・日本語・𠮷 のフォルダに置き、アプ�
   assert.ok(s.includes('engineSpawnPlan(') && s.includes('fetchFile(') && s.includes('listZip('));
   assert.ok(s.includes("'--vad-model'") && s.includes('/inference'), 'VAD を読ませていない（VAD は最初の文字起こしで読む）');
   assert.match(s, /負の確かめ/);
+  // 文字は注釈と関数にも残るので、start() が結果に数えて呼んでいるかまで見る（呼ばないと、相対パスの緑が RF1 の証にならない）
+  const st = s.slice(s.indexOf('async function start()'));
+  assert.ok(/rs\.push\(report\(await smokeWhisperAbsolute\(/.test(st.slice(0, st.indexOf('\n}'))), 'start() で負の確かめを呼んでいない');
   assert.ok(!/api\.github\.com/.test(s));
 });
 test('engine-smoke.js: 本物の CDN で、キャッシュがあっても毎回、取り消してから続きを取る。コードページはレジストリから読む', () => {
@@ -83,6 +86,10 @@ test('engine-smoke.js: 本物の CDN で、キャッシュがあっても毎回�
   const head = s.slice(s.indexOf('async function start()'), s.indexOf("resumeCheck('whisper-engine', 1024 * 1024)"));
   assert.ok(head.includes("resumeCheck('whisper-vad', 400 * 1024)"), 'start の頭で続きからを試していない');
   assert.ok(!/\bif\b|\?|&&|\|\||cache/i.test(head), 'キャッシュの有無などで、続きからの確かめを飛ばしうる');
+  // resumeCheck の中でキャッシュを見て早く返しても、毎回の続きからにならない
+  const i = s.indexOf('async function resumeCheck(');
+  const rc = s.slice(i, s.indexOf('\n}', i));
+  assert.ok(i >= 0 && !/CACHE|existsSync|obtain\(/.test(rc), 'resumeCheck の中でキャッシュを見ている');
   assert.ok(s.includes('Control\\\\Nls\\\\CodePage') && s.includes("'ACP'") && s.includes("'OEMCP'"), 'ANSI のコードページを読んでいない');
   assert.ok(!/\bchcp\b/.test(s), 'chcp は ANSI ではない');
 });
