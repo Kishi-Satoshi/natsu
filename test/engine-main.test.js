@@ -332,6 +332,14 @@ test('記録中は取り込みを止めて待つ（hold）。終了の前に止�
   assert.ok(fnBody(m, 'function updatePowerBlock()', '\n}').includes("const busy = state !== 'idle' || isSummarizing() || engineFetchRunning();"));
   assert.ok(fnBody(m, 'app.whenReady().then(', '\n  });').includes('getEngineFetch().start({ auto: true })'));
 });
+test('終了の前の一時停止が投げても、要約の「中断された」の印とエンジンの停止は続ける。終了が始まった後は、起動のときの自動の取り込みを始めない（点検）', () => {
+  const m = code(read('src/main.js'));
+  const q = fnBody(m, "app.on('before-quit'", '\n  });');
+  const a = q.indexOf("try { if (engineFetch) engineFetch.pause('quit'); } catch (_)");
+  assert.ok(a > 0 && a < q.indexOf('要約が中断されました') && a < q.indexOf('stopEngine(whisperEng);'), '終了の前の一時停止を try で包んでいない');
+  const t = fnBody(m, 'setTimeout(() => {\n      ', '\n    }, ENGINE_FETCH_AUTO_MS);');
+  assert.ok(t.indexOf('if (quitting) return;') >= 0 && t.indexOf('if (quitting) return;') < t.indexOf('getEngineFetch().start({ auto: true })'), '終了の途中でも自動の取り込みを始める');
+});
 test('受け口と preload の名前がそろう（start・pause・open-dir・progress）', () => {
   const p = read('src/preload.js');
   for (const s of ["engineFetchStart: (o) => ipcRenderer.invoke('engine:fetch-start', o),", "engineFetchPause: () => ipcRenderer.invoke('engine:fetch-pause'),",

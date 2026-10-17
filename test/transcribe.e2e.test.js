@@ -72,7 +72,7 @@ const SCENES = {
 // node のプロセスが CPU を取り合い、上の重い場面（busy は 1.5 秒の返事を 2 回待つ）が 5 秒を超える。上の場面が済んでから走らせる
 const MANAGED_SCENES = {
   managed: ['text', '--managed', '--test'],
-  managedTamper: ['text', '--managed-tamper'],
+  managedTamper: ['text', '--managed-tamper', '--slow-load'],
   managedRecover: ['text', '--managed', '--recover'],
   managedNoRuntime: ['text', '--managed', '--no-vc-runtime'],
   managedVerifyThrows: ['text', '--managed', '--verify-throws'],
@@ -80,7 +80,10 @@ const MANAGED_SCENES = {
   noEngineFetchable: ['text', '--no-engine=fetchable'],
   noEngineUnsupported: ['text', '--no-engine=unsupported'],
   fetch: ['text', '--fetch'],
+  fetchSum: ['text', '--fetch', '--sum'],
   repair: ['text', '--managed-tamper', '--repair'],
+  managedCrash: ['text', '--managed', '--crash'],
+  managedCrashOk: ['text', '--managed', '--crash-ok'],
 };
 const results = {};
 const running = {};
@@ -98,6 +101,22 @@ function runAll(scenes) {
 const managedStarted = runAll(SCENES).catch(() => {}).then(() => { runAll(MANAGED_SCENES).catch(() => {}); });
 // 場面 ks が済むのを待つ
 const need = (...ks) => Promise.all(ks.map((k) => (k in MANAGED_SCENES ? managedStarted.then(() => running[k]) : running[k])));
+// 進み具合の知らせが組を「使える」（w = whisperReady・s = sumReady）と言ったのに、main がまだ切り替えて知らせていない分
+//（画面はその知らせでエンジンの状態を聞き直すので、main が使い始める前に言うと「要確認」のまま残る。第0b回 Task 14・15）
+const readyBeforeNotice = (seq, key, re) => {
+  const at = seq.findIndex((x) => x.notice && re.test(x.notice));
+  assert.ok(at >= 0, `知らせが無い: ${re}`);
+  return seq.slice(0, at).filter((x) => !x.notice && x[key]);
+};
+// 進み具合が初めて「使える」と言ったときの engine:status は、もう落ち着いた答え（場面の終わりの答え）と同じ。文字起こしは ''、
+// 要約は取り込んだ組を見ている（engine-small の要約のモデルは 0.1MB なので、main の大きさの床の文になる。「まだ取り込んでいません」ではない）
+const settled = (r) => {
+  assert.strictEqual(r.engineStatus.whisper, '');
+  assert.doesNotMatch(r.engineStatus.sum, /まだ取り込んでいません/);
+  return { whisper: r.engineStatus.whisper, sum: r.engineStatus.sum };
+};
+const W_READY = /^文字起こしが使えるようになりました。/;
+const S_READY = /^要約のエンジンが使えるようになりました。/;
 const meetingReqs = (r) => r.requests.filter((l) => !/probe=true/.test(l));
 const prompted = (r) => meetingReqs(r).map((l) => /prompt=true/.test(l));
 
@@ -286,6 +305,16 @@ test('設計 B・RF3: 詳細設定が空なら、照らし終えた取り込ん�
   for (const k of ['localServerExe', 'localModelPath', 'vadModelPath', 'sumServerExe', 'sumModelPath']) assert.ok(!r.savedSettings[k], `${k} を書いた: ${r.savedSettings[k]}`);
 });
 
+test('起動のときの照らしが済んだら、画面へ取り込みの欄の写しを送る（確かめ終えた・使える）。そのとき engine:status はもう「確かめています」でない（画面はそこで聞き直す。第0b回 Task 14・15）', async () => {
+  await need('managed');
+  const r = results.managed;
+  // 起動のときの画面は「確かめています」を聞いて「要確認」にしている。照らしが済んだことを知らせないと、そのまま残る
+  const p = r.seq.filter((x) => !x.notice);
+  assert.ok(p.length >= 1, `照らしが済んでも進み具合を送らない: ${JSON.stringify(r.seq)}`);
+  assert.deepStrictEqual([p[0].checking, p[0].w], [false, true], JSON.stringify(r.seq));
+  assert.strictEqual(r.atReady.whisper, '');
+});
+
 test('RF3: 大きさと更新時刻が同じでも中身の違う DLL の組は使わない。起動せず、記録・起動テスト・engine.log に理由を出す（第0b回 Task 13）', async () => {
   await need('managedTamper');
   const r = results.managedTamper;
@@ -305,6 +334,10 @@ test('RF3: 壊れた組は、取り直されるか触られるまで、60 秒ご
   await need('managedTamper');
   const r = results.managedTamper;
   const broken = '文字起こしエンジンのファイルが消えたか変わっていました。ウイルス対策が消した可能性があります（Windows セキュリティ → ウイルスと脅威の防止 → 保護の履歴）。設定タブの［エンジンを取り込む］から取り込み直してください。';
+  // 起動のときの照らしの途中に見回りが来ても、照らしの結果を待つ（二重に照らさない・知らせを 2 回出さない）。
+  // 画面の読み込みが照らしより遅くても、知らせは読み終えてから送る（読み込み中に送ると消える）
+  assert.strictEqual(r.ticksDuringCheck, 1, '照らしの途中の見回りを呼べていない');
+  assert.ok(!r.lostWhileLoading.includes(broken), '画面の読み込み中に知らせを送った（届かない）');
   assert.deepStrictEqual(r.noticesBeforeTicks, [broken]);
   assert.strictEqual(r.verifyCallsBeforeTicks, 1, '起動のときの照らしは 1 回');
   // 見回り（releaseIdleEngines）を 2 回: 照らし直さない・知らせない・起動しない
@@ -404,8 +437,13 @@ test('［エンジンを取り込む］: net.request で取り込み、組がそ
   assert.strictEqual(r.installed.consent, true);
   const s = r.engineFetchStatus;
   assert.deepStrictEqual([s.state, s.using, s.whisperReady, s.sumReady], ['ready', { whisper: 'current', sum: 'current' }, true, true]);
-  // 進み具合の知らせ: 始めは running、最後は切り替えの後の写し（ready）
-  assert.strictEqual(r.progress[0], 'running');
+  // 進み具合が組を「使える」と言うのは、main が照らして切り替え、知らせた後だけ。そのとき engine:status はもう新しい
+  //（画面はその知らせで聞き直す。係の記録だけを見て先に言うと、画面は「まだ取り込んでいません」を聞いて「要確認」のまま残る）
+  assert.deepStrictEqual(readyBeforeNotice(r.seq, 'w', W_READY), [], JSON.stringify(r.seq));
+  assert.deepStrictEqual(readyBeforeNotice(r.seq, 's', S_READY), [], JSON.stringify(r.seq));
+  assert.deepStrictEqual(r.atReady, settled(r));
+  // 進み具合の知らせ: 始めは起動のときの照らしが済んだ後の写し（まだ何も無い）、押すと running、最後は切り替えの後の写し（ready）
+  assert.deepStrictEqual(r.progress.slice(0, 2), ['missing', 'running']);
   assert.strictEqual(r.progress[r.progress.length - 1], 'ready');
   assert.deepStrictEqual([r.lastProgress.using, r.lastProgress.root], [{ whisper: 'current', sum: 'current' }, W]);
   // 取り込み中は眠らせない（省電力の抑止を始め、終わったら外す）
@@ -438,6 +476,68 @@ test('RF3: 起動のときの照らしで壊れていた組は、同意済みな
   assert.deepStrictEqual(r.spawns.map((x) => x.cmd), [path.join(W, 'whisper-1.0.0', 'whisper-server.exe')]);
   assert.strictEqual(r.engineStatus.whisper, '');
   assert.deepStrictEqual([r.engineFetchStatus.using.whisper, r.engineFetchStatus.whisperReady], ['current', true]);
+  // 取り直している間、進み具合は壊れた組を「使える」と言わない（照らし直して切り替えた後だけ）。要約の組も切り替えた後だけ
+  assert.deepStrictEqual(readyBeforeNotice(r.seq, 'w', W_READY), [], JSON.stringify(r.seq));
+  assert.deepStrictEqual(readyBeforeNotice(r.seq, 's', S_READY), [], JSON.stringify(r.seq));
+  assert.deepStrictEqual(r.atReady, settled(r));
+});
+
+test('要約を手で設定している PC で［エンジンを取り込む］: 文字起こしの組だけを取り、main が照らして切り替える前に進み具合で「使える」と言わない（第0b回 Task 14・15）', async () => {
+  await need('fetchSum');
+  const r = results.fetchSum;
+  assert.deepStrictEqual([...new Set(r.hits)], ['whisper-engine', 'whisper-vad', 'whisper-model']);
+  assert.deepStrictEqual(r.notices, ['文字起こしが使えるようになりました。'], JSON.stringify(r.engineLog));
+  // 文字起こしの組が最後の組。係は組がそろったすぐ後に止まり、最後の写しを送る。そのときはまだ照らしている途中
+  assert.deepStrictEqual(readyBeforeNotice(r.seq, 'w', W_READY), [], JSON.stringify(r.seq));
+  assert.strictEqual(r.atReady.whisper, '');
+  // 切り替えた後の写しが「使える」と言う（画面はこれでエンジンの状態を聞き直す）
+  assert.strictEqual(r.seq.filter((x) => !x.notice).pop().w, true, JSON.stringify(r.seq));
+  assert.strictEqual(r.engineStatus.whisper, '');
+  const s = r.engineFetchStatus;
+  assert.deepStrictEqual([s.mode, s.state, s.using.whisper, s.whisperReady], [{ whisper: 'managed', sum: 'manual' }, 'ready', 'current', true]);
+});
+
+test('RF3: 取り込んだ文字起こしエンジンが 0xC0000135 で落ち、照らし直して合わなければ、使うのをやめて知らせ、同意済みなら取り直してから使い直す（第0b回 Task 14）', async () => {
+  await need('managedCrash');
+  const r = results.managedCrash;
+  const W = r.managedRoot;
+  const exe = path.join(W, 'whisper-1.0.0', 'whisper-server.exe');
+  assert.ok(r.engineLog.some((l) => l.startsWith('文字起こしエンジンが終了しました (code 3221225781)')), JSON.stringify(r.engineLog));
+  assert.ok(r.engineLog.includes(`文字起こしエンジン: 落ちた後の照らし直し: 合わない ${path.join(W, 'whisper-1.0.0', 'whisper.dll')}（missing）`), JSON.stringify(r.engineLog));
+  // 知らせたときには、もう使っていない（engine:status は壊れた組の文。画面はそこで聞き直す）
+  assert.match(r.atBroken || '', /^文字起こしエンジンのファイルが消えたか変わっています。/);
+  // 壊れた知らせは 1 回。取り直して照らし直し、切り替えて知らせる（同意済みなので、まだの要約の組も続けて取る）
+  assert.deepStrictEqual(r.notices, [
+    '文字起こしエンジンのファイルが消えたか変わっていました。ウイルス対策が消した可能性があります（Windows セキュリティ → ウイルスと脅威の防止 → 保護の履歴）。取り直しています。',
+    '文字起こしが使えるようになりました。要約のエンジンは続けて取り込みます。',
+    '要約のエンジンが使えるようになりました。記録済みの会議は［要約を生成］で要約できます。'], JSON.stringify(r.engineLog));
+  assert.ok(r.engineLog.includes('取り込んだエンジンの取り直しを頼みます: whisper-engine'), JSON.stringify(r.engineLog));
+  assert.deepStrictEqual([...new Set(r.hits)], ['whisper-engine', 'sum-engine', 'sum-model']);
+  // 落ちた後の進み具合は「使えない」と言い、取り直して切り替えるまで「使える」と言わない
+  const after = r.seq.slice(r.seq.findIndex((x) => x.notice && /消えたか変わっていました/.test(x.notice)));
+  assert.ok(after.some((x) => !x.notice && x.w === false), JSON.stringify(r.seq));
+  assert.deepStrictEqual(readyBeforeNotice(after, 'w', W_READY), [], JSON.stringify(r.seq));
+  // 落ちた起動は 1 回。取り直した組で起動し直した
+  assert.deepStrictEqual(r.spawns.map((x) => [x.cmd, Boolean(x.crash)]), [[exe, true], [exe, false]]);
+  assert.strictEqual(r.engineStatus.whisper, '');
+  assert.deepStrictEqual([r.engineFetchStatus.using.whisper, r.engineFetchStatus.whisperReady], ['current', true]);
+});
+
+test('RF3: 0xC0000135 で落ちても、照らし直して合えば組は使い続ける（知らせない・取り直さない。Visual C++ ランタイムの案内のまま。第0b回 Task 14）', async () => {
+  await need('managedCrashOk');
+  const r = results.managedCrashOk;
+  const exe = path.join(r.managedRoot, 'whisper-1.0.0', 'whisper-server.exe');
+  assert.ok(r.engineLog.some((l) => l.startsWith('文字起こしエンジンが終了しました (code 3221225781)')), JSON.stringify(r.engineLog));
+  assert.ok(r.engineLog.includes('文字起こしエンジン: 落ちた後に取り込んだファイルを照らし直しました（合っています。Visual C++ ランタイムを確かめてください）'), JSON.stringify(r.engineLog));
+  assert.deepStrictEqual(r.notices, []);
+  assert.deepStrictEqual(r.hits, [], '合っているのに取り直した');
+  assert.ok(!r.engineLog.some((l) => l.startsWith('取り込んだエンジンの取り直しを頼みます')), JSON.stringify(r.engineLog));
+  assert.strictEqual(r.verifyCalls, 2, '起動のときと落ちた後の 2 回だけ照らす');
+  assert.strictEqual(r.engineStatusAfterCrash.whisper, '');
+  assert.deepStrictEqual([r.fetchStatusAfterCrash.using.whisper, r.fetchStatusAfterCrash.whisperReady], ['current', true]);
+  // 組は使い続ける: ［起動テスト］で同じ取り込んだ exe を起動し直して通る
+  assert.deepStrictEqual([r.testAfterCrash.ok, r.testAfterCrash.error], [true, undefined], JSON.stringify(r.testAfterCrash));
+  assert.deepStrictEqual(r.spawns.map((x) => [x.cmd, Boolean(x.crash)]), [[exe, true], [exe, false]]);
 });
 
 test('雑音の 1 区間だけヒント付きで空になっても、ヒントは止めない（続けて起きたときだけ止める）', async () => {

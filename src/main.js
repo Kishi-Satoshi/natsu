@@ -675,22 +675,33 @@ async function verifyManagedAtStartup() {
   // 起動のときの復旧の文字起こしは、照らし終わる前に「確かめています」で保留になる。使えるようになった今もう一度試す
   if (recoveryQueue && managed.whisper && !manualGroup(whisperEng)) transcribeRecovered().catch((e) => engineLog(`復旧の文字起こしに失敗: ${e.message}`));
   onManagedVerified(v);   // 壊れていた組の案内と取り直し（Task 14）
+  // 画面へ今の写しを送る。起動のときに「確かめています」を聞いた画面は、確かめ終えた（checking が偽の）この知らせで
+  // エンジンの状態を聞き直す（送らないと「要確認」が残る。両方の組が使えるなら whisperReady は前から真で、変わり目が無い）
+  try { sendToMainWin('engine:fetch-progress', await engineFetchStatus()); } catch (e) { engineLog(`取り込みの欄の写しを送れません: ${e && e.message}`); }
 }
 // 起動のときの照らしの続き（第0b回 Task 14）: 壊れていた組を知らせ、同意済みなら合わなかった項目を取り直す（RF3）
 function onManagedVerified(v) {
   repairManaged(managedCands, v);
 }
 
+// 画面に「使える」と見せる組: main が切り替えた候補（managedCands）から、照らしで合わなかった組を外したもの（RF3）。
+// 確かめている間は候補のまま（起動のたびに欄がちらつかない）。取り込みの係の記録（installed.json）だけでは決めない
+//（係が組を置き終えても、main が照らして切り替えるまでは使っていない。画面はこれが真になったときエンジンの状態を聞き直す）。
+// engine:fetch-status と、係の進み具合の知らせ（fetchView）が同じこの決まりを使う
+const usableCand = (g) => (managedState[g] === 'broken' ? null : managedCands[g]);
+// 取り込んだ側の組を、起動のときに照らしている途中か（画面は、これが偽に変わった知らせでエンジンの状態を聞き直す。Task 15）
+const managedChecking = () => ['whisper', 'sum'].some((g) => managedState[g] === 'checking' && !manualGroup(engOf(g)));
+
 // 取り込みの欄の写し（設定タブの画面が読む。Task 15）。読むだけ: 通信もフォルダ作りもしない
-// 照らしで合わなかった組は候補から外す（using・whisperReady で「使える」と見せず、画面が取り込みの欄を隠さない。RF3）。
-// 確かめている間は候補のまま（起動のたびに欄がちらつかない）
+// 照らしで合わなかった組は候補から外す（using・whisperReady で「使える」と見せず、画面が取り込みの欄を隠さない。RF3）
 async function engineFetchStatus() {
   const installed = engineInstall.readInstalled(engineInstall.layout(ENGINE_HOME.root, MANIFEST).installed);
   const plan = engineInstall.planInstall(MANIFEST, installed, fs.statSync, ENGINE_HOME.root);
-  const usable = (g) => (managedState[g] === 'broken' ? null : managedCands[g]);
-  return engineInstall.statusOf({ home: ENGINE_HOME, manifest: MANIFEST, plan, candidates: { whisper: usable('whisper'), sum: usable('sum') }, runner: engineFetch && engineFetch.status(),
+  const checking = managedChecking();
+  const s = engineInstall.statusOf({ home: ENGINE_HOME, manifest: MANIFEST, plan, candidates: { whisper: usableCand('whisper'), sum: usableCand('sum') }, runner: engineFetch && engineFetch.status(),
     manual: { whisper: manualGroup(whisperEng), sum: manualGroup(sumEng) }, freeBytes: await engineInstall.freeBytesOf(ENGINE_HOME.root),
     runtime: managedRuntimeIssue(), installed });
+  return { ...s, checking };
 }
 
 // ---------------------------------------------------------------- 取り込みの係と切り替え（第0b回 Task 14・RF3・RF8・RF13）
@@ -718,15 +729,16 @@ function getEngineFetch() {
 // （数えると、取り込みの間エンジンを止められなくなる）。省電力の抑止と未設定の文が見る
 function engineFetchRunning() { return Boolean(engineFetch && engineFetch.running()); }
 
-// 係の写しに、main だけが知っていることを入れる（engine:fetch-status と同じ見え方）: 照らしで合わなかった組は「使える」と
-// 見せず（RF3）、取り込む組の Visual C++ ランタイムの案内を入れる（係は Electron もランタイムも知らない。RF4）
+// 係の写しに、main だけが知っていることを入れる（engine:fetch-status と同じ見え方）: 使える組（using・whisperReady・sumReady）は
+// 係の記録ではなく main が切り替えた組で決め（usableCand。照らしで合わなかった組は「使える」と見せない: RF3）、
+// 確かめている途中か（checking）と、取り込む組の Visual C++ ランタイムの案内を入れる（係は Electron もランタイムも知らない。RF4）
 function fetchView(s) {
   if (!s || !Array.isArray(s.items)) return s;
-  const ok = (g) => managedState[g] !== 'broken';
+  const c = { whisper: usableCand('whisper'), sum: usableCand('sum') };
+  const usingOf = (x) => (x ? (x.current ? 'current' : 'previous') : null);   // statusOf の using と同じ形
   const rt = managedRuntimeIssue();
-  return { ...s, using: { whisper: ok('whisper') ? s.using.whisper : null, sum: ok('sum') ? s.using.sum : null },
-    whisperReady: s.whisperReady && ok('whisper'), sumReady: s.sumReady && ok('sum'),
-    runtime: rt ? { level: rt.level, message: rt.message } : null };
+  return { ...s, using: { whisper: usingOf(c.whisper), sum: usingOf(c.sum) }, whisperReady: Boolean(c.whisper), sumReady: Boolean(c.sum),
+    checking: managedChecking(), runtime: rt ? { level: rt.level, message: rt.message } : null };
 }
 
 // 係の状態が変わったとき。取り込み中は眠らせない。起動のときの自動の開始が大きな新しい版を取らなかったら、起動の中で1回だけ知らせる
@@ -2652,6 +2664,7 @@ if (!gotLock) {
     // 取り込みの続きを自動で始める（第0b回 Task 14）。係は同意済みで利用者が一時停止していないときだけ動き、
     // 大きな取り込み直しは始めない（押されるまで待つ。RF13）。窓とエンジンの起動を先に済ませてから
     setTimeout(() => {
+      if (quitting) return;   // 終了が始まっていたら始めない（before-quit の一時停止の後に係を作り直さない）
       try { getEngineFetch().start({ auto: true }); } catch (e) { engineLog(`取り込みの続きを始められません: ${e && e.message}`); }
     }, ENGINE_FETCH_AUTO_MS);
 
@@ -2664,8 +2677,9 @@ if (!gotLock) {
   app.on('window-all-closed', () => { /* トレイ常駐 */ });
   app.on('before-quit', () => {
     quitting = true;
-    // 取り込みを止める（.part は確定して残り、次の起動で続く。利用者の一時停止としては残さない）
-    if (engineFetch) engineFetch.pause('quit');
+    // 取り込みを止める（.part は確定して残り、次の起動で続く。利用者の一時停止としては残さない）。
+    // 止めるときに投げても、下の要約の「中断された」の印とエンジンの停止は続ける
+    try { if (engineFetch) engineFetch.pause('quit'); } catch (_) { /* noop */ }
     // 要約の途中で終了するなら、そのページに「中断された」と書いておく（#52。同期・できる範囲で）。
     // 書かないと、次に開いたときに要約が空のまま何も言わないページになる。
     for (const id of runSummary.running()) {

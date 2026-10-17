@@ -37,6 +37,16 @@
 //                     engine-small の小さな組を 127.0.0.1 の偽のサーバーから、Electron の net.request の偽物（fake-net）で取り込み、
 //                     組がそろうたびに main が照らして切り替えるのを見る（文字起こしのモデルだけ、大きさの床 50MB を超える本物の中身）。
 //                     main からは engineRoot・MANIFEST と、係の http の許し（requireHttps: false）・空きの測り方だけを差し替える
+//     --crash       … --managed と組み合わせる。照らし終えた組で起動した文字起こしエンジンが、ウイルス対策に DLL を消されて
+//                     0xC0000135（3221225781）で落ちる（Linux のプロセスはこの番号で終われないので、最初の起動だけ 'exit' を
+//                     その番号で出す偽の子にし、その前に whisper.dll を消す）。同意済みで偽のサーバーを開いたままにし、
+//                     main が照らし直して使うのをやめ、取り直してから使い直すのを見る（第0b回 Task 14・RF3）
+//     --crash-ok    … --crash と同じ落ち方だが、ファイルはそのまま（照らし直して合う: ランタイムの案内のまま、組は使い続ける）
+//     --slow-load   … 画面の読み込みを、起動のときの照らしが済むまで終えない（読み込み中に送った知らせは画面に届かない。
+//                     main は読み終えてから送る: noticeMainWin）
+// 画面へ送った知らせと進み具合は、送った順に out.seq へ残す。進み具合が初めて「使える」（whisperReady・sumReady）と
+// 言ったときの engine:status を out.atReady に、壊れた知らせを送ったときの engine:status を out.atBroken に残す
+// （画面はその知らせでエンジンの状態を聞き直すので、そのとき main の答えがもう新しいこと: 第0b回 Task 14・15）
 // 本物のエンジンで試すときは NATSU_E2E_EXE・NATSU_E2E_MODEL・NATSU_E2E_WAVS（; 区切り）を渡す。
 // 終わるときは、起動したエンジンを止め、一時フォルダを消す（npm test のたびに残さない）。
 
@@ -73,6 +83,9 @@ const sumTamper = flags.includes('--sum-tamper');
 const noEngine = (flags.find((f) => f.startsWith('--no-engine=')) || '').slice(12);
 const fetchMode = flags.includes('--fetch');
 const repairMode = flags.includes('--repair');
+const crashMode = flags.includes('--crash') ? 'broken' : (flags.includes('--crash-ok') ? 'ok' : '');
+const slowLoad = flags.includes('--slow-load');
+const serveSet = repairMode || Boolean(crashMode);   // engine-small の偽のサーバーを開いたままにし、同意済みにする
 const REAL_PLATFORM = process.platform;
 // --no-vc-runtime が main の中だけ空のフォルダに向ける環境の変数の、元の値。エンジン（子のプロセス）には元の値を渡す
 // （本物のエンジンは本物の Windows の中で動く。Windows の node は SystemRoot が違うと Winsock を始められず code 134 で落ちる）
@@ -184,7 +197,7 @@ process.on('exit', () => {
     const realManifest = require(path.join(ROOT, 'src', 'engine-manifest.js'));
     const { smallSet } = require('./engine-small');
     const set = await smallSet();
-    if (repairMode) fetchSet = set;   // 取り直しを見る: 偽のサーバーは終わるまで開いておく
+    if (serveSet) fetchSet = set;   // 取り直しを見る: 偽のサーバーは終わるまで開いておく
     else await set.close();   // 通信はしない（中身だけ使う）
     // 文字起こしのモデルは大きさの床（50MB）を超える疎のファイル（モデルは大きさと更新時刻で照らすので中身は見ない）。
     // VAD は本物の名前にして、モデルの隣の自動の発見（resolveVadModel）が取り込んだ models の中で効くかを見る
@@ -228,7 +241,7 @@ process.on('exit', () => {
       I.writeInstalled(instFile, inst);
     };
     if (managedMode === 'tamper') tamper('whisper-1.0.0', 'whisper.dll');
-    if (repairMode) {
+    if (serveSet) {
       // 利用者は前に［エンジンを取り込む］を押している（同意済み）
       const instFile = path.join(managedRoot, 'installed.json');
       I.writeInstalled(instFile, { ...I.readInstalled(instFile), consent: true });
@@ -238,7 +251,7 @@ process.on('exit', () => {
       install: { ...I, engineRoot: () => home,
         verifyCandidates: verifyThrows ? async () => { verifyCalls += 1; throw new Error('照らしの試験の失敗𠮷'); }
           : async (...a) => { verifyCalls += 1; return I.verifyCandidates(...a); },
-        ...(repairMode ? { makeRunner: (deps) => I.makeRunner({ ...deps, fetchOpts: { requireHttps: false }, statfs: async () => ({ bavail: 1e6, bsize: 1e6 }) }) } : {}) },
+        ...(serveSet ? { makeRunner: (deps) => I.makeRunner({ ...deps, fetchOpts: { requireHttps: false }, statfs: async () => ({ bavail: 1e6, bsize: 1e6 }) }) } : {}) },
       manifest: { ...realManifest, MANIFEST: Object.freeze({ schema: 1, items }) },
     };
   }
@@ -287,10 +300,32 @@ process.on('exit', () => {
   }));
 
   const handlers = {}, listeners = {}, sent = [];
+  // 画面へ送った知らせと進み具合の順。進み具合が初めて組を「使える」と言ったとき・壊れた知らせを送ったときの engine:status
+  const seq = [];
+  const atReady = {};
+  let atBroken = null;
+  const watch = (ch, p) => {
+    if (ch === 'app:notice') {
+      seq.push({ notice: p });
+      if (atBroken === null && /ファイルが消えたか変わっていました/.test(p) && handlers['engine:status']) atBroken = handlers['engine:status']().whisper;
+    }
+    if (ch === 'engine:fetch-progress' && p && typeof p === 'object') {
+      seq.push({ state: p.state, w: Boolean(p.whisperReady), s: Boolean(p.sumReady), checking: p.checking });
+      for (const [g, k] of [['whisper', 'whisperReady'], ['sum', 'sumReady']]) {
+        if (p[k] && !(g in atReady) && handlers['engine:status']) atReady[g] = handlers['engine:status']()[g];
+      }
+    }
+  };
+  // 画面の読み込み（--slow-load のときだけ、finishLoad まで読み込み中）。読み込み中に送ったものは画面に届かない（lost）
+  let loading = slowLoad;
+  const loadWaiters = [];
+  const lost = [];
+  const finishLoad = () => { loading = false; for (const cb of loadWaiters.splice(0)) cb(); };
   class Win {
     constructor() {
       this.webContents = withFallback({
-        send: (ch, p) => sent.push([ch, p]), once() {}, on() {}, isLoading: () => false,
+        send: (ch, p) => { if (loading) { lost.push([ch, p]); return; } sent.push([ch, p]); watch(ch, p); },
+        once: (ev, cb) => { if (ev === 'did-finish-load' && loading) loadWaiters.push(cb); }, on() {}, isLoading: () => loading,
         setWindowOpenHandler() {}, executeJavaScript: () => Promise.reject(new Error('no renderer')),
       });
     }
@@ -330,9 +365,21 @@ process.on('exit', () => {
   // エンジンの spawn だけを本物にする（.js なら node で起動）。それ以外（貼り付け用の PowerShell など）は起動しない
   const realSpawn = cp.spawn;
   const spawns = [];   // エンジンの起動（実行ファイル・引数・作業フォルダ）
+  let crashed = false;  // --crash・--crash-ok: 最初の起動だけ 0xC0000135 で落とした
   const childProcess = {
     ...cp,
     spawn(cmd, args, opts) {
+      if (crashMode && !crashed && managedExe && cmd === managedExe) {
+        // 照らし終えた後で、ウイルス対策が DLL を消した（--crash）。起動した exe は DLL が見つからず 0xC0000135 で落ちる
+        crashed = true;
+        spawns.push({ cmd, args, cwd: (opts && opts.cwd) || '', crash: true });
+        if (crashMode === 'broken') fs.rmSync(path.join(managedRoot, 'whisper-1.0.0', 'whisper.dll'));
+        const EventEmitter = require('events');
+        const p = new EventEmitter();
+        p.stdin = null; p.stdout = new EventEmitter(); p.stderr = new EventEmitter(); p.kill = () => {};
+        setTimeout(() => p.emit('exit', 3221225781, null), 30);
+        return p;
+      }
       if (cmd === exe || (withSum && cmd === FAKE_SUM) || (managedExe && cmd === managedExe)) {
         spawns.push({ cmd, args, cwd: (opts && opts.cwd) || '' });
         // 取り込んだ exe（中身は試験のバイト列）の代わりに、偽の whisper を node で起動する
@@ -378,15 +425,21 @@ process.on('exit', () => {
     out.managedRoot = managedRoot;
     out.manifestShas = { whisper: fetchManifest.items.filter((i) => i.group === 'whisper').map((i) => i.sha256),
       sum: fetchManifest.items.filter((i) => i.group === 'sum').map((i) => i.sha256) };
+    // 起動のときの照らし（何も取り込んでいないので候補は無い）が済み、画面へ今の写しを送るのを待ってから押す（最大 2 秒）
+    for (let i = 0; i < 100 && !sent.some(([ch]) => ch === 'engine:fetch-progress'); i++) await sleep(20);
     out.statusBefore = handlers['engine:status']();
     out.fetchStart = await handlers['engine:fetch-start']({}, {});
     // 取り込みの途中で記録を始めようとする（文字起こしの組はまだ。未設定の文に「取り込み中」）
     out.startDuring = await handlers['meeting:toggle']();
-    // 2 つの組がそろって切り替わり、係が止まって（省電力の抑止を外して）、文字起こしエンジンが起動するのを待つ（最大 4 秒）
-    const sumReady = () => sent.some(([ch, p]) => ch === 'app:notice' && /^要約のエンジンが使えるようになりました。/.test(p));
+    // 2 つの組がそろって切り替わり、係が止まって（省電力の抑止を外して）、文字起こしエンジンが起動するのを待つ（最大 4 秒）。
+    // 要約を手で設定しているとき（--sum）は、文字起こしの組だけを取る（最後の組は文字起こし）
+    const lastReady = () => sent.some(([ch, p]) => ch === 'app:notice'
+      && (withSum ? /^文字起こしが使えるようになりました。/ : /^要約のエンジンが使えるようになりました。/).test(p));
     const until = Date.now() + 4000;
-    while (Date.now() < until && !(sumReady() && power.some(([k]) => k === 'stop') && spawns.length)) await sleep(20);
+    while (Date.now() < until && !(lastReady() && power.some(([k]) => k === 'stop') && spawns.length)) await sleep(20);
     await sleep(100);
+    out.seq = seq;
+    out.atReady = atReady;
     out.notices = sent.filter(([ch]) => ch === 'app:notice').map(([, p]) => p);
     out.progress = sent.filter(([ch]) => ch === 'engine:fetch-progress').map(([, p]) => p && p.state);
     out.lastProgress = sent.filter(([ch]) => ch === 'engine:fetch-progress').map(([, p]) => p).pop() || null;
@@ -420,9 +473,47 @@ process.on('exit', () => {
       process.env.windir = winDir;
       if (process.platform !== 'win32') Object.defineProperty(process, 'platform', { value: 'win32', configurable: true });
     }
+    // 起動のときの照らしの途中に、60 秒ごとの見回り（releaseIdleEngines）が来る。照らしの結果を待ち、二重に照らさない（Task 14）
+    out.ticksDuringCheck = ticks.length;
+    for (const t of ticks) t();
     // 照らし終えるのを待つ（最大 3 秒）
     const until = Date.now() + 3000;
     while (Date.now() < until && /確かめています/.test(handlers['engine:status']().whisper)) await sleep(20);
+    // --slow-load: 画面の読み込みはここで終わる（読み込み中に送った分は lost。main が読み終えるのを待って送る分は、ここで届く）
+    out.lostWhileLoading = lost.map(([ch, p]) => (ch === 'app:notice' ? p : ch));
+    finishLoad();
+  }
+  if (crashMode) {
+    // 文字起こしエンジンが 0xC0000135 で落ちた後（--crash・--crash-ok）
+    const elogFile = path.join(userData, 'engine.log');
+    const elog = () => (fs.existsSync(elogFile) ? fs.readFileSync(elogFile, 'utf8').split('\n').filter(Boolean).map((l) => l.replace(/^\[[^\]]+\] /, '')) : []);
+    const noticed = (re) => sent.some(([ch, p]) => ch === 'app:notice' && re.test(p));
+    const until = Date.now() + 4000;
+    if (crashMode === 'broken') {
+      // 照らし直して使うのをやめ、取り直し、照らし直してから使い直す（要約の組も、同意済みなので続けて取る）。最大 4 秒
+      while (Date.now() < until && !(noticed(/^文字起こしが使えるようになりました。/) && noticed(/^要約のエンジンが使えるようになりました。/) && spawns.length >= 2)) await sleep(20);
+      await sleep(100);
+    } else {
+      // 照らし直して合う: 組は使い続け、［起動テスト］で起動し直せる
+      while (Date.now() < until && !elog().some((l) => l.includes('落ちた後に取り込んだファイルを照らし直しました'))) await sleep(20);
+      await sleep(100);
+      out.engineStatusAfterCrash = handlers['engine:status']();
+      out.fetchStatusAfterCrash = await handlers['engine:fetch-status']();
+      out.testAfterCrash = await handlers['app:test']();
+    }
+    out.seq = seq;
+    out.atBroken = atBroken;
+    out.atReady = atReady;
+    out.notices = sent.filter(([ch]) => ch === 'app:notice').map(([, p]) => p);
+    out.hits = fetchSet.hits().map((h) => h.id);
+    out.spawns = spawns.slice();
+    out.verifyCalls = verifyCalls;
+    out.engineStatus = handlers['engine:status']();
+    out.engineFetchStatus = await handlers['engine:fetch-status']();
+    out.engineLog = elog();
+    await fetchSet.close();
+    process.stdout.write(`\n${JSON.stringify(out)}\n`);
+    process.exit(0);
   }
   for (let i = 0; i < 100 && !handlers['meeting:toggle']; i++) await sleep(20);
   if (recoverMode) {
@@ -443,6 +534,8 @@ process.on('exit', () => {
     const until = Date.now() + 4000;
     while (Date.now() < until && !(sumReady() && spawns.length)) await sleep(20);
     await sleep(100);
+    out.seq = seq;
+    out.atReady = atReady;
     out.notices = sent.filter(([ch]) => ch === 'app:notice').map(([, p]) => p);
     out.hits = fetchSet.hits().map((h) => h.id);
     out.spawns = spawns.slice();
@@ -539,6 +632,8 @@ process.on('exit', () => {
   out.engineStatus = await handlers['engine:status']();
   out.engineFetchStatus = handlers['engine:fetch-status'] ? await handlers['engine:fetch-status']() : null;   // 第0b回 Task 13
   out.spawns = spawns;
+  out.seq = seq;
+  out.atReady = atReady;
   out.savedSettings = JSON.parse(fs.readFileSync(path.join(userData, 'settings.json'), 'utf8'));
   if (afterDict) {
     out.saved = await handlers['settings:save']({}, { dictionary: ['検収'] });
