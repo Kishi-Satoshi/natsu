@@ -201,8 +201,6 @@ test('get-installer.ps1: セットアップスクリプトを落とさず、終�
 test('ランタイムの案内は aka.ms/vc14（14.51 以上）。aka.ms/vs/17（14.44）は残っていない', () => {
   for (const f of ['INSTALL.md', 'setup-local-engine.ps1', 'src/mainlib.js']) {
     const s = read(f);
-    // src/mainlib.js の案内の文（vcRuntimeIssue）は Task 10 が足す。その前は、古い URL が無いことだけを見る
-    if (f === 'src/mainlib.js' && !s.includes('vcRuntimeIssue')) { assert.ok(!s.includes('aka.ms/vs/17'), f); continue; }
     assert.ok(s.includes('https://aka.ms/vc14/vc_redist.x64.exe'), f);
     assert.ok(!s.includes('aka.ms/vs/17'), f);
   }
@@ -216,4 +214,25 @@ test('setup-summarizer.ps1 の既定のモデルは、アプリの取り込み�
   const block = s.slice(s.indexOf(`if ($Model -eq "${def}")`), s.indexOf('}', s.indexOf(`if ($Model -eq "${def}")`)));
   assert.ok(block.includes(name), `既定 ${def} のファイルが ${name} でない`);
   assert.ok(s.includes(pin.url), 'ピンと同じ commit の URL でない');
+});
+
+// INSTALL の「困ったときは」は、画面に出る取り込みの文（src/engine-fetch.js の fetchErrorMessage）と
+// ランタイムの文（src/mainlib.js の vcRuntimeIssue）の一部を「…」と出る の形でそのまま引く。文を直したのに
+// INSTALL を直し忘れると、利用者が表で探せなくなるので、引いた文が本当の文のどれかの一部であることを見る。
+// 「 … 」は、その間に何かが入る（defender の文のファイル名）。
+test('INSTALL の困ったときは: 「…」と出る と書いた文は、取り込みとランタイムの本当の文の一部（文を直したら INSTALL も直す）', () => {
+  const { fetchErrorMessage } = require('../src/engine-fetch');
+  const { vcRuntimeIssue } = require('../src/mainlib');
+  const codes = ['waiting', 'offline', 'proxy', 'proxy-auth', 'cert', 'blocked', 'http-401', 'http-403', 'space', 'hash', 'gone',
+    'size-changed', 'pinned-mismatch', 'place-in-use', 'locked', 'defender', 'net', 'bad-range', 'insecure-redirect', 'too-many-redirects'];
+  const real = [...codes.map((c) => fetchErrorMessage(c)), ...codes.map((c) => fetchErrorMessage(c, { file: 'whisper-server.exe', needGB: 2.4 })),
+    vcRuntimeIssue({}, { whisper: true }).message];
+  const esc = (t) => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const sec = section(read('INSTALL.md'), '## 困ったときは');
+  const quoted = sec.split('\n').map((l) => /^\| 「([^」]+)」[^|]*(?:と出る|から進まない) \|/.exec(l)).filter(Boolean).map((m) => m[1]);
+  assert.ok(quoted.length >= 7, `引いた文が少ない: ${JSON.stringify(quoted)}`);
+  for (const q of quoted) {
+    const re = new RegExp(q.split(' … ').map(esc).join('.+'));
+    assert.ok(real.some((m) => re.test(m)), `INSTALL の「${q}」が、画面に出る文のどれにも無い`);
+  }
 });
