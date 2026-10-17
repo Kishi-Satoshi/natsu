@@ -79,6 +79,33 @@ test('ゲートが、健全なコミットでは鳴らない（誤検知の実�
   assert.ok(checked >= 20, `検査したコミットが ${checked} 件しかない（空振り）`);
 });
 
+test('RF2: main 側に外向きのグローバル fetch を足すと BLOCK。127.0.0.1・net.fetch・net.request・画面は通す', () => {
+  const R = require('../tools/risk');
+  const base = 'async function a() { await fetch(url, {}); }\n';
+  assert.deepStrictEqual(R.fetchFindings('src/x.js', base, base), []);
+  assert.strictEqual(R.fetchFindings('src/x.js', base, base + "await fetch('https://example.invalid/a');\n").length, 1);
+  assert.deepStrictEqual(R.fetchFindings('src/x.js', base, base + 'await fetch(`http://127.0.0.1:${p}/health`);\n'), []);
+  assert.deepStrictEqual(R.fetchFindings('src/x.js', base, base + 'await net.fetch(u); electronNet.request(o);\n'), []);
+  assert.deepStrictEqual(R.fetchFindings('src/renderer/app.html', '', "fetch('https://example.invalid')"), []);
+  assert.strictEqual(R.fetchFindings('src/new.js', null, 'fetch(u)\n').length, 1);
+  // 今ある呼び出しの同じ行の他の所を直しても鳴らない（第1引数で数える）
+  assert.deepStrictEqual(R.fetchFindings('src/x.js', base, 'async function a() { await fetch(url, { signal: s }); }\n'), []);
+  // 注釈の中は数えない
+  assert.deepStrictEqual(R.fetchFindings('src/x.js', base, base + "// fetch('https://example.invalid')\n"), []);
+  assert.ok(R.SCOPE.sees.some((s) => s.includes('グローバルの fetch')));
+});
+
+test('RF2: analyze が変わった src の .js を fetchFindings に渡して BLOCK にする。globalThis.fetch と 127.0.0.1 に似た名前も数える', () => {
+  const R = require('../tools/risk');
+  const src = read('tools/risk.js');
+  const at = src.indexOf('function analyze(');
+  const body = src.slice(at, src.indexOf('\n}\n', at));
+  assert.match(body, /fetchFindings\(f, at\(base, f\), at\(head, f\)\)/, 'analyze が fetchFindings を呼んでいない');
+  assert.match(body, /add\('BLOCK', 'main の外向き通信'/, '見つけても BLOCK にしていない');
+  assert.strictEqual(R.fetchFindings('src/x.js', '', "globalThis.fetch('https://example.invalid/a');\n").length, 1);
+  assert.strictEqual(R.fetchFindings('src/x.js', '', "fetch('http://127.0.0.1.example.invalid/');\n").length, 1);
+});
+
 test('復旧の導線が、画面を経由せずに main 側から到達できる', () => {
   const R = require('../tools/risk');
   const bad = R.analyze('HEAD', null).findings.filter((f) => f.rule === '復旧の導線');

@@ -17,6 +17,7 @@ const fs = require('fs');
 const os = require('os');
 const { execFile, spawn } = require('child_process');
 const net = require('net');
+globalThis.fetch = require('./mainlib').loopbackOnlyFetch(globalThis.fetch);
 
 const store = require('./store');
 const cite = require('./cite');

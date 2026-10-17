@@ -221,6 +221,46 @@ function checkRecovery(mainSrc) {
       add('BLOCK', '復旧の導線', 'src/main.js', `「${r.name}」への入口が main 側（トレイ／アプリメニュー）に無い。画面が1か所で倒れると復旧できなくなる`, 'Menu/Tray のテンプレートに、レンダラーを経由しない項目を足す');
 }
 
+// ---------- main 側の外向きの通信（グローバルの fetch。RF2） ----------
+// Node の fetch は Windows のプロキシ・PAC・証明書のストアを使わない。会社のプロキシと
+// SSL の検査の下では、外への通信は Electron の net（net.request／net.fetch）でしか通らない。
+// 今ある 127.0.0.1 のエンジンへの呼び出しは fetch のままでよいので、第1引数の文字で数え、
+// 前の版より増えた第1引数だけを報告する（同じ行の他の所を直しても鳴らない）。
+const fetchTarget = (f) => /^src\/.*\.js$/.test(f) && !f.startsWith('src/renderer/');
+// 呼び出しの括弧の中から、第1引数の文字を取る（括弧・文字列・` の入れ子を数え、外側の , か ) まで）
+function firstArg(src, open) {
+  let depth = 0, q = null, i = open + 1;
+  for (; i < src.length; i++) {
+    const c = src[i];
+    if (q) { if (c === '\\') i++; else if (c === q) q = null; continue; }
+    if (c === "'" || c === '"' || c === '`') q = c;
+    else if (c === '(' || c === '[' || c === '{') depth++;
+    else if (c === ')' || c === ']' || c === '}') { if (!depth) break; depth--; }
+    else if (c === ',' && !depth) break;
+  }
+  return src.slice(open + 1, i).replace(/\s+/g, ' ').trim();
+}
+// 127.0.0.1 のエンジンへの呼び出し（文字列の頭が http://127.0.0.1 で、その後がポートか道か終わり）
+const LOOPBACK_ARG = /^['"`]http:\/\/127\.0\.0\.1(?=[:/'"`])/;
+function fetchArgs(src) {
+  const out = new Map();
+  if (src == null) return out;
+  const s = stripJs(src);
+  // net.fetch・x.fetch は数えない。globalThis.fetch・global.fetch はグローバルの fetch なので数える
+  for (const m of s.matchAll(/(?<![.\w$])(?:(?:globalThis|global)\s*\.\s*)?fetch\s*\(/g)) {
+    const arg = firstArg(s, m.index + m[0].length - 1);
+    if (LOOPBACK_ARG.test(arg)) continue;
+    out.set(arg, (out.get(arg) || 0) + 1);
+  }
+  return out;
+}
+/** 前の版より数が増えた、外向きになりうるグローバルの fetch の第1引数（1つの第1引数ごとに1件） */
+function fetchFindings(file, before, after) {
+  if (!fetchTarget(file) || after == null) return [];
+  const b = fetchArgs(before), a = fetchArgs(after);
+  return [...a].filter(([arg, n]) => n > (b.get(arg) || 0)).map(([arg]) => arg);
+}
+
 function analyze(base, head) {
   F = [];
   const changed = new Set(
@@ -264,6 +304,11 @@ function analyze(base, head) {
     if (!ib.has(x)) add('BLOCK', '地とインクの向き', 'src/renderer/overlay.html', x, '地の色を変えたら、その面に載る色を全て見直す');
   checkPs1(head);
   checkRecovery(mainA);
+  // main 側の外向きのグローバル fetch（新しく足したものだけ）
+  for (const f of [...changed].filter(fetchTarget)) {
+    for (const arg of fetchFindings(f, at(base, f), at(head, f)))
+      add('BLOCK', 'main の外向き通信', f, `グローバルの fetch を足した: ${arg}\n      理由: Node の fetch は Windows のプロキシ・PAC・証明書を使わない（RF2）`, 'Electron の net（net.request／net.fetch）を使う。127.0.0.1 のエンジンへの呼び出しだけは fetch でよい');
+  }
 
   // 実機確認が要る変更の判定
   const needs = [];
@@ -288,6 +333,7 @@ const SCOPE = {
     '地とインクの向き',
     '.ps1 の BOM と書き出し口',
     '復旧の導線が main 側にあること',
+    'main プロセスの外向きの通信（グローバルの fetch）',
   ],
   blind: ['src/cite.js', 'src/store.js', 'src/minutes.js', 'src/actions.js'],
 };
@@ -341,6 +387,7 @@ function main(argv) {
     line('地とインクの向き', blocks.filter((b) => b.rule.includes('インク')).length),
     line('.ps1 の BOM と書き出し口', blocks.filter((b) => b.rule.includes('ps1')).length),
     line('復旧の導線が main 側にあること', blocks.filter((b) => b.rule.includes('復旧')).length),
+    line('main プロセスの外向きの通信（グローバルの fetch）', blocks.filter((b) => b.rule === 'main の外向き通信').length),
     '', `このゲートが見ていないもの: ${SCOPE.blind.join(' / ')} のロジック — npm test が守る（リリース前に必ず通す）`);
   const out = arg('--checklist');
   if (out) { fs.writeFileSync(out, md.join('\n') + '\n'); console.log('チェックリストを書き出した: ' + out); }
@@ -349,4 +396,4 @@ function main(argv) {
   return blocks.length ? 1 : 0;
 }
 if (require.main === module) process.exit(main(process.argv.slice(2)));
-module.exports = { analyze, checkHtml, windows, mineHits, inkFindings, refIds, SCOPE, scopeNote };
+module.exports = { analyze, checkHtml, windows, mineHits, inkFindings, refIds, fetchFindings, SCOPE, scopeNote };

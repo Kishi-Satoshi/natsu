@@ -703,6 +703,27 @@ function memoEvidence(memo, types) {
   return String(memo || '').split('\n').filter((l) => !preset.has(l.trim())).join('\n');
 }
 
+// ---------------------------------------------------------------- main の外向きの通信（RF2）
+// Node の fetch は Windows のプロキシ・PAC・証明書のストアを使わない。会社のプロキシと SSL の
+// 検査の下では通らないので、外への通信は Electron の net（net.request／net.fetch）で行う。
+// main のグローバル fetch は、127.0.0.1 のエンジンへの呼び出しだけに使う（main.js が起動の最初に包む）。
+function isLoopbackUrl(u) {
+  let p;
+  try { p = new URL(u); } catch { return false; }
+  if (p.protocol !== 'http:' && p.protocol !== 'https:') return false;
+  return p.hostname === '127.0.0.1' || p.hostname === 'localhost' || p.hostname === '[::1]';
+}
+// 読めない URL（ポートが 99999 など）は、そのまま元の fetch に渡す。元の fetch が TypeError
+// （Failed to parse URL …）を投げ、ensureEngineReady の「接続先（ポート設定）が不正です」が今までどおり働く
+function loopbackOnlyFetch(f) {
+  return async (input, init) => {
+    const u = typeof input === 'string' ? input : (input && input.url) || String(input);
+    try { new URL(u); } catch { return f(input, init); }
+    if (!isLoopbackUrl(u)) throw new Error(`外への通信は Electron の net を使ってください（${u}）`);
+    return f(input, init);
+  };
+}
+
 module.exports = {
   saveIfExists, meetingDurationSec, promptTail,
   registerHotkeys, hotkeyFailureMessage, hotkeyStatus, resolveStartupHotkeys, saveHotkeys,
@@ -714,4 +735,5 @@ module.exports = {
   publicSegments, settledSegments, pendingDurationMs, recoverSegments, staleSegbufDirs,
   nextSegmentMs, EtaTracker, skipPendingSegments,
   estimateTokens, foldNotes, idleEnginesToStop, silentWav, wavLevelDbfs, mergeSummaryType, memoEvidence,
+  isLoopbackUrl, loopbackOnlyFetch,
 };
