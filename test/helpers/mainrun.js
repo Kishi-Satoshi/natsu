@@ -28,9 +28,15 @@
 //                     Windows でだけ DLL を読む）。記録はせず、engine:status・起動テスト・記録の開始の答えを見る。
 //                     その後で System32 に 14.51 の DLL を置き（担当がランタイムを入れた）、起動し直さずに起動テストをもう一度押す
 //     --verify-throws … --managed と組み合わせる。照らし（verifyCandidates）が例外を投げる。記録はしない
+//     --repair      … --managed-tamper と組み合わせる。installed.json を同意済みにし、engine-small の偽のサーバーを開いたままにして、
+//                     起動のときの照らしで壊れていた組を main が取り直し（fake-net の net.request で）、照らし直してから使うのを見る（Task 14）
 //     --sum-tamper  … --managed と組み合わせる。要約の組も置き、その llama.dll を大きさを変えずに書き換える（要約の組は壊れている）
 //     --no-engine=fetchable|unsupported … 詳細設定の文字起こしを空にし、何も取り込んでいない PC にする。fetchable は取り込める PC、
 //                     unsupported は取り込めない PC（engineRoot だけを差し替える）。記録はしない
+//     --fetch       … 何も取り込んでいない取り込める PC で、設定の［エンジンを取り込む］（engine:fetch-start）を押す（第0b回 Task 14）。
+//                     engine-small の小さな組を 127.0.0.1 の偽のサーバーから、Electron の net.request の偽物（fake-net）で取り込み、
+//                     組がそろうたびに main が照らして切り替えるのを見る（文字起こしのモデルだけ、大きさの床 50MB を超える本物の中身）。
+//                     main からは engineRoot・MANIFEST と、係の http の許し（requireHttps: false）・空きの測り方だけを差し替える
 // 本物のエンジンで試すときは NATSU_E2E_EXE・NATSU_E2E_MODEL・NATSU_E2E_WAVS（; 区切り）を渡す。
 // 終わるときは、起動したエンジンを止め、一時フォルダを消す（npm test のたびに残さない）。
 
@@ -65,6 +71,8 @@ const noVcRuntime = flags.includes('--no-vc-runtime');
 const verifyThrows = flags.includes('--verify-throws');
 const sumTamper = flags.includes('--sum-tamper');
 const noEngine = (flags.find((f) => f.startsWith('--no-engine=')) || '').slice(12);
+const fetchMode = flags.includes('--fetch');
+const repairMode = flags.includes('--repair');
 const REAL_PLATFORM = process.platform;
 // --no-vc-runtime が main の中だけ空のフォルダに向ける環境の変数の、元の値。エンジン（子のプロセス）には元の値を渡す
 // （本物のエンジンは本物の Windows の中で動く。Windows の node は SystemRoot が違うと Winsock を始められず code 134 で落ちる）
@@ -169,12 +177,15 @@ process.on('exit', () => {
   let managedExe = '';
   let managedRoot = '';
   let managedMods = null;
+  let fetchSet = null;   // 開いたままの engine-small の偽のサーバー（--fetch・--repair）
+  let verifyCalls = 0;   // 取り込んだ組の照らし（verifyCandidates）の回数
   if (managedMode) {
     const I = require(path.join(ROOT, 'src', 'engine-install.js'));
     const realManifest = require(path.join(ROOT, 'src', 'engine-manifest.js'));
     const { smallSet } = require('./engine-small');
     const set = await smallSet();
-    await set.close();   // 通信はしない（中身だけ使う）
+    if (repairMode) fetchSet = set;   // 取り直しを見る: 偽のサーバーは終わるまで開いておく
+    else await set.close();   // 通信はしない（中身だけ使う）
     // 文字起こしのモデルは大きさの床（50MB）を超える疎のファイル（モデルは大きさと更新時刻で照らすので中身は見ない）。
     // VAD は本物の名前にして、モデルの隣の自動の発見（resolveVadModel）が取り込んだ models の中で効くかを見る
     const items = set.manifest.items.map((it) => {
@@ -217,10 +228,17 @@ process.on('exit', () => {
       I.writeInstalled(instFile, inst);
     };
     if (managedMode === 'tamper') tamper('whisper-1.0.0', 'whisper.dll');
+    if (repairMode) {
+      // 利用者は前に［エンジンを取り込む］を押している（同意済み）
+      const instFile = path.join(managedRoot, 'installed.json');
+      I.writeInstalled(instFile, { ...I.readInstalled(instFile), consent: true });
+    }
     if (sumTamper) tamper('llama-b1', 'llama.dll');
     managedMods = {
       install: { ...I, engineRoot: () => home,
-        ...(verifyThrows ? { verifyCandidates: async () => { throw new Error('照らしの試験の失敗𠮷'); } } : {}) },
+        verifyCandidates: verifyThrows ? async () => { verifyCalls += 1; throw new Error('照らしの試験の失敗𠮷'); }
+          : async (...a) => { verifyCalls += 1; return I.verifyCandidates(...a); },
+        ...(repairMode ? { makeRunner: (deps) => I.makeRunner({ ...deps, fetchOpts: { requireHttps: false }, statfs: async () => ({ bavail: 1e6, bsize: 1e6 }) }) } : {}) },
       manifest: { ...realManifest, MANIFEST: Object.freeze({ schema: 1, items }) },
     };
   }
@@ -230,6 +248,29 @@ process.on('exit', () => {
     const home = noEngine === 'fetchable' ? { supported: true, root: path.join(localAppData, 'natsu', 'engine'), reason: '' }
       : I.engineRoot({}, 'linux', 'x64');
     managedMods = { install: { ...I, engineRoot: () => home }, manifest: require(path.join(ROOT, 'src', 'engine-manifest.js')) };
+  }
+  // 取り込みを押す PC（--fetch）。置き場所だけを決め、フォルダは作らない（作るのは main の取り込みの係）。
+  // 偽のサーバーは終わるまで開いておく
+  let fetchManifest = null;
+  if (fetchMode) {
+    const I = require(path.join(ROOT, 'src', 'engine-install.js'));
+    const realManifest = require(path.join(ROOT, 'src', 'engine-manifest.js'));
+    const { smallSet } = require('./engine-small');
+    fetchSet = await smallSet();
+    // 文字起こしのモデルは大きさの床（50MB）を超える中身にする（取り込んだ後の engineCheck を通り、エンジンが起動する）
+    const big = Buffer.alloc(51 * 1024 * 1024, 1);
+    fetchSet.bodies['whisper-model'] = big;
+    const items = fetchSet.manifest.items.map((it) => (it.id === 'whisper-model'
+      ? { ...it, size: big.length, sha256: require('crypto').createHash('sha256').update(big).digest('hex') } : it));
+    fetchManifest = Object.freeze({ schema: 1, items });
+    managedRoot = path.join(localAppData, 'natsu', 'engine');
+    managedExe = path.join(managedRoot, 'whisper-1.0.0', 'whisper-server.exe');
+    const home = { supported: true, root: managedRoot, reason: '' };
+    managedMods = {
+      install: { ...I, engineRoot: () => home,
+        makeRunner: (deps) => I.makeRunner({ ...deps, fetchOpts: { requireHttps: false }, statfs: async () => ({ bavail: 1e6, bsize: 1e6 }) }) },
+      manifest: { ...realManifest, MANIFEST: fetchManifest },
+    };
   }
   // 前回落ちた会議の下書き（main は起動のときに復旧ページを作り、残った音声を文字起こしし直す）
   if (recoverMode) {
@@ -241,7 +282,7 @@ process.on('exit', () => {
       segments: [{ id: 's1', atMs: 0, durationMs: 3000, pending: true, wav, text: '' }] }));
   }
   fs.writeFileSync(path.join(userData, 'settings.json'), JSON.stringify({
-    ...(managedMode || noEngine ? {} : { localServerExe: exe, localModelPath: model }), localPort, sumPort, autoLaunch: false,
+    ...(managedMode || noEngine || fetchMode ? {} : { localServerExe: exe, localModelPath: model }), localPort, sumPort, autoLaunch: false,
     ...(withSum ? { sumServerExe: FAKE_SUM, sumModelPath: sumModel } : {}),
   }));
 
@@ -267,6 +308,10 @@ process.on('exit', () => {
   }
   let readyResolve;
   const ready = new Promise((r) => { readyResolve = r; });
+  // 省電力の抑止（取り込み中は眠らせない: 第0b回 Task 14）と、［取り込み先を開く］の記録
+  const power = [];
+  let powerId = 0;
+  const opened = [];
   const electron = withFallback({
     app: withFallback({
       getPath: () => userData, whenReady: () => ready, requestSingleInstanceLock: () => true, on() {},
@@ -277,6 +322,10 @@ process.on('exit', () => {
     ipcMain: { handle: (ch, f) => { handlers[ch] = f; }, on: (ch, f) => { listeners[ch] = f; }, removeHandler() {} },
     globalShortcut: { register: () => true, unregister() {}, unregisterAll() {}, isRegistered: () => false },
     nativeTheme: { shouldUseDarkColors: false, themeSource: 'system', on() {} },
+    // 取り込みの通信は Electron の net.request（第0b回 RF2）。テストでは同じ振る舞いの偽物（127.0.0.1 の偽のサーバーへ）
+    net: { request: require('./fake-net').makeFakeRequest(), isOnline: () => true },
+    powerSaveBlocker: { start: (type) => { powerId += 1; power.push(['start', type, powerId]); return powerId; }, stop: (id) => { power.push(['stop', id]); }, isStarted: () => false },
+    shell: withFallback({ openPath: (p) => { opened.push(p); return Promise.resolve(''); } }),
   });
   // エンジンの spawn だけを本物にする（.js なら node で起動）。それ以外（貼り付け用の PowerShell など）は起動しない
   const realSpawn = cp.spawn;
@@ -316,10 +365,47 @@ process.on('exit', () => {
   // Windows の CI で本当のプロファイルの natsu\engine を見ない（フォルダは作らない。main も作らない）。
   // この場面の settings.json は手のパスを持つので、文字起こしは手の設定の道を通る
   process.env.LOCALAPPDATA = localAppData;
+  // 60 秒ごとの見回り（releaseIdleEngines）を拾い、待たずに呼べるようにする（本物の setInterval にも渡す）
+  const ticks = [];
+  const realSetInterval = global.setInterval;
+  global.setInterval = function (fn, ms, ...a) { if (fn && fn.name === 'releaseIdleEngines') ticks.push(fn); return realSetInterval.call(this, fn, ms, ...a); };
   require(path.join(ROOT, 'src', 'main.js'));
   const store = require(path.join(ROOT, 'src', 'store.js'));
   readyResolve();
   const out = { mode };
+  if (fetchMode) {
+    for (let i = 0; i < 100 && !handlers['engine:fetch-start']; i++) await sleep(20);
+    out.managedRoot = managedRoot;
+    out.manifestShas = { whisper: fetchManifest.items.filter((i) => i.group === 'whisper').map((i) => i.sha256),
+      sum: fetchManifest.items.filter((i) => i.group === 'sum').map((i) => i.sha256) };
+    out.statusBefore = handlers['engine:status']();
+    out.fetchStart = await handlers['engine:fetch-start']({}, {});
+    // 取り込みの途中で記録を始めようとする（文字起こしの組はまだ。未設定の文に「取り込み中」）
+    out.startDuring = await handlers['meeting:toggle']();
+    // 2 つの組がそろって切り替わり、係が止まって（省電力の抑止を外して）、文字起こしエンジンが起動するのを待つ（最大 4 秒）
+    const sumReady = () => sent.some(([ch, p]) => ch === 'app:notice' && /^要約のエンジンが使えるようになりました。/.test(p));
+    const until = Date.now() + 4000;
+    while (Date.now() < until && !(sumReady() && power.some(([k]) => k === 'stop') && spawns.length)) await sleep(20);
+    await sleep(100);
+    out.notices = sent.filter(([ch]) => ch === 'app:notice').map(([, p]) => p);
+    out.progress = sent.filter(([ch]) => ch === 'engine:fetch-progress').map(([, p]) => p && p.state);
+    out.lastProgress = sent.filter(([ch]) => ch === 'engine:fetch-progress').map(([, p]) => p).pop() || null;
+    out.power = power.slice();
+    out.spawns = spawns.slice();
+    out.engineStatus = handlers['engine:status']();
+    out.engineFetchStatus = await handlers['engine:fetch-status']();
+    out.installed = JSON.parse(fs.readFileSync(path.join(managedRoot, 'installed.json'), 'utf8'));
+    out.hits = fetchSet.hits().map((h) => h.id);
+    out.pause = await handlers['engine:fetch-pause']();
+    out.openDir = await handlers['engine:open-dir']();
+    out.opened = opened.slice();
+    out.savedSettings = JSON.parse(fs.readFileSync(path.join(userData, 'settings.json'), 'utf8'));
+    const elog = path.join(userData, 'engine.log');
+    out.engineLog = fs.existsSync(elog) ? fs.readFileSync(elog, 'utf8').split('\n').filter(Boolean).map((l) => l.replace(/^\[[^\]]+\] /, '')) : [];
+    await fetchSet.close();
+    process.stdout.write(`\n${JSON.stringify(out)}\n`);
+    process.exit(0);
+  }
   if (managedMode) {
     // 照らしは本物のファイルの読み（イベントループを回す）。マイクロタスクだけを待つ今は、まだ照らし終えていない
     for (let i = 0; i < 100 && !handlers['engine:status']; i++) await null;
@@ -351,6 +437,23 @@ process.on('exit', () => {
     process.stdout.write(`\n${JSON.stringify(out)}\n`);
     process.exit(0);
   }
+  if (repairMode) {
+    // 壊れていた組の取り直しと、照らし直した後の切り替えを待つ（最大 4 秒。要約の組も続けて取る）
+    const sumReady = () => sent.some(([ch, p]) => ch === 'app:notice' && /^要約のエンジンが使えるようになりました。/.test(p));
+    const until = Date.now() + 4000;
+    while (Date.now() < until && !(sumReady() && spawns.length)) await sleep(20);
+    await sleep(100);
+    out.notices = sent.filter(([ch]) => ch === 'app:notice').map(([, p]) => p);
+    out.hits = fetchSet.hits().map((h) => h.id);
+    out.spawns = spawns.slice();
+    out.engineStatus = handlers['engine:status']();
+    out.engineFetchStatus = await handlers['engine:fetch-status']();
+    const elog = path.join(userData, 'engine.log');
+    out.engineLog = fs.existsSync(elog) ? fs.readFileSync(elog, 'utf8').split('\n').filter(Boolean).map((l) => l.replace(/^\[[^\]]+\] /, '')) : [];
+    await fetchSet.close();
+    process.stdout.write(`\n${JSON.stringify(out)}\n`);
+    process.exit(0);
+  }
   if (managedMode === 'tamper' || noVcRuntime || verifyThrows || noEngine) {
     // 使えない組は使わない。記録も始めない（区間を送らずに終える）
     await sleep(300);
@@ -359,6 +462,16 @@ process.on('exit', () => {
     out.start = await handlers['meeting:toggle']();
     out.test = await handlers['app:test']();
     out.spawns = spawns.slice();
+    if (managedMode === 'tamper') {
+      // 60 秒ごとの見回りを 2 回呼ぶ。壊れた組は、取り直されるか触られるまで照らし直さない（Task 14）
+      out.noticesBeforeTicks = sent.filter(([ch]) => ch === 'app:notice').map(([, p]) => p);
+      out.verifyCallsBeforeTicks = verifyCalls;
+      out.ticks = ticks.length;
+      for (let k = 0; k < 2; k++) { for (const t of ticks) t(); await sleep(150); }
+      out.verifyCallsAfterTicks = verifyCalls;
+      out.noticesAfterTicks = sent.filter(([ch]) => ch === 'app:notice').map(([, p]) => p);
+      out.spawnsAfterTicks = spawns.slice();
+    }
     if (noVcRuntime) {
       // 情報システムの担当がランタイムを入れた（System32 に 14.51 の DLL を置く）。NaTsu を起動し直さずに［起動テスト］を押す
       const s32 = path.join(process.env.SystemRoot, 'System32');

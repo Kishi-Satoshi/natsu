@@ -11,6 +11,8 @@ const {
   app, BrowserWindow, Tray, Menu, globalShortcut,
   ipcMain, clipboard, nativeImage, screen, dialog, shell, session,
   nativeTheme, powerSaveBlocker,
+  // エンジンの取り込みの通信（第0b回 RF2。会社のプロキシ・PAC・証明書のストアを使う）。net の名前は下の Node の net が使う
+  net: electronNet,
 } = require('electron');
 const path = require('path');
 const fs = require('fs');
@@ -49,6 +51,7 @@ const {
   publicSegments, settledSegments, pendingDurationMs, recoverSegments, staleSegbufDirs, nextSegmentMs, EtaTracker,
   skipPendingSegments, restoreAfterPaste,
   estimateTokens, foldNotes, idleEnginesToStop, silentWav, wavLevelDbfs, mergeSummaryType, memoEvidence,
+  sameShas, keepPrevious, candStamp, repairIdsOf, pathUsedBy, fetchMinutesLeft,
 } = require('./mainlib');
 
 // package.json の build.appId の写し。配る package.json から build は消えるので、ここに持つ
@@ -156,8 +159,9 @@ function applyTheme() {
 }
 
 function updatePowerBlock() {
-  // 要約中も忙しい（#52）。省電力で絞られると、数分かかる要約が静かに止まる
-  const busy = state !== 'idle' || isSummarizing();
+  // 要約中も忙しい（#52）。省電力で絞られると、数分かかる要約が静かに止まる。
+  // エンジンの取り込み中も眠らせない（第0b回 Task 14。数 GB の取り込みが止まる）。isBusy には数えない
+  const busy = state !== 'idle' || isSummarizing() || engineFetchRunning();
   if (busy && powerBlockId === null) {
     try { powerBlockId = powerSaveBlocker.start('prevent-app-suspension'); } catch (_) { powerBlockId = null; }
   } else if (!busy && powerBlockId !== null) {
@@ -301,7 +305,8 @@ const ENGINE_HOME = engineInstall.engineRoot(process.env, process.platform, proc
 let managed = { whisper: null, sum: null };            // この起動の中で照らし終えた組だけ（RF3）。暇なときだけ入れ替える（Task 14）
 let managedCands = { whisper: null, sum: null };       // 記録から見た候補（まだ照らしていない）
 let managedState = { whisper: 'none', sum: 'none' };   // 'none' | 'checking' | 'ok' | 'broken'
-let engineFetch = null;                                // 取り込みの係（Task 14 で作る）
+let managedTried = { whisper: null, sum: null };       // 照らし終えた候補の印（mainlib.candStamp）。合わなかった組を、変わるまで照らし直さない（Task 14）
+let engineFetch = null;                                // 取り込みの係（初めて使うときに getEngineFetch が作る）
 const touchEngine = (eng) => { eng.lastUsed = Date.now(); };
 // 起動・終了・停止のたびにトレイ（「エンジンを停止」の有効／無効）を追随させる。終了中は触らない
 function engineChanged() { if (!quitting) updateTray(); }
@@ -402,6 +407,11 @@ function whisperProblem() {
   const fetchable = ENGINE_HOME.supported && !manualGroup(whisperEng);
   if (fetchable && (managedState.whisper === 'checking' || managedState.whisper === 'broken')) return engineCheck(whisperEng);
   if (!engineConfigured(whisperEng)) {
+    // 取り込みが動いているときは、そのことと、文字起こしの組のあと何分か（速さが分かれば）を添える（第0b回 Task 14）
+    if (fetchable && engineFetchRunning()) {
+      const min = fetchMinutesLeft(engineFetch.status(), 'whisper');
+      return `文字起こしエンジンが未設定です（取り込み中${min ? `・あと約 ${min} 分` : ''}）。取り込みが済むと使えるようになります。`;
+    }
     return fetchable ? '文字起こしエンジンが未設定です。設定タブの［エンジンを取り込む］から取り込んでください。'
       : '文字起こしエンジンが未設定です。設定タブでパスを指定してください。';
   }
@@ -559,6 +569,9 @@ function startEngine(eng) {
         const hint = engineExitHint(code, Date.now() - startedAt);
         eng.lastError = `${eng.name}が終了しました (code ${code})${tail ? `: ${tail}` : ''}${hint ? `。${hint}` : ''}`.trim();
         engineLog(eng.lastError);
+        // 取り込んだエンジンが 0xC0000135（3221225781。DLL が見つからない）で落ちた: ウイルス対策が消したかもしれない。
+        // 自分のファイルを照らし直す（RF3。第0b回 Task 14）。合えばランタイムの案内（上の hint）のまま
+        if ((code >>> 0) === 3221225781 && !manualGroup(eng)) onManagedCrash(eng).catch((e) => engineLog(`${eng.name}: 落ちた後の照らし直しに失敗: ${e && e.message}`));
       }
       eng.proc = null; eng.ready = false; eng.readyPromise = null;
       engineChanged();
@@ -578,6 +591,8 @@ function stopEngine(eng) {
 // 次に使うときは ensureEngineReady が起動し直す
 const ENGINE_IDLE_CHECK_MS = 60000;
 function releaseIdleEngines() {
+  // 記録や要約の後まで待たせた切り替えと、エンジンが止まった後の前の版の片付けも、ここで拾う（第0b回 Task 14。どちらも投げない）
+  applyManagedWhenIdle(); cleanupManaged();
   for (const eng of idleEnginesToStop([whisperEng, sumEng], Date.now(), settings.engineIdleMin, isBusy())) {
     engineLog(`${eng.name}: ${settings.engineIdleMin} 分使われていないため停止（メモリを解放）`);
     stopEngine(eng);
@@ -647,6 +662,7 @@ async function verifyManagedAtStartup() {
   let v;
   try {
     v = await engineInstall.verifyCandidates(managedCands);
+    managedTried = managedStamps(managedCands);   // 合わなかった組は、取り直されるか触られるまで照らし直さない（Task 14）
   } catch (e) {
     // 照らせなかった組は使わない（「確かめています」のまま残さない）
     engineLog(`取り込んだエンジンの照らしに失敗: ${e && e.message}`);
@@ -658,10 +674,12 @@ async function verifyManagedAtStartup() {
   restartEnginesIfNeeded();
   // 起動のときの復旧の文字起こしは、照らし終わる前に「確かめています」で保留になる。使えるようになった今もう一度試す
   if (recoveryQueue && managed.whisper && !manualGroup(whisperEng)) transcribeRecovered().catch((e) => engineLog(`復旧の文字起こしに失敗: ${e.message}`));
-  onManagedVerified(v);   // Task 14（壊れていた組の取り直し）。この Task では空の関数
+  onManagedVerified(v);   // 壊れていた組の案内と取り直し（Task 14）
 }
-// 照らした後の続き（Task 14 で、壊れていた組の案内と取り直しを足す）
-function onManagedVerified(_v) { /* Task 14 */ }
+// 起動のときの照らしの続き（第0b回 Task 14）: 壊れていた組を知らせ、同意済みなら合わなかった項目を取り直す（RF3）
+function onManagedVerified(v) {
+  repairManaged(managedCands, v);
+}
 
 // 取り込みの欄の写し（設定タブの画面が読む。Task 15）。読むだけ: 通信もフォルダ作りもしない
 // 照らしで合わなかった組は候補から外す（using・whisperReady で「使える」と見せず、画面が取り込みの欄を隠さない。RF3）。
@@ -673,6 +691,158 @@ async function engineFetchStatus() {
   return engineInstall.statusOf({ home: ENGINE_HOME, manifest: MANIFEST, plan, candidates: { whisper: usable('whisper'), sum: usable('sum') }, runner: engineFetch && engineFetch.status(),
     manual: { whisper: manualGroup(whisperEng), sum: manualGroup(sumEng) }, freeBytes: await engineInstall.freeBytesOf(ENGINE_HOME.root),
     runtime: managedRuntimeIssue(), installed });
+}
+
+// ---------------------------------------------------------------- 取り込みの係と切り替え（第0b回 Task 14・RF3・RF8・RF13）
+const ENGINE_FETCH_AUTO_MS = 10000;   // 起動から、取り込みの続きを自動で始めるまで（窓とエンジンの起動を先に済ませる）
+const MANAGED_NAMES = { whisper: '文字起こしエンジン', sum: '要約エンジン' };
+const engOf = (g) => (g === 'whisper' ? whisperEng : sumEng);
+const managedStamps = (cands) => ({ whisper: candStamp(cands.whisper, fs.statSync), sum: candStamp(cands.sum, fs.statSync) });
+
+// 取り込みの係。初めて使うときに作る（Electron の net.request は app の ready の後でしか使えない）。
+// 通信は net.request（会社のプロキシ・PAC・証明書のストアを使う。RF2）。待ちは係の既定の本物の時計。
+// 記録中（meeting）は係が止めて待つ（Web 会議の回線を守る）。組がそろうたびに、照らしてから暇なときに切り替える
+function getEngineFetch() {
+  if (engineFetch) return engineFetch;
+  const r = engineInstall.makeRunner({ home: ENGINE_HOME, manifest: MANIFEST, request: (o) => electronNet.request(o),
+    isOnline: () => electronNet.isOnline(), log: engineLog,
+    onProgress: (s) => sendToMainWin('engine:fetch-progress', fetchView(s)), onState: onEngineFetchState,
+    onGroupReady: () => { applyManagedWhenIdle(); },
+    hold: () => Boolean(meeting), isManual: (g) => manualGroup(engOf(g)),
+    userAgent: `NaTsu/${app.getVersion()}` });
+  // 画面へ返す写し（start・pause の戻り）も、進み具合の知らせと同じ見え方にする
+  engineFetch = { ...r, start: (o) => fetchView(r.start(o)), pause: (why) => fetchView(r.pause(why)) };
+  return engineFetch;
+}
+// 取り込みが動いているか（待っている・記録中で止めている間も含む）。忙しさ（isBusy）には数えない
+// （数えると、取り込みの間エンジンを止められなくなる）。省電力の抑止と未設定の文が見る
+function engineFetchRunning() { return Boolean(engineFetch && engineFetch.running()); }
+
+// 係の写しに、main だけが知っていることを入れる（engine:fetch-status と同じ見え方）: 照らしで合わなかった組は「使える」と
+// 見せず（RF3）、取り込む組の Visual C++ ランタイムの案内を入れる（係は Electron もランタイムも知らない。RF4）
+function fetchView(s) {
+  if (!s || !Array.isArray(s.items)) return s;
+  const ok = (g) => managedState[g] !== 'broken';
+  const rt = managedRuntimeIssue();
+  return { ...s, using: { whisper: ok('whisper') ? s.using.whisper : null, sum: ok('sum') ? s.using.sum : null },
+    whisperReady: s.whisperReady && ok('whisper'), sumReady: s.sumReady && ok('sum'),
+    runtime: rt ? { level: rt.level, message: rt.message } : null };
+}
+
+// 係の状態が変わったとき。取り込み中は眠らせない。起動のときの自動の開始が大きな新しい版を取らなかったら、起動の中で1回だけ知らせる
+let updateNoticeSent = false;
+function onEngineFetchState(s) {
+  updatePowerBlock();
+  if (!updateNoticeSent && s && s.state === 'update' && s.updateBytes > 100e6) {
+    updateNoticeSent = true;
+    noticeMainWin(`新しい版のエンジン（約 ${(s.updateBytes / 1e9).toFixed(1)} GB）があります。設定タブの［新しい版を取り込む］から取り込めます。今のエンジンはそのまま使えます。`);
+  }
+}
+
+// 画面への知らせ。起動直後で画面がまだ読み込み中なら、読み終えてから送る（受け手が居ないと消える）
+function noticeMainWin(msg) {
+  if (mainWin && !mainWin.isDestroyed() && mainWin.webContents.isLoading()) mainWin.webContents.once('did-finish-load', () => sendToMainWin('app:notice', msg));
+  else sendToMainWin('app:notice', msg);
+}
+
+// 照らしで合わなかった組（cands にあって checked に無い組。手で設定した組は使わないので除く）を知らせ、同意済みなら
+// 合わなかった項目を取り直す（RF3。同じ起動の中で2回目は係が defender で止める）→ 取り直しを頼んだ項目の id
+function repairManaged(cands, checked) {
+  const groups = ['whisper', 'sum'].filter((g) => cands && cands[g] && !(checked && checked[g]) && !manualGroup(engOf(g)));
+  if (!groups.length || !ENGINE_HOME.supported) return [];
+  const repair = repairIdsOf(MANIFEST, cands, checked && checked.bad, groups);
+  const consent = engineInstall.readInstalled(engineInstall.layout(ENGINE_HOME.root, MANIFEST).installed).consent === true;
+  const go = consent && repair.length > 0;
+  noticeMainWin(`${groups.map((g) => MANAGED_NAMES[g]).join('と')}のファイルが消えたか変わっていました。ウイルス対策が消した可能性があります（Windows セキュリティ → ウイルスと脅威の防止 → 保護の履歴）。`
+    + (go ? '取り直しています。' : '設定タブの［エンジンを取り込む］から取り込み直してください。'));
+  if (!go) return [];
+  engineLog(`取り込んだエンジンの取り直しを頼みます: ${repair.join('、')}`);
+  getEngineFetch().start({ repair });
+  return repair;
+}
+
+// 片付け（cleanupOld）で消さないパス: 照らし終えた組と、記録から見た候補のフォルダ・ファイル（RF8）
+function usedByManaged(p) {
+  return pathUsedBy(p, [managed.whisper, managed.sum, managedCands.whisper, managedCands.sum]);
+}
+// 前の版の片付け（RF8）。両方のエンジンが止まっていて、起動の途中でもなく、暇なときだけ消す（Windows は動いている exe・DLL と、
+// llama がメモリに写した gguf を消せない）。動いていれば何もせず、次の機会（60 秒ごとの releaseIdleEngines）に回す。投げない
+function cleanupManaged() {
+  if (!ENGINE_HOME.supported) return;
+  const installed = engineInstall.readInstalled(engineInstall.layout(ENGINE_HOME.root, MANIFEST).installed);
+  engineInstall.cleanupOld(ENGINE_HOME, MANIFEST, installed, { inUse: (p) => usedByManaged(p), canDelete: () => !whisperEng.proc && !whisperEng.startPromise && !sumEng.proc && !sumEng.startPromise && !isBusy() })
+    .then((r) => { if (r.removed.length) engineLog(`取り込んだエンジンの前の版を片付けました: ${r.removed.join('、')}`); })
+    .catch((e) => engineLog(`取り込んだエンジンの前の版を片付けられませんでした: ${e && e.message}`));
+}
+
+let managedApplying = false;   // 切り替えの照らしの途中（同時に 2 つ照らさない）
+let managedAgain = false;      // 照らしている間にまた呼ばれた（組がそろうのが続いた）。終わってから、もう一度見る
+// 取り込んだエンジンへの切り替えは、新しい組を照らし終え、手が空いていて記録中でないときだけ（#57 と同じ理由。区間を失わない）。
+// 新しい組が照らしで合わなければ、照らし済みの前の組を使い続け（RF13。mainlib.keepPrevious）、合わなかった項目を取り直す（RF3）。
+// 投げない（組がそろったときと、60 秒ごとの見回りから、待たずに呼ぶ）。起動のときの照らしの途中は、その結果を待つ（次の見回りで拾う）
+async function applyManagedWhenIdle() {
+  if (!ENGINE_HOME.supported || managedState.whisper === 'checking' || managedState.sum === 'checking') return false;
+  if (managedApplying) { managedAgain = true; return false; }
+  if (isBusy() || meeting) return false;
+  managedApplying = true;
+  try {
+    const cands = engineInstall.managedCandidates(ENGINE_HOME, MANIFEST, engineInstall.readInstalled(engineInstall.layout(ENGINE_HOME.root, MANIFEST).installed), fs.statSync);
+    if (sameShas(cands, managed)) return false;                       // 安い比べ（SHA-256 の並び）。同じなら何もしない
+    // 照らして合わなかった組（壊れた組・前の組を使い続けている組）は、取り直されるか触られる（大きさか更新時刻が変わる）
+    // まで照らし直さない（60 秒ごとに数十 MB を読まない・同じ知らせを繰り返さない）
+    const stamps = managedStamps(cands);
+    if (['whisper', 'sum'].every((g) => sameShas(cands, managed, [g]) || stamps[g] === managedTried[g])) return false;
+    const checked = await engineInstall.verifyCandidates(cands);      // 照らす（数十 MB。待つ間に記録が始まりうる）
+    if (isBusy() || meeting) return false;                            // 照らしている間に忙しくなったら替えない（次の機会に）
+    managedTried = stamps;
+    const v = keepPrevious(cands, managed, checked);
+    const gotWhisper = !managed.whisper && v.whisper; const gotSum = !managed.sum && v.sum;
+    managedCands = { whisper: v.kept.includes('whisper') ? v.whisper : cands.whisper, sum: v.kept.includes('sum') ? v.sum : cands.sum };
+    managed = { whisper: v.whisper, sum: v.sum };
+    for (const g of ['whisper', 'sum']) managedState[g] = managed[g] ? 'ok' : managedCands[g] ? 'broken' : 'none';
+    if (checked.bad.length) engineLog(`取り込んだエンジンの照らし（切り替え）: 合わない ${checked.bad.map((b) => `${b.file}（${b.why}）`).join('、')}${v.kept.length ? `。前の組を使い続けます（${v.kept.join('・')}）` : ''}`);
+    try {
+      for (const g of ['whisper', 'sum']) if (v[g] && v[g].current) engineInstall.setActive(ENGINE_HOME, MANIFEST, g);
+    } catch (e) { engineLog(`使っている組を installed.json に書けませんでした: ${e && (e.code || e.message)}`); }
+    restartEnginesIfNeeded();
+    updateTray();
+    if (gotWhisper && !manualGroup(whisperEng)) {
+      const more = !v.sum && !manualGroup(sumEng) && engineFetchRunning();
+      sendToMainWin('app:notice', `文字起こしが使えるようになりました。${more ? '要約のエンジンは続けて取り込みます。' : ''}`);
+      // 前にエンジンが無くて残した文字起こし待ちの音声を、今のエンジンで片付ける
+      if (recoveryQueue) transcribeRecovered().catch((e) => engineLog(`復旧の文字起こしに失敗: ${e.message}`));
+    }
+    if (gotSum && !manualGroup(sumEng)) sendToMainWin('app:notice', '要約のエンジンが使えるようになりました。記録済みの会議は［要約を生成］で要約できます。');
+    repairManaged(cands, checked);
+    sendToMainWin('engine:fetch-progress', await engineFetchStatus());
+    cleanupManaged();
+    return true;
+  } catch (e) {
+    engineLog(`取り込んだエンジンへの切り替えに失敗: ${e && e.message}`);
+    return false;
+  } finally {
+    managedApplying = false;
+    if (managedAgain) { managedAgain = false; setImmediate(() => { applyManagedWhenIdle(); }); }
+  }
+}
+
+// 取り込んだエンジンが 0xC0000135 で落ちた（RF3）: その組を照らし直す。合わなければ使うのをやめ（managed から外し、壊れた組に
+// する）、合わなかった項目を取り直す（同じ起動の中で2回目は係が defender で止める）。合えば Visual C++ ランタイムの案内のまま
+async function onManagedCrash(eng) {
+  const g = eng === whisperEng ? 'whisper' : 'sum';
+  const c = managed[g];
+  if (!c) return;
+  const checked = await engineInstall.verifyCandidates({ [g]: c });
+  if (checked[g]) { engineLog(`${eng.name}: 落ちた後に取り込んだファイルを照らし直しました（合っています。Visual C++ ランタイムを確かめてください）`); return; }
+  if (managed[g] !== c) return;   // 照らしている間に切り替わった
+  managed = { ...managed, [g]: null };
+  managedCands = { ...managedCands, [g]: c };
+  managedState[g] = 'broken';
+  managedTried = { ...managedTried, [g]: candStamp(c, fs.statSync) };   // 取り直されるまで、60 秒ごとの見回りで照らし直さない
+  engineLog(`${eng.name}: 落ちた後の照らし直し: 合わない ${checked.bad.map((b) => `${b.file}（${b.why}）`).join('、')}`);
+  updateTray();
+  repairManaged({ [g]: c }, checked);
+  sendToMainWin('engine:fetch-progress', await engineFetchStatus());
 }
 
 // ---------------------------------------------------------------- 文字起こし
@@ -2300,6 +2470,13 @@ function setupIpc() {
     whisperNote: isKotobaModel() ? KOTOBA_NOTE : '' }));
   // 取り込みの欄の写し（第0b回）。読むだけで、取り込みは始めない
   ipcMain.handle('engine:fetch-status', () => engineFetchStatus());
+  // 取り込みの開始（第0b回 Task 14）。押したことが同意。すぐに写しを返す（取り込みの終わりを待たない）。
+  // 待っているときは、すぐ試す（［今すぐ試す］も同じ受け口）。動いていれば二重に始めない（係が束ねる）
+  ipcMain.handle('engine:fetch-start', (_e, o) => getEngineFetch().start({ all: Boolean(o && o.all), user: true }));
+  // ボタンからの一時停止は利用者の一時停止（次の起動で自動で続けない）
+  ipcMain.handle('engine:fetch-pause', () => (engineFetch ? engineFetch.pause('user') : { ok: true }));
+  // ［取り込み先を開く］。まだ無ければ何もしない（フォルダは作らない）
+  ipcMain.handle('engine:open-dir', () => { if (ENGINE_HOME.supported && fs.existsSync(ENGINE_HOME.root)) shell.openPath(ENGINE_HOME.root); return true; });
   // 辞書が初期プロンプトの予算に収まっているか（#23）。kept: 収まった語数、total: 辞書の語数。
   // 尻尾（直前の発言）は付けずに数える（辞書そのものの収まり具合を見せるため）
   ipcMain.handle('prompt:info', () => {
@@ -2472,6 +2649,11 @@ if (!gotLock) {
     ensurePaster();
     createMainWindow();
     app.on('activate', () => createMainWindow());
+    // 取り込みの続きを自動で始める（第0b回 Task 14）。係は同意済みで利用者が一時停止していないときだけ動き、
+    // 大きな取り込み直しは始めない（押されるまで待つ。RF13）。窓とエンジンの起動を先に済ませてから
+    setTimeout(() => {
+      try { getEngineFetch().start({ auto: true }); } catch (e) { engineLog(`取り込みの続きを始められません: ${e && e.message}`); }
+    }, ENGINE_FETCH_AUTO_MS);
 
     // 起動から少し置いて更新確認。オフラインなら黙って諦める
     setTimeout(async () => {
@@ -2482,6 +2664,8 @@ if (!gotLock) {
   app.on('window-all-closed', () => { /* トレイ常駐 */ });
   app.on('before-quit', () => {
     quitting = true;
+    // 取り込みを止める（.part は確定して残り、次の起動で続く。利用者の一時停止としては残さない）
+    if (engineFetch) engineFetch.pause('quit');
     // 要約の途中で終了するなら、そのページに「中断された」と書いておく（#52。同期・できる範囲で）。
     // 書かないと、次に開いたときに要約が空のまま何も言わないページになる。
     for (const id of runSummary.running()) {

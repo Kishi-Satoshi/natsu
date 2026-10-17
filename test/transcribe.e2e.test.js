@@ -79,6 +79,8 @@ const MANAGED_SCENES = {
   managedSumBroken: ['text', '--managed', '--sum-tamper'],
   noEngineFetchable: ['text', '--no-engine=fetchable'],
   noEngineUnsupported: ['text', '--no-engine=unsupported'],
+  fetch: ['text', '--fetch'],
+  repair: ['text', '--managed-tamper', '--repair'],
 };
 const results = {};
 const running = {};
@@ -299,6 +301,17 @@ test('RF3: 大きさと更新時刻が同じでも中身の違う DLL の組は�
   assert.deepStrictEqual([s.mode.whisper, s.using.whisper, s.whisperReady], ['managed', null, false]);
 });
 
+test('RF3: 壊れた組は、取り直されるか触られるまで、60 秒ごとの見回りで照らし直さず、同じ知らせを繰り返さない。同意が無ければ取らずに案内する（第0b回 Task 14）', async () => {
+  await need('managedTamper');
+  const r = results.managedTamper;
+  const broken = '文字起こしエンジンのファイルが消えたか変わっていました。ウイルス対策が消した可能性があります（Windows セキュリティ → ウイルスと脅威の防止 → 保護の履歴）。設定タブの［エンジンを取り込む］から取り込み直してください。';
+  assert.deepStrictEqual(r.noticesBeforeTicks, [broken]);
+  assert.strictEqual(r.verifyCallsBeforeTicks, 1, '起動のときの照らしは 1 回');
+  // 見回り（releaseIdleEngines）を 2 回: 照らし直さない・知らせない・起動しない
+  assert.strictEqual(r.ticks, 1, 'releaseIdleEngines の見回りを拾えていない');
+  assert.deepStrictEqual([r.verifyCallsAfterTicks, r.noticesAfterTicks, r.spawnsAfterTicks], [1, [broken], []]);
+});
+
 test('起動のときの復旧の文字起こしは、取り込んだ組を照らし終えたらもう一度試す（照らす前は「確かめています」で保留になる。第0b回 Task 13）', async () => {
   await need('managedRecover');
   const r = results.managedRecover;
@@ -366,6 +379,65 @@ test('何も取り込んでいない PC: 取り込める PC では［エンジ�
   assert.strictEqual(u.engineStatus.whisper, '文字起こしエンジンの実行ファイルまたはモデルが見つかりません');
   assert.deepStrictEqual([u.engineFetchStatus.supported, u.engineFetchStatus.state], [false, 'unsupported']);
   for (const r of [f, u]) assert.deepStrictEqual(r.spawns, []);
+});
+
+test('［エンジンを取り込む］: net.request で取り込み、組がそろうたびに照らして切り替える。文字起こしが先に使え、要約は［要約を生成］を案内する。取り込み中は眠らせない（第0b回 Task 14）', async () => {
+  await need('fetch');
+  const r = results.fetch;
+  const W = r.managedRoot;
+  // 押す前: まだ取り込んでいない
+  assert.strictEqual(r.statusBefore.whisper, '文字起こしエンジンはまだ取り込んでいません。設定タブの［エンジンを取り込む］を押してください');
+  // 押すとすぐ返る（取り込みの終わりを待たない）。押したことが同意
+  assert.deepStrictEqual([r.fetchStart.state, r.fetchStart.consent, r.fetchStart.userPaused], ['running', true, false]);
+  // 取り込みの途中で記録を始めようとした: 「未設定」の語を残し、取り込み中であることを添える（速さはまだ分からない）
+  assert.deepStrictEqual([r.startDuring.ok, r.startDuring.error], [false, '文字起こしエンジンが未設定です（取り込み中）。取り込みが済むと使えるようになります。']);
+  // 5 つとも 127.0.0.1 の偽のサーバーから取った（MANIFEST の順）
+  assert.deepStrictEqual([...new Set(r.hits)], ['whisper-engine', 'whisper-vad', 'whisper-model', 'sum-engine', 'sum-model']);
+  // 組がそろうたびに照らして切り替え、知らせる。文字起こしの組が先（要約は続けて取り込む）
+  assert.deepStrictEqual(r.notices, ['文字起こしが使えるようになりました。要約のエンジンは続けて取り込みます。',
+    '要約のエンジンが使えるようになりました。記録済みの会議は［要約を生成］で要約できます。'], JSON.stringify(r.engineLog));
+  // 照らし終えた取り込んだ組で、文字起こしエンジンを 1 回だけ起動した（cwd = exe のフォルダ）。要約エンジンは使うときに起動する
+  assert.deepStrictEqual(r.spawns.map((x) => [x.cmd, x.cwd]), [[path.join(W, 'whisper-1.0.0', 'whisper-server.exe'), path.join(W, 'whisper-1.0.0')]]);
+  assert.strictEqual(r.engineStatus.whisper, '');
+  // 使っている組を installed.json の active に書いた（ピンを上げた後も、新しい組がそろうまでこの組を使い続ける: RF13）
+  assert.deepStrictEqual(r.installed.active, r.manifestShas);
+  assert.strictEqual(r.installed.consent, true);
+  const s = r.engineFetchStatus;
+  assert.deepStrictEqual([s.state, s.using, s.whisperReady, s.sumReady], ['ready', { whisper: 'current', sum: 'current' }, true, true]);
+  // 進み具合の知らせ: 始めは running、最後は切り替えの後の写し（ready）
+  assert.strictEqual(r.progress[0], 'running');
+  assert.strictEqual(r.progress[r.progress.length - 1], 'ready');
+  assert.deepStrictEqual([r.lastProgress.using, r.lastProgress.root], [{ whisper: 'current', sum: 'current' }, W]);
+  // 取り込み中は眠らせない（省電力の抑止を始め、終わったら外す）
+  const p0 = r.power.findIndex(([k]) => k === 'start');
+  assert.ok(p0 >= 0 && r.power.slice(p0).some(([k, id]) => k === 'stop' && id === r.power[p0][2]), JSON.stringify(r.power));
+  assert.strictEqual(r.power[r.power.length - 1][0], 'stop', JSON.stringify(r.power));
+  // ボタンの一時停止は利用者の一時停止（次の起動で自動で続けない）。［取り込み先を開く］は置き場所を開く
+  assert.strictEqual(r.pause.userPaused, true);
+  assert.deepStrictEqual([r.openDir, r.opened], [true, [W]]);
+  // RF7: 取り込んだパスを設定に書いていない
+  for (const k of ['localServerExe', 'localModelPath', 'vadModelPath', 'sumServerExe', 'sumModelPath']) assert.ok(!r.savedSettings[k], `${k} を書いた: ${r.savedSettings[k]}`);
+});
+
+test('RF3: 起動のときの照らしで壊れていた組は、同意済みなら合わなかった項目だけを取り直し、照らし直してから使う（第0b回 Task 14）', async () => {
+  await need('repair');
+  const r = results.repair;
+  const W = r.managedRoot;
+  // 照らす前は使わない
+  assert.strictEqual(r.statusChecking.whisper, '文字起こしエンジンを確かめています（数秒で終わります）');
+  assert.strictEqual(r.spawnsBeforeVerify, 0);
+  // 壊れていたことを知らせ、取り直す。取り直した組を照らし直してから使えるようにする。同意済みなので、まだの要約の組も続けて取る
+  assert.deepStrictEqual(r.notices, [
+    '文字起こしエンジンのファイルが消えたか変わっていました。ウイルス対策が消した可能性があります（Windows セキュリティ → ウイルスと脅威の防止 → 保護の履歴）。取り直しています。',
+    '文字起こしが使えるようになりました。要約のエンジンは続けて取り込みます。',
+    '要約のエンジンが使えるようになりました。記録済みの会議は［要約を生成］で要約できます。'], JSON.stringify(r.engineLog));
+  // 文字起こしの組で取り直したのは、書き換えられた DLL の入った zip だけ（VAD とモデルは取らない）
+  assert.deepStrictEqual([...new Set(r.hits)], ['whisper-engine', 'sum-engine', 'sum-model']);
+  assert.ok(r.engineLog.some((l) => l.startsWith('取り込み: whisper-engine のファイルが消えたか変わっています。1回だけ取り直します')), JSON.stringify(r.engineLog));
+  // 取り直した組で 1 回だけ起動した
+  assert.deepStrictEqual(r.spawns.map((x) => x.cmd), [path.join(W, 'whisper-1.0.0', 'whisper-server.exe')]);
+  assert.strictEqual(r.engineStatus.whisper, '');
+  assert.deepStrictEqual([r.engineFetchStatus.using.whisper, r.engineFetchStatus.whisperReady], ['current', true]);
 });
 
 test('雑音の 1 区間だけヒント付きで空になっても、ヒントは止めない（続けて起きたときだけ止める）', async () => {

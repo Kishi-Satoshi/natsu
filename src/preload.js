@@ -30,6 +30,9 @@ contextBridge.exposeInMainWorld('koeApp', {
   testSum: () => ipcRenderer.invoke('app:test-sum'),
   engineStatus: () => ipcRenderer.invoke('engine:status'),
   engineFetchStatus: () => ipcRenderer.invoke('engine:fetch-status'),
+  engineFetchStart: (o) => ipcRenderer.invoke('engine:fetch-start', o),
+  engineFetchPause: () => ipcRenderer.invoke('engine:fetch-pause'),
+  openEngineDir: () => ipcRenderer.invoke('engine:open-dir'),
   vadStatus: () => ipcRenderer.invoke('app:vad-status'),
   promptInfo: () => ipcRenderer.invoke('prompt:info'),
   pickFile: (kind) => ipcRenderer.invoke('dialog:pick', kind),
@@ -84,4 +87,5 @@ contextBridge.exposeInMainWorld('koeApp', {
   onPagesUpdated: (cb) => ipcRenderer.on('pages:updated', (_e, p) => cb(p)),
   onPageOpen: (cb) => ipcRenderer.on('page:open', (_e, id) => cb(id)),
   onPageUpdated: (cb) => ipcRenderer.on('page:updated', (_e, p) => cb(p)),
+  onEngineFetchProgress: (cb) => ipcRenderer.on('engine:fetch-progress', (_e, s) => cb(s)),
 });

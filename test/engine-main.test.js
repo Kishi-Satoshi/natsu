@@ -289,3 +289,157 @@ test('mainrun は main.js を読む前に LOCALAPPDATA を一時フォルダ（�
   assert.ok(d > 0 && d < i && i < j, `順が違う: ${d} ${i} ${j}`);
   assert.match(r.slice(d, r.indexOf('\n', d)), /𠮷/);
 });
+
+// ---------------------------------------------------------------- Task 14（R7-9・RF3・RF8・RF13）
+// 画面のボタンから取り込みを動かし、記録や要約の邪魔をしない。新しい組は照らしてから、暇なときに切り替える
+test('取り込みは Electron の net.request で行い、ready の後に作る。本物の時計・net.isOnline を使う', () => {
+  const m = code(read('src/main.js'));
+  assert.match(m, /net: electronNet,?\s*\n\} = require\('electron'\);/);
+  const f = fnBody(m, 'function getEngineFetch()', '\n}');
+  assert.ok(f.includes('request: (o) => electronNet.request(o)') && f.includes('isOnline: () => electronNet.isOnline()'));
+  assert.ok(!/\bsleep\b/.test(f), 'テスト用の sleep を本番に渡している');
+});
+test('開始の受け口はすぐ返り（user: true）、ボタンの一時停止は利用者の一時停止', () => {
+  const m = code(read('src/main.js'));
+  assert.ok(m.includes("ipcMain.handle('engine:fetch-start', (_e, o) => getEngineFetch().start({ all: Boolean(o && o.all), user: true }));"));
+  assert.ok(m.includes("ipcMain.handle('engine:fetch-pause', () => (engineFetch ? engineFetch.pause('user') : { ok: true }));"));
+});
+test('切り替えは 安い比べ → 照らす → もう一度暇かを見る → 替える → active を書く → 片付け の順。isBusy の中身は変えない。60 秒ごとにも拾う', () => {
+  const m = code(read('src/main.js'));
+  const f = fnBody(m, 'async function applyManagedWhenIdle()', '\n}');
+  const at = ['if (isBusy() || meeting) return false;', 'sameShas(cands, managed)', 'await engineInstall.verifyCandidates(cands)',
+    'if (isBusy() || meeting) return false;', 'managed = { whisper: v.whisper, sum: v.sum };', 'engineInstall.setActive(', 'restartEnginesIfNeeded();', 'cleanupManaged();'];
+  let pos = -1;
+  for (const k of at) { const i = f.indexOf(k, pos + 1); assert.ok(i > pos, `順が違う: ${k}`); pos = i; }
+  assert.ok(fnBody(m, 'function releaseIdleEngines()', '\n}').includes('applyManagedWhenIdle();'));
+  // fnBody は始めの文字列も含めて返す（stage3.main.test.js:23-28）
+  assert.strictEqual(fnBody(m, 'const isBusy = () => ', '\n'), "const isBusy = () => state !== 'idle' || isSummarizing() || recoveryRunning || pendingSegs > 0;");
+});
+test('RF8: 片付けは両方のエンジンが止まっていて、起動の途中でもなく、暇なときだけ', () => {
+  const f = fnBody(code(read('src/main.js')), 'function cleanupManaged()', '\n}');
+  assert.ok(f.includes('canDelete: () => !whisperEng.proc && !whisperEng.startPromise && !sumEng.proc && !sumEng.startPromise && !isBusy()'));
+});
+test('RF3: 取り込んだエンジンが 0xC0000135 で落ちたら、自分のファイルを照らし直して取り直す', () => {
+  const fn = fnBody(code(read('src/main.js')), 'function startEngine(eng)', '\nfunction stopEngine');
+  assert.ok(fn.includes('3221225781') && fn.includes('onManagedCrash(eng)'));
+  const c = fnBody(code(read('src/main.js')), 'async function onManagedCrash(eng)', '\n}');
+  assert.ok(c.includes('verifyCandidates(') && c.includes('repair'));
+});
+test('記録中は取り込みを止めて待つ（hold）。終了の前に止める（利用者の一時停止にはしない）。取り込み中は眠らせない。起動のときは auto で', () => {
+  const m = code(read('src/main.js'));
+  assert.ok(fnBody(m, 'function getEngineFetch()', '\n}').includes('hold: () => Boolean(meeting)'));
+  assert.ok(fnBody(m, "app.on('before-quit'", '\n  });').includes("if (engineFetch) engineFetch.pause('quit');"));
+  assert.ok(fnBody(m, 'function updatePowerBlock()', '\n}').includes("const busy = state !== 'idle' || isSummarizing() || engineFetchRunning();"));
+  assert.ok(fnBody(m, 'app.whenReady().then(', '\n  });').includes('getEngineFetch().start({ auto: true })'));
+});
+test('受け口と preload の名前がそろう（start・pause・open-dir・progress）', () => {
+  const p = read('src/preload.js');
+  for (const s of ["engineFetchStart: (o) => ipcRenderer.invoke('engine:fetch-start', o),", "engineFetchPause: () => ipcRenderer.invoke('engine:fetch-pause'),",
+    "openEngineDir: () => ipcRenderer.invoke('engine:open-dir'),", "onEngineFetchProgress: (cb) => ipcRenderer.on('engine:fetch-progress', (_e, s) => cb(s)),"]) assert.ok(p.includes(s), s);
+});
+test('知らせ: 要約が使えるようになったら［要約を生成］を案内。取り込み中の未設定の文は「未設定」を残す', () => {
+  const m = code(read('src/main.js'));
+  assert.ok(fnBody(m, 'async function applyManagedWhenIdle()', '\n}').includes('［要約を生成］'));
+  const w = fnBody(m, 'function whisperProblem()', '\n}');
+  assert.ok(w.includes('取り込み中') && (w.match(/未設定/g) || []).length >= 2);
+});
+
+// 切り替えの判断（mainlib の純粋な関数。main.js はこれで決める）。計画の Task 14 の Interfaces の
+// sameShas と、実装で足した「新しい組が照らしで合わなければ前の組を使い続ける」「取り直す項目」「片付けで消さないパス」「残りの分」
+const { sameShas, keepPrevious, repairIdsOf, pathUsedBy, fetchMinutesLeft, candStamp } = require('../src/mainlib');
+const SHA = (c) => c.repeat(64);
+const candOf = (root, shas, { current = true, dir = 'whisper-1.9.5', model = 'w.bin', vad = 'vad.bin', p = path.win32 } = {}) => ({
+  current, shas, dir: p.join(root, dir), exe: p.join(root, dir, 'whisper-server.exe'), model: p.join(root, 'models', model),
+  ...(vad ? { vad: p.join(root, 'models', vad) } : {}) });
+const MAN = { items: [
+  { id: 'whisper-engine', group: 'whisper', kind: 'zip', sha256: SHA('a') },
+  { id: 'whisper-vad', group: 'whisper', kind: 'file', role: 'vad', sha256: SHA('b') },
+  { id: 'whisper-model', group: 'whisper', kind: 'file', role: 'model', sha256: SHA('c') },
+  { id: 'sum-engine', group: 'sum', kind: 'zip', sha256: SHA('d') },
+  { id: 'sum-model', group: 'sum', kind: 'file', role: 'model', sha256: SHA('e') },
+] };
+test('sameShas: SHA-256 の並び（大文字と小文字は同じ）で比べる。組が無いどうしは同じ。groups で見る組を絞れる', () => {
+  const w = candOf(ROOTJ, [SHA('a'), SHA('b'), SHA('c')]);
+  const W2 = candOf(ROOTJ, [SHA('A'), SHA('B'), SHA('C')]);
+  assert.strictEqual(sameShas({ whisper: w, sum: null }, { whisper: W2, sum: null }), true);
+  assert.strictEqual(sameShas({ whisper: null, sum: null }, { whisper: null, sum: null }), true);
+  assert.strictEqual(sameShas({ whisper: w, sum: null }, { whisper: null, sum: null }), false);
+  const w3 = candOf(ROOTJ, [SHA('a'), SHA('b'), SHA('f')]);
+  assert.strictEqual(sameShas({ whisper: w, sum: null }, { whisper: w3, sum: null }), false);
+  assert.strictEqual(sameShas({ whisper: w, sum: candOf(ROOTJ, [SHA('d')]) }, { whisper: w, sum: null }, ['whisper']), true);
+  assert.strictEqual(sameShas({ whisper: w, sum: candOf(ROOTJ, [SHA('d')]) }, { whisper: w, sum: null }, ['sum']), false);
+});
+test('RF13: 新しい組が照らしで合わなければ、照らし済みの前の組を使い続ける。同じ並びの組や前の組が無い組は、照らしのまま（null）', () => {
+  const old = candOf(ROOTJ, [SHA('a'), SHA('b'), SHA('9')], { current: false });
+  const neu = candOf(ROOTJ, [SHA('a'), SHA('b'), SHA('c')]);
+  const bad = [{ group: 'whisper', file: neu.model, why: 'changed' }];
+  // 新しい組が合わない → 前の組（kept）
+  const r = keepPrevious({ whisper: neu, sum: null }, { whisper: old, sum: null }, { whisper: null, sum: null, bad });
+  assert.deepStrictEqual([r.whisper, r.sum, r.kept, r.bad], [old, null, ['whisper'], bad]);
+  // 新しい組が合う → 新しい組
+  const ok = keepPrevious({ whisper: neu, sum: null }, { whisper: old, sum: null }, { whisper: neu, sum: null, bad: [] });
+  assert.deepStrictEqual([ok.whisper, ok.kept], [neu, []]);
+  // 同じ並び（触られた・取り直した）で合わない → 使わない（RF3）
+  const same = keepPrevious({ whisper: neu, sum: null }, { whisper: neu, sum: null }, { whisper: null, sum: null, bad });
+  assert.deepStrictEqual([same.whisper, same.kept], [null, []]);
+  // 前の組が無い → 使わない
+  const none = keepPrevious({ whisper: neu, sum: null }, { whisper: null, sum: null }, { whisper: null, sum: null, bad });
+  assert.deepStrictEqual([none.whisper, none.kept], [null, []]);
+  // 候補が消えた（記録と合わない）→ 使わない（前の組にも戻さない）
+  const gone = keepPrevious({ whisper: null, sum: null }, { whisper: old, sum: null }, { whisper: null, sum: null, bad: [] });
+  assert.deepStrictEqual([gone.whisper, gone.kept], [null, []]);
+});
+test('RF3: 取り直す項目は、合わなかったファイルの項目だけ（DLL → zip・モデル・VAD）。今のピンに無い前の組の項目は入れない。分からなければ組の今のピンを全部', () => {
+  const c = candOf(ROOTJ, [SHA('a'), SHA('b'), SHA('c')]);
+  const dll = { group: 'whisper', file: path.win32.join(c.dir, 'ggml.dll'), why: 'changed' };
+  assert.deepStrictEqual(repairIdsOf(MAN, { whisper: c }, [dll], ['whisper']), ['whisper-engine']);
+  assert.deepStrictEqual(repairIdsOf(MAN, { whisper: c }, [{ group: 'whisper', file: c.model, why: 'missing' }, { group: 'whisper', file: c.vad, why: 'changed' }], ['whisper']),
+    ['whisper-vad', 'whisper-model']);
+  // 前の組（モデルだけ今のピンと違う）: 合わないのが前のモデルなら取り直せない（今のピンに無い）。DLL は今のピンの zip
+  const old = candOf(ROOTJ, [SHA('a'), SHA('b'), SHA('9')], { current: false, model: 'w-old.bin' });
+  assert.deepStrictEqual(repairIdsOf(MAN, { whisper: old }, [{ group: 'whisper', file: old.model, why: 'changed' }], ['whisper']), []);
+  assert.deepStrictEqual(repairIdsOf(MAN, { whisper: old }, [{ group: 'whisper', file: path.win32.join(old.dir, 'whisper.dll'), why: 'missing' }], ['whisper']), ['whisper-engine']);
+  // 照らしが例外で終わった（どのファイルか分からない）: 組の今のピンを全部（係が照らし直して、違うものだけ取る）
+  assert.deepStrictEqual(repairIdsOf(MAN, { whisper: c }, [], ['whisper']), ['whisper-engine', 'whisper-vad', 'whisper-model']);
+  // 頼まれた組だけ
+  const s = candOf(ROOTJ, [SHA('d'), SHA('e')], { dir: 'llama-b11669', model: 's.gguf', vad: null });
+  assert.deepStrictEqual(repairIdsOf(MAN, { whisper: c, sum: s }, [dll, { group: 'sum', file: s.model, why: 'changed' }], ['sum']), ['sum-model']);
+  assert.deepStrictEqual(repairIdsOf(MAN, { whisper: null, sum: null }, [dll], ['whisper', 'sum']), []);
+});
+test('RF8: 片付けで消さないパス: 使っている組のフォルダの中・そのファイル・それらを中に持つフォルダ（大文字と小文字は区別しない）', () => {
+  const c = candOf(ROOTJ, [SHA('a')]);
+  const W = path.win32;
+  for (const p of [c.dir, W.join(c.dir, 'ggml.dll'), c.model, c.vad, W.join(ROOTJ, 'models'), ROOTJ, c.dir.toUpperCase()]) {
+    assert.strictEqual(pathUsedBy(p, [c, null], W), true, p);
+  }
+  for (const p of [W.join(ROOTJ, 'whisper-1.9.4'), `${c.dir}.old-1234.tmp`, W.join(ROOTJ, 'models', 'w-old.bin'), W.join(ROOTJ, 'llama-b11000'), '']) {
+    assert.strictEqual(pathUsedBy(p, [c, null], W), false, p);
+  }
+  assert.strictEqual(pathUsedBy(c.dir, [], W), false);
+});
+test('candStamp: 候補の並びと、exe・DLL・モデルの大きさと更新時刻（読まない）。取り直されるか触られると変わる。無いファイルも印にする', () => {
+  const c = { ...candOf(ROOTJ, [SHA('a'), SHA('b')]), checkFiles: [{ file: 'x.exe', size: 1, sha256: SHA('1') }, { file: 'x.dll', size: 2, sha256: SHA('2') }],
+    models: [{ file: 'm.bin', size: 3, mtimeMs: 30 }] };
+  const disk = { 'x.exe': { size: 1, mtimeMs: 10 }, 'x.dll': { size: 2, mtimeMs: 20 }, 'm.bin': { size: 3, mtimeMs: 30 } };
+  const stat = (f) => { if (!disk[f]) throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' }); return disk[f]; };
+  const a = candStamp(c, stat);
+  assert.strictEqual(candStamp(c, stat), a);
+  assert.strictEqual(candStamp(null, stat), '-');
+  disk['x.dll'] = { size: 2, mtimeMs: 21 };   // 取り直された（同じ大きさ・新しい更新時刻）
+  const b = candStamp(c, stat);
+  assert.notStrictEqual(b, a);
+  delete disk['m.bin'];                         // 消された
+  assert.notStrictEqual(candStamp(c, stat), b);
+  disk['m.bin'] = { size: 3, mtimeMs: 30 };
+  assert.notStrictEqual(candStamp({ ...c, shas: [SHA('a'), SHA('c')] }, stat), candStamp(c, stat));   // 並びが違う
+});
+test('取り込み中の「あと約 N 分」: 組の残りと今の速さから（切り上げ・1 分から）。速さが分からない・残りが 0 なら null（分は出さない）', () => {
+  const s = (bytesPerSec, items) => ({ bytesPerSec, items });
+  const its = [{ group: 'whisper', size: 600e6, done: 100e6 }, { group: 'whisper', size: 900e6, done: 900e6 }, { group: 'sum', size: 5e9, done: 0 }];
+  assert.strictEqual(fetchMinutesLeft(s(1e6, its), 'whisper'), 9);   // 500MB / 1MB/s = 500 秒 → 9 分
+  assert.strictEqual(fetchMinutesLeft(s(100e6, its), 'whisper'), 1);
+  assert.strictEqual(fetchMinutesLeft(s(1e6, its), 'sum'), 84);      // 5GB / 1MB/s = 5000 秒 → 84 分
+  assert.strictEqual(fetchMinutesLeft(s(null, its), 'whisper'), null);
+  assert.strictEqual(fetchMinutesLeft(s(1e6, its.map((i) => ({ ...i, done: i.size }))), 'whisper'), null);
+  assert.strictEqual(fetchMinutesLeft(null, 'whisper'), null);
+});

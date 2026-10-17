@@ -890,6 +890,87 @@ function memoEvidence(memo, types) {
   return String(memo || '').split('\n').filter((l) => !preset.has(l.trim())).join('\n');
 }
 
+// ---------------------------------------------------------------- 取り込んだエンジンの切り替え（第0b回 Task 14）
+// main は取り込みの係（engine-install.makeRunner）が組をそろえるたびに、候補（engine-install.managedCandidates の
+// { whisper, sum }。Cand は { current, shas, dir, exe, model, vad?, … }）を照らしてから切り替える。ここはその判断だけ
+const MANAGED_GROUPS = ['whisper', 'sum'];
+const shasKey = (c) => (c && Array.isArray(c.shas) ? c.shas.map((s) => String(s).toLowerCase()).join(',') : '');
+const sameSha256 = (a, b) => String(a).toLowerCase() === String(b).toLowerCase();
+
+// 2 つの組の並びが、SHA-256 の並びで同じか（ファイルを読まない安い比べ）。組が無いどうしは同じ。groups で見る組を絞れる
+function sameShas(a, b, groups = MANAGED_GROUPS) {
+  return groups.every((g) => shasKey(a && a[g]) === shasKey(b && b[g]));
+}
+
+// 照らしの結果（engine-install.verifyCandidates の { whisper, sum, bad }）に、前の組を使い続ける組を足す（RF13）
+// → { whisper, sum, bad, kept: [組の名前] }。新しい候補（cands[g]）が照らしで合わず、照らし済みの前の組（prev[g]）が
+// 別の並びなら、前の組を使い続ける（新しい組は取り直す）。同じ並びの組（触られた・取り直した組）・前の組が無い組・
+// 候補が無くなった組は、照らしの結果のまま（合わなければ null。RF3）
+function keepPrevious(cands, prev, checked) {
+  const out = { whisper: null, sum: null, bad: (checked && Array.isArray(checked.bad)) ? checked.bad : [], kept: [] };
+  for (const g of MANAGED_GROUPS) {
+    if (checked && checked[g]) out[g] = checked[g];
+    else if (cands && cands[g] && prev && prev[g] && !sameShas(cands, prev, [g])) { out[g] = prev[g]; out.kept.push(g); }
+  }
+  return out;
+}
+
+// 1 つの候補（Cand か null）の SHA-256 の並びと、exe・DLL・モデル・VAD の大きさと更新時刻（ファイルは読まない）→ 文字列。
+// 照らした後に取り直されたか触られたかを、読まずに見分ける（照らしで合わなかった組を、変わるまで照らし直さない）。
+// 無いファイルも印にする。statFn は fs.statSync の形
+function candStamp(c, statFn) {
+  if (!c) return '-';
+  const files = [...(c.checkFiles || []).map((f) => f.file), ...(c.models || []).map((m) => m.file)];
+  return [shasKey(c), ...files.map((f) => {
+    try { const st = statFn(f); return `${f}|${st.size}|${st.mtimeMs}`; } catch (_) { return `${f}|-`; }
+  })].join('\n');
+}
+
+// 照らしで合わなかった項目の id（ピンの id。係の start({ repair }) に渡す）を、ピンの順で。groups は取り直す組。
+//  bad の file が候補のモデルなら role 'model'、VAD なら role 'vad'、ほか（exe と DLL）はその組の zip の項目。
+//  今のピンに無い項目（前の組だけのもの）は係が取れないので入れない。どのファイルか分からない組（照らしが例外で
+//  終わった）は、その組の今のピンの項目を全部（係が照らし直して、違うものだけ取る）
+function repairIdsOf(manifest, cands, bad, groups) {
+  const ids = new Set();
+  for (const g of groups || []) {
+    const c = cands && cands[g];
+    if (!c) continue;
+    const pinned = manifest.items.filter((i) => i.group === g && (c.shas || []).some((s) => sameSha256(s, i.sha256)));
+    const mine = (bad || []).filter((b) => b && b.group === g);
+    if (!mine.length) { for (const i of pinned) ids.add(i.id); continue; }
+    for (const b of mine) {
+      const role = b.file === c.model ? 'model' : (c.vad && b.file === c.vad ? 'vad' : null);
+      const it = pinned.find((i) => (role ? i.kind !== 'zip' && i.role === role : i.kind === 'zip'));
+      if (it) ids.add(it.id);
+    }
+  }
+  return manifest.items.filter((i) => ids.has(i.id)).map((i) => i.id);
+}
+
+// p が、使っている組（Cand の並び）のフォルダの中か、そのファイルか、それらを中に持つフォルダか（片付けで消さない。RF8）。
+// Windows は大文字と小文字を区別しないので小文字で比べる（ほかの OS では、消さない側に倒れるだけ）。pathMod は path か path.win32
+function pathUsedBy(p, cands, pathMod = path) {
+  if (!p) return false;
+  const norm = (x) => pathMod.resolve(String(x)).toLowerCase();
+  const under = (a, b) => a === b || a.startsWith(b.endsWith(pathMod.sep) ? b : b + pathMod.sep);
+  const t = norm(p);
+  return (cands || []).some((c) => c && [c.dir, c.exe, c.model, c.vad].filter(Boolean).some((f) => {
+    const u = norm(f);
+    return under(t, u) || under(u, t);
+  }));
+}
+
+// 取り込み中の「あと約 N 分」（未設定の文に足す）。取り込みの写し s（engine-install.statusOf の形）の、組の残りのバイトと
+// 今の速さから、分（切り上げ・1 分から）。速さがまだ分からない（始めたばかり・待っている・記録中で止めている）か、
+// 組の残りが 0 なら null（分は出さない）
+function fetchMinutesLeft(s, group) {
+  const items = s && Array.isArray(s.items) ? s.items.filter((i) => i && i.group === group) : [];
+  const left = items.reduce((a, i) => a + Math.max(0, (Number(i.size) || 0) - (Number(i.done) || 0)), 0);
+  const bps = Number(s && s.bytesPerSec);
+  if (!left || !(bps > 0)) return null;
+  return Math.max(1, Math.ceil(left / bps / 60));
+}
+
 // ---------------------------------------------------------------- main の外向きの通信（RF2）
 // Node の fetch は Windows のプロキシ・PAC・証明書のストアを使わない。会社のプロキシと SSL の
 // 検査の下では通らないので、外への通信は Electron の net（net.request／net.fetch）で行う。
@@ -925,4 +1006,5 @@ module.exports = {
   nextSegmentMs, EtaTracker, skipPendingSegments,
   estimateTokens, foldNotes, idleEnginesToStop, silentWav, wavLevelDbfs, mergeSummaryType, memoEvidence,
   isLoopbackUrl, loopbackOnlyFetch,
+  sameShas, keepPrevious, candStamp, repairIdsOf, pathUsedBy, fetchMinutesLeft,
 };
