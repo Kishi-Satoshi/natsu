@@ -11,7 +11,8 @@
  *  - askIt              情報システムの担当に渡すもの（画面は［担当に渡す内容を写す］を出す）
  *  - fetchErrorMessage  利用者向けの文（最後の文は、することを1つ書いた文で終わる）
  *  - fetchFile          1つのファイルを、続きから（HTTP の Range）、転送を手で追い、記録を残して取り、
- *                       中身を SHA-256 で照らして置く（第0b回 R7、RF6、RF9）
+ *                       中身を SHA-256 で照らして置く（第0b回 R7、RF6、RF9）。失敗の道（見出しの待ち・
+ *                       止まった流れ・名前の変更の失敗・空き・進み具合）も持つ（Task 6）
  *
  * 決まり:
  *  - Electron のモジュールは読み込まない。通信は呼ぶ側から request（本番は net.request）を
@@ -38,12 +39,14 @@ function hget(headers, name) {
   return key === undefined ? undefined : first(headers[key]);
 }
 
-// `bytes S-E/T` → { start, end, total }。416 の形（bytes の後が星印）・総量が星印・空・矛盾は null。
+// `bytes S-E/T` → { start, end, total }。416 の形（bytes の後が星印）・総量が星印・空・終わりが始まりより前は null。
+// 総量が範囲より小さいもの（`bytes 100000-299999/999`）は読んで返す。総量がピンと違うことは decide が
+// size-changed で止める（読めない扱いの bad-range にすると、待って何度も試してしまう）。
 function parseContentRange(v) {
   const m = /^bytes\s+(\d+)-(\d+)\/(\d+)$/i.exec(String(v ?? '').trim());
   if (!m) return null;
   const r = { start: Number(m[1]), end: Number(m[2]), total: Number(m[3]) };
-  if (r.end < r.start || r.end >= r.total) return null;
+  if (r.end < r.start) return null;
   return r;
 }
 
@@ -183,8 +186,14 @@ function fetchErrorMessage(code, extra = {}) {
 
 // ---------------------------------------------------------------- fetchFile
 
+// fetchFile が自分で決めた失敗の印（本体を読む途中の失敗を、通信の失敗と取り違えないため）
+const OWN = Symbol('engine-fetch');
 /** code 付きの失敗。retry は「待って続きから試す」もの（ほかはすぐやめる）。 */
-const failure = (code, extra) => Object.assign(new Error(`取り込み: ${code}`), { code }, extra);
+const failure = (code, extra) => Object.assign(new Error(`取り込み: ${code}`), { code, [OWN]: true }, extra);
+
+const HEADER_MAX_MS = 10 * 60 * 1000;          // 見出しの待ちは、倍にしても 10 分まで
+const LOCKED = new Set(['EPERM', 'EBUSY', 'EACCES']);
+const RENAME_TRIES = 10;                        // 名前の変更は 300ms から伸ばしながら 10 回まで
 
 // 通信の失敗のうち、待っても直らないもの（すぐやめる）
 const NET_STOP = new Set(['cert', 'proxy-auth', 'proxy', 'space']);
@@ -229,10 +238,14 @@ function openOnce(url, headers, c) {
     // credentials は渡さない（プロキシの認証の情報は送り、クッキーは送らない）
     const req = c.request({ method: 'GET', url, redirect: 'manual', cache: 'no-store' });
     let settled = false; let hops = 0; let proxyAuth = false;
+    // 見出しの待ち（転送を含めて、応答の見出しが来るまで）。社内の検査のプロキシは、ファイルを抱えて
+    // から渡すことがある。時間切れは header-timeout で、呼ぶ側が次の待ちを倍にする
+    const timer = setTimeout(() => finish(failure('header-timeout', { retry: true })), c.headerTimeoutMs);
     const onAbort = () => finish(failure('cancelled'));
     function finish(err, val) {
       if (settled) return;
       settled = true;
+      clearTimeout(timer);
       if (c.signal) c.signal.removeEventListener('abort', onAbort);
       if (err) {
         try { req.abort(); } catch (_) { /* もう終わっている */ }
@@ -278,13 +291,17 @@ function openOnce(url, headers, c) {
 /**
  * 1つのファイルを取る → { file, reused }。失敗は Error（code 付き）で投げる。
  *  pin:  { url, size, sha256 }
- *  opts: { dir, dest, request, sleep, onProgress, signal, log, now, openPart, requireHttps, maxFails, maxHops,
- *          syncEvery, progressMs, rename, userAgent }
+ *  opts: { dir, dest, request, sleep, onProgress, signal, log, now, openPart, requireHttps, headerTimeoutMs,
+ *          stallMs, maxFails, maxHops, syncEvery, progressMs, rename, userAgent }
  *    dir は .download のフォルダ（<sha256>.part と記録 <sha256>.json を置く）、dest は置く先の本当のパス。
  *    request は Electron の net.request と同じ形（本番は (o) => net.request(o)）。
  *    openPart(file) は .part を開く口（テストで書き込みの失敗を起こすために差し替える）。
  *    log(line) は試しごとに1行。onProgress({ done, total }) は progressMs に1回まで（now() で測る。最後は必ず）。
+ *    onProgress の done は続きからの分を含み、増えるだけ（0 から取り直しても、追いつくまで前の値のまま）。
  *    続けての失敗が maxFails を超えたら、.part を残して最後の失敗のコードでやめる（バイトが届いたら数え直す）。
+ *    正常に終わったのに短い（short）も1回の失敗に数える（いつも 0 バイトのサーバーで永久に回らない）。
+ *    見出しの待ちは headerTimeoutMs から、続けて時間切れになるたびに倍（10 分まで）。stallMs の間に
+ *    1 バイトも来なければ要求を止めて続きから（stall）。
  *
  * 手0: dest が有り、大きさがピンと同じで SHA-256 も合えば、要求を出さずに使う（installed.json が消えても
  *      数 GB を取り直さない）。
@@ -292,12 +309,15 @@ function openOnce(url, headers, c) {
  * 記録の synced は、fh.sync() を済ませた長さ。始める前に .part をそこまで切り捨てる（電源断の末尾。RF9）。
  * 取り消し・失敗で返る前にも、確定して今の長さを記録に書く（次はその長さから続く）。
  * 大きさがピンに達したら SHA-256 を照らし、違えば（ピンより大きい .part も）Range なしで1回だけ全部
- * 取り直す。それでも違えば hash（.part も記録も残さない）。
+ * 取り直す。それでも違えば hash（.part も記録も残さない）。206 の総量がピンと違えば size-changed で、
+ * .part と記録を捨てる（違うファイルの続きは使えない）。
+ * 書き込みの ENOSPC はすぐ space でやめ（.part は確定して残す）、needBytes に残りの大きさを入れる。
+ * 名前の変更の EPERM・EBUSY・EACCES（ウイルス対策の検査など）は、待って 10 回まで試してから locked。
  */
 async function fetchFile(pin, opts = {}) {
   const {
     dir, dest, request, sleep = (ms) => new Promise((r) => setTimeout(r, ms)), onProgress = () => {}, signal = null,
-    log = () => {}, now = Date.now, openPart = openPartDefault, requireHttps = true,
+    log = () => {}, now = Date.now, openPart = openPartDefault, requireHttps = true, headerTimeoutMs = 60000, stallMs = 120000,
     maxFails = 6, maxHops = 10, syncEvery = 32 << 20, progressMs = 250, rename = fsp.rename, userAgent = defaultUserAgent(),
   } = opts;
   if (typeof request !== 'function') throw new TypeError('fetchFile: request が要る');
@@ -342,12 +362,35 @@ async function fetchFile(pin, opts = {}) {
   let hash;
   const reset = async () => { await fh.truncate(0); held = 0; hash = crypto.createHash('sha256'); await commit(); };
 
+  // ディスクの失敗: ENOSPC は space（needBytes = ピンの大きさ − 持っている長さ）。ほかはそのまま。
+  // どちらも印を付けて、本体を読む途中の通信の失敗と取り違えない
+  const diskFailure = (e) => (e && e.code === 'ENOSPC'
+    ? failure('space', { cause: e, needBytes: Math.max(0, size - held) })
+    : Object.assign(e, { [OWN]: true }));
+  // 位置を指定して書く。短い書き込み（空きが尽きかけたとき）は残りを書き足す。held は書けた分だけ進める
+  const writeChunk = async (chunk) => {
+    let off = 0;
+    try {
+      while (off < chunk.length) {
+        const r = await fh.write(chunk, off, chunk.length - off, held + off);
+        const n = r && r.bytesWritten;
+        if (!(n > 0)) throw Object.assign(new Error('書き込めませんでした'), { code: 'ENOSPC' });
+        off += n;
+      }
+    } catch (e) { throw diskFailure(e); }
+    hash.update(chunk);
+    held += chunk.length;
+  };
+
+  // 進み具合の done は増えるだけ（0 から取り直したときは、追いつくまで前の値のまま）
   let lastProgress = -Infinity;
+  let shown = 0;
   const progress = (force) => {
     const t = now();
     if (!force && t - lastProgress < progressMs) return;
     lastProgress = t;
-    onProgress({ done: held, total: size });
+    shown = Math.max(shown, held);
+    onProgress({ done: shown, total: size });
   };
 
   // 取り消されたら、今の要求を止める（待っている sleep も切り上げる）
@@ -372,6 +415,7 @@ async function fetchFile(pin, opts = {}) {
       await commit();
     }
     let fails = 0;
+    let headerWait = headerTimeoutMs;
     for (;;) {
       if (aborted()) throw failure('cancelled');
       if (held === size) {
@@ -384,43 +428,67 @@ async function fetchFile(pin, opts = {}) {
       if (held > 0) headers.Range = `bytes=${held}-`;   // If-Range は送らない（署名付きの CDN は無視する）
       let got = false;
       try {
-        const { req, res } = await openOnce(pin.url, headers, { request, signal, requireHttps, maxHops, sha256, size });
+        const { req, res } = await openOnce(pin.url, headers,
+          { request, signal, requireHttps, maxHops, sha256, size, headerTimeoutMs: headerWait });
         current = req;
+        headerWait = headerTimeoutMs;                    // 見出しが来たら、待ちを元に戻す
         const d = decide(res.statusCode, res.headers, held, pin);
         if (d.act !== 'write') {
           try { req.abort(); } catch (_) { /* 終わっている */ }
-          if (d.act === 'fail') throw failure(d.code);
+          if (d.act === 'fail') {
+            if (d.code === 'size-changed') discard = true;   // 違うファイルの続きは使えない
+            throw failure(d.code);
+          }
           if (d.act === 'restart') await reset();
           throw failure(d.code, { retry: true, retryAfter: d.act === 'retry' ? d.retryAfter : null });
         }
         if (d.from === 0 && held > 0) await reset();   // Range を無視された（200）: 0 から書き直す
         let over = false;
+        // 止まった流れ: stallMs の間に1バイトも来なければ、要求を止めて続きから試す（書いている間は数えない）
+        let stalled = false;
+        let stallTimer = null;
+        const arm = () => {
+          clearTimeout(stallTimer);
+          stallTimer = setTimeout(() => {
+            stalled = true;
+            try { req.abort(); } catch (_) { /* 終わっている */ }
+            try { if (typeof res.destroy === 'function') res.destroy(); } catch (_) { /* 終わっている */ }
+          }, stallMs);
+        };
         try {
+          arm();
           for await (const chunk of res) {
-            if (aborted()) break;
+            clearTimeout(stallTimer);
+            if (aborted() || stalled) break;
             if (held + chunk.length > size) { over = true; break; }   // ピンを超えた（圧縮された 200 など）
-            await fh.write(chunk, 0, chunk.length, held);
-            hash.update(chunk);
-            held += chunk.length;
+            await writeChunk(chunk);
             got = true;
-            if (held - synced >= syncEvery) await commit();
+            if (held - synced >= syncEvery) { try { await commit(); } catch (e) { throw diskFailure(e); } }
             progress(false);
+            arm();
           }
         } catch (e) {
           if (aborted()) throw failure('cancelled');
+          if (e && e[OWN]) throw e;                     // ディスクの失敗（space など）
+          if (stalled) throw failure('stall', { retry: true });
           throw netFailure(e);
+        } finally {
+          clearTimeout(stallTimer);
         }
         if (aborted()) throw failure('cancelled');
+        if (stalled && held < size) throw failure('stall', { retry: true });
         if (over) {
           try { req.abort(); } catch (_) { /* 終わっている */ }
           await mismatch();
           continue;
         }
         if (held < size) throw failure('short', { retry: true });
-      } catch (e) {
+      } catch (err) {
         current = null;
         if (aborted()) throw failure('cancelled');
+        const e = err && err.code === 'ENOSPC' ? diskFailure(err) : err;   // 記録や切り捨ての ENOSPC も space
         if (!e.retry) throw e;
+        if (e.code === 'header-timeout') headerWait = Math.min(headerWait * 2, Math.max(HEADER_MAX_MS, headerTimeoutMs));
         fails = got ? 1 : fails + 1;                     // バイトが届いたら数え直す
         if (fails > maxFails) throw failure(e.code, { cause: e.cause || e });
         await pause(backoffMs(fails, e.retryAfter));
@@ -438,7 +506,15 @@ async function fetchFile(pin, opts = {}) {
     if (discard) { await rmQuiet(part); await rmQuiet(side); }
   }
   await fsp.mkdir(path.dirname(dest), { recursive: true });
-  await rename(part, dest);
+  // ウイルス対策の検査などで名前を変えられないときは、待って試す（.part と記録は残るので、次は照らすだけ）
+  for (let i = 1; ; i++) {
+    try { await rename(part, dest); break; } catch (e) {
+      if (!e || !LOCKED.has(e.code)) throw e;
+      if (i >= RENAME_TRIES) throw failure('locked', { cause: e });
+      if (aborted()) throw failure('cancelled');
+      await sleep(Math.min(300 * 2 ** (i - 1), 5000));
+    }
+  }
   await rmQuiet(side);
   return { file: dest, reused: false };
 }

@@ -8,6 +8,11 @@
  * その2（Task 5）: fetchFile の本体。127.0.0.1 の偽の取得元と CDN（test/helpers/range-server.js）へ、
  * Electron の net.request と同じ振る舞いの偽物（test/helpers/fake-net.js）で取りに行き、続きから・
  * 転送・記録・SHA-256 の照らしを確かめる（第0b回 R7、RF6、RF9）。一時フォルダの名前には日本語と 𠮷。
+ *
+ * その3（Task 6）: fetchFile の失敗の道。短い本体・止まった流れ・見出しが来ない・総量の違い・416・
+ * Retry-After・404・止めの頁・プロキシの認証・圧縮・名前の変更の失敗・空き・進み具合で、止まらず・
+ * 壊さず・正しいコードで終わることを固定する（第0b回 R7、RF2、RF9）。どのテストも 5 秒で切る
+ * （止まった流れの見張りを外すと、永久に待たずに時間切れで赤になる）。
  */
 'use strict';
 
@@ -219,4 +224,167 @@ test('ピンより大きい .part は、SHA-256 の違いと同じ扱い（捨�
     await assert.rejects(fetchFile(pinOf(t.originUrl), opts(dir)), { code: 'hash' });
     assert.deepStrictEqual(t.cdnRanges(), [null], '取り直しを 2 回使った');
   } finally { await t.close(); }
+});
+
+const { makeFakeRequest } = require('./helpers/fake-net');
+test('正常に終わったのに短い: 本当の長さから続ける。いつも 0 バイトなら maxFails を超えて short（永久に回らない）', { timeout: 5000 }, async () => {
+  const s = await startServers({ body, script: [{ short: 1000 }] });
+  try { await fetchFile(pinOf(s.originUrl), opts(tmp())); assert.deepStrictEqual(s.cdnRanges(), [null, 'bytes=1000-']); }
+  finally { await s.close(); }
+  const t = await startServers({ body, script: Array.from({ length: 10 }, () => ({ zero: true })) });
+  try {
+    await assert.rejects(fetchFile(pinOf(t.originUrl), opts(tmp(), { maxFails: 2 })), { code: 'short' });
+    assert.strictEqual(t.cdnRanges().length, 3);
+  } finally { await t.close(); }
+});
+test('止まった流れ（見出しと少しのバイトのあと黙る）は stallMs で切って続ける', { timeout: 5000 }, async () => {
+  const s = await startServers({ body, script: [{ stallAfter: 50000 }] });
+  try { await fetchFile(pinOf(s.originUrl), opts(tmp(), { stallMs: 200 })); assert.deepStrictEqual(s.cdnRanges(), [null, 'bytes=50000-']); }
+  finally { await s.close(); }
+});
+test('見出しが来ない: header-timeout を数え、待ちを倍にする（100ms → 200ms）', { timeout: 5000 }, async () => {
+  const s = await startServers({ body, script: [{ noHeaders: true }, { noHeaders: true }, { noHeaders: true }] });
+  try {
+    await assert.rejects(fetchFile(pinOf(s.originUrl), opts(tmp(), { headerTimeoutMs: 100, maxFails: 2 })), { code: 'header-timeout' });
+    const at = s.requests().filter((x) => x.name === 'cdn').map((x) => x.at);
+    assert.strictEqual(at.length, 3);
+    assert.ok(at[1] - at[0] >= 90, `1 回目の待ち ${at[1] - at[0]}ms`);
+    assert.ok(at[2] - at[1] >= 190, `2 回目の待ちが倍になっていない ${at[2] - at[1]}ms`);
+  } finally { await s.close(); }
+});
+test('206 の総量がピンと違う: size-changed で .part を消す。始まりが違う: 書かずに 0 から', { timeout: 5000 }, async () => {
+  const s = await startServers({ body, script: [{ cutAfter: 100000 }, { wrongTotal: 999 }] });
+  try {
+    const dir = tmp();
+    await assert.rejects(fetchFile(pinOf(s.originUrl), opts(dir)), { code: 'size-changed' });
+    assert.ok(!fs.existsSync(path.join(dir, `${SHA}.part`)));
+  } finally { await s.close(); }
+  const t = await startServers({ body, script: [{ cutAfter: 100000 }, { wrongStart: 0 }] });
+  try {
+    const r = await fetchFile(pinOf(t.originUrl), opts(tmp()));
+    assert.deepStrictEqual(t.cdnRanges(), [null, 'bytes=100000-', null]);
+    assert.ok(fs.readFileSync(r.file).equals(body));
+  } finally { await t.close(); }
+});
+test('416（まだ短い .part）: .part を捨てて Range なしで取り直す', { timeout: 5000 }, async () => {
+  const s = await startServers({ body, script: [{ always416: true }] });
+  try {
+    const dir = tmp();
+    fs.writeFileSync(path.join(dir, `${SHA}.part`), body.subarray(0, 100000)); side(dir, { url: s.originUrl, synced: 100000 });
+    await fetchFile(pinOf(s.originUrl), opts(dir));
+    assert.deepStrictEqual(s.cdnRanges(), ['bytes=100000-', null]);
+  } finally { await s.close(); }
+});
+test('503 と Retry-After 7: 7000ms 待つ。404（text/plain）: 要求は 1 回だけで gone', { timeout: 5000 }, async () => {
+  const waits = [];
+  const s = await startServers({ body, script: [{ status: 503, retryAfter: 7 }, {}] });
+  try { await fetchFile(pinOf(s.originUrl), opts(tmp(), { sleep: async (ms) => { waits.push(ms); } })); assert.deepStrictEqual(waits, [7000]); }
+  finally { await s.close(); }
+  const t = await startServers({ body, script: [{ status: 404 }] });
+  try { await assert.rejects(fetchFile(pinOf(t.originUrl), opts(tmp())), { code: 'gone' }); assert.strictEqual(t.cdnRanges().length, 1); }
+  finally { await t.close(); }
+});
+test('止めの頁: 200 の HTML・403 の HTML・404 の HTML は、待たずに blocked（要求は 1 回）', { timeout: 5000 }, async () => {
+  for (const sc of [{ html: true }, { status: 403, html: true }, { status: 404, html: true }]) {
+    const s = await startServers({ body, script: [sc, {}] });
+    try {
+      await assert.rejects(fetchFile(pinOf(s.originUrl), opts(tmp())), { code: 'blocked' }, JSON.stringify(sc));
+      assert.strictEqual(s.cdnRanges().length, 1, JSON.stringify(sc));
+    } finally { await s.close(); }
+  }
+});
+test('407 は proxy-auth で、login の callback は何も渡さずに呼ぶ', { timeout: 5000 }, async () => {
+  const s = await startServers({ body, script: [{ status: 407 }] });
+  const reqs = [];
+  try {
+    await assert.rejects(fetchFile(pinOf(s.originUrl), opts(tmp(), { request: (o) => { const r = fakeRequest(o); reqs.push(r); return r; } })), { code: 'proxy-auth' });
+    assert.deepStrictEqual(reqs[reqs.length - 1].loginArgs, []);
+  } finally { await s.close(); }
+});
+test('https のプロキシの認証: login の後の ERR_TUNNEL_CONNECTION_FAILED より proxy-auth が勝つ。ERR_PROXY_AUTH_UNSUPPORTED も proxy-auth。どちらも待たない', { timeout: 5000 }, async () => {
+  let n = 0;
+  const a = makeFakeRequest({ before: () => { n++; return { login: { isProxy: true, host: 'proxy' }, error: 'net::ERR_TUNNEL_CONNECTION_FAILED' }; } });
+  await assert.rejects(fetchFile(pinOf('https://example.invalid/x'), opts(tmp(), { request: a })), { code: 'proxy-auth' });
+  assert.strictEqual(n, 1);
+  let m = 0;
+  const b = makeFakeRequest({ before: () => { m++; return { error: 'net::ERR_PROXY_AUTH_UNSUPPORTED' }; } });
+  await assert.rejects(fetchFile(pinOf('https://example.invalid/x'), opts(tmp(), { request: b })), { code: 'proxy-auth' });
+  assert.strictEqual(m, 1);
+});
+test('圧縮された 200（プロキシが gzip にした）は、長さと SHA-256 で決めて使う。圧縮された 206 は書かずに 0 から', { timeout: 5000 }, async () => {
+  const s = await startServers({ body, script: [{ gzip: true }] });
+  try { const r = await fetchFile(pinOf(s.originUrl), opts(tmp())); assert.ok(fs.readFileSync(r.file).equals(body)); }
+  finally { await s.close(); }
+  const t = await startServers({ body, script: [{ cutAfter: 100000 }, { gzip: true }] });
+  try {
+    const r = await fetchFile(pinOf(t.originUrl), opts(tmp()));
+    assert.deepStrictEqual(t.cdnRanges(), [null, 'bytes=100000-', null]);
+    assert.ok(fs.readFileSync(r.file).equals(body));
+  } finally { await t.close(); }
+});
+test('名前の変更が EPERM で 2 回失敗、3 回目に通る。いつも EPERM なら locked で .part は残る', { timeout: 5000 }, async () => {
+  const s = await startServers({ body });
+  try {
+    let n = 0;
+    const rename = async (a, b) => { if (++n <= 2) throw Object.assign(new Error('x'), { code: 'EPERM' }); return fs.promises.rename(a, b); };
+    const r = await fetchFile(pinOf(s.originUrl), opts(tmp(), { rename }));
+    assert.ok(fs.readFileSync(r.file).equals(body)); assert.strictEqual(n, 3);
+    const dir = tmp();
+    await assert.rejects(fetchFile(pinOf(s.originUrl), opts(dir, { rename: async () => { throw Object.assign(new Error('x'), { code: 'EPERM' }); } })), { code: 'locked' });
+    assert.ok(fs.existsSync(path.join(dir, `${SHA}.part`)));
+  } finally { await s.close(); }
+});
+test('書き込みで ENOSPC: space でやめ、.part は残し、needBytes に残りの大きさ', { timeout: 5000 }, async () => {
+  const s = await startServers({ body });
+  try {
+    const dir = tmp();
+    const openPart = async (f) => {
+      const fh = await fs.promises.open(f, fs.existsSync(f) ? 'r+' : 'w+'); let n = 0;
+      return new Proxy(fh, { get: (t, k) => (k === 'write'
+        ? async (...a) => { if (++n >= 2) throw Object.assign(new Error('no space'), { code: 'ENOSPC' }); return t.write(...a); }
+        : (typeof t[k] === 'function' ? t[k].bind(t) : t[k])) });
+    };
+    const e = await fetchFile(pinOf(s.originUrl), opts(dir, { openPart })).then(() => null, (x) => x);
+    assert.strictEqual(e && e.code, 'space');
+    const held = fs.statSync(path.join(dir, `${SHA}.part`)).size;
+    assert.strictEqual(e.needBytes, body.length - held);
+  } finally { await s.close(); }
+});
+test('進み具合は増えるだけで、続きからの分を含み、250ms に 1 回まで（最後は必ず 1 回）', { timeout: 5000 }, async () => {
+  const s = await startServers({ body, script: [{ cutAfter: 120000 }] });
+  try {
+    const seen = [];
+    await fetchFile(pinOf(s.originUrl), opts(tmp(), { onProgress: (p) => seen.push(p.done) }));
+    for (let i = 1; i < seen.length; i++) assert.ok(seen[i] >= seen[i - 1], seen.join(','));
+    assert.strictEqual(seen[seen.length - 1], body.length);
+  } finally { await s.close(); }
+  const t = await startServers({ body });
+  try {
+    const seen = [];
+    await fetchFile(pinOf(t.originUrl), opts(tmp(), { now: () => 5000, onProgress: (p) => seen.push(p.done) }));   // 時計が進まない
+    assert.deepStrictEqual(seen.length, 2, `間引いていない: ${seen.length} 回`);                                       // 最初の1回と最後の1回
+  } finally { await t.close(); }
+});
+test('取り直し（206 の始まりが違う）で 0 から書き直しても、進み具合の done は戻らない', { timeout: 5000 }, async () => {
+  const s = await startServers({ body, script: [{ cutAfter: 100000 }, { wrongStart: 0 }] });
+  try {
+    const seen = []; let t = 0;
+    await fetchFile(pinOf(s.originUrl), opts(tmp(), { now: () => (t += 1000), onProgress: (p) => seen.push(p.done) }));   // 毎回出す時計
+    assert.deepStrictEqual(s.cdnRanges(), [null, 'bytes=100000-', null]);
+    for (let i = 1; i < seen.length; i++) assert.ok(seen[i] >= seen[i - 1], seen.join(','));
+    assert.strictEqual(seen[seen.length - 1], body.length);
+  } finally { await s.close(); }
+});
+test('書き込みが一部だけ（空きが尽きかけたときの短い書き込み）でも、残りを書き足し、置いたファイルは元と同じ', { timeout: 5000 }, async () => {
+  const s = await startServers({ body });
+  try {
+    const openPart = async (f) => {
+      const fh = await fs.promises.open(f, fs.existsSync(f) ? 'r+' : 'w+');
+      return new Proxy(fh, { get: (t, k) => (k === 'write'
+        ? async (buf, off, len, pos) => t.write(buf, off, Math.ceil(len / 2), pos)   // いつも半分だけ書く
+        : (typeof t[k] === 'function' ? t[k].bind(t) : t[k])) });
+    };
+    const r = await fetchFile(pinOf(s.originUrl), opts(tmp(), { openPart }));
+    assert.ok(fs.readFileSync(r.file).equals(body), '穴のあいたファイルを置いた');
+  } finally { await s.close(); }
 });
