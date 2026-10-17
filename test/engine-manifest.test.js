@@ -62,3 +62,10 @@ test('ピン: 既定の組の合計（Task 0 の答えでモデルを替えた�
 test('ピン: 凍結されていて、実行中に書き換えられない', () => {
   assert.ok(Object.isFrozen(MANIFEST) && Object.isFrozen(MANIFEST.items) && Object.isFrozen(MANIFEST.items[0].files[0]));
 });
+
+// 計画の7件の後に足した1件（点検の指摘: hostOf を呼ぶテストが無く、空を返す変異が生き残った）。
+const { hostOf } = require('../src/engine-manifest');
+test('ピン: hostOf は画面の「取得元」の欄のホスト名を返し、読めない URL は空の文字列', () => {
+  assert.deepStrictEqual(MANIFEST.items.map((i) => hostOf(i.url)), ['github.com', 'huggingface.co', 'huggingface.co', 'github.com', 'huggingface.co']);
+  assert.strictEqual(hostOf('not a url'), '');
+});
