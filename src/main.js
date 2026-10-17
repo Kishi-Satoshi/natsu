@@ -41,6 +41,7 @@ const {
   registerHotkeys, resolveStartupHotkeys, saveHotkeys, makeSummaryRunner, tickStep,
   pasterScript, copyCommand, parsePasterLine,
   engineFileIssue, engineIssueMessage, engineInAppDir, engineDirWarning, portInUseError, guardEngineSettings, keptDifferent, closeConfirm,
+  engineSpawnPlan,
   extractNotes, truncationMessage, buildPromptParts,
   publicSegments, settledSegments, pendingDurationMs, recoverSegments, staleSegbufDirs, nextSegmentMs, EtaTracker,
   skipPendingSegments, restoreAfterPaste,
@@ -357,6 +358,12 @@ function engineCheck(eng) {
   if (exe !== 'ok') return `${eng.name}の${engineIssueMessage(exe, 'exe', fileSize(engineExe(eng)), engineExe(eng), ps)}`;
   const model = engineFileIssue(engineModel(eng), eng === whisperEng ? ENGINE_MIN_BYTES.whisper : ENGINE_MIN_BYTES.gguf, stat);
   if (model !== 'ok') return `${eng.name}の${engineIssueMessage(model, 'model', fileSize(engineModel(eng)), engineModel(eng), ps)}`;
+  // whisper は英数字以外のパスを読めずに落ちる（RF1）。相対にしても日本語が残るなら起動しない。
+  // engine:status と起動テストにも同じ理由が出る（startEngine は先にここを見る）
+  if (eng === whisperEng) {
+    const plan = engineSpawnPlan(engineExe(eng), engineSpawnArgs(eng), { whisper: true });
+    if (plan.problem) return plan.problem;
+  }
   return '';
 }
 // アプリのインストール先（NaTsu.exe のあるフォルダ）。開発中は Electron の実行ファイルの
@@ -418,10 +425,13 @@ function startEngine(eng) {
     if (quitting) return;
     if (eng.proc) return;
     eng.sig = engineSignature(eng);
-    engineLog(`${eng.name} 起動: ${engineExe(eng)} ${engineSpawnArgs(eng).join(' ')}`);
+    // cwd = exe のフォルダ。英数字以外のモデルのパスはそこからの相対で渡す（RF1）。
+    // ggml が cwd の ggml-*.dll を読むので、別のエンジンのフォルダで起動しない（RF11）
+    const plan = engineSpawnPlan(engineExe(eng), engineSpawnArgs(eng), { whisper: eng === whisperEng });
+    engineLog(`${eng.name} 起動: ${engineExe(eng)} ${plan.args.join(' ')}（作業フォルダ: ${plan.cwd}）`);
     let p;
     try {
-      p = spawn(engineExe(eng), engineSpawnArgs(eng), { windowsHide: true, stdio: ['ignore', 'ignore', 'pipe'] });
+      p = spawn(engineExe(eng), plan.args, { cwd: plan.cwd, windowsHide: true, stdio: ['ignore', 'ignore', 'pipe'] });
     } catch (e) {
       eng.lastError = `${eng.name}を起動できません: ${e.message}`; engineLog(eng.lastError); return;
     }

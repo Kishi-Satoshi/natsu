@@ -7,6 +7,8 @@
  */
 'use strict';
 
+const path = require('path');
+
 // ---------------------------------------------------------------- 要約の書き戻し
 // 要約は数分かかる。その間に利用者がページを削除していることがある。
 // 入口で読んだ page をそのまま保存すると、削除した議事録が復活する
@@ -345,6 +347,45 @@ function engineDirWarning(paths, appDir) {
   if (!hit) return '';
   return 'エンジンがアプリのインストール先に置かれています。更新のたびに消えることがあります。'
     + '%LOCALAPPDATA%\\natsu-engine など別の場所へ移し、設定のパスを貼り直してください';
+}
+
+// ---------------------------------------------------------------- エンジンの起動の形（RF1・RF11）
+// whisper-server は引数を ANSI（日本語の Windows では CP932）で受け、モデルのパスを UTF-8 として
+// 読み直す（whisper.cpp v1.9.5 server.cpp → codecvt_utf8 の from_bytes）。CP932 の日本語は UTF-8 と
+// して正しくないので、開けないのではなく例外で落ちる。VAD のモデルは最初の文字起こしで初めて読むので、
+// /health は通り、文字起こしのたびに失敗する。そこでエンジンを cwd = exe のフォルダで起動し、
+// 英数字以外を含むパスは、そこからの相対パス（..\models\… の英数字だけ）にして渡す。利用者名の部分は
+// 引数に出ない。英数字だけのパスは今までどおりそのまま渡す（今動いている PC の挙動を変えない）。
+// cwd を exe のフォルダにするのは両方のエンジン（RF11: ggml は cwd の ggml-*.dll も探して読む）。
+// llama-server は引数を CommandLineToArgvW で読み直すので、相対にできなくてもそのまま渡す。
+// p はテストで path.win32 を渡す（Linux でも Windows のパスの形で確かめる）。main は既定の path。
+const ASCII = /^[\x20-\x7E]*$/;
+const isAscii = (s) => ASCII.test(String(s ?? ''));
+const ENGINE_PATH_FLAGS = {
+  whisper: { '-m': '文字起こしのモデル', '--vad-model': 'VAD のモデル' },
+  llama: { '-m': '要約のモデル' },
+};
+function engineSpawnPlan(exe, args, { whisper = false, p = path } = {}) {
+  const cwd = p.dirname(exe);
+  const flags = ENGINE_PATH_FLAGS[whisper ? 'whisper' : 'llama'];
+  const out = [...(args || [])];
+  let problem = '';
+  for (let i = 0; i + 1 < out.length; i++) {
+    if (!Object.prototype.hasOwnProperty.call(flags, out[i])) continue;
+    const at = i + 1;
+    i = at;   // 値は旗として読まない
+    const value = out[at];
+    if (isAscii(value)) continue;
+    const rel = p.relative(cwd, value);
+    if (rel && isAscii(rel)) { out[at] = rel; continue; }
+    // 相対にしても英数字以外が残る（別のドライブ・ファイル名が日本語）。whisper は落ちるので起動しない。
+    // パスは文末に置く（engineIssueMessage と同じ。後ろの文と地続きに読ませない）
+    if (whisper && !problem) {
+      problem = `${flags[out[at - 1]]}の置き場所に日本語などの字が入っていると、文字起こしエンジンが読めません。`
+        + `英数字だけの名前のフォルダに置き直して、詳細設定のパスを貼り直してください。今のパス: ${value}`;
+    }
+  }
+  return { cwd, args: out, problem };
 }
 
 // ---------------------------------------------------------------- ポートの衝突（#28/#31）
@@ -730,6 +771,7 @@ module.exports = {
   makeSummaryRunner, tickStep,
   pasterScript, copyCommand, restoreAfterPaste, parsePasterLine,
   engineFileIssue, engineIssueMessage, engineInAppDir, engineDirWarning, portInUseError,
+  isAscii, engineSpawnPlan,
   ENGINE_SETTING_KEYS, guardEngineSettings, keptDifferent, closeConfirm,
   extractNotes, truncationMessage, buildPromptParts,
   publicSegments, settledSegments, pendingDurationMs, recoverSegments, staleSegbufDirs,
