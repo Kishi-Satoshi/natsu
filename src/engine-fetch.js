@@ -10,6 +10,8 @@
  *  - isTransient        待てば直るもの（取り込みの係は止めずに待つ。RF14）
  *  - askIt              情報システムの担当に渡すもの（画面は［担当に渡す内容を写す］を出す）
  *  - fetchErrorMessage  利用者向けの文（最後の文は、することを1つ書いた文で終わる）
+ *  - fetchFile          1つのファイルを、続きから（HTTP の Range）、転送を手で追い、記録を残して取り、
+ *                       中身を SHA-256 で照らして置く（第0b回 R7、RF6、RF9）
  *
  * 決まり:
  *  - Electron のモジュールは読み込まない。通信は呼ぶ側から request（本番は net.request）を
@@ -21,6 +23,11 @@
  */
 'use strict';
 
+const fs = require('fs');
+const path = require('path');
+const crypto = require('crypto');
+
+const fsp = fs.promises;
 const first = (v) => (Array.isArray(v) ? v[0] : v);
 
 /** 見出しの値。名前は大文字小文字を問わない。値が配列（Electron の 'redirect' の見出し）なら先頭。 */
@@ -174,4 +181,266 @@ function fetchErrorMessage(code, extra = {}) {
   return `取り込みに失敗しました（${code}）。［もう一度］を押してください。`;
 }
 
-module.exports = { hget, parseContentRange, backoffMs, classifyNetError, decide, isTransient, askIt, fetchErrorMessage };
+// ---------------------------------------------------------------- fetchFile
+
+/** code 付きの失敗。retry は「待って続きから試す」もの（ほかはすぐやめる）。 */
+const failure = (code, extra) => Object.assign(new Error(`取り込み: ${code}`), { code }, extra);
+
+// 通信の失敗のうち、待っても直らないもの（すぐやめる）
+const NET_STOP = new Set(['cert', 'proxy-auth', 'proxy', 'space']);
+const netFailure = (e) => {
+  const code = classifyNetError(e);
+  return failure(code, { cause: e, retry: !NET_STOP.has(code) });
+};
+
+function defaultUserAgent() {
+  try { return `NaTsu/${require('../package.json').version}`; } catch (_) { return 'NaTsu'; }
+}
+
+async function openPartDefault(file) {
+  return fsp.open(file, fs.existsSync(file) ? 'r+' : 'w+');
+}
+
+/** file の頭から n バイト（省けば全部）を、流して読んで hash に足す */
+function hashFile(file, hash, n) {
+  if (n === 0) return Promise.resolve(hash);
+  return new Promise((resolve, reject) => {
+    const rs = fs.createReadStream(file, n == null ? {} : { start: 0, end: n - 1 });
+    rs.on('data', (c) => hash.update(c));
+    rs.on('end', () => resolve(hash));
+    rs.on('error', reject);
+  });
+}
+
+async function readRecord(file) {
+  try { return JSON.parse(await fsp.readFile(file, 'utf8')); } catch (_) { return null; }
+}
+async function rmQuiet(file) {
+  try { await fsp.unlink(file); } catch (_) { /* 無ければよい */ }
+}
+
+/**
+ * 1回の要求を出し、応答の見出しが来るまで待つ → { req, res }。
+ * 転送は手で追う（redirect: 'manual'。その場で followRedirect() を呼ぶ）。
+ * プロキシの login は取り消して proxy-auth で終わる（その後に来る error より優先）。
+ */
+function openOnce(url, headers, c) {
+  return new Promise((resolve, reject) => {
+    // credentials は渡さない（プロキシの認証の情報は送り、クッキーは送らない）
+    const req = c.request({ method: 'GET', url, redirect: 'manual', cache: 'no-store' });
+    let settled = false; let hops = 0; let proxyAuth = false;
+    const onAbort = () => finish(failure('cancelled'));
+    function finish(err, val) {
+      if (settled) return;
+      settled = true;
+      if (c.signal) c.signal.removeEventListener('abort', onAbort);
+      if (err) {
+        try { req.abort(); } catch (_) { /* もう終わっている */ }
+        reject(err);
+      } else resolve(val);
+    }
+    req.on('redirect', (status, method, newUrl, h) => {
+      if (settled) return;
+      hops += 1;
+      if (hops > c.maxHops) { finish(failure('too-many-redirects')); return; }
+      if (c.requireHttps && !/^https:/i.test(String(newUrl))) { finish(failure('insecure-redirect')); return; }
+      // HF は最初の転送に、ファイルの SHA-256 と大きさを付ける。ピンと違えば本体を取る前に止める
+      const etag = hget(h, 'x-linked-etag');
+      const size = hget(h, 'x-linked-size');
+      if (etag != null && String(etag).replace(/"/g, '').trim().toLowerCase() !== c.sha256) { finish(failure('pinned-mismatch')); return; }
+      if (size != null && Number(String(size).trim()) !== c.size) { finish(failure('pinned-mismatch')); return; }
+      req.followRedirect();
+    });
+    req.on('login', (info, cb) => {
+      // 取り込み元そのものの認証（isProxy が偽）は、取り消して応答（401）を decide に回す
+      if (info && info.isProxy === false) { try { cb(); } catch (_) { /* 終わっている */ } return; }
+      proxyAuth = true;
+      try { cb(); } catch (_) { /* 終わっている */ }   // 何も渡さない = 取り消す（NaTsu からは入力できない）
+      finish(failure('proxy-auth'));
+    });
+    req.on('response', (res) => {
+      // 本体の途中の失敗は、読む側（for await）で受ける。受け手が付く前に出ても落ちないように
+      if (res && typeof res.on === 'function') res.on('error', () => {});
+      if (settled) { try { req.abort(); } catch (_) { /* 終わっている */ } return; }
+      finish(null, { req, res });
+    });
+    // 受け手はずっと付けておく（後から来る error で落ちない）
+    req.on('error', (e) => { if (!settled) finish(proxyAuth ? failure('proxy-auth') : netFailure(e)); });
+    if (c.signal) {
+      if (c.signal.aborted) { finish(failure('cancelled')); return; }
+      c.signal.addEventListener('abort', onAbort, { once: true });
+    }
+    for (const [k, v] of Object.entries(headers)) req.setHeader(k, v);
+    req.end();
+  });
+}
+
+/**
+ * 1つのファイルを取る → { file, reused }。失敗は Error（code 付き）で投げる。
+ *  pin:  { url, size, sha256 }
+ *  opts: { dir, dest, request, sleep, onProgress, signal, log, now, openPart, requireHttps, maxFails, maxHops,
+ *          syncEvery, progressMs, rename, userAgent }
+ *    dir は .download のフォルダ（<sha256>.part と記録 <sha256>.json を置く）、dest は置く先の本当のパス。
+ *    request は Electron の net.request と同じ形（本番は (o) => net.request(o)）。
+ *    openPart(file) は .part を開く口（テストで書き込みの失敗を起こすために差し替える）。
+ *    log(line) は試しごとに1行。onProgress({ done, total }) は progressMs に1回まで（now() で測る。最後は必ず）。
+ *    続けての失敗が maxFails を超えたら、.part を残して最後の失敗のコードでやめる（バイトが届いたら数え直す）。
+ *
+ * 手0: dest が有り、大きさがピンと同じで SHA-256 も合えば、要求を出さずに使う（installed.json が消えても
+ *      数 GB を取り直さない）。
+ * 試しのたびにピンの URL から始める（前の試しの署名付きの CDN の URL は切れている。RF6）。
+ * 記録の synced は、fh.sync() を済ませた長さ。始める前に .part をそこまで切り捨てる（電源断の末尾。RF9）。
+ * 取り消し・失敗で返る前にも、確定して今の長さを記録に書く（次はその長さから続く）。
+ * 大きさがピンに達したら SHA-256 を照らし、違えば（ピンより大きい .part も）Range なしで1回だけ全部
+ * 取り直す。それでも違えば hash（.part も記録も残さない）。
+ */
+async function fetchFile(pin, opts = {}) {
+  const {
+    dir, dest, request, sleep = (ms) => new Promise((r) => setTimeout(r, ms)), onProgress = () => {}, signal = null,
+    log = () => {}, now = Date.now, openPart = openPartDefault, requireHttps = true,
+    maxFails = 6, maxHops = 10, syncEvery = 32 << 20, progressMs = 250, rename = fsp.rename, userAgent = defaultUserAgent(),
+  } = opts;
+  if (typeof request !== 'function') throw new TypeError('fetchFile: request が要る');
+  const size = pin.size;
+  const sha256 = String(pin.sha256).toLowerCase();
+  const aborted = () => Boolean(signal && signal.aborted);
+  if (aborted()) throw failure('cancelled');
+
+  // 手0: 置く先にもう正しいファイルがある
+  try {
+    const st = await fsp.stat(dest);
+    if (st.isFile() && st.size === size
+      && (await hashFile(dest, crypto.createHash('sha256'))).digest('hex') === sha256) return { file: dest, reused: true };
+  } catch (_) { /* 無い・読めない → 普通に取る */ }
+
+  await fsp.mkdir(dir, { recursive: true });
+  const part = path.join(dir, `${sha256}.part`);
+  const side = path.join(dir, `${sha256}.json`);
+  const name = path.basename(dest);
+
+  // 記録がピンと同じときだけ .part を続きに使い、synced まで切り捨てる。記録が無い・違う .part は捨てる
+  const rec = await readRecord(side);
+  const same = rec && rec.url === pin.url && rec.size === size && String(rec.sha256).toLowerCase() === sha256
+    && Number.isSafeInteger(rec.synced) && rec.synced >= 0;
+  if (!same) await rmQuiet(part);
+  let held = 0;
+  if (same) {
+    try { held = Math.min((await fsp.stat(part)).size, rec.synced); } catch (_) { held = 0; }
+  }
+  let fullRetryUsed = false;
+  if (held > size) { held = 0; fullRetryUsed = true; }   // ピンより大きい .part は SHA-256 の違いと同じ扱い
+
+  const fh = await openPart(part);
+  let synced = -1;
+  let discard = false;
+  const writeRecord = async (n) => {
+    const tmp = `${side}.tmp`;
+    await fsp.writeFile(tmp, JSON.stringify({ url: pin.url, size, sha256, synced: n }));
+    await fsp.rename(tmp, side);   // opts.rename は置く先の名前の変更だけに使う
+  };
+  const commit = async () => { await fh.sync(); await writeRecord(held); synced = held; };
+  let hash;
+  const reset = async () => { await fh.truncate(0); held = 0; hash = crypto.createHash('sha256'); await commit(); };
+
+  let lastProgress = -Infinity;
+  const progress = (force) => {
+    const t = now();
+    if (!force && t - lastProgress < progressMs) return;
+    lastProgress = t;
+    onProgress({ done: held, total: size });
+  };
+
+  // 取り消されたら、今の要求を止める（待っている sleep も切り上げる）
+  let current = null;
+  let wake = () => {};
+  const onAbort = () => { if (current) { try { current.abort(); } catch (_) { /* 終わっている */ } } wake(); };
+  if (signal) signal.addEventListener('abort', onAbort, { once: true });
+  const pause = (ms) => new Promise((resolve) => { wake = resolve; Promise.resolve(sleep(ms)).then(resolve, resolve); });
+
+  // 中身が違う（かピンより大きい）: 1回だけ Range なしで全部取り直す。それでも違えば hash で、何も残さない
+  const mismatch = async () => {
+    if (fullRetryUsed) { discard = true; throw failure('hash'); }
+    fullRetryUsed = true;
+    await reset();
+  };
+
+  try {
+    if (fullRetryUsed) await reset();
+    else {
+      await fh.truncate(held);
+      hash = await hashFile(part, crypto.createHash('sha256'), held);
+      await commit();
+    }
+    let fails = 0;
+    for (;;) {
+      if (aborted()) throw failure('cancelled');
+      if (held === size) {
+        if (hash.digest('hex') === sha256) break;
+        await mismatch();
+        continue;
+      }
+      log(`取り込み: ${name} ${held}/${size} から続ける`);
+      const headers = { 'Accept-Encoding': 'identity', 'User-Agent': userAgent };
+      if (held > 0) headers.Range = `bytes=${held}-`;   // If-Range は送らない（署名付きの CDN は無視する）
+      let got = false;
+      try {
+        const { req, res } = await openOnce(pin.url, headers, { request, signal, requireHttps, maxHops, sha256, size });
+        current = req;
+        const d = decide(res.statusCode, res.headers, held, pin);
+        if (d.act !== 'write') {
+          try { req.abort(); } catch (_) { /* 終わっている */ }
+          if (d.act === 'fail') throw failure(d.code);
+          if (d.act === 'restart') await reset();
+          throw failure(d.code, { retry: true, retryAfter: d.act === 'retry' ? d.retryAfter : null });
+        }
+        if (d.from === 0 && held > 0) await reset();   // Range を無視された（200）: 0 から書き直す
+        let over = false;
+        try {
+          for await (const chunk of res) {
+            if (aborted()) break;
+            if (held + chunk.length > size) { over = true; break; }   // ピンを超えた（圧縮された 200 など）
+            await fh.write(chunk, 0, chunk.length, held);
+            hash.update(chunk);
+            held += chunk.length;
+            got = true;
+            if (held - synced >= syncEvery) await commit();
+            progress(false);
+          }
+        } catch (e) {
+          if (aborted()) throw failure('cancelled');
+          throw netFailure(e);
+        }
+        if (aborted()) throw failure('cancelled');
+        if (over) {
+          try { req.abort(); } catch (_) { /* 終わっている */ }
+          await mismatch();
+          continue;
+        }
+        if (held < size) throw failure('short', { retry: true });
+      } catch (e) {
+        current = null;
+        if (aborted()) throw failure('cancelled');
+        if (!e.retry) throw e;
+        fails = got ? 1 : fails + 1;                     // バイトが届いたら数え直す
+        if (fails > maxFails) throw failure(e.code, { cause: e.cause || e });
+        await pause(backoffMs(fails, e.retryAfter));
+      }
+      current = null;
+    }
+    progress(true);
+  } finally {
+    if (signal) signal.removeEventListener('abort', onAbort);
+    // 返る前に書き込みを確定し、その長さを記録する（取り消し・失敗でも、次はそこから続く）
+    if (!discard && synced !== held) {
+      try { await commit(); } catch (_) { /* 記録は前の長さのまま */ }
+    }
+    try { await fh.close(); } catch (_) { /* 閉じている */ }
+    if (discard) { await rmQuiet(part); await rmQuiet(side); }
+  }
+  await fsp.mkdir(path.dirname(dest), { recursive: true });
+  await rename(part, dest);
+  await rmQuiet(side);
+  return { file: dest, reused: false };
+}
+
+module.exports = { hget, parseContentRange, backoffMs, classifyNetError, decide, isTransient, askIt, fetchErrorMessage, fetchFile };

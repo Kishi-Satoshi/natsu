@@ -4,11 +4,19 @@
  * その1（Task 4）: 通信の応答をどう扱うか（decide）、通信の失敗の分け方（classifyNetError）、
  * 待つ時間（backoffMs）、待てば直るもの・担当に渡すもの、利用者向けの文を、通信なしの
  * 表で固定する（第0b回 R7、RF2、RF10、RF14）。
+ *
+ * その2（Task 5）: fetchFile の本体。127.0.0.1 の偽の取得元と CDN（test/helpers/range-server.js）へ、
+ * Electron の net.request と同じ振る舞いの偽物（test/helpers/fake-net.js）で取りに行き、続きから・
+ * 転送・記録・SHA-256 の照らしを確かめる（第0b回 R7、RF6、RF9）。一時フォルダの名前には日本語と 𠮷。
  */
 'use strict';
 
 const test = require('node:test');
 const assert = require('node:assert');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+const crypto = require('node:crypto');
 
 const F = require('../src/engine-fetch');
 test('Content-Range を読む', () => {
@@ -82,4 +90,133 @@ test('利用者向けの文: どれも「することを1つ」で終わり、SH
   assert.match(F.fetchErrorMessage('http-403'), /止められた可能性/);
   assert.match(F.fetchErrorMessage('proxy'), /huggingface\.co/);
   assert.match(F.fetchErrorMessage('what'), /what/);
+});
+
+const { fetchFile } = require('../src/engine-fetch');
+const { fakeRequest } = require('./helpers/fake-net');
+const { startServers } = require('./helpers/range-server');
+const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), 'natsu-取込𠮷-'));
+const body = crypto.randomBytes(300000);
+const SHA = crypto.createHash('sha256').update(body).digest('hex');
+const pinOf = (url) => ({ url, size: body.length, sha256: SHA });
+const opts = (dir, o = {}) => ({ dir, dest: path.join(dir, '置き場所', 'm.bin'), request: fakeRequest, sleep: async () => {},
+  requireHttps: false, headerTimeoutMs: 2000, stallMs: 300, ...o });
+const leftovers = (dir) => fs.readdirSync(dir).filter((f) => /\.(part|json)$/.test(f));
+const side = (dir, o) => fs.writeFileSync(path.join(dir, `${SHA}.json`), JSON.stringify({ url: o.url, size: body.length, sha256: SHA, synced: o.synced }));
+test('途中で切れたら、次は Range: bytes=N- で続きから取り、中身は元と同じ。試しごとに1行の記録', async () => {
+  const s = await startServers({ body, script: [{ cutAfter: 120000 }] });
+  try {
+    const dir = tmp(); const lines = [];
+    const r = await fetchFile(pinOf(s.originUrl), opts(dir, { log: (l) => lines.push(l) }));
+    assert.ok(fs.readFileSync(r.file).equals(body));
+    assert.deepStrictEqual(s.cdnRanges(), [null, 'bytes=120000-']);
+    assert.deepStrictEqual(lines, ['取り込み: m.bin 0/300000 から続ける', '取り込み: m.bin 120000/300000 から続ける']);
+    assert.deepStrictEqual(leftovers(dir), [], '.part と記録が残っている');
+  } finally { await s.close(); }
+});
+test('試しのたびに固定の URL から始める（CDN の URL は使い回さない）。相対の 307 → 別のホストの 302 でも Range を保つ', async () => {
+  const s = await startServers({ body, hops: ['307-relative', '302-cdn'], signedOnce: true, script: [{ cutAfter: 100000 }] });
+  try {
+    await fetchFile(pinOf(s.originUrl), opts(tmp()));
+    assert.strictEqual(s.originHits(), 2);
+    assert.deepStrictEqual(s.cdnRanges(), [null, 'bytes=100000-']);
+    assert.ok(!s.requests().some((x) => x.name === 'cdn-expired'), '前の試しの署名付きの URL を使った');
+  } finally { await s.close(); }
+});
+test('転送の x-linked-etag がピンと違えば、CDN へ行く前に止める（pinned-mismatch）', async () => {
+  const s = await startServers({ body, linked: { size: body.length, sha256: 'b'.repeat(64) } });
+  try {
+    await assert.rejects(fetchFile(pinOf(s.originUrl), opts(tmp())), { code: 'pinned-mismatch' });
+    assert.deepStrictEqual(s.cdnRanges(), []);
+  } finally { await s.close(); }
+});
+test('http への転送は断る（insecure-redirect）。転送が 10 回を超えたら断る（too-many-redirects）', async () => {
+  const s = await startServers({ body });
+  try { await assert.rejects(fetchFile(pinOf(s.originUrl), opts(tmp(), { requireHttps: true })), { code: 'insecure-redirect' }); }
+  finally { await s.close(); }
+  const t = await startServers({ body, hops: [...Array(11).fill('307-relative'), '302-cdn'] });
+  try {
+    await assert.rejects(fetchFile(pinOf(t.originUrl), opts(tmp())), { code: 'too-many-redirects' });
+    assert.deepStrictEqual(t.cdnRanges(), []);
+  } finally { await t.close(); }
+});
+test('大きさは同じで 1 バイト違う: 1 回だけ Range なしで全部取り直し、それでも違えば hash。最後のファイルも .part も残さない', async () => {
+  const s = await startServers({ body, script: [{ flipByte: 5 }, { flipByte: 5 }] });
+  try {
+    const dir = tmp();
+    await assert.rejects(fetchFile(pinOf(s.originUrl), opts(dir)), { code: 'hash' });
+    assert.deepStrictEqual(s.cdnRanges(), [null, null]);
+    assert.ok(!fs.existsSync(path.join(dir, '置き場所', 'm.bin')));
+    assert.deepStrictEqual(fs.readdirSync(dir).filter((f) => /\.part$/.test(f)), []);
+  } finally { await s.close(); }
+});
+test('取り終えた .part は、要求を出さずに照らして使う', async () => {
+  const s = await startServers({ body });
+  try {
+    const dir = tmp();
+    fs.writeFileSync(path.join(dir, `${SHA}.part`), body); side(dir, { url: s.originUrl, synced: body.length });
+    const r = await fetchFile(pinOf(s.originUrl), opts(dir));
+    assert.strictEqual(s.requests().length, 0);
+    assert.ok(fs.readFileSync(r.file).equals(body));
+    assert.deepStrictEqual(leftovers(dir), []);
+  } finally { await s.close(); }
+});
+test('置く先にもう正しいファイルがあれば（installed.json が消えても）、要求を出さずに使う', async () => {
+  const s = await startServers({ body });
+  try {
+    const dir = tmp(); const o = opts(dir);
+    fs.mkdirSync(path.dirname(o.dest), { recursive: true }); fs.writeFileSync(o.dest, body);
+    const r = await fetchFile(pinOf(s.originUrl), o);
+    assert.deepStrictEqual([r.reused, s.requests().length], [true, 0]);
+  } finally { await s.close(); }
+});
+test('取り消すと、書き込みを確定して .part と記録が残り、新しく呼ぶと記録の長さから Range で続ける', async () => {
+  const s = await startServers({ body, script: [{ stallAfter: 100000 }] });   // 10 万バイト送って黙る
+  try {
+    const dir = tmp(); const ac = new AbortController();
+    let t = 0; const now = () => (t += 1000);                    // 毎回 250ms 以上進む時計（進み具合を毎回出す）
+    await assert.rejects(fetchFile(pinOf(s.originUrl), opts(dir, { signal: ac.signal, now,
+      onProgress: (p) => { if (p.done > 0) ac.abort(); } })), { code: 'cancelled' });
+    const held = JSON.parse(fs.readFileSync(path.join(dir, `${SHA}.json`), 'utf8')).synced;
+    assert.ok(held > 0 && held <= 100000, String(held));
+    assert.strictEqual(fs.statSync(path.join(dir, `${SHA}.part`)).size, held);
+    await fetchFile(pinOf(s.originUrl), opts(dir));
+    assert.deepStrictEqual(s.cdnRanges().slice(-1), [`bytes=${held}-`]);
+  } finally { await s.close(); }
+});
+test('電源が切れたときの末尾（記録の synced より後ろ）は、先に切り捨ててから続ける', async () => {
+  const s = await startServers({ body });
+  try {
+    const dir = tmp();
+    fs.writeFileSync(path.join(dir, `${SHA}.part`), Buffer.concat([body.subarray(0, 100000), Buffer.alloc(50000)]));
+    side(dir, { url: s.originUrl, synced: 100000 });
+    const r = await fetchFile(pinOf(s.originUrl), opts(dir));
+    assert.deepStrictEqual(s.cdnRanges(), ['bytes=100000-']);
+    assert.ok(fs.readFileSync(r.file).equals(body));
+  } finally { await s.close(); }
+});
+test('古いピンの .part（記録の url が違う）は捨てて 0 から', async () => {
+  const s = await startServers({ body });
+  try {
+    const dir = tmp();
+    fs.writeFileSync(path.join(dir, `${SHA}.part`), body.subarray(0, 100000)); side(dir, { url: 'https://example.invalid/old', synced: 100000 });
+    await fetchFile(pinOf(s.originUrl), opts(dir));
+    assert.deepStrictEqual(s.cdnRanges(), [null]);
+  } finally { await s.close(); }
+});
+test('ピンより大きい .part は、SHA-256 の違いと同じ扱い（捨てて全部取り直す。その 1 回を使う）', async () => {
+  const s = await startServers({ body });
+  try {
+    const dir = tmp();
+    fs.writeFileSync(path.join(dir, `${SHA}.part`), Buffer.concat([body, Buffer.from('x')])); side(dir, { url: s.originUrl, synced: body.length + 1 });
+    await fetchFile(pinOf(s.originUrl), opts(dir));
+    assert.deepStrictEqual(s.cdnRanges(), [null]);
+  } finally { await s.close(); }
+  const t = await startServers({ body, script: [{ flipByte: 5 }] });
+  try {
+    const dir = tmp();
+    fs.writeFileSync(path.join(dir, `${SHA}.part`), Buffer.concat([body, Buffer.from('x')])); side(dir, { url: t.originUrl, synced: body.length + 1 });
+    await assert.rejects(fetchFile(pinOf(t.originUrl), opts(dir)), { code: 'hash' });
+    assert.deepStrictEqual(t.cdnRanges(), [null], '取り直しを 2 回使った');
+  } finally { await t.close(); }
 });
