@@ -231,6 +231,42 @@ test('ピンより大きい .part は、SHA-256 の違いと同じ扱い（捨�
     assert.deepStrictEqual(t.cdnRanges(), [null], '取り直しを 2 回使った');
   } finally { await t.close(); }
 });
+test('転送の x-linked-size がピンと違っても（x-linked-etag は同じ）、CDN へ行く前に止める（pinned-mismatch）', async () => {
+  const s = await startServers({ body, linked: { size: body.length + 1, sha256: SHA } });
+  try {
+    await assert.rejects(fetchFile(pinOf(s.originUrl), opts(tmp())), { code: 'pinned-mismatch' });
+    assert.deepStrictEqual(s.cdnRanges(), []);
+  } finally { await s.close(); }
+});
+test('転送はちょうど 10 回までなら追い、11 回目で断る（too-many-redirects）', async () => {
+  const s = await startServers({ body, hops: [...Array(9).fill('307-relative'), '302-cdn'] });
+  try {
+    const r = await fetchFile(pinOf(s.originUrl), opts(tmp()));
+    assert.ok(fs.readFileSync(r.file).equals(body));
+  } finally { await s.close(); }
+  const t = await startServers({ body, hops: [...Array(10).fill('307-relative'), '302-cdn'] });
+  try {
+    await assert.rejects(fetchFile(pinOf(t.originUrl), opts(tmp())), { code: 'too-many-redirects' });
+    assert.deepStrictEqual(t.cdnRanges(), []);
+  } finally { await t.close(); }
+});
+test('取り込み元そのものの認証（login の isProxy が偽）は取り消して 401 を待って試し直し、http-401 で終わる（proxy-auth にしない）', async () => {
+  const s = await startServers({ body, script: [{ status: 401 }, { status: 401 }, { status: 401 }] });
+  const reqs = [];
+  // 本物の Electron では、login の callback を呼んだ後の応答（401）は後から届く（Chromium の network service を
+  // 経由するため）。fake-net は callback の中で応答をその場で渡すので、ここで本物と同じく後に回す
+  const later = (o) => {
+    const r = fakeRequest(o); reqs.push(r);
+    const emit = r.emit.bind(r);
+    r.emit = (ev, ...a) => (ev === 'login' ? emit(ev, a[0], (...x) => setImmediate(() => a[1](...x))) : emit(ev, ...a));
+    return r;
+  };
+  try {
+    await assert.rejects(fetchFile(pinOf(s.originUrl), opts(tmp(), { maxFails: 2, request: later })), { code: 'http-401' });
+    assert.strictEqual(s.cdnRanges().length, 3);
+    assert.deepStrictEqual(reqs[reqs.length - 1].loginArgs, [], 'login の callback に何かを渡した');
+  } finally { await s.close(); }
+});
 
 const { makeFakeRequest } = require('./helpers/fake-net');
 test('正常に終わったのに短い: 本当の長さから続ける。いつも 0 バイトなら maxFails を超えて short（永久に回らない）', { timeout: 5000 }, async () => {
