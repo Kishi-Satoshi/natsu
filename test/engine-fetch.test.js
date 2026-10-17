@@ -73,6 +73,12 @@ test('408・429 の HTML は止めの頁にしない（github.com の回数の�
   assert.deepStrictEqual(F.decide(416, { 'content-type': 'text/html' }, 500, pin), { act: 'restart', code: 'range-416' });
   assert.deepStrictEqual(F.decide(401, { 'content-type': 'text/html' }, 0, pin), { act: 'fail', code: 'blocked' });
 });
+test('Content-Range が読めない 206（bad-range）は待てば直るもの。文は通信の途切れと同じ（RF14）', () => {
+  assert.deepStrictEqual(F.decide(206, { 'content-range': 'bytes 5-x/1000' }, 0, { size: 1000, sha256: 'a'.repeat(64) }),
+    { act: 'retry', code: 'bad-range', retryAfter: null });
+  assert.ok(F.isTransient('bad-range'), 'bad-range で止めると、壊れた Content-Range の 1 回で取り込みが止まる');
+  assert.strictEqual(F.fetchErrorMessage('bad-range'), F.fetchErrorMessage('net'));
+});
 test('待てば直るもの（isTransient）と、担当に渡すもの（askIt）', () => {
   for (const c of ['offline', 'net', 'short', 'stall', 'header-timeout', 'http-408', 'http-429', 'http-503']) assert.ok(F.isTransient(c), c);
   for (const c of ['proxy', 'proxy-auth', 'cert', 'blocked', 'hash', 'space', 'gone', 'http-403', 'locked']) assert.ok(!F.isTransient(c), c);
