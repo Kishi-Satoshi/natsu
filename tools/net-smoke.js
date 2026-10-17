@@ -16,7 +16,7 @@
  *   7. 本番の fetchFile に net.request を渡して、途中で切れる cdn から続きを取り、SHA-256 が合う
  *   8. cdn が gzip の 200 を返すと、本体は伸ばされて届き、見出しの content-encoding と content-length
  *      （圧縮した長さ）は元のまま（fake-net と engine-fetch の decide の前提）
- * 結果は 1 行ずつ OK／NG で出す。全部 OK なら終了コード 0、1 つでも NG なら 1。どこかで止まっても、
+ * 結果は 1 行ずつ OK／NG で出す。全部 OK なら終了コード 0、1 つでも NG（か数が足りない）なら 1（exitCodeOf）。どこかで止まっても、
  * 120 秒の見張りで 1 で終わる（ジョブの 15 分を待たない）。
  *
  * 確かめの本体（runChecks）は、通信の口（request）を引数でもらう。テスト（test/ci.test.js）は、
@@ -261,6 +261,23 @@ async function runChecks({ request, log = (l) => console.log(l), checkMs = 12000
   return out;
 }
 
+/**
+ * 終了コード: 8 つとも OK のときだけ 0。NG がある・数が足りない（途中で止まった）ときは 1。
+ * electron-net のジョブを赤にするのはこの値だけなので、テスト（test/ci.test.js）で押さえる。
+ */
+function exitCodeOf(results) {
+  return Array.isArray(results) && results.length === CHECKS.length && results.every((r) => Boolean(r && r.ok)) ? 0 : 1;
+}
+
+/** 結果の行を出し、出力を流し切ってから、exitCodeOf の値で Electron を終える */
+function finish(app, results, { log = (l) => console.log(l), flush = (cb) => process.stdout.write('', cb) } = {}) {
+  const code = exitCodeOf(results);
+  const list = Array.isArray(results) ? results : [];
+  const bad = Math.max(1, CHECKS.length - list.filter((r) => r && r.ok).length);
+  log(code === 0 ? `結果: ${list.length} 件とも OK` : `結果: NG ${bad} 件（計画の Task 9 の「NG のとき」に従って直す）`);
+  flush(() => { if (code === 0) app.exit(0); else app.exit(1); });
+}
+
 // ---------------------------------------------------------------- Electron の main として動いたとき
 
 function boot() {
@@ -280,11 +297,7 @@ function boot() {
   app.disableHardwareAcceleration();
   app.whenReady().then(async () => {
     console.log(`Electron ${process.versions.electron}（Chromium ${process.versions.chrome}、Node ${process.versions.node}、${process.platform}）`);
-    const results = await runChecks({ request: (o) => net.request(o) });
-    const bad = results.filter((r) => !r.ok).length;
-    console.log(bad ? `結果: NG ${bad} 件（計画の Task 9 の「NG のとき」に従って直す）` : `結果: ${results.length} 件とも OK`);
-    // 出力を流し切ってから終わる
-    process.stdout.write('', () => { if (bad === 0) app.exit(0); else app.exit(1); });
+    finish(app, await runChecks({ request: (o) => net.request(o) }));
   }, die('起動の失敗'));
 }
 
@@ -294,4 +307,4 @@ else if (require.main === module) {
   process.exitCode = 2;
 }
 
-module.exports = { runChecks, CHECKS };
+module.exports = { runChecks, CHECKS, exitCodeOf, finish };

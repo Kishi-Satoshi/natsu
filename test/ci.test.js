@@ -137,3 +137,24 @@ test('net-smoke.js: Range と Accept-Encoding を送らない net.request では
   assert.deepStrictEqual(r.filter((x) => !x.ok).map((x) => x.n), [3, 6, 7], lines.join('\n'));
   assert.deepStrictEqual(lines.filter((l) => /^NG /.test(l)).map((l) => l.slice(0, 4)), ['NG 3', 'NG 6', 'NG 7']);
 });
+
+// electron-net のジョブを赤にするのは net-smoke.js の終了コードだけ。boot() は Electron が無いと動かないので、
+// 決め方（exitCodeOf）と終わり方（finish）を取り出して、ここで押さえる（NG の行を出しても緑のまま、を防ぐ。RF2）
+test('net-smoke.js: 終了コードは 8 つとも OK のときだけ 0（NG が 1 つ・空・数が足りないは 1）。出力を流し切ってからその値で終える', () => {
+  const { exitCodeOf, finish, CHECKS } = require('../tools/net-smoke');
+  const all = CHECKS.map(([n]) => ({ n, ok: true, line: `OK ${n}` }));
+  const oneNg = all.map((r) => (r.n === 4 ? { ...r, ok: false, line: 'NG 4' } : r));
+  assert.strictEqual(exitCodeOf(all), 0);
+  assert.strictEqual(exitCodeOf(oneNg), 1);
+  assert.strictEqual(exitCodeOf([]), 1);
+  assert.strictEqual(exitCodeOf(all.slice(0, 7)), 1);
+  const codes = []; const lines = []; let flushed = 0;
+  const app = { exit: (c) => codes.push(c) };
+  const io = { log: (l) => lines.push(l), flush: (cb) => { flushed += 1; cb(); } };
+  for (const r of [all, oneNg, all.slice(0, 7), []]) finish(app, r, io);
+  assert.deepStrictEqual(codes, [0, 1, 1, 1]);
+  assert.strictEqual(flushed, 4);
+  assert.match(lines[0], /8 件とも OK/);
+  assert.match(lines[1], /NG 1 件/);
+  assert.match(read('tools/net-smoke.js'), /finish\(app, await runChecks\(/, 'boot() が結果を finish に渡していない');
+});
