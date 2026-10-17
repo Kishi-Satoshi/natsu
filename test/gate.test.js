@@ -123,6 +123,15 @@ test('RF2: 新しい src の .js がある範囲をゲートにかけても、gi
   assert.ok(!/fatal:/.test(r.stderr), `git の fatal の行が出た:\n${r.stderr}`);
 });
 
+test('新しい .ps1 を足した範囲をゲートにかけても、git の fatal の行を出さない（基準の版に無い .ps1 を読みに行かない）', { skip: !hasGit && 'git が無い' }, () => {
+  const h = cp.execFileSync('git', ['log', '--diff-filter=A', '--format=%h', '-1', '--', ':(glob)**/*.ps1'], { cwd: ROOT }).toString().trim();
+  assert.ok(h, '.ps1 を足した commit が見つからない');
+  // 足す前の版どうしを比べる。今の索引にある .ps1 は、どちらの版にも無い
+  const r = cp.spawnSync(process.execPath, ['tools/risk.js', '--base', h + '^', '--head', h + '^'], { cwd: ROOT, encoding: 'utf8' });
+  assert.match(r.stdout, /結果: BLOCK 0 件/, r.stdout + r.stderr);
+  assert.ok(!/fatal:/.test(r.stderr), `git の fatal の行が出た:\n${r.stderr}`);
+});
+
 test('RF2: チェックリストに、ゲートが見る範囲（SCOPE.sees）が1行ずつ全部出る（main の外向きの通信を含む）', { skip: !hasGit && 'git が無い' }, () => {
   const R = require('../tools/risk');
   assert.ok(R.SCOPE.sees.includes('main プロセスの外向きの通信（グローバルの fetch）'));

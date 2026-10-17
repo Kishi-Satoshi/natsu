@@ -201,8 +201,8 @@ function checkPs1(rev) {
     let buf;
     try {
       buf = rev === null ? fs.readFileSync(path.join(ROOT, f))
-        : execFileSync('git', ['show', rev === 'INDEX' ? `:${f}` : `${rev}:${f}`], { cwd: ROOT, maxBuffer: 1 << 24 });
-    } catch { continue; }
+        : execFileSync('git', ['show', rev === 'INDEX' ? `:${f}` : `${rev}:${f}`], { cwd: ROOT, maxBuffer: 1 << 24, stdio: ['ignore', 'pipe', 'pipe'] });
+    } catch { continue; } // 基準の版に無い .ps1（後で足したもの）は読めないので見ない。git の fatal の行は画面に出さない
     if (!(buf[0] === 0xef && buf[1] === 0xbb && buf[2] === 0xbf))
       add('BLOCK', '配布-ps1', f, 'BOM が無い。PowerShell 5.1 が Shift-JIS と誤読して構文エラーになる', 'tools/write-ps1.js を通して書き出す');
   }
