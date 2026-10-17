@@ -48,6 +48,8 @@ const SHOWN_ROOT = '%LOCALAPPDATA%\\natsu\\engine';
 const APP_VERSION = (() => { try { return String(require('../package.json').version || ''); } catch (_) { return ''; } })();
 
 const isObj = (o) => Boolean(o) && typeof o === 'object' && !Array.isArray(o);
+// ウイルス対策や索引の係が掴んでいるときの名前の変更の失敗（待って試し直す）
+const RENAME_BUSY = new Set(['EPERM', 'EBUSY', 'EACCES']);
 
 /** `/` 区切りの相対パスを分ける。空・`.`・`..`・絶対・ドライブ・`\` を含むものは null（root の外を指させない）。 */
 function relParts(rel) {
@@ -119,7 +121,16 @@ function readInstalled(file) {
     active: { whisper: shas(act.whisper), sum: shas(act.sum) } };
 }
 
-/** installed.json を書く。一時ファイルに書いて確定してから名前を変える（途中で切れても前の記録が残る）。 */
+// installed.json の名前の変更を試し直す前の待ち（合わせて 0.3 秒まで。同期なので main を長く止めない）
+const INSTALLED_RENAME_WAITS = [20, 40, 80, 160];
+const sleepSync = (ms) => {
+  try { Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms); } catch (_) { /* 待てなければすぐ試す */ }
+};
+
+/**
+ * installed.json を書く。一時ファイルに書いて確定してから名前を変える（途中で切れても前の記録が残る）。
+ * 名前の変更が EPERM・EBUSY・EACCES なら少し待って試し直す（ウイルス対策が installed.json を開いているとき）。
+ */
 function writeInstalled(file, obj) {
   const data = `${JSON.stringify({ ...obj, schema: 1 }, null, 2)}\n`;
   fs.mkdirSync(path.dirname(file), { recursive: true });
@@ -127,7 +138,12 @@ function writeInstalled(file, obj) {
   try {
     const fd = fs.openSync(part, 'w');
     try { fs.writeFileSync(fd, data); fs.fsyncSync(fd); } finally { fs.closeSync(fd); }
-    fs.renameSync(part, file);
+    for (let n = 0; ; n++) {
+      try { fs.renameSync(part, file); break; } catch (e) {
+        if (!e || !RENAME_BUSY.has(e.code) || n >= INSTALLED_RENAME_WAITS.length) throw e;
+        sleepSync(INSTALLED_RENAME_WAITS[n]);
+      }
+    }
   } catch (e) {
     try { fs.rmSync(part, { force: true }); } catch (_) { /* 残っても次に上書きする */ }
     throw e;
@@ -204,11 +220,12 @@ function candidateOf(root, manifest, shas, recs, current) {
   const model = recs.find((r) => r.role === 'model');
   const vad = recs.find((r) => r.role === 'vad');
   if (!eng || !model) return null;
-  // exe の名前はピンの同じ id の項目から（版が変わっても同じ名前）。ピンから消えていれば、記録の中の唯一の .exe
+  // exe の名前はピンの同じ id の項目から。ピンから消えたか、新しいピンで exe の名前が変わって記録に無ければ、
+  // 記録の中の唯一の .exe（前の組を使い続ける。RF13）。どちらも無ければ組にしない
   const pin = manifest.items.find((i) => i.id === eng.id && i.kind === 'zip');
   const exes = eng.files.filter((f) => /\.exe$/i.test(f.name));
-  const exeName = pin ? pin.exe : (exes.length === 1 ? exes[0].name : null);
-  if (!exeName || !eng.files.some((f) => f.name === exeName)) return null;
+  const exeName = pin && eng.files.some((f) => f.name === pin.exe) ? pin.exe : (exes.length === 1 ? exes[0].name : null);
+  if (!exeName) return null;
   const at = (...rel) => path.join(root, ...rel.flatMap((r) => relParts(r)));
   const dir = at(eng.place);
   const c = { current, shas: shas.slice(), dir, exe: path.join(dir, ...relParts(exeName)), model: at(model.place) };
@@ -250,9 +267,7 @@ function managedCandidates(home, manifest, installed, statFn = fs.statSync) {
 
 /** code 付きの失敗（code は engine-fetch の fetchErrorMessage の文に合わせる: hash・locked）。 */
 const installError = (code, message, extra) => Object.assign(new Error(`取り込み: ${message}`), { code }, extra);
-// ウイルス対策が掴んでいるときの名前の変更の失敗（待って試し直す）
-const RENAME_BUSY = new Set(['EPERM', 'EBUSY', 'EACCES']);
-const RENAME_TRIES = 10;
+const RENAME_TRIES = 10;   // 名前の変更の試し（RENAME_BUSY のとき。待ちは 300ms から伸ばす）
 const sleepDefault = (ms) => new Promise((r) => setTimeout(r, ms));
 const sameSha = (a, b) => String(a).toLowerCase() === String(b).toLowerCase();
 const rmTreeQuiet = (p) => fs.promises.rm(p, { recursive: true, force: true }).catch(() => {});
@@ -484,6 +499,7 @@ function statusOf({ home, manifest, plan = null, candidates = null, runner = nul
 
   const items = manifest.items.map((it) => {
     const p = stepOf.get(it.id) || { state: 'missing', held: 0 };
+    // changed は残りに数える。照らし直して合えば取らずに済むが（Task 12b）、合わなければ全部取り直すので、少なく見せない
     const have = num(live[it.id]) != null ? live[it.id] : (Number(p.held) || 0);
     const done = p.state === 'ready' ? it.size : Math.max(0, Math.min(it.size, have));
     return { id: it.id, group: it.group, label: it.label, version: it.version, file: fileNameOf(it), url: it.url, host: hostOf(it.url),

@@ -139,6 +139,59 @@ test('statusOf: 手で設定している組は manual。その組の項目は取
   assert.deepStrictEqual(s.mode, { whisper: 'manual', sum: 'managed' });
   assert.strictEqual(s.needBytes, MANIFEST.items.filter((i) => i.group === 'sum').reduce((a, i) => a + i.size, 0));
 });
+test('installed.json: 名前の変更で失敗しても前の記録はそのまま', () => {
+  const d = tmp(); const f = path.join(d, 'installed.json');
+  I.writeInstalled(f, { ...I.readInstalled(f), consent: true });
+  const orig = fs.renameSync; fs.renameSync = () => { throw Object.assign(new Error('x'), { code: 'EPERM' }); };
+  try { assert.throws(() => I.writeInstalled(f, { ...I.readInstalled(f), consent: false })); } finally { fs.renameSync = orig; }
+  assert.strictEqual(I.readInstalled(f).consent, true);
+  assert.deepStrictEqual(fs.readdirSync(d), ['installed.json']);
+});
+test('installed.json: 名前の変更が EPERM・EBUSY なら少し待って試し直す（ウイルス対策が掴んでいるとき）。ほかの失敗はすぐ投げる', () => {
+  const d = tmp(); const f = path.join(d, 'installed.json'); const orig = fs.renameSync;
+  let n = 0;
+  fs.renameSync = (a, b) => { n++; if (n <= 2) throw Object.assign(new Error('x'), { code: n === 1 ? 'EPERM' : 'EBUSY' }); return orig(a, b); };
+  try { I.writeInstalled(f, { ...I.readInstalled(f), consent: true }); } finally { fs.renameSync = orig; }
+  assert.strictEqual(n, 3); assert.strictEqual(I.readInstalled(f).consent, true);
+  let m = 0;
+  fs.renameSync = () => { m++; throw Object.assign(new Error('x'), { code: 'EIO' }); };
+  try { assert.throws(() => I.writeInstalled(f, { ...I.readInstalled(f), consent: false }), { code: 'EIO' }); } finally { fs.renameSync = orig; }
+  assert.strictEqual(m, 1);
+  assert.strictEqual(I.readInstalled(f).consent, true);
+  assert.deepStrictEqual(fs.readdirSync(d), ['installed.json']);
+});
+test('managedCandidates: 新しいピンで exe の名前が変わっても、前の組は記録の中の exe で返す。記録に exe が無ければ組にしない（RF13）', async () => {
+  const s1 = await smallSet();
+  try {
+    const root = path.join(tmp(), 'engine'); const inst = await putByHand(root, s1); const home = { supported: true, root };
+    inst.active = { whisper: s1.manifest.items.slice(0, 3).map((i) => i.sha256), sum: s1.manifest.items.slice(3).map((i) => i.sha256) };
+    const m2 = { ...s1.manifest, items: s1.manifest.items.map((i) => (i.id === 'whisper-engine' ? { ...i, sha256: 'd'.repeat(64), dir: 'whisper-2.0.0', exe: 'whisper-srv.exe' } : i)) };
+    const c = I.managedCandidates(home, m2, inst, fs.statSync);
+    assert.ok(c.whisper, '前の組を返さない'); assert.strictEqual(c.whisper.current, false);
+    assert.strictEqual(c.whisper.exe, path.join(root, 'whisper-1.0.0', 'whisper-server.exe'));
+    assert.ok(c.sum && c.sum.current);
+    const rec = inst.items[s1.manifest.items[0].sha256];
+    rec.files = rec.files.filter((f) => !/\.exe$/i.test(f.name));
+    assert.strictEqual(I.managedCandidates(home, m2, inst, fs.statSync).whisper, null);
+  } finally { await s1.close(); }
+});
+test('statusOf: updateBytes は update の項目の残りだけ（.part で持っている分を引き、missing の項目は数えない）', async () => {
+  const s1 = await smallSet(); const s2 = await smallSet({ gen: 2 });
+  try {
+    const root = path.join(tmp(), 'engine'); const inst = await putByHand(root, s1); const home = { supported: true, root };
+    delete inst.items[s1.manifest.items[1].sha256];   // VAD の記録が無い → missing
+    const m = s2.manifest.items; const held = 1234;
+    fs.mkdirSync(path.join(root, '.download'), { recursive: true });
+    fs.writeFileSync(path.join(root, '.download', `${m[2].sha256}.part`), Buffer.alloc(held));
+    const plan = I.planInstall(s2.manifest, inst, fs.statSync, root);
+    assert.deepStrictEqual(plan.map((p) => [p.id, p.state, p.held]), [['whisper-engine', 'ready', 0], ['whisper-vad', 'missing', 0],
+      ['whisper-model', 'update', held], ['sum-engine', 'update', 0], ['sum-model', 'ready', 0]]);
+    const s = I.statusOf({ home, manifest: s2.manifest, plan, candidates: I.managedCandidates(home, s2.manifest, inst, fs.statSync),
+      manual: { whisper: false, sum: false }, installed: inst });
+    assert.strictEqual(s.updateBytes, m[2].size - held + m[3].size);
+    assert.strictEqual(s.needBytes, m[1].size + m[2].size - held + m[3].size);
+  } finally { await s1.close(); await s2.close(); }
+});
 
 // ---------------------------------------------------------------- その2（Task 12a）: zip の展開・記録・照らし
 test('zip: 決めたファイルだけを <dir>.tmp に出して照らし、名前を変えて置く。zip は消す。ほかのファイルは出さない', async () => {
