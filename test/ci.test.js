@@ -53,6 +53,40 @@ test('ci.yml: Windows では .ps1 を Windows PowerShell 5.1 で構文解析し�
   assert.match(bom, /^\s*if: runner\.os == 'Windows'$/m);
 });
 
+// ---------------------------------------------------------------- engine-smoke（第0b回 Task 8。RF1・RF10）
+// 本物の取得元に届くかと、日本語の名前のフォルダで本物のエンジンが起動するかは、Windows の CI でだけ見る。
+// ここでは、ジョブの形と tools/engine-smoke.js が確かめる中身を文字で固定する。
+test('ci.yml: Windows で、ピンの取得元に届くかを見て、日本語の名前のフォルダでエンジンを起動する（RF1・RF10）', () => {
+  const j = jobsOf(read('.github/workflows/ci.yml'))['engine-smoke'];
+  assert.ok(j, 'engine-smoke のジョブが無い');
+  assert.match(j, /^    runs-on: windows-latest$/m);
+  const st = stepsOf(j);
+  const iCrlf = st.findIndex((s) => s.includes('git config --global core.autocrlf false'));
+  assert.ok(iCrlf >= 0 && iCrlf < st.findIndex((s) => /uses: actions\/checkout@v4/.test(s)));
+  assert.ok(st.some((s) => /uses: actions\/cache@v4/.test(s) && s.includes("hashFiles('src/engine-manifest.js', 'tools/engine-smoke.js')")));
+  assert.ok(st.some((s) => s.includes('node tools/engine-smoke.js --pins')));
+  assert.ok(st.some((s) => s.includes('node tools/engine-smoke.js --start')));
+});
+test('engine-smoke.js: é・日本語・𠮷 のフォルダに置き、アプリと同じ engineSpawnPlan で起動し、絶対パスでは落ちることも見る', () => {
+  const s = read('tools/engine-smoke.js');
+  assert.ok(s.includes("'Jé 日本語ユーザー𠮷'"));
+  assert.ok(s.includes('engineSpawnPlan(') && s.includes('fetchFile(') && s.includes('listZip('));
+  assert.ok(s.includes("'--vad-model'") && s.includes('/inference'), 'VAD を読ませていない（VAD は最初の文字起こしで読む）');
+  assert.match(s, /負の確かめ/);
+  assert.ok(!/api\.github\.com/.test(s));
+});
+test('engine-smoke.js: 本物の CDN で、キャッシュがあっても毎回、取り消してから続きを取る。コードページはレジストリから読む', () => {
+  const s = read('tools/engine-smoke.js');
+  assert.ok(s.includes("resumeCheck('whisper-vad', 400 * 1024)"), 'HF の CDN で続きからを試していない');
+  assert.ok(s.includes("resumeCheck('whisper-engine', 1024 * 1024)"), 'GitHub の CDN で続きからを試していない');
+  // 計画の変異確認の「resumeCheck をキャッシュがあるとき飛ばす」を赤にする（文字があるだけでは、if で包んでも緑のまま）
+  const head = s.slice(s.indexOf('async function start()'), s.indexOf("resumeCheck('whisper-engine', 1024 * 1024)"));
+  assert.ok(head.includes("resumeCheck('whisper-vad', 400 * 1024)"), 'start の頭で続きからを試していない');
+  assert.ok(!/\bif\b|\?|&&|\|\||cache/i.test(head), 'キャッシュの有無などで、続きからの確かめを飛ばしうる');
+  assert.ok(s.includes('Control\\\\Nls\\\\CodePage') && s.includes("'ACP'") && s.includes("'OEMCP'"), 'ANSI のコードページを読んでいない');
+  assert.ok(!/\bchcp\b/.test(s), 'chcp は ANSI ではない');
+});
+
 // ---------------------------------------------------------------- release.yml（第0a回 G1-2）
 // タグは natsu-v<x.y.z>。古い v* では動かさない。リリースは ci（Linux と Windows）が緑のときだけ。
 const rel = () => read('.github/workflows/release.yml');

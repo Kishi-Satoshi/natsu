@@ -183,6 +183,43 @@ jobs:
           if ($bad -gt 0) { exit 1 }
           Write-Output "$($files.Count) .ps1 file(s): BOM and CRLF OK"
 
+  # 取り込むエンジンの本物を確かめる（第0b回 Task 8。RF1・RF10）。tools/engine-smoke.js の頭の注釈も見る。
+  #  - --pins:  ピンの全部の取得元に Range: bytes=0-0 で届き、206 の総量がピンの大きさと同じか。
+  #             Hugging Face は転送の x-linked-etag と x-repo-commit がピンと同じか（上流が資産を消していないか）。
+  #  - --start: é・日本語・𠮷 の名前のフォルダに、アプリと同じ道（fetchFile → zipread → engineSpawnPlan）で
+  #             エンジンを置いて起動し、VAD を読ませる。英数字以外の絶対パスでは落ちることも見る。
+  #             本物の CDN で、取り消してから続きを取れるか（206）も、キャッシュがあっても毎回見る。
+  # 要約のモデル（約 5GB）は落とさない。届くかと記録が合うかだけを見る。
+  # キャッシュは SHA-256 を照らしてから使う（合わなければ取り直す）。
+  engine-smoke:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      # checkout より前に止める（test のジョブと同じ理由）
+      - name: 改行の変換を止める
+        shell: bash
+        run: git config --global core.autocrlf false
+
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: 取り込んだものを覚えておく（SHA-256 で照らしてから使う）
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/engine-cache
+          key: engine-smoke-${{ hashFiles('src/engine-manifest.js', 'tools/engine-smoke.js') }}
+
+      - name: ピンの取得元に届くか（大きさと SHA-256 の記録）
+        shell: bash
+        run: node tools/engine-smoke.js --pins
+
+      - name: 日本語の名前のフォルダでエンジンを起動する（RF1）
+        shell: bash
+        run: node tools/engine-smoke.js --start
+
   # 本物の Electron 31 の net.request が、取り込み（src/engine-fetch.js の fetchFile）とテストの偽物
   # （test/helpers/fake-net.js）の前提どおりに動くかを、Windows で確かめる（第0b回 RF2）。
   # 127.0.0.1 の偽の取得元と CDN だけを使う（外へはつながない）。結果は 1 行ずつ OK／NG で出る。
