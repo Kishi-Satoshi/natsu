@@ -86,3 +86,68 @@ test('RF1・RF11: startEngine は engineSpawnPlan の引数と cwd で起動し�
   const chk = fnBody(m, 'function engineCheck(eng)', '\n}');
   assert.ok(chk.includes('if (plan.problem) return plan.problem;'));
 });
+
+// RF4・RF3: Visual C++ ランタイムの版を exe のフォルダ → System32 の順に読み、止めるのは取り込んだ組だけ。
+// 終了コード（0xC0000135 など）と spawn の失敗（EPERM・ENOENT など）を、何をすればよいかの文にする。
+const { peFileVersion, vcRuntimeVersions, vcRuntimeIssue, runtimeGate, engineExitHint, spawnErrorHint } = require('../src/mainlib');
+// >>> 0: 35211 << 16 は 32 ビットの符号付きでは負になり、writeUInt32LE が RangeError を投げる（計画の写しのままだと落ちる）
+const ver = (a, b, c, d) => { const x = Buffer.alloc(4096); x.writeUInt32LE(0xFEEF04BD, 1000); x.writeUInt32LE(0x00010000, 1004);
+  x.writeUInt32LE(((a << 16) | b) >>> 0, 1008); x.writeUInt32LE(((c << 16) | d) >>> 0, 1012); return x; };
+const DLLS = ['msvcp140.dll', 'vcruntime140.dll', 'vcruntime140_1.dll', 'vcomp140.dll'];
+test('PE の版（VS_FIXEDFILEINFO）を読む。無ければ空', () => {
+  assert.strictEqual(peFileVersion(ver(14, 44, 35211, 0)), '14.44.35211.0');
+  assert.strictEqual(peFileVersion(Buffer.alloc(100)), '');
+});
+test('RF4: DLL は exe のフォルダを先に、無ければ System32 を読む', () => {
+  const files = { 'D:\\e\\msvcp140.dll': ver(14, 51, 36247, 0), 'C:\\W\\S32\\msvcp140.dll': ver(14, 38, 33130, 0), 'C:\\W\\S32\\vcruntime140.dll': ver(14, 44, 35211, 0) };
+  const v = vcRuntimeVersions('D:\\e', 'C:\\W\\S32', (f) => files[f] || null, path.win32);
+  assert.deepStrictEqual(v, { 'msvcp140.dll': '14.51.36247.0', 'vcruntime140.dll': '14.44.35211.0', 'vcruntime140_1.dll': '', 'vcomp140.dll': '' });
+});
+test('RF4: 手で入れたエンジンが自分のフォルダに DLL を持っていれば、System32 に無くても ok', () => {
+  const files = Object.fromEntries(DLLS.map((d) => [`D:\\e\\${d}`, ver(14, 51, 36247, 0)]));
+  assert.strictEqual(vcRuntimeIssue(vcRuntimeVersions('D:\\e', 'C:\\W\\S32', (f) => files[f] || null, path.win32), { whisper: true }).level, 'ok');
+});
+test('RF4: 無い／14.40 未満は起動しない理由、14.40〜14.50 は記録だけ、14.51 以上は何も言わない。whisper は vcomp140 も見る', () => {
+  const all = (v) => Object.fromEntries(DLLS.map((d) => [d, v]));
+  assert.strictEqual(vcRuntimeIssue({ ...all('14.51.36247.0'), 'vcomp140.dll': '' }, { whisper: true }).level, 'missing');
+  assert.strictEqual(vcRuntimeIssue({ ...all('14.51.36247.0'), 'vcomp140.dll': '' }, { whisper: false }).level, 'ok');
+  assert.strictEqual(vcRuntimeIssue(all('14.38.33130.0'), { whisper: true }).level, 'old');
+  assert.strictEqual(vcRuntimeIssue(all('14.44.35211.0'), { whisper: true }).level, 'warn');
+  assert.strictEqual(vcRuntimeIssue(all('14.51.36247.0'), { whisper: true }).level, 'ok');
+  assert.match(vcRuntimeIssue({}, { whisper: true }).message, /https:\/\/aka\.ms\/vc14\/vc_redist\.x64\.exe/);
+});
+test('RF4: 止めるのは取り込んだ組だけ。手で設定した組は、無くても古くても記録だけ（warn）', () => {
+  const missing = vcRuntimeIssue({}, { whisper: true });
+  assert.strictEqual(runtimeGate(missing, { managed: true }), 'block');
+  assert.strictEqual(runtimeGate(missing, { managed: false }), 'warn');
+  assert.strictEqual(runtimeGate({ level: 'old' }, { managed: false }), 'warn');
+  assert.strictEqual(runtimeGate({ level: 'warn' }, { managed: true }), 'warn');
+  assert.strictEqual(runtimeGate({ level: 'ok' }, { managed: true }), 'ok');
+});
+test('RF3・RF4: 終了コードと spawn の失敗を、やさしい案内にする', () => {
+  assert.match(engineExitHint(3221225781, 500), /Visual C\+\+ ランタイム/);
+  assert.match(engineExitHint(3221225785, 500), /古い/);
+  assert.match(engineExitHint(3221225477, 3000), /古い/);
+  assert.strictEqual(engineExitHint(3221225477, 60000), '');
+  assert.match(engineExitHint(3221225501, 0), /CPU/);
+  assert.match(engineExitHint(3221226505, 0), /異常終了/);
+  assert.strictEqual(engineExitHint(1, 0), '');
+  for (const c of ['EPERM', 'EACCES', 'UNKNOWN']) assert.match(spawnErrorHint(c, 'X.exe'), /Defender/);
+  assert.match(spawnErrorHint('ENOENT', 'X.exe'), /保護の履歴/);
+});
+test('main: 起動の前にランタイムを見て記録だけし（止めない）、exit・error・spawn の失敗に案内を足す（engineChanged の数は変えない）', () => {
+  const m = code(read('src/main.js'));
+  const fn = fnBody(m, 'function startEngine(eng)', '\nfunction stopEngine');
+  assert.ok(fn.includes('engineRuntimeIssue(eng)') && fn.includes('engineExitHint(code') && fn.includes('spawnErrorHint('));
+  assert.ok(!/runtimeGate\(/.test(fn), 'startEngine で止めている（手で入れたエンジンまで止まる）');
+  assert.ok(fnBody(m, 'function engineRuntimeIssue(eng)', '\n}').includes('vcRuntimeVersions(path.dirname(engineExe(eng))'));
+  assert.strictEqual((fn.match(/engineChanged\(\)/g) || []).length, 2);
+});
+test('engine-smoke.js --start は、頭で4つの DLL の版を vcRuntimeVersions で読んでログに出す（RF4。続きからの確かめより前）', () => {
+  const s = code(read('tools/engine-smoke.js'));
+  assert.match(s, /require\('\.\.\/src\/mainlib'\)/);
+  const fn = fnBody(s, 'async function start()', '\n}');
+  assert.ok(fn.includes('runtimeVersions()'), '--start でランタイムの版を出していない');
+  assert.ok(fn.indexOf('runtimeVersions()') < fn.indexOf('resumeCheck('), 'ランタイムの版が頭に無い');
+  assert.ok(fnBody(s, 'function runtimeVersions()', '\n}').includes('vcRuntimeVersions('), 'vcRuntimeVersions で読んでいない');
+});

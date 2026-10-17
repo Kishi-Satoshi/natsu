@@ -388,6 +388,122 @@ function engineSpawnPlan(exe, args, { whisper = false, p = path } = {}) {
   return { cwd, args: out, problem };
 }
 
+// ---------------------------------------------------------------- Visual C++ ランタイム（RF4）
+// どちらのエンジンの zip にも Visual C++ ランタイムは入っていない（whisper は msvcp140・vcruntime140・
+// vcruntime140_1・vcomp140 を、llama は前の3つを使う）。無いと「code 3221225781」とだけ出て止まる。
+// whisper b5454 は MSVC 14.51 で作られ、14.40 未満では落ちる（MSVC STL 17.10 の constexpr mutex の変更。
+// 公開の報告による）。DLL の版は、依存も PowerShell も使わずに PE の VS_FIXEDFILEINFO から読む。
+
+// VS_FIXEDFILEINFO の印 0xFEEF04BD を探し、その後の dwFileVersionMS・dwFileVersionLS を読む。
+// 印の次の dwStrucVersion は 1.x（0x0001xxxx）。たまたま同じ4バイトがコードにあっても、ここで外す。
+// 読めなければ ''。
+const VS_FIXEDFILEINFO_SIG = Buffer.from([0xBD, 0x04, 0xEF, 0xFE]);
+function peFileVersion(buf) {
+  if (!Buffer.isBuffer(buf)) return '';
+  for (let i = buf.indexOf(VS_FIXEDFILEINFO_SIG); i >= 0 && i + 16 <= buf.length; i = buf.indexOf(VS_FIXEDFILEINFO_SIG, i + 1)) {
+    if (buf.readUInt32LE(i + 4) >>> 16 !== 1) continue;
+    const ms = buf.readUInt32LE(i + 8);
+    const ls = buf.readUInt32LE(i + 12);
+    return `${ms >>> 16}.${ms & 0xFFFF}.${ls >>> 16}.${ls & 0xFFFF}`;
+  }
+  return '';
+}
+
+const VC_RUNTIME_DLLS = ['msvcp140.dll', 'vcruntime140.dll', 'vcruntime140_1.dll', 'vcomp140.dll'];
+// 4つの DLL の版。exe のフォルダを先に、無ければ System32 を読む（Windows が DLL を探す順と同じ。
+// 手で入れたエンジンが自分の DLL を持っていれば、そちらが使われる）。exe のフォルダにあれば、版が
+// 読めなくても System32 には行かない（Windows もそちらを読むので、System32 の版では判断しない）。
+// read(file) は Buffer か null（無い・読めない）。本番は「先頭の 4MB だけ読む」関数。
+// p はテストで path.win32 を渡す（Linux でも Windows のパスの形で確かめる）。
+function vcRuntimeVersions(exeDir, sysDir, read, p = path) {
+  const out = {};
+  for (const dll of VC_RUNTIME_DLLS) {
+    let buf = exeDir ? read(p.join(exeDir, dll)) : null;
+    if (!buf) buf = sysDir ? read(p.join(sysDir, dll)) : null;
+    out[dll] = buf ? peFileVersion(buf) : '';
+  }
+  return out;
+}
+
+// 版の文字列を数の並びにして比べる（'14.44.35211.0' < '14.51.36247.0'）
+const versionParts = (v) => String(v).split('.').map((n) => Number(n) || 0);
+function compareVersion(a, b) {
+  const x = versionParts(a);
+  const y = versionParts(b);
+  for (let i = 0; i < Math.max(x.length, y.length); i++) {
+    const d = (x[i] || 0) - (y[i] || 0);
+    if (d) return d < 0 ? -1 : 1;
+  }
+  return 0;
+}
+const VC_RUNTIME_MIN = '14.40';    // これ未満は落ちる（起動しない理由）
+const VC_RUNTIME_BUILT = '14.51';  // whisper b5454 を作った版。14.40〜14.50 は記録だけ
+const VC_RUNTIME_URL = 'https://aka.ms/vc14/vc_redist.x64.exe';
+// versions（vcRuntimeVersions の戻り）から、起動してよいかの判断の材料を作る。
+//   level: 'missing'（1つでも無い）| 'old'（いちばん古い版が 14.40 未満）| 'warn'（14.40〜14.50。記録だけ）| 'ok'（14.51 以上）
+//   min: 見たファイルのいちばん古い版（無いものがあれば ''）、message: missing・old のときの案内（ほかは ''）
+//   versions: 見たファイルとその版（ログ用）
+// whisper のときは vcomp140.dll も見る（whisper の ggml-base.dll と ggml-cpu-*.dll が使う）。
+function vcRuntimeIssue(versions, { whisper = false } = {}) {
+  const names = whisper ? VC_RUNTIME_DLLS : VC_RUNTIME_DLLS.filter((d) => d !== 'vcomp140.dll');
+  const seen = {};
+  for (const d of names) seen[d] = String((versions || {})[d] || '');
+  const vals = Object.values(seen);
+  const min = vals.some((v) => !v) ? '' : vals.reduce((a, b) => (compareVersion(a, b) <= 0 ? a : b));
+  let level = 'ok';
+  if (!min) level = 'missing';
+  else if (compareVersion(min, VC_RUNTIME_MIN) < 0) level = 'old';
+  else if (compareVersion(min, VC_RUNTIME_BUILT) < 0) level = 'warn';
+  const message = level === 'missing' || level === 'old'
+    ? 'エンジンに必要な部品（Microsoft Visual C++ ランタイム）が、この PC に入っていないか古いため、起動できません'
+      + `（今の版: ${min || 'なし'}、${VC_RUNTIME_MIN} 以上が必要）。情報システムの担当に ${VC_RUNTIME_URL} のインストールを頼んでください（管理者の権限が要ります）。`
+    : '';
+  return { level, min, message, versions: seen };
+}
+
+// 起動を止めるかどうか。止めるのは取り込んだ組（managed: true）の missing・old だけ（Task 13 の managedIssue）。
+// 手で設定した組は、無くても古くても記録だけ（手で入れたエンジンは今動いている。止めない）。
+function runtimeGate(issue, { managed = false } = {}) {
+  const level = issue && issue.level;
+  if (level === 'missing' || level === 'old') return managed ? 'block' : 'warn';
+  if (level === 'warn') return 'warn';
+  return 'ok';
+}
+
+// ---------------------------------------------------------------- エンジンが落ちた・起動できないときの案内（RF3・RF4）
+// Windows の終了コード（NTSTATUS）を、利用者が何をすればよいかの文にする。当てはまらなければ ''。
+// Node は 3221225781 のように符号なしで渡すが、負の形（-1073741515）でも同じに読む。
+// ms は起動からの時間。0xC0000005（アクセス違反）は、起動の直後（10 秒以内）だけランタイムの古さを疑う。
+const STATUS_DLL_NOT_FOUND = 0xC0000135;        // 3221225781
+const STATUS_ENTRYPOINT_NOT_FOUND = 0xC0000139; // 3221225785
+const STATUS_ACCESS_VIOLATION = 0xC0000005;     // 3221225477
+const STATUS_ILLEGAL_INSTRUCTION = 0xC000001D;  // 3221225501
+const STATUS_STACK_BUFFER_OVERRUN = 0xC0000409; // 3221226505
+function engineExitHint(code, ms) {
+  if (typeof code !== 'number' || !Number.isFinite(code)) return '';
+  const c = code >>> 0;
+  if (c === STATUS_DLL_NOT_FOUND) return '必要な部品（Microsoft Visual C++ ランタイム）か、エンジンのファイルが見つからないため起動できませんでした。';
+  if (c === STATUS_ENTRYPOINT_NOT_FOUND || (c === STATUS_ACCESS_VIOLATION && Number(ms) <= 10000)) return 'Microsoft Visual C++ ランタイムが古い可能性があります。';
+  if (c === STATUS_ILLEGAL_INSTRUCTION) return 'この PC の CPU では、このエンジンを動かせません。';
+  if (c === STATUS_STACK_BUFFER_OVERRUN) return 'エンジンが異常終了しました。';
+  return '';
+}
+// spawn の失敗（e.code）を案内の文にする。当てはまらなければ ''。Windows の元のエラー番号は libuv の
+// 対応表で消えるので、実行を止められたときは EPERM・EACCES・UNKNOWN のどれかで来る。
+// パスは文末に置く（engineIssueMessage と同じ。後ろの文と地続きに読ませない）。
+function spawnErrorHint(errCode, file) {
+  const at = file ? `今のパス: ${file}` : '';
+  if (errCode === 'EPERM' || errCode === 'EACCES' || errCode === 'UNKNOWN') {
+    return 'Windows のセキュリティ（Defender など）か会社の制限が、エンジンの起動を止めた可能性があります。'
+      + `情報システムの担当に、このファイルの許可を頼んでください。${at}`;
+  }
+  if (errCode === 'ENOENT') {
+    return 'エンジンのファイルが消えています。ウイルス対策が消した可能性があります'
+      + `（Windows セキュリティ → ウイルスと脅威の防止 → 保護の履歴）。${at}`;
+  }
+  return '';
+}
+
 // ---------------------------------------------------------------- ポートの衝突（#28/#31）
 // 塞がっているポートで起動すると、エンジンはモデルを読み終えてから bind に失敗して落ちる。
 // それまで「起動中」に見えるので、起動前に見て、塞がっていればこの文で止める。
@@ -772,6 +888,7 @@ module.exports = {
   pasterScript, copyCommand, restoreAfterPaste, parsePasterLine,
   engineFileIssue, engineIssueMessage, engineInAppDir, engineDirWarning, portInUseError,
   isAscii, engineSpawnPlan,
+  peFileVersion, vcRuntimeVersions, vcRuntimeIssue, runtimeGate, engineExitHint, spawnErrorHint,
   ENGINE_SETTING_KEYS, guardEngineSettings, keptDifferent, closeConfirm,
   extractNotes, truncationMessage, buildPromptParts,
   publicSegments, settledSegments, pendingDurationMs, recoverSegments, staleSegbufDirs,

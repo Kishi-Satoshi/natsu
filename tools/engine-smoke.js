@@ -11,7 +11,8 @@
  *
  *   node tools/engine-smoke.js --start
  *     1. Windows の ANSI と OEM のコードページを、レジストリから読んでログに出す（エンジンが引数を
- *        読むときに使うのは ANSI。コンソールのコードページではない）。
+ *        読むときに使うのは ANSI。コンソールのコードページではない）。Visual C++ ランタイムの4つの DLL の
+ *        版も、アプリと同じ vcRuntimeVersions で System32 から読んでログに出す（RF4。どちらの zip にも無い）。
  *     2. 本物の CDN で、取り消してから続きを取れるか（resumeCheck）。キャッシュがあっても毎回。
  *     3. é・日本語・𠮷 の名前のフォルダに、アプリと同じ道（fetchFile → listZip/readEntry で
  *        MANIFEST の files だけを出して SHA-256 を照らす）でエンジンと試験用の小さなモデルを置く。
@@ -40,7 +41,7 @@ const { execFileSync, spawn } = require('child_process');
 const { MANIFEST, hostOf } = require('../src/engine-manifest');
 const { fetchFile, hget, parseContentRange } = require('../src/engine-fetch');
 const { listZip, readEntry } = require('../src/zipread');
-const { engineSpawnPlan, silentWav } = require('../src/mainlib');
+const { engineSpawnPlan, silentWav, vcRuntimeVersions, vcRuntimeIssue } = require('../src/mainlib');
 const { fakeRequest } = require('../test/helpers/fake-net');
 
 const UA = `NaTsu/${require('../package.json').version} (engine-smoke)`;
@@ -167,6 +168,18 @@ function codePages() {
       log(`コードページ ${v}: 読めない（${String(e.message).split('\n')[0]}）`);
     }
   }
+}
+
+// ---------------------------------------------------------------- --start: Visual C++ ランタイム（RF4）
+// 4つの DLL の版を、アプリと同じ vcRuntimeVersions で読んでログに出す。まだ何も置いていないので、exe の
+// フォルダは渡さず System32 だけを読む（CI の機械に入っている版）。結果の OK／NG には数えない（記録だけ）。
+function runtimeVersions() {
+  if (process.platform !== 'win32') { log('Visual C++ ランタイム: Windows でだけ読む'); return; }
+  const sys = path.join(process.env.SystemRoot || process.env.windir || 'C:\\Windows', 'System32');
+  const read = (f) => { try { return fs.readFileSync(f); } catch (_) { return null; } };
+  const v = vcRuntimeVersions('', sys, read);
+  log(`Visual C++ ランタイム（${sys}）: ${Object.entries(v).map(([d, x]) => `${d} ${x || 'なし'}`).join('、')}`);
+  log(`Visual C++ ランタイムの判断: whisper ${vcRuntimeIssue(v, { whisper: true }).level}・llama ${vcRuntimeIssue(v, { whisper: false }).level}`);
 }
 
 // ---------------------------------------------------------------- --start: 続きから（本物の CDN）
@@ -414,6 +427,7 @@ async function smokeLlama(p) {
 async function start() {
   const rs = [];
   codePages();
+  runtimeVersions();
   rs.push(report(await resumeCheck('whisper-vad', 400 * 1024)));
   rs.push(report(await resumeCheck('whisper-engine', 1024 * 1024)));
   let placed = null;

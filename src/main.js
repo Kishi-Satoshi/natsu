@@ -41,7 +41,7 @@ const {
   registerHotkeys, resolveStartupHotkeys, saveHotkeys, makeSummaryRunner, tickStep,
   pasterScript, copyCommand, parsePasterLine,
   engineFileIssue, engineIssueMessage, engineInAppDir, engineDirWarning, portInUseError, guardEngineSettings, keptDifferent, closeConfirm,
-  engineSpawnPlan,
+  engineSpawnPlan, vcRuntimeVersions, vcRuntimeIssue, engineExitHint, spawnErrorHint,
   extractNotes, truncationMessage, buildPromptParts,
   publicSegments, settledSegments, pendingDurationMs, recoverSegments, staleSegbufDirs, nextSegmentMs, EtaTracker,
   skipPendingSegments, restoreAfterPaste,
@@ -378,6 +378,34 @@ function whisperProblem() {
   return engineCheck(whisperEng);
 }
 
+// Visual C++ ランタイムの版（RF4。判断は mainlib.vcRuntimeIssue）。Windows のときだけ、exe のフォルダを先に、
+// 無ければ System32 の DLL を読む。Electron は 64 ビットなので System32 はそのまま読める（WOW64 の付け替えは無い）。
+// exe のパスごとに1回だけ読んで覚える（DLL は数百 KB。先頭の 4MB だけ読む）。
+// ここでは止めない。止めるのは取り込んだ組だけで、Task 13 の managedIssue が runtimeGate で決める。
+const RUNTIME_OK = Object.freeze({ level: 'ok', min: '', message: '', versions: {} });
+const runtimeIssueCache = new Map();
+const system32Dir = () => path.join(process.env.SystemRoot || process.env.windir || 'C:\\Windows', 'System32');
+function readFileHead(file, max = 4 * 1048576) {
+  let fd = null;
+  try {
+    fd = fs.openSync(file, 'r');
+    const buf = Buffer.alloc(Math.min(max, fs.fstatSync(fd).size));
+    return buf.subarray(0, fs.readSync(fd, buf, 0, buf.length, 0));
+  } catch (_) {
+    return null;
+  } finally {
+    if (fd !== null) try { fs.closeSync(fd); } catch (_) { /* noop */ }
+  }
+}
+function engineRuntimeIssue(eng) {
+  if (process.platform !== 'win32') return RUNTIME_OK;
+  const key = `${eng === whisperEng ? 'whisper' : 'sum'}|${engineExe(eng)}`;
+  if (!runtimeIssueCache.has(key)) {
+    runtimeIssueCache.set(key, vcRuntimeIssue(vcRuntimeVersions(path.dirname(engineExe(eng)), system32Dir(), readFileHead), { whisper: eng === whisperEng }));
+  }
+  return runtimeIssueCache.get(key);
+}
+
 function engineSignature(eng) {
   return [engineExe(eng), engineModel(eng), enginePort(eng),
     eng === whisperEng ? settings.localThreads : settings.sumThreads,
@@ -413,6 +441,11 @@ function startEngine(eng) {
   eng.startPromise = (async () => {
     const issue = engineCheck(eng);
     if (issue) { eng.lastError = issue; return; }
+    // ランタイムが無い・古いときは記録だけ（RF4）。手で入れたエンジンは今動いているので止めない
+    const runtime = engineRuntimeIssue(eng);
+    if (runtime.level !== 'ok') {
+      engineLog(`${eng.name}: Visual C++ ランタイム ${runtime.level}（${Object.entries(runtime.versions || {}).map(([d, v]) => `${d} ${v || 'なし'}`).join('、')}）`);
+    }
     eng.lastError = ''; eng.ready = false; eng.stopping = false; eng.stderrTail = '';
     // 塞がっているポートで spawn すると、エンジンはモデルを読み終えてから bind に失敗して
     // 落ちる。それまで「起動中」に見え、/health は塞いでいる別のプロセスに当たって
@@ -429,11 +462,18 @@ function startEngine(eng) {
     // ggml が cwd の ggml-*.dll を読むので、別のエンジンのフォルダで起動しない（RF11）
     const plan = engineSpawnPlan(engineExe(eng), engineSpawnArgs(eng), { whisper: eng === whisperEng });
     engineLog(`${eng.name} 起動: ${engineExe(eng)} ${plan.args.join(' ')}（作業フォルダ: ${plan.cwd}）`);
+    // 実行を止められたとき（EPERM・UNKNOWN）は spawn が投げ、消えている（ENOENT）・EACCES は 'error' で来る。
+    // どちらにも、何をすればよいかの案内を足す（RF3。mainlib.spawnErrorHint）
+    const spawnFailed = (e) => {
+      const hint = spawnErrorHint(e && e.code, engineExe(eng));
+      return `${eng.name}を起動できません: ${e.message}${hint ? `。${hint}` : ''}`;
+    };
+    const startedAt = Date.now();
     let p;
     try {
       p = spawn(engineExe(eng), plan.args, { cwd: plan.cwd, windowsHide: true, stdio: ['ignore', 'ignore', 'pipe'] });
     } catch (e) {
-      eng.lastError = `${eng.name}を起動できません: ${e.message}`; engineLog(eng.lastError); return;
+      eng.lastError = spawnFailed(e); engineLog(eng.lastError); return;
     }
     eng.proc = p;
     eng.lastUsed = Date.now();
@@ -446,14 +486,16 @@ function startEngine(eng) {
     });
     p.on('error', (e) => {
       if (eng.proc !== p) return;
-      eng.lastError = `${eng.name}を起動できません: ${e.message}`; engineLog(eng.lastError);
+      eng.lastError = spawnFailed(e); engineLog(eng.lastError);
       eng.proc = null; eng.ready = false;
     });
     p.on('exit', (code) => {
       if (eng.proc !== p) return;
       if (!quitting && !eng.stopping) {
         const tail = eng.stderrTail.split('\n').filter(Boolean).slice(-3).join(' / ');
-        eng.lastError = `${eng.name}が終了しました (code ${code})${tail ? `: ${tail}` : ''}`.trim();
+        // 0xC0000135（ランタイムかファイルが無い）などは、何をすればよいかの案内を足す（RF3・RF4）
+        const hint = engineExitHint(code, Date.now() - startedAt);
+        eng.lastError = `${eng.name}が終了しました (code ${code})${tail ? `: ${tail}` : ''}${hint ? `。${hint}` : ''}`.trim();
         engineLog(eng.lastError);
       }
       eng.proc = null; eng.ready = false; eng.readyPromise = null;
