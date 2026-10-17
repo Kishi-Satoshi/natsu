@@ -160,8 +160,10 @@ function applyTheme() {
 
 function updatePowerBlock() {
   // 要約中も忙しい（#52）。省電力で絞られると、数分かかる要約が静かに止まる。
-  // エンジンの取り込み中も眠らせない（第0b回 Task 14。数 GB の取り込みが止まる）。isBusy には数えない
-  const busy = state !== 'idle' || isSummarizing() || engineFetchRunning();
+  // エンジンを実際に取っている間も眠らせない（第0b回 Task 14。数 GB の取り込みが止まる）。isBusy には数えない。
+  // 回線を待っている（waiting。何日も続きうる）・記録中で止めている（held）・一時停止の間は眠らせてよい（Q14。2026-10-17 に了承）。
+  // 起きた後は、係が待ちの時計（60 秒）と net.isOnline で自分で試し直す
+  const busy = state !== 'idle' || isSummarizing() || engineFetchDownloading();
   if (busy && powerBlockId === null) {
     try { powerBlockId = powerSaveBlocker.start('prevent-app-suspension'); } catch (_) { powerBlockId = null; }
   } else if (!busy && powerBlockId !== null) {
@@ -726,8 +728,10 @@ function getEngineFetch() {
   return engineFetch;
 }
 // 取り込みが動いているか（待っている・記録中で止めている間も含む）。忙しさ（isBusy）には数えない
-// （数えると、取り込みの間エンジンを止められなくなる）。省電力の抑止と未設定の文が見る
+// （数えると、取り込みの間エンジンを止められなくなる）。未設定の文が見る
 function engineFetchRunning() { return Boolean(engineFetch && engineFetch.running()); }
+// 実際に取っているか（係の state が running）。省電力の抑止が見る（待っている・止めている間は眠らせてよい。Q14）
+function engineFetchDownloading() { return Boolean(engineFetch && engineFetch.downloading()); }
 
 // 係の写しに、main だけが知っていることを入れる（engine:fetch-status と同じ見え方）: 使える組（using・whisperReady・sumReady）は
 // 係の記録ではなく main が切り替えた組で決め（usableCand。照らしで合わなかった組は「使える」と見せない: RF3）、
@@ -741,7 +745,7 @@ function fetchView(s) {
     checking: managedChecking(), runtime: rt ? { level: rt.level, message: rt.message } : null };
 }
 
-// 係の状態が変わったとき。取り込み中は眠らせない。起動のときの自動の開始が大きな新しい版を取らなかったら、起動の中で1回だけ知らせる
+// 係の状態が変わったとき。実際に取っている間だけ眠らせない（Q14）。起動のときの自動の開始が大きな新しい版を取らなかったら、起動の中で1回だけ知らせる
 let updateNoticeSent = false;
 function onEngineFetchState(s) {
   updatePowerBlock();

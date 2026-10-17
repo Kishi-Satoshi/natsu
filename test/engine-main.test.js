@@ -329,7 +329,13 @@ test('記録中は取り込みを止めて待つ（hold）。終了の前に止�
   const m = code(read('src/main.js'));
   assert.ok(fnBody(m, 'function getEngineFetch()', '\n}').includes('hold: () => Boolean(meeting)'));
   assert.ok(fnBody(m, "app.on('before-quit'", '\n  });').includes("if (engineFetch) engineFetch.pause('quit');"));
-  assert.ok(fnBody(m, 'function updatePowerBlock()', '\n}').includes("const busy = state !== 'idle' || isSummarizing() || engineFetchRunning();"));
+  // Q14（2026-10-17 に利用者が了承）: 取り込みで眠らせないのは、実際に取っている間（係の state が running）だけ。
+  // 回線を待つ（waiting。何日も続きうる）・記録中で止める（held）・一時停止の間は眠らせてよい（記録・要約は今までどおり眠らせない）
+  const pb = fnBody(m, 'function updatePowerBlock()', '\n}');
+  assert.ok(pb.includes("const busy = state !== 'idle' || isSummarizing() || engineFetchDownloading();"), pb);
+  assert.ok(!pb.includes('engineFetchRunning()'), '回線を待つ間も眠らせない（running() を見ている）');
+  assert.ok(m.includes('function engineFetchDownloading() { return Boolean(engineFetch && engineFetch.downloading()); }'));
+  assert.ok(fnBody(m, 'function onEngineFetchState(s)', '\n}').includes('updatePowerBlock();'), '係の状態が変わっても省電力の抑止を見直さない');
   assert.ok(fnBody(m, 'app.whenReady().then(', '\n  });').includes('getEngineFetch().start({ auto: true })'));
 });
 test('終了の前の一時停止が投げても、要約の「中断された」の印とエンジンの停止は続ける。終了が始まった後は、起動のときの自動の取り込みを始めない（点検）', () => {

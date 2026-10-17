@@ -8,7 +8,7 @@
  * その2（Task 12a）: zip から決めたファイルだけを <dir>.tmp に出して照らしてから置き（installZip）、
  * 記録を書き（recordInstalled）、使う前に exe と DLL を SHA-256 で照らす（verifyCandidates。RF3）。
  * その3（Task 12b）: 取り込みの係（makeRunner）。その4（Task 12c）: 切り替えた後で前の版だけを消し（cleanupOld。RF8）、
- * ライセンスの写し（writeNotices。Apache License 2.0 の全文は src/licenses/Apache-2.0.txt）を書く。
+ * ライセンスの写し（writeNotices。MIT License の許諾の文は src/licenses/MIT.txt、Apache License 2.0 の全文は src/licenses/Apache-2.0.txt）を書く。
  * 小さな偽のピンの組は test/helpers/engine-small.js。一時フォルダの名前には日本語と 𠮷。
  */
 'use strict';
@@ -321,6 +321,15 @@ const depsOf = (set, home, o = {}) => {
   return { ...d, sleep: async (ms) => { if (++n > SLEEP_LIMIT) throw new Error(`sleep が ${SLEEP_LIMIT} 回を超えた（係が止まらない）`); return inner(ms); } };
 };
 const ids = (set) => set.hits().map((h) => h.id);
+// 標準の MIT License（https://opensource.org/license/mit の文。著作権の行を除く）。MIT.txt の語の並びと比べる
+const MIT_STANDARD = `MIT License
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.`;
+const MIT_SHA256 = '508a77d2e7b51d98adeed32648ad124b7b30241a8e70b2e72c99f92d8e5874d1';
 test('start はすぐ返り、動いている仕事をもう一度始めない（2 回押しても二重にならない）', { timeout: 5000 }, async () => {
   const set = await smallSet();
   try {
@@ -525,6 +534,35 @@ test('待っている間（waiting）: ［今すぐ試す］・切れていた�
     q = I.makeRunner(depsOf(set, homeOf(), { sleep: async () => { m++; }, onState: (s) => { if (s.state === 'waiting') q.pause('user'); } }));
     q.start({ user: true }); await q.done();
     assert.strictEqual(q.status().state, 'paused'); assert.ok(m < 20, `止めても待ち続けた: ${m}`);
+  } finally { await set.close(); }
+});
+test('Q14: downloading() は実際に取っている間（running）だけ真。回線を待つ（waiting）・記録中で止める（held）・一時停止や終わった後は偽（running() は待つ間も真）', { timeout: 5000 }, async () => {
+  const set = await smallSet();
+  try {
+    // 記録中（held）
+    let holding = true; let polls = 0; const a = []; let r;
+    r = I.makeRunner(depsOf(set, homeOf(), { hold: () => holding, onState: (s) => a.push([s.state, r.downloading(), r.running()]),
+      sleep: async () => { if (++polls === 3) holding = false; } }));
+    r.start({ user: true }); await r.done();
+    assert.deepStrictEqual(a, [['running', true, true], ['held', false, true], ['running', true, true], ['ready', false, false]]);
+    assert.strictEqual(r.downloading(), false);
+    // 回線を待つ（waiting）。待ちの後は自分で試し直して running に戻る（PC が起きた後も同じ: 時計の待ちが明ければ試す）
+    set.setDown(true); let sleeps = 0; const b = []; let w;
+    w = I.makeRunner(depsOf(set, homeOf(), { onState: (s) => b.push([s.state, w.downloading(), w.running()]),
+      sleep: async () => { if (++sleeps === 150) set.setDown(false); } }));
+    w.start({ user: true }); await w.done();
+    assert.ok(b.some((x) => x[0] === 'waiting'), JSON.stringify(b));
+    for (const [st, dl, run] of b) {
+      assert.strictEqual(dl, st === 'running', `${st} で downloading() が ${dl}`);
+      assert.strictEqual(run, st === 'running' || st === 'waiting', `${st} で running() が ${run}`);
+    }
+    assert.strictEqual(w.status().state, 'ready');
+    // 待っている間の［一時停止］→ paused では偽
+    set.setDown(true); const c = []; let q;
+    q = I.makeRunner(depsOf(set, homeOf(), { sleep: async () => {}, onState: (s) => { c.push([s.state, q.downloading()]); if (s.state === 'waiting') q.pause('user'); } }));
+    q.start({ user: true }); await q.done();
+    assert.deepStrictEqual(c[c.length - 1], ['paused', false]);
+    assert.ok(c.some((x) => x[0] === 'waiting' && x[1] === false));
   } finally { await set.close(); }
 });
 test('取り込みの途中で記録が始まったら、今の要求を止めて held で待ち、終われば続きから取る（バイトが来ない間も見張る）', { timeout: 5000 }, async () => {
@@ -760,6 +798,32 @@ test('src/licenses/Apache-2.0.txt は https://www.apache.org/licenses/LICENSE-2.
   assert.ok(!t2.includes('TERMS AND CONDITIONS FOR USE, REPRODUCTION, AND DISTRIBUTION'), 'Apache-2.0 の項目が無いのに全文を足した');
   assert.ok(t2.includes('LICENSE-LLVM-OpenMP'));
   assert.strictEqual(I.writeNotices({ supported: false, root: null }, MANIFEST), null);
+});
+test('MIT の項目があれば、MIT License の許諾の文（src/licenses/MIT.txt）を1回だけ足す。著作権の行は項目ごと。Apache-2.0 の全文は最後のまま。MIT の項目が無ければ足さない', { timeout: 5000 }, () => {
+  const crypto = require('node:crypto');
+  const b = fs.readFileSync(path.join(__dirname, '..', 'src', 'licenses', 'MIT.txt'));
+  const mitText = b.toString('utf8');
+  // 標準の MIT License の文そのまま（著作権の行は入れない。著作権の行は項目ごとの「ライセンス」の行に書く）
+  assert.strictEqual(crypto.createHash('sha256').update(b).digest('hex'), MIT_SHA256);
+  assert.ok(!/^\s*Copyright/im.test(mitText), 'MIT.txt に著作権の行がある');
+  const words = (x) => x.replace(/\s+/g, ' ').trim();
+  assert.strictEqual(words(mitText), words(MIT_STANDARD), 'MIT.txt が標準の MIT License の文でない');
+  const home = homeOf(); const f = path.join(home.root, 'THIRD-PARTY-NOTICES.txt');
+  I.writeNotices(home, MANIFEST);
+  const t = fs.readFileSync(f, 'utf8');
+  assert.strictEqual(t.split('Permission is hereby granted, free of charge').length - 1, 1, 'MIT License の許諾の文が1回でない');
+  assert.ok(t.includes(mitText), 'MIT.txt をそのまま足していない');
+  const apache = fs.readFileSync(path.join(__dirname, '..', 'src', 'licenses', 'Apache-2.0.txt'), 'utf8');
+  assert.ok(t.endsWith(apache) && t.indexOf(mitText) < t.indexOf(apache), 'Apache License 2.0 の全文が最後でない');
+  const mits = MANIFEST.items.filter((i) => /^MIT/.test(i.license));
+  assert.ok(mits.length >= 4);
+  for (const it of mits) assert.ok(t.includes(`  ライセンス: ${it.license}`), `${it.id}: 著作権の行が無い`);
+  assert.strictEqual(t.split('  ライセンスの全文: このファイルの後ろの MIT License').length - 1, mits.length, 'MIT の項目ごとの案内の行の数が違う');
+  const noMit = { ...MANIFEST, items: MANIFEST.items.filter((i) => !/^MIT/.test(i.license)) };
+  I.writeNotices(home, noMit);
+  const t2 = fs.readFileSync(f, 'utf8');
+  assert.ok(!t2.includes('Permission is hereby granted'), 'MIT の項目が無いのに許諾の文を足した');
+  assert.ok(t2.endsWith(apache));
 });
 test('RF8: 今のピン・残す記録・installed.json などと同じ置き場所か、その親を指す古い記録は消さない。canDelete は消す前に毎回見る', { timeout: 5000 }, async () => {
   const s1 = await smallSet(); const s2 = await smallSet({ gen: 2 });

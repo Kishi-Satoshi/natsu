@@ -621,7 +621,9 @@ function setActive(home, manifest, group) {
 }
 
 /**
- * 取り込みの係 → { start(opts), done(), pause(why), status(), running() }。
+ * 取り込みの係 → { start(opts), done(), pause(why), status(), running(), downloading() }。
+ *  running() は仕事があるか（回線を待っている・記録中で止めている間も真）。downloading() は実際に取っている間（state が running）だけ真
+ *  （main の省電力の抑止が見る。第0b回 Q14）。
  *  deps: { home, manifest, request, fetchFile, fetchOpts, statfs, sleep, now, log, onProgress, onGroupReady, onState,
  *          hold, isManual, isOnline, waitMs, holdPollMs, progressMs, autoUpdateMaxBytes, userAgent }
  *    request は net.request と同じ形（本番は (o) => electronNet.request(o)。この係は Electron を読み込まない）。
@@ -755,6 +757,8 @@ function makeRunner(deps = {}) {
 
   const done = () => (job ? job.promise : Promise.resolve());
   const running = () => Boolean(job);
+  // 実際に取っている（state が running）。待っている（waiting）・止めて待つ（held）・止めた後（paused）は偽（Q14）
+  const downloading = () => Boolean(job) && snap.state === 'running';
 
   async function run(j) {
     await null;   // start() を先に返す
@@ -1055,7 +1059,7 @@ function makeRunner(deps = {}) {
     }
   }
 
-  return { start, done, pause, status, running };
+  return { start, done, pause, status, running, downloading };
 }
 
 // ---------------------------------------------------------------- その4: 古い版の片付けと、ライセンスの写し（Task 12c）
@@ -1129,9 +1133,12 @@ async function cleanupOld(home, manifest, installed, { inUse = () => false, canD
 }
 
 const APACHE_TEXT_FILE = path.join(__dirname, 'licenses', 'Apache-2.0.txt');
+// 標準の MIT License の許諾の文（著作権の行は入れない。著作権の行は項目ごとの「ライセンス」の行にある）
+const MIT_TEXT_FILE = path.join(__dirname, 'licenses', 'MIT.txt');
 // Qwen2.5-3B の LICENSE（Qwen RESEARCH LICENSE AGREEMENT）の 4.c が、配る写しの Notice のファイルに求める一文
 const QWEN_RESEARCH_NOTICE = 'Qwen is licensed under the Qwen RESEARCH LICENSE AGREEMENT, Copyright (c) Alibaba Cloud. All Rights Reserved.';
 const isApache = (it) => /^Apache-2\.0/.test(String(it.license || ''));
+const isMit = (it) => /^MIT/.test(String(it.license || ''));
 const isQwenResearch = (it) => /qwen2\.5-3b/i.test([it.id, it.label, it.version, it.url, it.dest].join(' '))
   || /^Qwen RESEARCH/i.test(String(it.license || ''));
 
@@ -1139,6 +1146,8 @@ const isQwenResearch = (it) => /qwen2\.5-3b/i.test([it.id, it.label, it.version,
  * THIRD-PARTY-NOTICES.txt を書き直す → 書いたファイルのパス（取り込めない PC では null）。
  *  各項目の名前・版・URL・ライセンスと著作権の行（「ライセンス」の表のとおり）。zip の中のライセンスの全文のファイル
  *  （llama の LICENSE-LLVM-OpenMP）は置き場所を1行。Qwen2.5-3B のときは Qwen の一文。
+ *  ライセンスが MIT で始まる項目があれば、項目の後ろに src/licenses/MIT.txt（標準の MIT License の許諾の文）を1回だけ、書き換えずに足す
+ *  （MIT の「この許諾の文を含めること」。著作権の行は項目ごと）。
  *  ライセンスが Apache-2.0 で始まる項目があれば、最後に src/licenses/Apache-2.0.txt の全文を1回だけ、書き換えずに足す
  *  （Apache-2.0 の §4(a)。Gemma 3 までの独自の条件の文は書かない）。
  *  BOM 付きの UTF-8（古いメモ帳でも日本語が読める）。一時ファイルに書いてから名前を変える。
@@ -1147,6 +1156,7 @@ function writeNotices(home, manifest) {
   const root = home && home.root;
   if (!root) return null;
   const its = manifest.items;
+  const mit = its.some(isMit) ? fs.readFileSync(MIT_TEXT_FILE, 'utf8') : '';
   const apache = its.some(isApache) ? fs.readFileSync(APACHE_TEXT_FILE, 'utf8') : '';
   const lines = [
     'NaTsu が取り込んだエンジンとモデルのライセンス（第三者のソフトウェアとモデル）',
@@ -1164,11 +1174,16 @@ function writeNotices(home, manifest) {
         }
       }
     }
+    if (isMit(it)) lines.push('  ライセンスの全文: このファイルの後ろの MIT License（著作権の行は上のとおり）');
     if (isApache(it)) lines.push('  ライセンスの全文: このファイルの最後の Apache License 2.0');
     if (isQwenResearch(it)) lines.push(`  ${QWEN_RESEARCH_NOTICE}`);
     lines.push('');
   }
   let text = lines.join('\n');
+  const bar = '='.repeat(78);
+  if (mit) {
+    text += `${bar}\nMIT License の許諾の文（上の MIT の項目に共通。著作権の行は項目ごと）\n${bar}\n${mit}\n`;
+  }
   if (apache) {
     text += `${'='.repeat(78)}\nApache License 2.0 の全文（https://www.apache.org/licenses/LICENSE-2.0.txt の写し）\n${'='.repeat(78)}\n${apache}`;
   }
