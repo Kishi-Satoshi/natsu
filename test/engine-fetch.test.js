@@ -126,6 +126,22 @@ test('途中で切れたら、次は Range: bytes=N- で続きから取り、中
     assert.deepStrictEqual(leftovers(dir), [], '.part と記録が残っている');
   } finally { await s.close(); }
 });
+test('テストの道具: cutAfter の切断は、書き込みが少し遅くても（負荷のある機械。1 回 20ms）、届いていた分を捨てさせない（続きの位置がぶれない）', { timeout: 5000 }, async () => {
+  // 切断で Node の応答は読み残しのバイトごと捨てられる（本物の net も同じ）。書き込みを待つ間に次の塊が届いていると、
+  // 切断が早すぎれば続きの位置が cutAfter より手前になり、bytes=100000- を見るテストが負荷のときだけ赤になる
+  const s = await startServers({ body, script: [{ cutAfter: 100000 }] });
+  try {
+    const openPart = async (f) => {
+      const fh = await fs.promises.open(f, fs.existsSync(f) ? 'r+' : 'w+');
+      return new Proxy(fh, { get: (t, k) => (k === 'write'
+        ? async (...a) => { await new Promise((r) => setTimeout(r, 20)); return t.write(...a); }
+        : (typeof t[k] === 'function' ? t[k].bind(t) : t[k])) });
+    };
+    const r = await fetchFile(pinOf(s.originUrl), opts(tmp(), { openPart }));
+    assert.ok(fs.readFileSync(r.file).equals(body));
+    assert.deepStrictEqual(s.cdnRanges(), [null, 'bytes=100000-']);
+  } finally { await s.close(); }
+});
 test('試しのたびに固定の URL から始める（CDN の URL は使い回さない）。相対の 307 → 別のホストの 302 でも Range を保つ', async () => {
   const s = await startServers({ body, hops: ['307-relative', '302-cdn'], signedOnce: true, script: [{ cutAfter: 100000 }] });
   try {

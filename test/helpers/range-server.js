@@ -35,7 +35,9 @@ function sendFile(req, res, buf, o = {}) {
   const chunked = o.short != null || o.zero;
   if (!chunked) h['content-length'] = body.length;
   res.writeHead(r ? 206 : 200, h);
-  if (o.cutAfter != null) { res.write(body.subarray(0, o.cutAfter), () => setTimeout(() => res.socket.destroy(), 10)); return; }
+  // 切る前に 100ms 待つ（受け手が書き込みを待つ間に届いた分を読み終えるまで。切断は読み残しを捨てるので、早すぎると
+  // 続きの位置が負荷しだいでぶれる。止まった流れの見張り（テストは 300ms）より短く）
+  if (o.cutAfter != null) { res.write(body.subarray(0, o.cutAfter), () => setTimeout(() => res.socket.destroy(), 100)); return; }
   if (o.stallAfter != null) { res.write(body.subarray(0, o.stallAfter)); return; }   // 黙る
   if (o.zero) { res.end(); return; }
   if (o.short != null) { res.end(body.subarray(0, o.short)); return; }
