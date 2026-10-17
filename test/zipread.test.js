@@ -122,3 +122,27 @@ test('zip: UTF-8 の印（0x800）のある名前は UTF-8 で読む', async () 
   assert.deepStrictEqual(es.map((e) => e.name), ['Release/取込𠮷.txt']);
   assert.deepStrictEqual(await readEntry(z, es[0]), Buffer.from('x'));
 });
+
+// 点検の指摘で足した1件: 上の7件は、目次や項目の見出しの壊れを確かめる4つの直しを外しても緑だった
+// （大きさと CRC-32 が残るので中身は守られるが、zip-corrupt で断らず、RangeError で落ちるか、壊れた zip を受け入れていた）。
+// makeZip の zip（注釈なし・項目1つ）を書き換える。src/zipread.js には頼らない。
+test('zip: 目次・項目の見出しが壊れた zip は zip-corrupt で断る（範囲の外・印の違い・切れた中身・読めない deflate）', async () => {
+  const z = makeZip([{ name: 'a', data: Buffer.alloc(300, 7) }]);
+  const eocd = z.length - 22;
+  const cdOff = z.readUInt32LE(eocd + 16);
+  const broken = (fn) => { const b = Buffer.from(z); fn(b); return b; };
+  // 終わりの目次の中央ディレクトリの位置が、zip の外を指す
+  assert.throws(() => listZip(broken((b) => b.writeUInt32LE(z.length + 100, eocd + 16))), { code: 'zip-corrupt' }, '目次の位置');
+  // 中央ディレクトリの項目の印が違う
+  assert.throws(() => listZip(broken((b) => b.writeUInt32LE(0, cdOff))), { code: 'zip-corrupt' }, '目次の印');
+  // 項目の見出し（ローカルヘッダー）の印が違う
+  const es = listZip(z);
+  await assert.rejects(readEntry(broken((b) => b.writeUInt32LE(0, es[0].offset)), es[0]), { code: 'zip-corrupt' }, '見出しの印');
+  // 目次の圧縮後の大きさが zip より大きい（中身が切れている）
+  const long = broken((b) => b.writeUInt32LE(0x7FFFFFF0, cdOff + 20));
+  await assert.rejects(readEntry(long, listZip(long)[0]), { code: 'zip-corrupt' }, '切れた中身');
+  // deflate の中身が読めない（0xFF は使わない形の印）
+  const start = es[0].offset + 30 + z.readUInt16LE(es[0].offset + 26);
+  const junk = broken((b) => b.fill(0xFF, start, start + es[0].csize));
+  await assert.rejects(readEntry(junk, es[0]), { code: 'zip-corrupt' }, '読めない deflate');
+});
