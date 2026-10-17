@@ -172,6 +172,17 @@ test('zip: 置く先のフォルダが既にあり、中身が同じなら使う
     assert.strictEqual(r.dir, path.join(root, 'whisper-1.0.0'));
   } finally { await set.close(); }
 });
+test('zip: 置く先のフォルダが既にあり中身が違えば hash で断り、そのフォルダには触らない（動いているかもしれない）。zip は残す', async () => {
+  const set = await smallSet();
+  try {
+    const root = path.join(tmp(), 'engine'); await putByHand(root, set, ['whisper-engine']);
+    const dll = path.join(root, 'whisper-1.0.0', 'whisper.dll'); const b = fs.readFileSync(dll); b[0] ^= 0xff; fs.writeFileSync(dll, b);
+    const zf = path.join(root, 'w.zip'); fs.writeFileSync(zf, set.bodies['whisper-engine']);
+    await assert.rejects(I.installZip(set.manifest.items[0], zf, root), { code: 'hash' });
+    assert.deepStrictEqual(fs.readFileSync(dll), b, 'フォルダを入れ替えた');
+    assert.ok(fs.existsSync(zf) && !fs.existsSync(path.join(root, 'whisper-1.0.0.tmp')));
+  } finally { await set.close(); }
+});
 test('RF3: verifyCandidates は exe と DLL を SHA-256 で照らす。大きさと更新時刻が同じでも、中身の違う DLL の組は使わない', async () => {
   const set = await smallSet();
   try {
