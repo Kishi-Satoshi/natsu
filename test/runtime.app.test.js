@@ -796,6 +796,15 @@ test('認識ヒントで文字起こしが空になり main がヒントを止�
   assert.deepStrictEqual(l.errors.map(fmt), []);
 });
 
+test('モデルが kotoba-whisper で認識ヒントを渡していないときは、辞書欄の下にそう出す（0.1.1）', async () => {
+  const l = await load(APP, { preloadSrc: preloadWith('meetingSkipPending', 'promptInfo'),
+    returns: { promptInfo: () => ({ ok: true, kept: 4, total: 4, over: false, off: true, offReason: 'kotoba' }) } });
+  assert.deepStrictEqual(l.errors.map(fmt), []);
+  const w = l.byId.get('dictWarn');
+  assert.ok(w && !w.hidden);
+  assert.strictEqual(w.textContent, 'いまの文字起こしモデル（kotoba-whisper）には、辞書と業務の言葉を渡していません（渡すと文が抜け落ちやすくなるため）。large-v3-turbo に替えると渡せます');
+});
+
 test('promptInfo の無い古い preload と組んでも、設定画面は生きて注意は出ない', async () => {
   const l = await load(APP);
   assert.deepStrictEqual(l.errors.map(fmt), []);

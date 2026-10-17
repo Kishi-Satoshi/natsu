@@ -7,21 +7,22 @@
 #
 # 実行方法（PowerShell）:
 #   powershell -ExecutionPolicy Bypass -File .\setup-local-engine.ps1
-#   powershell -ExecutionPolicy Bypass -File .\setup-local-engine.ps1 -Model kotoba
+#   powershell -ExecutionPolicy Bypass -File .\setup-local-engine.ps1 -Model kotoba   （kotoba-whisper にするとき）
 #
 # エクスプローラーから起動したとき（右クリックの「PowerShell で実行」やダブルクリック）は、
 # 窓がすぐ閉じないよう、最後とエラーで止まったときに Enter を待ちます。待たせないときは -NoPause。
 #
 # -Model の選択肢:
-#   kotoba (推奨・高速)       … kotoba-whisper v2.0。日本語特化のdistil-large-v3。
-#                               large-v3系の日本語精度のまま数倍高速。約577MB。日本語専用
-#   large-v3-turbo-q5         … 多言語対応の従来モデル。約574MB
+#   large-v3-turbo-q5 (推奨)  … 多言語対応の large-v3-turbo。約574MB。NaTsu の既定
+#   kotoba                    … kotoba-whisper v2.0（日本語特化の distil-large-v3）。約577MB。
+#                               NaTsu の 75 秒ずつの文字起こしでは文の抜け落ちが多い（測ると誤りが
+#                               large-v3-turbo の約 3 倍。速さはほぼ同じ）。短い音声の切り出し向け
 #   small / medium-q5         … さらに軽量（精度は落ちる）
 #
 # Windows PowerShell 5.1 / PowerShell 7 の両方で動作します。
 # =====================================================================
 param(
-    [string]$Model = "kotoba",
+    [string]$Model = "large-v3-turbo-q5",
     [switch]$ForceBinary,
     [switch]$NoPause
 )
@@ -171,7 +172,7 @@ elseif ($Model -eq "medium-q5") {
 }
 else {
     Write-Host "不明なモデル名です: $Model" -ForegroundColor Red
-    Write-Host "指定できる値: kotoba / large-v3-turbo-q5 / small / medium-q5"
+    Write-Host "指定できる値: large-v3-turbo-q5 / kotoba / small / medium-q5"
     Exit-Script 1
 }
 

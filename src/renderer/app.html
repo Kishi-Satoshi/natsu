@@ -577,6 +577,7 @@
             <span class="desc save-msg" id="testMsg"></span>
             <span class="desc save-msg" id="testSumMsg"></span>
           </div>
+          <div class="desc" id="engineNote" hidden></div>
           <details class="adv" id="engineAdv">
             <summary>詳細設定</summary>
             <h3>文字起こし（whisper.cpp・オフライン）</h3>
@@ -590,7 +591,7 @@
             <div class="field">
               <label for="localModelPath">モデルファイル（ggml-*.bin）のパス</label>
               <div class="row">
-                <input type="text" id="localModelPath" placeholder="…\local-engine\ggml-kotoba-whisper-v2.0-q5_0.bin" />
+                <input type="text" id="localModelPath" placeholder="…\local-engine\ggml-large-v3-turbo-q5_0.bin" />
                 <button class="ghost" id="pickModelBtn" type="button">参照…</button>
               </div>
             </div>
@@ -1854,11 +1855,13 @@
     let r;
     try { r = await window.koeApp.promptInfo(); } catch (_) { return; }
     const over = Boolean(r && r.ok !== false && r.over);
-    // 認識ヒントを渡すと文字起こしが空になったので、main がヒントを止めている（0.1.1）
+    // main がいま認識ヒントを渡していない（0.1.1）。kotoba のモデルには渡さない／渡すと空になったので止めた
     const off = Boolean(r && r.ok !== false && r.off);
-    w.textContent = off
-      ? '認識ヒントを渡すと文字起こしが空になったため、いまは辞書と業務の言葉を渡していません（辞書かエンジンの設定を変えると、もう一度試します）'
-      : over ? `辞書が認識ヒントの上限を超えています（先頭から ${Number(r.kept) || 0} 語まで有効。それ以降は渡されません）` : '';
+    const kotoba = off && r.offReason === 'kotoba';
+    w.textContent = kotoba
+      ? 'いまの文字起こしモデル（kotoba-whisper）には、辞書と業務の言葉を渡していません（渡すと文が抜け落ちやすくなるため）。large-v3-turbo に替えると渡せます'
+      : off ? '認識ヒントを渡すと文字起こしが空になったため、いまは辞書と業務の言葉を渡していません（辞書かエンジンの設定を変えると、もう一度試します）'
+        : over ? `辞書が認識ヒントの上限を超えています（先頭から ${Number(r.kept) || 0} 語まで有効。それ以降は渡されません）` : '';
     w.hidden = !(off || over);
   }
 
@@ -1905,6 +1908,9 @@
     // テストの失敗を「正常」で上書きしない
     const why = (s && s.whisper) || lastTestError;
     setEngineState(!why, why);
+    // モデルの勧め（kotoba のときに large-v3-turbo を勧める。0.1.1）
+    const note = $('engineNote');
+    if (note) { note.textContent = (s && s.whisperNote) || ''; note.hidden = !note.textContent; }
   }
   // カードの起動テスト。要約エンジンは起動しない（約 3GB が会議の間ずっと居座る: #58）。
   // 要約エンジンを実際に起動して試すのは、詳細設定の中の［起動テスト］（testSumBtn）

@@ -535,6 +535,19 @@ let promptOffSig = '';
 const promptSig = () => [engineSignature(whisperEng), JSON.stringify(settings.dictionary || []),
   settings.useBuiltinTerms !== false, settings.language].join('|');
 const promptOff = () => promptOffSig !== '' && promptOffSig === promptSig();
+// kotoba-whisper（日本語の distil-large-v3。デコーダが 2 層）には認識ヒントを渡さない。
+// 測った結果（whisper.cpp 1.9.5・-sns・VAD・4 スレッド、TV の会話を 65〜70 秒にまとめた 4 区間）:
+// ヒントあり CER 67%（文の 54% が抜けた）、ヒントなし 57%。長いヒントでは話し声にも空を返す（0.1.0 の「0 区間」）。
+// kotoba は 5 秒前後の短い音声で学習されていて、ヒント付きの学習例は少ない。large-v3-turbo は
+// ヒントの有無で変わらない（どちらも 20%）ので、そちらには今までどおり渡す
+const isKotobaModel = () => /kotoba/i.test(path.basename(settings.localModelPath || ''));
+// 設定のエンジン欄に出す、モデルの勧め。kotoba は同じ区間で large-v3-turbo の 3 倍ほど誤り、速さはほぼ同じ
+// コマンドは文末に札を付けて置く（文の途中に置くと、後ろの語までひと続きのコマンドと読まれる。engineIssueMessage と同じ）。
+// 前の版の setup-local-engine.ps1 は既定が kotoba なので、-Model を必ず付けて示す
+const KOTOBA_NOTE = '文字起こしのモデルが kotoba-whisper です。75 秒ずつの文字起こしでは文の抜け落ちが多いため、'
+  + 'large-v3-turbo に替えることをおすすめします。エンジンを置いたフォルダで下のコマンドを実行し、'
+  + '表示されたモデルのパスを［詳細設定］の「モデルファイルのパス」に貼り付けて保存してください。'
+  + '実行するコマンド: powershell -ExecutionPolicy Bypass -File .\\setup-local-engine.ps1 -Model large-v3-turbo-q5';
 // ヒントなしでのやり直しを省く音の小ささ。VAD が無いと、ほぼ無音の音声をヒントなしで送り直したとき、
 // 作り話（「ご視聴ありがとうございました」など）が返りうる。話し声はふつう -40 dBFS より大きい
 const RETRY_MIN_DBFS = -50;
@@ -550,7 +563,7 @@ async function transcribeLocal(wavBuffer, extraPromptTail, durationMs, opts = {}
   // 待ち続ける（議事録は「破棄」で抜けられる）。喪失よりは待ちを選ぶ。
   const waitMs = Math.min(1800000, Math.max(240000, Math.round(durationMs || 0) * 5 + 60000));
   const deadline = Date.now() + waitMs;
-  const prompt = promptOff() ? '' : buildPrompt(extraPromptTail);
+  const prompt = (isKotobaModel() || promptOff()) ? '' : buildPrompt(extraPromptTail);
   // 認識ヒント（初期プロンプト）付きで空なら、ヒントなしでもう一度だけ送る。
   // kotoba-whisper は長いヒントを渡すと、話し声があっても {"text":""} を返すことがある
   // （既定の言葉を全部載せた 376 バイトで再現。実機で全区間が消えて「0 区間」になった。0.1.1）
@@ -2082,12 +2095,15 @@ function setupIpc() {
       : { ok: false, error: sumEng.lastError || '起動に失敗しました', warning };
   });
   // 設定の「エンジン：正常／要確認」。置き場所のファイルを見るだけで、エンジンは起動しない（要約は約 3GB: #58）
-  ipcMain.handle('engine:status', () => ({ ok: true, whisper: engineCheck(whisperEng), sum: engineCheck(sumEng) }));
+  ipcMain.handle('engine:status', () => ({ ok: true, whisper: engineCheck(whisperEng), sum: engineCheck(sumEng),
+    whisperNote: isKotobaModel() ? KOTOBA_NOTE : '' }));
   // 辞書が初期プロンプトの予算に収まっているか（#23）。kept: 収まった語数、total: 辞書の語数。
   // 尻尾（直前の発言）は付けずに数える（辞書そのものの収まり具合を見せるため）
   ipcMain.handle('prompt:info', () => {
     const r = promptParts('');
-    return { ok: true, kept: r.kept, total: r.total, over: r.over, off: promptOff() };
+    // off: いまは認識ヒントを渡していない。offReason: 'kotoba'（モデルが kotoba）／'empty'（渡すと空になった）
+    const offReason = isKotobaModel() ? 'kotoba' : (promptOff() ? 'empty' : '');
+    return { ok: true, kept: r.kept, total: r.total, over: r.over, off: Boolean(offReason), offReason };
   });
   ipcMain.handle('app:vad-status', () => {
     const p = resolveVadModel();

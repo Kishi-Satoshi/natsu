@@ -239,8 +239,8 @@ test('#58 トレイに「エンジンを停止（メモリを解放）」があ�
 });
 
 // ---------------------------------------------------------------- 「エンジン：正常」（第0a回 R6）
-test('engine:status は engineCheck の結果を返すだけで、エンジンを起動しない', () => {
-  assert.ok(code(main).includes("ipcMain.handle('engine:status', () => ({ ok: true, whisper: engineCheck(whisperEng), sum: engineCheck(sumEng) }));"));
+test('engine:status は engineCheck の結果（とモデルの勧め）を返すだけで、エンジンを起動しない', () => {
+  assert.ok(code(main).includes("ipcMain.handle('engine:status', () => ({ ok: true, whisper: engineCheck(whisperEng), sum: engineCheck(sumEng),\n    whisperNote: isKotobaModel() ? KOTOBA_NOTE : '' }));"));
   assert.ok(preload.includes("  engineStatus: () => ipcRenderer.invoke('engine:status'),"));
 });
 

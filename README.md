@@ -111,9 +111,11 @@ npm start
 
 ### 文字起こしエンジン（必須）
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\setup-local-engine.ps1 -Model kotoba
+powershell -ExecutionPolicy Bypass -File .\setup-local-engine.ps1
 ```
-日本語特化の kotoba-whisper（高速）と VADモデルを取得します。
+文字起こしのモデル large-v3-turbo と VADモデルを取得します。
+（`-Model kotoba` で日本語特化の kotoba-whisper も選べますが、NaTsu の 75 秒ずつの文字起こしでは
+文の抜け落ちが多く、誤りが large-v3-turbo の約 3 倍でした。速さはほぼ同じです。）
 表示されたパスを [設定] → [エンジン] → [詳細設定] の「文字起こし」に貼り付け → 起動テスト。
 
 ### 要約エンジン（議事録の自動要約に必要）
@@ -212,9 +214,10 @@ npm start
 
 ## 高速化
 
-1. モデルを kotoba-whisper にする（最も効果大・日本語専用）
-2. スレッド数を上げる（既定は論理コア数 − 2）
-3. VADを有効にする（無音を除くため処理量が減る）
+1. スレッド数を上げる（既定は論理コア数 − 2）
+2. VADを有効にする（無音を除くため処理量が減る）
+3. 小さいモデル（`-Model small` / `medium-q5`）にする（精度は落ちる）。
+   kotoba-whisper は速さがほぼ変わらず、NaTsu では文の抜け落ちが多いため勧めません
 
 ## 更新の配布（アプリ内アップデート）
 

@@ -35,7 +35,7 @@ function block(s, head) {
 
 const PROMPT = 'Read-Host "Enter キーを押すと閉じます"';
 const SCRIPTS = [
-  { file: 'setup-local-engine.ps1', params: ['[string]$Model = "kotoba"', '[switch]$ForceBinary'], done: 'セットアップ完了' },
+  { file: 'setup-local-engine.ps1', params: ['[string]$Model = "large-v3-turbo-q5"', '[switch]$ForceBinary'], done: 'セットアップ完了' },
   { file: 'setup-summarizer.ps1', params: ['[string]$Model = "3b"', '[string]$Tag = ""'], done: 'セットアップ完了' },
   { file: 'get-installer.ps1', params: ['[string]$Version = ""', '[string]$OutDir = "."'], done: '取得完了' },
 ];

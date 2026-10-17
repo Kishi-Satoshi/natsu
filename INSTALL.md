@@ -89,7 +89,7 @@ mkdir "$env:LOCALAPPDATA\natsu-engine"
 powershell -ExecutionPolicy Bypass -File .\setup-local-engine.ps1
 ```
 
-whisper.cpp 本体と、日本語特化モデル kotoba-whisper（約 577MB）、
+whisper.cpp 本体と、文字起こしのモデル large-v3-turbo（約 574MB）、
 VADモデル（約 0.9MB）を取得します。切断されても自動で続きから再開します。
 
 終わると画面に **貼り付ける2つのパス** が表示されます。これを控えてください。

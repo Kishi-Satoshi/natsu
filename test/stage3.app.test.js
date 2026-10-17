@@ -277,8 +277,24 @@ test('設定: エンジンの細かい設定は閉じた「詳細設定」の中
   const card = adv.closest('.card');
   const desc = (el) => el.children.flatMap((c) => [c, ...desc(c)]);   // simdom は [id] のセレクタを解さない（simdom.js の parseSimple）
   const outside = desc(card).filter((e) => e.id && !e.closest('#engineAdv')).map((e) => e.id);
-  assert.deepStrictEqual(outside.sort(), ['engineState', 'testBtn', 'testMsg', 'testSumMsg']);
+  // engineNote はモデルの勧め（kotoba のとき。0.1.1）。注意の一つ
+  assert.deepStrictEqual(outside.sort(), ['engineNote', 'engineState', 'testBtn', 'testMsg', 'testSumMsg']);
   assert.ok(card.querySelectorAll('.lockNote').some((n) => !n.closest('#engineAdv')), '記録中の理由が閉じた中にしか無い');
+});
+
+test('engineStatus がモデルの勧め（whisperNote）を返すと、エンジン欄の外に出す。無ければ隠す（0.1.1）', async () => {
+  let st = { ok: true, whisper: '', sum: '', whisperNote: '文字起こしのモデルが kotoba-whisper です。' };
+  const l = await load(APP, { returns: { engineStatus: () => st } });
+  const note = l.byId.get('engineNote');
+  assert.ok(note && !note.hidden, '勧めが出ない');
+  assert.strictEqual(note.textContent, '文字起こしのモデルが kotoba-whisper です。');
+  assert.ok(!note.closest('#engineAdv'), '閉じた詳細設定の中にある');
+  assert.strictEqual(l.byId.get('engineState').textContent, 'エンジン：正常', '勧めで「要確認」にしてはいけない');
+  st = { ok: true, whisper: '', sum: '' };
+  l.byId.get('testBtn').onclick && await l.byId.get('testBtn').onclick();
+  await l.drain();
+  assert.ok(note.hidden, '勧めが無いのに残る');
+  assert.deepStrictEqual(l.errors.map((e) => String(e)), []);
 });
 
 // ================= 設定: 「エンジン：正常／要確認」と起動テスト（第0a回 R6） =================

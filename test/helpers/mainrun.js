@@ -9,6 +9,7 @@
 //     --silent      … 区間の音声を無音にする（既定は 220Hz の音）
 //     --vad         … VAD のモデル（偽物）をモデルの隣に置く（エンジンが --vad 付きで起動する）
 //     --segs=N      … 送る区間の数（既定 2。1 つ目は 3 秒、2 つ目からは 2 秒）
+//     --kotoba      … 偽のモデルの名前を kotoba-whisper のものにする（認識ヒントを渡さない場面）
 // 本物のエンジンで試すときは NATSU_E2E_EXE・NATSU_E2E_MODEL・NATSU_E2E_WAVS（; 区切り）を渡す。
 // 終わるときは、起動したエンジンを止め、一時フォルダを消す（npm test のたびに残さない）。
 
@@ -27,6 +28,7 @@ const runTest = flags.includes('--test');
 const testDuring = flags.includes('--test-during');
 const silent = flags.includes('--silent');
 const withVad = flags.includes('--vad');
+const kotoba = flags.includes('--kotoba');
 const segCount = Number((flags.find((f) => f.startsWith('--segs=')) || '--segs=2').slice(7)) || 2;
 
 const freePort = () => new Promise((resolve, reject) => {
@@ -82,7 +84,7 @@ process.on('exit', () => {
   // 先頭だけは実際に書く（全部が疎だと blocks が 0 になり、OneDrive のプレースホルダと見なされる）
   let model = process.env.NATSU_E2E_MODEL;
   if (!model) {
-    model = path.join(engDir, 'ggml-fake.bin');
+    model = path.join(engDir, kotoba ? 'ggml-kotoba-whisper-v2.0-q5_0.bin' : 'ggml-fake.bin');
     const fd = fs.openSync(model, 'w');
     fs.writeSync(fd, Buffer.alloc(8192, 1));
     fs.ftruncateSync(fd, 51 * 1024 * 1024);
@@ -196,6 +198,7 @@ process.on('exit', () => {
   out.requests = fs.readFileSync(flog, 'utf8').split('\n').filter((l) => l.startsWith('inference'));
   out.spawnArgs = (fs.readFileSync(flog, 'utf8').split('\n').find((l) => l.startsWith('spawn ')) || '').slice(6);
   out.promptInfo = await handlers['prompt:info']();
+  out.engineStatus = await handlers['engine:status']();
   process.stdout.write(`\n${JSON.stringify(out)}\n`);
   process.exit(0);
 })().catch((e) => { process.stderr.write(`mainrun: ${e.stack || e}\n`); process.exit(1); });

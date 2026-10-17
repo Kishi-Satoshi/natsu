@@ -45,6 +45,7 @@ const SCENES = {
   probeBadJson: ['probe-badjson', '--test'],
   probeDrop: ['probe-drop', '--test'],
   busy: ['slow', '--test-during'],
+  kotoba: ['prompt-empty', '--kotoba'],
 };
 const results = {};
 const ready = Promise.all(Object.entries(SCENES).map(async ([k, a]) => { results[k] = await run(a); }));
@@ -160,4 +161,21 @@ test('記録や文字起こしの最中は、起動テストで試しの文字�
   assert.match(r.testDuring.info, /記録や文字起こしの最中のため、試しの文字起こしは省きました/);
   assert.ok(!r.requests.some((l) => /probe=true/.test(l)), JSON.stringify(r.requests));
   assert.strictEqual(r.pages[0].segments.length, 2);
+});
+
+test('モデルが kotoba-whisper なら認識ヒントを渡さず（1 回だけ送る）、設定で large-v3-turbo を勧める', async () => {
+  await ready;
+  const r = results.kotoba;
+  // ヒント付きなら空を返す偽エンジンでも、最初からヒントなしなので区間は残り、やり直しも起きない
+  assert.deepStrictEqual(prompted(r), [false, false], JSON.stringify(r.requests));
+  assert.ok(meetingReqs(r).every((l) => /carry= /.test(l) && /nc=true/.test(l)), JSON.stringify(r.requests));
+  assert.strictEqual(r.pages[0].segments.length, 2);
+  assert.ok(!r.engineLog.some((l) => /^文字起こし:/.test(l)), JSON.stringify(r.engineLog));
+  assert.deepStrictEqual([r.promptInfo.off, r.promptInfo.offReason], [true, 'kotoba']);
+  assert.match(r.engineStatus.whisperNote, /kotoba-whisper/);
+  assert.match(r.engineStatus.whisperNote, /large-v3-turbo に替えることをおすすめします/);
+  // kotoba でなければ勧めない・ヒントを止めた理由は 'empty'
+  assert.strictEqual(results.text.engineStatus.whisperNote, '');
+  assert.strictEqual(results.text.promptInfo.offReason, '');
+  assert.strictEqual(results.promptEmpty.promptInfo.offReason, 'empty');
 });
