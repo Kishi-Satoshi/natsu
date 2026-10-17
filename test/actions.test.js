@@ -309,7 +309,7 @@ test('「再来月末中に」「再来週末中に」の期限も「再」を�
 });
 
 // ================= 担当・期限の裏付け（0.1.2） =================
-// 実機で、発言に無い担当「石川」と期限が要約に付き、画面に担当と期限の札が出た。推測で埋めないので外す
+// 実機で、発言に無い担当「鈴木」と期限が要約に付き、画面に担当と期限の札が出た。推測で埋めないので外す
 const SRC = 'インデックスの件は山田さんに実行計画を見てもらいます。来週金曜までにお願いします。'
   + '佐藤さんに今月末までに改訂案を作ってもらえますか。リリースは11月15日で確定です。あさってまでに連絡します。';
 
@@ -334,7 +334,7 @@ test('assigneeGrounded: 敬称を外した名前が発言にあれば通す', ()
   assert.strictEqual(assigneeGrounded('山田', SRC), true);
   assert.strictEqual(assigneeGrounded('佐藤さん', SRC), true);
   assert.strictEqual(assigneeGrounded('山田部長', SRC), true);
-  assert.strictEqual(assigneeGrounded('石川', SRC), false);
+  assert.strictEqual(assigneeGrounded('鈴木', SRC), false);
   assert.strictEqual(assigneeGrounded('', SRC), false);
 });
 
@@ -342,9 +342,9 @@ test('groundActionFields: 発言に無い担当・期限だけを外し、本文
   const blocks = [
     { type: 'heading', text: 'アクションアイテム' },
     { type: 'todo', text: '実行計画を確認する（担当: 山田 / 期限: 来週金曜）' },
-    { type: 'todo', text: '資料を配布する（担当: 石川 / 期限: 10/23）' },
+    { type: 'todo', text: '資料を配布する（担当: 鈴木 / 期限: 10/23）' },
     { type: 'todo', text: '改訂案を作る（担当: 佐藤 / 期限: 火曜日）' },
-    { type: 'bullet', text: '担当: 石川（todo でない行は触らない）' },
+    { type: 'bullet', text: '担当: 鈴木（todo でない行は触らない）' },
   ];
   const before = enrichActionBlocks(blocks, BASE);
   assert.deepStrictEqual(before, { total: 3, withAssignee: 3, withDue: 3 });
@@ -358,5 +358,53 @@ test('groundActionFields: 発言に無い担当・期限だけを外し、本文
     ['改訂案を作る', '佐藤', '', ''],
   ]);
   assert.ok(todos.every((b) => b.dueApprox === false || b.due), '外した期限に「おおよそ」の印が残っている');
-  assert.strictEqual(blocks[4].text, '担当: 石川（todo でない行は触らない）');
+  assert.strictEqual(blocks[4].text, '担当: 鈴木（todo でない行は触らない）');
 });
+
+test('dueGrounded: 漢数字の日付（二十三日・十月二十三日・一週間後）も照らす。「二三日」（2〜3 日）は 23 日にしない', () => {
+  assert.strictEqual(dueGrounded('1週間後', '一週間後までに見ておきます'), true);
+  assert.strictEqual(dueGrounded('23日', '二十三日までに出してください'), true);
+  assert.strictEqual(dueGrounded('10/23', 'じゃあ十月二十三日までにお願いします'), true);
+  assert.strictEqual(dueGrounded('3日以内', '三日以内に'), true);
+  assert.strictEqual(dueGrounded('10日', '十日までに'), true);
+  assert.strictEqual(dueGrounded('20日', '二十日までに'), true);
+  assert.strictEqual(dueGrounded('23日', '二三日中に'), false);
+  assert.strictEqual(dueGrounded('3日', '二三日中に'), false, '「二三日」の「三日」だけを 3 日にしない');
+  // 漢数字を含む名前は両辺とも同じに変わるので、そのまま照らせる
+  assert.strictEqual(assigneeGrounded('五十嵐', '五十嵐さんに頼みます'), true);
+});
+
+test('dueGrounded: 数字は前後に数字が続かないところだけを数える（作り話の「3日」が「23日」で通らない）', () => {
+  for (const [raw, src] of [['3日', '資料は23日に出します'], ['1日', '11日の会議で'], ['1/2', '1/25のリリース'],
+    ['1月3日', '11月3日は祝日'], ['2/3', '12/3の件']]) assert.strictEqual(dueGrounded(raw, src), false, `${raw} / ${src}`);
+  // 時刻が続いても日付として読める
+  assert.strictEqual(dueGrounded('10/23 17:00', '10月23日の17時までに'), true);
+});
+
+test('dueGrounded: 書かれた年は発言にあるときだけ通す（会議の日付はモデルに渡していない）', () => {
+  assert.strictEqual(dueGrounded('2023年10月23日', '10月23日までに'), false);
+  assert.strictEqual(dueGrounded('2026/10/23', '2026年10月23日までに'), true);
+  assert.strictEqual(dueGrounded('2026年10月23日', '2026年10月23日までに'), true);
+  assert.strictEqual(dueGrounded('2026年度末', '年度末までに'), true, '「年度」は年として扱わない');
+});
+
+test('dueGrounded: 「月末まで」は今月末、「週末まで」は今週末として照らす。「11月末」は月ごと照らす。「次回」の言い換えも通す', () => {
+  assert.strictEqual(dueGrounded('今月末', '月末までにお願いします'), true);
+  assert.strictEqual(dueGrounded('今週末', '週末までに'), true);
+  assert.strictEqual(dueGrounded('来月末', '月末までにお願いします'), false);
+  assert.strictEqual(dueGrounded('11月末', '今月末までに'), false);
+  assert.strictEqual(dueGrounded('11月末', '11月末までに'), true);
+  assert.strictEqual(dueGrounded('次回会議まで', '次回までにお願いします'), true);
+  assert.strictEqual(dueGrounded('次の定例', '次回までに'), true);
+});
+
+test('assigneeGrounded: 複数の担当は一人ずつ照らし、全員が発言に出てくれば通す', () => {
+  const src = '見積もりは山田さんと佐藤さんで詰めておいてください';
+  for (const n of ['山田、佐藤', '山田・佐藤', '山田/佐藤', '山田さん、佐藤さん']) assert.strictEqual(assigneeGrounded(n, src), true, n);
+  assert.strictEqual(assigneeGrounded('山田、鈴木', src), false, '一人でも発言に無ければ外す');
+  const blocks = [{ type: 'todo', text: '見積もりを詰める（担当: 山田、佐藤 / 期限: 来週金曜）' }];
+  enrichActionBlocks(blocks, BASE);
+  groundActionFields(blocks, `${src}。来週金曜までに。`);
+  assert.strictEqual(blocks[0].assignee, '山田、佐藤');
+});
+

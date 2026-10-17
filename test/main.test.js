@@ -940,3 +940,20 @@ test('mergeSummaryType: 要約の途中で手で選んだ種類は残し、要�
   assert.deepStrictEqual(mergeSummaryType({ meetingType: 'standup', typeAuto: false }, { meetingType: 'standup', typeAuto: true }),
     { meetingType: 'standup', typeAuto: false, changed: false });
 });
+
+test('memoEvidence: 要約タイプのアジェンダの雛形の行は、担当・期限の裏付けに使わない（自分で書いた行は使う）', () => {
+  const { memoEvidence } = require('../src/mainlib');
+  const mtype = require('../src/meetingType');
+  const types = mtype.listTypes();
+  const agenda = mtype.getAgenda('standup');
+  assert.ok(agenda.includes('次回までのアクション'), '雛形が想定と違う（テストを見直す）');
+  assert.strictEqual(memoEvidence(agenda, types).trim(), '');
+  assert.strictEqual(memoEvidence(`${agenda}\n山田さんが次回までに確認`, types).trim(), '山田さんが次回までに確認');
+  assert.strictEqual(memoEvidence('', types), '');
+  assert.strictEqual(memoEvidence(undefined, types), '');
+  // 雛形の行だけでは「期限: 次回」を通さない
+  const { dueGrounded } = require('../src/actions');
+  assert.strictEqual(dueGrounded('次回まで', memoEvidence(agenda, types)), false);
+  assert.strictEqual(dueGrounded('次回まで', agenda), true, '除かないと通ってしまう（このテストの前提）');
+});
+

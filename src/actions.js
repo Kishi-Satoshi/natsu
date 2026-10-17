@@ -264,31 +264,49 @@ function enrichActionBlocks(blocks, base) {
 
 // ---------------------------------------------------------------- 担当・期限の裏付け
 // 要約のモデル（手元の 3B など）は、指示に反して文字起こしに無い担当・期限を書くことがある
-// （実機: 発言に無い「石川」「10/23」が付き、画面に担当と期限の札が出た）。担当・期限は
+// （実機: 発言に無い担当と期限が付き、画面に担当と期限の札が出た）。担当・期限は
 // 推測で埋めないので、文字起こしとメモに出てこないものは外す。本文（何をするか）は残し、
 // その裏付けは出典の照合（「根拠なし」の札）に任せる。
 
-// 比べる前にそろえる: 全角英数を半角に、空白を除く
-const fold = (s) => String(s || '').normalize('NFKC').replace(/\s+/g, '');
+// 漢数字（月・日・週・か月の直前だけ）を算用数字に。whisper は「二十三日」「一週間」と書くことがある。
+// 前に別の漢数字があるもの（「二三日」= 2〜3 日）は変えない。名前（五十嵐・一ノ瀬）は両辺とも同じに変わるので害は無い
+const KNUM = { 〇: 0, 一: 1, 二: 2, 三: 3, 四: 4, 五: 5, 六: 6, 七: 7, 八: 8, 九: 9 };
+function kanjiNum(k) {
+  const i = k.indexOf('十');
+  if (i < 0) return KNUM[k];
+  return (i === 0 ? 1 : KNUM[k[i - 1]]) * 10 + (i === k.length - 1 ? 0 : KNUM[k[i + 1]]);
+}
+
+// 比べる前にそろえる: 全角英数を半角に、漢数字の日付を算用数字に、空白を除く。
+// 数字と数字の間の空白は区切りとして残す（「10/23 17:00」が「10/2317:00」になって日付が読めなくならないように）
+const fold = (s) => String(s || '').normalize('NFKC')
+  .replace(/(?<![〇一二三四五六七八九十百])(?:[〇一二三四五六七八九]?十[一二三四五六七八九]?|[〇一二三四五六七八九])(?=[月日週]|[かヶカケ]月)/g,
+    (m) => String(kanjiNum(m)))
+  .replace(/(\d)\s+(?=\d)/g, '$1|')
+  .replace(/\s+/g, '');
 
 // 期限の言い方のうち、言い換えても残る芯（長いものから先に見る）。同じ組の言い方は、どれで書かれていても通す
 const DUE_WORDS = [['再来週'], ['今週末'], ['来週末'], ['今週'], ['来週'], ['週明け'], ['今月末'], ['来月末'], ['月末'],
   ['今月'], ['来月'], ['明後日', 'あさって'], ['明日', 'あした'], ['本日', '今日'], ['年内'], ['年度末'], ['期末'],
-  ['月内'], ['週内'], ['月初']];
+  ['月内'], ['週内'], ['月初'], ['次回', '次の会議', '次の定例', '次のミーティング']];
 
 // 期限の文字列から、文字起こしと突き合わせる芯を取り出す。
 // 返り値の要素は「どれか一つでも source にあれば足りる言い方」の配列
 function dueAnchors(raw) {
   let s = fold(raw);
   const out = [];
+  // 年: 会議の日付はモデルに渡していないので、書かれた年は発言にあるときだけ通す（「2023年10月23日」の作り話を外す）
+  s = s.replace(/(?<!\d)(\d{4})(?:年(?!度)|(?=\/\d))\/?/g, (_m, y) => { out.push([`${y}年`, `${y}/`, `${y}-`]); return ' '; });
   // 月日: 「10/23」「10月23日」はどちらの書き方でも通す
-  s = s.replace(/(\d{1,2})\s*(?:\/|月)\s*(\d{1,2})日?/g, (_m, mo, d) => {
+  s = s.replace(/(?<!\d)(\d{1,2})(?:\/|月)(\d{1,2})(?!\d)日?/g, (_m, mo, d) => {
     out.push([`${Number(mo)}月${Number(d)}日`, `${Number(mo)}/${Number(d)}`]);
     return ' ';
   });
+  // 月末: 「11月末」は月ごと照らす（「月末」だけを芯にすると、別の月の月末で通ってしまう）
+  s = s.replace(/(?<!\d)(\d{1,2})月末/g, (_m, mo) => { out.push([`${Number(mo)}月末`]); return ' '; });
   // 日だけ: 「23日」
-  s = s.replace(/(\d{1,2})日/g, (_m, d) => { out.push([`${Number(d)}日`]); return ' '; });
-  // 曜日: 「金曜」「金曜日」「（金）」
+  s = s.replace(/(?<!\d)(\d{1,2})日/g, (_m, d) => { out.push([`${Number(d)}日`]); return ' '; });
+  // 曜日: 「金曜」「金曜日」
   s = s.replace(/([月火水木金土日])曜日?/g, (_m, w) => { out.push([`${w}曜`]); return ' '; });
   for (const group of DUE_WORDS) {
     for (const w of group) {
@@ -298,18 +316,32 @@ function dueAnchors(raw) {
   return out;
 }
 
-// 期限が文字起こし（とメモ）で裏付けられるか。芯が取れない言い方は、そのままの文字列で探す
-function dueGrounded(raw, source) {
-  const src = fold(source);
-  const anchors = dueAnchors(raw);
-  if (!anchors.length) return src.includes(fold(raw));
-  return anchors.every((alts) => alts.some((a) => src.includes(fold(a))));
+// 芯が source にあるか。数字で始まる・終わる芯は、前後に数字が続かないところだけを数える
+// （作り話の「3日」が、発言の「23日」で通らないように）
+const escRe = (a) => a.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+function anchorFound(src, a) {
+  const f = fold(a);
+  return new RegExp(`${/^\d/.test(f) ? '(?<!\\d)' : ''}${escRe(f)}${/\d$/.test(f) ? '(?!\\d)' : ''}`).test(src);
 }
 
-// 担当（敬称を外した名前）が文字起こし（とメモ）に出てくるか
+// 期限が文字起こし（とメモ）で裏付けられるか。芯が取れない言い方は、そのままの文字列で探す。
+// 「月末まで」「週末まで」は、今月末・今週末と同じ日になる（parseDue）ので、そう読み替えて照らす
+function dueGrounded(raw, source) {
+  const src = fold(source)
+    .replace(/(?<![今来先翌前毎\d])月末/g, '今月末')
+    .replace(/(?<![今来先翌前毎])週末/g, '今週末');
+  const anchors = dueAnchors(raw);
+  if (!anchors.length) return src.includes(fold(raw));
+  return anchors.every((alts) => alts.some((a) => anchorFound(src, a)));
+}
+
+// 担当（敬称を外した名前）が文字起こし（とメモ）に出てくるか。
+// 「山田、佐藤」「山田・佐藤」のような複数の担当は、一人ずつ照らして全員が出てくれば通す
+// （「と」では割らない。「さとう」のような名前が割れる）
 function assigneeGrounded(name, source) {
-  const n = fold(cleanName(name));
-  return Boolean(n) && fold(source).includes(n);
+  const src = fold(source);
+  const parts = String(name || '').split(/[、,，・/／&＆]+/).map((p) => fold(cleanName(p))).filter(Boolean);
+  return parts.length > 0 && parts.every((n) => src.includes(n));
 }
 
 /**

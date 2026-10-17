@@ -696,6 +696,13 @@ function mergeSummaryType(saved, used) {
   return { meetingType: used.meetingType, typeAuto: used.typeAuto, changed: false };
 }
 
+// 担当・期限の裏付けに使うメモ。要約タイプを選んだときに入るアジェンダの雛形（types[].agenda）の行は除く。
+// 雛形は利用者の発言でもメモでもなく、「次回までのアクション」などが作り話の期限を通してしまう
+function memoEvidence(memo, types) {
+  const preset = new Set((types || []).flatMap((t) => String(t.agenda || '').split('\n').map((l) => l.trim()).filter(Boolean)));
+  return String(memo || '').split('\n').filter((l) => !preset.has(l.trim())).join('\n');
+}
+
 module.exports = {
   saveIfExists, meetingDurationSec, promptTail,
   registerHotkeys, hotkeyFailureMessage, hotkeyStatus, resolveStartupHotkeys, saveHotkeys,
@@ -706,5 +713,5 @@ module.exports = {
   extractNotes, truncationMessage, buildPromptParts,
   publicSegments, settledSegments, pendingDurationMs, recoverSegments, staleSegbufDirs,
   nextSegmentMs, EtaTracker, skipPendingSegments,
-  estimateTokens, foldNotes, idleEnginesToStop, silentWav, wavLevelDbfs, mergeSummaryType,
+  estimateTokens, foldNotes, idleEnginesToStop, silentWav, wavLevelDbfs, mergeSummaryType, memoEvidence,
 };

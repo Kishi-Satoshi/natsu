@@ -237,8 +237,8 @@ test('ヒントを止めた後で辞書を変えたら、またヒントを渡�
 test('要約が文字起こしに無い担当・期限を書いても、議事録には載せない（発言にある担当・期限は残す）', async () => {
   await ready;
   const p = results.sumGround.pages[0];
-  // 偽の要約は「進捗の確認をまとめる（担当: 山田 / 期限: 来週金曜）」と「資料を配布する（担当: 石川 / 期限: 10/23）」を返す。
-  // 文字起こしは「山田さんが来週金曜までに…」なので、山田・来週金曜は残り、石川・10/23 は外れる
+  // 偽の要約は「進捗の確認をまとめる（担当: 山田 / 期限: 来週金曜）」と「資料を配布する（担当: 鈴木 / 期限: 10/23）」を返す。
+  // 文字起こしは「山田さんが来週金曜までに…」なので、山田・来週金曜は残り、鈴木・10/23 は外れる
   assert.deepStrictEqual(p.todos.map((t) => [t.text, t.assignee, t.dueRaw]), [
     ['進捗の確認をまとめる', '山田', '来週金曜'],
     ['資料を配布する', '', ''],
@@ -248,7 +248,7 @@ test('要約が文字起こしに無い担当・期限を書いても、議事�
   assert.deepStrictEqual(p.actionStat, { total: 2, withAssignee: 1, withDue: 1 });
   assert.ok(results.sumGround.engineLog.includes('要約: 文字起こしに無い担当 1 件・期限 1 件を外しました'), JSON.stringify(results.sumGround.engineLog));
   // engine.log に名前を書かない（1on1・面談の議事録は機微）
-  assert.ok(!results.sumGround.engineLog.some((l) => /石川|山田/.test(l)), JSON.stringify(results.sumGround.engineLog));
+  assert.ok(!results.sumGround.engineLog.some((l) => /鈴木|山田/.test(l)), JSON.stringify(results.sumGround.engineLog));
 });
 
 test('要約の途中で会議タイプを手で選び直したら、その選択を残し、作り直しを勧める', async () => {

@@ -43,7 +43,7 @@ const {
   extractNotes, truncationMessage, buildPromptParts,
   publicSegments, settledSegments, pendingDurationMs, recoverSegments, staleSegbufDirs, nextSegmentMs, EtaTracker,
   skipPendingSegments, restoreAfterPaste,
-  estimateTokens, foldNotes, idleEnginesToStop, silentWav, wavLevelDbfs, mergeSummaryType,
+  estimateTokens, foldNotes, idleEnginesToStop, silentWav, wavLevelDbfs, mergeSummaryType, memoEvidence,
 } = require('./mainlib');
 
 // package.json の build.appId の写し。配る package.json から build は消えるので、ここに持つ
@@ -1714,7 +1714,7 @@ async function doRunSummary(pageId) {
     // 判定材料が無いときは「一般・その他」（自動判定の答えのまま）。0.1.1 までは「定例・進捗報告」に
     // していたが、定例の型（担当・案件ごとの報告、担当・期限つきのアクション）に合わせようとして、
     // 手元の小さいモデルが発言に無い担当と期限を作った（実機。一般・その他で作り直すと出なかった）。
-    // 定例らしい言葉（朝会・定例・週次など）があれば、今までどおり自動で定例になる
+    // タイトルに定例らしい言葉（朝会・定例・週次など）があれば（本文だけなら 5 語以上）、今までどおり自動で定例になる
     page.meetingType = autoType;
     page.typeAuto = true;
   }
@@ -1742,7 +1742,9 @@ async function doRunSummary(pageId) {
     enrichActionBlocks(blocks, new Date(page.createdAt));
     // 文字起こしとメモに出てこない担当・期限は外す（推測で埋めない。モデルが指示に反して書くことがある）。
     // engine.log には数だけを書く（名前は機微。engine.log は不具合報告に添付されうる）
-    const grounded = groundActionFields(blocks, `${plain}\n${page.memo || ''}`);
+    // メモのうち、要約タイプを選んだときに入るアジェンダの雛形の行は裏付けにしない（「次回までのアクション」で
+    // 作り話の「期限: 次回」が通ってしまう）。mainlib.memoEvidence
+    const grounded = groundActionFields(blocks, `${plain}\n${memoEvidence(page.memo, mtype.listTypes())}`);
     const actStat = grounded.stat;
     if (grounded.droppedAssignee || grounded.droppedDue) {
       engineLog(`要約: 文字起こしに無い担当 ${grounded.droppedAssignee} 件・期限 ${grounded.droppedDue} 件を外しました`);

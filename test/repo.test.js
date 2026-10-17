@@ -1231,3 +1231,12 @@ test('whisper のバイナリはリリース一覧から探す（固定URLは 40
   assert.match(s, /Find-WinAsset|Find-WhisperAsset/, '資産を探す関数が無い');
   assert.match(s, /v1\.8\.0/, '見つからないときの既知の版に落ちていない');
 });
+
+test('要約の担当・期限の裏付けは、文字起こしと、アジェンダの雛形を除いたメモで照らす（0.1.2）', () => {
+  const run = fnBody(code(main), 'async function doRunSummary(', '\n}\n');
+  assert.ok(run.includes('groundActionFields(blocks, `${plain}\\n${memoEvidence(page.memo, mtype.listTypes())}`)'),
+    '裏付けに雛形入りのメモをそのまま渡している');
+  assert.ok(run.indexOf('enrichActionBlocks(blocks') < run.indexOf('groundActionFields(blocks'), '担当・期限を抜く前に照らしている');
+  assert.ok(run.indexOf('groundActionFields(blocks') < run.indexOf('attachAcross(blocks'), '出典の照合の後に照らしている（外した担当名で照合がぶれる）');
+});
+

@@ -285,7 +285,7 @@ test('3つの発言をまとめた要点に3つ全ての出典が付き、節が
 });
 
 test('要約が文字起こしに無い担当・期限を書いても外れる。発言にある担当・期限は残る（0.1.2）', () => {
-  const md = `${STANDUP_SUMMARY_MD}\n- [ ] 温泉の持ち込み計画をまとめる（担当: 石川 / 期限: 火曜日）`;
+  const md = `${STANDUP_SUMMARY_MD}\n- [ ] 温泉の持ち込み計画をまとめる（担当: 鈴木 / 期限: 火曜日）`;
   const { blocks, actionStat } = runPipeline(md, STANDUP_SEGMENTS, BASE);
   const todos = blocks.filter((b) => b.type === 'todo');
   const fake = todos.find((b) => b.text.startsWith('温泉の持ち込み計画'));
