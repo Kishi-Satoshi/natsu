@@ -19,6 +19,13 @@
  *  - recordInstalled    installed.json の items[ピンの SHA-256] に、置いたものの記録を書く
  *  - verifyCandidates   使う前に、候補の exe と DLL を SHA-256 で、モデルと VAD を大きさと更新時刻で照らす（RF3）
  *
+ * その3（Task 12b）: 取り込みの係。
+ *  - makeRunner         5 つの項目を MANIFEST の順に取り、組がそろったら知らせる。start はすぐ返り、取り込みは裏で進む。
+ *                       記録中（hold）は止めて待ち、待てば直る失敗（回線が切れた等）はあきらめずに待って続け（RF14）、
+ *                       消された項目は同じ起動の中で1回だけ取り直す（2回目は defender で止める。RF3）。
+ *                       起動のときの自動の開始は、大きな取り込み直しを始めない（押されるまで待つ。RF13）
+ *  - setActive          installed.json の active[group] に、今のピンのその組の SHA-256 の並びを書く（main が切り替えたとき）
+ *
  * installed.json の形:
  *   { schema: 1, consent, userPaused,
  *     items: { [sha256]: { id, role, place, size, mtimeMs, files?: [{ name, size, mtimeMs, sha256 }] } },
@@ -40,7 +47,7 @@ const os = require('os');
 const path = require('path');
 const crypto = require('crypto');
 const { hostOf } = require('./engine-manifest');
-const { askIt, fetchErrorMessage } = require('./engine-fetch');
+const { askIt, fetchErrorMessage, isTransient, fetchFile: fetchFileDefault } = require('./engine-fetch');
 const { listZip, readEntry } = require('./zipread');
 
 const GROUPS = ['whisper', 'sum'];
@@ -568,5 +575,456 @@ function statusOf({ home, manifest, plan = null, candidates = null, runner = nul
   };
 }
 
+// ---------------------------------------------------------------- その3: 取り込みの係（Task 12b）
+
+const SHA_FILE = /^([0-9a-f]{64})\.(part|json|zip)$/i;   // .download の中の、ピンの SHA-256 の名前のファイル
+const WAIT_TICK_MS = 1000;                                // 待ちは 1 秒ずつ（一時停止・［今すぐ試す］・回線の戻りをすぐ拾う）
+const SPEED_WINDOW_MS = 10000;                            // 速さは直近 10 秒で測る
+const PAUSED = 'paused';
+const placeOf = (it) => (it.kind === 'zip' ? it.dir : it.dest);
+const namesIn = async (d) => { try { return await fs.promises.readdir(d); } catch (_) { return []; } };
+const exists = async (p) => { try { await fs.promises.lstat(p); return true; } catch (_) { return false; } };
+
+/** 本当のパスを、画面に出す形（%LOCALAPPDATA%\natsu\engine\…。利用者名を出さない）にする。root の外は名前だけ。 */
+function shownPathOf(root, file) {
+  const rel = root && file ? path.relative(root, String(file)) : '';
+  if (!rel || rel.startsWith('..') || path.isAbsolute(rel)) return file ? path.basename(String(file)) : '';
+  return `${SHOWN_ROOT}\\${rel.split(/[\\/]+/).join('\\')}`;
+}
+
+/**
+ * installed.json の active[group] に、今のピンのその組の SHA-256 の並びを書く → 書いた active。
+ * main が取り込んだ組へ切り替えたときに呼ぶ（Task 14）。前の組は、ここで書き替わるまで使い続けられる（RF13）。
+ */
+function setActive(home, manifest, group) {
+  if (!GROUPS.includes(group)) throw new TypeError(`setActive: 組の名前が違います（${group}）`);
+  const root = home && home.root;
+  if (!root) throw installError('hash', '記録する先が分からない');
+  const file = path.join(root, 'installed.json');
+  const inst = readInstalled(file);
+  const shas = manifest.items.filter((i) => i.group === group).map((i) => i.sha256);
+  inst.active = { ...inst.active, [group]: shas.length ? shas : null };
+  writeInstalled(file, inst);
+  return inst.active;
+}
+
+/**
+ * 取り込みの係 → { start(opts), done(), pause(why), status(), running() }。
+ *  deps: { home, manifest, request, fetchFile, fetchOpts, statfs, sleep, now, log, onProgress, onGroupReady, onState,
+ *          hold, isManual, isOnline, waitMs, holdPollMs, progressMs, autoUpdateMaxBytes, userAgent }
+ *    request は net.request と同じ形（本番は (o) => electronNet.request(o)。この係は Electron を読み込まない）。
+ *    fetchOpts は fetchFile にそのまま足す（テストは requireHttps: false と短い時計）。
+ *    sleep は待ち（試し直し・待っている間・記録中の見張り）。省けば本物の時計。
+ *  status() は statusOf の写しに、今の項目のバイト数 done: { [id]: bytes } を足したもの
+ *  （main が statusOf の runner にそのまま渡せる形。state は running・waiting・held・paused・error を係が決め、
+ *   止まっているときは statusOf が ready・update・partial・missing を決める）。
+ *  onState(status) は状態が変わるたびに、onProgress(status) は progressMs に1回まで（now() で測る）。
+ *  状態が変わったときは onProgress にも必ず渡す（画面は進み具合の知らせだけを聞くので、held・waiting・paused・error を
+ *  すぐ出せるように。仕事の始めと終わりも状態の変わり目なので、最初と最後は必ず渡る）。
+ */
+function makeRunner(deps = {}) {
+  const {
+    home, manifest, request, fetchFile = fetchFileDefault, fetchOpts = {}, statfs = fs.promises.statfs, sleep = sleepDefault,
+    now = Date.now, log = () => {}, onProgress = () => {}, onGroupReady = () => {}, onState = () => {},
+    hold = () => false, isManual = () => false, isOnline = () => true,
+    waitMs = 60000, holdPollMs = 5000, progressMs = 250, autoUpdateMaxBytes = 100e6, userAgent,
+  } = deps;
+  const root = (home && home.supported && home.root) || null;
+  const installedFile = root ? path.join(root, 'installed.json') : null;
+  const dlDir = root ? path.join(root, '.download') : null;
+  const repaired = new Set();                 // この起動の中で取り直した項目（同じ項目は2回直さない。RF3）
+  let job = null;                             // 今の仕事（動いていなければ null）
+  let snap = { state: null, error: null };    // 係の状態。null は止まっている（済んだ・何もしていない）
+  let lastFree = null;                        // 最後に測った空き
+  let lastEmit = -Infinity;
+
+  const say = (line) => { try { log(`取り込み: ${line}`); } catch (_) { /* 記録の失敗では止めない */ } };
+  const call = (fn, ...a) => { try { fn(...a); } catch (e) { say(`知らせの受け手で失敗しました（${e && e.message}）`); } };
+  const man = (g) => { try { return Boolean(isManual(g)); } catch (_) { return false; } };
+  const holding = () => { try { return Boolean(hold()); } catch (_) { return false; } };
+  const readInst = () => readInstalled(installedFile);
+  const planNow = (inst = readInst()) => new Map(planInstall(manifest, inst, fs.statSync, root).map((p) => [p.id, p]));
+
+  function status() {
+    const inst = readInst();
+    const all = Boolean(job && job.want.all);   // 手の組も取っている間は、その組も数える（進み具合を出すため）
+    const runner = { state: snap.state, current: job ? job.current : null, done: job ? { ...job.done } : {},
+      bytesPerSec: job ? job.bytesPerSec : null, error: snap.error };
+    const s = statusOf({ home, manifest, plan: planInstall(manifest, inst, fs.statSync, root),
+      candidates: managedCandidates(home, manifest, inst, fs.statSync), runner,
+      manual: { whisper: !all && man('whisper'), sum: !all && man('sum') }, freeBytes: lastFree, installed: inst });
+    return { ...s, done: runner.done };
+  }
+
+  function emit(force) {
+    const t = now();
+    if (!force && t - lastEmit < progressMs) return;
+    lastEmit = t;
+    call(onProgress, status());
+  }
+
+  function setState(state, error = null) {
+    const code = (e) => (e ? e.code : null);
+    const changed = snap.state !== state || code(snap.error) !== code(error);
+    snap = { state, error };
+    if (job && state !== 'running') { job.bytesPerSec = null; job.samples = []; }
+    if (!changed) return;
+    const s = status();
+    call(onState, s);
+    lastEmit = now();
+    call(onProgress, s);
+  }
+
+  function writeFlags(patch) {
+    try { writeInstalled(installedFile, { ...readInst(), ...patch }); } catch (e) {
+      say(`installed.json に書けませんでした（${e && (e.code || e.message)}）`);
+    }
+  }
+
+  function newJob(want) {
+    const j = { want, dirty: false, pauseWhy: null, retryNow: false, current: null, done: {}, ctrl: null,
+      bytesPerSec: null, samples: [], got: 0, wakers: new Set(), promise: null };
+    j.wake = () => { const ws = [...j.wakers]; j.wakers.clear(); for (const w of ws) w(); };
+    // 待つ。一時停止・［今すぐ試す］で起こされたらすぐ戻る。sleep が投げたら投げる
+    j.nap = (ms) => new Promise((resolve, reject) => {
+      const wake = () => { j.wakers.delete(wake); resolve(); };
+      j.wakers.add(wake);
+      Promise.resolve().then(() => sleep(ms)).then(wake, (e) => { j.wakers.delete(wake); reject(e); });
+    });
+    return j;
+  }
+
+  /**
+   * start({ all, repair, user, auto }) → すぐに今の写し（取り込みは裏で進む）。
+   *  user: ボタンから（押したことが同意）。consent: true・userPaused: false を書く。大きな取り込み直しも取る。
+   *  auto: 起動のとき。consent が偽か userPaused が真なら何もしない。大きな取り込み直しは取らない（RF13）。
+   *  repair: 起動時の照らしで壊れていた項目の id。照らし直して違えば、同じ起動の中で1回だけ取り直す（RF3）。
+   *  動いていれば新しく始めず、頼みを今の仕事に足す（2回押しても二重にならない）。待っていれば、すぐ試す。
+   */
+  function start(o = {}) {
+    const { all = false, repair = [], user = false, auto = false } = o || {};
+    if (!root) return status();
+    if (user) writeFlags({ consent: true, userPaused: false });
+    const inst = readInst();
+    const known = new Set(manifest.items.map((i) => i.id));
+    const want = { all: Boolean(all), normal: Boolean(user) || (inst.consent && !inst.userPaused), big: Boolean(user),
+      repair: new Set((Array.isArray(repair) ? repair : []).filter((id) => known.has(id))) };
+    if (!want.normal && !want.repair.size) {
+      say(`${auto ? '起動のときの' : ''}自動の開始はしません（${inst.userPaused ? '一時停止中' : 'まだ同意がありません'}）`);
+      return status();
+    }
+    if (job) {
+      const j = job;
+      j.want.all = j.want.all || want.all; j.want.normal = j.want.normal || want.normal; j.want.big = j.want.big || want.big;
+      for (const id of want.repair) j.want.repair.add(id);
+      if (user) j.pauseWhy = null;   // 止めている途中に押された: 止めるのをやめて続ける
+      j.dirty = true; j.retryNow = true; j.wake();
+      return status();
+    }
+    job = newJob(want);
+    say(`始めます（${user ? 'ボタンから' : auto ? '起動のとき' : '取り直し'}${want.all ? '・手の組も' : ''}${want.repair.size ? `・取り直し ${[...want.repair].join('・')}` : ''}）`);
+    job.promise = run(job).catch((e) => say(`係が止まりました（${e && e.message}）`));
+    setState('running');
+    return status();
+  }
+
+  /** pause(why) … 今の要求を止める（.part は確定して残る）。'user' は userPaused を書く（次の起動で自動で続けない）。'quit' は書かない。 */
+  function pause(why = 'user') {
+    if (!root) return status();
+    if (why === 'user') writeFlags({ userPaused: true });
+    if (job) {
+      job.pauseWhy = why || 'user';
+      if (job.ctrl) job.ctrl.abort();
+      job.wake();
+    }
+    return status();
+  }
+
+  const done = () => (job ? job.promise : Promise.resolve());
+  const running = () => Boolean(job);
+
+  async function run(j) {
+    await null;   // start() を先に返す
+    let end = null;
+    try {
+      await cleanupLeftovers();
+      for (;;) {
+        j.dirty = false;
+        end = await pass(j);
+        if (end === PAUSED && !j.pauseWhy) continue;   // 止める前に、また押された
+        if (!end && j.dirty) continue;                 // 動いている間に頼みが足された
+        break;
+      }
+    } catch (e) {
+      end = { error: errorInfo(e) };
+    }
+    // ここから先は await しない（start() と競らない）
+    if (job === j) job = null;
+    if (end && end.error) {
+      const err = { ...end.error, message: end.error.message || fetchErrorMessage(end.error.code, end.error.extra || {}) };
+      say(`止めました（${err.code}）`);
+      setState('error', err);
+    } else if (end === PAUSED) {
+      say(`一時停止しました（${j.pauseWhy}）`);
+      setState('paused');
+    } else setState(null);
+  }
+
+  /** 始める前に、残った *.tmp と、今のピンに無い SHA-256 の .part・.json・.zip を消す。 */
+  async function cleanupLeftovers() {
+    const pins = new Set(manifest.items.map((i) => String(i.sha256).toLowerCase()));
+    const gone = async (p) => {
+      try { await fs.promises.rm(p, { recursive: true, force: true, maxRetries: 2, retryDelay: 100 }); say(`残りを消しました（${shownPathOf(root, p)}）`); } catch (e) {
+        say(`残りを消せませんでした（${shownPathOf(root, p)}・${e && e.code}）`);
+      }
+    };
+    for (const name of await namesIn(root)) if (/\.tmp$/i.test(name)) await gone(path.join(root, name));
+    for (const name of await namesIn(dlDir)) {
+      const m = SHA_FILE.exec(name);
+      if (/\.tmp$/i.test(name) || (m && !pins.has(m[1].toLowerCase()))) await gone(path.join(dlDir, name));
+    }
+  }
+
+  /**
+   * 空きが足りなければ、足りない GB（小数1桁に切り上げ）。足りるか測れなければ 0。
+   * 要る = 残りの大きさの合計 + zip の展開後の大きさ + max(1GB, 残りの 5%)。statfs が投げたら記録して 0。
+   */
+  async function spaceShort(items, plan) {
+    if (!items.length) return 0;
+    const rem = items.reduce((a, it) => a + Math.max(0, it.size - ((plan.get(it.id) || {}).held || 0)), 0);
+    const unz = items.reduce((a, it) => a + (it.kind === 'zip' ? it.files.reduce((b, f) => b + f.size, 0) : 0), 0);
+    const need = rem + unz + Math.max(1e9, rem * 0.05);
+    const free = await freeBytesOf(root, async (p) => {
+      try { return await statfs(p); } catch (e) { say(`空きを測れませんでした（${e && (e.code || e.message)}）。測らずに続けます`); throw e; }
+    });
+    lastFree = free;
+    if (free == null || free >= need) return 0;
+    return Math.ceil((need - free) / 1e8) / 10;
+  }
+
+  const inGroupOf = (j) => (it) => j.want.all || !man(it.group);
+  const needsBytes = (plan) => (it) => ['missing', 'update'].includes((plan.get(it.id) || {}).state);
+
+  /** 1回の見回り → null（済んだ）| PAUSED | { error }。 */
+  async function pass(j) {
+    const plan = planNow();
+    const inGroup = inGroupOf(j);
+    const updLeft = manifest.items.filter((it) => inGroup(it) && plan.get(it.id).state === 'update')
+      .reduce((a, it) => a + Math.max(0, it.size - plan.get(it.id).held), 0);
+    const skipUpdates = !j.want.big && updLeft > autoUpdateMaxBytes;
+    if (skipUpdates) say(`新しい版（約 ${Math.round(updLeft / 1e6)}MB）は、押されるまで取りません`);
+    const picked = new Set(manifest.items.filter((it) => {
+      if (!inGroup(it)) return false;
+      if (j.want.repair.has(it.id)) return true;
+      const st = plan.get(it.id).state;
+      if (!j.want.normal || st === 'ready') return false;
+      return !(st === 'update' && skipUpdates);
+    }).map((it) => it.id));
+    if (!picked.size) return null;
+    const short = await spaceShort(manifest.items.filter((it) => picked.has(it.id) && needsBytes(plan)(it)), plan);
+    if (short) return { error: { code: 'space', extra: { needGB: short } } };
+    const lastIdx = {};
+    manifest.items.forEach((it, i) => { lastIdx[it.group] = i; });
+    const acted = new Set();
+    for (let i = 0; i < manifest.items.length; i++) {
+      const it = manifest.items[i];
+      if (picked.has(it.id)) {
+        const r = await doItem(j, it);
+        if (r) return r;
+        acted.add(it.group);
+      }
+      // 1つの組の項目が全部済んだら知らせる（whisper の組は llama より先なので、文字起こしが先に使える）
+      if (lastIdx[it.group] === i && acted.has(it.group)) {
+        const p = planNow();
+        if (manifest.items.filter((x) => x.group === it.group).every((x) => p.get(x.id).state === 'ready')) {
+          say(`${it.group} の組がそろいました`);
+          call(onGroupReady, it.group);
+        }
+      }
+      if (j.pauseWhy) return PAUSED;
+    }
+    return null;
+  }
+
+  /** 1つの項目。記録中は待ち、待てば直る失敗は待って続ける → null（済んだ）| PAUSED | { error }。 */
+  async function doItem(j, it) {
+    for (;;) {
+      if (j.pauseWhy) return PAUSED;
+      if (holding()) {
+        say('記録中なので止めて待ちます');
+        setState('held');
+        while (holding() && !j.pauseWhy) await j.nap(holdPollMs);
+        if (j.pauseWhy) return PAUSED;
+      }
+      j.current = it.id;
+      setState('running');
+      try {
+        await placeItem(j, it);
+        delete j.done[it.id];
+        j.want.repair.delete(it.id);
+        return null;
+      } catch (e) {
+        if (e && e.code === 'cancelled') {
+          if (j.pauseWhy) return PAUSED;
+          continue;   // 記録が始まった（held で待つ）か、止めるのをやめた
+        }
+        const err = errorInfo(e);
+        if (isTransient(err.code)) { await waitOnline(j, err); continue; }
+        if (err.code === 'space') {
+          const p = planNow();
+          const gb = await spaceShort(manifest.items.filter((x) => inGroupOf(j)(x) && needsBytes(p)(x)), p);
+          const fromFile = Number.isFinite(e && e.needBytes) && e.needBytes > 0 ? Math.ceil(e.needBytes / 1e8) / 10 : 0;
+          if (gb || fromFile) err.extra = { needGB: gb || fromFile };
+        }
+        say(`${it.label}: ${err.code}${e && e.message ? `（${e.message}）` : ''}`);
+        return { error: err };
+      }
+    }
+  }
+
+  /** 待てば直る失敗: waitMs の間（1 秒ずつ）待つか、切れていた回線が戻るか、［今すぐ試す］まで待つ（RF14）。 */
+  async function waitOnline(j, err) {
+    say(`つながるのを待っています（${err.code}）`);
+    j.retryNow = false;   // 知らせ（onState）の中で押された［今すぐ試す］を消さないよう、知らせる前に
+    setState('waiting', { code: err.code, message: fetchErrorMessage('waiting') });
+    let offline = false;
+    for (let t = 0; t < waitMs; t += WAIT_TICK_MS) {
+      await j.nap(Math.min(WAIT_TICK_MS, waitMs - t));
+      if (j.pauseWhy || j.retryNow) break;
+      let on = true;
+      try { on = Boolean(isOnline()); } catch (_) { on = true; }
+      if (!on) offline = true;
+      else if (offline) break;   // 切れていた回線が戻った
+    }
+    j.retryNow = false;
+  }
+
+  /** code 付きの失敗を、写しの error の形 { code, extra } にする。 */
+  function errorInfo(e) {
+    let code = e && typeof e.code === 'string' && e.code ? e.code : 'unknown';
+    if (code === 'ENOSPC') code = 'space';
+    else if (RENAME_BUSY.has(code)) code = 'locked';   // installed.json や置き場所を、ほかのプログラムが掴んでいる
+    const extra = {};
+    if (code === 'defender' && e.file) extra.file = e.file;
+    return { code, extra };
+  }
+
+  /** 使っている組（active）の置き場所に、違う SHA-256 のものを置こうとしているか（ピンの作り間違い）。 */
+  function placeTaken(inst, it) {
+    const place = placeOf(it);
+    return GROUPS.some((g) => (inst.active[g] || []).some((s) => !sameSha(s, it.sha256) && isObj(inst.items[s]) && inst.items[s].place === place));
+  }
+
+  /** 置いたはずの項目が消えたか変わっていた。同じ起動の中で2回目なら、取らずに defender で止める（RF3）。 */
+  function broken(it, file) {
+    const shown = shownPathOf(root, file);
+    if (repaired.has(it.id)) throw installError('defender', `${it.id} がまた消えたか変わった`, { file: shown });
+    repaired.add(it.id);
+    say(`${it.label} のファイルが消えたか変わっています。1回だけ取り直します（${shown}）`);
+  }
+
+  /** 項目を照らし・取り・置き・記録する。 */
+  async function placeItem(j, it) {
+    const inst = readInst();
+    const p = planNow(inst).get(it.id);
+    const forced = j.want.repair.has(it.id);
+    if (p.state === 'ready' && !forced) return;
+    if (placeTaken(inst, it)) throw installError('place-in-use', `${placeOf(it)} は使っている組の置き場所`);
+    const recheck = forced || p.state === 'changed';
+    if (it.kind === 'zip') await placeZip(j, it, recheck);
+    else await placeFile(j, it, recheck);
+  }
+
+  async function placeFile(j, it, recheck) {
+    const parts = relParts(it.dest);
+    if (!parts) throw installError('hash', `${it.id} の置き場所が読めない`);
+    const dest = path.join(root, ...parts);
+    if (recheck) {
+      // 先に取らずに照らし直す（触られただけなら、記録を書き直すだけ）
+      let ok = false;
+      try {
+        const st = await fs.promises.stat(dest);
+        ok = st.isFile() && st.size === it.size && sameSha(await sha256File(dest), it.sha256);
+      } catch (_) { ok = false; }
+      if (ok) { recordInstalled(home, it); say(`${it.label} は中身が同じでした（記録を書き直しました）`); return; }
+      broken(it, dest);
+      await unlinkQuiet(dest);   // 違う中身は使えない（取り込みの手0で、もう一度読まない）
+    }
+    const r = await fetchItem(j, it, dest);
+    if (r && r.reused) say(`${it.label} は置き場所にもう正しいものがありました`);
+    recordInstalled(home, it);
+  }
+
+  async function placeZip(j, it, recheck) {
+    const dirParts = relParts(it.dir);
+    if (!dirParts) throw installError('hash', `${it.id} の置き場所が読めない`);
+    const dir = path.join(root, ...dirParts);
+    const exe = relParts(it.exe) ? path.join(dir, ...relParts(it.exe)) : dir;
+    const zipPath = path.join(dlDir, `${String(it.sha256).toLowerCase()}.zip`);
+    if (await exists(dir)) {
+      // 置く先のフォルダが既にある: 取らずに照らす（同じなら記録を書き直すだけ）
+      try {
+        const r = await installZip(it, zipPath, root, { sleep });
+        recordInstalled(home, it, r);
+        say(`${it.label} は中身が同じでした（記録を書き直しました）`);
+        return;
+      } catch (e) {
+        if (!e || e.code !== 'hash') throw e;
+        broken(it, e.file || exe);
+        await moveAside(dir);
+      }
+    } else if (recheck) {
+      broken(it, exe);
+    }
+    await fetchItem(j, it, zipPath);
+    const r = await installZip(it, zipPath, root, { sleep });
+    recordInstalled(home, it, r);
+  }
+
+  /**
+   * 壊れた版のフォルダを <dir>.old-….tmp に名前を変えてから消す（中で動いているファイルがあれば、名前の変更が
+   * 断られて locked で止まり、何も消さない）。消し残りは次の取り込みの始めに消す（*.tmp）。
+   */
+  async function moveAside(dir) {
+    const aside = `${dir}.old-${crypto.randomBytes(4).toString('hex')}.tmp`;
+    await renameWithWait(fs.promises.rename, dir, aside, sleep);
+    await rmTreeQuiet(aside);
+  }
+
+  /** fetchFile で1つ取る。記録が始まったら（hold）今の要求を止める。進み具合と速さを写しに入れる。 */
+  async function fetchItem(j, it, dest) {
+    const ctrl = new AbortController();
+    j.ctrl = ctrl;
+    const stopIfHeld = () => { if (holding()) ctrl.abort(); };
+    const watch = setInterval(stopIfHeld, holdPollMs);   // バイトが来ない間も、記録の始まりを拾う
+    if (typeof watch.unref === 'function') watch.unref();
+    if (j.pauseWhy) ctrl.abort();
+    let prev = null;
+    try {
+      return await fetchFile(it, {
+        sleep, now, log, userAgent, progressMs: 0, ...fetchOpts, dir: dlDir, dest, request, signal: ctrl.signal,
+        onProgress: (pr) => {
+          const d = Number(pr && pr.done) || 0;
+          j.done[it.id] = d;
+          if (prev != null) j.got += Math.max(0, d - prev);
+          prev = d;
+          const t = now();
+          j.samples.push([t, j.got]);
+          while (j.samples.length > 2 && t - j.samples[0][0] > SPEED_WINDOW_MS) j.samples.shift();
+          const span = t - j.samples[0][0];
+          if (span >= 1000) j.bytesPerSec = Math.round(((j.got - j.samples[0][1]) * 1000) / span);
+          stopIfHeld();
+          emit(false);
+        },
+      });
+    } finally {
+      clearInterval(watch);
+      if (j.ctrl === ctrl) j.ctrl = null;
+    }
+  }
+
+  return { start, done, pause, status, running };
+}
+
 module.exports = { engineRoot, layout, readInstalled, writeInstalled, planInstall, managedCandidates, freeBytesOf, statusOf,
-  sha256File, installZip, recordInstalled, verifyCandidates };
+  sha256File, installZip, recordInstalled, verifyCandidates, makeRunner, setActive };
