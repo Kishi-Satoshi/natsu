@@ -1938,8 +1938,9 @@
     const el = $('engineState');
     el.textContent = ok ? 'エンジン：正常' : `エンジン：要確認（${why}）`;
     el.className = ok ? 'eng-state ok' : 'eng-state ng';
-    // 直す欄を見せる。取り込める PC でまだ取り込んでいなければ、直す欄は取り込みの欄（詳細設定は開かない）
-    if (!ok && !fetchWantsPanel()) $('engineAdv').open = true;
+    // 直す欄を見せる。取り込める PC でまだ取り込んでいなければ、直す欄は取り込みの欄（詳細設定は開かない）。
+    // 起動のときに取り込んだ組を確かめている間（数秒）も開かない。確かめ終えた知らせで聞き直す
+    if (!ok && !fetchWantsPanel() && !(lastFetch && lastFetch.checking)) $('engineAdv').open = true;
   }
   async function refreshEngineState() {
     if (!window.koeApp.engineStatus) return;   // 古い preload
@@ -2110,13 +2111,17 @@
     await window.koeApp.copy(lastFetch.report);
     toast('担当に渡す内容を写しました');
   };
-  // 進み具合の知らせ。文字起こしか要約の組が使えるようになったら、エンジンの状態と VAD を聞き直す
+  // 進み具合の知らせ。文字起こしか要約の組が使えるようになった・使えなくなった（落ちて照らし直したら合わない）とき、
+  // 起動のときの確かめが済んだとき（checking が偽に変わる）に、エンジンの状態と VAD を聞き直す。
+  // 取り込みの途中の知らせ（250ms ごと）では聞き直さない
   if (typeof window.koeApp.onEngineFetchProgress === 'function') {
     window.koeApp.onEngineFetchProgress((s) => {
       const before = lastFetch;
       renderEngineFetch(s);
       if (!isFetchStatus(s)) return;
-      if (['whisper', 'sum'].some((g) => fetchReady(s, g) && !(before && fetchReady(before, g)))) { refreshEngineState(); refreshVad(); }
+      const flipped = ['whisper', 'sum'].some((g) => fetchReady(s, g) !== Boolean(before && fetchReady(before, g)));
+      const checked = Boolean(before && before.checking && !s.checking);
+      if (flipped || checked) { refreshEngineState(); refreshVad(); }
     });
   }
 

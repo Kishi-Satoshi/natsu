@@ -145,6 +145,42 @@ test('whisper が使えるようになったら engineStatus を聞き直し、�
   const l = await base(ST(), { engineStatus: () => (++n === 1 ? { ok: true, whisper: NOTSET, sum: '' } : { ok: true, whisper: '', sum: '' }) });
   l.fire('onEngineFetchProgress', ST({ state: 'running', whisperReady: true })); await l.drain();
   assert.ok(n >= 2); assert.match(l.byId.get('engineState').textContent, /正常/);
+  // 点検で足した確かめ: 要約の組が使えるようになったときも聞き直す（計画「whisperReady か sumReady が真に変わったら」）。
+  // 変わり目の無い進み具合（取り込みの途中は 250ms ごとに来る）では聞き直さない
+  const m = n;
+  l.fire('onEngineFetchProgress', ST({ state: 'running', whisperReady: true })); await l.drain();
+  assert.strictEqual(n, m, '変わり目の無い進み具合で聞き直した');
+  l.fire('onEngineFetchProgress', ST({ state: 'ready', whisperReady: true, sumReady: true })); await l.drain();
+  assert.strictEqual(n, m + 1, '要約の組が使えるようになっても聞き直さない');
+});
+
+// 点検で足した確かめ（起動のときの「確かめています」が残る・使えなくなった組が「正常」のまま残る）
+test('起動のときに「確かめています」を聞いても詳細設定は開かず、確かめ終えた知らせ（checking が偽）で聞き直して「エンジン：正常」になる（両方の組が前から使える PC）', async () => {
+  let n = 0;
+  const CHECKING = '文字起こしエンジンを確かめています（数秒で終わります）';
+  const ready = { state: 'ready', whisperReady: true, sumReady: true, needBytes: 0, doneBytes: 5580564403 };
+  const l = await base(ST({ ...ready, checking: true }),
+    { getSettings: SET_EMPTY, engineStatus: () => (++n === 1 ? { ok: true, whisper: CHECKING, sum: '' } : { ok: true, whisper: '', sum: '' }) });
+  assert.strictEqual(l.byId.get('engineState').textContent, `エンジン：要確認（${CHECKING}）`);
+  assert.ok(!l.byId.get('engineAdv').open, '確かめている間に詳細設定を開いた');
+  // whisperReady・sumReady は前から真（変わり目が無い）。確かめ終えたことだけが変わる
+  l.fire('onEngineFetchProgress', ST({ ...ready, checking: false })); await l.drain();
+  assert.strictEqual(n, 2, '確かめ終えた知らせで聞き直さない');
+  assert.strictEqual(l.byId.get('engineState').textContent, 'エンジン：正常');
+  assert.ok(!l.byId.get('engineAdv').open);
+  assert.deepStrictEqual(l.errors.map(fmt), []);
+});
+
+test('取り込んだ組が使えなくなった知らせ（落ちて照らし直したら合わない）でも聞き直し、「要確認」にする。詳細設定ではなく取り込みの欄へ案内する', async () => {
+  let n = 0;
+  const BROKEN = '文字起こしエンジンのファイルが消えたか変わっています。ウイルス対策が消した可能性があります（Windows セキュリティ → ウイルスと脅威の防止 → 保護の履歴）。取り直しています';
+  const l = await base(ST({ state: 'ready', whisperReady: true, sumReady: true }),
+    { engineStatus: () => (++n === 1 ? { ok: true, whisper: '', sum: '' } : { ok: true, whisper: BROKEN, sum: '' }) });
+  assert.strictEqual(l.byId.get('engineState').textContent, 'エンジン：正常');
+  l.fire('onEngineFetchProgress', ST({ state: 'running', whisperReady: false, sumReady: true })); await l.drain();
+  assert.strictEqual(n, 2, '使えなくなった知らせで聞き直さない');
+  assert.strictEqual(l.byId.get('engineState').textContent, `エンジン：要確認（${BROKEN}）`);
+  assert.ok(!l.byId.get('engineAdv').open, '取り直している組なのに詳細設定を開いた');
 });
 
 // ---------------------------------------------------------------- 計画のテストに足したもの
