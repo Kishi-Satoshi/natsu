@@ -151,3 +151,38 @@ test('engine-smoke.js --start は、頭で4つの DLL の版を vcRuntimeVersion
   assert.ok(fn.indexOf('runtimeVersions()') < fn.indexOf('resumeCheck('), 'ランタイムの版が頭に無い');
   assert.ok(fnBody(s, 'function runtimeVersions()', '\n}').includes('vcRuntimeVersions('), 'vcRuntimeVersions で読んでいない');
 });
+
+// ---------------------------------------------------------------- 速さ（第0b回 Task 16）
+// 利用者の「文字起こしと要約に時間がかかる」に対して、まず実際の速さを engine.log に残す。
+// 取り込んだ llama にだけ、席を1つに・flash attention・考える手順を切る旗を渡す（手で設定した exe には渡さない。
+// 古い llama-server は知らない旗で止まる）。要約の文脈長の既定は 16384（保存済みの値は書き換えない）。
+const { speedLine } = require('../src/mainlib');
+test('速さの1行: 文字起こしは音声と処理の秒と倍率、要約は読みと書きのトークンと秒。数でなければ空', () => {
+  assert.strictEqual(speedLine('whisper', { audioMs: 65000, procMs: 43700 }), '文字起こしの速さ: 音声 65 秒・処理 44 秒（0.67 倍）');
+  assert.match(speedLine('llama', { prompt_n: 5400, prompt_ms: 38200, predicted_n: 812, predicted_ms: 61000 }), /^要約の速さ: 読み 5400 トークン 38\.2 秒（141 トークン\/秒）・書き 812 トークン 61\.0 秒（13\.3 トークン\/秒）$/);
+  for (const t of [undefined, null, {}, { prompt_n: 'x' }]) assert.strictEqual(speedLine('llama', t), '');
+});
+test('main: 区間と要約の後に速さを engine.log に残す（touchEngine の数は変えない）', () => {
+  const m = code(read('src/main.js'));
+  assert.ok(m.includes("const sp = speedLine('whisper', { audioMs: durationMs, procMs: Date.now() - t0 });"));
+  const chat = fnBody(m, 'async function llmChat(', '\n}');
+  assert.ok(chat.includes("const sp = speedLine('llama', data && data.timings);"));
+  assert.strictEqual((chat.match(/touchEngine\(sumEng\)/g) || []).length, 2);
+});
+test('取り込んだ llama にだけ --cache-ram 0・-np 1・-fa on・--reasoning off を渡す（手で設定した exe には渡さない。mmproj は渡さない）', () => {
+  const args = fnBody(code(read('src/main.js')), 'function engineSpawnArgs(eng)', '\n}');
+  assert.ok(args.includes("...(manualGroup(eng) ? [] : ['--cache-ram', '0', '-np', '1', '-fa', 'on', '--reasoning', 'off'])"));
+  assert.ok(args.includes("'-c', String(settings.sumCtx),"));
+  assert.ok(!/mmproj/.test(args), '画像の部品を読ませている');
+});
+test('要約の文脈長の既定は 16384（main の既定と、壊れた値を戻す先）。保存済みの値は書き換えない', () => {
+  const { normalizeSettings } = require('../src/settings');
+  assert.ok(code(read('src/main.js')).includes('\n  sumCtx: 16384,'), 'main の既定が 16384 でない');
+  assert.strictEqual(normalizeSettings({}, {}).sumCtx, 16384);
+  assert.strictEqual(normalizeSettings({ sumCtx: 'x' }, { sumCtx: 16384 }).sumCtx, 16384);
+  assert.strictEqual(normalizeSettings({ sumCtx: 32768 }, { sumCtx: 16384 }).sumCtx, 32768, '保存済みの値を書き換えた');
+});
+test('engine-smoke.js の llama も、取り込んだ llama と同じ旗で起動する', () => {
+  const s = read('tools/engine-smoke.js');
+  for (const f of ["'--cache-ram', '0'", "'-np', '1'", "'-fa', 'on'", "'--reasoning', 'off'"]) assert.ok(s.includes(f), f);
+});

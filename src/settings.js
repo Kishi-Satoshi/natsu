@@ -35,7 +35,7 @@ function normalizeSettings(raw, defaults) {
   s.sumThreads = clampInt(s.sumThreads, 1, 64, d.sumThreads || 4);
   s.segmentSec = clampInt(s.segmentSec, 20, 300, d.segmentSec || 75);
   // 第3段（v0.11.0）で足した 2 つ。古い settings.json には無いので既定で埋める
-  s.sumCtx = clampInt(s.sumCtx, 4096, 131072, d.sumCtx || 32768);              // 要約の文脈長（#41）
+  s.sumCtx = clampInt(s.sumCtx, 4096, 131072, d.sumCtx || 16384);              // 要約の文脈長（#41。既定は第0b回で 16384）
   s.engineIdleMin = clampIntOrZero(s.engineIdleMin, 0, 120, d.engineIdleMin ?? 10);   // 使われないエンジンを止めるまでの分（#58）
   for (const k of REMOVED_KEYS) delete s[k];
   return s;

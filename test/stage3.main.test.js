@@ -57,7 +57,7 @@ test('normalizeSettings: 外した設定キー（dataDir）は読まず、書き
 
 test('DEFAULT_SETTINGS に sumCtx / engineIdleMin があり、dataDir は無い', () => {
   const defs = fnBody(code(main), 'const DEFAULT_SETTINGS = {', '\n};');
-  assert.match(defs, /\n  sumCtx: 32768,/);
+  assert.match(defs, /\n  sumCtx: 16384,/);   // 第0b回 Task 16 で既定を 16384 に下げた（保存済みの値は書き換えない）
   assert.match(defs, /\n  engineIdleMin: 10,/);
   assert.ok(!/dataDir/.test(defs), '外した設定キー dataDir が既定値に残っている');
 });

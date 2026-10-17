@@ -504,6 +504,31 @@ function spawnErrorHint(errCode, file) {
   return '';
 }
 
+// ---------------------------------------------------------------- 速さの記録（第0b回 Task 16）
+// 利用者の「文字起こしと要約に時間がかかる」に対して、まず実際の速さを engine.log に1行で残す。
+//   whisper: t = { audioMs, procMs }（区間の音声の長さと、文字起こしにかかった時間）
+//   llama:   t = llama-server の応答の timings（prompt_n・prompt_ms・predicted_n・predicted_ms）
+// どれかが数でない（古い llama-server で timings が無いなど）・時間が 0 以下なら ''（何も残さない）。
+// トークン/秒は 100 以上なら整数、それ未満は小数1桁（141 トークン/秒・13.3 トークン/秒）。
+function speedLine(kind, t) {
+  const num = (v) => typeof v === 'number' && Number.isFinite(v);
+  const sec = (ms) => (ms / 1000).toFixed(1);
+  const rate = (n, ms) => { const r = n / (ms / 1000); return r >= 100 ? String(Math.round(r)) : r.toFixed(1); };
+  if (!t || typeof t !== 'object') return '';
+  if (kind === 'whisper') {
+    const { audioMs, procMs } = t;
+    if (!num(audioMs) || !num(procMs) || audioMs <= 0 || procMs < 0) return '';
+    return `文字起こしの速さ: 音声 ${Math.round(audioMs / 1000)} 秒・処理 ${Math.round(procMs / 1000)} 秒（${(procMs / audioMs).toFixed(2)} 倍）`;
+  }
+  if (kind === 'llama') {
+    const { prompt_n: pn, prompt_ms: pm, predicted_n: gn, predicted_ms: gm } = t;
+    if (![pn, pm, gn, gm].every(num) || pn < 0 || gn < 0 || pm <= 0 || gm <= 0) return '';
+    return `要約の速さ: 読み ${pn} トークン ${sec(pm)} 秒（${rate(pn, pm)} トークン/秒）`
+      + `・書き ${gn} トークン ${sec(gm)} 秒（${rate(gn, gm)} トークン/秒）`;
+  }
+  return '';
+}
+
 // ---------------------------------------------------------------- ポートの衝突（#28/#31）
 // 塞がっているポートで起動すると、エンジンはモデルを読み終えてから bind に失敗して落ちる。
 // それまで「起動中」に見えるので、起動前に見て、塞がっていればこの文で止める。
@@ -888,7 +913,7 @@ module.exports = {
   pasterScript, copyCommand, restoreAfterPaste, parsePasterLine,
   engineFileIssue, engineIssueMessage, engineInAppDir, engineDirWarning, portInUseError,
   isAscii, engineSpawnPlan,
-  peFileVersion, vcRuntimeVersions, vcRuntimeIssue, runtimeGate, engineExitHint, spawnErrorHint,
+  peFileVersion, vcRuntimeVersions, vcRuntimeIssue, runtimeGate, engineExitHint, spawnErrorHint, speedLine,
   ENGINE_SETTING_KEYS, guardEngineSettings, keptDifferent, closeConfirm,
   extractNotes, truncationMessage, buildPromptParts,
   publicSegments, settledSegments, pendingDurationMs, recoverSegments, staleSegbufDirs,

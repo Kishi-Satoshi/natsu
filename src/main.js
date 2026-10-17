@@ -41,7 +41,7 @@ const {
   registerHotkeys, resolveStartupHotkeys, saveHotkeys, makeSummaryRunner, tickStep,
   pasterScript, copyCommand, parsePasterLine,
   engineFileIssue, engineIssueMessage, engineInAppDir, engineDirWarning, portInUseError, guardEngineSettings, keptDifferent, closeConfirm,
-  engineSpawnPlan, vcRuntimeVersions, vcRuntimeIssue, engineExitHint, spawnErrorHint,
+  engineSpawnPlan, vcRuntimeVersions, vcRuntimeIssue, engineExitHint, spawnErrorHint, speedLine,
   extractNotes, truncationMessage, buildPromptParts,
   publicSegments, settledSegments, pendingDurationMs, recoverSegments, staleSegbufDirs, nextSegmentMs, EtaTracker,
   skipPendingSegments, restoreAfterPaste,
@@ -102,7 +102,10 @@ const DEFAULT_SETTINGS = {
   segmentSec: 75,
   // 要約エンジン（llama-server）の文脈長（-c）。統合プロンプトがこれに収まらないときは
   // 要点メモを 2 段で畳む（#41。generateMinutes）
-  sumCtx: 32768,
+  // 既定は 16384（第0b回 Task 16）。長い会議も分けて要約し（CHUNK 5500 字）、要点メモを畳む（foldNotes）ので、
+  // 実際の一番長いプロンプトは約 6,000〜12,000 トークン。16384 から出力の上限 3000 と余白 256 を引いた
+  // 13,128 トークンに収まる。保存済みの値（今までの PC の 32768 など）は書き換えない
+  sumCtx: 16384,
   // 使われないエンジンを止めるまでの分。0 = 止めない（#58。releaseIdleEngines）
   engineIdleMin: 10,
 };
@@ -330,8 +333,15 @@ function engineSpawnArgs(eng) {
     '--port', String(settings.sumPort),
     '-t', String(settings.sumThreads),
     '-c', String(settings.sumCtx),   // 文脈長（#41）。統合プロンプトが収まらなければ要点メモを畳む
+    // 取り込んだ llama にだけ（第0b回 Task 16）: RAM のプロンプトの控えを使わない・席を1つ・flash attention・
+    // 考える手順を切る（b11669 の既定では Gemma 4 が考える文で時間と max_tokens を食う）。
+    // 手で設定した exe には渡さない（古い llama-server は知らない旗で止まる）。画像・音声の部品は取り込まないので渡さない
+    ...(manualGroup(eng) ? [] : ['--cache-ram', '0', '-np', '1', '-fa', 'on', '--reasoning', 'off']),
   ];
 }
+// 詳細設定の実行ファイルとモデルが両方空の側は、取り込んだエンジン（第0b回）。片方でも入っていれば今までどおり手の設定
+// （第0b回 Task 16 の要約の旗もこれで分ける。取り込んだ組を使う道は Task 13 で足す）
+const manualGroup = (e) => (e === whisperEng ? Boolean(settings.localServerExe || settings.localModelPath) : Boolean(settings.sumServerExe || settings.sumModelPath));
 const engineExe = (e) => (e === whisperEng ? settings.localServerExe : settings.sumServerExe);
 const engineModel = (e) => (e === whisperEng ? settings.localModelPath : settings.sumModelPath);
 const enginePort = (e) => (e === whisperEng ? settings.localPort : settings.sumPort);
@@ -764,6 +774,7 @@ async function llmChat(messages, maxTokens, onWait) {
   }
   if (!res.ok) throw new Error(`要約エンジンエラー (${res.status})`);
   const data = await res.json();
+  { const sp = speedLine('llama', data && data.timings); if (sp) engineLog(sp); }   // 実際の速さを残す（第0b回 Task 16）
   const text = data?.choices?.[0]?.message?.content?.trim();
   if (!text) throw new Error('要約エンジンの応答が空でした');
   // 長さ上限で打ち切られると末尾の議題が黙って欠ける。
@@ -1613,6 +1624,7 @@ function onMeetingSegment(buffer, durationMs, isFinal) {
     if (meeting !== m || m.gen !== gen) return;
     m.inFlightSince = 0;
     eta.record(Date.now() - t0, durationMs);   // 成功した区間だけで学習（失敗は時間の目安にならない）
+    { const sp = speedLine('whisper', { audioMs: durationMs, procMs: Date.now() - t0 }); if (sp) engineLog(sp); }   // 実際の速さを残す（第0b回 Task 16）
     if (settings.removeFillers) text = removeFillersRule(text);
     // 空・直前と同じ（繰り返しハルシネーション）は区間ごと消す
     const done = m.segments.filter((s) => !s.pending);

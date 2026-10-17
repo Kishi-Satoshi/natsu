@@ -22,7 +22,8 @@
  *     5. 負の確かめ: 同じ whisper を、-m を英数字以外の絶対パスのままで起動し、落ちる（か /health が
  *        来ない）ことを見る。200 になったら、RF1 を試せていない。
  *     6. llama を英数字以外の絶対パスのモデルで起動し（llama は引数を UTF-16 から読み直す）、
- *        /health と /completion を見る。
+ *        /health と /completion を見る。取り込んだ llama と同じ旗（--cache-ram 0・-np 1・-fa on・
+ *        --reasoning off）を付けて、この版が受け付けることも見る。
  *     落としたエンジンを起動するのは Windows だけ。ほかの OS では 1〜3 だけをして、NG で終わる。
  *
  * 結果は1行ずつ OK／NG で出し、1つでも NG なら終了コード 1。
@@ -405,8 +406,9 @@ async function smokeWhisperAbsolute(p, relativeOk = true) {
 
 async function smokeLlama(p) {
   const name = 'llama（英数字以外の絶対パス）';
-  // 取り込んだ llama の旗は Task 16 で同じものを足す
-  const args = ['-m', p.stories, '--host', '127.0.0.1', '--port', String(PORT.llama), '-t', '2', '-c', '512'];
+  // 取り込んだ llama と同じ旗（main.js の engineSpawnArgs。第0b回 Task 16）を受け付けるかも、ここで見る
+  const args = ['-m', p.stories, '--host', '127.0.0.1', '--port', String(PORT.llama), '-t', '2', '-c', '512',
+    '--cache-ram', '0', '-np', '1', '-fa', 'on', '--reasoning', 'off'];
   const cwd = path.dirname(p.llamaExe);
   log(`llama 起動: ${p.llamaExe} ${args.join(' ')}（作業フォルダ: ${cwd}）`);
   const child = startChild(p.llamaExe, args, cwd);

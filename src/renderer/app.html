@@ -650,7 +650,7 @@
             <div class="field">
               <label for="sumCtx">要約の文脈長</label>
               <input type="text" id="sumCtx" />
-              <div class="desc">要約エンジンに渡すトークン数（-c）。既定 32768。Qwen2.5-3B はここまで。大きいほどメモリを使い、小さいと長い会議の統合で足りなくなります</div>
+              <div class="desc">要約エンジンに渡すトークン数（-c）。既定 16384。大きいほどメモリを使い、小さいと長い会議の統合で足りなくなります</div>
             </div>
             <div class="row" style="display:flex;gap:8px">
               <button class="ghost" id="testSumBtn" type="button">起動テスト</button>
@@ -1764,7 +1764,7 @@
     $('sumModelPath').value = s.sumModelPath || '';
     $('sumThreads').value = s.sumThreads || 4;
     $('sumPort').value = s.sumPort || 8991;
-    $('sumCtx').value = intOr(s.sumCtx, 32768);
+    $('sumCtx').value = intOr(s.sumCtx, 16384);
     $('engineIdleMin').value = intOr(s.engineIdleMin, 10);   // 0 は「止めない」。|| で既定に化けさせない
     $('hotkey').value = s.hotkey || '';
     $('meetingHotkey').value = s.meetingHotkey || '';
@@ -1960,7 +1960,7 @@
       sumModelPath: $('sumModelPath').value.trim(),
       sumThreads: parseInt($('sumThreads').value, 10) || 4,
       sumPort: parseInt($('sumPort').value, 10) || 8991,
-      sumCtx: intOr($('sumCtx').value, 32768),
+      sumCtx: intOr($('sumCtx').value, 16384),
       engineIdleMin: intOr($('engineIdleMin').value, 10),
       hotkey: $('hotkey').value.trim() || 'Control+Shift+Space',
       meetingHotkey: $('meetingHotkey').value.trim() || 'Alt+M',

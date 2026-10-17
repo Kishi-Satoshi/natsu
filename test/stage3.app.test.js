@@ -227,7 +227,7 @@ test('#45 pagesActionView の無い古い preload と組んでも、「アクシ
 });
 
 // ================= 設定: 要約の文脈長（sumCtx）とエンジンの自動停止（engineIdleMin） =================
-// 設定キーの契約: sumCtx（整数、既定 32768、4096〜131072）、engineIdleMin（整数、既定 10、0〜120、0 = 止めない）。
+// 設定キーの契約: sumCtx（整数、既定 16384、4096〜131072）、engineIdleMin（整数、既定 10、0〜120、0 = 止めない）。
 // 範囲の丸めは main（normalizeSettings）が行い、採らなかった値は applied で欄へ戻る（既存の流儀）。
 const { RETURNS } = require('./helpers/simrun.js');
 const 設定 = (extra) => Object.assign({}, RETURNS.getSettings(), extra);
@@ -248,7 +248,7 @@ test('設定: 要約の文脈長の欄がエンジンのカードの詳細設定
   const field = el.closest('.field');
   assert.strictEqual(field.querySelector('label').textContent, '要約の文脈長');
   assert.strictEqual(field.querySelector('.desc').textContent.trim(),
-    '要約エンジンに渡すトークン数（-c）。既定 32768。Qwen2.5-3B はここまで。大きいほどメモリを使い、小さいと長い会議の統合で足りなくなります');
+    '要約エンジンに渡すトークン数（-c）。既定 16384。大きいほどメモリを使い、小さいと長い会議の統合で足りなくなります');
 });
 
 test('設定: エンジンの自動停止の欄がエンジンのカードの詳細設定にあり、単位「分」とラベル・説明が指定どおり', async () => {
@@ -343,12 +343,12 @@ test('engineStatus の無い古い preload でも、設定画面は落ちない'
   assert.deepStrictEqual(l.errors.map(fmt), []);
 });
 
-test('設定: sumCtx / engineIdleMin を読み込んで欄に出し、無ければ既定（32768 / 10）。0 分は 0 のまま（既定に化けない）', async () => {
+test('設定: sumCtx / engineIdleMin を読み込んで欄に出し、無ければ既定（16384 / 10）。0 分は 0 のまま（既定に化けない）', async () => {
   const a = await load(APP, { returns: { getSettings: () => 設定({ sumCtx: 8192, engineIdleMin: 0 }) } });
   assert.strictEqual(a.byId.get('sumCtx').value, '8192');
   assert.strictEqual(a.byId.get('engineIdleMin').value, '0', '0（止めない）が既定に化けた');
   const b = await load(APP, { returns: { getSettings: () => 設定({}) } });
-  assert.strictEqual(b.byId.get('sumCtx').value, '32768');
+  assert.strictEqual(b.byId.get('sumCtx').value, '16384');
   assert.strictEqual(b.byId.get('engineIdleMin').value, '10');
   assert.deepStrictEqual(a.errors.map(fmt).concat(b.errors.map(fmt)), []);
 });
@@ -364,7 +364,7 @@ test('設定: sumCtx / engineIdleMin は自動保存で数として送る（0 �
   l.byId.get('sumCtx').value = '';
   l.byId.get('engineIdleMin').value = 'abc';
   const sent2 = await 保存した(l);
-  assert.strictEqual(sent2.sumCtx, 32768);
+  assert.strictEqual(sent2.sumCtx, 16384);
   assert.strictEqual(sent2.engineIdleMin, 10);
   assert.deepStrictEqual(l.errors.map(fmt), []);
 });
