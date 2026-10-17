@@ -123,6 +123,8 @@
   .eng-state { font-size: 12px; font-weight: 600; color: var(--muted); }
   .eng-state.ok { color: var(--green); }
   .eng-state.ng { color: var(--danger); }
+  /* モデルの勧め（kotoba のとき。0.1.1）。カードの直下なので .field .desc の書式が効かない */
+  #engineNote { font-size: 12px; color: var(--muted); margin-top: 8px; line-height: 1.6; }
   .empty { text-align: center; color: var(--muted); padding: 48px 20px; line-height: 1.9; }
   .empty .big { font-size: 15px; color: var(--ink); margin-bottom: 6px; }
   kbd { background: rgba(var(--srf),.72); border: 1px solid rgba(var(--srf),.9);
@@ -715,17 +717,20 @@
   }
   $('tabBtnNotes').onclick = () => showTab('notes');
   $('tabBtnDictation').onclick = () => showTab('dictation');
-  $('tabBtnSettings').onclick = () => showTab('settings');
+  // 設定を開くたびに認識ヒントの状態を聞き直す（記録の途中で main がヒントを止めることがある。0.1.1）
+  $('tabBtnSettings').onclick = () => { showTab('settings'); refreshPromptInfo(); };
   // エンジンが未設定のときに連れて行く先。パスを貼る欄は閉じた「詳細設定」の中にあるので開いて見せる
   function showEngineSettings() {
     showTab('settings');
     $('engineAdv').open = true;
+    refreshPromptInfo();
   }
 
   let toastT = null;
   function toast(m) {
     const e = $('toast'); e.textContent = m; e.classList.add('show');
-    clearTimeout(toastT); toastT = setTimeout(() => e.classList.remove('show'), 2600);
+    // 長い知らせは読み終えられるだけ出す（1 文字 0.1 秒、2.6〜15 秒）
+    clearTimeout(toastT); toastT = setTimeout(() => e.classList.remove('show'), Math.min(15000, Math.max(2600, String(m).length * 100)));
   }
 
   // ---------------- 共通整形 ----------------

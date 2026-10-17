@@ -10,6 +10,9 @@
 //     --vad         … VAD のモデル（偽物）をモデルの隣に置く（エンジンが --vad 付きで起動する）
 //     --segs=N      … 送る区間の数（既定 2。1 つ目は 3 秒、2 つ目からは 2 秒）
 //     --kotoba      … 偽のモデルの名前を kotoba-whisper のものにする（認識ヒントを渡さない場面）
+//     --port=N      … 文字起こしエンジンのポート（並べて走らせるとき、呼ぶ側が重ならないように決めて渡す）
+//     --discard-during … 最初の区間を送った直後に議事録を破棄する（返事を待つ間の破棄）
+//     --after-dict  … 記録の後で辞書を保存し、認識ヒントの状態を聞き直す
 // 本物のエンジンで試すときは NATSU_E2E_EXE・NATSU_E2E_MODEL・NATSU_E2E_WAVS（; 区切り）を渡す。
 // 終わるときは、起動したエンジンを止め、一時フォルダを消す（npm test のたびに残さない）。
 
@@ -29,6 +32,9 @@ const testDuring = flags.includes('--test-during');
 const silent = flags.includes('--silent');
 const withVad = flags.includes('--vad');
 const kotoba = flags.includes('--kotoba');
+const fixedPort = Number((flags.find((f) => f.startsWith('--port=')) || '--port=0').slice(7)) || 0;
+const discardDuring = flags.includes('--discard-during');
+const afterDict = flags.includes('--after-dict');
 const segCount = Number((flags.find((f) => f.startsWith('--segs=')) || '--segs=2').slice(7)) || 2;
 
 const freePort = () => new Promise((resolve, reject) => {
@@ -96,7 +102,7 @@ process.on('exit', () => {
   fs.writeFileSync(flog, '');
   process.env.FAKE_MODE = mode;
   process.env.FAKE_LOG = flog;
-  const localPort = await freePort();
+  const localPort = fixedPort || await freePort();
   const sumPort = await freePort();
   fs.writeFileSync(path.join(userData, 'settings.json'), JSON.stringify({
     localServerExe: exe, localModelPath: model, localPort, sumPort, autoLaunch: false,
@@ -177,8 +183,10 @@ process.on('exit', () => {
     listeners['audio:segment']({}, { buffer: new Uint8Array(wavs[i].buf), durationMs: wavs[i].ms, final: last });
     await sleep(50);
     if (i === 0 && testDuring) out.testDuring = await handlers['app:test']();
+    if (i === 0 && discardDuring) { await sleep(300); out.discard = await handlers['meeting:discard'](); break; }
   }
-  const deadline = Date.now() + Number(process.env.NATSU_E2E_WAIT_MS || 60000);
+  if (discardDuring) await sleep(3000);   // 破棄の後にやり直しが送られないことを、返事が来るまで待って確かめる
+  const deadline = Date.now() + (discardDuring ? 0 : Number(process.env.NATSU_E2E_WAIT_MS || 60000));
   while (Date.now() < deadline && !store.listPages().length) await sleep(50);
   // 要約まで済む（summaryError が書かれる）のを待つ
   while (Date.now() < deadline) {
@@ -199,6 +207,10 @@ process.on('exit', () => {
   out.spawnArgs = (fs.readFileSync(flog, 'utf8').split('\n').find((l) => l.startsWith('spawn ')) || '').slice(6);
   out.promptInfo = await handlers['prompt:info']();
   out.engineStatus = await handlers['engine:status']();
+  if (afterDict) {
+    out.saved = await handlers['settings:save']({}, { dictionary: ['検収'] });
+    out.promptInfoAfterDict = await handlers['prompt:info']();
+  }
   process.stdout.write(`\n${JSON.stringify(out)}\n`);
   process.exit(0);
 })().catch((e) => { process.stderr.write(`mainrun: ${e.stack || e}\n`); process.exit(1); });

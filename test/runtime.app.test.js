@@ -805,6 +805,20 @@ test('モデルが kotoba-whisper で認識ヒントを渡していないとき�
   assert.strictEqual(w.textContent, 'いまの文字起こしモデル（kotoba-whisper）には、辞書と業務の言葉を渡していません（渡すと文が抜け落ちやすくなるため）。large-v3-turbo に替えると渡せます');
 });
 
+test('設定のタブを開くたびに認識ヒントの状態を聞き直す（記録の途中で main がヒントを止めることがある。0.1.1）', async () => {
+  let info = { ok: true, kept: 0, total: 0, over: false, off: false, offReason: '' };
+  const l = await load(APP, { preloadSrc: preloadWith('meetingSkipPending', 'promptInfo'), returns: { promptInfo: () => info } });
+  const w = l.byId.get('dictWarn');
+  assert.ok(w.hidden);
+  info = { ok: true, kept: 0, total: 0, over: false, off: true, offReason: 'empty' };
+  const before = l.called('promptInfo').length;
+  l.byId.get('tabBtnSettings').onclick();
+  await l.drain();
+  assert.ok(l.called('promptInfo').length > before, '設定のタブを開いても聞き直していない');
+  assert.ok(!w.hidden && /^認識ヒントを渡すと文字起こしが空になったため/.test(w.textContent), w.textContent);
+  assert.deepStrictEqual(l.errors.map(fmt), []);
+});
+
 test('promptInfo の無い古い preload と組んでも、設定画面は生きて注意は出ない', async () => {
   const l = await load(APP);
   assert.deepStrictEqual(l.errors.map(fmt), []);

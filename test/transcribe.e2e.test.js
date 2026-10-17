@@ -5,7 +5,8 @@
  * （初期プロンプト 376 バイト）で、kotoba-whisper が話し声に {"text":""} を返し、
  * main.js が空の区間を何も書かずに消していた。ここでは偽の whisper-server（helpers/fake-whisper.js）
  * を相手に、main.js を偽の Electron の上で実際に動かして固定する（helpers/mainrun.js）。
- *   - ヒント付きで空なら、ヒントなしでもう一度送り、区間を残す。一度そうなったら、以後はヒントを渡さない
+ *   - ヒント付きで空なら、ヒントなしでもう一度送り、区間を残す。議事録で 2 回続いたら、以後はヒントを渡さない
+ *     （1 回では止めない。辞書を変えたら、またヒントを渡す。議事録を破棄したら、やり直しは送らない）
  *   - VAD が無く、ほぼ無音なら、ヒントなしのやり直しはしない（作り話を拾わない）
  *   - 本当に空なら、engine.log に理由を書き、全部が空なら利用者に知らせる（一部だけ空なら知らせない）
  *   - 200 のまま {"error"} を返すエンジンは、空ではなく失敗として区間を残す
@@ -18,8 +19,22 @@ const test = require('node:test');
 const assert = require('node:assert');
 const path = require('node:path');
 const { execFile } = require('node:child_process');
+const net = require('node:net');
 
 const RUN = path.join(__dirname, 'helpers', 'mainrun.js');
+
+// 場面ごとの文字起こしエンジンのポートを、先にまとめて取る。別々に空きを探すと、並べて走らせた
+// 場面どうしで同じポートを掴むことがある（100 回に 1 回ほど落ちた）
+async function reservePorts(n) {
+  const servers = await Promise.all(Array.from({ length: n }, () => new Promise((resolve, reject) => {
+    const s = net.createServer();
+    s.once('error', reject);
+    s.listen(0, '127.0.0.1', () => resolve(s));
+  })));
+  const ports = servers.map((s) => s.address().port);
+  await Promise.all(servers.map((s) => new Promise((r) => s.close(r))));
+  return ports;
+}
 
 function run(args) {
   return new Promise((resolve, reject) => {
@@ -33,7 +48,10 @@ function run(args) {
 
 // 場面を並べて走らせる（1 つ 2〜3 秒）
 const SCENES = {
-  promptEmpty: ['prompt-empty', '--test'],
+  promptEmpty: ['prompt-empty', '--test', '--segs=3'],
+  noiseFirst: ['big-prompt-empty', '--segs=3'],
+  discard: ['slow-prompt-empty', '--discard-during'],
+  dict: ['prompt-empty', '--segs=3', '--after-dict'],
   text: ['text', '--test'],
   empty: ['empty', '--test'],
   emptyOne: ['empty', '--segs=1'],
@@ -48,22 +66,23 @@ const SCENES = {
   kotoba: ['prompt-empty', '--kotoba'],
 };
 const results = {};
-const ready = Promise.all(Object.entries(SCENES).map(async ([k, a]) => { results[k] = await run(a); }));
+const ready = reservePorts(Object.keys(SCENES).length).then((ports) =>
+  Promise.all(Object.entries(SCENES).map(async ([k, a], i) => { results[k] = await run([...a, `--port=${ports[i]}`]); })));
 const meetingReqs = (r) => r.requests.filter((l) => !/probe=true/.test(l));
 const prompted = (r) => meetingReqs(r).map((l) => /prompt=true/.test(l));
 
-test('ヒント付きで空なら、ヒントなしでもう一度送り、区間を残す。以後はヒントを渡さない（0.1.0 の「0 区間」）', async () => {
+test('ヒント付きで空なら、ヒントなしでもう一度送り、区間を残す。2 回続いたら以後はヒントを渡さない（0.1.0 の「0 区間」）', async () => {
   await ready;
   const r = results.promptEmpty;
   assert.strictEqual(r.pages.length, 1, '議事録が 1 つできていない');
   const segs = r.pages[0].segments;
-  assert.strictEqual(segs.length, 2, `区間が消えた: ${JSON.stringify(segs)}`);
+  assert.strictEqual(segs.length, 3, `区間が消えた: ${JSON.stringify(segs)}`);
   assert.ok(segs.every((s) => !s.failed && /^本日の議題は進捗の確認です。区間\d+$/.test(s.text)), JSON.stringify(segs));
-  // 1 つ目の区間は「ヒント付き → ヒントなし」。2 つ目の区間からはヒントなしの 1 回だけ（毎回 2 回送らない）
-  assert.deepStrictEqual(prompted(r), [true, false, false]);
+  // 1・2 つ目の区間は「ヒント付き → ヒントなし」。続いたので、3 つ目はヒントなしの 1 回だけ（毎回 2 回送らない）
+  assert.deepStrictEqual(prompted(r), [true, false, true, false, false]);
   // ヒントなしのやり直しも、前の要求（ヒント付き）の続きにしない
   assert.ok(meetingReqs(r).every((l) => /nc=true/.test(l)), JSON.stringify(r.requests));
-  assert.strictEqual(r.engineLog.filter((l) => /^文字起こし: 認識ヒント（\d+ バイト）付きでは空 → ヒントなしで \d+ 文字（音声 3 秒）$/.test(l)).length, 1,
+  assert.strictEqual(r.engineLog.filter((l) => /^文字起こし: 認識ヒント（\d+ バイト）付きでは空 → ヒントなしで \d+ 文字（音声 \d 秒）$/.test(l)).length, 2,
     `やり直しが engine.log に残っていない: ${JSON.stringify(r.engineLog)}`);
   assert.ok(r.engineLog.includes('文字起こし: 以後、エンジンと認識ヒントの設定が変わるまで、認識ヒントを渡しません'), JSON.stringify(r.engineLog));
   // 設定画面にも「いまはヒントを渡していない」と伝える
@@ -89,13 +108,15 @@ test('本当に空なら、engine.log に区間ごとの理由を書き、全部
   await ready;
   const r = results.empty;
   assert.strictEqual(r.pages[0].segments.length, 0);
-  assert.strictEqual(r.pages[0].summaryError, '文字起こしが空のため要約できません');
+  // 通知は数秒で消えるので、議事録の要約の欄にも同じ理由と確かめ方を残す（理由の記録の場所は札を付けて最後に）
+  assert.match(r.pages[0].summaryError, /^2 区間の音声を受け取りましたが、文字起こしの結果がすべて空でした。.*使用するマイク.*理由の記録: %APPDATA%\\natsu\\engine\.log$/);
   // [BLANK_AUDIO] だけの返事も空として扱う
   assert.strictEqual(r.engineLog.filter((l) => /^文字起こし: 認識ヒント（\d+ バイト）付きでは空 → ヒントなしでも空/.test(l)).length, 2, JSON.stringify(r.engineLog));
   assert.strictEqual(r.engineLog.filter((l) => /^区間 s\d+（音声 \d+ 秒）: 文字起こしが空のため除きました$/.test(l)).length, 2, JSON.stringify(r.engineLog));
   assert.ok(r.engineLog.includes('議事録を保存: 文字起こしが空の区間が 2、文字の残った区間は 0'), JSON.stringify(r.engineLog));
   const notice = r.notices.find((n) => n.startsWith('2 区間の音声を受け取りましたが、文字起こしの結果がすべて空でした。'));
   assert.ok(notice, `利用者に知らせていない: ${JSON.stringify(r.notices)}`);
+  assert.strictEqual(notice, r.pages[0].summaryError, '通知と要約の欄の文が違う');
   assert.match(notice, /使用するマイク/);
   assert.match(notice, /engine\.log/);
   // 空が続いても、ヒントは止めない（ヒントのせいだと分かったわけではない）
@@ -178,4 +199,31 @@ test('モデルが kotoba-whisper なら認識ヒントを渡さず（1 回だ�
   assert.strictEqual(results.text.engineStatus.whisperNote, '');
   assert.strictEqual(results.text.promptInfo.offReason, '');
   assert.strictEqual(results.promptEmpty.promptInfo.offReason, 'empty');
+});
+
+test('雑音の 1 区間だけヒント付きで空になっても、ヒントは止めない（続けて起きたときだけ止める）', async () => {
+  await ready;
+  const r = results.noiseFirst;
+  // 1 つ目（3 秒）はヒント付きで空 → ヒントなし。2・3 つ目はヒント付きのまま取れる
+  assert.deepStrictEqual(prompted(r), [true, false, true, true], JSON.stringify(r.requests));
+  assert.strictEqual(r.pages[0].segments.length, 3);
+  assert.deepStrictEqual([r.promptInfo.off, r.promptInfo.offReason], [false, '']);
+  assert.ok(!r.engineLog.some((l) => /認識ヒントを渡しません/.test(l)), JSON.stringify(r.engineLog));
+});
+
+test('返事を待つ間に議事録を破棄したら、ヒントなしのやり直しは送らない', async () => {
+  await ready;
+  const r = results.discard;
+  assert.strictEqual(r.discard && r.discard.ok, true, JSON.stringify(r.discard));
+  assert.deepStrictEqual(prompted(r), [true], JSON.stringify(r.requests));
+  assert.ok(!r.engineLog.some((l) => /^文字起こし: 認識ヒント/.test(l)), JSON.stringify(r.engineLog));
+  assert.strictEqual(r.pages.length, 0, '破棄した議事録が保存された');
+});
+
+test('ヒントを止めた後で辞書を変えたら、またヒントを渡す（設定画面の約束どおり）', async () => {
+  await ready;
+  const r = results.dict;
+  assert.deepStrictEqual([r.promptInfo.off, r.promptInfo.offReason], [true, 'empty']);
+  assert.strictEqual(r.saved && r.saved.ok, true, JSON.stringify(r.saved));
+  assert.deepStrictEqual([r.promptInfoAfterDict.off, r.promptInfoAfterDict.offReason], [false, '']);
 });

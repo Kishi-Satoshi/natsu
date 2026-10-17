@@ -527,11 +527,15 @@ function restartEnginesIfNeeded() {
 }
 
 // ---------------------------------------------------------------- 文字起こし
-// 認識ヒントを渡すと空になり、渡さないと文字が取れた——を一度見たら、同じエンジン・同じヒントの間は
-// ヒントを渡さない。毎回 2 回送ると、遅い PC では文字起こしが録音に追いつかなくなり、音声入力も倍待たせる。
+// 議事録の区間で「認識ヒントを渡すと空、渡さないと文字が取れた」が続けて PROMPT_OFF_AFTER 回起きたら、
+// 同じエンジン・同じヒントの間はヒントを渡さない。毎回 2 回送ると、遅い PC では文字起こしが録音に
+// 追いつかなくなる。1 回では決めない（雑音の区間で、ヒントなしの方だけが作り話を返すことがある）。
+// ヒント付きで文字が取れたら数え直す。音声入力と復旧の文字起こしでは数えない（短い 1 回で決めない）。
 // エンジンの設定かヒントの中身（辞書・業務の言葉・言語）が変われば、もう一度ヒント付きで試す。
-// 覚えるのはアプリが動いている間だけ（次の起動では、最初の 1 回だけまた 2 回送る）
+// 覚えるのはアプリが動いている間だけ
+const PROMPT_OFF_AFTER = 2;
 let promptOffSig = '';
+let promptEmptyStreak = { sig: '', n: 0 };
 const promptSig = () => [engineSignature(whisperEng), JSON.stringify(settings.dictionary || []),
   settings.useBuiltinTerms !== false, settings.language].join('|');
 const promptOff = () => promptOffSig !== '' && promptOffSig === promptSig();
@@ -545,14 +549,16 @@ const isKotobaModel = () => /kotoba/i.test(path.basename(settings.localModelPath
 // コマンドは文末に札を付けて置く（文の途中に置くと、後ろの語までひと続きのコマンドと読まれる。engineIssueMessage と同じ）。
 // 前の版の setup-local-engine.ps1 は既定が kotoba なので、-Model を必ず付けて示す
 const KOTOBA_NOTE = '文字起こしのモデルが kotoba-whisper です。75 秒ずつの文字起こしでは文の抜け落ちが多いため、'
-  + 'large-v3-turbo に替えることをおすすめします。エンジンを置いたフォルダで下のコマンドを実行し、'
-  + '表示されたモデルのパスを［詳細設定］の「モデルファイルのパス」に貼り付けて保存してください。'
+  + 'large-v3-turbo に替えることをおすすめします。setup-local-engine.ps1 を置いたフォルダ（local-engine フォルダの一つ上）で'
+  + ' PowerShell を開いて下のコマンドを実行し、表示されたモデルのパスを［詳細設定］の「文字起こし」にある'
+  + '「モデルファイル（ggml-*.bin）のパス」に貼り付けてください（欄を離れると保存されます）。'
   + '実行するコマンド: powershell -ExecutionPolicy Bypass -File .\\setup-local-engine.ps1 -Model large-v3-turbo-q5';
 // ヒントなしでのやり直しを省く音の小ささ。VAD が無いと、ほぼ無音の音声をヒントなしで送り直したとき、
 // 作り話（「ご視聴ありがとうございました」など）が返りうる。話し声はふつう -40 dBFS より大きい
 const RETRY_MIN_DBFS = -50;
 
-// opts.isStale: やり直しの前に聞く。true なら（議事録の破棄・打ち切りの後）送り直さない
+// opts.isStale: やり直しの前に聞く。true なら（議事録の破棄・打ち切りの後）送り直さない。
+// opts.learn: 議事録の区間のとき true。ヒントを止めるかの数え（promptEmptyStreak）に入れる
 async function transcribeLocal(wavBuffer, extraPromptTail, durationMs, opts = {}) {
   const ok = await ensureEngineReady(whisperEng);
   if (!ok) throw new Error(whisperEng.lastError || '文字起こしエンジンが起動していません');
@@ -563,6 +569,8 @@ async function transcribeLocal(wavBuffer, extraPromptTail, durationMs, opts = {}
   // 待ち続ける（議事録は「破棄」で抜けられる）。喪失よりは待ちを選ぶ。
   const waitMs = Math.min(1800000, Math.max(240000, Math.round(durationMs || 0) * 5 + 60000));
   const deadline = Date.now() + waitMs;
+  // ヒントを止めるかは、ヒントを組んだときの設定で決める（送っている間に辞書が変わっても、新しい辞書は試してから）
+  const sig = promptSig();
   const prompt = (isKotobaModel() || promptOff()) ? '' : buildPrompt(extraPromptTail);
   // 認識ヒント（初期プロンプト）付きで空なら、ヒントなしでもう一度だけ送る。
   // kotoba-whisper は長いヒントを渡すと、話し声があっても {"text":""} を返すことがある
@@ -588,9 +596,9 @@ async function transcribeLocal(wavBuffer, extraPromptTail, durationMs, opts = {}
     form.append('file', new Blob([wavBuffer], { type: 'audio/wav' }), 'audio.wav');
     form.append('response_format', 'json');
     form.append('temperature', '0.0');
-    // 前の要求の続きとして文字起こしさせない。1.8.0 以前の whisper-server は既定で前の要求の
+    // 前の要求の続きとして文字起こしさせない。1.7.6・1.8.0 などの whisper-server は既定で前の要求の
     // ヒントと文を次の要求に持ち越す（別の議事録や音声入力にまで漏れ、上の「ヒントなし」の
-    // やり直しにも前のヒントが残る）。1.9 以降は常にこの扱いで、この欄は読まれない
+    // やり直しにも前のヒントが残る）。1.9.5 は常にこの扱いで、この欄は読まれない
     form.append('no_context', 'true');
     if (settings.language && settings.language !== 'auto') form.append('language', settings.language);
     if (p) {
@@ -619,9 +627,15 @@ async function transcribeLocal(wavBuffer, extraPromptTail, durationMs, opts = {}
   // 空になった理由を後から追えるように残す（以前は何も書かず、engine.log からは何も分からなかった）
   if (retried) {
     engineLog(`文字起こし: 認識ヒント（${Buffer.byteLength(prompt, 'utf8')} バイト）付きでは空 → ヒントなしで${text ? ` ${text.length} 文字` : 'も空'}（音声 ${sec} 秒）`);
-    if (text && !promptOff()) {
-      promptOffSig = promptSig();
-      engineLog('文字起こし: 以後、エンジンと認識ヒントの設定が変わるまで、認識ヒントを渡しません');
+  }
+  if (prompt && opts.learn && text) {
+    if (!retried) promptEmptyStreak = { sig, n: 0 };   // ヒント付きで取れた
+    else {
+      promptEmptyStreak = { sig, n: promptEmptyStreak.sig === sig ? promptEmptyStreak.n + 1 : 1 };
+      if (promptEmptyStreak.n >= PROMPT_OFF_AFTER && promptOffSig !== sig) {
+        promptOffSig = sig;
+        engineLog('文字起こし: 以後、エンジンと認識ヒントの設定が変わるまで、認識ヒントを渡しません');
+      }
     }
   }
   return text;
@@ -1536,7 +1550,7 @@ function onMeetingSegment(buffer, durationMs, isFinal) {
     m.inFlightSince = t0;
     let text = '';
     try {
-      text = await transcribeLocal(buffer, tail, durationMs, { isStale: () => meeting !== m || m.gen !== gen });
+      text = await transcribeLocal(buffer, tail, durationMs, { isStale: () => meeting !== m || m.gen !== gen, learn: true });
     } catch (e) {
       if (meeting !== m || m.gen !== gen) return;
       m.inFlightSince = 0;
@@ -1619,15 +1633,22 @@ async function maybeFinalizeMeeting() {
   sendToOverlay('overlay:phase', { phase: 'done', message: '議事録を保存しました' });
   sendToMainWin('pages:updated', store.listPages());
   sendToMainWin('page:open', page.id);
-  // 音声は届いたのに、文字起こしが全部空だった。黙っていると「0 区間」の理由が分からない
-  if (m.emptySegs > 0 && !settledSegments(m.segments).length) {
+  // 音声は届いたのに、文字起こしが全部空だった。黙っていると「0 区間」の理由が分からない。
+  // 通知は数秒で消えるので、要約の欄（summaryError）にも同じ文を残す（下の runSummary の後）
+  const allEmpty = m.emptySegs > 0 && !settledSegments(m.segments).length;
+  const allEmptyText = `${m.emptySegs} 区間の音声を受け取りましたが、文字起こしの結果がすべて空でした。`
+    + '設定の「使用するマイク」が話している人の声を拾うマイクになっているか確かめてください。'
+    + '続くときは、理由の記録を見てください。理由の記録: %APPDATA%\\natsu\\engine.log';
+  if (allEmpty) {
     engineLog(`議事録を保存: 文字起こしが空の区間が ${m.emptySegs}、文字の残った区間は 0`);
-    sendToMainWin('app:notice', `${m.emptySegs} 区間の音声を受け取りましたが、文字起こしの結果がすべて空でした。`
-      + '設定の「使用するマイク」が話している人の声を拾うマイクになっているか確かめてください。'
-      + '続くときは、%APPDATA%\\natsu\\engine.log に理由が残っています。');
+    sendToMainWin('app:notice', allEmptyText);
   }
 
   await runSummary(page.id);
+  if (allEmpty) {
+    const saved = saveIfExists(store, page.id, (p) => { p.summaryError = allEmptyText; });
+    if (saved) sendToMainWin('page:updated', { page: saved, segments: store.getTranscript(page.id) });
+  }
   if (recoveryQueue) transcribeRecovered().catch((e) => engineLog(`retry failed: ${e.message}`));
 }
 
@@ -2080,8 +2101,9 @@ function setupIpc() {
     const vad = settings.useVad ? resolveVadModel() : '';
     const notes = [vad ? `VAD有効（${path.basename(vad)}）` : 'VAD無効'];
     if (settings.suppressNst) notes.push('非発話トークン抑制');
-    // 記録・文字起こしの最中は試さない（エンジンは 1 件ずつ処理するので、前の区間を待って時間切れになりうる）
-    if (isBusy()) return { ok: true, info: `文字起こしエンジンは起動しています。記録や文字起こしの最中のため、試しの文字起こしは省きました（${notes.join(' / ')}）`, warning };
+    // 記録・文字起こしの最中は試さない（エンジンは 1 件ずつ処理するので、前の区間を待って時間切れになりうる）。
+    // 要約だけが動いているときは文字起こしエンジンは空いているので試す
+    if (state !== 'idle' || recoveryRunning || pendingSegs > 0) return { ok: true, info: `文字起こしエンジンは起動しています。記録や文字起こしの最中のため、試しの文字起こしは省きました（${notes.join(' / ')}）`, warning };
     const tried = await probeInference();
     if (tried) { engineLog(`起動テスト: ${tried}`); return { ok: false, error: tried, warning }; }
     return { ok: true, info: `文字起こしエンジンは起動しています。短い無音を試しに文字起こしさせ、返事があることも確かめました（${notes.join(' / ')}）`, warning };

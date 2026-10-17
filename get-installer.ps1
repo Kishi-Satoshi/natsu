@@ -83,8 +83,11 @@ trap {
     if (-not $script:PauseOnExit) { break }
     Write-Host ""
     Write-Host ("エラーで止まりました: " + $_.Exception.Message) -ForegroundColor Red
-    Write-Host "PowerShell を開いて powershell -ExecutionPolicy Bypass -File .\get-installer.ps1 で実行し直すと、詳しい内容が見えます。" -ForegroundColor Red
-    Write-Host ("  このフォルダです: " + $PSScriptRoot + "（アドレス欄に powershell と入力すると、ここで開けます）")
+    # コマンドとフォルダは、それぞれ札を付けて行の最後に置く（文の途中に置くと、後ろの語までひと続きに写される）
+    Write-Host "PowerShell を開いて、次のコマンドで実行し直すと、詳しい内容が見えます。" -ForegroundColor Red
+    Write-Host "  実行するコマンド: powershell -ExecutionPolicy Bypass -File .\get-installer.ps1" -ForegroundColor Red
+    Write-Host "  （下のフォルダをエクスプローラーで開き、アドレス欄に powershell と入力すると、そこで PowerShell が開きます）"
+    Write-Host ("  このフォルダ: " + $PSScriptRoot)
     Wait-BeforeClose "上の赤い文字を控えてから閉じてください。"
     exit 1
 }

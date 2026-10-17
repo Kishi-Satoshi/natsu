@@ -10,6 +10,8 @@
 //   probe-badjson … 起動テストの試しにだけ JSON でない返事
 //   probe-drop    … 起動テストの試しにだけ、返事をせずに接続を切る
 //   slow          … 区間の返事を 1.5 秒遅らせる（文字起こしの最中に起動テストを押した場面）
+//   slow-prompt-empty … ヒント付きの区間は 1.5 秒待ってから {"text":""}、ヒントなしは文（返事を待つ間に議事録を破棄する場面）
+//   big-prompt-empty  … 大きい区間（80KB 超）だけ、ヒント付きなら {"text":""}。ほかは文（雑音の 1 区間だけヒントで空になる場面）
 // どの場面でも、WAV の頭（RIFF/WAVE、16kHz・モノラル・16bit）が壊れていれば 200 のまま {"error"} を返す
 // （本物の 1.7.6・1.8.0 と同じ）。受けた要求は FAKE_LOG に 1 行ずつ書く。
 
@@ -83,7 +85,13 @@ http.createServer((req, res) => {
     if (mode === 'empty') { json(res, 200, { text: hasPrompt ? '' : ' [BLANK_AUDIO]\n' }); return; }
     if (mode === 'prompt-empty' && hasPrompt) { json(res, 200, { text: '' }); return; }
     if (mode === 'mixed' && !isProbe && form.file.length > 80000) { json(res, 200, { text: '' }); return; }
+    if (mode === 'big-prompt-empty' && hasPrompt && form.file.length > 80000) { json(res, 200, { text: '' }); return; }
+    if (mode === 'slow-prompt-empty' && hasPrompt && !isProbe) { setTimeout(() => json(res, 200, { text: '' }), 1500); return; }
     const reply = () => json(res, 200, { text: ` 本日の議題は\n進捗の確認です。区間${n}\n` });
     if (mode === 'slow' && !isProbe) setTimeout(reply, 1500); else reply();
   });
+}).on('error', (e) => {
+  // ポートが塞がっていたなど。黙って落ちると原因が分からないので、記録に残して終わる
+  note(`listen error ${e.code || e.message}`);
+  process.exit(3);
 }).listen(port, '127.0.0.1');

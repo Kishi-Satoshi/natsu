@@ -98,13 +98,17 @@ for (const { file, params, done } of SCRIPTS) {
     // 開いてある窓から実行したときは、今までどおり PowerShell のエラー表示に任せる
     assert.strictEqual(t[1], 'if (-not $script:PauseOnExit) { break }');
     const iMsg = t.findIndex((l) => l.includes('$_.Exception.Message') && l.endsWith('-ForegroundColor Red'));
-    const hint = `PowerShell を開いて powershell -ExecutionPolicy Bypass -File .\\${file} で実行し直すと、詳しい内容が見えます`;
-    const iHint = t.findIndex((l) => l.includes(hint) && l.endsWith('-ForegroundColor Red'));
+    // 実行し直すコマンドとフォルダは、それぞれ札を付けて行の最後に置く（文の途中に置くと、後ろの語までひと続きに写される）
+    const iHint = t.findIndex((l) => l.includes('PowerShell を開いて、次のコマンドで実行し直すと、詳しい内容が見えます。') && l.endsWith('-ForegroundColor Red'));
+    const iCmd = t.indexOf(`Write-Host "  実行するコマンド: powershell -ExecutionPolicy Bypass -File .\\${file}" -ForegroundColor Red`);
+    const iDir = t.indexOf('Write-Host ("  このフォルダ: " + $PSScriptRoot)');
     const iWait = t.findIndex((l) => /^Wait-BeforeClose "[^"]+"$/.test(l));
     const iExit = t.indexOf('exit 1');
     assert.ok(iMsg > 1, 'エラーの中身を赤字で出していない');
-    assert.ok(iHint > iMsg, `実行し直す案内を赤字で出していない: ${hint}`);
-    assert.ok(iWait > iHint, '案内の後で Enter を待っていない');
+    assert.ok(iHint > iMsg, '実行し直す案内を赤字で出していない');
+    assert.ok(iCmd > iHint, `実行し直すコマンドを、札を付けて行の最後に赤字で出していない: ${file}`);
+    assert.ok(iDir > iCmd, 'フォルダを、札を付けて行の最後に出していない');
+    assert.ok(iWait > iDir, '案内の後で Enter を待っていない');
     assert.ok(iExit > iWait, '待った後に exit 1 で終わっていない');
     assert.match(block(s, 'function Wait-BeforeClose {'), new RegExp(PROMPT));
   });
@@ -138,4 +142,19 @@ for (const { file, params, done } of SCRIPTS) {
 test('make-release.ps1 は開発者が開いた窓で使うので、待たない（変えない）', () => {
   const s = read('make-release.ps1');
   assert.ok(!/NoPause|Read-Host|trap\s*\{/.test(s));
+});
+
+test('setup-local-engine.ps1: 既定のモデルと「指定できる値」の名前に、どれも取得の分岐がある。設定の勧めのコマンドの -Model も通る', () => {
+  const ps = read('setup-local-engine.ps1');
+  const d = /^\s*\[string\]\$Model = "([^"]+)",?$/m.exec(ps);
+  assert.ok(d, '既定の -Model が読めない');
+  assert.ok(ps.includes(`$Model -eq "${d[1]}"`), `既定のモデル ${d[1]} の分岐が無い`);
+  const listed = /指定できる値: ([^"]+)"/.exec(ps);
+  assert.ok(listed, '「指定できる値」の案内が無い');
+  for (const name of listed[1].split(' / ')) assert.ok(ps.includes(`$Model -eq "${name.trim()}"`), `${name} の分岐が無い`);
+  assert.ok(listed[1].split(' / ').map((x) => x.trim()).includes(d[1]), '既定のモデルが「指定できる値」に無い');
+  // 設定のエンジン欄に出す kotoba からの替え方（main.js の KOTOBA_NOTE）のコマンド
+  const m = /setup-local-engine\.ps1 -Model ([\w.-]+)';/.exec(read('src/main.js'));
+  assert.ok(m, 'KOTOBA_NOTE のコマンドが読めない');
+  assert.ok(ps.includes(`$Model -eq "${m[1]}"`), `勧めのコマンドの -Model ${m[1]} を、セットアップスクリプトが受け付けない`);
 });
