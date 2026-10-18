@@ -541,6 +541,18 @@ process.on('exit', () => {
   const childProcess = {
     ...cp,
     spawn(cmd, args, opts) {
+      if (scene && scene.claude && cmd === FAKE_CLAUDE) {
+        // 偽の claude を使う場面（scene.claude。設定の［Claude Code を確かめる］）: 偽の claude を node で起こす
+        const k = realSpawn(process.execPath, [FAKE_CLAUDE, ...args], { ...opts, env: childEnv(opts && opts.env) });
+        kids.push(k);
+        return k;
+      }
+      if (scene && scene.claude && cmd === path.join(userData, 'claude-noexec.exe')) {
+        // 場所のファイルはあるが起こせない（実行できない中身）。本当に起こそうとして 'error' を受ける
+        const k = realSpawn(cmd, args, opts);
+        kids.push(k);
+        return k;
+      }
       if (scene && !scene.engine) {
         // エンジンを持たない場面: 手のパスが設定にあっても起こさない（偽の子を返す）
         const EventEmitter = require('events');

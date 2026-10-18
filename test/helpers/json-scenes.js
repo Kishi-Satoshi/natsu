@@ -297,4 +297,35 @@ module.exports = {
       o.draftAfterOff = draft();
       o.discard = await h('meeting:discard');
     } },
+  // 第1c回 合流（B3・C2）: 設定の［Claude Code を確かめる］（claude:status）を偽の claude（helpers/fake-claude.js）で通す。
+  // claude: true の場面は mainrun の spawn が偽の claude と userData の claude-noexec.exe だけを本当に起こす（ほかは起こさない）。
+  // auth status の答え方は FAKE_CLAUDE_AUTH（子を起こすときの process.env）で変える。-p は呼ばない
+  'claude-status': { claude: true,
+    files: { 'settings.json': pretty({ ...TYPICAL, claudeExe: require('node:path').join(__dirname, 'fake-claude.js') }) },
+    act: async (c) => {
+      const p = require('node:path');
+      const fs = require('node:fs');
+      const h = (ch, ...a) => c.handlers[ch]({}, ...a);
+      const logFile = p.join(c.userData, '..', 'claude-status.log');
+      process.env.FAKE_CLAUDE_LOG = logFile;
+      const lines = () => (fs.existsSync(logFile) ? fs.readFileSync(logFile, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l)) : []);
+      const o = c.out;
+      process.env.FAKE_CLAUDE_AUTH = 'claude.ai';
+      o.ok = await h('claude:status');
+      o.authBeforeBoth = lines().length;
+      o.both = await Promise.all([h('claude:status'), h('claude:test')]);
+      o.authAfterBoth = lines().length;
+      process.env.FAKE_CLAUDE_AUTH = 'none';
+      o.notLogged = await h('claude:test');
+      process.env.FAKE_CLAUDE_AUTH = 'api_key';
+      o.apiKey = await h('claude:test');
+      process.env.FAKE_CLAUDE_AUTH = 'mystery';
+      o.unknown = await h('claude:test');
+      const noexec = p.join(c.userData, 'claude-noexec.exe');
+      fs.writeFileSync(noexec, 'not a program\n');
+      fs.chmodSync(noexec, 0o644);
+      o.savedNoexec = await h('settings:save', UI({ claudeExe: noexec }));
+      o.noexec = await h('claude:test');
+      o.claudeLog = lines();
+    } },
 };

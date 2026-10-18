@@ -66,7 +66,7 @@ const finish = ({ out = '', errText = '', code }) => {
 };
 
 if (args[0] === 'auth' && args[1] === 'status') {
-  note({ kind: 'auth', args, envKeys });
+  note({ kind: 'auth', args, envKeys, cwd: require('path').basename(process.cwd()) });
   const method = env.FAKE_CLAUDE_AUTH || 'claude.ai';
   const loggedIn = method !== 'none';
   const answer = () => finish({ out: `${JSON.stringify({ loggedIn, authMethod: method })}\n`, code: loggedIn ? 0 : 1 });

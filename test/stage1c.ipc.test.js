@@ -84,3 +84,40 @@ test('RF28: ［この会議は PC の中だけ］の IPC は片道。会議中�
   assert.ok(!o.engineLog.some((l) => l.includes('この会議は PC の中だけ: off')), '会議の印が送る側に戻った');
   assert.deepStrictEqual(o.discard, { ok: true });
 });
+
+test('OL5・RF25・RF31: 設定の［Claude Code を確かめる］を偽の claude で通す。claude.ai なら ok、未ログイン・API キー・起こせない・分からない答えは設定の画面の文。-p は呼ばず、課金の変数は子に渡らず、作業フォルダは claude-run。同時に押しても子は1つ', { timeout: 30000 }, async () => {
+  const o = await run(['text', '--json-scene=claude-status']);
+  assert.deepStrictEqual(o.ok, { ok: true, found: true, cmdOnly: false, method: 'claude.ai', message: '' });
+  // 同時に2回押しても auth status は1回だけ（答えは同じもの）
+  assert.deepStrictEqual(o.both[0], o.both[1]);
+  assert.strictEqual(o.both[0].found, true);
+  assert.strictEqual(o.authAfterBoth - o.authBeforeBoth, 1, '同時に押して子を2つ起こした');
+  const settingsText = (r) => {
+    assert.ok(typeof r.message === 'string' && r.message.length > 10, `文が無い: ${JSON.stringify(r)}`);
+    assert.ok(!/要約を生成|要約を作れませんでした/.test(r.message), `設定の画面に要約の失敗の文が出る: ${r.message}`);
+  };
+  assert.deepStrictEqual({ ...o.notLogged, message: '' }, { ok: true, found: true, cmdOnly: false, method: 'none', message: '' });
+  assert.match(o.notLogged.message, /^Claude Code にログインしていないか、ログインが切れています。/);
+  settingsText(o.notLogged);
+  assert.deepStrictEqual({ ...o.apiKey, message: '' }, { ok: true, found: true, cmdOnly: false, method: 'api_key', message: '' });
+  assert.match(o.apiKey.message, /^Claude Code が API キー（従量課金）で動く設定になっています。/);
+  settingsText(o.apiKey);
+  assert.deepStrictEqual({ ...o.unknown, message: '' }, { ok: true, found: true, cmdOnly: false, method: 'mystery', message: '' });
+  assert.match(o.unknown.message, /^Claude Code の状態を確かめられませんでした。/);
+  settingsText(o.unknown);
+  // 場所のファイルはあるが起こせない（実行できない中身）: 入れ方の文。場所の欄の添え書きは無い（ファイルはある）
+  assert.deepStrictEqual({ ...o.noexec, message: '' }, { ok: true, found: false, cmdOnly: false, method: '', message: '' });
+  assert.match(o.noexec.message, /^Claude Code が見つかりません。PowerShell で `irm https:\/\/claude\.ai\/install\.ps1 \| iex` を実行して入れ/);
+  assert.ok(!o.noexec.message.includes('場所を空にすると'), `ファイルがあるのに場所の欄の添え書きが出た: ${o.noexec.message}`);
+  settingsText(o.noexec);
+  // claude.cmd の場所は設定の決まり（exe）で空になる（F12）ので、ここでは試さない（findClaude の cmd-only は claude-cli.test.js が見る）
+  // 偽の claude の記録: auth status だけ（-p は無い）・課金の変数は無い・作業フォルダは claude-run
+  assert.ok(o.claudeLog.length >= 4, `auth status の記録が足りない: ${o.claudeLog.length}`);
+  for (const r of o.claudeLog) {
+    assert.strictEqual(r.kind, 'auth');
+    assert.deepStrictEqual(r.envKeys, [], `課金の変数が子に渡った: ${r.envKeys}`);
+    assert.strictEqual(r.cwd, 'claude-run');
+  }
+  assert.ok(o.engineLog.some((l) => l.includes('Claude Code の確かめ: ok（claude.ai）')));
+  assert.ok(o.engineLog.some((l) => l.includes('Claude Code の確かめ: api-billing')));
+});
