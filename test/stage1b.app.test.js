@@ -200,6 +200,7 @@ test('N4: 要約・文字起こし・メモは細いタブ（role=tab・aria-sel
   assert.strictEqual(l.byId.get('paneBtnNote').textContent, '要約');
   assert.strictEqual(l.byId.get('paneBtnScript').getAttribute('aria-selected'), 'true', '要点の無いページは文字起こしで開く（今と同じ）');
   const acts = l.byId.get('pActs');
+  assert.ok(acts.closest('.pagebar'), '操作が上の帯（.pagebar）の中に無い（第1b2回 P-1）');
   const visible = acts.querySelectorAll('button').filter((b) => !b.closest('#pMenu'));
   assert.deepStrictEqual(visible.map((b) => b.id || b.textContent), ['要約を生成', 'pMore']);
   assert.deepStrictEqual(l.byId.get('pMenu').querySelectorAll('[role="menuitem"]').map((b) => b.textContent), ['コピー', '削除']);

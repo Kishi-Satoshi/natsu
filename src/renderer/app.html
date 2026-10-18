@@ -43,17 +43,25 @@
   .app { display: flex; height: 100%; min-height: 0; }
   .app.side-collapsed .side { display: none; }
   .col { flex: 1; min-width: 0; display: flex; flex-direction: column; }
-  .topbar { display: flex; align-items: center; gap: 4px; padding: 6px 24px 0; flex: none; min-height: 36px; }
-  .tabbar { flex: 1; min-width: 0; display: flex; gap: 2px; }
+  /* タブの帯（第1b2回 P-1）: 高さ 36px の灰色（--side）の帯で、下に --line の線。タブは帯の下の端にそろえ、選んでいるタブは白の地 */
+  .topbar { display: flex; align-items: stretch; gap: 4px; height: 36px; padding: 0 8px; flex: none;
+    background: var(--side); border-bottom: 1px solid var(--line); }
+  .topbar #sideExpand { align-self: center; }
+  .tabbar { flex: 1; min-width: 0; display: flex; align-items: flex-end; gap: 2px; }
   /* 狭い画面（拡大 200%）ではタブを潰さずに帯を横に捲る（第1b回 F11） */
   #tabbar { overflow-x: auto; overflow-y: hidden; scrollbar-width: thin; }
   #tabbar .tabitem { flex: none; }
-  /* 上のタブ（第1b回 N3）: 開いているページ。選んでいるタブは薄い強調の地、× で閉じる */
-  .tabitem { display: flex; align-items: center; gap: 2px; min-width: 0; max-width: 200px; padding: 4px 4px 4px 10px;
-    border-radius: 4px 4px 0 0; color: var(--muted); cursor: pointer; font-size: 13px; }
+  /* 上のタブ（第1b回 N3。第1b2回 P-1 で形を直した）: 高さ 30px・13px・--text-2・上の角だけ 6px・最大 220px。
+     選んでいるタブは白の地（--bg）で下のページと続く（灰色の強調にしない）。× で閉じる */
+  .tabitem { display: flex; align-items: center; gap: 2px; min-width: 0; max-width: 220px; height: 30px; padding: 0 4px 0 10px;
+    border-radius: 6px 6px 0 0; color: var(--text-2); cursor: pointer; font-size: 13px; }
   .tabitem .tt { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .tabitem:hover { background: var(--hover); color: var(--text); }
-  .tabitem.active { background: var(--tint); color: var(--text); font-weight: 600; }
+  .tabitem.active { background: var(--bg); color: var(--text); font-weight: 500; }
+  /* タブの頭のアイコンは CSS で足す（textContent は変えない）。記録中のタブは今の「● 記録中」の文のまま */
+  .tabitem[data-key^="page:"] .tt::before { content: '🎙\FE0F\00a0'; }
+  .tabitem[data-key="dictation"] .tt::before { content: '🎤\00a0'; }
+  .tabitem[data-key="settings"] .tt::before { content: '⚙\FE0F\00a0'; }
   .tabitem .tx { background: none; border: none; color: var(--muted); font: inherit; font-weight: 400; line-height: 1;
     padding: 2px 4px; border-radius: 4px; cursor: pointer; flex: none; }
   .tabitem .tx:hover { background: var(--hover); color: var(--text); }
@@ -260,10 +268,19 @@
   .prop .v { flex: 1; min-width: 0; color: var(--text); overflow-wrap: anywhere; }
   #pTypeRow .v { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
   #pTypeRow .hint { font-size: 11px; color: var(--muted); }
-  /* 操作は題名の上の右端の帯: 主ボタン1つと「…」（中にコピーと削除） */
-  .pacts { display: flex; justify-content: flex-end; align-items: center; gap: 6px; position: relative; min-height: 30px; }
-  .pacts button { font-size: 12px; padding: 5px 12px; }
-  .pacts .pmore { padding: 5px 9px; letter-spacing: .1em; }
+  /* 上の帯（第1b2回 P-1）: タブの帯の下の高さ 44px の帯。左にパンくず（アイコンと題名）、右に操作（#pActs） */
+  .pagebar { display: flex; align-items: center; gap: 8px; height: 44px; padding: 0 12px; flex: none; min-width: 0; }
+  .crumb { display: flex; align-items: center; gap: 6px; min-width: 0; height: 24px; padding: 2px 5px 2px 3px; border-radius: 6px;
+    color: var(--text); font-size: 14px; }
+  .crumb .ci { flex: none; font-size: 16px; line-height: 1; }
+  .crumb .ct { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .crumb .ci:empty { display: none; }
+  /* 操作は上の帯の右端: 主ボタン［要約を生成］（要約の無いページだけ）と「···」（中に 要約を再生成・コピー・削除）。
+     .pacts は display を持つので、hidden を負けさせない規則を置く（無いと本物の画面で設定のタブでも［削除］が見える: G6） */
+  .pacts { display: flex; justify-content: flex-end; align-items: center; gap: 6px; position: relative; margin-left: auto; flex: none; }
+  .pacts[hidden] { display: none; }
+  #pMore { width: 28px; height: 28px; padding: 0; border-color: transparent; display: inline-flex; align-items: center; justify-content: center;
+    font-size: 16px; letter-spacing: 0; line-height: 1; }
   .pmenu { position: absolute; top: 100%; right: 0; z-index: 5; min-width: 140px; margin-top: 4px; padding: 4px;
     background: var(--bg); border: 1px solid var(--line); border-radius: 6px; box-shadow: var(--shadow);
     display: flex; flex-direction: column; }
@@ -451,7 +468,6 @@
   @media (max-width: 760px) {
     .ptitle { font-size: 28px; }
     main { padding: 6px 10px 10px; }
-    .topbar { padding: 6px 10px 0; }
     .phead { padding: 8px 12px 0; }
     .ptabs { padding: 8px 12px 0; }
     .pbody { padding: 10px 12px 16px; }
@@ -459,6 +475,12 @@
     .card { padding: 14px 2px; }
     .stat { min-width: 120px; }
     .blk .txt { overflow-wrap: anywhere; }
+  }
+
+  /* 狭い画面（第1b2回 P-1 の区画）: 上の帯の左右を詰め、パンくずの題名は 40vw で省く */
+  @media (max-width: 760px) {
+    .pagebar { padding: 0 8px; }
+    .crumb .ct { max-width: 40vw; }
   }
 
   @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
@@ -525,6 +547,13 @@
     <button class="side-btn" id="sideExpand" type="button" aria-label="サイドバーを出す" title="サイドバーを出す（Ctrl+\）" hidden>»</button>
     <div class="tabbar" id="tabbar" role="tablist" aria-label="開いているページ"></div>
   </div>
+  <div class="pagebar">
+    <div class="crumb" id="crumb"><span class="ci"></span><span class="ct"></span></div>
+    <div class="pacts" id="pActs">
+      <button class="ghost pmore" id="pMore" type="button" aria-haspopup="menu" aria-expanded="false" aria-controls="pMenu" aria-label="ほかの操作" title="ほかの操作">···</button>
+      <div class="pmenu" id="pMenu" role="menu" aria-label="ほかの操作" hidden></div>
+    </div>
+  </div>
 
   <main>
     <!-- ================= 議事録 ================= -->
@@ -533,10 +562,6 @@
         <div class="page" id="pageWrap">
           <div class="phead">
             <div class="pcol">
-            <div class="pacts" id="pActs">
-              <button class="ghost pmore" id="pMore" type="button" aria-haspopup="menu" aria-expanded="false" aria-controls="pMenu" aria-label="ほかの操作" title="ほかの操作">…</button>
-              <div class="pmenu" id="pMenu" role="menu" aria-label="ほかの操作" hidden></div>
-            </div>
             <div class="ptitle" id="pTitle" contenteditable="true" spellcheck="false"></div>
             <div class="pprops" id="pProps"></div>
             <div class="prop" id="pTypeRow">
@@ -1079,6 +1104,27 @@
       bar.appendChild(el);
       if (key === focusKey) { if (focusX && x.parentNode === el) x.focus(); else el.focus(); }
     }
+    renderCrumb();
+  }
+  // 上の帯（第1b2回 P-1）: パンくずは選んでいるタブを追う。ページの操作（#pActs）は、選んでいるタブがページで、
+  // そのページを開いている（curPage がある）ときだけ出す（G6: 設定・音声入力・記録中・何も無いときに［削除］を押せない）
+  function renderCrumb() {
+    const k = activeTab;
+    let icon = '', title = '';
+    if (isPageKey(k)) {
+      icon = '🎙️';
+      const id = k.slice(5);
+      title = tabTitles.get(id) || (curPage && curId === id && typeof curPage.title === 'string' ? curPage.title : '') || '議事録';
+    } else if (k === 'dictation') { icon = '🎤'; title = '音声入力'; }
+    else if (k === 'settings') { icon = '⚙️'; title = '設定'; }
+    else if (k === 'live') { icon = '🎙️'; title = '記録中の会議'; }
+    const c = $('crumb');
+    c.querySelector('.ci').textContent = icon;
+    c.querySelector('.ct').textContent = title;
+    c.title = title;
+    const on = isPageKey(k) && Boolean(curPage) && k.slice(5) === curId;
+    if (!on && !$('pMenu').hidden) setMoreOpen(false);
+    $('pActs').hidden = !on;
   }
   // ←／→ は隣、Home／End は端のタブへ移って選ぶ（移ったタブにフォーカス）
   function onTabKey(ev, key) {
@@ -1715,6 +1761,7 @@
       // 記録中はメモを書けるようにするので、ここでは消さない
       if (!liveMemoShown()) $('pMemo').textContent = '';
       setPane('note');
+      renderCrumb();
       return;
     }
     $('pTypeRow').style.display = '';
@@ -1790,7 +1837,7 @@
       if (!r || !r.ok) { toast((r && r.error) || '生成に失敗しました'); if (/未設定/.test((r && r.error) || '')) showEngineSettings(); }
       else toast(`議事録を作成しました（出典 ${r.stat.linked}/${r.stat.total}）`);
       if (pid === curId) await openPage(pid);
-    }, !curPage.blocks.length);
+    }, !curPage.blocks.length, curPage.blocks.length > 0);   // 要約のあるページは［要約を再生成］も「···」の中の1つ目（第1b2回 P-1）
     if (summarizing.has(curId)) { sumBtn.disabled = true; sumBtn.textContent = '生成中…'; }
     // コピーは、いま開いているタブの中身を写す。議事録タブなら議事録、
     // 文字起こしタブなら文字起こし、メモタブならメモ。
@@ -1828,6 +1875,7 @@
     renderScript();
     renderMemo();
     setPane(pane);
+    renderCrumb();
   }
 
   // チップをその場で編集する。
