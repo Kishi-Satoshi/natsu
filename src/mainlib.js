@@ -980,6 +980,25 @@ function buildClaudeInput({ memoText, plain, template }) {
   return `${memoBlock}【会議の文字起こし】\n${plain}\n\n上記から、次の構成のMarkdown議事録を作成してください。見出しはこの通りに使い、本文だけを出力してください。\n\n${template}`;
 }
 
+// ページのプロパティの行に出す経路（第1c回 OL6）。route はページの route（main の maybeFinalizeMeeting・doRunSummary が書く）、
+// providerLabel はその文字起こしの送り先の表示の名前。画面は mainlib を読めないので、main が page:get の返事に添える。
+// 文字起こしは区間の数（クラウドと PC）、要約は1回ごとの経路。形の違う欄は出さない（古いページ・壊れたページは []）
+function routeLabel(route, providerLabel) {
+  const out = [];
+  if (!route || typeof route !== 'object') return out;
+  const n = (v) => (Number.isInteger(v) && v > 0 ? v : 0);
+  const stt = route.stt;
+  if (stt && typeof stt === 'object') {
+    const cloud = n(stt.cloud), local = n(stt.local);
+    if (cloud) out.push(`☁ 文字起こし: クラウド（${String(providerLabel || stt.provider || '')}）${cloud}${local ? `・PC ${local}` : ''}`);
+    else if (local) out.push('🖥 文字起こし: PC');
+  }
+  const by = route.summary && typeof route.summary === 'object' ? route.summary.by : '';
+  if (by === 'claude-code') out.push('✨ 要約: Claude Code');
+  else if (by === 'local') out.push('🖥 要約: PC（オフライン）');
+  return out;
+}
+
 // 担当・期限の裏付けに使うメモ。要約タイプを選んだときに入るアジェンダの雛形（types[].agenda）の行は除く。
 // 雛形は利用者の発言でもメモでもなく、「次回までのアクション」などが作り話の期限を通してしまう
 function memoEvidence(memo, types) {
@@ -1158,7 +1177,7 @@ module.exports = {
   extractNotes, truncationMessage, buildPromptParts,
   publicSegments, settledSegments, pendingDurationMs, recoverSegments, staleSegbufDirs,
   nextSegmentMs, EtaTracker, skipPendingSegments,
-  estimateTokens, foldNotes, idleEnginesToStop, silentWav, wavLevelDbfs, mergeSummaryType, memoEvidence, buildClaudeInput,
+  estimateTokens, foldNotes, idleEnginesToStop, silentWav, wavLevelDbfs, mergeSummaryType, memoEvidence, buildClaudeInput, routeLabel,
   isLoopbackUrl, loopbackOnlyFetch,
   sameShas, keepPrevious, candStamp, repairIdsOf, pathUsedBy, fetchMinutesLeft,
   recordDictation, mergeHistory, chooseDraftName,

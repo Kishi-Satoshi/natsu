@@ -12,7 +12,7 @@ const { execFile } = require('node:child_process');
 const RUN = path.join(__dirname, 'helpers', 'mainrun.js');
 const KEY = 'gsk_test_0123456789';
 const run = (args) => new Promise((resolve, reject) => {
-  execFile(process.execPath, [RUN, ...args], { env: { ...process.env, NATSU_TEST_STT_SLEEP_SCALE: '0.01', NATSU_E2E_HOOKS: '1' }, maxBuffer: 1 << 24, timeout: 20000 },
+  execFile(process.execPath, [RUN, ...args], { env: { ...process.env, NATSU_TEST_STT_SLEEP_SCALE: '0.01' }, maxBuffer: 1 << 24, timeout: 20000 },
     (err, stdout, stderr) => {
       if (err) { reject(new Error(`mainrun ${args.join(' ')} が失敗: ${err.message}\n${stderr}`)); return; }
       resolve(JSON.parse(stdout.trim().split('\n').pop()));
@@ -32,6 +32,7 @@ test('OL2: オンラインで同意と鍵があれば、区間はクラウドで
   assert.match(sttPosts(o)[1].fields.prompt, /確認です。区間1$/, '2つ目の区間の認識ヒントの終わりに、直前の区間の尻尾が無い（#15）');
   assert.strictEqual(whisperSpawned(o), false, 'オンラインなのに手元の whisper を起動した');
   assert.deepStrictEqual(o.pages[0].route.stt, { cloud: 2, local: 0, provider: 'custom' });
+  assert.deepStrictEqual(o.pages[0].routeText.slice(0, 1), ['☁ 文字起こし: クラウド（そのほか）2'], 'page:get の返事に経路の行が無い（C-3）');
   assert.ok(o.pages[0].segments.every((s) => s.text.startsWith('本日の議題は進捗の確認です') && !s.failed));
   assert.ok(o.balloons.some((b) => /この会議の音声は そのほか に送って文字起こしします/.test(b)), '会議の始めの知らせ（M1）が無い');
   assert.ok(!o.engineLog.some((l) => l.includes('本日の議題')), '記録に文字起こしの本文がある');
@@ -59,6 +60,10 @@ test('RF28: 同意をまだ決めていない・［この会議は PC の中だ�
   assert.ok(l.engineLog.some((x) => /区間 s1 → local（理由: local-only）/.test(x)), '［PC の中だけ］の区間の理由が local-only でない');
   assert.ok(!l.notices.some((n) => /鍵が入っていないため/.test(n)), '［PC の中だけ］なのに、鍵が無いと知らせた');
   assert.ok(!l.notices.concat(l.balloons).some((n) => /この会議の音声は .* に送って文字起こしします/.test(n)), '［PC の中だけ］を押した後に、クラウドへ送ると知らせた（M1）');
+  // C-3: 画面と同じ IPC（meeting:set-local-only）で押し、会議の状態に印と「クラウドで処理する設定か」が載る
+  assert.deepStrictEqual(l.localOnly, { ok: true, localOnly: true });
+  assert.deepStrictEqual(l.statusLocalOnly, { localOnly: true, cloud: true });
+  assert.deepStrictEqual(l.pages[0].routeText.slice(0, 1), ['🖥 文字起こし: PC']);
 });
 
 test('RF27: 送っている途中で切れた区間だけ手元でやり直し、次の区間はクラウドに戻る', { timeout: 20000 }, async () => {
@@ -159,6 +164,10 @@ test('D2: オンラインの自動の要約は Claude Code で作られ、出典
   assert.strictEqual(llamaSpawned(o), false, 'オンラインなのに手元の llama を起動した');
   const p = o.pages[0];
   assert.strictEqual(p.route.summary.by, 'claude-code');
+  // C-3: 画面に渡る経路の行は page:get の返事にも、要約の後の page:updated にも載る（要約の後に描き直しても消えない）
+  assert.deepStrictEqual(p.routeText, ['☁ 文字起こし: クラウド（そのほか）2', '✨ 要約: Claude Code']);
+  assert.deepStrictEqual(o.updatedRouteText, p.routeText, '要約の後の page:updated に経路の行が無い（描き直すとプロパティの行から消える）');
+  assert.deepStrictEqual(o.segUpdateRouteText, p.routeText, '文字起こしの行を直した返事に経路の行が無い（直すとプロパティの行から消える）');
   assert.ok(p.citeStat && p.citeStat.total > 0, '出典の照合を通っていない');
   assert.ok(p.todos.every((t) => t.assignee === '' && t.due === ''), '文字起こしに無い担当・期限が残った（照らしを通っていない）');
   assert.strictEqual(p.summaryError, '');
@@ -212,4 +221,5 @@ test('今の場面を守る: --claude を付けない要約の場面は、届く
   assert.strictEqual(llamaSpawned(o), true);
   assert.strictEqual(o.pages[0].route.summary.by, 'local');
   assert.strictEqual(o.pages[0].summaryError, '');
+  assert.deepStrictEqual(o.pages[0].routeText, ['🖥 文字起こし: PC', '🖥 要約: PC（オフライン）']);
 });

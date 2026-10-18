@@ -1688,7 +1688,19 @@ const copyPrivate = (text) => lib.copyPrivate(text, clipDeps());
 const deliverText = (text) => lib.deliverText(text, clipDeps());
 
 // ---------------------------------------------------------------- ウィンドウ
-function sendToMainWin(ch, p) { if (mainWin && !mainWin.isDestroyed()) mainWin.webContents.send(ch, p); }
+function sendToMainWin(ch, p) {
+  if (!mainWin || mainWin.isDestroyed()) return;
+  // 開いているページを描き直す知らせにも経路の行を添える（要約の後に描き直しても、プロパティの行から消えない。第1c回 OL6）
+  mainWin.webContents.send(ch, ch === 'page:updated' && p && p.page ? { ...p, page: pageForView(p.page) } : p);
+}
+// 画面に渡すページ（第1c回 OL6）: 経路の行（mainlib.routeLabel）を routeText に添えた写し。ページのファイルには書かない。
+// 送り先の名前は、そのページを文字起こしした送り先（page.route.stt.provider）のもの（今の設定の送り先ではない）
+function pageForView(page) {
+  if (!page || typeof page !== 'object') return page;
+  const id = page.route && page.route.stt ? page.route.stt.provider : '';
+  const preset = typeof id === 'string' && Object.prototype.hasOwnProperty.call(sttCloud.PRESETS, id) ? sttCloud.PRESETS[id] : null;
+  return { ...page, routeText: lib.routeLabel(page.route, preset ? preset.label : '') };
+}
 function sendToOverlay(ch, p) { if (overlayWin && !overlayWin.isDestroyed()) overlayWin.webContents.send(ch, p); }
 
 function createOverlay() {
@@ -1970,6 +1982,10 @@ function meetingStatus() {
     // 残りの待ち時間の見積もり（秒。材料が無い・待ちが無いときは null）と、打ち切った区間の数
     etaSec: meeting ? etaSecOf(meeting) : null,
     skipped: meeting ? meeting.skipped : 0,
+    // 第1c回 C-3（RF28）: ［この会議は PC の中だけ］の印と、いまクラウドで文字起こしする設定か（同意が「使う」）。
+    // 画面は cloud のときだけ［この会議は PC の中だけ］を出し、押した後（localOnly）は戻すボタンを出さない
+    localOnly: Boolean(meeting && meeting.localOnly),
+    cloud: settings.cloudTranscribe === 'on',
   };
 }
 
@@ -2971,7 +2987,7 @@ function setupIpc() {
   ipcMain.handle('page:get', (_e, id) => {
     const page = store.getPage(id);
     if (!page) return null;
-    return { page, segments: store.getTranscript(id) };
+    return { page: pageForView(page), segments: store.getTranscript(id) };   // 経路の行（routeText）を添える（第1c回 OL6）
   });
   ipcMain.handle('page:delete', (_e, id) => store.deletePage(id));
   ipcMain.handle('page:setTitle', (_e, { id, title }) => store.setTitle(id, title));
@@ -2993,7 +3009,7 @@ function setupIpc() {
     if (!page) return null;
     if (page.blocks.length) page.citeStat = refreshCitations(page.blocks, segments.filter((s) => !s.failed), segId);
     store.savePage(page);
-    return { page, segments };
+    return { page: pageForView(page), segments };   // 画面はこのページで curPage を差し替える（経路の行を落とさない）
   });
   ipcMain.handle('block:setAction', (_e, { pageId, blockId, assignee, dueRaw }) => {
     const p = store.getPage(pageId); if (!p) return null;
@@ -3447,7 +3463,3 @@ function applyReloadedSettings(prev, next) {
   }
   updateTray();
 }
-
-// 試験だけ（第1c回 Task A-4）: mainrun から［この会議は PC の中だけ］を押す口。C-2 の IPC（meeting:set-local-only）ができた後、
-// C-3 で mainrun を IPC で呼ぶ形に替え、この行を消す
-if (process.env.NATSU_E2E_HOOKS === '1') globalThis.__natsuTest = { setMeetingLocalOnly };

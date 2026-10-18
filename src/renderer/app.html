@@ -580,6 +580,7 @@
         </div>
         <div class="card">
           <h2>オンライン</h2>
+          <div class="desc" id="onlineAskNote" hidden style="font-weight:600">オンラインの文字起こしを使うかを、下の「オンラインの文字起こし」で選んでください。選ぶまでは PC の中で文字起こしします。</div>
           <div class="field">
             <label for="cloudTranscribe">オンラインの文字起こし</label>
             <select id="cloudTranscribe">
@@ -778,6 +779,8 @@
   let mtStoppedAt = null;
   let mtPausedMs = 0;
   let mtWasActive = false;
+  // ［この会議は PC の中だけ］を押した（第1c回 RF28）。会議の間は戻さない（押し間違いで送る側に戻らない）。次の会議の始めに下ろす
+  let mtLocalOnly = false;
   let dragBlockId = null;   // 並べ替え中のブロック
   let memoTimer = null;     // メモの遅延保存（500ms）。ページ切替・記録開始の前に flushMemo で確定する
   let memoFlush = null;     // 保留中のメモ保存を即時に走らせる関数
@@ -1430,6 +1433,8 @@
     if (st && st.total) add(`🔗 出典 ${st.linked}/${st.total}`, st.linked === st.total ? 'var(--green)' : '');
     const ast = curPage.actionStat;
     if (ast && ast.total) add(`✅ アクション ${ast.total}（担当${ast.withAssignee} / 期限${ast.withDue}）`);
+    // どこで処理したか（第1c回 OL6）。文は main が mainlib.routeLabel で作って page:get に添える。古いページ・古い main には無い
+    for (const t of Array.isArray(curPage.routeText) ? curPage.routeText : []) if (typeof t === 'string') add(t);
   }
 
   // 編集中の行があれば確定させる。Chromium はフォーカス中の要素を DOM から外しても
@@ -1594,6 +1599,7 @@
     // 前の議事録が開いたままだと、その画面に記録中バーだけが刺さり、
     // 新しい記録が始まったように見えない。
     // （記録中に一覧から過去の議事録を開き直すのは今までどおりできる）
+    if (st.active && !mtWasActive) mtLocalOnly = false;   // 新しい会議は送る側から（main の印も会議ごと）
     if (st.active && !mtWasActive && curId) {
       flushEdits();   // ホットキー開始だと blur が来ないので、編集中の要点・タイトル・メモをここで確定する
       curId = null; curPage = null; curSegs = [];
@@ -1616,9 +1622,12 @@
           + '<span class="tm" id="liveTm">0:00</span>'
           + '<div class="desc" id="liveEta" hidden></div>'
           + '<div class="desc" id="liveSkipped" hidden></div>'
-          + '<div class="desc ng" id="liveMic" hidden></div>';
+          + '<div class="desc ng" id="liveMic" hidden></div>'
+          + '<button class="ghost" id="meetingLocalOnly" type="button" hidden>この会議は PC の中だけ</button>'
+          + '<div class="desc" id="meetingLocalOnlyNote" hidden></div>';
         $('pBody').insertBefore(live, $('pBody').firstChild);
         $('liveSkipBtn').onclick = skipPending;
+        $('meetingLocalOnly').onclick = setLocalOnly;
       }
       // 相手の声も録れているかは、会議が終わってから気づくと手遅れなので
       // 記録中のバーに出す。
@@ -1706,6 +1715,27 @@
     const micEl = $('liveMic');
     micEl.hidden = !st.micFallback;
     micEl.textContent = st.micFallback ? '選んだマイクが見つからないため、既定のマイクで録音しています' : '';
+    renderLocalOnly(st);
+  }
+  // ［この会議は PC の中だけ］（第1c回 RF28・OL4）。クラウドで文字起こしする設定（st.cloud）の会議にだけ出す。
+  // 押した後はボタンを消して文だけ出す（元に戻すボタンは置かない。押し間違いで送る側に戻らないため）
+  function renderLocalOnly(st) {
+    if (!$('meetingLocalOnly')) return;   // 押した後の返事を待つ間に会議が終わり、記録中のバーが消えた
+    const on = mtLocalOnly || Boolean(st.localOnly);
+    $('meetingLocalOnly').hidden = on || !st.cloud;
+    const note = $('meetingLocalOnlyNote');
+    note.hidden = !on;
+    note.textContent = on ? 'この会議は PC の中だけで文字起こししています' : '';
+  }
+  async function setLocalOnly() {
+    const b = $('meetingLocalOnly');
+    b.disabled = true;
+    let r = null;
+    try { r = await window.koeApp.meetingSetLocalOnly(true); } catch (_) { r = null; }
+    b.disabled = false;
+    if (r && r.ok && r.localOnly) mtLocalOnly = true;
+    else toast('この会議を PC の中だけにできませんでした（会議が終わっているか、記録していません）');
+    renderLocalOnly(await window.koeApp.meetingStatus());
   }
   async function skipPending() {
     if (!confirm('残っている文字起こしを打ち切り、いまある分だけで議事録を作ります。\n打ち切った区間の発言は議事録に入りません。よろしいですか？')) return;
@@ -2305,6 +2335,8 @@
     $('sttKeySave').disabled = !canStore;
     $('sttKeyTest').disabled = !hasKey;
     $('sttKeyClear').disabled = !hasKey;
+    // 同意をまだ決めていない（ask）ときだけ、カードの頭に案内を出す（第1c回 OL4。main の今の値で決める）
+    $('onlineAskNote').hidden = !(st && st.consent === 'ask');
   }
   async function refreshCloud() {
     if (!window.koeApp.cloudStatus) return;   // 古い preload

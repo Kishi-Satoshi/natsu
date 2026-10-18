@@ -151,3 +151,37 @@ test('OL3: 送り先を変えて設定が保存されると、鍵の状態を ma
   assert.strictEqual(l.byId.get('sttKeyTest').disabled, true);
   assert.strictEqual(l.byId.get('sttKeyClear').disabled, true);
 });
+
+// ---- 第1c回 Task C-3（OL6・OL4・RF28）----
+test('OL6: ページのプロパティの行に経路が出る（古いページは何も足さない）', async () => {
+  const page = { id: 'p1', title: '定例', createdAt: '2026-10-18T01:00:00.000Z', durationSec: 60, blocks: [], memo: '', meetingType: 'general',
+    routeText: ['☁ 文字起こし: クラウド（Groq（無料枠））2', '✨ 要約: Claude Code'] };
+  const l = await load(APP, { returns: { pagesSearch: () => [{ id: 'p1', title: '定例', date: '10/18', durationSec: 60, hasSummary: true }], pageGet: () => ({ page, segments: [] }) } });
+  await l.drain();
+  l.byId.get('plist').querySelector('.pitem').dispatchEvent({ type: 'click' });
+  await l.drain();
+  const t = l.byId.get('pProps').textContent;
+  assert.ok(t.includes('☁ 文字起こし: クラウド（Groq（無料枠））2') && t.includes('✨ 要約: Claude Code'), t);
+});
+
+test('RF28: 会議中の［この会議は PC の中だけ］を押すと main に伝わり、押した後は戻すボタンが無い', async () => {
+  const calls = [];
+  const l = await load(APP, { returns: { meetingStatus: () => ({ active: true, segments: [], localOnly: false, cloud: true }), meetingSetLocalOnly: (on) => { calls.push(on); return { ok: true, localOnly: true }; } } });
+  await l.drain();
+  const b = l.byId.get('meetingLocalOnly');
+  assert.ok(b && !b.hidden, 'クラウドで処理している会議にボタンが無い');
+  b.dispatchEvent({ type: 'click' });
+  await l.drain();
+  assert.deepStrictEqual(calls, [true]);
+  assert.strictEqual(l.byId.get('meetingLocalOnly').hidden, true);
+  assert.match(l.byId.get('meetingLocalOnlyNote').textContent, /この会議は PC の中だけで文字起こししています/);
+});
+
+test('OL4: 同意をまだ決めていないときだけ、設定のカード「オンライン」の頭に案内の行が出る', async () => {
+  const a = await load(APP, { returns: { cloudStatus: () => status({ consent: 'ask' }), claudeStatus: () => ({ ok: true, found: true, method: 'claude.ai' }) } });
+  await a.drain();
+  assert.strictEqual(a.byId.get('onlineAskNote').hidden, false);
+  const b = await load(APP, { returns: { cloudStatus: () => status({ consent: 'off' }), claudeStatus: () => ({ ok: true, found: true, method: 'claude.ai' }) } });
+  await b.drain();
+  assert.strictEqual(b.byId.get('onlineAskNote').hidden, true);
+});

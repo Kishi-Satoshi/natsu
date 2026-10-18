@@ -17,3 +17,13 @@ test('F9: Claude Code に渡す文は、手元の LLM の1回で要約する頼�
   assert.strictEqual(out, `【会議メモ・アジェンダ（要約のヒント）】\n議題: 予算\n\n【会議の文字起こし】\n本日の議題は進捗の確認です。\n\n${m[1]}\n\n## 概要\n（要約）`);
   assert.ok(!L.buildClaudeInput({ memoText: '', plain: 'x', template: 't' }).includes('会議メモ'));
 });
+
+test('OL6: 経路の表示の行', () => {
+  assert.deepStrictEqual(L.routeLabel({ stt: { cloud: 12, local: 2, provider: 'groq' }, summary: { by: 'claude-code' } }, 'Groq（無料枠）'),
+    ['☁ 文字起こし: クラウド（Groq（無料枠））12・PC 2', '✨ 要約: Claude Code']);
+  assert.deepStrictEqual(L.routeLabel({ stt: { cloud: 0, local: 3, provider: 'groq' }, summary: { by: 'local' } }, 'Groq（無料枠）'),
+    ['🖥 文字起こし: PC', '🖥 要約: PC（オフライン）']);
+  assert.deepStrictEqual(L.routeLabel({ stt: { cloud: 5, local: 0, provider: 'openai' } }, 'OpenAI'), ['☁ 文字起こし: クラウド（OpenAI）5']);
+  assert.deepStrictEqual(L.routeLabel(undefined, 'x'), []);
+  assert.deepStrictEqual(L.routeLabel({ stt: 'x', summary: 3 }, 'x'), [], '形の違う欄で落ちた');
+});

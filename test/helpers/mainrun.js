@@ -71,8 +71,9 @@
 //     --no-key      … secrets.json を置かない
 //     --key-unreadable … 偽の safeStorage の decryptStringAsync が投げる（鍵のファイルはあるが復号できない）
 //     --offline     … net.isOnline() が false
-//     --local-only  … 記録を始めた後、最初の区間の前に［この会議は PC の中だけ］を押す（main の globalThis.__natsuTest。
-//                     NATSU_E2E_HOOKS=1 のときだけある。C-3 で IPC に替える）。--recover と組むと、置く下書きに localOnly: true を書く
+//     --local-only  … 記録を始めた後、最初の区間の前に［この会議は PC の中だけ］を押す（画面と同じ IPC の meeting:set-local-only。
+//                     out.localOnly にその返事、out.statusLocalOnly に押した後の meeting:status の localOnly と cloud）。
+//                     --recover と組むと、置く下書きに localOnly: true を書く
 //     --dictate     … 議事録の代わりに音声入力を1回（ホットキー → audio:done）。out.history に履歴
 //     --no-whisper  … 設定の whisper の実行ファイルを無いファイルにする
 //     --claude=<mode> … 第1c回 B-3: オンラインの要約。設定の claudeExe を偽の claude（helpers/fake-claude.js）に向け、FAKE_CLAUDE_MODE に
@@ -803,6 +804,12 @@ process.on('exit', () => {
     return t ? t.toString('utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l)) : [];
   };
   const elogLines = () => { const t = readUser('engine.log'); return t ? t.toString('utf8').split('\n').filter(Boolean).map((l) => l.replace(/^\[[^\]]+\] /, '')) : []; };
+  // 画面に渡る経路の行（page:get の返事の routeText）と、最後の page:updated で送った routeText（第1c回 C-3）
+  const pageRouteText = (id) => { const r = handlers['page:get'] ? handlers['page:get']({}, id) : null; return r && r.page ? r.page.routeText : null; };
+  const lastUpdatedRouteText = () => {
+    const u = sent.filter(([ch]) => ch === 'page:updated').pop();
+    return u && u[1] && u[1].page ? u[1].page.routeText : null;
+  };
   const sttOut = () => {
     if (!fakeStt) return;
     out.stt = fakeStt.requests.slice();
@@ -819,7 +826,7 @@ process.on('exit', () => {
     out.pages = store.listPages().map((p) => {
       const page = store.getPage(p.id);
       return {
-        summaryError: page.summaryError, route: page.route,
+        summaryError: page.summaryError, route: page.route, routeText: pageRouteText(p.id),
         segments: store.getTranscript(p.id).map((x) => ({ text: x.text, failed: Boolean(x.failed) })),
       };
     });
@@ -918,8 +925,9 @@ process.on('exit', () => {
     : Array.from({ length: segCount }, (_, i) => ({ buf: toneWav(i ? 2 : 3, silent ? 0 : 8000), ms: i ? 2000 : 3000 }));
   out.start = await handlers['meeting:toggle']();
   if (localOnlyFlag) {
-    if (!globalThis.__natsuTest) throw new Error('--local-only には NATSU_E2E_HOOKS=1 が要る（main の試験の口が無い）');
-    out.localOnly = globalThis.__natsuTest.setMeetingLocalOnly(true);
+    out.localOnly = await handlers['meeting:set-local-only']({}, true);
+    const st = handlers['meeting:status']();
+    out.statusLocalOnly = { localOnly: st.localOnly, cloud: st.cloud };
     // 下書き（draft.json）にも印が書かれたか（落ちて復旧した会議の送り直しも手元にするため）
     try { out.draftLocalOnly = JSON.parse(readUser('data/draft.json').toString('utf8')).localOnly; } catch (_) { out.draftLocalOnly = null; }
   }
@@ -954,12 +962,21 @@ process.on('exit', () => {
       summaryError: page.summaryError,
       segments: store.getTranscript(p.id).map((s) => ({ text: s.text, failed: Boolean(s.failed) })),
       meetingType: page.meetingType, typeAuto: page.typeAuto, actionStat: page.actionStat,
-      route: page.route, citeStat: page.citeStat || null,
+      route: page.route, routeText: pageRouteText(p.id), citeStat: page.citeStat || null,
       blocks: (page.blocks || []).map((b) => ({ type: b.type, cites: Array.isArray(b.cites) ? b.cites.length : 0 })),
       todos: (page.blocks || []).filter((b) => b.type === 'todo').map((b) => ({ text: b.text, assignee: b.assignee || '', due: b.due || '', dueRaw: b.dueRaw || '' })),
     };
   });
   out.pages = pages;
+  out.updatedRouteText = lastUpdatedRouteText();
+  // 文字起こしの行を直したときの返事（segment:update）も経路の行を持つか（画面はその返事で curPage を差し替える）。
+  // 要約まで済んだ --claude=ok の場面だけ、1つ目の行を同じ文で直す（失敗の印を外すので、ほかの場面では触らない）
+  if (claudeMode === 'ok' && store.listPages().length) {
+    const pid = store.listPages()[0].id;
+    const sg = store.getTranscript(pid)[0];
+    const r = sg ? handlers['segment:update']({}, { pageId: pid, segId: sg.id, patch: { text: sg.text } }) : null;
+    out.segUpdateRouteText = r && r.page ? r.page.routeText : null;
+  }
   out.claude = claudeLines();
   out.notices = sent.filter(([ch]) => ch === 'app:notice').map(([, p]) => p);
   const elog = path.join(userData, 'engine.log');
