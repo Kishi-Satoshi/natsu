@@ -10,7 +10,7 @@
 //   suggestBatchMs(p95)     … 設定の大きさの書き込み＋fsync の p95 が 100ms までなら 350（今のまま）、越えたら 1000
 //   suggestDraftFsync(p95)  … 512KB（下書きの大きさ）の書き込み＋fsync の p95 が 20ms までなら true（足す）、越えたら false
 //   measureStore({ pages, segments, bigBlocks, bigSegments, dir }) → [{ name, ms }]（どれも3回の median）
-//   measureWrites({ reps, dir })                                   → [{ name, ms（median）, p95 }]
+//   measureWrites({ reps, dir, fs })                               → [{ name, ms（median）, p95 }]（fs は試しで fsync を数えるため。既定は node の fs）
 //
 // 決め方:
 //  - 目安は設計書 PERF（開く 0.5 秒・検索 0.3 秒）。今の JSON の保存では全文検索が 5,000 個のファイルを読むので 0.3 秒に入らない。
@@ -221,14 +221,14 @@ function sampleOfSize(bytes) {
   return { version: 1, segments: sampleSegments(Math.max(1, Math.round((bytes - base) / per))) };
 }
 
-function measureWrites({ reps = 20, dir } = {}) {
+function measureWrites({ reps = 20, dir, fs: writeFs } = {}) {
   if (!dir) throw new Error('measureWrites: dir が要る');
   const root = fs.mkdtempSync(path.join(dir, 'write-'));
   try {
     return WRITES.map(([name, bytes]) => {
       const value = sampleOfSize(bytes);
       const file = path.join(root, `${name}.json`);
-      const list = timesOf(reps, () => J.writeJsonFile(file, value, { fsync: true }));
+      const list = timesOf(reps, () => J.writeJsonFile(file, value, { fsync: true, fs: writeFs }));
       return { name, ms: round2(median(list)), p95: round2(p95(list)), bytes: fs.statSync(file).size };
     });
   } finally {

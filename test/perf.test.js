@@ -40,7 +40,16 @@ test('PERF: 小さな見本（20 ページ）で、計りが最後まで走り�
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'natsu-perf-'));
   const s = await PF.measureStore({ pages: 20, segments: 5, bigBlocks: 50, bigSegments: 100, dir });
   assert.deepStrictEqual(s.map((x) => x.name).sort(), ['open-page', 'searchFullText', 'searchIndex-all', 'searchIndex-typical', 'store-init']);
-  const w = PF.measureWrites({ reps: 2, dir });
+  // 書く時間は書いたファイルの fsync まで含めて計る（fsync の無い時間では決め方の答えが変わる）。Linux はフォルダの fsync もするので、
+  // 一時ファイル（'wx' で開いたもの）の fsync だけを数える
+  const tmpFds = new Set();
+  let fileFsyncs = 0;
+  const countingFs = { ...fs,
+    openSync(p, flags, ...rest) { const fd = fs.openSync(p, flags, ...rest); if (flags === 'wx') tmpFds.add(fd); return fd; },
+    fsyncSync(fd) { if (tmpFds.has(fd)) fileFsyncs++; return fs.fsyncSync(fd); },
+    closeSync(fd) { tmpFds.delete(fd); return fs.closeSync(fd); } };
+  const w = PF.measureWrites({ reps: 2, dir, fs: countingFs });
+  assert.strictEqual(fileFsyncs, 2 * 5, '書いたファイルを fsync していない');
   for (const n of ['write-256k-fsync', 'write-1m-fsync', 'write-10m-fsync']) assert.ok(w.some((x) => x.name === n), n);
   for (const x of [...s, ...w]) assert.ok(Number.isFinite(x.ms) && x.ms >= 0, x.name);
   assert.deepStrictEqual(fs.readdirSync(dir), [], '見本を消していない');
