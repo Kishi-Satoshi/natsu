@@ -81,12 +81,14 @@ test('F11: はみ出しを集める文（OVERFLOW_PROBE）を偽の画面で走�
 
 test('F12: Tab の輪の判定（決めた id にフォーカスがあり、outline が none でない）', { timeout: 5000 }, () => {
   const s = SH.SCREENS.find((x) => x.focus);
-  assert.deepStrictEqual([s.name, s.focus.tabs, s.focus.want], ['notes-page-light', 2, 'mtToggleBtn']);
+  // 第1b回 載せ直し: B-2 でサイドバーの頭に［«］が入り、［● 記録開始］は Tab 3 回目（«→ 検索 → 記録開始）。下の「Tab を何回」のテストが今の順と照らす
+  assert.deepStrictEqual([s.name, s.focus.tabs, s.focus.want], ['notes-page-light', 3, 'mtToggleBtn']);
   assert.deepStrictEqual(SH.SCREENS.filter((x) => x.focus).map((x) => x.name), ['notes-page-light']);
   assert.strictEqual(SH.judgeFocus({ id: 'mtToggleBtn', outline: 'solid' }, s.focus).ok, true);
   assert.strictEqual(SH.judgeFocus({ id: 'mtToggleBtn', outline: 'none' }, s.focus).ok, false);
   assert.strictEqual(SH.judgeFocus({ id: '', outline: 'none' }, s.focus).ok, false);
   assert.strictEqual(SH.judgeFocus({ id: 'tabBtnDictation', outline: 'solid' }, s.focus).ok, false);
+  assert.strictEqual(SH.judgeFocus({ id: 'searchBox', outline: 'solid' }, s.focus).ok, false);
   assert.strictEqual(SH.judgeFocus(null, s.focus).ok, false);
 });
 
@@ -317,4 +319,30 @@ test('F9: 揺れの確かめの2枚目は、描き直させて（invalidate）�
   assert.ok(a >= 0 && b > a);
   assert.ok(/o\.wc\.invalidate\(\);/.test(m.slice(a, b)), '2枚目の前に描き直させていない');
   assert.ok(m.slice(a, b).includes('await settle(o.wc, o.t);'), '描き直しが済むのを待っていない');
+});
+
+// 第1b回 載せ直し: Tab の輪の画面の「Tab を何回」は、今の画面の Tab の順（偽 DOM の木の順。正の tabindex は使わない）と合っていること。
+// サイドバーの頭に［«］が入って順が1つずれたのに、C-1 の決め（Tab 2 回）が古いままで、CI が #searchBox を撮った（取り直し待ちの間は NG にならない）
+test('画面の使いやすさ・F12: Tab の輪の画面の「Tab を何回」は、今の画面の Tab の順でちょうど want に届く', { timeout: 10000 }, async () => {
+  const { load } = require('./helpers/simrun');
+  const APP = path.join(ROOT, 'src', 'renderer', 'app.html');
+  const preloadSrc = fs.readFileSync(path.join(ROOT, 'src', 'preload.js'), 'utf8');
+  const returns = {};
+  for (const [k, v] of Object.entries(SH.fixtures())) if (k.startsWith('koeApp.')) returns[k.slice(7)] = () => JSON.parse(JSON.stringify(v));
+  const l = await load(APP, { preloadSrc, returns });
+  await l.drain();
+  const order = l.root._walk([]).filter((e) => {
+    for (let n = e; n && n.tagName && !n.tagName.startsWith('#'); n = n.parentNode) {
+      const cls = (n.className || '').split(' ');
+      if (n.hidden || (cls.includes('tab') && !cls.includes('active')) || n.id === 'pMenu' || (n.style && n.style.display === 'none')) return false;
+    }
+    if (e.disabled) return false;
+    const attr = e.getAttribute('tabindex');
+    const ti = e.tabIndex !== undefined ? e.tabIndex : (attr == null ? null : Number(attr));
+    if (ti === -1) return false;
+    return ['button', 'input', 'select', 'textarea'].includes(e.tagName) || ti === 0 || e.getAttribute('contenteditable') === 'true';
+  }).map((e) => e.id || e.className);
+  const shots = SH.SCREENS.filter((s) => s.focus);
+  assert.ok(shots.length >= 1);
+  for (const s of shots) assert.strictEqual(order[s.focus.tabs - 1], s.focus.want, `${s.name}: Tab ${s.focus.tabs} 回で届くのは ${order[s.focus.tabs - 1]}（順: ${order.slice(0, 5).join(' → ')}）`);
 });

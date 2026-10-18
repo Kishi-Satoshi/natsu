@@ -54,8 +54,8 @@ const SCREENS = [
   { name: 'notes-page-zoom200-light', page: 'app', theme: 'light', zoom: 2, act: OPEN_PAGE },
   { name: 'settings-zoom200-dark', page: 'app', theme: 'dark', zoom: 2, act: "document.getElementById('tabBtnSettings').click()" },
 ];
-// Tab の輪を見る画面は1つだけ（何も選んでいない所から Tab を2回で［● 記録開始］）
-SCREENS.find((x) => x.name === 'notes-page-light').focus = { tabs: 2, want: 'mtToggleBtn' };
+// Tab の輪を見る画面は1つだけ（何も選んでいない所から Tab を3回で［● 記録開始］。サイドバーの頭の［«］→ 検索 → ［● 記録開始］）
+SCREENS.find((x) => x.name === 'notes-page-light').focus = { tabs: 3, want: 'mtToggleBtn' };
 
 /**
  * 取り直し待ち（第1b回 F14）: この回で意図して見た目を変える画面。基準と違っても（diff・size・missing）NG にせず「取り直し待ち」と出す。
