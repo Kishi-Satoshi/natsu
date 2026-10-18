@@ -2,7 +2,8 @@
 'use strict';
 // 偽の claude（Claude Code の CLI）。テストは本物の claude を走らせない（第1c回 B-2・B-3）。
 // node で起こされる（preArgs にこの台本を置く）か、Windows 以外では PATH に「claude」として写して起こされる。
-//   auth status → FAKE_CLAUDE_AUTH（既定 claude.ai）で {"loggedIn":…,"authMethod":…}。none なら 1 で終わる
+//   auth status → FAKE_CLAUDE_AUTH（既定 claude.ai）で {"loggedIn":…,"authMethod":…}。none なら 1 で終わる。
+//                 FAKE_CLAUDE_AUTH_DELAY（ミリ秒）があれば、その間待ってから答える（時間切れの確かめ）
 //   --version   → 2.1.300 (Claude Code)
 //   -p          → 標準入力を全部読み、FAKE_CLAUDE_MODE で答える（下の ANSWERS）
 // 受けたものは FAKE_CLAUDE_LOG に1行の JSON で書く。envKeys は課金に関わる変数の名前だけ（大小を問わず
@@ -53,7 +54,8 @@ const ANSWERS = {
   overloaded: () => err('API Error: Repeated 529 Overloaded errors. The API is at capacity — this is usually temporary.'),
   hold: () => err("Your account is on hold and can't use Claude Code. View details or appeal: https://claude.ai/restricted"),
   garbage: () => ({ out: 'not json\n', code: 0 }),
-  huge: () => ({ out: 'x'.repeat(6 * 1024 * 1024), code: 0 }),   // stdout が 5MB を越える
+  // stdout が 5MB を越える。読める成功の行にしておく（上限で止めなければ ok: true になり、上限の確かめになる）
+  huge: () => ({ out: `${result(false, 'x'.repeat(6 * 1024 * 1024))}\n`, code: 0 }),
 };
 
 const finish = ({ out = '', errText = '', code }) => {
@@ -66,7 +68,9 @@ if (args[0] === 'auth' && args[1] === 'status') {
   note({ kind: 'auth', args, envKeys });
   const method = env.FAKE_CLAUDE_AUTH || 'claude.ai';
   const loggedIn = method !== 'none';
-  finish({ out: `${JSON.stringify({ loggedIn, authMethod: method })}\n`, code: loggedIn ? 0 : 1 });
+  const answer = () => finish({ out: `${JSON.stringify({ loggedIn, authMethod: method })}\n`, code: loggedIn ? 0 : 1 });
+  const delay = Number(env.FAKE_CLAUDE_AUTH_DELAY || 0);
+  if (delay > 0) setTimeout(answer, delay); else answer();
 } else if (args.includes('--version')) {
   finish({ out: '2.1.300 (Claude Code)\n', code: 0 });
 } else if (args.includes('-p')) {

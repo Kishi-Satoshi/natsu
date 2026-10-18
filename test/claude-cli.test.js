@@ -85,6 +85,8 @@ test('RF24: 結果の分け方（資料の文のとおり）。成功は result 
   assert.deepStrictEqual(K.classifyRun({ code: 1, stdout: '', stderr: 'something broke', timedOut: false }), { ok: false, code: 'failed', resetAt: '' });
   assert.deepStrictEqual(K.classifyRun({ code: 0, stdout: 'not json', stderr: '', timedOut: false }), { ok: false, code: 'bad-reply', resetAt: '' });
   assert.deepStrictEqual(K.classifyRun({ code: null, stdout: '', stderr: '', timedOut: true }), { ok: false, code: 'timeout', resetAt: '' });
+  // is_error が false でも終わりの番号が 0 でなければ失敗（result の文を議事録にしない）
+  assert.deepStrictEqual(K.classifyRun({ code: 1, stdout: `${JSON.stringify({ type: 'result', is_error: false, result: '## 概要' })}\n`, stderr: '', timedOut: false }), { ok: false, code: 'failed', resetAt: '' });
   // 成功でも result が空なら失敗
   assert.deepStrictEqual(K.classifyRun(res({ subtype: 'success', is_error: false, result: '  ' })), { ok: false, code: 'bad-reply', resetAt: '' });
 });
@@ -135,6 +137,10 @@ test('RF25: auth status を子の環境から課金の変数を外して呼ぶ�
   assert.deepStrictEqual(await K.claudeAuthStatus(g), { ok: false, code: 'api-billing', method: 'api_key_helper' });
   const h = withFake('ok', { FAKE_CLAUDE_AUTH: 'none' });
   assert.deepStrictEqual(await K.claudeAuthStatus(h), { ok: false, code: 'not-logged-in', method: 'none' });
+  // 時間切れは「ログインしていない」とは言わず failed（誤ったログインの案内を出さない）
+  const slow = withFake('ok', { FAKE_CLAUDE_AUTH_DELAY: '10000' });
+  assert.deepStrictEqual(await K.claudeAuthStatus({ ...slow, timeoutMs: 300 }), { ok: false, code: 'failed', method: '' });
+  assert.throws(() => process.kill(slow.pids[0], 0), '時間切れの後も auth status の子が生きている');
   // 起こせない（無いファイル）なら not-found
   assert.deepStrictEqual(await K.claudeAuthStatus({ ...f, cmd: path.join(tmp(), 'no-such-claude'), preArgs: [] }), { ok: false, code: 'not-found' });
 });
@@ -192,4 +198,6 @@ test('OL5: PATH に置いた偽の claude を見つけて呼べる（Windows 以
 test('F11: stdout が 5MB を越えたら読むのを止めて子を止め、bad-reply', { timeout: 20000 }, async () => {
   const f = withFake('huge');
   assert.deepStrictEqual(await K.claudeSummarize({ ...f, input: INPUT, systemPrompt: 's' }), { ok: false, code: 'bad-reply', resetAt: '' });
+  assert.strictEqual(f.pids.length, 1);
+  assert.throws(() => process.kill(f.pids[0], 0), '5MB を越えた後も子が生きている（止めていない）');
 });
