@@ -25,6 +25,10 @@ const crypto = require('node:crypto');
 const { Readable } = require('node:stream');
 
 const F = require('../src/engine-fetch');
+// 偽のサーバーを立ててファイルを書き換えるテストの見張り（止まったときだけ当たる。ふだんは 1 秒まで）。Windows の CI では、ほかのテストと
+// 重なった時間帯に 5 秒を越えた（第1a回 合流、run 39104480319）。5 秒の見張りは速さの目安ではないので、子のプロセスを起こすテストと同じ 20 秒にする
+const IO_WAIT = { timeout: 20000 };
+
 test('Content-Range を読む', () => {
   assert.deepStrictEqual(F.parseContentRange('bytes 1000-1015/885098'), { start: 1000, end: 1015, total: 885098 });
   assert.strictEqual(F.parseContentRange('bytes */885098'), null);
@@ -115,7 +119,7 @@ const opts = (dir, o = {}) => ({ dir, dest: path.join(dir, '置き場所', 'm.bi
   requireHttps: false, headerTimeoutMs: 2000, stallMs: 300, ...o });
 const leftovers = (dir) => fs.readdirSync(dir).filter((f) => /\.(part|json)$/.test(f));
 const side = (dir, o) => fs.writeFileSync(path.join(dir, `${SHA}.json`), JSON.stringify({ url: o.url, size: body.length, sha256: SHA, synced: o.synced }));
-test('途中で切れたら、次は Range: bytes=N- で続きから取り、中身は元と同じ。試しごとに1行の記録', async () => {
+test('途中で切れたら、次は Range: bytes=N- で続きから取り、中身は元と同じ。試しごとに1行の記録', IO_WAIT, async () => {
   const s = await startServers({ body, script: [{ cutAfter: 120000 }] });
   try {
     const dir = tmp(); const lines = [];
@@ -126,7 +130,7 @@ test('途中で切れたら、次は Range: bytes=N- で続きから取り、中
     assert.deepStrictEqual(leftovers(dir), [], '.part と記録が残っている');
   } finally { await s.close(); }
 });
-test('テストの道具: cutAfter の切断は、書き込みが少し遅くても（負荷のある機械。1 回 20ms）、届いていた分を捨てさせない（続きの位置がぶれない）', { timeout: 5000 }, async () => {
+test('テストの道具: cutAfter の切断は、書き込みが少し遅くても（負荷のある機械。1 回 20ms）、届いていた分を捨てさせない（続きの位置がぶれない）', IO_WAIT, async () => {
   // 切断で Node の応答は読み残しのバイトごと捨てられる。書き込みを待つ間に次の塊が届いていると、続きの位置が cutAfter より
   // 手前になり、bytes=100000- を見るテストが負荷のときだけ赤になる（偽の net が届いた分を渡し終えてから失敗にする。下のテストも）
   const s = await startServers({ body, script: [{ cutAfter: 100000 }] });
@@ -142,7 +146,7 @@ test('テストの道具: cutAfter の切断は、書き込みが少し遅くて
     assert.deepStrictEqual(s.cdnRanges(), [null, 'bytes=100000-']);
   } finally { await s.close(); }
 });
-test('テストの道具: 書き込みが切断の待ち（100ms）より遅くても（最初の1回が 300ms。Windows のウイルス対策が書き込みを止めたとき）、切断の前に届いたバイトは全部受け手に渡る（続きの位置が時間しだいでぶれない）', { timeout: 5000 }, async () => {
+test('テストの道具: 書き込みが切断の待ち（100ms）より遅くても（最初の1回が 300ms。Windows のウイルス対策が書き込みを止めたとき）、切断の前に届いたバイトは全部受け手に渡る（続きの位置が時間しだいでぶれない）', IO_WAIT, async () => {
   // 第1a回の合流の CI（Windows）で bytes=65329- が再び出た。切断の待ちを長くしても、書き込みがそれより遅ければ同じこと
   // が起きる。偽の net は、本物（Chromium の取り込みは受け手が読んだ分だけ次を渡し、届いた分を渡し終えてから失敗を知らせる）
   // と同じく、届いていた分を渡し終えてから ERR_CONNECTION_RESET にする
@@ -160,7 +164,7 @@ test('テストの道具: 書き込みが切断の待ち（100ms）より遅く�
     assert.deepStrictEqual(s.cdnRanges(), [null, 'bytes=100000-']);
   } finally { await s.close(); }
 });
-test('テストの道具: 偽の net は、届いた塊を1つずつ渡す（先に読んだ分をまとめて大きな1つにしない）。4MB の途中（400KB を超えたところ）の取り消しが途中で効き、記録は途中の長さ（engine-smoke の続きからと同じ形）', { timeout: 5000 }, async () => {
+test('テストの道具: 偽の net は、届いた塊を1つずつ渡す（先に読んだ分をまとめて大きな1つにしない）。4MB の途中（400KB を超えたところ）の取り消しが途中で効き、記録は途中の長さ（engine-smoke の続きからと同じ形）', IO_WAIT, async () => {
   const big = crypto.randomBytes(4 << 20);
   const bigPin = (url) => ({ url, size: big.length, sha256: crypto.createHash('sha256').update(big).digest('hex') });
   const s = await startServers({ body: big });
@@ -179,7 +183,7 @@ test('テストの道具: 偽の net は、届いた塊を1つずつ渡す（先
     assert.ok(biggest <= 1 << 20, `1回に渡した塊が ${biggest} バイト（先に読んだ分をまとめている）`);
   } finally { await s.close(); }
 });
-test('試しのたびに固定の URL から始める（CDN の URL は使い回さない）。相対の 307 → 別のホストの 302 でも Range を保つ', async () => {
+test('試しのたびに固定の URL から始める（CDN の URL は使い回さない）。相対の 307 → 別のホストの 302 でも Range を保つ', IO_WAIT, async () => {
   const s = await startServers({ body, hops: ['307-relative', '302-cdn'], signedOnce: true, script: [{ cutAfter: 100000 }] });
   try {
     await fetchFile(pinOf(s.originUrl), opts(tmp()));
@@ -188,14 +192,14 @@ test('試しのたびに固定の URL から始める（CDN の URL は使い回
     assert.ok(!s.requests().some((x) => x.name === 'cdn-expired'), '前の試しの署名付きの URL を使った');
   } finally { await s.close(); }
 });
-test('転送の x-linked-etag がピンと違えば、CDN へ行く前に止める（pinned-mismatch）', async () => {
+test('転送の x-linked-etag がピンと違えば、CDN へ行く前に止める（pinned-mismatch）', IO_WAIT, async () => {
   const s = await startServers({ body, linked: { size: body.length, sha256: 'b'.repeat(64) } });
   try {
     await assert.rejects(fetchFile(pinOf(s.originUrl), opts(tmp())), { code: 'pinned-mismatch' });
     assert.deepStrictEqual(s.cdnRanges(), []);
   } finally { await s.close(); }
 });
-test('http への転送は断る（insecure-redirect）。転送が 10 回を超えたら断る（too-many-redirects）', async () => {
+test('http への転送は断る（insecure-redirect）。転送が 10 回を超えたら断る（too-many-redirects）', IO_WAIT, async () => {
   const s = await startServers({ body });
   try { await assert.rejects(fetchFile(pinOf(s.originUrl), opts(tmp(), { requireHttps: true })), { code: 'insecure-redirect' }); }
   finally { await s.close(); }
@@ -205,7 +209,7 @@ test('http への転送は断る（insecure-redirect）。転送が 10 回を超
     assert.deepStrictEqual(t.cdnRanges(), []);
   } finally { await t.close(); }
 });
-test('大きさは同じで 1 バイト違う: 1 回だけ Range なしで全部取り直し、それでも違えば hash。最後のファイルも .part も残さない', async () => {
+test('大きさは同じで 1 バイト違う: 1 回だけ Range なしで全部取り直し、それでも違えば hash。最後のファイルも .part も残さない', IO_WAIT, async () => {
   const s = await startServers({ body, script: [{ flipByte: 5 }, { flipByte: 5 }] });
   try {
     const dir = tmp();
@@ -215,7 +219,7 @@ test('大きさは同じで 1 バイト違う: 1 回だけ Range なしで全部
     assert.deepStrictEqual(fs.readdirSync(dir).filter((f) => /\.part$/.test(f)), []);
   } finally { await s.close(); }
 });
-test('取り終えた .part は、要求を出さずに照らして使う', async () => {
+test('取り終えた .part は、要求を出さずに照らして使う', IO_WAIT, async () => {
   const s = await startServers({ body });
   try {
     const dir = tmp();
@@ -226,7 +230,7 @@ test('取り終えた .part は、要求を出さずに照らして使う', asyn
     assert.deepStrictEqual(leftovers(dir), []);
   } finally { await s.close(); }
 });
-test('置く先にもう正しいファイルがあれば（installed.json が消えても）、要求を出さずに使う', async () => {
+test('置く先にもう正しいファイルがあれば（installed.json が消えても）、要求を出さずに使う', IO_WAIT, async () => {
   const s = await startServers({ body });
   try {
     const dir = tmp(); const o = opts(dir);
@@ -235,7 +239,7 @@ test('置く先にもう正しいファイルがあれば（installed.json が�
     assert.deepStrictEqual([r.reused, s.requests().length], [true, 0]);
   } finally { await s.close(); }
 });
-test('取り消すと、書き込みを確定して .part と記録が残り、新しく呼ぶと記録の長さから Range で続ける', async () => {
+test('取り消すと、書き込みを確定して .part と記録が残り、新しく呼ぶと記録の長さから Range で続ける', IO_WAIT, async () => {
   const s = await startServers({ body, script: [{ stallAfter: 100000 }] });   // 10 万バイト送って黙る
   try {
     const dir = tmp(); const ac = new AbortController();
@@ -249,7 +253,7 @@ test('取り消すと、書き込みを確定して .part と記録が残り、�
     assert.deepStrictEqual(s.cdnRanges().slice(-1), [`bytes=${held}-`]);
   } finally { await s.close(); }
 });
-test('電源が切れたときの末尾（記録の synced より後ろ）は、先に切り捨ててから続ける', async () => {
+test('電源が切れたときの末尾（記録の synced より後ろ）は、先に切り捨ててから続ける', IO_WAIT, async () => {
   const s = await startServers({ body });
   try {
     const dir = tmp();
@@ -260,7 +264,7 @@ test('電源が切れたときの末尾（記録の synced より後ろ）は、
     assert.ok(fs.readFileSync(r.file).equals(body));
   } finally { await s.close(); }
 });
-test('古いピンの .part（記録の url が違う）は捨てて 0 から', async () => {
+test('古いピンの .part（記録の url が違う）は捨てて 0 から', IO_WAIT, async () => {
   const s = await startServers({ body });
   try {
     const dir = tmp();
@@ -269,7 +273,7 @@ test('古いピンの .part（記録の url が違う）は捨てて 0 から', 
     assert.deepStrictEqual(s.cdnRanges(), [null]);
   } finally { await s.close(); }
 });
-test('ピンより大きい .part は、SHA-256 の違いと同じ扱い（捨てて全部取り直す。その 1 回を使う）', async () => {
+test('ピンより大きい .part は、SHA-256 の違いと同じ扱い（捨てて全部取り直す。その 1 回を使う）', IO_WAIT, async () => {
   const s = await startServers({ body });
   try {
     const dir = tmp();
@@ -285,14 +289,14 @@ test('ピンより大きい .part は、SHA-256 の違いと同じ扱い（捨�
     assert.deepStrictEqual(t.cdnRanges(), [null], '取り直しを 2 回使った');
   } finally { await t.close(); }
 });
-test('転送の x-linked-size がピンと違っても（x-linked-etag は同じ）、CDN へ行く前に止める（pinned-mismatch）', async () => {
+test('転送の x-linked-size がピンと違っても（x-linked-etag は同じ）、CDN へ行く前に止める（pinned-mismatch）', IO_WAIT, async () => {
   const s = await startServers({ body, linked: { size: body.length + 1, sha256: SHA } });
   try {
     await assert.rejects(fetchFile(pinOf(s.originUrl), opts(tmp())), { code: 'pinned-mismatch' });
     assert.deepStrictEqual(s.cdnRanges(), []);
   } finally { await s.close(); }
 });
-test('転送はちょうど 10 回までなら追い、11 回目で断る（too-many-redirects）', async () => {
+test('転送はちょうど 10 回までなら追い、11 回目で断る（too-many-redirects）', IO_WAIT, async () => {
   const s = await startServers({ body, hops: [...Array(9).fill('307-relative'), '302-cdn'] });
   try {
     const r = await fetchFile(pinOf(s.originUrl), opts(tmp()));
@@ -304,7 +308,7 @@ test('転送はちょうど 10 回までなら追い、11 回目で断る（too-
     assert.deepStrictEqual(t.cdnRanges(), []);
   } finally { await t.close(); }
 });
-test('取り込み元そのものの認証（login の isProxy が偽）は取り消して 401 を待って試し直し、http-401 で終わる（proxy-auth にしない）', async () => {
+test('取り込み元そのものの認証（login の isProxy が偽）は取り消して 401 を待って試し直し、http-401 で終わる（proxy-auth にしない）', IO_WAIT, async () => {
   const s = await startServers({ body, script: [{ status: 401 }, { status: 401 }, { status: 401 }] });
   const reqs = [];
   // 本物の Electron では、login の callback を呼んだ後の応答（401）は後から届く（Chromium の network service を
@@ -323,7 +327,7 @@ test('取り込み元そのものの認証（login の isProxy が偽）は取�
 });
 
 const { makeFakeRequest } = require('./helpers/fake-net');
-test('正常に終わったのに短い: 本当の長さから続ける。いつも 0 バイトなら maxFails を超えて short（永久に回らない）', { timeout: 5000 }, async () => {
+test('正常に終わったのに短い: 本当の長さから続ける。いつも 0 バイトなら maxFails を超えて short（永久に回らない）', IO_WAIT, async () => {
   const s = await startServers({ body, script: [{ short: 1000 }] });
   try { await fetchFile(pinOf(s.originUrl), opts(tmp())); assert.deepStrictEqual(s.cdnRanges(), [null, 'bytes=1000-']); }
   finally { await s.close(); }
@@ -333,12 +337,12 @@ test('正常に終わったのに短い: 本当の長さから続ける。いつ
     assert.strictEqual(t.cdnRanges().length, 3);
   } finally { await t.close(); }
 });
-test('止まった流れ（見出しと少しのバイトのあと黙る）は stallMs で切って続ける', { timeout: 5000 }, async () => {
+test('止まった流れ（見出しと少しのバイトのあと黙る）は stallMs で切って続ける', IO_WAIT, async () => {
   const s = await startServers({ body, script: [{ stallAfter: 50000 }] });
   try { await fetchFile(pinOf(s.originUrl), opts(tmp(), { stallMs: 200 })); assert.deepStrictEqual(s.cdnRanges(), [null, 'bytes=50000-']); }
   finally { await s.close(); }
 });
-test('見出しが来ない: header-timeout を数え、待ちを倍にする（100ms → 200ms）', { timeout: 5000 }, async () => {
+test('見出しが来ない: header-timeout を数え、待ちを倍にする（100ms → 200ms）', IO_WAIT, async () => {
   const s = await startServers({ body, script: [{ noHeaders: true }, { noHeaders: true }, { noHeaders: true }] });
   try {
     await assert.rejects(fetchFile(pinOf(s.originUrl), opts(tmp(), { headerTimeoutMs: 100, maxFails: 2 })), { code: 'header-timeout' });
@@ -348,7 +352,7 @@ test('見出しが来ない: header-timeout を数え、待ちを倍にする（
     assert.ok(at[2] - at[1] >= 190, `2 回目の待ちが倍になっていない ${at[2] - at[1]}ms`);
   } finally { await s.close(); }
 });
-test('206 の総量がピンと違う: size-changed で .part を消す。始まりが違う: 書かずに 0 から', { timeout: 5000 }, async () => {
+test('206 の総量がピンと違う: size-changed で .part を消す。始まりが違う: 書かずに 0 から', IO_WAIT, async () => {
   const s = await startServers({ body, script: [{ cutAfter: 100000 }, { wrongTotal: 999 }] });
   try {
     const dir = tmp();
@@ -362,7 +366,7 @@ test('206 の総量がピンと違う: size-changed で .part を消す。始ま
     assert.ok(fs.readFileSync(r.file).equals(body));
   } finally { await t.close(); }
 });
-test('416（まだ短い .part）: .part を捨てて Range なしで取り直す', { timeout: 5000 }, async () => {
+test('416（まだ短い .part）: .part を捨てて Range なしで取り直す', IO_WAIT, async () => {
   const s = await startServers({ body, script: [{ always416: true }] });
   try {
     const dir = tmp();
@@ -371,7 +375,7 @@ test('416（まだ短い .part）: .part を捨てて Range なしで取り直�
     assert.deepStrictEqual(s.cdnRanges(), ['bytes=100000-', null]);
   } finally { await s.close(); }
 });
-test('503 と Retry-After 7: 7000ms 待つ。404（text/plain）: 要求は 1 回だけで gone', { timeout: 5000 }, async () => {
+test('503 と Retry-After 7: 7000ms 待つ。404（text/plain）: 要求は 1 回だけで gone', IO_WAIT, async () => {
   const waits = [];
   const s = await startServers({ body, script: [{ status: 503, retryAfter: 7 }, {}] });
   try { await fetchFile(pinOf(s.originUrl), opts(tmp(), { sleep: async (ms) => { waits.push(ms); } })); assert.deepStrictEqual(waits, [7000]); }
@@ -380,7 +384,7 @@ test('503 と Retry-After 7: 7000ms 待つ。404（text/plain）: 要求は 1 �
   try { await assert.rejects(fetchFile(pinOf(t.originUrl), opts(tmp())), { code: 'gone' }); assert.strictEqual(t.cdnRanges().length, 1); }
   finally { await t.close(); }
 });
-test('止めの頁: 200 の HTML・403 の HTML・404 の HTML は、待たずに blocked（要求は 1 回）', { timeout: 5000 }, async () => {
+test('止めの頁: 200 の HTML・403 の HTML・404 の HTML は、待たずに blocked（要求は 1 回）', IO_WAIT, async () => {
   for (const sc of [{ html: true }, { status: 403, html: true }, { status: 404, html: true }]) {
     const s = await startServers({ body, script: [sc, {}] });
     try {
@@ -389,7 +393,7 @@ test('止めの頁: 200 の HTML・403 の HTML・404 の HTML は、待たず�
     } finally { await s.close(); }
   }
 });
-test('407 は proxy-auth で、login の callback は何も渡さずに呼ぶ', { timeout: 5000 }, async () => {
+test('407 は proxy-auth で、login の callback は何も渡さずに呼ぶ', IO_WAIT, async () => {
   const s = await startServers({ body, script: [{ status: 407 }] });
   const reqs = [];
   try {
@@ -407,7 +411,7 @@ test('https のプロキシの認証: login の後の ERR_TUNNEL_CONNECTION_FAIL
   await assert.rejects(fetchFile(pinOf('https://example.invalid/x'), opts(tmp(), { request: b })), { code: 'proxy-auth' });
   assert.strictEqual(m, 1);
 });
-test('圧縮された 200（プロキシが gzip にした）は、長さと SHA-256 で決めて使う。圧縮された 206 は書かずに 0 から', { timeout: 5000 }, async () => {
+test('圧縮された 200（プロキシが gzip にした）は、長さと SHA-256 で決めて使う。圧縮された 206 は書かずに 0 から', IO_WAIT, async () => {
   const s = await startServers({ body, script: [{ gzip: true }] });
   try { const r = await fetchFile(pinOf(s.originUrl), opts(tmp())); assert.ok(fs.readFileSync(r.file).equals(body)); }
   finally { await s.close(); }
@@ -418,7 +422,7 @@ test('圧縮された 200（プロキシが gzip にした）は、長さと SHA
     assert.ok(fs.readFileSync(r.file).equals(body));
   } finally { await t.close(); }
 });
-test('名前の変更が EPERM で 2 回失敗、3 回目に通る。いつも EPERM なら locked で .part は残る', { timeout: 5000 }, async () => {
+test('名前の変更が EPERM で 2 回失敗、3 回目に通る。いつも EPERM なら locked で .part は残る', IO_WAIT, async () => {
   const s = await startServers({ body });
   try {
     let n = 0;
@@ -430,7 +434,7 @@ test('名前の変更が EPERM で 2 回失敗、3 回目に通る。いつも E
     assert.ok(fs.existsSync(path.join(dir, `${SHA}.part`)));
   } finally { await s.close(); }
 });
-test('書き込みで ENOSPC: space でやめ、.part は残し、needBytes に残りの大きさ', { timeout: 5000 }, async () => {
+test('書き込みで ENOSPC: space でやめ、.part は残し、needBytes に残りの大きさ', IO_WAIT, async () => {
   const s = await startServers({ body });
   try {
     const dir = tmp();
@@ -446,7 +450,7 @@ test('書き込みで ENOSPC: space でやめ、.part は残し、needBytes に�
     assert.strictEqual(e.needBytes, body.length - held);
   } finally { await s.close(); }
 });
-test('進み具合は増えるだけで、続きからの分を含み、250ms に 1 回まで（最後は必ず 1 回）', { timeout: 5000 }, async () => {
+test('進み具合は増えるだけで、続きからの分を含み、250ms に 1 回まで（最後は必ず 1 回）', IO_WAIT, async () => {
   const s = await startServers({ body, script: [{ cutAfter: 120000 }] });
   try {
     const seen = [];
@@ -461,7 +465,7 @@ test('進み具合は増えるだけで、続きからの分を含み、250ms �
     assert.deepStrictEqual(seen.length, 2, `間引いていない: ${seen.length} 回`);                                       // 最初の1回と最後の1回
   } finally { await t.close(); }
 });
-test('取り直し（206 の始まりが違う）で 0 から書き直しても、進み具合の done は戻らない', { timeout: 5000 }, async () => {
+test('取り直し（206 の始まりが違う）で 0 から書き直しても、進み具合の done は戻らない', IO_WAIT, async () => {
   const s = await startServers({ body, script: [{ cutAfter: 100000 }, { wrongStart: 0 }] });
   try {
     const seen = []; let t = 0;
@@ -471,7 +475,7 @@ test('取り直し（206 の始まりが違う）で 0 から書き直しても�
     assert.strictEqual(seen[seen.length - 1], body.length);
   } finally { await s.close(); }
 });
-test('書き込みが一部だけ（空きが尽きかけたときの短い書き込み）でも、残りを書き足し、置いたファイルは元と同じ', { timeout: 5000 }, async () => {
+test('書き込みが一部だけ（空きが尽きかけたときの短い書き込み）でも、残りを書き足し、置いたファイルは元と同じ', IO_WAIT, async () => {
   const s = await startServers({ body });
   try {
     const openPart = async (f) => {
@@ -484,7 +488,7 @@ test('書き込みが一部だけ（空きが尽きかけたときの短い書�
     assert.ok(fs.readFileSync(r.file).equals(body), '穴のあいたファイルを置いた');
   } finally { await s.close(); }
 });
-test('待っている間（Retry-After 60 秒）に取り消すと、待ちを切り上げてすぐ cancelled。記録は残る（Task 12b の［一時停止］）', { timeout: 5000 }, async () => {
+test('待っている間（Retry-After 60 秒）に取り消すと、待ちを切り上げてすぐ cancelled。記録は残る（Task 12b の［一時停止］）', IO_WAIT, async () => {
   const s = await startServers({ body, script: [{ status: 503, retryAfter: 60 }] });
   try {
     const dir = tmp(); const ac = new AbortController(); const waits = [];
@@ -497,7 +501,7 @@ test('待っている間（Retry-After 60 秒）に取り消すと、待ちを�
     assert.ok(fs.existsSync(path.join(dir, `${SHA}.json`)), '記録が残っていない');
   } finally { await s.close(); }
 });
-test('名前の変更の EBUSY・EACCES も、EPERM と同じく待って試し直す（ウイルス対策が抱えたファイル。RF9）', { timeout: 5000 }, async () => {
+test('名前の変更の EBUSY・EACCES も、EPERM と同じく待って試し直す（ウイルス対策が抱えたファイル。RF9）', IO_WAIT, async () => {
   const s = await startServers({ body });
   try {
     for (const code of ['EBUSY', 'EACCES']) {
@@ -509,7 +513,7 @@ test('名前の変更の EBUSY・EACCES も、EPERM と同じく待って試し�
     }
   } finally { await s.close(); }
 });
-test('見出しが来たら、見出しの待ちは headerTimeoutMs に戻る（倍にするのは続けて時間切れのときだけ）', { timeout: 5000 }, async () => {
+test('見出しが来たら、見出しの待ちは headerTimeoutMs に戻る（倍にするのは続けて時間切れのときだけ）', IO_WAIT, async () => {
   const s = await startServers({ body, script: [{ noHeaders: true }, { noHeaders: true }, { noHeaders: true }, { cutAfter: 1000 }, { noHeaders: true }, {}] });
   try {
     await fetchFile(pinOf(s.originUrl), opts(tmp(), { headerTimeoutMs: 100 }));
@@ -519,7 +523,7 @@ test('見出しが来たら、見出しの待ちは headerTimeoutMs に戻る（
     assert.ok(at[5] - at[4] < 500, `見出しが来た後も待ちが 800ms のまま ${at[5] - at[4]}ms`);
   } finally { await s.close(); }
 });
-test('途中の記録の書き込み（一時ファイル → .json）が EPERM で失敗しても、取り込みは続けて終える（記録は前の長さのまま。RF9）', { timeout: 5000 }, async () => {
+test('途中の記録の書き込み（一時ファイル → .json）が EPERM で失敗しても、取り込みは続けて終える（記録は前の長さのまま。RF9）', IO_WAIT, async () => {
   const s = await startServers({ body });
   // 記録は部品（jsonfile.writeJsonFile）で書く: 一時ファイル <記録>.<pid>-<乱数>.tmp → fs.renameSync（opts.rename は置く先だけ）。
   // 2 回目の書き込み（途中の確定）の名前の変更だけを、部品のやり直しも含めて全部失敗させる（やり直しの待ちは縮める）
@@ -556,7 +560,7 @@ test('途中の記録の書き込み（一時ファイル → .json）が EPERM 
     assert.deepStrictEqual(fs.readdirSync(dir).filter((n) => n.endsWith('.tmp')), [], '記録の一時ファイルが残った');
   } finally { fs.renameSync = orig; J.sleepSync = origSleep; await s.close(); }
 });
-test('始めの確定（.part の続きを記録に書く前の fsync）で ENOSPC でも、space でやめ、needBytes に残りの大きさ', { timeout: 5000 }, async () => {
+test('始めの確定（.part の続きを記録に書く前の fsync）で ENOSPC でも、space でやめ、needBytes に残りの大きさ', IO_WAIT, async () => {
   const s = await startServers({ body });
   try {
     const dir = tmp();
@@ -573,7 +577,7 @@ test('始めの確定（.part の続きを記録に書く前の fsync）で ENOS
     assert.strictEqual(s.requests().length, 0);
   } finally { await s.close(); }
 });
-test('名前の変更を待っている間に取り消すと、待ちを切り上げてすぐ cancelled（.part と記録は残る）', { timeout: 5000 }, async () => {
+test('名前の変更を待っている間に取り消すと、待ちを切り上げてすぐ cancelled（.part と記録は残る）', IO_WAIT, async () => {
   const s = await startServers({ body });
   try {
     const dir = tmp(); const ac = new AbortController();
@@ -592,7 +596,7 @@ test('名前の変更を待っている間に取り消すと、待ちを切り�
 // Accept-Encoding を自分で付けなければ、Range のときは identity、ほかは gzip などを Chromium が頼み、伸ばして渡す。
 // fake-net はこれを真似る。fetchFile は断られたら、Accept-Encoding と Range を付けずに 0 から取り直し、
 // 圧縮された 200 は長さを見ずに SHA-256 で決める（decide の skipLength）。
-test('fake-net: identity を頼んで gzip が返ると ERR_CONTENT_DECODING_FAILED（応答は渡さない）。自分で付けなければ gzip を頼んで伸ばす。Range のときは identity', { timeout: 5000 }, async () => {
+test('fake-net: identity を頼んで gzip が返ると ERR_CONTENT_DECODING_FAILED（応答は渡さない）。自分で付けなければ gzip を頼んで伸ばす。Range のときは identity', IO_WAIT, async () => {
   const s = await startServers({ body, script: [{ gzip: true }, { gzip: true }, {}] });
   const one = (headers) => new Promise((resolve) => {
     const req = fakeRequest({ method: 'GET', url: s.originUrl, redirect: 'manual', cache: 'no-store' });
@@ -619,7 +623,7 @@ test('通信の失敗: ERR_CONTENT_DECODING_FAILED は encoding（頼んでい�
   assert.strictEqual(F.classifyNetError(new Error('net::ERR_CONTENT_DECODING_FAILED')), 'encoding');
   assert.ok(!F.isTransient('encoding'), 'encoding で待ち続けると、圧縮するプロキシの PC で「つながるのを待っています」のまま');
 });
-test('圧縮するプロキシ: identity を頼んで断られたら、Accept-Encoding と Range を付けずに 0 から取り直し、伸ばした中身を SHA-256 で照らして使う', { timeout: 5000 }, async () => {
+test('圧縮するプロキシ: identity を頼んで断られたら、Accept-Encoding と Range を付けずに 0 から取り直し、伸ばした中身を SHA-256 で照らして使う', IO_WAIT, async () => {
   const s = await startServers({ body, script: Array.from({ length: 5 }, () => ({ gzip: true })) });
   try {
     const dir = tmp();

@@ -336,3 +336,21 @@ test('ci.yml・release.yml: 段の名前は UTF-8 で 200 バイトまで（記�
     assert.deepStrictEqual(long, [], '段の名前を短くする');
   }
 });
+
+// 第1a回 合流（run 39104480319）: Electron の Node で回すテストで、偽のサーバーを立てて取り込む engine-install のテストが
+// 5.6 秒で見張り（5 秒）に当たった（同じ時間帯に、取り込みのテスト約 40 個がふだんの 5〜15 倍の時間だった。ふだんは 0.3 秒）。
+// 5 秒の見張りは「係が止まらない誤りで npm test が終わらなくならない」ためのもので、速さの目安ではない。偽のサーバーを立てて
+// ファイルを書き換えるテストの見張りは、子のプロセスを起こすテストと同じ 20 秒にする（PS_WAIT と同じ考え）
+test('サーバーを立てる取り込みのテスト（engine-install・engine-fetch）の見張りは 20 秒（IO_WAIT）。ほかのテストには付けない', { timeout: 5000 }, () => {
+  for (const f of ['test/engine-install.test.js', 'test/engine-fetch.test.js']) {
+    const src = fs.readFileSync(path.join(__dirname, '..', f), 'utf8');
+    assert.ok(src.includes('const IO_WAIT = { timeout: 20000 };'), `${f}: IO_WAIT が無い`);
+    const blocks = src.split(/\n(?=test\()/).filter((b) => b.startsWith('test('));
+    assert.ok(blocks.length > 10, f);
+    for (const b of blocks) {
+      const head = b.split('\n')[0];
+      const io = /\b(smallSet|startServers)\(/.test(b);
+      assert.strictEqual(head.includes(', IO_WAIT, '), io, `${f}: ${head.slice(0, 60)}`);
+    }
+  }
+});

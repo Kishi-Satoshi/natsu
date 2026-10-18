@@ -45,6 +45,10 @@ async function putByHand(root, set, ids = set.manifest.items.map((i) => i.id)) {
   I.writeInstalled(path.join(root, 'installed.json'), inst);
   return inst;
 }
+// 偽のサーバーを立ててファイルを書き換えるテストの見張り（止まったときだけ当たる。ふだんは 1 秒まで）。Windows の CI では、ほかのテストと
+// 重なった時間帯に 5 秒を越えた（第1a回 合流、run 39104480319）。5 秒の見張りは速さの目安ではないので、子のプロセスを起こすテストと同じ 20 秒にする
+const IO_WAIT = { timeout: 20000 };
+
 test('置き場所: %LOCALAPPDATA%\\natsu\\engine（Roaming には置かない）。Windows の x64 だけ', () => {
   const L = 'C:\\Users\\試験𠮷\\AppData\\Local';
   assert.deepStrictEqual(I.engineRoot({ LOCALAPPDATA: L, APPDATA: 'C:\\Users\\試験𠮷\\AppData\\Roaming' }, 'win32', 'x64'),
@@ -73,7 +77,7 @@ test('installed.json: 一時ファイル経由で書く。知らない schema �
   assert.deepStrictEqual(I.readInstalled(f).items, {});
   assert.ok(fs.existsSync(f));
 });
-test('planInstall: 記録と大きさ・更新時刻が合えば ready。ピンが変わった項目だけ update。触られたら changed。記録が無ければ missing', async () => {
+test('planInstall: 記録と大きさ・更新時刻が合えば ready。ピンが変わった項目だけ update。触られたら changed。記録が無ければ missing', IO_WAIT, async () => {
   const s1 = await smallSet(); const s2 = await smallSet({ gen: 2 });
   try {
     const root = path.join(tmp(), 'engine'); const inst = await putByHand(root, s1);
@@ -86,7 +90,7 @@ test('planInstall: 記録と大きさ・更新時刻が合えば ready。ピン�
     assert.ok(none.every((p) => p.state === 'missing'));
   } finally { await s1.close(); await s2.close(); }
 });
-test('managedCandidates: ピンを上げた後も、新しい組がそろうまで active の前の組のパスを返す。active が無ければ null', async () => {
+test('managedCandidates: ピンを上げた後も、新しい組がそろうまで active の前の組のパスを返す。active が無ければ null', IO_WAIT, async () => {
   const s1 = await smallSet(); const s2 = await smallSet({ gen: 2 });
   try {
     const root = path.join(tmp(), 'engine'); const inst = await putByHand(root, s1);
@@ -103,7 +107,7 @@ test('managedCandidates: ピンを上げた後も、新しい組がそろうま�
     assert.strictEqual(prev.sum.exe, path.join(root, 'llama-b1', 'llama-server.exe'));
   } finally { await s1.close(); await s2.close(); }
 });
-test('statusOf: 取り込み直しの途中（update）でも、前の組があれば whisperReady は真。updateBytes は変わった項目だけ', async () => {
+test('statusOf: 取り込み直しの途中（update）でも、前の組があれば whisperReady は真。updateBytes は変わった項目だけ', IO_WAIT, async () => {
   const s1 = await smallSet(); const s2 = await smallSet({ gen: 2 });
   try {
     const root = path.join(tmp(), 'engine'); const inst = await putByHand(root, s1);
@@ -162,7 +166,7 @@ test('installed.json: 名前の変更が EPERM・EBUSY なら少し待って試�
   assert.strictEqual(I.readInstalled(f).consent, true);
   assert.deepStrictEqual(fs.readdirSync(d), ['installed.json']);
 });
-test('managedCandidates: 新しいピンで exe の名前が変わっても、前の組は記録の中の exe で返す。記録に exe が無ければ組にしない（RF13）', async () => {
+test('managedCandidates: 新しいピンで exe の名前が変わっても、前の組は記録の中の exe で返す。記録に exe が無ければ組にしない（RF13）', IO_WAIT, async () => {
   const s1 = await smallSet();
   try {
     const root = path.join(tmp(), 'engine'); const inst = await putByHand(root, s1); const home = { supported: true, root };
@@ -177,7 +181,7 @@ test('managedCandidates: 新しいピンで exe の名前が変わっても、�
     assert.strictEqual(I.managedCandidates(home, m2, inst, fs.statSync).whisper, null);
   } finally { await s1.close(); }
 });
-test('statusOf: updateBytes は update の項目の残りだけ（.part で持っている分を引き、missing の項目は数えない）', async () => {
+test('statusOf: updateBytes は update の項目の残りだけ（.part で持っている分を引き、missing の項目は数えない）', IO_WAIT, async () => {
   const s1 = await smallSet(); const s2 = await smallSet({ gen: 2 });
   try {
     const root = path.join(tmp(), 'engine'); const inst = await putByHand(root, s1); const home = { supported: true, root };
@@ -196,7 +200,7 @@ test('statusOf: updateBytes は update の項目の残りだけ（.part で持�
 });
 
 // ---------------------------------------------------------------- その2（Task 12a）: zip の展開・記録・照らし
-test('zip: 決めたファイルだけを <dir>.tmp に出して照らし、名前を変えて置く。zip は消す。ほかのファイルは出さない', async () => {
+test('zip: 決めたファイルだけを <dir>.tmp に出して照らし、名前を変えて置く。zip は消す。ほかのファイルは出さない', IO_WAIT, async () => {
   const set = await smallSet();
   try {
     const root = path.join(tmp(), 'engine'); const it = set.manifest.items[0];
@@ -207,7 +211,7 @@ test('zip: 決めたファイルだけを <dir>.tmp に出して照らし、名�
     assert.deepStrictEqual(r.files.map((f) => f.sha256), it.files.map((f) => f.sha256));
   } finally { await set.close(); }
 });
-test('zip: 1 つでも SHA-256 が違えば何も置かず（.tmp を消し）、installed.json も変えない', async () => {
+test('zip: 1 つでも SHA-256 が違えば何も置かず（.tmp を消し）、installed.json も変えない', IO_WAIT, async () => {
   const set = await smallSet();
   try {
     const root = path.join(tmp(), 'engine'); const it0 = set.manifest.items[0];
@@ -218,7 +222,7 @@ test('zip: 1 つでも SHA-256 が違えば何も置かず（.tmp を消し）�
     assert.ok(!fs.existsSync(path.join(root, 'installed.json')));
   } finally { await set.close(); }
 });
-test('zip: 置く先のフォルダが既にあり、中身が同じなら使う（記録が消えても取り直さない）', async () => {
+test('zip: 置く先のフォルダが既にあり、中身が同じなら使う（記録が消えても取り直さない）', IO_WAIT, async () => {
   const set = await smallSet();
   try {
     const root = path.join(tmp(), 'engine'); await putByHand(root, set, ['whisper-engine']);
@@ -227,7 +231,7 @@ test('zip: 置く先のフォルダが既にあり、中身が同じなら使う
     assert.strictEqual(r.dir, path.join(root, 'whisper-1.0.0'));
   } finally { await set.close(); }
 });
-test('zip: 置く先のフォルダが既にあり中身が違えば hash で断り、そのフォルダには触らない（動いているかもしれない）。zip は残す', async () => {
+test('zip: 置く先のフォルダが既にあり中身が違えば hash で断り、そのフォルダには触らない（動いているかもしれない）。zip は残す', IO_WAIT, async () => {
   const set = await smallSet();
   try {
     const root = path.join(tmp(), 'engine'); await putByHand(root, set, ['whisper-engine']);
@@ -238,7 +242,7 @@ test('zip: 置く先のフォルダが既にあり中身が違えば hash で断
     assert.ok(fs.existsSync(zf) && !fs.existsSync(path.join(root, 'whisper-1.0.0.tmp')));
   } finally { await set.close(); }
 });
-test('RF3: verifyCandidates は exe と DLL を SHA-256 で照らす。大きさと更新時刻が同じでも、中身の違う DLL の組は使わない', async () => {
+test('RF3: verifyCandidates は exe と DLL を SHA-256 で照らす。大きさと更新時刻が同じでも、中身の違う DLL の組は使わない', IO_WAIT, async () => {
   const set = await smallSet();
   try {
     const root = path.join(tmp(), 'engine'); const inst = await putByHand(root, set); const home = { supported: true, root };
@@ -252,7 +256,7 @@ test('RF3: verifyCandidates は exe と DLL を SHA-256 で照らす。大きさ
     assert.deepStrictEqual(ng.bad, [{ group: 'whisper', file: dll, why: 'changed' }]);
   } finally { await set.close(); }
 });
-test('RF3: verifyCandidates はモデルを大きさと更新時刻で照らす（数 GB を毎回読まない）。exe が消えていれば missing', async () => {
+test('RF3: verifyCandidates はモデルを大きさと更新時刻で照らす（数 GB を毎回読まない）。exe が消えていれば missing', IO_WAIT, async () => {
   const set = await smallSet();
   try {
     const root = path.join(tmp(), 'engine'); const inst = await putByHand(root, set); const home = { supported: true, root };
@@ -268,7 +272,7 @@ test('RF3: verifyCandidates はモデルを大きさと更新時刻で照らす�
       [['whisper', 'whisper-server.exe', 'missing'], ['sum', 's-model.gguf', 'changed']]);
   } finally { await set.close(); }
 });
-test('zip: <dir>.tmp から <dir> への名前の変更が EPERM で 2 回失敗、3 回目に通る。いつも EPERM なら locked で、何も置かず zip は残す', async () => {
+test('zip: <dir>.tmp から <dir> への名前の変更が EPERM で 2 回失敗、3 回目に通る。いつも EPERM なら locked で、何も置かず zip は残す', IO_WAIT, async () => {
   const set = await smallSet();
   try {
     const it = set.manifest.items[0]; const waits = [];
@@ -289,7 +293,7 @@ test('zip: <dir>.tmp から <dir> への名前の変更が EPERM で 2 回失敗
     assert.ok(fs.existsSync(zf2), 'zip を消した（取り直しになる）');
   } finally { await set.close(); }
 });
-test('recordInstalled: zip は展開したファイルごと、ファイルは置き場所の大きさと更新時刻を installed.json に書く（managedCandidates がそのまま使える）', async () => {
+test('recordInstalled: zip は展開したファイルごと、ファイルは置き場所の大きさと更新時刻を installed.json に書く（managedCandidates がそのまま使える）', IO_WAIT, async () => {
   const set = await smallSet();
   try {
     const root = path.join(tmp(), 'engine'); const home = { supported: true, root };
@@ -330,7 +334,7 @@ The above copyright notice and this permission notice shall be included in all c
 
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.`;
 const MIT_SHA256 = '508a77d2e7b51d98adeed32648ad124b7b30241a8e70b2e72c99f92d8e5874d1';
-test('start はすぐ返り、動いている仕事をもう一度始めない（2 回押しても二重にならない）', { timeout: 5000 }, async () => {
+test('start はすぐ返り、動いている仕事をもう一度始めない（2 回押しても二重にならない）', IO_WAIT, async () => {
   const set = await smallSet();
   try {
     const r = I.makeRunner(depsOf(set, homeOf()));
@@ -341,7 +345,7 @@ test('start はすぐ返り、動いている仕事をもう一度始めない�
     assert.strictEqual(r.status().state, 'ready');
   } finally { await set.close(); }
 });
-test('取り込む順: whisper のエンジン → VAD → モデル →（whisper が使える知らせ）→ llama → 要約のモデル', { timeout: 5000 }, async () => {
+test('取り込む順: whisper のエンジン → VAD → モデル →（whisper が使える知らせ）→ llama → 要約のモデル', IO_WAIT, async () => {
   const seen = []; const set = await smallSet({ onHit: (id) => seen.push(id) });
   try {
     const r = I.makeRunner(depsOf(set, homeOf(), { onGroupReady: (g) => seen.push(`ready:${g}`) }));
@@ -349,7 +353,7 @@ test('取り込む順: whisper のエンジン → VAD → モデル →（whisp
     assert.deepStrictEqual(seen, ['whisper-engine', 'whisper-vad', 'whisper-model', 'ready:whisper', 'sum-engine', 'sum-model', 'ready:sum']);
   } finally { await set.close(); }
 });
-test('空きが足りなければ、1 つも要求せずに space（余裕は 1GB から、足りない GB つき）。statfs が投げても続ける', { timeout: 5000 }, async () => {
+test('空きが足りなければ、1 つも要求せずに space（余裕は 1GB から、足りない GB つき）。statfs が投げても続ける', IO_WAIT, async () => {
   const set = await smallSet();
   try {
     const r = I.makeRunner(depsOf(set, homeOf(), { statfs: async () => ({ bavail: 1, bsize: 1000 }) }));
@@ -362,7 +366,7 @@ test('空きが足りなければ、1 つも要求せずに space（余裕は 1G
     assert.strictEqual(r2.status().state, 'ready');
   } finally { await set.close(); }
 });
-test('手で設定している組は飛ばす。all のときは全部取る（切り替えのため）', { timeout: 5000 }, async () => {
+test('手で設定している組は飛ばす。all のときは全部取る（切り替えのため）', IO_WAIT, async () => {
   const set = await smallSet();
   try {
     const r = I.makeRunner(depsOf(set, homeOf(), { isManual: (g) => g === 'whisper' }));
@@ -373,7 +377,7 @@ test('手で設定している組は飛ばす。all のときは全部取る（�
     assert.strictEqual(ids(set).length, 2 + 5);
   } finally { await set.close(); }
 });
-test('記録中（hold が真）は要求を出さずに held で待ち、終われば続ける', { timeout: 5000 }, async () => {
+test('記録中（hold が真）は要求を出さずに held で待ち、終われば続ける', IO_WAIT, async () => {
   const set = await smallSet();
   try {
     let holding = true; let polls = 0; const states = [];
@@ -383,7 +387,7 @@ test('記録中（hold が真）は要求を出さずに held で待ち、終わ
     assert.ok(states.includes('held') && states[states.length - 1] === 'ready', states.join(','));
   } finally { await set.close(); }
 });
-test('［一時停止］は userPaused を残し、次の起動の自動の開始は何もしない。終了のときの一時停止は残さない', { timeout: 5000 }, async () => {
+test('［一時停止］は userPaused を残し、次の起動の自動の開始は何もしない。終了のときの一時停止は残さない', IO_WAIT, async () => {
   const set = await smallSet();
   try {
     const home = homeOf(); let r;
@@ -400,7 +404,7 @@ test('［一時停止］は userPaused を残し、次の起動の自動の開�
     assert.strictEqual(I.readInstalled(path.join(home2.root, 'installed.json')).userPaused, false);
   } finally { await set.close(); }
 });
-test('RF14: 回線が長く切れても（fetchFile の上限を何度も超えても）あきらめずに waiting で待ち、戻れば自分で終わる', { timeout: 5000 }, async () => {
+test('RF14: 回線が長く切れても（fetchFile の上限を何度も超えても）あきらめずに waiting で待ち、戻れば自分で終わる', IO_WAIT, async () => {
   const set = await smallSet();
   try {
     set.setDown(true); let sleeps = 0; const states = [];
@@ -412,7 +416,7 @@ test('RF14: 回線が長く切れても（fetchFile の上限を何度も超え�
     assert.ok(sleeps >= 200);
   } finally { await set.close(); }
 });
-test('待っても直らない失敗（404 の text/plain = gone）は止めて文を出す。後の項目は取らない', { timeout: 5000 }, async () => {
+test('待っても直らない失敗（404 の text/plain = gone）は止めて文を出す。後の項目は取らない', IO_WAIT, async () => {
   const set = await smallSet({ missing: ['whisper-vad'] });
   try {
     const r = I.makeRunner(depsOf(set, homeOf())); r.start({ user: true }); await r.done();
@@ -421,7 +425,7 @@ test('待っても直らない失敗（404 の text/plain = gone）は止めて�
     assert.deepStrictEqual(ids(set), ['whisper-engine', 'whisper-vad']);
   } finally { await set.close(); }
 });
-test('RF3: 消えた exe は 1 回だけ取り直す。同じ起動の中でまた消えたら取らずに defender（パスつき）', { timeout: 5000 }, async () => {
+test('RF3: 消えた exe は 1 回だけ取り直す。同じ起動の中でまた消えたら取らずに defender（パスつき）', IO_WAIT, async () => {
   const set = await smallSet();
   try {
     const home = homeOf(); const r = I.makeRunner(depsOf(set, home));
@@ -435,7 +439,7 @@ test('RF3: 消えた exe は 1 回だけ取り直す。同じ起動の中でま�
     assert.ok(r.status().error.message.includes('whisper-server.exe'));
   } finally { await set.close(); }
 });
-test('進み具合の写しは間引く（時計が進まなければ、最初と最後の 2 回だけ）', { timeout: 5000 }, async () => {
+test('進み具合の写しは間引く（時計が進まなければ、最初と最後の 2 回だけ）', IO_WAIT, async () => {
   const set = await smallSet();
   try {
     const seen = [];
@@ -444,7 +448,7 @@ test('進み具合の写しは間引く（時計が進まなければ、最初�
     assert.strictEqual(seen.length, 2, String(seen.length));
   } finally { await set.close(); }
 });
-test('RF13: 起動のときの自動の開始は、大きな取り込み直し（autoUpdateMaxBytes 超）を始めず update で待つ。押せば取る', { timeout: 5000 }, async () => {
+test('RF13: 起動のときの自動の開始は、大きな取り込み直し（autoUpdateMaxBytes 超）を始めず update で待つ。押せば取る', IO_WAIT, async () => {
   const s1 = await smallSet(); const s2 = await smallSet({ gen: 2 });
   try {
     const home = homeOf();
@@ -457,7 +461,7 @@ test('RF13: 起動のときの自動の開始は、大きな取り込み直し�
     assert.deepStrictEqual(ids(s2), ['whisper-model', 'sum-engine']);
   } finally { await s1.close(); await s2.close(); }
 });
-test('使っている組の置き場所に、違う SHA-256 のファイルを置かない（place-in-use）', { timeout: 5000 }, async () => {
+test('使っている組の置き場所に、違う SHA-256 のファイルを置かない（place-in-use）', IO_WAIT, async () => {
   const s1 = await smallSet(); const s2 = await smallSet({ gen: 2, sameDest: true });
   try {
     const home = homeOf();
@@ -468,7 +472,7 @@ test('使っている組の置き場所に、違う SHA-256 のファイルを�
     assert.ok(!ids(s2).includes('whisper-model'));
   } finally { await s1.close(); await s2.close(); }
 });
-test('触られただけ（changed）のファイルは、取らずに照らし直して記録を書き直す', { timeout: 5000 }, async () => {
+test('触られただけ（changed）のファイルは、取らずに照らし直して記録を書き直す', IO_WAIT, async () => {
   const set = await smallSet();
   try {
     const home = homeOf(); const r = I.makeRunner(depsOf(set, home)); r.start({ user: true }); await r.done();
@@ -479,7 +483,7 @@ test('触られただけ（changed）のファイルは、取らずに照らし�
     assert.strictEqual(r.status().state, 'ready');
   } finally { await set.close(); }
 });
-test('残った .tmp と、今のピンに無い .part は消す。今のピンの .part からは Range で続ける', { timeout: 5000 }, async () => {
+test('残った .tmp と、今のピンに無い .part は消す。今のピンの .part からは Range で続ける', IO_WAIT, async () => {
   const set = await smallSet();
   try {
     const home = homeOf(); const dl = path.join(home.root, '.download'); fs.mkdirSync(dl, { recursive: true });
@@ -493,7 +497,7 @@ test('残った .tmp と、今のピンに無い .part は消す。今のピン�
     assert.strictEqual(set.hits().find((h) => h.id === 'whisper-model').range, 'bytes=10000-');
   } finally { await set.close(); }
 });
-test('setActive は今のピンのその組の SHA-256 を active に書く', { timeout: 5000 }, async () => {
+test('setActive は今のピンのその組の SHA-256 を active に書く', IO_WAIT, async () => {
   const set = await smallSet();
   try {
     const home = homeOf(); const r = I.makeRunner(depsOf(set, home)); r.start({ user: true }); await r.done();
@@ -503,7 +507,7 @@ test('setActive は今のピンのその組の SHA-256 を active に書く', { 
   } finally { await set.close(); }
 });
 // ここから下は計画に無い、実装した人が足したテスト（計画の Interfaces に書いてあるが、計画のテストが押さえていない振る舞い）
-test('2 回押しても仕事は 1 つ（done は同じ Promise・始めの知らせは 1 回）', { timeout: 5000 }, async () => {
+test('2 回押しても仕事は 1 つ（done は同じ Promise・始めの知らせは 1 回）', IO_WAIT, async () => {
   const set = await smallSet();
   try {
     const states = [];
@@ -515,7 +519,7 @@ test('2 回押しても仕事は 1 つ（done は同じ Promise・始めの知�
     assert.ok(!r.running());
   } finally { await set.close(); }
 });
-test('待っている間（waiting）: ［今すぐ試す］・切れていた回線の戻り・［一時停止］で、60 秒を待たずにすぐ動く', { timeout: 5000 }, async () => {
+test('待っている間（waiting）: ［今すぐ試す］・切れていた回線の戻り・［一時停止］で、60 秒を待たずにすぐ動く', IO_WAIT, async () => {
   const set = await smallSet();
   try {
     // ［今すぐ試す］（待っている間の start）: 待ちを切り上げて試す
@@ -536,7 +540,7 @@ test('待っている間（waiting）: ［今すぐ試す］・切れていた�
     assert.strictEqual(q.status().state, 'paused'); assert.ok(m < 20, `止めても待ち続けた: ${m}`);
   } finally { await set.close(); }
 });
-test('Q14: downloading() は実際に取っている間（running）だけ真。回線を待つ（waiting）・記録中で止める（held）・一時停止や終わった後は偽（running() は待つ間も真）', { timeout: 5000 }, async () => {
+test('Q14: downloading() は実際に取っている間（running）だけ真。回線を待つ（waiting）・記録中で止める（held）・一時停止や終わった後は偽（running() は待つ間も真）', IO_WAIT, async () => {
   const set = await smallSet();
   try {
     // 記録中（held）
@@ -565,7 +569,7 @@ test('Q14: downloading() は実際に取っている間（running）だけ真。
     assert.ok(c.some((x) => x[0] === 'waiting' && x[1] === false));
   } finally { await set.close(); }
 });
-test('取り込みの途中で記録が始まったら、今の要求を止めて held で待ち、終われば続きから取る（バイトが来ない間も見張る）', { timeout: 5000 }, async () => {
+test('取り込みの途中で記録が始まったら、今の要求を止めて held で待ち、終われば続きから取る（バイトが来ない間も見張る）', IO_WAIT, async () => {
   const set = await smallSet();
   try {
     const E = require('../src/engine-fetch');
@@ -599,7 +603,7 @@ test('取り込みの途中で記録が始まったら、今の要求を止め�
     assert.strictEqual(r2.status().state, 'ready', JSON.stringify(r2.status().error)); assert.strictEqual(c2, 2);
   } finally { await set.close(); }
 });
-test('取り込みの途中の［一時停止］は今の要求を止め、また押せば続きから取る。止めている途中に押されたら止めない', { timeout: 5000 }, async () => {
+test('取り込みの途中の［一時停止］は今の要求を止め、また押せば続きから取る。止めている途中に押されたら止めない', IO_WAIT, async () => {
   const set = await smallSet({ onHit: (id) => { if (id === 'whisper-model' && hook) hook(); } });
   let hook = null;
   try {
@@ -624,7 +628,7 @@ test('取り込みの途中の［一時停止］は今の要求を止め、ま�
     } finally { await set2.close(); }
   } finally { await set.close(); }
 });
-test('installed.json を書けない（EPERM が続く）は locked の文。取り込めない PC では何もしない', { timeout: 5000 }, async () => {
+test('installed.json を書けない（EPERM が続く）は locked の文。取り込めない PC では何もしない', IO_WAIT, async () => {
   const set = await smallSet();
   const orig = fs.renameSync;
   try {
@@ -640,7 +644,7 @@ test('installed.json を書けない（EPERM が続く）は locked の文。取
   } finally { fs.renameSync = orig; await set.close(); }
 });
 // ここから下は点検で足したテスト（変異が緑のまま残ったところと、取り直しの 1 回の数え方）
-test('一時停止中の取り直しは、その項目だけを取る。ほかの残りは取らず、そろっていない組の知らせも出さない', { timeout: 5000 }, async () => {
+test('一時停止中の取り直しは、その項目だけを取る。ほかの残りは取らず、そろっていない組の知らせも出さない', IO_WAIT, async () => {
   let hook = null;
   const set = await smallSet({ onHit: (id) => { if (id === 'whisper-model' && hook) hook(); } });
   try {
@@ -655,7 +659,7 @@ test('一時停止中の取り直しは、その項目だけを取る。ほか�
     assert.deepStrictEqual(ready, [], 'そろっていない組を知らせた');
   } finally { await set.close(); }
 });
-test('触られて中身も違う（changed）ファイルは 1 回だけ取り直し、同じ起動の中でまた違えば defender', { timeout: 5000 }, async () => {
+test('触られて中身も違う（changed）ファイルは 1 回だけ取り直し、同じ起動の中でまた違えば defender', IO_WAIT, async () => {
   const set = await smallSet();
   try {
     const home = homeOf(); const r = I.makeRunner(depsOf(set, home)); r.start({ user: true }); await r.done();
@@ -667,7 +671,7 @@ test('触られて中身も違う（changed）ファイルは 1 回だけ取り�
     assert.strictEqual(r.status().error.code, 'defender'); assert.strictEqual(ids(set).filter((i) => i === 'whisper-model').length, 2);
   } finally { await set.close(); }
 });
-test('壊れた版のフォルダをどけられない（locked）ときは、取り直しの 1 回を使わない。次に押せば取り直す', { timeout: 5000 }, async () => {
+test('壊れた版のフォルダをどけられない（locked）ときは、取り直しの 1 回を使わない。次に押せば取り直す', IO_WAIT, async () => {
   const set = await smallSet();
   const orig = fs.promises.rename;
   try {
@@ -686,7 +690,7 @@ test('壊れた版のフォルダをどけられない（locked）ときは、�
     assert.strictEqual(r.status().error.code, 'defender'); assert.strictEqual(ids(set).filter((i) => i === 'whisper-engine').length, 2);
   } finally { fs.promises.rename = orig; await set.close(); }
 });
-test('取り直しの途中で回線が切れても、記録が始まっても、一時停止しても、defender にせず取り直しを続ける', { timeout: 5000 }, async () => {
+test('取り直しの途中で回線が切れても、記録が始まっても、一時停止しても、defender にせず取り直しを続ける', IO_WAIT, async () => {
   const set = await smallSet();
   try {
     const E = require('../src/engine-fetch');
@@ -723,7 +727,7 @@ test('取り直しの途中で回線が切れても、記録が始まっても�
     assert.ok(fs.readFileSync(vad).equals(set.bodies['whisper-vad']));
   } finally { await set.close(); }
 });
-test('使っている組の置き場所と、大文字と小文字だけが違う置き場所にも置かない（Windows では同じファイル）', { timeout: 5000 }, async () => {
+test('使っている組の置き場所と、大文字と小文字だけが違う置き場所にも置かない（Windows では同じファイル）', IO_WAIT, async () => {
   const s1 = await smallSet(); const s2 = await smallSet({ gen: 2, sameDest: true });
   try {
     const home = homeOf();
@@ -738,7 +742,7 @@ test('使っている組の置き場所と、大文字と小文字だけが違�
 
 // ---------------------------------------------------------------- その4（Task 12c）: 古い版の片付けと、ライセンスの写し
 // 最初の3件は計画のテストのまま。各テストに { timeout: 5000 } だけ足した（5 秒の決まり）。その後の3件は足したもの
-test('RF8: 切り替えた後だけ、記録にあって今のピンにも active にも無いもの（前の版）を消す。記録に無いフォルダには触らない', { timeout: 5000 }, async () => {
+test('RF8: 切り替えた後だけ、記録にあって今のピンにも active にも無いもの（前の版）を消す。記録に無いフォルダには触らない', IO_WAIT, async () => {
   const s1 = await smallSet(); const s2 = await smallSet({ gen: 2 });
   try {
     const home = homeOf(); const ins = () => I.readInstalled(path.join(home.root, 'installed.json'));
@@ -755,7 +759,7 @@ test('RF8: 切り替えた後だけ、記録にあって今のピンにも activ
     assert.ok(!Object.values(ins().items).some((x) => x.place === 'llama-b1'), '記録から外していない');
   } finally { await s1.close(); await s2.close(); }
 });
-test('RF8: canDelete が偽なら何も消さない。inUse のパスは残す', { timeout: 5000 }, async () => {
+test('RF8: canDelete が偽なら何も消さない。inUse のパスは残す', IO_WAIT, async () => {
   const s1 = await smallSet(); const s2 = await smallSet({ gen: 2 });
   try {
     const home = homeOf(); const ins = () => I.readInstalled(path.join(home.root, 'installed.json'));
@@ -825,7 +829,7 @@ test('MIT の項目があれば、MIT License の許諾の文（src/licenses/MIT
   assert.ok(!t2.includes('Permission is hereby granted'), 'MIT の項目が無いのに許諾の文を足した');
   assert.ok(t2.endsWith(apache));
 });
-test('RF8: 今のピン・残す記録・installed.json などと同じ置き場所か、その親を指す古い記録は消さない。canDelete は消す前に毎回見る', { timeout: 5000 }, async () => {
+test('RF8: 今のピン・残す記録・installed.json などと同じ置き場所か、その親を指す古い記録は消さない。canDelete は消す前に毎回見る', IO_WAIT, async () => {
   const s1 = await smallSet(); const s2 = await smallSet({ gen: 2 });
   try {
     const home = homeOf(); const file = path.join(home.root, 'installed.json'); const ins = () => I.readInstalled(file);
@@ -850,7 +854,7 @@ test('RF8: 今のピン・残す記録・installed.json などと同じ置き場
     assert.deepStrictEqual(await I.cleanupOld({ supported: false, root: null }, s2.manifest, ins(), { canDelete: () => true }), { removed: [], kept: [] });
   } finally { await s1.close(); await s2.close(); }
 });
-test('組がそろうたびに THIRD-PARTY-NOTICES.txt を書き直す。書けなくても取り込みは止めない', { timeout: 5000 }, async () => {
+test('組がそろうたびに THIRD-PARTY-NOTICES.txt を書き直す。書けなくても取り込みは止めない', IO_WAIT, async () => {
   const set = await smallSet();
   try {
     const home = homeOf(); const f = path.join(home.root, 'THIRD-PARTY-NOTICES.txt');
