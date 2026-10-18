@@ -189,10 +189,13 @@ test('net-smoke.js: 時間切れの NG には、その確かめで偽のサー�
     return req;
   };
   const lines = [];
-  const r = await runChecks({ request: hanging, log: (l) => lines.push(l), checkMs: 300 });
-  const ng7 = r.find((x) => x.n === 7);
-  assert.ok(ng7 && !ng7.ok, lines.join('\n'));
-  assert.match(ng7.line, /0\.3 秒で終わらない（サーバーが受けた要求: origin.*cdn.*・イベントループの最大の止まり \d+ms）/, ng7.line);
+  // 確かめ 7 だけを回す。上限は、要求がサーバーに届くまで（サーバーを立てる・一時フォルダを作る）より十分長くする
+  // （0.3 秒では Windows の CI で要求が届く前に時間切れになり「受けた要求: 無し」で赤になった）
+  const r = await runChecks({ request: hanging, log: (l) => lines.push(l), checkMs: 3000, only: [7] });
+  assert.deepStrictEqual(r.map((x) => x.n), [7], lines.join('\n'));
+  const ng7 = r[0];
+  assert.ok(!ng7.ok, lines.join('\n'));
+  assert.match(ng7.line, /3 秒で終わらない（サーバーが受けた要求: origin.*cdn.*・イベントループの最大の止まり \d+ms）/, ng7.line);
 });
 
 // electron-net のジョブを赤にするのは net-smoke.js の終了コードだけ。boot() は Electron が無いと動かないので、

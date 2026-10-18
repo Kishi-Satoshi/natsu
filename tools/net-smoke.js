@@ -256,8 +256,9 @@ function seenBy(servers) {
  * 8 つの確かめを順に回す → [{ n, ok, line }]。1 つずつ log(line) に 'OK n …' か 'NG n …' を出す。
  *  request  net.request と同じ形の口（本番は (o) => net.request(o)、テストは fake-net）
  *  checkMs  1 つの確かめの時間の上限（超えたら NG にして次へ。立てたサーバーと要求は片付ける）
+ *  only     回す確かめの番号の並び（テストで1つだけを回す。省けば 8 つ全部）
  */
-async function runChecks({ request, log = (l) => console.log(l), checkMs = 12000 } = {}) {
+async function runChecks({ request, log = (l) => console.log(l), checkMs = 12000, only = null } = {}) {
   if (typeof request !== 'function') throw new TypeError('runChecks: request が要る');
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'natsu-取込𠮷-'));
   const out = [];
@@ -266,6 +267,7 @@ async function runChecks({ request, log = (l) => console.log(l), checkMs = 12000
   lag.enable();
   try {
     for (const [n, title, fn] of CHECKS) {
+      if (only && !only.includes(n)) continue;
       const reqs = [];
       const c = {
         request: (o) => { const r = request(o); reqs.push(r); return r; },
