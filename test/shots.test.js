@@ -36,11 +36,11 @@ test('G2: 撮る画面は決まった並び（第1b回の 13 と第1b2回の検�
   assert.ok(st.active && st.cloud && st.pauses.length === 1, '記録中の画面に一時停止の印か［PC の中だけ］が出ない');
 });
 
-test('1b2 R-3・G12: 検索の窓の画面は取り直し待ちに入り、窓を開く act を持つ。取り直し待ちは録音バーのほかの全部（13）', { timeout: 5000 }, () => {
+// 第1b回 Task C-2 で意図して変えた: 基準を取り直したので、検索の窓の画面は取り直し待ちではなく、基準の PNG と比べる（取り直し待ちが空であることは下の C-2 のテスト）
+test('1b2 R-3・G12: 検索の窓の画面は窓を開く act を持つ。取り直し待ちが残るなら録音バーのほかの全部（13）', { timeout: 5000 }, () => {
   const s = SH.SCREENS.find((x) => x.name === 'search-palette-light');
   assert.ok(s, '検索の窓の画面が撮る並びに無い');
   assert.match(s.act, /sideSearch/);
-  assert.ok(SH.RETAKE.has('search-palette-light'));
   if (SH.RETAKE.size) assert.deepStrictEqual([...SH.RETAKE].sort(), SH.SCREENS.map((x) => x.name).filter((n) => n !== 'overlay-processing').sort());
 });
 
@@ -294,19 +294,19 @@ test('G2: 作業域より大きい窓が作るときに縮められても（Wind
   assert.ok(made >= 0 && fix > made && fix < m.indexOf("wc.loadURL('about:blank')"), '窓を作った直後に大きさを決め直していない');
 });
 
-// 第1b回 Task C-1 で意図して緩めた: 基準が無いのは、取り直し待ち（RETAKE）の第1b回の新しい画面だけ。C-2 で元の「全部ある」に戻す
-// 第1b2回 Task R-3 で足した: 検索の窓の画面も新しい画面（基準は C-2 で取る）
-const NEW_1B = ['notes-tabs-light', 'notes-collapsed-light', 'live-light', 'live-dark', 'notes-page-zoom200-light', 'settings-zoom200-dark', 'search-palette-light'];
-test('G2・F9: どの画面にも基準の PNG があり（取り直し待ちの新しい画面だけは無くてよい）、自作の部品で読めて、大きさが窓の大きさと同じ', { timeout: 5000 }, () => {
+// 第1b回 Task C-2（G2・F14）: C-1 で緩めた確かめを元の「全部ある」に戻した（第1b2回の検索の窓 search-palette-light も、もう取り直し待ちの新しい画面ではない）。
+// 13 枚は Windows の CI（run 39150265077・c823b81）が撮った画像。利用者が 2026-10-19 に見て OK と言った
+test('G2・F14: 取り直し待ちは空（第1b回の基準を取り直した）。どの画面にも基準の PNG があり、大きさが窓の大きさと同じ', { timeout: 5000 }, () => {
+  assert.deepStrictEqual([...SH.RETAKE], []);
   for (const s of SH.SCREENS) {
     const f = path.join(ROOT, 'test', 'shots', 'win32', `${s.name}.png`);
-    if (!fs.existsSync(f) && NEW_1B.includes(s.name) && SH.RETAKE.has(s.name)) continue;
     assert.ok(fs.existsSync(f), `${s.name} の基準が無い`);
     const im = P.decodePng(fs.readFileSync(f));
     const want = s.page === 'overlay' ? SH.OVERLAY_SIZE : SH.SIZE;
     assert.deepStrictEqual([im.width, im.height], [want.width, want.height], s.name);
   }
 });
+// 録音バーの基準が第1a回のまま（sha256）であることは C-1 のテストが見続ける（git の履歴は浅い取り出しでは数えられないので使わない）
 
 test('ci.yml の electron-smoke: 撮った画面を基準（test/shots/win32）と比べる', { timeout: 5000 }, () => {
   const st = stepsOf(jobsOf(read('.github/workflows/ci.yml'))['electron-smoke']);

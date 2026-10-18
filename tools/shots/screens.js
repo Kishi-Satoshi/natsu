@@ -65,11 +65,7 @@ SCREENS.find((x) => x.name === 'notes-page-light').focus = { tabs: 3, want: 'mtT
  * 取り直し待ち（第1b回 F14）: この回で意図して見た目を変える画面。基準と違っても（diff・size・missing）NG にせず「取り直し待ち」と出す。
  * 録音バー（overlay-processing）は入れない（overlay.html は変えないので、違えば本当の崩れ）。C-2 で CI の画像から基準を取り直して空にする
  */
-const RETAKE = new Set([
-  'notes-empty-light', 'notes-page-light', 'notes-page-dark', 'dictation-light', 'settings-light', 'settings-dark',
-  'notes-tabs-light', 'notes-collapsed-light', 'live-light', 'live-dark', 'notes-page-zoom200-light', 'settings-zoom200-dark',
-  'search-palette-light',
-]);
+const RETAKE = new Set([]);   // 第1b回 Task C-2 で空にした（13 枚を Windows の CI の画像から取り直し、利用者が 2026-10-19 に OK と言った）
 const PERF = [{ name: 'open-2000-blocks', budgetMs: 500 }];   // 3回開いた中央値で見る
 const TIME_ZONE = 'Asia/Tokyo';
 const TOLERANCE = 2;   // 色の差（0〜255）がこれ以下の画素は同じとみなす。CI の機械の CPU ごとの描き方の1段の差を拾わないため（揺れの確かめ judgePair は 0 で見る）
