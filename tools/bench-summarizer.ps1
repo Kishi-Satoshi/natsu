@@ -214,6 +214,7 @@ if (-not $SkipVulkan) {
 }
 
 $threads = ""
+$noRepack = $false
 $firstNatsu = $true
 foreach ($m in $Models) {
     Write-Host ""
@@ -224,11 +225,19 @@ foreach ($m in $Models) {
     # 測り1: llama-bench（速さだけ）
     $benchFile = Join-Path $Dirs.results ("bench-" + $m.Key + "-cpu.md")
     if ($SkipSpeed) { Write-Log "速さの測り（llama-bench）は飛ばします（-SkipSpeed）" }
-    elseif ((Test-Path $benchFile) -and ((Get-Item $benchFile).Length -gt 200)) { Write-Log ("速さは測り済みです: " + (Split-Path -Leaf $benchFile)) }
+    elseif ((Test-Path $benchFile) -and (Get-BestThreads $benchFile "tg128")) { Write-Log ("速さは測り済みです: " + (Split-Path -Leaf $benchFile)) }
     else {
         Write-Log "速さを測ります（llama-bench。数十分かかります。この間 PC を使うと数が乱れるので、なるべく触らないでください）"
         $args1 = @("-m", ("..\models\" + $m.File), "-p", "512,4096", "-n", "128", "-t", "4,6,8,10", "-fa", "on", "-r", "3", "-o", "md")
         [void](Invoke-Engine $Dirs.llama "llama-bench.exe" $args1 $benchFile)
+        # 重みの並べ替え（repack）の分のメモリを取れずに読めなかったときは、並べ替えなしで測り直す
+        if (-not (Get-BestThreads $benchFile "tg128") -and (Select-String -Path $benchFile -Pattern "allocate" -Quiet)) {
+            Write-Log "メモリを確保できずに読めませんでした。重みの並べ替えをしない形（--repack 0）で測り直します"
+            Move-Item $benchFile (Join-Path $Dirs.results ("bench-" + $m.Key + "-cpu-repack-failed.md")) -Force
+            $args1 = $args1 + @("--repack", "0")
+            [void](Invoke-Engine $Dirs.llama "llama-bench.exe" $args1 $benchFile)
+            $noRepack = $true
+        }
         if ((-not $SkipVulkan) -and ($m.Key -eq "E4B")) {
             Write-Log "比べるだけ: Vulkan 版（Iris Xe の GPU）で同じ測り"
             $args2 = $args1 + @("-ngl", "99")
@@ -262,6 +271,7 @@ foreach ($m in $Models) {
         $env:LLAMA_ARG_FLASH_ATTN = "on"
         $env:LLAMA_ARG_REASONING = "off"
         $env:LLAMA_ARG_CACHE_RAM = "0"
+        if ($noRepack) { $env:LLAMA_ARG_REPACK = "0"; Write-Log "要約エンジンも並べ替えなし（LLAMA_ARG_REPACK=0）で起動します" }
         Start-Process -FilePath $exe
         $firstNatsu = $false
         Write-Log "NaTsu を測り用の設定で起動しました"
