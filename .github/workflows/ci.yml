@@ -295,7 +295,7 @@ jobs:
         shell: bash
         run: ELECTRON_RUN_AS_NODE=1 node_modules/electron/dist/electron.exe tools/sqlite-probe.js
 
-      - name: 小さなアプリで utilityProcess・口・sandbox の窓・クリップボード・画面の取り込みと、守り（8〜12: sandbox・CSP のヘッダー・マイクと画面の取り込みの許可・移動と新しい窓の禁止）を確かめる
+      - name: 小さなアプリで utilityProcess・口・sandbox の窓・クリップボード・画面の取り込みと、守り（8〜12。sandbox・CSP のヘッダー・マイクと画面の取り込みの許可・移動と新しい窓の禁止）を確かめる
         shell: bash
         run: node_modules/electron/dist/electron.exe tools/electron-smoke
 

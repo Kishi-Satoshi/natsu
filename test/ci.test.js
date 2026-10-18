@@ -293,3 +293,17 @@ test('ワークフローは npx で道具を呼ばず、node_modules/.bin か np
   }
   assert.match(read('.github/workflows/ci.yml'), /^        run: node_modules\/\.bin\/electron-builder --win nsis portable --publish never$/m);
 });
+
+test('ci.yml・release.yml: 引用符の無い1行の値に「: 」が無い（あると YAML として読めず、ワークフローが1つのジョブも動かずに赤になる）', { timeout: 5000 }, () => {
+  for (const f of ['.github/workflows/ci.yml', '.github/workflows/release.yml']) {
+    const bad = [];
+    read(f).split(/\r?\n/).forEach((line, i) => {
+      const m = /^\s*(?:- )?[A-Za-z0-9_-]+:[ ]+(.+)$/.exec(line);
+      if (!m) return;
+      const v = m[1].replace(/\s+#.*$/, ''); // 後ろの「 #」からはコメント
+      if (/^['"|>{[&*!#]/.test(v)) return;
+      if (/: /.test(v) || /:$/.test(v)) bad.push(`${f}:${i + 1}: ${line.trim()}`);
+    });
+    assert.deepStrictEqual(bad, [], '引用符で囲むか、「: 」を使わない書き方にする');
+  }
+});
