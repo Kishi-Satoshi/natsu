@@ -7,7 +7,7 @@
  *  - postForm         net.request で1回送り、返事を読む（redirect: 'error'。時間切れつき）
  *  - transcribeCloud  1つの区間の WAV を送って文字を返す（429 の待ち・ヒントで 400 なら外して1回だけ送り直す）
  *  - isOfflineError   その区間を手元でやり直してよい失敗か（切れた・時間切れ・届かない）
- *  - checkKey         鍵の確かめ（GET {base}/models の 200／401）
+ *  - checkKey         鍵の確かめ（GET {base}/models の 200／401。401／403／429 は返事の符号で分け、一覧の権限だけが無い鍵は無音の小さな文字起こしで確かめる）
  *  - cloudErrorText   区間の失敗の文（知らせ M9）
  *
  * 資料（計画「調べた結果」）:
@@ -227,17 +227,58 @@ async function transcribeCloud(wav, { request, provider, key, language, prompt, 
   }
 }
 
-/** 鍵の確かめ: GET reachUrl に Authorization → { ok: true } | { ok: false, code } */
+// 鍵の確かめの小さな文字起こしに送る、決まった 0.5 秒の無音（16kHz・モノラル・16bit の PCM）
+const CHECK_WAV = (() => {
+  const n = 8000; const b = Buffer.alloc(44 + n * 2);
+  b.write('RIFF', 0, 'ascii'); b.writeUInt32LE(36 + n * 2, 4); b.write('WAVE', 8, 'ascii');
+  b.write('fmt ', 12, 'ascii'); b.writeUInt32LE(16, 16); b.writeUInt16LE(1, 20); b.writeUInt16LE(1, 22);
+  b.writeUInt32LE(16000, 24); b.writeUInt32LE(32000, 28); b.writeUInt16LE(2, 32); b.writeUInt16LE(16, 34);
+  b.write('data', 36, 'ascii'); b.writeUInt32LE(n * 2, 40);
+  return b;
+})();
+
+/**
+ * 断りの返事の本文（OpenAI と同じ形の { error: { code, type, message } }）→ 符号だけ（第1b回の続き Lane F-e）。
+ * 'invalid-key'（鍵が正しくない）| 'quota'（残高が無い）| 'no-scope'（権限が足りない。制限付きの鍵の「Missing scopes: api.model.read」）| ''。
+ * 本文の文は返さない・記録に写さない（鍵の一部が文に入ることがある）
+ */
+function keyErrorKind(body) {
+  let j;
+  try { j = JSON.parse(Buffer.isBuffer(body) ? body.toString('utf8') : String(body == null ? '' : body)); } catch (_) { return ''; }
+  const e = j && typeof j === 'object' && j.error && typeof j.error === 'object' ? j.error : null;
+  if (!e) return '';
+  const code = typeof e.code === 'string' ? e.code : '';
+  const type = typeof e.type === 'string' ? e.type : '';
+  const msg = typeof e.message === 'string' ? e.message : '';
+  if (code === 'invalid_api_key') return 'invalid-key';
+  if (code === 'insufficient_quota' || type === 'insufficient_quota') return 'quota';
+  if (/insufficient_permissions|missing_scope/i.test(code) || /insufficient permissions|missing scopes?:|api\.model\.read/i.test(msg)) return 'no-scope';
+  return '';
+}
+
+/**
+ * 鍵の確かめ: GET reachUrl に Authorization → { ok: true } | { ok: true, code: 'no-model-read' } | { ok: false, code }。
+ * 401／403 は返事の符号で分ける: invalid_api_key は invalid-key、権限が足りない（モデルの一覧を読めない制限付きの鍵）なら
+ * 決まった無音で小さな文字起こしを1回だけ試し、通れば no-model-read（鍵は使える）。429 の insufficient_quota は quota
+ */
 async function checkKey({ request, provider, key, timeoutMs = 15000 }) {
   try {
     const res = await postForm({ request, url: provider.reachUrl, method: 'GET', headers: { Authorization: `Bearer ${key}` }, timeoutMs });
     if (res.status >= 200 && res.status <= 299) return { ok: true };
-    if (res.status === 401 || res.status === 403) return { ok: false, code: 'auth' };
-    if (res.status === 429) return { ok: false, code: 'rate' };
+    const kind = keyErrorKind(res.body);
+    if (res.status === 401 || res.status === 403) {
+      if (kind === 'invalid-key') return { ok: false, code: 'invalid-key' };
+      if (kind !== 'no-scope') return { ok: false, code: 'auth' };
+      // 文字起こしの口で確かめる（ヒント・言語なし。429 は待たずに rate）
+      await transcribeCloud(CHECK_WAV, { request, provider, key, language: '', prompt: '', timeoutMs, waitCapMs: 0 });
+      return { ok: true, code: 'no-model-read' };
+    }
+    if (res.status === 429) return { ok: false, code: kind === 'quota' ? 'quota' : 'rate' };
     if (res.status >= 500) return { ok: false, code: 'server' };
     return { ok: false, code: 'bad-request' };
   } catch (e) {
-    return { ok: false, code: e instanceof CloudSttError ? e.code : 'net' };
+    // 鍵の確かめの文字起こしの 1日の上限（rate-long）も、画面では「利用の上限」（rate）
+    return { ok: false, code: e instanceof CloudSttError ? (e.code === 'rate-long' ? 'rate' : e.code) : 'net' };
   }
 }
 
@@ -253,4 +294,5 @@ function cloudErrorText(e, label) {
   return `${label}: ${why}`;
 }
 
-module.exports = { PRESETS, WAIT_CAP_MS, LONG_WAIT_SEC, SEND_TIMEOUT_MS, resolveProvider, buildMultipart, postForm, CloudSttError, isOfflineError, transcribeCloud, checkKey, cloudErrorText };
+module.exports = { PRESETS, WAIT_CAP_MS, LONG_WAIT_SEC, SEND_TIMEOUT_MS, CHECK_WAV, resolveProvider, buildMultipart, postForm, CloudSttError, isOfflineError, transcribeCloud,
+  keyErrorKind, checkKey, cloudErrorText };

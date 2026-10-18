@@ -134,8 +134,56 @@ test('OL3: 鍵の確かめは GET {base}/models の 200／401 で見る', async 
   const f = await startFakeStt({ key: KEY });
   try {
     assert.deepStrictEqual(await C.checkKey({ request: makeFakeRequest(), provider: custom(f), key: KEY }), { ok: true });
-    assert.deepStrictEqual(await C.checkKey({ request: makeFakeRequest(), provider: custom(f), key: 'gsk_wrong' }), { ok: false, code: 'auth' });
+    // 第1b回の続き Lane F-e: 返事の error.code が invalid_api_key なら「鍵が正しくない」とはっきり言う
+    assert.deepStrictEqual(await C.checkKey({ request: makeFakeRequest(), provider: custom(f), key: 'gsk_wrong' }), { ok: false, code: 'invalid-key' });
   } finally { await f.close(); }
+});
+
+// 第1b回の続き Lane F-e（利用者の PC の 0.5.0）: OpenAI の制限付きの鍵（「List models」の権限なし）は、文字起こしはできるのに
+// GET /models が 401 になり、NaTsu は「鍵が正しくないか、使えなくなっています」と言った。権限の文なら、決まった 0.5 秒の無音で
+// 小さな文字起こしを1回だけ試し、通れば「鍵は使えます（モデルの一覧を読む権限はありません）」。残高なし（insufficient_quota）は分ける
+test('Lane F-e: 鍵の確かめの 401／403／429 を返事の符号で分ける。モデルの一覧の権限だけが無い鍵は、無音の小さな文字起こしで確かめる', async () => {
+  const run = async (opts, key = KEY) => {
+    const f = await startFakeStt({ key, ...opts });
+    try { return { r: await C.checkKey({ request: makeFakeRequest(), provider: custom(f, 'gpt-4o-transcribe'), key }), reqs: f.requests.slice() }; } finally { await f.close(); }
+  };
+  const scope = await run({ models: 'no-scope' });
+  assert.deepStrictEqual(scope.r, { ok: true, code: 'no-model-read' });
+  assert.deepStrictEqual(scope.reqs.map((q) => [q.method, q.path]), [['GET', '/openai/v1/models'], ['POST', '/openai/v1/audio/transcriptions']]);
+  const post = scope.reqs[1];
+  assert.strictEqual(post.wavOk, true, '決まった無音の WAV でない');
+  assert.strictEqual(post.authOk, true);
+  assert.strictEqual(post.fields.model, 'gpt-4o-transcribe');
+  assert.ok(!('prompt' in post.fields) && !('language' in post.fields), 'ヒントや言語を送った');
+  // 文字起こしも断られたら、今までどおり「鍵が正しくないか、使えなくなっています」
+  assert.deepStrictEqual((await run({ models: 'no-scope', mode: '401' })).r, { ok: false, code: 'auth' });
+  // 文字起こしが上限なら待たずに rate（1日の上限の retry-after も rate。「つながりませんでした」にしない）
+  assert.deepStrictEqual((await run({ models: 'no-scope', mode: '429', times: 5 })).r, { ok: false, code: 'rate' });
+  assert.deepStrictEqual((await run({ models: 'no-scope', mode: '429-long' })).r, { ok: false, code: 'rate' });
+  // 残高なしは quota（文字起こしは試さない）。ただの上限は rate のまま。error の無い 401 は auth のまま（文字起こしは試さない）
+  const quota = await run({ models: 'quota' });
+  assert.deepStrictEqual(quota.r, { ok: false, code: 'quota' });
+  assert.strictEqual(quota.reqs.length, 1);
+  assert.deepStrictEqual((await run({ models: 'rate' })).r, { ok: false, code: 'rate' });
+  const plain = await run({ models: 'plain401' });
+  assert.deepStrictEqual(plain.r, { ok: false, code: 'auth' });
+  assert.strictEqual(plain.reqs.length, 1);
+  // 決まった無音: 16kHz・モノラル・16bit の 0.5 秒
+  assert.strictEqual(C.CHECK_WAV.length, 44 + 16000);
+  assert.ok(C.CHECK_WAV.subarray(44).every((b) => b === 0));
+});
+
+test('Lane F-e: 返事の本文から取り出すのは符号だけ（文は持たない）。code・type・文の権限の言い回しで分け、読めない本文は空', () => {
+  const k = (o) => C.keyErrorKind(Buffer.from(typeof o === 'string' ? o : JSON.stringify(o)));
+  assert.strictEqual(k({ error: { code: 'invalid_api_key', message: 'Incorrect API key provided: sk-proj-****abcd.' } }), 'invalid-key');
+  assert.strictEqual(k({ error: { code: 'insufficient_quota', type: 'insufficient_quota' } }), 'quota');
+  assert.strictEqual(k({ error: { code: null, type: 'insufficient_quota' } }), 'quota');
+  assert.strictEqual(k({ error: { code: null, message: 'You have insufficient permissions for this operation. Missing scopes: api.model.read.' } }), 'no-scope');
+  assert.strictEqual(k({ error: { code: 'insufficient_permissions', message: '' } }), 'no-scope');
+  assert.strictEqual(k({ error: { code: 'rate_limit_exceeded' } }), '');
+  assert.strictEqual(k({ data: [] }), '');
+  assert.strictEqual(k('<html>'), '');
+  assert.strictEqual(C.keyErrorKind(null), '');
 });
 
 test('試験の守り: fake-net の宛先の書き換えの後が 127.0.0.1 でなければ死ぬ（テストが外へ出ない）', async () => {

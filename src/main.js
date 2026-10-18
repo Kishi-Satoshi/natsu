@@ -3323,6 +3323,7 @@ function setupIpc() {
     'key-unreadable': 'しまってある鍵を読めません。鍵を入れ直してください。',
     'bad-base': '送り先の URL が正しくありません（https:// で始まる URL を入れてください）。',
     auth: '鍵が正しくないか、使えなくなっています。',
+    'invalid-key': '鍵が正しくありません。',   // 第1b回の続き Lane F-e: 返事の符号が invalid_api_key
     rate: '利用の上限に達しています（鍵は使える可能性があります。少し待ってからもう一度確かめてください）。',
     server: '送り先が混み合っているか、止まっています。少し待ってからもう一度確かめてください。',
     'bad-request': '送り先が受け付けませんでした（URL を確かめてください）。',
@@ -3371,11 +3372,15 @@ function setupIpc() {
       return { ok: false, code, message: `${p.label}: ${keyText(code)}` };
     }
     const r = await sttCloud.checkKey({ request: (o) => electronNet.request(o), provider: p, key });
-    engineLog(`文字起こしの経路: ${id} の鍵の確かめ → ${r.ok ? 'ok' : r.code}`);
+    // 記録は符号だけ（返事の文は鍵の一部を含むことがあるので書かない）
+    engineLog(`文字起こしの経路: ${id} の鍵の確かめ → ${r.ok ? (r.code === 'no-model-read' ? 'ok（no-model-read）' : 'ok') : r.code}`);
+    // 第1b回の続き Lane F-e: モデルの一覧を読む権限だけが無い鍵（OpenAI の制限付きの鍵）は、小さな文字起こしが通れば使える
+    if (r.ok && r.code === 'no-model-read') return { ok: true, code: r.code, message: `${p.label}: 鍵は使えます（モデルの一覧を読む権限はありません）` };
     if (r.ok) return { ok: true };
     const message = r.code === 'cert'
       ? `${p.label}: つながりません（会社の通信の検査で証明書が差し替えられている可能性があります）。続くときは情報システムに ${p.host} への通信の許可を頼んでください。`
-      : `${p.label}: ${keyText(r.code)}`;
+      : r.code === 'quota' ? `${p.label}: 残高が足りません（${p.label} の Billing を確かめてください）。`
+        : `${p.label}: ${keyText(r.code)}`;
     return { ok: false, code: r.code, message };
   });
   // Claude Code の状態（claude:status は auth status だけ。-p は呼ばない）。同時に押されても子は1つだけ起こす。

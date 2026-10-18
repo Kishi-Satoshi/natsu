@@ -3262,7 +3262,7 @@
     onlineMsg('鍵を確かめています…');
     let r = null;
     try { r = await window.koeApp.cloudTestKey($('sttProvider').value); } catch (_) { r = null; }
-    if (r && r.ok) onlineMsg('鍵は使えます', true);
+    if (r && r.ok) onlineMsg((typeof r.message === 'string' && r.message) || '鍵は使えます', true);   // 一覧の権限の無い鍵は main の文（Lane F-e）
     else onlineMsg((r && r.message) || '鍵を確かめられませんでした', false);
   };
   $('sttKeyClear').onclick = async () => {

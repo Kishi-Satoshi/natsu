@@ -40,6 +40,16 @@ test('RF30・OL3・OL5・OL7: 設定のカード「オンライン」の IPC。�
   assert.strictEqual(o.testAuth.code, 'auth');
   assert.match(o.testAuth.message, /^そのほか: 鍵が正しくないか、使えなくなっています。$/);
   assert.deepStrictEqual(o.seen, [{ method: 'GET', url: '/v1/models', auth: true }, { method: 'GET', url: '/v1/models', auth: false }]);
+  // 第1b回の続き Lane F-e（利用者の PC の 0.5.0）: 返事の符号で分ける。一覧の権限だけが無い鍵は、小さな文字起こしで確かめて「使えます」
+  assert.deepStrictEqual(o.testScope, { ok: true, code: 'no-model-read', message: 'そのほか: 鍵は使えます（モデルの一覧を読む権限はありません）' });
+  assert.deepStrictEqual(o.testQuota, { ok: false, code: 'quota', message: 'そのほか: 残高が足りません（そのほか の Billing を確かめてください）。' });
+  assert.deepStrictEqual(o.testInvalid, { ok: false, code: 'invalid-key', message: 'そのほか: 鍵が正しくありません。' });
+  assert.deepStrictEqual(o.seenF.map((r) => `${r.kind} ${r.method} ${r.url}`),
+    ['scope GET /v1/models', 'scope POST /v1/audio/transcriptions', 'quota GET /v1/models', 'invalid GET /v1/models']);
+  assert.ok(o.engineLog.includes('文字起こしの経路: custom の鍵の確かめ → ok（no-model-read）'), o.engineLog.join('\n'));
+  assert.ok(o.engineLog.includes('文字起こしの経路: custom の鍵の確かめ → quota'));
+  assert.ok(o.engineLog.includes('文字起こしの経路: custom の鍵の確かめ → invalid-key'));
+  assert.ok(!o.engineLog.some((l) => /gsk_(scope|quota|invalid)|Missing scopes|exceeded|Incorrect API key/.test(l)), '鍵か返事の文が記録に写った');
   assert.strictEqual(o.statusCustom.provider.id, 'custom');
   assert.strictEqual(o.statusCustom.provider.host, '127.0.0.1');
   assert.strictEqual(o.statusCustom.hasKey, true);

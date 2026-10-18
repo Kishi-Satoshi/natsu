@@ -16,6 +16,12 @@
 //   drop-first … 最初の文字起こしの要求だけ切る
 //   slow       … 1.5 秒待ってから文
 //   badjson    … 200 のまま JSON でない返事
+// models（第1b回の続き Lane F-e。GET …/models の答え方。鍵が合うときだけ効く。鍵が違えばいつも 401 invalid_api_key）:
+//   ok         … 200 の一覧（既定）
+//   no-scope   … 401 と OpenAI の制限付きの鍵の文（「Missing scopes: api.model.read」。code は null）
+//   quota      … 429 と insufficient_quota（残高が無い）
+//   rate       … 429 と rate_limit_exceeded（ただの上限）
+//   plain401   … 401 で error の無い本文
 // どの答え方でも、鍵が違えば（文字起こしの要求も）401。受けた要求は requests に
 // { method, path, authOk, fields, fileName, fileType, wavOk } で覚える（鍵そのものは覚えない）。
 // authOk は「Authorization が Bearer <鍵> で、ほかの見出しに鍵が無い」。
@@ -55,7 +61,7 @@ function parseForm(buf, type) {
   return out;
 }
 
-function startFakeStt({ mode = 'text', key = 'gsk_test_0123', text = '本日の議題は進捗の確認です。', times = 1, retryAfter = '1' } = {}) {
+function startFakeStt({ mode = 'text', key = 'gsk_test_0123', text = '本日の議題は進捗の確認です。', times = 1, retryAfter = '1', models = 'ok' } = {}) {
   const requests = [];
   const timers = new Set();
   let n = 0;
@@ -78,8 +84,14 @@ function startFakeStt({ mode = 'text', key = 'gsk_test_0123', text = '本日の�
       requests.push({ method: req.method, path: p, authOk, fields: form.fields, fileName: form.fileName, fileType: form.fileType, wavOk: wavOk(form.file) });
 
       if (req.method === 'GET' && p === '/openai/v1/models') {
-        if (authOk) json(res, 200, { object: 'list', data: [{ id: 'whisper-large-v3', object: 'model' }] });
-        else json(res, 401, { error: { message: 'Invalid API Key', type: 'invalid_request_error', code: 'invalid_api_key' } });
+        if (!authOk) json(res, 401, { error: { message: 'Invalid API Key', type: 'invalid_request_error', code: 'invalid_api_key' } });
+        else if (models === 'no-scope') {
+          json(res, 401, { error: { message: 'You have insufficient permissions for this operation. Missing scopes: api.model.read. Check that you have the correct role in your organization (Reader, Writer, Owner) and project (Member, Owner), and if you\'re using a restricted API key, that it has the necessary scopes.', type: 'invalid_request_error', param: null, code: null } });
+        } else if (models === 'quota') {
+          json(res, 429, { error: { message: 'You exceeded your current quota, please check your plan and billing details.', type: 'insufficient_quota', param: null, code: 'insufficient_quota' } });
+        } else if (models === 'rate') json(res, 429, { error: { message: 'Rate limit reached', type: 'requests', code: 'rate_limit_exceeded' } });
+        else if (models === 'plain401') json(res, 401, { data: [] });
+        else json(res, 200, { object: 'list', data: [{ id: 'whisper-large-v3', object: 'model' }] });
         return;
       }
       if (req.method === 'GET' && p === '/anthropic') { res.writeHead(404); res.end(); return; }

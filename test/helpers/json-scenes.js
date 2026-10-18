@@ -251,7 +251,22 @@ module.exports = {
       const KEY = 'gsk_test_0123456789';
       const h = (ch, ...a) => c.handlers[ch]({}, ...a);
       const seen = [];
+      const seenF = [];   // 第1b回の続き Lane F-e の鍵（下の FKEYS）への要求
+      // Lane F-e: 鍵ごとの答え方。scope は OpenAI の制限付きの鍵（一覧は 401 の権限の文、文字起こしは通る）、quota は残高なし、invalid は鍵の誤り
+      const FKEYS = { 'gsk_scope_00000000': 'scope', 'gsk_quota_00000000': 'quota', 'gsk_invalid_0000000': 'invalid' };
       const srv = require('node:http').createServer((req, res) => {
+        const bearer = String(req.headers.authorization || '').replace(/^Bearer /, '');
+        const f = FKEYS[bearer];
+        if (f) {
+          seenF.push({ method: req.method, url: req.url, kind: f });
+          req.resume();
+          const send = (st, body) => { res.statusCode = st; res.setHeader('content-type', 'application/json'); res.end(JSON.stringify(body)); };
+          if (req.method === 'POST' && req.url === '/v1/audio/transcriptions') { if (f === 'scope') send(200, { text: '' }); else send(401, { error: { code: 'invalid_api_key' } }); return; }
+          if (f === 'scope') send(401, { error: { message: 'You have insufficient permissions for this operation. Missing scopes: api.model.read.', type: 'invalid_request_error', param: null, code: null } });
+          else if (f === 'quota') send(429, { error: { message: 'You exceeded your current quota.', type: 'insufficient_quota', code: 'insufficient_quota' } });
+          else send(401, { error: { message: `Incorrect API key provided: ${bearer}`, type: 'invalid_request_error', code: 'invalid_api_key' } });
+          return;
+        }
         const ok = req.headers.authorization === `Bearer ${KEY}`;
         seen.push({ method: req.method, url: req.url, auth: ok });
         res.statusCode = ok ? 200 : 401;
@@ -273,6 +288,12 @@ module.exports = {
         o.testOk = await h('cloud:test-key', 'custom');
         o.setWrong = await h('cloud:set-key', 'custom', 'gsk_wrong_00000000');
         o.testAuth = await h('cloud:test-key', 'custom');
+        for (const [name, k] of [['testScope', 'gsk_scope_00000000'], ['testQuota', 'gsk_quota_00000000'], ['testInvalid', 'gsk_invalid_0000000']]) {
+          await h('cloud:set-key', 'custom', k);
+          o[name] = await h('cloud:test-key', 'custom');
+        }
+        o.seenF = seenF;
+        await h('cloud:set-key', 'custom', 'gsk_wrong_00000000');
         o.statusCustom = await h('cloud:status');
         o.clear = await h('cloud:clear-key', 'custom');
         o.statusCleared = await h('cloud:status');

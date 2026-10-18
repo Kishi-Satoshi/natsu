@@ -297,3 +297,27 @@ test('Lane F-d: ［Claude Code を入れる］は入れる命令（決まった�
   assert.match(help, /Anthropic の公式の入れ方/);
   assert.match(help, /NaTsu はログインの情報を読みません/);
 });
+
+// 第1b回の続き Lane F-e: ［鍵を確かめる］が「使えるが一覧の権限は無い」と答えたら、その文を「使えます」の色で出す
+test('Lane F-e: ［鍵を確かめる］の答えに文があれば、通ったときもその文を出す（一覧の権限の無い鍵）。無ければ今どおり「鍵は使えます」', async () => {
+  let answer = { ok: true, code: 'no-model-read', message: 'OpenAI: 鍵は使えます（モデルの一覧を読む権限はありません）' };
+  const l = await load(APP, { returns: {
+    cloudStatus: () => status({ hasKey: true, provider: { id: 'openai', label: 'OpenAI', host: 'api.openai.com' } }),
+    claudeStatus: () => ({ ok: true, found: true, method: 'claude.ai' }),
+    cloudTestKey: () => answer,
+  } });
+  await l.drain();
+  l.byId.get('sttKeyTest').dispatchEvent({ type: 'click' });
+  await l.drain();
+  assert.strictEqual(l.byId.get('onlineMsg').textContent, 'OpenAI: 鍵は使えます（モデルの一覧を読む権限はありません）');
+  assert.strictEqual(l.byId.get('onlineMsg').className, 'desc save-msg ok');
+  answer = { ok: true };
+  l.byId.get('sttKeyTest').dispatchEvent({ type: 'click' });
+  await l.drain();
+  assert.strictEqual(l.byId.get('onlineMsg').textContent, '鍵は使えます');
+  answer = { ok: false, code: 'quota', message: 'OpenAI: 残高が足りません（OpenAI の Billing を確かめてください）。' };
+  l.byId.get('sttKeyTest').dispatchEvent({ type: 'click' });
+  await l.drain();
+  assert.strictEqual(l.byId.get('onlineMsg').textContent, 'OpenAI: 残高が足りません（OpenAI の Billing を確かめてください）。');
+  assert.strictEqual(l.byId.get('onlineMsg').className, 'desc save-msg ng');
+});
