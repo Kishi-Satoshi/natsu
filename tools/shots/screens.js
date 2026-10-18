@@ -28,6 +28,8 @@ const SHOW_PILL = "document.querySelector('.pill').classList.add('visible')";
 const OPEN_PAGE = "document.getElementById('tabBtnNotes').click(); document.querySelector('#plist .pitem').click()";
 // サイドバーを畳む。第1b回 B-2 の前は［«］が無いので何もしない
 const COLLAPSE_SIDE = "(document.getElementById('sideCollapse') || { click() {} }).click()";
+// 検索の窓を開く（第1b2回 L-2 の［🔍 検索］）。L-2 の前は押す物が無いので何もしない
+const OPEN_PALETTE = "(document.getElementById('sideSearch') || { click() {} }).click()";
 // タブ3つ（ページ・音声入力・設定）を開いて、最後にページを選ぶ。ページを開くのは非同期なので、押すたびに少し待つ（返す promise を main が待つ）
 const OPEN_THREE_TABS = `(async () => {
   const w = () => new Promise((r) => setTimeout(r, 150));
@@ -53,6 +55,8 @@ const SCREENS = [
   { name: 'live-dark', page: 'app', theme: 'dark', answers: liveAnswers() },
   { name: 'notes-page-zoom200-light', page: 'app', theme: 'light', zoom: 2, act: OPEN_PAGE },
   { name: 'settings-zoom200-dark', page: 'app', theme: 'dark', zoom: 2, act: "document.getElementById('tabBtnSettings').click()" },
+  // 第1b2回 R-3: 検索の窓（L-2 の #sideSearch を押して開く）。L-2 の前は押す物が無いので何もしない（取り直し待ちなので赤にならない）
+  { name: 'search-palette-light', page: 'app', theme: 'light', act: `${OPEN_PAGE}; ${OPEN_PALETTE}` },
 ];
 // Tab の輪を見る画面は1つだけ（何も選んでいない所から Tab を3回で［● 記録開始］。サイドバーの頭の［«］→ 検索 → ［● 記録開始］）
 SCREENS.find((x) => x.name === 'notes-page-light').focus = { tabs: 3, want: 'mtToggleBtn' };
@@ -64,6 +68,7 @@ SCREENS.find((x) => x.name === 'notes-page-light').focus = { tabs: 3, want: 'mtT
 const RETAKE = new Set([
   'notes-empty-light', 'notes-page-light', 'notes-page-dark', 'dictation-light', 'settings-light', 'settings-dark',
   'notes-tabs-light', 'notes-collapsed-light', 'live-light', 'live-dark', 'notes-page-zoom200-light', 'settings-zoom200-dark',
+  'search-palette-light',
 ]);
 const PERF = [{ name: 'open-2000-blocks', budgetMs: 500 }];   // 3回開いた中央値で見る
 const TIME_ZONE = 'Asia/Tokyo';

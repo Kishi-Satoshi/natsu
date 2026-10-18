@@ -25,14 +25,23 @@ const tmp = (t, name) => {
 };
 
 // 第1b回 Task C-1 で意図して変えた: 撮る画面は 7 から 13 へ（タブ・畳んだサイドバー・記録中のページの明暗・200% の2つ）
-test('G2: 撮る画面は決まった並び（第1b回の 13）で、名前は重ならない', { timeout: 5000 }, () => {
+// 第1b2回 Task R-3 で意図して変えた: 最後に検索の窓の画面を足す（14）
+test('G2: 撮る画面は決まった並び（第1b回の 13 と第1b2回の検索の窓）で、名前は重ならない', { timeout: 5000 }, () => {
   assert.deepStrictEqual(SH.SCREENS.map((s) => s.name), ['notes-empty-light', 'notes-page-light', 'notes-page-dark', 'dictation-light', 'settings-light', 'settings-dark', 'overlay-processing',
-    'notes-tabs-light', 'notes-collapsed-light', 'live-light', 'live-dark', 'notes-page-zoom200-light', 'settings-zoom200-dark']);
+    'notes-tabs-light', 'notes-collapsed-light', 'live-light', 'live-dark', 'notes-page-zoom200-light', 'settings-zoom200-dark', 'search-palette-light']);
   for (const s of SH.SCREENS) assert.ok(['app', 'overlay'].includes(s.page) && ['light', 'dark'].includes(s.theme), s.name);
   assert.deepStrictEqual(SH.SCREENS.filter((s) => s.zoom).map((s) => [s.name, s.zoom]), [['notes-page-zoom200-light', 2], ['settings-zoom200-dark', 2]]);
   const live = SH.SCREENS.find((s) => s.name === 'live-light');
   const st = live.answers['koeApp.meetingStatus'];
   assert.ok(st.active && st.cloud && st.pauses.length === 1, '記録中の画面に一時停止の印か［PC の中だけ］が出ない');
+});
+
+test('1b2 R-3・G12: 検索の窓の画面は取り直し待ちに入り、窓を開く act を持つ。取り直し待ちは録音バーのほかの全部（13）', { timeout: 5000 }, () => {
+  const s = SH.SCREENS.find((x) => x.name === 'search-palette-light');
+  assert.ok(s, '検索の窓の画面が撮る並びに無い');
+  assert.match(s.act, /sideSearch/);
+  assert.ok(SH.RETAKE.has('search-palette-light'));
+  if (SH.RETAKE.size) assert.deepStrictEqual([...SH.RETAKE].sort(), SH.SCREENS.map((x) => x.name).filter((n) => n !== 'overlay-processing').sort());
 });
 
 test('F14: 取り直し待ち（RETAKE）の画面は違っても NG にしないが、録音バーは入れられず、揺れ・CSP・はみ出しは NG のまま', { timeout: 5000 }, () => {
@@ -286,7 +295,8 @@ test('G2: 作業域より大きい窓が作るときに縮められても（Wind
 });
 
 // 第1b回 Task C-1 で意図して緩めた: 基準が無いのは、取り直し待ち（RETAKE）の第1b回の新しい画面だけ。C-2 で元の「全部ある」に戻す
-const NEW_1B = ['notes-tabs-light', 'notes-collapsed-light', 'live-light', 'live-dark', 'notes-page-zoom200-light', 'settings-zoom200-dark'];
+// 第1b2回 Task R-3 で足した: 検索の窓の画面も新しい画面（基準は C-2 で取る）
+const NEW_1B = ['notes-tabs-light', 'notes-collapsed-light', 'live-light', 'live-dark', 'notes-page-zoom200-light', 'settings-zoom200-dark', 'search-palette-light'];
 test('G2・F9: どの画面にも基準の PNG があり（取り直し待ちの新しい画面だけは無くてよい）、自作の部品で読めて、大きさが窓の大きさと同じ', { timeout: 5000 }, () => {
   for (const s of SH.SCREENS) {
     const f = path.join(ROOT, 'test', 'shots', 'win32', `${s.name}.png`);
