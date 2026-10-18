@@ -393,10 +393,12 @@ test('#34 apply() は zip の engines.electron を満たさなければ src を�
     assert.ok(mainOf(a3).includes('新版'));
 
     // --- Electron の外（版が取れない）では検査しない: 省略時も明示 undefined も ---
-    assert.strictEqual(process.versions.electron, undefined, 'このテストは Node で走る前提');
-    const a4 = mkApp('app-eng-node');
-    const r4 = await updater.apply(url('/need32.zip'), a4, work, () => {});
-    assert.strictEqual(r4.ok, true, r4.error);
+    // Electron の Node（ELECTRON_RUN_AS_NODE=1。CI の electron-smoke）で回すときは版が取れるので、省略時の確かめは飛ばす
+    if (!process.versions.electron) {
+      const a4 = mkApp('app-eng-node');
+      const r4 = await updater.apply(url('/need32.zip'), a4, work, () => {});
+      assert.strictEqual(r4.ok, true, r4.error);
+    }
     const a5 = mkApp('app-eng-undef');
     const r5 = await updater.apply(url('/need32.zip'), a5, work, () => {}, { electronVersion: undefined });
     assert.strictEqual(r5.ok, true, r5.error);

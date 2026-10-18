@@ -260,3 +260,12 @@ test('release.yml の installer: 本体を取り込んで煙テストを通し�
   assert.ok(i[0] >= 0 && i.every((v, k) => k === 0 || v > i[k - 1]), `順が違う: ${i.join(',')}`);
   for (const k of [1, 2, 4, 5]) assert.match(st[i[k]], /^\s*if: steps\.exists\.outputs\.skip == 'false'$/m, `${k} 番目の段が、既に exe があるときも走る`);
 });
+test('ci.yml の electron-smoke: 小さなアプリと、テスト全部を Electron の Node で回す段が、煙テストの後・exe を作る前にある', () => {
+  const st = stepsOf(jobsOf(read('.github/workflows/ci.yml'))['electron-smoke']);
+  const i = [/ELECTRON_RUN_AS_NODE=1 node_modules\/electron\/dist\/electron\.exe tools\/sqlite-probe\.js/,
+    /node_modules\/electron\/dist\/electron\.exe tools\/electron-smoke$/m,
+    /ELECTRON_RUN_AS_NODE=1 node_modules\/electron\/dist\/electron\.exe --test --test-reporter=tap "test\/\*\.test\.js"/,
+    /electron-builder --win nsis portable/].map((re) => idxOf(st, re));
+  assert.ok(i[0] >= 0 && i.every((v, k) => k === 0 || v > i[k - 1]), `順が違う: ${i.join(',')}`);
+  assert.ok(st[i[2]].includes('# skipped') && st[i[2]].includes('-gt 1'), '飛ばしたテストの数を見ていない');
+});
