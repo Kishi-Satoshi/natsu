@@ -89,8 +89,9 @@ test('JS5・JS2: 取り込みの記録（.download\\<SHA-256>.json）は部品�
   const d = tmp(); const f = path.join(d, `${'a'.repeat(64)}.json`);
   F.writeRecord(f, { url: 'https://example.invalid/x', size: 10, sha256: 'a'.repeat(64), synced: 4 });
   assert.deepStrictEqual(F.readRecord(f), { url: 'https://example.invalid/x', size: 10, sha256: 'a'.repeat(64), synced: 4 });
+  for (let i = 1; i <= 4; i += 1) fs.writeFileSync(`${f}.broken-2026-09-0${i}T00-00-00-000Z`, 'old');
   fs.writeFileSync(f, '{"url":');
   assert.strictEqual(F.readRecord(f), null);
-  assert.strictEqual(brokenOf(d, path.basename(f)).length, 1);
+  assert.strictEqual(brokenOf(d, path.basename(f)).length, 3);
   assert.deepStrictEqual(fs.readdirSync(d).filter((n) => n.endsWith('.tmp')), []);
 });
