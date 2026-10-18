@@ -299,6 +299,19 @@ jobs:
         shell: bash
         run: node_modules/electron/dist/electron.exe tools/electron-smoke
 
+      # 主な画面を撮る（第1a回 G2）。基準と比べるのは Task 3-5 から。撮った画像はいつも artifact に上げる
+      - name: 主な画面を撮る
+        shell: bash
+        run: node_modules/electron/dist/electron.exe tools/shots --out "$RUNNER_TEMP/shots"
+
+      - name: 撮った画面を上げる
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: shots
+          path: ${{ runner.temp }}/shots
+          if-no-files-found: ignore
+
       # CI の Node（24）とアプリの Node（Electron 44 の 24.22）の違いを早く見つける（RF15）。飛ばすのは 1 件まで（test のジョブと同じ）
       - name: テスト全部を Electron の Node（ELECTRON_RUN_AS_NODE=1）でも回す
         shell: bash

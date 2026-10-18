@@ -1,0 +1,135 @@
+/*
+ * shots.test.js — 画面を撮って比べる道具（第1a回 G2・PERF）の決め方
+ * 本物の Electron で撮るのは Windows の CI（electron-smoke）だけ。ここでは画面の並び・偽の橋の名前・比べ方・揺れ・CSP・速さ・CI の段を見る。
+ */
+'use strict';
+
+const test = require('node:test');
+const assert = require('node:assert');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+const SH = require('../tools/shots/screens');
+const P = require('../tools/png');
+const { preloadApis } = require('./helpers/simrun');
+const { jobsOf, stepsOf } = require('./helpers/yml');
+
+const ROOT = path.join(__dirname, '..');
+const read = (p) => fs.readFileSync(path.join(ROOT, p), 'utf8');
+const img = (w, h, fill = [255, 255, 255, 255]) => ({ width: w, height: h, data: Buffer.from(Array.from({ length: w * h }, () => fill).flat()) });
+// 一時フォルダ（日本語と 𠮷 の名前。RF1 と同じ形）。テストの終わりに消す
+const tmp = (t, name) => {
+  const d = fs.mkdtempSync(path.join(os.tmpdir(), `natsu-画面𠮷-${name}-`));
+  t.after(() => fs.rmSync(d, { recursive: true, force: true }));
+  return d;
+};
+
+test('G2: 撮る画面は決まった並びで、名前は重ならない', { timeout: 5000 }, () => {
+  assert.deepStrictEqual(SH.SCREENS.map((s) => s.name), ['notes-empty-light', 'notes-page-light', 'notes-page-dark', 'dictation-light', 'settings-light', 'settings-dark', 'overlay-processing']);
+  for (const s of SH.SCREENS) assert.ok(['app', 'overlay'].includes(s.page) && ['light', 'dark'].includes(s.theme), s.name);
+});
+
+test('G2: 偽の橋の名前は、本物の preload.js から取ったものと同じ（simrun と同じ結果）。見本の答えは、その名前のものだけ', { timeout: 5000 }, () => {
+  const src = read('src/preload.js');
+  assert.deepStrictEqual(SH.apiNamesOf(src), preloadApis(src));
+  const names = SH.apiNamesOf(src);
+  for (const key of Object.keys(SH.fixtures())) {
+    const [bridge, fn] = key.split('.');
+    assert.ok(names[bridge] && names[bridge].includes(fn), key);
+  }
+  const fx = JSON.stringify(SH.fixtures());
+  assert.ok(!/\d{4}-\d\d-\d\d/.test(fx) || /2026-10-01/.test(fx), '見本の日付は決まった過去の日にする');
+});
+
+test('G2・F9: 比べる — 基準が無い・大きさが違う・1画素違う・同じ、を分け、違えば前・後・差分の PNG を書く', { timeout: 5000 }, (t) => {
+  const base = tmp(t, 'base');
+  const out = tmp(t, 'out');
+  const same = img(4, 3);
+  const one = img(4, 3);
+  one.data[0] = 0;   // 左上の1画素の赤だけ違う
+  fs.writeFileSync(path.join(base, 'b.png'), P.encodePng(same));
+  fs.writeFileSync(path.join(base, 'c.png'), P.encodePng(same));
+  fs.writeFileSync(path.join(base, 'd.png'), P.encodePng(img(5, 3)));
+  const r = SH.compareAll({ baseDir: base, outDir: out, shots: { a: same, b: one, c: same, d: same }, png: P, fs });
+  assert.deepStrictEqual(r.map((x) => [x.name, x.status]), [['a', 'missing'], ['b', 'diff'], ['c', 'same'], ['d', 'size']]);
+  assert.strictEqual(r[1].count, 1);
+  for (const f of ['a.after.png', 'b.before.png', 'b.after.png', 'b.diff.png', 'd.before.png', 'd.after.png', 'd.diff.png']) assert.ok(fs.existsSync(path.join(out, f)), f);
+  assert.ok(!fs.existsSync(path.join(out, 'c.after.png')), '同じ画面の画像まで書いた');
+  assert.strictEqual(SH.exitCodeOf({ compare: r }), 1);
+  assert.strictEqual(SH.exitCodeOf({ compare: r.filter((x) => x.status === 'same') }), 0);
+});
+
+test('F9: 同じ画面を2回撮って違えば「揺れる」で NG。揺れ・CSP の違反・速さの NG があれば終了コードは 1', { timeout: 5000 }, () => {
+  const a = img(2, 2);
+  const b = img(2, 2);
+  b.data[5] = 9;
+  assert.deepStrictEqual(SH.judgePair(a, img(2, 2), P).ok, true);
+  assert.deepStrictEqual(SH.judgePair(a, b, P).ok, false);
+  assert.strictEqual(SH.exitCodeOf({ shots: ['x'], flaky: ['x'] }), 1);
+  assert.strictEqual(SH.exitCodeOf({ shots: ['x'], csp: ['Refused to execute inline script'] }), 1);
+  assert.strictEqual(SH.exitCodeOf({ shots: ['x'], perf: [{ name: 'open-2000-blocks', ms: 600, ok: false }] }), 1);
+  assert.strictEqual(SH.exitCodeOf({ shots: ['x'] }), 0);
+  assert.strictEqual(SH.exitCodeOf({ shots: [] }), 1, '1枚も撮れていないのに 0');
+});
+
+test('F6: CSP に断られた行を見分ける（自分のインラインの script が止まると画面が真っ白になる）', { timeout: 5000 }, () => {
+  assert.strictEqual(SH.cspViolation(3, "Refused to execute inline script because it violates the following Content Security Policy directive: \"script-src 'sha256-x'\"."), true);
+  assert.strictEqual(SH.cspViolation(2, 'Electron Security Warning (Insecure Content-Security-Policy)'), false);
+  assert.strictEqual(SH.cspViolation(3, 'Uncaught TypeError: x'), false);
+  // Electron 44.9.0（Chromium 152）が実際に出す形（作業環境の xvfb で、差し込んだ script を止めたときの行）。「Refused to」で始まらない
+  assert.strictEqual(SH.cspViolation('error', "Executing inline script violates the following Content Security Policy directive 'script-src 'sha256-x''. Either the 'unsafe-inline' keyword, a hash ('sha256-y'), or a nonce ('nonce-...') is required to enable inline execution. The action has been blocked."), true);
+});
+
+test('F9: 撮る画面は時計・時間帯・アニメーションを止めて撮る（基準を取った次の日に「N日超過」が変わって赤にならない）', { timeout: 5000 }, () => {
+  assert.strictEqual(new Date(SH.FIXED_NOW).toISOString(), '2026-10-18T00:00:00.000Z');
+  assert.strictEqual(SH.TIME_ZONE, 'Asia/Tokyo');
+  assert.match(SH.FREEZE_CSS, /transition:none!important/);
+  assert.match(SH.FREEZE_CSS, /animation:none!important/);
+  const pre = read('tools/shots/preload.js');
+  assert.ok(pre.includes('contextBridge.executeInMainWorld(') && pre.includes('static now()'), '画面の時計を止めていない');
+  const m = read('tools/shots/main.js');
+  assert.ok(m.includes("'Emulation.setTimezoneOverride'") && m.includes('insertCSS('), '時間帯かアニメーションを止めていない');
+  const fx = JSON.stringify(SH.fixtures());
+  for (const d of fx.match(/\d{4}-\d\d-\d\d/g) || []) assert.ok(d < '2026-10-18', `見本の日付 ${d} が止めた時計より後`);
+});
+
+test('F9: 基準との比べは色の差 2 までを同じとみなす（CI の機械ごとの1段の差）。3 以上は違いとして数える。揺れの確かめは差を許さない', { timeout: 5000 }, (t) => {
+  const base = tmp(t, 'tol');
+  const out = tmp(t, 'tolout');
+  fs.writeFileSync(path.join(base, 'a.png'), P.encodePng(img(2, 2)));
+  fs.writeFileSync(path.join(base, 'b.png'), P.encodePng(img(2, 2)));
+  const near = img(2, 2); near.data[0] = 253;
+  const far = img(2, 2); far.data[0] = 252;
+  const r = SH.compareAll({ baseDir: base, outDir: out, shots: { a: near, b: far }, png: P, fs });
+  assert.deepStrictEqual(r.map((x) => [x.name, x.status]), [['a', 'same'], ['b', 'diff']]);
+  assert.strictEqual(SH.TOLERANCE, 2);
+  assert.strictEqual(SH.judgePair(img(2, 2), near, P).ok, false, '揺れの確かめが差を許した');
+});
+
+test('PERF: 2,000 ブロックのページと 1万行の文字起こしを開くのは 0.5 秒まで（3回の中央値）', { timeout: 5000 }, () => {
+  assert.deepStrictEqual(SH.PERF, [{ name: 'open-2000-blocks', budgetMs: 500 }]);
+  assert.strictEqual(SH.median([900, 410, 420]), 420);
+  assert.deepStrictEqual(SH.judgePerf([{ name: 'open-2000-blocks', ms: 420 }]).map((x) => x.ok), [true]);
+  assert.deepStrictEqual(SH.judgePerf([{ name: 'open-2000-blocks', ms: 501 }]).map((x) => x.ok), [false]);
+  const big = SH.bigPage();
+  assert.strictEqual(big.page.blocks.length, 2000);
+  assert.strictEqual(big.segments.length, 10000);
+});
+
+test('ci.yml の electron-smoke: 小さなアプリの後に画面を撮り、撮った画像をいつも artifact に上げる', { timeout: 5000 }, () => {
+  const st = stepsOf(jobsOf(read('.github/workflows/ci.yml'))['electron-smoke']);
+  const iSmoke = st.findIndex((s) => /electron\.exe tools\/electron-smoke$/m.test(s));
+  const iShots = st.findIndex((s) => /node_modules\/electron\/dist\/electron\.exe tools\/shots (--compare test\/shots\/win32 )?--out "\$RUNNER_TEMP\/shots"/.test(s));
+  const iUp = st.findIndex((s) => /uses: actions\/upload-artifact@v4/.test(s));
+  assert.ok(iSmoke >= 0 && iShots > iSmoke && iUp > iShots, `${iSmoke},${iShots},${iUp}`);
+  assert.match(st[iUp], /^\s*if: always\(\)$/m);
+  assert.match(st[iUp], /path: \$\{\{ runner\.temp \}\}\/shots/);
+});
+
+test('tools/shots/main.js は electron を boot() の中だけで読む（npm test が require しても本体を落としにいかない。第0c回 C6）', { timeout: 5000 }, () => {
+  const m = read('tools/shots/main.js');
+  assert.ok(m.includes("if (process.versions.electron && process.type === 'browser') boot();"));
+  assert.ok(!/^const .*require\('electron'\)/m.test(m));
+  assert.ok(m.includes("require('../../src/security')") && m.includes('security.install('));
+  assert.ok(m.includes("require('../png')") && !m.includes('toBitmap('), 'PNG は自作の部品で読む（toBitmap の並びは版ごとに変わる）');
+});
