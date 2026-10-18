@@ -237,6 +237,13 @@ describe('第1a回 保存の守り（main）', { concurrency: Number(process.env
     assert.deepStrictEqual(r.draftsAfter, []);
   });
 
+  test('JS9: 下書きから復旧したページを保存できなければ、下書きは消さず、記録には理由の符号だけを書く（パスやエラーの文を書かない）', SCENE, async () => {
+    const r = await run('draft-page-fail');
+    assert.ok(r.files.includes('data/draft.json'), r.files.join('\n'));
+    const lines = r.engineLog.filter((l) => l.startsWith('下書き（draft.json）の復旧に失敗'));
+    assert.deepStrictEqual(lines, ['下書き（draft.json）の復旧に失敗: EACCES'], r.engineLog.join('\n'));
+  });
+
   test('JS9・JS2: 壊れた draft.json は消さずに退けて残し、知らせる', SCENE, async () => {
     const r = await run('draft-broken');
     assert.strictEqual(r.files.filter((f) => f.startsWith('data/draft.json.broken-')).length, 1);

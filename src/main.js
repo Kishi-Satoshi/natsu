@@ -1908,8 +1908,8 @@ function recoverDraftIfAny() {
         if (!recoveryQueue) { recoveryQueue = q; saveRecoveryQueue(recoveryQueue); } else saveRecoveryQueue(q);
       } else removeDirIfEmpty(segbufDir(d.startedAt));
     } catch (e) {
-      // ページを保存できなければ控えは消さない（次の機会にもう一度）
-      engineLog(`下書き（${name}）の復旧に失敗: ${e.message}`);
+      // ページを保存できなければ控えは消さない（次の機会にもう一度）。記録には理由の符号だけ（fs のエラーの文はパスを含む）
+      engineLog(`下書き（${name}）の復旧に失敗: ${errCode(e)}`);
     }
   }
   if (unreadable) {

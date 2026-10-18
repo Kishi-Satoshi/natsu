@@ -170,6 +170,9 @@ module.exports = {
       c.out.titles = c.store.listPages().map((p) => p.title);
       c.out.draftsAfter = c.store.draftFiles();
     } },
+  // 下書きから復旧したページを保存できない（ページの一時ファイルを開けない）。下書きは消さず、記録には理由の符号だけを書く
+  'draft-page-fail': { files: { 'settings.json': pretty(TYPICAL), 'data/draft.json': JSON.stringify(OLD_DRAFT) },
+    faults: [{ op: 'open', match: /pages[\\/][^\\/]+\.json\.\d+-[0-9a-z]+\.tmp$/, code: 'EACCES', times: Infinity }] },
   'draft-broken': { files: { 'settings.json': pretty(TYPICAL), 'data/draft.json': '{"startedAt":1760000000000,"segme' } },
   'recovery-broken': { files: { 'settings.json': pretty(TYPICAL), 'data/segbuf/1700000000000/0001.wav': 'RIFF', 'data/segbuf/1700000000000/recovery.json': '{"pageId":"p1","items":[' } },
   // 前の起動で退けた recovery.json だけが残った、7日より古いフォルダ（名前が無いので掃除が避けない）
