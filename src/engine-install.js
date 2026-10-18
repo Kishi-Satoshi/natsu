@@ -5,8 +5,9 @@
  *  - engineRoot         取り込み先 %LOCALAPPDATA%\natsu\engine（Roaming の %APPDATA% には置かない。
  *                       数 GB のモデルがプロファイルの同期で運ばれるため）。Windows の x64 だけ
  *  - layout             置き場所の並び（エンジンは版の名前のフォルダ、モデルは models の下）
- *  - readInstalled      installed.json を読む。読めない・schema が 1 でない → 空の記録（ファイルは消さない）
- *  - writeInstalled     installed.json を一時ファイルに書いてから名前を変える
+ *  - readInstalled      installed.json を部品で読む。壊れていれば退けて（控えは新しい3つまで）空の記録。
+ *                       読めない → 空の記録に印 unreadable。schema が 1 でない → 空の記録（ファイルは退けない）
+ *  - writeInstalled     installed.json を部品で書く（一時ファイル → fsync → 名前の変更）。読めない間は書かない（RF22）
  *  - planInstall        項目ごとに ready・changed・update・missing と、.download の .part の大きさ
  *  - managedCandidates  使える組の候補。今のピンの組がそろっていなければ、active に記録した前の組（RF13）
  *  - freeBytesOf        置き場所の空き（まだ無ければ、いちばん近い有る親のフォルダで測る）
@@ -57,6 +58,7 @@ const crypto = require('crypto');
 const { hostOf } = require('./engine-manifest');
 const { askIt, fetchErrorMessage, isTransient, fetchFile: fetchFileDefault } = require('./engine-fetch');
 const { listZip, readEntry } = require('./zipread');
+const J = require('./jsonfile');
 
 const GROUPS = ['whisper', 'sum'];
 const SHOWN_ROOT = '%LOCALAPPDATA%\\natsu\\engine';
@@ -123,11 +125,19 @@ function layout(root, manifest, p = path) {
 
 const emptyInstalled = () => ({ schema: 1, consent: false, userPaused: false, items: {}, active: { whisper: null, sum: null } });
 
-/** installed.json を読む。読めない・schema が 1 でない → 空の記録。ファイルは消さない（次に書くときに置き換わる）。 */
+/**
+ * installed.json を読む（第1a回 JS5・JS2）。部品で読む（BOM 付き・UTF-16 も読む）。
+ *  - 無い → 空の記録
+ *  - 壊れている → 退けて（作り直せる記録なので、退けた控えは新しい3つまで）空の記録
+ *  - 読めない（ほかのプログラムが掴んだまま）→ 空の記録に、列挙されない印 unreadable: true（writeInstalled は書かない）
+ *  - schema が 1 でない → 空の記録。ファイルは退けない（新しい版の記録かもしれない。次に書くときに置き換わる）
+ */
 function readInstalled(file) {
-  let o;
-  try { o = JSON.parse(String(fs.readFileSync(file, 'utf8')).replace(/^﻿/, '')); } catch (_) { return emptyInstalled(); }
-  if (!isObj(o) || o.schema !== 1) return emptyInstalled();
+  const r = J.loadJsonFile(file, { shape: isObj, keep: 3 });
+  if (r.state === 'unreadable') return Object.defineProperty(emptyInstalled(), 'unreadable', { value: true });
+  if (r.state !== 'ok') return emptyInstalled();
+  const o = r.value;
+  if (o.schema !== 1) return emptyInstalled();
   const items = {};
   if (isObj(o.items)) for (const [k, v] of Object.entries(o.items)) if (isObj(v)) items[k] = v;
   const act = isObj(o.active) ? o.active : {};
@@ -136,21 +146,28 @@ function readInstalled(file) {
     active: { whisper: shas(act.whisper), sum: shas(act.sum) } };
 }
 
-// installed.json の名前の変更を試し直す前の待ち（合わせて 0.3 秒まで。同期なので main を長く止めない）
+// THIRD-PARTY-NOTICES.txt の名前の変更を試し直す前の待ち（合わせて 0.3 秒まで。同期なので main を長く止めない）。
+// installed.json は部品（jsonfile の RENAME_WAITS）で書く
 const INSTALLED_RENAME_WAITS = [20, 40, 80, 160];
 const sleepSync = (ms) => {
   try { Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms); } catch (_) { /* 待てなければすぐ試す */ }
 };
 
 /**
- * installed.json を書く。一時ファイルに書いて確定してから名前を変える（途中で切れても前の記録が残る）。
+ * installed.json を書く。部品で一時ファイルに書いて fsync してから名前を変える（途中で切れても前の記録が残る）。
  * 名前の変更が EPERM・EBUSY・EACCES なら少し待って試し直す（ウイルス対策が installed.json を開いているとき）。
+ * 読めない（掴まれている）間は書かない: 読めなかった記録の代わりの空の記録で、同意や使っている組を上書きしないため（RF22）。
+ * readInstalled が「読めない」で返した記録（印 unreadable）も、書くときには読めるようになっていても書かない。
+ * 呼び手はどれも、書き手が投げても受け止める。
  */
 function writeInstalled(file, obj) {
-  writeFileAtomicSync(file, `${JSON.stringify({ ...obj, schema: 1 }, null, 2)}\n`);
+  if ((obj && obj.unreadable === true) || J.readJsonFile(file).state === 'unreadable') {
+    throw Object.assign(new Error('installed.json を読めないので書かない'), { code: 'EBUSY' });
+  }
+  J.writeJsonFile(file, { ...obj, schema: 1 });
 }
 
-/** 一時ファイル（<file>.<pid>.tmp）に書いて確定し、名前を変える（installed.json と THIRD-PARTY-NOTICES.txt）。 */
+/** 一時ファイル（<file>.<pid>.tmp）に書いて確定し、名前を変える（THIRD-PARTY-NOTICES.txt。JSON ではない）。 */
 function writeFileAtomicSync(file, data) {
   fs.mkdirSync(path.dirname(file), { recursive: true });
   const part = `${file}.${process.pid}.tmp`;
@@ -691,7 +708,8 @@ function makeRunner(deps = {}) {
   }
 
   function writeFlags(patch) {
-    try { writeInstalled(installedFile, { ...readInst(), ...patch }); } catch (e) {
+    // Object.assign で、読めなかったときの印（列挙されない unreadable）を残したまま渡す
+    try { writeInstalled(installedFile, Object.assign(readInst(), patch)); } catch (e) {
       say(`installed.json に書けませんでした（${e && (e.code || e.message)}）`);
     }
   }

@@ -22,6 +22,8 @@ const { packerAvailable, packRelease } = require('./helpers/pack');
 
 const CAN_PACK = packerAvailable();
 const work = fs.mkdtempSync(path.join(os.tmpdir(), 'natsu-upd-'));
+// updater.js の写し（API_LATEST だけ差し替えたもの）が読む部品を、写しの隣に置く（第1a回 JS5 で updater が jsonfile を読む）
+fs.copyFileSync(path.join(REPO_ROOT, 'src', 'jsonfile.js'), path.join(work, 'jsonfile.js'));
 
 // ---------------------------------------------------------------- 単体
 test('cmpVersion がバージョンを正しく比較する', () => {

@@ -22,6 +22,8 @@ const { packerAvailable, packRelease } = require('./helpers/pack');
 
 const CAN_PACK = packerAvailable();
 const work = fs.mkdtempSync(path.join(os.tmpdir(), 'natsu-入れ直し𠮷-'));
+// updater.js の写し（API_LATEST だけ差し替えたもの）が読む部品を、写しの隣に置く（第1a回 JS5 で updater が jsonfile を読む）
+fs.copyFileSync(path.join(ROOT, 'src', 'jsonfile.js'), path.join(work, 'jsonfile.js'));
 const sha = (b) => crypto.createHash('sha256').update(b).digest('hex');
 const ZIP = Buffer.from('natsu-src のつもりの中身');
 const INFO44 = buildUpdateInfo({ pkg: { version: '0.4.0', engines: { electron: '>=44.9.0' } }, zipName: 'natsu-src-0.4.0.zip', zipBytes: ZIP });

@@ -23,6 +23,7 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const crypto = require('crypto');
+const J = require('./jsonfile');
 
 // 更新の配布元。変えるときは get-installer.ps1 の $repo も同じにする（identity.test.js が突き合わせる）。
 const REPO = 'Kishi-Satoshi/natsu';
@@ -73,6 +74,33 @@ function log(userDataPath, line) {
     fs.appendFileSync(path.join(userDataPath, 'update.log'),
       `[${new Date().toISOString()}] ${line}\n`, 'utf8');
   } catch (_) { /* noop */ }
+}
+
+const isObj = (o) => Boolean(o) && typeof o === 'object' && !Array.isArray(o);
+
+/**
+ * appRoot/package.json の version だけを替える（第1a回 JS5）。→ 替えたら true、飛ばしたら false。投げない。
+ * 壊れていても読めなくても動かさず消さない（resources\app\package.json を退けると、アプリが起動も更新もできなくなる）。
+ * 読むのは部品（BOM 付き UTF-8・UTF-16 も読む）、書くのも部品（一時ファイル → fsync → 名前の変更。asar:false なので、
+ * 途中で落ちて中途半端な package.json が残ると、次の起動で Electron が読めない）。
+ * 飛ばしたときは update.log に理由の符号だけを書く（中身は書かない）。
+ */
+function bumpVersion(appRoot, version, userDataPath) {
+  const file = path.join(appRoot, 'package.json');
+  const r = J.readJsonFile(file, { shape: isObj });
+  if (r.state !== 'ok') {
+    const why = r.state === 'broken' ? `broken (${r.reason})` : r.state === 'unreadable' ? `unreadable (${r.code})` : r.state;
+    log(userDataPath, `package.json version update skipped: ${why}`);
+    return false;
+  }
+  try {
+    J.writeJsonFile(file, { ...r.value, version });
+    return true;
+  } catch (e) {
+    // version の更新は必須ではないが、黙って落とすと「更新しても版が上がらない」という分かりにくい状態になるため記録は残す
+    log(userDataPath, `package.json version update skipped: ${(e && e.code) || 'UNKNOWN'}`);
+    return false;
+  }
 }
 
 /** '1.2.3' / 'v1.2.3' / 'natsu-v1.2.3' / '1.2.3-beta.1' を数の配列にする（プレリリースは切り捨て） */
@@ -366,10 +394,6 @@ async function apply(url, appRoot, userDataPath, onProgress, opts) {
   const electronVersion = (opts && Object.prototype.hasOwnProperty.call(opts, 'electronVersion'))
     ? opts.electronVersion
     : process.versions.electron;
-  // Windows PowerShell 5.1 の Set-Content -Encoding UTF8 は BOM を付ける。
-  // BOM が残ったままだと JSON.parse が投げ、version が永久に上がらない。
-  const readJson = (f) => JSON.parse(fs.readFileSync(f, 'utf8').replace(/^\uFEFF/, ''));
-
   try {
     work = fs.mkdtempSync(path.join(os.tmpdir(), 'natsu-up-'));
     const zip = path.join(work, 'update.zip');
@@ -404,13 +428,13 @@ async function apply(url, appRoot, userDataPath, onProgress, opts) {
 
     // 新しい package.json を先に読む（engines の検査と、後の version 更新に使う）。
     // 読めなくても更新自体は止めない（version の更新が飛ぶだけ。従来どおり記録は残す）。
+    // 部品で読む（Windows PowerShell 5.1 の Set-Content -Encoding UTF8 の BOM 付きも、UTF-16 も読む）。
+    // 記録には理由の符号だけを書く（JSON のエラーの文はファイルの中身を引用するため）
     const newPkg = path.join(path.dirname(newSrc), 'package.json');
     let nxt = null;
-    if (fs.existsSync(newPkg)) {
-      try { nxt = readJson(newPkg); } catch (e) {
-        log(userDataPath, `package.json in update unreadable: ${e.message}`);
-      }
-    }
+    const np = J.readJsonFile(newPkg, { shape: isObj });
+    if (np.state === 'ok') nxt = np.value;
+    else if (np.state !== 'missing') log(userDataPath, `package.json in update unreadable: ${np.reason || np.code}`);
 
     // 互換ゲート（#34）: 新しい src/ が必要とする Electron を、差し替える前に確かめる。
     // exe は更新 zip で入れ替わらないので、合わない zip を当てると次の起動で落ち、
@@ -445,18 +469,8 @@ async function apply(url, appRoot, userDataPath, onProgress, opts) {
       throw e;
     }
 
-    // package.json の version も更新（あれば。nxt は差し替え前に読んである）
-    if (nxt && nxt.version) {
-      try {
-        const cur = readJson(path.join(appRoot, 'package.json'));
-        cur.version = nxt.version;
-        fs.writeFileSync(path.join(appRoot, 'package.json'), JSON.stringify(cur, null, 2), 'utf8');
-      } catch (e) {
-        // version の更新は必須ではないが、黙って落とすと「更新しても版が上がらない」
-        // という分かりにくい状態になるため記録は残す
-        log(userDataPath, `package.json version update skipped: ${e.message}`);
-      }
-    }
+    // package.json の version も更新（あれば。nxt は差し替え前に読んである）。失敗は bumpVersion が記録する
+    if (nxt && nxt.version) bumpVersion(appRoot, nxt.version, userDataPath);
 
     // 直近1つだけバックアップを残し、古いものは掃除する
     for (const d of fs.readdirSync(appRoot)) {
@@ -474,6 +488,6 @@ async function apply(url, appRoot, userDataPath, onProgress, opts) {
 }
 
 module.exports = {
-  check, apply, cmpVersion, satisfiesRange, pickFetch, REPO, TAG_PATTERN, ASSET_PATTERN,
+  check, apply, bumpVersion, cmpVersion, satisfiesRange, pickFetch, REPO, TAG_PATTERN, ASSET_PATTERN,
   INFO_ASSET, FEED_ENV, REINSTALL_MESSAGE, readFeed, parseUpdateInfo, needsReinstall, updateNotice,
 };

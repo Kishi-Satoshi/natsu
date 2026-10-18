@@ -27,6 +27,7 @@
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const J = require('./jsonfile');
 
 const fsp = fs.promises;
 const first = (v) => (Array.isArray(v) ? v[0] : v);
@@ -224,8 +225,18 @@ function hashFile(file, hash, n) {
   });
 }
 
-async function readRecord(file) {
-  try { return JSON.parse(await fsp.readFile(file, 'utf8')); } catch (_) { return null; }
+const isObj = (o) => Boolean(o) && typeof o === 'object' && !Array.isArray(o);
+/**
+ * 取り込みの記録（.download\<SHA-256>.json）を部品で読む（第1a回 JS5・JS2）→ 読めた記録か null。
+ * 壊れていれば退ける（作り直せる記録なので、退けた控えは新しい3つまで）。同期（小さい）。
+ */
+function readRecord(file) {
+  const r = J.loadJsonFile(file, { shape: isObj, keep: 3 });
+  return r.state === 'ok' ? r.value : null;
+}
+/** 取り込みの記録を部品で書く（一時ファイル → fsync → 名前の変更。掴まれていれば待ってやり直す）。だめなら投げる */
+function writeRecord(file, rec) {
+  J.writeJsonFile(file, rec);
 }
 async function rmQuiet(file) {
   try { await fsp.unlink(file); } catch (_) { /* 無ければよい */ }
@@ -346,7 +357,7 @@ async function fetchFile(pin, opts = {}) {
   const name = path.basename(dest);
 
   // 記録がピンと同じときだけ .part を続きに使い、synced まで切り捨てる。記録が無い・違う .part は捨てる
-  const rec = await readRecord(side);
+  const rec = readRecord(side);
   const same = rec && rec.url === pin.url && rec.size === size && String(rec.sha256).toLowerCase() === sha256
     && Number.isSafeInteger(rec.synced) && rec.synced >= 0;
   if (!same) await rmQuiet(part);
@@ -361,12 +372,9 @@ async function fetchFile(pin, opts = {}) {
   let synced = -1;       // 記録に書けた長さ（fh.sync() の後）
   let nextSync = 0;      // 次に途中の確定をする長さ
   let discard = false;
-  const writeRecord = async (n) => {
-    const tmp = `${side}.tmp`;
-    await fsp.writeFile(tmp, JSON.stringify({ url: pin.url, size, sha256, synced: n }));
-    await fsp.rename(tmp, side);   // opts.rename は置く先の名前の変更だけに使う
-  };
-  const commit = async () => { await fh.sync(); await writeRecord(held); synced = held; nextSync = held + syncEvery; };
+  // 記録は部品で書く（opts.rename は置く先の名前の変更だけに使う）
+  const saveRecord = async (n) => { writeRecord(side, { url: pin.url, size, sha256, synced: n }); };
+  const commit = async () => { await fh.sync(); await saveRecord(held); synced = held; nextSync = held + syncEvery; };
   let hash;
   const reset = async () => { await fh.truncate(0); held = 0; hash = crypto.createHash('sha256'); await commit(); };
 
@@ -390,12 +398,12 @@ async function fetchFile(pin, opts = {}) {
     held += chunk.length;
   };
   // 途中の確定（syncEvery ごと）。fh.sync() の失敗では止める（ENOSPC は space）。記録の書き込みの失敗
-  // （ENOSPC 以外。ウイルス対策が .json.tmp → .json を止めたなど）では止めない: 前の記録は確定済みの長さを
+  // （ENOSPC 以外。ウイルス対策が一時ファイル → .json の名前の変更を止めたなど）では止めない: 前の記録は確定済みの長さを
   // 指すので安全で、次の続きはそこまで切り捨てる。記録は次の syncEvery の後にまた試す
   const checkpoint = async () => {
     nextSync = held + syncEvery;
     try { await fh.sync(); } catch (e) { throw diskFailure(e); }
-    try { await writeRecord(held); synced = held; } catch (e) { if (e && e.code === 'ENOSPC') throw diskFailure(e); }
+    try { await saveRecord(held); synced = held; } catch (e) { if (e && e.code === 'ENOSPC') throw diskFailure(e); }
   };
 
   // 進み具合の done は増えるだけ（0 から取り直したときは、追いつくまで前の値のまま）
@@ -545,4 +553,4 @@ async function fetchFile(pin, opts = {}) {
   return { file: dest, reused: false };
 }
 
-module.exports = { hget, parseContentRange, backoffMs, classifyNetError, decide, isTransient, askIt, fetchErrorMessage, fetchFile };
+module.exports = { hget, parseContentRange, backoffMs, classifyNetError, decide, isTransient, askIt, fetchErrorMessage, fetchFile, readRecord, writeRecord };

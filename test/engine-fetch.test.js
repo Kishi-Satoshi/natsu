@@ -482,14 +482,20 @@ test('見出しが来たら、見出しの待ちは headerTimeoutMs に戻る（
     assert.ok(at[5] - at[4] < 500, `見出しが来た後も待ちが 800ms のまま ${at[5] - at[4]}ms`);
   } finally { await s.close(); }
 });
-test('途中の記録の書き込み（.json.tmp → .json）が EPERM で失敗しても、取り込みは続けて終える（記録は前の長さのまま。RF9）', { timeout: 5000 }, async () => {
+test('途中の記録の書き込み（一時ファイル → .json）が EPERM で失敗しても、取り込みは続けて終える（記録は前の長さのまま。RF9）', { timeout: 5000 }, async () => {
   const s = await startServers({ body });
-  // 記録の名前の変更は fs.promises.rename（opts.rename は置く先だけ）。2 回目（途中の確定）だけ失敗させる
-  const orig = fs.promises.rename; let k = 0;
-  fs.promises.rename = async (a, b) => {
-    if (String(a).endsWith('.json.tmp') && ++k === 2) throw Object.assign(new Error('x'), { code: 'EPERM' });
-    return orig.call(fs.promises, a, b);
+  // 記録は部品（jsonfile.writeJsonFile）で書く: 一時ファイル <記録>.<pid>-<乱数>.tmp → fs.renameSync（opts.rename は置く先だけ）。
+  // 2 回目の書き込み（途中の確定）の名前の変更だけを、部品のやり直しも含めて全部失敗させる（やり直しの待ちは縮める）
+  const J = require('../src/jsonfile');
+  const orig = fs.renameSync; const origSleep = J.sleepSync; let k = 0; let last = null;
+  fs.renameSync = (a, b) => {
+    if (/\.json\.\d+-[0-9a-z]+\.tmp$/.test(String(a))) {
+      if (a !== last) { k += 1; last = a; }   // 一時ファイルの名前が新しければ、新しい書き込み（同じ名前はやり直し）
+      if (k === 2) throw Object.assign(new Error('x'), { code: 'EPERM' });
+    }
+    return orig.call(fs, a, b);
   };
+  J.sleepSync = () => {};
   // 本体を 4KB ずつ渡す（失敗の後も syncEvery ごとにしか記録を試さないことを、塊の大きさに左右されずに見る）
   async function* pieces(src) { for await (const c of src) for (let i = 0; i < c.length; i += 4096) yield c.subarray(i, i + 4096); }
   const small = (o) => {
@@ -510,7 +516,8 @@ test('途中の記録の書き込み（.json.tmp → .json）が EPERM で失敗
     // 始め 1・途中 4（64K・128K・192K・256K。2 回目の書き込みが失敗）・終わり 1
     assert.strictEqual(k, 6, `記録を書いた回数 ${k}（失敗の後に書かない／syncEvery ごとより多く書いた）`);
     assert.deepStrictEqual(leftovers(dir), []);
-  } finally { fs.promises.rename = orig; await s.close(); }
+    assert.deepStrictEqual(fs.readdirSync(dir).filter((n) => n.endsWith('.tmp')), [], '記録の一時ファイルが残った');
+  } finally { fs.renameSync = orig; J.sleepSync = origSleep; await s.close(); }
 });
 test('始めの確定（.part の続きを記録に書く前の fsync）で ENOSPC でも、space でやめ、needBytes に残りの大きさ', { timeout: 5000 }, async () => {
   const s = await startServers({ body });
