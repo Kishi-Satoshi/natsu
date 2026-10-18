@@ -75,3 +75,35 @@ test('G2: diffImages — 同じなら same。違えば数と範囲と差分の�
   c.data[0] += 2;
   assert.deepStrictEqual([P.diffImages(a, c).count, P.diffImages(a, c, { tolerance: 2 }).count, P.diffImages(a, c, { tolerance: 1 }).count], [1, 0, 1]);
 });
+
+test('G2: diffImages — 透け具合（A）だけの差も数える。範囲は違う画素を全部囲む。大きさが違えば大きいほうの大きさで全部赤', { timeout: 5000 }, () => {
+  const a = { width: 3, height: 2, data: Buffer.from(RGBA) };
+  const e = { width: 3, height: 2, data: Buffer.from(RGBA) };
+  e.data[3] = 0;   // (0,0) の A だけ
+  assert.strictEqual(P.diffImages(a, e).count, 1);
+  const f = { width: 3, height: 2, data: Buffer.from(RGBA) };
+  f.data[2 * 4] = 99;   // (2,0) の赤
+  f.data[3 * 4 + 2] = 99;   // (0,1) の青
+  const d = P.diffImages(a, f);
+  assert.strictEqual(d.count, 2);
+  assert.deepStrictEqual(d.box, { x0: 0, y0: 0, x1: 2, y1: 1 });   // 左へ広がる
+  const g = { width: 3, height: 2, data: Buffer.from(RGBA) };
+  g.data[1] = 99;   // (0,0) の緑
+  g.data[5 * 4 + 1] = 99;   // (2,1) の緑
+  assert.deepStrictEqual([P.diffImages(a, g).count, P.diffImages(a, g).box], [2, { x0: 0, y0: 0, x1: 2, y1: 1 }]);   // 右へ広がる
+  const s = P.diffImages(a, { width: 2, height: 2, data: Buffer.alloc(16) });
+  assert.deepStrictEqual([s.image.width, s.image.height], [3, 2]);
+  assert.strictEqual(s.image.data.length, 3 * 2 * 4);
+  for (let i = 0; i < s.image.data.length; i += 4) assert.deepStrictEqual([...s.image.data.subarray(i, i + 4)], [255, 0, 0, 255], `画素 ${i / 4}`);
+});
+
+test('G2: IHDR が2つある PNG と、画素の長さが IHDR の大きさと合わない PNG は投げる', { timeout: 5000 }, () => {
+  const good = P.encodePng({ width: 3, height: 2, data: Buffer.from(RGBA) });
+  const ihdrChunk = good.subarray(8, 8 + 12 + 13);   // 長さ・型・13 バイト・CRC
+  const dup = Buffer.concat([good.subarray(0, 8 + 25), ihdrChunk, good.subarray(8 + 25)]);
+  assert.throws(() => P.decodePng(dup), /IHDR が2つ/);
+  const tall = Buffer.from(good);
+  tall.writeUInt32BE(3, 8 + 8 + 4);   // 高さを 3 に（IDAT は 2 行ぶんのまま）
+  tall.writeUInt32BE(P.crc32(tall.subarray(8 + 4, 8 + 8 + 13)), 8 + 8 + 13);
+  assert.throws(() => P.decodePng(tall), /画素の長さ/);
+});
