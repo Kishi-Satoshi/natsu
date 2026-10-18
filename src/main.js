@@ -31,6 +31,8 @@ const mtype = require('./meetingType');
 const { enrichActionBlocks, groundActionFields } = require('./actions');
 const updater = require('./updater');
 const { chooseDisplayMedia } = require('./loopback');
+const security = require('./security');
+const RENDERER_PAGES = { app: path.join(__dirname, 'renderer', 'app.html'), overlay: path.join(__dirname, 'renderer', 'overlay.html') };
 const minutes = require('./minutes');
 const { markdownToBlocks, dropRedundantEmpty } = minutes;
 // テンプレートの写し（見出しだけ・雛形そのまま）を落とす。minutes.js 側に
@@ -1293,7 +1295,7 @@ function createOverlay() {
     // backgroundThrottling: false をここに入れてはいけない。Windows では
     // 透過ウィンドウの透明が壊れ、ピルの角の外に不透明の矩形が出る（実機で発生）。
     // タイマーの間引き対策は、間引かれない main 側からの overlay:tick で行う。
-    webPreferences: { preload: path.join(__dirname, 'preload.js'), contextIsolation: true, nodeIntegration: false },
+    webPreferences: { preload: path.join(__dirname, 'preload.js'), sandbox: true, contextIsolation: true, nodeIntegration: false },
   });
   overlayWin.setAlwaysOnTop(true, 'screen-saver');
   overlayWin.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
@@ -1349,7 +1351,7 @@ function createMainWindow() {
     // 地色は CSS が効く前の一瞬に見える色。ライト固定だとダークで
     // 開くたび・リサイズのたびに白くまたたく。
     backgroundColor: nativeTheme.shouldUseDarkColors ? '#171a21' : '#E9EDF5',
-    webPreferences: { preload: path.join(__dirname, 'preload.js'), contextIsolation: true, nodeIntegration: false },
+    webPreferences: { preload: path.join(__dirname, 'preload.js'), sandbox: true, contextIsolation: true, nodeIntegration: false },
   });
   mainWin.setMenuBarVisibility(false);
   mainWin.loadFile(path.join(__dirname, 'renderer', 'app.html'));
@@ -2645,6 +2647,8 @@ if (!gotLock) {
       });
       try { callback(streams); } catch (e) { engineLog(`相手の声の取り込みを渡せませんでした: ${e && e.message}`); }
     });
+    // 窓を作る前に守りを付ける（許可の受け口・file:// の画面への CSP・移動と新しい窓の禁止。第1a回 SEC1）
+    security.install({ app, session: session.defaultSession, pages: RENDERER_PAGES, log: engineLog });
     createOverlay();
     // 登録できなかった側だけ既定に落として再試行する（成功した側はそのまま）。
     // 有効なキーは activeHotkeys にだけ持ち、settings には書かない。settings に書くと

@@ -1,7 +1,8 @@
 /*
  * security.js — Electron の守りの判断（第1a回 SEC1。RF19・EL10）
  *
- * ここは Electron を読まない純粋な関数だけを置く（取り付けの install は Task 3-2）。
+ * ここは Electron を読まない。判断は純粋な関数で、install（Task 3-2）は main から受け取った
+ * app と session に受け口を付けるだけ（electron は main が渡す）。
  * 窓の種類・許可の頼みと確かめ・CSP・新しい窓の扱いを決める。
  *
  * 出典（Electron 44 の公式の文書。https://github.com/electron/electron/blob/44-x-y/docs/ の下）:
@@ -11,6 +12,9 @@
  *  - api/session.md の ses.setPermissionRequestHandler（details.mediaTypes）と
  *    ses.setPermissionCheckHandler（details.mediaType）。
  *  - breaking-changes.md の 45.0: 画面の取り込み（getDisplayMedia）の許可は 'display-capture' で届く。
+ *  - api/web-request.md の onHeadersReceived（responseHeaders を返すと、その見出しで読み込む）、
+ *    api/app.md の 'web-contents-created'、api/web-contents.md の 'will-navigate'・'will-frame-navigate'・
+ *    'will-attach-webview' と setWindowOpenHandler。
  *
  * 作業環境（Linux・Electron 44.9.0・偽のマイク）で確かめたこと:
  *  - 44 の getDisplayMedia は、頼みの受け口に 'media'（mediaTypes が空）として先に届く。
@@ -28,6 +32,9 @@
 'use strict';
 
 const crypto = require('node:crypto');
+const fs = require('node:fs');
+const path = require('node:path');
+const { pathToFileURL } = require('node:url');
 
 /** 種類の無い file:// と、HTML を読めないときの一番きつい CSP */
 const STRICT_CSP = "default-src 'none'; base-uri 'none'; form-action 'none'";
@@ -124,4 +131,56 @@ function cspFor(html) {
 /** setWindowOpenHandler の判断: 新しい窓は開かない */
 function windowOpen() { return { action: 'deny' }; }
 
-module.exports = { pageKind, allowRequest, allowCheck, inlineScriptHashes, cspFor, STRICT_CSP, windowOpen };
+const prevent = (e) => { e.preventDefault(); };
+
+/** 受け口が渡す webContents の URL（無い・投げるときは ''） */
+function wcUrl(wc) {
+  try { return wc && typeof wc.getURL === 'function' ? String(wc.getURL() || '') : ''; } catch { return ''; }
+}
+
+/**
+ * 守りを1度に付ける（main は窓を作る前に呼ぶ）。
+ * pages = { app: '<絶対パス>', overlay: '<絶対パス>' }。
+ * CSP はその時のファイルから毎回計算する（自動更新で src/ が入れ替わってもハッシュがずれない）。
+ * 読めなければゆるめずに STRICT_CSP を付け、log に理由の符号とファイルの名前だけを書く。
+ */
+function install({ app, session, pages, readFile = (p) => fs.readFileSync(p, 'utf8'), log = () => {} }) {
+  const pageUrls = {};
+  for (const k of PAGE_KINDS) pageUrls[k] = pathToFileURL(pages[k]).href;
+  const kindOf = (url) => pageKind(url, pageUrls);
+
+  session.setPermissionRequestHandler((wc, permission, cb, details) => {
+    const d = details || {};
+    cb(allowRequest(kindOf(d.requestingUrl || wcUrl(wc)), permission, d));
+  });
+  session.setPermissionCheckHandler((wc, permission, _origin, details) => {
+    const d = details || {};
+    return allowCheck(kindOf(d.requestingUrl || wcUrl(wc) || ''), permission, d);
+  });
+
+  session.webRequest.onHeadersReceived({ urls: ['file://*/*'] }, (d, cb) => {
+    if (!d || (d.resourceType !== 'mainFrame' && d.resourceType !== 'subFrame')) { cb({}); return; }
+    const kind = kindOf(d.url);
+    let csp = STRICT_CSP;
+    if (kind) {
+      try {
+        csp = cspFor(readFile(pages[kind]));
+      } catch (e) {
+        csp = STRICT_CSP;
+        log(`CSP: 画面のファイルを読めないため一番きつい CSP にしました（${path.basename(pages[kind])}・${(e && e.code) || 'read'}）`);
+      }
+    }
+    cb({ responseHeaders: { ...(d.responseHeaders || {}), 'Content-Security-Policy': [csp] } });
+  });
+
+  app.on('web-contents-created', (_e, wc) => {
+    wc.on('will-navigate', prevent);
+    wc.on('will-frame-navigate', prevent);
+    wc.on('will-attach-webview', prevent);
+    wc.setWindowOpenHandler(windowOpen);
+  });
+
+  return { kindOf };
+}
+
+module.exports = { pageKind, allowRequest, allowCheck, inlineScriptHashes, cspFor, STRICT_CSP, windowOpen, install };

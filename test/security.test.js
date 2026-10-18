@@ -85,3 +85,79 @@ test('SEC1: 新しい窓は開かない', { timeout: 5000 }, () => {
   assert.deepStrictEqual(S.windowOpen({ url: 'https://example.invalid/' }), { action: 'deny' });
   assert.match(S.STRICT_CSP, /^default-src 'none'/);
 });
+
+// ── Task 3-2: 守りを main に付ける ─────────────────────────────────────
+const { pathToFileURL } = require('node:url');
+const os = require('node:os');
+const code = (s) => String(s).replace(/^[ \t]*\/\/.*$/gm, '').replace(/\/\*[\s\S]*?\*\//g, '');
+const fnBody = (src, head, end) => { const i = src.indexOf(head); return i < 0 ? '' : src.slice(i, src.indexOf(end, i) + end.length); };
+
+test('SEC1: install は許可の受け口2つ・file:// の画面への CSP のヘッダー・新しい webContents の移動と新しい窓の禁止を付ける', { timeout: 5000 }, (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'natsu-取込𠮷-sec-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const pages = { app: path.join(dir, 'app.html'), overlay: path.join(dir, 'overlay.html') };
+  const url = { app: pathToFileURL(pages.app).href, overlay: pathToFileURL(pages.overlay).href };
+  const files = { [pages.app]: '<script>a()</script>', [pages.overlay]: '<script>b()</script>' };
+  const calls = {};
+  const session = {
+    setPermissionRequestHandler: (h) => { calls.req = h; },
+    setPermissionCheckHandler: (h) => { calls.check = h; },
+    webRequest: { onHeadersReceived: (filter, h) => { calls.headers = [filter, h]; } },
+  };
+  const appEv = {};
+  const logs = [];
+  S.install({ app: { on: (ev, f) => { appEv[ev] = f; } }, session, pages, log: (l) => logs.push(l),
+    readFile: (p) => { if (!(p in files)) throw Object.assign(new Error('no'), { code: 'ENOENT' }); return files[p]; } });
+  // 頼み（requestingUrl が無ければ webContents の URL で決める）
+  let granted;
+  calls.req(null, 'media', (g) => { granted = g; }, { mediaTypes: ['audio'], requestingUrl: url.app });
+  assert.strictEqual(granted, true);
+  calls.req({ getURL: () => url.app }, 'media', (g) => { granted = g; }, { mediaTypes: [] });
+  assert.strictEqual(granted, false, 'app の窓に画面の取り込みを許した');
+  calls.req({ getURL: () => url.overlay }, 'media', (g) => { granted = g; }, { mediaTypes: [] });
+  assert.strictEqual(granted, true);
+  // 確かめ
+  assert.strictEqual(calls.check(null, 'media', 'file:///', { mediaType: 'audio', requestingUrl: url.overlay }), true);
+  assert.strictEqual(calls.check(null, 'media', 'file:///', { mediaType: 'video', requestingUrl: url.overlay }), false);
+  assert.strictEqual(calls.check(null, 'notifications', '', {}), false);
+  // CSP
+  assert.deepStrictEqual(calls.headers[0], { urls: ['file://*/*'] });
+  let out;
+  calls.headers[1]({ url: url.app, resourceType: 'mainFrame', responseHeaders: { 'Content-Type': ['text/html'] } }, (r) => { out = r; });
+  assert.deepStrictEqual(out.responseHeaders['Content-Type'], ['text/html']);
+  assert.deepStrictEqual(out.responseHeaders['Content-Security-Policy'], [S.cspFor(files[pages.app])]);
+  calls.headers[1]({ url: pathToFileURL(path.join(dir, 'other.html')).href, resourceType: 'mainFrame', responseHeaders: {} }, (r) => { out = r; });
+  assert.deepStrictEqual(out.responseHeaders['Content-Security-Policy'], [S.STRICT_CSP]);
+  // 読めないとき（自動更新の途中など）も、ゆるめずに一番きつい CSP
+  files[pages.app + '.gone'] = files[pages.app];
+  delete files[pages.app];
+  calls.headers[1]({ url: url.app, resourceType: 'mainFrame', responseHeaders: {} }, (r) => { out = r; });
+  assert.deepStrictEqual(out.responseHeaders['Content-Security-Policy'], [S.STRICT_CSP]);
+  assert.strictEqual(logs.length, 1);
+  // 画面の中の画像など（mainFrame でないもの）には足さない
+  calls.headers[1]({ url: url.app, resourceType: 'image', responseHeaders: {} }, (r) => { out = r; });
+  assert.deepStrictEqual(out, {});
+  // 新しい webContents
+  const wcEv = {};
+  let opener;
+  appEv['web-contents-created']({}, { on: (ev, f) => { wcEv[ev] = f; }, setWindowOpenHandler: (f) => { opener = f; } });
+  for (const ev of ['will-navigate', 'will-frame-navigate', 'will-attach-webview']) {
+    let prevented = false;
+    wcEv[ev]({ preventDefault: () => { prevented = true; }, url: 'https://example.invalid/' });
+    assert.ok(prevented, ev);
+  }
+  assert.deepStrictEqual(opener({ url: 'https://example.invalid/' }), { action: 'deny' });
+});
+
+test('SEC1: main は両方の窓に sandbox: true を明記し、窓を作る前に security.install を呼ぶ', { timeout: 5000 }, () => {
+  const m = code(read('src/main.js'));
+  assert.match(m, /const security = require\('\.\/security'\);/);
+  assert.match(m, /const RENDERER_PAGES = \{ app: path\.join\(__dirname, 'renderer', 'app\.html'\), overlay: path\.join\(__dirname, 'renderer', 'overlay\.html'\) \};/);
+  const prefs = [...m.matchAll(/webPreferences: \{([^}]*)\}/g)].map((x) => x[1]);
+  assert.strictEqual(prefs.length, 2);
+  for (const p of prefs) for (const k of ['sandbox: true', 'contextIsolation: true', 'nodeIntegration: false']) assert.ok(p.includes(k), `${k}: ${p}`);
+  const ready = fnBody(m, 'app.whenReady().then(', '\n  });');
+  const i = ready.indexOf('security.install({ app, session: session.defaultSession, pages: RENDERER_PAGES, log: engineLog });');
+  assert.ok(i > 0 && i < ready.indexOf('createOverlay();') && i < ready.indexOf('createMainWindow();'), '窓を作った後に守りを付けている');
+  assert.ok(!/webSecurity: false|allowRunningInsecureContent|nodeIntegration: true|contextIsolation: false/.test(m));
+});
