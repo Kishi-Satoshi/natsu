@@ -74,6 +74,7 @@
 //     --local-only  … 記録を始めた後、最初の区間の前に［この会議は PC の中だけ］を押す（画面と同じ IPC の meeting:set-local-only。
 //                     out.localOnly にその返事、out.statusLocalOnly に押した後の meeting:status の localOnly と cloud）。
 //                     --recover と組むと、置く下書きに localOnly: true を書く
+//     （議事録の場面では、記録を始めた直後の meeting:status の cloud をいつも out.statusCloud に入れる）
 //     --dictate     … 議事録の代わりに音声入力を1回（ホットキー → audio:done）。out.history に履歴
 //     --no-whisper  … 設定の whisper の実行ファイルを無いファイルにする
 //     --claude=<mode> … 第1c回 B-3: オンラインの要約。設定の claudeExe を偽の claude（helpers/fake-claude.js）に向け、FAKE_CLAUDE_MODE に
@@ -924,6 +925,7 @@ process.on('exit', () => {
     ? process.env.NATSU_E2E_WAVS.split(';').map((f) => ({ buf: fs.readFileSync(f), ms: Math.round((fs.statSync(f).size - 44) / 32) }))
     : Array.from({ length: segCount }, (_, i) => ({ buf: toneWav(i ? 2 : 3, silent ? 0 : 8000), ms: i ? 2000 : 3000 }));
   out.start = await handlers['meeting:toggle']();
+  out.statusCloud = handlers['meeting:status']().cloud;   // C-3: 会議の状態の「クラウドで処理する設定か」（同意が on のときだけ true）
   if (localOnlyFlag) {
     out.localOnly = await handlers['meeting:set-local-only']({}, true);
     const st = handlers['meeting:status']();

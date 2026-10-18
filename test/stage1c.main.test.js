@@ -33,6 +33,7 @@ test('OL2: オンラインで同意と鍵があれば、区間はクラウドで
   assert.strictEqual(whisperSpawned(o), false, 'オンラインなのに手元の whisper を起動した');
   assert.deepStrictEqual(o.pages[0].route.stt, { cloud: 2, local: 0, provider: 'custom' });
   assert.deepStrictEqual(o.pages[0].routeText.slice(0, 1), ['☁ 文字起こし: クラウド（そのほか）2'], 'page:get の返事に経路の行が無い（C-3）');
+  assert.strictEqual(o.statusCloud, true, '同意が「使う」なのに会議の状態の cloud が true でない（［PC の中だけ］のボタンが出ない）');
   assert.ok(o.pages[0].segments.every((s) => s.text.startsWith('本日の議題は進捗の確認です') && !s.failed));
   assert.ok(o.balloons.some((b) => /この会議の音声は そのほか に送って文字起こしします/.test(b)), '会議の始めの知らせ（M1）が無い');
   assert.ok(!o.engineLog.some((l) => l.includes('本日の議題')), '記録に文字起こしの本文がある');
@@ -52,6 +53,7 @@ test('RF28: 同意をまだ決めていない・［この会議は PC の中だ�
   assert.ok(a.notices.some((n) => /オンラインの文字起こしを使うかを、設定の「オンライン」で選んでください/.test(n)));
   assert.strictEqual(a.notices.filter((n) => /オンラインの文字起こしを使うか/.test(n)).length, 1, '同じ案内を区間ごとに出した');
   assert.strictEqual(a.decrypts, 0, '同意が ask なのに鍵を復号した（要らない復号。キーリングの確かめが出ることがある）');
+  assert.strictEqual(a.statusCloud, false, '同意が ask なのに会議の状態の cloud が true（［PC の中だけ］のボタンが出る）');
   const l = await run(['text', '--stt=text', '--local-only', '--segs=2']);
   assert.strictEqual(l.stt.filter((r) => r.path.endsWith('/audio/transcriptions')).length, 0);
   assert.deepStrictEqual(l.pages[0].route.stt, { cloud: 0, local: 2, provider: 'custom' });
