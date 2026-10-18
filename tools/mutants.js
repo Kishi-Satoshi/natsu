@@ -249,4 +249,11 @@ module.exports = [
   { id: 'lf-status-overloaded', file: 'src/main.js', from: '    overloaded: \'Claude が混み合っています（ログインはできています）。少し待ってから［Claude Code を確かめる］を押してください。\',\n', to: '', tests: ['test/stage1c.ipc.test.js'], why: 'Lane F-b: 確かめの要求の混み合いの文' },
   { id: 'lf-win-quote', file: 'src/claude-cli.js', from: '/[\\x00-\\x1f"]/.test(e)', to: '/[\\x00-\\x1f]/.test(e)', tests: ['test/claude-cli.test.js'], why: 'Lane F-c: 引用符入りの場所は開かない' },
   { id: 'lf-install-del-env', file: 'src/claude-cli.js', from: '    delete out[EXE_ENV];\n', to: '', tests: ['test/claude-cli.test.js'], why: 'Lane F-d: 入れる窓に場所の変数を渡さない' },
+  // ---------------------------------------------------------------- 第1b2回の直し（CI の画面の写しの崩れと、2,000 ブロックのページを開く速さ。test/stage1b2.fix.test.js）
+  { id: 'fx-hidden-important', file: 'src/renderer/app.html', from: '  [hidden] { display: none !important; }\n', to: '', tests: ['test/stage1b2.fix.test.js'], why: 'hidden の要素は display を書いた規則に負けない（サイドバーを開いている間に » を出さない）' },
+  { id: 'fx-hidden-weak', file: 'src/renderer/app.html', from: '  [hidden] { display: none !important; }', to: '  [hidden] { display: none; }', tests: ['test/stage1b2.fix.test.js'], why: '[hidden] は !important（.side-btn の inline-flex のほうが詳しいセレクタ）' },
+  { id: 'fx-live-pad', file: 'src/renderer/app.html', from: '  .live button.ghost { font-size: 12px; padding: 0 10px; }', to: '  .live button.ghost { font-size: 12px; padding: 4px 10px; }', tests: ['test/stage1b2.fix.test.js'], why: '記録の行のボタンの文字を下へ押し出さない' },
+  { id: 'fx-side-ic', file: 'src/renderer/app.html', from: '    tog.append(tic, st.finalizing', to: '    tog.append(st.finalizing', tests: ['test/stage1b2.fix.test.js'], why: '［＋ 新しい議事録］［■ 終了して作成］はアイコンの欄を持つ' },
+  { id: 'fx-side-ic-html', file: 'src/renderer/app.html', from: '<span class="ic">🗑️</span>破棄', to: '破棄', tests: ['test/stage1b2.fix.test.js'], why: '［破棄］もアイコンの欄を持つ' },
+  { id: 'fx-pal-grey', file: 'src/renderer/app.html', from: 's1.textContent = rowTitle(p);', to: 's1.textContent = `${p.date} ・ ${fmtDur(p.durationSec)}`; if (!p.hasSummary) { const b = document.createElement(\'span\'); b.style.color = \'var(--danger)\'; b.textContent = \'要約なし\'; m.appendChild(b); }', tests: ['test/stage1b2.fix.test.js', 'test/repo.test.js'], why: '検索の窓の結果の2行目は灰色の文字だけ（赤い「要約なし」を出さない）' },
 ];

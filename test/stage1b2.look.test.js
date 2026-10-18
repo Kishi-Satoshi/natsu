@@ -98,7 +98,7 @@ test('1b2 L-2: サイドバーの頭はロゴと NaTsu と飾りの ▾。行は
   const side = l.byId.get('side');
   assert.ok(side.querySelector('.logo .wave') && side.querySelector('.ws-caret'));
   assert.strictEqual(l.byId.get('sideSearch').textContent, '🔍検索');
-  assert.strictEqual(l.byId.get('mtToggleBtn').textContent, '＋ 新しい議事録');
+  assert.strictEqual(l.byId.get('mtToggleBtn').textContent, '＋新しい議事録');   // ＋ はアイコンの欄（.ic）。第1b2回の直し（stage1b2.fix.test.js）
   assert.ok(!side.querySelector('#searchBox') && !side.querySelector('#fltAll'), '検索の欄と絞り込みがサイドバーに残っている');
   for (const id of ['sideSearch', 'mtToggleBtn', 'tabBtnDictation', 'tabBtnSettings']) assert.ok(l.byId.get(id).className.split(' ').includes('side-row'), id);
   assert.strictEqual(S.declsFor(rules, '#sideCollapse:focus-visible', { at: '' }).opacity, '1', 'キーボードで « が見えない');

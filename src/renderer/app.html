@@ -98,6 +98,10 @@
 
   /* スクロールバーは OS の標準（第1b2回 L-1。独自のつまみを描かない） */
 
+  /* hidden の要素は、display を書いた規則（.side-btn の inline-flex など）があっても出さない。UA の [hidden] は作者の display に負け、
+     サイドバーを開いている間も » が見えていた（偽 DOM は hidden しか見ないので気づけない）。display に !important を書く規則は作らない */
+  [hidden] { display: none !important; }
+
   /* ---------- 部品（第1b2回 L-1: 測った形。ボタンは高さ 28px・角丸 6px・14px の 500・左右 12px） ---------- */
   button.action { background: var(--accent); color: var(--on-accent);
     border: 1px solid transparent; font: inherit; font-size: 14px; font-weight: 500; height: 28px; line-height: 26px;
@@ -352,8 +356,6 @@
     color: var(--text); font: inherit; font-size: 14px; font-weight: 400;
     height: 22px; padding: 0 6px; border-radius: 4px; cursor: pointer; width: auto; }
   .typeSel:focus { background: var(--bg); }
-  .tbadge { font-size: 10px; font-weight: 700; color: var(--accent-text);
-    background: var(--tint); border-radius: 4px; padding: 2px 6px; }
 
   /* アクションの担当・期限 */
   .ameta { display: inline-flex; gap: 4px; margin-left: 6px; vertical-align: middle; flex-wrap: wrap; }
@@ -420,7 +422,8 @@
   /* 進捗・打ち切り・マイクの注意は、1行目（状態と時計）の下に折り返して出す */
   .live .desc { flex: none; width: 100%; font-size: 11px; color: var(--muted); }
   .live .desc.ng { color: var(--danger); }
-  .live button.ghost { font-size: 12px; padding: 4px 10px; }
+  /* 高さ 28px・行の高さ 26px のボタンなので上下の余白は 0（上下に足すと文字が下へ押し出される） */
+  .live button.ghost { font-size: 12px; padding: 0 10px; }
   /* 録音中の点は海の色（夏の差し色。文字ではない）。丸い形の例外 */
   .rec-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--level);
     animation: pulse 1.4s ease-in-out infinite; flex: none; }
@@ -576,8 +579,8 @@
     </div>
     <button class="side-row" id="sideSearch" type="button"><span class="ic">🔍</span>検索</button>
     <div class="tools">
-      <button class="side-row" id="mtToggleBtn">＋ 新しい議事録</button>
-      <button class="side-row" id="mtDiscardBtn" style="display:none">破棄</button>
+      <button class="side-row" id="mtToggleBtn"><span class="ic">＋</span>新しい議事録</button>
+      <button class="side-row" id="mtDiscardBtn" style="display:none"><span class="ic">🗑️</span>破棄</button>
     </div>
     <button id="tabBtnNotes" class="active">議事録</button>
     <div class="plist" id="plist" role="listbox" aria-label="議事録の一覧"></div>
@@ -1555,7 +1558,7 @@
     }
   }
 
-  // 検索の窓の結果は今の2行（🎙️・題名、日付・長さ・要約なし・タイプ・抜粋）
+  // 検索の窓の結果は2行（🎙️・題名、灰色の日付・長さ・要約なし・タイプ）と抜粋
   function renderResults() {
     const box = $('palList'); box.textContent = '';
     if (listCount) {
@@ -1580,19 +1583,10 @@
       const pb = document.createElement('div'); pb.className = 'pb';
       const t = document.createElement('div'); t.className = 't'; t.textContent = p.title;
       const m = document.createElement('div'); m.className = 'm';
-      const s1 = document.createElement('span'); s1.textContent = `${p.date} ・ ${fmtDur(p.durationSec)}`;
+      // 2行目は灰色の文字だけ（赤い「要約なし」・青いタイプの札はやめた）。並びはサイドバーの行の title と同じ rowTitle
+      // （要約なしはタイプより前＝左。1行に収まらない分は右端から切れる）
+      const s1 = document.createElement('span'); s1.textContent = rowTitle(p);
       m.appendChild(s1);
-      // 1行に収まらない分は右端から切れる。「要約なし」は重要な印なので
-      // タイプ章より前（左）に置く。
-      if (!p.hasSummary) {
-        const b = document.createElement('span'); b.style.color = 'var(--danger)';
-        b.textContent = '要約なし'; m.appendChild(b);
-      }
-      if (p.meetingType && p.meetingType !== 'general') {
-        const tb = document.createElement('span'); tb.className = 'tbadge';
-        const def = mtypes.find((x) => x.key === p.meetingType);
-        tb.textContent = def ? def.label : p.meetingType; m.appendChild(tb);
-      }
       pb.append(t, m);
       if (p.snippet) {
         const sn = document.createElement('div'); sn.className = 'snip'; sn.textContent = p.snippet;
@@ -2477,7 +2471,10 @@
     if (started) liveMemo = st.memo || '';
     mtWasActive = Boolean(st.active);
     lockEngineFields(Boolean(st.active));
-    $('mtToggleBtn').textContent = st.finalizing ? '作成中…' : st.active ? '■ 終了して作成' : '＋ 新しい議事録';
+    // サイドバーの行はほかの行と同じ「アイコンの欄（.ic）＋文字」（文字がそろう）
+    const tog = $('mtToggleBtn'); tog.textContent = '';
+    const tic = document.createElement('span'); tic.className = 'ic'; tic.textContent = st.active || st.finalizing ? '■' : '＋';
+    tog.append(tic, st.finalizing ? '作成中…' : st.active ? '終了して作成' : '新しい議事録');
     $('mtToggleBtn').disabled = Boolean(st.finalizing);
     $('mtDiscardBtn').style.display = st.active && !st.finalizing ? '' : 'none';
 

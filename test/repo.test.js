@@ -521,9 +521,12 @@ test('メモのコピーは画面の入力欄の今の文字を写す', () => {
 
 test('一覧の「要約なし」はタイプ章より左にある（右端で見切れない）', () => {
   // 第1b2回 L-2: 2行の行は検索の窓の結果（renderResults）。サイドバーの1行の行は title の中で同じ順（stage1b2.look.test.js）
-  const list = appHtml.slice(appHtml.indexOf('function renderResults'));
-  assert.ok(list.indexOf("textContent = '要約なし'") < list.indexOf('tbadge'),
+  // 第1b2回の直し: 窓の結果の2行目もサイドバーの title と同じ rowTitle（灰色の1つの文。並びは stage1b2.look・stage1b2.fix が見る）
+  const fn = (name) => appHtml.slice(appHtml.indexOf(`function ${name}(`), appHtml.indexOf('\n  }\n', appHtml.indexOf(`function ${name}(`)));
+  const rt = fn('rowTitle');
+  assert.ok(rt.indexOf("parts.push('要約なし')") >= 0 && rt.indexOf("parts.push('要約なし')") < rt.indexOf('parts.push(def ? def.label'),
     '要約なしが右側にあり、狭い幅で見切れる');
+  assert.ok(fn('renderResults').includes('rowTitle(p)'), '窓の結果の2行目が rowTitle を使っていない');
 });
 
 test('README が現行の機能名と一致している', () => {
