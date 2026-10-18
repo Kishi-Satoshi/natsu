@@ -7,3 +7,6 @@ src.backup-*/
 
 # Claude Code の作業用 worktree（ツールが作る。リポジトリの内容ではない）
 .claude/
+
+# 作り方の台帳・作り手への指示・点検用の差分（Superpowers の進め方。残す記録は commit だけ）
+.superpowers/

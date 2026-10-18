@@ -80,7 +80,7 @@ function tableRowText(inner) {
   return `${cells[0]}: ${cells.slice(1).join(' / ')}`;
 }
 
-// Markdown → ブロック配列（Notion のブロックモデル相当）
+// Markdown → ブロック配列（見出し・箇条書き・ToDo・段落のブロック）
 function markdownToBlocks(md) {
   const blocks = [];
   let lastRow = null;   // 直前に表の行から作ったブロック（区切り行が来たらヘッダとして捨てる）
