@@ -336,3 +336,54 @@ test('N4b（足した守り）: 記録中に一覧から開いたページは別
   assert.deepStrictEqual(keysOf(l), ['page:pa1'], '破棄した会議の記録中のタブが残った');
   assert.deepStrictEqual(l.errors.map(fmt), []);
 });
+
+// Tab で届く順（偽 DOM には配置が無いので、木の順と tabindex と hidden で数える。正の tabindex を禁じるので木の順＝Tab の順）
+const tabbables = (l) => l.root._walk([]).filter((e) => {
+  for (let n = e; n && n.tagName && !n.tagName.startsWith('#'); n = n.parentNode) {
+    const cls = (n.className || '').split(' ');
+    if (n.hidden || (cls.includes('tab') && !cls.includes('active')) || n.id === 'pMenu' || (n.style && n.style.display === 'none')) return false;
+  }
+  if (e.disabled) return false;
+  const attr = e.getAttribute('tabindex');
+  const ti = e.tabIndex !== undefined ? e.tabIndex : (attr == null ? null : Number(attr));
+  if (ti > 0) throw new Error(`正の tabindex: ${e.id || e.className}`);
+  if (ti === -1) return false;
+  return ['button', 'input', 'select', 'textarea'].includes(e.tagName) || ti === 0 || e.getAttribute('contenteditable') === 'true';
+}).map((e) => e.id || e.dataset.key || e.className);
+
+test('画面の使いやすさ・F12: キーボードだけで、サイドバー → タブの帯 → ページの順に一周できる（正の tabindex を使わない）', async () => {
+  const l = await openPa1();
+  const order = tabbables(l);
+  const at = (k) => order.indexOf(k);
+  for (const k of ['searchBox', 'mtToggleBtn', 'tabBtnDictation', 'tabBtnSettings', 'sideCollapse', 'sideGrip', 'page:pa1', 'pMore', 'pTitle', 'pType', 'paneBtnScript']) assert.ok(at(k) >= 0, `${k} に Tab で届かない`);
+  const want = ['searchBox', 'mtToggleBtn', 'sideGrip', 'page:pa1', 'pMore', 'pTitle', 'pType', 'paneBtnScript'];
+  assert.deepStrictEqual(want.map(at), [...want.map(at)].sort((a, b) => a - b), order.join(' → '));
+  assert.ok(!order.includes('paneBtnNote'), '選んでいない細いタブまで Tab で届く（矢印で移る形にする）');
+});
+
+test('画面の使いやすさ: つまみの Enter は畳む・出すだが、変換確定の Enter（isComposing・229）では何もしない', async () => {
+  const l = await openPa1();
+  const n0 = saves(l).length;
+  for (const ev of [{ isComposing: true }, { keyCode: 229 }]) l.byId.get('sideGrip').dispatchEvent({ type: 'keydown', key: 'Enter', ...ev });
+  await l.drain();
+  assert.strictEqual(saves(l).length, n0, '変換確定の Enter で畳んだ');
+  l.byId.get('sideGrip').dispatchEvent({ type: 'keydown', key: 'Enter' });
+  await l.drain();
+  assert.deepStrictEqual(saves(l).pop(), { sidebar: { width: 260, collapsed: true } });
+});
+
+test('画面の使いやすさ・F12（足した守り）: 選んでいるタブの × にも Tab で届き（ほかのタブの × は届かない）、× で閉じたらフォーカスは隣のタブへ移る', async () => {
+  const l = await open({ uiState: () => ({ sidebar: { width: 260, collapsed: false }, tabs: { open: ['page:pa1', 'dictation', 'settings'], active: 'dictation' } }) });
+  await l.drain();
+  const xs = () => tabs(l).map((t) => t.querySelector('.tx').tabIndex);
+  assert.deepStrictEqual(xs(), [-1, 0, -1]);
+  const order = tabbables(l);
+  assert.strictEqual(order[order.indexOf('dictation') + 1], 'tx', order.join(' → '));
+  const x = tabs(l)[1].querySelector('.tx');
+  x.focus();
+  x.dispatchEvent({ type: 'click' });
+  await l.drain();
+  assert.deepStrictEqual(keysOf(l), ['page:pa1', 'settings']);
+  assert.strictEqual(l.document.activeElement, tabs(l)[1], '× で閉じた後、フォーカスがどこにも無い');
+  assert.deepStrictEqual(xs(), [-1, 0]);
+});

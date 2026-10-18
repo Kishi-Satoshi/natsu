@@ -38,6 +38,9 @@
   .col { flex: 1; min-width: 0; display: flex; flex-direction: column; }
   .topbar { display: flex; align-items: center; gap: 4px; padding: 6px 24px 0; flex: none; min-height: 36px; }
   .tabbar { flex: 1; min-width: 0; display: flex; gap: 2px; }
+  /* 狭い画面（拡大 200%）ではタブを潰さずに帯を横に捲る（第1b回 F11） */
+  #tabbar { overflow-x: auto; overflow-y: hidden; scrollbar-width: thin; }
+  #tabbar .tabitem { flex: none; }
   /* 上のタブ（第1b回 N3）: 開いているページ。選んでいるタブは薄い強調の地、× で閉じる */
   .tabitem { display: flex; align-items: center; gap: 2px; min-width: 0; max-width: 200px; padding: 4px 4px 4px 10px;
     border-radius: 4px 4px 0 0; color: var(--muted); cursor: pointer; font-size: 13px; }
@@ -82,6 +85,10 @@
   button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   /* 一覧の行は div。Tab で辿れるようにしても、既定では今どこにいるか見えない */
   .pitem:focus-visible, .actrow .src:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  /* 第1b回の新しい部品の輪（画面の使いやすさ・F12）。横に捲れる帯の中と幅 6px のつまみは内側に描く（外側は切れる） */
+  #sideCollapse:focus-visible, #sideExpand:focus-visible, #pMore:focus-visible, #pMenu [role="menuitem"]:focus-visible,
+  .ptabs [role="tab"]:focus-visible, #livePauseBtn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .tabitem:focus-visible, .tabitem .tx:focus-visible, #sideGrip:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
   /* 記録中に止めた欄。触れないことが見た目で分かるようにする */
   button.ghost:disabled { opacity: .5; cursor: default; }
   input:disabled, select:disabled, textarea:disabled { opacity: .55; cursor: not-allowed; }
@@ -93,8 +100,10 @@
     background: var(--bg); }
   ::placeholder { color: var(--muted); }
 
-  .card { background: var(--bg); border: 1px solid var(--line);
-    border-radius: 6px; padding: 20px; margin-bottom: 14px; }
+  /* 設定の区画は平ら（第1b回 N5）: 地は持たず、下の線だけで区切る。<h2> は小さい見出し */
+  .card { background: transparent; border: none; border-bottom: 1px solid var(--line);
+    border-radius: 0; padding: 20px 4px; margin-bottom: 0; overflow-wrap: anywhere; }
+  .card:last-child { border-bottom: none; }
   .card h2 { font-size: 12px; font-weight: 700; color: var(--muted); letter-spacing: .1em; margin-bottom: 14px; }
   .field { margin-bottom: 13px; }
   .field label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 5px; }
@@ -152,7 +161,6 @@
   /* 幅のつまみ（右の縁）。ドラッグと ←／→ で幅を変え、Enter で畳む */
   .side-grip { position: absolute; top: 0; right: -3px; width: 6px; height: 100%; cursor: col-resize; background: transparent; z-index: 1; }
   .side-grip:hover, .side-grip:focus-visible { background: var(--tint); }
-  .side-grip:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
   .side .tools { display: flex; gap: 6px; }
   .side .filters { display: flex; gap: 5px; }
   .chip { background: transparent; border: 1px solid var(--line); color: var(--muted);
@@ -325,16 +333,18 @@
 
   /* ---------- 音声入力 ---------- */
   .stats { display: flex; gap: 10px; margin-bottom: 12px; flex-wrap: wrap; }
-  .stat { flex: 1; min-width: 150px; background: var(--bg); border: 1px solid var(--line);
-    border-radius: 6px; padding: 12px 16px; }
+  /* 数の札は平らな枠（第1b回 N5） */
+  .stat { flex: 1; min-width: 150px; background: transparent; border: 1px solid var(--line);
+    border-radius: 4px; padding: 10px 14px; }
   .stat .n { font-size: 19px; font-variant-numeric: tabular-nums; }
   .stat .n small { font-size: 12px; color: var(--muted); margin-left: 2px; }
   .stat .l { font-size: 11px; color: var(--muted); margin-top: 2px; }
   .toolbar { display: flex; gap: 9px; margin-bottom: 13px; align-items: center; }
   .toolbar input { flex: 1; }
-  .entry { background: var(--bg); border: 1px solid var(--line); border-radius: 6px;
-    padding: 12px 16px; margin-bottom: 8px; }
-  .entry .text { line-height: 1.7; white-space: pre-wrap; word-break: break-word; }
+  /* 履歴は線で区切った素の一覧（第1b回 N5） */
+  .entry { background: transparent; border: none; border-bottom: 1px solid var(--line); border-radius: 0;
+    padding: 12px 4px; margin-bottom: 0; }
+  .entry .text { line-height: 1.7; white-space: pre-wrap; word-break: break-word; overflow-wrap: anywhere; }
   .entry .meta { margin-top: 7px; display: flex; align-items: center; gap: 13px; font-size: 12px; color: var(--muted); }
   .entry .meta .sp { flex: 1; }
   .entry .meta button { background: none; border: none; color: var(--muted); font: inherit; font-size: 12px;
@@ -377,6 +387,21 @@
     white-space: pre-wrap; background: var(--hover); border-radius: 4px;
     padding: 10px; max-height: 160px; overflow-y: auto; }
   #updBadge .notes.open { display: block; }
+
+  /* 狭い画面（拡大 200% の 1120×780 = 幅 560 の CSS 画素。第1b回 F11）: 題名と余白を詰め、サイドバーは幅の半分弱まで */
+  @media (max-width: 760px) {
+    .ptitle { font-size: 28px; }
+    main { padding: 6px 10px 10px; }
+    .topbar { padding: 6px 10px 0; }
+    .phead { padding: 8px 12px 0; }
+    .ptabs { padding: 8px 12px 0; }
+    .pbody { padding: 10px 12px 16px; }
+    .side { max-width: 45vw; }
+    .prop .k { width: 96px; }
+    .card { padding: 14px 2px; }
+    .stat { min-width: 120px; }
+    .blk .txt { overflow-wrap: anywhere; }
+  }
 
   @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
   /* ============ ダーク配色 ============
@@ -952,9 +977,17 @@
       const t = document.createElement('span'); t.className = 'tt'; t.textContent = tabLabel(key);
       el.title = tabLabel(key);
       const x = document.createElement('button');
-      x.type = 'button'; x.className = 'tx'; x.textContent = '×'; x.tabIndex = -1;
+      x.type = 'button'; x.className = 'tx'; x.textContent = '×'; x.tabIndex = key === reach ? 0 : -1;   // 選んでいるタブの × だけ Tab で届く
       x.setAttribute('aria-label', 'タブを閉じる');
-      x.onclick = (ev) => { if (ev && typeof ev.stopPropagation === 'function') ev.stopPropagation(); closeTab(key); };
+      x.onclick = (ev) => {
+        if (ev && typeof ev.stopPropagation === 'function') ev.stopPropagation();
+        const hadFocus = document.activeElement === x;
+        closeTab(key);
+        if (!hadFocus) return;
+        // 消えた × にフォーカスを残さない（キーボードで閉じたら、移った先のタブへ）
+        const t = $('tabbar').querySelector('.tabitem.active') || $('tabbar').querySelector('.tabitem');
+        if (t) t.focus();
+      };
       el.append(t);
       if (!(key === 'live' && mtWasActive)) el.append(x);   // 記録中のタブは会議の間は閉じない（戻る道が無くなる）
       el.onclick = () => activateTab(key, { fromBar: true });

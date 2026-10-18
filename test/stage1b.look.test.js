@@ -154,3 +154,24 @@ test('N4: 本文は中央に最大 720px、題名は 40px の太字', () => {
   const t = S.declsFor(rules, '.ptitle', { at: '' });
   assert.deepStrictEqual([t['font-size'], t['font-weight']], ['40px', '700']);
 });
+
+// 計画の .ttab・.ttab .x は、B-3 で作った上のタブの class（.tabitem・その × の .tx）に読み替えた
+test('画面の使いやすさ・F12: 新しい部品のすべてに :focus-visible の輪がある', () => {
+  for (const sel of ['.tabitem:focus-visible', '.tabitem .tx:focus-visible', '#sideGrip:focus-visible', '#sideCollapse:focus-visible', '#sideExpand:focus-visible',
+    '#pMore:focus-visible', '#pMenu [role="menuitem"]:focus-visible', '.ptabs [role="tab"]:focus-visible', '#livePauseBtn:focus-visible']) {
+    const r = rules.find((x) => x.sel.split(',').map((s) => s.trim()).includes(sel));
+    assert.ok(r && r.decls.outline && !/none/.test(r.decls.outline), `${sel} に輪が無い`);
+  }
+});
+
+test('N5: 設定の区画は平ら（地も影も持たない）。音声入力の履歴は線で区切った素の一覧', () => {
+  const card = S.declsFor(rules, '.card', { at: '' });
+  assert.ok(!card.background || /var\(--bg\)|transparent/.test(card.background), card.background);
+  assert.ok(!card['box-shadow'] || card['box-shadow'] === 'none');
+  assert.match(S.declsFor(rules, '.entry', { at: '' })['border-bottom'] || '', /var\(--line\)/);
+});
+
+test('画面の使いやすさ・F11: 狭い画面（200% の 560px）で詰める規則があり、タブの帯は横に捲れる', () => {
+  assert.ok(rules.some((r) => /max-width:\s*760px/.test(r.at) && r.sel.includes('.ptitle')), '狭い画面の規則が無い');
+  assert.strictEqual(S.declsFor(rules, '#tabbar', { at: '' })['overflow-x'], 'auto');
+});
