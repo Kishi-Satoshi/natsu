@@ -2216,6 +2216,13 @@
   // 「閉じる」はこのセッション限り（更新確認は起動時の1回なので状態は持たない）。
   let updDismissed = false;
 
+  // 更新の知らせの形。main（updater.updateNotice）が notice を付けて送る。古い形（notice なし）でも動く
+  function noticeOf(r) {
+    if (r && r.notice && r.notice.action) return r.notice;
+    if (r && r.applyable === false) return { action: 'download', message: 'インストーラー版のため、新しいインストーラーを実行してください。', button: 'ダウンロード' };
+    return { action: 'apply', message: '', button: '更新して再起動' };
+  }
+
   function renderUpdateBadge(r) {
     const el = $('updBadge');
     el.textContent = '';
@@ -2239,13 +2246,14 @@
     const row = document.createElement('div'); row.className = 'row';
     const go = document.createElement('button'); go.className = 'go';
 
-    if (r.applyable === false) {
-      // インストーラー版は src の差し替えでは更新できないので、配布ページへ送る
-      go.textContent = 'ダウンロード';
+    const n = noticeOf(r);
+    if (n.action === 'download') {
+      // 入れ直しが要る版・インストーラー版などは src の差し替えでは更新できないので、配布ページへ送る
+      go.textContent = n.button;
       go.onclick = () => window.koeApp.openReleases();
-      st.textContent = 'インストーラー版のため、新しいインストーラーを実行してください。';
+      st.textContent = n.message;
     } else {
-      go.textContent = '更新して再起動';
+      go.textContent = n.button;
       go.onclick = async () => {
         go.disabled = true;
         st.className = 'st'; st.textContent = '更新中…';
@@ -2259,6 +2267,11 @@
           st.className = 'st ng';
           st.textContent = `✗ ${(res && res.error) || '更新に失敗しました'}`;
           go.disabled = false;
+          if (res && res.reinstall) {
+            // 門が断った（古い版のための最後の守り）。もう当てようとせず、配布ページへ送る
+            go.textContent = 'ダウンロード';
+            go.onclick = () => window.koeApp.openReleases();
+          }
           return;
         }
         st.className = 'st'; st.textContent = '✓ 適用しました。再起動します…';
@@ -2281,16 +2294,18 @@
     pendingUpdate = r;
     renderUpdateBadge(r);
     if (r.notes) { $('updNotes').style.display = ''; $('updNotes').textContent = r.notes; }
-    // インストーラー版はこの方法では更新できない。押せないボタンを出すと
-    // 「押したらエラーが出た」になるので、最初から出さず案内だけ表示する。
-    if (r.applyable === false) {
-      $('applyUpdBtn').style.display = 'none';
-      $('updMsg').textContent = `新しいバージョン ${r.version} があります。`
-        + 'インストーラー版のため、新しいインストーラーを実行して更新してください。';
+    // 入れ直しが要る版・インストーラー版などはこの方法では更新できない。押すと
+    // 「エラーが出た」になる［更新して再起動］は出さず、［ダウンロード］と案内を出す。
+    const n = noticeOf(r);
+    if (n.action === 'download') {
+      $('applyUpdBtn').style.display = '';
+      $('applyUpdBtn').textContent = n.button;
+      $('updMsg').textContent = `新しいバージョン ${r.version} があります。${n.message}`;
       $('updMsg').className = 'save-msg';
       return;
     }
     $('applyUpdBtn').style.display = '';
+    $('applyUpdBtn').textContent = n.button;
     $('updMsg').textContent = `新しいバージョン ${r.version} があります（${Math.max(1, Math.round((r.size||0)/1024))} KB）`;
     $('updMsg').className = 'save-msg ok';
   }
@@ -2307,6 +2322,7 @@
 
   $('applyUpdBtn').onclick = async () => {
     if (!pendingUpdate) return;
+    if (noticeOf(pendingUpdate).action === 'download') { window.koeApp.openReleases(); return; }
     if (!confirm(`バージョン ${pendingUpdate.version} に更新して再起動します。\n記録中の議事録がある場合は先に終了してください。\n\n続行しますか？`)) return;
     const b = $('applyUpdBtn'); b.disabled = true;
     const m = $('updMsg'); m.className = 'save-msg'; m.textContent = '更新中…';
@@ -2319,7 +2335,13 @@
     }
     if (!r || !r.ok) {
       m.textContent = `✗ ${(r && r.error) || '更新に失敗しました'}`;
-      m.className = 'save-msg ng'; b.disabled = false; return;
+      m.className = 'save-msg ng'; b.disabled = false;
+      if (r && r.reinstall) {
+        // 門が断った（古い版のための最後の守り）。次に押したときは配布ページを開く
+        pendingUpdate = { ...pendingUpdate, notice: { action: 'download', message: r.error, button: 'ダウンロード' } };
+        b.textContent = 'ダウンロード';
+      }
+      return;
     }
     m.textContent = '✓ 適用しました。再起動します…'; m.className = 'save-msg ok';
     setTimeout(() => window.koeApp.restart(), 900);

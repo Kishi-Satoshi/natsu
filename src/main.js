@@ -2163,6 +2163,7 @@ function makeTrayIcon(recording) {
 }
 
 // トレイからの更新確認。画面を経由しないので、レンダラーが壊れていても動く。
+// 文とボタンは設定の画面・起動時の告知と同じ（withNotice → updater.updateNotice。第0c回 EL4）
 async function checkUpdateFromTray() {
   const target = updateTarget();
   const r = await updater.check(app.getVersion(), app.getPath('userData'));
@@ -2174,16 +2175,18 @@ async function checkUpdateFromTray() {
     dialog.showMessageBox({ title: APP_TITLE, type: 'info', message: `最新です（${app.getVersion()}）` });
     return;
   }
-  if (!target.ok) {
+  // 入れ直しが要る版・テスト用の取得先・置き場所に書けないときは、当てずに配布ページへ送る
+  const offerDownload = (button, detail) => {
     const pick = dialog.showMessageBoxSync({
-      title: APP_TITLE, type: 'info', buttons: ['配布ページを開く', '閉じる'], defaultId: 0, cancelId: 1,
-      message: `新しいバージョン ${r.version} があります`, detail: target.error || '',
+      title: APP_TITLE, type: 'info', buttons: [button, '閉じる'], defaultId: 0, cancelId: 1,
+      message: `新しいバージョン ${r.version} があります`, detail,
     });
     if (pick === 0) shell.openExternal(`https://github.com/${updater.REPO}/releases/latest`);
-    return;
-  }
+  };
+  const n = withNotice(r).notice;
+  if (n.action === 'download') { offerDownload(n.button, n.message); return; }
   const pick = dialog.showMessageBoxSync({
-    title: APP_TITLE, type: 'question', buttons: ['更新して再起動', 'あとで'], defaultId: 0, cancelId: 1,
+    title: APP_TITLE, type: 'question', buttons: [n.button, 'あとで'], defaultId: 0, cancelId: 1,
     message: `新しいバージョン ${r.version} があります`,
     detail: String(r.notes || '').slice(0, 800),
   });
@@ -2192,7 +2195,11 @@ async function checkUpdateFromTray() {
     dialog.showMessageBox({ title: APP_TITLE, type: 'info', message: '要約を作成中です', detail: '終わってから更新してください' });
     return;
   }
-  const res = await updater.apply(r.url, target.root, app.getPath('userData'), () => {});
+  const res = await updater.apply(r.url, target.root, app.getPath('userData'), () => {}, { sha256: r.sha256 || '' });
+  if (!res.ok && res.reinstall) {   // 門が断った（natsu-update.json の無い古いリリースのための最後の守り）
+    offerDownload('ダウンロード', res.error || '');
+    return;
+  }
   if (!res.ok) {
     dialog.showMessageBox({ title: APP_TITLE, type: 'error', message: '更新に失敗しました', detail: res.error || '' });
     return;
@@ -2285,6 +2292,14 @@ function updateTarget() {
   }
   updateTargetCache = result;
   return result;
+}
+
+// 更新の知らせ（設定の画面・起動時の告知・トレイで同じ文。文は updater.updateNotice の 1 か所。第0c回 EL4）
+const updateSha = new Map();   // zip の URL → natsu-update.json の SHA-256（当てるときに照らす）
+function withNotice(r) {
+  const t = updateTarget();
+  if (r && r.ok && r.url && r.sha256) updateSha.set(r.url, r.sha256);
+  return { ...r, applyable: Boolean(t.ok && !(r && (r.reinstall || r.test))), notice: updater.updateNotice(r, t) };
 }
 
 // ---------------------------------------------------------------- IPC
@@ -2503,15 +2518,15 @@ function setupIpc() {
   ipcMain.handle('app:version', () => ({ version: app.getVersion(), repo: updater.REPO }));
   ipcMain.handle('update:check', async () => {
     const r = await updater.check(app.getVersion(), app.getPath('userData'));
-    // 画面側が「更新して再起動」を出すか「ダウンロード」を出すかの判断に使う
-    return { ...r, applyable: updateTarget().ok };
+    // 画面側が「更新して再起動」を出すか「ダウンロード」を出すかの判断に使う（文とボタンは notice）
+    return withNotice(r);
   });
   ipcMain.handle('update:apply', async (_e, url) => {
     if (isSummarizing()) return { ok: false, error: '要約を作成中です。終わってから更新してください' };
     const t = updateTarget();
     if (!t.ok) return { ok: false, error: t.error };
     return updater.apply(url, t.root, app.getPath('userData'),
-      (msg) => sendToMainWin('update:progress', { message: msg }));
+      (msg) => sendToMainWin('update:progress', { message: msg }), { sha256: updateSha.get(String(url)) || '' });
   });
   ipcMain.handle('app:restart', () => {
     if (isSummarizing()) return { ok: false, error: '要約を作成中です。終わってから再起動してください' };
@@ -2664,7 +2679,7 @@ if (!gotLock) {
     // 起動から少し置いて更新確認。オフラインなら黙って諦める
     setTimeout(async () => {
       const r = await updater.check(app.getVersion(), app.getPath('userData'));
-      if (r.ok && r.update) sendToMainWin('update:available', { ...r, applyable: updateTarget().ok });
+      if (r.ok && r.update) sendToMainWin('update:available', withNotice(r));
     }, 8000);
   });
   app.on('window-all-closed', () => { /* トレイ常駐 */ });

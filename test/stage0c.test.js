@@ -108,3 +108,18 @@ test('EL3: 画面の［選ぶ］ボタンが、それぞれのキーの名前を
     assert.deepStrictEqual(c.args, [kind, key], btn);
   }
 });
+
+// ---------------------------------------------------------------- EL4（main）
+test('EL4: main は3か所（設定・起動時・トレイ）とも updater.updateNotice の文を使い、当てるときに SHA-256 を渡す', () => {
+  const m = code(read('src/main.js'));
+  const wn = fnBody(m, 'function withNotice(r)', '\n}');
+  assert.ok(wn.includes('notice: updater.updateNotice(r, t)'));
+  assert.ok(wn.includes('applyable: Boolean(t.ok && !(r && (r.reinstall || r.test)))'), '入れ直しが要る版・テスト用の取得先で「更新して再起動」を出しうる');
+  assert.match(fnBody(m, "ipcMain.handle('update:check'", '\n  });'), /return withNotice\(r\);/);
+  assert.match(m, /sendToMainWin\('update:available', withNotice\(r\)\)/);
+  const tray = fnBody(m, 'async function checkUpdateFromTray()', '\n}');
+  assert.ok(tray.includes('const n = withNotice(r).notice;'), 'トレイが同じ文を使っていない');
+  assert.ok(tray.includes("if (n.action === 'download')"));
+  assert.ok(tray.includes("sha256: r.sha256 || ''"));
+  assert.ok(fnBody(m, "ipcMain.handle('update:apply'", '\n  });').includes("sha256: updateSha.get(String(url)) || ''"));
+});
