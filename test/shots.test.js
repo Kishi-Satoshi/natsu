@@ -50,7 +50,8 @@ test('F14: 取り直し待ち（RETAKE）の画面は違っても NG にしな�
   assert.strictEqual(SH.exitCodeOf({ shots: ['a'], compare: cmp, retake, perf: [{ name: 'open-2000-blocks', ms: 600, ok: false }] }), 1);
   // Tab の輪の NG は、取り直し待ちでない画面では NG（取り直し待ちの間は骨組みが変わる途中なので参考に出すだけ）
   assert.strictEqual(SH.exitCodeOf({ shots: ['a'], compare: cmp, retake, focus: [{ name: 'notes-page-light', ok: false }] }), 0);
-  assert.strictEqual(SH.exitCodeOf({ shots: ['a'], compare: cmp, retake: new Set(), focus: [{ name: 'notes-page-light', ok: false }] }), 1);
+  // 比べた結果は全部「同じ」にして、Tab の輪の NG だけで 1 になることを見る（違う画面が混ざると、輪を見なくても 1 になる）
+  assert.strictEqual(SH.exitCodeOf({ shots: ['a'], compare: cmp.map((c) => ({ ...c, status: 'same' })), retake: new Set(), focus: [{ name: 'notes-page-light', ok: false }] }), 1);
   assert.strictEqual(SH.exitCodeOf({ shots: ['a'], compare: cmp.map((c) => ({ ...c, status: 'same' })), focus: [{ name: 'notes-page-light', ok: true }], overflow: [{ name: 'notes-page-light', ok: true }] }), 0);
 });
 
@@ -116,6 +117,14 @@ test('F14: 取り直し待ちが残っている間は、版を上げられない
 test('tools/shots/main.js は画面ごとの答え・拡大・はみ出し・Tab を使う', { timeout: 5000 }, () => {
   const m = read('tools/shots/main.js');
   for (const s of ['s.answers', 'setZoomFactor(', 'SH.OVERFLOW_PROBE', 'sendInputEvent(', 'SH.RETAKE']) assert.ok(m.includes(s), s);
+  // つなぎ方そのもの: はみ出し・Tab の輪を終わりの答えに渡す、はみ出しは app の画面で見る、拡大の NG は errors に入れる、拡大と答えを本当に使う
+  for (const s of [
+    'retake: SH.RETAKE, overflow, focus })',
+    'if (!z.ok) errors.push(',
+    'wc.setZoomFactor(zoom)',
+    '...JSON.parse(JSON.stringify(s.answers || {}))',
+  ]) assert.ok(m.includes(s), s);
+  assert.match(m, /if \(s\.page === 'app'\) \{\s*const j = SH\.judgeOverflow\(await within\(o\.wc\.executeJavaScript\(SH\.OVERFLOW_PROBE\)/, 'はみ出しを app の画面で見ていない');
 });
 
 test('G2: 偽の橋の名前は、本物の preload.js から取ったものと同じ（simrun と同じ結果）。見本の答えは、その名前のものだけ', { timeout: 5000 }, () => {
