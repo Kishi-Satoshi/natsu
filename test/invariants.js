@@ -83,6 +83,8 @@ const WIRED = [
   { screen: 'app', id: 'sideGrip', types: ['pointerdown', 'keydown'], 由来: '第1b回 N2: サイドバーの幅のつまみ（ドラッグと ←／→・Enter）。切れると幅を変えられず、キーボードでは畳めない' },
   { screen: 'app', id: 'sideCollapse', types: ['click'], 由来: '第1b回 N2: サイドバーを畳む «' },
   { screen: 'app', id: 'tabbar', types: ['keydown'], 由来: '第1b回 N3: 上のタブの帯の ←／→（タブの中身は B-3）' },
+  { screen: 'app', id: 'claudeLogin', types: ['click'], 由来: '第1b回の続き Lane F: ［Claude Code にログイン］。切れると利用者が PowerShell でログインし直すしかない' },
+  { screen: 'app', id: 'claudeInstall', types: ['click'], 由来: '第1b回の続き Lane F: ［Claude Code を入れる］。切れると入れ方の案内が行き止まりになる' },
   { screen: 'overlay', id: 'stopBtn', types: ['click'], 由来: '録音の停止。押せないと議事録が作れない' },
   { screen: 'overlay', id: 'pauseBtn', types: ['click'], 由来: '一時停止' },
   { screen: 'overlay', id: 'ngBtn', types: ['click'], 由来: 'キャンセル' },
