@@ -857,19 +857,22 @@ function nextSegmentMs(pending, currentMs, baseMs, delta) {
 // 待ちの区間の長さの合計）に掛けて秒で返す。材料が無いうちは null（0 を出すと「もう終わる」
 // に見える）。進行中の区間で既に経過した分は引く。成功した区間だけで学習する（失敗は時間の
 // 目安にならない）。アプリの起動中は持ち越す（次の会議の最初の区間から見積もれる）。
+// 比は経路（'local'・'cloud'。省けば 'local'）ごとに分けて持つ（第1c回: クラウドの速さを手元の whisper の見積もりに混ぜない）。
 class EtaTracker {
-  constructor(alpha) { this.alpha = alpha || 0.3; this.ratio = null; }
-  record(procMs, durationMs) {
+  constructor(alpha) { this.alpha = alpha || 0.3; this.ratios = new Map(); }
+  record(procMs, durationMs, route = 'local') {
     if (!(durationMs > 0) || !(procMs >= 0)) return;
     const r = procMs / durationMs;
-    this.ratio = this.ratio === null ? r : this.ratio + this.alpha * (r - this.ratio);
+    const prev = this.ratios.has(route) ? this.ratios.get(route) : null;
+    this.ratios.set(route, prev === null ? r : prev + this.alpha * (r - prev));
   }
-  etaSec(remainingMs, elapsedMs) {
-    if (this.ratio === null) return null;
+  etaSec(remainingMs, elapsedMs, route = 'local') {
+    const ratio = this.ratios.has(route) ? this.ratios.get(route) : null;
+    if (ratio === null) return null;
     const remain = Math.max(0, Number(remainingMs) || 0);
     const elapsed = Math.max(0, Number(elapsedMs) || 0);
     // ms で丸めてから秒に切り上げる（浮動小数の誤差で 39.0000…01 秒が 40 秒にならないように）
-    return Math.max(0, Math.ceil(Math.round(this.ratio * remain - elapsed) / 1000));
+    return Math.max(0, Math.ceil(Math.round(ratio * remain - elapsed) / 1000));
   }
 }
 

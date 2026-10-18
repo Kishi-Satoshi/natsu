@@ -78,7 +78,7 @@
 //   偽の Electron の net.request は、いつも https://api.anthropic.com/ を偽の送り先の /anthropic へ書き換え（--stt のときだけ。
 //   ほかの外の宛先は書き換えず fake-net が死ぬ: 試験が外へ出たら赤）。Tray の displayBalloon は out.balloons に残す。
 //   --stt のときの出力に足すもの: stt（偽の送り先の要求の一覧）・pages[].route・balloons・secretsRaw（secrets.json の中身）・
-//   recoveryKept（segbuf の下に recovery.json と WAV が残っているか）。--recover と組むと、復旧が済むか止まるのを待って同じ形で出す
+//   recoveryKept（segbuf の下に recovery.json と WAV が残っているか）・decrypts（偽の safeStorage で鍵を復号した回数）。--recover と組むと、復旧が済むか止まるのを待って同じ形で出す
 // 画面へ送った知らせと進み具合は、送った順に out.seq へ残す。進み具合が初めて「使える」（whisperReady・sumReady）と
 // 言ったときの engine:status を out.atReady に、壊れた知らせを送ったときの engine:status を out.atBroken に残す
 // （画面はその知らせでエンジンの状態を聞き直すので、そのとき main の答えがもう新しいこと: 第0b回 Task 14・15）
@@ -468,12 +468,15 @@ process.on('exit', () => {
   class FakeTray {
     constructor() { return withFallback(makeEmitter({ displayBalloon: (o) => { balloons.push(String((o && o.content) || '')); } })); }
   }
-  // 偽の safeStorage（secrets.test.js の偽物と同じ形。暗号の代わりに印を付けた hex）
+  // 偽の safeStorage（secrets.test.js の偽物と同じ形。暗号の代わりに印を付けた hex）。復号の回数は out.decrypts に残す
+  // （同意が ask・［PC の中だけ］では鍵を復号しない。Linux・macOS では復号でキーリングの確かめが出ることがある）
+  let decrypts = 0;
   const safeStorage = {
     isAsyncEncryptionAvailable: async () => true,
     getSelectedStorageBackend: () => 'gnome_libsecret',
     encryptStringAsync: async (str) => fakeEnc(str),
     decryptStringAsync: async (b) => {
+      decrypts += 1;
       if (keyUnreadable) throw Object.assign(new Error('safeStorage: 一時的に使えない（試験）'), { code: 'ERR_TEST_UNAVAILABLE' });
       return { result: Buffer.from(String(b).slice(5), 'hex').toString('utf8'), shouldReEncrypt: false };
     },
@@ -747,6 +750,7 @@ process.on('exit', () => {
     if (!fakeStt) return;
     out.stt = fakeStt.requests.slice();
     out.balloons = balloons.slice();
+    out.decrypts = decrypts;
     const sec = readUser('secrets.json');
     out.secretsRaw = sec ? sec.toString('utf8') : null;
     const left = segbufLeft();

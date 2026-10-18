@@ -1043,8 +1043,10 @@ test('#42(4) 残り時間の見積もり（etaSec）と打ち切った数（skip
   const etaFn = fnBody(m, 'function etaSecOf(m)', '\n}');
   assert.ok(etaFn.includes('pendingDurationMs(m.segments)'), '残りの待ちを区間の長さから数えていない');
   assert.ok(etaFn.includes('m.inFlightSince'), '進行中の区間で経過した分を引いていない');
+  assert.ok(etaFn.includes('m.etaRoute'), '見積もりに、この会議で最後に使った経路の比を使っていない（第1c回）');
   const on = fnBody(m, 'function onMeetingSegment(', '\nasync function maybeFinalizeMeeting');
-  assert.ok(on.includes('eta.record(Date.now() - t0, durationMs)'), '成功した区間で学習していない');
+  assert.ok(on.includes('eta.record(Date.now() - t0, durationMs, route)'), '成功した区間で、経路ごとに学習していない（第1c回: クラウドの速さを手元の見積もりに混ぜない）');
+  assert.ok(on.includes('m.etaRoute = route'), '最後に使った経路を会議に残していない');
   assert.ok(on.indexOf('eta.record(') > on.indexOf('} catch (e) {'), '失敗した区間まで学習している');
   assert.ok(on.includes('m.inFlightSince = t0') && on.includes('m.inFlightSince = 0'), '進行中の区間の開始時刻を持って・戻していない');
 });

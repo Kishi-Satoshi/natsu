@@ -1342,7 +1342,8 @@ function setMeetingLocalOnly(on) {
 // 会議の始めに経路を1回聞き、クラウドなら M1（トレイの知らせと画面）。同意前（M2）・鍵が無い（M3）・届かない（M4・M5）は sttRoute が出す
 function announceSttRoute(m) {
   sttRoute(Boolean(m.localOnly), { scope: m }).then((r) => {
-    if (r.route !== 'cloud') return;
+    // 確かめの返事（最大 3 秒）を待つ間に［PC の中だけ］が押された・会議が終わったなら、送ると知らせない
+    if (r.route !== 'cloud' || m.localOnly || meeting !== m) return;
     const text = STT_NOTICE.cloud(r.provider);
     if (!noticeOnce(m, 'cloud', text)) return;
     try { if (tray && typeof tray.displayBalloon === 'function') tray.displayBalloon({ title: APP_TITLE, content: text }); } catch (_) { /* Windows の外には無い */ }
@@ -1904,12 +1905,12 @@ function applyBackpressure(m, delta) {
 
 // 残りの待ち時間（秒）。待ちの区間の長さの合計に、区間ごとの処理時間の比（EMA。
 // mainlib.EtaTracker）を掛ける。進行中の区間で既に経過した分は引く。待ちが無ければ null。
-// 比はアプリの起動中は持ち越す（次の会議の最初の区間から見積もれる）
+// 比はアプリの起動中は持ち越す（次の会議の最初の区間から見積もれる）。比は経路ごとで、この会議で最後に文字起こしできた経路（m.etaRoute）の比を使う
 const eta = new EtaTracker();
 function etaSecOf(m) {
   const remain = pendingDurationMs(m.segments);
   if (remain <= 0) return null;
-  return eta.etaSec(remain, m.inFlightSince ? Date.now() - m.inFlightSince : 0);
+  return eta.etaSec(remain, m.inFlightSince ? Date.now() - m.inFlightSince : 0, m.etaRoute || 'local');
 }
 
 // ---------------------------------------------------------------- 議事録
@@ -2411,7 +2412,8 @@ function onMeetingSegment(buffer, durationMs, isFinal) {
     if (meeting !== m || m.gen !== gen) return;
     m.inFlightSince = 0;
     m.route[route] += 1;   // 経路ごとの、文字起こしできた区間の数（ページの route.stt。第1c回 OL6）
-    eta.record(Date.now() - t0, durationMs);   // 成功した区間だけで学習（失敗は時間の目安にならない）
+    eta.record(Date.now() - t0, durationMs, route);   // 成功した区間だけで、経路ごとに学習（失敗は時間の目安にならない。クラウドの速さを手元の見積もりに混ぜない）
+    m.etaRoute = route;
     if (route === 'local') { const sp = speedLine('whisper', { audioMs: durationMs, procMs: Date.now() - t0 }); if (sp) engineLog(sp); }   // 実際の速さを残す（第0b回 Task 16）
     if (settings.removeFillers) text = removeFillersRule(text);
     // 空・直前と同じ（繰り返しハルシネーション）は区間ごと消す

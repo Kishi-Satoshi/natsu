@@ -50,11 +50,15 @@ test('RF28: 同意をまだ決めていない・［この会議は PC の中だ�
   assert.strictEqual(a.stt.length, 0);
   assert.ok(a.notices.some((n) => /オンラインの文字起こしを使うかを、設定の「オンライン」で選んでください/.test(n)));
   assert.strictEqual(a.notices.filter((n) => /オンラインの文字起こしを使うか/.test(n)).length, 1, '同じ案内を区間ごとに出した');
+  assert.strictEqual(a.decrypts, 0, '同意が ask なのに鍵を復号した（要らない復号。キーリングの確かめが出ることがある）');
   const l = await run(['text', '--stt=text', '--local-only', '--segs=2']);
   assert.strictEqual(l.stt.filter((r) => r.path.endsWith('/audio/transcriptions')).length, 0);
   assert.deepStrictEqual(l.pages[0].route.stt, { cloud: 0, local: 2, provider: 'custom' });
   assert.strictEqual(l.draftLocalOnly, true, '［PC の中だけ］を下書きに書いていない（落ちて復旧すると送り直しがクラウドへ行く）');
   assert.strictEqual(l.pages[0].route.localOnly, true);
+  assert.ok(l.engineLog.some((x) => /区間 s1 → local（理由: local-only）/.test(x)), '［PC の中だけ］の区間の理由が local-only でない');
+  assert.ok(!l.notices.some((n) => /鍵が入っていないため/.test(n)), '［PC の中だけ］なのに、鍵が無いと知らせた');
+  assert.ok(!l.notices.concat(l.balloons).some((n) => /この会議の音声は .* に送って文字起こしします/.test(n)), '［PC の中だけ］を押した後に、クラウドへ送ると知らせた（M1）');
 });
 
 test('RF27: 送っている途中で切れた区間だけ手元でやり直し、次の区間はクラウドに戻る', { timeout: 20000 }, async () => {

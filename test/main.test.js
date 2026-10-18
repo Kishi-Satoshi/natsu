@@ -860,6 +860,16 @@ test('EtaTracker: 区間ごとの処理時間/音声長の EMA から、残り�
   assert.strictEqual(eta.etaSec(0), 0);
 });
 
+test('EtaTracker: 経路（local・cloud）ごとに比を分けて持つ。クラウドの速さが手元の whisper の見積もりに混ざらない（第1c回）', () => {
+  const eta = new EtaTracker(0.3);
+  eta.record(30000, 75000);                   // 経路を書かなければ local（比 0.4）
+  eta.record(3750, 75000, 'cloud');           // クラウド（比 0.05）
+  assert.strictEqual(eta.etaSec(150000), 60, 'クラウドの区間で手元の比が変わった');
+  assert.strictEqual(eta.etaSec(150000, 0, 'local'), 60);
+  assert.strictEqual(eta.etaSec(150000, 0, 'cloud'), 8);
+  assert.strictEqual(new EtaTracker().etaSec(150000, 0, 'cloud'), null, 'その経路の材料が無いうちは null');
+});
+
 // ---------------------------------------------------------------- #42 打ち切り
 test('skipPendingSegments: 待ちの区間を全部「打ち切り」の失敗扱いにし、消すべき wav と件数を返す', () => {
   // 終了後の待ちが長すぎるとき、利用者は「ここまでで作る」を選べる。打ち切った区間は
