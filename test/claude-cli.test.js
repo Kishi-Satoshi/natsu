@@ -250,3 +250,29 @@ test('F11: stdout が 5MB を越えたら読むのを止めて子を止め、bad
   assert.strictEqual(f.pids.length, 1);
   assert.throws(() => process.kill(f.pids[0], 0), '5MB を越えた後も子が生きている（止めていない）');
 });
+
+// ---- 第1b回の続き Lane F-b: ［Claude Code を確かめる］の小さな本当の要求（auth status だけでは鍵の切れが分からない） ----
+test('Lane F-b: 確かめの要求は決まった1語の -p で、要約と同じ守りの引数（--safe-mode・道具なし・MCP なし・会話を保存しない・聞かずに断る）。役割の文は渡さず、1手で終える', () => {
+  const a = K.pingArgs();
+  assert.deepStrictEqual(a, ['-p', 'ping', '--output-format', 'json', '--no-session-persistence', '--safe-mode',
+    '--tools', '', '--disallowedTools', 'mcp__*', '--strict-mcp-config', '--permission-mode', 'dontAsk', '--disable-slash-commands', '--max-turns', '1', '--model', 'sonnet']);
+  assert.strictEqual(K.PING_ASK, 'ping');
+  assert.ok(!a.includes('--bare') && !a.includes('--system-prompt'));
+  assert.ok(K.PING_TIMEOUT_MS >= 15000 && K.PING_TIMEOUT_MS <= 90000, `確かめの時間切れが短くない: ${K.PING_TIMEOUT_MS}`);
+});
+
+test('Lane F-b: 確かめの要求を偽の claude で通す。成功は { ok: true }（返事の文は持たない）、401 はログイン切れ、時間切れは止めて timeout。標準入力は空、課金の変数は渡らない', { timeout: 20000 }, async () => {
+  const f = withFake('ok');
+  assert.deepStrictEqual(await K.claudePing(f), { ok: true });
+  const p = f.lines().find((l) => l.kind === 'p');
+  assert.deepStrictEqual(p.args, K.pingArgs());
+  assert.strictEqual(p.stdinBytes, 0);
+  assert.deepStrictEqual(p.envKeys, []);
+  assert.strictEqual(fs.realpathSync(p.cwd), fs.realpathSync(f.cwd));
+  assert.deepStrictEqual(await K.claudePing(withFake('expired401')), { ok: false, code: 'auth-expired', resetAt: '', subtype: 'success', apiStatus: 401 });
+  assert.deepStrictEqual(await K.claudePing(withFake('limit')), { ok: false, code: 'limit', resetAt: '3:45pm', subtype: 'success' });
+  const slow = withFake('slow', { FAKE_CLAUDE_DELAY: '10000' });
+  assert.deepStrictEqual(await K.claudePing({ ...slow, timeoutMs: 300 }), { ok: false, code: 'timeout', resetAt: '' });
+  assert.throws(() => process.kill(slow.pids[0], 0), '時間切れの後も確かめの子が生きている');
+  assert.deepStrictEqual(await K.claudePing({ ...f, cmd: path.join(tmp(), 'no-such-claude'), preArgs: [] }), { ok: false, code: 'not-found', resetAt: '' });
+});

@@ -3200,6 +3200,7 @@
   // Claude Code の状態は auth status だけ（claudeStatus。要約の -p は呼ばない）
   const KEY_STATE = { saved: '保存済み', none: '未設定', cannot: 'この PC では鍵をしまえません' };
   const CLAUDE_OK = 'ログイン済み（claude.ai）';
+  const CLAUDE_VERIFIED = 'ログイン済み（確かめ済み）';   // ［Claude Code を確かめる］で小さな要求まで通った（第1b回の続き Lane F-b）
   function showCustomFields() {
     const custom = $('sttProvider').value === 'custom';
     $('sttBaseUrl').closest('.field').hidden = !custom;
@@ -3232,7 +3233,7 @@
   function renderClaude(s) {
     const el = $('claudeState');
     const ok = Boolean(s && s.ok && s.found && s.method === 'claude.ai' && !s.message);
-    el.textContent = ok ? CLAUDE_OK : ((s && typeof s.message === 'string' && s.message) || 'Claude Code の状態を読めませんでした');
+    el.textContent = ok ? (s.verified === true ? CLAUDE_VERIFIED : CLAUDE_OK) : ((s && typeof s.message === 'string' && s.message) || 'Claude Code の状態を読めませんでした');
     el.className = ok ? 'eng-state ok' : 'eng-state ng';
   }
   async function refreshClaude() {
@@ -3267,7 +3268,7 @@
     await refreshCloud();
   };
   $('claudeTest').onclick = async () => {
-    $('claudeState').textContent = '確かめています…';
+    $('claudeState').textContent = '確かめています…（Claude に短い要求を1つ送ります）';
     $('claudeState').className = 'eng-state';
     let s = null;
     try { s = await window.koeApp.claudeTest(); } catch (_) { s = null; }

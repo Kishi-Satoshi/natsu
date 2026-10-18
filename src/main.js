@@ -3378,9 +3378,14 @@ function setupIpc() {
       : `${p.label}: ${keyText(r.code)}`;
     return { ok: false, code: r.code, message };
   });
-  // Claude Code の状態（auth status だけ。-p は呼ばない）。同時に押されても子は1つだけ起こす
-  // 設定の画面の文は、要約の失敗の文（claudeMessage。「［要約を生成］を押してください」で終わる）とは分ける
+  // Claude Code の状態（claude:status は auth status だけ。-p は呼ばない）。同時に押されても子は1つだけ起こす。
+  // ［Claude Code を確かめる］（claude:test）は、その後に確かめの小さな -p を1つ送る（第1b回の続き Lane F-b。auth status は
+  // OAuth の鍵が切れても claude.ai と答える）。設定の画面の文は、要約の失敗の文（claudeMessage。「［要約を生成］を押してください」で終わる）とは分ける
   const CLAUDE_STATUS_TEXT = {
+    'auth-expired': claudeCli.claudeMessage({ code: 'auth-expired' }),
+    overloaded: 'Claude が混み合っています（ログインはできています）。少し待ってから［Claude Code を確かめる］を押してください。',
+    timeout: `Claude Code が ${Math.round(claudeCli.PING_TIMEOUT_MS / 1000)} 秒たっても返事をしませんでした。少し待ってから［Claude Code を確かめる］を押してください。`,
+    account: claudeCli.claudeMessage({ code: 'account' }),
     'not-found': `Claude Code が見つかりません。PowerShell で \`${claudeCli.INSTALL_CMD}\` を実行して入れ、ターミナルで \`claude\` を一度起動してログインしてください。`,
     'cmd-only': `Claude Code が \`claude.cmd\` の形（npm 版など）でしか見つからないため、NaTsu から呼べません。PowerShell で \`${claudeCli.INSTALL_CMD}\` を実行して入れ直すか、下の「Claude Code の場所」に \`claude.exe\` を指定してください。`,
     'not-logged-in': 'Claude Code にログインしていないか、ログインが切れています。ターミナルで `claude` を起動してログインしてください。',
@@ -3389,6 +3394,11 @@ function setupIpc() {
     other: 'Claude Code の状態を確かめられませんでした。少し待ってから［Claude Code を確かめる］を押してください。続くときは、理由の記録を見てください。理由の記録: %APPDATA%\\natsu\\engine.log',
   };
   const claudeStatusText = (code) => CLAUDE_STATUS_TEXT[Object.prototype.hasOwnProperty.call(CLAUDE_STATUS_TEXT, code) ? code : 'other'];
+  // 上限はリセットの時刻を添える（確かめの要求が上限で断られても、ログインはできている）
+  const claudeLimitText = (r) => {
+    const at = r && typeof r.resetAt === 'string' ? r.resetAt.trim().slice(0, 40) : '';
+    return `Claude の利用の上限に達しています${at ? `（${at} に戻ります）` : ''}。ログインはできています。戻ってから議事録の要約を作れます。`;
+  };
   let claudeChecking = null;
   async function claudeStatusNow() {
     const f = claudeCli.findClaude({ configured: settings.claudeExe });
@@ -3411,8 +3421,26 @@ function setupIpc() {
     if (!claudeChecking) claudeChecking = claudeStatusNow().finally(() => { claudeChecking = null; });
     return claudeChecking;
   };
+  let claudeTesting = null;
+  async function claudeTestNow() {
+    const s = await claudeStatus();
+    if (!(s.found && s.method === 'claude.ai' && !s.message)) return s;   // auth status が通らなければ -p は送らない
+    const f = claudeCli.findClaude({ configured: settings.claudeExe });
+    if (!f.ok) return s;
+    let cwd;
+    try { cwd = claudeRunDir(); } catch (_) { cwd = path.join(app.getPath('userData'), 'claude-run'); }
+    const r = await claudeCli.claudePing({ cmd: f.cmd, spawn, cwd });
+    engineLog(`Claude Code の確かめの要求: ${claudeCli.runWhy(r)}`);   // 符号・副型・状態の番号だけ
+    if (r.ok) return { ...s, verified: true };
+    if (r.code === 'not-found') return { ...s, found: false, message: claudeStatusText('not-found') };
+    return { ...s, message: r.code === 'limit' ? claudeLimitText(r) : claudeStatusText(r.code) };
+  }
+  const claudeTest = () => {
+    if (!claudeTesting) claudeTesting = claudeTestNow().finally(() => { claudeTesting = null; });
+    return claudeTesting;
+  };
   ipcMain.handle('claude:status', () => claudeStatus());
-  ipcMain.handle('claude:test', () => claudeStatus());
+  ipcMain.handle('claude:test', () => claudeTest());
   // ［この会議は PC の中だけ］は片道（会議中の true だけを受け取る。false で送る側に戻さない: RF28・C-3）。
   // 会議の外・false は何も変えず、今の印を同じ形 { ok, localOnly } で返す
   // ページの［一時停止］（第1b回 N4c）。on は true か false だけ（ほかは何も流さない）

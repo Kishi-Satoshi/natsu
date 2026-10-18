@@ -85,13 +85,24 @@ test('RF28: ［この会議は PC の中だけ］の IPC は片道。会議中�
   assert.deepStrictEqual(o.discard, { ok: true });
 });
 
-test('OL5・RF25・RF31: 設定の［Claude Code を確かめる］を偽の claude で通す。claude.ai なら ok、未ログイン・API キー・起こせない・分からない答えは設定の画面の文。-p は呼ばず、課金の変数は子に渡らず、作業フォルダは claude-run。同時に押しても子は1つ', { timeout: 30000 }, async () => {
+test('OL5・RF25・RF31: 設定の［Claude Code を確かめる］を偽の claude で通す。claude.ai なら ok、未ログイン・API キー・起こせない・分からない答えは設定の画面の文。-p は確かめの1語だけ（第1b回の続き Lane F-b）、課金の変数は子に渡らず、作業フォルダは claude-run。同時に押しても子は1つ', { timeout: 30000 }, async () => {
   const o = await run(['text', '--json-scene=claude-status']);
   assert.deepStrictEqual(o.ok, { ok: true, found: true, cmdOnly: false, method: 'claude.ai', message: '' });
-  // 同時に2回押しても auth status は1回だけ（答えは同じもの）
-  assert.deepStrictEqual(o.both[0], o.both[1]);
-  assert.strictEqual(o.both[0].found, true);
-  assert.strictEqual(o.authAfterBoth - o.authBeforeBoth, 1, '同時に押して子を2つ起こした');
+  // 開いたときの確かめと［Claude Code を確かめる］が重なっても auth status は1回だけ（同じ答えを使う）。
+  // 第1b回の続き Lane F-b: ［確かめる］はその後に小さな -p を1つ送り、通れば verified（開いたときの確かめは送らない）
+  assert.deepStrictEqual(o.both[0], { ok: true, found: true, cmdOnly: false, method: 'claude.ai', message: '' });
+  assert.deepStrictEqual(o.both[1], { ok: true, found: true, cmdOnly: false, method: 'claude.ai', message: '', verified: true });
+  assert.strictEqual(o.authAfterBoth - o.authBeforeBoth, 2, '重ねて押して auth status を2つ起こしたか、確かめの -p を送っていない');
+  // ［確かめる］を同時に2回押しても、auth status と -p の1つずつ
+  assert.deepStrictEqual(o.twice[0], o.twice[1]);
+  assert.strictEqual(o.twice[0].verified, true);
+  assert.strictEqual(o.linesAfterTwice - o.linesBeforeTwice, 2, '同時に押して子を2組起こした');
+  // 利用者の PC の 0.5.0 の形: auth status は claude.ai なのに、-p は 401。開いたときの確かめは今どおり「ログイン済み」、
+  // ［確かめる］はログインの案内（設定の画面の文。要約の失敗の文ではない）
+  assert.deepStrictEqual(o.expiredStatus, { ok: true, found: true, cmdOnly: false, method: 'claude.ai', message: '' });
+  assert.deepStrictEqual(o.expired, { ok: true, found: true, cmdOnly: false, method: 'claude.ai', message: 'Claude Code のログインが切れています。設定の［Claude Code にログイン］を押してください。' });
+  assert.match(o.limited.message, /^Claude の利用の上限に達しています（3:45pm に戻ります）。/);
+  assert.ok(!('verified' in o.limited) && !('verified' in o.expired));
   const settingsText = (r) => {
     assert.ok(typeof r.message === 'string' && r.message.length > 10, `文が無い: ${JSON.stringify(r)}`);
     assert.ok(!/要約を生成|要約を作れませんでした/.test(r.message), `設定の画面に要約の失敗の文が出る: ${r.message}`);
@@ -111,13 +122,22 @@ test('OL5・RF25・RF31: 設定の［Claude Code を確かめる］を偽の cla
   assert.ok(!o.noexec.message.includes('場所を空にすると'), `ファイルがあるのに場所の欄の添え書きが出た: ${o.noexec.message}`);
   settingsText(o.noexec);
   // claude.cmd の場所は設定の決まり（exe）で空になる（F12）ので、ここでは試さない（findClaude の cmd-only は claude-cli.test.js が見る）
-  // 偽の claude の記録: auth status だけ（-p は無い）・課金の変数は無い・作業フォルダは claude-run
+  // 偽の claude の記録: auth status と、確かめの -p（決まった1語・標準入力は空。要約の -p は無い）だけ。課金の変数は無い・作業フォルダは claude-run
   assert.ok(o.claudeLog.length >= 4, `auth status の記録が足りない: ${o.claudeLog.length}`);
   for (const r of o.claudeLog) {
-    assert.strictEqual(r.kind, 'auth');
+    assert.ok(r.kind === 'auth' || r.kind === 'p', r.kind);
+    if (r.kind === 'p') {
+      assert.deepStrictEqual(r.args.slice(0, 2), ['-p', 'ping'], '確かめのほかの -p を呼んだ');
+      assert.strictEqual(r.stdinBytes, 0);
+    }
     assert.deepStrictEqual(r.envKeys, [], `課金の変数が子に渡った: ${r.envKeys}`);
-    assert.strictEqual(r.cwd, 'claude-run');
+    assert.strictEqual(path.basename(r.cwd), 'claude-run');
   }
+  // -p は auth status が claude.ai のときだけ（both・twice・expired・limited の4回。未ログイン・API キー・分からない答えでは送らない）
+  assert.strictEqual(o.claudeLog.filter((r) => r.kind === 'p').length, 4);
   assert.ok(o.engineLog.some((l) => l.includes('Claude Code の確かめ: ok（claude.ai）')));
   assert.ok(o.engineLog.some((l) => l.includes('Claude Code の確かめ: api-billing')));
+  assert.ok(o.engineLog.includes('Claude Code の確かめの要求: ok'), o.engineLog.join('\n'));
+  assert.ok(o.engineLog.includes('Claude Code の確かめの要求: auth-expired（subtype=success・api_error_status=401）'));
+  assert.ok(!o.engineLog.some((l) => /OAuth|authenticate|hit your/i.test(l)), '返事の英語の文が記録に写った');
 });

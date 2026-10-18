@@ -5,7 +5,7 @@
  * 子のプロセスで呼んで作る（claude -p。文字起こしは標準入力）。NaTsu は claude を
  * 同梱しない・改変しない・~/.claude/.credentials.json を読まない・ログインを出さない。
  * ここは子のプロセスを起こさない純粋な部分（探す・環境・引数・結果の分け方・文）。
- * Electron を読まない。子を起こすのは claudeAuthStatus・claudeSummarize だけ（B-2。spawn を引数で受ける）。
+ * Electron を読まない。子を起こすのは claudeAuthStatus・claudeSummarize・claudePing だけ（B-2。spawn を引数で受ける）。
  *
  * 資料（2026-10-18 に読んだ）:
  *   https://code.claude.com/docs/en/headless            （-p・--output-format json・--bare は ~/.claude を読まない代わりに OAuth も読まない）
@@ -45,6 +45,10 @@ const ERR_MAX = 64 * 1024;              // stderr は分け方に要るだけ
 const KILL_WAIT_MS = 2000;              // 止めた後、close が来なくてもここで返す
 const CLAUDE_MODEL = 'sonnet';          // 設計書 C8
 const ASK = '標準入力の指示に従い、会議の文字起こしから議事録を作成してください。本文だけを出力してください。';
+// ［Claude Code を確かめる］の小さな本当の要求（第1b回の続き Lane F-b）。auth status は OAuth の鍵が切れても claude.ai と答えるので、
+// 決まった1語を -p で1回だけ送って確かめる（各自のプランの上限をほんの少し使う。文字起こしは送らない）
+const PING_ASK = 'ping';
+const PING_TIMEOUT_MS = 60 * 1000;
 const INSTALL_CMD = 'irm https://claude.ai/install.ps1 | iex';
 
 const WRAPPER_EXT = new Set(['.cmd', '.bat', '.ps1']);
@@ -108,6 +112,15 @@ function summaryArgs(systemPrompt, { model = CLAUDE_MODEL } = {}) {
   return ['-p', ASK, '--output-format', 'json', '--no-session-persistence', '--safe-mode', '--system-prompt', String(systemPrompt),
     '--tools', '', '--disallowedTools', 'mcp__*', '--strict-mcp-config', '--permission-mode', 'dontAsk',
     '--disable-slash-commands', '--max-turns', '3', '--model', model];
+}
+
+// 確かめの要求の引数: 要約と同じ守りの引数（summaryArgs から作る）で、指示は決まった1語、役割の文は渡さず、1手で終える
+function pingArgs() {
+  const a = summaryArgs('');
+  a[a.indexOf(ASK)] = PING_ASK;
+  a.splice(a.indexOf('--system-prompt'), 2);
+  a[a.indexOf('--max-turns') + 1] = '1';
+  return a;
 }
 
 function authArgs() {
@@ -290,6 +303,16 @@ async function claudeSummarize({ cmd, preArgs = [], spawn = cp.spawn, env = proc
   return classifyRun(r);
 }
 
+// 確かめの要求を1つ送る → { ok: true } | { ok: false, code, … }。成功しても返事の文は持たない（画面にも記録にも出さない）
+async function claudePing({ cmd, preArgs = [], spawn = cp.spawn, env = process.env, cwd, timeoutMs = PING_TIMEOUT_MS } = {}) {
+  const r = await runChild({ cmd, args: [...preArgs, ...pingArgs()], spawn, env, cwd, input: '', timeoutMs });
+  if (r.spawnError) return fail('not-found');
+  if (r.timedOut) return fail('timeout');
+  if (r.tooBig) return fail('bad-reply');
+  const c = classifyRun(r);
+  return c.ok ? { ok: true } : c;
+}
+
 const RETRY = '［要約を生成］を押してください。';
 const MESSAGES = {
   'auth-expired': 'Claude Code のログインが切れています。設定の［Claude Code にログイン］を押してください。',
@@ -317,7 +340,7 @@ function claudeMessage(r) {
 }
 
 module.exports = {
-  STRIP_EXACT, STRIP_PREFIXES, STDIN_MAX, RUN_TIMEOUT_MS, AUTH_TIMEOUT_MS, CLAUDE_MODEL, ASK, INSTALL_CMD,
-  findClaude, childEnv, summaryArgs, authArgs, parseAuthStatus, classifyRun, claudeMessage, runWhy,
-  claudeAuthStatus, claudeSummarize,
+  STRIP_EXACT, STRIP_PREFIXES, STDIN_MAX, RUN_TIMEOUT_MS, AUTH_TIMEOUT_MS, CLAUDE_MODEL, ASK, INSTALL_CMD, PING_ASK, PING_TIMEOUT_MS,
+  findClaude, childEnv, summaryArgs, pingArgs, authArgs, parseAuthStatus, classifyRun, claudeMessage, runWhy,
+  claudeAuthStatus, claudeSummarize, claudePing,
 };

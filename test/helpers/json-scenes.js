@@ -319,10 +319,21 @@ module.exports = {
       const lines = () => (fs.existsSync(logFile) ? fs.readFileSync(logFile, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l)) : []);
       const o = c.out;
       process.env.FAKE_CLAUDE_AUTH = 'claude.ai';
+      process.env.FAKE_CLAUDE_MODE = 'ok';
       o.ok = await h('claude:status');
       o.authBeforeBoth = lines().length;
       o.both = await Promise.all([h('claude:status'), h('claude:test')]);
       o.authAfterBoth = lines().length;
+      // 第1b回の続き Lane F-b: ［Claude Code を確かめる］は auth status の後に小さな -p を1つ送る。同時に2回押しても子は auth と -p の1つずつ
+      o.linesBeforeTwice = lines().length;
+      o.twice = await Promise.all([h('claude:test'), h('claude:test')]);
+      o.linesAfterTwice = lines().length;
+      process.env.FAKE_CLAUDE_MODE = 'expired401';   // 利用者の PC の 0.5.0: auth status は claude.ai、-p だけが 401
+      o.expiredStatus = await h('claude:status');
+      o.expired = await h('claude:test');
+      process.env.FAKE_CLAUDE_MODE = 'limit';
+      o.limited = await h('claude:test');
+      process.env.FAKE_CLAUDE_MODE = 'ok';
       process.env.FAKE_CLAUDE_AUTH = 'none';
       o.notLogged = await h('claude:test');
       process.env.FAKE_CLAUDE_AUTH = 'api_key';

@@ -131,6 +131,33 @@ test('OL5: ［Claude Code を確かめる］で読み直し、ログイン済み
   assert.ok(l.apis.koeApp.includes('claudeTest') && !l.apis.koeApp.some((k) => /^claude(Run|Summar)/i.test(k)), '画面から Claude Code の要約を呼べる口がある');
 });
 
+// 第1b回の続き Lane F-b: ［Claude Code を確かめる］は auth status の後に小さな本当の要求を1つ送る（main の claude:test）。
+// 通れば「ログイン済み（確かめ済み）」、開いたときの自動の確かめ（claudeStatus。要求は送らない）は今の「ログイン済み（claude.ai）」のまま
+test('Lane F-b: ［Claude Code を確かめる］で要求まで通れば「ログイン済み（確かめ済み）」、ログインが切れていれば main の文', async () => {
+  let answer = { ok: true, found: true, cmdOnly: false, method: 'claude.ai', message: '', verified: true };
+  const l = await load(APP, { returns: {
+    cloudStatus: () => status(),
+    claudeStatus: () => ({ ok: true, found: true, cmdOnly: false, method: 'claude.ai', message: '' }),
+    claudeTest: () => answer,
+  } });
+  await l.drain();
+  assert.strictEqual(l.byId.get('claudeState').textContent, 'ログイン済み（claude.ai）');
+  l.byId.get('claudeTest').dispatchEvent({ type: 'click' });
+  await l.drain();
+  assert.strictEqual(l.byId.get('claudeState').textContent, 'ログイン済み（確かめ済み）');
+  assert.strictEqual(l.byId.get('claudeState').className, 'eng-state ok');
+  answer = { ok: true, found: true, cmdOnly: false, method: 'claude.ai', message: 'Claude Code のログインが切れています。設定の［Claude Code にログイン］を押してください。' };
+  l.byId.get('claudeTest').dispatchEvent({ type: 'click' });
+  await l.drain();
+  assert.strictEqual(l.byId.get('claudeState').textContent, 'Claude Code のログインが切れています。設定の［Claude Code にログイン］を押してください。');
+  assert.strictEqual(l.byId.get('claudeState').className, 'eng-state ng');
+  // verified が付いていても、文があればログイン済みとは言わない
+  answer = { ok: true, found: true, cmdOnly: false, method: 'claude.ai', message: 'x', verified: true };
+  l.byId.get('claudeTest').dispatchEvent({ type: 'click' });
+  await l.drain();
+  assert.doesNotMatch(l.byId.get('claudeState').textContent, /ログイン済み/);
+});
+
 test('OL3: 送り先を変えて設定が保存されると、鍵の状態を main に聞き直し、新しい送り先の鍵で描き直す（前の送り先の「保存済み」を残さない）', async () => {
   let provider = 'groq';   // main がしまっている送り先（設定の保存で変わる）。鍵は groq にだけある
   const l = await load(APP, { returns: {
