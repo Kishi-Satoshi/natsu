@@ -70,6 +70,9 @@ test('F9: 同じ画面を2回撮って違えば「揺れる」で NG。揺れ・
   assert.strictEqual(SH.exitCodeOf({ shots: ['x'], perf: [{ name: 'open-2000-blocks', ms: 600, ok: false }] }), 1);
   assert.strictEqual(SH.exitCodeOf({ shots: ['x'] }), 0);
   assert.strictEqual(SH.exitCodeOf({ shots: [] }), 1, '1枚も撮れていないのに 0');
+  // 撮れなかった画面（errors）があれば、残りが撮れていても・残りが基準と全部同じでも 1（「比べる物が無いのに緑」にしない）
+  assert.strictEqual(SH.exitCodeOf({ shots: ['x'], errors: ['y: 撮れなかった'] }), 1, '撮れなかった画面を見ていない');
+  assert.strictEqual(SH.exitCodeOf({ compare: [{ name: 'a', status: 'same' }], errors: ['b: 比べる画像が無い'] }), 1, '比べられなかった画面を見ていない');
 });
 
 test('F6: CSP に断られた行を見分ける（自分のインラインの script が止まると画面が真っ白になる）', { timeout: 5000 }, () => {
@@ -91,6 +94,36 @@ test('F9: 撮る画面は時計・時間帯・アニメーションを止めて�
   assert.ok(m.includes("'Emulation.setTimezoneOverride'") && m.includes('insertCSS('), '時間帯かアニメーションを止めていない');
   const fx = JSON.stringify(SH.fixtures());
   for (const d of fx.match(/\d{4}-\d\d-\d\d/g) || []) assert.ok(d < '2026-10-18', `見本の日付 ${d} が止めた時計より後`);
+});
+
+// preload.js の executeInMainWorld に渡す func の矢印関数を、func: から括弧を数えて取り出す（見本の文字列に括弧は無い）
+function preloadFuncSource() {
+  const pre = read('tools/shots/preload.js');
+  const start = pre.indexOf('func:');
+  assert.ok(start >= 0, 'preload.js に func: が無い');
+  const from = pre.indexOf('(', start);
+  const open = pre.indexOf('{', pre.indexOf('=>', from));
+  let depth = 0;
+  for (let i = open; i < pre.length; i++) {
+    if (pre[i] === '{') depth++;
+    else if (pre[i] === '}' && --depth === 0) return pre.slice(from, i + 1);
+  }
+  throw new Error('func: の括弧が閉じていない');
+}
+
+test('F9: preload の時計の止め方を本当に走らせる — 画面の Date が FIXED_NOW を返し、日付を渡した Date は変えない。機器の名前は見本', { timeout: 5000 }, async () => {
+  const vm = require('node:vm');
+  const md = { enumerateDevices: () => Promise.resolve([{ kind: 'audioinput', label: '本物のマイク' }]), getUserMedia: () => Promise.reject(new Error('本物')) };
+  const w = { navigator: { mediaDevices: md } };
+  vm.runInNewContext(`(${preloadFuncSource()})`, { window: w, navigator: w.navigator })(SH.FIXED_NOW);
+  assert.strictEqual(typeof w.Date, 'function', '止めた Date を画面の世界に入れていない');
+  assert.strictEqual(new w.Date().getTime(), SH.FIXED_NOW);
+  assert.strictEqual(w.Date.now(), SH.FIXED_NOW);
+  assert.strictEqual(new w.Date('2026-10-01T00:00:00.000Z').toISOString(), '2026-10-01T00:00:00.000Z');
+  const list = await md.enumerateDevices();
+  assert.deepStrictEqual(Array.from(list, (d) => d.label), [  // 画面の世界の配列なので、こちらの配列に写して比べる
+    '既定 - マイク（見本）', 'マイク（見本）', '既定 - スピーカー（見本）']);
+  assert.strictEqual((await md.getUserMedia({ audio: true })).getTracks().length, 0);
 });
 
 test('F9: 基準との比べは色の差 2 までを同じとみなす（CI の機械ごとの1段の差）。3 以上は違いとして数える。揺れの確かめは差を許さない', { timeout: 5000 }, (t) => {

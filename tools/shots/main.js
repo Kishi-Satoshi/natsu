@@ -58,9 +58,15 @@ function machineOf(env) {
 function boot() {
   const { app, BrowserWindow, ipcMain, nativeTheme, session } = require('electron');
   const args = parseArgs(process.argv.slice(1));
+  // 記録の一時フォルダは終わるときに消す（手元で回すたびにプロファイルのフォルダが溜まらないように）。消せなくても終わりは止めない
+  let data = null;
+  const exit = (code) => {
+    if (data) { try { fs.rmSync(data, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }); } catch (_) { /* 消せなくても終わる */ } }
+    app.exit(code);
+  };
   // 見張り: どこかで止まっても、ジョブの 30 分を待たずに赤にする
-  setTimeout(() => { console.log('NG 時間切れ（90 秒）'); app.exit(1); }, 90000);
-  const die = (what) => (e) => { console.log(`NG ${what}: ${(e && e.stack) || e}`); app.exit(1); };
+  setTimeout(() => { console.log('NG 時間切れ（90 秒）'); exit(1); }, 90000);
+  const die = (what) => (e) => { console.log(`NG ${what}: ${(e && e.stack) || e}`); exit(1); };
   process.on('uncaughtException', die('拾われない例外'));
   process.on('unhandledRejection', die('拾われない失敗'));
   if (!args.out) {
@@ -70,7 +76,7 @@ function boot() {
   }
   // 記録は一時フォルダに（日本語と 𠮷 の名前。利用者のプロファイルを汚さない）
   try {
-    const data = fs.mkdtempSync(path.join(os.tmpdir(), 'natsu-shots-画面𠮷-'));
+    data = fs.mkdtempSync(path.join(os.tmpdir(), 'natsu-shots-画面𠮷-'));
     app.setPath('userData', data);
     app.setPath('sessionData', data);
   } catch (e) { console.log(`参考: userData を一時フォルダにできなかった（${e.message}）`); }
@@ -233,7 +239,7 @@ function boot() {
       ? `結果: OK（${Object.keys(shots).length} 枚${compare ? '・基準と全部同じ' : ''}・揺れ 0・CSP の違反 0・速さ OK）`
       : `結果: NG（揺れ ${flaky.length}・CSP の違反 ${csp.length}・撮れない ${errors.length}・速さの NG ${perf.filter((p) => !p.ok).length}${compare ? `・基準と違う ${compare.filter((c) => c.status !== 'same').length}` : ''}）`);
     for (const e of errors) console.log(`参考: ${e}`);
-    process.stdout.write('', () => app.exit(code));
+    process.stdout.write('', () => exit(code));
   }, die('起動の失敗'));
 }
 
