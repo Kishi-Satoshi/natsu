@@ -29,4 +29,6 @@ contextBridge.exposeInMainWorld('smoke', {
   },
   hasPort() { return port !== null; },
   gen() { return gen; },
+  // 第1a回 Task 3-3（確かめの 8）: sandbox: true の窓では、preload の process.sandboxed が真
+  sandboxed: () => process.sandboxed === true,
 });

@@ -22,13 +22,37 @@ const clipOf = (promise, { dropAbc = false, drop = null } = {}) => {
   return c;
 };
 
-test('electron-smoke: 7 つの確かめ。終了コードは 7 件そろって全部 OK のときだけ 0', () => {
-  assert.deepStrictEqual(S.CHECKS.map(([n]) => n), [1, 2, 3, 4, 5, 6, 7]);
+// 第1a回 Task 3-3 で直した（意図: 全部そろって OK のときだけ 0。確かめは 12 になった）
+test('electron-smoke: 12 の確かめ。終了コードは 12 件そろって全部 OK のときだけ 0', () => {
+  assert.deepStrictEqual(S.CHECKS.map(([n]) => n), [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
   const all = S.CHECKS.map(([n]) => ({ n, ok: true }));
   assert.strictEqual(S.exitCodeOf(all), 0);
-  assert.strictEqual(S.exitCodeOf(all.map((r) => (r.n === 6 ? { ...r, ok: false } : r))), 1);
-  assert.strictEqual(S.exitCodeOf(all.slice(0, 6)), 1);
+  assert.strictEqual(S.exitCodeOf(all.map((r) => (r.n === 10 ? { ...r, ok: false } : r))), 1);
+  assert.strictEqual(S.exitCodeOf(all.slice(0, 11)), 1);
   assert.strictEqual(S.exitCodeOf([]), 1);
+});
+
+const GOOD = { sandboxed: true, inlineRan: true, injectedRan: false, violations: 1, gumAudio: 'ok', audioLabels: 2, gumVideo: 'NotAllowedError',
+  gdmApp: 'NotAllowedError', gdmOverlay: 'AbortError', handlerCalls: 1, urlAfter: 'sec-app.html', opened: false };
+test('electron-smoke: 守りの確かめ（8〜12）は、よい観測で全部 OK。1つ崩すとその番号だけ NG（いつも OK を出す確かめではない）', () => {
+  assert.deepStrictEqual(S.securityResults(GOOD).map((r) => [r.n, r.ok]), [[8, true], [9, true], [10, true], [11, true], [12, true]]);
+  const bad = [
+    [8, { sandboxed: false }], [9, { inlineRan: false }], [9, { injectedRan: true }], [9, { violations: 0 }],
+    [10, { audioLabels: 0 }], [10, { gumAudio: 'NotAllowedError' }], [10, { gumVideo: 'ok' }], [10, { gdmApp: 'AbortError' }],
+    [11, { gdmOverlay: 'NotAllowedError' }], [11, { handlerCalls: 2 }], [12, { urlAfter: '' }], [12, { opened: true }],
+  ];
+  for (const [n, patch] of bad) {
+    const r = S.securityResults({ ...GOOD, ...patch });
+    assert.deepStrictEqual(r.filter((x) => !x.ok).map((x) => x.n), [n], `${n} ${JSON.stringify(patch)}`);
+  }
+});
+
+test('electron-smoke: 守りの確かめは別の session に付け（1〜7 の受け口を変えない）、本物の security.install と偽のマイクを使う', () => {
+  const m = read('tools/electron-smoke/main.js');
+  for (const k of ["session.fromPartition('natsu-sec-smoke')", "require('../../src/security')", "appendSwitch('use-fake-device-for-media-stream')", 'security.install(', 'sec-app.html', 'sec-overlay.html'])
+    assert.ok(m.includes(k), k);
+  assert.ok(m.indexOf('displayMediaCheck(') < m.indexOf('securityChecks('), '1〜7 より先に守りを付けている');
+  for (const f of ['tools/electron-smoke/sec-app.html', 'tools/electron-smoke/sec-overlay.html']) assert.match(read(f), /<script>window\.inlineRan = true;/);
 });
 
 test('electron-smoke: クリップボードの確かめは、44 の形（Promise）でも 31 の形でも 5・6 が OK', async () => {
