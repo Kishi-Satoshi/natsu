@@ -57,12 +57,12 @@
 //                     - 画面の読み込みは --slow-load と同じで、窓が2つ（録音バー・本体）できた後に読み終える（起動の知らせは
 //                       did-finish-load で送られる）。
 //                     - act(ctx) を呼ぶ。ctx = { handlers, listeners, app, wins, power, timers, store, jsonfile, electron, userData,
-//                       read(rel), waitFor(cond, ms), sleep, out }。app・窓・power（powerMonitor）は on／once で受け口を覚え、
+//                       read(rel), waitFor(cond, ms), sleep, toneWav(sec), out }。app・窓・power（powerMonitor）は on／once で受け口を覚え、
 //                       emit(ev, …) で呼べる。窓は setPosition の値を getPosition で返し、作ったときに app の browser-window-created を
 //                       出す。wins は作った順（createOverlay が先、createMainWindow が後）。read(rel) は無ければ null、あればバイト。
 //                     - 出力（最後の行の JSON）: scene・notices（app:notice の文）・files（userData の下のファイルの相対パス。区切りは /。
 //                       engine.log と segbuf の WAV も含む）・settingsText・historyText（無ければ null）・engineLog（時刻を落とした行）・
-//                       spawns・themeSource と、act が out に入れたもの（同じ名前なら act のもの）。
+//                       spawns・themeSource・windows（作った窓の数）と、act が out に入れたもの（同じ名前なら act のもの）。
 // 画面へ送った知らせと進み具合は、送った順に out.seq へ残す。進み具合が初めて「使える」（whisperReady・sumReady）と
 // 言ったときの engine:status を out.atReady に、壊れた知らせを送ったときの engine:status を out.atBroken に残す
 // （画面はその知らせでエンジンの状態を聞き直すので、そのとき main の答えがもう新しいこと: 第0b回 Task 14・15）
@@ -541,7 +541,7 @@ process.on('exit', () => {
     const actOut = {};
     if (typeof scene.act === 'function') {
       await scene.act({ handlers, listeners, app: electron.app, wins, power: powerMonitor, timers, store, jsonfile, electron, userData,
-        read: readUser, waitFor, sleep, out: actOut });
+        read: readUser, waitFor, sleep, toneWav, out: actOut });
     }
     const files = [];
     const walk = (dir, rel) => {
@@ -564,6 +564,7 @@ process.on('exit', () => {
       engineLog: engineLogLines(),
       spawns: spawns.slice(),
       themeSource: electron.nativeTheme.themeSource,
+      windows: wins.length,
       ...actOut,
     };
     process.stdout.write(`\n${JSON.stringify(result)}\n`);

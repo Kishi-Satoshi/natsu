@@ -1123,14 +1123,17 @@ test('認識に失敗した区間の wav は残し、議事録を締めたあと
   const items = fnBody(m, 'async function transcribeRecoveredItems(', '\n}');
   assert.ok(items.includes('q.retry') && items.includes('やり直しました'), 'やり直しの通知文が復旧の文のまま');
   // 記録中に落ちて draft に残った失敗区間も、wav があればやり直す（mainlib.recoverSegments）
-  assert.ok(m.includes("JSON.stringify({ pageId: q.pageId, items: q.items, retry: Boolean(q.retry) })"), 'recovery.json に retry の印を残していない');
+  // 第1a回 Task 2-5 で直した（意図: retry の印を残す。書くのは部品）
+  const save = fnBody(m, 'function saveRecoveryQueue(q)', '\n}');
+  assert.ok(save.includes('J.writeJsonFile(') && save.includes('retry: Boolean(q.retry)'), 'recovery.json に retry の印を残していない／部品を通していない');
 });
 
-test('退避フォルダの掃除は、待ち行列（recovery.json）が残っているフォルダを消さない', () => {
+// 第1a回 Task 2-5 で直した（意図: 掃除が永久に避け続けない。実行テストは stage1a.main.test.js の recovery-broken・recovery-unreadable）
+test('退避フォルダの掃除は、待ち行列（recovery.json）が残っているフォルダを消さない。壊れた recovery.json は消さずに退ける', () => {
   const clean = fnBody(code(main), 'function cleanOrphanSegbuf(', '\n}');
   assert.ok(clean.includes('if (fs.existsSync(path.join(dir, RECOVERY_FILE))) continue;'), 'recovery.json 付きのフォルダを 7 日で消してしまう');
   const load = fnBody(code(main), 'function loadSavedRecoveryQueue()', '\n}');
-  assert.ok(/catch \(_\) \{\s*try \{ fs\.unlinkSync\(f\); \}/.test(load), '壊れた recovery.json を消していない（掃除が永久に避け続ける）');
+  assert.ok(load.includes('J.loadJsonFile(') && !load.includes('unlinkSync'), 'recovery.json を消している（読めないだけでも待ち行列が失われる）');
 });
 
 test('録音側のエラーで議事録を締めるときは、会議の長さをそこで止め、利用者に伝える', () => {

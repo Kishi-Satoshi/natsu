@@ -52,7 +52,7 @@ const {
   engineFileIssue, engineIssueMessage, engineInAppDir, engineDirWarning, portInUseError, guardEngineSettings, keptDifferent, closeConfirm,
   engineSpawnPlan, vcRuntimeVersions, vcRuntimeIssue, runtimeGate, engineExitHint, spawnErrorHint, speedLine,
   extractNotes, truncationMessage, buildPromptParts,
-  publicSegments, settledSegments, pendingDurationMs, recoverSegments, staleSegbufDirs, nextSegmentMs, EtaTracker,
+  publicSegments, settledSegments, pendingDurationMs, recoverSegments, staleSegbufDirs, nextSegmentMs, EtaTracker, chooseDraftName,
   skipPendingSegments,
   estimateTokens, foldNotes, idleEnginesToStop, silentWav, wavLevelDbfs, mergeSummaryType, memoEvidence,
   sameShas, keepPrevious, candStamp, repairIdsOf, pathUsedBy, fetchMinutesLeft,
@@ -176,7 +176,28 @@ const NOTICE = {
   settingsReadOnly: '設定のファイルが読み取り専用になっているため、管理者が決めた設定として使います。画面で変えた設定は保存されません（次の起動で元に戻ります）。',
   settingsNotSaved: '設定を保存できませんでした。次の変更のときにもう一度保存します',   // 設計書の文のまま（N7）
   historyBusy: '音声入力の履歴のファイルをほかのプログラムが使っていて読めませんでした。読めるまでは新しい履歴を保存せずに持っておき、少し後にもう一度読みます。',
+  // 議事録・録音の控え（第1a回 Task 2-5。N11〜N13・N15〜N17）
+  pageBroken: (name) => `議事録のファイルが壊れていて開けなかったので、${name} として残しました（一覧からは外れます）。`,
+  draftBusy: '前回の会議の下書きを、ほかのプログラムが使っていて今は読めません。消さずに残してあり、少し後にもう一度復旧を試します。',
+  recoveryBroken: (name) => `文字起こし待ちの記録が壊れていたので、${name} として残しました。残っていた音声は7日後に片付けます。`,
+  draftBroken: (name) => `前回の会議の下書きのファイルが壊れていたので、${name} として残しました。`,
+  recoveryNotSaved: '文字起こし待ちの記録を保存できませんでした。音声は残してあり、次の起動でもう一度試します。',
+  transcriptBroken: (name) => `議事録の文字起こしのファイルが壊れていたので、${name} として残しました（このページは文字起こしが空のまま開きます）。`,
 };
+// 起動の途中（本体の窓がまだ無い）なら startupNotices に貯め、窓ができた後なら画面へ（読み込み中なら読み終えてから）
+function laterNotice(msg) {
+  if (!mainWin) startupNotices.push(msg);
+  else noticeMainWin(msg);
+}
+// store が壊れたファイルを退けたとき（P16）。ページは N11、文字起こしは N17、下書きは N15。索引は作り直せるので記録だけ
+function onStoreReport(ev) {
+  if (!ev) return;
+  engineLog(`保存: 壊れたファイルを退けました（${ev.kind} ${ev.file} → ${ev.movedTo}、${ev.reason}）`);
+  const msg = ev.kind === 'page' ? NOTICE.pageBroken(ev.movedTo)
+    : ev.kind === 'transcript' ? NOTICE.transcriptBroken(ev.movedTo)
+      : ev.kind === 'draft' ? NOTICE.draftBroken(ev.movedTo) : '';
+  if (msg) laterNotice(msg);
+}
 // 読めない・書けないときの状態（第1a回 Task 2-3。RF22・P14）
 // - 'unreadable': 起動の瞬間にほかのプログラムが掴んでいて読めなかった。読み直せるまでは書かない（既定で上書きしない）。
 //   読み直しは RETRY_READ_MS の間隔で（使い切ったら止め、設定の画面を開いたときだけ読み直す）
@@ -405,6 +426,8 @@ function loadStores() {
   // app.whenReady の中なので、投げると単一起動の鍵を持ったまま窓が出ず、次に起動しても何も
   // 起きない。だから受け止めて理由を持ち、画面が出てから知らせる（黙って続けると、議事録が
   // 保存されないまま録音できてしまう）
+  // 退けた知らせの受け手は init より前に付ける（起動のときの reconcile で退けたページも知らせる）
+  store.setReporter(onStoreReport);
   try { store.init(app.getPath('userData')); } catch (e) { storeError = e.message; engineLog(`データフォルダを開けません: ${e.message}`); }
 }
 // いまのデータフォルダの絶対パス（「データ保存先を開く」）
@@ -1734,12 +1757,22 @@ function meetingStatus() {
   };
 }
 
+// 下書きの fsync は今と同じ「しない」（第1a回 Task 4-4 の計りで決める。足すなら Task 5-1）
+const DRAFT_FSYNC = false;
+// 書けなくても録音は止めない。記録はその会議で1回だけ（区間のたびに書くので、重ねると記録が埋まる）
 function writeDraft() {
   if (!meeting) return;
-  store.writeDraft({
-    startedAt: meeting.startedAt, memo: meeting.memo,
-    segments: meeting.segments, offsetMs: meeting.offsetMs, savedAt: Date.now(),
-  });
+  try {
+    store.writeDraft({
+      startedAt: meeting.startedAt, memo: meeting.memo,
+      segments: meeting.segments, offsetMs: meeting.offsetMs, savedAt: Date.now(),
+    }, meeting.draftName, { fsync: DRAFT_FSYNC });
+  } catch (e) {
+    if (!meeting.draftWriteFailed) {
+      meeting.draftWriteFailed = true;
+      engineLog(`下書き（${meeting.draftName}）を保存できませんでした（${errCode(e)}）。録音は続けます`);
+    }
+  }
 }
 
 // 復旧ページで文字起こし待ちのまま残った音声 { pageId, items: [{ id, wav, durationMs }], dir }。
@@ -1747,58 +1780,148 @@ function writeDraft() {
 let recoveryQueue = null;
 const RECOVERY_FILE = 'recovery.json';
 // 復旧の待ち行列をフォルダに書いておく。エンジンが用意できずに終えられなかったとき、
-// 次の起動や設定の直しで続きから文字起こしできる（wav は消さない）
+// 次の起動や設定の直しで続きから文字起こしできる（wav は消さない）。いつも fsync して書く（部品の既定）。
+// 書けなくても投げない（起動の途中で投げると窓が出ない）。記録と知らせ（N16）だけ
 function saveRecoveryQueue(q) {
-  try { fs.writeFileSync(path.join(q.dir, RECOVERY_FILE), JSON.stringify({ pageId: q.pageId, items: q.items, retry: Boolean(q.retry) }), 'utf8'); } catch (_) { /* noop */ }
+  try {
+    J.writeJsonFile(path.join(q.dir, RECOVERY_FILE), { pageId: q.pageId, items: q.items, retry: Boolean(q.retry) }, { onFsyncUnsupported: noteFsyncOnce });
+  } catch (e) {
+    engineLog(`文字起こし待ちの記録を保存できませんでした（${path.basename(q.dir)}、${errCode(e)}）`);
+    laterNotice(NOTICE.recoveryNotSaved);
+  }
 }
+const isRecoveryShape = (v) => Boolean(v) && typeof v === 'object' && !Array.isArray(v) && Array.isArray(v.items);
+// この起動で recovery.json を退けたフォルダ。その起動では掃除しない（N13「7日後に片付けます」。次の起動から今の7日の掃除に任せる）
+const quarantinedRecoveryDirs = new Set();
+// 起動のときなどに読めなかった recovery.json がある（retryDraftRecovery が読み直す）
+let recoveryUnreadable = false;
 function loadSavedRecoveryQueue() {
   let names = [];
   try { names = fs.readdirSync(segbufRoot()); } catch (_) { return null; }
+  let unreadable = false;
+  let found = null;
   for (const name of names) {
     const dir = path.join(segbufRoot(), name);
     const f = path.join(dir, RECOVERY_FILE);
     if (!fs.existsSync(f)) continue;
-    try {
-      const j = JSON.parse(fs.readFileSync(f, 'utf8'));
-      const items = (j.items || []).filter((it) => it && it.wav && fs.existsSync(it.wav));
-      if (j.pageId && items.length && store.getPage(j.pageId)) return { pageId: j.pageId, items, dir, retry: Boolean(j.retry) };
-      try { fs.unlinkSync(f); } catch (_) { /* noop */ }
-      removeDirIfEmpty(dir);
-    } catch (_) {
-      try { fs.unlinkSync(f); } catch (_2) { /* noop */ }   // 壊れた待ち行列。残すと掃除（cleanOrphanSegbuf）が避け続ける
+    const r = J.loadJsonFile(f, { shape: isRecoveryShape });
+    if (r.state === 'unreadable') {
+      // 掴まれている・権限: 何も消さない（フォルダも WAV も残す）。少し後に読み直す
+      unreadable = true;
+      engineLog(`文字起こし待ちの記録を読めませんでした（${name}、${r.code}）。消さずに残します`);
+      continue;
+    }
+    if (r.state === 'broken') {
+      // 消さずに退ける（N13）。名前が無くなるので、次の起動から7日の掃除が WAV ごとフォルダを片付ける
+      const moved = path.basename(r.movedTo);
+      quarantinedRecoveryDirs.add(dir);
+      engineLog(`文字起こし待ちの記録が壊れていたので退けました（${name}、${r.reason}、${moved}）`);
+      laterNotice(NOTICE.recoveryBroken(moved));
+      continue;
+    }
+    if (r.state !== 'ok') continue;
+    const j = r.value;
+    const items = j.items.filter((it) => it && it.wav && fs.existsSync(it.wav));
+    if (j.pageId && items.length && store.getPage(j.pageId)) { found = { pageId: j.pageId, items, dir, retry: Boolean(j.retry) }; break; }
+    // 済んだ待ち行列（ページが消された・音声が無い）。今どおり片付ける
+    unlinkQuiet(f);
+    removeDirIfEmpty(dir);
+  }
+  if (unreadable) { recoveryUnreadable = true; scheduleRecoveryRetry(); }
+  return found;
+}
+
+// 落ちた会議の控えの復旧（第1a回 JS9）。読めない控え（掴まれている・権限）は決して消さず上書きもしない。
+// 少し後（RETRY_DRAFT_MS）と、次に録音を始める前と、録音が終わった後にやり直す。だめなら次の起動でやり直す
+const RETRY_DRAFT_MS = [3000, 10000, 30000];
+let draftRetryTimer = null;
+let draftRetryIdx = 0;
+let draftRetryAfterMeeting = false;
+let draftBusyNoted = false;
+// 下書きと recovery.json の読み直しは1つの予約にまとめる（使い切ったら、録音の前と次の起動に任せる）
+function scheduleRecoveryRetry() {
+  if (draftRetryTimer || draftRetryIdx >= RETRY_DRAFT_MS.length) return;
+  draftRetryTimer = setTimeout(retryDraftRecovery, RETRY_DRAFT_MS[draftRetryIdx++]);
+}
+// 名前はこのまま（テストの台 mainrun が setTimeout の名前で捕まえる）
+function retryDraftRecovery() {
+  if (draftRetryTimer) { try { clearTimeout(draftRetryTimer); } catch (_) { /* noop */ } draftRetryTimer = null; }
+  // 録音中は始めない（議事録を締めた後か破棄した後に回す）。音声入力などの最中なら少し後に
+  if (meeting || state === 'meeting' || state === 'meeting-finalizing') { draftRetryAfterMeeting = true; return; }
+  if (state !== 'idle') { scheduleRecoveryRetry(); return; }
+  recoverDraftIfAny();
+  // 起動のときに読めなかった recovery.json（設計書 JS9 の「やり直しで復旧され」）
+  if (recoveryUnreadable && !recoveryQueue) {
+    recoveryUnreadable = false;
+    const q = loadSavedRecoveryQueue();
+    if (q) {
+      recoveryQueue = q;
+      engineLog(`文字起こし待ちの記録を読み直しました（${q.items.length} 件）`);
     }
   }
-  return null;
+  if (recoveryQueue) transcribeRecovered().catch((e) => engineLog(`復旧の文字起こしに失敗: ${e.message}`));
 }
+// 議事録を締めた後・破棄した後に、録音中に来たやり直しを回す
+function runDraftRetryAfterMeeting() {
+  if (!draftRetryAfterMeeting || meeting || state !== 'idle') return;
+  draftRetryAfterMeeting = false;
+  retryDraftRecovery();
+}
+// 控えは store.draftFiles() を全部見る（draft.json・脇へ退けた draft.pending-<時刻>.json・会議ごとの draft-<開始時刻>.json）
 function recoverDraftIfAny() {
-  const d = store.readDraft();
-  if (!d || !Array.isArray(d.segments) || d.segments.length === 0) { store.clearDraft(); return; }
-  const dt = new Date(d.startedAt || Date.now());
-  // 文字起こしが終わっていなかった区間（pending）は失敗扱いでページに載せ、wav が残っていれば
-  // あとで文字起こしして差し替える（mainlib.recoverSegments）。先にページを作るのは、
-  // エンジンの起動を待たずに復旧した本文を開けるようにするため
-  const rec = recoverSegments(d.segments, (f) => fs.existsSync(f));
-  const page = store.createPage({
-    title: `${dt.getFullYear()}/${dt.getMonth() + 1}/${dt.getDate()} ${String(dt.getHours()).padStart(2, '0')}:${String(dt.getMinutes()).padStart(2, '0')} の議事録（復旧）`,
-    // 日付はローカルの暦日（#51。UTC で作ると日本の朝の会議が前日になる）
-    date: localDateISO(dt),
-    durationSec: Math.round((d.offsetMs || 0) / 1000),
-    memo: d.memo || '',
-    blocks: [],
-    segments: rec.segments,
-    createdAt: new Date(d.startedAt || Date.now()).toISOString(),
-    recovered: true,
-  });
-  page.summaryError = rec.todo.length
-    ? '録音が中断されたため要約は未生成です。残っていた音声の文字起こしを続けています。終わったら「要約を生成」で作成できます。'
-    : '録音が中断されたため要約は未生成です。「要約を生成」で作成できます。';
-  store.savePage(page);
-  store.clearDraft();
-  recoveredPageId = page.id;
-  if (rec.todo.length) {
-    recoveryQueue = { pageId: page.id, items: rec.todo, dir: segbufDir(d.startedAt) };
-    saveRecoveryQueue(recoveryQueue);
-  } else removeDirIfEmpty(segbufDir(d.startedAt));
+  let unreadable = false;
+  let recovered = 0;
+  for (const name of store.draftFiles()) {
+    if (meeting && name === meeting.draftName) continue;   // 今の会議の控えは復旧しない
+    const r = store.readDraftFile(name);
+    if (r.state === 'unreadable') { unreadable = true; engineLog(`下書き（${name}）を読めませんでした（${r.code}）。消さずに残します`); continue; }
+    if (r.state !== 'ok') continue;   // 無い・壊れている（store が退けて知らせた。N15）
+    const d = r.value;
+    if (!Array.isArray(d.segments) || d.segments.length === 0) { store.clearDraft(name); continue; }
+    try {
+      const dt = new Date(d.startedAt || Date.now());
+      // 文字起こしが終わっていなかった区間（pending）は失敗扱いでページに載せ、wav が残っていれば
+      // あとで文字起こしして差し替える（mainlib.recoverSegments）。先にページを作るのは、
+      // エンジンの起動を待たずに復旧した本文を開けるようにするため
+      const rec = recoverSegments(d.segments, (f) => fs.existsSync(f));
+      const page = store.createPage({
+        title: `${dt.getFullYear()}/${dt.getMonth() + 1}/${dt.getDate()} ${String(dt.getHours()).padStart(2, '0')}:${String(dt.getMinutes()).padStart(2, '0')} の議事録（復旧）`,
+        // 日付はローカルの暦日（#51。UTC で作ると日本の朝の会議が前日になる）
+        date: localDateISO(dt),
+        durationSec: Math.round((d.offsetMs || 0) / 1000),
+        memo: d.memo || '',
+        blocks: [],
+        segments: rec.segments,
+        createdAt: new Date(d.startedAt || Date.now()).toISOString(),
+        recovered: true,
+      });
+      page.summaryError = rec.todo.length
+        ? '録音が中断されたため要約は未生成です。残っていた音声の文字起こしを続けています。終わったら「要約を生成」で作成できます。'
+        : '録音が中断されたため要約は未生成です。「要約を生成」で作成できます。';
+      store.savePage(page);
+      store.clearDraft(name);
+      recoveredPageId = page.id;
+      recovered++;
+      if (rec.todo.length) {
+        const q = { pageId: page.id, items: rec.todo, dir: segbufDir(d.startedAt) };
+        // 別の待ち行列があれば、その後に拾う（transcribeRecovered が recovery.json を順に読む）
+        if (!recoveryQueue) { recoveryQueue = q; saveRecoveryQueue(recoveryQueue); } else saveRecoveryQueue(q);
+      } else removeDirIfEmpty(segbufDir(d.startedAt));
+    } catch (e) {
+      // ページを保存できなければ控えは消さない（次の機会にもう一度）
+      engineLog(`下書き（${name}）の復旧に失敗: ${e.message}`);
+    }
+  }
+  if (unreadable) {
+    if (!draftBusyNoted) { draftBusyNoted = true; laterNotice(NOTICE.draftBusy); }
+    scheduleRecoveryRetry();
+  }
+  // 起動の後で復旧したら（やり直し・録音の前）、一覧を描き直して知らせる。起動の途中は createMainWindow が知らせる
+  if (recovered && mainWin) {
+    recoveredPageId = null;
+    sendToMainWin('pages:updated', store.listPages());
+    noticeMainWin('前回中断された議事録の文字起こしを復旧しました。「要約を生成」から議事録を作成できます。');
+  }
 }
 
 // 復旧ページの「文字起こし待ち」を、起動が済んでエンジンが用意できてから順に文字起こしし、
@@ -1896,6 +2019,8 @@ function cleanOrphanSegbuf(keepDir) {
     // 待ち行列が残っている（エンジンが用意できず 7 日以上そのまま等）フォルダは復旧の材料。
     // 今回の復旧が終わったあと transcribeRecovered が順に拾う
     if (fs.existsSync(path.join(dir, RECOVERY_FILE))) continue;
+    // この起動で壊れた recovery.json を退けたフォルダは、その起動では残す（次の起動から片付ける）
+    if (quarantinedRecoveryDirs.has(dir)) continue;
     try { fs.rmSync(dir, { recursive: true, force: true }); } catch (_) { /* noop */ }
   }
 }
@@ -1904,7 +2029,13 @@ function startMeeting() {
   if (state !== 'idle') return { ok: false, error: '他の処理を実行中です' };
   const problem = whisperProblem();
   if (problem) return { ok: false, error: problem };
-  meeting = { startedAt: Date.now(), memo: '', segments: [], offsetMs: 0, stopping: false, seq: 0,
+  // 前の起動で読めなかった控えが残っていれば、始める前に1回だけ復旧を試す（第1a回 JS9）
+  if (store.draftFiles().length) recoverDraftIfAny();
+  const startedAt = Date.now();
+  // 古い draft.json が残っていれば脇へ退けてから draft.json に、退けられなければ draft-<開始時刻>.json に書く
+  const draftName = chooseDraftName({ existing: store.draftFiles(), startedAt, park: () => store.parkDraft() });
+  if (draftName !== 'draft.json') engineLog(`前の下書きを退けられないので、この会議の下書きは ${draftName} に書きます`);
+  meeting = { startedAt, draftName, memo: '', segments: [], offsetMs: 0, stopping: false, seq: 0,
     systemAudio: false, paused: false, pausedMs: 0, pausedAt: 0,
     // gen: 打ち切り（meeting:skipPending）で進める世代。進行中の結果を捨てる判断に使う
     // segmentMs: いま録音側に頼んでいる区間の長さ（背圧で伸縮する）
@@ -1976,10 +2107,11 @@ function discardMeeting() {
   sendToOverlay('overlay:cancel', {});
   const m = meeting;
   cleanupSegbuf(m);
-  meeting = null; store.clearDraft();
+  meeting = null; store.clearDraft(m.draftName);
   segChain = Promise.resolve(); pendingSegs = 0;
   state = 'idle'; updateTray();
   sendToMainWin('meeting:update', meetingStatus());
+  runDraftRetryAfterMeeting();
   return { ok: true };
 }
 
@@ -2095,7 +2227,7 @@ async function maybeFinalizeMeeting() {
       segments: settledSegments(m.segments),   // 待ちの区間（本文なし）と wav のパスは載せない
       createdAt: dt.toISOString(),
     });
-    store.clearDraft();
+    store.clearDraft(m.draftName);
     // 認識に失敗した区間の wav は残してある（settleSegment）。復旧と同じ待ち行列に載せ、
     // 要約のあとでもう一度文字起こしする。途中で落ちても recovery.json から次の起動で続く
     const retry = m.segments.filter((s) => s.failed && s.wav && fs.existsSync(s.wav))
@@ -2116,6 +2248,8 @@ async function maybeFinalizeMeeting() {
     state = 'idle'; updateTray();
     setTimeout(hideOverlayIfIdle, 2000);
     sendToMainWin('meeting:update', meetingStatus());
+    // 録音中に来た控えの復旧のやり直しを、ここで回す（第1a回 JS9）
+    runDraftRetryAfterMeeting();
   }
   if (!page) return;
 

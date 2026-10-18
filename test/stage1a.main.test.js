@@ -216,6 +216,69 @@ describe('第1a回 保存の守り（main）', { concurrency: Number(process.env
     assert.ok(r.engineLog.some((l) => l.includes('まとめ書きの間隔: 60000ms（試し用）')), r.engineLog.join('\n'));
   });
 
+  test('JS9・F7: 読めない draft.json は消えず、録音中は復旧せず、その間に始めた会議は draft-<開始時刻>.json に控えを持ち、終わった後に古い控えも復旧される', SCENE, async () => {
+    const r = await run('draft-busy');
+    assert.strictEqual(r.pagesAtStart, 0);
+    assert.ok(ours(r.notices).some((n) => n.startsWith('前回の会議の下書きを、ほかのプログラムが使っていて今は読めません')), r.notices.join('\n'));
+    assert.ok(r.draftsDuring.includes('draft.json') && r.draftsDuring.some((n) => /^draft-\d+\.json$/.test(n)), JSON.stringify(r.draftsDuring));
+    assert.deepStrictEqual(JSON.parse(r.oldDraftDuring), require('./helpers/json-scenes').OLD_DRAFT, '古い控えを上書きした');
+    assert.strictEqual(r.pagesWhileRecording, 0, '録音中に復旧を始めた');
+    assert.strictEqual(r.titles.length, 2);
+    assert.ok(r.titles.some((t) => t.endsWith('の議事録（復旧）')), JSON.stringify(r.titles));
+    assert.deepStrictEqual(r.draftsAfter, []);
+  });
+
+  test('JS9・JS2: 壊れた draft.json は消さずに退けて残し、知らせる', SCENE, async () => {
+    const r = await run('draft-broken');
+    assert.strictEqual(r.files.filter((f) => f.startsWith('data/draft.json.broken-')).length, 1);
+    assert.ok(ours(r.notices).some((n) => n.startsWith('前回の会議の下書きのファイルが壊れていたので')));
+  });
+
+  test('JS2・F12: 壊れた recovery.json は消さずに退け（recovery.json の名前が無くなる）、WAV はその起動では残し、知らせる', SCENE, async () => {
+    const r = await run('recovery-broken');
+    assert.ok(!r.files.includes('data/segbuf/1700000000000/recovery.json'));
+    assert.strictEqual(r.files.filter((f) => f.startsWith('data/segbuf/1700000000000/recovery.json.broken-')).length, 1);
+    assert.ok(r.files.includes('data/segbuf/1700000000000/0001.wav'));
+    assert.ok(ours(r.notices).some((n) => n.startsWith('文字起こし待ちの記録が壊れていたので')));
+  });
+
+  test('JS2・F12: 退けた recovery.json だけが残った7日より古いフォルダは、今までどおりの7日の掃除で WAV ごと消える（設計書が決めた唯一の例外）', SCENE, async () => {
+    const r = await run('recovery-old-quarantined');
+    assert.ok(!r.files.some((f) => f.startsWith('data/segbuf/1700000000000/')), JSON.stringify(r.files));
+  });
+
+  test('JS9・F12: 読めないだけの recovery.json は消さず、7日より古くてもフォルダも WAV も残す', SCENE, async () => {
+    const r = await run('recovery-unreadable');
+    assert.ok(r.files.includes('data/segbuf/1700000000000/recovery.json'));
+    assert.ok(r.files.includes('data/segbuf/1700000000000/0001.wav'));
+  });
+
+  test('JS5: 起動の途中で recovery.json を書けなくても、投げずに窓が出て、WAV は残り、知らせる', SCENE, async () => {
+    const r = await run('recovery-write-fail');
+    assert.ok(r.windows >= 2, '窓が出ていない');
+    assert.ok(r.files.includes('data/segbuf/1760000000000/0001.wav'));
+    assert.ok(ours(r.notices).some((n) => n.startsWith('文字起こし待ちの記録を保存できませんでした')), r.notices.join('\n'));
+  });
+
+  test('JS9: 起動のときに読めなかった recovery.json は、少し後のやり直しで読み直して待ち行列に戻る（消さない）', SCENE, async () => {
+    const r = await run('recovery-busy-retry');
+    assert.strictEqual(r.retries, 1, 'やり直しを予約していない');
+    assert.ok(r.files.includes('data/segbuf/1700000000000/recovery.json'));
+    assert.ok(r.engineLog.some((l) => l.includes('文字起こし待ちの記録を読み直しました（1 件）')), r.engineLog.join('\n'));
+  });
+
+  test('P16: 壊れたページは N11、壊れた文字起こしは N17 で、退けた名前を知らせる（議事録の中身を黙って動かさない）', SCENE, async () => {
+    const r = await run('page-files-broken');
+    const pageMoved = r.files.find((f) => f.startsWith('data/pages/p1.json.broken-'));
+    const trMoved = r.files.find((f) => f.startsWith('data/transcripts/p2.json.broken-'));
+    assert.ok(pageMoved && trMoved, JSON.stringify(r.files));
+    assert.strictEqual(r.p1, null);
+    assert.deepStrictEqual(r.p2.segments, []);
+    const n = ours(r.notices);
+    assert.ok(n.some((x) => x.startsWith('議事録のファイルが壊れていて開けなかったので') && x.includes(pageMoved.split('/').pop())), n.join('\n'));
+    assert.ok(n.some((x) => x.startsWith('議事録の文字起こしのファイルが壊れていたので') && x.includes(trMoved.split('/').pop())), n.join('\n'));
+  });
+
   test('JS8: app.exit( は relaunchAndExit の中だけで、その前に書き出す。process の exit でも書き出す。窓ができたら session-end と query-session-end を付ける', { timeout: 5000 }, () => {
     const m = require('node:fs').readFileSync(path.join(__dirname, '..', 'src', 'main.js'), 'utf8').replace(/^[ \t]*\/\/.*$/gm, '').replace(/\/\*[\s\S]*?\*\//g, '');
     assert.strictEqual((m.match(/app\.exit\(/g) || []).length, 1);

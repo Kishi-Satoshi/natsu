@@ -528,12 +528,6 @@ function readDraftFile(name) {
   return r;
 }
 
-// Task 2-5 で main が readDraftFile に移るまでの今の形（読めた値か null）
-function readDraft() {
-  const r = readDraftFile('draft.json');
-  return r.state === 'ok' ? r.value : null;
-}
-
 // fsync は main が決める（既定は今と同じ、fsync なし）
 function writeDraft(d, name = 'draft.json', opts = {}) {
   writeJson(draftPath(name), d, { fsync: opts.fsync === true });
@@ -568,6 +562,6 @@ module.exports = {
   createPage, deletePage,
   updateBlock, updateSegment, insertBlock, removeBlock, moveBlock, setTitle,
   searchIndex, searchFullText, actionView, openActions, assigneeList,
-  readDraft, writeDraft, clearDraft,
+  writeDraft, clearDraft,
   setReporter, draftFiles, readDraftFile, parkDraft,
 };

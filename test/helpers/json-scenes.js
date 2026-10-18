@@ -20,9 +20,11 @@ const TYPICAL = {
 const HISTORY = [{ id: 'h1', text: '前の口述', raw: '前の口述', createdAt: '2026-10-01T00:00:00.000Z', durationSec: 3, procMs: 900, chars: 4 }];
 // 画面（app.html の save）が送る 29 のキー
 const UI = (o = {}) => { const u = { ...TYPICAL, ...o }; delete u.pillCustom; delete u.maxHistory; return u; };
+// 第1a回 Task 2-5: 前の起動で落ちた会議の控え（文字起こし済みの区間 1 つ）
+const OLD_DRAFT = { startedAt: 1760000000000, memo: '', offsetMs: 3000, savedAt: 1760000003000, segments: [{ id: 's1', atMs: 0, durationMs: 3000, text: '落ちた会議の発言です' }] };
 
 module.exports = {
-  TYPICAL, HISTORY, UI,
+  TYPICAL, HISTORY, UI, OLD_DRAFT,
   plain: { files: { 'settings.json': pretty(TYPICAL), 'history.json': pretty(HISTORY) },
     act: async (c) => { c.out.got = await c.handlers['settings:get'](); c.out.history = await c.handlers['history:get'](); } },
   bom: { engine: true, files: { 'settings.json': ({ base }) => Buffer.concat([BOM, Buffer.from(JSON.stringify({ ...base, theme: 'dark' }))]) } },
@@ -132,4 +134,49 @@ module.exports = {
       c.out.textLater = c.read('settings.json').toString('utf8');
       c.out.after = await c.handlers['settings:get']();
     } },
+  // 第1a回 Task 2-5: 録音の控え（draft.json・recovery.json）
+  'draft-busy': { engine: true, files: { 'settings.json': ({ base }) => JSON.stringify(base), 'data/draft.json': JSON.stringify(OLD_DRAFT) },
+    // 起動の読み（7 回）と、録音を始める前の読み（7 回）を失敗させる。退けようとしても掴まれていて名前を変えられない
+    faults: [{ op: 'read', match: /draft\.json$/, code: 'EBUSY', times: 14 }, { op: 'rename', match: /draft\.pending-/, code: 'EBUSY', times: Infinity }],
+    act: async (c) => {
+      c.out.pagesAtStart = c.store.listPages().length;
+      c.out.start = await c.handlers['meeting:toggle']();
+      c.listeners['audio:segment']({}, { buffer: new Uint8Array(c.toneWav(3)), durationMs: 3000, final: false });
+      await c.waitFor(() => c.store.draftFiles().some((n) => /^draft-\d+\.json$/.test(n)));
+      c.out.draftsDuring = c.store.draftFiles();
+      c.out.oldDraftDuring = c.read('data/draft.json').toString('utf8');
+      c.out.retryDuringMeeting = (c.timers.retryDraftRecovery || []).length;
+      for (const f of c.timers.retryDraftRecovery || []) f();   // 録音中の試しは、終わった後に回る
+      c.out.pagesWhileRecording = c.store.listPages().length;
+      c.out.stop = await c.handlers['meeting:toggle']();
+      c.listeners['audio:segment']({}, { buffer: new Uint8Array(c.toneWav(2)), durationMs: 2000, final: true });
+      await c.waitFor(() => c.store.listPages().length >= 2);
+      c.out.titles = c.store.listPages().map((p) => p.title);
+      c.out.draftsAfter = c.store.draftFiles();
+    } },
+  'draft-broken': { files: { 'settings.json': pretty(TYPICAL), 'data/draft.json': '{"startedAt":1760000000000,"segme' } },
+  'recovery-broken': { files: { 'settings.json': pretty(TYPICAL), 'data/segbuf/1700000000000/0001.wav': 'RIFF', 'data/segbuf/1700000000000/recovery.json': '{"pageId":"p1","items":[' } },
+  // 前の起動で退けた recovery.json だけが残った、7日より古いフォルダ（名前が無いので掃除が避けない）
+  'recovery-old-quarantined': { files: { 'settings.json': pretty(TYPICAL), 'data/segbuf/1700000000000/0001.wav': 'RIFF', 'data/segbuf/1700000000000/recovery.json.broken-2026-10-01T00-00-00-000Z': '{"pageId":' },
+    prepare: (ud) => { const p = require('node:path').join(ud, 'data', 'segbuf', '1700000000000'); const old = new Date(Date.now() - 8 * 86400000); require('node:fs').utimesSync(p, old, old); } },
+  'recovery-unreadable': { files: { 'settings.json': pretty(TYPICAL), 'data/segbuf/1700000000000/0001.wav': 'RIFF', 'data/segbuf/1700000000000/recovery.json': '{"pageId":"p1","items":[]}' },
+    faults: [{ op: 'read', match: /recovery\.json$/, code: 'EBUSY', times: Infinity }],
+    prepare: (ud) => { const p = require('node:path').join(ud, 'data', 'segbuf', '1700000000000'); const old = new Date(Date.now() - 8 * 86400000); require('node:fs').utimesSync(p, old, old); } },
+  'recovery-write-fail': { files: { 'settings.json': pretty(TYPICAL),
+      'data/draft.json': ({ userData }) => JSON.stringify({ ...OLD_DRAFT, segments: [{ id: 's1', atMs: 0, durationMs: 3000, pending: true, wav: require('node:path').join(userData, 'data', 'segbuf', '1760000000000', '0001.wav'), text: '' }] }),
+      'data/segbuf/1760000000000/0001.wav': 'RIFF' },
+    faults: [{ op: 'open', match: /recovery\.json\.\d+-[0-9a-z]+\.tmp$/, code: 'EACCES', times: Infinity }] },
+  // 起動の1回の読み（1 + READ_WAITS の 6）だけ読めない recovery.json。少し後のやり直しで読める
+  'recovery-busy-retry': { files: { 'settings.json': pretty(TYPICAL),
+      'data/pages/p1.json': JSON.stringify({ id: 'p1', title: '復旧の会議', blocks: [], createdAt: '2026-10-01T00:00:00.000Z' }),
+      'data/segbuf/1700000000000/0001.wav': 'RIFF',
+      'data/segbuf/1700000000000/recovery.json': ({ userData }) => JSON.stringify({ pageId: 'p1', items: [{ id: 's1', wav: require('node:path').join(userData, 'data', 'segbuf', '1700000000000', '0001.wav'), durationMs: 3000 }], retry: false }) },
+    faults: [{ op: 'read', match: /recovery\.json$/, code: 'EBUSY', times: 7 }],
+    act: async (c) => { c.out.retries = (c.timers.retryDraftRecovery || []).length; for (const f of c.timers.retryDraftRecovery || []) f(); } },
+  // 壊れたページ（p1）と、ページは無事で文字起こしだけ壊れたページ（p2）。起動の reconcile か、開いたときに退けて知らせる
+  'page-files-broken': { files: { 'settings.json': pretty(TYPICAL),
+      'data/pages/p1.json': '{"id":"p1","title":"壊れ', 'data/transcripts/p1.json': '{"id":"p1","segments":[]}',
+      'data/pages/p2.json': JSON.stringify({ id: 'p2', title: '文字起こしが壊れた会議', blocks: [], createdAt: '2026-10-01T00:00:00.000Z' }),
+      'data/transcripts/p2.json': '{"id":"p2","segments":[{"text":"途中' },
+    act: async (c) => { c.out.p1 = await c.handlers['page:get']({}, 'p1'); c.out.p2 = await c.handlers['page:get']({}, 'p2'); } },
 };

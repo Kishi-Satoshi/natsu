@@ -49,3 +49,13 @@ test('RF22: 読めない間の履歴（新しい順）を先に、ファイル�
   for (const max of [-1, 1.5, 'abc', undefined]) assert.strictEqual(lib.mergeHistory([{ id: 'n' }], file, max).list.length, 3, String(max));
   assert.strictEqual(lib.mergeHistory([], file, 1).changed, true, 'maxHistory で切ったのに書かない');
 });
+
+test('JS9: 新しい会議の下書きの名前 — draft.json が無ければ draft.json、あれば退けてから draft.json、退けられなければ draft-<開始時刻>.json', { timeout: 5000 }, () => {
+  const calls = [];
+  const park = (ok) => () => { calls.push('park'); return { ok }; };
+  assert.strictEqual(lib.chooseDraftName({ existing: [], startedAt: 7, park: park(true) }), 'draft.json');
+  assert.deepStrictEqual(calls, []);
+  assert.strictEqual(lib.chooseDraftName({ existing: ['draft.json'], startedAt: 7, park: park(true) }), 'draft.json');
+  assert.strictEqual(lib.chooseDraftName({ existing: ['draft.json', 'draft-5.json'], startedAt: 7, park: park(false) }), 'draft-7.json');
+  assert.strictEqual(lib.chooseDraftName({ existing: ['draft-5.json'], startedAt: 7, park: park(false) }), 'draft.json');
+});

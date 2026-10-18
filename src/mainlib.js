@@ -1108,6 +1108,16 @@ function mergeHistory(memory, fromFile, max) {
   return { list, changed };
 }
 
+// 新しい会議の下書きの名前（第1a回 JS9・F7）。draft.json が無ければ draft.json。あれば（前の起動で読めなかった古い控え）
+// park() で脇へ退けてから draft.json。退けられなければ draft-<開始時刻>.json に書き、古い控えを決して上書きしない。
+// park は { ok } を返す（投げても退けられなかったとみなす）
+function chooseDraftName({ existing, startedAt, park }) {
+  if (!Array.isArray(existing) || !existing.includes('draft.json')) return 'draft.json';
+  let r = null;
+  try { r = typeof park === 'function' ? park() : null; } catch (_) { r = null; }
+  return r && r.ok ? 'draft.json' : `draft-${startedAt}.json`;
+}
+
 module.exports = {
   saveIfExists, meetingDurationSec, promptTail,
   registerHotkeys, hotkeyFailureMessage, hotkeyStatus, resolveStartupHotkeys, saveHotkeys,
@@ -1125,5 +1135,5 @@ module.exports = {
   estimateTokens, foldNotes, idleEnginesToStop, silentWav, wavLevelDbfs, mergeSummaryType, memoEvidence,
   isLoopbackUrl, loopbackOnlyFetch,
   sameShas, keepPrevious, candStamp, repairIdsOf, pathUsedBy, fetchMinutesLeft,
-  recordDictation, mergeHistory,
+  recordDictation, mergeHistory, chooseDraftName,
 };
