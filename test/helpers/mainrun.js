@@ -159,6 +159,10 @@ const childEnv = (env) => {
   }
   return out;
 };
+// 偽の claude は process.execPath で起こす。claude-cli は子の環境から ELECTRON_RUN_AS_NODE を外す（本物の claude に
+// 渡さないため）ので、Electron の Node でテストを回すとき（ci.yml の electron-smoke）は戻す。戻さないと electron.exe が
+// 偽の claude を Electron のアプリとして起こし、Windows では標準入力が届かない（D2 の stdinHasTranscript が false になる）
+const fakeClaudeEnv = (env) => (process.versions.electron ? { ...childEnv(env), ELECTRON_RUN_AS_NODE: '1' } : childEnv(env));
 
 const freePort = () => new Promise((resolve, reject) => {
   const srv = net.createServer();
@@ -543,7 +547,7 @@ process.on('exit', () => {
     spawn(cmd, args, opts) {
       if (scene && scene.claude && cmd === FAKE_CLAUDE) {
         // 偽の claude を使う場面（scene.claude。設定の［Claude Code を確かめる］）: 偽の claude を node で起こす
-        const k = realSpawn(process.execPath, [FAKE_CLAUDE, ...args], { ...opts, env: childEnv(opts && opts.env) });
+        const k = realSpawn(process.execPath, [FAKE_CLAUDE, ...args], { ...opts, env: fakeClaudeEnv(opts && opts.env) });
         kids.push(k);
         return k;
       }
@@ -573,7 +577,7 @@ process.on('exit', () => {
       }
       if (claudeMode && cmd === FAKE_CLAUDE) {
         // 偽の claude を node で起こす（env は main が課金の変数を外したもの。Windows の SystemRoot だけ元に戻す）
-        const k = realSpawn(process.execPath, [FAKE_CLAUDE, ...args], { ...opts, env: childEnv(opts && opts.env) });
+        const k = realSpawn(process.execPath, [FAKE_CLAUDE, ...args], { ...opts, env: fakeClaudeEnv(opts && opts.env) });
         kids.push(k);
         return k;
       }
