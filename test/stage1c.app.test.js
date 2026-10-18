@@ -230,3 +230,70 @@ test('OL4: 同意をまだ決めていないときだけ、設定のカード「
   await b.drain();
   assert.strictEqual(b.byId.get('onlineAskNote').hidden, true);
 });
+
+// 第1b回の続き Lane F-c・F-d: 利用者は PowerShell を打たない。カード「オンライン」の［Claude Code にログイン］（見つかったとき）と
+// ［Claude Code を入れる］（見つからない・claude.cmd しか無いとき）で、main が見える窓を開き、閉じたら確かめ直した答えで描き直す
+test('Lane F-c・F-d: ［Claude Code にログイン］は見つかったときだけ、［Claude Code を入れる］は見つからない・claude.cmd だけのときだけ出る', async () => {
+  const shown = async (st) => {
+    const l = await load(APP, { returns: { cloudStatus: () => status(), claudeStatus: () => st } });
+    await l.drain();
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+    return [!l.byId.get('claudeLogin').hidden, !l.byId.get('claudeInstall').hidden];
+  };
+  assert.deepStrictEqual(await shown({ ok: true, found: true, cmdOnly: false, method: 'claude.ai', message: '' }), [true, false]);
+  assert.deepStrictEqual(await shown({ ok: true, found: true, cmdOnly: false, method: 'none', message: 'Claude Code にログインしていないか、ログインが切れています。' }), [true, false]);
+  assert.deepStrictEqual(await shown({ ok: true, found: false, cmdOnly: false, method: '', message: 'Claude Code が見つかりません。' }), [false, true]);
+  assert.deepStrictEqual(await shown({ ok: true, found: false, cmdOnly: true, method: '', message: 'Claude Code が `claude.cmd` の形' }), [false, true]);
+  assert.deepStrictEqual(await shown(null), [false, false]);
+});
+
+test('Lane F-c: ［Claude Code にログイン］で main の窓を開き、待つ間は案内とボタンの無効、閉じたら確かめ直した答え（確かめ済み）。断られたら main の文', async () => {
+  let release;
+  let answer = new Promise((r) => { release = r; });
+  const l = await load(APP, { returns: {
+    cloudStatus: () => status(),
+    claudeStatus: () => ({ ok: true, found: true, cmdOnly: false, method: 'claude.ai', message: '' }),
+    claudeLogin: () => answer,
+  } });
+  await l.drain();
+  l.byId.get('claudeLogin').dispatchEvent({ type: 'click' });
+  await l.drain();
+  assert.strictEqual(l.called('claudeLogin').length, 1);
+  assert.strictEqual(l.byId.get('claudeState').textContent, 'ログインの窓を開きました。窓の案内に従ってログインし、終わったら窓を閉じてください（閉じると NaTsu が確かめ直します）。');
+  assert.deepStrictEqual([l.byId.get('claudeLogin').disabled, l.byId.get('claudeInstall').disabled, l.byId.get('claudeTest').disabled], [true, true, true]);
+  release({ ok: true, status: { ok: true, found: true, cmdOnly: false, method: 'claude.ai', message: '', verified: true } });
+  await l.drain();
+  assert.strictEqual(l.byId.get('claudeState').textContent, 'ログイン済み（確かめ済み）');
+  assert.strictEqual(l.byId.get('claudeState').className, 'eng-state ok');
+  assert.deepStrictEqual([l.byId.get('claudeLogin').disabled, l.byId.get('claudeInstall').disabled, l.byId.get('claudeTest').disabled], [false, false, false]);
+  answer = { ok: false, code: 'busy', message: 'Claude Code の窓がもう開いています。窓での操作が終わったら閉じてください。' };
+  l.byId.get('claudeLogin').dispatchEvent({ type: 'click' });
+  await l.drain();
+  assert.strictEqual(l.byId.get('claudeState').textContent, 'Claude Code の窓がもう開いています。窓での操作が終わったら閉じてください。');
+  assert.strictEqual(l.byId.get('claudeState').className, 'eng-state ng');
+  assert.ok(l.apis.koeApp.includes('claudeLogin') && l.apis.koeApp.includes('claudeInstall'));
+  assert.deepStrictEqual(l.errors.map(fmt), []);
+});
+
+test('Lane F-d: ［Claude Code を入れる］は入れる命令（決まった文字）を見せて main の窓を開き、閉じたら確かめ直す。入った後はログインのボタンに替わる', async () => {
+  let release;
+  const l = await load(APP, { returns: {
+    cloudStatus: () => status(),
+    claudeStatus: () => ({ ok: true, found: false, cmdOnly: false, method: '', message: 'Claude Code が見つかりません。' }),
+    claudeInstall: () => new Promise((r) => { release = r; }),
+  } });
+  await l.drain();
+  l.byId.get('claudeInstall').dispatchEvent({ type: 'click' });
+  await l.drain();
+  assert.strictEqual(l.called('claudeInstall').length, 1);
+  assert.strictEqual(l.byId.get('claudeState').textContent, 'PowerShell の窓で Anthropic の公式の入れ方（irm https://claude.ai/install.ps1 | iex）を実行しています。終わったら窓を閉じてください（閉じると NaTsu が確かめ直します）。');
+  release({ ok: true, status: { ok: true, found: true, cmdOnly: false, method: 'none', message: 'Claude Code にログインしていないか、ログインが切れています。［Claude Code にログイン］を押してログインしてください。' } });
+  await l.drain();
+  assert.match(l.byId.get('claudeState').textContent, /［Claude Code にログイン］を押して/);
+  assert.deepStrictEqual([!l.byId.get('claudeLogin').hidden, !l.byId.get('claudeInstall').hidden], [true, false]);
+  // 説明の行に、入れる命令と「インターネットの命令をそのまま実行する」こと・ログインの情報を読まないことが書いてある
+  const help = l.byId.get('claudeHelp').textContent;
+  assert.match(help, /irm https:\/\/claude\.ai\/install\.ps1 \| iex/);
+  assert.match(help, /Anthropic の公式の入れ方/);
+  assert.match(help, /NaTsu はログインの情報を読みません/);
+});

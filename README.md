@@ -154,13 +154,16 @@ LLM が創作した内容をそこで見分けられるようにするためで�
 
 ### Claude Code の入れ方とログイン
 
-1. PowerShell で `irm https://claude.ai/install.ps1 | iex` を実行して入れます（管理者の権限は要りません。Git for Windows は無くても動きます）。
-2. PowerShell を開き直して `claude` と打ち、claude.ai のアカウント（Pro・Max・Team・Enterprise のプラン）でログインします。終わったら `/exit` で閉じます。
-3. `claude auth status` を実行し、`"authMethod": "claude.ai"` と出ることを確かめます。
-4. NaTsu の［設定］→「オンライン」の［Claude Code を確かめる］で「ログイン済み（claude.ai）」と出れば使えます。
+PowerShell を打たなくても、NaTsu の［設定］→「オンライン」のボタンでできます。
+
+1. Claude Code が見つからないときは［Claude Code を入れる］が出ます。押すと PowerShell の窓が開き、Anthropic の公式の入れ方 `irm https://claude.ai/install.ps1 | iex` を窓の頭に見せてから実行します（管理者の権限は要りません。Git for Windows は無くても動きます）。終わったら窓を閉じてください。NaTsu が確かめ直します。
+2. ［Claude Code にログイン］を押すと、見つけた `claude.exe` の `claude auth login` の窓が開きます。案内に従って claude.ai のアカウント（Pro・Max・Team・Enterprise のプラン）でログインし、窓が閉じたら NaTsu が確かめ直します。NaTsu はログインの情報（`~/.claude` の中身）を読みません。
+3. ［Claude Code を確かめる］は、ログインの状態（`claude auth status`）を見た後に、決まった1語（`ping`）だけの小さな要求を Claude Code に1つ送ります（ご自分のプランの上限をほんの少し使います。文字起こしは送りません）。「ログイン済み（確かめ済み）」と出れば使えます。ログインの期限が切れているときは「Claude Code のログインが切れています。設定の［Claude Code にログイン］を押してください。」と出ます。
+
+**［Claude Code を入れる］の注意:** インターネットから取った Anthropic の入れる命令を、そのまま PowerShell で実行します（ほかの人が手を入れたものでないかは、`https://claude.ai` を信じることになります）。会社の PC で決まりがあるときは、情報システムに確かめてから押してください。自分で入れるときは、PowerShell で同じ `irm https://claude.ai/install.ps1 | iex` を実行し、`claude auth login` でログインして、`claude auth status` で `"authMethod": "claude.ai"` と出ることを確かめます。
 
 - Claude Code が API キー（`ANTHROPIC_API_KEY` など）で動く設定のときは、従量課金になるので NaTsu は要約を作らずに知らせます。NaTsu は Claude Code を呼ぶときに `ANTHROPIC_` で始まる環境変数を外します。
-- `claude.cmd`（古い npm 版など）しか無いときは呼べません。上の 1 で入れ直すか、「Claude Code の場所」に `claude.exe` を指定してください。
+- `claude.cmd`（古い npm 版など）しか無いときは呼べません。［Claude Code を入れる］で入れ直すか、「Claude Code の場所」に `claude.exe` を指定してください。
 - 「Claude Code が古いため…」と出たら、ターミナルで `claude update` を実行してください。
 
 ### 上限

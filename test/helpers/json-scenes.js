@@ -347,6 +347,39 @@ module.exports = {
       o.noexec = await h('claude:test');
       o.claudeLog = lines();
     } },
+  // 第1b回の続き Lane F-c・F-d: ［Claude Code にログイン］［Claude Code を入れる］。claude.exe は userData の bin の空のファイル（mainrun が
+  // 偽の claude を node で起こす）。見える窓を開く powershell.exe は mainrun が本当には起こさず覚えるだけ（launches）。窓を開く間だけ
+  // process.platform を win32 と読ませる（Windows のほかでは窓を開かない: claude-cli.test.js が見る）
+  'claude-window': { claude: true,
+    files: { 'bin/claude.exe': '', 'settings.json': ({ userData }) => pretty({ ...TYPICAL, claudeExe: require('node:path').join(userData, 'bin', 'claude.exe') }) },
+    act: async (c) => {
+      const p = require('node:path');
+      const fs = require('node:fs');
+      const h = (ch, ...a) => c.handlers[ch]({}, ...a);
+      const logFile = p.join(c.userData, '..', 'claude-window.log');
+      process.env.FAKE_CLAUDE_LOG = logFile;
+      process.env.FAKE_CLAUDE_AUTH = 'claude.ai';
+      process.env.FAKE_CLAUDE_MODE = 'ok';
+      process.env.ANTHROPIC_API_KEY = 'sk-ant-test-window';
+      const lines = () => (fs.existsSync(logFile) ? fs.readFileSync(logFile, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l)) : []);
+      const o = c.out;
+      const real = process.platform;
+      Object.defineProperty(process, 'platform', { value: 'win32', configurable: true });
+      try {
+        o.login = await h('claude:login');
+        o.linesAfterLogin = lines().map((l) => l.kind);
+        o.both = await Promise.all([h('claude:login'), h('claude:install')]);   // 窓は1つずつ（2つ目は busy）
+        o.install = await h('claude:install');
+        c.launchPlan.push(1);
+        o.failed = await h('claude:install');
+        o.savedMissing = await h('settings:save', UI({ claudeExe: p.join(c.userData, 'bin', 'none.exe') }));
+        o.loginMissing = await h('claude:login');
+        o.launches = c.launches.slice();
+      } finally {
+        Object.defineProperty(process, 'platform', { value: real, configurable: true });
+        delete process.env.ANTHROPIC_API_KEY;
+      }
+    } },
   // 第1b回 Task A-2: 画面の覚え書き（N6・RF21・RF22・F1〜F4・F7）
   'ws-none': { files: { 'settings.json': pretty(TYPICAL) },
     act: async (c) => { c.out.ui = await c.handlers['ui:get']({}); } },

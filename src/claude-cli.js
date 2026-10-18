@@ -5,7 +5,7 @@
  * 子のプロセスで呼んで作る（claude -p。文字起こしは標準入力）。NaTsu は claude を
  * 同梱しない・改変しない・~/.claude/.credentials.json を読まない・ログインを出さない。
  * ここは子のプロセスを起こさない純粋な部分（探す・環境・引数・結果の分け方・文）。
- * Electron を読まない。子を起こすのは claudeAuthStatus・claudeSummarize・claudePing だけ（B-2。spawn を引数で受ける）。
+ * Electron を読まない。子を起こすのは claudeAuthStatus・claudeSummarize・claudePing・claudeOpenWindow だけ（B-2。spawn を引数で受ける）。
  *
  * 資料（2026-10-18 に読んだ）:
  *   https://code.claude.com/docs/en/headless            （-p・--output-format json・--bare は ~/.claude を読まない代わりに OAuth も読まない）
@@ -313,12 +313,59 @@ async function claudePing({ cmd, preArgs = [], spawn = cp.spawn, env = process.e
   return c.ok ? { ok: true } : c;
 }
 
+// ---- 見える窓（第1b回の続き Lane F-c・F-d）: ［Claude Code にログイン］［Claude Code を入れる］ ----
+// 利用者に PowerShell を打たせない。隠した PowerShell（shell なし・課金の変数を外した環境）が Start-Process で新しいコンソールの
+// 窓を開き、閉じるまで待つ（閉じたら呼び手が確かめ直す）。窓の入出力は NaTsu を通らない（ログインの情報を NaTsu は読まない）。
+//  - 命令は -EncodedCommand（UTF-16LE の base64）で渡す（引用符・% の解き方に左右されない）。
+//  - claude.exe の場所は命令の文字に混ぜず、環境の変数 NATSU_CLAUDE_EXE で渡す（cmd.exe の start は場所の % や引用符を解くので使わない）。
+//    場所は findClaude が見つけた claude.exe だけ（.cmd・.js などは ShellExecute で開かない）。
+//  - 入れる命令は決まった文字 INSTALL_CMD（Anthropic の公式の入れ方）で、窓の頭にそのまま見せてから実行する。
+const LOGIN_ARGS = Object.freeze(['auth', 'login']);
+const EXE_ENV = 'NATSU_CLAUDE_EXE';
+const OPEN_TIMEOUT_MS = 30 * 60 * 1000;   // 窓を待つのはここまで（窓は開いたまま残る。呼び手はそこで確かめ直す）
+const LOGIN_PS = `$ErrorActionPreference = 'Stop'; $p = Start-Process -FilePath $env:${EXE_ENV} -ArgumentList ${LOGIN_ARGS.map((a) => `'${a}'`).join(',')} -PassThru; $p.WaitForExit()`;
+const INSTALL_PS = `Write-Host '> ${INSTALL_CMD}'; ${INSTALL_CMD}; Write-Host ''; Write-Host 'NaTsu: 終わったらこの窓を閉じてください（NaTsu が確かめ直します）。'`;
+const encodePs = (script) => Buffer.from(script, 'utf16le').toString('base64');
+
+function powershellExe(env) {
+  const root = envGet(env, 'SystemRoot');
+  return root ? path.win32.join(root, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe') : 'powershell.exe';
+}
+
+// 窓を開く命令を組み立てる（純粋）→ { ok: true, cmd, args, env } | { ok: false, code: 'unsupported' | 'not-found' }
+function windowLaunch(kind, { exe = '', env = process.env, platform = process.platform } = {}) {
+  if (platform !== 'win32' || (kind !== 'login' && kind !== 'install')) return { ok: false, code: 'unsupported' };
+  const out = { ...env };
+  let script;
+  if (kind === 'login') {
+    const e = typeof exe === 'string' ? exe : '';
+    if (!e || /[\x00-\x1f"]/.test(e) || !path.win32.isAbsolute(e) || !/\.exe$/i.test(e)) return { ok: false, code: 'not-found' };
+    out[EXE_ENV] = e;
+    script = LOGIN_PS;
+  } else {
+    delete out[EXE_ENV];
+    script = `$ErrorActionPreference = 'Stop'; $p = Start-Process -FilePath (Join-Path $PSHOME 'powershell.exe') -ArgumentList '-NoProfile','-NoExit','-EncodedCommand','${encodePs(INSTALL_PS)}' -PassThru; $p.WaitForExit()`;
+  }
+  return { ok: true, cmd: powershellExe(env), args: ['-NoProfile', '-NonInteractive', '-EncodedCommand', encodePs(script)], env: out };
+}
+
+// 窓を開いて、閉じるまで待つ → { ok: true, code: 'closed' | 'still-open' } | { ok: false, code: 'unsupported' | 'not-found' | 'no-powershell' | 'open-failed' }
+async function claudeOpenWindow({ kind, exe = '', spawn = cp.spawn, env = process.env, platform = process.platform, cwd, timeoutMs = OPEN_TIMEOUT_MS } = {}) {
+  const L = windowLaunch(kind, { exe, env, platform });
+  if (!L.ok) return L;
+  const r = await runChild({ cmd: L.cmd, args: L.args, spawn, env: L.env, cwd, timeoutMs });
+  if (r.spawnError) return { ok: false, code: 'no-powershell' };
+  if (r.timedOut) return { ok: true, code: 'still-open' };
+  return r.code === 0 ? { ok: true, code: 'closed' } : { ok: false, code: 'open-failed' };
+}
+
 const RETRY = '［要約を生成］を押してください。';
 const MESSAGES = {
   'auth-expired': 'Claude Code のログインが切れています。設定の［Claude Code にログイン］を押してください。',
-  'not-found': `Claude Code が見つからないため、要約を作れませんでした。PowerShell で \`${INSTALL_CMD}\` を実行して入れ、ターミナルで \`claude\` を一度起動してログインしてから、${RETRY}`,
-  'cmd-only': `Claude Code が \`claude.cmd\` の形（npm 版など）でしか見つからないため、NaTsu から呼べません。PowerShell で \`${INSTALL_CMD}\` を実行して入れ直すか、設定の「Claude Code の場所」に \`claude.exe\` を指定してから、${RETRY}`,
-  'not-logged-in': `Claude Code にログインしていないか、ログインが切れています。ターミナルで \`claude\` を起動してログインしてから、${RETRY}`,
+  // 入れる・ログインは設定のボタンへ案内する（第1b回の続き Lane F-c・F-d。利用者にターミナルを打たせない。入れる命令は見せる）
+  'not-found': `Claude Code が見つからないため、要約を作れませんでした。設定の「オンライン」の［Claude Code を入れる］で入れ（PowerShell の窓で \`${INSTALL_CMD}\` を実行します）、［Claude Code にログイン］でログインしてから、${RETRY}`,
+  'cmd-only': `Claude Code が \`claude.cmd\` の形（npm 版など）でしか見つからないため、NaTsu から呼べません。設定の「オンライン」の［Claude Code を入れる］で入れ直すか（PowerShell の窓で \`${INSTALL_CMD}\` を実行します）、設定の「Claude Code の場所」に \`claude.exe\` を指定してから、${RETRY}`,
+  'not-logged-in': `Claude Code にログインしていないか、ログインが切れています。設定の「オンライン」の［Claude Code にログイン］でログインしてから、${RETRY}`,
   'api-billing': `Claude Code が API キー（従量課金）で動く設定になっているため、要約を作りませんでした（NaTsu は各自の Claude のプランだけを使います）。ターミナルで \`claude auth status\` を実行して確かめ、\`claude auth login\` で claude.ai のアカウントにログインしてから、${RETRY}`,
   overloaded: `Claude が混み合っているため、要約を作れませんでした。少し待ってから${RETRY}`,
   account: 'Claude のアカウントか組織の設定で Claude Code が使えません。Claude の管理者に確かめてください。',
@@ -341,6 +388,7 @@ function claudeMessage(r) {
 
 module.exports = {
   STRIP_EXACT, STRIP_PREFIXES, STDIN_MAX, RUN_TIMEOUT_MS, AUTH_TIMEOUT_MS, CLAUDE_MODEL, ASK, INSTALL_CMD, PING_ASK, PING_TIMEOUT_MS,
-  findClaude, childEnv, summaryArgs, pingArgs, authArgs, parseAuthStatus, classifyRun, claudeMessage, runWhy,
-  claudeAuthStatus, claudeSummarize, claudePing,
+  LOGIN_ARGS, LOGIN_PS, INSTALL_PS, OPEN_TIMEOUT_MS,
+  findClaude, childEnv, summaryArgs, pingArgs, authArgs, windowLaunch, parseAuthStatus, classifyRun, claudeMessage, runWhy,
+  claudeAuthStatus, claudeSummarize, claudePing, claudeOpenWindow,
 };

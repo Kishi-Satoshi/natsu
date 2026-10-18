@@ -88,6 +88,9 @@ contextBridge.exposeInMainWorld('koeApp', {
   cloudTestKey: (provider) => ipcRenderer.invoke('cloud:test-key', provider),
   claudeStatus: () => ipcRenderer.invoke('claude:status'),
   claudeTest: () => ipcRenderer.invoke('claude:test'),
+  // 第1b回の続き Lane F-c・F-d: 見える窓を開き、閉じたら確かめ直した答え（{ ok, status } か { ok: false, code, message }）を返す
+  claudeLogin: () => ipcRenderer.invoke('claude:login'),
+  claudeInstall: () => ipcRenderer.invoke('claude:install'),
 
   // 画面の覚え書き（第1b回 N6）。サイドバーの幅と畳み・開いているタブ。main が照らしてから window-state.json に覚える
   uiState: () => ipcRenderer.invoke('ui:get'),

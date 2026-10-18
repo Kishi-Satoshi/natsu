@@ -49,7 +49,7 @@ test('RF30・OL3・OL5・OL7: 設定のカード「オンライン」の IPC。�
   for (const c of [o.claude, o.claudeTest]) {
     assert.deepStrictEqual({ ...c, message: '' }, { ok: true, found: false, cmdOnly: false, method: '', message: '' });
     // 設定の画面の文: 入れ方を示し、議事録の［要約を生成］へは誘わない（要約の失敗の文をそのまま出さない）
-    assert.match(c.message, /^Claude Code が見つかりません。PowerShell で `irm https:\/\/claude\.ai\/install\.ps1 \| iex` を実行して入れ/);
+    assert.match(c.message, /^Claude Code が見つかりません。［Claude Code を入れる］を押すと、PowerShell の窓で Anthropic の公式の入れ方（`irm https:\/\/claude\.ai\/install\.ps1 \| iex`）を実行します。入れ終わったら［Claude Code にログイン］を押してください。/);
     assert.ok(!/要約を生成|要約を作れませんでした/.test(c.message), `設定の画面に要約の失敗の文が出る: ${c.message}`);
     assert.match(c.message, /「Claude Code の場所」に入れたファイルが見つからないときは、場所を空にすると自動で探します。$/);
   }
@@ -108,7 +108,7 @@ test('OL5・RF25・RF31: 設定の［Claude Code を確かめる］を偽の cla
     assert.ok(!/要約を生成|要約を作れませんでした/.test(r.message), `設定の画面に要約の失敗の文が出る: ${r.message}`);
   };
   assert.deepStrictEqual({ ...o.notLogged, message: '' }, { ok: true, found: true, cmdOnly: false, method: 'none', message: '' });
-  assert.match(o.notLogged.message, /^Claude Code にログインしていないか、ログインが切れています。/);
+  assert.strictEqual(o.notLogged.message, 'Claude Code にログインしていないか、ログインが切れています。［Claude Code にログイン］を押してログインしてください。');
   settingsText(o.notLogged);
   assert.deepStrictEqual({ ...o.apiKey, message: '' }, { ok: true, found: true, cmdOnly: false, method: 'api_key', message: '' });
   assert.match(o.apiKey.message, /^Claude Code が API キー（従量課金）で動く設定になっています。/);
@@ -118,7 +118,7 @@ test('OL5・RF25・RF31: 設定の［Claude Code を確かめる］を偽の cla
   settingsText(o.unknown);
   // 場所のファイルはあるが起こせない（実行できない中身）: 入れ方の文。場所の欄の添え書きは無い（ファイルはある）
   assert.deepStrictEqual({ ...o.noexec, message: '' }, { ok: true, found: false, cmdOnly: false, method: '', message: '' });
-  assert.match(o.noexec.message, /^Claude Code が見つかりません。PowerShell で `irm https:\/\/claude\.ai\/install\.ps1 \| iex` を実行して入れ/);
+  assert.match(o.noexec.message, /^Claude Code が見つかりません。［Claude Code を入れる］を押すと、PowerShell の窓で Anthropic の公式の入れ方（`irm https:\/\/claude\.ai\/install\.ps1 \| iex`）を実行します。入れ終わったら［Claude Code にログイン］を押してください。/);
   assert.ok(!o.noexec.message.includes('場所を空にすると'), `ファイルがあるのに場所の欄の添え書きが出た: ${o.noexec.message}`);
   settingsText(o.noexec);
   // claude.cmd の場所は設定の決まり（exe）で空になる（F12）ので、ここでは試さない（findClaude の cmd-only は claude-cli.test.js が見る）
@@ -140,4 +140,43 @@ test('OL5・RF25・RF31: 設定の［Claude Code を確かめる］を偽の cla
   assert.ok(o.engineLog.includes('Claude Code の確かめの要求: ok'), o.engineLog.join('\n'));
   assert.ok(o.engineLog.includes('Claude Code の確かめの要求: auth-expired（subtype=success・api_error_status=401）'));
   assert.ok(!o.engineLog.some((l) => /OAuth|authenticate|hit your/i.test(l)), '返事の英語の文が記録に写った');
+});
+
+// 第1b回の続き Lane F-c・F-d（利用者は PowerShell を打たない）: ［Claude Code にログイン］は見つけた claude.exe の auth login を、
+// ［Claude Code を入れる］は Anthropic の公式の入れ方を、見える窓で開き、閉じたら確かめ直す。窓を開くのは隠した PowerShell で、
+// claude.exe の場所は環境の変数だけで渡す。窓は1つずつ。NaTsu はログインの情報を読まない
+test('Lane F-c・F-d: ログインと入れる窓の IPC。閉じたら確かめ直し（ログインの後は小さな要求まで）、窓は1つずつ、開けなければ設定の画面の文', { timeout: 30000 }, async () => {
+  const o = await run(['text', '--json-scene=claude-window']);
+  const decode = (l) => Buffer.from(l.args[l.args.indexOf('-EncodedCommand') + 1], 'base64').toString('utf16le');
+  // ログイン: 窓が閉じたら auth status と確かめの要求まで通して「確かめ済み」
+  assert.deepStrictEqual(o.login, { ok: true, status: { ok: true, found: true, cmdOnly: false, method: 'claude.ai', message: '', verified: true } });
+  assert.deepStrictEqual(o.linesAfterLogin, ['auth', 'p']);
+  const login = o.launches[0];
+  assert.match(login.cmd, /powershell\.exe$/i);
+  assert.ok(login.exe.endsWith(path.join('bin', 'claude.exe')), login.exe);
+  assert.deepStrictEqual([login.shell, login.windowsHide], [false, true]);
+  assert.deepStrictEqual(login.billingKeys, [], '課金の変数がログインの窓に渡った');
+  assert.match(decode(login), /Start-Process -FilePath \$env:NATSU_CLAUDE_EXE -ArgumentList 'auth','login'/);
+  assert.ok(!decode(login).includes('claude.exe') && !JSON.stringify(login.args).includes('claude.exe'), '場所が命令の文字に入った');
+  // 窓は1つずつ: 同時の2つ目は busy（開かない）
+  const busy = o.both.find((r) => r.code === 'busy');
+  assert.ok(busy && o.both.some((r) => r.ok === true), JSON.stringify(o.both));
+  assert.strictEqual(busy.message, 'Claude Code の窓がもう開いています。窓での操作が終わったら閉じてください。');
+  // 入れる: 窓が閉じたら auth status まで（要求は送らない）
+  assert.deepStrictEqual(o.install, { ok: true, status: { ok: true, found: true, cmdOnly: false, method: 'claude.ai', message: '' } });
+  const install = o.launches[2];
+  assert.strictEqual(install.exe, '');
+  assert.match(decode(install), /^\$ErrorActionPreference = 'Stop'; \$p = Start-Process -FilePath \(Join-Path \$PSHOME 'powershell\.exe'\) -ArgumentList '-NoProfile','-NoExit','-EncodedCommand'/);
+  // 開けなかった（隠した PowerShell が 1 で終わった）
+  assert.deepStrictEqual(o.failed, { ok: false, code: 'open-failed', message: 'Claude Code の窓を開けませんでした。少し待ってからもう一度押してください。続くときは、理由の記録を見てください。理由の記録: %APPDATA%\\natsu\\engine.log' });
+  // 場所のファイルが無ければ、ログインの窓は開かず入れ方の文
+  assert.strictEqual(o.savedMissing.ok, true);
+  assert.strictEqual(o.loginMissing.ok, false);
+  assert.strictEqual(o.loginMissing.code, 'not-found');
+  assert.match(o.loginMissing.message, /^Claude Code が見つかりません。/);
+  assert.strictEqual(o.launches.length, 4, `開いた窓の数が違う: ${o.launches.length}`);
+  // 記録は窓の種類と符号だけ
+  assert.ok(o.engineLog.includes('Claude Code の窓: login → closed'), o.engineLog.join('\n'));
+  assert.ok(o.engineLog.includes('Claude Code の窓: install → open-failed'));
+  assert.ok(!o.engineLog.some((l) => l.includes('sk-ant-test-window') || l.includes('claude.exe')), '鍵か場所が記録に写った');
 });

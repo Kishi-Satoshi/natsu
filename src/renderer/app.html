@@ -815,9 +815,11 @@
             <div class="row">
               <span class="eng-state" id="claudeState"></span>
               <button class="ghost" id="claudeTest" type="button">Claude Code を確かめる</button>
+              <button class="ghost" id="claudeLogin" type="button" hidden>Claude Code にログイン</button>
+              <button class="ghost" id="claudeInstall" type="button" hidden>Claude Code を入れる</button>
             </div>
-            <div class="desc" id="claudeHelp">PowerShell で <code>irm https://claude.ai/install.ps1 | iex</code> を実行して入れ、ターミナルで <code>claude</code> を一度起動してログインします（Git for Windows は無くても動きます）。
-              要約は各自の Claude のプランの上限（5時間ごと・週ごと）を使います。</div>
+            <div class="desc" id="claudeHelp">［Claude Code を入れる］は、PowerShell の窓で Anthropic の公式の入れ方 <code>irm https://claude.ai/install.ps1 | iex</code> を実行します（インターネットから取った命令をそのまま実行します。Git for Windows は無くても動きます）。
+              ［Claude Code にログイン］はログインの窓を開きます（NaTsu はログインの情報を読みません）。要約は各自の Claude のプランの上限（5時間ごと・週ごと）を使います。</div>
           </div>
           <div class="field">
             <label for="claudeExe">Claude Code の場所（空なら自動で探します）</label>
@@ -3235,6 +3237,9 @@
     const ok = Boolean(s && s.ok && s.found && s.method === 'claude.ai' && !s.message);
     el.textContent = ok ? (s.verified === true ? CLAUDE_VERIFIED : CLAUDE_OK) : ((s && typeof s.message === 'string' && s.message) || 'Claude Code の状態を読めませんでした');
     el.className = ok ? 'eng-state ok' : 'eng-state ng';
+    // ログインは見つかったとき、入れるのは見つからない・claude.cmd しか無いとき（第1b回の続き Lane F-c・F-d）
+    $('claudeLogin').hidden = !(s && s.ok && s.found === true);
+    $('claudeInstall').hidden = !(s && s.ok && (s.found === false || s.cmdOnly === true));
   }
   async function refreshClaude() {
     if (!window.koeApp.claudeStatus) return;
@@ -3274,6 +3279,23 @@
     try { s = await window.koeApp.claudeTest(); } catch (_) { s = null; }
     renderClaude(s);
   };
+  // 見える窓（main が開き、閉じたら確かめ直した答えを返す）。待つ間は3つのボタンを止める
+  async function claudeWindow(call, waitText) {
+    const btns = ['claudeTest', 'claudeLogin', 'claudeInstall'].map((id) => $(id));
+    $('claudeState').textContent = waitText;
+    $('claudeState').className = 'eng-state';
+    for (const b of btns) b.disabled = true;
+    let r = null;
+    try { r = await call(); } catch (_) { r = null; }
+    for (const b of btns) b.disabled = false;
+    if (r && r.ok && r.status) { renderClaude(r.status); return; }
+    $('claudeState').textContent = (r && typeof r.message === 'string' && r.message) || 'Claude Code の窓を開けませんでした';
+    $('claudeState').className = 'eng-state ng';
+  }
+  $('claudeLogin').onclick = () => claudeWindow(() => window.koeApp.claudeLogin(),
+    'ログインの窓を開きました。窓の案内に従ってログインし、終わったら窓を閉じてください（閉じると NaTsu が確かめ直します）。');
+  $('claudeInstall').onclick = () => claudeWindow(() => window.koeApp.claudeInstall(),
+    'PowerShell の窓で Anthropic の公式の入れ方（irm https://claude.ai/install.ps1 | iex）を実行しています。終わったら窓を閉じてください（閉じると NaTsu が確かめ直します）。');
 
   // ---------------- アップデート ----------------
   let pendingUpdate = null;

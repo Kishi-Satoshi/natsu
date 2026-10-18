@@ -57,7 +57,7 @@
 //                     - 画面の読み込みは --slow-load と同じで、窓が2つ（録音バー・本体）できた後に読み終える（起動の知らせは
 //                       did-finish-load で送られる）。
 //                     - act(ctx) を呼ぶ。ctx = { handlers, listeners, app, wins, power, timers, clearedTimers, shortcuts, store, jsonfile, electron, userData,
-//                       read(rel), waitFor(cond, ms), sleep, toneWav(sec), out }。app・窓・power（powerMonitor）は on／once で受け口を覚え、
+//                       read(rel), waitFor(cond, ms), sleep, toneWav(sec), out, launches, launchPlan }。app・窓・power（powerMonitor）は on／once で受け口を覚え、
 //                       emit(ev, …) で呼べる。窓は setPosition の値を getPosition で返し、作ったときに app の browser-window-created を
 //                       出す。wins は作った順（createOverlay が先、createMainWindow が後）。read(rel) は無ければ null、あればバイト。
 //                     - 出力（最後の行の JSON）: scene・notices（app:notice の文）・files（userData の下のファイルの相対パス。区切りは /。
@@ -620,12 +620,34 @@ process.on('exit', () => {
   // エンジンの spawn だけを本物にする（.js なら node で起動）。それ以外（貼り付け用の PowerShell など）は起動しない
   const realSpawn = cp.spawn;
   const spawns = [];   // エンジンの起動（実行ファイル・引数・作業フォルダ）
+  // 第1b回の続き Lane F-c・F-d: scene.claude の場面で main が起こす powershell.exe（見える窓を開く隠した PowerShell）は本当には起こさず、
+  // launches に { cmd, args, exe（環境の NATSU_CLAUDE_EXE）, shell, windowsHide, ansiKeys（課金の変数の名前） } で覚え、
+  // launchPlan の先頭の終わりの番号（無ければ 0）で 20ms 後に閉じる偽の子を返す（act が launchPlan に積む）
+  const launches = [];
+  const launchPlan = [];
   let crashed = false;  // --crash・--crash-ok: 最初の起動だけ 0xC0000135 で落とした
   const childProcess = {
     ...cp,
     spawn(cmd, args, opts) {
       if (scene && scene.claude && cmd === FAKE_CLAUDE) {
         // 偽の claude を使う場面（scene.claude。設定の［Claude Code を確かめる］）: 偽の claude を node で起こす
+        const k = realSpawn(process.execPath, [FAKE_CLAUDE, ...args], { ...opts, env: fakeClaudeEnv(opts && opts.env) });
+        kids.push(k);
+        return k;
+      }
+      if (scene && scene.claude && /(^|[\\/])powershell\.exe$/i.test(String(cmd))) {
+        const env = (opts && opts.env) || {};
+        launches.push({ cmd, args, exe: env.NATSU_CLAUDE_EXE || '', shell: opts && opts.shell, windowsHide: opts && opts.windowsHide,
+          billingKeys: Object.keys(env).filter((k) => /^(ANTHROPIC_|CLAUDE_CODE_USE_|CLAUDE_CODE_OAUTH_)/i.test(k)) });
+        const EventEmitter = require('events');
+        const p = new EventEmitter();
+        p.pid = 4242; p.stdin = { on: () => {}, end: () => {} }; p.stdout = new EventEmitter(); p.stderr = new EventEmitter(); p.kill = () => {};
+        const code = launchPlan.length ? launchPlan.shift() : 0;
+        setTimeout(() => p.emit('close', code), 20);
+        return p;
+      }
+      if (scene && scene.claude && cmd === path.join(userData, 'bin', 'claude.exe')) {
+        // 見える窓の場面の claude.exe（中身は空のファイル。findClaude と窓の組み立てが claude.exe を求める）: 偽の claude を node で起こす
         const k = realSpawn(process.execPath, [FAKE_CLAUDE, ...args], { ...opts, env: fakeClaudeEnv(opts && opts.env) });
         kids.push(k);
         return k;
@@ -742,7 +764,7 @@ process.on('exit', () => {
     const readLocal = (rel) => { try { return fs.readFileSync(path.join(localAppData, ...rel.split('/'))); } catch (_) { return null; } };
     if (typeof scene.act === 'function') {
       await scene.act({ handlers, listeners, app: electron.app, wins, mainWin: wins[1], power: powerMonitor, timers, clearedTimers, shortcuts, store, jsonfile, electron, userData,
-        localAppData, read: readUser, readLocal, waitFor, sleep, toneWav, releasePause, out: actOut });
+        localAppData, read: readUser, readLocal, waitFor, sleep, toneWav, releasePause, out: actOut, launches, launchPlan });
     }
     const files = [];
     const walk = (dir, rel) => {

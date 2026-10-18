@@ -3386,9 +3386,10 @@ function setupIpc() {
     overloaded: 'Claude が混み合っています（ログインはできています）。少し待ってから［Claude Code を確かめる］を押してください。',
     timeout: `Claude Code が ${Math.round(claudeCli.PING_TIMEOUT_MS / 1000)} 秒たっても返事をしませんでした。少し待ってから［Claude Code を確かめる］を押してください。`,
     account: claudeCli.claudeMessage({ code: 'account' }),
-    'not-found': `Claude Code が見つかりません。PowerShell で \`${claudeCli.INSTALL_CMD}\` を実行して入れ、ターミナルで \`claude\` を一度起動してログインしてください。`,
-    'cmd-only': `Claude Code が \`claude.cmd\` の形（npm 版など）でしか見つからないため、NaTsu から呼べません。PowerShell で \`${claudeCli.INSTALL_CMD}\` を実行して入れ直すか、下の「Claude Code の場所」に \`claude.exe\` を指定してください。`,
-    'not-logged-in': 'Claude Code にログインしていないか、ログインが切れています。ターミナルで `claude` を起動してログインしてください。',
+    // 入れる・ログインはカードのボタンへ案内する（第1b回の続き Lane F-c・F-d。利用者にターミナルを打たせない。入れる命令は見せる）
+    'not-found': `Claude Code が見つかりません。［Claude Code を入れる］を押すと、PowerShell の窓で Anthropic の公式の入れ方（\`${claudeCli.INSTALL_CMD}\`）を実行します。入れ終わったら［Claude Code にログイン］を押してください。`,
+    'cmd-only': `Claude Code が \`claude.cmd\` の形（npm 版など）でしか見つからないため、NaTsu から呼べません。［Claude Code を入れる］で Anthropic の公式の入れ方（\`${claudeCli.INSTALL_CMD}\`）で入れ直すか、下の「Claude Code の場所」に \`claude.exe\` を指定してください。`,
+    'not-logged-in': 'Claude Code にログインしていないか、ログインが切れています。［Claude Code にログイン］を押してログインしてください。',
     'api-billing': 'Claude Code が API キー（従量課金）で動く設定になっています。NaTsu は各自の Claude のプランだけを使うため、このままでは要約を作りません。ターミナルで `claude auth status` を実行して確かめ、`claude auth login` で claude.ai のアカウントにログインしてください。',
     'old-version': 'Claude Code が古いため、NaTsu から呼べません。ターミナルで `claude update` を実行してください。',
     other: 'Claude Code の状態を確かめられませんでした。少し待ってから［Claude Code を確かめる］を押してください。続くときは、理由の記録を見てください。理由の記録: %APPDATA%\\natsu\\engine.log',
@@ -3441,6 +3442,44 @@ function setupIpc() {
   };
   ipcMain.handle('claude:status', () => claudeStatus());
   ipcMain.handle('claude:test', () => claudeTest());
+  // ［Claude Code にログイン］［Claude Code を入れる］（第1b回の続き Lane F-c・F-d。利用者に PowerShell を打たせない）。
+  // 見える窓は claudeCli.claudeOpenWindow が隠した PowerShell から開き、閉じるまで待つ。閉じたら確かめ直して、その答えを返す
+  // （ログインの後は小さな要求まで、入れた後は auth status まで）。窓は1つずつ。NaTsu はログインの情報を読まない。記録は種類と符号だけ
+  const CLAUDE_OPEN_TEXT = {
+    busy: 'Claude Code の窓がもう開いています。窓での操作が終わったら閉じてください。',
+    unsupported: 'この画面から Claude Code の窓を開けるのは Windows だけです。ターミナルで `claude auth login` を実行してください。',
+    'no-powershell': 'PowerShell を起こせなかったため、Claude Code の窓を開けませんでした。',
+    'open-failed': 'Claude Code の窓を開けませんでした。少し待ってからもう一度押してください。続くときは、理由の記録を見てください。理由の記録: %APPDATA%\\natsu\\engine.log',
+  };
+  let claudeWindow = null;
+  async function claudeOpenNow(kind) {
+    let exe = '';
+    if (kind === 'login') {
+      const f = claudeCli.findClaude({ configured: settings.claudeExe });
+      if (!f.ok) {
+        engineLog(`Claude Code の窓: ${kind} → ${f.code}`);
+        return { ok: false, code: f.code, message: claudeStatusText(f.code) };
+      }
+      exe = f.cmd;
+    }
+    let cwd;
+    try { cwd = claudeRunDir(); } catch (_) { cwd = undefined; }
+    const r = await claudeCli.claudeOpenWindow({ kind, exe, spawn, cwd });
+    engineLog(`Claude Code の窓: ${kind} → ${r.code}`);
+    if (!r.ok) {
+      const message = r.code === 'not-found' ? claudeStatusText('not-found') : (CLAUDE_OPEN_TEXT[r.code] || CLAUDE_OPEN_TEXT['open-failed']);
+      return { ok: false, code: r.code, message };
+    }
+    const status = kind === 'login' ? await claudeTest() : await claudeStatus();
+    return { ok: true, status };
+  }
+  const claudeOpen = (kind) => {
+    if (claudeWindow) return Promise.resolve({ ok: false, code: 'busy', message: CLAUDE_OPEN_TEXT.busy });
+    claudeWindow = claudeOpenNow(kind).finally(() => { claudeWindow = null; });
+    return claudeWindow;
+  };
+  ipcMain.handle('claude:login', () => claudeOpen('login'));
+  ipcMain.handle('claude:install', () => claudeOpen('install'));
   // ［この会議は PC の中だけ］は片道（会議中の true だけを受け取る。false で送る側に戻さない: RF28・C-3）。
   // 会議の外・false は何も変えず、今の印を同じ形 { ok, localOnly } で返す
   // ページの［一時停止］（第1b回 N4c）。on は true か false だけ（ほかは何も流さない）

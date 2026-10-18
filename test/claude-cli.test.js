@@ -276,3 +276,87 @@ test('Lane F-b: 確かめの要求を偽の claude で通す。成功は { ok: t
   assert.throws(() => process.kill(slow.pids[0], 0), '時間切れの後も確かめの子が生きている');
   assert.deepStrictEqual(await K.claudePing({ ...f, cmd: path.join(tmp(), 'no-such-claude'), preArgs: [] }), { ok: false, code: 'not-found', resetAt: '' });
 });
+
+// ---- 第1b回の続き Lane F-c・F-d: ［Claude Code にログイン］［Claude Code を入れる］の見える窓（利用者に PowerShell を打たせない） ----
+// 窓は隠した PowerShell が Start-Process で開く（新しいコンソールの窓。claude の入出力は NaTsu を通らない）。命令は
+// -EncodedCommand（UTF-16LE の base64）で渡し、claude.exe の場所は命令の文字に混ぜず環境の変数 NATSU_CLAUDE_EXE で渡す
+// （cmd.exe の start は %…% と引用符の解き方が場所の文字に当たるので使わない）。ここは組み立て（純粋）を見る
+const decodePs = (b64) => Buffer.from(b64, 'base64').toString('utf16le');
+const psCmdOf = (L) => decodePs(L.args[L.args.indexOf('-EncodedCommand') + 1]);
+test('Lane F-c: ログインの窓の組み立て。PowerShell は SystemRoot の下の決まった場所、claude.exe の場所は環境の変数だけで渡し、命令は決まった文字', () => {
+  const exe = 'C:\\Users\\A&B %USERNAME% ^x\\.local\\bin\\claude.exe';
+  const L = K.windowLaunch('login', { exe, env: { SystemRoot: 'C:\\Windows', Path: 'C:\\x' }, platform: 'win32' });
+  assert.strictEqual(L.ok, true);
+  assert.strictEqual(L.cmd, 'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe');
+  assert.deepStrictEqual(L.args.slice(0, 3), ['-NoProfile', '-NonInteractive', '-EncodedCommand']);
+  assert.strictEqual(L.args.length, 4);
+  assert.match(L.args[3], /^[A-Za-z0-9+/=]+$/, '命令が base64 でない');
+  assert.strictEqual(psCmdOf(L), K.LOGIN_PS);
+  assert.strictEqual(K.LOGIN_PS, "$ErrorActionPreference = 'Stop'; $p = Start-Process -FilePath $env:NATSU_CLAUDE_EXE -ArgumentList 'auth','login' -PassThru; $p.WaitForExit()");
+  assert.strictEqual(L.env.NATSU_CLAUDE_EXE, exe);
+  assert.strictEqual(L.env.Path, 'C:\\x');
+  assert.ok(!JSON.stringify(L.args).includes('A&B') && !psCmdOf(L).includes('A&B'), '場所の文字が命令に入った');
+  assert.deepStrictEqual(K.LOGIN_ARGS, ['auth', 'login']);
+  // SystemRoot が無ければ名前で（PATH の上の powershell.exe）
+  assert.strictEqual(K.windowLaunch('login', { exe, env: {}, platform: 'win32' }).cmd, 'powershell.exe');
+  // claude.exe でない・相対・改行入り・空は開かない（NaTsu の探した claude.exe だけ。.cmd や .js を ShellExecute で開かない）
+  for (const bad of ['', 'claude.exe', 'C:\\npm\\claude.cmd', 'C:\\x\\claude.js', 'C:\\x\\claude.exe\r\nC:\\evil.exe', 'C:\\x\\claude.exe ']) {
+    assert.deepStrictEqual(K.windowLaunch('login', { exe: bad, env: {}, platform: 'win32' }), { ok: false, code: 'not-found' }, JSON.stringify(bad));
+  }
+  // Windows のほかでは開かない（ターミナルで claude auth login を打てる）
+  assert.deepStrictEqual(K.windowLaunch('login', { exe, env: {}, platform: 'linux' }), { ok: false, code: 'unsupported' });
+  assert.deepStrictEqual(K.windowLaunch('evil', { exe, env: {}, platform: 'win32' }), { ok: false, code: 'unsupported' });
+});
+
+test('Lane F-d: 入れる窓の組み立て。見える PowerShell の窓で、決まった文字 irm https://claude.ai/install.ps1 | iex をそのまま見せてから実行する（場所は渡さない）', () => {
+  const L = K.windowLaunch('install', { env: { SystemRoot: 'C:\\Windows' }, platform: 'win32' });
+  assert.strictEqual(L.ok, true);
+  assert.strictEqual(K.INSTALL_CMD, 'irm https://claude.ai/install.ps1 | iex');
+  const outer = psCmdOf(L);
+  const m = outer.match(/^\$ErrorActionPreference = 'Stop'; \$p = Start-Process -FilePath \(Join-Path \$PSHOME 'powershell\.exe'\) -ArgumentList '-NoProfile','-NoExit','-EncodedCommand','([A-Za-z0-9+/=]+)' -PassThru; \$p\.WaitForExit\(\)$/);
+  assert.ok(m, outer);
+  const inner = decodePs(m[1]);
+  assert.strictEqual(inner, K.INSTALL_PS);
+  assert.strictEqual(inner, "Write-Host '> irm https://claude.ai/install.ps1 | iex'; irm https://claude.ai/install.ps1 | iex; Write-Host ''; Write-Host 'NaTsu: 終わったらこの窓を閉じてください（NaTsu が確かめ直します）。'");
+  assert.strictEqual(inner.split(`; ${K.INSTALL_CMD};`).length, 2, '入れる命令がちょうど1回でない');
+  assert.ok(!('NATSU_CLAUDE_EXE' in L.env));
+  assert.deepStrictEqual(K.windowLaunch('install', { env: {}, platform: 'darwin' }), { ok: false, code: 'unsupported' });
+});
+
+test('Lane F-c: 窓を開いて閉じるまで待つ。隠した PowerShell を shell なし・課金の変数を外した環境で起こし、閉じたら closed、開けなければ open-failed・no-powershell、長すぎれば待つのをやめる', { timeout: 20000 }, async () => {
+  const EventEmitter = require('node:events');
+  const seen = [];
+  const fakeSpawn = (exit) => (cmd, args, opts) => {
+    seen.push({ cmd, args, opts });
+    const k = new EventEmitter();
+    k.pid = 4242; k.stdout = new EventEmitter(); k.stderr = new EventEmitter();
+    k.stdin = { on: () => {}, end: () => {} };
+    k.kill = () => { setTimeout(() => k.emit('close', null), 5); };
+    if (exit !== 'never') setTimeout(() => k.emit('close', exit), 10);
+    return k;
+  };
+  const exe = 'C:\\Users\\u\\.local\\bin\\claude.exe';
+  const env = { SystemRoot: 'C:\\Windows', ANTHROPIC_API_KEY: 'sk-ant-x', CLAUDE_CODE_OAUTH_TOKEN: 'o', Path: 'C:\\x' };
+  assert.deepStrictEqual(await K.claudeOpenWindow({ kind: 'login', exe, env, platform: 'win32', spawn: fakeSpawn(0), cwd: 'C:\\run' }), { ok: true, code: 'closed' });
+  const s = seen[0];
+  assert.strictEqual(s.cmd, 'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe');
+  assert.deepStrictEqual([s.opts.shell, s.opts.windowsHide, s.opts.cwd], [false, true, 'C:\\run']);
+  assert.strictEqual(s.opts.env.NATSU_CLAUDE_EXE, exe);
+  assert.ok(!Object.keys(s.opts.env).some((k) => /^(ANTHROPIC_|CLAUDE_CODE_OAUTH_)/i.test(k)), '課金の変数がログインの窓に渡った');
+  assert.deepStrictEqual(await K.claudeOpenWindow({ kind: 'install', env, platform: 'win32', spawn: fakeSpawn(1) }), { ok: false, code: 'open-failed' });
+  assert.deepStrictEqual(await K.claudeOpenWindow({ kind: 'install', env, platform: 'win32', spawn: () => { throw new Error('ENOENT'); } }), { ok: false, code: 'no-powershell' });
+  assert.deepStrictEqual(await K.claudeOpenWindow({ kind: 'install', env, platform: 'win32', spawn: fakeSpawn('never'), timeoutMs: 50 }), { ok: true, code: 'still-open' });
+  const before = seen.length;
+  assert.deepStrictEqual(await K.claudeOpenWindow({ kind: 'login', exe: 'C:\\npm\\claude.cmd', env, platform: 'win32', spawn: fakeSpawn(0) }), { ok: false, code: 'not-found' });
+  assert.deepStrictEqual(await K.claudeOpenWindow({ kind: 'login', exe, env, platform: 'linux', spawn: fakeSpawn(0) }), { ok: false, code: 'unsupported' });
+  assert.strictEqual(seen.length, before, '開かない場合に子を起こした');
+  assert.ok(K.OPEN_TIMEOUT_MS >= 10 * 60 * 1000, '窓を待つ時間が短すぎる（ログインや入れるのに数分かかる）');
+});
+
+test('Lane F-c・F-d: 要約の欄の文は、入れる・ログインを設定のボタンへ案内し、ターミナルを打たせない（入れる命令は見せる）', () => {
+  const nf = K.claudeMessage({ code: 'not-found' });
+  assert.match(nf, /^Claude Code が見つからないため、要約を作れませんでした。設定の「オンライン」の［Claude Code を入れる］で入れ（PowerShell の窓で `irm https:\/\/claude\.ai\/install\.ps1 \| iex` を実行します）、［Claude Code にログイン］でログインしてから、［要約を生成］を押してください。$/);
+  assert.match(K.claudeMessage({ code: 'cmd-only' }), /npm 版.*［Claude Code を入れる］.*`irm https:\/\/claude\.ai\/install\.ps1 \| iex`.*「Claude Code の場所」に `claude\.exe`/);
+  assert.strictEqual(K.claudeMessage({ code: 'not-logged-in' }), 'Claude Code にログインしていないか、ログインが切れています。設定の「オンライン」の［Claude Code にログイン］でログインしてから、［要約を生成］を押してください。');
+  for (const c of ['not-found', 'cmd-only', 'not-logged-in', 'auth-expired']) assert.ok(!/ターミナル/.test(K.claudeMessage({ code: c })), c);
+});
