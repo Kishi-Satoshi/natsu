@@ -11,12 +11,14 @@
 //    あれば伸ばして渡し、見出しは元のまま。無ければ（identity を頼んだのに gzip が来た）伸ばさずに
 //    net::ERR_CONTENT_DECODING_FAILED で死に、応答は渡さない（本物の Electron 31 がそうだった。第0b回 Task 9）。
 //  - 応答の headers は小文字のキー。時間切れの仕組みは持たない（本物にも無い）。
+//  - 途中で切れたら（identity）、届いていたバイトを受け手が読み終えてから net::ERR_CONNECTION_RESET で壊す（deliverAllThenFail）。
 //  - before(n) … n 回目の要求の前に呼ぶ。{ login: authInfo, error: 'net::ERR_…' } を返すと、
 //    サーバーへ行かずにその出来事を起こす（https のプロキシの 407 は、応答ではなく login と error で来る）。
 const http = require('http');
 const https = require('https');
 const zlib = require('zlib');
 const { EventEmitter } = require('events');
+const { PassThrough } = require('stream');
 
 const hasHeader = (h, name) => Object.keys(h).some((k) => k.toLowerCase() === name);
 const headerValue = (h, name) => { const k = Object.keys(h).find((x) => x.toLowerCase() === name); return k === undefined ? '' : String(h[k]); };
@@ -27,6 +29,32 @@ function acceptedEncodings(v) {
     const [name, ...params] = part.trim().toLowerCase().split(';').map((x) => x.trim());
     if (name && !params.some((x) => /^q=0(\.0*)?$/.test(x))) out.add(name);
   }
+  return out;
+}
+
+// 届いたバイトを全部渡してから ERR_CONNECTION_RESET にする（本物の Chromium の取り込みは、受け手が読んだ分だけ次を渡し、
+// 届いた分を渡し終えてから失敗を知らせる）。Node の応答をそのまま渡すと、切断のときに Node が応答を壊し、受け手がまだ
+// 読んでいない塊が捨てられる。受け手の書き込みが遅いと（Windows のウイルス対策が1回でも 100ms 止めると）続きの位置が
+// 時間しだいでぶれ、bytes=100000- を見るテストが赤になった（第1a回の合流の CI。bytes=65329- = 64KB の1回の読みから見出しを
+// 引いた長さ）。受け手が流れを壊したら（取り消し・止まった流れ・break）、下の応答も壊す
+function deliverAllThenFail(res) {
+  const out = new PassThrough();
+  let failed = false;
+  const fail = (e) => {
+    if (failed) return;
+    failed = true;
+    const tryFail = () => {
+      if (out.destroyed) return;
+      if (out.readableLength === 0 && out.writableLength === 0) out.destroy(e);
+      else setTimeout(tryFail, 1);
+    };
+    tryFail();
+  };
+  res.on('data', (c) => { if (!out.destroyed) out.write(c); });
+  res.on('end', () => { if (!out.destroyed) out.end(); });
+  res.on('aborted', () => fail(new Error('net::ERR_CONNECTION_RESET')));
+  res.on('error', (e) => fail(e));
+  out.on('close', () => { if (!res.destroyed) res.destroy(); });
   return out;
 }
 
@@ -88,10 +116,12 @@ function makeFakeRequest({ before = null } = {}) {
             body = enc === 'gzip' ? zlib.createGunzip() : enc === 'deflate' ? zlib.createInflate() : zlib.createBrotliDecompress();
             res.on('error', (e) => body.destroy(e));
             res.pipe(body);
+            res.on('aborted', () => body.destroy(new Error('net::ERR_CONNECTION_RESET')));
+          } else {
+            body = deliverAllThenFail(res);
           }
           body.statusCode = st; body.headers = res.headers;
           curRes = body;
-          res.on('aborted', () => body.destroy(new Error('net::ERR_CONNECTION_RESET')));
           req.emit('response', body);
         };
         const challenge = (st === 401 && res.headers['www-authenticate']) || (st === 407 && res.headers['proxy-authenticate']);
