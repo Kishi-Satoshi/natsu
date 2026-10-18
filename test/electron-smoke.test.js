@@ -23,7 +23,7 @@ const clipOf = (promise, { dropAbc = false, drop = null } = {}) => {
 };
 
 // 第1a回 Task 3-3 で直した（意図: 全部そろって OK のときだけ 0。確かめは 12 になった）
-test('electron-smoke: 12 の確かめ。終了コードは 12 件そろって全部 OK のときだけ 0', () => {
+test('electron-smoke: 12 の確かめ。終了コードは 12 件そろって全部 OK のときだけ 0', { timeout: 5000 }, () => {
   assert.deepStrictEqual(S.CHECKS.map(([n]) => n), [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
   const all = S.CHECKS.map(([n]) => ({ n, ok: true }));
   assert.strictEqual(S.exitCodeOf(all), 0);
@@ -34,7 +34,7 @@ test('electron-smoke: 12 の確かめ。終了コードは 12 件そろって全
 
 const GOOD = { sandboxed: true, inlineRan: true, injectedRan: false, violations: 1, gumAudio: 'ok', audioLabels: 2, gumVideo: 'NotAllowedError',
   gdmApp: 'NotAllowedError', gdmOverlay: 'AbortError', handlerCalls: 1, urlAfter: 'sec-app.html', opened: false };
-test('electron-smoke: 守りの確かめ（8〜12）は、よい観測で全部 OK。1つ崩すとその番号だけ NG（いつも OK を出す確かめではない）', () => {
+test('electron-smoke: 守りの確かめ（8〜12）は、よい観測で全部 OK。1つ崩すとその番号だけ NG（いつも OK を出す確かめではない）', { timeout: 5000 }, () => {
   assert.deepStrictEqual(S.securityResults(GOOD).map((r) => [r.n, r.ok]), [[8, true], [9, true], [10, true], [11, true], [12, true]]);
   const bad = [
     [8, { sandboxed: false }], [9, { inlineRan: false }], [9, { injectedRan: true }], [9, { violations: 0 }],
@@ -47,7 +47,7 @@ test('electron-smoke: 守りの確かめ（8〜12）は、よい観測で全部 
   }
 });
 
-test('electron-smoke: 守りの確かめは別の session に付け（1〜7 の受け口を変えない）、本物の security.install と偽のマイクを使う', () => {
+test('electron-smoke: 守りの確かめは別の session に付け（1〜7 の受け口を変えない）、本物の security.install と偽のマイクを使う', { timeout: 5000 }, () => {
   const m = read('tools/electron-smoke/main.js');
   for (const k of ["session.fromPartition('natsu-sec-smoke')", "require('../../src/security')", "appendSwitch('use-fake-device-for-media-stream')", 'security.install(', 'sec-app.html', 'sec-overlay.html'])
     assert.ok(m.includes(k), k);
