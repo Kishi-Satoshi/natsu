@@ -88,6 +88,10 @@ contextBridge.exposeInMainWorld('koeApp', {
   claudeStatus: () => ipcRenderer.invoke('claude:status'),
   claudeTest: () => ipcRenderer.invoke('claude:test'),
 
+  // 画面の覚え書き（第1b回 N6）。サイドバーの幅と畳み・開いているタブ。main が照らしてから window-state.json に覚える
+  uiState: () => ipcRenderer.invoke('ui:get'),
+  uiSave: (patch) => ipcRenderer.invoke('ui:set', patch),
+
   // イベント
   onHistoryUpdated: (cb) => ipcRenderer.on('history:updated', (_e, h) => cb(h)),
   onNotice: (cb) => ipcRenderer.on('app:notice', (_e, m) => cb(m)),

@@ -6,6 +6,8 @@
 //   env:     main.js を読む前に入れる環境変数
 //   prepare: userData を受け取り、置いた後に手を入れる（読み取り専用にする等）
 //   act:     起動の後にすること（ctx は mainrun.js の頭の注釈）
+//   local:   %LOCALAPPDATA%（mainrun の一時フォルダ）からの相対パス → 中身（第1b回 Task A-2。画面の覚え書き natsu/window-state.json）
+//   displays: 偽の screen.getAllDisplays() の並び（無ければ 1920×1080 が1つ。作業領域は 1920×1040）
 const pretty = (o) => JSON.stringify(o, null, 2);   // 今の saveJson が書く形（main.js:219）
 const BOM = Buffer.from([0xef, 0xbb, 0xbf]);
 const CP932_NIHONGO = Buffer.from([0x93, 0xfa, 0x96, 0x7b, 0x8c, 0xea]);
@@ -24,9 +26,13 @@ const UI = (o = {}) => { const u = { ...TYPICAL, ...o }; delete u.pillCustom; de
 // recovery-write-later: 起動の間は recovery.json の一時ファイルを開けない（act の途中で times を 0 にして離す）
 const RECOVERY_OPEN_FAIL = { op: 'open', match: /recovery\.json\.\d+-[0-9a-z]+\.tmp$/, code: 'EACCES', times: Infinity };
 const OLD_DRAFT = { startedAt: 1760000000000, memo: '', offsetMs: 3000, savedAt: 1760000003000, segments: [{ id: 's1', atMs: 0, durationMs: 3000, text: '落ちた会議の発言です' }] };
+// 第1b回 Task A-2: 画面の覚え書き（%LOCALAPPDATA%\natsu\window-state.json）。値は stage1b.main.test.js が見る
+const WS = (o = {}) => JSON.stringify({ v: 1, bounds: { x: 100, y: 80, width: 1200, height: 800 }, maximized: false, zoom: 1, sidebar: { width: 260, collapsed: false }, tabs: { open: [], active: '' }, ...o }, null, 2);
+const WS_FILE = 'natsu/window-state.json';
+const wsText = (c) => { const b = c.readLocal(WS_FILE); return b ? b.toString('utf8') : null; };
 
 module.exports = {
-  TYPICAL, HISTORY, UI, OLD_DRAFT,
+  TYPICAL, HISTORY, UI, OLD_DRAFT, WS,
   plain: { files: { 'settings.json': pretty(TYPICAL), 'history.json': pretty(HISTORY) },
     act: async (c) => { c.out.got = await c.handlers['settings:get'](); c.out.history = await c.handlers['history:get'](); } },
   bom: { engine: true, files: { 'settings.json': ({ base }) => Buffer.concat([BOM, Buffer.from(JSON.stringify({ ...base, theme: 'dark' }))]) } },
@@ -327,5 +333,66 @@ module.exports = {
       o.savedNoexec = await h('settings:save', UI({ claudeExe: noexec }));
       o.noexec = await h('claude:test');
       o.claudeLog = lines();
+    } },
+  // 第1b回 Task A-2: 画面の覚え書き（N6・RF21・RF22・F1〜F4・F7）
+  'ws-none': { files: { 'settings.json': pretty(TYPICAL) },
+    act: async (c) => { c.out.ui = await c.handlers['ui:get']({}); } },
+  'ws-restore': { files: { 'settings.json': pretty(TYPICAL),
+      'data/pages/pkeep1.json': JSON.stringify({ id: 'pkeep1', title: '定例（見本）', blocks: [], createdAt: '2026-10-01T00:00:00.000Z' }) },
+    local: { [WS_FILE]: WS({ maximized: true, zoom: 1.5, sidebar: { width: 300, collapsed: true }, tabs: { open: ['page:pkeep1', 'page:pgone', 'live', 'dictation'], active: 'dictation' } }) },
+    act: async (c) => {
+      c.mainWin.webContents.emit('did-finish-load');
+      c.out.ui = await c.handlers['ui:get']({});
+    } },
+  'ws-offscreen': { files: { 'settings.json': pretty(TYPICAL) },
+    local: { [WS_FILE]: WS({ bounds: { x: 3000, y: 100, width: 1000, height: 700 } }) } },
+  'ws-minimized': { files: { 'settings.json': pretty(TYPICAL) },
+    act: async (c) => {
+      const w = c.mainWin;
+      w.normal = { x: 300, y: 200, width: 1000, height: 700 };
+      w.bounds = { x: -32000, y: -32000, width: 160, height: 28 };   // 最小化中の getBounds
+      w.minimized = true;
+      w.emit('move');
+      c.power.emit('suspend');
+    } },
+  'ws-batch': { files: { 'settings.json': pretty(TYPICAL) },
+    act: async (c) => {
+      const w = c.mainWin;
+      w.normal = { x: 400, y: 300, width: 1200, height: 800 }; w.emit('move');
+      w.normal = { x: 420, y: 330, width: 1200, height: 800 }; w.emit('move');
+      c.out.before = wsText(c);
+      c.power.emit('suspend');
+      c.out.after = wsText(c);   // 受け口が返った直後（同じ手番の中）に読む
+    } },
+  'ws-zoom': { files: { 'settings.json': pretty(TYPICAL) },
+    act: async (c) => {
+      const wc = c.mainWin.webContents;
+      const prevented = [];
+      const key = (k, o = {}) => {
+        const input = { type: 'keyDown', key: k, code: '', control: true, meta: false, alt: false, shift: false, ...o };
+        wc.emit('before-input-event', { preventDefault: () => prevented.push(input.key) }, input);
+      };
+      key('='); key('='); key(';'); key('-'); key('0'); key('p'); key('+', { code: 'NumpadAdd' });
+      for (let i = 0; i < 12; i++) wc.emit('zoom-changed', {}, 'in');
+      c.app.emit('will-quit', { preventDefault() {} });
+      c.out.prevented = prevented;
+    } },
+  'ws-unreadable': { files: { 'settings.json': pretty(TYPICAL) },
+    local: { [WS_FILE]: WS() },
+    faults: [{ op: 'read', match: /window-state\.json$/, code: 'EBUSY', times: Infinity }],
+    act: async (c) => {
+      c.out.localBefore = WS();
+      const w = c.mainWin;
+      w.normal = { x: 500, y: 400, width: 1000, height: 700 }; w.emit('move');
+      c.out.set = await c.handlers['ui:set']({}, { sidebar: { width: 320, collapsed: true } });
+      c.power.emit('suspend');
+    } },
+  'ws-broken': { files: { 'settings.json': pretty(TYPICAL) },
+    local: { [WS_FILE]: '{"v":1,"bou',
+      ...Object.fromEntries([1, 2, 3, 4].map((d) => [`${WS_FILE}.broken-2026-10-0${d}T00-00-00-000Z`, WS()])) } },
+  'ws-ui-set': { files: { 'settings.json': pretty(TYPICAL) },
+    act: async (c) => {
+      c.out.set = await c.handlers['ui:set']({}, { sidebar: { width: 9999, collapsed: 1 }, tabs: { open: ['live', 'settings', 'page:../x'], active: 'live' } });
+      c.power.emit('suspend');
     } },
 };

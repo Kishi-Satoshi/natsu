@@ -239,7 +239,8 @@ test('公開したのに画面から呼ばれない API がない', () => {
   // main 側が先に足し、画面がまだ使っていない API（先に足すときだけ入れ、画面が使い始めたら空に戻す）
   // 第0b回 Task 13・14 で入れた取り込みの5つは、画面の取り込みの欄（Task 15）が呼び始めたので外した
   // 第1c回 Task C-2 で足した meetingSetLocalOnly は、会議中の［この会議は PC の中だけ］（Task C-3）が呼び始めたら外す
-  const PENDING_APP = new Set(['meetingSetLocalOnly']);
+  // 第1b回 Task A-2 で足した uiState・uiSave（画面の覚え書き）は、画面のタブとサイドバー（Task B-3）が呼び始めたら外す
+  const PENDING_APP = new Set(['meetingSetLocalOnly', 'uiState', 'uiSave']);
   for (const [ns, html] of [['koeApp', appHtml], ['koeOverlay', overlayHtml]]) {
     const names = all(/^\s{2}([A-Za-z][\w$]*):/gm, block(ns));
     const used = new Set(all(new RegExp(`${ns}\\.(\\w+)`, 'g'), html));
@@ -494,6 +495,9 @@ test('ウィンドウの地色がテーマに追従する', () => {
   // ライト固定だとダークで開くたび・リサイズのたびに白くまたたく
   assert.match(main, /backgroundColor: nativeTheme\.shouldUseDarkColors/);
   assert.match(main, /setBackgroundColor\(nativeTheme\.shouldUseDarkColors/);
+  // 第1b回 Task A-2: 窓の地色は画面の地（N1 の #191919・#ffffff）と同じ。違うと開くたびにまたたく
+  assert.ok(!main.includes("'#171a21'") && !main.includes("'#E9EDF5'"), '旧い地色が残っている');
+  assert.strictEqual((main.match(/nativeTheme\.shouldUseDarkColors \? '#191919' : '#ffffff'/g) || []).length, 2);
 });
 
 test('区切りの保険は遅延中のタイマーを必ず消してから切る', () => {

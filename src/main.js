@@ -49,6 +49,8 @@ const dropTemplateEcho = minutes.dropTemplateEcho || ((b) => b);
 const { defaultSettings, readSettings, pickSavable, isSettingsShape, SETTING_RULES } = require('./settings');
 // DB の外の JSON（設定・履歴）を読む・退ける・書く部品（第1a回 JS1〜JS3・JS6）
 const J = require('./jsonfile');
+// 画面の覚え書き（第1b回 N6）の照らし。純粋な関数だけ（Electron を読まない）。読み書きは上の J で行う
+const W = require('./winstate');
 // エンジンの取り込み（第0b回 R7）。置き場所・記録・照らし（通信しない）とピン（版・URL・大きさ・SHA-256）
 const engineInstall = require('./engine-install');
 const { MANIFEST } = require('./engine-manifest');
@@ -126,7 +128,7 @@ function applyTheme() {
     nativeTheme.themeSource = settings.theme === 'light' || settings.theme === 'dark'
       ? settings.theme : 'system';
     if (mainWin && !mainWin.isDestroyed()) {
-      mainWin.setBackgroundColor(nativeTheme.shouldUseDarkColors ? '#171a21' : '#E9EDF5');
+      mainWin.setBackgroundColor(nativeTheme.shouldUseDarkColors ? '#191919' : '#ffffff');
     }
   } catch (_) { /* noop */ }
 }
@@ -191,6 +193,8 @@ const NOTICE = {
   draftBroken: (name) => `前回の会議の下書きのファイルが壊れていたので、${name} として残しました。`,
   recoveryNotSaved: '文字起こし待ちの記録を保存できませんでした。音声は残してあり、次の起動でもう一度試します。',
   transcriptBroken: (name) => `議事録の文字起こしのファイルが壊れていたので、${name} として残しました（このページは文字起こしが空のまま開きます）。`,
+  // 画面の覚え書き（第1b回 W1。P16）
+  winStateBroken: (name) => `画面の覚え書き（窓の大きさ・開いていたタブ）のファイルが壊れていたため、脇へ退けて最初の大きさで開きました（退けた先: ${name}）。`,
 };
 // 起動の途中（本体の窓がまだ無い）なら startupNotices に貯め、窓ができた後なら画面へ（読み込み中なら読み終えてから）
 function laterNotice(msg) {
@@ -248,6 +252,62 @@ const WRITE_DELAY_MS = batchMs();
 // 同じ書き手なので古い中身で互いを上書きしない
 const settingsWriter = J.makeBatchWriter({ name: 'settings.json', write: writeSettingsFile, delayMs: WRITE_DELAY_MS, log: engineLog });
 const historyWriter = J.makeBatchWriter({ name: 'history.json', write: writeHistoryFile, delayMs: WRITE_DELAY_MS, log: engineLog });
+// 画面の覚え書き（第1b回 N6・P15・P16）。窓の大きさと位置・最大化・拡大の倍率・サイドバーの幅と畳み・開いているタブを
+// %LOCALAPPDATA%\natsu\window-state.json に覚える（Roaming の userData に置かない。照らしは src/winstate.js）。
+// 作り直せる小さなファイルなので、壊れていたら退けて既定で開き（控えは3つまで: JS2）、知らせ W1 を1回。読めなければ
+// その起動では書かない（RF22。開いている窓が動いてしまうので、設定のような読み直しはしない: 計画「設計書と違えたところ」の 7）。
+// 窓の動き・拡大・画面からの頼みは set でまとめ書きし、残りは書き出しの合図（flushAllWriters）で書く（RF21）
+const winStatePath = () => W.statePath(process.env, app.getPath('userData')).file;
+let winState = W.defaults();
+let winStateState = 'ok';     // 'ok' | 'unreadable'
+let winStateLastSet = '';     // 最後に読めた・頼んだ中身（同じなら書かない。起動の最大化の合図などで書き直さない）
+let winTabsDropped = 0;       // 読んだときに照らしで外したタブの数（録音中のページ・形の悪い鍵。ui:get の記録に足す）
+function writeWinStateFile(value, { retry }) {
+  J.writeJsonFile(winStatePath(), value, { waits: retry ? J.RENAME_WAITS : [], onFsyncUnsupported: noteFsyncOnce });
+}
+const winStateWriter = J.makeBatchWriter({ name: 'window-state.json', write: writeWinStateFile, delayMs: WRITE_DELAY_MS, log: engineLog });
+function saveWinState() {
+  if (winStateState === 'unreadable') return;
+  const text = JSON.stringify(winState);
+  if (text === winStateLastSet) return;
+  winStateLastSet = text;
+  winStateWriter.set(JSON.parse(text));
+}
+// whenReady の中、loadStores() の後（screen は ready の後でしか使えない）。投げない
+function loadWinState() {
+  const r = J.loadJsonFile(winStatePath(), { shape: W.shapeOk, maxBytes: J.SMALL_MAX, keep: 3 });
+  let raw;
+  if (r.state === 'ok') {
+    raw = r.value;
+  } else if (r.state === 'broken') {
+    engineLog(`画面の覚え書き: 壊れていたので退けた（${r.reason}）`);
+    startupNotices.push(NOTICE.winStateBroken(path.basename(r.movedTo)));
+  } else if (r.state === 'unreadable') {
+    winStateState = 'unreadable';
+    engineLog(`画面の覚え書き: 読めないので、この起動では書かない（${r.code}）`);
+  }
+  let displays = [];
+  try { displays = screen.getAllDisplays(); } catch (_) { displays = []; }
+  winState = W.normalize(raw, displays).state;
+  const rawOpen = raw && raw.tabs && Array.isArray(raw.tabs.open) ? raw.tabs.open.length : 0;
+  winTabsDropped = Math.max(0, rawOpen - winState.tabs.open.length);
+  if (r.state === 'ok') winStateLastSet = JSON.stringify(winState);
+}
+// 窓の resize・move・maximize・unmaximize。覚えるのは getNormalBounds（最小化・最大化の間も元の位置と大きさ: F2）
+function rememberWinBounds() {
+  if (!mainWin || mainWin.isDestroyed()) return;
+  const b = W.boundsOf(mainWin);
+  if (b) winState.bounds = b;
+  winState.maximized = Boolean(mainWin.isMaximized());
+  saveWinState();
+}
+// 拡大の段を1つ動かして当てる（Ctrl+＋／－／0・JIS の Ctrl+；・Ctrl+ホイール。200% で止まる: F4）
+function stepWinZoom(dir) {
+  if (!mainWin || mainWin.isDestroyed()) return;
+  winState.zoom = W.stepZoom(winState.zoom, dir);
+  try { mainWin.webContents.setZoomFactor(winState.zoom); } catch (_) { /* noop */ }
+  saveWinState();
+}
 // 書き出しの合図（第1a回 JS8・RF21）。まとめ書きの残りを全部同期で書く。投げない。受け口はどれも最初にこれを呼ぶ:
 // before-quit・will-quit・すべての窓の session-end・query-session-end・powerMonitor の suspend・lock-screen・shutdown・
 // 本体の窓の close と hide・process の exit・再起動の直前（relaunchAndExit）。名前はこのまま（テストが文字で探す）
@@ -1758,16 +1818,20 @@ const WINDOW_ICON = path.join(__dirname, 'assets', process.platform === 'win32' 
 
 function createMainWindow() {
   if (mainWin && !mainWin.isDestroyed()) { mainWin.show(); mainWin.focus(); return; }
+  // 覚えた大きさ（照らし済み）。位置は覚えていて今の画面に見えるときだけ渡す（無ければ真ん中: N6・F1）
+  const wb = winState.bounds;
   mainWin = new BrowserWindow({
-    width: 1120, height: 780, minWidth: 820, minHeight: 560,
+    ...(Number.isInteger(wb.x) && Number.isInteger(wb.y) ? { x: wb.x, y: wb.y } : {}),
+    width: wb.width, height: wb.height, minWidth: W.MIN_SIZE.width, minHeight: W.MIN_SIZE.height,
     title: 'NaTsu',
     icon: WINDOW_ICON,
     // 地色は CSS が効く前の一瞬に見える色。ライト固定だとダークで
-    // 開くたび・リサイズのたびに白くまたたく。
-    backgroundColor: nativeTheme.shouldUseDarkColors ? '#171a21' : '#E9EDF5',
+    // 開くたび・リサイズのたびに白くまたたく。画面の地（N1 の #191919・#ffffff）と同じにする（第1b回）
+    backgroundColor: nativeTheme.shouldUseDarkColors ? '#191919' : '#ffffff',
     webPreferences: { preload: path.join(__dirname, 'preload.js'), sandbox: true, contextIsolation: true, nodeIntegration: false },
   });
   mainWin.setMenuBarVisibility(false);
+  if (winState.maximized) mainWin.maximize();
   mainWin.loadFile(path.join(__dirname, 'renderer', 'app.html'));
   if (recoveredPageId) {
     const id = recoveredPageId;
@@ -1781,6 +1845,20 @@ function createMainWindow() {
   if (storeError) mainWin.webContents.once('did-finish-load', () => sendToMainWin('app:notice', `データフォルダを開けません。議事録は保存されません（${storeError}）`));
   // 起動の途中の知らせ（設定・履歴の直しと退け）。読み終えてから1回にまとめて送る（左下の知らせは前の文を置き換えるため）
   if (startupNotices.length) mainWin.webContents.once('did-finish-load', () => sendToMainWin('app:notice', startupNotices.splice(0).join('　')));
+  // 画面の覚え書き（第1b回 N6）。窓の大きさと位置・最大化を覚え（まとめ書き）、拡大は main が受け持つ。拡大の近道は
+  // preventDefault で既定のメニューに渡さない（メニューの段は 1.2 倍ずつで、覚えた倍率が段に無い値になる: F4）。
+  // ホイールの拡大（zoom-changed）は Electron が自分では拡大しないので、同じ段で動かす。読み込むたびに覚えた倍率を当てる
+  for (const ev of ['resize', 'move', 'maximize', 'unmaximize']) mainWin.on(ev, rememberWinBounds);
+  mainWin.webContents.on('before-input-event', (e, input) => {
+    const dir = W.zoomDir(input);
+    if (!dir) return;
+    e.preventDefault();
+    stepWinZoom(dir);
+  });
+  mainWin.webContents.on('zoom-changed', (_e, dir) => { if (dir === 'in' || dir === 'out') stepWinZoom(dir); });
+  mainWin.webContents.on('did-finish-load', () => {
+    if (winState.zoom !== 1 && mainWin && !mainWin.isDestroyed()) mainWin.webContents.setZoomFactor(winState.zoom);
+  });
   // 隠す・閉じるの前に、まとめ書きの残りを書き出す（第1a回 JS8。トレイ常駐で隠したまま電源を切られることがある）
   mainWin.on('hide', flushAllWriters);
   // 閉じるボタンの挙動。既定はそのまま終了。設定でトレイ常駐に切り替えられる。
@@ -3262,6 +3340,23 @@ function setupIpc() {
   ipcMain.handle('meeting:set-local-only', (_e, on) => (on === true && meeting ? setMeetingLocalOnly(true)
     : { ok: false, localOnly: Boolean(meeting && meeting.localOnly) }));
 
+  // 画面の覚え書きのうち画面が持つもの（第1b回 N6）。ui:get はサイドバーとタブを返す。タブは今あるページだけにし
+  // （消したページのタブを戻さない: F7）、外した数だけを engine.log に1行（ページの id は書かない）。
+  // ui:set は画面から来た値を照らしてから（幅を寄せる・録音中のタブと形の悪い鍵を捨てる）まとめ書きにする
+  ipcMain.handle('ui:get', () => {
+    const k = W.keepTabs(winState.tabs, (id) => store.listPages().some((p) => p.id === id));
+    const dropped = k.dropped + winTabsDropped;
+    winTabsDropped = 0;
+    if (dropped) engineLog(`画面の覚え書き: 無いページのタブを ${dropped} 個外した`);
+    winState.tabs = k.tabs;
+    return { sidebar: { ...winState.sidebar }, tabs: { open: winState.tabs.open.slice(), active: winState.tabs.active } };
+  });
+  ipcMain.handle('ui:set', (_e, patch) => {
+    winState = W.applyUi(winState, patch);
+    saveWinState();
+    return { ok: winStateState !== 'unreadable' };
+  });
+
   ipcMain.handle('dialog:pick', async (_e, kind, key) => {
     const filters = kind === 'exe'
       ? [{ name: '実行ファイル', extensions: process.platform === 'win32' ? ['exe'] : ['*'] }]
@@ -3355,6 +3450,8 @@ if (!gotLock) {
     powerMonitor.on('lock-screen', flushAllWriters);
     powerMonitor.on('shutdown', flushAllWriters);
     loadStores();
+    // 画面の覚え書き（第1b回 N6）。窓を作る前に読んで照らす（壊れていたら知らせ W1 を startupNotices に）
+    loadWinState();
     // クラウドの文字起こしの鍵の保管（第1c回 OL3。ready の後に作る）
     secrets = makeSecrets({ file: path.join(app.getPath('userData'), 'secrets.json'), safeStorage, J, log: engineLog });
     // 取り込んだエンジンの候補を記録から読む（読むだけ。フォルダは作らない）。照らし終えるまで managed は空なので、

@@ -63,6 +63,12 @@
 //                     - 出力（最後の行の JSON）: scene・notices（app:notice の文）・files（userData の下のファイルの相対パス。区切りは /。
 //                       engine.log と segbuf の WAV も含む）・settingsText・historyText（無ければ null）・engineLog（時刻を落とした行）・
 //                       spawns・themeSource・windows（作った窓の数）と、act が out に入れたもの（同じ名前なら act のもの）。
+//                     - 第1b回 Task A-2: 場面の local（%LOCALAPPDATA%＝一時フォルダからの相対パス → 中身）を main.js を読む前に置き、
+//                       displays（無ければ 1920×1080 が1つ）を偽の screen が返す。ctx に mainWin（本体の窓 = wins[1]）・
+//                       readLocal(rel)・localAppData を足す。本体の窓は act が normal（getNormalBounds の値）・bounds（getBounds の値）・
+//                       minimized を入れられ、webContents は on／once／emit で受け口を呼べる。出力に windowOpts（本体の窓を作ったときの
+//                       x・y・width・height・minWidth・minHeight・backgroundColor）・maximizeCalls・zooms（setZoomFactor の値の順）・
+//                       winStateText（<LOCALAPPDATA>/natsu/window-state.json の中身。無ければ null）・localFiles（区切りは /）を足す。
 //     --stt=<mode>  … 第1c回 A-4: オンラインの文字起こし。127.0.0.1 の偽の送り先（helpers/fake-stt.js）を mode の答え方で開き、
 //                     secrets.json に偽の鍵（偽の safeStorage の暗号）を置き、設定を cloudTranscribe: 'on'・sttProvider: 'custom'・
 //                     sttBaseUrl: 偽の送り先・sttModel: 'whisper-large-v3' にする。mode が cert のときは、偽の送り先への要求に
@@ -417,6 +423,12 @@ process.on('exit', () => {
       fs.mkdirSync(path.dirname(file), { recursive: true });
       fs.writeFileSync(file, typeof body === 'function' ? body({ base, userData }) : body);
     }
+    // 第1b回 Task A-2: %LOCALAPPDATA%（一時フォルダ）に置くもの（画面の覚え書きなど）
+    for (const [rel, body] of Object.entries(scene.local || {})) {
+      const file = path.join(localAppData, ...rel.split('/'));
+      fs.mkdirSync(path.dirname(file), { recursive: true });
+      fs.writeFileSync(file, body);
+    }
     if (typeof scene.prepare === 'function') scene.prepare(userData);
     for (const [k, v] of Object.entries(scene.env || {})) process.env[k] = String(v);
   } else {
@@ -460,23 +472,44 @@ process.on('exit', () => {
   const finishLoad = () => { loading = false; for (const cb of loadWaiters.splice(0)) cb(); };
   const wins = [];   // 作った窓の順（createOverlay が先、createMainWindow が後）
   const appEvents = makeEmitter();
+  const zooms = [];   // setZoomFactor の値の順（第1b回 Task A-2）
+  let maximizeCalls = 0;
   class Win {
-    constructor() {
+    constructor(opts) {
       makeEmitter(this);
+      this.opts = opts || {};
       this.pos = [0, 0];
-      this.webContents = withFallback({
+      this.normal = null;      // 場面が入れる getNormalBounds の値（無ければ作ったときの値）
+      this.bounds = null;      // 場面が入れる getBounds の値（無ければ今までの固定の値）
+      this.maximized = false;
+      this.minimized = false;
+      this.zoom = 1;
+      // 受け口つきの webContents（on／once／emit）。読み込み中の once('did-finish-load') は今までどおり読み終えたときに呼ぶ
+      const wc = makeEmitter({
         send: (ch, p) => { if (loading) { lost.push([ch, p]); return; } sent.push([ch, p]); watch(ch, p); },
-        once: (ev, cb) => { if (ev === 'did-finish-load' && loading) loadWaiters.push(cb); }, on() {}, isLoading: () => loading,
+        isLoading: () => loading,
         setWindowOpenHandler() {}, executeJavaScript: () => Promise.reject(new Error('no renderer')),
+        setZoomFactor: (z) => { zooms.push(z); this.zoom = z; },
+        getZoomFactor: () => this.zoom,
       });
+      const emitterOnce = wc.once;
+      wc.once = (ev, cb) => { if (ev === 'did-finish-load' && loading) { loadWaiters.push(cb); return wc; } return emitterOnce(ev, cb); };
+      this.webContents = withFallback(wc);
     }
     isDestroyed() { return false; }
     isVisible() { return true; }
-    isMinimized() { return false; }
+    isMinimized() { return this.minimized; }
+    isMaximized() { return this.maximized; }
+    maximize() { maximizeCalls += 1; this.maximized = true; }
     getSize() { return [316, 72]; }
     setPosition(x, y) { this.pos = [x, y]; }
     getPosition() { return this.pos.slice(); }
-    getBounds() { return { x: 0, y: 0, width: 316, height: 72 }; }
+    getBounds() { return this.bounds ? { ...this.bounds } : { x: 0, y: 0, width: 316, height: 72 }; }
+    getNormalBounds() {
+      if (this.normal) return { ...this.normal };
+      const o = this.opts;
+      return { x: Number.isFinite(o.x) ? o.x : 0, y: Number.isFinite(o.y) ? o.y : 0, width: o.width || 800, height: o.height || 600 };
+    }
   }
   for (const m of ['setAlwaysOnTop', 'setVisibleOnAllWorkspaces', 'loadFile', 'show', 'showInactive',
     'hide', 'focus', 'setBounds', 'setIgnoreMouseEvents', 'setSkipTaskbar', 'restore', 'close',
@@ -522,7 +555,17 @@ process.on('exit', () => {
   const rewrite = (u) => (fakeStt && claudeMode && String(u).startsWith('https://api.anthropic.com/') ? fakeStt.url('/anthropic') : u);
   // --stt=cert: 偽の送り先への要求は、証明書が差し替えられたときの失敗で死ぬ（会社の通信の検査。RF26）
   const before = sttMode === 'cert' ? (_n, o) => (o && String(o.url).startsWith(fakeStt.base) ? { error: 'net::ERR_CERT_AUTHORITY_INVALID' } : null) : null;
+  // 偽の screen（第1b回 Task A-2）。並びは場面の displays（既定は 1920×1080 が1つ。作業領域は下のタスクバーを除いた 1920×1040）
+  const displays = (scene && scene.displays) || [{ id: 1, bounds: { x: 0, y: 0, width: 1920, height: 1080 }, workArea: { x: 0, y: 0, width: 1920, height: 1040 } }];
+  const inRect = (p, r) => p && p.x >= r.x && p.x < r.x + r.width && p.y >= r.y && p.y < r.y + r.height;
+  const screen = {
+    getAllDisplays: () => displays.map((d) => JSON.parse(JSON.stringify(d))),
+    getPrimaryDisplay: () => JSON.parse(JSON.stringify(displays[0])),
+    getDisplayNearestPoint: (p) => JSON.parse(JSON.stringify(displays.find((d) => inRect(p, d.bounds)) || displays[0])),
+    getCursorScreenPoint: () => ({ x: 0, y: 0 }),
+  };
   const electron = withFallback({
+    screen,
     app: withFallback(Object.assign(appEvents, {
       getPath: () => userData, whenReady: () => ready, requestSingleInstanceLock: () => true,
       getVersion: () => require(path.join(ROOT, 'package.json')).version, isPackaged: false, quit() {},
@@ -662,9 +705,10 @@ process.on('exit', () => {
     finishLoad();
     if (scene.engine) await waitFor(() => spawns.length > 0, 15000);
     const actOut = {};
+    const readLocal = (rel) => { try { return fs.readFileSync(path.join(localAppData, ...rel.split('/'))); } catch (_) { return null; } };
     if (typeof scene.act === 'function') {
-      await scene.act({ handlers, listeners, app: electron.app, wins, power: powerMonitor, timers, clearedTimers, shortcuts, store, jsonfile, electron, userData,
-        read: readUser, waitFor, sleep, toneWav, out: actOut });
+      await scene.act({ handlers, listeners, app: electron.app, wins, mainWin: wins[1], power: powerMonitor, timers, clearedTimers, shortcuts, store, jsonfile, electron, userData,
+        localAppData, read: readUser, readLocal, waitFor, sleep, toneWav, out: actOut });
     }
     const files = [];
     const walk = (dir, rel) => {
@@ -677,7 +721,22 @@ process.on('exit', () => {
       }
     };
     walk(userData, '');
+    const localFiles = [];
+    {
+      const walkLocal = (dir, rel) => {
+        let ents = [];
+        try { ents = fs.readdirSync(dir, { withFileTypes: true }); } catch (_) { return; }
+        for (const e of ents) {
+          const r = rel ? `${rel}/${e.name}` : e.name;
+          if (e.isDirectory()) walkLocal(path.join(dir, e.name), r);
+          else localFiles.push(r);
+        }
+      };
+      walkLocal(localAppData, '');
+    }
     const text = (rel) => { const b = readUser(rel); return b ? b.toString('utf8') : null; };
+    const mainOpts = (wins[1] && wins[1].opts) || {};
+    const winStateBuf = readLocal('natsu/window-state.json');
     const result = {
       scene: sceneName,
       notices: sent.filter(([ch]) => ch === 'app:notice').map(([, p]) => p),
@@ -688,6 +747,11 @@ process.on('exit', () => {
       spawns: spawns.slice(),
       themeSource: electron.nativeTheme.themeSource,
       windows: wins.length,
+      windowOpts: Object.fromEntries(['x', 'y', 'width', 'height', 'minWidth', 'minHeight', 'backgroundColor'].map((k) => [k, mainOpts[k]])),
+      maximizeCalls,
+      zooms: zooms.slice(),
+      winStateText: winStateBuf ? winStateBuf.toString('utf8') : null,
+      localFiles: localFiles.sort(),
       ...actOut,
     };
     process.stdout.write(`\n${JSON.stringify(result)}\n`);
