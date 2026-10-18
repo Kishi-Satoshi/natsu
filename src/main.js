@@ -34,12 +34,14 @@ const { enrichActionBlocks, groundActionFields } = require('./actions');
 const updater = require('./updater');
 const { chooseDisplayMedia } = require('./loopback');
 // オンラインの文字起こし（第1c回 OL1〜OL4）: オンラインかの判定と経路・OpenAI と同じ形の口・鍵の保管
-const { makeOnline, decideStt } = require('./online');
+const { makeOnline, decideStt, decideSummary } = require('./online');
 const sttCloud = require('./stt-cloud');
 const { makeSecrets } = require('./secrets');
 const security = require('./security');
 const RENDERER_PAGES = { app: path.join(__dirname, 'renderer', 'app.html'), overlay: path.join(__dirname, 'renderer', 'overlay.html') };
 const minutes = require('./minutes');
+// オンラインの要約（第1c回 OL5）: 利用者の Claude Code を子のプロセスで呼ぶ部品
+const claudeCli = require('./claude-cli');
 const { markdownToBlocks, dropRedundantEmpty } = minutes;
 // テンプレートの写し（見出しだけ・雛形そのまま）を落とす。minutes.js 側に
 // まだ無い版でも動くよう、無ければ素通しにする。
@@ -1389,6 +1391,42 @@ function cleanWhisperText(raw) {
     .replace(/\n+/g, '').trim();
 }
 
+// 議事録を作る役割の文（手元の llama の system と、Claude Code の --system-prompt で同じ文を使う。F9）
+const MINUTES_SYS = 'あなたは議事録作成の専門家です。会議の文字起こしを分析し、正確で実用的な議事録を日本語のMarkdownで作成します。'
+  + '文体は報告文書の常体（だ・である調、体言止め）で、「です・ます」は使いません。'
+  + '文字起こしに無い情報を創作せず、雑談は省いてください。';
+// オンラインの要約（第1c回 OL5・D1）。Anthropic へ届くかの確かめに使う URL（何かの返事があれば届く: online.js）
+const ANTHROPIC_REACH = 'https://api.anthropic.com/';
+// Claude Code の作業フォルダ。NaTsu が作る空のフォルダで、NaTsu は中に何も書かない（利用者のフォルダの CLAUDE.md などを読ませない: RF31）
+function claudeRunDir() {
+  const dir = path.join(app.getPath('userData'), 'claude-run');
+  fs.mkdirSync(dir, { recursive: true });
+  return dir;
+}
+// 利用者の Claude Code で要約する（探す → auth status で claude.ai を確かめる → -p。文字起こしは標準入力）。
+// 指示文は手元の1回で要約する頼みと同じ（mainlib.buildClaudeInput。F9）。失敗は平易な文（claudeMessage）を投げ、
+// doRunSummary の catch が要約の欄に書く（手元の llama へは行かない: D1）。engine.log には符号だけを書く（本文・利用者の環境は書かない）。
+// 進み具合の文（「Claude Code で議事録を作成中…」）は doRunSummary が出す。onProgress は手元の道（generateMinutes）と同じ形のために受ける
+// （claude -p は1回で返し、途中の段が無い）
+async function summarizeWithClaude(plain, memo, type, onProgress) {
+  const failWith = (r) => {
+    engineLog(`要約: Claude Code → ${r.code || 'failed'}`);
+    throw new Error(claudeCli.claudeMessage(r));
+  };
+  const found = claudeCli.findClaude({ configured: settings.claudeExe });
+  if (!found.ok) failWith(found);
+  let cwd;
+  try { cwd = claudeRunDir(); } catch (e) { engineLog(`要約: Claude Code の作業フォルダを作れません: ${logReason(e)}`); failWith({ code: 'failed' }); }
+  const auth = await claudeCli.claudeAuthStatus({ cmd: found.cmd, spawn, cwd });
+  if (!auth.ok) failWith(auth);
+  const memoText = String(memo || '').trim().slice(0, MEMO_MAX);
+  const input = lib.buildClaudeInput({ memoText, plain, template: minutesTemplate(type) });
+  const r = await claudeCli.claudeSummarize({ cmd: found.cmd, spawn, cwd, input, systemPrompt: MINUTES_SYS });
+  if (!r.ok) failWith(r);
+  engineLog('要約: Claude Code → ok');
+  return { md: r.text, truncatedParts: [], finalTruncated: false };
+}
+
 // ---------------------------------------------------------------- 要約
 async function llmChat(messages, maxTokens, onWait) {
   // 503 は「壊れた」ではなく「まだ準備中・手が塞がっている」。
@@ -1459,9 +1497,7 @@ async function generateMinutes(plain, memo, onProgress, type) {
   const ok = await ensureEngineReady(sumEng);
   if (!ok) throw new Error(sumEng.lastError || '要約エンジンが起動していません');
   const llmChatP = (messages, maxTokens) => llmChat(messages, maxTokens, onProgress);
-  const sys = 'あなたは議事録作成の専門家です。会議の文字起こしを分析し、正確で実用的な議事録を日本語のMarkdownで作成します。'
-    + '文体は報告文書の常体（だ・である調、体言止め）で、「です・ます」は使いません。'
-    + '文字起こしに無い情報を創作せず、雑談は省いてください。';
+  const sys = MINUTES_SYS;
   // メモはユーザーが好きなだけ書けるうえ、そのままプロンプトに前置きされる。
   // 長すぎると文脈を食い潰して文字起こし側が押し出されるので上限を設ける。
   const memoText = String(memo || '').trim().slice(0, MEMO_MAX);
@@ -2552,7 +2588,11 @@ async function doRunSummary(pageId) {
     sendToMainWin('page:updated', { page: saved, segments });
     return { ok: false, error: err };
   }
-  if (!engineValid(sumEng)) {
+  // 要約の経路を1回決める（第1c回 OL5・D1）。［この会議は PC の中だけ］のページは届くかを確かめずに手元（C10。
+  // 文字起こしの文も PC の外へ出さない）。届けば利用者の Claude Code、届かなければ今までどおり手元の llama
+  const localOnly = Boolean(page.route && page.route.localOnly);
+  const route = (await decideSummary({ localOnly, up: () => online.isUp(ANTHROPIC_REACH) })).route;
+  if (route === 'local' && !engineValid(sumEng)) {
     // 取り込める PC で手の設定が無い側は［エンジンを取り込む］を指す（第0b回）。まだ取り込んでいなければ「未設定」の語を残す
     // （画面はこの語で設定タブへ連れて行く）。取り込んだ組を確かめ中・壊れた・ランタイムで止めたときは、その理由を伝える。
     // 確かめ中・取り直し中は待てば使えるようになるので、終わってからすることを1つ書いて終える
@@ -2591,15 +2631,15 @@ async function doRunSummary(pageId) {
   engineLog(`会議タイプ: 採用=${page.meetingType} 自動判定=${autoType}`
     + ` 手動=${page.typeAuto === false} 区間数=${usable.length}`);
 
-  sendToMainWin('meeting:progress', {
-    message: `要約エンジンで議事録を作成中…（${mtype.getLabel(page.meetingType)}として要約します）`,
-  });
+  const progress = (msg) => sendToMainWin('meeting:progress', { message: msg });
+  progress(route === 'claude-code'
+    ? `Claude Code で議事録を作成中…（${mtype.getLabel(page.meetingType)}として要約します）`
+    : `要約エンジンで議事録を作成中…（${mtype.getLabel(page.meetingType)}として要約します）`);
   try {
-    const { md, truncatedParts, finalTruncated } = await generateMinutes(
-      plain, page.memo,
-      (msg) => sendToMainWin('meeting:progress', { message: msg }),
-      page.meetingType,
-    );
+    // オンラインで Claude Code が失敗したら、理由を要約の欄に書いて終える（下の catch。手元の llama へは行かない: D1）
+    const { md, truncatedParts, finalTruncated } = route === 'claude-code'
+      ? await summarizeWithClaude(plain, page.memo, page.meetingType, progress)
+      : await generateMinutes(plain, page.memo, progress, page.meetingType);
     // 「特になし」の混入を先に落とす。ここで落とさないと
     // 「- [ ] 特になし」がアクション1件として数えられてしまう。
     // 続けて、テンプレートの見出し・雛形をそのまま写した行も落とす。
@@ -2643,6 +2683,8 @@ async function doRunSummary(pageId) {
         notes.push(`この要約は「${mtype.getLabel(page.meetingType)}」として作りました。途中で選んだ「${mtype.getLabel(t.meetingType)}」で作り直すには［要約を再生成］を押してください。`);
       }
       saved.summaryError = notes.filter(Boolean).join('\n');
+      // どちらで要約したか（第1c回 OL6。ページのプロパティの行に出す）。成功したときだけ書く
+      saved.route = { ...(saved.route || {}), summary: { by: route, at: new Date().toISOString() } };
     });
     if (!latest) return gone();
     clearUi();

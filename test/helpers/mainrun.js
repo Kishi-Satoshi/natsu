@@ -75,8 +75,16 @@
 //                     NATSU_E2E_HOOKS=1 のときだけある。C-3 で IPC に替える）。--recover と組むと、置く下書きに localOnly: true を書く
 //     --dictate     … 議事録の代わりに音声入力を1回（ホットキー → audio:done）。out.history に履歴
 //     --no-whisper  … 設定の whisper の実行ファイルを無いファイルにする
-//   偽の Electron の net.request は、いつも https://api.anthropic.com/ を偽の送り先の /anthropic へ書き換え（--stt のときだけ。
-//   ほかの外の宛先は書き換えず fake-net が死ぬ: 試験が外へ出たら赤）。Tray の displayBalloon は out.balloons に残す。
+//     --claude=<mode> … 第1c回 B-3: オンラインの要約。設定の claudeExe を偽の claude（helpers/fake-claude.js）に向け、FAKE_CLAUDE_MODE に
+//                     mode を、FAKE_CLAUDE_LOG に記録のファイルを置く（spawn は偽の whisper と同じく node で台本を起こす）。
+//                     mode が missing なら claudeExe を無いファイルに向ける（Claude Code が入っていない PC）。--stt と組むと、Anthropic へ
+//                     届くかの確かめが偽の送り先に届いてオンラインになる（--stt が無ければ、確かめは fake-net の守りで死んで手元になる）
+//     --claude-auth=<method> … 偽の claude の auth status が返す authMethod（FAKE_CLAUDE_AUTH。既定 claude.ai）
+//   main を読む前に、いつも process.env に ANTHROPIC_API_KEY と CLAUDE_CODE_OAUTH_TOKEN を置く（課金の変数が子に渡らないことを見る。RF25）。
+//   出力に足すもの: claude（偽の claude の記録。無ければ []）・pages[].route・pages[].blocks（型と cites の数だけ）・pages[].citeStat
+//   偽の Electron の net.request は、https://api.anthropic.com/ を偽の送り先の /anthropic へ書き換える（--stt と --claude を両方
+//   付けたときだけ。--claude の無い場面は、要約の経路の確かめが fake-net の守りで死んで今どおり手元の llama になる。ほかの外の宛先は
+//   書き換えず fake-net が死ぬ: 試験が外へ出たら赤）。Tray の displayBalloon は out.balloons に残す。
 //   --stt のときの出力に足すもの: stt（偽の送り先の要求の一覧）・pages[].route・balloons・secretsRaw（secrets.json の中身）・
 //   recoveryKept（segbuf の下に recovery.json と WAV が残っているか）・decrypts（偽の safeStorage で鍵を復号した回数）。--recover と組むと、復旧が済むか止まるのを待って同じ形で出す
 // 画面へ送った知らせと進み具合は、送った順に out.seq へ残す。進み具合が初めて「使える」（whisperReady・sumReady）と
@@ -129,6 +137,10 @@ const offline = flags.includes('--offline');
 const localOnlyFlag = flags.includes('--local-only');
 const dictate = flags.includes('--dictate');
 const noWhisper = flags.includes('--no-whisper');
+// 第1c回 B-3: オンラインの要約の場面（偽の claude）
+const claudeMode = (flags.find((f) => f.startsWith('--claude=')) || '').slice(9);
+const claudeAuth = (flags.find((f) => f.startsWith('--claude-auth=')) || '').slice(14);
+const FAKE_CLAUDE = path.join(__dirname, 'fake-claude.js');
 const STT_KEY = 'gsk_test_0123456789';   // stage1c.main.test.js の KEY と同じ（どこにも漏れていないかを試験が探す）
 const sceneName = (flags.find((f) => f.startsWith('--json-scene=')) || '').slice(13);
 const scene = sceneName ? require('./json-scenes')[sceneName] : null;
@@ -249,6 +261,18 @@ process.on('exit', () => {
   }
   if (withVad) fs.writeFileSync(path.join(path.dirname(model), 'ggml-silero-v6.2.0.bin'), Buffer.alloc(1024, 1));
   const exe = process.env.NATSU_E2E_EXE || FAKE;
+  // 偽の claude（--claude）。記録は1行ずつの JSON
+  const claudeLog = path.join(tmp, 'claude.log');
+  const claudeExe = claudeMode === 'missing' ? path.join(tmp, 'no-such-claude.exe') : FAKE_CLAUDE;
+  if (claudeMode) {
+    process.env.FAKE_CLAUDE_MODE = claudeMode;
+    process.env.FAKE_CLAUDE_LOG = claudeLog;
+    process.env.FAKE_CLAUDE_EXPECT = fakeText || '本日の議題は進捗の確認です';
+    if (claudeAuth) process.env.FAKE_CLAUDE_AUTH = claudeAuth;
+  }
+  // 課金の変数（子に渡らないことを偽の claude の記録の envKeys で見る。大小の混ざった名前は claude-cli.test.js が見る）
+  process.env.ANTHROPIC_API_KEY = 'sk-ant-test';
+  process.env.CLAUDE_CODE_OAUTH_TOKEN = 'o';
   const flog = path.join(tmp, 'fake.log');
   fs.writeFileSync(flog, '');
   process.env.FAKE_MODE = mode;
@@ -391,6 +415,7 @@ process.on('exit', () => {
       ...(withSum ? { sumServerExe: FAKE_SUM, sumModelPath: sumModel } : {}),
       ...(fakeStt ? { cloudTranscribe: consentFlag || 'on', sttProvider: 'custom', sttBaseUrl: fakeStt.base, sttModel: 'whisper-large-v3' } : {}),
       ...(noWhisper ? { localServerExe: path.join(tmp, 'no-such-whisper-server.exe') } : {}),
+      ...(claudeMode ? { claudeExe } : {}),
     }));
   }
 
@@ -481,8 +506,10 @@ process.on('exit', () => {
       return { result: Buffer.from(String(b).slice(5), 'hex').toString('utf8'), shouldReEncrypt: false };
     },
   };
-  // 外の宛先の書き換え: Anthropic へ届くかの確かめだけを偽の送り先へ（ほかは書き換えず、127.0.0.1 でなければ fake-net が死ぬ）
-  const rewrite = (u) => (fakeStt && String(u).startsWith('https://api.anthropic.com/') ? fakeStt.url('/anthropic') : u);
+  // 外の宛先の書き換え: Anthropic へ届くかの確かめだけを偽の送り先へ（ほかは書き換えず、127.0.0.1 でなければ fake-net が死ぬ）。
+  // 偽の claude を置く場面（--claude）だけ。--stt だけの場面（第1c回 A-4）で書き換えると、要約が Claude Code の道へ行き、
+  // PATH の上の claude を探してしまう（起こすのは mainrun の spawn が止めるが、返事の来ない子を待って場面が時間切れになる）
+  const rewrite = (u) => (fakeStt && claudeMode && String(u).startsWith('https://api.anthropic.com/') ? fakeStt.url('/anthropic') : u);
   // --stt=cert: 偽の送り先への要求は、証明書が差し替えられたときの失敗で死ぬ（会社の通信の検査。RF26）
   const before = sttMode === 'cert' ? (_n, o) => (o && String(o.url).startsWith(fakeStt.base) ? { error: 'net::ERR_CERT_AUTHORITY_INVALID' } : null) : null;
   const electron = withFallback({
@@ -527,6 +554,12 @@ process.on('exit', () => {
         p.stdin = null; p.stdout = new EventEmitter(); p.stderr = new EventEmitter(); p.kill = () => {};
         setTimeout(() => p.emit('exit', 3221225781, null), 30);
         return p;
+      }
+      if (claudeMode && cmd === FAKE_CLAUDE) {
+        // 偽の claude を node で起こす（env は main が課金の変数を外したもの。Windows の SystemRoot だけ元に戻す）
+        const k = realSpawn(process.execPath, [FAKE_CLAUDE, ...args], { ...opts, env: childEnv(opts && opts.env) });
+        kids.push(k);
+        return k;
       }
       if (cmd === exe || (withSum && cmd === FAKE_SUM) || (managedExe && cmd === managedExe)) {
         spawns.push({ cmd, args, cwd: (opts && opts.cwd) || '' });
@@ -745,6 +778,10 @@ process.on('exit', () => {
     }
     return { queue, wav };
   };
+  const claudeLines = () => {
+    const t = fs.existsSync(claudeLog) ? fs.readFileSync(claudeLog) : null;
+    return t ? t.toString('utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l)) : [];
+  };
   const elogLines = () => { const t = readUser('engine.log'); return t ? t.toString('utf8').split('\n').filter(Boolean).map((l) => l.replace(/^\[[^\]]+\] /, '')) : []; };
   const sttOut = () => {
     if (!fakeStt) return;
@@ -897,10 +934,13 @@ process.on('exit', () => {
       summaryError: page.summaryError,
       segments: store.getTranscript(p.id).map((s) => ({ text: s.text, failed: Boolean(s.failed) })),
       meetingType: page.meetingType, typeAuto: page.typeAuto, actionStat: page.actionStat,
+      route: page.route, citeStat: page.citeStat || null,
+      blocks: (page.blocks || []).map((b) => ({ type: b.type, cites: Array.isArray(b.cites) ? b.cites.length : 0 })),
       todos: (page.blocks || []).filter((b) => b.type === 'todo').map((b) => ({ text: b.text, assignee: b.assignee || '', due: b.due || '', dueRaw: b.dueRaw || '' })),
     };
   });
   out.pages = pages;
+  out.claude = claudeLines();
   out.notices = sent.filter(([ch]) => ch === 'app:notice').map(([, p]) => p);
   const elog = path.join(userData, 'engine.log');
   out.engineLog = fs.existsSync(elog) ? fs.readFileSync(elog, 'utf8').split('\n').filter(Boolean).map((l) => l.replace(/^\[[^\]]+\] /, '')) : [];

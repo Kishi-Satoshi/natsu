@@ -970,6 +970,16 @@ function mergeSummaryType(saved, used) {
   return { meetingType: used.meetingType, typeAuto: used.typeAuto, changed: false };
 }
 
+// Claude Code（claude -p）の標準入力に渡す文（第1c回 OL5・F9）。手元の LLM の1回で要約する頼みの文（main.js の
+// generateMinutes）と1文字も違わない形にする（片方だけ直すと、要約タイプの見出しが道によって変わる）。
+// memoText は呼ぶ側が trim し MEMO_MAX で切ったもの、template は minutesTemplate(type)（dropTemplateEcho に渡すのと同じ文字）。
+// 同じことは stage1c.lib.test.js が main.js の文字から確かめる
+function buildClaudeInput({ memoText, plain, template }) {
+  const memo = String(memoText || '');
+  const memoBlock = memo ? `【会議メモ・アジェンダ（要約のヒント）】\n${memo}\n\n` : '';
+  return `${memoBlock}【会議の文字起こし】\n${plain}\n\n上記から、次の構成のMarkdown議事録を作成してください。見出しはこの通りに使い、本文だけを出力してください。\n\n${template}`;
+}
+
 // 担当・期限の裏付けに使うメモ。要約タイプを選んだときに入るアジェンダの雛形（types[].agenda）の行は除く。
 // 雛形は利用者の発言でもメモでもなく、「次回までのアクション」などが作り話の期限を通してしまう
 function memoEvidence(memo, types) {
@@ -1148,7 +1158,7 @@ module.exports = {
   extractNotes, truncationMessage, buildPromptParts,
   publicSegments, settledSegments, pendingDurationMs, recoverSegments, staleSegbufDirs,
   nextSegmentMs, EtaTracker, skipPendingSegments,
-  estimateTokens, foldNotes, idleEnginesToStop, silentWav, wavLevelDbfs, mergeSummaryType, memoEvidence,
+  estimateTokens, foldNotes, idleEnginesToStop, silentWav, wavLevelDbfs, mergeSummaryType, memoEvidence, buildClaudeInput,
   isLoopbackUrl, loopbackOnlyFetch,
   sameShas, keepPrevious, candStamp, repairIdsOf, pathUsedBy, fetchMinutesLeft,
   recordDictation, mergeHistory, chooseDraftName,

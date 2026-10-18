@@ -137,3 +137,69 @@ test('RF28: ［PC の中だけ］の会議が落ちて復旧しても、送り�
   assert.deepStrictEqual(o.pages[0].route.stt, { cloud: 0, local: 1, provider: 'custom' });
   assert.strictEqual(o.pages[0].route.localOnly, true);
 });
+
+// ---------------------------------------------------------------- 第1c回 B-3: 要約の経路（偽の claude）
+const llamaSpawned = (o) => o.spawns.some((s) => /fake-llama\.js$/.test(s.cmd));
+const pCalls = (o) => o.claude.filter((l) => l.kind === 'p');
+
+test('D2: オンラインの自動の要約は Claude Code で作られ、出典が付き、手元の llama は起動しない。課金の変数は子に渡らない', { timeout: 20000 }, async () => {
+  const o = await run(['text', '--stt=text', '--sum', '--claude=ok', '--segs=2']);
+  assert.strictEqual(pCalls(o).length, 1);
+  assert.deepStrictEqual(o.claude.map((l) => l.envKeys), [[], []], '課金の変数が auth status か -p に渡った');
+  assert.ok(o.claude[0].kind === 'auth' && o.claude[1].kind === 'p', 'auth status を先に読んでいない');
+  assert.strictEqual(pCalls(o)[0].stdinHasTranscript, true, '文字起こしを標準入力で渡していない');
+  assert.strictEqual(path.basename(pCalls(o)[0].cwd), 'claude-run', '作業フォルダが NaTsu の空のフォルダ（<userData>/claude-run）でない');
+  assert.strictEqual(llamaSpawned(o), false, 'オンラインなのに手元の llama を起動した');
+  const p = o.pages[0];
+  assert.strictEqual(p.route.summary.by, 'claude-code');
+  assert.ok(p.citeStat && p.citeStat.total > 0, '出典の照合を通っていない');
+  assert.ok(p.todos.every((t) => t.assignee === '' && t.due === ''), '文字起こしに無い担当・期限が残った（照らしを通っていない）');
+  assert.strictEqual(p.summaryError, '');
+  assert.ok(!o.engineLog.some((l) => l.includes('進捗の確認を行った')), '記録に要約の本文がある');
+});
+
+test('D1・F2: オンラインで上限なら、要約の欄にリセットの時刻を出し、手元の llama では作らない', { timeout: 20000 }, async () => {
+  const o = await run(['text', '--stt=text', '--sum', '--claude=limit', '--segs=1']);
+  assert.match(o.pages[0].summaryError, /Claude の利用の上限に達しました（3:45pm に戻ります）/);
+  assert.strictEqual(llamaSpawned(o), false);
+  assert.strictEqual(o.pages[0].todos.length, 0);
+  assert.ok(o.engineLog.some((l) => /要約: Claude Code → limit/.test(l)));
+});
+
+test('RF25: Claude Code が API キーで動く設定なら -p を呼ばずに理由を出す', { timeout: 20000 }, async () => {
+  const o = await run(['text', '--stt=text', '--sum', '--claude=ok', '--claude-auth=api_key_helper', '--segs=1']);
+  assert.strictEqual(pCalls(o).length, 0);
+  assert.match(o.pages[0].summaryError, /API キー（従量課金）で動く設定/);
+  assert.strictEqual(llamaSpawned(o), false);
+});
+
+test('RF24: Claude Code が無ければ入れ方を出す（手元の llama では作らない）', { timeout: 20000 }, async () => {
+  const o = await run(['text', '--stt=text', '--sum', '--claude=missing', '--segs=1']);
+  assert.match(o.pages[0].summaryError, /irm https:\/\/claude\.ai\/install\.ps1 \| iex/);
+  assert.strictEqual(llamaSpawned(o), false);
+});
+
+test('D1: オフラインなら今までどおり手元の llama で要約し、Claude Code は呼ばない。ページに「local」', { timeout: 20000 }, async () => {
+  const o = await run(['text', '--stt=text', '--offline', '--sum', '--claude=ok', '--segs=2']);
+  assert.strictEqual(o.claude.length, 0);
+  assert.strictEqual(llamaSpawned(o), true);
+  assert.strictEqual(o.pages[0].route.summary.by, 'local');
+});
+
+test('C10・F13: ［この会議は PC の中だけ］の会議は、オンラインでも Claude Code を呼ばず（auth status も無し）、手元の llama で要約する', { timeout: 20000 }, async () => {
+  const o = await run(['text', '--stt=text', '--local-only', '--sum', '--claude=ok', '--segs=2']);
+  assert.strictEqual(o.claude.length, 0, '［PC の中だけ］の文字起こしを Claude へ渡した');
+  // 送り先への要求は、会議の始めの文字起こしの経路の確かめ（［PC の中だけ］を押す前。A-4）の GET だけ。
+  // 要約のための Anthropic へ届くかの確かめ（/anthropic）も、音声の送信も無い
+  assert.deepStrictEqual(o.stt.filter((r) => r.path === '/anthropic' || r.path.endsWith('/audio/transcriptions')), []);
+  assert.strictEqual(llamaSpawned(o), true);
+  assert.strictEqual(o.pages[0].route.summary.by, 'local');
+});
+
+test('今の場面を守る: --claude を付けない要約の場面は、届くかの確かめが試験の守りで止まり、今どおり手元の llama で作る（偽の claude も本物も起こさない）', { timeout: 20000 }, async () => {
+  const o = await run(['text', '--sum', '--segs=2']);
+  assert.deepStrictEqual(o.claude, []);
+  assert.strictEqual(llamaSpawned(o), true);
+  assert.strictEqual(o.pages[0].route.summary.by, 'local');
+  assert.strictEqual(o.pages[0].summaryError, '');
+});
