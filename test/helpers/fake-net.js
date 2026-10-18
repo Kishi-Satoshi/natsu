@@ -14,6 +14,11 @@
 //  - 途中で切れたら（identity）、届いていたバイトを受け手が読み終えてから net::ERR_CONNECTION_RESET で壊す（deliverAllThenFail）。
 //  - before(n) … n 回目の要求の前に呼ぶ。{ login: authInfo, error: 'net::ERR_…' } を返すと、
 //    サーバーへ行かずにその出来事を起こす（https のプロキシの 407 は、応答ではなく login と error で来る）。
+//  - opts.method（無ければ GET）。GET でなければ req.write(chunk) の本文を貯め、end() で content-length を付けて送る
+//    （本物は chunkedEncoding が false のとき、本文を貯めて長さを付けて送る）。第1c回 Task A-2。
+//  - redirect: 'error' … 3xx が来たら net::ERR_UNSAFE_REDIRECT で死ぬ（Electron の資料の redirect の error）。
+//  - rewrite(url) → url … 渡したときだけ、go(url) の頭で宛先を書き換える（本番の送り先を偽の送り先へ）。
+//    書き換えた後のホストが 127.0.0.1・localhost・::1 でなければ net::ERR_BLOCKED_BY_CLIENT で死ぬ（試験が外へ出た）。
 const http = require('http');
 const https = require('https');
 const zlib = require('zlib');
@@ -60,13 +65,19 @@ function deliverAllThenFail(res) {
   return out;
 }
 
-function makeFakeRequest({ before = null } = {}) {
+const LOOPBACK = new Set(['127.0.0.1', 'localhost', '[::1]', '::1']);
+const isLoopback = (url) => { try { return LOOPBACK.has(new URL(url).hostname); } catch (_) { return false; } };
+
+function makeFakeRequest({ before = null, rewrite = null } = {}) {
   let n = 0;
   return function request(opts) {
     const req = new EventEmitter();
     const headers = {};
+    const method = String(opts.method || 'GET').toUpperCase();
+    const chunks = [];
     let aborted = false; let cur = null; let curRes = null; let followCb = null;
     req.setHeader = (k, v) => { headers[k] = v; };
+    req.write = (chunk) => { chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk))); return true; };
     req.followRedirect = () => {
       if (!followCb) throw new Error('followRedirect() called, but was not waiting for a redirect');
       followCb();
@@ -83,16 +94,22 @@ function makeFakeRequest({ before = null } = {}) {
       const cb = (...args) => { req.loginArgs = args; after(); };
       if (!req.emit('login', info, cb)) cb();
     };
-    const go = (url) => {
+    const go = (url0) => {
+      let url = url0;
+      if (rewrite) {
+        url = String(rewrite(url0));
+        if (!isLoopback(url)) { die(new Error('net::ERR_BLOCKED_BY_CLIENT')); return; }
+      }
       const lib = url.startsWith('https:') ? https : http;
       const wire = { ...headers };
       if (!hasHeader(wire, 'accept-encoding')) {
         wire['Accept-Encoding'] = hasHeader(wire, 'range') ? 'identity' : url.startsWith('https:') ? 'gzip, deflate, br' : 'gzip, deflate';
       }
-      cur = lib.get(url, { headers: wire }, (res) => {
+      const onRes = (res) => {
         const st = res.statusCode;
         if ([301, 302, 303, 307, 308].includes(st) && res.headers.location) {
           res.resume();
+          if (opts.redirect === 'error') { die(new Error('net::ERR_UNSAFE_REDIRECT')); return; }
           const next = new URL(res.headers.location, url).toString();
           const arr = {};
           for (const [k, v] of Object.entries(res.headers)) arr[k.toLowerCase()] = Array.isArray(v) ? v : [v];
@@ -129,7 +146,13 @@ function makeFakeRequest({ before = null } = {}) {
         const challenge = (st === 401 && res.headers['www-authenticate']) || (st === 407 && res.headers['proxy-authenticate']);
         if (challenge) { login({ isProxy: st === 407, scheme: 'basic', host: new URL(url).hostname, port: 0, realm: 'x' }, deliver); return; }
         deliver();
-      });
+      };
+      if (method === 'GET') cur = lib.get(url, { headers: wire }, onRes);
+      else {
+        const body = Buffer.concat(chunks);
+        cur = lib.request(url, { method, headers: { ...wire, 'Content-Length': String(body.length) } }, onRes);
+        cur.end(body);
+      }
       cur.on('error', (e) => die(new Error(e.code === 'ECONNREFUSED' ? 'net::ERR_CONNECTION_REFUSED' : 'net::ERR_CONNECTION_RESET')));
     };
     req.end = () => {
