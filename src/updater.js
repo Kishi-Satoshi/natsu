@@ -50,16 +50,23 @@ const TAG_PATTERN = /^natsu-v(\d+\.\d+\.\d+)$/;
  * Electron の net は Chromium のネットワークスタックを使うため、
  * システムのプロキシ設定・PAC・資格情報・証明書ストアがそのまま効く。
  *
- * Electron の外（テスト）では net が無いので、Node の fetch に落とす。
+ * Electron の main でないとき（テスト・ELECTRON_RUN_AS_NODE）は electron を読まず、Node の fetch を使う。
  */
-function httpFetch(url, opts) {
-  try {
-    // eslint-disable-next-line global-require
-    const { net } = require('electron');
-    if (net && typeof net.fetch === 'function') return net.fetch(url, opts);
-  } catch (_) { /* Electron 外 */ }
-  return fetch(url, opts);
+/*
+ * 通信の口を選ぶ。Electron の main（process.type === 'browser'）のときだけ electron を読んで net.fetch を使う。
+ * Electron の外（npm test・ELECTRON_RUN_AS_NODE）では electron を読まない。Electron 44 の npm の包みは、Node から
+ * require('electron') されると本体を落としにいく（index.js の downloadElectron。第0c回 C6）。
+ */
+function pickFetch({ type = process.type, load = require } = {}) {
+  if (type === 'browser') {
+    try {
+      const { net } = load('electron');
+      if (net && typeof net.fetch === 'function') return (u, o) => net.fetch(u, o);
+    } catch (_) { /* 下の fetch */ }
+  }
+  return globalThis.fetch;
 }
+function httpFetch(url, opts) { return pickFetch()(url, opts); }
 
 function log(userDataPath, line) {
   try {
@@ -467,6 +474,6 @@ async function apply(url, appRoot, userDataPath, onProgress, opts) {
 }
 
 module.exports = {
-  check, apply, cmpVersion, satisfiesRange, REPO, TAG_PATTERN, ASSET_PATTERN,
+  check, apply, cmpVersion, satisfiesRange, pickFetch, REPO, TAG_PATTERN, ASSET_PATTERN,
   INFO_ASSET, FEED_ENV, REINSTALL_MESSAGE, readFeed, parseUpdateInfo, needsReinstall, updateNotice,
 };

@@ -148,3 +148,14 @@ test('EL4: release.yml は natsu-update.json を作って添え、Run workflow �
   assert.ok(ist.some((s) => /^\s*if: github\.event_name == 'workflow_dispatch' && !inputs\.publish$/m.test(s) && s.includes('GITHUB_STEP_SUMMARY')));
   assert.strictEqual(require('../src/updater').INFO_ASSET, 'natsu-update.json');
 });
+
+// ---------------------------------------------------------------- EL6
+test('EL6: Electron は 44.9.0、electron-builder は 26.17.0 にきっちり固定し、engines.electron は >=44.9.0。asar は使わず、NSIS とポータブルを作る', () => {
+  const pkg = JSON.parse(read('package.json'));
+  assert.strictEqual(pkg.devDependencies.electron, '44.9.0');
+  assert.strictEqual(pkg.devDependencies['electron-builder'], '26.17.0');
+  for (const [k, v] of Object.entries(pkg.devDependencies)) assert.match(v, /^\d+\.\d+\.\d+$/, `${k} が ${v}（package-lock.json が無いので、^ や ~ だと出す日で版が変わる）`);
+  assert.strictEqual(pkg.engines.electron, '>=44.9.0');
+  assert.strictEqual(pkg.build.asar, false);
+  assert.deepStrictEqual(pkg.build.win.target, ['portable', 'nsis']);
+});

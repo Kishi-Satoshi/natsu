@@ -17,11 +17,11 @@
     "hook": "node tools/install-hook.js"
   },
   "devDependencies": {
-    "electron": "^31.3.0",
-    "electron-builder": "^24.13.3"
+    "electron": "44.9.0",
+    "electron-builder": "26.17.0"
   },
   "engines": {
-    "electron": ">=31.3.0"
+    "electron": ">=44.9.0"
   },
   "build": {
     "appId": "local.natsu.app",
