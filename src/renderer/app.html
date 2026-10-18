@@ -180,13 +180,37 @@
   .page { flex: 1; min-width: 0; display: flex; flex-direction: column;
     background: var(--bg); border: 1px solid var(--line);
     border-radius: 6px; overflow: hidden; }
-  .phead { padding: 18px 24px 12px; border-bottom: 1px solid var(--line); flex: none; }
-  .ptitle { font-size: 21px; font-weight: 700; line-height: 1.4; outline: none; border-radius: 4px; padding: 2px 4px; }
+  /* 本文の列（第1b回 N4）。見出し・細いタブ・本文の3つとも、中央に最大 720px の同じ列に並べる */
+  .pcol { max-width: 720px; margin: 0 auto; }
+  .phead { padding: 12px 24px 0; flex: none; }
+  .ptitle { font-size: 40px; font-weight: 700; line-height: 1.25; outline: none; border-radius: 4px; padding: 2px 4px;
+    overflow-wrap: anywhere; }
   .ptitle:focus { background: var(--hover); }
-  .pprops { display: flex; gap: 14px; flex-wrap: wrap; font-size: 12px; color: var(--muted); margin-top: 8px; }
-  .pacts { display: flex; gap: 7px; margin-top: 12px; flex-wrap: wrap; }
+  /* プロパティは「アイコン・名前・値」の行（.k に「アイコン 名前」、.v に値）。要約タイプの行 #pTypeRow も同じ形 */
+  .pprops { margin-top: 10px; }
+  .prop { display: flex; align-items: baseline; gap: 8px; font-size: 13px; padding: 3px 4px; min-height: 28px; }
+  .prop .k { flex: none; width: 150px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .prop .v { flex: 1; min-width: 0; color: var(--text); overflow-wrap: anywhere; }
+  #pTypeRow .v { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  #pTypeRow .hint { font-size: 11px; color: var(--muted); }
+  /* 操作は題名の上の右端の帯: 主ボタン1つと「…」（中にコピーと削除） */
+  .pacts { display: flex; justify-content: flex-end; align-items: center; gap: 6px; position: relative; min-height: 30px; }
   .pacts button { font-size: 12px; padding: 5px 12px; }
-  .ptabs { display: flex; gap: 4px; padding: 10px 24px 0; flex: none; }
+  .pacts .pmore { padding: 5px 9px; letter-spacing: .1em; }
+  .pmenu { position: absolute; top: 100%; right: 0; z-index: 5; min-width: 140px; margin-top: 4px; padding: 4px;
+    background: var(--bg); border: 1px solid var(--line); border-radius: 6px; box-shadow: var(--shadow);
+    display: flex; flex-direction: column; }
+  .pmenu[hidden] { display: none; }
+  .pacts .pmenu .mitem { background: transparent; border: none; color: var(--text); font: inherit; font-size: 13px;
+    text-align: left; padding: 6px 10px; border-radius: 4px; cursor: pointer; }
+  .pmenu .mitem:hover, .pmenu .mitem:focus { background: var(--hover); }
+  /* 要約・文字起こし・メモは本文の上の細いタブ（選んでいるものは下線） */
+  .ptabs { padding: 10px 24px 0; flex: none; }
+  .ptabrow { display: flex; gap: 18px; border-bottom: 1px solid var(--line); }
+  .ptab { background: transparent; border: none; border-bottom: 2px solid transparent; margin-bottom: -1px;
+    color: var(--muted); font: inherit; font-size: 13px; padding: 6px 2px; cursor: pointer; }
+  .ptab:hover { color: var(--text); }
+  .ptab.on { color: var(--text); font-weight: 600; border-bottom-color: var(--accent); }
   .pbody { flex: 1; overflow-y: auto; padding: 14px 24px 24px; }
   .pane { display: none; }
   .pane.active { display: block; }
@@ -419,25 +443,36 @@
       <div class="notes">
         <div class="page" id="pageWrap">
           <div class="phead">
+            <div class="pcol">
+            <div class="pacts" id="pActs">
+              <button class="ghost pmore" id="pMore" type="button" aria-haspopup="menu" aria-expanded="false" aria-controls="pMenu" aria-label="ほかの操作" title="ほかの操作">…</button>
+              <div class="pmenu" id="pMenu" role="menu" aria-label="ほかの操作" hidden></div>
+            </div>
             <div class="ptitle" id="pTitle" contenteditable="true" spellcheck="false"></div>
             <div class="pprops" id="pProps"></div>
-            <div id="pTypeRow" style="margin-top:8px;display:flex;align-items:center;gap:8px">
-              <span style="font-size:11px;color:var(--muted)">要約タイプ</span>
-              <select class="typeSel" id="pType"></select>
-              <span style="font-size:11px;color:var(--muted)" id="pTypeHint"></span>
+            <div class="prop" id="pTypeRow">
+              <span class="k">🏷 <span>要約タイプ</span></span>
+              <span class="v">
+              <select class="typeSel" id="pType" aria-label="要約タイプ"></select>
+              <span class="hint" id="pTypeHint"></span>
+              </span>
             </div>
-            <div class="pacts" id="pActs"></div>
+            </div>
           </div>
           <div class="ptabs">
-            <button class="chip on" id="paneBtnNote">議事録</button>
-            <button class="chip" id="paneBtnScript">文字起こし</button>
-            <button class="chip" id="paneBtnMemo">メモ</button>
+            <div class="pcol ptabrow" role="tablist" aria-label="ページの中身">
+            <button class="ptab on" id="paneBtnNote" type="button" role="tab" aria-selected="true" aria-controls="pNote">要約</button>
+            <button class="ptab" id="paneBtnScript" type="button" role="tab" aria-selected="false" aria-controls="pScript" tabindex="-1">文字起こし</button>
+            <button class="ptab" id="paneBtnMemo" type="button" role="tab" aria-selected="false" aria-controls="pMemo" tabindex="-1">メモ</button>
+            </div>
           </div>
           <div class="pbody" id="pBody">
+            <div class="pcol">
             <div id="pProgress" class="prog" style="display:none"></div>
-            <div id="pNote" class="pane active"></div>
-            <div id="pScript" class="pane"></div>
-            <div id="pMemo" class="pane"></div>
+            <div id="pNote" class="pane active" role="tabpanel" aria-labelledby="paneBtnNote"></div>
+            <div id="pScript" class="pane" role="tabpanel" aria-labelledby="paneBtnScript"></div>
+            <div id="pMemo" class="pane" role="tabpanel" aria-labelledby="paneBtnMemo"></div>
+            </div>
           </div>
         </div>
       </div>
@@ -1331,11 +1366,16 @@
     return true;
   }
 
+  // 要約・文字起こし・メモの細いタブ（role="tab"）。選んでいるタブだけ Tab で届き、←／→／Home／End で移る
+  const PANES = [['note', 'paneBtnNote'], ['script', 'paneBtnScript'], ['memo', 'paneBtnMemo']];
   function setPane(p) {
     pane = p;
-    $('paneBtnNote').classList.toggle('on', p === 'note');
-    $('paneBtnScript').classList.toggle('on', p === 'script');
-    $('paneBtnMemo').classList.toggle('on', p === 'memo');
+    for (const [k, id] of PANES) {
+      const b = $(id);
+      b.classList.toggle('on', p === k);
+      b.setAttribute('aria-selected', p === k ? 'true' : 'false');
+      b.tabIndex = p === k ? 0 : -1;
+    }
     $('pNote').classList.toggle('active', p === 'note');
     $('pScript').classList.toggle('active', p === 'script');
     $('pMemo').classList.toggle('active', p === 'memo');
@@ -1343,12 +1383,67 @@
   $('paneBtnNote').onclick = () => setPane('note');
   $('paneBtnScript').onclick = () => setPane('script');
   $('paneBtnMemo').onclick = () => setPane('memo');
+  for (const [, id] of PANES) {
+    $(id).onkeydown = (ev) => {
+      const i = PANES.findIndex(([k]) => k === pane);
+      const j = ev.key === 'ArrowRight' ? (i + 1) % PANES.length : ev.key === 'ArrowLeft' ? (i + PANES.length - 1) % PANES.length
+        : ev.key === 'Home' ? 0 : ev.key === 'End' ? PANES.length - 1 : -1;
+      if (j < 0) return;
+      ev.preventDefault();
+      setPane(PANES[j][0]);
+      $(PANES[j][1]).focus();
+    };
+  }
+
+  // 「…」（#pMore）とその中のメニュー（#pMenu の［コピー］［削除］）。
+  // Enter／Space（変換確定の Enter は除く）・↓ で開いて最初の項目へ、↑／↓ で移り、Esc で閉じて「…」へ戻る
+  function setMoreOpen(on, focusItem) {
+    const menu = $('pMenu');
+    menu.hidden = !on;
+    $('pMore').setAttribute('aria-expanded', on ? 'true' : 'false');
+    if (on && focusItem) { const it = menu.querySelectorAll('.mitem')[0]; if (it) it.focus(); }
+  }
+  $('pMore').onclick = () => setMoreOpen($('pMenu').hidden, true);
+  $('pMore').onkeydown = (ev) => {
+    if (imeEnter(ev)) return;
+    if (ev.key === 'Enter' || ev.key === ' ' || ev.key === 'ArrowDown') { ev.preventDefault(); setMoreOpen(true, true); }
+    else if (ev.key === 'Escape' && !$('pMenu').hidden) { ev.preventDefault(); setMoreOpen(false); }
+  };
+  function onMenuKey(ev) {
+    const items = [...$('pMenu').querySelectorAll('.mitem')];
+    const i = items.indexOf(ev.currentTarget);
+    if (ev.key === 'ArrowDown' || ev.key === 'ArrowUp' || ev.key === 'Home' || ev.key === 'End') {
+      ev.preventDefault();
+      const j = ev.key === 'Home' ? 0 : ev.key === 'End' ? items.length - 1
+        : (i + (ev.key === 'ArrowDown' ? 1 : items.length - 1)) % items.length;
+      items[j].focus();
+    } else if (ev.key === 'Escape') {
+      ev.preventDefault();
+      setMoreOpen(false);
+      $('pMore').focus();
+    } else if (ev.key === 'Tab') {
+      setMoreOpen(false);   // Tab で外へ出たら閉じる（フォーカスは既定どおり次へ）
+    }
+  }
+  // 描き直す前に、主ボタンとメニューの項目を外す（「…」と #pMenu の枠は残す）
+  function clearActs() {
+    setMoreOpen(false);
+    $('pMenu').textContent = '';
+    for (const b of [...$('pActs').children]) if (b.id !== 'pMore' && b.id !== 'pMenu') b.remove();
+  }
+  // メニューの外を押したら閉じる
+  document.addEventListener('pointerdown', (ev) => {
+    if ($('pMenu').hidden) return;
+    const t = ev.target;
+    if (!(t && t.closest && t.closest('#pActs'))) setMoreOpen(false);
+  });
 
   function renderPage() {
+    clearActs();
     if (!curPage) {
       $('pTitle').textContent = '';
       $('pProps').textContent = '';
-      $('pActs').textContent = '';
+      $('pMore').hidden = true;
       // 議事録を選ぶ前は中身の無いセレクタを出さない（選べない物を見せない）
       $('pTypeRow').style.display = 'none';
       $('pNote').innerHTML = '<div class="empty"><div class="big">左の一覧から議事録を選んでください</div>会議を録音すると、要約とアクションアイテムが自動で作られます。</div>';
@@ -1359,6 +1454,7 @@
       return;
     }
     $('pTypeRow').style.display = '';
+    $('pMore').hidden = false;
     $('pTitle').textContent = curPage.title;
 
     // 会議タイプ
@@ -1399,11 +1495,21 @@
 
     renderProps();
 
-    const acts = $('pActs'); acts.textContent = '';
-    const mk = (label, fn, primary) => {
+    // 主ボタン（要約の生成）は「…」の左、［コピー］［削除］は「…」の中のメニュー（role="menuitem"）。どちらも #pActs の中
+    const acts = $('pActs'); const menu = $('pMenu');
+    const mk = (label, fn, primary, inMenu) => {
       const b = document.createElement('button');
-      b.className = primary ? 'action' : 'ghost'; b.textContent = label; b.onclick = fn;
-      acts.appendChild(b); return b;
+      b.type = 'button'; b.textContent = label;
+      if (inMenu) {
+        b.className = 'mitem'; b.setAttribute('role', 'menuitem'); b.tabIndex = -1;
+        b.onclick = (ev) => { setMoreOpen(false); return fn(ev); };
+        b.onkeydown = onMenuKey;
+        menu.appendChild(b);
+      } else {
+        b.className = primary ? 'action' : 'ghost'; b.onclick = fn;
+        acts.insertBefore(b, $('pMore'));
+      }
+      return b;
     };
     // 生成中は押せない。生成の途中で page:updated が来て描き直されても、
     // summarizing に入っている間は押せないままにする（main 側は同じページの
@@ -1443,7 +1549,7 @@
       }
       if (!text.trim()) { toast(`${what}はまだ空です`); return; }
       await window.koeApp.copy(text.trim()); toast(`${what}をコピーしました`);
-    });
+    }, false, true);
     mk('削除', async () => {
       if (!confirm('この議事録を削除します。よろしいですか？')) return;
       const gone = curId;
@@ -1452,7 +1558,7 @@
       tabTitles.delete(gone);
       await refreshList(); renderPage();
       closeTab(`page:${gone}`);   // 消したページのタブを残さない（選んでいたら隣へ、無ければ空のページ）
-    });
+    }, false, true);
 
     renderBlocks();
     renderScript();
@@ -1702,18 +1808,31 @@
 
   // 日付・所要時間・区間数・出典・アクションの行。文字起こしを直したあと
   // 「🔗 出典 x/y」だけ描き直したいので、renderPage から切り出してある。
+  // 行は「アイコン・名前・値」（.prop の .k に「アイコン 名前」、.v に値。第1b回 N4）
   function renderProps() {
     const props = $('pProps'); props.textContent = '';
-    const add = (t, color) => { const s = document.createElement('span'); s.textContent = t; if (color) s.style.color = color; props.appendChild(s); };
-    add(`📅 ${new Date(curPage.createdAt).toLocaleString('ja-JP')}`);
-    add(`⏱ ${fmtDur(curPage.durationSec || 0)}`);
-    add(`💬 ${curSegs.length} 区間`);
+    const add = (icon, name, value, color) => {
+      const r = document.createElement('div'); r.className = 'prop';
+      const k = document.createElement('span'); k.className = 'k'; k.textContent = icon ? `${icon} ${name}` : name;
+      const v = document.createElement('span'); v.className = 'v'; v.textContent = value;
+      if (color) v.style.color = color;
+      r.append(k, v); props.appendChild(r);
+    };
+    add('📅', '作成日時', new Date(curPage.createdAt).toLocaleString('ja-JP'));
+    add('⏱', '長さ', fmtDur(curPage.durationSec || 0));
+    add('💬', '区間', `${curSegs.length}`);
     const st = curPage.citeStat;
-    if (st && st.total) add(`🔗 出典 ${st.linked}/${st.total}`, st.linked === st.total ? 'var(--ok)' : '');
+    // そろったときは緑の文字に加えて「✔」の印を付ける（色だけで意味を伝えない）
+    if (st && st.total) add('🔗', '出典', st.linked === st.total ? `✔ ${st.linked}/${st.total}` : `${st.linked}/${st.total}`, st.linked === st.total ? 'var(--ok)' : '');
     const ast = curPage.actionStat;
-    if (ast && ast.total) add(`✅ アクション ${ast.total}（担当${ast.withAssignee} / 期限${ast.withDue}）`);
-    // どこで処理したか（第1c回 OL6）。文は main が mainlib.routeLabel で作って page:get に添える。古いページ・古い main には無い
-    for (const t of Array.isArray(curPage.routeText) ? curPage.routeText : []) if (typeof t === 'string') add(t);
+    if (ast && ast.total) add('✅', 'アクション', `${ast.total}（担当${ast.withAssignee} / 期限${ast.withDue}）`);
+    // どこで処理したか（第1c回 OL6）。文は main が mainlib.routeLabel で作って page:get に添える。古いページ・古い main には無い。
+    // 1行を最初の ': ' で名前と値に分ける（': ' が無ければ名前だけ）。文そのものは変えない
+    for (const t of Array.isArray(curPage.routeText) ? curPage.routeText : []) {
+      if (typeof t !== 'string') continue;
+      const i = t.indexOf(': ');
+      add('', i < 0 ? t : t.slice(0, i), i < 0 ? '' : t.slice(i + 2));
+    }
   }
 
   // 編集中の行があれば確定させる。Chromium はフォーカス中の要素を DOM から外しても
@@ -1905,7 +2024,8 @@
           + '<div class="desc ng" id="liveMic" hidden></div>'
           + '<button class="ghost" id="meetingLocalOnly" type="button" hidden>この会議は PC の中だけ</button>'
           + '<div class="desc" id="meetingLocalOnlyNote" hidden></div>';
-        $('pBody').insertBefore(live, $('pBody').firstChild);
+        const col = $('pBody').querySelector('.pcol');   // 本文の列（中央 720px）の頭に置く
+        col.insertBefore(live, col.firstChild);
         $('liveSkipBtn').onclick = skipPending;
         $('meetingLocalOnly').onclick = setLocalOnly;
       }

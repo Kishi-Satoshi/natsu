@@ -179,3 +179,46 @@ test('N3・F7（足した守り）: 消したページのタブを残さず隣�
   assert.deepStrictEqual(saves(l).pop(), { tabs: { open: ['page:pa1'], active: 'page:pa1' } });
   assert.deepStrictEqual(l.errors.map(fmt), []);
 });
+
+// ---- Task B-4（N4・F13）: ページの見た目 ----
+const openPa1 = async (o = {}) => { const l = await open(o); await l.drain(); row(l, 0).dispatchEvent({ type: 'click' }); await l.drain(); return l; };
+const propRows = (l) => l.byId.get('pageWrap').querySelectorAll('.prop').map((r) => [r.querySelector('.k').textContent, r.querySelector('.v').textContent]);
+
+test('N4: プロパティは「アイコン・名前・値」の行。要約タイプの選び方もこの行にあり、第1c回の経路の行は名前と値に分ける', async () => {
+  const l = await openPa1({ pageGet: (id) => ({ ...PAGE(id), page: { ...PAGE(id).page, citeStat: { linked: 2, total: 2 }, routeText: ['☁ 文字起こし: クラウド（Groq（無料枠））2', '✨ 要約: Claude Code'] } }) });
+  const rows = propRows(l);
+  assert.match(rows.find((r) => r[0] === '🔗 出典')[1], /✔ 2\/2/, '出典がそろったことを色だけで伝えている');
+  assert.ok(rows.map((r) => r[0]).filter((k) => /作成日時|長さ|区間|要約タイプ|文字起こし|要約$/.test(k)).length >= 6, JSON.stringify(rows));
+  assert.deepStrictEqual(rows.find((r) => r[0] === '☁ 文字起こし'), ['☁ 文字起こし', 'クラウド（Groq（無料枠））2']);
+  assert.ok(l.byId.get('pType').closest('.prop'), '要約タイプがプロパティの行に無い');
+});
+
+test('N4: 要約・文字起こし・メモは細いタブ（role=tab・aria-selected）。操作は主ボタン1つと「…」の中のコピーと削除', async () => {
+  const l = await openPa1();
+  assert.strictEqual(l.byId.get('paneBtnNote').textContent, '要約');
+  assert.strictEqual(l.byId.get('paneBtnScript').getAttribute('aria-selected'), 'true', '要点の無いページは文字起こしで開く（今と同じ）');
+  const acts = l.byId.get('pActs');
+  const visible = acts.querySelectorAll('button').filter((b) => !b.closest('#pMenu'));
+  assert.deepStrictEqual(visible.map((b) => b.id || b.textContent), ['要約を生成', 'pMore']);
+  assert.deepStrictEqual(l.byId.get('pMenu').querySelectorAll('[role="menuitem"]').map((b) => b.textContent), ['コピー', '削除']);
+  assert.strictEqual(l.byId.get('pMenu').hidden, true);
+});
+
+test('N4・画面の使いやすさ: 「…」は Enter で開いて最初の項目へ、↓で次、Esc で閉じて「…」へ戻る。コピーは今までどおり開いているタブの中身', async () => {
+  const l = await openPa1();
+  const more = l.byId.get('pMore');
+  more.dispatchEvent({ type: 'keydown', key: 'Enter' });
+  await l.drain();
+  const items = l.byId.get('pMenu').querySelectorAll('[role="menuitem"]');
+  assert.strictEqual(more.getAttribute('aria-expanded'), 'true');
+  assert.strictEqual(l.document.activeElement, items[0]);
+  items[0].dispatchEvent({ type: 'keydown', key: 'ArrowDown' });
+  assert.strictEqual(l.document.activeElement, items[1]);
+  items[1].dispatchEvent({ type: 'keydown', key: 'Escape' });
+  await l.drain();
+  assert.strictEqual(l.byId.get('pMenu').hidden, true);
+  assert.strictEqual(l.document.activeElement, more);
+  more.dispatchEvent({ type: 'keydown', key: 'Enter', isComposing: true });
+  await l.drain();
+  assert.strictEqual(l.byId.get('pMenu').hidden, true, '変換確定の Enter で開いた（imeEnter）');
+});

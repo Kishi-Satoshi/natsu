@@ -160,8 +160,9 @@ test('OL6: ページのプロパティの行に経路が出る（古いページ
   await l.drain();
   l.byId.get('plist').querySelector('.pitem').dispatchEvent({ type: 'click' });
   await l.drain();
-  const t = l.byId.get('pProps').textContent;
-  assert.ok(t.includes('☁ 文字起こし: クラウド（Groq（無料枠））2') && t.includes('✨ 要約: Claude Code'), t);
+  // 第1b回 B-4 で意図して変えた: プロパティは「アイコン・名前・値」の行なので、routeText の1行を最初の ': ' で名前と値に分けて出す（意図はそのまま: どこで処理したかがページに出る）
+  const rows = l.byId.get('pProps').querySelectorAll('.prop').map((r) => [r.querySelector('.k').textContent, r.querySelector('.v').textContent]);
+  assert.deepStrictEqual(rows.filter((r) => /文字起こし|要約/.test(r[0])), [['☁ 文字起こし', 'クラウド（Groq（無料枠））2'], ['✨ 要約', 'Claude Code']]);
 });
 
 test('RF28: 会議中の［この会議は PC の中だけ］を押すと main に伝わり、押した後は戻すボタンが無い', async () => {

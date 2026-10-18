@@ -145,3 +145,12 @@ const IDS_1A_1C = ['tabBtnNotes', 'tabBtnDictation', 'tabBtnSettings', 'tabNotes
 test('N2・F9: 第1b回の前からある id は1つも消えていない（作る id は setMeetingUi の中に残る）', () => {
   for (const id of IDS_1A_1C) assert.ok(html.includes(`id="${id}"`), `id="${id}" が消えた`);
 });
+
+// 偽 DOM に配置が無いので、宣言で見る。見た目そのものは C-2 の画像。.pcol は本文の列
+test('N4: 本文は中央に最大 720px、題名は 40px の太字', () => {
+  const body = S.declsFor(rules, '.pcol', { at: '' });
+  assert.strictEqual(body['max-width'], '720px');
+  assert.match(body.margin || `${body['margin-left']} ${body['margin-right']}`, /auto/);
+  const t = S.declsFor(rules, '.ptitle', { at: '' });
+  assert.deepStrictEqual([t['font-size'], t['font-weight']], ['40px', '700']);
+});
