@@ -71,6 +71,19 @@ test('EL3: pickDefaultPath は、今のファイルのフォルダ → 前に選
   assert.strictEqual(pickDefaultPath('__proto__', {}, { ...o, lastDir: '' }), 'E:\\試験𠮷\\AppData\\Local\\natsu\\engine');
 });
 
+test('EL3: 設定の値が相対パスやファイル名だけなら、そのフォルダ（作業フォルダ）では開かない', () => {
+  const { pickDefaultPath } = require('../src/mainlib');
+  const W = path.win32;
+  // '.' や 'models' も「ある」と答える isDir にして、相対の候補を絶対かどうかだけで外すことを確かめる
+  const o = { isDir: () => true, p: W, lastDir: 'D:\\前に選んだ', engineRoot: 'E:\\試験𠮷\\engine' };
+  assert.strictEqual(pickDefaultPath('localServerExe', { localServerExe: 'whisper-server.exe' }, o), 'D:\\前に選んだ');
+  assert.strictEqual(pickDefaultPath('localModelPath', { localModelPath: 'models\\m.bin' }, o), 'D:\\前に選んだ');
+  assert.strictEqual(pickDefaultPath('vadModelPath', { vadModelPath: 'x.bin' }, { ...o, lastDir: '.' }), 'E:\\試験𠮷\\engine');
+  assert.strictEqual(pickDefaultPath('vadModelPath', { vadModelPath: 'x.bin' }, { ...o, lastDir: '', engineRoot: 'engine' }), undefined);
+  // 絶対パスなら今までどおり、そのフォルダ
+  assert.strictEqual(pickDefaultPath('sumServerExe', { sumServerExe: 'C:\\tools\\llama\\llama-server.exe' }, o), 'C:\\tools\\llama');
+});
+
 test('EL3: 画面はキーの名前だけを送り、main は defaultPath を渡し、選んだフォルダを覚える', () => {
   const preload = read('src/preload.js');
   assert.ok(preload.includes("  pickFile: (kind, key) => ipcRenderer.invoke('dialog:pick', kind, key),"));

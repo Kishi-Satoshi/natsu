@@ -611,6 +611,7 @@ function portInUseError(port) {
 const PICK_KEYS = ['localServerExe', 'localModelPath', 'vadModelPath', 'sumServerExe', 'sumModelPath'];
 // 今のファイルのフォルダ → この起動で前に選んだフォルダ → エンジンの置き場所の順に、あるものを返す。
 // どれも無ければ undefined（Electron の既定に任せる）。知らないキーでは設定の値を読まない。
+// 相対パスやファイル名だけの値は、dirname が '.'（作業フォルダ＝入れた場所）になるので候補にしない。
 function pickDefaultPath(key, settings, { lastDir = '', engineRoot = '', isDir = () => false, p = path } = {}) {
   const cands = [];
   if (PICK_KEYS.includes(key)) {
@@ -618,7 +619,7 @@ function pickDefaultPath(key, settings, { lastDir = '', engineRoot = '', isDir =
     if (cur) cands.push(p.dirname(cur));
   }
   cands.push(lastDir, engineRoot);
-  for (const d of cands) if (typeof d === 'string' && d && isDir(d)) return d;
+  for (const d of cands) if (typeof d === 'string' && d && p.isAbsolute(d) && isDir(d)) return d;
   return undefined;
 }
 
