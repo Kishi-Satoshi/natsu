@@ -9,11 +9,13 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
 let port = null;
+let gen = 0;                 // 口を受け取るたびに進む（main は、これが進んだのを見てから往復する）
 const waiting = [];
 ipcRenderer.on('port', (e) => {
   // 起こし直したときは新しい口に替える。古い口で待っている返事は来ないので断る
   for (const w of waiting.splice(0)) w.reject(new Error('口が替わった'));
   port = e.ports[0];
+  gen += 1;
   port.onmessage = (m) => { const w = waiting.shift(); if (w) w.resolve(m.data); };
 });
 
@@ -26,4 +28,5 @@ contextBridge.exposeInMainWorld('smoke', {
     });
   },
   hasPort() { return port !== null; },
+  gen() { return gen; },
 });

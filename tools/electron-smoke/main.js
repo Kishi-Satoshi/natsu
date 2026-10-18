@@ -21,7 +21,7 @@ const os = require('os');
 const path = require('path');
 const lib = require('../../src/mainlib');
 const { chooseDisplayMedia } = require('../../src/loopback');
-const { versionIssue } = require('../electron-version');
+const { versionIssue, versionGate } = require('../electron-version');
 
 const CHECKS = [
   [1, 'utilityProcess と MessageChannelMain の口で、sandbox の隠れた窓（preload）と往復する'],
@@ -104,19 +104,27 @@ function finish(app, results, { log = (l) => console.log(l), flush = (cb) => pro
 async function processChecks(win, { utilityProcess, MessageChannelMain }) {
   const out = [];
   const note = {};
-  const start = () => {
+  // 口（webContents.postMessage）と executeJavaScript は別の道で届くので、着く順は決まっていない。
+  // 窓が新しい口を受け取った（preload の gen が進んだ）のを見てから往復する
+  const genOf = () => within(win.webContents.executeJavaScript('window.smoke.gen()'), 10000, '口の数');
+  const start = async () => {
+    const before = await genOf();
     const child = utilityProcess.fork(path.join(__dirname, 'child.js'), [], { serviceName: 'NaTsu Smoke' });
     const exited = new Promise((r) => child.once('exit', r));
     const { port1, port2 } = new MessageChannelMain();
     child.postMessage('hello', [port1]);
     win.webContents.postMessage('port', null, [port2]);
+    for (const end = Date.now() + 10000; (await genOf()) === before;) {
+      if (Date.now() > end) { try { child.kill(); } catch (_) { /* もう居ない */ } throw new Error('新しい口が 10000ms で窓に届かない'); }
+      await wait(20);
+    }
     return { child, exited };
   };
   const ask = (x) => within(win.webContents.executeJavaScript(`window.smoke.call(${JSON.stringify(x)})`), 10000, `往復（${x}）`);
   let cur = null;
   try {
     // 1・3
-    cur = start();
+    cur = await start();
     const a = await ask('a');
     out.push({ n: 1, ok: Boolean(a && a.echo === 'a'), note: `返事は ${JSON.stringify(a)}` });
     const v = String((a && a.sqlite) || '');
@@ -126,7 +134,7 @@ async function processChecks(win, { utilityProcess, MessageChannelMain }) {
     child.postMessage('crash', [new MessageChannelMain().port1]);
     const code = await within(cur.exited, 10000, '子の終わり');
     note.crash = `落ちたときの番号は ${code}`;
-    cur = start();
+    cur = await start();
     const b = await ask('b');
     out.push({ n: 2, ok: code === 3 && Boolean(b && b.echo === 'b'), note: `${note.crash}、起こし直した後の返事は ${JSON.stringify(b)}` });
     // 4: kill() の終わりの番号
@@ -180,8 +188,7 @@ function boot() {
   app.on('window-all-closed', () => {});
   app.whenReady().then(async () => {
     console.log(`Electron ${process.versions.electron}（Chromium ${process.versions.chrome}、Node ${process.versions.node}、${process.platform}）`);
-    const issue = versionIssue(process.versions, JSON.parse(fs.readFileSync(PKG, 'utf8')));
-    if (issue) { console.log(`NG 版: ${issue}`); process.stdout.write('', () => app.exit(1)); return; }
+    if (versionGate(app, versionIssue(process.versions, JSON.parse(fs.readFileSync(PKG, 'utf8'))))) return;
     const win = new BrowserWindow({
       show: false,
       webPreferences: { preload: path.join(__dirname, 'preload.js'), sandbox: true, contextIsolation: true, nodeIntegration: false },

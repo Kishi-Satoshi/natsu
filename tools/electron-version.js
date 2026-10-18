@@ -20,4 +20,18 @@ function versionIssue(versions, pkg) {
   return '';
 }
 
-module.exports = { versionIssue };
+/**
+ * versionIssue の答えで止めるかを決める。問題があれば「NG 版: …」を出し、出力を流し切ってから 1 で終える
+ * （Windows の CI で理由の行が消えて、ただの 1 にならないため）。boot() は true なら先へ進まない。
+ * @param {{ exit: (code: number) => void }} app
+ * @param {string} issue  versionIssue の答え
+ * @returns {boolean} 止めたら true
+ */
+function versionGate(app, issue, { log = (l) => console.log(l), flush = (cb) => process.stdout.write('', cb) } = {}) {
+  if (!issue) return false;
+  log(`NG 版: ${issue}`);
+  flush(() => app.exit(1));
+  return true;
+}
+
+module.exports = { versionIssue, versionGate };
