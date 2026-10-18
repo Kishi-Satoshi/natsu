@@ -408,8 +408,10 @@ test('文字起こしが切れる問題への3段の対策が入っている', (
   // やり直し（0.1.1）も含めて、計算した待ち時間の内に収める
   assert.match(main, /const deadline = Date\.now\(\) \+ waitMs;/, '計算した待ち時間が使われていない');
   assert.match(main, /AbortSignal\.timeout\(Math\.max\(1000, deadline - Date\.now\(\)\)\)/, '計算した待ち時間が使われていない');
-  assert.match(main, /transcribeLocal\(buffer, tail, durationMs[,)]/);
-  assert.match(main, /transcribeLocal\(buffer, '', durationMs\)/);
+  // 第1c回 Task A-4（意図して変えた）: 区間と音声入力は transcribeAuto を通り、手元の道で transcribeLocal に尻尾と長さをそのまま渡す
+  assert.match(main, /transcribeAuto\(buffer, tail, durationMs[,)]/);
+  assert.match(main, /transcribeAuto\(buffer, '', durationMs\)/);
+  assert.match(fnBody(code(main), 'async function transcribeAuto(', '\n}'), /transcribeLocal\(wav, tail, durationMs, opts\)/, '手元の道に尻尾と長さをそのまま渡していない');
   // (3) 区切りの保険（音声パイプライン由来のイベントで見張る）
   assert.match(overlayHtml,
     /mode === 'meeting' && segDeadline && Date\.now\(\) >= segDeadline/, '区切りの保険が無い');
@@ -765,7 +767,7 @@ test('#14 一時停止したまま停止したら、停止時刻で一時停止�
 
 test('#15 次の区間の初期プロンプトは直近の成功区間から取る', () => {
   assert.match(main, /const tail = promptTail\(m\.segments\);/);
-  assert.match(main, /transcribeLocal\(buffer, tail, durationMs[,)]/);
+  assert.match(main, /transcribeAuto\(buffer, tail, durationMs[,)]/);
 });
 
 test('#26 設定の正規化は起動時と保存時の両方で通す', () => {

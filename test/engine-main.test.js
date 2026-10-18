@@ -246,7 +246,7 @@ test('RF3: whenReady は 候補を読む → 今の起動の行（managed は空
   const m = code(read('src/main.js'));
   assert.ok(m.includes('let managed = { whisper: null, sum: null };'));
   const ready = fnBody(m, 'app.whenReady().then(', '\n  });');
-  const a = ready.indexOf('engineInstall.managedCandidates('); const b = ready.indexOf('if (engineValid(whisperEng)) startEngine(whisperEng);');
+  const a = ready.indexOf('engineInstall.managedCandidates('); const b = ready.indexOf('if (engineValid(whisperEng)) warmWhisper(');   // 第1c回 Task A-4 で先読みを warmWhisper に（意図して変えた）
   // 照らしは待たない。照らしの後の起動などで投げても unhandled にしないよう .catch を付ける（計画の 'verifyManagedAtStartup();' から、点検の指摘で変えた）
   const c = ready.indexOf('verifyManagedAtStartup().catch(');
   assert.ok(a > 0 && a < b && b < c, `順が違う: ${a} ${b} ${c}`);

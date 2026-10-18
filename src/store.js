@@ -244,7 +244,8 @@ function saveTranscript(id, segments) {
   writeJson(transcriptFile(id), { id, segments });
 }
 
-function createPage({ title, date, durationSec, memo, blocks, segments, createdAt, recovered }) {
+// route: 文字起こし・要約の経路（第1c回 OL6。{ stt: { cloud, local, provider }, localOnly }）。普通のオブジェクトのときだけ残す
+function createPage({ title, date, durationSec, memo, blocks, segments, createdAt, recovered, route }) {
   const id = newId('p');
   const now = new Date().toISOString();
   const page = {
@@ -259,6 +260,7 @@ function createPage({ title, date, durationSec, memo, blocks, segments, createdA
     recovered: Boolean(recovered),
     summaryError: '',
   };
+  if (route && typeof route === 'object' && !Array.isArray(route)) page.route = route;
   writeJson(pageFile(id), page);
   saveTranscript(id, segments || []);
   reindexPage(page);

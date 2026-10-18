@@ -12,7 +12,8 @@
 //    net::ERR_CONTENT_DECODING_FAILED で死に、応答は渡さない（本物の Electron 31 がそうだった。第0b回 Task 9）。
 //  - 応答の headers は小文字のキー。時間切れの仕組みは持たない（本物にも無い）。
 //  - 途中で切れたら（identity）、届いていたバイトを受け手が読み終えてから net::ERR_CONNECTION_RESET で壊す（deliverAllThenFail）。
-//  - before(n) … n 回目の要求の前に呼ぶ。{ login: authInfo, error: 'net::ERR_…' } を返すと、
+//  - before(n, opts) … n 回目の要求の前に呼ぶ（opts は request に渡した { method, url, … }。第1c回 Task A-4 で opts を足した）。
+//    { login: authInfo, error: 'net::ERR_…' } を返すと、
 //    サーバーへ行かずにその出来事を起こす（https のプロキシの 407 は、応答ではなく login と error で来る）。
 //  - opts.method（無ければ GET）。GET でなければ req.write(chunk) の本文を貯め、end() で content-length を付けて送る
 //    （本物は chunkedEncoding が false のとき、本文を貯めて長さを付けて送る）。第1c回 Task A-2。
@@ -158,7 +159,7 @@ function makeFakeRequest({ before = null, rewrite = null } = {}) {
     req.end = () => {
       process.nextTick(() => {
         if (aborted) return;
-        const inj = before ? before(++n) : null;
+        const inj = before ? before(++n, opts) : null;
         if (!inj) { go(opts.url); return; }
         const fail = () => { if (inj.error) die(new Error(inj.error)); };
         if (inj.login) login(inj.login, fail); else fail();

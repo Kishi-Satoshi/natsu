@@ -202,12 +202,14 @@ test('#58 記録開始で要約エンジンを先読みしない（要約直前�
   const m = code(main);
   const start = fnBody(m, 'function startMeeting()', '\nfunction stopMeeting');
   assert.ok(!start.includes('startEngine(sumEng)'), '記録開始で要約エンジンを起動している（約 3GB が上がったまま降りない）');
-  assert.ok(start.includes('ensureEngineReady(whisperEng)'), '文字起こしエンジンの用意まで消している');
+  // 第1c回 Task A-4（意図して変えた）: whisper の先読みは warmWhisper を通す（経路が手元のときだけ起こす。D1・F14）
+  assert.ok(start.includes('warmWhisper('), '文字起こしエンジンの先読みまで消している');
   assert.ok(fnBody(m, 'async function generateMinutes', '\nfunction ensurePaster').includes('await ensureEngineReady(sumEng)'), '要約直前に用意していない');
   // 理由はコメントに残す
   assert.ok(/3GB/.test(fnBody(main, 'function startMeeting()', '\nfunction stopMeeting')), '先読みをやめた理由（約 3GB）がコメントに無い');
   // 起動時の whisper 先読みは今まで通り
-  assert.ok(fnBody(m, 'app.whenReady().then(', '\n  });').includes('if (engineValid(whisperEng)) startEngine(whisperEng);'));
+  assert.ok(fnBody(m, 'app.whenReady().then(', '\n  });').includes('if (engineValid(whisperEng)) warmWhisper('));
+  assert.ok(fnBody(m, 'async function warmWhisper(', '\n}').includes('ensureEngineReady(whisperEng)'));
 });
 
 test('#58 lastUsed は起動時と推論のたびに更新し、60 秒ごとに使われないエンジンを止める', () => {

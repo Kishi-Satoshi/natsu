@@ -11,6 +11,8 @@ const {
   app, BrowserWindow, Tray, Menu, globalShortcut,
   ipcMain, clipboard, nativeImage, screen, dialog, shell, session,
   nativeTheme, powerSaveBlocker, powerMonitor,
+  // クラウドの文字起こしの鍵の暗号（第1c回 OL3。非同期の形だけを secrets.js が使う）
+  safeStorage,
   // エンジンの取り込みの通信（第0b回 RF2。会社のプロキシ・PAC・証明書のストアを使う）。net の名前は下の Node の net が使う
   net: electronNet,
 } = require('electron');
@@ -31,6 +33,10 @@ const mtype = require('./meetingType');
 const { enrichActionBlocks, groundActionFields } = require('./actions');
 const updater = require('./updater');
 const { chooseDisplayMedia } = require('./loopback');
+// オンラインの文字起こし（第1c回 OL1〜OL4）: オンラインかの判定と経路・OpenAI と同じ形の口・鍵の保管
+const { makeOnline, decideStt } = require('./online');
+const sttCloud = require('./stt-cloud');
+const { makeSecrets } = require('./secrets');
 const security = require('./security');
 const RENDERER_PAGES = { app: path.join(__dirname, 'renderer', 'app.html'), overlay: path.join(__dirname, 'renderer', 'overlay.html') };
 const minutes = require('./minutes');
@@ -850,7 +856,7 @@ function restartEnginesIfNeeded() {
   for (const eng of [whisperEng, sumEng]) {
     if (eng.proc && eng.sig !== engineSignature(eng)) stopEngine(eng);
   }
-  if (!whisperEng.proc && engineValid(whisperEng)) startEngine(whisperEng);
+  if (!whisperEng.proc && engineValid(whisperEng)) warmWhisper().catch((e) => engineLog(`文字起こしエンジンの先読みに失敗: ${logReason(e)}`));
 }
 
 // ---------------------------------------------------------------- 取り込んだエンジン（第0b回 設計 B・RF3）
@@ -1169,6 +1175,178 @@ async function transcribeLocal(wavBuffer, extraPromptTail, durationMs, opts = {}
     }
   }
   return text;
+}
+
+// ---------------------------------------------------------------- オンラインの文字起こし（第1c回 OL1・OL2・OL4・OL6）
+// 議事録の区間・音声入力・復旧の3か所は transcribeAuto を通す。経路は区間ごとに decideStt で決める
+// （会議の印 → 同意 → 鍵 → 送り先に届くか。同意していない会議・PC の中だけの会議では、届くかの確かめも出さない: RF28）。
+// クラウドの失敗のうち通信が切れたもの（切れた・時間切れ・届かない）だけ、その区間を手元でやり直す（RF27）。
+// 429 は stt-cloud が retry-after だけ待つ（手元へ落とさない: RF29）。鍵の誤り・上限・受け付けないは区間の失敗として残し、
+// WAV は今どおり残る（会議の後の送り直しの待ち行列へ）。記録には経路・送り先の名前・符号・秒数・区間の番号だけを書く（本文・鍵は書かない）。
+// 記録の行の頭は「文字起こしの経路:」（「文字起こし:」は手元の認識ヒントのやり直しの行だけが使う。transcribe.e2e.test.js がその頭で見る）
+const online = makeOnline({ request: (o) => electronNet.request(o), isOnline: () => electronNet.isOnline() });
+// 鍵の保管。whenReady の後に作る（safeStorage の非同期の形は ready の後で用意される）
+let secrets = null;
+// 試験だけ: 429 の待ちを縮める（数で 0〜1 のときだけ効き、ほかは 1。実機の確かめの環境には置かない）
+const STT_SLEEP_SCALE = (() => {
+  const raw = String(process.env.NATSU_TEST_STT_SLEEP_SCALE || '').trim();
+  const v = /^\d*\.?\d+$/.test(raw) ? Number(raw) : NaN;
+  return v >= 0 && v <= 1 ? v : 1;
+})();
+// 知らせ（M1〜M8。計画「画面と知らせの文」）。{送り先} は送り先の表示の名前、{ホスト} はホストの名前だけ（鍵・URL の道は入れない）
+const STT_NOTICE = {
+  cloud: (p) => `この会議の音声は ${p.label} に送って文字起こしします。1on1・面談など外に出したくない会議は、議事録の画面の［この会議は PC の中だけ］を押してください。`,
+  'consent-ask': () => 'オンラインの文字起こしを使うかを、設定の「オンライン」で選んでください。選ぶまでは PC の中で文字起こしします。',
+  'no-key': (p) => `${p.label} の鍵が入っていないため、PC の中で文字起こししています。設定の「オンライン」で鍵を入れてください。`,
+  cert: (p) => `${p.label} につながりません（会社の通信の検査で証明書が差し替えられている可能性があります）。PC の中で文字起こしを続けます。続くときは情報システムに ${p.host} への通信の許可を頼んでください。`,
+  unreachable: (p) => `${p.label} につながらないため、PC の中で文字起こしを続けます。`,
+  wait: (p, sec) => `${p.label} の利用の上限に近いため、${sec} 秒待ってから送り直しています。`,
+  rate: (p) => `${p.label} の利用の上限に達しました。文字起こしできなかった区間の音声は残してあり、議事録を閉じた後にもう一度試します。`,
+  auth: (p) => `${p.label} の鍵が正しくないか、使えなくなっています。設定の「オンライン」で鍵を入れ直してください。`,
+};
+// 経路の理由 → 知らせの符号（M2〜M5）。オフライン・会議の印・「使わない」は知らせない（利用者が決めたこと・見て分かること）
+const ROUTE_NOTICE = { 'consent-ask': 'consent-ask', 'no-key': 'no-key', cert: 'cert', proxy: 'unreachable', unreachable: 'unreachable' };
+// 知らせを出した印。会議の中は meeting.notified（会議ごとに1回）、会議の外（音声入力・復旧）と M7・M8 は起動ごとに1回
+const bootNotified = new Set();
+// 同じ (scope, code) は1回だけ app:notice と engine.log（記録は符号だけ）→ 出したら true
+function noticeOnce(scope, code, text) {
+  const seen = scope && scope.notified instanceof Set ? scope.notified : bootNotified;
+  if (seen.has(code)) return false;
+  seen.add(code);
+  engineLog(`文字起こしの経路: 知らせ ${code}`);
+  noticeMainWin(text);
+  return true;
+}
+const netOnline = () => { try { return electronNet.isOnline() !== false; } catch (_) { return true; } };
+// 今の設定の送り先（stt-cloud.resolveProvider）。そのほかの URL が無い・使えないときは { error } に名前と表示の名前を添える
+function sttProvider() {
+  const p = sttCloud.resolveProvider(settings);
+  if (!p.error) return p;
+  const preset = Object.prototype.hasOwnProperty.call(sttCloud.PRESETS, settings.sttProvider) ? sttCloud.PRESETS[settings.sttProvider] : sttCloud.PRESETS.groq;
+  return { error: p.error, id: preset.id, label: preset.label, host: '', reachUrl: '' };
+}
+let keyUnreadableLogged = false;
+// 経路を決める（鍵も返す: transcribeAuto だけが使い、ほかへは渡さない）。
+// opts.scope: 知らせの係（会議。無ければ起動ごと）、opts.quiet: 知らせを出さない、
+// opts.probe: false なら送り先へ届くかを確かめず net.isOnline() だけで見る（先読みの判断。通信を出さない）
+async function sttRoute(localOnly, { scope = null, quiet = false, probe = true } = {}) {
+  const provider = sttProvider();
+  const consent = settings.cloudTranscribe;
+  let key = '';
+  if (!localOnly && consent === 'on' && !provider.error && secrets) {
+    // 鍵があるかは、ファイルに暗号の文字があるか（secrets.has）でなく、実際に復号できたかで決める（RF30。
+    // safeStorage の非同期の形は一時的に使えないことがあり、空の鍵で送ると 401 で「鍵が正しくない」と誤って知らせる）
+    key = await secrets.get(provider.id);
+    if (!key && secrets.has(provider.id)) {
+      if (!keyUnreadableLogged) engineLog(`文字起こしの経路: ${provider.id} の鍵を復号できません（key-unreadable）。PC の中で文字起こしします`);
+      keyUnreadableLogged = true;
+    } else if (key) keyUnreadableLogged = false;
+  }
+  let d;
+  if (!localOnly && consent === 'on' && provider.error) {
+    d = { route: 'local', why: 'bad-base' };
+  } else {
+    const up = probe ? () => online.isUp(provider.reachUrl)
+      : async () => (netOnline() ? { up: true, why: 'ok' } : { up: false, why: 'offline' });
+    d = await decideStt({ consent, localOnly: Boolean(localOnly), hasKey: key !== '', up });
+  }
+  if (!quiet && ROUTE_NOTICE[d.why]) {
+    const code = ROUTE_NOTICE[d.why];
+    noticeOnce(scope, code, STT_NOTICE[code](provider));
+  }
+  return { route: d.route, why: d.why, provider, key: d.route === 'cloud' ? key : '' };
+}
+// → { route, why, provider }（鍵は返さない）
+async function chooseSttRoute(localOnly, opts = {}) {
+  const { route, why, provider } = await sttRoute(localOnly, opts);
+  return { route, why, provider };
+}
+// クラウドの失敗（通信が切れた以外）→ 区間の失敗の文の Error。鍵の誤り（M8）・上限（M7）は起動ごとに1回知らせる。
+// keepForRetry: 文字起こしまで届いていない（鍵・上限）。送り直しでは WAV と待ち行列を消さずに残す
+function cloudFailure(e, provider) {
+  const code = (e && e.code) || 'unknown';
+  if (code === 'auth') noticeOnce(null, 'auth', STT_NOTICE.auth(provider));
+  if (code === 'rate' || code === 'rate-long') noticeOnce(null, 'rate', STT_NOTICE.rate(provider));
+  engineLog(`文字起こしの経路: ${provider.id} で失敗（${code}${e && e.status ? ` ${e.status}` : ''}）`);
+  const err = new Error(sttCloud.cloudErrorText(e, provider.label));
+  err.cloudCode = code;
+  err.keepForRetry = code === 'auth' || code === 'rate' || code === 'rate-long';
+  return err;
+}
+// opts: transcribeLocal と同じ（isStale・learn）＋ localOnly・notice（会議の知らせの係。無ければ起動ごと）・what（記録の名前）
+// → { text, route: 'cloud'|'local', provider }。手元のエンジンが用意できないときの Error は engineMissing を持つ
+async function transcribeAuto(wav, tail, durationMs, opts = {}) {
+  const scope = opts.notice || null;
+  const what = opts.what || '音声入力';
+  const d = await sttRoute(Boolean(opts.localOnly), { scope });
+  const provider = d.provider;
+  let why = d.why;
+  if (d.route === 'cloud') {
+    const t0 = Date.now();
+    try {
+      const raw = await sttCloud.transcribeCloud(wav, {
+        request: (o) => electronNet.request(o), provider, key: d.key, language: settings.language, prompt: buildPrompt(tail),
+        sleep: (ms) => sleepMs(ms * STT_SLEEP_SCALE),
+        onWait: (sec) => {
+          engineLog(`文字起こしの経路: ${provider.id} が 429。${sec} 秒待つ`);
+          noticeOnce(scope, 'wait', STT_NOTICE.wait(provider, sec));
+        },
+        onPromptDropped: () => engineLog(`文字起こしの経路: ${provider.id} が認識ヒント付きの要求を断ったため、ヒントを外して送り直しました`),
+      });
+      engineLog(`文字起こしの経路: ${what} → cloud(${provider.id}) ${((Date.now() - t0) / 1000).toFixed(1)} 秒`);
+      return { text: cleanWhisperText(raw), route: 'cloud', provider };
+    } catch (e) {
+      if (!sttCloud.isOfflineError(e)) throw cloudFailure(e, provider);
+      // 通信が切れた: この区間だけ手元でやり直す。届いた結果の覚えを捨て、次の区間は届くかを確かめ直す（戻っていればクラウドへ）
+      online.forget(provider.reachUrl);
+      why = e.code;
+      if (ROUTE_NOTICE[why]) noticeOnce(scope, ROUTE_NOTICE[why], STT_NOTICE[ROUTE_NOTICE[why]](provider));
+    }
+  }
+  engineLog(`文字起こしの経路: ${what} → local（理由: ${why}）`);
+  if (!(await ensureEngineReady(whisperEng))) {
+    const err = new Error(whisperEng.lastError || '文字起こしエンジンが起動していません');
+    err.engineMissing = true;
+    throw err;
+  }
+  const text = await transcribeLocal(wav, tail, durationMs, opts);
+  return { text, route: 'local', provider };
+}
+// 復旧の前: q.localOnly でなく、クラウドで処理できるなら true（エンジンを起こさない。知らせは出さない）
+async function recoveryCloudReady(q) {
+  if (!q || q.localOnly) return false;
+  try {
+    return (await sttRoute(false, { quiet: true })).route === 'cloud';
+  } catch (e) {
+    engineLog(`文字起こしの経路: 復旧の経路を決められません: ${logReason(e)}`);
+    return false;
+  }
+}
+// 手元の whisper の先読み（起動・設定の保存・口述と会議の始め）。経路が手元のときだけ起こす（待たない）。
+// 送り先へ届くかは確かめない（net.isOnline() だけで見る。先読みのために外へ通信しない）。クラウドの会議の途中で
+// 手元に落ちた区間は、transcribeAuto の ensureEngineReady がその場で起こす（F14・D1）
+async function warmWhisper() {
+  const r = await chooseSttRoute(false, { quiet: true, probe: false });
+  if (r.route !== 'local') return false;
+  ensureEngineReady(whisperEng).catch((e) => engineLog(`文字起こしエンジンの先読みに失敗: ${logReason(e)}`));
+  return true;
+}
+// 今の会議の［この会議は PC の中だけ］（第1c回 OL4・RF28）。下書きにも書く（落ちて復旧した会議の送り直しも手元）
+function setMeetingLocalOnly(on) {
+  if (!meeting) return { ok: false };
+  meeting.localOnly = Boolean(on);
+  engineLog(`文字起こしの経路: この会議は PC の中だけ: ${meeting.localOnly ? 'on' : 'off'}`);
+  writeDraft();
+  return { ok: true, localOnly: meeting.localOnly };
+}
+// 会議の始めに経路を1回聞き、クラウドなら M1（トレイの知らせと画面）。同意前（M2）・鍵が無い（M3）・届かない（M4・M5）は sttRoute が出す
+function announceSttRoute(m) {
+  sttRoute(Boolean(m.localOnly), { scope: m }).then((r) => {
+    if (r.route !== 'cloud') return;
+    const text = STT_NOTICE.cloud(r.provider);
+    if (!noticeOnce(m, 'cloud', text)) return;
+    try { if (tray && typeof tray.displayBalloon === 'function') tray.displayBalloon({ title: APP_TITLE, content: text }); } catch (_) { /* Windows の外には無い */ }
+  }).catch((e) => engineLog(`文字起こしの経路: 会議の始めの経路を決められません: ${logReason(e)}`));
 }
 // fetch の失敗を、利用者に見せる一文にする（英語の "fetch failed" や時間切れの文をそのまま出さない）
 function fetchErrorText(e) {
@@ -1585,7 +1763,7 @@ function startRecording() {
     sendToMainWin('app:notice', problem);
     return;
   }
-  ensureEngineReady(whisperEng);
+  warmWhisper().catch((e) => engineLog(`文字起こしエンジンの先読みに失敗: ${logReason(e)}`));
   state = 'recording';
   // いま前にある窓が貼り付け先。オーバーレイを出す前に控える（#54）
   dictationFg = askPaster('fg', FG_REPLY_MS).then((r) => (r && r.kind === 'hwnd' ? r.value : ''));
@@ -1625,7 +1803,7 @@ async function handleDictationAudio(buffer, durationMs) {
   sendToOverlay('overlay:phase', { phase: 'processing', message: '文字起こし中…' });
   try {
     const t0 = Date.now();
-    const raw = await transcribeLocal(buffer, '', durationMs);
+    const { text: raw } = await transcribeAuto(buffer, '', durationMs);
     if (!raw) throw new Error('音声を認識できませんでした');
     let text = settings.removeFillers ? removeFillersRule(raw) : raw;
     if (!text) text = raw;
@@ -1768,6 +1946,7 @@ function writeDraft() {
     store.writeDraft({
       startedAt: meeting.startedAt, memo: meeting.memo,
       segments: meeting.segments, offsetMs: meeting.offsetMs, savedAt: Date.now(),
+      localOnly: Boolean(meeting.localOnly),   // ［この会議は PC の中だけ］（復旧した会議の送り直しも手元。第1c回 RF28）
     }, meeting.draftName, { fsync: DRAFT_FSYNC });
   } catch (e) {
     if (!meeting.draftWriteFailed) {
@@ -1789,7 +1968,7 @@ const RECOVERY_FILE = 'recovery.json';
 const unsavedRecoveryQueues = new Map();   // dir → 待ち行列
 function saveRecoveryQueue(q) {
   try {
-    J.writeJsonFile(path.join(q.dir, RECOVERY_FILE), { pageId: q.pageId, items: q.items, retry: Boolean(q.retry) }, { onFsyncUnsupported: noteFsyncOnce });
+    J.writeJsonFile(path.join(q.dir, RECOVERY_FILE), { pageId: q.pageId, items: q.items, retry: Boolean(q.retry), localOnly: Boolean(q.localOnly) }, { onFsyncUnsupported: noteFsyncOnce });
     if (unsavedRecoveryQueues.has(q.dir)) {
       unsavedRecoveryQueues.delete(q.dir);
       engineLog(`文字起こし待ちの記録を書き直しました（${path.basename(q.dir)}）`);
@@ -1845,7 +2024,7 @@ function loadSavedRecoveryQueue() {
     if (r.state !== 'ok') continue;
     const j = r.value;
     const items = j.items.filter((it) => it && it.wav && fs.existsSync(it.wav));
-    if (j.pageId && items.length && store.getPage(j.pageId)) { found = { pageId: j.pageId, items, dir, retry: Boolean(j.retry) }; break; }
+    if (j.pageId && items.length && store.getPage(j.pageId)) { found = { pageId: j.pageId, items, dir, retry: Boolean(j.retry), localOnly: Boolean(j.localOnly) }; break; }
     // 済んだ待ち行列（ページが消された・音声が無い）。今どおり片付ける
     unlinkQuiet(f);
     removeDirIfEmpty(dir);
@@ -1918,6 +2097,8 @@ function recoverDraftIfAny() {
         segments: rec.segments,
         createdAt: new Date(d.startedAt || Date.now()).toISOString(),
         recovered: true,
+        // 送り直しで数え直す（transcribeRecoveredItems）。会議の印は下書きから写す（第1c回 RF28）
+        route: { stt: { cloud: 0, local: 0, provider: sttProvider().id }, localOnly: Boolean(d.localOnly) },
       });
       page.summaryError = rec.todo.length
         ? '録音が中断されたため要約は未生成です。残っていた音声の文字起こしを続けています。終わったら「要約を生成」で作成できます。'
@@ -1927,7 +2108,7 @@ function recoverDraftIfAny() {
       recoveredPageId = page.id;
       recovered++;
       if (rec.todo.length) {
-        const q = { pageId: page.id, items: rec.todo, dir: segbufDir(d.startedAt) };
+        const q = { pageId: page.id, items: rec.todo, dir: segbufDir(d.startedAt), localOnly: Boolean(d.localOnly) };
         // 別の待ち行列があれば、その後に拾う（transcribeRecovered が recovery.json を順に読む）
         if (!recoveryQueue) { recoveryQueue = q; saveRecoveryQueue(recoveryQueue); } else saveRecoveryQueue(q);
       } else removeDirIfEmpty(segbufDir(d.startedAt));
@@ -1963,7 +2144,8 @@ async function transcribeRecovered() {
     const seen = new Set();   // 同じ待ち行列を二度拾わない（recovery.json を消せなかったとき）
     while (q && !seen.has(q.dir)) {
       seen.add(q.dir);
-      const ready = await ensureEngineReady(whisperEng);
+      // クラウドで処理できるなら手元のエンジンを起こさない（q.localOnly の待ち行列は今どおりエンジンを待つ。第1c回）
+      const ready = (await recoveryCloudReady(q)) || await ensureEngineReady(whisperEng);
       if (!ready) {
         // エンジンが未設定・未起動のときは何も消さない。wav と待ち行列（recovery.json）を残し、
         // 設定を直したとき（settings:save）や次の起動でもう一度ここへ来る
@@ -1972,7 +2154,14 @@ async function transcribeRecovered() {
         return;
       }
       recoveryQueue = null;
-      await transcribeRecoveredItems(q);
+      const kept = await transcribeRecoveredItems(q);
+      if (kept) {
+        // 文字起こしまで届かなかった（クラウドの鍵・上限、手元に落ちたがエンジンが無い）: WAV と待ち行列を残して止め、
+        // 設定の保存か次の起動でやり直す（エンジンが未設定のときと同じ扱い）
+        recoveryQueue = kept;
+        retryUnsavedRecovery();
+        return;
+      }
       // 別の会議の分（議事録を締めたとき既に待ち行列があった失敗区間）が残っていれば続ける
       q = recoveryQueue = loadSavedRecoveryQueue();
     }
@@ -1981,18 +2170,30 @@ async function transcribeRecovered() {
     updateTray();
   }
 }
+// → null（済んだ）| 残した待ち行列（文字起こしまで届かなかった区間から先。WAV と recovery.json を消していない）
 async function transcribeRecoveredItems(q) {
   let done = 0;
-  for (const item of q.items) {
+  for (let i = 0; i < q.items.length; i++) {
+    const item = q.items[i];
     if (!store.getPage(q.pageId)) { unlinkQuiet(item.wav); continue; }   // ページが消された
     let text = null;
     let err = '';
+    let route = 'local';
     if (!err) {
       try {
-        text = await transcribeLocal(fs.readFileSync(item.wav), '', item.durationMs);
+        ({ text, route } = await transcribeAuto(fs.readFileSync(item.wav), '', item.durationMs, { localOnly: Boolean(q.localOnly), what: `復旧 ${item.id}` }));
         if (settings.removeFillers) text = removeFillersRule(text);
-      } catch (e) { err = e.message; }
+      } catch (e) {
+        if (e && (e.keepForRetry || e.engineMissing)) {
+          const rest = q.items.slice(i).filter((it) => it && it.wav && fs.existsSync(it.wav));
+          engineLog(`復旧の文字起こしを止めました（理由: ${e.cloudCode || 'engine'}）。残りの ${rest.length} 区間の音声と待ち行列は残します`);
+          return { ...q, items: rest };
+        }
+        err = e.message;
+      }
     }
+    // 経路ごとの数え直し（ページの route.stt。第1c回 OL6）
+    if (!err) saveIfExists(store, q.pageId, (p) => { if (p.route && p.route.stt) p.route.stt[route] = (Number(p.route.stt[route]) || 0) + 1; });
     if (err) {
       // 失敗の文を残す（updateSegment は failed を外してしまうので直接書く）
       const segs = store.getTranscript(q.pageId);
@@ -2068,11 +2269,15 @@ function startMeeting() {
     // finalSeen: 録音側の最後の区間が届いたか。skipAll: 打ち切り後に届く区間も文字起こしせず数だけ残す
     // emptySegs: 文字起こしが空で除いた区間の数（全部が空なら、締めるときに知らせる）
     gen: 0, skipped: 0, micFallback: false, segmentMs: (settings.segmentSec || 75) * 1000, inFlightSince: 0,
-    finalSeen: false, skipAll: false, emptySegs: 0 };
+    finalSeen: false, skipAll: false, emptySegs: 0,
+    // 第1c回: localOnly は［この会議は PC の中だけ］、route は経路ごとの文字起こしできた区間の数、notified は会議ごとの知らせの印
+    localOnly: false, route: { cloud: 0, local: 0 }, notified: new Set() };
   segChain = Promise.resolve(); pendingSegs = 0;
   state = 'meeting';
   writeDraft();
-  ensureEngineReady(whisperEng);
+  warmWhisper().catch((e) => engineLog(`文字起こしエンジンの先読みに失敗: ${logReason(e)}`));
+  // 経路を1回聞き、クラウドなら会議の始めの知らせ（M1）
+  announceSttRoute(meeting);
   // 要約エンジンはここで先読みしない（#58）。記録開始で起動すると約 2〜3GB が上がり、破棄しても
   // 降りない（記録だけして要約しない会議でも掴んだまま）。要約直前の ensureEngineReady(sumEng)
   // （generateMinutes）に任せる。その分、最初の要約はモデル読み込みの待ちを含む
@@ -2194,8 +2399,9 @@ function onMeetingSegment(buffer, durationMs, isFinal) {
     const t0 = Date.now();
     m.inFlightSince = t0;
     let text = '';
+    let route = 'local';
     try {
-      text = await transcribeLocal(buffer, tail, durationMs, { isStale: () => meeting !== m || m.gen !== gen, learn: true });
+      ({ text, route } = await transcribeAuto(buffer, tail, durationMs, { isStale: () => meeting !== m || m.gen !== gen, learn: true, localOnly: m.localOnly, notice: m, what: `区間 ${seg.id}` }));
     } catch (e) {
       if (meeting !== m || m.gen !== gen) return;
       m.inFlightSince = 0;
@@ -2204,8 +2410,9 @@ function onMeetingSegment(buffer, durationMs, isFinal) {
     }
     if (meeting !== m || m.gen !== gen) return;
     m.inFlightSince = 0;
+    m.route[route] += 1;   // 経路ごとの、文字起こしできた区間の数（ページの route.stt。第1c回 OL6）
     eta.record(Date.now() - t0, durationMs);   // 成功した区間だけで学習（失敗は時間の目安にならない）
-    { const sp = speedLine('whisper', { audioMs: durationMs, procMs: Date.now() - t0 }); if (sp) engineLog(sp); }   // 実際の速さを残す（第0b回 Task 16）
+    if (route === 'local') { const sp = speedLine('whisper', { audioMs: durationMs, procMs: Date.now() - t0 }); if (sp) engineLog(sp); }   // 実際の速さを残す（第0b回 Task 16）
     if (settings.removeFillers) text = removeFillersRule(text);
     // 空・直前と同じ（繰り返しハルシネーション）は区間ごと消す
     const done = m.segments.filter((s) => !s.pending);
@@ -2251,6 +2458,8 @@ async function maybeFinalizeMeeting() {
       durationSec, memo: m.memo, blocks: [],
       segments: settledSegments(m.segments),   // 待ちの区間（本文なし）と wav のパスは載せない
       createdAt: dt.toISOString(),
+      // 文字起こしの経路と、会議の印（要約の経路が見る: C10）
+      route: { stt: { ...m.route, provider: sttProvider().id }, localOnly: Boolean(m.localOnly) },
     });
     store.clearDraft(m.draftName);
     // 認識に失敗した区間の wav は残してある（settleSegment）。復旧と同じ待ち行列に載せ、
@@ -2258,7 +2467,7 @@ async function maybeFinalizeMeeting() {
     const retry = m.segments.filter((s) => s.failed && s.wav && fs.existsSync(s.wav))
       .map((s) => ({ id: s.id, wav: s.wav, durationMs: Number(s.durationMs) || 0 }));
     if (retry.length) {
-      const q = { pageId: page.id, items: retry, dir: segbufDir(m.startedAt), retry: true };
+      const q = { pageId: page.id, items: retry, dir: segbufDir(m.startedAt), retry: true, localOnly: Boolean(m.localOnly) };
       saveRecoveryQueue(q);
       if (!recoveryQueue) recoveryQueue = q;   // 別の復旧が待っていれば、その後に拾う（transcribeRecovered）
     }
@@ -2978,6 +3187,8 @@ if (!gotLock) {
     powerMonitor.on('lock-screen', flushAllWriters);
     powerMonitor.on('shutdown', flushAllWriters);
     loadStores();
+    // クラウドの文字起こしの鍵の保管（第1c回 OL3。ready の後に作る）
+    secrets = makeSecrets({ file: path.join(app.getPath('userData'), 'secrets.json'), safeStorage, J, log: engineLog });
     // 取り込んだエンジンの候補を記録から読む（読むだけ。フォルダは作らない）。照らし終えるまで managed は空なので、
     // 取り込んだ側は下の起動の行では起動しない（RF3）。手で設定した側は今までどおり起動する
     managedCands = engineInstall.managedCandidates(ENGINE_HOME, MANIFEST, engineInstall.readInstalled(engineInstall.layout(ENGINE_HOME.root, MANIFEST).installed), fs.statSync);
@@ -3021,7 +3232,7 @@ if (!gotLock) {
       if (!r.state.ok) engineLog(`ホットキー: ${r.state.message}`);
     }
     createTray();
-    if (engineValid(whisperEng)) startEngine(whisperEng);
+    if (engineValid(whisperEng)) warmWhisper().catch((e) => engineLog(`文字起こしエンジンの先読みに失敗: ${logReason(e)}`));
     // 照らし終えたら managed に入れて起動し直す（待たない）。照らしの後の起動などで投げても、main で unhandled にしない
     verifyManagedAtStartup().catch((e) => engineLog(`取り込んだエンジンの照らしと起動に失敗: ${e && e.message}`));
     // 使われないエンジンを 60 秒ごとに見て止める（#58。判断は mainlib.idleEnginesToStop）
@@ -3084,3 +3295,7 @@ function applyReloadedSettings(prev, next) {
   }
   updateTray();
 }
+
+// 試験だけ（第1c回 Task A-4）: mainrun から［この会議は PC の中だけ］を押す口。C-2 の IPC（meeting:set-local-only）ができた後、
+// C-3 で mainrun を IPC で呼ぶ形に替え、この行を消す
+if (process.env.NATSU_E2E_HOOKS === '1') globalThis.__natsuTest = { setMeetingLocalOnly };

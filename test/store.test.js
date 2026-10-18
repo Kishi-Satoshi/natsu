@@ -396,3 +396,13 @@ test('createPage: date を渡せばそのまま使う', () => {
   const p = store.createPage({ title: 't', segments: [], date: '2020-02-29' });
   assert.strictEqual(p.date, '2020-02-29');
 });
+
+test('第1c回 A-4: createPage は route（普通のオブジェクト）を渡すと残し、渡さない・配列・文字なら欄を作らない', () => {
+  const route = { stt: { cloud: 2, local: 1, provider: 'groq' }, localOnly: false };
+  const a = store.createPage({ title: 'r', segments: [], route });
+  assert.deepStrictEqual(store.getPage(a.id).route, route);
+  for (const bad of [undefined, null, ['x'], 'cloud']) {
+    const b = store.createPage({ title: 'n', segments: [], route: bad });
+    assert.ok(!('route' in store.getPage(b.id)), `route: ${JSON.stringify(bad)} で欄ができた`);
+  }
+});

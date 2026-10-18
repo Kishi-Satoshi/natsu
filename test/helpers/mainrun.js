@@ -63,6 +63,22 @@
 //                     - 出力（最後の行の JSON）: scene・notices（app:notice の文）・files（userData の下のファイルの相対パス。区切りは /。
 //                       engine.log と segbuf の WAV も含む）・settingsText・historyText（無ければ null）・engineLog（時刻を落とした行）・
 //                       spawns・themeSource・windows（作った窓の数）と、act が out に入れたもの（同じ名前なら act のもの）。
+//     --stt=<mode>  … 第1c回 A-4: オンラインの文字起こし。127.0.0.1 の偽の送り先（helpers/fake-stt.js）を mode の答え方で開き、
+//                     secrets.json に偽の鍵（偽の safeStorage の暗号）を置き、設定を cloudTranscribe: 'on'・sttProvider: 'custom'・
+//                     sttBaseUrl: 偽の送り先・sttModel: 'whisper-large-v3' にする。mode が cert のときは、偽の送り先への要求に
+//                     net::ERR_CERT_AUTHORITY_INVALID を返す（makeFakeRequest の before。fake-stt の答え方は text）
+//     --consent=ask|off … cloudTranscribe をその値にする（--stt と組む）
+//     --no-key      … secrets.json を置かない
+//     --key-unreadable … 偽の safeStorage の decryptStringAsync が投げる（鍵のファイルはあるが復号できない）
+//     --offline     … net.isOnline() が false
+//     --local-only  … 記録を始めた後、最初の区間の前に［この会議は PC の中だけ］を押す（main の globalThis.__natsuTest。
+//                     NATSU_E2E_HOOKS=1 のときだけある。C-3 で IPC に替える）。--recover と組むと、置く下書きに localOnly: true を書く
+//     --dictate     … 議事録の代わりに音声入力を1回（ホットキー → audio:done）。out.history に履歴
+//     --no-whisper  … 設定の whisper の実行ファイルを無いファイルにする
+//   偽の Electron の net.request は、いつも https://api.anthropic.com/ を偽の送り先の /anthropic へ書き換え（--stt のときだけ。
+//   ほかの外の宛先は書き換えず fake-net が死ぬ: 試験が外へ出たら赤）。Tray の displayBalloon は out.balloons に残す。
+//   --stt のときの出力に足すもの: stt（偽の送り先の要求の一覧）・pages[].route・balloons・secretsRaw（secrets.json の中身）・
+//   recoveryKept（segbuf の下に recovery.json と WAV が残っているか）。--recover と組むと、復旧が済むか止まるのを待って同じ形で出す
 // 画面へ送った知らせと進み具合は、送った順に out.seq へ残す。進み具合が初めて「使える」（whisperReady・sumReady）と
 // 言ったときの engine:status を out.atReady に、壊れた知らせを送ったときの engine:status を out.atBroken に残す
 // （画面はその知らせでエンジンの状態を聞き直すので、そのとき main の答えがもう新しいこと: 第0b回 Task 14・15）
@@ -104,6 +120,16 @@ const fetchMode = flags.includes('--fetch');
 const repairMode = flags.includes('--repair');
 const crashMode = flags.includes('--crash') ? 'broken' : (flags.includes('--crash-ok') ? 'ok' : '');
 const slowLoad = flags.includes('--slow-load');
+// 第1c回 A-4: オンラインの文字起こしの場面
+const sttMode = (flags.find((f) => f.startsWith('--stt=')) || '').slice(6);
+const consentFlag = (flags.find((f) => f.startsWith('--consent=')) || '').slice(10);
+const noKey = flags.includes('--no-key');
+const keyUnreadable = flags.includes('--key-unreadable');
+const offline = flags.includes('--offline');
+const localOnlyFlag = flags.includes('--local-only');
+const dictate = flags.includes('--dictate');
+const noWhisper = flags.includes('--no-whisper');
+const STT_KEY = 'gsk_test_0123456789';   // stage1c.main.test.js の KEY と同じ（どこにも漏れていないかを試験が探す）
 const sceneName = (flags.find((f) => f.startsWith('--json-scene=')) || '').slice(13);
 const scene = sceneName ? require('./json-scenes')[sceneName] : null;
 if (sceneName && (!scene || typeof scene !== 'object')) { process.stderr.write(`mainrun: 場面 ${sceneName} が json-scenes.js に無い\n`); process.exit(1); }
@@ -205,6 +231,12 @@ process.on('exit', () => {
   fs.mkdirSync(userData, { recursive: true });
   const engDir = path.join(tmp, 'engine');
   fs.mkdirSync(engDir);
+  // 偽の文字起こしの送り先（--stt）。終わるときに閉じなくても、process.exit で消える
+  const fakeStt = sttMode ? await require('./fake-stt').startFakeStt({ mode: sttMode === 'cert' ? 'text' : sttMode, key: STT_KEY }) : null;
+  const fakeEnc = (s) => Buffer.from(`ENC1:${Buffer.from(s, 'utf8').toString('hex')}`);
+  if (fakeStt && !noKey) {
+    fs.writeFileSync(path.join(userData, 'secrets.json'), JSON.stringify({ schema: 1, keys: { custom: fakeEnc(STT_KEY).toString('base64') } }));
+  }
   // 偽のモデル。中身は見られず、大きさの床（50MB）だけを超えればよい。残りは疎にして場所を取らない。
   // 先頭だけは実際に書く（全部が疎だと blocks が 0 になり、OneDrive のプレースホルダと見なされる）
   let model = process.env.NATSU_E2E_MODEL;
@@ -341,7 +373,7 @@ process.on('exit', () => {
     fs.mkdirSync(path.dirname(wav), { recursive: true });
     fs.writeFileSync(wav, toneWav(3));
     fs.writeFileSync(path.join(userData, 'data', 'draft.json'), JSON.stringify({ startedAt, memo: '', offsetMs: 3000, savedAt: startedAt + 3000,
-      segments: [{ id: 's1', atMs: 0, durationMs: 3000, pending: true, wav, text: '' }] }));
+      segments: [{ id: 's1', atMs: 0, durationMs: 3000, pending: true, wav, text: '' }], ...(localOnlyFlag ? { localOnly: true } : {}) }));
   }
   if (scene) {
     // 場面のファイルを、ふだんの settings.json の代わりに置く
@@ -357,6 +389,8 @@ process.on('exit', () => {
     fs.writeFileSync(path.join(userData, 'settings.json'), JSON.stringify({
       ...(managedMode || noEngine || fetchMode ? {} : { localServerExe: exe, localModelPath: model }), localPort, sumPort, autoLaunch: false,
       ...(withSum ? { sumServerExe: FAKE_SUM, sumModelPath: sumModel } : {}),
+      ...(fakeStt ? { cloudTranscribe: consentFlag || 'on', sttProvider: 'custom', sttBaseUrl: fakeStt.base, sttModel: 'whisper-large-v3' } : {}),
+      ...(noWhisper ? { localServerExe: path.join(tmp, 'no-such-whisper-server.exe') } : {}),
     }));
   }
 
@@ -429,6 +463,25 @@ process.on('exit', () => {
   let powerId = 0;
   const opened = [];
   const powerMonitor = withFallback(makeEmitter());
+  // トレイ（第1c回 A-4: displayBalloon の文を残す。ほかの呼び出しは今までどおり受け流す）
+  const balloons = [];
+  class FakeTray {
+    constructor() { return withFallback(makeEmitter({ displayBalloon: (o) => { balloons.push(String((o && o.content) || '')); } })); }
+  }
+  // 偽の safeStorage（secrets.test.js の偽物と同じ形。暗号の代わりに印を付けた hex）
+  const safeStorage = {
+    isAsyncEncryptionAvailable: async () => true,
+    getSelectedStorageBackend: () => 'gnome_libsecret',
+    encryptStringAsync: async (str) => fakeEnc(str),
+    decryptStringAsync: async (b) => {
+      if (keyUnreadable) throw Object.assign(new Error('safeStorage: 一時的に使えない（試験）'), { code: 'ERR_TEST_UNAVAILABLE' });
+      return { result: Buffer.from(String(b).slice(5), 'hex').toString('utf8'), shouldReEncrypt: false };
+    },
+  };
+  // 外の宛先の書き換え: Anthropic へ届くかの確かめだけを偽の送り先へ（ほかは書き換えず、127.0.0.1 でなければ fake-net が死ぬ）
+  const rewrite = (u) => (fakeStt && String(u).startsWith('https://api.anthropic.com/') ? fakeStt.url('/anthropic') : u);
+  // --stt=cert: 偽の送り先への要求は、証明書が差し替えられたときの失敗で死ぬ（会社の通信の検査。RF26）
+  const before = sttMode === 'cert' ? (_n, o) => (o && String(o.url).startsWith(fakeStt.base) ? { error: 'net::ERR_CERT_AUTHORITY_INVALID' } : null) : null;
   const electron = withFallback({
     app: withFallback(Object.assign(appEvents, {
       getPath: () => userData, whenReady: () => ready, requestSingleInstanceLock: () => true,
@@ -441,7 +494,9 @@ process.on('exit', () => {
     globalShortcut: { register: (acc, cb) => { shortcuts[acc] = cb; return true; }, unregister() {}, unregisterAll() {}, isRegistered: () => false },
     nativeTheme: { shouldUseDarkColors: false, themeSource: 'system', on() {} },
     // 取り込みの通信は Electron の net.request（第0b回 RF2）。テストでは同じ振る舞いの偽物（127.0.0.1 の偽のサーバーへ）
-    net: { request: require('./fake-net').makeFakeRequest(), isOnline: () => true },
+    net: { request: require('./fake-net').makeFakeRequest({ before, rewrite }), isOnline: () => !offline },
+    Tray: FakeTray,
+    safeStorage,
     powerSaveBlocker: { start: (type) => { powerId += 1; power.push(['start', type, powerId]); return powerId; }, stop: (id) => { power.push(['stop', id]); }, isStarted: () => false },
     shell: withFallback({ openPath: (p) => { opened.push(p); return Promise.resolve(''); } }),
   });
@@ -673,6 +728,65 @@ process.on('exit', () => {
     process.exit(0);
   }
   await waitFor(() => handlers['meeting:toggle']);
+  // 第1c回 A-4 の出力（--stt のとき）。segbuf の下に recovery.json と WAV が残っているか
+  const segbufLeft = () => {
+    const root = path.join(userData, 'data', 'segbuf');
+    let dirs = [];
+    try { dirs = fs.readdirSync(root); } catch (_) { return { queue: false, wav: false }; }
+    let queue = false; let wav = false;
+    for (const d of dirs) {
+      let names = [];
+      try { names = fs.readdirSync(path.join(root, d)); } catch (_) { continue; }
+      if (names.includes('recovery.json')) queue = true;
+      if (names.some((n) => /\.wav$/i.test(n))) wav = true;
+    }
+    return { queue, wav };
+  };
+  const elogLines = () => { const t = readUser('engine.log'); return t ? t.toString('utf8').split('\n').filter(Boolean).map((l) => l.replace(/^\[[^\]]+\] /, '')) : []; };
+  const sttOut = () => {
+    if (!fakeStt) return;
+    out.stt = fakeStt.requests.slice();
+    out.balloons = balloons.slice();
+    const sec = readUser('secrets.json');
+    out.secretsRaw = sec ? sec.toString('utf8') : null;
+    const left = segbufLeft();
+    out.recoveryKept = left.queue && left.wav;
+    out.notices = sent.filter(([ch]) => ch === 'app:notice').map(([, p]) => p);
+    out.engineLog = elogLines();
+    out.spawns = spawns.slice();
+    out.savedSettings = JSON.parse(fs.readFileSync(path.join(userData, 'settings.json'), 'utf8'));
+    out.pages = store.listPages().map((p) => {
+      const page = store.getPage(p.id);
+      return {
+        summaryError: page.summaryError, route: page.route,
+        segments: store.getTranscript(p.id).map((x) => ({ text: x.text, failed: Boolean(x.failed) })),
+      };
+    });
+  };
+  // 送り直し（復旧の待ち行列）が済むか、残して止まるまで待つ（--stt のとき）
+  const recoverySettled = () => elogLines().some((l) => /復旧の文字起こしを(保留|止めました)/.test(l)) || !segbufLeft().queue;
+  if (recoverMode && fakeStt) {
+    const recovered = () => { const p = store.listPages()[0]; return p ? store.getTranscript(p.id) : []; };
+    // 済んだ（成功した区間がある・待ち行列が片付いた）か、残して止まった（保留・止めました）まで
+    await waitFor(() => store.listPages().length > 0 && (recovered().some((x) => !x.failed) || recoverySettled()));
+    await sleep(100);
+    sttOut();
+    process.stdout.write(`\n${JSON.stringify(out)}\n`);
+    process.exit(0);
+  }
+  if (dictate) {
+    // 音声入力を1回: ホットキー → 録音 → 音声が届く → 文字起こし → 履歴
+    const hk = (await handlers['settings:get']()).hotkey;
+    if (!shortcuts[hk]) throw new Error(`音声入力のホットキー ${hk} が登録されていない`);
+    shortcuts[hk]();
+    listeners['audio:done']({}, { buffer: new Uint8Array(toneWav(3)), durationMs: 3000 });
+    await waitFor(() => (handlers['history:get']() || []).length > 0, 15000);
+    await sleep(100);
+    out.history = handlers['history:get']();
+    sttOut();
+    process.stdout.write(`\n${JSON.stringify(out)}\n`);
+    process.exit(0);
+  }
   if (recoverMode) {
     // 復旧の文字起こしが済むのを待つ
     const recovered = () => { const p = store.listPages()[0]; return p ? store.getTranscript(p.id) : []; };
@@ -742,6 +856,12 @@ process.on('exit', () => {
     ? process.env.NATSU_E2E_WAVS.split(';').map((f) => ({ buf: fs.readFileSync(f), ms: Math.round((fs.statSync(f).size - 44) / 32) }))
     : Array.from({ length: segCount }, (_, i) => ({ buf: toneWav(i ? 2 : 3, silent ? 0 : 8000), ms: i ? 2000 : 3000 }));
   out.start = await handlers['meeting:toggle']();
+  if (localOnlyFlag) {
+    if (!globalThis.__natsuTest) throw new Error('--local-only には NATSU_E2E_HOOKS=1 が要る（main の試験の口が無い）');
+    out.localOnly = globalThis.__natsuTest.setMeetingLocalOnly(true);
+    // 下書き（draft.json）にも印が書かれたか（落ちて復旧した会議の送り直しも手元にするため）
+    try { out.draftLocalOnly = JSON.parse(readUser('data/draft.json').toString('utf8')).localOnly; } catch (_) { out.draftLocalOnly = null; }
+  }
   for (let i = 0; i < wavs.length; i++) {
     const last = i === wavs.length - 1;
     if (last) out.stop = await handlers['meeting:toggle']();
@@ -792,6 +912,15 @@ process.on('exit', () => {
   if (afterDict) {
     out.saved = await handlers['settings:save']({}, { dictionary: ['検収'] });
     out.promptInfoAfterDict = await handlers['prompt:info']();
+  }
+  if (fakeStt) {
+    // 会議の後の送り直し（失敗した区間の待ち行列）が済むか、残して止まるまで待ってから写す
+    await waitFor(recoverySettled, 15000);
+    await sleep(100);
+    const pagesBefore = out.pages;
+    sttOut();
+    // 今までの欄（要約・会議タイプなど）も残す
+    out.pages = out.pages.map((p, i) => ({ ...(pagesBefore[i] || {}), ...p }));
   }
   process.stdout.write(`\n${JSON.stringify(out)}\n`);
   process.exit(0);
