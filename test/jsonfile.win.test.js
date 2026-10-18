@@ -19,29 +19,46 @@ const ps = (cmd, env) => spawn('powershell.exe', ['-NoProfile', '-NonInteractive
 const run = (cmd, env) => new Promise((resolve, reject) => { const p = ps(cmd, env); p.on('exit', (c) => (c === 0 ? resolve() : reject(new Error(`powershell ${c}`)))); });
 const PS_WAIT = { timeout: 20000 };   // 止まったときの見張り（ふつうは 1〜2 秒）。PowerShell の最初の起動の遅さは下の before が吸う
 
-// PowerShell 5.1 を1回温める（CI の機械の最初の起動は数秒かかることがある。テストの時間に入れない）
-test.before(() => run('exit 0'), { timeout: 60000 });
-
 // ファイルを共有なしで ms ミリ秒だけ掴む（ウイルス対策・索引・バックアップの道具の代わり）
+// 待ちは .NET の [Threading.Thread]::Sleep で行う。Start-Sleep はモジュールの命令で、その PowerShell で初めて使うときに
+// Microsoft.PowerShell.Utility を読み込む。CI の新しい機械の最初の1回ではこれが LOCKED の後・閉じる前に数百 ms かかり、
+// 「250ms 掴む」が実際は 0.5 秒を越えて「通る場合」が赤になった（第1a回の合流の CI。部品のやり直しは正しかった）。
+// heldMs は LOCKED を受けてから PowerShell が終わるまでの実の長さ（掴みの長さの上限）。
 function hold(file, ms) {
-  const p = ps(`$f = [IO.File]::Open($env:NATSU_LOCK, 'Open', 'Read', 'None'); [Console]::Out.WriteLine('LOCKED'); [Console]::Out.Flush(); Start-Sleep -Milliseconds ${ms}; $f.Close()`, { NATSU_LOCK: file });
-  const done = new Promise((r) => p.on('exit', r));
+  const p = ps(`$f = [IO.File]::Open($env:NATSU_LOCK, 'Open', 'Read', 'None'); [Console]::Out.WriteLine('LOCKED'); [Console]::Out.Flush(); [Threading.Thread]::Sleep(${ms}); $f.Close()`, { NATSU_LOCK: file });
+  let lockedAt = 0;
+  const done = new Promise((r) => p.on('exit', () => r(lockedAt ? Date.now() - lockedAt : -1)));
   const locked = new Promise((resolve, reject) => {
     let buf = '';
-    p.stdout.on('data', (c) => { buf += c; if (buf.includes('LOCKED')) resolve(); });
+    p.stdout.on('data', (c) => { buf += c; if (!lockedAt && buf.includes('LOCKED')) { lockedAt = Date.now(); resolve(); } });
     p.on('exit', (code) => reject(new Error(`掴む前に終わった（${code}）`)));
   });
   return { locked, done };
 }
 
-test('RF20 通る場合: 名前の変更のやり直しの持ち時間より短く（250ms）掴まれても、待ってやり直して書ける', PS_WAIT, async () => {
+// PowerShell 5.1 を温める（CI の機械の最初の起動は数秒かかることがある）。起動だけでなく、掴む命令と同じ道
+// （[IO.File]::Open・[Console]::Out・[Threading.Thread]::Sleep）も1回通しておく。node:test はこの時間を最初のテストの
+// duration_ms に数えるが、テストの見張りには入れない（before の見張りは 60 秒）
+test.before(async () => {
+  await run('exit 0');
+  const f = path.join(dir('-温め'), 'warm.json');
+  fs.writeFileSync(f, '{}');
+  const h = hold(f, 1);
+  await h.locked;
+  await h.done;
+}, { timeout: 60000 });
+
+test('RF20 通る場合: 名前の変更のやり直しの持ち時間より短く（250ms）掴まれても、待ってやり直して書ける', PS_WAIT, async (t) => {
   const d = dir();
   const f = path.join(d, 'settings.json');
   fs.writeFileSync(f, '{"theme":"light"}');
   const h = hold(f, 250);
   await h.locked;
-  J.writeJsonFile(f, { theme: 'dark' });
-  await h.done;
+  let err = null;
+  try { J.writeJsonFile(f, { theme: 'dark' }); } catch (e) { err = e; }
+  const heldMs = await h.done;
+  t.diagnostic(`実際に掴んでいた長さ（上限）: ${heldMs}ms`);
+  if (err) throw Object.assign(err, { message: `${err.message}（実際に掴んでいた長さ ${heldMs}ms。やり直しの持ち時間は ${J.RENAME_WAITS.reduce((a, b) => a + b, 0)}ms）` });
   assert.deepStrictEqual(JSON.parse(fs.readFileSync(f, 'utf8')), { theme: 'dark' });
   assert.deepStrictEqual(fs.readdirSync(d), ['settings.json']);
 });
