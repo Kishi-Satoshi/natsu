@@ -272,6 +272,8 @@ function parsePasterLine(line) {
 // 戻すと元より劣るものに置き換わる。貼り付けた本文と同じなら戻す意味が無い
 const RESTORE_MAX_CHARS = 200;
 function restoreAfterPaste(prev, text) {
+  // 文字列でない元（44 の clipboard が返す Promise・読めなかった null）は戻さない（[object Promise] を置かない最後の守り）
+  if (typeof prev !== 'string') return false;
   const p = String(prev ?? '');
   if (!p || p === String(text ?? '')) return false;
   if (/[\r\n]/.test(p)) return false;
@@ -281,6 +283,67 @@ function restoreAfterPaste(prev, text) {
 // 常駐 PowerShell へ流す「置き直し」命令（改行なし。呼び出し側が '\n' を足す）
 function copyCommand(text) {
   return `copy ${Buffer.from(String(text ?? ''), 'utf8').toString('base64')}`;
+}
+
+// ---------------------------------------------------------------- クリップボード（#27・第0c回 EL1）
+// クリップボードへ書く唯一の入口（#27）。Windows では常駐 PowerShell に頼んで、クリップボード
+// 履歴（Win+V）とクラウド同期から除外する書式を付けて置く（書式は pasterScript）。
+// 置けたことをクリップボードを読み返して確かめ、置けていなければ（PowerShell が居ない・
+// まだ起動中・失敗）Electron の clipboard で書く（履歴には入るが、何も残らないよりはよい）。
+// 先に Electron で書くと、その最初の書き込みが履歴とクラウド同期に採られる。除外の印は
+// 後から置き直しても、採られた分は消えない。'paste' と同じ標準入力に順に流すので、
+// 置き直しが貼り付けより後になることはない。
+// Electron 44 では main でも clipboard.readText()／writeText() が Promise を返す（31 では文字列と
+// undefined）。だから読み書きは全部待つ（文字列を待っても害は無い）。Electron は読まず、外から
+// d = { clip, paster(), sleep(ms) }（deliverText はさらに autoPaste・fg・simulatePaste・notice・later）をもらう。
+const COPY_SETTLE_MS = 150;
+// 貼り付け先がクリップボードを読む前に戻すと古い方が貼られる。SendWait は処理完了まで
+// 待つが、読み取りが遅いアプリ（ブラウザの入力欄・Teams）は 500ms では間に合わなかった
+const RESTORE_DELAY_MS = 2000;
+// クリップボードの文字を読む。文字列でない・投げた・Promise が断られた、は null
+async function readClip(clip) {
+  try {
+    const v = await clip.readText();
+    return typeof v === 'string' ? v : null;
+  } catch (_) { return null; }
+}
+// 改行の形（CRLF / LF）の違いは置けた・置けていないの判断に使わない
+function clipEquals(a, b) {
+  return typeof a === 'string' && a.replace(/\r\n/g, '\n') === String(b).replace(/\r\n/g, '\n');
+}
+// 戻り値は 'private'（常駐 PowerShell が除外の印付きで置けた）か 'electron'（Electron で書いた）。
+// d.paster() は呼ぶたびに今の口 { writable(), write(line) } か null を返す（2 秒後の戻しで死んだ口を使わない）
+async function copyPrivate(text, d) {
+  const t = String(text ?? '');
+  const p = d.paster();
+  if (p && p.writable()) {
+    try {
+      p.write(`${copyCommand(t)}\n`);
+      await d.sleep(COPY_SETTLE_MS);
+      if (clipEquals(await readClip(d.clip), t)) return 'private';
+    } catch (_) { /* 下で Electron が書く */ }
+  }
+  await d.clip.writeText(t);
+  return 'electron';
+}
+// 自動貼り付けのあとは元のクリップボードを戻す（短い文字列だったときだけ・できる範囲で。
+// 判断は restoreAfterPaste）。音声入力は「いま書いている場所へ入れる」道具なので、
+// 貼り付けた本文がクリップボードに残り続けると、直前にコピーしていたものが失われる。
+// d.fg は録音を始めたときの前面の窓の HWND の Promise。文字起こしの間に通知や Teams が
+// 前へ出ていると、そこへ口述が流れ込むので、違えば貼らずクリップボードに残す（#54）
+async function deliverText(text, d) {
+  let prev = '';
+  if (d.autoPaste) prev = (await readClip(d.clip)) ?? '';
+  await copyPrivate(text, d);
+  if (!d.autoPaste) return undefined;
+  await d.sleep(50);
+  // 貼り付け先は録音を始めたときの前面ウィンドウ（#54）。違えば貼らずクリップボードに残す
+  const hwnd = await d.fg;
+  const result = await d.simulatePaste(hwnd);
+  if (result === 'mismatch') { d.notice('貼り付け先が変わったため、クリップボードに残しました（Ctrl+V で貼り付けられます）'); return result; }
+  if (result === 'fail') { d.notice('自動貼り付けに失敗しました。クリップボードに残しています'); return result; }
+  if (restoreAfterPaste(prev, text)) d.later(() => { copyPrivate(prev, d).catch(() => {}); }, RESTORE_DELAY_MS);
+  return result;
 }
 
 // ---------------------------------------------------------------- エンジンのファイル検査（#32）
@@ -997,6 +1060,7 @@ module.exports = {
   registerHotkeys, hotkeyFailureMessage, hotkeyStatus, resolveStartupHotkeys, saveHotkeys,
   makeSummaryRunner, tickStep,
   pasterScript, copyCommand, restoreAfterPaste, parsePasterLine,
+  COPY_SETTLE_MS, RESTORE_DELAY_MS, readClip, clipEquals, copyPrivate, deliverText,
   engineFileIssue, engineIssueMessage, engineInAppDir, engineDirWarning, portInUseError,
   isAscii, engineSpawnPlan,
   peFileVersion, vcRuntimeVersions, vcRuntimeIssue, runtimeGate, engineExitHint, spawnErrorHint, speedLine,

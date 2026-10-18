@@ -840,21 +840,22 @@ test('#56 マイクの代替（要求したマイクが無く既定で録って�
 });
 
 test('#27 クリップボードへ書くのは copyPrivate だけ（履歴・クラウド同期から除外する）', () => {
-  // 除外書式そのものは mainlib.pasterScript（main.test.js で検査）。ここは
-  // 「書く入口が 1 つで、貼り付けもコピーもそこを通る」ことを見る
+  // 除外書式そのものは mainlib.pasterScript（main.test.js）。44 では clipboard が Promise を返すので、
+  // 読み書きは mainlib に移した（第0c回 EL1。実行テストは clipboard.test.js）。ここは入口が 1 つであることを見る
   const m = code(main);
-  assert.strictEqual((m.match(/clipboard\.writeText\(/g) || []).length, 1, 'clipboard.writeText が copyPrivate 以外にもある');
-  const fn = fnBody(m, 'async function copyPrivate(', '\n}');
+  const lib = code(read('src/mainlib.js'));
+  assert.ok(!/clipboard\.(readText|writeText)\(/.test(m), 'main.js が clipboard を直に読み書きしている');
+  assert.strictEqual((lib.match(/\.writeText\(/g) || []).length, 1, 'mainlib で Electron に書く所が copyPrivate 以外にもある');
+  const fn = fnBody(lib, 'async function copyPrivate(', '\n}');
   assert.ok(fn.includes('copyCommand('), '常駐 PowerShell に除外印付きで置かせていない');
-  assert.ok(fn.includes('clipboard.writeText('), 'PowerShell が置けなかったとき Electron で書いていない（何も残らない）');
-  // 先に Electron で書くと、その最初の書き込みが履歴・クラウド同期に採られる（除外印は後から付けても消えない）
-  assert.ok(fn.indexOf('copyCommand(') < fn.indexOf('clipboard.writeText('), 'Electron の書き込みが PowerShell の置き直しより先にある（最初の書き込みが履歴に採られる）');
-  assert.ok(fn.includes('if (clipEquals(readClipboardText(), t)) return;'), '置けたことを読み返して確かめていない（確かめずに Electron で書けば元の木阿弥）');
-  const deliver = fnBody(m, 'async function deliverText(', '\n}');
-  assert.ok(deliver.includes('await copyPrivate(text)'), '自動貼り付けが置き終わるのを待たずに貼っている');
-  assert.ok(deliver.includes('clipboard.readText()'), '貼り付け後に戻す元の中身を読んでいない');
-  assert.ok(deliver.includes('restoreAfterPaste(prev, text)'), '戻すかの判断を mainlib.restoreAfterPaste で行っていない');
-  assert.match(m, /const RESTORE_DELAY_MS = 2000;/, '戻すまでの間が 2 秒でない（読み取りの遅いアプリで古い方が貼られる）');
+  assert.ok(fn.includes('await d.clip.writeText('), 'PowerShell が置けなかったとき Electron で書いていない（何も残らない）');
+  assert.ok(fn.indexOf('copyCommand(') < fn.indexOf('d.clip.writeText('), 'Electron の書き込みが PowerShell の置き直しより先にある（最初の書き込みが履歴に採られる）');
+  assert.ok(fn.includes("if (clipEquals(await readClip(d.clip), t)) return 'private';"), '置けたことを（待って）読み返して確かめていない');
+  const deliver = fnBody(lib, 'async function deliverText(', '\n}');
+  assert.ok(deliver.includes('await copyPrivate(text, d)'), '自動貼り付けが置き終わるのを待たずに貼っている');
+  assert.ok(deliver.includes('await readClip(d.clip)'), '貼り付け後に戻す元の中身を（待って）読んでいない');
+  assert.ok(deliver.includes('restoreAfterPaste(prev, text)'), '戻すかの判断を restoreAfterPaste で行っていない');
+  assert.match(lib, /const RESTORE_DELAY_MS = 2000;/, '戻すまでの間が 2 秒でない（読み取りの遅いアプリで古い方が貼られる）');
   assert.match(m, /ipcMain\.handle\('clipboard:copy', async \(_e, t\) => \{ await copyPrivate\(/, '画面のコピーが copyPrivate を（待って）通っていない');
   assert.ok(fnBody(m, 'function ensurePaster()', '\n}').includes('pasterScript()'), '常駐 PowerShell のスクリプトを mainlib から取っていない');
 });

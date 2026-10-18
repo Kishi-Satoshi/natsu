@@ -310,13 +310,15 @@ test('#54 録音開始で前面ウィンドウを控え、貼り付けは控え�
   assert.ok(paste.includes("resolve(r && r.kind !== 'hwnd' ? r.kind : 'unknown')"), "応答を 'ok'|'mismatch'|'fail'|'unknown' に直していない");
   assert.ok(paste.includes("resolve(err ? 'fail' : 'ok')"), '常駐が居ないときの一回きりの貼り付けが結果を返していない');
   assert.strictEqual((paste.match(/resolve\('unknown'\)/g) || []).length, 2, 'Windows 以外は unknown（従来どおり貼れたものとして扱う）');
-  const deliver = fnBody(m, 'async function deliverText(', '\n}');
-  assert.ok(deliver.includes('const hwnd = await dictationFg;'), '控えた HWND を使っていない');
-  assert.ok(deliver.includes('const result = await simulatePaste(hwnd);'));
-  assert.ok(deliver.includes("if (result === 'mismatch') { sendToMainWin('app:notice', '貼り付け先が変わったため、クリップボードに残しました（Ctrl+V で貼り付けられます）'); return result; }"), 'mismatch の知らせ方が違う');
-  assert.ok(deliver.includes("if (result === 'fail') { sendToMainWin('app:notice', '自動貼り付けに失敗しました。クリップボードに残しています'); return result; }"), 'fail の知らせ方が違う');
-  // 貼れなかったときはクリップボードを戻さない（本文が残っていることが救い）
+  // deliverText の本体は mainlib へ移した（第0c回 EL1）。同じ文と順を mainlib で見る。main.js は薄い包み
+  const lib = code(read('src/mainlib.js'));
+  const deliver = fnBody(lib, 'async function deliverText(', '\n}');
+  assert.ok(deliver.includes('const hwnd = await d.fg;'), '控えた HWND を使っていない');
+  assert.ok(deliver.includes('const result = await d.simulatePaste(hwnd);'));
+  assert.ok(deliver.includes("if (result === 'mismatch') { d.notice('貼り付け先が変わったため、クリップボードに残しました（Ctrl+V で貼り付けられます）'); return result; }"), 'mismatch の知らせ方が違う');
+  assert.ok(deliver.includes("if (result === 'fail') { d.notice('自動貼り付けに失敗しました。クリップボードに残しています'); return result; }"), 'fail の知らせ方が違う');
   assert.ok(deliver.indexOf("result === 'fail'") < deliver.indexOf('restoreAfterPaste(prev, text)'), '貼れなかったのに元のクリップボードを戻している');
-  // 既存の契約: 書く入口は copyPrivate だけ（repo.test.js #27 が見る）。ここでは deliverText が先に置くことだけ
-  assert.ok(deliver.indexOf('await copyPrivate(text)') < deliver.indexOf('simulatePaste(hwnd)'));
+  assert.ok(deliver.indexOf('await copyPrivate(text, d)') < deliver.indexOf('d.simulatePaste(hwnd)'));
+  assert.match(m, /fg: dictationFg,/, 'main が控えた HWND（dictationFg）を渡していない');
+  assert.match(m, /notice: \(m\) => sendToMainWin\('app:notice', m\)/, 'main が知らせを画面へ送っていない');
 });

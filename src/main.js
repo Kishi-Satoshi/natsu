@@ -44,15 +44,17 @@ const { localDateISO } = require('./dates');
 const {
   saveIfExists, meetingDurationSec, promptTail,
   registerHotkeys, resolveStartupHotkeys, saveHotkeys, makeSummaryRunner, tickStep,
-  pasterScript, copyCommand, parsePasterLine,
+  pasterScript, parsePasterLine,
   engineFileIssue, engineIssueMessage, engineInAppDir, engineDirWarning, portInUseError, guardEngineSettings, keptDifferent, closeConfirm,
   engineSpawnPlan, vcRuntimeVersions, vcRuntimeIssue, runtimeGate, engineExitHint, spawnErrorHint, speedLine,
   extractNotes, truncationMessage, buildPromptParts,
   publicSegments, settledSegments, pendingDurationMs, recoverSegments, staleSegbufDirs, nextSegmentMs, EtaTracker,
-  skipPendingSegments, restoreAfterPaste,
+  skipPendingSegments,
   estimateTokens, foldNotes, idleEnginesToStop, silentWav, wavLevelDbfs, mergeSummaryType, memoEvidence,
   sameShas, keepPrevious, candStamp, repairIdsOf, pathUsedBy, fetchMinutesLeft,
 } = require('./mainlib');
+// クリップボードの読み書き（mainlib.copyPrivate・deliverText）は main.js の同じ名前の包みとぶつかるので、lib から呼ぶ
+const lib = require('./mainlib');
 
 // package.json の build.appId の写し。配る package.json から build は消えるので、ここに持つ
 // （identity.test.js が食い違いを見る）。インストーラーが付けるショートカットの AppUserModelID と同じ
@@ -1261,47 +1263,21 @@ function simulatePaste(hwnd) {
 // 先に Electron で書くと、その最初の書き込みが履歴とクラウド同期に採られる。除外の印は
 // 後から置き直しても、採られた分は消えない。'paste' と同じ標準入力に順に流すので、
 // 置き直しが貼り付けより後になることはない。
-const COPY_SETTLE_MS = 150;
-async function copyPrivate(text) {
-  const t = String(text ?? '');
+// 本体は mainlib へ移した（第0c回 EL1。実行テストは clipboard.test.js）。ここは clipboard と常駐 PowerShell と時計を渡すだけ。
+// 常駐 PowerShell の口（呼ぶたびに今の口を返す。居なければ null）
+function pasterPort() {
   const p = process.platform === 'win32' ? ensurePaster() : null;
-  if (p && p.stdin && p.stdin.writable) {
-    try {
-      p.stdin.write(`${copyCommand(t)}\n`);
-      await new Promise((r) => setTimeout(r, COPY_SETTLE_MS));
-      if (clipEquals(readClipboardText(), t)) return;
-    } catch (_) { /* 下で Electron が書く */ }
-  }
-  clipboard.writeText(t);
+  if (!p || !p.stdin) return null;
+  return { writable: () => Boolean(p.stdin && p.stdin.writable), write: (line) => p.stdin.write(line) };
 }
-function readClipboardText() {
-  try { return clipboard.readText(); } catch (_) { return null; }
+const sleepMs = (ms) => new Promise((r) => setTimeout(r, ms));
+function clipDeps() {
+  return { clip: clipboard, paster: pasterPort, sleep: sleepMs, autoPaste: Boolean(settings.autoPaste), fg: dictationFg,
+    simulatePaste, notice: (m) => sendToMainWin('app:notice', m), later: setTimeout };
 }
-// 改行の形（CRLF / LF）の違いは置けた・置けていないの判断に使わない
-function clipEquals(a, b) {
-  return typeof a === 'string' && a.replace(/\r\n/g, '\n') === String(b).replace(/\r\n/g, '\n');
-}
-// 貼り付け先がクリップボードを読む前に戻すと古い方が貼られる。SendWait は処理完了まで
-// 待つが、読み取りが遅いアプリ（ブラウザの入力欄・Teams）は 500ms では間に合わなかった
-const RESTORE_DELAY_MS = 2000;
-async function deliverText(text) {
-  // 自動貼り付けのあとは元のクリップボードを戻す（短い文字列だったときだけ・できる範囲で。
-  // 判断は mainlib.restoreAfterPaste）。音声入力は「いま書いている場所へ入れる」道具なので、
-  // 貼り付けた本文がクリップボードに残り続けると、直前にコピーしていたものが失われる。
-  let prev = '';
-  if (settings.autoPaste) { try { prev = clipboard.readText(); } catch (_) { prev = ''; } }
-  await copyPrivate(text);
-  if (!settings.autoPaste) return;
-  await new Promise((r) => setTimeout(r, 50));
-  // 貼り付け先は録音を始めたときの前面ウィンドウ（#54）。文字起こしの間に通知や Teams が
-  // 前へ出ていると、そこへ口述が流れ込む。違えば貼らずクリップボードに残す
-  const hwnd = await dictationFg;
-  const result = await simulatePaste(hwnd);
-  if (result === 'mismatch') { sendToMainWin('app:notice', '貼り付け先が変わったため、クリップボードに残しました（Ctrl+V で貼り付けられます）'); return result; }
-  if (result === 'fail') { sendToMainWin('app:notice', '自動貼り付けに失敗しました。クリップボードに残しています'); return result; }
-  if (restoreAfterPaste(prev, text)) setTimeout(() => { copyPrivate(prev).catch(() => {}); }, RESTORE_DELAY_MS);
-  return result;
-}
+// クリップボードへ書く唯一の入口（#27）。中身は mainlib.copyPrivate（44 では clipboard が Promise を返すので、全部待つ）
+const copyPrivate = (text) => lib.copyPrivate(text, clipDeps());
+const deliverText = (text) => lib.deliverText(text, clipDeps());
 
 // ---------------------------------------------------------------- ウィンドウ
 function sendToMainWin(ch, p) { if (mainWin && !mainWin.isDestroyed()) mainWin.webContents.send(ch, p); }
