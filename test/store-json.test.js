@@ -16,7 +16,7 @@ const fresh = () => { const d = fs.mkdtempSync(path.join(os.tmpdir(), 'natsu-取
 const data = (d, ...p) => path.join(d, 'data', ...p);
 const mk = (title) => store.createPage({ title, segments: [{ id: 's1', atMs: 0, durationMs: 1000, text: '確認です' }], createdAt: '2026-10-01T00:00:00.000Z' });
 
-test('JS1: 先頭に BOM の付いたページも読める（退けない・一覧から消えない）', () => {
+test('JS1: 先頭に BOM の付いたページも読める（退けない・一覧から消えない）', { timeout: 5000 }, () => {
   const d = fresh();
   const p = mk('BOM の会議');
   const f = data(d, 'pages', `${p.id}.json`);
@@ -25,7 +25,7 @@ test('JS1: 先頭に BOM の付いたページも読める（退けない・一�
   assert.deepStrictEqual(fs.readdirSync(data(d, 'pages')).filter((n) => n.includes('.broken-')), []);
 });
 
-test('JS2・P16: 末尾にゴミの付いたページは、中身を変えずに退けて、退けた先の名前を伝える（ページの控えは消さない）', () => {
+test('JS2・P16: 末尾にゴミの付いたページは、中身を変えずに退けて、退けた先の名前を伝える（ページの控えは消さない）', { timeout: 5000 }, () => {
   const d = fresh();
   const told = [];
   store.setReporter((ev) => told.push(ev));
@@ -44,7 +44,7 @@ test('JS2・P16: 末尾にゴミの付いたページは、中身を変えずに
   } finally { store.setReporter(null); }
 });
 
-test('JS2・P16: 壊れた文字起こしのファイルも、中身を変えずに退けて、退けた先の名前を伝える（議事録の中身なので知らせる）', () => {
+test('JS2・P16: 壊れた文字起こしのファイルも、中身を変えずに退けて、退けた先の名前を伝える（議事録の中身なので知らせる）', { timeout: 5000 }, () => {
   const d = fresh();
   const told = [];
   store.setReporter((ev) => told.push(ev));
@@ -61,7 +61,7 @@ test('JS2・P16: 壊れた文字起こしのファイルも、中身を変えず
   } finally { store.setReporter(null); }
 });
 
-test('JS2: 壊れた index.json は退けて作り直し、index.json の控えは新しい3つまで（ミリ秒の数の名前は消さない）', () => {
+test('JS2: 壊れた index.json は退けて作り直し、index.json の控えは新しい3つまで（ミリ秒の数の名前は消さない）', { timeout: 5000 }, () => {
   const d = fresh();
   mk('a');
   const f = data(d, 'index.json');
@@ -75,7 +75,7 @@ test('JS2: 壊れた index.json は退けて作り直し、index.json の控え�
   assert.strictEqual(left.filter((n) => /-\d\d-\d\dT/.test(n)).length, 3);
 });
 
-test('JS5: index.json は fsync を省き、ページと文字起こしは fsync する', () => {
+test('JS5: index.json は fsync を省き、ページと文字起こしは fsync する', { timeout: 5000 }, () => {
   fresh();
   const calls = [];
   const orig = J.writeJsonFile;
@@ -85,20 +85,20 @@ test('JS5: index.json は fsync を省き、ページと文字起こしは fsync
   assert.deepStrictEqual(kinds, { pages: true, transcripts: true, index: false });
 });
 
-test('JS5: 書いた後に .tmp で終わるファイルが data・pages・transcripts に残らない', () => {
+test('JS5: 書いた後に .tmp で終わるファイルが data・pages・transcripts に残らない', { timeout: 5000 }, () => {
   const d = fresh();
   const p = mk('一時ファイル');
   store.updateSegment(p.id, 's1', { text: '直した' });
   for (const sub of ['', 'pages', 'transcripts']) assert.deepStrictEqual(fs.readdirSync(data(d, sub)).filter((n) => n.endsWith('.tmp')), [], sub);
 });
 
-test('JS9: 下書きの一覧は draft.json・draft.pending-<時刻>.json・draft-<開始時刻>.json。退けた控えと一時ファイルは数えない', () => {
+test('JS9: 下書きの一覧は draft.json・draft.pending-<時刻>.json・draft-<開始時刻>.json。退けた控えと一時ファイルは数えない', { timeout: 5000 }, () => {
   const d = fresh();
   for (const n of ['draft.json', 'draft.pending-2026-10-18T01-02-03-456Z.json', 'draft-1760000000000.json', 'draft.json.broken-2026-10-01T00-00-00-000Z', 'draft.json.123-abc.tmp', 'drafts.json']) fs.writeFileSync(data(d, n), '{}');
   assert.deepStrictEqual(store.draftFiles(), ['draft-1760000000000.json', 'draft.json', 'draft.pending-2026-10-18T01-02-03-456Z.json']);
 });
 
-test('JS9: 読めない draft.json は消さず、名前も変えない（readDraftFile は unreadable を返す）', () => {
+test('JS9: 読めない draft.json は消さず、名前も変えない（readDraftFile は unreadable を返す）', { timeout: 5000 }, () => {
   const d = fresh();
   fs.writeFileSync(data(d, 'draft.json'), '{"startedAt":1,"segments":[{"id":"s1","text":"x"}]}');
   const orig = J.loadJsonFile;
@@ -107,7 +107,7 @@ test('JS9: 読めない draft.json は消さず、名前も変えない（readDr
   assert.ok(fs.existsSync(data(d, 'draft.json')));
 });
 
-test('JS9・JS2: 壊れた draft.json は退けて残し（消さない）、reporter に伝える', () => {
+test('JS9・JS2: 壊れた draft.json は退けて残し（消さない）、reporter に伝える', { timeout: 5000 }, () => {
   const d = fresh();
   const told = [];
   store.setReporter((ev) => told.push(ev));
@@ -120,7 +120,7 @@ test('JS9・JS2: 壊れた draft.json は退けて残し（消さない）、rep
   } finally { store.setReporter(null); }
 });
 
-test('JS9: parkDraft は draft.json を draft.pending-<時刻>.json に名前を変える。変えられなければ ok: false で何も動かさない', () => {
+test('JS9: parkDraft は draft.json を draft.pending-<時刻>.json に名前を変える。変えられなければ ok: false で何も動かさない', { timeout: 5000 }, () => {
   const d = fresh();
   fs.writeFileSync(data(d, 'draft.json'), '{"startedAt":1}');
   const r = store.parkDraft();
@@ -133,7 +133,7 @@ test('JS9: parkDraft は draft.json を draft.pending-<時刻>.json に名前を
   assert.strictEqual(fs.readFileSync(data(d, 'draft.json'), 'utf8'), '{"startedAt":2}');
 });
 
-test('JS9: writeDraft と clearDraft は名前を受け取る（既定は draft.json）', () => {
+test('JS9: writeDraft と clearDraft は名前を受け取る（既定は draft.json）', { timeout: 5000 }, () => {
   const d = fresh();
   store.writeDraft({ startedAt: 5, segments: [] }, 'draft-5.json');
   assert.deepStrictEqual(JSON.parse(fs.readFileSync(data(d, 'draft-5.json'), 'utf8')), { startedAt: 5, segments: [] });
