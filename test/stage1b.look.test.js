@@ -21,31 +21,29 @@ const dark = { ...light, ...S.tokens(rules, DARK) };
 
 test('S: tokens と resolveVar は :root の宣言を読み、var() を解く（明と暗で別の値）', () => {
   assert.strictEqual(S.resolveVar(rules, 'var(--bg)', ''), '#ffffff');
-  assert.strictEqual(S.resolveVar(rules, '1px solid var(--line)', DARK), '1px solid rgba(255,255,255,.094)');
+  // 第1b2回 L-1: 暗の --line を測った参考の値にした（読み方の確かめは同じ）
+  assert.strictEqual(S.resolveVar(rules, '1px solid var(--line)', DARK), '1px solid rgba(255,255,235,.1)');
   assert.strictEqual(S.resolveVar(rules, 'var(--nope, #123456)', ''), '#123456');
 });
 
+// 第1b2回 L-1: 設計書の N1 を測った参考の値に直した（2026-10-19 の利用者の決定。全部の値は stage1b2.look.test.js）
 test('N1: 設計書の色の値（明・暗・夏の差し色）', () => {
-  const want = { '--bg': ['#ffffff', '#191919'], '--side': ['#f7f7f5', '#202020'], '--text': ['#37352f', 'rgba(255,255,255,.81)'],
-    '--line': ['rgba(55,53,47,.09)', 'rgba(255,255,255,.094)'], '--hover': ['rgba(55,53,47,.06)', 'rgba(255,255,255,.055)'],
-    '--accent': ['#0a7b9c', '#45b8d8'], '--on-accent': ['#ffffff', '#10242a'], '--level': ['#0e8cae', '#0e8cae'] };
+  const want = { '--bg': ['#ffffff', '#191919'], '--side': ['#f9f8f7', '#202020'], '--text': ['#2c2c2b', '#f0efed'],
+    '--line': ['rgba(28,19,1,.11)', 'rgba(255,255,235,.1)'], '--hover': ['rgba(33,27,23,.051)', 'rgba(255,255,255,.055)'],
+    '--accent': ['#2077ce', '#2077ce'], '--on-accent': ['#ffffff', '#ffffff'], '--level': ['#0e8cae', '#0e8cae'] };
   for (const [k, [l, d]] of Object.entries(want)) {
     assert.strictEqual(light[k].replace(/\s/g, ''), l, `明の ${k}`);
     assert.strictEqual(dark[k].replace(/\s/g, ''), d, `暗の ${k}`);
   }
 });
 
-test('N1: 夏の小さな差し色（選んでいるページの左端の 2px の強調・録音中の点の海の色）', () => {
-  assert.match(Object.values(S.declsFor(rules, '.pitem.sel', { at: '' })).join(' '), /2px[^;]*var\(--accent\)|var\(--accent\)[^;]*2px/);
-  assert.strictEqual(S.declsFor(rules, '.rec-dot', { at: '' }).background, 'var(--level)');
-});
-
-test('N1: 書体は OS 標準の並び（N1 のとおり）', () => {
-  assert.strictEqual(S.declsFor(rules, 'body', { at: '' })['font-family'], '-apple-system, "Segoe UI", "Hiragino Sans", "Yu Gothic UI", "Noto Sans JP", sans-serif');
+// 「N1: 夏の小さな差し色」は第1b2回 L-1 で消した（選んでいる行の左の線をやめた）。stage1b2.look.test.js の海の色のテストが置き換わる
+test('N1: 書体は OS 標準の並び（第1b2回 L-1 で Segoe UI Variable から）', () => {
+  assert.strictEqual(S.declsFor(rules, 'body', { at: '' })['font-family'], '"Segoe UI Variable Text", "Segoe UI", "Yu Gothic UI", "Hiragino Sans", "Noto Sans JP", sans-serif');
 });
 
 test('画面の使いやすさ・F10: 明と暗のすべての「文字 × 地」の組で 4.5:1 以上（ホバー・薄い強調の地の上も）', () => {
-  const TEXT = ['--text', '--muted', '--accent-text', '--danger', '--ok'];
+  const TEXT = ['--text', '--text-2', '--muted', '--accent-text', '--danger', '--ok'];   // 第1b2回 L-1: --text-2 を足した（地は同じ6つ）
   for (const [name, t] of [['明', light], ['暗', dark]]) {
     const base = ['--bg', '--side'].map((g) => C.color(t[g]));
     const grounds = [...base.map((g, i) => ({ g, why: ['地', 'サイドバー'][i] })),
@@ -74,12 +72,16 @@ test('N1: ガラス風をやめた（backdrop-filter・グラデーション・�
   assert.ok(!/class="(bg|blob)\b/.test(html), '飾りのぼかし玉の要素が残っている');
 });
 
-test('N1: 角丸は 6px まで（例外は設定のトグルと丸い点）。影は浮く部品の --shadow だけで、青い影が無い', () => {
+// 第1b2回 L-1: 部品は 6px まで・まとまり（会議のブロック・検索の窓・囲み）は 10px まで・丸いタブは 14px（高さ 28px の丸）
+test('N1: 角丸は部品 6px・まとまり 10px・丸いタブ 14px まで（例外は設定のトグルと丸い点）。影は浮く部品の --shadow だけで、青い影が無い', () => {
   const ROUND_OK = new Set(['.check input', '.check input::after', '.rec-dot', '#updBadge .dot']);
+  const R10 = new Set(['.mblock', '.palbox', '.note']);
+  const R14 = new Set(['.ptab']);
+  const limit = (sel) => sel.split(',').map((s) => s.trim()).reduce((m, s) => Math.max(m, R14.has(s) ? 14 : R10.has(s) ? 10 : 6), 0);
   for (const r of rules) {
     const v = r.decls['border-radius'];
     if (!v || r.sel.split(',').every((s) => ROUND_OK.has(s.trim()))) continue;
-    for (const n of String(v).match(/[\d.]+(?=px)/g) || []) assert.ok(Number(n) <= 6, `${r.sel} { border-radius: ${v} }`);
+    for (const n of String(v).match(/[\d.]+(?=px)/g) || []) assert.ok(Number(n) <= limit(r.sel), `${r.sel} { border-radius: ${v} }`);
     assert.ok(!/%/.test(v), `${r.sel} { border-radius: ${v} }`);
   }
   for (const r of rules) {
@@ -93,10 +95,11 @@ test('N1: 角丸は 6px まで（例外は設定のトグルと丸い点）。�
 });
 
 test('F10: 規則の文字の色は文字のトークンだけ、地は地のトークンだけ、生の色は書かない（4.5:1 を計った組の外の色を使わせない）', () => {
-  const TEXT = /^(var\(--(text|muted|accent-text|danger|ok|on-accent)\)|inherit|currentcolor|transparent)$/i;
-  const GROUND = /^(var\(--(bg|side|hover|tint|accent|level|line)\)|transparent|none)$/i;
+  // 第1b2回 L-1: 文字に --text-2、地に --scrim（検索の窓の後ろ。飾りの地だけ）を足した
+  const TEXT = /^(var\(--(text|text-2|muted|accent-text|danger|ok|on-accent)\)|inherit|currentcolor|transparent)$/i;
+  const GROUND = /^(var\(--(bg|side|hover|tint|accent|level|line|scrim)\)|transparent|none)$/i;
   const RAW = /#[0-9a-fA-F]{3,8}\b|rgba?\(/;
-  const decor = (sel) => sel.split(',').every((s) => /^\.check input/.test(s.trim()) || ['.rec-dot', '#updBadge .dot'].includes(s.trim()));   // 文字を持たない飾り
+  const decor = (sel) => sel.split(',').every((s) => /^\.check input/.test(s.trim()) || ['.rec-dot', '#updBadge .dot', '#palette'].includes(s.trim()));   // 文字を持たない飾り
   for (const r of rules) {
     if (r.sel === ':root') continue;   // トークンの定義（明・暗）
     for (const [k, v] of Object.entries(r.decls)) if (!k.startsWith('--')) assert.ok(!RAW.test(v), `${r.sel} { ${k}: ${v} } に生の色`);
@@ -105,6 +108,7 @@ test('F10: 規則の文字の色は文字のトークンだけ、地は地のト
     if (!bg) continue;
     assert.match(bg.trim(), GROUND, `${r.sel} の地`);
     if (/var\(--(level|line)\)/.test(bg)) assert.ok(decor(r.sel), `${r.sel}: --level・--line は飾りの地だけ（文字の地にしない）`);
+    if (/var\(--scrim\)/.test(bg)) assert.ok(r.sel === '#palette', `${r.sel}: --scrim は検索の窓の後ろだけ`);
     if (/var\(--accent\)/.test(bg) && !decor(r.sel)) assert.match(r.decls.color || '', /var\(--on-accent\)/, `${r.sel}: 強調の面の上の文字は --on-accent`);
   }
   for (const m of html.matchAll(/style="([^"]*)"/g)) assert.ok(!RAW.test(m[1]), `インラインの style に生の色: ${m[1]}`);

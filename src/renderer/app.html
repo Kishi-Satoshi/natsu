@@ -4,33 +4,40 @@
 <meta charset="UTF-8" />
 <title>NaTsu</title>
 <style>
-  /* 配色と文字（第1b回 N1）。色はすべてこのトークンで組む。規則に生の色を書かない
+  /* 配色と文字（第1b回 N1。第1b2回 L-1 で測った参考の値に合わせた。4.5:1 に届かない薄文字と青は直した値）。
+     色はすべてこのトークンで組む。規則に生の色を書かない
      （明暗すべての「文字 × 地」の組を stage1b.look.test.js が 4.5:1 で計っている。
-     文字は --text・--muted・--accent-text・--danger・--ok・--on-accent、
-     地は --bg・--side・--hover・--tint・--accent だけ。--level・--line は飾りと線だけ）。
+     文字は --text・--text-2・--muted・--accent-text・--danger・--ok・--on-accent、
+     地は --bg・--side・--hover・--tint・--accent だけ。--level・--line・--scrim は飾りと線だけ）。
+     選んでいる行とホバーは灰色。青（--accent）は主ボタン・フォーカスの輪と入力中の枠・入った印など決めた所だけ、
+     海の色（--level）はロゴの波と録音中の点だけ（stage1b2.look.test.js の許しの表）。
      ホバーと薄い強調は重ねない（background の1つの宣言で入れ替わるだけにする）。 */
   :root {
     color-scheme: light;
     --bg: #ffffff;
-    --side: #f7f7f5;
-    --text: #37352f;
-    --muted: rgba(55,53,47,.72);
-    --line: rgba(55,53,47,.09);
-    --hover: rgba(55,53,47,.06);
-    --accent: #0a7b9c;
+    --side: #f9f8f7;
+    --text: #2c2c2b;
+    --text-2: #5f5e59;
+    --muted: #6d6a66;
+    --line: rgba(28,19,1,.11);
+    --hover: rgba(33,27,23,.051);
+    --accent: #2077ce;
     --on-accent: #ffffff;
-    --accent-text: #086a85;
-    --tint: rgba(10,123,156,.10);
+    --accent-text: #1d6cba;
+    --tint: rgba(33,27,23,.06);
     --danger: #b8352c;
     --ok: #1a6e42;
     --level: #0e8cae;
+    --scrim: rgba(15,15,15,.25);
     --shadow: 0 4px 12px rgba(15,15,15,.10);
   }
+  /* 書体（第1b2回 L-1）: Segoe UI Variable から。日本語は Segoe UI に無いので、文字ごとに Yu Gothic UI に落ちる。題名だけ Display */
   body {
     color: var(--text); background: var(--bg);
-    font-family: -apple-system, "Segoe UI", "Hiragino Sans", "Yu Gothic UI", "Noto Sans JP", sans-serif;
+    font-family: "Segoe UI Variable Text", "Segoe UI", "Yu Gothic UI", "Hiragino Sans", "Noto Sans JP", sans-serif;
     font-size: 14px; display: flex; flex-direction: column; overflow: hidden;
   }
+  .ptitle, .stitle { font-family: "Segoe UI Variable Display", "Segoe UI", "Yu Gothic UI", "Hiragino Sans", "Noto Sans JP", sans-serif; }
 
   /* ---------- 骨組み（第1b回 N2）: 左にいつも出ているサイドバー、右に上のタブの帯と中身 ---------- */
   .app { display: flex; height: 100%; min-height: 0; }
@@ -50,10 +57,12 @@
   .tabitem .tx { background: none; border: none; color: var(--muted); font: inherit; font-weight: 400; line-height: 1;
     padding: 2px 4px; border-radius: 4px; cursor: pointer; flex: none; }
   .tabitem .tx:hover { background: var(--hover); color: var(--text); }
-  .wordmark { font-family: Georgia, "Yu Mincho", serif; font-size: 21px; letter-spacing: .02em; }
+  /* NaTsu の文字はゴシック（body を継ぐ）の 14px・600（第1b2回 L-1。並びは L-2） */
+  .wordmark { font-size: 14px; font-weight: 600; }
   /* サイドバーの « と、畳んだときだけ帯の左に出る » */
   .side-btn { background: none; border: none; color: var(--muted); font: inherit; font-size: 16px; line-height: 1;
-    padding: 4px 8px; cursor: pointer; border-radius: 4px; flex: none; }
+    width: 28px; height: 28px; padding: 0; display: inline-flex; align-items: center; justify-content: center;
+    cursor: pointer; border-radius: 6px; flex: none; }
   .side-btn:hover { background: var(--hover); color: var(--text); }
   /* サイドバーの「議事録」「音声入力」「設定」。押すと今までどおり showTab を呼ぶ */
   #tabBtnNotes, #tabBtnDictation, #tabBtnSettings { background: none; border: none; color: var(--muted); font: inherit;
@@ -66,21 +75,18 @@
   .tab { display: none; height: 100%; }
   .tab.active { display: block; }
 
-  ::-webkit-scrollbar { width: 10px; height: 10px; }
-  ::-webkit-scrollbar-track { background: transparent; }
-  /* 線（--line）を地（--hover）に重ねて、つまみを少しだけ濃くする */
-  ::-webkit-scrollbar-thumb { background: var(--hover); border: 3px solid var(--line); border-radius: 5px; }
-  ::-webkit-scrollbar-thumb:hover { background: var(--tint); }
+  /* スクロールバーは OS の標準（第1b2回 L-1。独自のつまみを描かない） */
 
-  /* ---------- 部品 ---------- */
+  /* ---------- 部品（第1b2回 L-1: 測った形。ボタンは高さ 28px・角丸 6px・14px の 500・左右 12px） ---------- */
   button.action { background: var(--accent); color: var(--on-accent);
-    border: none; font: inherit; font-weight: 600; padding: 8px 16px; border-radius: 4px; cursor: pointer;
-    white-space: nowrap; flex: none; }
+    border: 1px solid transparent; font: inherit; font-size: 14px; font-weight: 500; height: 28px; line-height: 26px;
+    padding: 0 12px; border-radius: 6px; cursor: pointer; white-space: nowrap; flex: none; }
   button.action:hover { filter: brightness(.92); }
   button.action:active { transform: scale(.98); }
   button.action:disabled { opacity: .5; cursor: default; filter: none; }
-  button.ghost { background: var(--bg); border: 1px solid var(--line); color: var(--text);
-    font: inherit; padding: 6px 12px; border-radius: 4px; cursor: pointer; white-space: nowrap; flex: none; }
+  button.ghost { background: transparent; border: 1px solid var(--line); color: var(--text);
+    font: inherit; font-size: 14px; font-weight: 500; height: 28px; line-height: 26px;
+    padding: 0 12px; border-radius: 6px; cursor: pointer; white-space: nowrap; flex: none; }
   button.ghost:hover { background: var(--hover); color: var(--text); }
   button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   /* 一覧の行は div。Tab で辿れるようにしても、既定では今どこにいるか見えない */
@@ -95,7 +101,9 @@
 
   input[type="text"], input[type="password"], select, textarea {
     background: var(--hover); border: 1px solid var(--line);
-    color: var(--text); font: inherit; padding: 7px 10px; border-radius: 4px; width: 100%; }
+    color: var(--text); font: inherit; padding: 7px 10px; border-radius: 6px; width: 100%; }
+  /* 1行の入力欄は高さ 32px（第1b2回 L-1）。ページの中の小さな欄（要約タイプ・担当と期限の欄）は P の区画の形のまま */
+  input[type="text"]:not(.atag-edit), input[type="password"], select:not(.typeSel) { height: 32px; padding-top: 0; padding-bottom: 0; }
   input:focus, select:focus, textarea:focus { outline: none; border-color: var(--accent);
     background: var(--bg); }
   ::placeholder { color: var(--muted); }
@@ -167,11 +175,12 @@
     font: inherit; font-size: 11px; padding: 3px 10px; border-radius: 4px; cursor: pointer; }
   .chip.on { background: var(--tint); color: var(--text); font-weight: 600; }
   .plist { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; padding-right: 2px; }
-  /* 選んでいるページは左の 2px の強調（夏の差し色）。幅が揺れないよう、ふだんも透明な 2px を持つ */
-  .pitem { background: transparent; border: none; border-left: 2px solid transparent; border-radius: 0 4px 4px 0;
+  /* 選んでいるページは灰色の地（第1b2回 L-1。左の線と青はやめた）。ホバーと地の差がほとんど無いので、文字の色と太さでも分ける */
+  .pitem { background: transparent; border: none; border-radius: 6px;
     padding: 6px 10px; cursor: pointer; }
+  .side .pitem { color: var(--text-2); }
   .pitem:hover { background: var(--hover); }
-  .pitem.sel { background: var(--tint); border-left: 2px solid var(--accent); }
+  .pitem.sel { background: var(--tint); color: var(--text); font-weight: 500; }
   /* 高さを一定に保つ: タイトルもメタも1行で省略する */
   .pitem .t { font-weight: 600; font-size: 13px; line-height: 1.5;
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -183,6 +192,9 @@
   /* 文字起こし検索の件数（#43）。行ではないので .pitem の高さ・形には触れない */
   .plist .count { flex: none; font-size: 11px; color: var(--muted); padding: 0 2px;
     font-variant-numeric: tabular-nums; }
+  /* ロゴの波（海の色はロゴの波と録音中の点だけ）と、検索の窓の後ろ（文字を載せない）。要素は第1b2回 L-2 が作る */
+  .logo .wave { stroke: var(--level); }
+  #palette { background: var(--scrim); }
 
   /* ---------- ページ本体 ---------- */
   .page { flex: 1; min-width: 0; display: flex; flex-direction: column;
@@ -218,7 +230,7 @@
   .ptab { background: transparent; border: none; border-bottom: 2px solid transparent; margin-bottom: -1px;
     color: var(--muted); font: inherit; font-size: 13px; padding: 6px 2px; cursor: pointer; }
   .ptab:hover { color: var(--text); }
-  .ptab.on { color: var(--text); font-weight: 600; border-bottom-color: var(--accent); }
+  .ptab.on { color: var(--text); font-weight: 600; border-bottom-color: var(--text); }
   .pbody { flex: 1; overflow-y: auto; padding: 14px 24px 24px; }
   .pane { display: none; }
   .pane.active { display: block; }
@@ -291,14 +303,14 @@
     font: inherit; font-size: 10px; font-weight: 700; line-height: 1;
     padding: 3px 6px; border-radius: 4px; cursor: pointer;
     white-space: nowrap; font-variant-numeric: tabular-nums; }
-  .cite:hover { background: var(--accent); color: var(--on-accent); }
+  .cite:hover { background: var(--tint); color: var(--text); }
   .nocite { display: inline-block; margin-left: 6px; font-size: 10px; color: var(--muted);
     border: 1px dashed currentColor; border-radius: 4px; padding: 2px 6px; vertical-align: middle; }
   /* 札の意味の違い。「手書き」は人が足した行（照合対象外）なので実線で落ち着かせ、
      「編集済み」は再生成で付け直せる呼びかけなのでアクセント色にする。
      トークンだけで組むので、ダークでもそのまま読める。 */
   .nocite.manual { border-style: solid; color: var(--muted); }
-  .nocite.stale { color: var(--accent-text); border-color: var(--accent); }
+  .nocite.stale { color: var(--accent-text); border-color: currentColor; }
 
   /* ---------- 文字起こし ---------- */
   .seg { display: flex; gap: 10px; padding: 5px 6px; border-radius: 4px; line-height: 1.8; }
@@ -418,17 +430,19 @@
       color-scheme: dark;
       --bg: #191919;
       --side: #202020;
-      --text: rgba(255,255,255,.81);
-      --muted: rgba(255,255,255,.52);
-      --line: rgba(255,255,255,.094);
+      --text: #f0efed;
+      --text-2: #bcbab6;
+      --muted: #ada9a3;
+      --line: rgba(255,255,235,.1);
       --hover: rgba(255,255,255,.055);
-      --accent: #45b8d8;
-      --on-accent: #10242a;
-      --accent-text: #45b8d8;
-      --tint: rgba(69,184,216,.14);
+      --accent: #2077ce;
+      --on-accent: #ffffff;
+      --accent-text: #5ba3e9;
+      --tint: rgba(255,255,235,.1);
       --danger: #ff7a70;
       --ok: #4cc98a;
       --level: #0e8cae;
+      --scrim: rgba(0,0,0,.5);
       --shadow: 0 4px 12px rgba(0,0,0,.40);
     }
   }

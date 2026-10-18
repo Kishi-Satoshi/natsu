@@ -95,7 +95,34 @@ test('N2・F9: 台帳にある意図した移動だけ WARN「意図した移動
   for (const m of require('../tools/lib/moves')) assert.ok(m.why && m.file && m.ids.length && m.lost.length, '台帳の行に理由が無い');
   // 台帳を広げるには、このテストも直す（点検で必ず目に入る。黙ってほかの離脱を通す口にしない）
   assert.deepStrictEqual(require('../tools/lib/moves').map((m) => `${m.file} ${m.lost.join(' / ')}: ${m.ids.join(',')}`),
-    ['src/renderer/app.html section#tabNotes.tab.active / div.notes: mtToggleBtn,mtDiscardBtn,searchBox,fltAll,fltActions,fltFull,plist']);
+    ['src/renderer/app.html section#tabNotes.tab.active / div.notes: mtToggleBtn,mtDiscardBtn,searchBox,fltAll,fltActions,fltFull,plist',
+      'src/renderer/app.html aside#side.side: searchBox,fltAll,fltActions,fltFull',
+      'src/renderer/app.html section#tabNotes.tab.active / div.notes / div#pageWrap.page / div.phead / div.pcol: pActs,pMore,pMenu',
+      'src/renderer/app.html section#tabNotes.tab.active / div.notes / aside.side: searchBox,fltAll,fltActions,fltFull',
+      'src/renderer/app.html section#tabNotes.tab.active / div.notes / div#pageWrap.page / div.phead: pActs']);
+});
+
+// 第1b回の「台帳にある意図した移動だけ WARN」と同じ形の rules(before, after)（あちらはテストの中の const なので、ここでも作る）
+test('1b2 L-1・G1: 検索の欄と「…」の移動は、1つ前の版からでも natsu-v0.5.0 からでも台帳に当たって WARN。台帳に無い id を混ぜると BLOCK', () => {
+  const R = require('../tools/risk');
+  const rules = (b, a, f = 'src/renderer/app.html') => R.htmlFindings(f, b, a).map((x) => `${x.level} ${x.rule}`);
+  const filters = '<div class="filters"><button id="fltAll"></button><button id="fltActions"></button><button id="fltFull"></button></div>';
+  const v050 = `<section id="tabNotes" class="tab active"><div class="notes"><aside class="side"><input id="searchBox">${filters}<div id="plist"></div></aside>`
+    + '<div class="page" id="pageWrap"><div class="phead"><div class="pacts" id="pActs"></div><div id="pTitle"></div></div></div></div></section>';
+  const b1b = `<div class="app"><aside class="side" id="side"><input id="searchBox">${filters}<div id="plist"></div></aside><div class="col"><div class="topbar"></div><main>`
+    + '<section id="tabNotes" class="tab active"><div class="notes"><div class="page" id="pageWrap"><div class="phead"><div class="pcol"><div class="pacts" id="pActs"><button id="pMore"></button><div id="pMenu"></div></div><div id="pTitle"></div></div></div></div></div></section></main></div></div>';
+  const now = (extra = '') => '<div class="app"><aside class="side" id="side"><div id="plist"></div></aside><div class="col"><div class="topbar"></div>'
+    + '<div class="pagebar"><div class="crumb" id="crumb"></div><div class="pacts" id="pActs"><button id="pMore"></button><div id="pMenu"></div></div></div><main>'
+    + '<section id="tabNotes" class="tab active"><div class="notes"><div class="page" id="pageWrap"><div class="phead"><div class="pcol"><div id="pTitle"></div></div></div></div></div></section></main></div>'
+    + `<div class="palette" id="palette"><div class="palbox"><input id="searchBox"><div class="palopts">${filters}</div>${extra}</div></div></div>`;
+  for (const before of [v050, b1b]) {
+    const r = rules(before, now());
+    assert.ok(!r.includes('BLOCK HTML-枠からの離脱'), r.join('\n'));
+    assert.ok(r.includes('WARN 意図した移動'), r.join('\n'));
+  }
+  // 台帳に無い id（stray）が検索の欄と同じ枠を失ったら BLOCK のまま
+  const strayBefore = b1b.replace('<input id="searchBox">', '<input id="searchBox"><b id="stray"></b>');
+  assert.ok(rules(strayBefore, now('<b id="stray"></b>')).includes('BLOCK HTML-枠からの離脱'), '台帳に無い id まで通した');
 });
 
 test('RF2: main 側に外向きのグローバル fetch を足すと BLOCK。127.0.0.1・net.fetch・net.request・画面は通す', () => {
