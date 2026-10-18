@@ -276,6 +276,18 @@ describe('第1a回 保存の守り（main）', { concurrency: Number(process.env
     assert.ok(ours(r.notices).some((n) => n.startsWith('文字起こし待ちの記録を保存できませんでした')), r.notices.join('\n'));
   });
 
+  test('JS5・N16: 起動の途中で書けなかった recovery.json は、下書きを消した後でも、次の書き出しの合図（スリープ・終わり）で書き直す（次の起動で続きから文字起こしできる）', SCENE, async () => {
+    const r = await run('recovery-write-later');
+    assert.strictEqual(r.before, false, '掴まれている間に書けてしまった（確かめになっていない）');
+    assert.ok(r.engineLog.includes('文字起こし待ちの記録を書き直しました（1760000000000）'), r.engineLog.join('\n'));
+    assert.ok(!r.files.includes('data/draft.json'), r.files.join('\n'));
+    assert.ok(r.after, '書き出しの合図で recovery.json を書き直していない（下書きも無いので、次の起動で復旧できない）');
+    assert.deepStrictEqual(r.pages, [r.after.pageId]);
+    assert.strictEqual(r.after.items.length, 1);
+    assert.ok(r.after.items[0].wav.endsWith('0001.wav'), JSON.stringify(r.after));
+    assert.strictEqual(ours(r.notices).filter((n) => n.startsWith('文字起こし待ちの記録を保存できませんでした')).length, 1, r.notices.join('\n'));
+  });
+
   test('JS9: 起動のときに読めなかった recovery.json は、少し後のやり直しで読み直して待ち行列に戻る（消さない）', SCENE, async () => {
     const r = await run('recovery-busy-retry');
     assert.strictEqual(r.retries, 1, 'やり直しを予約していない');

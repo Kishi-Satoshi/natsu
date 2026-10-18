@@ -242,7 +242,7 @@ const historyWriter = J.makeBatchWriter({ name: 'history.json', write: writeHist
 // 書き出しの合図（第1a回 JS8・RF21）。まとめ書きの残りを全部同期で書く。投げない。受け口はどれも最初にこれを呼ぶ:
 // before-quit・will-quit・すべての窓の session-end・query-session-end・powerMonitor の suspend・lock-screen・shutdown・
 // 本体の窓の close と hide・process の exit・再起動の直前（relaunchAndExit）。名前はこのまま（テストが文字で探す）
-function flushAllWriters() { return J.flushAll(); }
+function flushAllWriters() { try { retryUnsavedRecovery(); } catch (_) { /* 書き直せなくても設定などの書き出しは続ける */ } return J.flushAll(); }
 // 自動更新と再起動。app.exit は before-quit・will-quit を出さないので、その前に書き出す。app.exit( はここだけ
 function relaunchAndExit() { flushAllWriters(); app.relaunch(); app.exit(0); }
 // 起動のときに、強制終了で残った JSON の一時ファイルを消す（第1a回 JS4。WAV などほかの .tmp は残す）。
@@ -1781,13 +1781,34 @@ let recoveryQueue = null;
 const RECOVERY_FILE = 'recovery.json';
 // 復旧の待ち行列をフォルダに書いておく。エンジンが用意できずに終えられなかったとき、
 // 次の起動や設定の直しで続きから文字起こしできる（wav は消さない）。いつも fsync して書く（部品の既定）。
-// 書けなくても投げない（起動の途中で投げると窓が出ない）。記録と知らせ（N16）だけ
+// 書けなくても投げない（起動の途中で投げると窓が出ない）。記録と知らせ（N16）だけ。
+// 書けなかった待ち行列は覚えておき、書き出しの合図（flushAllWriters）・復旧のやり直し・エンジンを待つときに書き直す
+// （下書きはもう消したので、書けないまま終わると次の起動で続きから文字起こしできない）。知らせは1つの待ち行列に1回
+const unsavedRecoveryQueues = new Map();   // dir → 待ち行列
 function saveRecoveryQueue(q) {
   try {
     J.writeJsonFile(path.join(q.dir, RECOVERY_FILE), { pageId: q.pageId, items: q.items, retry: Boolean(q.retry) }, { onFsyncUnsupported: noteFsyncOnce });
+    if (unsavedRecoveryQueues.has(q.dir)) {
+      unsavedRecoveryQueues.delete(q.dir);
+      engineLog(`文字起こし待ちの記録を書き直しました（${path.basename(q.dir)}）`);
+    }
+    return true;
   } catch (e) {
-    engineLog(`文字起こし待ちの記録を保存できませんでした（${path.basename(q.dir)}、${errCode(e)}）`);
-    laterNotice(NOTICE.recoveryNotSaved);
+    const again = unsavedRecoveryQueues.has(q.dir);
+    unsavedRecoveryQueues.set(q.dir, q);
+    if (!again) {
+      engineLog(`文字起こし待ちの記録を保存できませんでした（${path.basename(q.dir)}、${errCode(e)}）`);
+      laterNotice(NOTICE.recoveryNotSaved);
+      scheduleRecoveryRetry();
+    }
+    return false;
+  }
+}
+// 書けなかった待ち行列を書き直す。済んだ（recovery.json を消した）フォルダの分は書かない。投げない
+function retryUnsavedRecovery() {
+  for (const [dir, q] of Array.from(unsavedRecoveryQueues)) {
+    if (!q.items.some((it) => it && it.wav && fs.existsSync(it.wav))) { unsavedRecoveryQueues.delete(dir); continue; }
+    saveRecoveryQueue(q);
   }
 }
 const isRecoveryShape = (v) => Boolean(v) && typeof v === 'object' && !Array.isArray(v) && Array.isArray(v.items);
@@ -1849,6 +1870,7 @@ function retryDraftRecovery() {
   // 録音中は始めない（議事録を締めた後か破棄した後に回す）。音声入力などの最中なら少し後に
   if (meeting || state === 'meeting' || state === 'meeting-finalizing') { draftRetryAfterMeeting = true; return; }
   if (state !== 'idle') { scheduleRecoveryRetry(); return; }
+  retryUnsavedRecovery();
   recoverDraftIfAny();
   // 起動のときに読めなかった recovery.json（設計書 JS9 の「やり直しで復旧され」）
   if (recoveryUnreadable && !recoveryQueue) {
@@ -1944,6 +1966,7 @@ async function transcribeRecovered() {
         // エンジンが未設定・未起動のときは何も消さない。wav と待ち行列（recovery.json）を残し、
         // 設定を直したとき（settings:save）や次の起動でもう一度ここへ来る
         engineLog(`復旧の文字起こしを保留: ${whisperEng.lastError || 'エンジンが起動していません'}`);
+        retryUnsavedRecovery();
         return;
       }
       recoveryQueue = null;

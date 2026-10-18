@@ -21,6 +21,8 @@ const HISTORY = [{ id: 'h1', text: '前の口述', raw: '前の口述', createdA
 // 画面（app.html の save）が送る 29 のキー
 const UI = (o = {}) => { const u = { ...TYPICAL, ...o }; delete u.pillCustom; delete u.maxHistory; return u; };
 // 第1a回 Task 2-5: 前の起動で落ちた会議の控え（文字起こし済みの区間 1 つ）
+// recovery-write-later: 起動の間は recovery.json の一時ファイルを開けない（act の途中で times を 0 にして離す）
+const RECOVERY_OPEN_FAIL = { op: 'open', match: /recovery\.json\.\d+-[0-9a-z]+\.tmp$/, code: 'EACCES', times: Infinity };
 const OLD_DRAFT = { startedAt: 1760000000000, memo: '', offsetMs: 3000, savedAt: 1760000003000, segments: [{ id: 's1', atMs: 0, durationMs: 3000, text: '落ちた会議の発言です' }] };
 
 module.exports = {
@@ -185,6 +187,19 @@ module.exports = {
       'data/draft.json': ({ userData }) => JSON.stringify({ ...OLD_DRAFT, segments: [{ id: 's1', atMs: 0, durationMs: 3000, pending: true, wav: require('node:path').join(userData, 'data', 'segbuf', '1760000000000', '0001.wav'), text: '' }] }),
       'data/segbuf/1760000000000/0001.wav': 'RIFF' },
     faults: [{ op: 'open', match: /recovery\.json\.\d+-[0-9a-z]+\.tmp$/, code: 'EACCES', times: Infinity }] },
+  // 起動の途中で1回だけ recovery.json を書けない（エンジンも無い）。下書きはもう消えたので、書き出しの合図で書き直す（N16 の「次の起動でもう一度」を本当にする）
+  'recovery-write-later': { files: { 'settings.json': pretty(TYPICAL),
+      'data/draft.json': ({ userData }) => JSON.stringify({ ...OLD_DRAFT, segments: [{ id: 's1', atMs: 0, durationMs: 3000, pending: true, wav: require('node:path').join(userData, 'data', 'segbuf', '1760000000000', '0001.wav'), text: '' }] }),
+      'data/segbuf/1760000000000/0001.wav': 'RIFF' },
+    faults: [RECOVERY_OPEN_FAIL],
+    act: async (c) => {
+      const f = require('node:path').join(c.userData, 'data', 'segbuf', '1760000000000', 'recovery.json');
+      c.out.before = require('node:fs').existsSync(f);
+      RECOVERY_OPEN_FAIL.times = 0;   // ここから書けるようになる（掴んでいたプログラムが離した）
+      c.power.emit('suspend');
+      c.out.after = require('node:fs').existsSync(f) ? JSON.parse(require('node:fs').readFileSync(f, 'utf8')) : null;
+      c.out.pages = c.store.listPages().map((p) => p.id);
+    } },
   // 起動の1回の読み（1 + READ_WAITS の 6）だけ読めない recovery.json。少し後のやり直しで読める
   'recovery-busy-retry': { files: { 'settings.json': pretty(TYPICAL),
       'data/pages/p1.json': JSON.stringify({ id: 'p1', title: '復旧の会議', blocks: [], createdAt: '2026-10-01T00:00:00.000Z' }),
