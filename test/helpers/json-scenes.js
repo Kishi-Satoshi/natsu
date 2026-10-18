@@ -99,6 +99,28 @@ module.exports = {
       c.timers.retrySettingsRead[c.timers.retrySettingsRead.length - 1]();
       c.out.themeAfter = (await c.handlers['settings:get']()).theme;
     } },
+  // 同じ読み直しを、音声入力（ホットキー）の最中に呼ぶ。#57 の守りの state === 'recording' の側。
+  // 待っている読み直しの時計はいつも1つだけ（後へ回すたびに前のを止める）
+  'unreadable-dictation': { files: { 'settings.json': ({ base }) => pretty({ ...TYPICAL, ...base }) },
+    faults: [{ op: 'read', match: /settings\.json$/, code: 'EBUSY', times: 7 }],
+    act: async (c) => {
+      const onDisk = JSON.parse(c.read('settings.json').toString('utf8'));
+      const pending = () => (c.timers.retrySettingsRead || []).length - (c.clearedTimers.retrySettingsRead || 0);
+      c.out.saveWhileUnreadable = await c.handlers['settings:save']({}, UI({ theme: 'light', localServerExe: onDisk.localServerExe, localModelPath: onDisk.localModelPath }));
+      c.out.hotkeyRegistered = typeof c.shortcuts[TYPICAL.hotkey] === 'function';
+      c.shortcuts[TYPICAL.hotkey]();   // 音声入力を始める
+      c.out.retriesBefore = (c.timers.retrySettingsRead || []).length;
+      c.timers.retrySettingsRead[0]();
+      c.out.retriesDuring = c.timers.retrySettingsRead.length;
+      c.timers.retrySettingsRead[c.timers.retrySettingsRead.length - 1]();
+      c.out.retriesDuring2 = c.timers.retrySettingsRead.length;
+      c.out.themeDuring = (await c.handlers['settings:get']()).theme;
+      c.out.pendingDuring = pending();
+      c.listeners['overlay:cancel-request']();   // 音声入力を取り消す（idle に戻る）
+      c.timers.retrySettingsRead[c.timers.retrySettingsRead.length - 1]();
+      c.out.themeAfter = (await c.handlers['settings:get']()).theme;
+      c.out.pendingAfter = pending();
+    } },
   'history-unreadable': { files: { 'settings.json': pretty(TYPICAL), 'history.json': pretty(HISTORY) },
     faults: [{ op: 'read', match: /history\.json$/, code: 'EBUSY', times: 7 }],
     act: async (c) => {

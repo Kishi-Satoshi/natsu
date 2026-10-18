@@ -183,6 +183,18 @@ describe('第1a回 保存の守り（main）', { concurrency: Number(process.env
     assert.strictEqual(r.themeAfter, 'dark', '会議の後の読み直しで本当の値に切り替わらない');
   });
 
+  test('RF22・#57: 読めなかった設定の読み直しは、音声入力の最中も切り替えずに後へ回し（待つ時計はいつも1つ）、取り消した後の読み直しで本当の値に切り替える', SCENE, async () => {
+    const r = await run('unreadable-dictation');
+    assert.strictEqual(r.hotkeyRegistered, true);
+    assert.strictEqual(r.retriesBefore, 1);
+    assert.strictEqual(r.retriesDuring, 2, '音声入力の最中の読み直しを後へ回していない');
+    assert.strictEqual(r.retriesDuring2, 3);
+    assert.strictEqual(r.themeDuring, 'light', '音声入力の最中に設定を切り替えた（エンジンが再起動して口述を失う）');
+    assert.strictEqual(r.pendingDuring, 1, '読み直しの時計が2つ以上待っている');
+    assert.strictEqual(r.themeAfter, 'dark', '取り消した後の読み直しで本当の値に切り替わらない');
+    assert.strictEqual(r.pendingAfter, 0);
+  });
+
   test('RF22: 読めなかった履歴は、読めるまで書かず（全消しでもファイルは元のまま）、読み直せたらファイルの履歴が戻る', SCENE, async () => {
     const r = await run('history-unreadable');
     assert.ok(ours(r.notices).some((n) => n.startsWith('音声入力の履歴のファイルをほかのプログラムが使っていて')));

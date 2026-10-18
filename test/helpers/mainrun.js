@@ -56,7 +56,7 @@
 //                     - setTimeout に渡された retrySettingsRead・retryHistoryRead・retryDraftRecovery は走らせずに timers[名前] に入れる。
 //                     - 画面の読み込みは --slow-load と同じで、窓が2つ（録音バー・本体）できた後に読み終える（起動の知らせは
 //                       did-finish-load で送られる）。
-//                     - act(ctx) を呼ぶ。ctx = { handlers, listeners, app, wins, power, timers, store, jsonfile, electron, userData,
+//                     - act(ctx) を呼ぶ。ctx = { handlers, listeners, app, wins, power, timers, clearedTimers, shortcuts, store, jsonfile, electron, userData,
 //                       read(rel), waitFor(cond, ms), sleep, toneWav(sec), out }。app・窓・power（powerMonitor）は on／once で受け口を覚え、
 //                       emit(ev, …) で呼べる。窓は setPosition の値を getPosition で返し、作ったときに app の browser-window-created を
 //                       出す。wins は作った順（createOverlay が先、createMainWindow が後）。read(rel) は無ければ null、あればバイト。
@@ -361,6 +361,7 @@ process.on('exit', () => {
   }
 
   const handlers = {}, listeners = {}, sent = [];
+  const shortcuts = {};   // globalShortcut.register の受け口（キー → 関数）。場面がホットキーを押す
   // 画面へ送った知らせと進み具合の順。進み具合が初めて組を「使える」と言ったとき・壊れた知らせを送ったときの engine:status
   const seq = [];
   const atReady = {};
@@ -437,7 +438,7 @@ process.on('exit', () => {
     BrowserWindow: TrackedWin,
     powerMonitor,
     ipcMain: { handle: (ch, f) => { handlers[ch] = f; }, on: (ch, f) => { listeners[ch] = f; }, removeHandler() {} },
-    globalShortcut: { register: () => true, unregister() {}, unregisterAll() {}, isRegistered: () => false },
+    globalShortcut: { register: (acc, cb) => { shortcuts[acc] = cb; return true; }, unregister() {}, unregisterAll() {}, isRegistered: () => false },
     nativeTheme: { shouldUseDarkColors: false, themeSource: 'system', on() {} },
     // 取り込みの通信は Electron の net.request（第0b回 RF2）。テストでは同じ振る舞いの偽物（127.0.0.1 の偽のサーバーへ）
     net: { request: require('./fake-net').makeFakeRequest(), isOnline: () => true },
@@ -511,6 +512,7 @@ process.on('exit', () => {
   global.setInterval = function (fn, ms, ...a) { if (fn && fn.name === 'releaseIdleEngines') ticks.push(fn); return realSetInterval.call(this, fn, ms, ...a); };
   const jsonfile = require(path.join(ROOT, 'src', 'jsonfile.js'));
   const timers = {};
+  const clearedTimers = {};   // 場面の時計のうち clearTimeout で止められた数（名前ごと）。待っている数 = timers[名前].length - clearedTimers[名前]
   if (scene) {
     // 部品の待ちを縮める（読み直しの約1秒・名前の変更のやり直しの約0.5秒を待たない）
     jsonfile.sleepSync = () => {};
@@ -519,9 +521,17 @@ process.on('exit', () => {
     global.setTimeout = function (fn, ms, ...a) {
       if (fn && SCENE_TIMERS.has(fn.name)) {
         (timers[fn.name] || (timers[fn.name] = [])).push(fn);
-        return { unref() { return this; }, ref() { return this; }, hasRef: () => false };
+        return { unref() { return this; }, ref() { return this; }, hasRef: () => false, sceneTimer: fn.name, cleared: false };
       }
       return realSetTimeout.call(this, fn, ms, ...a);
+    };
+    const realClearTimeout = global.clearTimeout;
+    global.clearTimeout = function (h) {
+      if (h && h.sceneTimer) {
+        if (!h.cleared) { h.cleared = true; clearedTimers[h.sceneTimer] = (clearedTimers[h.sceneTimer] || 0) + 1; }
+        return undefined;
+      }
+      return realClearTimeout.call(this, h);
     };
   }
   require(path.join(ROOT, 'src', 'main.js'));
@@ -540,7 +550,7 @@ process.on('exit', () => {
     if (scene.engine) await waitFor(() => spawns.length > 0, 15000);
     const actOut = {};
     if (typeof scene.act === 'function') {
-      await scene.act({ handlers, listeners, app: electron.app, wins, power: powerMonitor, timers, store, jsonfile, electron, userData,
+      await scene.act({ handlers, listeners, app: electron.app, wins, power: powerMonitor, timers, clearedTimers, shortcuts, store, jsonfile, electron, userData,
         read: readUser, waitFor, sleep, toneWav, out: actOut });
     }
     const files = [];
