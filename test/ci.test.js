@@ -206,6 +206,11 @@ test('net-smoke.js: 確かめる前に、動いている Electron が package.js
   const iVer = boot.indexOf('versionIssue(process.versions');
   const iRun = boot.indexOf('runChecks(');
   assert.ok(iVer > 0 && iVer < iRun, '版の確かめが無いか、確かめの後にある');
+  // 確かめるだけでなく、違えば止める（versionGate が「NG 版: …」を出し、流し切ってから 1 で終える。
+  // 止め方そのものは test/electron-smoke.test.js が押さえる）
+  const iGate = boot.indexOf('if (versionGate(app, versionIssue(process.versions');
+  assert.ok(iGate > 0 && iGate < iRun, '版が違っても止めていない（versionGate の答えで return していない）');
+  assert.match(boot.slice(iGate, iRun), /^\s*if \(versionGate\(app, versionIssue\(process\.versions, [^\n]*\)\)\) return;$/m);
   assert.ok(!/Electron 31 の net\.request が/.test(s.slice(0, 400)), '頭の注釈が 31 のまま');
 });
 

@@ -37,7 +37,7 @@ const zlib = require('zlib');
 const crypto = require('crypto');
 const { fetchFile } = require('../src/engine-fetch');
 const { startServers } = require('../test/helpers/range-server');
-const { versionIssue } = require('./electron-version');
+const { versionIssue, versionGate } = require('./electron-version');
 
 const sha = (b) => crypto.createHash('sha256').update(b).digest('hex');
 const BODY = crypto.randomBytes(1 << 20);                  // 1MB。中身は毎回違う
@@ -323,9 +323,8 @@ function boot() {
   app.disableHardwareAcceleration();
   app.whenReady().then(async () => {
     console.log(`Electron ${process.versions.electron}（Chromium ${process.versions.chrome}、Node ${process.versions.node}、${process.platform}）`);
-    // 古い本体や取り違えた本体のまま緑にしない（第0c回 EL9）
-    const issue = versionIssue(process.versions, JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8')));
-    if (issue) { console.log(`NG 版: ${issue}`); app.exit(1); return; }
+    // 古い本体や取り違えた本体のまま緑にしない（第0c回 EL9）。理由の行を流し切ってから 1 で終える（versionGate）
+    if (versionGate(app, versionIssue(process.versions, JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8'))))) return;
     finish(app, await runChecks({ request: (o) => net.request(o) }));
   }, die('起動の失敗'));
 }
