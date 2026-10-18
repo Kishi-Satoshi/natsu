@@ -123,3 +123,28 @@ test('EL4: main は3か所（設定・起動時・トレイ）とも updater.upd
   assert.ok(tray.includes("sha256: r.sha256 || ''"));
   assert.ok(fnBody(m, "ipcMain.handle('update:apply'", '\n  });').includes("sha256: updateSha.get(String(url)) || ''"));
 });
+
+// ---------------------------------------------------------------- EL4（release.yml）
+test('EL4: release.yml は natsu-update.json を作って添え、Run workflow の入力で下書きのまま止められる', () => {
+  const { jobsOf, stepsOf } = require('./helpers/yml');
+  const y = read('.github/workflows/release.yml');
+  const j = jobsOf(y);
+  const st = stepsOf(j.release);
+  const iZip = st.findIndex((s) => s.includes('zip -q -r -X'));
+  const iInfo = st.findIndex((s) => s.includes('node tools/update-info.js "release/natsu-src-${VER}.zip" > release/natsu-update.json'));
+  const iDraft = st.findIndex((s) => s.includes('gh release create'));
+  assert.ok(iZip >= 0 && iInfo > iZip && iDraft > iInfo, `順が違う（zip → 情報 → draft）: ${iZip},${iInfo},${iDraft}`);
+  assert.ok(st[iDraft].includes('INFO="release/natsu-update.json"'));
+  assert.ok(st[iDraft].includes('--clobber "$ZIP" $INFO $SETUP'), '作り直しの経路で添えていない');
+  assert.ok(st[iDraft].includes('--draft "$ZIP" $INFO $SETUP'), '新しく作る経路で添えていない');
+  // 別の commit を指す下書きを使い回さない（exe が作り直されず、古い commit にタグが付く）
+  const guard = st[iDraft].indexOf("--json isDraft,targetCommitish --jq 'if .isDraft then .targetCommitish else \"\" end'");
+  assert.ok(guard > 0 && guard < st[iDraft].indexOf('gh release edit'), '既存の下書きの commit を、作り直しの前に照らしていない');
+  assert.ok(st[iDraft].includes('[ "$DRAFT_AT" != "$GITHUB_SHA" ]') && /::error::下書き \$TAG は別の commit/.test(st[iDraft]));
+  assert.match(y, /^      publish:\n        description: '[^']+'\n        required: false\n        type: boolean\n        default: true$/m);
+  const ist = stepsOf(j.installer);
+  const pub = ist.find((s) => /--draft=false/.test(s));
+  assert.match(pub, /^\s*if: github\.event_name != 'workflow_dispatch' \|\| inputs\.publish$/m);
+  assert.ok(ist.some((s) => /^\s*if: github\.event_name == 'workflow_dispatch' && !inputs\.publish$/m.test(s) && s.includes('GITHUB_STEP_SUMMARY')));
+  assert.strictEqual(require('../src/updater').INFO_ASSET, 'natsu-update.json');
+});

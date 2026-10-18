@@ -50,6 +50,11 @@ on:
         description: 'リリース本文。省略するとタグの注釈、それも無ければ既定文を使う'
         required: false
         type: string
+      publish:
+        description: '公開する（外すと、exe を添付した下書きのまま止める。入れ直しの版を実機で先に確かめるため）'
+        required: false
+        type: boolean
+        default: true
 
 permissions:
   contents: write # リリースとタグの作成に必要
@@ -148,6 +153,13 @@ jobs:
           rm -rf release/_stage
           unzip -l "release/natsu-src-${VER}.zip"
 
+      # 入れ直しが要る版かを、アプリが確かめた時点で見分けるための小さな情報（第0c回 EL4）。
+      # electron は package.json の engines.electron の写し。sha256 は上の zip のもの（当てる前に照らす）
+      - name: 更新の情報（natsu-update.json）を作る
+        run: |
+          node tools/update-info.js "release/natsu-src-${VER}.zip" > release/natsu-update.json
+          cat release/natsu-update.json
+
       # 本文の決め方: 入力 -> CHANGELOG.md の該当節 -> タグの注釈 -> 既定文
       - name: リリース本文を組み立てる
         env:
@@ -188,20 +200,28 @@ jobs:
           # 0.2.0 からはアプリの［エンジンを取り込む］でそろうので、ふつうは要らない。
           # 手で入れる人がリポジトリを触らずに済むよう、リリースページから直接落とせるようにしておく。
           SETUP="get-installer.ps1 setup-local-engine.ps1 setup-summarizer.ps1"
+          # 入れ直しが要る版かをアプリが見分けるための情報（第0c回 EL4。上のステップで作った）
+          INFO="release/natsu-update.json"
           # gh はタグ名で draft も見つける（公開済みでなくても view/edit/upload が効く）
           if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            # 下書きが別の commit を指していたら止める（exe が作り直されず、古い commit にタグが付くため。第0c回 Task 7）
+            DRAFT_AT="$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json isDraft,targetCommitish --jq 'if .isDraft then .targetCommitish else "" end')"
+            if [ -n "$DRAFT_AT" ] && [ "$DRAFT_AT" != "$GITHUB_SHA" ]; then
+              echo "::error::下書き $TAG は別の commit（$DRAFT_AT）を指しています。gh release delete $TAG -y で消してから出し直してください"
+              exit 1
+            fi
             echo "既存のリリースを更新します: $TAG（installer が exe を確かめるまで draft に戻す）"
             # zip を差し替えた状態が exe の確認前に見えないよう、公開済みでも draft に戻す。
             # installer ジョブの最後で必ず公開（draft 解除・latest）に戻す。
             gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" \
               --title "$TAG" --notes-file "$RUNNER_TEMP/notes.md" --draft
-            gh release upload "$TAG" --repo "$GITHUB_REPOSITORY" --clobber "$ZIP" $SETUP
+            gh release upload "$TAG" --repo "$GITHUB_REPOSITORY" --clobber "$ZIP" $INFO $SETUP
           else
             # タグが無ければ、公開（draft 解除）のときに gh/GitHub が --target のコミットに作る。
             # 一時ブランチはタグができるまで消せないので、削除は公開後（installer ジョブ）で行う。
             gh release create "$TAG" --repo "$GITHUB_REPOSITORY" \
               --target "$GITHUB_SHA" --title "$TAG" \
-              --notes-file "$RUNNER_TEMP/notes.md" --draft "$ZIP" $SETUP
+              --notes-file "$RUNNER_TEMP/notes.md" --draft "$ZIP" $INFO $SETUP
           fi
           echo "draft を作りました: $TAG（exe を添付できたら installer ジョブが公開します）"
 
@@ -271,6 +291,7 @@ jobs:
       # release ジョブが draft に戻しているので、ここで必ず解く。
       # ここで初めて releases/latest に出る。アプリの更新確認はここから新しい版を見る。
       - name: 公開する（draft を解いて latest にする）
+        if: github.event_name != 'workflow_dispatch' || inputs.publish
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ needs.release.outputs.tag }}
@@ -282,6 +303,15 @@ jobs:
             || { echo "::error::$TAG に setup.exe が添付されていません。公開しません（draft のまま）"; exit 1; }
           gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --draft=false --latest
           echo "公開しました: $TAG" >> "$GITHUB_STEP_SUMMARY"
+
+      # Run workflow で publish を外したときは、上の公開を飛ばし、止めたことを要約に出す（exe を添付した下書きで、入れ直しの版を実機で先に確かめる。第0c回 Task 7）
+      # 公開のステップより後に置く（この文にも --draft=false があり、前に置くと公開のステップと見分けにくい）
+      - name: 下書きのまま止める（publish を外した Run workflow）
+        if: github.event_name == 'workflow_dispatch' && !inputs.publish
+        shell: bash
+        env:
+          TAG: ${{ needs.release.outputs.tag }}
+        run: echo "## $TAG は下書きのまま止めました（publish を外した）。実機で確かめたら gh release edit $TAG --draft=false --latest で公開する" >> "$GITHUB_STEP_SUMMARY"
 
       # ここまでのどこかで失敗したら、release は draft のまま残っている。
       # draft は releases/latest に出ないので、配布先には前の版が見え続ける。
