@@ -17,6 +17,11 @@
  *   「false でなければオン」（main.js の buildKey の settings.useBuiltinTerms !== false、
  *   mainlib.js の buildPromptParts の useBuiltinTerms !== false）、ほかは「値があればオン」。
  *   "false" のような文字は今もオンなので、オンのままにして知らせのための印（falseLike）を返す。
+ *
+ * 第1c回 Task C-1（OL7・RF30）で、オンラインの処理の5つのキーを足した（35 のキー）。
+ * - cloudTranscribe の壊れた値は「送らない」側の ask に戻す（true や "yes" を on と読んで、黙って音声を送らない）。
+ * - 鍵（API キー）は設定に置かない（secrets.json に暗号でしまう。第1c回 Task A-3）。鍵らしい欄は
+ *   表に無いので pickSavable が捨てる（表に無いキーを捨てる今の決まりのまま）。
  */
 'use strict';
 
@@ -56,8 +61,11 @@ function normalizeSettings(raw, defaults) {
 // 録音バーの表示位置。app.html の #pillPos の選択肢と同じ
 const PILL_POSITIONS = ['bottom', 'top', 'left', 'right', 'top-left', 'top-right', 'bottom-left', 'bottom-right'];
 const THEMES = ['system', 'light', 'dark'];
+// 第1c回: オンラインの文字起こしの同意（ask = まだ聞いていない＝送らない）と送り先
+const CLOUD_CONSENTS = ['ask', 'on', 'off'];
+const STT_PROVIDERS = ['groq', 'openai', 'custom'];
 
-// 既定の設定（第1a回まで main.js の DEFAULT_SETTINGS に書いていた 30 のキーと値）。
+// 既定の設定（第1a回まで main.js の DEFAULT_SETTINGS に書いていた 30 のキーと値に、第1c回の5つを足した 35）。
 // スレッド数は CPU の数から 2 を引いた数（4 より少なくしない）
 function defaultSettings(cpuCount) {
   const threads = Math.max(4, cpuCount - 2);
@@ -104,10 +112,19 @@ function defaultSettings(cpuCount) {
     sumCtx: 16384,
     // 使われないエンジンを止めるまでの分。0 = 止めない（#58。releaseIdleEngines）
     engineIdleMin: 10,
+    // 第1c回（OL7）: オンラインのときの文字起こし。既定は ask（同意を聞くまでは送らない＝手元の whisper）
+    cloudTranscribe: 'ask',
+    // 送り先（groq は無料枠。openai・custom を選べる）。custom のときだけ sttBaseUrl を使う
+    sttProvider: 'groq',
+    sttBaseUrl: '',
+    // 空なら送り先ごとの既定のモデル
+    sttModel: '',
+    // 空なら Claude Code を探す（第1c回 Task B-1 の findClaude）
+    claudeExe: '',
   };
 }
 
-// 30 のキーの決まり。label は設定の画面の言葉（知らせに出す名前。キーの名前は画面に出さない）。
+// 35 のキーの決まり。label は設定の画面の言葉（知らせに出す名前。キーの名前は画面に出さない）。
 // kind ごとの直し方は下の FIX。ここに無いキーは既定にも保存の許可の一覧にも入れない（テストが一致を見る）
 //   int:      normalizeSettings が整数に直して範囲に収める（範囲は normalizeSettings の中だけに書く）
 //   history:  0〜10000 の整数。10000 を越えたら 10000、それ以外の壊れた値は既定（0 に寄せない。F8）
@@ -118,6 +135,10 @@ function defaultSettings(cpuCount) {
 //   point:    null か、x・y が有限の数の { x, y }。違えば null
 //   bool:     真偽値。今の判定で直す（notFalse は「false でなければオン」、ほかは「値があればオン」）
 //   words:    normalizeSettings が文字の並びに整える。配列でなければ []
+//   url:      空か、https:// で始まる 2048 字までの URL（http は 127.0.0.1・localhost だけ）。違えば ''
+//   model:    空か、英数字と . _ : / - の 100 字まで（送り先のモデルの名前）。違えば ''
+//   exe:      文字列。.cmd・.bat・.ps1 で終われば ''（shell を通さないと起こせないので使わない。F12。大小を問わない）。
+//             string の kind は全部のパスの欄が共有するので、この決まりは claudeExe の exe にだけ入れる
 const SETTING_RULES = {
   localServerExe: { label: 'whisper-server.exe のパス', kind: 'string' },
   localModelPath: { label: '文字起こしのモデルファイルのパス', kind: 'string' },
@@ -149,6 +170,12 @@ const SETTING_RULES = {
   segmentSec: { label: '議事録の文字起こし間隔（秒）', kind: 'int' },
   sumCtx: { label: '要約の文脈長', kind: 'int' },
   engineIdleMin: { label: '使わないエンジンを止めるまで（分）', kind: 'int' },
+  // 第1c回（OL7）
+  cloudTranscribe: { label: 'オンラインの文字起こし', kind: 'enum', values: CLOUD_CONSENTS, typeWhy: 'enum' },
+  sttProvider: { label: '文字起こしの送り先', kind: 'enum', values: STT_PROVIDERS, typeWhy: 'enum' },
+  sttBaseUrl: { label: '送り先の URL（そのほか）', kind: 'url', max: 2048 },
+  sttModel: { label: '送り先のモデル', kind: 'model' },
+  claudeExe: { label: 'Claude Code の場所', kind: 'exe' },
 };
 const SETTING_KEYS = Object.keys(SETTING_RULES);
 
@@ -159,6 +186,20 @@ function toNumber(v) {
   return NaN;
 }
 const FALSE_LIKE = /^(false|0|off|no)$/i;
+
+// sttBaseUrl に使える URL か。https のほかは、手元の試し用に http の 127.0.0.1・localhost だけ。
+// 文字の頭と、URL として読んだ結果の両方で見る（http://localhost.example のような名前を通さない）
+function isSttBaseUrl(v, max) {
+  if (v.length > max) return false;
+  let u;
+  try { u = new URL(v); } catch { return false; }
+  if (/^https:\/\//.test(v)) return u.protocol === 'https:' && u.hostname !== '';
+  return /^http:\/\/(127\.0\.0\.1|localhost)(:\d+)?(\/|$)/.test(v)
+    && u.protocol === 'http:' && (u.hostname === '127.0.0.1' || u.hostname === 'localhost');
+}
+const MODEL_RE = /^[A-Za-z0-9._:\/-]{1,100}$/;
+// Windows は名前の後ろの空白と . を無視して開くので（claude.cmd. は claude.cmd）、それも外して見る
+const SHELL_ONLY_RE = /\.(cmd|bat|ps1)[\s.]*$/i;
 
 // kind ごとの直し方。(v: 書かれていた値, ctx) → { value, why }（why が null なら直していない）
 //   ctx.norm: normalizeSettings を通した値（int・words の芯）、ctx.def: 既定、ctx.rule: 決まり
@@ -199,6 +240,18 @@ const FIX = {
   },
   words(v, { norm }) {
     return { value: norm, why: Array.isArray(v) ? null : 'type' };
+  },
+  url(v, { rule }) {
+    if (typeof v !== 'string') return { value: '', why: 'type' };
+    return v === '' || isSttBaseUrl(v, rule.max) ? { value: v, why: null } : { value: '', why: 'enum' };
+  },
+  model(v) {
+    if (typeof v !== 'string') return { value: '', why: 'type' };
+    return v === '' || MODEL_RE.test(v) ? { value: v, why: null } : { value: '', why: 'enum' };
+  },
+  exe(v) {
+    if (typeof v !== 'string') return { value: '', why: 'type' };
+    return SHELL_ONLY_RE.test(v) ? { value: '', why: 'enum' } : { value: v, why: null };
   },
 };
 

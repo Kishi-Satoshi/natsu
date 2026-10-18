@@ -1,6 +1,6 @@
 /*
  * settings-rules.test.js — 設定の決まり（第1a回 JS6。RF23・F8・F11）
- * 30 のキーの表・項目ごとの読み方・今の読み方（normalizeSettings({ ...既定, ...raw }, 既定)）との比べ・保存の許可の一覧。
+ * 35 のキーの表（第1a回の 30 に第1c回 Task C-1 で5つ足した）・項目ごとの読み方・今の読み方（normalizeSettings({ ...既定, ...raw }, 既定)）との比べ・保存の許可の一覧。
  */
 'use strict';
 
@@ -21,13 +21,16 @@ const TODAY = {
 // 今の画面（app.html の save）が送る 29 のキー（pillCustom は録音バーを動かしたときだけ main が書く）
 const UI = { ...TODAY, localServerExe: 'C:\\e\\w.exe', localModelPath: 'C:\\m\\g.bin', theme: 'dark', micId: 'mic-1', dictionary: ['見積', '検収'] };
 delete UI.pillCustom; delete UI.maxHistory;
+// 第1c回 Task C-1: TODAY に足す（ほかの 30 は変えない）。意図: 既定が今の値のまま・決まりのないキーを足せない
+// （UI は今の画面が送るキーなので、C-2 の画面の前の 29 のまま）
+Object.assign(TODAY, { cloudTranscribe: 'ask', sttProvider: 'groq', sttBaseUrl: '', sttModel: '', claudeExe: '' });
 const legacy = (raw) => S.normalizeSettings({ ...D, ...raw }, D);
 const ON = (key, v) => (key === 'useBuiltinTerms' ? v !== false : Boolean(v));
 const BOOLS = ['useVad', 'suppressNst', 'autoPaste', 'removeFillers', 'soundFeedback', 'autoLaunch', 'stayInTray', 'useBuiltinTerms', 'useSystemAudio'];
 
-test('JS6: 決まりの表のキーは既定の 30 のキーとちょうど同じ。どれにも画面の名前がある', { timeout: 5000 }, () => {
+test('JS6: 決まりの表のキーは既定の 35 のキーとちょうど同じ。どれにも画面の名前がある', { timeout: 5000 }, () => {
   assert.deepStrictEqual(D, TODAY);
-  assert.strictEqual(S.SETTING_KEYS.length, 30);
+  assert.strictEqual(S.SETTING_KEYS.length, 35);
   assert.deepStrictEqual([...S.SETTING_KEYS].sort(), Object.keys(TODAY).sort());
   for (const k of S.SETTING_KEYS) assert.ok(typeof S.SETTING_RULES[k].label === 'string' && S.SETTING_RULES[k].label.length > 1, k);
   assert.strictEqual(S.defaultSettings(2).localThreads, 4);
@@ -126,4 +129,25 @@ test('JS6・SEC1: 保存の許可の一覧 — 決まりのないキーは画面
   assert.strictEqual({}.polluted, undefined);
   assert.strictEqual(S.isSettingsShape({}), true);
   for (const v of [null, [], 'x', 1]) assert.strictEqual(S.isSettingsShape(v), false, JSON.stringify(v));
+});
+
+test('OL7: 第1c回の5つのキー。同意の壊れた値は送らない側（ask）に戻す', { timeout: 5000 }, () => {
+  assert.strictEqual(S.SETTING_KEYS.length, 35);
+  const r = (raw) => S.readSettings(raw, D);
+  for (const v of [true, 'yes', 1, null, 'ON']) assert.strictEqual(r({ cloudTranscribe: v }).settings.cloudTranscribe, 'ask', JSON.stringify(v));
+  assert.strictEqual(r({ cloudTranscribe: 'on' }).settings.cloudTranscribe, 'on');
+  assert.strictEqual(r({ sttProvider: 'azure' }).settings.sttProvider, 'groq');
+  assert.strictEqual(r({ sttBaseUrl: 'http://stt.example/v1' }).settings.sttBaseUrl, '');
+  assert.strictEqual(r({ sttBaseUrl: 'https://stt.example/v1' }).settings.sttBaseUrl, 'https://stt.example/v1');
+  assert.strictEqual(r({ sttBaseUrl: 'http://127.0.0.1:8123/v1' }).settings.sttBaseUrl, 'http://127.0.0.1:8123/v1');
+  assert.strictEqual(r({ sttModel: 'whisper-large-v3; rm -rf' }).settings.sttModel, '');
+  assert.strictEqual(r({ sttModel: 'gpt-4o-transcribe' }).settings.sttModel, 'gpt-4o-transcribe');
+  assert.strictEqual(r({ claudeExe: 'C:\\npm\\claude.cmd' }).settings.claudeExe, '');
+  assert.strictEqual(r({ claudeExe: 'C:\\Users\\u\\.local\\bin\\claude.exe' }).settings.claudeExe, 'C:\\Users\\u\\.local\\bin\\claude.exe');
+  assert.deepStrictEqual(r({ cloudTranscribe: 'yes' }).repaired, [{ key: 'cloudTranscribe', why: 'enum' }]);
+});
+
+test('RF30: 鍵らしい欄は画面から来ても保存しない（設定の JSON に秘密を置かない）', { timeout: 5000 }, () => {
+  const next = { theme: 'dark', sttKey: 'gsk_x', groqKey: 'gsk_x', openaiKey: 'sk-x', apiKey: 'k', ANTHROPIC_API_KEY: 'sk-ant', cloudTranscribe: 'on' };
+  assert.deepStrictEqual(S.pickSavable(next), { theme: 'dark', cloudTranscribe: 'on' });
 });
