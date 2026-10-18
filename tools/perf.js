@@ -20,8 +20,9 @@
 //    索引は store と同じ形（summarize の項目）で書き、計る前に store.init が索引を書き直さなかったことを確かめる（書き直したら、
 //    見本の形が store とずれたしるしなので投げる。黙って作り直しの時間を計らない）。
 //  - 作った見本は最後に中のフォルダごと消す（失敗しても消す）。
-//  - Windows の CI でまだ測っていない。中央値が目安を越えた名前があれば、黙って緩めず、測った値を報告に写したうえで、
-//    BUDGETS_WIN（越えた名前だけ測った中央値の 2 倍）を足し、judge が process.platform で目安を選ぶ形にする（計画の Task 4-4）。
+//  - Windows の CI（windows-latest）は Linux より遅い。最初の2回の searchIndex-all の中央値は 538.88ms と 729.43ms で、
+//    2回目が目安 600ms を越えた（2026-10-18、run 39100969926・39102046090）。計画の Task 4-4 のとおり、越えた名前だけを
+//    BUDGETS_WIN（測った中央値の 2 倍）にし、main は budgetsFor(process.platform) で目安を選ぶ。ほかの名前と Linux は BUDGETS のまま。
 //
 // node tools/perf.js
 //   1 行ずつ「OK／NG 名前 ms（目安 ms）」、目安の無い参考の値、決め方の答え（まとめ書きの間隔・draft.json の fsync）、
@@ -34,6 +35,9 @@ const J = require('../src/jsonfile');
 
 const BUDGETS = { 'store-init': 500, 'open-page': 500, 'searchIndex-typical': 300, 'searchIndex-all': 600, 'searchFullText': 2000,
   'write-256k-fsync': 50, 'write-1m-fsync': 150, 'write-10m-fsync': 1500 };
+// Windows だけの目安（越えた名前だけ。searchIndex-all は 729.43ms の 2 倍を 10ms に切り上げ）。第2a1回で DB にしたときに見直す
+const BUDGETS_WIN = { 'searchIndex-all': 1460 };
+const budgetsFor = (platform) => (platform === 'win32' ? { ...BUDGETS, ...BUDGETS_WIN } : BUDGETS);
 
 const ROUNDS = 3;                 // 計る操作はどれも3回ずつ行い、median を ms にする
 const RARE = 'ゆずりは';          // 1件だけに当たる語（一覧の検索は真ん中のページの要約、全文検索は真ん中のページの文字起こし）
@@ -243,7 +247,7 @@ async function main() {
     const t0 = performance.now();
     const s = await measureStore({ dir });
     const w = measureWrites({ dir });
-    const judged = judge([...s, ...w.filter((x) => Object.prototype.hasOwnProperty.call(BUDGETS, x.name))]);
+    const judged = judge([...s, ...w.filter((x) => Object.prototype.hasOwnProperty.call(BUDGETS, x.name))], budgetsFor(process.platform));
     for (const x of judged) console.log(`${x.ok ? 'OK' : 'NG'} ${x.name} ${x.ms}ms（目安 ${x.budget}ms）`);
     for (const x of w) console.log(`書く時間 ${x.name} 中央値 ${x.ms}ms・p95 ${x.p95}ms（${x.bytes} バイト）`);
     const byName = Object.fromEntries(w.map((x) => [x.name, x]));
@@ -263,4 +267,4 @@ if (require.main === module) {
   main().catch((e) => { console.error(e && e.stack ? e.stack : e); process.exitCode = 1; });
 }
 
-module.exports = { BUDGETS, p95, median, judge, exitCodeOf, suggestBatchMs, suggestDraftFsync, measureStore, measureWrites };
+module.exports = { BUDGETS, BUDGETS_WIN, budgetsFor, p95, median, judge, exitCodeOf, suggestBatchMs, suggestDraftFsync, measureStore, measureWrites };

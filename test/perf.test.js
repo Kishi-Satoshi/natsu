@@ -17,6 +17,17 @@ test('PERF: 目安は設計書の値（開く 0.5 秒・検索 0.3 秒）と、�
     'write-256k-fsync': 50, 'write-1m-fsync': 150, 'write-10m-fsync': 1500 });
 });
 
+test('PERF: Windows だけの目安は、最初の Windows の CI で越えた名前（searchIndex-all: 中央値 729.43ms）だけを、測った中央値の 2 倍にする。ほかの OS と、ほかの名前は BUDGETS のまま', { timeout: 5000 }, () => {
+  assert.deepStrictEqual(PF.BUDGETS_WIN, { 'searchIndex-all': 1460 });
+  assert.deepStrictEqual(PF.budgetsFor('linux'), PF.BUDGETS);
+  assert.deepStrictEqual(PF.budgetsFor('win32'), { ...PF.BUDGETS, 'searchIndex-all': 1460 });
+  assert.deepStrictEqual(PF.judge([{ name: 'searchIndex-all', ms: 729.43 }], PF.budgetsFor('win32')).map((x) => x.ok), [true]);
+  assert.deepStrictEqual(PF.judge([{ name: 'searchIndex-all', ms: 729.43 }], PF.budgetsFor('linux')).map((x) => x.ok), [false]);
+  // 本番の計り（main）は動いている OS の目安で決める
+  const src = fs.readFileSync(path.join(__dirname, '..', 'tools', 'perf.js'), 'utf8');
+  assert.match(src, /judge\(\[[^\n]*\], budgetsFor\(process\.platform\)\)/);
+});
+
 test('PERF: p95 は並べて 95% の位置の値。目安と比べる median は真ん中の値', { timeout: 5000 }, () => {
   assert.strictEqual(PF.p95(Array.from({ length: 20 }, (_, i) => 20 - i)), 19);
   assert.strictEqual(PF.p95([5]), 5);
