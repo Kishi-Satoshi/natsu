@@ -171,7 +171,20 @@ const NOTICE = {
   settingsFalseLike: (label, raw) => `設定の「${label}」は、ファイルに "${raw}" と書かれていたため、今までどおりオンのままにしました。オフにするときは設定の画面で切ってください。`,
   historyBroken: (name) => `音声入力の履歴のファイルが壊れていたので、空の履歴で始めました。元のファイルは ${name} として残してあります。`,
   historyNotSaved: '音声入力の履歴の変更を保存できませんでした。次の変更のときにもう一度保存します。',
+  settingsBusy: '設定のファイルをほかのプログラムが使っていて読めませんでした。読めるまでは既定の設定で動き、設定は保存しません。少し後にもう一度読みます。',
+  settingsReloaded: '設定のファイルを読めたので、保存してある設定に切り替えました。読めない間に画面で変えた設定は保存していません。',
+  settingsReadOnly: '設定のファイルが読み取り専用になっているため、管理者が決めた設定として使います。画面で変えた設定は保存されません（次の起動で元に戻ります）。',
+  settingsNotSaved: '設定を保存できませんでした。次の変更のときにもう一度保存します',   // 設計書の文のまま（N7）
+  historyBusy: '音声入力の履歴のファイルをほかのプログラムが使っていて読めませんでした。読めるまでは新しい履歴を保存せずに持っておき、少し後にもう一度読みます。',
 };
+// 読めない・書けないときの状態（第1a回 Task 2-3。RF22・P14）
+// - 'unreadable': 起動の瞬間にほかのプログラムが掴んでいて読めなかった。読み直せるまでは書かない（既定で上書きしない）。
+//   読み直しは RETRY_READ_MS の間隔で（使い切ったら止め、設定の画面を開いたときだけ読み直す）
+// - 'readonly': 読み取り専用の settings.json（管理者が決めた設定）。その起動で1回だけ知らせる
+let settingsState = 'ok';     // 'ok' | 'unreadable' | 'readonly'
+let historyState = 'ok';      // 'ok' | 'unreadable'
+const RETRY_READ_MS = [3000, 10000, 30000];
+const notWritable = () => Object.assign(new Error('読めない間は書かない'), { code: 'NOT_WRITABLE' });
 // fsync が効かない場所（ネットワークのフォルダなど）。書くのは続け、記録はその起動で1回だけ
 let fsyncNoted = false;
 function noteFsyncOnce(code) {
@@ -179,19 +192,34 @@ function noteFsyncOnce(code) {
   fsyncNoted = true;
   engineLog(`保存: この場所では fsync が使えません（${code}）。書き込みは続けます`);
 }
-function writeSettingsFile(value, { retry }) { J.writeJsonFile(settingsPath(), value, { waits: retry ? J.RENAME_WAITS : [], onFsyncUnsupported: noteFsyncOnce }); }
-function writeHistoryFile(value, { retry }) { J.writeJsonFile(historyPath(), value, { waits: retry ? J.RENAME_WAITS : [], onFsyncUnsupported: noteFsyncOnce }); }
+function writeSettingsFile(value, { retry }) {
+  if (settingsState === 'unreadable') throw notWritable();
+  J.writeJsonFile(settingsPath(), value, { waits: retry ? J.RENAME_WAITS : [], onFsyncUnsupported: noteFsyncOnce });
+}
+function writeHistoryFile(value, { retry }) {
+  if (historyState === 'unreadable') throw notWritable();
+  J.writeJsonFile(historyPath(), value, { waits: retry ? J.RENAME_WAITS : [], onFsyncUnsupported: noteFsyncOnce });
+}
 // 書き手（まとめ書きの間隔は Task 2-4 で BATCH_MS にする。この回では now で同期に書く）
 const settingsWriter = J.makeBatchWriter({ name: 'settings.json', write: writeSettingsFile, delayMs: 350, log: engineLog });
 const historyWriter = J.makeBatchWriter({ name: 'history.json', write: writeHistoryFile, delayMs: 350, log: engineLog });
 const errCode = (e) => (e && e.code) || 'error';
 
-// → 設定。知らせは startupNotices へ、記録は engine.log へ。投げない
+// → { state, settings, notices }（state は loadJsonFile の結果の state。notices は画面に出す知らせの文で、起動のときは
+// startupNotices へ、読み直しのときはすぐ画面へ）。記録は engine.log へ。投げない。settingsState もここで決める
+// （読めなければ 'unreadable'、ほかは 'ok'。直した設定の書き戻しは 'ok' にしてから）。起動のときと、読めなかった後の
+// 読み直し（retrySettingsRead）の両方から呼ぶ
 function loadSettingsFromDisk() {
   const file = settingsPath();
   const r = J.loadJsonFile(file, { shape: isSettingsShape, maxBytes: J.SMALL_MAX });
-  if (r.state === 'missing') return readSettings({}, DEFAULT_SETTINGS).settings;
+  settingsState = r.state === 'unreadable' ? 'unreadable' : 'ok';
+  const notices = [];
+  const notify = (m) => notices.push(m);
+  const res = (v) => ({ state: r.state, settings: v, notices });
+  if (r.state === 'missing') return res(readSettings({}, DEFAULT_SETTINGS).settings);
   if (r.state === 'ok') {
+    // 読めない間に待っていた変更は捨てる（読めた値が勝つ）
+    settingsWriter.discard();
     const rs = readSettings(r.value, DEFAULT_SETTINGS);
     if (rs.repaired.length || rs.falseLike.length) {
       // キーの並びは SETTING_KEYS の順（readSettings がその順に返す）。値は書かない
@@ -207,20 +235,55 @@ function loadSettingsFromDisk() {
         engineLog(`設定: 元の設定の写しを残せなかったので、書き戻しません（${c.code}）`);
       }
       const labels = rs.repaired.filter((x) => SETTING_RULES[x.key].kind !== 'bool').map((x) => SETTING_RULES[x.key].label);
-      if (labels.length) startupNotices.push(NOTICE.settingsRepaired(labels.join('・'), kept));
-      for (const f of rs.falseLike) startupNotices.push(NOTICE.settingsFalseLike(SETTING_RULES[f.key].label, f.raw));
+      if (labels.length) notify(NOTICE.settingsRepaired(labels.join('・'), kept));
+      for (const f of rs.falseLike) notify(NOTICE.settingsFalseLike(SETTING_RULES[f.key].label, f.raw));
     }
-    return rs.settings;
+    return res(rs.settings);
   }
   if (r.state === 'broken') {
     const name = path.basename(r.movedTo);
     engineLog(`設定: 壊れていたので退けて既定で起動しました（${r.reason}、${name}）`);
-    startupNotices.push(r.reason === 'encoding' ? NOTICE.settingsEncoding(name) : NOTICE.settingsBroken(name));
-    return readSettings({}, DEFAULT_SETTINGS).settings;
+    notify(r.reason === 'encoding' ? NOTICE.settingsEncoding(name) : NOTICE.settingsBroken(name));
+    return res(readSettings({}, DEFAULT_SETTINGS).settings);
   }
-  // 読めない（ほかのプログラムが掴んでいる・退けられない）。知らせと読み直しは Task 2-3
-  engineLog(`設定: 読めなかったので既定で動きます（${r.code}）`);
-  return readSettings({}, DEFAULT_SETTINGS).settings;
+  // 読めない（ほかのプログラムが掴んでいる・退けられない）。読み直せるまで書かない（RF22）
+  engineLog(`設定: 読めなかったので既定で動き、読めるまで保存しません（${r.code}）`);
+  return res(readSettings({}, DEFAULT_SETTINGS).settings);
+}
+
+// 読み直しの予約（いつも1つまで）
+let settingsRetryTimer = null;
+let settingsRetryIdx = 0;
+function scheduleSettingsRetry(ms) {
+  if (settingsRetryTimer) clearTimeout(settingsRetryTimer);
+  settingsRetryTimer = setTimeout(retrySettingsRead, ms);
+}
+// 読めなかった設定を読み直す（時計と settings:get から）。読めたら本当の値に切り替え、まだ読めなければ RETRY_READ_MS の
+// 次を予約する（使い切ったら止める。設定の画面を開けばまた読み直す）。名前はこのまま（mainrun が時計を捕まえる）
+function retrySettingsRead() {
+  if (settingsRetryTimer) { clearTimeout(settingsRetryTimer); settingsRetryTimer = null; }
+  if (settingsState !== 'unreadable') return;
+  // 録音・議事録の最中は切り替えない（エンジンの設定が変わると再起動して、文字起こし中の区間を失う: #57）。
+  // 読まずに、終わった後で読み直す
+  if (meeting || state === 'recording') { scheduleSettingsRetry(RETRY_READ_MS[RETRY_READ_MS.length - 1]); return; }
+  const prev = settings;
+  const r = loadSettingsFromDisk();
+  const notes = r.notices;
+  if (r.state === 'unreadable') {
+    if (settingsRetryIdx < RETRY_READ_MS.length) scheduleSettingsRetry(RETRY_READ_MS[settingsRetryIdx++]);
+    return;
+  }
+  if (r.state === 'ok') {
+    settings = r.settings;
+    migrateOldThreads(settings);
+    applyReloadedSettings(prev, settings);
+    engineLog('設定: 読めたので、保存してある設定に切り替えました');
+    notes.push(NOTICE.settingsReloaded);
+  } else {
+    // 無くなっていた・壊れていた（退けた）: 読めた値が無いので、今の設定のまま書けるようにする（待っていた変更は次の合図で書く）
+    engineLog(`設定: 読み直したら${r.state === 'missing' ? '無くなっていた' : '壊れていた'}ので、今の設定のまま保存します`);
+  }
+  if (notes.length) noticeMainWin(notes.join('　'));
 }
 
 // → 履歴の配列。投げない
@@ -233,27 +296,75 @@ function loadHistoryFromDisk() {
     startupNotices.push(NOTICE.historyBroken(name));
     return [];
   }
-  // 読めない（知らせと読み直しは Task 2-3）
-  if (r.state === 'unreadable') engineLog(`履歴: 読めなかったので空の履歴で始めました（${r.code}）`);
+  // 読めない: 読み直せるまで書かずに持っておく（RF22・N14）
+  if (r.state === 'unreadable') {
+    historyState = 'unreadable';
+    engineLog(`履歴: 読めなかったので、読めるまで新しい履歴を保存せずに持っておきます（${r.code}）`);
+    startupNotices.push(NOTICE.historyBusy);
+  }
   return [];
+}
+
+// 読めなかった履歴を読み直す。読めたら、読めない間の履歴（新しい順）とファイルの履歴を id で合わせ、maxHistory で
+// 切って書く。まだ読めなければ RETRY_READ_MS の次を予約する（使い切ったら止める）。名前はこのまま（mainrun が捕まえる）
+let historyRetryTimer = null;
+let historyRetryIdx = 0;
+function retryHistoryRead() {
+  if (historyRetryTimer) { clearTimeout(historyRetryTimer); historyRetryTimer = null; }
+  if (historyState !== 'unreadable') return;
+  const r = J.loadJsonFile(historyPath(), { shape: Array.isArray });
+  if (r.state === 'unreadable') {
+    if (historyRetryIdx < RETRY_READ_MS.length) historyRetryTimer = setTimeout(retryHistoryRead, RETRY_READ_MS[historyRetryIdx++]);
+    return;
+  }
+  historyState = 'ok';
+  const fromFile = r.state === 'ok' ? r.value : [];
+  if (r.state === 'broken') {
+    const name = path.basename(r.movedTo);
+    engineLog(`履歴: 読み直したら壊れていたので退けました（${r.reason}、${name}）`);
+    noticeMainWin(NOTICE.historyBroken(name));
+  }
+  const merged = lib.mergeHistory(history, fromFile, settings.maxHistory);
+  history = merged.list;
+  historyWriter.discard();
+  engineLog('履歴: 読めたので、ファイルの履歴と合わせました');
+  if (merged.changed) saveHistoryOrNotice();
+  sendToMainWin('history:updated', history);
 }
 
 // 履歴の削除・全消しの保存。書けなければ知らせる（N10）
 function saveHistoryOrNotice() {
   const w = historyWriter.now(history);
-  if (!w.ok) noticeMainWin(NOTICE.historyNotSaved);
+  // 読めない間（N14 で「保存せずに持っておく」と知らせ済み）は知らせを重ねない
+  if (!w.ok && !(w.error && w.error.code === 'NOT_WRITABLE')) noticeMainWin(NOTICE.historyNotSaved);
+}
+
+// 古い既定のスレッド数の移し替えは、今どおりメモリの中だけ（直しに数えない。知らせも写しも書き戻しも無い）。
+// 起動のときと、読めなかった設定を読み直して切り替えたとき（retrySettingsRead）に通す
+function migrateOldThreads(s) {
+  if (CPU_DEFAULT_THREADS > CPU_OLD_DEFAULT_THREADS) {
+    if (s.localThreads === CPU_OLD_DEFAULT_THREADS) s.localThreads = CPU_DEFAULT_THREADS;
+    if (s.sumThreads === CPU_OLD_DEFAULT_THREADS) s.sumThreads = CPU_DEFAULT_THREADS;
+  }
 }
 
 function loadStores() {
   // 保存時と同じ決まり（settings.js の readSettings）を通す。手で編集された settings.json のポートが文字列や
   // 範囲外だと、起動直後だけ正規化をすり抜けてエンジンの起動待ちが静かに失敗する。
-  settings = loadSettingsFromDisk();
-  // 古い既定のスレッド数の移し替えは、今どおりメモリの中だけ（直しに数えない。知らせも写しも書き戻しも無い）
-  if (CPU_DEFAULT_THREADS > CPU_OLD_DEFAULT_THREADS) {
-    if (settings.localThreads === CPU_OLD_DEFAULT_THREADS) settings.localThreads = CPU_DEFAULT_THREADS;
-    if (settings.sumThreads === CPU_OLD_DEFAULT_THREADS) settings.sumThreads = CPU_DEFAULT_THREADS;
+  const ls = loadSettingsFromDisk();
+  settings = ls.settings;
+  startupNotices.push(...ls.notices);
+  if (settingsState === 'unreadable') {
+    startupNotices.push(NOTICE.settingsBusy);
+    settingsRetryTimer = setTimeout(retrySettingsRead, RETRY_READ_MS[0]);
+    settingsRetryIdx = 1;
   }
+  migrateOldThreads(settings);
   history = loadHistoryFromDisk();
+  if (historyState === 'unreadable') {
+    historyRetryTimer = setTimeout(retryHistoryRead, RETRY_READ_MS[0]);
+    historyRetryIdx = 1;
+  }
   // 保存先は <userData>/data だけ。開けない（容量・権限など）と store.init は投げる。ここは
   // app.whenReady の中なので、投げると単一起動の鍵を持ったまま窓が出ず、次に起動しても何も
   // 起きない。だから受け止めて理由を持ち、画面が出てから知らせる（黙って続けると、議事録が
@@ -2335,7 +2446,7 @@ let lastPickDir = '';   // この起動で前に選んだフォルダ（43 か�
 const isDirSync = (d) => { try { return fs.statSync(d).isDirectory(); } catch (_) { return false; } };
 
 function setupIpc() {
-  ipcMain.handle('settings:get', () => settings);
+  ipcMain.handle('settings:get', () => { if (settingsState === 'unreadable') retrySettingsRead(); return settings; });
   ipcMain.handle('settings:save', (_e, next) => {
     const prevAutoLaunch = settings.autoLaunch;
     const prevPillPos = settings.pillPos;
@@ -2369,7 +2480,22 @@ function setupIpc() {
     if (guard.warning) warning = warning ? `${warning}。${guard.warning}` : guard.warning;
     if (merged.pillPos !== prevPillPos) merged.pillCustom = null;
     settings = merged;
-    settingsWriter.now(settings);   // 失敗の扱い（warning）は Task 2-3
+    // 書けなくても投げず、当てる行（テーマ・エンジン・保留の復旧・ログイン時の起動・トレイ）は最後まで行い、warning で返す。
+    // 書けなかった値は書き手に「まだ書いていない」として残り、次の保存と書き出しの合図でやり直す（JS1・JS5・P14・RF22）
+    const w = settingsWriter.now(settings);
+    if (!w.ok) {
+      let msg = '';
+      if (w.error && w.error.readOnly) {
+        if (settingsState !== 'readonly') msg = NOTICE.settingsReadOnly;   // その起動で1回だけ（N6）
+        settingsState = 'readonly';
+      } else if (w.error && w.error.code === 'NOT_WRITABLE') {
+        msg = NOTICE.settingsBusy;   // 読めない間（N4）
+      } else {
+        msg = NOTICE.settingsNotSaved;   // N7
+        engineLog(`設定: 保存できませんでした（${errCode(w.error)}）。次の変更のときにもう一度保存します`);
+      }
+      if (msg) warning = warning ? `${warning}。${msg}` : msg;
+    }
     applyTheme();
     if (!guard.kept.length) restartEnginesIfNeeded();
     // 保留していた復旧（エンジン未設定で止めていた分）を、設定が直った機会にもう一度試す
@@ -2730,4 +2856,26 @@ if (!gotLock) {
     stopEngine(whisperEng); stopEngine(sumEng); stopPaster();
   });
   app.on('will-quit', () => { globalShortcut.unregisterAll(); stopEngine(whisperEng); stopEngine(sumEng); stopPaster(); });
+}
+
+// 読み直し（retrySettingsRead）で本当の値に切り替えたときに当てる（第1a回 Task 2-3）。settings:save の当てる行と同じもの
+// （あちらはそのまま残す）。ファイルの最後に置くのは、repo.test.js の起動のホットキーの確かめが、最初の
+// resolveStartupHotkeys( の呼び出し（起動の所）から読むため（ここが先にあると、その確かめが起動の所を見なくなる）
+function applyReloadedSettings(prev, next) {
+  // ホットキーは起動のときと同じ決め方（登録できなければ既定に退避し、settings には書かない）
+  if (prev.hotkey !== next.hotkey || prev.meetingHotkey !== next.meetingHotkey) {
+    const r = resolveStartupHotkeys(next, DEFAULT_SETTINGS, applyHotkeys);
+    activeHotkeys = r.active;
+    hotkeyState = r.state;
+    hotkeyNote = r.note;
+    if (!r.state.ok) engineLog(`ホットキー: ${r.state.message}`);
+  }
+  applyTheme();
+  restartEnginesIfNeeded();
+  // 保留していた復旧（起動のときは既定の設定でエンジンが無く止めていた分）を、本当の設定になった機会にもう一度試す
+  if (recoveryQueue) transcribeRecovered().catch((e) => engineLog(`復旧の文字起こしに失敗: ${e.message}`));
+  if (next.autoLaunch !== prev.autoLaunch) {
+    try { app.setLoginItemSettings({ openAtLogin: next.autoLaunch }); } catch (_) { /* noop */ }
+  }
+  updateTray();
 }

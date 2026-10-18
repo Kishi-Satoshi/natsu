@@ -133,4 +133,52 @@ describe('第1a回 保存の守り（main）', { concurrency: Number(process.env
     assert.deepStrictEqual(r.files.filter((f) => f.endsWith('.tmp')), []);
     assert.ok(ours(r.notices).some((n) => n.startsWith('音声入力の履歴の変更を保存できませんでした')), r.notices.join('\n'));
   });
+
+  // 第1a回 Task 2-3: 書けないとき・読めないとき
+  test('JS5・F2: 設定を書けなくても、テーマまで当てて warning で返し、ファイルは元のまま。次の書き出しでやり直して書ける', SCENE, async () => {
+    const r = await run('save-fail');
+    assert.strictEqual(r.saved.ok, true);
+    assert.strictEqual(r.saved.warning, '設定を保存できませんでした。次の変更のときにもう一度保存します');
+    assert.strictEqual(r.themeAfterSave, 'light');
+    assert.strictEqual(JSON.parse(r.textAfterSave).theme, 'dark', '書けなかったのにファイルが変わった');
+    assert.ok(r.flushed.some((x) => x.name === 'settings.json' && x.ok));
+    assert.strictEqual(JSON.parse(r.settingsText).theme, 'light');
+  });
+
+  test('P14: 読み取り専用の settings.json は「管理者が決めた設定」— その起動で1回だけ知らせ、書かず、画面の変更はその起動の間だけ効く', SCENE, async () => {
+    const r = await run('readonly');
+    assert.ok(r.first.warning && r.first.warning.startsWith('設定のファイルが読み取り専用になっているため'), r.first.warning);
+    assert.strictEqual(r.second.warning, undefined, '2回目も知らせた');
+    assert.strictEqual(r.settingsText, JSON.stringify(SC.TYPICAL, null, 2));
+    assert.strictEqual(r.themeSource, 'dark');
+    assert.deepStrictEqual(r.files.filter((f) => f.endsWith('.tmp')), []);
+  });
+
+  test('RF22・F4: 起動で読めなかった設定は、読めるまで書かない（保存でも書き出しの合図でも）。読み直せたら本当の値に切り替え、読めない間の変更は捨てる', SCENE, async () => {
+    const r = await run('unreadable');
+    assert.ok(ours(r.notices).some((n) => n.startsWith('設定のファイルをほかのプログラムが使っていて読めませんでした')), r.notices.join('\n'));
+    assert.strictEqual(r.textWhileUnreadable, JSON.stringify(SC.TYPICAL, null, 2), '読めない間に既定で上書きした');
+    assert.ok(r.saveWhileUnreadable.ok && r.saveWhileUnreadable.warning.startsWith('設定のファイルをほかのプログラムが使っていて'));
+    assert.ok(r.flushWhileUnreadable.some((x) => x.name === 'settings.json' && x.ok === false));
+    assert.strictEqual(r.retries, 1);
+    assert.strictEqual(r.after.theme, 'dark');
+    assert.strictEqual(r.themeAfter, 'dark');
+    assert.strictEqual(r.textAfterReload, JSON.stringify(SC.TYPICAL, null, 2), '切り替えたときに読めない間の変更を書いた');
+    assert.ok(ours(r.notices).some((n) => n.startsWith('設定のファイルを読めたので、保存してある設定に切り替えました')));
+    assert.strictEqual(JSON.parse(r.textAfterSave).theme, 'light', '切り替えた後の保存が書かれない');
+  });
+
+  test('RF22: 読めなかった設定は、設定の画面を開いたとき（settings:get）にも読み直す', SCENE, async () => {
+    const r = await run('unreadable-get');
+    assert.strictEqual(r.got.theme, 'dark');
+    assert.strictEqual(r.got.micId, 'mic-1');
+  });
+
+  test('RF22: 読めなかった履歴は、読めるまで書かず（全消しでもファイルは元のまま）、読み直せたらファイルの履歴が戻る', SCENE, async () => {
+    const r = await run('history-unreadable');
+    assert.ok(ours(r.notices).some((n) => n.startsWith('音声入力の履歴のファイルをほかのプログラムが使っていて')));
+    assert.deepStrictEqual(r.cleared, []);
+    assert.strictEqual(r.textWhileUnreadable, JSON.stringify(SC.HISTORY, null, 2));
+    assert.deepStrictEqual(r.after.map((h) => h.id), ['h1']);
+  });
 });

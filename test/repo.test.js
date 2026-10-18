@@ -809,7 +809,8 @@ test('#35/#49 ホットキーは片方ずつ登録し、失敗を画面とトレ
   assert.ok(boot.includes('hotkeyState = r.state'), '起動時の結果を hotkeyState に残していない');
   // 画面から状態を引ける。settings:get は利用者の設定をそのまま返す
   assert.match(main, /ipcMain\.handle\('hotkey:state', \(\) => hotkeyState\)/);
-  assert.match(main, /ipcMain\.handle\('settings:get', \(\) => settings\)/);
+  // 第1a回 Task 2-3 で意図して変えた: settings:get は利用者の設定をそのまま返す。読めない間に開かれたら、返す前に1回読み直す（RF22）
+  assert.match(main, /ipcMain\.handle\('settings:get', \(\) => \{ if \(settingsState === 'unreadable'\) retrySettingsRead\(\); return settings; \}\)/);
   assert.ok(preload.includes("  hotkeyState: () => ipcRenderer.invoke('hotkey:state'),"));
   // トレイは実際に登録しているキーを出し、「（…: 既定の … を使用中）」「（… は登録できず）」を添える
   const tray = fnBody(code(main), 'function updateTray()', '\nfunction createTray');

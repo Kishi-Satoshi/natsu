@@ -44,4 +44,47 @@ module.exports = {
   'history-save-fail': { files: { 'settings.json': pretty(TYPICAL), 'history.json': pretty(HISTORY) },
     faults: [{ op: 'rename', match: /history\.json$/, code: 'EBUSY', times: Infinity }],
     act: async (c) => { c.out.cleared = await c.handlers['history:clear'](); c.out.history = await c.handlers['history:get'](); } },
+  // 第1a回 Task 2-3: 書けないとき・読めないとき
+  'save-fail': { files: { 'settings.json': pretty(TYPICAL) },
+    faults: [{ op: 'rename', match: /settings\.json$/, code: 'EBUSY', times: 7 }],   // 1 回の保存の試し（1 + RENAME_WAITS の 6）を全部失敗させる
+    act: async (c) => {
+      c.out.saved = await c.handlers['settings:save']({}, UI({ theme: 'light' }));
+      c.out.themeAfterSave = c.electron.nativeTheme.themeSource;
+      c.out.textAfterSave = c.read('settings.json').toString('utf8');
+      c.out.flushed = c.jsonfile.flushAll();   // 次の書き出しの合図でやり直す（失敗は使い切ったので通る）
+    } },
+  readonly: { files: { 'settings.json': pretty(TYPICAL) },
+    prepare: (ud) => require('node:fs').chmodSync(require('node:path').join(ud, 'settings.json'), 0o444),
+    act: async (c) => {
+      c.out.first = await c.handlers['settings:save']({}, UI({ theme: 'light' }));
+      c.out.second = await c.handlers['settings:save']({}, UI({ theme: 'dark' }));
+      c.out.themeSource = c.electron.nativeTheme.themeSource;
+      require('node:fs').chmodSync(require('node:path').join(c.userData, 'settings.json'), 0o644);   // 一時フォルダを消せるように戻す
+    } },
+  unreadable: { files: { 'settings.json': pretty(TYPICAL) },
+    faults: [{ op: 'read', match: /settings\.json$/, code: 'EBUSY', times: 7 }],   // 起動の1回の読み（1 + READ_WAITS の 6）を全部失敗させる
+    act: async (c) => {
+      c.out.saveWhileUnreadable = await c.handlers['settings:save']({}, UI({ theme: 'light' }));
+      c.out.flushWhileUnreadable = c.jsonfile.flushAll();
+      c.out.textWhileUnreadable = c.read('settings.json').toString('utf8');
+      c.out.retries = (c.timers.retrySettingsRead || []).length;
+      c.timers.retrySettingsRead[0]();
+      c.out.after = await c.handlers['settings:get']();
+      c.out.themeAfter = c.electron.nativeTheme.themeSource;
+      c.jsonfile.flushAll();
+      c.out.textAfterReload = c.read('settings.json').toString('utf8');
+      c.out.saveAfter = await c.handlers['settings:save']({}, UI({ theme: 'light' }));
+      c.out.textAfterSave = c.read('settings.json').toString('utf8');
+    } },
+  'unreadable-get': { files: { 'settings.json': pretty(TYPICAL) },
+    faults: [{ op: 'read', match: /settings\.json$/, code: 'EBUSY', times: 7 }],
+    act: async (c) => { c.out.got = await c.handlers['settings:get'](); } },
+  'history-unreadable': { files: { 'settings.json': pretty(TYPICAL), 'history.json': pretty(HISTORY) },
+    faults: [{ op: 'read', match: /history\.json$/, code: 'EBUSY', times: 7 }],
+    act: async (c) => {
+      c.out.cleared = await c.handlers['history:clear']();
+      c.out.textWhileUnreadable = c.read('history.json').toString('utf8');
+      c.timers.retryHistoryRead[0]();
+      c.out.after = await c.handlers['history:get']();
+    } },
 };

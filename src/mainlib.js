@@ -1095,6 +1095,19 @@ async function recordDictation({ history, entry, max, save, notify, deliver }) {
   return { saved };
 }
 
+// 読めなかった history.json を読み直せたとき（第1a回 Task 2-3。RF22）: 読めない間の履歴（新しい順）を先に、ファイルの履歴の
+// うち同じ id の無いものを後ろに並べ、max で切る（壊れた max は recordDictation と同じく既定）。
+// → { list, changed }。changed はファイルの履歴と並びが違う（書き戻すべき）とき真
+function mergeHistory(memory, fromFile, max) {
+  const limit = Number.isInteger(max) && max >= 0 && max <= 10000 ? max : HISTORY_MAX_DEFAULT;
+  const mem = Array.isArray(memory) ? memory : [];
+  const file = Array.isArray(fromFile) ? fromFile : [];
+  const ids = new Set(mem.map((h) => h && h.id));
+  const list = mem.concat(file.filter((h) => !ids.has(h && h.id))).slice(0, limit);
+  const changed = list.length !== file.length || list.some((h, i) => h !== file[i]);
+  return { list, changed };
+}
+
 module.exports = {
   saveIfExists, meetingDurationSec, promptTail,
   registerHotkeys, hotkeyFailureMessage, hotkeyStatus, resolveStartupHotkeys, saveHotkeys,
@@ -1112,5 +1125,5 @@ module.exports = {
   estimateTokens, foldNotes, idleEnginesToStop, silentWav, wavLevelDbfs, mergeSummaryType, memoEvidence,
   isLoopbackUrl, loopbackOnlyFetch,
   sameShas, keepPrevious, candStamp, repairIdsOf, pathUsedBy, fetchMinutesLeft,
-  recordDictation,
+  recordDictation, mergeHistory,
 };
