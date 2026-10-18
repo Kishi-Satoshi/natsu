@@ -299,8 +299,8 @@ test('Lane F-c: ログインの窓の組み立て。PowerShell は SystemRoot �
   assert.deepStrictEqual(K.LOGIN_ARGS, ['auth', 'login']);
   // SystemRoot が無ければ名前で（PATH の上の powershell.exe）
   assert.strictEqual(K.windowLaunch('login', { exe, env: {}, platform: 'win32' }).cmd, 'powershell.exe');
-  // claude.exe でない・相対・改行入り・空は開かない（NaTsu の探した claude.exe だけ。.cmd や .js を ShellExecute で開かない）
-  for (const bad of ['', 'claude.exe', 'C:\\npm\\claude.cmd', 'C:\\x\\claude.js', 'C:\\x\\claude.exe\r\nC:\\evil.exe', 'C:\\x\\claude.exe ']) {
+  // claude.exe でない・相対・改行入り・引用符入り・空は開かない（NaTsu の探した claude.exe だけ。.cmd や .js を ShellExecute で開かない）
+  for (const bad of ['', 'claude.exe', 'C:\\npm\\claude.cmd', 'C:\\x\\claude.js', 'C:\\x\\claude.exe\r\nC:\\evil.exe', 'C:\\x\\claude.exe ', 'C:\\a"b\\claude.exe']) {
     assert.deepStrictEqual(K.windowLaunch('login', { exe: bad, env: {}, platform: 'win32' }), { ok: false, code: 'not-found' }, JSON.stringify(bad));
   }
   // Windows のほかでは開かない（ターミナルで claude auth login を打てる）
@@ -309,7 +309,8 @@ test('Lane F-c: ログインの窓の組み立て。PowerShell は SystemRoot �
 });
 
 test('Lane F-d: 入れる窓の組み立て。見える PowerShell の窓で、決まった文字 irm https://claude.ai/install.ps1 | iex をそのまま見せてから実行する（場所は渡さない）', () => {
-  const L = K.windowLaunch('install', { env: { SystemRoot: 'C:\\Windows' }, platform: 'win32' });
+  // 呼び手の環境に場所の変数が残っていても、入れる窓には渡さない
+  const L = K.windowLaunch('install', { env: { SystemRoot: 'C:\\Windows', NATSU_CLAUDE_EXE: 'C:\\x\\claude.exe' }, platform: 'win32' });
   assert.strictEqual(L.ok, true);
   assert.strictEqual(K.INSTALL_CMD, 'irm https://claude.ai/install.ps1 | iex');
   const outer = psCmdOf(L);

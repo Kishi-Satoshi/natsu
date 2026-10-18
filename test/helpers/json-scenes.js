@@ -354,6 +354,8 @@ module.exports = {
       o.expired = await h('claude:test');
       process.env.FAKE_CLAUDE_MODE = 'limit';
       o.limited = await h('claude:test');
+      process.env.FAKE_CLAUDE_MODE = 'overloaded';   // 混み合い（ログインはできている）
+      o.overloaded = await h('claude:test');
       process.env.FAKE_CLAUDE_MODE = 'ok';
       process.env.FAKE_CLAUDE_AUTH = 'none';
       o.notLogged = await h('claude:test');
@@ -361,12 +363,30 @@ module.exports = {
       o.apiKey = await h('claude:test');
       process.env.FAKE_CLAUDE_AUTH = 'mystery';
       o.unknown = await h('claude:test');
+      o.claudeLog = lines();
+      // 確かめの要求の時間切れと、auth status は通ったのに -p を起こせない。main が呼ぶ claude-cli の claudePing を、この間だけ
+      // 短い時間切れ（60 秒は待たない）か、起こすと投げる spawn で包む（文は main の 60 秒のまま）。偽の claude の記録の数は上で取った
+      const cli = require('../../src/claude-cli');
+      const realPing = cli.claudePing;
+      process.env.FAKE_CLAUDE_AUTH = 'claude.ai';
+      try {
+        process.env.FAKE_CLAUDE_MODE = 'slow';
+        process.env.FAKE_CLAUDE_DELAY = '20000';
+        cli.claudePing = (a) => realPing({ ...a, timeoutMs: 300 });
+        o.pingTimeout = await h('claude:test');
+        process.env.FAKE_CLAUDE_MODE = 'ok';
+        cli.claudePing = (a) => realPing({ ...a, spawn: () => { const e = new Error('spawn ENOENT'); e.code = 'ENOENT'; throw e; } });
+        o.pingNotFound = await h('claude:test');
+      } finally {
+        cli.claudePing = realPing;
+        delete process.env.FAKE_CLAUDE_DELAY;
+        process.env.FAKE_CLAUDE_MODE = 'ok';
+      }
       const noexec = p.join(c.userData, 'claude-noexec.exe');
       fs.writeFileSync(noexec, 'not a program\n');
       fs.chmodSync(noexec, 0o644);
       o.savedNoexec = await h('settings:save', UI({ claudeExe: noexec }));
       o.noexec = await h('claude:test');
-      o.claudeLog = lines();
     } },
   // 第1b回の続き Lane F-c・F-d: ［Claude Code にログイン］［Claude Code を入れる］。claude.exe は userData の bin の空のファイル（mainrun が
   // 偽の claude を node で起こす）。見える窓を開く powershell.exe は mainrun が本当には起こさず覚えるだけ（launches）。窓を開く間だけ

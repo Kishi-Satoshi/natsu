@@ -113,6 +113,14 @@ test('OL5・RF25・RF31: 設定の［Claude Code を確かめる］を偽の cla
   assert.deepStrictEqual(o.expired, { ok: true, found: true, cmdOnly: false, method: 'claude.ai', message: 'Claude Code のログインが切れています。設定の［Claude Code にログイン］を押してください。' });
   assert.match(o.limited.message, /^Claude の利用の上限に達しています（3:45pm に戻ります）。/);
   assert.ok(!('verified' in o.limited) && !('verified' in o.expired));
+  // 混み合い・時間切れは設定の画面の自分の文（分からない答えの文に落ちない）。ログインはできているので found のまま
+  assert.deepStrictEqual(o.overloaded, { ok: true, found: true, cmdOnly: false, method: 'claude.ai', message: 'Claude が混み合っています（ログインはできています）。少し待ってから［Claude Code を確かめる］を押してください。' });
+  assert.deepStrictEqual(o.pingTimeout, { ok: true, found: true, cmdOnly: false, method: 'claude.ai', message: 'Claude Code が 60 秒たっても返事をしませんでした。少し待ってから［Claude Code を確かめる］を押してください。' });
+  // auth status は通ったのに -p を起こせない（消された・ウイルス対策）: 見つからない扱い（カードは［Claude Code を入れる］を出す）
+  assert.deepStrictEqual({ ...o.pingNotFound, message: '' }, { ok: true, found: false, cmdOnly: false, method: 'claude.ai', message: '' });
+  assert.match(o.pingNotFound.message, /^Claude Code が見つかりません。［Claude Code を入れる］を押すと、/);
+  assert.ok(!o.pingNotFound.message.includes('場所を空にすると'), o.pingNotFound.message);
+  assert.ok(o.engineLog.includes('Claude Code の確かめの要求: timeout') && o.engineLog.includes('Claude Code の確かめの要求: not-found'), o.engineLog.join('\n'));
   const settingsText = (r) => {
     assert.ok(typeof r.message === 'string' && r.message.length > 10, `文が無い: ${JSON.stringify(r)}`);
     assert.ok(!/要約を生成|要約を作れませんでした/.test(r.message), `設定の画面に要約の失敗の文が出る: ${r.message}`);
@@ -143,8 +151,9 @@ test('OL5・RF25・RF31: 設定の［Claude Code を確かめる］を偽の cla
     assert.deepStrictEqual(r.envKeys, [], `課金の変数が子に渡った: ${r.envKeys}`);
     assert.strictEqual(path.basename(r.cwd), 'claude-run');
   }
-  // -p は auth status が claude.ai のときだけ（both・twice・expired・limited の4回。未ログイン・API キー・分からない答えでは送らない）
-  assert.strictEqual(o.claudeLog.filter((r) => r.kind === 'p').length, 4);
+  // -p は auth status が claude.ai のときだけ（both・twice・expired・limited・overloaded の5回。未ログイン・API キー・分からない答えでは送らない。
+  // 記録は時間切れと起こせない場合の前に取る）
+  assert.strictEqual(o.claudeLog.filter((r) => r.kind === 'p').length, 5);
   assert.ok(o.engineLog.some((l) => l.includes('Claude Code の確かめ: ok（claude.ai）')));
   assert.ok(o.engineLog.some((l) => l.includes('Claude Code の確かめ: api-billing')));
   assert.ok(o.engineLog.includes('Claude Code の確かめの要求: ok'), o.engineLog.join('\n'));
