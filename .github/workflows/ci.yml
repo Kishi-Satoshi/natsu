@@ -259,3 +259,48 @@ jobs:
       - name: 本物の Electron の net.request が、取り込みの前提どおりに動くか
         shell: bash
         run: '"$RUNNER_TEMP/el/node_modules/electron/dist/electron.exe" tools/net-smoke.js'
+
+  # 配る Electron（package.json の版）を Windows で本当に動かす（第0c回 EL6・EL8。RF13・RF15）。
+  #  - node_modules の Electron を Node として（ELECTRON_RUN_AS_NODE=1）node:sqlite・FTS5 trigram・backup() を見る
+  #  - electron-builder で NSIS とポータブルを作り、詰めた NaTsu.exe でも同じ煙テストを走らせる
+  #    （配る exe で node:sqlite が動くことと、exe を Node として起動できる設定〔RunAsNode〕が切られていないこと）
+  # 履歴ごと取る（Task 14 でテスト全部をここでも回す。gate.test.js が古いコミットを読む）
+  electron-smoke:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - name: 改行の変換を止める
+        shell: bash
+        run: git config --global core.autocrlf false
+
+      - name: 取り出す（履歴ごと）
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Node を用意する
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: 依存を入れる（electron / electron-builder）
+        shell: bash
+        run: npm install --no-audit --no-fund
+
+      - name: Electron の本体を取り込む
+        shell: bash
+        run: node node_modules/electron/install.js
+
+      - name: node_modules の Electron で node:sqlite・trigram・backup() を確かめる
+        shell: bash
+        run: ELECTRON_RUN_AS_NODE=1 node_modules/electron/dist/electron.exe tools/sqlite-probe.js
+
+      - name: NSIS とポータブルを作る
+        shell: bash
+        run: npx --no electron-builder --win nsis portable --publish never
+
+      - name: 詰めた NaTsu.exe で node:sqlite・trigram・backup() を確かめる
+        shell: bash
+        run: |
+          ls -l dist/*-setup.exe dist/*-portable.exe
+          ELECTRON_RUN_AS_NODE=1 dist/win-unpacked/NaTsu.exe tools/sqlite-probe.js

@@ -235,3 +235,28 @@ test('npm test は TAP で出す（Node 23 から既定が spec になり、ci.y
   const pkg = JSON.parse(read('package.json'));
   assert.strictEqual(pkg.scripts.test, 'node --test --test-reporter=tap "test/*.test.js"');
 });
+
+// ---------------------------------------------------------------- electron-smoke・リリースの煙テスト（第0c回 EL6・EL8。C5）
+const idxOf = (st, re) => st.findIndex((s) => re.test(s));
+test('ci.yml の electron-smoke（Windows）: 本体を取り込み、node_modules の Electron で煙テスト → NSIS とポータブル → 詰めた NaTsu.exe で煙テスト', () => {
+  const j = jobsOf(read('.github/workflows/ci.yml'))['electron-smoke'];
+  assert.ok(j, 'electron-smoke のジョブが無い');
+  assert.match(j, /^    runs-on: windows-latest$/m);
+  const st = stepsOf(j);
+  assert.ok(st.some((s) => /uses: actions\/checkout@v4/.test(s) && /fetch-depth: 0/.test(s)), '履歴ごと取っていない（Task 14 のテスト全部で gate.test.js が読む）');
+  const i = [/npm install --no-audit --no-fund/, /node node_modules\/electron\/install\.js/,
+    /ELECTRON_RUN_AS_NODE=1 node_modules\/electron\/dist\/electron\.exe tools\/sqlite-probe\.js/,
+    /electron-builder --win nsis portable --publish never/,
+    /ELECTRON_RUN_AS_NODE=1 dist\/win-unpacked\/NaTsu\.exe tools\/sqlite-probe\.js/].map((re) => idxOf(st, re));
+  assert.ok(i[0] >= 0 && i.every((v, k) => k === 0 || v > i[k - 1]), `順が違う: ${i.join(',')}`);
+});
+test('release.yml の installer: 本体を取り込んで煙テストを通してから exe を作り、詰めた NaTsu.exe でも通してから、setup とポータブルを添付する', () => {
+  const st = stepsOf(jobsOf(read('.github/workflows/release.yml')).installer);
+  const i = [/npm install --no-audit --no-fund/, /node node_modules\/electron\/install\.js/,
+    /ELECTRON_RUN_AS_NODE=1 node_modules\/electron\/dist\/electron\.exe tools\/sqlite-probe\.js/,
+    /npm run dist:installer -- --publish never/, /npm run dist -- --publish never/,
+    /ELECTRON_RUN_AS_NODE=1 dist\/win-unpacked\/NaTsu\.exe tools\/sqlite-probe\.js/,
+    /gh release upload "\$TAG" --repo "\$GITHUB_REPOSITORY" dist\/\*-setup\.exe dist\/\*-portable\.exe/].map((re) => idxOf(st, re));
+  assert.ok(i[0] >= 0 && i.every((v, k) => k === 0 || v > i[k - 1]), `順が違う: ${i.join(',')}`);
+  for (const k of [1, 2, 4, 5]) assert.match(st[i[k]], /^\s*if: steps\.exists\.outputs\.skip == 'false'$/m, `${k} 番目の段が、既に exe があるときも走る`);
+});

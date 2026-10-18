@@ -270,12 +270,33 @@ jobs:
         if: steps.exists.outputs.skip == 'false'
         run: npm install --no-audit --no-fund
 
+      - name: Electron の本体を取り込む
+        if: steps.exists.outputs.skip == 'false'
+        shell: bash
+        run: node node_modules/electron/install.js
+
+      # 配る Electron で node:sqlite・FTS5 trigram・backup() が使えなければ、exe を作らず止める（第0c回 EL8・C5）
+      - name: node_modules の Electron で node:sqlite・trigram・backup() を確かめる（無ければ出さない）
+        if: steps.exists.outputs.skip == 'false'
+        shell: bash
+        run: ELECTRON_RUN_AS_NODE=1 node_modules/electron/dist/electron.exe tools/sqlite-probe.js
+
       # --publish never を渡す。CI では electron-builder が自分で
       # GitHub へ publish しようとして GH_TOKEN を要求し、失敗する。
       # 添付は下のステップで自分で行う（リリースの作り方を握っておきたい）。
       - name: インストーラーを作る
         if: steps.exists.outputs.skip == 'false'
         run: npm run dist:installer -- --publish never
+
+      - name: ポータブル版を作る
+        if: steps.exists.outputs.skip == 'false'
+        run: npm run dist -- --publish never
+
+      # 詰めた exe で node:sqlite が動くことと、exe を Node として起動できる設定（RunAsNode）が切られていないこと
+      - name: 詰めた NaTsu.exe で同じ煙テストを走らせる（配る exe。無ければ出さない）
+        if: steps.exists.outputs.skip == 'false'
+        shell: bash
+        run: ELECTRON_RUN_AS_NODE=1 dist/win-unpacked/NaTsu.exe tools/sqlite-probe.js
 
       - name: Release に添付する
         if: steps.exists.outputs.skip == 'false'
@@ -285,7 +306,7 @@ jobs:
         shell: bash
         run: |
           ls -l dist/*.exe
-          gh release upload "$TAG" --repo "$GITHUB_REPOSITORY" dist/*-setup.exe
+          gh release upload "$TAG" --repo "$GITHUB_REPOSITORY" dist/*-setup.exe dist/*-portable.exe
 
       # exe が揃ったので公開する。「既に添付されている」経路（作り直さない）でも
       # release ジョブが draft に戻しているので、ここで必ず解く。
