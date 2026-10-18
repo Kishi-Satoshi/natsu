@@ -29,6 +29,9 @@ test('get-electron: 本体があれば何もしない。Node が古ければ取�
   const d = (o) => ({ version: '24.22.0', platform: 'win32', exists: () => false, run: () => { runs += 1; return 0; }, log: (l) => logs.push(l), ...o });
   assert.strictEqual(G.getElectron(root, d({ exists: (p) => p === G.electronExe(root, 'win32') })), 0);
   assert.strictEqual(runs, 0);
+  assert.strictEqual(G.getElectron(root, d({ version: '20.18.0', exists: (p) => p === G.electronExe(root, 'win32') })), 0, '本体があるのに Node の版で止まった（本体の有無を先に見る）');
+  assert.strictEqual(logs.length, 0, '本体があるのに案内を出した');
+  assert.strictEqual(runs, 0);
   assert.strictEqual(G.getElectron(root, d({ version: '20.18.0' })), 3);
   assert.strictEqual(logs.pop(), 'Node.js 22.12 以上を入れてください（今の Node.js は 20.18.0）。https://nodejs.org/ja から LTS 版を入れられます。');
   assert.strictEqual(runs, 0, '古い Node で取り込みを走らせた');
@@ -91,11 +94,14 @@ test('start-natsu.bat: electron.exe が無いときだけ node で get-electron.
   const i3 = t.indexOf(':run');
   const i4 = t.indexOf('start "" "%APPDIR%\\node_modules\\electron\\dist\\electron.exe" "%APPDIR%"');
   assert.ok(i1 >= 0 && i2 > i1 && i3 > i2 && i4 > i3, `順が違う: ${[i1, i2, i3, i4]}`);
+  const i5 = t.indexOf('if errorlevel 1 goto failed');
+  assert.ok(i5 > i2 && i5 < i3, 'get-electron.js が失敗しても electron.exe を起こしにいく');
+  assert.ok(t.includes(':failed\r\npause'), '失敗したときに止まって案内を読ませない');
   assert.ok(t.includes('Node.js 22.12 以上を入れてください'));
 });
 
 test('create-shortcut.ps1: electron.exe が無いときだけ node で get-electron.js を呼び、npx を使わない', () => {
-  const t = read('create-shortcut.ps1').replace(/^﻿/, '');
+  const t = read('create-shortcut.ps1').replace(/^\uFEFF/, '');
   assert.ok(!/npx/i.test(t));
   assert.ok(t.includes('& $node.Source (Join-Path $app "tools\\get-electron.js") $app'));
   assert.ok(t.includes('if ($LASTEXITCODE -ne 0) { exit 1 }'));
