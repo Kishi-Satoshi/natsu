@@ -166,3 +166,21 @@ test('tools/shots/main.js は electron を boot() の中だけで読む（npm te
   assert.ok(m.includes("require('../../src/security')") && m.includes('security.install('));
   assert.ok(m.includes("require('../png')") && !m.includes('toBitmap('), 'PNG は自作の部品で読む（toBitmap の並びは版ごとに変わる）');
 });
+
+test('G2: 作業域より大きい窓が作るときに縮められても（Windows の CI の画面は 1024x768）、撮る前に決めた大きさへ戻す', { timeout: 5000 }, () => {
+  const fake = (w, h) => {
+    const calls = [];
+    return { calls, getContentSize: () => [w, h], setContentSize: (...a) => { calls.push(a); } };
+  };
+  const shrunk = fake(1024, 720);
+  assert.strictEqual(SH.ensureContentSize(shrunk, SH.SIZE), true);
+  assert.deepStrictEqual(shrunk.calls, [[SH.SIZE.width, SH.SIZE.height]]);
+  const right = fake(SH.OVERLAY_SIZE.width, SH.OVERLAY_SIZE.height);
+  assert.strictEqual(SH.ensureContentSize(right, SH.OVERLAY_SIZE), false);
+  assert.deepStrictEqual(right.calls, []);
+  // main は窓を作った直後（ページを開く前）に呼ぶ
+  const m = read('tools/shots/main.js');
+  const made = m.indexOf('new BrowserWindow(');
+  const fix = m.indexOf('SH.ensureContentSize(win, size)');
+  assert.ok(made >= 0 && fix > made && fix < m.indexOf("wc.loadURL('about:blank')"), '窓を作った直後に大きさを決め直していない');
+});

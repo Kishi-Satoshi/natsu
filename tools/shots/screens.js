@@ -249,7 +249,16 @@ function exitCodeOf({ shots, compare, flaky = [], csp = [], perf = [], errors = 
   return n > 0 ? 0 : 1;
 }
 
+// 窓の中の大きさを決めた大きさにする（作業域より大きい窓は、作るときに作業域まで縮められる: Windows の CI の 1024x768 の画面で
+// 1120x780 が 1024x720 になった）。直したら true
+function ensureContentSize(win, size) {
+  const [w, h] = win.getContentSize();
+  if (w === size.width && h === size.height) return false;
+  win.setContentSize(size.width, size.height);
+  return true;
+}
+
 module.exports = {
   SIZE, OVERLAY_SIZE, SCREENS, PERF, FIXED_NOW, TIME_ZONE, TOLERANCE, FREEZE_CSS,
-  apiNamesOf, fixtures, bigPage, bigListEntry, judgePair, compareAll, cspViolation, median, judgePerf, exitCodeOf,
+  apiNamesOf, fixtures, bigPage, bigListEntry, judgePair, compareAll, cspViolation, median, judgePerf, exitCodeOf, ensureContentSize,
 };

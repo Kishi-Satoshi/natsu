@@ -125,6 +125,9 @@ function boot() {
           preload: path.join(__dirname, 'preload.js'), session: ses,
         },
       });
+      // 画面の作業域より大きい窓は、作るときに作業域まで縮められる（Windows の CI の画面は 1024x768 で、1120x780 が 1024x720 になった）。
+      // offscreen の窓は画面に出ないので、作った後に決めた大きさへ戻す（画面の大きさで撮る画像が変わらないように）
+      SH.ensureContentSize(win, size);
       const wc = win.webContents;
       const t = { answers, pending: 0, last: Date.now() };
       tables.set(wc.id, t);
