@@ -24,7 +24,7 @@ https://github.com/Kishi-Satoshi/natsu/releases/latest
 
 | ファイル | 用途 |
 | --- | --- |
-| `NaTsu-<版>-setup.exe` | アプリ本体（約 75MB） |
+| `NaTsu-<版>-setup.exe` | アプリ本体（約 120MB） |
 
 文字起こしと要約のエンジンは、インストールした後にアプリが取り込みます（手順3）。
 
