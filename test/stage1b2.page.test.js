@@ -44,6 +44,20 @@ test('1b2 P-1・G6: 操作（#pActs）は上の帯（.pagebar）にあり、ペ�
   assert.deepStrictEqual(crumb(l), ['🎤', '音声入力']);
 });
 
+test('1b2 P-1・G6: 別のページのタブを読み込んでいる間は、操作（#pActs）を隠す（前のページの［削除］が押せない）', async () => {
+  let release; const gate = new Promise((r) => { release = r; });
+  const l = await load(APP, { preloadSrc: PRELOAD, returns: { pagesSearch: () => LIST, pageGet: (id) => (id === 'pb2' ? gate.then(() => PAGE(id)) : PAGE(id)) } });
+  await l.drain();
+  const row = (id) => l.byId.get('plist').querySelectorAll('.pitem').find((r) => r.querySelector('.t').textContent === LIST.find((p) => p.id === id).title);
+  const acts = l.byId.get('pActs');
+  row('pa1').dispatchEvent({ type: 'click' }); await l.drain();
+  assert.strictEqual(acts.hidden, false);
+  row('pb2').dispatchEvent({ type: 'click', ctrlKey: true }); await l.drain();
+  assert.strictEqual(acts.hidden, true, '読み込み中の B のタブで A の［削除］が押せる');
+  release(); await l.drain();
+  assert.strictEqual(acts.hidden, false);
+});
+
 test('1b2 P-1: 要約のあるページは見えるボタンが「···」だけで、中は 要約を再生成・コピー・削除。無いページは［要約を生成］と「···」', async () => {
   const visible = (l) => l.byId.get('pActs').querySelectorAll('button').filter((b) => !b.closest('#pMenu')).map((b) => b.id || b.textContent);
   const menu = (l) => l.byId.get('pMenu').querySelectorAll('[role="menuitem"]').map((b) => b.textContent);

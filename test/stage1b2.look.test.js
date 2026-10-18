@@ -119,6 +119,17 @@ test('1b2 L-2・G4: ［検索］で窓が開いて入力欄へ。Esc で閉じ�
   assert.ok(l.document.activeElement === btn, '閉じても［検索］へフォーカスが戻らない');
 });
 
+test('1b2 L-2・G4: サイドバーを畳んだまま Ctrl+P で開いて Esc で閉じると、フォーカスは［»］へ戻る（隠れた［検索］へ送って見失わない）', async () => {
+  const l = await boot();
+  l.byId.get('sideCollapse').dispatchEvent({ type: 'click' }); await l.drain();
+  assert.strictEqual(l.byId.get('sideExpand').hidden, false);
+  if (l.document.activeElement) l.document.activeElement.blur();   // 何も選んでいない画面（body）から Ctrl+P
+  l.key({ key: 'p', code: 'KeyP', ctrlKey: true }); await l.drain();
+  assert.strictEqual(l.byId.get('palette').hidden, false);
+  l.key({ key: 'Escape' }, l.byId.get('searchBox')); await l.drain();
+  assert.ok(l.document.activeElement === l.byId.get('sideExpand'), '畳んだサイドバーの［検索］へフォーカスを送った（本物の画面では body へ落ちる）');
+});
+
 test('1b2 L-2・G3: Ctrl+P で開く（preventDefault）。Ctrl+Shift+P・変換中・ホットキーを入れている最中は開かない', async () => {
   const l = await boot();
   const pal = l.byId.get('palette');

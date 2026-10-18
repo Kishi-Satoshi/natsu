@@ -1650,7 +1650,8 @@
     $('palette').hidden = true;
     const body = document.body;
     const alive = palFrom && (!body || typeof body.contains !== 'function' || body.contains(palFrom));
-    const to = alive ? palFrom : $('sideSearch');
+    // 戻り先が無いときは［検索］へ。サイドバーを畳んでいると［検索］は見えずフォーカスが落ちるので［»］へ
+    const to = alive ? palFrom : $(sideState.collapsed ? 'sideExpand' : 'sideSearch');
     palFrom = null;
     if (to && typeof to.focus === 'function') to.focus();
   }
