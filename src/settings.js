@@ -114,7 +114,7 @@ function defaultSettings(cpuCount) {
 //   string:   文字列。違えば ''
 //   language: auto か英小文字 2〜3 字。違えば 'ja'
 //   hotkey:   空でない文字列（本当の確かめは今どおり登録で）。違えば既定
-//   enum:     values のどれか。違えば既定
+//   enum:     values のどれか。違えば既定（形が違うときの why は typeWhy があればそれ。theme は計画の表のとおり enum だけ）
 //   point:    null か、x・y が有限の数の { x, y }。違えば null
 //   bool:     真偽値。今の判定で直す（notFalse は「false でなければオン」、ほかは「値があればオン」）
 //   words:    normalizeSettings が文字の並びに整える。配列でなければ []
@@ -140,7 +140,7 @@ const SETTING_RULES = {
   removeFillers: { label: 'フィラー除去', kind: 'bool' },
   soundFeedback: { label: '効果音', kind: 'bool' },
   autoLaunch: { label: 'Windowsサインイン時に自動起動', kind: 'bool' },
-  theme: { label: '画面の配色', kind: 'enum', values: THEMES },
+  theme: { label: '画面の配色', kind: 'enum', values: THEMES, typeWhy: 'enum' },
   stayInTray: { label: 'ウィンドウを閉じてもタスクトレイに残す', kind: 'bool' },
   dictionary: { label: 'ユーザー辞書', kind: 'words' },
   useBuiltinTerms: { label: '業務でよく使う言葉のヒントも渡す', kind: 'bool', notFalse: true },
@@ -185,7 +185,7 @@ const FIX = {
     return v.trim() ? { value: v, why: null } : { value: def, why: 'empty' };
   },
   enum(v, { def, rule }) {
-    if (typeof v !== 'string') return { value: def, why: 'type' };
+    if (typeof v !== 'string') return { value: def, why: rule.typeWhy || 'type' };
     return rule.values.includes(v) ? { value: v, why: null } : { value: def, why: 'enum' };
   },
   point(v) {

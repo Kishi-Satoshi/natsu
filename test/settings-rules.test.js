@@ -25,7 +25,7 @@ const legacy = (raw) => S.normalizeSettings({ ...D, ...raw }, D);
 const ON = (key, v) => (key === 'useBuiltinTerms' ? v !== false : Boolean(v));
 const BOOLS = ['useVad', 'suppressNst', 'autoPaste', 'removeFillers', 'soundFeedback', 'autoLaunch', 'stayInTray', 'useBuiltinTerms', 'useSystemAudio'];
 
-test('JS6: 決まりの表のキーは既定の 30 のキーとちょうど同じ。どれにも画面の名前がある', () => {
+test('JS6: 決まりの表のキーは既定の 30 のキーとちょうど同じ。どれにも画面の名前がある', { timeout: 5000 }, () => {
   assert.deepStrictEqual(D, TODAY);
   assert.strictEqual(S.SETTING_KEYS.length, 30);
   assert.deepStrictEqual([...S.SETTING_KEYS].sort(), Object.keys(TODAY).sort());
@@ -34,14 +34,14 @@ test('JS6: 決まりの表のキーは既定の 30 のキーとちょうど同�
   assert.ok(!('dataDir' in D));
 });
 
-test('JS6: 無いキーは黙って既定で埋める（版を上げたときのふつうのこと）。今の画面が書く値はそのまま往復する', () => {
+test('JS6: 無いキーは黙って既定で埋める（版を上げたときのふつうのこと）。今の画面が書く値はそのまま往復する', { timeout: 5000 }, () => {
   assert.deepStrictEqual(S.readSettings({}, D), { settings: D, repaired: [], falseLike: [] });
   const r = S.readSettings(JSON.parse(JSON.stringify({ ...UI, pillCustom: { x: 10, y: 20 }, maxHistory: 300 })), D);
   assert.deepStrictEqual(r.repaired, []);
   assert.deepStrictEqual(r.settings, { ...D, ...UI, pillCustom: { x: 10, y: 20 }, maxHistory: 300 });
 });
 
-test('JS6・RF23: 壊れた項目だけを直し、ほかは残す（キーごとの表）', () => {
+test('JS6・RF23: 壊れた項目だけを直し、ほかは残す（キーごとの表）', { timeout: 5000 }, () => {
   const rows = [
     // [キー, 書かれていた値, 読んだ値, repaired の why（null は直していない）]
     ['localPort', '8080', 8080, null], ['localPort', 99999, 65535, 'range'], ['localPort', 'abc', 8990, 'type'],
@@ -54,7 +54,7 @@ test('JS6・RF23: 壊れた項目だけを直し、ほかは残す（キーご�
     ['hotkey', '', 'Control+Shift+Space', 'empty'], ['meetingHotkey', 5, 'Alt+M', 'type'],
     ['pillPos', 'top-left', 'top-left', null], ['pillPos', 5, 'bottom', 'type'], ['pillPos', 'center', 'bottom', 'enum'],
     ['pillCustom', { x: 1, y: 2 }, { x: 1, y: 2 }, null], ['pillCustom', { x: '1', y: 2 }, null, 'type'], ['pillCustom', 'x', null, 'type'],
-    ['theme', 'blue', 'system', 'enum'], ['dictionary', 'x', [], 'type'], ['dictionary', [' 見積 ', '', 42], ['見積', '42'], null],
+    ['theme', 'blue', 'system', 'enum'], ['theme', 5, 'system', 'enum'], ['dictionary', 'x', [], 'type'], ['dictionary', [' 見積 ', '', 42], ['見積', '42'], null],
   ];
   for (const [key, raw, want, why] of rows) {
     const r = S.readSettings({ [key]: raw, theme: key === 'theme' ? raw : 'dark' }, D);
@@ -64,7 +64,7 @@ test('JS6・RF23: 壊れた項目だけを直し、ほかは残す（キーご�
   }
 });
 
-test('F11・JS6: オンとオフの欄は今の判定のまま真偽値に直す（useBuiltinTerms だけ「false でなければオン」）。"false" の文字はオンのままで印を返す', () => {
+test('F11・JS6: オンとオフの欄は今の判定のまま真偽値に直す（useBuiltinTerms だけ「false でなければオン」）。"false" の文字はオンのままで印を返す', { timeout: 5000 }, () => {
   const raw = { useVad: 'true', autoPaste: 'false', removeFillers: 0, soundFeedback: 'yes', useBuiltinTerms: null, useSystemAudio: 1, stayInTray: '' };
   const r = S.readSettings(raw, D);
   for (const k of Object.keys(raw)) {
@@ -78,7 +78,7 @@ test('F11・JS6: オンとオフの欄は今の判定のまま真偽値に直す
   assert.deepStrictEqual(r.repaired.map((x) => x.key).sort(), Object.keys(raw).sort());
 });
 
-test('JS6: 知らないキーは消さずに残し（古い版に戻したときに新しい版の設定が消えない）、dataDir は今どおり黙って捨てる。入力は書き換えない', () => {
+test('JS6: 知らないキーは消さずに残し（古い版に戻したときに新しい版の設定が消えない）、dataDir は今どおり黙って捨てる。入力は書き換えない', { timeout: 5000 }, () => {
   const raw = { futureKey: { a: 1 }, dataDir: 'C:\\old', theme: 'dark' };
   const copy = JSON.parse(JSON.stringify(raw));
   const r = S.readSettings(raw, D);
@@ -88,7 +88,7 @@ test('JS6: 知らないキーは消さずに残し（古い版に戻したとき
   assert.deepStrictEqual(raw, copy);
 });
 
-test('RF23: 今の読み方と比べる — 今の結果が正しかった所は同じ値、オンかオフか・whisper に渡す言語は同じ', () => {
+test('RF23: 今の読み方と比べる — 今の結果が正しかった所は同じ値、オンかオフか・whisper に渡す言語は同じ', { timeout: 5000 }, () => {
   const fixtures = [
     JSON.parse(JSON.stringify(D)),
     { ...UI, pillPos: 'top-right', pillCustom: { x: 10, y: 20 }, maxHistory: 300, sumCtx: 32768 },
@@ -108,7 +108,7 @@ test('RF23: 今の読み方と比べる — 今の結果が正しかった所は
   }
 });
 
-test('JS6・P16: 直した設定をもう一度読むと、直すものは何も無い（書き戻した後の2回目の起動では、知らせも新しい写しも出ない）', () => {
+test('JS6・P16: 直した設定をもう一度読むと、直すものは何も無い（書き戻した後の2回目の起動では、知らせも新しい写しも出ない）', { timeout: 5000 }, () => {
   const raws = [{ maxHistory: -1, pillPos: 5, futureKey: { a: 1 } }, { useVad: 'true', autoPaste: 'false', useBuiltinTerms: null, stayInTray: '' },
     { localPort: 'abc', language: 'JA', hotkey: '', pillCustom: { x: '1', y: 2 }, theme: 'blue', dictionary: 'x', micId: 7 }, { maxHistory: 20000, sumCtx: 999999 }];
   for (const raw of raws) {
@@ -119,7 +119,7 @@ test('JS6・P16: 直した設定をもう一度読むと、直すものは何も
   }
 });
 
-test('JS6・SEC1: 保存の許可の一覧 — 決まりのないキーは画面から来ても保存しない（__proto__・constructor も通さない）', () => {
+test('JS6・SEC1: 保存の許可の一覧 — 決まりのないキーは画面から来ても保存しない（__proto__・constructor も通さない）', { timeout: 5000 }, () => {
   const next = JSON.parse('{"theme":"dark","evil":"x","dataDir":"C:\\\\old","__proto__":{"polluted":1},"constructor":"y","pillCustom":{"x":1,"y":2}}');
   assert.deepStrictEqual(S.pickSavable(next), { theme: 'dark', pillCustom: { x: 1, y: 2 } });
   assert.deepStrictEqual(S.pickSavable(null), {});
