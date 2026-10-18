@@ -336,5 +336,7 @@ describe('第1a回 保存の守り（main）', { concurrency: Number(process.env
     assert.match(m, /process\.on\('exit', flushAllWriters\)/);
     assert.match(m, /app\.on\('browser-window-created', \(_e, w\) => \{ w\.on\('session-end', flushAllWriters\); w\.on\('query-session-end', flushAllWriters\); \}\)/);
     for (const ev of ['suspend', 'lock-screen', 'shutdown']) assert.ok(m.includes(`powerMonitor.on('${ev}', flushAllWriters)`), ev);
+    // 第1b回 Task A-3: スリープの一時停止の受け口は、書き出しの受け口の後ろ（書き出しが先に走る）
+    assert.ok(m.indexOf("powerMonitor.on('suspend', flushAllWriters)") < m.indexOf("powerMonitor.on('suspend', pauseForSuspend)"), 'スリープの一時停止が書き出しより前');
   });
 });

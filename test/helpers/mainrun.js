@@ -69,6 +69,9 @@
 //                       minimized を入れられ、webContents は on／once／emit で受け口を呼べる。出力に windowOpts（本体の窓を作ったときの
 //                       x・y・width・height・minWidth・minHeight・backgroundColor）・maximizeCalls・zooms（setZoomFactor の値の順）・
 //                       winStateText（<LOCALAPPDATA>/natsu/window-state.json の中身。無ければ null）・localFiles（区切りは /）を足す。
+//                     - 第1b回 Task A-3: 録音バーの窓（wins[0]）の executeJavaScript は、main.js の PAUSE_ENSURE_ON・PAUSE_ENSURE_OFF と
+//                       同じ文だけを受けて偽の録音バーで本物と同じに動く（場面の overlayPause: 'lost-once'・'late'）。ctx に releasePause()、
+//                       出力に overlayJs（流された文の 'on'／'off' の順）・overlayPaused（偽の録音バーの状態）・balloons を足す。
 //     --stt=<mode>  … 第1c回 A-4: オンラインの文字起こし。127.0.0.1 の偽の送り先（helpers/fake-stt.js）を mode の答え方で開き、
 //                     secrets.json に偽の鍵（偽の safeStorage の暗号）を置き、設定を cloudTranscribe: 'on'・sttProvider: 'custom'・
 //                     sttBaseUrl: 偽の送り先・sttModel: 'whisper-large-v3' にする。mode が cert のときは、偽の送り先への要求に
@@ -473,6 +476,37 @@ process.on('exit', () => {
   const wins = [];   // 作った窓の順（createOverlay が先、createMainWindow が後）
   const appEvents = makeEmitter();
   const zooms = [];   // setZoomFactor の値の順（第1b回 Task A-2）
+  // 第1b回 Task A-3: 録音バー（wins[0]）の［一時停止］の真似。main.js の2つの定数（PAUSE_ENSURE_ON・PAUSE_ENSURE_OFF）と同じ文だけを受け、
+  // 本物の録音バーと同じく文が見る印のとおりに押す（'on' は止まっていなければ止める、'off' は止まっていれば再開する。同じなら何もしない）。
+  // 状態が変わったときだけ、次の番で overlay:pause を返す。場面の overlayPause が 'lost-once' なら最初の1回は何もしない（眠る前に
+  // 届かなかった）。'late' なら最初の1回は偽の録音バーの状態だけ変え、返事は場面が ctx.releasePause() を呼ぶまで出さない。
+  // ほかの文（window.__koeStart など）は今どおり断る（main は IPC へ落ちる）
+  const mainSrc = fs.readFileSync(path.join(ROOT, 'src', 'main.js'), 'utf8');
+  const constOf = (name) => { const mm = mainSrc.match(new RegExp(`const ${name} = (".*");`)); return mm ? JSON.parse(mm[1]) : null; };
+  const PAUSE_ON = constOf('PAUSE_ENSURE_ON');
+  const PAUSE_OFF = constOf('PAUSE_ENSURE_OFF');
+  const overlayMode = (scene && scene.overlayPause) || '';
+  const overlayJs = [];
+  let overlayPaused = false;
+  let overlayCalls = 0;
+  let heldPause = null;
+  const replyPause = (paused) => setImmediate(() => { if (listeners['overlay:pause']) listeners['overlay:pause'](null, { paused }); });
+  const releasePause = () => { if (heldPause) { const p = heldPause; heldPause = null; replyPause(p.paused); } };
+  const overlayExec = (win, code) => {
+    if (win !== wins[0] || typeof code !== 'string' || (code !== PAUSE_ON && code !== PAUSE_OFF)) return Promise.reject(new Error('no renderer'));
+    overlayJs.push(code === PAUSE_ON ? 'on' : 'off');
+    overlayCalls += 1;
+    if (overlayCalls === 1 && overlayMode === 'lost-once') return Promise.resolve();
+    // 文が見る印のとおりに押す（文が印を見ないで押すだけなら、本物と同じく押すたびに切り替わる: 変異 mp-suspend-ensure を赤にする）
+    const press = /!p\.classList\.contains\('paused'\)\)/.test(code) ? !overlayPaused
+      : (/p\.classList\.contains\('paused'\)\)/.test(code) ? overlayPaused : true);
+    if (press) {
+      overlayPaused = !overlayPaused;
+      if (overlayCalls === 1 && overlayMode === 'late') heldPause = { paused: overlayPaused };
+      else replyPause(overlayPaused);
+    }
+    return Promise.resolve();
+  };
   let maximizeCalls = 0;
   class Win {
     constructor(opts) {
@@ -488,7 +522,7 @@ process.on('exit', () => {
       const wc = makeEmitter({
         send: (ch, p) => { if (loading) { lost.push([ch, p]); return; } sent.push([ch, p]); watch(ch, p); },
         isLoading: () => loading,
-        setWindowOpenHandler() {}, executeJavaScript: () => Promise.reject(new Error('no renderer')),
+        setWindowOpenHandler() {}, executeJavaScript: (code) => overlayExec(this, code),
         setZoomFactor: (z) => { zooms.push(z); this.zoom = z; },
         getZoomFactor: () => this.zoom,
       });
@@ -708,7 +742,7 @@ process.on('exit', () => {
     const readLocal = (rel) => { try { return fs.readFileSync(path.join(localAppData, ...rel.split('/'))); } catch (_) { return null; } };
     if (typeof scene.act === 'function') {
       await scene.act({ handlers, listeners, app: electron.app, wins, mainWin: wins[1], power: powerMonitor, timers, clearedTimers, shortcuts, store, jsonfile, electron, userData,
-        localAppData, read: readUser, readLocal, waitFor, sleep, toneWav, out: actOut });
+        localAppData, read: readUser, readLocal, waitFor, sleep, toneWav, releasePause, out: actOut });
     }
     const files = [];
     const walk = (dir, rel) => {
@@ -752,6 +786,9 @@ process.on('exit', () => {
       zooms: zooms.slice(),
       winStateText: winStateBuf ? winStateBuf.toString('utf8') : null,
       localFiles: localFiles.sort(),
+      overlayJs: overlayJs.slice(),
+      overlayPaused,
+      balloons: balloons.slice(),
       ...actOut,
     };
     process.stdout.write(`\n${JSON.stringify(result)}\n`);

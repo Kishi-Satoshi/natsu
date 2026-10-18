@@ -1401,6 +1401,71 @@ function setMeetingLocalOnly(on) {
   writeDraft();
   return { ok: true, localOnly: meeting.localOnly };
 }
+
+// ---- ページからの一時停止とスリープ（第1b回 N4c・RF4）
+// 録音バーへ流す文はこの2つだけ（利用者の文字も画面から来た値も入れない。録音バーの id と class だけに頼る: overlay.html:111・119・772）。
+// 録音バーの［一時停止］は押すたびに止める・再開するの切り替えなので、今の印（#pill の class paused）を見てから押す。
+// 同じ文を何回流しても・返事が遅れても逆には動かない（スリープの頼みの返事が復帰より遅れても、頼み直しで再開しない）
+const PAUSE_ENSURE_ON = "(() => { const p = document.getElementById('pill'); if (p && !p.classList.contains('paused')) document.getElementById('pauseBtn').click(); })()";
+const PAUSE_ENSURE_OFF = "(() => { const p = document.getElementById('pill'); if (p && p.classList.contains('paused')) document.getElementById('pauseBtn').click(); })()";
+// 頼んだ印（pauseAsked）を下ろすまでの上限。返事（overlay:pause）が来たら、その時に下ろす
+const PAUSE_ASK_MS = 3000;
+const RESUME_NOTICE = 'スリープから戻りました。会議の録音は一時停止しています。続けるときは、録音中のページの［再開］を押してください。';
+const pauseReply = () => ({ ok: true, pending: Boolean(meeting && meeting.pauseAsked), paused: Boolean(meeting && meeting.paused) });
+function clearPauseAsk(m) {
+  m.pauseAsked = false;
+  if (m.pauseAskTimer) { clearTimeout(m.pauseAskTimer); m.pauseAskTimer = null; }
+}
+// 録音バーに一時停止（on = true）か再開（false）を頼む。正は録音バーが返す overlay:pause。会議中で、録音バーの今の状態と違い、
+// 頼んでいる途中でないときだけ流す（force はスリープから戻ったときの頼み直し: 頼んでいる途中の印に関わらず流す。止める側だけ）
+function requestOverlayPause(on, why, force) {
+  const m = meeting;
+  if (state !== 'meeting' || !m) return Promise.resolve({ ok: false, pending: false, paused: Boolean(m && m.paused) });
+  if (m.paused === on || (m.pauseAsked && !force)) return Promise.resolve(pauseReply());
+  if (!overlayWin || overlayWin.isDestroyed()) return Promise.resolve({ ok: false, pending: false, paused: m.paused });
+  if (on) m.pauseWhy = why;
+  clearPauseAsk(m);
+  m.pauseAsked = true;
+  m.pauseAskTimer = setTimeout(() => { m.pauseAskTimer = null; m.pauseAsked = false; }, PAUSE_ASK_MS);
+  if (m.pauseAskTimer && typeof m.pauseAskTimer.unref === 'function') m.pauseAskTimer.unref();
+  return overlayWin.webContents.executeJavaScript(on ? PAUSE_ENSURE_ON : PAUSE_ENSURE_OFF, true)
+    .then(() => (meeting === m ? pauseReply() : { ok: false, pending: false, paused: false }), (e) => {
+      // 録音バーが無い・読み込み中。投げずに頼んだ印を下ろす（画面は今の状態のまま）
+      clearPauseAsk(m);
+      engineLog(`会議: 録音バーに一時停止を頼めませんでした（${logReason(e)}）`);
+      return { ok: false, pending: false, paused: Boolean(m.paused) };
+    });
+}
+// スリープから戻って一時停止のまま。再開を促す（知らせ R1 はトレイと画面に会議ごとに1回。録音中のページは resumeHint で残す）
+function showResumeHint(m) {
+  m.resumeHint = true;
+  if (m.notified instanceof Set && !m.notified.has('resume')) {
+    m.notified.add('resume');
+    noticeMainWin(RESUME_NOTICE);
+    try { if (tray && typeof tray.displayBalloon === 'function') tray.displayBalloon({ title: APP_TITLE, content: RESUME_NOTICE }); } catch (_) { /* Windows の外には無い */ }
+  }
+  sendToMainWin('meeting:update', meetingStatus());
+}
+// スリープの合図（書き出しの受け口の後ろに付ける）。会議中で止めていなければ、一時停止として頼む
+function pauseForSuspend() {
+  if (state !== 'meeting' || !meeting || meeting.paused) return;
+  meeting.pauseWhy = 'suspend';
+  meeting.suspendAsked = true;
+  engineLog('会議: スリープで一時停止を頼んだ');
+  requestOverlayPause(true, 'suspend');
+}
+// 復帰の合図。自動では再開しない（スリープの道からは PAUSE_ENSURE_OFF を決して流さない: 設計書 RF4「再開を促す」）。
+// 止まっていれば再開を促し、止まっていなければ（眠る前に届かなかったか、返事がまだ）止める側の文を流し直し、R1 は返事が来てから出す
+function promptAfterResume() {
+  const m = meeting;
+  if (!m || !m.suspendAsked) return;
+  m.suspendAsked = false;
+  if (state !== 'meeting') return;
+  if (m.paused) { showResumeHint(m); return; }
+  engineLog('会議: 復帰したが一時停止になっていないので頼み直した');
+  m.hintOnPause = true;
+  requestOverlayPause(true, 'suspend', true);
+}
 // 会議の始めに経路を1回聞き、クラウドなら M1（トレイの知らせと画面）。同意前（M2）・鍵が無い（M3）・届かない（M4・M5）は sttRoute が出す
 function announceSttRoute(m) {
   sttRoute(Boolean(m.localOnly), { scope: m }).then((r) => {
@@ -2060,6 +2125,11 @@ function meetingStatus() {
     // 残りの待ち時間の見積もり（秒。材料が無い・待ちが無いときは null）と、打ち切った区間の数
     etaSec: meeting ? etaSecOf(meeting) : null,
     skipped: meeting ? meeting.skipped : 0,
+    // 第1b回 A-3（N4c・RF4）: 再開した一時停止の印（止めた所 atMs は会議の時計・長さ ms・why は user か suspend）、
+    // 録音バーに頼んで返事を待っている間（pausing）、スリープから戻って一時停止のまま（resumeHint: 再開を促す）
+    pauses: meeting && Array.isArray(meeting.pauses) ? meeting.pauses.map((x) => ({ ...x })) : [],
+    pausing: Boolean(meeting && meeting.pauseAsked),
+    resumeHint: Boolean(meeting && meeting.resumeHint),
     // 第1c回 C-3（RF28）: ［この会議は PC の中だけ］の印と、いまクラウドで文字起こしする設定か（同意が「使う」）。
     // 画面は cloud のときだけ［この会議は PC の中だけ］を出し、押した後（localOnly）は戻すボタンを出さない
     localOnly: Boolean(meeting && meeting.localOnly),
@@ -2078,6 +2148,7 @@ function writeDraft() {
       startedAt: meeting.startedAt, memo: meeting.memo,
       segments: meeting.segments, offsetMs: meeting.offsetMs, savedAt: Date.now(),
       localOnly: Boolean(meeting.localOnly),   // ［この会議は PC の中だけ］（復旧した会議の送り直しも手元。第1c回 RF28）
+      pauses: meeting.pauses || [],   // 止めていた時間の印（落ちて復旧したページにも残す。第1b回 N4c）
     }, meeting.draftName, { fsync: DRAFT_FSYNC });
   } catch (e) {
     if (!meeting.draftWriteFailed) {
@@ -2230,6 +2301,7 @@ function recoverDraftIfAny() {
         recovered: true,
         // 送り直しで数え直す（transcribeRecoveredItems）。会議の印は下書きから写す（第1c回 RF28）
         route: { stt: { cloud: 0, local: 0, provider: sttProvider().id }, localOnly: Boolean(d.localOnly) },
+        pauses: d.pauses,   // 止めていた時間の印（形の悪い印は store が捨てる。第1b回 N4c・F6）
       });
       page.summaryError = rec.todo.length
         ? '録音が中断されたため要約は未生成です。残っていた音声の文字起こしを続けています。終わったら「要約を生成」で作成できます。'
@@ -2401,6 +2473,9 @@ function startMeeting() {
     // emptySegs: 文字起こしが空で除いた区間の数（全部が空なら、締めるときに知らせる）
     gen: 0, skipped: 0, micFallback: false, segmentMs: (settings.segmentSec || 75) * 1000, inFlightSince: 0,
     finalSeen: false, skipAll: false, emptySegs: 0,
+    // 第1b回 A-3: pauses は再開した一時停止の印、pauseAsked は録音バーに頼んで返事を待つ間、pauseWhy は今の一時停止の理由、
+    // suspendAsked はスリープで頼んだ、hintOnPause は復帰の頼み直しの返事で再開を促す、resumeHint は再開を促している
+    pauses: [], pauseAsked: false, pauseAskTimer: null, pauseWhy: '', suspendAsked: false, hintOnPause: false, resumeHint: false,
     // 第1c回: localOnly は［この会議は PC の中だけ］、route は経路ごとの文字起こしできた区間の数、notified は会議ごとの知らせの印
     localOnly: false, route: { cloud: 0, local: 0 }, notified: new Set() };
   segChain = Promise.resolve(); pendingSegs = 0;
@@ -2592,6 +2667,7 @@ async function maybeFinalizeMeeting() {
       createdAt: dt.toISOString(),
       // 文字起こしの経路と、会議の印（要約の経路が見る: C10）
       route: { stt: { ...m.route, provider: sttProvider().id }, localOnly: Boolean(m.localOnly) },
+      pauses: m.pauses,   // 止めていた時間の印（区間とは別の欄。第1b回 N4c・F6）
     });
     store.clearDraft(m.draftName);
     // 認識に失敗した区間の wav は残してある（settleSegment）。復旧と同じ待ち行列に載せ、
@@ -3337,6 +3413,8 @@ function setupIpc() {
   ipcMain.handle('claude:test', () => claudeStatus());
   // ［この会議は PC の中だけ］は片道（会議中の true だけを受け取る。false で送る側に戻さない: RF28・C-3）。
   // 会議の外・false は何も変えず、今の印を同じ形 { ok, localOnly } で返す
+  // ページの［一時停止］（第1b回 N4c）。on は true か false だけ（ほかは何も流さない）
+  ipcMain.handle('meeting:set-paused', (_e, on) => (typeof on === 'boolean' ? requestOverlayPause(on, 'user') : { ok: false }));
   ipcMain.handle('meeting:set-local-only', (_e, on) => (on === true && meeting ? setMeetingLocalOnly(true)
     : { ok: false, localOnly: Boolean(meeting && meeting.localOnly) }));
 
@@ -3381,13 +3459,22 @@ function setupIpc() {
   // 会議が終わってから片側しか残っていないことに気づく——それが一番まずい。
   // 一時停止の状態を受け取る。記録中バーにも出す（オーバーレイを
   // 隠したまま席を外すと、止めたつもりが録れている／その逆が起きる）。
+  // 第1b回 A-3: 返事が来たら頼んだ印を下ろす。再開したら止めた所（会議の時計 offsetMs。録音バーは区間を送り終えてから再開を
+  // 知らせる）と長さの印を1つ残す（録音バーの［一時停止］を直接押したときも why は user）
   ipcMain.on('overlay:pause', (_e, { paused }) => {
     if (!meeting) return;
+    clearPauseAsk(meeting);
     if (paused && !meeting.paused) { meeting.paused = true; meeting.pausedAt = Date.now(); }
     else if (!paused && meeting.paused) {
       meeting.paused = false;
+      meeting.pauses.push({ atMs: meeting.offsetMs, ms: Math.max(0, Date.now() - meeting.pausedAt), why: meeting.pauseWhy || 'user' });
       meeting.pausedMs += Date.now() - meeting.pausedAt;
+      meeting.pauseWhy = '';
+      meeting.resumeHint = false;
+      meeting.hintOnPause = false;
+      writeDraft();
     }
+    if (paused && meeting.paused && meeting.hintOnPause) { meeting.hintOnPause = false; showResumeHint(meeting); return; }
     sendToMainWin('meeting:update', meetingStatus());
   });
   // 録音側が実際にどのマイクを掴んだか。設定のマイクが抜かれている・名前が
@@ -3449,6 +3536,9 @@ if (!gotLock) {
     powerMonitor.on('suspend', flushAllWriters);
     powerMonitor.on('lock-screen', flushAllWriters);
     powerMonitor.on('shutdown', flushAllWriters);
+    // 第1b回 A-3（RF4）: スリープは一時停止として頼み、戻ったら再開を促す。書き出しの受け口より後ろに付ける（書き出しが先に走る）
+    powerMonitor.on('suspend', pauseForSuspend);
+    powerMonitor.on('resume', promptAfterResume);
     loadStores();
     // 画面の覚え書き（第1b回 N6）。窓を作る前に読んで照らす（壊れていたら知らせ W1 を startupNotices に）
     loadWinState();

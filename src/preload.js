@@ -79,6 +79,7 @@ contextBridge.exposeInMainWorld('koeApp', {
   meetingSetMemo: (memo) => ipcRenderer.invoke('meeting:set-memo', memo),
   meetingSkipPending: () => ipcRenderer.invoke('meeting:skipPending'),
   meetingSetLocalOnly: (on) => ipcRenderer.invoke('meeting:set-local-only', on),
+  meetingSetPaused: (on) => ipcRenderer.invoke('meeting:set-paused', on),   // 第1b回 N4c: → { ok, pending, paused }
 
   // オンライン（第1c回 Task C-2）。鍵は送るだけで、main からは受け取らない（状態は「しまってあるか」だけ）
   cloudStatus: () => ipcRenderer.invoke('cloud:status'),

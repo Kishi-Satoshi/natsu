@@ -8,6 +8,8 @@
 //   act:     起動の後にすること（ctx は mainrun.js の頭の注釈）
 //   local:   %LOCALAPPDATA%（mainrun の一時フォルダ）からの相対パス → 中身（第1b回 Task A-2。画面の覚え書き natsu/window-state.json）
 //   displays: 偽の screen.getAllDisplays() の並び（無ければ 1920×1080 が1つ。作業領域は 1920×1040）
+//   overlayPause: 偽の録音バーの［一時停止］の答え方（第1b回 Task A-3。'lost-once' = 最初の頼みが届かない、'late' = 最初の返事を
+//            ctx.releasePause() まで出さない。無ければすぐ返す）
 const pretty = (o) => JSON.stringify(o, null, 2);   // 今の saveJson が書く形（main.js:219）
 const BOM = Buffer.from([0xef, 0xbb, 0xbf]);
 const CP932_NIHONGO = Buffer.from([0x93, 0xfa, 0x96, 0x7b, 0x8c, 0xea]);
@@ -394,5 +396,82 @@ module.exports = {
     act: async (c) => {
       c.out.set = await c.handlers['ui:set']({}, { sidebar: { width: 9999, collapsed: 1 }, tabs: { open: ['live', 'settings', 'page:../x'], active: 'live' } });
       c.power.emit('suspend');
+    } },
+  // 第1b回 Task A-3: ページからの一時停止・止めていた時間の印・スリープ（N4c・RF4・F5・F6）。録音バーは mainrun の偽物（overlayPause）
+  'pause-page': { engine: true, files: { 'settings.json': ({ base }) => JSON.stringify(base) },
+    act: async (c) => {
+      const o = c.out;
+      const status = () => c.handlers['meeting:status']({});
+      o.start = await c.handlers['meeting:toggle']({});
+      c.listeners['audio:segment']({}, { buffer: new Uint8Array(c.toneWav(3)), durationMs: 3000, final: false });
+      const realNow = Date.now;
+      let now = realNow();
+      Date.now = () => now;   // 止めていた長さをちょうど 2 秒にする
+      try {
+        o.ask1 = await c.handlers['meeting:set-paused']({}, true);
+        o.ask2 = await c.handlers['meeting:set-paused']({}, true);   // 頼んでいる途中なので押さない
+        await c.waitFor(() => status().paused === true && !status().pausing);
+        now += 2000;
+        o.ask3 = await c.handlers['meeting:set-paused']({}, false);
+        await c.waitFor(() => status().paused === false && status().pauses.length === 1);
+      } finally { Date.now = realNow; }
+      try { o.draftPauses = JSON.parse(c.read('data/draft.json').toString('utf8')).pauses; } catch (_) { o.draftPauses = null; }
+      o.status = status();
+      o.stop = await c.handlers['meeting:toggle']({});
+      c.listeners['audio:segment']({}, { buffer: new Uint8Array(c.toneWav(2)), durationMs: 2000, final: true });
+      await c.waitFor(() => c.store.listPages().length >= 1);
+      const id = c.store.listPages()[0].id;
+      o.page = { ...c.store.getPage(id), segments: c.store.getTranscript(id) };
+    } },
+  'suspend-meeting': { engine: true, files: { 'settings.json': ({ base }) => JSON.stringify(base) },
+    act: async (c) => {
+      const status = () => c.handlers['meeting:status']({});
+      c.out.start = await c.handlers['meeting:toggle']({});
+      c.listeners['audio:segment']({}, { buffer: new Uint8Array(c.toneWav(3)), durationMs: 3000, final: false });
+      c.power.emit('suspend');
+      await c.waitFor(() => status().paused === true);
+      c.power.emit('resume');
+      await c.sleep(50);
+      c.out.status = status();
+    } },
+  'suspend-lost': { engine: true, overlayPause: 'lost-once', files: { 'settings.json': ({ base }) => JSON.stringify(base) },
+    act: async (c) => {
+      const status = () => c.handlers['meeting:status']({});
+      c.out.start = await c.handlers['meeting:toggle']({});
+      c.listeners['audio:segment']({}, { buffer: new Uint8Array(c.toneWav(3)), durationMs: 3000, final: false });
+      c.power.emit('suspend');
+      await c.sleep(100);   // 返事は来ない（眠る前に届かなかった）
+      c.out.pausedBeforeResume = status().paused;
+      c.power.emit('resume');
+      await c.waitFor(() => status().paused === true);
+      await c.sleep(50);
+      c.out.status = status();
+    } },
+  'suspend-late': { engine: true, overlayPause: 'late', files: { 'settings.json': ({ base }) => JSON.stringify(base) },
+    act: async (c) => {
+      const status = () => c.handlers['meeting:status']({});
+      c.out.start = await c.handlers['meeting:toggle']({});
+      c.listeners['audio:segment']({}, { buffer: new Uint8Array(c.toneWav(3)), durationMs: 3000, final: false });
+      c.power.emit('suspend');   // 偽の録音バーは止まるが、返事はまだ
+      await c.sleep(50);
+      c.power.emit('resume');    // main は止まっていないと見て頼み直す
+      await c.sleep(50);
+      c.releasePause();          // 遅れた返事が届く
+      await c.waitFor(() => status().paused === true);
+      await c.sleep(50);
+      c.out.status = status();
+    } },
+  'suspend-idle': { files: { 'settings.json': pretty(TYPICAL) },
+    act: async (c) => {
+      c.power.emit('suspend');
+      c.power.emit('resume');
+      await c.sleep(50);
+    } },
+  'pause-recover': { files: { 'settings.json': pretty(TYPICAL),
+      'data/draft.json': JSON.stringify({ ...OLD_DRAFT, pauses: [{ atMs: 3000, ms: 125000, why: 'suspend' }, { atMs: 'x' }] }) },
+    act: async (c) => {
+      await c.waitFor(() => c.store.listPages().length >= 1);
+      const id = c.store.listPages()[0].id;
+      c.out.page = { ...c.store.getPage(id), segments: c.store.getTranscript(id) };
     } },
 };

@@ -245,7 +245,14 @@ function saveTranscript(id, segments) {
 }
 
 // route: 文字起こし・要約の経路（第1c回 OL6。{ stt: { cloud, local, provider }, localOnly }）。普通のオブジェクトのときだけ残す
-function createPage({ title, date, durationSec, memo, blocks, segments, createdAt, recovered, route }) {
+// 止めていた時間の印（第1b回 N4c）。形の正しいもの（有限で 0 以上の atMs・ms、why は user か suspend）だけを残す
+const PAUSE_WHY = new Set(['user', 'suspend']);
+function cleanPauses(list) {
+  return list.filter((x) => isObj(x) && Number.isFinite(x.atMs) && x.atMs >= 0 && Number.isFinite(x.ms) && x.ms >= 0 && PAUSE_WHY.has(x.why))
+    .map((x) => ({ atMs: x.atMs, ms: x.ms, why: x.why }));
+}
+
+function createPage({ title, date, durationSec, memo, blocks, segments, createdAt, recovered, route, pauses }) {
   const id = newId('p');
   const now = new Date().toISOString();
   const page = {
@@ -261,6 +268,7 @@ function createPage({ title, date, durationSec, memo, blocks, segments, createdA
     summaryError: '',
   };
   if (route && typeof route === 'object' && !Array.isArray(route)) page.route = route;
+  if (Array.isArray(pauses)) page.pauses = cleanPauses(pauses);
   writeJson(pageFile(id), page);
   saveTranscript(id, segments || []);
   reindexPage(page);

@@ -90,3 +90,61 @@ describe('第1b回 画面の覚え書き（main）', { concurrency: Number(proce
     assert.deepStrictEqual(ws(r).tabs, { open: ['settings'], active: 'settings' });
   });
 });
+
+describe('第1b回 一時停止とスリープ（main）', { concurrency: Number(process.env.NATSU_SCENE_CONCURRENCY) || 4 }, () => {
+  test('N4c・RF4: 録音バーへ流す文は定数の2つだけで、録音バーの今の印を見てから押す（利用者の文字を入れない・overlay.html の id と class に当たる）', { timeout: 5000 }, () => {
+    const m = require('node:fs').readFileSync(path.join(__dirname, '..', 'src', 'main.js'), 'utf8').replace(/^[ \t]*\/\/.*$/gm, '');
+    const ov = require('node:fs').readFileSync(path.join(__dirname, '..', 'src', 'renderer', 'overlay.html'), 'utf8');
+    const on = m.match(/const PAUSE_ENSURE_ON = (".*");/), off = m.match(/const PAUSE_ENSURE_OFF = (".*");/);
+    assert.ok(on && off, '定数が無い');
+    assert.match(JSON.parse(on[1]), /!p\.classList\.contains\('paused'\)\) document\.getElementById\('pauseBtn'\)\.click\(\)/);
+    assert.match(JSON.parse(off[1]), /[^!]p\.classList\.contains\('paused'\)\) document\.getElementById\('pauseBtn'\)\.click\(\)/);
+    assert.ok(!/\$\{|\+\s*[a-zA-Z_]/.test(on[1] + off[1]), '文に値を継ぎ足している');
+    for (const s of ['id="pill"', 'id="pauseBtn"', "pill.classList.add('paused')"]) assert.ok(ov.includes(s), `録音バーに ${s} が無い`);
+    assert.strictEqual((m.match(/executeJavaScript\(/g) || []).length, 2, '録音バーへ流す道が増えた（__koeStart と一時停止の2つだけ）');
+  });
+
+  test('N4c: ページの［一時停止］は録音バーに「止める」を頼み、同じ状態なら頼まない。再開したときに止めた所と長さの印を1つ残し、ページにも入る', SCENE, async () => {
+    const r = await run('pause-page');
+    assert.deepStrictEqual(r.overlayJs, ['on', 'off'], '一時停止を2回頼んだか、頼んでいない');
+    assert.deepStrictEqual(r.status.pauses, [{ atMs: 3000, ms: 2000, why: 'user' }]);
+    assert.deepStrictEqual(r.draftPauses, [{ atMs: 3000, ms: 2000, why: 'user' }], '下書きに印が無い（落ちたら印が消える）');
+    assert.deepStrictEqual(r.page.pauses, [{ atMs: 3000, ms: 2000, why: 'user' }]);
+    assert.deepStrictEqual(r.page.segments.map((s) => s.atMs), [0, 3000], '印が区間に混ざった');
+  });
+
+  test('RF4・F5: スリープで一時停止として頼み（書き出しの後）、戻ったら一時停止のまま再開を促す（知らせ R1 を1回・自動では再開しない）', SCENE, async () => {
+    const r = await run('suspend-meeting');
+    assert.strictEqual(r.status.paused, true);
+    assert.strictEqual(r.status.resumeHint, true);
+    const R1 = 'スリープから戻りました。会議の録音は一時停止しています。続けるときは、録音中のページの［再開］を押してください。';
+    assert.strictEqual(r.notices.filter((n) => n === R1).length, 1);
+    assert.strictEqual(r.balloons.filter((b) => b === R1).length, 1);
+    assert.deepStrictEqual(r.overlayJs, ['on'], '戻ったときに勝手に再開した');
+  });
+
+  test('RF4・F5: 眠る前に頼みが届かなかったら、戻ったときに状態を見て頼み直す', SCENE, async () => {
+    const r = await run('suspend-lost');
+    assert.deepStrictEqual(r.overlayJs, ['on', 'on']);
+    assert.strictEqual(r.status.paused, true);
+    assert.ok(r.engineLog.some((l) => /会議: 復帰したが一時停止になっていないので頼み直した/.test(l)));
+  });
+
+  test('RF4・F5: 一時停止の返事が復帰より遅れて届いても、頼み直しで再開しない（止めたまま・再開を促す）', SCENE, async () => {
+    const r = await run('suspend-late');
+    assert.ok(r.overlayJs.length >= 1 && r.overlayJs.every((x) => x === 'on'), `スリープの道から再開を頼んだ: ${r.overlayJs}`);
+    assert.strictEqual(r.overlayPaused, true, '録音バーが再開してしまった');
+    assert.strictEqual(r.status.paused, true);
+    assert.strictEqual(r.status.resumeHint, true);
+  });
+
+  test('RF4: 会議でなければ、スリープでも何も押さない', SCENE, async () => {
+    const r = await run('suspend-idle');
+    assert.deepStrictEqual(r.overlayJs, []);
+  });
+
+  test('N4c・F6: 下書きの印は復旧したページにも入る（形の悪い印は捨てる）', SCENE, async () => {
+    const r = await run('pause-recover');
+    assert.deepStrictEqual(r.page.pauses, [{ atMs: 3000, ms: 125000, why: 'suspend' }]);
+  });
+});
