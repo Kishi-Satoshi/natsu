@@ -102,13 +102,24 @@ LLM が創作した内容をそこで見分けられるようにするためで�
 
 ## セットアップ
 
+ソースから動かすには **Node.js 22.12 以上**が要ります（Electron 44 の包みが求める版。https://nodejs.org/ja の LTS 版で足ります）。
+
 社内プロキシ環境では最初に一度: `setx NODE_USE_SYSTEM_CA 1` → PowerShellを開き直す
+（Windows の証明書ストアを Node.js に使わせる設定。`NODE_USE_SYSTEM_CA` は Node.js 22.19 以上で効きます）。
+プロキシを手で設定している会社では、本体の取り込みに `setx ELECTRON_GET_USE_PROXY true` と
+`setx HTTPS_PROXY http://<プロキシ>:<ポート>` も要ります（Electron の包みの取り込み役 `@electron/get` が見る値）。
 
 ```powershell
 cd <NaTsuを置いたフォルダ>
 npm install
+node node_modules/electron/install.js
 npm start
 ```
+
+Electron 42 から、`npm install` だけでは Electron の本体（`electron.exe`、150MB ほど）が落ちてきません。
+`node node_modules/electron/install.js` が本体を取り込みます（本体があれば何もしません）。
+`start-natsu.bat` と `create-shortcut.ps1` は、本体が無いときに `tools/get-electron.js` で同じことをします
+（`npx install-electron` は使いません。古い Electron の包みにはこの名前が無く、npm に同じ名前の別の包みがあるため）。
 
 ### エンジン（文字起こしと要約）
 
@@ -207,14 +218,19 @@ powershell -ExecutionPolicy Bypass -File .\get-installer.ps1
 npm start
 ```
 
+Node.js 22.12 以上と、`npm install` の後の `node node_modules/electron/install.js` が要ります（上の「セットアップ」）。
+
 `create-shortcut.ps1` を一度実行すると、`node_modules` の electron を指す
 ショートカットがデスクトップとスタートメニューに作られます（コンソールは出ません）。
-`start-natsu.bat` でも起動できます。
+`start-natsu.bat` でも起動できます。どちらも `electron.exe` が無ければ `tools/get-electron.js` で本体を取り込み
+（初めの1回だけ）、Node.js が 22.12 より古ければ平易な言葉で止まります。
 
 ### ポータブル版について
 
 `npm run dist` で単体exeも作れますが、**起動のたびに一時フォルダへ展開して動く**ため、
 アプリ内更新が次回起動に残りません。自動更新を使うならインストーラー版にしてください。
+ポータブル版は、アプリの土台（Electron）を入れ替える版（0.3.0 など。リリースの本文に「入れ直してください」と書く版）ごとに、
+新しい `NaTsu-<版>-portable.exe` を落とし直してください。
 
 ## 高速化
 
@@ -270,10 +286,28 @@ powershell -ExecutionPolicy Bypass -File .\make-release.ps1 -Version 0.1.0
 展開に失敗しても起動できなくなることはありません（1世代だけ残します）。
 
 更新 zip では exe（Electron 本体）は入れ替わりません。zip の `package.json` の
-`engines.electron`（例: `>=31.3.0`）を `src/` を差し替える**前に**確かめ、今の Electron が
-満たさなければ「更新 x.y.z には Electron >=… が必要です。インストーラーで入れ直してください」
-で止めます（何も書き換えません）。Electron を上げる版を出すときは `devDependencies.electron`
-と `engines.electron` を一緒に上げ、インストーラーで入れ直してもらう前提で案内してください。
+`engines.electron`（例: `>=44.9.0`）を `src/` を差し替える**前に**確かめ、今の Electron が
+満たさなければ「この版はアプリの土台を入れ替えるため、インストーラーで入れ直してください。
+議事録・設定・エンジンはそのまま残ります。」で止め（何も書き換えません）、ボタンを［ダウンロード］に替えます。
+0.2.x 以前の版は、前の文（「更新 x.y.z には Electron >=… が必要です（今は …）。インストーラーで入れ直してください」）のまま止まります。
+Electron を上げる版を出すときは `devDependencies.electron` と `engines.electron` を一緒に上げ、
+インストーラーで入れ直してもらう前提で案内してください。
+
+### 入れ直しが要る版の知らせ（0.3.0 から）
+
+- リリースには `natsu-update.json`（版・必要な土台の版〔`engines.electron` の写し〕・zip の SHA-256 と大きさ）が添えられます。
+  アプリは［更新を確認］の時点でこれを読み、今の Electron が範囲を満たさない版なら、［設定］→［アップデート］・
+  起動時の知らせ・トレイの［更新を確認］の3か所で、上の「入れ直してください」の文と［ダウンロード］を出します
+  （［更新して再起動］は出しません）。［ダウンロード］でリリースのページが開きます。
+  当てるときは、落とした zip を `natsu-update.json` の SHA-256 で照らします。
+- **公開する前の確かめ:** Actions の［Run workflow］で `publish` を外すと、exe を添付した下書きのまま止まります。
+  下書きの `natsu-update.json` を落として置き、`setx NATSU_UPDATE_FEED "%LOCALAPPDATA%\natsu-test\natsu-update.json"`
+  （置いた場所）を実行して NaTsu を起動し直すと、その版の知らせが出ます（テスト用の取得先では当てはしません）。
+  `NATSU_UPDATE_FEED` には `owner/repo` の形（テスト用のリポジトリの公開したリリース）も入れられます。
+  確かめたら［システムのプロパティ］→［環境変数］で `NATSU_UPDATE_FEED` を消して起動し直します
+  （`setx` に空の値を渡しても消えないことがあるため。消えたかは新しい窓で `echo %NATSU_UPDATE_FEED%` を見る）。
+- 下書きを作った後に commit を足したら、下書きを `gh release delete <タグ> -y` で消してから出し直してください。
+  別の commit を指す下書きが残っていると、`release` ジョブが赤で止まります（exe が作り直されず、古い commit にタグが付くのを防ぐため）。
 
 ## デグレを止める仕組み
 

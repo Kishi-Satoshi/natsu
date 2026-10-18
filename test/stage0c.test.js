@@ -159,3 +159,11 @@ test('EL6: Electron は 44.9.0、electron-builder は 26.17.0 にきっちり固
   assert.strictEqual(pkg.build.asar, false);
   assert.deepStrictEqual(pkg.build.win.target, ['portable', 'nsis']);
 });
+
+// ---------------------------------------------------------------- 案内（Task 9・16。0.3.0 で1つの版にまとめた）
+test('案内: ソースから起動する人に Node.js 22.12 以上と本体の取り込みを、配る人に入れ直しのしかたを書いている', () => {
+  const readme = read('README.md');
+  assert.ok(readme.includes('Node.js 22.12 以上'));
+  assert.ok(readme.includes('NODE_USE_SYSTEM_CA') && readme.includes('22.19'));
+  assert.ok(/^## 入れ直し（0\.3\.0 から）$/m.test(read('INSTALL.md')));
+});
