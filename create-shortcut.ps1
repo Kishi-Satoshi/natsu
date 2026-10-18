@@ -13,10 +13,15 @@ $app      = $PSScriptRoot
 $electron = Join-Path $app "node_modules\electron\dist\electron.exe"
 $icon     = Join-Path $app "assets\icon.ico"
 
+# electron.exe が無いとき（Electron 42 から npm install では本体が来ない）だけ、tools\get-electron.js で取り込む
 if (-not (Test-Path $electron)) {
-    Write-Host "electron.exe が見つかりません: $electron" -ForegroundColor Red
-    Write-Host "先に npm install を実行してください。"
-    exit 1
+    $node = Get-Command node -ErrorAction SilentlyContinue
+    if ($null -eq $node) {
+        Write-Host "Node.js 22.12 以上を入れてください。https://nodejs.org/ja から LTS 版を入れられます。" -ForegroundColor Red
+        exit 1
+    }
+    & $node.Source (Join-Path $app "tools\get-electron.js") $app
+    if ($LASTEXITCODE -ne 0) { exit 1 }
 }
 
 $desktop   = [Environment]::GetFolderPath("Desktop")
