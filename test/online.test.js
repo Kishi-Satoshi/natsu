@@ -56,6 +56,19 @@ test('RF27: 届かない結果は 15 秒だけ覚える（届いた結果の 60 
   assert.strictEqual(asked, 2, '15 秒を過ぎても確かめ直さない（届いた結果と同じ長さ覚えている）');
 });
 
+test('OL1: 転送（302）も返事のうちで「届く」。転送の先へは追わない（鍵は付けていないが、先の宛先へ要求を出さない）', T, async (tc) => {
+  let moved = 0;
+  const s = await serve((req, res) => {
+    if (req.url === '/elsewhere') { moved += 1; res.writeHead(200); res.end('x'); return; }
+    res.writeHead(302, { location: '/elsewhere' }); res.end();
+  });
+  tc.after(() => shut(s));
+  const o = O.makeOnline({ isOnline: () => true, request: makeFakeRequest() });
+  assert.deepStrictEqual(await o.isUp(urlOf(s)), { up: true, why: 'ok' });
+  await new Promise((r) => setTimeout(r, 50));
+  assert.strictEqual(moved, 0, '転送の先へ要求を出した');
+});
+
 test('OL1: 返事の無いサーバーは 3 秒（ここでは 150ms）で諦めて「届かない」。要求は abort する', T, async (tc) => {
   const s = await serve(() => { /* 返事をしない */ });
   tc.after(() => shut(s));
