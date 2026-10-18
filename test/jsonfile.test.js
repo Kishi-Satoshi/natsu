@@ -213,3 +213,52 @@ test('JS3: 日本語と「𠮷」を含むフォルダで書いて読める', { 
   J.writeJsonFile(f, { micId: '会議室𠮷' });
   assert.deepStrictEqual(J.readJsonFile(f), { state: 'ok', value: { micId: '会議室𠮷' } });
 });
+
+// ---------------------------------------------------------------- JS2 消してよい控え・JS4 片付け
+test('JS2: 作り直せるファイルの退けた控えは新しい3つまで。ミリ秒の数の名前と、ほかのファイルの控えは消さない', { timeout: 5000 }, () => {
+  const d = dir();
+  const f = path.join(d, 'index.json');
+  const iso = ['2026-10-01T00-00-00-000Z', '2026-10-02T00-00-00-000Z', '2026-10-03T00-00-00-000Z', '2026-10-04T00-00-00-000Z', '2026-10-04T00-00-00-000Z-2'];
+  for (const s of iso) fs.writeFileSync(`${f}.broken-${s}`, 'x');
+  fs.writeFileSync(`${f}.broken-1700000000000`, 'x');   // 今の settings.json・history.json と同じ形（ミリ秒の数）
+  fs.writeFileSync(path.join(d, 'other.json.broken-2026-09-01T00-00-00-000Z'), 'x');
+  const removed = J.pruneBroken(f, { keep: 3 });
+  assert.deepStrictEqual(removed.map((p) => path.basename(p)).sort(), ['index.json.broken-2026-10-01T00-00-00-000Z', 'index.json.broken-2026-10-02T00-00-00-000Z']);
+  assert.deepStrictEqual(fs.readdirSync(d).sort(), [
+    'index.json.broken-1700000000000', 'index.json.broken-2026-10-03T00-00-00-000Z', 'index.json.broken-2026-10-04T00-00-00-000Z',
+    'index.json.broken-2026-10-04T00-00-00-000Z-2', 'other.json.broken-2026-09-01T00-00-00-000Z']);
+});
+
+test('JS2: loadJsonFile は keep を渡したときだけ控えを整理する（設定・履歴・議事録には渡さない）', { timeout: 5000 }, () => {
+  const d = dir();
+  const f = path.join(d, 'index.json');
+  for (let i = 1; i <= 4; i += 1) fs.writeFileSync(`${f}.broken-2026-10-0${i}T00-00-00-000Z`, 'x');
+  fs.writeFileSync(f, '{');
+  J.loadJsonFile(f, { sleep: noSleep });
+  assert.strictEqual(fs.readdirSync(d).filter((n) => n.includes('.broken-')).length, 5, 'keep が無いのに消した');
+  fs.writeFileSync(f, '{');
+  J.loadJsonFile(f, { sleep: noSleep, keep: 3 });
+  assert.strictEqual(fs.readdirSync(d).filter((n) => n.includes('.broken-')).length, 3);
+});
+
+test('JS2・JS6: 写しで退ける（copy）。同じ中身の控えがもうあれば新しい写しを作らない', { timeout: 5000 }, () => {
+  const d = dir();
+  const f = path.join(d, 'settings.json');
+  fs.writeFileSync(f, '{"maxHistory":-1}');
+  const a = J.quarantine(f, { copy: true, now: () => new Date('2026-10-18T00:00:00.000Z') });
+  assert.ok(a.ok && fs.existsSync(f));
+  assert.strictEqual(fs.readFileSync(a.to, 'utf8'), '{"maxHistory":-1}');
+  const b = J.quarantine(f, { copy: true, now: () => new Date('2026-10-19T00:00:00.000Z') });
+  assert.deepStrictEqual([b.ok, b.to, b.reused], [true, a.to, true]);
+  assert.strictEqual(fs.readdirSync(d).filter((n) => n.includes('.broken-')).length, 1);
+});
+
+test('JS4: 残った一時ファイル（<名前>.json.tmp と <名前>.json.<pid>-<乱数>.tmp）を消す。WAV の一時ファイルと本物の JSON は残す', { timeout: 5000 }, () => {
+  const d = dir();
+  const names = ['settings.json', 'settings.json.tmp', 'settings.json.4242-k3j9ab.tmp', 'p1.json.tmp', '0001.wav.tmp', 'notes.tmp', 'history.json.broken-2026-10-01T00-00-00-000Z'];
+  for (const n of names) fs.writeFileSync(path.join(d, n), 'x');
+  const removed = J.cleanTemps(d);
+  assert.deepStrictEqual(removed.map((p) => path.basename(p)).sort(), ['p1.json.tmp', 'settings.json.4242-k3j9ab.tmp', 'settings.json.tmp']);
+  assert.deepStrictEqual(fs.readdirSync(d).sort(), ['0001.wav.tmp', 'history.json.broken-2026-10-01T00-00-00-000Z', 'notes.tmp', 'settings.json']);
+  assert.deepStrictEqual(J.cleanTemps(path.join(d, 'no-such-dir')), []);
+});

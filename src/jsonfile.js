@@ -30,6 +30,10 @@
  *  - Node の fs（openSync の 'wx' は有れば EEXIST、fsyncSync、Windows の chmod は書き込みの印だけが効く）。
  *  - 今の src/main.js の saveJson と src/store.js の writeJson（一時ファイルに書いて名前を変える形）。
  *
+ * 退けた控えの整理は pruneBroken（JS2。作り直せるファイルだけ新しい3つまで）、写しで退けるのは
+ * quarantine の copy（JS6。同じ中身の控えがあれば写さない）、強制終了の後の一時ファイルの片付けは
+ * cleanTemps（JS4。JSON の一時ファイルだけ）。
+ *
  * JSON のエラーの文は結果にも記録にも写さない（ファイルの中身を引用するため。口述した文や
  * 設定の値が記録に残ってしまう）。結果に入れるのは理由の符号だけ。
  */
@@ -115,13 +119,40 @@ function brokenName(file, date = new Date(), exists = (p) => require('fs').exist
   }
 }
 
+// 同じフォルダにある、file と同じバイトの `${basename}.broken-*` のパス。無い・調べられなければ null
+function sameBrokenCopy(file, fs) {
+  const path = require('path');
+  let bytes;
+  let names;
+  try {
+    bytes = fs.readFileSync(file);
+    names = fs.readdirSync(path.dirname(file));
+  } catch (_) { return null; }
+  const prefix = `${path.basename(file)}.broken-`;
+  for (const n of names.filter((x) => x.startsWith(prefix)).sort()) {
+    const p = path.join(path.dirname(file), n);
+    try {
+      const st = fs.statSync(p);
+      if (st.isFile() && st.size === bytes.length && fs.readFileSync(p).equals(bytes)) return p;
+    } catch (_) { /* 読めない控えは比べない */ }
+  }
+  return null;
+}
+
 // 壊れたファイルを写さずに名前を変えて脇へ退ける。中身は1バイトも変えない。
+// copy が真なら名前を変えずに写す（JS6: 読めたファイルの一部を直したときの控え）。同じバイトの控えが
+// もうあれば写さず { ok: true, to: そのパス, reused: true }（起動のたびに控えを重ねない）。
 // 掴まれていれば waits の順に待ってやり直す。だめなら { ok: false, code }（投げない）。
 function quarantine(file, opts = {}) {
   const fs = fsOf(opts);
   const now = opts.now || (() => new Date());
   const sleep = opts.sleep || defaultSleep;
   const waits = opts.waits || RENAME_WAITS;
+  const copy = Boolean(opts.copy);
+  if (copy) {
+    const same = sameBrokenCopy(file, fs);
+    if (same) return { ok: true, to: same, reused: true };
+  }
   let to;
   try {
     to = brokenName(file, now(), (p) => fs.existsSync(p));
@@ -130,7 +161,9 @@ function quarantine(file, opts = {}) {
   }
   for (let i = 0; ; i++) {
     try {
-      fs.renameSync(file, to);
+      // 写すときは COPYFILE_EXCL で、ほかの控えを決して上書きしない
+      if (copy) fs.copyFileSync(file, to, fs.constants.COPYFILE_EXCL);
+      else fs.renameSync(file, to);
       return { ok: true, to };
     } catch (e) {
       const code = (e && e.code) || 'UNKNOWN';
@@ -143,12 +176,45 @@ function quarantine(file, opts = {}) {
   }
 }
 
+// 退けた控えの整理（JS2）。作り直せるファイル（index.json・installed.json など）だけに使う。
+// 消すのは `${basename}.broken-YYYY-MM-DDTHH-MM-SS-mmmZ(-n)?` の形だけで、新しい keep 個を残す。
+// 今の形（ミリ秒の数）の .broken- と、ほかのファイルの控えは決して消さない。→ 消したパスの配列（投げない）
+const BROKEN_STAMP = /^(\d{4}-\d\d-\d\dT\d\d-\d\d-\d\d-\d{3}Z)(?:-(\d+))?$/;
+function pruneBroken(file, opts = {}) {
+  const fs = fsOf(opts);
+  const path = require('path');
+  const k = Number(opts.keep == null ? 3 : opts.keep);
+  const keep = Number.isFinite(k) ? Math.max(0, Math.floor(k)) : 3;
+  const dir = path.dirname(file);
+  const prefix = `${path.basename(file)}.broken-`;
+  let names;
+  try { names = fs.readdirSync(dir); } catch (_) { return []; }
+  const found = [];
+  for (const n of names) {
+    if (!n.startsWith(prefix)) continue;
+    const m = BROKEN_STAMP.exec(n.slice(prefix.length));
+    if (m) found.push({ n, stamp: m[1], seq: m[2] ? Number(m[2]) : 1 });
+  }
+  // 古い順（時刻の文字の順、同じ時刻なら -2・-3 … の数の順。-10 が -2 より前にならないように）
+  found.sort((a, b) => (a.stamp < b.stamp ? -1 : a.stamp > b.stamp ? 1 : a.seq - b.seq));
+  const removed = [];
+  for (const x of found.slice(0, Math.max(0, found.length - keep))) {
+    const p = path.join(dir, x.n);
+    try { fs.unlinkSync(p); removed.push(p); } catch (_) { /* 消せなければ次の機会に */ }
+  }
+  return removed;
+}
+
 // 読んで、壊れていれば退ける。退けられなければ「読めない」にする（壊れたファイルにも書かせない。RF22）。
 function loadJsonFile(file, opts = {}) {
   const r = readJsonFile(file, opts);
   if (r.state !== 'broken') return r;
   const q = quarantine(file, { fs: opts.fs, now: opts.now, sleep: opts.sleep });
-  if (q.ok) return { state: 'broken', reason: r.reason, movedTo: q.to };
+  if (q.ok) {
+    // keep を渡したときだけ（作り直せるファイル）。設定・履歴・議事録の控えは消さない
+    if (opts.keep != null) pruneBroken(file, { fs: opts.fs, keep: opts.keep });
+    return { state: 'broken', reason: r.reason, movedTo: q.to };
+  }
   return { state: 'unreadable', code: 'QUARANTINE_FAILED' };
 }
 
@@ -223,7 +289,7 @@ function writeJsonFile(file, value, opts = {}) {
     }
   } catch (e) {
     if (fd != null) { try { fs.closeSync(fd); } catch (_) { /* 閉じられなくても消しに進む */ } }
-    if (tmp != null) { try { fs.unlinkSync(tmp); } catch (_) { /* 消せなければ Task 1-3 の片付けに任せる */ } }
+    if (tmp != null) { try { fs.unlinkSync(tmp); } catch (_) { /* 消せなければ次の起動の cleanTemps に任せる */ } }
     throw e;
   }
   if (dirFsync) {
@@ -235,4 +301,23 @@ function writeJsonFile(file, value, opts = {}) {
   return { written: true, text };
 }
 
-module.exports = { BUSY, READ_WAITS, RENAME_WAITS, SMALL_MAX, sleepSync, decodeJsonBytes, readJsonFile, brokenName, quarantine, loadJsonFile, isReadOnly, writeJsonFile };
+// ---------------------------------------------------------------- 残った一時ファイルの片付け（JS4）
+// 強制終了の後に残った JSON の一時ファイル（今の形の <名前>.json.tmp と、writeJsonFile の
+// <名前>.json.<pid>-<乱数>.tmp）だけを消す。WAV の一時ファイルなどほかの .tmp は残す。
+// → 消したパスの配列。フォルダが無い・読めなければ []（投げない）
+const TEMP_RE = /^.+\.json(\.\d+-[0-9a-z]+)?\.tmp$/;
+function cleanTemps(dir, opts = {}) {
+  const fs = fsOf(opts);
+  const path = require('path');
+  let entries;
+  try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch (_) { return []; }
+  const removed = [];
+  for (const e of entries) {
+    if (!e.isFile() || !TEMP_RE.test(e.name)) continue;
+    const p = path.join(dir, e.name);
+    try { fs.unlinkSync(p); removed.push(p); } catch (_) { /* 掴まれていれば次の起動で */ }
+  }
+  return removed;
+}
+
+module.exports = { BUSY, READ_WAITS, RENAME_WAITS, SMALL_MAX, sleepSync, decodeJsonBytes, readJsonFile, brokenName, quarantine, pruneBroken, loadJsonFile, isReadOnly, writeJsonFile, cleanTemps };
