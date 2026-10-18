@@ -185,6 +185,18 @@ test('JS3・P14: 読み取り専用の印のファイルには書かず、readOn
   } finally { fs.chmodSync(f, 0o644); }
 });
 
+test('JS3・P14: 先の見張りの後に読み取り専用になり、名前の変更が最後まで EPERM なら readOnly の印を付けて投げる', { timeout: 5000 }, () => {
+  const f = path.join(dir(), 'a.json');
+  fs.writeFileSync(f, '{}');
+  fs.chmodSync(f, 0o444);
+  try {
+    assert.throws(() => J.writeJsonFile(f, { a: 1 }, { sleep: noSleep, fs: faultyFs([
+      { op: 'stat', match: /a\.json$/, code: 'EIO', times: 1 },
+      { op: 'rename', match: /a\.json$/, code: 'EPERM', times: Infinity },
+    ]) }), (e) => e.code === 'EPERM' && e.readOnly === true);
+  } finally { fs.chmodSync(f, 0o644); }
+});
+
 test('JS3: 前に書いた中身と同じなら書かない（ファイルを開きもしない）', { timeout: 5000 }, () => {
   const f = path.join(dir(), 'a.json');
   const r1 = J.writeJsonFile(f, { a: 1 });
