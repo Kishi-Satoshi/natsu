@@ -1,5 +1,5 @@
 /*
- * jsonfile.js — DB の外の JSON（設定・履歴・下書き・控えなど）を読む部品（第1a回 JS1・JS2・RF22・RF23）
+ * jsonfile.js — DB の外の JSON（設定・履歴・下書き・控えなど）を読み書きする部品（第1a回 JS1〜JS3・RF20・RF22・RF23・P14）
  *
  * Electron を読まない。fs は呼ぶたびに opts.fs か require('fs') から引く（試しで差し替えるため）。
  *
@@ -21,6 +21,14 @@
  *    -Encoding UTF8 は BOM 付き）。メモ帳や PowerShell で保存し直した設定を読むため、
  *    BOM 付き UTF-8・BOM 付き UTF-16LE／BE を読み、BOM の無いものは UTF-8 として読む。
  *    CP932（ANSI）の日本語は UTF-8 として正しくないので、化けさせずに「壊れている」にする。
+ *
+ * 書くのは writeJsonFile（JS3）。同じフォルダの一時ファイル <名前>.<pid>-<乱数>.tmp を 'wx' で開き、
+ * 全部書いて fsync して閉じてから名前を変える。電源が切れても古いか新しいかのどちらかが残る。
+ * 掴まれて名前を変えられなければ RENAME_WAITS の順に待ってやり直し、だめなら一時ファイルを消して
+ * 元を残したまま投げる（直接上書きには決して落とさない。呼び手が扱う）。読み取り専用の印の
+ * ファイルには書かず、e.readOnly = true を付けて投げる（P14）。
+ *  - Node の fs（openSync の 'wx' は有れば EEXIST、fsyncSync、Windows の chmod は書き込みの印だけが効く）。
+ *  - 今の src/main.js の saveJson と src/store.js の writeJson（一時ファイルに書いて名前を変える形）。
  *
  * JSON のエラーの文は結果にも記録にも写さない（ファイルの中身を引用するため。口述した文や
  * 設定の値が記録に残ってしまう）。結果に入れるのは理由の符号だけ。
@@ -144,4 +152,87 @@ function loadJsonFile(file, opts = {}) {
   return { state: 'unreadable', code: 'QUARANTINE_FAILED' };
 }
 
-module.exports = { BUSY, READ_WAITS, RENAME_WAITS, SMALL_MAX, sleepSync, decodeJsonBytes, readJsonFile, brokenName, quarantine, loadJsonFile };
+// ---------------------------------------------------------------- 書く（JS3・RF20・P14）
+const FSYNC_UNSUPPORTED = new Set(['EINVAL', 'ENOTSUP', 'EOPNOTSUPP', 'ENOSYS', 'EPERM']);
+const TMP_TRIES = 4;   // 最初の1回と、名前がぶつかったとき（EEXIST）に名前を替えて3回まで
+
+// stat して書き込みの印（0o200）が無ければ真。無いファイル・stat できないファイルは偽
+function isReadOnly(file, fs = require('fs')) {
+  try { return (fs.statSync(file).mode & 0o200) === 0; } catch (_) { return false; }
+}
+
+const readOnlyError = () => Object.assign(new Error('読み取り専用'), { code: 'EPERM', readOnly: true });
+const tmpNameOf = (file) => `${file}.${process.pid}-${Math.floor(Math.random() * 36 ** 6).toString(36).padStart(6, '0')}.tmp`;
+
+// → { written: true, text } | { written: false, text }（prevText と同じ中身なら書かない）。だめなら投げる（e.code はもとの符号）
+function writeJsonFile(file, value, opts = {}) {
+  const fs = fsOf(opts);
+  const sleep = opts.sleep || defaultSleep;
+  const waits = opts.waits || RENAME_WAITS;
+  const doFsync = opts.fsync !== false;
+  const dirFsync = opts.dirFsync == null ? process.platform === 'linux' : Boolean(opts.dirFsync);
+  const onFsyncUnsupported = typeof opts.onFsyncUnsupported === 'function' ? opts.onFsyncUnsupported : () => {};
+  const path = require('path');
+
+  const text = JSON.stringify(value, null, 2);
+  if (opts.prevText === text) return { written: false, text };
+  // Windows では読み取り専用のファイルへの名前の変更が失敗し、Linux では通ってしまうので、両方で先に見る
+  if (isReadOnly(file, fs)) throw readOnlyError();
+
+  const dir = path.dirname(file);
+  fs.mkdirSync(dir, { recursive: true });
+  let tmp = null;
+  let fd = null;
+  try {
+    for (let i = 0; ; i++) {
+      const name = tmpNameOf(file);
+      try {
+        fd = fs.openSync(name, 'wx');
+        tmp = name;
+        break;
+      } catch (e) {
+        if (e && e.code === 'EEXIST' && i + 1 < TMP_TRIES) continue;
+        throw e;
+      }
+    }
+    fs.writeFileSync(fd, text, 'utf8');   // 1回の writeSync は途中までしか書かないことがあるため
+    if (doFsync) {
+      try { fs.fsyncSync(fd); } catch (e) {
+        const code = (e && e.code) || 'UNKNOWN';
+        if (!FSYNC_UNSUPPORTED.has(code)) throw e;
+        try { onFsyncUnsupported(code); } catch (_) { /* 知らせの失敗では止めない */ }
+      }
+    }
+    const closing = fd;
+    fd = null;
+    fs.closeSync(closing);
+    for (let i = 0; ; i++) {
+      try {
+        fs.renameSync(tmp, file);
+        tmp = null;
+        break;
+      } catch (e) {
+        const code = (e && e.code) || 'UNKNOWN';
+        if (BUSY.has(code) && i < waits.length) {
+          try { sleep(waits[i]); } catch (_) { /* 待ちの失敗では止めない */ }
+          continue;
+        }
+        if (code === 'EPERM' && e && typeof e === 'object' && isReadOnly(file, fs)) e.readOnly = true;
+        throw e;
+      }
+    }
+  } catch (e) {
+    if (fd != null) { try { fs.closeSync(fd); } catch (_) { /* 閉じられなくても消しに進む */ } }
+    if (tmp != null) { try { fs.unlinkSync(tmp); } catch (_) { /* 消せなければ Task 1-3 の片付けに任せる */ } }
+    throw e;
+  }
+  if (dirFsync) {
+    // 名前の変更をフォルダにも書き付ける（Linux）。Windows ではフォルダを開けないので失敗は飲む
+    let dfd = null;
+    try { dfd = fs.openSync(dir, 'r'); fs.fsyncSync(dfd); } catch (_) { /* 飲む */ }
+    if (dfd != null) { try { fs.closeSync(dfd); } catch (_) { /* 飲む */ } }
+  }
+  return { written: true, text };
+}
+
+module.exports = { BUSY, READ_WAITS, RENAME_WAITS, SMALL_MAX, sleepSync, decodeJsonBytes, readJsonFile, brokenName, quarantine, loadJsonFile, isReadOnly, writeJsonFile };

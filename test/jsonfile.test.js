@@ -107,3 +107,109 @@ test('JS1: 日本語と「𠮷」を含むフォルダでも読める（RF1 と�
   fs.writeFileSync(f, '{"micId":"𠮷"}');
   assert.deepStrictEqual(J.readJsonFile(f), { state: 'ok', value: { micId: '𠮷' } });
 });
+
+// ---------------------------------------------------------------- JS3 書く
+const spyFs = (base, names, ops) => new Proxy(base, { get: (t, k) => (names.includes(k)
+  ? (...a) => { ops.push([k, ...a.map((x) => (typeof x === 'string' ? path.basename(x) : x))]); return t[k](...a); }
+  : (typeof t[k] === 'function' ? t[k].bind(t) : t[k])) });
+
+test('JS3: 同じフォルダの一時ファイル（<名前>.<pid>-<乱数>.tmp を wx で）に書き、fsync して閉じてから名前を変える。一時ファイルは残らない', { timeout: 5000 }, () => {
+  const d = dir();
+  const f = path.join(d, 'settings.json');
+  const ops = [];
+  const r = J.writeJsonFile(f, { theme: 'dark', micId: 'マイク' }, { fs: spyFs(fs, ['openSync', 'writeFileSync', 'fsyncSync', 'closeSync', 'renameSync'], ops), dirFsync: false });
+  assert.strictEqual(r.written, true);
+  assert.deepStrictEqual(ops.map((o) => o[0]), ['openSync', 'writeFileSync', 'fsyncSync', 'closeSync', 'renameSync']);
+  const tmp = ops[0][1];
+  assert.match(tmp, new RegExp(`^settings\\.json\\.${process.pid}-[0-9a-z]+\\.tmp$`));
+  assert.strictEqual(ops[0][2], 'wx');
+  assert.deepStrictEqual(ops[4].slice(1), [tmp, 'settings.json']);
+  const text = fs.readFileSync(f, 'utf8');
+  assert.strictEqual(text, JSON.stringify({ theme: 'dark', micId: 'マイク' }, null, 2));
+  assert.notStrictEqual(text.charCodeAt(0), 0xfeff, 'BOM を付けた');
+  assert.deepStrictEqual(fs.readdirSync(d), ['settings.json']);
+});
+
+test('JS3・RF20: 名前の変更が EPERM なら待ってやり直す（2回失敗して3回目に通る）。待ちの合計は約0.5秒まで', { timeout: 5000 }, () => {
+  const f = path.join(dir(), 'settings.json');
+  fs.writeFileSync(f, '{"theme":"light"}');
+  const slept = [];
+  J.writeJsonFile(f, { theme: 'dark' }, { fs: faultyFs([{ op: 'rename', match: /settings\.json$/, code: 'EPERM', times: 2 }]), sleep: (ms) => slept.push(ms) });
+  assert.deepStrictEqual(slept, J.RENAME_WAITS.slice(0, 2));
+  assert.deepStrictEqual(JSON.parse(fs.readFileSync(f, 'utf8')), { theme: 'dark' });
+  const sum = J.RENAME_WAITS.reduce((a, b) => a + b, 0);
+  assert.ok(sum >= 400 && sum <= 500, `待ちの合計 ${sum}ms`);
+});
+
+test('JS3・RF20: ずっと失敗すれば投げ、一時ファイルを消し、元のファイルは1バイトも変えない。直接上書きには落とさない', { timeout: 5000 }, () => {
+  const d = dir();
+  const f = path.join(d, 'settings.json');
+  const before = Buffer.from('{\n  "theme": "light"\n}');
+  fs.writeFileSync(f, before);
+  const ops = [];
+  const ffs = spyFs(faultyFs([{ op: 'rename', match: /settings\.json$/, code: 'EBUSY', times: Infinity }]), ['writeFileSync', 'openSync'], ops);
+  assert.throws(() => J.writeJsonFile(f, { theme: 'dark' }, { fs: ffs, sleep: noSleep }), (e) => e.code === 'EBUSY');
+  assert.ok(fs.readFileSync(f).equals(before));
+  assert.deepStrictEqual(fs.readdirSync(d), ['settings.json'], '一時ファイルが残った');
+  assert.ok(!ops.some(([k, p]) => p === 'settings.json'), `元のファイルを直接開いた・書いた: ${JSON.stringify(ops)}`);
+});
+
+test('JS3: waits を空にすると待たない（まとめ書きのタイマーの中は待たずに次の機会へ回す）', { timeout: 5000 }, () => {
+  const f = path.join(dir(), 'a.json');
+  let slept = 0;
+  assert.throws(() => J.writeJsonFile(f, { a: 1 }, { waits: [], sleep: () => { slept += 1; }, fs: faultyFs([{ op: 'rename', match: /a\.json$/, code: 'EBUSY', times: 1 }]) }));
+  assert.strictEqual(slept, 0);
+});
+
+test('JS3・P14: 読み取り専用の印のファイルには書かず、readOnly の印を付けて投げる（やり直さない・一時ファイルを作らない）', { timeout: 5000 }, () => {
+  const d = dir();
+  const f = path.join(d, 'settings.json');
+  fs.writeFileSync(f, '{"theme":"light"}');
+  fs.chmodSync(f, 0o444);
+  let slept = 0;
+  try {
+    assert.throws(() => J.writeJsonFile(f, { theme: 'dark' }, { sleep: () => { slept += 1; } }), (e) => e.readOnly === true);
+    assert.strictEqual(fs.readFileSync(f, 'utf8'), '{"theme":"light"}');
+    assert.deepStrictEqual(fs.readdirSync(d), ['settings.json']);
+    assert.strictEqual(slept, 0);
+  } finally { fs.chmodSync(f, 0o644); }
+});
+
+test('JS3: 前に書いた中身と同じなら書かない（ファイルを開きもしない）', { timeout: 5000 }, () => {
+  const f = path.join(dir(), 'a.json');
+  const r1 = J.writeJsonFile(f, { a: 1 });
+  const ops = [];
+  const r2 = J.writeJsonFile(f, { a: 1 }, { fs: spyFs(fs, ['openSync'], ops), prevText: r1.text });
+  assert.deepStrictEqual([r2.written, ops.length], [false, 0]);
+});
+
+test('JS3: fsync が使えない置き場所では、知らせて fsync 無しで書く', { timeout: 5000 }, () => {
+  const f = path.join(dir(), 'a.json');
+  const told = [];
+  J.writeJsonFile(f, { a: 1 }, { fs: faultyFs([{ op: 'fsync', match: /./, code: 'EINVAL', times: Infinity }]), onFsyncUnsupported: (c) => told.push(c), dirFsync: false });
+  assert.deepStrictEqual(JSON.parse(fs.readFileSync(f, 'utf8')), { a: 1 });
+  assert.deepStrictEqual(told, ['EINVAL']);
+});
+
+test('JS3: フォルダの fsync は dirFsync のときだけ。フォルダを開けない置き場所（Windows）でも投げない', { timeout: 5000 }, () => {
+  const d = dir();
+  const ops = [];
+  const ffs = spyFs(faultyFs([{ op: 'open', match: new RegExp(`${path.basename(d)}$`), code: 'EISDIR', times: Infinity }]), ['openSync'], ops);
+  J.writeJsonFile(path.join(d, 'a.json'), { a: 1 }, { fs: ffs, dirFsync: true });
+  assert.ok(ops.some(([, p]) => p === path.basename(d)), 'フォルダを開こうとしていない');
+  const ops2 = [];
+  J.writeJsonFile(path.join(d, 'b.json'), { b: 1 }, { fs: spyFs(fs, ['openSync'], ops2), dirFsync: false });
+  assert.ok(!ops2.some(([, p]) => p === path.basename(d)), 'dirFsync が偽なのにフォルダを開いた');
+});
+
+test('JS3: 一時ファイルの名前がぶつかったら（EEXIST）別の名前で開き直す', { timeout: 5000 }, () => {
+  const f = path.join(dir(), 'a.json');
+  J.writeJsonFile(f, { a: 2 }, { fs: faultyFs([{ op: 'open', match: /\.tmp$/, code: 'EEXIST', times: 1 }]) });
+  assert.deepStrictEqual(JSON.parse(fs.readFileSync(f, 'utf8')), { a: 2 });
+});
+
+test('JS3: 日本語と「𠮷」を含むフォルダで書いて読める', { timeout: 5000 }, () => {
+  const f = path.join(dir('-保存𠮷'), 'settings.json');
+  J.writeJsonFile(f, { micId: '会議室𠮷' });
+  assert.deepStrictEqual(J.readJsonFile(f), { state: 'ok', value: { micId: '会議室𠮷' } });
+});
