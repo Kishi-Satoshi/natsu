@@ -32,30 +32,30 @@ test('既定の再生デバイスをミュートする loopbackWithMute は使�
   assert.strictEqual(chooseDisplayMedia({ ...OK, frame: {} }).audio, 'loopback');
 });
 
-test('Windows 以外では取り込まない（ループバックは Windows 限定）', () => {
+test('Windows 以外では取り込まない（ループバックは Windows 限定）（断るときは null。{} は main で TypeError）', () => {
   for (const platform of ['darwin', 'linux', 'freebsd', '']) {
-    assert.deepStrictEqual(chooseDisplayMedia({ ...OK, platform, frame: {} }), {}, platform);
+    assert.strictEqual(chooseDisplayMedia({ ...OK, platform, frame: {} }), null, platform);
   }
 });
 
-test('設定がオフなら誰にも渡さない', () => {
-  assert.deepStrictEqual(chooseDisplayMedia({ ...OK, enabled: false, frame: {} }), {});
-  assert.deepStrictEqual(chooseDisplayMedia({ platform: 'win32', frame: {} }), {});
+test('設定がオフなら誰にも渡さない（断るときは null。{} は main で TypeError）', () => {
+  assert.strictEqual(chooseDisplayMedia({ ...OK, enabled: false, frame: {} }), null);
+  assert.strictEqual(chooseDisplayMedia({ platform: 'win32', frame: {} }), null);
 });
 
-test('録音オーバーレイ以外の画面からの要求は断る', () => {
+test('録音オーバーレイ以外の画面からの要求は断る（断るときは null。{} は main で TypeError）', () => {
   // メイン画面から無警告でシステム音声を取れてはいけない
-  assert.deepStrictEqual(
-    chooseDisplayMedia({ ...OK, frame: {}, url: 'file:///c/app/src/renderer/app.html' }), {});
+  assert.strictEqual(
+    chooseDisplayMedia({ ...OK, frame: {}, url: 'file:///c/app/src/renderer/app.html' }), null);
   // 素性が分からない場合は通す。ここで固く弾くと、URLの取れない環境で
   // 機能そのものが黙って死ぬ。
   assert.ok(chooseDisplayMedia({ ...OK, frame: {}, url: '' }).audio);
 });
 
-test('要求元フレームが無ければ何も返さない', () => {
-  assert.deepStrictEqual(chooseDisplayMedia({ ...OK, frame: null }), {});
-  assert.deepStrictEqual(chooseDisplayMedia({ ...OK }), {});
-  assert.deepStrictEqual(chooseDisplayMedia(), {});
+test('要求元フレームが無ければ何も返さない（断るときは null。{} は main で TypeError）', () => {
+  assert.strictEqual(chooseDisplayMedia({ ...OK, frame: null }), null);
+  assert.strictEqual(chooseDisplayMedia({ ...OK }), null);
+  assert.strictEqual(chooseDisplayMedia(), null);
 });
 
 // ---------------------------------------------------------------- 実装の縛り

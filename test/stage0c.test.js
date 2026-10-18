@@ -36,3 +36,17 @@ test('EL0: src/ のコードと注釈に「Notion」と書かない（考え方�
 test('EL0: userData の databases という名前のフォルダを使わない（Electron 32 から Chromium が消す）', () => {
   for (const f of tracked().filter((x) => /^src\/.*\.js$/.test(x))) assert.ok(!/['"`]databases['"`]/.test(read(f)), f);
 });
+
+// ---------------------------------------------------------------- EL2
+test('EL2: 画面の取り込みの受け口は、断るときに null を渡し、枠の読み取りと callback の例外で main を落とさない', () => {
+  const m = code(read('src/main.js'));
+  const i = m.indexOf('setDisplayMediaRequestHandler(');
+  assert.ok(i > 0);
+  const body = m.slice(i, m.indexOf('\n    });', i));
+  assert.match(body, /const streams = chooseDisplayMedia\(\{/);
+  assert.match(body, /try \{ callback\(streams\); \} catch \(e\) \{/);
+  assert.match(body, /try \{ frame = \(request && request\.frame\) \|\| null;/);
+  assert.ok(!/callback\(\{\}\)/.test(body), '{} を渡している');
+  const lb = code(read('src/loopback.js'));
+  assert.ok(!/return \{\};/.test(lb), 'loopback.js が {} を返している');
+});

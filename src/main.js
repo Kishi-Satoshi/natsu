@@ -2609,13 +2609,18 @@ if (!gotLock) {
     // 第2引数（useSystemPicker）は Electron 33 以降のもの。ここで渡すと
     // ハンドラごと無効になるので、引数はコールバック1つだけにする。
     session.defaultSession.setDisplayMediaRequestHandler((request, callback) => {
-      const frame = request && request.frame;
-      callback(chooseDisplayMedia({
+      // Electron 33 から request.frame は null のことがあり、44 では壊れた枠を渡すと callback が投げる。
+      // 枠の読み取りも callback も try で包み、断るときは null を渡す（{} は main で TypeError になる）
+      let frame = null;
+      let url = '';
+      try { frame = (request && request.frame) || null; url = frame ? String(frame.url || '') : ''; } catch (_) { frame = null; url = ''; }
+      const streams = chooseDisplayMedia({
         platform: process.platform,
         frame,
         enabled: Boolean(settings.useSystemAudio),   // 設定がオフなら誰にも渡さない
-        url: frame ? frame.url : '',
-      }));
+        url,
+      });
+      try { callback(streams); } catch (e) { engineLog(`相手の声の取り込みを渡せませんでした: ${e && e.message}`); }
     });
     createOverlay();
     // 登録できなかった側だけ既定に落として再試行する（成功した側はそのまま）。
