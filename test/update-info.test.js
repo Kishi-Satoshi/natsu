@@ -108,6 +108,7 @@ test('check(): リリースの natsu-update.json を読み、今の Electron で
     if (req.url === '/with-info') return rel([zipA, infoA('/info.json')]);
     if (req.url === '/no-info') return rel([zipA]);
     if (req.url === '/bad-info') return rel([zipA, infoA('/info-bad.json')]);
+    if (req.url === '/gone-info') return rel([zipA, infoA('/info-gone.json')]);
     if (req.url === '/info.json') { res.writeHead(200); return res.end(info({})); }
     if (req.url === '/info-bad.json') { res.writeHead(200); return res.end(info({ version: '0.3.9' })); }
     res.writeHead(404); return res.end('{}');
@@ -142,6 +143,10 @@ test('check(): リリースの natsu-update.json を読み、今の Electron で
   assert.strictEqual(bad.ok, false);
   assert.match(bad.error, /natsu-update\.json/);
   assert.ok(!bad.offline);
+  const gone = await stub('/gone-info').check('0.3.0', work, { electronVersion: '31.7.7', env });
+  assert.strictEqual(gone.ok, false);
+  assert.match(gone.error, /natsu-update\.json を取得できません/);
+  assert.match(gone.error, /［更新を確認］からやり直してください$/, '利用者がすることを1つで終えていない');
 });
 
 test('check(): テスト用の取得先（手元の natsu-update.json）では、知らせを作るだけで zip の URL を持たない', async () => {
@@ -154,6 +159,9 @@ test('check(): テスト用の取得先（手元の natsu-update.json）では�
   assert.strictEqual(r.test, true);
   assert.strictEqual(r.url, '');
   assert.strictEqual(updater.updateNotice(r, { ok: true }).message, updater.REINSTALL_MESSAGE);
+  const same = await updater.check('0.4.0', work, { electronVersion: '31.7.7', env: { NATSU_UPDATE_FEED: f } });
+  assert.strictEqual(same.update, false);
+  assert.strictEqual(same.reinstall, false, '新しくない版で入れ直しを促している');
   const b = await updater.check('0.3.0', work, { electronVersion: '31.7.7', env: { NATSU_UPDATE_FEED: 'これは読めない' } });
   assert.strictEqual(b.ok, false);
   assert.match(b.error, /NATSU_UPDATE_FEED/);

@@ -243,7 +243,7 @@ async function check(currentVersion, userDataPath, opts = {}) {
         headers: { 'User-Agent': 'NaTsu' },
         signal: AbortSignal.timeout(15000),
       });
-      if (!ir.ok) return { ok: false, error: `${INFO_ASSET} を取得できません (${ir.status})`, test: feed.test };
+      if (!ir.ok) return { ok: false, error: `${INFO_ASSET} を取得できません (${ir.status})。時間をおいて［更新を確認］からやり直してください`, test: feed.test };
       const text = await ir.text();
       try {
         info = parseUpdateInfo(text, { version: latest, zipName: asset.name });

@@ -38,7 +38,7 @@ if (require.main === module) {
     process.stderr.write('使い方: node tools/update-info.js <natsu-src-x.y.z.zip のパス>\n');
     process.exit(2);
   }
-  const pkg = JSON.parse(fs.readFileSync(path.join(process.cwd(), 'package.json'), 'utf8').replace(/^﻿/, ''));
+  const pkg = JSON.parse(fs.readFileSync(path.join(process.cwd(), 'package.json'), 'utf8').replace(/^\uFEFF/, ''));
   const info = buildUpdateInfo({ pkg, zipName: path.basename(zipPath), zipBytes: fs.readFileSync(zipPath) });
   process.stdout.write(`${JSON.stringify(info, null, 2)}\n`);
 }
