@@ -143,3 +143,19 @@ test('試験の守り: fake-net の宛先の書き換えの後が 127.0.0.1 で�
   const err = await new Promise((r) => { req.on('error', r); req.on('response', () => r(null)); req.end(); });
   assert.match(String(err && err.message), /ERR_BLOCKED_BY_CLIENT/);
 });
+
+test('OL2: 計画の外の分け方を守る。403 は auth（鍵の権限が無い）、413 は too-large（どちらも手元へ落とさない側）。retry-after: 0 は 1 秒待つ（待たずに打ち続けない）', async () => {
+  for (const [mode, code] of [['403', 'auth'], ['413', 'too-large']]) {
+    const f = await startFakeStt({ key: KEY, mode });
+    try {
+      await assert.rejects(C.transcribeCloud(toneWav(1), { request: makeFakeRequest(), provider: custom(f), key: KEY, language: 'ja', prompt: '' }),
+        (e) => e.code === code && e.status === Number(mode) && C.isOfflineError(e) === false, mode);
+    } finally { await f.close(); }
+  }
+  const g = await startFakeStt({ key: KEY, mode: '429', times: 1, retryAfter: '0' });
+  try {
+    const slept = [];
+    await C.transcribeCloud(toneWav(1), { request: makeFakeRequest(), provider: custom(g), key: KEY, language: 'ja', prompt: '', sleep: async (ms) => { slept.push(ms); } });
+    assert.deepStrictEqual(slept, [1000]);
+  } finally { await g.close(); }
+});

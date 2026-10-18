@@ -10,6 +10,7 @@
 //   429        … 最初の times 回だけ 429 と retry-after、その後は文
 //   429-long   … いつも 429 と retry-after: 3600（1日の上限）
 //   500 / 400  … その状態
+//   403 / 413  … その状態（鍵の権限が無い・大きすぎる。計画の外の分け方を守る試験用）
 //   400-prompt … prompt の欄があれば 400、無ければ文（ヒントがトークンの上限を越えた場合: F15）
 //   drop       … 返事をせずに切る
 //   drop-first … 最初の文字起こしの要求だけ切る
@@ -91,6 +92,7 @@ function startFakeStt({ mode = 'text', key = 'gsk_test_0123', text = '本日の�
       if (mode === '429' && n <= times) { json(res, 429, { error: { message: 'Rate limit reached' } }, { 'retry-after': String(retryAfter) }); return; }
       if (mode === '429-long') { json(res, 429, { error: { message: 'Rate limit reached (per day)' } }, { 'retry-after': '3600' }); return; }
       if (mode === '500') { json(res, 500, { error: { message: 'internal' } }); return; }
+      if (mode === '403' || mode === '413') { json(res, Number(mode), { error: { message: mode === '403' ? 'forbidden' : 'too large' } }); return; }
       if (mode === '400' || (mode === '400-prompt' && 'prompt' in form.fields)) { json(res, 400, { error: { message: 'bad request' } }); return; }
       if (mode === 'badjson') { json(res, 200, '<html>not json</html>'); return; }
       if (mode === 'slow') { later(1500, () => { if (!res.destroyed && !res.writableEnded) reply(); }); return; }
