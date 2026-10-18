@@ -59,8 +59,10 @@ test('RF24: 結果の分け方（資料の文のとおり）。成功は result 
   const res = (o, code = 0) => ({ code, stdout: `${JSON.stringify({ type: 'result', ...o })}\n`, stderr: '', timedOut: false });
   assert.deepStrictEqual(K.classifyRun(res({ subtype: 'success', is_error: false, result: '## 概要\n進捗の確認を行った。' })), { ok: true, text: '## 概要\n進捗の確認を行った。' });
   const cases = [
-    ['Not logged in · Please run /login', 'not-logged-in', ''],
-    ['Login expired · Please run /login', 'not-logged-in', ''],
+    // 第1b回の続き Lane F: -p の結果で「ログインしていない・切れた」は auth-expired（auth status は claude.ai と言っても、
+    // OAuth の鍵が切れていれば -p だけが 401 で落ちる。直し方はどれも［Claude Code にログイン］）
+    ['Not logged in · Please run /login', 'auth-expired', ''],
+    ['Login expired · Please run /login', 'auth-expired', ''],
     ["You've hit your session limit · resets 3:45pm", 'limit', '3:45pm'],
     ["You've hit your weekly limit · resets Mon 12:00am", 'limit', 'Mon 12:00am'],
     ["You've hit your Opus limit · resets 3:45pm", 'limit', '3:45pm'],
@@ -70,16 +72,20 @@ test('RF24: 結果の分け方（資料の文のとおり）。成功は result 
     ["Your account is on hold and can't use Claude Code. View details or appeal: https://claude.ai/restricted", 'account', ''],
     ['Your organization has disabled Claude subscription access', 'account', ''],
     ["You've hit your Sonnet limit · resets 3:45pm", 'limit', '3:45pm'],
-    ['Authentication required · Sign in again to continue', 'not-logged-in', ''],
-    ['Failed to authenticate: OAuth session expired and could not be refreshed', 'not-logged-in', ''],
+    ['Authentication required · Sign in again to continue', 'auth-expired', ''],
+    ['Failed to authenticate: OAuth session expired and could not be refreshed', 'auth-expired', ''],
+    ['Failed to authenticate. API Error: 401 OAuth access token has expired. Re-authenticate to continue.', 'auth-expired', ''],
+    ['not logged in', 'auth-expired', ''],
+    ['Claude AI usage limit reached|1760000000', 'limit', ''],
     ['Prompt is too long: 250000 tokens > 200000 maximum', 'too-long', ''],
     ['something else', 'failed', ''],
   ];
   for (const [text, code, resetAt] of cases) {
-    assert.deepStrictEqual(K.classifyRun(res({ subtype: 'success', is_error: true, result: text }, 1)), { ok: false, code, resetAt }, text);
+    assert.deepStrictEqual(K.classifyRun(res({ subtype: 'success', is_error: true, result: text }, 1)), { ok: false, code, resetAt, subtype: 'success' }, text);
   }
   // 失敗の副型は errors の並びで来る
-  assert.deepStrictEqual(K.classifyRun(res({ subtype: 'error_during_execution', is_error: true, errors: ['Not logged in · Please run /login'] }, 1)), { ok: false, code: 'not-logged-in', resetAt: '' });
+  assert.deepStrictEqual(K.classifyRun(res({ subtype: 'error_during_execution', is_error: true, errors: ['Not logged in · Please run /login'] }, 1)),
+    { ok: false, code: 'auth-expired', resetAt: '', subtype: 'error_during_execution' });
   // 引数の誤り（古い版が --safe-mode などを知らない）は始まる前に stderr へ → old-version。ほかの stderr だけの失敗は failed
   assert.deepStrictEqual(K.classifyRun({ code: 1, stdout: '', stderr: "error: unknown option '--safe-mode'", timedOut: false }), { ok: false, code: 'old-version', resetAt: '' });
   assert.deepStrictEqual(K.classifyRun({ code: 1, stdout: '', stderr: 'something broke', timedOut: false }), { ok: false, code: 'failed', resetAt: '' });
@@ -88,7 +94,43 @@ test('RF24: 結果の分け方（資料の文のとおり）。成功は result 
   // is_error が false でも終わりの番号が 0 でなければ失敗（result の文を議事録にしない）
   assert.deepStrictEqual(K.classifyRun({ code: 1, stdout: `${JSON.stringify({ type: 'result', is_error: false, result: '## 概要' })}\n`, stderr: '', timedOut: false }), { ok: false, code: 'failed', resetAt: '' });
   // 成功でも result が空なら失敗
-  assert.deepStrictEqual(K.classifyRun(res({ subtype: 'success', is_error: false, result: '  ' })), { ok: false, code: 'bad-reply', resetAt: '' });
+  assert.deepStrictEqual(K.classifyRun(res({ subtype: 'success', is_error: false, result: '  ' })), { ok: false, code: 'bad-reply', resetAt: '', subtype: 'success' });
+});
+
+// 第1b回の続き Lane F（利用者の PC の 0.5.0 で見つかった）: auth status は authMethod claude.ai なのに、claude -p は
+// is_error:true・api_error_status 401・「OAuth access token has expired」で落ち、NaTsu は「要約を作れませんでした」としか言わなかった
+test('Lane F-a: api_error_status の 401 はログイン切れ（文に関わらず）、429 は上限（混み合いの文なら混み合い）。副型と状態の番号は決まった値だけ持つ', () => {
+  const res = (o, code = 1) => ({ code, stdout: `${JSON.stringify({ type: 'result', ...o })}\n`, stderr: '', timedOut: false });
+  // 利用者の PC で見たままの返事
+  const real = { subtype: 'success', is_error: true, api_error_status: 401, duration_ms: 812, result: 'Failed to authenticate. API Error: 401 OAuth access token has expired. Re-authenticate to continue.' };
+  assert.deepStrictEqual(K.classifyRun(res(real)), { ok: false, code: 'auth-expired', resetAt: '', subtype: 'success', apiStatus: 401 });
+  assert.deepStrictEqual(K.classifyRun(res({ subtype: 'success', is_error: true, api_error_status: 401, result: 'something else' })),
+    { ok: false, code: 'auth-expired', resetAt: '', subtype: 'success', apiStatus: 401 });
+  assert.deepStrictEqual(K.classifyRun(res({ subtype: 'success', is_error: true, api_error_status: 429, result: 'API Error: 429 rate_limit_error' })),
+    { ok: false, code: 'limit', resetAt: '', subtype: 'success', apiStatus: 429 });
+  assert.deepStrictEqual(K.classifyRun(res({ subtype: 'success', is_error: true, api_error_status: 429, result: "You've hit your session limit · resets 3:45pm" })),
+    { ok: false, code: 'limit', resetAt: '3:45pm', subtype: 'success', apiStatus: 429 });
+  assert.deepStrictEqual(K.classifyRun(res({ subtype: 'success', is_error: true, api_error_status: 429, result: 'API Error: Request rejected (429) · this may be a temporary capacity issue' })),
+    { ok: false, code: 'overloaded', resetAt: '', subtype: 'success', apiStatus: 429 });
+  // 終わりの番号が 0 でも is_error なら失敗（401 の返事が 0 で終わっても議事録にしない）
+  assert.strictEqual(K.classifyRun(res(real, 0)).code, 'auth-expired');
+  // 知らない副型は other、番号でない・範囲の外の状態は持たない（記録に写すのは決まった値だけ）
+  assert.deepStrictEqual(K.classifyRun(res({ subtype: 'evil text\nline', is_error: true, api_error_status: '401 OAuth', result: 'x' })),
+    { ok: false, code: 'failed', resetAt: '', subtype: 'other' });
+  assert.deepStrictEqual(K.classifyRun(res({ is_error: true, api_error_status: 4010, result: 'x' })), { ok: false, code: 'failed', resetAt: '' });
+});
+
+test('Lane F-a: ログイン切れの文は設定の［Claude Code にログイン］へ案内する。記録の行は符号・副型・状態の番号だけ（返事の文を写さない）', () => {
+  assert.strictEqual(K.claudeMessage({ code: 'auth-expired' }), 'Claude Code のログインが切れています。設定の［Claude Code にログイン］を押してください。');
+  assert.strictEqual(K.runWhy({ ok: false, code: 'auth-expired', resetAt: '', subtype: 'success', apiStatus: 401 }), 'auth-expired（subtype=success・api_error_status=401）');
+  assert.strictEqual(K.runWhy({ ok: false, code: 'limit', resetAt: '3:45pm' }), 'limit');
+  assert.strictEqual(K.runWhy({ ok: false, code: 'timeout' }), 'timeout');
+  assert.strictEqual(K.runWhy({ ok: true, text: '## 概要' }), 'ok');
+  // 決まりの外の符号・副型・番号は写さない（返事の文が混ざっても記録に出ない）
+  assert.strictEqual(K.runWhy({ ok: false, code: 'Failed to authenticate', subtype: 'OAuth access token has expired', apiStatus: 'x' }), 'failed（subtype=other）');
+  assert.strictEqual(K.runWhy(null), 'failed');
+  const real = { code: 1, stdout: `${JSON.stringify({ type: 'result', subtype: 'success', is_error: true, api_error_status: 401, result: 'Failed to authenticate. API Error: 401 OAuth access token has expired. Re-authenticate to continue.' })}\n`, stderr: '', timedOut: false };
+  assert.strictEqual(K.runWhy(K.classifyRun(real)), 'auth-expired（subtype=success・api_error_status=401）', '返事の文が記録の行に写った');
 });
 
 test('RF24: 平易な文。入れ方のコマンド・リセットの時刻が入り、英語の文や記録の本文を写さない', () => {
@@ -160,12 +202,19 @@ test('OL5: -p に決まった引数を渡し、文字起こしは標準入力だ
 });
 
 test('RF24: 上限・ログイン切れ・混み合い・読めない返事・古い版（引数を知らない）を分ける', { timeout: 20000 }, async () => {
-  const want = { limit: ['limit', '3:45pm'], weekly: ['limit', 'Mon 12:00am'], notlogged: ['not-logged-in', ''], expired: ['not-logged-in', ''],
+  const want = { limit: ['limit', '3:45pm'], weekly: ['limit', 'Mon 12:00am'], notlogged: ['auth-expired', ''], expired: ['auth-expired', ''],
     overloaded: ['overloaded', ''], hold: ['account', ''], garbage: ['bad-reply', ''], badflag: ['old-version', ''] };
   for (const [mode, [code, resetAt]] of Object.entries(want)) {
     const f = withFake(mode);
-    assert.deepStrictEqual(await K.claudeSummarize({ ...f, input: INPUT, systemPrompt: 's' }), { ok: false, code, resetAt }, mode);
+    // JSON の返事なら副型（偽の claude はいつも success）を持つ。JSON でない返事・引数の誤りは持たない
+    const extra = ['garbage', 'badflag'].includes(mode) ? {} : { subtype: 'success' };
+    assert.deepStrictEqual(await K.claudeSummarize({ ...f, input: INPUT, systemPrompt: 's' }), { ok: false, code, resetAt, ...extra }, mode);
   }
+  // Lane F-a: 利用者の PC で見た 401（OAuth の鍵が切れた）と、状態の番号だけの 429
+  assert.deepStrictEqual(await K.claudeSummarize({ ...withFake('expired401'), input: INPUT, systemPrompt: 's' }),
+    { ok: false, code: 'auth-expired', resetAt: '', subtype: 'success', apiStatus: 401 });
+  assert.deepStrictEqual(await K.claudeSummarize({ ...withFake('limit429'), input: INPUT, systemPrompt: 's' }),
+    { ok: false, code: 'limit', resetAt: '', subtype: 'success', apiStatus: 429 });
 });
 
 test('F11: 返事が来なければ時間切れで子を止める。標準入力が 9MB を越えるなら起こさない', { timeout: 20000 }, async () => {

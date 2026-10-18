@@ -185,6 +185,19 @@ test('D1・F2: オンラインで上限なら、要約の欄にリセットの�
   assert.strictEqual((o.pages[0].route || {}).summary, undefined, '失敗したのに、ページに要約の経路を書いた（成功したときだけ書く）');
 });
 
+// 第1b回の続き Lane F（利用者の PC の 0.5.0）: auth status は claude.ai のまま、-p だけが 401（OAuth の鍵が切れた）で落ちた。
+// 要約の欄は［Claude Code にログイン］へ案内し、engine.log は符号・副型・状態の番号だけ（返事の英語の文も本文も写さない）
+test('Lane F-a: -p が 401（OAuth の鍵が切れた）なら、要約の欄にログインの案内、記録は符号と副型と状態の番号だけ。手元の llama では作らない', { timeout: 20000 }, async () => {
+  const o = await run(['text', '--stt=text', '--sum', '--claude=expired401', '--segs=1']);
+  assert.strictEqual(pCalls(o).length, 1);
+  assert.strictEqual(o.pages[0].summaryError, 'Claude Code のログインが切れています。設定の［Claude Code にログイン］を押してください。');
+  assert.ok(o.engineLog.includes('要約: Claude Code → auth-expired（subtype=success・api_error_status=401）'), o.engineLog.filter((l) => l.includes('Claude')).join('\n'));
+  assert.ok(!o.engineLog.some((l) => /OAuth|authenticate|Re-authenticate/i.test(l)), '返事の英語の文が記録に写った');
+  assert.ok(!o.engineLog.some((l) => l.includes('本日の議題')), '記録に文字起こしがある');
+  assert.strictEqual(llamaSpawned(o), false);
+  assert.strictEqual((o.pages[0].route || {}).summary, undefined);
+});
+
 test('RF25: Claude Code が API キーで動く設定なら -p を呼ばずに理由を出す', { timeout: 20000 }, async () => {
   const o = await run(['text', '--stt=text', '--sum', '--claude=ok', '--claude-auth=api_key_helper', '--segs=1']);
   assert.strictEqual(pCalls(o).length, 0);

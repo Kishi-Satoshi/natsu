@@ -140,11 +140,16 @@ function parseAuthStatus({ code, stdout, stderr = '' } = {}) {
   return { ok: false, code: 'unknown', method };
 }
 
-// 失敗の文を符号に分ける（資料の文のとおり）
+// 混み合いの文。api_error_status の 429 の分け方にも使う
+const OVERLOADED_RE = /Overloaded|high load|temporarily limiting|Request rejected \(429\)/;
+
+// 失敗の文を符号に分ける（資料の文のとおり）。-p の結果で「ログインしていない・切れた」は auth-expired
+// （第1b回の続き Lane F。auth status が claude.ai と言っても OAuth の鍵が切れていれば -p だけが落ちる。
+// 直し方はどれも設定の［Claude Code にログイン］。auth status の loggedIn:false は parseAuthStatus の not-logged-in のまま）
 function classifyText(text) {
   const t = String(text || '').trim();
-  if (/Not logged in|Login expired|Authentication required|OAuth (session|token)|Invalid authentication credentials|Please run \/login/.test(t)) {
-    return { code: 'not-logged-in', resetAt: '' };
+  if (/Not logged in|Login expired|Authentication required|OAuth (session|token|access token has expired)|Invalid authentication credentials|Failed to authenticate|Please run \/login/i.test(t)) {
+    return { code: 'auth-expired', resetAt: '' };
   }
   // 従量課金の文を上限より先に見る（「monthly spend limit」は API の課金の上限で、プランの上限ではない）
   if (/Invalid API key|Credit balance is too low|monthly spend limit|disabled API key/.test(t)) return { code: 'api-billing', resetAt: '' };
@@ -152,13 +157,36 @@ function classifyText(text) {
     const m = t.match(/resets ([^\n·]+)$/);
     return { code: 'limit', resetAt: m ? m[1].trim().slice(0, 40) : '' };
   }
-  if (/Overloaded|high load|temporarily limiting|Request rejected \(429\)/.test(t)) return { code: 'overloaded', resetAt: '' };
+  if (/usage limit reached/i.test(t)) return { code: 'limit', resetAt: '' };
+  if (OVERLOADED_RE.test(t)) return { code: 'overloaded', resetAt: '' };
   if (/account is on hold|organization has been disabled|disabled Claude subscription access/.test(t)) return { code: 'account', resetAt: '' };
   if (/Prompt is too long|prompt is too long|context window/i.test(t)) return { code: 'too-long', resetAt: '' };
   return { code: 'failed', resetAt: '' };
 }
 
 const fail = (code, resetAt = '') => ({ ok: false, code, resetAt });
+
+// 記録に写してよい値だけ（第1b回の続き Lane F-a）。返事の文・文字起こしは写さない。
+// 副型は Claude Code の資料の result の subtype の決まった名前だけ（ほかは other）、状態の番号は 100〜599 の整数だけ
+const SUBTYPES = new Set(['success', 'error_max_turns', 'error_during_execution', 'error_max_budget_usd', 'error_max_structured_output_retries']);
+const CODES = new Set(['ok', 'not-found', 'cmd-only', 'not-logged-in', 'auth-expired', 'api-billing', 'limit', 'overloaded', 'account', 'timeout',
+  'too-large', 'old-version', 'too-long', 'bad-reply', 'failed', 'unknown']);
+const okStatus = (v) => Number.isInteger(v) && v >= 100 && v <= 599;
+function facts(j) {
+  const out = {};
+  if (j && j.subtype !== undefined) out.subtype = typeof j.subtype === 'string' && SUBTYPES.has(j.subtype) ? j.subtype : 'other';
+  if (j && okStatus(j.api_error_status)) out.apiStatus = j.api_error_status;
+  return out;
+}
+/** engine.log に書く1語（符号）と、副型・状態の番号。決まりの外の値は写さない */
+function runWhy(r) {
+  if (r && r.ok === true) return 'ok';
+  const code = r && typeof r.code === 'string' && CODES.has(r.code) ? r.code : 'failed';
+  const parts = [];
+  if (r && r.subtype !== undefined) parts.push(`subtype=${typeof r.subtype === 'string' && SUBTYPES.has(r.subtype) ? r.subtype : 'other'}`);
+  if (r && okStatus(r.apiStatus)) parts.push(`api_error_status=${r.apiStatus}`);
+  return parts.length ? `${code}（${parts.join('・')}）` : code;
+}
 
 function classifyRun({ code, stdout, stderr, timedOut } = {}) {
   if (timedOut) return fail('timeout');
@@ -172,14 +200,18 @@ function classifyRun({ code, stdout, stderr, timedOut } = {}) {
   }
   if (j.is_error !== true && code === 0) {
     if (typeof j.result === 'string' && j.result.trim()) return { ok: true, text: j.result };
-    return fail('bad-reply');
+    return { ...fail('bad-reply'), ...facts(j) };
   }
   let text = '';
   if (typeof j.result === 'string' && j.result.trim()) text = j.result;
   else if (Array.isArray(j.errors) && j.errors.length) text = j.errors.map(String).join('\n');
   else text = String(stderr || '');
-  const c = classifyText(text);
-  return fail(c.code, c.resetAt);
+  let c = classifyText(text);
+  // 状態の番号で分ける（Lane F-a）: 401 は文に関わらずログイン切れ（呼ぶ前に auth status で claude.ai を確かめてある）。
+  // 429 は上限（リセットの時刻は文から取る）。ただし混み合いの文なら混み合い
+  if (j.api_error_status === 401) c = { code: 'auth-expired', resetAt: '' };
+  else if (j.api_error_status === 429 && c.code !== 'limit') c = OVERLOADED_RE.test(text) ? { code: 'overloaded', resetAt: '' } : { code: 'limit', resetAt: '' };
+  return { ...fail(c.code, c.resetAt), ...facts(j) };
 }
 
 // 子を1つ起こして終わりを待つ。shell なし・課金の変数を外した環境・決まった作業フォルダ。
@@ -260,6 +292,7 @@ async function claudeSummarize({ cmd, preArgs = [], spawn = cp.spawn, env = proc
 
 const RETRY = '［要約を生成］を押してください。';
 const MESSAGES = {
+  'auth-expired': 'Claude Code のログインが切れています。設定の［Claude Code にログイン］を押してください。',
   'not-found': `Claude Code が見つからないため、要約を作れませんでした。PowerShell で \`${INSTALL_CMD}\` を実行して入れ、ターミナルで \`claude\` を一度起動してログインしてから、${RETRY}`,
   'cmd-only': `Claude Code が \`claude.cmd\` の形（npm 版など）でしか見つからないため、NaTsu から呼べません。PowerShell で \`${INSTALL_CMD}\` を実行して入れ直すか、設定の「Claude Code の場所」に \`claude.exe\` を指定してから、${RETRY}`,
   'not-logged-in': `Claude Code にログインしていないか、ログインが切れています。ターミナルで \`claude\` を起動してログインしてから、${RETRY}`,
@@ -285,6 +318,6 @@ function claudeMessage(r) {
 
 module.exports = {
   STRIP_EXACT, STRIP_PREFIXES, STDIN_MAX, RUN_TIMEOUT_MS, AUTH_TIMEOUT_MS, CLAUDE_MODEL, ASK, INSTALL_CMD,
-  findClaude, childEnv, summaryArgs, authArgs, parseAuthStatus, classifyRun, claudeMessage,
+  findClaude, childEnv, summaryArgs, authArgs, parseAuthStatus, classifyRun, claudeMessage, runWhy,
   claudeAuthStatus, claudeSummarize,
 };

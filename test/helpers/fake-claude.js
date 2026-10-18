@@ -43,9 +43,9 @@ const MD = env.FAKE_CLAUDE_MD || [
   '- 特になし',
 ].join('\n');
 
-const result = (isError, text) => JSON.stringify({ type: 'result', subtype: 'success', is_error: isError, result: text, total_cost_usd: 0.01, session_id: 's' });
+const result = (isError, text, extra = {}) => JSON.stringify({ type: 'result', subtype: 'success', is_error: isError, ...extra, result: text, total_cost_usd: 0.01, session_id: 's' });
 const ok = () => ({ out: `${result(false, MD)}\n`, code: 0 });
-const err = (text) => ({ out: `${result(true, text)}\n`, code: 1 });
+const err = (text, extra) => ({ out: `${result(true, text, extra)}\n`, code: 1 });
 const ANSWERS = {
   ok,
   limit: () => err("You've hit your session limit · resets 3:45pm"),
@@ -54,6 +54,9 @@ const ANSWERS = {
   expired: () => err('Login expired · Please run /login'),
   overloaded: () => err('API Error: Repeated 529 Overloaded errors. The API is at capacity — this is usually temporary.'),
   hold: () => err("Your account is on hold and can't use Claude Code. View details or appeal: https://claude.ai/restricted"),
+  // 第1b回の続き Lane F: 利用者の PC の 0.5.0 で見たままの返事（auth status は claude.ai なのに -p だけが落ちる）
+  expired401: () => err('Failed to authenticate. API Error: 401 OAuth access token has expired. Re-authenticate to continue.', { api_error_status: 401 }),
+  limit429: () => err('API Error: 429 {"type":"error","error":{"type":"rate_limit_error","message":"rate limited"}}', { api_error_status: 429 }),
   garbage: () => ({ out: 'not json\n', code: 0 }),
   // stdout が 5MB を越える。読める成功の行にしておく（上限で止めなければ ok: true になり、上限の確かめになる）
   huge: () => ({ out: `${result(false, 'x'.repeat(6 * 1024 * 1024))}\n`, code: 0 }),

@@ -1536,7 +1536,8 @@ function claudeRunDir() {
 // （claude -p は1回で返し、途中の段が無い）
 async function summarizeWithClaude(plain, memo, type, onProgress) {
   const failWith = (r) => {
-    engineLog(`要約: Claude Code → ${r.code || 'failed'}`);
+    // 符号と、-p の返事の副型・状態の番号だけ（claudeCli.runWhy。返事の文と本文は書かない: 第1b回の続き Lane F-a）
+    engineLog(`要約: Claude Code → ${claudeCli.runWhy(r)}`);
     throw new Error(claudeCli.claudeMessage(r));
   };
   const found = claudeCli.findClaude({ configured: settings.claudeExe });
