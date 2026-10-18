@@ -160,6 +160,25 @@ test('テストの道具: 書き込みが切断の待ち（100ms）より遅く�
     assert.deepStrictEqual(s.cdnRanges(), [null, 'bytes=100000-']);
   } finally { await s.close(); }
 });
+test('テストの道具: 偽の net は、届いた塊を1つずつ渡す（先に読んだ分をまとめて大きな1つにしない）。4MB の途中（400KB を超えたところ）の取り消しが途中で効き、記録は途中の長さ（engine-smoke の続きからと同じ形）', { timeout: 5000 }, async () => {
+  const big = crypto.randomBytes(4 << 20);
+  const bigPin = (url) => ({ url, size: big.length, sha256: crypto.createHash('sha256').update(big).digest('hex') });
+  const s = await startServers({ body: big });
+  try {
+    const dir = tmp(); const ac = new AbortController(); let biggest = 0; let first = true;   // 最初の書き込みを 100ms 待たせ、その間に届いた分を貯めさせる
+    const openPart = async (f) => {
+      const fh = await fs.promises.open(f, fs.existsSync(f) ? 'r+' : 'w+');
+      return new Proxy(fh, { get: (t, k) => (k === 'write'
+        ? async (buf, ...a) => { biggest = Math.max(biggest, buf.length); await new Promise((r) => setTimeout(r, biggest === buf.length && first ? 100 : 1)); first = false; return t.write(buf, ...a); }
+        : (typeof t[k] === 'function' ? t[k].bind(t) : t[k])) });
+    };
+    const pin = bigPin(s.originUrl);
+    await assert.rejects(fetchFile(pin, opts(dir, { openPart, signal: ac.signal, progressMs: 0, onProgress: (p) => { if (p.done > 400 * 1024) ac.abort(); } })), { code: 'cancelled' });
+    const held = JSON.parse(fs.readFileSync(path.join(dir, `${pin.sha256}.json`), 'utf8')).synced;
+    assert.ok(held > 400 * 1024 && held < big.length, `取り消した後の記録の長さが ${held}`);
+    assert.ok(biggest <= 1 << 20, `1回に渡した塊が ${biggest} バイト（先に読んだ分をまとめている）`);
+  } finally { await s.close(); }
+});
 test('試しのたびに固定の URL から始める（CDN の URL は使い回さない）。相対の 307 → 別のホストの 302 でも Range を保つ', async () => {
   const s = await startServers({ body, hops: ['307-relative', '302-cdn'], signedOnce: true, script: [{ cutAfter: 100000 }] });
   try {

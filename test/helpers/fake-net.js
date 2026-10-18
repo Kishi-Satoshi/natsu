@@ -36,9 +36,11 @@ function acceptedEncodings(v) {
 // 届いた分を渡し終えてから失敗を知らせる）。Node の応答をそのまま渡すと、切断のときに Node が応答を壊し、受け手がまだ
 // 読んでいない塊が捨てられる。受け手の書き込みが遅いと（Windows のウイルス対策が1回でも 100ms 止めると）続きの位置が
 // 時間しだいでぶれ、bytes=100000- を見るテストが赤になった（第1a回の合流の CI。bytes=65329- = 64KB の1回の読みから見出しを
-// 引いた長さ）。受け手が流れを壊したら（取り消し・止まった流れ・break）、下の応答も壊す
+// 引いた長さ）。届いた塊は1つずつ、届いた大きさのまま渡す（readableObjectMode。先に読んだ分を read() が1つにまとめると、
+// 取り消しが途中で効かずに最後まで書いてしまう。本物も塊ごとに渡す）。受け手が流れを壊したら（取り消し・止まった流れ・
+// break）、下の応答も壊す
 function deliverAllThenFail(res) {
-  const out = new PassThrough();
+  const out = new PassThrough({ readableObjectMode: true });
   let failed = false;
   const fail = (e) => {
     if (failed) return;
