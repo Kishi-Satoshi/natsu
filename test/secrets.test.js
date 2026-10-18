@@ -70,3 +70,25 @@ test('JS2: 壊れた secrets.json は退けて（消さずに）鍵が無いと�
   assert.ok(fs.readdirSync(d).some((n) => n.startsWith('secrets.json.broken-')));
   assert.ok(lines.some((l) => l.includes('secrets.json')) && !lines.some((l) => l.includes('ENC1')));
 });
+
+test('RF22: secrets.json が読めない（unreadable）間は set・remove が { ok: false, code: \'write\' } を返して書かない。読めるようになったら読み直し、ほかの鍵を残して書く', async () => {
+  const OPENAI = Buffer.from('ENC1:6f6c64').toString('base64');
+  let state = { state: 'unreadable', code: 'EBUSY' };
+  const writes = [];
+  const fakeJ = {
+    SMALL_MAX: J.SMALL_MAX,
+    loadJsonFile: () => state,
+    writeJsonFile: (f, value) => { writes.push(JSON.parse(JSON.stringify(value))); },
+  };
+  const lines = [];
+  const s = makeSecrets({ file: path.join(dir(), 'secrets.json'), safeStorage: fakeSafe(), J: fakeJ, log: (l) => lines.push(l) });
+  assert.deepStrictEqual(await s.set('groq', KEY), { ok: false, code: 'write' });
+  assert.deepStrictEqual(s.remove('openai'), { ok: false, code: 'write' });
+  assert.strictEqual(writes.length, 0, '読めない間に書いた（ほかの鍵が消える）');
+  assert.ok(lines.some((l) => l.includes('EBUSY')) && !lines.some((l) => l.includes(KEY)));
+  state = { state: 'ok', value: { schema: 1, keys: { openai: OPENAI } } };
+  assert.deepStrictEqual(await s.set('groq', KEY), { ok: true });
+  assert.strictEqual(writes.length, 1);
+  assert.strictEqual(writes[0].keys.openai, OPENAI, '読み直さずに書いて openai の鍵が消えた');
+  assert.ok(writes[0].keys.groq && !JSON.stringify(writes[0]).includes(KEY));
+});
