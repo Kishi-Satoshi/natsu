@@ -35,6 +35,7 @@ const path = require('path');
 const http = require('http');
 const zlib = require('zlib');
 const crypto = require('crypto');
+const { monitorEventLoopDelay } = require('perf_hooks');
 const { fetchFile } = require('../src/engine-fetch');
 const { startServers } = require('../test/helpers/range-server');
 const { versionIssue, versionGate } = require('./electron-version');
@@ -243,6 +244,14 @@ const CHECKS = [
   [8, '圧縮するプロキシ: Accept-Encoding を付けない要求は伸ばして届き、見出しは元のまま。本番の fetchFile も最後まで取る', checkGzip],
 ];
 
+/** 時間切れのときに、その確かめの偽のサーバーが受けた要求を1行にする（CI でどこで止まったかを見分ける） */
+function seenBy(servers) {
+  const all = servers.flatMap((s) => s.requests()).sort((a, b) => a.at - b.at);
+  const t0 = all.length ? all[0].at : 0;
+  const one = (x) => `${x.name}${x.range ? ` ${x.range}` : ''}${x.enc ? `（${x.enc}）` : ''} +${x.at - t0}ms`;
+  return `サーバーが受けた要求: ${all.length ? all.map(one).join('、') : '無し'}`;
+}
+
 /**
  * 8 つの確かめを順に回す → [{ n, ok, line }]。1 つずつ log(line) に 'OK n …' か 'NG n …' を出す。
  *  request  net.request と同じ形の口（本番は (o) => net.request(o)、テストは fake-net）
@@ -252,13 +261,17 @@ async function runChecks({ request, log = (l) => console.log(l), checkMs = 12000
   if (typeof request !== 'function') throw new TypeError('runChecks: request が要る');
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'natsu-取込𠮷-'));
   const out = [];
+  // 時間切れのとき、同期の処理がイベントループを止めていたのか（ファイルの掴みで待つ同期の読み書きなど）を見分ける
+  const lag = monitorEventLoopDelay({ resolution: 20 });
+  lag.enable();
   try {
     for (const [n, title, fn] of CHECKS) {
       const reqs = [];
       const c = {
         request: (o) => { const r = request(o); reqs.push(r); return r; },
         closers: [],
-        serve: async (o) => { const s = await startServers(o); c.closers.push(() => s.close()); return s; },
+        servers: [],
+        serve: async (o) => { const s = await startServers(o); c.servers.push(s); c.closers.push(() => s.close()); return s; },
         tmp: () => fs.mkdtempSync(path.join(root, `${n}-`)),
       };
       let timer = null;
@@ -266,9 +279,10 @@ async function runChecks({ request, log = (l) => console.log(l), checkMs = 12000
       try {
         const p = Promise.resolve().then(() => fn(c));
         p.catch(() => {});                                // 時間切れの後に失敗しても、拾われない失敗にしない
+        lag.reset();
         res = await Promise.race([
           p,
-          new Promise((resolve) => { timer = setTimeout(() => resolve({ ok: false, detail: `${checkMs / 1000} 秒で終わらない` }), checkMs); }),
+          new Promise((resolve) => { timer = setTimeout(() => resolve({ ok: false, detail: `${checkMs / 1000} 秒で終わらない（${seenBy(c.servers)}・イベントループの最大の止まり ${Math.round(lag.max / 1e6)}ms）` }), checkMs); }),
         ]);
       } catch (e) {
         res = { ok: false, detail: `例外: ${(e && (e.code || e.message)) || e}${e && e.code && e.message ? `（${e.message}）` : ''}` };
@@ -282,6 +296,7 @@ async function runChecks({ request, log = (l) => console.log(l), checkMs = 12000
       out.push({ n, ok: Boolean(res.ok), line });
     }
   } finally {
+    lag.disable();
     try { fs.rmSync(root, { recursive: true, force: true }); } catch (_) { /* 残ってもよい */ }
   }
   return out;

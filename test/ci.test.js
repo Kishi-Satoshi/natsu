@@ -179,6 +179,22 @@ test('net-smoke.js: Range と Accept-Encoding を送らない net.request では
   assert.deepStrictEqual(lines.filter((l) => /^NG /.test(l)).map((l) => l.slice(0, 4)), ['NG 3', 'NG 6', 'NG 7']);
 });
 
+test('net-smoke.js: 時間切れの NG には、その確かめで偽のサーバーが受けた要求（名前・Range・Accept-Encoding）と、イベントループの最大の止まりを書く（CI でどこで止まったか・同期の処理が止めていたかを見分ける）', { timeout: 15000 }, async () => {
+  const { runChecks } = require('../tools/net-smoke');
+  // 応答を受け手に渡さない net.request（要求はサーバーに届くが、受け手はずっと待つ）
+  const hanging = (o) => {
+    const req = fakeRequest(o);
+    const emit = req.emit.bind(req);
+    req.emit = (ev, ...a) => (ev === 'response' ? true : emit(ev, ...a));
+    return req;
+  };
+  const lines = [];
+  const r = await runChecks({ request: hanging, log: (l) => lines.push(l), checkMs: 300 });
+  const ng7 = r.find((x) => x.n === 7);
+  assert.ok(ng7 && !ng7.ok, lines.join('\n'));
+  assert.match(ng7.line, /0\.3 秒で終わらない（サーバーが受けた要求: origin.*cdn.*・イベントループの最大の止まり \d+ms）/, ng7.line);
+});
+
 // electron-net のジョブを赤にするのは net-smoke.js の終了コードだけ。boot() は Electron が無いと動かないので、
 // 決め方（exitCodeOf）と終わり方（finish）を取り出して、ここで押さえる（NG の行を出しても緑のまま、を防ぐ。RF2）
 test('net-smoke.js: 終了コードは 8 つとも OK のときだけ 0（NG が 1 つ・空・数が足りないは 1）。出力を流し切ってからその値で終える', () => {
