@@ -10,6 +10,9 @@
  * 撮る前に、時間帯を Asia/Tokyo にし（DevTools の Emulation.setTimezoneOverride）、時計を止め（preload）、アニメーションを止める（insertCSS）。
  * 同じ画面を2回撮り、1画素でも違えば「揺れる」で NG。CSP に断られた行（console-message）が1つでもあれば NG。
  * 2,000 ブロックのページと 1万行の文字起こしを開く速さを3回計り、中央値が目安（screens.PERF）を越えれば NG。
+ * 第1b回 C-1: 画面ごとの答え（s.answers を見本に重ねる）・拡大（s.zoom。開いた後に setZoomFactor、撮る前に窓の中の幅を確かめる）・
+ * Tab の後の輪（s.focus。sendInputEvent で Tab を送る。効かなければ el.focus() に落として参考に出す）・本体の画面の横のはみ出し
+ * （SH.OVERFLOW_PROBE）を見る。取り直し待ち（SH.RETAKE）の画面は基準と違っても「取り直し待ち」と出し、前・後・差分は今までどおり書く。
  * 結果は 1 行ずつ OK／NG で出す。最初の行に機械の版（環境変数 ImageOS・ImageVersion。無ければ「手元」）を出す
  * （基準と違ったときに、CI の機械の更新かどうかを見分ける）。どこかで止まっても、90 秒の見張りで 1 で終わる。
  *
@@ -113,8 +116,11 @@ function boot() {
       }
       await within(wc.executeJavaScript('document.fonts.ready.then(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(() => r(1)))))'), 10000, '描き終わり');
     };
-    /** 窓を開く（守りを付けた session・sandbox・偽の橋）。時間帯と色の主題は開く前に決める */
-    const open = async (page, theme, answers) => {
+    /**
+     * 窓を開く（守りを付けた session・sandbox・偽の橋）。時間帯と色の主題は開く前に決める。
+     * 拡大は開いた後に決める。倍率は同じ出どころ（file://）の窓どうしで引き継がれるので、拡大しない窓も 1 を決め直す
+     */
+    const open = async (page, theme, answers, zoom = 1) => {
       const size = page === 'overlay' ? SH.OVERLAY_SIZE : SH.SIZE;
       nativeTheme.themeSource = theme;
       const win = new BrowserWindow({
@@ -142,6 +148,7 @@ function boot() {
       wc.debugger.attach('1.3');
       await wc.debugger.sendCommand('Emulation.setTimezoneOverride', { timezoneId: SH.TIME_ZONE });
       await within(win.loadFile(PAGES[page]), 15000, `${path.basename(PAGES[page])} の読み込み`);
+      wc.setZoomFactor(zoom);
       await wc.insertCSS(SH.FREEZE_CSS);
       await settle(wc, t);
       return { win, wc, t };
@@ -156,11 +163,42 @@ function boot() {
       }
       return png.decodePng(im.toPNG());
     };
+    // 今のフォーカスと輪。body（何も選んでいない）なら none
+    const FOCUS_READ = `(() => {
+      const a = document.activeElement;
+      const none = !a || a === document.body || a === document.documentElement;
+      return { none, id: none ? '' : a.id, outline: none ? '' : getComputedStyle(a).outlineStyle };
+    })()`;
+    /**
+     * 何も選んでいない所から本物の Tab を n 回送る。画面の外の窓で Tab が効かなければ（body のまま）、決めた要素を focus() して輪の見え方だけを見る。
+     * 見せない窓（show: false）のページはフォーカスを持たず、:focus-visible が当たらない（作業環境の 44.9.0 で、Tab で移っても outline は none だった）。
+     * だから DevTools の Emulation.setFocusEmulationEnabled でページがフォーカスを持つ扱いにする（この画面だけ。ほかの画面の見た目は変えない）
+     */
+    const tabTo = async (wc, focus) => {
+      await wc.debugger.sendCommand('Emulation.setFocusEmulationEnabled', { enabled: true });
+      await within(wc.executeJavaScript('(document.activeElement && document.activeElement.blur && document.activeElement.blur(), 1)'), 10000, 'フォーカスを外す');
+      wc.focus();
+      for (let i = 0; i < focus.tabs; i++) {
+        wc.sendInputEvent({ type: 'keyDown', keyCode: 'Tab' });
+        wc.sendInputEvent({ type: 'keyUp', keyCode: 'Tab' });
+        await wait(100);
+      }
+      let got = await within(wc.executeJavaScript(FOCUS_READ), 10000, 'フォーカスを読む');
+      let real = true;
+      if (got.none) {
+        real = false;
+        await within(wc.executeJavaScript(`((document.getElementById(${JSON.stringify(focus.want)}) || { focus() {} }).focus(), 1)`), 10000, 'focus()');
+        got = await within(wc.executeJavaScript(FOCUS_READ), 10000, 'フォーカスを読む');
+      }
+      return { got, real };
+    };
 
     // ---- 画面を撮る
     const shots = {};
     const flaky = [];
     const errors = [];
+    const overflow = [];   // 本体の画面ごとの { name, ok, note }
+    const focus = [];      // Tab の輪を見る画面の { name, ok, note }
     // 慣らし: Windows の CI で、最初に開いた窓（notes-empty-light）だけ、札と枠の角の縁の画素が実行ごとに2通りに描かれた
     // （色の差 8 まで・31 画素。2 枚目からの窓は4回の実行でいつも同じ、同じ札も同じに描かれる）。最初の画面を1度開いて撮って
     // 捨ててから本番を撮る。慣らしの画像は本番の最初の画面と比べて、違えば参考に出す（直ったかを CI の記録で見るため）
@@ -181,12 +219,31 @@ function boot() {
     for (const s of SH.SCREENS) {
       let win = null;
       try {
-        const o = await open(s.page, s.theme, SH.fixtures());
+        const o = await open(s.page, s.theme, { ...SH.fixtures(), ...JSON.parse(JSON.stringify(s.answers || {})) }, s.zoom || 1);
         win = o.win;
         if (s.event) o.wc.send(`shots:event:${BRIDGE[s.page]}.${s.event[0]}`, s.event[1]);
         if (s.act) await within(o.wc.executeJavaScript(s.act, true), 10000, `${s.name} の操作`);
         await settle(o.wc, o.t);
         await wait(300);
+        if (s.zoom) {
+          const z = SH.judgeZoom(await within(o.wc.executeJavaScript('window.innerWidth'), 10000, '窓の中の幅'), s.zoom);
+          if (!z.ok) errors.push(`${s.name}: ${z.note}`);
+          console.log(`${z.ok ? 'OK' : 'NG'} 拡大 ${s.name} — ${z.note}`);
+        }
+        if (s.focus) {
+          const { got, real } = await tabTo(o.wc, s.focus);
+          const j = SH.judgeFocus(got, s.focus);
+          focus.push({ name: s.name, ok: j.ok, note: j.note });
+          if (!real) console.log(`参考: ${s.name} — 本物の Tab が効かない（画面の外の窓）。#${s.focus.want} を focus() して輪の見え方だけを見た`);
+          console.log(`${j.ok ? 'OK' : SH.RETAKE.has(s.name) ? '取り直し待ち' : 'NG'} Tab の輪 ${s.name} — ${j.note}`);
+          await settle(o.wc, o.t);
+          await wait(100);
+        }
+        if (s.page === 'app') {
+          const j = SH.judgeOverflow(await within(o.wc.executeJavaScript(SH.OVERFLOW_PROBE), 10000, 'はみ出しを集める'));
+          overflow.push({ name: s.name, ok: j.ok, note: j.note });
+          console.log(`${j.ok ? 'OK' : 'NG'} はみ出し ${s.name} — ${j.note}`);
+        }
         const a = await capture(o.wc);
         // 2枚目は描き直させてから撮る（同じ描き終わりの写しを2回比べても、描くたびの揺れは見つからない）
         o.wc.invalidate();
@@ -224,7 +281,7 @@ function boot() {
       for (const c of compare) {
         const why = c.status === 'same' ? '基準と同じ' : c.status === 'diff' ? `基準と ${c.count} 画素違う（前・後・差分を書いた）`
           : c.status === 'size' ? '基準と大きさが違う（前・後・差分を書いた）' : `${c.note || '基準が無い'}（今の画像を書いた）`;
-        console.log(`${c.status === 'same' ? 'OK' : 'NG'} 比べる ${c.name} — ${why}`);
+        console.log(`${c.status === 'same' ? 'OK' : SH.RETAKE.has(c.name) ? '取り直し待ち' : 'NG'} 比べる ${c.name} — ${why}`);
       }
       const missingScreens = SH.SCREENS.filter((s) => !compare.some((c) => c.name === s.name));
       for (const s of missingScreens) errors.push(`${s.name}: 比べる画像が無い`);
@@ -261,10 +318,12 @@ function boot() {
     }
 
     for (const c of csp) console.log(`NG CSP の違反: ${c}`);
-    const code = SH.exitCodeOf({ shots, compare, flaky, csp, perf, errors });
+    const code = SH.exitCodeOf({ shots, compare, flaky, csp, perf, errors, retake: SH.RETAKE, overflow, focus });
+    const retakeN = compare ? compare.filter((c) => c.status !== 'same' && SH.RETAKE.has(c.name)).length : 0;
+    const overN = overflow.filter((x) => !x.ok).length;
     console.log(code === 0
-      ? `結果: OK（${Object.keys(shots).length} 枚${compare ? '・基準と全部同じ' : ''}・揺れ 0・CSP の違反 0・速さ OK）`
-      : `結果: NG（揺れ ${flaky.length}・CSP の違反 ${csp.length}・撮れない ${errors.length}・速さの NG ${perf.filter((p) => !p.ok).length}${compare ? `・基準と違う ${compare.filter((c) => c.status !== 'same').length}` : ''}）`);
+      ? `結果: OK（${Object.keys(shots).length} 枚${compare ? (retakeN ? `・取り直し待ち ${retakeN}・ほかは基準と同じ` : '・基準と全部同じ') : ''}・はみ出し 0・揺れ 0・CSP の違反 0・速さ OK）`
+      : `結果: NG（揺れ ${flaky.length}・CSP の違反 ${csp.length}・撮れない ${errors.length}・はみ出し ${overN}・Tab の輪の NG ${focus.filter((x) => !x.ok && !SH.RETAKE.has(x.name)).length}・速さの NG ${perf.filter((p) => !p.ok).length}${compare ? `・基準と違う ${compare.filter((c) => c.status !== 'same' && !SH.RETAKE.has(c.name)).length}・取り直し待ち ${retakeN}` : ''}）`);
     for (const e of errors) console.log(`参考: ${e}`);
     process.stdout.write('', () => exit(code));
   }, die('起動の失敗'));

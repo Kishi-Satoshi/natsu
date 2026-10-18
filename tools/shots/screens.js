@@ -7,6 +7,10 @@
  * 画面は今日の日付で文字を変える（relTime の「N時間前」・dueInfo の「N日超過」・音声入力の「今日の入力」）。
  * 撮るときは時計を FIXED_NOW に止め、時間帯を TIME_ZONE にし、アニメーションを FREEZE_CSS で止める。
  * 見本の日付は、どれも止めた時計より前の決まった日にする（基準を取った次の日に CI が赤にならない）。
+ *
+ * 第1b回 C-1: 画面ごとに、偽の橋の答えを足せる（answers。fixtures に上から重ねる）・拡大できる（zoom）・Tab を送ってから撮れる（focus）。
+ * 本体の画面はどれも、撮る前に横のはみ出しを集めて（OVERFLOW_PROBE）judgeOverflow で決める。
+ * 意図して変える画面は取り直し待ちの一覧（RETAKE）に入れ、基準と違っても NG にしない（録音バーは入れない。揺れ・CSP・はみ出しは NG のまま）。
  */
 'use strict';
 
@@ -15,10 +19,25 @@ const mtype = require('../../src/meetingType');
 
 const SIZE = { width: 1120, height: 780 };         // 本体の窓の既定（main.js の createMainWindow）
 const OVERLAY_SIZE = { width: 316, height: 72 };   // 録音バー（main.js の createOverlay）
+const FIXED_NOW = Date.UTC(2026, 9, 18, 0, 0, 0);   // 撮るときの時計（2026-10-18 09:00 日本時間）。見本の日付はこれより前の決まった日
 
 // 録音バーは onStart（録音を始める。マイクを開く）を受けるまでピルを見せない（.pill に visible が付かない）。
 // 録音は始めずに見た目だけを撮るので、onPhase の後にピルを見せる（overlay.html は変えない）
 const SHOW_PILL = "document.querySelector('.pill').classList.add('visible')";
+// 一覧の1行目を開く（今の画面と同じ）
+const OPEN_PAGE = "document.getElementById('tabBtnNotes').click(); document.querySelector('#plist .pitem').click()";
+// サイドバーを畳む。第1b回 B-2 の前は［«］が無いので何もしない
+const COLLAPSE_SIDE = "(document.getElementById('sideCollapse') || { click() {} }).click()";
+// タブ3つ（ページ・音声入力・設定）を開いて、最後にページを選ぶ。ページを開くのは非同期なので、押すたびに少し待つ（返す promise を main が待つ）
+const OPEN_THREE_TABS = `(async () => {
+  const w = () => new Promise((r) => setTimeout(r, 150));
+  const item = () => document.querySelector('#plist .pitem');
+  document.getElementById('tabBtnNotes').click(); item().click(); await w();
+  document.getElementById('tabBtnDictation').click(); await w();
+  document.getElementById('tabBtnSettings').click(); await w();
+  document.getElementById('tabBtnNotes').click(); item().click(); await w();
+  return 1;
+})()`;
 const SCREENS = [
   { name: 'notes-empty-light', page: 'app', theme: 'light', act: "document.getElementById('tabBtnNotes').click()" },
   { name: 'notes-page-light', page: 'app', theme: 'light', act: "document.getElementById('tabBtnNotes').click(); document.querySelector('#plist .pitem').click()" },
@@ -27,9 +46,26 @@ const SCREENS = [
   { name: 'settings-light', page: 'app', theme: 'light', act: "document.getElementById('tabBtnSettings').click()" },
   { name: 'settings-dark', page: 'app', theme: 'dark', act: "document.getElementById('tabBtnSettings').click()" },
   { name: 'overlay-processing', page: 'overlay', theme: 'light', event: ['onPhase', { phase: 'processing', message: '文字起こし中…' }], act: SHOW_PILL },
+  // 第1b回で足した画面（C-2 で基準を取るまでは取り直し待ち）
+  { name: 'notes-tabs-light', page: 'app', theme: 'light', act: OPEN_THREE_TABS },
+  { name: 'notes-collapsed-light', page: 'app', theme: 'light', act: `${OPEN_PAGE}; ${COLLAPSE_SIDE}` },
+  { name: 'live-light', page: 'app', theme: 'light', answers: liveAnswers() },
+  { name: 'live-dark', page: 'app', theme: 'dark', answers: liveAnswers() },
+  { name: 'notes-page-zoom200-light', page: 'app', theme: 'light', zoom: 2, act: OPEN_PAGE },
+  { name: 'settings-zoom200-dark', page: 'app', theme: 'dark', zoom: 2, act: "document.getElementById('tabBtnSettings').click()" },
 ];
+// Tab の輪を見る画面は1つだけ（何も選んでいない所から Tab を2回で［● 記録開始］）
+SCREENS.find((x) => x.name === 'notes-page-light').focus = { tabs: 2, want: 'mtToggleBtn' };
+
+/**
+ * 取り直し待ち（第1b回 F14）: この回で意図して見た目を変える画面。基準と違っても（diff・size・missing）NG にせず「取り直し待ち」と出す。
+ * 録音バー（overlay-processing）は入れない（overlay.html は変えないので、違えば本当の崩れ）。C-2 で CI の画像から基準を取り直して空にする
+ */
+const RETAKE = new Set([
+  'notes-empty-light', 'notes-page-light', 'notes-page-dark', 'dictation-light', 'settings-light', 'settings-dark',
+  'notes-tabs-light', 'notes-collapsed-light', 'live-light', 'live-dark', 'notes-page-zoom200-light', 'settings-zoom200-dark',
+]);
 const PERF = [{ name: 'open-2000-blocks', budgetMs: 500 }];   // 3回開いた中央値で見る
-const FIXED_NOW = Date.UTC(2026, 9, 18, 0, 0, 0);   // 撮るときの時計（2026-10-18 09:00 日本時間）。見本の日付はこれより前の決まった日
 const TIME_ZONE = 'Asia/Tokyo';
 const TOLERANCE = 2;   // 色の差（0〜255）がこれ以下の画素は同じとみなす。CI の機械の CPU ごとの描き方の1段の差を拾わないため（揺れの確かめ judgePair は 0 で見る）
 const FREEZE_CSS = '*,*::before,*::after{transition:none!important;animation:none!important;caret-color:transparent!important}';
@@ -105,6 +141,27 @@ const HISTORY = [
   { id: 'h2', text: '見積もりの件、承知しました。来週の水曜までにお送りします。', createdAt: '2026-10-16T06:12:00.000Z', durationSec: 7, chars: 29, procMs: 1100 },
   { id: 'h3', text: '会議室の予約をお願いします。', createdAt: '2026-10-01T02:05:00.000Z', durationSec: 3, chars: 13, procMs: 800 },
 ];
+
+/**
+ * 記録中の画面（live-light・live-dark）の答え: main の meetingStatus() の形。区間3つ・一時停止の印1つ（第1b回 A-3 の pauses）・
+ * クラウドで文字起こしする設定（cloud: true）で［この会議は PC の中だけ］が出る。時刻は止めた時計からの決まった差
+ */
+function liveAnswers() {
+  const segs = [
+    { id: 's1', atMs: 0, durationMs: 75000, text: 'それでは週次の定例を始めます。まず進み具合から順にお願いします。' },
+    { id: 's2', atMs: 75000, durationMs: 75000, text: '受注の画面の直しは、結合の試験が今週で終わりました。残りの不具合は2件です。' },
+    { id: 's3', atMs: 150000, durationMs: 75000, text: '在庫の取り込みが遅いので、実行計画を見てもらえますか。' },
+  ];
+  return {
+    'koeApp.meetingStatus': {
+      active: true, finalizing: false, startedAt: FIXED_NOW - 300000, memo: '議題: 進み具合 / 在庫の取り込み',
+      segments: segs, pending: 0, stoppedAt: null, stopping: false, paused: false, pausedMs: 45000,
+      systemAudio: false, micFallback: false, etaSec: null, skipped: 0,
+      pauses: [{ atMs: 150000, ms: 45000, why: 'user' }], pausing: false, resumeHint: false,
+      localOnly: false, cloud: true,
+    },
+  };
+}
 
 /**
  * 偽の橋の答え: { '<橋>.<関数>': 値 }。値は main の受け口が返す形（main.js の ipcMain.handle）。
@@ -238,13 +295,67 @@ function judgePerf(results) {
 }
 
 /**
- * 終了コード。比べるとき（compare がある）は全部 'same'、撮るだけのときは shots が1枚以上で、
- * 揺れ・CSP の違反・速さの NG・撮れなかった画面（errors）が無いときだけ 0
+ * 横のはみ出しを集める文（本体の画面で executeJavaScript する）→ { sw, cw, iw, offenders }。
+ * offenders は、見える要素（大きさがあり、visibility・display で隠れていない）のうち、右端が窓（innerWidth）の外に出ているものの「タグ#id」か「タグ.class」。
+ * 横に流れる帯（overflow-x が visible でない祖先）の中で切られて見えない部分は数えない。body・html は祖先として切らない（窓の端で切られるのが「はみ出し」）
  */
-function exitCodeOf({ shots, compare, flaky = [], csp = [], perf = [], errors = [] } = {}) {
+const OVERFLOW_PROBE = `(() => {
+  const W = window.innerWidth;
+  const de = document.documentElement;
+  const cs = (e) => window.getComputedStyle(e);
+  const label = (e) => e.tagName.toLowerCase() + (e.id ? '#' + e.id : typeof e.className === 'string' && e.className.trim() ? '.' + e.className.trim().split(/\\s+/)[0] : '');
+  const offenders = [];
+  for (const e of document.querySelectorAll('body *')) {
+    const r = e.getBoundingClientRect();
+    if (!(r.width > 0 && r.height > 0)) continue;
+    const st = cs(e);
+    if (st.visibility === 'hidden' || st.display === 'none') continue;
+    let right = r.right;
+    if (st.position !== 'fixed') {
+      for (let p = e.parentElement; p && p !== document.body && p !== de; p = p.parentElement) {
+        if (cs(p).overflowX !== 'visible') right = Math.min(right, p.getBoundingClientRect().right);
+      }
+    }
+    if (right > W + 0.5 && offenders.length < 10) offenders.push(label(e));
+  }
+  return { sw: de.scrollWidth, cw: de.clientWidth, iw: W, offenders };
+})()`;
+
+/** OVERFLOW_PROBE の結果 → { ok, note }。ページが横に流れる（scrollWidth > clientWidth）か、窓の外へ出た要素があれば NG。計れなければ NG */
+function judgeOverflow(r) {
+  if (!r || !Number.isFinite(r.sw) || !Number.isFinite(r.cw) || !r.offenders) return { ok: false, note: 'はみ出しを計れなかった' };
+  const list = Array.from(r.offenders);
+  if (r.sw <= r.cw && list.length === 0) return { ok: true, note: `はみ出し 0（幅 ${r.cw}）` };
+  return { ok: false, note: `横にはみ出す（scrollWidth ${r.sw} > clientWidth ${r.cw}${list.length ? `・窓の外: ${list.join(' ')}` : ''}）` };
+}
+
+/** Tab を送った後のフォーカス { id, outline } → { ok, note }。決めた id にフォーカスがあり、輪（outline-style）が none でなければ OK */
+function judgeFocus(got, focus) {
+  const id = got && got.id ? String(got.id) : '';
+  const outline = got && got.outline ? String(got.outline) : '';
+  const ok = Boolean(focus && id && id === focus.want && outline && outline !== 'none');
+  return { ok, note: ok ? `Tab ${focus.tabs} 回で #${id} に輪（${outline}）` : `Tab の後のフォーカスが #${id || '（なし）'}・輪 ${outline || '（なし）'}（${focus ? `#${focus.want} に輪がほしい` : '決めが無い'}）` };
+}
+
+/** 拡大した窓の中の幅（innerWidth）が「窓の幅 ÷ 倍率」か → { ok, note }。画面の外で描く窓で拡大が効かなければ NG */
+function judgeZoom(innerWidth, zoom) {
+  const want = Math.round(SIZE.width / (Number(zoom) || 1));
+  const ok = innerWidth === want;
+  return { ok, note: ok ? `拡大 ${Math.round((Number(zoom) || 1) * 100)}%（幅 ${want}）` : `拡大が効いていない（innerWidth ${innerWidth}・${want} のはず）` };
+}
+
+/**
+ * 終了コード。比べるとき（compare がある）は全部 'same'、撮るだけのときは shots が1枚以上で、
+ * 揺れ・CSP の違反・速さの NG・撮れなかった画面（errors）が無いときだけ 0。
+ * 第1b回 C-1: 横のはみ出し（overflow）の NG はいつも 1。Tab の輪（focus）の NG は取り直し待ち（retake）でない画面なら 1。
+ * 比べた結果が 'same' でなくても、取り直し待ちの画面なら NG にしない（録音バーは RETAKE に入らない）
+ */
+function exitCodeOf({ shots, compare, flaky = [], csp = [], perf = [], errors = [], retake = new Set(), overflow = [], focus = [] } = {}) {
   const bad = flaky.length > 0 || csp.length > 0 || errors.length > 0 || perf.some((p) => !p || p.ok !== true);
   if (bad) return 1;
-  if (compare !== undefined) return Array.isArray(compare) && compare.length > 0 && compare.every((c) => c && c.status === 'same') ? 0 : 1;
+  if (overflow.some((o) => !o || o.ok !== true)) return 1;
+  if (focus.some((x) => !x || (x.ok !== true && !retake.has(x.name)))) return 1;
+  if (compare !== undefined) return Array.isArray(compare) && compare.length > 0 && compare.every((c) => c && (c.status === 'same' || retake.has(c.name))) ? 0 : 1;
   const n = Array.isArray(shots) ? shots.length : shots && typeof shots === 'object' ? Object.keys(shots).length : 0;
   return n > 0 ? 0 : 1;
 }
@@ -259,6 +370,7 @@ function ensureContentSize(win, size) {
 }
 
 module.exports = {
-  SIZE, OVERLAY_SIZE, SCREENS, PERF, FIXED_NOW, TIME_ZONE, TOLERANCE, FREEZE_CSS,
-  apiNamesOf, fixtures, bigPage, bigListEntry, judgePair, compareAll, cspViolation, median, judgePerf, exitCodeOf, ensureContentSize,
+  SIZE, OVERLAY_SIZE, SCREENS, RETAKE, PERF, FIXED_NOW, TIME_ZONE, TOLERANCE, FREEZE_CSS, OVERFLOW_PROBE,
+  apiNamesOf, fixtures, liveAnswers, bigPage, bigListEntry, judgePair, compareAll, cspViolation, median, judgePerf, judgeOverflow, judgeFocus, judgeZoom,
+  exitCodeOf, ensureContentSize,
 };

@@ -24,9 +24,98 @@ const tmp = (t, name) => {
   return d;
 };
 
-test('G2: 撮る画面は決まった並びで、名前は重ならない', { timeout: 5000 }, () => {
-  assert.deepStrictEqual(SH.SCREENS.map((s) => s.name), ['notes-empty-light', 'notes-page-light', 'notes-page-dark', 'dictation-light', 'settings-light', 'settings-dark', 'overlay-processing']);
+// 第1b回 Task C-1 で意図して変えた: 撮る画面は 7 から 13 へ（タブ・畳んだサイドバー・記録中のページの明暗・200% の2つ）
+test('G2: 撮る画面は決まった並び（第1b回の 13）で、名前は重ならない', { timeout: 5000 }, () => {
+  assert.deepStrictEqual(SH.SCREENS.map((s) => s.name), ['notes-empty-light', 'notes-page-light', 'notes-page-dark', 'dictation-light', 'settings-light', 'settings-dark', 'overlay-processing',
+    'notes-tabs-light', 'notes-collapsed-light', 'live-light', 'live-dark', 'notes-page-zoom200-light', 'settings-zoom200-dark']);
   for (const s of SH.SCREENS) assert.ok(['app', 'overlay'].includes(s.page) && ['light', 'dark'].includes(s.theme), s.name);
+  assert.deepStrictEqual(SH.SCREENS.filter((s) => s.zoom).map((s) => [s.name, s.zoom]), [['notes-page-zoom200-light', 2], ['settings-zoom200-dark', 2]]);
+  const live = SH.SCREENS.find((s) => s.name === 'live-light');
+  const st = live.answers['koeApp.meetingStatus'];
+  assert.ok(st.active && st.cloud && st.pauses.length === 1, '記録中の画面に一時停止の印か［PC の中だけ］が出ない');
+});
+
+test('F14: 取り直し待ち（RETAKE）の画面は違っても NG にしないが、録音バーは入れられず、揺れ・CSP・はみ出しは NG のまま', { timeout: 5000 }, () => {
+  assert.ok(!SH.RETAKE.has('overlay-processing'), '録音バーの基準まで取り直そうとしている（overlay.html は変えない）');
+  for (const n of SH.RETAKE) assert.ok(SH.SCREENS.some((s) => s.name === n), `${n} は撮る画面に無い`);
+  const cmp = [{ name: 'notes-page-light', status: 'diff', count: 9 }, { name: 'overlay-processing', status: 'same' }];
+  assert.strictEqual(SH.exitCodeOf({ shots: ['a'], compare: cmp, retake: new Set(['notes-page-light']) }), 0);
+  assert.strictEqual(SH.exitCodeOf({ shots: ['a'], compare: [{ name: 'overlay-processing', status: 'diff', count: 1 }], retake: new Set(['notes-page-light']) }), 1);
+  assert.strictEqual(SH.exitCodeOf({ shots: ['a'], compare: cmp, retake: new Set(['notes-page-light']), overflow: [{ name: 'notes-page-light', ok: false }] }), 1);
+  // 揺れ・CSP の違反・撮れなかった画面・速さの NG は、取り直し待ちの画面でも NG（足した: 計画の目的の「RETAKE でも NG」の残り）
+  const retake = new Set(['notes-page-light']);
+  assert.strictEqual(SH.exitCodeOf({ shots: ['a'], compare: cmp, retake, flaky: ['notes-page-light'] }), 1);
+  assert.strictEqual(SH.exitCodeOf({ shots: ['a'], compare: cmp, retake, csp: ['app: Refused to execute inline script'] }), 1);
+  assert.strictEqual(SH.exitCodeOf({ shots: ['a'], compare: cmp, retake, errors: ['notes-page-light: 撮れなかった'] }), 1);
+  assert.strictEqual(SH.exitCodeOf({ shots: ['a'], compare: cmp, retake, perf: [{ name: 'open-2000-blocks', ms: 600, ok: false }] }), 1);
+  // Tab の輪の NG は、取り直し待ちでない画面では NG（取り直し待ちの間は骨組みが変わる途中なので参考に出すだけ）
+  assert.strictEqual(SH.exitCodeOf({ shots: ['a'], compare: cmp, retake, focus: [{ name: 'notes-page-light', ok: false }] }), 0);
+  assert.strictEqual(SH.exitCodeOf({ shots: ['a'], compare: cmp, retake: new Set(), focus: [{ name: 'notes-page-light', ok: false }] }), 1);
+  assert.strictEqual(SH.exitCodeOf({ shots: ['a'], compare: cmp.map((c) => ({ ...c, status: 'same' })), focus: [{ name: 'notes-page-light', ok: true }], overflow: [{ name: 'notes-page-light', ok: true }] }), 0);
+});
+
+test('F11: 横のはみ出しの判定（scrollWidth が clientWidth を越える・右端が窓の外の要素がある）', { timeout: 5000 }, () => {
+  assert.deepStrictEqual(SH.judgeOverflow({ sw: 560, cw: 560, offenders: [] }).ok, true);
+  assert.deepStrictEqual(SH.judgeOverflow({ sw: 600, cw: 560, offenders: [] }).ok, false);
+  assert.deepStrictEqual(SH.judgeOverflow({ sw: 560, cw: 560, offenders: ['button#pMore'] }).ok, false);
+  assert.match(SH.OVERFLOW_PROBE, /scrollWidth/);
+  assert.strictEqual(SH.judgeOverflow(null).ok, false, '計れなかったのを OK にした');
+});
+
+test('F11: はみ出しを集める文（OVERFLOW_PROBE）を偽の画面で走らせる — 窓の外へ出た要素だけを集め、祖先で切られた・隠れた要素は数えない', { timeout: 5000 }, () => {
+  const vm = require('node:vm');
+  const el = (tag, id, cls, rect, style = {}, parent = null) => ({ tagName: tag.toUpperCase(), id, className: cls, rect, style, parentElement: parent, getBoundingClientRect: () => rect });
+  const body = el('body', '', '', { left: 0, right: 560, width: 560, height: 700 }, { overflowX: 'visible' });
+  const scroller = el('div', 'tabbar', 'tabs', { left: 0, right: 560, width: 560, height: 30 }, { overflowX: 'auto' }, body);
+  const inScroll = el('button', '', 'tab', { left: 500, right: 700, width: 200, height: 30 }, {}, scroller);   // 横に流れる帯の中（切られる）
+  const out = el('button', 'pMore', '', { left: 520, right: 620, width: 100, height: 30 }, {}, body);       // 窓の外へ出た
+  const hidden = el('div', 'x', '', { left: 0, right: 900, width: 900, height: 10 }, { visibility: 'hidden' }, body);
+  const empty = el('span', '', '', { left: 0, right: 0, width: 0, height: 0 }, {}, body);
+  const doc = { documentElement: { scrollWidth: 600, clientWidth: 560 }, body, querySelectorAll: () => [scroller, inScroll, out, hidden, empty] };
+  const win = { innerWidth: 560, getComputedStyle: (e) => ({ overflowX: 'visible', visibility: 'visible', display: 'block', position: 'static', ...e.style }) };
+  const r = vm.runInNewContext(SH.OVERFLOW_PROBE, { document: doc, window: win, getComputedStyle: win.getComputedStyle });
+  assert.deepStrictEqual([r.sw, r.cw, Array.from(r.offenders)], [600, 560, ['button#pMore']]);
+  assert.strictEqual(SH.judgeOverflow(r).ok, false);
+});
+
+test('F12: Tab の輪の判定（決めた id にフォーカスがあり、outline が none でない）', { timeout: 5000 }, () => {
+  const s = SH.SCREENS.find((x) => x.focus);
+  assert.deepStrictEqual([s.name, s.focus.tabs, s.focus.want], ['notes-page-light', 2, 'mtToggleBtn']);
+  assert.deepStrictEqual(SH.SCREENS.filter((x) => x.focus).map((x) => x.name), ['notes-page-light']);
+  assert.strictEqual(SH.judgeFocus({ id: 'mtToggleBtn', outline: 'solid' }, s.focus).ok, true);
+  assert.strictEqual(SH.judgeFocus({ id: 'mtToggleBtn', outline: 'none' }, s.focus).ok, false);
+  assert.strictEqual(SH.judgeFocus({ id: '', outline: 'none' }, s.focus).ok, false);
+  assert.strictEqual(SH.judgeFocus({ id: 'tabBtnDictation', outline: 'solid' }, s.focus).ok, false);
+  assert.strictEqual(SH.judgeFocus(null, s.focus).ok, false);
+});
+
+test('F11: 拡大の画面は、撮る前に窓の中の幅が「窓の幅 ÷ 倍率」になっている（画面の外で描く窓で拡大が効いたか）', { timeout: 5000 }, () => {
+  assert.strictEqual(SH.judgeZoom(560, 2).ok, true);
+  assert.strictEqual(SH.judgeZoom(1120, 2).ok, false);
+  assert.strictEqual(SH.judgeZoom(1120, 1).ok, true);
+  assert.strictEqual(SH.judgeZoom(undefined, 2).ok, false);
+});
+
+test('G2: 画面ごとの答えの名前も、本物の preload.js にあるものだけ', { timeout: 5000 }, () => {
+  const names = SH.apiNamesOf(read('src/preload.js'));
+  for (const s of SH.SCREENS) for (const key of Object.keys(s.answers || {})) {
+    const [bridge, fn] = key.split('.');
+    assert.ok(names[bridge] && names[bridge].includes(fn), `${s.name}: ${key}`);
+  }
+});
+
+test('G2・F14: 録音バーの基準の PNG は第1a回のまま（取り直していない。git の履歴に頼らず中身で固定）', { timeout: 5000 }, () => {
+  const buf = fs.readFileSync(path.join(ROOT, 'test', 'shots', 'win32', 'overlay-processing.png'));
+  assert.strictEqual(require('node:crypto').createHash('sha256').update(buf).digest('hex'), 'd206317193b0f9460af62948ddbad5d904a6311154eb222dceb4ddf5a2f8fd02');
+});
+
+test('F14: 取り直し待ちが残っている間は、版を上げられない（取り直し待ちのまま 0.6.0 を出さない）', { timeout: 5000 }, () => {
+  if (SH.RETAKE.size) assert.strictEqual(JSON.parse(read('package.json')).version, '0.5.0', `取り直し待ち ${[...SH.RETAKE].join(',')} を残したまま版を上げた`);
+});
+
+test('tools/shots/main.js は画面ごとの答え・拡大・はみ出し・Tab を使う', { timeout: 5000 }, () => {
+  const m = read('tools/shots/main.js');
+  for (const s of ['s.answers', 'setZoomFactor(', 'SH.OVERFLOW_PROBE', 'sendInputEvent(', 'SH.RETAKE']) assert.ok(m.includes(s), s);
 });
 
 test('G2: 偽の橋の名前は、本物の preload.js から取ったものと同じ（simrun と同じ結果）。見本の答えは、その名前のものだけ', { timeout: 5000 }, () => {
@@ -185,9 +274,12 @@ test('G2: 作業域より大きい窓が作るときに縮められても（Wind
   assert.ok(made >= 0 && fix > made && fix < m.indexOf("wc.loadURL('about:blank')"), '窓を作った直後に大きさを決め直していない');
 });
 
-test('G2・F9: どの画面にも基準の PNG があり、自作の部品で読めて、大きさが窓の大きさと同じ', { timeout: 5000 }, () => {
+// 第1b回 Task C-1 で意図して緩めた: 基準が無いのは、取り直し待ち（RETAKE）の第1b回の新しい画面だけ。C-2 で元の「全部ある」に戻す
+const NEW_1B = ['notes-tabs-light', 'notes-collapsed-light', 'live-light', 'live-dark', 'notes-page-zoom200-light', 'settings-zoom200-dark'];
+test('G2・F9: どの画面にも基準の PNG があり（取り直し待ちの新しい画面だけは無くてよい）、自作の部品で読めて、大きさが窓の大きさと同じ', { timeout: 5000 }, () => {
   for (const s of SH.SCREENS) {
     const f = path.join(ROOT, 'test', 'shots', 'win32', `${s.name}.png`);
+    if (!fs.existsSync(f) && NEW_1B.includes(s.name) && SH.RETAKE.has(s.name)) continue;
     assert.ok(fs.existsSync(f), `${s.name} の基準が無い`);
     const im = P.decodePng(fs.readFileSync(f));
     const want = s.page === 'overlay' ? SH.OVERLAY_SIZE : SH.SIZE;
