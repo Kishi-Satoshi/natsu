@@ -71,3 +71,111 @@ test('N2: uiState の無い古い preload でも、サイドバーは既定の�
   assert.strictEqual(l.byId.get('side').style.width, '260px');
   assert.deepStrictEqual(l.errors.map(fmt), []);
 });
+
+const tabs = (l) => l.byId.get('tabbar').querySelectorAll('[role="tab"]');
+const keysOf = (l) => tabs(l).map((t) => t.dataset.key);
+const row = (l, i) => l.byId.get('plist').querySelectorAll('.pitem')[i];
+
+test('N3: 一覧を押すと今のページのタブで開き、Ctrl+クリックと中クリックは新しいタブで開いて移る。中身は showTab と openPage（pageGet）', async () => {
+  const l = await open();
+  await l.drain();
+  row(l, 0).dispatchEvent({ type: 'click' });
+  await l.drain();
+  assert.deepStrictEqual(keysOf(l), ['page:pa1']);
+  row(l, 1).dispatchEvent({ type: 'click' });
+  await l.drain();
+  assert.deepStrictEqual(keysOf(l), ['page:pb2'], '普通のクリックでタブが増えた');
+  row(l, 0).dispatchEvent({ type: 'click', ctrlKey: true });
+  await l.drain();
+  assert.deepStrictEqual(keysOf(l), ['page:pb2', 'page:pa1']);
+  assert.strictEqual(tabs(l)[1].getAttribute('aria-selected'), 'true');
+  assert.ok(l.byId.get('tabNotes').className.includes('active'));
+  assert.deepStrictEqual(l.called('pageGet').map((c) => c.args[0]), ['pa1', 'pb2', 'pa1']);
+  row(l, 2).dispatchEvent({ type: 'auxclick', button: 1 });
+  await l.drain();
+  assert.deepStrictEqual(keysOf(l), ['page:pb2', 'page:pa1', 'page:pc3'], '中クリックで新しいタブにならない');
+  assert.strictEqual(tabs(l)[2].getAttribute('aria-selected'), 'true');
+  row(l, 1).dispatchEvent({ type: 'auxclick', button: 1 });
+  await l.drain();
+  assert.deepStrictEqual(keysOf(l), ['page:pb2', 'page:pa1', 'page:pc3'], '同じページのタブを2つ作った（そのタブに移るはず）');
+  assert.strictEqual(tabs(l)[0].getAttribute('aria-selected'), 'true');
+});
+
+test('N3: 音声入力と設定もタブで開き（1つずつ）、× と中クリックで閉じる。選んでいたタブを閉じたら隣へ移り、全部閉じたら空のページ', async () => {
+  const l = await open();
+  await l.drain();
+  l.byId.get('tabBtnSettings').dispatchEvent({ type: 'click' });
+  l.byId.get('tabBtnDictation').dispatchEvent({ type: 'click' });
+  l.byId.get('tabBtnSettings').dispatchEvent({ type: 'click' });
+  await l.drain();
+  assert.deepStrictEqual(keysOf(l), ['settings', 'dictation']);
+  assert.ok(l.byId.get('tabSettings').className.includes('active'));
+  tabs(l)[0].querySelector('button').dispatchEvent({ type: 'click' });
+  await l.drain();
+  assert.deepStrictEqual(keysOf(l), ['dictation']);
+  assert.ok(l.byId.get('tabDictation').className.includes('active'), '隣のタブへ移っていない');
+  tabs(l)[0].dispatchEvent({ type: 'auxclick', button: 1 });
+  await l.drain();
+  assert.deepStrictEqual(keysOf(l), []);
+  assert.match(l.byId.get('pNote').textContent, /左の一覧から議事録を選んでください/);
+});
+
+test('N3・N6・F7: 起動のときに覚えたタブを開いて選んでいたタブに移り、変わるたびに覚える', async () => {
+  const l = await open({ uiState: () => ({ sidebar: { width: 260, collapsed: false }, tabs: { open: ['page:pa1', 'settings'], active: 'page:pa1' } }) });
+  await l.drain();
+  assert.deepStrictEqual(keysOf(l), ['page:pa1', 'settings']);
+  assert.strictEqual(tabs(l)[0].textContent.includes('定例（見本）'), true, 'タブの名前がページの題名でない');
+  assert.deepStrictEqual(l.called('pageGet').map((c) => c.args[0]), ['pa1']);
+  l.byId.get('tabBtnDictation').dispatchEvent({ type: 'click' });
+  await l.drain();
+  assert.deepStrictEqual(saves(l).pop(), { tabs: { open: ['page:pa1', 'settings', 'dictation'], active: 'dictation' } });
+});
+
+test('N3・F8: タブを替える前に書きかけの題名を元のページへ保存する（blur は来ない）', async () => {
+  const l = await open();
+  await l.drain();
+  row(l, 0).dispatchEvent({ type: 'click' });
+  await l.drain();
+  l.byId.get('pTitle').textContent = '直した題名';
+  l.byId.get('tabBtnSettings').dispatchEvent({ type: 'click' });
+  await l.drain();
+  assert.deepStrictEqual(l.called('pageSetTitle').map((c) => c.args), [['pa1', '直した題名']]);
+});
+
+test('N3・画面の使いやすさ: タブの帯は ←／→／Home／End で移り（選んでいるタブだけ Tab で届く）、Ctrl+Tab で次のタブ', async () => {
+  const l = await open({ uiState: () => ({ sidebar: { width: 260, collapsed: false }, tabs: { open: ['page:pa1', 'dictation', 'settings'], active: 'page:pa1' } }) });
+  await l.drain();
+  assert.deepStrictEqual(tabs(l).map((t) => t.tabIndex), [0, -1, -1]);
+  tabs(l)[0].dispatchEvent({ type: 'keydown', key: 'ArrowRight' });
+  await l.drain();
+  assert.strictEqual(l.document.activeElement, tabs(l)[1]);
+  assert.ok(l.byId.get('tabDictation').className.includes('active'));
+  tabs(l)[1].dispatchEvent({ type: 'keydown', key: 'End' });
+  await l.drain();
+  assert.ok(l.byId.get('tabSettings').className.includes('active'));
+  l.key({ key: 'Tab', ctrlKey: true });
+  await l.drain();
+  assert.ok(l.byId.get('tabNotes').className.includes('active'), 'Ctrl+Tab で最初へ回らない');
+});
+
+test('N3・F7（足した守り）: 消したページのタブを残さず隣へ移り、開けないページ（幽霊行）のタブは作らずに今のページのまま', async () => {
+  const l = await open({ pageGet: (id) => (id === 'pc3' ? null : PAGE(id)) });
+  await l.drain();
+  row(l, 0).dispatchEvent({ type: 'click' });
+  await l.drain();
+  row(l, 1).dispatchEvent({ type: 'click', ctrlKey: true });
+  await l.drain();
+  row(l, 2).dispatchEvent({ type: 'click' });
+  await l.drain();
+  assert.deepStrictEqual(keysOf(l), ['page:pa1', 'page:pb2'], '開けないページのタブが残った');
+  assert.strictEqual(tabs(l)[1].getAttribute('aria-selected'), 'true');
+  assert.strictEqual(l.byId.get('pTitle').textContent, '設計の打ち合わせ（見本）', '開いていたページが消えた');
+  l.window.confirm = () => true;
+  l.byId.get('pActs').querySelectorAll('button').find((b) => b.textContent === '削除').dispatchEvent({ type: 'click' });
+  await l.drain();
+  assert.deepStrictEqual(l.called('pageDelete').map((c) => c.args[0]), ['pb2']);
+  assert.deepStrictEqual(keysOf(l), ['page:pa1'], '消したページのタブが残った');
+  assert.strictEqual(l.byId.get('pTitle').textContent, '定例（見本）');
+  assert.deepStrictEqual(saves(l).pop(), { tabs: { open: ['page:pa1'], active: 'page:pa1' } });
+  assert.deepStrictEqual(l.errors.map(fmt), []);
+});

@@ -38,6 +38,15 @@
   .col { flex: 1; min-width: 0; display: flex; flex-direction: column; }
   .topbar { display: flex; align-items: center; gap: 4px; padding: 6px 24px 0; flex: none; min-height: 36px; }
   .tabbar { flex: 1; min-width: 0; display: flex; gap: 2px; }
+  /* 上のタブ（第1b回 N3）: 開いているページ。選んでいるタブは薄い強調の地、× で閉じる */
+  .tabitem { display: flex; align-items: center; gap: 2px; min-width: 0; max-width: 200px; padding: 4px 4px 4px 10px;
+    border-radius: 4px 4px 0 0; color: var(--muted); cursor: pointer; font-size: 13px; }
+  .tabitem .tt { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .tabitem:hover { background: var(--hover); color: var(--text); }
+  .tabitem.active { background: var(--tint); color: var(--text); font-weight: 600; }
+  .tabitem .tx { background: none; border: none; color: var(--muted); font: inherit; font-weight: 400; line-height: 1;
+    padding: 2px 4px; border-radius: 4px; cursor: pointer; flex: none; }
+  .tabitem .tx:hover { background: var(--hover); color: var(--text); }
   .wordmark { font-family: Georgia, "Yu Mincho", serif; font-size: 21px; letter-spacing: .02em; }
   /* サイドバーの « と、畳んだときだけ帯の左に出る » */
   .side-btn { background: none; border: none; color: var(--muted); font: inherit; font-size: 16px; line-height: 1;
@@ -777,13 +786,19 @@
   const imeEnter = (ev) => ev.isComposing || ev.keyCode === 229;
 
   // ---------------- タブ ----------------
-  function showTab(n) {
+  // 中身の切り替え（section とサイドバーのボタンの active）。上のタブはこれと openPage を呼ぶ
+  function showSection(n) {
     for (const t of ['Notes', 'Dictation', 'Settings']) {
       $('tab' + t).classList.toggle('active', n === t.toLowerCase());
       $('tabBtn' + t).classList.toggle('active', n === t.toLowerCase());
     }
   }
-  $('tabBtnNotes').onclick = () => showTab('notes');
+  // 音声入力・設定は上のタブを開いて（あれば移って）出す。notes は中身だけ（ページのタブは openPageTab が開く）
+  function showTab(n) {
+    if (n === 'dictation' || n === 'settings') { openTab(n); return; }
+    showSection(n);
+  }
+  $('tabBtnNotes').onclick = () => goNotes();
   $('tabBtnDictation').onclick = () => showTab('dictation');
   // 設定を開くたびに認識ヒントの状態を聞き直す（記録の途中で main がヒントを止めることがある。0.1.1）
   $('tabBtnSettings').onclick = () => { showTab('settings'); refreshPromptInfo(); refreshCloud(); refreshClaude(); };
@@ -860,21 +875,189 @@
     ev.preventDefault();
     setSideCollapsed(!sideState.collapsed);
   });
-  // 上のタブの帯（タブの中身は第1b回 B-3）。←／→ で隣のタブへフォーカスを移す（受け口は帯に1つ）
-  $('tabbar').addEventListener('keydown', (ev) => {
-    if (ev.key !== 'ArrowLeft' && ev.key !== 'ArrowRight') return;
-    const tabs = [...$('tabbar').querySelectorAll('[role="tab"]')];
-    if (!tabs.length) return;
-    const i = tabs.indexOf(document.activeElement);
-    const next = tabs[(i < 0 ? 0 : i + (ev.key === 'ArrowRight' ? 1 : -1) + tabs.length) % tabs.length];
+  // ---------------- 上のタブ = 開いているページ（第1b回 N3） ----------------
+  // 鍵は 'page:<id>'・'dictation'・'settings'・'live'（録音中のページ。B-5。覚えない）。
+  // 中身は今の showSection（showTab の役目）と openPage を呼ぶだけ。替える前に flushEdits（blur は来ない: F8）。
+  // 並びと選んでいるタブは変わるたびに uiSave({ tabs }) で覚え、起動のときに uiState() のタブを戻す（N6）
+  let openTabs = [];          // [{ key }] 帯の並び
+  let activeTab = '';         // 選んでいるタブの鍵（無ければ ''）
+  let lastPageTab = '';       // 最後に選んだページのタブ（サイドバーの「議事録」が戻る先）
+  let tabsTouched = false;    // 覚えたタブが届く前に利用者が動かしたら、届いた並びで上書きしない
+  const tabTitles = new Map();   // ページの id → 題名（一覧・開いたページ・打ち替えた題名から）
+  const isPageKey = (k) => typeof k === 'string' && k.startsWith('page:') && k.length > 5;
+  const hasTab = (k) => openTabs.some((t) => t.key === k);
+  function tabLabel(k) {
+    if (isPageKey(k)) return tabTitles.get(k.slice(5)) || '議事録';
+    return { dictation: '音声入力', settings: '設定', live: '● 記録中' }[k] || k;
+  }
+  function saveTabs() {
+    const open = openTabs.map((t) => t.key).filter((k) => k !== 'live');
+    saveUi({ tabs: { open, active: open.includes(activeTab) ? activeTab : '' } });
+  }
+  function renderTabs() {
+    const bar = $('tabbar');
+    const f = document.activeElement;
+    const focusKey = f && f.parentNode === bar && f.dataset ? f.dataset.key : '';
+    bar.textContent = '';
+    const reach = hasTab(activeTab) ? activeTab : (openTabs[0] ? openTabs[0].key : '');
+    for (const { key } of openTabs) {
+      const el = document.createElement('div');
+      el.className = 'tabitem' + (key === activeTab ? ' active' : '');
+      el.setAttribute('role', 'tab');
+      el.setAttribute('data-key', key);
+      el.setAttribute('aria-selected', key === activeTab ? 'true' : 'false');
+      el.tabIndex = key === reach ? 0 : -1;   // 選んでいるタブだけ Tab で届く（ほかは ←／→）
+      const t = document.createElement('span'); t.className = 'tt'; t.textContent = tabLabel(key);
+      el.title = tabLabel(key);
+      const x = document.createElement('button');
+      x.type = 'button'; x.className = 'tx'; x.textContent = '×'; x.tabIndex = -1;
+      x.setAttribute('aria-label', 'タブを閉じる');
+      x.onclick = (ev) => { if (ev && typeof ev.stopPropagation === 'function') ev.stopPropagation(); closeTab(key); };
+      el.append(t, x);
+      el.onclick = () => activateTab(key, { fromBar: true });
+      // 中クリックで閉じる。押したときの preventDefault で Windows の自動スクロールを止め、auxclick を確実に受ける
+      el.onmousedown = (ev) => { if (ev && ev.button === 1 && typeof ev.preventDefault === 'function') ev.preventDefault(); };
+      el.onauxclick = (ev) => {
+        if (!ev || ev.button !== 1) return;
+        if (typeof ev.preventDefault === 'function') ev.preventDefault();
+        closeTab(key);
+      };
+      el.addEventListener('keydown', (ev) => onTabKey(ev, key));   // 偽 DOM は泡立たないので、受け口はタブごとにも付ける
+      bar.appendChild(el);
+      if (key === focusKey) el.focus();
+    }
+  }
+  // ←／→ は隣、Home／End は端のタブへ移って選ぶ（移ったタブにフォーカス）
+  function onTabKey(ev, key) {
+    const keys = openTabs.map((t) => t.key);
+    if (!keys.length) return;
+    const from = key || (document.activeElement && document.activeElement.dataset ? document.activeElement.dataset.key : '');
+    const i = keys.indexOf(from), n = keys.length;
+    let j;
+    if (ev.key === 'ArrowRight') j = i < 0 ? 0 : (i + 1) % n;
+    else if (ev.key === 'ArrowLeft') j = i < 0 ? 0 : (i - 1 + n) % n;
+    else if (ev.key === 'Home') j = 0;
+    else if (ev.key === 'End') j = n - 1;
+    else return;
     if (typeof ev.preventDefault === 'function') ev.preventDefault();
-    next.focus();
+    if (typeof ev.stopPropagation === 'function') ev.stopPropagation();   // 本物では帯の受け口へ上がって二重に動かない
+    activateTab(keys[j], { fromBar: true, focus: true });
+  }
+  $('tabbar').addEventListener('keydown', (ev) => onTabKey(ev, ''));
+  // タブを選ぶ。ページのタブは openPage で開き、読めなかったら選ぶ前の並びに戻す（幽霊行。今のページを消さない）
+  async function activateTab(key, o = {}) {
+    if (!hasTab(key)) return false;
+    flushEdits();
+    const before = o.before || { tabs: openTabs.slice(), active: activeTab };
+    activeTab = key;
+    if (isPageKey(key)) lastPageTab = key;
+    renderTabs();
+    if (o.focus) { const el = $('tabbar').querySelector(`[data-key="${key}"]`); if (el) el.focus(); }
+    if (isPageKey(key)) {
+      const id = key.slice(5);
+      if (o.reload || id !== curId || !curPage) {
+        const ok = await openPage(id);
+        if (!ok) {
+          if (activeTab === key) {
+            openTabs = before.tabs.filter((t) => t.key !== key);
+            activeTab = hasTab(before.active) ? before.active : '';
+            renderTabs();
+            saveTabs();
+          }
+          return false;
+        }
+        if (activeTab !== key) return true;   // 開いている間に別のタブへ移った
+      }
+      showSection('notes');
+    } else {
+      showSection(key);
+      if (o.fromBar && key === 'settings') { refreshPromptInfo(); refreshCloud(); refreshClaude(); }   // 設定を開くたびに聞き直す（0.1.1）
+    }
+    if (o.save !== false) saveTabs();
+    return true;
+  }
+  // 音声入力・設定のタブを開く（1つずつ。あれば移る）
+  function openTab(key) {
+    tabsTouched = true;
+    if (!hasTab(key)) openTabs.push({ key });
+    return activateTab(key);
+  }
+  // ページをタブで開く。newTab なら新しいタブ（Q5: すぐ移る）、そうでなければ今のページのタブで開く
+  //（今のタブがページのタブでなければページのタブを足す）。同じページのタブがあればそこへ移る
+  function openPageTab(id, o = {}) {
+    tabsTouched = true;
+    const key = `page:${id}`;
+    const before = { tabs: openTabs.slice(), active: activeTab };
+    if (!hasTab(key)) {
+      const at = openTabs.findIndex((t) => t.key === activeTab);
+      const live = openTabs.findIndex((t) => t.key === 'live');
+      if (o.replaceLive && live >= 0) openTabs[live] = { key };
+      else if (!o.newTab && at >= 0 && isPageKey(activeTab)) openTabs[at] = { key };
+      else openTabs.push({ key });
+    }
+    return activateTab(key, { reload: o.reload !== false, before });
+  }
+  // 一覧の行から開く。Ctrl+クリック・中クリックは新しいタブ（Enter・Space は今のタブ）
+  function openFromList(id, ev) {
+    const newTab = Boolean(ev && (ev.ctrlKey || ev.metaKey || ev.button === 1));
+    return openPageTab(id, { newTab });
+  }
+  function closeTab(key) {
+    const i = openTabs.findIndex((t) => t.key === key);
+    if (i < 0) return;
+    tabsTouched = true;
+    openTabs.splice(i, 1);
+    if (lastPageTab === key) lastPageTab = '';
+    if (key !== activeTab) {
+      if (isPageKey(key) && key.slice(5) === curId) clearPage();   // 裏で開いたままのページを残さない
+      renderTabs(); saveTabs(); return;
+    }
+    const next = openTabs[i] || openTabs[i - 1];
+    if (next) { activateTab(next.key); return; }
+    activeTab = '';
+    clearPage();
+    showSection('notes');
+    renderTabs(); saveTabs();
+  }
+  // 開いているページを閉じて「左の一覧から議事録を選んでください」の画面にする
+  function clearPage() {
+    flushEdits();
+    curId = null; curPage = null; curSegs = [];
+    renderList(); renderPage();
+  }
+  // サイドバーの「議事録」: 最後に選んだページのタブへ（無ければ空のページ）
+  function goNotes() {
+    const key = hasTab(lastPageTab) ? lastPageTab : ([...openTabs].reverse().find((t) => isPageKey(t.key)) || {}).key;
+    if (key) { activateTab(key, { fromBar: true }); return; }
+    activeTab = '';
+    clearPage();
+    showSection('notes');
+    renderTabs(); saveTabs();
+  }
+  // Ctrl+Tab／Ctrl+Shift+Tab で次・前のタブ
+  document.addEventListener('keydown', (ev) => {
+    if (!ev.ctrlKey || ev.altKey || ev.metaKey || ev.key !== 'Tab' || !openTabs.length) return;
+    if (typeof ev.preventDefault === 'function') ev.preventDefault();
+    const i = openTabs.findIndex((t) => t.key === activeTab), n = openTabs.length;
+    const j = i < 0 ? 0 : (i + (ev.shiftKey ? -1 : 1) + n) % n;
+    activateTab(openTabs[j].key, { fromBar: true });
   });
+  // 起動のときに覚えたタブを戻す（main が形の正しい鍵・あるページ・20 個までに絞って渡す。live は来ない）
+  function restoreTabs(tb) {
+    const open = [];
+    for (const k of tb.open) if ((isPageKey(k) || k === 'dictation' || k === 'settings') && !open.includes(k) && open.length < 20) open.push(k);
+    if (!open.length) return;
+    openTabs = open.map((key) => ({ key }));
+    const active = open.includes(tb.active) ? tb.active : open[open.length - 1];
+    activateTab(active, { save: false });
+  }
   applySide();
   if (typeof window.koeApp.uiState === 'function') {
     (async () => {
       let st = null;
       try { st = await window.koeApp.uiState(); } catch (_) { st = null; }
+      const tb = st && st.tabs;
+      if (tb && Array.isArray(tb.open) && !tabsTouched) restoreTabs(tb);
       const sb = st && st.sidebar;
       if (!sb || sideTouched) return;
       sideState.width = clampSide(sb.width);
@@ -944,16 +1127,23 @@
 
   // 一覧の行（div）をキーボードでも扱えるようにする。Tab で辿れ（tabIndex）、
   // 読み上げには選択肢として伝わり（role / aria-selected）、Enter か Space で開く。
-  // マウスの onclick は今までどおり。
+  // マウスの onclick は今までどおり（事象を渡すので、Ctrl+クリックは新しいタブで開ける）。
+  // 中クリック（auxclick の button 1）も事象を渡して開く。押したときの preventDefault で Windows の自動スクロールを止める
   function asOption(el, selected, open) {
     el.tabIndex = 0;
     el.setAttribute('role', 'option');
     el.setAttribute('aria-selected', selected ? 'true' : 'false');
-    el.onclick = open;
+    el.onclick = (ev) => open(ev);
+    el.onmousedown = (ev) => { if (ev && ev.button === 1 && typeof ev.preventDefault === 'function') ev.preventDefault(); };
+    el.onauxclick = (ev) => {
+      if (!ev || ev.button !== 1) return;
+      if (typeof ev.preventDefault === 'function') ev.preventDefault();
+      open(ev);
+    };
     el.onkeydown = (ev) => {
       if (ev.key !== 'Enter' && ev.key !== ' ') return;
       ev.preventDefault();   // Space で一覧がスクロールしないように
-      open();
+      open();   // Enter・Space は今のタブで開く（新しいタブにしない）
     };
   }
 
@@ -1058,7 +1248,7 @@
     if (meta.childNodes.length) body.appendChild(meta);
     const src = document.createElement('div'); src.className = 'src';
     src.textContent = `${x.date} ${x.pageTitle}`;
-    asOption(src, x.pageId === curId, () => openPage(x.pageId));
+    asOption(src, x.pageId === curId, (ev) => openFromList(x.pageId, ev));
     body.appendChild(src);
     el.append(cb, body);
     return el;
@@ -1079,6 +1269,8 @@
       d.innerHTML = '<div class="big">議事録はありません</div>「記録開始」で会議を録音すると<br>要約と文字起こしが作られます。';
       box.appendChild(d); return;
     }
+    for (const p of pages) if (p && p.id && typeof p.title === 'string') tabTitles.set(p.id, p.title);
+    renderTabs();   // タブの名前は題名を追う
     for (const p of pages) {
       const el = document.createElement('div');
       el.className = 'pitem' + (p.id === curId ? ' sel' : '');
@@ -1102,7 +1294,7 @@
         const sn = document.createElement('div'); sn.className = 'snip'; sn.textContent = p.snippet;
         el.appendChild(sn);
       }
-      asOption(el, p.id === curId, () => openPage(p.id));
+      asOption(el, p.id === curId, (ev) => openFromList(p.id, ev));
       box.appendChild(el);
     }
   }
@@ -1130,11 +1322,13 @@
       // 壊れた本体は store が .broken- へ退避し、次回起動の reconcile が一覧から外す。
       toast('ページを開けません（本体が壊れているか消えています）。次回起動時に一覧から外れます');
       await refreshList();
-      return;
+      return false;
     }
     curId = id; curPage = r.page; curSegs = r.segments;
+    if (typeof curPage.title === 'string') tabTitles.set(id, curPage.title);
     pane = curPage.blocks.length ? 'note' : 'script';
     renderList(); renderPage();
+    return true;
   }
 
   function setPane(p) {
@@ -1252,9 +1446,12 @@
     });
     mk('削除', async () => {
       if (!confirm('この議事録を削除します。よろしいですか？')) return;
-      await window.koeApp.pageDelete(curId);
+      const gone = curId;
+      await window.koeApp.pageDelete(gone);
       curId = null; curPage = null; curSegs = [];
+      tabTitles.delete(gone);
       await refreshList(); renderPage();
+      closeTab(`page:${gone}`);   // 消したページのタブを残さない（選んでいたら隣へ、無ければ空のページ）
     });
 
     renderBlocks();
@@ -1556,6 +1753,7 @@
     const v = $('pTitle').textContent.trim();
     if (!v || v === curPage.title) { $('pTitle').textContent = curPage.title; return; }
     curPage.title = v;
+    tabTitles.set(pid, v); renderTabs();
     window.koeApp.pageSetTitle(pid, v).then(() => refreshList());
   }
 
@@ -1845,7 +2043,8 @@
     e.style.display = ''; e.textContent = p.message;
   });
   window.koeApp.onPagesUpdated(() => refreshList());
-  window.koeApp.onPageOpen((id) => { showTab('notes'); openPage(id); });
+  // main が開かせるページ（会議を終えた・知らせを押した）。記録中のタブがあればそれをページのタブに替え、無ければページのタブで開く
+  window.koeApp.onPageOpen((id) => { openPageTab(id, { replaceLive: true }); });
   window.koeApp.onPageUpdated(({ page, segments }) => {
     refreshList();
     if (page.id !== curId) return;
@@ -1858,6 +2057,7 @@
       page.memo = curPage.memo;
     }
     curPage = page; curSegs = segments; renderPage();
+    if (typeof page.title === 'string') { tabTitles.set(page.id, page.title); renderTabs(); }
   });
   window.koeApp.onNotice((m) => { if (/未設定/.test(m)) showEngineSettings(); toast(m); });
 
