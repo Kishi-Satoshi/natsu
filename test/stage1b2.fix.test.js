@@ -79,3 +79,39 @@ test('1b2 直し: 検索の窓の結果の2行目は灰色の文字だけ（赤�
   assert.strictEqual(rows[0].querySelector('.m').textContent, '2026-10-16 ・ 30分0秒');
   assert.strictEqual(S.declsFor(rules, '.pitem .m', { at: '' }).color, 'var(--muted)');
 });
+
+test('1b2 直し（開く速さ）: 出典の札を描くのに、ブロックごとに文字起こしの区間を頭から探さない（2,000 ブロック・1万区間で数百万回の比べになる）', async () => {
+  let scans = 0;
+  const segs = Array.from({ length: 50 }, (_, i) => ({ id: `s${i + 1}`, atMs: i * 1000, text: `${i + 1} 行目の発言（見本）` }));
+  Object.defineProperty(segs, 'findIndex', { value(...a) { scans += 1; return Array.prototype.findIndex.apply(this, a); } });
+  Object.defineProperty(segs, 'find', { value(...a) { scans += 1; return Array.prototype.find.apply(this, a); } });
+  const blocks = Array.from({ length: 30 }, (_, i) => ({ id: `b${i + 1}`, type: 'bullet', text: `${i + 1} 番目の要点（見本）`, cites: [`s${50 - i}`, `s${i + 1}`] }));
+  const page = { id: 'pa1', title: '定例（見本）', createdAt: '2026-10-16T01:00:00.000Z', durationSec: 1800, blocks, memo: '', meetingType: 'general', citeStat: { linked: 30, total: 30 } };
+  // 2つ目のページ（pc3）は同じ id の区間が別の時刻にある（区間の並びの写しを、前のページのまま使い回さない）。s1 は2つあり、前の方を引く
+  const segsB = [{ id: 's9', atMs: 600000, text: 'B の発言（見本）' }, { id: 's1', atMs: 300000, text: 'B の発言（見本）' }, { id: 's1', atMs: 900000, text: '同じ id（見本）' }];
+  const pageB = { ...page, id: 'pc3', title: '振り返り（見本）', blocks: [{ id: 'b1', type: 'bullet', text: 'B の要点（見本）', cites: ['s1', 's9', 's50'] }] };
+  const l = await load(APP, { preloadSrc: PRELOAD, returns: { pagesSearch: () => LIST, pageGet: (id) => (id === 'pc3' ? { page: pageB, segments: segsB } : { page, segments: segs }), meetingTypes: () => TYPES } });
+  await l.drain();
+  const open = async (title) => { l.byId.get('plist').querySelectorAll('.pitem').find((r) => r.querySelector('.t').textContent === title).dispatchEvent({ type: 'click' }); await l.drain(); };
+  await open('定例（見本）');
+  const els = l.byId.get('pNote').querySelectorAll('.blk');
+  assert.strictEqual(els.length, 30);
+  assert.ok(scans <= 2, `区間を ${scans} 回探した（ブロックの数だけ探している）`);
+  // 札は今どおり発言の時系列で、時刻を出す（b1 は s50 と s1 → 0:00・0:49 の順）
+  assert.deepStrictEqual(els[0].querySelectorAll('.cite').map((c) => c.textContent), ['0:00', '0:49']);
+  assert.deepStrictEqual(els[29].querySelectorAll('.cite').map((c) => c.textContent), ['0:20', '0:29']);
+  await open('振り返り（見本）');
+  assert.deepStrictEqual(l.byId.get('pNote').querySelector('.blk').querySelectorAll('.cite').map((c) => c.textContent), ['?', '10:00', '5:00'],
+    '別のページで前のページの区間の位置を使った（s50 は B に無いので ?、s9 → s1 の順）');
+});
+
+test('1b2 直し（開く速さ）: 画面の外のブロックは描かない（content-visibility: auto）。見積もりは本文1行、切る線はボタンの Tab の輪の外', () => {
+  const b = S.declsFor(rules, '.blk', { at: '' });
+  assert.strictEqual(b['content-visibility'], 'auto');
+  assert.strictEqual(b['contain-intrinsic-size'], 'auto 30px', '見積もりが本文1行（16px の文字・24px の行・上下 3px）と違う');
+  // content-visibility は中身を枠で切る（paint の封じ込め）。ボタンの輪（線＋離れ）がはみ出す分より外で切る
+  const ring = S.declsFor(rules, 'button:focus-visible', { at: '' });
+  const reach = px(ring.outline.split(/\s+/)[0]) + px(ring['outline-offset']);
+  assert.ok(reach > 0, `輪のはみ出しを読めない: ${ring.outline} / ${ring['outline-offset']}`);
+  assert.ok(px(b['overflow-clip-margin']) >= reach, `切る線（overflow-clip-margin: ${b['overflow-clip-margin']}）が輪（${reach}px）より内側`);
+});

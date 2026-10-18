@@ -325,6 +325,9 @@
   /* ---------- ブロック ---------- */
   /* 本文（第1b2回 P-2）: 16px・行の高さ 24px・上下 3px（1行ごとに約 30px）。見出しは 20px・600・上 22px */
   .blk { display: flex; align-items: flex-start; gap: 8px; padding: 3px 0; position: relative; }
+  /* 画面の外のブロックは描かない（2,000 ブロックのページを開く速さ。content-visibility の見積もりは本文1行の約 30px で、一度描いた行は
+     auto で本当の高さを覚える）。描くのを省く仕組みは中身を枠で切るので、ボタンの Tab の輪（線 2px＋離れ 2px）が切れないよう切る線を 8px 外へ出す */
+  .blk { content-visibility: auto; contain-intrinsic-size: auto 30px; overflow-clip-margin: 8px; }
   /* 点字の6点(U+283F)を使う。「⋮⋮」を字間で詰める方法は環境によって
      3点に見えていた。 */
   .blk .grip { opacity: 0; flex: none; cursor: grab; color: var(--muted); user-select: none;
@@ -2127,6 +2130,18 @@
   //   citeState 'manual'  … 人が追加した行 → 「手書き」
   //   citeState 'stale'   … 編集後に照合し直していない → チップは残しつつ「編集済み」
   //   それ以外で出典が空  … 照合したが見つからなかった → 「根拠なし」
+  // 区間の id → curSegs の位置（同じ id が2つあれば前の方。findIndex と同じ）。出典の札ごとに curSegs を頭から探すと、
+  // 2,000 ブロック・1万区間のページで開くたびに数百万回の比べになる（開く速さの計りの JS の約3割）。
+  // curSegs は差し替えるだけで中の並びは変えない（openPage・記録中・page:updated とも新しい配列）ので、差し替えたら作り直す
+  let segIdxOf = null; let segIdx = new Map();
+  function segIndex() {
+    if (segIdxOf !== curSegs) {
+      segIdx = new Map();
+      curSegs.forEach((s, i) => { if (!segIdx.has(s.id)) segIdx.set(s.id, i); });
+      segIdxOf = curSegs;
+    }
+    return segIdx;
+  }
   function renderCiteBadge(el, b) {
     const wrap = el.querySelector('.cites');
     if (!wrap) return;
@@ -2137,8 +2152,9 @@
       // 出していたので、出典1件のブロックは必ず「1」になり、
       // 要約の全要点が同じ1区間に貼り付いていても気づけなかった。
       // 文字起こしタブが同じ時刻表記なので、そのまま突き合わせられる。
+      const idx = segIndex();
       cites
-        .map((sid) => ({ sid, i: curSegs.findIndex((s) => s.id === sid) }))
+        .map((sid) => ({ sid, i: idx.has(sid) ? idx.get(sid) : -1 }))
         .sort((a, z) => a.i - z.i)   // 表示は発言の時系列。保存はスコア順のまま
         .forEach(({ sid, i }) => {
           const seg = i >= 0 ? curSegs[i] : null;
