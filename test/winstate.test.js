@@ -1,0 +1,82 @@
+/*
+ * winstate.test.js — 第1b回 N6 の画面の覚え書きの照らし（純粋な関数）
+ */
+'use strict';
+
+const test = require('node:test');
+const assert = require('node:assert');
+const path = require('node:path');
+const W = require('../src/winstate');
+
+const D1 = [{ id: 1, bounds: { x: 0, y: 0, width: 1920, height: 1080 }, workArea: { x: 0, y: 0, width: 1920, height: 1040 } }];
+const D2 = [...D1, { id: 2, bounds: { x: 1920, y: 0, width: 1280, height: 1024 }, workArea: { x: 1920, y: 0, width: 1280, height: 984 } }];
+const good = (o = {}) => ({ v: 1, bounds: { x: 100, y: 80, width: 1200, height: 800 }, maximized: false, zoom: 1.25, sidebar: { width: 300, collapsed: false }, tabs: { open: ['page:pa1', 'settings'], active: 'settings' }, ...o });
+
+test('N6: 置き場所は %LOCALAPPDATA%\\natsu\\window-state.json（Roaming の userData ではない）。無ければ userData', () => {
+  const local = path.join(path.parse(process.cwd()).root, 'Local');
+  assert.deepStrictEqual(W.statePath({ LOCALAPPDATA: local }, '/u'), { file: path.join(local, 'natsu', 'window-state.json'), local: true });
+  assert.deepStrictEqual(W.statePath({}, path.join('/', 'u')), { file: path.join('/', 'u', 'window-state.json'), local: false });
+  assert.strictEqual(W.statePath({ LOCALAPPDATA: 'relative' }, path.join('/', 'u')).local, false, '相対パスを信じた');
+});
+
+test('N6: 正しい覚え書きはそのまま。無い・形の違うファイルは既定（1120×780・位置なし＝真ん中・100%・幅 260）', () => {
+  assert.deepStrictEqual(W.normalize(good(), D1), { state: good(), repaired: [] });
+  for (const raw of [undefined, null, [], 'x', 3]) {
+    assert.deepStrictEqual(W.normalize(raw, D1).state, W.defaults(), JSON.stringify(raw));
+  }
+  assert.deepStrictEqual(W.defaults().bounds, { width: 1120, height: 780 }, '既定に位置を入れた（真ん中に出なくなる）');
+});
+
+test('N6・F1: 大きさは整数で 820×560 以上・上限あり。外れた・小数・文字なら既定の大きさと位置なし', () => {
+  for (const b of [{ x: 0, y: 0, width: 500, height: 800 }, { x: 0, y: 0, width: 1200.5, height: 800 }, { x: 0, y: 0, width: '1200', height: 800 }, { x: 0, y: 0, width: 20000, height: 800 }]) {
+    const r = W.normalize(good({ bounds: b }), D1);
+    assert.deepStrictEqual(r.state.bounds, { width: 1120, height: 780 }, JSON.stringify(b));
+    assert.ok(r.repaired.includes('bounds'));
+  }
+});
+
+test('N6・F1: 今つながっている画面のどれかの作業領域に 120×40 以上重なること。2つ目の画面を外したら真ん中に戻す', () => {
+  const onSecond = good({ bounds: { x: 2100, y: 100, width: 1000, height: 700 } });
+  assert.deepStrictEqual(W.normalize(onSecond, D2).state.bounds, onSecond.bounds, '2つの画面なら2つ目に戻す');
+  assert.deepStrictEqual(W.normalize(onSecond, D1).state.bounds, { width: 1120, height: 780 }, '外した画面の上に出した');
+  assert.strictEqual(W.onScreen({ x: 1800, y: 0, width: 1000, height: 700 }, D1), true, '120 重なれば見える');
+  assert.strictEqual(W.onScreen({ x: 1801, y: 0, width: 1000, height: 700 }, D1), false, '119 しか重ならないのに見えるとした');
+  assert.strictEqual(W.onScreen({ x: 100, y: 1001, width: 1000, height: 700 }, D1), false, '下に 39 しか出ていない');
+  assert.strictEqual(W.onScreen({ width: 1000, height: 700 }, D1), false, '位置が無いのに見えるとした');
+});
+
+test('N6・F2: 覚えるのは getNormalBounds（最小化中の -32000 を残さない）', () => {
+  const win = { getNormalBounds: () => ({ x: 100.4, y: 80, width: 1200, height: 799.6 }), getBounds: () => ({ x: -32000, y: -32000, width: 160, height: 28 }) };
+  assert.deepStrictEqual(W.boundsOf(win), { x: 100, y: 80, width: 1200, height: 800 });
+});
+
+test('N6・F4: 拡大の段は 67〜200%。Ctrl+＋／－／0 と JIS の Ctrl+；、テンキー。段に無い値は 100%', () => {
+  assert.deepStrictEqual(W.ZOOM_STEPS, [0.67, 0.75, 0.8, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2]);
+  const k = (key, o = {}) => W.zoomDir({ type: 'keyDown', key, code: o.code || '', control: true, meta: false, alt: false, shift: Boolean(o.shift), ...o });
+  assert.strictEqual(k('='), 'in'); assert.strictEqual(k('+', { shift: true }), 'in'); assert.strictEqual(k(';'), 'in');
+  assert.strictEqual(k('+', { code: 'NumpadAdd' }), 'in'); assert.strictEqual(k('-'), 'out'); assert.strictEqual(k('-', { code: 'NumpadSubtract' }), 'out');
+  assert.strictEqual(k('0'), 'reset'); assert.strictEqual(k('0', { code: 'Numpad0' }), 'reset');
+  assert.strictEqual(k('p'), null); assert.strictEqual(k('=', { control: false }), null); assert.strictEqual(k('=', { alt: true }), null);
+  assert.strictEqual(W.zoomDir({ type: 'keyUp', key: '=', control: true }), null, 'キーを離したときにも動かした');
+  assert.strictEqual(W.stepZoom(1, 'in'), 1.1); assert.strictEqual(W.stepZoom(2, 'in'), 2, '200% を越えた');
+  assert.strictEqual(W.stepZoom(0.67, 'out'), 0.67); assert.strictEqual(W.stepZoom(1.75, 'reset'), 1);
+  assert.strictEqual(W.stepZoom(1.33, 'in'), 1.1, '段に無い値から動かした');
+  for (const z of [3, 0.5, 1.33, '1.5', null]) assert.strictEqual(W.normalize(good({ zoom: z }), D1).state.zoom, 1, String(z));
+});
+
+test('N6: サイドバーの幅は整数で 200〜480 に寄せ、畳みは真偽値', () => {
+  assert.deepStrictEqual(W.normalize(good({ sidebar: { width: 9999, collapsed: 'yes' } }), D1).state.sidebar, { width: 480, collapsed: false });
+  assert.deepStrictEqual(W.applyUi(W.defaults(), { sidebar: { width: 120.7 } }).sidebar, { width: 200, collapsed: false });
+  assert.deepStrictEqual(W.applyUi(W.defaults(), { sidebar: { collapsed: true } }).sidebar, { width: 260, collapsed: true });
+});
+
+test('N6・F7: タブは形の正しい鍵だけ・録音中のページ（live）は覚えない・無いページは外して数を返す・20 まで', () => {
+  assert.strictEqual(W.tabKeyOk('live'), false);
+  assert.strictEqual(W.tabKeyOk('page:../x'), false);
+  assert.strictEqual(W.tabKeyOk('page:pmz3k1abcd'), true);
+  const r = W.keepTabs({ open: ['page:pa1', 'page:pgone', 'live', 'dictation', 'evil'], active: 'page:pgone' }, (id) => id === 'pa1');
+  assert.deepStrictEqual(r, { tabs: { open: ['page:pa1', 'dictation'], active: 'dictation' }, dropped: 3 });
+  const many = Array.from({ length: 30 }, (_, i) => `page:p${i}`);
+  assert.strictEqual(W.applyUi(W.defaults(), { tabs: { open: many, active: 'page:p29' } }).tabs.open.length, 20);
+  assert.deepStrictEqual(W.applyUi(W.defaults(), { tabs: { open: ['live', 'settings'], active: 'live' } }).tabs, { open: ['settings'], active: 'settings' });
+});
