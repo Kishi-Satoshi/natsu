@@ -3142,7 +3142,6 @@ function setupIpc() {
   // 鍵は画面から受け取って secrets にしまうだけで、画面へは返さない（返すのは「しまってあるか」だけ）。
   // 記録には送り先の名前と符号だけを書く（鍵・暗号の文字は書かない）。設定を開いただけでは外へ通信しない
   // （届くかは net.isOnline() だけで見る。外へ出るのは［鍵を確かめる］を押したときの送り先の /models だけ）
-  const claudeCli = require('./claude-cli');
   const KEY_TEXT = {
     'bad-id': '送り先が正しくありません。',
     'bad-key': '鍵の形が正しくありません（空白や日本語を含まない 8〜512 文字）。',
@@ -3227,10 +3226,10 @@ function setupIpc() {
       const hint = f.code === 'not-found' && settings.claudeExe ? '「Claude Code の場所」に入れたファイルが見つからないときは、場所を空にすると自動で探します。' : '';
       return { ok: true, found: false, cmdOnly: f.code === 'cmd-only', method: '', message: claudeStatusText(f.code) + hint };
     }
-    // 作業フォルダは NaTsu が作る空のフォルダ（B-2・B-3 の claude-run と同じ場所）。利用者のフォルダの設定を読ませない
-    const cwd = path.join(app.getPath('userData'), 'claude-run');
-    try { fs.mkdirSync(cwd, { recursive: true }); } catch (_) { /* 作れなくても auth status は動く */ }
-    const r = await claudeCli.claudeAuthStatus({ cmd: f.cmd, spawn, env: process.env, cwd });
+    // 作業フォルダは要約と同じ claudeRunDir()（NaTsu が作る空のフォルダ）。利用者のフォルダの設定を読ませない
+    let cwd;
+    try { cwd = claudeRunDir(); } catch (_) { cwd = path.join(app.getPath('userData'), 'claude-run'); /* 作れなくても auth status は動く */ }
+    const r = await claudeCli.claudeAuthStatus({ cmd: f.cmd, spawn, cwd });
     engineLog(`Claude Code の確かめ: ${r.ok ? `ok（${r.method}）` : r.code}`);
     const method = typeof r.method === 'string' ? r.method : '';
     if (r.ok) return { ok: true, found: true, cmdOnly: false, method, message: '' };
