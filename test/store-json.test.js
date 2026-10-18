@@ -142,3 +142,15 @@ test('JS9: writeDraft と clearDraft は名前を受け取る（既定は draft.
   store.clearDraft('draft-5.json');
   assert.deepStrictEqual(store.draftFiles(), ['draft.json']);
 });
+
+test('JS7・Task 5-1: writeDraft は main が渡した fsync のとおりに書く（既定は fsync なし）', { timeout: 5000 }, () => {
+  fresh();
+  const calls = [];
+  const orig = J.writeJsonFile;
+  J.writeJsonFile = (file, v, o = {}) => { calls.push([path.basename(file), o.fsync !== false]); return orig(file, v, o); };
+  try {
+    store.writeDraft({ startedAt: 7, segments: [] }, 'draft.json', { fsync: true });
+    store.writeDraft({ startedAt: 8, segments: [] }, 'draft-8.json');
+  } finally { J.writeJsonFile = orig; }
+  assert.deepStrictEqual(calls, [['draft.json', true], ['draft-8.json', false]]);
+});

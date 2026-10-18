@@ -178,3 +178,9 @@ test('G8・JS5: analyze が JSON の直書きの検査を呼ぶ（BLOCK の名�
   const src = read('tools/risk.js');
   assert.ok(src.includes("add('BLOCK', 'JSON の直書き', f,") && src.includes('jsonWriteFindings(f, at(base, f), at(head, f))'));
 });
+
+test('JS5: src の中で JSON を直接書く行は、jsonfile.js のほかに 0 件（全部の書き手を部品に移した）', { timeout: 5000 }, () => {
+  const R = require('../tools/risk');
+  const files = fs.readdirSync(path.join(ROOT, 'src')).filter((f) => f.endsWith('.js') && f !== 'jsonfile.js').map((f) => `src/${f}`);
+  for (const f of files) assert.deepStrictEqual(R.jsonWriteFindings(f, '', read(f)), [], f);
+});

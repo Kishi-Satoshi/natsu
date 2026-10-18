@@ -221,7 +221,8 @@ function writeHistoryFile(value, { retry }) {
   if (historyState === 'unreadable') throw notWritable();
   J.writeJsonFile(historyPath(), value, { waits: retry ? J.RENAME_WAITS : [], onFsyncUnsupported: noteFsyncOnce });
 }
-// まとめ書きの間隔（第1a回 JS7）。今の録音バーの待ちと同じ（Task 4-4 の計りで見直す。変えるなら Task 5-1 でテストと一緒に）
+// まとめ書きの間隔（第1a回 JS7）。今の録音バーの待ちと同じ 350ms のまま（Task 5-1。Windows の CI の 4 回の計りで、設定の大きさの
+// 書き込み＋fsync の p95 が 7.53〜32.69ms で、決め方の 100ms まで）
 const BATCH_MS = 350;
 // 実機の確かめ用に、環境変数 NATSU_TEST_BATCH_MS で間隔を長くできる（設計書の「試し用の長い間隔」。シャットダウンの直前の
 // 変更が書き出しの合図で書かれるのを、間隔の前に電源を切って確かめる）。BATCH_MS〜600000 に収め、使ったら engine.log に1行
@@ -1757,8 +1758,9 @@ function meetingStatus() {
   };
 }
 
-// 下書きの fsync は今と同じ「しない」（第1a回 Task 4-4 の計りで決める。足すなら Task 5-1）
-const DRAFT_FSYNC = false;
+// 下書きの fsync は足す（第1a回 Task 5-1。Windows の CI の 4 回の計りで、512KB の書き込み＋fsync の p95 が 13.8・15.4・17.03・
+// 35.79ms、中央値 16.22ms で、決め方の 20ms まで。録音バーとホットキーを遅らせない大きさで、電源断にも控えが残る）
+const DRAFT_FSYNC = true;
 // 書けなくても録音は止めない。記録はその会議で1回だけ（区間のたびに書くので、重ねると記録が埋まる）
 function writeDraft() {
   if (!meeting) return;

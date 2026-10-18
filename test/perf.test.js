@@ -74,3 +74,12 @@ test('ci.yml の test: npm test の後に node tools/perf.js を回す（Linux �
   assert.ok(iTest >= 0 && iPerf > iTest, `${iTest},${iPerf}`);
   assert.ok(!/if: runner\.os/.test(st[iPerf]), '片方の OS だけで計っている');
 });
+
+test('JS7・Task 5-1: Windows の CI の計りで決めた2つの値が main にある（まとめ書き 350ms・draft.json の fsync を足す）', { timeout: 5000 }, () => {
+  const main = fs.readFileSync(path.join(__dirname, '..', 'src', 'main.js'), 'utf8');
+  // 決めた値（計画 docs/plans/2026-10-18-1a.md の Task 5-1 に測った値と一緒に書いた）。変えるなら計画とこのテストを一緒に直す
+  assert.ok(main.includes('\nconst BATCH_MS = 350;\n'), 'まとめ書きの間隔は 350ms（設定の大きさの p95 は 4 回とも 100ms まで）');
+  assert.ok(main.includes('\nconst DRAFT_FSYNC = true;\n'), 'draft.json の fsync を足す（512KB の p95 の中央値が 20ms まで）');
+  assert.ok(main.includes('}, meeting.draftName, { fsync: DRAFT_FSYNC });'), '下書きを書くときに DRAFT_FSYNC を渡していない');
+  assert.deepStrictEqual([PF.suggestBatchMs(32.69), PF.suggestDraftFsync(16.22)], [350, true]);
+});
