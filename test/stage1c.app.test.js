@@ -130,3 +130,24 @@ test('OL5: ［Claude Code を確かめる］で読み直し、ログイン済み
   assert.doesNotMatch(odd.byId.get('claudeState').textContent, /ログイン済み/);
   assert.ok(l.apis.koeApp.includes('claudeTest') && !l.apis.koeApp.some((k) => /^claude(Run|Summar)/i.test(k)), '画面から Claude Code の要約を呼べる口がある');
 });
+
+test('OL3: 送り先を変えて設定が保存されると、鍵の状態を main に聞き直し、新しい送り先の鍵で描き直す（前の送り先の「保存済み」を残さない）', async () => {
+  let provider = 'groq';   // main がしまっている送り先（設定の保存で変わる）。鍵は groq にだけある
+  const l = await load(APP, { returns: {
+    cloudStatus: () => status({ provider: { id: provider, label: provider, host: '' }, hasKey: provider === 'groq' }),
+    saveSettings: (s) => { provider = s.sttProvider; return { ok: true }; },
+    claudeStatus: () => ({ ok: true, found: true, method: 'claude.ai' }),
+  } });
+  await l.drain();
+  assert.strictEqual(l.byId.get('sttKeyState').textContent, '保存済み');
+  assert.strictEqual(l.byId.get('sttKeyTest').disabled, false);
+  const before = l.called('cloudStatus').length;
+  const sel = l.byId.get('sttProvider'); sel.value = 'openai';
+  l.byId.get('tabSettings').dispatchEvent({ type: 'change' });
+  await l.drain();
+  assert.strictEqual(l.called('saveSettings').pop().args[0].sttProvider, 'openai');
+  assert.ok(l.called('cloudStatus').length > before, '送り先を変えたのに鍵の状態を聞き直していない');
+  assert.strictEqual(l.byId.get('sttKeyState').textContent, '未設定', '鍵の無い送り先なのに「保存済み」のまま');
+  assert.strictEqual(l.byId.get('sttKeyTest').disabled, true);
+  assert.strictEqual(l.byId.get('sttKeyClear').disabled, true);
+});

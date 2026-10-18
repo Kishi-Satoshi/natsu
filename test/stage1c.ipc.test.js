@@ -48,15 +48,39 @@ test('RF30・OL3・OL5・OL7: 設定のカード「オンライン」の IPC。�
   // Claude Code: 場所が無いファイルなら子を起こさず、入れ方の文（S1）を返す。-p は呼ばない
   for (const c of [o.claude, o.claudeTest]) {
     assert.deepStrictEqual({ ...c, message: '' }, { ok: true, found: false, cmdOnly: false, method: '', message: '' });
-    assert.match(c.message, /^Claude Code が見つからないため/);
+    // 設定の画面の文: 入れ方を示し、議事録の［要約を生成］へは誘わない（要約の失敗の文をそのまま出さない）
+    assert.match(c.message, /^Claude Code が見つかりません。PowerShell で `irm https:\/\/claude\.ai\/install\.ps1 \| iex` を実行して入れ/);
+    assert.ok(!/要約を生成|要約を作れませんでした/.test(c.message), `設定の画面に要約の失敗の文が出る: ${c.message}`);
+    assert.match(c.message, /「Claude Code の場所」に入れたファイルが見つからないときは、場所を空にすると自動で探します。$/);
   }
   assert.strictEqual(o.spawns.length, 0, '子のプロセスを起こした');
   // ［この会議は PC の中だけ］: 会議の外では何もしない。false（送る側に戻す）は受け取らない
-  assert.deepStrictEqual(o.localOnlyTrue, { ok: false });
+  assert.deepStrictEqual(o.localOnlyTrue, { ok: false, localOnly: false });
   assert.deepStrictEqual(o.localOnlyFalse, { ok: false, localOnly: false });
   // 鍵の文字は、返事・設定・記録のどこにも無い（記録は送り先の名前と符号だけ）
   const blob = JSON.stringify([o.status0, o.status1, o.statusCustom, o.statusCleared, o.badId, o.badKey, o.set, o.setCustom, o.testOk, o.testAuth, o.testNoKey,
     o.settingsText, o.engineLog, o.notices]);
   assert.ok(!blob.includes(KEY) && !blob.includes('gsk_wrong'), '鍵の文字が返事・設定・記録・知らせのどこかにある');
   assert.ok(o.engineLog.some((l) => l.includes('groq の鍵を保存しました')) && o.engineLog.some((l) => l.includes('custom の鍵の確かめ → auth')));
+});
+
+test('RF28: ［この会議は PC の中だけ］の IPC は片道。会議中に true の後で false が来ても PC の中だけのまま（下書きにも残る）。会議の外は { ok:false, localOnly:false }', { timeout: 30000 }, async () => {
+  const o = await run(['text', '--json-scene=local-only-ipc']);
+  // 会議の外: どちらの値でも何もせず、計画の表の形 { ok, localOnly } で返す
+  assert.deepStrictEqual(o.idleTrue, { ok: false, localOnly: false });
+  assert.deepStrictEqual(o.idleFalse, { ok: false, localOnly: false });
+  assert.strictEqual(o.start.ok, true, `会議を始められない: ${JSON.stringify(o.start)}`);
+  assert.strictEqual(o.draftAtStart, false);
+  // 押す前の false は何も変えない（送る側のまま。下書きも false のまま）
+  assert.deepStrictEqual(o.falseBefore, { ok: false, localOnly: false });
+  assert.strictEqual(o.draftAfterFalseBefore, false);
+  assert.deepStrictEqual(o.on, { ok: true, localOnly: true });
+  assert.strictEqual(o.draftAfterOn, true);
+  // 押した後の false（押し間違い・古い画面）は断り、PC の中だけのまま。下書き（落ちた後の送り直し）も true のまま
+  assert.deepStrictEqual(o.off, { ok: false, localOnly: true });
+  assert.deepStrictEqual(o.offAgain, { ok: false, localOnly: true });
+  assert.strictEqual(o.draftAfterOff, true);
+  assert.ok(o.engineLog.some((l) => l.includes('この会議は PC の中だけ: on')));
+  assert.ok(!o.engineLog.some((l) => l.includes('この会議は PC の中だけ: off')), '会議の印が送る側に戻った');
+  assert.deepStrictEqual(o.discard, { ok: true });
 });

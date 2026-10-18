@@ -277,4 +277,24 @@ module.exports = {
         await new Promise((r) => srv.close(r));
       }
     } },
+  // 第1c回 Task C-2 の直し: ［この会議は PC の中だけ］の IPC は片道（RF28）。会議の外と、会議中に true の後で false を送る。
+  // 同意は既定（ask）のまま: 会議の始めに外へ聞きに行かない
+  'local-only-ipc': { engine: true, files: { 'settings.json': ({ base }) => JSON.stringify(base) },
+    act: async (c) => {
+      const h = (ch, ...a) => c.handlers[ch]({}, ...a);
+      const draft = () => { try { return JSON.parse(c.read('data/draft.json').toString('utf8')).localOnly; } catch (_) { return null; } };
+      const o = c.out;
+      o.idleTrue = await h('meeting:set-local-only', true);
+      o.idleFalse = await h('meeting:set-local-only', false);
+      o.start = await h('meeting:toggle');
+      o.draftAtStart = draft();
+      o.falseBefore = await h('meeting:set-local-only', false);
+      o.draftAfterFalseBefore = draft();
+      o.on = await h('meeting:set-local-only', true);
+      o.draftAfterOn = draft();
+      o.off = await h('meeting:set-local-only', false);
+      o.offAgain = await h('meeting:set-local-only', 'false');
+      o.draftAfterOff = draft();
+      o.discard = await h('meeting:discard');
+    } },
 };

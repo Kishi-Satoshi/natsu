@@ -3208,12 +3208,24 @@ function setupIpc() {
     return { ok: false, code: r.code, message };
   });
   // Claude Code の状態（auth status だけ。-p は呼ばない）。同時に押されても子は1つだけ起こす
+  // 設定の画面の文は、要約の失敗の文（claudeMessage。「［要約を生成］を押してください」で終わる）とは分ける
+  const CLAUDE_STATUS_TEXT = {
+    'not-found': `Claude Code が見つかりません。PowerShell で \`${claudeCli.INSTALL_CMD}\` を実行して入れ、ターミナルで \`claude\` を一度起動してログインしてください。`,
+    'cmd-only': `Claude Code が \`claude.cmd\` の形（npm 版など）でしか見つからないため、NaTsu から呼べません。PowerShell で \`${claudeCli.INSTALL_CMD}\` を実行して入れ直すか、下の「Claude Code の場所」に \`claude.exe\` を指定してください。`,
+    'not-logged-in': 'Claude Code にログインしていないか、ログインが切れています。ターミナルで `claude` を起動してログインしてください。',
+    'api-billing': 'Claude Code が API キー（従量課金）で動く設定になっています。NaTsu は各自の Claude のプランだけを使うため、このままでは要約を作りません。ターミナルで `claude auth status` を実行して確かめ、`claude auth login` で claude.ai のアカウントにログインしてください。',
+    'old-version': 'Claude Code が古いため、NaTsu から呼べません。ターミナルで `claude update` を実行してください。',
+    other: 'Claude Code の状態を確かめられませんでした。少し待ってから［Claude Code を確かめる］を押してください。続くときは、理由の記録を見てください。理由の記録: %APPDATA%\\natsu\\engine.log',
+  };
+  const claudeStatusText = (code) => CLAUDE_STATUS_TEXT[Object.prototype.hasOwnProperty.call(CLAUDE_STATUS_TEXT, code) ? code : 'other'];
   let claudeChecking = null;
   async function claudeStatusNow() {
     const f = claudeCli.findClaude({ configured: settings.claudeExe });
     if (!f.ok) {
       engineLog(`Claude Code の確かめ: ${f.code}`);
-      return { ok: true, found: false, cmdOnly: f.code === 'cmd-only', method: '', message: claudeCli.claudeMessage(f) };
+      // 場所を手で入れていて見つからないときは、その欄のことも添える（空にすると自動で探す）
+      const hint = f.code === 'not-found' && settings.claudeExe ? '「Claude Code の場所」に入れたファイルが見つからないときは、場所を空にすると自動で探します。' : '';
+      return { ok: true, found: false, cmdOnly: f.code === 'cmd-only', method: '', message: claudeStatusText(f.code) + hint };
     }
     // 作業フォルダは NaTsu が作る空のフォルダ（B-2・B-3 の claude-run と同じ場所）。利用者のフォルダの設定を読ませない
     const cwd = path.join(app.getPath('userData'), 'claude-run');
@@ -3222,7 +3234,7 @@ function setupIpc() {
     engineLog(`Claude Code の確かめ: ${r.ok ? `ok（${r.method}）` : r.code}`);
     const method = typeof r.method === 'string' ? r.method : '';
     if (r.ok) return { ok: true, found: true, cmdOnly: false, method, message: '' };
-    return { ok: true, found: r.code !== 'not-found', cmdOnly: false, method, message: claudeCli.claudeMessage(r) };
+    return { ok: true, found: r.code !== 'not-found', cmdOnly: false, method, message: claudeStatusText(r.code) };
   }
   const claudeStatus = () => {
     if (!claudeChecking) claudeChecking = claudeStatusNow().finally(() => { claudeChecking = null; });
@@ -3230,8 +3242,9 @@ function setupIpc() {
   };
   ipcMain.handle('claude:status', () => claudeStatus());
   ipcMain.handle('claude:test', () => claudeStatus());
-  // ［この会議は PC の中だけ］は片道（true だけを受け取る。押し間違いで送る側に戻らない: C-3）
-  ipcMain.handle('meeting:set-local-only', (_e, on) => (on === true ? setMeetingLocalOnly(true)
+  // ［この会議は PC の中だけ］は片道（会議中の true だけを受け取る。false で送る側に戻さない: RF28・C-3）。
+  // 会議の外・false は何も変えず、今の印を同じ形 { ok, localOnly } で返す
+  ipcMain.handle('meeting:set-local-only', (_e, on) => (on === true && meeting ? setMeetingLocalOnly(true)
     : { ok: false, localOnly: Boolean(meeting && meeting.localOnly) }));
 
   ipcMain.handle('dialog:pick', async (_e, kind, key) => {
