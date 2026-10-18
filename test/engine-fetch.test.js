@@ -543,7 +543,7 @@ test('名前の変更を待っている間に取り消すと、待ちを切り�
 });
 
 // ---------------------------------------------------------------- 圧縮するプロキシ（第0b回 Task 9 の electron-net で分かったこと）
-// 本物の Electron 31（Chromium 126）は、送った Accept-Encoding に無い content-encoding の応答を、伸ばさずに
+// 本物の Electron（第0b回は 31.7.7。第0c回から 44.9.0 でも同じ）の Chromium は、送った Accept-Encoding に無い content-encoding の応答を、伸ばさずに
 // net::ERR_CONTENT_DECODING_FAILED で断る（identity を頼んだ要求に gzip が返ったとき。2026-10-17 の CI）。
 // Accept-Encoding を自分で付けなければ、Range のときは identity、ほかは gzip などを Chromium が頼み、伸ばして渡す。
 // fake-net はこれを真似る。fetchFile は断られたら、Accept-Encoding と Range を付けずに 0 から取り直し、

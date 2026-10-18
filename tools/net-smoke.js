@@ -1,5 +1,5 @@
 /*
- * net-smoke.js — 本物の Electron 31 の net.request が、取り込みの前提どおりに動くかを確かめる（第0b回 RF2）
+ * net-smoke.js — 本物の Electron（package.json の版。第0b回は 31.7.7、第0c回から 44.9.0）の net.request が、取り込みの前提どおりに動くかを確かめる（第0b回 RF2）
  *
  * 取り込み（src/engine-fetch.js の fetchFile）は、テストでは偽物の net.request（test/helpers/fake-net.js）の
  * 上でしか試していない。本物が同じに動くかを、Windows の CI（ci.yml の electron-net）で毎回見る。
@@ -18,7 +18,8 @@
  *      gzip を頼んで伸ばし、見出しの content-encoding と content-length（圧縮した長さ）は元のまま（decide の
  *      skipLength の前提）。本番の fetchFile も最後まで取り、SHA-256 が合う（identity を頼んで断られたら、
  *      Accept-Encoding と Range を付けずに 0 から取り直す）。identity を頼んだ要求がどうなるかは参考に出す
- *      （2026-10-17 の初回は net::ERR_CONTENT_DECODING_FAILED で断られた。伸ばして渡す前提は外れていた）
+ *      （2026-10-17 の初回は net::ERR_CONTENT_DECODING_FAILED で断られた。伸ばして渡す前提は外れていた）。
+ *      44.9.0 でも同じ（第0c回。作業環境の Linux で確かめ、Windows の CI でも見る）
  * 結果は 1 行ずつ OK／NG で出す。全部 OK なら終了コード 0、1 つでも NG（か数が足りない）なら 1（exitCodeOf）。どこかで止まっても、
  * 120 秒の見張りで 1 で終わる（ジョブの 15 分を待たない）。
  *
@@ -36,6 +37,7 @@ const zlib = require('zlib');
 const crypto = require('crypto');
 const { fetchFile } = require('../src/engine-fetch');
 const { startServers } = require('../test/helpers/range-server');
+const { versionIssue } = require('./electron-version');
 
 const sha = (b) => crypto.createHash('sha256').update(b).digest('hex');
 const BODY = crypto.randomBytes(1 << 20);                  // 1MB。中身は毎回違う
@@ -321,6 +323,9 @@ function boot() {
   app.disableHardwareAcceleration();
   app.whenReady().then(async () => {
     console.log(`Electron ${process.versions.electron}（Chromium ${process.versions.chrome}、Node ${process.versions.node}、${process.platform}）`);
+    // 古い本体や取り違えた本体のまま緑にしない（第0c回 EL9）
+    const issue = versionIssue(process.versions, JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8')));
+    if (issue) { console.log(`NG 版: ${issue}`); app.exit(1); return; }
     finish(app, await runChecks({ request: (o) => net.request(o) }));
   }, die('起動の失敗'));
 }

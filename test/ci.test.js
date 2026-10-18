@@ -135,7 +135,7 @@ test('release.yml が作る zip の名前を、updater の ASSET_PATTERN が拾�
 
 // ---------------------------------------------------------------- electron-net（第0b回 Task 9。RF2）
 // 取り込み（src/engine-fetch.js の fetchFile）とテストの偽物（test/helpers/fake-net.js）が頼る net.request の
-// 振る舞いを、Windows の CI で本物の Electron 31 に確かめさせる。
+// 振る舞いを、Windows の CI で本物の Electron（第0b回は 31.7.7。第0c回から 44.9.0 でも同じ）に確かめさせる。
 test('ci.yml: Windows で、本物の Electron の net.request が取り込みの前提どおりかを見る（RF2）', () => {
   const j = jobsOf(read('.github/workflows/ci.yml'))['electron-net'];
   assert.ok(j, 'electron-net のジョブが無い');
@@ -198,6 +198,15 @@ test('net-smoke.js: 終了コードは 8 つとも OK のときだけ 0（NG が
   assert.match(lines[0], /8 件とも OK/);
   assert.match(lines[1], /NG 1 件/);
   assert.match(read('tools/net-smoke.js'), /finish\(app, await runChecks\(/, 'boot() が結果を finish に渡していない');
+});
+test('net-smoke.js: 確かめる前に、動いている Electron が package.json の版と同じかを見る（古い本体のまま緑にしない。EL9）', () => {
+  const s = read('tools/net-smoke.js');
+  assert.ok(s.includes("require('./electron-version')"));
+  const boot = s.slice(s.indexOf('function boot()'));
+  const iVer = boot.indexOf('versionIssue(process.versions');
+  const iRun = boot.indexOf('runChecks(');
+  assert.ok(iVer > 0 && iVer < iRun, '版の確かめが無いか、確かめの後にある');
+  assert.ok(!/Electron 31 の net\.request が/.test(s.slice(0, 400)), '頭の注釈が 31 のまま');
 });
 
 // ---------------------------------------------------------------- 本体の取り込み（第0c回 EL8・EL9。C3）
