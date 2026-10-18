@@ -14,6 +14,8 @@
 const fs = require('fs');
 const path = require('path');
 const { isCitable, searchFold } = require('./cite');
+// 読み書きは部品（第1a回 JS1〜JS5）。いつも J.loadJsonFile(…)・J.writeJsonFile(…) と呼ぶ（テストが差し替えて見るため）
+const J = require('./jsonfile');
 
 let ROOT = '';
 let index = { version: 2, pages: [] };
@@ -29,38 +31,33 @@ function dirs() {
   };
 }
 
-// 「ファイルが無い」と「読めたが壊れている」を分ける。壊れていたら退避してから
-// fallback を返す（main.js の loadJson と同じ扱い）。退避しないと、次の保存で
-// 壊れたファイルが既定値で上書きされ、人手でも復旧できなくなる。
-// 時刻はファイル名に使えるよう ':' '.' を落とす（Windows は ':' を許さない）。
-function readJson(file, fallback) {
-  let raw;
-  try {
-    if (!fs.existsSync(file)) return fallback;
-    raw = fs.readFileSync(file, 'utf8');
-  } catch (e) {
-    console.error('store: read failed', file, e.message);
-    return fallback;
-  }
-  try {
-    return JSON.parse(raw);
-  } catch (e) {
-    console.error('store: broken json', file, e.message);
-    try {
-      const broken = `${file}.broken-${new Date().toISOString().replace(/[:.]/g, '-')}`;
-      fs.renameSync(file, broken);
-      console.error('store: 壊れたファイルを退避しました:', broken);
-    } catch (e2) { console.error('store: 退避に失敗', file, e2.message); }
-    return fallback;
-  }
+const isObj = (v) => Boolean(v) && typeof v === 'object' && !Array.isArray(v);
+const isIndex = (v) => isObj(v) && Array.isArray(v.pages);
+
+// 壊れたファイルを退けたことを main に伝える受け手（P16。main が知らせと記録を決める）。
+// 伝えるのはファイルの名前（パスの最後）と理由の符号だけで、中身は伝えない。
+let reporter = null;
+function setReporter(fn) { reporter = typeof fn === 'function' ? fn : null; }
+function report(kind, file, r) {
+  const ev = { kind, file: path.basename(file), movedTo: path.basename(r.movedTo), reason: r.reason };
+  console.error(`store: 壊れたファイルを退けた（${ev.kind} ${ev.file} → ${ev.movedTo}、${ev.reason}）`);
+  if (!reporter) return;
+  try { reporter(ev); } catch (_) { /* 知らせの失敗では止めない */ }
 }
 
-// 書き込み中の電源断でファイルが壊れないよう、一時ファイル経由で置換する
-function writeJson(file, data) {
-  const tmp = `${file}.tmp`;
-  fs.mkdirSync(path.dirname(file), { recursive: true });
-  fs.writeFileSync(tmp, JSON.stringify(data, null, 2), 'utf8');
-  fs.renameSync(tmp, file);
+// 読む。「無い」「読めない」は null、「壊れている」は退けて（中身は変えない）伝えてから null。
+// 退けておかないと、次の保存で壊れたファイルが上書きされ、人手でも戻せなくなる。
+function readJson(kind, file, opts) {
+  const r = J.loadJsonFile(file, opts);
+  if (r.state === 'ok') return r.value;
+  if (r.state === 'broken') report(kind, file, r);
+  else if (r.state === 'unreadable') console.error(`store: 読めない（${kind} ${path.basename(file)}、${r.code}）`);
+  return null;
+}
+
+// 一時ファイルに全部書いて名前を変える（部品の writeJsonFile）。失敗は投げる（今と同じ）
+function writeJson(file, data, opts) {
+  J.writeJsonFile(file, data, opts);
 }
 
 function newId(prefix) {
@@ -80,9 +77,9 @@ function init(userDataPath) {
   const d = dirs();
   fs.mkdirSync(d.pages, { recursive: true });
   fs.mkdirSync(d.transcripts, { recursive: true });
-  index = readJson(d.indexFile, { version: 2, pages: [] });
-  if (!index || !Array.isArray(index.pages)) index = { version: 2, pages: [] };
-  if (reconcile()) writeJson(d.indexFile, index);
+  // 索引はページから作り直せるので、退けた控えは新しい3つまで（JS2）
+  index = readJson('index', d.indexFile, { shape: isIndex, keep: 3 }) || { version: 2, pages: [] };
+  if (reconcile()) writeIndex();
   return ROOT;
 }
 
@@ -178,7 +175,12 @@ function reindexPage(page) {
   if (i >= 0) index.pages[i] = entry;
   else index.pages.unshift(entry);
   index.pages.sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
-  writeJson(dirs().indexFile, index);
+  writeIndex();
+}
+
+// 索引は fsync を省く（JS5）。5,000 ページで数十 MB になり、書くたびに main が止まる。ページから作り直せる
+function writeIndex() {
+  writeJson(dirs().indexFile, index, { fsync: false });
 }
 
 const listPages = () => index.pages;
@@ -188,7 +190,7 @@ const pageFile = (id) => path.join(dirs().pages, `${id}.json`);
 const transcriptFile = (id) => path.join(dirs().transcripts, `${id}.json`);
 
 function getPage(id) {
-  const page = readJson(pageFile(id), null);
+  const page = readJson('page', pageFile(id), { shape: isObj });
   if (!page) return null;
   if (!Array.isArray(page.blocks)) page.blocks = [];
   markShortBlocks(page.blocks);
@@ -208,7 +210,7 @@ function markShortBlocks(blocks) {
 }
 
 function getTranscript(id) {
-  const t = readJson(transcriptFile(id), null);
+  const t = readJson('transcript', transcriptFile(id), { shape: isObj });
   return t && Array.isArray(t.segments) ? t.segments : [];
 }
 
@@ -268,7 +270,7 @@ function createPage({ title, date, durationSec, memo, blocks, segments, createdA
 // 索引へ戻す（真実はファイル側）ので、消し損ねが黙って失われることもない。
 function deletePage(id) {
   index.pages = index.pages.filter((p) => p.id !== id);
-  writeJson(dirs().indexFile, index);
+  writeIndex();
   for (const f of [transcriptFile(id), pageFile(id)]) {
     try { fs.unlinkSync(f); } catch (_) { /* noop */ }
   }
@@ -502,11 +504,62 @@ function assigneeList() {
   return actionView().people;
 }
 
-// ---------------------------------------------------------------- 進行中ドラフト
-const readDraft = () => readJson(dirs().draftFile, null);
-const writeDraft = (d) => writeJson(dirs().draftFile, d);
-function clearDraft() {
-  try { fs.unlinkSync(dirs().draftFile); } catch (_) { /* noop */ }
+// ---------------------------------------------------------------- 進行中ドラフト（JS9）
+// 下書きの名前は3つの形だけ: 今の会議の draft.json、脇へ寄せた draft.pending-<時刻>.json、
+// 会議ごとの draft-<開始時刻>.json。名前はこの形のものしか受け取らない（data の外を指させない）。
+const DRAFT_RE = /^draft(?:\.json|\.pending-\d{4}-\d\d-\d\dT\d\d-\d\d-\d\d-\d{3}Z\.json|-\d+\.json)$/;
+function draftPath(name) {
+  if (typeof name !== 'string' || !DRAFT_RE.test(name)) throw new Error('store: 下書きの名前ではない');
+  return path.join(dirs().root, name);
+}
+
+// → 今ある下書きの名前（名前の順）。退けた控え・一時ファイルは数えない。フォルダを読めなければ []
+function draftFiles() {
+  let names;
+  try { names = fs.readdirSync(dirs().root); } catch (_) { return []; }
+  return names.filter((n) => DRAFT_RE.test(n)).sort();
+}
+
+// → J.loadJsonFile の結果。読めないときは消さず名前も変えない（呼び手が後で読み直す）。壊れていれば退けて伝える
+function readDraftFile(name) {
+  const file = draftPath(name);
+  const r = J.loadJsonFile(file, { shape: isObj });
+  if (r.state === 'broken') report('draft', file, r);
+  return r;
+}
+
+// Task 2-5 で main が readDraftFile に移るまでの今の形（読めた値か null）
+function readDraft() {
+  const r = readDraftFile('draft.json');
+  return r.state === 'ok' ? r.value : null;
+}
+
+// fsync は main が決める（既定は今と同じ、fsync なし）
+function writeDraft(d, name = 'draft.json', opts = {}) {
+  writeJson(draftPath(name), d, { fsync: opts.fsync === true });
+}
+
+function clearDraft(name = 'draft.json') {
+  try { fs.unlinkSync(draftPath(name)); } catch (_) { /* noop */ }
+}
+
+// draft.json を draft.pending-<時刻>.json へ名前を変えて脇へ寄せる。→ { ok: true, name } | { ok: false }
+// 同じ名前があれば 1 ミリ秒ずつずらす（ほかの下書きを決して上書きしない）
+function parkDraft() {
+  try {
+    const from = dirs().draftFile;
+    let t = Date.now();
+    let name;
+    for (;;) {
+      name = `draft.pending-${new Date(t).toISOString().replace(/[:.]/g, '-')}.json`;
+      if (!fs.existsSync(path.join(dirs().root, name))) break;
+      t += 1;
+    }
+    fs.renameSync(from, path.join(dirs().root, name));
+    return { ok: true, name };
+  } catch (_) {
+    return { ok: false };
+  }
 }
 
 module.exports = {
@@ -516,4 +569,5 @@ module.exports = {
   updateBlock, updateSegment, insertBlock, removeBlock, moveBlock, setTitle,
   searchIndex, searchFullText, actionView, openActions, assigneeList,
   readDraft, writeDraft, clearDraft,
+  setReporter, draftFiles, readDraftFile, parkDraft,
 };

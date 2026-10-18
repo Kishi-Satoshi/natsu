@@ -82,7 +82,7 @@ test('updateSegment: 「認識に失敗」の区間を書き直すと failed が
 test('updateSegment: 一時ファイルが残らず、書いた JSON は parse できる', () => {
   const p = mkPage();
   store.updateSegment(p.id, 's1', { text: '' });
-  assert.ok(!fs.existsSync(tfile(p.id) + '.tmp'), '.tmp が残っている');
+  assert.deepStrictEqual(fs.readdirSync(path.dirname(tfile(p.id))).filter((n) => n.endsWith('.tmp')), [], '.tmp が残っている');
   const j = JSON.parse(fs.readFileSync(tfile(p.id), 'utf8'));
   assert.strictEqual(j.id, p.id);
   assert.strictEqual(j.segments.find((x) => x.id === 's1').text, '');
