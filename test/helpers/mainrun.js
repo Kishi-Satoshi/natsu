@@ -77,7 +77,7 @@
 //     --no-whisper  … 設定の whisper の実行ファイルを無いファイルにする
 //     --claude=<mode> … 第1c回 B-3: オンラインの要約。設定の claudeExe を偽の claude（helpers/fake-claude.js）に向け、FAKE_CLAUDE_MODE に
 //                     mode を、FAKE_CLAUDE_LOG に記録のファイルを置く（spawn は偽の whisper と同じく node で台本を起こす）。
-//                     mode が missing なら claudeExe を無いファイルに向ける（Claude Code が入っていない PC）。--stt と組むと、Anthropic へ
+//                     mode が missing か、--claude が無ければ claudeExe を無いファイルに向ける（Claude Code が入っていない PC。PATH を探さない）。--stt と組むと、Anthropic へ
 //                     届くかの確かめが偽の送り先に届いてオンラインになる（--stt が無ければ、確かめは fake-net の守りで死んで手元になる）
 //     --claude-auth=<method> … 偽の claude の auth status が返す authMethod（FAKE_CLAUDE_AUTH。既定 claude.ai）
 //   main を読む前に、いつも process.env に ANTHROPIC_API_KEY と CLAUDE_CODE_OAUTH_TOKEN を置く（課金の変数が子に渡らないことを見る。RF25）。
@@ -263,11 +263,15 @@ process.on('exit', () => {
   const exe = process.env.NATSU_E2E_EXE || FAKE;
   // 偽の claude（--claude）。記録は1行ずつの JSON
   const claudeLog = path.join(tmp, 'claude.log');
-  const claudeExe = claudeMode === 'missing' ? path.join(tmp, 'no-such-claude.exe') : FAKE_CLAUDE;
+  // --claude が無い場面（と missing）は無いファイルに向ける。PATH の上の本物の claude を探さないため（計画の決まり）。
+  // 経路が誤って Claude Code へ行っても、時間切れで待たずに「見つからない」ですぐ赤になる
+  const claudeExe = claudeMode && claudeMode !== 'missing' ? FAKE_CLAUDE : path.join(tmp, 'no-such-claude.exe');
   if (claudeMode) {
     process.env.FAKE_CLAUDE_MODE = claudeMode;
     process.env.FAKE_CLAUDE_LOG = claudeLog;
     process.env.FAKE_CLAUDE_EXPECT = fakeText || '本日の議題は進捗の確認です';
+    // 手元の1回の要約と同じ指示文（mainlib.buildClaudeInput。F9）を標準入力で受けたか
+    process.env.FAKE_CLAUDE_EXPECT_ASK = '上記から、次の構成のMarkdown議事録を作成してください。';
     if (claudeAuth) process.env.FAKE_CLAUDE_AUTH = claudeAuth;
   }
   // 課金の変数（子に渡らないことを偽の claude の記録の envKeys で見る。大小の混ざった名前は claude-cli.test.js が見る）
@@ -415,7 +419,7 @@ process.on('exit', () => {
       ...(withSum ? { sumServerExe: FAKE_SUM, sumModelPath: sumModel } : {}),
       ...(fakeStt ? { cloudTranscribe: consentFlag || 'on', sttProvider: 'custom', sttBaseUrl: fakeStt.base, sttModel: 'whisper-large-v3' } : {}),
       ...(noWhisper ? { localServerExe: path.join(tmp, 'no-such-whisper-server.exe') } : {}),
-      ...(claudeMode ? { claudeExe } : {}),
+      claudeExe,
     }));
   }
 

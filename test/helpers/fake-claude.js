@@ -6,6 +6,7 @@
 //                 FAKE_CLAUDE_AUTH_DELAY（ミリ秒）があれば、その間待ってから答える（時間切れの確かめ）
 //   --version   → 2.1.300 (Claude Code)
 //   -p          → 標準入力を全部読み、FAKE_CLAUDE_MODE で答える（下の ANSWERS）
+//                 標準入力に FAKE_CLAUDE_EXPECT（文字起こし）・FAKE_CLAUDE_EXPECT_ASK（指示文）があるかを記録に書く
 // 受けたものは FAKE_CLAUDE_LOG に1行の JSON で書く。envKeys は課金に関わる変数の名前だけ（大小を問わず
 // ANTHROPIC_・CLAUDE_CODE_USE_・CLAUDE_CODE_OAUTH_ で始まるものと CLAUDE_CODE_SIMPLE）。CLAUDE_CODE_ で始まる
 // ほかの変数は数えない（Claude Code の中でテストを回すと置かれていて、外さなくてよいため）。
@@ -79,8 +80,11 @@ if (args[0] === 'auth' && args[1] === 'status') {
   process.stdin.on('data', (d) => chunks.push(d));
   process.stdin.on('end', () => {
     const stdin = Buffer.concat(chunks);
+    const text = stdin.toString('utf8');
     const expect = env.FAKE_CLAUDE_EXPECT || '';
-    note({ kind: 'p', args, cwd: process.cwd(), envKeys, stdinBytes: stdin.length, stdinHasTranscript: !!expect && stdin.toString('utf8').includes(expect) });
+    const expectAsk = env.FAKE_CLAUDE_EXPECT_ASK || '';
+    note({ kind: 'p', args, cwd: process.cwd(), envKeys, stdinBytes: stdin.length,
+      stdinHasTranscript: !!expect && text.includes(expect), stdinHasAsk: !!expectAsk && text.includes(expectAsk) });
     if (mode === 'badflag') { finish({ errText: "error: unknown option '--safe-mode'\n", code: 1 }); return; }   // 古い版のまね
     if (mode === 'slow') { setTimeout(() => finish(ok()), Number(env.FAKE_CLAUDE_DELAY || 0)); return; }
     finish((ANSWERS[mode] || ok)());

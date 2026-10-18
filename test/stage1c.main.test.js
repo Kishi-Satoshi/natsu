@@ -148,6 +148,13 @@ test('D2: オンラインの自動の要約は Claude Code で作られ、出典
   assert.deepStrictEqual(o.claude.map((l) => l.envKeys), [[], []], '課金の変数が auth status か -p に渡った');
   assert.ok(o.claude[0].kind === 'auth' && o.claude[1].kind === 'p', 'auth status を先に読んでいない');
   assert.strictEqual(pCalls(o)[0].stdinHasTranscript, true, '文字起こしを標準入力で渡していない');
+  // 手元の1回の要約と同じ指示文（構成の指示と型の見出し）を標準入力で渡し、役割の文（MINUTES_SYS）を --system-prompt に渡す（F9。
+  // 偽の claude は何を受けても同じ Markdown を返すので、受けたものを記録で見る）
+  assert.strictEqual(pCalls(o)[0].stdinHasAsk, true, '手元と同じ構成の指示文を標準入力で渡していない');
+  const pargs = pCalls(o)[0].args;
+  const sys = pargs[pargs.indexOf('--system-prompt') + 1] || '';
+  assert.ok(pargs.includes('--system-prompt') && sys.startsWith('あなたは議事録作成の専門家です') && sys.includes('文字起こしに無い情報を創作せず'),
+    '役割の文が手元の llama の system と同じでない');
   assert.strictEqual(path.basename(pCalls(o)[0].cwd), 'claude-run', '作業フォルダが NaTsu の空のフォルダ（<userData>/claude-run）でない');
   assert.strictEqual(llamaSpawned(o), false, 'オンラインなのに手元の llama を起動した');
   const p = o.pages[0];
@@ -164,18 +171,21 @@ test('D1・F2: オンラインで上限なら、要約の欄にリセットの�
   assert.strictEqual(llamaSpawned(o), false);
   assert.strictEqual(o.pages[0].todos.length, 0);
   assert.ok(o.engineLog.some((l) => /要約: Claude Code → limit/.test(l)));
+  assert.strictEqual((o.pages[0].route || {}).summary, undefined, '失敗したのに、ページに要約の経路を書いた（成功したときだけ書く）');
 });
 
 test('RF25: Claude Code が API キーで動く設定なら -p を呼ばずに理由を出す', { timeout: 20000 }, async () => {
   const o = await run(['text', '--stt=text', '--sum', '--claude=ok', '--claude-auth=api_key_helper', '--segs=1']);
   assert.strictEqual(pCalls(o).length, 0);
   assert.match(o.pages[0].summaryError, /API キー（従量課金）で動く設定/);
+  assert.strictEqual((o.pages[0].route || {}).summary, undefined, '失敗したのに、ページに要約の経路を書いた（成功したときだけ書く）');
   assert.strictEqual(llamaSpawned(o), false);
 });
 
 test('RF24: Claude Code が無ければ入れ方を出す（手元の llama では作らない）', { timeout: 20000 }, async () => {
   const o = await run(['text', '--stt=text', '--sum', '--claude=missing', '--segs=1']);
   assert.match(o.pages[0].summaryError, /irm https:\/\/claude\.ai\/install\.ps1 \| iex/);
+  assert.strictEqual((o.pages[0].route || {}).summary, undefined, '失敗したのに、ページに要約の経路を書いた（成功したときだけ書く）');
   assert.strictEqual(llamaSpawned(o), false);
 });
 
