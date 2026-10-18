@@ -71,6 +71,48 @@ function declsFor(rules, sel, opt = {}) {
   return o;
 }
 
+/* ---------------- トークン（CSS 変数） ---------------- */
+
+/** その at（'' は基底、'@media (prefers-color-scheme: dark)' など）の :root に書かれた -- の宣言を後勝ちで集める */
+function tokens(rules, at = '') {
+  const o = {};
+  for (const r of rules) {
+    if (r.at !== at || !r.sel.split(',').map((s) => s.trim()).includes(':root')) continue;
+    for (const [k, v] of Object.entries(r.decls)) if (k.startsWith('--')) o[k] = v;
+  }
+  return o;
+}
+
+/**
+ * 値の中の var(--名前[, 既定値]) を解く。at が基底でなければ、基底の :root の上にその at の :root を重ねる
+ * （本物と同じく、暗のときは暗の宣言が勝つ）。入れ子の var() と既定値も解く。定義も既定値も無ければ throw。
+ */
+function resolveVar(rules, value, at = '') {
+  const t = at ? { ...tokens(rules, ''), ...tokens(rules, at) } : tokens(rules, '');
+  const solve = (v, depth) => {
+    if (depth > 20) throw new Error(`var() の循環: ${value}`);
+    let out = '', i = 0;
+    const s = String(v);
+    for (;;) {
+      const k = s.indexOf('var(', i);
+      if (k < 0) { out += s.slice(i); break; }
+      out += s.slice(i, k);
+      let d = 1, j = k + 4;
+      while (j < s.length && d > 0) { if (s[j] === '(') d++; else if (s[j] === ')') d--; j++; }
+      const inner = s.slice(k + 4, j - 1);
+      const comma = inner.indexOf(',');
+      const name = (comma < 0 ? inner : inner.slice(0, comma)).trim();
+      const fallback = comma < 0 ? undefined : inner.slice(comma + 1).trim();
+      if (t[name] !== undefined) out += solve(t[name], depth + 1);
+      else if (fallback !== undefined) out += solve(fallback, depth + 1);
+      else throw new Error(`var(${name}) の定義が無い（at: ${at || '基底'}）`);
+      i = j;
+    }
+    return out;
+  };
+  return solve(value, 0);
+}
+
 /* ---------------- 色 ---------------- */
 
 const NAMED = { white: [255,255,255,1], black: [0,0,0,1], transparent: [0,0,0,0] };
@@ -117,4 +159,4 @@ function contrast(a, b) {
   return (x + 0.05) / (y + 0.05);
 }
 
-module.exports = { parse, decls, declsFor, parseColor, firstColor, over, luminance, contrast };
+module.exports = { parse, decls, declsFor, tokens, resolveVar, parseColor, firstColor, over, luminance, contrast };

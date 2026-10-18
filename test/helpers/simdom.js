@@ -90,13 +90,18 @@ function parseHTML(src) {
 function addText(parent, t) { if (!t) return; const n = new Element('#text'); n._text = t; parent.appendChild(n); }
 function textNode(s) { const n = new Element('#text'); n._text = String(s); return n; }
 
-/* ---------------- セレクタ（子孫結合と , だけ） ---------------- */
+/* ---------------- セレクタ（タグ・#id・.class・[属性="値"]・[属性] と、子孫結合と , だけ） ---------------- */
 
 function parseSimple(s) {
-  const out = { tag: null, id: null, cls: [] };
+  const out = { tag: null, id: null, cls: [], attrs: [] };
+  // [名前="値"]・[名前='値']・[名前=値]・[名前] を先に抜き出す（中の語をタグや class と読まない）
+  const rest = String(s).replace(/\[\s*([A-Za-z_:@][-A-Za-z0-9_:.]*)\s*(?:=\s*("[^"]*"|'[^']*'|[^\]\s]*)\s*)?\]/g, (_, name, v) => {
+    out.attrs.push({ name: name.toLowerCase(), value: v === undefined ? undefined : v.replace(/^(["'])([\s\S]*)\1$/, '$2') });
+    return ' ';
+  });
   const re = /([#.]?)([A-Za-z0-9_-]+)/g;
   let m;
-  while ((m = re.exec(s))) {
+  while ((m = re.exec(rest))) {
     if (m[1] === '#') out.id = m[2];
     else if (m[1] === '.') out.cls.push(m[2]);
     else out.tag = m[2].toLowerCase();
@@ -108,11 +113,30 @@ function matchSimple(el, p) {
   if (p.tag && el.tagName !== p.tag) return false;
   if (p.id && el.id !== p.id) return false;
   for (const c of p.cls) if (!el.classList.contains(c)) return false;
+  for (const a of p.attrs) {
+    if (!el.hasAttribute(a.name)) return false;
+    if (a.value !== undefined && el.getAttribute(a.name) !== a.value) return false;
+  }
   return true;
+}
+/** 子孫結合の区切り（空白）で分ける。[属性="値"] の中の空白では切らない */
+function splitCompound(one) {
+  const parts = [];
+  let buf = '', q = '', br = 0;
+  for (const c of String(one).trim()) {
+    if (q) { if (c === q) q = ''; buf += c; continue; }
+    if (br && (c === '"' || c === "'")) { q = c; buf += c; continue; }
+    if (c === '[') br++;
+    else if (c === ']') br = Math.max(0, br - 1);
+    if (!br && /\s/.test(c)) { if (buf) parts.push(buf); buf = ''; continue; }
+    buf += c;
+  }
+  if (buf) parts.push(buf);
+  return parts;
 }
 function matches(el, sel) {
   return String(sel).split(',').some((one) => {
-    const parts = one.trim().split(/\s+/).filter(Boolean).map(parseSimple);
+    const parts = splitCompound(one).map(parseSimple);
     if (!parts.length) return false;
     let k = parts.length - 1;
     if (!matchSimple(el, parts[k])) return false;
@@ -220,7 +244,11 @@ class Element {
     for (const fn of [...(this._listeners[e.type] || [])]) fn.call(this, e);
     return true;
   }
-  focus() {} blur() {} select() {} scrollIntoView() {}
+  /* 今のフォーカスを覚える（Element.focused）。simrun の document.activeElement がこれを読む。
+     本物の focus/blur の事象は起こさない（泡立ちも配置も無い偽 DOM なので、受け口は要素ごとに呼ぶ） */
+  focus() { Element.focused = this; }
+  blur() { if (Element.focused === this) Element.focused = null; }
+  select() {} scrollIntoView() {}
   click() { return this.dispatchEvent({ type: 'click' }); }
   getBoundingClientRect() { return { top: 0, left: 0, right: 0, bottom: 0, width: 0, height: 0, x: 0, y: 0 }; }
   getContext() { return canvas2d(this); }
@@ -230,6 +258,9 @@ class Element {
   get scrollHeight() { return 0; }
   get offsetHeight() { return 0; } get clientHeight() { return 0; }
 }
+
+/** 今フォーカスのある要素（focus() で入り、blur() で自分なら外れる）。木から外れた要素は simrun が見ない */
+Element.focused = null;
 
 /* canvas の 2D コンテキスト。fillStyle / strokeStyle だけは記録する */
 function canvas2d(el) {

@@ -481,18 +481,16 @@ test('要約の文体は報告文書の常体（指示だけでなく例で見�
 
 // ---------------------------------------------------------------- レビュー指摘の修正
 test('ダーク定義はすべての基底ルールより後ろにある', () => {
-  // @media は詳細度に影響しない。前に置くと body / .bg の上書きが
+  // @media は詳細度に影響しない。前に置くと :root / body の上書きが
   // カスケード順で負け、地色がライトのまま文字だけ白くなって読めない。
+  // 第1b回（B-1）で意図して変えた: 目印を旧い地色 #e9edf5・グラデーションから
+  // 「:root の基底のトークンの規則」と「body の規則」に替えた。ダークで上書きする
+  // 固定色は無くなり（トークンだけで組む）、その網羅は COLOR-03 が守る。
+  const rootAt = appHtml.indexOf(':root {');
+  const bodyAt = appHtml.indexOf('  body {');
   const mediaAt = appHtml.indexOf('@media (prefers-color-scheme: dark)');
-  const bodyAt = appHtml.indexOf('background: #e9edf5');
-  const bgAt = appHtml.indexOf('linear-gradient(165deg, #eef2fa');
-  assert.ok(mediaAt > 0 && bodyAt > 0 && bgAt > 0);
-  assert.ok(mediaAt > bodyAt && mediaAt > bgAt, 'ダーク定義が基底より前にある');
-  // ダークで読めなくなる固定色の上書きが入っている
-  const dark = appHtml.slice(mediaAt);
-  for (const sel of ['button.ghost', '::placeholder', '.atag.who', '.atag.due', '.blob']) {
-    assert.ok(dark.includes(sel), `ダーク上書きが無い: ${sel}`);
-  }
+  assert.ok(rootAt > 0 && bodyAt > 0 && mediaAt > bodyAt && mediaAt > rootAt, 'ダーク定義が基底より前にある');
+  assert.ok(!appHtml.includes('#e9edf5') && !appHtml.includes('.blob'), '旧い地色とぼかし玉が残っている');
 });
 
 test('ウィンドウの地色がテーマに追従する', () => {

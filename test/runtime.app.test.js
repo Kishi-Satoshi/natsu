@@ -371,8 +371,9 @@ test('ライト配色で button.ghost の文字は地に対して 4.5:1 以上�
   const css = root.querySelectorAll('style').map((s) => s._raw).join('\n');
   const rules = simcss.parse(css);
   const light = { at: '' };
-  const ink = simcss.firstColor(simcss.declsFor(rules, 'button.ghost', light).color);
-  const ground = simcss.firstColor(simcss.declsFor(rules, 'body', light).background);
+  // 第1b回（B-1）で意図して変えた: 色はトークン（var(--…)）なので、解いてから同じ比べをする
+  const ink = simcss.firstColor(simcss.resolveVar(rules, simcss.declsFor(rules, 'button.ghost', light).color, ''));
+  const ground = simcss.firstColor(simcss.resolveVar(rules, simcss.declsFor(rules, 'body', light).background, ''));
   assert.ok(ink && ground, '色が読めない（検査が空振りしている）');
   // ボタンの面は白の半透明。地そのものと純白のどちらの上でも読めること
   for (const bg of [ground, [255, 255, 255, 1]]) {

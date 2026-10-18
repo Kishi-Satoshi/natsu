@@ -4,52 +4,42 @@
 <meta charset="UTF-8" />
 <title>NaTsu</title>
 <style>
+  /* 配色と文字（第1b回 N1）。色はすべてこのトークンで組む。規則に生の色を書かない
+     （明暗すべての「文字 × 地」の組を stage1b.look.test.js が 4.5:1 で計っている。
+     文字は --text・--muted・--accent-text・--danger・--ok・--on-accent、
+     地は --bg・--side・--hover・--tint・--accent だけ。--level・--line は飾りと線だけ）。
+     ホバーと薄い強調は重ねない（background の1つの宣言で入れ替わるだけにする）。 */
   :root {
     color-scheme: light;
-    --srf: 255, 255, 255;      /* 面の色（ガラス・ボタン・入力欄）のRGBチャンネル */
-    --inkrgb: 27, 30, 37;      /* 線・影に使う墨色のRGBチャンネル */
-    --ink: #1b1e25;
-    --muted: rgba(56, 60, 70, 0.64);
-    --faint: rgba(56, 60, 70, 0.40);
-    --accent: #5b6ee1;
-    --accent-deep: #4a5cd0;
-    --danger: #d0453c;
-    --green: #2f9e63;
-    --glass: rgba(var(--srf), 0.55);
-    --glass-soft: rgba(var(--srf), 0.40);
-    --glass-strong: rgba(var(--srf), 0.76);
-    --gline: rgba(var(--srf), 0.70);
-    --gline-dark: rgba(var(--inkrgb), 0.08);
-    --shadow: 0 8px 32px rgba(44, 62, 112, 0.13);
-    --shadow-soft: 0 4px 16px rgba(44, 62, 112, 0.09);
-    --r-lg: 20px;
-    --r-md: 12px;
+    --bg: #ffffff;
+    --side: #f7f7f5;
+    --text: #37352f;
+    --muted: rgba(55,53,47,.72);
+    --line: rgba(55,53,47,.09);
+    --hover: rgba(55,53,47,.06);
+    --accent: #0a7b9c;
+    --on-accent: #ffffff;
+    --accent-text: #086a85;
+    --tint: rgba(10,123,156,.10);
+    --danger: #b8352c;
+    --ok: #1a6e42;
+    --level: #0e8cae;
+    --shadow: 0 4px 12px rgba(15,15,15,.10);
   }
   body {
-    color: var(--ink); background: #e9edf5;
-    font-family: "Yu Gothic UI", "Hiragino Sans", "Noto Sans JP", sans-serif;
+    color: var(--text); background: var(--bg);
+    font-family: -apple-system, "Segoe UI", "Hiragino Sans", "Yu Gothic UI", "Noto Sans JP", sans-serif;
     font-size: 14px; display: flex; flex-direction: column; overflow: hidden;
   }
-  .bg { position: fixed; inset: 0; z-index: -1; overflow: hidden;
-    background: linear-gradient(165deg, #eef2fa 0%, #e8edf7 45%, #f4efe9 100%); }
-  .blob { position: absolute; border-radius: 50%; filter: blur(80px); }
-  .b1 { width: 560px; height: 560px; left: -160px; top: -180px; background: rgba(168,199,250,.60); }
-  .b2 { width: 480px; height: 480px; right: -140px; top: 40px; background: rgba(213,187,248,.55); }
-  .b3 { width: 560px; height: 440px; left: 28%; bottom: -240px; background: rgba(255,214,187,.60); }
-  .b4 { width: 320px; height: 320px; right: 22%; bottom: -100px; background: rgba(188,235,214,.50); }
 
   /* ---------- ヘッダー ---------- */
-  header { display: flex; align-items: center; gap: 20px; padding: 16px 24px 8px; flex: none; }
+  header { display: flex; align-items: center; gap: 20px; padding: 12px 24px 8px; flex: none; }
   .wordmark { font-family: Georgia, "Yu Mincho", serif; font-size: 21px; letter-spacing: .02em; }
-  nav { margin-left: auto; display: flex; gap: 2px; padding: 4px;
-    background: var(--glass-soft); border: 1px solid var(--gline); border-radius: 999px;
-    backdrop-filter: blur(20px) saturate(150%); -webkit-backdrop-filter: blur(20px) saturate(150%);
-    box-shadow: inset 0 1px 0 rgba(var(--srf),.65), var(--shadow-soft); }
+  nav { margin-left: auto; display: flex; gap: 2px; }
   nav button { background: none; border: none; color: var(--muted); font: inherit;
-    padding: 7px 16px; cursor: pointer; border-radius: 999px; }
-  nav button.active { background: rgba(var(--srf),.92); color: var(--ink); font-weight: 600;
-    box-shadow: 0 2px 10px rgba(44,62,112,.18), inset 0 1px 0 #fff; }
-  nav button:hover { color: var(--ink); }
+    padding: 6px 12px; cursor: pointer; border-radius: 4px; }
+  nav button:hover { background: var(--hover); color: var(--text); }
+  nav button.active { background: var(--tint); color: var(--text); font-weight: 600; }
 
   main { flex: 1; min-height: 0; padding: 8px 24px 20px; }
   .tab { display: none; height: 100%; }
@@ -57,22 +47,20 @@
 
   ::-webkit-scrollbar { width: 10px; height: 10px; }
   ::-webkit-scrollbar-track { background: transparent; }
-  ::-webkit-scrollbar-thumb { background: rgba(var(--inkrgb),.16); border-radius: 5px; }
-  ::-webkit-scrollbar-thumb:hover { background: rgba(var(--inkrgb),.30); }
+  /* 線（--line）を地（--hover）に重ねて、つまみを少しだけ濃くする */
+  ::-webkit-scrollbar-thumb { background: var(--hover); border: 3px solid var(--line); border-radius: 5px; }
+  ::-webkit-scrollbar-thumb:hover { background: var(--tint); }
 
   /* ---------- 部品 ---------- */
-  button.action { background: linear-gradient(180deg, #7b8bef 0%, #5261dd 100%); color: #fff;
-    border: none; font: inherit; font-weight: 600; padding: 9px 18px; border-radius: 999px; cursor: pointer;
-    white-space: nowrap; flex: none;
-    box-shadow: 0 6px 18px rgba(82,97,221,.35), inset 0 1px 0 rgba(var(--srf),.4); }
-  button.action:hover { box-shadow: 0 8px 22px rgba(82,97,221,.45), inset 0 1px 0 rgba(var(--srf),.4); }
+  button.action { background: var(--accent); color: var(--on-accent);
+    border: none; font: inherit; font-weight: 600; padding: 8px 16px; border-radius: 4px; cursor: pointer;
+    white-space: nowrap; flex: none; }
+  button.action:hover { filter: brightness(.92); }
   button.action:active { transform: scale(.98); }
-  button.action:disabled { opacity: .5; cursor: default; box-shadow: none; }
-  button.ghost { background: rgba(var(--srf),.5); border: 1px solid var(--gline); color: #3c414c;
-    font: inherit; padding: 7px 14px; border-radius: 999px; cursor: pointer; white-space: nowrap; flex: none;
-    backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
-    box-shadow: inset 0 1px 0 rgba(var(--srf),.6), var(--shadow-soft); }
-  button.ghost:hover { background: rgba(var(--srf),.82); color: var(--ink); }
+  button.action:disabled { opacity: .5; cursor: default; filter: none; }
+  button.ghost { background: var(--bg); border: 1px solid var(--line); color: var(--text);
+    font: inherit; padding: 6px 12px; border-radius: 4px; cursor: pointer; white-space: nowrap; flex: none; }
+  button.ghost:hover { background: var(--hover); color: var(--text); }
   button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   /* 一覧の行は div。Tab で辿れるようにしても、既定では今どこにいるか見えない */
   .pitem:focus-visible, .actrow .src:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
@@ -81,17 +69,14 @@
   input:disabled, select:disabled, textarea:disabled { opacity: .55; cursor: not-allowed; }
 
   input[type="text"], input[type="password"], select, textarea {
-    background: rgba(var(--srf),.62); border: 1px solid rgba(var(--srf),.78);
-    color: var(--ink); font: inherit; padding: 8px 12px; border-radius: var(--r-md); width: 100%;
-    box-shadow: inset 0 1px 2px rgba(var(--inkrgb),.06); }
-  input:focus, select:focus, textarea:focus { outline: none; border-color: rgba(91,110,225,.5);
-    background: rgba(var(--srf),.9); box-shadow: 0 0 0 3px rgba(91,110,225,.16); }
-  ::placeholder { color: rgba(56,60,70,.4); }
+    background: var(--hover); border: 1px solid var(--line);
+    color: var(--text); font: inherit; padding: 7px 10px; border-radius: 4px; width: 100%; }
+  input:focus, select:focus, textarea:focus { outline: none; border-color: var(--accent);
+    background: var(--bg); }
+  ::placeholder { color: var(--muted); }
 
-  .card { background: var(--glass); backdrop-filter: blur(28px) saturate(160%);
-    -webkit-backdrop-filter: blur(28px) saturate(160%); border: 1px solid var(--gline);
-    border-radius: var(--r-lg); padding: 20px; margin-bottom: 14px;
-    box-shadow: var(--shadow), inset 0 1px 0 rgba(var(--srf),.75); }
+  .card { background: var(--bg); border: 1px solid var(--line);
+    border-radius: 6px; padding: 20px; margin-bottom: 14px; }
   .card h2 { font-size: 12px; font-weight: 700; color: var(--muted); letter-spacing: .1em; margin-bottom: 14px; }
   .field { margin-bottom: 13px; }
   .field label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 5px; }
@@ -101,67 +86,67 @@
   .field .desc.ng { color: var(--danger); }
   .check { display: flex; align-items: flex-start; gap: 10px; margin-bottom: 11px; cursor: pointer; }
   /* 設定のオン・オフはトグルで表す。議事録のチェックボックス（.blk 内）は
-     完了の印なので四角のまま。 */
+     完了の印なので四角のまま。トグルは丸い形の例外（文字を持たない飾り）。 */
   .check input { appearance: none; -webkit-appearance: none; flex: none;
     width: 34px; height: 20px; margin-top: 1px; border-radius: 999px; cursor: pointer;
-    background: rgba(var(--inkrgb), .22); position: relative; transition: background .15s; }
+    background: var(--hover); border: 1px solid var(--muted); position: relative; transition: background .15s; }
   .check input::after { content: ''; position: absolute; top: 2px; left: 2px;
-    width: 16px; height: 16px; border-radius: 50%; background: #fff;
-    box-shadow: 0 1px 3px rgba(0,0,0,.3); transition: left .15s; }
-  .check input:checked { background: var(--accent); }
-  .check input:checked::after { left: 16px; }
+    width: 14px; height: 14px; border-radius: 50%; background: var(--bg);
+    border: 1px solid var(--muted); transition: left .15s; }
+  .check input:checked { background: var(--accent); border-color: var(--accent); }
+  .check input:checked::after { left: 16px; border-color: var(--accent); }
   .check .d { font-size: 11px; color: var(--muted); }
   .save-msg { font-size: 12px; color: var(--muted); }
-  .save-msg.ok { color: var(--green); }
+  .save-msg.ok { color: var(--ok); }
   .save-msg.ng { color: var(--danger); }
   /* エンジンの細かい設定。閉じたまま始め、開くと小見出しで3つに分かれる */
-  .adv { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--gline); }
+  .adv { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line); }
   .adv summary { cursor: pointer; font-size: 12px; color: var(--muted); margin-bottom: 4px; }
   .adv summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   .adv h3 { font-size: 12px; font-weight: 600; color: var(--muted); margin: 16px 0 10px; }
   /* 「エンジン：正常／要確認」。詳細設定を閉じたままでも見える */
   .eng-state { font-size: 12px; font-weight: 600; color: var(--muted); }
-  .eng-state.ok { color: var(--green); }
+  .eng-state.ok { color: var(--ok); }
   .eng-state.ng { color: var(--danger); }
   /* モデルの勧め（kotoba のとき。0.1.1）。カードの直下なので .field .desc の書式が効かない */
   #engineNote { font-size: 12px; color: var(--muted); margin-top: 8px; line-height: 1.6; }
   /* エンジンの取り込みの欄（第0b回 R7）。詳細設定を閉じたままでも、何を・どれだけ・どこへ取り込むかと進み具合が見える */
   #engineFetch { margin-top: 10px; margin-bottom: 0; }
-  #engineFetchSummary { font-size: 12px; color: var(--ink); line-height: 1.7; }
+  #engineFetchSummary { font-size: 12px; color: var(--text); line-height: 1.7; }
   #engineFetchSummary .sub { color: var(--muted); }
   #engineFetchBar { display: block; width: 100%; height: 6px; margin-top: 8px; accent-color: var(--accent); }
   #engineFetchBar[hidden] { display: none; }
   #engineFetchMsg { margin-top: 6px; line-height: 1.6; }
   #engineFetchList { margin-top: 10px; padding-top: 8px; }
   #engineFetchRows { font-size: 11px; color: var(--muted); line-height: 1.6; word-break: break-all; }
-  #engineFetchRows .item { padding: 4px 0; border-bottom: 1px solid var(--gline); }
+  #engineFetchRows .item { padding: 4px 0; border-bottom: 1px solid var(--line); }
   .empty { text-align: center; color: var(--muted); padding: 48px 20px; line-height: 1.9; }
-  .empty .big { font-size: 15px; color: var(--ink); margin-bottom: 6px; }
-  kbd { background: rgba(var(--srf),.72); border: 1px solid rgba(var(--srf),.9);
-    border-bottom: 2px solid rgba(var(--inkrgb),.15); border-radius: 6px; padding: 2px 7px; font-size: 12px; }
+  .empty .big { font-size: 15px; color: var(--text); margin-bottom: 6px; }
+  kbd { background: var(--hover); border: 1px solid var(--line);
+    border-bottom-width: 2px; border-radius: 4px; padding: 2px 7px; font-size: 12px; }
 
   /* ================= 議事録: 2ペイン ================= */
   .notes { display: flex; gap: 14px; height: 100%; }
-  .side { width: 300px; flex: none; display: flex; flex-direction: column; gap: 10px; }
+  .side { width: 300px; flex: none; display: flex; flex-direction: column; gap: 10px;
+    background: var(--side); border-radius: 6px; padding: 10px; }
   .side .tools { display: flex; gap: 6px; }
   .side .filters { display: flex; gap: 5px; }
-  .chip { background: rgba(var(--srf),.5); border: 1px solid var(--gline); color: var(--muted);
-    font: inherit; font-size: 11px; padding: 4px 11px; border-radius: 999px; cursor: pointer; }
-  .chip.on { background: rgba(var(--srf),.95); color: var(--ink); font-weight: 600;
-    box-shadow: 0 2px 8px rgba(44,62,112,.16); }
-  .plist { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; padding-right: 2px; }
-  .pitem { background: var(--glass-strong); border: 1px solid var(--gline); border-radius: 12px;
-    padding: 7px 11px; cursor: pointer; box-shadow: var(--shadow-soft);
-    backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); }
-  .pitem:hover { background: rgba(var(--srf), .96); }
-  .pitem.sel { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(91,110,225,.25), var(--shadow-soft); }
+  .chip { background: transparent; border: 1px solid var(--line); color: var(--muted);
+    font: inherit; font-size: 11px; padding: 3px 10px; border-radius: 4px; cursor: pointer; }
+  .chip.on { background: var(--tint); color: var(--text); font-weight: 600; }
+  .plist { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; padding-right: 2px; }
+  /* 選んでいるページは左の 2px の強調（夏の差し色）。幅が揺れないよう、ふだんも透明な 2px を持つ */
+  .pitem { background: transparent; border: none; border-left: 2px solid transparent; border-radius: 0 4px 4px 0;
+    padding: 6px 10px; cursor: pointer; }
+  .pitem:hover { background: var(--hover); }
+  .pitem.sel { background: var(--tint); border-left: 2px solid var(--accent); }
   /* 高さを一定に保つ: タイトルもメタも1行で省略する */
   .pitem .t { font-weight: 600; font-size: 13px; line-height: 1.5;
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .pitem .m { font-size: 11px; color: var(--muted); margin-top: 1px; display: flex; gap: 8px;
     white-space: nowrap; overflow: hidden; }
   .pitem .m > span { flex: none; }
-  .pitem .snip { font-size: 11px; color: var(--faint); margin-top: 1px;
+  .pitem .snip { font-size: 11px; color: var(--muted); margin-top: 1px;
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   /* 文字起こし検索の件数（#43）。行ではないので .pitem の高さ・形には触れない */
   .plist .count { flex: none; font-size: 11px; color: var(--muted); padding: 0 2px;
@@ -169,179 +154,176 @@
 
   /* ---------- ページ本体 ---------- */
   .page { flex: 1; min-width: 0; display: flex; flex-direction: column;
-    background: var(--glass); backdrop-filter: blur(28px) saturate(160%);
-    -webkit-backdrop-filter: blur(28px) saturate(160%); border: 1px solid var(--gline);
-    border-radius: var(--r-lg); box-shadow: var(--shadow), inset 0 1px 0 rgba(var(--srf),.75); overflow: hidden; }
-  .phead { padding: 18px 24px 12px; border-bottom: 1px solid var(--gline-dark); flex: none; }
-  .ptitle { font-size: 21px; font-weight: 700; line-height: 1.4; outline: none; border-radius: 6px; padding: 2px 4px; }
-  .ptitle:focus { background: rgba(var(--srf),.8); box-shadow: 0 0 0 2px rgba(91,110,225,.3); }
+    background: var(--bg); border: 1px solid var(--line);
+    border-radius: 6px; overflow: hidden; }
+  .phead { padding: 18px 24px 12px; border-bottom: 1px solid var(--line); flex: none; }
+  .ptitle { font-size: 21px; font-weight: 700; line-height: 1.4; outline: none; border-radius: 4px; padding: 2px 4px; }
+  .ptitle:focus { background: var(--hover); }
   .pprops { display: flex; gap: 14px; flex-wrap: wrap; font-size: 12px; color: var(--muted); margin-top: 8px; }
   .pacts { display: flex; gap: 7px; margin-top: 12px; flex-wrap: wrap; }
-  .pacts button { font-size: 12px; padding: 6px 13px; }
+  .pacts button { font-size: 12px; padding: 5px 12px; }
   .ptabs { display: flex; gap: 4px; padding: 10px 24px 0; flex: none; }
   .pbody { flex: 1; overflow-y: auto; padding: 14px 24px 24px; }
   .pane { display: none; }
   .pane.active { display: block; }
   .note { font-size: 12px; color: var(--danger); margin-bottom: 10px;
-    background: rgba(208,69,60,.08); border-radius: 10px; padding: 9px 12px; }
-  .note.info { color: var(--accent); background: rgba(91,110,225,.09); }
+    background: var(--hover); border-radius: 4px; padding: 9px 12px; }
+  .note.info { color: var(--accent-text); background: var(--tint); }
 
   /* ---------- ブロック ---------- */
   .blk { display: flex; align-items: flex-start; gap: 8px; padding: 3px 0; position: relative; }
   /* 点字の6点(U+283F)を使う。「⋮⋮」を字間で詰める方法は環境によって
      3点に見えていた。 */
-  .blk .grip { opacity: 0; flex: none; cursor: grab; color: var(--faint); user-select: none;
+  .blk .grip { opacity: 0; flex: none; cursor: grab; color: var(--muted); user-select: none;
     line-height: 1.85; font-size: 13px; padding: 0 2px; }
   .blk:hover .grip { opacity: .55; }
   .blk.dragging { opacity: .35; }
-  .blk.dropmark { box-shadow: 0 -2px 0 0 var(--accent); }
-  .blk.dropmark-after { box-shadow: 0 2px 0 0 var(--accent); }
-  .blk .bullet { color: var(--faint); flex: none; line-height: 1.85; user-select: none; }
-  .blk .txt { flex: 1; line-height: 1.85; outline: none; border-radius: 6px; padding: 1px 5px; min-width: 0;
+  /* 落とす位置の線。影は浮く部品だけに使うので、上下の余白 3px のうち 2px を線に替える（高さは変わらない） */
+  .blk.dropmark { border-top: 2px solid var(--accent); padding-top: 1px; }
+  .blk.dropmark-after { border-bottom: 2px solid var(--accent); padding-bottom: 1px; }
+  .blk .bullet { color: var(--muted); flex: none; line-height: 1.85; user-select: none; }
+  .blk .txt { flex: 1; line-height: 1.85; outline: none; border-radius: 4px; padding: 1px 5px; min-width: 0;
     word-break: break-word; }
-  .blk .txt:hover { background: rgba(var(--srf),.5); }
-  .blk .txt:focus { background: rgba(var(--srf),.92); box-shadow: 0 0 0 2px rgba(91,110,225,.3); }
+  .blk .txt:hover { background: var(--hover); }
+  .blk .txt:focus { background: var(--hover); }
   .blk.heading { margin-top: 18px; }
   .blk.heading .txt { font-size: 15px; font-weight: 700; letter-spacing: .02em; }
   .blk.heading .txt::before { content: ''; }
   .blk.todo input[type=checkbox] { width: 16px; height: 16px; margin-top: 4px; accent-color: var(--accent); flex: none; }
-  .blk.todo.done .txt { color: var(--faint); text-decoration: line-through; }
-  .blk .del { opacity: 0; background: none; border: none; color: var(--faint); cursor: pointer;
+  .blk.todo.done .txt { color: var(--muted); text-decoration: line-through; }
+  .blk .del { opacity: 0; background: none; border: none; color: var(--muted); cursor: pointer;
     font-size: 15px; line-height: 1; padding: 4px 6px; flex: none; }
   .blk:hover .del { opacity: 1; }
   .blk .del:hover { color: var(--danger); }
 
   /* 会議タイプ */
-  .typeSel { background: rgba(91,110,225,.11); border: 1px solid rgba(91,110,225,.25);
-    color: var(--accent-deep); font: inherit; font-size: 11px; font-weight: 600;
-    padding: 3px 8px; border-radius: 7px; cursor: pointer; width: auto; box-shadow: none; }
-  .typeSel:focus { background: rgba(var(--srf), .96); }
-  .tbadge { font-size: 10px; font-weight: 700; color: var(--accent-deep);
-    background: rgba(91,110,225,.12); border-radius: 5px; padding: 2px 6px; }
+  .typeSel { background: var(--tint); border: 1px solid var(--line);
+    color: var(--accent-text); font: inherit; font-size: 11px; font-weight: 600;
+    padding: 3px 8px; border-radius: 4px; cursor: pointer; width: auto; }
+  .typeSel:focus { background: var(--bg); }
+  .tbadge { font-size: 10px; font-weight: 700; color: var(--accent-text);
+    background: var(--tint); border-radius: 4px; padding: 2px 6px; }
 
   /* アクションの担当・期限 */
   .ameta { display: inline-flex; gap: 4px; margin-left: 6px; vertical-align: middle; flex-wrap: wrap; }
-  .atag { font-size: 10px; font-weight: 600; padding: 2px 7px; border-radius: 5px;
+  .atag { font-size: 10px; font-weight: 600; padding: 2px 7px; border-radius: 4px;
     border: none; font-family: inherit; cursor: pointer; white-space: nowrap; }
-  .atag.who { background: rgba(47,158,99,.14); color: #227a4b; }
-  .atag.due { background: rgba(56,60,70,.10); color: #4a4f5a; }
-  .atag.due.soon { background: rgba(235,140,40,.18); color: #a25c0d; }
-  .atag.due.over { background: rgba(208,69,60,.16); color: var(--danger); }
-  .atag.add { background: transparent; color: var(--faint); border: 1px dashed rgba(56,60,70,.28); }
+  .atag.who { background: var(--hover); color: var(--ok); }
+  .atag.due { background: var(--hover); color: var(--muted); }
+  .atag.due.soon { background: var(--tint); color: var(--accent-text); }
+  .atag.due.over { background: var(--hover); color: var(--danger); }
+  .atag.add { background: transparent; color: var(--muted); border: 1px dashed currentColor; }
   .atag:hover { filter: brightness(.95); }
-  .atag-edit { font-size: 10px; font-weight: 600; padding: 2px 6px; border-radius: 5px;
-    width: 132px; border: 1px solid rgba(91,110,225,.5); background: rgba(var(--srf), .96); color: var(--ink);
-    font-family: inherit; box-shadow: 0 0 0 3px rgba(91,110,225,.16); }
+  .atag-edit { font-size: 10px; font-weight: 600; padding: 2px 6px; border-radius: 4px;
+    width: 132px; border: 1px solid var(--accent); background: var(--bg); color: var(--text);
+    font-family: inherit; }
 
   /* アクション横断ビュー */
   .actrow { display: flex; align-items: flex-start; gap: 9px; padding: 9px 12px;
-    background: var(--glass-strong); border: 1px solid var(--gline); border-radius: 12px; margin-bottom: 6px; }
+    background: var(--bg); border: 1px solid var(--line); border-radius: 6px; margin-bottom: 6px; }
   .actrow input[type=checkbox] { width: 16px; height: 16px; margin-top: 3px; accent-color: var(--accent); flex: none; }
   .actrow .body { flex: 1; min-width: 0; }
-  .actrow .src { font-size: 11px; color: var(--faint); margin-top: 3px; cursor: pointer; }
-  .actrow .src:hover { color: var(--accent); text-decoration: underline; }
+  .actrow .src { font-size: 11px; color: var(--muted); margin-top: 3px; cursor: pointer; }
+  .actrow .src:hover { color: var(--accent-text); text-decoration: underline; }
   .agroup { font-size: 11px; font-weight: 700; color: var(--muted); letter-spacing: .06em;
     margin: 14px 0 6px; }
   .agroup:first-child { margin-top: 0; }
 
   /* 出典チップ */
   .cites { display: inline-flex; gap: 3px; margin-left: 6px; vertical-align: middle; }
-  .cite { background: rgba(91,110,225,.13); color: var(--accent-deep); border: none;
+  .cite { background: var(--tint); color: var(--accent-text); border: none;
     font: inherit; font-size: 10px; font-weight: 700; line-height: 1;
-    padding: 3px 6px; border-radius: 5px; cursor: pointer;
+    padding: 3px 6px; border-radius: 4px; cursor: pointer;
     white-space: nowrap; font-variant-numeric: tabular-nums; }
-  .cite:hover { background: var(--accent); color: #fff; }
-  .nocite { display: inline-block; margin-left: 6px; font-size: 10px; color: var(--faint);
-    border: 1px dashed rgba(56,60,70,.28); border-radius: 5px; padding: 2px 6px; vertical-align: middle; }
+  .cite:hover { background: var(--accent); color: var(--on-accent); }
+  .nocite { display: inline-block; margin-left: 6px; font-size: 10px; color: var(--muted);
+    border: 1px dashed currentColor; border-radius: 4px; padding: 2px 6px; vertical-align: middle; }
   /* 札の意味の違い。「手書き」は人が足した行（照合対象外）なので実線で落ち着かせ、
      「編集済み」は再生成で付け直せる呼びかけなのでアクセント色にする。
      トークンだけで組むので、ダークでもそのまま読める。 */
   .nocite.manual { border-style: solid; color: var(--muted); }
-  .nocite.stale { color: var(--accent-deep); border-color: var(--accent); }
+  .nocite.stale { color: var(--accent-text); border-color: var(--accent); }
 
   /* ---------- 文字起こし ---------- */
-  .seg { display: flex; gap: 10px; padding: 5px 6px; border-radius: 8px; line-height: 1.8; }
-  .seg .at { color: var(--faint); font-size: 11px; font-variant-numeric: tabular-nums;
+  .seg { display: flex; gap: 10px; padding: 5px 6px; border-radius: 4px; line-height: 1.8; }
+  .seg .at { color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums;
     flex: none; padding-top: 3px; min-width: 44px; }
-  .seg.hit { background: rgba(91,110,225,.16); box-shadow: 0 0 0 2px rgba(91,110,225,.3); }
+  .seg.hit { background: var(--tint); outline: 1px solid var(--accent); }
   .seg.failed { color: var(--danger); }
-  .seg.pending { color: var(--faint); }   /* 音声は届いたが文字起こし待ちの区間 */
-  /* 行の本文はクリックで編集できる。地色は .blk .txt と同じトークン（ダークで実機確認済み） */
-  .seg .txt { flex: 1; min-width: 0; outline: none; border-radius: 6px; padding: 0 4px; word-break: break-word; cursor: text; }
-  .seg .txt:hover { background: rgba(var(--srf),.5); }
-  .seg.editing { background: rgba(var(--srf),.92); box-shadow: 0 0 0 2px rgba(91,110,225,.3); }
+  .seg.pending { color: var(--muted); }   /* 音声は届いたが文字起こし待ちの区間 */
+  /* 行の本文はクリックで編集できる。地色は .blk .txt と同じトークン */
+  .seg .txt { flex: 1; min-width: 0; outline: none; border-radius: 4px; padding: 0 4px; word-break: break-word; cursor: text; }
+  .seg .txt:hover { background: var(--hover); }
+  .seg.editing { background: var(--hover); outline: 1px solid var(--accent); }
   .seg .txt:empty { min-width: 6em; }
-  .seg .txt:empty::before { content: '（削除済み）'; color: var(--faint); }
+  .seg .txt:empty::before { content: '（削除済み）'; color: var(--muted); }
 
   /* ---------- 進行中バー ---------- */
   .live { display: flex; align-items: center; gap: 6px 10px; margin-bottom: 10px; flex-wrap: wrap;
-    background: rgba(var(--srf),.62); border: 1px solid var(--gline); border-radius: 14px; padding: 11px 14px; }
+    background: var(--side); border: 1px solid var(--line); border-radius: 6px; padding: 10px 14px; }
   /* 進捗・打ち切り・マイクの注意は、1行目（状態と時計）の下に折り返して出す */
   .live .desc { flex: none; width: 100%; font-size: 11px; color: var(--muted); }
   .live .desc.ng { color: var(--danger); }
-  .live button.ghost { font-size: 12px; padding: 5px 12px; }
-  .rec-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--accent);
+  .live button.ghost { font-size: 12px; padding: 4px 10px; }
+  /* 録音中の点は海の色（夏の差し色。文字ではない）。丸い形の例外 */
+  .rec-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--level);
     animation: pulse 1.4s ease-in-out infinite; flex: none; }
-  @keyframes pulse { 0%,100% { box-shadow: 0 0 0 0 rgba(91,110,225,.4); } 50% { box-shadow: 0 0 0 7px rgba(91,110,225,0); } }
+  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .35; } }
   .live .tm { color: var(--muted); font-variant-numeric: tabular-nums; margin-left: auto; }
-  .prog { font-size: 12px; color: var(--accent); margin-bottom: 10px; }
+  .prog { font-size: 12px; color: var(--accent-text); margin-bottom: 10px; }
 
   /* ---------- 音声入力 ---------- */
   .stats { display: flex; gap: 10px; margin-bottom: 12px; flex-wrap: wrap; }
-  .stat { flex: 1; min-width: 150px; background: var(--glass); border: 1px solid var(--gline);
-    border-radius: var(--r-lg); padding: 13px 17px; box-shadow: var(--shadow-soft);
-    backdrop-filter: blur(24px); -webkit-backdrop-filter: blur(24px); }
+  .stat { flex: 1; min-width: 150px; background: var(--bg); border: 1px solid var(--line);
+    border-radius: 6px; padding: 12px 16px; }
   .stat .n { font-size: 19px; font-variant-numeric: tabular-nums; }
   .stat .n small { font-size: 12px; color: var(--muted); margin-left: 2px; }
   .stat .l { font-size: 11px; color: var(--muted); margin-top: 2px; }
   .toolbar { display: flex; gap: 9px; margin-bottom: 13px; align-items: center; }
   .toolbar input { flex: 1; }
-  .entry { background: var(--glass-strong); border: 1px solid var(--gline); border-radius: 16px;
-    padding: 13px 16px; margin-bottom: 9px; box-shadow: var(--shadow-soft);
-    backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); }
+  .entry { background: var(--bg); border: 1px solid var(--line); border-radius: 6px;
+    padding: 12px 16px; margin-bottom: 8px; }
   .entry .text { line-height: 1.7; white-space: pre-wrap; word-break: break-word; }
   .entry .meta { margin-top: 7px; display: flex; align-items: center; gap: 13px; font-size: 12px; color: var(--muted); }
   .entry .meta .sp { flex: 1; }
   .entry .meta button { background: none; border: none; color: var(--muted); font: inherit; font-size: 12px;
     cursor: pointer; padding: 2px 4px; }
-  .entry .meta button:hover { color: var(--ink); }
+  .entry .meta button:hover { color: var(--text); }
   .entry .meta button.danger:hover { color: var(--danger); }
   .scroll { height: 100%; overflow-y: auto; }
 
+  /* 浮く部品（知らせ）。影は --shadow だけ */
   #toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%) translateY(8px);
-    background: rgba(24,27,34,.85); backdrop-filter: blur(16px); color: #fff;
-    padding: 10px 20px; border-radius: 999px; font-size: 13px; opacity: 0; pointer-events: none;
-    transition: opacity .2s, transform .2s; box-shadow: 0 10px 30px rgba(15,20,35,.35); z-index: 99; }
+    background: var(--bg); color: var(--text); border: 1px solid var(--line);
+    padding: 10px 18px; border-radius: 6px; font-size: 13px; opacity: 0; pointer-events: none;
+    transition: opacity .2s, transform .2s; box-shadow: var(--shadow); z-index: 99; }
   #toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
   /* ---------- 更新の告知（左下に常駐） ---------- */
   /* トーストは数秒で消えるため、見逃すと更新に気づけない。
      押すか閉じるまで残る告知を置き、ここを更新の主導線にする。 */
   #updBadge { position: fixed; left: 20px; bottom: 20px; z-index: 98; width: 300px; max-width: calc(100vw - 40px);
-    background: var(--glass-strong); backdrop-filter: blur(24px) saturate(160%);
-    -webkit-backdrop-filter: blur(24px) saturate(160%);
-    border: 1px solid var(--gline); border-radius: 14px; padding: 12px 14px;
-    box-shadow: var(--shadow), inset 0 1px 0 rgba(var(--srf),.7); }
+    background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 12px 14px;
+    box-shadow: var(--shadow); }
   #updBadge[hidden] { display: none; }
   #updBadge .hd { display: flex; align-items: center; gap: 8px; }
   #updBadge .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); flex: none; }
   #updBadge .ttl { font-size: 13px; font-weight: 600; flex: 1; min-width: 0; }
-  #updBadge .x { background: none; border: none; color: var(--faint); font: inherit; font-size: 14px;
-    line-height: 1; cursor: pointer; padding: 3px 5px; border-radius: 6px; flex: none; }
-  #updBadge .x:hover { color: var(--ink); background: rgba(var(--inkrgb),.08); }
+  #updBadge .x { background: none; border: none; color: var(--muted); font: inherit; font-size: 14px;
+    line-height: 1; cursor: pointer; padding: 3px 5px; border-radius: 4px; flex: none; }
+  #updBadge .x:hover { color: var(--text); background: var(--hover); }
   #updBadge .row { display: flex; align-items: center; gap: 10px; margin-top: 10px; }
-  #updBadge button.go { background: linear-gradient(180deg, #7b8bef 0%, #5261dd 100%); color: #fff;
+  #updBadge button.go { background: var(--accent); color: var(--on-accent);
     border: none; font: inherit; font-size: 12px; font-weight: 600; padding: 6px 14px;
-    border-radius: 999px; cursor: pointer; white-space: nowrap;
-    box-shadow: 0 4px 12px rgba(82,97,221,.32), inset 0 1px 0 rgba(var(--srf),.4); }
-  #updBadge button.go:disabled { opacity: .55; cursor: default; box-shadow: none; }
+    border-radius: 4px; cursor: pointer; white-space: nowrap; }
+  #updBadge button.go:disabled { opacity: .55; cursor: default; }
   #updBadge button.link { background: none; border: none; color: var(--muted); font: inherit;
     font-size: 12px; cursor: pointer; padding: 4px 2px; text-decoration: underline; }
-  #updBadge button.link:hover { color: var(--ink); }
+  #updBadge button.link:hover { color: var(--text); }
   #updBadge .st { font-size: 11px; color: var(--muted); margin-top: 8px; line-height: 1.6; }
   #updBadge .st.ng { color: var(--danger); }
   #updBadge .st:empty { display: none; }
   #updBadge .notes { display: none; margin-top: 10px; font-size: 11px; line-height: 1.7;
-    white-space: pre-wrap; background: rgba(var(--srf),.55); border-radius: 10px;
+    white-space: pre-wrap; background: var(--hover); border-radius: 4px;
     padding: 10px; max-height: 160px; overflow-y: auto; }
   #updBadge .notes.open { display: block; }
 
@@ -350,52 +332,35 @@
      設定の「画面の配色」は main 側で nativeTheme.themeSource を切り替える
      だけで、ここ（prefers-color-scheme）がそのまま反応する。
      このブロックは必ず全ての基底ルールより後ろに置くこと。@media は
-     詳細度に影響しないため、前に置くと同一セレクタ（body / .bg）の
-     上書きがカスケード順で負けて、地色がライトのまま文字だけ白くなる。 */
+     詳細度に影響しないため、前に置くと同一セレクタ（:root / body）の
+     上書きがカスケード順で負けて、地色がライトのまま文字だけ白くなる。
+     第1b回からは規則がトークンだけで組んであるので、ここはトークンの上書きだけ
+     （明のトークンは全部ここでも上書きする: COLOR-03）。固定色の上書きを足さない。
+     必ず @media の直下にフラットに置く（ネストすると詳細度が上がる: COLOR-05）。 */
   @media (prefers-color-scheme: dark) {
     :root {
       color-scheme: dark;
-      --srf: 50, 55, 68;
-      --inkrgb: 231, 233, 238;
-      --ink: #e7e9ee;
-      --muted: rgba(226, 230, 240, 0.60);
-      --faint: rgba(226, 230, 240, 0.36);
-      --accent: #7c8cf0;
-      --accent-deep: #9aa6f5;
+      --bg: #191919;
+      --side: #202020;
+      --text: rgba(255,255,255,.81);
+      --muted: rgba(255,255,255,.52);
+      --line: rgba(255,255,255,.094);
+      --hover: rgba(255,255,255,.055);
+      --accent: #45b8d8;
+      --on-accent: #10242a;
+      --accent-text: #45b8d8;
+      --tint: rgba(69,184,216,.14);
       --danger: #ff7a70;
-      --green: #4cc98a;
-      --glass: rgba(50, 55, 68, 0.55);
-      --glass-soft: rgba(50, 55, 68, 0.40);
-      --glass-strong: rgba(50, 55, 68, 0.76);
-      --gline: rgba(255, 255, 255, 0.08);
-      --gline-dark: rgba(255, 255, 255, 0.10);
-      --shadow: 0 8px 32px rgba(0, 0, 0, 0.45);
-      --shadow-soft: 0 4px 16px rgba(0, 0, 0, 0.30);
+      --ok: #4cc98a;
+      --level: #0e8cae;
+      --shadow: 0 4px 12px rgba(0,0,0,.40);
     }
-    body { background: #171a21; }
-    .bg { background: linear-gradient(165deg, #191d27 0%, #171a22 45%, #201b17 100%); }
-    /* 変数化から漏れている固定色。ライトの墨色・純白は暗い地では読めない。
-       ここは必ず @media の直下にフラットに置く。以前、html, body { } の中に
-       ネストして置いたところ、複合セレクタとして詳細度が上がり、@media の
-       外にあったためライトでもダークの薄灰色が当たった（COLOR-05）。 */
-    nav button.active { box-shadow: 0 2px 10px rgba(0,0,0,.35), inset 0 1px 0 rgba(var(--srf), .9); }
-    button.ghost { color: #c9cdd8; }
-    ::placeholder { color: rgba(226,230,240,.35); }
-    .atag.who { color: #6fd6a0; }
-    .atag.due { background: rgba(255,255,255,.08); color: #b9bec9; }
-    .atag.due.soon { color: #e8b169; }
-    .atag.add { border-color: rgba(255,255,255,.22); }
-    .nocite { border-color: rgba(255,255,255,.22); }
-    /* 背景の装飾ブロブはライト用のパステル。暗い地では光りすぎるので絞る */
-    .blob { opacity: .16; }
   }
   * { margin: 0; padding: 0; box-sizing: border-box; }
   html, body { height: 100%; }
 </style>
 </head>
 <body>
-  <div class="bg" aria-hidden="true"><span class="blob b1"></span><span class="blob b2"></span><span class="blob b3"></span><span class="blob b4"></span></div>
-
   <header>
     <div class="wordmark">NaTsu</div>
     <nav>
@@ -430,7 +395,7 @@
             <div id="pTypeRow" style="margin-top:8px;display:flex;align-items:center;gap:8px">
               <span style="font-size:11px;color:var(--muted)">要約タイプ</span>
               <select class="typeSel" id="pType"></select>
-              <span style="font-size:11px;color:var(--faint)" id="pTypeHint"></span>
+              <span style="font-size:11px;color:var(--muted)" id="pTypeHint"></span>
             </div>
             <div class="pacts" id="pActs"></div>
           </div>
@@ -478,7 +443,7 @@
             <span class="save-msg" id="updMsg"></span>
           </div>
           <div id="updNotes" style="display:none;margin-top:12px;font-size:12px;line-height:1.7;
-            white-space:pre-wrap;background:rgba(var(--srf),.5);border-radius:10px;padding:12px;max-height:200px;overflow-y:auto"></div>
+            white-space:pre-wrap;background:var(--hover);border-radius:4px;padding:12px;max-height:200px;overflow-y:auto"></div>
           <div class="desc" style="margin-top:10px">
             更新はアプリ本体（数百KB）のみを取得します。エンジンやモデル、保存済みの議事録はそのままです。<br />
             更新前のバージョンは <code>src.backup-*</code> として1世代だけ残ります。
@@ -1430,7 +1395,7 @@
     add(`⏱ ${fmtDur(curPage.durationSec || 0)}`);
     add(`💬 ${curSegs.length} 区間`);
     const st = curPage.citeStat;
-    if (st && st.total) add(`🔗 出典 ${st.linked}/${st.total}`, st.linked === st.total ? 'var(--green)' : '');
+    if (st && st.total) add(`🔗 出典 ${st.linked}/${st.total}`, st.linked === st.total ? 'var(--ok)' : '');
     const ast = curPage.actionStat;
     if (ast && ast.total) add(`✅ アクション ${ast.total}（担当${ast.withAssignee} / 期限${ast.withDue}）`);
     // どこで処理したか（第1c回 OL6）。文は main が mainlib.routeLabel で作って page:get に添える。古いページ・古い main には無い
@@ -2004,7 +1969,7 @@
       el.textContent = s.path
         ? (s.auto ? `　✓ 自動検出: ${s.path.split('\\').pop()}` : '　✓ 指定パスを使用')
         : '　※ VADモデルが見つかりません（setup-local-engine.ps1 を再実行すると取得できます）';
-      el.style.color = s.path ? 'var(--green)' : 'var(--danger)';
+      el.style.color = s.path ? 'var(--ok)' : 'var(--danger)';
     } catch (_) { /* noop */ }
   }
 

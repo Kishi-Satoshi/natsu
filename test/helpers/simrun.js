@@ -107,6 +107,7 @@ async function load(htmlPath, opt = {}) {
   const { root, errors } = parseHTML(src);
   const log = { errors: [], missingIds: [], calls: [], consoleErrors: [], parseErrors: errors, root, created: [], paints: [], lookups: new Set() };
 
+  const docListeners = {};
   const byId = new Map();
   for (const el of root._walk([])) if (el.id && !byId.has(el.id)) byId.set(el.id, el);
   log.byId = byId;
@@ -131,9 +132,17 @@ async function load(htmlPath, opt = {}) {
     createDocumentFragment: () => new Element('#fragment'),
     querySelector: (s) => root.querySelector(s),
     querySelectorAll: (s) => root.querySelectorAll(s),
-    addEventListener() {}, removeEventListener() {},
+    // document の受け口は覚える（l.key で呼ぶ）。泡立ちは無いので、要素の事象が document へ上がることは無い
+    addEventListener(t, fn) { (docListeners[t] = docListeners[t] || []).push(fn); },
+    removeEventListener(t, fn) { const a = docListeners[t]; if (a) { const i = a.indexOf(fn); if (i >= 0) a.splice(i, 1); } },
     execCommand: () => true,
-    activeElement: null,
+    /** 今の木の中で focus() された要素（無ければ null）。木から外した要素は数えない */
+    get activeElement() {
+      const f = Element.focused;
+      if (!f) return null;
+      for (let n = f; n; n = n.parentNode) if (n === root) return f;
+      return null;
+    },
   };
 
   /* ---- 偽 IPC ---- */
@@ -160,6 +169,25 @@ async function load(htmlPath, opt = {}) {
   /** メイン側から送られてくるイベント（onStart など）を発火する */
   log.fire = (name, ...a) => { const l = cbs[name] || []; for (const cb of l) cb(...a); return l.length; };
   log.called = (m) => log.calls.filter((c) => c.method === m);
+  /**
+   * キーの事象を起こす。target があればその要素の受け口を先に、次に document の受け口を呼ぶ
+   * （本物の泡立ちの順。偽 DOM は泡立たないので、ここでだけ順に呼ぶ）。作った事象を返す（defaultPrevented を見られる）
+   */
+  log.key = (o = {}, target) => {
+    const ev = { type: 'keydown', key: '', code: '', ctrlKey: false, shiftKey: false, altKey: false, metaKey: false, isComposing: false,
+      ...o, defaultPrevented: false, preventDefault() { this.defaultPrevented = true; }, stopPropagation() {} };
+    if (target) {
+      ev.target = target; ev.currentTarget = target;
+      const on = target['on' + ev.type];
+      try {
+        if (typeof on === 'function') on.call(target, ev);
+        for (const fn of [...(target._listeners[ev.type] || [])]) fn.call(target, ev);
+      } catch (e) { log.errors.push(e); }
+    } else ev.target = document.activeElement || document.body;
+    ev.currentTarget = document;
+    for (const fn of [...(docListeners[ev.type] || [])]) { try { fn.call(document, ev); } catch (e) { log.errors.push(e); } }
+    return ev;
+  };
 
   /* ---- 画面まわりの最小スタブ ---- */
   const noop = () => {};
