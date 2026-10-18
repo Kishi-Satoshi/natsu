@@ -5,7 +5,7 @@
  * 子のプロセスで呼んで作る（claude -p。文字起こしは標準入力）。NaTsu は claude を
  * 同梱しない・改変しない・~/.claude/.credentials.json を読まない・ログインを出さない。
  * ここは子のプロセスを起こさない純粋な部分（探す・環境・引数・結果の分け方・文）。
- * Electron を読まない。B-2 で claudeAuthStatus・claudeSummarize（spawn を引数で受ける）を足す。
+ * Electron を読まない。子を起こすのは claudeAuthStatus・claudeSummarize だけ（B-2。spawn を引数で受ける）。
  *
  * 資料（2026-10-18 に読んだ）:
  *   https://code.claude.com/docs/en/headless            （-p・--output-format json・--bare は ~/.claude を読まない代わりに OAuth も読まない）
@@ -26,9 +26,12 @@
  *  - shell: false で呼ぶ。引数は決まった文字だけ、利用者の文は標準入力で渡す。だから npm 版の
  *    claude.cmd・.bat・.ps1（shell を通さないと起こせない包み）は使わず、ネイティブ版を入れる案内を出す。
  *  - 作業フォルダは NaTsu が作る空のフォルダ（B-2・B-3）。
+ *  - 子は止まらないことがある（返事が来ない・背景の仕事を待つ）。時間切れで止め、stdout は 5MB まで読む（F11）。
+ *    stderr は分け方にだけ使い、記録に写さない（文字起こしの断片や利用者の環境が混ざりうる）。
  */
 'use strict';
 
+const cp = require('node:child_process');
 const fs = require('node:fs');
 const path = require('node:path');
 
@@ -37,6 +40,9 @@ const STRIP_PREFIXES = ['ANTHROPIC_', 'CLAUDE_CODE_USE_', 'CLAUDE_CODE_OAUTH_'];
 const STDIN_MAX = 9 * 1024 * 1024;      // 資料の上限 10MB より下に
 const RUN_TIMEOUT_MS = 15 * 60 * 1000;
 const AUTH_TIMEOUT_MS = 30 * 1000;
+const OUT_MAX = 5 * 1024 * 1024;        // stdout はここまで読む（越えたら止めて bad-reply）
+const ERR_MAX = 64 * 1024;              // stderr は分け方に要るだけ
+const KILL_WAIT_MS = 2000;              // 止めた後、close が来なくてもここで返す
 const CLAUDE_MODEL = 'sonnet';          // 設計書 C8
 const ASK = '標準入力の指示に従い、会議の文字起こしから議事録を作成してください。本文だけを出力してください。';
 const INSTALL_CMD = 'irm https://claude.ai/install.ps1 | iex';
@@ -176,6 +182,82 @@ function classifyRun({ code, stdout, stderr, timedOut } = {}) {
   return fail(c.code, c.resetAt);
 }
 
+// 子を1つ起こして終わりを待つ。shell なし・課金の変数を外した環境・決まった作業フォルダ。
+// 起こせなければ { spawnError }。時間切れと stdout の越えは子を止めて返す（close が来なくても KILL_WAIT_MS で）
+function runChild({ cmd, args, spawn, env, cwd, input, timeoutMs }) {
+  return new Promise((resolve) => {
+    let child;
+    try {
+      child = spawn(cmd, args, { cwd, env: childEnv(env), shell: false, windowsHide: true });
+    } catch (e) {
+      resolve({ spawnError: e });
+      return;
+    }
+    const out = []; let outLen = 0;
+    const err = []; let errLen = 0;
+    let timedOut = false; let tooBig = false; let stopping = false; let done = false;
+    let timer = null; let killTimer = null;
+    const result = (code) => ({
+      code, stdout: Buffer.concat(out).toString('utf8'), stderr: Buffer.concat(err).toString('utf8'), timedOut, tooBig,
+    });
+    const finish = (r) => {
+      if (done) return;
+      done = true;
+      clearTimeout(timer); clearTimeout(killTimer);
+      resolve(r);
+    };
+    const stop = () => {
+      if (stopping) return;
+      stopping = true;
+      try { child.kill(); } catch (_) { /* もう終わっている */ }
+      killTimer = setTimeout(() => finish(result(null)), KILL_WAIT_MS);
+    };
+    child.on('error', (e) => {
+      // 起こせなかった（ENOENT・EACCES など）。起きた後の誤り（止めるのに失敗など）は close を待つ
+      if (child.pid === undefined) finish({ spawnError: e });
+    });
+    child.on('close', (code) => finish(result(code)));
+    if (child.stdout) {
+      child.stdout.on('data', (d) => {
+        if (tooBig) return;
+        if (outLen + d.length > OUT_MAX) { tooBig = true; stop(); return; }
+        out.push(d); outLen += d.length;
+      });
+    }
+    if (child.stderr) {
+      child.stderr.on('data', (d) => {
+        if (errLen >= ERR_MAX) return;
+        const part = d.subarray(0, ERR_MAX - errLen);
+        err.push(part); errLen += part.length;
+      });
+    }
+    if (child.stdin) {
+      child.stdin.on('error', () => { /* EPIPE: 子が読む前に終わった。終わりの番号で分ける */ });
+      try { child.stdin.end(input === undefined ? undefined : input); } catch (_) { /* 同上 */ }
+    }
+    if (timeoutMs > 0) timer = setTimeout(() => { timedOut = true; stop(); }, timeoutMs);
+  });
+}
+
+async function claudeAuthStatus({ cmd, preArgs = [], spawn = cp.spawn, env = process.env, cwd, timeoutMs = AUTH_TIMEOUT_MS } = {}) {
+  const r = await runChild({ cmd, args: [...preArgs, ...authArgs()], spawn, env, cwd, timeoutMs });
+  if (r.spawnError) return { ok: false, code: 'not-found' };
+  // 時間切れ・読みきれない返事は「ログインしていない」とは言わない（誤った案内になる）
+  if (r.timedOut || r.tooBig) return { ok: false, code: 'failed', method: '' };
+  return parseAuthStatus({ code: r.code, stdout: r.stdout, stderr: r.stderr });
+}
+
+async function claudeSummarize({ cmd, preArgs = [], spawn = cp.spawn, env = process.env, cwd, input, systemPrompt, model, timeoutMs = RUN_TIMEOUT_MS } = {}) {
+  const text = typeof input === 'string' ? input : String(input == null ? '' : input);
+  if (Buffer.byteLength(text) > STDIN_MAX) return { ok: false, code: 'too-large' };
+  const args = [...preArgs, ...summaryArgs(systemPrompt, { model })];
+  const r = await runChild({ cmd, args, spawn, env, cwd, input: text, timeoutMs });
+  if (r.spawnError) return fail('not-found');
+  if (r.timedOut) return fail('timeout');
+  if (r.tooBig) return fail('bad-reply');
+  return classifyRun(r);
+}
+
 const RETRY = '［要約を生成］を押してください。';
 const MESSAGES = {
   'not-found': `Claude Code が見つからないため、要約を作れませんでした。PowerShell で \`${INSTALL_CMD}\` を実行して入れ、ターミナルで \`claude\` を一度起動してログインしてから、${RETRY}`,
@@ -204,4 +286,5 @@ function claudeMessage(r) {
 module.exports = {
   STRIP_EXACT, STRIP_PREFIXES, STDIN_MAX, RUN_TIMEOUT_MS, AUTH_TIMEOUT_MS, CLAUDE_MODEL, ASK, INSTALL_CMD,
   findClaude, childEnv, summaryArgs, authArgs, parseAuthStatus, classifyRun, claudeMessage,
+  claudeAuthStatus, claudeSummarize,
 };

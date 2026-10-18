@@ -104,3 +104,92 @@ test('RF24: 平易な文。入れ方のコマンド・リセットの時刻が�
   for (const c of ['failed', 'bad-reply', 'unknown']) assert.match(K.claudeMessage({ code: c }), /［要約を生成］でもう一度試せます/);
   assert.ok(!/hit your|Please run/.test(K.claudeMessage({ code: 'limit', resetAt: '3:45pm' })));
 });
+
+// ---- B-2: 子のプロセスを本当に起こす（偽の claude で。本物は走らせない） ----
+const fs = require('node:fs');
+const os = require('node:os');
+const cp = require('node:child_process');
+const FAKE = path.join(__dirname, 'helpers', 'fake-claude.js');
+const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), 'natsu-claude-'));
+// childEnv は ELECTRON_RUN_AS_NODE を外す（本物の claude には要らない）。CI の electron-smoke はテストを
+// Electron の Node（ELECTRON_RUN_AS_NODE=1）で回し、process.execPath が electron.exe になるので、偽の claude を
+// Node として起こすためにテストの側でだけ戻す（Node で回すときは何も足さない）
+const spawnFake = (c, a, o) => cp.spawn(c, a, process.versions.electron ? { ...o, env: { ...o.env, ELECTRON_RUN_AS_NODE: '1' } } : o);
+const withFake = (mode, extra = {}) => {
+  const d = tmp(); const log = path.join(d, 'claude.log');
+  const env = { ...process.env, ANTHROPIC_API_KEY: 'sk-ant-test', Anthropic_Base_Url: 'https://gw.example', CLAUDE_CODE_OAUTH_TOKEN: 'o', FAKE_CLAUDE_MODE: mode, FAKE_CLAUDE_LOG: log, ...extra };
+  const cwd = path.join(d, 'claude-run'); fs.mkdirSync(cwd);
+  const lines = () => (fs.existsSync(log) ? fs.readFileSync(log, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l)) : []);
+  const pids = [];   // 起こした子（時間切れで本当に止めたかを見る）
+  const spawn = (c, a, o) => { const k = spawnFake(c, a, o); pids.push(k.pid); return k; };
+  return { cmd: process.execPath, preArgs: [FAKE], spawn, env, cwd, lines, pids };
+};
+const INPUT = '【会議の文字起こし】\n本日の議題は進捗の確認です。\n\n上記から、次の構成のMarkdown議事録を作成してください。';
+
+test('RF25: auth status を子の環境から課金の変数を外して呼ぶ。api_key_helper なら api-billing', { timeout: 20000 }, async () => {
+  const f = withFake('ok');
+  assert.deepStrictEqual(await K.claudeAuthStatus(f), { ok: true, method: 'claude.ai' });
+  assert.deepStrictEqual(f.lines()[0].envKeys, [], '課金の変数が子に渡った');
+  assert.deepStrictEqual(f.lines()[0].args, K.authArgs());
+  const g = withFake('ok', { FAKE_CLAUDE_AUTH: 'api_key_helper' });
+  assert.deepStrictEqual(await K.claudeAuthStatus(g), { ok: false, code: 'api-billing', method: 'api_key_helper' });
+  const h = withFake('ok', { FAKE_CLAUDE_AUTH: 'none' });
+  assert.deepStrictEqual(await K.claudeAuthStatus(h), { ok: false, code: 'not-logged-in', method: 'none' });
+  // 起こせない（無いファイル）なら not-found
+  assert.deepStrictEqual(await K.claudeAuthStatus({ ...f, cmd: path.join(tmp(), 'no-such-claude'), preArgs: [] }), { ok: false, code: 'not-found' });
+});
+
+test('OL5: -p に決まった引数を渡し、文字起こしは標準入力だけで渡す（引数に入れない）。作業フォルダは渡したフォルダ', { timeout: 20000 }, async () => {
+  const f = withFake('ok', { FAKE_CLAUDE_EXPECT: '本日の議題は進捗の確認です。' });
+  const r = await K.claudeSummarize({ ...f, input: INPUT, systemPrompt: 'あなたは議事録作成の専門家です。' });
+  assert.strictEqual(r.ok, true);
+  assert.match(r.text, /## 概要/);
+  const p = f.lines().find((l) => l.kind === 'p');
+  assert.deepStrictEqual(p.args, K.summaryArgs('あなたは議事録作成の専門家です。'));
+  assert.strictEqual(fs.realpathSync(p.cwd), fs.realpathSync(f.cwd));
+  assert.strictEqual(p.stdinHasTranscript, true);
+  assert.strictEqual(p.stdinBytes, Buffer.byteLength(INPUT));
+  assert.ok(!p.args.some((a) => a.includes('本日の議題')), '文字起こしを引数に入れた');
+  assert.deepStrictEqual(p.envKeys, []);
+});
+
+test('RF24: 上限・ログイン切れ・混み合い・読めない返事・古い版（引数を知らない）を分ける', { timeout: 20000 }, async () => {
+  const want = { limit: ['limit', '3:45pm'], weekly: ['limit', 'Mon 12:00am'], notlogged: ['not-logged-in', ''], expired: ['not-logged-in', ''],
+    overloaded: ['overloaded', ''], hold: ['account', ''], garbage: ['bad-reply', ''], badflag: ['old-version', ''] };
+  for (const [mode, [code, resetAt]] of Object.entries(want)) {
+    const f = withFake(mode);
+    assert.deepStrictEqual(await K.claudeSummarize({ ...f, input: INPUT, systemPrompt: 's' }), { ok: false, code, resetAt }, mode);
+  }
+});
+
+test('F11: 返事が来なければ時間切れで子を止める。標準入力が 9MB を越えるなら起こさない', { timeout: 20000 }, async () => {
+  const f = withFake('slow', { FAKE_CLAUDE_DELAY: '10000' });
+  const t0 = Date.now();
+  assert.deepStrictEqual(await K.claudeSummarize({ ...f, input: INPUT, systemPrompt: 's', timeoutMs: 300 }), { ok: false, code: 'timeout', resetAt: '' });
+  assert.ok(Date.now() - t0 < 5000);
+  assert.strictEqual(f.pids.length, 1);
+  assert.throws(() => process.kill(f.pids[0], 0), '時間切れの後も子が生きている（止めていない）');
+  const g = withFake('ok');
+  assert.deepStrictEqual(await K.claudeSummarize({ ...g, input: 'あ'.repeat(Math.ceil(K.STDIN_MAX / 3) + 1), systemPrompt: 's' }), { ok: false, code: 'too-large' });
+  assert.deepStrictEqual(g.lines(), [], '大きすぎるのに起こした');
+});
+
+test('OL5: PATH に置いた偽の claude を見つけて呼べる（Windows 以外は台本そのもの、Windows は探すところまで）', { timeout: 20000 }, async () => {
+  const d = tmp();
+  if (process.platform === 'win32') {
+    fs.writeFileSync(path.join(d, 'claude.exe'), '');   // 探すだけ（中身は起こさない）
+    assert.deepStrictEqual(K.findClaude({ env: { Path: d, USERPROFILE: tmp() }, platform: 'win32' }), { ok: true, cmd: path.join(d, 'claude.exe') });
+    return;
+  }
+  const bin = path.join(d, 'claude');
+  fs.copyFileSync(FAKE, bin); fs.chmodSync(bin, 0o755);
+  const found = K.findClaude({ env: { PATH: d, HOME: tmp() }, platform: process.platform });
+  assert.deepStrictEqual(found, { ok: true, cmd: bin });
+  const f = withFake('ok', { PATH: `${d}${path.delimiter}${path.dirname(process.execPath)}` });
+  assert.deepStrictEqual(await K.claudeAuthStatus({ ...f, cmd: found.cmd, preArgs: [] }), { ok: true, method: 'claude.ai' });
+});
+
+test('F11: stdout が 5MB を越えたら読むのを止めて子を止め、bad-reply', { timeout: 20000 }, async () => {
+  const f = withFake('huge');
+  assert.deepStrictEqual(await K.claudeSummarize({ ...f, input: INPUT, systemPrompt: 's' }), { ok: false, code: 'bad-reply', resetAt: '' });
+});
