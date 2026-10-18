@@ -35,7 +35,7 @@ contextBridge.exposeInMainWorld('koeApp', {
   openEngineDir: () => ipcRenderer.invoke('engine:open-dir'),
   vadStatus: () => ipcRenderer.invoke('app:vad-status'),
   promptInfo: () => ipcRenderer.invoke('prompt:info'),
-  pickFile: (kind) => ipcRenderer.invoke('dialog:pick', kind),
+  pickFile: (kind, key) => ipcRenderer.invoke('dialog:pick', kind, key),
   openDataDir: () => ipcRenderer.invoke('app:open-data-dir'),
   openSoundSettings: () => ipcRenderer.invoke('app:open-sound-settings'),
   openReleases: () => ipcRenderer.invoke('app:open-releases'),

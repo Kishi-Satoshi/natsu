@@ -604,6 +604,24 @@ function portInUseError(port) {
   return `ポート ${port} は他のプロセスが使用中です。設定でポートを変えるか、そのプロセスを終了してください`;
 }
 
+// ---------------------------------------------------------------- ファイルの選択で開く場所（第0c回 EL3）
+// Electron 43 から defaultPath が無いと「ダウンロード」で開き、OS が前のフォルダを覚えなくなる。
+// 画面の5つの［選ぶ］ボタンのキー（ENGINE_SETTING_KEYS とは別に持つ）。画面からはパスを受け取らず、
+// このキーの名前だけを受け取る。
+const PICK_KEYS = ['localServerExe', 'localModelPath', 'vadModelPath', 'sumServerExe', 'sumModelPath'];
+// 今のファイルのフォルダ → この起動で前に選んだフォルダ → エンジンの置き場所の順に、あるものを返す。
+// どれも無ければ undefined（Electron の既定に任せる）。知らないキーでは設定の値を読まない。
+function pickDefaultPath(key, settings, { lastDir = '', engineRoot = '', isDir = () => false, p = path } = {}) {
+  const cands = [];
+  if (PICK_KEYS.includes(key)) {
+    const cur = settings && typeof settings[key] === 'string' ? settings[key] : '';
+    if (cur) cands.push(p.dirname(cur));
+  }
+  cands.push(lastDir, engineRoot);
+  for (const d of cands) if (typeof d === 'string' && d && isDir(d)) return d;
+  return undefined;
+}
+
 // ---------------------------------------------------------------- 記録中のエンジン設定（#57）
 // これらを変えるとエンジンの再起動（engineSignature）や区間の切り方が変わる。記録中に
 // 再起動すると、文字起こし中の区間が失われる。記録中は前の値に留め、他の設定は保存する。
@@ -1065,6 +1083,7 @@ module.exports = {
   isAscii, engineSpawnPlan,
   peFileVersion, vcRuntimeVersions, vcRuntimeIssue, runtimeGate, engineExitHint, spawnErrorHint, speedLine,
   ENGINE_SETTING_KEYS, guardEngineSettings, keptDifferent, closeConfirm,
+  PICK_KEYS, pickDefaultPath,
   extractNotes, truncationMessage, buildPromptParts,
   publicSegments, settledSegments, pendingDurationMs, recoverSegments, staleSegbufDirs,
   nextSegmentMs, EtaTracker, skipPendingSegments,

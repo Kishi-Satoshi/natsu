@@ -1819,7 +1819,7 @@
   }
 
   const pick = (kind, target) => async () => {
-    const p = await window.koeApp.pickFile(kind);
+    const p = await window.koeApp.pickFile(kind, target);
     if (p) $(target).value = p;
   };
   $('pickExeBtn').onclick = pick('exe', 'localServerExe');

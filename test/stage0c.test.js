@@ -50,3 +50,48 @@ test('EL2: 画面の取り込みの受け口は、断るときに null を渡し
   const lb = code(read('src/loopback.js'));
   assert.ok(!/return \{\};/.test(lb), 'loopback.js が {} を返している');
 });
+
+// ---------------------------------------------------------------- EL3
+test('EL3: pickDefaultPath は、今のファイルのフォルダ → 前に選んだフォルダ → エンジンの置き場所の順で、あるものを返す', () => {
+  const { pickDefaultPath, PICK_KEYS } = require('../src/mainlib');
+  const W = path.win32;
+  const dirs = new Set(['C:\\tools\\whisper', 'D:\\前に選んだ', 'E:\\試験𠮷\\AppData\\Local\\natsu\\engine']);
+  const o = { isDir: (d) => dirs.has(d), p: W, lastDir: 'D:\\前に選んだ', engineRoot: 'E:\\試験𠮷\\AppData\\Local\\natsu\\engine' };
+  assert.deepStrictEqual(PICK_KEYS, ['localServerExe', 'localModelPath', 'vadModelPath', 'sumServerExe', 'sumModelPath']);
+  assert.strictEqual(pickDefaultPath('localServerExe', { localServerExe: 'C:\\tools\\whisper\\whisper-server.exe' }, o), 'C:\\tools\\whisper');
+  // 今のファイルのフォルダが無い（消した・別の PC の設定）→ 前に選んだフォルダ
+  assert.strictEqual(pickDefaultPath('sumModelPath', { sumModelPath: 'Z:\\無い\\m.gguf' }, o), 'D:\\前に選んだ');
+  // 空 → 前に選んだ → それも無ければエンジンの置き場所
+  assert.strictEqual(pickDefaultPath('vadModelPath', { vadModelPath: '' }, o), 'D:\\前に選んだ');
+  assert.strictEqual(pickDefaultPath('vadModelPath', {}, { ...o, lastDir: '' }), 'E:\\試験𠮷\\AppData\\Local\\natsu\\engine');
+  // どれも無ければ undefined（Electron の既定に任せる）
+  assert.strictEqual(pickDefaultPath('vadModelPath', {}, { ...o, isDir: () => false }), undefined);
+  // 知らないキーでは設定の値を読まない（画面から任意のキーで設定の中身を開かせない）
+  assert.strictEqual(pickDefaultPath('dataDir', { dataDir: 'C:\\tools\\whisper\\x' }, o), 'D:\\前に選んだ');
+  assert.strictEqual(pickDefaultPath('__proto__', {}, { ...o, lastDir: '' }), 'E:\\試験𠮷\\AppData\\Local\\natsu\\engine');
+});
+
+test('EL3: 画面はキーの名前だけを送り、main は defaultPath を渡し、選んだフォルダを覚える', () => {
+  const preload = read('src/preload.js');
+  assert.ok(preload.includes("  pickFile: (kind, key) => ipcRenderer.invoke('dialog:pick', kind, key),"));
+  const app = read('src/renderer/app.html');
+  assert.ok(app.includes('const p = await window.koeApp.pickFile(kind, target);'));
+  const m = code(read('src/main.js'));
+  const pick = fnBody(m, "ipcMain.handle('dialog:pick'", '\n  });');
+  assert.match(pick, /async \(_e, kind, key\) =>/);
+  assert.match(pick, /pickDefaultPath\(String\(key \|\| ''\), settings,/);
+  assert.match(pick, /\.\.\.\(defaultPath \? \{ defaultPath \} : \{\}\)/);
+  assert.match(pick, /lastPickDir = path\.dirname\(res\.filePaths\[0\]\);/);
+});
+
+test('EL3: 画面の［選ぶ］ボタンが、それぞれのキーの名前を送る（simrun）', async () => {
+  const { load } = require('./helpers/simrun.js');
+  const l = await load(path.join(ROOT, 'src', 'renderer', 'app.html'));
+  for (const [btn, kind, key] of [['pickExeBtn', 'exe', 'localServerExe'], ['pickModelBtn', 'model', 'localModelPath'], ['pickVadBtn', 'model', 'vadModelPath'],
+    ['pickSumExeBtn', 'exe', 'sumServerExe'], ['pickSumModelBtn', 'model', 'sumModelPath']]) {
+    l.byId.get(btn).dispatchEvent({ type: 'click' });
+    await l.drain();
+    const c = l.called('pickFile').pop();
+    assert.deepStrictEqual(c.args, [kind, key], btn);
+  }
+});

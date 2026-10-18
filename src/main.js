@@ -52,6 +52,7 @@ const {
   skipPendingSegments,
   estimateTokens, foldNotes, idleEnginesToStop, silentWav, wavLevelDbfs, mergeSummaryType, memoEvidence,
   sameShas, keepPrevious, candStamp, repairIdsOf, pathUsedBy, fetchMinutesLeft,
+  pickDefaultPath,
 } = require('./mainlib');
 // クリップボードの読み書き（mainlib.copyPrivate・deliverText）は main.js の同じ名前の包みとぶつかるので、lib から呼ぶ
 const lib = require('./mainlib');
@@ -2287,6 +2288,9 @@ function updateTarget() {
 }
 
 // ---------------------------------------------------------------- IPC
+let lastPickDir = '';   // この起動で前に選んだフォルダ（43 から OS が覚えないので自分で覚える。保存はしない）
+const isDirSync = (d) => { try { return fs.statSync(d).isDirectory(); } catch (_) { return false; } };
+
 function setupIpc() {
   ipcMain.handle('settings:get', () => settings);
   ipcMain.handle('settings:save', (_e, next) => {
@@ -2517,11 +2521,15 @@ function setupIpc() {
     app.exit(0);
     return true;
   });
-  ipcMain.handle('dialog:pick', async (_e, kind) => {
+  ipcMain.handle('dialog:pick', async (_e, kind, key) => {
     const filters = kind === 'exe'
       ? [{ name: '実行ファイル', extensions: process.platform === 'win32' ? ['exe'] : ['*'] }]
       : [{ name: 'モデルファイル', extensions: ['bin', 'gguf'] }];
-    const res = await dialog.showOpenDialog(mainWin, { properties: ['openFile'], filters });
+    // 画面からはパスを受け取らない。キーの名前だけを受け取り、開く場所は main が決める（EL3）
+    const defaultPath = pickDefaultPath(String(key || ''), settings,
+      { lastDir: lastPickDir, engineRoot: ENGINE_HOME.supported ? ENGINE_HOME.root : '', isDir: isDirSync });
+    const res = await dialog.showOpenDialog(mainWin, { properties: ['openFile'], filters, ...(defaultPath ? { defaultPath } : {}) });
+    if (!res.canceled && res.filePaths[0]) lastPickDir = path.dirname(res.filePaths[0]);
     return res.canceled ? null : res.filePaths[0];
   });
 
