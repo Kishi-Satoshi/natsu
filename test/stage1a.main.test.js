@@ -181,4 +181,49 @@ describe('第1a回 保存の守り（main）', { concurrency: Number(process.env
     assert.strictEqual(r.textWhileUnreadable, JSON.stringify(SC.HISTORY, null, 2));
     assert.deepStrictEqual(r.after.map((h) => h.id), ['h1']);
   });
+
+  // 第1a回 Task 2-4: 録音バーの位置のまとめ書き・書き出しの合図・始めの片付け
+  test('RF21・JS8: どの合図でも、受け口が返る前に録音バーの位置がファイルに書かれている（合図の前はまだ書かれていない）', SCENE, async () => {
+    const r = await run('signals');
+    assert.deepStrictEqual(r.signals.map((s) => s.ev), ['session-end', 'query-session-end', 'suspend', 'lock-screen', 'shutdown', 'hide', 'close', 'will-quit', 'before-quit']);
+    r.signals.forEach((s, i) => {
+      assert.deepStrictEqual(s.after, { x: 100 + i, y: 200 }, `${s.ev} で書き出していない`);
+      assert.notDeepStrictEqual(s.before, s.after, `${s.ev}: 合図の前にもう書かれていた（確かめになっていない）`);
+    });
+  });
+
+  test('JS7: 続けて動かした録音バーは、間隔の後に最後の位置だけを1回書く', SCENE, async () => {
+    const r = await run('batched');
+    assert.deepStrictEqual(r.right, SC.TYPICAL.pillCustom, '間隔を待たずに書いた');
+    assert.deepStrictEqual(r.later, { x: 9, y: 10 });
+  });
+
+  test('JS4: 起動のときに、残った JSON の一時ファイルを消す（WAV の一時ファイルは残す）', SCENE, async () => {
+    const r = await run('temps');
+    assert.deepStrictEqual(r.files.filter((f) => /\.json(\.\d+-[0-9a-z]+)?\.tmp$/.test(f)), []);
+    assert.ok(r.files.includes('data/segbuf/4102444800000/0001.wav.tmp'), r.files.join('\n'));
+  });
+
+  test('RF22・F4: 読めない間に動かした録音バーは、合図でも書かず、読み直せたら捨てる（読めた値が勝つ）', SCENE, async () => {
+    const r = await run('unreadable-move');
+    assert.strictEqual(r.textAfterSignal, JSON.stringify(SC.TYPICAL, null, 2), '読めない間に合図で書いた');
+    assert.strictEqual(r.textLater, JSON.stringify(SC.TYPICAL, null, 2), '読み直した後に、読めない間の位置を書いた');
+    assert.deepStrictEqual(r.after.pillCustom, SC.TYPICAL.pillCustom);
+  });
+
+  test('RF21: 実機の確かめ用に、まとめ書きの間隔を NATSU_TEST_BATCH_MS で長くでき、記録に残る', SCENE, async () => {
+    const r = await run('batch-env');
+    assert.ok(r.engineLog.some((l) => l.includes('まとめ書きの間隔: 60000ms（試し用）')), r.engineLog.join('\n'));
+  });
+
+  test('JS8: app.exit( は relaunchAndExit の中だけで、その前に書き出す。process の exit でも書き出す。窓ができたら session-end と query-session-end を付ける', { timeout: 5000 }, () => {
+    const m = require('node:fs').readFileSync(path.join(__dirname, '..', 'src', 'main.js'), 'utf8').replace(/^[ \t]*\/\/.*$/gm, '').replace(/\/\*[\s\S]*?\*\//g, '');
+    assert.strictEqual((m.match(/app\.exit\(/g) || []).length, 1);
+    const fn = m.slice(m.indexOf('function relaunchAndExit()'), m.indexOf('\n', m.indexOf('function relaunchAndExit()')));
+    assert.ok(fn.indexOf('flushAllWriters()') >= 0 && fn.indexOf('flushAllWriters()') < fn.indexOf('app.relaunch()') && fn.indexOf('app.relaunch()') < fn.indexOf('app.exit(0)'), fn);
+    assert.strictEqual((m.match(/relaunchAndExit\(\);/g) || []).length, 2);
+    assert.match(m, /process\.on\('exit', flushAllWriters\)/);
+    assert.match(m, /app\.on\('browser-window-created', \(_e, w\) => \{ w\.on\('session-end', flushAllWriters\); w\.on\('query-session-end', flushAllWriters\); \}\)/);
+    for (const ev of ['suspend', 'lock-screen', 'shutdown']) assert.ok(m.includes(`powerMonitor.on('${ev}', flushAllWriters)`), ev);
+  });
 });

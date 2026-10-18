@@ -10,7 +10,7 @@
 const {
   app, BrowserWindow, Tray, Menu, globalShortcut,
   ipcMain, clipboard, nativeImage, screen, dialog, shell, session,
-  nativeTheme, powerSaveBlocker,
+  nativeTheme, powerSaveBlocker, powerMonitor,
   // エンジンの取り込みの通信（第0b回 RF2。会社のプロキシ・PAC・証明書のストアを使う）。net の名前は下の Node の net が使う
   net: electronNet,
 } = require('electron');
@@ -200,9 +200,45 @@ function writeHistoryFile(value, { retry }) {
   if (historyState === 'unreadable') throw notWritable();
   J.writeJsonFile(historyPath(), value, { waits: retry ? J.RENAME_WAITS : [], onFsyncUnsupported: noteFsyncOnce });
 }
-// 書き手（まとめ書きの間隔は Task 2-4 で BATCH_MS にする。この回では now で同期に書く）
-const settingsWriter = J.makeBatchWriter({ name: 'settings.json', write: writeSettingsFile, delayMs: 350, log: engineLog });
-const historyWriter = J.makeBatchWriter({ name: 'history.json', write: writeHistoryFile, delayMs: 350, log: engineLog });
+// まとめ書きの間隔（第1a回 JS7）。今の録音バーの待ちと同じ（Task 4-4 の計りで見直す。変えるなら Task 5-1 でテストと一緒に）
+const BATCH_MS = 350;
+// 実機の確かめ用に、環境変数 NATSU_TEST_BATCH_MS で間隔を長くできる（設計書の「試し用の長い間隔」。シャットダウンの直前の
+// 変更が書き出しの合図で書かれるのを、間隔の前に電源を切って確かめる）。BATCH_MS〜600000 に収め、使ったら engine.log に1行
+function batchMs(env = process.env) {
+  const raw = env ? env.NATSU_TEST_BATCH_MS : undefined;
+  if (raw == null || String(raw).trim() === '') return BATCH_MS;
+  const n = Number(raw);
+  if (!Number.isFinite(n)) return BATCH_MS;
+  const ms = Math.min(600000, Math.max(BATCH_MS, Math.round(n)));
+  engineLog(`まとめ書きの間隔: ${ms}ms（試し用）`);
+  return ms;
+}
+const WRITE_DELAY_MS = batchMs();
+// 書き手。1つのファイルに1つ。設定の画面の保存は now（すぐ同期で書く）、録音バーの位置は set（まとめ書き）で、
+// 同じ書き手なので古い中身で互いを上書きしない
+const settingsWriter = J.makeBatchWriter({ name: 'settings.json', write: writeSettingsFile, delayMs: WRITE_DELAY_MS, log: engineLog });
+const historyWriter = J.makeBatchWriter({ name: 'history.json', write: writeHistoryFile, delayMs: WRITE_DELAY_MS, log: engineLog });
+// 書き出しの合図（第1a回 JS8・RF21）。まとめ書きの残りを全部同期で書く。投げない。受け口はどれも最初にこれを呼ぶ:
+// before-quit・will-quit・すべての窓の session-end・query-session-end・powerMonitor の suspend・lock-screen・shutdown・
+// 本体の窓の close と hide・process の exit・再起動の直前（relaunchAndExit）。名前はこのまま（テストが文字で探す）
+function flushAllWriters() { return J.flushAll(); }
+// 自動更新と再起動。app.exit は before-quit・will-quit を出さないので、その前に書き出す。app.exit( はここだけ
+function relaunchAndExit() { flushAllWriters(); app.relaunch(); app.exit(0); }
+// 起動のときに、強制終了で残った JSON の一時ファイルを消す（第1a回 JS4。WAV などほかの .tmp は残す）。
+// 単一起動の鍵を取った後（ほかの NaTsu が書いている途中の一時ファイルを消さない）、whenReady の最初に呼ぶ。投げない
+function cleanStartupTemps() {
+  const ud = app.getPath('userData');
+  const data = path.join(ud, 'data');
+  const dirs = [ud, data, path.join(data, 'pages'), path.join(data, 'transcripts')];
+  try {
+    for (const e of fs.readdirSync(path.join(data, 'segbuf'), { withFileTypes: true })) if (e.isDirectory()) dirs.push(path.join(data, 'segbuf', e.name));
+  } catch (_) { /* 無ければ飛ばす */ }
+  if (ENGINE_HOME.root) dirs.push(ENGINE_HOME.root, path.join(ENGINE_HOME.root, '.download'));
+  try { const appRoot = app.getAppPath(); if (typeof appRoot === 'string' && appRoot) dirs.push(appRoot); } catch (_) { /* noop */ }   // 自動更新の package.json
+  let n = 0;
+  for (const d of dirs) { try { n += J.cleanTemps(d).length; } catch (_) { /* noop */ } }
+  if (n) engineLog(`保存: 前回残った一時ファイルを ${n} 個消しました`);
+}
 const errCode = (e) => (e && e.code) || 'error';
 
 // → { state, settings, notices }（state は loadJsonFile の結果の state。notices は画面に出す知らせの文で、起動のときは
@@ -1431,16 +1467,13 @@ function createOverlay() {
   overlayWin.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
   overlayWin.loadFile(path.join(__dirname, 'renderer', 'overlay.html'));
   overlayWin.on('closed', () => { overlayWin = null; });
-  let moveT = null;
+  // 利用者が動かした位置は、設定の書き手のまとめ書きにする（第1a回 JS7。最後の位置だけを間隔の後に1回書く。
+  // 残りは書き出しの合図で必ず書く: JS8）。位置を決めて動かした（positionOverlay）ときの move は数えない
   overlayWin.on('move', () => {
     if (programmaticMove || !overlayWin || overlayWin.isDestroyed() || !overlayWin.isVisible()) return;
-    clearTimeout(moveT);
-    moveT = setTimeout(() => {
-      if (programmaticMove || !overlayWin || overlayWin.isDestroyed()) return;
-      const [x, y] = overlayWin.getPosition();
-      settings.pillCustom = { x, y };
-      settingsWriter.now(settings);   // まとめ書きにするのは Task 2-4
-    }, 350);
+    const [x, y] = overlayWin.getPosition();
+    settings.pillCustom = { x, y };
+    settingsWriter.set(settings);
   });
 }
 
@@ -1497,8 +1530,11 @@ function createMainWindow() {
   if (storeError) mainWin.webContents.once('did-finish-load', () => sendToMainWin('app:notice', `データフォルダを開けません。議事録は保存されません（${storeError}）`));
   // 起動の途中の知らせ（設定・履歴の直しと退け）。読み終えてから1回にまとめて送る（左下の知らせは前の文を置き換えるため）
   if (startupNotices.length) mainWin.webContents.once('did-finish-load', () => sendToMainWin('app:notice', startupNotices.splice(0).join('　')));
+  // 隠す・閉じるの前に、まとめ書きの残りを書き出す（第1a回 JS8。トレイ常駐で隠したまま電源を切られることがある）
+  mainWin.on('hide', flushAllWriters);
   // 閉じるボタンの挙動。既定はそのまま終了。設定でトレイ常駐に切り替えられる。
   mainWin.on('close', (e) => {
+    flushAllWriters();
     if (quitting) return;
     if (settings.stayInTray) { e.preventDefault(); mainWin.hide(); return; }
     // 記録中・要約中の閉じ間違いで会議や要約を失わせない（文は mainlib.closeConfirm）。
@@ -2345,8 +2381,7 @@ async function checkUpdateFromTray() {
   }
   quitting = true;
   stopEngine(whisperEng); stopEngine(sumEng); stopPaster();
-  app.relaunch();
-  app.exit(0);
+  relaunchAndExit();
 }
 
 function updateTray() {
@@ -2688,8 +2723,7 @@ function setupIpc() {
     if (isSummarizing()) return { ok: false, error: '要約を作成中です。終わってから再起動してください' };
     quitting = true;
     stopEngine(whisperEng); stopEngine(sumEng); stopPaster();
-    app.relaunch();
-    app.exit(0);
+    relaunchAndExit();
     return true;
   });
   ipcMain.handle('dialog:pick', async (_e, kind, key) => {
@@ -2772,7 +2806,18 @@ if (!gotLock) {
   app.quit();
 } else {
   app.on('second-instance', () => createMainWindow());
+  // 書き出しの合図（第1a回 JS8・RF21）。窓ができたら、その窓の session-end と query-session-end に付ける（Windows の
+  // シャットダウン・再起動・サインアウト。隠れた本体の窓と録音バーにも付く）。窓を作る whenReady より前に付ける
+  app.on('browser-window-created', (_e, w) => { w.on('session-end', flushAllWriters); w.on('query-session-end', flushAllWriters); });
+  // 最後の守り（同期の書き出しは exit の受け口でも効く）
+  process.on('exit', flushAllWriters);
   app.whenReady().then(() => {
+    // 鍵を取った後で、前回残った JSON の一時ファイルを片付ける（JS4。読む前に）
+    cleanStartupTemps();
+    // スリープ・画面のロック・シャットダウン（powerMonitor は ready の後でしか使えない）
+    powerMonitor.on('suspend', flushAllWriters);
+    powerMonitor.on('lock-screen', flushAllWriters);
+    powerMonitor.on('shutdown', flushAllWriters);
     loadStores();
     // 取り込んだエンジンの候補を記録から読む（読むだけ。フォルダは作らない）。照らし終えるまで managed は空なので、
     // 取り込んだ側は下の起動の行では起動しない（RF3）。手で設定した側は今までどおり起動する
@@ -2842,6 +2887,7 @@ if (!gotLock) {
   });
   app.on('window-all-closed', () => { /* トレイ常駐 */ });
   app.on('before-quit', () => {
+    flushAllWriters();
     quitting = true;
     // 取り込みを止める（.part は確定して残り、次の起動で続く。利用者の一時停止としては残さない）。
     // 止めるときに投げても、下の要約の「中断された」の印とエンジンの停止は続ける
@@ -2855,7 +2901,7 @@ if (!gotLock) {
     }
     stopEngine(whisperEng); stopEngine(sumEng); stopPaster();
   });
-  app.on('will-quit', () => { globalShortcut.unregisterAll(); stopEngine(whisperEng); stopEngine(sumEng); stopPaster(); });
+  app.on('will-quit', () => { flushAllWriters(); globalShortcut.unregisterAll(); stopEngine(whisperEng); stopEngine(sumEng); stopPaster(); });
 }
 
 // 読み直し（retrySettingsRead）で本当の値に切り替えたときに当てる（第1a回 Task 2-3）。settings:save の当てる行と同じもの

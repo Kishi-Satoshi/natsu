@@ -710,7 +710,8 @@ test('更新の導線が画面に依存しない（トレイからも確認で�
   assert.ok(fn.includes('updater.check('), '確認していない');
   assert.ok(fn.includes('updater.apply('), '適用していない');
   assert.ok(fn.includes('r.url'), 'zipのURLの受け取り方が check() の戻り値と合っていない');
-  assert.ok(fn.includes('app.relaunch()'), '再起動していない');
+  // 当てたら再起動する。再起動の前に書き出す（第1a回 JS8: relaunchAndExit）
+  assert.ok(fn.includes('relaunchAndExit()'), '再起動していない');
 });
 
 // ---------------------------------------------------------------- 監査指摘の修正（main 側）

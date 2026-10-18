@@ -87,4 +87,49 @@ module.exports = {
       c.timers.retryHistoryRead[0]();
       c.out.after = await c.handlers['history:get']();
     } },
+  // 第1a回 Task 2-4: 録音バーの位置のまとめ書き・書き出しの合図・始めの片付け
+  signals: { files: { 'settings.json': pretty(TYPICAL) },
+    act: async (c) => {
+      const [overlay, main] = c.wins;   // createOverlay が先、createMainWindow が後
+      const pill = () => { const t = c.read('settings.json'); return t ? JSON.parse(t.toString('utf8')).pillCustom : undefined; };
+      const order = [
+        ['win', overlay, 'session-end'], ['win', main, 'query-session-end'], ['power', null, 'suspend'], ['power', null, 'lock-screen'],
+        ['power', null, 'shutdown'], ['win', main, 'hide'], ['win', main, 'close'], ['app', null, 'will-quit'], ['app', null, 'before-quit'],
+      ];
+      c.out.signals = order.map(([kind, w, ev], i) => {
+        overlay.setPosition(100 + i, 200);
+        overlay.emit('move');
+        const before = pill();
+        const e = { preventDefault() {} };
+        if (kind === 'win') w.emit(ev, e); else if (kind === 'power') c.power.emit(ev); else c.app.emit(ev, e);
+        return { ev, before, after: pill() };   // 受け口が返った直後（同じ手番の中）に読む
+      });
+    } },
+  batched: { files: { 'settings.json': pretty(TYPICAL) },
+    act: async (c) => {
+      const [overlay] = c.wins;
+      overlay.setPosition(7, 8); overlay.emit('move');
+      overlay.setPosition(9, 10); overlay.emit('move');
+      c.out.right = JSON.parse(c.read('settings.json').toString('utf8')).pillCustom;
+      const pillNow = () => JSON.parse(c.read('settings.json').toString('utf8')).pillCustom;
+      await c.waitFor(() => pillNow().x === 9, 3000);   // 間隔（350ms）の後に書かれるのを待つ（決まった長さで眠らない。混んだ CI でも揺れない）
+      c.out.later = pillNow();
+    } },
+  // segbuf のフォルダの名前は録音を始めた時刻。7日より前の時刻の名前は起動のときの cleanOrphanSegbuf がフォルダごと消すので
+  // （計画の 1760000000000 = 2025-10-09 では WAV が残るかを確かめられない）、先の時刻（2100-01-01）にして残す
+  temps: { files: { 'settings.json': pretty(TYPICAL), 'settings.json.tmp': 'x', 'settings.json.4242-k3j9ab.tmp': 'x', 'history.json.tmp': 'x',
+    'data/pages/p1.json.tmp': 'x', 'data/segbuf/4102444800000/0001.wav.tmp': 'x', 'data/segbuf/4102444800000/recovery.json.9-zz.tmp': 'x' } },
+  'batch-env': { files: { 'settings.json': pretty(TYPICAL) }, env: { NATSU_TEST_BATCH_MS: '60000' } },
+  'unreadable-move': { files: { 'settings.json': pretty(TYPICAL) },
+    faults: [{ op: 'read', match: /settings\.json$/, code: 'EBUSY', times: 7 }],
+    act: async (c) => {
+      const [overlay] = c.wins;
+      overlay.setPosition(5, 6); overlay.emit('move');
+      c.power.emit('suspend');
+      c.out.textAfterSignal = c.read('settings.json').toString('utf8');
+      c.timers.retrySettingsRead[0]();
+      await c.sleep(600);
+      c.out.textLater = c.read('settings.json').toString('utf8');
+      c.out.after = await c.handlers['settings:get']();
+    } },
 };
