@@ -78,7 +78,7 @@ const NOTE_MAX_TOKENS = 900;   // 分割要約の各パート
 const SUM_CTX_MARGIN = 256;
 const ENGINE_READY_TIMEOUT_MS = 90000;
 
-// 既定の設定（30 のキー）は settings.js の defaultSettings。スレッド数は CPU の数から決まる（第1a回 Task 2-2 で移した）
+// 既定の設定（35 のキー。第1c回で5つ足した）は settings.js の defaultSettings。スレッド数は CPU の数から決まる（第1a回 Task 2-2 で移した）
 const DEFAULT_SETTINGS = defaultSettings(os.cpus().length);
 
 // ---------------------------------------------------------------- 状態
