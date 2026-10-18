@@ -238,15 +238,18 @@ test('公開したのに画面から呼ばれない API がない', () => {
   };
   // main 側が先に足し、画面がまだ使っていない API（先に足すときだけ入れ、画面が使い始めたら空に戻す）
   // 第0b回 Task 13・14 で入れた取り込みの5つは、画面の取り込みの欄（Task 15）が呼び始めたので外した
-  // 第1c回 Task C-2 で足した meetingSetLocalOnly は、会議中の［この会議は PC の中だけ］（Task C-3）が呼び始めたら外す
+  // 第1c回 Task C-2 で足した meetingSetLocalOnly は、会議中の［この会議は PC の中だけ］（Task C-3）が呼び始めたので外した
   // 第1b回 Task A-2 で足した uiState・uiSave（画面の覚え書き）は、画面のタブとサイドバー（Task B-3）が呼び始めたら外す
   // 第1b回 Task A-3 で足した meetingSetPaused（ページの［一時停止］）は、録音中のページ（Task B-5）が呼び始めたら外す
-  const PENDING_APP = new Set(['meetingSetLocalOnly', 'uiState', 'uiSave', 'meetingSetPaused']);
+  const PENDING_APP = new Set(['uiState', 'uiSave', 'meetingSetPaused']);
   for (const [ns, html] of [['koeApp', appHtml], ['koeOverlay', overlayHtml]]) {
     const names = all(/^\s{2}([A-Za-z][\w$]*):/gm, block(ns));
     const used = new Set(all(new RegExp(`${ns}\\.(\\w+)`, 'g'), html));
     const dead = names.filter((n) => !used.has(n) && !PENDING_APP.has(n));
     assert.deepStrictEqual(dead, [], `${ns} に呼ばれていない API がある`);
+    // 画面が呼び始めた名前は PENDING_APP から外す（残すと、後で呼ばれなくなっても気づけない）
+    const stale = names.filter((n) => used.has(n) && PENDING_APP.has(n));
+    assert.deepStrictEqual(stale, [], `${ns} の画面が呼び始めたのに PENDING_APP に残っている`);
   }
 });
 
