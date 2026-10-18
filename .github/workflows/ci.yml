@@ -310,7 +310,7 @@ jobs:
 
       - name: NSIS とポータブルを作る
         shell: bash
-        run: npx --no electron-builder --win nsis portable --publish never
+        run: node_modules/.bin/electron-builder --win nsis portable --publish never
 
       - name: 詰めた NaTsu.exe で node:sqlite・trigram・backup() を確かめる
         shell: bash

@@ -283,3 +283,13 @@ test('ci.yml の electron-smoke: 小さなアプリと、テスト全部を Elec
   assert.ok(i[0] >= 0 && i.every((v, k) => k === 0 || v > i[k - 1]), `順が違う: ${i.join(',')}`);
   assert.ok(st[i[2]].includes('# skipped') && st[i[2]].includes('-gt 1'), '飛ばしたテストの数を見ていない');
 });
+
+// 第0c回 0.3.0 の CI で見つけた: npm 11（Node 24）の npx は `npx --no electron-builder --win nsis portable` の
+// `--win` を npm の設定として読み、nsis・portable を electron-builder へ渡してしまう（Unknown arguments: nsis, portable で赤）。
+test('ワークフローは npx で道具を呼ばず、node_modules/.bin か npm run で呼ぶ（npx は後ろの --win などを npm の設定として読む）', () => {
+  for (const f of ['.github/workflows/ci.yml', '.github/workflows/release.yml']) {
+    const runs = read(f).split('\n').filter((l) => /^\s*(- )?run: /.test(l) || /^\s{10,}\S/.test(l)).join('\n');
+    assert.ok(!/(^|[\s'"|;&])npx\s/m.test(runs.replace(/#.*$/gm, '')), `${f} が npx を使っている`);
+  }
+  assert.match(read('.github/workflows/ci.yml'), /^        run: node_modules\/\.bin\/electron-builder --win nsis portable --publish never$/m);
+});
