@@ -18,6 +18,8 @@
  *         302・307 を返す宛先は redirect: 'error' で失敗になり、転送の先へ要求が届かない。
  *         14 は本物の safeStorage の非同期の形（isAsyncEncryptionAvailable・encryptStringAsync・decryptStringAsync）で
  *         同じ文字に戻り、secrets.js（makeSecrets）で一時フォルダの secrets.json にしまって読み返せ、ファイルに鍵の文字が無い。
+ *         さらに decryptStringAsync が shouldReEncrypt: true を返したとき、secrets.get が暗号にし直して書き、読み戻せる
+ *         （しまえる PC だけ。Linux の basic_text では求めない）。
  *         Linux の basic_text（鍵の入れ物が無い CI）は「使えない」で OK（secrets.js が保存を断り、ファイルを作らないこと）
  * 結果は 1 行ずつ OK／NG で出す。14 件そろって全部 OK なら終了コード 0、そうでなければ 1（exitCodeOf）。
  * どこかで止まっても、90 秒の見張りで 1 で終わる。
@@ -66,6 +68,8 @@ const SMOKE_STT = Object.freeze({
 });
 const REDIRECTS = [302, 307];
 const SET_CODES = new Set(['ok', 'unavailable', 'bad-key', 'bad-id', 'write']);
+// 転送を断ったときの失敗として受け付ける符号（stt-cloud.js の通信の失敗。timeout は「断った」の証にならないので外す）
+const REFUSED_CODES = new Set(['offline', 'cert', 'proxy', 'net']);
 
 const PKG = path.join(__dirname, '..', '..', 'package.json');
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -144,11 +148,14 @@ function securityResults(o) {
 
 /**
  * 13・14 の判定（純粋）。onlineChecks が本物の Electron で集めた観測を渡す。
- * @param {{ text: string, sttRequests: Array<object>, redirects: Array<{ status: number, reached: boolean, code: string, targetHits: number }>,
+ * @param {{ text: string, sttRequests: Array<object>,
+ *   redirects: Array<{ status: number, reached: boolean, cloud: boolean, code: string, targetHits: number }>,
  *   platform: string, asyncAvailable: boolean, backend: string, roundTrip: boolean, setCode: string, getBack: boolean, plainInFile: boolean,
- *   error13?: string, error14?: string }} o
+ *   reEncryptBack: boolean, error13?: string, error14?: string }} o
  *   sttRequests は偽の送り先が受けた要求（fake-stt.js の requests）。redirects は 302・307 ごとに、転送の元に届いたか（reached）・
- *   transcribeCloud の失敗の符号（code。失敗しなければ ''）・転送の先が受けた要求の数（targetHits）
+ *   失敗が CloudSttError か（cloud）・transcribeCloud の失敗の符号（code。失敗しなければ ''）・転送の先が受けた要求の数（targetHits）。
+ *   reEncryptBack は、decryptStringAsync が shouldReEncrypt: true を返したときに secrets.get が鍵を返し、
+ *   暗号にし直した文字を secrets.json に書き（鍵の文字は無い）、別の係で読み戻せたか（しまえる PC だけで求める）
  * @returns {Array<{ n: number, ok: boolean, note: string }>}
  */
 function onlineResults(o) {
@@ -163,7 +170,7 @@ function onlineResults(o) {
   const redOf = (st) => reds.find((d) => d && d.status === st);
   const redOk = REDIRECTS.every((st) => {
     const d = redOf(st);
-    return Boolean(d) && d.reached === true && typeof d.code === 'string' && d.code !== '' && d.code !== 'timeout' && d.targetHits === 0;
+    return Boolean(d) && d.reached === true && d.cloud === true && REFUSED_CODES.has(d.code) && d.targetHits === 0;
   });
   const redNote = REDIRECTS.map((st) => {
     const d = redOf(st);
@@ -185,8 +192,10 @@ function onlineResults(o) {
     ok14 = x.setCode === 'unavailable' && x.plainInFile === false;
     n14 = `Linux で使えない（${base}）。${tail}`;
   } else {
-    ok14 = x.asyncAvailable === true && x.roundTrip === true && x.setCode === 'ok' && x.getBack === true && x.plainInFile === false;
-    n14 = `${base}、暗号にして ${x.roundTrip === true ? '同じ文字に戻った' : '戻らない'}、${tail}、別の係で読み返して ${x.getBack === true ? '同じ' : '違う'}`;
+    ok14 = x.asyncAvailable === true && x.roundTrip === true && x.setCode === 'ok' && x.getBack === true && x.plainInFile === false
+      && x.reEncryptBack === true;
+    n14 = `${base}、暗号にして ${x.roundTrip === true ? '同じ文字に戻った' : '戻らない'}、${tail}、別の係で読み返して ${x.getBack === true ? '同じ' : '違う'}`
+      + `、暗号にし直した後に読み戻して ${x.reEncryptBack === true ? '同じ' : (x.reEncryptBack === false ? '違う' : '確かめられない')}`;
   }
   return [
     { n: 13, ok: reqOk && textOk && redOk, note: n13 },
@@ -422,14 +431,16 @@ async function onlineChecks({ app, net, safeStorage }) {
       const base = `http://127.0.0.1:${hop.address().port}/r${st}`;
       const p = { ...provider, base, reachUrl: `${base}/models` };
       let code = '';
+      let cloud = false;
       try {
         await within(sttCloud.transcribeCloud(lib.silentWav(0.5), { request, provider: p, key: SMOKE_STT.key, language: 'ja', prompt: SMOKE_STT.fields.prompt,
           timeoutMs: 15000, sleep: () => Promise.reject(new Error('429 の待ちが起きた')) }), 20000, `転送 ${st}`);
       } catch (e) {
-        code = e instanceof sttCloud.CloudSttError ? e.code : `投げた（${msgOf(e)}）`;
+        cloud = e instanceof sttCloud.CloudSttError;
+        code = cloud ? e.code : `投げた（${msgOf(e)}）`;
       }
       await wait(200);
-      o.redirects.push({ status: st, reached: (reached[st] || 0) >= 1, code, targetHits: g.requests.length - before });
+      o.redirects.push({ status: st, reached: (reached[st] || 0) >= 1, cloud, code, targetHits: g.requests.length - before });
     }
   } catch (e) {
     o.error13 = msgOf(e);
@@ -456,11 +467,45 @@ async function onlineChecks({ app, net, safeStorage }) {
     // しまったものを、別の係（ファイルから読み直す）で読み返す
     o.getBack = (await within(makeSecrets({ file, safeStorage, J }).get('groq'), 10000, 'secrets.get')) === SMOKE_STT.key;
     o.plainInFile = fs.existsSync(file) ? fs.readFileSync(file, 'utf8').includes(SMOKE_STT.key) : false;
+    if (o.setCode === 'ok') o.reEncryptBack = await reEncryptCheck({ file, safeStorage });
   } catch (e) {
     o.error14 = msgOf(e);
   }
   for (const c of closers.reverse()) { try { await within(Promise.resolve(c()), 5000, '送り先を閉じる'); } catch (_) { /* 閉じられなくても判定は出す */ } }
   return onlineResults(o);
+}
+
+/**
+ * 14 の続き（しまえる PC だけ）: 本物の decryptStringAsync の返りに、最初の1回だけ shouldReEncrypt: true を足す包みで
+ * secrets.get を呼ぶ。鍵が返り、包みの encryptStringAsync が作った新しい暗号の文字がそのまま secrets.json に書かれ
+ * （鍵の文字は無い）、包まない別の係で読み戻せれば true。鍵の文字は記録に出さない。
+ */
+async function reEncryptCheck({ file, safeStorage }) {
+  const storedOf = () => {
+    try { return JSON.parse(fs.readFileSync(file, 'utf8')).keys.groq || ''; } catch (_) { return ''; }
+  };
+  const before = storedOf();
+  let decrypts = 0;
+  const fresh = [];
+  const wrapped = {
+    isAsyncEncryptionAvailable: () => safeStorage.isAsyncEncryptionAvailable(),
+    getSelectedStorageBackend: () => safeStorage.getSelectedStorageBackend(),
+    encryptStringAsync: async (s) => { const b = await safeStorage.encryptStringAsync(s); fresh.push(Buffer.from(b).toString('base64')); return b; },
+    decryptStringAsync: async (b) => {
+      const real = await safeStorage.decryptStringAsync(b);
+      decrypts += 1;
+      return decrypts === 1 ? { ...real, shouldReEncrypt: true } : real;
+    },
+  };
+  // 書いた回数も数える（同じ文字から同じ暗号ができる入れ物でも、書き直したことを見分ける）
+  let writes = 0;
+  const countedJ = { ...J, writeJsonFile: (...a) => { const r = J.writeJsonFile(...a); writes += 1; return r; } };
+  const got = await within(makeSecrets({ file, safeStorage: wrapped, J: countedJ }).get('groq'), 10000, 'secrets.get（暗号にし直す）');
+  const after = storedOf();
+  const text = fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : '';
+  const back = await within(makeSecrets({ file, safeStorage, J }).get('groq'), 10000, 'secrets.get（読み戻す）');
+  return got === SMOKE_STT.key && decrypts === 1 && fresh.length === 1 && writes === 1 && before !== '' && after === fresh[0]
+    && !text.includes(SMOKE_STT.key) && back === SMOKE_STT.key;
 }
 
 if (process.versions.electron && process.type === 'browser') boot();
@@ -469,4 +514,4 @@ else if (require.main === module) {
   process.exitCode = 2;
 }
 
-module.exports = { CHECKS, SMOKE_STT, exitCodeOf, clipboardChecks, securityResults, onlineResults, finish };
+module.exports = { CHECKS, SMOKE_STT, exitCodeOf, clipboardChecks, securityResults, onlineResults, reEncryptCheck, finish };

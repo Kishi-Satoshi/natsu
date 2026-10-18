@@ -42,8 +42,8 @@ const STT_REQ = { method: 'POST', path: '/openai/v1/audio/transcriptions', authO
   fields: { model: 'whisper-large-v3', language: 'ja', prompt: 'お疲れさまです。見積 検収', response_format: 'json', temperature: '0' } };
 const ONLINE_GOOD = {
   text: '本日の議題は進捗の確認です。区間1', sttRequests: [STT_REQ],
-  redirects: [{ status: 302, reached: true, code: 'net', targetHits: 0 }, { status: 307, reached: true, code: 'net', targetHits: 0 }],
-  platform: 'win32', asyncAvailable: true, backend: '', roundTrip: true, setCode: 'ok', getBack: true, plainInFile: false,
+  redirects: [{ status: 302, reached: true, cloud: true, code: 'net', targetHits: 0 }, { status: 307, reached: true, cloud: true, code: 'net', targetHits: 0 }],
+  platform: 'win32', asyncAvailable: true, backend: '', roundTrip: true, setCode: 'ok', getBack: true, plainInFile: false, reEncryptBack: true,
 };
 const LINUX_BASIC = { platform: 'linux', asyncAvailable: true, backend: 'basic_text', roundTrip: true, setCode: 'unavailable', getBack: false, plainInFile: false };
 test('electron-smoke: 13・14 の判定は、よい観測で OK。1つ崩すとその番号だけ NG（いつも OK を出す確かめではない）', { timeout: 5000 }, () => {
@@ -63,8 +63,15 @@ test('electron-smoke: 13・14 の判定は、よい観測で OK。1つ崩すと�
     [13, { redirects: [{ status: 302, reached: true, code: '', targetHits: 0 }, ONLINE_GOOD.redirects[1]] }],
     [13, { redirects: [{ status: 302, reached: true, code: 'timeout', targetHits: 0 }, ONLINE_GOOD.redirects[1]] }],
     [13, { redirects: [ONLINE_GOOD.redirects[0]] }], [13, { redirects: [] }],
+    // 転送の失敗が transcribeCloud の通信の失敗（CloudSttError の net の仲間）でない: ほかの理由で投げた・返事として読んだ（bad-request など）
+    [13, { redirects: [{ status: 302, reached: true, cloud: false, code: '投げた（TypeError: x is not a function）', targetHits: 0 }, ONLINE_GOOD.redirects[1]] }],
+    [13, { redirects: [{ status: 302, reached: true, code: 'net', targetHits: 0 }, ONLINE_GOOD.redirects[1]] }],
+    [13, { redirects: [ONLINE_GOOD.redirects[0], { status: 307, reached: true, cloud: true, code: 'bad-request', targetHits: 0 }] }],
+    [13, { redirects: [{ status: 302, reached: true, cloud: true, code: 'auth', targetHits: 0 }, ONLINE_GOOD.redirects[1]] }],
     // safeStorage: 使えるのに戻らない・secrets.js で保存できない・読み返せない・ファイルに鍵の文字がある
     [14, { roundTrip: false }], [14, { setCode: 'unavailable' }], [14, { getBack: false }], [14, { plainInFile: true }],
+    // shouldReEncrypt: true のときに secrets.get が暗号にし直して書き、読み戻せる（計画の「確かめられなかったこと」）
+    [14, { reEncryptBack: false }], [14, { reEncryptBack: undefined }],
     // Windows で使えない は NG（Linux の basic_text だけを「使えない」で OK とする）
     [14, { asyncAvailable: false }], [14, { platform: 'win32', backend: 'basic_text', setCode: 'unavailable', getBack: false }],
     // Linux で使えないのに保存した（平文と同じ）・ファイルに鍵の文字がある
@@ -76,24 +83,67 @@ test('electron-smoke: 13・14 の判定は、よい観測で OK。1つ崩すと�
     assert.deepStrictEqual(r.filter((x) => !x.ok).map((x) => x.n), [n], `${n} ${JSON.stringify(patch)}`);
   }
   // Linux の CI（basic_text・使えない）は「使えない」で OK。鍵の保存を断り、ファイルを作らない
-  for (const linux of [LINUX_BASIC, { ...LINUX_BASIC, asyncAvailable: false, roundTrip: false }, { ...LINUX_BASIC, backend: 'unknown', roundTrip: false }]) {
+  // 暗号にし直す確かめ（reEncryptBack）は、しまえない Linux では求めない
+  for (const linux of [LINUX_BASIC, { ...LINUX_BASIC, asyncAvailable: false, roundTrip: false }, { ...LINUX_BASIC, backend: 'unknown', roundTrip: false },
+    { ...LINUX_BASIC, reEncryptBack: false }, { ...LINUX_BASIC, reEncryptBack: undefined }]) {
     const r = S.onlineResults({ ...ONLINE_GOOD, ...linux });
     assert.deepStrictEqual(r.map((x) => [x.n, x.ok]), [[13, true], [14, true]], JSON.stringify(linux));
     assert.match(r[1].note, /使えない/);
   }
   // Linux でも鍵の入れ物が使えるなら（gnome_libsecret など）、戻ることまで見る
   assert.strictEqual(S.onlineResults({ ...ONLINE_GOOD, platform: 'linux', backend: 'gnome_libsecret' })[1].ok, true);
+  assert.strictEqual(S.onlineResults({ ...ONLINE_GOOD, platform: 'linux', backend: 'gnome_libsecret', reEncryptBack: false })[1].ok, false);
+  // 転送の失敗は offline・cert・proxy・net のどれでも OK（timeout は上で NG）
+  for (const code of ['offline', 'cert', 'proxy']) {
+    assert.strictEqual(S.onlineResults({ ...ONLINE_GOOD, redirects: ONLINE_GOOD.redirects.map((d) => ({ ...d, code })) })[0].ok, true, code);
+  }
   assert.deepStrictEqual(S.onlineResults({}).map((r) => [r.n, r.ok]), [[13, false], [14, false]]);
   assert.deepStrictEqual(S.onlineResults(null).map((r) => [r.n, r.ok]), [[13, false], [14, false]]);
   // 鍵は判定の文に出さない
   for (const r of S.onlineResults({ ...ONLINE_GOOD, setCode: S.SMOKE_STT.key })) assert.ok(!r.note.includes(S.SMOKE_STT.key), r.note);
 });
 
+// 14 の「暗号にし直した後に読み戻す」確かめの道具そのもの（本物の safeStorage が要るのは Windows の CI だけなので、ここでは偽物で見る）
+test('electron-smoke: reEncryptCheck は、secrets.get が暗号にし直して書き、読み戻せたときだけ true（書き直さない・壊れた暗号・鍵が無いは false）', { timeout: 5000 }, async () => {
+  const os = require('node:os');
+  const J = require('../src/jsonfile');
+  const { makeSecrets } = require('../src/secrets');
+  // 同じ文字から毎回同じ暗号ができる偽物（書いた回数で書き直しを見分けられることも見る）
+  const fake = ({ encFails = false, encBad = false, garble = false } = {}) => {
+    let n = 0;
+    return {
+      isAsyncEncryptionAvailable: async () => true,
+      getSelectedStorageBackend: () => 'dpapi',
+      encryptStringAsync: async (str) => { n += 1; if (encFails && n > 1) throw new Error('enc'); if (encBad && n > 1) return Buffer.from('E:zz'); return Buffer.from(`E:${Buffer.from(str).toString('hex')}`); },
+      decryptStringAsync: async (b) => ({ result: garble ? 'x' : Buffer.from(String(b).slice(2), 'hex').toString('utf8'), shouldReEncrypt: false }),
+    };
+  };
+  const fileWith = async (safe) => {
+    const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'natsu-smoke-re-')), 'secrets.json');
+    assert.deepStrictEqual(await makeSecrets({ file, safeStorage: safe, J }).set('groq', S.SMOKE_STT.key), { ok: true });
+    return file;
+  };
+  assert.strictEqual(await S.reEncryptCheck({ file: await fileWith(fake()), safeStorage: fake() }), true);
+  // 暗号にし直せない（get は鍵を返すが、書き直さない）
+  const failing = fake({ encFails: true });
+  assert.strictEqual(await S.reEncryptCheck({ file: await fileWith(failing), safeStorage: failing }), false);
+  // 暗号にし直した文字を、別の係で読み戻せない
+  const bad = fake({ encBad: true });
+  assert.strictEqual(await S.reEncryptCheck({ file: await fileWith(bad), safeStorage: bad }), false);
+  // 復号して違う文字になる
+  assert.strictEqual(await S.reEncryptCheck({ file: await fileWith(fake()), safeStorage: fake({ garble: true }) }), false);
+  // しまった鍵が無い
+  const empty = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'natsu-smoke-re-')), 'secrets.json');
+  assert.strictEqual(await S.reEncryptCheck({ file: empty, safeStorage: fake() }), false);
+});
+
 test('electron-smoke: 13・14 は本物の net.request を transcribeCloud に渡し、127.0.0.1 の偽の送り先と、本物の safeStorage を secrets.js で使う', { timeout: 5000 }, () => {
   const m = read('tools/electron-smoke/main.js');
   for (const k of ["require('../../src/stt-cloud')", "require('../../src/secrets')", "require('../../src/jsonfile')", "require('../../test/helpers/fake-stt')",
     'const request = (opts) => net.request(opts)', 'request, provider', 'transcribeCloud(', 'makeSecrets(', 'isAsyncEncryptionAvailable()', 'encryptStringAsync(', 'decryptStringAsync(',
-    'getSelectedStorageBackend()', "listen(0, '127.0.0.1'", 'onlineResults(', 'onlineChecks('])
+    'getSelectedStorageBackend()', "listen(0, '127.0.0.1'", 'onlineResults(', 'onlineChecks(',
+    // 暗号にし直す道: 本物の decryptStringAsync の返りに shouldReEncrypt: true を足す包みで secrets.get を呼ぶ
+    'shouldReEncrypt: true', 'o.reEncryptBack =', 'cloud = e instanceof sttCloud.CloudSttError', 'writeJsonFile: (...a) => { const r = J.writeJsonFile(...a); writes += 1;'])
     assert.ok(m.includes(k), k);
   assert.ok(!/\bfetch\(/.test(m), 'fetch( を使っている');
   // 1〜12 の後に足す（守りの確かめの install より後。finish の前）
