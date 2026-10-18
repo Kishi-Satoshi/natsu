@@ -129,3 +129,19 @@ test('simdom: [属性="値"] と [属性] のセレクタが当たる（今は�
   assert.strictEqual(root.querySelectorAll('span[aria-selected]').length, 1);
   assert.strictEqual(root.querySelectorAll('[role="tablist"]').length, 0);
 });
+
+// 意図: 配線テストと画面テストを壊さないため、今の id は1つも消さない。設計書「id を残す理由」
+const IDS_1A_1C = ['tabBtnNotes', 'tabBtnDictation', 'tabBtnSettings', 'tabNotes', 'mtToggleBtn', 'mtDiscardBtn', 'searchBox', 'fltAll', 'fltActions', 'fltFull', 'plist',
+  'pageWrap', 'pTitle', 'pProps', 'pTypeRow', 'pType', 'pTypeHint', 'pActs', 'paneBtnNote', 'paneBtnScript', 'paneBtnMemo', 'pBody', 'pProgress', 'pNote', 'pScript', 'pMemo',
+  'tabDictation', 'stToday', 'stTotal', 'stSaved', 'recBtn', 'histSearch', 'clearBtn', 'histList', 'tabSettings', 'verNow', 'chkUpdBtn', 'applyUpdBtn', 'updMsg', 'updNotes',
+  'themeSel', 'hotkey', 'hotkeyWarn', 'meetingHotkey', 'meetingHotkeyWarn', 'pillPos', 'micSelect', 'micReloadBtn', 'useSystemAudio', 'spkField', 'spkNow', 'spkReloadBtn',
+  'spkSettingsBtn', 'language', 'autoPaste', 'removeFillers', 'soundFeedback', 'autoLaunch', 'stayInTray', 'dictionary', 'dictWarn', 'useBuiltinTerms', 'onlineAskNote',
+  'cloudTranscribe', 'sttProvider', 'sttBaseUrl', 'sttModel', 'sttKey', 'sttKeySave', 'sttKeyTest', 'sttKeyClear', 'sttKeyState', 'claudeState', 'claudeTest', 'claudeHelp',
+  'claudeExe', 'onlineMsg', 'engineState', 'testBtn', 'testMsg', 'testSumMsg', 'engineNote', 'engineFetch', 'engineFetchSummary', 'engineFetchBar', 'engineFetchBtn',
+  'engineFetchPause', 'engineFetchSwitch', 'engineDirBtn', 'engineFetchCopy', 'engineFetchMsg', 'engineFetchList', 'engineFetchRows', 'engineAdv', 'localServerExe',
+  'pickExeBtn', 'localModelPath', 'pickModelBtn', 'localThreads', 'localPort', 'useVad', 'vadState', 'vadModelPath', 'pickVadBtn', 'suppressNst', 'sumServerExe',
+  'pickSumExeBtn', 'sumModelPath', 'pickSumModelBtn', 'sumThreads', 'sumPort', 'sumCtx', 'testSumBtn', 'segmentSec', 'engineIdleMin', 'saveMsg', 'openDataBtn', 'toast',
+  'updBadge', 'liveTitle', 'liveSkipBtn', 'liveTm', 'liveEta', 'liveSkipped', 'liveMic', 'meetingLocalOnly', 'meetingLocalOnlyNote'];
+test('N2・F9: 第1b回の前からある id は1つも消えていない（作る id は setMeetingUi の中に残る）', () => {
+  for (const id of IDS_1A_1C) assert.ok(html.includes(`id="${id}"`), `id="${id}" が消えた`);
+});

@@ -17,6 +17,7 @@ const path = require('path');
 const H = require('./lib/htmltree');
 const St = require('./lib/style');
 const MINES = require('./lib/mines');
+const MOVES = require('./lib/moves');
 
 const ROOT = path.resolve(__dirname, '..');
 // git の stderr は画面に流さず、受け取っておく。基準の版に無いファイルを読むと fatal の行が出て、
@@ -59,6 +60,13 @@ function lostFrames(bn, hn) {
   return out;
 }
 
+/** HTML の指摘（木の破損・要素の消失・枠からの離脱／意図した移動・参照の破れ）を集めて返す（checkHtml を外から呼べる形にしたもの。analyze もこれを呼ぶ） */
+function htmlFindings(file, before, after) {
+  const keep = F;
+  F = [];
+  try { checkHtml(file, before, after); return F; } finally { F = keep; }
+}
+
 function checkHtml(file, before, after) {
   const b = before == null ? null : H.parse(before, file);
   const a = H.parse(after, file);
@@ -91,6 +99,14 @@ function checkHtml(file, before, after) {
   }
   for (const [lost, xs] of groups) {
     const s0 = xs[0];
+    // 台帳（tools/lib/moves.js）にちょうど当たる組だけ、意図した移動として WARN にする（ファイル・失った枠の並び・id が全部台帳の中）
+    const ok = MOVES.find((m) => m.file === file && m.lost.join(' / ') === lost && xs.every((x) => m.ids.includes(x.id)));
+    if (ok) {
+      add('WARN', '意図した移動', file,
+        `${lost} の外へ出た要素が ${xs.length} 件（${xs.map((x) => '#' + x.id).join(', ')}）。台帳 tools/lib/moves.js の理由: ${ok.why}\n      元: ${H.chain(s0.n)}\n      後: ${H.chain(s0.m)}`,
+        'WARN の id が台帳の id だけであることを目で確かめる。ほかの id が出たら commit しない');
+      continue;
+    }
     add('BLOCK', 'HTML-枠からの離脱', file,
       `${lost} の外へ出た要素が ${xs.length} 件（${xs.slice(0, 6).map((x) => '#' + x.id).join(', ')}${xs.length > 6 ? ' ほか' : ''}）\n      例 id="${s0.id}" ${file}:${s0.m.line}\n      元: ${H.chain(s0.n)}\n      後: ${H.chain(s0.m)}`,
       '文字位置で切り貼りすると閉じタグが道連れになる。tools/hedit.js move / order を使う');
@@ -335,7 +351,7 @@ function analyze(base, head) {
 
   for (const f of htmls) {
     const a = at(head, f); if (a == null) continue;
-    checkHtml(f, at(base, f), a);
+    F.push(...htmlFindings(f, at(base, f), a));
   }
   // 透過ウィンドウの地雷（新しく踏んだものだけ）
   const mainA = at(head, 'src/main.js'), mainB = at(base, 'src/main.js');
@@ -474,4 +490,4 @@ function main(argv) {
   return blocks.length ? 1 : 0;
 }
 if (require.main === module) process.exit(main(process.argv.slice(2)));
-module.exports = { analyze, checkHtml, windows, mineHits, inkFindings, refIds, fetchFindings, jsonWriteFindings, onlineFindings, SCOPE, scopeNote };
+module.exports = { analyze, checkHtml, htmlFindings, windows, mineHits, inkFindings, refIds, fetchFindings, jsonWriteFindings, onlineFindings, SCOPE, scopeNote };

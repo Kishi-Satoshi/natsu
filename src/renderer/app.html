@@ -32,14 +32,23 @@
     font-size: 14px; display: flex; flex-direction: column; overflow: hidden;
   }
 
-  /* ---------- ヘッダー ---------- */
-  header { display: flex; align-items: center; gap: 20px; padding: 12px 24px 8px; flex: none; }
+  /* ---------- 骨組み（第1b回 N2）: 左にいつも出ているサイドバー、右に上のタブの帯と中身 ---------- */
+  .app { display: flex; height: 100%; min-height: 0; }
+  .app.side-collapsed .side { display: none; }
+  .col { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+  .topbar { display: flex; align-items: center; gap: 4px; padding: 6px 24px 0; flex: none; min-height: 36px; }
+  .tabbar { flex: 1; min-width: 0; display: flex; gap: 2px; }
   .wordmark { font-family: Georgia, "Yu Mincho", serif; font-size: 21px; letter-spacing: .02em; }
-  nav { margin-left: auto; display: flex; gap: 2px; }
-  nav button { background: none; border: none; color: var(--muted); font: inherit;
-    padding: 6px 12px; cursor: pointer; border-radius: 4px; }
-  nav button:hover { background: var(--hover); color: var(--text); }
-  nav button.active { background: var(--tint); color: var(--text); font-weight: 600; }
+  /* サイドバーの « と、畳んだときだけ帯の左に出る » */
+  .side-btn { background: none; border: none; color: var(--muted); font: inherit; font-size: 16px; line-height: 1;
+    padding: 4px 8px; cursor: pointer; border-radius: 4px; flex: none; }
+  .side-btn:hover { background: var(--hover); color: var(--text); }
+  /* サイドバーの「議事録」「音声入力」「設定」。押すと今までどおり showTab を呼ぶ */
+  #tabBtnNotes, #tabBtnDictation, #tabBtnSettings { background: none; border: none; color: var(--muted); font: inherit;
+    text-align: left; padding: 6px 10px; cursor: pointer; border-radius: 4px; flex: none; }
+  #tabBtnNotes { font-size: 12px; font-weight: 600; letter-spacing: .06em; }
+  #tabBtnNotes:hover, #tabBtnDictation:hover, #tabBtnSettings:hover { background: var(--hover); color: var(--text); }
+  #tabBtnNotes.active, #tabBtnDictation.active, #tabBtnSettings.active { background: var(--tint); color: var(--text); font-weight: 600; }
 
   main { flex: 1; min-height: 0; padding: 8px 24px 20px; }
   .tab { display: none; height: 100%; }
@@ -127,8 +136,14 @@
 
   /* ================= 議事録: 2ペイン ================= */
   .notes { display: flex; gap: 14px; height: 100%; }
-  .side { width: 300px; flex: none; display: flex; flex-direction: column; gap: 10px;
-    background: var(--side); border-radius: 6px; padding: 10px; }
+  /* サイドバーは議事録のタブの外（どのタブでも出ている）。幅は 200〜480px（つまみで変え、覚える） */
+  .side { width: 260px; flex: none; display: flex; flex-direction: column; gap: 10px; position: relative;
+    background: var(--side); border-right: 1px solid var(--line); padding: 12px 10px 10px; min-height: 0; }
+  .side-head { display: flex; align-items: center; justify-content: space-between; gap: 6px; padding: 0 2px 0 4px; }
+  /* 幅のつまみ（右の縁）。ドラッグと ←／→ で幅を変え、Enter で畳む */
+  .side-grip { position: absolute; top: 0; right: -3px; width: 6px; height: 100%; cursor: col-resize; background: transparent; z-index: 1; }
+  .side-grip:hover, .side-grip:focus-visible { background: var(--tint); }
+  .side-grip:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
   .side .tools { display: flex; gap: 6px; }
   .side .filters { display: flex; gap: 5px; }
   .chip { background: transparent; border: 1px solid var(--line); color: var(--muted);
@@ -361,33 +376,38 @@
 </style>
 </head>
 <body>
-  <header>
-    <div class="wordmark">NaTsu</div>
-    <nav>
-      <button id="tabBtnNotes" class="active">議事録</button>
-      <button id="tabBtnDictation">音声入力</button>
-      <button id="tabBtnSettings">設定</button>
-    </nav>
-  </header>
+  <div class="app">
+  <aside class="side" id="side">
+    <div class="side-head">
+      <div class="wordmark">NaTsu</div>
+      <button class="side-btn" id="sideCollapse" type="button" aria-label="サイドバーを畳む" title="サイドバーを畳む（Ctrl+\）">«</button>
+    </div>
+    <input type="text" id="searchBox" placeholder="議事録を検索…" />
+    <div class="tools">
+      <button class="action" id="mtToggleBtn">● 記録開始</button>
+      <button class="ghost" id="mtDiscardBtn" style="display:none">破棄</button>
+    </div>
+    <button id="tabBtnNotes" class="active">議事録</button>
+    <div class="filters">
+      <button class="chip on" id="fltAll">すべて</button>
+      <button class="chip" id="fltActions">アクション</button>
+      <button class="chip" id="fltFull">文字起こし検索</button>
+    </div>
+    <div class="plist" id="plist" role="listbox" aria-label="議事録の一覧"></div>
+    <button id="tabBtnDictation">音声入力</button>
+    <button id="tabBtnSettings">設定</button>
+    <div class="side-grip" id="sideGrip" role="separator" aria-orientation="vertical" aria-label="サイドバーの幅" tabindex="0" aria-valuemin="200" aria-valuemax="480" aria-valuenow="260"></div>
+  </aside>
+  <div class="col">
+  <div class="topbar">
+    <button class="side-btn" id="sideExpand" type="button" aria-label="サイドバーを出す" title="サイドバーを出す（Ctrl+\）" hidden>»</button>
+    <div class="tabbar" id="tabbar" role="tablist" aria-label="開いているページ"></div>
+  </div>
 
   <main>
     <!-- ================= 議事録 ================= -->
     <section id="tabNotes" class="tab active">
       <div class="notes">
-        <aside class="side">
-          <div class="tools">
-            <button class="action" id="mtToggleBtn">● 記録開始</button>
-            <button class="ghost" id="mtDiscardBtn" style="display:none">破棄</button>
-          </div>
-          <input type="text" id="searchBox" placeholder="議事録を検索…" />
-          <div class="filters">
-            <button class="chip on" id="fltAll">すべて</button>
-            <button class="chip" id="fltActions">アクション</button>
-            <button class="chip" id="fltFull">文字起こし検索</button>
-          </div>
-          <div class="plist" id="plist" role="listbox" aria-label="議事録の一覧"></div>
-        </aside>
-
         <div class="page" id="pageWrap">
           <div class="phead">
             <div class="ptitle" id="pTitle" contenteditable="true" spellcheck="false"></div>
@@ -722,6 +742,8 @@
       </div>
     </section>
   </main>
+  </div>
+  </div>
 
   <div id="toast" role="status"></div>
   <div id="updBadge" role="status" hidden></div>
@@ -765,6 +787,101 @@
   $('tabBtnDictation').onclick = () => showTab('dictation');
   // 設定を開くたびに認識ヒントの状態を聞き直す（記録の途中で main がヒントを止めることがある。0.1.1）
   $('tabBtnSettings').onclick = () => { showTab('settings'); refreshPromptInfo(); refreshCloud(); refreshClaude(); };
+
+  // ---------------- サイドバー（第1b回 N2） ----------------
+  // 幅は 200〜480px（既定 260）。つまみのドラッグと ←／→（16px ずつ）で変え、«・Ctrl+\・つまみの Enter で畳み、»・Ctrl+\ で出す。
+  // 今の幅と畳みは uiState() で受け取り、変えたら uiSave({ sidebar }) で覚える（preload の口。無い古い preload では覚えないだけで動く）
+  const SIDE_MIN = 200, SIDE_MAX = 480, SIDE_DEFAULT = 260, SIDE_STEP = 16;
+  const sideState = { width: SIDE_DEFAULT, collapsed: false };
+  let sideTouched = false;   // 覚えた値が届く前に利用者が動かしたら、届いた値で上書きしない
+  let sideDrag = null;       // ドラッグ中だけ { x: 押したときの clientX, w: そのときの幅 }
+  const clampSide = (w) => Math.min(SIDE_MAX, Math.max(SIDE_MIN, Math.round(Number(w) || SIDE_DEFAULT)));
+  function applySide() {
+    $('side').style.width = `${sideState.width}px`;
+    $('sideGrip').setAttribute('aria-valuenow', String(sideState.width));
+    $('side').parentNode.classList.toggle('side-collapsed', sideState.collapsed);
+    $('sideExpand').hidden = !sideState.collapsed;
+  }
+  function saveUi(patch) {
+    if (typeof window.koeApp.uiSave !== 'function') return;
+    try { Promise.resolve(window.koeApp.uiSave(patch)).catch(() => {}); } catch (_) { /* 覚えられないだけ */ }
+  }
+  const saveSide = () => saveUi({ sidebar: { width: sideState.width, collapsed: sideState.collapsed } });
+  function setSideWidth(w, save) {
+    sideTouched = true;
+    sideState.width = clampSide(w);
+    applySide();
+    if (save) saveSide();
+  }
+  function setSideCollapsed(on) {
+    sideTouched = true;
+    sideState.collapsed = Boolean(on);
+    sideDrag = null;
+    applySide();
+    saveSide();
+    // 隠れた側にフォーカスを残さない（畳んだら »、出したら « へ）
+    const to = $(sideState.collapsed ? 'sideExpand' : 'sideCollapse');
+    if (to && typeof to.focus === 'function') to.focus();
+  }
+  const grip = $('sideGrip');
+  grip.addEventListener('pointerdown', (ev) => {
+    if (typeof ev.clientX !== 'number') return;
+    sideDrag = { x: ev.clientX, w: sideState.width };
+    if (typeof grip.setPointerCapture === 'function' && ev.pointerId !== undefined) { try { grip.setPointerCapture(ev.pointerId); } catch (_) { /* 無くても動く */ } }
+    if (typeof ev.preventDefault === 'function') ev.preventDefault();
+  });
+  grip.addEventListener('pointermove', (ev) => {
+    if (!sideDrag || typeof ev.clientX !== 'number') return;
+    setSideWidth(sideDrag.w + (ev.clientX - sideDrag.x), false);
+  });
+  const endSideDrag = (ev) => {
+    if (!sideDrag) return;
+    if (ev && typeof ev.clientX === 'number') setSideWidth(sideDrag.w + (ev.clientX - sideDrag.x), false);
+    sideDrag = null;
+    saveSide();
+  };
+  grip.addEventListener('pointerup', endSideDrag);
+  grip.addEventListener('pointercancel', () => endSideDrag(null));
+  grip.addEventListener('keydown', (ev) => {
+    if (ev.key === 'ArrowLeft' || ev.key === 'ArrowRight') {
+      if (typeof ev.preventDefault === 'function') ev.preventDefault();
+      setSideWidth(sideState.width + (ev.key === 'ArrowRight' ? SIDE_STEP : -SIDE_STEP), true);
+    } else if (ev.key === 'Enter' && !imeEnter(ev)) {
+      if (typeof ev.preventDefault === 'function') ev.preventDefault();
+      setSideCollapsed(!sideState.collapsed);
+    }
+  });
+  $('sideCollapse').onclick = () => setSideCollapsed(true);
+  $('sideExpand').onclick = () => setSideCollapsed(false);
+  // Ctrl+\ で畳む・出す（JIS の配列では ¥ の刻印のキー）
+  document.addEventListener('keydown', (ev) => {
+    if (!ev.ctrlKey || ev.altKey || ev.shiftKey || ev.metaKey) return;
+    if (!(ev.key === '\\' || ev.key === '¥' || ev.code === 'Backslash' || ev.code === 'IntlYen')) return;
+    ev.preventDefault();
+    setSideCollapsed(!sideState.collapsed);
+  });
+  // 上のタブの帯（タブの中身は第1b回 B-3）。←／→ で隣のタブへフォーカスを移す（受け口は帯に1つ）
+  $('tabbar').addEventListener('keydown', (ev) => {
+    if (ev.key !== 'ArrowLeft' && ev.key !== 'ArrowRight') return;
+    const tabs = [...$('tabbar').querySelectorAll('[role="tab"]')];
+    if (!tabs.length) return;
+    const i = tabs.indexOf(document.activeElement);
+    const next = tabs[(i < 0 ? 0 : i + (ev.key === 'ArrowRight' ? 1 : -1) + tabs.length) % tabs.length];
+    if (typeof ev.preventDefault === 'function') ev.preventDefault();
+    next.focus();
+  });
+  applySide();
+  if (typeof window.koeApp.uiState === 'function') {
+    (async () => {
+      let st = null;
+      try { st = await window.koeApp.uiState(); } catch (_) { st = null; }
+      const sb = st && st.sidebar;
+      if (!sb || sideTouched) return;
+      sideState.width = clampSide(sb.width);
+      sideState.collapsed = sb.collapsed === true;
+      applySide();
+    })();
+  }
   // 取り込みの欄（第0b回 R7）が最後に描いた main の写し（engineFetchStatus と進み具合の知らせ）。無ければ null
   let lastFetch = null;
   // 取り込める PC で、取り込んだエンジンを使う側（詳細設定のパスが空）の組がまだそろっていない（文字起こしでも要約でも）

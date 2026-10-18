@@ -80,6 +80,24 @@ test('ゲートが、健全なコミットでは鳴らない（誤検知の実�
   assert.ok(checked >= 20, `検査したコミットが ${checked} 件しかない（空振り）`);
 });
 
+test('N2・F9: 台帳にある意図した移動だけ WARN「意図した移動」。台帳に無い id・枠・ファイルの離脱は今までどおり BLOCK', () => {
+  const R = require('../tools/risk');
+  const before = '<section id="tabNotes" class="tab active"><div class="notes"><aside class="side"><input id="searchBox"><div id="plist"></div><button id="mtToggleBtn"></button><button id="mtDiscardBtn"></button><button id="fltAll"></button><button id="fltActions"></button><button id="fltFull"></button></aside><div class="page" id="pageWrap"><div id="pTitle"></div></div></div></section>';
+  const moved = '<aside class="side"><input id="searchBox"><div id="plist"></div><button id="mtToggleBtn"></button><button id="mtDiscardBtn"></button><button id="fltAll"></button><button id="fltActions"></button><button id="fltFull"></button></aside><section id="tabNotes" class="tab active"><div class="notes"><div class="page" id="pageWrap"><div id="pTitle"></div></div></div></section>';
+  const rules = (b, a, f = 'src/renderer/app.html') => R.htmlFindings(f, b, a).map((x) => `${x.level} ${x.rule}`);
+  assert.deepStrictEqual(rules(before, moved), ['WARN 意図した移動']);
+  const alsoTitle = moved.replace('<div id="pTitle"></div></div></div></section>', '</div></div></section><div id="pTitle"></div>');
+  assert.ok(rules(before, alsoTitle).includes('BLOCK HTML-枠からの離脱'), '台帳に無い id（pTitle）まで通した');
+  assert.ok(rules(before, moved, 'src/renderer/other.html').includes('BLOCK HTML-枠からの離脱'), 'ほかのファイルまで通した');
+  // 同じ枠を失った組に台帳に無い id が1つでも混ざれば BLOCK（失った枠の並びだけで通さない。pTitle は失う枠の並びが違うので、これとは別に見る）
+  const stray = (h) => h.replace('</aside>', '</aside><b id="stray"></b>');
+  assert.ok(rules(stray(before), stray(moved)).includes('BLOCK HTML-枠からの離脱'), '台帳に無い id（stray）が同じ枠を失ったのに通した');
+  for (const m of require('../tools/lib/moves')) assert.ok(m.why && m.file && m.ids.length && m.lost.length, '台帳の行に理由が無い');
+  // 台帳を広げるには、このテストも直す（点検で必ず目に入る。黙ってほかの離脱を通す口にしない）
+  assert.deepStrictEqual(require('../tools/lib/moves').map((m) => `${m.file} ${m.lost.join(' / ')}: ${m.ids.join(',')}`),
+    ['src/renderer/app.html section#tabNotes.tab.active / div.notes: mtToggleBtn,mtDiscardBtn,searchBox,fltAll,fltActions,fltFull,plist']);
+});
+
 test('RF2: main 側に外向きのグローバル fetch を足すと BLOCK。127.0.0.1・net.fetch・net.request・画面は通す', () => {
   const R = require('../tools/risk');
   const base = 'async function a() { await fetch(url, {}); }\n';
