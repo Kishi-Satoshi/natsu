@@ -199,3 +199,26 @@ test('net-smoke.js: 終了コードは 8 つとも OK のときだけ 0（NG が
   assert.match(lines[1], /NG 1 件/);
   assert.match(read('tools/net-smoke.js'), /finish\(app, await runChecks\(/, 'boot() が結果を finish に渡していない');
 });
+
+// ---------------------------------------------------------------- 本体の取り込み（第0c回 EL8・EL9。C3）
+test('本物の Electron を動かす全部のジョブで、npm install の後・electron.exe の前に install.js を走らせ、npx install-electron を使わない', () => {
+  let seen = 0;
+  for (const f of ['.github/workflows/ci.yml', '.github/workflows/release.yml']) {
+    const y = read(f);
+    assert.ok(!/npx\s+(--no\s+)?install-electron/.test(y), `${f} が npx install-electron を使っている（31 には無く、npm に同じ名前の別の包みがある）`);
+    for (const [name, job] of Object.entries(jobsOf(y))) {
+      // release.yml の ci は ci.yml を呼ぶだけで steps が無い（呼ばれる ci.yml はこの輪で見る）
+      if (!job.includes('\n    steps:\n')) { assert.match(job, /^    uses: \.\/\.github\/workflows\/ci\.yml$/m, `${f} の ${name} に steps が無い`); continue; }
+      const st = stepsOf(job);
+      st.forEach((s, k) => {
+        if (!/node_modules\/electron\/dist\/electron\.exe/.test(s)) return;
+        seen += 1;
+        const before = st.slice(0, k);
+        const iNpm = before.findIndex((x) => /npm install/.test(x));
+        const iInst = before.findIndex((x) => /node node_modules\/electron\/install\.js/.test(x));
+        assert.ok(iNpm >= 0 && iInst > iNpm, `${f} の ${name} の ${k + 1} 番目: electron.exe の前に（npm install の後の）install.js が無い`);
+      });
+    }
+  }
+  assert.ok(seen >= 1, '本物の Electron を動かす段が見つからない（このテストが何も見ていない）');
+});

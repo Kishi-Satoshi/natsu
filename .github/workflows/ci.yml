@@ -248,6 +248,13 @@ jobs:
           VER="$(node -p "require('./package.json').devDependencies.electron")"
           mkdir -p "$RUNNER_TEMP/el" && cd "$RUNNER_TEMP/el" && npm init -y >/dev/null && npm install --no-audit --no-fund "electron@$VER"
 
+      # Electron 42 から npm install では本体が落ちてこない（第0c回 EL8・EL9）。install.js は Electron の包みの
+      # 取り込みの台本で、本体があれば何もせず 0 で終わる（31 でも 44 でも同じ道。npx で install-electron を呼ばない。
+      # 31 の包みにはその名前が無く、npm には同じ名前の別の包みがあるため）
+      - name: Electron の本体を取り込む
+        shell: bash
+        run: cd "$RUNNER_TEMP/el" && node node_modules/electron/install.js
+
       # 1 つでも NG なら終了コード 1。どこかで止まっても 120 秒の見張りで 1 になる。
       - name: 本物の Electron の net.request が、取り込みの前提どおりに動くか
         shell: bash
