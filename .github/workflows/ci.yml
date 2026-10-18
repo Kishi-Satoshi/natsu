@@ -42,11 +42,11 @@ jobs:
         with:
           fetch-depth: 0
 
-      # package.json の test は glob（"test/*.test.js"）を node に渡す。Node 21 以上が要る。
+      # package.json の test は glob（"test/*.test.js"）を node に渡す。Node 21 以上が要る。出力は TAP に固定してある（Node 23 から既定が spec になり、「# skipped」の行が出なくなる）。
       - name: Node を用意する
         uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          node-version: '24'
 
       # 追加の npm 依存は無いので install は要らない（テストは Node 同梱のランナー）。
       # 飛ばしたテストの数も見る。許すのは Linux で 0 件、Windows で 1 件
@@ -204,7 +204,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          node-version: '24'
 
       - name: 取り込んだものを覚えておく（SHA-256 で照らしてから使う）
         uses: actions/cache@v4
@@ -238,7 +238,7 @@ jobs:
       - name: Node を用意する
         uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          node-version: '24'
 
       # 版は作業フォルダ（リポジトリ）で読んでから移る。$GITHUB_WORKSPACE を JS の文字列に埋めると、
       # Windows のパスの \a \n が文字の印として読まれて壊れるため。

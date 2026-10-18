@@ -7,7 +7,7 @@
   "license": "MIT",
   "scripts": {
     "start": "electron .",
-    "test": "node --test \"test/*.test.js\"",
+    "test": "node --test --test-reporter=tap \"test/*.test.js\"",
     "dist": "electron-builder --win portable",
     "dist:installer": "electron-builder --win nsis",
     "gate": "node tools/risk.js",

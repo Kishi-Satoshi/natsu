@@ -31,7 +31,7 @@ test('ci.yml: Linux と Windows で、改行を変えずに履歴ごと取り、
   const iCo = st.findIndex((s) => /uses: actions\/checkout@v4/.test(s));
   assert.ok(iCrlf >= 0 && iCrlf < iCo, '改行の変換を止める前に checkout している');
   assert.match(st[iCo], /fetch-depth: 0/);
-  assert.ok(st.some((s) => /node-version: '22'/.test(s)));
+  assert.ok(st.some((s) => /node-version: '24'/.test(s)));
   assert.ok(st.some((s) => /^\s*npm test/m.test(s) && s.includes('# skipped')), '飛ばしたテストの数を見ていない');
   const gate = st.find((s) => s.includes('node tools/risk.js --base "$BASE" --head HEAD'));
   assert.ok(gate, 'ゲートのステップが無い');
@@ -221,4 +221,17 @@ test('本物の Electron を動かす全部のジョブで、npm install の後�
     }
   }
   assert.ok(seen >= 1, '本物の Electron を動かす段が見つからない（このテストが何も見ていない）');
+});
+
+// ---------------------------------------------------------------- Node 24（第0c回 EL7。C4・RF15）
+test('CI とリリースの Node は全部 24（アプリの Node 24 系に合わせる。Electron 44 の包みは 22.12 以上を求める）', () => {
+  for (const f of ['.github/workflows/ci.yml', '.github/workflows/release.yml']) {
+    const vs = [...read(f).matchAll(/node-version: '([^']+)'/g)].map((m) => m[1]);
+    assert.ok(vs.length >= 2, `${f} の setup-node が見つからない`);
+    assert.deepStrictEqual([...new Set(vs)], ['24'], `${f}: ${vs.join(',')}`);
+  }
+});
+test('npm test は TAP で出す（Node 23 から既定が spec になり、ci.yml の「# skipped」の確かめが落ちる）', () => {
+  const pkg = JSON.parse(read('package.json'));
+  assert.strictEqual(pkg.scripts.test, 'node --test --test-reporter=tap "test/*.test.js"');
 });
