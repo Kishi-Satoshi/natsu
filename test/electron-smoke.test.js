@@ -23,13 +23,83 @@ const clipOf = (promise, { dropAbc = false, drop = null } = {}) => {
 };
 
 // 第1a回 Task 3-3 で直した（意図: 全部そろって OK のときだけ 0。確かめは 12 になった）
-test('electron-smoke: 12 の確かめ。終了コードは 12 件そろって全部 OK のときだけ 0', { timeout: 5000 }, () => {
-  assert.deepStrictEqual(S.CHECKS.map(([n]) => n), [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
+// 第1c回 Task A-5 で直した（意図: 本物の net.request の POST（13）と safeStorage の非同期（14）を足して 14）
+test('electron-smoke: 14 の確かめ。終了コードは 14 件そろって全部 OK のときだけ 0', { timeout: 5000 }, () => {
+  assert.deepStrictEqual(S.CHECKS.map(([n]) => n), [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14]);
   const all = S.CHECKS.map(([n]) => ({ n, ok: true }));
   assert.strictEqual(S.exitCodeOf(all), 0);
   assert.strictEqual(S.exitCodeOf(all.map((r) => (r.n === 10 ? { ...r, ok: false } : r))), 1);
-  assert.strictEqual(S.exitCodeOf(all.slice(0, 11)), 1);
+  assert.strictEqual(S.exitCodeOf(all.map((r) => (r.n === 14 ? { ...r, ok: false } : r))), 1);
+  assert.strictEqual(S.exitCodeOf(all.slice(0, 13)), 1);
   assert.strictEqual(S.exitCodeOf([]), 1);
+  const lines = [];
+  S.finish({ exit: () => {} }, all, { log: (l) => lines.push(l), flush: (cb) => cb() });
+  assert.strictEqual(lines[lines.length - 1], '結果: 14 件とも OK');
+});
+
+// 第1c回 Task A-5（OL2・OL3）: 13・14 の判定（純粋）。本物の Electron で集めた観測の見本で確かめる（npm test では Electron を起こさない）
+const STT_REQ = { method: 'POST', path: '/openai/v1/audio/transcriptions', authOk: true, wavOk: true, fileName: 'segment.wav', fileType: 'audio/wav',
+  fields: { model: 'whisper-large-v3', language: 'ja', prompt: 'お疲れさまです。見積 検収', response_format: 'json', temperature: '0' } };
+const ONLINE_GOOD = {
+  text: '本日の議題は進捗の確認です。区間1', sttRequests: [STT_REQ],
+  redirects: [{ status: 302, reached: true, code: 'net', targetHits: 0 }, { status: 307, reached: true, code: 'net', targetHits: 0 }],
+  platform: 'win32', asyncAvailable: true, backend: '', roundTrip: true, setCode: 'ok', getBack: true, plainInFile: false,
+};
+const LINUX_BASIC = { platform: 'linux', asyncAvailable: true, backend: 'basic_text', roundTrip: true, setCode: 'unavailable', getBack: false, plainInFile: false };
+test('electron-smoke: 13・14 の判定は、よい観測で OK。1つ崩すとその番号だけ NG（いつも OK を出す確かめではない）', { timeout: 5000 }, () => {
+  assert.deepStrictEqual(S.onlineResults(ONLINE_GOOD).map((r) => [r.n, r.ok]), [[13, true], [14, true]]);
+  // A-2 のテスト（test/stt-cloud.test.js の OL2）と同じ欄を、判定の側も同じ値で持つ
+  assert.deepStrictEqual(S.SMOKE_STT.fields, STT_REQ.fields);
+  const req = (patch) => ({ sttRequests: [{ ...STT_REQ, ...patch }] });
+  const bad = [
+    [13, { text: '' }], [13, { text: '本日の議題は進捗の確認です。区間2' }], [13, { sttRequests: [] }], [13, { sttRequests: [STT_REQ, STT_REQ] }],
+    [13, req({ authOk: false })], [13, req({ wavOk: false })], [13, req({ method: 'GET' })], [13, req({ fileName: 'a.wav' })], [13, req({ fileType: 'audio/x-wav' })],
+    [13, req({ fields: { ...STT_REQ.fields, language: 'en' } })], [13, req({ fields: { ...STT_REQ.fields, extra: '1' } })],
+    [13, req({ fields: { model: 'whisper-large-v3', language: 'ja', response_format: 'json', temperature: '0' } })],
+    // 転送（302・307）: 先へ要求が届いた・転送の元に届いていない・失敗にならなかった（code が空）・時間切れで止まった・どちらかが欠けた
+    [13, { redirects: [{ status: 302, reached: true, code: 'net', targetHits: 1 }, ONLINE_GOOD.redirects[1]] }],
+    [13, { redirects: [ONLINE_GOOD.redirects[0], { status: 307, reached: true, code: 'net', targetHits: 1 }] }],
+    [13, { redirects: [{ status: 302, reached: false, code: 'net', targetHits: 0 }, ONLINE_GOOD.redirects[1]] }],
+    [13, { redirects: [{ status: 302, reached: true, code: '', targetHits: 0 }, ONLINE_GOOD.redirects[1]] }],
+    [13, { redirects: [{ status: 302, reached: true, code: 'timeout', targetHits: 0 }, ONLINE_GOOD.redirects[1]] }],
+    [13, { redirects: [ONLINE_GOOD.redirects[0]] }], [13, { redirects: [] }],
+    // safeStorage: 使えるのに戻らない・secrets.js で保存できない・読み返せない・ファイルに鍵の文字がある
+    [14, { roundTrip: false }], [14, { setCode: 'unavailable' }], [14, { getBack: false }], [14, { plainInFile: true }],
+    // Windows で使えない は NG（Linux の basic_text だけを「使えない」で OK とする）
+    [14, { asyncAvailable: false }], [14, { platform: 'win32', backend: 'basic_text', setCode: 'unavailable', getBack: false }],
+    // Linux で使えないのに保存した（平文と同じ）・ファイルに鍵の文字がある
+    [14, { ...LINUX_BASIC, setCode: 'ok' }], [14, { ...LINUX_BASIC, plainInFile: true }],
+    [14, { ...LINUX_BASIC, backend: 'gnome_libsecret' }],
+  ];
+  for (const [n, patch] of bad) {
+    const r = S.onlineResults({ ...ONLINE_GOOD, ...patch });
+    assert.deepStrictEqual(r.filter((x) => !x.ok).map((x) => x.n), [n], `${n} ${JSON.stringify(patch)}`);
+  }
+  // Linux の CI（basic_text・使えない）は「使えない」で OK。鍵の保存を断り、ファイルを作らない
+  for (const linux of [LINUX_BASIC, { ...LINUX_BASIC, asyncAvailable: false, roundTrip: false }, { ...LINUX_BASIC, backend: 'unknown', roundTrip: false }]) {
+    const r = S.onlineResults({ ...ONLINE_GOOD, ...linux });
+    assert.deepStrictEqual(r.map((x) => [x.n, x.ok]), [[13, true], [14, true]], JSON.stringify(linux));
+    assert.match(r[1].note, /使えない/);
+  }
+  // Linux でも鍵の入れ物が使えるなら（gnome_libsecret など）、戻ることまで見る
+  assert.strictEqual(S.onlineResults({ ...ONLINE_GOOD, platform: 'linux', backend: 'gnome_libsecret' })[1].ok, true);
+  assert.deepStrictEqual(S.onlineResults({}).map((r) => [r.n, r.ok]), [[13, false], [14, false]]);
+  assert.deepStrictEqual(S.onlineResults(null).map((r) => [r.n, r.ok]), [[13, false], [14, false]]);
+  // 鍵は判定の文に出さない
+  for (const r of S.onlineResults({ ...ONLINE_GOOD, setCode: S.SMOKE_STT.key })) assert.ok(!r.note.includes(S.SMOKE_STT.key), r.note);
+});
+
+test('electron-smoke: 13・14 は本物の net.request を transcribeCloud に渡し、127.0.0.1 の偽の送り先と、本物の safeStorage を secrets.js で使う', { timeout: 5000 }, () => {
+  const m = read('tools/electron-smoke/main.js');
+  for (const k of ["require('../../src/stt-cloud')", "require('../../src/secrets')", "require('../../src/jsonfile')", "require('../../test/helpers/fake-stt')",
+    'const request = (opts) => net.request(opts)', 'request, provider', 'transcribeCloud(', 'makeSecrets(', 'isAsyncEncryptionAvailable()', 'encryptStringAsync(', 'decryptStringAsync(',
+    'getSelectedStorageBackend()', "listen(0, '127.0.0.1'", 'onlineResults(', 'onlineChecks('])
+    assert.ok(m.includes(k), k);
+  assert.ok(!/\bfetch\(/.test(m), 'fetch( を使っている');
+  // 1〜12 の後に足す（守りの確かめの install より後。finish の前）
+  const boot = m.slice(m.indexOf('function boot()'));
+  assert.ok(boot.indexOf('securityChecks(') < boot.indexOf('onlineChecks(') && boot.indexOf('onlineChecks(') < boot.indexOf('finish(app, results)'), '13・14 の場所');
+  assert.ok(!/require\('electron'\)/.test(m.slice(0, m.indexOf('function boot()'))), 'boot() より前で electron を読んでいる');
 });
 
 const GOOD = { sandboxed: true, inlineRan: true, injectedRan: false, violations: 1, gumAudio: 'ok', audioLabels: 2, gumVideo: 'NotAllowedError',

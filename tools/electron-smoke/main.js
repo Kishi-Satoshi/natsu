@@ -3,7 +3,7 @@
  *
  * 走らせ方（Electron の main として。窓は見せない）:
  *   node_modules/electron/dist/electron.exe tools/electron-smoke
- * 次の 12 を確かめる（CHECKS）。
+ * 次の 14 を確かめる（CHECKS）。
  *   1〜4. utilityProcess と MessageChannelMain の口で、sandbox の隠れた窓（preload）と往復する。子を落として起こし直す。
  *         子の中で node:sqlite を開く。kill() の終わりの番号を見る
  *   5・6. mainlib の copyPrivate・deliverText を本物の clipboard で動かす（44 では Promise を返す。C1）
@@ -12,7 +12,14 @@
  *         （sec-app.html を本体、sec-overlay.html を録音バーの代わりに）で、sandbox・ヘッダーの CSP・マイクと画面の取り込みの
  *         許可・移動と新しい窓の禁止を見る（securityChecks。判定は純粋な securityResults）。偽のマイク
  *         （--use-fake-device-for-media-stream）を使う。1〜7 の受け口（defaultSession）は変えない
- * 結果は 1 行ずつ OK／NG で出す。12 件そろって全部 OK なら終了コード 0、そうでなければ 1（exitCodeOf）。
+ *   13・14. 第1c回 OL2・OL3（偽物の fake-net.js が本物と同じかの毎回の確かめ。onlineChecks。判定は純粋な onlineResults）:
+ *         13 は 127.0.0.1 の偽の送り先（test/helpers/fake-stt.js をここで開く）へ、本物の net.request で
+ *         stt-cloud.transcribeCloud を呼び、文字が返り、送り先が受けた multipart の欄が A-2 のテストと同じ。
+ *         302・307 を返す宛先は redirect: 'error' で失敗になり、転送の先へ要求が届かない。
+ *         14 は本物の safeStorage の非同期の形（isAsyncEncryptionAvailable・encryptStringAsync・decryptStringAsync）で
+ *         同じ文字に戻り、secrets.js（makeSecrets）で一時フォルダの secrets.json にしまって読み返せ、ファイルに鍵の文字が無い。
+ *         Linux の basic_text（鍵の入れ物が無い CI）は「使えない」で OK（secrets.js が保存を断り、ファイルを作らないこと）
+ * 結果は 1 行ずつ OK／NG で出す。14 件そろって全部 OK なら終了コード 0、そうでなければ 1（exitCodeOf）。
  * どこかで止まっても、90 秒の見張りで 1 で終わる。
  *
  * Electron を読むのは、Electron の main として動いたときだけ（下の boot。tools/net-smoke.js と同じ形）。
@@ -21,11 +28,17 @@
 'use strict';
 
 const fs = require('fs');
+const http = require('http');
 const os = require('os');
 const path = require('path');
+const { isDeepStrictEqual } = require('util');
 const lib = require('../../src/mainlib');
 const { chooseDisplayMedia } = require('../../src/loopback');
 const security = require('../../src/security');
+const sttCloud = require('../../src/stt-cloud');
+const { makeSecrets } = require('../../src/secrets');
+const J = require('../../src/jsonfile');
+const { startFakeStt } = require('../../test/helpers/fake-stt');
 const { versionIssue, versionGate } = require('../electron-version');
 
 const CHECKS = [
@@ -41,7 +54,18 @@ const CHECKS = [
   [10, '許可: 本体の窓でマイク（音だけ）は許され、マイクの名前が出る。カメラと画面の取り込みは断る'],
   [11, '許可: 録音バーの窓の画面の取り込み（44 では media・mediaTypes が空）は、受け口まで届く'],
   [12, '移動と新しい窓: location の書き換え・リンク・window.open で、窓は元のページのまま、新しい窓は開かない'],
+  [13, 'net.request の POST: 127.0.0.1 の偽の送り先へ transcribeCloud で multipart を送り、文字が返る。302・307 の転送は失敗になり、先へ届かない'],
+  [14, 'safeStorage の非同期: 暗号にして同じ文字に戻り、secrets.js でしまって読み返せる（Linux の basic_text は「使えない」で OK）'],
 ];
+
+// 13 の送るもの。欄は test/stt-cloud.test.js の OL2 と同じ（鍵は試し用の決まった文字。本物の鍵ではない）
+const SMOKE_STT = Object.freeze({
+  key: 'gsk_smoke_0123456789',
+  text: '本日の議題は進捗の確認です。',
+  fields: Object.freeze({ model: 'whisper-large-v3', language: 'ja', prompt: 'お疲れさまです。見積 検収', response_format: 'json', temperature: '0' }),
+});
+const REDIRECTS = [302, 307];
+const SET_CODES = new Set(['ok', 'unavailable', 'bad-key', 'bad-id', 'write']);
 
 const PKG = path.join(__dirname, '..', '..', 'package.json');
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -115,6 +139,58 @@ function securityResults(o) {
       note: `録音バーの窓の画面の取り込みは ${j(x.gdmOverlay)}、受け口が呼ばれたのは ${j(x.handlerCalls)} 回（本体の窓の分は来ないので 1）` },
     { n: 12, ok: x.urlAfter === 'sec-app.html' && x.opened === false,
       note: `移動を試した後のページは ${j(x.urlAfter)}、新しい窓は ${x.opened === false ? '開かない' : `開いた（${j(x.opened)}）`}` },
+  ];
+}
+
+/**
+ * 13・14 の判定（純粋）。onlineChecks が本物の Electron で集めた観測を渡す。
+ * @param {{ text: string, sttRequests: Array<object>, redirects: Array<{ status: number, reached: boolean, code: string, targetHits: number }>,
+ *   platform: string, asyncAvailable: boolean, backend: string, roundTrip: boolean, setCode: string, getBack: boolean, plainInFile: boolean,
+ *   error13?: string, error14?: string }} o
+ *   sttRequests は偽の送り先が受けた要求（fake-stt.js の requests）。redirects は 302・307 ごとに、転送の元に届いたか（reached）・
+ *   transcribeCloud の失敗の符号（code。失敗しなければ ''）・転送の先が受けた要求の数（targetHits）
+ * @returns {Array<{ n: number, ok: boolean, note: string }>}
+ */
+function onlineResults(o) {
+  const x = o || {};
+  const j = (v) => JSON.stringify(v);
+  const reqs = Array.isArray(x.sttRequests) ? x.sttRequests : [];
+  const r = reqs[0] || {};
+  const reqOk = reqs.length === 1 && r.method === 'POST' && r.path === '/openai/v1/audio/transcriptions' && r.authOk === true && r.wavOk === true
+    && r.fileName === 'segment.wav' && r.fileType === 'audio/wav' && isDeepStrictEqual(r.fields, { ...SMOKE_STT.fields });
+  const textOk = x.text === `${SMOKE_STT.text}区間1`;
+  const reds = Array.isArray(x.redirects) ? x.redirects : [];
+  const redOf = (st) => reds.find((d) => d && d.status === st);
+  const redOk = REDIRECTS.every((st) => {
+    const d = redOf(st);
+    return Boolean(d) && d.reached === true && typeof d.code === 'string' && d.code !== '' && d.code !== 'timeout' && d.targetHits === 0;
+  });
+  const redNote = REDIRECTS.map((st) => {
+    const d = redOf(st);
+    if (!d) return `${st} は結果が無い`;
+    return `${st} は${d.reached === true ? '' : '元に届かず、'}${d.code ? `失敗（${j(d.code)}）` : '失敗にならない'}、先が受けたのは ${j(d.targetHits)} 件`;
+  }).join('・');
+  const fieldNames = r.fields && typeof r.fields === 'object' ? Object.keys(r.fields).join(',') : '-';
+  const n13 = `返った文は ${j(x.text)}、送り先が受けた要求は ${reqs.length} 件（${j(r.method)} ${j(r.path)}、鍵の見出し ${r.authOk === true ? 'OK' : 'NG'}、`
+    + `WAV ${r.wavOk === true ? 'OK' : 'NG'}、file ${j(r.fileName)} ${j(r.fileType)}、欄 ${fieldNames}${reqs.length && !isDeepStrictEqual(r.fields, { ...SMOKE_STT.fields }) ? '（値か並びが違う）' : ''}）、`
+    + `転送は ${redNote}${x.error13 ? `、止まった: ${x.error13}` : ''}`;
+
+  const linuxOff = x.platform === 'linux' && (x.asyncAvailable !== true || x.backend === 'basic_text' || x.backend === 'unknown');
+  const setCode = SET_CODES.has(x.setCode) ? x.setCode : (x.setCode === undefined ? '無し' : 'その他');
+  const base = `isAsyncEncryptionAvailable は ${j(x.asyncAvailable)}、入れ物は ${j(x.backend || '-')}（${j(x.platform)}）`;
+  const tail = `secrets.js の保存は ${setCode}、ファイルに鍵の文字は ${x.plainInFile === false ? '無い' : (x.plainInFile === true ? 'ある' : '確かめられない')}`
+    + `${x.error14 ? `、止まった: ${x.error14}` : ''}`;
+  let ok14; let n14;
+  if (linuxOff) {
+    ok14 = x.setCode === 'unavailable' && x.plainInFile === false;
+    n14 = `Linux で使えない（${base}）。${tail}`;
+  } else {
+    ok14 = x.asyncAvailable === true && x.roundTrip === true && x.setCode === 'ok' && x.getBack === true && x.plainInFile === false;
+    n14 = `${base}、暗号にして ${x.roundTrip === true ? '同じ文字に戻った' : '戻らない'}、${tail}、別の係で読み返して ${x.getBack === true ? '同じ' : '違う'}`;
+  }
+  return [
+    { n: 13, ok: reqOk && textOk && redOk, note: n13 },
+    { n: 14, ok: ok14, note: n14 },
   ];
 }
 
@@ -203,7 +279,7 @@ async function displayMediaCheck(win, session) {
 }
 
 function boot() {
-  const { app, BrowserWindow, utilityProcess, MessageChannelMain, clipboard, session } = require('electron');
+  const { app, BrowserWindow, utilityProcess, MessageChannelMain, clipboard, session, net, safeStorage } = require('electron');
   // 8〜12 の偽のマイク（whenReady の前に付ける）
   app.commandLine.appendSwitch('use-fake-device-for-media-stream');
   // 見張り: どこかで止まっても、ジョブの 30 分を待たずに赤にする
@@ -235,6 +311,7 @@ function boot() {
     results.push(await displayMediaCheck(win, session));
     win.destroy();
     results.push(...await securityChecks({ app, BrowserWindow, session }));
+    results.push(...await onlineChecks({ app, net, safeStorage }));
     finish(app, results);
   }, die('起動の失敗'));
 }
@@ -306,10 +383,90 @@ async function securityChecks({ app, BrowserWindow, session }) {
   }
 }
 
+/**
+ * 13・14: 本物の net.request と safeStorage で観測を集める（判定は onlineResults）。どこかで止まっても観測を残して判定に回す。
+ * 送り先は 127.0.0.1 の偽物だけ（外へはつながない）。鍵の文字は記録に書かない。
+ */
+async function onlineChecks({ app, net, safeStorage }) {
+  const o = { sttRequests: [], redirects: [] };
+  const request = (opts) => net.request(opts);
+  const closers = [];
+  // 13
+  try {
+    const f = await startFakeStt({ key: SMOKE_STT.key, text: SMOKE_STT.text });
+    closers.push(() => f.close());
+    const provider = sttCloud.resolveProvider({ sttProvider: 'custom', sttBaseUrl: f.base, sttModel: SMOKE_STT.fields.model });
+    if (provider.error) throw new Error(`送り先を決められない（${provider.error}）`);
+    o.text = await within(sttCloud.transcribeCloud(lib.silentWav(0.5), {
+      request, provider, key: SMOKE_STT.key, language: SMOKE_STT.fields.language, prompt: SMOKE_STT.fields.prompt,
+      timeoutMs: 15000, sleep: () => Promise.reject(new Error('429 の待ちが起きた')),
+    }), 20000, 'transcribeCloud');
+    o.sttRequests = f.requests.slice();
+    // 302・307 を返す宛先（転送の先は別の偽の送り先。届けば targetHits が増える）
+    const g = await startFakeStt({ key: SMOKE_STT.key });
+    closers.push(() => g.close());
+    const reached = {};
+    const hop = http.createServer((req, res) => {
+      req.resume();
+      req.on('end', () => {
+        const st = Number((/^\/r(\d{3})\//.exec(req.url) || [])[1]) || 302;
+        reached[st] = (reached[st] || 0) + 1;
+        res.writeHead(st, { location: `${g.base}/audio/transcriptions`, 'content-type': 'text/plain' });
+        res.end('moved');
+      });
+    });
+    await new Promise((resolve, reject) => { hop.once('error', reject); hop.listen(0, '127.0.0.1', resolve); });
+    closers.push(() => new Promise((r) => { hop.close(() => r()); hop.closeAllConnections(); }));
+    for (const st of REDIRECTS) {
+      const before = g.requests.length;
+      const base = `http://127.0.0.1:${hop.address().port}/r${st}`;
+      const p = { ...provider, base, reachUrl: `${base}/models` };
+      let code = '';
+      try {
+        await within(sttCloud.transcribeCloud(lib.silentWav(0.5), { request, provider: p, key: SMOKE_STT.key, language: 'ja', prompt: SMOKE_STT.fields.prompt,
+          timeoutMs: 15000, sleep: () => Promise.reject(new Error('429 の待ちが起きた')) }), 20000, `転送 ${st}`);
+      } catch (e) {
+        code = e instanceof sttCloud.CloudSttError ? e.code : `投げた（${msgOf(e)}）`;
+      }
+      await wait(200);
+      o.redirects.push({ status: st, reached: (reached[st] || 0) >= 1, code, targetHits: g.requests.length - before });
+    }
+  } catch (e) {
+    o.error13 = msgOf(e);
+  }
+  // 14
+  o.platform = process.platform;
+  try {
+    o.asyncAvailable = await within(Promise.resolve(safeStorage.isAsyncEncryptionAvailable()), 10000, 'isAsyncEncryptionAvailable');
+    o.backend = process.platform === 'linux' ? safeStorage.getSelectedStorageBackend() : '';
+    try {
+      const plain = `NaTsu の鍵の試し 𠮷 ${SMOKE_STT.key}`;
+      const enc = await within(safeStorage.encryptStringAsync(plain), 10000, 'encryptStringAsync');
+      const back = await within(safeStorage.decryptStringAsync(enc), 10000, 'decryptStringAsync');
+      o.roundTrip = Boolean(back && back.result === plain) && !Buffer.from(enc).toString('latin1').includes(SMOKE_STT.key);
+    } catch (e) {
+      o.roundTrip = false;
+      o.error14 = `暗号の往復: ${msgOf(e)}`;
+    }
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'natsu-smoke-secrets-'));
+    closers.push(() => fs.rmSync(dir, { recursive: true, force: true }));
+    const file = path.join(dir, 'secrets.json');
+    const r = await within(makeSecrets({ file, safeStorage, J }).set('groq', SMOKE_STT.key), 10000, 'secrets.set');
+    o.setCode = r.ok ? 'ok' : r.code;
+    // しまったものを、別の係（ファイルから読み直す）で読み返す
+    o.getBack = (await within(makeSecrets({ file, safeStorage, J }).get('groq'), 10000, 'secrets.get')) === SMOKE_STT.key;
+    o.plainInFile = fs.existsSync(file) ? fs.readFileSync(file, 'utf8').includes(SMOKE_STT.key) : false;
+  } catch (e) {
+    o.error14 = msgOf(e);
+  }
+  for (const c of closers.reverse()) { try { await within(Promise.resolve(c()), 5000, '送り先を閉じる'); } catch (_) { /* 閉じられなくても判定は出す */ } }
+  return onlineResults(o);
+}
+
 if (process.versions.electron && process.type === 'browser') boot();
 else if (require.main === module) {
   console.error('electron-smoke は Electron の main として動かす: <electron の実行ファイル> tools/electron-smoke');
   process.exitCode = 2;
 }
 
-module.exports = { CHECKS, exitCodeOf, clipboardChecks, securityResults, finish };
+module.exports = { CHECKS, SMOKE_STT, exitCodeOf, clipboardChecks, securityResults, onlineResults, finish };
