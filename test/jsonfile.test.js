@@ -262,3 +262,93 @@ test('JS4: 残った一時ファイル（<名前>.json.tmp と <名前>.json.<pi
   assert.deepStrictEqual(fs.readdirSync(d).sort(), ['0001.wav.tmp', 'history.json.broken-2026-10-01T00-00-00-000Z', 'notes.tmp', 'settings.json']);
   assert.deepStrictEqual(J.cleanTemps(path.join(d, 'no-such-dir')), []);
 });
+
+// ---------------------------------------------------------------- JS7 まとめ書き・JS8 書き出し
+function fakeTimers() {
+  const t = { list: [], unref: 0 };
+  t.setTimeout = (fn, ms) => { const h = { fn, ms, cleared: false, unref() { t.unref += 1; return h; } }; t.list.push(h); return h; };
+  t.clearTimeout = (h) => { if (h) h.cleared = true; };
+  t.fire = () => { for (const h of t.list.splice(0)) if (!h.cleared) h.fn(); };
+  return t;
+}
+
+test('JS7: 間隔の中の2回の変更は、新しいほうの1回の書き込みになる。タイマーは unref し、retry: false で書く', { timeout: 5000 }, () => {
+  const t = fakeTimers();
+  const writes = [];
+  const w = J.makeBatchWriter({ name: 't1', delayMs: 350, timers: t, write: (v, o) => writes.push([v, o.retry]) });
+  w.set({ x: 1 });
+  w.set({ x: 2 });
+  assert.deepStrictEqual(writes, []);
+  assert.ok(t.list.every((h) => h.ms === 350));
+  t.fire();
+  assert.deepStrictEqual(writes, [[{ x: 2 }, false]]);
+  assert.ok(t.unref >= 1, 'タイマーを unref していない（終わるのを止める）');
+  w.dispose();
+});
+
+test('JS7: タイマーの中の失敗で投げず、「まだ書いていない」を残し、記録は1回だけ。次の変更で書ける', { timeout: 5000 }, () => {
+  const t = fakeTimers();
+  let fail = true;
+  const writes = [];
+  const logs = [];
+  const w = J.makeBatchWriter({ name: 't2', delayMs: 350, timers: t, log: (l) => logs.push(l), write: (v) => { if (fail) throw Object.assign(new Error('x'), { code: 'EBUSY' }); writes.push(v); } });
+  w.set({ x: 1 });
+  assert.doesNotThrow(() => t.fire());
+  w.set({ x: 1.5 });
+  assert.doesNotThrow(() => t.fire());
+  assert.strictEqual(w.pending(), true);
+  assert.strictEqual(logs.length, 1, `記録が ${logs.length} 行`);
+  fail = false;
+  w.set({ x: 2 });
+  t.fire();
+  assert.deepStrictEqual(writes, [{ x: 2 }]);
+  assert.strictEqual(w.pending(), false);
+  w.dispose();
+});
+
+test('JS8: flush は待っている値をその場で（同期で）retry: true で書き、タイマーの分を二重に書かない', { timeout: 5000 }, () => {
+  const t = fakeTimers();
+  const writes = [];
+  const w = J.makeBatchWriter({ name: 't3', delayMs: 350, timers: t, write: (v, o) => writes.push([v, o.retry]) });
+  w.set({ x: 1 });
+  assert.strictEqual(w.flush(), true);
+  t.fire();
+  assert.deepStrictEqual(writes, [[{ x: 1 }, true]]);
+  assert.strictEqual(w.flush(), true, '何も待っていないときも真');
+  assert.strictEqual(writes.length, 1);
+  w.dispose();
+});
+
+test('JS5・JS8: now は書けなければ { ok: false } で「まだ書いていない」を残し、flushAll がやり直す。flushAll は投げない', { timeout: 5000 }, () => {
+  const t = fakeTimers();
+  let fail = true;
+  const writes = [];
+  const w = J.makeBatchWriter({ name: 't4', delayMs: 350, timers: t, write: (v) => { if (fail) throw new Error('EBUSY'); writes.push(v); } });
+  const r = w.now({ theme: 'dark' });
+  assert.strictEqual(r.ok, false);
+  assert.strictEqual(w.pending(), true);
+  const bad = J.makeBatchWriter({ name: 't5', delayMs: 350, timers: t, write: () => { throw new Error('ずっと失敗'); } });
+  bad.set({ a: 1 });
+  fail = false;
+  let res;
+  assert.doesNotThrow(() => { res = J.flushAll(); });
+  assert.deepStrictEqual(writes, [{ theme: 'dark' }]);
+  assert.ok(res.some((x) => x.name === 't4' && x.ok === true));
+  assert.ok(res.some((x) => x.name === 't5' && x.ok === false));
+  w.dispose();
+  bad.dispose();
+});
+
+test('RF22: discard は待っている値を捨て、その後の flush は何も書かない', { timeout: 5000 }, () => {
+  const t = fakeTimers();
+  const writes = [];
+  const w = J.makeBatchWriter({ name: 't6', delayMs: 350, timers: t, write: (v) => writes.push(v) });
+  w.set({ pillCustom: { x: 1, y: 2 } });
+  w.discard();
+  assert.strictEqual(w.pending(), false);
+  assert.ok(t.list.length >= 1 && t.list.every((h) => h.cleared), 'discard がタイマーを止めていない');
+  w.flush();
+  t.fire();
+  assert.deepStrictEqual(writes, []);
+  w.dispose();
+});

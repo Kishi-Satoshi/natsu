@@ -32,7 +32,8 @@
  *
  * 退けた控えの整理は pruneBroken（JS2。作り直せるファイルだけ新しい3つまで）、写しで退けるのは
  * quarantine の copy（JS6。同じ中身の控えがあれば写さない）、強制終了の後の一時ファイルの片付けは
- * cleanTemps（JS4。JSON の一時ファイルだけ）。
+ * cleanTemps（JS4。JSON の一時ファイルだけ）。続けて変わるもののまとめ書きは makeBatchWriter（JS7）、
+ * シャットダウンなどの合図で全部を書き出すのは flushAll（JS8。同期・投げない）。
  *
  * JSON のエラーの文は結果にも記録にも写さない（ファイルの中身を引用するため。口述した文や
  * 設定の値が記録に残ってしまう）。結果に入れるのは理由の符号だけ。
@@ -320,4 +321,85 @@ function cleanTemps(dir, opts = {}) {
   return removed;
 }
 
-module.exports = { BUSY, READ_WAITS, RENAME_WAITS, SMALL_MAX, sleepSync, decodeJsonBytes, readJsonFile, brokenName, quarantine, pruneBroken, loadJsonFile, isReadOnly, writeJsonFile, cleanTemps };
+// ---------------------------------------------------------------- まとめ書き（JS7）と書き出しの合図（JS8）
+// 1つのファイルに書き手を1つにし、続けて変わるもの（録音バーの位置など）は最後の値だけを delayMs 後に書く。
+// write(value, { retry }) は同期で書く（投げてよい）。retry はタイマーなら false、flush・now なら true。
+// タイマーの中では決して投げない（main の例外は Electron がエラーの画面にする）。失敗したら
+// 「まだ書いていない」を残し、次の set・now・flush でやり直す。失敗の記録は続く間に1回だけで、
+// 値は書かず、書き手の名前と理由の符号だけを書く。タイマーは unref する（終わるのを止めない）。
+// 作った書き手はモジュールの中の一覧に入り、flushAll（シャットダウンなどの合図）で全部を同期で書き出す。
+// 出典: Node の timers（Timeout の unref）、今の src/main.js の録音バーの位置の保存（setTimeout で間引く形）。
+const writers = new Set();
+
+function makeBatchWriter({ name, write, delayMs, timers = { setTimeout, clearTimeout }, log = () => {} }) {
+  let timer = null;
+  let has = false;
+  let value;
+  let failing = false;
+
+  const stopTimer = () => {
+    if (timer != null) { try { timers.clearTimeout(timer); } catch (_) { /* 止められなくても書き手の印で二重に書かない */ } }
+    timer = null;
+  };
+  const fail = (e) => {
+    if (failing) return;
+    failing = true;
+    try { log(`jsonfile: ${name} を書けなかった（${(e && e.code) || 'error'}）。次の機会にやり直す`); } catch (_) { /* 記録の失敗は飲む */ }
+  };
+  // 待っている値を書く。失敗は投げる（呼び手が扱う）。書けたら「まだ書いていない」を消す
+  const writePending = (retry) => {
+    stopTimer();
+    if (!has) return;
+    write(value, { retry });
+    has = false;
+    value = undefined;
+    failing = false;
+  };
+
+  const w = {
+    name,
+    set(v) {
+      value = v;
+      has = true;
+      stopTimer();
+      timer = timers.setTimeout(() => {
+        timer = null;
+        try { writePending(false); } catch (e) { fail(e); }
+      }, delayMs);
+      if (timer && typeof timer.unref === 'function') timer.unref();
+    },
+    now(v) {
+      value = v;
+      has = true;
+      try { writePending(true); return { ok: true }; } catch (e) { fail(e); return { ok: false, error: e }; }
+    },
+    flush() {
+      try { writePending(true); return true; } catch (e) { fail(e); return false; }
+    },
+    discard() {
+      stopTimer();
+      has = false;
+      value = undefined;
+    },
+    pending() { return has; },
+    dispose() {
+      stopTimer();
+      writers.delete(w);
+    },
+  };
+  writers.add(w);
+  return w;
+}
+
+// → [{ name, ok }]。作った全部の書き手の flush を呼ぶ。決して投げない（合図の受け口から呼ぶ）
+function flushAll() {
+  const out = [];
+  for (const w of Array.from(writers)) {
+    let ok = false;
+    try { ok = w.flush() === true; } catch (_) { ok = false; }
+    out.push({ name: w.name, ok });
+  }
+  return out;
+}
+
+module.exports = { BUSY, READ_WAITS, RENAME_WAITS, SMALL_MAX, sleepSync, decodeJsonBytes, readJsonFile, brokenName, quarantine, pruneBroken, loadJsonFile, isReadOnly, writeJsonFile, cleanTemps, makeBatchWriter, flushAll };
