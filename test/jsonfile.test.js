@@ -102,6 +102,16 @@ test('JS2: loadJsonFile は壊れたファイルを写さずに名前を変え�
   assert.ok(fs.readFileSync(f).equals(bytes));
 });
 
+test('JS2・RF22: 退ける名前の変更が掴まれていれば（EBUSY が2回）待ってやり直し、退けられる（「読めない」にしない）', { timeout: 5000 }, () => {
+  const f = path.join(dir(), 'history.json');
+  fs.writeFileSync(f, '[');
+  const slept = [];
+  const r = J.loadJsonFile(f, { shape: Array.isArray, sleep: (ms) => slept.push(ms), fs: faultyFs([{ op: 'rename', match: /broken/, code: 'EBUSY', times: 2 }]) });
+  assert.strictEqual(r.state, 'broken');
+  assert.deepStrictEqual(slept, J.RENAME_WAITS.slice(0, 2));
+  assert.ok(!fs.existsSync(f));
+});
+
 test('JS1: 日本語と「𠮷」を含むフォルダでも読める（RF1 と同じ形）', { timeout: 5000 }, () => {
   const f = path.join(dir('-設定𠮷'), 'settings.json');
   fs.writeFileSync(f, '{"micId":"𠮷"}');
