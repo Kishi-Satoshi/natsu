@@ -240,8 +240,8 @@ test('公開したのに画面から呼ばれない API がない', () => {
   // 第0b回 Task 13・14 で入れた取り込みの5つは、画面の取り込みの欄（Task 15）が呼び始めたので外した
   // 第1c回 Task C-2 で足した meetingSetLocalOnly は、会議中の［この会議は PC の中だけ］（Task C-3）が呼び始めたので外した
   // 第1b回 Task A-2 で足した uiState・uiSave（画面の覚え書き）は、画面のサイドバー（Task B-2）が呼び始めたので外した
-  // 第1b回 Task A-3 で足した meetingSetPaused（ページの［一時停止］）は、録音中のページ（Task B-5）が呼び始めたら外す
-  const PENDING_APP = new Set(['meetingSetPaused']);
+  // 第1b回 Task A-3 で足した meetingSetPaused（ページの［一時停止］）は、録音中のページ（Task B-5）が呼び始めたので外した
+  const PENDING_APP = new Set([]);
   for (const [ns, html] of [['koeApp', appHtml], ['koeOverlay', overlayHtml]]) {
     const names = all(/^\s{2}([A-Za-z][\w$]*):/gm, block(ns));
     const used = new Set(all(new RegExp(`${ns}\\.(\\w+)`, 'g'), html));
@@ -384,7 +384,10 @@ test('閉じるボタンは既定でアプリを終了する（設定でトレ�
 });
 
 test('記録を新しく始めたら、開いていた議事録を閉じる', () => {
-  assert.ok(appHtml.includes('st.active && !mtWasActive && curId'));
+  // 第1b回 Task B-5 から: 記録を始めると記録中のタブ（live）を開いて移り、そのタブを選ぶときに開いていたページを確定して閉じる
+  //（ページのタブは残す。動きは stage1b.app.test.js の N4b と runtime.app.test.js の「ホットキーで記録開始しても…」が見る）
+  assert.match(appHtml, /if \(started\) \{\s*if \(!hasTab\('live'\)\) openTabs\.push\(\{ key: 'live' \}\);\s*activateTab\('live'\);/);
+  assert.match(appHtml, /function showLive\(\) \{\s*if \(curId \|\| curPage\) \{\s*flushEdits\(\);\s*curId = null; curPage = null; curSegs = \[\];/);
 });
 
 test('タイプ変更のアジェンダ挿入は、人が書いたメモを上書きしない', () => {

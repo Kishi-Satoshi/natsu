@@ -222,3 +222,117 @@ test('N4・画面の使いやすさ: 「…」は Enter で開いて最初の項
   await l.drain();
   assert.strictEqual(l.byId.get('pMenu').hidden, true, '変換確定の Enter で開いた（imeEnter）');
 });
+
+// ---- Task B-5（N4b・N4c の画面・RF4 の画面・F6・F13）: 録音中のページと一時停止 ----
+const ST = (o = {}) => ({ active: true, finalizing: false, startedAt: Date.now() - 60000, segments: [{ id: 's1', atMs: 0, text: '始めます。' }, { id: 's2', atMs: 3000, text: '続けます。' }], pending: 0, paused: false, pausedMs: 0, pauses: [], cloud: false, localOnly: false, ...o });
+
+test('N4b: 記録を始めると記録中のタブが開いて移り（開いていたページのタブは残る）、経過時間・一時停止・停止・流れる文字起こし・メモがある', async () => {
+  const l = await openPa1();
+  l.fire('onMeetingUpdate', ST());
+  await l.drain();
+  assert.deepStrictEqual(keysOf(l), ['page:pa1', 'live']);
+  assert.strictEqual(tabs(l)[1].getAttribute('aria-selected'), 'true');
+  for (const id of ['liveTm', 'livePauseBtn', 'liveStopBtn']) assert.ok(l.document.getElementById(id), id);
+  assert.strictEqual(l.byId.get('pScript').querySelectorAll('.seg').length, 2);
+  assert.ok(l.byId.get('pMemo').querySelector('textarea'), 'メモが無い');
+  assert.match(l.byId.get('pNote').textContent, /会議を終えると、ここに要約が入ります。/);
+  for (const s of saves(l)) if (s.tabs) assert.ok(!s.tabs.open.includes('live') && s.tabs.active !== 'live', '録音中のタブを覚えさせた（N6）');
+  assert.ok(saves(l).some((s) => s.tabs && s.tabs.active === 'page:pa1'), '前提: タブの覚え書きを送っている');
+  // 足した確かめ: 記録中のタブを選んでいる間に覚えるのは、live を除いた並びと、その前に選んでいたタブ
+  assert.deepStrictEqual(saves(l).pop(), { tabs: { open: ['page:pa1'], active: 'page:pa1' } });
+});
+
+test('N4c: ページの［一時停止］と Ctrl+Shift+P は main に頼むだけ（状態は meeting:update の paused）。作成中は出さない', async () => {
+  const l = await open();
+  await l.drain();
+  l.fire('onMeetingUpdate', ST());
+  await l.drain();
+  l.document.getElementById('livePauseBtn').dispatchEvent({ type: 'click' });
+  await l.drain();
+  assert.deepStrictEqual(l.called('meetingSetPaused').map((c) => c.args[0]), [true]);
+  assert.match(l.document.getElementById('livePauseBtn').textContent, /一時停止/, '返事の前に表示を変えた');
+  l.fire('onMeetingUpdate', ST({ paused: true }));
+  await l.drain();
+  assert.match(l.document.getElementById('livePauseBtn').textContent, /再開/);
+  assert.match(tabs(l)[0].textContent, /一時停止中/);
+  const ev = l.key({ key: 'P', ctrlKey: true, shiftKey: true });
+  await l.drain();
+  assert.deepStrictEqual(l.called('meetingSetPaused').map((c) => c.args[0]), [true, false]);
+  assert.ok(ev.defaultPrevented);
+  l.fire('onMeetingUpdate', ST({ finalizing: true }));
+  await l.drain();
+  assert.strictEqual(l.document.getElementById('livePauseBtn').hidden, true);
+  l.key({ key: 'P', ctrlKey: true, shiftKey: true });
+  assert.strictEqual(l.called('meetingSetPaused').length, 2, '作成中に頼んだ');
+});
+
+test('RF4: スリープから戻って一時停止のままなら、録音中のページに再開を促す文が出る', async () => {
+  const l = await open();
+  await l.drain();
+  l.fire('onMeetingUpdate', ST({ paused: true, resumeHint: true }));
+  await l.drain();
+  assert.match(l.document.getElementById('liveResumeNote').textContent, /スリープから戻りました。会議の録音は一時停止しています。/);
+  assert.strictEqual(l.document.getElementById('liveResumeNote').hidden, false, '文を作っただけで隠したまま');   // 足した確かめ
+  l.fire('onMeetingUpdate', ST({ paused: false, resumeHint: false }));
+  await l.drain();
+  assert.strictEqual(l.document.getElementById('liveResumeNote').hidden, true);
+});
+
+test('N4c・F6: 止めていた時間の印は区間の間に出て、区間の数・コピーに入らない（記録中も保存したページも）', async () => {
+  const l = await open();
+  await l.drain();
+  l.fire('onMeetingUpdate', ST({ pauses: [{ atMs: 3000, ms: 130000, why: 'user' }] }));
+  await l.drain();
+  const kids = l.byId.get('pScript').children.map((e) => e.className.split(' ')[0]);
+  assert.deepStrictEqual(kids, ['seg', 'pausemark', 'seg']);
+  assert.match(l.byId.get('pScript').querySelector('.pausemark').textContent, /⏸ ここで 2分10秒 一時停止しました/);
+  const saved = await openPa1({ pageGet: (id) => ({ page: { ...PAGE(id).page, pauses: [{ atMs: 5000, ms: 60000, why: 'suspend' }] }, segments: [{ id: 's1', atMs: 0, text: 'あ' }, { id: 's2', atMs: 5000, text: 'い' }] }) });
+  assert.match(saved.byId.get('pScript').textContent, /💤 ここで 1分0秒 スリープで止まっていました/);
+  assert.strictEqual(saved.byId.get('pScript').querySelectorAll('.seg').length, 2);
+  saved.byId.get('pMenu').querySelectorAll('[role="menuitem"]')[0].dispatchEvent({ type: 'click' });
+  await saved.drain();
+  assert.ok(!String(saved.called('copy').pop().args[0]).includes('スリープ'), '印をコピーに入れた');
+});
+
+test('N4b・F13: 会議が終わって page:open が来たら記録中のタブをそのページのタブに替える。［この会議は PC の中だけ］は記録中のページにある', async () => {
+  const l = await open();
+  await l.drain();
+  l.fire('onMeetingUpdate', ST({ cloud: true }));
+  await l.drain();
+  assert.strictEqual(l.document.getElementById('meetingLocalOnly').hidden, false);
+  l.fire('onMeetingUpdate', { active: false, finalizing: false, segments: [], pending: 0 });
+  l.fire('onPageOpen', 'pb2');
+  await l.drain();
+  assert.deepStrictEqual(keysOf(l), ['page:pb2']);
+});
+
+test('N4b（足した守り）: 記録中に一覧から開いたページは別のタブで、記録中のバーは記録中のタブにだけ出る。戻るとメモの書きかけが残り、会議の間は記録中のタブを閉じられない。破棄したら閉じる', async () => {
+  let st = ST();
+  const l = await open({ meetingStatus: () => st });
+  await l.drain();
+  l.fire('onMeetingUpdate', st);
+  await l.drain();
+  const ta = l.byId.get('pMemo').querySelector('textarea');
+  ta.value = '書きかけのメモ';
+  ta.dispatchEvent({ type: 'input' });
+  row(l, 0).dispatchEvent({ type: 'click' });
+  await l.drain();
+  assert.deepStrictEqual(keysOf(l), ['live', 'page:pa1'], '記録中のタブを一覧のページで置き換えた');
+  assert.strictEqual(l.document.getElementById('liveBar').hidden, true, 'ほかのページに記録中のバーが出ている');
+  tabs(l)[0].dispatchEvent({ type: 'click' });
+  await l.drain();
+  assert.strictEqual(l.document.getElementById('liveBar').hidden, false);
+  assert.strictEqual(l.byId.get('pMemo').querySelector('textarea').value, '書きかけのメモ', 'タブを行き来したらメモの書きかけが消えた');
+  assert.strictEqual(l.byId.get('pScript').querySelectorAll('.seg').length, 2);
+  assert.strictEqual(tabs(l)[0].querySelector('button'), null, '会議の間に記録中のタブを閉じられる');
+  tabs(l)[0].dispatchEvent({ type: 'auxclick', button: 1 });
+  await l.drain();
+  assert.deepStrictEqual(keysOf(l), ['live', 'page:pa1']);
+  l.window.confirm = () => true;
+  st = { active: false, finalizing: false, segments: [], pending: 0 };
+  l.byId.get('mtDiscardBtn').dispatchEvent({ type: 'click' });
+  await l.drain();
+  assert.strictEqual(l.called('meetingDiscard').length, 1);
+  assert.deepStrictEqual(keysOf(l), ['page:pa1'], '破棄した会議の記録中のタブが残った');
+  assert.deepStrictEqual(l.errors.map(fmt), []);
+});

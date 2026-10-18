@@ -318,6 +318,9 @@
     animation: pulse 1.4s ease-in-out infinite; flex: none; }
   @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .35; } }
   .live .tm { color: var(--muted); font-variant-numeric: tabular-nums; margin-left: auto; }
+  .live[hidden] { display: none; }
+  /* 止めていた時間の印（区間の行の間。区間ではない） */
+  .pausemark { font-size: 12px; color: var(--muted); padding: 4px 4px 4px 8px; margin: 4px 0; border-left: 2px solid var(--line); }
   .prog { font-size: 12px; color: var(--accent-text); margin-bottom: 10px; }
 
   /* ---------- 音声入力 ---------- */
@@ -917,17 +920,21 @@
   let openTabs = [];          // [{ key }] 帯の並び
   let activeTab = '';         // 選んでいるタブの鍵（無ければ ''）
   let lastPageTab = '';       // 最後に選んだページのタブ（サイドバーの「議事録」が戻る先）
+  let beforeLiveTab = '';     // 記録中のタブを選ぶ前に選んでいたタブ（記録中のタブの代わりに覚える）
   let tabsTouched = false;    // 覚えたタブが届く前に利用者が動かしたら、届いた並びで上書きしない
   const tabTitles = new Map();   // ページの id → 題名（一覧・開いたページ・打ち替えた題名から）
   const isPageKey = (k) => typeof k === 'string' && k.startsWith('page:') && k.length > 5;
   const hasTab = (k) => openTabs.some((t) => t.key === k);
   function tabLabel(k) {
     if (isPageKey(k)) return tabTitles.get(k.slice(5)) || '議事録';
-    return { dictation: '音声入力', settings: '設定', live: '● 記録中' }[k] || k;
+    if (k === 'live') return mtPhase === 'paused' ? '⏸ 一時停止中' : '● 記録中';
+    return { dictation: '音声入力', settings: '設定' }[k] || k;
   }
+  // 記録中のタブ（live）は覚えない（N6）。選んでいる間は、その前に選んでいたタブを覚える
   function saveTabs() {
     const open = openTabs.map((t) => t.key).filter((k) => k !== 'live');
-    saveUi({ tabs: { open, active: open.includes(activeTab) ? activeTab : '' } });
+    const active = activeTab === 'live' ? beforeLiveTab : activeTab;
+    saveUi({ tabs: { open, active: open.includes(active) ? active : '' } });
   }
   function renderTabs() {
     const bar = $('tabbar');
@@ -948,7 +955,8 @@
       x.type = 'button'; x.className = 'tx'; x.textContent = '×'; x.tabIndex = -1;
       x.setAttribute('aria-label', 'タブを閉じる');
       x.onclick = (ev) => { if (ev && typeof ev.stopPropagation === 'function') ev.stopPropagation(); closeTab(key); };
-      el.append(t, x);
+      el.append(t);
+      if (!(key === 'live' && mtWasActive)) el.append(x);   // 記録中のタブは会議の間は閉じない（戻る道が無くなる）
       el.onclick = () => activateTab(key, { fromBar: true });
       // 中クリックで閉じる。押したときの preventDefault で Windows の自動スクロールを止め、auxclick を確実に受ける
       el.onmousedown = (ev) => { if (ev && ev.button === 1 && typeof ev.preventDefault === 'function') ev.preventDefault(); };
@@ -984,6 +992,7 @@
     if (!hasTab(key)) return false;
     flushEdits();
     const before = o.before || { tabs: openTabs.slice(), active: activeTab };
+    if (key === 'live' && activeTab !== 'live') beforeLiveTab = activeTab;
     activeTab = key;
     if (isPageKey(key)) lastPageTab = key;
     renderTabs();
@@ -1003,7 +1012,11 @@
         }
         if (activeTab !== key) return true;   // 開いている間に別のタブへ移った
       }
+      const lb = $('liveBar');
+      if (lb) lb.hidden = true;   // 記録中のバーは記録中のタブだけのもの
       showSection('notes');
+    } else if (key === 'live') {
+      showLive();
     } else {
       showSection(key);
       if (o.fromBar && key === 'settings') { refreshPromptInfo(); refreshCloud(); refreshClaude(); }   // 設定を開くたびに聞き直す（0.1.1）
@@ -1039,7 +1052,7 @@
   }
   function closeTab(key) {
     const i = openTabs.findIndex((t) => t.key === key);
-    if (i < 0) return;
+    if (i < 0 || (key === 'live' && mtWasActive)) return;
     tabsTouched = true;
     openTabs.splice(i, 1);
     if (lastPageTab === key) lastPageTab = '';
@@ -1079,11 +1092,13 @@
   });
   // 起動のときに覚えたタブを戻す（main が形の正しい鍵・あるページ・20 個までに絞って渡す。live は来ない）
   function restoreTabs(tb) {
+    const hasLive = hasTab('live');
     const open = [];
     for (const k of tb.open) if ((isPageKey(k) || k === 'dictation' || k === 'settings') && !open.includes(k) && open.length < 20) open.push(k);
     if (!open.length) return;
     openTabs = open.map((key) => ({ key }));
     const active = open.includes(tb.active) ? tb.active : open[open.length - 1];
+    if (hasLive) { openTabs.push({ key: 'live' }); beforeLiveTab = active; renderTabs(); return; }   // 先に記録が始まっていたら記録中のタブのまま
     activateTab(active, { save: false });
   }
   applySide();
@@ -1449,7 +1464,7 @@
       $('pNote').innerHTML = '<div class="empty"><div class="big">左の一覧から議事録を選んでください</div>会議を録音すると、要約とアクションアイテムが自動で作られます。</div>';
       $('pScript').textContent = '';
       // 記録中はメモを書けるようにするので、ここでは消さない
-      if (!$('pMemo').querySelector('textarea')) $('pMemo').textContent = '';
+      if (!liveMemoShown()) $('pMemo').textContent = '';
       setPane('note');
       return;
     }
@@ -1927,6 +1942,7 @@
       el.append(at, tx);
       box.appendChild(el);
     }
+    insertPauseMarks(box, curSegs, curPage.pauses);   // 止めていた時間の印（第1b回 N4c。古いページには無い）
   }
 
   function renderMemo() {
@@ -1990,20 +2006,110 @@
     // 会議が実際より長かったように見える。
     return fmtClock(Math.max(0, (mtStoppedAt || Date.now()) - mtStartedAt - mtPausedMs));
   }
+  // 会議の段（設計書「保存の土台」の 10 の名前。done は締めの後にページを開くので画面には出ない）
+  function meetingPhase(st) {
+    if (!st || !st.active) return 'idle';
+    if (st.finalizing) return 'finalizing';
+    return st.paused ? 'paused' : 'recording';
+  }
+  let mtSt = { active: false };   // 最後に受け取った会議の状態（記録中のタブを開き直すときに描く）
+  let mtPhase = 'idle';
+  let liveMemoWrap = null;        // 記録中のメモ欄（ページのメモ欄と取り違えない）
+  let liveMemo = '';              // 記録中のメモの今の文字（タブを行き来して欄を作り直すときに戻す）
+  const liveMemoShown = () => Boolean(liveMemoWrap && [...$('pMemo').children].includes(liveMemoWrap));
+  // 記録中のタブを選んでいて、ページを開いていない（記録中の描き方を使う）
+  const liveShown = () => activeTab === 'live' && !curId;
+  // ［一時停止］／［再開］と Ctrl+Shift+P は main に頼むだけ。表示は meeting:update の paused で変わる（N4c）
+  async function askPause() {
+    if (typeof window.koeApp.meetingSetPaused !== 'function') return;
+    const ph = meetingPhase(mtSt);
+    if (ph !== 'recording' && ph !== 'paused') return;
+    let r = null;
+    try { r = await window.koeApp.meetingSetPaused(ph === 'recording'); } catch (_) { r = null; }
+    if (!r || r.ok === false) toast('一時停止を切り替えられませんでした（会議が終わっているか、記録していません）');
+  }
+  // 止めていた時間の印（N4c・F6）。区間の行の間（atMs が印の atMs 以上の最初の区間の前。無ければ最後）に .pausemark の行を足す。
+  // .seg ではないので、行の数・出典の飛び先・編集・コピー（curSegs から作る）に入らない
+  function insertPauseMarks(box, segs, pauses) {
+    if (!Array.isArray(pauses) || !pauses.length) return;
+    const rows = [...box.children].filter((e) => e.classList.contains('seg'));
+    const ok = pauses.filter((p) => p && Number.isFinite(p.atMs) && p.atMs >= 0 && Number.isFinite(p.ms) && p.ms >= 0)
+      .sort((a, b) => a.atMs - b.atMs);
+    for (const p of ok) {
+      const d = document.createElement('div');
+      d.className = 'pausemark';
+      d.setAttribute('role', 'note');
+      const dur = fmtDur(Math.round(p.ms / 1000));
+      d.textContent = p.why === 'suspend' ? `💤 ここで ${dur} スリープで止まっていました` : `⏸ ここで ${dur} 一時停止しました`;
+      const i = segs.findIndex((s) => Number(s.atMs) >= p.atMs);
+      const ref = i >= 0 && rows[i] ? rows[i] : null;
+      if (ref) box.insertBefore(d, ref); else box.appendChild(d);
+    }
+  }
+  // 記録中のページの中身（要約の区画の案内・メモ・流れる文字起こしと印）
+  function drawLive(st) {
+    $('pNote').innerHTML = '<div class="empty"><div class="big">会議を終えると、ここに要約が入ります。</div></div>';
+    // 記録中もメモを書けるようにする。ここで書いた内容は
+    // 「会議メモ・アジェンダ」として要約のヒントに使われる。
+    // 区間ごとに setMeetingUi が呼ばれるので、入力中を壊さないよう一度だけ作る。
+    const memoBox = $('pMemo');
+    if (!liveMemoShown()) {
+      memoBox.textContent = '';
+      const wrap = document.createElement('div'); wrap.className = 'field';
+      const l = document.createElement('label');
+      l.textContent = 'メモ・アジェンダ（要約のヒントとして使われます）';
+      const ta = document.createElement('textarea');
+      ta.rows = 10;
+      ta.value = liveMemo;
+      ta.placeholder = '例: 週次定例。議題: 売上見込み / 案件進捗 / 採用状況';
+      let mt = null;
+      ta.oninput = () => {
+        liveMemo = ta.value;
+        clearTimeout(mt);
+        mt = setTimeout(() => window.koeApp.meetingSetMemo(ta.value), 500);
+      };
+      wrap.append(l, ta);
+      memoBox.appendChild(wrap);
+      liveMemoWrap = wrap;
+      // 文字起こしタブへ切り替えるのは記録中のページを開いたこの1回だけ。
+      // 区間が届くたび（meeting:update）に切り替えると、メモを書いている
+      // 最中に文字起こしタブへ引き戻されて書けない。
+      setPane('script');
+    }
+
+    curSegs = st.segments || [];
+    const box = $('pScript'); box.textContent = '';
+    for (const s of curSegs) {
+      // 音声は届いたが文字起こしがまだの区間（pending）は本文が空。空行で出すと
+      // 「その区間は無音だった」と読めてしまうので、待ち中だと分かる文言で埋める。
+      const el = document.createElement('div');
+      el.className = 'seg' + (s.pending ? ' pending' : s.failed ? ' failed' : '');
+      const at = document.createElement('span'); at.className = 'at'; at.textContent = fmtClock(s.atMs);
+      const tx = document.createElement('span'); tx.textContent = s.pending ? '（文字起こし中…）' : s.text;
+      el.append(at, tx); box.appendChild(el);
+    }
+    if (!curSegs.length) {
+      const d = document.createElement('div'); d.className = 'empty';
+      d.textContent = '発言を待っています…（最初の結果は開始から30秒〜1分ほどで表示されます）';
+      box.appendChild(d);
+    }
+    insertPauseMarks(box, curSegs, st.pauses);
+    box.scrollTop = box.scrollHeight;
+  }
   function setMeetingUi(st) {
     mtStartedAt = st.startedAt;
     mtStoppedAt = st.stoppedAt || null;
     mtPausedMs = st.pausedMs || 0;
-    // 記録を新しく始めた瞬間は、開いていた議事録を閉じて白紙から始める。
-    // 前の議事録が開いたままだと、その画面に記録中バーだけが刺さり、
-    // 新しい記録が始まったように見えない。
-    // （記録中に一覧から過去の議事録を開き直すのは今までどおりできる）
+    mtSt = st;
+    const phase = meetingPhase(st);
+    const phaseChanged = phase !== mtPhase;
+    mtPhase = phase;
+    // 記録を新しく始めた瞬間は、記録中のタブ（live）を開いて移る（N4b）。開いていたページのタブは閉じない。
+    // 記録中のタブを開くときに、編集中の要点・タイトル・メモを確定してページを閉じる（ホットキー開始だと blur が来ない）。
+    // （記録中に一覧から過去の議事録を開くのは今までどおりできる。ページは別のタブで開く）
     if (st.active && !mtWasActive) mtLocalOnly = false;   // 新しい会議は送る側から（main の印も会議ごと）
-    if (st.active && !mtWasActive && curId) {
-      flushEdits();   // ホットキー開始だと blur が来ないので、編集中の要点・タイトル・メモをここで確定する
-      curId = null; curPage = null; curSegs = [];
-      renderList(); renderPage();
-    }
+    const started = Boolean(st.active && !mtWasActive);
+    if (started) liveMemo = st.memo || '';
     mtWasActive = Boolean(st.active);
     lockEngineFields(Boolean(st.active));
     $('mtToggleBtn').textContent = st.finalizing ? '作成中…' : st.active ? '■ 終了して作成' : '● 記録開始';
@@ -2017,17 +2123,22 @@
         // 進捗と打ち切りの要素は最初から作っておき、状態に応じて隠す。
         // 更新のたびに作り直すと、押そうとした瞬間にボタンが消えて押せない。
         live.innerHTML = '<span class="rec-dot"></span><span id="liveTitle">議事録を記録中</span>'
+          + '<button class="ghost" id="livePauseBtn" type="button">⏸ 一時停止（Ctrl+Shift+P）</button>'
+          + '<button class="ghost" id="liveStopBtn" type="button">■ 終了して作成</button>'
           + '<button class="ghost" id="liveSkipBtn" type="button" hidden>文字起こしを打ち切って要約</button>'
           + '<span class="tm" id="liveTm">0:00</span>'
+          + '<div class="desc" id="liveResumeNote" role="status" hidden></div>'
           + '<div class="desc" id="liveEta" hidden></div>'
           + '<div class="desc" id="liveSkipped" hidden></div>'
           + '<div class="desc ng" id="liveMic" hidden></div>'
           + '<button class="ghost" id="meetingLocalOnly" type="button" hidden>この会議は PC の中だけ</button>'
           + '<div class="desc" id="meetingLocalOnlyNote" hidden></div>';
-        const col = $('pBody').querySelector('.pcol');   // 本文の列（中央 720px）の頭に置く
-        col.insertBefore(live, col.firstChild);
+        // 録音中のページの頭（題名の下）に置く
+        $('pTitle').parentNode.insertBefore(live, $('pProps'));
         $('liveSkipBtn').onclick = skipPending;
         $('meetingLocalOnly').onclick = setLocalOnly;
+        $('livePauseBtn').onclick = askPause;
+        $('liveStopBtn').onclick = toggleMeeting;
       }
       // 相手の声も録れているかは、会議が終わってから気づくと手遅れなので
       // 記録中のバーに出す。
@@ -2035,61 +2146,46 @@
       $('liveTitle').textContent = st.finalizing ? '議事録を作成しています…'
         : st.paused ? '一時停止中（録音していません）'
         : st.pending > 0 ? `${recLabel}（${st.pending}区間を文字起こし中）` : recLabel;
+      // 作成中は一時停止と停止を出さない。一時停止の口が無い古い preload でも出さない（押しても何も起きない）
+      const pb = $('livePauseBtn');
+      pb.hidden = phase === 'finalizing' || typeof window.koeApp.meetingSetPaused !== 'function';
+      pb.textContent = st.paused ? '▶ 再開（Ctrl+Shift+P）' : '⏸ 一時停止（Ctrl+Shift+P）';
+      $('liveStopBtn').hidden = phase === 'finalizing';
+      // スリープから戻って一時停止のまま（RF4。R1 の文）
+      const rn = $('liveResumeNote');
+      rn.hidden = !st.resumeHint;
+      rn.textContent = st.resumeHint ? 'スリープから戻りました。会議の録音は一時停止しています。続けるときは、録音中のページの［再開］を押してください。' : '';
       renderLiveNotes(st);
       if (!mtTimer) mtTimer = setInterval(() => { const e = $('liveTm'); if (e) e.textContent = mtClock(); }, 500);
-      // 記録中はライブ文字起こしを表示
-      if (!curId) {
-        // 記録中もメモを書けるようにする。ここで書いた内容は
-        // 「会議メモ・アジェンダ」として要約のヒントに使われる。
-        // 区間ごとに setMeetingUi が呼ばれるので、入力中を壊さないよう一度だけ作る。
-        const memoBox = $('pMemo');
-        if (!memoBox.querySelector('textarea')) {
-          memoBox.textContent = '';
-          const wrap = document.createElement('div'); wrap.className = 'field';
-          const l = document.createElement('label');
-          l.textContent = 'メモ・アジェンダ（要約のヒントとして使われます）';
-          const ta = document.createElement('textarea');
-          ta.rows = 10;
-          ta.value = st.memo || '';
-          ta.placeholder = '例: 週次定例。議題: 売上見込み / 案件進捗 / 採用状況';
-          let mt = null;
-          ta.oninput = () => {
-            clearTimeout(mt);
-            mt = setTimeout(() => window.koeApp.meetingSetMemo(ta.value), 500);
-          };
-          wrap.append(l, ta);
-          memoBox.appendChild(wrap);
-          // 文字起こしタブへ切り替えるのは記録を始めたこの1回だけ。
-          // 区間が届くたび（meeting:update）に切り替えると、メモを書いている
-          // 最中に文字起こしタブへ引き戻されて書けない。
-          setPane('script');
-        }
-
-        curSegs = st.segments || [];
-        const box = $('pScript'); box.textContent = '';
-        for (const s of curSegs) {
-          // 音声は届いたが文字起こしがまだの区間（pending）は本文が空。空行で出すと
-          // 「その区間は無音だった」と読めてしまうので、待ち中だと分かる文言で埋める。
-          const el = document.createElement('div');
-          el.className = 'seg' + (s.pending ? ' pending' : s.failed ? ' failed' : '');
-          const at = document.createElement('span'); at.className = 'at'; at.textContent = fmtClock(s.atMs);
-          const tx = document.createElement('span'); tx.textContent = s.pending ? '（文字起こし中…）' : s.text;
-          el.append(at, tx); box.appendChild(el);
-        }
-        if (!curSegs.length) {
-          const d = document.createElement('div'); d.className = 'empty';
-          d.textContent = '発言を待っています…（最初の結果は開始から30秒〜1分ほどで表示されます）';
-          box.appendChild(d);
-        }
-        box.scrollTop = box.scrollHeight;
+      if (started) {
+        if (!hasTab('live')) openTabs.push({ key: 'live' });
+        activateTab('live');   // 開いていたページを確定して閉じ、記録中の描き方で描く（activateTab → showLive）
+      } else {
+        if (phaseChanged) renderTabs();   // タブの名前（● 記録中 ／ ⏸ 一時停止中）
+        if (liveShown()) drawLive(st);
       }
+      live.hidden = !liveShown();   // 記録中のバーは記録中のタブにだけ出す（ほかのページのタブでは、タブの名前が状態を出す）
     } else {
       if (live) live.remove();
       if (mtTimer) { clearInterval(mtTimer); mtTimer = null; }
       if (!st.finalizing) $('pProgress').style.display = 'none';
-      // 記録中のメモ欄は片付ける。この後、作られたページ側の表示に切り替わる
+      // 記録中のメモ欄は片付ける。この後、作られたページ側の表示に切り替わる（page:open で記録中のタブをそのページのタブに替える）
       if (!curId) $('pMemo').textContent = '';
+      liveMemoWrap = null;
+      if (phaseChanged) renderTabs();
     }
+  }
+  // 記録中のタブを選んだ: 開いていたページを確定して閉じ、記録中の描き方で描く
+  function showLive() {
+    if (curId || curPage) {
+      flushEdits();
+      curId = null; curPage = null; curSegs = [];
+      renderList(); renderPage();
+    }
+    showSection('notes');
+    const live = $('liveBar');
+    if (live) live.hidden = false;
+    if (mtSt.active) drawLive(mtSt);
   }
 
   // 終了後に残っている文字起こしの進み具合と、それを打ち切る導線。
@@ -2144,17 +2240,30 @@
     setMeetingUi(await window.koeApp.meetingStatus());
   }
 
-  $('mtToggleBtn').onclick = async () => {
+  // 記録の開始と「終了して作成」（サイドバーの #mtToggleBtn と、記録中のページの #liveStopBtn）
+  async function toggleMeeting() {
     const r = await window.koeApp.meetingToggle();
     if (r && r.ok === false && r.error) { toast(r.error); if (/未設定/.test(r.error)) showEngineSettings(); }
     setMeetingUi(await window.koeApp.meetingStatus());
-  };
+  }
+  $('mtToggleBtn').onclick = toggleMeeting;
   $('mtDiscardBtn').onclick = async () => {
     if (!confirm('この議事録の録音を破棄します。よろしいですか？')) return;
     await window.koeApp.meetingDiscard();
     setMeetingUi(await window.koeApp.meetingStatus());
     $('pProgress').style.display = 'none';
+    if (!mtWasActive) closeTab('live');   // 破棄したら記録中のタブを閉じる（ページは来ない）
   };
+  // Ctrl+Shift+P で一時停止・再開（Q4。NaTsu の窓が前にあるときだけ。記録中で作成中でないときだけ受ける）
+  document.addEventListener('keydown', (ev) => {
+    if (imeEnter(ev)) return;
+    if (!ev.ctrlKey || !ev.shiftKey || ev.altKey || ev.metaKey) return;
+    if (!(ev.code === 'KeyP' || String(ev.key).toLowerCase() === 'p')) return;
+    const ph = meetingPhase(mtSt);
+    if (ph !== 'recording' && ph !== 'paused') return;
+    ev.preventDefault();
+    askPause();
+  });
 
   window.koeApp.onMeetingUpdate((st) => setMeetingUi(st));
   window.koeApp.onMeetingProgress((p) => {
