@@ -91,7 +91,8 @@
   .ic { flex: none; width: 20px; text-align: center; filter: grayscale(1); opacity: .6; }
   .pi { flex: none; width: 20px; text-align: center; }
 
-  main { flex: 1; min-height: 0; padding: 8px 24px 20px; }
+  /* ページは帯の下いっぱい（第1b2回 P-2。内側の余白は持たない） */
+  main { flex: 1; min-height: 0; padding: 0; }
   .tab { display: none; height: 100%; }
   .tab.active { display: block; }
 
@@ -256,22 +257,25 @@
   }
 
   /* ---------- ページ本体 ---------- */
-  .page { flex: 1; min-width: 0; display: flex; flex-direction: column;
-    background: var(--bg); border: 1px solid var(--line);
-    border-radius: 6px; overflow: hidden; }
-  /* 本文の列（第1b回 N4）。見出し・細いタブ・本文の3つとも、中央に最大 720px の同じ列に並べる */
+  /* 第1b2回 P-2: ページは箱を持たない（線・角丸をやめた）。#pageWrap が巻く箱で、題名ごと流れる */
+  .page { flex: 1; min-width: 0; display: block; overflow-y: auto; background: var(--bg); padding: 0 24px 48px; }
+  /* 本文の列（第1b回 N4）。見出し・会議のブロックとも、中央に最大 720px の同じ列に並べる */
   .pcol { max-width: 720px; margin: 0 auto; }
-  .phead { padding: 12px 24px 0; flex: none; }
-  .ptitle { font-size: 40px; font-weight: 700; line-height: 1.25; outline: none; border-radius: 4px; padding: 2px 4px;
+  /* アイコンは上の帯から 96px 下。プロパティの下に線と 20px */
+  .phead { padding: 96px 0 0; margin-bottom: 20px; }
+  .phead > .pcol { border-bottom: 1px solid var(--line); padding-bottom: 8px; }
+  .picon { width: 78px; height: 78px; font-size: 64px; line-height: 78px; text-align: center; margin-bottom: 12px; user-select: none; }
+  .ptitle { font-size: 40px; font-weight: 700; line-height: 48px; outline: none; border-radius: 4px; padding: 0 2px;
     overflow-wrap: anywhere; }
   .ptitle:focus { background: var(--hover); }
-  /* プロパティは「アイコン・名前・値」の行（.k に「アイコン 名前」、.v に値）。要約タイプの行 #pTypeRow も同じ形 */
-  .pprops { margin-top: 10px; }
-  .prop { display: flex; align-items: baseline; gap: 8px; font-size: 13px; padding: 3px 4px; min-height: 28px; }
-  .prop .k { flex: none; width: 150px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  /* プロパティは「アイコン・名前・値」の行（.k に「灰色のアイコン（.ic） 名前」、.v に値）。要約タイプの行 #pTypeRow も同じ形 */
+  .pprops { margin-top: 12px; }
+  .prop { display: flex; align-items: center; gap: 8px; font-size: 14px; line-height: 21px; min-height: 34px; margin-bottom: 4px; padding: 0 2px; }
+  .prop .k { flex: none; width: 160px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .prop .k .ic { display: inline-block; }
   .prop .v { flex: 1; min-width: 0; color: var(--text); overflow-wrap: anywhere; }
   #pTypeRow .v { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-  #pTypeRow .hint { font-size: 11px; color: var(--muted); }
+  #pTypeRow .hint { font-size: 12px; color: var(--muted); }
   /* 上の帯（第1b2回 P-1）: タブの帯の下の高さ 44px の帯。左にパンくず（アイコンと題名）、右に操作（#pActs） */
   .pagebar { display: flex; align-items: center; gap: 8px; height: 44px; padding: 0 12px; flex: none; min-width: 0; }
   .crumb { display: flex; align-items: center; gap: 6px; min-width: 0; height: 24px; padding: 2px 5px 2px 3px; border-radius: 6px;
@@ -292,38 +296,48 @@
   .pacts .pmenu .mitem { background: transparent; border: none; color: var(--text); font: inherit; font-size: 13px;
     text-align: left; padding: 6px 10px; border-radius: 4px; cursor: pointer; }
   .pmenu .mitem:hover, .pmenu .mitem:focus { background: var(--hover); }
-  /* 要約・文字起こし・メモは本文の上の細いタブ（選んでいるものは下線） */
-  .ptabs { padding: 10px 24px 0; flex: none; }
-  .ptabrow { display: flex; gap: 18px; border-bottom: 1px solid var(--line); }
-  .ptab { background: transparent; border: none; border-bottom: 2px solid transparent; margin-bottom: -1px;
-    color: var(--muted); font: inherit; font-size: 13px; padding: 6px 2px; cursor: pointer; }
-  .ptab:hover { color: var(--text); }
-  .ptab.on { color: var(--text); font-weight: 600; border-bottom-color: var(--text); }
-  .pbody { flex: 1; overflow-y: auto; padding: 14px 24px 24px; }
+  /* 会議のブロック（第1b2回 P-2）: AI 要約・メモ・文字起こしの丸いタブと本文を、細い線と角丸 10px で囲む（影は付けない） */
+  .mblock { max-width: 720px; margin: 0 auto; border: 1px solid var(--line); border-radius: 10px; padding: 8px 16px 16px; }
+  .mblock .pcol { max-width: none; }
+  /* 丸いタブ: 線なし・高さ 28px・角丸 14px。選んでいるものは灰色の丸い地（下線はやめた） */
+  .ptabs { padding: 0 0 12px; }
+  .ptabrow { display: flex; gap: 2px; flex-wrap: wrap; }
+  .ptab { background: transparent; border: none; height: 28px; padding: 0 10px; border-radius: 14px;
+    color: var(--muted); font: inherit; font-size: 14px; cursor: pointer; }
+  .ptab:hover { background: var(--hover); }
+  .ptab.on { background: var(--tint); color: var(--text); font-weight: 500; }
+  .pbody { padding: 0; }
   .pane { display: none; }
   .pane.active { display: block; }
-  .note { font-size: 12px; color: var(--danger); margin-bottom: 10px;
-    background: var(--hover); border-radius: 4px; padding: 9px 12px; }
-  .note.info { color: var(--accent-text); background: var(--tint); }
+  /* 要約の失敗の文は囲み（灰色の地・角丸 10px）。頭に ⚠ */
+  .note { font-size: 14px; color: var(--danger); margin-bottom: 12px;
+    background: var(--hover); border-radius: 10px; padding: 12px 16px; }
+  .note::before { content: '⚠ '; }
+  /* 何も開いていないとき（第1b2回 P-2）: アイコンと丸いタブを隠し、ブロックの線も消して空の文だけ */
+  .nopage #pIcon, .nopage .ptabrow { display: none; }
+  .nopage .mblock { border: none; }
+  .nopage .phead > .pcol { border-bottom: none; }
 
   /* ---------- ブロック ---------- */
+  /* 本文（第1b2回 P-2）: 16px・行の高さ 24px・上下 3px（1行ごとに約 30px）。見出しは 20px・600・上 22px */
   .blk { display: flex; align-items: flex-start; gap: 8px; padding: 3px 0; position: relative; }
   /* 点字の6点(U+283F)を使う。「⋮⋮」を字間で詰める方法は環境によって
      3点に見えていた。 */
   .blk .grip { opacity: 0; flex: none; cursor: grab; color: var(--muted); user-select: none;
-    line-height: 1.85; font-size: 13px; padding: 0 2px; }
+    line-height: 24px; font-size: 13px; padding: 0 2px; }
   .blk:hover .grip { opacity: .55; }
   .blk.dragging { opacity: .35; }
   /* 落とす位置の線。影は浮く部品だけに使うので、上下の余白 3px のうち 2px を線に替える（高さは変わらない） */
   .blk.dropmark { border-top: 2px solid var(--accent); padding-top: 1px; }
   .blk.dropmark-after { border-bottom: 2px solid var(--accent); padding-bottom: 1px; }
-  .blk .bullet { color: var(--muted); flex: none; line-height: 1.85; user-select: none; }
-  .blk .txt { flex: 1; line-height: 1.85; outline: none; border-radius: 4px; padding: 1px 5px; min-width: 0;
+  .blk .bullet { color: var(--muted); flex: none; width: 24px; text-align: center; line-height: 24px; user-select: none; }
+  .blk .txt { flex: 1; font-size: 16px; line-height: 24px; outline: none; border-radius: 4px; padding: 0 2px; min-width: 0;
     word-break: break-word; }
   .blk .txt:hover { background: var(--hover); }
   .blk .txt:focus { background: var(--hover); }
-  .blk.heading { margin-top: 18px; }
-  .blk.heading .txt { font-size: 15px; font-weight: 700; letter-spacing: .02em; }
+  .blk.heading { margin-top: 22px; }
+  .blk.heading:first-child { margin-top: 6px; }
+  .blk.heading .txt { font-size: 20px; font-weight: 600; line-height: 26px; }
   .blk.heading .txt::before { content: ''; }
   .blk.todo input[type=checkbox] { width: 16px; height: 16px; margin-top: 4px; accent-color: var(--accent); flex: none; }
   .blk.todo.done .txt { color: var(--muted); text-decoration: line-through; }
@@ -333,22 +347,24 @@
   .blk .del:hover { color: var(--danger); }
 
   /* 会議タイプ */
-  .typeSel { background: var(--tint); border: 1px solid var(--line);
-    color: var(--accent-text); font: inherit; font-size: 11px; font-weight: 600;
-    padding: 3px 8px; border-radius: 4px; cursor: pointer; width: auto; }
+  /* 要約タイプは灰色の札の形（第1b2回 P-2。appearance は変えない） */
+  .typeSel { background: var(--hover); border: none;
+    color: var(--text); font: inherit; font-size: 14px; font-weight: 400;
+    height: 22px; padding: 0 6px; border-radius: 4px; cursor: pointer; width: auto; }
   .typeSel:focus { background: var(--bg); }
   .tbadge { font-size: 10px; font-weight: 700; color: var(--accent-text);
     background: var(--tint); border-radius: 4px; padding: 2px 6px; }
 
   /* アクションの担当・期限 */
   .ameta { display: inline-flex; gap: 4px; margin-left: 6px; vertical-align: middle; flex-wrap: wrap; }
-  .atag { font-size: 10px; font-weight: 600; padding: 2px 7px; border-radius: 4px;
+  /* 札は全部 12px・高さ 20px・角丸 4px・左右 6px（選択肢の札の大きさ。第1b2回 P-2: 緑の文字をやめて灰色の札） */
+  .atag { font-size: 12px; font-weight: 400; height: 20px; line-height: 20px; padding: 0 6px; border-radius: 4px;
     border: none; font-family: inherit; cursor: pointer; white-space: nowrap; }
-  .atag.who { background: var(--hover); color: var(--ok); }
+  .atag.who { background: var(--hover); color: var(--text); }
   .atag.due { background: var(--hover); color: var(--muted); }
-  .atag.due.soon { background: var(--tint); color: var(--accent-text); }
+  .atag.due.soon { background: var(--hover); color: var(--accent-text); }
   .atag.due.over { background: var(--hover); color: var(--danger); }
-  .atag.add { background: transparent; color: var(--muted); border: 1px dashed currentColor; }
+  .atag.add { background: transparent; color: var(--muted); border: none; }
   .atag:hover { filter: brightness(.95); }
   .atag-edit { font-size: 10px; font-weight: 600; padding: 2px 6px; border-radius: 4px;
     width: 132px; border: 1px solid var(--accent); background: var(--bg); color: var(--text);
@@ -367,13 +383,14 @@
 
   /* 出典チップ */
   .cites { display: inline-flex; gap: 3px; margin-left: 6px; vertical-align: middle; }
-  .cite { background: var(--tint); color: var(--accent-text); border: none;
-    font: inherit; font-size: 10px; font-weight: 700; line-height: 1;
-    padding: 3px 6px; border-radius: 4px; cursor: pointer;
+  /* 出典の札は灰色の小さな札（第1b2回 P-2: 青い面をやめた）。押すと根拠の発言へ（文は title の最後の行） */
+  .cite { background: var(--hover); color: var(--muted); border: none;
+    font: inherit; font-size: 12px; font-weight: 400; height: 20px; line-height: 20px;
+    padding: 0 6px; border-radius: 4px; cursor: pointer;
     white-space: nowrap; font-variant-numeric: tabular-nums; }
   .cite:hover { background: var(--tint); color: var(--text); }
-  .nocite { display: inline-block; margin-left: 6px; font-size: 10px; color: var(--muted);
-    border: 1px dashed currentColor; border-radius: 4px; padding: 2px 6px; vertical-align: middle; }
+  .nocite { display: inline-block; margin-left: 6px; font-size: 12px; color: var(--muted); height: 20px; line-height: 18px;
+    border: 1px dashed currentColor; border-radius: 4px; padding: 0 6px; vertical-align: middle; }
   /* 札の意味の違い。「手書き」は人が足した行（照合対象外）なので実線で落ち着かせ、
      「編集済み」は再生成で付け直せる呼びかけなのでアクセント色にする。
      トークンだけで組むので、ダークでもそのまま読める。 */
@@ -381,9 +398,11 @@
   .nocite.stale { color: var(--accent-text); border-color: currentColor; }
 
   /* ---------- 文字起こし ---------- */
-  .seg { display: flex; gap: 10px; padding: 5px 6px; border-radius: 4px; line-height: 1.8; }
-  .seg .at { color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums;
-    flex: none; padding-top: 3px; min-width: 44px; }
+  /* 文字起こし（第1b2回 P-2）: 15px・行の高さ 24px、時刻は 12px の灰色。左に 3px の線（記録中も保存したページも） */
+  #pScript { border-left: 3px solid var(--line); padding-left: 14px; }
+  .seg { display: flex; gap: 10px; padding: 4px 6px; border-radius: 4px; font-size: 15px; line-height: 24px; }
+  .seg .at { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums;
+    flex: none; min-width: 44px; }
   .seg.hit { background: var(--tint); outline: 1px solid var(--accent); }
   .seg.failed { color: var(--danger); }
   .seg.pending { color: var(--muted); }   /* 音声は届いたが文字起こし待ちの区間 */
@@ -469,21 +488,22 @@
     padding: 10px; max-height: 160px; overflow-y: auto; }
   #updBadge .notes.open { display: block; }
 
-  /* 狭い画面（拡大 200% の 1120×780 = 幅 560 の CSS 画素。第1b回 F11）: 題名と余白を詰める（サイドバーの幅は L の区画の狭い画面の規則で 200px まで。第1b2回 L-2） */
-  @media (max-width: 760px) {
-    .ptitle { font-size: 28px; }
-    main { padding: 6px 10px 10px; }
-    .phead { padding: 8px 12px 0; }
-    .ptabs { padding: 8px 12px 0; }
-    .pbody { padding: 10px 12px 16px; }
-    .prop .k { width: 96px; }
-    .blk .txt { overflow-wrap: anywhere; }
-  }
-
   /* 狭い画面（第1b2回 P-1 の区画）: 上の帯の左右を詰め、パンくずの題名は 40vw で省く */
   @media (max-width: 760px) {
     .pagebar { padding: 0 8px; }
     .crumb .ct { max-width: 40vw; }
+  }
+
+  /* 狭い画面（拡大 200% の 1120×780 = 幅 560 の CSS 画素。第1b回 F11。第1b2回 P-2 の区画）: アイコン・題名・余白を詰める
+     （前の共有の塊から P の行を移した。サイドバーは L、設定と音声入力は R の区画） */
+  @media (max-width: 760px) {
+    .page { padding: 0 12px 24px; }
+    .phead { padding-top: 32px; }
+    .picon { width: 48px; height: 48px; font-size: 40px; line-height: 48px; }
+    .ptitle { font-size: 28px; line-height: 34px; }
+    .prop .k { width: 96px; }
+    .mblock { padding: 6px 8px 12px; }
+    .blk .txt { overflow-wrap: anywhere; }
   }
 
   /* 狭い画面（第1b2回 R-1 の区画）: 設定と音声入力の題名と余白を詰め、トグルは左へ戻して折り返しを減らす */
@@ -574,10 +594,11 @@
         <div class="page" id="pageWrap">
           <div class="phead">
             <div class="pcol">
+            <div class="picon" id="pIcon" aria-hidden="true">🎙️</div>
             <div class="ptitle" id="pTitle" contenteditable="true" spellcheck="false"></div>
             <div class="pprops" id="pProps"></div>
             <div class="prop" id="pTypeRow">
-              <span class="k">🏷 <span>要約タイプ</span></span>
+              <span class="k"><span class="ic">🏷</span> <span>要約タイプ</span></span>
               <span class="v">
               <select class="typeSel" id="pType" aria-label="要約タイプ"></select>
               <span class="hint" id="pTypeHint"></span>
@@ -585,11 +606,12 @@
             </div>
             </div>
           </div>
+          <div class="mblock">
           <div class="ptabs">
             <div class="pcol ptabrow" role="tablist" aria-label="ページの中身">
-            <button class="ptab on" id="paneBtnNote" type="button" role="tab" aria-selected="true" aria-controls="pNote">要約</button>
-            <button class="ptab" id="paneBtnScript" type="button" role="tab" aria-selected="false" aria-controls="pScript" tabindex="-1">文字起こし</button>
+            <button class="ptab on" id="paneBtnNote" type="button" role="tab" aria-selected="true" aria-controls="pNote">AI 要約</button>
             <button class="ptab" id="paneBtnMemo" type="button" role="tab" aria-selected="false" aria-controls="pMemo" tabindex="-1">メモ</button>
+            <button class="ptab" id="paneBtnScript" type="button" role="tab" aria-selected="false" aria-controls="pScript" tabindex="-1">文字起こし</button>
             </div>
           </div>
           <div class="pbody" id="pBody">
@@ -599,6 +621,7 @@
             <div id="pScript" class="pane" role="tabpanel" aria-labelledby="paneBtnScript"></div>
             <div id="pMemo" class="pane" role="tabpanel" aria-labelledby="paneBtnMemo"></div>
             </div>
+          </div>
           </div>
         </div>
       </div>
@@ -1192,6 +1215,7 @@
       if (o.fromBar && key === 'settings') { refreshPromptInfo(); refreshCloud(); refreshClaude(); }   // 設定を開くたびに聞き直す（0.1.1）
     }
     if (o.save !== false) saveTabs();
+    syncNoPage();
     return true;
   }
   // 音声入力・設定のタブを開く（1つずつ。あれば移る）
@@ -1690,8 +1714,9 @@
     return true;
   }
 
-  // 要約・文字起こし・メモの細いタブ（role="tab"）。選んでいるタブだけ Tab で届き、←／→／Home／End で移る
-  const PANES = [['note', 'paneBtnNote'], ['script', 'paneBtnScript'], ['memo', 'paneBtnMemo']];
+  // AI 要約・メモ・文字起こしの丸いタブ（role="tab"）。選んでいるタブだけ Tab で届き、←／→／Home／End で移る。
+  // 並びは見えている DOM の並びと同じ（第1b2回 P-2: AI 要約 → メモ → 文字起こし）
+  const PANES = [['note', 'paneBtnNote'], ['memo', 'paneBtnMemo'], ['script', 'paneBtnScript']];
   function setPane(p) {
     pane = p;
     for (const [k, id] of PANES) {
@@ -1770,12 +1795,13 @@
       $('pMore').hidden = true;
       // 議事録を選ぶ前は中身の無いセレクタを出さない（選べない物を見せない）
       $('pTypeRow').style.display = 'none';
-      $('pNote').innerHTML = '<div class="empty"><div class="big">左の一覧から議事録を選んでください</div>会議を録音すると、要約とアクションアイテムが自動で作られます。</div>';
+      $('pNote').innerHTML = '<div class="empty"><div class="big">左の一覧から議事録を選んでください</div>左の一覧から開くか、［＋ 新しい議事録］で記録を始めてください。</div>';
       $('pScript').textContent = '';
       // 記録中はメモを書けるようにするので、ここでは消さない
       if (!liveMemoShown()) $('pMemo').textContent = '';
       setPane('note');
       renderCrumb();
+      syncNoPage();
       return;
     }
     $('pTypeRow').style.display = '';
@@ -1890,6 +1916,12 @@
     renderMemo();
     setPane(pane);
     renderCrumb();
+    syncNoPage();
+  }
+  // 何も開いていない（ページも記録中のタブも無い）ときは #pageWrap に nopage を付け、
+  // ページのアイコンと丸いタブを隠して空の文だけを出す（第1b2回 P-2）
+  function syncNoPage() {
+    $('pageWrap').classList.toggle('nopage', !curPage && activeTab !== 'live');
   }
 
   // チップをその場で編集する。
@@ -1971,13 +2003,10 @@
     }
     if (!curPage.blocks.length) {
       const d = document.createElement('div'); d.className = 'empty';
-      d.innerHTML = '<div class="big">要約はまだありません</div>上の「要約を生成」で作成できます。';
+      d.innerHTML = '<div class="big">要約はまだありません</div>右上の［要約を生成］で作成できます。';
       box.appendChild(d); return;
     }
-    const info = document.createElement('div');
-    info.className = 'note info';
-    info.textContent = '各要点の時刻をクリックすると、根拠になった発言へ移動します。テキストはクリックで直接編集できます。';
-    box.appendChild(info);
+    // 水色の案内の帯はやめた（第1b2回 P-2）。案内の文は出典の札の title の最後の行にある
 
     for (const b of curPage.blocks) {
       const el = document.createElement('div');
@@ -2106,7 +2135,7 @@
           const c = document.createElement('button');
           c.className = 'cite';
           c.textContent = seg ? fmtClock(seg.atMs) : '?';
-          c.title = seg ? `${fmtClock(seg.atMs)} 時点の発言\n${seg.text.slice(0, 80)}`
+          c.title = seg ? `${fmtClock(seg.atMs)} 時点の発言\n${seg.text.slice(0, 80)}\n押すと、根拠になった発言へ移動します`
             : '該当の発言が見つかりません';
           c.onclick = () => jumpToSegment(sid);
           wrap.appendChild(c);
@@ -2137,9 +2166,14 @@
   // 行は「アイコン・名前・値」（.prop の .k に「アイコン 名前」、.v に値。第1b回 N4）
   function renderProps() {
     const props = $('pProps'); props.textContent = '';
+    // 名前の欄のアイコンは灰色の .ic に包む（k.textContent は今と同じ「🔗 出典」。第1b2回 P-2）
     const add = (icon, name, value, color) => {
       const r = document.createElement('div'); r.className = 'prop';
-      const k = document.createElement('span'); k.className = 'k'; k.textContent = icon ? `${icon} ${name}` : name;
+      const k = document.createElement('span'); k.className = 'k';
+      if (icon) {
+        const ic = document.createElement('span'); ic.className = 'ic'; ic.textContent = icon;
+        k.append(ic, document.createTextNode(` ${name}`));
+      } else k.textContent = name;
       const v = document.createElement('span'); v.className = 'v'; v.textContent = value;
       if (color) v.style.color = color;
       r.append(k, v); props.appendChild(r);
@@ -2157,7 +2191,10 @@
     for (const t of Array.isArray(curPage.routeText) ? curPage.routeText : []) {
       if (typeof t !== 'string') continue;
       const i = t.indexOf(': ');
-      add('', i < 0 ? t : t.slice(0, i), i < 0 ? '' : t.slice(i + 2));
+      const name = i < 0 ? t : t.slice(0, i);
+      // 名前の頭の絵文字1文字（☁・🖥・✨）は .ic に包む。名前の文字そのものは変えない
+      const m = /^(\p{Extended_Pictographic}\uFE0F?) (.+)$/u.exec(name);
+      add(m ? m[1] : '', m ? m[2] : name, i < 0 ? '' : t.slice(i + 2));
     }
   }
 

@@ -193,11 +193,14 @@ test('N4: プロパティは「アイコン・名前・値」の行。要約タ�
   assert.ok(rows.map((r) => r[0]).filter((k) => /作成日時|長さ|区間|要約タイプ|文字起こし|要約$/.test(k)).length >= 6, JSON.stringify(rows));
   assert.deepStrictEqual(rows.find((r) => r[0] === '☁ 文字起こし'), ['☁ 文字起こし', 'クラウド（Groq（無料枠））2']);
   assert.ok(l.byId.get('pType').closest('.prop'), '要約タイプがプロパティの行に無い');
+  // 名前の欄のアイコンは灰色の .ic に包む（文字は今のまま。第1b2回 P-2）
+  assert.ok(l.byId.get('pageWrap').querySelectorAll('.prop .k').every((k) => k.querySelector('.ic')), 'アイコンが .ic に包まれていない');
 });
 
 test('N4: 要約・文字起こし・メモは細いタブ（role=tab・aria-selected）。操作は主ボタン1つと「…」の中のコピーと削除', async () => {
   const l = await openPa1();
-  assert.strictEqual(l.byId.get('paneBtnNote').textContent, '要約');
+  assert.strictEqual(l.byId.get('paneBtnNote').textContent, 'AI 要約');
+  assert.deepStrictEqual(l.root.querySelectorAll('.ptabrow [role="tab"]').map((b) => b.id), ['paneBtnNote', 'paneBtnMemo', 'paneBtnScript'], '並びは AI 要約・メモ・文字起こし（第1b2回 P-2）');
   assert.strictEqual(l.byId.get('paneBtnScript').getAttribute('aria-selected'), 'true', '要点の無いページは文字起こしで開く（今と同じ）');
   const acts = l.byId.get('pActs');
   assert.ok(acts.closest('.pagebar'), '操作が上の帯（.pagebar）の中に無い（第1b2回 P-1）');
