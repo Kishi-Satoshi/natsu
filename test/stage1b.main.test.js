@@ -138,6 +138,23 @@ describe('第1b回 一時停止とスリープ（main）', { concurrency: Number
     assert.strictEqual(r.status.resumeHint, true);
   });
 
+  // 点検で足した（計画のテストは変えない）: 2回目のスリープ・はぐれた復帰の合図・知らせ R1 の「会議ごとに1回」
+  test('RF4・F5: 再開した後のはぐれた復帰の合図では止めない。2回目のスリープも止めて再開を促すが、知らせ R1 は会議ごとに1回', SCENE, async () => {
+    const r = await run('suspend-twice');
+    assert.deepStrictEqual(r.overlayJs, ['on', 'off', 'on']);
+    assert.strictEqual(r.afterStray, false, 'スリープを頼んでいない復帰の合図で一時停止した');
+    assert.strictEqual(r.notices.filter((n) => n.startsWith('スリープから戻りました')).length, 1, '知らせ R1 を会議の中で2回出した');
+    assert.strictEqual(r.balloons.filter((b) => b.startsWith('スリープから戻りました')).length, 1);
+    assert.strictEqual(r.status.paused, true);
+    assert.strictEqual(r.status.resumeHint, true);
+  });
+
+  test('RF4: 締めている間（会議の後片付け）のスリープでも何も押さない', SCENE, async () => {
+    const r = await run('suspend-finalizing');
+    assert.strictEqual(r.stateAtSuspend, true, '締めている間になっていない');
+    assert.deepStrictEqual(r.overlayJs, []);
+  });
+
   test('RF4: 会議でなければ、スリープでも何も押さない', SCENE, async () => {
     const r = await run('suspend-idle');
     assert.deepStrictEqual(r.overlayJs, []);

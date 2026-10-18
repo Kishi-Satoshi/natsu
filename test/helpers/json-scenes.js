@@ -410,7 +410,12 @@ module.exports = {
       try {
         o.ask1 = await c.handlers['meeting:set-paused']({}, true);
         o.ask2 = await c.handlers['meeting:set-paused']({}, true);   // 頼んでいる途中なので押さない
-        await c.waitFor(() => status().paused === true && !status().pausing);
+        await c.waitFor(() => status().paused === true);
+        // 頼んだ印は返事が来たときに下ろす（3 秒の上限を待たない）。Date.now を止めているので waitFor の期限は切れない → sleep で見る
+        await c.sleep(30);
+        if (status().pausing) throw new Error('返事が来ても頼んだ印が下りない');
+        o.ask2b = await c.handlers['meeting:set-paused']({}, true);   // もう止まっていて頼んでいる途中でもない → 同じ状態なので押さない
+        if (o.ask2b.pending) throw new Error('止まっているのに一時停止をまた頼んだ');
         now += 2000;
         o.ask3 = await c.handlers['meeting:set-paused']({}, false);
         await c.waitFor(() => status().paused === false && status().pauses.length === 1);
@@ -460,6 +465,40 @@ module.exports = {
       await c.waitFor(() => status().paused === true);
       await c.sleep(50);
       c.out.status = status();
+    } },
+  // 点検で足した場面: スリープを2回。再開した後のはぐれた resume で止めない（suspendAsked を下ろす）・知らせ R1 は会議ごとに1回
+  'suspend-twice': { engine: true, files: { 'settings.json': ({ base }) => JSON.stringify(base) },
+    act: async (c) => {
+      const status = () => c.handlers['meeting:status']({});
+      c.out.start = await c.handlers['meeting:toggle']({});
+      c.listeners['audio:segment']({}, { buffer: new Uint8Array(c.toneWav(3)), durationMs: 3000, final: false });
+      c.power.emit('suspend');
+      await c.waitFor(() => status().paused === true);
+      c.power.emit('resume');
+      await c.sleep(50);
+      c.out.resume = await c.handlers['meeting:set-paused']({}, false);
+      await c.waitFor(() => status().paused === false && !status().pausing);
+      c.power.emit('resume');   // はぐれた復帰の合図（スリープを頼んでいない）
+      await c.sleep(100);
+      c.out.afterStray = status().paused;
+      c.power.emit('suspend');
+      await c.waitFor(() => status().paused === true);
+      c.power.emit('resume');
+      await c.sleep(50);
+      c.out.status = status();
+    } },
+  // 点検で足した場面: 締めている間（meeting-finalizing。meeting はまだある）のスリープでは何も押さない
+  'suspend-finalizing': { engine: true, files: { 'settings.json': ({ base }) => JSON.stringify(base) },
+    act: async (c) => {
+      c.out.start = await c.handlers['meeting:toggle']({});
+      c.listeners['audio:segment']({}, { buffer: new Uint8Array(c.toneWav(3)), durationMs: 3000, final: false });
+      c.out.stop = await c.handlers['meeting:toggle']({});
+      c.out.stateAtSuspend = c.handlers['meeting:status']({}).finalizing;
+      c.power.emit('suspend');
+      c.power.emit('resume');
+      await c.sleep(50);
+      c.listeners['audio:segment']({}, { buffer: new Uint8Array(c.toneWav(2)), durationMs: 2000, final: true });
+      await c.waitFor(() => c.store.listPages().length >= 1);
     } },
   'suspend-idle': { files: { 'settings.json': pretty(TYPICAL) },
     act: async (c) => {
