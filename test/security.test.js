@@ -34,6 +34,12 @@ test('SEC1: Windows ではドライブと大文字・小文字を区別せず、
   assert.strictEqual(S.pageKind('file:///D:/Users/ユーザー/AppData/Local/Programs/NaTsu/resources/app/src/renderer/app.html', W, 'win32'), '');
 });
 
+test('SEC1: URL の形のちがい（%27 と \'、%61 と a）は pathname を decodeURIComponent してそろえる（消すと本体が種類なし＝一番きつい CSP で真っ白）', { timeout: 5000 }, () => {
+  const Q = { app: "file:///C:/Users/a'b/AppData/app.html", overlay: "file:///C:/Users/a'b/AppData/overlay.html" };
+  assert.strictEqual(S.pageKind('file:///C:/Users/a%27b/AppData/app.html', Q, 'win32'), 'app');
+  assert.strictEqual(S.pageKind('file:///opt/natsu/src/renderer/%61pp.html', L, 'linux'), 'app');
+});
+
 test('SEC1・RF19・EL10: 許可の頼み — マイク（音だけ）は app と overlay、画面の取り込み（44 は media の空、45 は display-capture）は overlay だけ。ほかは全部断る', { timeout: 5000 }, () => {
   const rows = [
     ['app', 'media', { mediaTypes: ['audio'] }, true], ['overlay', 'media', { mediaTypes: ['audio'] }, true], ['', 'media', { mediaTypes: ['audio'] }, false],
