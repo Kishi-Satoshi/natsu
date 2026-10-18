@@ -70,6 +70,12 @@ jobs:
             exit 1
           fi
 
+      # 速さの目安（第1a回 PERF）。5,000 ページの見本は npm test の 1 つ 5 秒に入らないので、ここで計る。
+      # Windows の値は、まとめ書きの間隔と draft.json の fsync を決める材料にもする（出力の「決め方」の行）
+      - name: 速さを計る
+        shell: bash
+        run: node tools/perf.js
+
       # 「前の状態 → この commit」の差分をゲートに通す。
       # 素の npm run gate は作業ツリーとしか比べないので、CI では必ず 0 件になる。
       # 基準: PR なら分かれた点、push なら push の前の commit。
