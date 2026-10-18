@@ -319,6 +319,9 @@ test('N4b（足した守り）: 記録中に一覧から開いたページは別
   await l.drain();
   assert.deepStrictEqual(keysOf(l), ['live', 'page:pa1'], '記録中のタブを一覧のページで置き換えた');
   assert.strictEqual(l.document.getElementById('liveBar').hidden, true, 'ほかのページに記録中のバーが出ている');
+  l.fire('onMeetingUpdate', st);   // 本物では区間ごとに届く。ほかのページを見ている間に届いても、記録中のバーは出さない
+  await l.drain();
+  assert.strictEqual(l.document.getElementById('liveBar').hidden, true, '次の meeting:update で、ほかのページに記録中のバーが出た');
   tabs(l)[0].dispatchEvent({ type: 'click' });
   await l.drain();
   assert.strictEqual(l.document.getElementById('liveBar').hidden, false);
@@ -334,6 +337,53 @@ test('N4b（足した守り）: 記録中に一覧から開いたページは別
   await l.drain();
   assert.strictEqual(l.called('meetingDiscard').length, 1);
   assert.deepStrictEqual(keysOf(l), ['page:pa1'], '破棄した会議の記録中のタブが残った');
+  assert.deepStrictEqual(l.errors.map(fmt), []);
+});
+
+// 覚え書きが遅れて届く場面（uiState の返事を手で返す）
+const lateUi = () => { let give; const p = new Promise((r) => { give = r; }); return { uiState: () => p, give: (v) => give(v) }; };
+
+test('N3・N6（足した守り）: 覚えたタブが届く前に記録が始まっていたら、記録中のタブを消さずに選んだまま、覚えたタブを並べる', async () => {
+  const ui = lateUi();
+  const l = await open({ uiState: ui.uiState });
+  await l.drain();
+  l.fire('onMeetingUpdate', ST());
+  await l.drain();
+  assert.deepStrictEqual(keysOf(l), ['live'], '前提: 記録中のタブが開いている');
+  ui.give({ sidebar: { width: 260, collapsed: false }, tabs: { open: ['page:pa1', 'settings'], active: 'page:pa1' } });
+  await l.drain();
+  assert.ok(keysOf(l).includes('live'), '遅れて届いた覚え書きが記録中のタブを消した（次の会議まで戻れない）');
+  assert.strictEqual(tabs(l).find((t) => t.dataset.key === 'live').getAttribute('aria-selected'), 'true', '記録中のタブから移された');
+  assert.strictEqual(l.document.getElementById('liveBar').hidden, false);
+  assert.deepStrictEqual(l.errors.map(fmt), []);
+});
+
+test('N2・N3（足した守り）: 覚え書きが届く前に利用者がサイドバーの幅やタブを変えていたら、遅れて届いた値で上書きしない', async () => {
+  const ui = lateUi();
+  const l = await open({ uiState: ui.uiState });
+  await l.drain();
+  l.byId.get('sideGrip').dispatchEvent({ type: 'keydown', key: 'ArrowRight' });
+  row(l, 0).dispatchEvent({ type: 'click' });
+  await l.drain();
+  assert.strictEqual(l.byId.get('side').style.width, '276px', '前提: ← → で幅が変わる');
+  ui.give({ sidebar: { width: 400, collapsed: true }, tabs: { open: ['settings'], active: 'settings' } });
+  await l.drain();
+  assert.strictEqual(l.byId.get('side').style.width, '276px', '遅れて届いた幅で利用者の幅を上書きした');
+  assert.ok(!l.byId.get('side').closest('.app').className.includes('side-collapsed'), '遅れて届いた畳みで畳んだ');
+  assert.deepStrictEqual(keysOf(l), ['page:pa1'], '遅れて届いたタブで利用者のタブを上書きした');
+  assert.deepStrictEqual(l.errors.map(fmt), []);
+});
+
+test('N4c（足した守り）: 一時停止の口（meetingSetPaused）が無い古い preload では、ページの［一時停止］を出さず、Ctrl+Shift+P でも落ちない', async () => {
+  const OLD = preloadWith('uiState', 'uiSave').replace(/^\s+meetingSetPaused\s*:.*\n/m, '');
+  assert.ok(!/meetingSetPaused/.test(OLD), '前提: 口を外せていない');
+  const l = await load(APP, { preloadSrc: OLD, returns: { pagesSearch: () => LIST } });
+  await l.drain();
+  l.fire('onMeetingUpdate', ST());
+  await l.drain();
+  assert.strictEqual(l.document.getElementById('livePauseBtn').hidden, true, '押しても何も起きない［一時停止］を出した');
+  l.key({ key: 'P', ctrlKey: true, shiftKey: true });
+  await l.drain();
   assert.deepStrictEqual(l.errors.map(fmt), []);
 });
 
