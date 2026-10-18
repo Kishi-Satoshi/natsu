@@ -158,7 +158,7 @@ test('.ps1 は BOM 付きで、生成器を通さない書き出しが無い', (
   assert.deepStrictEqual(bad.map((f) => f.file + ': ' + f.msg), []);
 });
 
-test('G8・JS5: src の JSON の直書き（writeFileSync・writeFile と JSON.stringify が同じ行）を足すと BLOCK。jsonfile.js・画面・WAV・記録の追記・前からある行は通す', () => {
+test('G8・JS5: src の JSON の直書き（writeFileSync・writeFile と JSON.stringify が同じ行）を足すと BLOCK。jsonfile.js・画面・WAV・記録の追記・前からある行は通す', { timeout: 5000 }, () => {
   const R = require('../tools/risk');
   const base = 'const a = 1;\n';
   assert.strictEqual(R.jsonWriteFindings('src/x.js', base, `${base}fs.writeFileSync(f, JSON.stringify(o), 'utf8');\n`).length, 1);
@@ -174,7 +174,7 @@ test('G8・JS5: src の JSON の直書き（writeFileSync・writeFile と JSON.s
   assert.deepStrictEqual(R.jsonWriteFindings('src/x.js', old, ''), [], '消したら鳴った');
 });
 
-test('G8・JS5: analyze が JSON の直書きの検査を呼ぶ（BLOCK の名前は「JSON の直書き」）', () => {
+test('G8・JS5: analyze が JSON の直書きの検査を呼ぶ（BLOCK の名前は「JSON の直書き」）', { timeout: 5000 }, () => {
   const src = read('tools/risk.js');
   assert.ok(src.includes("add('BLOCK', 'JSON の直書き', f,") && src.includes('jsonWriteFindings(f, at(base, f), at(head, f))'));
 });
