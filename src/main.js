@@ -3138,6 +3138,102 @@ function setupIpc() {
     relaunchAndExit();
     return true;
   });
+  // ---- 設定のカード「オンライン」（第1c回 Task C-2。OL7・OL3・OL5・RF30）----
+  // 鍵は画面から受け取って secrets にしまうだけで、画面へは返さない（返すのは「しまってあるか」だけ）。
+  // 記録には送り先の名前と符号だけを書く（鍵・暗号の文字は書かない）。設定を開いただけでは外へ通信しない
+  // （届くかは net.isOnline() だけで見る。外へ出るのは［鍵を確かめる］を押したときの送り先の /models だけ）
+  const claudeCli = require('./claude-cli');
+  const KEY_TEXT = {
+    'bad-id': '送り先が正しくありません。',
+    'bad-key': '鍵の形が正しくありません（空白や日本語を含まない 8〜512 文字）。',
+    unavailable: 'この PC では鍵をしまえません（鍵を暗号にする仕組みが使えません）。',
+    write: '鍵を書き込めませんでした（secrets.json に書けません）。',
+    'no-key': '鍵が入っていません。',
+    'key-unreadable': 'しまってある鍵を読めません。鍵を入れ直してください。',
+    'bad-base': '送り先の URL が正しくありません（https:// で始まる URL を入れてください）。',
+    auth: '鍵が正しくないか、使えなくなっています。',
+    rate: '利用の上限に達しています（鍵は使える可能性があります。少し待ってからもう一度確かめてください）。',
+    server: '送り先が混み合っているか、止まっています。少し待ってからもう一度確かめてください。',
+    'bad-request': '送り先が受け付けませんでした（URL を確かめてください）。',
+    other: 'つながりませんでした（インターネットか、会社の通信の検査を確かめてください）。',
+  };
+  const keyText = (code) => KEY_TEXT[Object.prototype.hasOwnProperty.call(KEY_TEXT, code) ? code : 'other'];
+  const keyProvider = (id) => (typeof id === 'string' && Object.prototype.hasOwnProperty.call(sttCloud.PRESETS, id) ? id : '');
+  ipcMain.handle('cloud:status', async () => {
+    const p = sttProvider();
+    let canStore = false;
+    try { canStore = Boolean(secrets) && await secrets.available(); } catch (_) { canStore = false; }
+    // hasKey は暗号の文字があるかだけを見る（復号しない: 設定を開くたびにキーリングの確かめを出さない）。
+    // 使えるかは［鍵を確かめる］が復号して送り先に聞く
+    const hasKey = Boolean(secrets) && secrets.has(p.id);
+    const up = netOnline();
+    return { ok: true, consent: settings.cloudTranscribe, provider: { id: p.id, label: p.label, host: p.host || '' },
+      hasKey, canStore, online: { up, why: up ? 'ok' : 'offline' } };
+  });
+  ipcMain.handle('cloud:set-key', async (_e, provider, key) => {
+    const id = keyProvider(provider);
+    if (!id) return { ok: false, code: 'bad-id', message: keyText('bad-id') };
+    if (!secrets) return { ok: false, code: 'unavailable', message: keyText('unavailable') };
+    const r = await secrets.set(id, typeof key === 'string' ? key.trim() : '');
+    if (r && r.ok) { engineLog(`文字起こしの経路: ${id} の鍵を保存しました`); return { ok: true }; }
+    const code = (r && r.code) || 'write';
+    engineLog(`文字起こしの経路: ${id} の鍵を保存できません（${code}）`);
+    return { ok: false, code, message: keyText(code) };
+  });
+  ipcMain.handle('cloud:clear-key', async (_e, provider) => {
+    const id = keyProvider(provider);
+    if (!id) return { ok: false, code: 'bad-id', message: keyText('bad-id') };
+    if (!secrets) return { ok: true };
+    const r = secrets.remove(id);
+    if (r && r.ok) { engineLog(`文字起こしの経路: ${id} の鍵を消しました`); return { ok: true }; }
+    const code = (r && r.code) || 'write';
+    return { ok: false, code, message: keyText(code) };
+  });
+  ipcMain.handle('cloud:test-key', async (_e, provider) => {
+    const id = keyProvider(provider);
+    if (!id) return { ok: false, code: 'bad-id', message: keyText('bad-id') };
+    const p = sttCloud.resolveProvider({ sttProvider: id, sttBaseUrl: settings.sttBaseUrl, sttModel: settings.sttModel });
+    if (p.error) return { ok: false, code: 'bad-base', message: keyText('bad-base') };
+    const key = secrets ? await secrets.get(id) : '';
+    if (!key) {
+      const code = secrets && secrets.has(id) ? 'key-unreadable' : 'no-key';
+      return { ok: false, code, message: `${p.label}: ${keyText(code)}` };
+    }
+    const r = await sttCloud.checkKey({ request: (o) => electronNet.request(o), provider: p, key });
+    engineLog(`文字起こしの経路: ${id} の鍵の確かめ → ${r.ok ? 'ok' : r.code}`);
+    if (r.ok) return { ok: true };
+    const message = r.code === 'cert'
+      ? `${p.label}: つながりません（会社の通信の検査で証明書が差し替えられている可能性があります）。続くときは情報システムに ${p.host} への通信の許可を頼んでください。`
+      : `${p.label}: ${keyText(r.code)}`;
+    return { ok: false, code: r.code, message };
+  });
+  // Claude Code の状態（auth status だけ。-p は呼ばない）。同時に押されても子は1つだけ起こす
+  let claudeChecking = null;
+  async function claudeStatusNow() {
+    const f = claudeCli.findClaude({ configured: settings.claudeExe });
+    if (!f.ok) {
+      engineLog(`Claude Code の確かめ: ${f.code}`);
+      return { ok: true, found: false, cmdOnly: f.code === 'cmd-only', method: '', message: claudeCli.claudeMessage(f) };
+    }
+    // 作業フォルダは NaTsu が作る空のフォルダ（B-2・B-3 の claude-run と同じ場所）。利用者のフォルダの設定を読ませない
+    const cwd = path.join(app.getPath('userData'), 'claude-run');
+    try { fs.mkdirSync(cwd, { recursive: true }); } catch (_) { /* 作れなくても auth status は動く */ }
+    const r = await claudeCli.claudeAuthStatus({ cmd: f.cmd, spawn, env: process.env, cwd });
+    engineLog(`Claude Code の確かめ: ${r.ok ? `ok（${r.method}）` : r.code}`);
+    const method = typeof r.method === 'string' ? r.method : '';
+    if (r.ok) return { ok: true, found: true, cmdOnly: false, method, message: '' };
+    return { ok: true, found: r.code !== 'not-found', cmdOnly: false, method, message: claudeCli.claudeMessage(r) };
+  }
+  const claudeStatus = () => {
+    if (!claudeChecking) claudeChecking = claudeStatusNow().finally(() => { claudeChecking = null; });
+    return claudeChecking;
+  };
+  ipcMain.handle('claude:status', () => claudeStatus());
+  ipcMain.handle('claude:test', () => claudeStatus());
+  // ［この会議は PC の中だけ］は片道（true だけを受け取る。押し間違いで送る側に戻らない: C-3）
+  ipcMain.handle('meeting:set-local-only', (_e, on) => (on === true ? setMeetingLocalOnly(true)
+    : { ok: false, localOnly: Boolean(meeting && meeting.localOnly) }));
+
   ipcMain.handle('dialog:pick', async (_e, kind, key) => {
     const filters = kind === 'exe'
       ? [{ name: '実行ファイル', extensions: process.platform === 'win32' ? ['exe'] : ['*'] }]

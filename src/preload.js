@@ -78,6 +78,15 @@ contextBridge.exposeInMainWorld('koeApp', {
   meetingStatus: () => ipcRenderer.invoke('meeting:status'),
   meetingSetMemo: (memo) => ipcRenderer.invoke('meeting:set-memo', memo),
   meetingSkipPending: () => ipcRenderer.invoke('meeting:skipPending'),
+  meetingSetLocalOnly: (on) => ipcRenderer.invoke('meeting:set-local-only', on),
+
+  // オンライン（第1c回 Task C-2）。鍵は送るだけで、main からは受け取らない（状態は「しまってあるか」だけ）
+  cloudStatus: () => ipcRenderer.invoke('cloud:status'),
+  cloudSetKey: (provider, key) => ipcRenderer.invoke('cloud:set-key', provider, key),
+  cloudClearKey: (provider) => ipcRenderer.invoke('cloud:clear-key', provider),
+  cloudTestKey: (provider) => ipcRenderer.invoke('cloud:test-key', provider),
+  claudeStatus: () => ipcRenderer.invoke('claude:status'),
+  claudeTest: () => ipcRenderer.invoke('claude:test'),
 
   // イベント
   onHistoryUpdated: (cb) => ipcRenderer.on('history:updated', (_e, h) => cb(h)),

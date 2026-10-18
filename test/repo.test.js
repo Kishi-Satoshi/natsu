@@ -238,7 +238,8 @@ test('公開したのに画面から呼ばれない API がない', () => {
   };
   // main 側が先に足し、画面がまだ使っていない API（先に足すときだけ入れ、画面が使い始めたら空に戻す）
   // 第0b回 Task 13・14 で入れた取り込みの5つは、画面の取り込みの欄（Task 15）が呼び始めたので外した
-  const PENDING_APP = new Set([]);
+  // 第1c回 Task C-2 で足した meetingSetLocalOnly は、会議中の［この会議は PC の中だけ］（Task C-3）が呼び始めたら外す
+  const PENDING_APP = new Set(['meetingSetLocalOnly']);
   for (const [ns, html] of [['koeApp', appHtml], ['koeOverlay', overlayHtml]]) {
     const names = all(/^\s{2}([A-Za-z][\w$]*):/gm, block(ns));
     const used = new Set(all(new RegExp(`${ns}\\.(\\w+)`, 'g'), html));
@@ -615,6 +616,7 @@ test('設定カードの並びは指定通り', () => {
     'アップデート',
     '動作',
     'ユーザー辞書（認識ヒント）',
+    'オンライン',   // 第1c回 Task C-2: 辞書とエンジンの間にカード「オンライン」（OL7）
     'エンジン',
   ]);
 });
@@ -661,7 +663,7 @@ test('設定の各カードが同じ深さにある（枠の外に出ていな�
   const sec = appHtml.slice(a, appHtml.indexOf('    </section>', a));
   const { heads, depth } = divDepthMap(sec);
   assert.strictEqual(depth, 0, '設定セクションの div が閉じ切れていない');
-  assert.strictEqual(heads.length, 4);
+  assert.strictEqual(heads.length, 5);   // 第1c回 Task C-2: カード「オンライン」を足して 5 つ
   for (const h of heads) {
     assert.strictEqual(h.depth, heads[0].depth, `「${h.title}」だけ深さが違う（枠の外に出ている）`);
   }

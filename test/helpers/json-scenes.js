@@ -235,4 +235,46 @@ module.exports = {
       'data/pages/p2.json': JSON.stringify({ id: 'p2', title: '文字起こしが壊れた会議', blocks: [], createdAt: '2026-10-01T00:00:00.000Z' }),
       'data/transcripts/p2.json': '{"id":"p2","segments":[{"text":"途中' },
     act: async (c) => { c.out.p1 = await c.handlers['page:get']({}, 'p1'); c.out.p2 = await c.handlers['page:get']({}, 'p2'); } },
+  // 第1c回 Task C-2: 設定のカード「オンライン」の IPC を main で本当に呼ぶ（鍵は画面へ返さない・secrets.json は暗号の形・
+  // ［鍵を確かめる］は 127.0.0.1 の偽の送り先の /models へ・Claude Code の場所が無いときの文・［PC の中だけ］は片道）。
+  // Claude Code の場所は無いファイルに向ける（本物の claude を探しに行かない。子は起こさない）
+  'cloud-ipc': { files: { 'settings.json': pretty({ ...TYPICAL, cloudTranscribe: 'on', sttProvider: 'groq', claudeExe: '/natsu-test-missing/claude.exe' }) },
+    act: async (c) => {
+      const KEY = 'gsk_test_0123456789';
+      const h = (ch, ...a) => c.handlers[ch]({}, ...a);
+      const seen = [];
+      const srv = require('node:http').createServer((req, res) => {
+        const ok = req.headers.authorization === `Bearer ${KEY}`;
+        seen.push({ method: req.method, url: req.url, auth: ok });
+        res.statusCode = ok ? 200 : 401;
+        res.end('{"data":[]}');
+      });
+      await new Promise((r) => srv.listen(0, '127.0.0.1', r));
+      const o = c.out;
+      try {
+        o.status0 = await h('cloud:status');
+        o.badId = await h('cloud:set-key', 'evil', KEY);
+        o.badKey = await h('cloud:set-key', 'groq', 'short');
+        o.set = await h('cloud:set-key', 'groq', KEY);
+        o.status1 = await h('cloud:status');
+        o.secretsAfterSet = String(c.read('secrets.json') || '');
+        o.testNoBase = await h('cloud:test-key', 'custom');
+        o.saved = await h('settings:save', UI({ cloudTranscribe: 'on', sttProvider: 'custom', sttBaseUrl: `http://127.0.0.1:${srv.address().port}/v1`, claudeExe: '/natsu-test-missing/claude.exe' }));
+        o.testNoKey = await h('cloud:test-key', 'custom');
+        o.setCustom = await h('cloud:set-key', 'custom', ` ${KEY} `);
+        o.testOk = await h('cloud:test-key', 'custom');
+        o.setWrong = await h('cloud:set-key', 'custom', 'gsk_wrong_00000000');
+        o.testAuth = await h('cloud:test-key', 'custom');
+        o.statusCustom = await h('cloud:status');
+        o.clear = await h('cloud:clear-key', 'custom');
+        o.statusCleared = await h('cloud:status');
+        o.claude = await h('claude:status');
+        o.claudeTest = await h('claude:test');
+        o.localOnlyTrue = await h('meeting:set-local-only', true);
+        o.localOnlyFalse = await h('meeting:set-local-only', false);
+        o.seen = seen;
+      } finally {
+        await new Promise((r) => srv.close(r));
+      }
+    } },
 };

@@ -80,7 +80,7 @@
   button.ghost:disabled { opacity: .5; cursor: default; }
   input:disabled, select:disabled, textarea:disabled { opacity: .55; cursor: not-allowed; }
 
-  input[type="text"], select, textarea {
+  input[type="text"], input[type="password"], select, textarea {
     background: rgba(var(--srf),.62); border: 1px solid rgba(var(--srf),.78);
     color: var(--ink); font: inherit; padding: 8px 12px; border-radius: var(--r-md); width: 100%;
     box-shadow: inset 0 1px 2px rgba(var(--inkrgb),.06); }
@@ -579,6 +579,61 @@
                 上の辞書が優先で、余った分だけ使われます。</span></span></label>
         </div>
         <div class="card">
+          <h2>オンライン</h2>
+          <div class="field">
+            <label for="cloudTranscribe">オンラインの文字起こし</label>
+            <select id="cloudTranscribe">
+              <option value="ask">まだ決めていない（PC の中で文字起こし）</option>
+              <option value="on">使う（オンラインのときはクラウド）</option>
+              <option value="off">使わない（いつも PC の中）</option>
+            </select>
+            <div class="desc">音声が PC の外へ出るのは「使う」を選んだときだけです。インターネットにつながっていないときは、いつも PC の中で文字起こしします。
+              1on1・面談など外に出したくない会議は、議事録の画面の［この会議は PC の中だけ］を押してください。</div>
+          </div>
+          <div class="field">
+            <label for="sttProvider">文字起こしの送り先</label>
+            <select id="sttProvider">
+              <option value="groq">Groq（無料枠）</option>
+              <option value="openai">OpenAI</option>
+              <option value="custom">そのほか</option>
+            </select>
+            <div class="desc">Groq の無料枠は1日 8 時間分の音声まで。推論の入出力は保存しない（不正利用の見張りの記録は 30 日まで。Groq の設定の Zero Data Retention で止められる）。OpenAI は1分 約 1 円。</div>
+          </div>
+          <div class="field" hidden>
+            <label for="sttBaseUrl">送り先の URL（そのほか）</label>
+            <input type="text" id="sttBaseUrl" placeholder="https://…/v1" spellcheck="false" />
+            <div class="desc">OpenAI と同じ形の口の URL（https:// で始まるもの）。</div>
+          </div>
+          <div class="field" hidden>
+            <label for="sttModel">送り先のモデル</label>
+            <input type="text" id="sttModel" placeholder="whisper-large-v3" spellcheck="false" />
+          </div>
+          <div class="field">
+            <label for="sttKey">送り先の鍵（API キー）</label>
+            <div class="row">
+              <input type="password" id="sttKey" autocomplete="off" spellcheck="false" />
+              <button class="ghost" id="sttKeySave" type="button">保存</button>
+              <button class="ghost" id="sttKeyTest" type="button">鍵を確かめる</button>
+              <button class="ghost" id="sttKeyClear" type="button">鍵を消す</button>
+            </div>
+            <div class="desc">鍵の状態: <span id="sttKeyState"></span>（鍵は Windows の仕組みで暗号にして、この PC にだけしまいます。画面には出しません）</div>
+          </div>
+          <div class="field">
+            <label for="claudeTest">要約（Claude Code）</label>
+            <div class="row">
+              <span class="eng-state" id="claudeState"></span>
+              <button class="ghost" id="claudeTest" type="button">Claude Code を確かめる</button>
+            </div>
+            <div class="desc" id="claudeHelp">PowerShell で <code>irm https://claude.ai/install.ps1 | iex</code> を実行して入れ、ターミナルで <code>claude</code> を一度起動してログインします（Git for Windows は無くても動きます）。
+              要約は各自の Claude のプランの上限（5時間ごと・週ごと）を使います。</div>
+          </div>
+          <div class="field">
+            <label for="claudeExe">Claude Code の場所（空なら自動で探します）</label>
+            <input type="text" id="claudeExe" placeholder="claude.exe の場所" spellcheck="false" />
+          </div>
+          <div class="desc save-msg" id="onlineMsg"></div>
+        </div>
+        <div class="card">
           <h2>エンジン</h2>
           <div class="field lockNote" hidden><div class="desc ng">記録中はエンジンの設定を変更できません</div></div>
           <div class="row" style="display:flex;gap:8px;align-items:center">
@@ -741,7 +796,7 @@
   $('tabBtnNotes').onclick = () => showTab('notes');
   $('tabBtnDictation').onclick = () => showTab('dictation');
   // 設定を開くたびに認識ヒントの状態を聞き直す（記録の途中で main がヒントを止めることがある。0.1.1）
-  $('tabBtnSettings').onclick = () => { showTab('settings'); refreshPromptInfo(); };
+  $('tabBtnSettings').onclick = () => { showTab('settings'); refreshPromptInfo(); refreshCloud(); refreshClaude(); };
   // 取り込みの欄（第0b回 R7）が最後に描いた main の写し（engineFetchStatus と進み具合の知らせ）。無ければ null
   let lastFetch = null;
   // 取り込める PC で、取り込んだエンジンを使う側（詳細設定のパスが空）の組がまだそろっていない（文字起こしでも要約でも）
@@ -1814,6 +1869,13 @@
     $('stayInTray').checked = Boolean(s.stayInTray);              // 既定 false
     $('themeSel').value = ['light', 'dark'].includes(s.theme) ? s.theme : 'system';
     $('useSystemAudio').checked = Boolean(s.useSystemAudio);      // 既定 false
+    // オンライン（第1c回 C-2）。同意の分からない値は送らない側（ask）で見せる
+    $('cloudTranscribe').value = ['on', 'off'].includes(s.cloudTranscribe) ? s.cloudTranscribe : 'ask';
+    $('sttProvider').value = ['openai', 'custom'].includes(s.sttProvider) ? s.sttProvider : 'groq';
+    $('sttBaseUrl').value = s.sttBaseUrl || '';
+    $('sttModel').value = s.sttModel || '';
+    $('claudeExe').value = s.claudeExe || '';
+    showCustomFields();
     loadSpeaker();
     loadMics(s.micId || '');
   }
@@ -2175,7 +2237,14 @@
       stayInTray: $('stayInTray').checked,
       theme: $('themeSel').value,
       useSystemAudio: $('useSystemAudio').checked,
+      // オンライン（第1c回 C-2）。鍵（#sttKey）はここに入れない（cloudSetKey だけで送る: RF30）
+      cloudTranscribe: $('cloudTranscribe').value,
+      sttProvider: $('sttProvider').value,
+      sttBaseUrl: $('sttBaseUrl').value.trim(),
+      sttModel: $('sttModel').value.trim(),
+      claudeExe: $('claudeExe').value.trim(),
     };
+    const prevClaudeExe = settings.claudeExe || '';
     const r = await window.koeApp.saveSettings(next);
     const m = $('saveMsg');
     if (r.ok) {
@@ -2199,6 +2268,8 @@
       refreshEngineFetch();   // 詳細設定のパスを入れた・空にした側は、手の設定と取り込んだエンジンが入れ替わる（第0b回）
       refreshHotkeyState();
       refreshPromptInfo();
+      refreshCloud();   // 送り先が変わると、鍵がしまってあるかも変わる
+      if ((settings.claudeExe || '') !== prevClaudeExe) refreshClaude();   // 場所を変えたときだけ確かめ直す（保存のたびに子を起こさない）
       return true;
     }
     m.textContent = r.error || '保存に失敗しました'; m.className = 'save-msg ng';
@@ -2208,6 +2279,83 @@
   // フォーカスを外したときに発火するので、パスを打っている途中で
   // エンジンが再起動されることはない。トグルやセレクトは押した瞬間に効く。
   $('tabSettings').addEventListener('change', () => save(false));
+
+  // ---------------- オンライン（第1c回 Task C-2。OL7・OL3・OL5・RF30） ----------------
+  // 描くのは main の写し（cloudStatus。鍵は入っていない）。鍵は cloudSetKey で送るだけで、送ったら欄を空にする。
+  // Claude Code の状態は auth status だけ（claudeStatus。要約の -p は呼ばない）
+  const KEY_STATE = { saved: '保存済み', none: '未設定', cannot: 'この PC では鍵をしまえません' };
+  const CLAUDE_OK = 'ログイン済み（claude.ai）';
+  function showCustomFields() {
+    const custom = $('sttProvider').value === 'custom';
+    $('sttBaseUrl').closest('.field').hidden = !custom;
+    $('sttModel').closest('.field').hidden = !custom;
+  }
+  $('sttProvider').addEventListener('change', showCustomFields);
+  function onlineMsg(text, ok) {
+    const m = $('onlineMsg');
+    m.textContent = text || '';
+    m.className = ok === true ? 'desc save-msg ok' : ok === false ? 'desc save-msg ng' : 'desc save-msg';
+  }
+  function renderCloud(s) {
+    const st = s && typeof s === 'object' && s.provider && typeof s.provider === 'object' ? s : null;
+    const hasKey = Boolean(st && st.hasKey);
+    const canStore = Boolean(st && st.canStore);
+    // 状態は3つの言葉だけ（鍵の一部も見せない）
+    $('sttKeyState').textContent = !st ? '' : hasKey ? KEY_STATE.saved : canStore ? KEY_STATE.none : KEY_STATE.cannot;
+    $('sttKeySave').disabled = !canStore;
+    $('sttKeyTest').disabled = !hasKey;
+    $('sttKeyClear').disabled = !hasKey;
+  }
+  async function refreshCloud() {
+    if (!window.koeApp.cloudStatus) return;   // 古い preload
+    let s = null;
+    try { s = await window.koeApp.cloudStatus(); } catch (_) { s = null; }
+    renderCloud(s);
+  }
+  function renderClaude(s) {
+    const el = $('claudeState');
+    const ok = Boolean(s && s.ok && s.found && s.method === 'claude.ai' && !s.message);
+    el.textContent = ok ? CLAUDE_OK : ((s && typeof s.message === 'string' && s.message) || 'Claude Code の状態を読めませんでした');
+    el.className = ok ? 'eng-state ok' : 'eng-state ng';
+  }
+  async function refreshClaude() {
+    if (!window.koeApp.claudeStatus) return;
+    let s = null;
+    try { s = await window.koeApp.claudeStatus(); } catch (_) { s = null; }
+    renderClaude(s);
+  }
+  $('sttKeySave').onclick = async () => {
+    const el = $('sttKey');
+    const key = el.value.trim();
+    el.value = '';   // 鍵は欄に残さない（保存できなくても。画面に鍵を置いたままにしない: RF30）
+    if (!key) { onlineMsg('鍵を入れてから［保存］を押してください', false); return; }
+    let r = null;
+    try { r = await window.koeApp.cloudSetKey($('sttProvider').value, key); } catch (_) { r = null; }
+    if (r && r.ok) onlineMsg('鍵を保存しました', true);
+    else onlineMsg((r && r.message) || '鍵を保存できませんでした', false);
+    await refreshCloud();
+  };
+  $('sttKeyTest').onclick = async () => {
+    onlineMsg('鍵を確かめています…');
+    let r = null;
+    try { r = await window.koeApp.cloudTestKey($('sttProvider').value); } catch (_) { r = null; }
+    if (r && r.ok) onlineMsg('鍵は使えます', true);
+    else onlineMsg((r && r.message) || '鍵を確かめられませんでした', false);
+  };
+  $('sttKeyClear').onclick = async () => {
+    let r = null;
+    try { r = await window.koeApp.cloudClearKey($('sttProvider').value); } catch (_) { r = null; }
+    if (r && r.ok) onlineMsg('鍵を消しました', true);
+    else onlineMsg((r && r.message) || '鍵を消せませんでした', false);
+    await refreshCloud();
+  };
+  $('claudeTest').onclick = async () => {
+    $('claudeState').textContent = '確かめています…';
+    $('claudeState').className = 'eng-state';
+    let s = null;
+    try { s = await window.koeApp.claudeTest(); } catch (_) { s = null; }
+    renderClaude(s);
+  };
 
   // ---------------- アップデート ----------------
   let pendingUpdate = null;
@@ -2364,6 +2512,8 @@
     refreshEngineState();
     refreshHotkeyState();
     refreshPromptInfo();
+    refreshCloud();
+    refreshClaude();
     mtypes = await window.koeApp.meetingTypes();
     try {
       const v = await window.koeApp.appVersion();

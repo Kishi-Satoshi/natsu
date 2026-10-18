@@ -18,12 +18,13 @@ const TODAY = {
   theme: 'system', stayInTray: false, dictionary: [], useBuiltinTerms: true, useSystemAudio: false, maxHistory: 500, segmentSec: 75,
   sumCtx: 16384, engineIdleMin: 10,
 };
-// 今の画面（app.html の save）が送る 29 のキー（pillCustom は録音バーを動かしたときだけ main が書く）
+// 第1a回の画面（app.html の save）が送る 29 のキー（第1c回 Task C-2 で下の5つを足して 34。pillCustom は録音バーを動かしたときだけ main が書く）
 const UI = { ...TODAY, localServerExe: 'C:\\e\\w.exe', localModelPath: 'C:\\m\\g.bin', theme: 'dark', micId: 'mic-1', dictionary: ['見積', '検収'] };
 delete UI.pillCustom; delete UI.maxHistory;
 // 第1c回 Task C-1: TODAY に足す（ほかの 30 は変えない）。意図: 既定が今の値のまま・決まりのないキーを足せない
-// （UI は今の画面が送るキーなので、C-2 の画面の前の 29 のまま）
 Object.assign(TODAY, { cloudTranscribe: 'ask', sttProvider: 'groq', sttBaseUrl: '', sttModel: '', claudeExe: '' });
+// 第1c回 Task C-2: 画面のカード「オンライン」が5つのキーも送る（34 のキー）。既定でない値で往復することを見る
+Object.assign(UI, { cloudTranscribe: 'on', sttProvider: 'custom', sttBaseUrl: 'https://stt.example/v1', sttModel: 'whisper-large-v3', claudeExe: 'C:\\c\\claude.exe' });
 const legacy = (raw) => S.normalizeSettings({ ...D, ...raw }, D);
 const ON = (key, v) => (key === 'useBuiltinTerms' ? v !== false : Boolean(v));
 const BOOLS = ['useVad', 'suppressNst', 'autoPaste', 'removeFillers', 'soundFeedback', 'autoLaunch', 'stayInTray', 'useBuiltinTerms', 'useSystemAudio'];
