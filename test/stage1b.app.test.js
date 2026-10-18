@@ -26,7 +26,9 @@ test('N2: サイドバーは議事録のタブの外にいて、上から NaTsu�
   await l.drain();
   const side = l.byId.get('side');
   assert.ok(side && !side.closest('#tabNotes'), 'サイドバーが議事録のタブの中にある（ほかのタブで消える）');
-  const order = ['wordmark', 'searchBox', 'mtToggleBtn', 'tabBtnNotes', 'plist', 'tabBtnDictation', 'tabBtnSettings'];
+  // 第1b2回 L-2: 検索の欄は検索の窓へ移り、サイドバーには窓を開く［🔍 検索］（#sideSearch）がある
+  assert.ok(!side.querySelector('#searchBox'), '検索の欄がサイドバーに残っている');
+  const order = ['wordmark', 'sideSearch', 'mtToggleBtn', 'tabBtnNotes', 'plist', 'tabBtnDictation', 'tabBtnSettings'];
   const all = side._walk([]);
   const at = (k) => all.findIndex((e) => e.id === k || e.className === k);
   assert.deepStrictEqual(order.map(at).filter((i) => i < 0), [], '足りない部品がある');
@@ -405,8 +407,10 @@ test('画面の使いやすさ・F12: キーボードだけで、サイドバー
   const l = await openPa1();
   const order = tabbables(l);
   const at = (k) => order.indexOf(k);
-  for (const k of ['searchBox', 'mtToggleBtn', 'tabBtnDictation', 'tabBtnSettings', 'sideCollapse', 'sideGrip', 'page:pa1', 'pMore', 'pTitle', 'pType', 'paneBtnScript']) assert.ok(at(k) >= 0, `${k} に Tab で届かない`);
-  const want = ['searchBox', 'mtToggleBtn', 'sideGrip', 'page:pa1', 'pMore', 'pTitle', 'pType', 'paneBtnScript'];
+  // 第1b2回 L-2: 検索の欄は閉じた検索の窓（hidden）の中なので届かない。サイドバーは［🔍 検索］から
+  for (const k of ['sideSearch', 'mtToggleBtn', 'tabBtnDictation', 'tabBtnSettings', 'sideCollapse', 'sideGrip', 'page:pa1', 'pMore', 'pTitle', 'pType', 'paneBtnScript']) assert.ok(at(k) >= 0, `${k} に Tab で届かない`);
+  assert.ok(!order.includes('searchBox'), '閉じた検索の窓の中に Tab で届く');
+  const want = ['sideSearch', 'mtToggleBtn', 'sideGrip', 'page:pa1', 'pMore', 'pTitle', 'pType', 'paneBtnScript'];
   assert.deepStrictEqual(want.map(at), [...want.map(at)].sort((a, b) => a - b), order.join(' → '));
   assert.ok(!order.includes('paneBtnNote'), '選んでいない細いタブまで Tab で届く（矢印で移る形にする）');
 });

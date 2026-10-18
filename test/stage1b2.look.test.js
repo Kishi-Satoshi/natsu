@@ -69,3 +69,103 @@ test('1b2 L-1: ボタンは高さ 28px・角丸 6px・500。入力欄は角丸 6
   assert.strictEqual(S.declsFor(rules, 'input[type="text"]', { at: '' })['border-radius'], '6px');
   assert.ok(!rules.some((r) => /::-webkit-scrollbar/.test(r.sel)), '独自のスクロールバーが残っている');
 });
+
+// ---------------- L-2: サイドバーの行と検索の窓（画面を偽 DOM で本当に走らせる） ----------------
+const { load } = require('./helpers/simrun.js');
+const PRELOAD = fs.readFileSync(path.join(__dirname, '..', 'src', 'preload.js'), 'utf8');
+const LIST = [{ id: 'pa1', title: '定例（見本）', date: '2026-10-16', durationSec: 1800, hasSummary: true, meetingType: 'standup' },
+  { id: 'pb2', title: '設計の打ち合わせ（見本）', date: '2026-10-15', durationSec: 900, hasSummary: false }];
+const PAGE = (id) => ({ page: { id, title: LIST.find((p) => p.id === id).title, createdAt: '2026-10-16T01:00:00.000Z', durationSec: 1800, blocks: [], memo: '', meetingType: 'general' }, segments: [] });
+const TYPES = [{ key: 'general', label: '一般・その他' }, { key: 'standup', label: '定例・進捗報告' }];
+const boot = async (o = {}) => { const l = await load(APP, { preloadSrc: PRELOAD, returns: { pagesSearch: (q) => (q ? LIST.filter((p) => p.title.includes(q)) : LIST), pageGet: PAGE, meetingTypes: () => TYPES, ...o } }); await l.drain(); return l; };
+const fmt = (e) => `${e.constructor.name}: ${e.message}`;
+
+test('1b2 L-2・G5: サイドバーの議事録は「🎙️ 題名」の1行。日付・長さ・要約なし・要約タイプは行の title（要約なしが先）', async () => {
+  const l = await boot();
+  const rows = l.byId.get('plist').querySelectorAll('.pitem');
+  assert.deepStrictEqual(rows.map((r) => [r.querySelector('.pi').textContent, r.querySelector('.t').textContent]),
+    [['🎙️', '定例（見本）'], ['🎙️', '設計の打ち合わせ（見本）']]);
+  assert.ok(rows.every((r) => !r.querySelector('.m') && !r.querySelector('.snip') && !r.querySelector('.tbadge')), '2行目が残っている');
+  assert.match(rows[0].getAttribute('title'), /^2026-10-16 ・ 30分0秒 ・ 定例・進捗報告$/);
+  assert.match(rows[1].getAttribute('title'), /^2026-10-15 ・ 15分0秒 ・ 要約なし$/);
+  // 要約が無くタイプもある行で、「要約なし」がタイプより先（上の2行では並びを確かめられない）
+  const l2 = await boot({ pagesSearch: () => [{ id: 'pc3', title: '振り返り（見本）', date: '2026-10-14', durationSec: 600, hasSummary: false, meetingType: 'standup' }] });
+  assert.strictEqual(l2.byId.get('plist').querySelector('.pitem').getAttribute('title'), '2026-10-14 ・ 10分0秒 ・ 要約なし ・ 定例・進捗報告');
+});
+
+test('1b2 L-2: サイドバーの頭はロゴと NaTsu と飾りの ▾。行は 🔍 検索・＋ 新しい議事録・見出し・議事録・音声入力・設定。« はフォーカスで見える', async () => {
+  const l = await boot();
+  const side = l.byId.get('side');
+  assert.ok(side.querySelector('.logo .wave') && side.querySelector('.ws-caret'));
+  assert.strictEqual(l.byId.get('sideSearch').textContent, '🔍検索');
+  assert.strictEqual(l.byId.get('mtToggleBtn').textContent, '＋ 新しい議事録');
+  assert.ok(!side.querySelector('#searchBox') && !side.querySelector('#fltAll'), '検索の欄と絞り込みがサイドバーに残っている');
+  for (const id of ['sideSearch', 'mtToggleBtn', 'tabBtnDictation', 'tabBtnSettings']) assert.ok(l.byId.get(id).className.split(' ').includes('side-row'), id);
+  assert.strictEqual(S.declsFor(rules, '#sideCollapse:focus-visible', { at: '' }).opacity, '1', 'キーボードで « が見えない');
+});
+
+test('1b2 L-2・G4: ［検索］で窓が開いて入力欄へ。Esc で閉じて［検索］へ戻る。閉じている間は窓に Tab で届かない', async () => {
+  const l = await boot();
+  const pal = l.byId.get('palette'), btn = l.byId.get('sideSearch'), box = l.byId.get('searchBox');
+  assert.strictEqual(pal.hidden, true);
+  btn.focus(); btn.dispatchEvent({ type: 'click' }); await l.drain();
+  assert.strictEqual(pal.hidden, false);
+  assert.ok(box.closest('#palette') && l.byId.get('fltFull').closest('#palette'), '検索の欄と絞り込みが窓の中に無い（台帳は移した先を見ない）');
+  assert.strictEqual(S.declsFor(rules, '.palette[hidden]', { at: '' }).display, 'none', '本物の画面で hidden が display に負ける');
+  assert.ok(l.document.activeElement === box, '入力欄にフォーカスが無い');   // 要素どうしの strictEqual は、落ちたときの差分の表示で偽 DOM の木を丸ごと書き出して止まる
+  assert.deepStrictEqual(l.byId.get('palList').querySelectorAll('.pitem').length, 2, '開いたら今の絞り込みで結果を描く');
+  l.key({ key: 'Escape' }, box); await l.drain();
+  assert.strictEqual(pal.hidden, true);
+  assert.ok(l.document.activeElement === btn, '閉じても［検索］へフォーカスが戻らない');
+});
+
+test('1b2 L-2・G3: Ctrl+P で開く（preventDefault）。Ctrl+Shift+P・変換中・ホットキーを入れている最中は開かない', async () => {
+  const l = await boot();
+  const pal = l.byId.get('palette');
+  const ev = l.key({ key: 'p', code: 'KeyP', ctrlKey: true }); await l.drain();
+  assert.strictEqual(pal.hidden, false); assert.strictEqual(ev.defaultPrevented, true);
+  l.key({ key: 'Escape' }, l.byId.get('searchBox')); await l.drain();
+  l.key({ key: 'P', code: 'KeyP', ctrlKey: true, shiftKey: true }); await l.drain();
+  assert.strictEqual(pal.hidden, true, 'Ctrl+Shift+P（一時停止）で開いた');
+  l.key({ key: 'p', code: 'KeyP', ctrlKey: true, isComposing: true }); await l.drain();
+  assert.strictEqual(pal.hidden, true, '変換中に開いた');
+  l.key({ key: 'p', code: 'KeyP', ctrlKey: true }, l.byId.get('hotkey')); await l.drain();   // attachHotkey が先に preventDefault する
+  assert.strictEqual(pal.hidden, true, 'ホットキーを入れている最中に開いた');
+});
+
+test('1b2 L-2: ↓ で選び Enter で今のタブ、Ctrl+Enter で新しいタブに開いて窓を閉じる。Tab は窓の中を回る', async () => {
+  const l = await boot();
+  const pageTabs = () => l.byId.get('tabbar').querySelectorAll('[role="tab"]').map((t) => t.dataset.key).filter((k) => k.startsWith('page:'));
+  const box = l.byId.get('searchBox');
+  l.key({ key: 'p', code: 'KeyP', ctrlKey: true }); await l.drain();
+  l.key({ key: 'Enter' }, box); await l.drain();   // 1つ目の行を今のタブで
+  assert.strictEqual(l.byId.get('palette').hidden, true);
+  assert.deepStrictEqual(pageTabs(), ['page:pa1']);
+  l.key({ key: 'p', code: 'KeyP', ctrlKey: true }); await l.drain();
+  l.key({ key: 'ArrowDown' }, box); await l.drain();
+  assert.strictEqual(l.byId.get('palList').querySelectorAll('.pitem.kbd').map((r) => r.querySelector('.t').textContent).join(), '設計の打ち合わせ（見本）');
+  l.key({ key: 'Enter', ctrlKey: true }, box); await l.drain();
+  assert.strictEqual(l.byId.get('palette').hidden, true);
+  assert.deepStrictEqual(l.called('pageGet').map((c) => c.args[0]).pop(), 'pb2');
+  assert.deepStrictEqual(pageTabs(), ['page:pa1', 'page:pb2'], 'Ctrl+Enter が新しいタブにならない（今のタブを置き換えた）');
+  l.key({ key: 'p', code: 'KeyP', ctrlKey: true }); await l.drain();
+  const rows = l.byId.get('palList').querySelectorAll('.pitem');
+  const last = rows[rows.length - 1];   // 窓の中の最後の届く部品（結果の行も Tab で届く）
+  last.focus();
+  l.key({ key: 'Tab' }, last); await l.drain();
+  assert.ok(l.document.activeElement === box, 'Tab が窓の外へ出た');
+  l.key({ key: 'Tab', shiftKey: true }, box); await l.drain();
+  assert.ok(l.document.activeElement === last, 'Shift+Tab が窓の最後の部品へ回らない');
+  assert.deepStrictEqual(l.errors.map(fmt), []);
+});
+
+test('1b2 L-2・G2: サイドバーは検索語に関わらず全部のページ。窓が閉じている間は、一覧の更新で窓の側の検索を呼ばない', async () => {
+  const l = await boot({ pagesSearchFull: () => ({ hits: [], total: 0, truncated: false }) });
+  l.byId.get('searchBox').value = '設計';
+  l.byId.get('fltAll').dispatchEvent({ type: 'click' }); await l.drain();
+  assert.strictEqual(l.byId.get('plist').querySelectorAll('.pitem').length, 2, 'サイドバーが検索語で絞られた');
+  assert.strictEqual(l.byId.get('palList').querySelectorAll('.pitem').length, 1);
+  const n = l.called('pagesSearch').length;
+  l.fire('onPageUpdated', PAGE('pa1')); await l.drain();   // 一覧の更新（refreshList）
+  assert.deepStrictEqual(l.called('pagesSearch').slice(n).map((c) => c.args[0]), [''], '閉じた窓の側まで検索した');
+});

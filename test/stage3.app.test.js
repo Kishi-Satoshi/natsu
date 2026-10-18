@@ -26,7 +26,7 @@ const preloadWith = (...names) => names.reduce((src, n) => (new RegExp(`^\\s+${n
 // 第3段で足る公開名を全部入れた preload
 const STAGE3 = () => preloadWith('pagesActionView', 'hotkeyState', 'promptInfo', 'meetingSkipPending');
 
-const 一覧 = (l) => l.byId.get('plist');
+const 一覧 = (l) => l.byId.get('palList');
 const 件数行 = (l) => 一覧(l).querySelector('.count');
 const 行数 = (l) => 一覧(l).querySelectorAll('.pitem').length;
 const 全文検索 = async (l, q) => {

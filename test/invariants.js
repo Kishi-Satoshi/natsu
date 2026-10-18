@@ -79,6 +79,7 @@ const WIRED = [
   { screen: 'app', id: 'tabBtnDictation', types: ['click'], 由来: 'タブ切り替え' },
   { screen: 'app', id: 'tabBtnSettings', types: ['click'], 由来: 'タブ切り替え。設定画面へ入る唯一の導線' },
   { screen: 'app', id: 'searchBox', types: ['input'], 由来: '議事録の検索' },
+  { screen: 'app', id: 'sideSearch', types: ['click'], 由来: '検索の窓を開く（第1b2回）' },
   { screen: 'app', id: 'sideGrip', types: ['pointerdown', 'keydown'], 由来: '第1b回 N2: サイドバーの幅のつまみ（ドラッグと ←／→・Enter）。切れると幅を変えられず、キーボードでは畳めない' },
   { screen: 'app', id: 'sideCollapse', types: ['click'], 由来: '第1b回 N2: サイドバーを畳む «' },
   { screen: 'app', id: 'tabbar', types: ['keydown'], 由来: '第1b回 N3: 上のタブの帯の ←／→（タブの中身は B-3）' },

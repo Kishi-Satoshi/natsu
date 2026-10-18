@@ -520,7 +520,8 @@ test('メモのコピーは画面の入力欄の今の文字を写す', () => {
 });
 
 test('一覧の「要約なし」はタイプ章より左にある（右端で見切れない）', () => {
-  const list = appHtml.slice(appHtml.indexOf('function renderList'));
+  // 第1b2回 L-2: 2行の行は検索の窓の結果（renderResults）。サイドバーの1行の行は title の中で同じ順（stage1b2.look.test.js）
+  const list = appHtml.slice(appHtml.indexOf('function renderResults'));
   assert.ok(list.indexOf("textContent = '要約なし'") < list.indexOf('tbadge'),
     '要約なしが右側にあり、狭い幅で見切れる');
 });

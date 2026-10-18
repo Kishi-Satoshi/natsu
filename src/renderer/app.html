@@ -57,19 +57,31 @@
   .tabitem .tx { background: none; border: none; color: var(--muted); font: inherit; font-weight: 400; line-height: 1;
     padding: 2px 4px; border-radius: 4px; cursor: pointer; flex: none; }
   .tabitem .tx:hover { background: var(--hover); color: var(--text); }
-  /* NaTsu の文字はゴシック（body を継ぐ）の 14px・600（第1b2回 L-1。並びは L-2） */
+  /* NaTsu の文字はゴシック（body を継ぐ）の 14px・600（第1b2回 L-1。並びは L-2: ロゴ・NaTsu・飾りの ▾） */
   .wordmark { font-size: 14px; font-weight: 600; }
+  .ws-caret { font-size: 10px; color: var(--muted); }
   /* サイドバーの « と、畳んだときだけ帯の左に出る » */
   .side-btn { background: none; border: none; color: var(--muted); font: inherit; font-size: 16px; line-height: 1;
     width: 28px; height: 28px; padding: 0; display: inline-flex; align-items: center; justify-content: center;
     cursor: pointer; border-radius: 6px; flex: none; }
   .side-btn:hover { background: var(--hover); color: var(--text); }
-  /* サイドバーの「議事録」「音声入力」「設定」。押すと今までどおり showTab を呼ぶ */
-  #tabBtnNotes, #tabBtnDictation, #tabBtnSettings { background: none; border: none; color: var(--muted); font: inherit;
-    text-align: left; padding: 6px 10px; cursor: pointer; border-radius: 4px; flex: none; }
-  #tabBtnNotes { font-size: 12px; font-weight: 600; letter-spacing: .06em; }
-  #tabBtnNotes:hover, #tabBtnDictation:hover, #tabBtnSettings:hover { background: var(--hover); color: var(--text); }
-  #tabBtnNotes.active, #tabBtnDictation.active, #tabBtnSettings.active { background: var(--tint); color: var(--text); font-weight: 600; }
+  /* サイドバーの行（第1b2回 L-2）: ［🔍 検索］・［＋ 新しい議事録］・［破棄］・［🎤 音声入力］・［⚙️ 設定］。
+     高さ 30px・左右 8px・角丸 6px・14px・--text-2。ホバーは --hover、選んでいるもの（showSection の .active）は --tint・--text・500 */
+  .side-row { display: flex; align-items: center; gap: 8px; width: 100%; height: 30px; padding: 0 8px; flex: none;
+    background: transparent; border: none; border-radius: 6px; color: var(--text-2); font: inherit; font-size: 14px;
+    text-align: left; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .side-row:hover { background: var(--hover); }
+  .side-row.active { background: var(--tint); color: var(--text); font-weight: 500; }
+  .side-row:disabled { opacity: .5; cursor: default; }
+  /* 「議事録」は見出し（12px・500・--muted・高さ 30px・上に 12px）。押すと今どおり goNotes。
+     showSection が付ける .active の地と太さは見出しには付けない（ホバーの地だけ） */
+  #tabBtnNotes, #tabBtnNotes.active { display: flex; align-items: center; width: 100%; height: 30px; margin-top: 12px; padding: 0 8px; flex: none;
+    background: transparent; border: none; border-radius: 6px; color: var(--muted); font: inherit; font-size: 12px; font-weight: 500;
+    text-align: left; cursor: pointer; }
+  #tabBtnNotes:hover { background: var(--hover); }
+  /* アイコン: 行とプロパティの名前は灰色にした絵文字（.ic）、ページは色のある絵文字（.pi） */
+  .ic { flex: none; width: 20px; text-align: center; filter: grayscale(1); opacity: .6; }
+  .pi { flex: none; width: 20px; text-align: center; }
 
   main { flex: 1; min-height: 0; padding: 8px 24px 20px; }
   .tab { display: none; height: 100%; }
@@ -163,27 +175,36 @@
   /* ================= 議事録: 2ペイン ================= */
   .notes { display: flex; gap: 14px; height: 100%; }
   /* サイドバーは議事録のタブの外（どのタブでも出ている）。幅は 200〜480px（つまみで変え、覚える） */
-  .side { width: 260px; flex: none; display: flex; flex-direction: column; gap: 10px; position: relative;
-    background: var(--side); border-right: 1px solid var(--line); padding: 12px 10px 10px; min-height: 0; }
-  .side-head { display: flex; align-items: center; justify-content: space-between; gap: 6px; padding: 0 2px 0 4px; }
+  .side { width: 260px; flex: none; display: flex; flex-direction: column; gap: 1px; position: relative;
+    background: var(--side); border-right: 1px solid var(--line); padding: 0 8px 8px; min-height: 0; }
+  /* 頭（第1b2回 L-2）: ロゴ・NaTsu・飾りの ▾、右に « 。高さ 44px。« はふだん見えず、サイドバーに乗せたときとフォーカスのときだけ見える */
+  .side-head { display: flex; align-items: center; gap: 6px; height: 44px; flex: none; padding: 0 0 0 8px; }
+  .logo { flex: none; color: var(--text); }
+  #sideCollapse { margin-left: auto; opacity: 0; }
+  .side:hover #sideCollapse, #sideCollapse:focus-visible { opacity: 1; }
   /* 幅のつまみ（右の縁）。ドラッグと ←／→ で幅を変え、Enter で畳む */
   .side-grip { position: absolute; top: 0; right: -3px; width: 6px; height: 100%; cursor: col-resize; background: transparent; z-index: 1; }
   .side-grip:hover, .side-grip:focus-visible { background: var(--tint); }
-  .side .tools { display: flex; gap: 6px; }
-  .side .filters { display: flex; gap: 5px; }
-  .chip { background: transparent; border: 1px solid var(--line); color: var(--muted);
-    font: inherit; font-size: 11px; padding: 3px 10px; border-radius: 4px; cursor: pointer; }
-  .chip.on { background: var(--tint); color: var(--text); font-weight: 600; }
-  .plist { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; padding-right: 2px; }
+  .side .tools { display: flex; flex-direction: column; gap: 1px; }
+  .filters { display: flex; gap: 6px; flex-wrap: wrap; }
+  /* 絞り込み・担当のチップは小さな灰色のボタン（高さ 24px・角丸 6px）。選んでいるものは --tint */
+  .chip { background: transparent; border: 1px solid var(--line); color: var(--muted); height: 24px;
+    font: inherit; font-size: 12px; padding: 0 8px; border-radius: 6px; cursor: pointer; }
+  .chip:hover { background: var(--hover); color: var(--text); }
+  .chip.on { background: var(--tint); color: var(--text); font-weight: 500; }
+  .plist { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 1px; min-height: 0; }
   /* 選んでいるページは灰色の地（第1b2回 L-1。左の線と青はやめた）。ホバーと地の差がほとんど無いので、文字の色と太さでも分ける */
   .pitem { background: transparent; border: none; border-radius: 6px;
-    padding: 6px 10px; cursor: pointer; }
+    padding: 6px 8px; cursor: pointer; }
   .side .pitem { color: var(--text-2); }
   .pitem:hover { background: var(--hover); }
   .pitem.sel { background: var(--tint); color: var(--text); font-weight: 500; }
   /* 高さを一定に保つ: タイトルもメタも1行で省略する */
   .pitem .t { font-weight: 600; font-size: 13px; line-height: 1.5;
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  /* サイドバーの議事録は「🎙️ 題名」の1行（第1b2回 L-2。高さ 30px）。日付・長さ・要約なし・タイプは行の title */
+  .side .pitem { display: flex; align-items: center; gap: 8px; height: 30px; padding: 0 8px; flex: none; }
+  .side .pitem .t { flex: 1; min-width: 0; font-size: 14px; font-weight: inherit; }
   .pitem .m { font-size: 11px; color: var(--muted); margin-top: 1px; display: flex; gap: 8px;
     white-space: nowrap; overflow: hidden; }
   .pitem .m > span { flex: none; }
@@ -192,9 +213,35 @@
   /* 文字起こし検索の件数（#43）。行ではないので .pitem の高さ・形には触れない */
   .plist .count { flex: none; font-size: 11px; color: var(--muted); padding: 0 2px;
     font-variant-numeric: tabular-nums; }
-  /* ロゴの波（海の色はロゴの波と録音中の点だけ）と、検索の窓の後ろ（文字を載せない）。要素は第1b2回 L-2 が作る */
+  /* ロゴの波（海の色はロゴの波と録音中の点だけ） */
   .logo .wave { stroke: var(--level); }
+
+  /* ---------- 検索の窓（第1b2回 L-2。第3回 U1 の入口の前倒し）: ［🔍 検索］と Ctrl+P で開く ---------- */
+  /* .palette に display を書くので、hidden が負けないように [hidden] を必ず置く（偽 DOM は hidden しか見ないので気づけない） */
+  .palette { position: fixed; inset: 0; z-index: 50; display: block; }
+  .palette[hidden] { display: none; }
+  /* 後ろの全面は --scrim（文字を載せない）。押すと閉じる */
   #palette { background: var(--scrim); }
+  .palbox { position: absolute; top: 12vh; left: 0; right: 0; margin: 0 auto; width: min(720px, calc(100vw - 32px));
+    max-height: calc(88vh - 32px); display: flex; flex-direction: column; overflow: hidden;
+    background: var(--bg); border-radius: 10px; box-shadow: var(--shadow); }
+  /* 入力欄は線も地も無い 16px の大きな欄。その下に線 */
+  .palbox #searchBox, .palbox #searchBox:focus { height: 48px; padding: 0 16px; font-size: 16px; flex: none;
+    background: transparent; border: none; border-bottom: 1px solid var(--line); border-radius: 0; }
+  .palbox #searchBox:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+  .palopts { flex: none; padding: 8px 12px 4px; }
+  #palList { padding: 4px 8px 8px; }
+  /* 結果の行は2行（🎙️・題名、灰色の日付・長さ・抜粋）で高さ約 44px。↓↑ で選んでいる行（.kbd）は --tint */
+  #palList .pitem { display: flex; align-items: flex-start; gap: 8px; min-height: 44px; padding: 5px 8px; flex: none; }
+  #palList .pitem .pi { line-height: 1.5; }
+  #palList .pb { flex: 1; min-width: 0; }
+  #palList .pitem .t { font-size: 14px; font-weight: 500; }
+  #palList .kbd { background: var(--tint); }
+  /* 狭い画面（拡大 200%。第1b2回 L-2・利用者の気づき 5）: サイドバーは 200px まで、検索の窓は上に寄せる */
+  @media (max-width: 760px) {
+    .side { max-width: 200px; }
+    .palbox { top: 16px; max-height: calc(100vh - 32px); }
+  }
 
   /* ---------- ページ本体 ---------- */
   .page { flex: 1; min-width: 0; display: flex; flex-direction: column;
@@ -400,7 +447,7 @@
     padding: 10px; max-height: 160px; overflow-y: auto; }
   #updBadge .notes.open { display: block; }
 
-  /* 狭い画面（拡大 200% の 1120×780 = 幅 560 の CSS 画素。第1b回 F11）: 題名と余白を詰め、サイドバーは幅の半分弱まで */
+  /* 狭い画面（拡大 200% の 1120×780 = 幅 560 の CSS 画素。第1b回 F11）: 題名と余白を詰める（サイドバーの幅は L の区画の狭い画面の規則で 200px まで。第1b2回 L-2） */
   @media (max-width: 760px) {
     .ptitle { font-size: 28px; }
     main { padding: 6px 10px 10px; }
@@ -408,7 +455,6 @@
     .phead { padding: 8px 12px 0; }
     .ptabs { padding: 8px 12px 0; }
     .pbody { padding: 10px 12px 16px; }
-    .side { max-width: 45vw; }
     .prop .k { width: 96px; }
     .card { padding: 14px 2px; }
     .stat { min-width: 120px; }
@@ -454,23 +500,24 @@
   <div class="app">
   <aside class="side" id="side">
     <div class="side-head">
+      <svg class="logo" viewBox="0 0 64 64" width="18" height="18" aria-hidden="true">
+        <path d="M5 16 Q5 5 16 5 H22 L27 3.5 L32 12 L37 3.5 L42 10 L46 5 H48 Q59 5 59 16 V48 Q59 59 48 59 H16 Q5 59 5 48 Z" fill="none" stroke="currentColor" stroke-width="5.5" stroke-linejoin="round"/>
+        <path class="wave" d="M22 5 L27 3.5 L32 12 L37 3.5 L42 10 L46 5" fill="none" stroke-width="6.5" stroke-linecap="round" stroke-linejoin="round"/>
+        <path d="M22 45V21 L42 45V21" fill="none" stroke="currentColor" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
       <div class="wordmark">NaTsu</div>
+      <span class="ws-caret" aria-hidden="true">▾</span>
       <button class="side-btn" id="sideCollapse" type="button" aria-label="サイドバーを畳む" title="サイドバーを畳む（Ctrl+\）">«</button>
     </div>
-    <input type="text" id="searchBox" placeholder="議事録を検索…" />
+    <button class="side-row" id="sideSearch" type="button"><span class="ic">🔍</span>検索</button>
     <div class="tools">
-      <button class="action" id="mtToggleBtn">● 記録開始</button>
-      <button class="ghost" id="mtDiscardBtn" style="display:none">破棄</button>
+      <button class="side-row" id="mtToggleBtn">＋ 新しい議事録</button>
+      <button class="side-row" id="mtDiscardBtn" style="display:none">破棄</button>
     </div>
     <button id="tabBtnNotes" class="active">議事録</button>
-    <div class="filters">
-      <button class="chip on" id="fltAll">すべて</button>
-      <button class="chip" id="fltActions">アクション</button>
-      <button class="chip" id="fltFull">文字起こし検索</button>
-    </div>
     <div class="plist" id="plist" role="listbox" aria-label="議事録の一覧"></div>
-    <button id="tabBtnDictation">音声入力</button>
-    <button id="tabBtnSettings">設定</button>
+    <button id="tabBtnDictation" class="side-row"><span class="ic">🎤</span>音声入力</button>
+    <button id="tabBtnSettings" class="side-row"><span class="ic">⚙️</span>設定</button>
     <div class="side-grip" id="sideGrip" role="separator" aria-orientation="vertical" aria-label="サイドバーの幅" tabindex="0" aria-valuemin="200" aria-valuemax="480" aria-valuenow="260"></div>
   </aside>
   <div class="col">
@@ -828,6 +875,19 @@
       </div>
     </section>
   </main>
+  </div>
+  <div class="palette" id="palette" role="dialog" aria-modal="true" aria-label="検索" hidden>
+    <div class="palbox">
+      <input type="text" id="searchBox" placeholder="議事録を検索…" />
+      <div class="palopts">
+        <div class="filters">
+          <button class="chip on" id="fltAll">すべて</button>
+          <button class="chip" id="fltActions">アクション</button>
+          <button class="chip" id="fltFull">文字起こし検索</button>
+        </div>
+      </div>
+      <div class="plist" id="palList" role="listbox" aria-label="検索の結果"></div>
+    </div>
   </div>
   </div>
 
@@ -1247,12 +1307,22 @@
     };
   }
 
-  // ================= 議事録: 一覧 =================
-  // 文字起こし検索の件数（#43）。store は件数に上限を掛けて返すので、上限で打ち切られた
-  // ときは「全部でいくつあって、そのうちいくつ見せているか」を一覧の先頭に出す。
-  // 「すべて」の一覧では null（件数の行を出さない）。
-  let listCount = null;
+  // ================= 議事録: 一覧（サイドバー）と検索の窓の結果 =================
+  // 第1b2回 L-2: サイドバー（#plist）はいつも全部のページ（pagesSearch('')）。検索語と絞り込みは検索の窓（#palList）だけに効く。
+  // refreshList はサイドバーを描き直し、窓が開いていれば窓の結果も描き直す（閉じている間は窓の側の IPC を呼ばない）。
+  // 検索の欄の打鍵・絞り込み・担当のチップは refreshResults を直接呼ぶ（窓が閉じていても）。
+  let hits = [];        // 検索の窓の結果（pages はサイドバーの全部のページ）
+  let palOpen = false;  // 検索の窓が開いているか（hidden を読まない: 偽 DOM によっては hidden がいつも false）
   async function refreshList() {
+    pages = await window.koeApp.pagesSearch('');
+    renderList();
+    if (palOpen) await refreshResults();
+  }
+  // 文字起こし検索の件数（#43）。store は件数に上限を掛けて返すので、上限で打ち切られた
+  // ときは「全部でいくつあって、そのうちいくつ見せているか」を結果の先頭に出す。
+  // 「すべて」の結果では null（件数の行を出さない）。
+  let listCount = null;
+  async function refreshResults() {
     const q = $('searchBox').value.trim();
     if (filter === 'actions') { await renderActionView(q); return; }
     listCount = null;
@@ -1260,11 +1330,11 @@
       const r = await window.koeApp.pagesSearchFull(q);
       // 移行中は配列（古い形）で返ることもある
       const res = Array.isArray(r) ? { hits: r, total: r.length, truncated: false } : (r || {});
-      pages = Array.isArray(res.hits) ? res.hits : [];
+      hits = Array.isArray(res.hits) ? res.hits : [];
       const total = Number(res.total);
-      listCount = { total: Number.isFinite(total) ? total : pages.length, shown: pages.length, truncated: Boolean(res.truncated) };
-    } else pages = await window.koeApp.pagesSearch(q);
-    renderList();
+      listCount = { total: Number.isFinite(total) ? total : hits.length, shown: hits.length, truncated: Boolean(res.truncated) };
+    } else hits = await window.koeApp.pagesSearch(q);
+    renderResults();
   }
 
   // 未完了アクションを全議事録から集めて、期限順に表示する。
@@ -1272,7 +1342,7 @@
   // 件数（total）を 1 回の IPC で受け取る（#45。以前は openActions と assigneeList の 2 回で、
   // 絞り込みは画面側だった。1 打鍵ごとに全ページを 2 度読んでいた）。
   async function renderActionView(q) {
-    const box = $('plist'); box.textContent = '';
+    const box = $('palList'); box.textContent = '';
     let r = null;
     // 古い preload と組んだときも例外で一覧を殺さない（空として描く）
     if (typeof window.koeApp.pagesActionView === 'function') {
@@ -1290,7 +1360,7 @@
         const b = document.createElement('button');
         b.className = 'chip' + (assigneeFilter === val ? ' on' : '');
         b.textContent = label;
-        b.onclick = () => { assigneeFilter = assigneeFilter === val ? '' : val; refreshList(); };
+        b.onclick = () => { assigneeFilter = assigneeFilter === val ? '' : val; refreshResults(); };
         row.appendChild(b);
       };
       mkc('全員', '');
@@ -1304,7 +1374,7 @@
       d.innerHTML = total > 0
         ? `<div class="big">条件に合うアクションはありません</div>未完了は全部で ${total} 件あります。検索語や担当の絞り込みを外してください。`
         : '<div class="big">未完了のアクションはありません</div>議事録の要約から自動で集められます。';
-      box.appendChild(d); return;
+      box.appendChild(d); markPal(0); return;
     }
 
     const groups = { over: [], today: [], week: [], later: [], none: [] };
@@ -1325,6 +1395,7 @@
       box.appendChild(h);
       for (const x of groups[key]) box.appendChild(buildActionRow(x));
     }
+    markPal(0);
   }
 
   function buildActionRow(x) {
@@ -1332,7 +1403,7 @@
     const cb = document.createElement('input'); cb.type = 'checkbox';
     cb.onchange = async () => {
       await window.koeApp.blockUpdate(x.pageId, x.blockId, { checked: cb.checked });
-      refreshList();
+      refreshList(); refreshResults();   // サイドバーと窓の結果の両方
       if (curId === x.pageId) openPage(curId);
     };
     const body = document.createElement('div'); body.className = 'body';
@@ -1348,25 +1419,29 @@
     if (meta.childNodes.length) body.appendChild(meta);
     const src = document.createElement('div'); src.className = 'src';
     src.textContent = `${x.date} ${x.pageTitle}`;
-    asOption(src, x.pageId === curId, (ev) => openFromList(x.pageId, ev));
+    src.setAttribute('data-pid', x.pageId);
+    asOption(src, x.pageId === curId, (ev) => openResult(x.pageId, ev));
     body.appendChild(src);
     el.append(cb, body);
     return el;
   }
 
+  // サイドバーの議事録は「🎙️ 題名」の1行。日付・長さ・要約なし・要約タイプ（一般・その他のほか）は行の title（この順。要約なしが先）
+  function rowTitle(p) {
+    const parts = [String(p.date || ''), fmtDur(Number(p.durationSec) || 0)];
+    if (!p.hasSummary) parts.push('要約なし');
+    if (p.meetingType && p.meetingType !== 'general') {
+      const def = mtypes.find((t) => t.key === p.meetingType);
+      parts.push(def ? def.label : p.meetingType);
+    }
+    return parts.join(' ・ ');
+  }
   function renderList() {
     const box = $('plist'); box.textContent = '';
-    if (listCount) {
-      const c = document.createElement('div'); c.className = 'count';
-      c.textContent = listCount.truncated
-        ? `${listCount.total}件中 ${listCount.shown}件を表示（先頭から）`
-        : `${listCount.total}件`;
-      box.appendChild(c);
-    }
     if (pages.length === 0) {
       const d = document.createElement('div');
       d.className = 'empty';
-      d.innerHTML = '<div class="big">議事録はありません</div>「記録開始」で会議を録音すると<br>要約と文字起こしが作られます。';
+      d.innerHTML = '<div class="big">議事録はありません</div>［＋ 新しい議事録］で会議を録音すると、要約と文字起こしが作られます。';
       box.appendChild(d); return;
     }
     for (const p of pages) if (p && p.id && typeof p.title === 'string') tabTitles.set(p.id, p.title);
@@ -1374,6 +1449,38 @@
     for (const p of pages) {
       const el = document.createElement('div');
       el.className = 'pitem' + (p.id === curId ? ' sel' : '');
+      const ic = document.createElement('span'); ic.className = 'pi'; ic.textContent = '🎙️';
+      const t = document.createElement('span'); t.className = 't'; t.textContent = p.title;
+      el.append(ic, t);
+      el.setAttribute('title', rowTitle(p));
+      asOption(el, p.id === curId, (ev) => openFromList(p.id, ev));
+      box.appendChild(el);
+    }
+  }
+
+  // 検索の窓の結果は今の2行（🎙️・題名、日付・長さ・要約なし・タイプ・抜粋）
+  function renderResults() {
+    const box = $('palList'); box.textContent = '';
+    if (listCount) {
+      const c = document.createElement('div'); c.className = 'count';
+      c.textContent = listCount.truncated
+        ? `${listCount.total}件中 ${listCount.shown}件を表示（先頭から）`
+        : `${listCount.total}件`;
+      box.appendChild(c);
+    }
+    if (hits.length === 0) {
+      const d = document.createElement('div');
+      d.className = 'empty';
+      d.innerHTML = $('searchBox').value.trim()
+        ? '<div class="big">当たる議事録はありません</div>検索語や絞り込みを変えてください。'
+        : '<div class="big">議事録はありません</div>［＋ 新しい議事録］で会議を録音すると、要約と文字起こしが作られます。';
+      box.appendChild(d); markPal(0); return;
+    }
+    for (const p of hits) {
+      const el = document.createElement('div');
+      el.className = 'pitem' + (p.id === curId ? ' sel' : '');
+      const ic = document.createElement('span'); ic.className = 'pi'; ic.textContent = '🎙️';
+      const pb = document.createElement('div'); pb.className = 'pb';
       const t = document.createElement('div'); t.className = 't'; t.textContent = p.title;
       const m = document.createElement('div'); m.className = 'm';
       const s1 = document.createElement('span'); s1.textContent = `${p.date} ・ ${fmtDur(p.durationSec)}`;
@@ -1386,31 +1493,118 @@
       }
       if (p.meetingType && p.meetingType !== 'general') {
         const tb = document.createElement('span'); tb.className = 'tbadge';
-        const def = mtypes.find((t) => t.key === p.meetingType);
+        const def = mtypes.find((x) => x.key === p.meetingType);
         tb.textContent = def ? def.label : p.meetingType; m.appendChild(tb);
       }
-      el.append(t, m);
+      pb.append(t, m);
       if (p.snippet) {
         const sn = document.createElement('div'); sn.className = 'snip'; sn.textContent = p.snippet;
-        el.appendChild(sn);
+        pb.appendChild(sn);
       }
-      asOption(el, p.id === curId, (ev) => openFromList(p.id, ev));
+      el.append(ic, pb);
+      el.setAttribute('data-pid', p.id);
+      asOption(el, p.id === curId, (ev) => openResult(p.id, ev));
       box.appendChild(el);
     }
+    markPal(0);
   }
 
   let searchT = null;
-  $('searchBox').oninput = () => { clearTimeout(searchT); searchT = setTimeout(refreshList, 220); };
+  $('searchBox').oninput = () => { clearTimeout(searchT); searchT = setTimeout(refreshResults, 220); };
   function setFilter(f) {
     filter = f;
     $('fltAll').classList.toggle('on', f === 'all');
     $('fltActions').classList.toggle('on', f === 'actions');
     $('fltFull').classList.toggle('on', f === 'full');
-    refreshList();
+    refreshResults();
   }
   $('fltAll').onclick = () => setFilter('all');
   $('fltActions').onclick = () => setFilter('actions');
   $('fltFull').onclick = () => setFilter('full');
+
+  // ---------------- 検索の窓（第1b2回 L-2。第3回 U1 の入口の前倒し） ----------------
+  // ［🔍 検索］と Ctrl+P で開き、入力欄へ（前に打った語は全部を選んだ状態）。Esc・後ろの全面で閉じ、開いた元へフォーカスを戻す。
+  // ↓／↑ で結果の行の選び（.kbd）を動かし、Enter で今のタブ、Ctrl+Enter で新しいタブに開いて閉じる。開いている間、Tab は窓の中を回る
+  let palFrom = null;   // 窓を開いた元（閉じたらここへフォーカスを戻す。無ければ ［🔍 検索］）
+  let palSel = 0;       // 結果の行の選び（↓／↑）
+  const palRows = () => Array.from($('palList').querySelectorAll('.pitem, .actrow .src'));   // 本物の NodeList には filter・indexOf が無い
+  function markPal(i, scroll) {
+    const rows = palRows();
+    palSel = rows.length ? Math.max(0, Math.min(rows.length - 1, i)) : 0;
+    rows.forEach((r, k) => r.classList.toggle('kbd', k === palSel));
+    if (scroll && rows[palSel] && typeof rows[palSel].scrollIntoView === 'function') rows[palSel].scrollIntoView({ block: 'nearest' });
+  }
+  // 窓の結果の行から開く（Ctrl+クリック・Ctrl+Enter は新しいタブ）。開いたら窓を閉じる
+  function openResult(id, ev) {
+    const r = openFromList(id, ev);
+    closePalette();
+    return r;
+  }
+  function openPalette(from) {
+    if (!palOpen) palFrom = from && from !== document.body && typeof from.focus === 'function' ? from : null;
+    palOpen = true;
+    $('palette').hidden = false;
+    refreshResults();
+    const box = $('searchBox');
+    if (typeof box.focus === 'function') box.focus();
+    if (typeof box.select === 'function') box.select();
+  }
+  function closePalette() {
+    if (!palOpen) return;   // Esc は入力欄と document の両方に届く。2回目は何もしない
+    palOpen = false;
+    $('palette').hidden = true;
+    const body = document.body;
+    const alive = palFrom && (!body || typeof body.contains !== 'function' || body.contains(palFrom));
+    const to = alive ? palFrom : $('sideSearch');
+    palFrom = null;
+    if (to && typeof to.focus === 'function') to.focus();
+  }
+  // 窓の中で Tab で届く部品（入力欄・絞り込み・担当のチップ・チェック・結果の行）。木の順
+  function palTabbables() {
+    return Array.from($('palette').querySelectorAll('input, button, .pitem, .actrow .src')).filter((e) => !e.disabled && e.tabIndex !== -1
+      && !(e.style && e.style.display === 'none'));
+  }
+  $('sideSearch').onclick = () => openPalette($('sideSearch'));
+  $('palette').addEventListener('click', (ev) => { if (ev.target === $('palette')) closePalette(); });
+  $('searchBox').addEventListener('keydown', (ev) => {
+    if (!palOpen || imeEnter(ev)) return;
+    if (ev.key === 'Escape') { if (typeof ev.preventDefault === 'function') ev.preventDefault(); closePalette(); return; }
+    if (ev.key === 'ArrowDown' || ev.key === 'ArrowUp') {
+      if (typeof ev.preventDefault === 'function') ev.preventDefault();
+      markPal(palSel + (ev.key === 'ArrowDown' ? 1 : -1), true);
+      return;
+    }
+    if (ev.key === 'Enter') {
+      const row = palRows()[palSel];
+      if (!row || !row.dataset || !row.dataset.pid) return;
+      if (typeof ev.preventDefault === 'function') ev.preventDefault();
+      openResult(row.dataset.pid, { ctrlKey: Boolean(ev.ctrlKey), metaKey: Boolean(ev.metaKey) });
+    }
+  });
+  document.addEventListener('keydown', (ev) => {
+    if (!palOpen) return;
+    if (ev.key === 'Escape') { closePalette(); return; }
+    if (ev.key !== 'Tab' || ev.ctrlKey || ev.altKey || ev.metaKey) return;
+    const items = palTabbables();
+    if (!items.length) return;
+    const a = document.activeElement, i = items.indexOf(a);
+    let to = null;
+    if (i < 0) to = ev.shiftKey ? items[items.length - 1] : items[0];
+    else if (!ev.shiftKey && i === items.length - 1) to = items[0];
+    else if (ev.shiftKey && i === 0) to = items[items.length - 1];
+    if (!to) return;   // 窓の中の途中は本物の Tab に任せる
+    if (typeof ev.preventDefault === 'function') ev.preventDefault();
+    to.focus();
+  });
+  // Ctrl+P で開く（Shift・Alt・Meta なし。Ctrl+Shift+P は一時停止）。変換中・ほかの受け口が先に止めた打鍵（ホットキーの欄）では開かない
+  document.addEventListener('keydown', (ev) => {
+    if (imeEnter(ev)) return;
+    if (!ev.ctrlKey || ev.shiftKey || ev.altKey || ev.metaKey) return;
+    if (!(ev.code === 'KeyP' || String(ev.key).toLowerCase() === 'p')) return;
+    if (ev.defaultPrevented) return;
+    ev.preventDefault();
+    openPalette(document.activeElement);
+  });
 
   // ================= 議事録: ページ =================
   async function openPage(id) {
@@ -2167,7 +2361,7 @@
     if (started) liveMemo = st.memo || '';
     mtWasActive = Boolean(st.active);
     lockEngineFields(Boolean(st.active));
-    $('mtToggleBtn').textContent = st.finalizing ? '作成中…' : st.active ? '■ 終了して作成' : '● 記録開始';
+    $('mtToggleBtn').textContent = st.finalizing ? '作成中…' : st.active ? '■ 終了して作成' : '＋ 新しい議事録';
     $('mtToggleBtn').disabled = Boolean(st.finalizing);
     $('mtDiscardBtn').style.display = st.active && !st.finalizing ? '' : 'none';
 

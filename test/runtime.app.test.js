@@ -615,7 +615,7 @@ test('アクション横断ビューの出典行も、Tab で辿れ Enter で元
   }, { preloadSrc: preloadWith('pagesActionView') });
   l.byId.get('fltActions').dispatchEvent({ type: 'click' });
   await l.drain();
-  const rows = l.byId.get('plist').querySelectorAll('.src');
+  const rows = l.byId.get('palList').querySelectorAll('.src');
   assert.strictEqual(rows.length, 2, '前提: 出典行が2つ描かれる');
   for (const r of rows) {
     assert.strictEqual(r.tabIndex, 0, '出典行が Tab で辿れない');
@@ -675,7 +675,7 @@ test('アクション横断ビューの絞り込みは store に任せる（検�
       { pageId: 'p1', pageTitle: '一つ目', blockId: 'b3', text: '会場の予約', assignee: '', date: '9/1' },
     ], people: [{ name: '佐藤', count: 1 }], total: 2 }),
   }, { preloadSrc: preloadWith('pagesActionView') });
-  const rows = () => l.byId.get('plist').querySelectorAll('.actrow').map((r) => r.querySelector('.body').childNodes[0].textContent);
+  const rows = () => l.byId.get('palList').querySelectorAll('.actrow').map((r) => r.querySelector('.body').childNodes[0].textContent);
   // 検索欄の input は遅延（220ms）で走るので、チップを押して即時に描き直す
   l.byId.get('searchBox').value = '予算案の作成';
   l.byId.get('fltActions').dispatchEvent({ type: 'click' });
