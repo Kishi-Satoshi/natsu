@@ -397,6 +397,9 @@ module.exports = {
       c.out.set = await c.handlers['ui:set']({}, { sidebar: { width: 9999, collapsed: 1 }, tabs: { open: ['live', 'settings', 'page:../x'], active: 'live' } });
       c.power.emit('suspend');
     } },
+  // 点検で足した場面: 前回の書きかけで残った覚え書きの一時ファイルは起動で消す（本体の覚え書きは残す）
+  'ws-temps': { files: { 'settings.json': pretty(TYPICAL) },
+    local: { [WS_FILE]: WS(), [`${WS_FILE}.4242-k3j9ab.tmp`]: 'x', [`${WS_FILE}.tmp`]: 'x' } },
   // 第1b回 Task A-3: ページからの一時停止・止めていた時間の印・スリープ（N4c・RF4・F5・F6）。録音バーは mainrun の偽物（overlayPause）
   'pause-page': { engine: true, files: { 'settings.json': ({ base }) => JSON.stringify(base) },
     act: async (c) => {

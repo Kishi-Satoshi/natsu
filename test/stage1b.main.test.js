@@ -84,6 +84,13 @@ describe('第1b回 画面の覚え書き（main）', { concurrency: Number(proce
     assert.deepStrictEqual([r.windowOpts.width, r.windowOpts.height], [1120, 780]);
   });
 
+  // 点検で足した: 覚え書きの置き場所（%LOCALAPPDATA%\\natsu）も起動の一時ファイルの掃除に入れる（JS4 と同じ）
+  test('JS4・N6: 起動のときに、覚え書きの置き場所に残った一時ファイルを消す（覚え書きは残す）', SCENE, async () => {
+    const r = await run('ws-temps');
+    assert.deepStrictEqual(r.localFiles.filter((f) => f.endsWith('.tmp')), [], r.localFiles.join('\n'));
+    assert.ok(r.localFiles.includes('natsu/window-state.json'));
+  });
+
   test('N6: 画面から来た覚え書きは照らしてから書く（幅を寄せる・録音中のタブと形の悪い鍵を捨てる）', SCENE, async () => {
     const r = await run('ws-ui-set');
     assert.deepStrictEqual(ws(r).sidebar, { width: 480, collapsed: false });

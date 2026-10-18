@@ -324,6 +324,7 @@ function cleanStartupTemps() {
     for (const e of fs.readdirSync(path.join(data, 'segbuf'), { withFileTypes: true })) if (e.isDirectory()) dirs.push(path.join(data, 'segbuf', e.name));
   } catch (_) { /* 無ければ飛ばす */ }
   if (ENGINE_HOME.root) dirs.push(ENGINE_HOME.root, path.join(ENGINE_HOME.root, '.download'));
+  try { dirs.push(path.dirname(winStatePath())); } catch (_) { /* 置き場所が決まらなければ飛ばす */ }   // 画面の覚え書き（第1b回 N6）
   try { const appRoot = app.getAppPath(); if (typeof appRoot === 'string' && appRoot) dirs.push(appRoot); } catch (_) { /* noop */ }   // 自動更新の package.json
   let n = 0;
   for (const d of dirs) { try { n += J.cleanTemps(d).length; } catch (_) { /* noop */ } }
