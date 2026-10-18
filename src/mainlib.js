@@ -1120,6 +1120,17 @@ function chooseDraftName({ existing, startedAt, park }) {
   return r && r.ok ? 'draft.json' : `draft-${startedAt}.json`;
 }
 
+// 記録（engine.log）に書く失敗の理由（第1a回の決まり「記録にはファイルの名前（パスの最後だけ）だけ」）。
+// 符号のあるエラー（fs の EACCES など）は符号だけ（fs のエラーの文はパス全体を含む）。ほかは文の中のパスを最後の部分だけにする。
+// URL（http://…）は区切りの前が「:」なので変えない
+const LOG_PATH_RE = /(^|[\s'"`(（「])(?:[A-Za-z]:[\\/]|\\\\|\/)(?:[^\s'"`\\/]+[\\/])+([^\s'"`\\/]*)/g;
+function logReason(e) {
+  if (e && typeof e.code === 'string' && e.code) return e.code;
+  const msg = (e && typeof e === 'object') ? e.message : e;
+  if (!msg) return '不明なエラー';
+  return String(msg).replace(LOG_PATH_RE, '$1…$2');
+}
+
 module.exports = {
   saveIfExists, meetingDurationSec, promptTail,
   registerHotkeys, hotkeyFailureMessage, hotkeyStatus, resolveStartupHotkeys, saveHotkeys,
@@ -1129,7 +1140,7 @@ module.exports = {
   engineFileIssue, engineIssueMessage, engineInAppDir, engineDirWarning, portInUseError,
   isAscii, engineSpawnPlan,
   peFileVersion, vcRuntimeVersions, vcRuntimeIssue, runtimeGate, engineExitHint, spawnErrorHint, speedLine,
-  ENGINE_SETTING_KEYS, guardEngineSettings, keptDifferent, closeConfirm,
+  ENGINE_SETTING_KEYS, guardEngineSettings, keptDifferent, closeConfirm, logReason,
   PICK_KEYS, pickDefaultPath,
   extractNotes, truncationMessage, buildPromptParts,
   publicSegments, settledSegments, pendingDurationMs, recoverSegments, staleSegbufDirs,

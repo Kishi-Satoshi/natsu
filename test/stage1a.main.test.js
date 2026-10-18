@@ -307,6 +307,14 @@ describe('第1a回 保存の守り（main）', { concurrency: Number(process.env
     assert.ok(n.some((x) => x.startsWith('議事録の文字起こしのファイルが壊れていたので') && x.includes(trMoved.split('/').pop())), n.join('\n'));
   });
 
+  test('記録: 復旧の文字起こしと議事録の保存の失敗は、エラーの文（fs ではパス全体を含む）をそのまま書かず logReason を通す', { timeout: 5000 }, () => {
+    const m = require('node:fs').readFileSync(path.join(__dirname, '..', 'src', 'main.js'), 'utf8');
+    const lines = m.split('\n').filter((l) => /engineLog\(`(復旧の文字起こしに失敗|議事録の保存に失敗|retry failed)/.test(l));
+    assert.ok(lines.length >= 7, lines.join('\n'));
+    assert.deepStrictEqual(lines.filter((l) => /\$\{e\.message\}/.test(l)), []);
+    for (const l of lines) assert.match(l, /\$\{logReason\(e\)\}/, l);
+  });
+
   test('JS8: app.exit( は relaunchAndExit の中だけで、その前に書き出す。process の exit でも書き出す。窓ができたら session-end と query-session-end を付ける', { timeout: 5000 }, () => {
     const m = require('node:fs').readFileSync(path.join(__dirname, '..', 'src', 'main.js'), 'utf8').replace(/^[ \t]*\/\/.*$/gm, '').replace(/\/\*[\s\S]*?\*\//g, '');
     assert.strictEqual((m.match(/app\.exit\(/g) || []).length, 1);

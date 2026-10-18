@@ -49,7 +49,7 @@ const {
   saveIfExists, meetingDurationSec, promptTail,
   registerHotkeys, resolveStartupHotkeys, saveHotkeys, makeSummaryRunner, tickStep,
   pasterScript, parsePasterLine,
-  engineFileIssue, engineIssueMessage, engineInAppDir, engineDirWarning, portInUseError, guardEngineSettings, keptDifferent, closeConfirm,
+  engineFileIssue, engineIssueMessage, engineInAppDir, engineDirWarning, portInUseError, guardEngineSettings, keptDifferent, closeConfirm, logReason,
   engineSpawnPlan, vcRuntimeVersions, vcRuntimeIssue, runtimeGate, engineExitHint, spawnErrorHint, speedLine,
   extractNotes, truncationMessage, buildPromptParts,
   publicSegments, settledSegments, pendingDurationMs, recoverSegments, staleSegbufDirs, nextSegmentMs, EtaTracker, chooseDraftName,
@@ -869,7 +869,7 @@ async function verifyManagedAtStartup() {
   if (v.bad.length) engineLog(`取り込んだエンジンの照らし: 合わない ${v.bad.map((b) => `${b.file}（${b.why}）`).join('、')}`);
   restartEnginesIfNeeded();
   // 起動のときの復旧の文字起こしは、照らし終わる前に「確かめています」で保留になる。使えるようになった今もう一度試す
-  if (recoveryQueue && managed.whisper && !manualGroup(whisperEng)) transcribeRecovered().catch((e) => engineLog(`復旧の文字起こしに失敗: ${e.message}`));
+  if (recoveryQueue && managed.whisper && !manualGroup(whisperEng)) transcribeRecovered().catch((e) => engineLog(`復旧の文字起こしに失敗: ${logReason(e)}`));
   onManagedVerified(v);   // 壊れていた組の案内と取り直し（Task 14）
   // 画面へ今の写しを送る。起動のときに「確かめています」を聞いた画面は、確かめ終えた（checking が偽の）この知らせで
   // エンジンの状態を聞き直す（送らないと「要確認」が残る。両方の組が使えるなら whisperReady は前から真で、変わり目が無い）
@@ -1020,7 +1020,7 @@ async function applyManagedWhenIdle() {
       const more = !v.sum && !manualGroup(sumEng) && engineFetchRunning();
       sendToMainWin('app:notice', `文字起こしが使えるようになりました。${more ? '要約のエンジンは続けて取り込みます。' : ''}`);
       // 前にエンジンが無くて残した文字起こし待ちの音声を、今のエンジンで片付ける
-      if (recoveryQueue) transcribeRecovered().catch((e) => engineLog(`復旧の文字起こしに失敗: ${e.message}`));
+      if (recoveryQueue) transcribeRecovered().catch((e) => engineLog(`復旧の文字起こしに失敗: ${logReason(e)}`));
     }
     if (gotSum && !manualGroup(sumEng)) sendToMainWin('app:notice', '要約のエンジンが使えるようになりました。記録済みの会議は［要約を生成］で要約できます。');
     repairManaged(cands, checked);
@@ -1881,7 +1881,7 @@ function retryDraftRecovery() {
       engineLog(`文字起こし待ちの記録を読み直しました（${q.items.length} 件）`);
     }
   }
-  if (recoveryQueue) transcribeRecovered().catch((e) => engineLog(`復旧の文字起こしに失敗: ${e.message}`));
+  if (recoveryQueue) transcribeRecovered().catch((e) => engineLog(`復旧の文字起こしに失敗: ${logReason(e)}`));
 }
 // 議事録を締めた後・破棄した後に、録音中に来たやり直しを回す
 function runDraftRetryAfterMeeting() {
@@ -2263,7 +2263,7 @@ async function maybeFinalizeMeeting() {
     removeDirIfEmpty(segbufDir(m.startedAt));   // 全区間が片付いていれば空
   } catch (e) {
     // 保存に失敗しても draft.json は消さない（次回起動時に復旧できる）
-    engineLog(`議事録の保存に失敗: ${e.message}`);
+    engineLog(`議事録の保存に失敗: ${logReason(e)}`);
     sendToOverlay('overlay:phase', { phase: 'error', message: '議事録を保存できませんでした' });
     sendToMainWin('app:notice', `議事録を保存できませんでした: ${e.message}\n次回起動時に復旧を試みます。`);
   } finally {
@@ -2295,7 +2295,7 @@ async function maybeFinalizeMeeting() {
     const saved = saveIfExists(store, page.id, (p) => { p.summaryError = allEmptyText; });
     if (saved) sendToMainWin('page:updated', { page: saved, segments: store.getTranscript(page.id) });
   }
-  if (recoveryQueue) transcribeRecovered().catch((e) => engineLog(`retry failed: ${e.message}`));
+  if (recoveryQueue) transcribeRecovered().catch((e) => engineLog(`retry failed: ${logReason(e)}`));
 }
 
 // 同じページの要約は同時に一つだけ（mainlib.makeSummaryRunner。main.test.js で
@@ -2691,7 +2691,7 @@ function setupIpc() {
     applyTheme();
     if (!guard.kept.length) restartEnginesIfNeeded();
     // 保留していた復旧（エンジン未設定で止めていた分）を、設定が直った機会にもう一度試す
-    if (recoveryQueue) transcribeRecovered().catch((e) => engineLog(`復旧の文字起こしに失敗: ${e.message}`));
+    if (recoveryQueue) transcribeRecovered().catch((e) => engineLog(`復旧の文字起こしに失敗: ${logReason(e)}`));
     if (settings.autoLaunch !== prevAutoLaunch) {
       try { app.setLoginItemSettings({ openAtLogin: settings.autoLaunch }); } catch (_) { /* noop */ }
     }
@@ -3025,7 +3025,7 @@ if (!gotLock) {
     // 使われないエンジンを 60 秒ごとに見て止める（#58。判断は mainlib.idleEnginesToStop）
     setInterval(releaseIdleEngines, ENGINE_IDLE_CHECK_MS);
     // 復旧ページに文字起こし待ちの音声が残っていれば、エンジンの用意を待って順に片付ける
-    transcribeRecovered().catch((e) => engineLog(`復旧の文字起こしに失敗: ${e.message}`));
+    transcribeRecovered().catch((e) => engineLog(`復旧の文字起こしに失敗: ${logReason(e)}`));
     ensurePaster();
     createMainWindow();
     app.on('activate', () => createMainWindow());
@@ -3076,7 +3076,7 @@ function applyReloadedSettings(prev, next) {
   applyTheme();
   restartEnginesIfNeeded();
   // 保留していた復旧（起動のときは既定の設定でエンジンが無く止めていた分）を、本当の設定になった機会にもう一度試す
-  if (recoveryQueue) transcribeRecovered().catch((e) => engineLog(`復旧の文字起こしに失敗: ${e.message}`));
+  if (recoveryQueue) transcribeRecovered().catch((e) => engineLog(`復旧の文字起こしに失敗: ${logReason(e)}`));
   if (next.autoLaunch !== prev.autoLaunch) {
     try { app.setLoginItemSettings({ openAtLogin: next.autoLaunch }); } catch (_) { /* noop */ }
   }
