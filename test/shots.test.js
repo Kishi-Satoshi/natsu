@@ -199,3 +199,21 @@ test('ci.yml の electron-smoke: 撮った画面を基準（test/shots/win32）�
   const st = stepsOf(jobsOf(read('.github/workflows/ci.yml'))['electron-smoke']);
   assert.ok(st.some((s) => s.includes('electron.exe tools/shots --compare test/shots/win32 --out "$RUNNER_TEMP/shots"')));
 });
+
+test('F9: 最初の画面を1度開いて撮って捨ててから（慣らし）本番を撮る（Windows の CI で、最初に開いた窓だけ縁の画素が実行ごとに2通りに描かれた）', { timeout: 5000 }, () => {
+  const m = read('tools/shots/main.js');
+  const warm = m.indexOf('const warm = await open(SH.SCREENS[0].page, SH.SCREENS[0].theme, SH.fixtures());');
+  const loop = m.indexOf('for (const s of SH.SCREENS) {');
+  assert.ok(warm >= 0 && loop > warm, '本番の前に慣らしの窓を開いていない');
+  assert.ok(m.slice(warm, loop).includes('await capture(warm.wc)'), '慣らしの窓を撮っていない（描き終わる前に壊すと慣らしにならない）');
+  assert.ok(m.slice(warm, loop).includes('warm.win.destroy()'), '慣らしの窓を壊していない');
+});
+
+test('F9: 揺れの確かめの2枚目は、描き直させて（invalidate）から撮る（同じ描き終わりの写しを2回比べても揺れは見つからない）', { timeout: 5000 }, () => {
+  const m = read('tools/shots/main.js');
+  const a = m.indexOf('const a = await capture(o.wc);');
+  const b = m.indexOf('const b = await capture(o.wc);');
+  assert.ok(a >= 0 && b > a);
+  assert.ok(/o\.wc\.invalidate\(\);/.test(m.slice(a, b)), '2枚目の前に描き直させていない');
+  assert.ok(m.slice(a, b).includes('await settle(o.wc, o.t);'), '描き直しが済むのを待っていない');
+});

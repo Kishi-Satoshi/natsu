@@ -161,6 +161,23 @@ function boot() {
     const shots = {};
     const flaky = [];
     const errors = [];
+    // 慣らし: Windows の CI で、最初に開いた窓（notes-empty-light）だけ、札と枠の角の縁の画素が実行ごとに2通りに描かれた
+    // （色の差 8 まで・31 画素。2 枚目からの窓は4回の実行でいつも同じ、同じ札も同じに描かれる）。最初の画面を1度開いて撮って
+    // 捨ててから本番を撮る。慣らしの画像は本番の最初の画面と比べて、違えば参考に出す（直ったかを CI の記録で見るため）
+    let warmShot = null;
+    try {
+      const warm = await open(SH.SCREENS[0].page, SH.SCREENS[0].theme, SH.fixtures());
+      try {
+        if (SH.SCREENS[0].act) await within(warm.wc.executeJavaScript(SH.SCREENS[0].act, true), 10000, '慣らしの操作');
+        await settle(warm.wc, warm.t);
+        warmShot = await capture(warm.wc);
+      } finally {
+        tables.delete(warm.wc.id);
+        try { warm.win.destroy(); } catch (_) { /* もう無い */ }
+      }
+    } catch (e) {
+      console.log(`参考: 慣らしの画面を撮れなかった（本番は続ける）: ${msgOf(e)}`);
+    }
     for (const s of SH.SCREENS) {
       let win = null;
       try {
@@ -171,8 +188,15 @@ function boot() {
         await settle(o.wc, o.t);
         await wait(300);
         const a = await capture(o.wc);
+        // 2枚目は描き直させてから撮る（同じ描き終わりの写しを2回比べても、描くたびの揺れは見つからない）
+        o.wc.invalidate();
+        await settle(o.wc, o.t);
         await wait(300);
         const b = await capture(o.wc);
+        if (warmShot && s === SH.SCREENS[0]) {
+          const w = png.diffImages(warmShot, a, { tolerance: 0 });
+          console.log(`参考: 慣らしの画像と本番の ${s.name} は${w.same ? '同じ' : `${w.sizeMismatch ? '大きさが違う' : `${w.count} 画素違う`}`}`);
+        }
         const want = s.page === 'overlay' ? SH.OVERLAY_SIZE : SH.SIZE;
         const j = SH.judgePair(a, b, png);
         shots[s.name] = a;
