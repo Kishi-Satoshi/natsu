@@ -93,3 +93,24 @@ test('G3: 第1a回の変異が一覧にそろう（計画の「変異確認」�
   const ids = new Set(MUTANTS.map((m) => m.id));
   assert.deepStrictEqual(IDS_1A.filter((id) => !ids.has(id)), []);
 });
+
+// 第1c回（Task D-1。計画 docs/plans/2026-10-18-1c.md の「変異確認」の表）
+const IDS_1C = [
+  'on-offline-noask', 'on-401-up', 'on-cache-ok', 'on-cache-ng', 'on-cert', 'on-order-consent', 'on-order-localonly', 'on-order-key', 'on-consent-unknown', 'on-summary-localonly',
+  'stt-auth-only', 'stt-redirect', 'stt-429-wait', 'stt-429-long', 'stt-waitcap', 'stt-offline-class', 'stt-https-only', 'stt-preset-fixed', 'stt-400-noprompt',
+  'sec-unavailable', 'sec-basic-text', 'sec-reencrypt', 'sec-key-re',
+  'cl-strip-prefix', 'cl-strip-case', 'cl-auth-gate', 'cl-no-bare', 'cl-no-persist', 'cl-safe-mode', 'cl-old-version', 'cl-tools-off', 'cl-stdin-cap', 'cl-limit-class', 'cl-reset-at', 'cl-timeout-kill', 'cl-cmd-only', 'cl-cwd',
+  'mn-no-fallback', 'mn-offline-local', 'mn-seg-fallback', 'mn-429-no-local', 'mn-route-count', 'mn-localonly-draft', 'mn-notice-once', 'mn-recovery-keep', 'mn-input-same',
+  'mn-warm-local', 'mn-localonly-summary', 'mn-recovery-local-keep', 'mn-recovery-engine-keep', 'mn-key-decrypt',
+  'st-consent-ask', 'st-url-https', 'st-claude-cmd', 'ui-key-cleared', 'ui-localonly-final', 'gate-online',
+];
+// 第1c回の各タスクの点検で、テストを足して殺した変異（計画の表の外。合流の申し送り）
+const IDS_1C_REVIEW = [
+  'ui-localonly-reset', 'ui-localonly-cloud', 'mn-status-cloud', 'mn-page-view',
+  'on-redirect-up', 'sec-unreadable-set', 'sec-unreadable-remove', 'stt-403-auth', 'stt-413', 'cl-out-cap', 'cl-exit-nonzero', 'cl-auth-timeout',
+  'mn-ask-no-decrypt', 'mn-announce-localonly', 'mn-localonly-oneway',
+];
+test('G3: 第1c回の変異が一覧にそろう（計画の「変異確認」の表と同じ id、と点検で足した id）', { timeout: 5000 }, () => {
+  const ids = new Set(MUTANTS.map((m) => m.id));
+  assert.deepStrictEqual([...IDS_1C, ...IDS_1C_REVIEW].filter((id) => !ids.has(id)), []);
+});

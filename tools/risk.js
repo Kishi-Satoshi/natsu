@@ -290,6 +290,40 @@ function jsonWriteFindings(file, before, after) {
   return [...a].filter(([line, n]) => n > (b.get(line) || 0)).map(([line]) => line);
 }
 
+// ---------- 外への送り方と Claude Code の呼び方（第1c回 OL8・G8） ----------
+// Claude Code は利用者が入れてログインした claude をそのまま呼ぶ（--bare は OAuth のログインを読まない・
+// ~/.claude/.credentials.json は読まない）。鍵は safeStorage の非同期の形だけで暗号にする（同期の形は
+// Linux で平文の入れ物に落ちうる）。claude の子のプロセスは src/claude-cli.js だけが起こす（課金の変数を外した環境・
+// shell なし・決まった引数を通すため）。src の足した行（注釈を落とした文字）を数え、前の版より増えた行だけを報告する。
+// main.js の外への fetch( は「main の外向き通信」（fetchFindings）と loopbackOnlyFetch が受け持つ。
+const onlineTarget = (f) => /^src\/.*\.js$/.test(f) && !f.startsWith('src/renderer/');
+const ONLINE_RULES = [
+  { re: /(?<![\w-])--bare(?![\w-])/, why: '--bare は OAuth のログインを読まない（各自の Claude のプランでなく API キーを求める）' },
+  { re: /\.credentials\.json/, why: 'Claude Code の資格情報のファイルを NaTsu から触らない' },
+  { re: /(?<![\w$])(?:encrypt|decrypt)String\s*\(/, why: 'safeStorage の同期の形（encryptString／decryptString）は使わない。非同期の形（…Async）だけ' },
+  { re: /(?<![\w$])(?:spawn|spawnSync|execFile|execFileSync)\s*\(.*claude|claude.*(?<![\w$])(?:spawn|spawnSync|execFile|execFileSync)\s*\(/i,
+    why: 'claude の子のプロセスは src/claude-cli.js だけが起こす（課金の変数を外した環境・shell なし・決まった引数）', only: (f) => f !== 'src/claude-cli.js' },
+];
+/** 注釈を落とした文字の、決まりに触れる行（空白をつぶした文字 → { n, why }） */
+function onlineLines(file, src) {
+  const out = new Map();
+  if (src == null) return out;
+  for (const raw of stripJs(src).split('\n')) {
+    const hit = ONLINE_RULES.find((r) => (!r.only || r.only(file)) && r.re.test(raw));
+    if (!hit) continue;
+    const line = raw.replace(/\s+/g, ' ').trim();
+    const cur = out.get(line);
+    out.set(line, { n: (cur ? cur.n : 0) + 1, why: hit.why });
+  }
+  return out;
+}
+/** 前の版より数が増えた、決まりに触れる行（1つの行ごとに1件。'行 — 理由' の文字） */
+function onlineFindings(file, before, after) {
+  if (!onlineTarget(file) || after == null) return [];
+  const b = onlineLines(file, before), a = onlineLines(file, after);
+  return [...a].filter(([line, x]) => x.n > ((b.get(line) || {}).n || 0)).map(([line, x]) => `${line} — ${x.why}`);
+}
+
 function analyze(base, head) {
   F = [];
   const changed = new Set(
@@ -344,6 +378,12 @@ function analyze(base, head) {
       add('BLOCK', 'JSON の直書き', f, `src で JSON を直接書く行を足した: ${line}\n      理由: 一時ファイル・fsync・名前の変更のやり直し・読み取り専用の扱いを通らない（JS5）`, 'src/jsonfile.js の writeJsonFile を使う');
   }
 
+  // 外への送り方と Claude Code の呼び方（新しく足した行だけ。第1c回 OL8）
+  for (const f of [...changed].filter(onlineTarget)) {
+    for (const line of onlineFindings(f, at(base, f), at(head, f)))
+      add('BLOCK', '外への送り方と Claude Code の呼び方', f, `決まりに触れる行を足した: ${line}`, 'src/claude-cli.js の部品（findClaude・claudeAuthStatus・claudeSummarize）と src/secrets.js（safeStorage の非同期の形）を使う');
+  }
+
   // 実機確認が要る変更の判定
   const needs = [];
   if ([...changed].some((f) => f.includes('overlay.html'))) needs.push('録音バーの透過（ピルの外に矩形が出ていないか）と、暗い地の上で波形・文字が読めるか');
@@ -369,6 +409,7 @@ const SCOPE = {
     '復旧の導線が main 側にあること',
     'main プロセスの外向きの通信（グローバルの fetch）',
     'src の JSON の直書き（src/jsonfile.js のほか）',
+    'Claude Code の呼び方と鍵のしまい方（--bare・.credentials.json・同期の safeStorage・claude-cli.js のほかでの claude の起動）',
   ],
   blind: ['src/cite.js', 'src/store.js', 'src/minutes.js', 'src/actions.js'],
 };
@@ -424,6 +465,7 @@ function main(argv) {
     line('復旧の導線が main 側にあること', blocks.filter((b) => b.rule.includes('復旧')).length),
     line('main プロセスの外向きの通信（グローバルの fetch）', blocks.filter((b) => b.rule === 'main の外向き通信').length),
     line('src の JSON の直書き（src/jsonfile.js のほか）', blocks.filter((b) => b.rule === 'JSON の直書き').length),
+    line('Claude Code の呼び方と鍵のしまい方（--bare・.credentials.json・同期の safeStorage・claude-cli.js のほかでの claude の起動）', blocks.filter((b) => b.rule === '外への送り方と Claude Code の呼び方').length),
     '', `このゲートが見ていないもの: ${SCOPE.blind.join(' / ')} のロジック — npm test が守る（リリース前に必ず通す）`);
   const out = arg('--checklist');
   if (out) { fs.writeFileSync(out, md.join('\n') + '\n'); console.log('チェックリストを書き出した: ' + out); }
@@ -432,4 +474,4 @@ function main(argv) {
   return blocks.length ? 1 : 0;
 }
 if (require.main === module) process.exit(main(process.argv.slice(2)));
-module.exports = { analyze, checkHtml, windows, mineHits, inkFindings, refIds, fetchFindings, jsonWriteFindings, SCOPE, scopeNote };
+module.exports = { analyze, checkHtml, windows, mineHits, inkFindings, refIds, fetchFindings, jsonWriteFindings, onlineFindings, SCOPE, scopeNote };

@@ -184,3 +184,35 @@ test('JS5: src の中で JSON を直接書く行は、jsonfile.js のほかに 0
   const files = fs.readdirSync(path.join(ROOT, 'src')).filter((f) => f.endsWith('.js') && f !== 'jsonfile.js').map((f) => `src/${f}`);
   for (const f of files) assert.deepStrictEqual(R.jsonWriteFindings(f, '', read(f)), [], f);
 });
+
+// ---------- 外への送り方と Claude Code の呼び方（第1c回 Task D-1。G8・OL8） ----------
+test('OL8: src の --bare・.credentials.json・同期の safeStorage・claude-cli.js のほかでの claude の起動を止める', { timeout: 5000 }, () => {
+  const R = require('../tools/risk');
+  const bad = [
+    ['src/main.js', "const args = ['--bare', '-p'];"],
+    ['src/main.js', "fs.readFileSync(path.join(home, '.claude', '.credentials.json'))"],
+    ['src/secrets.js', 'const b = safeStorage.encryptString(key);'],
+    ['src/secrets.js', 'const s = safeStorage.decryptString(buf);'],
+    ['src/main.js', "spawn('claude', ['-p'])"],
+    ['src/main.js', "cp.execFile(claudePath, ['auth', 'status'], cb)"],
+    ['src/claude-cli.js', "const args = ['--bare', '-p'];"],
+  ];
+  for (const [file, line] of bad) assert.ok(R.onlineFindings(file, '', `${line}\n`).length > 0, line);
+  assert.deepStrictEqual(R.onlineFindings('src/claude-cli.js', '', "const child = spawn(cmd, [...preArgs, ...args], { shell: false });\n"), []);
+  assert.deepStrictEqual(R.onlineFindings('test/claude-cli.test.js', '', "spawn('claude', ['--bare'])\n"), [], 'テストまで止めた');
+  // 非同期の形・注釈・前からある行・ほかの子の起動では鳴らない
+  assert.deepStrictEqual(R.onlineFindings('src/secrets.js', '', 'const buf = await safeStorage.encryptStringAsync(key);\nconst out = await safeStorage.decryptStringAsync(b);\n'), []);
+  assert.deepStrictEqual(R.onlineFindings('src/main.js', '', '// --bare は使わない（.credentials.json も読まない）\n'), [], '注釈の中で鳴った');
+  assert.deepStrictEqual(R.onlineFindings('src/main.js', '', "const child = spawn(whisperExe, args, { windowsHide: true });\n"), []);
+  const old = "const args = ['--bare'];\n";
+  assert.deepStrictEqual(R.onlineFindings('src/main.js', old, `${old}const b = 2;\n`), [], '前からある行で鳴った');
+});
+
+test('OL8: analyze が外への送り方と Claude Code の呼び方の検査を呼び、射程に載る。今の src には1件も無い', { timeout: 5000 }, () => {
+  const R = require('../tools/risk');
+  const src = read('tools/risk.js');
+  assert.ok(src.includes("add('BLOCK', '外への送り方と Claude Code の呼び方', f,") && src.includes('onlineFindings(f, at(base, f), at(head, f))'));
+  assert.ok(R.SCOPE.sees.includes('Claude Code の呼び方と鍵のしまい方（--bare・.credentials.json・同期の safeStorage・claude-cli.js のほかでの claude の起動）'));
+  const files = fs.readdirSync(path.join(ROOT, 'src')).filter((f) => f.endsWith('.js')).map((f) => `src/${f}`);
+  for (const f of files) assert.deepStrictEqual(R.onlineFindings(f, '', read(f)), [], f);
+});
