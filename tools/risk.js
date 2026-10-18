@@ -266,6 +266,30 @@ function fetchFindings(file, before, after) {
   return [...a].filter(([arg, n]) => n > (b.get(arg) || 0)).map(([arg]) => arg);
 }
 
+// ---------- src の JSON の直書き（G8・JS5） ----------
+// JSON のファイルは src/jsonfile.js の writeJsonFile だけで書く（一時ファイル・fsync・名前の変更の
+// やり直し・読み取り専用の扱いを通すため）。1行の中に writeFileSync／writeFile の呼び出しと
+// JSON.stringify( の両方がある行を数え、前の版より増えた行だけを報告する。WAV（spoolSegment）は
+// JSON.stringify が無いので、記録の追記（appendFileSync）は writeFile でないので数えない。
+const jsonWriteTarget = (f) => /^src\/.*\.js$/.test(f) && !f.startsWith('src/renderer/') && f !== 'src/jsonfile.js';
+/** 注釈を落とした文字の、JSON を直接書く行（空白をつぶした文字 → 数） */
+function jsonWriteLines(src) {
+  const out = new Map();
+  if (src == null) return out;
+  for (const raw of stripJs(src).split('\n')) {
+    if (!/(?<![\w$])(?:writeFileSync|writeFile)\s*\(/.test(raw) || !/JSON\.stringify\(/.test(raw)) continue;
+    const line = raw.replace(/\s+/g, ' ').trim();
+    out.set(line, (out.get(line) || 0) + 1);
+  }
+  return out;
+}
+/** 前の版より数が増えた、JSON を直接書く行（1つの行ごとに1件） */
+function jsonWriteFindings(file, before, after) {
+  if (!jsonWriteTarget(file) || after == null) return [];
+  const b = jsonWriteLines(before), a = jsonWriteLines(after);
+  return [...a].filter(([line, n]) => n > (b.get(line) || 0)).map(([line]) => line);
+}
+
 function analyze(base, head) {
   F = [];
   const changed = new Set(
@@ -314,6 +338,11 @@ function analyze(base, head) {
     for (const arg of fetchFindings(f, at(base, f), at(head, f)))
       add('BLOCK', 'main の外向き通信', f, `グローバルの fetch を足した: ${arg}\n      理由: Node の fetch は Windows のプロキシ・PAC・証明書を使わない（RF2）`, 'Electron の net（net.request／net.fetch）を使う。127.0.0.1 のエンジンへの呼び出しだけは fetch でよい');
   }
+  // src の JSON の直書き（新しく足した行だけ。G8・JS5）
+  for (const f of [...changed].filter(jsonWriteTarget)) {
+    for (const line of jsonWriteFindings(f, at(base, f), at(head, f)))
+      add('BLOCK', 'JSON の直書き', f, `src で JSON を直接書く行を足した: ${line}\n      理由: 一時ファイル・fsync・名前の変更のやり直し・読み取り専用の扱いを通らない（JS5）`, 'src/jsonfile.js の writeJsonFile を使う');
+  }
 
   // 実機確認が要る変更の判定
   const needs = [];
@@ -339,6 +368,7 @@ const SCOPE = {
     '.ps1 の BOM と書き出し口',
     '復旧の導線が main 側にあること',
     'main プロセスの外向きの通信（グローバルの fetch）',
+    'src の JSON の直書き（src/jsonfile.js のほか）',
   ],
   blind: ['src/cite.js', 'src/store.js', 'src/minutes.js', 'src/actions.js'],
 };
@@ -393,6 +423,7 @@ function main(argv) {
     line('.ps1 の BOM と書き出し口', blocks.filter((b) => b.rule.includes('ps1')).length),
     line('復旧の導線が main 側にあること', blocks.filter((b) => b.rule.includes('復旧')).length),
     line('main プロセスの外向きの通信（グローバルの fetch）', blocks.filter((b) => b.rule === 'main の外向き通信').length),
+    line('src の JSON の直書き（src/jsonfile.js のほか）', blocks.filter((b) => b.rule === 'JSON の直書き').length),
     '', `このゲートが見ていないもの: ${SCOPE.blind.join(' / ')} のロジック — npm test が守る（リリース前に必ず通す）`);
   const out = arg('--checklist');
   if (out) { fs.writeFileSync(out, md.join('\n') + '\n'); console.log('チェックリストを書き出した: ' + out); }
@@ -401,4 +432,4 @@ function main(argv) {
   return blocks.length ? 1 : 0;
 }
 if (require.main === module) process.exit(main(process.argv.slice(2)));
-module.exports = { analyze, checkHtml, windows, mineHits, inkFindings, refIds, fetchFindings, SCOPE, scopeNote };
+module.exports = { analyze, checkHtml, windows, mineHits, inkFindings, refIds, fetchFindings, jsonWriteFindings, SCOPE, scopeNote };

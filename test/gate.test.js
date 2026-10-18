@@ -157,3 +157,24 @@ test('.ps1 は BOM 付きで、生成器を通さない書き出しが無い', (
   const bad = R.analyze('HEAD', null).findings.filter((f) => f.rule === '配布-ps1');
   assert.deepStrictEqual(bad.map((f) => f.file + ': ' + f.msg), []);
 });
+
+test('G8・JS5: src の JSON の直書き（writeFileSync・writeFile と JSON.stringify が同じ行）を足すと BLOCK。jsonfile.js・画面・WAV・記録の追記・前からある行は通す', () => {
+  const R = require('../tools/risk');
+  const base = 'const a = 1;\n';
+  assert.strictEqual(R.jsonWriteFindings('src/x.js', base, `${base}fs.writeFileSync(f, JSON.stringify(o), 'utf8');\n`).length, 1);
+  assert.strictEqual(R.jsonWriteFindings('src/x.js', base, `${base}await fsp.writeFile(tmp, JSON.stringify({ a }));\n`).length, 1);
+  assert.strictEqual(R.jsonWriteFindings('src/x.js', base, `${base}await fs.promises.writeFile(p, JSON.stringify(v, null, 2));\n`).length, 1);
+  assert.deepStrictEqual(R.jsonWriteFindings('src/jsonfile.js', base, `${base}fs.writeFileSync(fd, JSON.stringify(v));\n`), []);
+  assert.deepStrictEqual(R.jsonWriteFindings('src/renderer/app.html', '', 'fs.writeFileSync(f, JSON.stringify(o))'), []);
+  assert.deepStrictEqual(R.jsonWriteFindings('src/x.js', base, `${base}fs.writeFileSync(\`\${file}.tmp\`, buffer);\n`), []);
+  assert.deepStrictEqual(R.jsonWriteFindings('src/x.js', base, `${base}fs.appendFileSync(log, JSON.stringify(o));\n`), []);
+  assert.deepStrictEqual(R.jsonWriteFindings('src/x.js', base, `${base}// fs.writeFileSync(f, JSON.stringify(o));\n`), [], '注釈の中で鳴った');
+  const old = "fs.writeFileSync(f, JSON.stringify(o), 'utf8');\n";
+  assert.deepStrictEqual(R.jsonWriteFindings('src/x.js', old, `${old}const b = 2;\n`), [], '前からある行で鳴った');
+  assert.deepStrictEqual(R.jsonWriteFindings('src/x.js', old, ''), [], '消したら鳴った');
+});
+
+test('G8・JS5: analyze が JSON の直書きの検査を呼ぶ（BLOCK の名前は「JSON の直書き」）', () => {
+  const src = read('tools/risk.js');
+  assert.ok(src.includes("add('BLOCK', 'JSON の直書き', f,") && src.includes('jsonWriteFindings(f, at(base, f), at(head, f))'));
+});
