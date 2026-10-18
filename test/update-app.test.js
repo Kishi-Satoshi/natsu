@@ -66,3 +66,18 @@ test('notice の無い古い形の知らせでも落ちない（test/invariants.
   assert.deepStrictEqual(l.errors, []);
   assert.strictEqual(l.byId.get('updBadge').querySelector('.go').textContent, '更新して再起動');
 });
+
+test('設定の［更新して再起動］でも、門が断ったらボタンを［ダウンロード］に替え、次は配布ページを開く', async () => {
+  const l = await load(APP, { returns: { updateCheck: () => APPLY, updateApply: () => ({ ok: false, reinstall: true, error: R }) } });
+  l.window.confirm = () => true; // simrun の confirm は false を返す。ここでは「続行」を選んだことにする
+  l.byId.get('chkUpdBtn').dispatchEvent({ type: 'click' }); await l.drain();
+  const b = l.byId.get('applyUpdBtn');
+  assert.strictEqual(b.textContent, '更新して再起動');
+  b.dispatchEvent({ type: 'click' }); await l.drain();
+  assert.strictEqual(l.called('updateApply').length, 1);
+  assert.strictEqual(b.textContent, 'ダウンロード');
+  assert.ok(l.byId.get('updMsg').textContent.includes(R), l.byId.get('updMsg').textContent);
+  b.dispatchEvent({ type: 'click' }); await l.drain();
+  assert.strictEqual(l.called('openReleases').length, 1);
+  assert.strictEqual(l.called('updateApply').length, 1, '断られた後にもう一度当てようとした');
+});
