@@ -193,6 +193,7 @@ function isSttBaseUrl(v, max) {
   if (v.length > max) return false;
   let u;
   try { u = new URL(v); } catch { return false; }
+  if (u.username || u.password) return false;   // https://user:鍵@… の鍵を settings.json に平文で残さない（RF30）
   if (/^https:\/\//.test(v)) return u.protocol === 'https:' && u.hostname !== '';
   return /^http:\/\/(127\.0\.0\.1|localhost)(:\d+)?(\/|$)/.test(v)
     && u.protocol === 'http:' && (u.hostname === '127.0.0.1' || u.hostname === 'localhost');

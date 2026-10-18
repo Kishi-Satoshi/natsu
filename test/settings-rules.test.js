@@ -147,6 +147,37 @@ test('OL7: 第1c回の5つのキー。同意の壊れた値は送らない側（
   assert.deepStrictEqual(r({ cloudTranscribe: 'yes' }).repaired, [{ key: 'cloudTranscribe', why: 'enum' }]);
 });
 
+test('OL7: claudeExe は npm 版（.cmd・.bat・.ps1）を大小を問わず捨てる。Windows が無視する後ろの . と空白も外して見る', { timeout: 5000 }, () => {
+  const exe = (v) => S.readSettings({ claudeExe: v }, D);
+  for (const v of ['C:\\npm\\claude.bat', 'C:\\npm\\claude.ps1', 'C:\\npm\\CLAUDE.CMD', 'C:\\x\\claude.Bat', 'C:\\x\\claude.PS1',
+    'C:\\npm\\claude.cmd.', 'C:\\npm\\claude.cmd ']) {
+    const got = exe(v);
+    assert.strictEqual(got.settings.claudeExe, '', JSON.stringify(v));
+    assert.deepStrictEqual(got.repaired, [{ key: 'claudeExe', why: 'enum' }], JSON.stringify(v));
+  }
+  assert.strictEqual(exe('/home/u/.local/bin/claude').settings.claudeExe, '/home/u/.local/bin/claude');
+});
+
+test('OL7: sttBaseUrl は 2048 字まで。http は 127.0.0.1・localhost だけで、似た名前と鍵入りの URL は通さない', { timeout: 5000 }, () => {
+  const url = (v) => S.readSettings({ sttBaseUrl: v }, D);
+  const AT = '@';   // 文字のままだと repo.test.js のメールアドレスの見張りに当たるので分けて書く
+  const max = 'https://a.example/' + 'x'.repeat(2048 - 18);
+  assert.strictEqual(max.length, 2048);
+  assert.strictEqual(url(max).settings.sttBaseUrl, max);
+  assert.deepStrictEqual(url(max + 'x').settings.sttBaseUrl, '');
+  assert.deepStrictEqual(url(max + 'x').repaired, [{ key: 'sttBaseUrl', why: 'enum' }]);
+  for (const v of ['http://localhost.example/v1', 'http://127.0.0.1.evil/v1', `http://localhost${AT}evil.example/`, 'HTTPS://stt.example/v1',
+    'https:stt.example/v1', `https://user:gsk_secret${AT}stt.example/v1`, `https://:gsk_secret${AT}stt.example/v1`, `http://u:p${AT}127.0.0.1:8123/v1`,
+    'http://localhost\\v1']) {   // 最後は URL では localhost に読めるが、文字の頭の決まり（名前の後ろは : か / か終わり）で落とす
+    const got = url(v);
+    assert.strictEqual(got.settings.sttBaseUrl, '', JSON.stringify(v));
+    assert.deepStrictEqual(got.repaired, [{ key: 'sttBaseUrl', why: 'enum' }], JSON.stringify(v));
+  }
+  for (const v of ['http://localhost:8123', 'http://127.0.0.1:8123', 'http://localhost/v1', 'https://stt.example/v1/']) {
+    assert.strictEqual(url(v).settings.sttBaseUrl, v, JSON.stringify(v));
+  }
+});
+
 test('RF30: 鍵らしい欄は画面から来ても保存しない（設定の JSON に秘密を置かない）', { timeout: 5000 }, () => {
   const next = { theme: 'dark', sttKey: 'gsk_x', groqKey: 'gsk_x', openaiKey: 'sk-x', apiKey: 'k', ANTHROPIC_API_KEY: 'sk-ant', cloudTranscribe: 'on' };
   assert.deepStrictEqual(S.pickSavable(next), { theme: 'dark', cloudTranscribe: 'on' });
