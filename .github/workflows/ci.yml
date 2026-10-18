@@ -305,10 +305,11 @@ jobs:
         shell: bash
         run: node_modules/electron/dist/electron.exe tools/electron-smoke
 
-      # 主な画面を撮る（第1a回 G2）。基準と比べるのは Task 3-5 から。撮った画像はいつも artifact に上げる
+      # 主な画面を撮り、基準（test/shots/win32。Windows の CI が撮った画像を確かめて置いたもの）と比べる（第1a回 G2・Task 3-5）。
+      # 違えば前・後・差分を artifact に上げる。画面を変えた回は、確かめてから基準を取り直す（--compare を外して撮り直す）
       - name: 主な画面を撮る
         shell: bash
-        run: node_modules/electron/dist/electron.exe tools/shots --out "$RUNNER_TEMP/shots"
+        run: node_modules/electron/dist/electron.exe tools/shots --compare test/shots/win32 --out "$RUNNER_TEMP/shots"
 
       - name: 撮った画面を上げる
         if: always()

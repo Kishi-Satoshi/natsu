@@ -184,3 +184,18 @@ test('G2: 作業域より大きい窓が作るときに縮められても（Wind
   const fix = m.indexOf('SH.ensureContentSize(win, size)');
   assert.ok(made >= 0 && fix > made && fix < m.indexOf("wc.loadURL('about:blank')"), '窓を作った直後に大きさを決め直していない');
 });
+
+test('G2・F9: どの画面にも基準の PNG があり、自作の部品で読めて、大きさが窓の大きさと同じ', { timeout: 5000 }, () => {
+  for (const s of SH.SCREENS) {
+    const f = path.join(ROOT, 'test', 'shots', 'win32', `${s.name}.png`);
+    assert.ok(fs.existsSync(f), `${s.name} の基準が無い`);
+    const im = P.decodePng(fs.readFileSync(f));
+    const want = s.page === 'overlay' ? SH.OVERLAY_SIZE : SH.SIZE;
+    assert.deepStrictEqual([im.width, im.height], [want.width, want.height], s.name);
+  }
+});
+
+test('ci.yml の electron-smoke: 撮った画面を基準（test/shots/win32）と比べる', { timeout: 5000 }, () => {
+  const st = stepsOf(jobsOf(read('.github/workflows/ci.yml'))['electron-smoke']);
+  assert.ok(st.some((s) => s.includes('electron.exe tools/shots --compare test/shots/win32 --out "$RUNNER_TEMP/shots"')));
+});
