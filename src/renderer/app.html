@@ -128,18 +128,22 @@
     background: var(--bg); }
   ::placeholder { color: var(--muted); }
 
-  /* 設定の区画は平ら（第1b回 N5）: 地は持たず、下の線だけで区切る。<h2> は小さい見出し */
-  .card { background: transparent; border: none; border-bottom: 1px solid var(--line);
-    border-radius: 0; padding: 20px 4px; margin-bottom: 0; overflow-wrap: anywhere; }
-  .card:last-child { border-bottom: none; }
-  .card h2 { font-size: 12px; font-weight: 700; color: var(--muted); letter-spacing: .1em; margin-bottom: 14px; }
+  /* 設定と音声入力は題名のある平らなページ（第1b2回 R-1）: 頭に 32px の題名（.stitle）。
+     上下の余白は長い書き方で書く（margin の短い書き方は .scroll > * の左右の auto を消して列が中央に来なくなる） */
+  .stitle { font-size: 32px; font-weight: 700; line-height: 40px; margin-top: 48px; margin-bottom: 16px; }
+  /* 設定の区画は平ら（第1b回 N5）: 地も線も持たない。<h2> は 16px の文字の色で、下に線（小さな灰色の見出しをやめた: 第1b2回 R-1） */
+  .card { background: transparent; border: none; border-radius: 0; padding: 24px 0 0; margin-bottom: 0; overflow-wrap: anywhere; }
+  .card h2 { font-size: 16px; font-weight: 600; color: var(--text); letter-spacing: 0;
+    border-bottom: 1px solid var(--line); padding-bottom: 8px; margin-bottom: 16px; }
   .field { margin-bottom: 13px; }
-  .field label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 5px; }
+  .field label { display: block; font-size: 14px; color: var(--text); margin-bottom: 5px; }
   .field .row { display: flex; gap: 8px; align-items: center; }
   .field .row > input, .field .row > select { flex: 1; min-width: 0; }
-  .field .desc { font-size: 11px; color: var(--muted); margin-top: 4px; }
+  .field .desc { font-size: 12px; color: var(--muted); margin-top: 4px; }
   .field .desc.ng { color: var(--danger); }
-  .check { display: flex; align-items: flex-start; gap: 10px; margin-bottom: 11px; cursor: pointer; }
+  /* トグルの行は文字が左・トグルが右（第1b2回 R-1）。マークアップは今のまま（input が先）で、並びだけ逆にする */
+  .check { display: flex; flex-direction: row-reverse; justify-content: space-between; align-items: center; gap: 10px;
+    min-height: 38px; margin-bottom: 4px; cursor: pointer; }
   /* 設定のオン・オフはトグルで表す。議事録のチェックボックス（.blk 内）は
      完了の印なので四角のまま。トグルは丸い形の例外（文字を持たない飾り）。 */
   .check input { appearance: none; -webkit-appearance: none; flex: none;
@@ -409,12 +413,11 @@
 
   /* ---------- 音声入力 ---------- */
   .stats { display: flex; gap: 10px; margin-bottom: 12px; flex-wrap: wrap; }
-  /* 数の札は平らな枠（第1b回 N5） */
-  .stat { flex: 1; min-width: 150px; background: transparent; border: 1px solid var(--line);
-    border-radius: 4px; padding: 10px 14px; }
-  .stat .n { font-size: 19px; font-variant-numeric: tabular-nums; }
+  /* 数の札は枠も地も持たない（第1b2回 R-1）: 大きな数と小さな灰色の名前だけ */
+  .stat { flex: 1; min-width: 150px; background: transparent; border: none; padding: 0; }
+  .stat .n { font-size: 24px; font-weight: 600; font-variant-numeric: tabular-nums; }
   .stat .n small { font-size: 12px; color: var(--muted); margin-left: 2px; }
-  .stat .l { font-size: 11px; color: var(--muted); margin-top: 2px; }
+  .stat .l { font-size: 12px; color: var(--muted); margin-top: 2px; }
   .toolbar { display: flex; gap: 9px; margin-bottom: 13px; align-items: center; }
   .toolbar input { flex: 1; }
   /* 履歴は線で区切った素の一覧（第1b回 N5） */
@@ -427,7 +430,9 @@
     cursor: pointer; padding: 2px 4px; }
   .entry .meta button:hover { color: var(--text); }
   .entry .meta button.danger:hover { color: var(--danger); }
-  .scroll { height: 100%; overflow-y: auto; }
+  /* 設定と音声入力の中身は中央に最大 720px の列（第1b2回 R-1。ページの本文の列と同じ幅） */
+  .scroll { height: 100%; overflow-y: auto; padding-left: 24px; padding-right: 24px; }
+  .scroll > * { max-width: 720px; margin-left: auto; margin-right: auto; }
 
   /* 浮く部品（知らせ）。影は --shadow だけ */
   #toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%) translateY(8px);
@@ -472,8 +477,6 @@
     .ptabs { padding: 8px 12px 0; }
     .pbody { padding: 10px 12px 16px; }
     .prop .k { width: 96px; }
-    .card { padding: 14px 2px; }
-    .stat { min-width: 120px; }
     .blk .txt { overflow-wrap: anywhere; }
   }
 
@@ -481,6 +484,15 @@
   @media (max-width: 760px) {
     .pagebar { padding: 0 8px; }
     .crumb .ct { max-width: 40vw; }
+  }
+
+  /* 狭い画面（第1b2回 R-1 の区画）: 設定と音声入力の題名と余白を詰め、トグルは左へ戻して折り返しを減らす */
+  @media (max-width: 760px) {
+    .stitle { margin-top: 24px; font-size: 26px; }
+    .scroll { padding-left: 12px; padding-right: 12px; }
+    .card { padding: 14px 0 0; }
+    .stat { min-width: 120px; }
+    .check { flex-direction: row; justify-content: flex-start; }
   }
 
   @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
@@ -595,6 +607,7 @@
     <!-- ================= 音声入力 ================= -->
     <section id="tabDictation" class="tab">
       <div class="scroll">
+        <h1 class="stitle">音声入力</h1>
         <div class="stats">
           <div class="stat"><div class="n" id="stToday">—</div><div class="l">今日の入力</div></div>
           <div class="stat"><div class="n" id="stTotal">—</div><div class="l">累計</div></div>
@@ -612,6 +625,7 @@
     <!-- ================= 設定 ================= -->
     <section id="tabSettings" class="tab">
       <div class="scroll">
+        <h1 class="stitle">設定</h1>
         <div class="card">
           <h2>アップデート</h2>
           <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
