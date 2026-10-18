@@ -1,6 +1,6 @@
 {
   "name": "natsu",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "NaTsu — 完全オフラインの音声入力・議事録ツール（ローカルLLM要約 + 出典リンク付き）",
   "main": "src/main.js",
   "author": "Kishi-Satoshi",
