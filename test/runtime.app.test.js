@@ -298,8 +298,8 @@ test('ホットキーで記録開始しても、編集中の要点とタイト�
   await l.drain();
   assert.deepStrictEqual(l.called('blockUpdate').map((c) => c.args), [['p1', 'b2', { text: '週次の締めを木曜にする' }]]);
   assert.deepStrictEqual(l.called('pageSetTitle').map((c) => c.args), [['p1', '新しい題']]);
-  // 記録開始で議事録は閉じているので、画面（白紙）は触らない
-  assert.strictEqual(l.byId.get('pTitle').textContent, '');
+  // 記録開始で議事録は閉じているので、打った題は画面に残らない（第1b2回 R-2 で、記録中のページの題名は「記録中の会議」）
+  assert.strictEqual(l.byId.get('pTitle').textContent, '記録中の会議');
   assert.deepStrictEqual(l.errors.map(fmt), []);
 });
 

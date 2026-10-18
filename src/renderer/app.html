@@ -414,8 +414,9 @@
   .seg .txt:empty::before { content: '（削除済み）'; color: var(--muted); }
 
   /* ---------- 進行中バー ---------- */
-  .live { display: flex; align-items: center; gap: 6px 10px; margin-bottom: 10px; flex-wrap: wrap;
-    background: var(--side); border: 1px solid var(--line); border-radius: 6px; padding: 10px 14px; }
+  /* 記録の行は会議のブロックの頭（丸いタブの前）の1行。地も枠も持たず、下に細い線だけ（第1b2回 R-2） */
+  .live { display: flex; align-items: center; gap: 6px 10px; flex-wrap: wrap;
+    padding: 0 0 8px; border-bottom: 1px solid var(--line); margin-bottom: 8px; }
   /* 進捗・打ち切り・マイクの注意は、1行目（状態と時計）の下に折り返して出す */
   .live .desc { flex: none; width: 100%; font-size: 11px; color: var(--muted); }
   .live .desc.ng { color: var(--danger); }
@@ -424,8 +425,16 @@
   .rec-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--level);
     animation: pulse 1.4s ease-in-out infinite; flex: none; }
   @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .35; } }
-  .live .tm { color: var(--muted); font-variant-numeric: tabular-nums; margin-left: auto; }
+  /* 経過は点のすぐ右（#liveBar の中身の並びは変えずに order で並べる）、状態の文は 14px の行の文字 */
+  .live .rec-dot { order: -2; }
+  .live .tm { color: var(--muted); font-variant-numeric: tabular-nums; order: -1; }
+  #liveTitle { font-size: 14px; color: var(--text-2); }
+  /* ［■ 終了して作成］は赤い文字の灰色のボタン（線なし） */
+  #liveStopBtn { color: var(--danger); background: var(--hover); border-color: transparent; }
+  #liveStopBtn:hover { background: var(--tint); }
   .live[hidden] { display: none; }
+  /* 記録中のページの題名は「記録中の会議」で編集できない（JS が #pageWrap に live-on を付け外しする） */
+  #pageWrap.live-on .ptitle { cursor: default; }
   /* 止めていた時間の印（区間の行の間。区間ではない） */
   .pausemark { font-size: 12px; color: var(--muted); padding: 4px 4px 4px 8px; margin: 4px 0; border-left: 2px solid var(--line); }
   .prog { font-size: 12px; color: var(--accent-text); margin-bottom: 10px; }
@@ -513,6 +522,8 @@
     .card { padding: 14px 0 0; }
     .stat { min-width: 120px; }
     .check { flex-direction: row; justify-content: flex-start; }
+    .live { flex-wrap: wrap; }
+    .live button.ghost { padding-left: 8px; padding-right: 8px; }
   }
 
   @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
@@ -1789,6 +1800,7 @@
 
   function renderPage() {
     clearActs();
+    $('pageWrap').classList.remove('live-on');   // 記録中のタブを描くときは showLive → drawLive が付け直す
     if (!curPage) {
       $('pTitle').textContent = '';
       $('pProps').textContent = '';
@@ -1807,6 +1819,7 @@
     $('pTypeRow').style.display = '';
     $('pMore').hidden = false;
     $('pTitle').textContent = curPage.title;
+    $('pTitle').setAttribute('contenteditable', 'true');
 
     // 会議タイプ
     const sel = $('pType'); sel.textContent = '';
@@ -2396,6 +2409,7 @@
   }
   // 記録中のページの中身（要約の区画の案内・メモ・流れる文字起こしと印）
   function drawLive(st) {
+    lockLiveTitle();
     $('pNote').innerHTML = '<div class="empty"><div class="big">会議を終えると、ここに要約が入ります。</div></div>';
     // 記録中もメモを書けるようにする。ここで書いた内容は
     // 「会議メモ・アジェンダ」として要約のヒントに使われる。
@@ -2481,8 +2495,9 @@
           + '<div class="desc ng" id="liveMic" hidden></div>'
           + '<button class="ghost" id="meetingLocalOnly" type="button" hidden>この会議は PC の中だけ</button>'
           + '<div class="desc" id="meetingLocalOnlyNote" hidden></div>';
-        // 録音中のページの頭（題名の下）に置く
-        $('pTitle').parentNode.insertBefore(live, $('pProps'));
+        // 録音中のページの会議のブロックの頭（丸いタブの前）に置く（第1b2回 R-2）
+        const mb = document.querySelector('.mblock');
+        mb.insertBefore(live, mb.querySelector('.ptabs'));
         $('liveSkipBtn').onclick = skipPending;
         $('meetingLocalOnly').onclick = setLocalOnly;
         $('livePauseBtn').onclick = askPause;
@@ -2531,9 +2546,19 @@
       renderList(); renderPage();
     }
     showSection('notes');
+    lockLiveTitle();
     const live = $('liveBar');
     if (live) live.hidden = false;
     if (mtSt.active) drawLive(mtSt);
+  }
+  // 記録中のページの題名は「記録中の会議」で編集できない（打った文字は保存先が無く黙って消えるため。G10）。
+  // ページに替わると renderPage が live-on を外し、題名を編集できる形に戻す
+  function lockLiveTitle() {
+    const t = $('pTitle');
+    t.textContent = '記録中の会議';
+    t.setAttribute('contenteditable', 'false');
+    $('pIcon').hidden = false;
+    $('pageWrap').classList.add('live-on');
   }
 
   // 終了後に残っている文字起こしの進み具合と、それを打ち切る導線。
