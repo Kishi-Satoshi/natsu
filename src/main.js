@@ -38,7 +38,9 @@ const { markdownToBlocks, dropRedundantEmpty } = minutes;
 // テンプレートの写し（見出しだけ・雛形そのまま）を落とす。minutes.js 側に
 // まだ無い版でも動くよう、無ければ素通しにする。
 const dropTemplateEcho = minutes.dropTemplateEcho || ((b) => b);
-const { normalizeSettings } = require('./settings');
+const { defaultSettings, readSettings, pickSavable, isSettingsShape, SETTING_RULES } = require('./settings');
+// DB の外の JSON（設定・履歴）を読む・退ける・書く部品（第1a回 JS1〜JS3・JS6）
+const J = require('./jsonfile');
 // エンジンの取り込み（第0b回 R7）。置き場所・記録・照らし（通信しない）とピン（版・URL・大きさ・SHA-256）
 const engineInstall = require('./engine-install');
 const { MANIFEST } = require('./engine-manifest');
@@ -76,50 +78,8 @@ const NOTE_MAX_TOKENS = 900;   // 分割要約の各パート
 const SUM_CTX_MARGIN = 256;
 const ENGINE_READY_TIMEOUT_MS = 90000;
 
-const DEFAULT_SETTINGS = {
-  localServerExe: '',
-  localModelPath: '',
-  localPort: 8990,
-  localThreads: CPU_DEFAULT_THREADS,
-  vadModelPath: '',
-  useVad: true,
-  suppressNst: true,
-  sumServerExe: '',
-  sumModelPath: '',
-  sumPort: 8991,
-  sumThreads: CPU_DEFAULT_THREADS,
-  language: 'ja',
-  hotkey: 'Control+Shift+Space',
-  meetingHotkey: 'Alt+M',
-  micId: '',
-  pillPos: 'bottom',
-  pillCustom: null,
-  autoPaste: true,
-  removeFillers: true,
-  soundFeedback: true,
-  autoLaunch: false,
-  // 画面の配色。system は Windows の設定に追従する
-  theme: 'system',
-  // ウィンドウを閉じたときにタスクトレイへ残すか。既定は残さない＝そのまま終了。
-  stayInTray: false,
-  dictionary: [],
-  // 業務日本語の既定語彙をエンジンへ渡すか。dictionary の既定を非空にすると、
-  // 既に [] を保存済みの環境には既定値が届かないので、別のキーで持つ。
-  useBuiltinTerms: true,
-  // 議事録のときだけ、パソコンから出ている音（Web会議の相手の声）も録る。
-  // 既定は false。同席者の声を残すかどうかは、その場で人が決めること。
-  useSystemAudio: false,
-  maxHistory: 500,
-  segmentSec: 75,
-  // 要約エンジン（llama-server）の文脈長（-c）。統合プロンプトがこれに収まらないときは
-  // 要点メモを 2 段で畳む（#41。generateMinutes）
-  // 既定は 16384（第0b回 Task 16）。長い会議も分けて要約し（CHUNK 5500 字）、要点メモを畳む（foldNotes）ので、
-  // 実際の一番長いプロンプトは約 6,000〜12,000 トークン。16384 から出力の上限 3000 と余白 256 を引いた
-  // 13,128 トークンに収まる。保存済みの値（今までの PC の 32768 など）は書き換えない
-  sumCtx: 16384,
-  // 使われないエンジンを止めるまでの分。0 = 止めない（#58。releaseIdleEngines）
-  engineIdleMin: 10,
-};
+// 既定の設定（30 のキー）は settings.js の defaultSettings。スレッド数は CPU の数から決まる（第1a回 Task 2-2 で移した）
+const DEFAULT_SETTINGS = defaultSettings(os.cpus().length);
 
 // ---------------------------------------------------------------- 状態
 let settings = { ...DEFAULT_SETTINGS };
@@ -196,45 +156,104 @@ const settingsPath = () => path.join(app.getPath('userData'), 'settings.json');
 const historyPath = () => path.join(app.getPath('userData'), 'history.json');
 
 // ---------------------------------------------------------------- 永続化
-function loadJson(file, fallback) {
-  try {
-    if (fs.existsSync(file)) return JSON.parse(fs.readFileSync(file, 'utf8'));
-  } catch (e) {
-    // 壊れていたら退避してから既定値に戻す。
-    // そのまま既定値で動くと、次の保存で上書きされて設定が復旧できなくなる。
-    console.error('loadJson', file, e.message);
-    try {
-      const broken = `${file}.broken-${Date.now()}`;
-      fs.renameSync(file, broken);
-      console.error('壊れた設定を退避しました:', broken);
-    } catch (_) { /* noop */ }
+// 設定と履歴は src/jsonfile.js の部品で読み書きする（第1a回 JS1〜JS3・JS5・JS6・P16）。
+// - 読む: BOM 付き・UTF-16 も読む。壊れていたら消さずに .broken-<時刻> へ退けて既定（設定）か空（履歴）で始める。
+//   設定は項目ごとに読み（settings.js の readSettings）、壊れた項目だけ直したら、元を写しで残して直した設定を
+//   すぐ1回書き戻す（次の起動ではもう知らせない）。知らないキーは残す。
+// - 書く: 一時ファイルに全部書いて fsync してから名前を変える（writeJsonFile）。書き手は1つのファイルに1つ。
+// - 知らせ: 起動の途中の知らせは startupNotices に貯め、画面が読み終えてから1回にまとめて送る（左下の知らせは
+//   新しい文で前の文を置き換えるため）。どれも engine.log に1行書く（キーの名前・理由の符号・ファイルの名前だけ。値は書かない）。
+const startupNotices = [];
+const NOTICE = {
+  settingsRepaired: (labels, name) => `設定の一部（${labels}）が読めない値だったので、その部分だけ既定に戻しました。元の設定は ${name} に残してあります。`,
+  settingsBroken: (name) => `設定のファイルが壊れていたので、既定の設定で起動しました。壊れたファイルは ${name} として残してあります。`,
+  settingsEncoding: (name) => `設定のファイルの文字の形式（Shift-JIS など）を読めなかったので、既定の設定で起動しました。元のファイルは ${name} として残してあります。メモ帳で「UTF-8」を選んで保存し直すと読めます。`,
+  settingsFalseLike: (label, raw) => `設定の「${label}」は、ファイルに "${raw}" と書かれていたため、今までどおりオンのままにしました。オフにするときは設定の画面で切ってください。`,
+  historyBroken: (name) => `音声入力の履歴のファイルが壊れていたので、空の履歴で始めました。元のファイルは ${name} として残してあります。`,
+  historyNotSaved: '音声入力の履歴の変更を保存できませんでした。次の変更のときにもう一度保存します。',
+};
+// fsync が効かない場所（ネットワークのフォルダなど）。書くのは続け、記録はその起動で1回だけ
+let fsyncNoted = false;
+function noteFsyncOnce(code) {
+  if (fsyncNoted) return;
+  fsyncNoted = true;
+  engineLog(`保存: この場所では fsync が使えません（${code}）。書き込みは続けます`);
+}
+function writeSettingsFile(value, { retry }) { J.writeJsonFile(settingsPath(), value, { waits: retry ? J.RENAME_WAITS : [], onFsyncUnsupported: noteFsyncOnce }); }
+function writeHistoryFile(value, { retry }) { J.writeJsonFile(historyPath(), value, { waits: retry ? J.RENAME_WAITS : [], onFsyncUnsupported: noteFsyncOnce }); }
+// 書き手（まとめ書きの間隔は Task 2-4 で BATCH_MS にする。この回では now で同期に書く）
+const settingsWriter = J.makeBatchWriter({ name: 'settings.json', write: writeSettingsFile, delayMs: 350, log: engineLog });
+const historyWriter = J.makeBatchWriter({ name: 'history.json', write: writeHistoryFile, delayMs: 350, log: engineLog });
+const errCode = (e) => (e && e.code) || 'error';
+
+// → 設定。知らせは startupNotices へ、記録は engine.log へ。投げない
+function loadSettingsFromDisk() {
+  const file = settingsPath();
+  const r = J.loadJsonFile(file, { shape: isSettingsShape, maxBytes: J.SMALL_MAX });
+  if (r.state === 'missing') return readSettings({}, DEFAULT_SETTINGS).settings;
+  if (r.state === 'ok') {
+    const rs = readSettings(r.value, DEFAULT_SETTINGS);
+    if (rs.repaired.length || rs.falseLike.length) {
+      // キーの並びは SETTING_KEYS の順（readSettings がその順に返す）。値は書かない
+      engineLog(`設定: 一部を既定に戻しました（${rs.repaired.map((x) => `${x.key}: ${x.why}`).join('、')}）`);
+      // 元の設定を写しで残してから書き戻す。写せなければ書き戻さない（元のファイルがそのまま元の設定）
+      const c = J.quarantine(file, { copy: true });
+      let kept = path.basename(file);
+      if (c.ok) {
+        kept = path.basename(c.to);
+        const w = settingsWriter.now(rs.settings);
+        if (!w.ok) engineLog(`設定: 直した設定を書き戻せませんでした（${errCode(w.error)}）`);
+      } else {
+        engineLog(`設定: 元の設定の写しを残せなかったので、書き戻しません（${c.code}）`);
+      }
+      const labels = rs.repaired.filter((x) => SETTING_RULES[x.key].kind !== 'bool').map((x) => SETTING_RULES[x.key].label);
+      if (labels.length) startupNotices.push(NOTICE.settingsRepaired(labels.join('・'), kept));
+      for (const f of rs.falseLike) startupNotices.push(NOTICE.settingsFalseLike(SETTING_RULES[f.key].label, f.raw));
+    }
+    return rs.settings;
   }
-  return fallback;
+  if (r.state === 'broken') {
+    const name = path.basename(r.movedTo);
+    engineLog(`設定: 壊れていたので退けて既定で起動しました（${r.reason}、${name}）`);
+    startupNotices.push(r.reason === 'encoding' ? NOTICE.settingsEncoding(name) : NOTICE.settingsBroken(name));
+    return readSettings({}, DEFAULT_SETTINGS).settings;
+  }
+  // 読めない（ほかのプログラムが掴んでいる・退けられない）。知らせと読み直しは Task 2-3
+  engineLog(`設定: 読めなかったので既定で動きます（${r.code}）`);
+  return readSettings({}, DEFAULT_SETTINGS).settings;
 }
-function saveJson(file, data) {
-  try {
-    fs.mkdirSync(path.dirname(file), { recursive: true });
-    // 一時ファイルに書いてから置き換える。直接書くと、書き込み中に落ちたときに
-    // 壊れたJSONが残り、次回起動で既定値に戻って設定が消える。
-    // （store.js の writeJson と同じ扱いにする）
-    const tmp = `${file}.tmp`;
-    fs.writeFileSync(tmp, JSON.stringify(data, null, 2), 'utf8');
-    fs.renameSync(tmp, file);
-  } catch (e) { console.error('saveJson', file, e.message); }
+
+// → 履歴の配列。投げない
+function loadHistoryFromDisk() {
+  const r = J.loadJsonFile(historyPath(), { shape: Array.isArray });
+  if (r.state === 'ok') return r.value;
+  if (r.state === 'broken') {
+    const name = path.basename(r.movedTo);
+    engineLog(`履歴: 壊れていたので退けて空の履歴で始めました（${r.reason}、${name}）`);
+    startupNotices.push(NOTICE.historyBroken(name));
+    return [];
+  }
+  // 読めない（知らせと読み直しは Task 2-3）
+  if (r.state === 'unreadable') engineLog(`履歴: 読めなかったので空の履歴で始めました（${r.code}）`);
+  return [];
 }
-const persistSettings = () => saveJson(settingsPath(), settings);
-const persistHistory = () => saveJson(historyPath(), history);
+
+// 履歴の削除・全消しの保存。書けなければ知らせる（N10）
+function saveHistoryOrNotice() {
+  const w = historyWriter.now(history);
+  if (!w.ok) noticeMainWin(NOTICE.historyNotSaved);
+}
 
 function loadStores() {
-  // 保存時と同じ正規化を通す。手で編集された settings.json のポートが文字列や
+  // 保存時と同じ決まり（settings.js の readSettings）を通す。手で編集された settings.json のポートが文字列や
   // 範囲外だと、起動直後だけ正規化をすり抜けてエンジンの起動待ちが静かに失敗する。
-  settings = normalizeSettings({ ...DEFAULT_SETTINGS, ...loadJson(settingsPath(), {}) }, DEFAULT_SETTINGS);
+  settings = loadSettingsFromDisk();
+  // 古い既定のスレッド数の移し替えは、今どおりメモリの中だけ（直しに数えない。知らせも写しも書き戻しも無い）
   if (CPU_DEFAULT_THREADS > CPU_OLD_DEFAULT_THREADS) {
     if (settings.localThreads === CPU_OLD_DEFAULT_THREADS) settings.localThreads = CPU_DEFAULT_THREADS;
     if (settings.sumThreads === CPU_OLD_DEFAULT_THREADS) settings.sumThreads = CPU_DEFAULT_THREADS;
   }
-  history = loadJson(historyPath(), []);
-  if (!Array.isArray(history)) history = [];
+  history = loadHistoryFromDisk();
   // 保存先は <userData>/data だけ。開けない（容量・権限など）と store.init は投げる。ここは
   // app.whenReady の中なので、投げると単一起動の鍵を持ったまま窓が出ず、次に起動しても何も
   // 起きない。だから受け止めて理由を持ち、画面が出てから知らせる（黙って続けると、議事録が
@@ -1309,7 +1328,7 @@ function createOverlay() {
       if (programmaticMove || !overlayWin || overlayWin.isDestroyed()) return;
       const [x, y] = overlayWin.getPosition();
       settings.pillCustom = { x, y };
-      persistSettings();
+      settingsWriter.now(settings);   // まとめ書きにするのは Task 2-4
     }, 350);
   });
 }
@@ -1365,6 +1384,8 @@ function createMainWindow() {
   }
   // データフォルダを開けなかった知らせ。画面が出てから送る（起動直後は受け手が居ない）
   if (storeError) mainWin.webContents.once('did-finish-load', () => sendToMainWin('app:notice', `データフォルダを開けません。議事録は保存されません（${storeError}）`));
+  // 起動の途中の知らせ（設定・履歴の直しと退け）。読み終えてから1回にまとめて送る（左下の知らせは前の文を置き換えるため）
+  if (startupNotices.length) mainWin.webContents.once('did-finish-load', () => sendToMainWin('app:notice', startupNotices.splice(0).join('　')));
   // 閉じるボタンの挙動。既定はそのまま終了。設定でトレイ常駐に切り替えられる。
   mainWin.on('close', (e) => {
     if (quitting) return;
@@ -1438,15 +1459,20 @@ async function handleDictationAudio(buffer, durationMs) {
     let text = settings.removeFillers ? removeFillersRule(raw) : raw;
     if (!text) text = raw;
     const procMs = Date.now() - t0;
-    history.unshift({
-      id: store.newId('h'), text, raw,
-      createdAt: new Date().toISOString(),
-      durationSec: Math.round(durationMs / 1000), procMs, chars: text.length,
+    // 保存 → 画面へ → 貼る（判断は mainlib.recordDictation）。履歴を保存できなくても口述した文字は貼る（JS5）
+    const rec = await lib.recordDictation({
+      history,
+      entry: {
+        id: store.newId('h'), text, raw,
+        createdAt: new Date().toISOString(),
+        durationSec: Math.round(durationMs / 1000), procMs, chars: text.length,
+      },
+      max: settings.maxHistory,
+      save: () => historyWriter.now(history),
+      notify: (h) => sendToMainWin('history:updated', h),
+      deliver: (t) => deliverText(t),
     });
-    if (history.length > settings.maxHistory) history.length = settings.maxHistory;
-    persistHistory();
-    sendToMainWin('history:updated', history);
-    await deliverText(text);
+    if (!rec.saved) engineLog('履歴: 口述の履歴を保存できませんでした（文字は貼り付けに回しました）');
     const preview = text.length > 24 ? `${text.slice(0, 24)}…` : text;
     sendToOverlay('overlay:phase', { phase: 'done', message: preview, procSec: (procMs / 1000).toFixed(1) });
     setTimeout(hideOverlayIfIdle, 1500);
@@ -2313,7 +2339,9 @@ function setupIpc() {
   ipcMain.handle('settings:save', (_e, next) => {
     const prevAutoLaunch = settings.autoLaunch;
     const prevPillPos = settings.pillPos;
-    const merged = normalizeSettings({ ...settings, ...next }, DEFAULT_SETTINGS);
+    // 決まりのあるキーだけを受け取り（許可の一覧 pickSavable）、読み込みと同じ決まりで整える。知らないキーは
+    // ファイルにあったものだけが残る（画面から新しく入れさせない）
+    const merged = readSettings({ ...settings, ...pickSavable(next) }, DEFAULT_SETTINGS).settings;
     // 記録中はエンジンに関わる設定を前の値に留める（#57。判断は mainlib.guardEngineSettings）。
     // 保存のたびにエンジンが再起動すると、文字起こし中の区間が失われる。留めた値は
     // applied で画面へ戻し、warning で伝える。
@@ -2341,7 +2369,7 @@ function setupIpc() {
     if (guard.warning) warning = warning ? `${warning}。${guard.warning}` : guard.warning;
     if (merged.pillPos !== prevPillPos) merged.pillCustom = null;
     settings = merged;
-    persistSettings();
+    settingsWriter.now(settings);   // 失敗の扱い（warning）は Task 2-3
     applyTheme();
     if (!guard.kept.length) restartEnginesIfNeeded();
     // 保留していた復旧（エンジン未設定で止めていた分）を、設定が直った機会にもう一度試す
@@ -2359,8 +2387,8 @@ function setupIpc() {
   ipcMain.handle('hotkey:state', () => hotkeyState);
 
   ipcMain.handle('history:get', () => history);
-  ipcMain.handle('history:delete', (_e, id) => { history = history.filter((h) => h.id !== id); persistHistory(); return history; });
-  ipcMain.handle('history:clear', () => { history = []; persistHistory(); return history; });
+  ipcMain.handle('history:delete', (_e, id) => { history = history.filter((h) => h.id !== id); saveHistoryOrNotice(); return history; });
+  ipcMain.handle('history:clear', () => { history = []; saveHistoryOrNotice(); return history; });
   ipcMain.handle('app:toggle-recording', () => { toggleRecording(); return state; });
 
   ipcMain.handle('pages:search', (_e, q) => store.searchIndex(q || ''));

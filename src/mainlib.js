@@ -1074,6 +1074,27 @@ function loopbackOnlyFetch(f) {
   };
 }
 
+// ---------------------------------------------------------------- 口述の履歴（第1a回 JS5・JS6）
+// 口述した文を履歴の頭に足し、件数の上限で切り、保存 → 画面へ → 貼る（今の順のまま）。
+// 履歴を保存できなくても（save が { ok: false } を返しても投げても）、口述した文字は必ず貼る
+// （履歴は控えで、利用者が今欲しいのは貼り付け）。max が 0〜10000 の整数でなければ 500
+// （手で書いた -1 や 1.5 で history.length に入れて RangeError にし、貼り付けまで止めない）。
+// history は書き換える（main の履歴そのもの）。→ { saved: 保存できたか }
+const HISTORY_MAX_DEFAULT = 500;
+async function recordDictation({ history, entry, max, save, notify, deliver }) {
+  history.unshift(entry);
+  const limit = Number.isInteger(max) && max >= 0 && max <= 10000 ? max : HISTORY_MAX_DEFAULT;
+  if (history.length > limit) history.length = limit;
+  let saved = false;
+  try {
+    const r = save();
+    saved = Boolean(r && r.ok === true);
+  } catch (_) { saved = false; }
+  try { notify(history); } catch (_) { /* 画面へ送れなくても貼る */ }
+  await deliver(entry.text);
+  return { saved };
+}
+
 module.exports = {
   saveIfExists, meetingDurationSec, promptTail,
   registerHotkeys, hotkeyFailureMessage, hotkeyStatus, resolveStartupHotkeys, saveHotkeys,
@@ -1091,4 +1112,5 @@ module.exports = {
   estimateTokens, foldNotes, idleEnginesToStop, silentWav, wavLevelDbfs, mergeSummaryType, memoEvidence,
   isLoopbackUrl, loopbackOnlyFetch,
   sameShas, keepPrevious, candStamp, repairIdsOf, pathUsedBy, fetchMinutesLeft,
+  recordDictation,
 };

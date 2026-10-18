@@ -55,11 +55,14 @@ test('normalizeSettings: 外した設定キー（dataDir）は読まず、書き
   }
 });
 
-test('DEFAULT_SETTINGS に sumCtx / engineIdleMin があり、dataDir は無い', () => {
-  const defs = fnBody(code(main), 'const DEFAULT_SETTINGS = {', '\n};');
-  assert.match(defs, /\n  sumCtx: 16384,/);   // 第0b回 Task 16 で既定を 16384 に下げた（保存済みの値は書き換えない）
-  assert.match(defs, /\n  engineIdleMin: 10,/);
-  assert.ok(!/dataDir/.test(defs), '外した設定キー dataDir が既定値に残っている');
+// 意図: 古い設定に無いキーが既定で埋まる。既定は settings.js の defaultSettings（第1a回 Task 2-2 で main から移した）
+test('DEFAULT_SETTINGS は settings.js の defaultSettings。sumCtx / engineIdleMin があり、dataDir は無い', () => {
+  assert.match(code(main), /const DEFAULT_SETTINGS = defaultSettings\(os\.cpus\(\)\.length\);/);
+  const { defaultSettings } = require('../src/settings');
+  const d = defaultSettings(8);
+  assert.strictEqual(d.sumCtx, 16384);   // 第0b回 Task 16 で既定を 16384 に下げた（保存済みの値は書き換えない）
+  assert.strictEqual(d.engineIdleMin, 10);
+  assert.ok(!('dataDir' in d), '外した設定キー dataDir が既定値に残っている');
 });
 
 // ---------------------------------------------------------------- 保存先は userData/data だけ（第0a回 R6）

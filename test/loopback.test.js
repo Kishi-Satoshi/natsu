@@ -98,7 +98,9 @@ test('setDisplayMediaRequestHandler に第2引数を渡していない', () => {
 });
 
 test('相手の声の取り込みは既定でオフ', () => {
-  assert.match(main, /useSystemAudio:\s*false/);
+  // 既定は settings.js の defaultSettings（第1a回 Task 2-2 で main の DEFAULT_SETTINGS から移した。意図は同じ: 既定はオフ）
+  assert.match(main, /const DEFAULT_SETTINGS = defaultSettings\(os\.cpus\(\)\.length\);/);
+  assert.strictEqual(require('../src/settings').defaultSettings(8).useSystemAudio, false);
   assert.ok(appHtml.includes("useSystemAudio: $('useSystemAudio').checked"));
   assert.ok(appHtml.includes("$('useSystemAudio').checked = Boolean(s.useSystemAudio)"));
 });

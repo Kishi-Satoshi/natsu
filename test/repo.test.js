@@ -294,13 +294,15 @@ test('トレイのアイコンは src 配下にある（アプリ内更新で一
   }
 });
 
-test('設定と履歴の保存が一時ファイル経由で行われる', () => {
-  // 直接書くと、書き込み中に落ちたときに壊れたJSONが残り、
-  // 次回起動で既定値に戻って設定が消える
-  const i = main.indexOf('function saveJson');
-  assert.ok(i >= 0, 'saveJson が無い');
-  const fn = main.slice(i, main.indexOf('\nconst persist', i));
-  assert.ok(fn.includes('renameSync'), 'saveJson が一時ファイル経由になっていない');
+// 意図: 設定と履歴は一時ファイル経由で書く（直接書くと、書き込み中に落ちたときに壊れた JSON が残り、次回起動で
+// 既定値に戻って設定が消える）。一時ファイル・fsync・名前の変更は jsonfile.test.js が実行して固定する（第1a回 Task 2-2）
+test('設定と履歴の保存が一時ファイル経由で行われる（JS3 の部品を通す）', () => {
+  assert.ok(!main.includes('function saveJson') && !main.includes('function loadJson'), '古い読み書きが残っている');
+  for (const f of ['function writeSettingsFile', 'function writeHistoryFile']) {
+    const i = main.indexOf(f);
+    assert.ok(i >= 0, f);
+    assert.ok(main.slice(i, main.indexOf('\n}', i)).includes('J.writeJsonFile('), `${f} が部品を通していない`);
+  }
 });
 
 test('READMEのデータ保存先が実際の保存先と一致する', () => {
@@ -368,7 +370,9 @@ test('Markdown保存は IPC ごと撤去済み', () => {
 });
 
 test('閉じるボタンは既定でアプリを終了する（設定でトレイ常駐に戻せる）', () => {
-  assert.match(main, /stayInTray:\s*false/);
+  // 既定は settings.js の defaultSettings（第1a回 Task 2-2 で main の DEFAULT_SETTINGS から移した。意図は同じ: 既定はトレイに残さない）
+  assert.match(main, /const DEFAULT_SETTINGS = defaultSettings\(os\.cpus\(\)\.length\);/);
+  assert.strictEqual(require('../src/settings').defaultSettings(8).stayInTray, false);
   assert.match(main, /if \(settings\.stayInTray\) \{ e\.preventDefault\(\); mainWin\.hide\(\); return; \}/);
   assert.ok(appHtml.includes("stayInTray: $('stayInTray').checked"));
 });
@@ -416,7 +420,9 @@ test('文字起こしが切れる問題への3段の対策が入っている', (
 });
 
 test('画面の配色の設定が結線されている', () => {
-  assert.match(main, /theme:\s*'system'/);
+  // 既定は settings.js の defaultSettings（第1a回 Task 2-2 で移した。意図は同じ: 既定は Windows の設定に追従）
+  assert.match(main, /const DEFAULT_SETTINGS = defaultSettings\(os\.cpus\(\)\.length\);/);
+  assert.strictEqual(require('../src/settings').defaultSettings(8).theme, 'system');
   assert.match(main, /nativeTheme\.themeSource/);
   assert.ok(appHtml.includes("theme: $('themeSel').value"));
   assert.ok(appHtml.includes('@media (prefers-color-scheme: dark)'));
@@ -763,10 +769,11 @@ test('#15 次の区間の初期プロンプトは直近の成功区間から取�
 
 test('#26 設定の正規化は起動時と保存時の両方で通す', () => {
   assert.match(main, /require\('\.\/settings'\)/);
-  const load = fnBody(code(main), 'function loadStores()', '\n}');
-  assert.match(load, /settings = normalizeSettings\(\{ \.\.\.DEFAULT_SETTINGS, \.\.\.loadJson\(settingsPath\(\), \{\}\) \}, DEFAULT_SETTINGS\)/);
+  // 意図: 読み込みと保存の両方が同じ決まり（settings.js の readSettings）を通る。保存は許可の一覧（pickSavable）を通す（第1a回 Task 2-2）
+  const load = fnBody(code(main), 'function loadSettingsFromDisk()', '\n}');
+  assert.match(load, /readSettings\(r\.value, DEFAULT_SETTINGS\)/);
   const save = fnBody(code(main), "ipcMain.handle('settings:save'", '\n  });');
-  assert.match(save, /const merged = normalizeSettings\(\{ \.\.\.settings, \.\.\.next \}, DEFAULT_SETTINGS\)/);
+  assert.match(save, /const merged = readSettings\(\{ \.\.\.settings, \.\.\.pickSavable\(next\) \}, DEFAULT_SETTINGS\)\.settings/);
   assert.ok(!/Math\.max\(1024, Math\.min\(65535/.test(save), '保存時だけの手書きのクランプが残っている');
   // 正規化をすり抜けた不正なポートは、エンジンの起動待ちで TypeError になる。
   // 90秒のタイムアウトまで黙って待たず、設定の問題だと分かる文で返す。

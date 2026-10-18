@@ -44,6 +44,25 @@
 //     --crash-ok    … --crash と同じ落ち方だが、ファイルはそのまま（照らし直して合う: ランタイムの案内のまま、組は使い続ける）
 //     --slow-load   … 画面の読み込みを、起動のときの照らしが済むまで終えない（読み込み中に送った知らせは画面に届かない。
 //                     main は読み終えてから送る: noticeMainWin）
+//     --json-scene=名前 … 第1a回の保存の守りの場面（helpers/json-scenes.js）。readyResolve() の直後に分かれ、場面が済んだら出力して終える。
+//                     - 場面の files（userData からの相対パス → 中身。関数なら { base, userData } を受け取る。
+//                       base = { localServerExe, localModelPath, localPort, sumPort }）を、ふだんの settings.json の代わりに置く。
+//                       prepare(userData) があれば置いた後に呼ぶ。env があれば main.js を読む前に process.env に入れる。
+//                     - engine が無い場面は --no-engine=unsupported と同じ（取り込めない PC。エンジンは起こさない: 手のパスがあっても
+//                       偽の子を返すだけ）。engine が真なら、手で設定した偽の whisper を本当に起こし、起動を待つ。
+//                     - 部品の待ち（jsonfile の sleepSync）を何もしない関数にする（読み直しの約1秒・名前の変更のやり直しの約0.5秒を、
+//                       場面ごとに待たない。待ちの長さは jsonfile.test.js が見る）。
+//                     - faults（helpers/faulty-fs.js の rules）があれば、src/ の中のファイルが読む fs にだけ faultyFs(faults) を渡す。
+//                     - setTimeout に渡された retrySettingsRead・retryHistoryRead・retryDraftRecovery は走らせずに timers[名前] に入れる。
+//                     - 画面の読み込みは --slow-load と同じで、窓が2つ（録音バー・本体）できた後に読み終える（起動の知らせは
+//                       did-finish-load で送られる）。
+//                     - act(ctx) を呼ぶ。ctx = { handlers, listeners, app, wins, power, timers, store, jsonfile, electron, userData,
+//                       read(rel), waitFor(cond, ms), sleep, out }。app・窓・power（powerMonitor）は on／once で受け口を覚え、
+//                       emit(ev, …) で呼べる。窓は setPosition の値を getPosition で返し、作ったときに app の browser-window-created を
+//                       出す。wins は作った順（createOverlay が先、createMainWindow が後）。read(rel) は無ければ null、あればバイト。
+//                     - 出力（最後の行の JSON）: scene・notices（app:notice の文）・files（userData の下のファイルの相対パス。区切りは /。
+//                       engine.log と segbuf の WAV も含む）・settingsText・historyText（無ければ null）・engineLog（時刻を落とした行）・
+//                       spawns・themeSource と、act が out に入れたもの（同じ名前なら act のもの）。
 // 画面へ送った知らせと進み具合は、送った順に out.seq へ残す。進み具合が初めて「使える」（whisperReady・sumReady）と
 // 言ったときの engine:status を out.atReady に、壊れた知らせを送ったときの engine:status を out.atBroken に残す
 // （画面はその知らせでエンジンの状態を聞き直すので、そのとき main の答えがもう新しいこと: 第0b回 Task 14・15）
@@ -85,6 +104,10 @@ const fetchMode = flags.includes('--fetch');
 const repairMode = flags.includes('--repair');
 const crashMode = flags.includes('--crash') ? 'broken' : (flags.includes('--crash-ok') ? 'ok' : '');
 const slowLoad = flags.includes('--slow-load');
+const sceneName = (flags.find((f) => f.startsWith('--json-scene=')) || '').slice(13);
+const scene = sceneName ? require('./json-scenes')[sceneName] : null;
+if (sceneName && (!scene || typeof scene !== 'object')) { process.stderr.write(`mainrun: 場面 ${sceneName} が json-scenes.js に無い\n`); process.exit(1); }
+const SCENE_TIMERS = new Set(['retrySettingsRead', 'retryHistoryRead', 'retryDraftRecovery']);
 const serveSet = repairMode || Boolean(crashMode);   // engine-small の偽のサーバーを開いたままにし、同意済みにする
 const REAL_PLATFORM = process.platform;
 // --no-vc-runtime が main の中だけ空のフォルダに向ける環境の変数の、元の値。エンジン（子のプロセス）には元の値を渡す
@@ -109,11 +132,28 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 // （Windows の CI で、他の場面・他のテストのファイルと CPU を取り合う）でも届く長さにする。固定の短い上限（4 秒）では、
 // 51MB の偽のモデルの取り込みと照らしが間に合わず、場面が途中の写しを返していた（文字起こしの組までしか取れていない）
 const WAIT_MS = Number(process.env.NATSU_E2E_WAIT_MS || 60000);
-const waitFor = async (cond) => {
-  const until = Date.now() + WAIT_MS;
+const waitFor = async (cond, ms = WAIT_MS) => {
+  const until = Date.now() + ms;
   while (Date.now() < until && !cond()) await sleep(20);
   return cond();
 };
+// on／once で受け口を覚え、emit(ev, …) で呼べる小さな受け手（偽の app・窓・powerMonitor）
+function makeEmitter(target = {}) {
+  const ls = {};
+  const add = (ev, cb, once) => { (ls[ev] || (ls[ev] = [])).push({ cb, once }); return target; };
+  target.on = (ev, cb) => add(ev, cb, false);
+  target.once = (ev, cb) => add(ev, cb, true);
+  target.removeListener = (ev, cb) => { ls[ev] = (ls[ev] || []).filter((x) => x.cb !== cb); return target; };
+  target.off = target.removeListener;
+  target.emit = (ev, ...a) => {
+    const l = ls[ev] || [];
+    ls[ev] = l.filter((x) => !x.once);
+    for (const x of l) x.cb(...a);
+    return l.length > 0;
+  };
+  target.listenerCount = (ev) => (ls[ev] || []).length;
+  return target;
+}
 
 // 版（VS_FIXEDFILEINFO）だけを持つ DLL の偽物（main.js の vcRuntimeVersions が読む印 0xFEEF04BD と、その後の版）
 function peWithVersion(a, b, c, d) {
@@ -265,7 +305,7 @@ process.on('exit', () => {
     };
   }
   // 何も取り込んでいない PC（取り込める・取り込めない）。置き場所だけを決め、フォルダは作らない
-  if (noEngine) {
+  if (noEngine || (scene && !scene.engine)) {
     const I = require(path.join(ROOT, 'src', 'engine-install.js'));
     const home = noEngine === 'fetchable' ? { supported: true, root: path.join(localAppData, 'natsu', 'engine'), reason: '' }
       : I.engineRoot({}, 'linux', 'x64');
@@ -303,10 +343,22 @@ process.on('exit', () => {
     fs.writeFileSync(path.join(userData, 'data', 'draft.json'), JSON.stringify({ startedAt, memo: '', offsetMs: 3000, savedAt: startedAt + 3000,
       segments: [{ id: 's1', atMs: 0, durationMs: 3000, pending: true, wav, text: '' }] }));
   }
-  fs.writeFileSync(path.join(userData, 'settings.json'), JSON.stringify({
-    ...(managedMode || noEngine || fetchMode ? {} : { localServerExe: exe, localModelPath: model }), localPort, sumPort, autoLaunch: false,
-    ...(withSum ? { sumServerExe: FAKE_SUM, sumModelPath: sumModel } : {}),
-  }));
+  if (scene) {
+    // 場面のファイルを、ふだんの settings.json の代わりに置く
+    const base = { localServerExe: exe, localModelPath: model, localPort, sumPort };
+    for (const [rel, body] of Object.entries(scene.files || {})) {
+      const file = path.join(userData, ...rel.split('/'));
+      fs.mkdirSync(path.dirname(file), { recursive: true });
+      fs.writeFileSync(file, typeof body === 'function' ? body({ base, userData }) : body);
+    }
+    if (typeof scene.prepare === 'function') scene.prepare(userData);
+    for (const [k, v] of Object.entries(scene.env || {})) process.env[k] = String(v);
+  } else {
+    fs.writeFileSync(path.join(userData, 'settings.json'), JSON.stringify({
+      ...(managedMode || noEngine || fetchMode ? {} : { localServerExe: exe, localModelPath: model }), localPort, sumPort, autoLaunch: false,
+      ...(withSum ? { sumServerExe: FAKE_SUM, sumModelPath: sumModel } : {}),
+    }));
+  }
 
   const handlers = {}, listeners = {}, sent = [];
   // 画面へ送った知らせと進み具合の順。進み具合が初めて組を「使える」と言ったとき・壊れた知らせを送ったときの engine:status
@@ -332,12 +384,16 @@ process.on('exit', () => {
     return at >= 0 && seq.slice(at + 1).some((x) => !x.notice && x[key]);
   };
   // 画面の読み込み（--slow-load のときだけ、finishLoad まで読み込み中）。読み込み中に送ったものは画面に届かない（lost）
-  let loading = slowLoad;
+  let loading = slowLoad || Boolean(scene);
   const loadWaiters = [];
   const lost = [];
   const finishLoad = () => { loading = false; for (const cb of loadWaiters.splice(0)) cb(); };
+  const wins = [];   // 作った窓の順（createOverlay が先、createMainWindow が後）
+  const appEvents = makeEmitter();
   class Win {
     constructor() {
+      makeEmitter(this);
+      this.pos = [0, 0];
       this.webContents = withFallback({
         send: (ch, p) => { if (loading) { lost.push([ch, p]); return; } sent.push([ch, p]); watch(ch, p); },
         once: (ev, cb) => { if (ev === 'did-finish-load' && loading) loadWaiters.push(cb); }, on() {}, isLoading: () => loading,
@@ -348,13 +404,22 @@ process.on('exit', () => {
     isVisible() { return true; }
     isMinimized() { return false; }
     getSize() { return [316, 72]; }
-    getPosition() { return [0, 0]; }
+    setPosition(x, y) { this.pos = [x, y]; }
+    getPosition() { return this.pos.slice(); }
     getBounds() { return { x: 0, y: 0, width: 316, height: 72 }; }
   }
-  for (const m of ['setAlwaysOnTop', 'setVisibleOnAllWorkspaces', 'loadFile', 'on', 'once', 'show', 'showInactive',
-    'hide', 'focus', 'setPosition', 'setBounds', 'setIgnoreMouseEvents', 'setSkipTaskbar', 'restore', 'close',
+  for (const m of ['setAlwaysOnTop', 'setVisibleOnAllWorkspaces', 'loadFile', 'show', 'showInactive',
+    'hide', 'focus', 'setBounds', 'setIgnoreMouseEvents', 'setSkipTaskbar', 'restore', 'close',
     'destroy', 'setMenuBarVisibility', 'removeMenu', 'moveTop', 'setBackgroundColor', 'setTitle', 'setIcon']) {
     Win.prototype[m] = function () {};
+  }
+  // 作った窓を順に覚え、app の browser-window-created を出す（main が窓ごとに受け口を付ける所を確かめる）
+  class TrackedWin extends Win {
+    constructor(...a) {
+      super(...a);
+      wins.push(this);
+      appEvents.emit('browser-window-created', {}, this);
+    }
   }
   let readyResolve;
   const ready = new Promise((r) => { readyResolve = r; });
@@ -362,13 +427,15 @@ process.on('exit', () => {
   const power = [];
   let powerId = 0;
   const opened = [];
+  const powerMonitor = withFallback(makeEmitter());
   const electron = withFallback({
-    app: withFallback({
-      getPath: () => userData, whenReady: () => ready, requestSingleInstanceLock: () => true, on() {},
+    app: withFallback(Object.assign(appEvents, {
+      getPath: () => userData, whenReady: () => ready, requestSingleInstanceLock: () => true,
       getVersion: () => require(path.join(ROOT, 'package.json')).version, isPackaged: false, quit() {},
       setLoginItemSettings() {}, getLoginItemSettings: () => ({}), setAppUserModelId() {}, getName: () => 'natsu',
-    }),
-    BrowserWindow: Win,
+    })),
+    BrowserWindow: TrackedWin,
+    powerMonitor,
     ipcMain: { handle: (ch, f) => { handlers[ch] = f; }, on: (ch, f) => { listeners[ch] = f; }, removeHandler() {} },
     globalShortcut: { register: () => true, unregister() {}, unregisterAll() {}, isRegistered: () => false },
     nativeTheme: { shouldUseDarkColors: false, themeSource: 'system', on() {} },
@@ -384,6 +451,13 @@ process.on('exit', () => {
   const childProcess = {
     ...cp,
     spawn(cmd, args, opts) {
+      if (scene && !scene.engine) {
+        // エンジンを持たない場面: 手のパスが設定にあっても起こさない（偽の子を返す）
+        const EventEmitter = require('events');
+        const p = new EventEmitter();
+        p.stdin = null; p.stdout = new EventEmitter(); p.stderr = new EventEmitter(); p.kill = () => {};
+        return p;
+      }
       if (crashMode && !crashed && managedExe && cmd === managedExe) {
         // 照らし終えた後で、ウイルス対策が DLL を消した（--crash）。起動した exe は DLL が見つからず 0xC0000135 で落ちる
         crashed = true;
@@ -413,9 +487,13 @@ process.on('exit', () => {
   };
   const orig = Module._load;
   const MAIN = path.join(ROOT, 'src', 'main.js');
+  const SRC = path.join(ROOT, 'src') + path.sep;
+  // 場面の faults: src/ の中のファイル（main・store・jsonfile など）が読む fs にだけ効く
+  const sceneFs = scene && scene.faults ? require('./faulty-fs').faultyFs(scene.faults) : null;
   Module._load = function (req, ...rest) {
     if (req === 'electron') return electron;
     if (req === 'child_process') return childProcess;
+    if (sceneFs && (req === 'fs' || req === 'node:fs') && rest[0] && typeof rest[0].filename === 'string' && rest[0].filename.startsWith(SRC)) return sceneFs;
     if (managedMods && rest[0] && rest[0].filename === MAIN) {
       if (req === './engine-install') return managedMods.install;
       if (req === './engine-manifest') return managedMods.manifest;
@@ -431,10 +509,66 @@ process.on('exit', () => {
   const ticks = [];
   const realSetInterval = global.setInterval;
   global.setInterval = function (fn, ms, ...a) { if (fn && fn.name === 'releaseIdleEngines') ticks.push(fn); return realSetInterval.call(this, fn, ms, ...a); };
+  const jsonfile = require(path.join(ROOT, 'src', 'jsonfile.js'));
+  const timers = {};
+  if (scene) {
+    // 部品の待ちを縮める（読み直しの約1秒・名前の変更のやり直しの約0.5秒を待たない）
+    jsonfile.sleepSync = () => {};
+    // 読み直しなどの時計は走らせずに覚える（場面が自分で呼ぶ）
+    const realSetTimeout = global.setTimeout;
+    global.setTimeout = function (fn, ms, ...a) {
+      if (fn && SCENE_TIMERS.has(fn.name)) {
+        (timers[fn.name] || (timers[fn.name] = [])).push(fn);
+        return { unref() { return this; }, ref() { return this; }, hasRef: () => false };
+      }
+      return realSetTimeout.call(this, fn, ms, ...a);
+    };
+  }
   require(path.join(ROOT, 'src', 'main.js'));
   const store = require(path.join(ROOT, 'src', 'store.js'));
   readyResolve();
   const out = { mode };
+  const readUser = (rel) => { try { return fs.readFileSync(path.join(userData, ...rel.split('/'))); } catch (_) { return null; } };
+  const engineLogLines = () => {
+    const t = readUser('engine.log');
+    return t ? t.toString('utf8').split('\n').filter(Boolean).map((l) => l.replace(/^\[[^\]]+\] /, '')) : [];
+  };
+  if (scene) {
+    // 窓が2つ（録音バー・本体）できるのを待ってから、画面の読み込みを終える（起動の知らせは did-finish-load で送られる）
+    if (!await waitFor(() => wins.length >= 2, 15000)) throw new Error(`場面 ${sceneName}: 窓ができない（whenReady の途中で止まった）`);
+    finishLoad();
+    if (scene.engine) await waitFor(() => spawns.length > 0, 15000);
+    const actOut = {};
+    if (typeof scene.act === 'function') {
+      await scene.act({ handlers, listeners, app: electron.app, wins, power: powerMonitor, timers, store, jsonfile, electron, userData,
+        read: readUser, waitFor, sleep, out: actOut });
+    }
+    const files = [];
+    const walk = (dir, rel) => {
+      let ents = [];
+      try { ents = fs.readdirSync(dir, { withFileTypes: true }); } catch (_) { return; }
+      for (const e of ents) {
+        const r = rel ? `${rel}/${e.name}` : e.name;
+        if (e.isDirectory()) walk(path.join(dir, e.name), r);
+        else files.push(r);
+      }
+    };
+    walk(userData, '');
+    const text = (rel) => { const b = readUser(rel); return b ? b.toString('utf8') : null; };
+    const result = {
+      scene: sceneName,
+      notices: sent.filter(([ch]) => ch === 'app:notice').map(([, p]) => p),
+      files: files.sort(),
+      settingsText: text('settings.json'),
+      historyText: text('history.json'),
+      engineLog: engineLogLines(),
+      spawns: spawns.slice(),
+      themeSource: electron.nativeTheme.themeSource,
+      ...actOut,
+    };
+    process.stdout.write(`\n${JSON.stringify(result)}\n`);
+    process.exit(0);
+  }
   if (fetchMode) {
     await waitFor(() => handlers['engine:fetch-start']);
     out.managedRoot = managedRoot;

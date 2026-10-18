@@ -207,7 +207,9 @@ test('取り込んだ llama にだけ --cache-ram 0・-np 1・-fa on・--reasoni
 });
 test('要約の文脈長の既定は 16384（main の既定と、壊れた値を戻す先）。保存済みの値は書き換えない', () => {
   const { normalizeSettings } = require('../src/settings');
-  assert.ok(code(read('src/main.js')).includes('\n  sumCtx: 16384,'), 'main の既定が 16384 でない');
+  // 意図: main の既定の文脈長は 16384。既定は settings.js の defaultSettings から作る（第1a回 Task 2-2）
+  assert.ok(code(read('src/main.js')).includes('const DEFAULT_SETTINGS = defaultSettings(os.cpus().length);'), 'main が settings.js の既定を使っていない');
+  assert.strictEqual(require('../src/settings').defaultSettings(8).sumCtx, 16384, '既定の文脈長が 16384 でない');
   assert.strictEqual(normalizeSettings({}, {}).sumCtx, 16384);
   assert.strictEqual(normalizeSettings({ sumCtx: 'x' }, { sumCtx: 16384 }).sumCtx, 16384);
   assert.strictEqual(normalizeSettings({ sumCtx: 32768 }, { sumCtx: 16384 }).sumCtx, 32768, '保存済みの値を書き換えた');
