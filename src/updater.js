@@ -11,16 +11,32 @@
  *    exe（Electron 本体）は更新 zip では入れ替わらない。新しい src/ が今の Electron で
  *    動かなければ、当てた瞬間に起動しなくなり、復旧口（更新画面）ごと消える。
  *  - オフライン運用が前提なので、繋がらない時は静かに諦める。
+ *  - 入れ直しが要る版は、確かめた時点（check()）で見分ける（第0c回 EL4）。
+ *    リリースに添えた natsu-update.json の electron（engines.electron の写し）を今の Electron と比べ、
+ *    満たさなければ reinstall: true を返す。文とボタンは updateNotice の 1 か所で決める。
+ *    apply() の engines.electron の門は、natsu-update.json を知らない古い版のための最後の守りとして残す。
+ *  - テスト用の取得先（環境変数 NATSU_UPDATE_FEED）は知らせを作るだけで、apply() は当てない。
  */
 'use strict';
 
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
+const crypto = require('crypto');
 
 // 更新の配布元。変えるときは get-installer.ps1 の $repo も同じにする（identity.test.js が突き合わせる）。
 const REPO = 'Kishi-Satoshi/natsu';
 const API_LATEST = `https://api.github.com/repos/${REPO}/releases/latest`;
+// release.yml がリリースに添える、入れ直しが要るかを見分けるための小さな JSON（tools/update-info.js が作る）
+const INFO_ASSET = 'natsu-update.json';
+// 実機の確かめ用の取得先。手元の natsu-update.json のパスか owner/repo（下書きのリリースは API から見えないため）
+const FEED_ENV = 'NATSU_UPDATE_FEED';
+// 入れ直しの文。設定の画面・起動時の知らせ・トレイが同じ文を出す。版の詳しいこと（Electron の語）は update.log にだけ残す
+const REINSTALL_MESSAGE = 'この版はアプリの土台を入れ替えるため、インストーラーで入れ直してください。議事録・設定・エンジンはそのまま残ります。';
+const TEST_FEED_APPLY_ERROR = 'テスト用の取得先（NATSU_UPDATE_FEED）を使っている間は、更新を当てません。環境変数を消してから起動し直してください';
+const TEST_FEED_NOTICE = 'テスト用の取得先（NATSU_UPDATE_FEED）を使っているため、この画面からは更新しません。';
+const FEED_BAD_ERROR = 'テスト用の取得先（NATSU_UPDATE_FEED）の形が読めません。natsu-update.json のパスか、owner/repo の形にしてください';
+const FEED_REPO_PATTERN = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
 const ASSET_PATTERN = /^natsu-src-.*\.zip$/i;
 // リリースのタグは natsu-v<x.y.z> だけ。旧名のころの v<x.y.z> が latest に残っていても取り違えない
 const TAG_PATTERN = /^natsu-v(\d+\.\d+\.\d+)$/;
@@ -72,10 +88,13 @@ function cmpVersion(a, b) {
  * それ以外の書き方は「満たさない」と返す。黙って通すと門が無いのと同じになるため。
  * `^` は同じメジャーの範囲（0.x はマイナーまで、0.0.x はパッチまで固定）。
  */
+// satisfiesRange が読める範囲の書き方（parseUpdateInfo も同じ形だけを受け入れる）
+const RANGE_PATTERN = /^(>=|\^)?\s*v?(\d+)\.(\d+)\.(\d+)$/;
+
 function satisfiesRange(version, range) {
   const r = String(range == null ? '' : range).trim();
   if (!r) return true;
-  const m = r.match(/^(>=|\^)?\s*v?(\d+)\.(\d+)\.(\d+)$/);
+  const m = r.match(RANGE_PATTERN);
   if (!m) return false;
   const v = String(version == null ? '' : version).trim();
   if (!/^v?\d+\.\d+\.\d+/.test(v)) return false;
@@ -93,13 +112,114 @@ function satisfiesRange(version, range) {
   return c === 0;
 }
 
+function isFileSync(p) {
+  try { return fs.statSync(p).isFile(); } catch (_) { return false; }
+}
+
+/**
+ * 更新の取得先を決める。空なら決まったリポジトリの releases/latest。
+ * NATSU_UPDATE_FEED が手元のファイルなら natsu-update.json として読み、owner/repo ならそのリポジトリを見る。
+ * どちらもテスト用（test: true）で、知らせを作るだけにする。
+ */
+function readFeed(env = process.env, isFile = isFileSync) {
+  const v = String((env && env[FEED_ENV]) || '').trim();
+  if (!v) return { kind: 'default', api: API_LATEST, test: false };
+  if (isFile(v)) return { kind: 'file', file: v, test: true };
+  if (FEED_REPO_PATTERN.test(v)) return { kind: 'repo', api: `https://api.github.com/repos/${v}/releases/latest`, test: true };
+  return { kind: 'bad', test: true, error: FEED_BAD_ERROR };
+}
+
+/**
+ * natsu-update.json を読む。形が違えば投げる（入れ直しの判断を当て推量にしない）。
+ * version / zipName を渡したときは、リリースのタグ・zip の名前と合うことも確かめる。
+ */
+function parseUpdateInfo(text, { version, zipName } = {}) {
+  let o;
+  try { o = JSON.parse(String(text == null ? '' : text).replace(/^\uFEFF/, '')); } catch (_) {
+    throw new Error('natsu-update.json を読めません');
+  }
+  if (!o || typeof o !== 'object' || Array.isArray(o)) throw new Error('natsu-update.json を読めません');
+  if (o.schema !== 1) throw new Error('natsu-update.json の形が違います（schema）');
+  if (typeof o.version !== 'string' || !/^\d+\.\d+\.\d+$/.test(o.version)) throw new Error('natsu-update.json の版が読めません');
+  const electron = typeof o.electron === 'string' ? o.electron.trim() : '';
+  if (!RANGE_PATTERN.test(electron)) throw new Error('natsu-update.json の electron が読めません');
+  if (typeof o.zip !== 'string' || !o.zip) throw new Error('natsu-update.json の zip の名前が読めません');
+  if (typeof o.sha256 !== 'string' || !/^[0-9a-f]{64}$/.test(o.sha256)) throw new Error('natsu-update.json の SHA-256 が読めません');
+  if (!Number.isInteger(o.size) || o.size <= 0) throw new Error('natsu-update.json の大きさが読めません');
+  if (version !== undefined && o.version !== version) {
+    throw new Error(`natsu-update.json の版（${o.version}）がリリース（${version}）と合いません`);
+  }
+  if (zipName !== undefined && o.zip !== zipName) {
+    throw new Error(`natsu-update.json の zip（${o.zip}）がリリース（${zipName}）と合いません`);
+  }
+  return { version: o.version, electron, zip: o.zip, sha256: o.sha256, size: o.size };
+}
+
+/** 今の Electron が natsu-update.json の範囲を満たさないときだけ真。情報が無い・版が取れないときは apply() の門に任せる */
+function needsReinstall(info, electronVersion) {
+  return Boolean(info && info.electron && electronVersion) && !satisfiesRange(electronVersion, info.electron);
+}
+
+/**
+ * check() の結果と更新の置き場所（target）から、画面に出す文とボタンを決める（設定の画面・起動時の知らせ・トレイの 3 か所で同じもの）。
+ * 入れ直しは、テスト用の取得先でも置き場所に書けなくても、先に見せる。
+ * @returns {{action:'latest'|'apply'|'download', message:string, button:string}}
+ */
+function updateNotice(r, target = { ok: true }) {
+  if (!r || !r.ok || !r.update) return { action: 'latest', message: '', button: '' };
+  if (r.reinstall) return { action: 'download', message: REINSTALL_MESSAGE, button: 'ダウンロード' };
+  if (r.test) return { action: 'download', message: TEST_FEED_NOTICE, button: 'ダウンロード' };
+  if (target && target.ok === false) {
+    return { action: 'download', message: target.error || 'この方法では更新できません。新しいインストーラーを実行してください。', button: 'ダウンロード' };
+  }
+  return { action: 'apply', message: '', button: '更新して再起動' };
+}
+
+/** テスト用の取得先（手元の natsu-update.json）。知らせを作るだけなので zip の URL を持たない */
+function checkFile(feed, currentVersion, userDataPath, electronVersion) {
+  let info;
+  try {
+    info = parseUpdateInfo(fs.readFileSync(feed.file, 'utf8'));
+  } catch (e) {
+    log(userDataPath, `check (${FEED_ENV}) failed: ${e.message}`);
+    return { ok: false, error: e.message, test: true };
+  }
+  const newer = cmpVersion(info.version, currentVersion) > 0;
+  const reinstall = newer && needsReinstall(info, electronVersion);
+  log(userDataPath, `check (${FEED_ENV}=file): current=${currentVersion} latest=${info.version} newer=${newer} reinstall=${reinstall}`);
+  return {
+    ok: true,
+    update: newer,
+    version: info.version,
+    notes: `テスト用の取得先（${path.basename(feed.file)}）の版です。`,
+    url: '',
+    size: info.size,
+    publishedAt: '',
+    reinstall,
+    requires: info.electron,
+    sha256: info.sha256,
+    test: true,
+  };
+}
+
 /**
  * 最新リリースを問い合わせる。
- * @returns {{ok:boolean, update?:boolean, version?:string, notes?:string, url?:string, size?:number, error?:string}}
+ * opts.electronVersion … 今の Electron の版（省略時は process.versions.electron）。
+ * opts.env … 環境変数（省略時は process.env。NATSU_UPDATE_FEED を読む）。
+ * @returns {{ok:boolean, update?:boolean, version?:string, notes?:string, url?:string, size?:number,
+ *   reinstall?:boolean, requires?:string, sha256?:string, test?:boolean, error?:string}}
  */
-async function check(currentVersion, userDataPath) {
+async function check(currentVersion, userDataPath, opts = {}) {
+  const o = opts || {};
+  const electronVersion = Object.prototype.hasOwnProperty.call(o, 'electronVersion') ? o.electronVersion : process.versions.electron;
+  const feed = readFeed(o.env || process.env);
+  if (feed.kind === 'bad') {
+    log(userDataPath, `check: ${feed.error}`);
+    return { ok: false, error: feed.error, test: true };
+  }
+  if (feed.kind === 'file') return checkFile(feed, currentVersion, userDataPath, electronVersion);
   try {
-    const res = await httpFetch(API_LATEST, {
+    const res = await httpFetch(feed.api, {
       headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'NaTsu' },
       signal: AbortSignal.timeout(15000),
     });
@@ -115,8 +235,28 @@ async function check(currentVersion, userDataPath) {
     const asset = (data.assets || []).find((a) => ASSET_PATTERN.test(a.name));
     if (!asset) return { ok: false, error: '更新ファイル（natsu-src-*.zip）がリリースに添付されていません' };
 
+    // 入れ直しが要るかは natsu-update.json で見分ける。無い古いリリースでは reinstall: false（apply() の門に任せる）
+    let info = null;
+    const infoAsset = (data.assets || []).find((a) => a && a.name === INFO_ASSET);
+    if (infoAsset) {
+      const ir = await httpFetch(infoAsset.browser_download_url, {
+        headers: { 'User-Agent': 'NaTsu' },
+        signal: AbortSignal.timeout(15000),
+      });
+      if (!ir.ok) return { ok: false, error: `${INFO_ASSET} を取得できません (${ir.status})`, test: feed.test };
+      const text = await ir.text();
+      try {
+        info = parseUpdateInfo(text, { version: latest, zipName: asset.name });
+      } catch (e) {
+        // 形が違う・合わないのはオフラインではない。理由をそのまま見せる
+        log(userDataPath, `check: ${e.message}`);
+        return { ok: false, error: e.message, test: feed.test };
+      }
+    }
+
     const newer = cmpVersion(latest, currentVersion) > 0;
-    log(userDataPath, `check: current=${currentVersion} latest=${latest} newer=${newer}`);
+    const reinstall = newer && needsReinstall(info, electronVersion);
+    log(userDataPath, `check: current=${currentVersion} latest=${latest} newer=${newer} reinstall=${reinstall}${feed.test ? ` feed=${feed.api}` : ''}`);
     return {
       ok: true,
       update: newer,
@@ -125,6 +265,10 @@ async function check(currentVersion, userDataPath) {
       url: asset.browser_download_url,
       size: asset.size || 0,
       publishedAt: data.published_at || '',
+      reinstall,
+      requires: info ? info.electron : '',
+      sha256: info ? info.sha256 : '',
+      test: feed.test,
     };
   } catch (e) {
     // 実際の失敗理由は update.log に残す。
@@ -198,8 +342,15 @@ function rmrf(p) {
  *
  * opts.electronVersion … 今動いている Electron の版。省略時は process.versions.electron。
  *   取れないとき（Electron の外: テスト・解析）は engines の検査をしない。
+ * opts.env … 環境変数（省略時は process.env）。NATSU_UPDATE_FEED があれば何も落とさず断る。
+ * opts.sha256 … natsu-update.json の SHA-256。あれば落とした zip と照らし、違えば当てない。
  */
 async function apply(url, appRoot, userDataPath, onProgress, opts) {
+  // テスト用の取得先のあいだは当てない（取り違えた zip を当てないための二重の守り）
+  if (String(((opts && opts.env) || process.env)[FEED_ENV] || '').trim()) {
+    log(userDataPath, `apply refused: ${FEED_ENV} is set`);
+    return { ok: false, error: TEST_FEED_APPLY_ERROR };
+  }
   // 一時フォルダの作成も try の中で行う。ここで投げると呼び出し側は
   // { ok:false } ではなく例外を受け取り、画面のボタンが押せないまま残る。
   let work = '';
@@ -220,6 +371,13 @@ async function apply(url, appRoot, userDataPath, onProgress, opts) {
     if (onProgress) onProgress('更新をダウンロードしています…');
     const bytes = await download(url, zip);
     log(userDataPath, `downloaded ${bytes} bytes`);
+    if (opts && opts.sha256) {
+      const got = crypto.createHash('sha256').update(fs.readFileSync(zip)).digest('hex');
+      if (got !== String(opts.sha256).trim().toLowerCase()) {
+        log(userDataPath, `sha256 mismatch: expected=${opts.sha256} got=${got}`);
+        throw new Error('更新ファイルの SHA-256 が配った物と合いません。もう一度［更新を確認］からやり直してください');
+      }
+    }
 
     if (onProgress) onProgress('展開しています…');
     fs.mkdirSync(ext, { recursive: true });
@@ -255,7 +413,10 @@ async function apply(url, appRoot, userDataPath, onProgress, opts) {
       // 解釈できない範囲指定も「満たさない」として止める（安全側）。理由を残さないと
       // 「更新が来ない」だけの静かな故障になり、engines を書き換えた本人も気づけない
       log(userDataPath, `engines.electron=${String(range).trim()} を満たさないため適用しない（今: ${electronVersion}）`);
-      throw new Error(`更新 ${nxt.version || '?'} には Electron ${String(range).trim()} が必要です（今は ${electronVersion}）。インストーラーで入れ直してください`);
+      // 画面に出す文は入れ直しの文（updateNotice と同じ）。reinstall の印で、画面のボタンを［ダウンロード］に替えられる
+      const err = new Error(REINSTALL_MESSAGE);
+      err.reinstall = true;
+      throw err;
     }
 
     if (onProgress) onProgress('適用しています…');
@@ -301,8 +462,11 @@ async function apply(url, appRoot, userDataPath, onProgress, opts) {
   } catch (e) {
     log(userDataPath, `apply failed: ${e.message}`);
     if (work) rmrf(work);
-    return { ok: false, error: e.message };
+    return { ok: false, error: e.message, ...(e.reinstall ? { reinstall: true } : {}) };
   }
 }
 
-module.exports = { check, apply, cmpVersion, satisfiesRange, REPO, TAG_PATTERN, ASSET_PATTERN };
+module.exports = {
+  check, apply, cmpVersion, satisfiesRange, REPO, TAG_PATTERN, ASSET_PATTERN,
+  INFO_ASSET, FEED_ENV, REINSTALL_MESSAGE, readFeed, parseUpdateInfo, needsReinstall, updateNotice,
+};

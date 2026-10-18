@@ -366,8 +366,10 @@ test('#34 apply() は zip の engines.electron を満たさなければ src を�
     const progress = [];
     const r1 = await updater.apply(url('/need32.zip'), a1, work, (m) => progress.push(m), { electronVersion: '31.3.0' });
     assert.strictEqual(r1.ok, false, '必要な Electron を満たさない zip を適用してしまった（起動不能になる）');
-    assert.strictEqual(r1.error,
-      '更新 9.9.9 には Electron >=32.0.0 が必要です（今は 31.3.0）。インストーラーで入れ直してください');
+    // 第0c回 EL4: 文は入れ直しの文（「Electron」の語を出さない）。詳しい版は update.log に残す
+    assert.strictEqual(r1.error, updater.REINSTALL_MESSAGE);
+    assert.strictEqual(r1.reinstall, true, '画面がボタンを［ダウンロード］に替えられない');
+    assert.match(fs.readFileSync(path.join(work, 'update.log'), 'utf8'), /engines\.electron=>=32\.0\.0 を満たさないため適用しない（今: 31\.3\.0）/);
     assert.ok(mainOf(a1).includes('旧版のまま残るべき'), 'src が差し替わっている');
     assert.strictEqual(versionOf(a1), '0.7.0', 'package.json の version が進んでいる');
     assert.deepStrictEqual(backupsOf(a1), [], '差し替えていないのにバックアップができている');
