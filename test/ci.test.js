@@ -307,3 +307,13 @@ test('ci.yml・release.yml: 引用符の無い1行の値に「: 」が無い（�
     assert.deepStrictEqual(bad, [], '引用符で囲むか、「: 」を使わない書き方にする');
   }
 });
+
+test('ci.yml・release.yml: 段の名前は UTF-8 で 200 バイトまで（記録の zip では「<番号>_<名前>.txt」が1つのファイル名になり、255 バイトを越えると Linux で取り出せない）', { timeout: 5000 }, () => {
+  for (const f of ['.github/workflows/ci.yml', '.github/workflows/release.yml']) {
+    const long = read(f).split(/\r?\n/)
+      .map((line) => /^\s*- name: (.+)$/.exec(line))
+      .filter((m) => m && Buffer.byteLength(m[1], 'utf8') > 200)
+      .map((m) => `${f}: ${Buffer.byteLength(m[1], 'utf8')} バイト: ${m[1]}`);
+    assert.deepStrictEqual(long, [], '段の名前を短くする');
+  }
+});
