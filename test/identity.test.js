@@ -38,12 +38,12 @@ test('表示名は NaTsu（画面・録音バー・ウィンドウ・トレイ�
   for (const s of ["'NaTsu — 議事録を記録中'", "'NaTsu — 録音中'", "'NaTsu — 処理中'", '`NaTsu — ${activeHotkeys.hotkey}: 音声入力']) {
     assert.ok(main.includes(s), s);
   }
-  assert.strictEqual(pkg.description, 'NaTsu — 完全オフラインの音声入力・議事録ツール（ローカルLLM要約 + 出典リンク付き）');
+  assert.strictEqual(pkg.description, 'NaTsu — 音声入力・議事録ツール（オンラインはクラウドの文字起こしと各自の Claude Code の要約、オフラインは手元の whisper と llama。出典リンク付き）');
 });
 
-test('識別子: name は natsu・版は 0.4.0・productName は build の中だけ（userData は %APPDATA%\\natsu）', () => {
+test('識別子: name は natsu・版は 0.5.0・productName は build の中だけ（userData は %APPDATA%\\natsu）', () => {
   assert.strictEqual(pkg.name, 'natsu');
-  assert.strictEqual(pkg.version, '0.4.0');
+  assert.strictEqual(pkg.version, '0.5.0');
   assert.strictEqual(pkg.productName, undefined, 'top-level の productName は userData の名前を変える');
   assert.strictEqual(pkg.build.productName, 'NaTsu');
   assert.strictEqual(pkg.build.appId, 'local.natsu.app');
@@ -116,5 +116,30 @@ test('.ps1 の BOM は1つだけ（4バイト目から EF BB BF が続かない�
   for (const f of tracked().filter((x) => x.endsWith('.ps1'))) {
     const b = fs.readFileSync(path.join(ROOT, f));
     assert.ok(!(b[3] === 0xEF && b[4] === 0xBB && b[5] === 0xBF), `${f}: BOM が2つある`);
+  }
+});
+
+// 第1c回 Task D-2（OL9）: 0.5.0 からはオンラインのとき音声を送り先へ、文字起こしの文を Claude へ送る。
+// 「完全オフライン」「外へ送らない」と言い続けると、利用者が音声の行き先を誤って思う
+test('OL9: README と INSTALL は、送るもの・送り先・同意・［この会議は PC の中だけ］・Claude Code の入れ方・上限を書き、「完全オフライン」と言わない', () => {
+  for (const w of ['音声', '送り先', '同意', 'PC の中だけ', 'irm https://claude.ai/install.ps1 | iex', '上限', 'claude auth status', '"authMethod": "claude.ai"',
+    'api.groq.com', 'api.openai.com', 'claude.ai', 'api.anthropic.com', 'Zscaler']) {
+    assert.ok(readme.includes(w), `README に「${w}」が無い`);
+  }
+  for (const [n, s] of [['README.md', readme], ['INSTALL.md', install], ['package.json', JSON.stringify(pkg)], ['src/main.js', main]]) {
+    assert.ok(!s.includes('完全オフライン'), `${n} に「完全オフライン」が残っている`);
+  }
+  assert.ok(!readme.includes('外部への送信は一切ありません') && !readme.includes('外部へ送信されることはありません'), 'README が外へ送らないと言っている');
+  assert.ok(!install.includes('外部に音声やテキストが送られることはありません'), 'INSTALL が外へ送らないと言っている');
+  for (const h of ['api.groq.com', 'api.openai.com', 'claude.ai', 'api.anthropic.com']) assert.ok(install.includes(h), `INSTALL の接続先に ${h} が無い`);
+});
+
+test('OL9: CHANGELOG の 0.5.0 の節は、更新の前に Claude Code を入れてログインすることを、入れ方の文と一緒に頭に書く', () => {
+  const cl = read('CHANGELOG.md');
+  const sec = cl.slice(cl.indexOf('## natsu-v0.5.0'), cl.indexOf('## natsu-v0.4.0'));
+  const head = sec.split('\n').slice(0, 4).join('\n');
+  assert.ok(head.includes('更新の前に') && head.includes('Claude Code'), '頭に「更新の前に Claude Code」が無い');
+  for (const w of ['irm https://claude.ai/install.ps1 | iex', 'claude auth status', '同意', '送り先', 'Groq', 'OpenAI', 'この会議は PC の中だけ', 'オフライン', '上限']) {
+    assert.ok(sec.includes(w), `0.5.0 の節に「${w}」が無い`);
   }
 });
