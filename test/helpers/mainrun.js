@@ -620,7 +620,7 @@ process.on('exit', () => {
   // エンジンの spawn だけを本物にする（.js なら node で起動）。それ以外（貼り付け用の PowerShell など）は起動しない
   const realSpawn = cp.spawn;
   const spawns = [];   // エンジンの起動（実行ファイル・引数・作業フォルダ）
-  // 第1b回の続き Lane F-c・F-d: scene.claude の場面で main が起こす powershell.exe（見える窓を開く隠した PowerShell）は本当には起こさず、
+  // 第1b回の続き Lane F-c・F-d: scene.claude の場面で main が起こす powershell.exe -EncodedCommand（見える窓を開く隠した PowerShell）は本当には起こさず、
   // launches に { cmd, args, exe（環境の NATSU_CLAUDE_EXE）, shell, windowsHide, ansiKeys（課金の変数の名前） } で覚え、
   // launchPlan の先頭の終わりの番号（無ければ 0）で 20ms 後に閉じる偽の子を返す（act が launchPlan に積む）
   const launches = [];
@@ -635,7 +635,8 @@ process.on('exit', () => {
         kids.push(k);
         return k;
       }
-      if (scene && scene.claude && /(^|[\\/])powershell\.exe$/i.test(String(cmd))) {
+      // 窓を開く PowerShell だけ（-EncodedCommand）。Windows で起動のときに起こす貼り付けの常駐 PowerShell（-Command）は今までどおり下の偽の子
+      if (scene && scene.claude && /(^|[\\/])powershell\.exe$/i.test(String(cmd)) && Array.isArray(args) && args.includes('-EncodedCommand')) {
         const env = (opts && opts.env) || {};
         launches.push({ cmd, args, exe: env.NATSU_CLAUDE_EXE || '', shell: opts && opts.shell, windowsHide: opts && opts.windowsHide,
           billingKeys: Object.keys(env).filter((k) => /^(ANTHROPIC_|CLAUDE_CODE_USE_|CLAUDE_CODE_OAUTH_)/i.test(k)) });

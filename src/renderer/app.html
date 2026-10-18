@@ -3237,9 +3237,9 @@
     const ok = Boolean(s && s.ok && s.found && s.method === 'claude.ai' && !s.message);
     el.textContent = ok ? (s.verified === true ? CLAUDE_VERIFIED : CLAUDE_OK) : ((s && typeof s.message === 'string' && s.message) || 'Claude Code の状態を読めませんでした');
     el.className = ok ? 'eng-state ok' : 'eng-state ng';
-    // ログインは見つかったとき、入れるのは見つからない・claude.cmd しか無いとき（第1b回の続き Lane F-c・F-d）
+    // ログインは見つかったとき、入れるのは見つからない・claude.cmd しか無いとき（main は claude.cmd だけのときも found: false。第1b回の続き Lane F-c・F-d）
     $('claudeLogin').hidden = !(s && s.ok && s.found === true);
-    $('claudeInstall').hidden = !(s && s.ok && (s.found === false || s.cmdOnly === true));
+    $('claudeInstall').hidden = !(s && s.ok && s.found === false);
   }
   async function refreshClaude() {
     if (!window.koeApp.claudeStatus) return;
