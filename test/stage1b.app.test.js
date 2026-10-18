@@ -437,3 +437,39 @@ test('画面の使いやすさ・F12（足した守り）: 選んでいるタブ
   assert.strictEqual(l.document.activeElement, tabs(l)[1], '× で閉じた後、フォーカスがどこにも無い');
   assert.deepStrictEqual(xs(), [-1, 0]);
 });
+
+test('画面の使いやすさ・F12（足した守り）: タブの × にフォーカスがあるまま帯が描き直されても（一覧の更新など）、フォーカスは同じタブの × に残る', async () => {
+  const l = await open({ uiState: () => ({ sidebar: { width: 260, collapsed: false }, tabs: { open: ['page:pa1', 'dictation'], active: 'dictation' } }) });
+  await l.drain();
+  tabs(l)[1].querySelector('.tx').focus();
+  l.fire('onPagesUpdated');
+  await l.drain();
+  assert.ok(l.called('pagesSearch').length >= 2, '前提: 一覧を読み直した');
+  assert.strictEqual(l.document.activeElement, tabs(l)[1].querySelector('.tx'), '帯を描き直したら × のフォーカスが消えた');
+  assert.deepStrictEqual(l.errors.map(fmt), []);
+});
+
+test('N3・N4b（足した守り）: ページを読み込んでいる間に記録が始まったら、読み終えたページを記録中のタブの下に描かない', async () => {
+  let give;
+  const held = new Promise((r) => { give = r; });
+  const l = await open({ pageGet: (id) => (id === 'pa1' && give ? held : PAGE(id)) });
+  await l.drain();
+  row(l, 0).dispatchEvent({ type: 'click' });
+  await l.drain();
+  l.fire('onMeetingUpdate', ST());
+  await l.drain();
+  const g = give; give = null;
+  g(PAGE('pa1'));
+  await l.drain();
+  assert.deepStrictEqual(keysOf(l), ['page:pa1', 'live']);
+  assert.strictEqual(tabs(l)[1].getAttribute('aria-selected'), 'true');
+  assert.notStrictEqual(l.byId.get('pTitle').textContent, '定例（見本）', '記録中のタブの下に、読み終えたページを描いた');
+  l.fire('onMeetingUpdate', ST());
+  await l.drain();
+  assert.strictEqual(l.byId.get('pScript').querySelectorAll('.seg').length, 2, '記録中の文字起こしが流れない');
+  assert.strictEqual(l.document.getElementById('liveBar').hidden, false);
+  tabs(l)[0].dispatchEvent({ type: 'click' });
+  await l.drain();
+  assert.strictEqual(l.byId.get('pTitle').textContent, '定例（見本）', 'ページのタブに戻っても開けない');
+  assert.deepStrictEqual(l.errors.map(fmt), []);
+});

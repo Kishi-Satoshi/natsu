@@ -964,7 +964,10 @@
   function renderTabs() {
     const bar = $('tabbar');
     const f = document.activeElement;
-    const focusKey = f && f.parentNode === bar && f.dataset ? f.dataset.key : '';
+    // 帯の中のフォーカス（タブそのもの・タブの ×）を、描き直した後の同じ場所へ戻す
+    const fTab = f && typeof f.closest === 'function' ? f.closest('.tabitem') : null;
+    const focusKey = fTab && fTab.parentNode === bar && fTab.dataset ? fTab.dataset.key : '';
+    const focusX = Boolean(focusKey) && f !== fTab;
     bar.textContent = '';
     const reach = hasTab(activeTab) ? activeTab : (openTabs[0] ? openTabs[0].key : '');
     for (const { key } of openTabs) {
@@ -1000,7 +1003,7 @@
       };
       el.addEventListener('keydown', (ev) => onTabKey(ev, key));   // 偽 DOM は泡立たないので、受け口はタブごとにも付ける
       bar.appendChild(el);
-      if (key === focusKey) el.focus();
+      if (key === focusKey) { if (focusX && x.parentNode === el) x.focus(); else el.focus(); }
     }
   }
   // ←／→ は隣、Home／End は端のタブへ移って選ぶ（移ったタブにフォーカス）
@@ -1405,6 +1408,11 @@
       // 壊れた本体は store が .broken- へ退避し、次回起動の reconcile が一覧から外す。
       toast('ページを開けません（本体が壊れているか消えています）。次回起動時に一覧から外れます');
       await refreshList();
+      return false;
+    }
+    // 読んでいる間に記録中のタブや別のページのタブへ移っていたら、そのタブの下に描かない（題名だけ覚える）
+    if (activeTab === 'live' || (isPageKey(activeTab) && activeTab !== `page:${id}`)) {
+      if (r.page && typeof r.page.title === 'string') tabTitles.set(id, r.page.title);
       return false;
     }
     curId = id; curPage = r.page; curSegs = r.segments;
