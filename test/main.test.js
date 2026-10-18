@@ -630,6 +630,9 @@ test('keptDifferent: 画面が送った値と違う値で残ったキーだけ�
   assert.deepStrictEqual(keptDifferent(sent, saved), { hotkey: 'Alt+M', localPort: 8990, dictionary: ['見積'] });
   assert.deepStrictEqual(keptDifferent(null, saved), {});
   assert.deepStrictEqual(keptDifferent({ theme: 'dark' }, saved), {});
+  // 第1a回 Task 2-2: 設定に無いキー（Object の持ち物の名前も）は返さない。constructor を送られると Object の関数が
+  // applied に載り、本物の IPC は関数を写せず、保存した後で invoke が失敗する
+  assert.deepStrictEqual(keptDifferent({ constructor: 'y', toString: 'z', evil: 'x', theme: 'light' }, saved), { theme: 'dark' });
 });
 
 // ---------------------------------------------------------------- #52 要約中は「忙しい」

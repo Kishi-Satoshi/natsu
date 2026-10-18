@@ -662,6 +662,8 @@ function keptDifferent(sent, saved) {
   const out = {};
   if (!sent || typeof sent !== 'object') return out;
   for (const k of Object.keys(sent)) {
+    // 設定に無いキーは返さない（constructor などで Object の持ち物を拾うと、IPC が写せずに invoke が失敗する）
+    if (!Object.prototype.hasOwnProperty.call(saved, k)) continue;
     if (!sameValue(sent[k], saved[k])) out[k] = saved[k];
   }
   return out;
