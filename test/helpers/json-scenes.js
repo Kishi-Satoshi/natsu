@@ -81,6 +81,22 @@ module.exports = {
   'unreadable-get': { files: { 'settings.json': pretty(TYPICAL) },
     faults: [{ op: 'read', match: /settings\.json$/, code: 'EBUSY', times: 7 }],
     act: async (c) => { c.out.got = await c.handlers['settings:get'](); } },
+  // 読めない間に会議を始めると、読み直しは切り替えずに後へ回す（#57: エンジンの設定が変わると再起動して区間を失う）。
+  // エンジンのパスは読めない間の保存でメモリにだけ入れる（ファイルは読めないので、手のパスは保存の画面から来る）
+  'unreadable-busy': { files: { 'settings.json': ({ base }) => pretty({ ...TYPICAL, ...base }) },
+    faults: [{ op: 'read', match: /settings\.json$/, code: 'EBUSY', times: 7 }],
+    act: async (c) => {
+      const onDisk = JSON.parse(c.read('settings.json').toString('utf8'));
+      c.out.saveWhileUnreadable = await c.handlers['settings:save']({}, UI({ theme: 'light', localServerExe: onDisk.localServerExe, localModelPath: onDisk.localModelPath }));
+      c.out.start = await c.handlers['meeting:toggle']();
+      c.out.retriesBefore = (c.timers.retrySettingsRead || []).length;
+      c.timers.retrySettingsRead[0]();
+      c.out.retriesDuring = c.timers.retrySettingsRead.length;
+      c.out.themeDuring = (await c.handlers['settings:get']()).theme;
+      c.out.discard = await c.handlers['meeting:discard']();
+      c.timers.retrySettingsRead[c.timers.retrySettingsRead.length - 1]();
+      c.out.themeAfter = (await c.handlers['settings:get']()).theme;
+    } },
   'history-unreadable': { files: { 'settings.json': pretty(TYPICAL), 'history.json': pretty(HISTORY) },
     faults: [{ op: 'read', match: /history\.json$/, code: 'EBUSY', times: 7 }],
     act: async (c) => {
