@@ -406,7 +406,7 @@ module.exports = [
     tests: ['test/stage1b.app.test.js'], why: 'B-5 RF4: スリープから戻ったら再開を促す文' },
   { id: 'ui-side-ime', file: 'src/renderer/app.html', from: '} else if (ev.key === \'Enter\' && !imeEnter(ev)) {', to: '} else if (ev.key === \'Enter\') {',
     tests: ['test/stage1b.app.test.js'], why: 'B-6: つまみの Enter は変換の確定を見る（imeEnter）' },
-  { id: 'shots-retake-overlay', file: 'tools/shots/screens.js', from: 'const RETAKE = new Set([\'settings-light\',', to: 'const RETAKE = new Set([\'overlay-processing\', \'settings-light\',',
+  { id: 'shots-retake-overlay', file: 'tools/shots/screens.js', from: 'const RETAKE = new Set([]);', to: 'const RETAKE = new Set([\'overlay-processing\']);',
     tests: ['test/shots.test.js'], why: 'C-1 F14: 録音バーの基準は取り直し待ちに入れられない' },
   { id: 'shots-overflow', file: 'tools/shots/screens.js', from: 'function judgeOverflow(r) {\n', to: 'function judgeOverflow(r) {\n  return { ok: true, note: \'\' };\n',
     tests: ['test/shots.test.js'], why: 'C-1 F11: 横のはみ出しを NG にする' },
@@ -557,7 +557,7 @@ module.exports = [
     tests: ['test/invariants.test.js'], why: '不変条件 COLOR-04: JS が付ける live-on に CSS がある' },
   { id: 'shots-palette', file: 'tools/shots/screens.js', from: '  { name: \'search-palette-light\', page: \'app\', theme: \'light\', act: `${OPEN_PAGE}; ${OPEN_PALETTE}` },\n', to: '',
     tests: ['test/shots.test.js'], why: 'R-3: 検索の窓の画面を撮る' },
-  { id: 'shots-palette-retake', file: 'tools/shots/screens.js', from: '\'settings-zoom200-dark\']);', to: '\'settings-zoom200-dark\', \'search-palette-light\']);',
+  { id: 'shots-palette-retake', file: 'tools/shots/screens.js', from: 'const RETAKE = new Set([]);', to: 'const RETAKE = new Set([\'search-palette-light\']);',
     tests: ['test/shots.test.js'], why: 'R-3 G12・第1b回 C-2: 検索の窓の画面も基準と比べる（取り直し待ちに戻さない）' },
   { id: 'gate-1b2-ledger', file: 'tools/lib/moves.js', from: 'ids: [\'pActs\', \'pMore\', \'pMenu\'],', to: 'ids: [\'pActs\', \'pMore\', \'pMenu\', \'pTitle\'],',
     tests: ['test/gate.test.js'], why: 'L-1: 台帳の中身の固定（1b2 の行に pTitle を足さない）' },
@@ -596,7 +596,7 @@ module.exports = [
     tests: ['test/ui07.app.test.js'], why: 'U-2: 押しっぱなしの繰り返しでは切り替えず、保存もし直さない' },
   { id: 'u2-toggle-revert', file: 'src/renderer/app.html', from: '    if (!(await save(true))) sel.value = prev;', to: '    await save(true);',
     tests: ['test/ui07.app.test.js'], why: 'U-2: 保存しなかったときは欄を前の値に戻す' },
-  { id: 'u2-retake-settings', file: 'tools/shots/screens.js', from: "const RETAKE = new Set(['settings-light', 'settings-dark', 'settings-zoom200-dark']);", to: "const RETAKE = new Set(['settings-light', 'settings-zoom200-dark']);",
+  { id: 'u2-retake-settings', file: 'tools/shots/screens.js', from: "const RETAKE = new Set([]);", to: "const RETAKE = new Set(['settings-light']);",
     tests: ['test/shots.test.js'], why: 'U-2: 設定の3枚を取り直し待ちにする（CI が NG にせず「取り直し待ち」と出す）' },
   // 第2a1回（Task G-3。計画 docs/plans/2026-10-19-2a1.md の「変異確認」の表と、各レーンの点検で足した行）。
   // 場面（mainrun）を使う stage2a1.main.test.js などは pattern で赤になるテストだけを回す（CI の mutate を 20 分に収める）

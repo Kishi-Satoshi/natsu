@@ -68,7 +68,7 @@ SCREENS.find((x) => x.name === 'notes-page-light').focus = { tabs: 3, want: 'mtT
 // 第1b回 Task C-2 で空にした（13 枚を Windows の CI の画像から取り直し、利用者が 2026-10-19 に OK と言った）。
 // 0.7.0 U-2（設計書 D5・D8）で設定の3枚を取り直し待ちにした（いちばん上の「外観」と、送り先と同意の欄を外した「オンライン」）。
 // 利用者が CI の新しい画像を見て OK と言ったら、その画像を基準にして空に戻す
-const RETAKE = new Set(['settings-light', 'settings-dark', 'settings-zoom200-dark']);
+const RETAKE = new Set([]);
 const PERF = [{ name: 'open-2000-blocks', budgetMs: 500 }];   // 3回開いた中央値で見る
 const TIME_ZONE = 'Asia/Tokyo';
 const TOLERANCE = 2;   // 色の差（0〜255）がこれ以下の画素は同じとみなす。CI の機械の CPU ごとの描き方の1段の差を拾わないため（揺れの確かめ judgePair は 0 で見る）

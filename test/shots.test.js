@@ -300,9 +300,9 @@ test('G2: 作業域より大きい窓が作るときに縮められても（Wind
 // 第1b回 Task C-2（G2・F14）: C-1 で緩めた確かめを元の「全部ある」に戻した（第1b2回の検索の窓 search-palette-light も、もう取り直し待ちの新しい画面ではない）。
 // 13 枚は Windows の CI（run 39150265077・c823b81）が撮った画像。利用者が 2026-10-19 に見て OK と言った
 // 0.7.0 U-2（設計書 D8）で意図して変えた: 設定のいちばん上に「外観」を足し、「オンライン」のカードを D5 の形にしたので、設定の3枚を取り直し待ちにした。
-// 利用者が CI の新しい画像を見て OK と言ったら、その画像を基準にして取り直し待ちを空に戻す（第1b回 C-2 と同じ手順）
-test('G2・F14・U-2: 取り直し待ちは設定の3枚だけ。どの画面にも基準の PNG があり、大きさが窓の大きさと同じ', { timeout: 5000 }, () => {
-  assert.deepStrictEqual([...SH.RETAKE].sort(), ['settings-dark', 'settings-light', 'settings-zoom200-dark']);
+// 利用者が 2026-10-19 に CI の新しい3枚（run 39243734668・artifact 12183195820）を見て OK と言ったので、その画像を基準にして取り直し待ちを空に戻した（第1b回 C-2 と同じ手順）
+test('G2・F14・U-2: 取り直し待ちは無い。どの画面にも基準の PNG があり、大きさが窓の大きさと同じ', { timeout: 5000 }, () => {
+  assert.deepStrictEqual([...SH.RETAKE], []);
   for (const s of SH.SCREENS) {
     const f = path.join(ROOT, 'test', 'shots', 'win32', `${s.name}.png`);
     assert.ok(fs.existsSync(f), `${s.name} の基準が無い`);
