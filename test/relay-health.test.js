@@ -23,6 +23,13 @@ test('RL1: GET /health は 200 で、秘密の有無と D1 の表だけを真偽
   await R.withRelay({ noSchema: true }, async ({ call }) => {
     assert.strictEqual((await (await call('GET', '/health')).json()).ready.db, false);
   });
+  // 表はあっても、表の形の印（meta.schema）が無い・古ければ false（表を流しきっていない D1）
+  await R.withRelay({}, async ({ call, db }) => {
+    await db.prepare("UPDATE meta SET value = '0' WHERE key = 'schema'").run();
+    assert.strictEqual((await (await call('GET', '/health')).json()).ready.db, false, "meta.schema が '0'");
+    await db.prepare('DELETE FROM meta').run();
+    assert.strictEqual((await (await call('GET', '/health')).json()).ready.db, false, 'meta.schema が無い');
+  });
 });
 
 test('RL1: 知らない道は 404・合わない方法は 405・例外は外に投げず 500 と記録1行', { timeout: 5000 }, async () => {
@@ -59,15 +66,21 @@ test('RL7: logEvent は決まった欄と形の値だけを書く（メール・
   const { logEvent } = await R.load('log.mjs');
   const lines = R.captureConsole(() => logEvent('stt', { st: 200, ms: 12, sec: 75, email: R.mail('a'), r: 'Hello World', text: '会議', token: 'nt1_x', ip: '192.0.2.1' }));
   assert.deepStrictEqual(lines.map((l) => JSON.parse(l)), [{ ev: 'stt', st: 200, ms: 12, sec: 75 }]);
+  // 値の形が合っていても、決まった名前のほかの欄は捨てる（確認コード・ハッシュ・時刻は数や短い符号の形をしている）
+  const more = R.captureConsole(() => logEvent('auth.verify', { r: 'ok', left: 4, code: '483920', emailHash: 'ab12cd', at: 1700, n2: 3, scope: 'user' }));
+  assert.deepStrictEqual(more.map((l) => JSON.parse(l)), [{ ev: 'auth.verify', r: 'ok', left: 4, scope: 'user' }]);
 });
 
 test('RL2: 試しの宛先は 127.0.0.1 の http だけ。ほかの値は本物の固定の URL（鍵をほかのホストへ運ばない）', { timeout: 5000 }, async () => {
   const { readConfig } = await R.load('config.mjs');
   const base = { OPENAI_API_KEY: 'k', RESEND_API_KEY: 'k', ALLOWED_EMAIL_DOMAINS: 'Example.com, example.org ', MAIL_FROM: `NaTsu <${R.mail('a')}>` };
   assert.strictEqual(readConfig({ ...base, OPENAI_BASE: 'http://127.0.0.1:4010/openai/v1' }).openaiBase, 'http://127.0.0.1:4010/openai/v1');
-  for (const v of ['https://evil.example/v1', 'http://localhost:1/v1', 'http://127.0.0.1.example.com:1/v1', '']) {
-    assert.strictEqual(readConfig({ ...base, OPENAI_BASE: v }).openaiBase, 'https://api.openai.com/v1', v);
-    assert.strictEqual(readConfig({ ...base, RESEND_BASE: v }).resendBase, 'https://api.resend.com', v);
+  assert.strictEqual(readConfig({ ...base, RESEND_BASE: 'http://127.0.0.1:4011' }).resendBase, 'http://127.0.0.1:4011');
+  for (const v of ['https://evil.example/v1', 'http://localhost:1/v1', 'http://127.0.0.1.example.com:1/v1', '',
+    'http://evil.example:8080/v1', 'http://localhost:4010/v1', 'http://127.0.0.1.example.com:4010/v1', 'http://' + R.mail('127.0.0.1:4010', 'evil.example:80') + '/v1',
+    'https://127.0.0.1:4010/v1', 'http://127.0.0.1:4010/v1?x=1', ' http://127.0.0.1:4010/v1', undefined, 4010]) {
+    assert.strictEqual(readConfig({ ...base, OPENAI_BASE: v }).openaiBase, 'https://api.openai.com/v1', String(v));
+    assert.strictEqual(readConfig({ ...base, RESEND_BASE: v }).resendBase, 'https://api.resend.com', String(v));
   }
   const c = readConfig({ ...base, STT_MODEL: 'gpt-4o-transcribe; drop' });
   assert.strictEqual(c.model, 'gpt-4o-transcribe');
@@ -136,6 +149,13 @@ test('RL1: http の部品 — sha256hex・札（nt1_ と base64url 43 字）・6
     assert.match(H.randomCode(), /^[0-9]{6}$/);
   }
   assert.strictEqual(toks.size, 50);
+  // 棄却: 2^32 を 100 万で割った余りの分（4,294,000,000 以上）が出たら捨てて引き直す（そのまま割ると 0〜967295 が出やすくなる）
+  const seq = [4294967295, 4294000000, 123];
+  const draws = [];
+  globalThis.crypto.getRandomValues = (a) => { const v = seq.shift(); draws.push(v); a[0] = v; return a; };
+  try { assert.strictEqual(H.randomCode(), '000123'); } finally { delete globalThis.crypto.getRandomValues; }
+  assert.deepStrictEqual(draws, [4294967295, 4294000000, 123]);
+  assert.match(H.randomCode(), /^[0-9]{6}$/, '本物の getRandomValues に戻していない');
   const ipReq = (ip) => new Request('https://relay.test/x', { headers: ip === undefined ? {} : { 'cf-connecting-ip': ip, 'x-forwarded-for': '198.51.100.7' } });
   const k = await H.clientIpKey(ipReq('192.0.2.1'));
   assert.strictEqual(k, 'ip:' + await H.sha256hex('192.0.2.1'));
