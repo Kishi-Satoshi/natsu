@@ -26,7 +26,7 @@
  *   だめなら動かしたものを元に戻し、natsu.db.restoring だけ消して busy（natsu.db は1バイトも変えない）。
  *   戻せたら core.open で開いて D-5b の reimport を回して閉じる（reimport: false で飛ばす。reimported はその答え。開けない・投げたら null）。
  *   from は選んだ控えの時刻（知らせ D6 の「抜けたかもしれない期間」）。brokenAs は退けた natsu.db の名前（無かったら null）。
- *   控えの一覧が読めない・自分の一時ファイルを消せないなど、ほかの失敗も投げずに busy で返す。
+ *   控えの一覧が読めない・自分の一時ファイルを消せない・lock を書けないなど、ほかの失敗も投げずに busy で返す。
  * classifyOpenError(e) → 'corrupt'（SQLITE_CORRUPT・SQLITE_NOTADB だけ）| 'unavailable'（掴まれている・開けない・権限ほか全部: F8・F12）
  * checkResult(r) → runCheck の答えを 'ok' | 'corrupt'（確かめが走って ok 以外）| 'unavailable'（走れなかった: { error } ほか）
  * workerCheck({ file, timeoutMs }) → runCheck の既定。check-worker.js を worker_threads で起こし、worker が終わってから答えを返す。
@@ -270,13 +270,19 @@ function withLock(dataDir, fn, { fs = nodeFs, log = noop } = {}) {
 
 // ---------------------------------------------------------------- 戻す
 async function recover({ sqlite, dataDir, now = () => new Date(), fs = nodeFs, runCheck = workerCheck, waits = RENAME_WAITS_LONG, log = noop, reimport = true } = {}) {
-  return withLock(dataDir, async () => {
-    try { return await restore({ sqlite, dataDir, now, fs, runCheck, waits, log, reimport }); } catch (e) {
-      // 一覧が読めない・自分の一時ファイルを消せないなど（名前の変更は投げない形で行う）。投げずに「今は戻せない」
-      log(`DB: 控えから戻せない（${codeOf(e)}）`);
-      return { ok: false, code: 'busy' };
-    }
-  }, { fs, log });
+  try {
+    return await withLock(dataDir, async () => {
+      try { return await restore({ sqlite, dataDir, now, fs, runCheck, waits, log, reimport }); } catch (e) {
+        // 一覧が読めない・自分の一時ファイルを消せないなど（名前の変更は投げない形で行う）。投げずに「今は戻せない」
+        log(`DB: 控えから戻せない（${codeOf(e)}）`);
+        return { ok: false, code: 'busy' };
+      }
+    }, { fs, log });
+  } catch (e) {
+    // lock を書けない（data フォルダに書けない）: 何も動かしていない
+    log(`DB: lock を書けないので戻せない（${codeOf(e)}）`);
+    return { ok: false, code: 'busy' };
+  }
 }
 
 async function restore({ sqlite, dataDir, now, fs, runCheck, waits, log, reimport }) {

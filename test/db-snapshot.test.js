@@ -220,3 +220,36 @@ test('F12: 確かめの worker は、開けないファイルを「走れない�
     assert.strictEqual(await S.workerCheck({ file: d.file }), 'fts');
   } finally { d.done(); }
 });
+
+test('RF11・F8: 広げられても確かめの通らない控え・確かめが走れない控えからは戻さず、古い控えへ進む', { timeout: 10000 }, async () => {
+  for (const first of ['quick-check', { error: 'worker' }]) {
+    const d = tmpData({ pages: 2 });
+    try {
+      await S.take({ sqlite, db: d.db, dataDir: d.dataDir, kind: 'daily', now: () => new Date('2026-10-17T03:00:00Z') });
+      await S.take({ sqlite, db: d.db, dataDir: d.dataDir, kind: 'daily', now: () => new Date('2026-10-18T03:00:00Z') });
+      d.close();
+      const f = path.join(d.dataDir, 'natsu.db');
+      fs.writeFileSync(f, Buffer.alloc(8192, 0x55));
+      const checks = [];
+      const runCheck = async ({ file }) => { checks.push(path.basename(file)); return checks.length === 1 ? first : 'ok'; };
+      const r = await S.recover({ sqlite, dataDir: d.dataDir, now: () => new Date('2026-10-19T00:00:00Z'), runCheck });
+      assert.deepStrictEqual([r.ok, r.from], [true, '2026-10-17T03:00:00.000Z'], `確かめの答え ${JSON.stringify(first)} の控えから戻した`);
+      assert.deepStrictEqual(checks, ['natsu.db.restoring', 'natsu.db.restoring']);
+      assert.ok(!fs.existsSync(f + '.restoring'), '一時ファイルが残った');
+    } finally { d.done(); }
+  }
+});
+
+test('RF11: lock を書けなくても recover は投げずに busy を返し、natsu.db に触れない', { timeout: 10000 }, async () => {
+  const d = tmpData({ pages: 1 });
+  try {
+    await S.take({ sqlite, db: d.db, dataDir: d.dataDir, kind: 'daily', now: () => new Date('2026-10-18T03:00:00Z') });
+    d.close();
+    const f = path.join(d.dataDir, 'natsu.db');
+    const before = fs.readFileSync(f);
+    const noLock = { ...fs, writeFileSync: (p, ...rest) => { if (String(p).endsWith('natsu.db.lock')) throw Object.assign(new Error('x'), { code: 'EACCES' }); return fs.writeFileSync(p, ...rest); } };
+    const r = await S.recover({ sqlite, dataDir: d.dataDir, now: () => new Date('2026-10-19T00:00:00Z'), fs: noLock });
+    assert.deepStrictEqual([r.ok, r.code], [false, 'busy']);
+    assert.deepStrictEqual(fs.readFileSync(f), before);
+  } finally { d.done(); }
+});
