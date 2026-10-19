@@ -9,7 +9,7 @@
  *     rawPage(id)     … markShortBlocks の前の形（rev と空の children を除く）。今の JSON を読んだものと深く同じになるはず（移行の完全一致の定義）。
  *                       { trashed: true } でゴミ箱のページも返す
  *     metaKeys()      … meta の鍵の並び（名前の順）。meta(key) は値の JSON を読んだもの（無ければ undefined）
- *     oplogCount()    … oplog の行の数
+ *     oplogCount(tx?) … oplog の行の数（tx を渡せばその tx の行の数。D-7 で足す: M-2a の送り直しの確かめ）
  *     bytesHave(text) … natsu.db と -wal のバイトに text（UTF-8）があるか（消した文字が残っていないかを見る）
  *     close()         … 接続を閉じる（Windows で掴んだままにしない。テストは finally で呼ぶ）
  *   読む形は src/db/commands.js の読み手（アプリが読むのと同じもの）を使う。書かない。
@@ -48,7 +48,8 @@ function open(dataDir) {
       const r = db.prepare('select value from meta where key = ?').get(key);
       return r ? JSON.parse(r.value) : undefined;
     },
-    oplogCount: () => db.prepare('select count(*) c from oplog').get().c,
+    oplogCount: (tx) => (tx === undefined ? db.prepare('select count(*) c from oplog').get().c
+      : db.prepare('select count(*) c from oplog where tx = ?').get(String(tx)).c),
     bytesHave: (text) => {
       const needle = Buffer.from(String(text), 'utf8');
       return [file, `${file}-wal`].some((f) => fs.existsSync(f) && fs.readFileSync(f).indexOf(needle) >= 0);

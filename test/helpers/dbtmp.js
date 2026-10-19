@@ -25,13 +25,30 @@
  *     rawPage(id) は元のファイルを退けない読み方で読んだもの（markShortBlocks の前の形）。writePage はそのままの形で書く
  *     oldBuild(fn) は fn(store) を呼ぶ（D-5b。移行の後に古い版がまた動いて JSON を書いた、を作る。store は同じ data を開いた 0.6.0 の store.js）
  *   snapshotTree(dir) → { 相対パス（'/' 区切り）: sha256 | 'dir' }… フォルダの中の全部の名前と中身（元のファイルが変わらないことを見る）
- *   tmpData({ pages }) → { dir, dataDir, file, db, ids, close(), addOplog(rows), done() }（D-6）
+ *   tmpData({ pages, withJson }) → { dir, dataDir, file, db, ids, close(), addOplog(rows), lastSeq(), copyNow(), runScript(), dump(db),
+ *                                   peek(), done() }（D-6。D-7 で withJson・lastSeq・copyNow・runScript・dump・peek を足す）
  *     … <一時フォルダ>/data に core.open で natsu.db を作り、pages 個の見本のページ（samplePage の中身。ID は pd0001…、ブロックは pd0001b1…）を
  *     main の meeting.finalize で書く（種の oplog の時刻は決まった 2026-10-19T00:00:00.000Z）。db は開いたままの接続。
+ *     withJson が真なら、同じ見本を先に pages/・transcripts/ の JSON に書き、D-5a の migrate で natsu.db を作る（移した後の形。
+ *     指紋 json:<id> と meta.jsonMigration もある。種の oplog は無い）。
  *     close() は db を閉じる（壊す・戻すテストの前に。2回呼んでもよい）。
  *     addOplog([{ at, action, purge? }]) は oplog に行を足す（role main・actor system・tx は m:test-<番号>）。
  *     purge が真なら action のまま ops に {"op":"purge"} を入れる（取り消しの印と同じ形）。そうでなければ ops は []。
+ *     lastSeq() は oplog の最後の seq（無ければ 0）。
+ *     copyNow() は db を backup() で <一時フォルダ>/copy-<番号>.db に写し、素の接続で開いて返す（時点 k の控え。done() が閉じる）。
+ *     runScript() は db に、画面と main の命令を一通り流す（題名・メモ・種類・ブロックの足し引き・文の直し・並べ替え・ToDo・担当と期限・
+ *     発言の直し・page.put・会議の写し → 締め・写し → 取り消し（purge）・ゴミ箱）。どれかが ok でなければ投げる。
+ *     dump(db) は blocks と segments の全部の行（rid を除き、id の順）。
+ *     peek() は dbpeek.open(dataDir)（読み取り専用の接続。done() が閉じる）。
  *     done() は開いた接続を閉じてからフォルダを消す
+ *   electronShape（D-7）… worker_threads の口を、Electron の utilityProcess の形に包む（server.js をテストで動かす）
+ *     parent(onPost) → 偽の process.parentPort: on('message', fn) の fn は ({ data, ports }) を受け、postMessage(m) は onPost(m) を呼ぶ。
+ *       emit(data, ports) はテストが子へ送る（main → 子）
+ *     port(p) → MessagePortMain の形: on('message', ({ data, ports }) …)・on('close', …)・postMessage・start・close。
+ *       start() を呼ぶまで届いたものは溜めておく（Electron と同じ）
+ *     client(p) → テストの側の口: ask(req) → 同じ id の返事の Promise・onEvent(fn)（event の付いた知らせ）・close()
+ *   node test/helpers/dbtmp.js write-and-die <dataDir> <n>（D-7）… 子として <dataDir>/natsu.db を core で開き、main の page.setMemo を
+ *     tx m:die-<番号> で n 件書く。1件ごとに「ack <番号>」を標準出力に同期で書いてから次へ進み、最後に閉じずに自分を SIGKILL で落とす
  * フォルダの名前には日本語と 𠮷（サロゲートの対）を入れる（RF1）。
  */
 'use strict';
@@ -274,35 +291,65 @@ function oldBuildData({ pages = 3, bom = 0, broken = 0, badId = 0, unreadable = 
 }
 
 // data フォルダに natsu.db と見本のページ（D-6。D-7 で足す）
-function tmpData({ pages = 1 } = {}) {
+function tmpData({ pages = 1, withJson = false } = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'natsu-data-議事録𠮷-'));
   const dataDir = path.join(dir, 'data');
   fs.mkdirSync(dataDir);
   const file = path.join(dataDir, 'natsu.db');
-  const r = core.open({ sqlite, file });
-  if (r.state !== 'ok') { fs.rmSync(dir, { recursive: true, force: true }); throw new Error(`tmpData: 開けない ${r.code}`); }
-  const db = r.db;
   const ids = [];
   const now = () => new Date(SEED_AT);
-  let n = 0;
-  let closed = false;
+  const sample = (i) => {
+    const id = `pd${String(i + 1).padStart(4, '0')}`;
+    const { page, segments } = samplePage(id);
+    page.title = `${page.title} ${i + 1}`;
+    for (const blk of page.blocks) blk.id = `${id}${blk.id}`;   // ブロックの ID は表全体で重ならない
+    return { id, page, segments };
+  };
+  let db = null;
   try {
-    for (let i = 0; i < pages; i++) {
-      const id = `pd${String(i + 1).padStart(4, '0')}`;
-      const { page, segments } = samplePage(id);
-      delete page.id;
-      page.title = `${page.title} ${i + 1}`;
-      for (const blk of page.blocks) blk.id = `${id}${blk.id}`;   // ブロックの ID は表全体で重ならない
-      const out = core.call(db, { role: 'main', cmd: 'meeting.finalize', args: { pageId: id, page, segments }, tx: `m:seed-${id}` }, { now });
-      if (!out.ok) throw new Error(`tmpData: 種を書けない ${out.code}`);
-      ids.push(id);
+    if (withJson) {
+      // 移した後の形: 同じ見本を JSON に書いてから D-5a の移行で natsu.db を作る（元の JSON は残る）
+      const J = require('../../src/jsonfile');
+      fs.mkdirSync(path.join(dataDir, 'pages'));
+      fs.mkdirSync(path.join(dataDir, 'transcripts'));
+      for (let i = 0; i < pages; i++) {
+        const { id, page, segments } = sample(i);
+        J.writeJsonFile(path.join(dataDir, 'pages', `${id}.json`), page);
+        J.writeJsonFile(path.join(dataDir, 'transcripts', `${id}.json`), { id, segments });
+        ids.push(id);
+      }
+      const m = require('../../src/db/migrate').migrate({ sqlite, dataDir, now });
+      if (!m.ok) throw new Error(`tmpData: 移せない ${m.code}`);
+    }
+    const r = core.open({ sqlite, file });
+    if (r.state !== 'ok') throw new Error(`tmpData: 開けない ${r.code}`);
+    db = r.db;
+    if (!withJson) {
+      for (let i = 0; i < pages; i++) {
+        const { id, page, segments } = sample(i);
+        delete page.id;
+        const out = core.call(db, { role: 'main', cmd: 'meeting.finalize', args: { pageId: id, page, segments }, tx: `m:seed-${id}` }, { now });
+        if (!out.ok) throw new Error(`tmpData: 種を書けない ${out.code}`);
+        ids.push(id);
+      }
     }
   } catch (e) {
-    try { db.close(); } catch (_) { /* 閉じ済み */ }
+    try { if (db) db.close(); } catch (_) { /* 閉じ済み */ }
     fs.rmSync(dir, { recursive: true, force: true });
     throw e;
   }
+  let n = 0;
+  let closed = false;
+  const extra = [];   // copyNow・peek で開いた接続（done で閉じる）
   const close = () => { if (!closed) { closed = true; db.close(); } };
+  let step = 0;
+  const run = (role, cmd, args) => {
+    step += 1;
+    const tx = `${role === 'app' ? 'a' : 'm'}:script-${String(step).padStart(6, '0')}`;
+    const out = core.call(db, { role, cmd, args, tx }, { now, labels: {} });
+    if (!out.ok) throw new Error(`tmpData.runScript: ${cmd} が ${out.code}`);
+    return out.result;
+  };
   return {
     dir,
     dataDir,
@@ -319,12 +366,104 @@ function tmpData({ pages = 1 } = {}) {
         put.run('main', `m:test-${String(n).padStart(6, '0')}`, row.at, 'system', row.action, pageId, JSON.stringify(ops));
       }
     },
+    lastSeq() { return db.prepare('select coalesce(max(seq), 0) s from oplog').get().s; },
+    async copyNow() {
+      const to = path.join(dir, `copy-${extra.length + 1}.db`);
+      await sqlite.backup(db, to);
+      const c = new sqlite.DatabaseSync(to);
+      extra.push(c);
+      return c;
+    },
+    runScript() {
+      if (ids.length < 3) throw new Error('tmpData.runScript: ページを3つ以上');
+      const [a, b, c] = ids;
+      run('app', 'page.setTitle', { id: a, title: '題を直した' });
+      run('app', 'page.setMemo', { id: a, memo: 'メモを足した' });
+      run('app', 'page.setType', { id: a, type: 'oneonone' });
+      const { blockId } = run('app', 'block.insert', { pageId: a, afterBlockId: `${a}b2`, type: 'bullet' });
+      run('app', 'block.update', { pageId: a, blockId, patch: { text: '足した行の文' } });
+      run('app', 'block.update', { pageId: a, blockId: `${a}b4`, patch: { checked: true } });
+      run('app', 'block.setAction', { pageId: a, blockId: `${a}b6`, assignee: '担当B', dueRaw: '来週の金曜' });
+      run('app', 'block.move', { pageId: a, blockId: `${a}b1`, toIndex: 3 });
+      run('app', 'block.remove', { pageId: a, blockId: `${a}b3` });
+      run('app', 'segment.update', { pageId: a, segId: 's2', patch: { text: '直した発言の文' } });
+      run('main', 'segment.fail', { pageId: a, segId: 's3', text: '（この区間の認識に失敗: 直し）' });
+      const got = run('main', 'page.get', { id: b });
+      run('main', 'page.put', { page: { ...got.page, summaryError: '要約の失敗の文' }, baseRev: got.page.rev });
+      run('main', 'meeting.begin', { pageId: 'pm0001', startedAt: 1760000000000, localOnly: false });
+      run('main', 'meeting.segment', { pageId: 'pm0001', seg: { id: 's1', atMs: 0, durationMs: 20000, text: '締める会議の発言' } });
+      run('main', 'meeting.finalize', { pageId: 'pm0001', page: { title: '締めた会議', blocks: [{ id: 'pm0001b1', type: 'bullet', text: '締めの要点の文' }] },
+        segments: [{ id: 's1', atMs: 0, durationMs: 20000, text: '締める会議の発言（確定）' }] });
+      run('main', 'meeting.begin', { pageId: 'pm0002', startedAt: 1760000100000, localOnly: true });
+      run('main', 'meeting.segment', { pageId: 'pm0002', seg: { id: 's1', atMs: 0, durationMs: 20000, text: '取り消す会議の発言' } });
+      run('main', 'meeting.discard', { pageId: 'pm0002' });
+      run('app', 'page.delete', { id: c });
+    },
+    dump(conn) {
+      return [
+        conn.prepare('select id, type, page_id, parent_id, ord, text, rich, attrs, fold, rev, created_at, updated_at, trashed_at from blocks order by id').all(),
+        conn.prepare('select page_id, id, n, at_ms, duration_ms, text, fold, failed, extra from segments order by page_id, id').all(),
+      ].map((rows) => rows.map((r) => ({ ...r })));
+    },
+    peek() {
+      const p = require('./dbpeek').open(dataDir);
+      extra.push(p);
+      return p;
+    },
     done() {
+      for (const c of extra) { try { c.close(); } catch (_) { /* 閉じ済み */ } }
+      extra.length = 0;
       try { close(); } catch (_) { /* 閉じ済み */ }
       fs.rmSync(dir, { recursive: true, force: true });
     },
   };
 }
+
+// ---------------------------------------------------------------- Electron の形の口（D-7）
+// worker_threads の MessagePort を、Electron の MessagePortMain の形（{ data, ports } と start）に包む
+const electronShape = {
+  parent(onPost) {
+    const listeners = [];
+    return {
+      on(ev, fn) { if (ev === 'message') listeners.push(fn); return this; },
+      postMessage(m) { onPost(m); },
+      emit(data, ports = []) { for (const fn of listeners) fn({ data, ports }); },
+    };
+  },
+  port(p) {
+    const { EventEmitter } = require('node:events');
+    const ee = new EventEmitter();
+    const held = [];
+    let started = false;
+    p.on('message', (data) => { if (started) ee.emit('message', { data, ports: [] }); else held.push(data); });
+    p.on('close', () => ee.emit('close'));
+    const port = {
+      on(ev, fn) { ee.on(ev, fn); return port; },
+      postMessage(m) { p.postMessage(m); },
+      start() {
+        if (started) return;
+        started = true;
+        for (const data of held.splice(0)) ee.emit('message', { data, ports: [] });
+      },
+      close() { p.close(); },
+    };
+    return port;
+  },
+  client(p) {
+    const waiting = new Map();
+    const events = [];
+    p.on('message', (m) => {
+      if (m && typeof m.event === 'string') { for (const fn of events) fn(m); return; }
+      const w = m && waiting.get(m.id);
+      if (w) { waiting.delete(m.id); w(m); }
+    });
+    return {
+      ask(req) { return new Promise((resolve) => { waiting.set(req.id, resolve); p.postMessage(req); }); },
+      onEvent(fn) { events.push(fn); },
+      close() { p.close(); },
+    };
+  },
+};
 
 function snapshotTree(dir) {
   const out = {};
@@ -339,4 +478,19 @@ function snapshotTree(dir) {
   return out;
 }
 
-module.exports = { tmpDb, tmpData, samplePage, jsonTwin, searchCorpus, oldBuildData, snapshotTree, SEED_AT };
+module.exports = { tmpDb, tmpData, samplePage, jsonTwin, searchCorpus, oldBuildData, snapshotTree, electronShape, SEED_AT };
+
+// 子として書いて、閉じずに自分を強制終了で落とす（D-7 の synchronous=FULL の確かめ）。node test/helpers/dbtmp.js write-and-die <dataDir> <n>
+if (require.main === module && process.argv[2] === 'write-and-die') {
+  const dataDir = process.argv[3];
+  const count = Number(process.argv[4]) || 0;
+  const r = core.open({ sqlite, file: path.join(dataDir, 'natsu.db') });
+  if (r.state !== 'ok') { process.stderr.write(`開けない ${r.code}\n`); process.exit(2); }
+  const id = r.db.prepare("select id from blocks where type = 'page' order by id limit 1").get().id;
+  for (let i = 1; i <= count; i++) {
+    const out = core.call(r.db, { role: 'main', cmd: 'page.setMemo', args: { id, memo: `書けた ${i}` }, tx: `m:die-${String(i).padStart(6, '0')}` });
+    if (!out.ok) { process.stderr.write(`書けない ${out.code}\n`); break; }
+    fs.writeSync(1, `ack ${i}\n`);   // 同期で書く（パイプが非同期の OS でも、落とす前に出る）
+  }
+  process.kill(process.pid, 'SIGKILL');
+}
