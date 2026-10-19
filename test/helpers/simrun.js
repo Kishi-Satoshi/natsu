@@ -318,7 +318,8 @@ async function load(htmlPath, opt = {}) {
       },
       clipboard: { writeText: () => Promise.resolve() },
     },
-    matchMedia: () => ({ matches: false, addEventListener: noop, addListener: noop }),
+    // opt.matchMedia で答えを替えられる（0.7.0 U-2: 外観の「システム設定を使用」のときの今の配色を偽る）
+    matchMedia: typeof opt.matchMedia === 'function' ? opt.matchMedia : () => ({ matches: false, addEventListener: noop, addListener: noop }),
     prompt: () => null, confirm: () => false, alert: noop,
     getComputedStyle: () => new Proxy({}, { get: () => '' }),
     location: { href: '', reload: noop },

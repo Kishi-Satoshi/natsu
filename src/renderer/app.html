@@ -666,6 +666,18 @@
     <section id="tabSettings" class="tab">
       <div class="scroll">
         <h1 class="stitle">設定</h1>
+        <!-- 0.7.0 U-2（設計書 D8）: 外観は設定のいちばん上。選んだら今の自動保存ですぐ切り替わる（main の applyTheme） -->
+        <div class="card" id="appearanceCard">
+          <h2 id="appearanceTitle">外観</h2>
+          <div class="field">
+            <select id="themeSel" aria-labelledby="appearanceTitle">
+              <option value="system">システム設定を使用</option>
+              <option value="light">ライト</option>
+              <option value="dark">ダーク</option>
+            </select>
+            <div class="desc">この PC での NaTsu の見た目です。Ctrl+Shift+L でライトとダークを切り替えられます。</div>
+          </div>
+        </div>
         <div class="card">
           <h2>アップデート</h2>
           <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
@@ -683,14 +695,6 @@
         </div>
         <div class="card">
           <h2>動作</h2>
-          <div class="field">
-            <label for="themeSel">画面の配色</label>
-            <select id="themeSel">
-              <option value="system">Windowsの設定に合わせる</option>
-              <option value="light">ライト</option>
-              <option value="dark">ダーク</option>
-            </select>
-          </div>
           <div class="field">
             <label for="hotkey">音声入力ホットキー（クリックしてキーを押す）</label>
             <input type="text" id="hotkey" readonly />
@@ -3179,6 +3183,27 @@
   // フォーカスを外したときに発火するので、パスを打っている途中で
   // エンジンが再起動されることはない。トグルやセレクトは押した瞬間に効く。
   $('tabSettings').addEventListener('change', () => save(false));
+
+  // 外観の近道（0.7.0 U-2・設計書 D8）: Ctrl+Shift+L でライトとダークを切り替える。本体の窓のどこでも
+  // （入力欄の中でも）効く。「システム設定を使用」のときは今見えている配色（prefers-color-scheme）の反対にする。
+  // 保存は外観の欄と同じ道（save → main の applyTheme）。変換中と、ほかの受け口が先に止めた打鍵（ホットキーの欄の取り込み）では動かない
+  async function toggleTheme() {
+    const sel = $('themeSel');
+    const prev = sel.value;
+    let dark = prev === 'dark';
+    if (prev !== 'light' && prev !== 'dark') {
+      try { dark = Boolean(window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches); } catch (_) { dark = false; }
+    }
+    sel.value = dark ? 'light' : 'dark';
+    if (!(await save(true))) sel.value = prev;   // 保存しなかった（設定を読み込めていない・失敗）ときは欄を戻す
+  }
+  document.addEventListener('keydown', (ev) => {
+    if (ev.isComposing || ev.defaultPrevented) return;
+    if (!ev.ctrlKey || !ev.shiftKey || ev.altKey || ev.metaKey) return;
+    if (!(ev.code === 'KeyL' || String(ev.key).toLowerCase() === 'l')) return;
+    ev.preventDefault();
+    toggleTheme();
+  });
 
   // ---------------- オンライン（第1c回 Task C-2。OL7・OL3・OL5・RF30） ----------------
   // 描くのは main の写し（cloudStatus。鍵は入っていない）。鍵は cloudSetKey で送るだけで、送ったら欄を空にする。

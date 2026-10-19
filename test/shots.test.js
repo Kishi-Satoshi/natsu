@@ -41,7 +41,8 @@ test('1b2 R-3・G12: 検索の窓の画面は窓を開く act を持つ。取り
   const s = SH.SCREENS.find((x) => x.name === 'search-palette-light');
   assert.ok(s, '検索の窓の画面が撮る並びに無い');
   assert.match(s.act, /sideSearch/);
-  if (SH.RETAKE.size) assert.deepStrictEqual([...SH.RETAKE].sort(), SH.SCREENS.map((x) => x.name).filter((n) => n !== 'overlay-processing').sort());
+  // 0.7.0 U-2 で意図して変えた: 取り直し待ちは設定の3枚だけになった（下の U-2 のテスト）。検索の窓は基準と比べる（取り直し待ちに戻さない）
+  assert.ok(!SH.RETAKE.has('search-palette-light'), '検索の窓の画面が取り直し待ちに戻った');
 });
 
 test('F14: 取り直し待ち（RETAKE）の画面は違っても NG にしないが、録音バーは入れられず、揺れ・CSP・はみ出しは NG のまま', { timeout: 5000 }, () => {
@@ -121,8 +122,9 @@ test('G2・F14: 録音バーの基準の PNG は第1a回のまま（取り直し
   assert.strictEqual(require('node:crypto').createHash('sha256').update(buf).digest('hex'), 'd206317193b0f9460af62948ddbad5d904a6311154eb222dceb4ddf5a2f8fd02');
 });
 
-test('F14: 取り直し待ちが残っている間は、版を上げられない（取り直し待ちのまま 0.6.0 を出さない）', { timeout: 5000 }, () => {
-  if (SH.RETAKE.size) assert.strictEqual(JSON.parse(read('package.json')).version, '0.5.0', `取り直し待ち ${[...SH.RETAKE].join(',')} を残したまま版を上げた`);
+// 0.7.0 U-2 で意図して変えた: 今の版は 0.6.0。取り直し待ち（設定の3枚）が残る間は 0.7.0 に上げさせない（利用者が新しい画像を見る前に出さない）
+test('F14: 取り直し待ちが残っている間は、版を上げられない（取り直し待ちのまま 0.7.0 を出さない）', { timeout: 5000 }, () => {
+  if (SH.RETAKE.size) assert.strictEqual(JSON.parse(read('package.json')).version, '0.6.0', `取り直し待ち ${[...SH.RETAKE].join(',')} を残したまま版を上げた`);
 });
 
 test('tools/shots/main.js は画面ごとの答え・拡大・はみ出し・Tab を使う', { timeout: 5000 }, () => {
@@ -296,8 +298,10 @@ test('G2: 作業域より大きい窓が作るときに縮められても（Wind
 
 // 第1b回 Task C-2（G2・F14）: C-1 で緩めた確かめを元の「全部ある」に戻した（第1b2回の検索の窓 search-palette-light も、もう取り直し待ちの新しい画面ではない）。
 // 13 枚は Windows の CI（run 39150265077・c823b81）が撮った画像。利用者が 2026-10-19 に見て OK と言った
-test('G2・F14: 取り直し待ちは空（第1b回の基準を取り直した）。どの画面にも基準の PNG があり、大きさが窓の大きさと同じ', { timeout: 5000 }, () => {
-  assert.deepStrictEqual([...SH.RETAKE], []);
+// 0.7.0 U-2（設計書 D8）で意図して変えた: 設定のいちばん上に「外観」を足し、「オンライン」のカードを D5 の形にしたので、設定の3枚を取り直し待ちにした。
+// 利用者が CI の新しい画像を見て OK と言ったら、その画像を基準にして取り直し待ちを空に戻す（第1b回 C-2 と同じ手順）
+test('G2・F14・U-2: 取り直し待ちは設定の3枚だけ。どの画面にも基準の PNG があり、大きさが窓の大きさと同じ', { timeout: 5000 }, () => {
+  assert.deepStrictEqual([...SH.RETAKE].sort(), ['settings-dark', 'settings-light', 'settings-zoom200-dark']);
   for (const s of SH.SCREENS) {
     const f = path.join(ROOT, 'test', 'shots', 'win32', `${s.name}.png`);
     assert.ok(fs.existsSync(f), `${s.name} の基準が無い`);
