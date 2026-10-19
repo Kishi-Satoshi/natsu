@@ -10,6 +10,9 @@
  *  - postForm         net.request で1回送り、返事を読む（redirect: 'error'。時間切れつき）
  *  - transcribeCloud  1つの区間の WAV を送って文字を返す（429 の待ち・ヒントで 400 なら外して1回だけ送り直す）
  *  - isOfflineError   その区間を手元でやり直してよい失敗か（切れた・時間切れ・届かない）
+ *  - transcribeRelay  1つの区間の WAV を中継（relay/。第1d回 RL9）へ生のまま送って文字を返す（言語とヒントは見出し・札は Authorization だけ）
+ *  - relayErrorCode   中継の答えの本文 → 中継の JSON の error の符号（中継の形でなければ ''）
+ *  - redoLocally      中継の失敗のあと、その区間を手元でやり直すか（rate・rate-long のほかは全部 true）
  *  - checkKey         鍵の確かめ（GET {base}/models の 200／401。401／403／429 は返事の符号で分け、一覧の権限だけが無い鍵は無音の小さな文字起こしで確かめる）
  *  - cloudErrorText   区間の失敗の文（知らせ M9）
  *
@@ -50,12 +53,13 @@ const LOCAL_HTTP_HOSTS = new Set(['127.0.0.1', 'localhost']);
 const OFFLINE_CODES = new Set(['offline', 'cert', 'proxy', 'timeout', 'net']);
 
 class CloudSttError extends Error {
-  constructor(code, { status, retryAfter } = {}) {
+  constructor(code, { status, retryAfter, scope } = {}) {
     super(`cloud-stt: ${code}${status ? ` (${status})` : ''}`);
     this.name = 'CloudSttError';
     this.code = code;
     if (status !== undefined) this.status = status;
     if (retryAfter !== undefined) this.retryAfter = retryAfter;
+    if (scope !== undefined) this.scope = scope;   // daily-cap の 'user' | 'all'（第1d回）
   }
 }
 
@@ -236,6 +240,85 @@ async function transcribeCloud(wav, { request, provider, key, language, prompt, 
   }
 }
 
+// ================= 中継（第1d回 RL9・F5） =================
+const RELAY_CODE = /^[a-z-]{1,24}$/;
+const RELAY_LANG = /^[a-z]{2,3}$/;
+
+/** 中継の答えの本文（Buffer か文字）→ { error: '<符号>' } の符号。JSON で /^[a-z-]{1,24}$/ のときだけ。ほかは '' */
+function relayErrorCode(body) {
+  let j;
+  try { j = JSON.parse(Buffer.isBuffer(body) ? body.toString('utf8') : String(body == null ? '' : body)); } catch (_) { return ''; }
+  if (!j || typeof j !== 'object' || Array.isArray(j)) return '';
+  return typeof j.error === 'string' && RELAY_CODE.test(j.error) ? j.error : '';
+}
+
+/**
+ * 中継の失敗のあと、その区間を手元（whisper）でやり直すか。'rate'・'rate-long'（OpenAI の短い 429 を待ちきれなかった。
+ * RF29 のまま WAV を残す）のほかは全部 true（通信の符号・login・server・upstream-auth・quota・daily-cap・too-large・
+ * bad-request・bad-reply・知らない符号・CloudSttError でない失敗）。録音と文字起こしは中継に頼らない
+ */
+function redoLocally(e) {
+  return !(e instanceof CloudSttError && (e.code === 'rate' || e.code === 'rate-long'));
+}
+
+/**
+ * 1つの区間の WAV を中継の POST {base}/v1/audio/transcriptions へ生のまま送り、文字を返す。失敗は CloudSttError を投げる。
+ * 見出し: Content-Type: audio/wav・Authorization: Bearer <札>・X-Natsu-Language（/^[a-z]{2,3}$/ のときだけ。auto は付けない）・
+ *         X-Natsu-Prompt（ヒントを encodeURIComponent。空なら付けない）。モデルは中継が決める。
+ * 答えの分け方（中継の JSON の error の符号で。中継の形でない答えは 'server' にして、札を消させない）:
+ *  - 401 login → 'login'。401 でも中継の形でなければ 'server'（会社の通信の検査・ログインの画面）
+ *  - 429 daily-cap → 'daily-cap'（retryAfter・scope）。ほかの 429 は今の transcribeCloud と同じ待ち（retry-after）→ 'rate'／'rate-long'
+ *  - 400 bad-request: ヒントを送っていたら外して1回だけ送り直す（onPromptDropped。F15）。それでも 400 なら 'bad-request'
+ *  - 415 not-wav → 'bad-request'・413 → 'too-large'・502 upstream-auth → 'upstream-auth'・503 quota → 'quota'・ほかは 'server'
+ */
+async function transcribeRelay(wav, { request, provider, token, language, prompt, sleep = defaultSleep, onWait, onPromptDropped, timeoutMs = SEND_TIMEOUT_MS, waitCapMs = WAIT_CAP_MS } = {}) {
+  const body = Buffer.isBuffer(wav) ? wav : Buffer.from(wav.buffer, wav.byteOffset, wav.byteLength);
+  let usePrompt = Boolean(prompt);
+  let waitedMs = 0;
+  for (;;) {
+    const headers = { 'Content-Type': 'audio/wav', Authorization: `Bearer ${token}` };
+    if (typeof language === 'string' && RELAY_LANG.test(language)) headers['X-Natsu-Language'] = language;
+    if (usePrompt) headers['X-Natsu-Prompt'] = encodeURIComponent(String(prompt));
+    const res = await postForm({ request, url: `${provider.base}/v1/audio/transcriptions`, headers, body, timeoutMs });
+    const st = res.status;
+    if (st >= 200 && st <= 299) {
+      let j;
+      try { j = JSON.parse(res.body.toString('utf8')); } catch (_) { throw new CloudSttError('bad-reply', { status: st }); }
+      if (!j || typeof j.text !== 'string') throw new CloudSttError('bad-reply', { status: st });
+      return j.text;
+    }
+    const code = relayErrorCode(res.body);
+    if (st === 401) throw new CloudSttError(code === 'login' ? 'login' : 'server', { status: st });
+    if (st === 429 && code === 'daily-cap') {
+      let j = null;
+      try { j = JSON.parse(res.body.toString('utf8')); } catch (_) { j = null; }
+      const ra = j && Number.isInteger(j.retryAfter) && j.retryAfter > 0 ? j.retryAfter : retryAfterSec(res.headers);
+      const scope = j && (j.scope === 'user' || j.scope === 'all') ? j.scope : undefined;
+      throw new CloudSttError('daily-cap', { status: st, retryAfter: ra, scope });
+    }
+    if (st === 429) {   // 中継の busy（OpenAI の 429 の retry-after）。中継の形でない 429 も同じ待ち
+      const waitSec = retryAfterSec(res.headers);
+      if (waitSec > LONG_WAIT_SEC) throw new CloudSttError('rate-long', { status: st, retryAfter: waitSec });
+      if (waitedMs + waitSec * 1000 > waitCapMs) throw new CloudSttError('rate', { status: st, retryAfter: waitSec });
+      waitedMs += waitSec * 1000;
+      if (onWait) onWait(waitSec);
+      await sleep(waitSec * 1000);
+      continue;
+    }
+    if (st === 400 && code === 'bad-request' && usePrompt) {
+      usePrompt = false;
+      if (onPromptDropped) onPromptDropped();
+      continue;
+    }
+    if (st === 400 && code === 'bad-request') throw new CloudSttError('bad-request', { status: st });
+    if (st === 415 && code === 'not-wav') throw new CloudSttError('bad-request', { status: st });
+    if (st === 413) throw new CloudSttError('too-large', { status: 413 });
+    if (st === 502 && code === 'upstream-auth') throw new CloudSttError('upstream-auth', { status: st });
+    if (st === 503 && code === 'quota') throw new CloudSttError('quota', { status: st });
+    throw new CloudSttError('server', { status: st });
+  }
+}
+
 // 鍵の確かめの小さな文字起こしに送る、決まった 0.5 秒の無音（16kHz・モノラル・16bit の PCM）
 const CHECK_WAV = (() => {
   const n = 8000; const b = Buffer.alloc(44 + n * 2);
@@ -304,4 +387,4 @@ function cloudErrorText(e, label) {
 }
 
 module.exports = { PRESETS, FIXED_PROVIDER_ID, fixedProvider, WAIT_CAP_MS, LONG_WAIT_SEC, SEND_TIMEOUT_MS, CHECK_WAV, resolveProvider, buildMultipart, postForm, CloudSttError, isOfflineError, transcribeCloud,
-  keyErrorKind, checkKey, cloudErrorText };
+  keyErrorKind, checkKey, cloudErrorText, transcribeRelay, relayErrorCode, redoLocally };
