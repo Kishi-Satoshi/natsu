@@ -18,7 +18,7 @@
  * ページを書く命令は、今の store.savePage と同じに updatedAt と citeStat を作り直し、diffPage の操作を当てる
  * （当てるとページの行の rev が1つ上がる。ブロックだけを変える命令でも: F6）。
  * 一覧から外すページ: ゴミ箱（trashed_at）と、録音中の写し（attrs.meeting.phase が recording・paused・finalizing）。
- * 検索の2つ（pages.list の q・pages.searchFull）は search.js（D-4。ST8）。一覧の並びと外すページは listedIds の1か所だけ。
+ * 検索の2つ（pages.list の q・pages.searchFull）は search.js（D-4。ST8）。一覧の並びと外すページは listedRows の1か所だけ（一覧の1行は接続ごとに覚える: G-1）。
  *
  * 会議の命令（main だけ。D-3b。ST6・RF16・F11）。録音の正本は main のメモリと下書きで、DB のページは画面と復旧のための写し。
  *   meeting.begin／meeting.segment … 写し（attrs.meeting.phase 'recording'）を作る・発言を (page_id, id) で上書きする。
@@ -60,7 +60,7 @@ function refuse(code) {
 
 // よく使う問い合わせ（ST11）。コードはここの文をそのまま使い、テストは EXPLAIN QUERY PLAN で表全体の走査が無いことを見る
 const HOT_QUERIES = Object.freeze({
-  list: "select id, created_at, attrs, trashed_at from blocks where type = 'page' order by created_at desc, rid desc",
+  list: "select rid, id, text, rev, created_at, updated_at, attrs, trashed_at from blocks where type = 'page' order by created_at desc, rid desc",
   pageRow: 'select id, type, text, attrs, rev, created_at, updated_at, trashed_at from blocks where id = ?',
   pageBlocks: 'select id, type, text, rich, attrs, ord from blocks where page_id = ? and id <> ? order by ord',
   pageSegments: 'select id, at_ms, duration_ms, text, failed, extra from segments where page_id = ? order by n',
@@ -164,32 +164,65 @@ function forView(page, labels) {
 // ---------------------------------------------------------------- 一覧
 const isLive = (attrs) => isObj(attrs.meeting) && LIVE_PHASES.includes(attrs.meeting.phase);
 
-// 一覧に出すページの ID（新しい順。ゴミ箱と録音中の写しを除く）
-function listedIds(db) {
+// 一覧の1行を接続ごとに覚える（G-1。PERF・RF12: 5,000 ページで pages.list が 667ms・「すべて」の検索が 1094ms かかり、目安を越えた）。
+// 鍵はページの行の rid・rev・題名・作った時刻・直した時刻・attrs。ブロックだけの直しでもページの rev が上がる（ops.applyOps。F6）ので、
+// 鍵が同じ間は一覧の1行も同じ。別の接続が書いても、読むのは今の行なので古い行は使わない。一覧の全部を作るたびに、一覧に無い
+// ページ（ゴミ箱・録音中の写し・消したページ）を忘れる（消して同じ ID で作り直したページを、前の1行で見せない）
+const LIST_CACHE = new WeakMap();   // db → Map(id → { key, entry })
+const keyOfRow = (r) => [r.rid, r.rev, r.text, r.created_at, r.updated_at, r.attrs].join('\u0000');
+// 返す行は写し（呼び手が書き換えても、覚えた行は変わらない）
+const copyEntry = (e) => structuredClone(e);
+
+function cacheOf(db) {
+  let m = LIST_CACHE.get(db);
+  if (!m) { m = new Map(); LIST_CACHE.set(db, m); }
+  return m;
+}
+
+// 一覧に出すページの行（新しい順。ゴミ箱と録音中の写しを除く）→ [{ id, key }]
+function listedRows(db) {
   const out = [];
   for (const r of db.prepare(HOT_QUERIES.list).all()) {
     if (r.trashed_at !== null && r.trashed_at !== undefined) continue;
     if (isLive(JSON.parse(r.attrs || '{}'))) continue;
-    out.push(r.id);
+    out.push({ id: r.id, key: keyOfRow(r) });
   }
   return out;
 }
 
-// 外すページの判定は listedIds の1か所だけ（読むときにもう一度ゴミ箱を見ると、片方を戻す変異が生き残る）
+// 一覧の1行（覚えた行の写し）。鍵が違えば読み直して覚え直す。読めなければ null
+function entryFor(db, cache, { id, key }) {
+  const hit = cache.get(id);
+  if (hit && hit.key === key) return copyEntry(hit.entry);
+  const l = loadPage(db, id, { trashed: true });
+  if (!l) { cache.delete(id); return null; }
+  const entry = R.listEntry(l.page);
+  cache.set(id, { key, entry });
+  return copyEntry(entry);
+}
+
+// 外すページの判定は listedRows の1か所だけ（読むときにもう一度ゴミ箱を見ると、片方を戻す変異が生き残る）
 function listPages(db) {
+  const cache = cacheOf(db);
+  const rows = listedRows(db);
+  const listed = new Set(rows.map((r) => r.id));
+  for (const id of cache.keys()) if (!listed.has(id)) cache.delete(id);
   const out = [];
-  for (const id of listedIds(db)) {
-    const l = loadPage(db, id, { trashed: true });
-    if (l) out.push(R.listEntry(l.page));
+  for (const row of rows) {
+    const e = entryFor(db, cache, row);
+    if (e) out.push(e);
   }
   return out;
 }
 
-// 検索（D-4）: 一覧に出すページの並びと一覧の1行を search.js に渡す（外す判定と並びは listedIds の1か所だけ）
+// 検索（D-4）: 一覧に出すページの並びと一覧の1行を search.js に渡す（外す判定と並びは listedRows の1か所だけ）
 function searchView(db) {
+  const cache = cacheOf(db);
+  const rows = listedRows(db);
+  const byId = new Map(rows.map((r) => [r.id, r]));
   return {
-    ids: listedIds(db),
-    entryOf: (id) => { const l = loadPage(db, id, { trashed: true }); return l ? R.listEntry(l.page) : null; },
+    ids: rows.map((r) => r.id),
+    entryOf: (id) => (byId.has(id) ? entryFor(db, cache, byId.get(id)) : null),
   };
 }
 
@@ -201,7 +234,7 @@ function actionView(db, { q, assignee } = {}) {
   const counts = new Map();
   const actions = [];
   let total = 0;
-  for (const id of listedIds(db)) {
+  for (const { id } of listedRows(db)) {
     if (!withTodo.has(id)) continue;
     const page = readPage(db, id);
     if (!page) continue;

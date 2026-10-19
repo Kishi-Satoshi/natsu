@@ -11,7 +11,7 @@
  *   題名（一覧の行の題名。無題は「(無題の議事録)」）→ ブロック（当たったうち並びの一番前のブロックの元の文から抜き出し）→
  *   メモ（ページの行の fold が当たり、題名に無ければメモ。メモの元の文から抜き出し）。並びは ids（一覧の並び = createdAt の新しい順）
  * searchFull(db, q, limit, { ids, entryOf }) … 全文検索（文字起こしだけ）。今の store.searchFullText と同じ { hits, total, truncated }
- *   ids … 一覧に出すページの ID の並び（ゴミ箱と録音中の写しを除いたもの。commands.listedIds）
+ *   ids … 一覧に出すページの ID の並び（ゴミ箱と録音中の写しを除いたもの。commands.listedRows）
  *   entryOf(id) … 一覧の1行（R.listEntry）
  *
  * 今の検索との意図した違い（計画 D-4。比べのテストから外したもの）: ブロックごとに探すので、ブロックをまたぐ一致は無い。
@@ -29,10 +29,14 @@ const CONTROL_RE = /[\u0000-\u001f\u007f]/g;
 const UNTITLED_FOLD = searchFold(R.listEntry({ id: '', blocks: [] }).title);
 
 const SQL = Object.freeze({
-  blocksMatch: 'select b.type, b.page_id, b.ord, b.text, b.attrs from blocks_fts f join blocks b on b.rid = f.rowid where blocks_fts match ?',
-  blocksLike: "select type, page_id, ord, text, attrs from blocks where fold like ? escape '\\'",
-  segmentsMatch: 'select s.page_id, s.n, s.text from segments_fts f join segments s on s.rid = f.rowid where segments_fts match ?',
-  segmentsLike: "select page_id, n, text from segments where fold like ? escape '\\'",
+  // 一覧の検索はページごとに、ページの行（題名・メモ）と、当たったブロックのうち並びの一番前のもの（min(ord) の行）の2つだけを返す
+  // （G-1: 全部のページの要約に当たる語で、当たった全部のブロックを JS に渡していた）。is_page は 1 がページの行
+  blocksMatch: "select b.page_id, b.type = 'page' as is_page, min(b.ord) as ord, b.text, b.attrs from blocks_fts f join blocks b on b.rid = f.rowid where blocks_fts match ? group by b.page_id, b.type = 'page'",
+  blocksLike: "select page_id, type = 'page' as is_page, min(ord) as ord, text, attrs from blocks where fold like ? escape '\\' group by page_id, type = 'page'",
+  // 全文検索はページごとに数えて、当たったうち並びの一番前の発言の文だけを返す（G-1: 30 万発言のどれにも当たる語で、全部の行を
+  // JS に渡すと 932ms かかった）。min() が1つだけの集計では、ほかの列は min の行の値になる（SQLite の決まり）。n はページの中で重ならない
+  segmentsMatch: 'select s.page_id, count(*) as hits, min(s.n) as n, s.text from segments_fts f join segments s on s.rid = f.rowid where segments_fts match ? group by s.page_id',
+  segmentsLike: "select page_id, count(*) as hits, min(n) as n, text from segments where fold like ? escape '\\' group by page_id",
   untitled: "select id from blocks where type = 'page' and text = ''",
 });
 
@@ -67,14 +71,11 @@ function searchList(db, q, { ids, entryOf }) {
   const firstBlock = new Map();  // ページ → 当たったうち並びの一番前のブロック
   const memoOf = new Map();
   for (const r of run(db, p, SQL.blocksMatch, SQL.blocksLike)) {
-    if (r.type === 'page') {
+    if (r.is_page === 1) {
       rowHit.add(r.page_id);
       const attrs = JSON.parse(r.attrs || '{}');
       memoOf.set(r.page_id, typeof attrs.memo === 'string' ? attrs.memo : '');
-      continue;
-    }
-    const was = firstBlock.get(r.page_id);
-    if (!was || r.ord < was.ord) firstBlock.set(r.page_id, r);
+    } else firstBlock.set(r.page_id, r);
   }
   const untitled = UNTITLED_FOLD.includes(f) ? new Set(db.prepare(SQL.untitled).all().map((r) => r.id)) : new Set();
   const out = [];
@@ -94,12 +95,8 @@ function searchFull(db, q, limit, { ids, entryOf }) {
   const p = plan(q);
   if (!p) return { hits: [], total: 0, truncated: false };
   const max = Number(limit) > 0 ? Math.trunc(Number(limit)) : FULL_TEXT_LIMIT;
-  const byPage = new Map();   // ページ → { count, first: 並びの一番前の当たった発言 }
-  for (const r of run(db, p, SQL.segmentsMatch, SQL.segmentsLike)) {
-    const was = byPage.get(r.page_id);
-    if (!was) byPage.set(r.page_id, { count: 1, first: r });
-    else { was.count++; if (r.n < was.first.n) was.first = r; }
-  }
+  const byPage = new Map();   // ページ → { hits: 当たった発言の数, text: 並びの一番前の当たった発言の文 }
+  for (const r of run(db, p, SQL.segmentsMatch, SQL.segmentsLike)) byPage.set(r.page_id, r);
   const hits = [];
   let total = 0;
   for (const id of ids) {
@@ -108,7 +105,7 @@ function searchFull(db, q, limit, { ids, entryOf }) {
     total++;
     if (hits.length >= max) continue;
     const entry = entryOf(id);
-    if (entry) hits.push({ ...entry, segmentHits: h.count, snippet: h.first.text });
+    if (entry) hits.push({ ...entry, segmentHits: h.hits, snippet: h.text });
   }
   return { hits, total, truncated: total > hits.length };
 }
