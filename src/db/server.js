@@ -17,14 +17,17 @@
  *
  * init の順:
  *   1. 記録「DB: 起動（番号 <pid>）」。前の起動の残りの natsu.db.lock を消す（書き手はこのプロセスだけなので、残っているのは落ちた跡）。
- *   2. natsu.db が無いとき: data/backup/ に控えがあるか natsu.db.broken-* があれば、移し直さずに snapshot.recover（一度移した後に
- *      natsu.db が無くなった。JSON から移し直すと移行の後の会議が見えなくなる: F8）。戻せなければ state failed。
+ *   2. natsu.db が無いとき（0 バイトのときも）: data/backup/ に控えがあるか natsu.db.broken-* があれば、移し直さずに snapshot.recover（一度移した後に
+ *      natsu.db が無くなった。JSON から移し直すと移行の後の会議が見えなくなる: F8。0 バイトのものは recover が broken-* へ退ける）。
+ *      戻せなければ state failed。
  *      控えも退けたものも無く pages/ に JSON があれば migrate-plan（migrate.plan の数）を送って migrate を待つ。どちらも無ければ空の DB を作る。
  *   3. migrate は withLock の中で migrate.migrate（progress を送る）。合わなければ state failed（natsu.db は作られない。元の JSON はそのまま）。
  *   4. core.open。開けず、素の接続で開き直して classifyOpenError が corrupt（SQLITE_CORRUPT・NOTADB）なら recover、ほかは state failed で
  *      ファイルに触れない（F12）。開けたら（state ok のとき）meta.cleanShutdown を '0' にし、前の値が '0'（落ちた）なら runCheck
  *      （既定は check-worker の worker）で確かめ、checkResult が corrupt のときだけ接続を閉じて recover（unavailable は記録だけして進む）。
  *      meta.jsonMigration があって移行の控えが無ければ（移した直後・落ちた後）、頼みを1つも受ける前にここで snapshot.take（migration）。
+ *      開けた後のこの meta の読み書きで SQLITE_CORRUPT・NOTADB が出たら（頁が壊れている）、この起動でまだ戻していなければ
+ *      接続を閉じて recover（why 'open'）し、開き直して1度だけやり直す。ほかの誤りは state failed。
  *   5. migrate.reimport を回し（skippedSig を meta.reimportSkipped と比べて、違えば書き直す）、ready を送ってから待たせた頼みを流す。
  *   state newer（新しい版の NaTsu の DB）は読み取り専用なので、meta も取り込みも書かない。
  *   state failed の間は、子は生きたまま全部の頼みに { ok: false, code: 'unavailable', retry: false } を返す。
@@ -35,7 +38,8 @@
  *   db.status({}) → { state, version, journal, selfTest, pid, lastSnapshot: { at, kind } | null,
  *                     startup: { migrated: counts | null, restored: { from, why: 'missing'|'open'|'check' } | null, reimport } }
  *     startup はこの起動で起きたこと（知らせ D2・D5・D3・D6 の材料）。reimport は migrate.reimport の答えから skippedSig を除き、
- *     skippedChanged（飛ばしたファイルの組が前の起動と違う。前が無ければ真）を足したもの | null（回せなかった）。
+ *     skippedChanged（飛ばしたファイルの組が前の起動と違う。前が無ければ真。ただし移した起動ではいつも偽: D3 は移行の数で出す）を
+ *     足したもの | null（回せなかった）。
  *   db.reimport({}) → 同じ形の取り込みの答え（今もう一度回す）
  *   snapshot.take({ kind: 'daily' | 'migration' | 'upgrade' }) → { ok, check, removed, pruned }
  *     控えを取り（1つずつ）、取れたら回して（rotate）、残る毎日・毎週の控えより前の oplog を消す（pruneOplog。purge の行は残す）。
@@ -84,7 +88,8 @@ function startServer({ parentPort, sqlite, now = () => new Date(), runCheck = S.
   const log = (line) => post({ type: 'log', line });
   const enqueue = (fn) => { life = life.then(fn).catch((e) => { log(`DB: 思わぬ失敗（${codeOf(e)}）`); if (phase !== 'closed') fail('internal'); }); };
   const dbFile = () => path.join(dataDir, DB_NAME);
-  const exists = (p) => { try { fs.lstatSync(p); return true; } catch (_) { return false; } };
+  // ふつうのファイルなら大きさ、無い・見えなければ null、フォルダなどほかのものは -1（Windows ではフォルダの大きさが 0 なので、0 と分ける）
+  const sizeOf = (p) => { try { const st = fs.lstatSync(p); return st.isFile() ? st.size : -1; } catch (_) { return null; } };
   const waitOpt = waits ? { waits } : {};
 
   // ---------------------------------------------------------------- meta
@@ -195,8 +200,10 @@ function startServer({ parentPort, sqlite, now = () => new Date(), runCheck = S.
     try {
       const r = M.reimport({ db, dataDir, fs, now });
       const sig = JSON.stringify(r.skippedSig);
-      const skippedChanged = getMeta('reimportSkipped') !== sig;
-      if (skippedChanged) setMeta('reimportSkipped', sig);
+      const differs = getMeta('reimportSkipped') !== sig;
+      if (differs) setMeta('reimportSkipped', sig);
+      // 移した起動では、飛ばしたものの知らせ D3 は移行の数（startup.migrated）で出すので、直後の取り込みでは偽（2回出さない）
+      const skippedChanged = differs && startup.migrated === null;
       log(`DB: 取り込み 新しい ${r.added}・置き換え ${r.replaced}・別に足した ${r.copied}`);
       const { skippedSig: _sig, ...rest } = r;
       return { ...rest, skippedChanged };
@@ -239,16 +246,8 @@ function startServer({ parentPort, sqlite, now = () => new Date(), runCheck = S.
     return o;
   }
 
-  async function openAndServe() {
-    let restored = startup.restored !== null;
-    let o = tryOpen();
-    if (!o.db) {
-      if (o.code !== 'open' || classify(dbFile()) !== 'corrupt') { fail(o.code || 'open'); return; }
-      if (!(await recover('open'))) return;
-      restored = true;
-      o = tryOpen();
-      if (!o.db) { fail(o.code || 'open'); return; }
-    }
+  // 開けた（o.db がある）DB を使い始める。戻せずに終えた（fail 済み）なら false。SQLite の誤りは投げる
+  async function useOpened(o, restored) {
     db = o.db;
     opened = { state: o.state, version: o.version, journal: o.journal, selfTest: o.selfTest };
     if (o.state === 'ok') {
@@ -258,9 +257,9 @@ function startServer({ parentPort, sqlite, now = () => new Date(), runCheck = S.
         // きれいに閉じなかった（落ちた・シャットダウン・強制終了）: 確かめが最後まで走って壊れていたときだけ戻す（ST7・F8）
         const r = S.checkResult(await runCheck({ file: dbFile() }));
         if (r === 'corrupt') {
-          if (!(await recover('check'))) return;
+          if (!(await recover('check'))) return false;
           o = tryOpen();
-          if (!o.db) { fail(o.code || 'open'); return; }
+          if (!o.db) { fail(o.code || 'open'); return false; }
           db = o.db;
           opened = { state: o.state, version: o.version, journal: o.journal, selfTest: o.selfTest };
           if (o.state === 'ok') setMeta('cleanShutdown', '0');
@@ -276,8 +275,30 @@ function startServer({ parentPort, sqlite, now = () => new Date(), runCheck = S.
       if (getMeta('jsonMigration') !== undefined && !S.listBackups({ dataDir, fs }).some((b) => b.kind === 'migration')) {
         await takeSnapshot('migration');
       }
-      startup.reimport = runReimport();
     }
+    return true;
+  }
+
+  async function openAndServe() {
+    let o = tryOpen();
+    if (!o.db) {
+      if (o.code !== 'open' || classify(dbFile()) !== 'corrupt') { fail(o.code || 'open'); return; }
+      if (!(await recover('open'))) return;
+      o = tryOpen();
+      if (!o.db) { fail(o.code || 'open'); return; }
+    }
+    try {
+      if (!(await useOpened(o, startup.restored !== null))) return;
+    } catch (e) {
+      // 開けた後に meta などを読み書きして壊れていると分かった（頁が壊れている）。この起動でまだ戻していなければ1度だけ戻す（F8）
+      if (startup.restored !== null || S.classifyOpenError(e) !== 'corrupt') throw e;
+      log(`DB: 開いた後に壊れていると分かった（${codeOf(e)}）`);
+      if (!(await recover('open'))) return;
+      o = tryOpen();
+      if (!o.db) { fail(o.code || 'open'); return; }
+      if (!(await useOpened(o, true))) return;
+    }
+    if (opened.state === 'ok') startup.reimport = runReimport();
     phase = 'ready';
     post({ type: 'ready', ...stateOf() });
     drain();
@@ -295,14 +316,16 @@ function startServer({ parentPort, sqlite, now = () => new Date(), runCheck = S.
     try { fs.unlinkSync(path.join(dataDir, S.LOCK_NAME)); } catch (e) {
       if (!e || e.code !== 'ENOENT') log(`DB: 前の lock を消せない（${codeOf(e)}）`);
     }
-    if (!exists(dbFile())) {
+    const size = sizeOf(dbFile());
+    if (size === null || size === 0) {
       let names = [];
       try { names = fs.readdirSync(dataDir); } catch (_) { names = []; }
       const once = S.listBackups({ dataDir, fs }).length > 0 || names.some((n) => n.startsWith(`${DB_NAME}.broken-`));
       if (once) {
-        // 一度移した後に natsu.db が無くなった: 移し直さずに控えから戻す（F8）
+        // 一度移した後に natsu.db が無くなった: 移し直さずに控えから戻す（F8）。0 バイトの natsu.db も無いのと同じ
+        // （空の DB として使うと移した後の会議が見えず、空の控えが良い控えを回して消す）。recover が natsu.db.broken-* へ退ける（消さない）
         if (!(await recover('missing'))) return;
-      } else if (hasJson()) {
+      } else if (size === null && hasJson()) {
         const counts = M.plan(dataDir, { fs });
         phase = 'migrate-wait';
         post({ type: 'migrate-plan', counts });
