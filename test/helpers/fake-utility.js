@@ -14,6 +14,10 @@
  *     preload: path        … 子の中で modulePath より先に読むファイル（M-2b の --db-down: node:sqlite が trigram の表を作れないようにする
  *                            test/helpers/no-trigram.js）
  *     fork.starts() … 起こした回数。fork.calls() … 起こしたときの [modulePath, args, options] の並び
+ *     fork.crash(code = 1) … 今生きている最後の子を、思わず落ちたことにする（worker.terminate() で止め、'exit' を番号 code で出す。
+ *                            生きている子が無ければ false）。M-2b の場面が、用意の前や後に DB の子を落とすのに使う
+ *     fork.dispose() … 起こした子を全部止める（テストの後片付け。テストが途中で止まっても worker が残ってプロセスを終わらせない、を防ぐ）。
+ *                      後から起こされた子も、すぐ止めて事象のループを掴まない
  *   FakeChannel … new FakeChannel() → { port1, port2 }（MessagePortMain の形: on('message', ({ data, ports }) …)・on('close')・
  *                 postMessage・start・close。start() を呼ぶまで届いたものは溜めておく（Electron と同じ））
  *   fastTimers() → { setTimeout, clearTimeout, now(), pending(), history(), runAll({ idleMs }) }
@@ -69,6 +73,8 @@ class FakeChannel {
 function fakeFork({ crashAfterRequests = 0, exitOnStart = 0, preload = '' } = {}) {
   let starts = 0;
   const calls = [];
+  const live = [];   // 生きている子の { worker, child, crash(code) }
+  let disposed = false;
   const fork = (modulePath, args = [], options = {}) => {
     starts += 1;
     calls.push([modulePath, args, options]);
@@ -77,6 +83,10 @@ function fakeFork({ crashAfterRequests = 0, exitOnStart = 0, preload = '' } = {}
     const child = new EventEmitter();
     let killed = false;
     let exited = false;
+    let crashCode = null;   // fork.crash で落としたときの番号
+    const rec = { worker, child, crash(code) { if (exited) return false; crashCode = code; worker.terminate(); return true; } };
+    live.push(rec);
+    if (disposed) { worker.unref(); worker.terminate(); }
     child.pid = 40000 + starts;
     child.postMessage = (msg, transfer = []) => {
       if (exited) return;
@@ -92,11 +102,21 @@ function fakeFork({ crashAfterRequests = 0, exitOnStart = 0, preload = '' } = {}
     worker.on('online', () => child.emit('spawn'));
     worker.on('message', (m) => child.emit('message', m));
     worker.on('error', () => { /* 子の中の投げ: 番号 1 で終わる（exit で知らせる） */ });
-    worker.on('exit', (code) => { exited = true; child.emit('exit', killed ? 0 : code); });
+    worker.on('exit', (code) => {
+      exited = true;
+      const i = live.indexOf(rec);
+      if (i >= 0) live.splice(i, 1);
+      child.emit('exit', killed ? 0 : (crashCode !== null ? crashCode : code));
+    });
     return child;
   };
   fork.starts = () => starts;
   fork.calls = () => calls.slice();
+  fork.crash = (code = 1) => (live.length ? live[live.length - 1].crash(code) : false);
+  fork.dispose = () => {
+    disposed = true;
+    for (const r of live.slice()) { r.worker.unref(); r.worker.terminate(); }
+  };
   return fork;
 }
 

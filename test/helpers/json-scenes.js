@@ -413,6 +413,33 @@ module.exports = {
       overlay.webContents.emit('did-finish-load');
       main.webContents.emit('did-finish-load');
     } },
+  // 第2a1回 M-2b（ST7。点検で足した場面）: 用意ができた後に DB の子が落ちたら、本体の窓に db:lost を送り、起こし直した子の用意が
+  // できたら口を配り直す（前の子の口は死んでいる）。読み込みで1つ配ってから落とす
+  'db-restart': { files: { 'settings.json': pretty(TYPICAL) },
+    act: async (c) => {
+      const [, main] = c.wins;
+      main.webContents.emit('did-finish-load');
+      c.out.crashed = c.dbCrash(1);
+      c.out.restarted = await c.waitFor(() => c.dbStarts() === 2 && c.dbState() === 'ready', 10000);
+      await c.sleep(100);   // 用意の知らせの後の配り直しを待つ
+      c.out.mainSent = c.mainSent().filter((ch) => ch === 'db:lost');
+    } },
+  // 第2a1回 M-2b（ST7。点検で足した場面）: 最初の用意の前（移行の途中）に DB の子が落ちても同じ。読み込みで配った口は落ちた子のもの
+  // なので、起こし直した子の（アプリで最初の）用意で配り直す。移行は起こし直した子がやり直し、元の JSON は1バイトも変えない
+  'db-restart-before-ready': { noDbWait: true, env: { NATSU_TEST_MIGRATE_DELAY_MS: '1000' }, files: { 'settings.json': pretty(TYPICAL),
+      'data/pages/pmig1.json': JSON.stringify({ id: 'pmig1', title: '移行の途中で落ちた会議', blocks: [], createdAt: '2026-10-01T00:00:00.000Z' }) },
+    act: async (c) => {
+      const [, main] = c.wins;
+      c.out.migrating = await c.waitFor(() => c.dbState() === 'migrating', 10000);
+      main.webContents.emit('did-finish-load');
+      c.out.crashed = c.dbCrash(1);
+      c.out.restarted = await c.waitFor(() => c.dbStarts() === 2 && c.dbState() === 'ready', 12000);
+      await c.sleep(100);
+      c.out.mainSent = c.mainSent().filter((ch) => ch === 'db:lost');
+      c.out.pages = c.store.listPages().map((p) => p.id);
+      const raw = c.read('data/pages/pmig1.json');
+      c.out.jsonKept = raw !== null && raw.toString('utf8') === JSON.stringify({ id: 'pmig1', title: '移行の途中で落ちた会議', blocks: [], createdAt: '2026-10-01T00:00:00.000Z' });
+    } },
   // 第1c回 Task C-2: 設定のカード「オンライン」の IPC を main で本当に呼ぶ（鍵は画面へ返さない・secrets.json は暗号の形・
   // ［鍵を確かめる］は 127.0.0.1 の偽の送り先の /models へ・Claude Code の場所が無いときの文・［PC の中だけ］は片道）。
   // Claude Code の場所は無いファイルに向ける（本物の claude を探しに行かない。子は起こさない）

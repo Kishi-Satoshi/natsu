@@ -152,6 +152,23 @@ test('ST7: 口は本体の窓の読み込みのたびに配り、録音バーに
   const out = runScene('db-ports');   // 本体の窓の did-finish-load を2回、録音バーの did-finish-load を1回出す
   assert.deepStrictEqual(out.portsSent, [{ win: 'main', channel: 'db:port' }, { win: 'main', channel: 'db:port' }]);
 });
+// 点検で足した確かめ（M-2b の目的の「客の lost で db:lost を本体の窓に送り、起こし直したら口を配り直す」を押さえるテストが無かったため）
+test('ST7: 用意の後に DB の子が落ちたら、本体の窓に db:lost を送り、起こし直した子の用意ができたら口を配り直す', { timeout: 20000 }, () => {
+  const out = runScene('db-restart');
+  assert.ok(out.crashed && out.restarted, JSON.stringify(out));
+  assert.deepStrictEqual(out.mainSent, ['db:lost'], '子が落ちたことを本体の窓に知らせていない');
+  assert.deepStrictEqual(out.portsSent, [{ win: 'main', channel: 'db:port' }, { win: 'main', channel: 'db:port' }], '起こし直した後に口を配り直していない');
+  assert.ok(out.engineLog.some((l) => /^DB: 子が終わった（1）。500ms 後に起こし直す$/.test(l)));
+});
+test('ST7・RF10: 最初の用意の前（移行の途中）に DB の子が落ちても、db:lost を送り、起こし直した子の用意で口を配り直す。移行はやり直し、元の JSON は変えない', { timeout: 20000 }, () => {
+  const out = runScene('db-restart-before-ready');
+  assert.ok(out.migrating, '場面の前提: 移行の途中で落としていない');
+  assert.ok(out.crashed && out.restarted, JSON.stringify(out));
+  assert.deepStrictEqual(out.mainSent, ['db:lost']);
+  assert.deepStrictEqual(out.portsSent, [{ win: 'main', channel: 'db:port' }, { win: 'main', channel: 'db:port' }], '落ちた子の口のまま（アプリで最初の用意だからと配り直さなかった）');
+  assert.deepStrictEqual(out.pages, ['pmig1'], '起こし直した子が移行をやり直していない');
+  assert.strictEqual(out.jsonKept, true, '元の JSON が変わった');
+});
 
 // 計画の外で足した確かめ（M-2b の目的の「終わるときと更新の前に DB を閉じる」「起動では元の JSON に触れない」を押さえるテストが無かったため）
 test('ST7: 終わるときは要約が無くても1回だけ止め、DB を閉じてから app.quit() を呼ぶ（書き出しはいつも最初に同期で）', { timeout: 20000 }, () => {

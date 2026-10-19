@@ -236,9 +236,15 @@ function onStoreReport(ev) {
 // 議事録の DB の客の知らせ（第2a1回 ST7）。子が落ちたら画面に db:lost（preload が待ちを返す）、起こし直したら口を配り直す（onReady）。
 // 諦めた・使えないときは知らせ D1 を1回（録音は下書きと音声の控えに続く）。移行の窓は M-4 で作るので、この段は聞かずに移す
 let dbDownNoticed = false;
+// 子が落ちた印。本体の窓に渡した口は落ちた子のもの（死んでいる）なので、次の ready（起こし直した子の用意）で配り直す。
+// 「2回目からの ready」で決めると、最初の用意の前（起動・移行の途中）に落ちたとき、起こし直した子の ready がアプリで最初になり、配り直さない
+let dbPortStale = false;
 function onDbEvent(ev) {
   if (!ev) return;
-  if (ev.type === 'lost') sendToMainWin('db:lost', {});
+  if (ev.type === 'lost') {
+    dbPortStale = true;
+    sendToMainWin('db:lost', {});
+  }
   else if (ev.type === 'down') {
     if (dbDownNoticed) return;
     dbDownNoticed = true;
@@ -253,9 +259,12 @@ function sendDbPort() {
   if (!port) return;   // 子が居ない（起こし直しの間・諦めた・閉じた）: 起こし直したら onReady で配る
   try { mainWin.webContents.postMessage('db:port', null, [port]); } catch (e) { engineLog(`DB: 画面に口を渡せませんでした（${errCode(e)}）`); }
 }
-// 2回目からの ready（子を起こし直した）で口を配り直す。最初の ready の前に配った口は、子が用意の前から受けている
-let dbReadyCount = 0;
-db.onReady(() => { if (dbReadyCount++ > 0) sendDbPort(); });
+// 子が落ちた後の ready（起こし直した子の用意）で口を配り直す。落ちていない子の最初の ready の前に配った口は、子が用意の前から受けている
+db.onReady(() => {
+  if (!dbPortStale) return;
+  dbPortStale = false;
+  sendDbPort();
+});
 // 読めない・書けないときの状態（第1a回 Task 2-3。RF22・P14）
 // - 'unreadable': 起動の瞬間にほかのプログラムが掴んでいて読めなかった。読み直せるまでは書かない（既定で上書きしない）。
 //   読み直しは RETRY_READ_MS の間隔で（使い切ったら止め、設定の画面を開いたときだけ読み直す）

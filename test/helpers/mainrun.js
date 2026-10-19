@@ -104,7 +104,9 @@
 //   本物の src/db/server.js が動き、<userData>/data/natsu.db に書く）。main の客（src/db/client.js の makeDbClient）を捕まえ、
 //   場面は DB の用意（ready か down）を待ってから act を呼ぶ（場面の noDbWait なら待たない）。議事録の読み（ctx.store と、この台の store の listPages・getPage・
 //   getTranscript）は helpers/dbpeek.js の読み取り専用の接続で natsu.db を見る（下書きなどほかの名前は本物の store のまま）。
-//   ctx に dbMeta(key)（natsu.db の meta の値。無ければ undefined）・dbState()（客の state()）を足す。本体の窓の webContents.postMessage
+//   ctx に dbMeta(key)（natsu.db の meta の値。無ければ undefined）・dbState()（客の state()）・dbCrash(code)（今の DB の子を思わず
+//   落ちたことにする: fake-utility の fork.crash）・dbStarts()（DB の子を起こした回数）・mainSent()（本体の窓へ webContents.send した
+//   channel の並び。読み込み中で届かなかったものも）を足す。本体の窓の webContents.postMessage
 //   は出力の portsSent（{ win: 'main' | 'overlay', channel }）に残す。終わるときは客を閉じてから process.exit する（Windows で
 //   一時フォルダの natsu.db を掴んだまま消さない）
 //   main を読む前に、いつも process.env に ANTHROPIC_API_KEY と CLAUDE_CODE_OAUTH_TOKEN を置く（課金の変数が子に渡らないことを見る。RF25）。
@@ -504,6 +506,8 @@ process.on('exit', () => {
   const appEvents = makeEmitter();
   const zooms = [];   // setZoomFactor の値の順（第1b回 Task A-2）
   const portsSent = [];   // webContents.postMessage の窓と channel（第2a1回 M-2b）
+  const utilFork = fakeFork(dbDown ? { preload: path.join(__dirname, 'no-trigram.js') } : {});   // 偽の utilityProcess.fork（場面が dbCrash で子を落とす）
+  const mainSent = [];   // 本体の窓（wins[1]）の webContents.send の channel（読み込み中で届かなかったものも。第2a1回 M-2b の db:lost）
   // 第1b回 Task A-3: 録音バー（wins[0]）の［一時停止］の真似。main.js の2つの定数（PAUSE_ENSURE_ON・PAUSE_ENSURE_OFF）と同じ文だけを受け、
   // 本物の録音バーと同じく文が見る印のとおりに押す（'on' は止まっていなければ止める、'off' は止まっていれば再開する。同じなら何もしない）。
   // 状態が変わったときだけ、次の番で overlay:pause を返す。場面の overlayPause が 'lost-once' なら最初の1回は何もしない（眠る前に
@@ -548,7 +552,7 @@ process.on('exit', () => {
       this.zoom = 1;
       // 受け口つきの webContents（on／once／emit）。読み込み中の once('did-finish-load') は今までどおり読み終えたときに呼ぶ
       const wc = makeEmitter({
-        send: (ch, p) => { if (loading) { lost.push([ch, p]); return; } sent.push([ch, p]); watch(ch, p); },
+        send: (ch, p) => { if (wins.indexOf(this) === 1) mainSent.push(ch); if (loading) { lost.push([ch, p]); return; } sent.push([ch, p]); watch(ch, p); },
         isLoading: () => loading,
         setWindowOpenHandler() {}, executeJavaScript: (code) => overlayExec(this, code),
         setZoomFactor: (z) => { zooms.push(z); this.zoom = z; },
@@ -660,7 +664,7 @@ process.on('exit', () => {
     powerSaveBlocker: { start: (type) => { powerId += 1; power.push(['start', type, powerId]); return powerId; }, stop: (id) => { power.push(['stop', id]); }, isStarted: () => false },
     shell: withFallback({ openPath: (p) => { opened.push(p); return Promise.resolve(''); } }),
     // 第2a1回 M-2b: 議事録の DB のプロセス（worker_threads の中の本物の server.js）と口
-    utilityProcess: { fork: fakeFork(dbDown ? { preload: path.join(__dirname, 'no-trigram.js') } : {}) },
+    utilityProcess: { fork: utilFork },
     MessageChannelMain: FakeChannel,
   });
   // エンジンの spawn だけを本物にする（.js なら node で起動）。それ以外（貼り付け用の PowerShell など）は起動しない
@@ -856,6 +860,7 @@ process.on('exit', () => {
     if (typeof scene.act === 'function') {
       await scene.act({ handlers, listeners, app: electron.app, wins, mainWin: wins[1], power: powerMonitor, timers, clearedTimers, shortcuts, store, jsonfile, electron, userData,
         localAppData, read: readUser, readLocal, waitFor, sleep, toneWav, releasePause, out: actOut, launches, launchPlan, fakeKids, dbMeta, dbState,
+        dbCrash: (code) => utilFork.crash(code), dbStarts: () => utilFork.starts(), mainSent: () => mainSent.slice(),
         setOpenAiBase: (b) => { openAiBase = String(b || ''); } });
     }
     const files = [];

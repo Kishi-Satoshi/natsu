@@ -30,7 +30,8 @@
  *     待ちはどれも timeoutMs まで。後の頼みは db-down。
  *   onEvent に渡すもの: { type: 'lost', code } / { type: 'down', why: 'crash' | 'failed' } / { type: 'migrate-plan', counts, auto }
  *     / { type: 'progress', done, total } / { type: 'changed', pageIds, actor }（DB が全部の口に流す知らせ。自分の口に来たもの）
- *   子の { type: 'log', line } は log(line) に渡す（engine.log へ）。
+ *   子の { type: 'log', line } は log(line) に渡す（engine.log へ）。子の 'error'（Electron の FatalError など）は記録だけ
+ *   （「DB: 子の致命的な失敗（型）」。起こし直しは 'exit' で決める）。
  */
 'use strict';
 
@@ -178,6 +179,9 @@ function makeDbClient({ fork, Channel, serverPath, init = {}, log = () => {}, ti
     child = c;
     c.on('message', (m) => { if (my === gen) onChildMessage(m); });
     c.on('exit', (code) => { if (my === gen) onExit(code); });
+    // Electron の UtilityProcess は 'exit' の前に 'error'（FatalError など）を出すことがある。受け手が無いと main で投げるので記録だけする
+    // （起こし直しは 'exit' で決める）
+    c.on('error', (type) => say(`DB: 子の致命的な失敗（${type}）`));
     const ch = new Channel();
     port = ch.port2;
     port.on('message', (ev) => { if (my === gen) onReply(ev ? ev.data : undefined); });
