@@ -267,6 +267,60 @@ test('RF37: Resend が 403・429・500・切れた → 503 mail、D1 のコー�
   }
 });
 
+test('RF37・RF38: Resend の宛先が転送（307）を返しても、ついて行かない（Resend の鍵とコードを転送の先へ運ばない）→ 503 mail', { timeout: 5000 }, async () => {
+  // Node の fetch は文字の本文なら転送の先へ送り直せるので、redirect: 'error' が無ければ転送の先が受けて 200 になる。
+  // Workers の fetch も転送について行く。だから答えに加えて、fetch に渡した redirect と signal も見る
+  const target = await startFakeResend();
+  try {
+    await scene({ env: { MAIL_DAILY_MAX: '1' } }, async ({ start, fr, db }) => {
+      fr.setMode('redirect', target.base + '/emails');
+      const inits = [];
+      const inner = globalThis.fetch;
+      globalThis.fetch = (input, init) => { inits.push(init || {}); return inner(input, init); };
+      let r;
+      try { r = await start(R.mail('redirect')); } finally { globalThis.fetch = inner; }
+      assert.strictEqual(r.status, 503);
+      assert.deepStrictEqual(await r.json(), { error: 'mail' });
+      assert.strictEqual(fr.mails.length, 1, 'Resend へ打っていない');
+      assert.strictEqual(target.mails.length, 0, '転送の先へ送った');
+      assert.strictEqual((await rowsOf(db, 'SELECT email FROM login_codes')).length, 0, '送れていないコードの行を残した');
+      assert.strictEqual(inits.length, 1);
+      assert.strictEqual(inits[0].redirect, 'error', '転送について行く fetch');
+      assert.ok(inits[0].signal instanceof AbortSignal, 'Resend への fetch に時間切れが無い');
+      // 送れなかった分は全体の通数を使わない
+      fr.setMode('ok');
+      assert.strictEqual((await start(R.mail('after-redirect'))).status, 200);
+    });
+  } finally {
+    await target.close();
+  }
+});
+
+test('RF37: Resend が答えないままなら、10 秒で切って 503 mail（Worker の要求を開いたままにしない）', { timeout: 5000 }, async () => {
+  // 本物の 10 秒は待てないので、AbortSignal.timeout に渡した長さを覚え、実際には 50 ミリ秒で切る
+  const asked = [];
+  const real = AbortSignal.timeout;
+  AbortSignal.timeout = (ms) => { asked.push(ms); return real.call(AbortSignal, 50); };
+  try {
+    await scene({ resend: 'hang' }, async ({ start, fr, db }) => {
+      // 時間切れが無ければ、2 秒後にこちらから切る（そのときは時間で赤にする）
+      const guard = setTimeout(() => { fr.close(); }, 2000);
+      const t0 = Date.now();
+      let r;
+      try { r = await start(R.mail('hang')); } finally { clearTimeout(guard); }
+      const took = Date.now() - t0;
+      assert.ok(took < 1500, `答えないままの Resend を ${took} ミリ秒待った（時間切れが効いていない）`);
+      assert.strictEqual(r.status, 503);
+      assert.deepStrictEqual(await r.json(), { error: 'mail' });
+      assert.strictEqual(fr.mails.length, 1);
+      assert.strictEqual((await rowsOf(db, 'SELECT email FROM login_codes')).length, 0);
+    });
+  } finally {
+    AbortSignal.timeout = real;
+  }
+  assert.deepStrictEqual(asked, [10000], 'Resend の時間切れが 10 秒でない');
+});
+
 test('RL4: IP の見出しが無いときは全員で1つの数え（止まらずに、IP ごとの上限だけが効かない）', { timeout: 5000 }, async () => {
   await scene({}, async ({ start, db, fr }) => {
     for (let i = 0; i < 2; i++) assert.strictEqual((await start(R.mail('noip' + i), { ip: '' })).status, 200);

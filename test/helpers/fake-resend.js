@@ -6,10 +6,12 @@
 //     429  … 429 と retry-after: 1（Resend の毎秒 10 回の上限）
 //     500  … 500
 //     drop … 返事をせずに切る
+//     hang … 返事をしないまま待つ（中継の時間切れを見る。close() で切る）
+//     redirect … 307 と Location: <setMode の2つ目の値>（中継が転送について行かないことを見る）
 //   受けた要求は mails に { to, from, subject, text, headers, at } で覚える（headers は見出しの名前を小文字にしたもの）。
 //   答え方によらず全部覚える（送れなかった要求も「Resend へ打った」に数えるため）。sent は 200 を返したものだけ。
 //   codeFor(to) → その宛先へ 200 で送った最後のメールの 6 けたのコード（無ければ ''）
-//   setMode(mode) で答え方を替える。close() で閉じる。
+//   setMode(mode, location) で答え方を替える（location は redirect のときの転送の先）。close() で閉じる。
 
 const http = require('node:http');
 
@@ -17,6 +19,7 @@ function startFakeResend({ mode = 'ok' } = {}) {
   const mails = [];
   const sent = [];
   let current = mode;
+  let location = '';
   let n = 0;
 
   const server = http.createServer((req, res) => {
@@ -34,6 +37,8 @@ function startFakeResend({ mode = 'ok' } = {}) {
         res.end(JSON.stringify(obj));
       };
       if (current === 'drop') { req.socket.destroy(); return; }
+      if (current === 'hang') return;
+      if (current === 'redirect') { reply(307, {}, { location }); return; }
       if (current === '403') { reply(403, { statusCode: 403, name: 'validation_error', message: 'You can only send testing emails to your own email address.' }); return; }
       if (current === '429') { reply(429, { statusCode: 429, name: 'rate_limit_exceeded', message: 'Too many requests.' }, { 'retry-after': '1' }); return; }
       if (current === '500') { reply(500, { statusCode: 500, name: 'internal_server_error', message: 'internal' }); return; }
@@ -60,7 +65,7 @@ function startFakeResend({ mode = 'ok' } = {}) {
         mails,
         sent,
         codeFor,
-        setMode(m) { current = m; },
+        setMode(m, loc = '') { current = m; location = loc; },
         close: () => new Promise((r) => { server.close(() => r()); server.closeAllConnections(); }),
       });
     });

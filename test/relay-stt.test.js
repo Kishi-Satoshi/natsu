@@ -223,6 +223,13 @@ test('RF34: 大きさの上限は読みながら 413（Content-Length の無い�
       [wavWith(1, { byteRate: 64000 }), 'byteRate だけを大きく書いた嘘の頭'],
       [wavWith(1, { bits: 8, blockAlign: 1, byteRate: 16000 }), '8 ビット'],
       [wavWith(1, { format: 3 }), 'PCM でない（浮動小数）'],
+      // 1つの欄だけを変え、byteRate 32000・blockAlign 2 はそのままの嘘の頭（OpenAI は頭の値で読むので、
+      // 8000Hz なら届いたバイト数で数えた秒の 2 倍、1000Hz なら 32 倍、8 ビットなら 2 倍を払うことになる）
+      [wavWith(1, { rate: 8000 }), '8kHz と書いた頭（ほかは 16kHz のまま）'],
+      [wavWith(1, { rate: 1000 }), '1kHz と書いた頭（ほかは 16kHz のまま）'],
+      [wavWith(1, { channels: 2 }), '2 チャンネルと書いた頭（ほかはモノラルのまま）'],
+      [wavWith(1, { bits: 8 }), '8 ビットと書いた頭（ほかは 16 ビットのまま）'],
+      [wavWith(1, { blockAlign: 4 }), 'blockAlign だけを 4 と書いた頭'],
       [R.wav(1).slice(0, 40), '頭が途中で切れた'],
     ];
     for (const [wav, why] of bad) {
@@ -251,6 +258,10 @@ test('RF34: 秒は届いたバイト数で数える（WAV の頭の data の長�
   assert.deepStrictEqual(wavInfo(R.wav(0.01)), { ok: true, dataBytes: 320, sec: 1 });
   assert.deepStrictEqual(wavInfo(R.wav(10.5)), { ok: true, dataBytes: 336000, sec: 11 });
   assert.strictEqual(wavInfo(wavWith(1, { rate: 8000, byteRate: 16000 })).ok, false);
+  // 1つの欄だけの嘘（byteRate と blockAlign は合ったまま）も断る。どれも、その欄の照らしだけが断る
+  for (const o of [{ rate: 8000 }, { rate: 1000 }, { rate: 48000 }, { channels: 2 }, { channels: 0 }, { bits: 8 }, { bits: 32 }, { blockAlign: 4 }, { byteRate: 64000 }, { format: 3 }]) {
+    assert.deepStrictEqual(wavInfo(wavWith(1, o)), { ok: false }, JSON.stringify(o));
+  }
   await scene({}, async ({ login, send, db, logs }) => {
     const a = await login();
     assert.strictEqual((await send(a.token, wavWith(10, { dataLen: 3600 * 32000 }))).status, 200);
@@ -415,6 +426,8 @@ test('RL7: 秘密がそろわなければ 503 not-ready・方法が違えば 405
     assert.strictEqual((await send(a.token, R.wav(1), { prompt: '見'.repeat(1000) })).status, 200, '1,000 字・9,000 バイト');
     const bad = [
       [{ prompt: '見'.repeat(1001) }, '9,009 バイト'],
+      // 字の数は 1,000 より少ないが、見出しの文字では 9,000 バイトを越える（𠮷 は戻す前の 12 バイト）
+      [{ prompt: '𠮷'.repeat(751) }, '751 字・9,012 バイト'],
       [{ prompt: 'a'.repeat(1001) }, '1,001 字'],
       [{ prompt: null, headers: { 'x-natsu-prompt': '%E8%A6%8' } }, '戻せない'],
       [{ prompt: null, headers: { 'x-natsu-prompt': '%' } }, '戻せない %'],
@@ -429,6 +442,10 @@ test('RL7: 秘密がそろわなければ 503 not-ready・方法が違えば 405
     // 絵文字や 𠮷 も UTF-8 のまま OpenAI へ
     assert.strictEqual((await send(a.token, R.wav(1), { prompt: '𠮷野の議事録' })).status, 200);
     assert.strictEqual(stt.requests[1].fields.prompt, '𠮷野の議事録');
+    // ちょうど 9,000 バイト（750 字）は通る
+    assert.strictEqual(enc('𠮷'.repeat(750)).length, 9000);
+    assert.strictEqual((await send(a.token, R.wav(1), { prompt: '𠮷'.repeat(750) })).status, 200, '750 字・9,000 バイト');
+    assert.strictEqual(stt.requests[2].fields.prompt, '𠮷'.repeat(750));
   });
 });
 
@@ -487,6 +504,45 @@ test('RF38: OpenAI の鍵を OpenAI のほかへは送らない（OPENAI_BASE �
     assert.strictEqual(fr.mails.length, 1);
     assert.ok(!JSON.stringify(fr.mails).includes(key), '偽の Resend に会社の OpenAI の鍵');
   });
+});
+
+test('RF34: OpenAI が答えないままなら 120 秒で切って 502 upstream、取り置いた秒を戻す（Worker の要求を開いたままにしない）', { timeout: 5000 }, async () => {
+  // 本物の 120 秒は待てないので、AbortSignal.timeout に渡した長さを覚え、実際には 50 ミリ秒で切る
+  const asked = [];
+  const real = AbortSignal.timeout;
+  AbortSignal.timeout = (ms) => { asked.push(ms); return real.call(AbortSignal, 50); };
+  const hung = [];
+  const silent = http.createServer((req) => { hung.push(req.url); req.resume(); });
+  await new Promise((r) => silent.listen(0, '127.0.0.1', r));
+  // 時間切れが無ければ、2 秒後にこちらから切る（そのときは時間で赤にする）
+  const guard = setTimeout(() => silent.closeAllConnections(), 2000);
+  try {
+    await scene({}, async ({ login, send, env, db }) => {
+      env.OPENAI_BASE = `http://127.0.0.1:${silent.address().port}/v1`;
+      const a = await login();
+      const inits = [];
+      const inner = globalThis.fetch;
+      globalThis.fetch = (input, init) => { inits.push(init || {}); return inner(input, init); };
+      const t0 = Date.now();
+      let r;
+      try { r = await send(a.token, R.wav(3)); } finally { globalThis.fetch = inner; }
+      const took = Date.now() - t0;
+      assert.ok(took < 1500, `答えない OpenAI を ${took} ミリ秒待った（時間切れが効いていない）`);
+      assert.strictEqual(r.status, 502);
+      assert.deepStrictEqual(r.body, { error: 'upstream' });
+      assert.deepStrictEqual(hung, ['/v1/audio/transcriptions']);
+      assert.strictEqual(inits.length, 1);
+      assert.ok(inits[0].signal instanceof AbortSignal, 'OpenAI への fetch に時間切れが無い');
+      assert.strictEqual(inits[0].redirect, 'error');
+      assert.strictEqual(await used(db, await userKey(a.email)), 0, '切れた区間の秒を戻していない');
+      assert.strictEqual(await used(db, 'a:all'), 0);
+    });
+  } finally {
+    clearTimeout(guard);
+    AbortSignal.timeout = real;
+    await new Promise((r) => { silent.close(() => r()); silent.closeAllConnections(); });
+  }
+  assert.deepStrictEqual(asked, [120000], 'OpenAI の時間切れが 120 秒でない');
 });
 
 test('limits: 日の番号・日の替わりまでの秒は日本の日付（DAY_OFFSET_MIN）で数える', { timeout: 5000 }, async () => {
