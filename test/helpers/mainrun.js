@@ -451,10 +451,18 @@ process.on('exit', () => {
       I.writeInstalled(instFile, { ...I.readInstalled(instFile), consent: true });
     }
     if (sumTamper) tamper('llama-b1', 'llama.dll');
+    // --managed --recover: 第2a1回 M-4 から、起動の復旧の文字起こしは起動の片付け（DB の用意）の後に回り、照らしは片付けを
+    // STARTUP_DB_WAIT_MS（3 秒）まで待ってから始まる。DB の用意がそれより遅いと、照らしが先に終わって「確かめています」の保留を
+    // 通らない（CI run 39240983508 の Windows）。照らしを、復旧が保留になったと engine.log に出るまで（15 秒まで）待たせ、場面を決まった順にする
+    const holdVerifyForRecover = async () => {
+      if (!recoverMode) return;
+      const elog = path.join(userData, 'engine.log');
+      await waitFor(() => { try { return fs.readFileSync(elog, 'utf8').includes('復旧の文字起こしを保留'); } catch (_) { return false; } }, 15000);
+    };
     managedMods = {
       install: { ...I, engineRoot: () => home,
         verifyCandidates: verifyThrows ? async () => { verifyCalls += 1; throw new Error('照らしの試験の失敗𠮷'); }
-          : async (...a) => { verifyCalls += 1; return I.verifyCandidates(...a); },
+          : async (...a) => { verifyCalls += 1; await holdVerifyForRecover(); return I.verifyCandidates(...a); },
         ...(serveSet ? { makeRunner: (deps) => I.makeRunner({ ...deps, fetchOpts: { requireHttps: false }, statfs: async () => ({ bavail: 1e6, bsize: 1e6 }) }) } : {}) },
       manifest: { ...realManifest, MANIFEST: Object.freeze({ schema: 1, items }) },
     };
