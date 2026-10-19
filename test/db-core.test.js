@@ -64,6 +64,19 @@ test('ST2: 版を1段ずつ上げる・新しすぎる版は読み取り専用�
   } finally { t.done(); }
 });
 
+// 点検で足した確かめ: 今の版でも読み取り専用で開いた接続なら、書く命令は台が read-only で断る（SQLite の誤りの internal にしない）
+test('ST2: 今の版を読み取り専用で開くと、書く命令は read-only', { timeout: 5000 }, () => {
+  const t = tmpDb();
+  try {
+    t.open().db.close();
+    const r = t.open({ readOnly: true });
+    assert.strictEqual(r.state, 'ok');
+    core.registerForTest({ 'test.ro': { roles: ['main'], write: true, args: {}, run: () => ({ ops: [], pageIds: [], result: null }) } });
+    const w = core.call(r.db, { role: 'main', cmd: 'test.ro', args: {}, tx: 'm:test-ro:1' }, { now: () => new Date() });
+    assert.deepStrictEqual([w.ok, w.code], [false, 'read-only']);
+  } finally { t.done(); }
+});
+
 test('ST4: 知らない命令・__proto__・constructor・役の違う命令は断る。エラーにパスや SQL を出さない', { timeout: 5000 }, () => {
   const t = tmpDb();
   try {
@@ -101,7 +114,7 @@ test('ST4: 照らし — ID の形・長さ・件数・1MB・attrs の決まっ�
   assert.strictEqual(V.checkArgs({ id: 'id' }, { id: 'p1', extra: 1 }).ok, false, '知らない引数を通した');
   assert.strictEqual(V.checkArgs({ id: 'id' }, {}).ok, false, '要る引数が無いのに通した');
   assert.throws(() => V.richText([{ t: 'x', m: [['link', 'file:///C:/x']] }]));
-  assert.strictEqual(V.richText([{ t: 'x', m: [['link', 'https://example.com/']] }, { t: 'y', m: [['link', 'mailto:a@example.com']] }]), 'xy');
+  assert.strictEqual(V.richText([{ t: 'x', m: [['link', 'https://example.com/']] }, { t: 'y', m: [['link', 'mailto:someone']] }]), 'xy');
 });
 
 // 計画の LIMITS.segments: 500 から変えた（区間の長さは最短 20 秒なので、500 では 2 時間 46 分より長い会議の締めと復旧が DB に入らない）
@@ -263,10 +276,13 @@ test('ST4: 送り直しの答えは dupResult、tx の形が悪ければ bad-arg
     const d = c('app', 'a:note-0001', { pageId: 'pn1', text: '一' });
     assert.deepStrictEqual([d.ok, d.dup, d.result], [true, true, { v: '二' }], '送り直しの答えが今の中身でない');
     for (const tx of ['short', 'a:../..', 'x'.repeat(121), 7, 'a:空白 あり']) assert.strictEqual(c('app', tx, { pageId: 'pn1', text: '三' }).code, 'bad-args', String(tx));
+    // 点検で足した確かめ: main が actor を名乗らなければ system（me にすると main の書き込みが全部「自分の直し」に見える）
+    const sys = c('main', 'm:note-0000', { pageId: 'pn1', text: '〇' });
+    assert.deepStrictEqual([sys.ok, sys.changed], [true, { pageIds: ['pn1'], actor: 'system' }], 'main の既定の actor が system でない');
     assert.strictEqual(c('main', 'm:note-0001', { pageId: 'pn1', text: '四', actor: 'recovery' }).ok, true);
     assert.strictEqual(c('app', 'a:note-0003', { pageId: 'pn1', text: '五', actor: 'recovery' }).code, 'bad-args', 'app が actor を名乗れた');
     assert.strictEqual(c('main', 'm:note-0002', { pageId: 'pn1', text: '六', actor: 'me' }).code, 'bad-args');
-    assert.deepStrictEqual(db.prepare('select role, actor from oplog order by seq').all().map((r) => `${r.role}/${r.actor}`), ['app/me', 'app/me', 'main/recovery']);
+    assert.deepStrictEqual(db.prepare('select role, actor from oplog order by seq').all().map((r) => `${r.role}/${r.actor}`), ['app/me', 'app/me', 'main/system', 'main/recovery']);
     assert.strictEqual(core.call(db, { role: 'mcp', cmd: 'test.note', args: { pageId: 'pn1', text: 'x' }, tx: 'x:note-0001' }, {}).code, 'forbidden');
   } finally { t.done(); }
 });
