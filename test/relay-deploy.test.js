@@ -27,9 +27,10 @@ const MJS = fs.readdirSync(path.join(ROOT, 'relay')).filter((f) => f.endsWith('.
 const READY_ALL = { db: true, openai: true, mail: true, domains: true };
 
 // ---------------------------------------------------------------- 偽の Cloudflare の API（127.0.0.1）
-// opts: subdomain（'' なら無い）・dbExists・scriptExists・health（'ok'｜'partial'｜'no-db'｜'503'）・
-//       fail（{ method, re }。当たった要求に 403 と、トークン・アカウントの ID・本文の印を入れた答えを返す）
-async function fakeCf({ token, acct, subdomain = 'team-a', dbExists = false, scriptExists = false, health = 'ok', fail = null } = {}) {
+// opts: subdomain（'' なら無い）・dbExists・scriptExists・health（'ok'｜'partial'｜'no-db'｜'503'｜'redirect'）・
+//       fail（{ method, re }。当たった要求に 403 と、トークン・アカウントの ID・本文の印を入れた答えを返す）・
+//       redirect（{ method, re }。当たった要求に 302 で同じ偽物の /client/v4/moved を返す。/moved は 200 の整った答え）
+async function fakeCf({ token, acct, subdomain = 'team-a', dbExists = false, scriptExists = false, health = 'ok', fail = null, redirect = null } = {}) {
   const st = { reqs: [], dbs: dbExists ? [{ uuid: crypto.randomUUID(), name: CFG.dbName }] : [], scriptExists, created: null, sql: [], put: null, sub: null, d1: makeFakeD1() };
   const A = `/client/v4/accounts/${acct}`;
   const send = (res, code, body, type = 'application/json') => { res.writeHead(code, { 'content-type': type }); res.end(typeof body === 'string' ? body : JSON.stringify(body)); };
@@ -47,7 +48,13 @@ async function fakeCf({ token, acct, subdomain = 'team-a', dbExists = false, scr
         if (fail && fail.method === req.method && fail.re.test(p)) {
           return send(res, 403, { success: false, errors: [{ code: 10000, message: `Authentication error ${token} ${acct} body-mark-zz` }], messages: [`body-mark-zz ${token}`], result: { note: `body-mark-zz ${acct}` } });
         }
+        if (redirect && redirect.method === req.method && redirect.re.test(p)) {
+          res.writeHead(302, { location: '/client/v4/moved' }); return res.end();
+        }
+        if (p === '/client/v4/moved') return ok(res, { subdomain: 'team-a' });
+        if (p === '/relay/health-moved') return send(res, 200, { ok: true, relay: 1, ready: READY_ALL });
         if (p === '/relay/health' && req.method === 'GET') {
+          if (health === 'redirect') { res.writeHead(302, { location: '/relay/health-moved' }); return res.end(); }
           if (health === '503') return send(res, 503, { ok: true, relay: 1, ready: READY_ALL });   // 本文が整っていても 200 でなければ数えない
           const ready = health === 'partial' ? { db: true, openai: false, mail: false, domains: false }
             : health === 'no-db' ? { ...READY_ALL, db: false } : READY_ALL;
@@ -291,6 +298,24 @@ test('RF38: 試しの宛先（CF_API_BASE・RELAY_HEALTH_BASE）は 127.0.0.1 �
   } finally { await cf.close(); }
 });
 
+test('F6: 転送（3xx）を追わない。API の答えが転送なら止まり、/health の転送は「届いた」に数えない（トークンを付けたまま別の宛先へ行かない）', { timeout: 5000 }, async () => {
+  const s = secrets();
+  let cf = await fakeCf({ ...s, redirect: { method: 'GET', re: /\/workers\/subdomain$/ } });
+  try {
+    const r = await runDeploy(cf, s);
+    assert.strictEqual(r.code, 1, r.text);
+    assert.deepStrictEqual(seq(cf.st), ['GET /client/v4/accounts/:acct/workers/subdomain'], '転送の先へ行った');
+    assert.ok(!r.text.includes(s.token) && !r.text.includes(s.acct));
+  } finally { await cf.close(); }
+  cf = await fakeCf({ ...s, health: 'redirect' });
+  try {
+    const r = await runDeploy(cf, s);
+    assert.strictEqual(r.code, 1, r.text);
+    assert.ok(!seq(cf.st).includes('GET /relay/health-moved'), '/health の転送の先へ行った');
+    assert.ok(!/公開した URL/.test(r.text), '転送を「届いた」に数えた');
+  } finally { await cf.close(); }
+});
+
 // ---------------------------------------------------------------- 秘密の無いとき（子のプロセスで台本そのものを走らせる。要求は出さない）
 function runChild(env) {
   const e = { ...process.env };
@@ -342,6 +367,8 @@ test('RL8: 出す台本は Node に入っている部品だけを使う（wrangl
   for (const m of mods) assert.match(m, /^node:/, m);
   assert.ok(!/wrangler/i.test(src.replace(/^\s*\/\/.*$/gm, '')), 'wrangler を使っている');
   assert.match(CFG.compatibilityDate, /^\d{4}-\d{2}-\d{2}$/);
+  // Cloudflare の実行環境は数日おくれて新しい日付に追いつく。出す日と同じ日付だと「未来の日付」で上げを断られうるので、1週間より前にする
+  assert.ok(Date.parse(CFG.compatibilityDate + 'T00:00:00Z') <= Date.now() - 7 * 86400e3, `compatibility_date ${CFG.compatibilityDate} が新しすぎる`);
   assert.deepStrictEqual({ scriptName: CFG.scriptName, dbName: CFG.dbName, locationHint: CFG.locationHint }, { scriptName: 'natsu-relay', dbName: 'natsu-relay', locationHint: 'apac' });
 });
 
@@ -384,6 +411,23 @@ test('F10: relay-deploy.yml は手で押すか main への push だけで走り�
   assert.ok(!/set -x|set -o xtrace|ACTIONS_STEP_DEBUG/.test(runs), 'set -x がある');
   assert.match(y, /^concurrency:\n  group: relay-deploy\n  cancel-in-progress: false$/m);
   assert.deepStrictEqual([...y.matchAll(/node-version: '([^']+)'/g)].map((m) => m[1]), ['24']);
+});
+
+test('F10: relay-deploy.yml は GitHub の ubuntu-latest で走り、使う action は ci.yml と同じ固定の2つだけ。run の中に ${{ }} の式を書かない（式は env で渡す）', { timeout: 5000 }, () => {
+  const y = read(WF);
+  const ci = read('.github/workflows/ci.yml');
+  const job = jobsOf(y).deploy;
+  assert.match(job, /^    runs-on: ubuntu-latest$/m, 'GitHub の ubuntu-latest でない（self-hosted の機械にトークンを渡さない）');
+  // トークンのある仕事で動く他人のコードを増やさない。固定の仕方はほかのワークフローと同じ
+  const uses = [...y.matchAll(/^\s*(?:- )?uses:\s*(\S+)/gm)].map((m) => m[1]);
+  assert.deepStrictEqual(uses, ['actions/checkout@v4', 'actions/setup-node@v4']);
+  for (const u of uses) assert.ok(ci.includes(`uses: ${u}`), `${u} が ci.yml と同じ固定でない`);
+  // run の中の ${{ }} は、github.event の文字（commit の文など）をそのまま shell に差し込む道になる
+  for (const st of stepsOf(job)) {
+    const i = st.search(/^\s*run:/m);
+    if (i >= 0) assert.ok(!/\$\{\{/.test(st.slice(i)), `run の中に式: ${nameOf(st)}`);
+  }
+  assert.ok(!/github\.event\.|inputs\./.test(y), 'github.event・inputs を読む');
 });
 
 test('F10: relay-deploy.yml の YAML の書き方（引用符の無い値に「: 」が無い・段の名前は 200 バイトまで）', { timeout: 5000 }, () => {

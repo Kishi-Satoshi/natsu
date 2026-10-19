@@ -25,7 +25,16 @@ function trackedFiles() {
   } catch (_) { return null; }
 }
 
-const TEXT_EXT = new Set(['.js', '.html', '.json', '.md', '.ps1', '.bat', '.yml', '.svg', '.gitignore', '']);
+const TEXT_EXT = new Set(['.js', '.mjs', '.txt', '.html', '.json', '.md', '.ps1', '.bat', '.yml', '.svg', '.gitignore', '']);
+// 文字として調べないファイル（画像）。追跡するファイルの拡張子は、TEXT_EXT かここのどちらかに必ず入れる（下のテスト）
+const BINARY_EXT = new Set(['.png', '.ico']);
+
+test('追跡しているファイルの拡張子は、どれも「文字として調べる」か「画像として外す」かに分けてある（調べ漏れを作らない）', () => {
+  const files = trackedFiles();
+  if (!files) return;
+  const loose = [...new Set(files.map((f) => path.extname(f)).filter((e) => !TEXT_EXT.has(e) && !BINARY_EXT.has(e)))].sort();
+  assert.deepStrictEqual(loose, [], `公開前の確認で読まれない拡張子: ${loose.join(' ')}（TEXT_EXT か BINARY_EXT に足す）`);
+});
 
 // ---------------------------------------------------------------- 公開前の確認
 test('個人名・個人パス・社内固有名がコードに残っていない', () => {
