@@ -25,6 +25,13 @@
  *     rawPage(id) は元のファイルを退けない読み方で読んだもの（markShortBlocks の前の形）。writePage はそのままの形で書く
  *     oldBuild(fn) は fn(store) を呼ぶ（D-5b。移行の後に古い版がまた動いて JSON を書いた、を作る。store は同じ data を開いた 0.6.0 の store.js）
  *   snapshotTree(dir) → { 相対パス（'/' 区切り）: sha256 | 'dir' }… フォルダの中の全部の名前と中身（元のファイルが変わらないことを見る）
+ *   tmpData({ pages }) → { dir, dataDir, file, db, ids, close(), addOplog(rows), done() }（D-6）
+ *     … <一時フォルダ>/data に core.open で natsu.db を作り、pages 個の見本のページ（samplePage の中身。ID は pd0001…、ブロックは pd0001b1…）を
+ *     main の meeting.finalize で書く（種の oplog の時刻は決まった 2026-10-19T00:00:00.000Z）。db は開いたままの接続。
+ *     close() は db を閉じる（壊す・戻すテストの前に。2回呼んでもよい）。
+ *     addOplog([{ at, action, purge? }]) は oplog に行を足す（role main・actor system・tx は m:test-<番号>）。
+ *     purge が真なら action のまま ops に {"op":"purge"} を入れる（取り消しの印と同じ形）。そうでなければ ops は []。
+ *     done() は開いた接続を閉じてからフォルダを消す
  * フォルダの名前には日本語と 𠮷（サロゲートの対）を入れる（RF1）。
  */
 'use strict';
@@ -266,6 +273,59 @@ function oldBuildData({ pages = 3, bom = 0, broken = 0, badId = 0, unreadable = 
   };
 }
 
+// data フォルダに natsu.db と見本のページ（D-6。D-7 で足す）
+function tmpData({ pages = 1 } = {}) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'natsu-data-議事録𠮷-'));
+  const dataDir = path.join(dir, 'data');
+  fs.mkdirSync(dataDir);
+  const file = path.join(dataDir, 'natsu.db');
+  const r = core.open({ sqlite, file });
+  if (r.state !== 'ok') { fs.rmSync(dir, { recursive: true, force: true }); throw new Error(`tmpData: 開けない ${r.code}`); }
+  const db = r.db;
+  const ids = [];
+  const now = () => new Date(SEED_AT);
+  let n = 0;
+  let closed = false;
+  try {
+    for (let i = 0; i < pages; i++) {
+      const id = `pd${String(i + 1).padStart(4, '0')}`;
+      const { page, segments } = samplePage(id);
+      delete page.id;
+      page.title = `${page.title} ${i + 1}`;
+      for (const blk of page.blocks) blk.id = `${id}${blk.id}`;   // ブロックの ID は表全体で重ならない
+      const out = core.call(db, { role: 'main', cmd: 'meeting.finalize', args: { pageId: id, page, segments }, tx: `m:seed-${id}` }, { now });
+      if (!out.ok) throw new Error(`tmpData: 種を書けない ${out.code}`);
+      ids.push(id);
+    }
+  } catch (e) {
+    try { db.close(); } catch (_) { /* 閉じ済み */ }
+    fs.rmSync(dir, { recursive: true, force: true });
+    throw e;
+  }
+  const close = () => { if (!closed) { closed = true; db.close(); } };
+  return {
+    dir,
+    dataDir,
+    file,
+    db,
+    ids,
+    close,
+    addOplog(rows) {
+      const put = db.prepare('insert into oplog(role, tx, at, actor, action, page_id, ops) values (?, ?, ?, ?, ?, ?, ?)');
+      for (const row of rows) {
+        n += 1;
+        const pageId = row.pageId || ids[0] || null;
+        const ops = row.purge ? [{ op: 'purge', id: pageId }] : [];
+        put.run('main', `m:test-${String(n).padStart(6, '0')}`, row.at, 'system', row.action, pageId, JSON.stringify(ops));
+      }
+    },
+    done() {
+      try { close(); } catch (_) { /* 閉じ済み */ }
+      fs.rmSync(dir, { recursive: true, force: true });
+    },
+  };
+}
+
 function snapshotTree(dir) {
   const out = {};
   const walk = (abs, rel) => {
@@ -279,4 +339,4 @@ function snapshotTree(dir) {
   return out;
 }
 
-module.exports = { tmpDb, samplePage, jsonTwin, searchCorpus, oldBuildData, snapshotTree, SEED_AT };
+module.exports = { tmpDb, tmpData, samplePage, jsonTwin, searchCorpus, oldBuildData, snapshotTree, SEED_AT };
