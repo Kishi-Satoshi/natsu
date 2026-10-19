@@ -255,7 +255,9 @@ test('公開したのに画面から呼ばれない API がない', () => {
   // 第1c回 Task C-2 で足した meetingSetLocalOnly は、会議中の［この会議は PC の中だけ］（Task C-3）が呼び始めたので外した
   // 第1b回 Task A-2 で足した uiState・uiSave（画面の覚え書き）は、画面のサイドバー（Task B-2）が呼び始めたので外した
   // 第1b回 Task A-3 で足した meetingSetPaused（ページの［一時停止］）は、録音中のページ（Task B-5）が呼び始めたので外した
-  const PENDING_APP = new Set([]);
+  // 第1d回 Task A-2 で足したログインの4つ（accountStatus・accountStart・accountVerify・accountLogout）は、設定のカード「アカウント」（Task A-4）が
+  // 呼び始めるまでここに置く（A-4 で外して空に戻す）
+  const PENDING_APP = new Set(['accountStatus', 'accountStart', 'accountVerify', 'accountLogout']);
   for (const [ns, html] of [['koeApp', appHtml], ['koeOverlay', overlayHtml]]) {
     const names = all(/^\s{2}([A-Za-z][\w$]*):/gm, block(ns));
     const used = new Set(all(new RegExp(`${ns}\\.(\\w+)`, 'g'), html));
@@ -807,7 +809,8 @@ test('#26 設定の正規化は起動時と保存時の両方で通す', () => {
   const load = fnBody(code(main), 'function loadSettingsFromDisk()', '\n}');
   assert.match(load, /readSettings\(r\.value, DEFAULT_SETTINGS\)/);
   const save = fnBody(code(main), "ipcMain.handle('settings:save'", '\n  });');
-  assert.match(save, /const merged = readSettings\(\{ \.\.\.settings, \.\.\.pickSavable\(next\) \}, DEFAULT_SETTINGS\)\.settings/);
+  // 第1d回 A-2 で意図して変えた: ログイン中のメールアドレス（accountEmail）は画面から来た値を使わず、main の今の値を重ねる（ログインの IPC だけが書く）
+  assert.match(save, /const merged = readSettings\(\{ \.\.\.settings, \.\.\.pickSavable\(next\), accountEmail: settings\.accountEmail \}, DEFAULT_SETTINGS\)\.settings/);
   assert.ok(!/Math\.max\(1024, Math\.min\(65535/.test(save), '保存時だけの手書きのクランプが残っている');
   // 正規化をすり抜けた不正なポートは、エンジンの起動待ちで TypeError になる。
   // 90秒のタイムアウトまで黙って待たず、設定の問題だと分かる文で返す。

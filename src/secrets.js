@@ -1,11 +1,16 @@
 /*
- * secrets.js — クラウドの文字起こしの鍵の保管（第1c回 OL3。RF30）
+ * secrets.js — クラウドの文字起こしの鍵の保管（第1c回 OL3。RF30）と、ログインの札の保管（第1d回 A-2。RL10・RF32）
  *
- *  - PROVIDER_IDS  鍵をしまえる送り先（stt-cloud.js の PRESETS と同じ名前）
+ *  - PROVIDER_IDS  鍵をしまえる名前（stt-cloud.js の PRESETS と同じ名前と、中継のログインの札 relay）。
+ *                  第1d回の移り目: groq・openai・custom は、OpenAI へ直に送る道と鍵の IPC・画面を消す A-4 で外す
+ *                  （計画 docs/plans/2026-10-19-1d.md の A-2 の注。ここで外すと、その道の今のテストが通らない）
+ *  - OLD_IDS       0.7.0 までの鍵の名前（purgeOld が消す）
  *  - KEY_RE        鍵として受け付ける形（HTTP の見出しに入れられる文字だけ。空白・日本語は断る）
  *  - makeSecrets   送り先ごとの鍵を safeStorage の非同期の形で暗号にし、<userData>/secrets.json に書く
  *
- * ファイルの形: { "schema": 1, "keys": { "groq": "<暗号の base64>" } }
+ *  - purgeOld      0.7.0 までの鍵（OLD_IDS）と、退けた控え secrets.json.broken-* を消す（K2。起動のときに main が呼ぶ。A-4 から）
+ *
+ * ファイルの形: { "schema": 1, "keys": { "relay": "<暗号の base64>" } }
  *
  * 資料:
  *  - Electron の safeStorage（https://github.com/electron/electron/blob/44-x-y/docs/api/safe-storage.md）。
@@ -26,9 +31,11 @@
  */
 'use strict';
 
+const fs = require('fs');
 const path = require('path');
 
-const PROVIDER_IDS = Object.freeze(['groq', 'openai', 'custom']);
+const PROVIDER_IDS = Object.freeze(['groq', 'openai', 'custom', 'relay']);
+const OLD_IDS = Object.freeze(['groq', 'openai', 'custom']);
 const KEY_RE = /^[\x21-\x7e]{8,512}$/;   // 見出しに入れられる文字だけ（空白・日本語は断る）
 const SCHEMA = 1;
 
@@ -157,7 +164,46 @@ function makeSecrets({ file, safeStorage, J, platform = process.platform, log = 
     return save(next) ? { ok: true } : { ok: false, code: 'write' };
   }
 
-  return { available, has, get, set, remove };
+  // 0.7.0 までの鍵（OLD_IDS。会社の OpenAI の鍵が入りうる）と退けた控え（前の鍵の暗号の文字が残りうる）を消す（K2・F11）。
+  // load() は PROVIDER_IDS の外を読まないので、ファイルを生のまま読む。relay の札とほかの欄は残す。
+  // 読めない・書けなければ何もせず（控えも残す）、次の起動でまたする。→ { removed: 消した鍵と控えの数 }（投げない）
+  function purgeOld() {
+    const r = J.loadJsonFile(file, { shape: isShape, maxBytes: J.SMALL_MAX });
+    if (r.state !== 'ok' && r.state !== 'missing' && r.state !== 'broken') {
+      say(`secrets: ${name} を読めないため、前の鍵を消せません（${r.code || 'unreadable'}）`);
+      return { removed: 0 };
+    }
+    let removed = 0;
+    if (r.state === 'ok') {
+      const old = OLD_IDS.filter((id) => Object.hasOwn(r.value.keys, id));
+      if (old.length) {
+        const value = { schema: SCHEMA, keys: {} };
+        for (const [id, v] of Object.entries(r.value.keys)) if (!OLD_IDS.includes(id)) value.keys[id] = v;
+        try {
+          J.writeJsonFile(file, value);
+        } catch (e) {
+          say(`secrets: ${name} に書けないため、前の鍵を消せません（${(e && e.code) || 'UNKNOWN'}）`);
+          return { removed: 0 };
+        }
+        removed += old.length;
+      }
+    }
+    const prefix = `${name}.broken-`;
+    let names = [];
+    try { names = fs.readdirSync(path.dirname(file)); } catch (_) { names = []; }
+    for (const n of names) {
+      if (!n.startsWith(prefix)) continue;
+      try { fs.rmSync(path.join(path.dirname(file), n), { force: true }); removed += 1; } catch (e) {
+        say(`secrets: 退けた控えを消せません（${(e && e.code) || 'UNKNOWN'}）`);
+      }
+    }
+    keys = null;   // 次に触るときに読み直す
+    unreadable = false;
+    if (removed) say(`secrets: 前の鍵 ${removed} 個を消しました`);
+    return { removed };
+  }
+
+  return { available, has, get, set, remove, purgeOld };
 }
 
-module.exports = { PROVIDER_IDS, KEY_RE, makeSecrets };
+module.exports = { PROVIDER_IDS, OLD_IDS, KEY_RE, makeSecrets };

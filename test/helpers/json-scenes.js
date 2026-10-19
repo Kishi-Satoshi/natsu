@@ -800,6 +800,88 @@ module.exports = {
         await new Promise((r) => srv.close(r));
       }
     } },
+  // 第1d回 Task A-2（RL10・RF32・F1）: ログインの IPC を main で本当に呼ぶ（mainrun の --relay で、本物の中継のコードを 127.0.0.1 で動かす）。
+  // 1つの流れ: 設定を開く → コードを頼む → 違うコード → 正しいコード → 設定を開く・オフライン → 画面の保存 → ログアウト → もう一度ログイン
+  // （全角の数字と空白のコード）→ 中継の前で切れた中のログアウトと start → ログインしていない logout → 形の悪いメールとコード →
+  // ほかのドメイン → 頼んでいないメール → 止めたメール → 同じメールの 15 分の上限。どの account:status の前後でも中継への要求の数を見る
+  'account-ipc': { files: { 'settings.json': pretty(TYPICAL) },
+    act: async (c) => {
+      const h = (ch, ...a) => c.handlers[ch]({}, ...a);
+      const o = c.out;
+      const r = c.relay;
+      const M = r.mail('kaigi');
+      const fileText = (rel) => { const b = c.read(rel); return b ? b.toString('utf8') : null; };
+      const statusCalls = [];
+      const status = async () => { const n = r.calls().length; const s = await h('account:status'); statusCalls.push(r.calls().length - n); return s; };
+      const revoked = () => r.db.prepare('SELECT COUNT(*) AS n FROM sessions WHERE revoked_at IS NOT NULL').first('n');
+      const wide = (code) => ` ${[...code].map((d) => String.fromCharCode(0xff10 + Number(d))).join('')} `;
+      o.mail = M;
+      o.status0 = await status();
+      o.start = await h('account:start', M);
+      o.code = r.codeFor(M);
+      o.wrong = await h('account:verify', M, o.code === '000000' ? '111111' : '000000');
+      o.verify = await h('account:verify', M, o.code);
+      o.secretsRaw = fileText('secrets.json');
+      // mainrun の偽の safeStorage の暗号（'ENC1:' + hex）を戻して、しまった札を取り出す（どこにも漏れていないかを試験が探す）
+      try { o.token = Buffer.from(Buffer.from(JSON.parse(o.secretsRaw).keys.relay, 'base64').toString('latin1').slice(5), 'hex').toString('utf8'); } catch (_) { o.token = ''; }
+      o.settingsAfter = fileText('settings.json');
+      o.status1 = await status();
+      c.setOnline(false);
+      o.statusOffline = await status();
+      c.setOnline(true);
+      o.saveSpoof = await h('settings:save', UI({ accountEmail: r.mail('other') }));
+      o.settingsAfterSpoof = fileText('settings.json');
+      o.logout = await h('account:logout');
+      o.revokedAfterLogout = await revoked();
+      o.secretsAfterLogout = fileText('secrets.json');
+      o.settingsAfterLogout = fileText('settings.json');
+      o.status2 = await status();
+      o.statusCalls = statusCalls;
+      await h('account:start', M);
+      o.code2 = r.codeFor(M);
+      o.verify2 = await h('account:verify', ` ${M} `, wide(o.code2));
+      o.verifyWide = o.verify2;
+      r.setFront('drop');
+      o.logoutDown = await h('account:logout');
+      o.secretsAfterLogoutDown = fileText('secrets.json');
+      o.settingsAfterLogoutDown = fileText('settings.json');
+      o.startDown = await h('account:start', M);
+      r.setFront('');
+      let n = r.calls().length;
+      o.logoutSignedOut = await h('account:logout');
+      o.callsAtSignedOutLogout = r.calls().length - n;
+      n = r.calls().length;
+      o.startBad = await h('account:start', 'not-an-email');
+      o.verifyBadCode = await h('account:verify', M, '12345');
+      o.callsAtLocalRefusals = r.calls().length - n;
+      o.startDomain = await h('account:start', r.mail('a', 'other.example'));
+      o.verifyExpired = await h('account:verify', r.mail('nobody'), '123456');
+      const B = r.mail('tome');
+      await r.db.prepare('INSERT INTO blocked_emails (email, at) VALUES (?1, ?2)').bind(B, 0).run();
+      await h('account:start', B);
+      o.verifyBlocked = await h('account:verify', B, r.codeFor(B));
+      await h('account:start', M);
+      o.rate = await h('account:start', M);
+      o.relayCalls = r.calls();
+    } },
+  // 同じ流れの、暗号にできない PC（mainrun の --no-store: 偽の safeStorage の isAsyncEncryptionAvailable が false）。
+  // settings.json には前のログインのメールだけが残っている（札は無い: ログインしていない形で、メールは返さない）
+  'account-ipc-nostore': { files: { 'settings.json': pretty({ ...TYPICAL, accountEmail: require('./relay-run').mail('mae') }) },
+    act: async (c) => {
+      const h = (ch, ...a) => c.handlers[ch]({}, ...a);
+      const o = c.out;
+      const r = c.relay;
+      const M = r.mail('kaigi');
+      const fileText = (rel) => { const b = c.read(rel); return b ? b.toString('utf8') : null; };
+      o.status0 = await h('account:status');
+      o.start = await h('account:start', M);
+      o.verify = await h('account:verify', M, r.codeFor(M));
+      o.secretsRaw = fileText('secrets.json');
+      o.settingsAfter = fileText('settings.json');
+      o.relayCalls = r.calls();
+      o.revoked = await r.db.prepare('SELECT COUNT(*) AS n FROM sessions WHERE revoked_at IS NOT NULL').first('n');
+      o.status1 = await h('account:status');
+    } },
   // 第1c回 Task C-2 の直し: ［この会議は PC の中だけ］の IPC は片道（RF28）。会議の外と、会議中に true の後で false を送る。
   // 同意は既定（ask）のまま: 会議の始めに外へ聞きに行かない
   'local-only-ipc': { engine: true, files: { 'settings.json': ({ base }) => JSON.stringify(base) },

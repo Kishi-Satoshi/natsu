@@ -26,6 +26,9 @@
  * 0.7.0 U-1（設計書 D5・D7。計画 docs/plans/2026-10-19-ui07.md）で、送り先と同意の4つのキー（cloudTranscribe・sttProvider・
  * sttBaseUrl・sttModel）を表と既定から外した（31 のキー）。送り先は OpenAI に固定で、同意は登録の利用規約で取る。
  * 前の版が書いた値は「知らないキー」として読まず・直さず・消さない（0.6.0 に戻したときに前の選択が戻る）。画面からは保存させない。
+ *
+ * 第1d回 A-2（RL10）で、ログイン中のメールアドレス accountEmail を足した（32 のキー）。書くのは main のログインの IPC だけ
+ * （settings:save は画面から来た値を使わない）。札（トークン）は設定に置かない（secrets.json に暗号でしまう）。
  */
 'use strict';
 
@@ -65,9 +68,13 @@ function normalizeSettings(raw, defaults) {
 // 録音バーの表示位置。app.html の #pillPos の選択肢と同じ
 const PILL_POSITIONS = ['bottom', 'top', 'left', 'right', 'top-left', 'top-right', 'bottom-left', 'bottom-right'];
 const THEMES = ['system', 'light', 'dark'];
+// ログイン中のメールアドレスの形（第1d回 A-2。中継が受けるのと同じ「空白と @ の無い前 1〜64 字 @ 後ろ 1〜190 字」・全体で 254 字まで）
+const EMAIL_RE = /^[^\s@]{1,64}@[^\s@]{1,190}$/;
+const EMAIL_MAX = 254;
+const isEmailShape = (v) => typeof v === 'string' && v.length <= EMAIL_MAX && EMAIL_RE.test(v);
 
 // 既定の設定（第1a回まで main.js の DEFAULT_SETTINGS に書いていた 30 のキーと値に、第1c回の claudeExe を足した 31。
-// 第1c回の送り先と同意の4つは 0.7.0 U-1 で外した）。
+// 第1c回の送り先と同意の4つは 0.7.0 U-1 で外した。第1d回 A-2 で accountEmail を足して 32）。
 // スレッド数は CPU の数から 2 を引いた数（4 より少なくしない）
 function defaultSettings(cpuCount) {
   const threads = Math.max(4, cpuCount - 2);
@@ -116,10 +123,12 @@ function defaultSettings(cpuCount) {
     engineIdleMin: 10,
     // 空なら Claude Code を探す（第1c回 Task B-1 の findClaude）
     claudeExe: '',
+    // ログイン中のメールアドレス（第1d回 A-2。'' はログインしていない）。main のログインの IPC だけが書く
+    accountEmail: '',
   };
 }
 
-// 31 のキーの決まり。label は設定の画面の言葉（知らせに出す名前。キーの名前は画面に出さない）。
+// 32 のキーの決まり。label は設定の画面の言葉（知らせに出す名前。キーの名前は画面に出さない）。
 // kind ごとの直し方は下の FIX。ここに無いキーは既定にも保存の許可の一覧にも入れない（テストが一致を見る）
 //   int:      normalizeSettings が整数に直して範囲に収める（範囲は normalizeSettings の中だけに書く）
 //   history:  0〜10000 の整数。10000 を越えたら 10000、それ以外の壊れた値は既定（0 に寄せない。F8）
@@ -132,6 +141,7 @@ function defaultSettings(cpuCount) {
 //   words:    normalizeSettings が文字の並びに整える。配列でなければ []
 //   exe:      文字列。.cmd・.bat・.ps1 で終われば ''（shell を通さないと起こせないので使わない。F12。大小を問わない）。
 //             string の kind は全部のパスの欄が共有するので、この決まりは claudeExe の exe にだけ入れる
+//   email:    '' か、メールアドレスの形（isEmailShape）の文字列。違えば ''（ログインしていない形）。文字でなければ why は type
 const SETTING_RULES = {
   localServerExe: { label: 'whisper-server.exe のパス', kind: 'string' },
   localModelPath: { label: '文字起こしのモデルファイルのパス', kind: 'string' },
@@ -165,6 +175,8 @@ const SETTING_RULES = {
   engineIdleMin: { label: '使わないエンジンを止めるまで（分）', kind: 'int' },
   // 第1c回（OL7）
   claudeExe: { label: 'Claude Code の場所', kind: 'exe' },
+  // 第1d回 A-2（RL10）
+  accountEmail: { label: 'ログイン中のメールアドレス', kind: 'email' },
 };
 const SETTING_KEYS = Object.keys(SETTING_RULES);
 
@@ -223,6 +235,10 @@ const FIX = {
     if (typeof v !== 'string') return { value: '', why: 'type' };
     return SHELL_ONLY_RE.test(v) ? { value: '', why: 'enum' } : { value: v, why: null };
   },
+  email(v) {
+    if (typeof v !== 'string') return { value: '', why: 'type' };
+    return v === '' || isEmailShape(v) ? { value: v, why: null } : { value: '', why: 'enum' };
+  },
 };
 
 // raw: settings.json から読んだ普通のオブジェクト（形の確かめは呼び手が isSettingsShape で済ませる）。
@@ -276,5 +292,5 @@ function pickSavable(next) {
 
 module.exports = {
   normalizeSettings, REMOVED_KEYS, PILL_POSITIONS, defaultSettings, SETTING_RULES, SETTING_KEYS,
-  readSettings, pickSavable, isSettingsShape,
+  readSettings, pickSavable, isSettingsShape, isEmailShape,
 };

@@ -1189,6 +1189,32 @@ function chooseDraftName({ existing, startedAt, park }) {
 // 記録（engine.log）に書く失敗の理由（第1a回の決まり「記録にはファイルの名前（パスの最後だけ）だけ」）。
 // 符号のあるエラー（fs の EACCES など）は符号だけ（fs のエラーの文はパス全体を含む）。ほかは文の中のパスを最後の部分だけにする。
 // URL（http://…）は区切りの前が「:」なので変えない
+// ログインの IPC の文（第1d回 A-2。計画 docs/plans/2026-10-19-1d.md「画面と知らせの文」の R4〜R17）。
+// code: 中継の答えの符号・通信の符号・main の符号（store・bad-code・logout）。o.left は残りの回数、o.retryAfter は待ちの秒、o.host は中継のホスト。
+// 知らない符号（中継の形でない答え server・約束の形でない答え bad-reply・not-ready など）は R15（管理者へ）。符号の文字は文に入れない
+const ACCOUNT_TEXT = {
+  domain: () => 'このメールアドレスでは登録できません。会社のメールアドレスを入れてください。',
+  'bad-email': () => 'メールアドレスの形が正しくありません。入れ直してください。',
+  rate: (o) => `確認コードを送る回数が多すぎます。${Number.isInteger(o.retryAfter) && o.retryAfter > 0 ? Math.ceil(o.retryAfter / 60) : 15} 分ほど待ってから、もう一度試してください。`,
+  mail: () => '確認コードのメールを送れませんでした。しばらく待ってから、［確認コードを送る］をもう一度押してください。',
+  code: (o) => (Number.isInteger(o.left) && o.left >= 0
+    ? `確認コードが違います（あと ${o.left} 回試せます）。メールの 6 けたを入れ直してください。`
+    : '確認コードが違います。メールの 6 けたを入れ直してください。'),
+  'code-expired': () => '確認コードの期限が切れたか、試せる回数を使い切りました。［コードを送り直す］を押してください。',
+  blocked: () => 'このメールアドレスは使えなくなっています。管理者に知らせてください。',
+  logout: () => 'ログアウトしました。これからは PC の中で文字起こしします。',
+  offline: () => '文字起こしの中継につながりませんでした。インターネットにつながっているかを確かめてください。',
+  cert: (o) => `文字起こしの中継につながりません（会社の通信の検査で止められている可能性があります）。続くときは情報システムに ${o.host} への通信の許可を頼んでください。`,
+  'not-ready': () => '文字起こしの中継の準備ができていません。管理者に知らせてください。',
+  store: () => 'この PC ではログインの情報をしまえません（暗号にする仕組みが使えません）。管理者に知らせてください。',
+  'bad-code': () => '確認コードは 6 けたの数字です。メールの 6 けたを入れ直してください。',
+};
+const ACCOUNT_ALIAS = { 'mail-cap': 'mail', net: 'offline', timeout: 'offline', proxy: 'cert' };
+function accountMessage(code, o = {}) {
+  const c = Object.hasOwn(ACCOUNT_ALIAS, code) ? ACCOUNT_ALIAS[code] : code;
+  return (Object.hasOwn(ACCOUNT_TEXT, c) ? ACCOUNT_TEXT[c] : ACCOUNT_TEXT['not-ready'])(o || {});
+}
+
 const LOG_PATH_RE = /(^|[\s'"`(（「])(?:[A-Za-z]:[\\/]|\\\\|\/)(?:[^\s'"`\\/]+[\\/])+([^\s'"`\\/]*)/g;
 function logReason(e) {
   if (e && typeof e.code === 'string' && e.code) return e.code;
@@ -1215,4 +1241,5 @@ module.exports = {
   isLoopbackUrl, loopbackOnlyFetch,
   sameShas, keepPrevious, candStamp, repairIdsOf, pathUsedBy, fetchMinutesLeft,
   recordDictation, mergeHistory, chooseDraftName,
+  accountMessage,
 };

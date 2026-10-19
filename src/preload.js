@@ -172,6 +172,11 @@ contextBridge.exposeInMainWorld('koeApp', {
   cloudSetKey: (provider, key) => ipcRenderer.invoke('cloud:set-key', provider, key),
   cloudClearKey: (provider) => ipcRenderer.invoke('cloud:clear-key', provider),
   cloudTestKey: (provider) => ipcRenderer.invoke('cloud:test-key', provider),
+  // ログイン（第1d回 Task A-2）。札（トークン）と確認コードは main から返らない（返るのはログインしているか・メール・文と符号だけ）
+  accountStatus: () => ipcRenderer.invoke('account:status'),
+  accountStart: (email) => ipcRenderer.invoke('account:start', email),
+  accountVerify: (email, code) => ipcRenderer.invoke('account:verify', email, code),
+  accountLogout: () => ipcRenderer.invoke('account:logout'),
   claudeStatus: () => ipcRenderer.invoke('claude:status'),
   claudeTest: () => ipcRenderer.invoke('claude:test'),
   // 第1b回の続き Lane F-c・F-d: 見える窓を開き、閉じたら確かめ直した答え（{ ok, status } か { ok: false, code, message }）を返す

@@ -1,6 +1,6 @@
 /*
  * settings-rules.test.js — 設定の決まり（第1a回 JS6。RF23・F8・F11）
- * 31 のキーの表（第1a回の 30 に第1c回 Task C-1 で5つ足し、0.7.0 U-1（設計書 D5）で送り先と同意の4つを外した）・項目ごとの読み方・今の読み方（normalizeSettings({ ...既定, ...raw }, 既定)）との比べ・保存の許可の一覧。
+ * 32 のキーの表（第1a回の 30 に第1c回 Task C-1 で5つ足し、0.7.0 U-1（設計書 D5）で送り先と同意の4つを外し、第1d回 A-2 で accountEmail を足した）・項目ごとの読み方・今の読み方（normalizeSettings({ ...既定, ...raw }, 既定)）との比べ・保存の許可の一覧。
  */
 'use strict';
 
@@ -24,15 +24,17 @@ delete UI.pillCustom; delete UI.maxHistory;
 // 第1c回 Task C-1: TODAY に足す（ほかの 30 は変えない）。意図: 既定が今の値のまま・決まりのないキーを足せない
 // 0.7.0 U-1（設計書 D5）で意図して変えた: 送り先と同意の4つ（cloudTranscribe・sttProvider・sttBaseUrl・sttModel）は表と既定から外した（31 のキー）
 Object.assign(TODAY, { claudeExe: '' });
+// 第1d回 A-2（RL10）で意図して変えた: ログイン中のメールアドレス accountEmail を足した（32 のキー。既定 ''）。画面は送らない（main が書く）
+Object.assign(TODAY, { accountEmail: '' });
 // 第1c回 Task C-2: 画面のカード「オンライン」が送るキー（0.7.0 U-1 で claudeExe だけ。30 のキー）。既定でない値で往復することを見る
 Object.assign(UI, { claudeExe: 'C:\\c\\claude.exe' });
 const legacy = (raw) => S.normalizeSettings({ ...D, ...raw }, D);
 const ON = (key, v) => (key === 'useBuiltinTerms' ? v !== false : Boolean(v));
 const BOOLS = ['useVad', 'suppressNst', 'autoPaste', 'removeFillers', 'soundFeedback', 'autoLaunch', 'stayInTray', 'useBuiltinTerms', 'useSystemAudio'];
 
-test('JS6: 決まりの表のキーは既定の 31 のキーとちょうど同じ。どれにも画面の名前がある', { timeout: 5000 }, () => {
+test('JS6: 決まりの表のキーは既定の 32 のキーとちょうど同じ。どれにも画面の名前がある', { timeout: 5000 }, () => {
   assert.deepStrictEqual(D, TODAY);
-  assert.strictEqual(S.SETTING_KEYS.length, 31);
+  assert.strictEqual(S.SETTING_KEYS.length, 32);
   assert.deepStrictEqual([...S.SETTING_KEYS].sort(), Object.keys(TODAY).sort());
   for (const k of S.SETTING_KEYS) assert.ok(typeof S.SETTING_RULES[k].label === 'string' && S.SETTING_RULES[k].label.length > 1, k);
   assert.strictEqual(S.defaultSettings(2).localThreads, 4);
@@ -164,4 +166,29 @@ test('OL7: claudeExe は npm 版（.cmd・.bat・.ps1）を大小を問わず捨
 test('RF30: 鍵らしい欄は画面から来ても保存しない（設定の JSON に秘密を置かない）', { timeout: 5000 }, () => {
   const next = { theme: 'dark', sttKey: 'gsk_x', groqKey: 'gsk_x', openaiKey: 'sk-x', apiKey: 'k', ANTHROPIC_API_KEY: 'sk-ant', claudeExe: '' };
   assert.deepStrictEqual(S.pickSavable(next), { theme: 'dark', claudeExe: '' });
+});
+
+// 第1d回 A-2（RL10・F1）: ログイン中のメールアドレス。形の悪い値は '' に戻し（ログインしていない形）、repaired にはキーの名前と理由だけ
+// （値は入れない: main は記録にキーの名前だけを書く）。テストの中にメールアドレスの形の文字を書かないため @ は文字の番号で作る
+const AT = String.fromCharCode(64);
+test('RL10: accountEmail は 32 番目のキー。形の良いメールアドレスはそのまま、形の悪い値は \'\' に戻し、キーの名前だけを記録する', { timeout: 5000 }, () => {
+  assert.strictEqual(S.SETTING_KEYS[31], 'accountEmail');
+  assert.strictEqual(S.SETTING_RULES.accountEmail.kind, 'email');
+  const good = `kaigi${AT}example.com`;
+  assert.deepStrictEqual(S.readSettings({ accountEmail: good }, D).settings.accountEmail, good);
+  assert.deepStrictEqual(S.readSettings({ accountEmail: '' }, D).repaired, []);
+  const long64 = `${'a'.repeat(64)}${AT}${'b'.repeat(185)}.com`;   // 254 字（いちばん長い形）
+  assert.strictEqual(long64.length, 254);
+  assert.strictEqual(S.readSettings({ accountEmail: long64 }, D).settings.accountEmail, long64);
+  const rows = [
+    [`${'a'.repeat(65)}${AT}example.com`, 'enum'], [`${'a'.repeat(64)}${AT}${'b'.repeat(186)}.com`, 'enum'], ['example.com', 'enum'],
+    [`a b${AT}example.com`, 'enum'], [`a${AT}b${AT}example.com`, 'enum'], [`${AT}example.com`, 'enum'], [`a${AT}`, 'enum'], [` a${AT}example.com`, 'enum'],
+    [5, 'type'], [null, 'type'], [{ v: good }, 'type'],
+  ];
+  for (const [raw, why] of rows) {
+    const r = S.readSettings({ accountEmail: raw }, D);
+    assert.strictEqual(r.settings.accountEmail, '', JSON.stringify(raw));
+    assert.deepStrictEqual(r.repaired, [{ key: 'accountEmail', why }], JSON.stringify(raw));
+  }
+  assert.ok(S.isEmailShape(good) && !S.isEmailShape(`a b${AT}example.com`) && !S.isEmailShape(5));
 });

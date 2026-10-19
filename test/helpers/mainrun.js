@@ -133,6 +133,13 @@
 //                        closing    … （A-9 の点検）main の db.close を止めたまま app:restart を呼び、閉じている間に会議（meeting:toggle の答えを
 //                                     out.startWhileClosing、会議のホットキーの後に会議中かを out.meetingWhileClosing）と音声入力のホットキー
 //                                     （録音バーの overlay:start の回数を out.overlayStartsWhileClosing）を試す。離して out.restart まで待って終える
+//   第1d回 A-2（RL10）: ログインの場面
+//     --relay=<mode> … 本物の中継のコード（relay/）を 127.0.0.1 で動かす（helpers/relay-local.js。後ろの偽の OpenAI は fake-stt の mode）。
+//                        偽の Electron の net.request が src/relay.js の RELAY_BASE を中継の口へ書き換え、書き換える前の道（/auth/start など）を
+//                        順に覚える。場面の ctx に relay = { mail(local, domain), codeFor(email), setFront(mode), db, calls() } を足す
+//                        （calls() は覚えた道の写し。setFront は relay-local の中継の前の答え方: '' ・'drop'・'html401'）
+//     --no-store     … 偽の safeStorage の isAsyncEncryptionAvailable が false（暗号にできない PC。secrets.js は保存を断る）
+//   ctx.setOnline(bool) … 偽の net.isOnline() の答えを場面の途中で変える（--offline の場面は false から始まる）
 //   出力に足すもの（議事録の場面）: pages[].id・title・recovered、files（userData の下の相対パス）、dbStarts（DB の子を起こした回数）、trace
 //   ctx.appCall(cmd, args) … 画面と同じ役 app の口（客の rendererPort() で作る偽の MessageChannelMain の口）で DB に頼む。書く命令には
 //                      'a:' + randomUUID の tx を付ける。答えは result（失敗は Error に .code）。場面（act）にも渡す
@@ -203,6 +210,8 @@ const secretText = flags.includes('--secret-text');
 const killDbAtDiscard = flags.includes('--kill-db-at-discard');
 const idleMode = flags.includes('--idle');
 const restartDuring = flagVal('--restart-during');   // 第1d回 A-9
+const relayMode = flagVal('--relay');   // 第1d回 A-2
+const noStore = flags.includes('--no-store');
 const UPDATE_URL = 'https://example.invalid/natsu-src-0.8.1.zip';   // 取り込みは偽物（out.applyCalls に数えるだけ）なので、どこへも行かない
 const SECRET = '秘密の語';
 const fakeText = flagVal('--text') || (secretText ? `${SECRET}を含む発言です` : '');
@@ -361,6 +370,10 @@ process.on('exit', () => {
   // 偽の文字起こしの送り先（--stt）。終わるときに閉じなくても、process.exit で消える
   const fakeStt = sttMode ? await require('./fake-stt').startFakeStt({ mode: sttMode === 'cert' ? 'text' : sttMode, key: STT_KEY }) : null;
   const fakeEnc = (s) => Buffer.from(`ENC1:${Buffer.from(s, 'utf8').toString('hex')}`);
+  // 本物の中継のコードを 127.0.0.1 で（--relay。第1d回 A-2）。終わるときに閉じなくても、process.exit で消える
+  const relayLocal = relayMode ? await require('./relay-local').startRelayLocal({ stt: { mode: relayMode } }) : null;
+  const { RELAY_BASE } = require(path.join(ROOT, 'src', 'relay.js'));
+  const relayPaths = [];   // 中継へ送った要求の道（書き換える前の RELAY_BASE の後ろ。/auth/start など）
   if (fakeStt && !noKey) {
     fs.writeFileSync(path.join(userData, 'secrets.json'), JSON.stringify({ schema: 1, keys: { [keyFor]: fakeEnc(STT_KEY).toString('base64') } }));
   }
@@ -693,7 +706,7 @@ process.on('exit', () => {
   // （同意が ask・［PC の中だけ］では鍵を復号しない。Linux・macOS では復号でキーリングの確かめが出ることがある）
   let decrypts = 0;
   const safeStorage = {
-    isAsyncEncryptionAvailable: async () => true,
+    isAsyncEncryptionAvailable: async () => !noStore,
     getSelectedStorageBackend: () => 'gnome_libsecret',
     encryptStringAsync: async (str) => fakeEnc(str),
     decryptStringAsync: async (b) => {
@@ -708,10 +721,12 @@ process.on('exit', () => {
   // 0.7.0 U-1: OpenAI（固定の送り先）への要求は、偽の送り先（--stt）か、場面が setOpenAiBase で決めた 127.0.0.1 の口へ書き換える。
   // 書き換える前の宛先のホストは out.netHosts に残す（前の版の「そのほか」の URL へ直に送っていないことを見る）
   let openAiBase = fakeStt ? fakeStt.base : '';
+  let netUp = !offline;   // 偽の net.isOnline() の答え（場面の ctx.setOnline で変えられる）
   const netHosts = [];
   const rewrite = (u) => {
     const s = String(u);
     try { netHosts.push(new URL(s).host); } catch (_) { netHosts.push(''); }
+    if (relayLocal && s.startsWith(`${RELAY_BASE}/`)) { relayPaths.push(s.slice(RELAY_BASE.length)); return relayLocal.base + s.slice(RELAY_BASE.length); }
     if (openAiBase && s.startsWith(`${OPENAI_BASE}/`)) return `${openAiBase}${s.slice(OPENAI_BASE.length)}`;
     return fakeStt && claudeMode && s.startsWith('https://api.anthropic.com/') ? fakeStt.url('/anthropic') : u;
   };
@@ -777,7 +792,7 @@ process.on('exit', () => {
     globalShortcut: { register: (acc, cb) => { shortcuts[acc] = cb; return true; }, unregister() {}, unregisterAll() {}, isRegistered: () => false },
     nativeTheme: { shouldUseDarkColors: false, themeSource: 'system', on() {} },
     // 取り込みの通信は Electron の net.request（第0b回 RF2）。テストでは同じ振る舞いの偽物（127.0.0.1 の偽のサーバーへ）
-    net: { request: require('./fake-net').makeFakeRequest({ before, rewrite }), isOnline: () => !offline },
+    net: { request: require('./fake-net').makeFakeRequest({ before, rewrite }), isOnline: () => netUp },
     Tray: FakeTray,
     safeStorage,
     powerSaveBlocker: { start: (type) => { powerId += 1; power.push(['start', type, powerId]); return powerId; }, stop: (id) => { power.push(['stop', id]); }, isStarted: () => false },
@@ -1136,7 +1151,10 @@ process.on('exit', () => {
         mainState: () => { const st = handlers['meeting:status'] ? handlers['meeting:status']() : null; return !st ? 'none' : !st.active ? 'idle' : st.finalizing ? 'meeting-finalizing' : 'meeting'; },
         overlayDone: () => sent.filter(([ch, p]) => ch === 'overlay:phase' && p && p.phase === 'done').map(([, p]) => p.message),
         mainProgress: () => sent.filter(([ch]) => ch === 'meeting:progress').map(([, p]) => (p ? p.message : undefined)),
-        setOpenAiBase: (b) => { openAiBase = String(b || ''); } });
+        setOpenAiBase: (b) => { openAiBase = String(b || ''); },
+        setOnline: (on) => { netUp = Boolean(on); },
+        relay: relayLocal ? { mail: require('./relay-run').mail, codeFor: (e) => relayLocal.codeFor(e), setFront: (m) => relayLocal.setFront(m), db: relayLocal.db,
+          calls: () => relayPaths.slice() } : null });
     }
     const files = listFiles(userData);
     const localFiles = [];

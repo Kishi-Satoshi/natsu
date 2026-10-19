@@ -60,6 +60,8 @@ const db = makeDbClient({
   onEvent: (ev) => onDbEvent(ev),
 });
 const { makeSecrets } = require('./secrets');
+// 文字起こしの中継の住所とログインの口（第1d回 A-1・A-2。Electron を読まない。通信は net.request を渡す）
+const relay = require('./relay');
 const security = require('./security');
 const RENDERER_PAGES = { app: path.join(__dirname, 'renderer', 'app.html'), overlay: path.join(__dirname, 'renderer', 'overlay.html') };
 const minutes = require('./minutes');
@@ -69,7 +71,7 @@ const { markdownToBlocks, dropRedundantEmpty } = minutes;
 // テンプレートの写し（見出しだけ・雛形そのまま）を落とす。minutes.js 側に
 // まだ無い版でも動くよう、無ければ素通しにする。
 const dropTemplateEcho = minutes.dropTemplateEcho || ((b) => b);
-const { defaultSettings, readSettings, pickSavable, isSettingsShape, SETTING_RULES } = require('./settings');
+const { defaultSettings, readSettings, pickSavable, isSettingsShape, isEmailShape, SETTING_RULES } = require('./settings');
 // DB の外の JSON（設定・履歴）を読む・退ける・書く部品（第1a回 JS1〜JS3・JS6）
 const J = require('./jsonfile');
 // 画面の覚え書き（第1b回 N6）の照らし。純粋な関数だけ（Electron を読まない）。読み書きは上の J で行う
@@ -3544,7 +3546,8 @@ function setupIpc() {
     const prevPillPos = settings.pillPos;
     // 決まりのあるキーだけを受け取り（許可の一覧 pickSavable）、読み込みと同じ決まりで整える。知らないキーは
     // ファイルにあったものだけが残る（画面から新しく入れさせない）
-    const merged = readSettings({ ...settings, ...pickSavable(next) }, DEFAULT_SETTINGS).settings;
+    // ログイン中のメールアドレスは main のログインの IPC だけが書く（第1d回 A-2。画面の古い写しで消したり、ほかの名前にしたりさせない）
+    const merged = readSettings({ ...settings, ...pickSavable(next), accountEmail: settings.accountEmail }, DEFAULT_SETTINGS).settings;
     // 記録中はエンジンに関わる設定を前の値に留める（#57。判断は mainlib.guardEngineSettings）。
     // 保存のたびにエンジンが再起動すると、文字起こし中の区間が失われる。留めた値は
     // applied で画面へ戻し、warning で伝える。
@@ -3815,6 +3818,71 @@ function setupIpc() {
       : r.code === 'quota' ? `${p.label}: 残高が足りません（${p.label} の Billing を確かめてください）。`
         : `${p.label}: ${keyText(r.code)}`;
     return { ok: false, code: r.code, message };
+  });
+  // ---- ログイン（第1d回 Task A-2。RL10・RF32・F1・F12）----
+  // 札（中継のトークン）は secrets に relay の名前でしまうだけで、画面・記録・知らせには出さない（返すのはログインしているかとメールだけ）。
+  // 確認コードも返さず記録しない。記録は符号だけ（メールアドレスも書かない）。account:status は外へ通信しない（/auth/me を呼ばない。
+  // 札があるかは暗号の文字があるかだけで見る: 設定を開くたびにキーリングの確かめを出さない）。文は計画「画面と知らせの文」の R4〜R17
+  const accountApi = relay.makeAccountApi({ request: (o) => electronNet.request(o) });
+  const relayHost = relay.relayProvider().host;
+  const accountFail = (code, extra = {}) => ({ ok: false, code, message: lib.accountMessage(code, { host: relayHost, ...extra }), ...extra });
+  // ログイン中のメールアドレスを書く（'' はログインしていない）。書けなくても投げない（書き手が次の機会にやり直す）
+  const setAccountEmail = (email) => {
+    settings = readSettings({ ...settings, accountEmail: email }, DEFAULT_SETTINGS).settings;
+    const w = settingsWriter.now(settings);
+    if (!w.ok) engineLog(`アカウント: 設定に書けませんでした（${errCode(w.error)}）`);
+  };
+  const signedIn = () => { try { return Boolean(secrets) && secrets.has('relay'); } catch (_) { return false; } };
+  ipcMain.handle('account:status', async () => {
+    let canStore = false;
+    try { canStore = Boolean(secrets) && await secrets.available(); } catch (_) { canStore = false; }
+    const on = signedIn();
+    const up = netOnline();
+    return { ok: true, signedIn: on, email: on ? settings.accountEmail : '', method: 'email', canStore, online: { up, why: up ? 'ok' : 'offline' } };
+  });
+  ipcMain.handle('account:start', async (_e, email) => {
+    const mail = typeof email === 'string' ? email.trim() : '';
+    if (!isEmailShape(mail)) return accountFail('bad-email');
+    const r = await accountApi.start(mail);
+    engineLog(`アカウント: 確認コードを頼んだ（${r.ok ? 'sent' : r.code}）`);
+    if (r.ok) return { ok: true };
+    return accountFail(r.code, r.retryAfter !== undefined ? { retryAfter: r.retryAfter } : {});
+  });
+  ipcMain.handle('account:verify', async (_e, email, code) => {
+    const mail = typeof email === 'string' ? email.trim() : '';
+    // IME で打った全角の数字と、間と前後の空白は送る前に直す（中継は 6 けたの半角の数字だけを受ける）
+    const digits = typeof code === 'string' ? code.normalize('NFKC').replace(/\s+/g, '') : '';
+    if (!isEmailShape(mail)) return accountFail('bad-email');
+    if (!/^[0-9]{6}$/.test(digits)) return accountFail('bad-code');
+    const r = await accountApi.verify(mail, digits);
+    if (!r.ok) {
+      engineLog(`アカウント: ログインできませんでした（${r.code}）`);
+      const extra = {};
+      if (r.left !== undefined) extra.left = r.left;
+      if (r.retryAfter !== undefined) extra.retryAfter = r.retryAfter;
+      return accountFail(r.code, extra);
+    }
+    // しまえない PC（暗号にできない）・書けないときは、札をその場で中継で取り消す（使われない札を残さない: RF32）
+    const saved = secrets ? await secrets.set('relay', r.token) : { ok: false, code: 'unavailable' };
+    if (!saved.ok) {
+      const out = await accountApi.logout(r.token);
+      engineLog(`アカウント: ログインの札をしまえません（${saved.code || 'write'}）。中継の札を取り消しました（${out.ok ? 'ok' : '届かない'}）`);
+      return accountFail('store');
+    }
+    setAccountEmail(isEmailShape(r.email) ? r.email : mail);
+    engineLog('アカウント: ログインした');
+    return { ok: true, email: settings.accountEmail };
+  });
+  ipcMain.handle('account:logout', async () => {
+    const token = secrets && signedIn() ? await secrets.get('relay') : '';
+    let reached = '札なし';
+    if (token) reached = (await accountApi.logout(token)).ok ? 'ok' : '届かない';
+    // 中継に届かなくても PC の札は消す（中継の札は使わなければ 30 日で切れる）
+    const removed = secrets ? secrets.remove('relay') : { ok: true };
+    setAccountEmail('');
+    engineLog(`アカウント: ログアウトした（中継 ${reached}）`);
+    if (!removed.ok) return accountFail(removed.code || 'write');
+    return { ok: true, message: lib.accountMessage('logout') };
   });
   // Claude Code の状態（claude:status は auth status だけ。-p は呼ばない）。同時に押されても子は1つだけ起こす。
   // ［Claude Code を確かめる］（claude:test）は、その後に確かめの小さな -p を1つ送る（第1b回の続き Lane F-b。auth status は
