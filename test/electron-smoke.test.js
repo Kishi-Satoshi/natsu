@@ -81,6 +81,15 @@ test('P-2: 15 は DB の子を NaTsu DB の名前で起こし、本物の preloa
   assert.ok(boot.indexOf('displayMediaCheck(') < boot.indexOf('dbChecks(') && boot.indexOf('dbChecks(') < boot.indexOf('securityChecks('), '15 の場所');
   // 版を見る前の所に new BrowserWindow( を書かない（dbChecks は boot() の後に置く）
   assert.ok(m.indexOf('async function dbChecks(') > m.indexOf('function boot()'));
+  // 子を落とすのは 'spawn' の後（Electron の UtilityProcess の kill() は、プロセスが出来る前（pid の無い間）は何もせず false を返す。
+  // Windows は起こすのが遅く、用意の前の子 B を出来る前に kill して、終わりを 10 秒待って止まった。CI run 39240983508）
+  assert.ok(fn.includes("spawned: new Promise((r) => child.once('spawn', r))"), "子の 'spawn' を待てない");
+  for (const k of ['a', 'b']) {
+    const kill = fn.indexOf(`o.kill${k.toUpperCase()}Ok = ${k}.child.kill();`);
+    assert.ok(kill > 0, `${k} の kill() の答えを残していない`);
+    const waitSpawn = fn.lastIndexOf(`await within(${k}.spawned,`, kill);
+    assert.ok(waitSpawn > 0 && fn.slice(waitSpawn, kill).split('\n').length <= 2, `${k} を 'spawn' を待たずに kill している`);
+  }
   // 一時フォルダは日本語と 𠮷 の名前（利用者のデータに触れない）
   assert.match(fn, /mkdtempSync\(path\.join\(os\.tmpdir\(\), '[^']*[ぁ-ん一-龠][^']*𠮷[^']*'\)\)/);
   // 何もしないページのまま（見るのは preload の口）

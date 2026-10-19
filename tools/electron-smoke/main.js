@@ -401,7 +401,8 @@ async function dbChecks({ BrowserWindow, utilityProcess, MessageChannelMain }) {
     const dataDir = path.join(tmp, 'data');
     const fork = () => {
       const child = utilityProcess.fork(DB_SERVER, [], { serviceName: 'NaTsu DB' });
-      const k = { child, msgs: [], exited: new Promise((r) => child.once('exit', r)) };
+      // kill() はプロセスが出来る（'spawn'）前は何もせず false を返す（Windows は起こすのが遅い。CI run 39240983508 で B が終わらなかった）
+      const k = { child, msgs: [], exited: new Promise((r) => child.once('exit', r)), spawned: new Promise((r) => child.once('spawn', r)) };
       child.on('message', (m) => k.msgs.push(m));
       kids.push(k);
       return k;
@@ -467,7 +468,9 @@ async function dbChecks({ BrowserWindow, utilityProcess, MessageChannelMain }) {
       for (const api of [window.koeApp, window.koeOverlay]) for (const k of Object.keys(api || {})) if (typeof api[k] !== 'function' || isPort(api[k])) return true;
       return 'natsuDb' in window;
     })()`);
-    a.child.kill();
+    await within(a.spawned, 10000, '子 A の spawn');
+    o.killAOk = a.child.kill();
+    if (!o.killAOk) throw new Error('子 A の kill() が false（落とせない）');
     o.killCode = await within(a.exited, 10000, 'kill() の後の終わり');
     win.webContents.send('db:lost', {});
     await sync();
@@ -478,7 +481,9 @@ async function dbChecks({ BrowserWindow, utilityProcess, MessageChannelMain }) {
     await js(`koeApp.pageGet(${id}).then(() => { window.__p2.rd = 'resolved'; }, (e) => { window.__p2.rd = 'rejected ' + (e && e.message); });
       koeApp.pageSetTitle(${id}, ${JSON.stringify(SMOKE_DB.newTitle)}).then((p) => { window.__p2.wr = { title: p && p.title }; }, (e) => { window.__p2.wr = { error: (e && e.message) || '?' }; });
       1`);
-    b.child.kill();
+    await within(b.spawned, 10000, '用意の前の子の spawn');
+    o.killBOk = b.child.kill();
+    if (!o.killBOk) throw new Error('用意の前の子の kill() が false（落とせない）');
     await within(b.exited, 10000, '用意の前の子の終わり');
     // sandbox の preload の口にも 'close' が来て、読む頼みが返る（来なければ、main と同じく db:lost で返る）
     let rd = await until(() => js('window.__p2.rd'), 5000, "口の 'close'").catch(() => '');
