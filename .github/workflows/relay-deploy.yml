@@ -1,0 +1,35 @@
+# 文字起こしの中継（relay/）を Cloudflare に出す（第1d回 RL8）。
+# 手で押す（Actions → relay-deploy → Run workflow。main を選ぶ）か、main に relay/ の変更が入ったときに走る。
+# PR では走らない。秘密は環境 relay（main だけ）に置き、「中継を出す」の手順の env にだけ渡す（記録に出さない）。
+# 秘密がまだ無いときの main への push は、何も出さずに緑で終わる（手で押したときは、足りない秘密の名前を出して赤）。
+name: relay-deploy
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ['relay/**', 'tools/relay-deploy.js', '.github/workflows/relay-deploy.yml']
+permissions:
+  contents: read
+concurrency:
+  group: relay-deploy
+  cancel-in-progress: false
+jobs:
+  deploy:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: relay   # 秘密はこの環境にだけ置く。環境の Deployment branches は main だけ（利用者の用意の 4）
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: 中継のテスト
+        run: node --test --test-reporter=tap "test/relay-*.test.js"
+      - name: 中継を出す
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: node tools/relay-deploy.js
