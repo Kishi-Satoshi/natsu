@@ -44,7 +44,7 @@ test('P-2: 15 番目の確かめ（本物の server.js と本物の preload）�
   const S = require('../tools/electron-smoke/main.js');
   assert.strictEqual(S.CHECKS.length, 15);
   assert.match(S.CHECKS[14][1], /src\/db\/server\.js.*src\/preload\.js/);
-  const good = { got: { title: '見本', routeText: [] }, portOnWindow: false, rejectedWhileDown: true, titleAfter: '直した', oplogRows: 1, killCode: 0 };
+  const good = { got: { title: '見本', routeText: [] }, portOnWindow: false, rejectedWhileDown: true, titleAfter: '直した', oplogRows: 1, killCode: 0, resendOk: true };
   assert.strictEqual(S.dbResults(good)[0].ok, true);
   for (const k of ['portOnWindow', 'rejectedWhileDown', 'oplogRows']) {
     const bad = { ...good, [k]: k === 'oplogRows' ? 2 : !good[k] };
@@ -55,12 +55,14 @@ test('P-2: 15 番目の確かめ（本物の server.js と本物の preload）�
 });
 
 // P-2 の続き（計画のテストに足した）: 判定のほかの崩れも NG。読めたページ・題名・routeText・書き込み・oplog の数・kill の番号
-test('P-2: dbResults は、ページが返らない・routeText が無い・題名が違う・書き込みが済まない・oplog が 0 行・kill の番号が 0 でない、でも NG', { timeout: 5000 }, () => {
-  const good = { got: { title: '見本', routeText: ['☁ 文字起こし: クラウド（OpenAI）1'] }, portOnWindow: false, rejectedWhileDown: true, titleAfter: '直した', oplogRows: 1, killCode: 0 };
+test('P-2: dbResults は、ページが返らない・routeText が無い・題名が違う・書き込みが済まない・oplog が 0 行・kill の番号が 0 でない・同じ tx の送り直しが済みで返らない、でも NG', { timeout: 5000 }, () => {
+  const good = { got: { title: '見本', routeText: ['☁ 文字起こし: クラウド（OpenAI）1'] }, portOnWindow: false, rejectedWhileDown: true, titleAfter: '直した', oplogRows: 1, killCode: 0, resendOk: true };
   assert.deepStrictEqual(S.dbResults(good).map((r) => [r.n, r.ok]), [[15, true]]);
   const bad = [{ got: null }, { got: { title: '見本' } }, { got: { title: '見本', routeText: '' } }, { got: { title: '別', routeText: [] } },
     { titleAfter: '' }, { titleAfter: undefined }, { oplogRows: 0 }, { oplogRows: undefined }, { killCode: 1 }, { killCode: null },
-    { portOnWindow: undefined }, { rejectedWhileDown: 'rejected retry' }, { error: '子の ready が 15000ms で来ない' }];
+    { portOnWindow: undefined }, { rejectedWhileDown: 'rejected retry' }, { error: '子の ready が 15000ms で来ない' },
+    // 済んだ締めを同じ (役 main, tx) でもう一度送ると「済み」で返る（変異 db-tx-dup は UNIQUE(role, tx) で internal になる）
+    { resendOk: false }, { resendOk: undefined }, { resendOk: 'true' }];
   for (const patch of bad) assert.strictEqual(S.dbResults({ ...good, ...patch })[0].ok, false, JSON.stringify(patch));
   assert.strictEqual(S.dbResults({})[0].ok, false);
   assert.strictEqual(S.dbResults(null)[0].ok, false);
@@ -71,7 +73,7 @@ test('P-2: dbResults は、ページが返らない・routeText が無い・題�
 test('P-2: 15 は DB の子を NaTsu DB の名前で起こし、本物の preload を sandbox の窓に付け、口を落としてから起こし直し、版を見た後・守りの確かめの前に走る', { timeout: 5000 }, () => {
   const m = read('tools/electron-smoke/main.js');
   for (const k of ["serviceName: 'NaTsu DB'", "type: 'init'", "type: 'port', role: 'main'", "type: 'port', role: 'app'", "postMessage('db:port', null, [", "send('db:lost'",
-    "'meeting.finalize'", 'koeApp.pageGet(', 'koeApp.pageSetTitle(', 'instanceof MessagePort', "type: 'close'", "require('node:sqlite')", 'dbResults(', 'dbChecks('])
+    "'meeting.finalize'", 'koeApp.pageGet(', 'koeApp.pageSetTitle(', "('meeting.finalize', finArgs, finTx)", 'o.resendOk = ', 'instanceof MessagePort', "type: 'close'", "require('node:sqlite')", 'dbResults(', 'dbChecks('])
     assert.ok(m.includes(k), k);
   const fn = m.slice(m.indexOf('async function dbChecks('));
   assert.ok(fn.indexOf('preload: PRELOAD_REAL, sandbox: true, contextIsolation: true, nodeIntegration: false') > 0, '本物の preload を sandbox の窓に付けていない');

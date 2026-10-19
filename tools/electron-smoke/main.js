@@ -25,7 +25,8 @@
  *         （serviceName 'NaTsu DB'）で起こし、main の口で meeting.finalize を1つ書く。sandbox の隠れた窓に本物の src/preload.js を
  *         付け、koeApp.pageGet が routeText 付きのページを返す。ページの window の上に MessagePort が無い。子を kill() して
  *         （終わりの番号 0）、起こし直した子が用意の前のうちに pageGet と pageSetTitle を頼み、その子も落とす → pageGet は retry で
- *         返る。もう一度起こし直して口を配り直すと pageSetTitle が済み、oplog にその書き込みの行（役 app・tx 'a:…'）が1つだけある。
+ *         返る。もう一度起こし直すと、A の締めを同じ tx で送り直しても「済み」で返る（2回は効かない）。口を配り直すと
+ *         pageSetTitle が済み、oplog にその書き込みの行（役 app・tx 'a:…'）が1つだけある。
  * 結果は 1 行ずつ OK／NG で出す。15 件そろって全部 OK なら終了コード 0、そうでなければ 1（exitCodeOf）。
  * どこかで止まっても、90 秒の見張りで 1 で終わる。
  *
@@ -224,11 +225,12 @@ function onlineResults(o) {
 /**
  * 15 の判定（純粋）。dbChecks が本物の Electron で集めた観測を渡す。
  * @param {{ got: { title: string, routeText: string[] } | null, portOnWindow: boolean, rejectedWhileDown: boolean, titleAfter: string,
- *   oplogRows: number, killCode: number, closeEvent?: boolean, error?: string }} o
+ *   oplogRows: number, killCode: number, resendOk: boolean, closeEvent?: boolean, error?: string }} o
  *   got は koeApp.pageGet の答えの page。portOnWindow はページの window（と koeApp・koeOverlay の中）に MessagePort か
  *   関数でないもの・natsuDb があったか。rejectedWhileDown は、用意の前の子に頼んだ pageGet が、子を落とした後に retry で返ったか。
  *   titleAfter は起こし直した後に済んだ pageSetTitle の答えの題名。oplogRows は役 app・tx 'a:…' の page.setTitle の行の数。
- *   killCode は用意のできた子を kill() した終わりの番号。closeEvent（参考）は db:lost の前に口の 'close' で読みが返ったか。
+ *   killCode は用意のできた子を kill() した終わりの番号。resendOk は、A で済んだ締めを C の main の口に同じ tx でもう一度送ったとき
+ *   ok で返ったか（同じ (役, tx) は1回だけ効き、2回目は「済み」。もう一度効かせると UNIQUE(role, tx) で internal になる）。closeEvent（参考）は db:lost の前に口の 'close' で読みが返ったか。
  *   error はどこかで止まったときの文（あれば NG）
  * @returns {Array<{ n: number, ok: boolean, note: string }>}
  */
@@ -238,11 +240,12 @@ function dbResults(o) {
   const got = x.got && typeof x.got === 'object' ? x.got : null;
   const gotOk = Boolean(got) && got.title === SMOKE_DB.title && Array.isArray(got.routeText);
   const ok = !x.error && gotOk && x.portOnWindow === false && x.rejectedWhileDown === true && x.titleAfter === SMOKE_DB.newTitle
-    && x.oplogRows === 1 && x.killCode === 0;
+    && x.oplogRows === 1 && x.killCode === 0 && x.resendOk === true;
   const note = `pageGet の題名は ${j(got ? got.title : null)}・routeText は ${j(got ? got.routeText : null)}、`
     + `window に口は ${x.portOnWindow === false ? '無い' : `ある（${j(x.portOnWindow)}）`}、kill() の番号は ${j(x.killCode)}、`
     + `落ちた間の読みは ${x.rejectedWhileDown === true ? `retry で返った（${x.closeEvent === true ? "口の 'close' で" : 'db:lost で'}）` : '返らない'}、`
-    + `起こし直した後の題名は ${j(x.titleAfter)}、oplog の行は ${j(x.oplogRows)}${x.error ? `、止まった: ${x.error}` : ''}`;
+    + `起こし直した後の題名は ${j(x.titleAfter)}、oplog の行は ${j(x.oplogRows)}、`
+    + `同じ tx の締めの送り直しは ${x.resendOk === true ? '済みで返った' : `済みで返らない（${j(x.resendOk)}）`}${x.error ? `、止まった: ${x.error}` : ''}`;
   return [{ n: 15, ok, note }];
 }
 
@@ -376,12 +379,14 @@ function boot() {
  * （webContents.send。口と同じ道で、渡した順に届く）で印を送り、ページがその印を見てから頼む。
  *   A: 用意のできた子。main の口で締め → pageGet → window に口が無いか → kill()（番号）→ main と同じく db:lost
  *   B: 起こし直した子。init を送らない（用意の前。頼みは子の中で待つ）。口を配って pageGet と pageSetTitle を頼み、kill() → 読みは retry
- *   C: もう一度起こし直した子（落ちた後なので、子の中の worker で確かめてから用意）。口を配り直すと pageSetTitle が同じ tx で済む
+ *   C: もう一度起こし直した子（落ちた後なので、子の中の worker で確かめてから用意）。A の締めを同じ tx で main の口から送り直すと
+ *      「済み」で返る（もう一度は効かない）。口を配り直すと pageSetTitle が同じ tx で済む
  * 最後に C を閉じ（close → closed）、natsu.db を素の読み取り専用の接続で開いて oplog を数える。一時フォルダは消す。
  */
 async function dbChecks({ BrowserWindow, utilityProcess, MessageChannelMain }) {
   const o = {};
   const kids = [];
+  const ports = [];
   let win = null;
   let tmp = '';
   const until = async (fn, ms, what) => {
@@ -410,6 +415,7 @@ async function dbChecks({ BrowserWindow, utilityProcess, MessageChannelMain }) {
     // main の口（役 main）。頼み { id, cmd, args, tx? } → 返事 { id, ok, result | code }
     const mainPort = (k) => {
       const { port1, port2 } = new MessageChannelMain();
+      ports.push(port2);
       k.child.postMessage({ type: 'port', role: 'main' }, [port1]);
       const waiting = new Map();
       let seq = 0;
@@ -437,11 +443,13 @@ async function dbChecks({ BrowserWindow, utilityProcess, MessageChannelMain }) {
     const a = fork();
     const askA = mainPort(a);
     await start(a);
-    const fin = await askA('meeting.finalize', {
+    const finTx = `meeting:${Date.now()}`;
+    const finArgs = {
       pageId: SMOKE_DB.pageId,
       page: { title: SMOKE_DB.title, blocks: [], route: { stt: { cloud: 1, local: 0, provider: 'openai' }, localOnly: false } },
       segments: [{ id: 's1', atMs: 0, durationMs: 1000, text: '本日の議題は進捗の確認です。' }],
-    }, `meeting:${Date.now()}`);
+    };
+    const fin = await askA('meeting.finalize', finArgs, finTx);
     if (!fin.ok) throw new Error(`締めが ${fin.code}`);
     win = new BrowserWindow({
       show: false,
@@ -483,7 +491,11 @@ async function dbChecks({ BrowserWindow, utilityProcess, MessageChannelMain }) {
 
     // C: もう一度起こし直して口を配り直す → 待たせた書き込みが同じ tx で済む
     const c = fork();
+    const askC = mainPort(c);
     await start(c);
+    // 済んだ締めを同じ (役 main, tx) でもう一度送る → 「済み」で返り、もう一度は効かない（効かせると UNIQUE(role, tx) で internal）
+    const again = await askC('meeting.finalize', finArgs, finTx);
+    o.resendOk = again.ok === true;
     await givePort(c);
     const wr = await until(() => js('window.__p2.wr'), 10000, '書き込みの答え');
     o.titleAfter = wr.error ? `失敗（${wr.error}）` : wr.title;
@@ -500,6 +512,7 @@ async function dbChecks({ BrowserWindow, utilityProcess, MessageChannelMain }) {
     o.error = msgOf(e);
   } finally {
     for (const k of kids) { try { k.child.kill(); } catch (_) { /* もう居ない */ } }
+    for (const p of ports) { try { p.close(); } catch (_) { /* もう閉じた */ } }
     if (win) { try { win.destroy(); } catch (_) { /* もう無い */ } }
     await Promise.all(kids.map((k) => within(k.exited, 5000, '子の終わり').catch(() => {})));
     if (tmp) { try { fs.rmSync(tmp, { recursive: true, force: true }); } catch (_) { /* 消せなくても判定は出す */ } }
