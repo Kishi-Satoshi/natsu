@@ -38,6 +38,7 @@ test('G3・F10: 変異の一覧は、どれも今のファイルにちょうど1
   assert.strictEqual(new Set(MUTANTS.map((m) => m.id)).size, MUTANTS.length);
   for (const m of MUTANTS) {
     assert.ok(m.id && m.why && m.from !== m.to && m.tests.length, m.id);
+    assert.ok(m.also === undefined || (Array.isArray(m.also) && m.also.length && m.also.every((x) => x && x.from && x.from !== x.to)), `${m.id}: also`);
     for (const t of m.tests) assert.ok(fs.existsSync(path.join(ROOT, t)), `${m.id}: ${t}`);
   }
 });
@@ -46,6 +47,16 @@ test('G3: applyMutant はちょうど1回だけ置き換え、0 回や2回なら
   assert.strictEqual(M.applyMutant('a + b', { from: '+', to: '-' }), 'a - b');
   assert.throws(() => M.applyMutant('a + b', { from: '*', to: '/' }));
   assert.throws(() => M.applyMutant('a + b + c', { from: '+', to: '-' }));
+});
+
+// 第2a1回 G-3: 離れた2か所を一緒に戻さないと見えない直し（片方だけでは、もう片方が守るので同じ動き）は also に足す。
+// also の from も、前の置き換えの後の文字にちょうど1回（当たらなければ古い）
+test('G3: also のある変異は、本体の後に also を順に1回ずつ置き換え、どれかが 0 回や2回なら投げて古いと数える', { timeout: 5000 }, () => {
+  const m = { from: 'a + b', to: 'a - b', also: [{ from: 'x * y', to: 'x / y' }] };
+  assert.strictEqual(M.applyMutant('a + b; x * y', m), 'a - b; x / y');
+  assert.throws(() => M.applyMutant('a + b; x + y', m));
+  assert.throws(() => M.applyMutant('a + b; x * y; x * y', m));
+  assert.deepStrictEqual(M.findStale([{ id: 'ok', file: 'f', ...m }, { id: 'old', file: 'g', ...m }], (f) => (f === 'f' ? 'a + b; x * y' : 'a + b; x + y')), ['old']);
 });
 
 test('G3・F10: 小さな見本で、殺される・生き残る・古い（当たらない）変異を見分け、元のファイルは変えない（写しは src・test・tools の外も写す）', { timeout: 20000 }, async () => {
@@ -59,6 +70,26 @@ test('G3・F10: 小さな見本で、殺される・生き残る・古い（当�
   assert.strictEqual(M.exitCodeOf(r), 1);
   assert.strictEqual(M.exitCodeOf(r.filter((x) => x.status === 'killed')), 0);
   assert.strictEqual(fs.readFileSync(path.join(root, 'src', 'add.js'), 'utf8'), ADD_SRC);
+});
+
+// 第2a1回 G-3: 場面（mainrun）を使う重いテストのファイルは、赤になるテストの名前だけを回す（pattern は --test-name-pattern に渡す。
+// CI の mutate を 20 分に収めるため）。名前に当たらなければ何も走らず「生き残り」に見える（黙って殺したと数えない）
+test('G3: pattern のある変異は、その名前のテストだけを回す（当たらない名前なら生き残りに見える）', { timeout: 20000 }, async () => {
+  const root = fixtureRepo();
+  const r = await M.runAll({ root, jobs: 1, mutants: [
+    { id: 'kill-pat', file: 'src/add.js', from: 'a + b', to: 'a - b', tests: ['test/add.test.js'], pattern: '^足し算$', why: '名前が当たる' },
+    { id: 'miss-pat', file: 'src/add.js', from: 'a + b', to: 'a - b', tests: ['test/add.test.js'], pattern: '^無い名前$', why: '名前が当たらない' },
+  ] });
+  assert.deepStrictEqual(r.map((x) => [x.id, x.status]), [['kill-pat', 'killed'], ['miss-pat', 'survived']]);
+});
+
+test('G3: pattern は正規表現として読め、tests のファイルのどれかのテストの名前に当たる（古くなった名前で黙って生き残らせない）', { timeout: 5000 }, () => {
+  const names = (f) => [...fs.readFileSync(path.join(ROOT, f), 'utf8').matchAll(/\b(?:test|it|describe)\(\s*(['"`])((?:\\.|(?!\1).)*)\1/g)].map((x) => x[2].replace(/\\(.)/g, '$1'));
+  for (const m of MUTANTS.filter((x) => x.pattern !== undefined)) {
+    assert.strictEqual(typeof m.pattern, 'string', m.id);
+    const re = new RegExp(m.pattern);
+    assert.ok(m.tests.some((f) => names(f).some((n) => re.test(n))), `${m.id}: pattern ${m.pattern} に当たるテストが無い`);
+  }
 });
 
 test('G3・F10: 元のテストが赤なら、変異を試さずに止める（何でも「殺した」に見えるため）', { timeout: 20000 }, async () => {
@@ -168,4 +199,43 @@ test('G3: 第1b回・第1b2回・Lane F と直しの変異が一覧にそろい�
   const ids = new Set(MUTANTS.map((m) => m.id));
   assert.deepStrictEqual([...IDS_1B, ...IDS_1B_REVIEW, ...IDS_1B2, ...IDS_1B_FIX].filter((id) => !ids.has(id)), []);
   assert.ok(!ids.has('look-sel-line'), '第1b2回で左の線をやめたのに look-sel-line が残っている');
+});
+
+// 第2a1回（Task G-3。計画 docs/plans/2026-10-19-2a1.md の「変異確認」の表。各レーンの点検で足した行を含む）
+const IDS_2A1 = [
+  'dk-between-order', 'dk-trailing-zero', 'dk-even-width', 'pr-list-entry', 'db-wal', 'db-full', 'db-fk', 'db-secure-delete',
+  'db-fts-secure', 'db-strict', 'db-selftest', 'db-newer-ro', 'db-step-immediate', 'db-proto', 'db-role', 'db-tx-dup',
+  'db-tx-mismatch', 'db-tx-role', 'db-oplog-same-tx', 'db-tx-required', 'dv-id-shape', 'dv-limit-blocks', 'dv-limit-bytes', 'dv-attrs-reserved',
+  'dv-rich-mark', 'dv-rich-link', 'dv-rich-text', 'ops-old', 'db-view-order', 'db-short-mark', 'db-cite-stat', 'db-stale',
+  'db-seg-recite', 'db-seg-failed', 'db-route-text', 'db-rev-conflict', 'db-put-create', 'db-hidden-live', 'db-finalize-overwrite', 'db-trash',
+  'db-trash-hidden', 'db-purge-oplog', 'db-purge-mark', 'db-hot-index', 'db-rev-blocks', 'db-strip-derived', 'db-dup-result', 'db-begin-no-downgrade',
+  'db-recover-keep-done', 'db-settle-keep', 'db-discard-checkpoint', 'ds-short-like', 'ds-codepoints', 'ds-escape', 'ds-quote', 'ds-memo',
+  'ds-sep', 'ds-order', 'ds-truncated', 'dm-no-move', 'dm-verify', 'dm-tmp', 'dm-failed-keep', 'dm-count-broken',
+  'dm-reimport-new', 'dm-reimport-replace', 'dm-reimport-copy', 'dm-purge-skip', 'dm-fingerprint', 'dm-page-tolerant', 'dm-fix-ids', 'dm-stale-wal',
+  'dm-failed-prune', 'dm-fingerprint-migrate', 'dm-reimport-atomic', 'dn-verify', 'dn-close', 'dn-keep-broken', 'dn-no-delete-busy', 'dn-lock',
+  'dn-rotate', 'dn-keep-migration', 'dn-prune-purge', 'dn-classify', 'dn-check-unavailable', 'dn-restore-first', 'dn-skip-partial', 'dn-rotate-held',
+  'dsv-changed', 'dsv-close', 'dsv-no-remigrate', 'mc-backoff', 'mc-giveup', 'mc-intentional', 'mc-resend', 'mc-port-each-load',
+  'mc-no-overlay-port', 'mc-down-rejects', 'mc-send-resend', 'mb-tabs-keep', 'mr-recovery-keep-on-error', 'mc-no-init-store', 'mc-resend-order', 'mc-port-on-restart',
+  'mc-db-lost', 'mr-draft-pageid', 'mr-clear-after-ack', 'mr-recover-same-id', 'mr-discard-pending', 'mr-settle-keep', 'mr-no-relay', 'mr-already-clear',
+  'mr-empty-draft-purge', 'mr-purge-unsaved', 'mr-bg-finalize', 'mr-skip-finalizing', 'mr-start-no-wait', 'mr-park-recovering', 'mr-recover-chain', 'm1-saveifexists-retry',
+  'm1-quit-wait', 'm1-conflict-throw', 'm1-down-not-gone', 'mm-dialog-counts', 'mm-quit-untouched', 'mm-no-snapshot-meeting', 'pp-tx', 'pp-resend-same-tx',
+  'pp-reject-read', 'pp-name-check', 'pp-queue-before-port', 'gp-search-budget', 'gp-list-key-rev', 'gp-list-copy', 'gp-search-cache', 'gp-search-first-seg',
+  'gp-search-first-block', 'gp-busy-writing',
+];
+test('G3: 第2a1回の変異が一覧にそろう（計画の「変異確認」の表と同じ id）', { timeout: 5000 }, () => {
+  const ids = new Set(MUTANTS.map((m) => m.id));
+  assert.deepStrictEqual(IDS_2A1.filter((id) => !ids.has(id)), []);
+});
+// 第2a1回の各レーンの点検で、テストを足して殺した変異（計画の表の外。統合の申し送り (a)〜(e)）
+const IDS_2A1_REVIEW = [
+  'dj-create-summary-error', 'db-actor-main', 'db-readonly-flag', 'db-put-trashed', 'db-insert-pos', 'db-seg-norecite',
+  'db-copy-trashed', 'db-recover-trashed', 'db-restore-copy', 'db-restore-done',
+];
+test('G3: 第2a1回の点検で足した変異も一覧にそろい、IDS_2A1 は計画の「変異確認」の表の id とちょうど同じ', { timeout: 5000 }, () => {
+  const ids = new Set(MUTANTS.map((m) => m.id));
+  assert.deepStrictEqual(IDS_2A1_REVIEW.filter((id) => !ids.has(id)), []);
+  const plan = fs.readFileSync(path.join(ROOT, 'docs', 'plans', '2026-10-19-2a1.md'), 'utf8');
+  const table = plan.slice(plan.indexOf('## 変異確認'), plan.indexOf('## ゲート'));
+  const rows = [...table.matchAll(/^\| ([a-z0-9]+(?:-[a-z0-9]+)+) \|/gm)].map((x) => x[1]);
+  assert.deepStrictEqual([...rows].sort(), [...IDS_2A1].sort());
 });

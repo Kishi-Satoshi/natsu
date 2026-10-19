@@ -1,8 +1,9 @@
 'use strict';
 // 自動の変異確認（第1a回 G3）。tools/mutants.js の変異を1つずつリポジトリの写しに当て、決めたテストが赤になるか（殺せるか）を見る。
 //
-//   applyMutant(text, m)       … m.from がちょうど1回なら m.to に置き換えた文字を返す。0 回か2回以上なら投げる
-//   findStale(mutants, read)   → 当たらない（0 回か2回以上・ファイルが無い）変異の id の配列
+//   applyMutant(text, m)       … m.from がちょうど1回なら m.to に置き換えた文字を返す。0 回か2回以上なら投げる。
+//                                m.also（[{ from, to }]）があれば、その後に順に同じ決まりで置き換える（離れた2か所を一緒に戻す変異。第2a1回 G-3）
+//   findStale(mutants, read)   → 当たらない（0 回か2回以上・ファイルが無い。also も）変異の id の配列
 //   runAll({ root, mutants, jobs, timeoutMs })
 //                              → [{ id, status: 'killed' | 'survived' | 'stale' | 'baseline-red', file, why }]
 //   exitCodeOf(results)        … 全部 'killed' なら 0、それ以外は 1
@@ -15,6 +16,8 @@
 //  - 子は process.execPath で走らせる（Electron の Node で回すときも同じ Node で走る）。env から NODE_TEST_CONTEXT を消し
 //    （npm test の中から呼ばれても入れ子の報告が親に混ざらない）、NATSU_SCENE_CONCURRENCY=1 にする（写しを並べるので場面は1つずつ）。
 //  - root のファイルは変えない（当てるのは写しだけ。1つ試すごとに元に戻す）。
+//  - 変異に pattern（文字の正規表現）があれば --test-name-pattern に渡し、その名前のテストだけを回す（第2a1回 G-3。場面を使う
+//    重いテストのファイルで、赤になるテストだけを回して CI の mutate を 20 分に収める）。元のままの確かめは名前で絞らない。
 //
 // node tools/mutate.js [--only id,id] [--jobs N]
 //   結果を 1 行ずつ（killed／SURVIVED／STALE／BASELINE-RED）出し、最後に数をまとめ、exitCodeOf で終わる。
@@ -34,11 +37,17 @@ function countOf(text, s) {
   return n;
 }
 
+function replaceOnce(text, from, to) {
+  const n = countOf(text, from);
+  if (n !== 1) throw new Error(`変異の元の文字が ${n} 回ある（ちょうど1回でないと当てられない）: ${JSON.stringify(from)}`);
+  const i = text.indexOf(from);
+  return text.slice(0, i) + to + text.slice(i + from.length);
+}
+
 function applyMutant(text, m) {
-  const n = countOf(text, m.from);
-  if (n !== 1) throw new Error(`変異の元の文字が ${n} 回ある（ちょうど1回でないと当てられない）: ${JSON.stringify(m.from)}`);
-  const i = text.indexOf(m.from);
-  return text.slice(0, i) + m.to + text.slice(i + m.from.length);
+  let out = replaceOnce(text, m.from, m.to);
+  for (const x of m.also || []) out = replaceOnce(out, x.from, x.to);
+  return out;
 }
 
 function findStale(mutants, read) {
@@ -46,7 +55,7 @@ function findStale(mutants, read) {
   for (const m of mutants) {
     let text;
     try { text = read(m.file); } catch (_) { out.push(m.id); continue; }
-    if (countOf(text, m.from) !== 1) out.push(m.id);
+    try { applyMutant(text, m); } catch (_) { out.push(m.id); }
   }
   return out;
 }
@@ -70,11 +79,12 @@ function childEnv() {
 }
 
 // テストのファイルを写しで走らせる → { code, timedOut, output }
-function runTests(cwd, tests, timeoutMs) {
+function runTests(cwd, tests, timeoutMs, pattern) {
   return new Promise((resolve) => {
     let output = '';
     const keep = (b) => { output = (output + b.toString('utf8')).slice(-OUTPUT_KEEP); };
-    const child = spawn(process.execPath, ['--test', '--test-reporter=tap', ...tests], { cwd, env: childEnv(), windowsHide: true });
+    const only = typeof pattern === 'string' ? [`--test-name-pattern=${pattern}`] : [];
+    const child = spawn(process.execPath, ['--test', '--test-reporter=tap', ...only, ...tests], { cwd, env: childEnv(), windowsHide: true });
     let timedOut = false;
     const timer = setTimeout(() => { timedOut = true; child.kill('SIGKILL'); }, timeoutMs);
     child.stdout.on('data', keep);
@@ -114,7 +124,7 @@ async function runAll({ root, mutants, jobs = 2, timeoutMs = 120000 }) {
         const original = fs.readFileSync(target, 'utf8');
         fs.writeFileSync(target, applyMutant(original, m));
         try {
-          const r = await runTests(dir, m.tests, timeoutMs);
+          const r = await runTests(dir, m.tests, timeoutMs, m.pattern);
           results[i].status = r.code === 0 ? 'survived' : 'killed';
           if (r.timedOut) results[i].timedOut = true;
         } finally {

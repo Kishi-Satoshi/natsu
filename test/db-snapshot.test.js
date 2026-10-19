@@ -77,9 +77,15 @@ test('RF18: 名前を変えられない間（EPERM・EBUSY）は消さずに待�
     const backups = fs.readdirSync(path.join(d.dataDir, 'backup'));
     // 消してよいのは自分の一時ファイル natsu.db.restoring だけ
     const own = (p) => /\.restoring$/.test(String(p));
+    // 消そうとしたことを覚える（投げた誤りを recover が busy に変えても、消そうとした形を見逃さない: G-3 の変異 dn-no-delete-busy）
+    // （natsu.db.lock は自分の目印なので消してよい）
+    const tried = [];
+    const lock = (p) => path.basename(String(p)) === S.LOCK_NAME;
     const stuck = { ...fs, renameSync: (a, b) => { if (own(a) && own(b)) return fs.renameSync(a, b); throw Object.assign(new Error('x'), { code: 'EBUSY' }); },
-      unlinkSync: (p) => { if (own(p)) return fs.unlinkSync(p); throw new Error('消そうとした'); }, rmSync: (p, o) => { if (own(p)) return fs.rmSync(p, o); throw new Error('消そうとした'); } };
+      unlinkSync: (p) => { if (own(p) || lock(p)) return fs.unlinkSync(p); tried.push(path.basename(String(p))); throw new Error('消そうとした'); },
+      rmSync: (p, o) => { if (own(p)) return fs.rmSync(p, o); tried.push(path.basename(String(p))); throw new Error('消そうとした'); } };
     const r = await S.recover({ sqlite, dataDir: d.dataDir, now: () => new Date(), fs: stuck, waits: [1, 1] });
+    assert.deepStrictEqual(tried, [], '名前を変えられないのに消そうとした');
     assert.deepStrictEqual([r.ok, r.code], [false, 'busy']);
     assert.deepStrictEqual(fs.readFileSync(f), before, '戻せなかったのに natsu.db が変わった');
     assert.deepStrictEqual(fs.readdirSync(path.join(d.dataDir, 'backup')), backups, '控えが消えた');

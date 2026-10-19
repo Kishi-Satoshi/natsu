@@ -42,9 +42,9 @@ test('表示名は NaTsu（画面・録音バー・ウィンドウ・トレイ�
 });
 
 // 第1b回 Task C-3 で意図して変えた: 版を 0.6.0 に（第1b回と第1b2回の画面・窓の覚え書き・一時停止。Electron は 44.9.0 のままなので［更新して再起動］で当たる）
-test('識別子: name は natsu・版は 0.6.0・productName は build の中だけ（userData は %APPDATA%\\natsu）', () => {
+test('識別子: name は natsu・版は 0.7.0・productName は build の中だけ（userData は %APPDATA%\\natsu）', () => {
   assert.strictEqual(pkg.name, 'natsu');
-  assert.strictEqual(pkg.version, '0.6.0');
+  assert.strictEqual(pkg.version, '0.7.0');
   assert.strictEqual(pkg.productName, undefined, 'top-level の productName は userData の名前を変える');
   assert.strictEqual(pkg.build.productName, 'NaTsu');
   assert.strictEqual(pkg.build.appId, 'local.natsu.app');
@@ -168,4 +168,35 @@ test('第1b回 C-3: CHANGELOG の 0.6.0 の節は、更新の仕方・新しい�
     assert.ok(sec.includes(w), `0.6.0 の節に「${w}」が無い`);
   }
   assert.ok(!/notion/i.test(sec), '0.6.0 の節に「Notion」と書いた');
+});
+
+// 第2a1回 Task G-3（G3）: 試作の名前を持ち込まない・版 0.7.0・README の保存の説明
+test('2a1: 試作の名前を持ち込んでいない（listener.db・Listener DB・koetype・app.setPath）', () => {
+  // app.setPath は src だけを見る（tools/shots・tools/electron-smoke・tools/net-smoke は一時フォルダを使うために今も呼んでいる）。
+  // koetype は test/repo.test.js が「README に無いこと」を確かめるために文字として持っている
+  const allowed = { koetype: ['test/identity.test.js', 'test/repo.test.js'] };
+  for (const f of tracked().filter((x) => /^(src|test|tools)\/.*\.(js|html)$/.test(x))) {
+    const s = read(f);
+    for (const bad of ['listener.db', 'Listener DB', 'koetype']) assert.ok(!s.includes(bad) || f === 'test/identity.test.js' || (allowed[bad] || []).includes(f), `${f}: ${bad}`);
+    if (f.startsWith('src/')) assert.ok(!s.includes('app.setPath('), `${f}: app.setPath`);
+  }
+});
+
+test('0.7.0: 版と、README の保存の説明（natsu.db・backup・元の JSON を残す・古い版に戻したとき・控えに残る期間）', () => {
+  assert.strictEqual(require('../package.json').version, '0.7.0');
+  const r = read('README.md');
+  for (const w of ['natsu.db', 'data\\backup', '元の JSON', '古い版', '3 日', '2 週']) assert.ok(r.includes(w), w);
+});
+
+// 第2a1回 G-3: CHANGELOG の 0.7.0 の節。更新は［更新して再起動］で当たること・保存の形（natsu.db・元のファイルを残す）・検索・控え・
+// 録音は保存の仕組みに頼らない・削除・古い版に戻したとき、と、同じ 0.7.0 に入る設定の画面の2つ（送り先を OpenAI に固定・外観）を書く
+test('0.7.0: CHANGELOG の 0.7.0 の節は、更新の仕方・保存の形・検索・控え・録音・削除・古い版に戻したとき・送り先・外観を書く', () => {
+  const cl = read('CHANGELOG.md');
+  assert.ok(cl.indexOf('## natsu-v0.7.0') >= 0 && cl.indexOf('## natsu-v0.7.0') < cl.indexOf('## natsu-v0.6.0'), '0.7.0 の節が 0.6.0 の上に無い');
+  const sec = cl.slice(cl.indexOf('## natsu-v0.7.0'), cl.indexOf('## natsu-v0.6.0'));
+  assert.ok(sec.split('\n').slice(0, 4).join('\n').includes('［更新して再起動］'), '頭に［更新して再起動］で当たることが無い');
+  for (const w of ['natsu.db', '元のファイル', '検索', 'data\\backup', '録音', '［削除］', '0.6.0 に戻したとき', '3日', '2週', 'OpenAI', '外観', 'Ctrl+Shift+L']) {
+    assert.ok(sec.includes(w), `0.7.0 の節に「${w}」が無い`);
+  }
+  assert.ok(!/notion/i.test(sec), '0.7.0 の節に「Notion」と書いた');
 });
