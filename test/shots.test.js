@@ -313,6 +313,17 @@ test('G2・F14・U-2: 取り直し待ちは無い。どの画面にも基準の 
 });
 // 録音バーの基準が第1a回のまま（sha256）であることは C-1 のテストが見続ける（git の履歴は浅い取り出しでは数えられないので使わない）
 
+// 0.7.0 の出す前の CI（run 39250045942）: 573d111 で設定のカード「オンライン」の説明を小さくしたらページが短くなり、
+// 見える中身は同じなのに右の捲り棒のつまみの端（x 1108〜1116・y 322〜326 の 24 画素）だけが変わって settings-light・settings-dark が NG になった
+// （第1c回 4ec68b6 と同じ形。「いちばん上ではないので撮った画面には当たらない」は、つまみの長さがページ全体の長さで決まるので誤り）。
+// 画面は app.html の1ファイル（script と style は中に書く）なので、基準の画像を撮った app.html の sha256 をここに持ち、変えたら手元で赤にする。
+// 赤になったら: Windows の CI の「主な画面を撮る」を見て、違えば基準を取り直す（見える中身が変わるなら RETAKE に入れて利用者に見てもらう）。それから下の値を今の app.html に合わせる
+test('基準の画像（test/shots/win32）は今の app.html で撮ったもの（app.html を変えたら撮り直しを確かめる）', { timeout: 5000 }, () => {
+  const sha = require('node:crypto').createHash('sha256').update(fs.readFileSync(path.join(ROOT, 'src', 'renderer', 'app.html'))).digest('hex');
+  assert.strictEqual(sha, '22110855ee00340e9366b02bb01d77afbfacc9be7eafd2f231aabdd02398e327',
+    'app.html が基準の画像を撮った時と違う。Windows の CI の画面の比べ（捲り棒のつまみも）を見て、基準を取り直してからこの値を直す');
+});
+
 test('ci.yml の electron-smoke: 撮った画面を基準（test/shots/win32）と比べる', { timeout: 5000 }, () => {
   const st = stepsOf(jobsOf(read('.github/workflows/ci.yml'))['electron-smoke']);
   assert.ok(st.some((s) => s.includes('electron.exe tools/shots --compare test/shots/win32 --out "$RUNNER_TEMP/shots"')));
