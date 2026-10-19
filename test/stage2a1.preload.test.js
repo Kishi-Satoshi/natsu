@@ -18,7 +18,7 @@ function load(timers = { setTimeout, clearTimeout }) {
   vm.runInNewContext(SRC, sandbox);
   const port = () => { const p = new EventTarget(); p.sent = []; p.postMessage = (m) => p.sent.push(structuredClone(m)); p.start = () => {};
     p.reply = (id, body) => { const ev = new Event('message'); ev.data = { id, ...body }; (p.onmessage || (() => {}))(ev); p.dispatchEvent(ev); };
-    p.close = () => p.dispatchEvent(new Event('close')); return p; };
+    p.closed = 0; p.close = () => { p.closed++; p.dispatchEvent(new Event('close')); }; return p; };
   const givePort = () => { const p = port(); on['db:port']({ ports: [p] }); return p; };
   return { exposed, givePort, lost: () => on['db:lost'] && on['db:lost']({}), sandbox };
 }
@@ -103,6 +103,57 @@ test('ST7: db:lost でも読む頼みは retry で返り、書く頼みは新し
   assert.deepStrictEqual(await wr, { id: 'pa1', from: 'new' });
 });
 
+// 点検で足したもの: main が db:lost を送らずに新しい口を配っても（古い口の 'close' も来なくても）、古い口に送った頼みを
+// 失ったものとして扱う（読む頼みは retry、書く頼みは新しい口で同じ tx）。古い口の遅い返事は使わない（F7: 待ちが返らない、を作らない）
+test('ST7・F7: db:lost も close も無いまま新しい口が来ても、古い口の頼みを返すか送り直す', { timeout: 5000 }, async () => {
+  const l = load(); const p1 = l.givePort();
+  const rd = l.exposed.koeApp.pageGet('pa1');
+  const wr = l.exposed.koeApp.pageSetTitle('pa1', '𠮷の題');
+  const wq = p1.sent[1];
+  const seen = (pr) => { const st = { done: false, err: null }; pr.then(() => { st.done = true; }, (e) => { st.done = true; st.err = e; }); return st; };
+  const tick = () => new Promise((r) => setImmediate(r));
+  const rs = seen(rd); const ws = seen(wr);
+  const p2 = l.givePort();
+  await tick();   // 待たずに見る（返らない頼みを await すると、赤ではなく途中で打ち切りになる）
+  assert.ok(rs.done && rs.err && rs.err.message === 'retry' && rs.err.retry === true, '古い口に送った読む頼みが返らない');
+  assert.deepStrictEqual(p2.sent.map((x) => [x.cmd, x.tx]), [['page.setTitle', wq.tx]], '古い口の書く頼みを新しい口で同じ tx で送り直していない');
+  p1.reply(wq.id, { ok: true, result: { id: 'pa1', from: 'old' } });   // 古い口の遅い返事
+  await tick();
+  assert.strictEqual(ws.done, false, '古い口の返事で決めた');
+  p2.reply(p2.sent[0].id, { ok: true, result: { id: 'pa1', from: 'new' } });
+  assert.deepStrictEqual(await wr, { id: 'pa1', from: 'new' });
+});
+
+// 点検で足したもの: 失った口・替えた口は閉じて返事の受け口を外す（口を残し続けない）
+test('ST7: db:lost の口と新しい口に替えた古い口は閉じ、返事の受け口を外す', { timeout: 5000 }, async () => {
+  const l = load(); const p1 = l.givePort();
+  l.lost();
+  assert.strictEqual(p1.closed, 1, 'db:lost の口を閉じていない');
+  assert.strictEqual(p1.onmessage, null);
+  const p2 = l.givePort(); const p3 = l.givePort();
+  assert.strictEqual(p2.closed, 1, '替えた古い口を閉じていない');
+  assert.strictEqual(p2.onmessage, null);
+  assert.strictEqual(p3.closed, 0);
+  const r = l.exposed.koeApp.pageGet('pa1');
+  p3.reply(p3.sent[0].id, { ok: true, result: { id: 'pa1' } });
+  assert.deepStrictEqual(await r, { id: 'pa1' });
+});
+
+// 点検で足したもの: 口に写せない引数（関数など）は、その頼みだけ bad-args で返し、待たせていた残りの頼みは送る
+test('F7: 口に写せない引数の頼みは bad-args で返り、残りの頼みは送られる', { timeout: 5000 }, async () => {
+  const l = load();
+  const bad = l.exposed.koeApp.blockUpdate('pa1', 'b1', { text: 'x', f: () => {} });
+  const ok = l.exposed.koeApp.pageSetTitle('pa1', '題');
+  const p = l.givePort();
+  await assert.rejects(bad, (e) => e.message === 'bad-args' && e.code === 'bad-args' && e.retry === false);
+  assert.deepStrictEqual(p.sent.map((x) => x.cmd), ['page.setTitle'], '写せない頼みの後の頼みを送っていない');
+  p.reply(p.sent[0].id, { ok: true, result: { id: 'pa1' } });
+  assert.deepStrictEqual(await ok, { id: 'pa1' });
+  const bad2 = l.exposed.koeApp.blockUpdate('pa1', 'b1', { f: () => {} });   // 口があるときも同じ
+  await assert.rejects(bad2, (e) => e.message === 'bad-args' && e.retry === false);
+  assert.strictEqual(p.sent.length, 1);
+});
+
 test('ST7: DB の失敗は符号を message にした Error（.code・.retry つき）で返す', { timeout: 5000 }, async () => {
   const l = load(); const p = l.givePort();
   const r = l.exposed.koeApp.pageSetMemo('pa1', 'メモ');
@@ -140,10 +191,14 @@ test('F7: 口が戻らなければ、送り直しを待つ書く頼みと口の�
 test('ST5: 口が来る前の頼み（起動の直後の一覧など）は断らずに待ち、口が来たら送る', { timeout: 5000 }, async () => {
   const l = load();
   const pr = l.exposed.koeApp.pagesSearch('');
+  const bare = l.exposed.koeApp.pagesSearch();   // 引数が無くても q は ''（今の main の q || '' と同じ）
   const p = l.givePort();
   assert.deepStrictEqual([p.sent[0].cmd, p.sent[0].args], ['pages.list', { q: '' }]);
+  assert.deepStrictEqual([p.sent[1].cmd, p.sent[1].args], ['pages.list', { q: '' }]);
   p.reply(p.sent[0].id, { ok: true, result: [] });
+  p.reply(p.sent[1].id, { ok: true, result: [] });
   assert.deepStrictEqual(await pr, []);
+  assert.deepStrictEqual(await bare, []);
 });
 
 test('ST5: preload に画面のページの invoke が残っていない（書き込みが main を通らない）', () => {

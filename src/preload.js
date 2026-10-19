@@ -13,6 +13,7 @@ const DB_READS = new Set(['pages.list', 'pages.searchFull', 'pages.actionView', 
 const DB_WAIT_MS = 30000;
 let dbPort = null;
 let dbSeq = 0;
+const dbGone = new WeakSet();   // 失って閉じた口（閉じたことで 'close' がまた来ても、2回は扱わない）
 const dbWaiting = new Map();   // id → { id, cmd, args, tx, port（送った口。まだなら null）, timer, resolve, reject }
 
 function dbError(code, retry) {
@@ -40,7 +41,8 @@ function dbSend(req) {
   req.port = dbPort;
   const msg = { id: req.id, cmd: req.cmd, args: req.args };
   if (req.tx) msg.tx = req.tx;
-  dbPort.postMessage(msg);
+  try { dbPort.postMessage(msg); }
+  catch (_) { dbSettle(req, req.reject, dbError('bad-args', false)); }   // 口に写せない引数（関数など）。この頼みだけ返し、残りは送る
 }
 
 function dbCall(cmd, args) {
@@ -52,15 +54,18 @@ function dbCall(cmd, args) {
   });
 }
 
-// 口を失った: その口に送った読む頼みは retry で返し、書く頼みは次の口を待つ
+// 口を失った: その口に送った読む頼みは retry で返し、書く頼みは次の口を待つ。口は閉じる
 function dbLost(port) {
-  if (!port) return;
+  if (!port || dbGone.has(port)) return;
+  dbGone.add(port);
   if (dbPort === port) dbPort = null;
   for (const req of [...dbWaiting.values()]) {
     if (req.port !== port) continue;
     if (DB_READS.has(req.cmd)) dbSettle(req, req.reject, dbError('retry', true));
     else dbHold(req);
   }
+  port.onmessage = null;   // 失った口は閉じて返事の受け口を外す
+  try { port.close(); } catch (_) { /* 閉じ済み */ }
 }
 
 function dbAdopt(port) {
