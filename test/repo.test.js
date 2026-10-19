@@ -256,8 +256,8 @@ test('公開したのに画面から呼ばれない API がない', () => {
   // 第1b回 Task A-2 で足した uiState・uiSave（画面の覚え書き）は、画面のサイドバー（Task B-2）が呼び始めたので外した
   // 第1b回 Task A-3 で足した meetingSetPaused（ページの［一時停止］）は、録音中のページ（Task B-5）が呼び始めたので外した
   // 第1d回 Task A-2 で足したログインの4つ（accountStatus・accountStart・accountVerify・accountLogout）は、設定のカード「アカウント」（Task A-4）が
-  // 呼び始めるまでここに置く（A-4 で外して空に戻す）
-  const PENDING_APP = new Set(['accountStatus', 'accountStart', 'accountVerify', 'accountLogout']);
+  // 呼び始めたので外して空に戻した
+  const PENDING_APP = new Set([]);
   for (const [ns, html] of [['koeApp', appHtml], ['koeOverlay', overlayHtml]]) {
     const names = all(/^\s{2}([A-Za-z][\w$]*):/gm, block(ns));
     const used = new Set(all(new RegExp(`${ns}\\.(\\w+)`, 'g'), html));

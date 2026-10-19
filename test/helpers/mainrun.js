@@ -151,6 +151,9 @@
 //     --relay-down   … RELAY_BASE を、だれも聞いていない 127.0.0.1 の口へ書き換える（中継が落ちている・届かない）
 //     --relay-cert   … RELAY_BASE への要求は net::ERR_CERT_AUTHORITY_INVALID で死ぬ（会社の通信の検査が証明書を差し替えた）
 //     --key-for=<id> … --relay と組むと、前の版の鍵（groq・openai・custom）も secrets.json に置く（中継へ送らないことを見る）
+//   第1d回 A-4（F11・K2）
+//     --old-keys     … secrets.json に 0.7.0 までの鍵（groq・openai・custom。平文は json-scenes.js の OLD_KEY_TEXT）を足し、
+//                        退けた控え secrets.json.broken-2026-10-01T00-00-00-000Z も置く（起動のときに purgeOld が消すことを見る）
 //   --relay の議事録・音声入力・復旧の場面の出力に、stt（中継の後ろの偽の OpenAI が受けた要求）・relayCalls（main が中継へ送った道の順）・
 //   relayLog（中継の記録の行）・netHosts・secretsRaw・recoveryKept・decrypts・balloons を足す（--stt と同じ形）
 //   ctx.relay に revoke()（D1 の札を全部取り消す: revoked_at）・sttRequests()・seededMail を、ctx に advanceClock(ms)（main の Date.now と
@@ -234,6 +237,7 @@ const revokedFlag = flags.includes('--revoked');
 const relayDown = flags.includes('--relay-down');
 const relayCert = flags.includes('--relay-cert');
 const keyForFlag = flagVal('--key-for');
+const oldKeys = flags.includes('--old-keys');   // 第1d回 A-4（F11・K2）
 // --relay の mode → 中継の前の答え方・中継の env・中継の後ろの偽の OpenAI の答え方
 const RELAY_FRONT = { foreign401: 'html401', 415: 'not-wav', 'cut-first': 'cut-first' };
 const RELAY_ENV = { 'daily-cap': { DAILY_USER_SEC: '4' }, 'daily-cap-all': { DAILY_ALL_SEC: '4' } };
@@ -415,6 +419,12 @@ process.on('exit', () => {
   }
   if (fakeStt && !noKey) seedKeys[keyFor] = fakeEnc(STT_KEY).toString('base64');
   if (relayLocal && keyForFlag) seedKeys[keyForFlag] = fakeEnc(STT_KEY).toString('base64');
+  // --old-keys: 0.7.0 までの鍵（groq・openai・custom）と、前の鍵の暗号の文字が残る退けた控え secrets.json.broken-* を置く
+  if (oldKeys) {
+    const { OLD_KEY_TEXT } = require('./json-scenes');
+    for (const [id, k] of Object.entries(OLD_KEY_TEXT)) seedKeys[id] = fakeEnc(k).toString('base64');
+    fs.writeFileSync(path.join(userData, 'secrets.json.broken-2026-10-01T00-00-00-000Z'), `{"schema":1,"keys":{"openai":"${seedKeys.openai}"`);
+  }
   if (Object.keys(seedKeys).length) fs.writeFileSync(path.join(userData, 'secrets.json'), JSON.stringify({ schema: 1, keys: seedKeys }));
   if (relayLocal && RELAY_FRONT[relayMode]) relayLocal.setFront(RELAY_FRONT[relayMode]);
   // --relay-down: RELAY_BASE をだれも聞いていない口へ（書き換えの先）
@@ -1212,7 +1222,6 @@ process.on('exit', () => {
         mainState: () => { const st = handlers['meeting:status'] ? handlers['meeting:status']() : null; return !st ? 'none' : !st.active ? 'idle' : st.finalizing ? 'meeting-finalizing' : 'meeting'; },
         overlayDone: () => sent.filter(([ch, p]) => ch === 'overlay:phase' && p && p.phase === 'done').map(([, p]) => p.message),
         mainProgress: () => sent.filter(([ch]) => ch === 'meeting:progress').map(([, p]) => (p ? p.message : undefined)),
-        setOpenAiBase: (b) => { openAiBase = String(b || ''); },
         setOnline: (on) => { netUp = Boolean(on); },
         relay: relayLocal ? { mail: require('./relay-run').mail, codeFor: (e) => relayLocal.codeFor(e), setFront: (m) => relayLocal.setFront(m), db: relayLocal.db,
           calls: () => relayPaths.slice(), seededMail, sttRequests: () => relayLocal.stt.requests.slice(), logs: () => relayLocal.logs.slice(),

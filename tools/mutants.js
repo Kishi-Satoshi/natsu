@@ -127,16 +127,16 @@ module.exports = [
   { id: 'on-order-key', file: 'src/online.js', from: "  if (!signedIn) return { route: 'local', why: 'signed-out' };\n", to: '', tests: ['test/online.test.js'], why: 'RF28・F10・第1d回 RL11: ログインしていなければクラウドにしない（第1d回 A-3 で鍵の照らしから札の照らしへ from を直した）' },
   { id: 'on-summary-localonly', file: 'src/online.js', from: "  if (localOnly) return { route: 'local', why: 'local-only' };\n  const r = await up();\n  if (r && r.up === true) return { route: 'claude-code'",
     to: "  const r = await up();\n  if (localOnly) return { route: 'local', why: 'local-only' };\n  if (r && r.up === true) return { route: 'claude-code'", tests: ['test/online.test.js'], why: 'C10・F13: PC の中だけのページは届くかを確かめずに手元で要約' },
-  // OpenAI と同じ形の文字起こしの口（src/stt-cloud.js）
-  { id: 'stt-auth-only', file: 'src/stt-cloud.js', from: "Authorization: `Bearer ${key}` },\n      body,", to: "Authorization: `Bearer ${key}`, 'X-Api-Key': key },\n      body,", tests: ['test/stt-cloud.test.js'], why: 'RF30: 鍵は Authorization の見出しだけに入れる' },
+  // 文字起こしの口（src/stt-cloud.js）。第1d回 A-4（F11）で、PC から OpenAI へ直に送る道（transcribeCloud・resolveProvider）と鍵の確かめ
+  // （checkKey・keyErrorKind・CHECK_WAV）・鍵の IPC と画面を消したので、直しそのものが無くなった変異を外した（stt-auth-only は G-2 の
+  // ra-token-header が受け継ぐ。一覧と理由は test/mutate.test.js の IDS_1D_RETIRED）。429 の待ち・待ちの上限・ヒントの 400・413 は
+  // transcribeRelay の行へ移した
   { id: 'stt-redirect', file: 'src/stt-cloud.js', from: "      req = request({ method, url, redirect: 'error' });", to: '      req = request({ method, url });', tests: ['test/stt-cloud.test.js'], why: 'RF30: 鍵を別の宛先へ運ばない（redirect: error）' },
-  { id: 'stt-429-wait', file: 'src/stt-cloud.js', from: '    if (st === 429) {\n      const sec', to: "    if (st === 429) {\n      throw new CloudSttError('rate', { status: st });\n      const sec", tests: ['test/stt-cloud.test.js'], why: 'RF29: 429 は retry-after だけ待って送り直す' },
+  { id: 'stt-429-wait', file: 'src/stt-cloud.js', from: '      const waitSec = retryAfterSec(res.headers);\n', to: "      throw new CloudSttError('rate', { status: st });\n", tests: ['test/stt-cloud.test.js'], why: 'RF29: 429 は retry-after だけ待って送り直す（第1d回 A-4 で transcribeRelay の行へ移した）' },
   { id: 'stt-429-long', file: 'src/stt-cloud.js', from: 'const LONG_WAIT_SEC = 90;', to: 'const LONG_WAIT_SEC = 86400;', tests: ['test/stt-cloud.test.js'], why: 'RF29: 長い retry-after（1日の上限）は待たずに「上限」' },
-  { id: 'stt-waitcap', file: 'src/stt-cloud.js', from: '      if (waitedMs + sec * 1000 > waitCapMs) throw', to: '      if (false) throw', tests: ['test/stt-cloud.test.js'], why: 'RF29: 1つの区間で待つ合計に上限' },
+  { id: 'stt-waitcap', file: 'src/stt-cloud.js', from: '      if (waitedMs + waitSec * 1000 > waitCapMs) throw', to: '      if (false) throw', tests: ['test/stt-cloud.test.js'], why: 'RF29: 1つの区間で待つ合計に上限（第1d回 A-4 で transcribeRelay の行へ移した）' },
   { id: 'stt-offline-class', file: 'src/stt-cloud.js', from: "const OFFLINE_CODES = new Set(['offline', 'cert', 'proxy', 'timeout', 'net']);", to: "const OFFLINE_CODES = new Set(['offline', 'cert', 'proxy', 'timeout']);", tests: ['test/stt-cloud.test.js'], why: 'RF27: 切れた区間はオフラインの失敗（手元でやり直す）' },
-  { id: 'stt-https-only', file: 'src/stt-cloud.js', from: "  if (u.protocol === 'http:' && LOCAL_HTTP_HOSTS.has(u.hostname)) return s;", to: "  if (u.protocol === 'http:') return s;", tests: ['test/stt-cloud.test.js'], why: 'RF30: そのほかの送り先は https だけ（http は試験用の 127.0.0.1・localhost）' },
-  { id: 'stt-preset-fixed', file: 'src/stt-cloud.js', from: '  let base = p.base;', to: '  let base = customBase(sttBaseUrl) || p.base;', tests: ['test/stt-cloud.test.js'], why: 'RF30: 既定の送り先の宛先は sttBaseUrl で書き換えない' },
-  { id: 'stt-400-noprompt', file: 'src/stt-cloud.js', from: '    if (st === 400 && usePrompt) {', to: '    if (false) {', tests: ['test/stt-cloud.test.js'], why: 'F15: ヒントで 400 なら外して1回だけ送り直す' },
+  { id: 'stt-400-noprompt', file: 'src/stt-cloud.js', from: "    if (st === 400 && code === 'bad-request' && usePrompt) {", to: '    if (false) {', tests: ['test/stt-cloud.test.js'], why: 'F15: ヒントで 400 なら外して1回だけ送り直す（第1d回 A-4 で transcribeRelay の行へ移した）' },
   // 鍵の保管（src/secrets.js）
   { id: 'sec-unavailable', file: 'src/secrets.js', from: '      if (!(await safeStorage.isAsyncEncryptionAvailable())) return false;\n', to: '', tests: ['test/secrets.test.js'], why: 'RF30: 暗号にできない PC では鍵を保存しない' },
   { id: 'sec-basic-text', file: 'src/secrets.js', from: "if (backend === 'basic_text' || backend === 'unknown') return false;", to: "if (backend === 'unknown') return false;", tests: ['test/secrets.test.js'], why: 'RF30: Linux の basic_text（平文の入れ物）では保存しない' },
@@ -180,7 +180,6 @@ module.exports = [
   // 設定の決まり（src/settings.js）
   { id: 'st-claude-cmd', file: 'src/settings.js', from: "    return SHELL_ONLY_RE.test(v) ? { value: '', why: 'enum' } : { value: v, why: null };", to: '    return { value: v, why: null };', tests: ['test/settings-rules.test.js'], why: 'OL7・F12: claudeExe の .cmd は捨てる' },
   // 画面（src/renderer/app.html）
-  { id: 'ui-key-cleared', file: 'src/renderer/app.html', from: "    el.value = '';   // 鍵は欄に残さない", to: '    void el;   // 鍵は欄に残さない', tests: ['test/stage1c.app.test.js'], why: 'RF30: 鍵の保存の後に欄を空にする' },
   { id: 'ui-localonly-final', file: 'src/renderer/app.html', from: "    $('meetingLocalOnly').hidden = on || !st.cloud;", to: "    $('meetingLocalOnly').hidden = !st.cloud;", tests: ['test/stage1c.app.test.js'], why: 'RF28: 押した後は［PC の中だけ］を戻すボタンを出さない' },
   // ゲート（tools/risk.js）
   { id: 'gate-online', file: 'tools/risk.js', from: '  if (!onlineTarget(file) || after == null) return [];', to: '  return [];', tests: ['test/gate.test.js'], why: 'OL8: --bare・資格情報・同期の safeStorage・claude-cli.js のほかの claude の起動を止める' },
@@ -192,8 +191,7 @@ module.exports = [
   { id: 'on-redirect-up', file: 'src/online.js', from: "    req.on('redirect', () => { finish({ up: true, why: 'ok' }); try { req.abort(); } catch (_) { /* もう閉じた */ } });\n", to: '', tests: ['test/online.test.js'], why: 'OL1: 転送も返事のうちで、先へは追わない' },
   { id: 'sec-unreadable-set', file: 'src/secrets.js', from: "    load();\n    if (unreadable) return { ok: false, code: 'write' };\n    const next = copy(); next[id] = enc;", to: '    load();\n    const next = copy(); next[id] = enc;', tests: ['test/secrets.test.js'], why: 'RF22: 読めない secrets.json に書かない（ほかの送り先の鍵が消える）' },
   { id: 'sec-unreadable-remove', file: 'src/secrets.js', from: "    if (unreadable) return { ok: false, code: 'write' };\n    if (!keys[id]) return { ok: true };", to: '    if (!keys[id]) return { ok: true };', tests: ['test/secrets.test.js'], why: 'RF22: 読めない secrets.json から消さない' },
-  { id: 'stt-403-auth', file: 'src/stt-cloud.js', from: "    if (st === 401 || st === 403) throw new CloudSttError('auth', { status: st });", to: "    if (st === 401) throw new CloudSttError('auth', { status: st });", tests: ['test/stt-cloud.test.js'], why: 'OL2: 403 も鍵の誤り（手元へ落とさない側）' },
-  { id: 'stt-413', file: 'src/stt-cloud.js', from: "    if (st === 413) throw new CloudSttError('too-large', { status: st });\n", to: '', tests: ['test/stt-cloud.test.js'], why: 'OL2: 413 は too-large' },
+  { id: 'stt-413', file: 'src/stt-cloud.js', from: "    if (st === 413) throw new CloudSttError('too-large', { status: 413 });\n", to: '', tests: ['test/stt-cloud.test.js'], why: 'OL2: 413 は too-large（第1d回 A-4 で transcribeRelay の行へ移した）' },
   { id: 'cl-out-cap', file: 'src/claude-cli.js', from: '        if (outLen + d.length > OUT_MAX) { tooBig = true; stop(); return; }', to: '        if (false) { tooBig = true; stop(); return; }', tests: ['test/claude-cli.test.js'], why: 'F11: stdout は 5MB まで（越えたら止める）' },
   { id: 'cl-exit-nonzero', file: 'src/claude-cli.js', from: '  if (j.is_error !== true && code === 0) {', to: '  if (j.is_error !== true) {', tests: ['test/claude-cli.test.js'], why: 'RF24: 終わりの番号が 0 でなければ失敗' },
   { id: 'cl-auth-timeout', file: 'src/claude-cli.js', from: "  if (r.timedOut || r.tooBig) return { ok: false, code: 'failed', method: '' };\n", to: '', tests: ['test/claude-cli.test.js'], why: 'RF24: auth status の時間切れを「ログインしていない」と言わない' },
@@ -228,17 +226,6 @@ module.exports = [
   { id: 'lf-ui-login-shown', file: 'src/renderer/app.html', from: '$(\'claudeLogin\').hidden = !(s && s.ok && s.found === true);', to: '$(\'claudeLogin\').hidden = false;', tests: ['test/stage1c.app.test.js'], why: 'Lane F-c: ［Claude Code にログイン］は見つかったときだけ' },
   { id: 'lf-ui-disable', file: 'src/renderer/app.html', from: '    for (const b of btns) b.disabled = true;\n', to: '', tests: ['test/stage1c.app.test.js'], why: 'Lane F-c: 窓を待つ間は3つのボタンを止める' },
   { id: 'lf-msg-login-button', file: 'src/main.js', from: '    \'not-logged-in\': \'Claude Code にログインしていないか、ログインが切れています。［Claude Code にログイン］を押してログインしてください。\',', to: '    \'not-logged-in\': \'Claude Code にログインしていないか、ログインが切れています。ターミナルで `claude` を起動してログインしてください。\',', tests: ['test/stage1c.ipc.test.js'], why: 'Lane F-c: 未ログインの文はボタンへ（ターミナルを打たせない）' },
-  { id: 'lf-key-invalid', file: 'src/stt-cloud.js', from: '      if (kind === \'invalid-key\') return { ok: false, code: \'invalid-key\' };\n', to: '', tests: ['test/stt-cloud.test.js', 'test/stage1c.ipc.test.js'], why: 'Lane F-e: invalid_api_key は「鍵が正しくありません」' },
-  { id: 'lf-key-scope-retry', file: 'src/stt-cloud.js', from: '      if (kind !== \'no-scope\') return { ok: false, code: \'auth\' };', to: '      return { ok: false, code: \'auth\' };', tests: ['test/stt-cloud.test.js', 'test/stage1c.ipc.test.js'], why: 'Lane F-e: 一覧の権限だけが無い鍵は小さな文字起こしで確かめる' },
-  { id: 'lf-key-scope-only', file: 'src/stt-cloud.js', from: '      if (kind !== \'no-scope\') return', to: '      if (false) return', tests: ['test/stt-cloud.test.js'], why: 'Lane F-e: 文字起こしで確かめるのは権限の文のときだけ' },
-  { id: 'lf-key-quota', file: 'src/stt-cloud.js', from: 'return { ok: false, code: kind === \'quota\' ? \'quota\' : \'rate\' };', to: 'return { ok: false, code: \'rate\' };', tests: ['test/stt-cloud.test.js', 'test/stage1c.ipc.test.js'], why: 'Lane F-e: insufficient_quota は残高なし' },
-  { id: 'lf-key-scope-msg', file: 'src/stt-cloud.js', from: '|| /insufficient permissions|missing scopes?:|api\\.model\\.read/i.test(msg)) return \'no-scope\';', to: ') return \'no-scope\';', tests: ['test/stt-cloud.test.js'], why: 'Lane F-e: 制限付きの鍵の文（code は null）で権限の不足と分かる' },
-  { id: 'lf-key-silent', file: 'src/stt-cloud.js', from: '  const n = 8000; const b', to: '  const n = 80000; const b', tests: ['test/stt-cloud.test.js'], why: 'Lane F-e: 確かめの音声は 0.5 秒の無音' },
-  { id: 'lf-key-no-hint', file: 'src/stt-cloud.js', from: 'language: \'\', prompt: \'\', timeoutMs, waitCapMs: 0 });', to: 'language: \'ja\', prompt: \'x\', timeoutMs, waitCapMs: 0 });', tests: ['test/stt-cloud.test.js'], why: 'Lane F-e: 確かめの文字起こしはヒント・言語なし' },
-  { id: 'lf-key-waitcap', file: 'src/stt-cloud.js', from: 'prompt: \'\', timeoutMs, waitCapMs: 0 });', to: 'prompt: \'\', timeoutMs, waitCapMs: 120000 });', tests: ['test/stt-cloud.test.js'], why: 'Lane F-e: 確かめの文字起こしは 429 を待たない' },
-  { id: 'lf-key-ratelong', file: 'src/stt-cloud.js', from: '(e.code === \'rate-long\' ? \'rate\' : e.code)', to: 'e.code', tests: ['test/stt-cloud.test.js'], why: 'Lane F-e: 確かめの 1日の上限も「利用の上限」' },
-  { id: 'lf-key-msg-main', file: 'src/main.js', from: '    if (r.ok && r.code === \'no-model-read\') return {', to: '    if (false) return {', tests: ['test/stage1c.ipc.test.js'], why: 'Lane F-e: 「鍵は使えます（モデルの一覧を読む権限はありません）」' },
-  { id: 'lf-ui-key-msg', file: 'src/renderer/app.html', from: 'onlineMsg((typeof r.message === \'string\' && r.message) || \'鍵は使えます\', true);', to: 'onlineMsg(\'鍵は使えます\', true);', tests: ['test/stage1c.app.test.js'], why: 'Lane F-e: 通ったときも main の文を出す' },
   { id: 'lf-ping-notfound', file: 'src/main.js', from: '    if (r.code === \'not-found\') return { ...s, found: false, message: claudeStatusText(\'not-found\') };\n', to: '', tests: ['test/stage1c.ipc.test.js'], why: 'Lane F-b: auth status の後で -p を起こせなければ found: false（入れるボタン）' },
   { id: 'lf-status-timeout', file: 'src/main.js', from: '    timeout: `Claude Code が ${Math.round(claudeCli.PING_TIMEOUT_MS / 1000)} 秒たっても返事をしませんでした。少し待ってから［Claude Code を確かめる］を押してください。`,\n', to: '', tests: ['test/stage1c.ipc.test.js'], why: 'Lane F-b: 確かめの要求の時間切れの文' },
   { id: 'lf-status-overloaded', file: 'src/main.js', from: '    overloaded: \'Claude が混み合っています（ログインはできています）。少し待ってから［Claude Code を確かめる］を押してください。\',\n', to: '', tests: ['test/stage1c.ipc.test.js'], why: 'Lane F-b: 確かめの要求の混み合いの文' },
@@ -406,7 +393,7 @@ module.exports = [
     tests: ['test/stage1b.app.test.js'], why: 'B-5 RF4: スリープから戻ったら再開を促す文' },
   { id: 'ui-side-ime', file: 'src/renderer/app.html', from: '} else if (ev.key === \'Enter\' && !imeEnter(ev)) {', to: '} else if (ev.key === \'Enter\') {',
     tests: ['test/stage1b.app.test.js'], why: 'B-6: つまみの Enter は変換の確定を見る（imeEnter）' },
-  { id: 'shots-retake-overlay', file: 'tools/shots/screens.js', from: 'const RETAKE = new Set([]);', to: 'const RETAKE = new Set([\'overlay-processing\']);',
+  { id: 'shots-retake-overlay', file: 'tools/shots/screens.js', from: "const RETAKE = new Set(['settings-light',", to: "const RETAKE = new Set(['overlay-processing', 'settings-light',",
     tests: ['test/shots.test.js'], why: 'C-1 F14: 録音バーの基準は取り直し待ちに入れられない' },
   { id: 'shots-overflow', file: 'tools/shots/screens.js', from: 'function judgeOverflow(r) {\n', to: 'function judgeOverflow(r) {\n  return { ok: true, note: \'\' };\n',
     tests: ['test/shots.test.js'], why: 'C-1 F11: 横のはみ出しを NG にする' },
@@ -557,7 +544,7 @@ module.exports = [
     tests: ['test/invariants.test.js'], why: '不変条件 COLOR-04: JS が付ける live-on に CSS がある' },
   { id: 'shots-palette', file: 'tools/shots/screens.js', from: '  { name: \'search-palette-light\', page: \'app\', theme: \'light\', act: `${OPEN_PAGE}; ${OPEN_PALETTE}` },\n', to: '',
     tests: ['test/shots.test.js'], why: 'R-3: 検索の窓の画面を撮る' },
-  { id: 'shots-palette-retake', file: 'tools/shots/screens.js', from: 'const RETAKE = new Set([]);', to: 'const RETAKE = new Set([\'search-palette-light\']);',
+  { id: 'shots-palette-retake', file: 'tools/shots/screens.js', from: "'settings-zoom200-dark']);", to: "'settings-zoom200-dark', 'search-palette-light']);",
     tests: ['test/shots.test.js'], why: 'R-3 G12・第1b回 C-2: 検索の窓の画面も基準と比べる（取り直し待ちに戻さない）' },
   { id: 'gate-1b2-ledger', file: 'tools/lib/moves.js', from: 'ids: [\'pActs\', \'pMore\', \'pMenu\'],', to: 'ids: [\'pActs\', \'pMore\', \'pMenu\', \'pTitle\'],',
     tests: ['test/gate.test.js'], why: 'L-1: 台帳の中身の固定（1b2 の行に pTitle を足さない）' },
@@ -568,18 +555,10 @@ module.exports = [
     tests: ['test/transcribe.e2e.test.js'], why: '区間の要求が返事の前に接続ごと切れたら、同じ区間を1回だけ送り直す（失敗にして手でやり直させない）' },
   // ---------------------------------------------------------------- 0.7.0 U-1・U-2（計画 docs/plans/2026-10-19-ui07.md の「変異確認」。設計書 D5・D8）
   // u1-fixed-provider（送り先を OpenAI に固定）は第1d回 A-3 で外した: 送り先は中継（relayProvider）になり、直しそのものが無い（G-2 の ra-no-direct が受け継ぐ）
-  { id: 'u1-key-openai-only', file: 'src/main.js', from: "  const keyProvider = (id) => (id === sttCloud.FIXED_PROVIDER_ID ? id : '');",
-    to: "  const keyProvider = (id) => (typeof id === 'string' && Object.prototype.hasOwnProperty.call(sttCloud.PRESETS, id) ? id : '');",
-    tests: ['test/stage1c.ipc.test.js'], why: 'U-1（D5）: 鍵の IPC は openai だけ（groq・custom の鍵に画面から届かない）' },
   // u1-nokey-noprobe（鍵が無ければ届くかを聞かない）は第1d回 A-3 で外した: 鍵の照らしが無くなった（G-2 の ra-signed-out-probe が受け継ぐ）
   { id: 'u1-retired-keys', file: 'src/settings.js', from: '  // 第1c回（OL7）\n  claudeExe',
     to: "  // 第1c回（OL7）\n  cloudTranscribe: { label: 'オンラインの文字起こし', kind: 'enum', values: ['ask', 'on', 'off'], typeWhy: 'enum' },\n  claudeExe",
     tests: ['test/settings-rules.test.js'], why: 'U-1（D5・JS6）: 送り先と同意のキーは決まりの表に無く、前の版の値は読まずに残す' },
-  { id: 'u1-ui-no-provider', file: 'src/renderer/app.html', from: "  const STT_PROVIDER = 'openai';", to: "  const STT_PROVIDER = 'groq';",
-    tests: ['test/stage1c.app.test.js'], why: 'U-1（D5）: 画面の鍵のボタンは openai の名前だけで main を呼ぶ' },
-  { id: 'u1-status-openai-only', file: 'src/main.js', from: '    const hasKey = Boolean(secrets) && secrets.has(p.id);',
-    to: "    const hasKey = Boolean(secrets) && (secrets.has(p.id) || secrets.has('groq') || secrets.has('custom'));",
-    tests: ['test/stage1c.ipc.test.js'], why: 'U-1（D5）: 設定の「保存済み」は openai の鍵だけを数える（groq・custom の鍵しか無い PC は「未設定」）' },
   { id: 'u2-top', file: 'src/renderer/app.html', from: '        <div class="card" id="appearanceCard">', to: '        <div class="card" id="appearanceCard" hidden></div><div class="card">',
     tests: ['test/ui07.app.test.js'], why: 'U-2（D8）: 外観は設定のいちばん上のカード' },
   { id: 'u2-toggle-system', file: 'src/renderer/app.html', from: "    let dark = prev === 'dark';\n    if (prev !== 'light' && prev !== 'dark') {", to: "    let dark = prev === 'dark';\n    if (false) {",
@@ -594,8 +573,8 @@ module.exports = [
     tests: ['test/ui07.app.test.js'], why: 'U-2: 押しっぱなしの繰り返しでは切り替えず、保存もし直さない' },
   { id: 'u2-toggle-revert', file: 'src/renderer/app.html', from: '    if (!(await save(true))) sel.value = prev;', to: '    await save(true);',
     tests: ['test/ui07.app.test.js'], why: 'U-2: 保存しなかったときは欄を前の値に戻す' },
-  { id: 'u2-retake-settings', file: 'tools/shots/screens.js', from: "const RETAKE = new Set([]);", to: "const RETAKE = new Set(['settings-light']);",
-    tests: ['test/shots.test.js'], why: 'U-2: 設定の3枚を取り直し待ちにする（CI が NG にせず「取り直し待ち」と出す）' },
+  { id: 'u2-retake-settings', file: 'tools/shots/screens.js', from: "'settings-dark', 'settings-zoom200-dark']);", to: "'settings-dark']);",
+    tests: ['test/shots.test.js'], why: 'U-2・第1d回 A-4: 設定の3枚を取り直し待ちにする（CI が NG にせず「取り直し待ち」と出す。A-4 で、空から3枚に戻した形の from に直した）' },
   // 第2a1回（Task G-3。計画 docs/plans/2026-10-19-2a1.md の「変異確認」の表と、各レーンの点検で足した行）。
   // 場面（mainrun）を使う stage2a1.main.test.js などは pattern で赤になるテストだけを回す（CI の mutate を 20 分に収める）
   { id: 'dk-between-order', file: 'src/db/keys.js', from: '  if (lo !== null && hi !== null && lo >= hi) throw new Error(\'keyBetween: a < b の順になっていない\');\n', to: '',

@@ -128,19 +128,19 @@ test('G3: 第1a回の変異が一覧にそろう（計画の「変異確認」�
 // 第1c回（Task D-1。計画 docs/plans/2026-10-18-1c.md の「変異確認」の表）
 const IDS_1C = [
   'on-offline-noask', 'on-401-up', 'on-cache-ok', 'on-cache-ng', 'on-cert', 'on-order-localonly', 'on-order-key', 'on-summary-localonly',
-  'stt-auth-only', 'stt-redirect', 'stt-429-wait', 'stt-429-long', 'stt-waitcap', 'stt-offline-class', 'stt-https-only', 'stt-preset-fixed', 'stt-400-noprompt',
+  'stt-redirect', 'stt-429-wait', 'stt-429-long', 'stt-waitcap', 'stt-offline-class', 'stt-400-noprompt',
   'sec-unavailable', 'sec-basic-text', 'sec-reencrypt', 'sec-key-re',
   'cl-strip-prefix', 'cl-strip-case', 'cl-auth-gate', 'cl-no-bare', 'cl-no-persist', 'cl-safe-mode', 'cl-old-version', 'cl-tools-off', 'cl-stdin-cap', 'cl-limit-class', 'cl-reset-at', 'cl-timeout-kill', 'cl-cmd-only', 'cl-cwd',
   'mn-no-fallback', 'mn-offline-local', 'mn-seg-fallback', 'mn-429-no-local', 'mn-route-count', 'mn-localonly-draft', 'mn-notice-once', 'mn-recovery-keep', 'mn-input-same',
   'mn-warm-local', 'mn-localonly-summary', 'mn-recovery-local-keep', 'mn-recovery-engine-keep', 'mn-key-decrypt',
-  'st-claude-cmd', 'ui-key-cleared', 'ui-localonly-final', 'gate-online',
+  'st-claude-cmd', 'ui-localonly-final', 'gate-online',
 ];
 // 0.7.0 U-1（設計書 D5）で、直しそのものが無くなったので外した変異（同意を見ない・同意と URL のキーが無い）
 const IDS_1C_RETIRED = ['on-order-consent', 'on-consent-unknown', 'st-consent-ask', 'st-url-https'];
 // 第1c回の各タスクの点検で、テストを足して殺した変異（計画の表の外。合流の申し送り）
 const IDS_1C_REVIEW = [
   'ui-localonly-reset', 'ui-localonly-cloud', 'mn-status-cloud', 'mn-page-view',
-  'on-redirect-up', 'sec-unreadable-set', 'sec-unreadable-remove', 'stt-403-auth', 'stt-413', 'cl-out-cap', 'cl-exit-nonzero', 'cl-auth-timeout',
+  'on-redirect-up', 'sec-unreadable-set', 'sec-unreadable-remove', 'stt-413', 'cl-out-cap', 'cl-exit-nonzero', 'cl-auth-timeout',
   'mn-ask-no-decrypt', 'mn-announce-localonly', 'mn-localonly-oneway',
 ];
 test('G3: 第1c回の変異が一覧にそろう（計画の「変異確認」の表と同じ id、と点検で足した id。0.7.0 U-1 で外した4つは無い）', { timeout: 5000 }, () => {
@@ -150,7 +150,7 @@ test('G3: 第1c回の変異が一覧にそろう（計画の「変異確認」�
 });
 
 // 0.7.0 U-1・U-2（計画 docs/plans/2026-10-19-ui07.md の「変異確認」の表）
-const IDS_U07 = ['u1-key-openai-only', 'u1-retired-keys', 'u1-ui-no-provider',
+const IDS_U07 = ['u1-retired-keys',
   'u2-top', 'u2-toggle-system', 'u2-toggle-ime', 'u2-toggle-prevented', 'u2-toggle-revert', 'u2-retake-settings'];
 // 第1d回 A-3（RL11）で、直しそのものが無くなったので外した変異: 送り先は OpenAI の固定でなく中継（relayProvider。G-2 の ra-no-direct が受け継ぐ）、
 // 経路は鍵でなくログインの札で決める（G-2 の ra-signed-out-probe が受け継ぐ）
@@ -159,6 +159,20 @@ test('G3: 0.7.0 U-1・U-2 の変異が一覧にそろう（第1d回 A-3 で外�
   const ids = new Set(MUTANTS.map((m) => m.id));
   assert.deepStrictEqual(IDS_U07.filter((id) => !ids.has(id)), []);
   assert.deepStrictEqual(IDS_U07_RETIRED.filter((id) => ids.has(id)), []);
+});
+
+// 第1d回 A-4（RL10・RL11・F11）で、直しそのものが無くなったので外した変異（上の一覧からも外した）:
+//  - PC から OpenAI・Groq へ直に送る道（transcribeCloud・resolveProvider・customBase）を消した: stt-auth-only（札は Authorization だけ、は
+//    G-2 の ra-token-header が transcribeRelay で受け継ぐ）・stt-https-only・stt-preset-fixed・stt-403-auth（中継の答えに 403 の分けは無い）
+//  - 鍵の確かめ（checkKey・keyErrorKind・CHECK_WAV）と cloud:test-key の文を消した: lf-key-*（10）・lf-key-msg-main・lf-ui-key-msg
+//  - 鍵の欄（画面）と鍵の IPC（cloud:*）を消した: ui-key-cleared（コードの欄を空にする ra-ui-code-clear が G-2 で受け継ぐ）・
+//    u1-key-openai-only・u1-ui-no-provider・u1-status-openai-only
+const IDS_1D_RETIRED = ['stt-auth-only', 'stt-https-only', 'stt-preset-fixed', 'stt-403-auth', 'ui-key-cleared',
+  'lf-key-invalid', 'lf-key-scope-retry', 'lf-key-scope-only', 'lf-key-quota', 'lf-key-scope-msg', 'lf-key-silent', 'lf-key-no-hint', 'lf-key-waitcap',
+  'lf-key-ratelong', 'lf-key-msg-main', 'lf-ui-key-msg', 'u1-key-openai-only', 'u1-ui-no-provider', 'u1-status-openai-only'];
+test('G3: 第1d回 A-4 で外した変異（PC から直に送る道・鍵の確かめ・鍵の欄と IPC）は一覧に無い', { timeout: 5000 }, () => {
+  const ids = new Set(MUTANTS.map((m) => m.id));
+  assert.deepStrictEqual(IDS_1D_RETIRED.filter((id) => ids.has(id)), []);
 });
 
 // 第1b回（Task C-3。計画 docs/plans/2026-10-19-1b.md の「変異確認」の表）。look-sel-line は第1b2回で左の線をやめたので外した（tok-sel-line に置き換え）
@@ -194,8 +208,7 @@ const IDS_1B_FIX = [
   'lf-auth-401', 'lf-auth-text', 'lf-auth-case', 'lf-429-limit', 'lf-usage-limit', 'lf-log-facts', 'lf-subtype-list', 'lf-status-range',
   'lf-auth-msg', 'lf-ping-skip', 'lf-ping-gate', 'lf-ping-safe-args', 'lf-ping-handler', 'lf-ping-timeout', 'lf-ui-verified', 'lf-login-env',
   'lf-login-exe-only', 'lf-login-ctrl', 'lf-open-platform', 'lf-open-exit', 'lf-open-busy', 'lf-open-recheck', 'lf-install-visible',
-  'lf-ui-install-shown', 'lf-ui-login-shown', 'lf-ui-disable', 'lf-msg-login-button', 'lf-key-invalid', 'lf-key-scope-retry', 'lf-key-scope-only',
-  'lf-key-quota', 'lf-key-scope-msg', 'lf-key-silent', 'lf-key-no-hint', 'lf-key-waitcap', 'lf-key-ratelong', 'lf-key-msg-main', 'lf-ui-key-msg',
+  'lf-ui-install-shown', 'lf-ui-login-shown', 'lf-ui-disable', 'lf-msg-login-button',
   'lf-ping-notfound', 'lf-status-timeout', 'lf-status-overloaded', 'lf-win-quote', 'lf-install-del-env', 'fx-hidden-important', 'fx-hidden-weak',
   'fx-live-pad', 'fx-side-ic', 'fx-side-ic-html', 'fx-pal-grey', 'fx-seg-index', 'fx-seg-index-stale', 'fx-seg-index-first', 'fx-cv', 'fx-cv-clip',
 ];

@@ -25,54 +25,56 @@ const fakeSafe = ({ avail = true, reEncrypt = false, backend = 'dpapi' } = {}) =
 test('OL3: 鍵は暗号にして secrets.json に入れ、読み戻せる。ファイルにも settings.json にも鍵の文字が無い', async () => {
   const d = dir(); const file = path.join(d, 'secrets.json');
   const s = makeSecrets({ file, safeStorage: fakeSafe(), J });
-  assert.deepStrictEqual(await s.set('groq', KEY), { ok: true });
-  assert.strictEqual(s.has('groq'), true);
+  assert.deepStrictEqual(await s.set('relay', KEY), { ok: true });
+  assert.strictEqual(s.has('relay'), true);
   assert.strictEqual(s.has('openai'), false);
-  assert.strictEqual(await s.get('groq'), KEY);
+  assert.strictEqual(await s.get('relay'), KEY);
   const raw = fs.readFileSync(file, 'utf8');
   assert.ok(!raw.includes(KEY), '平文の鍵がファイルにある');
   assert.strictEqual(JSON.parse(raw).schema, 1);
   // 作り直しても読める（起動し直し）
-  assert.strictEqual(await makeSecrets({ file, safeStorage: fakeSafe(), J }).get('groq'), KEY);
-  assert.deepStrictEqual(s.remove('groq'), { ok: true });
-  assert.strictEqual(s.has('groq'), false);
+  assert.strictEqual(await makeSecrets({ file, safeStorage: fakeSafe(), J }).get('relay'), KEY);
+  assert.deepStrictEqual(s.remove('relay'), { ok: true });
+  assert.strictEqual(s.has('relay'), false);
   assert.ok(!fs.readFileSync(file, 'utf8').includes('ENC1'), '消した鍵の暗号が残っている');
 });
 
 test('RF30: 暗号にできない PC では保存を断り、ファイルを作らない（平文で置かない）。Linux の basic_text も断る', async () => {
   const d = dir(); const file = path.join(d, 'secrets.json');
-  assert.deepStrictEqual(await makeSecrets({ file, safeStorage: fakeSafe({ avail: false }), J }).set('groq', KEY), { ok: false, code: 'unavailable' });
-  assert.deepStrictEqual(await makeSecrets({ file, safeStorage: fakeSafe({ backend: 'basic_text' }), J, platform: 'linux' }).set('groq', KEY), { ok: false, code: 'unavailable' });
+  assert.deepStrictEqual(await makeSecrets({ file, safeStorage: fakeSafe({ avail: false }), J }).set('relay', KEY), { ok: false, code: 'unavailable' });
+  assert.deepStrictEqual(await makeSecrets({ file, safeStorage: fakeSafe({ backend: 'basic_text' }), J, platform: 'linux' }).set('relay', KEY), { ok: false, code: 'unavailable' });
   assert.ok(!fs.existsSync(file));
   assert.strictEqual(await makeSecrets({ file, safeStorage: fakeSafe(), J, platform: 'linux' }).available(), true, 'Linux の本物の鍵の置き場所でも断った');
 });
 
 test('OL3: 見出しに入れられない鍵（空白・日本語・短すぎ）と知らない送り先は断る', async () => {
   const s = makeSecrets({ file: path.join(dir(), 'secrets.json'), safeStorage: fakeSafe(), J });
-  for (const bad of ['', 'abc', 'gsk test 0123', 'gsk_鍵_0123456', `gsk_${'x'.repeat(600)}`]) assert.deepStrictEqual(await s.set('groq', bad), { ok: false, code: 'bad-key' }, bad);
+  for (const bad of ['', 'abc', 'gsk test 0123', 'gsk_鍵_0123456', `gsk_${'x'.repeat(600)}`]) assert.deepStrictEqual(await s.set('relay', bad), { ok: false, code: 'bad-key' }, bad);
   assert.deepStrictEqual(await s.set('__proto__', KEY), { ok: false, code: 'bad-id' });
 });
 
 test('OL3: shouldReEncrypt が来たら暗号にし直して書く', async () => {
   const d = dir(); const file = path.join(d, 'secrets.json');
-  await makeSecrets({ file, safeStorage: fakeSafe(), J }).set('groq', KEY);
+  await makeSecrets({ file, safeStorage: fakeSafe(), J }).set('relay', KEY);
   const safe = fakeSafe({ reEncrypt: true });
-  assert.strictEqual(await makeSecrets({ file, safeStorage: safe, J }).get('groq'), KEY);
+  assert.strictEqual(await makeSecrets({ file, safeStorage: safe, J }).get('relay'), KEY);
   assert.deepStrictEqual(safe.calls, ['dec', 'enc']);
 });
 
 test('JS2: 壊れた secrets.json は退けて（消さずに）鍵が無いとして動き、記録に名前だけ書く', async () => {
   const d = dir(); const file = path.join(d, 'secrets.json');
-  fs.writeFileSync(file, '{"schema":1,"keys":{"groq":"ENC1:');
+  fs.writeFileSync(file, '{"schema":1,"keys":{"relay":"ENC1:');
   const lines = [];
   const s = makeSecrets({ file, safeStorage: fakeSafe(), J, log: (l) => lines.push(l) });
-  assert.strictEqual(s.has('groq'), false);
+  assert.strictEqual(s.has('relay'), false);
   assert.ok(fs.readdirSync(d).some((n) => n.startsWith('secrets.json.broken-')));
   assert.ok(lines.some((l) => l.includes('secrets.json')) && !lines.some((l) => l.includes('ENC1')));
 });
 
-test('RF22: secrets.json が読めない（unreadable）間は set・remove が { ok: false, code: \'write\' } を返して書かない。読めるようになったら読み直し、ほかの鍵を残して書く', async () => {
-  const OPENAI = Buffer.from('ENC1:6f6c64').toString('base64');
+// 第1d回 A-4 で意図して変えた: しまえるのは relay の札だけになったので、「ほかの名前の鍵を残して書く」は「読めるようになったら読み直して
+// 書く（読み直さずに、読めなかった間の空の覚えで決めない）」で見る
+test('RF22: secrets.json が読めない（unreadable）間は set・remove が { ok: false, code: \'write\' } を返して書かない。読めるようになったら読み直してから書く', async () => {
+  const OLD = Buffer.from('ENC1:6f6c64').toString('base64');
   let state = { state: 'unreadable', code: 'EBUSY' };
   const writes = [];
   const fakeJ = {
@@ -82,15 +84,16 @@ test('RF22: secrets.json が読めない（unreadable）間は set・remove が 
   };
   const lines = [];
   const s = makeSecrets({ file: path.join(dir(), 'secrets.json'), safeStorage: fakeSafe(), J: fakeJ, log: (l) => lines.push(l) });
-  assert.deepStrictEqual(await s.set('groq', KEY), { ok: false, code: 'write' });
-  assert.deepStrictEqual(s.remove('openai'), { ok: false, code: 'write' });
-  assert.strictEqual(writes.length, 0, '読めない間に書いた（ほかの鍵が消える）');
+  assert.deepStrictEqual(await s.set('relay', KEY), { ok: false, code: 'write' });
+  assert.deepStrictEqual(s.remove('relay'), { ok: false, code: 'write' });
+  assert.strictEqual(writes.length, 0, '読めない間に書いた（しまってある札が消える）');
   assert.ok(lines.some((l) => l.includes('EBUSY')) && !lines.some((l) => l.includes(KEY)));
-  state = { state: 'ok', value: { schema: 1, keys: { openai: OPENAI } } };
-  assert.deepStrictEqual(await s.set('groq', KEY), { ok: true });
-  assert.strictEqual(writes.length, 1);
-  assert.strictEqual(writes[0].keys.openai, OPENAI, '読み直さずに書いて openai の鍵が消えた');
-  assert.ok(writes[0].keys.groq && !JSON.stringify(writes[0]).includes(KEY));
+  state = { state: 'ok', value: { schema: 1, keys: { relay: OLD } } };
+  assert.strictEqual(s.has('relay'), true, '読めるようになったのに読み直していない');
+  assert.deepStrictEqual(s.remove('relay'), { ok: true });
+  assert.deepStrictEqual(writes, [{ schema: 1, keys: {} }], '読み直さずに「札は無い」と決めて書かなかった');
+  assert.deepStrictEqual(await s.set('relay', KEY), { ok: true });
+  assert.ok(writes[1].keys.relay && !JSON.stringify(writes[1]).includes(KEY));
 });
 
 // ---------------------------------------------------------------- 第1d回 A-2（RL10・RF32・F1・K2）
@@ -113,6 +116,26 @@ test('RL10・RF32: ログインの札は relay の名前で暗号にしてしま
   assert.ok(!fs.readFileSync(file, 'utf8').includes('ENC1'), '消した札の暗号が残っている');
 });
 
+// 第1d回 A-4（RL10・F11）: 0.7.0 までの鍵の名前（groq・openai・custom）はしまえず・読めず・消せない（鍵の IPC と画面を消した。残った鍵は
+// 起動のときに purgeOld が消す）。しまえるのは中継のログインの札（relay）だけ
+test('RL10・F11: しまえるのは relay の札だけ。groq・openai・custom は bad-id で、ファイルに残っていても読まない', async () => {
+  const d = dir(); const file = path.join(d, 'secrets.json');
+  const s = makeSecrets({ file, safeStorage: fakeSafe(), J });
+  for (const id of ['groq', 'openai', 'custom']) {
+    assert.deepStrictEqual(await s.set(id, KEY), { ok: false, code: 'bad-id' }, id);
+    assert.deepStrictEqual(s.remove(id), { ok: false, code: 'bad-id' }, id);
+  }
+  assert.ok(!fs.existsSync(file), '断ったのにファイルを作った');
+  fs.writeFileSync(file, JSON.stringify({ schema: 1, keys: { ...OLD } }));
+  const t = makeSecrets({ file, safeStorage: fakeSafe(), J });
+  for (const id of ['groq', 'openai', 'custom']) {
+    assert.strictEqual(t.has(id), false, `${id} の鍵を読んだ`);
+    assert.strictEqual(await t.get(id), '', `${id} の鍵を復号した`);
+  }
+  assert.deepStrictEqual(await t.set('relay', TOKEN), { ok: true });
+  assert.deepStrictEqual(Object.keys(JSON.parse(fs.readFileSync(file, 'utf8')).keys), ['relay'], 'relay のほかの名前を書いた');
+});
+
 test('K2・F11: purgeOld は前の版の groq・openai・custom の鍵と、退けた控え secrets.json.broken-* を消して数を返し、relay の札は残す。2回目は 0 で書かない', async () => {
   const d = dir(); const file = path.join(d, 'secrets.json');
   await makeSecrets({ file, safeStorage: fakeSafe(), J }).set('relay', TOKEN);
@@ -122,11 +145,10 @@ test('K2・F11: purgeOld は前の版の groq・openai・custom の鍵と、退�
   fs.writeFileSync(path.join(d, 'settings.json.broken-2026-10-01T00-00-00-000Z'), '{');   // ほかのファイルの控えには触れない
   const lines = [];
   const s = makeSecrets({ file, safeStorage: fakeSafe(), J, log: (l) => lines.push(l) });
-  assert.strictEqual(s.has('openai'), true, '前の版の鍵を読めない（試しの前提）');
+  assert.ok(JSON.parse(fs.readFileSync(file, 'utf8')).keys.openai, '前の版の鍵が無い（試しの前提）');
   assert.deepStrictEqual(s.purgeOld(), { removed: 4 });
   assert.deepStrictEqual(JSON.parse(fs.readFileSync(file, 'utf8')), { schema: 1, keys: { relay } });
   assert.deepStrictEqual(fs.readdirSync(d).sort(), ['secrets.json', 'settings.json.broken-2026-10-01T00-00-00-000Z']);
-  assert.strictEqual(s.has('openai'), false, '消した鍵をまだ覚えている');
   assert.strictEqual(await s.get('relay'), TOKEN);
   assert.deepStrictEqual(lines, ['secrets: 前の鍵 4 個を消しました']);
   const st = fs.statSync(file).mtimeMs;

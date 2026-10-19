@@ -474,6 +474,9 @@
     padding: 10px 18px; border-radius: 6px; font-size: 13px; opacity: 0; pointer-events: none;
     transition: opacity .2s, transform .2s; box-shadow: var(--shadow); z-index: 99; }
   #toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+  /* ボタンのある知らせ（ログイン切れの［ログインし直す］）だけ押せる */
+  #toast.show.act { pointer-events: auto; }
+  #toast button { margin-left: 12px; }
   /* ---------- 更新の告知（左下に常駐） ---------- */
   /* トーストは数秒で消えるため、見逃すと更新に気づけない。
      押すか閉じるまで残る告知を置き、ここを更新の主導線にする。 */
@@ -678,6 +681,38 @@
             <div class="desc">この PC での NaTsu の見た目です。Ctrl+Shift+L でライトとダークを切り替えられます。</div>
           </div>
         </div>
+        <!-- 第1d回 A-4（RL10）: ログインは外観のすぐ下。メール → 確認コード → ログイン中。文は main が返す（R4〜R17）。札は画面に来ない -->
+        <div class="card" id="accountCard">
+          <h2 id="accountTitle">アカウント</h2>
+          <div class="field">
+            <div class="desc">会社のメールアドレスでログインすると、インターネットにつながっているときに、会議と音声入力の音声を文字起こしの中継に送り、OpenAI で文字起こしします。ログインしていないときと、つながっていないときは、PC の中で文字起こしします。</div>
+          </div>
+          <div id="accountOut">
+            <div class="field">
+              <label for="accountEmail">メールアドレス</label>
+              <div class="row">
+                <input type="email" id="accountEmail" autocomplete="email" spellcheck="false" maxlength="254" />
+                <button class="ghost" id="accountSend" type="button">確認コードを送る</button>
+              </div>
+            </div>
+            <div class="field" id="accountCodeField" hidden>
+              <div class="desc" id="accountSent"></div>
+              <label for="accountCode" style="margin-top:10px">確認コード</label>
+              <div class="row">
+                <input type="text" id="accountCode" inputmode="numeric" autocomplete="one-time-code" spellcheck="false" maxlength="20" />
+                <button class="action" id="accountLogin" type="button">ログイン</button>
+                <button class="ghost" id="accountResend" type="button">コードを送り直す</button>
+              </div>
+            </div>
+          </div>
+          <div class="field" id="accountIn" hidden>
+            <div class="row">
+              <span id="accountWho" style="font-size:13px"></span>
+              <button class="ghost" id="accountLogout" type="button">ログアウト</button>
+            </div>
+          </div>
+          <div class="desc save-msg" id="accountMsg" role="status"></div>
+        </div>
         <div class="card">
           <h2>アップデート</h2>
           <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
@@ -782,7 +817,7 @@
         <div class="card">
           <h2>オンライン</h2>
           <div class="field">
-            <div class="desc">インターネットにつながっているときは、会議と音声入力の音声を OpenAI（gpt-4o-transcribe）に送って文字起こしします。つながっていないときは、いつも PC の中で文字起こしします。1on1・面談など外に出したくない会議は、議事録の画面の［この会議は PC の中だけ］を押してください。</div>
+            <div class="desc">ログインしていて、インターネットにつながっているときは、会議と音声入力の音声を文字起こしの中継に送り、OpenAI（gpt-4o-transcribe）で文字起こしします。中継も OpenAI も、音声と文字を保存しません。つながっていないときは、いつも PC の中で文字起こしします。1on1・面談など外に出したくない会議は、議事録の画面の［この会議は PC の中だけ］を押してください。</div>
           </div>
           <div class="field">
             <label for="claudeTest">要約（Claude Code）</label>
@@ -799,21 +834,6 @@
             <label for="claudeExe">Claude Code の場所（空なら自動で探します）</label>
             <input type="text" id="claudeExe" placeholder="claude.exe の場所" spellcheck="false" />
           </div>
-          <!-- 0.7.0 U-1（設計書 D5）: 送り先は OpenAI に固定。鍵の欄は中継（設計書 D6）ができるまでの管理者用の仮の欄 -->
-          <details class="adv" id="onlineAdv">
-            <summary>詳細設定（管理者用）</summary>
-            <div class="field">
-              <label for="sttKey">OpenAI の鍵（API キー）</label>
-              <div class="row">
-                <input type="password" id="sttKey" autocomplete="off" spellcheck="false" />
-                <button class="ghost" id="sttKeySave" type="button">保存</button>
-                <button class="ghost" id="sttKeyTest" type="button">鍵を確かめる</button>
-                <button class="ghost" id="sttKeyClear" type="button">鍵を消す</button>
-              </div>
-              <div class="desc">管理者用の仮の欄です（文字起こしの中継ができたら無くなります）。鍵の入っている PC だけが、オンラインのときにクラウドで文字起こしします。</div>
-              <div class="desc">鍵の状態: <span id="sttKeyState"></span>（鍵は Windows の仕組みで暗号にして、この PC にだけしまいます。画面には出しません）</div>
-            </div>
-          </details>
           <div class="desc save-msg" id="onlineMsg"></div>
         </div>
         <div class="card">
@@ -1002,7 +1022,7 @@
   $('tabBtnNotes').onclick = () => goNotes();
   $('tabBtnDictation').onclick = () => showTab('dictation');
   // 設定を開くたびに認識ヒントの状態を聞き直す（記録の途中で main がヒントを止めることがある。0.1.1）
-  $('tabBtnSettings').onclick = () => { showTab('settings'); refreshPromptInfo(); refreshCloud(); refreshClaude(); };
+  $('tabBtnSettings').onclick = () => { showTab('settings'); refreshPromptInfo(); refreshAccount(); refreshClaude(); };
 
   // ---------------- サイドバー（第1b回 N2） ----------------
   // 幅は 200〜480px（既定 260）。つまみのドラッグと ←／→（16px ずつ）で変え、«・Ctrl+\・つまみの Enter で畳み、»・Ctrl+\ で出す。
@@ -1214,7 +1234,7 @@
       showLive();
     } else {
       showSection(key);
-      if (o.fromBar && key === 'settings') { refreshPromptInfo(); refreshCloud(); refreshClaude(); }   // 設定を開くたびに聞き直す（0.1.1）
+      if (o.fromBar && key === 'settings') { refreshPromptInfo(); refreshAccount(); refreshClaude(); }   // 設定を開くたびに聞き直す（0.1.1）
     }
     if (o.save !== false) saveTabs();
     syncNoPage();
@@ -1329,10 +1349,19 @@
   }
 
   let toastT = null;
-  function toast(m) {
-    const e = $('toast'); e.textContent = m; e.classList.add('show');
-    // 長い知らせは読み終えられるだけ出す（1 文字 0.1 秒、2.6〜15 秒）
-    clearTimeout(toastT); toastT = setTimeout(() => e.classList.remove('show'), Math.min(15000, Math.max(2600, String(m).length * 100)));
+  // action: { label, run }（第1d回 A-4・F5。ログイン切れの［ログインし直す］）。ボタンのある知らせは押せる形（act）にし、長めに出す
+  function toast(m, action) {
+    const e = $('toast'); e.textContent = m;
+    e.classList.toggle('act', Boolean(action));
+    if (action) {
+      const b = document.createElement('button');
+      b.type = 'button'; b.className = 'ghost'; b.textContent = action.label;
+      b.onclick = () => { clearTimeout(toastT); e.classList.remove('show'); action.run(); };
+      e.append(b);
+    }
+    e.classList.add('show');
+    // 長い知らせは読み終えられるだけ出す（1 文字 0.1 秒、2.6〜15 秒。ボタンのある知らせは 15 秒）
+    clearTimeout(toastT); toastT = setTimeout(() => e.classList.remove('show'), action ? 15000 : Math.min(15000, Math.max(2600, String(m).length * 100)));
   }
 
   // ---------------- 共通整形 ----------------
@@ -2660,7 +2689,14 @@
     curPage = page; curSegs = segments; renderPage();
     if (typeof page.title === 'string') { tabTitles.set(page.id, page.title); renderTabs(); }
   });
-  window.koeApp.onNotice((m) => { if (/未設定/.test(m)) showEngineSettings(); toast(m); });
+  // 知らせは文字か { text, action }（第1d回 A-3・A-4: L3 のログイン切れは action: 'account' で［ログインし直す］を付ける）
+  window.koeApp.onNotice((m) => {
+    const obj = m && typeof m === 'object';
+    const text = obj ? String(m.text == null ? '' : m.text) : String(m == null ? '' : m);
+    if (/未設定/.test(text)) showEngineSettings();
+    if (obj && m.action === 'account') toast(text, { label: 'ログインし直す', run: () => showAccount() });
+    else toast(text);
+  });
 
   // ================= 音声入力 =================
   function fmtChars(n) { return n >= 10000 ? `${(n/10000).toFixed(1)}万` : String(n); }
@@ -3145,8 +3181,8 @@
       stayInTray: $('stayInTray').checked,
       theme: $('themeSel').value,
       useSystemAudio: $('useSystemAudio').checked,
-      // オンライン（第1c回 C-2）。鍵（#sttKey）はここに入れない（cloudSetKey だけで送る: RF30）。
-      // 送り先と同意のキーは 0.7.0 U-1 で外した（送らない。前の版の値は main が settings.json に残す）
+      // オンライン（第1c回 C-2）。送り先と同意のキーは 0.7.0 U-1 で外した（送らない。前の版の値は main が settings.json に残す）。
+      // ログインのメールと確認コード（#accountEmail・#accountCode）はここに入れない（account:* だけで送る。main は画面のメールを保存しない）
       claudeExe: $('claudeExe').value.trim(),
     };
     const prevClaudeExe = settings.claudeExe || '';
@@ -3173,7 +3209,6 @@
       refreshEngineFetch();   // 詳細設定のパスを入れた・空にした側は、手の設定と取り込んだエンジンが入れ替わる（第0b回）
       refreshHotkeyState();
       refreshPromptInfo();
-      refreshCloud();   // 鍵の状態を描き直す（main の写し）
       if ((settings.claudeExe || '') !== prevClaudeExe) refreshClaude();   // 場所を変えたときだけ確かめ直す（保存のたびに子を起こさない）
       return true;
     }
@@ -3206,34 +3241,95 @@
     toggleTheme();
   });
 
-  // ---------------- オンライン（第1c回 Task C-2。OL7・OL3・OL5・RF30） ----------------
-  // 描くのは main の写し（cloudStatus。鍵は入っていない）。鍵は cloudSetKey で送るだけで、送ったら欄を空にする。
+  // ---------------- オンライン（第1c回 Task C-2。OL5）・アカウント（第1d回 Task A-4。RL10） ----------------
   // Claude Code の状態は auth status だけ（claudeStatus。要約の -p は呼ばない）
-  const KEY_STATE = { saved: '保存済み', none: '未設定', cannot: 'この PC では鍵をしまえません' };
   const CLAUDE_OK = 'ログイン済み（claude.ai）';
   const CLAUDE_VERIFIED = 'ログイン済み（確かめ済み）';   // ［Claude Code を確かめる］で小さな要求まで通った（第1b回の続き Lane F-b）
-  // 鍵の名前（0.7.0 U-1・設計書 D5: 送り先は OpenAI に固定。groq・custom の鍵には画面から届かない）
-  const STT_PROVIDER = 'openai';
-  function onlineMsg(text, ok) {
-    const m = $('onlineMsg');
+  // アカウント: 描くのは main の写し（accountStatus。札は入っていない。外へは通信しない口）。メールと確認コードは account:* で送るだけ。
+  // 文は main が返す message をそのまま出す（R4〜R17。画面では作らない）。送れた（R3）とログイン中（R11）だけは画面の文
+  let accountSentTo = '';   // 確認コードを送れたメール（コードの欄を出す間だけ。ログインした・ログアウトしたら空）
+  let accountBusy = false;  // 送っている間はボタンを止め、2回押しても1回だけ送る
+  function accountMsg(text, ok) {
+    const m = $('accountMsg');
     m.textContent = text || '';
     m.className = ok === true ? 'desc save-msg ok' : ok === false ? 'desc save-msg ng' : 'desc save-msg';
   }
-  function renderCloud(s) {
-    const st = s && typeof s === 'object' && s.provider && typeof s.provider === 'object' ? s : null;
-    const hasKey = Boolean(st && st.hasKey);
-    const canStore = Boolean(st && st.canStore);
-    // 状態は3つの言葉だけ（鍵の一部も見せない）
-    $('sttKeyState').textContent = !st ? '' : hasKey ? KEY_STATE.saved : canStore ? KEY_STATE.none : KEY_STATE.cannot;
-    $('sttKeySave').disabled = !canStore;
-    $('sttKeyTest').disabled = !hasKey;
-    $('sttKeyClear').disabled = !hasKey;
+  function renderAccount(s) {
+    const st = s && typeof s === 'object' ? s : null;
+    const signedIn = Boolean(st && st.signedIn === true);
+    $('accountOut').hidden = signedIn;
+    $('accountIn').hidden = !signedIn;
+    $('accountWho').textContent = signedIn ? `ログイン中: ${typeof st.email === 'string' ? st.email : ''}` : '';
+    if (signedIn) accountSentTo = '';
+    $('accountCodeField').hidden = signedIn || !accountSentTo;
+    $('accountSent').textContent = accountSentTo
+      ? `${accountSentTo} に 6 けたの確認コードを送りました（10 分の間だけ使えます）。届かないときは迷惑メールのフォルダも見てください。` : '';
   }
-  async function refreshCloud() {
-    if (!window.koeApp.cloudStatus) return;   // 古い preload
+  async function refreshAccount() {
+    if (!window.koeApp.accountStatus) return;   // 古い preload
     let s = null;
-    try { s = await window.koeApp.cloudStatus(); } catch (_) { s = null; }
-    renderCloud(s);
+    try { s = await window.koeApp.accountStatus(); } catch (_) { s = null; }
+    renderAccount(s);
+  }
+  function setAccountBusy(on) {
+    accountBusy = on;
+    for (const id of ['accountSend', 'accountLogin', 'accountResend', 'accountLogout']) $(id).disabled = on;
+  }
+  async function accountSend() {
+    if (accountBusy) return;
+    const email = $('accountEmail').value.trim();
+    setAccountBusy(true);
+    let r = null;
+    try { r = await window.koeApp.accountStart(email); } catch (_) { r = null; } finally { setAccountBusy(false); }
+    if (r && r.ok) {
+      accountSentTo = email;
+      accountMsg('');
+      renderAccount({ signedIn: false });
+      $('accountCode').focus();
+    } else accountMsg((r && r.message) || '確認コードを送れませんでした。', false);
+  }
+  async function accountLogin() {
+    if (accountBusy) return;
+    const email = $('accountEmail').value.trim();
+    const code = $('accountCode').value;
+    $('accountCode').value = '';   // コードは欄に残さない（成功でも失敗でも。メールの欄は残す）
+    setAccountBusy(true);
+    let r = null;
+    try { r = await window.koeApp.accountVerify(email, code); } catch (_) { r = null; } finally { setAccountBusy(false); }
+    if (r && r.ok) {
+      accountSentTo = '';
+      accountMsg('');
+      await refreshAccount();
+    } else accountMsg((r && r.message) || 'ログインできませんでした。', false);
+  }
+  $('accountSend').onclick = () => accountSend();
+  $('accountResend').onclick = () => accountSend();
+  $('accountLogin').onclick = () => accountLogin();
+  $('accountLogout').onclick = async () => {
+    if (accountBusy) return;
+    setAccountBusy(true);
+    let r = null;
+    try { r = await window.koeApp.accountLogout(); } catch (_) { r = null; } finally { setAccountBusy(false); }
+    accountMsg((r && r.message) || (r && r.ok ? '' : 'ログアウトできませんでした。'), Boolean(r && r.ok));
+    await refreshAccount();
+  };
+  // Enter でも送れる（変換の確定の Enter では送らない）
+  $('accountEmail').addEventListener('keydown', (ev) => {
+    if (ev.key !== 'Enter' || imeEnter(ev)) return;
+    ev.preventDefault();
+    accountSend();
+  });
+  $('accountCode').addEventListener('keydown', (ev) => {
+    if (ev.key !== 'Enter' || imeEnter(ev)) return;
+    ev.preventDefault();
+    accountLogin();
+  });
+  // ログイン切れの知らせの［ログインし直す］（F5）: 設定の「アカウント」を開き、メールの欄へ
+  async function showAccount() {
+    showTab('settings');
+    await refreshAccount();
+    $('accountCard').scrollIntoView({ block: 'nearest' });
+    $('accountEmail').focus();
   }
   function renderClaude(s) {
     const el = $('claudeState');
@@ -3250,31 +3346,6 @@
     try { s = await window.koeApp.claudeStatus(); } catch (_) { s = null; }
     renderClaude(s);
   }
-  $('sttKeySave').onclick = async () => {
-    const el = $('sttKey');
-    const key = el.value.trim();
-    el.value = '';   // 鍵は欄に残さない（保存できなくても。画面に鍵を置いたままにしない: RF30）
-    if (!key) { onlineMsg('鍵を入れてから［保存］を押してください', false); return; }
-    let r = null;
-    try { r = await window.koeApp.cloudSetKey(STT_PROVIDER, key); } catch (_) { r = null; }
-    if (r && r.ok) onlineMsg('鍵を保存しました', true);
-    else onlineMsg((r && r.message) || '鍵を保存できませんでした', false);
-    await refreshCloud();
-  };
-  $('sttKeyTest').onclick = async () => {
-    onlineMsg('鍵を確かめています…');
-    let r = null;
-    try { r = await window.koeApp.cloudTestKey(STT_PROVIDER); } catch (_) { r = null; }
-    if (r && r.ok) onlineMsg((typeof r.message === 'string' && r.message) || '鍵は使えます', true);   // 一覧の権限の無い鍵は main の文（Lane F-e）
-    else onlineMsg((r && r.message) || '鍵を確かめられませんでした', false);
-  };
-  $('sttKeyClear').onclick = async () => {
-    let r = null;
-    try { r = await window.koeApp.cloudClearKey(STT_PROVIDER); } catch (_) { r = null; }
-    if (r && r.ok) onlineMsg('鍵を消しました', true);
-    else onlineMsg((r && r.message) || '鍵を消せませんでした', false);
-    await refreshCloud();
-  };
   $('claudeTest').onclick = async () => {
     $('claudeState').textContent = '確かめています…（Claude に短い要求を1つ送ります）';
     $('claudeState').className = 'eng-state';
@@ -3494,7 +3565,7 @@
     refreshEngineState();
     refreshHotkeyState();
     refreshPromptInfo();
-    refreshCloud();
+    refreshAccount();
     refreshClaude();
     mtypes = await window.koeApp.meetingTypes();
     try {

@@ -1,7 +1,7 @@
 /*
- * stage1c.ipc.test.js — 第1c回 Task C-2: 設定のカード「オンライン」の IPC（cloud:*・claude:*・meeting:set-local-only）を、
+ * stage1c.ipc.test.js — 第1c回 Task C-2: 設定のカード「オンライン」の IPC（claude:*・meeting:set-local-only。cloud:* は第1d回 A-4 で消した）を、
  * 偽の Electron の上で main.js を本当に動かして呼ぶ（helpers/mainrun.js の --json-scene=cloud-ipc）。
- * 外へはつながない（鍵の確かめは 127.0.0.1 の偽の送り先。fake-net は外の宛先で死ぬ）。本物の claude は探さない・起こさない。
+ * 外へはつながない（fake-net は外の宛先で死ぬ）。本物の claude は探さない・起こさない。
  */
 'use strict';
 
@@ -11,8 +11,6 @@ const path = require('node:path');
 const { execFile } = require('node:child_process');
 
 const RUN = path.join(__dirname, 'helpers', 'mainrun.js');
-const KEY = 'gsk_test_0123456789';
-const { LEGACY_KEYS } = require('./helpers/json-scenes');
 const run = (args) => new Promise((resolve, reject) => {
   execFile(process.execPath, [RUN, ...args], { maxBuffer: 1 << 24, timeout: 20000 }, (err, stdout, stderr) => {
     if (err) { reject(new Error(`mainrun ${args.join(' ')} が失敗: ${err.message}\n${stderr}`)); return; }
@@ -20,52 +18,15 @@ const run = (args) => new Promise((resolve, reject) => {
   });
 });
 
-test('RF30・OL3・OL5・OL7: 設定のカード「オンライン」の IPC。鍵は画面へ返らず、記録・設定・secrets.json に鍵の文字が無い', { timeout: 20000 }, async () => {
+// 第1d回 A-4（RL10・F11）で意図して変えた: 鍵の IPC（cloud:status・cloud:set-key・cloud:test-key・cloud:clear-key）の受け口を消したので、
+// 鍵を画面へ返さない・鍵の確かめ・前の版の鍵を残すことの確かめを外した（受け口が無いことと、前の版の鍵を起動で消すことは
+// test/stage1d.ipc.test.js の F11 が見る）。Claude Code と［PC の中だけ］の部分だけを残す
+test('OL5・OL7: 設定のカード「オンライン」の IPC（Claude Code の確かめ・［PC の中だけ］）。前の版の画面の4つのキーは保存しない', { timeout: 20000 }, async () => {
   const o = await run(['text', '--json-scene=cloud-ipc']);
-  // 状態: 鍵の代わりに「しまってあるか」だけ。設定を開いただけでは外へ通信しない（online は net.isOnline() だけ）
-  // 0.7.0 U-1（設計書 D5）で意図して変えた: 送り先は OpenAI に固定。同意（consent）は返さず、settings.json の前の版の値（off・groq）は読まない
-  assert.deepStrictEqual(o.status0, { ok: true, provider: { id: 'openai', label: 'OpenAI', host: 'api.openai.com' },
-    hasKey: false, canStore: true, online: { up: true, why: 'ok' } });
-  assert.strictEqual(o.badId.code, 'bad-id');
-  assert.deepStrictEqual(o.badOther.map((r) => r.code), ['bad-id', 'bad-id', 'bad-id', 'bad-id'], 'groq・custom の名前の鍵を受け付けた（OpenAI のほかへは届かない）');
-  assert.strictEqual(o.badKey.code, 'bad-key');
-  assert.ok(typeof o.badKey.message === 'string' && o.badKey.message.length > 5, '断ったときの文が無い');
-  assert.strictEqual(o.testNoKey.code, 'no-key');
-  assert.strictEqual(o.testNoKey.message, 'OpenAI: 鍵が入っていません。');
-  assert.deepStrictEqual(o.set, { ok: true });
-  assert.strictEqual(o.status1.hasKey, true);
-  assert.ok(o.secretsAfterSet.includes('"openai"') && !o.secretsAfterSet.includes(KEY), 'secrets.json に鍵が平文で入った');
-  // 前の版の groq・custom の鍵は、openai の鍵を保存しても消しても、そのまま残る（読まず・書き換えず・消さない）
-  const keysAfterSet = JSON.parse(o.secretsAfterSet).keys;
-  assert.deepStrictEqual([keysAfterSet.groq, keysAfterSet.custom], [LEGACY_KEYS.groq, LEGACY_KEYS.custom], 'openai の鍵の保存で groq・custom の鍵が消えたか変わった');
-  assert.ok(typeof keysAfterSet.openai === 'string' && keysAfterSet.openai !== '', 'openai の名前で鍵をしまっていない');
   // 前の版の画面が送っていた4つのキーは保存しない。settings.json に前の版が書いた値は残る（JS6）
   assert.strictEqual(o.saved.ok, true);
   const saved = JSON.parse(o.settingsAfterSave);
   assert.deepStrictEqual([saved.cloudTranscribe, saved.sttProvider, saved.sttBaseUrl, saved.sttModel], ['off', 'groq', undefined, undefined]);
-  // 鍵の確かめ: 正しい鍵（前後の空白は落とす）・違う鍵。宛先は OpenAI（偽の口へ書き換え）
-  assert.deepStrictEqual(o.testOk, { ok: true });
-  assert.deepStrictEqual(o.setWrong, { ok: true });
-  assert.strictEqual(o.testAuth.code, 'auth');
-  assert.match(o.testAuth.message, /^OpenAI: 鍵が正しくないか、使えなくなっています。$/);
-  assert.deepStrictEqual(o.seen, [{ method: 'GET', url: '/v1/models', auth: true }, { method: 'GET', url: '/v1/models', auth: false }]);
-  // 第1b回の続き Lane F-e（利用者の PC の 0.5.0）: 返事の符号で分ける。一覧の権限だけが無い鍵は、小さな文字起こしで確かめて「使えます」
-  assert.deepStrictEqual(o.testScope, { ok: true, code: 'no-model-read', message: 'OpenAI: 鍵は使えます（モデルの一覧を読む権限はありません）' });
-  assert.deepStrictEqual(o.testQuota, { ok: false, code: 'quota', message: 'OpenAI: 残高が足りません（OpenAI の Billing を確かめてください）。' });
-  assert.deepStrictEqual(o.testInvalid, { ok: false, code: 'invalid-key', message: 'OpenAI: 鍵が正しくありません。' });
-  assert.deepStrictEqual(o.seenF.map((r) => `${r.kind} ${r.method} ${r.url}`),
-    ['scope GET /v1/models', 'scope POST /v1/audio/transcriptions', 'quota GET /v1/models', 'invalid GET /v1/models']);
-  assert.ok(o.engineLog.includes('文字起こしの経路: openai の鍵の確かめ → ok（no-model-read）'), o.engineLog.join('\n'));
-  assert.ok(o.engineLog.includes('文字起こしの経路: openai の鍵の確かめ → quota'));
-  assert.ok(o.engineLog.includes('文字起こしの経路: openai の鍵の確かめ → invalid-key'));
-  assert.ok(!o.engineLog.some((l) => /gsk_(scope|quota|invalid)|Missing scopes|exceeded|Incorrect API key/.test(l)), '鍵か返事の文が記録に写った');
-  assert.strictEqual(o.statusKeyed.provider.id, 'openai');
-  assert.strictEqual(o.statusKeyed.provider.host, 'api.openai.com');
-  assert.strictEqual(o.statusKeyed.hasKey, true);
-  assert.deepStrictEqual(o.clear, { ok: true });
-  assert.strictEqual(o.statusCleared.hasKey, false);
-  const keysAfterClear = JSON.parse(o.secretsAfterClear).keys;
-  assert.deepStrictEqual(keysAfterClear, { groq: LEGACY_KEYS.groq, custom: LEGACY_KEYS.custom }, '［鍵を消す］が openai のほかの鍵まで消したか変えた');
   // Claude Code: 場所が無いファイルなら子を起こさず、入れ方の文（S1）を返す。-p は呼ばない
   for (const c of [o.claude, o.claudeTest]) {
     assert.deepStrictEqual({ ...c, message: '' }, { ok: true, found: false, cmdOnly: false, method: '', message: '' });
@@ -78,12 +39,7 @@ test('RF30・OL3・OL5・OL7: 設定のカード「オンライン」の IPC。�
   // ［この会議は PC の中だけ］: 会議の外では何もしない。false（送る側に戻す）は受け取らない
   assert.deepStrictEqual(o.localOnlyTrue, { ok: false, localOnly: false });
   assert.deepStrictEqual(o.localOnlyFalse, { ok: false, localOnly: false });
-  // 鍵の文字は、返事・設定・記録のどこにも無い（記録は送り先の名前と符号だけ）
-  const blob = JSON.stringify([o.status0, o.status1, o.statusKeyed, o.statusCleared, o.badId, o.badOther, o.badKey, o.set, o.testOk, o.testAuth, o.testNoKey,
-    o.settingsText, o.engineLog, o.notices]);
-  assert.ok(!blob.includes(KEY) && !blob.includes('gsk_wrong'), '鍵の文字が返事・設定・記録・知らせのどこかにある');
-  assert.ok(o.engineLog.some((l) => l.includes('openai の鍵を保存しました')) && o.engineLog.some((l) => l.includes('openai の鍵の確かめ → auth')));
-  assert.ok(!o.engineLog.some((l) => /(groq|custom) の鍵/.test(l)), 'groq・custom の鍵を扱った');
+  assert.ok(!o.engineLog.some((l) => /の鍵を保存しました|の鍵の確かめ/.test(l)), '鍵を扱った');
 });
 
 test('RF28: ［この会議は PC の中だけ］の IPC は片道。会議中に true の後で false が来ても PC の中だけのまま（下書きにも残る）。会議の外は { ok:false, localOnly:false }', { timeout: 30000 }, async () => {

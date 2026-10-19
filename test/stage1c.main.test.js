@@ -82,9 +82,10 @@ for (const consent of ['ask', 'off']) {
 }
 
 // 第1d回 A-3（RL11・D6）で意図して変えた: 前の版の鍵（groq・custom と、0.7.0 の OpenAI の鍵）は文字起こしに使わない。
-// ログインしていない PC は、鍵があっても中継へも OpenAI へも送らず手元で取り、ログインの案内（L2）を出す（鍵を消すのは A-4 の purgeOld）
+// ログインしていない PC は、鍵があっても中継へも OpenAI へも送らず手元で取り、ログインの案内（L2）を出す。
+// 第1d回 A-4（F11・K2）で意図して変えた: 前の版の鍵は起動のときに purgeOld が消す（前は「鍵は消さない」を見ていた）
 for (const id of ['groq', 'custom', 'openai']) {
-  test(`U-1・RL11: ${id} の名前の鍵しか無い（ログインしていない）PC は、その鍵を送らず手元で取り、ログインの案内を1回出す（鍵は消さない）`, { timeout: 20000 }, async () => {
+  test(`U-1・RL11・K2: ${id} の名前の鍵しか無い（ログインしていない）PC は、その鍵を送らず手元で取り、ログインの案内を1回出す（鍵は起動で消す）`, { timeout: 20000 }, async () => {
     const o = await run(['text', '--relay=text', '--signed-out', `--key-for=${id}`, '--legacy-provider', '--segs=2']);
     assert.strictEqual(o.stt.length, 0, `${id}: 前の版の鍵で送った`);
     assert.deepStrictEqual(o.relayCalls, [], `${id}: ログインしていないのに中継へ要求を出した`);
@@ -92,7 +93,8 @@ for (const id of ['groq', 'custom', 'openai']) {
     assert.deepStrictEqual(o.pages[0].route.stt, { cloud: 0, local: 2, provider: 'openai' }, id);
     assert.strictEqual(o.statusCloud, false, `${id}: ログインしていないのに［PC の中だけ］のボタンが出る`);
     assert.strictEqual(count(o, L2), 1, id);
-    assert.ok(o.secretsRaw.includes(`"${id}"`), `${id}: 前の版の鍵を消した`);
+    assert.ok(o.secretsRaw === null || !o.secretsRaw.includes(`"${id}"`), `${id}: 前の版の鍵が残った`);
+    assert.ok(o.engineLog.includes('secrets: 前の鍵 1 個を消しました'), `${id}: 起動で前の版の鍵を消していない`);
   });
 }
 

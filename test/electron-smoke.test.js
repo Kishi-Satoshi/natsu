@@ -122,7 +122,7 @@ test('electron-smoke: 13・14 の判定は、よい観測で OK。1つ崩すと�
     [13, { redirects: [{ status: 302, reached: true, code: '', targetHits: 0 }, ONLINE_GOOD.redirects[1]] }],
     [13, { redirects: [{ status: 302, reached: true, code: 'timeout', targetHits: 0 }, ONLINE_GOOD.redirects[1]] }],
     [13, { redirects: [ONLINE_GOOD.redirects[0]] }], [13, { redirects: [] }],
-    // 転送の失敗が transcribeCloud の通信の失敗（CloudSttError の net の仲間）でない: ほかの理由で投げた・返事として読んだ（bad-request など）
+    // 転送の失敗が postForm の通信の失敗（CloudSttError の net の仲間）でない: ほかの理由で投げた・返事として読んだ（bad-request など）
     [13, { redirects: [{ status: 302, reached: true, cloud: false, code: '投げた（TypeError: x is not a function）', targetHits: 0 }, ONLINE_GOOD.redirects[1]] }],
     [13, { redirects: [{ status: 302, reached: true, code: 'net', targetHits: 0 }, ONLINE_GOOD.redirects[1]] }],
     [13, { redirects: [ONLINE_GOOD.redirects[0], { status: 307, reached: true, cloud: true, code: 'bad-request', targetHits: 0 }] }],
@@ -179,7 +179,7 @@ test('electron-smoke: reEncryptCheck は、secrets.get が暗号にし直して�
   };
   const fileWith = async (safe) => {
     const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'natsu-smoke-re-')), 'secrets.json');
-    assert.deepStrictEqual(await makeSecrets({ file, safeStorage: safe, J }).set('groq', S.SMOKE_STT.key), { ok: true });
+    assert.deepStrictEqual(await makeSecrets({ file, safeStorage: safe, J }).set('relay', S.SMOKE_STT.key), { ok: true });
     return file;
   };
   assert.strictEqual(await S.reEncryptCheck({ file: await fileWith(fake()), safeStorage: fake() }), true);
@@ -196,10 +196,13 @@ test('electron-smoke: reEncryptCheck は、secrets.get が暗号にし直して�
   assert.strictEqual(await S.reEncryptCheck({ file: empty, safeStorage: fake() }), false);
 });
 
-test('electron-smoke: 13・14 は本物の net.request を transcribeCloud に渡し、127.0.0.1 の偽の送り先と、本物の safeStorage を secrets.js で使う', { timeout: 5000 }, () => {
+// 第1d回 A-4（F11）で意図して変えた: PC から OpenAI へ直に送る transcribeCloud を消したので、13 は残した postForm・buildMultipart で
+// 同じ multipart を組んで本物の net.request で送る（fake-net が本物と同じかの確かめという意図は同じ）。14 の鍵の名前は relay（しまえる名前が relay だけ）
+test('electron-smoke: 13・14 は本物の net.request を postForm（buildMultipart の multipart）に渡し、127.0.0.1 の偽の送り先と、本物の safeStorage を secrets.js で使う', { timeout: 5000 }, () => {
   const m = read('tools/electron-smoke/main.js');
+  assert.ok(!m.includes('transcribeCloud') && !m.includes('resolveProvider'), '消した直の道を呼んでいる');
   for (const k of ["require('../../src/stt-cloud')", "require('../../src/secrets')", "require('../../src/jsonfile')", "require('../../test/helpers/fake-stt')",
-    'const request = (opts) => net.request(opts)', 'request, provider', 'transcribeCloud(', 'makeSecrets(', 'isAsyncEncryptionAvailable()', 'encryptStringAsync(', 'decryptStringAsync(',
+    'const request = (opts) => net.request(opts)', 'smokeTranscribe(lib.silentWav(0.5), { request, base', 'sttCloud.buildMultipart(', 'sttCloud.postForm({ request', "set('relay'", 'makeSecrets(', 'isAsyncEncryptionAvailable()', 'encryptStringAsync(', 'decryptStringAsync(',
     'getSelectedStorageBackend()', "listen(0, '127.0.0.1'", 'onlineResults(', 'onlineChecks(',
     // 暗号にし直す道: 本物の decryptStringAsync の返りに shouldReEncrypt: true を足す包みで secrets.get を呼ぶ
     'shouldReEncrypt: true', 'o.reEncryptBack =', 'cloud = e instanceof sttCloud.CloudSttError', 'writeJsonFile: (...a) => { const r = J.writeJsonFile(...a); writes += 1;'])

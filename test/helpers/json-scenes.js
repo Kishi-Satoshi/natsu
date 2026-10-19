@@ -48,7 +48,8 @@ const BROKEN_PAGE_FILES = {
 const wsText = (c) => { const b = c.readLocal(WS_FILE); return b ? b.toString('utf8') : null; };
 // 0.7.0 U-1: 前の版が groq・custom の名前でしまった鍵（mainrun の偽の safeStorage の暗号 'ENC1:<hex>' の base64）
 const fakeEncB64 = (k) => Buffer.from(`ENC1:${Buffer.from(k, 'utf8').toString('hex')}`).toString('base64');
-const LEGACY_KEYS = { groq: fakeEncB64('gsk_legacy_groq_000'), custom: fakeEncB64('legacy_custom_0000') };
+// 第1d回 A-4（F11・K2）: mainrun の --old-keys が secrets.json に置く 0.7.0 までの鍵（平文。試験はこの文字がどこにも出ないことを探す）
+const OLD_KEY_TEXT = { groq: 'gsk_old_groq_000000', openai: 'sk-old-openai-00000', custom: 'old_custom_0000000' };
 
 // 第2a1回 M-4: 0.6.0 と同じ store.js（別の写し: main の store と状態を分ける）で、userData の data に議事録を置く。segs[i] はページ i の発言の数。
 // 作ったページの ID の並びを返す
@@ -107,7 +108,7 @@ const logText = (c) => { const b = c.read('engine.log'); return b ? b.toString('
 const RELAY_BASE_SETTINGS = ({ base, userData }) => JSON.stringify({ ...base, autoLaunch: false, claudeExe: require('node:path').join(userData, 'no-such-claude.exe') });
 
 module.exports = {
-  TYPICAL, HISTORY, UI, OLD_DRAFT, WS, LEGACY_KEYS,
+  TYPICAL, HISTORY, UI, OLD_DRAFT, WS, OLD_KEY_TEXT,
   plain: { files: { 'settings.json': pretty(TYPICAL), 'history.json': pretty(HISTORY) },
     act: async (c) => { c.out.got = await c.handlers['settings:get'](); c.out.history = await c.handlers['history:get'](); } },
   bom: { engine: true, files: { 'settings.json': ({ base }) => Buffer.concat([BOM, Buffer.from(JSON.stringify({ ...base, theme: 'dark' }))]) } },
@@ -754,77 +755,22 @@ module.exports = {
       try { c.out.summary = await c.handlers['page:summarize']({}, 'pbig000001'); } catch (e) { c.out.summaryThrew = String((e && e.code) || (e && e.message) || e); }
       await c.sleep(50);
     } },
-  // 第1c回 Task C-2: 設定のカード「オンライン」の IPC を main で本当に呼ぶ（鍵は画面へ返さない・secrets.json は暗号の形・
-  // ［鍵を確かめる］は 127.0.0.1 の偽の送り先の /models へ・Claude Code の場所が無いときの文・［PC の中だけ］は片道）。
-  // Claude Code の場所は無いファイルに向ける（本物の claude を探しに行かない。子は起こさない）
-  // 0.7.0 U-1（設計書 D5）: 送り先は OpenAI に固定。https://api.openai.com/v1 への要求は setOpenAiBase で 127.0.0.1 の偽の口へ書き換える。
+  // 第1c回 Task C-2: 設定のカード「オンライン」の IPC を main で本当に呼ぶ（Claude Code の場所が無いときの文・［PC の中だけ］は片道）。
+  // Claude Code の場所は無いファイルに向ける（本物の claude を探しに行かない。子は起こさない）。
   // settings.json の cloudTranscribe・sttProvider は前の版が書いた値（読まれず、消されないことを見る）。
-  // secrets.json には前の版がしまった groq・custom の鍵（偽の safeStorage の暗号の形）だけを置く: 状態は「未設定」で、
-  // openai の鍵を保存しても消しても、この2つは残って書き換わらないことを見る
-  'cloud-ipc': { files: { 'settings.json': pretty({ ...TYPICAL, cloudTranscribe: 'off', sttProvider: 'groq', claudeExe: '/natsu-test-missing/claude.exe' }),
-    'secrets.json': JSON.stringify({ schema: 1, keys: { groq: LEGACY_KEYS.groq, custom: LEGACY_KEYS.custom } }) },
+  // 第1d回 A-4（RL10・F11）で意図して変えた: 鍵の IPC（cloud:*）の受け口を消したので、鍵の保存・確かめ・消すと、前の版の groq・custom の鍵が
+  // 残ることの場面を外した（Claude Code と［PC の中だけ］の部分だけを残す。受け口が無いことと前の版の鍵を起動で消すことは stage1d.ipc の old-keys）
+  'cloud-ipc': { files: { 'settings.json': pretty({ ...TYPICAL, cloudTranscribe: 'off', sttProvider: 'groq', claudeExe: '/natsu-test-missing/claude.exe' }) },
     act: async (c) => {
-      const KEY = 'gsk_test_0123456789';
       const h = (ch, ...a) => c.handlers[ch]({}, ...a);
-      const seen = [];
-      const seenF = [];   // 第1b回の続き Lane F-e の鍵（下の FKEYS）への要求
-      // Lane F-e: 鍵ごとの答え方。scope は OpenAI の制限付きの鍵（一覧は 401 の権限の文、文字起こしは通る）、quota は残高なし、invalid は鍵の誤り
-      const FKEYS = { 'gsk_scope_00000000': 'scope', 'gsk_quota_00000000': 'quota', 'gsk_invalid_0000000': 'invalid' };
-      const srv = require('node:http').createServer((req, res) => {
-        const bearer = String(req.headers.authorization || '').replace(/^Bearer /, '');
-        const f = FKEYS[bearer];
-        if (f) {
-          seenF.push({ method: req.method, url: req.url, kind: f });
-          req.resume();
-          const send = (st, body) => { res.statusCode = st; res.setHeader('content-type', 'application/json'); res.end(JSON.stringify(body)); };
-          if (req.method === 'POST' && req.url === '/v1/audio/transcriptions') { if (f === 'scope') send(200, { text: '' }); else send(401, { error: { code: 'invalid_api_key' } }); return; }
-          if (f === 'scope') send(401, { error: { message: 'You have insufficient permissions for this operation. Missing scopes: api.model.read.', type: 'invalid_request_error', param: null, code: null } });
-          else if (f === 'quota') send(429, { error: { message: 'You exceeded your current quota.', type: 'insufficient_quota', code: 'insufficient_quota' } });
-          else send(401, { error: { message: `Incorrect API key provided: ${bearer}`, type: 'invalid_request_error', code: 'invalid_api_key' } });
-          return;
-        }
-        const ok = req.headers.authorization === `Bearer ${KEY}`;
-        seen.push({ method: req.method, url: req.url, auth: ok });
-        res.statusCode = ok ? 200 : 401;
-        res.end('{"data":[]}');
-      });
-      await new Promise((r) => srv.listen(0, '127.0.0.1', r));
       const o = c.out;
-      try {
-        c.setOpenAiBase(`http://127.0.0.1:${srv.address().port}/v1`);
-        o.status0 = await h('cloud:status');
-        o.badId = await h('cloud:set-key', 'evil', KEY);
-        // 0.7.0 U-1: groq・custom の名前は画面から届かない（main も断る）
-        o.badOther = [await h('cloud:set-key', 'groq', KEY), await h('cloud:test-key', 'groq'), await h('cloud:clear-key', 'custom'), await h('cloud:test-key', 'custom')];
-        o.badKey = await h('cloud:set-key', 'openai', 'short');
-        o.testNoKey = await h('cloud:test-key', 'openai');
-        o.set = await h('cloud:set-key', 'openai', ` ${KEY} `);
-        o.status1 = await h('cloud:status');
-        o.secretsAfterSet = String(c.read('secrets.json') || '');
-        // 前の版の画面が送っていた4つのキーは保存しない（settings.json には前の版の値が残る）
-        o.saved = await h('settings:save', UI({ cloudTranscribe: 'on', sttProvider: 'custom', sttBaseUrl: 'https://stt.example/v1', sttModel: 'm', claudeExe: '/natsu-test-missing/claude.exe' }));
-        o.settingsAfterSave = String(c.read('settings.json') || '');
-        o.testOk = await h('cloud:test-key', 'openai');
-        o.setWrong = await h('cloud:set-key', 'openai', 'gsk_wrong_00000000');
-        o.testAuth = await h('cloud:test-key', 'openai');
-        for (const [name, k] of [['testScope', 'gsk_scope_00000000'], ['testQuota', 'gsk_quota_00000000'], ['testInvalid', 'gsk_invalid_0000000']]) {
-          await h('cloud:set-key', 'openai', k);
-          o[name] = await h('cloud:test-key', 'openai');
-        }
-        o.seenF = seenF;
-        await h('cloud:set-key', 'openai', 'gsk_wrong_00000000');
-        o.statusKeyed = await h('cloud:status');
-        o.clear = await h('cloud:clear-key', 'openai');
-        o.statusCleared = await h('cloud:status');
-        o.secretsAfterClear = String(c.read('secrets.json') || '');
-        o.claude = await h('claude:status');
-        o.claudeTest = await h('claude:test');
-        o.localOnlyTrue = await h('meeting:set-local-only', true);
-        o.localOnlyFalse = await h('meeting:set-local-only', false);
-        o.seen = seen;
-      } finally {
-        await new Promise((r) => srv.close(r));
-      }
+      // 前の版の画面が送っていた4つのキーは保存しない（settings.json には前の版の値が残る）
+      o.saved = await h('settings:save', UI({ cloudTranscribe: 'on', sttProvider: 'custom', sttBaseUrl: 'https://stt.example/v1', sttModel: 'm', claudeExe: '/natsu-test-missing/claude.exe' }));
+      o.settingsAfterSave = String(c.read('settings.json') || '');
+      o.claude = await h('claude:status');
+      o.claudeTest = await h('claude:test');
+      o.localOnlyTrue = await h('meeting:set-local-only', true);
+      o.localOnlyFalse = await h('meeting:set-local-only', false);
     } },
   // 第1d回 Task A-3（RL11・F5）: --relay=text。1回目の会議の1つ目の区間が中継で文字になった後に、D1 で札を取り消す（revoked_at）。
   // 2つ目の区間は中継が 401 login → 手元でやり直す。3つ目の区間は札が無いので中継へ送らない（同じ会議で「ログインしていない」を重ねない）。
@@ -967,6 +913,17 @@ module.exports = {
       o.relayCalls = r.calls();
       o.revoked = await r.db.prepare('SELECT COUNT(*) AS n FROM sessions WHERE revoked_at IS NOT NULL').first('n');
       o.status1 = await h('account:status');
+    } },
+  // 第1d回 Task A-4（F11・K2）: 起動のときに 0.7.0 までの鍵（--old-keys が置く groq・openai・custom と退けた控え）を purgeOld で消す。
+  // ログインの札（種をまいた relay）は残る。鍵の IPC（cloud:*）の受け口は無く、ログインの IPC（account:*）はある
+  'old-keys': { relaySeed: true, files: { 'settings.json': pretty(TYPICAL) },
+    act: async (c) => {
+      const o = c.out;
+      const b = c.read('secrets.json');
+      o.secretsRaw = b ? b.toString('utf8') : null;
+      o.cloudHandlers = Object.keys(c.handlers).filter((k) => k.startsWith('cloud:')).sort();
+      o.accountHandlers = Object.keys(c.handlers).filter((k) => k.startsWith('account:')).sort();
+      o.status = await c.handlers['account:status']({});
     } },
   // 第1c回 Task C-2 の直し: ［この会議は PC の中だけ］の IPC は片道（RF28）。会議の外と、会議中に true の後で false を送る。
   // 同意は既定（ask）のまま: 会議の始めに外へ聞きに行かない

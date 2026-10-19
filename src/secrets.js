@@ -1,9 +1,8 @@
 /*
  * secrets.js — クラウドの文字起こしの鍵の保管（第1c回 OL3。RF30）と、ログインの札の保管（第1d回 A-2。RL10・RF32）
  *
- *  - PROVIDER_IDS  鍵をしまえる名前（stt-cloud.js の PRESETS と同じ名前と、中継のログインの札 relay）。
- *                  第1d回の移り目: groq・openai・custom は、OpenAI へ直に送る道と鍵の IPC・画面を消す A-4 で外す
- *                  （計画 docs/plans/2026-10-19-1d.md の A-2 の注。ここで外すと、その道の今のテストが通らない）
+ *  - PROVIDER_IDS  しまえる名前。中継のログインの札 relay だけ（第1d回 A-4。0.7.0 までの groq・openai・custom の鍵は、
+ *                  OpenAI へ直に送る道と鍵の IPC・画面と一緒に外した。しまえず・読めず・消せない。残った鍵は起動のときに purgeOld が消す）
  *  - OLD_IDS       0.7.0 までの鍵の名前（purgeOld が消す）
  *  - KEY_RE        鍵として受け付ける形（HTTP の見出しに入れられる文字だけ。空白・日本語は断る）
  *  - makeSecrets   送り先ごとの鍵を safeStorage の非同期の形で暗号にし、<userData>/secrets.json に書く
@@ -34,7 +33,7 @@
 const fs = require('fs');
 const path = require('path');
 
-const PROVIDER_IDS = Object.freeze(['groq', 'openai', 'custom', 'relay']);
+const PROVIDER_IDS = Object.freeze(['relay']);
 const OLD_IDS = Object.freeze(['groq', 'openai', 'custom']);
 const KEY_RE = /^[\x21-\x7e]{8,512}$/;   // 見出しに入れられる文字だけ（空白・日本語は断る）
 const SCHEMA = 1;

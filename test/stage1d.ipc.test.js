@@ -116,3 +116,33 @@ test('RL10・RF32: 暗号にできない PC（偽の safeStorage が使えない
   assert.strictEqual(o.status1.signedIn, false);
   assert.ok(o.engineLog.some((l) => /^アカウント: ログインの札をしまえません（unavailable）。中継の札を取り消しました（ok）$/.test(l)), o.engineLog.join('\n'));
 });
+
+// ---------------------------------------------------------------- 第1d回 A-4（F11・K2）
+// 0.7.0 までの鍵（会社の OpenAI の鍵が入りうる）は、起動のときに purgeOld で消す。鍵の IPC（cloud:*）の受け口は無い
+const { OLD_KEY_TEXT } = require('./helpers/json-scenes');
+
+test('F11・K2: --old-keys で起動すると、groq・openai・custom の鍵と退けた控えが消え、engine.log に「secrets: 前の鍵 4 個を消しました」が1行。ログインの札は残り、鍵の文字は記録に無い', { timeout: 20000 }, async () => {
+  const o = await run(['text', '--json-scene=old-keys', '--relay=text', '--old-keys']);
+  const keys = JSON.parse(o.secretsRaw).keys;
+  assert.deepStrictEqual(Object.keys(keys), ['relay'], '前の版の鍵が残った');
+  assert.ok(!o.files.some((f) => f.startsWith('secrets.json.broken-')), `退けた控えが残った: ${o.files.join(',')}`);
+  // 3つの鍵と控え1つ（控えにも前の鍵の暗号の文字が残りうる: A-2 の purgeOld）
+  assert.deepStrictEqual(o.engineLog.filter((l) => l.startsWith('secrets: 前の鍵')), ['secrets: 前の鍵 4 個を消しました']);
+  assert.strictEqual(o.status.signedIn, true, 'ログインの札まで消した');
+  const blob = JSON.stringify([o.engineLog, o.notices, o.settingsText, o.status]);
+  for (const k of Object.values(OLD_KEY_TEXT)) assert.ok(!blob.includes(k), `鍵の文字が記録か答えに出た: ${k}`);
+  assert.ok(!blob.includes('ENC1') && !blob.includes(keys.relay), '暗号の文字が記録か答えに出た');
+});
+
+test('F11・K2: 前の版の鍵が無い PC では、起動で何も消さず、記録もしない（ログインの札はそのまま）', { timeout: 20000 }, async () => {
+  const o = await run(['text', '--json-scene=old-keys', '--relay=text']);
+  assert.deepStrictEqual(Object.keys(JSON.parse(o.secretsRaw).keys), ['relay']);
+  assert.deepStrictEqual(o.engineLog.filter((l) => l.startsWith('secrets:')), []);
+  assert.strictEqual(o.status.signedIn, true);
+});
+
+test('F11: cloud:status・cloud:set-key・cloud:test-key・cloud:clear-key の受け口が無い（ログインの4つはある）', { timeout: 20000 }, async () => {
+  const o = await run(['text', '--json-scene=old-keys', '--relay=text', '--old-keys']);
+  assert.deepStrictEqual(o.cloudHandlers, [], '鍵の IPC の受け口が残っている');
+  assert.deepStrictEqual(o.accountHandlers, ['account:logout', 'account:start', 'account:status', 'account:verify']);
+});

@@ -167,12 +167,8 @@ contextBridge.exposeInMainWorld('koeApp', {
   meetingSetLocalOnly: (on) => ipcRenderer.invoke('meeting:set-local-only', on),
   meetingSetPaused: (on) => ipcRenderer.invoke('meeting:set-paused', on),   // 第1b回 N4c: → { ok, pending, paused }
 
-  // オンライン（第1c回 Task C-2）。鍵は送るだけで、main からは受け取らない（状態は「しまってあるか」だけ）
-  cloudStatus: () => ipcRenderer.invoke('cloud:status'),
-  cloudSetKey: (provider, key) => ipcRenderer.invoke('cloud:set-key', provider, key),
-  cloudClearKey: (provider) => ipcRenderer.invoke('cloud:clear-key', provider),
-  cloudTestKey: (provider) => ipcRenderer.invoke('cloud:test-key', provider),
-  // ログイン（第1d回 Task A-2）。札（トークン）と確認コードは main から返らない（返るのはログインしているか・メール・文と符号だけ）
+  // ログイン（第1d回 Task A-2。設定のカード「アカウント」が呼ぶ: A-4）。札（トークン）と確認コードは main から返らない
+  // （返るのはログインしているか・メール・文と符号だけ）。0.7.0 の鍵の口（cloudStatus・cloudSetKey・cloudClearKey・cloudTestKey）は A-4 で消した
   accountStatus: () => ipcRenderer.invoke('account:status'),
   accountStart: (email) => ipcRenderer.invoke('account:start', email),
   accountVerify: (email, code) => ipcRenderer.invoke('account:verify', email, code),

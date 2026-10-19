@@ -42,7 +42,7 @@ test('1b2 R-3・G12: 検索の窓の画面は窓を開く act を持ち、取り
   const s = SH.SCREENS.find((x) => x.name === 'search-palette-light');
   assert.ok(s, '検索の窓の画面が撮る並びに無い');
   assert.match(s.act, /sideSearch/);
-  // 0.7.0 U-2 で意図して変えた: 取り直し待ちは設定の3枚だけになった（下の U-2 のテスト）。検索の窓は基準と比べる（取り直し待ちに戻さない）
+  // 0.7.0 U-2 で意図して変えた: 取り直し待ちは設定の3枚だけになった（下の U-2 のテスト。第1d回 A-4 でまた設定の3枚）。検索の窓は基準と比べる（取り直し待ちに戻さない）
   assert.ok(!SH.RETAKE.has('search-palette-light'), '検索の窓の画面が取り直し待ちに戻った');
 });
 
@@ -123,9 +123,11 @@ test('G2・F14: 録音バーの基準の PNG は第1a回のまま（取り直し
   assert.strictEqual(require('node:crypto').createHash('sha256').update(buf).digest('hex'), 'd206317193b0f9460af62948ddbad5d904a6311154eb222dceb4ddf5a2f8fd02');
 });
 
-// 0.7.0 U-2 で意図して変えた: 今の版は 0.6.0。取り直し待ち（設定の3枚）が残る間は 0.7.0 に上げさせない（利用者が新しい画像を見る前に出さない）
-test('F14: 取り直し待ちが残っている間は、版を上げられない（取り直し待ちのまま 0.7.0 を出さない）', { timeout: 5000 }, () => {
-  if (SH.RETAKE.size) assert.strictEqual(JSON.parse(read('package.json')).version, '0.6.0', `取り直し待ち ${[...SH.RETAKE].join(',')} を残したまま版を上げた`);
+// 0.7.0 U-2 で意図して変えた: 今の版は 0.6.0。取り直し待ち（設定の3枚）が残る間は 0.7.0 に上げさせない（利用者が新しい画像を見る前に出さない）。
+// 第1d回 A-4 で意図して変えた: 今の版は 0.7.0。取り直し待ち（設定の3枚。A-7 で録音中のページの3枚も）が残る間は 0.8.0 に上げさせない
+// （G-2 で版を上げる前に、利用者が CI の新しい画像を見て OK と言い、基準にして空に戻す）
+test('F14: 取り直し待ちが残っている間は、版を上げられない（取り直し待ちのまま 0.8.0 を出さない）', { timeout: 5000 }, () => {
+  if (SH.RETAKE.size) assert.strictEqual(JSON.parse(read('package.json')).version, '0.7.0', `取り直し待ち ${[...SH.RETAKE].join(',')} を残したまま版を上げた`);
 });
 
 test('tools/shots/main.js は画面ごとの答え・拡大・はみ出し・Tab を使う', { timeout: 5000 }, () => {
@@ -301,8 +303,11 @@ test('G2: 作業域より大きい窓が作るときに縮められても（Wind
 // 13 枚は Windows の CI（run 39150265077・c823b81）が撮った画像。利用者が 2026-10-19 に見て OK と言った
 // 0.7.0 U-2（設計書 D8）で意図して変えた: 設定のいちばん上に「外観」を足し、「オンライン」のカードを D5 の形にしたので、設定の3枚を取り直し待ちにした。
 // 利用者が 2026-10-19 に CI の新しい3枚（run 39243734668・artifact 12183195820）を見て OK と言ったので、その画像を基準にして取り直し待ちを空に戻した（第1b回 C-2 と同じ手順）
-test('G2・F14・U-2: 取り直し待ちは無い。どの画面にも基準の PNG があり、大きさが窓の大きさと同じ', { timeout: 5000 }, () => {
-  assert.deepStrictEqual([...SH.RETAKE], []);
+// 第1d回 A-4（RL10・F11）で意図して変えた: 設定の2つ目に「アカウント」のカードを足し、「オンライン」のカードの説明を替えて［詳細設定（管理者用）］を
+// 消したので、設定の3枚を取り直し待ちにした（計画の「意図して変えるもの」の RETAKE の行）。CI は「取り直し待ち」と出して NG にしない。
+// 利用者が CI の新しい3枚を見て OK と言ったら、その画像を基準にして取り直し待ちを空に戻す（0.8.0 を出す前。上の版のテスト）
+test('G2・F14・RL10: 取り直し待ちは設定の3枚だけ。どの画面にも基準の PNG があり、大きさが窓の大きさと同じ', { timeout: 5000 }, () => {
+  assert.deepStrictEqual([...SH.RETAKE], ['settings-light', 'settings-dark', 'settings-zoom200-dark']);
   for (const s of SH.SCREENS) {
     const f = path.join(ROOT, 'test', 'shots', 'win32', `${s.name}.png`);
     assert.ok(fs.existsSync(f), `${s.name} の基準が無い`);
@@ -321,9 +326,12 @@ test('G2・F14・U-2: 取り直し待ちは無い。どの画面にも基準の 
 // 第1d回 A-9（RL16）: ［更新して再起動］と更新の知らせの行のボタンが restart の答えを見るように、<script> の中だけを直した（要素・文・CSS は
 // 変えていないので、撮る画面の見た目もページの長さも変わらない。計画の A-9 は RETAKE に足さない）。値を今の app.html に合わせた。
 // 本当に同じかは Windows の CI の「主な画面を撮る」の比べで見る（違えば基準を取り直し、見える中身が変わったなら RETAKE に入れる）
+// 第1d回 A-4（RL10・F11）: 設定に「アカウント」のカードを足し、「オンライン」の説明を替えて［詳細設定（管理者用）］を消し、知らせに
+// ［ログインし直す］を足した。見える中身が変わるのは設定の3枚なので RETAKE に入れた（上の「取り直し待ちは設定の3枚だけ」）。
+// ほかの画面（議事録・音声入力・録音中のページ・検索の窓）は要素も文も変えていないので、基準のまま比べる。値を今の app.html に合わせた
 test('基準の画像（test/shots/win32）は今の app.html で撮ったもの（app.html を変えたら撮り直しを確かめる）', { timeout: 5000 }, () => {
   const sha = require('node:crypto').createHash('sha256').update(fs.readFileSync(path.join(ROOT, 'src', 'renderer', 'app.html'))).digest('hex');
-  assert.strictEqual(sha, '5004d6f20b613173f4993d8e859dfd6780ecfd46b32356808b1db8483837b192',
+  assert.strictEqual(sha, '845bf061e883e4ac4a2ef7becd1fdbb415cefd68f3bf2c59ef2c1eb18dd550f6',
     'app.html が基準の画像を撮った時と違う。Windows の CI の画面の比べ（捲り棒のつまみも）を見て、基準を取り直してからこの値を直す');
 });
 

@@ -14,7 +14,8 @@
  *         （--use-fake-device-for-media-stream）を使う。1〜7 の受け口（defaultSession）は変えない
  *   13・14. 第1c回 OL2・OL3（偽物の fake-net.js が本物と同じかの毎回の確かめ。onlineChecks。判定は純粋な onlineResults）:
  *         13 は 127.0.0.1 の偽の送り先（test/helpers/fake-stt.js をここで開く）へ、本物の net.request で
- *         stt-cloud.transcribeCloud を呼び、文字が返り、送り先が受けた multipart の欄が A-2 のテストと同じ。
+ *         stt-cloud.postForm（buildMultipart で組んだ OpenAI と同じ形の multipart）を送り、文字が返り、送り先が受けた multipart の欄が
+ *         A-2 のテストと同じ（第1d回 A-4: PC から OpenAI へ直に送る口を消したので、残した postForm で同じ要求を組む: smokeTranscribe）。
  *         302・307 を返す宛先は redirect: 'error' で失敗になり、転送の先へ要求が届かない。
  *         14 は本物の safeStorage の非同期の形（isAsyncEncryptionAvailable・encryptStringAsync・decryptStringAsync）で
  *         同じ文字に戻り、secrets.js（makeSecrets）で一時フォルダの secrets.json にしまって読み返せ、ファイルに鍵の文字が無い。
@@ -35,6 +36,7 @@
  */
 'use strict';
 
+const crypto = require('crypto');
 const fs = require('fs');
 const http = require('http');
 const os = require('os');
@@ -62,7 +64,7 @@ const CHECKS = [
   [10, '許可: 本体の窓でマイク（音だけ）は許され、マイクの名前が出る。カメラと画面の取り込みは断る'],
   [11, '許可: 録音バーの窓の画面の取り込み（44 では media・mediaTypes が空）は、受け口まで届く'],
   [12, '移動と新しい窓: location の書き換え・リンク・window.open で、窓は元のページのまま、新しい窓は開かない'],
-  [13, 'net.request の POST: 127.0.0.1 の偽の送り先へ transcribeCloud で multipart を送り、文字が返る。302・307 の転送は失敗になり、先へ届かない'],
+  [13, 'net.request の POST: 127.0.0.1 の偽の送り先へ postForm で multipart を送り、文字が返る。302・307 の転送は失敗になり、先へ届かない'],
   [14, 'safeStorage の非同期: 暗号にして同じ文字に戻り、secrets.js でしまって読み返せる（Linux の basic_text は「使えない」で OK）'],
   [15, '本物の src/db/server.js（utilityProcess・NaTsu DB）に main の口で締めを書き、本物の src/preload.js（sandbox の窓）の koeApp.pageGet が routeText 付きで返す。'
     + '口は window に出ない。子を落とすと読みは失敗で返り、書き込みは起こし直した後に1回だけ効く'],
@@ -172,7 +174,7 @@ function securityResults(o) {
  *   platform: string, asyncAvailable: boolean, backend: string, roundTrip: boolean, setCode: string, getBack: boolean, plainInFile: boolean,
  *   reEncryptBack: boolean, error13?: string, error14?: string }} o
  *   sttRequests は偽の送り先が受けた要求（fake-stt.js の requests）。redirects は 302・307 ごとに、転送の元に届いたか（reached）・
- *   失敗が CloudSttError か（cloud）・transcribeCloud の失敗の符号（code。失敗しなければ ''）・転送の先が受けた要求の数（targetHits）。
+ *   失敗が CloudSttError か（cloud）・smokeTranscribe（postForm）の失敗の符号（code。失敗しなければ ''）・転送の先が受けた要求の数（targetHits）。
  *   reEncryptBack は、decryptStringAsync が shouldReEncrypt: true を返したときに secrets.get が鍵を返し、
  *   暗号にし直した文字を secrets.json に書き（鍵の文字は無い）、別の係で読み戻せたか（しまえる PC だけで求める）
  * @returns {Array<{ n: number, ok: boolean, note: string }>}
@@ -593,6 +595,22 @@ async function securityChecks({ app, BrowserWindow, session }) {
 }
 
 /**
+ * 13 の送り: OpenAI と同じ形の multipart（file・model・language・prompt・response_format・temperature）を buildMultipart で組み、
+ * postForm で1回送って返事の text を返す（第1d回 A-4 で消した、PC から直に送る口の1回の送りと同じ要求）。2xx でなければ
+ * CloudSttError('server')。通信の失敗（転送を断ったときの net など）は postForm の CloudSttError のまま投げる
+ */
+async function smokeTranscribe(wav, { request, base, key, language, prompt, timeoutMs }) {
+  const fields = [['model', SMOKE_STT.fields.model], ['language', language], ['prompt', prompt], ['response_format', 'json'], ['temperature', '0']];
+  const boundary = crypto.randomBytes(16).toString('hex');
+  const body = sttCloud.buildMultipart(fields, { name: 'file', filename: 'segment.wav', type: 'audio/wav', data: wav }, boundary);
+  const res = await sttCloud.postForm({ request, url: `${base}/audio/transcriptions`, body, timeoutMs,
+    headers: { 'Content-Type': `multipart/form-data; boundary=${boundary}`, Authorization: `Bearer ${key}` } });
+  if (res.status < 200 || res.status > 299) throw new sttCloud.CloudSttError('server', { status: res.status });
+  const j = JSON.parse(res.body.toString('utf8'));
+  return j && typeof j.text === 'string' ? j.text : '';
+}
+
+/**
  * 13・14: 本物の net.request と safeStorage で観測を集める（判定は onlineResults）。どこかで止まっても観測を残して判定に回す。
  * 送り先は 127.0.0.1 の偽物だけ（外へはつながない）。鍵の文字は記録に書かない。
  */
@@ -604,12 +622,8 @@ async function onlineChecks({ app, net, safeStorage }) {
   try {
     const f = await startFakeStt({ key: SMOKE_STT.key, text: SMOKE_STT.text });
     closers.push(() => f.close());
-    const provider = sttCloud.resolveProvider({ sttProvider: 'custom', sttBaseUrl: f.base, sttModel: SMOKE_STT.fields.model });
-    if (provider.error) throw new Error(`送り先を決められない（${provider.error}）`);
-    o.text = await within(sttCloud.transcribeCloud(lib.silentWav(0.5), {
-      request, provider, key: SMOKE_STT.key, language: SMOKE_STT.fields.language, prompt: SMOKE_STT.fields.prompt,
-      timeoutMs: 15000, sleep: () => Promise.reject(new Error('429 の待ちが起きた')),
-    }), 20000, 'transcribeCloud');
+    o.text = await within(smokeTranscribe(lib.silentWav(0.5), { request, base: f.base, key: SMOKE_STT.key,
+      language: SMOKE_STT.fields.language, prompt: SMOKE_STT.fields.prompt, timeoutMs: 15000 }), 20000, 'smokeTranscribe');
     o.sttRequests = f.requests.slice();
     // 302・307 を返す宛先（転送の先は別の偽の送り先。届けば targetHits が増える）
     const g = await startFakeStt({ key: SMOKE_STT.key });
@@ -629,12 +643,11 @@ async function onlineChecks({ app, net, safeStorage }) {
     for (const st of REDIRECTS) {
       const before = g.requests.length;
       const base = `http://127.0.0.1:${hop.address().port}/r${st}`;
-      const p = { ...provider, base, reachUrl: `${base}/models` };
       let code = '';
       let cloud = false;
       try {
-        await within(sttCloud.transcribeCloud(lib.silentWav(0.5), { request, provider: p, key: SMOKE_STT.key, language: 'ja', prompt: SMOKE_STT.fields.prompt,
-          timeoutMs: 15000, sleep: () => Promise.reject(new Error('429 の待ちが起きた')) }), 20000, `転送 ${st}`);
+        await within(smokeTranscribe(lib.silentWav(0.5), { request, base, key: SMOKE_STT.key, language: 'ja', prompt: SMOKE_STT.fields.prompt,
+          timeoutMs: 15000 }), 20000, `転送 ${st}`);
       } catch (e) {
         cloud = e instanceof sttCloud.CloudSttError;
         code = cloud ? e.code : `投げた（${msgOf(e)}）`;
@@ -662,10 +675,10 @@ async function onlineChecks({ app, net, safeStorage }) {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'natsu-smoke-secrets-'));
     closers.push(() => fs.rmSync(dir, { recursive: true, force: true }));
     const file = path.join(dir, 'secrets.json');
-    const r = await within(makeSecrets({ file, safeStorage, J }).set('groq', SMOKE_STT.key), 10000, 'secrets.set');
+    const r = await within(makeSecrets({ file, safeStorage, J }).set('relay', SMOKE_STT.key), 10000, 'secrets.set');
     o.setCode = r.ok ? 'ok' : r.code;
     // しまったものを、別の係（ファイルから読み直す）で読み返す
-    o.getBack = (await within(makeSecrets({ file, safeStorage, J }).get('groq'), 10000, 'secrets.get')) === SMOKE_STT.key;
+    o.getBack = (await within(makeSecrets({ file, safeStorage, J }).get('relay'), 10000, 'secrets.get')) === SMOKE_STT.key;
     o.plainInFile = fs.existsSync(file) ? fs.readFileSync(file, 'utf8').includes(SMOKE_STT.key) : false;
     if (o.setCode === 'ok') o.reEncryptBack = await reEncryptCheck({ file, safeStorage });
   } catch (e) {
@@ -682,7 +695,7 @@ async function onlineChecks({ app, net, safeStorage }) {
  */
 async function reEncryptCheck({ file, safeStorage }) {
   const storedOf = () => {
-    try { return JSON.parse(fs.readFileSync(file, 'utf8')).keys.groq || ''; } catch (_) { return ''; }
+    try { return JSON.parse(fs.readFileSync(file, 'utf8')).keys.relay || ''; } catch (_) { return ''; }
   };
   const before = storedOf();
   let decrypts = 0;
@@ -700,10 +713,10 @@ async function reEncryptCheck({ file, safeStorage }) {
   // 書いた回数も数える（同じ文字から同じ暗号ができる入れ物でも、書き直したことを見分ける）
   let writes = 0;
   const countedJ = { ...J, writeJsonFile: (...a) => { const r = J.writeJsonFile(...a); writes += 1; return r; } };
-  const got = await within(makeSecrets({ file, safeStorage: wrapped, J: countedJ }).get('groq'), 10000, 'secrets.get（暗号にし直す）');
+  const got = await within(makeSecrets({ file, safeStorage: wrapped, J: countedJ }).get('relay'), 10000, 'secrets.get（暗号にし直す）');
   const after = storedOf();
   const text = fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : '';
-  const back = await within(makeSecrets({ file, safeStorage, J }).get('groq'), 10000, 'secrets.get（読み戻す）');
+  const back = await within(makeSecrets({ file, safeStorage, J }).get('relay'), 10000, 'secrets.get（読み戻す）');
   return got === SMOKE_STT.key && decrypts === 1 && fresh.length === 1 && writes === 1 && before !== '' && after === fresh[0]
     && !text.includes(SMOKE_STT.key) && back === SMOKE_STT.key;
 }

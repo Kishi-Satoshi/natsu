@@ -3812,79 +3812,8 @@ function setupIpc() {
     return true;
   });
   // ---- 設定のカード「オンライン」（第1c回 Task C-2。OL7・OL3・OL5・RF30）----
-  // 鍵は画面から受け取って secrets にしまうだけで、画面へは返さない（返すのは「しまってあるか」だけ）。
-  // 記録には送り先の名前と符号だけを書く（鍵・暗号の文字は書かない）。設定を開いただけでは外へ通信しない
-  // （届くかは net.isOnline() だけで見る。外へ出るのは［鍵を確かめる］を押したときの送り先の /models だけ）
-  const KEY_TEXT = {
-    'bad-id': '送り先が正しくありません。',
-    'bad-key': '鍵の形が正しくありません（空白や日本語を含まない 8〜512 文字）。',
-    unavailable: 'この PC では鍵をしまえません（鍵を暗号にする仕組みが使えません）。',
-    write: '鍵を書き込めませんでした（secrets.json に書けません）。',
-    'no-key': '鍵が入っていません。',
-    'key-unreadable': 'しまってある鍵を読めません。鍵を入れ直してください。',
-    auth: '鍵が正しくないか、使えなくなっています。',
-    'invalid-key': '鍵が正しくありません。',   // 第1b回の続き Lane F-e: 返事の符号が invalid_api_key
-    rate: '利用の上限に達しています（鍵は使える可能性があります。少し待ってからもう一度確かめてください）。',
-    server: '送り先が混み合っているか、止まっています。少し待ってからもう一度確かめてください。',
-    'bad-request': '送り先が受け付けませんでした（URL を確かめてください）。',
-    other: 'つながりませんでした（インターネットか、会社の通信の検査を確かめてください）。',
-  };
-  const keyText = (code) => KEY_TEXT[Object.prototype.hasOwnProperty.call(KEY_TEXT, code) ? code : 'other'];
-  // 鍵の名前は OpenAI だけ（0.7.0 U-1・設計書 D5）。groq・custom の鍵は secrets.json に残っても、読まず・確かめず・消さない
-  const keyProvider = (id) => (id === sttCloud.FIXED_PROVIDER_ID ? id : '');
-  // 第1d回 A-3: 文字起こしは中継へ送る（sttProvider は中継）。鍵の欄と確かめ（cloud:*）は、受け口・preload・画面を一緒に消す A-4 まで
-  // D5 の形のまま OpenAI の口で動かす（会議・音声入力・復旧の文字起こしはこの鍵を読まない）
-  ipcMain.handle('cloud:status', async () => {
-    const p = sttCloud.fixedProvider();
-    let canStore = false;
-    try { canStore = Boolean(secrets) && await secrets.available(); } catch (_) { canStore = false; }
-    // hasKey は暗号の文字があるかだけを見る（復号しない: 設定を開くたびにキーリングの確かめを出さない）。
-    // 使えるかは［鍵を確かめる］が復号して送り先に聞く
-    const hasKey = Boolean(secrets) && secrets.has(p.id);
-    const up = netOnline();
-    return { ok: true, provider: { id: p.id, label: p.label, host: p.host || '' },
-      hasKey, canStore, online: { up, why: up ? 'ok' : 'offline' } };
-  });
-  ipcMain.handle('cloud:set-key', async (_e, provider, key) => {
-    const id = keyProvider(provider);
-    if (!id) return { ok: false, code: 'bad-id', message: keyText('bad-id') };
-    if (!secrets) return { ok: false, code: 'unavailable', message: keyText('unavailable') };
-    const r = await secrets.set(id, typeof key === 'string' ? key.trim() : '');
-    if (r && r.ok) { engineLog(`文字起こしの経路: ${id} の鍵を保存しました`); return { ok: true }; }
-    const code = (r && r.code) || 'write';
-    engineLog(`文字起こしの経路: ${id} の鍵を保存できません（${code}）`);
-    return { ok: false, code, message: keyText(code) };
-  });
-  ipcMain.handle('cloud:clear-key', async (_e, provider) => {
-    const id = keyProvider(provider);
-    if (!id) return { ok: false, code: 'bad-id', message: keyText('bad-id') };
-    if (!secrets) return { ok: true };
-    const r = secrets.remove(id);
-    if (r && r.ok) { engineLog(`文字起こしの経路: ${id} の鍵を消しました`); return { ok: true }; }
-    const code = (r && r.code) || 'write';
-    return { ok: false, code, message: keyText(code) };
-  });
-  ipcMain.handle('cloud:test-key', async (_e, provider) => {
-    const id = keyProvider(provider);
-    if (!id) return { ok: false, code: 'bad-id', message: keyText('bad-id') };
-    const p = sttCloud.fixedProvider();
-    const key = secrets ? await secrets.get(id) : '';
-    if (!key) {
-      const code = secrets && secrets.has(id) ? 'key-unreadable' : 'no-key';
-      return { ok: false, code, message: `${p.label}: ${keyText(code)}` };
-    }
-    const r = await sttCloud.checkKey({ request: (o) => electronNet.request(o), provider: p, key });
-    // 記録は符号だけ（返事の文は鍵の一部を含むことがあるので書かない）
-    engineLog(`文字起こしの経路: ${id} の鍵の確かめ → ${r.ok ? (r.code === 'no-model-read' ? 'ok（no-model-read）' : 'ok') : r.code}`);
-    // 第1b回の続き Lane F-e: モデルの一覧を読む権限だけが無い鍵（OpenAI の制限付きの鍵）は、小さな文字起こしが通れば使える
-    if (r.ok && r.code === 'no-model-read') return { ok: true, code: r.code, message: `${p.label}: 鍵は使えます（モデルの一覧を読む権限はありません）` };
-    if (r.ok) return { ok: true };
-    const message = r.code === 'cert'
-      ? `${p.label}: つながりません（会社の通信の検査で証明書が差し替えられている可能性があります）。続くときは情報システムに ${p.host} への通信の許可を頼んでください。`
-      : r.code === 'quota' ? `${p.label}: 残高が足りません（${p.label} の Billing を確かめてください）。`
-        : `${p.label}: ${keyText(r.code)}`;
-    return { ok: false, code: r.code, message };
-  });
+  // 0.7.0 の鍵の欄の IPC（cloud:status・cloud:set-key・cloud:test-key・cloud:clear-key）は、文字起こしを中継へ送るようにしたので
+  // 第1d回 A-4（RL10・F11）で受け口・preload・画面を一緒に消した（PC に会社の鍵を置かない。残った鍵は起動のときに purgeOld が消す）
   // ---- ログイン（第1d回 Task A-2。RL10・RF32・F1・F12）----
   // 札（中継のトークン）は secrets に relay の名前でしまうだけで、画面・記録・知らせには出さない（返すのはログインしているかとメールだけ）。
   // 確認コードも返さず記録しない。記録は符号だけ（メールアドレスも書かない）。account:status は外へ通信しない（/auth/me を呼ばない。
@@ -4183,8 +4112,10 @@ if (!gotLock) {
     loadStores();
     // 画面の覚え書き（第1b回 N6）。窓を作る前に読んで照らす（壊れていたら知らせ W1 を startupNotices に）
     loadWinState();
-    // クラウドの文字起こしの鍵の保管（第1c回 OL3。ready の後に作る）
+    // ログインの札の保管（第1c回 OL3・第1d回 A-2。ready の後に作る）。作った直後に、0.7.0 までの鍵（groq・openai・custom。会社の
+    // OpenAI の鍵が入りうる）と退けた控えを消す（第1d回 A-4・K2・F11。記録の1行は purgeOld が書く。投げない）
     secrets = makeSecrets({ file: path.join(app.getPath('userData'), 'secrets.json'), safeStorage, J, log: engineLog });
+    secrets.purgeOld();
     // 取り込んだエンジンの候補を記録から読む（読むだけ。フォルダは作らない）。照らし終えるまで managed は空なので、
     // 取り込んだ側は下の起動の行では起動しない（RF3）。手で設定した側は今までどおり起動する
     managedCands = engineInstall.managedCandidates(ENGINE_HOME, MANIFEST, engineInstall.readInstalled(engineInstall.layout(ENGINE_HOME.root, MANIFEST).installed), fs.statSync);
