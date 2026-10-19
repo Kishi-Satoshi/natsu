@@ -6,6 +6,8 @@
 //   stmt.run()       → { success: true, meta: { changes, last_row_id }, results: [...] }（書く文の results は []）
 //   stmt.all()       → { success: true, meta, results }
 //   batch([stmt…])   → 1つのトランザクション（BEGIN … COMMIT。どれかが投げれば ROLLBACK して投げる）。答えは文ごとの D1Result
+//   ran              → 流した文の SQL の配列（流した順。first・run・all・batch の中の文。exec は入れない）。
+//                      「last_used_at は 1 日に 1 回だけ書き直す」のような、書いた回数をテストで数えるため（W-3）
 // 本物の D1 と同じく、first・run・all・batch はどれも1回の往復の間（setImmediate）を置いてから流す。
 // こうしないと、同時の要求が文の間で入れ替わらず、「読んでから数える」取り違えをテストで見つけられない。
 // batch の中は間を挟まない（本物の batch も1つのトランザクション）。
@@ -27,9 +29,11 @@ function toParam(v) {
 function makeFakeD1() {
   const db = new DatabaseSync(':memory:');
   let open = true;
+  const ran = [];
 
   // 1つの文をその場で流す（間を置かない）。読む文は行を、書く文は変えた行の数を返す
   function runNow(sql, params) {
+    ran.push(sql);
     const st = db.prepare(sql);
     if (st.columns().length > 0) {
       const results = st.all(...params).map((r) => ({ ...r }));
@@ -57,6 +61,7 @@ function makeFakeD1() {
   }
 
   return {
+    ran,
     prepare(sql) { return stmt(String(sql), []); },
     async batch(stmts) {
       await tick();

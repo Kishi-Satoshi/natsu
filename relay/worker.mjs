@@ -5,12 +5,13 @@
 // 道（W-2〜W-4 で足す）:
 //   GET /health → 200 { ok: true, relay: 1, ready: { db, openai, mail, domains } }（秘密があるか・D1 の表があるかだけ。値は出さない）
 //   POST /auth/start → auth.mjs の handleStart（W-2。確認コードを頼む）
+//   POST /auth/verify・POST /auth/logout・GET /auth/me → auth.mjs の handleVerify・handleLogout・handleMe（W-3。札）
 
 import { json } from './http.mjs';
 import { readConfig } from './config.mjs';
 import { logEvent } from './log.mjs';
 import { SCHEMA_VERSION } from './schema.mjs';
-import { handleStart } from './auth.mjs';
+import { handleStart, handleVerify, handleLogout, handleMe } from './auth.mjs';
 
 async function health(request, env, { cfg }) {
   let db = false;
@@ -27,6 +28,9 @@ async function health(request, env, { cfg }) {
 const ROUTES = new Map([
   ['/health', { GET: health }],
   ['/auth/start', { POST: handleStart }],
+  ['/auth/verify', { POST: handleVerify }],
+  ['/auth/logout', { POST: handleLogout }],
+  ['/auth/me', { GET: handleMe }],
 ]);
 
 export function makeHandler({ now = () => Date.now() } = {}) {
