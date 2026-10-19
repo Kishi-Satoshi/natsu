@@ -17,7 +17,7 @@
  * ページを書く命令は、今の store.savePage と同じに updatedAt と citeStat を作り直し、diffPage の操作を当てる
  * （当てるとページの行の rev が1つ上がる。ブロックだけを変える命令でも: F6）。
  * 一覧から外すページ: ゴミ箱（trashed_at）と、録音中の写し（attrs.meeting.phase が recording・paused・finalizing）。
- * 検索の2つ（pages.list の q・pages.searchFull）は D-4。この段の pages.list は q を見ない。
+ * 検索の2つ（pages.list の q・pages.searchFull）は search.js（D-4。ST8）。一覧の並びと外すページは listedIds の1か所だけ。
  *
  * 会議の命令（main だけ。D-3b。ST6・RF16・F11）。録音の正本は main のメモリと下書きで、DB のページは画面と復旧のための写し。
  *   meeting.begin／meeting.segment … 写し（attrs.meeting.phase 'recording'）を作る・発言を (page_id, id) で上書きする。
@@ -43,6 +43,7 @@ const { parseDue } = require('../actions');
 const { routeLabel } = require('../mainlib');
 const R = require('../pagerules');
 const { diffPage, diffSegments, applyOps } = require('./ops');
+const S = require('./search');
 
 const LIVE_PHASES = ['recording', 'paused', 'finalizing'];
 
@@ -174,6 +175,14 @@ function listPages(db) {
     if (l) out.push(R.listEntry(l.page));
   }
   return out;
+}
+
+// 検索（D-4）: 一覧に出すページの並びと一覧の1行を search.js に渡す（外す判定と並びは listedIds の1か所だけ）
+function searchView(db) {
+  return {
+    ids: listedIds(db),
+    entryOf: (id) => { const l = loadPage(db, id, { trashed: true }); return l ? R.listEntry(l.page) : null; },
+  };
 }
 
 // アクションタブの1画面分（今の store.actionView と同じ答え。ToDo のあるページだけ読む）
@@ -396,7 +405,9 @@ const resegments = (db, a) => readSegments(db, a.pageId);
 const DEFS = {
   // ---- 読む（app と main）
   'pages.list': { roles: ['app', 'main'], write: false, args: { q: 'text?' },
-    run: (db) => ({ result: listPages(db) }) },
+    run: (db, a) => ({ result: a.q ? S.searchList(db, a.q, searchView(db)) : listPages(db) }) },
+  'pages.searchFull': { roles: ['app', 'main'], write: false, args: { q: 'text?', limit: 'num?' },
+    run: (db, a) => ({ result: S.searchFull(db, a.q || '', a.limit, searchView(db)) }) },
   'pages.actionView': { roles: ['app', 'main'], write: false, args: { q: 'text?', assignee: 'short?' },
     run: (db, a) => ({ result: actionView(db, a) }) },
   'page.get': { roles: ['app', 'main'], write: false, args: { id: 'id' },
