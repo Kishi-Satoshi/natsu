@@ -64,6 +64,20 @@ test('OL4・U-1: カードに送り先（OpenAI）・オフラインのとき・
   for (const w of ['Groq', '「使う」', 'まだ決めていない']) assert.ok(!t.includes(w), `${w} が残っている`);
 });
 
+// 0.7.0 の後の直し: カードの頭の説明は、ほかの説明と同じく .field の中の .desc（.field .desc の 12px・薄い色。.field の下の間で
+// 「要約（Claude Code）」の名前と離れる）。HTML の改行は画面で空白になるので、「します。」と「1on1」の間に空白を置かない
+test('OL4: カード「オンライン」の頭の説明は .field の中の .desc で、「します。」と「1on1」の間に空白が無い', async () => {
+  const l = await load(APP, { returns: { cloudStatus: () => status(), claudeStatus: () => ({ ok: true, found: true, method: 'claude.ai' }) } });
+  await l.drain();
+  const card = l.byId.get('claudeTest').closest('.card');
+  const desc = card.querySelectorAll('.desc').find((d) => d.textContent.includes('OpenAI（gpt-4o-transcribe）'));
+  assert.ok(desc, '頭の説明が無い');
+  const field = desc.closest('.field');
+  assert.ok(field && field.parentNode === card, '頭の説明がカードの直下にあり、.field の中に無い（.field .desc の書式と .field の下の間が効かない）');
+  assert.ok(card.children.indexOf(field) < card.children.indexOf(l.byId.get('claudeTest').closest('.field')), '頭の説明が「要約（Claude Code）」の前に無い');
+  assert.match(desc.textContent, /文字起こしします。1on1・面談/, '「します。」と「1on1」の間に空白がある（HTML の改行が空白になる）');
+});
+
 // ---- 計画の外で足した守り（Task C-2 の実装で決めたこと）----
 // 0.7.0 U-1 で意図して変えた: 保存の値に送り先と同意の4つのキーは無い（main は読まない。前の版の値は settings.json に残る）
 test('U-1・RF30: 設定の自動保存は送り先と同意のキーを送らず、鍵の欄の値も送らない。鍵の保存に失敗しても欄に鍵を残さない', async () => {
