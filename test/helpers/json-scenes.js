@@ -271,7 +271,9 @@ module.exports = {
   'quit-during-summary': { dbDelayMs: 30, files: {
       'settings.json': ({ base, userData }) => pretty({ ...TYPICAL, sumPort: base.sumPort,
         sumServerExe: require('node:path').join(userData, 'engine-sum', 'llama-server.exe'), sumModelPath: require('node:path').join(userData, 'engine-sum', 'sum-model.gguf') }),
-      'engine-sum/llama-server.exe': 'MZ-fake-llama-server',
+      // 偽の実行ファイルは 8KB にする。NTFS は数百バイトまでの小さなファイルを MFT の中に置き（割り当て 0）、Windows の Node の
+      // stat の blocks が 0 になって engineFileIssue が「プレースホルダ」と見なし、要約エンジンを「未設定」にする（CI の Windows で落ちた）
+      'engine-sum/llama-server.exe': 'MZ-fake-llama-server'.padEnd(8192, '.'),
       'data/pages/pq1.json': JSON.stringify({ id: 'pq1', title: '終了の前の会議', blocks: [], memo: '', createdAt: '2026-10-01T00:00:00.000Z', summaryError: '', route: { localOnly: true } }),
       'data/transcripts/pq1.json': JSON.stringify({ id: 'pq1', segments: [{ id: 's1', atMs: 0, durationMs: 3000, text: '本日の議題は進捗の確認です' }] }) },
     // 要約のモデルは大きさの床（300MB）を超える疎のファイル（先頭だけ書く。全部が疎だとプレースホルダと見なされる）
