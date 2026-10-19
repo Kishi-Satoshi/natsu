@@ -11,6 +11,8 @@ const {
   app, BrowserWindow, Tray, Menu, globalShortcut,
   ipcMain, clipboard, nativeImage, screen, dialog, shell, session,
   nativeTheme, powerSaveBlocker, powerMonitor,
+  // 議事録の DB のプロセス（第2a1回 ST2）と、main・画面それぞれの口
+  utilityProcess, MessageChannelMain,
   // クラウドの文字起こしの鍵の暗号（第1c回 OL3。非同期の形だけを secrets.js が使う）
   safeStorage,
   // エンジンの取り込みの通信（第0b回 RF2。会社のプロキシ・PAC・証明書のストアを使う）。net の名前は下の Node の net が使う
@@ -36,11 +38,26 @@ const { chooseDisplayMedia } = require('./loopback');
 // オンラインの文字起こし（第1c回 OL1〜OL4）: オンラインかの判定と経路・OpenAI と同じ形の口・鍵の保管
 const { makeOnline, decideStt, decideSummary } = require('./online');
 const sttCloud = require('./stt-cloud');
-// 議事録の保存（第2a1回 ST1）。main の議事録の読み書きは await db.call(cmd, args) を通る。中身は今の JSON の保存
-// （src/db/json-backend.js が store を命令の名前で呼ぶ）。page.get の経路の行は、送り先の表示の名前（labels）で添える
-const { makeJsonBackend } = require('./db/json-backend');
-const db = makeJsonBackend(store, {
+// 議事録の保存（第2a1回 ST1・ST2）。main の議事録の読み書きは await db.call(cmd, args) を通る。中身は議事録の DB のプロセス
+// （utilityProcess・NaTsu DB。src/db/server.js）で、main は客（src/db/client.js）と自分用の口（役 main）で頼む。
+// 子は loadStores（whenReady の中。utilityProcess は ready の後でしか起こせない）で起こす。init の dataDir・network もそこで決める。
+// page.get の経路の行は、子が送り先の表示の名前（labels）で添える
+const { makeDbClient } = require('./db/client');
+const { isNetworkPath } = require('./db/snapshot');
+const DB_INIT = {
+  dataDir: '',
   labels: Object.fromEntries(Object.entries(sttCloud.PRESETS).map(([id, p]) => [id, p && typeof p.label === 'string' ? p.label : ''])),
+  network: false,
+};
+// 終わるとき・更新の前に DB を閉じる待ち（close の待ちはそれぞれこの長さまで）
+const DB_CLOSE_MS = 3000;
+const db = makeDbClient({
+  fork: (modulePath, args, options) => utilityProcess.fork(modulePath, args, options),
+  Channel: MessageChannelMain,
+  serverPath: path.join(__dirname, 'db', 'server.js'),
+  init: DB_INIT,
+  log: (line) => engineLog(line),
+  onEvent: (ev) => onDbEvent(ev),
 });
 const { makeSecrets } = require('./secrets');
 const security = require('./security');
@@ -195,13 +212,13 @@ const NOTICE = {
   settingsReadOnly: '設定のファイルが読み取り専用になっているため、管理者が決めた設定として使います。画面で変えた設定は保存されません（次の起動で元に戻ります）。',
   settingsNotSaved: '設定を保存できませんでした。次の変更のときにもう一度保存します',   // 設計書の文のまま（N7）
   historyBusy: '音声入力の履歴のファイルをほかのプログラムが使っていて読めませんでした。読めるまでは新しい履歴を保存せずに持っておき、少し後にもう一度読みます。',
-  // 議事録・録音の控え（第1a回 Task 2-5。N11〜N13・N15〜N17）
-  pageBroken: (name) => `議事録のファイルが壊れていて開けなかったので、${name} として残しました（一覧からは外れます）。`,
+  // 録音の控え（第1a回 Task 2-5。N12・N13・N15・N16。議事録のファイルの N11・N17 は、第2a1回から起動で元の JSON に触れないので無い）
   draftBusy: '前回の会議の下書きを、ほかのプログラムが使っていて今は読めません。消さずに残してあり、少し後にもう一度復旧を試します。',
   recoveryBroken: (name) => `文字起こし待ちの記録が壊れていたので、${name} として残しました。残っていた音声は7日後に片付けます。`,
   draftBroken: (name) => `前回の会議の下書きのファイルが壊れていたので、${name} として残しました。`,
   recoveryNotSaved: '文字起こし待ちの記録を保存できませんでした。音声は残してあり、次の起動でもう一度試します。',
-  transcriptBroken: (name) => `議事録の文字起こしのファイルが壊れていたので、${name} として残しました（このページは文字起こしが空のまま開きます）。`,
+  // 議事録の DB を使えない（第2a1回 D1。開けない・自分の確かめが通らない・10分に5回落ちた）。録音は続く
+  dbDown: '議事録の保存の仕組みを使えません。録音は音声と下書きとして保存を続けています。NaTsu を終了して、もう一度起動してください（理由の記録: %APPDATA%\\natsu\\engine.log）。',
   // 画面の覚え書き（第1b回 W1。P16）
   winStateBroken: (name) => `画面の覚え書き（窓の大きさ・開いていたタブ）のファイルが壊れていたため、脇へ退けて最初の大きさで開きました（退けた先: ${name}）。`,
 };
@@ -210,15 +227,35 @@ function laterNotice(msg) {
   if (!mainWin) startupNotices.push(msg);
   else noticeMainWin(msg);
 }
-// store が壊れたファイルを退けたとき（P16）。ページは N11、文字起こしは N17、下書きは N15。索引は作り直せるので記録だけ
+// store が壊れた下書きを退けたとき（P16。N15）。第2a1回から store は下書きだけを扱う（initDrafts）ので、ページと文字起こしは来ない
 function onStoreReport(ev) {
   if (!ev) return;
   engineLog(`保存: 壊れたファイルを退けました（${ev.kind} ${ev.file} → ${ev.movedTo}、${ev.reason}）`);
-  const msg = ev.kind === 'page' ? NOTICE.pageBroken(ev.movedTo)
-    : ev.kind === 'transcript' ? NOTICE.transcriptBroken(ev.movedTo)
-      : ev.kind === 'draft' ? NOTICE.draftBroken(ev.movedTo) : '';
-  if (msg) laterNotice(msg);
+  if (ev.kind === 'draft') laterNotice(NOTICE.draftBroken(ev.movedTo));
 }
+// 議事録の DB の客の知らせ（第2a1回 ST7）。子が落ちたら画面に db:lost（preload が待ちを返す）、起こし直したら口を配り直す（onReady）。
+// 諦めた・使えないときは知らせ D1 を1回（録音は下書きと音声の控えに続く）。移行の窓は M-4 で作るので、この段は聞かずに移す
+let dbDownNoticed = false;
+function onDbEvent(ev) {
+  if (!ev) return;
+  if (ev.type === 'lost') sendToMainWin('db:lost', {});
+  else if (ev.type === 'down') {
+    if (dbDownNoticed) return;
+    dbDownNoticed = true;
+    engineLog(`DB: 使えないので知らせた（${ev.why}）`);
+    laterNotice(NOTICE.dbDown);
+  } else if (ev.type === 'migrate-plan' && !ev.auto) db.migrate(true);
+}
+// 本体の窓に、画面用の DB の口（役 app）を渡す（読み込みのたび・DB の子を起こし直したとき）。録音バーには渡さない
+function sendDbPort() {
+  if (!mainWin || mainWin.isDestroyed()) return;
+  const port = db.rendererPort();
+  if (!port) return;   // 子が居ない（起こし直しの間・諦めた・閉じた）: 起こし直したら onReady で配る
+  try { mainWin.webContents.postMessage('db:port', null, [port]); } catch (e) { engineLog(`DB: 画面に口を渡せませんでした（${errCode(e)}）`); }
+}
+// 2回目からの ready（子を起こし直した）で口を配り直す。最初の ready の前に配った口は、子が用意の前から受けている
+let dbReadyCount = 0;
+db.onReady(() => { if (dbReadyCount++ > 0) sendDbPort(); });
 // 読めない・書けないときの状態（第1a回 Task 2-3。RF22・P14）
 // - 'unreadable': 起動の瞬間にほかのプログラムが掴んでいて読めなかった。読み直せるまでは書かない（既定で上書きしない）。
 //   読み直しは RETRY_READ_MS の間隔で（使い切ったら止め、設定の画面を開いたときだけ読み直す）
@@ -501,13 +538,18 @@ function loadStores() {
     historyRetryTimer = setTimeout(retryHistoryRead, RETRY_READ_MS[0]);
     historyRetryIdx = 1;
   }
-  // 保存先は <userData>/data だけ。開けない（容量・権限など）と store.init は投げる。ここは
+  // 保存先は <userData>/data だけ。開けない（容量・権限など）と store.initDrafts は投げる。ここは
   // app.whenReady の中なので、投げると単一起動の鍵を持ったまま窓が出ず、次に起動しても何も
   // 起きない。だから受け止めて理由を持ち、画面が出てから知らせる（黙って続けると、議事録が
   // 保存されないまま録音できてしまう）
-  // 退けた知らせの受け手は init より前に付ける（起動のときの reconcile で退けたページも知らせる）
+  // 第2a1回 M-2b: store は下書きだけを扱う（initDrafts。元の pages/・transcripts/・index.json に触れない: P11）。議事録は DB のプロセス
+  // 退けた知らせの受け手は initDrafts より前に付ける（壊れた下書きを退けたら知らせる）
   store.setReporter(onStoreReport);
-  try { store.init(app.getPath('userData')); } catch (e) { storeError = e.message; engineLog(`データフォルダを開けません: ${e.message}`); }
+  try { store.initDrafts(app.getPath('userData')); } catch (e) { storeError = e.message; engineLog(`データフォルダを開けません: ${e.message}`); }
+  // 議事録の DB のプロセスを起こす（第2a1回 ST2）。開けなければ子が「使えない」と答え、知らせ D1（onDbEvent）
+  DB_INIT.dataDir = path.join(app.getPath('userData'), 'data');
+  DB_INIT.network = isNetworkPath(DB_INIT.dataDir);
+  db.start();
 }
 // いまのデータフォルダの絶対パス（「データ保存先を開く」）
 const dataRoot = () => store.root();
@@ -1957,6 +1999,8 @@ function createMainWindow() {
   mainWin.webContents.on('did-finish-load', () => {
     if (winState.zoom !== 1 && mainWin && !mainWin.isDestroyed()) mainWin.webContents.setZoomFactor(winState.zoom);
   });
+  // 議事録の DB の口は読み込みのたびに新しく渡す（読み込み直すと前の口は閉じる。第2a1回 ST7）
+  mainWin.webContents.on('did-finish-load', sendDbPort);
   // 隠す・閉じるの前に、まとめ書きの残りを書き出す（第1a回 JS8。トレイ常駐で隠したまま電源を切られることがある）
   mainWin.on('hide', flushAllWriters);
   // 閉じるボタンの挙動。既定はそのまま終了。設定でトレイ常駐に切り替えられる。
@@ -2313,7 +2357,7 @@ function runDraftRetryAfterMeeting() {
   retryDraftRecovery();
 }
 // 控えは下書きのファイルを全部見る（draft.json・脇へ退けた draft.pending-<時刻>.json・会議ごとの draft-<開始時刻>.json）。
-// ページは await db.call('meeting.recover') で作る（第2a1回 ST1。中身は今の JSON の保存）。投げない（下書きごとに受け止める）
+// ページは await db.call('meeting.recover') で作る（第2a1回 ST1。中身は議事録の DB のプロセス）。投げない（下書きごとに受け止める）
 async function recoverDraftIfAny() {
   let unreadable = false;
   let recovered = 0;
@@ -2732,7 +2776,7 @@ async function maybeFinalizeMeeting() {
 
   let page = null;
   try {
-    // 議事録を締める（第2a1回 ST1: await db.call。中身は今の JSON の保存で、ページの ID は保存の側が作る）。
+    // 議事録を締める（第2a1回 ST1: await db.call。中身は議事録の DB のプロセス。ページの ID はここで作る。下書きに書くのは M-3）。
     // 「書けた」と返ってから下書きを消す。締めの tx は会議の開始時刻（送り直しても1回だけ効く）
     page = await db.call('meeting.finalize', {
       pageId: store.newId('p'),
@@ -3057,6 +3101,8 @@ async function checkUpdateFromTray() {
   }
   quitting = true;
   stopEngine(whisperEng); stopEngine(sumEng); stopPaster();
+  // 議事録の DB を閉じてから（cleanShutdown を書いてチェックポイント。第2a1回 ST7）
+  await db.close({ timeoutMs: DB_CLOSE_MS });
   relaunchAndExit();
 }
 
@@ -3228,7 +3274,7 @@ function setupIpc() {
   ipcMain.handle('history:clear', () => { history = []; saveHistoryOrNotice(); return history; });
   ipcMain.handle('app:toggle-recording', () => { toggleRecording(); return state; });
 
-  // 議事録の画面の口（第2a1回 ST1）。中身は await db.call（今は JSON の保存の json-backend）。名前と答えの形は今のまま
+  // 議事録の画面の口（第2a1回 ST1）。中身は await db.call（main の客。M-2b）。名前と答えの形は今のまま。画面が DB の口に移る（P-1）までの間だけで、M-3 で消す
   ipcMain.handle('pages:search', async (_e, q) => await db.call('pages.list', { q: q || '' }));
   ipcMain.handle('pages:searchFull', async (_e, q) => await db.call('pages.searchFull', { q: q || '', limit: 60 }));
   // アクション一覧（絞り込み込み）。答え { actions, people, total } をそのまま返す
@@ -3248,7 +3294,7 @@ function setupIpc() {
   ipcMain.handle('segment:update', async (_e, { pageId, segId, patch }) => await db.call('segment.update', { pageId, segId, patch: patch || {} }));
   ipcMain.handle('block:setAction', async (_e, { pageId, blockId, assignee, dueRaw }) => await db.call('block.setAction', { pageId, blockId, assignee, dueRaw }));
   ipcMain.handle('page:summarize', (_e, id) => runSummary(id));
-  // 手動指定は以後の自動推定より優先（typeAuto: false。json-backend の page.setType）
+  // 手動指定は以後の自動推定より優先（typeAuto: false。DB の page.setType）
   ipcMain.handle('page:setType', async (_e, { id, type }) => await db.call('page.setType', { id, type }));
   ipcMain.handle('meta:types', () => mtype.listTypes());
   ipcMain.handle('meeting:toggle', () => {
@@ -3368,10 +3414,12 @@ function setupIpc() {
     return updater.apply(url, t.root, app.getPath('userData'),
       (msg) => sendToMainWin('update:progress', { message: msg }), { sha256: updateSha.get(String(url)) || '' });
   });
-  ipcMain.handle('app:restart', () => {
+  ipcMain.handle('app:restart', async () => {
     if (isSummarizing()) return { ok: false, error: '要約を作成中です。終わってから再起動してください' };
     quitting = true;
     stopEngine(whisperEng); stopEngine(sumEng); stopPaster();
+    // 議事録の DB を閉じてから（第2a1回 ST7）
+    await db.close({ timeoutMs: DB_CLOSE_MS });
     relaunchAndExit();
     return true;
   });
@@ -3560,9 +3608,12 @@ function setupIpc() {
   // （消したページのタブを戻さない: F7）、外した数だけを engine.log に1行（ページの id は書かない）。
   // ui:set は画面から来た値を照らしてから（幅を寄せる・録音中のタブと形の悪い鍵を捨てる）まとめ書きにする
   ipcMain.handle('ui:get', async () => {
-    // 今あるページは一覧で見る（第2a1回 ST1）。一覧を読めなかったら、タブは外さずにそのまま返す（読めないのを「無い」にしない: F12）
+    // 今あるページは一覧で見る（第2a1回 ST1）。DB の用意がまだ（起動・移行・起こし直しの間）・使えない・一覧を読めなかったら、
+    // タブは外さずにそのまま返す（用意を待たない。止まっているのを「無い」にしない: F12）
     let ids = null;
-    try { ids = new Set((await db.call('pages.list', {})).map((p) => p.id)); } catch (e) { engineLog(`画面の覚え書き: 議事録の一覧を読めませんでした（${errCode(e)}）`); }
+    if (db.state() === 'ready' || db.state() === 'read-only') {
+      try { ids = new Set((await db.call('pages.list', {})).map((p) => p.id)); } catch (e) { engineLog(`画面の覚え書き: 議事録の一覧を読めませんでした（${errCode(e)}）`); }
+    }
     const k = W.keepTabs(winState.tabs, (id) => !ids || ids.has(id));
     const dropped = k.dropped + winTabsDropped;
     winTabsDropped = 0;
@@ -3760,16 +3811,19 @@ if (!gotLock) {
     try { if (engineFetch) engineFetch.pause('quit'); } catch (_) { /* noop */ }
     // 要約の途中で終了するなら、そのページに「中断された」と書いておく（#52）。書かないと、次に開いたときに要約が空のまま
     // 何も言わないページになる。書き込みは db.call で非同期なので（第2a1回 ST1）、1回だけ終了を止め、書き込み（合わせて
-    // QUIT_MARK_MS まで）を待ってから app.quit() をもう一度呼ぶ。2回目は quitMarkDone が立っているので止めない
-    const running = runSummary.running();
-    if (running.length && !quitMarkDone) {
+    // QUIT_MARK_MS まで）を待ち、議事録の DB を閉じて（cleanShutdown を書いてチェックポイント。第2a1回 ST7。待ちは DB_CLOSE_MS まで）
+    // から app.quit() をもう一度呼ぶ。2回目は quitMarkDone が立っているので止めない。要約が無くても DB を閉じるために1回止める
+    if (!quitMarkDone) {
       quitMarkDone = true;
       if (e) e.preventDefault();
+      const running = runSummary.running();
       const marks = running.map((id) => saveIfExists(db, id, (p) => { p.summaryError = '要約が中断されました。「要約を生成」で作り直せます'; })
         .catch((err) => engineLog(`終了のときに要約の中断を書けませんでした: ${errCode(err)}`)));
       let timer = null;
       Promise.race([Promise.all(marks), new Promise((r) => { timer = setTimeout(r, QUIT_MARK_MS); })])
-        .then(() => { if (timer) clearTimeout(timer); app.quit(); });
+        .then(() => { if (timer) clearTimeout(timer); return db.close({ timeoutMs: DB_CLOSE_MS }); })
+        .catch((err) => engineLog(`終了のときに議事録の DB を閉じられませんでした: ${errCode(err)}`))
+        .then(() => app.quit());
       return;
     }
     stopEngine(whisperEng); stopEngine(sumEng); stopPaster();

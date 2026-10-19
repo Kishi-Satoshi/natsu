@@ -75,7 +75,6 @@ module.exports = [
     to: "    const r0 = J.readJsonFile(f, { shape: isRecoveryShape });\n    if (r0.state === 'broken') { fs.unlinkSync(f); continue; }\n    const r = r0;", tests: ['test/stage1a.main.test.js', 'test/repo.test.js'], why: 'JS2・F12: 壊れた recovery.json は消さずに退ける' },
   { id: 'mn-recovery-retry', file: 'src/main.js', from: '  if (recoveryUnreadable && !recoveryQueue) {', to: '  if (false) {', tests: ['test/stage1a.main.test.js'], why: 'JS9: 読めなかった recovery.json をやり直しで読み直す' },
   { id: 'mn-recovery-rewrite', file: 'src/main.js', from: 'function flushAllWriters() { try { retryUnsavedRecovery(); }', to: 'function flushAllWriters() { try { void 0; }', tests: ['test/stage1a.main.test.js'], why: 'N16: 書けなかった recovery.json を書き出しの合図で書き直す' },
-  { id: 'mn-transcript-notice', file: 'src/main.js', from: "    : ev.kind === 'transcript' ? NOTICE.transcriptBroken(ev.movedTo)\n", to: '', tests: ['test/stage1a.main.test.js'], why: 'P16・N17: 退けた文字起こしを知らせる' },
   { id: 'mn-log-reason', file: 'src/mainlib.js', from: "  return String(msg).replace(LOG_PATH_RE, '$1…$2');", to: '  return String(msg);', tests: ['test/stage1a.lib.test.js'], why: '記録にパス全体を書かない（最後の部分だけ）' },
   // store・自動更新・エンジンの記録
   { id: 'sr-index-nofsync', file: 'src/store.js', from: '  writeJson(dirs().indexFile, index, { fsync: false });', to: '  writeJson(dirs().indexFile, index);', tests: ['test/store-json.test.js'], why: 'JS5: 作り直せる index.json は fsync しない（保存のたびに遅くしない）' },

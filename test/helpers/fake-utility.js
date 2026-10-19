@@ -2,7 +2,7 @@
  * fake-utility.js — 偽の utilityProcess と MessageChannelMain・速いタイマー（第2a1回 M-2a。M-2b〜M-4 も使う）
  *
  * Electron を読まずに、本物の src/db/server.js を worker_threads の中で動かし、Electron 44 の形に包む。
- *   fakeFork({ crashAfterRequests, exitOnStart }) → fork(modulePath, args, options) → 子
+ *   fakeFork({ crashAfterRequests, exitOnStart, preload }) → fork(modulePath, args, options) → 子
  *     子: on('message', (msg) …)（Electron の UtilityProcess と同じく、中身をそのまま渡す）・on('exit', (code) …)・on('spawn')、
  *         postMessage(msg, [MessagePortMain])・kill()・pid
  *     kill() は worker.terminate() で、'exit' を番号 0 で出す（Electron 44 の kill() と同じ: 計画の調べた結果の 11）。
@@ -11,6 +11,8 @@
  *     crashAfterRequests: n … 最初に起こした子だけ、口の上の n 個目の頼みを本体が済ませた後、その返事を送る代わりに番号 1 で落ちる
  *                            （書けた後・返事の前に落ちる。起こし直した子は落ちない）
  *     exitOnStart: code    … 起こすたびに、何も読まずにすぐ番号 code で落ちる
+ *     preload: path        … 子の中で modulePath より先に読むファイル（M-2b の --db-down: node:sqlite が trigram の表を作れないようにする
+ *                            test/helpers/no-trigram.js）
  *     fork.starts() … 起こした回数。fork.calls() … 起こしたときの [modulePath, args, options] の並び
  *   FakeChannel … new FakeChannel() → { port1, port2 }（MessagePortMain の形: on('message', ({ data, ports }) …)・on('close')・
  *                 postMessage・start・close。start() を呼ぶまで届いたものは溜めておく（Electron と同じ））
@@ -64,14 +66,14 @@ class FakeChannel {
   }
 }
 
-function fakeFork({ crashAfterRequests = 0, exitOnStart = 0 } = {}) {
+function fakeFork({ crashAfterRequests = 0, exitOnStart = 0, preload = '' } = {}) {
   let starts = 0;
   const calls = [];
   const fork = (modulePath, args = [], options = {}) => {
     starts += 1;
     calls.push([modulePath, args, options]);
     const crashAfter = starts === 1 ? crashAfterRequests : 0;
-    const worker = new Worker(__filename, { workerData: { fakeUtility: true, modulePath, crashAfter, exitOnStart } });
+    const worker = new Worker(__filename, { workerData: { fakeUtility: true, modulePath, crashAfter, exitOnStart, preload } });
     const child = new EventEmitter();
     let killed = false;
     let exited = false;
@@ -168,5 +170,6 @@ if (!isMainThread && workerData && workerData.fakeUtility) {
     const ports = (m.ports || []).map((raw) => electronPort(raw, hooks));
     for (const fn of listeners) fn({ data: m.data, ports });
   });
+  if (workerData.preload) require(workerData.preload);
   require(workerData.modulePath);
 }

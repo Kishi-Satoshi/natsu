@@ -2,13 +2,16 @@
 // json-scenes.js — 第1a回の保存の守りを、main.js を偽の Electron の上で動かして確かめる場面（helpers/mainrun.js の --json-scene=名前）
 //   files:   userData からの相対パス → 中身（文字列か Buffer。関数なら { base, userData } を受け取る。base は mainrun が決めたエンジンのパスとポート）
 //   faults:  helpers/faulty-fs.js の rules（main・store・jsonfile が読む fs にだけ効く）
-//   dbDelayMs: main の db.call の答えを毎回この分（ミリ秒）だけ遅らせる（json-backend はほぼ同期で答えるため。第2a1回 M-1）
+//   dbDelayMs: main の db.call の答えを毎回この分（ミリ秒）だけ遅らせる（DB のプロセスの返事がさらに遅いとき。第2a1回 M-1）
 //   engine:  真なら偽の文字起こしエンジンを設定に入れて起こす（既定は起こさない）
 //   env:     main.js を読む前に入れる環境変数
 //   prepare: userData を受け取り、置いた後に手を入れる（読み取り専用にする等）
 //   act:     起動の後にすること（ctx は mainrun.js の頭の注釈）
 //   local:   %LOCALAPPDATA%（mainrun の一時フォルダ）からの相対パス → 中身（第1b回 Task A-2。画面の覚え書き natsu/window-state.json）
 //   displays: 偽の screen.getAllDisplays() の並び（無ければ 1920×1080 が1つ。作業領域は 1920×1040）
+//   noDbWait: 真なら、場面は議事録の DB の用意を待たずに act を呼ぶ（第2a1回 M-2b。用意の前の動きを見る）
+//   dbDown:  真なら mainrun の --db-down と同じ（議事録の DB のプロセスの SQLite が trigram を持たない: 自分の確かめが通らず、
+//            DB は「使えない」で起きる。第2a1回 M-2b）
 //   overlayPause: 偽の録音バーの［一時停止］の答え方（第1b回 Task A-3。'lost-once' = 最初の頼みが届かない、'late' = 最初の返事を
 //            ctx.releasePause() まで出さない。無ければすぐ返す）
 const pretty = (o) => JSON.stringify(o, null, 2);   // 今の saveJson が書く形（main.js:219）
@@ -32,6 +35,12 @@ const OLD_DRAFT = { startedAt: 1760000000000, memo: '', offsetMs: 3000, savedAt:
 // 第1b回 Task A-2: 画面の覚え書き（%LOCALAPPDATA%\natsu\window-state.json）。値は stage1b.main.test.js が見る
 const WS = (o = {}) => JSON.stringify({ v: 1, bounds: { x: 100, y: 80, width: 1200, height: 800 }, maximized: false, zoom: 1, sidebar: { width: 260, collapsed: false }, tabs: { open: [], active: '' }, ...o }, null, 2);
 const WS_FILE = 'natsu/window-state.json';
+// 第1a回の壊れたページ（p1）と、文字起こしだけ壊れたページ（p2）。page-files-broken が置き、元の中身のままかを見る
+const BROKEN_PAGE_FILES = {
+  'data/pages/p1.json': '{"id":"p1","title":"壊れ', 'data/transcripts/p1.json': '{"id":"p1","segments":[]}',
+  'data/pages/p2.json': JSON.stringify({ id: 'p2', title: '文字起こしが壊れた会議', blocks: [], createdAt: '2026-10-01T00:00:00.000Z' }),
+  'data/transcripts/p2.json': '{"id":"p2","segments":[{"text":"途中',
+};
 const wsText = (c) => { const b = c.readLocal(WS_FILE); return b ? b.toString('utf8') : null; };
 // 0.7.0 U-1: 前の版が groq・custom の名前でしまった鍵（mainrun の偽の safeStorage の暗号 'ENC1:<hex>' の base64）
 const fakeEncB64 = (k) => Buffer.from(`ENC1:${Buffer.from(k, 'utf8').toString('hex')}`).toString('base64');
@@ -206,9 +215,9 @@ module.exports = {
       c.out.titles = c.store.listPages().map((p) => p.title);
       c.out.draftsAfter = c.store.draftFiles();
     } },
-  // 下書きから復旧したページを保存できない（ページの一時ファイルを開けない）。下書きは消さず、記録には理由の符号だけを書く
-  'draft-page-fail': { files: { 'settings.json': pretty(TYPICAL), 'data/draft.json': JSON.stringify(OLD_DRAFT) },
-    faults: [{ op: 'open', match: /pages[\\/][^\\/]+\.json\.\d+-[0-9a-z]+\.tmp$/, code: 'EACCES', times: Infinity }] },
+  // 下書きから復旧したページを保存できない。下書きは消さず、記録には理由の符号だけを書く。第2a1回 M-2b から議事録は DB のプロセスが
+  // 書くので、main の fs の失敗（ページの一時ファイルを開けない）の代わりに、DB を使えない（--db-down）で保存できなくする
+  'draft-page-fail': { dbDown: true, files: { 'settings.json': pretty(TYPICAL), 'data/draft.json': JSON.stringify(OLD_DRAFT) } },
   'draft-broken': { files: { 'settings.json': pretty(TYPICAL), 'data/draft.json': '{"startedAt":1760000000000,"segme' } },
   'recovery-broken': { files: { 'settings.json': pretty(TYPICAL), 'data/segbuf/1700000000000/0001.wav': 'RIFF', 'data/segbuf/1700000000000/recovery.json': '{"pageId":"p1","items":[' } },
   // 前の起動で退けた recovery.json だけが残った、7日より古いフォルダ（名前が無いので掃除が避けない）
@@ -270,7 +279,8 @@ module.exports = {
     } },
   // 第2a1回 M-1（ST1）: 要約の途中で終了する。要約エンジンは起こそうとしても応えない（偽の子。/health に誰も居ない）ので要約は終わらない。
   // before-quit は1回だけ止め、「要約が中断されました」をページに書いてから app.quit() を呼ぶ。2回目の before-quit は止めずにエンジンを止める
-  // db.call の答えは 30ms 遅らせる（json-backend は書き込みをほぼ同期で済ませ、待たずに app.quit() を呼んでも間に合ってしまう）
+  // db.call の答えは 30ms 遅らせる（第2a1回 M-1 で、書き込みをほぼ同期で済ませる json-backend のために足した。DB のプロセスの返事の
+  // 遅れに上乗せして、待たずに app.quit() を呼ぶと間に合わないようにする）
   'quit-during-summary': { dbDelayMs: 30, files: {
       'settings.json': ({ base, userData }) => pretty({ ...TYPICAL, sumPort: base.sumPort,
         sumServerExe: require('node:path').join(userData, 'engine-sum', 'llama-server.exe'), sumModelPath: require('node:path').join(userData, 'engine-sum', 'sum-model.gguf') }),
@@ -309,12 +319,100 @@ module.exports = {
       const p = c.store.getPage('pq1');
       c.out.summaryErrorAfter = p ? p.summaryError : null;
     } },
-  // 壊れたページ（p1）と、ページは無事で文字起こしだけ壊れたページ（p2）。起動の reconcile か、開いたときに退けて知らせる
-  'page-files-broken': { files: { 'settings.json': pretty(TYPICAL),
-      'data/pages/p1.json': '{"id":"p1","title":"壊れ', 'data/transcripts/p1.json': '{"id":"p1","segments":[]}',
-      'data/pages/p2.json': JSON.stringify({ id: 'p2', title: '文字起こしが壊れた会議', blocks: [], createdAt: '2026-10-01T00:00:00.000Z' }),
-      'data/transcripts/p2.json': '{"id":"p2","segments":[{"text":"途中' },
-    act: async (c) => { c.out.p1 = await c.handlers['page:get']({}, 'p1'); c.out.p2 = await c.handlers['page:get']({}, 'p2'); } },
+  // 壊れたページ（p1）と、ページは無事で文字起こしだけ壊れたページ（p2）。第2a1回 M-2b から、起動では元の JSON に触れない（store.init で
+  // 退けない）。移行は退けない読み方で読み、壊れたページは数えて飛ばし、文字起こしだけ壊れたページは「発言なし」で移す（ST10）。
+  // 元のファイルは元の名前・元の中身のまま（out.originals に、置いたときと同じ中身かを名前ごとに入れる）
+  'page-files-broken': { files: { 'settings.json': pretty(TYPICAL), ...BROKEN_PAGE_FILES },
+    act: async (c) => {
+      c.out.p1 = await c.handlers['page:get']({}, 'p1');
+      c.out.p2 = await c.handlers['page:get']({}, 'p2');
+      c.out.originals = Object.fromEntries(Object.entries(BROKEN_PAGE_FILES).map(([rel, body]) => {
+        const b = c.read(rel);
+        return [rel, b !== null && b.toString('utf8') === body];
+      }));
+    } },
+  // 第2a1回 M-2b（ST12・RF10）: 議事録の DB を使えない（--db-down: SQLite に trigram が無く、自分の確かめが通らない）。
+  // 設定・画面の覚え書き・音声入力の履歴は今までどおり読み書きでき、会議は下書きに残り、知らせ D1 が1回出る
+  'db-down': { engine: true, dbDown: true, files: { 'settings.json': ({ base }) => JSON.stringify(base) },
+    act: async (c) => {
+      const saved = await c.handlers['settings:save']({}, { theme: 'light' });
+      const onDisk = JSON.parse(c.read('settings.json').toString('utf8'));
+      c.out.settingsSaved = Boolean(saved) && saved.ok !== false && onDisk.theme === 'light';
+      c.out.uiSet = await c.handlers['ui:set']({}, { sidebar: { width: 300, collapsed: false } });
+      const hk = (await c.handlers['settings:get']()).hotkey;
+      c.shortcuts[hk]();   // 音声入力を1回
+      c.listeners['audio:done']({}, { buffer: new Uint8Array(c.toneWav(3)), durationMs: 3000 });
+      await c.waitFor(() => (c.handlers['history:get']() || []).length > 0, 10000);
+      c.out.history = c.handlers['history:get']();
+      // 音声入力の後片付け（貼り付け）が済んで待機に戻るまでは「処理中です」で断られる。戻ったら会議を始める
+      for (let i = 0; i < 200; i++) {
+        c.out.start = await c.handlers['meeting:toggle']();
+        if (c.out.start && c.out.start.ok) break;
+        await c.sleep(50);
+      }
+      c.out.stop = await c.handlers['meeting:toggle']();
+      c.listeners['audio:segment']({}, { buffer: new Uint8Array(c.toneWav(3)), durationMs: 3000, final: true });
+      const log = () => { const b = c.read('engine.log'); return b ? b.toString('utf8') : ''; };
+      c.out.finalizeFailed = await c.waitFor(() => log().includes('議事録の保存に失敗'), 10000);
+      c.power.emit('suspend');   // 画面の覚え書きのまとめ書きを書き出す
+    } },
+  // 第2a1回 M-2b（F12）: 前の起動で DB に移した議事録（prec1・pother1）の復旧の待ち行列（WAV 2つ）と、開いたタブ2つ。DB を使えない
+  // （--db-down）間は、「ページが無い」と取り違えて WAV と recovery.json を消さず、覚えたタブも外さない
+  'recovery-db-down': { dbDown: true, files: { 'settings.json': pretty(TYPICAL),
+      'data/pages/prec1.json': JSON.stringify({ id: 'prec1', title: '復旧を待つ会議', blocks: [], createdAt: '2026-10-01T00:00:00.000Z' }),
+      'data/transcripts/prec1.json': JSON.stringify({ id: 'prec1', segments: [{ id: 's1', atMs: 0, durationMs: 3000, text: '', failed: true }, { id: 's2', atMs: 3000, durationMs: 3000, text: '', failed: true }] }),
+      'data/pages/pother1.json': JSON.stringify({ id: 'pother1', title: '別の会議', blocks: [], createdAt: '2026-10-02T00:00:00.000Z' }),
+      'data/segbuf/4102444800000/0001.wav': 'RIFF', 'data/segbuf/4102444800000/0002.wav': 'RIFF',
+      'data/segbuf/4102444800000/recovery.json': ({ userData }) => {
+        const wav = (n) => require('node:path').join(userData, 'data', 'segbuf', '4102444800000', n);
+        return JSON.stringify({ pageId: 'prec1', items: [{ id: 's1', wav: wav('0001.wav'), durationMs: 3000 }, { id: 's2', wav: wav('0002.wav'), durationMs: 3000 }], retry: false });
+      } },
+    local: { [WS_FILE]: WS({ tabs: { open: ['page:prec1', 'page:pother1'], active: 'page:prec1' } }) },
+    // 前の起動で移した（本物の移行で natsu.db を作る。この起動では DB のプロセスの SQLite が trigram を持たず、開けない）
+    prepare: (ud) => {
+      const r = require('../../src/db/migrate').migrate({ sqlite: require('node:sqlite'), dataDir: require('node:path').join(ud, 'data') });
+      if (!r.ok) throw new Error(`recovery-db-down: 前の移行を作れない（${r.code}）`);
+    },
+    act: async (c) => {
+      const log = () => { const b = c.read('engine.log'); return b ? b.toString('utf8') : ''; };
+      c.out.held = await c.waitFor(() => log().includes('復旧の文字起こしを保留: 議事録を読めません'), 10000);
+      c.out.uiTabs = (await c.handlers['ui:get']()).tabs;
+    } },
+  // 第2a1回 M-2b（ST7）: 要約が無くても、終わるときは1回だけ止めて DB を閉じ（cleanShutdown を書いてチェックポイント）、それから
+  // app.quit() を呼ぶ。app.quit は偽物で、呼ばれた瞬間の DB の meta.cleanShutdown と、子を閉じたかを覚える
+  'quit-closes-db': { files: { 'settings.json': pretty(TYPICAL) },
+    act: async (c) => {
+      const quits = [];
+      c.app.quit = () => { quits.push({ cleanShutdown: c.dbMeta('cleanShutdown'), closed: c.dbState() === 'down' }); };
+      const ev1 = { n: 0, preventDefault() { this.n += 1; } };
+      c.app.emit('before-quit', ev1);
+      await c.waitFor(() => quits.length >= 1, 8000);
+      const ev2 = { n: 0, preventDefault() { this.n += 1; } };
+      c.app.emit('before-quit', ev2);
+      c.out.prevented = [ev1.n, ev2.n];
+      c.out.quits = quits;
+    } },
+  // 第2a1回 M-2b（F12）: DB の用意の前（移行の途中。移行のファイル1つごとに 1.5 秒止まる）の ui:get は、用意を待たずに覚えたタブを
+  // そのまま返す（止まっているのを「無い」にしない）。用意ができた後は、無いページ（pgone）のタブを外す
+  'ui-before-db-ready': { noDbWait: true, env: { NATSU_TEST_MIGRATE_DELAY_MS: '1500' }, files: { 'settings.json': pretty(TYPICAL),
+      'data/pages/pkeep1.json': JSON.stringify({ id: 'pkeep1', title: '残る会議', blocks: [], createdAt: '2026-10-01T00:00:00.000Z' }) },
+    local: { [WS_FILE]: WS({ tabs: { open: ['page:pkeep1', 'page:pgone'], active: 'page:pkeep1' } }) },
+    act: async (c) => {
+      c.out.stateBefore = c.dbState();
+      const t0 = Date.now();
+      c.out.before = (await c.handlers['ui:get']()).tabs;
+      c.out.beforeMs = Date.now() - t0;
+      c.out.ready = await c.waitFor(() => c.dbState() === 'ready', 15000);
+      c.out.after = (await c.handlers['ui:get']()).tabs;
+    } },
+  // 第2a1回 M-2b（ST7）: 本体の窓の読み込みのたびに DB の口を配り直す（画面を読み込み直すと前の口は閉じる）。録音バーには渡さない
+  'db-ports': { files: { 'settings.json': pretty(TYPICAL) },
+    act: async (c) => {
+      const [overlay, main] = c.wins;
+      main.webContents.emit('did-finish-load');
+      overlay.webContents.emit('did-finish-load');
+      main.webContents.emit('did-finish-load');
+    } },
   // 第1c回 Task C-2: 設定のカード「オンライン」の IPC を main で本当に呼ぶ（鍵は画面へ返さない・secrets.json は暗号の形・
   // ［鍵を確かめる］は 127.0.0.1 の偽の送り先の /models へ・Claude Code の場所が無いときの文・［PC の中だけ］は片道）。
   // Claude Code の場所は無いファイルに向ける（本物の claude を探しに行かない。子は起こさない）

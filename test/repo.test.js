@@ -156,13 +156,17 @@ test('invoke と send を取り違えていない', () => {
   for (const c of sent) assert.ok(!handled.has(c) || on.has(c), `${c}: send なのに ipcMain.handle で受けている`);
 });
 
+// 第2a1回 M-2b: DB の口（db:port。webContents.postMessage で口を渡す）と、DB の子が落ちた知らせ（db:lost）の受け口は、P-1 が preload に足す
+// （P-1 は M-2b の後に載せる。repo.test.js はレーン M のファイルなので、P-1 の後の M-3 でこの2つを外す）
+const PENDING_P1_EVENTS = new Set(['db:port', 'db:lost']);
 test('main.js から送るイベントを preload が購読できる', () => {
   const listened = new Set(all(/ipcRenderer\.on\('([^']+)'/g, preload));
   const sends = [
     ...all(/sendToMainWin\('([^']+)'/g, main),
     ...all(/sendToOverlay\('([^']+)'/g, main),
     ...all(/webContents\.send\('([^']+)'/g, main),
-  ].filter((c) => !c.includes('${'));
+    ...all(/webContents\.postMessage\('([^']+)'/g, main),
+  ].filter((c) => !c.includes('${') && !PENDING_P1_EVENTS.has(c));
   const missing = [...new Set(sends)].filter((c) => !listened.has(c));
   assert.deepStrictEqual(missing, [],
     'main.js が送るのに preload が受け口を公開していないイベント');

@@ -66,13 +66,20 @@ test('DEFAULT_SETTINGS は settings.js の defaultSettings。sumCtx / engineIdle
 });
 
 // ---------------------------------------------------------------- 保存先は userData/data だけ（第0a回 R6）
-test('保存先は userData/data だけ（store.init は1引数、移動の道は無い）。開けなければ画面に知らせる', () => {
+// 第2a1回 M-2b で意図して変えた（計画の「意図して変えるもの」）: 起動は下書きだけの初め方 store.initDrafts（元の JSON に触れない）。
+// 議事録は DB のプロセスが持ち、DB を使えないときは知らせ D1
+test('保存先は userData/data だけ（store.initDrafts は1引数、移動の道は無い）。開けなければ画面に知らせる', () => {
   const m = code(main);
   const load = fnBody(m, 'function loadStores()', '\n}');
-  assert.ok(/try \{ store\.init\(app\.getPath\('userData'\)\); \} catch \(e\) \{ storeError = e\.message; engineLog\(/.test(load), '開けないときに窓が出なくなる／理由を持たない');
+  assert.ok(/try \{ store\.initDrafts\(app\.getPath\('userData'\)\); \} catch \(e\) \{ storeError = e\.message; engineLog\(/.test(load), '開けないときに窓が出なくなる／理由を持たない');
   assert.ok(m.includes("if (storeError) mainWin.webContents.once('did-finish-load', () => sendToMainWin('app:notice', "), '開けなかったことを画面に知らせていない');
-  assert.strictEqual((m.match(/store\.init\(/g) || []).length, 1);
-  for (const k of ['dataDir', "'data:dir'", "'data:move'", 'moveDataDir', 'cpSync', 'dataDirNotice', "kind === 'folder'"]) assert.ok(!m.includes(k), k);
+  assert.strictEqual((m.match(/store\.initDrafts\(/g) || []).length, 1);
+  assert.strictEqual((m.match(/store\.init\(/g) || []).length, 0, '起動で元の JSON を退けて索引を書き直す store.init が残っている');
+  assert.ok(m.includes('議事録の保存の仕組みを使えません。録音は音声と下書きとして保存を続けています。NaTsu を終了して、もう一度起動してください（理由の記録: %APPDATA%\\\\natsu\\\\engine.log）。'), '知らせ D1 の文が無い');
+  // 外した設定キー dataDir（保存先の移動）の名残が無い。DB のプロセスへの init の dataDir（<userData>/data に決めたもの。第2a1回 M-2b）だけは除く
+  const noDbInit = m.replace(/^  dataDir: '',$/m, '').replace(/DB_INIT\.dataDir/g, '');
+  assert.ok(m.includes("DB_INIT.dataDir = path.join(app.getPath('userData'), 'data');"), 'DB のプロセスの保存先が userData/data でない');
+  for (const k of ['dataDir', "'data:dir'", "'data:move'", 'moveDataDir', 'cpSync', 'dataDirNotice', "kind === 'folder'"]) assert.ok(!noDbInit.includes(k), k);
   assert.ok(m.includes('const dataRoot = () => store.root();'));
   assert.match(m, /ipcMain\.handle\('app:open-data-dir', \(\) => \{ shell\.openPath\(dataRoot\(\)\); return true; \}\)/);
   assert.match(m, /const segbufRoot = \(\) => path\.join\(app\.getPath\('userData'\), 'data', 'segbuf'\)/);

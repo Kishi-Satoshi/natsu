@@ -55,7 +55,7 @@
 //                     - 部品の待ち（jsonfile の sleepSync）を何もしない関数にする（読み直しの約1秒・名前の変更のやり直しの約0.5秒を、
 //                       場面ごとに待たない。待ちの長さは jsonfile.test.js が見る）。
 //                     - faults（helpers/faulty-fs.js の rules）があれば、src/ の中のファイルが読む fs にだけ faultyFs(faults) を渡す。
-//                     - dbDelayMs があれば、main の db.call（json-backend）の答えをその分だけ遅らせる（DB のプロセスの返事の遅れの代わり）。
+//                     - dbDelayMs があれば、main の db.call（DB の客）の答えをその分だけ遅らせる（DB のプロセスの返事がさらに遅いとき）。
 //                     - setTimeout に渡された retrySettingsRead・retryHistoryRead・retryDraftRecovery は走らせずに timers[名前] に入れる。
 //                     - 画面の読み込みは --slow-load と同じで、窓が2つ（録音バー・本体）できた後に読み終える（起動の知らせは
 //                       did-finish-load で送られる）。
@@ -98,6 +98,15 @@
 //                     mode が missing か、--claude が無ければ claudeExe を無いファイルに向ける（Claude Code が入っていない PC。PATH を探さない）。--stt と組むと、Anthropic へ
 //                     届くかの確かめが偽の送り先に届いてオンラインになる（--stt が無ければ、確かめは fake-net の守りで死んで手元になる）
 //     --claude-auth=<method> … 偽の claude の auth status が返す authMethod（FAKE_CLAUDE_AUTH。既定 claude.ai）
+//     --db-down     … 第2a1回 M-2b: 議事録の DB のプロセス（偽の utilityProcess の中の本物の server.js）の SQLite が trigram を持たない
+//                     （helpers/no-trigram.js を子の中で先に読む）。自分の確かめが通らず、DB は「使えない」で起きる。場面の dbDown でも同じ
+//   第2a1回 M-2b: 偽の Electron の utilityProcess.fork と MessageChannelMain は helpers/fake-utility.js のもの（worker_threads の中で
+//   本物の src/db/server.js が動き、<userData>/data/natsu.db に書く）。main の客（src/db/client.js の makeDbClient）を捕まえ、
+//   場面は DB の用意（ready か down）を待ってから act を呼ぶ（場面の noDbWait なら待たない）。議事録の読み（ctx.store と、この台の store の listPages・getPage・
+//   getTranscript）は helpers/dbpeek.js の読み取り専用の接続で natsu.db を見る（下書きなどほかの名前は本物の store のまま）。
+//   ctx に dbMeta(key)（natsu.db の meta の値。無ければ undefined）・dbState()（客の state()）を足す。本体の窓の webContents.postMessage
+//   は出力の portsSent（{ win: 'main' | 'overlay', channel }）に残す。終わるときは客を閉じてから process.exit する（Windows で
+//   一時フォルダの natsu.db を掴んだまま消さない）
 //   main を読む前に、いつも process.env に ANTHROPIC_API_KEY と CLAUDE_CODE_OAUTH_TOKEN を置く（課金の変数が子に渡らないことを見る。RF25）。
 //   出力に足すもの: claude（偽の claude の記録。無ければ []）・pages[].route・pages[].blocks（型と cites の数だけ）・pages[].citeStat
 //   偽の Electron の net.request は、https://api.anthropic.com/ を偽の送り先の /anthropic へ書き換える（--stt と --claude を両方
@@ -167,6 +176,10 @@ const STT_KEY = 'gsk_test_0123456789';   // stage1c.main.test.js の KEY と同�
 const sceneName = (flags.find((f) => f.startsWith('--json-scene=')) || '').slice(13);
 const scene = sceneName ? require('./json-scenes')[sceneName] : null;
 if (sceneName && (!scene || typeof scene !== 'object')) { process.stderr.write(`mainrun: 場面 ${sceneName} が json-scenes.js に無い\n`); process.exit(1); }
+// 第2a1回 M-2b: 議事録の DB を使えない（SQLite が trigram を持たない）
+const dbDown = flags.includes('--db-down') || Boolean(scene && scene.dbDown);
+const { fakeFork, FakeChannel } = require('./fake-utility');
+const dbpeek = require('./dbpeek');
 const SCENE_TIMERS = new Set(['retrySettingsRead', 'retryHistoryRead', 'retryDraftRecovery']);
 const serveSet = repairMode || Boolean(crashMode);   // engine-small の偽のサーバーを開いたままにし、同意済みにする
 const REAL_PLATFORM = process.platform;
@@ -490,6 +503,7 @@ process.on('exit', () => {
   const wins = [];   // 作った窓の順（createOverlay が先、createMainWindow が後）
   const appEvents = makeEmitter();
   const zooms = [];   // setZoomFactor の値の順（第1b回 Task A-2）
+  const portsSent = [];   // webContents.postMessage の窓と channel（第2a1回 M-2b）
   // 第1b回 Task A-3: 録音バー（wins[0]）の［一時停止］の真似。main.js の2つの定数（PAUSE_ENSURE_ON・PAUSE_ENSURE_OFF）と同じ文だけを受け、
   // 本物の録音バーと同じく文が見る印のとおりに押す（'on' は止まっていなければ止める、'off' は止まっていれば再開する。同じなら何もしない）。
   // 状態が変わったときだけ、次の番で overlay:pause を返す。場面の overlayPause が 'lost-once' なら最初の1回は何もしない（眠る前に
@@ -538,6 +552,8 @@ process.on('exit', () => {
         isLoading: () => loading,
         setWindowOpenHandler() {}, executeJavaScript: (code) => overlayExec(this, code),
         setZoomFactor: (z) => { zooms.push(z); this.zoom = z; },
+        // 第2a1回 M-2b: DB の口を渡した窓と channel（口はこの台では誰も使わない）
+        postMessage: (ch) => { portsSent.push({ win: wins.indexOf(this) === 0 ? 'overlay' : 'main', channel: ch }); },
         getZoomFactor: () => this.zoom,
       });
       const emitterOnce = wc.once;
@@ -574,6 +590,8 @@ process.on('exit', () => {
   }
   let readyResolve;
   const ready = new Promise((r) => { readyResolve = r; });
+  let ipcReady;
+  const ipcReadyP = new Promise((r) => { ipcReady = r; });
   // 省電力の抑止（取り込み中は眠らせない: 第0b回 Task 14）と、［取り込み先を開く］の記録
   const power = [];
   let powerId = 0;
@@ -630,7 +648,9 @@ process.on('exit', () => {
     })),
     BrowserWindow: TrackedWin,
     powerMonitor,
-    ipcMain: { handle: (ch, f) => { handlers[ch] = f; }, on: (ch, f) => { listeners[ch] = f; }, removeHandler() {} },
+    // engine:status を付けたら（setupIpc）、その同じ手番が済んだ直後のマイクロタスクで ipcReady を解く（第2a1回 M-2b。起動は復旧の
+    // DB の書き込みを待ってから setupIpc に来るので、ready からマイクロタスクを数えるだけでは届かない）
+    ipcMain: { handle: (ch, f) => { handlers[ch] = f; if (ch === 'engine:status') queueMicrotask(ipcReady); }, on: (ch, f) => { listeners[ch] = f; }, removeHandler() {} },
     globalShortcut: { register: (acc, cb) => { shortcuts[acc] = cb; return true; }, unregister() {}, unregisterAll() {}, isRegistered: () => false },
     nativeTheme: { shouldUseDarkColors: false, themeSource: 'system', on() {} },
     // 取り込みの通信は Electron の net.request（第0b回 RF2）。テストでは同じ振る舞いの偽物（127.0.0.1 の偽のサーバーへ）
@@ -639,6 +659,9 @@ process.on('exit', () => {
     safeStorage,
     powerSaveBlocker: { start: (type) => { powerId += 1; power.push(['start', type, powerId]); return powerId; }, stop: (id) => { power.push(['stop', id]); }, isStarted: () => false },
     shell: withFallback({ openPath: (p) => { opened.push(p); return Promise.resolve(''); } }),
+    // 第2a1回 M-2b: 議事録の DB のプロセス（worker_threads の中の本物の server.js）と口
+    utilityProcess: { fork: fakeFork(dbDown ? { preload: path.join(__dirname, 'no-trigram.js') } : {}) },
+    MessageChannelMain: FakeChannel,
   });
   // エンジンの spawn だけを本物にする（.js なら node で起動）。それ以外（貼り付け用の PowerShell など）は起動しない
   const realSpawn = cp.spawn;
@@ -726,6 +749,7 @@ process.on('exit', () => {
     execFile(_cmd, _args, _opts, cb) { const done = typeof _opts === 'function' ? _opts : cb; if (done) setImmediate(() => done(new Error('not in test'))); return anyProxy(); },
   };
   const orig = Module._load;
+  let dbClient = null;   // main の客（第2a1回 M-2b）
   const MAIN = path.join(ROOT, 'src', 'main.js');
   const SRC = path.join(ROOT, 'src') + path.sep;
   // 場面の faults: src/ の中のファイル（main・store・jsonfile など）が読む fs にだけ効く
@@ -734,13 +758,15 @@ process.on('exit', () => {
     if (req === 'electron') return electron;
     if (req === 'child_process') return childProcess;
     if (sceneFs && (req === 'fs' || req === 'node:fs') && rest[0] && typeof rest[0].filename === 'string' && rest[0].filename.startsWith(SRC)) return sceneFs;
-    // 場面の dbDelayMs: main の db.call の答えを毎回その分だけ遅らせる（json-backend はほぼ同期で答えるので、DB のプロセスの
-    // ように返事が後から来るときの待ち方を見る。第2a1回 M-1 の before-quit）
-    if (scene && scene.dbDelayMs && req === './db/json-backend' && rest[0] && rest[0].filename === MAIN) {
+    // main の客（第2a1回 M-2b）を捕まえる（場面は DB の用意を待ってから act を呼ぶ・終わるときに閉じる）。場面の dbDelayMs は、main の
+    // db.call の答えを毎回その分だけ遅らせる（DB のプロセスの返事がさらに遅いときの待ち方を見る。第2a1回 M-1 の before-quit）
+    if (req === './db/client' && rest[0] && rest[0].filename === MAIN) {
       const mod = orig.call(this, req, ...rest);
-      return { ...mod, makeJsonBackend: (...a) => {
-        const b = mod.makeJsonBackend(...a);
-        return { ...b, call: async (cmd, args) => { await sleep(scene.dbDelayMs); return b.call(cmd, args); } };
+      return { ...mod, makeDbClient: (...a) => {
+        const c = mod.makeDbClient(...a);
+        dbClient = c;
+        if (!(scene && scene.dbDelayMs)) return c;
+        return { ...c, call: async (cmd, args, o) => { await sleep(scene.dbDelayMs); return c.call(cmd, args, o); } };
       } };
     }
     if (managedMods && rest[0] && rest[0].filename === MAIN) {
@@ -783,7 +809,34 @@ process.on('exit', () => {
     };
   }
   require(path.join(ROOT, 'src', 'main.js'));
-  const store = require(path.join(ROOT, 'src', 'store.js'));
+  // 議事録の読みは natsu.db を読み取り専用で見る（第2a1回 M-2b。main は議事録を DB のプロセスに書き、元の JSON の索引を読まない）。
+  // 読むたびに開いて閉じる（DB のプロセスが閉じた後・戻した後でも今のファイルを見る。掴んだままにしない）。下書きなどは本物の store
+  const realStore = require(path.join(ROOT, 'src', 'store.js'));
+  const dataDir = path.join(userData, 'data');
+  // 用意の前（表を作る前・移行の途中）と使えない DB（表の無いファイル）は「まだ何も無い」。用意ができた後の失敗はそのまま投げる
+  const peekDb = (fn, none) => {
+    if (!fs.existsSync(path.join(dataDir, 'natsu.db'))) return none;
+    try {
+      const h = dbpeek.open(dataDir);
+      try { return fn(h); } finally { h.close(); }
+    } catch (e) {
+      if (['ready', 'read-only'].includes(dbState())) throw e;
+      return none;
+    }
+  };
+  const dbView = {
+    listPages: () => peekDb((h) => h.listPages(), []),
+    getPage: (id) => peekDb((h) => h.getPage(id), null),
+    getTranscript: (id) => peekDb((h) => h.getTranscript(id), []),
+  };
+  const store = new Proxy(realStore, { get: (t, k) => (Object.hasOwn(dbView, k) ? dbView[k] : t[k]) });
+  const dbMeta = (key) => peekDb((h) => h.meta(key), undefined);
+  const dbState = () => (dbClient ? dbClient.state() : 'none');
+  // 終わるときは DB の客を閉じてから（子の close でチェックポイントして natsu.db を離す）。結果はもう書いてある
+  const exitClean = async (code) => {
+    try { if (dbClient) await dbClient.close({ timeoutMs: 2000 }); } catch (_) { /* 閉じられなくても終える */ }
+    process.exit(code);
+  };
   readyResolve();
   const out = { mode };
   const readUser = (rel) => { try { return fs.readFileSync(path.join(userData, ...rel.split('/'))); } catch (_) { return null; } };
@@ -795,12 +848,14 @@ process.on('exit', () => {
     // 窓が2つ（録音バー・本体）できるのを待ってから、画面の読み込みを終える（起動の知らせは did-finish-load で送られる）
     if (!await waitFor(() => wins.length >= 2, 15000)) throw new Error(`場面 ${sceneName}: 窓ができない（whenReady の途中で止まった）`);
     finishLoad();
+    // 議事録の DB の用意（ready・read-only か、使えない down）を待つ（第2a1回 M-2b。起動の移行と取り込みが済んでから act）
+    if (!scene.noDbWait && !await waitFor(() => !['none', 'starting', 'migrating'].includes(dbState()), 15000)) throw new Error(`場面 ${sceneName}: 議事録の DB の用意ができない（${dbState()}）`);
     if (scene.engine) await waitFor(() => spawns.length > 0, 15000);
     const actOut = {};
     const readLocal = (rel) => { try { return fs.readFileSync(path.join(localAppData, ...rel.split('/'))); } catch (_) { return null; } };
     if (typeof scene.act === 'function') {
       await scene.act({ handlers, listeners, app: electron.app, wins, mainWin: wins[1], power: powerMonitor, timers, clearedTimers, shortcuts, store, jsonfile, electron, userData,
-        localAppData, read: readUser, readLocal, waitFor, sleep, toneWav, releasePause, out: actOut, launches, launchPlan, fakeKids,
+        localAppData, read: readUser, readLocal, waitFor, sleep, toneWav, releasePause, out: actOut, launches, launchPlan, fakeKids, dbMeta, dbState,
         setOpenAiBase: (b) => { openAiBase = String(b || ''); } });
     }
     const files = [];
@@ -848,10 +903,11 @@ process.on('exit', () => {
       overlayJs: overlayJs.slice(),
       overlayPaused,
       balloons: balloons.slice(),
+      portsSent: portsSent.slice(),
       ...actOut,
     };
     process.stdout.write(`\n${JSON.stringify(result)}\n`);
-    process.exit(0);
+    await exitClean(0);
   }
   if (fetchMode) {
     await waitFor(() => handlers['engine:fetch-start']);
@@ -889,11 +945,11 @@ process.on('exit', () => {
     out.engineLog = fs.existsSync(elog) ? fs.readFileSync(elog, 'utf8').split('\n').filter(Boolean).map((l) => l.replace(/^\[[^\]]+\] /, '')) : [];
     await fetchSet.close();
     process.stdout.write(`\n${JSON.stringify(out)}\n`);
-    process.exit(0);
+    await exitClean(0);
   }
   if (managedMode) {
-    // 照らしは本物のファイルの読み（イベントループを回す）。マイクロタスクだけを待つ今は、まだ照らし終えていない
-    for (let i = 0; i < 100 && !handlers['engine:status']; i++) await null;
+    // 照らしは本物のファイルの読み（イベントループを回す）。受け口を付けた手番の直後のマイクロタスクの今は、まだ照らし終えていない
+    await ipcReadyP;
     out.statusChecking = handlers['engine:status']();
     out.spawnsBeforeVerify = spawns.length;
     out.managedRoot = managedRoot;
@@ -943,7 +999,7 @@ process.on('exit', () => {
     out.engineLog = elog();
     await fetchSet.close();
     process.stdout.write(`\n${JSON.stringify(out)}\n`);
-    process.exit(0);
+    await exitClean(0);
   }
   await waitFor(() => handlers['meeting:toggle']);
   // 第1c回 A-4 の出力（--stt のとき）。segbuf の下に recovery.json と WAV が残っているか
@@ -1003,7 +1059,7 @@ process.on('exit', () => {
     await sleep(100);
     await sttOut();
     process.stdout.write(`\n${JSON.stringify(out)}\n`);
-    process.exit(0);
+    await exitClean(0);
   }
   if (dictate) {
     // 音声入力を1回: ホットキー → 録音 → 音声が届く → 文字起こし → 履歴
@@ -1016,7 +1072,7 @@ process.on('exit', () => {
     out.history = handlers['history:get']();
     await sttOut();
     process.stdout.write(`\n${JSON.stringify(out)}\n`);
-    process.exit(0);
+    await exitClean(0);
   }
   if (recoverMode) {
     // 復旧の文字起こしが済むのを待つ
@@ -1027,7 +1083,7 @@ process.on('exit', () => {
     const elog = path.join(userData, 'engine.log');
     out.engineLog = fs.existsSync(elog) ? fs.readFileSync(elog, 'utf8').split('\n').filter(Boolean).map((l) => l.replace(/^\[[^\]]+\] /, '')) : [];
     process.stdout.write(`\n${JSON.stringify(out)}\n`);
-    process.exit(0);
+    await exitClean(0);
   }
   if (repairMode) {
     // 壊れていた組の取り直しと、照らし直した後の切り替え（要約の組も続けて取る）と、切り替えた後の写しを待つ
@@ -1044,7 +1100,7 @@ process.on('exit', () => {
     out.engineLog = fs.existsSync(elog) ? fs.readFileSync(elog, 'utf8').split('\n').filter(Boolean).map((l) => l.replace(/^\[[^\]]+\] /, '')) : [];
     await fetchSet.close();
     process.stdout.write(`\n${JSON.stringify(out)}\n`);
-    process.exit(0);
+    await exitClean(0);
   }
   if (managedMode === 'tamper' || noVcRuntime || verifyThrows || noEngine) {
     // 使えない組は使わない。記録も始めない（区間を送らずに終える）
@@ -1079,7 +1135,7 @@ process.on('exit', () => {
     const elog = path.join(userData, 'engine.log');
     out.engineLog = fs.existsSync(elog) ? fs.readFileSync(elog, 'utf8').split('\n').filter(Boolean).map((l) => l.replace(/^\[[^\]]+\] /, '')) : [];
     process.stdout.write(`\n${JSON.stringify(out)}\n`);
-    process.exit(0);
+    await exitClean(0);
   }
   if (runTest) out.test = await handlers['app:test']();
 
@@ -1178,5 +1234,5 @@ process.on('exit', () => {
     out.pages = out.pages.map((p, i) => ({ ...(pagesBefore[i] || {}), ...p }));
   }
   process.stdout.write(`\n${JSON.stringify(out)}\n`);
-  process.exit(0);
+  await exitClean(0);
 })().catch((e) => { process.stderr.write(`mainrun: ${e.stack || e}\n`); process.exit(1); });

@@ -253,7 +253,8 @@ describe('第1a回 保存の守り（main）', { concurrency: Number(process.env
     const r = await run('draft-page-fail');
     assert.ok(r.files.includes('data/draft.json'), r.files.join('\n'));
     const lines = r.engineLog.filter((l) => l.startsWith('下書き（draft.json）の復旧に失敗'));
-    assert.deepStrictEqual(lines, ['下書き（draft.json）の復旧に失敗: EACCES'], r.engineLog.join('\n'));
+    // 第2a1回 M-2b: 保存の失敗は DB を使えないこと（db-down）。前は main の fs の失敗（EACCES）だった
+    assert.deepStrictEqual(lines, ['下書き（draft.json）の復旧に失敗: db-down'], r.engineLog.join('\n'));
   });
 
   test('JS9・JS2: 壊れた draft.json は消さずに退けて残し、知らせる', SCENE, async () => {
@@ -307,16 +308,17 @@ describe('第1a回 保存の守り（main）', { concurrency: Number(process.env
     assert.ok(r.engineLog.some((l) => l.includes('文字起こし待ちの記録を読み直しました（1 件）')), r.engineLog.join('\n'));
   });
 
-  test('P16: 壊れたページは N11、壊れた文字起こしは N17 で、退けた名前を知らせる（議事録の中身を黙って動かさない）', SCENE, async () => {
+  // 第2a1回 M-2b で意図して変えた（計画の「意図して変えるもの」）: 起動では元の JSON に触れない（store.init で退けない）。
+  // 移行は退けない読み方で読み、壊れたページ（p1）は数えて飛ばし、文字起こしだけ壊れたページ（p2）は「発言なし」で移す（ST10）。
+  // 元のファイルは元の名前・元の中身のまま。飛ばした数の知らせ D3 は M-4 で足す
+  test('P16・ST10: 壊れたページと文字起こしは退けず、元の名前・元の中身のまま残す（壊れたページは開けず、文字起こしだけ壊れたページは発言なしで開く）', SCENE, async () => {
     const r = await run('page-files-broken');
-    const pageMoved = r.files.find((f) => f.startsWith('data/pages/p1.json.broken-'));
-    const trMoved = r.files.find((f) => f.startsWith('data/transcripts/p2.json.broken-'));
-    assert.ok(pageMoved && trMoved, JSON.stringify(r.files));
+    assert.deepStrictEqual(r.files.filter((f) => /\.broken-/.test(f)), [], '元の JSON を退けた');
+    assert.deepStrictEqual(r.originals, { 'data/pages/p1.json': true, 'data/transcripts/p1.json': true, 'data/pages/p2.json': true, 'data/transcripts/p2.json': true },
+      '元のファイルの名前か中身が変わった');
     assert.strictEqual(r.p1, null);
+    assert.strictEqual(r.p2.page.id, 'p2');
     assert.deepStrictEqual(r.p2.segments, []);
-    const n = ours(r.notices);
-    assert.ok(n.some((x) => x.startsWith('議事録のファイルが壊れていて開けなかったので') && x.includes(pageMoved.split('/').pop())), n.join('\n'));
-    assert.ok(n.some((x) => x.startsWith('議事録の文字起こしのファイルが壊れていたので') && x.includes(trMoved.split('/').pop())), n.join('\n'));
   });
 
   test('記録: 復旧の文字起こしと議事録の保存の失敗は、エラーの文（fs ではパス全体を含む）をそのまま書かず logReason を通す', { timeout: 5000 }, () => {
