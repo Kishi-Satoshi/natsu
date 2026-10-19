@@ -18,6 +18,22 @@
  * （当てるとページの行の rev が1つ上がる。ブロックだけを変える命令でも: F6）。
  * 一覧から外すページ: ゴミ箱（trashed_at）と、録音中の写し（attrs.meeting.phase が recording・paused・finalizing）。
  * 検索の2つ（pages.list の q・pages.searchFull）は D-4。この段の pages.list は q を見ない。
+ *
+ * 会議の命令（main だけ。D-3b。ST6・RF16・F11）。録音の正本は main のメモリと下書きで、DB のページは画面と復旧のための写し。
+ *   meeting.begin／meeting.segment … 写し（attrs.meeting.phase 'recording'）を作る・発言を (page_id, id) で上書きする。
+ *     その ID のページが写しでない（締め済み・会議でないページ）か、purge の印がある（取り消した）なら何も変えない
+ *     （送り直しが締めや取り消しの後に届いても、写しに戻さない・取り消した文字を戻さない）。begin が届かなかったときは segment が写しを作る
+ *   meeting.finalize … 同じ ID の行を、写しでも締め済みでも締めの中身で上書きする（putPageRows。meeting は { phase: 'done', recovered: false }）
+ *   meeting.recover … 行が無ければ作り、写しなら下書きの中身で上書きする（下書きが正本）。締め済み（phase 'done'。recovered でも同じ）・
+ *     会議でないページ・ゴミ箱のページは題名・要約・メモ・ブロックを変えず、下書きにあって DB に無い発言だけ足す（already: true。F11:
+ *     締めた後に下書きを消せなかったとき、後からの要約と直しを空で上書きしない）。purge の印がある（取り消した）なら何もしない（already: true）
+ *   ページの形は今の store.createPage と同じ欄（title・date・durationSec・memo・blocks・createdAt・recovered・route・pauses）に
+ *     summaryError を足したもの（json-backend の create と同じ答え。summaryError があるときだけ citeStat を作る）
+ *   meeting.discard … 写し（か、行が無い）なら、行・発言・その ID の oplog の行を消して purge の印（oplog の1行）だけを残し、
+ *     確定の後に core が wal_checkpoint(TRUNCATE) を試す（after: 'checkpoint'。FTS5 の secure-delete と secure_delete=ON で文字を残さない）。
+ *     締め済みのページは消さない（取り消しは録音中の会議だけ。古い頼みで議事録を失わない）
+ *   meeting.settle({ keep }) … keep に無い写しを phase 'done'・recovered: true にする（ページの recovered も真にする）
+ *   segment.fail／segment.remove … 復旧の文字起こしの失敗の文を残す（failed: true）・無音の区間を消す（答えは発言の配列。json-backend と同じ）
  */
 'use strict';
 
@@ -48,6 +64,8 @@ const HOT_QUERIES = Object.freeze({
   pageSegments: 'select id, at_ms, duration_ms, text, failed, extra from segments where page_id = ? order by n',
   todoPages: "select distinct page_id from blocks where type = 'todo'",
   oplogTx: 'select seq, role, tx, at, actor, action, page_id, ops from oplog where role = ? and tx = ?',
+  purgeMark: "select seq from oplog where page_id = ? and action = 'meeting.discard' and instr(ops, '\"op\":\"purge\"') > 0 limit 1",
+  pageOplog: 'delete from oplog where page_id = ?',
 });
 
 // ---------------------------------------------------------------- 行 → ページ
@@ -218,6 +236,163 @@ function segmentUpdate(db, { pageId, segId, patch, recite = true }, ctx) {
   return { ops, pageIds: [pageId], result: { page: forView(readPage(db, pageId), ctx.labels), segments: readSegments(db, pageId) } };
 }
 
+// ---------------------------------------------------------------- 会議
+// その ID が取り消した会議（purge の印がある）か。D-5b の取り込みも、印の ID を戻さないために使う。
+// 締め済みのページへの取り消しは何もしない（ops が空の行だけが残る）ので、action だけでなく purge の操作があるかを見る
+function isPurged(db, id) {
+  return Boolean(db.prepare(HOT_QUERIES.purgeMark).get(id));
+}
+
+// 今の store.localDate と同じ（ローカルの暦日）
+function localDate(d) {
+  const p = (x) => String(x).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+}
+
+// 締め・復旧のページ: 今の store.createPage と同じ欄と既定（json-backend の create と同じ答え）に、会議の印 meeting を足す
+function meetingPage(pageId, src, now, { recovered }) {
+  const p = isObj(src) ? src : {};
+  const at = now();
+  const page = {
+    id: pageId,
+    title: p.title || '',
+    date: p.date || localDate(at),
+    durationSec: p.durationSec || 0,
+    memo: p.memo || '',
+    blocks: Array.isArray(p.blocks) ? clone(p.blocks) : [],
+    createdAt: p.createdAt || at.toISOString(),
+    updatedAt: at.toISOString(),
+    recovered: Boolean(p.recovered),
+    summaryError: '',
+  };
+  if (isObj(p.route)) page.route = clone(p.route);
+  if (Array.isArray(p.pauses)) page.pauses = R.cleanPauses(p.pauses);
+  if (typeof p.summaryError === 'string' && p.summaryError) {
+    // 今の復旧は createPage の後に summaryError を入れて savePage する（そのときだけ citeStat ができる）
+    page.summaryError = p.summaryError;
+    page.citeStat = { ...R.citeStatOf(page.blocks) };
+  }
+  page.meeting = { phase: 'done', recovered: Boolean(recovered) };
+  return page;
+}
+
+// 録音中の写し（begin が作る。segment は begin が届かなかったときに作る）
+function copyPage(pageId, startedAt, localOnly, now) {
+  const at = now();
+  const began = Number.isSafeInteger(startedAt) ? new Date(startedAt) : at;
+  const meeting = { phase: 'recording', recovered: false };
+  if (Number.isSafeInteger(startedAt)) meeting.startedAt = startedAt;
+  if (typeof localOnly === 'boolean') meeting.localOnly = localOnly;
+  return {
+    id: pageId, title: '', date: localDate(began), durationSec: 0, memo: '', blocks: [],
+    createdAt: began.toISOString(), updatedAt: at.toISOString(), recovered: false, summaryError: '', meeting,
+  };
+}
+
+// 写しに書いてよいか: 'create'（行が無い）・'live'（写し）・null（締め済み・会議でない・取り消した）
+function copyState(db, pageId) {
+  const l = loadPage(db, pageId, { trashed: true });
+  if (l) return isLive(l.page) && l.trashedAt === null ? 'live' : null;
+  return isPurged(db, pageId) ? null : 'create';
+}
+
+const NOTHING = { ops: [], pageIds: [], result: null };
+
+function meetingBegin(db, { pageId, startedAt, localOnly }, ctx) {
+  if (copyState(db, pageId) !== 'create') return NOTHING;   // 写しがもうある（送り直し）・締め済み・取り消した
+  const { ops } = putPageRows(db, copyPage(pageId, startedAt, localOnly, ctx.now), []);
+  return { ops, pageIds: [pageId], result: null };
+}
+
+function meetingSegment(db, { pageId, seg }, ctx) {
+  const state = copyState(db, pageId);
+  if (!state) return NOTHING;
+  // 当てるのは1回だけ（控えに oplog を当て直したときと、ページの rev の上がり方を同じにする: T4b）
+  const ops = state === 'create' ? diffPage(null, copyPage(pageId, undefined, undefined, ctx.now)) : [];
+  const olds = state === 'create' ? [] : readSegments(db, pageId);
+  const news = clone(olds);
+  const i = news.findIndex((s) => s.id === seg.id);
+  if (i >= 0) news[i] = clone(seg); else news.push(clone(seg));
+  ops.push(...diffSegments(olds, news, pageId));   // 発言の新しい値と前の値（seg）
+  applyOps(db, ops);
+  return { ops, pageIds: [pageId], result: null };
+}
+
+function meetingFinalize(db, { pageId, page, segments }, ctx) {
+  const { ops } = putPageRows(db, meetingPage(pageId, page, ctx.now, { recovered: false }), segments);
+  return { ops, pageIds: [pageId], result: readPage(db, pageId) };
+}
+
+function meetingRecover(db, { pageId, page, segments }, ctx) {
+  const l = loadPage(db, pageId, { trashed: true });
+  if (!l && isPurged(db, pageId)) return { ops: [], pageIds: [], result: { page: null, already: true } };
+  if (!l || (isLive(l.page) && l.trashedAt === null)) {
+    // 行が無い・録音中の写し: 下書きの中身で作る・上書きする（下書きが正本）
+    const { ops } = putPageRows(db, meetingPage(pageId, page, ctx.now, { recovered: true }), segments);
+    return { ops, pageIds: [pageId], result: { page: readPage(db, pageId), already: false } };
+  }
+  // 締め済み（F11）: ページは変えず、下書きにあって DB に無い発言だけ後ろに足す
+  const olds = readSegments(db, pageId);
+  const have = new Set(olds.map((s) => s.id));
+  const news = [...olds, ...segments.filter((s) => !have.has(s.id)).map(clone)];
+  const ops = diffSegments(olds, news, pageId);
+  applyOps(db, ops);
+  return { ops, pageIds: ops.length ? [pageId] : [], result: { page: readPage(db, pageId), already: true } };
+}
+
+// 送り直しの答え: 書いた操作に、ページの行を足したか会議の印を書き換えた操作があれば「作った・上書きした」（already: false）
+function recoverDup(db, a, row) {
+  const ops = JSON.parse(row.ops || '[]');
+  const wrote = ops.some((o) => o && o.id === a.pageId && ((o.op === 'add' && o.row && o.row.type === 'page') || (o.op === 'set' && o.key === 'meeting')));
+  return { page: readPage(db, a.pageId), already: !wrote };
+}
+
+function meetingDiscard(db, { pageId }) {
+  const l = loadPage(db, pageId, { trashed: true });
+  if (l && !isLive(l.page)) return NOTHING;   // 締め済み・会議でないページは消さない（行が無くても印は残す）
+  db.prepare(HOT_QUERIES.pageOplog).run(pageId);   // 写しの間の操作（発言の文字を持つ）も残さない
+  const ops = [{ op: 'purge', id: pageId }];
+  applyOps(db, ops);
+  return { ops, pageIds: [pageId], result: null };
+}
+
+function meetingSettle(db, { keep }) {
+  const keepSet = new Set(keep);
+  const ops = [];
+  const ids = [];
+  for (const r of db.prepare(HOT_QUERIES.list).all()) {
+    if (keepSet.has(r.id) || !isLive(JSON.parse(r.attrs || '{}'))) continue;
+    const l = loadPage(db, r.id, { trashed: true });
+    const page = clone(l.page);
+    page.meeting = { ...page.meeting, phase: 'done', recovered: true };
+    page.recovered = true;
+    ops.push(...diffPage(l.page, page, { ords: l.ords }));
+    ids.push(r.id);
+  }
+  applyOps(db, ops);
+  return { ops, pageIds: ids, result: { settled: ids.length } };
+}
+
+function segmentFail(db, { pageId, segId, text }) {
+  const olds = readSegments(db, pageId);
+  const news = clone(olds);
+  const s = news.find((x) => x.id === segId);
+  if (!s) return NOTHING;
+  s.text = text; s.failed = true;
+  const ops = diffSegments(olds, news, pageId);
+  applyOps(db, ops);
+  return { ops, pageIds: [pageId], result: readSegments(db, pageId) };
+}
+
+function segmentRemove(db, { pageId, segId }) {
+  const olds = readSegments(db, pageId);
+  const ops = diffSegments(olds, olds.filter((x) => x.id !== segId), pageId);
+  applyOps(db, ops);
+  return { ops, pageIds: ops.length ? [pageId] : [], result: readSegments(db, pageId) };
+}
+
+const resegments = (db, a) => readSegments(db, a.pageId);
+
 const DEFS = {
   // ---- 読む（app と main）
   'pages.list': { roles: ['app', 'main'], write: false, args: { q: 'text?' },
@@ -332,9 +507,28 @@ const DEFS = {
       return { ops, pageIds: [page.id], result: readPage(db, page.id) };
     },
     dupResult: rereadPut },
+
+  // ---- 会議（main だけ。送りっぱなしの begin・segment は送るたびに別の tx）
+  'meeting.begin': { roles: ['main'], write: true, args: { pageId: 'id', startedAt: 'int', localOnly: 'bool?' },
+    run: meetingBegin },
+  'meeting.segment': { roles: ['main'], write: true, args: { pageId: 'id', seg: 'seg' },
+    run: meetingSegment },
+  'meeting.finalize': { roles: ['main'], write: true, args: { pageId: 'id', page: 'page', segments: 'segments' },
+    run: meetingFinalize, dupResult: (db, a) => readPage(db, a.pageId) },
+  'meeting.recover': { roles: ['main'], write: true, args: { pageId: 'id', page: 'page', segments: 'segments' },
+    run: meetingRecover, dupResult: recoverDup },
+  'meeting.discard': { roles: ['main'], write: true, args: { pageId: 'id' },
+    run: meetingDiscard, after: 'checkpoint' },
+  'meeting.settle': { roles: ['main'], write: true, args: { keep: 'ids' },
+    run: meetingSettle,
+    dupResult: (db, a, row) => ({ settled: new Set(JSON.parse(row.ops || '[]').map((o) => o && o.id)).size }) },
+  'segment.fail': { roles: ['main'], write: true, args: { pageId: 'id', segId: 'id', text: 'text' },
+    run: segmentFail, dupResult: resegments },
+  'segment.remove': { roles: ['main'], write: true, args: { pageId: 'id', segId: 'id' },
+    run: segmentRemove, dupResult: resegments },
 };
 
 const COMMANDS = Object.freeze(Object.assign(Object.create(null),
   Object.fromEntries(Object.entries(DEFS).map(([k, v]) => [k, Object.freeze(v)]))));
 
-module.exports = { COMMANDS, HOT_QUERIES, putPageRows, readPage, readSegments, listPages };
+module.exports = { COMMANDS, HOT_QUERIES, putPageRows, readPage, readSegments, listPages, isPurged };
