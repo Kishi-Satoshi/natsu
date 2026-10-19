@@ -139,6 +139,22 @@
 //                        順に覚える。場面の ctx に relay = { mail(local, domain), codeFor(email), setFront(mode), db, calls() } を足す
 //                        （calls() は覚えた道の写し。setFront は relay-local の中継の前の答え方: '' ・'drop'・'html401'）
 //     --no-store     … 偽の safeStorage の isAsyncEncryptionAvailable が false（暗号にできない PC。secrets.js は保存を断る）
+//   第1d回 A-3（RL11）: 文字起こしを中継へ送る場面。--relay の議事録・音声入力・復旧の場面は、main を読む前に relay-local で
+//   start → verify してログインの札を作り、偽の safeStorage の暗号で secrets.json の relay に置き、settings.json の accountEmail に
+//   そのメールを書く（札の種まき）。json の場面は scene.relaySeed のときだけ種をまく（A-2 の account-ipc はログインしていない形から）
+//     --relay=<mode> の mode は fake-stt の答え方（text・500・slow・429・429-long・quota・badjson・drop・drop-first）のほか、
+//                        daily-cap（中継の DAILY_USER_SEC を 4）・daily-cap-all（DAILY_ALL_SEC を 4）・upstream-auth（偽の OpenAI が 401）・
+//                        foreign401（中継の前が HTML の 401: setFront('html401')）・415（中継の前が文字起こしの口にだけ 415 not-wav）・
+//                        cut-first（中継の前が最初の文字起こしの要求だけを返事せずに切る）
+//     --signed-out   … 札の種をまかない（ログインしていない PC）
+//     --revoked      … 種をまいた札を、main を読む前に D1 で取り消す（revoked_at。中継は 401 login を返す: ログインが切れた PC）
+//     --relay-down   … RELAY_BASE を、だれも聞いていない 127.0.0.1 の口へ書き換える（中継が落ちている・届かない）
+//     --relay-cert   … RELAY_BASE への要求は net::ERR_CERT_AUTHORITY_INVALID で死ぬ（会社の通信の検査が証明書を差し替えた）
+//     --key-for=<id> … --relay と組むと、前の版の鍵（groq・openai・custom）も secrets.json に置く（中継へ送らないことを見る）
+//   --relay の議事録・音声入力・復旧の場面の出力に、stt（中継の後ろの偽の OpenAI が受けた要求）・relayCalls（main が中継へ送った道の順）・
+//   relayLog（中継の記録の行）・netHosts・secretsRaw・recoveryKept・decrypts・balloons を足す（--stt と同じ形）
+//   ctx.relay に revoke()（D1 の札を全部取り消す: revoked_at）・sttRequests()・seededMail を、ctx に advanceClock(ms)（main の Date.now と
+//   中継の試しの時計を ms だけ進める）を足す
 //   ctx.setOnline(bool) … 偽の net.isOnline() の答えを場面の途中で変える（--offline の場面は false から始まる）
 //   出力に足すもの（議事録の場面）: pages[].id・title・recovered、files（userData の下の相対パス）、dbStarts（DB の子を起こした回数）、trace
 //   ctx.appCall(cmd, args) … 画面と同じ役 app の口（客の rendererPort() で作る偽の MessageChannelMain の口）で DB に頼む。書く命令には
@@ -212,6 +228,17 @@ const idleMode = flags.includes('--idle');
 const restartDuring = flagVal('--restart-during');   // 第1d回 A-9
 const relayMode = flagVal('--relay');   // 第1d回 A-2
 const noStore = flags.includes('--no-store');
+// 第1d回 A-3（RL11）: 文字起こしを中継へ送る場面
+const signedOut = flags.includes('--signed-out');
+const revokedFlag = flags.includes('--revoked');
+const relayDown = flags.includes('--relay-down');
+const relayCert = flags.includes('--relay-cert');
+const keyForFlag = flagVal('--key-for');
+// --relay の mode → 中継の前の答え方・中継の env・中継の後ろの偽の OpenAI の答え方
+const RELAY_FRONT = { foreign401: 'html401', 415: 'not-wav', 'cut-first': 'cut-first' };
+const RELAY_ENV = { 'daily-cap': { DAILY_USER_SEC: '4' }, 'daily-cap-all': { DAILY_ALL_SEC: '4' } };
+const RELAY_STT = { 'upstream-auth': '401' };
+const relaySttMode = RELAY_STT[relayMode] || (RELAY_FRONT[relayMode] || RELAY_ENV[relayMode] ? 'text' : relayMode);
 const UPDATE_URL = 'https://example.invalid/natsu-src-0.8.1.zip';   // 取り込みは偽物（out.applyCalls に数えるだけ）なので、どこへも行かない
 const SECRET = '秘密の語';
 const fakeText = flagVal('--text') || (secretText ? `${SECRET}を含む発言です` : '');
@@ -371,12 +398,27 @@ process.on('exit', () => {
   const fakeStt = sttMode ? await require('./fake-stt').startFakeStt({ mode: sttMode === 'cert' ? 'text' : sttMode, key: STT_KEY }) : null;
   const fakeEnc = (s) => Buffer.from(`ENC1:${Buffer.from(s, 'utf8').toString('hex')}`);
   // 本物の中継のコードを 127.0.0.1 で（--relay。第1d回 A-2）。終わるときに閉じなくても、process.exit で消える
-  const relayLocal = relayMode ? await require('./relay-local').startRelayLocal({ stt: { mode: relayMode } }) : null;
-  const { RELAY_BASE } = require(path.join(ROOT, 'src', 'relay.js'));
+  const relayLocal = relayMode ? await require('./relay-local').startRelayLocal({ stt: { mode: relaySttMode }, env: RELAY_ENV[relayMode] || {} }) : null;
+  const { RELAY_BASE, makeAccountApi } = require(path.join(ROOT, 'src', 'relay.js'));
   const relayPaths = [];   // 中継へ送った要求の道（書き換える前の RELAY_BASE の後ろ。/auth/start など）
-  if (fakeStt && !noKey) {
-    fs.writeFileSync(path.join(userData, 'secrets.json'), JSON.stringify({ schema: 1, keys: { [keyFor]: fakeEnc(STT_KEY).toString('base64') } }));
+  // 第1d回 A-3: 札の種まき（main を読む前に、本物の中継のコードで start → verify）。main からの要求ではないので relayPaths に数えない
+  let seededMail = '';
+  const seedKeys = {};
+  if (relayLocal && !signedOut && (!scene || scene.relaySeed)) {
+    const api = makeAccountApi({ request: relayLocal.request });
+    seededMail = require('./relay-run').mail('kaigi');
+    const st = await api.start(seededMail);
+    const v = st.ok ? await api.verify(seededMail, relayLocal.codeFor(seededMail)) : st;
+    if (!v.ok) throw new Error(`mainrun: 札の種まきに失敗（${v.code}）`);
+    seedKeys.relay = fakeEnc(v.token).toString('base64');
+    if (revokedFlag) await relayLocal.db.prepare('UPDATE sessions SET revoked_at = ?1').bind(Math.floor(relayLocal.clock.now() / 1000)).run();
   }
+  if (fakeStt && !noKey) seedKeys[keyFor] = fakeEnc(STT_KEY).toString('base64');
+  if (relayLocal && keyForFlag) seedKeys[keyForFlag] = fakeEnc(STT_KEY).toString('base64');
+  if (Object.keys(seedKeys).length) fs.writeFileSync(path.join(userData, 'secrets.json'), JSON.stringify({ schema: 1, keys: seedKeys }));
+  if (relayLocal && RELAY_FRONT[relayMode]) relayLocal.setFront(RELAY_FRONT[relayMode]);
+  // --relay-down: RELAY_BASE をだれも聞いていない口へ（書き換えの先）
+  const relayTarget = relayLocal ? (relayDown ? `http://127.0.0.1:${await freePort()}` : relayLocal.base) : '';
   // 偽のモデル。中身は見られず、大きさの床（50MB）だけを超えればよい。残りは疎にして場所を取らない。
   // 先頭だけは実際に書く（全部が疎だと blocks が 0 になり、OneDrive のプレースホルダと見なされる）
   let model = process.env.NATSU_E2E_MODEL;
@@ -555,12 +597,19 @@ process.on('exit', () => {
     }
     if (typeof scene.prepare === 'function') scene.prepare(userData);
     for (const [k, v] of Object.entries(scene.env || {})) process.env[k] = String(v);
+    // 第1d回 A-3: 種をまいた場面は、ログイン中のメールを settings.json にも書く（main がログインしたときと同じ形）
+    if (seededMail) {
+      const f = path.join(userData, 'settings.json');
+      const cur = fs.existsSync(f) ? JSON.parse(fs.readFileSync(f, 'utf8')) : {};
+      fs.writeFileSync(f, JSON.stringify({ ...cur, accountEmail: seededMail }));
+    }
   } else {
     fs.writeFileSync(path.join(userData, 'settings.json'), JSON.stringify({
       ...(managedMode || noEngine || fetchMode ? {} : { localServerExe: exe, localModelPath: model }), localPort, sumPort, autoLaunch: false,
       ...(withSum ? { sumServerExe: FAKE_SUM, sumModelPath: sumModel } : {}),
-      ...(fakeStt && consentFlag ? { cloudTranscribe: consentFlag } : {}),
-      ...(fakeStt && legacyProvider ? { sttProvider: 'custom', sttBaseUrl: fakeStt.base, sttModel: 'whisper-large-v3' } : {}),
+      ...((fakeStt || relayLocal) && consentFlag ? { cloudTranscribe: consentFlag } : {}),
+      ...((fakeStt || relayLocal) && legacyProvider ? { sttProvider: 'custom', sttBaseUrl: (fakeStt || relayLocal.stt).base, sttModel: 'whisper-large-v3' } : {}),
+      ...(seededMail ? { accountEmail: seededMail } : {}),
       ...(noWhisper ? { localServerExe: path.join(tmp, 'no-such-whisper-server.exe') } : {}),
       claudeExe,
     }));
@@ -721,17 +770,28 @@ process.on('exit', () => {
   // 0.7.0 U-1: OpenAI（固定の送り先）への要求は、偽の送り先（--stt）か、場面が setOpenAiBase で決めた 127.0.0.1 の口へ書き換える。
   // 書き換える前の宛先のホストは out.netHosts に残す（前の版の「そのほか」の URL へ直に送っていないことを見る）
   let openAiBase = fakeStt ? fakeStt.base : '';
+  // 第1d回 A-3: main の時計（Date.now）を場面が進める分（ctx.advanceClock）。中継の試しの時計も同じだけ進める
+  const realDateNow = Date.now;
+  let clockOffset = 0;
+  const advanceClock = (ms) => {
+    clockOffset += ms;
+    Date.now = () => realDateNow() + clockOffset;
+    if (relayLocal) relayLocal.clock.advance(ms);
+  };
   let netUp = !offline;   // 偽の net.isOnline() の答え（場面の ctx.setOnline で変えられる）
   const netHosts = [];
   const rewrite = (u) => {
     const s = String(u);
     try { netHosts.push(new URL(s).host); } catch (_) { netHosts.push(''); }
-    if (relayLocal && s.startsWith(`${RELAY_BASE}/`)) { relayPaths.push(s.slice(RELAY_BASE.length)); return relayLocal.base + s.slice(RELAY_BASE.length); }
+    if (relayLocal && s.startsWith(`${RELAY_BASE}/`)) { relayPaths.push(s.slice(RELAY_BASE.length)); return relayTarget + s.slice(RELAY_BASE.length); }
     if (openAiBase && s.startsWith(`${OPENAI_BASE}/`)) return `${openAiBase}${s.slice(OPENAI_BASE.length)}`;
-    return fakeStt && claudeMode && s.startsWith('https://api.anthropic.com/') ? fakeStt.url('/anthropic') : u;
+    const anth = fakeStt || (relayLocal && relayLocal.stt);   // 第1d回 A-3: --relay の場面は中継の後ろの偽の OpenAI の /anthropic
+    return anth && claudeMode && s.startsWith('https://api.anthropic.com/') ? anth.url('/anthropic') : u;
   };
-  // --stt=cert: OpenAI への要求は、証明書が差し替えられたときの失敗で死ぬ（会社の通信の検査。RF26）
-  const before = sttMode === 'cert' ? (_n, o) => (o && String(o.url).startsWith(`${OPENAI_BASE}/`) ? { error: 'net::ERR_CERT_AUTHORITY_INVALID' } : null) : null;
+  // --stt=cert: OpenAI への要求は、証明書が差し替えられたときの失敗で死ぬ（会社の通信の検査。RF26）。
+  // --relay-cert（第1d回 A-3・RF36）: 中継（RELAY_BASE）への要求が同じ失敗で死ぬ
+  const certFor = sttMode === 'cert' ? `${OPENAI_BASE}/` : (relayCert ? `${RELAY_BASE}/` : '');
+  const before = certFor ? (_n, o) => (o && String(o.url).startsWith(certFor) ? { error: 'net::ERR_CERT_AUTHORITY_INVALID' } : null) : null;
   // 偽の screen（第1b回 Task A-2）。並びは場面の displays（既定は 1920×1080 が1つ。作業領域は下のタスクバーを除いた 1920×1040）
   const displays = (scene && scene.displays) || [{ id: 1, bounds: { x: 0, y: 0, width: 1920, height: 1080 }, workArea: { x: 0, y: 0, width: 1920, height: 1040 } }];
   const inRect = (p, r) => p && p.x >= r.x && p.x < r.x + r.width && p.y >= r.y && p.y < r.y + r.height;
@@ -1138,7 +1198,8 @@ process.on('exit', () => {
       await waitFor(() => trace.some((t) => (t.kind === 'ack' || t.kind === 'fail') && t.cmd === 'db.status'), 5000);
       await sleep(10);
     }
-    if (scene.engine) await waitFor(() => spawns.length > 0, 15000);
+    // engine: 'lazy'（第1d回 A-3）は起動の先読みを待たない（ログインした PC は起動のときに whisper を起こさない。手元に落ちた区間で起こす）
+    if (scene.engine && scene.engine !== 'lazy') await waitFor(() => spawns.length > 0, 15000);
     const actOut = {};
     const readLocal = (rel) => { try { return fs.readFileSync(path.join(localAppData, ...rel.split('/'))); } catch (_) { return null; } };
     if (typeof scene.act === 'function') {
@@ -1154,7 +1215,9 @@ process.on('exit', () => {
         setOpenAiBase: (b) => { openAiBase = String(b || ''); },
         setOnline: (on) => { netUp = Boolean(on); },
         relay: relayLocal ? { mail: require('./relay-run').mail, codeFor: (e) => relayLocal.codeFor(e), setFront: (m) => relayLocal.setFront(m), db: relayLocal.db,
-          calls: () => relayPaths.slice() } : null });
+          calls: () => relayPaths.slice(), seededMail, sttRequests: () => relayLocal.stt.requests.slice(), logs: () => relayLocal.logs.slice(),
+          revoke: () => relayLocal.db.prepare('UPDATE sessions SET revoked_at = ?1 WHERE revoked_at IS NULL').bind(Math.floor(relayLocal.clock.now() / 1000)).run() } : null,
+        advanceClock });
     }
     const files = listFiles(userData);
     const localFiles = [];
@@ -1344,8 +1407,12 @@ process.on('exit', () => {
     return u && u[1] && u[1].page ? u[1].page.routeText : null;
   };
   const sttOut = async () => {
-    if (!fakeStt) return;
-    out.stt = fakeStt.requests.slice();
+    if (!fakeStt && !relayLocal) return;
+    out.stt = (fakeStt || relayLocal.stt).requests.slice();
+    if (relayLocal) {
+      out.relayCalls = relayPaths.slice();
+      out.relayLog = relayLocal.logs.slice();
+    }
     out.netHosts = netHosts.slice();
     out.balloons = balloons.slice();
     out.decrypts = decrypts;
@@ -1367,7 +1434,7 @@ process.on('exit', () => {
   };
   // 送り直し（復旧の待ち行列）が済むか、残して止まるまで待つ（--stt・--after-retry のとき）
   const recoverySettled = () => elogLines().some((l) => /復旧の文字起こしを(保留|止めました)/.test(l)) || !segbufLeft().queue;
-  if (recoverMode && fakeStt) {
+  if (recoverMode && (fakeStt || relayLocal)) {
     const recovered = () => { const p = store.listPages()[0]; return p ? store.getTranscript(p.id) : []; };
     // 済んだ（成功した区間がある・待ち行列が片付いた）か、残して止まった（保留・止めました）まで
     await waitFor(() => store.listPages().length > 0 && (recovered().some((x) => !x.failed) || recoverySettled()));
@@ -1646,7 +1713,7 @@ process.on('exit', () => {
       requests: fs.readFileSync(flog, 'utf8').split('\n').filter((l) => l.startsWith('inference')),
     };
   }
-  if (fakeStt) {
+  if (fakeStt || relayLocal) {
     // 会議の後の送り直し（失敗した区間の待ち行列）が済むか、残して止まるまで待ってから写す
     await waitFor(recoverySettled, 15000);
     await sleep(100);

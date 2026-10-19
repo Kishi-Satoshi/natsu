@@ -4,6 +4,8 @@
 //   faults:  helpers/faulty-fs.js の rules（main・store・jsonfile が読む fs にだけ効く）
 //   dbDelayMs: main の db.call の答えを毎回この分（ミリ秒）だけ遅らせる（DB のプロセスの返事がさらに遅いとき。第2a1回 M-1）
 //   engine:  真なら偽の文字起こしエンジンを設定に入れて起こす（既定は起こさない）
+//            'lazy' なら起こせるが、act の前に起動の先読みを待たない（第1d回 A-3。ログインした PC は手元に落ちた区間で起こす）
+//   relaySeed: 真なら mainrun の --relay の札の種をまく（第1d回 A-3。ログインした形から始める。settings.json に accountEmail も書く）
 //   env:     main.js を読む前に入れる環境変数
 //   prepare: userData を受け取り、置いた後に手を入れる（読み取り専用にする等）
 //   act:     起動の後にすること（ctx は mainrun.js の頭の注釈）
@@ -79,6 +81,30 @@ function jsonShas(ud) {
   return out;
 }
 let shaBefore = null;   // 場面の prepare で取った元の JSON の SHA-256（同じプロセスの act が読む）
+
+// 第1d回 Task A-3（RL11）: 中継で文字起こしする会議を1回（区間 n 個。1つ目 3 秒・ほか 2 秒）。afterFirst は1つ目の区間を送った後に呼ぶ。
+// 締めて要約（エンジンの無い場面では、すぐ理由を書いて終わる）まで待ち、増えたページの { route, segments } と、その会議の間に main が
+// 中継へ送った道の並び（calls）を返す
+async function relayMeeting(c, n, { afterFirst } = {}) {
+  const h = (ch, ...a) => c.handlers[ch]({}, ...a);
+  const before = new Set(c.store.listPages().map((p) => p.id));
+  const calls0 = c.relay.calls().length;
+  await h('meeting:toggle');
+  for (let i = 0; i < n; i++) {
+    const last = i === n - 1;
+    if (last) await h('meeting:toggle');
+    c.listeners['audio:segment']({}, { buffer: new Uint8Array(c.toneWav(i ? 2 : 3)), durationMs: i ? 2000 : 3000, final: last });
+    await c.sleep(50);
+    if (i === 0 && afterFirst) await afterFirst();
+  }
+  const fresh = () => c.store.listPages().find((p) => !before.has(p.id));
+  await c.waitFor(() => { const p = fresh(); const page = p && c.store.getPage(p.id); return Boolean(page && ((page.blocks && page.blocks.length) || page.summaryError)) && c.mainState() === 'idle'; }, 15000);
+  const p = fresh();
+  return { route: p ? c.store.getPage(p.id).route : null, segments: p ? c.store.getTranscript(p.id).map((x) => ({ text: x.text, failed: Boolean(x.failed) })) : [],
+    calls: c.relay.calls().slice(calls0) };
+}
+const logText = (c) => { const b = c.read('engine.log'); return b ? b.toString('utf8') : ''; };
+const RELAY_BASE_SETTINGS = ({ base, userData }) => JSON.stringify({ ...base, autoLaunch: false, claudeExe: require('node:path').join(userData, 'no-such-claude.exe') });
 
 module.exports = {
   TYPICAL, HISTORY, UI, OLD_DRAFT, WS, LEGACY_KEYS,
@@ -799,6 +825,66 @@ module.exports = {
       } finally {
         await new Promise((r) => srv.close(r));
       }
+    } },
+  // 第1d回 Task A-3（RL11・F5）: --relay=text。1回目の会議の1つ目の区間が中継で文字になった後に、D1 で札を取り消す（revoked_at）。
+  // 2つ目の区間は中継が 401 login → 手元でやり直す。3つ目の区間は札が無いので中継へ送らない（同じ会議で「ログインしていない」を重ねない）。
+  // 2回目の会議（区間 1 つ）も、札が消えたので中継へ何も送らない
+  'relay-revoke': { relaySeed: true, engine: 'lazy', files: { 'settings.json': RELAY_BASE_SETTINGS },
+    act: async (c) => {
+      const o = c.out;
+      const fileText = (rel) => { const b = c.read(rel); return b ? b.toString('utf8') : null; };
+      o.secretsBefore = fileText('secrets.json');
+      o.m1 = await relayMeeting(c, 3, { afterFirst: async () => {
+        o.firstCloud = await c.waitFor(() => /区間 s1 → cloud\(relay\)/.test(logText(c)), 15000);
+        await c.relay.revoke();
+      } });
+      o.secretsAfter = fileText('secrets.json');
+      o.settingsAfter = fileText('settings.json');
+      o.statusCloudAfter = c.handlers['meeting:status']().cloud;
+      o.m2 = await relayMeeting(c, 1);
+    } },
+  // 第1d回 Task A-3（F5）: --relay=text。札 A を D1 で取り消し、文字起こしの要求を中継の前で 800 ミリ秒止めている間に、設定の画面と同じ IPC で
+  // ログインし直す（札 B）。遅れて届いた A の 401 login で、しまった B を消さない。次の会議は B で中継へ送る
+  'relay-relogin': { relaySeed: true, engine: 'lazy', files: { 'settings.json': RELAY_BASE_SETTINGS },
+    act: async (c) => {
+      const h = (ch, ...a) => c.handlers[ch]({}, ...a);
+      const o = c.out;
+      const fileText = (rel) => { const b = c.read(rel); return b ? b.toString('utf8') : null; };
+      o.secretsBefore = fileText('secrets.json');
+      await c.relay.revoke();
+      c.relay.setFront('delay-stt');
+      const M = c.relay.seededMail;
+      o.m1 = await relayMeeting(c, 1, { afterFirst: async () => {
+        o.start = await h('account:start', M);
+        o.verify = await h('account:verify', M, c.relay.codeFor(M));
+        o.secretsRelogin = fileText('secrets.json');
+      } });
+      o.secretsAfter = fileText('secrets.json');
+      c.relay.setFront('');
+      o.m2 = await relayMeeting(c, 1);
+    } },
+  // 第1d回 Task A-3（RL11）: --relay=daily-cap（1人の1日の上限 4 秒）。1回目の会議は 3 秒・2 秒・2 秒の区間で、2つ目が上限（scope user）。
+  // 3つ目は hold の間なので中継へ何も送らない。11 分後の2回目の会議も、日が替わるまでの hold なので送らない（quota の 10 分とは違う）。
+  // main と中継の時計を1日進めると、3回目の会議はクラウドに戻る
+  'relay-day': { relaySeed: true, engine: 'lazy', files: { 'settings.json': RELAY_BASE_SETTINGS },
+    act: async (c) => {
+      const o = c.out;
+      o.m1 = await relayMeeting(c, 3);
+      c.advanceClock(11 * 60 * 1000);
+      o.m2 = await relayMeeting(c, 1);
+      c.advanceClock(24 * 3600 * 1000);
+      o.m3 = await relayMeeting(c, 1);
+    } },
+  // 第1d回 Task A-3（RL11）: --relay=quota（OpenAI の残高なし → 中継は 503 quota）など。1回目の会議（区間 1 つ）で hold が付き、
+  // 9 分後の2回目は中継へ何も送らず、さらに 2 分後（11 分後）の3回目はまた中継へ送る（hold は 10 分）
+  'relay-hold': { relaySeed: true, engine: 'lazy', files: { 'settings.json': RELAY_BASE_SETTINGS },
+    act: async (c) => {
+      const o = c.out;
+      o.m1 = await relayMeeting(c, 1);
+      c.advanceClock(9 * 60 * 1000);
+      o.m2 = await relayMeeting(c, 1);
+      c.advanceClock(2 * 60 * 1000);
+      o.m3 = await relayMeeting(c, 1);
     } },
   // 第1d回 Task A-2（RL10・RF32・F1）: ログインの IPC を main で本当に呼ぶ（mainrun の --relay で、本物の中継のコードを 127.0.0.1 で動かす）。
   // 1つの流れ: 設定を開く → コードを頼む → 違うコード → 正しいコード → 設定を開く・オフライン → 画面の保存 → ログアウト → もう一度ログイン

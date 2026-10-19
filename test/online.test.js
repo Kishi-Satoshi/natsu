@@ -87,22 +87,32 @@ test('RF26: 証明書とプロキシの失敗を分ける（Zscaler で止めら
   assert.deepStrictEqual(await fail('net::ERR_NAME_NOT_RESOLVED').isUp('http://127.0.0.1:9/x'), { up: false, why: 'unreachable' });
 });
 
-// 0.7.0 U-1（設計書 D5・D7）で意図して変えた: 同意の選択を外した（同意は登録の利用規約で取る）。経路は会議の印 → 鍵 → 届くか
-test('U-1: 経路は会議の印 → 鍵 → 届くかの順。同意は見ず、印か鍵で決まるときは届くかの確かめの要求を出さない', T, async () => {
+// 第1d回 A-3（RL11）で意図して変えた: 鍵の代わりにログインの札、その後に main の「しばらく手元」の印（hold）。
+// 経路は会議の印 → ログイン → hold → 届くか。ログインしていないか hold の間は、届くかの確かめ（中継の /health）を出さない
+test('RL11: 経路は印 → ログイン → hold → 届くか。ログインしていないか hold の間は up を呼ばない', T, async () => {
   let asked = 0;
   const up = (r) => async () => { asked += 1; return r; };
   const UP = { up: true, why: 'ok' };
-  assert.deepStrictEqual(await O.decideStt({ localOnly: true, hasKey: true, up: up(UP) }), { route: 'local', why: 'local-only' });
-  assert.deepStrictEqual(await O.decideStt({ localOnly: true, hasKey: false, up: up(UP) }), { route: 'local', why: 'local-only' });
-  assert.deepStrictEqual(await O.decideStt({ localOnly: false, hasKey: false, up: up(UP) }), { route: 'local', why: 'no-key' });
-  assert.strictEqual(asked, 0, '印・鍵で決まるのに、届くかを確かめた');
-  assert.deepStrictEqual(await O.decideStt({ localOnly: false, hasKey: true, up: up(UP) }), { route: 'cloud', why: 'ok' });
-  assert.deepStrictEqual(await O.decideStt({ localOnly: false, hasKey: true, up: up({ up: false, why: 'cert' }) }), { route: 'local', why: 'cert' });
-  assert.deepStrictEqual(await O.decideStt({ localOnly: false, hasKey: true, up: up({ up: false, why: 'offline' }) }), { route: 'local', why: 'offline' });
-  // 前の版の同意の値を渡されても見ない（保存の値が ask・off でも、鍵があれば使う: 計画 docs/plans/2026-10-19-ui07.md の「決めたこと」の 1）
-  for (const consent of ['ask', 'off', 'yes']) {
-    assert.deepStrictEqual(await O.decideStt({ consent, localOnly: false, hasKey: true, up: up(UP) }), { route: 'cloud', why: 'ok' }, consent);
+  const D = (o) => O.decideStt({ localOnly: false, signedIn: true, hold: '', ...o });
+  assert.deepStrictEqual(await D({ localOnly: true, up: up(UP) }), { route: 'local', why: 'local-only' });
+  assert.deepStrictEqual(await D({ localOnly: true, signedIn: false, hold: 'quota', up: up(UP) }), { route: 'local', why: 'local-only' });
+  assert.deepStrictEqual(await D({ signedIn: false, up: up(UP) }), { route: 'local', why: 'signed-out' });
+  assert.deepStrictEqual(await D({ signedIn: false, hold: 'daily-cap', up: up(UP) }), { route: 'local', why: 'signed-out' }, 'ログインより先に hold を見た');
+  for (const hold of ['daily-cap', 'quota', 'upstream-auth']) {
+    assert.deepStrictEqual(await D({ hold, up: up(UP) }), { route: 'local', why: hold }, hold);
   }
+  assert.strictEqual(asked, 0, '印・ログイン・hold で決まるのに、届くかを確かめた');
+  assert.deepStrictEqual(await D({ up: up(UP) }), { route: 'cloud', why: 'ok' });
+  assert.deepStrictEqual(await D({ up: up({ up: false, why: 'cert' }) }), { route: 'local', why: 'cert' });
+  assert.deepStrictEqual(await D({ up: up({ up: false, why: 'offline' }) }), { route: 'local', why: 'offline' });
+  assert.strictEqual(asked, 3);
+  // 前の版の鍵（hasKey）や同意の値を渡されても見ない（ログインの札だけで決める）
+  assert.deepStrictEqual(await O.decideStt({ localOnly: false, hasKey: true, signedIn: false, hold: '', up: up(UP) }), { route: 'local', why: 'signed-out' });
+  for (const consent of ['ask', 'off', 'yes']) {
+    assert.deepStrictEqual(await D({ consent, up: up(UP) }), { route: 'cloud', why: 'ok' }, consent);
+  }
+  // hold が文字でない・空なら印は無い（届くかを確かめる）
+  assert.deepStrictEqual(await D({ hold: undefined, up: up(UP) }), { route: 'cloud', why: 'ok' });
 });
 
 test('D1・C10: 要約は、届けば Claude Code、届かなければ手元。［PC の中だけ］のページは届くかを確かめずに手元', T, async () => {

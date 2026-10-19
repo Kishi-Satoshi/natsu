@@ -1477,15 +1477,19 @@ async function transcribeLocal(wavBuffer, extraPromptTail, durationMs, opts = {}
   return text;
 }
 
-// ---------------------------------------------------------------- オンラインの文字起こし（第1c回 OL1・OL2・OL4・OL6）
+// ---------------------------------------------------------------- オンラインの文字起こし（第1c回 OL1・OL2・OL4・OL6。第1d回 RL11）
 // 議事録の区間・音声入力・復旧の3か所は transcribeAuto を通す。経路は区間ごとに decideStt で決める
-// （会議の印 → 同意 → 鍵 → 送り先に届くか。同意していない会議・PC の中だけの会議では、届くかの確かめも出さない: RF28）。
-// クラウドの失敗のうち通信が切れたもの（切れた・時間切れ・届かない）だけ、その区間を手元でやり直す（RF27）。
-// 429 は stt-cloud が retry-after だけ待つ（手元へ落とさない: RF29）。鍵の誤り・上限・受け付けないは区間の失敗として残し、
-// WAV は今どおり残る（会議の後の送り直しの待ち行列へ）。記録には経路・送り先の名前・符号・秒数・区間の番号だけを書く（本文・鍵は書かない）。
+// （会議の印 → ログイン → しばらく手元の印（hold）→ 中継に届くか。PC の中だけの会議・ログインしていない・hold の間は、
+// 届くかの確かめ（中継の /health）も出さない: RF28・RL11）。
+// 第1d回 A-3（RL11・RF35）: 文字起こしは中継（relay/。会社の鍵は中継にだけある）へ送る。PC から OpenAI へ直に送る道は無い。
+// 中継の失敗は、OpenAI の短い 429 を待ちきれなかったとき（rate・rate-long: RF29 のまま区間の失敗として WAV を残す）のほかは全部、
+// その区間を手元でやり直す（録音と文字起こしは中継に頼らない: stt-cloud.redoLocally）。ログイン切れ（401 login）は札を消し、
+// 1日の上限（daily-cap）は日の替わりまで、会社の鍵の誤り・残高なし（upstream-auth・quota）は 10 分の間、中継に送らない（hold）。
+// 知らせは L1〜L10（計画「画面と知らせの文」）を会議ごとに1回（会議の外は起動ごとに1回）。
+// 記録には経路・符号・秒数・区間の番号だけを書く（本文・札・メールは書かない）。
 // 記録の行の頭は「文字起こしの経路:」（「文字起こし:」は手元の認識ヒントのやり直しの行だけが使う。transcribe.e2e.test.js がその頭で見る）
 const online = makeOnline({ request: (o) => electronNet.request(o), isOnline: () => electronNet.isOnline() });
-// 鍵の保管。whenReady の後に作る（safeStorage の非同期の形は ready の後で用意される）
+// 鍵と札の保管。whenReady の後に作る（safeStorage の非同期の形は ready の後で用意される）
 let secrets = null;
 // 試験だけ: 429 の待ちを縮める（数で 0〜1 のときだけ効き、ほかは 1。実機の確かめの環境には置かない）
 const STT_SLEEP_SCALE = (() => {
@@ -1493,24 +1497,37 @@ const STT_SLEEP_SCALE = (() => {
   const v = /^\d*\.?\d+$/.test(raw) ? Number(raw) : NaN;
   return v >= 0 && v <= 1 ? v : 1;
 })();
-// 知らせ（M1〜M8。計画「画面と知らせの文」）。{送り先} は送り先の表示の名前、{ホスト} はホストの名前だけ（鍵・URL の道は入れない）
+// 知らせ（L1〜L10。計画「画面と知らせの文」）。{ホスト} は中継のホストの名前だけ（札・URL の道は入れない）。
+// L3（ログイン切れ）だけは { text, action: 'account' }（画面は［ログインし直す］のボタンを付ける）
 const STT_NOTICE = {
-  cloud: (p) => `この会議の音声は ${p.label} に送って文字起こしします。1on1・面談など外に出したくない会議は、議事録の画面の［この会議は PC の中だけ］を押してください。`,
-  // 0.7.0 U-1（設計書 D5）: 同意の案内（consent-ask）は外した。鍵の欄は「オンライン」の［詳細設定（管理者用）］の奥（中継ができるまでの仮の欄）
-  'no-key': (p) => `${p.label} の鍵が入っていないため、PC の中で文字起こししています。鍵は設定の「オンライン」の［詳細設定（管理者用）］で入れます。`,
-  cert: (p) => `${p.label} につながりません（会社の通信の検査で証明書が差し替えられている可能性があります）。PC の中で文字起こしを続けます。続くときは情報システムに ${p.host} への通信の許可を頼んでください。`,
-  unreachable: (p) => `${p.label} につながらないため、PC の中で文字起こしを続けます。`,
-  wait: (p, sec) => `${p.label} の利用の上限に近いため、${sec} 秒待ってから送り直しています。`,
-  rate: (p) => `${p.label} の利用の上限に達しました。文字起こしできなかった区間の音声は残してあり、議事録を閉じた後にもう一度試します。`,
-  auth: (p) => `${p.label} の鍵が正しくないか、使えなくなっています。設定の「オンライン」の［詳細設定（管理者用）］で鍵を入れ直してください。`,
+  cloud: () => 'この会議の音声は OpenAI に送られます（文字起こしのため）。1on1・面談など外に出したくない会議は、議事録の画面の［この会議は PC の中だけ］を押してください。',
+  'signed-out': () => 'ログインしていないため、PC の中で文字起こししています。設定の「アカウント」でログインしてください。',
+  login: () => ({ text: 'ログインが切れたため、PC の中で文字起こししています。設定の「アカウント」でもう一度ログインしてください。', action: 'account' }),
+  unreachable: () => '文字起こしの中継につながらないため、PC の中で文字起こしを続けます。録音はそのまま続けてください。',
+  cert: (p) => `文字起こしの中継につながりません（会社の通信の検査で証明書が差し替えられている可能性があります）。PC の中で文字起こしを続けます。続くときは情報システムに ${p.host} への通信の許可を頼んでください。`,
+  'daily-cap': () => '今日のクラウドの文字起こしの上限に達したため、今日の残りは PC の中で文字起こしします。録音はそのまま続けてください。',
+  'relay-off': () => '文字起こしの中継が今は使えません。PC の中で文字起こしを続けます。続くときは管理者に知らせてください。',
+  server: () => '文字起こしの中継が混み合っているか、止まっているため、この区間は PC の中で文字起こししました。録音はそのまま続けてください。',
+  wait: (_p, sec) => `OpenAI の利用の上限に近いため、${sec} 秒待ってから送り直しています。録音はそのまま続けてください。`,
+  rate: () => 'OpenAI の利用の上限に達しました。文字起こしできなかった区間の音声は残してあり、議事録を閉じた後にもう一度試します。録音はそのまま続けてください。',
 };
-// 経路の理由 → 知らせの符号（M3〜M5）。オフライン・会議の印は知らせない（利用者が決めたこと・見て分かること）
-const ROUTE_NOTICE = { 'no-key': 'no-key', cert: 'cert', proxy: 'unreachable', unreachable: 'unreachable' };
-// 知らせを出した印。会議の中は meeting.notified（会議ごとに1回）、会議の外（音声入力・復旧）と M7・M8 は起動ごとに1回
+// 手元にした理由（経路の why か、中継の失敗の符号）→ 知らせの符号。オフライン・会議の印は知らせない（利用者が決めたこと・見て分かること）。
+// 中継の失敗のうち表に無いもの（server・too-large・bad-request・bad-reply・知らない符号）は server（L8）
+const LOCAL_NOTICE = {
+  'signed-out': 'signed-out', login: 'login', cert: 'cert', proxy: 'cert', unreachable: 'unreachable', net: 'unreachable', timeout: 'unreachable',
+  quota: 'relay-off', 'upstream-auth': 'relay-off',
+};
+const noticeFor = (why, scope) => {
+  if (why === 'offline' || why === 'local-only') return '';
+  if (why === 'daily-cap') return scope === 'all' ? 'relay-off' : 'daily-cap';
+  return Object.prototype.hasOwnProperty.call(LOCAL_NOTICE, why) ? LOCAL_NOTICE[why] : 'server';
+};
+// 知らせを出した印。会議の中は meeting.notified（会議ごとに1回）、会議の外（音声入力・復旧）と L10 は起動ごとに1回
 const bootNotified = new Set();
+const noticeSeen = (scope) => (scope && scope.notified instanceof Set ? scope.notified : bootNotified);
 // 同じ (scope, code) は1回だけ app:notice と engine.log（記録は符号だけ）→ 出したら true
 function noticeOnce(scope, code, text) {
-  const seen = scope && scope.notified instanceof Set ? scope.notified : bootNotified;
+  const seen = noticeSeen(scope);
   if (seen.has(code)) return false;
   seen.add(code);
   engineLog(`文字起こしの経路: 知らせ ${code}`);
@@ -1518,59 +1535,108 @@ function noticeOnce(scope, code, text) {
   return true;
 }
 const netOnline = () => { try { return electronNet.isOnline() !== false; } catch (_) { return true; } };
-// 送り先（0.7.0 U-1・設計書 D5: OpenAI の gpt-4o-transcribe に固定）。前の版が保存した sttProvider・sttBaseUrl・sttModel は読まない
+// 送り先は中継（第1d回 A-3・RL11）。id は文字起こしをした相手の名前のまま 'openai'（ページの「クラウド（OpenAI）」の行は今と同じ）。
+// 前の版が保存した sttProvider・sttBaseUrl・sttModel と、secrets.json に残った OpenAI などの鍵は読まない
 function sttProvider() {
-  return sttCloud.fixedProvider();
+  return relay.relayProvider();
 }
-// OpenAI の鍵がしまってあるか（復号しない: 会議の状態を聞くたびにキーリングの確かめを出さない）。ほかの送り先の鍵は数えない
-function hasSttKey() {
-  try { return Boolean(secrets) && secrets.has(sttProvider().id); } catch (_) { return false; }
+// ログインの札がしまってあるか（復号しない: 会議の状態を聞くたびにキーリングの確かめを出さない）
+function hasRelayToken() {
+  try { return Boolean(secrets) && secrets.has('relay'); } catch (_) { return false; }
+}
+// しばらく手元の印（hold。第1d回 A-3・RL11）: 中継が 1日の上限（daily-cap）・会社の鍵の誤り（upstream-auth）・残高なし（quota）を
+// 返したら、until まで中継へ送らない（/health も聞かない）。起動ごと（覚えない: 起動し直せばまた中継を試す）
+const HOLD_MS = 10 * 60 * 1000;
+const HOLD_MAX_MS = 24 * 3600 * 1000;
+let sttHold = { until: 0, why: '', scope: '' };
+const holdNow = () => (Date.now() < sttHold.until ? sttHold : null);
+// ログイン中のメールアドレスを書く（'' はログインしていない）。書けなくても投げない（書き手が次の機会にやり直す）
+function setAccountEmail(email) {
+  settings = readSettings({ ...settings, accountEmail: email }, DEFAULT_SETTINGS).settings;
+  const w = settingsWriter.now(settings);
+  if (!w.ok) engineLog(`アカウント: 設定に書けませんでした（${errCode(w.error)}）`);
 }
 let keyUnreadableLogged = false;
-// 経路を決める（鍵も返す: transcribeAuto だけが使い、ほかへは渡さない）。
+// 経路を決める（札も返す: transcribeAuto だけが使い、ほかへは渡さない）。
 // opts.scope: 知らせの係（会議。無ければ起動ごと）、opts.quiet: 知らせを出さない、
-// opts.probe: false なら送り先へ届くかを確かめず net.isOnline() だけで見る（先読みの判断。通信を出さない）
+// opts.probe: false なら中継へ届くかを確かめず net.isOnline() だけで見る（先読みの判断。通信を出さない）
 async function sttRoute(localOnly, { scope = null, quiet = false, probe = true } = {}) {
   const provider = sttProvider();
-  let key = '';
-  // ［この会議は PC の中だけ］なら鍵を復号もしない（送らないのにキーリングの確かめを出さない）
+  let token = '';
+  // ［この会議は PC の中だけ］なら札を復号もしない（送らないのにキーリングの確かめを出さない）
   if (!localOnly && secrets) {
-    // 鍵があるかは、ファイルに暗号の文字があるか（secrets.has）でなく、実際に復号できたかで決める（RF30。
-    // safeStorage の非同期の形は一時的に使えないことがあり、空の鍵で送ると 401 で「鍵が正しくない」と誤って知らせる）
-    key = await secrets.get(provider.id);
-    if (!key && secrets.has(provider.id)) {
-      if (!keyUnreadableLogged) engineLog(`文字起こしの経路: ${provider.id} の鍵を復号できません（key-unreadable）。PC の中で文字起こしします`);
+    // ログインしているかは、ファイルに暗号の文字があるか（secrets.has）でなく、実際に復号できたかで決める（RF30。
+    // safeStorage の非同期の形は一時的に使えないことがあり、空の札で送ると 401 で「ログインが切れた」と誤って札を消す）
+    token = await secrets.get('relay');
+    if (!token && secrets.has('relay')) {
+      if (!keyUnreadableLogged) engineLog('文字起こしの経路: ログインの札を復号できません（key-unreadable）。PC の中で文字起こしします');
       keyUnreadableLogged = true;
-    } else if (key) keyUnreadableLogged = false;
+    } else if (token) keyUnreadableLogged = false;
   }
+  const h = holdNow();
   const up = probe ? () => online.isUp(provider.reachUrl)
     : async () => (netOnline() ? { up: true, why: 'ok' } : { up: false, why: 'offline' });
-  const d = await decideStt({ localOnly: Boolean(localOnly), hasKey: key !== '', up });
-  if (!quiet && ROUTE_NOTICE[d.why]) {
-    const code = ROUTE_NOTICE[d.why];
-    noticeOnce(scope, code, STT_NOTICE[code](provider));
+  const d = await decideStt({ localOnly: Boolean(localOnly), signedIn: token !== '', hold: h ? h.why : '', up });
+  const scopeOf = d.why === 'daily-cap' && h ? h.scope : '';
+  if (!quiet && d.route === 'local') {
+    const code = noticeFor(d.why, scopeOf);
+    if (code) noticeOnce(scope, code, STT_NOTICE[code](provider));
   }
-  return { route: d.route, why: d.why, provider, key: d.route === 'cloud' ? key : '' };
+  const r = { route: d.route, why: d.why, provider, token: d.route === 'cloud' ? token : '' };
+  if (scopeOf) r.scope = scopeOf;
+  return r;
 }
-// → { route, why, provider }（鍵は返さない）
+// → { route, why, provider, scope? }（札は返さない）
 async function chooseSttRoute(localOnly, opts = {}) {
-  const { route, why, provider } = await sttRoute(localOnly, opts);
-  return { route, why, provider };
+  const { token: _token, ...r } = await sttRoute(localOnly, opts);
+  return r;
 }
-// クラウドの失敗（通信が切れた以外）→ 区間の失敗の文の Error。鍵の誤り（M8）・上限（M7）は起動ごとに1回知らせる。
-// keepForRetry: 文字起こしまで届いていない（鍵・上限）。送り直しでは WAV と待ち行列を消さずに残す
+// 中継の失敗（rate・rate-long の短い 429 を待ちきれなかった）→ 区間の失敗の文の Error。上限（L10）は起動ごとに1回知らせる。
+// keepForRetry: 文字起こしまで届いていない（上限）。送り直しでは WAV と待ち行列を消さずに残す
 function cloudFailure(e, provider) {
   const code = (e && e.code) || 'unknown';
-  if (code === 'auth') noticeOnce(null, 'auth', STT_NOTICE.auth(provider));
   if (code === 'rate' || code === 'rate-long') noticeOnce(null, 'rate', STT_NOTICE.rate(provider));
-  engineLog(`文字起こしの経路: ${provider.id} で失敗（${code}${e && e.status ? ` ${e.status}` : ''}）`);
+  engineLog(`文字起こしの経路: 中継で失敗（${code}${e && e.status ? ` ${e.status}` : ''}）`);
   const err = new Error(sttCloud.cloudErrorText(e, provider.label));
   err.cloudCode = code;
-  err.keepForRetry = code === 'auth' || code === 'rate' || code === 'rate-long';
+  err.keepForRetry = code === 'rate' || code === 'rate-long';
   return err;
 }
+// 中継の失敗のうち、その区間を手元でやり直すもの（stt-cloud.redoLocally）の後始末 → 手元にした理由の符号。
+// login: 送った札がまだしまってある札なら消して、ログインしていない形に（送っている間にログインし直した新しい札は消さない）。
+// L3 は［ログインし直す］付き。同じ会議では L2 を重ねない。daily-cap: 日の替わりまで hold。
+// quota・upstream-auth: 10 分の hold。通信の符号と server: 届いた結果の覚えを捨て、次の区間は届くかを確かめ直す
+async function relayFallback(e, scope, provider, sentToken) {
+  const code = e instanceof sttCloud.CloudSttError && typeof e.code === 'string' ? e.code : 'server';
+  engineLog(`文字起こしの経路: 中継で失敗（${code}${e && e.status ? ` ${e.status}` : ''}）。この区間は PC で文字起こしします`);
+  if (code === 'login') {
+    const current = secrets ? await secrets.get('relay') : '';
+    if (current === sentToken) {
+      const removed = secrets ? secrets.remove('relay') : { ok: true };
+      if (settings.accountEmail) setAccountEmail('');
+      engineLog(`アカウント: 中継が 401。札を消した${removed && removed.ok === false ? `（消せませんでした: ${removed.code || 'write'}）` : ''}`);
+    } else engineLog('アカウント: 中継が 401。送った後にログインし直していたので、今の札は消さない');
+    noticeOnce(scope, 'login', STT_NOTICE.login(provider));
+    noticeSeen(scope).add('signed-out');
+    return code;
+  }
+  let scopeOf = '';
+  if (code === 'daily-cap') {
+    scopeOf = e.scope === 'all' ? 'all' : 'user';
+    const sec = Number.isInteger(e.retryAfter) && e.retryAfter > 0 ? e.retryAfter : HOLD_MS / 1000;
+    sttHold = { until: Date.now() + Math.min(sec * 1000, HOLD_MAX_MS), why: 'daily-cap', scope: scopeOf };
+  } else if (code === 'quota' || code === 'upstream-auth') {
+    sttHold = { until: Date.now() + HOLD_MS, why: code, scope: '' };
+  } else if (sttCloud.isOfflineError(e) || code === 'server') {
+    online.forget(provider.reachUrl);
+  }
+  if (sttHold.why === code && sttHold.until > Date.now()) engineLog(`文字起こしの経路: ${Math.round((sttHold.until - Date.now()) / 1000)} 秒の間は中継へ送りません（${code}${scopeOf ? ` ${scopeOf}` : ''}）`);
+  const n = noticeFor(code, scopeOf);
+  if (n) noticeOnce(scope, n, STT_NOTICE[n](provider));
+  return code;
+}
 // opts: transcribeLocal と同じ（isStale・learn）＋ localOnly・notice（会議の知らせの係。無ければ起動ごと）・what（記録の名前）
-// → { text, route: 'cloud'|'local', provider }。手元のエンジンが用意できないときの Error は engineMissing を持つ
+// → { text, route: 'cloud'|'local', provider, why }。手元のエンジンが用意できないときの Error は engineMissing を持つ
 async function transcribeAuto(wav, tail, durationMs, opts = {}) {
   const scope = opts.notice || null;
   const what = opts.what || '音声入力';
@@ -1580,23 +1646,21 @@ async function transcribeAuto(wav, tail, durationMs, opts = {}) {
   if (d.route === 'cloud') {
     const t0 = Date.now();
     try {
-      const raw = await sttCloud.transcribeCloud(wav, {
-        request: (o) => electronNet.request(o), provider, key: d.key, language: settings.language, prompt: buildPrompt(tail),
+      const raw = await sttCloud.transcribeRelay(wav, {
+        request: (o) => electronNet.request(o), provider, token: d.token, language: settings.language, prompt: buildPrompt(tail),
         sleep: (ms) => sleepMs(ms * STT_SLEEP_SCALE),
         onWait: (sec) => {
-          engineLog(`文字起こしの経路: ${provider.id} が 429。${sec} 秒待つ`);
+          engineLog(`文字起こしの経路: 中継が 429（OpenAI の上限に近い）。${sec} 秒待つ`);
           noticeOnce(scope, 'wait', STT_NOTICE.wait(provider, sec));
         },
-        onPromptDropped: () => engineLog(`文字起こしの経路: ${provider.id} が認識ヒント付きの要求を断ったため、ヒントを外して送り直しました`),
+        onPromptDropped: () => engineLog('文字起こしの経路: 中継が認識ヒント付きの要求を断ったため、ヒントを外して送り直しました'),
       });
-      engineLog(`文字起こしの経路: ${what} → cloud(${provider.id}) ${((Date.now() - t0) / 1000).toFixed(1)} 秒`);
-      return { text: cleanWhisperText(raw), route: 'cloud', provider };
+      engineLog(`文字起こしの経路: ${what} → cloud(relay) ${((Date.now() - t0) / 1000).toFixed(1)} 秒`);
+      return { text: cleanWhisperText(raw), route: 'cloud', provider, why: 'ok' };
     } catch (e) {
-      if (!sttCloud.isOfflineError(e)) throw cloudFailure(e, provider);
-      // 通信が切れた: この区間だけ手元でやり直す。届いた結果の覚えを捨て、次の区間は届くかを確かめ直す（戻っていればクラウドへ）
-      online.forget(provider.reachUrl);
-      why = e.code;
-      if (ROUTE_NOTICE[why]) noticeOnce(scope, ROUTE_NOTICE[why], STT_NOTICE[ROUTE_NOTICE[why]](provider));
+      if (!sttCloud.redoLocally(e)) throw cloudFailure(e, provider);
+      // この区間だけ手元でやり直す（録音と文字起こしは中継に頼らない: RF35）
+      why = await relayFallback(e, scope, provider, d.token);
     }
   }
   engineLog(`文字起こしの経路: ${what} → local（理由: ${why}）`);
@@ -1606,7 +1670,7 @@ async function transcribeAuto(wav, tail, durationMs, opts = {}) {
     throw err;
   }
   const text = await transcribeLocal(wav, tail, durationMs, opts);
-  return { text, route: 'local', provider };
+  return { text, route: 'local', provider, why };
 }
 // 復旧の前: q.localOnly でなく、クラウドで処理できるなら true（エンジンを起こさない。知らせは出さない）
 async function recoveryCloudReady(q) {
@@ -1700,7 +1764,7 @@ function promptAfterResume() {
   m.hintOnPause = true;
   requestOverlayPause(true, 'suspend', true);
 }
-// 会議の始めに経路を1回聞き、クラウドなら M1（トレイの知らせと画面）。同意前（M2）・鍵が無い（M3）・届かない（M4・M5）は sttRoute が出す
+// 会議の始めに経路を1回聞き、クラウドなら L1（トレイの知らせと画面）。ログインしていない（L2）・届かない（L4・L5）・hold（L6・L7）は sttRoute が出す
 function announceSttRoute(m) {
   sttRoute(Boolean(m.localOnly), { scope: m }).then((r) => {
     // 確かめの返事（最大 3 秒）を待つ間に［PC の中だけ］が押された・会議が終わったなら、送ると知らせない
@@ -2370,10 +2434,10 @@ function meetingStatus() {
     pauses: meeting && Array.isArray(meeting.pauses) ? meeting.pauses.map((x) => ({ ...x })) : [],
     pausing: Boolean(meeting && meeting.pauseAsked),
     resumeHint: Boolean(meeting && meeting.resumeHint),
-    // 第1c回 C-3（RF28）: ［この会議は PC の中だけ］の印と、いまクラウドで文字起こしする PC か（0.7.0 U-1 から: OpenAI の鍵がしまってある）。
+    // 第1c回 C-3（RF28）: ［この会議は PC の中だけ］の印と、いまクラウドで文字起こしする PC か（第1d回 A-3 から: ログインの札がしまってある）。
     // 画面は cloud のときだけ［この会議は PC の中だけ］を出し、押した後（localOnly）は戻すボタンを出さない
     localOnly: Boolean(meeting && meeting.localOnly),
-    cloud: hasSttKey(),
+    cloud: hasRelayToken(),
   };
 }
 
@@ -3768,8 +3832,10 @@ function setupIpc() {
   const keyText = (code) => KEY_TEXT[Object.prototype.hasOwnProperty.call(KEY_TEXT, code) ? code : 'other'];
   // 鍵の名前は OpenAI だけ（0.7.0 U-1・設計書 D5）。groq・custom の鍵は secrets.json に残っても、読まず・確かめず・消さない
   const keyProvider = (id) => (id === sttCloud.FIXED_PROVIDER_ID ? id : '');
+  // 第1d回 A-3: 文字起こしは中継へ送る（sttProvider は中継）。鍵の欄と確かめ（cloud:*）は、受け口・preload・画面を一緒に消す A-4 まで
+  // D5 の形のまま OpenAI の口で動かす（会議・音声入力・復旧の文字起こしはこの鍵を読まない）
   ipcMain.handle('cloud:status', async () => {
-    const p = sttProvider();
+    const p = sttCloud.fixedProvider();
     let canStore = false;
     try { canStore = Boolean(secrets) && await secrets.available(); } catch (_) { canStore = false; }
     // hasKey は暗号の文字があるかだけを見る（復号しない: 設定を開くたびにキーリングの確かめを出さない）。
@@ -3801,7 +3867,7 @@ function setupIpc() {
   ipcMain.handle('cloud:test-key', async (_e, provider) => {
     const id = keyProvider(provider);
     if (!id) return { ok: false, code: 'bad-id', message: keyText('bad-id') };
-    const p = sttProvider();
+    const p = sttCloud.fixedProvider();
     const key = secrets ? await secrets.get(id) : '';
     if (!key) {
       const code = secrets && secrets.has(id) ? 'key-unreadable' : 'no-key';
@@ -3826,12 +3892,6 @@ function setupIpc() {
   const accountApi = relay.makeAccountApi({ request: (o) => electronNet.request(o) });
   const relayHost = relay.relayProvider().host;
   const accountFail = (code, extra = {}) => ({ ok: false, code, message: lib.accountMessage(code, { host: relayHost, ...extra }), ...extra });
-  // ログイン中のメールアドレスを書く（'' はログインしていない）。書けなくても投げない（書き手が次の機会にやり直す）
-  const setAccountEmail = (email) => {
-    settings = readSettings({ ...settings, accountEmail: email }, DEFAULT_SETTINGS).settings;
-    const w = settingsWriter.now(settings);
-    if (!w.ok) engineLog(`アカウント: 設定に書けませんでした（${errCode(w.error)}）`);
-  };
   const signedIn = () => { try { return Boolean(secrets) && secrets.has('relay'); } catch (_) { return false; } };
   ipcMain.handle('account:status', async () => {
     let canStore = false;

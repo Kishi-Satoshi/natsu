@@ -10,7 +10,10 @@
 //                  （ほかの宛先は書き換えない。127.0.0.1 でなければ fake-net が断る）
 //   rl.sent      … rl.request で送った要求の全部 [{ method, url, redirect, headers, body: Buffer }]（札がどこに入ったかを見る）
 //   rl.setFront(mode) … 中継の前の答え方。''（既定）は中継へ渡す。'html401' は中継へ渡さずに HTML の 401
-//                  （会社の通信の検査やログインの画面が返す形。WWW-Authenticate つき）、'drop' は返事をせずに切る
+//                  （会社の通信の検査やログインの画面が返す形。WWW-Authenticate つき）、'drop' は返事をせずに切る。
+//                  第1d回 A-3 で足した（文字起こしの口 POST /v1/audio/transcriptions にだけ効き、ほかの道は中継へ渡す）:
+//                  'not-wav' は中継の形の 415 { error: 'not-wav' }、'cut-first' は最初の文字起こしの要求だけを返事せずに切る、
+//                  'delay-stt' は文字起こしの要求を 800 ミリ秒止めてから中継へ渡す（送っている間に別のことをする場面）
 //   rl.stt・rl.resend … 偽の OpenAI・偽の Resend（requests・mails・codeFor・setMode）
 //   rl.codeFor(email) … 偽の Resend へ送った最後の確認コード
 //   rl.db・rl.env・rl.logs（中継の記録の行）・rl.clock
@@ -102,12 +105,21 @@ async function startRelayLocal({ stt: sttOpts = {}, env: over = {}, start = Date
   const { makeHandler } = await R.load('worker.mjs');
   const handler = makeHandler({ now: clock.now });
   let front = '';
+  let cutDone = false;
 
   const server = http.createServer((req, res) => {
     const chunks = [];
     req.on('data', (d) => chunks.push(d));
     req.on('end', async () => {
       if (front === 'drop') { req.socket.destroy(); return; }
+      const isStt = req.method === 'POST' && req.url.split('?')[0] === '/v1/audio/transcriptions';
+      if (front === 'cut-first' && isStt && !cutDone) { cutDone = true; req.socket.destroy(); return; }
+      if (front === 'delay-stt' && isStt) await new Promise((r) => setTimeout(r, 800));
+      if (front === 'not-wav' && isStt) {
+        res.writeHead(415, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' });
+        res.end(JSON.stringify({ error: 'not-wav' }));
+        return;
+      }
       if (front === 'html401') {
         res.writeHead(401, { 'content-type': 'text/html; charset=utf-8', 'www-authenticate': 'Basic realm="proxy"' });
         res.end('<html><body>Sign in</body></html>');

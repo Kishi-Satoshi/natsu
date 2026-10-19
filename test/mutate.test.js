@@ -150,11 +150,15 @@ test('G3: 第1c回の変異が一覧にそろう（計画の「変異確認」�
 });
 
 // 0.7.0 U-1・U-2（計画 docs/plans/2026-10-19-ui07.md の「変異確認」の表）
-const IDS_U07 = ['u1-fixed-provider', 'u1-key-openai-only', 'u1-nokey-noprobe', 'u1-retired-keys', 'u1-ui-no-provider',
+const IDS_U07 = ['u1-key-openai-only', 'u1-retired-keys', 'u1-ui-no-provider',
   'u2-top', 'u2-toggle-system', 'u2-toggle-ime', 'u2-toggle-prevented', 'u2-toggle-revert', 'u2-retake-settings'];
-test('G3: 0.7.0 U-1・U-2 の変異が一覧にそろう', { timeout: 5000 }, () => {
+// 第1d回 A-3（RL11）で、直しそのものが無くなったので外した変異: 送り先は OpenAI の固定でなく中継（relayProvider。G-2 の ra-no-direct が受け継ぐ）、
+// 経路は鍵でなくログインの札で決める（G-2 の ra-signed-out-probe が受け継ぐ）
+const IDS_U07_RETIRED = ['u1-fixed-provider', 'u1-nokey-noprobe'];
+test('G3: 0.7.0 U-1・U-2 の変異が一覧にそろう（第1d回 A-3 で外した2つは無い）', { timeout: 5000 }, () => {
   const ids = new Set(MUTANTS.map((m) => m.id));
   assert.deepStrictEqual(IDS_U07.filter((id) => !ids.has(id)), []);
+  assert.deepStrictEqual(IDS_U07_RETIRED.filter((id) => ids.has(id)), []);
 });
 
 // 第1b回（Task C-3。計画 docs/plans/2026-10-19-1b.md の「変異確認」の表）。look-sel-line は第1b2回で左の線をやめたので外した（tok-sel-line に置き換え）

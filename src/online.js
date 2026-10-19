@@ -3,7 +3,7 @@
  *
  *  - reachWhy       届かなかった理由を「証明書・プロキシ・届かない」に分ける（第0b回の classifyNetError を借りる）
  *  - makeOnline     net.isOnline() と、送り先の URL に軽く届くかの確かめ（結果を覚える）
- *  - decideStt      文字起こしをクラウドで行うか、手元の whisper で行うか（会議の印 → 鍵 → 届くか）
+ *  - decideStt      文字起こしを中継（クラウド）で行うか、手元の whisper で行うか（会議の印 → ログイン → しばらく手元の印 → 届くか。第1d回 RL11）
  *  - decideSummary  要約を利用者の Claude Code で行うか、手元の llama で行うか
  *
  * 決まり:
@@ -18,9 +18,8 @@
  *    15 秒だけ覚え、回線が戻ったらすぐ次の区間からクラウドに戻る（RF27）。
  *  - 届かない理由は classifyNetError で分ける。Zscaler などが送り先を止めたとき、黙って手元に落ち続けずに
  *    理由（証明書・プロキシ）を知らせられるように（RF26）。
- *  - 経路の決め方は、会議の印（［この会議は PC の中だけ］）・同意・鍵の有無を、届くかの確かめより先に見る。
- *    同意していない会議・PC の中だけの会議では、届くかの確かめの要求さえ出さない（RF28）。
- *    知らない同意の値は「使わない」と同じに扱う（外へ送らない側に倒す）。
+ *  - 経路の決め方は、会議の印（［この会議は PC の中だけ］）・ログインの札・しばらく手元の印（hold）を、届くかの確かめより先に見る。
+ *    PC の中だけの会議・ログインしていない PC・hold の間は、届くかの確かめ（中継の /health）の要求さえ出さない（RF28・RL11）。
  *  - 要約は、PC の中だけのページなら届くかを確かめずに手元（C10。文字起こしの文も PC の外へ出さない）。
  *    それ以外は、届けば Claude Code、届かなければ手元（D1）。
  */
@@ -115,13 +114,15 @@ const downWhy = (r) => (r && DOWN_WHYS.has(r.why) ? r.why : 'unreachable');
 
 /**
  * 文字起こしの経路。up は「要るときだけ」呼ぶ関数（() => Promise<{up, why}>）。
- * 順: localOnly → hasKey → up()（印か鍵で決まるときは届くかの確かめの要求を出さない）。
- * 0.7.0 U-1（設計書 D5・D7）で同意（consent）を外した: 音声を外へ送る同意は登録の利用規約で取り、設定の「使う／使わない」は無い。
- * 前の版が保存した同意の値は渡されても見ない（鍵がしまってあれば使う）
+ * 順: localOnly → signedIn → hold → up()（印・ログイン・hold で決まるときは届くかの確かめの要求を出さない）。
+ * 第1d回 A-3（RL11）: 鍵（hasKey）の代わりにログインの札（signedIn）。hold は main が持つ「しばらく手元」の印の理由
+ * （'daily-cap'・'quota'・'upstream-auth'）か ''。why は 'local-only'・'signed-out'・hold の理由・'ok'・届かない理由。
+ * 前の版の鍵の有無（hasKey）と同意の値（consent）は渡されても見ない
  */
-async function decideStt({ localOnly, hasKey, up }) {
+async function decideStt({ localOnly, signedIn, hold, up }) {
   if (localOnly) return { route: 'local', why: 'local-only' };
-  if (!hasKey) return { route: 'local', why: 'no-key' };
+  if (!signedIn) return { route: 'local', why: 'signed-out' };
+  if (typeof hold === 'string' && hold) return { route: 'local', why: hold };
   const r = await up();
   if (r && r.up === true) return { route: 'cloud', why: 'ok' };
   return { route: 'local', why: downWhy(r) };
