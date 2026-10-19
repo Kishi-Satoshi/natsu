@@ -77,7 +77,7 @@ test('D8: Ctrl+Shift+L でライトとダークを切り替えて保存する。
   }
 });
 
-test('D8: Ctrl+Shift+L は入力欄の中でも効く（Notion と同じ）。変換中・ホットキーの欄の取り込み・ほかの組み合わせでは動かない', T, async () => {
+test('D8: Ctrl+Shift+L は入力欄の中でも効く（Notion と同じ）。変換中・押しっぱなし・ホットキーの欄の取り込み・ほかの組み合わせでは動かない', T, async () => {
   const l = await load(APP, { returns: { getSettings: settingsWith('dark') } });
   await l.drain();
   l.key(CTRL_SHIFT_L, l.byId.get('histSearch'));
@@ -85,6 +85,8 @@ test('D8: Ctrl+Shift+L は入力欄の中でも効く（Notion と同じ）。�
   assert.deepStrictEqual(themesSaved(l), ['light'], '入力欄の中で効かない');
   const none = [
     [{ ...CTRL_SHIFT_L, isComposing: true }, null, '変換中'],
+    [{ ...CTRL_SHIFT_L, keyCode: 229 }, null, '変換中（Windows の Chromium が isComposing を立てず keyCode 229 だけで知らせる）'],
+    [{ ...CTRL_SHIFT_L, repeat: true }, null, '押しっぱなしの繰り返し'],
     [CTRL_SHIFT_L, l.byId.get('hotkey'), 'ホットキーの欄（キーを取り込む）'],
     [{ key: 'l', code: 'KeyL', ctrlKey: true }, null, 'Ctrl+L'],
     [{ ...CTRL_SHIFT_L, altKey: true }, null, 'Ctrl+Alt+Shift+L'],

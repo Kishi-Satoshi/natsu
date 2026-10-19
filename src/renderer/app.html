@@ -3198,7 +3198,7 @@
     if (!(await save(true))) sel.value = prev;   // 保存しなかった（設定を読み込めていない・失敗）ときは欄を戻す
   }
   document.addEventListener('keydown', (ev) => {
-    if (ev.isComposing || ev.defaultPrevented) return;
+    if (imeEnter(ev) || ev.defaultPrevented || ev.repeat) return;
     if (!ev.ctrlKey || !ev.shiftKey || ev.altKey || ev.metaKey) return;
     if (!(ev.code === 'KeyL' || String(ev.key).toLowerCase() === 'l')) return;
     ev.preventDefault();
