@@ -4,11 +4,13 @@
 //   export default makeHandler()（本番の時計）
 // 道（W-2〜W-4 で足す）:
 //   GET /health → 200 { ok: true, relay: 1, ready: { db, openai, mail, domains } }（秘密があるか・D1 の表があるかだけ。値は出さない）
+//   POST /auth/start → auth.mjs の handleStart（W-2。確認コードを頼む）
 
 import { json } from './http.mjs';
 import { readConfig } from './config.mjs';
 import { logEvent } from './log.mjs';
 import { SCHEMA_VERSION } from './schema.mjs';
+import { handleStart } from './auth.mjs';
 
 async function health(request, env, { cfg }) {
   let db = false;
@@ -24,6 +26,7 @@ async function health(request, env, { cfg }) {
 
 const ROUTES = new Map([
   ['/health', { GET: health }],
+  ['/auth/start', { POST: handleStart }],
 ]);
 
 export function makeHandler({ now = () => Date.now() } = {}) {
