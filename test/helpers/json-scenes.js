@@ -324,8 +324,9 @@ module.exports = {
   // 元のファイルは元の名前・元の中身のまま（out.originals に、置いたときと同じ中身かを名前ごとに入れる）
   'page-files-broken': { files: { 'settings.json': pretty(TYPICAL), ...BROKEN_PAGE_FILES },
     act: async (c) => {
-      c.out.p1 = await c.handlers['page:get']({}, 'p1');
-      c.out.p2 = await c.handlers['page:get']({}, 'p2');
+      // 画面と同じ役 app の口で読む（第2a1回 M-3 から main は page:get を中継しない）
+      c.out.p1 = await c.appCall('page.get', { id: 'p1' });
+      c.out.p2 = await c.appCall('page.get', { id: 'p2' });
       c.out.originals = Object.fromEntries(Object.entries(BROKEN_PAGE_FILES).map(([rel, body]) => {
         const b = c.read(rel);
         return [rel, b !== null && b.toString('utf8') === body];

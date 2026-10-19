@@ -100,6 +100,24 @@
 //     --claude-auth=<method> … 偽の claude の auth status が返す authMethod（FAKE_CLAUDE_AUTH。既定 claude.ai）
 //     --db-down     … 第2a1回 M-2b: 議事録の DB のプロセス（偽の utilityProcess の中の本物の server.js）の SQLite が trigram を持たない
 //                     （helpers/no-trigram.js を子の中で先に読む）。自分の確かめが通らず、DB は「使えない」で起きる。場面の dbDown でも同じ
+//   第2a1回 M-3（録音と DB のつなぎ）の旗。どの場面でも、main の客の頼み（call: 'call'・'ack'・'fail'、send: 'send'）と、下書きを書くたび
+//   （'draft'。pageId と区間の数）・clearDraft（'clearDraft'）を順に out.trace へ残す（--draft-trace はその場面の印。中身は同じ）
+//     --kill-db-during … 最初の区間が文字起こしされて下書きに書かれ、写しとして DB に届いたら、DB の子を思わず落ちたことにする（fork.crash）。
+//                        録音は続ける（客が起こし直す）
+//     --kill-main-during … 同じ所で main ごと落ちる（process.exit(3)。結果は出さない。DB の子も一緒に止まる）
+//     --keep-draft-after-finalize … 締めの返事（meeting.finalize の ack）の後の最初の clearDraft で、下書きの unlinkSync を1回だけ EPERM にする
+//                        （ウイルス対策が掴んだ。store.clearDraft は失敗を黙って飲むので、下書きが残る）
+//     --keep-user-data=<フォルダ> … userData をこのフォルダにし、終わっても消さない（2回の起動で同じ userData を使う）。フォルダに data/ が
+//                        もうあれば --recover は下書きを置かず、そこにある下書きを復旧させる（out.draftPageIdBefore にその pageId）
+//     --set-title-during=T … 要約の途中（1.5 秒）に、画面と同じ口（ctx.appCall）で題名を T に直す。--set-title-after-sum=T は要約の後に直す
+//     --secret-text  … 偽の文字起こしが「秘密の語を含む発言です区間N」を返す。--discard-during と組むと、その語が写しとして DB に届くまで
+//                      待ってから取り消す（out.secretSeen）。どの議事録の場面でも、出力の dbHas に終わる前の natsu.db と -wal のバイトに
+//                      その語（「秘密の語」）があったか
+//     --kill-db-at-discard … --discard-during と組む。取り消す直前に DB の子を落とし、取り消しの返事を待たずに（起こし直す前に）終える
+//     --idle         … 記録しない。起動の片付け（取り消しの残りの送り直し・下書きの復旧・meeting.settle）が済むのを待って、ページと dbHas を出す
+//   出力に足すもの（議事録の場面）: pages[].id・title・recovered、files（userData の下の相対パス）、dbStarts（DB の子を起こした回数）、trace
+//   ctx.appCall(cmd, args) … 画面と同じ役 app の口（客の rendererPort() で作る偽の MessageChannelMain の口）で DB に頼む。書く命令には
+//                      'a:' + randomUUID の tx を付ける。答えは result（失敗は Error に .code）。場面（act）にも渡す
 //   第2a1回 M-2b: 偽の Electron の utilityProcess.fork と MessageChannelMain は helpers/fake-utility.js のもの（worker_threads の中で
 //   本物の src/db/server.js が動き、<userData>/data/natsu.db に書く）。main の客（src/db/client.js の makeDbClient）を捕まえ、
 //   場面は DB の用意（ready か down）を待ってから act を呼ぶ（場面の noDbWait なら待たない）。議事録の読み（ctx.store と、この台の store の listPages・getPage・
@@ -144,7 +162,19 @@ const afterDict = flags.includes('--after-dict');
 const withSum = flags.includes('--sum');
 const fixedSumPort = Number((flags.find((f) => f.startsWith('--sum-port=')) || '--sum-port=0').slice(11)) || 0;
 const setTypeDuring = (flags.find((f) => f.startsWith('--set-type-during=')) || '').slice(18);
-const fakeText = (flags.find((f) => f.startsWith('--text=')) || '').slice(7);
+const flagVal = (name) => { const f = flags.find((x) => x.startsWith(`${name}=`)); return f ? f.slice(name.length + 1) : ''; };
+// 第2a1回 M-3: 録音と DB のつなぎの場面
+const killDbDuring = flags.includes('--kill-db-during');
+const killMainDuring = flags.includes('--kill-main-during');
+const keepDraftAfterFinalize = flags.includes('--keep-draft-after-finalize');
+const keepUserData = flagVal('--keep-user-data');
+const setTitleDuring = flagVal('--set-title-during');
+const setTitleAfterSum = flagVal('--set-title-after-sum');
+const secretText = flags.includes('--secret-text');
+const killDbAtDiscard = flags.includes('--kill-db-at-discard');
+const idleMode = flags.includes('--idle');
+const SECRET = '秘密の語';
+const fakeText = flagVal('--text') || (secretText ? `${SECRET}を含む発言です` : '');
 const FAKE_SUM = path.join(__dirname, 'fake-llama.js');
 const segCount = Number((flags.find((f) => f.startsWith('--segs=')) || '--segs=2').slice(7)) || 2;
 const managedMode = flags.includes('--managed') ? 'ok' : (flags.includes('--managed-tamper') ? 'tamper' : '');
@@ -282,8 +312,19 @@ process.on('exit', () => {
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'natsu-e2e-'));
   // userData は日本語と 𠮷 の名前（利用者名が日本語の PC と同じ。計画の決まり）。偽のエンジンの置き場（engine）は英数字のまま
   // （whisper は英数字以外のパスを読めない: RF1。main はそのとき起動しない）
-  const userData = path.join(tmp, 'userData-日本語𠮷');
+  // --keep-user-data: 呼び手のフォルダ（日本語と 𠮷 の名前）を使い、終わっても消さない。data/ がもうあれば前の起動の続き
+  const userData = keepUserData || path.join(tmp, 'userData-日本語𠮷');
   fs.mkdirSync(userData, { recursive: true });
+  const reuseData = Boolean(keepUserData) && fs.existsSync(path.join(userData, 'data'));
+  // 前の起動が残した下書き（data/draft*.json）。今の中身を返す（無い・読めないなら null）
+  const draftNames = () => { try { return fs.readdirSync(path.join(userData, 'data')).filter((n) => /^draft.*\.json$/.test(n)).sort(); } catch (_) { return []; } };
+  const currentDraft = () => {
+    for (const n of draftNames()) {
+      try { const d = JSON.parse(fs.readFileSync(path.join(userData, 'data', n), 'utf8')); if (d && typeof d === 'object') return d; } catch (_) { /* 書きかけ・読めない */ }
+    }
+    return null;
+  };
+  const draftBefore = reuseData ? currentDraft() : null;
   const engDir = path.join(tmp, 'engine');
   fs.mkdirSync(engDir);
   // 偽の文字起こしの送り先（--stt）。終わるときに閉じなくても、process.exit で消える
@@ -335,7 +376,7 @@ process.on('exit', () => {
     fs.writeSync(fd, Buffer.alloc(8192, 1));
     fs.ftruncateSync(fd, 301 * 1024 * 1024);
     fs.closeSync(fd);
-    if (setTypeDuring) process.env.FAKE_SUM_DELAY = '1500';
+    if (setTypeDuring || setTitleDuring) process.env.FAKE_SUM_DELAY = '1500';
   }
   // 取り込んだ組（--managed）。置き場所は main と同じ LOCALAPPDATA の下（日本語と 𠮷 の名前。RF1）
   const localAppData = path.join(tmp, 'LocalAppData-取込𠮷');
@@ -438,7 +479,7 @@ process.on('exit', () => {
     };
   }
   // 前回落ちた会議の下書き（main は起動のときに復旧ページを作り、残った音声を文字起こしし直す）
-  if (recoverMode) {
+  if (recoverMode && !reuseData) {
     const startedAt = Date.now() - 600000;
     const wav = path.join(userData, 'data', 'segbuf', String(startedAt), '0001.wav');
     fs.mkdirSync(path.dirname(wav), { recursive: true });
@@ -754,6 +795,7 @@ process.on('exit', () => {
   };
   const orig = Module._load;
   let dbClient = null;   // main の客（第2a1回 M-2b）
+  const trace = [];   // 第2a1回 M-3: 客の頼みと下書きの書き消しの順（out.trace）
   const MAIN = path.join(ROOT, 'src', 'main.js');
   const SRC = path.join(ROOT, 'src') + path.sep;
   // 場面の faults: src/ の中のファイル（main・store・jsonfile など）が読む fs にだけ効く
@@ -769,8 +811,21 @@ process.on('exit', () => {
       return { ...mod, makeDbClient: (...a) => {
         const c = mod.makeDbClient(...a);
         dbClient = c;
-        if (!(scene && scene.dbDelayMs)) return c;
-        return { ...c, call: async (cmd, args, o) => { await sleep(scene.dbDelayMs); return c.call(cmd, args, o); } };
+        const delayMs = scene && scene.dbDelayMs ? scene.dbDelayMs : 0;
+        // 答えを受けた印（ack）は、main の await が先へ進む前に残る（下書きを消したのが返事の後かを順で見る）
+        const call = async (cmd, args, o) => {
+          if (delayMs) await sleep(delayMs);
+          trace.push({ kind: 'call', cmd });
+          try {
+            const r = await c.call(cmd, args, o);
+            trace.push({ kind: 'ack', cmd });
+            return r;
+          } catch (e) {
+            trace.push({ kind: 'fail', cmd, code: (e && e.code) || '' });
+            throw e;
+          }
+        };
+        return { ...c, call, send: (cmd, args) => { trace.push({ kind: 'send', cmd }); return c.send(cmd, args); } };
       } };
     }
     if (managedMods && rest[0] && rest[0].filename === MAIN) {
@@ -841,6 +896,96 @@ process.on('exit', () => {
     try { if (dbClient) await dbClient.close({ timeoutMs: 2000 }); } catch (_) { /* 閉じられなくても終える */ }
     process.exit(code);
   };
+  // 第2a1回 M-3: 下書きを書くたび・消すたびを trace に残す（main は store.writeDraft・store.clearDraft を呼ぶたびに引く）。
+  // --keep-draft-after-finalize: 締めの返事の後の最初の clearDraft だけ、下書きの unlinkSync を EPERM にする
+  {
+    const writeDraft = realStore.writeDraft;
+    realStore.writeDraft = function (d, ...a) {
+      trace.push({ kind: 'draft', pageId: d && d.pageId, segs: d && Array.isArray(d.segments) ? d.segments.length : 0 });
+      return writeDraft.call(this, d, ...a);
+    };
+    const clearDraft = realStore.clearDraft;
+    let eperm = keepDraftAfterFinalize;
+    realStore.clearDraft = function (name, ...a) {
+      trace.push({ kind: 'clearDraft', name });
+      if (!eperm || !trace.some((t) => t.kind === 'ack' && t.cmd === 'meeting.finalize')) return clearDraft.call(this, name, ...a);
+      eperm = false;
+      const unlink = fs.unlinkSync;
+      fs.unlinkSync = function (f, ...r) {
+        if (path.basename(String(f)) === (name || 'draft.json')) throw Object.assign(new Error('EPERM: operation not permitted, unlink (試験)'), { code: 'EPERM' });
+        return unlink.call(this, f, ...r);
+      };
+      try { return clearDraft.call(this, name, ...a); } finally { fs.unlinkSync = unlink; }
+    };
+  }
+  // 画面と同じ役 app の口（第2a1回 M-3。客の rendererPort() が作る偽の MessageChannelMain の口）。main はもう画面のページの口を中継しない
+  const DBC = require(path.join(ROOT, 'src', 'db', 'commands.js'));
+  let appPort = null;
+  let appSeq = 0;
+  const appWait = new Map();
+  const appCall = (cmd, args = {}) => new Promise((resolve, reject) => {
+    if (!appPort) {
+      const p = dbClient ? dbClient.rendererPort() : null;
+      if (!p) { reject(Object.assign(new Error('db-down'), { code: 'db-down' })); return; }
+      appPort = p;
+      p.on('message', (ev) => {
+        const m = ev ? ev.data : null;
+        const w = m && appWait.get(m.id);
+        if (!w) return;
+        appWait.delete(m.id);
+        if (m.ok === true) w.resolve(m.result);
+        else w.reject(Object.assign(new Error(String(m.code)), { code: m.code }));
+      });
+      p.on('close', () => {
+        if (appPort === p) appPort = null;
+        for (const [id, w] of [...appWait]) { appWait.delete(id); w.reject(Object.assign(new Error('retry'), { code: 'retry' })); }
+      });
+      p.start();
+    }
+    appSeq += 1;
+    const req = { id: appSeq, cmd, args };
+    if (Object.hasOwn(DBC.COMMANDS, cmd) && DBC.COMMANDS[cmd].write) req.tx = `a:${require('crypto').randomUUID()}`;
+    appWait.set(appSeq, { resolve, reject });
+    appPort.postMessage(req);
+  });
+  // userData の下のファイルの相対パス（区切りは /）
+  const listFiles = (root) => {
+    const files = [];
+    const walk = (dir, rel) => {
+      let ents = [];
+      try { ents = fs.readdirSync(dir, { withFileTypes: true }); } catch (_) { return; }
+      for (const e of ents) {
+        const r = rel ? `${rel}/${e.name}` : e.name;
+        if (e.isDirectory()) walk(path.join(dir, e.name), r);
+        else files.push(r);
+      }
+    };
+    walk(root, '');
+    return files.sort();
+  };
+  // natsu.db と -wal のバイトに text（UTF-8）があるか。接続は開かない（DB のプロセスのチェックポイントを起こさない）
+  const dbBytesHave = (text) => {
+    const needle = Buffer.from(String(text), 'utf8');
+    const f = path.join(dataDir, 'natsu.db');
+    return [f, `${f}-wal`].some((x) => { try { return fs.readFileSync(x).indexOf(needle) >= 0; } catch (_) { return false; } });
+  };
+  // 今の下書きの文字起こしの済んだ区間（want を含む）が、写しとして DB に届いたか
+  const settledInDb = (want = '') => {
+    const d = currentDraft();
+    const seg = d && Array.isArray(d.segments) ? d.segments.find((x) => x && !x.pending && x.text && x.text.includes(want)) : null;
+    if (!seg || typeof d.pageId !== 'string') return false;
+    return peekDb((h) => h.getTranscript(d.pageId).some((x) => x.id === seg.id && x.text === seg.text), false);
+  };
+  const finalizeFailed = () => trace.some((t) => t.kind === 'fail' && t.cmd === 'meeting.finalize');
+  // 議事録の場面の出力に足すもの（第2a1回 M-3）
+  const m3Out = (o) => {
+    o.files = listFiles(userData);
+    o.dbStarts = utilFork.starts();
+    o.trace = trace.slice();
+    o.dbHas = { [SECRET]: dbBytesHave(SECRET) };   // 秘密の語（--secret-text の語）が natsu.db か -wal に残っているか
+    if (draftBefore) o.draftPageIdBefore = draftBefore.pageId || null;
+    return o;
+  };
   readyResolve();
   const out = { mode };
   const readUser = (rel) => { try { return fs.readFileSync(path.join(userData, ...rel.split('/'))); } catch (_) { return null; } };
@@ -860,20 +1005,10 @@ process.on('exit', () => {
     if (typeof scene.act === 'function') {
       await scene.act({ handlers, listeners, app: electron.app, wins, mainWin: wins[1], power: powerMonitor, timers, clearedTimers, shortcuts, store, jsonfile, electron, userData,
         localAppData, read: readUser, readLocal, waitFor, sleep, toneWav, releasePause, out: actOut, launches, launchPlan, fakeKids, dbMeta, dbState,
-        dbCrash: (code) => utilFork.crash(code), dbStarts: () => utilFork.starts(), mainSent: () => mainSent.slice(),
+        dbCrash: (code) => utilFork.crash(code), dbStarts: () => utilFork.starts(), mainSent: () => mainSent.slice(), appCall,
         setOpenAiBase: (b) => { openAiBase = String(b || ''); } });
     }
-    const files = [];
-    const walk = (dir, rel) => {
-      let ents = [];
-      try { ents = fs.readdirSync(dir, { withFileTypes: true }); } catch (_) { return; }
-      for (const e of ents) {
-        const r = rel ? `${rel}/${e.name}` : e.name;
-        if (e.isDirectory()) walk(path.join(dir, e.name), r);
-        else files.push(r);
-      }
-    };
-    walk(userData, '');
+    const files = listFiles(userData);
     const localFiles = [];
     {
       const walkLocal = (dir, rel) => {
@@ -893,7 +1028,7 @@ process.on('exit', () => {
     const result = {
       scene: sceneName,
       notices: sent.filter(([ch]) => ch === 'app:notice').map(([, p]) => p),
-      files: files.sort(),
+      files,
       settingsText: text('settings.json'),
       historyText: text('history.json'),
       engineLog: engineLogLines(),
@@ -1007,6 +1142,30 @@ process.on('exit', () => {
     await exitClean(0);
   }
   await waitFor(() => handlers['meeting:toggle']);
+  // 第2a1回 M-3: 画面と同じ役 app の口で読む（main はもう page:get を中継しない）。DB を使えなければ null
+  const pageRouteText = async (id) => { let r = null; try { r = await appCall('page.get', { id }); } catch (_) { r = null; } return r && r.page ? r.page.routeText : null; };
+  // ページの形（議事録の場面の出力。第2a1回 M-3 で id・title・recovered を足した）
+  const pageOut = async (p) => {
+    const page = store.getPage(p.id);
+    return {
+      id: p.id, title: page.title, recovered: Boolean(page.recovered),
+      summaryError: page.summaryError,
+      segments: store.getTranscript(p.id).map((s) => ({ text: s.text, failed: Boolean(s.failed) })),
+      meetingType: page.meetingType, typeAuto: page.typeAuto, actionStat: page.actionStat,
+      route: page.route, routeText: await pageRouteText(p.id), citeStat: page.citeStat || null,
+      blocks: (page.blocks || []).map((b) => ({ type: b.type, cites: Array.isArray(b.cites) ? b.cites.length : 0 })),
+      todos: (page.blocks || []).filter((b) => b.type === 'todo').map((b) => ({ text: b.text, assignee: b.assignee || '', due: b.due || '', dueRaw: b.dueRaw || '' })),
+    };
+  };
+  if (idleMode) {
+    // 記録しない。起動の片付け（取り消しの残り → 下書きの復旧 → meeting.settle）が済むのを待つ
+    await waitFor(() => trace.some((t) => (t.kind === 'ack' || t.kind === 'fail') && t.cmd === 'meeting.settle'), 15000);
+    await sleep(100);
+    out.pages = await Promise.all(store.listPages().map(pageOut));
+    out.notices = sent.filter(([ch]) => ch === 'app:notice').map(([, p]) => p);
+    process.stdout.write(`\n${JSON.stringify(m3Out(out))}\n`);
+    await exitClean(0);
+  }
   // 第1c回 A-4 の出力（--stt のとき）。segbuf の下に recovery.json と WAV が残っているか
   const segbufLeft = () => {
     const root = path.join(userData, 'data', 'segbuf');
@@ -1028,7 +1187,6 @@ process.on('exit', () => {
   const elogLines = () => { const t = readUser('engine.log'); return t ? t.toString('utf8').split('\n').filter(Boolean).map((l) => l.replace(/^\[[^\]]+\] /, '')) : []; };
   // 画面に渡る経路の行（page:get の返事の routeText）と、最後の page:updated で送った routeText（第1c回 C-3）
   // 第2a1回 M-1（ST1）: ページの口は async（中身は await db.call）。答えを待ってから見る
-  const pageRouteText = async (id) => { const r = handlers['page:get'] ? await handlers['page:get']({}, id) : null; return r && r.page ? r.page.routeText : null; };
   const lastUpdatedRouteText = () => {
     const u = sent.filter(([ch]) => ch === 'page:updated').pop();
     return u && u[1] && u[1].page ? u[1].page.routeText : null;
@@ -1082,8 +1240,12 @@ process.on('exit', () => {
   if (recoverMode) {
     // 復旧の文字起こしが済むのを待つ
     const recovered = () => { const p = store.listPages()[0]; return p ? store.getTranscript(p.id) : []; };
-    await waitFor(() => recovered().some((x) => !x.failed));
+    // 下書きが片付く（復旧の頼みの返事が来た）まで待つ（第2a1回 M-3: 締め済みのページの下書きは知らせずに片付ける）
+    await waitFor(() => recovered().some((x) => !x.failed) && !draftNames().length);
     out.recovered = recovered().map((x) => ({ text: x.text, failed: Boolean(x.failed) }));
+    out.pages = await Promise.all(store.listPages().map(pageOut));
+    out.notices = sent.filter(([ch]) => ch === 'app:notice').map(([, p]) => p);
+    m3Out(out);
     out.spawns = spawns;
     const elog = path.join(userData, 'engine.log');
     out.engineLog = fs.existsSync(elog) ? fs.readFileSync(elog, 'utf8').split('\n').filter(Boolean).map((l) => l.replace(/^\[[^\]]+\] /, '')) : [];
@@ -1157,20 +1319,40 @@ process.on('exit', () => {
     try { out.draftLocalOnly = JSON.parse(readUser('data/draft.json').toString('utf8')).localOnly; } catch (_) { out.draftLocalOnly = null; }
   }
   for (let i = 0; i < wavs.length; i++) {
-    const last = i === wavs.length - 1;
+    // 取り消す場面（--discard-during）は最初の区間の後で取り消すので、止めない（--segs=1 でも録音中のまま取り消す）
+    const last = i === wavs.length - 1 && !discardDuring;
     if (last) out.stop = await handlers['meeting:toggle']();
     listeners['audio:segment']({}, { buffer: new Uint8Array(wavs[i].buf), durationMs: wavs[i].ms, final: last });
     await sleep(50);
     if (i === 0 && testDuring) out.testDuring = await handlers['app:test']();
-    if (i === 0 && discardDuring) { await sleep(300); out.discard = await handlers['meeting:discard'](); break; }
+    if (i === 0 && (killDbDuring || killMainDuring)) {
+      // 最初の区間が文字起こしされて下書きに書かれ、写しとして DB に届いてから落とす
+      out.firstInDb = await waitFor(() => settledInDb(), 15000);
+      if (killMainDuring) process.exit(3);   // main ごと（DB の子も一緒に止まる）。結果は出さない
+      utilFork.crash(1);
+    }
+    if (i === 0 && discardDuring) {
+      if (secretText) out.secretSeen = await waitFor(() => settledInDb(SECRET), 15000);
+      else await sleep(300);
+      if (killDbAtDiscard) utilFork.crash(1);   // 取り消しの頼みは起こし直しを待つ。その前に終える
+      out.discard = await handlers['meeting:discard']();
+      break;
+    }
   }
-  if (discardDuring) await sleep(3000);   // 破棄の後にやり直しが送られないことを、返事が来るまで待って確かめる
+  // 破棄の後にやり直しが送られないことを、返事が来るまで待って確かめる。秘密の語の場面は、DB の取り消し（purge）の返事まで待つ
+  if (discardDuring && !killDbAtDiscard) {
+    if (secretText) await waitFor(() => trace.some((t) => (t.kind === 'ack' || t.kind === 'fail') && t.cmd === 'meeting.discard'), 10000);
+    else await sleep(3000);
+  }
   const deadline = Date.now() + (discardDuring ? 0 : Number(process.env.NATSU_E2E_WAIT_MS || 60000));
-  while (Date.now() < deadline && !store.listPages().length) await sleep(50);
-  // 要約の途中で会議タイプを手で選び直す（画面の［要約タイプ］と同じ IPC）
-  if (setTypeDuring && store.listPages().length) {
+  // 締めが DB に断られた（--db-down）ら、ページを待たない（下書きに残る）
+  while (Date.now() < deadline && !store.listPages().length && !finalizeFailed()) await sleep(50);
+  // 要約の途中で会議タイプ・題名を手で直す（画面と同じ役 app の口。第2a1回 M-3 から main は中継しない）
+  if ((setTypeDuring || setTitleDuring) && store.listPages().length) {
     await sleep(300);
-    out.setType = await handlers['page:setType']({}, { id: store.listPages()[0].id, type: setTypeDuring });
+    const id = store.listPages()[0].id;
+    if (setTypeDuring) out.setType = await appCall('page.setType', { id, type: setTypeDuring });
+    if (setTitleDuring) out.setTitle = await appCall('page.setTitle', { id, title: setTitleDuring });
   }
   // 要約まで済むのを待つ: 要約のブロックができるか、要約欄に理由が書かれるまで
   // （新しいページは summaryError を空で持っているので、空かどうかでは決められない）
@@ -1178,20 +1360,13 @@ process.on('exit', () => {
     const p = store.listPages()[0];
     const page = p && store.getPage(p.id);
     if (page && ((page.blocks && page.blocks.length) || page.summaryError)) break;
+    if (!p && finalizeFailed()) break;
     await sleep(50);
   }
   await sleep(200);
-  const pages = await Promise.all(store.listPages().map(async (p) => {
-    const page = store.getPage(p.id);
-    return {
-      summaryError: page.summaryError,
-      segments: store.getTranscript(p.id).map((s) => ({ text: s.text, failed: Boolean(s.failed) })),
-      meetingType: page.meetingType, typeAuto: page.typeAuto, actionStat: page.actionStat,
-      route: page.route, routeText: await pageRouteText(p.id), citeStat: page.citeStat || null,
-      blocks: (page.blocks || []).map((b) => ({ type: b.type, cites: Array.isArray(b.cites) ? b.cites.length : 0 })),
-      todos: (page.blocks || []).filter((b) => b.type === 'todo').map((b) => ({ text: b.text, assignee: b.assignee || '', due: b.due || '', dueRaw: b.dueRaw || '' })),
-    };
-  }));
+  // 要約の後に画面で題名を直す（--set-title-after-sum）
+  if (setTitleAfterSum && store.listPages().length) out.setTitleAfter = await appCall('page.setTitle', { id: store.listPages()[0].id, title: setTitleAfterSum });
+  const pages = await Promise.all(store.listPages().map(pageOut));
   out.pages = pages;
   out.updatedRouteText = lastUpdatedRouteText();
   // 文字起こしの行を直したときの返事（segment:update）も経路の行を持つか（画面はその返事で curPage を差し替える）。
@@ -1199,7 +1374,7 @@ process.on('exit', () => {
   if (claudeMode === 'ok' && store.listPages().length) {
     const pid = store.listPages()[0].id;
     const sg = store.getTranscript(pid)[0];
-    const r = sg ? await handlers['segment:update']({}, { pageId: pid, segId: sg.id, patch: { text: sg.text } }) : null;
+    const r = sg ? await appCall('segment.update', { pageId: pid, segId: sg.id, patch: { text: sg.text } }) : null;
     out.segUpdateRouteText = r && r.page ? r.page.routeText : null;
   }
   out.claude = claudeLines();
@@ -1238,6 +1413,6 @@ process.on('exit', () => {
     // 今までの欄（要約・会議タイプなど）も残す
     out.pages = out.pages.map((p, i) => ({ ...(pagesBefore[i] || {}), ...p }));
   }
-  process.stdout.write(`\n${JSON.stringify(out)}\n`);
+  process.stdout.write(`\n${JSON.stringify(m3Out(out))}\n`);
   await exitClean(0);
 })().catch((e) => { process.stderr.write(`mainrun: ${e.stack || e}\n`); process.exit(1); });

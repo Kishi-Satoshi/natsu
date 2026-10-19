@@ -188,3 +188,122 @@ test('ST7: 更新と再起動の前（relaunchAndExit の前）に DB を閉じ�
   assert.ok(!m.includes('makeJsonBackend'), 'main がまだ JSON の保存（json-backend）を使う');
   assert.ok(!/store\.(init|listPages|getPage|getTranscript|searchIndex|savePage)\(/.test(m), 'main が元の JSON の索引やページを読む');
 });
+
+// ---------------------------------------------------------------- M-3（ST6・RF10・RF16・F6・F11）: 録音・下書き・復旧とのつなぎ
+// 場面は helpers/mainrun.js をそのまま（--json-scene ではなく、記録 → 区間 → 締め の今の道）で動かす。--keep-user-data=<フォルダ> で
+// 2回の起動に同じ userData を使う（フォルダは日本語と 𠮷 の名前。消すのはこのファイルの終わり）
+const os = require('node:os');
+const keptDirs = [];
+test.after(() => { for (const d of keptDirs) { try { fs.rmSync(d, { recursive: true, force: true, maxRetries: 3 }); } catch (_) { /* 消せなくても結果は変えない */ } } });
+const tmpUserData = () => {
+  const d = fs.mkdtempSync(path.join(os.tmpdir(), 'natsu-ud-議事録𠮷-'));
+  keptDirs.push(d);
+  return d;
+};
+// mainrun を1回動かして最後の行の JSON を返す。expectExit なら、main ごと落ちて（0 でない番号で）終わることを確かめて null を返す。
+// dbBytesHave(text) は、場面が終わる前に natsu.db と -wal のバイトに text があったか（mainrun の dbHas。--secret-text の語だけ見る）
+function runMain(mode, flags, { expectExit = false } = {}) {
+  let stdout = '';
+  try {
+    stdout = execFileSync(process.execPath, [RUN, mode, ...flags], { timeout: 25000, maxBuffer: 16 * 1024 * 1024, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+  } catch (e) {
+    if (expectExit && typeof e.status === 'number' && e.status !== 0) return null;
+    throw e;
+  }
+  assert.ok(!expectExit, '場面の前提: main ごと落ちていない');
+  const out = JSON.parse(stdout.trim().split('\n').pop());
+  out.dbBytesHave = (text) => {
+    assert.ok(out.dbHas && Object.hasOwn(out.dbHas, text), `場面が ${text} を DB のバイトで見ていない`);
+    return out.dbHas[text];
+  };
+  return out;
+}
+const onePage = (out) => { assert.strictEqual(out.pages.length, 1, JSON.stringify(out.pages.map((p) => p.title))); return out.pages[0]; };
+
+test('ST6: 下書きに pageId があり、締めた会議のページは同じ ID。下書きは「書けた」の後に消える', { timeout: 20000 }, () => {
+  const out = runMain('text', ['--segs=2', '--draft-trace']);   // 下書きを書くたびの中身と、clearDraft と meeting.finalize の返事の順を out.trace に
+  const ids = new Set(out.trace.filter((t) => t.kind === 'draft').map((t) => t.pageId));
+  assert.strictEqual(ids.size, 1);
+  assert.strictEqual(onePage(out).id, [...ids][0]);
+  const iAck = out.trace.findIndex((t) => t.kind === 'ack' && t.cmd === 'meeting.finalize');
+  const iClear = out.trace.findIndex((t) => t.kind === 'clearDraft');
+  assert.ok(iAck >= 0 && iAck < iClear, '返事の前に下書きを消した');
+});
+
+test('RF10: 最初の発言の後に DB を落としても（--kill-db-during）録音は続き、会議はちょうど1つ・下書きは残らない', { timeout: 20000 }, () => {
+  const out = runMain('text', ['--segs=3', '--kill-db-during']);
+  assert.strictEqual(onePage(out).segments.length, 3);
+  assert.ok(out.dbStarts >= 2);
+  assert.ok(!out.files.some((f) => /^data\/draft/.test(f)));
+});
+
+test('RF10: 最初の発言の後に main ごと落として起動し直す（--kill-main-during）→ 同じ ID のページがちょうど1つ・recovered', { timeout: 30000 }, () => {
+  const dir = tmpUserData();
+  runMain('text', ['--segs=3', '--kill-main-during', `--keep-user-data=${dir}`], { expectExit: true });
+  const out = runMain('text', ['--recover', `--keep-user-data=${dir}`]);
+  const p = onePage(out);
+  assert.strictEqual(p.recovered, true);
+  assert.strictEqual(p.id, out.draftPageIdBefore, '復旧で別の ID のページを作った（写しと2つになる）');
+});
+
+// 計画の外で足した確かめ（目的の「下書きを失った写しだけを recovered: true で残す」（meeting.settle）を押さえるテストが無かったため）
+test('ST6: main ごと落ちた後に下書きを失った録音の写しは、次の起動で同じ ID の recovered のページとして1つ残る（meeting.settle）', { timeout: 30000 }, () => {
+  const dir = tmpUserData();
+  runMain('text', ['--segs=3', '--kill-main-during', `--keep-user-data=${dir}`], { expectExit: true });
+  const drafts = fs.readdirSync(path.join(dir, 'data')).filter((n) => /^draft.*\.json$/.test(n));
+  assert.strictEqual(drafts.length, 1, '場面の前提: 落ちた会議の下書きが1つでない');
+  const pageId = JSON.parse(fs.readFileSync(path.join(dir, 'data', drafts[0]), 'utf8')).pageId;
+  fs.rmSync(path.join(dir, 'data', drafts[0]));   // 下書きを失った（写しだけが DB に残る）
+  const b = runMain('text', ['--idle', `--keep-user-data=${dir}`]);
+  assert.ok(b.trace.some((t) => t.kind === 'ack' && t.cmd === 'meeting.settle'), '起動で meeting.settle を頼んでいない');
+  const p = onePage(b);
+  assert.strictEqual(p.id, pageId);
+  assert.strictEqual(p.recovered, true);
+  assert.strictEqual(p.segments.length, 1, '写しの発言が残っていない');
+});
+
+test('RF10: DB が開けないまま締める（--db-down）→ 下書きが残り、次に DB が開ける起動でちょうど1つになる', { timeout: 30000 }, () => {
+  const dir = tmpUserData();
+  const a = runMain('text', ['--segs=2', '--db-down', `--keep-user-data=${dir}`]);
+  assert.strictEqual(a.pages.length, 0);
+  const b = runMain('text', ['--recover', `--keep-user-data=${dir}`]);
+  onePage(b);
+});
+
+test('RF16: 録音中に取り消すと、写しの発言が DB のファイルに残らない（DB が落ちていたら次の起動で消す）', { timeout: 30000 }, () => {
+  const out = runMain('text', ['--segs=2', '--discard-during', '--secret-text']);   // 偽の文字起こしが秘密の語を返す
+  // 計画の外で足した確かめ（場面の前提）: 取り消す前に、秘密の語が写しとして DB に届いていた
+  assert.strictEqual(out.secretSeen, true, '場面の前提: 秘密の語が DB に届く前に取り消した');
+  assert.deepStrictEqual(out.pages, []);
+  assert.strictEqual(out.dbBytesHave('秘密の語'), false);
+  const dir = tmpUserData();
+  const a = runMain('text', ['--segs=1', '--discard-during', '--kill-db-at-discard', '--secret-text', `--keep-user-data=${dir}`]);
+  assert.strictEqual(a.secretSeen, true, '場面の前提: 秘密の語が DB に届く前に取り消した');
+  const b = runMain('text', ['--idle', `--keep-user-data=${dir}`]);
+  assert.deepStrictEqual(b.pages, [], '取り消した会議が「下書きの無い写し」として復旧された');
+  assert.strictEqual(b.dbBytesHave('秘密の語'), false);
+});
+
+test('F11: 締めた後に下書きを消せず（ウイルス対策が掴んだ）、要約と直しをしてから起動し直しても、要約と直しが残り、ページは1つ', { timeout: 30000 }, () => {
+  const dir = tmpUserData();
+  const a = runMain('text', ['--segs=2', '--sum', '--keep-draft-after-finalize', '--set-title-after-sum=後で直した題', `--keep-user-data=${dir}`]);
+  assert.ok(a.files.some((f) => /^data\/draft/.test(f)), '場面の前提: 下書きが残っていない');
+  const b = runMain('text', ['--recover', `--keep-user-data=${dir}`]);
+  const p = onePage(b);
+  assert.strictEqual(p.title, '後で直した題', '復旧が直しを上書きした');
+  assert.ok(p.blocks.length > 0, '復旧が要約を空で上書きした');
+  assert.ok(!b.files.some((f) => /^data\/draft/.test(f)), '下書きを片付けなかった');
+});
+
+test('F6: 要約の途中に画面で直した題名を、要約の書き戻しが消さない', { timeout: 30000 }, () => {
+  const out = runMain('text', ['--sum', '--set-title-during=画面で直した題']);   // 要約は 1.5 秒。その間に appCall('page.setTitle')
+  const p = onePage(out);
+  assert.strictEqual(p.title, '画面で直した題');
+  assert.ok(p.blocks.length > 0, '要約が入らなかった');
+});
+
+test('ST5: main は画面のページの口を中継しない（ipcMain の page:・block:・pages:・segment: は page:summarize だけ）', () => {
+  const m = read('src/main.js');
+  const chans = [...m.matchAll(/ipcMain\.handle\('((?:page|pages|block|segment):[\w-]+)'/g)].map((x) => x[1]);
+  assert.deepStrictEqual(chans, ['page:summarize']);
+});

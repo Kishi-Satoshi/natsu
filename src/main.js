@@ -185,6 +185,12 @@ let recoveredPageId = null;
 let storeError = '';
 
 let meeting = null;
+// 締めの返事を裏で待っている会議のページの ID と下書きの名前（第2a1回 ST6・F9）。録音の状態は待たせない。復旧はこの下書きを飛ばし
+// （同じ会議を2つ目の道から書かない）、新しい会議はこの下書きを脇へ退けない（返事の後に消すのは、この会議の下書き）
+const finalizingPageIds = new Set();
+const finalizingDrafts = new Set();
+// 締めのときに DB の用意がまだ（移行中・起こし直し中）なら、録音バーにこの文（D9。overlay.html は変えず、main が送る文だけ）
+const DB_WAIT_TEXT = '録音を保存しました。議事録は準備ができしだい作ります';
 let segChain = Promise.resolve();
 let pendingSegs = 0;
 
@@ -2166,6 +2172,9 @@ function settleSegment(m, seg, patch) {
     if (i >= 0) m.segments.splice(i, 1);
   }
   writeDraft();
+  // 確定した区間を DB の写しへ（第2a1回 ST6）。返事を待たない（失敗しても録音は続ける。下書きが正本）。送るたびに別の tx（客が作る）。
+  // 下書きに書いてから送る（写しが下書きより先に進まない）。音声のパスは載せない
+  if (patch && m.pageId) db.send('meeting.segment', { pageId: m.pageId, seg: settledSegments([seg])[0] });
   sendToMainWin('meeting:update', meetingStatus());
 }
 
@@ -2231,6 +2240,7 @@ function writeDraft() {
   if (!meeting) return;
   try {
     store.writeDraft({
+      pageId: meeting.pageId,   // 会議のページの ID（締め・復旧が同じ ID に書く。第2a1回 ST6）
       startedAt: meeting.startedAt, memo: meeting.memo,
       segments: meeting.segments, offsetMs: meeting.offsetMs, savedAt: Date.now(),
       localOnly: Boolean(meeting.localOnly),   // ［この会議は PC の中だけ］（復旧した会議の送り直しも手元。第1c回 RF28）
@@ -2365,18 +2375,109 @@ function runDraftRetryAfterMeeting() {
   draftRetryAfterMeeting = false;
   retryDraftRecovery();
 }
+// 取り消した会議の ID の控え（第2a1回 RF16。<userData>/data/purge-pending.json を第1a回の J で読み書きする）。取り消しは、先に ID を
+// ここへ足してから下書きを消し、DB が purge を「書けた」と返したら外す。返事の前に落ちても DB が止まっていても、次の起動で下書きの復旧と
+// meeting.settle より前に送る（取り消した会議の写しが「下書きの無い写し」として復旧されない）。読めない間は上書きしない（中の ID を失わない）
+const PURGE_FILE = 'purge-pending.json';
+const purgePath = () => path.join(app.getPath('userData'), 'data', PURGE_FILE);
+const isPurgeShape = (v) => Boolean(v) && typeof v === 'object' && !Array.isArray(v) && Array.isArray(v.pageIds) && v.pageIds.every((x) => typeof x === 'string');
+const purgePending = new Set();
+let purgeLoaded = false;
+let purgeBusyNoted = false;
+function loadPurgePending() {
+  if (purgeLoaded) return true;
+  const r = J.loadJsonFile(purgePath(), { shape: isPurgeShape });
+  if (r.state === 'unreadable') {
+    if (!purgeBusyNoted) { purgeBusyNoted = true; engineLog(`取り消しの控えを読めませんでした（${r.code}）。消さずに残します`); }
+    return false;
+  }
+  if (r.state === 'ok') for (const id of r.value.pageIds) purgePending.add(id);
+  if (r.state === 'broken') engineLog(`取り消しの控えが壊れていたので退けました（${path.basename(r.movedTo)}、${r.reason}）`);
+  purgeLoaded = true;
+  return true;
+}
+function savePurgePending() {
+  if (!loadPurgePending()) return;
+  try {
+    J.writeJsonFile(purgePath(), { pageIds: [...purgePending] }, { onFsyncUnsupported: noteFsyncOnce });
+  } catch (e) {
+    engineLog(`取り消しの控えを保存できませんでした（${errCode(e)}）`);
+  }
+}
+// 取り消した会議の写しを DB から消す（meeting.discard。確定の後に DB がチェックポイントして文字を残さない: RF16）。「書けた」で控えから外す。投げない
+async function purgeMeeting(pageId) {
+  try {
+    await db.call('meeting.discard', { pageId }, { tx: `m:discard:${pageId}` });
+  } catch (e) {
+    engineLog(`取り消した会議の写しを消せませんでした（${errCode(e)}）。次の起動でもう一度消します`);
+    return false;
+  }
+  loadPurgePending();
+  purgePending.delete(pageId);
+  savePurgePending();
+  return true;
+}
+// 取り消しの印を先に書いてから（下書きを消すのは呼び手）、裏で消す
+function startPurge(pageId) {
+  loadPurgePending();
+  purgePending.add(pageId);
+  savePurgePending();
+  return purgeMeeting(pageId);
+}
+// 起動で、前に消しきれなかった取り消しを先に送る（下書きの復旧と meeting.settle より前）
+async function flushPurgePending() {
+  loadPurgePending();
+  for (const id of [...purgePending]) await purgeMeeting(id);
+}
+// 起動で下書きの復旧が済んだ後、読めない下書きが1つも無ければ、下書きを失った録音の写しを recovered で残す（第2a1回 ST6。設計書「保存の土台」の 10）。
+// keep は、読めた下書きの pageId 全部（復旧に失敗したものも）・今録音中の会議・締めの返事待ち・まだ消せていない取り消しの ID。
+// keep は頼む前に同じ手番で決める（後から始めた会議の meeting.begin はこの頼みの後に届く）。投げない
+async function settleCopies({ unreadable, keep }) {
+  if (unreadable) return;
+  const ids = new Set(keep);
+  if (meeting && meeting.pageId) ids.add(meeting.pageId);
+  for (const id of finalizingPageIds) ids.add(id);
+  loadPurgePending();
+  for (const id of purgePending) ids.add(id);
+  try {
+    const r = await db.call('meeting.settle', { keep: [...ids] });
+    if (r && r.settled) engineLog(`下書きの無い録音の写し ${r.settled} 件を議事録（復旧）として残しました`);
+  } catch (e) {
+    engineLog(`録音の写しを片付けられませんでした（${errCode(e)}）`);
+  }
+}
+
 // 控えは下書きのファイルを全部見る（draft.json・脇へ退けた draft.pending-<時刻>.json・会議ごとの draft-<開始時刻>.json）。
-// ページは await db.call('meeting.recover') で作る（第2a1回 ST1。中身は議事録の DB のプロセス）。投げない（下書きごとに受け止める）
+// ページは await db.call('meeting.recover') で、下書きの pageId（2a1 より前の下書きは新しい ID）に1回で作る（第2a1回 ST6。要約の欄の文もこの1回）。
+// 答えが already（締めた後に下書きを消せなかった・取り消した）でも下書きを消し、復旧の知らせは出さない（DB は締め済みのページを上書きしない: F11）。
+// 締めの返事を待っている会議の下書きは飛ばす。投げない（下書きごとに受け止める）。→ { unreadable, keep }（keep は読めた下書きの pageId）
 async function recoverDraftIfAny() {
   let unreadable = false;
   let recovered = 0;
+  const keep = [];
   for (const name of store.draftFiles()) {
     if (meeting && name === meeting.draftName) continue;   // 今の会議の控えは復旧しない
+    if (finalizingDrafts.has(name)) continue;   // 締めの返事を待っている会議の控え（返事の後に締めの道が消す）
     const r = store.readDraftFile(name);
     if (r.state === 'unreadable') { unreadable = true; engineLog(`下書き（${name}）を読めませんでした（${r.code}）。消さずに残します`); continue; }
     if (r.state !== 'ok') continue;   // 無い・壊れている（store が退けて知らせた。N15）
     const d = r.value;
-    if (!Array.isArray(d.segments) || d.segments.length === 0) { store.clearDraft(name); continue; }
+    const draftId = typeof d.pageId === 'string' && d.pageId ? d.pageId : '';
+    if (draftId && finalizingPageIds.has(draftId)) continue;
+    loadPurgePending();
+    if (draftId && purgePending.has(draftId)) {
+      // 取り消した会議の下書き（取り消しのときに消せなかった）。ページにしない。写しはもう一度消す
+      await purgeMeeting(draftId);
+      store.clearDraft(name);
+      continue;
+    }
+    if (!Array.isArray(d.segments) || d.segments.length === 0) {
+      // 発言の無い会議はページを作らない（今どおり）。始めたときに送った写し（空）は取り消しと同じに消す（印を先に書く）
+      if (draftId) { await startPurge(draftId); }
+      store.clearDraft(name);
+      continue;
+    }
+    if (draftId) keep.push(draftId);
     try {
       const dt = new Date(d.startedAt || Date.now());
       // 文字起こしが終わっていなかった区間（pending）は失敗扱いでページに載せ、wav が残っていれば
@@ -2384,7 +2485,7 @@ async function recoverDraftIfAny() {
       // エンジンの起動を待たずに復旧した本文を開けるようにするため
       const rec = recoverSegments(d.segments, (f) => fs.existsSync(f));
       // 要約の欄の文（summaryError）も同じ1回の頼みで入れる（今の「作ってから保存し直す」と同じ中身）
-      const { page } = await db.call('meeting.recover', { pageId: store.newId('p'), segments: rec.segments, page: {
+      const { page, already } = await db.call('meeting.recover', { pageId: draftId || store.newId('p'), segments: rec.segments, page: {
         title: `${dt.getFullYear()}/${dt.getMonth() + 1}/${dt.getDate()} ${String(dt.getHours()).padStart(2, '0')}:${String(dt.getMinutes()).padStart(2, '0')} の議事録（復旧）`,
         // 日付はローカルの暦日（#51。UTC で作ると日本の朝の会議が前日になる）
         date: localDateISO(dt),
@@ -2401,6 +2502,12 @@ async function recoverDraftIfAny() {
           : '録音が中断されたため要約は未生成です。「要約を生成」で作成できます。',
       } });
       store.clearDraft(name);
+      if (already) {
+        // 締め済みのページ（後からの要約と直しは DB が残した）か、取り消した会議。知らせない
+        engineLog(`下書き（${name}）は締め済みか取り消した会議のものだったので片付けました`);
+        removeDirIfEmpty(segbufDir(d.startedAt));
+        continue;
+      }
       recoveredPageId = page.id;
       recovered++;
       if (rec.todo.length) {
@@ -2423,6 +2530,7 @@ async function recoverDraftIfAny() {
     try { sendToMainWin('pages:updated', await db.call('pages.list', {})); } catch (e) { engineLog(`議事録の一覧を読めませんでした: ${errCode(e)}`); }
     noticeMainWin('前回中断された議事録の文字起こしを復旧しました。「要約を生成」から議事録を作成できます。');
   }
+  return { unreadable, keep };
 }
 
 // 復旧ページの「文字起こし待ち」を、起動が済んでエンジンが用意できてから順に文字起こしし、
@@ -2587,10 +2695,13 @@ async function startMeeting() {
     if (state !== 'idle') return { ok: false, error: '他の処理を実行中です' };
   }
   const startedAt = Date.now();
-  // 古い draft.json が残っていれば脇へ退けてから draft.json に、退けられなければ draft-<開始時刻>.json に書く
-  const draftName = chooseDraftName({ existing: store.draftFiles(), startedAt, park: () => store.parkDraft() });
+  // 会議のページの ID はここで作って下書きに書く。写し・締め・復旧・取り消しは同じ ID に書く（第2a1回 ST6。DB は同じ ID を上書きする）
+  const pageId = store.newId('p');
+  // 古い draft.json が残っていれば脇へ退けてから draft.json に、退けられなければ draft-<開始時刻>.json に書く。
+  // 締めの返事を待っている会議の draft.json は退けない（返事の後に締めの道が消す名前が変わらないように）
+  const draftName = chooseDraftName({ existing: store.draftFiles(), startedAt, park: () => (finalizingDrafts.has('draft.json') ? { ok: false } : store.parkDraft()) });
   if (draftName !== 'draft.json') engineLog(`前の下書きを退けられないので、この会議の下書きは ${draftName} に書きます`);
-  meeting = { startedAt, draftName, memo: '', segments: [], offsetMs: 0, stopping: false, seq: 0,
+  meeting = { pageId, startedAt, draftName, memo: '', segments: [], offsetMs: 0, stopping: false, seq: 0,
     systemAudio: false, paused: false, pausedMs: 0, pausedAt: 0,
     // gen: 打ち切り（meeting:skipPending）で進める世代。進行中の結果を捨てる判断に使う
     // segmentMs: いま録音側に頼んでいる区間の長さ（背圧で伸縮する）
@@ -2607,6 +2718,8 @@ async function startMeeting() {
   segChain = Promise.resolve(); pendingSegs = 0;
   state = 'meeting';
   writeDraft();
+  // DB の写しを始める（返事を待たない。失敗しても録音は続け、締め・復旧が下書きから作る）
+  db.send('meeting.begin', { pageId, startedAt, localOnly: false });
   warmWhisper().catch((e) => engineLog(`文字起こしエンジンの先読みに失敗: ${logReason(e)}`));
   // 経路を1回聞き、クラウドなら会議の始めの知らせ（M1）
   announceSttRoute(meeting);
@@ -2669,7 +2782,10 @@ function discardMeeting() {
   sendToOverlay('overlay:cancel', {});
   const m = meeting;
   cleanupSegbuf(m);
+  // 写しの発言を DB に残さない（第2a1回 RF16）。取り消しの印（purge-pending.json）を先に書いてから下書きを消し、DB の purge は裏で待つ
+  const purging = startPurge(m.pageId);
   meeting = null; store.clearDraft(m.draftName);
+  purging.catch(() => {});   // purgeMeeting は投げない（失敗は記録して次の起動に回す）
   segChain = Promise.resolve(); pendingSegs = 0;
   state = 'idle'; updateTray();
   sendToMainWin('meeting:update', meetingStatus());
@@ -2783,12 +2899,27 @@ async function maybeFinalizeMeeting() {
   const dt = new Date(m.startedAt);
   const fallbackTitle = `${dt.getFullYear()}/${dt.getMonth() + 1}/${dt.getDate()} ${String(dt.getHours()).padStart(2, '0')}:${String(dt.getMinutes()).padStart(2, '0')} の議事録`;
 
+  // 会議のページの ID は録音を始めたときに作って下書きに書いた（第2a1回 ST6。写し・復旧と同じ ID）
+  const pageId = m.pageId || store.newId('p');
+  finalizingPageIds.add(pageId);
+  finalizingDrafts.add(m.draftName);
+  // 録音の状態は DB を待たせない（F9。「録音は DB に頼らない」）。すぐ待機に戻して次の録音を始められるようにし、締めの返事は裏で待つ。
+  // DB の用意がまだ（移行中・起こし直し中）なら、録音バーに D9 の文を出す
+  state = 'idle'; updateTray();
+  setTimeout(hideOverlayIfIdle, 2000);
+  sendToMainWin('meeting:update', meetingStatus());
+  if (['starting', 'migrating'].includes(db.state())) sendToOverlay('overlay:phase', { phase: 'done', message: DB_WAIT_TEXT });
+  // 録音中に来た控えの復旧のやり直しを、ここで回す（第1a回 JS9。この会議の下書きは finalizingDrafts で飛ばす）
+  runDraftRetryAfterMeeting();
+  // 返事を待つ間に次の録音・音声入力が録音バーを使っていたら、締めの文で上書きしない
+  const overlayFree = () => !meeting && state === 'idle';
+
   let page = null;
   try {
-    // 議事録を締める（第2a1回 ST1: await db.call。中身は議事録の DB のプロセス。ページの ID はここで作る。下書きに書くのは M-3）。
-    // 「書けた」と返ってから下書きを消す。締めの tx は会議の開始時刻（送り直しても1回だけ効く）
+    // 議事録を締める（第2a1回 ST6: await db.call。中身は議事録の DB のプロセス）。「書けた」と返ってから下書きを消す。
+    // 締めの tx は会議の開始時刻（送り直しても1回だけ効く）
     page = await db.call('meeting.finalize', {
-      pageId: store.newId('p'),
+      pageId,
       segments: settledSegments(m.segments),   // 待ちの区間（本文なし）と wav のパスは載せない
       page: {
         title: fallbackTitle,
@@ -2798,6 +2929,7 @@ async function maybeFinalizeMeeting() {
         // 文字起こしの経路と、会議の印（要約の経路が見る: C10）
         route: { stt: { ...m.route, provider: sttProvider().id }, localOnly: Boolean(m.localOnly) },
         pauses: m.pauses,   // 止めていた時間の印（区間とは別の欄。第1b回 N4c・F6）
+        recovered: false, summaryError: '', meeting: { phase: 'done' },
       },
     }, { tx: `meeting:${m.startedAt}` });
     store.clearDraft(m.draftName);
@@ -2812,21 +2944,17 @@ async function maybeFinalizeMeeting() {
     }
     removeDirIfEmpty(segbufDir(m.startedAt));   // 全区間が片付いていれば空
   } catch (e) {
-    // 保存に失敗しても draft.json は消さない（次回起動時に復旧できる）
+    // 保存に失敗しても（DB が止まっている・時間切れ）下書きは消さない（次回起動時に同じ ID のページを1つ復旧する）
     engineLog(`議事録の保存に失敗: ${logReason(e)}`);
-    sendToOverlay('overlay:phase', { phase: 'error', message: '議事録を保存できませんでした' });
+    if (overlayFree()) sendToOverlay('overlay:phase', { phase: 'error', message: '議事録を保存できませんでした' });
     sendToMainWin('app:notice', `議事録を保存できませんでした: ${e.message}\n次回起動時に復旧を試みます。`);
   } finally {
-    // 何があっても録音状態は解除する。ここを抜けると画面が「作成中…」で止まる。
-    state = 'idle'; updateTray();
-    setTimeout(hideOverlayIfIdle, 2000);
-    sendToMainWin('meeting:update', meetingStatus());
-    // 録音中に来た控えの復旧のやり直しを、ここで回す（第1a回 JS9）
-    runDraftRetryAfterMeeting();
+    finalizingPageIds.delete(pageId);
+    finalizingDrafts.delete(m.draftName);
   }
   if (!page) return;
 
-  sendToOverlay('overlay:phase', { phase: 'done', message: '議事録を保存しました' });
+  if (overlayFree()) sendToOverlay('overlay:phase', { phase: 'done', message: '議事録を保存しました' });
   sendToMainWin('pages:updated', await db.call('pages.list', {}));
   sendToMainWin('page:open', page.id);
   // 音声は届いたのに、文字起こしが全部空だった。黙っていると「0 区間」の理由が分からない。
@@ -3283,28 +3411,8 @@ function setupIpc() {
   ipcMain.handle('history:clear', () => { history = []; saveHistoryOrNotice(); return history; });
   ipcMain.handle('app:toggle-recording', () => { toggleRecording(); return state; });
 
-  // 議事録の画面の口（第2a1回 ST1）。中身は await db.call（main の客。M-2b）。名前と答えの形は今のまま。画面が DB の口に移る（P-1）までの間だけで、M-3 で消す
-  ipcMain.handle('pages:search', async (_e, q) => await db.call('pages.list', { q: q || '' }));
-  ipcMain.handle('pages:searchFull', async (_e, q) => await db.call('pages.searchFull', { q: q || '', limit: 60 }));
-  // アクション一覧（絞り込み込み）。答え { actions, people, total } をそのまま返す
-  ipcMain.handle('pages:actionView', async (_e, { q, assignee } = {}) => await db.call('pages.actionView', { q, assignee }));
-  // 経路の行（routeText）は保存の側が添える（第1c回 OL6。送り先の名前は labels）
-  ipcMain.handle('page:get', async (_e, id) => await db.call('page.get', { id }));
-  ipcMain.handle('page:delete', async (_e, id) => await db.call('page.delete', { id }));
-  ipcMain.handle('page:setTitle', async (_e, { id, title }) => await db.call('page.setTitle', { id, title }));
-  ipcMain.handle('page:setMemo', async (_e, { id, memo }) => await db.call('page.setMemo', { id, memo }));
-  ipcMain.handle('block:update', async (_e, { pageId, blockId, patch }) => await db.call('block.update', { pageId, blockId, patch }));
-  ipcMain.handle('block:insert', async (_e, { pageId, afterBlockId, type }) => await db.call('block.insert', { pageId, afterBlockId, type }));
-  ipcMain.handle('block:remove', async (_e, { pageId, blockId }) => await db.call('block.remove', { pageId, blockId }));
-  ipcMain.handle('block:move', async (_e, { pageId, blockId, toIndex }) => await db.call('block.move', { pageId, blockId, toIndex }));
-  // 文字起こしの1区間を直す。その区間を根拠にしていた要点と根拠なしの要点だけ出典を引き直す（segment.update の既定 recite）。
-  // page:updated は送らない。送ると画面が文字起こし面を全部描き直し、次の行の編集を壊す。
-  // 戻り値（page:get と同じ形・経路の行つき）で画面側が要約タブの出典チップだけを描き直す。
-  ipcMain.handle('segment:update', async (_e, { pageId, segId, patch }) => await db.call('segment.update', { pageId, segId, patch: patch || {} }));
-  ipcMain.handle('block:setAction', async (_e, { pageId, blockId, assignee, dueRaw }) => await db.call('block.setAction', { pageId, blockId, assignee, dueRaw }));
+  // 議事録の画面の口は main を通らない（第2a1回 ST5。preload が DB の口（役 app）へ直に頼む）。要約だけは今どおり main の IPC
   ipcMain.handle('page:summarize', (_e, id) => runSummary(id));
-  // 手動指定は以後の自動推定より優先（typeAuto: false。DB の page.setType）
-  ipcMain.handle('page:setType', async (_e, { id, type }) => await db.call('page.setType', { id, type }));
   ipcMain.handle('meta:types', () => mtype.listTypes());
   ipcMain.handle('meeting:toggle', () => {
     if (state === 'idle') return startMeeting();
@@ -3749,7 +3857,11 @@ if (!gotLock) {
     // 取り込んだ側は下の起動の行では起動しない（RF3）。手で設定した側は今までどおり起動する
     managedCands = engineInstall.managedCandidates(ENGINE_HOME, MANIFEST, engineInstall.readInstalled(engineInstall.layout(ENGINE_HOME.root, MANIFEST).installed), fs.statSync);
     for (const g of ['whisper', 'sum']) if (managedCands[g]) managedState[g] = 'checking';
-    await recoverDraftIfAny();   // 復旧のページは db.call で作る（投げない）。待ってから待ち行列と掃除を決める（復旧中のフォルダを消さない）
+    // 前に消しきれなかった取り消しを、下書きの復旧と写しの片付けより先に送る（第2a1回 RF16。控えが無ければ DB を待たない）
+    await flushPurgePending();
+    const startupDrafts = await recoverDraftIfAny();   // 復旧のページは db.call で作る（投げない）。待ってから待ち行列と掃除を決める（復旧中のフォルダを消さない）
+    // 下書きを失った録音の写しを recovered で残す（読めない下書きが無ければ。待たない: 起動を DB の用意で止めない）
+    settleCopies(startupDrafts);
     if (!recoveryQueue) recoveryQueue = loadSavedRecoveryQueue();   // 前回エンジンが無くて残した分
     cleanOrphanSegbuf(recoveryQueue ? recoveryQueue.dir : '');   // 復旧の後で（復旧中のフォルダは残す）
     applyTheme();
