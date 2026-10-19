@@ -147,23 +147,33 @@ test('#39 boot.js は各 <script> に sourceURL の印を付け、world.js は�
   assert.strictEqual(v.length, 1); assert.match(v[0], /^app: /); assert.match(v[0], /app\.html#1/);
 });
 
-test('#39 本物の画面で、起動時の非同期の例外が RUN-07 に画面の名前で出る（app.html に仕込んで確かめ、元に戻す）', () => {
+// 第1b回 Task C-3（リリースの CI で見つけた）: 前は本物の src/renderer/app.html に仕込んで書き、終わってから元に戻していた。
+// node --test はファイルを並べて走らせるので、その間に app.html を読んだほかのテスト（release の electron-smoke では update-app.test.js）が
+// 仕込んだ例外を unhandledRejection として受けて赤になった。仕込んだ写しは一時フォルダに書き、子のプロセスの中だけで
+// app.html を読む道（fs.readFileSync）をその写しへ向ける。本物の app.html は書かない
+test('#39 本物の画面で、起動時の非同期の例外が RUN-07 に画面の名前で出る（app.html の写しに仕込んで確かめる。本物の app.html は書かない）', (t) => {
   const file = path.join(ROOT, 'src', 'renderer', 'app.html');
   const orig = fs.readFileSync(file, 'utf8');
   const i = orig.lastIndexOf('</script>');
   assert.ok(i > 0);
   const mutated = `${orig.slice(0, i)}\n(async () => { throw new Error('起動時の非同期の例外（検査用）'); })();\n${orig.slice(i)}`;
+  const dir = fs.mkdtempSync(path.join(require('node:os').tmpdir(), 'natsu-run07-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const copy = path.join(dir, 'app.html');
+  fs.writeFileSync(copy, mutated, 'utf8');
   const { execFileSync } = require('node:child_process');
-  fs.writeFileSync(file, mutated, 'utf8');
-  let out = '';
-  try {
-    out = execFileSync(process.execPath, ['-e', `
-      const w = require(${JSON.stringify(path.join(ROOT, 'test', 'helpers', 'world.js'))}).world();
-      setTimeout(() => {
-        const inv = require(${JSON.stringify(path.join(ROOT, 'test', 'invariants.js'))}).INVARIANTS.find((x) => x.id === 'RUN-07');
-        console.log(JSON.stringify(inv.check(w)));
-      }, 50);`], { cwd: ROOT, encoding: 'utf8' });
-  } finally { fs.writeFileSync(file, orig, 'utf8'); }
+  const out = execFileSync(process.execPath, ['-e', `
+    const fs = require('fs');
+    const path = require('path');
+    const target = path.resolve(${JSON.stringify(file)});
+    const read = fs.readFileSync;
+    fs.readFileSync = function (p, ...a) { return read.call(fs, typeof p === 'string' && path.resolve(p) === target ? ${JSON.stringify(copy)} : p, ...a); };
+    const w = require(${JSON.stringify(path.join(ROOT, 'test', 'helpers', 'world.js'))}).world();
+    setTimeout(() => {
+      const inv = require(${JSON.stringify(path.join(ROOT, 'test', 'invariants.js'))}).INVARIANTS.find((x) => x.id === 'RUN-07');
+      console.log(JSON.stringify(inv.check(w)));
+    }, 50);`], { cwd: ROOT, encoding: 'utf8' });
+  assert.strictEqual(fs.readFileSync(file, 'utf8'), orig, '本物の app.html が変わった');
   const v = JSON.parse(out.trim().split('\n').pop());
   assert.strictEqual(v.length, 1, `app だけが1件になっていない: ${JSON.stringify(v)}`);
   assert.match(v[0], /^app: .*起動時の非同期の例外（検査用）/);
