@@ -124,7 +124,7 @@ function byDue(a, b) {
 // 一致は畳んだ文字列で探すが、抜粋は元の本文から切りたい（句読点や全角のまま見せる）。
 // 文字ごとに畳むと NFKC が「ｶ」+「ﾞ」→「ガ」のように結合できないので、
 // 結合記号は直前の文字と同じ塊にして畳み、塊の出力を塊の元範囲に対応付ける。
-const JOIN_MARK = /[̀-゙ͯ-゜ﾞﾟ‍️]/;
+const JOIN_MARK = /[\u0300-\u036f\u3099-\u309c\uff9e\uff9f\u200d\ufe0f]/;
 function foldWithMap(text) {
   const s = String(text || '');
   let folded = '';

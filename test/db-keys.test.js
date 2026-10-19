@@ -124,6 +124,14 @@ test('D-1: json-backend の残りの命令（経路の行・page.put は DB が�
     // 復旧: 要約の欄の文も1回で入れ、already は false（JSON の保存は同じ ID の上書きを知らない）
     const rec = await jb.call('meeting.recover', { pageId: 'pr1', page: { title: '（復旧）', blocks: [], recovered: true, summaryError: '録音が中断されたため要約は未生成です。' }, segments: [] });
     assert.deepStrictEqual([rec.already, rec.page.recovered, rec.page.summaryError], [false, true, '録音が中断されたため要約は未生成です。']);
+    // 手元の写しだけでなく、ページのファイルに要約の欄の文が書かれていること（保存し直しを消すと、復旧した議事録に要約が無い訳が消える）
+    const recDisk = JSON.parse(fs.readFileSync(path.join(dir, 'data', 'pages', `${rec.page.id}.json`), 'utf8'));
+    assert.deepStrictEqual([recDisk.recovered, recDisk.summaryError], [true, '録音が中断されたため要約は未生成です。'], '復旧の要約の欄の文がファイルに無い');
+    // 会議の終わり（meeting.finalize）で要約の欄の文があるときも同じ
+    const fin = await jb.call('meeting.finalize', { pageId: 'pf1', page: { title: '要約失敗の会議（見本）', blocks: [], summaryError: '要約に失敗しました（見本）' }, segments: [] });
+    assert.strictEqual(fin.summaryError, '要約に失敗しました（見本）');
+    assert.strictEqual(JSON.parse(fs.readFileSync(path.join(dir, 'data', 'pages', `${fin.id}.json`), 'utf8')).summaryError, '要約に失敗しました（見本）', '会議の終わりの要約の欄の文がファイルに無い');
+    await jb.call('page.delete', { id: fin.id });
     assert.deepStrictEqual(await jb.call('meeting.settle', { keep: [] }), { settled: 0 });
     const list = await jb.call('page.delete', { id: rec.page.id });
     assert.deepStrictEqual(list.map((x) => x.id), [p.id]);
