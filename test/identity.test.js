@@ -41,9 +41,10 @@ test('表示名は NaTsu（画面・録音バー・ウィンドウ・トレイ�
   assert.strictEqual(pkg.description, 'NaTsu — 音声入力・議事録ツール（オンラインはクラウドの文字起こしと各自の Claude Code の要約、オフラインは手元の whisper と llama。出典リンク付き）');
 });
 
-test('識別子: name は natsu・版は 0.5.0・productName は build の中だけ（userData は %APPDATA%\\natsu）', () => {
+// 第1b回 Task C-3 で意図して変えた: 版を 0.6.0 に（第1b回と第1b2回の画面・窓の覚え書き・一時停止。Electron は 44.9.0 のままなので［更新して再起動］で当たる）
+test('識別子: name は natsu・版は 0.6.0・productName は build の中だけ（userData は %APPDATA%\\natsu）', () => {
   assert.strictEqual(pkg.name, 'natsu');
-  assert.strictEqual(pkg.version, '0.5.0');
+  assert.strictEqual(pkg.version, '0.6.0');
   assert.strictEqual(pkg.productName, undefined, 'top-level の productName は userData の名前を変える');
   assert.strictEqual(pkg.build.productName, 'NaTsu');
   assert.strictEqual(pkg.build.appId, 'local.natsu.app');
@@ -142,4 +143,29 @@ test('OL9: CHANGELOG の 0.5.0 の節は、更新の前に Claude Code を入れ
   for (const w of ['irm https://claude.ai/install.ps1 | iex', 'claude auth status', '同意', '送り先', 'Groq', 'OpenAI', 'この会議は PC の中だけ', 'オフライン', '上限']) {
     assert.ok(sec.includes(w), `0.5.0 の節に「${w}」が無い`);
   }
+});
+
+// 第1b回 Task C-3（G3）と第1b2回の「つなぎ」: README の使い方に、サイドバー・タブ・Ctrl+クリック・拡大・一時停止・覚えるもの（window-state.json）、
+// 検索の窓（［🔍 検索］・Ctrl+P）と［＋ 新しい議事録］を書く。古い言い方（「一覧から検索」「開いているタブの内容をコピー」）は残さない
+test('第1b回 C-3: README は新しい画面の使い方（サイドバー・タブ・検索の窓・記録中のページ・一時停止・拡大・覚えるもの）を書く', () => {
+  for (const w of ['サイドバー', 'タブ', 'Ctrl+クリック', '拡大', '一時停止', 'window-state.json', '%LOCALAPPDATA%\\natsu', '［🔍 検索］', 'Ctrl+P', '［＋ 新しい議事録］',
+    'Ctrl+Shift+P', 'Ctrl+\\', '200%', 'スリープ']) {
+    assert.ok(readme.includes(w), `README に「${w}」が無い`);
+  }
+  assert.ok(!readme.includes('開いているタブの内容をコピー'), 'README に古い「開いているタブの内容をコピー」が残っている（「···」の［コピー］）');
+  assert.ok(!readme.includes('一覧から検索'), 'README に古い「一覧から検索」が残っている（［🔍 検索］の窓）');
+});
+
+// 第1b回 Task C-3: CHANGELOG の 0.6.0 の節。更新は［更新して再起動］で当たること・新しい画面・ログインのボタンと切れたときの文・鍵の確かめ・速さを、
+// 平易な日本語で書く（「Notion」とは書かない: 第1b2回の決まり）
+test('第1b回 C-3: CHANGELOG の 0.6.0 の節は、更新の仕方・新しい画面・Claude Code のボタン・鍵の確かめ・速さを書き、「Notion」と書かない', () => {
+  const cl = read('CHANGELOG.md');
+  assert.ok(cl.indexOf('## natsu-v0.6.0') >= 0 && cl.indexOf('## natsu-v0.6.0') < cl.indexOf('## natsu-v0.5.0'), '0.6.0 の節が 0.5.0 の上に無い');
+  const sec = cl.slice(cl.indexOf('## natsu-v0.6.0'), cl.indexOf('## natsu-v0.5.0'));
+  assert.ok(sec.split('\n').slice(0, 4).join('\n').includes('［更新して再起動］'), '頭に［更新して再起動］で当たることが無い');
+  for (const w of ['サイドバー', 'タブ', '［🔍 検索］', 'Ctrl+P', '記録中', 'Ctrl+Shift+P', 'スリープ', 'window-state.json', '拡大',
+    '［Claude Code にログイン］', '［Claude Code を入れる］', 'Claude Code のログインが切れています', 'OpenAI', '鍵', '速く']) {
+    assert.ok(sec.includes(w), `0.6.0 の節に「${w}」が無い`);
+  }
+  assert.ok(!/notion/i.test(sec), '0.6.0 の節に「Notion」と書いた');
 });

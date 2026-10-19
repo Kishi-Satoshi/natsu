@@ -119,6 +119,19 @@ test('1b2 L-2・G4: ［検索］で窓が開いて入力欄へ。Esc で閉じ�
   assert.ok(l.document.activeElement === btn, '閉じても［検索］へフォーカスが戻らない');
 });
 
+// 第1b回 Task C-3 で足した: 変異 pal-esc-return（開いた元へ戻さず、いつも［検索］へ送る）は、上のテストでは開いた元が［検索］なので生き残った。
+// ［検索］でない所から Ctrl+P で開き、Esc で閉じると、その所へ戻ることを見る
+test('1b2 L-2・G4: ［検索］でない所（音声入力の行）から Ctrl+P で開いて Esc で閉じると、開いた元へフォーカスが戻る', async () => {
+  const l = await boot();
+  const from = l.byId.get('tabBtnDictation');
+  from.focus();
+  l.key({ key: 'p', code: 'KeyP', ctrlKey: true }); await l.drain();
+  assert.strictEqual(l.byId.get('palette').hidden, false);
+  l.key({ key: 'Escape' }, l.byId.get('searchBox')); await l.drain();
+  assert.strictEqual(l.byId.get('palette').hidden, true);
+  assert.ok(l.document.activeElement === from, '閉じても開いた元（音声入力の行）へフォーカスが戻らない');
+});
+
 test('1b2 L-2・G4: サイドバーを畳んだまま Ctrl+P で開いて Esc で閉じると、フォーカスは［»］へ戻る（隠れた［検索］へ送って見失わない）', async () => {
   const l = await boot();
   l.byId.get('sideCollapse').dispatchEvent({ type: 'click' }); await l.drain();

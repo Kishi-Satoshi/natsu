@@ -114,3 +114,47 @@ test('G3: 第1c回の変異が一覧にそろう（計画の「変異確認」�
   const ids = new Set(MUTANTS.map((m) => m.id));
   assert.deepStrictEqual([...IDS_1C, ...IDS_1C_REVIEW].filter((id) => !ids.has(id)), []);
 });
+
+// 第1b回（Task C-3。計画 docs/plans/2026-10-19-1b.md の「変異確認」の表）。look-sel-line は第1b2回で左の線をやめたので外した（tok-sel-line に置き換え）
+const IDS_1B = [
+  'ws-path-local', 'ws-min-size', 'ws-int', 'ws-max-edge', 'ws-onscreen', 'ws-visible-min', 'ws-normal-bounds', 'ws-zoom-steps', 'ws-zoom-cap',
+  'ws-zoom-jis', 'ws-zoom-keyup', 'ws-sidebar-clamp', 'ws-tab-live', 'ws-tab-shape', 'ws-tab-drop', 'ws-tab-max', 'mw-batch', 'mw-unreadable',
+  'mw-broken-keep', 'mw-broken-notice', 'mw-prevent', 'mw-wheel', 'mw-zoom-load', 'mw-maximize', 'mw-ui-validate', 'mw-bg', 'mp-same-state',
+  'mp-mark', 'mp-mark-draft', 'mp-mark-page', 'mp-mark-shape', 'mp-suspend', 'mp-suspend-idle', 'mp-resume-hint', 'mp-resume-retry',
+  'mp-no-autoresume', 'look-muted', 'look-accent-text', 'look-font', 'look-glass', 'look-radius', 'look-focus-ring', 'look-page-width',
+  'ui-side-outside', 'ui-side-clamp', 'ui-side-key', 'ui-side-save', 'ui-tab-ctrl', 'ui-tab-middle', 'ui-tab-dedupe', 'ui-tab-close-next',
+  'ui-tab-flush', 'ui-tab-live-nosave', 'ui-tab-restore', 'ui-tab-arrows', 'ui-more-esc', 'ui-more-ime', 'ui-side-ime', 'ui-live-open',
+  'ui-live-convert', 'ui-pause-ask', 'ui-pause-key', 'ui-pause-final', 'ui-pausemark', 'ui-resume-note', 'ui-route-split', 'ui-cite-mark',
+  'gate-move-ledger', 'shots-retake-overlay', 'shots-overflow', 'shots-zoom', 'mp-suspend-ensure', 'mp-suspend-late', 'look-text-token',
+  'look-shadow-blue', 'ui-row-middle', 'gate-ledger-extra',
+];
+// 第1b回の点検で足した守り（計画「載せ直しで分かったこと」の「C-3 で変異の行にしてよい」）
+const IDS_1B_REVIEW = [
+  'mp-ask-clear', 'mp-suspend-clear', 'mp-notice-once', 'mw-temps', 'shots-focus-fatal', 'shots-main-overflow', 'shots-main-zoom-fatal',
+  'shots-main-zoom', 'shots-main-answers', 'shots-main-probe-app', 'ui-live-bar-only', 'ui-side-touched', 'ui-tabs-touched', 'ui-pause-nopreload',
+];
+// 第1b2回（計画 docs/plans/2026-10-19-1b2.md の「変異確認」の表。bar-pacts-curid・pal-esc-collapsed は点検で足した行）
+const IDS_1B2 = [
+  'tok-muted', 'tok-accent', 'tok-accent-text', 'tok-text-2', 'tok-font', 'tok-wordmark', 'tok-sel-line', 'tok-sea', 'tok-scrollbar', 'tok-button',
+  'side-oneline', 'side-title', 'side-title-order', 'side-icon', 'side-collapse-focus', 'side-new-label', 'side-all-pages', 'pal-open', 'pal-ctrlp',
+  'pal-ctrlp-prevented', 'pal-ctrlp-shift', 'pal-esc-return', 'pal-esc-collapsed', 'pal-arrows', 'pal-ctrl-enter', 'pal-close-after', 'pal-trap',
+  'pal-hidden-css', 'pal-chip-refresh', 'pal-closed-query', 'pal-target', 'bar-pacts-place', 'bar-pacts-hidden', 'bar-pacts-hidden-css', 'bar-crumb',
+  'bar-pacts-curid', 'bar-regen-menu', 'bar-tab-white', 'pg-card', 'pg-scroll', 'pg-icon', 'pg-nopage', 'pg-pill-order', 'pg-pill-underline',
+  'pg-banner', 'pg-ic', 'pg-cite-blue', 'pg-who-green', 'set-title', 'set-h2', 'set-check', 'rec-in-block', 'rec-title-lock', 'rec-title-unlock',
+  'rec-stop', 'rec-live-on-css', 'shots-palette', 'shots-palette-retake', 'gate-1b2-ledger', 'gate-1b2-release',
+];
+// 第1b回の続き Lane F（Claude Code のログイン切れの見分け・本当の確かめ・ログインと入れるボタンの窓の組み立て・鍵の確かめの理由）と第1b2回の直し（fx-*）
+const IDS_1B_FIX = [
+  'lf-auth-401', 'lf-auth-text', 'lf-auth-case', 'lf-429-limit', 'lf-usage-limit', 'lf-log-facts', 'lf-subtype-list', 'lf-status-range',
+  'lf-auth-msg', 'lf-ping-skip', 'lf-ping-gate', 'lf-ping-safe-args', 'lf-ping-handler', 'lf-ping-timeout', 'lf-ui-verified', 'lf-login-env',
+  'lf-login-exe-only', 'lf-login-ctrl', 'lf-open-platform', 'lf-open-exit', 'lf-open-busy', 'lf-open-recheck', 'lf-install-visible',
+  'lf-ui-install-shown', 'lf-ui-login-shown', 'lf-ui-disable', 'lf-msg-login-button', 'lf-key-invalid', 'lf-key-scope-retry', 'lf-key-scope-only',
+  'lf-key-quota', 'lf-key-scope-msg', 'lf-key-silent', 'lf-key-no-hint', 'lf-key-waitcap', 'lf-key-ratelong', 'lf-key-msg-main', 'lf-ui-key-msg',
+  'lf-ping-notfound', 'lf-status-timeout', 'lf-status-overloaded', 'lf-win-quote', 'lf-install-del-env', 'fx-hidden-important', 'fx-hidden-weak',
+  'fx-live-pad', 'fx-side-ic', 'fx-side-ic-html', 'fx-pal-grey', 'fx-seg-index', 'fx-seg-index-stale', 'fx-seg-index-first', 'fx-cv', 'fx-cv-clip',
+];
+test('G3: 第1b回・第1b2回・Lane F と直しの変異が一覧にそろい、第1b2回で消した look-sel-line は無い', { timeout: 5000 }, () => {
+  const ids = new Set(MUTANTS.map((m) => m.id));
+  assert.deepStrictEqual([...IDS_1B, ...IDS_1B_REVIEW, ...IDS_1B2, ...IDS_1B_FIX].filter((id) => !ids.has(id)), []);
+  assert.ok(!ids.has('look-sel-line'), '第1b2回で左の線をやめたのに look-sel-line が残っている');
+});
