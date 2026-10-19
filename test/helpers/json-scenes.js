@@ -551,6 +551,67 @@ module.exports = {
       await c.waitFor(() => c.store.listPages().length >= 5 && !c.store.draftFiles().length, 8000);
       c.out.progress = c.mainProgress();
     } },
+  // 第2a1回 M-4 の点検で足した場面（F9・RF14。利用者の 0.6.0 → 0.7.0 の初めての起動）: 0.6.0 で落ちた会議の下書き（pageId の無い
+  // draft.json）が残ったまま、窓 D0 を開いたまま録音を始める。起動の復旧はこの下書きで DB（移行の答え）を待っている。
+  // 録音はその復旧を待たずにすぐ始まり（録音は DB に頼らない）、その下書きは draft.json を脇へ退けずに別の名前になる（退けると、
+  // 起動の復旧が後で clearDraft('draft.json') で録音中の会議の下書きを消し、退けた 0.6.0 の下書きが残って次の起動で2つ目のページになる）
+  'migrate-old-draft-record': { engine: true, noDbWait: true, dialog: 'hold', env: { NATSU_TEST_MIGRATE_DELAY_MS: '200' },
+    files: { 'settings.json': ({ base }) => JSON.stringify(base), 'data/draft.json': pretty(OLD_DRAFT) },
+    prepare: (ud) => { oldPages(ud, [1, 1]); },
+    act: async (c) => {
+      const hk = (await c.handlers['settings:get']()).meetingHotkey;
+      c.out.dialogShown = await c.waitFor(() => c.dialogs().length === 1, 10000);
+      await c.waitFor(() => c.mainState() === 'idle', 10000);
+      c.shortcuts[hk]();   // 始める（窓 D0 は開いたまま）
+      c.out.startedQuick = await c.waitFor(() => c.mainState() === 'meeting', 2000);
+      c.out.dbBefore = c.dbState();
+      // 録音中の会議の下書き（pageId があるもの。0.6.0 の下書きには無い）
+      const live = () => c.store.draftFiles().map((name) => ({ name, r: c.store.readDraftFile(name) }))
+        .find((x) => x.r.state === 'ok' && typeof x.r.value.pageId === 'string' && x.r.value.pageId);
+      let cur = null;
+      if (c.out.startedQuick) {
+        cur = live();
+        c.listeners['audio:segment']({}, { buffer: new Uint8Array(c.toneWav(3)), durationMs: 3000, final: false });
+        // 区間の文字起こしが下書きに載るのを待つ（この後、起動の復旧が片付けをしても、この会議の下書きに触れないかを見る）
+        await c.waitFor(() => c.trace().some((t) => t.kind === 'draft' && cur && t.pageId === cur.r.value.pageId && t.segs >= 1), 4000);
+      }
+      c.answerDialog(0);
+      c.out.ready = await c.waitFor(() => c.dbState() === 'ready', 10000);
+      if (!c.out.startedQuick) { await c.waitFor(() => c.mainState() === 'meeting', 5000); cur = live(); }
+      // 起動の復旧（0.6.0 の下書きのページ）が済むのを待ってから、録音中の会議の下書きがまだあるかを見る
+      c.out.recoverDone = await c.waitFor(() => c.trace().some((t) => t.kind === 'ack' && t.cmd === 'meeting.recover'), 8000);
+      await c.sleep(50);
+      c.out.stillRecording = c.mainState() === 'meeting';
+      c.out.draftsAfterReady = c.store.draftFiles();
+      const kept = cur ? c.store.readDraftFile(cur.name) : null;
+      c.out.liveDraftKept = Boolean(cur && kept && kept.state === 'ok' && kept.value.pageId === cur.r.value.pageId);
+      c.shortcuts[hk]();   // 止める
+      c.listeners['audio:segment']({}, { buffer: new Uint8Array(c.toneWav(3)), durationMs: 3000, final: true });
+      await c.waitFor(() => c.mainState() === 'idle' && c.store.listPages().length >= 4 && !c.store.draftFiles().length, 8000);
+      await c.sleep(50);
+      c.out.draftsEnd = c.store.draftFiles();
+    } },
+  // 第2a1回 M-4 の点検で足した場面（下書きの復旧は1つずつ回す）: 起動のときは 0.6.0 の下書き（pageId が無い）を読めず、やり直しの
+  // 時計が置かれる。窓 D0 を開いたまま（DB は移行の答え待ち）、そのやり直しが2つ重なって走る。並べて回すと、2つが同じ下書きを読んで
+  // 別々の新しい ID で2つの「（復旧）」のページを作る
+  'migrate-draft-retry-twice': { noDbWait: true, dialog: 'hold', env: { NATSU_TEST_MIGRATE_DELAY_MS: '200' },
+    files: { 'settings.json': pretty(TYPICAL), 'data/draft.json': pretty(OLD_DRAFT) },
+    faults: [{ op: 'read', match: /draft\.json$/, code: 'EBUSY', times: 7 }],   // 起動の1回の読み（1 + READ_WAITS の 6）だけ読めない
+    prepare: (ud) => { oldPages(ud, [1]); },
+    act: async (c) => {
+      c.out.dialogShown = await c.waitFor(() => c.dialogs().length === 1, 10000);
+      await c.waitFor(() => (c.timers.retryDraftRecovery || []).length > 0, 5000);
+      const retry = (c.timers.retryDraftRecovery || [])[0];
+      c.out.retries = (c.timers.retryDraftRecovery || []).length;
+      const runs = retry ? [retry(), retry()] : [];
+      await c.sleep(100);
+      c.out.dbBefore = c.dbState();
+      c.answerDialog(0);
+      c.out.ready = await c.waitFor(() => c.dbState() === 'ready', 10000);
+      await Promise.race([Promise.all(runs), c.sleep(8000)]);
+      await c.sleep(50);
+      c.out.draftsEnd = c.store.draftFiles();
+    } },
   // 第2a1回 M-4（RF17。計画の外で足した場面）: 前の起動で移した後に、古い版（0.6.0）がページを1つ足し、壊れたページのファイルも1つ置いた。
   // 起動のたびの取り込みで入れて知らせ D5、飛ばしたファイルの組が前と変わったので知らせ D3
   'reimport-after-migrate': { files: { 'settings.json': pretty(TYPICAL) },

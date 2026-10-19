@@ -361,8 +361,9 @@ test('Q1: ［今は移さずに終える］なら natsu.db を作らずに終え
 test('RF14・F9: 移行の間にホットキーで録音して止めると、待つ間も状態は待機に戻って次の録音を始められ、移行の後に会議が増える（窓が出ている間も同じ）', { timeout: 30000 }, () => {
   const out = runScene('migrate-record-during');   // 窓を開いたまま録音 → 停止 → もう1回録音 → 停止 → 3回目の録音中に［移す］→ 止める
   assert.strictEqual(out.dialogShown, true, '場面の前提: 移行の窓が出ていない');
-  assert.strictEqual(out.dbStateBeforeAnswer, 'migrating', '場面の前提: 窓の答えの前に DB が用意できた');
+  // 録音の状態の確かめを場面の前提より先に見る（状態が戻らないと場面はそこで結果を出し、dbStateBeforeAnswer を入れない。M-4 の点検）
   assert.deepStrictEqual(out.statesBeforeReady, ['idle', 'idle'], '締めが DB を待つ間、録音の状態が戻らなかった（次の録音を始められない）');
+  assert.strictEqual(out.dbStateBeforeAnswer, 'migrating', '場面の前提: 窓の答えの前に DB が用意できた');
   assert.ok(out.overlayDone.some((m) => m === '録音を保存しました。議事録は準備ができしだい作ります'));
   // 計画と違えたところ: 録音中の写しを片付けが一覧に出さないかを見るため、3回目の録音を［移す］の前に始めて後で止める（会議は 3 つ増える）
   assert.strictEqual(out.thirdStarted, true);
@@ -377,6 +378,32 @@ test('RF14・F9: 移行の間にホットキーで録音して止めると、待
   const lastMove = out.progress.map((m) => /^議事録を移しています… \d+\/\d+$/.test(m)).lastIndexOf(true);
   assert.ok(lastMove >= 0, JSON.stringify(out.progress));
   assert.strictEqual(out.progress[lastMove + 1], '', `移行が済んだのに進み具合の帯が残った: ${JSON.stringify(out.progress)}`);
+});
+
+// M-4 の点検で足した確かめ（利用者の 0.6.0 → 0.7.0 の初めての起動: 0.6.0 で落ちた会議の下書きが残っている）
+test('F9・RF14: 0.6.0 の下書き（pageId が無い）を起動の復旧が DB を待って抱えている間も、窓 D0 を開いたまま録音をすぐ始められ、録音中の下書きを復旧が消さない。0.6.0 の下書きは1つのページになり、下書きは残らない', { timeout: 30000 }, () => {
+  const out = runScene('migrate-old-draft-record');
+  assert.strictEqual(out.dialogShown, true, '場面の前提: 移行の窓が出ていない');
+  assert.strictEqual(out.startedQuick, true, '録音を始めるのが、起動の復旧（DB の用意）を待った（録音は DB に頼らない: F9）');
+  assert.strictEqual(out.dbBefore, 'migrating', '場面の前提: 録音を始めたときに DB が用意できていた');
+  assert.strictEqual(out.ready, true);
+  assert.strictEqual(out.recoverDone, true, '場面の前提: 起動の復旧（meeting.recover）が済んでいない');
+  assert.strictEqual(out.stillRecording, true, '場面の前提: 起動の復旧が済んだときに録音が続いていない');
+  assert.strictEqual(out.liveDraftKept, true, `起動の復旧の片付けが、録音中の会議の下書きを消した: ${JSON.stringify(out.draftsAfterReady)}`);
+  assert.deepStrictEqual(out.draftsEnd, [], '下書き（退けた 0.6.0 の下書きを含む）が残った（次の起動でもう一度ページになる）');
+  assert.ok(!out.files.some((f) => /^data\/draft/.test(f)), JSON.stringify(out.files));
+  assert.strictEqual(out.pages.filter((p) => /（復旧）$/.test(p.title)).length, 1, JSON.stringify(out.pages));
+  assert.strictEqual(out.pages.length, 2 + 1 + 1, JSON.stringify(out.pages));   // 移した 2・0.6.0 の下書き 1・録音 1
+});
+
+test('F9: 下書きの復旧は1つずつ回す。DB の用意を待つ復旧が2つ重なっても、pageId の無い 0.6.0 の下書きは1つのページになる', { timeout: 30000 }, () => {
+  const out = runScene('migrate-draft-retry-twice');
+  assert.strictEqual(out.dialogShown, true, '場面の前提: 移行の窓が出ていない');
+  assert.ok(out.retries >= 1, '場面の前提: 起動で下書きを読めず、やり直しの時計が置かれていない');
+  assert.strictEqual(out.dbBefore, 'migrating', '場面の前提: やり直しの間に DB が用意できていた');
+  assert.strictEqual(out.ready, true);
+  assert.strictEqual(out.pages.filter((p) => /（復旧）$/.test(p.title)).length, 1, `0.6.0 の下書きが2つのページになった: ${JSON.stringify(out.pages)}`);
+  assert.deepStrictEqual(out.draftsEnd, []);
 });
 
 test('ST10: 移行の確かめが合わなければ「使えない」で起き、録音は下書きに残り、次の起動でやり直す', { timeout: 30000 }, () => {
