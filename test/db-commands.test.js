@@ -33,6 +33,9 @@ test('ST4: 画面の 14 の命令は json-backend（今の保存）と同じ答�
     }
     const ins = call(db, 'block.insert', { pageId: 'pa1', afterBlockId: 'b2', type: 'bullet' });
     assert.deepStrictEqual(ins.result.page.blocks.map((b) => b.type), (await j.call('page.get', { id: 'pa1' })).page.blocks.map((b) => b.type).toSpliced(1, 0, 'bullet'));
+    // 点検で足した確かめ: 足した行は afterBlockId のすぐ後（型の並びだけでは、前に足しても同じに見える）
+    const ids = ins.result.page.blocks.map((b) => b.id);
+    assert.strictEqual(ids.indexOf(ins.result.blockId), ids.indexOf('b2') + 1, '足した行が afterBlockId のすぐ後でない（Enter で上に行が増える）');
     assert.strictEqual(call(db, 'page.get', { id: 'pa1' }).result.page.routeText[0], '☁ 文字起こし: クラウド（Groq（無料枠））3');
   } finally { t.done(); j.done(); }
 });
@@ -53,9 +56,53 @@ test('F6: page.put は baseRev が今の rev と違えば conflict（画面の�
     assert.strictEqual(call(db, 'page.put', { page: { ...p2, summaryError: 'x' }, baseRev: p2.rev }, 'main').code, 'conflict', 'ブロックの直しで rev が上がらない（要約が行の直しを消す）');
     const p3 = call(db, 'page.get', { id: 'pa1' }, 'main').result.page;
     assert.strictEqual(call(db, 'page.put', { page: { ...p3, summaryError: 'y' }, baseRev: p3.rev }, 'main').ok, true);
+    // 点検で足した確かめ: ページの行（updatedAt・citeStat）が変わらないブロックだけの直しでも rev が上がる
+    // （同じミリ秒の2つの書き込み。時刻を止めて、出典の数の変わらない checked だけを直す）
+    call(db, 'page.setTitle', { id: 'pa1', title: '時刻をそろえる' });
+    const p4 = call(db, 'page.get', { id: 'pa1' }, 'main').result.page;
+    assert.strictEqual(p4.updatedAt, NOW().toISOString());
+    assert.strictEqual(call(db, 'block.update', { pageId: 'pa1', blockId: 'b4', patch: { checked: true } }).ok, true);
+    assert.strictEqual(call(db, 'page.put', { page: { ...p4, summaryError: 'z' }, baseRev: p4.rev }, 'main').code, 'conflict', 'ページの行が変わらない直しで rev が上がらない（要約が ToDo の印を消す）');
+    assert.strictEqual(call(db, 'page.get', { id: 'pa1' }).result.page.blocks.find((b) => b.id === 'b4').checked, true);
     const attrs = JSON.parse(db.prepare("select attrs from blocks where id='pa1'").get().attrs);
     assert.ok(!('rev' in attrs) && !('routeText' in attrs), 'DB が作る欄を attrs に保存した');
     assert.strictEqual(call(db, 'page.put', { page: { ...p, id: 'gone' }, baseRev: 1 }, 'main').result, null, '無いページを作った（要約中に消したページが戻る）');
+  } finally { t.done(); }
+});
+
+// 点検で足した確かめ: 要約の途中でゴミ箱に入れたページへは書き戻さない（null を返し、main は保存できなかったと分かる）
+test('F6: page.put はゴミ箱のページに書かず null', { timeout: 5000 }, () => {
+  const t = tmpDb();
+  try {
+    const { db } = t.open();
+    t.seed(samplePage('pa1').page, []);
+    const p = call(db, 'page.get', { id: 'pa1' }, 'main').result.page;
+    assert.strictEqual(call(db, 'page.delete', { id: 'pa1' }).ok, true);
+    const rev = db.prepare("select rev from blocks where id='pa1'").get().rev;
+    const r = call(db, 'page.put', { page: { ...p, summaryError: '要約の文' }, baseRev: rev }, 'main');
+    assert.deepStrictEqual([r.ok, r.result], [true, null], 'ゴミ箱のページに書き戻した');
+    assert.strictEqual(JSON.parse(db.prepare("select attrs from blocks where id='pa1'").get().attrs).summaryError, '');
+  } finally { t.done(); }
+});
+
+// 点検で足した確かめ: recite: false（復旧の文字起こしの道）は区間だけを直す。失敗の印を外し、rev は上がり、ブロックと出典の数は触らない
+test('ST6: segment.update の recite: false は発言だけを直す（ブロックと citeStat はそのまま）', { timeout: 5000 }, () => {
+  const t = tmpDb();
+  try {
+    const { db } = t.open();
+    const { page, segments } = samplePage('pa1');
+    t.seed(page, segments);
+    const before = call(db, 'page.get', { id: 'pa1' }, 'main').result.page;
+    const r = call(db, 'segment.update', { pageId: 'pa1', segId: 's1', patch: { text: '復旧で起こし直した発言' }, recite: false }, 'main');
+    assert.strictEqual(r.ok, true, r.code);
+    assert.ok(r.result && Array.isArray(r.result.segments), '区間を直さずに null を返した');
+    const s1 = r.result.segments.find((s) => s.id === 's1');
+    assert.deepStrictEqual([s1.text, 'failed' in s1], ['復旧で起こし直した発言', false], '直した区間が書かれていない');
+    const got = call(db, 'page.get', { id: 'pa1' }, 'main').result;
+    assert.strictEqual(got.segments.find((s) => s.id === 's1').text, '復旧で起こし直した発言');
+    assert.strictEqual(got.page.rev, before.rev + 1, '発言の直しで rev が上がらない');
+    assert.deepStrictEqual(got.page.blocks, before.blocks, 'recite: false なのにブロックを直した');
+    assert.deepStrictEqual(got.page.citeStat, before.citeStat, 'recite: false なのに出典の数を作り直した');
   } finally { t.done(); }
 });
 
