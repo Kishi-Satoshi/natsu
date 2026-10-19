@@ -310,7 +310,7 @@ describe('第1a回 保存の守り（main）', { concurrency: Number(process.env
 
   // 第2a1回 M-2b で意図して変えた（計画の「意図して変えるもの」）: 起動では元の JSON に触れない（store.init で退けない）。
   // 移行は退けない読み方で読み、壊れたページ（p1）は数えて飛ばし、文字起こしだけ壊れたページ（p2）は「発言なし」で移す（ST10）。
-  // 元のファイルは元の名前・元の中身のまま。飛ばした数の知らせ D3 は M-4 で足す
+  // 元のファイルは元の名前・元の中身のまま。飛ばした数は知らせ D3 で出す（M-4）
   test('P16・ST10: 壊れたページと文字起こしは退けず、元の名前・元の中身のまま残す（壊れたページは開けず、文字起こしだけ壊れたページは発言なしで開く）', SCENE, async () => {
     const r = await run('page-files-broken');
     assert.deepStrictEqual(r.files.filter((f) => /\.broken-/.test(f)), [], '元の JSON を退けた');
@@ -319,6 +319,8 @@ describe('第1a回 保存の守り（main）', { concurrency: Number(process.env
     assert.strictEqual(r.p1, null);
     assert.strictEqual(r.p2.page.id, 'p2');
     assert.deepStrictEqual(r.p2.segments, []);
+    // 第2a1回 M-4: 飛ばした数（壊れたページ p1 と、壊れた文字起こし p2 の 2 つ）を知らせ D3 で1回
+    assert.strictEqual(r.notices.filter((n) => n === '壊れているか形が合わなかったため、2 件のファイルを移せませんでした（元の場所にそのまま残しています）。ほかの議事録はそのまま使えます。').length, 1, JSON.stringify(r.notices));
   });
 
   test('記録: 復旧の文字起こしと議事録の保存の失敗は、エラーの文（fs ではパス全体を含む）をそのまま書かず logReason を通す', { timeout: 5000 }, () => {

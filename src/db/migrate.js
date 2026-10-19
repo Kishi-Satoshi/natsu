@@ -13,6 +13,8 @@
  *   表せない（bad-shape）: 題名・ブロックの文・型が文字でない、型が 'page'（一覧のページになってしまう）、空の作成・更新時刻（読むと欄が消える）、
  *   ページに DB が作る欄・決まった名前（rev・routeText・children・type・text・rich）、blocks が配列でない、ブロックの rich が配列でない・children が空でない、
  *   発言・ブロックが物でない、発言に文が無い（読むと '' になる）、壊れたサロゲート・-0・有限でない数・__proto__ の鍵（表に入れると値が変わる）。
+ *   命令の照らし（validate の page。題名 500 字・ブロック 2,000 個・型の名前・文の長さ・1MB）に合わないページも bad-shape（入れると後の
+ *   page.put が毎回 bad-args で断られ、要約の書き戻しが保存できない。M-4 の点検）。
  *   blocks の無いページは今の getPage と同じく空の並びにする。
  * migrate({ sqlite, dataDir, onProgress, fs, now, verifyHook }) → { ok: true, counts, ms } | { ok: false, code: 'verify'|'io'|'quick-check', counts }
  *   1. natsu.db がもうあれば何もせずに io（上書きしない）。前の起動の残り natsu.db.migrating とその -wal・-shm・-journal は
@@ -127,6 +129,9 @@ function convertPage(page, segments, { usedIds = new Set() } = {}) {
     }
     seen.add(s.id);
   });
+  // 命令の照らし（題名・ブロックの数と型・文の長さ・1つの頼みの大きさ）に合わないページは、入れると後の page.put（要約の書き戻し）が
+  // 毎回 bad-args で断られる。表せないものと同じに数えて元の JSON に残す（窓 D0・知らせ D3 に数が出る。M-4 の点検）
+  if (!V.checkArgs({ page: 'page' }, { page: out }).ok) return { ok: false, code: 'bad-shape' };
   return { ok: true, page: out, segments: segs, fixed: fixedAt.blocks.length + fixedAt.segments.length, fixedAt };
 }
 

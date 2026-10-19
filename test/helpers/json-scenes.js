@@ -12,6 +12,8 @@
 //   noDbWait: 真なら、場面は議事録の DB の用意を待たずに act を呼ぶ（第2a1回 M-2b。用意の前の動きを見る）
 //   dbDown:  真なら mainrun の --db-down と同じ（議事録の DB のプロセスの SQLite が trigram を持たない: 自分の確かめが通らず、
 //            DB は「使えない」で起きる。第2a1回 M-2b）
+//   dialog:  偽の dialog.showMessageBox の答え方（第2a1回 M-4。無い = 1 番目の［移す］、'quit' = 2 番目、'hold' = ctx.answerDialog(i) まで答えない）
+//   quitEmits: 真なら app.quit() が本物と同じく before-quit を出す（第2a1回 M-4）
 //   overlayPause: 偽の録音バーの［一時停止］の答え方（第1b回 Task A-3。'lost-once' = 最初の頼みが届かない、'late' = 最初の返事を
 //            ctx.releasePause() まで出さない。無ければすぐ返す）
 const pretty = (o) => JSON.stringify(o, null, 2);   // 今の saveJson が書く形（main.js:219）
@@ -45,6 +47,38 @@ const wsText = (c) => { const b = c.readLocal(WS_FILE); return b ? b.toString('u
 // 0.7.0 U-1: 前の版が groq・custom の名前でしまった鍵（mainrun の偽の safeStorage の暗号 'ENC1:<hex>' の base64）
 const fakeEncB64 = (k) => Buffer.from(`ENC1:${Buffer.from(k, 'utf8').toString('hex')}`).toString('base64');
 const LEGACY_KEYS = { groq: fakeEncB64('gsk_legacy_groq_000'), custom: fakeEncB64('legacy_custom_0000') };
+
+// 第2a1回 M-4: 0.6.0 と同じ store.js（別の写し: main の store と状態を分ける）で、userData の data に議事録を置く。segs[i] はページ i の発言の数。
+// 作ったページの ID の並びを返す
+function oldPages(ud, segs) {
+  const p = require.resolve('../../src/store');
+  const saved = require.cache[p];
+  delete require.cache[p];
+  let st;
+  try { st = require(p); } finally { if (saved) require.cache[p] = saved; else delete require.cache[p]; }
+  st.init(ud);
+  return segs.map((n, i) => st.createPage({
+    title: `第${i + 1}回の定例会議（𠮷）`, date: `2026-09-${String(i + 1).padStart(2, '0')}`, durationSec: 600, memo: i % 2 ? '' : `メモ ${i + 1}`,
+    blocks: [{ id: st.newId('b'), type: 'bullet', text: `決めたこと ${i + 1}`, cites: [] }],
+    segments: Array.from({ length: n }, (_, k) => ({ id: `s${k + 1}`, atMs: k * 20000, durationMs: 20000, text: `第${i + 1}回の発言 ${k + 1}` })),
+    createdAt: new Date(Date.UTC(2026, 8, 1 + i, 9)).toISOString(),
+  }).id);
+}
+// 元の JSON（data/pages・data/transcripts・data/index.json）の 相対パス → SHA-256（名前と中身が1バイトも変わらないかを見る）
+function jsonShas(ud) {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const out = {};
+  const sha = (f) => require('node:crypto').createHash('sha256').update(fs.readFileSync(f)).digest('hex');
+  for (const dir of ['pages', 'transcripts']) {
+    let names = [];
+    try { names = fs.readdirSync(path.join(ud, 'data', dir)); } catch (_) { names = []; }
+    for (const n of names.sort()) out[`data/${dir}/${n}`] = sha(path.join(ud, 'data', dir, n));
+  }
+  try { out['data/index.json'] = sha(path.join(ud, 'data', 'index.json')); } catch (_) { /* 無ければ入れない */ }
+  return out;
+}
+let shaBefore = null;   // 場面の prepare で取った元の JSON の SHA-256（同じプロセスの act が読む）
 
 module.exports = {
   TYPICAL, HISTORY, UI, OLD_DRAFT, WS, LEGACY_KEYS,
@@ -249,7 +283,8 @@ module.exports = {
       'data/segbuf/1700000000000/0001.wav': 'RIFF',
       'data/segbuf/1700000000000/recovery.json': ({ userData }) => JSON.stringify({ pageId: 'p1', items: [{ id: 's1', wav: require('node:path').join(userData, 'data', 'segbuf', '1700000000000', '0001.wav'), durationMs: 3000 }], retry: false }) },
     faults: [{ op: 'read', match: /recovery\.json$/, code: 'EBUSY', times: 7 }],
-    act: async (c) => { c.out.retries = (c.timers.retryDraftRecovery || []).length; for (const f of c.timers.retryDraftRecovery || []) f(); } },
+    // やり直しは待つ（第2a1回 M-4 から下書きの復旧は1つずつ回すので、読み直しの記録は数手番あとに書かれる）
+    act: async (c) => { c.out.retries = (c.timers.retryDraftRecovery || []).length; for (const f of c.timers.retryDraftRecovery || []) await f(); } },
   // 第2a1回 M-1（ST1）: recovery.json の pageId のページが無い（消された）。フォルダは7日の掃除に当たらない新しい名前。
   // エンジンを起こさずに、WAV と recovery.json を片付ける（ページの確かめは db.call('page.get') が null と答えたときだけ）
   'recovery-page-gone': { files: { 'settings.json': pretty(TYPICAL),
@@ -440,6 +475,134 @@ module.exports = {
       c.out.pages = c.store.listPages().map((p) => p.id);
       const raw = c.read('data/pages/pmig1.json');
       c.out.jsonKept = raw !== null && raw.toString('utf8') === JSON.stringify({ id: 'pmig1', title: '移行の途中で落ちた会議', blocks: [], createdAt: '2026-10-01T00:00:00.000Z' });
+    } },
+  // 第2a1回 M-4（ST10・Q1）: 初めての起動で、0.6.0 の store.js で置いた 6 ページ（1 つは BOM 付き。発言は 3・3・3・2・2・2 の 15）と
+  // 壊れたページのファイル 1 つ。窓 D0 で［移す］（偽の dialog の既定）。元の JSON（pages・transcripts・index.json）の SHA-256 を前後で見る
+  'migrate-go': { files: { 'settings.json': pretty(TYPICAL) },
+    prepare: (ud) => {
+      const fs = require('node:fs');
+      const path = require('node:path');
+      const ids = oldPages(ud, [3, 3, 3, 2, 2, 2]);
+      const f = path.join(ud, 'data', 'pages', `${ids[0]}.json`);
+      fs.writeFileSync(f, Buffer.concat([BOM, fs.readFileSync(f)]));   // メモ帳で保存し直した（BOM 付き）
+      fs.writeFileSync(path.join(ud, 'data', 'pages', 'pbroken0001.json'), '{"id":"pbroken0001","title":"壊れ');
+      shaBefore = jsonShas(ud);
+    },
+    act: async (c) => { c.out.jsonShaBefore = shaBefore; c.out.jsonShaAfter = jsonShas(c.userData); } },
+  // 第2a1回 M-4（Q1）: 窓 D0 で［今は移さずに終える］。本物と同じく app.quit() が before-quit を出す（main は DB を閉じてから終える）。
+  // 前の起動の下書き（落ちた会議）も置き、中身がそのままかを見る
+  'migrate-quit': { noDbWait: true, dialog: 'quit', quitEmits: true,
+    files: { 'settings.json': pretty(TYPICAL), 'data/draft.json': pretty(OLD_DRAFT) },
+    prepare: (ud) => { oldPages(ud, [2, 1]); shaBefore = jsonShas(ud); },
+    act: async (c) => {
+      c.out.closed = await c.waitFor(() => c.quitCalls() >= 2 && c.dbState() === 'down', 10000);
+      c.out.jsonShaBefore = shaBefore;
+      c.out.jsonShaAfter = jsonShas(c.userData);
+      const d = c.read('data/draft.json');
+      c.out.draftSame = d !== null && d.toString('utf8') === pretty(OLD_DRAFT);
+    } },
+  // 第2a1回 M-4（ST10）: 移行の確かめが合わない（NATSU_TEST_MIGRATE_VERIFY_FAIL）。natsu.db は作らず、.migrating を .failed に退け、知らせ D4
+  'migrate-verify-fail': { env: { NATSU_TEST_MIGRATE_VERIFY_FAIL: '1' }, files: { 'settings.json': pretty(TYPICAL) },
+    prepare: (ud) => { oldPages(ud, [2, 2]); shaBefore = jsonShas(ud); },
+    act: async (c) => {
+      await c.sleep(100);   // 使えないと分かった後の知らせが画面に届くのを待つ
+      c.out.jsonShaBefore = shaBefore;
+      c.out.jsonShaAfter = jsonShas(c.userData);
+    } },
+  // 第2a1回 M-4（RF14・F9）: 窓 D0 を開いたまま（DB は移行の答え待ち）、ホットキーで2回録音して止める（どちらも締めは DB を待つ）。
+  // 3回目の録音の最中に［移す］を押し、DB の用意の後の片付け（meeting.settle）が録音中の写しを一覧に出さないかを見てから止める。
+  // 前の起動で消しきれなかった取り消しの控え（purge-pending.json）を置く（起動の片付けが DB を待ち、settle が用意の後に、
+  // 録音中の写しが DB に届いてから決まるように）。移行のファイル1つごとに 200ms 止める（進み具合の帯を見る）
+  'migrate-record-during': { engine: true, noDbWait: true, dialog: 'hold', env: { NATSU_TEST_MIGRATE_DELAY_MS: '200' },
+    files: { 'settings.json': ({ base }) => JSON.stringify(base), 'data/purge-pending.json': pretty({ pageIds: ['pzpurge0001'] }) },
+    prepare: (ud) => { oldPages(ud, [1, 1]); },
+    act: async (c) => {
+      const hk = (await c.handlers['settings:get']()).meetingHotkey;
+      c.out.dialogShown = await c.waitFor(() => c.dialogs().length === 1, 10000);
+      await c.waitFor(() => c.mainState() === 'idle', 10000);
+      const waitText = '録音を保存しました。議事録は準備ができしだい作ります';
+      const stopOne = async (n) => {
+        c.shortcuts[hk]();   // 止める
+        c.listeners['audio:segment']({}, { buffer: new Uint8Array(c.toneWav(3)), durationMs: 3000, final: true });
+        await c.waitFor(() => c.overlayDone().filter((m) => m === waitText).length >= n, 6000);
+      };
+      const states = [];
+      c.out.statesBeforeReady = states;
+      for (let n = 1; n <= 2; n++) {
+        c.shortcuts[hk]();   // 始める
+        await c.waitFor(() => c.mainState() === 'meeting', 5000);
+        await stopOne(n);
+        states.push(c.mainState());
+        if (states[n - 1] !== 'idle') return;   // 待機に戻らない: 次の録音を始められないので、ここで結果を出す
+      }
+      c.out.dbStateBeforeAnswer = c.dbState();
+      // 3回目を始め、録音中に［移す］
+      c.shortcuts[hk]();
+      c.out.thirdStarted = await c.waitFor(() => c.mainState() === 'meeting', 5000);
+      const drafts = c.store.draftFiles().map((n) => c.store.readDraftFile(n)).filter((r) => r.state === 'ok').map((r) => r.value);
+      const cur = drafts.sort((a, b) => b.startedAt - a.startedAt)[0];
+      c.answerDialog(0);
+      c.out.ready = await c.waitFor(() => c.dbState() === 'ready', 10000);
+      c.out.settled = await c.waitFor(() => c.trace().some((t) => t.kind === 'ack' && t.cmd === 'meeting.settle'), 8000);
+      c.out.listedWhileRecording = (await c.appCall('pages.list', {})).some((p) => p.id === (cur && cur.pageId));
+      c.out.migratedCount = 2;
+      c.shortcuts[hk]();
+      c.listeners['audio:segment']({}, { buffer: new Uint8Array(c.toneWav(3)), durationMs: 3000, final: true });
+      await c.waitFor(() => c.store.listPages().length >= 5 && !c.store.draftFiles().length, 8000);
+      c.out.progress = c.mainProgress();
+    } },
+  // 第2a1回 M-4（RF17。計画の外で足した場面）: 前の起動で移した後に、古い版（0.6.0）がページを1つ足し、壊れたページのファイルも1つ置いた。
+  // 起動のたびの取り込みで入れて知らせ D5、飛ばしたファイルの組が前と変わったので知らせ D3
+  'reimport-after-migrate': { files: { 'settings.json': pretty(TYPICAL) },
+    prepare: (ud) => {
+      const fs = require('node:fs');
+      const path = require('node:path');
+      oldPages(ud, [1, 1]);
+      const r = require('../../src/db/migrate').migrate({ sqlite: require('node:sqlite'), dataDir: path.join(ud, 'data') });
+      if (!r.ok) throw new Error(`場面の用意: 移せない（${r.code}）`);
+      oldPages(ud, [2]);   // 古い版が後で書いたページ（ID は時刻と乱数で新しい）
+      fs.writeFileSync(path.join(ud, 'data', 'pages', 'pbroken0002.json'), '{"id":"pbroken0002","title":"壊れ');
+    } },
+  // 第2a1回 M-4（D7。計画の外で足した場面）: 新しい版の NaTsu で作られた DB（user_version が大きい）は読むだけで開き、知らせ D7
+  'db-newer': { files: { 'settings.json': pretty(TYPICAL) },
+    prepare: (ud) => {
+      const path = require('node:path');
+      const sqlite = require('node:sqlite');
+      oldPages(ud, [1]);
+      const dataDir = path.join(ud, 'data');
+      const r = require('../../src/db/migrate').migrate({ sqlite, dataDir });
+      if (!r.ok) throw new Error(`場面の用意: 移せない（${r.code}）`);
+      const db = new sqlite.DatabaseSync(path.join(dataDir, 'natsu.db'));
+      try { db.exec('pragma user_version = 99'); } finally { db.close(); }
+    },
+    act: async (c) => { c.out.dbState = c.dbState(); } },
+  // 第2a1回 M-4（ST9）: 手の空いたときだけ1日1回 daily の控えを取る。録音中に見ても取らない（見直しの時計を置く）。録音を締め、要約の
+  // 試み（要約エンジンが無いので欄に理由を書くだけ）が済んでから見ると1回取り、同じ日にもう一度見ても取らない
+  'snapshot-daily': { engine: true, files: { 'settings.json': ({ base }) => JSON.stringify(base) },
+    act: async (c) => {
+      const hk = (await c.handlers['settings:get']()).meetingHotkey;
+      const checks = () => c.timers.checkDailySnapshot || [];
+      c.out.scheduledAtStart = checks().length;
+      c.shortcuts[hk]();
+      await c.waitFor(() => c.mainState() === 'meeting', 5000);
+      if (checks().length) await checks()[checks().length - 1]();
+      c.out.snapshotKindsDuringMeeting = c.snapshotKinds();
+      c.shortcuts[hk]();
+      c.listeners['audio:segment']({}, { buffer: new Uint8Array(c.toneWav(3)), durationMs: 3000, final: true });
+      await c.waitFor(() => { const p = c.store.listPages()[0]; return Boolean(p && c.store.getPage(p.id) && c.store.getPage(p.id).summaryError) && c.mainState() === 'idle'; }, 8000);
+      await c.sleep(50);
+      for (let i = 0; i < 2; i++) if (checks().length) await checks()[checks().length - 1]();
+      c.out.snapshotKindsAfter = c.snapshotKinds();
+    } },
+  // 第2a1回 M-4（点検の申し送り。データの守り）: DB に入った後で保存の決まり（ブロックは 2,000 個まで）を超えたページ（画面の［行を足す］は
+  // 数を見ない）に、要約の書き戻し（page.put）が bad-args で断られても、黙って飲まずに平易な文で知らせる
+  'summary-bad-args': { files: { 'settings.json': pretty(TYPICAL),
+      'data/pages/pbig000001.json': JSON.stringify({ id: 'pbig000001', title: '行の多い会議', blocks: Array.from({ length: 2000 }, (_, i) => ({ id: `b${i}`, type: 'bullet', text: `行 ${i}`, cites: [] })), memo: '', createdAt: '2026-10-01T00:00:00.000Z', summaryError: '' }),
+      'data/transcripts/pbig000001.json': JSON.stringify({ id: 'pbig000001', segments: [] }) },
+    act: async (c) => {
+      c.out.inserted = Boolean(await c.appCall('block.insert', { pageId: 'pbig000001', afterBlockId: '', type: 'bullet' }));
+      try { c.out.summary = await c.handlers['page:summarize']({}, 'pbig000001'); } catch (e) { c.out.summaryThrew = String((e && e.code) || (e && e.message) || e); }
+      await c.sleep(50);
     } },
   // 第1c回 Task C-2: 設定のカード「オンライン」の IPC を main で本当に呼ぶ（鍵は画面へ返さない・secrets.json は暗号の形・
   // ［鍵を確かめる］は 127.0.0.1 の偽の送り先の /models へ・Claude Code の場所が無いときの文・［PC の中だけ］は片道）。

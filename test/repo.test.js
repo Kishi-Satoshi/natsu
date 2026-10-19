@@ -1019,7 +1019,7 @@ test('#8/#42(1) 区間の音声は文字起こしの前にディスクへ退避�
   assert.match(fnBody(m, 'async function doRunSummary', '\nlet hotkeyState'), /const usable = segments\.filter\(\(s\) => !s\.failed && !s\.pending\)/);
   assert.ok(fnBody(m, 'function discardMeeting()', '\n}').includes('cleanupSegbuf(m)'), '破棄で退避した音声を消していない');
   // 復旧: 待ちの区間は draft からページに載せるとき失敗扱いにする（判断は mainlib.recoverSegments）
-  assert.ok(fnBody(m, 'function recoverDraftIfAny()', '\n}').includes('recoverSegments(d.segments'), '復旧で待ちの区間を直していない');
+  assert.ok(fnBody(m, 'async function recoverDraftsNow()', '\n}').includes('recoverSegments(d.segments'), '復旧で待ちの区間を直していない');
 });
 
 test('#8/#42(2) 復旧ページの「文字起こし待ち」は起動後に文字起こしして差し替え、古い退避フォルダは消す', () => {

@@ -330,3 +330,103 @@ test('ST5: main は画面のページの口を中継しない（ipcMain の page
   const chans = [...m.matchAll(/ipcMain\.handle\('((?:page|pages|block|segment):[\w-]+)'/g)].map((x) => x[1]);
   assert.deepStrictEqual(chans, ['page:summarize']);
 });
+
+// ---------------------------------------------------------------- M-4（ST10 の配線・ST9 の配線・RF14・F9）: 移行の窓・移行の間の録音・起動のたびの取り込み・毎日の控え
+// 場面は helpers/json-scenes.js（migrate-*・snapshot-daily・summary-bad-args）。偽の dialog は場面が決めなければ［移す］を押す
+test('ST10: 初めての起動で数を窓で見せ、［移す］で移して知らせる。元の JSON は1バイトも変わらない', { timeout: 30000 }, () => {
+  const out = runScene('migrate-go');   // 0.6.0 の store.js で 6 ページ（BOM 付き 1）と壊れたページのファイル 1 つを置いて起動し、窓で［移す］
+  assert.match(out.dialogs[0].message, /議事録 6 件・文字起こしの発言 15 件/);
+  assert.match(out.dialogs[0].message, /壊れているか形が合わず移せないファイル: 1 件/);
+  assert.deepStrictEqual(out.dialogs[0].buttons, ['移す', '今は移さずに終える']);
+  assert.ok(out.notices.some((n) => n.startsWith('議事録 6 件を新しい保存の形に移しました。')));
+  assert.deepStrictEqual(out.jsonShaAfter, out.jsonShaBefore);
+  assert.strictEqual(out.pages.length, 6);
+  assert.ok(out.files.some((f) => /^data\/backup\/natsu-.*-migration\.db\.gz$/.test(f)), '移行の後の控えが無い');
+  // 計画の外で足した確かめ: 窓の既定は［移す］、Esc は［今は移さずに終える］（元の JSON に触れない側）。飛ばしたものの知らせ D3 は1回
+  assert.strictEqual(out.dialogs[0].defaultId, 0);
+  assert.strictEqual(out.dialogs[0].cancelId, 1);
+  assert.strictEqual(out.notices.filter((n) => n.startsWith('壊れているか形が合わなかったため、1 件のファイルを移せませんでした')).length, 1, JSON.stringify(out.notices));
+  assert.ok(!out.notices.some((n) => n.startsWith('古い版で保存された議事録')), '移した直後の取り込みが同じページを「取り込んだ」と知らせた');
+});
+
+test('Q1: ［今は移さずに終える］なら natsu.db を作らずに終え、元の JSON も下書きもそのまま', { timeout: 30000 }, () => {
+  const out = runScene('migrate-quit');
+  assert.strictEqual(out.quitCalled, true);
+  assert.strictEqual(out.closed, true, '終える前に DB を閉じていない');
+  assert.ok(!out.files.includes('data/natsu.db'));
+  assert.deepStrictEqual(out.jsonShaAfter, out.jsonShaBefore);
+  assert.strictEqual(out.draftSame, true, '下書きが変わった・消えた');
+});
+
+test('RF14・F9: 移行の間にホットキーで録音して止めると、待つ間も状態は待機に戻って次の録音を始められ、移行の後に会議が増える（窓が出ている間も同じ）', { timeout: 30000 }, () => {
+  const out = runScene('migrate-record-during');   // 窓を開いたまま録音 → 停止 → もう1回録音 → 停止 → 3回目の録音中に［移す］→ 止める
+  assert.strictEqual(out.dialogShown, true, '場面の前提: 移行の窓が出ていない');
+  assert.strictEqual(out.dbStateBeforeAnswer, 'migrating', '場面の前提: 窓の答えの前に DB が用意できた');
+  assert.deepStrictEqual(out.statesBeforeReady, ['idle', 'idle'], '締めが DB を待つ間、録音の状態が戻らなかった（次の録音を始められない）');
+  assert.ok(out.overlayDone.some((m) => m === '録音を保存しました。議事録は準備ができしだい作ります'));
+  // 計画と違えたところ: 録音中の写しを片付けが一覧に出さないかを見るため、3回目の録音を［移す］の前に始めて後で止める（会議は 3 つ増える）
+  assert.strictEqual(out.thirdStarted, true);
+  assert.strictEqual(out.pages.length, out.migratedCount + 3);
+  assert.ok(!out.files.some((f) => /^data\/draft/.test(f)));
+  assert.strictEqual(out.settled, true, '場面の前提: 用意の後の片付け（meeting.settle）が済んでいない');
+  assert.strictEqual(out.listedWhileRecording, false, '移行の後の片付け（settle）で、録音中の写しが一覧に出た');
+  assert.ok(!out.notices.some((n) => n.startsWith('前回中断された議事録')), '締めの返事を待っている会議を、復旧が別の道で書いた');
+  // 計画の外で足した確かめ: 締めの返事を待つ会議の下書きを復旧が読まない（読むと「締め済み」として片付け、締めの道と2つの道で同じ下書きを扱う）
+  assert.ok(!out.engineLog.some((l) => /は締め済みか取り消した会議のものだったので片付けました/.test(l)), '締めの返事を待っている会議の下書きを、復旧が読んだ');
+  // 計画の外で足した確かめ: 移行の進み具合を帯に出し、済んだら帯を消す
+  const lastMove = out.progress.map((m) => /^議事録を移しています… \d+\/\d+$/.test(m)).lastIndexOf(true);
+  assert.ok(lastMove >= 0, JSON.stringify(out.progress));
+  assert.strictEqual(out.progress[lastMove + 1], '', `移行が済んだのに進み具合の帯が残った: ${JSON.stringify(out.progress)}`);
+});
+
+test('ST10: 移行の確かめが合わなければ「使えない」で起き、録音は下書きに残り、次の起動でやり直す', { timeout: 30000 }, () => {
+  const out = runScene('migrate-verify-fail');
+  assert.ok(out.notices.some((n) => n.startsWith('議事録を新しい保存の形に移せませんでした。元のファイルはそのまま残っています。')));
+  assert.ok(!out.files.includes('data/natsu.db'));
+  assert.ok(out.files.some((f) => /^data\/natsu\.db\.migrating\.failed-/.test(f)));
+  // 計画の外で足した確かめ: D4 のときは D1 を出さない。元の JSON は1バイトも変わらない
+  assert.ok(!out.notices.some((n) => n.startsWith('議事録の保存の仕組みを使えません。')), JSON.stringify(out.notices));
+  assert.deepStrictEqual(out.jsonShaAfter, out.jsonShaBefore);
+});
+
+test('ST9: 録音中は控えを取らず、手が空いたら1日1回 daily を取る', { timeout: 30000 }, () => {
+  const out = runScene('snapshot-daily');
+  assert.strictEqual(out.scheduledAtStart, 1, '起動の後に毎日の控えを見る時計を置いていない');
+  assert.deepStrictEqual(out.snapshotKindsDuringMeeting, []);
+  assert.deepStrictEqual(out.snapshotKindsAfter, ['daily']);
+});
+
+// 計画の外で足した確かめ（M-4 の点検の申し送り: 保存の決まりを超えたページへの書き戻しの bad-args を黙って飲まない）
+test('F6: 保存の決まり（ブロック 2,000 個まで）を超えたページへの要約の書き戻しが断られたら、平易な文で知らせる（投げて黙らない）', { timeout: 30000 }, () => {
+  const out = runScene('summary-bad-args');
+  assert.strictEqual(out.inserted, true, '場面の前提: 2,001 個目の行を足せなかった');
+  assert.strictEqual(out.summaryThrew, undefined, `要約が bad-args を投げた（画面に理由が出ない）: ${out.summaryThrew}`);
+  assert.strictEqual(out.summary.ok, false);
+  const text = '要約を保存できませんでした。この議事録が保存できる大きさ（題名は 500 字まで・行は 2,000 個まで）を超えています。題名を短くするか行を減らしてから、もう一度［要約を生成］を押してください。';
+  assert.ok(out.notices.includes(text), JSON.stringify(out.notices));
+  assert.strictEqual(out.summary.error, text);
+});
+
+test('F9: 起動は、DB が利用者を待つ（移行の窓）か少し待っても用意できなければ、取り消しの送り直し・下書きの復旧・写しの片付けを待たずに画面とホットキーを用意する', () => {
+  const m = read('src/main.js');
+  const boot = fnBody(m, 'app.whenReady().then(', '\n  });');
+  assert.ok(!/\n    await flushPurgePending\(\);/.test(boot) && !/\n    const startupDrafts = await recoverDraftIfAny\(\);/.test(boot), '起動の手番で DB をそのまま待っている');
+  assert.ok(boot.includes('await Promise.race([startupWork.catch(() => {}), dbNeedsUser, new Promise((r) => { setTimeout(r, STARTUP_DB_WAIT_MS); })]);'), '起動の片付けの待ちに、移行の窓と時間の上限が無い');
+  assert.ok(boot.indexOf('await Promise.race([startupWork') < boot.indexOf('setupIpc();') && boot.indexOf('setupIpc();') < boot.indexOf('resolveStartupHotkeys('));
+  assert.ok(fnBody(m, 'async function askMigrate(', '\n}').includes('dbNeedsUserResolve();'), '移行の窓を出すときに起動の待ちを解かない');
+});
+
+// 計画の外で足した確かめ（M-4 の目的の「起動のたびの取り込みで入れたものがあれば D5、飛ばしたファイルの組が変わったときだけ D3」「新しすぎる版なら D7」を押さえるテストが無かったため）
+test('RF17: 移した後に古い版が足したページを、起動のたびの取り込みで入れて知らせ D5。飛ばしたファイルの組が変わったので D3 も1回', { timeout: 30000 }, () => {
+  const out = runScene('reimport-after-migrate');
+  assert.deepStrictEqual(out.notices.filter((n) => n === '古い版で保存された議事録 1 件を取り込みました。'), ['古い版で保存された議事録 1 件を取り込みました。'], JSON.stringify(out.notices));
+  assert.strictEqual(out.notices.filter((n) => n.startsWith('壊れているか形が合わなかったため、1 件のファイルを移せませんでした')).length, 1, JSON.stringify(out.notices));
+  assert.ok(!out.notices.some((n) => n.startsWith('議事録 ') && n.includes('新しい保存の形に移しました')), '移していない起動で D2 を出した');
+  assert.strictEqual(out.pages.length, 3);
+});
+test('D7: 新しい版の NaTsu で作られた DB は読むだけで開き、知らせ D7 を1回', { timeout: 30000 }, () => {
+  const out = runScene('db-newer');
+  assert.strictEqual(out.dbState, 'read-only');
+  assert.strictEqual(out.notices.filter((n) => n.startsWith('この議事録の保存は、新しい版の NaTsu で作られています。')).length, 1, JSON.stringify(out.notices));
+  assert.strictEqual(out.pages.length, 1);
+});

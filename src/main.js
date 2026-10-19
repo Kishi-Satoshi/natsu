@@ -225,6 +225,14 @@ const NOTICE = {
   recoveryNotSaved: '文字起こし待ちの記録を保存できませんでした。音声は残してあり、次の起動でもう一度試します。',
   // 議事録の DB を使えない（第2a1回 D1。開けない・自分の確かめが通らない・10分に5回落ちた）。録音は続く
   dbDown: '議事録の保存の仕組みを使えません。録音は音声と下書きとして保存を続けています。NaTsu を終了して、もう一度起動してください（理由の記録: %APPDATA%\\natsu\\engine.log）。',
+  // 移行と取り込み・控え（第2a1回 M-4。計画「画面と知らせの文」の D2〜D8。D0 は窓の文: migratePlan）
+  migrated: (n) => `議事録 ${n} 件を新しい保存の形に移しました。元のファイルは %APPDATA%\\natsu\\data\\pages に残しています。`,
+  skipped: (n) => `壊れているか形が合わなかったため、${n} 件のファイルを移せませんでした（元の場所にそのまま残しています）。ほかの議事録はそのまま使えます。`,
+  migrateFailed: '議事録を新しい保存の形に移せませんでした。元のファイルはそのまま残っています。録音は下書きとして保存を続けます。NaTsu を終了して、もう一度起動してください（起動のときにもう一度移します）。',
+  reimported: (n) => `古い版で保存された議事録 ${n} 件を取り込みました。`,
+  restored: (at) => `議事録の保存が壊れていたため、${at} の控えから戻しました。それより後の変更が抜けているかもしれません。壊れたファイルは natsu.db.broken-… として残しています。`,
+  dbNewer: 'この議事録の保存は、新しい版の NaTsu で作られています。この版では読むだけにします（変更は保存されません）。新しい版の NaTsu を入れ直してください。',
+  dbNetwork: '保存先がネットワークの場所にあるため、少し遅いが安全な書き方に切り替えました。',
   // 画面の覚え書き（第1b回 W1。P16）
   winStateBroken: (name) => `画面の覚え書き（窓の大きさ・開いていたタブ）のファイルが壊れていたため、脇へ退けて最初の大きさで開きました（退けた先: ${name}）。`,
 };
@@ -240,8 +248,17 @@ function onStoreReport(ev) {
   if (ev.kind === 'draft') laterNotice(NOTICE.draftBroken(ev.movedTo));
 }
 // 議事録の DB の客の知らせ（第2a1回 ST7）。子が落ちたら画面に db:lost（preload が待ちを返す）、起こし直したら口を配り直す（onReady）。
-// 諦めた・使えないときは知らせ D1 を1回（録音は下書きと音声の控えに続く）。移行の窓は M-4 で作るので、この段は聞かずに移す
+// 諦めた・使えないときは知らせ D1 を1回（録音は下書きと音声の控えに続く）。移すと答えた後に一度も用意ができずに使えなくなった
+// （移行の確かめが合わなかった）ときは D1 の代わりに D4（第2a1回 M-4）。
+// 子の移行の数（migrate-plan）が来たら窓 D0 で聞き（askMigrate）、進み具合（progress）は録音の進み具合と同じ帯に出す
 let dbDownNoticed = false;
+let migrateAsked = false;      // ［移す］と答えた（起こし直した子が auto で移すときも）
+let dbEverReady = false;       // この起動で一度でも用意ができた
+let migrateBand = false;       // 移行の進み具合を帯に出している（用意か使えないで消す）
+// 起動は、DB が利用者を待つ（移行の窓）か、この長さを過ぎたら、起動の片付け（DB を待つ）を待たずに窓とホットキーを用意する（F9）
+const STARTUP_DB_WAIT_MS = 3000;
+let dbNeedsUserResolve = null;
+const dbNeedsUser = new Promise((r) => { dbNeedsUserResolve = r; });
 // 子が落ちた印。本体の窓に渡した口は落ちた子のもの（死んでいる）なので、次の ready（起こし直した子の用意）で配り直す。
 // 「2回目からの ready」で決めると、最初の用意の前（起動・移行の途中）に落ちたとき、起こし直した子の ready がアプリで最初になり、配り直さない
 let dbPortStale = false;
@@ -252,11 +269,85 @@ function onDbEvent(ev) {
     sendToMainWin('db:lost', {});
   }
   else if (ev.type === 'down') {
+    clearMigrateBand();
     if (dbDownNoticed) return;
     dbDownNoticed = true;
     engineLog(`DB: 使えないので知らせた（${ev.why}）`);
-    laterNotice(NOTICE.dbDown);
-  } else if (ev.type === 'migrate-plan' && !ev.auto) db.migrate(true);
+    laterNotice(migrateAsked && !dbEverReady && ev.why === 'failed' ? NOTICE.migrateFailed : NOTICE.dbDown);
+  } else if (ev.type === 'migrate-plan') {
+    // 起こし直した子がもう一度数を送ってきた（客がもう go を送った: auto）なら聞き直さない
+    if (ev.auto) migrateAsked = true;
+    else askMigrate(ev.counts).catch((e) => engineLog(`DB: 移行の窓を出せませんでした（${errCode(e)}）`));
+  } else if (ev.type === 'progress') {
+    migrateBand = true;
+    sendToMainWin('meeting:progress', { message: `議事録を移しています… ${ev.done}/${ev.total}` });
+  }
+}
+function clearMigrateBand() {
+  if (!migrateBand) return;
+  migrateBand = false;
+  sendToMainWin('meeting:progress', { message: '' });
+}
+// 窓 D0 の文（数は子が数えたもの。名前も題名も入れない）。壊れているか形が合わず移せないものは broken と badShape の数
+function migratePlanText(c) {
+  const n = (k) => (Number.isFinite(c && c[k]) ? c[k] : 0);
+  const skip = n('broken') + n('badShape');
+  return [
+    '議事録の保存の形を新しくします（1回だけ）。',
+    `移すもの: 議事録 ${n('pages')} 件・文字起こしの発言 ${n('segments')} 件`,
+    ...(skip ? [`壊れているか形が合わず移せないファイル: ${skip} 件（元の場所にそのまま残します）`] : []),
+    '元のファイルは消さずに残します。移している間も録音はできます。',
+    'よければ［移す］を押してください。',
+  ].join('\n');
+}
+// 初めての起動の移行を窓で聞く（第2a1回 ST10・Q1）。［移す］（既定）で移し、［今は移さずに終える］（Esc も）で終える（元の JSON と下書きに
+// 何もしない。DB は閉じるだけで natsu.db を作らない。次の起動でまた聞く）。窓が出ている間も録音はできる（締めは裏で DB の用意を待つ）
+async function askMigrate(counts) {
+  dbNeedsUserResolve();
+  if (quitting) return;
+  const c = counts || {};
+  engineLog(`DB: 移行の窓 ページ ${c.pages}・発言 ${c.segments}・壊れた ${c.broken}・形の合わない ${c.badShape}`);
+  const r = await dialog.showMessageBox({
+    title: APP_TITLE, type: 'question', message: migratePlanText(c),
+    buttons: ['移す', '今は移さずに終える'], defaultId: 0, cancelId: 1, noLink: true,
+  });
+  if (quitting) return;
+  if (r && r.response === 0) {
+    migrateAsked = true;
+    engineLog('DB: 移行を始める');
+    db.migrate(true);
+  } else {
+    engineLog('DB: 今は移さずに終える');
+    app.quit();
+  }
+}
+// 最初の用意の後に1回: この起動で起きたこと（移した・取り込んだ・戻した・新しい版・ネットワークの場所）を知らせる（D2・D3・D5〜D8）。投げない
+async function noticeDbStartup() {
+  let s;
+  try { s = await db.call('db.status', {}); } catch (e) { engineLog(`DB: 起動の様子を読めませんでした（${errCode(e)}）`); return; }
+  if (!s) return;
+  const st = s.startup || {};
+  const n = (o, k) => (o && Number.isFinite(o[k]) ? o[k] : 0);
+  if (st.restored) laterNotice(NOTICE.restored(localStamp(st.restored.from)));
+  if (st.migrated) {
+    laterNotice(NOTICE.migrated(n(st.migrated, 'pages')));
+    const skip = n(st.migrated, 'broken') + n(st.migrated, 'badShape');
+    if (skip) laterNotice(NOTICE.skipped(skip));
+  }
+  if (st.reimport) {
+    const got = n(st.reimport, 'added') + n(st.reimport, 'replaced') + n(st.reimport, 'copied');
+    if (got) laterNotice(NOTICE.reimported(got));
+    const skip = n(st.reimport, 'broken') + n(st.reimport, 'badShape');
+    if (st.reimport.skippedChanged && skip) laterNotice(NOTICE.skipped(skip));
+  }
+  if (s.state === 'newer') laterNotice(NOTICE.dbNewer);
+  if (s.journal === 'delete') laterNotice(NOTICE.dbNetwork);
+}
+// ISO の時刻 → 「2026/10/19 09:05」（ローカル）。読めなければそのまま
+function localStamp(iso) {
+  const d = new Date(iso);
+  if (!Number.isFinite(d.getTime())) return String(iso || '');
+  return `${d.getFullYear()}/${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
 }
 // 本体の窓に、画面用の DB の口（役 app）を渡す（読み込みのたび・DB の子を起こし直したとき）。録音バーには渡さない
 function sendDbPort() {
@@ -267,10 +358,44 @@ function sendDbPort() {
 }
 // 子が落ちた後の ready（起こし直した子の用意）で口を配り直す。落ちていない子の最初の ready の前に配った口は、子が用意の前から受けている
 db.onReady(() => {
+  clearMigrateBand();
+  if (!dbEverReady) {
+    // 最初の用意（移行と取り込みの後）: 知らせと、毎日の控えの見回り（起動の後に1回見て、その後は 6 時間ごと）
+    dbEverReady = true;
+    noticeDbStartup().catch(() => {});
+    setTimeout(checkDailySnapshot, DAILY_FIRST_MS);
+  }
   if (!dbPortStale) return;
   dbPortStale = false;
   sendDbPort();
 });
+// 毎日の控え（第2a1回 ST9）。手が空いているとき（録音・締めの返事待ち・要約・復旧の文字起こしが無い）だけ、その日にまだ取っていなければ
+// snapshot.take({ kind: 'daily' }) を1回頼む。忙しければ少し後に見直す。名前はこのまま（テストの台 mainrun が setTimeout の名前で捕まえる）
+const DAILY_FIRST_MS = 60 * 1000;
+const DAILY_EVERY_MS = 6 * 60 * 60 * 1000;
+const DAILY_BUSY_MS = 5 * 60 * 1000;
+let dailyDoneDay = '';
+const handsBusy = () => isBusy() || finalizingPageIds.size > 0;
+async function checkDailySnapshot() {
+  if (quitting) return;
+  if (db.state() !== 'ready') { setTimeout(checkDailySnapshot, DAILY_EVERY_MS); return; }
+  const today = localDateISO(new Date());
+  try {
+    if (dailyDoneDay !== today) {
+      const s = await db.call('db.status', {});
+      const last = s && s.lastSnapshot;
+      if (last && last.kind === 'daily' && localDateISO(new Date(last.at)) === today) dailyDoneDay = today;
+      else if (handsBusy()) { setTimeout(checkDailySnapshot, DAILY_BUSY_MS); return; }   // 録音・締めの返事待ち・要約・復旧の間は取らない
+      else {
+        const r = await db.call('snapshot.take', { kind: 'daily' });
+        if (r && r.ok) dailyDoneDay = today;
+      }
+    }
+  } catch (e) {
+    engineLog(`DB: 毎日の控えを取れませんでした（${errCode(e)}）`);
+  }
+  setTimeout(checkDailySnapshot, DAILY_EVERY_MS);
+}
 // 読めない・書けないときの状態（第1a回 Task 2-3。RF22・P14）
 // - 'unreadable': 起動の瞬間にほかのプログラムが掴んでいて読めなかった。読み直せるまでは書かない（既定で上書きしない）。
 //   読み直しは RETRY_READ_MS の間隔で（使い切ったら止め、設定の画面を開いたときだけ読み直す）
@@ -2460,7 +2585,17 @@ async function settleCopies({ unreadable, keep }) {
 // ページは await db.call('meeting.recover') で、下書きの pageId（2a1 より前の下書きは新しい ID）に1回で作る（第2a1回 ST6。要約の欄の文もこの1回）。
 // 答えが already（締めた後に下書きを消せなかった・取り消した）でも下書きを消し、復旧の知らせは出さない（DB は締め済みのページを上書きしない: F11）。
 // 締めの返事を待っている会議の下書きは飛ばす。投げない（下書きごとに受け止める）。→ { unreadable, keep }（keep は読めた下書きの pageId）
-async function recoverDraftIfAny() {
+// 復旧は1つずつ回す（第2a1回 M-4）。起動の復旧は DB の用意（移行の窓・移行）を待つので、その間に録音の前・やり直しの復旧が同じ下書きを
+// 読むと、pageId の無い 0.6.0 の下書きが2つのページになる。回している間（draftRecoveryRuns）は、録音を始めるときに draft.json を脇へ退けない
+let draftRecoveryChain = Promise.resolve();
+let draftRecoveryRuns = 0;
+function recoverDraftIfAny() {
+  draftRecoveryRuns += 1;
+  const run = draftRecoveryChain.then(() => recoverDraftsNow());
+  draftRecoveryChain = run.then(() => {}, () => {}).then(() => { draftRecoveryRuns -= 1; });
+  return run;
+}
+async function recoverDraftsNow() {
   let unreadable = false;
   let recovered = 0;
   const keep = [];
@@ -2699,8 +2834,9 @@ async function startMeeting() {
   if (problem) return { ok: false, error: problem };
   // 前の起動で読めなかった控えが残っていれば、始める前に1回だけ復旧を試す（第1a回 JS9）。復旧のページは
   // db.call で作るので待つ（待たずに進むと、復旧中の draft.json を下の chooseDraftName が脇へ退け、消しそこねて2つ目のページになる）。
-  // 待つ間に別の処理が始まっていたら始めない（第2a1回 ST1）
-  if (store.draftFiles().length) {
+  // 待つ間に別の処理が始まっていたら始めない（第2a1回 ST1）。DB の用意の前（移行の窓・移行・起こし直し）は待たない（録音は DB に頼らない:
+  // F9）。そのときは回している復旧の下書きを脇へ退けない（下の park）ので、この会議の下書きは draft-<開始時刻>.json になる
+  if (store.draftFiles().length && !['starting', 'migrating'].includes(db.state())) {
     await recoverDraftIfAny();
     if (state !== 'idle') return { ok: false, error: '他の処理を実行中です' };
   }
@@ -2708,8 +2844,9 @@ async function startMeeting() {
   // 会議のページの ID はここで作って下書きに書く。写し・締め・復旧・取り消しは同じ ID に書く（第2a1回 ST6。DB は同じ ID を上書きする）
   const pageId = store.newId('p');
   // 古い draft.json が残っていれば脇へ退けてから draft.json に、退けられなければ draft-<開始時刻>.json に書く。
-  // 締めの返事を待っている会議の draft.json は退けない（返事の後に締めの道が消す名前が変わらないように）
-  const draftName = chooseDraftName({ existing: store.draftFiles(), startedAt, park: () => (finalizingDrafts.has('draft.json') ? { ok: false } : store.parkDraft()) });
+  // 締めの返事を待っている会議の draft.json は退けない（返事の後に締めの道が消す名前が変わらないように）。復旧を回している間も退けない
+  // （復旧が読んだ draft.json を消せずに、次の復旧がもう一度ページにする）
+  const draftName = chooseDraftName({ existing: store.draftFiles(), startedAt, park: () => (finalizingDrafts.has('draft.json') || draftRecoveryRuns > 0 ? { ok: false } : store.parkDraft()) });
   if (draftName !== 'draft.json') engineLog(`前の下書きを退けられないので、この会議の下書きは ${draftName} に書きます`);
   meeting = { pageId, startedAt, draftName, memo: '', segments: [], offsetMs: 0, stopping: false, seq: 0,
     systemAudio: false, paused: false, pausedMs: 0, pausedAt: 0,
@@ -2994,6 +3131,9 @@ async function maybeFinalizeMeeting() {
 const runSummary = makeSummaryRunner(doRunSummary, () => updateTray());
 // 要約の書き戻しが続けてぶつかったときの知らせ（第2a1回 F6。mainlib.saveIfExists が conflict を投げた）
 const SUMMARY_CONFLICT_TEXT = '要約を保存できませんでした。もう一度［要約を生成］を押してください。';
+// 要約の書き戻し（page.put）が引数の照らしで断られた（bad-args）ときの知らせ（第2a1回 M-4 の点検）。DB に入った後で保存の決まりを超えた
+// ページ（画面の［行を足す］は数を見ない）は、書き戻すたびに断られる。黙って投げると画面には何も出ないので、何をすればよいかを知らせる
+const SUMMARY_TOO_BIG_TEXT = '要約を保存できませんでした。この議事録が保存できる大きさ（題名は 500 字まで・行は 2,000 個まで）を超えています。題名を短くするか行を減らしてから、もう一度［要約を生成］を押してください。';
 // 要約が走っている間はアプリを「忙しい」として扱う（#52）: 省電力を止めない・終了前に
 // 確かめる・更新と再起動を拒む。件数は mainlib.makeSummaryRunner が持つ。
 const isSummarizing = () => runSummary.running().length > 0;
@@ -3015,12 +3155,14 @@ async function doRunSummary(pageId) {
     clearUi();
     return { ok: false, error: 'ページが削除されました' };
   };
-  // 書き戻しが何度もぶつかった（その間ずっと画面で直されていた。第2a1回 F6）。「削除された」にせず、要約を保存できなかったと知らせる
-  const conflicted = () => {
-    engineLog('要約の書き戻しが続けてぶつかったため保存できませんでした');
+  // 書き戻しが何度もぶつかった（その間ずっと画面で直されていた。第2a1回 F6）・保存の決まりを超えていて断られた（bad-args。M-4 の点検）。
+  // 「削除された」にせず、要約を保存できなかったと理由ごとに知らせる。ほかの失敗は '' （呼び手が投げる）
+  const unsaved = (e) => (e && e.code === 'conflict' ? SUMMARY_CONFLICT_TEXT : e && e.code === 'bad-args' ? SUMMARY_TOO_BIG_TEXT : '');
+  const conflicted = (text) => {
+    engineLog(text === SUMMARY_CONFLICT_TEXT ? '要約の書き戻しが続けてぶつかったため保存できませんでした' : '要約の書き戻しが保存の決まりで断られたため保存できませんでした');
     clearUi();
-    sendToMainWin('app:notice', SUMMARY_CONFLICT_TEXT);
-    return { ok: false, error: SUMMARY_CONFLICT_TEXT };
+    sendToMainWin('app:notice', text);
+    return { ok: false, error: text };
   };
   const opened = await db.call('page.get', { id: pageId });
   if (!opened) { clearUi(); return { ok: false, error: 'ページが見つかりません' }; }
@@ -3033,7 +3175,7 @@ async function doRunSummary(pageId) {
   if (!plain.trim()) {
     const err = '文字起こしが空のため要約できません';
     let saved;
-    try { saved = await saveIfExists(db, pageId, (p) => { p.summaryError = err; }); } catch (e) { if (e && e.code === 'conflict') return conflicted(); throw e; }
+    try { saved = await saveIfExists(db, pageId, (p) => { p.summaryError = err; }); } catch (e) { if (unsaved(e)) return conflicted(unsaved(e)); throw e; }
     if (!saved) return gone();
     clearUi();
     sendToMainWin('page:updated', { page: saved, segments });
@@ -3056,7 +3198,7 @@ async function doRunSummary(pageId) {
         ? '要約エンジンが未設定のため、文字起こしのみ保存しました。設定タブの［エンジンを取り込む］で取り込むと「要約を生成」で作成できます。'
         : `要約エンジンを使えないため、文字起こしのみ保存しました。${engineCheck(sumEng)}${waitable ? '。終わったら「要約を生成」で作成できます。' : ''}`;
     let saved;
-    try { saved = await saveIfExists(db, pageId, (p) => { p.summaryError = err; }); } catch (e) { if (e && e.code === 'conflict') return conflicted(); throw e; }
+    try { saved = await saveIfExists(db, pageId, (p) => { p.summaryError = err; }); } catch (e) { if (unsaved(e)) return conflicted(unsaved(e)); throw e; }
     if (!saved) return gone();
     clearUi();
     sendToMainWin('page:updated', { page: saved, segments });
@@ -3146,9 +3288,9 @@ async function doRunSummary(pageId) {
     return { ok: true, page: latest, stat };
   } catch (e) {
     if (quitting) return { ok: false, error: e.message };   // 終了中: before-quit が書いた「中断」の文を上書きしない
-    if (e && e.code === 'conflict') return conflicted();   // 書き戻しが5回ぶつかった: 要約の欄にも書けないので知らせるだけ
+    if (unsaved(e)) return conflicted(unsaved(e));   // 書き戻しが5回ぶつかった・決まりで断られた: 要約の欄にも書けないので知らせるだけ
     let latest;
-    try { latest = await saveIfExists(db, pageId, (saved) => { saved.summaryError = e.message; }); } catch (e2) { if (e2 && e2.code === 'conflict') return conflicted(); throw e2; }
+    try { latest = await saveIfExists(db, pageId, (saved) => { saved.summaryError = e.message; }); } catch (e2) { if (unsaved(e2)) return conflicted(unsaved(e2)); throw e2; }
     if (!latest) return gone();
     clearUi();
     sendToMainWin('page:updated', { page: latest, segments });
@@ -3867,13 +4009,21 @@ if (!gotLock) {
     // 取り込んだ側は下の起動の行では起動しない（RF3）。手で設定した側は今までどおり起動する
     managedCands = engineInstall.managedCandidates(ENGINE_HOME, MANIFEST, engineInstall.readInstalled(engineInstall.layout(ENGINE_HOME.root, MANIFEST).installed), fs.statSync);
     for (const g of ['whisper', 'sum']) if (managedCands[g]) managedState[g] = 'checking';
-    // 前に消しきれなかった取り消しを、下書きの復旧と写しの片付けより先に送る（第2a1回 RF16。控えが無ければ DB を待たない）
-    await flushPurgePending();
-    const startupDrafts = await recoverDraftIfAny();   // 復旧のページは db.call で作る（投げない）。待ってから待ち行列と掃除を決める（復旧中のフォルダを消さない）
-    // 下書きを失った録音の写しを recovered で残す（読めない下書きが無ければ。待たない: 起動を DB の用意で止めない）
-    settleCopies(startupDrafts);
-    if (!recoveryQueue) recoveryQueue = loadSavedRecoveryQueue();   // 前回エンジンが無くて残した分
-    cleanOrphanSegbuf(recoveryQueue ? recoveryQueue.dir : '');   // 復旧の後で（復旧中のフォルダは残す）
+    // 起動の片付け（どれも DB の用意を待つ。投げない）: 1. 前に消しきれなかった取り消しを、下書きの復旧と写しの片付けより先に送る（第2a1回
+    // RF16）。2. 下書きの復旧（復旧のページは db.call で作る）。待ってから待ち行列と掃除を決める（復旧中のフォルダを消さない）。
+    // 3. 下書きを失った録音の写しを recovered で残す（読めない下書きが無ければ。keep はこの時の録音中・締めの返事待ちを入れて決める）。
+    // DB がすぐ用意できるふつうの起動では今どおり済むのを待ってから窓とホットキーを用意する（復旧のページを窓が開く）。DB が利用者を
+    // 待つ（移行の窓）か STARTUP_DB_WAIT_MS を過ぎたら待たずに進み、片付けは裏で続ける（第2a1回 M-4・F9: 移行の窓が出ている間・移行の
+    // 間・起こし直しの間も、窓とホットキーで録音を始められる。録音は DB に頼らない）
+    const startupWork = (async () => {
+      await flushPurgePending();
+      const startupDrafts = await recoverDraftIfAny();
+      settleCopies(startupDrafts);
+      if (!recoveryQueue) recoveryQueue = loadSavedRecoveryQueue();   // 前回エンジンが無くて残した分
+      cleanOrphanSegbuf(recoveryQueue ? recoveryQueue.dir : '');   // 復旧の後で（復旧中のフォルダは残す。7 日より新しい今の会議のフォルダも消さない）
+    })();
+    startupWork.catch((e) => engineLog(`起動の片付けに失敗: ${errCode(e)}`));
+    await Promise.race([startupWork.catch(() => {}), dbNeedsUser, new Promise((r) => { setTimeout(r, STARTUP_DB_WAIT_MS); })]);
     applyTheme();
     setupIpc();
     // 相手の声（パソコンから出ている音）を録るための受け口。
@@ -3915,8 +4065,8 @@ if (!gotLock) {
     verifyManagedAtStartup().catch((e) => engineLog(`取り込んだエンジンの照らしと起動に失敗: ${e && e.message}`));
     // 使われないエンジンを 60 秒ごとに見て止める（#58。判断は mainlib.idleEnginesToStop）
     setInterval(releaseIdleEngines, ENGINE_IDLE_CHECK_MS);
-    // 復旧ページに文字起こし待ちの音声が残っていれば、エンジンの用意を待って順に片付ける
-    transcribeRecovered().catch((e) => engineLog(`復旧の文字起こしに失敗: ${logReason(e)}`));
+    // 復旧ページに文字起こし待ちの音声が残っていれば、エンジンの用意を待って順に片付ける（起動の片付けが済んでから。下の startupWork）
+    startupWork.then(() => transcribeRecovered()).catch((e) => engineLog(`復旧の文字起こしに失敗: ${logReason(e)}`));
     ensurePaster();
     createMainWindow();
     app.on('activate', () => createMainWindow());

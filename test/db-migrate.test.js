@@ -336,3 +336,33 @@ test('convertPage: 発言の番号が大きすぎて数えられないときも�
   assert.deepStrictEqual(c.segments.map((s) => s.id), ['s1', 's99999999999999999999', 's2']);
   assert.deepStrictEqual(c.fixedAt, { blocks: [], segments: [2] });
 });
+
+// 第2a1回 M-4（点検の申し送り。データの守り）: 移したページが命令の照らし（LIMITS）を超えていると、後の page.put（要約の書き戻し）が
+// 毎回 bad-args で断られる。だから移行（と起動のたびの取り込み）で「移せない形」として数えて、元の JSON に残す（窓 D0 と知らせ D3 に数が出る）
+test('F2: 保存の決まりを超えるページ（題名 501 字・ブロック 2,001 個・照らしに合わない型・1MB を超える）は移さず数え、元のファイルはそのまま', { timeout: 5000 }, () => {
+  const d = oldBuildData({ pages: 1 });
+  try {
+    const V = require('../src/db/validate');
+    const over = [
+      { id: 'plimit0001', title: 'あ'.repeat(V.LIMITS.title + 1), blocks: [] },
+      { id: 'plimit0002', title: 'ブロックが多い', blocks: Array.from({ length: V.LIMITS.blocks + 1 }, (_, i) => ({ id: `bl${i}`, type: 'bullet', text: `行${i}` })) },
+      { id: 'plimit0003', title: '型に空白', blocks: [{ id: 'bt1', type: 'to do', text: '型の名前に空白' }] },
+      { id: 'plimit0004', title: '大きすぎる', blocks: Array.from({ length: 4 }, (_, i) => ({ id: `bz${i}`, type: 'paragraph', text: 'あ'.repeat(V.LIMITS.text) })) },   // 1つずつは決まりの中、合わせて 1MB を超える
+    ];
+    for (const p of over) d.writePage(p, []);
+    // 決まりちょうど（題名 500 字・ブロック 2,000 個）は移す
+    d.writePage({ id: 'pedge00001', title: 'い'.repeat(V.LIMITS.title), blocks: Array.from({ length: V.LIMITS.blocks }, (_, i) => ({ id: `be${i}`, type: 'bullet', text: `行${i}` })) }, []);
+    const before = snapshotTree(d.dataDir);
+    assert.deepStrictEqual([M.plan(d.dataDir, {}).pages, M.plan(d.dataDir, {}).badShape], [2, 4]);
+    const r = M.migrate({ sqlite, dataDir: d.dataDir });
+    assert.strictEqual(r.ok, true, r.code);
+    assert.deepStrictEqual([r.counts.pages, r.counts.badShape], [2, 4]);
+    const peek = require('./helpers/dbpeek').open(d.dataDir);
+    try {
+      for (const p of over) assert.strictEqual(peek.rawPage(p.id), null, p.id);
+      assert.strictEqual(peek.rawPage('pedge00001').blocks.length, V.LIMITS.blocks);
+    } finally { peek.close(); }
+    const after = snapshotTree(d.dataDir);
+    for (const [rel, sha] of Object.entries(before)) assert.strictEqual(after[rel], sha, `${rel} が変わった`);
+  } finally { d.done(); }
+});

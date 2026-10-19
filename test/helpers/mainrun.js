@@ -130,6 +130,12 @@
 //   channel の並び。読み込み中で届かなかったものも）を足す。本体の窓の webContents.postMessage
 //   は出力の portsSent（{ win: 'main' | 'overlay', channel }）に残す。終わるときは客を閉じてから process.exit する（Windows で
 //   一時フォルダの natsu.db を掴んだまま消さない）
+//   第2a1回 M-4（移行の窓・毎日の控え）: 偽の Electron に dialog.showMessageBox を足す（場面の dialog: 無い = ［移す］、'quit' = ［今は移さずに
+//   終える］、'hold' = ctx.answerDialog(i) まで答えない）。app.quit() は回数を数え、場面の quitEmits なら before-quit を出す。
+//   setTimeout の checkDailySnapshot も timers に入れる（場面が自分で呼ぶ）。DB の用意を待つ場面は、main が用意の後に聞く起動の様子
+//   （db.status）の返事も待ってから act を呼ぶ（その直後に送る知らせ D2〜D8 を出力に入れる）。ctx に dialogs()・answerDialog(i)・quitCalls()・trace()・
+//   snapshotKinds()（snapshot.take を頼んだ kind の順）・mainState()（meeting:status から idle・meeting・meeting-finalizing）・overlayDone()
+//   （録音バーの done の文の順）・mainProgress()（本体の窓へ送った meeting:progress の文の順）を足す。出力に dialogs・quitCalled・overlayDone・pages（{ id, title }。act が pages を入れたらそちら）を足す
 //   main を読む前に、いつも process.env に ANTHROPIC_API_KEY と CLAUDE_CODE_OAUTH_TOKEN を置く（課金の変数が子に渡らないことを見る。RF25）。
 //   出力に足すもの: claude（偽の claude の記録。無ければ []）・pages[].route・pages[].blocks（型と cites の数だけ）・pages[].citeStat
 //   偽の Electron の net.request は、https://api.anthropic.com/ を偽の送り先の /anthropic へ書き換える（--stt と --claude を両方
@@ -217,7 +223,7 @@ if (sceneName && (!scene || typeof scene !== 'object')) { process.stderr.write(`
 const dbDown = flags.includes('--db-down') || Boolean(scene && scene.dbDown);
 const { fakeFork, FakeChannel } = require('./fake-utility');
 const dbpeek = require('./dbpeek');
-const SCENE_TIMERS = new Set(['retrySettingsRead', 'retryHistoryRead', 'retryDraftRecovery']);
+const SCENE_TIMERS = new Set(['retrySettingsRead', 'retryHistoryRead', 'retryDraftRecovery', 'checkDailySnapshot']);
 const serveSet = repairMode || Boolean(crashMode);   // engine-small の偽のサーバーを開いたままにし、同意済みにする
 const REAL_PLATFORM = process.platform;
 // --no-vc-runtime が main の中だけ空のフォルダに向ける環境の変数の、元の値。エンジン（子のプロセス）には元の値を渡す
@@ -689,11 +695,30 @@ process.on('exit', () => {
     getDisplayNearestPoint: (p) => JSON.parse(JSON.stringify(displays.find((d) => inRect(p, d.bounds)) || displays[0])),
     getCursorScreenPoint: () => ({ x: 0, y: 0 }),
   };
+  // 第2a1回 M-4: 偽の dialog.showMessageBox（移行の窓 D0）。出した窓の { message, detail, buttons, defaultId, cancelId } を dialogs に順に残し、
+  // 場面の dialog が 'quit' なら 2 番目（［今は移さずに終える］）、'hold' なら ctx.answerDialog(i) まで答えず、それ以外（無い）なら
+  // 1 番目（［移す］）を押す（JSON のページを置く今の場面は、そのまま移されてから動く）。ほかの dialog の関数は今どおり何でも返す
+  const dialogs = [];
+  const heldDialogs = [];
+  const dialog = withFallback({
+    showMessageBox: (...a) => {
+      const o = a.find((x) => x && typeof x === 'object' && Array.isArray(x.buttons)) || a[a.length - 1] || {};
+      dialogs.push({ message: String(o.message || ''), detail: String(o.detail || ''), buttons: Array.isArray(o.buttons) ? o.buttons.slice() : [], defaultId: o.defaultId, cancelId: o.cancelId });
+      const pick = scene ? scene.dialog : undefined;
+      if (pick === 'hold') return new Promise((resolve) => { heldDialogs.push(resolve); });
+      return Promise.resolve({ response: pick === 'quit' ? 1 : 0, checkboxChecked: false });
+    },
+  });
+  const answerDialog = (i) => { const r = heldDialogs.shift(); if (r) r({ response: i, checkboxChecked: false }); return Boolean(r); };
+  // app.quit() の呼ばれた回数（第2a1回 M-4）。場面の quitEmits なら本物と同じく before-quit を出す（main は DB を閉じてから app.quit() をもう一度呼ぶ）
+  let quitCalls = 0;
   const electron = withFallback({
     screen,
+    dialog,
     app: withFallback(Object.assign(appEvents, {
       getPath: () => userData, whenReady: () => ready, requestSingleInstanceLock: () => true,
-      getVersion: () => require(path.join(ROOT, 'package.json')).version, isPackaged: false, quit() {},
+      getVersion: () => require(path.join(ROOT, 'package.json')).version, isPackaged: false,
+      quit() { quitCalls += 1; if (scene && scene.quitEmits) appEvents.emit('before-quit', { preventDefault() {} }); },
       setLoginItemSettings() {}, getLoginItemSettings: () => ({}), setAppUserModelId() {}, getName: () => 'natsu',
     })),
     BrowserWindow: TrackedWin,
@@ -820,7 +845,7 @@ process.on('exit', () => {
         // 答えを受けた印（ack）は、main の await が先へ進む前に残る（下書きを消したのが返事の後かを順で見る）
         const call = async (cmd, args, o) => {
           if (delayMs) await sleep(delayMs);
-          trace.push({ kind: 'call', cmd });
+          trace.push({ kind: 'call', cmd, ...(cmd === 'snapshot.take' && args ? { snap: args.kind } : {}) });
           try {
             const r = await c.call(cmd, args, o);
             trace.push({ kind: 'ack', cmd });
@@ -1017,6 +1042,11 @@ process.on('exit', () => {
     finishLoad();
     // 議事録の DB の用意（ready・read-only か、使えない down）を待つ（第2a1回 M-2b。起動の移行と取り込みが済んでから act）
     if (!scene.noDbWait && !await waitFor(() => !['none', 'starting', 'migrating'].includes(dbState()), 15000)) throw new Error(`場面 ${sceneName}: 議事録の DB の用意ができない（${dbState()}）`);
+    // 用意ができたら、main が最初の用意の後に聞く起動の様子（db.status。知らせ D2〜D8 の材料）の返事を待つ（第2a1回 M-4。知らせは返事の直後に送る）
+    if (!scene.noDbWait && ['ready', 'read-only'].includes(dbState())) {
+      await waitFor(() => trace.some((t) => (t.kind === 'ack' || t.kind === 'fail') && t.cmd === 'db.status'), 5000);
+      await sleep(10);
+    }
     if (scene.engine) await waitFor(() => spawns.length > 0, 15000);
     const actOut = {};
     const readLocal = (rel) => { try { return fs.readFileSync(path.join(localAppData, ...rel.split('/'))); } catch (_) { return null; } };
@@ -1024,6 +1054,11 @@ process.on('exit', () => {
       await scene.act({ handlers, listeners, app: electron.app, wins, mainWin: wins[1], power: powerMonitor, timers, clearedTimers, shortcuts, store, jsonfile, electron, userData,
         localAppData, read: readUser, readLocal, waitFor, sleep, toneWav, releasePause, out: actOut, launches, launchPlan, fakeKids, dbMeta, dbState,
         dbCrash: (code) => utilFork.crash(code), dbStarts: () => utilFork.starts(), mainSent: () => mainSent.slice(), appCall,
+        dialogs: () => dialogs.slice(), answerDialog, quitCalls: () => quitCalls, trace: () => trace.slice(),
+        snapshotKinds: () => trace.filter((t) => t.kind === 'call' && t.cmd === 'snapshot.take').map((t) => t.snap),
+        mainState: () => { const st = handlers['meeting:status'] ? handlers['meeting:status']() : null; return !st ? 'none' : !st.active ? 'idle' : st.finalizing ? 'meeting-finalizing' : 'meeting'; },
+        overlayDone: () => sent.filter(([ch, p]) => ch === 'overlay:phase' && p && p.phase === 'done').map(([, p]) => p.message),
+        mainProgress: () => sent.filter(([ch]) => ch === 'meeting:progress').map(([, p]) => (p ? p.message : undefined)),
         setOpenAiBase: (b) => { openAiBase = String(b || ''); } });
     }
     const files = listFiles(userData);
@@ -1062,6 +1097,10 @@ process.on('exit', () => {
       overlayPaused,
       balloons: balloons.slice(),
       portsSent: portsSent.slice(),
+      dialogs: dialogs.slice(),
+      quitCalled: quitCalls > 0,
+      overlayDone: sent.filter(([ch, p]) => ch === 'overlay:phase' && p && p.phase === 'done').map(([, p]) => p.message),
+      pages: dbView.listPages().map((p) => ({ id: p.id, title: p.title })),
       ...actOut,
     };
     process.stdout.write(`\n${JSON.stringify(result)}\n`);
