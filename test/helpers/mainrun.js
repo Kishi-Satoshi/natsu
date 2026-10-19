@@ -12,6 +12,8 @@
 //     --kotoba      … 偽のモデルの名前を kotoba-whisper のものにする（認識ヒントを渡さない場面）
 //     --port=N      … 文字起こしエンジンのポート（並べて走らせるとき、呼ぶ側が重ならないように決めて渡す）
 //     --discard-during … 最初の区間を送った直後に議事録を破棄する（返事を待つ間の破棄）
+//     --after-retry … 議事録を写した後、会議の後の送り直し（認識に失敗した区間の待ち行列）が済むまで待ち、その後の区間・
+//                     engine.log・要求を out.afterRetry（{ segments, engineLog, requests }）に写す（送り直しまで含めて数える場面）
 //     --after-dict  … 記録の後で辞書を保存し、認識ヒントの状態を聞き直す
 //     --sum         … 要約エンジン（helpers/fake-llama.js）も置く。要約は文字起こしに無い担当・期限を混ぜて返す
 //     --sum-port=N  … 要約エンジンのポート（--port と同じく、呼ぶ側が重ならないように渡す）
@@ -131,6 +133,7 @@ const FAKE_SUM = path.join(__dirname, 'fake-llama.js');
 const segCount = Number((flags.find((f) => f.startsWith('--segs=')) || '--segs=2').slice(7)) || 2;
 const managedMode = flags.includes('--managed') ? 'ok' : (flags.includes('--managed-tamper') ? 'tamper' : '');
 const recoverMode = flags.includes('--recover');
+const afterRetry = flags.includes('--after-retry');
 const noVcRuntime = flags.includes('--no-vc-runtime');
 const verifyThrows = flags.includes('--verify-throws');
 const sumTamper = flags.includes('--sum-tamper');
@@ -956,7 +959,7 @@ process.on('exit', () => {
       };
     });
   };
-  // 送り直し（復旧の待ち行列）が済むか、残して止まるまで待つ（--stt のとき）
+  // 送り直し（復旧の待ち行列）が済むか、残して止まるまで待つ（--stt・--after-retry のとき）
   const recoverySettled = () => elogLines().some((l) => /復旧の文字起こしを(保留|止めました)/.test(l)) || !segbufLeft().queue;
   if (recoverMode && fakeStt) {
     const recovered = () => { const p = store.listPages()[0]; return p ? store.getTranscript(p.id) : []; };
@@ -1119,6 +1122,16 @@ process.on('exit', () => {
   if (afterDict) {
     out.saved = await handlers['settings:save']({}, { dictionary: ['検収'] });
     out.promptInfoAfterDict = await handlers['prompt:info']();
+  }
+  if (afterRetry) {
+    await waitFor(recoverySettled, 15000);
+    await sleep(100);
+    const p = store.listPages()[0];
+    out.afterRetry = {
+      segments: p ? store.getTranscript(p.id).map((x) => ({ text: x.text, failed: Boolean(x.failed) })) : [],
+      engineLog: elogLines(),
+      requests: fs.readFileSync(flog, 'utf8').split('\n').filter((l) => l.startsWith('inference')),
+    };
   }
   if (fakeStt) {
     // 会議の後の送り直し（失敗した区間の待ち行列）が済むか、残して止まるまで待ってから写す

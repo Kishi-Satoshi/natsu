@@ -12,6 +12,9 @@
 //   slow          … 区間の返事を 1.5 秒遅らせる（文字起こしの最中に起動テストを押した場面）
 //   slow-prompt-empty … ヒント付きの区間は 1.5 秒待ってから {"text":""}、ヒントなしは文（返事を待つ間に議事録を破棄する場面）
 //   big-prompt-empty  … 大きい区間（80KB 超）だけ、ヒント付きなら {"text":""}。ほかは文（雑音の 1 区間だけヒントで空になる場面）
+//   drop-first    … 区間（起動テストの試しでない）の最初の要求だけ、受け取った後で返事をせずに接続を切る。2 回目からは文
+//                   （CI run 39183232615: 起動テストの直後、区間の要求が使い回しの接続の上で切れた）
+//   drop-all      … 区間の要求は毎回、受け取った後で返事をせずに接続を切る
 // どの場面でも、WAV の頭（RIFF/WAVE、16kHz・モノラル・16bit）が壊れていれば 200 のまま {"error"} を返す
 // （本物の 1.7.6・1.8.0 と同じ）。受けた要求は FAKE_LOG に 1 行ずつ書く。
 
@@ -64,6 +67,7 @@ const json = (res, status, body) => {
 };
 
 let n = 0;
+let dropped = false;
 http.createServer((req, res) => {
   if (req.url === '/health') { json(res, 200, { status: 'ok' }); return; }
   if (req.url !== '/inference') { res.writeHead(404); res.end(); return; }
@@ -81,6 +85,7 @@ http.createServer((req, res) => {
     if (isProbe && mode === 'probe500') { json(res, 500, { error: 'boom' }); return; }
     if (isProbe && mode === 'probe-badjson') { json(res, 200, 'not json'); return; }
     if (isProbe && mode === 'probe-drop') { req.socket.destroy(); return; }
+    if (!isProbe && (mode === 'drop-all' || (mode === 'drop-first' && !dropped))) { dropped = true; req.socket.destroy(); return; }
     if (mode === 'err200') { json(res, 200, { error: 'failed to read audio data' }); return; }
     if (mode === 'empty') { json(res, 200, { text: hasPrompt ? '' : ' [BLANK_AUDIO]\n' }); return; }
     if (mode === 'prompt-empty' && hasPrompt) { json(res, 200, { text: '' }); return; }

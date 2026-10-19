@@ -568,4 +568,7 @@ module.exports = [
     tests: ['test/gate.test.js'], why: 'L-1: 台帳の中身の固定（1b2 の行に pTitle を足さない）' },
   { id: 'gate-1b2-release', file: 'tools/lib/moves.js', from: '  { file: \'src/renderer/app.html\', lost: [\'section#tabNotes.tab.active\', \'div.notes\', \'aside.side\'],\n    ids: [\'searchBox\', \'fltAll\', \'fltActions\', \'fltFull\'],\n    why: \'第1b2回: 検索の欄と絞り込みを検索の窓へ移すのを natsu-v0.5.0 から1つの差分で見たときの形（リリースのゲート）\' },\n', to: '',
     tests: ['test/gate.test.js'], why: 'L-1 G1: 0.5.0 からの形の行（リリースのゲートで BLOCK にしない）' },
+  // 文字起こしの直し（CI run 39183232615。区間の要求が返事の前に接続ごと切れた）
+  { id: 'mn-stt-resend', file: 'src/main.js', from: '        if (!code || resent) throw new Error(fetchErrorText(e));', to: '        throw new Error(fetchErrorText(e));',
+    tests: ['test/transcribe.e2e.test.js'], why: '区間の要求が返事の前に接続ごと切れたら、同じ区間を1回だけ送り直す（失敗にして手でやり直させない）' },
 ];

@@ -10,6 +10,8 @@
  *   - VAD が無く、ほぼ無音なら、ヒントなしのやり直しはしない（作り話を拾わない）
  *   - 本当に空なら、engine.log に理由を書き、全部が空なら利用者に知らせる（一部だけ空なら知らせない）
  *   - 200 のまま {"error"} を返すエンジンは、空ではなく失敗として区間を残す
+ *   - 区間の要求が返事の前に接続ごと切れたら（UND_ERR_SOCKET など）、同じ区間を 1 回だけ送り直す。
+ *     それでも切れたら失敗として区間を残し、理由は日本語で書く（"fetch failed" を見せない。CI run 39183232615）
  *   - 起動テスト（app:test）は /inference に無音を実際に送り、返事の異常を見逃さない。
  *     記録や文字起こしの最中は試さない
  */
@@ -17,6 +19,7 @@
 
 const test = require('node:test');
 const assert = require('node:assert');
+const fs = require('node:fs');
 const path = require('node:path');
 const { execFile } = require('node:child_process');
 const net = require('node:net');
@@ -60,6 +63,8 @@ const SCENES = {
   silentNoVad: ['empty', '--silent', '--segs=1'],
   silentVad: ['empty', '--silent', '--vad', '--segs=1'],
   err200: ['err200', '--test'],
+  dropFirst: ['drop-first', '--segs=1', '--after-retry'],
+  dropAll: ['drop-all', '--segs=1', '--after-retry'],
   probe500: ['probe500', '--test'],
   probeBadJson: ['probe-badjson', '--test'],
   probeDrop: ['probe-drop', '--test'],
@@ -200,6 +205,52 @@ test('200 のまま {"error"} を返すエンジンは、空ではなく失敗�
   assert.ok(segs.every((s) => s.failed && /failed to read audio data/.test(s.text)), JSON.stringify(segs));
   // 失敗はヒントなしのやり直しの対象にしない（空のときだけ）
   assert.ok(!r.engineLog.some((l) => /^文字起こし:/.test(l)), JSON.stringify(r.engineLog));
+});
+
+// 区間の要求が、返事の前に接続ごと切れた（CI run 39183232615 の Windows で、err200 の 1 つ目の区間が「fetch failed」になった）。
+// 失敗した区間は会議の後の送り直しでも文字起こしされるので、それが済むまで待って数える（mainrun の --after-retry）
+const DROP_LOG = /^文字起こしの接続: エンジンとの接続が切れたため、同じ区間をもう一度送りました（(UND_ERR_SOCKET|ECONNRESET|EPIPE)・音声 3 秒）$/;
+
+test('区間の要求の途中でエンジンとの接続が切れたら、同じ区間を 1 回だけ送り直して文字を残す', async () => {
+  await need('dropFirst');
+  const r = results.dropFirst;
+  const a = r.afterRetry;
+  assert.deepStrictEqual(r.pages[0].segments, [{ text: '本日の議題は進捗の確認です。区間2', failed: false }]);
+  // 会議の後の送り直しに回さず、その場で取れた。切れた要求と同じ形（ヒント付き）でもう 1 回だけ送る
+  assert.ok(!a.engineLog.some((l) => /復旧 s1/.test(l)), JSON.stringify(a.engineLog));
+  assert.deepStrictEqual(a.requests.filter((l) => !/probe=true/.test(l)).map((l) => /prompt=true/.test(l)), [true, true], JSON.stringify(a.requests));
+  assert.strictEqual(a.engineLog.filter((l) => DROP_LOG.test(l)).length, 1, JSON.stringify(a.engineLog));
+  // ヒントなしのやり直しとは別。その記録の頭（文字起こし:）は使わない
+  assert.ok(!a.engineLog.some((l) => /^文字起こし:/.test(l)), JSON.stringify(a.engineLog));
+});
+
+test('送り直しても接続が切れるなら 2 回で止め、区間は失敗として日本語の理由で残す（"fetch failed" を見せない）', async () => {
+  await need('dropAll');
+  const r = results.dropAll;
+  const a = r.afterRetry;
+  const failed = { text: '（この区間の認識に失敗: エンジンにつながりませんでした）', failed: true };
+  assert.deepStrictEqual(r.pages[0].segments, [failed]);
+  // 会議の後の送り直し（復旧の道）も同じ文で残す。どちらの道も 1 回 + 送り直し 1 回の 2 回ずつで、それより送らない
+  assert.deepStrictEqual(a.segments, [failed]);
+  assert.ok(a.engineLog.some((l) => /^文字起こしの経路: 復旧 s1 → local/.test(l)), JSON.stringify(a.engineLog));
+  assert.strictEqual(a.requests.filter((l) => !/probe=true/.test(l)).length, 4, JSON.stringify(a.requests));
+  assert.strictEqual(a.engineLog.filter((l) => DROP_LOG.test(l)).length, 2, JSON.stringify(a.engineLog));
+});
+
+test('送り直すのは、返事の前に接続が切れたときだけ。拒まれた（エンジンが落ちている）・時間切れ・取り消し・HTTP の誤りは送り直さない', () => {
+  const m = /^const droppedCode = (\(e\) => \{[\s\S]*?\n\});/m.exec(fs.readFileSync(path.join(__dirname, '..', 'src', 'main.js'), 'utf8'));
+  assert.ok(m, 'main.js に droppedCode が見つからない');
+  const droppedCode = new Function(`return ${m[1]}`)();
+  const failed = (cause) => Object.assign(new TypeError('fetch failed'), { cause });
+  assert.strictEqual(droppedCode(failed({ code: 'UND_ERR_SOCKET' })), 'UND_ERR_SOCKET');
+  assert.strictEqual(droppedCode(failed({ code: 'ECONNRESET' })), 'ECONNRESET');
+  assert.strictEqual(droppedCode(Object.assign(new Error('write EPIPE'), { code: 'EPIPE' })), 'EPIPE');
+  for (const e of [failed({ code: 'ECONNREFUSED' }), failed(undefined),
+    Object.assign(new Error('timeout'), { name: 'TimeoutError', cause: { code: 'UND_ERR_SOCKET' } }),
+    Object.assign(new Error('aborted'), { name: 'AbortError', code: 'ECONNRESET' }),
+    new Error('文字起こしエンジンエラー (500)'), null]) {
+    assert.strictEqual(droppedCode(e), '', String(e && `${e.name} ${e.cause && e.cause.code}`));
+  }
 });
 
 test('起動テストは /inference に正しい WAV の無音を実際に送り、返事の異常を見逃さない', async () => {

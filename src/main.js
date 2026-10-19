@@ -1155,6 +1155,14 @@ const KOTOBA_NOTE = '文字起こしのモデルが kotoba-whisper です。75 �
 // ヒントなしでのやり直しを省く音の小ささ。VAD が無いと、ほぼ無音の音声をヒントなしで送り直したとき、
 // 作り話（「ご視聴ありがとうございました」など）が返りうる。話し声はふつう -40 dBFS より大きい
 const RETRY_MIN_DBFS = -50;
+// 区間の要求が返事の前に接続ごと切れた（使い回しの接続が閉じていたなど）ときの符号。手元のエンジンは動いているので、
+// 同じ要求をもう 1 回だけ送る（CI run 39183232615: 起動テストが通った直後の区間が「fetch failed」で失敗した）。
+// 拒まれた（ECONNREFUSED: エンジンが落ちている）・時間切れ・取り消し・HTTP の誤りは送り直さない
+const droppedCode = (e) => {
+  if (!e || e.name === 'AbortError' || e.name === 'TimeoutError') return '';
+  const code = (e.cause && e.cause.code) || e.code || '';
+  return /^(UND_ERR_SOCKET|ECONNRESET|EPIPE)$/.test(code) ? code : '';
+};
 
 // opts.isStale: やり直しの前に聞く。true なら（議事録の破棄・打ち切りの後）送り直さない。
 // opts.learn: 議事録の区間のとき true。ヒントを止めるかの数え（promptEmptyStreak）に入れる
@@ -1178,6 +1186,7 @@ async function transcribeLocal(wavBuffer, extraPromptTail, durationMs, opts = {}
   const sec = Math.round((durationMs || 0) / 1000);
   let text = '';
   let retried = false;
+  let resent = false;   // 接続が切れて送り直したか（区間につき 1 回まで）
   for (let i = 0; i < tries.length; i++) {
     const p = tries[i];
     if (i > 0) {
@@ -1191,25 +1200,42 @@ async function transcribeLocal(wavBuffer, extraPromptTail, durationMs, opts = {}
       }
       retried = true;
     }
-    const form = new FormData();
-    form.append('file', new Blob([wavBuffer], { type: 'audio/wav' }), 'audio.wav');
-    form.append('response_format', 'json');
-    form.append('temperature', '0.0');
-    // 前の要求の続きとして文字起こしさせない。1.7.6・1.8.0 などの whisper-server は既定で前の要求の
-    // ヒントと文を次の要求に持ち越す（別の議事録や音声入力にまで漏れ、上の「ヒントなし」の
-    // やり直しにも前のヒントが残る）。1.9.5 は常にこの扱いで、この欄は読まれない
-    form.append('no_context', 'true');
-    if (settings.language && settings.language !== 'auto') form.append('language', settings.language);
-    if (p) {
-      form.append('prompt', p);
-      // これが無いと語彙のヒントが各リクエストの最初の30秒にしか効かない。
-      // 1区間は75秒あるので、2/3が素の状態で書き起こされていた。
-      // 古いビルドでは黙って無視されるだけで害は無い。
-      form.append('carry_initial_prompt', 'true');
-    }
+    // 本文は送ると使い切るので、接続が切れて送り直すときは組み直す
+    const makeForm = () => {
+      const form = new FormData();
+      form.append('file', new Blob([wavBuffer], { type: 'audio/wav' }), 'audio.wav');
+      form.append('response_format', 'json');
+      form.append('temperature', '0.0');
+      // 前の要求の続きとして文字起こしさせない。1.7.6・1.8.0 などの whisper-server は既定で前の要求の
+      // ヒントと文を次の要求に持ち越す（別の議事録や音声入力にまで漏れ、上の「ヒントなし」の
+      // やり直しにも前のヒントが残る）。1.9.5 は常にこの扱いで、この欄は読まれない
+      form.append('no_context', 'true');
+      if (settings.language && settings.language !== 'auto') form.append('language', settings.language);
+      if (p) {
+        form.append('prompt', p);
+        // これが無いと語彙のヒントが各リクエストの最初の30秒にしか効かない。
+        // 1区間は75秒あるので、2/3が素の状態で書き起こされていた。
+        // 古いビルドでは黙って無視されるだけで害は無い。
+        form.append('carry_initial_prompt', 'true');
+      }
+      return form;
+    };
     touchEngine(whisperEng);
-    const res = await fetch(`http://127.0.0.1:${settings.localPort}/inference`,
-      { method: 'POST', body: form, signal: AbortSignal.timeout(Math.max(1000, deadline - Date.now())) });
+    let res;
+    for (;;) {
+      try {
+        res = await fetch(`http://127.0.0.1:${settings.localPort}/inference`,
+          { method: 'POST', body: makeForm(), signal: AbortSignal.timeout(Math.max(1000, deadline - Date.now())) });
+        break;
+      } catch (e) {
+        // 区間の失敗の文になる（議事録・音声入力・復旧）。英語の "fetch failed" をそのまま見せない
+        const code = droppedCode(e);
+        if (!code || resent) throw new Error(fetchErrorText(e));
+        resent = true;
+        // 記録の頭は「文字起こし:」にしない（認識ヒントのやり直しの行だけが使う。transcribe.e2e.test.js がその頭で見る）
+        engineLog(`文字起こしの接続: エンジンとの接続が切れたため、同じ区間をもう一度送りました（${code}・音声 ${sec} 秒）`);
+      }
+    }
     touchEngine(whisperEng);
     if (!res.ok) {
       let detail = '';
