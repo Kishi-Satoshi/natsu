@@ -117,6 +117,17 @@ test('RL10・RF32: 暗号にできない PC（偽の safeStorage が使えない
   assert.ok(o.engineLog.some((l) => /^アカウント: ログインの札をしまえません（unavailable）。中継の札を取り消しました（ok）$/.test(l)), o.engineLog.join('\n'));
 });
 
+test('RL10: ログインしたまま、もう一度ログインし直したら、前の札は中継で取り消し、新しい札だけが使える（使われない札を残さない）', { timeout: 20000 }, async () => {
+  const o = await run(['text', '--json-scene=account-relogin', '--relay=text']);
+  assert.deepStrictEqual([o.verify1.ok, o.verify2.ok], [true, true], JSON.stringify([o.verify1, o.verify2]));
+  assert.ok(o.tokenA && o.tokenB && o.tokenA !== o.tokenB, '2回目のログインで札が替わっていない（場面の前提）');
+  assert.strictEqual(o.revoked, 1, '前の札を中継で取り消していない');
+  assert.deepStrictEqual([o.meA, o.meB], [401, 200], '前の札がまだ使える・新しい札が使えない');
+  assert.deepStrictEqual(o.relayCalls.filter((p) => p === '/auth/logout').length, 1);
+  assert.ok(o.engineLog.includes('アカウント: 前の札を中継で取り消した（ok）'), o.engineLog.join('\n'));
+  assert.ok(!JSON.stringify([o.engineLog, o.notices, o.verify1, o.verify2]).includes(o.tokenA), '前の札の文字が記録・知らせ・答えにある');
+});
+
 // ---------------------------------------------------------------- 第1d回 A-4（F11・K2）
 // 0.7.0 までの鍵（会社の OpenAI の鍵が入りうる）は、起動のときに purgeOld で消す。鍵の IPC（cloud:*）の受け口は無い
 const { OLD_KEY_TEXT } = require('./helpers/json-scenes');

@@ -3290,7 +3290,8 @@
   }
   async function accountLogin() {
     if (accountBusy) return;
-    const email = $('accountEmail').value.trim();
+    // 確かめるのはコードを送ったメール（送った後にメールの欄を書き換えても、コードの無い宛先へは送らない）
+    const email = accountSentTo || $('accountEmail').value.trim();
     const code = $('accountCode').value;
     $('accountCode').value = '';   // コードは欄に残さない（成功でも失敗でも。メールの欄は残す）
     setAccountBusy(true);

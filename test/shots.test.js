@@ -329,9 +329,11 @@ test('G2・F14・RL10: 取り直し待ちは設定の3枚だけ。どの画面�
 // 第1d回 A-4（RL10・F11）: 設定に「アカウント」のカードを足し、「オンライン」の説明を替えて［詳細設定（管理者用）］を消し、知らせに
 // ［ログインし直す］を足した。見える中身が変わるのは設定の3枚なので RETAKE に入れた（上の「取り直し待ちは設定の3枚だけ」）。
 // ほかの画面（議事録・音声入力・録音中のページ・検索の窓）は要素も文も変えていないので、基準のまま比べる。値を今の app.html に合わせた
+// 第1d回 A-1〜A-4 の点検の直し: ［ログイン］が確かめるメールを「コードを送ったメール」にした（<script> の中の1行だけ。要素・文・CSS は
+// 変えていないので見た目もページの長さも変わらない。RETAKE は設定の3枚のまま足さない）。値を今の app.html に合わせた
 test('基準の画像（test/shots/win32）は今の app.html で撮ったもの（app.html を変えたら撮り直しを確かめる）', { timeout: 5000 }, () => {
   const sha = require('node:crypto').createHash('sha256').update(fs.readFileSync(path.join(ROOT, 'src', 'renderer', 'app.html'))).digest('hex');
-  assert.strictEqual(sha, '845bf061e883e4ac4a2ef7becd1fdbb415cefd68f3bf2c59ef2c1eb18dd550f6',
+  assert.strictEqual(sha, '9183914c2e201bd4aece5df9f0c1c1e2d917b3e9e19455d1f6b849fb777991f0',
     'app.html が基準の画像を撮った時と違う。Windows の CI の画面の比べ（捲り棒のつまみも）を見て、基準を取り直してからこの値を直す');
 });
 

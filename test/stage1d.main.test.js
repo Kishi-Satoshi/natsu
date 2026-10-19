@@ -120,7 +120,22 @@ test('F5: 古い札の 401 login が、送っている間にログインし直�
   assert.deepStrictEqual(o.m1.route.stt, { cloud: 0, local: 1, provider: 'openai' });
   assert.ok(allText(o.m1.segments));
   assert.ok(o.engineLog.includes('アカウント: 中継が 401。送った後にログインし直していたので、今の札は消さない'), o.engineLog.join('\n'));
+  assert.strictEqual(count(o, L3), 0, `ログインし直した後なのに「ログインが切れた」を出した: ${JSON.stringify(o.notices)}`);
   assert.deepStrictEqual(o.m2.route.stt, { cloud: 1, local: 0, provider: 'openai' }, '新しい札で中継へ送っていない');
+});
+
+test('F5: 送っている間に自分でログアウトした後の古い札の 401 login は、「ログインが切れた」（L3）を出さず、記録も「ログアウトした後」。その区間は手元でやり直す', T, async () => {
+  const o = await run(['text', '--json-scene=relay-logout', '--relay=text']);
+  assert.ok(tokenOf(o.secretsBefore), '種をまいた札が無い（場面の前提）');
+  assert.strictEqual(o.logout.ok, true, JSON.stringify(o.logout));
+  assert.ok(o.engineLog.includes('アカウント: ログアウトした（中継 ok）'), o.engineLog.join('\n'));
+  assert.deepStrictEqual(o.m1.route.stt, { cloud: 0, local: 1, provider: 'openai' });
+  assert.ok(allText(o.m1.segments));
+  assert.ok(o.engineLog.some((l) => /中継で失敗（login 401）/.test(l)), `古い札の 401 login になっていない（場面の前提）: ${o.engineLog.join('\n')}`);
+  assert.strictEqual(count(o, L3), 0, `自分でログアウトしたのに「ログインが切れた」を出した: ${JSON.stringify(o.notices)}`);
+  assert.ok(o.engineLog.includes('アカウント: 中継が 401。送った後にログアウトしていた'), o.engineLog.join('\n'));
+  assert.ok(!o.engineLog.some((l) => l.includes('ログインし直していた')), '理由の違う記録を書いた');
+  assert.ok(!JSON.parse(o.secretsAfter || '{"keys":{}}').keys.relay, 'ログアウトしたのに札が残った');
 });
 
 test('F4・RF35: --relay-down（中継の口が閉じている）→ 全部の区間が手元・L4 を1回', T, async () => {

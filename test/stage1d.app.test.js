@@ -194,6 +194,19 @@ test('RL10: ［ログイン］を押したらコードの欄を空にする（�
   assert.deepStrictEqual(l.called('accountVerify').map((c) => c.args), [[M, '000000'], [M, '123456']]);
 });
 
+test('RL10: ［ログイン］は確認コードを送ったメールで確かめる（送った後にメールの欄を書き換えても、コードの無い宛先へ送らない）', async () => {
+  const f = fakeMain();
+  const l = await load(APP, { returns: f.returns });
+  await l.drain();
+  l.byId.get('accountEmail').value = M;
+  await click(l, 'accountSend');
+  l.byId.get('accountEmail').value = mail('betsu');
+  l.byId.get('accountCode').value = '123456';
+  await click(l, 'accountLogin');
+  assert.deepStrictEqual(l.called('accountVerify').map((c) => c.args), [[M, '123456']], '確認コードを送っていないメールで確かめた');
+  assert.deepStrictEqual(l.errors.map(fmt), []);
+});
+
 test('RL10: main の答えの code ごとに R4〜R16 の文を出す（文は main が返す message をそのまま）', async () => {
   const host = 'natsu-relay.-unset-.workers.dev';
   const startCodes = ['domain', 'bad-email', 'rate', 'mail', 'mail-cap', 'offline', 'net', 'timeout', 'cert', 'proxy', 'not-ready', 'server'];

@@ -156,7 +156,7 @@
 //                        退けた控え secrets.json.broken-2026-10-01T00-00-00-000Z も置く（起動のときに purgeOld が消すことを見る）
 //   --relay の議事録・音声入力・復旧の場面の出力に、stt（中継の後ろの偽の OpenAI が受けた要求）・relayCalls（main が中継へ送った道の順）・
 //   relayLog（中継の記録の行）・netHosts・secretsRaw・recoveryKept・decrypts・balloons を足す（--stt と同じ形）
-//   ctx.relay に revoke()（D1 の札を全部取り消す: revoked_at）・sttRequests()・seededMail を、ctx に advanceClock(ms)（main の Date.now と
+//   ctx.relay に revoke()（D1 の札を全部取り消す: revoked_at）・sttRequests()・seededMail・base（中継の口。場面から直に GET /auth/me を聞く）を、ctx に advanceClock(ms)（main の Date.now と
 //   中継の試しの時計を ms だけ進める）を足す
 //   ctx.setOnline(bool) … 偽の net.isOnline() の答えを場面の途中で変える（--offline の場面は false から始まる）
 //   出力に足すもの（議事録の場面）: pages[].id・title・recovered、files（userData の下の相対パス）、dbStarts（DB の子を起こした回数）、trace
@@ -1224,7 +1224,7 @@ process.on('exit', () => {
         mainProgress: () => sent.filter(([ch]) => ch === 'meeting:progress').map(([, p]) => (p ? p.message : undefined)),
         setOnline: (on) => { netUp = Boolean(on); },
         relay: relayLocal ? { mail: require('./relay-run').mail, codeFor: (e) => relayLocal.codeFor(e), setFront: (m) => relayLocal.setFront(m), db: relayLocal.db,
-          calls: () => relayPaths.slice(), seededMail, sttRequests: () => relayLocal.stt.requests.slice(), logs: () => relayLocal.logs.slice(),
+          calls: () => relayPaths.slice(), seededMail, base: relayLocal.base, sttRequests: () => relayLocal.stt.requests.slice(), logs: () => relayLocal.logs.slice(),
           revoke: () => relayLocal.db.prepare('UPDATE sessions SET revoked_at = ?1 WHERE revoked_at IS NULL').bind(Math.floor(relayLocal.clock.now() / 1000)).run() } : null,
         advanceClock });
     }

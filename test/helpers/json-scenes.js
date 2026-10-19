@@ -809,6 +809,22 @@ module.exports = {
       c.relay.setFront('');
       o.m2 = await relayMeeting(c, 1);
     } },
+  // 第1d回 A-3 の点検の直し（F5）: --relay=text。文字起こしの要求を中継の前で 800 ミリ秒止めている間に、設定の画面と同じ IPC で
+  // ログアウトする（中継の札は /auth/logout で取り消される）。遅れて届いた古い札の 401 login は、自分でログアウトした後なので
+  // 「ログインが切れた」（L3）を出さない。その区間は手元でやり直す
+  'relay-logout': { relaySeed: true, engine: 'lazy', files: { 'settings.json': RELAY_BASE_SETTINGS },
+    act: async (c) => {
+      const h = (ch, ...a) => c.handlers[ch]({}, ...a);
+      const o = c.out;
+      const fileText = (rel) => { const b = c.read(rel); return b ? b.toString('utf8') : null; };
+      o.secretsBefore = fileText('secrets.json');
+      c.relay.setFront('delay-stt');
+      o.m1 = await relayMeeting(c, 1, { afterFirst: async () => {
+        o.logout = await h('account:logout');
+      } });
+      o.secretsAfter = fileText('secrets.json');
+      c.relay.setFront('');
+    } },
   // 第1d回 Task A-3（RL11）: --relay=daily-cap（1人の1日の上限 4 秒）。1回目の会議は 3 秒・2 秒・2 秒の区間で、2つ目が上限（scope user）。
   // 3つ目は hold の間なので中継へ何も送らない。11 分後の2回目の会議も、日が替わるまでの hold なので送らない（quota の 10 分とは違う）。
   // main と中継の時計を1日進めると、3回目の会議はクラウドに戻る
@@ -894,6 +910,31 @@ module.exports = {
       o.verifyBlocked = await h('account:verify', B, r.codeFor(B));
       await h('account:start', M);
       o.rate = await h('account:start', M);
+      o.relayCalls = r.calls();
+    } },
+  // A-1〜A-4 の点検の直し（RL10）: ログインしたまま、もう一度 start → verify でログインし直す。前の札（A）は中継で取り消し、
+  // 新しい札（B）だけが使える（使われない札を 30 日残さない）。どちらが使えるかは中継の GET /auth/me で見る
+  'account-relogin': { files: { 'settings.json': pretty(TYPICAL) },
+    act: async (c) => {
+      const h = (ch, ...a) => c.handlers[ch]({}, ...a);
+      const o = c.out;
+      const r = c.relay;
+      const M = r.mail('kaigi');
+      const fileText = (rel) => { const b = c.read(rel); return b ? b.toString('utf8') : null; };
+      const tokenNow = () => { try { return Buffer.from(Buffer.from(JSON.parse(fileText('secrets.json')).keys.relay, 'base64').toString('latin1').slice(5), 'hex').toString('utf8'); } catch (_) { return ''; } };
+      const revoked = () => r.db.prepare('SELECT COUNT(*) AS n FROM sessions WHERE revoked_at IS NOT NULL').first('n');
+      const me = async (t) => (await fetch(`${r.base}/auth/me`, { headers: { Authorization: `Bearer ${t}` } })).status;
+      await h('account:start', M);
+      o.verify1 = await h('account:verify', M, r.codeFor(M));
+      o.tokenA = tokenNow();
+      await h('account:start', M);
+      o.verify2 = await h('account:verify', M, r.codeFor(M));
+      o.tokenB = tokenNow();
+      // 前の札の取り消しは待たずに送る（ログインの答えを遅らせない）ので、届くまで少し待つ
+      for (let until = Date.now() + 3000; Date.now() < until && ((await revoked()) < 1 || !logText(c).includes('前の札を中継で取り消した'));) await c.sleep(20);
+      o.revoked = await revoked();
+      o.meA = await me(o.tokenA);
+      o.meB = await me(o.tokenB);
       o.relayCalls = r.calls();
     } },
   // 同じ流れの、暗号にできない PC（mainrun の --no-store: 偽の safeStorage の isAsyncEncryptionAvailable が false）。

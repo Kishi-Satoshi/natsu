@@ -1604,18 +1604,25 @@ function cloudFailure(e, provider) {
 }
 // 中継の失敗のうち、その区間を手元でやり直すもの（stt-cloud.redoLocally）の後始末 → 手元にした理由の符号。
 // login: 送った札がまだしまってある札なら消して、ログインしていない形に（送っている間にログインし直した新しい札は消さない）。
-// L3 は［ログインし直す］付き。同じ会議では L2 を重ねない。daily-cap: 日の替わりまで hold。
+// L3 は［ログインし直す］付きで、札を消したときだけ（送った後に自分でログアウト・ログインし直したなら出さない）。同じ会議では L2 を重ねない。daily-cap: 日の替わりまで hold。
 // quota・upstream-auth: 10 分の hold。通信の符号と server: 届いた結果の覚えを捨て、次の区間は届くかを確かめ直す
 async function relayFallback(e, scope, provider, sentToken) {
   const code = e instanceof sttCloud.CloudSttError && typeof e.code === 'string' ? e.code : 'server';
   engineLog(`文字起こしの経路: 中継で失敗（${code}${e && e.status ? ` ${e.status}` : ''}）。この区間は PC で文字起こしします`);
   if (code === 'login') {
     const current = secrets ? await secrets.get('relay') : '';
-    if (current === sentToken) {
-      const removed = secrets ? secrets.remove('relay') : { ok: true };
-      if (settings.accountEmail) setAccountEmail('');
-      engineLog(`アカウント: 中継が 401。札を消した${removed && removed.ok === false ? `（消せませんでした: ${removed.code || 'write'}）` : ''}`);
-    } else engineLog('アカウント: 中継が 401。送った後にログインし直していたので、今の札は消さない');
+    // 送った後に自分でログアウトした・ログインし直したときは「ログインが切れた」（L3）を出さない（点検の目で足した: 場面 relay-logout）
+    if (!current) {
+      engineLog('アカウント: 中継が 401。送った後にログアウトしていた');
+      return code;
+    }
+    if (current !== sentToken) {
+      engineLog('アカウント: 中継が 401。送った後にログインし直していたので、今の札は消さない');
+      return code;
+    }
+    const removed = secrets ? secrets.remove('relay') : { ok: true };
+    if (settings.accountEmail) setAccountEmail('');
+    engineLog(`アカウント: 中継が 401。札を消した${removed && removed.ok === false ? `（消せませんでした: ${removed.code || 'write'}）` : ''}`);
     noticeOnce(scope, 'login', STT_NOTICE.login(provider));
     noticeSeen(scope).add('signed-out');
     return code;
@@ -3851,6 +3858,9 @@ function setupIpc() {
       if (r.retryAfter !== undefined) extra.retryAfter = r.retryAfter;
       return accountFail(r.code, extra);
     }
+    // ログインしたままログインし直したときの前の札（しまえたら中継で取り消す）
+    let prev = '';
+    try { prev = signedIn() ? await secrets.get('relay') : ''; } catch (_) { prev = ''; }
     // しまえない PC（暗号にできない）・書けないときは、札をその場で中継で取り消す（使われない札を残さない: RF32）
     const saved = secrets ? await secrets.set('relay', r.token) : { ok: false, code: 'unavailable' };
     if (!saved.ok) {
@@ -3860,6 +3870,11 @@ function setupIpc() {
     }
     setAccountEmail(isEmailShape(r.email) ? r.email : mail);
     engineLog('アカウント: ログインした');
+    // 前の札は使われないまま 30 日残さず、中継で取り消す（答えは待たない: ログインを遅らせない。届かなければ 30 日で切れる）
+    if (prev && prev !== r.token) {
+      accountApi.logout(prev).then((out) => engineLog(`アカウント: 前の札を中継で取り消した（${out && out.ok ? 'ok' : '届かない'}）`),
+        () => engineLog('アカウント: 前の札を中継で取り消した（届かない）'));
+    }
     return { ok: true, email: settings.accountEmail };
   });
   ipcMain.handle('account:logout', async () => {
