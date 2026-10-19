@@ -24,17 +24,65 @@ const clipOf = (promise, { dropAbc = false, drop = null } = {}) => {
 
 // 第1a回 Task 3-3 で直した（意図: 全部そろって OK のときだけ 0。確かめは 12 になった）
 // 第1c回 Task A-5 で直した（意図: 本物の net.request の POST（13）と safeStorage の非同期（14）を足して 14）
-test('electron-smoke: 14 の確かめ。終了コードは 14 件そろって全部 OK のときだけ 0', { timeout: 5000 }, () => {
-  assert.deepStrictEqual(S.CHECKS.map(([n]) => n), [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14]);
+// 第2a1回 Task P-2 で直した（意図: 本物の src/db/server.js と本物の src/preload.js の往復（15）を足して 15）
+test('electron-smoke: 15 の確かめ。終了コードは 15 件そろって全部 OK のときだけ 0', { timeout: 5000 }, () => {
+  assert.deepStrictEqual(S.CHECKS.map(([n]) => n), [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]);
   const all = S.CHECKS.map(([n]) => ({ n, ok: true }));
   assert.strictEqual(S.exitCodeOf(all), 0);
   assert.strictEqual(S.exitCodeOf(all.map((r) => (r.n === 10 ? { ...r, ok: false } : r))), 1);
   assert.strictEqual(S.exitCodeOf(all.map((r) => (r.n === 14 ? { ...r, ok: false } : r))), 1);
-  assert.strictEqual(S.exitCodeOf(all.slice(0, 13)), 1);
+  assert.strictEqual(S.exitCodeOf(all.map((r) => (r.n === 15 ? { ...r, ok: false } : r))), 1);
+  assert.strictEqual(S.exitCodeOf(all.slice(0, 14)), 1);
   assert.strictEqual(S.exitCodeOf([]), 1);
   const lines = [];
   S.finish({ exit: () => {} }, all, { log: (l) => lines.push(l), flush: (cb) => cb() });
-  assert.strictEqual(lines[lines.length - 1], '結果: 14 件とも OK');
+  assert.strictEqual(lines[lines.length - 1], '結果: 15 件とも OK');
+});
+
+// 第2a1回 Task P-2（ST5・ST7）: 本物の Electron で、本物の server.js（utilityProcess）と本物の preload（sandbox の窓）を往復する
+test('P-2: 15 番目の確かめ（本物の server.js と本物の preload）が一覧にあり、判定は純粋な dbResults', () => {
+  const S = require('../tools/electron-smoke/main.js');
+  assert.strictEqual(S.CHECKS.length, 15);
+  assert.match(S.CHECKS[14][1], /src\/db\/server\.js.*src\/preload\.js/);
+  const good = { got: { title: '見本', routeText: [] }, portOnWindow: false, rejectedWhileDown: true, titleAfter: '直した', oplogRows: 1, killCode: 0 };
+  assert.strictEqual(S.dbResults(good)[0].ok, true);
+  for (const k of ['portOnWindow', 'rejectedWhileDown', 'oplogRows']) {
+    const bad = { ...good, [k]: k === 'oplogRows' ? 2 : !good[k] };
+    assert.strictEqual(S.dbResults(bad)[0].ok, false, k);
+  }
+  const src = read('tools/electron-smoke/main.js');
+  assert.ok(src.includes("path.join(ROOT, 'src', 'db', 'server.js')") && src.includes("path.join(ROOT, 'src', 'preload.js')"), '本物を使っていない');
+});
+
+// P-2 の続き（計画のテストに足した）: 判定のほかの崩れも NG。読めたページ・題名・routeText・書き込み・oplog の数・kill の番号
+test('P-2: dbResults は、ページが返らない・routeText が無い・題名が違う・書き込みが済まない・oplog が 0 行・kill の番号が 0 でない、でも NG', { timeout: 5000 }, () => {
+  const good = { got: { title: '見本', routeText: ['☁ 文字起こし: クラウド（OpenAI）1'] }, portOnWindow: false, rejectedWhileDown: true, titleAfter: '直した', oplogRows: 1, killCode: 0 };
+  assert.deepStrictEqual(S.dbResults(good).map((r) => [r.n, r.ok]), [[15, true]]);
+  const bad = [{ got: null }, { got: { title: '見本' } }, { got: { title: '見本', routeText: '' } }, { got: { title: '別', routeText: [] } },
+    { titleAfter: '' }, { titleAfter: undefined }, { oplogRows: 0 }, { oplogRows: undefined }, { killCode: 1 }, { killCode: null },
+    { portOnWindow: undefined }, { rejectedWhileDown: 'rejected retry' }, { error: '子の ready が 15000ms で来ない' }];
+  for (const patch of bad) assert.strictEqual(S.dbResults({ ...good, ...patch })[0].ok, false, JSON.stringify(patch));
+  assert.strictEqual(S.dbResults({})[0].ok, false);
+  assert.strictEqual(S.dbResults(null)[0].ok, false);
+  // 止まったときは、どこで止まったかを文に残す
+  assert.match(S.dbResults({ ...good, error: '子の ready が 15000ms で来ない' })[0].note, /止まった: 子の ready/);
+});
+
+test('P-2: 15 は DB の子を NaTsu DB の名前で起こし、本物の preload を sandbox の窓に付け、口を落としてから起こし直し、版を見た後・守りの確かめの前に走る', { timeout: 5000 }, () => {
+  const m = read('tools/electron-smoke/main.js');
+  for (const k of ["serviceName: 'NaTsu DB'", "type: 'init'", "type: 'port', role: 'main'", "type: 'port', role: 'app'", "postMessage('db:port', null, [", "send('db:lost'",
+    "'meeting.finalize'", 'koeApp.pageGet(', 'koeApp.pageSetTitle(', 'instanceof MessagePort', "type: 'close'", "require('node:sqlite')", 'dbResults(', 'dbChecks('])
+    assert.ok(m.includes(k), k);
+  const fn = m.slice(m.indexOf('async function dbChecks('));
+  assert.ok(fn.indexOf('preload: PRELOAD_REAL, sandbox: true, contextIsolation: true, nodeIntegration: false') > 0, '本物の preload を sandbox の窓に付けていない');
+  const boot = m.slice(m.indexOf('function boot()'), m.indexOf('async function securityChecks('));
+  assert.ok(boot.indexOf('displayMediaCheck(') < boot.indexOf('dbChecks(') && boot.indexOf('dbChecks(') < boot.indexOf('securityChecks('), '15 の場所');
+  // 版を見る前の所に new BrowserWindow( を書かない（dbChecks は boot() の後に置く）
+  assert.ok(m.indexOf('async function dbChecks(') > m.indexOf('function boot()'));
+  // 一時フォルダは日本語と 𠮷 の名前（利用者のデータに触れない）
+  assert.match(fn, /mkdtempSync\(path\.join\(os\.tmpdir\(\), '[^']*[ぁ-ん一-龠][^']*𠮷[^']*'\)\)/);
+  // 何もしないページのまま（見るのは preload の口）
+  assert.ok(!/<script/i.test(read('tools/electron-smoke/page.html')));
 });
 
 // 第1c回 Task A-5（OL2・OL3）: 13・14 の判定（純粋）。本物の Electron で集めた観測の見本で確かめる（npm test では Electron を起こさない）

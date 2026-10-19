@@ -3,7 +3,7 @@
  *
  * 走らせ方（Electron の main として。窓は見せない）:
  *   node_modules/electron/dist/electron.exe tools/electron-smoke
- * 次の 14 を確かめる（CHECKS）。
+ * 次の 15 を確かめる（CHECKS）。
  *   1〜4. utilityProcess と MessageChannelMain の口で、sandbox の隠れた窓（preload）と往復する。子を落として起こし直す。
  *         子の中で node:sqlite を開く。kill() の終わりの番号を見る
  *   5・6. mainlib の copyPrivate・deliverText を本物の clipboard で動かす（44 では Promise を返す。C1）
@@ -21,7 +21,12 @@
  *         さらに decryptStringAsync が shouldReEncrypt: true を返したとき、secrets.get が暗号にし直して書き、読み戻せる
  *         （しまえる PC だけ。Linux の basic_text では求めない）。
  *         Linux の basic_text（鍵の入れ物が無い CI）は「使えない」で OK（secrets.js が保存を断り、ファイルを作らないこと）
- * 結果は 1 行ずつ OK／NG で出す。14 件そろって全部 OK なら終了コード 0、そうでなければ 1（exitCodeOf）。
+ *   15.   第2a1回 ST5・ST7（dbChecks。判定は純粋な dbResults）: 一時フォルダで本物の src/db/server.js を utilityProcess
+ *         （serviceName 'NaTsu DB'）で起こし、main の口で meeting.finalize を1つ書く。sandbox の隠れた窓に本物の src/preload.js を
+ *         付け、koeApp.pageGet が routeText 付きのページを返す。ページの window の上に MessagePort が無い。子を kill() して
+ *         （終わりの番号 0）、起こし直した子が用意の前のうちに pageGet と pageSetTitle を頼み、その子も落とす → pageGet は retry で
+ *         返る。もう一度起こし直して口を配り直すと pageSetTitle が済み、oplog にその書き込みの行（役 app・tx 'a:…'）が1つだけある。
+ * 結果は 1 行ずつ OK／NG で出す。15 件そろって全部 OK なら終了コード 0、そうでなければ 1（exitCodeOf）。
  * どこかで止まっても、90 秒の見張りで 1 で終わる。
  *
  * Electron を読むのは、Electron の main として動いたときだけ（下の boot。tools/net-smoke.js と同じ形）。
@@ -58,6 +63,8 @@ const CHECKS = [
   [12, '移動と新しい窓: location の書き換え・リンク・window.open で、窓は元のページのまま、新しい窓は開かない'],
   [13, 'net.request の POST: 127.0.0.1 の偽の送り先へ transcribeCloud で multipart を送り、文字が返る。302・307 の転送は失敗になり、先へ届かない'],
   [14, 'safeStorage の非同期: 暗号にして同じ文字に戻り、secrets.js でしまって読み返せる（Linux の basic_text は「使えない」で OK）'],
+  [15, '本物の src/db/server.js（utilityProcess・NaTsu DB）に main の口で締めを書き、本物の src/preload.js（sandbox の窓）の koeApp.pageGet が routeText 付きで返す。'
+    + '口は window に出ない。子を落とすと読みは失敗で返り、書き込みは起こし直した後に1回だけ効く'],
 ];
 
 // 13 の送るもの。欄は test/stt-cloud.test.js の OL2 と同じ（鍵は試し用の決まった文字。本物の鍵ではない）
@@ -72,6 +79,17 @@ const SET_CODES = new Set(['ok', 'unavailable', 'bad-key', 'bad-id', 'write']);
 const REFUSED_CODES = new Set(['offline', 'cert', 'proxy', 'net']);
 
 const PKG = path.join(__dirname, '..', '..', 'package.json');
+// 15 は本物を使う（写しや偽物ではない）
+const ROOT = path.join(__dirname, '..', '..');
+const DB_SERVER = path.join(ROOT, 'src', 'db', 'server.js');
+const PRELOAD_REAL = path.join(ROOT, 'src', 'preload.js');
+// 15 の見本（人の名前は使わない）。送り先の表示の名前は main が init で渡すもの（routeText を DB のプロセスが添える）
+const SMOKE_DB = Object.freeze({
+  pageId: 'psmoke2a1',
+  title: '見本',
+  newTitle: '直した',
+  labels: Object.freeze({ openai: 'OpenAI' }),
+});
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 const msgOf = (e) => (e && e.message) || String(e);
 
@@ -84,7 +102,7 @@ function within(promise, ms, what) {
   ]).finally(() => clearTimeout(t));
 }
 
-/** CHECKS の全部（12 件）がそろって全部 OK のときだけ 0 */
+/** CHECKS の全部がそろって全部 OK のときだけ 0 */
 function exitCodeOf(results) {
   return Array.isArray(results) && results.length === CHECKS.length
     && CHECKS.every(([n]) => results.some((r) => r && r.n === n && r.ok === true)) ? 0 : 1;
@@ -203,6 +221,31 @@ function onlineResults(o) {
   ];
 }
 
+/**
+ * 15 の判定（純粋）。dbChecks が本物の Electron で集めた観測を渡す。
+ * @param {{ got: { title: string, routeText: string[] } | null, portOnWindow: boolean, rejectedWhileDown: boolean, titleAfter: string,
+ *   oplogRows: number, killCode: number, closeEvent?: boolean, error?: string }} o
+ *   got は koeApp.pageGet の答えの page。portOnWindow はページの window（と koeApp・koeOverlay の中）に MessagePort か
+ *   関数でないもの・natsuDb があったか。rejectedWhileDown は、用意の前の子に頼んだ pageGet が、子を落とした後に retry で返ったか。
+ *   titleAfter は起こし直した後に済んだ pageSetTitle の答えの題名。oplogRows は役 app・tx 'a:…' の page.setTitle の行の数。
+ *   killCode は用意のできた子を kill() した終わりの番号。closeEvent（参考）は db:lost の前に口の 'close' で読みが返ったか。
+ *   error はどこかで止まったときの文（あれば NG）
+ * @returns {Array<{ n: number, ok: boolean, note: string }>}
+ */
+function dbResults(o) {
+  const x = o || {};
+  const j = (v) => JSON.stringify(v);
+  const got = x.got && typeof x.got === 'object' ? x.got : null;
+  const gotOk = Boolean(got) && got.title === SMOKE_DB.title && Array.isArray(got.routeText);
+  const ok = !x.error && gotOk && x.portOnWindow === false && x.rejectedWhileDown === true && x.titleAfter === SMOKE_DB.newTitle
+    && x.oplogRows === 1 && x.killCode === 0;
+  const note = `pageGet の題名は ${j(got ? got.title : null)}・routeText は ${j(got ? got.routeText : null)}、`
+    + `window に口は ${x.portOnWindow === false ? '無い' : `ある（${j(x.portOnWindow)}）`}、kill() の番号は ${j(x.killCode)}、`
+    + `落ちた間の読みは ${x.rejectedWhileDown === true ? `retry で返った（${x.closeEvent === true ? "口の 'close' で" : 'db:lost で'}）` : '返らない'}、`
+    + `起こし直した後の題名は ${j(x.titleAfter)}、oplog の行は ${j(x.oplogRows)}${x.error ? `、止まった: ${x.error}` : ''}`;
+  return [{ n: 15, ok, note }];
+}
+
 /** 結果を n の順に 1 行ずつ出し、出力を流し切ってから、exitCodeOf の値で Electron を終える */
 function finish(app, results, { log = (l) => console.log(l), flush = (cb) => process.stdout.write('', cb) } = {}) {
   const list = Array.isArray(results) ? results : [];
@@ -319,10 +362,149 @@ function boot() {
     results.push(...await clipboardChecks(clipboard));
     results.push(await displayMediaCheck(win, session));
     win.destroy();
+    results.push(...await dbChecks({ BrowserWindow, utilityProcess, MessageChannelMain }));
     results.push(...await securityChecks({ app, BrowserWindow, session }));
     results.push(...await onlineChecks({ app, net, safeStorage }));
     finish(app, results);
   }, die('起動の失敗'));
+}
+
+/**
+ * 15: 本物の src/db/server.js（utilityProcess）と、sandbox の隠れた窓に付けた本物の src/preload.js で観測を集める（判定は dbResults）。
+ * 置き場所は boot() の後（版を見る前の所に new BrowserWindow( を書かない）。どこかで止まっても観測を残して判定に回す（見張りの 90 秒を待たない）。
+ * 口（webContents.postMessage）と executeJavaScript は別の道で届くので、口を渡したら本物の preload の受け口の 'pages:updated'
+ * （webContents.send。口と同じ道で、渡した順に届く）で印を送り、ページがその印を見てから頼む。
+ *   A: 用意のできた子。main の口で締め → pageGet → window に口が無いか → kill()（番号）→ main と同じく db:lost
+ *   B: 起こし直した子。init を送らない（用意の前。頼みは子の中で待つ）。口を配って pageGet と pageSetTitle を頼み、kill() → 読みは retry
+ *   C: もう一度起こし直した子（落ちた後なので、子の中の worker で確かめてから用意）。口を配り直すと pageSetTitle が同じ tx で済む
+ * 最後に C を閉じ（close → closed）、natsu.db を素の読み取り専用の接続で開いて oplog を数える。一時フォルダは消す。
+ */
+async function dbChecks({ BrowserWindow, utilityProcess, MessageChannelMain }) {
+  const o = {};
+  const kids = [];
+  let win = null;
+  let tmp = '';
+  const until = async (fn, ms, what) => {
+    for (const end = Date.now() + ms; ; await wait(20)) {
+      const v = await fn();
+      if (v) return v;
+      if (Date.now() > end) throw new Error(`${what} が ${ms}ms で来ない`);
+    }
+  };
+  try {
+    tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'natsu-smoke-db-議事録𠮷-'));
+    const dataDir = path.join(tmp, 'data');
+    const fork = () => {
+      const child = utilityProcess.fork(DB_SERVER, [], { serviceName: 'NaTsu DB' });
+      const k = { child, msgs: [], exited: new Promise((r) => child.once('exit', r)) };
+      child.on('message', (m) => k.msgs.push(m));
+      kids.push(k);
+      return k;
+    };
+    const msgOfType = (k, type) => k.msgs.find((m) => m && m.type === type);
+    const start = async (k) => {
+      k.child.postMessage({ type: 'init', dataDir, labels: { ...SMOKE_DB.labels }, network: false });
+      const r = await until(() => msgOfType(k, 'ready'), 20000, '子の ready');
+      if (r.state !== 'ok') throw new Error(`子の ready が ${JSON.stringify(r.state)}`);
+    };
+    // main の口（役 main）。頼み { id, cmd, args, tx? } → 返事 { id, ok, result | code }
+    const mainPort = (k) => {
+      const { port1, port2 } = new MessageChannelMain();
+      k.child.postMessage({ type: 'port', role: 'main' }, [port1]);
+      const waiting = new Map();
+      let seq = 0;
+      port2.on('message', (e) => { const m = e && e.data; if (m && waiting.has(m.id)) { waiting.get(m.id)(m); waiting.delete(m.id); } });
+      port2.start();
+      return (cmd, args, tx) => within(new Promise((r) => { seq += 1; waiting.set(seq, r); port2.postMessage(tx ? { id: seq, cmd, args, tx } : { id: seq, cmd, args }); }), 10000, cmd);
+    };
+    const js = (code) => within(win.webContents.executeJavaScript(code), 10000, 'ページの式');
+    let mark = 0;
+    const sync = async () => {
+      mark += 1;
+      const n = mark;
+      win.webContents.send('pages:updated', { mark: n });
+      await until(() => js('window.__p2mark').then((v) => v === n), 10000, '画面の印');
+    };
+    const givePort = async (k) => {
+      const { port1, port2 } = new MessageChannelMain();
+      k.child.postMessage({ type: 'port', role: 'app' }, [port1]);
+      win.webContents.postMessage('db:port', null, [port2]);
+      await sync();
+    };
+    const id = JSON.stringify(SMOKE_DB.pageId);
+
+    // A: 用意のできた子に、main の口で締めを1つ書く
+    const a = fork();
+    const askA = mainPort(a);
+    await start(a);
+    const fin = await askA('meeting.finalize', {
+      pageId: SMOKE_DB.pageId,
+      page: { title: SMOKE_DB.title, blocks: [], route: { stt: { cloud: 1, local: 0, provider: 'openai' }, localOnly: false } },
+      segments: [{ id: 's1', atMs: 0, durationMs: 1000, text: '本日の議題は進捗の確認です。' }],
+    }, `meeting:${Date.now()}`);
+    if (!fin.ok) throw new Error(`締めが ${fin.code}`);
+    win = new BrowserWindow({
+      show: false,
+      webPreferences: { preload: PRELOAD_REAL, sandbox: true, contextIsolation: true, nodeIntegration: false },
+    });
+    await within(win.loadFile(path.join(__dirname, 'page.html')), 10000, 'page.html の読み込み');
+    await js('window.__p2 = {}; koeApp.onPagesUpdated((p) => { window.__p2mark = p && p.mark; }); 1');
+    await givePort(a);
+    const r = await js(`koeApp.pageGet(${id})`);
+    o.got = r && r.page ? r.page : null;
+    // ページの window の上に口が無い（koeApp・koeOverlay は関数だけ。natsuDb は第2a2回まで出さない）
+    o.portOnWindow = await js(`(() => {
+      const isPort = (v) => { try { return v instanceof MessagePort; } catch (_) { return false; } };
+      for (const k of Object.getOwnPropertyNames(window)) { let v; try { v = window[k]; } catch (_) { continue; } if (isPort(v)) return true; }
+      for (const api of [window.koeApp, window.koeOverlay]) for (const k of Object.keys(api || {})) if (typeof api[k] !== 'function' || isPort(api[k])) return true;
+      return 'natsuDb' in window;
+    })()`);
+    a.child.kill();
+    o.killCode = await within(a.exited, 10000, 'kill() の後の終わり');
+    win.webContents.send('db:lost', {});
+    await sync();
+
+    // B: 起こし直した子が用意の前のうちに頼む（頼みは子の中で待つ）。その子も落とす
+    const b = fork();
+    await givePort(b);
+    await js(`koeApp.pageGet(${id}).then(() => { window.__p2.rd = 'resolved'; }, (e) => { window.__p2.rd = 'rejected ' + (e && e.message); });
+      koeApp.pageSetTitle(${id}, ${JSON.stringify(SMOKE_DB.newTitle)}).then((p) => { window.__p2.wr = { title: p && p.title }; }, (e) => { window.__p2.wr = { error: (e && e.message) || '?' }; });
+      1`);
+    b.child.kill();
+    await within(b.exited, 10000, '用意の前の子の終わり');
+    // sandbox の preload の口にも 'close' が来て、読む頼みが返る（来なければ、main と同じく db:lost で返る）
+    let rd = await until(() => js('window.__p2.rd'), 5000, "口の 'close'").catch(() => '');
+    o.closeEvent = Boolean(rd);
+    win.webContents.send('db:lost', {});
+    await sync();
+    if (!rd) rd = await until(() => js('window.__p2.rd'), 5000, '落ちた間の読みの答え');
+    o.rejectedWhileDown = rd === 'rejected retry';
+    if (await js('window.__p2.wr !== undefined')) throw new Error('口が無い間に書き込みが返った');
+
+    // C: もう一度起こし直して口を配り直す → 待たせた書き込みが同じ tx で済む
+    const c = fork();
+    await start(c);
+    await givePort(c);
+    const wr = await until(() => js('window.__p2.wr'), 10000, '書き込みの答え');
+    o.titleAfter = wr.error ? `失敗（${wr.error}）` : wr.title;
+    c.child.postMessage({ type: 'close' });
+    await until(() => msgOfType(c, 'closed'), 10000, '子の closed');
+    c.child.kill();
+    await within(c.exited, 10000, '閉じた子の終わり');
+    const { DatabaseSync } = require('node:sqlite');
+    const d = new DatabaseSync(path.join(dataDir, 'natsu.db'), { readOnly: true });
+    try {
+      o.oplogRows = d.prepare('select count(*) n from oplog where role = ? and action = ? and tx like ?').get('app', 'page.setTitle', 'a:%').n;
+    } finally { d.close(); }
+  } catch (e) {
+    o.error = msgOf(e);
+  } finally {
+    for (const k of kids) { try { k.child.kill(); } catch (_) { /* もう居ない */ } }
+    if (win) { try { win.destroy(); } catch (_) { /* もう無い */ } }
+    await Promise.all(kids.map((k) => within(k.exited, 5000, '子の終わり').catch(() => {})));
+    if (tmp) { try { fs.rmSync(tmp, { recursive: true, force: true }); } catch (_) { /* 消せなくても判定は出す */ } }
+  }
+  return dbResults(o);
 }
 
 /**
@@ -514,4 +696,4 @@ else if (require.main === module) {
   process.exitCode = 2;
 }
 
-module.exports = { CHECKS, SMOKE_STT, exitCodeOf, clipboardChecks, securityResults, onlineResults, reEncryptCheck, finish };
+module.exports = { CHECKS, SMOKE_STT, SMOKE_DB, exitCodeOf, clipboardChecks, securityResults, onlineResults, dbResults, reEncryptCheck, finish };
