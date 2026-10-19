@@ -130,6 +130,9 @@
 //                                     録音の状態（out.stateHeld）・app:restart（out.restartHeld）・update:apply（out.applyHeld）を見て、離して
 //                                     要約の結果まで待ってから app:restart（out.restartAfter）を呼んで終える（out.pages・engineLog）
 //                        idle       … 記録せずに update:apply（out.apply）と app:restart（out.restart）を呼んで終える
+//                        closing    … （A-9 の点検）main の db.close を止めたまま app:restart を呼び、閉じている間に会議（meeting:toggle の答えを
+//                                     out.startWhileClosing、会議のホットキーの後に会議中かを out.meetingWhileClosing）と音声入力のホットキー
+//                                     （録音バーの overlay:start の回数を out.overlayStartsWhileClosing）を試す。離して out.restart まで待って終える
 //   出力に足すもの（議事録の場面）: pages[].id・title・recovered、files（userData の下の相対パス）、dbStarts（DB の子を起こした回数）、trace
 //   ctx.appCall(cmd, args) … 画面と同じ役 app の口（客の rendererPort() で作る偽の MessageChannelMain の口）で DB に頼む。書く命令には
 //                      'a:' + randomUUID の tx を付ける。答えは result（失敗は Error に .code）。場面（act）にも渡す
@@ -750,6 +753,7 @@ process.on('exit', () => {
   let relaunches = 0;
   const relaunchDb = [];
   let applyCalls = 0;
+  let releaseClose = null;   // --restart-during=closing: 止めている main の db.close を始める
   const restartApp = restartDuring ? {
     relaunch() { relaunches += 1; relaunchDb.push(dbClient ? dbClient.state() : 'none'); },
     exit() {},
@@ -867,6 +871,27 @@ process.on('exit', () => {
     },
     execFile(_cmd, _args, _opts, cb) { const done = typeof _opts === 'function' ? _opts : cb; if (done) setImmediate(() => done(new Error('not in test'))); return anyProxy(); },
   };
+  // 第1d回 A-9 の点検: main が起こした子（エンジン・貼り付けなど）の kill() の回数を数える（断った再起動が何も止めないことを見る）
+  let killCalls = 0;
+  const spawnInner = childProcess.spawn;
+  childProcess.spawn = (...a) => {
+    const k = spawnInner(...a);
+    if (k && typeof k.kill === 'function') {
+      const kill = k.kill;
+      k.kill = function (...x) { killCalls += 1; return kill.apply(this, x); };
+    }
+    return k;
+  };
+  // いま動いているエンジンの子（本物の node の子で、まだ終わっていない）の数
+  const liveEngines = () => kids.filter((k) => k.exitCode === null && k.signalCode === null).length;
+  // 断った後に本体の窓の閉じるボタンを押す（quitting が立ったままなら確かめを飛ばして閉じる: closeConfirm）。
+  // 返すのは preventDefault の回数と、出た確かめの文（偽の showMessageBoxSync は［キャンセル］を返す）
+  const pressClose = () => {
+    let prevented = 0;
+    const asked0 = syncDialogs.length;
+    wins[1].emit('close', { preventDefault() { prevented += 1; } });
+    return { prevented, asked: syncDialogs.slice(asked0).map((d) => d.message) };
+  };
   const orig = Module._load;
   let dbClient = null;   // main の客（第2a1回 M-2b）
   const trace = [];   // 第2a1回 M-3: 客の頼みと下書きの書き消しの順（out.trace）
@@ -899,7 +924,9 @@ process.on('exit', () => {
             throw e;
           }
         };
-        return { ...c, call, send: (cmd, args) => { trace.push({ kind: 'send', cmd }); return c.send(cmd, args); } };
+        // 第1d回 A-9 の点検（--restart-during=closing）: main の db.close は、場面が releaseClose() を呼ぶまで閉じ始めない
+        const close = restartDuring === 'closing' ? (o) => new Promise((r) => { releaseClose = () => r(c.close(o)); }) : c.close;
+        return { ...c, call, close, send: (cmd, args) => { trace.push({ kind: 'send', cmd }); return c.send(cmd, args); } };
       } };
     }
     // 第1d回 A-9: 取り込みは数えるだけ（本当には取りに行かない・アプリのフォルダを書き換えない）
@@ -1337,12 +1364,19 @@ process.on('exit', () => {
     if (!shortcuts[hk]) throw new Error(`音声入力のホットキー ${hk} が登録されていない`);
     shortcuts[hk]();
     // 第1d回 A-9: 音声入力の録音中に再起動を頼む
-    if (restartDuring === 'dictation') out.restartRecording = await handlers['app:restart']();
+    // 断る前後で子の kill() を数える（out.killsAtRefusal）。そのとき動いていたエンジンの数は out.enginesAtRefusal
+    const kills0 = killCalls;
+    if (restartDuring === 'dictation') {
+      await waitFor(() => liveEngines() > 0, 5000);   // 音声入力の始めに先読みしたエンジンが起きるまで（止めたら見えるように）
+      out.enginesAtRefusal = liveEngines();
+      out.restartRecording = await handlers['app:restart']();
+    }
     listeners['audio:done']({}, { buffer: new Uint8Array(toneWav(3)), durationMs: 3000 });
     // 第1d回 A-9: 音声が届いて文字起こし中（handleDictationAudio は最初の await の前に processing にする）に再起動と取り込みを頼む
     if (restartDuring === 'dictation') {
       out.restartProcessing = await handlers['app:restart']();
       out.apply = await handlers['update:apply']({}, UPDATE_URL);
+      out.killsAtRefusal = killCalls - kills0;
     }
     await waitFor(() => (handlers['history:get']() || []).length > 0, 15000);
     await sleep(100);
@@ -1431,6 +1465,28 @@ process.on('exit', () => {
     process.stdout.write(`\n${JSON.stringify(out)}\n`);
     await exitClean(0);
   }
+  // 第1d回 A-9 の点検: 再起動を受けて DB を閉じている間（最大 DB_CLOSE_MS）に、会議（画面のボタン・ホットキー）と音声入力を始めようとする。
+  // 始まると relaunch で録音が切れるので、始めないこと（out.startWhileClosing・meetingWhileClosing・overlayStartsWhileClosing）を見る
+  if (restartDuring === 'closing') {
+    await sleep(100);
+    const restartP = handlers['app:restart']();
+    await waitFor(() => releaseClose !== null, 5000);
+    out.closeHeld = releaseClose !== null;
+    const overlayStarts = () => sent.filter(([ch]) => ch === 'overlay:start').length;
+    const o0 = overlayStarts();
+    out.startWhileClosing = await handlers['meeting:toggle']();
+    const st = await handlers['settings:get']();
+    if (shortcuts[st.meetingHotkey]) await shortcuts[st.meetingHotkey]();
+    out.meetingWhileClosing = Boolean(handlers['meeting:status']().active);
+    if (shortcuts[st.hotkey]) shortcuts[st.hotkey]();
+    out.overlayStartsWhileClosing = overlayStarts() - o0;
+    out.hotkeysFound = Boolean(shortcuts[st.meetingHotkey]) && Boolean(shortcuts[st.hotkey]);
+    if (releaseClose) releaseClose();
+    out.restart = await restartP;
+    Object.assign(out, { relaunches, relaunchDb, applyCalls, engineLog: elogLines() });
+    process.stdout.write(`\n${JSON.stringify(out)}\n`);
+    await exitClean(0);
+  }
   // 第1d回 A-9: 議事録の締めの返事（meeting.finalize）を偽の DB が止めている間に、再起動と取り込みを頼む。離した後にもう一度頼む
   if (restartDuring === 'finalizing') {
     out.start = await handlers['meeting:toggle']();
@@ -1484,8 +1540,14 @@ process.on('exit', () => {
     if (i === 0 && testDuring) out.testDuring = await handlers['app:test']();
     // 第1d回 A-9: 会議の録音中に再起動と取り込みを頼む（断られて、録音はそのまま続く）
     if (i === 0 && restartDuring === 'meeting') {
+      // 断る前後で子の kill() を数え（out.killsAtRefusal）、そのときエンジンが動いていたか（out.enginesAtRefusal）を残す。
+      // 断った後も録音中の閉じるボタンは確かめで止まるか（quitting を立てていないか。out.closeAfterRefusal）
+      const kills0 = killCalls;
+      out.enginesAtRefusal = liveEngines();
       out.restart = await handlers['app:restart']();
       out.apply = await handlers['update:apply']({}, UPDATE_URL);
+      out.killsAtRefusal = killCalls - kills0;
+      out.closeAfterRefusal = pressClose();
     }
     if (i === 0 && (killDbDuring || killMainDuring)) {
       // 最初の区間が文字起こしされて下書きに書かれ、写しとして DB に届いてから落とす

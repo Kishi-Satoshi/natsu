@@ -2183,7 +2183,7 @@ function createMainWindow() {
 
 // ---------------------------------------------------------------- 音声入力
 function startRecording() {
-  if (state !== 'idle') return;
+  if (state !== 'idle' || quitting) return;   // 終了・再起動の途中は始めない（第1d回 A-9 の点検。startMeeting と同じ）
   const problem = whisperProblem();
   if (problem) {
     createMainWindow();
@@ -2846,7 +2846,8 @@ function cleanOrphanSegbuf(keepDir) {
 }
 
 async function startMeeting() {
-  if (state !== 'idle') return { ok: false, error: '他の処理を実行中です' };
+  // 終了・再起動の途中（quitting。DB を閉じている間など）は始めない（始めると relaunch・終了で録音が切れる。第1d回 A-9 の点検）
+  if (state !== 'idle' || quitting) return { ok: false, error: '他の処理を実行中です' };
   const problem = whisperProblem();
   if (problem) return { ok: false, error: problem };
   // 前の起動で読めなかった控えが残っていれば、始める前に1回だけ復旧を試す（第1a回 JS9）。復旧のページは
@@ -2855,7 +2856,7 @@ async function startMeeting() {
   // F9）。そのときは回している復旧の下書きを脇へ退けない（下の park）ので、この会議の下書きは draft-<開始時刻>.json になる
   if (store.draftFiles().length && !['starting', 'migrating'].includes(db.state())) {
     await recoverDraftIfAny();
-    if (state !== 'idle') return { ok: false, error: '他の処理を実行中です' };
+    if (state !== 'idle' || quitting) return { ok: false, error: '他の処理を実行中です' };
   }
   const startedAt = Date.now();
   // 会議のページの ID はここで作って下書きに書く。写し・締め・復旧・取り消しは同じ ID に書く（第2a1回 ST6。DB は同じ ID を上書きする）

@@ -42,6 +42,12 @@ test('RF41: 会議の録音中に app:restart を呼ぶと断り（code recordin
   assert.deepStrictEqual(out.pages[0].segments.map((s) => s.failed), [false, false], '断った後の区間が文字起こしされていない（エンジンを止めた）');
   assert.ok(out.pages[0].segments.every((s) => s.text.includes('本日の議題')), JSON.stringify(out.pages[0].segments));
   assert.ok(out.engineLog.includes('更新の再起動: 断った（recording）'), out.engineLog.join('\n'));
+  // 断ったら何も止めない（A-9 の点検）: 断る前後で main が起こした子（エンジン・貼り付け）の kill() は 0 回。
+  // 区間の文字起こしだけを見ると、止めても次の区間で起こし直すので通ってしまう
+  assert.ok(out.enginesAtRefusal >= 1, `場面の前提: 断るときにエンジンが動いていない（${out.enginesAtRefusal}）`);
+  assert.strictEqual(out.killsAtRefusal, 0, '断ったのにエンジンか貼り付けを止めた');
+  // 断った後も終了の途中にしない（quitting を立てない）: 録音中の閉じるボタンは今までどおり確かめで止まる
+  assert.deepStrictEqual(out.closeAfterRefusal, { prevented: 1, asked: ['議事録を記録中です'] }, '断った後に閉じるボタンが確かめずに閉じる（終了の途中のまま）');
 });
 
 test('RF41: update:apply も録音中は取り込みを始めずに断る（取り込みの要求が 0）', { timeout: 30000 }, () => {
@@ -59,6 +65,8 @@ test('RF41: 音声入力の録音中・文字起こし中も断る', { timeout: 
   assert.strictEqual(out.applyCalls, 0);
   assert.strictEqual(out.relaunches, 0);
   assert.strictEqual(out.history.length, 1, '断った後の音声入力が履歴に残っていない');
+  assert.ok(out.enginesAtRefusal >= 1, `場面の前提: 断るときにエンジンが動いていない（${out.enginesAtRefusal}）`);
+  assert.strictEqual(out.killsAtRefusal, 0, '断ったのにエンジンか貼り付けを止めた');
 });
 
 test('RF41: 議事録の締めの返事を待つ間は finalizing（U2）。返事が来た後は再起動する（DB を閉じてから relaunch 1 回）', { timeout: 30000 }, () => {
@@ -83,6 +91,18 @@ test('RF41: 何もしていないときは今までどおり取り込んで再�
   assert.strictEqual(out.relaunches, 1);
   assert.deepStrictEqual(out.relaunchDb, ['down']);
   assert.ok(!out.engineLog.some((l) => l.startsWith('更新の再起動: 断った')), out.engineLog.join('\n'));
+});
+
+test('RF41: 再起動を受けて DB を閉じている間は、会議（ボタン・ホットキー）も音声入力も始めない（始めると relaunch で録音が切れる）', { timeout: 30000 }, () => {
+  const out = runMain('text', ['--restart-during=closing']);
+  assert.strictEqual(out.closeHeld, true, '場面の前提: DB を閉じるところで止まっていない');
+  assert.strictEqual(out.hotkeysFound, true, '場面の前提: ホットキーが登録されていない');
+  assert.deepStrictEqual(out.startWhileClosing, { ok: false, error: '他の処理を実行中です' }, '閉じている間に会議を始めた');
+  assert.strictEqual(out.meetingWhileClosing, false, '閉じている間に会議のホットキーで会議が始まった');
+  assert.strictEqual(out.overlayStartsWhileClosing, 0, '閉じている間に音声入力の録音を始めた');
+  assert.strictEqual(out.restart, true);
+  assert.strictEqual(out.relaunches, 1);
+  assert.deepStrictEqual(out.relaunchDb, ['down']);
 });
 
 test('RF41: checkUpdateFromTray は updater.apply の前と relaunchAndExit の前の2か所で restartBlock を見る', { timeout: 5000 }, () => {
