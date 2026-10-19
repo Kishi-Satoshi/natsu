@@ -36,34 +36,6 @@
 //   最後に `PERF_JSON {…}` を出し、exitCodeOf で終わる。--pages・--segments は手で見本の大きさを変えて計るとき（既定 5000・60）。
 
 'use strict';
-// 速さと書く時間を計る道具（第1a回 PERF・JS7）。CI の test のジョブの「速さを計る」の段が回す（5,000 ページの見本は npm test の
-// 「1つ 5 秒」に入らないので npm test の外。test/perf.test.js は決め方と小さな見本だけを見る）。
-//
-//   BUDGETS                 … 目安（ミリ秒）。比べる値はいつも median（CI の機械の一瞬の遅れで赤にしない）
-//   p95(list)               … 並べて 95% の位置（Math.ceil(0.95 * n) 番目）。決め方（suggest…）にだけ使う
-//   median(list)            … 並べて真ん中の値（数が偶数なら真ん中の2つの平均）
-//   judge(results, budgets) … [{ name, ms }] → [{ name, ms, budget, ok }]。目安の無い名前は投げる
-//   exitCodeOf(judged)      … NG が1つでもあれば 1
-//   suggestBatchMs(p95)     … 設定の大きさの書き込み＋fsync の p95 が 100ms までなら 350（今のまま）、越えたら 1000
-//   suggestDraftFsync(p95)  … 512KB（下書きの大きさ）の書き込み＋fsync の p95 が 20ms までなら true（足す）、越えたら false
-//   measureStore({ pages, segments, bigBlocks, bigSegments, dir }) → [{ name, ms }]（どれも3回の median）
-//   measureWrites({ reps, dir, fs })                               → [{ name, ms（median）, p95 }]（fs は試しで fsync を数えるため。既定は node の fs）
-//
-// 決め方:
-//  - 目安は設計書 PERF（開く 0.5 秒・検索 0.3 秒）。今の JSON の保存では全文検索が 5,000 個のファイルを読むので 0.3 秒に入らない。
-//    この回は天井（全文検索 2 秒・全ページに当たる一覧の検索 0.6 秒）で「遅くなっていない」ことを見る。DB にする第2a1回で 0.3 秒に下げる。
-//  - 見本は store を通さずに作る（ページ・文字起こし・index.json を fs.writeFileSync で直接書く。fsync なし）。store.createPage で
-//    5,000 回作ると、毎回 index.json（最後は約 5MB）を書き直して fsync もするので、見本を作るだけで数分かかる。
-//    索引は store と同じ形（summarize の項目）で書き、計る前に store.init が索引を書き直さなかったことを確かめる（書き直したら、
-//    見本の形が store とずれたしるしなので投げる。黙って作り直しの時間を計らない）。
-//  - 作った見本は最後に中のフォルダごと消す（失敗しても消す）。
-//  - Windows の CI（windows-latest）は Linux より遅い。最初の2回の searchIndex-all の中央値は 538.88ms と 729.43ms で、
-//    2回目が目安 600ms を越えた（2026-10-18、run 39100969926・39102046090）。計画の Task 4-4 のとおり、越えた名前だけを
-//    BUDGETS_WIN（測った中央値の 2 倍）にし、main は budgetsFor(process.platform) で目安を選ぶ。ほかの名前と Linux は BUDGETS のまま。
-//
-// node tools/perf.js
-//   1 行ずつ「OK／NG 名前 ms（目安 ms）」、目安の無い参考の値、決め方の答え（まとめ書きの間隔・draft.json の fsync）、
-//   最後に `PERF_JSON {…}` を出し、exitCodeOf で終わる。
 
 const fs = require('fs');
 const os = require('os');

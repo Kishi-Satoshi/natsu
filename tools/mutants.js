@@ -899,4 +899,9 @@ module.exports = [
     tests: ['test/db-listcache.test.js'], why: 'G-1: 集めた一覧の検索の抜き出しは当たったうち並びの一番前のブロック（min(ord)）' },
   { id: 'gp-busy-writing', file: 'tools/perf.js', from: '    const c0 = Atomics.load(shared, 1);\n    const list = timesOf(', to: '    Atomics.store(shared, 0, 1);\n    await exited;\n    const c0 = Atomics.load(shared, 1);\n    const list = timesOf(',
     tests: ['test/perf.test.js'], why: 'G-1 ST12: 下書きの書き込みは DB が書き続けている間に計る' },
+  { id: 'gp-search-group-page', file: 'src/db/search.js', from: 'where blocks_fts match ? group by b.page_id, b.type = \'page\'",', to: 'where blocks_fts match ? group by b.page_id",',
+    also: [{ from: 'group by page_id, type = \'page\'",\n  // 全文検索はページごとに数えて', to: 'group by page_id",\n  // 全文検索はページごとに数えて' }],
+    tests: ['test/db-listcache.test.js'], why: 'G-1: 集めた一覧の検索は、ページの行とブロックの行を別に集める（メモとブロックの両方に当たっても、抜き出しはブロックから。G-1 の点検で足した）' },
+  { id: 'gp-list-forget', file: 'src/db/commands.js', from: '  for (const id of cache.keys()) if (!listed.has(id)) cache.delete(id);\n', to: '  void listed;\n',
+    tests: ['test/db-listcache.test.js'], why: 'G-1: 一覧の全部を作るたびに一覧に無いページを忘れる（消して同じ rid・rev で作り直したページに前の1行を見せない。G-1 の点検で足した）' },
 ];

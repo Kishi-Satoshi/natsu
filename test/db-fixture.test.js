@@ -6,6 +6,7 @@ const fs = require('node:fs'); const os = require('node:os'); const path = requi
 const sqlite = require('node:sqlite');
 const core = require('../src/db/core');
 // copyFixture はこのファイルの中に書く（dbtmp.js はレーン D のファイルなので、G は触らない）。開いた接続は done で全部閉じてから消す
+// 固定の DB は必ず写してから開く（頭が WAL なので、読むだけで開いても test/fixtures/db/ に -shm・-wal ができる。そのまま開かない）
 function copyFixture(name) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'natsu-fx-議事録𠮷-')); const file = path.join(dir, 'natsu.db'); const opened = [];
   fs.copyFileSync(path.join(__dirname, 'fixtures', 'db', name), file);

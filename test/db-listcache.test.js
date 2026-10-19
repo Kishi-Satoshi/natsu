@@ -123,10 +123,33 @@ test('G-1: 覚えた一覧の行は、どの変え方の後も、覚えていな
     same('ゴミ箱に入れた');
     call(db, 'meeting.finalize', { pageId: 'pc2', page: page('pc2', 2, { title: '締めた題', blocks: [{ id: 'pc2z', type: 'bullet', text: '締めで書いた要点', cites: [] }] }), segments: segs(2) }, 'main');
     same('締めで上書きした');
-    // 消して同じ ID で作り直した（ページの行の rid と rev は1からやり直しになりうる）
+    // 消して同じ ID で作り直した（ここでは後のページの行が残っているので rid は新しくなり、鍵も変わる。rid と rev が同じに戻る場面は
+    // 次のテスト）
     db.exec("delete from blocks where page_id = 'pc3'");
     t.seed(page('pc3', 3, { blocks: [{ id: 'pc3n', type: 'todo', text: '作り直したページの ToDo', checked: false, assignee: '担当Z', cites: [] }] }), segs(3));
     same('消して作り直した');
+  } finally { t.done(); }
+});
+
+test('G-1: 一覧に出したページを消して、同じページの行（rid・rev・題名・時刻・attrs が同じ）で作り直しても、前の一覧の1行を見せない（一覧の全部を作るたびに、一覧に無いページを忘れる）', { timeout: 5000 }, () => {
+  const t = tmpDb();
+  try {
+    const { db } = t.open();
+    t.seed(page('pr1', 1), segs(1));
+    // 最後に足したページ Z の行が一番大きい rid を持つ。消すと、作り直したページの行は同じ rid に戻る（rid は INTEGER PRIMARY KEY）
+    const z = page('pz9', 9);
+    t.seed(z, segs(9));
+    const ridOf = () => db.prepare("select rid, rev from blocks where id = 'pz9'").get();
+    const was = { ...ridOf() };
+    assert.deepStrictEqual(call(db, 'pages.list', {}).find((e) => e.id === 'pz9').assignees, ['担当9']);
+    db.exec("delete from blocks where page_id = 'pz9'");
+    db.exec("delete from segments where page_id = 'pz9'");
+    assert.deepStrictEqual(call(db, 'pages.list', {}).map((e) => e.id), ['pr1']);
+    t.seed({ ...z, blocks: [{ id: 'pz9n', type: 'todo', text: '作り直したページの ToDo', checked: false, assignee: '担当Z', cites: [] }] }, segs(9));
+    assert.deepStrictEqual({ ...ridOf() }, was, '見本の前提が崩れた（ページの行の rid と rev が前と同じでない）');
+    const list = call(db, 'pages.list', {});
+    assert.deepStrictEqual(list, freshList(t));
+    assert.deepStrictEqual(list.find((e) => e.id === 'pz9').assignees, ['担当Z'], '消す前の一覧の1行を見せた');
   } finally { t.done(); }
 });
 
@@ -170,5 +193,31 @@ test('G-1: ページごとに集めた検索も、抜き出しは当たったう
       const full = call(db, 'pages.searchFull', { q });
       assert.deepStrictEqual([full.total, full.hits[0].segmentHits, full.hits[0].snippet], [1, 3, 'いちばん前: 予算案の話'], q);
     }
+  } finally { t.done(); }
+});
+
+test('G-1: メモとブロックの両方に当たり題名に当たらないページは、集めた検索でもメモより並びの一番前のブロックから抜き出す（題名 → ブロック → メモの順。ページの行とブロックの行を別に集める）', { timeout: 5000 }, () => {
+  const t = tmpDb();
+  try {
+    const { db } = t.open();
+    t.seed(page('pg1', 1, { title: '題', memo: '予算案はメモにも書いた', blocks: [
+      { id: 'pg1h', type: 'heading', text: '決めたこと' },
+      { id: 'pg1a', type: 'bullet', text: 'その1: 予算案の作成', cites: [] },
+      { id: 'pg1b', type: 'bullet', text: 'その2: 予算案の作成', cites: [] },
+    ] }), segs(1));
+    // ページの行の並びの鍵（'i'）は、当たったブロック（その1 は 'ii'）より前に来る。ページの行とブロックの行を1つに集めると、
+    // min(ord) がページの行を選び、ブロックの当たりが消えてメモから抜き出してしまう
+    const ords = Object.fromEntries(db.prepare('select id, ord from blocks where page_id = ?').all('pg1').map((r) => [r.id, r.ord]));
+    assert.ok(ords.pg1 < ords.pg1a, `見本の前提が崩れた: ${JSON.stringify(ords)}`);
+    for (const q of ['予算案', '予算']) {
+      const list = call(db, 'pages.list', { q });
+      assert.strictEqual(list.length, 1, q);
+      assert.ok(list[0].snippet.includes('その1'), `「${q}」の抜き出しが並びの一番前のブロックからでない（メモから抜き出した？）: ${list[0].snippet}`);
+      assert.deepStrictEqual(list, freshList(t, { q }), q);
+    }
+    // ブロックに当たらずメモだけに当たるなら、メモから抜き出す
+    const memoOnly = call(db, 'pages.list', { q: 'メモにも' });
+    assert.strictEqual(memoOnly.length, 1);
+    assert.ok(memoOnly[0].snippet.includes('メモにも'), memoOnly[0].snippet);
   } finally { t.done(); }
 });

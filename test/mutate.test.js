@@ -229,7 +229,7 @@ test('G3: 第2a1回の変異が一覧にそろう（計画の「変異確認」�
 // 第2a1回の各レーンの点検で、テストを足して殺した変異（計画の表の外。統合の申し送り (a)〜(e)）
 const IDS_2A1_REVIEW = [
   'dj-create-summary-error', 'db-actor-main', 'db-readonly-flag', 'db-put-trashed', 'db-insert-pos', 'db-seg-norecite',
-  'db-copy-trashed', 'db-recover-trashed', 'db-restore-copy', 'db-restore-done',
+  'db-copy-trashed', 'db-recover-trashed', 'db-restore-copy', 'db-restore-done', 'gp-search-group-page', 'gp-list-forget',
 ];
 test('G3: 第2a1回の点検で足した変異も一覧にそろい、IDS_2A1 は計画の「変異確認」の表の id とちょうど同じ', { timeout: 5000 }, () => {
   const ids = new Set(MUTANTS.map((m) => m.id));

@@ -12,6 +12,8 @@
 //    page.setMemo・block.setAction・page.delete）で書く。時刻・ID・tx は全部決まった値（2回走らせても同じ行。バイトは SQLite の都合で
 //    違ってよい）。ブロックの ID を乱数で作る block.insert は使わない。
 //  - 一時のファイルに作り、WAL を畳んで閉じてから（-wal・-shm が残れば止める）出力の名前に変える。
+//  - 出来た DB の頭は WAL のまま（アプリと同じ）。読むだけで開いても隣に -shm・-wal ができるので、テストは必ず一時のフォルダに写してから
+//    開く（test/db-fixture.test.js の copyFixture）。test/fixtures/db/ の中のファイルをそのまま開かない。
 'use strict';
 
 const fs = require('node:fs');
