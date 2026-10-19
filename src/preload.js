@@ -2,6 +2,87 @@
 
 const { contextBridge, ipcRenderer } = require('electron');
 
+// ---- 議事録の DB の口（第2a1回 ST5・ST7）
+// 口（MessagePort）は main から 'db:port' で受け取り、この preload の中だけに持つ。ページ（contextBridge）には関数だけを出し、
+// 口も口を返す関数も出さない。命令の名前はここでも照らし（DB の役 app の命令と同じ集まり。DB の側でも役で照らす）、
+// 書く頼みには 'a:' + crypto.randomUUID() の tx を付ける（sandbox の preload は Node のモジュールを読まないので Web の crypto）。
+// 口が来る前の頼みは待たせて、口が来たら送る。口が閉じるか main から 'db:lost' が来たら、送った読む頼みはすぐ retry で返し、
+// 書く頼みは新しい口で同じ tx のまま送り直す（DB が (役, tx) で1回だけ効かせる）。口が無いまま 30 秒たてば retry で返す。
+const APP_COMMANDS = new Set(['pages.list', 'pages.searchFull', 'pages.actionView', 'page.get', 'page.setTitle', 'page.setMemo', 'page.setType', 'page.delete', 'block.update', 'block.insert', 'block.remove', 'block.move', 'block.setAction', 'segment.update']);
+const DB_READS = new Set(['pages.list', 'pages.searchFull', 'pages.actionView', 'page.get']);
+const DB_WAIT_MS = 30000;
+let dbPort = null;
+let dbSeq = 0;
+const dbWaiting = new Map();   // id → { id, cmd, args, tx, port（送った口。まだなら null）, timer, resolve, reject }
+
+function dbError(code, retry) {
+  const e = new Error(code);
+  e.code = code;
+  e.retry = Boolean(retry);
+  return e;
+}
+
+function dbSettle(req, fn, value) {
+  if (!dbWaiting.has(req.id)) return;
+  dbWaiting.delete(req.id);
+  if (req.timer) clearTimeout(req.timer);
+  fn(value);
+}
+
+// 口が無い間は待たせる。30 秒で諦める（時計は待たせた頼みごとに1つ。送ったら止める）
+function dbHold(req) {
+  req.port = null;
+  if (!req.timer) req.timer = setTimeout(() => { req.timer = null; dbSettle(req, req.reject, dbError('retry', true)); }, DB_WAIT_MS);
+}
+
+function dbSend(req) {
+  if (req.timer) { clearTimeout(req.timer); req.timer = null; }
+  req.port = dbPort;
+  const msg = { id: req.id, cmd: req.cmd, args: req.args };
+  if (req.tx) msg.tx = req.tx;
+  dbPort.postMessage(msg);
+}
+
+function dbCall(cmd, args) {
+  if (!APP_COMMANDS.has(cmd)) return Promise.reject(dbError('forbidden', false));
+  return new Promise((resolve, reject) => {
+    const req = { id: ++dbSeq, cmd, args: args || {}, tx: DB_READS.has(cmd) ? undefined : 'a:' + crypto.randomUUID(), port: null, timer: null, resolve, reject };
+    dbWaiting.set(req.id, req);
+    if (dbPort) dbSend(req); else dbHold(req);
+  });
+}
+
+// 口を失った: その口に送った読む頼みは retry で返し、書く頼みは次の口を待つ
+function dbLost(port) {
+  if (!port) return;
+  if (dbPort === port) dbPort = null;
+  for (const req of [...dbWaiting.values()]) {
+    if (req.port !== port) continue;
+    if (DB_READS.has(req.cmd)) dbSettle(req, req.reject, dbError('retry', true));
+    else dbHold(req);
+  }
+}
+
+function dbAdopt(port) {
+  if (!port) return;
+  if (dbPort && dbPort !== port) dbLost(dbPort);
+  dbPort = port;
+  port.onmessage = (ev) => {
+    const m = ev && ev.data;
+    if (!m || typeof m.id !== 'number') return;   // changed の知らせ（2a1 の画面は pages:updated のまま）
+    const req = dbWaiting.get(m.id);
+    if (!req || req.port !== port) return;        // 古い口の遅い返事は使わない（送り直した頼みを二重に決めない）
+    if (m.ok) dbSettle(req, req.resolve, m.result);
+    else dbSettle(req, req.reject, dbError(String(m.code || 'internal'), m.retry));
+  };
+  port.addEventListener('close', () => dbLost(port));
+  if (typeof port.start === 'function') port.start();
+  for (const req of [...dbWaiting.values()]) if (req.port === null) dbSend(req);   // 待たせていた頼みを頼んだ順に
+}
+
+ipcRenderer.on('db:port', (e) => dbAdopt(e && e.ports && e.ports[0]));
+ipcRenderer.on('db:lost', () => dbLost(dbPort));
+
 // オーバーレイ（録音ピル）
 contextBridge.exposeInMainWorld('koeOverlay', {
   onStart: (cb) => ipcRenderer.on('overlay:start', (_e, p) => cb(p)),
@@ -53,24 +134,24 @@ contextBridge.exposeInMainWorld('koeApp', {
   clearHistory: () => ipcRenderer.invoke('history:clear'),
   toggleRecording: () => ipcRenderer.invoke('app:toggle-recording'),
 
-  // ページ（議事録）
-  pagesSearch: (q) => ipcRenderer.invoke('pages:search', q),
-  pagesSearchFull: (q) => ipcRenderer.invoke('pages:searchFull', q),
-  pagesActionView: ({ q, assignee }) => ipcRenderer.invoke('pages:actionView', { q, assignee }),
+  // ページ（議事録）。14 の名前は DB の口へ（第2a1回 ST5。名前・引数・返す形は今の IPC と同じ）。要約と会議の型は今どおり main
+  pagesSearch: (q) => dbCall('pages.list', { q: q || '' }),
+  pagesSearchFull: (q) => dbCall('pages.searchFull', { q: q || '', limit: 60 }),
+  pagesActionView: ({ q, assignee }) => dbCall('pages.actionView', { q, assignee }),
   meetingTypes: () => ipcRenderer.invoke('meta:types'),
-  pageSetType: (id, type) => ipcRenderer.invoke('page:setType', { id, type }),
-  blockSetAction: (pageId, blockId, assignee, dueRaw) => ipcRenderer.invoke('block:setAction', { pageId, blockId, assignee, dueRaw }),
-  pageGet: (id) => ipcRenderer.invoke('page:get', id),
-  pageDelete: (id) => ipcRenderer.invoke('page:delete', id),
-  pageSetTitle: (id, title) => ipcRenderer.invoke('page:setTitle', { id, title }),
-  pageSetMemo: (id, memo) => ipcRenderer.invoke('page:setMemo', { id, memo }),
+  pageSetType: (id, type) => dbCall('page.setType', { id, type }),
+  blockSetAction: (pageId, blockId, assignee, dueRaw) => dbCall('block.setAction', { pageId, blockId, assignee, dueRaw }),
+  pageGet: (id) => dbCall('page.get', { id }),
+  pageDelete: (id) => dbCall('page.delete', { id }),
+  pageSetTitle: (id, title) => dbCall('page.setTitle', { id, title }),
+  pageSetMemo: (id, memo) => dbCall('page.setMemo', { id, memo }),
   pageSummarize: (id) => ipcRenderer.invoke('page:summarize', id),
-  blockUpdate: (pageId, blockId, patch) => ipcRenderer.invoke('block:update', { pageId, blockId, patch }),
-  blockInsert: (pageId, afterBlockId, type) => ipcRenderer.invoke('block:insert', { pageId, afterBlockId, type }),
-  blockRemove: (pageId, blockId) => ipcRenderer.invoke('block:remove', { pageId, blockId }),
-  blockMove: (pageId, blockId, toIndex) => ipcRenderer.invoke('block:move', { pageId, blockId, toIndex }),
+  blockUpdate: (pageId, blockId, patch) => dbCall('block.update', { pageId, blockId, patch }),
+  blockInsert: (pageId, afterBlockId, type) => dbCall('block.insert', { pageId, afterBlockId, type }),
+  blockRemove: (pageId, blockId) => dbCall('block.remove', { pageId, blockId }),
+  blockMove: (pageId, blockId, toIndex) => dbCall('block.move', { pageId, blockId, toIndex }),
   hotkeyState: () => ipcRenderer.invoke('hotkey:state'),
-  segmentUpdate: (pageId, segId, patch) => ipcRenderer.invoke('segment:update', { pageId, segId, patch }),
+  segmentUpdate: (pageId, segId, patch) => dbCall('segment.update', { pageId, segId, patch }),
 
   // 議事録セッション
   meetingToggle: () => ipcRenderer.invoke('meeting:toggle'),

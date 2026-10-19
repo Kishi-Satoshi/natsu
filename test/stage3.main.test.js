@@ -97,7 +97,8 @@ test('dialog:pick はファイルだけを選ばせ（フォルダの分岐は�
   assert.match(pick, /return res\.canceled \? null : res\.filePaths\[0\];/, 'ファイル選択の戻り値が変わっている');
   // 第2a1回 M-1（ST1）: 中身は await db.call（命令 pages.actionView。今は json-backend が store.actionView を呼ぶ）。絞り込みはそのまま渡す
   assert.match(m, /ipcMain\.handle\('pages:actionView', async \(_e, \{ q, assignee \} = \{\}\) => await db\.call\('pages\.actionView', \{ q, assignee \}\)\)/);
-  assert.ok(preload.includes("  pagesActionView: ({ q, assignee }) => ipcRenderer.invoke('pages:actionView', { q, assignee }),"), 'preload の pagesActionView が無い（書式込み）');
+  // 第2a1回 P-1: 画面の口は main を通らず DB の口へ（引数の形 { q, assignee } はそのまま）
+  assert.ok(preload.includes("  pagesActionView: ({ q, assignee }) => dbCall('pages.actionView', { q, assignee }),"), 'preload の pagesActionView が無い（書式込み）');
   // app が使わなくなったので、統合で openActions / assigneeList は preload と main から外した
   assert.ok(!preload.includes('openActions:') && !preload.includes('assigneeList:'), '使われない openActions / assigneeList が preload に残っている');
   assert.ok(!m.includes("'pages:openActions'") && !m.includes("'pages:assignees'"), '使われない handle が main に残っている');
