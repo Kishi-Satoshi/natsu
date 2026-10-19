@@ -246,6 +246,9 @@ module.exports = {
       c.out.stop = await c.handlers['meeting:toggle']();
       c.listeners['audio:segment']({}, { buffer: new Uint8Array(c.toneWav(2)), durationMs: 2000, final: true });
       await c.waitFor(() => c.store.listPages().length >= 2);
+      // 第2a1回 M-2b から復旧のページは DB が書き、main は返事を受けてから下書きを消す。ページが見えた時はまだ返事の前のことがある
+      // （CI run 39242366429 の Windows の Electron の Node）。下書きが片付くのを 10 秒まで待ってから見る（片付かなければ下の確かめが赤）
+      await c.waitFor(() => c.store.draftFiles().length === 0, 10000);
       c.out.titles = c.store.listPages().map((p) => p.title);
       c.out.draftsAfter = c.store.draftFiles();
     } },
@@ -309,6 +312,7 @@ module.exports = {
       await c.waitFor(() => c.store.listPages().length >= 2);
       for (const f of c.timers.retryDraftRecovery || []) await f();   // 起動のときに予約したやり直し: もう復旧するものは無い
       await c.sleep(100);
+      await c.waitFor(() => c.store.draftFiles().length === 0, 10000);   // 締めの返事の後に下書きが消える（draft-busy と同じ。返事より先にページが見える）
       c.out.titles = c.store.listPages().map((p) => p.title);
       c.out.draftsAfter = c.store.draftFiles();
     } },
