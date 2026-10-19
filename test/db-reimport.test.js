@@ -59,18 +59,23 @@ const dbpeek = require('./helpers/dbpeek');
 
 function setup(pages) {
   const d = oldBuildData({ pages });
-  M.migrate({ sqlite, dataDir: d.dataDir });
-  const db = new sqlite.DatabaseSync(path.join(d.dataDir, 'natsu.db'));
+  let db;
+  try {
+    M.migrate({ sqlite, dataDir: d.dataDir });
+    db = new sqlite.DatabaseSync(path.join(d.dataDir, 'natsu.db'));
+  } catch (e) { d.done(); throw e; }
   let k = 0;
   const core = require('../src/db/core');
   const c = (cmd, args) => core.call(db, { role: 'app', cmd, args, tx: `a:${cmd}:${String(++k).padStart(4, '0')}` }, { now: () => new Date('2026-10-19T00:00:00Z') });
   const pf = (id) => path.join(d.dataDir, 'pages', `${id}.json`);
   const tf = (id) => path.join(d.dataDir, 'transcripts', `${id}.json`);
-  return { d, db, c, pf, tf };
+  // DB を必ず閉じてから一時フォルダを消す（Windows では開いたままだと消せず、本当の失敗が EBUSY に隠れる）
+  const done = () => { try { if (db.isOpen) db.close(); } finally { d.done(); } };
+  return { d, db, c, pf, tf, done };
 }
 
 test('RF17: 置き換えたページと足したページは元の JSON と深く同じ（発言も）。oplog に actor migration の1行ずつ（戻せる）。指紋は今のファイルと rev', { timeout: 5000 }, () => {
-  const { d, db, pf } = setup(2);
+  const { d, db, pf, done } = setup(2);
   try {
     let newId = null;
     d.oldBuild((store) => {
@@ -98,11 +103,11 @@ test('RF17: 置き換えたページと足したページは元の JSON と深�
       assert.deepStrictEqual([fp.size, fp.mtimeMs], [fs.statSync(pf(d.ids[0])).size, fs.statSync(pf(d.ids[0])).mtimeMs]);
       assert.strictEqual(fp.rev, peek.db.prepare('select rev from blocks where id = ?').get(d.ids[0]).rev);
     } finally { peek.close(); }
-  } finally { d.done(); }
+  } finally { done(); }
 });
 
 test('RF17: 変わっていないファイルは読まない（大きさと時刻が同じ）。触っただけ（中身が同じ）なら数えずに指紋の時刻だけ直す（DB の側を直していても別のページにしない）。読んだ値が同じなら数えない', { timeout: 5000 }, () => {
-  const { d, db, c, pf } = setup(3);
+  const { d, db, c, pf, done } = setup(3);
   try {
     c('page.setTitle', { id: d.ids[1], title: '新しい版で直した' });
     const reads = [];
@@ -124,12 +129,11 @@ test('RF17: 変わっていないファイルは読まない（大きさと時�
     assert.deepStrictEqual([r2.added, r2.replaced, r2.copied], [0, 0, 0], '中身の同じページを取り込んだと数えた');
     assert.deepStrictEqual(c('pages.list', {}).result.map((p) => p.title).filter((t) => t.endsWith(M.COPY_SUFFIX)), [], '触っただけのページを別のページとして足した');
     assert.strictEqual(db.prepare("select count(*) c from oplog where actor = 'migration'").get().c, 0);
-    db.close();
-  } finally { d.done(); }
+  } finally { done(); }
 });
 
 test('RF17: 両方で直した後も、古い版がまた直せば DB の側は上書きせず、もう1つ別のページとして足す（どちらも消さない）。別のページは文字起こしも写す', { timeout: 5000 }, () => {
-  const { d, db, c } = setup(1);
+  const { d, db, c, done } = setup(1);
   try {
     c('page.setTitle', { id: d.ids[0], title: '新しい版で直した' });
     d.oldBuild((store) => { const p = store.getPage(d.ids[0]); p.title = '古い版1'; store.savePage(p); });
@@ -142,12 +146,11 @@ test('RF17: 両方で直した後も、古い版がまた直せば DB の側は�
     const copy = list.find((p) => p.title.startsWith('古い版2'));
     assert.notStrictEqual(copy.id, d.ids[0]);
     assert.deepStrictEqual(c('page.get', { id: copy.id }).result.segments, c('page.get', { id: d.ids[0] }).result.segments, '別のページに文字起こしを写していない');
-    db.close();
-  } finally { d.done(); }
+  } finally { done(); }
 });
 
 test('RF17: 置き換えで文字起こしが無い・壊れているときは DB の発言を消さない。壊れたもの・表せないもの・読めないものは入れず数え、skippedSig は組が変わったときだけ変わる', { timeout: 5000 }, () => {
-  const { d, db, c, pf, tf } = setup(3);
+  const { d, db, c, pf, tf, done } = setup(3);
   try {
     d.oldBuild((store) => {
       for (const id of [d.ids[0], d.ids[1]]) { const p = store.getPage(id); p.title = `古い版で直した${id}`; store.savePage(p); }
@@ -172,12 +175,11 @@ test('RF17: 置き換えで文字起こしが無い・壊れているときは D
     const fixed = M.reimport({ db, dataDir: d.dataDir });
     assert.deepStrictEqual([fixed.added, fixed.badShape], [1, 0]);
     assert.notStrictEqual(fixed.skippedSig, r.skippedSig, '飛ばしたファイルの組が変わったのに skippedSig が同じ');
-    db.close();
-  } finally { d.done(); }
+  } finally { done(); }
 });
 
 test('RF17: 古い版が消したページ（DB にあって JSON が無い）は DB の側をそのまま残す。行の無い ID に印が無ければ同じ ID で戻す', { timeout: 5000 }, () => {
-  const { d, db, c, pf } = setup(2);
+  const { d, db, c, pf, done } = setup(2);
   try {
     d.oldBuild((store) => store.deletePage(d.ids[0]));
     assert.ok(!fs.existsSync(pf(d.ids[0])));
@@ -189,12 +191,11 @@ test('RF17: 古い版が消したページ（DB にあって JSON が無い）�
     d.oldBuild((store) => { const p = store.getPage(d.ids[1]); p.title = '古い版で直した'; store.savePage(p); });
     assert.strictEqual(M.reimport({ db, dataDir: d.dataDir }).added, 1);
     assert.strictEqual(c('page.get', { id: d.ids[1] }).result.page.title, '古い版で直した');
-    db.close();
-  } finally { d.done(); }
+  } finally { done(); }
 });
 
 test('RF17: ゴミ箱のページは rev が同じでも「DB の側も変わった」とみなし、置き換えずに別のページとして足す（ゴミ箱から出さない）', { timeout: 5000 }, () => {
-  const { d, db, c } = setup(1);
+  const { d, db, c, done } = setup(1);
   try {
     // rev を上げずにゴミ箱へ（rev だけで見ると置き換えてしまう形）
     db.prepare("update blocks set trashed_at = '2026-10-19T00:00:00.000Z' where id = ?").run(d.ids[0]);
@@ -203,12 +204,11 @@ test('RF17: ゴミ箱のページは rev が同じでも「DB の側も変わっ
     assert.deepStrictEqual([r.replaced, r.copied], [0, 1]);
     assert.strictEqual(c('page.get', { id: d.ids[0] }).result, null, 'ゴミ箱のページを置き換えて戻した');
     assert.deepStrictEqual(c('pages.list', {}).result.map((p) => p.title), [`古い版で直した${M.COPY_SUFFIX}`]);
-    db.close();
-  } finally { d.done(); }
+  } finally { done(); }
 });
 
 test('F3: 指紋が書けなければ、そのページの書き込みも戻す（ページだけ残って、次の起動で「指紋の無い行」として別のページを足さない）', { timeout: 5000 }, () => {
-  const { d, db } = setup(1);
+  const { d, db, done } = setup(1);
   try {
     let ids = [];
     d.oldBuild((store) => { ids = [0, 1, 2].map((i) => store.createPage({ title: `古い版の会議${i}`, segments: [] }).id); });
@@ -218,12 +218,11 @@ test('F3: 指紋が書けなければ、そのページの書き込みも戻す�
     M.reimport({ db, dataDir: d.dataDir });
     const titles = db.prepare("select text from blocks where type='page' and text like '古い版の会議%'").all().map((x) => x.text).sort();
     assert.deepStrictEqual(titles, ['古い版の会議0', '古い版の会議1', '古い版の会議2']);
-    db.close();
-  } finally { d.done(); }
+  } finally { done(); }
 });
 
 test('RF17: 別のページとして足すときも、題名が文字でないページは表せないものとして数え、入れない', { timeout: 5000 }, () => {
-  const { d, db, c, pf } = setup(1);
+  const { d, db, c, pf, done } = setup(1);
   try {
     c('page.setTitle', { id: d.ids[0], title: '新しい版で直した' });
     const raw = JSON.parse(fs.readFileSync(pf(d.ids[0]), 'utf8'));
@@ -231,6 +230,5 @@ test('RF17: 別のページとして足すときも、題名が文字でない�
     const r = M.reimport({ db, dataDir: d.dataDir });
     assert.deepStrictEqual([r.copied, r.badShape], [0, 1]);
     assert.deepStrictEqual(c('pages.list', {}).result.map((p) => p.title), ['新しい版で直した']);
-    db.close();
-  } finally { d.done(); }
+  } finally { done(); }
 });
