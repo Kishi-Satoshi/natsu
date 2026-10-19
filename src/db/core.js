@@ -18,16 +18,19 @@
  *   本体が cmdError(code) を投げたら、その符号（not-found・conflict・bad-args）で返す（conflict だけ retry: true）。
  *   actor は役から（app → me、main → system。main は args.actor に recovery・migration を渡せる）。
  *   命令の表の1行: { roles, write, args（validate.checkArgs の spec）, run(db, args, ctx) → { ops, pageIds, result },
- *                   dupResult?(db, args, oplogRow), pageOf?(args), after?: 'checkpoint' }
+ *                   dupResult?(db, args, oplogRow, ctx), pageOf?(args), after?: 'checkpoint' }
+ *   dupResult は送り直し（dup）の答えを今の中身から作り直す（ctx は run と同じ。page.get の形の routeText に labels が要る）。
  *   エラーの答えにパス・SQL・本文を入れない（符号だけ）。
  *
- * COMMANDS は Object.create(null) を凍らせた本物の命令の表（D-3a・D-3b で commands.js を載せる）。
+ * COMMANDS は Object.create(null) を凍らせた本物の命令の表（commands.js の COMMANDS を載せる: D-3a・D-3b）。
+ * 送り直しの表引きの文は commands.HOT_QUERIES.oplogTx（よく使う問い合わせとして EXPLAIN QUERY PLAN で見る: ST11）。
  * registerForTest は、それとは別の試しの表に足す（テストだけが使う。src のほかのファイルは呼ばない: D-7 のテストで字面を見る）。
  */
 'use strict';
 
 const schema = require('./schema');
 const V = require('./validate');
+const commands = require('./commands');
 
 const SCHEMA_VERSION = 1;
 const BUSY_MS = 5000;
@@ -35,7 +38,7 @@ const ROLES = ['app', 'main'];
 const MAIN_ACTORS = ['system', 'recovery', 'migration'];
 const CMD_CODES = ['not-found', 'conflict', 'bad-args'];
 
-const COMMANDS = Object.freeze(Object.create(null));
+const COMMANDS = Object.freeze(Object.assign(Object.create(null), commands.COMMANDS));
 const TEST_COMMANDS = Object.create(null);
 
 // 開いた接続の状態（newer・readOnly は書く命令を read-only で断る）
@@ -195,10 +198,10 @@ function call(db, req, ctx = {}) {
       return { ok: true, result: isObj(out) && Object.hasOwn(out, 'result') ? out.result : null };
     }
     const pageId = typeof def.pageOf === 'function' ? def.pageOf(a) : defaultPageOf(a);
-    const prev = db.prepare('select seq, role, tx, at, actor, action, page_id, ops from oplog where role = ? and tx = ?').get(role, tx);
+    const prev = db.prepare(commands.HOT_QUERIES.oplogTx).get(role, tx);
     if (prev) {
       if (prev.action !== cmd || (prev.page_id ?? null) !== (pageId ?? null)) { db.exec('ROLLBACK'); return fail('tx-mismatch'); }
-      const result = typeof def.dupResult === 'function' ? def.dupResult(db, a, { ...prev }) : null;
+      const result = typeof def.dupResult === 'function' ? def.dupResult(db, a, { ...prev }, runCtx) : null;
       db.exec('COMMIT');
       return { ok: true, result, dup: true };
     }
