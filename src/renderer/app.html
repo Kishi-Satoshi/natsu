@@ -3307,6 +3307,21 @@
   // 「閉じる」はこのセッション限り（更新確認は起動時の1回なので状態は持たない）。
   let updDismissed = false;
 
+  // 取り込み済みで、再起動だけが残っている更新の url（第1d回 A-9: 録音中・議事録の保存の間は main の restart が断る）。
+  // 次に押したときは取り込み直さずに restart だけを呼ぶ（設定のボタンと左下の知らせで同じ）
+  let updAppliedUrl = '';
+  // restart の答えを見る。断られた（{ ok: false, error }）ならその文を返し、通れば（アプリが閉じる）'' を返す
+  async function restartAfterUpdate() {
+    let r;
+    try {
+      r = await window.koeApp.restart();
+    } catch (e) {
+      r = { ok: false, error: (e && e.message) ? e.message : String(e) };
+    }
+    if (r && r.ok === false) return r.error || '再起動できませんでした';
+    return '';
+  }
+
   // 更新の知らせの形。main（updater.updateNotice）が notice を付けて送る。古い形（notice なし）でも動く
   function noticeOf(r) {
     if (r && r.notice && r.notice.action) return r.notice;
@@ -3345,8 +3360,17 @@
       st.textContent = n.message;
     } else {
       go.textContent = n.button;
+      const tryRestart = async () => {
+        const err = await restartAfterUpdate();
+        if (err) { st.className = 'st ng'; st.textContent = `✗ ${err}`; go.disabled = false; }
+      };
       go.onclick = async () => {
         go.disabled = true;
+        if (updAppliedUrl && updAppliedUrl === r.url) {
+          st.className = 'st'; st.textContent = '再起動します…';
+          await tryRestart();
+          return;
+        }
         st.className = 'st'; st.textContent = '更新中…';
         let res;
         try {
@@ -3365,8 +3389,9 @@
           }
           return;
         }
+        updAppliedUrl = r.url;
         st.className = 'st'; st.textContent = '✓ 適用しました。再起動します…';
-        setTimeout(() => window.koeApp.restart(), 900);
+        setTimeout(tryRestart, 900);
       };
     }
     row.appendChild(go);
@@ -3411,9 +3436,22 @@
     showUpdate(r);
   };
 
+  // 取り込んだ後の再起動。断られたら文を出してボタンを戻す（第1d回 A-9）
+  async function applyRestart(m, b) {
+    const err = await restartAfterUpdate();
+    if (err) { m.textContent = `✗ ${err}`; m.className = 'save-msg ng'; b.disabled = false; }
+  }
+
   $('applyUpdBtn').onclick = async () => {
     if (!pendingUpdate) return;
     if (noticeOf(pendingUpdate).action === 'download') { window.koeApp.openReleases(); return; }
+    if (updAppliedUrl && updAppliedUrl === pendingUpdate.url) {
+      // 取り込みは済んでいる。再起動だけ
+      const b = $('applyUpdBtn'); b.disabled = true;
+      const m = $('updMsg'); m.className = 'save-msg'; m.textContent = '再起動します…';
+      await applyRestart(m, b);
+      return;
+    }
     if (!confirm(`バージョン ${pendingUpdate.version} に更新して再起動します。\n記録中の議事録がある場合は先に終了してください。\n\n続行しますか？`)) return;
     const b = $('applyUpdBtn'); b.disabled = true;
     const m = $('updMsg'); m.className = 'save-msg'; m.textContent = '更新中…';
@@ -3434,8 +3472,9 @@
       }
       return;
     }
+    updAppliedUrl = pendingUpdate.url;
     m.textContent = '✓ 適用しました。再起動します…'; m.className = 'save-msg ok';
-    setTimeout(() => window.koeApp.restart(), 900);
+    setTimeout(() => applyRestart(m, b), 900);
   };
 
   window.koeApp.onUpdateAvailable((r) => showUpdate(r));

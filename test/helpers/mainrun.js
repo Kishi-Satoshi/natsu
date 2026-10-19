@@ -118,6 +118,18 @@
 //                      その語（「秘密の語」）があったか
 //     --kill-db-at-discard … --discard-during と組む。取り消す直前に DB の子を落とし、取り消しの返事を待たずに（起こし直す前に）終える
 //     --idle         … 記録しない。起動の片付け（取り消しの残りの送り直し・下書きの復旧・meeting.settle）が済むのを待って、ページと dbHas を出す
+//   第1d回 A-9（RL16・RF41）: 更新の再起動の守りの場面
+//     --restart-during=meeting|dictation|finalizing|idle … 偽の app に relaunch（回数を out.relaunches、そのときの DB の客の状態を
+//                        out.relaunchDb に残す）・exit（何もしない）・getAppPath（一時フォルダの下の書ける空のフォルダ）を足し、main の
+//                        updater.apply（取り込み）を、回数を out.applyCalls に数えて { ok: true } を返すだけの偽物にする。
+//                        meeting    … 議事録の最初の区間を送った直後（録音中）に app:restart（out.restart）と update:apply（out.apply）を呼ぶ。
+//                                     録音はそのまま続けて締める（今の議事録の場面と同じ出力）
+//                        dictation  … --dictate と組む。音声入力の録音中（out.restartRecording）と、音声が届いて文字起こし中
+//                                     （out.restartProcessing）に app:restart、続けて update:apply（out.apply）を呼ぶ
+//                        finalizing … 偽の DB（fake-utility の holdReply）が締めの返事（meeting.finalize）を止める。止めている間に
+//                                     録音の状態（out.stateHeld）・app:restart（out.restartHeld）・update:apply（out.applyHeld）を見て、離して
+//                                     要約の結果まで待ってから app:restart（out.restartAfter）を呼んで終える（out.pages・engineLog）
+//                        idle       … 記録せずに update:apply（out.apply）と app:restart（out.restart）を呼んで終える
 //   出力に足すもの（議事録の場面）: pages[].id・title・recovered、files（userData の下の相対パス）、dbStarts（DB の子を起こした回数）、trace
 //   ctx.appCall(cmd, args) … 画面と同じ役 app の口（客の rendererPort() で作る偽の MessageChannelMain の口）で DB に頼む。書く命令には
 //                      'a:' + randomUUID の tx を付ける。答えは result（失敗は Error に .code）。場面（act）にも渡す
@@ -187,6 +199,8 @@ const setTitleAfterSum = flagVal('--set-title-after-sum');
 const secretText = flags.includes('--secret-text');
 const killDbAtDiscard = flags.includes('--kill-db-at-discard');
 const idleMode = flags.includes('--idle');
+const restartDuring = flagVal('--restart-during');   // 第1d回 A-9
+const UPDATE_URL = 'https://example.invalid/natsu-src-0.8.1.zip';   // 取り込みは偽物（out.applyCalls に数えるだけ）なので、どこへも行かない
 const SECRET = '秘密の語';
 const fakeText = flagVal('--text') || (secretText ? `${SECRET}を含む発言です` : '');
 const FAKE_SUM = path.join(__dirname, 'fake-llama.js');
@@ -569,7 +583,10 @@ process.on('exit', () => {
   const appEvents = makeEmitter();
   const zooms = [];   // setZoomFactor の値の順（第1b回 Task A-2）
   const portsSent = [];   // webContents.postMessage の窓と channel（第2a1回 M-2b）
-  const utilFork = fakeFork(dbDown ? { preload: path.join(__dirname, 'no-trigram.js') } : {});   // 偽の utilityProcess.fork（場面が dbCrash で子を落とす）
+  const utilFork = fakeFork({
+    ...(dbDown ? { preload: path.join(__dirname, 'no-trigram.js') } : {}),
+    ...(restartDuring === 'finalizing' ? { holdReply: 'meeting.finalize' } : {}),   // 第1d回 A-9: 締めの返事を場面が離すまで止める
+  });   // 偽の utilityProcess.fork（場面が dbCrash で子を落とす）
   const mainSent = [];   // 本体の窓（wins[1]）の webContents.send の channel（読み込み中で届かなかったものも。第2a1回 M-2b の db:lost）
   // 第1b回 Task A-3: 録音バー（wins[0]）の［一時停止］の真似。main.js の2つの定数（PAUSE_ENSURE_ON・PAUSE_ENSURE_OFF）と同じ文だけを受け、
   // 本物の録音バーと同じく文が見る印のとおりに押す（'on' は止まっていなければ止める、'off' は止まっていれば再開する。同じなら何もしない）。
@@ -729,6 +746,15 @@ process.on('exit', () => {
   const answerDialog = (i) => { const r = heldDialogs.shift(); if (r) r({ response: i, checkboxChecked: false }); return Boolean(r); };
   // app.quit() の呼ばれた回数（第2a1回 M-4）。場面の quitEmits なら本物と同じく before-quit を出す（main は DB を閉じてから app.quit() をもう一度呼ぶ）
   let quitCalls = 0;
+  // 第1d回 A-9: 再起動（relaunch）の回数と、そのときの DB の客の状態（閉じてから再起動したか）。取り込み（updater.apply）の回数
+  let relaunches = 0;
+  const relaunchDb = [];
+  let applyCalls = 0;
+  const restartApp = restartDuring ? {
+    relaunch() { relaunches += 1; relaunchDb.push(dbClient ? dbClient.state() : 'none'); },
+    exit() {},
+    getAppPath() { const d = path.join(tmp, 'アプリ𠮷'); fs.mkdirSync(d, { recursive: true }); return d; },
+  } : {};
   const electron = withFallback({
     screen,
     dialog,
@@ -737,6 +763,7 @@ process.on('exit', () => {
       getVersion: () => require(path.join(ROOT, 'package.json')).version, isPackaged: false,
       quit() { quitCalls += 1; if (scene && scene.quitEmits) appEvents.emit('before-quit', { preventDefault() {} }); },
       setLoginItemSettings() {}, getLoginItemSettings: () => ({}), setAppUserModelId() {}, getName: () => 'natsu',
+      ...restartApp,
     })),
     BrowserWindow: TrackedWin,
     powerMonitor,
@@ -874,6 +901,11 @@ process.on('exit', () => {
         };
         return { ...c, call, send: (cmd, args) => { trace.push({ kind: 'send', cmd }); return c.send(cmd, args); } };
       } };
+    }
+    // 第1d回 A-9: 取り込みは数えるだけ（本当には取りに行かない・アプリのフォルダを書き換えない）
+    if (restartDuring && req === './updater' && rest[0] && rest[0].filename === MAIN) {
+      const mod = orig.call(this, req, ...rest);
+      return { ...mod, apply: async () => { applyCalls += 1; return { ok: true }; } };
     }
     if (managedMods && rest[0] && rest[0].filename === MAIN) {
       if (req === './engine-install') return managedMods.install;
@@ -1304,10 +1336,18 @@ process.on('exit', () => {
     const hk = (await handlers['settings:get']()).hotkey;
     if (!shortcuts[hk]) throw new Error(`音声入力のホットキー ${hk} が登録されていない`);
     shortcuts[hk]();
+    // 第1d回 A-9: 音声入力の録音中に再起動を頼む
+    if (restartDuring === 'dictation') out.restartRecording = await handlers['app:restart']();
     listeners['audio:done']({}, { buffer: new Uint8Array(toneWav(3)), durationMs: 3000 });
+    // 第1d回 A-9: 音声が届いて文字起こし中（handleDictationAudio は最初の await の前に processing にする）に再起動と取り込みを頼む
+    if (restartDuring === 'dictation') {
+      out.restartProcessing = await handlers['app:restart']();
+      out.apply = await handlers['update:apply']({}, UPDATE_URL);
+    }
     await waitFor(() => (handlers['history:get']() || []).length > 0, 15000);
     await sleep(100);
     out.history = handlers['history:get']();
+    if (restartDuring) Object.assign(out, { relaunches, relaunchDb, applyCalls });
     await sttOut();
     process.stdout.write(`\n${JSON.stringify(out)}\n`);
     await exitClean(0);
@@ -1382,6 +1422,42 @@ process.on('exit', () => {
   }
   if (runTest) out.test = await handlers['app:test']();
 
+  // 第1d回 A-9: 何もしていないときの取り込みと再起動（記録しない）
+  if (restartDuring === 'idle') {
+    await sleep(100);
+    out.apply = await handlers['update:apply']({}, UPDATE_URL);
+    out.restart = await handlers['app:restart']();
+    Object.assign(out, { relaunches, relaunchDb, applyCalls, engineLog: elogLines() });
+    process.stdout.write(`\n${JSON.stringify(out)}\n`);
+    await exitClean(0);
+  }
+  // 第1d回 A-9: 議事録の締めの返事（meeting.finalize）を偽の DB が止めている間に、再起動と取り込みを頼む。離した後にもう一度頼む
+  if (restartDuring === 'finalizing') {
+    out.start = await handlers['meeting:toggle']();
+    listeners['audio:segment']({}, { buffer: new Uint8Array(toneWav(3)), durationMs: 3000, final: false });
+    await sleep(50);
+    out.stop = await handlers['meeting:toggle']();
+    listeners['audio:segment']({}, { buffer: new Uint8Array(toneWav(2)), durationMs: 2000, final: true });
+    await waitFor(() => trace.some((t) => t.kind === 'call' && t.cmd === 'meeting.finalize'), 15000);
+    await sleep(100);   // 頼みが偽の DB に届いて、返事が止まっている
+    const st = handlers['meeting:status']();
+    out.stateHeld = !st.active ? 'idle' : st.finalizing ? 'meeting-finalizing' : 'meeting';
+    out.restartHeld = await handlers['app:restart']();
+    out.applyHeld = await handlers['update:apply']({}, UPDATE_URL);
+    out.heldAcked = trace.some((t) => t.kind === 'ack' && t.cmd === 'meeting.finalize');   // 止めている間に返事が来ていない（場面の前提）
+    utilFork.release();
+    // 締めの返事（DB を閉じてしまったなら断り）が来るまで待つ
+    await waitFor(() => trace.some((t) => (t.kind === 'ack' || t.kind === 'fail') && t.cmd === 'meeting.finalize'), 15000);
+    // 要約（エンジンの無いこの場面では、すぐ理由を書いて終わる）まで待つ。要約中は summary で断るため。締めが断られたら待たない
+    await waitFor(() => { const p = store.listPages()[0]; const page = p && store.getPage(p.id); return finalizeFailed() || Boolean(page && ((page.blocks && page.blocks.length) || page.summaryError)); }, 15000);
+    await sleep(200);
+    out.pages = (await Promise.all(store.listPages().map(pageOut))).map((p) => ({ id: p.id, segments: p.segments }));
+    out.restartAfter = await handlers['app:restart']();
+    Object.assign(out, { relaunches, relaunchDb, applyCalls, engineLog: elogLines() });
+    process.stdout.write(`\n${JSON.stringify(out)}\n`);
+    await exitClean(0);
+  }
+
   const wavs = process.env.NATSU_E2E_WAVS
     ? process.env.NATSU_E2E_WAVS.split(';').map((f) => ({ buf: fs.readFileSync(f), ms: Math.round((fs.statSync(f).size - 44) / 32) }))
     : Array.from({ length: segCount }, (_, i) => ({ buf: toneWav(i ? 2 : 3, silent ? 0 : 8000), ms: i ? 2000 : 3000 }));
@@ -1406,6 +1482,11 @@ process.on('exit', () => {
     listeners['audio:segment']({}, { buffer: new Uint8Array(wavs[i].buf), durationMs: wavs[i].ms, final: last });
     await sleep(50);
     if (i === 0 && testDuring) out.testDuring = await handlers['app:test']();
+    // 第1d回 A-9: 会議の録音中に再起動と取り込みを頼む（断られて、録音はそのまま続く）
+    if (i === 0 && restartDuring === 'meeting') {
+      out.restart = await handlers['app:restart']();
+      out.apply = await handlers['update:apply']({}, UPDATE_URL);
+    }
     if (i === 0 && (killDbDuring || killMainDuring)) {
       // 最初の区間が文字起こしされて下書きに書かれ、写しとして DB に届いてから落とす
       out.firstInDb = await waitFor(() => settledInDb(), 15000);
@@ -1494,6 +1575,7 @@ process.on('exit', () => {
     // 今までの欄（要約・会議タイプなど）も残す
     out.pages = out.pages.map((p, i) => ({ ...(pagesBefore[i] || {}), ...p }));
   }
+  if (restartDuring) Object.assign(out, { relaunches, relaunchDb, applyCalls });
   process.stdout.write(`\n${JSON.stringify(m3Out(out))}\n`);
   await exitClean(0);
 })().catch((e) => { process.stderr.write(`mainrun: ${e.stack || e}\n`); process.exit(1); });

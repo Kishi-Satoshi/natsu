@@ -82,7 +82,7 @@ const {
   saveIfExists, meetingDurationSec, promptTail,
   registerHotkeys, resolveStartupHotkeys, saveHotkeys, makeSummaryRunner, tickStep,
   pasterScript, parsePasterLine,
-  engineFileIssue, engineIssueMessage, engineInAppDir, engineDirWarning, portInUseError, guardEngineSettings, keptDifferent, closeConfirm, logReason,
+  engineFileIssue, engineIssueMessage, engineInAppDir, engineDirWarning, portInUseError, guardEngineSettings, keptDifferent, closeConfirm, restartBlock, logReason,
   engineSpawnPlan, vcRuntimeVersions, vcRuntimeIssue, runtimeGate, engineExitHint, spawnErrorHint, speedLine,
   extractNotes, truncationMessage, buildPromptParts,
   publicSegments, settledSegments, pendingDurationMs, recoverSegments, staleSegbufDirs, nextSegmentMs, EtaTracker, chooseDraftName,
@@ -3160,6 +3160,19 @@ const isSummarizing = () => runSummary.running().length > 0;
 // isSummarizing で数える。エンジンの切り替えの決まり「isBusy の中身は変えない」を守る）。閉じる確かめ・省電力・毎日の控えは
 // finalizingPageIds を別に見る（第2a1回 M-4 の残りを 0.7.0 の前に直した）
 const isBusy = () => state !== 'idle' || isSummarizing() || recoveryRunning || pendingSegs > 0;
+// 更新の再起動を断る理由（第1d回 A-9。RL16・RF41）: 録音中（会議・音声入力）は 'recording'、議事録の保存の間は 'finalizing'、
+// 要約中は 'summary'（文は今のまま、口ごとに出す）。設定の［更新して再起動］（app:restart・update:apply）とトレイの［更新を確認］が見る。
+// 断っても何も止めない（エンジン・DB・貼り付け）。待って自動で再起動はしない（利用者が見ていない時に急に閉じない: K12）
+const RESTART_BLOCK_TEXT = {
+  recording: '録音中のため、更新と再起動をしませんでした。録音を終えてから、もう一度［更新して再起動］を押してください。',
+  finalizing: '議事録を保存しています。保存が終わってから、もう一度［更新して再起動］を押してください。',
+  late: '録音中のため、再起動しませんでした。更新は次に NaTsu を起動したときに使われます。録音を終えてから、NaTsu を終了して起動し直してください。',
+};
+function restartBlockNow() {
+  const why = restartBlock({ state, finalizing: finalizingPageIds.size, pendingSegs, summarizing: isSummarizing() });
+  if (why) engineLog(`更新の再起動: 断った（${why}）`);
+  return why;
+}
 
 // 要約の生成 → ブロック化 → 出典付与 → 保存
 async function doRunSummary(pageId) {
@@ -3395,8 +3408,14 @@ async function checkUpdateFromTray() {
     detail: String(r.notes || '').slice(0, 800),
   });
   if (pick !== 0) return;
-  if (isSummarizing()) {   // 確認の間に要約が始まっていることがある（#52）
+  // 確認の間に要約・録音が始まっていることがある（#52・第1d回 A-9）。録音中と議事録の保存の間は取り込みを始めない
+  const before = restartBlockNow();
+  if (before === 'summary') {
     dialog.showMessageBox({ title: APP_TITLE, type: 'info', message: '要約を作成中です', detail: '終わってから更新してください' });
+    return;
+  }
+  if (before) {
+    dialog.showMessageBox({ title: APP_TITLE, type: 'info', message: RESTART_BLOCK_TEXT[before] });
     return;
   }
   const res = await updater.apply(r.url, target.root, app.getPath('userData'), () => {}, { sha256: r.sha256 || '' });
@@ -3406,6 +3425,12 @@ async function checkUpdateFromTray() {
   }
   if (!res.ok) {
     dialog.showMessageBox({ title: APP_TITLE, type: 'error', message: '更新に失敗しました', detail: res.error || '' });
+    return;
+  }
+  // 取り込みの間に録音が始まっていることがある（第1d回 A-9）。再起動の直前にもう一度見て、録音中・保存の間は再起動しない（更新は次の起動で使われる）
+  const late = restartBlockNow();
+  if (late === 'recording' || late === 'finalizing') {
+    dialog.showMessageBox({ title: APP_TITLE, type: 'info', message: RESTART_BLOCK_TEXT.late });
     return;
   }
   quitting = true;
@@ -3697,14 +3722,20 @@ function setupIpc() {
     return withNotice(r);
   });
   ipcMain.handle('update:apply', async (_e, url) => {
-    if (isSummarizing()) return { ok: false, error: '要約を作成中です。終わってから更新してください' };
+    // 録音中と議事録の保存の間は取り込みを始めない（第1d回 A-9。要約中の文は今のまま）
+    const why = restartBlockNow();
+    if (why === 'summary') return { ok: false, code: why, error: '要約を作成中です。終わってから更新してください' };
+    if (why) return { ok: false, code: why, error: RESTART_BLOCK_TEXT[why] };
     const t = updateTarget();
     if (!t.ok) return { ok: false, error: t.error };
     return updater.apply(url, t.root, app.getPath('userData'),
       (msg) => sendToMainWin('update:progress', { message: msg }), { sha256: updateSha.get(String(url)) || '' });
   });
   ipcMain.handle('app:restart', async () => {
-    if (isSummarizing()) return { ok: false, error: '要約を作成中です。終わってから再起動してください' };
+    // 録音中と議事録の保存の間は再起動しない（第1d回 A-9）。断ったら何も止めない（エンジン・DB・貼り付け）
+    const why = restartBlockNow();
+    if (why === 'summary') return { ok: false, code: why, error: '要約を作成中です。終わってから再起動してください' };
+    if (why) return { ok: false, code: why, error: RESTART_BLOCK_TEXT[why] };
     quitting = true;
     stopEngine(whisperEng); stopEngine(sumEng); stopPaster();
     // 議事録の DB を閉じてから（第2a1回 ST7）

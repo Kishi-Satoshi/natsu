@@ -13,6 +13,9 @@
  *     exitOnStart: code    … 起こすたびに、何も読まずにすぐ番号 code で落ちる
  *     preload: path        … 子の中で modulePath より先に読むファイル（M-2b の --db-down: node:sqlite が trigram の表を作れないようにする
  *                            test/helpers/no-trigram.js）
+ *     holdReply: cmd        … 子の中で、その名前の頼み（data.cmd）の最初の1つの返事を、fork.release() が呼ばれるまで送らずに止める
+ *                            （第1d回 A-9: 議事録の締めの返事 'meeting.finalize' を待つ間に、更新の再起動を頼む場面。本体の処理は済む）
+ *     fork.release() … holdReply で止めた返事を送る（生きている子に知らせる。止める前に呼べば、止めずにそのまま送る）
  *     fork.starts() … 起こした回数。fork.calls() … 起こしたときの [modulePath, args, options] の並び
  *     fork.crash(code = 1) … 今生きている最後の子を、思わず落ちたことにする（worker.terminate() で止め、'exit' を番号 code で出す。
  *                            生きている子が無ければ false）。M-2b の場面が、用意の前や後に DB の子を落とすのに使う
@@ -34,6 +37,7 @@ const RAW = Symbol('raw-port');
 
 // worker_threads の MessagePort を、Electron の MessagePortMain の形に包む
 function electronPort(raw, hooks = {}) {
+  // beforePost が false を返したら送らない。第2引数の send() で後から送れる（holdReply）
   const ee = new EventEmitter();
   const held = [];
   let started = false;
@@ -49,7 +53,7 @@ function electronPort(raw, hooks = {}) {
     once(ev, fn) { ee.once(ev, fn); return port; },
     off(ev, fn) { ee.off(ev, fn); return port; },
     postMessage(m) {
-      if (hooks.beforePost && hooks.beforePost(m) === false) return;
+      if (hooks.beforePost && hooks.beforePost(m, () => raw.postMessage(m)) === false) return;
       raw.postMessage(m);
     },
     start() {
@@ -70,7 +74,7 @@ class FakeChannel {
   }
 }
 
-function fakeFork({ crashAfterRequests = 0, exitOnStart = 0, preload = '' } = {}) {
+function fakeFork({ crashAfterRequests = 0, exitOnStart = 0, preload = '', holdReply = '' } = {}) {
   let starts = 0;
   const calls = [];
   const live = [];   // 生きている子の { worker, child, crash(code) }
@@ -79,7 +83,7 @@ function fakeFork({ crashAfterRequests = 0, exitOnStart = 0, preload = '' } = {}
     starts += 1;
     calls.push([modulePath, args, options]);
     const crashAfter = starts === 1 ? crashAfterRequests : 0;
-    const worker = new Worker(__filename, { workerData: { fakeUtility: true, modulePath, crashAfter, exitOnStart, preload } });
+    const worker = new Worker(__filename, { workerData: { fakeUtility: true, modulePath, crashAfter, exitOnStart, preload, holdReply } });
     const child = new EventEmitter();
     let killed = false;
     let exited = false;
@@ -112,6 +116,7 @@ function fakeFork({ crashAfterRequests = 0, exitOnStart = 0, preload = '' } = {}
   };
   fork.starts = () => starts;
   fork.calls = () => calls.slice();
+  fork.release = () => { for (const r of live) r.worker.postMessage({ fakeUtilityRelease: true }); return live.length > 0; };
   fork.crash = (code = 1) => (live.length ? live[live.length - 1].crash(code) : false);
   fork.dispose = () => {
     disposed = true;
@@ -168,7 +173,23 @@ if (!isMainThread && workerData && workerData.fakeUtility) {
   if (workerData.exitOnStart) process.exit(workerData.exitOnStart);
   let requests = 0;
   let dieOn = null;   // この id の返事を送る代わりに落ちる
-  const hooks = workerData.crashAfter > 0 ? {
+  // holdReply: その名前の最初の頼みの返事を止める（第1d回 A-9）。id は口（main・app）ごとに数えるので、頼みを受けた口の上でだけ止める
+  let holdSeen = false;
+  let released = false;
+  const heldSends = [];
+  const holdHooksFor = () => {
+    let holdId = null;
+    return {
+      onIncoming(data) {
+        if (!holdSeen && data && typeof data.id === 'number' && data.cmd === workerData.holdReply) { holdSeen = true; holdId = data.id; }
+      },
+      beforePost(m, send) {
+        if (!released && holdId !== null && m && m.id === holdId) { heldSends.push(send); return false; }
+        return true;
+      },
+    };
+  };
+  const hooks = workerData.holdReply ? null : workerData.crashAfter > 0 ? {
     onIncoming(data) {
       if (data && typeof data.id === 'number') {
         requests += 1;
@@ -187,7 +208,12 @@ if (!isMainThread && workerData && workerData.fakeUtility) {
     postMessage(m) { workerPort.postMessage(m); },
   };
   workerPort.on('message', (m) => {
-    const ports = (m.ports || []).map((raw) => electronPort(raw, hooks));
+    if (m && m.fakeUtilityRelease) {
+      released = true;
+      for (const send of heldSends.splice(0)) send();
+      return;
+    }
+    const ports = (m.ports || []).map((raw) => electronPort(raw, hooks || holdHooksFor()));
     for (const fn of listeners) fn({ data: m.data, ports });
   });
   if (workerData.preload) require(workerData.preload);

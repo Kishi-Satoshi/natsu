@@ -318,9 +318,12 @@ test('G2・F14・U-2: 取り直し待ちは無い。どの画面にも基準の 
 // （第1c回 4ec68b6 と同じ形。「いちばん上ではないので撮った画面には当たらない」は、つまみの長さがページ全体の長さで決まるので誤り）。
 // 画面は app.html の1ファイル（script と style は中に書く）なので、基準の画像を撮った app.html の sha256 をここに持ち、変えたら手元で赤にする。
 // 赤になったら: Windows の CI の「主な画面を撮る」を見て、違えば基準を取り直す（見える中身が変わるなら RETAKE に入れて利用者に見てもらう）。それから下の値を今の app.html に合わせる
+// 第1d回 A-9（RL16）: ［更新して再起動］と更新の知らせの行のボタンが restart の答えを見るように、<script> の中だけを直した（要素・文・CSS は
+// 変えていないので、撮る画面の見た目もページの長さも変わらない。計画の A-9 は RETAKE に足さない）。値を今の app.html に合わせた。
+// 本当に同じかは Windows の CI の「主な画面を撮る」の比べで見る（違えば基準を取り直し、見える中身が変わったなら RETAKE に入れる）
 test('基準の画像（test/shots/win32）は今の app.html で撮ったもの（app.html を変えたら撮り直しを確かめる）', { timeout: 5000 }, () => {
   const sha = require('node:crypto').createHash('sha256').update(fs.readFileSync(path.join(ROOT, 'src', 'renderer', 'app.html'))).digest('hex');
-  assert.strictEqual(sha, '22110855ee00340e9366b02bb01d77afbfacc9be7eafd2f231aabdd02398e327',
+  assert.strictEqual(sha, '5004d6f20b613173f4993d8e859dfd6780ecfd46b32356808b1db8483837b192',
     'app.html が基準の画像を撮った時と違う。Windows の CI の画面の比べ（捲り棒のつまみも）を見て、基準を取り直してからこの値を直す');
 });
 

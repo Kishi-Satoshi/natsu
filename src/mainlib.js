@@ -685,6 +685,17 @@ function keptDifferent(sent, saved) {
   return out;
 }
 
+// ---------------------------------------------------------------- 更新の再起動を断る理由（第1d回 A-9。RL16・RF41）
+// 録音中（会議 meeting・音声入力の録音 recording と文字起こし processing）は 'recording'、議事録の保存の間（録音を止めて残りの区間を
+// 文字起こし中 meeting-finalizing・締めの返事を待つページの数 finalizing・待ちの区間 pendingSegs）は 'finalizing'、要約中は 'summary'、
+// どれでもなければ ''。録音中を先に言う（要約中でも録音が切れるほうが重い）。待って自動で再起動はしない（断って文を出す: K12）
+function restartBlock({ state, finalizing, pendingSegs, summarizing } = {}) {
+  if (['recording', 'processing', 'meeting'].includes(state)) return 'recording';
+  if (state === 'meeting-finalizing' || Number(finalizing) > 0 || Number(pendingSegs) > 0) return 'finalizing';
+  if (summarizing) return 'summary';
+  return '';
+}
+
 // ---------------------------------------------------------------- 終了の確認（#52）
 // recording: 議事録を記録中、summarizing: 要約を作成中、finalizing: 締めの返事（議事録の DB）を待つ会議がある（録音の状態は待機に戻っている。
 // 第2a1回 M-4 の残りを 0.7.0 の前に直した）。どれでもなければ null。
@@ -1195,7 +1206,7 @@ module.exports = {
   engineFileIssue, engineIssueMessage, engineInAppDir, engineDirWarning, portInUseError,
   isAscii, engineSpawnPlan,
   peFileVersion, vcRuntimeVersions, vcRuntimeIssue, runtimeGate, engineExitHint, spawnErrorHint, speedLine,
-  ENGINE_SETTING_KEYS, guardEngineSettings, keptDifferent, closeConfirm, logReason,
+  ENGINE_SETTING_KEYS, guardEngineSettings, keptDifferent, closeConfirm, restartBlock, logReason,
   PICK_KEYS, pickDefaultPath,
   extractNotes, truncationMessage, buildPromptParts,
   publicSegments, settledSegments, pendingDurationMs, recoverSegments, staleSegbufDirs,
