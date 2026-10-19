@@ -32,7 +32,9 @@
  *   broken: 壊れたページのファイルと、壊れた文字起こし（そのページは発言 0 で移す。今の getTranscript が [] を返すのと同じ見え方）
  *   unreadable: 読めないページか文字起こし（そのページは移さず、D-5b が次の起動で取り込む）
  *   badId: ファイル名と page.id が違う・ページの ID が ID_RE に合わない（今の reconcile と同じく、0.6.0 の一覧にも出ていない）
- * 指紋 json:<id> = { size, mtimeMs, sha, tsize, tmtimeMs, tsha, rev }（文字起こしが無ければ t… は null）。D-5b が変わったかを見る。
+ * 指紋 json:<id> = { size, mtimeMs, sha, tsize, tmtimeMs, tsha, rev, tbroken? }（文字起こしが無ければ t… は null。壊れていれば tbroken: true）。
+ *   D-5b が変わったかを見る。
+ * reimport({ db, dataDir, fs, now, onPage }) … 起動のたびの取り込み（D-5b。RF17）。下の関数の説明を見る。
  */
 'use strict';
 
@@ -155,7 +157,8 @@ function readCaptured(fs, file) {
   return { r, fp };
 }
 
-// 1つのページのファイルと、その文字起こし → { kind: 'page', id, page, segments, transcriptBroken, fp } か { kind: 数の名前 }
+// 1つのページのファイルと、その文字起こし → { kind: 'page', id, page, segments, transcriptOk, transcriptBroken, fp } か { kind: 数の名前 }
+// transcriptOk: 文字起こしを読めて segments が配列（false なら segments は [] で、無いか壊れている）
 function readSource(fs, dataDir, name) {
   const id = name.slice(0, -'.json'.length);
   const p = readCaptured(fs, path.join(dataDir, 'pages', name));
@@ -169,7 +172,7 @@ function readSource(fs, dataDir, name) {
   const ok = t.r.state === 'ok' && Array.isArray(t.r.value.segments);
   const transcriptBroken = t.r.state === 'broken' || (t.r.state === 'ok' && !ok);
   return {
-    kind: 'page', id, page, segments: ok ? t.r.value.segments : [], transcriptBroken,
+    kind: 'page', id, page, segments: ok ? t.r.value.segments : [], transcriptOk: ok, transcriptBroken,
     fp: { ...p.fp, tsize: t.fp.size, tmtimeMs: t.fp.mtimeMs, tsha: t.fp.sha },
   };
 }
@@ -193,6 +196,13 @@ function tally(counts, item) {
 
 // 全部のページの ID（ファイル名のうち ID の形のもの）。前のページのブロックが後のページの ID と重ならないように先に押さえる
 const pageIdsOf = (names) => new Set(names.map((n) => n.slice(0, -'.json'.length)).filter((id) => V.ID_RE.test(id)));
+
+// 指紋 json:<id> の値。文字起こしが壊れていたら tbroken を付ける（取り込みが、読み直さずに飛ばしたときも壊れたものとして数えるため）
+function fpValue(src, rev) {
+  const v = { ...src.fp, rev };
+  if (src.transcriptBroken) v.tbroken = true;
+  return JSON.stringify(v);
+}
 
 function plan(dataDir, { fs = nodeFs } = {}) {
   const counts = zero();
@@ -321,7 +331,7 @@ function migrate({ sqlite, dataDir, onProgress, fs = nodeFs, now = () => new Dat
         db.exec('SAVEPOINT natsu_page');
         try {
           C.putPageRows(db, item.conv.page, item.conv.segments, { now });
-          putMeta.run(`json:${item.id}`, JSON.stringify({ ...item.fp, rev: revOf.get(item.id).rev }));
+          putMeta.run(`json:${item.id}`, fpValue(item, revOf.get(item.id).rev));
           db.exec('RELEASE natsu_page');
           tally(counts, item);
           expectBlocks += item.conv.page.blocks.length;
@@ -363,4 +373,149 @@ function migrate({ sqlite, dataDir, onProgress, fs = nodeFs, now = () => new Dat
   }
 }
 
-module.exports = { plan, convertPage, migrate, DB_NAME, TMP_NAME };
+// ---------------------------------------------------------------- 起動のたびの取り込み（D-5b。RF17）
+const COPY_SUFFIX = '（古い版で直したもの）';
+const REIMPORT_ACTION = 'json.reimport';
+
+function statOf(fs, file) {
+  try {
+    const st = fs.statSync(file);
+    return { size: st.size, mtimeMs: st.mtimeMs };
+  } catch (e) {
+    if (e && (e.code === 'ENOENT' || e.code === 'ENOTDIR')) return { size: null, mtimeMs: null };
+    return null;   // 見られない: 変わったとみなして読む（読めなければ unreadable）
+  }
+}
+
+// 大きさと更新時刻が指紋と同じなら、読まずに飛ばす（変わったものだけ SHA-256 を取る）
+function sameStat(fs, dataDir, name, fp) {
+  const p = statOf(fs, path.join(dataDir, 'pages', name));
+  const t = statOf(fs, path.join(dataDir, 'transcripts', name));
+  return Boolean(p && t) && p.size === fp.size && p.mtimeMs === fp.mtimeMs && t.size === fp.tsize && t.mtimeMs === fp.tmtimeMs;
+}
+
+function readFp(db, id) {
+  const r = db.prepare('select value from meta where key = ?').get(`json:${id}`);
+  if (!r) return null;
+  try { const v = JSON.parse(r.value); return isObj(v) ? v : null; } catch (_) { return null; }
+}
+
+function freshPageId(db, used, now) {
+  const has = db.prepare('select 1 from blocks where id = ?');
+  for (;;) {
+    const id = `p${now().getTime().toString(36)}${crypto.randomBytes(4).toString('hex').slice(0, 5)}`;
+    if (!used.has(id) && !has.get(id)) return id;
+  }
+}
+
+// reimport({ db, dataDir, fs, now, onPage }) → { added, replaced, copied, skipped, broken, badShape, unreadable, skippedSig }
+//   起動のたびに pages/*.json を見て、指紋（meta の json:<id>）と大きさ・更新時刻が違うものだけ読み、SHA-256 も違えば入れる。
+//   - DB に行が無い: purge の印があれば戻さない（skipped）。無ければ同じ ID で足す（added）
+//   - DB の行の rev が指紋の rev と同じで、ゴミ箱でもない（DB の側は変わっていない）: 古い版の中身で置き換える（replaced。差分の操作で）
+//     文字起こしが無い・壊れているときは、DB の発言に触れない（壊れたファイルで発言を消さない）
+//   - それ以外（DB の側も変わった・ゴミ箱に入れた・指紋が無い）: 題名に COPY_SUFFIX を付けた新しい ID の別のページとして足す
+//     （copied。文字起こしも写す。DB の側は変えない）。指紋の rev は前のまま（null なら null）にして、後で古い版がまた直しても
+//     DB の側を上書きせず、また別のページとして足す（どちらも消さない）
+//   1ページずつ、ページの書き込み・oplog の1行（role main・actor migration・action json.reimport）・指紋を1つのトランザクションで書く
+//   （途中で落ちても、次の起動で同じページを2回足さない: F3）。onPage(pageId) はテストだけで、書き込みの後・指紋の前に呼ぶ（投げたら戻して投げ返す）。
+//   中身が同じ（触っただけ）なら指紋の大きさと時刻だけ直す（数えない）。古い版が消したページ（DB にあって JSON が無い）は DB の側をそのまま残す。
+//   壊れたページ（broken）・表せないページ（badShape）・読めないもの（unreadable。数えるだけで次の起動に試す）は入れず、指紋も書かない。
+//   文字起こしだけ壊れたページは入れて broken に数える（指紋の tbroken で、次からも数える）。
+//   skippedSig: 入れられなかったファイル（pages/<名前>・transcripts/<名前>。ファイル名の順）の名前の並びの SHA-256（M-4 が meta.reimportSkipped と比べる）
+function reimport({ db, dataDir, fs = nodeFs, now = () => new Date(), onPage } = {}) {
+  const out = { added: 0, replaced: 0, copied: 0, skipped: 0, broken: 0, badShape: 0, unreadable: 0, skippedSig: '' };
+  const names = listPageFiles(fs, dataDir);
+  const skippedNames = [];
+  const putMeta = db.prepare('insert into meta(key, value) values (?, ?) on conflict(key) do update set value = excluded.value');
+  const rowOf = db.prepare('select type, rev, trashed_at from blocks where id = ?');
+  const putLog = db.prepare('insert into oplog(role, tx, at, actor, action, page_id, ops) values (?, ?, ?, ?, ?, ?, ?)');
+  let used = null;   // 全部の行の ID と全部のページのファイルの ID（要るときに1回だけ作る）
+  const usedIds = () => {
+    if (!used) {
+      used = pageIdsOf(names);
+      for (const r of db.prepare('select id from blocks').all()) used.add(r.id);
+    }
+    return used;
+  };
+  const tx = (fn) => {
+    db.exec('BEGIN IMMEDIATE');
+    try { fn(); db.exec('COMMIT'); } catch (e) {
+      try { db.exec('ROLLBACK'); } catch (_) { /* 戻せなくても投げる */ }
+      throw e;
+    }
+  };
+
+  for (const name of names) {
+    const id = name.slice(0, -'.json'.length);
+    const fp0 = V.ID_RE.test(id) ? readFp(db, id) : null;
+    if (fp0 && sameStat(fs, dataDir, name, fp0)) {
+      if (fp0.tbroken) { out.broken++; skippedNames.push(`transcripts/${name}`); }
+      continue;
+    }
+    const src = readSource(fs, dataDir, name);
+    if (src.kind === 'unreadable') { out.unreadable++; continue; }
+    if (src.kind === 'broken') { out.broken++; skippedNames.push(`pages/${name}`); continue; }
+    if (src.kind !== 'page') continue;   // 消えた・ファイル名と ID が違う（今の 0.6.0 の一覧にも出ていない）
+    if (src.transcriptBroken) { out.broken++; skippedNames.push(`transcripts/${name}`); }
+    if (fp0 && fp0.sha === src.fp.sha && fp0.tsha === src.fp.tsha) {
+      // 中身は同じ（触っただけ）: 大きさと時刻だけ直して、次から読まずに飛ばす
+      tx(() => putMeta.run(`json:${id}`, fpValue(src, fp0.rev ?? null)));
+      continue;
+    }
+    const row = rowOf.get(id);
+    let mode;
+    if (!row) {
+      if (C.isPurged(db, id)) { out.skipped++; continue; }   // 取り消した会議は戻さない
+      mode = 'add';
+    } else if (row.type === 'page' && fp0 && row.trashed_at === null && row.rev === fp0.rev) mode = 'replace';
+    else mode = 'copy';
+
+    const ids = usedIds();
+    let source = src.page;
+    let own = [];
+    if (mode === 'copy') {
+      if (!isObj(src.page) || !isText(src.page.title)) { out.badShape++; skippedNames.push(`pages/${name}`); continue; }
+      source = { ...src.page, id: freshPageId(db, ids, now), title: src.page.title + COPY_SUFFIX };
+    } else if (mode === 'replace') {
+      // 自分のブロックの ID は重なりとみなさない（同じ ID のブロックを差分で直す）
+      own = db.prepare('select id from blocks where page_id = ? and id <> ?').all(id, id).map((r) => r.id);
+      for (const b of own) ids.delete(b);
+    }
+    const conv = convertPage(source, src.segments, { usedIds: ids });
+    for (const b of own) ids.add(b);
+    if (!conv.ok) { out.badShape++; skippedNames.push(`pages/${name}`); continue; }
+    // 置き換えで文字起こしが無い・壊れているなら、DB の発言には触れない
+    const segments = mode === 'replace' && !src.transcriptOk ? undefined : conv.segments;
+
+    let fromHook = null;
+    let wrote = false;
+    try {
+      tx(() => {
+        const { ops } = C.putPageRows(db, conv.page, segments, { now });
+        if (ops.length) {
+          putLog.run('main', `m:reimport:${crypto.randomUUID()}`, now().toISOString(), 'migration', REIMPORT_ACTION, conv.page.id, JSON.stringify(ops));
+          wrote = true;
+          if (typeof onPage === 'function') {
+            try { onPage(conv.page.id); } catch (e) { fromHook = e; throw e; }
+          }
+        }
+        // 別のページとして足したときは、指紋の rev を前のまま（DB の側と食い違ったまま）にする
+        const rev = mode === 'copy' ? (fp0 ? fp0.rev ?? null : null) : rowOf.get(id).rev;
+        putMeta.run(`json:${id}`, fpValue(src, rev));
+      });
+    } catch (e) {
+      if (fromHook && e === fromHook) throw e;
+      out.badShape++;   // そのページだけ戻した（ID の重なりなど）。指紋は書いていないので、次の起動でもう一度試す
+      skippedNames.push(`pages/${name}`);
+      continue;
+    }
+    if (!wrote) continue;   // 置き換えても中身が同じだった（数えない）
+    if (mode === 'add') out.added++;
+    else if (mode === 'replace') out.replaced++;
+    else out.copied++;
+  }
+  out.skippedSig = sha256(Buffer.from(JSON.stringify(skippedNames), 'utf8'));
+  return out;
+}
+
+module.exports = { plan, convertPage, migrate, reimport, COPY_SUFFIX, DB_NAME, TMP_NAME };

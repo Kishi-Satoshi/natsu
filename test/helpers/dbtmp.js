@@ -16,13 +16,14 @@
  *     （短い語・全角・句読点をまたぐ語・文法の文字・メモにだけある語・% や \ や _ を含む行・サロゲート・カタカナ・無題のページ）。
  *     createdAt はページごとに違い、返す並び（= 入れる順）は createdAt の順と違える。ブロックの ID は表全体で重ならない。
  *     比べから外す意図した違い（ブロックをまたぐ一致・要約 2 万字とメモ 2 千字の打ち切り）に当たる並びは入れない
- *   oldBuildData({ pages, bom, broken, badId, unreadable }) → { dataDir, ids, rawPage(id), writePage(page, segments), done() }（D-5a）
+ *   oldBuildData({ pages, bom, broken, badId, unreadable }) → { dataDir, ids, rawPage(id), writePage(page, segments), oldBuild(fn), done() }（D-5a。oldBuild は D-5b）
  *     … 0.6.0 と同じ src/store.js（ほかのテストと共有しない別の読み込み）で、古い版の JSON の data を作る。
  *     pages 個の普通のページ（知らない欄・経路・一時停止・出典・担当と期限・認識に失敗した区間・話者の欄）と、
  *     bom 個の BOM 付き UTF-8 に書き直したページ（どちらも ids に入り、文字起こしは 3 区間）。
  *     broken 個の壊れたページのファイル、badId 個のファイル名と page.id が違うページ、unreadable 個の読めないもの
  *     （pages/ の中の <id>.json という名前のフォルダ。どの OS でも読めない）は ids に入れない。
  *     rawPage(id) は元のファイルを退けない読み方で読んだもの（markShortBlocks の前の形）。writePage はそのままの形で書く
+ *     oldBuild(fn) は fn(store) を呼ぶ（D-5b。移行の後に古い版がまた動いて JSON を書いた、を作る。store は同じ data を開いた 0.6.0 の store.js）
  *   snapshotTree(dir) → { 相対パス（'/' 区切り）: sha256 | 'dir' }… フォルダの中の全部の名前と中身（元のファイルが変わらないことを見る）
  * フォルダの名前には日本語と 𠮷（サロゲートの対）を入れる（RF1）。
  */
@@ -260,6 +261,7 @@ function oldBuildData({ pages = 3, bom = 0, broken = 0, badId = 0, unreadable = 
       J.writeJsonFile(pageFile(page.id), page);
       if (segments !== undefined) J.writeJsonFile(transcriptFile(page.id), { id: page.id, segments });
     },
+    oldBuild(fn) { return fn(store); },
     done() { fs.rmSync(userData, { recursive: true, force: true }); },
   };
 }
