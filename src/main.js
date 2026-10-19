@@ -163,8 +163,9 @@ function updatePowerBlock() {
   // 要約中も忙しい（#52）。省電力で絞られると、数分かかる要約が静かに止まる。
   // エンジンを実際に取っている間も眠らせない（第0b回 Task 14。数 GB の取り込みが止まる）。isBusy には数えない。
   // 回線を待っている（waiting。何日も続きうる）・記録中で止めている（held）・一時停止の間は眠らせてよい（Q14。2026-10-17 に了承）。
-  // 起きた後は、係が待ちの時計（60 秒）と net.isOnline で自分で試し直す
-  const busy = state !== 'idle' || isSummarizing() || engineFetchDownloading();
+  // 起きた後は、係が待ちの時計（60 秒）と net.isOnline で自分で試し直す。
+  // 締めの返事（議事録の DB）を待つ会議がある間も眠らせない（録音の状態は待機に戻っている。第2a1回 M-4 の残りを 0.7.0 の前に直した）
+  const busy = state !== 'idle' || isSummarizing() || engineFetchDownloading() || finalizingPageIds.size > 0;
   if (busy && powerBlockId === null) {
     try { powerBlockId = powerSaveBlocker.start('prevent-app-suspension'); } catch (_) { powerBlockId = null; }
   } else if (!busy && powerBlockId !== null) {
@@ -318,8 +319,24 @@ async function askMigrate(counts) {
     db.migrate(true);
   } else {
     engineLog('DB: 今は移さずに終える');
-    app.quit();
+    quitWhenRecordingEnds();
   }
+}
+// ［今は移さずに終える］の後（第2a1回 M-4 の残りを 0.7.0 の前に直した）。窓の間に始めた録音（会議・音声入力）があれば、途中で切らずに
+// 続け、止めて区間を下書きに書き終えてから終える（締めは DB を待つので、議事録は下書きと音声の控えに残り、次の起動で復旧する）。
+// 待つ間は平易な知らせを1回だけ出す。確かめの窓は出さない（録音中に押し間違えて録音を切る道を作らない）
+const QUIT_AFTER_RECORDING_TEXT = '録音中なので、録音が終わるまで NaTsu を開いたままにします。議事録の保存の形を移すかは、次に起動したときにもう一度聞きます。終えるときは、録音を止めてください。';
+const QUIT_AFTER_RECORDING_POLL_MS = 500;
+let quitAfterRecordingNoticed = false;
+function quitWhenRecordingEnds() {
+  if (quitting) return;
+  if (!meeting && state === 'idle' && pendingSegs === 0) { app.quit(); return; }
+  if (!quitAfterRecordingNoticed) {
+    quitAfterRecordingNoticed = true;
+    engineLog('DB: 録音が終わってから終える');
+    noticeMainWin(QUIT_AFTER_RECORDING_TEXT);
+  }
+  setTimeout(quitWhenRecordingEnds, QUIT_AFTER_RECORDING_POLL_MS);
 }
 // 最初の用意の後に1回: この起動で起きたこと（移した・取り込んだ・戻した・新しい版・ネットワークの場所）を知らせる（D2・D3・D5〜D8）。投げない
 async function noticeDbStartup() {
@@ -1971,7 +1988,7 @@ function askPaster(cmd, timeoutMs) {
 // トレイの「終了」も、閉じるボタンと同じく記録中・要約中は確かめる（mainlib.closeConfirm）。
 // トレイからは会議の状態が見えないので、閉じるボタンより間違えやすい
 function quitFromTray() {
-  const confirm = closeConfirm(state === 'meeting' || state === 'meeting-finalizing', isSummarizing());
+  const confirm = closeConfirm(state === 'meeting' || state === 'meeting-finalizing', isSummarizing(), finalizingPageIds.size > 0);
   if (confirm) {
     const r = dialog.showMessageBoxSync({
       title: APP_TITLE, type: 'warning', buttons: ['終了する', 'キャンセル'], defaultId: 1, cancelId: 1,
@@ -2151,7 +2168,7 @@ function createMainWindow() {
     if (settings.stayInTray) { e.preventDefault(); mainWin.hide(); return; }
     // 記録中・要約中の閉じ間違いで会議や要約を失わせない（文は mainlib.closeConfirm）。
     // draft からの復旧はあるが要約前の状態に戻るので、一度は確認を挟む。
-    const confirm = closeConfirm(state === 'meeting' || state === 'meeting-finalizing', isSummarizing());
+    const confirm = closeConfirm(state === 'meeting' || state === 'meeting-finalizing', isSummarizing(), finalizingPageIds.size > 0);
     if (confirm) {
       const r = dialog.showMessageBoxSync(mainWin, {
         title: APP_TITLE, type: 'warning', buttons: ['終了する', 'キャンセル'], defaultId: 1, cancelId: 1,
@@ -3098,6 +3115,7 @@ async function maybeFinalizeMeeting() {
   } finally {
     finalizingPageIds.delete(pageId);
     finalizingDrafts.delete(m.draftName);
+    updateTray();   // 締めの返事を待つ間の省電力の抑止を外す（要約が続くなら要約の数で抑止が続く）
   }
   if (!page) return;
 
@@ -3138,7 +3156,9 @@ const SUMMARY_TOO_BIG_TEXT = '要約を保存できませんでした。この�
 // 確かめる・更新と再起動を拒む。件数は mainlib.makeSummaryRunner が持つ。
 const isSummarizing = () => runSummary.running().length > 0;
 // 「手が塞がっている」: 記録・文字起こし・要約・復旧の文字起こしのどれかが動いている。
-// 使われないエンジンの停止（#58）はこれが false のときだけ
+// 使われないエンジンの停止（#58）はこれが false のときだけ。締めの返事を待つ会議はここに入れない（エンジンを使わず、返事の後の要約は
+// isSummarizing で数える。エンジンの切り替えの決まり「isBusy の中身は変えない」を守る）。閉じる確かめ・省電力・毎日の控えは
+// finalizingPageIds を別に見る（第2a1回 M-4 の残りを 0.7.0 の前に直した）
 const isBusy = () => state !== 'idle' || isSummarizing() || recoveryRunning || pendingSegs > 0;
 
 // 要約の生成 → ブロック化 → 出典付与 → 保存

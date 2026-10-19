@@ -712,6 +712,19 @@ test('closeConfirm: 記録中・要約中・両方 で終了確認の文を組�
   assert.ok(both.detail.includes('要約を作成中です。終了すると要約は失われます'), '両方のときに要約の分が抜けている');
 });
 
+// 0.7.0 の前の直し（第2a1回 M-4 の点検で残したこと）: 締めの返事を待つ会議（録音の状態は待機に戻っている）も確かめる
+test('closeConfirm: 締めの返事を待つ会議があれば「議事録を保存しています」で確かめ、要約が作られないことと、議事録は残ることを書く', () => {
+  assert.strictEqual(closeConfirm(false, false, false), null);
+  const fin = closeConfirm(false, false, true);
+  assert.strictEqual(fin.message, '議事録を保存しています');
+  assert.match(fin.detail, /次に起動したとき/);
+  assert.match(fin.detail, /要約は作られません/);
+  const finSum = closeConfirm(false, true, true);
+  assert.strictEqual(finSum.message, '議事録を保存しています');
+  assert.ok(finSum.detail.includes('要約を作成中です。終了すると要約は失われます'), '要約中の分が抜けている');
+  assert.strictEqual(closeConfirm(true, false, true).message, '議事録を記録中です', '記録中の確かめを先に出さない');
+});
+
 // ---------------------------------------------------------------- #16 分割要約の打ち切り
 test('truncationMessage: 切れたパートを名指しし、最終統合だけが切れたときは末尾の文言のまま', () => {
   assert.strictEqual(truncationMessage([], false), '');

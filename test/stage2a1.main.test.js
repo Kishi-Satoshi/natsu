@@ -396,6 +396,39 @@ test('F9・RF14: 0.6.0 の下書き（pageId が無い）を起動の復旧が D
   assert.strictEqual(out.pages.length, 2 + 1 + 1, JSON.stringify(out.pages));   // 移した 2・0.6.0 の下書き 1・録音 1
 });
 
+// 0.7.0 の前の直し（M-4 の点検で残したこと。データの守り）: 締めの返事を待つ会議は、録音の状態が待機に戻っても「忙しい」
+test('F9: 締めの返事を待つ会議がある間は、省電力の抑止を外さず、閉じるボタンで確かめる。返事と要約の試みの後は外す', { timeout: 30000 }, () => {
+  const out = runScene('finalize-wait-busy');
+  assert.strictEqual(out.dialogShown, true, '場面の前提: 移行の窓が出ていない');
+  assert.strictEqual(out.waiting, true, '場面の前提: 締めが DB を待つ間に録音の状態が待機に戻らない');
+  assert.strictEqual(out.dbWhileWaiting, 'migrating', '場面の前提: 締めの返事の前に DB が用意できた');
+  assert.strictEqual(out.powerHeldWhileWaiting, true, '締めの返事を待つ間に省電力の抑止を外した（眠ると締めが遅れ、そのまま終えると要約が作られない）');
+  assert.strictEqual(out.closeDialogs.length, 1, '締めの返事を待つ間の閉じるボタンで、確かめを出さずに終えた');
+  assert.strictEqual(out.closeDialogs[0].message, '議事録を保存しています');
+  assert.deepStrictEqual(out.closeDialogs[0].buttons, ['終了する', 'キャンセル']);
+  assert.strictEqual(out.closePrevented, true, '［キャンセル］でも閉じた');
+  assert.strictEqual(out.quitCallsAfterClose, 0, '［キャンセル］でも終えた');
+  assert.strictEqual(out.ready, true);
+  assert.strictEqual(out.finalized, true, '［移す］の後に会議が締まらない');
+  assert.strictEqual(out.powerReleasedAfter, true, '締めと要約の試みが済んでも省電力の抑止を外さない');
+});
+
+// 0.7.0 の前の直し（M-4 の点検で残したこと。計画 2026-10-19-2a1.md の M-4「残したことの直し」）: 録音の最中の［今は移さずに終える］は、
+// 録音を切らずに続け、止めて下書きに書き終えてから終える
+test('Q1・F9: 録音の最中に［今は移さずに終える］を選ぶと、録音を切らずに知らせ、止めて下書きに書き終えてから終える（natsu.db は作らず、下書きは残る）', { timeout: 30000 }, () => {
+  const out = runScene('migrate-quit-recording');
+  assert.strictEqual(out.dialogShown, true, '場面の前提: 移行の窓が出ていない');
+  assert.strictEqual(out.started, true, '場面の前提: 窓の間に録音を始められない');
+  assert.strictEqual(out.quitCallsWhileRecording, 0, '録音の最中に、確かめずに終えた（会議の録音が途中で切れる）');
+  assert.strictEqual(out.stillRecording, true, '［今は移さずに終える］で録音が止まった');
+  assert.strictEqual(out.notices.filter((n) => n === '録音中なので、録音が終わるまで NaTsu を開いたままにします。議事録の保存の形を移すかは、次に起動したときにもう一度聞きます。終えるときは、録音を止めてください。').length, 1, JSON.stringify(out.notices));
+  assert.strictEqual(out.quitAfterStop, true, '録音を止めても終えない');
+  assert.strictEqual(out.closed, true, '終える前に DB を閉じていない');
+  assert.strictEqual(out.draftSegs, 2, '録音の2つの区間が下書きに残っていない（次の起動で復旧できない）');
+  assert.ok(!out.files.includes('data/natsu.db'), '［今は移さずに終える］なのに natsu.db を作った');
+  assert.deepStrictEqual(out.jsonShaAfter, out.jsonShaBefore);
+});
+
 test('F9: 下書きの復旧は1つずつ回す。DB の用意を待つ復旧が2つ重なっても、pageId の無い 0.6.0 の下書きは1つのページになる', { timeout: 30000 }, () => {
   const out = runScene('migrate-draft-retry-twice');
   assert.strictEqual(out.dialogShown, true, '場面の前提: 移行の窓が出ていない');

@@ -904,6 +904,17 @@ module.exports = [
     tests: ['test/db-listcache.test.js'], why: 'G-1: 集めた一覧の検索は、ページの行とブロックの行を別に集める（メモとブロックの両方に当たっても、抜き出しはブロックから。G-1 の点検で足した）' },
   { id: 'gp-list-forget', file: 'src/db/commands.js', from: '  for (const id of cache.keys()) if (!listed.has(id)) cache.delete(id);\n', to: '  void listed;\n',
     tests: ['test/db-listcache.test.js'], why: 'G-1: 一覧の全部を作るたびに一覧に無いページを忘れる（消して同じ rid・rev で作り直したページに前の1行を見せない。G-1 の点検で足した）' },
+  // ---------------------------------------------------------------- 0.7.0 の前の直し（第2a1回 M-4 の点検で残したこと。計画 docs/plans/2026-10-19-2a1.md の M-4）
+  { id: 'm4b-power-finalizing', file: 'src/main.js', from: 'engineFetchDownloading() || finalizingPageIds.size > 0;', to: 'engineFetchDownloading();',
+    tests: ['test/stage2a1.main.test.js'], pattern: '^F9: 締めの返事を待つ会議がある間', why: 'M-4 の残り: 締めの返事を待つ間も省電力の抑止を外さない' },
+  { id: 'm4b-close-finalizing', file: 'src/main.js',
+    from: "    const confirm = closeConfirm(state === 'meeting' || state === 'meeting-finalizing', isSummarizing(), finalizingPageIds.size > 0);\n    if (confirm) {\n      const r = dialog.showMessageBoxSync(mainWin,",
+    to: "    const confirm = closeConfirm(state === 'meeting' || state === 'meeting-finalizing', isSummarizing());\n    if (confirm) {\n      const r = dialog.showMessageBoxSync(mainWin,",
+    tests: ['test/stage2a1.main.test.js'], pattern: '^F9: 締めの返事を待つ会議がある間', why: 'M-4 の残り: 締めの返事を待つ間の閉じるボタンは確かめる' },
+  { id: 'm4b-confirm-finalizing', file: 'src/mainlib.js', from: '  if (!recording && !summarizing && !finalizing) return null;', to: '  if (!recording && !summarizing) return null;',
+    tests: ['test/main.test.js'], why: 'M-4 の残り: closeConfirm は締めの返事を待つ会議でも確かめの文を返す' },
+  { id: 'm4b-quit-after-recording', file: 'src/main.js', from: "    engineLog('DB: 今は移さずに終える');\n    quitWhenRecordingEnds();", to: "    engineLog('DB: 今は移さずに終える');\n    app.quit();",
+    tests: ['test/stage2a1.main.test.js'], pattern: '^Q1・F9: 録音の最中に', why: 'M-4 の残り: 録音の最中の［今は移さずに終える］は録音を切らず、止めて下書きに書き終えてから終える' },
   // ---------------------------------------------------------------- 第1d回 W-1・D-1 の独立した点検で足したもの（計画 docs/plans/2026-10-19-1d.md。W-1・D-1 は 0.7.0 の版で main に入る）
   { id: 'rl-deploy-api-redirect', file: 'tools/relay-deploy.js', from: "{ method, headers, body, redirect: 'error', signal:", to: "{ method, headers, body, signal:",
     tests: ['test/relay-deploy.test.js'], pattern: '^F6: 転送（3xx）を追わない', why: 'D-1 F6: Cloudflare の API の転送を追わない（トークンを付けたまま別の宛先へ行かない）' },

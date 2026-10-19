@@ -957,6 +957,9 @@ test('#52 要約中はアプリを「忙しい」として扱う', () => {
   assert.ok(fnBody(m, 'function updatePowerBlock()', '\n}').includes("state !== 'idle' || isSummarizing()"), '省電力の抑止が要約中に外れる');
   const close = fnBody(m, "mainWin.on('close'", '\n  });');
   assert.ok(close.includes('closeConfirm(') && close.includes('isSummarizing()'), '閉じる確認が要約中を見ていない');
+  // 0.7.0 の前の直し（第2a1回 M-4 の点検で残したこと）: 締めの返事を待つ会議も「忙しい」（閉じる確かめ・省電力。isBusy はエンジンの決まりで変えない）
+  assert.ok(close.includes("closeConfirm(state === 'meeting' || state === 'meeting-finalizing', isSummarizing(), finalizingPageIds.size > 0)"), '閉じる確認が締めの返事を待つ会議を見ていない');
+  assert.ok(fnBody(m, 'function updatePowerBlock()', '\n}').includes('finalizingPageIds.size > 0'), '省電力の抑止が締めの返事を待つ間に外れる');
   assert.match(m, /label: '更新を確認', enabled: state === 'idle' && !isSummarizing\(\)/, 'トレイの更新が要約中に押せる');
   assert.ok(fnBody(m, "ipcMain.handle('app:restart'", '\n  });').includes('要約を作成中です'), '再起動を拒んでいない');
   assert.ok(fnBody(m, "ipcMain.handle('update:apply'", '\n  });').includes('要約を作成中です'), '更新の適用を拒んでいない');
@@ -1136,7 +1139,7 @@ test('トレイの「終了」も、閉じるボタンと同じく記録中・�
   const m = code(main);
   assert.ok(m.includes("items.push({ label: '終了', click: quitFromTray });"), 'トレイの終了が quitFromTray を通っていない');
   const fn = fnBody(m, 'function quitFromTray()', '\n}');
-  assert.ok(fn.includes("closeConfirm(state === 'meeting' || state === 'meeting-finalizing', isSummarizing())"), '終了確認の文を mainlib.closeConfirm で組んでいない');
+  assert.ok(fn.includes("closeConfirm(state === 'meeting' || state === 'meeting-finalizing', isSummarizing(), finalizingPageIds.size > 0)"), '終了確認の文を mainlib.closeConfirm で組んでいない（締めの返事を待つ会議も見る）');
   assert.ok(fn.includes('dialog.showMessageBoxSync('), '確認を出していない');
   assert.ok(/if \(r !== 0\) return;/.test(fn), 'キャンセルで終了を止めていない');
   assert.ok(fn.indexOf('showMessageBoxSync(') < fn.indexOf('quitting = true'), '確認より先に終了している');

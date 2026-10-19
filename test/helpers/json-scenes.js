@@ -595,6 +595,65 @@ module.exports = {
       await c.sleep(50);
       c.out.draftsEnd = c.store.draftFiles();
     } },
+  // 0.7.0 の前の直し（第2a1回 M-4 の点検で残したこと）: 締めの返事を待つ会議（窓 D0 を開いたままなので DB は答え待ち）は、録音の状態が
+  // 待機に戻っても「忙しい」。省電力の抑止を外さず、閉じるボタンで確かめを出す（偽の確かめは［キャンセル］を返す）。［移す］の後、
+  // 締めと要約の試みが済んだら抑止を外す
+  'finalize-wait-busy': { engine: true, noDbWait: true, dialog: 'hold', env: { NATSU_TEST_MIGRATE_DELAY_MS: '200' },
+    files: { 'settings.json': ({ base }) => JSON.stringify(base) },
+    prepare: (ud) => { oldPages(ud, [1]); },
+    act: async (c) => {
+      const hk = (await c.handlers['settings:get']()).meetingHotkey;
+      const held = () => { let n = 0; for (const [k] of c.powerBlocks()) n += k === 'start' ? 1 : -1; return n > 0; };
+      c.out.dialogShown = await c.waitFor(() => c.dialogs().length === 1, 10000);
+      await c.waitFor(() => c.mainState() === 'idle', 10000);
+      c.shortcuts[hk]();   // 始める
+      c.out.started = await c.waitFor(() => c.mainState() === 'meeting', 5000);
+      c.shortcuts[hk]();   // 止める
+      c.listeners['audio:segment']({}, { buffer: new Uint8Array(c.toneWav(3)), durationMs: 3000, final: true });
+      c.out.waiting = await c.waitFor(() => c.overlayDone().includes('録音を保存しました。議事録は準備ができしだい作ります') && c.mainState() === 'idle', 6000);
+      await c.sleep(50);
+      c.out.dbWhileWaiting = c.dbState();
+      c.out.powerHeldWhileWaiting = held();
+      let prevented = false;
+      c.mainWin.emit('close', { preventDefault() { prevented = true; } });
+      c.out.closeDialogs = c.syncDialogs();
+      c.out.closePrevented = prevented;
+      c.out.quitCallsAfterClose = c.quitCalls();
+      c.answerDialog(0);
+      c.out.ready = await c.waitFor(() => c.dbState() === 'ready', 10000);
+      c.out.finalized = await c.waitFor(() => c.store.listPages().length >= 2 && !c.store.draftFiles().length, 8000);
+      c.out.powerReleasedAfter = await c.waitFor(() => !held() && c.mainState() === 'idle', 8000);
+    } },
+  // 0.7.0 の前の直し（第2a1回 M-4 の点検で残したこと）: 窓 D0 を開いたまま録音を始め、録音の最中に［今は移さずに終える］。録音を途中で
+  // 切らずに続け、平易な知らせを1回出す。録音を止めて下書きに書き終えたら終える（natsu.db は作らず、元の JSON もそのまま。下書きは
+  // 2つの区間を持ったまま残り、次の起動で復旧する）
+  'migrate-quit-recording': { engine: true, noDbWait: true, dialog: 'hold', quitEmits: true, env: { NATSU_TEST_MIGRATE_DELAY_MS: '200' },
+    files: { 'settings.json': ({ base }) => JSON.stringify(base) },
+    prepare: (ud) => { oldPages(ud, [1]); shaBefore = jsonShas(ud); },
+    act: async (c) => {
+      const hk = (await c.handlers['settings:get']()).meetingHotkey;
+      c.out.dialogShown = await c.waitFor(() => c.dialogs().length === 1, 10000);
+      await c.waitFor(() => c.mainState() === 'idle', 10000);
+      c.shortcuts[hk]();   // 始める（窓 D0 は開いたまま）
+      c.out.started = await c.waitFor(() => c.mainState() === 'meeting', 5000);
+      const live = () => c.store.draftFiles().map((name) => ({ name, r: c.store.readDraftFile(name) }))
+        .find((x) => x.r.state === 'ok' && typeof x.r.value.pageId === 'string' && x.r.value.pageId);
+      const cur = live();
+      c.listeners['audio:segment']({}, { buffer: new Uint8Array(c.toneWav(3)), durationMs: 3000, final: false });
+      await c.waitFor(() => c.trace().some((t) => t.kind === 'draft' && cur && t.pageId === cur.r.value.pageId && t.segs >= 1), 4000);
+      c.answerDialog(1);   // ［今は移さずに終える］
+      await c.sleep(400);
+      c.out.quitCallsWhileRecording = c.quitCalls();
+      c.out.stillRecording = c.mainState() === 'meeting';
+      c.shortcuts[hk]();   // 止める
+      c.listeners['audio:segment']({}, { buffer: new Uint8Array(c.toneWav(3)), durationMs: 3000, final: true });
+      c.out.quitAfterStop = await c.waitFor(() => c.quitCalls() >= 1, 8000);
+      c.out.closed = await c.waitFor(() => c.quitCalls() >= 2 && c.dbState() === 'down', 10000);
+      const kept = cur ? c.store.readDraftFile(cur.name) : null;
+      c.out.draftSegs = kept && kept.state === 'ok' ? kept.value.segments.length : -1;
+      c.out.jsonShaBefore = shaBefore;
+      c.out.jsonShaAfter = jsonShas(c.userData);
+    } },
   // 第2a1回 M-4 の点検で足した場面（下書きの復旧は1つずつ回す）: 起動のときは 0.6.0 の下書き（pageId が無い）を読めず、やり直しの
   // 時計が置かれる。窓 D0 を開いたまま（DB は移行の答え待ち）、そのやり直しが2つ重なって走る。並べて回すと、2つが同じ下書きを読んで
   // 別々の新しい ID で2つの「（復旧）」のページを作る

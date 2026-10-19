@@ -686,15 +686,22 @@ function keptDifferent(sent, saved) {
 }
 
 // ---------------------------------------------------------------- 終了の確認（#52）
-// recording: 議事録を記録中、summarizing: 要約を作成中。どちらでもなければ null。
-// 要約は数分かかり、途中で終了すると結果は残らない。記録中と同じく一度は確認を挟む。
-function closeConfirm(recording, summarizing) {
-  if (!recording && !summarizing) return null;
+// recording: 議事録を記録中、summarizing: 要約を作成中、finalizing: 締めの返事（議事録の DB）を待つ会議がある（録音の状態は待機に戻っている。
+// 第2a1回 M-4 の残りを 0.7.0 の前に直した）。どれでもなければ null。
+// 要約は数分かかり、途中で終了すると結果は残らない。記録中と同じく一度は確認を挟む。締めの途中で終えても議事録は下書きから次の起動で
+// 戻るが、要約は作られない
+function closeConfirm(recording, summarizing, finalizing = false) {
+  if (!recording && !summarizing && !finalizing) return null;
   const sumLine = '要約を作成中です。終了すると要約は失われます';
   if (recording) {
     let detail = '終了すると録音が止まります。ここまでの文字起こしは、次回起動時に復旧できます。';
     if (summarizing) detail += `\n${sumLine}。`;
     return { message: '議事録を記録中です', detail };
+  }
+  if (finalizing) {
+    let detail = '今終了しても議事録は失われず、次に起動したときに残っています。ただし、この会議の要約は作られません（後から「要約を生成」で作れます）。';
+    if (summarizing) detail += `\n${sumLine}。`;
+    return { message: '議事録を保存しています', detail };
   }
   return { message: sumLine, detail: '「要約を生成」で後から作り直せます。' };
 }

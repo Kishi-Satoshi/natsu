@@ -136,6 +136,9 @@
 //   （db.status）の返事も待ってから act を呼ぶ（その直後に送る知らせ D2〜D8 を出力に入れる）。ctx に dialogs()・answerDialog(i)・quitCalls()・trace()・
 //   snapshotKinds()（snapshot.take を頼んだ kind の順）・mainState()（meeting:status から idle・meeting・meeting-finalizing）・overlayDone()
 //   （録音バーの done の文の順）・mainProgress()（本体の窓へ送った meeting:progress の文の順）を足す。出力に dialogs・quitCalled・overlayDone・pages（{ id, title }。act が pages を入れたらそちら）を足す
+//   0.7.0 の前の直し（第2a1回 M-4 の残り）: 偽の dialog.showMessageBoxSync（閉じる・終了の確かめ）は { message, detail, buttons } を
+//   syncDialogs に順に残し、場面の closeAnswer（無ければ 1 = ［キャンセル］）を返す。ctx に syncDialogs()・powerBlocks()（省電力の抑止の
+//   ['start', type, id]・['stop', id] の並び）を足す
 //   main を読む前に、いつも process.env に ANTHROPIC_API_KEY と CLAUDE_CODE_OAUTH_TOKEN を置く（課金の変数が子に渡らないことを見る。RF25）。
 //   出力に足すもの: claude（偽の claude の記録。無ければ []）・pages[].route・pages[].blocks（型と cites の数だけ）・pages[].citeStat
 //   偽の Electron の net.request は、https://api.anthropic.com/ を偽の送り先の /anthropic へ書き換える（--stt と --claude を両方
@@ -708,6 +711,7 @@ process.on('exit', () => {
   // 1 番目（［移す］）を押す（JSON のページを置く今の場面は、そのまま移されてから動く）。ほかの dialog の関数は今どおり何でも返す
   const dialogs = [];
   const heldDialogs = [];
+  const syncDialogs = [];
   const dialog = withFallback({
     showMessageBox: (...a) => {
       const o = a.find((x) => x && typeof x === 'object' && Array.isArray(x.buttons)) || a[a.length - 1] || {};
@@ -715,6 +719,11 @@ process.on('exit', () => {
       const pick = scene ? scene.dialog : undefined;
       if (pick === 'hold') return new Promise((resolve) => { heldDialogs.push(resolve); });
       return Promise.resolve({ response: pick === 'quit' ? 1 : 0, checkboxChecked: false });
+    },
+    showMessageBoxSync: (...a) => {
+      const o = a.find((x) => x && typeof x === 'object' && Array.isArray(x.buttons)) || {};
+      syncDialogs.push({ message: String(o.message || ''), detail: String(o.detail || ''), buttons: Array.isArray(o.buttons) ? o.buttons.slice() : [] });
+      return scene && Number.isInteger(scene.closeAnswer) ? scene.closeAnswer : 1;
     },
   });
   const answerDialog = (i) => { const r = heldDialogs.shift(); if (r) r({ response: i, checkboxChecked: false }); return Boolean(r); };
@@ -1063,6 +1072,7 @@ process.on('exit', () => {
         localAppData, read: readUser, readLocal, waitFor, sleep, toneWav, releasePause, out: actOut, launches, launchPlan, fakeKids, dbMeta, dbState,
         dbCrash: (code) => utilFork.crash(code), dbStarts: () => utilFork.starts(), mainSent: () => mainSent.slice(), appCall,
         dialogs: () => dialogs.slice(), answerDialog, quitCalls: () => quitCalls, trace: () => trace.slice(),
+        syncDialogs: () => syncDialogs.slice(), powerBlocks: () => power.slice(),
         snapshotKinds: () => trace.filter((t) => t.kind === 'call' && t.cmd === 'snapshot.take').map((t) => t.snap),
         mainState: () => { const st = handlers['meeting:status'] ? handlers['meeting:status']() : null; return !st ? 'none' : !st.active ? 'idle' : st.finalizing ? 'meeting-finalizing' : 'meeting'; },
         overlayDone: () => sent.filter(([ch, p]) => ch === 'overlay:phase' && p && p.phase === 'done').map(([, p]) => p.message),

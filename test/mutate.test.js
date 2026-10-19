@@ -240,6 +240,13 @@ test('G3: 第2a1回の点検で足した変異も一覧にそろい、IDS_2A1 �
   assert.deepStrictEqual([...rows].sort(), [...IDS_2A1].sort());
 });
 
+// 0.7.0 の前の直し（第2a1回 M-4 の点検で残したこと: 締めの返事を待つ会議を「忙しい」に数える・録音の最中の［今は移さずに終える］）
+const IDS_M4_REST = ['m4b-power-finalizing', 'm4b-close-finalizing', 'm4b-confirm-finalizing', 'm4b-quit-after-recording'];
+test('G3: 第2a1回 M-4 の残りを直した変異が一覧にそろう', { timeout: 5000 }, () => {
+  const ids = new Set(MUTANTS.map((m) => m.id));
+  assert.deepStrictEqual(IDS_M4_REST.filter((id) => !ids.has(id)), []);
+});
+
 // 第1d回 W-1・D-1 の独立した点検で、テストを足して殺した変異（計画 docs/plans/2026-10-19-1d.md の「W-1・D-1 の独立した点検（2026-10-19）で足したもの」）。
 // W-1・D-1 は 0.7.0 の版で main に入るので、この5つも 0.7.0 で一覧に入れる（計画の表の rl-* は G-2 で足す）
 const IDS_1D_REVIEW = ['rl-deploy-api-redirect', 'rl-deploy-health-redirect', 'rl-deploy-run-expr', 'rl-deploy-foreign-action', 'rl-deploy-self-hosted'];
