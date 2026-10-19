@@ -2287,23 +2287,28 @@ function scheduleRecoveryRetry() {
   draftRetryTimer = setTimeout(retryDraftRecovery, RETRY_DRAFT_MS[draftRetryIdx++]);
 }
 // 名前はこのまま（テストの台 mainrun が setTimeout の名前で捕まえる）
+// setTimeout と runDraftRetryAfterMeeting から待たずに呼ばれるので、中身で投げても受け止めて記録に残す（unhandled にしない）
 async function retryDraftRecovery() {
-  if (draftRetryTimer) { try { clearTimeout(draftRetryTimer); } catch (_) { /* noop */ } draftRetryTimer = null; }
-  // 録音中は始めない（議事録を締めた後か破棄した後に回す）。音声入力などの最中なら少し後に
-  if (meeting || state === 'meeting' || state === 'meeting-finalizing') { draftRetryAfterMeeting = true; return; }
-  if (state !== 'idle') { scheduleRecoveryRetry(); return; }
-  retryUnsavedRecovery();
-  await recoverDraftIfAny();   // 投げない（下書きごとに受け止める）
-  // 起動のときに読めなかった recovery.json（設計書 JS9 の「やり直しで復旧され」）
-  if (recoveryUnreadable && !recoveryQueue) {
-    recoveryUnreadable = false;
-    const q = loadSavedRecoveryQueue();
-    if (q) {
-      recoveryQueue = q;
-      engineLog(`文字起こし待ちの記録を読み直しました（${q.items.length} 件）`);
+  try {
+    if (draftRetryTimer) { try { clearTimeout(draftRetryTimer); } catch (_) { /* noop */ } draftRetryTimer = null; }
+    // 録音中は始めない（議事録を締めた後か破棄した後に回す）。音声入力などの最中なら少し後に
+    if (meeting || state === 'meeting' || state === 'meeting-finalizing') { draftRetryAfterMeeting = true; return; }
+    if (state !== 'idle') { scheduleRecoveryRetry(); return; }
+    retryUnsavedRecovery();
+    await recoverDraftIfAny();   // 投げない（下書きごとに受け止める）
+    // 起動のときに読めなかった recovery.json（設計書 JS9 の「やり直しで復旧され」）
+    if (recoveryUnreadable && !recoveryQueue) {
+      recoveryUnreadable = false;
+      const q = loadSavedRecoveryQueue();
+      if (q) {
+        recoveryQueue = q;
+        engineLog(`文字起こし待ちの記録を読み直しました（${q.items.length} 件）`);
+      }
     }
+    if (recoveryQueue) transcribeRecovered().catch((e) => engineLog(`復旧の文字起こしに失敗: ${logReason(e)}`));
+  } catch (e) {
+    engineLog(`下書きのやり直しに失敗: ${errCode(e)}`);
   }
-  if (recoveryQueue) transcribeRecovered().catch((e) => engineLog(`復旧の文字起こしに失敗: ${logReason(e)}`));
 }
 // 議事録を締めた後・破棄した後に、録音中に来たやり直しを回す
 function runDraftRetryAfterMeeting() {
@@ -2983,7 +2988,7 @@ function applyHotkeys(hk, mhk) {
   globalShortcut.unregisterAll();
   return registerHotkeys([
     { label: '音声入力', accel: hk, handler: toggleRecording },
-    { label: '議事録', accel: mhk, handler: toggleMeetingByHotkey },
+    { label: '議事録', accel: mhk, handler: () => toggleMeetingByHotkey().catch((e) => engineLog(`議事録のホットキーを処理できません: ${errCode(e)}`)) },
   ], (accel, handler) => globalShortcut.register(accel, handler));
 }
 

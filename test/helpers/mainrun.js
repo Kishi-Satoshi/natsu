@@ -55,11 +55,13 @@
 //                     - 部品の待ち（jsonfile の sleepSync）を何もしない関数にする（読み直しの約1秒・名前の変更のやり直しの約0.5秒を、
 //                       場面ごとに待たない。待ちの長さは jsonfile.test.js が見る）。
 //                     - faults（helpers/faulty-fs.js の rules）があれば、src/ の中のファイルが読む fs にだけ faultyFs(faults) を渡す。
+//                     - dbDelayMs があれば、main の db.call（json-backend）の答えをその分だけ遅らせる（DB のプロセスの返事の遅れの代わり）。
 //                     - setTimeout に渡された retrySettingsRead・retryHistoryRead・retryDraftRecovery は走らせずに timers[名前] に入れる。
 //                     - 画面の読み込みは --slow-load と同じで、窓が2つ（録音バー・本体）できた後に読み終える（起動の知らせは
 //                       did-finish-load で送られる）。
 //                     - act(ctx) を呼ぶ。ctx = { handlers, listeners, app, wins, power, timers, clearedTimers, shortcuts, store, jsonfile, electron, userData,
-//                       read(rel), waitFor(cond, ms), sleep, toneWav(sec), out, launches, launchPlan }。app・窓・power（powerMonitor）は on／once で受け口を覚え、
+//                       read(rel), waitFor(cond, ms), sleep, toneWav(sec), out, launches, launchPlan, fakeKids }。fakeKids は engine の無い場面で
+//                       main が起こそうとしたエンジンの偽の子（{ cmd, kills }。kill() を呼ばれた回数）。app・窓・power（powerMonitor）は on／once で受け口を覚え、
 //                       emit(ev, …) で呼べる。窓は setPosition の値を getPosition で返し、作ったときに app の browser-window-created を
 //                       出す。wins は作った順（createOverlay が先、createMainWindow が後）。read(rel) は無ければ null、あればバイト。
 //                     - 出力（最後の行の JSON）: scene・notices（app:notice の文）・files（userData の下のファイルの相対パス。区切りは /。
@@ -257,7 +259,9 @@ process.on('exit', () => {
 
 (async () => {
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'natsu-e2e-'));
-  const userData = path.join(tmp, 'userData');
+  // userData は日本語と 𠮷 の名前（利用者名が日本語の PC と同じ。計画の決まり）。偽のエンジンの置き場（engine）は英数字のまま
+  // （whisper は英数字以外のパスを読めない: RF1。main はそのとき起動しない）
+  const userData = path.join(tmp, 'userData-日本語𠮷');
   fs.mkdirSync(userData, { recursive: true });
   const engDir = path.join(tmp, 'engine');
   fs.mkdirSync(engDir);
@@ -623,6 +627,7 @@ process.on('exit', () => {
   // エンジンの spawn だけを本物にする（.js なら node で起動）。それ以外（貼り付け用の PowerShell など）は起動しない
   const realSpawn = cp.spawn;
   const spawns = [];   // エンジンの起動（実行ファイル・引数・作業フォルダ）
+  const fakeKids = [];   // エンジンを持たない場面で返した偽の子（{ cmd, kills }。第2a1回 M-1: 終了でエンジンを止めたかを見る）
   // 第1b回の続き Lane F-c・F-d: scene.claude の場面で main が起こす powershell.exe -EncodedCommand（見える窓を開く隠した PowerShell）は本当には起こさず、
   // launches に { cmd, args, exe（環境の NATSU_CLAUDE_EXE）, shell, windowsHide, ansiKeys（課金の変数の名前） } で覚え、
   // launchPlan の先頭の終わりの番号（無ければ 0）で 20ms 後に閉じる偽の子を返す（act が launchPlan に積む）
@@ -663,10 +668,12 @@ process.on('exit', () => {
         return k;
       }
       if (scene && !scene.engine) {
-        // エンジンを持たない場面: 手のパスが設定にあっても起こさない（偽の子を返す）
+        // エンジンを持たない場面: 手のパスが設定にあっても起こさない（偽の子を返す）。起こそうとした実行ファイルと止めた回数を fakeKids に残す
         const EventEmitter = require('events');
         const p = new EventEmitter();
-        p.stdin = null; p.stdout = new EventEmitter(); p.stderr = new EventEmitter(); p.kill = () => {};
+        const rec = { cmd: String(cmd), kills: 0 };
+        fakeKids.push(rec);
+        p.stdin = null; p.stdout = new EventEmitter(); p.stderr = new EventEmitter(); p.kill = () => { rec.kills += 1; };
         return p;
       }
       if (crashMode && !crashed && managedExe && cmd === managedExe) {
@@ -711,6 +718,15 @@ process.on('exit', () => {
     if (req === 'electron') return electron;
     if (req === 'child_process') return childProcess;
     if (sceneFs && (req === 'fs' || req === 'node:fs') && rest[0] && typeof rest[0].filename === 'string' && rest[0].filename.startsWith(SRC)) return sceneFs;
+    // 場面の dbDelayMs: main の db.call の答えを毎回その分だけ遅らせる（json-backend はほぼ同期で答えるので、DB のプロセスの
+    // ように返事が後から来るときの待ち方を見る。第2a1回 M-1 の before-quit）
+    if (scene && scene.dbDelayMs && req === './db/json-backend' && rest[0] && rest[0].filename === MAIN) {
+      const mod = orig.call(this, req, ...rest);
+      return { ...mod, makeJsonBackend: (...a) => {
+        const b = mod.makeJsonBackend(...a);
+        return { ...b, call: async (cmd, args) => { await sleep(scene.dbDelayMs); return b.call(cmd, args); } };
+      } };
+    }
     if (managedMods && rest[0] && rest[0].filename === MAIN) {
       if (req === './engine-install') return managedMods.install;
       if (req === './engine-manifest') return managedMods.manifest;
@@ -768,7 +784,7 @@ process.on('exit', () => {
     const readLocal = (rel) => { try { return fs.readFileSync(path.join(localAppData, ...rel.split('/'))); } catch (_) { return null; } };
     if (typeof scene.act === 'function') {
       await scene.act({ handlers, listeners, app: electron.app, wins, mainWin: wins[1], power: powerMonitor, timers, clearedTimers, shortcuts, store, jsonfile, electron, userData,
-        localAppData, read: readUser, readLocal, waitFor, sleep, toneWav, releasePause, out: actOut, launches, launchPlan });
+        localAppData, read: readUser, readLocal, waitFor, sleep, toneWav, releasePause, out: actOut, launches, launchPlan, fakeKids });
     }
     const files = [];
     const walk = (dir, rel) => {
