@@ -25,7 +25,8 @@ function trackedFiles() {
   } catch (_) { return null; }
 }
 
-const TEXT_EXT = new Set(['.js', '.mjs', '.txt', '.html', '.json', '.md', '.ps1', '.bat', '.yml', '.svg', '.gitignore', '']);
+// .db は第2a1回 G-2 の固定の DB（test/fixtures/db/v1.db）。SQLite は文字を UTF-8 のまま持つので、文字として読んで同じ決まりで調べる（画像のように外さない）
+const TEXT_EXT = new Set(['.js', '.mjs', '.txt', '.html', '.json', '.md', '.ps1', '.bat', '.yml', '.svg', '.gitignore', '.db', '']);
 // 文字として調べないファイル（画像）。追跡するファイルの拡張子は、TEXT_EXT かここのどちらかに必ず入れる（下のテスト）
 const BINARY_EXT = new Set(['.png', '.ico']);
 
