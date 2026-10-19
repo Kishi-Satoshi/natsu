@@ -745,8 +745,10 @@ test('#46 要約完了時に手元の古い page で書き戻さない（削除�
   const fn = fnBody(code(main), 'async function doRunSummary', '\nlet hotkeyState');
   assert.ok(!/getPage\(pageId\)\s*\|\|\s*page\b/.test(fn), '「getPage(pageId) || page」のフォールバックが残っている');
   assert.ok(!/store\.savePage\(/.test(fn), '存在確認を挟まずに savePage している');
-  assert.ok((fn.match(/saveIfExists\(store, pageId/g) || []).length >= 4,
+  // 第2a1回 M-1（ST1）: saveIfExists は非同期で db（今は json-backend）を通る。await して答えを見る
+  assert.ok((fn.match(/await saveIfExists\(db, pageId/g) || []).length >= 4,
     '空・未設定・成功・失敗の全経路が saveIfExists を通っていない');
+  assert.ok(!/saveIfExists\(store, /.test(fn), 'store を直に渡している（db.call を通らない）');
   assert.ok(fn.includes('ページが削除されました'), '削除済みのときの戻り値が無い');
   // 保存できなかった（= 削除済み）ことを全経路が見ている
   assert.ok((fn.match(/if \(!(saved|latest)\) return gone\(\);/g) || []).length >= 4, '削除済みを見ずに進む経路がある');
@@ -1021,7 +1023,8 @@ test('#8/#42(2) 復旧ページの「文字起こし待ち」は起動後に文�
   // エンジンの用意待ち（transcribeRecovered）と区間ごとの処理（transcribeRecoveredItems）に分かれている
   const fn = fnBody(m, 'async function transcribeRecovered()', '\n}') + fnBody(m, 'async function transcribeRecoveredItems(', '\n}');
   assert.ok(fn.includes('await ensureEngineReady(whisperEng)'), 'エンジンの用意を待っていない');
-  assert.ok(fn.includes('store.updateSegment(q.pageId, item.id, { text })'), '成功した区間を store.updateSegment で差し替えていない（failed が残る）');
+  // 第2a1回 M-1（ST1）: 区間だけを直す命令（出典は引き直さない）。json-backend では store.updateSegment
+  assert.ok(fn.includes("db.call('segment.update', { pageId: q.pageId, segId: item.id, patch: { text }, recite: false })"), '成功した区間を segment.update で差し替えていない（failed が残る）');
   assert.ok(fn.includes('unlinkQuiet(item.wav)'), '文字起こした wav を消していない');
   assert.ok(fn.includes('（この区間の認識に失敗: '), '失敗した区間に失敗の文を残していない');
   assert.ok(fn.includes('removeDirIfEmpty(q.dir)'), '空になった退避フォルダを消していない');

@@ -12,15 +12,31 @@ const path = require('path');
 // ---------------------------------------------------------------- 要約の書き戻し
 // 要約は数分かかる。その間に利用者がページを削除していることがある。
 // 入口で読んだ page をそのまま保存すると、削除した議事録が復活する
-// （「消したはずの議事録が戻ってくる」）。必ずいまディスクにある
-// ページを読み直し、無ければ何も書かずに null を返す。
+// （「消したはずの議事録が戻ってくる」）。必ずいま保存されているページを
+// 読み直し、無ければ何も書かずに null を返す。
 // apply(page) は、生成物だけを最新のページに載せる（タイトルやメモは
 // 要約中に編集されているかもしれないので、古いコピーで上書きしない）。
-function saveIfExists(store, pageId, apply) {
-  const saved = store.getPage(pageId);
-  if (!saved) return null;
-  apply(saved);
-  return store.savePage(saved);
+// 第2a1回 M-1（ST1・F6・F12）: 議事録の保存は db.call(cmd, args)（非同期）を通る。page.get → apply → page.put { page, baseRev }。
+// 画面の書き込みは main を通らないので「読む → 書く」の間に割り込まれうる。版（rev）が違えば保存の側が conflict を投げるので、
+// 読み直して同じ当て方をもう一度する（SAVE_TRIES 回まで）。それでもぶつかれば conflict を投げる（null は呼び手が
+// 「ページが消された」と読んで要約を黙って捨てるので返さない）。「ページが無い」は page.get か page.put が null と答えたときだけ。
+// ほかの失敗（db-down・retry・unavailable など）も飲み込まずに投げる
+const SAVE_TRIES = 5;
+async function saveIfExists(db, pageId, apply) {
+  let last = null;
+  for (let i = 0; i < SAVE_TRIES; i++) {
+    const got = await db.call('page.get', { id: pageId });
+    if (!got || !got.page) return null;
+    const saved = got.page;
+    apply(saved);
+    try {
+      return await db.call('page.put', { page: saved, baseRev: saved.rev });
+    } catch (e) {
+      if (!e || e.code !== 'conflict') throw e;
+      last = e;
+    }
+  }
+  throw last;
 }
 
 // ---------------------------------------------------------------- 会議の長さ

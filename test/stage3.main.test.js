@@ -88,12 +88,13 @@ test('dialog:pick はファイルだけを選ばせ（フォルダの分岐は�
   assert.ok(!pick.includes('openDirectory'), 'フォルダを選ぶ指定が残っている');
   assert.ok(pick.includes("properties: ['openFile']"), 'ファイルを選ぶ指定が無い');
   assert.match(pick, /return res\.canceled \? null : res\.filePaths\[0\];/, 'ファイル選択の戻り値が変わっている');
-  assert.match(m, /ipcMain\.handle\('pages:actionView', \(_e, \{ q, assignee \} = \{\}\) => store\.actionView\(\{ q, assignee \}\)\)/);
+  // 第2a1回 M-1（ST1）: 中身は await db.call（命令 pages.actionView。今は json-backend が store.actionView を呼ぶ）。絞り込みはそのまま渡す
+  assert.match(m, /ipcMain\.handle\('pages:actionView', async \(_e, \{ q, assignee \} = \{\}\) => await db\.call\('pages\.actionView', \{ q, assignee \}\)\)/);
   assert.ok(preload.includes("  pagesActionView: ({ q, assignee }) => ipcRenderer.invoke('pages:actionView', { q, assignee }),"), 'preload の pagesActionView が無い（書式込み）');
   // app が使わなくなったので、統合で openActions / assigneeList は preload と main から外した
   assert.ok(!preload.includes('openActions:') && !preload.includes('assigneeList:'), '使われない openActions / assigneeList が preload に残っている');
   assert.ok(!m.includes("'pages:openActions'") && !m.includes("'pages:assignees'"), '使われない handle が main に残っている');
-  assert.match(m, /ipcMain\.handle\('pages:searchFull', \(_e, q\) => store\.searchFullText\(q \|\| '', 60\)\)/, 'pages:searchFull は store の戻り値をそのまま返す');
+  assert.match(m, /ipcMain\.handle\('pages:searchFull', async \(_e, q\) => await db\.call\('pages\.searchFull', \{ q: q \|\| '', limit: 60 \}\)\)/, 'pages:searchFull は保存の側の答えをそのまま返す（上限 60）');
 });
 
 // ---------------------------------------------------------------- #41 要約の文脈長（判断）

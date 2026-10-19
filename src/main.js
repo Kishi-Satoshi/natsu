@@ -25,7 +25,7 @@ globalThis.fetch = require('./mainlib').loopbackOnlyFetch(globalThis.fetch);
 
 const store = require('./store');
 const cite = require('./cite');
-const { attachCitations, refreshCitations } = cite;
+const { attachCitations } = cite;
 // 要約中に文字起こしが編集されていても、出典は「要約の材料にした配列」と「いまの配列」の
 // 両方を見て付ける（cite.attachCitationsAcross。#4）。まだ無い版では従来どおり今の配列だけ。
 const attachAcross = cite.attachCitationsAcross || ((b, f) => attachCitations(b, f.filter((s) => !s.failed)));
@@ -36,6 +36,12 @@ const { chooseDisplayMedia } = require('./loopback');
 // オンラインの文字起こし（第1c回 OL1〜OL4）: オンラインかの判定と経路・OpenAI と同じ形の口・鍵の保管
 const { makeOnline, decideStt, decideSummary } = require('./online');
 const sttCloud = require('./stt-cloud');
+// 議事録の保存（第2a1回 ST1）。main の議事録の読み書きは await db.call(cmd, args) を通る。中身は今の JSON の保存
+// （src/db/json-backend.js が store を命令の名前で呼ぶ）。page.get の経路の行は、送り先の表示の名前（labels）で添える
+const { makeJsonBackend } = require('./db/json-backend');
+const db = makeJsonBackend(store, {
+  labels: Object.fromEntries(Object.entries(sttCloud.PRESETS).map(([id, p]) => [id, p && typeof p.label === 'string' ? p.label : ''])),
+});
 const { makeSecrets } = require('./secrets');
 const security = require('./security');
 const RENDERER_PAGES = { app: path.join(__dirname, 'renderer', 'app.html'), overlay: path.join(__dirname, 'renderer', 'overlay.html') };
@@ -101,6 +107,9 @@ let trayIconRec = null;
 let overlayWin = null;
 let mainWin = null;
 let quitting = false;
+// 終了のときの「要約が中断されました」の書き込みを1回だけ待つ（第2a1回 ST1。before-quit）。待つのは合わせて QUIT_MARK_MS まで
+let quitMarkDone = false;
+const QUIT_MARK_MS = 3000;
 // 録音・文字起こし中は OS にアプリを眠らせない。省電力でプロセスが
 // 絞られると、録音の区切りも文字起こしも静かに止まる。
 let powerBlockId = null;
@@ -2254,8 +2263,10 @@ function loadSavedRecoveryQueue() {
     if (r.state !== 'ok') continue;
     const j = r.value;
     const items = j.items.filter((it) => it && it.wav && fs.existsSync(it.wav));
-    if (j.pageId && items.length && store.getPage(j.pageId)) { found = { pageId: j.pageId, items, dir, retry: Boolean(j.retry), localOnly: Boolean(j.localOnly) }; break; }
-    // 済んだ待ち行列（ページが消された・音声が無い）。今どおり片付ける
+    // ページがあるかは、ここでは見ない（同期で読むため。第2a1回 ST1）。transcribeRecovered がエンジンを待つ前に保存の側へ
+    // 聞いて確かめ、「無い」（null）と答えたときだけ WAV と recovery.json を片付ける（読めなかったら何も消さない: F12）
+    if (j.pageId && items.length) { found = { pageId: j.pageId, items, dir, retry: Boolean(j.retry), localOnly: Boolean(j.localOnly) }; break; }
+    // 済んだ待ち行列（音声が無い）。今どおり片付ける
     unlinkQuiet(f);
     removeDirIfEmpty(dir);
   }
@@ -2276,13 +2287,13 @@ function scheduleRecoveryRetry() {
   draftRetryTimer = setTimeout(retryDraftRecovery, RETRY_DRAFT_MS[draftRetryIdx++]);
 }
 // 名前はこのまま（テストの台 mainrun が setTimeout の名前で捕まえる）
-function retryDraftRecovery() {
+async function retryDraftRecovery() {
   if (draftRetryTimer) { try { clearTimeout(draftRetryTimer); } catch (_) { /* noop */ } draftRetryTimer = null; }
   // 録音中は始めない（議事録を締めた後か破棄した後に回す）。音声入力などの最中なら少し後に
   if (meeting || state === 'meeting' || state === 'meeting-finalizing') { draftRetryAfterMeeting = true; return; }
   if (state !== 'idle') { scheduleRecoveryRetry(); return; }
   retryUnsavedRecovery();
-  recoverDraftIfAny();
+  await recoverDraftIfAny();   // 投げない（下書きごとに受け止める）
   // 起動のときに読めなかった recovery.json（設計書 JS9 の「やり直しで復旧され」）
   if (recoveryUnreadable && !recoveryQueue) {
     recoveryUnreadable = false;
@@ -2300,8 +2311,9 @@ function runDraftRetryAfterMeeting() {
   draftRetryAfterMeeting = false;
   retryDraftRecovery();
 }
-// 控えは store.draftFiles() を全部見る（draft.json・脇へ退けた draft.pending-<時刻>.json・会議ごとの draft-<開始時刻>.json）
-function recoverDraftIfAny() {
+// 控えは下書きのファイルを全部見る（draft.json・脇へ退けた draft.pending-<時刻>.json・会議ごとの draft-<開始時刻>.json）。
+// ページは await db.call('meeting.recover') で作る（第2a1回 ST1。中身は今の JSON の保存）。投げない（下書きごとに受け止める）
+async function recoverDraftIfAny() {
   let unreadable = false;
   let recovered = 0;
   for (const name of store.draftFiles()) {
@@ -2317,24 +2329,23 @@ function recoverDraftIfAny() {
       // あとで文字起こしして差し替える（mainlib.recoverSegments）。先にページを作るのは、
       // エンジンの起動を待たずに復旧した本文を開けるようにするため
       const rec = recoverSegments(d.segments, (f) => fs.existsSync(f));
-      const page = store.createPage({
+      // 要約の欄の文（summaryError）も同じ1回の頼みで入れる（今の「作ってから保存し直す」と同じ中身）
+      const { page } = await db.call('meeting.recover', { pageId: store.newId('p'), segments: rec.segments, page: {
         title: `${dt.getFullYear()}/${dt.getMonth() + 1}/${dt.getDate()} ${String(dt.getHours()).padStart(2, '0')}:${String(dt.getMinutes()).padStart(2, '0')} の議事録（復旧）`,
         // 日付はローカルの暦日（#51。UTC で作ると日本の朝の会議が前日になる）
         date: localDateISO(dt),
         durationSec: Math.round((d.offsetMs || 0) / 1000),
         memo: d.memo || '',
         blocks: [],
-        segments: rec.segments,
         createdAt: new Date(d.startedAt || Date.now()).toISOString(),
         recovered: true,
         // 送り直しで数え直す（transcribeRecoveredItems）。会議の印は下書きから写す（第1c回 RF28）
         route: { stt: { cloud: 0, local: 0, provider: sttProvider().id }, localOnly: Boolean(d.localOnly) },
         pauses: d.pauses,   // 止めていた時間の印（形の悪い印は store が捨てる。第1b回 N4c・F6）
-      });
-      page.summaryError = rec.todo.length
-        ? '録音が中断されたため要約は未生成です。残っていた音声の文字起こしを続けています。終わったら「要約を生成」で作成できます。'
-        : '録音が中断されたため要約は未生成です。「要約を生成」で作成できます。';
-      store.savePage(page);
+        summaryError: rec.todo.length
+          ? '録音が中断されたため要約は未生成です。残っていた音声の文字起こしを続けています。終わったら「要約を生成」で作成できます。'
+          : '録音が中断されたため要約は未生成です。「要約を生成」で作成できます。',
+      } });
       store.clearDraft(name);
       recoveredPageId = page.id;
       recovered++;
@@ -2355,15 +2366,17 @@ function recoverDraftIfAny() {
   // 起動の後で復旧したら（やり直し・録音の前）、一覧を描き直して知らせる。起動の途中は createMainWindow が知らせる
   if (recovered && mainWin) {
     recoveredPageId = null;
-    sendToMainWin('pages:updated', store.listPages());
+    try { sendToMainWin('pages:updated', await db.call('pages.list', {})); } catch (e) { engineLog(`議事録の一覧を読めませんでした: ${errCode(e)}`); }
     noticeMainWin('前回中断された議事録の文字起こしを復旧しました。「要約を生成」から議事録を作成できます。');
   }
 }
 
 // 復旧ページの「文字起こし待ち」を、起動が済んでエンジンが用意できてから順に文字起こしし、
-// store.updateSegment で本文を差し替える（failed が外れて要約の材料に戻る）。
+// segment.update（recite: false。区間だけを直す）で本文を差し替える（failed が外れて要約の材料に戻る）。
 // 失敗した区間は失敗の文を残す。ページが消されていたら残りの wav を捨てて止める。
 // 済んだ wav は消し、空になった退避フォルダも消す。
+// 「ページが消された」と決めるのは、保存の側がページの読み（page.get）に null と答えたときだけ。読めなかった（投げた）ときは何も消さずに
+// 止め、待ち行列を残して次の機会（設定の保存・次の起動）に回す（エンジンが無いときと同じ扱い。第2a1回 F12）
 let recoveryRunning = false;
 async function transcribeRecovered() {
   if (recoveryRunning) return;
@@ -2375,6 +2388,21 @@ async function transcribeRecovered() {
     const seen = new Set();   // 同じ待ち行列を二度拾わない（recovery.json を消せなかったとき）
     while (q && !seen.has(q.dir)) {
       seen.add(q.dir);
+      // エンジンを待つ前に、ページがまだあるかを確かめる（消されていればエンジンを起こさずに片付ける）
+      let alive = null;
+      try {
+        alive = await db.call('page.get', { id: q.pageId });
+      } catch (e) {
+        engineLog(`復旧の文字起こしを保留: 議事録を読めません（${errCode(e)}）`);
+        recoveryQueue = q;
+        retryUnsavedRecovery();
+        return;
+      }
+      if (!alive) {
+        dropRecoveryQueue(q);
+        q = recoveryQueue = loadSavedRecoveryQueue();
+        continue;
+      }
       // クラウドで処理できるなら手元のエンジンを起こさない（q.localOnly の待ち行列は今どおりエンジンを待つ。第1c回）
       const ready = (await recoveryCloudReady(q)) || await ensureEngineReady(whisperEng);
       if (!ready) {
@@ -2406,7 +2434,16 @@ async function transcribeRecoveredItems(q) {
   let done = 0;
   for (let i = 0; i < q.items.length; i++) {
     const item = q.items[i];
-    if (!store.getPage(q.pageId)) { unlinkQuiet(item.wav); continue; }   // ページが消された
+    let alive = null;
+    try {
+      alive = await db.call('page.get', { id: q.pageId });
+    } catch (e) {
+      // 読めなかった: 「消された」にしない。この区間から先の音声と待ち行列を残して止める（F12）
+      const rest = q.items.slice(i).filter((it) => it && it.wav && fs.existsSync(it.wav));
+      engineLog(`復旧の文字起こしを止めました（理由: ${errCode(e)}）。残りの ${rest.length} 区間の音声と待ち行列は残します`);
+      return { ...q, items: rest };
+    }
+    if (!alive) { unlinkQuiet(item.wav); continue; }   // ページが消された（DB が null と答えた）
     let text = null;
     let err = '';
     let route = 'local';
@@ -2424,17 +2461,15 @@ async function transcribeRecoveredItems(q) {
       }
     }
     // 経路ごとの数え直し（ページの route.stt。第1c回 OL6）
-    if (!err) saveIfExists(store, q.pageId, (p) => { if (p.route && p.route.stt) p.route.stt[route] = (Number(p.route.stt[route]) || 0) + 1; });
+    if (!err) await saveIfExists(db, q.pageId, (p) => { if (p.route && p.route.stt) p.route.stt[route] = (Number(p.route.stt[route]) || 0) + 1; });
     if (err) {
-      // 失敗の文を残す（updateSegment は failed を外してしまうので直接書く）
-      const segs = store.getTranscript(q.pageId);
-      const s = segs.find((x) => x.id === item.id);
-      if (s) { s.text = `（この区間の認識に失敗: ${err}）`; s.failed = true; store.saveTranscript(q.pageId, segs); }
+      // 失敗の文を残す（segment.update は failed を外してしまうので、失敗の印を付ける命令で書く）
+      await db.call('segment.fail', { pageId: q.pageId, segId: item.id, text: `（この区間の認識に失敗: ${err}）` });
     } else if (text) {
-      store.updateSegment(q.pageId, item.id, { text });
+      await db.call('segment.update', { pageId: q.pageId, segId: item.id, patch: { text }, recite: false });
       done++;
     } else {
-      removeTranscriptSegment(q.pageId, item.id);   // 無音: 区間ごと消す（記録中と同じ扱い）
+      await db.call('segment.remove', { pageId: q.pageId, segId: item.id });   // 無音: 区間ごと消す（記録中と同じ扱い）
       done++;
     }
     // 推論まで到達した wav は成否にかかわらず消す（同じ音声を何度も失敗させても意味が無い）
@@ -2442,22 +2477,26 @@ async function transcribeRecoveredItems(q) {
   }
   try { fs.unlinkSync(path.join(q.dir, RECOVERY_FILE)); } catch (_) { /* noop */ }
   removeDirIfEmpty(q.dir);
-  const page = store.getPage(q.pageId);
-  if (!page) return;
+  const cur = await db.call('page.get', { id: q.pageId });
+  if (!cur) return;
   // 「続けています」の文を通常の復旧の文に戻す（別の要約が書いていれば触らない）
-  const latest = saveIfExists(store, q.pageId, (p) => {
+  const latest = await saveIfExists(db, q.pageId, (p) => {
     if (String(p.summaryError || '').includes('文字起こしを続けています')) {
       p.summaryError = '録音が中断されたため要約は未生成です。「要約を生成」で作成できます。';
     }
   });
-  sendToMainWin('pages:updated', store.listPages());
-  sendToMainWin('page:updated', { page: latest || page, segments: store.getTranscript(q.pageId) });
+  sendToMainWin('pages:updated', await db.call('pages.list', {}));
+  const now = await db.call('page.get', { id: q.pageId });
+  sendToMainWin('page:updated', { page: latest || cur.page, segments: now ? now.segments : cur.segments });
   sendToMainWin('app:notice', q.retry
     ? `認識に失敗していた区間の文字起こしをやり直しました（${done}/${q.items.length} 区間）。「要約を生成」で議事録を作り直せます。`
     : `中断されていた文字起こしの復旧が終わりました（${done}/${q.items.length} 区間）。「要約を生成」で議事録を作成できます。`);
 }
-function removeTranscriptSegment(pageId, segId) {
-  store.saveTranscript(pageId, store.getTranscript(pageId).filter((s) => s.id !== segId));
+// 消されたページの待ち行列を片付ける（音声と recovery.json と、空になったフォルダ）。ページが null と答えたときだけ呼ぶ
+function dropRecoveryQueue(q) {
+  for (const it of q.items) if (it && it.wav) unlinkQuiet(it.wav);
+  unlinkQuiet(path.join(q.dir, RECOVERY_FILE));
+  removeDirIfEmpty(q.dir);
 }
 
 // 7 日より古い退避フォルダを消す（復旧されずに残った孤児。判断は mainlib.staleSegbufDirs）。
@@ -2482,12 +2521,17 @@ function cleanOrphanSegbuf(keepDir) {
   }
 }
 
-function startMeeting() {
+async function startMeeting() {
   if (state !== 'idle') return { ok: false, error: '他の処理を実行中です' };
   const problem = whisperProblem();
   if (problem) return { ok: false, error: problem };
-  // 前の起動で読めなかった控えが残っていれば、始める前に1回だけ復旧を試す（第1a回 JS9）
-  if (store.draftFiles().length) recoverDraftIfAny();
+  // 前の起動で読めなかった控えが残っていれば、始める前に1回だけ復旧を試す（第1a回 JS9）。復旧のページは
+  // db.call で作るので待つ（待たずに進むと、復旧中の draft.json を下の chooseDraftName が脇へ退け、消しそこねて2つ目のページになる）。
+  // 待つ間に別の処理が始まっていたら始めない（第2a1回 ST1）
+  if (store.draftFiles().length) {
+    await recoverDraftIfAny();
+    if (state !== 'idle') return { ok: false, error: '他の処理を実行中です' };
+  }
   const startedAt = Date.now();
   // 古い draft.json が残っていれば脇へ退けてから draft.json に、退けられなければ draft-<開始時刻>.json に書く
   const draftName = chooseDraftName({ existing: store.draftFiles(), startedAt, park: () => store.parkDraft() });
@@ -2579,9 +2623,9 @@ function discardMeeting() {
   return { ok: true };
 }
 
-function toggleMeetingByHotkey() {
+async function toggleMeetingByHotkey() {
   if (state === 'idle') {
-    const r = startMeeting();
+    const r = await startMeeting();
     createMainWindow();
     if (!r.ok) sendToMainWin('app:notice', r.error || '議事録を開始できません');
   } else if (state === 'meeting') stopMeeting();
@@ -2687,16 +2731,21 @@ async function maybeFinalizeMeeting() {
 
   let page = null;
   try {
-    page = store.createPage({
-      title: fallbackTitle,
-      date: localDateISO(dt),   // ローカルの暦日（#51）
-      durationSec, memo: m.memo, blocks: [],
+    // 議事録を締める（第2a1回 ST1: await db.call。中身は今の JSON の保存で、ページの ID は保存の側が作る）。
+    // 「書けた」と返ってから下書きを消す。締めの tx は会議の開始時刻（送り直しても1回だけ効く）
+    page = await db.call('meeting.finalize', {
+      pageId: store.newId('p'),
       segments: settledSegments(m.segments),   // 待ちの区間（本文なし）と wav のパスは載せない
-      createdAt: dt.toISOString(),
-      // 文字起こしの経路と、会議の印（要約の経路が見る: C10）
-      route: { stt: { ...m.route, provider: sttProvider().id }, localOnly: Boolean(m.localOnly) },
-      pauses: m.pauses,   // 止めていた時間の印（区間とは別の欄。第1b回 N4c・F6）
-    });
+      page: {
+        title: fallbackTitle,
+        date: localDateISO(dt),   // ローカルの暦日（#51）
+        durationSec, memo: m.memo, blocks: [],
+        createdAt: dt.toISOString(),
+        // 文字起こしの経路と、会議の印（要約の経路が見る: C10）
+        route: { stt: { ...m.route, provider: sttProvider().id }, localOnly: Boolean(m.localOnly) },
+        pauses: m.pauses,   // 止めていた時間の印（区間とは別の欄。第1b回 N4c・F6）
+      },
+    }, { tx: `meeting:${m.startedAt}` });
     store.clearDraft(m.draftName);
     // 認識に失敗した区間の wav は残してある（settleSegment）。復旧と同じ待ち行列に載せ、
     // 要約のあとでもう一度文字起こしする。途中で落ちても recovery.json から次の起動で続く
@@ -2724,7 +2773,7 @@ async function maybeFinalizeMeeting() {
   if (!page) return;
 
   sendToOverlay('overlay:phase', { phase: 'done', message: '議事録を保存しました' });
-  sendToMainWin('pages:updated', store.listPages());
+  sendToMainWin('pages:updated', await db.call('pages.list', {}));
   sendToMainWin('page:open', page.id);
   // 音声は届いたのに、文字起こしが全部空だった。黙っていると「0 区間」の理由が分からない。
   // 通知は数秒で消えるので、要約の欄（summaryError）にも同じ文を残す（下の runSummary の後）
@@ -2739,8 +2788,9 @@ async function maybeFinalizeMeeting() {
 
   await runSummary(page.id);
   if (allEmpty) {
-    const saved = saveIfExists(store, page.id, (p) => { p.summaryError = allEmptyText; });
-    if (saved) sendToMainWin('page:updated', { page: saved, segments: store.getTranscript(page.id) });
+    const saved = await saveIfExists(db, page.id, (p) => { p.summaryError = allEmptyText; });
+    const now = saved ? await db.call('page.get', { id: page.id }) : null;
+    if (saved) sendToMainWin('page:updated', { page: saved, segments: now ? now.segments : [] });
   }
   if (recoveryQueue) transcribeRecovered().catch((e) => engineLog(`retry failed: ${logReason(e)}`));
 }
@@ -2750,6 +2800,8 @@ async function maybeFinalizeMeeting() {
 // 要約が二重に走り、後から終わった方が前の結果（とその間の編集）を上書きしていた。
 // 走行中なら同じ Promise を返す。
 const runSummary = makeSummaryRunner(doRunSummary, () => updateTray());
+// 要約の書き戻しが続けてぶつかったときの知らせ（第2a1回 F6。mainlib.saveIfExists が conflict を投げた）
+const SUMMARY_CONFLICT_TEXT = '要約を保存できませんでした。もう一度［要約を生成］を押してください。';
 // 要約が走っている間はアプリを「忙しい」として扱う（#52）: 省電力を止めない・終了前に
 // 確かめる・更新と再起動を拒む。件数は mainlib.makeSummaryRunner が持つ。
 const isSummarizing = () => runSummary.running().length > 0;
@@ -2771,16 +2823,25 @@ async function doRunSummary(pageId) {
     clearUi();
     return { ok: false, error: 'ページが削除されました' };
   };
-  const page = store.getPage(pageId);
-  if (!page) { clearUi(); return { ok: false, error: 'ページが見つかりません' }; }
-  let segments = store.getTranscript(pageId);   // 出典付与の直前に読み直して差し替える（下記）
+  // 書き戻しが何度もぶつかった（その間ずっと画面で直されていた。第2a1回 F6）。「削除された」にせず、要約を保存できなかったと知らせる
+  const conflicted = () => {
+    engineLog('要約の書き戻しが続けてぶつかったため保存できませんでした');
+    clearUi();
+    sendToMainWin('app:notice', SUMMARY_CONFLICT_TEXT);
+    return { ok: false, error: SUMMARY_CONFLICT_TEXT };
+  };
+  const opened = await db.call('page.get', { id: pageId });
+  if (!opened) { clearUi(); return { ok: false, error: 'ページが見つかりません' }; }
+  const { page } = opened;
+  let segments = opened.segments;   // 出典付与の直前に読み直して差し替える（下記）
   const segmentsAtStart = segments;   // 要約の材料にした配列。出典付けで今の配列と突き合わせる（#4）
   const usable = segments.filter((s) => !s.failed && !s.pending);
   const plain = usable.map((s) => s.text).join('\n');
 
   if (!plain.trim()) {
     const err = '文字起こしが空のため要約できません';
-    const saved = saveIfExists(store, pageId, (p) => { p.summaryError = err; });
+    let saved;
+    try { saved = await saveIfExists(db, pageId, (p) => { p.summaryError = err; }); } catch (e) { if (e && e.code === 'conflict') return conflicted(); throw e; }
     if (!saved) return gone();
     clearUi();
     sendToMainWin('page:updated', { page: saved, segments });
@@ -2802,7 +2863,8 @@ async function doRunSummary(pageId) {
       : managedState.sum === 'none'
         ? '要約エンジンが未設定のため、文字起こしのみ保存しました。設定タブの［エンジンを取り込む］で取り込むと「要約を生成」で作成できます。'
         : `要約エンジンを使えないため、文字起こしのみ保存しました。${engineCheck(sumEng)}${waitable ? '。終わったら「要約を生成」で作成できます。' : ''}`;
-    const saved = saveIfExists(store, pageId, (p) => { p.summaryError = err; });
+    let saved;
+    try { saved = await saveIfExists(db, pageId, (p) => { p.summaryError = err; }); } catch (e) { if (e && e.code === 'conflict') return conflicted(); throw e; }
     if (!saved) return gone();
     clearUi();
     sendToMainWin('page:updated', { page: saved, segments });
@@ -2858,14 +2920,15 @@ async function doRunSummary(pageId) {
     // 要約は数分かかる。その間に文字起こしが編集されているかもしれないので、
     // 出典は読み込み時の配列ではなく、いまディスクにある文字起こしに対して付ける。
     // 画面へ返す segments も同じもの（古い配列を返すと、編集した行が画面上で戻る）。
-    const fresh = store.getTranscript(pageId);
+    const now = await db.call('page.get', { id: pageId });
+    const fresh = now ? now.segments : [];   // ページが消えていれば下の saveIfExists が null を返して捨てる
     // 要約の材料にした配列（入口）と今の配列の両方を渡す（#4。cite.attachCitationsAcross）
     const stat = attachAcross(blocks, fresh, segmentsAtStart);
     segments = fresh;
 
     // 同じ理由で、タイトルやメモも読み込み時のページを丸ごと書き戻さず、
     // 生成物だけを最新のページに載せる。ページが消えていれば生成物は捨てる。
-    const latest = saveIfExists(store, pageId, (saved) => {
+    const latest = await saveIfExists(db, pageId, (saved) => {
       saved.blocks = blocks;
       // 要約の途中で種類を手で選び直されていたら、その選択を残す（上書きすると、選んだ種類が黙って戻る。
       // mainlib.mergeSummaryType）。この要約は始めたときの種類で作ったものなので、そう書き添える
@@ -2886,12 +2949,14 @@ async function doRunSummary(pageId) {
     });
     if (!latest) return gone();
     clearUi();
-    sendToMainWin('pages:updated', store.listPages());
+    sendToMainWin('pages:updated', await db.call('pages.list', {}));
     sendToMainWin('page:updated', { page: latest, segments });
     return { ok: true, page: latest, stat };
   } catch (e) {
     if (quitting) return { ok: false, error: e.message };   // 終了中: before-quit が書いた「中断」の文を上書きしない
-    const latest = saveIfExists(store, pageId, (saved) => { saved.summaryError = e.message; });
+    if (e && e.code === 'conflict') return conflicted();   // 書き戻しが5回ぶつかった: 要約の欄にも書けないので知らせるだけ
+    let latest;
+    try { latest = await saveIfExists(db, pageId, (saved) => { saved.summaryError = e.message; }); } catch (e2) { if (e2 && e2.code === 'conflict') return conflicted(); throw e2; }
     if (!latest) return gone();
     clearUi();
     sendToMainWin('page:updated', { page: latest, segments });
@@ -3010,7 +3075,7 @@ function updateTray() {
       label: state === 'recording' ? '■ 停止して文字起こし' : state === 'processing' ? '文字起こし中…' : '● 音声入力を開始',
       enabled: state !== 'processing', click: toggleRecording,
     });
-    items.push({ label: '議事録の記録を開始', enabled: state === 'idle', click: () => { startMeeting(); createMainWindow(); } });
+    items.push({ label: '議事録の記録を開始', enabled: state === 'idle', click: () => { startMeeting().catch((e) => engineLog(`議事録を開始できません: ${errCode(e)}`)); createMainWindow(); } });
   }
   items.push({ type: 'separator' });
   items.push({ label: 'ノートを開く', click: createMainWindow });
@@ -3162,55 +3227,28 @@ function setupIpc() {
   ipcMain.handle('history:clear', () => { history = []; saveHistoryOrNotice(); return history; });
   ipcMain.handle('app:toggle-recording', () => { toggleRecording(); return state; });
 
-  ipcMain.handle('pages:search', (_e, q) => store.searchIndex(q || ''));
-  ipcMain.handle('pages:searchFull', (_e, q) => store.searchFullText(q || '', 60));
-  // アクション一覧（絞り込み込み）。store.actionView の戻り値 { actions, people, total } をそのまま返す
-  ipcMain.handle('pages:actionView', (_e, { q, assignee } = {}) => store.actionView({ q, assignee }));
-  ipcMain.handle('page:get', (_e, id) => {
-    const page = store.getPage(id);
-    if (!page) return null;
-    return { page: pageForView(page), segments: store.getTranscript(id) };   // 経路の行（routeText）を添える（第1c回 OL6）
-  });
-  ipcMain.handle('page:delete', (_e, id) => store.deletePage(id));
-  ipcMain.handle('page:setTitle', (_e, { id, title }) => store.setTitle(id, title));
-  ipcMain.handle('page:setMemo', (_e, { id, memo }) => {
-    const p = store.getPage(id); if (!p) return null;
-    p.memo = String(memo || ''); return store.savePage(p);
-  });
-  ipcMain.handle('block:update', (_e, { pageId, blockId, patch }) => store.updateBlock(pageId, blockId, patch));
-  ipcMain.handle('block:insert', (_e, { pageId, afterBlockId, type }) => store.insertBlock(pageId, afterBlockId, type));
-  ipcMain.handle('block:remove', (_e, { pageId, blockId }) => store.removeBlock(pageId, blockId));
-  ipcMain.handle('block:move', (_e, { pageId, blockId, toIndex }) => store.moveBlock(pageId, blockId, toIndex));
-  // 文字起こしの1区間を直す。その区間を根拠にしていた要点と根拠なしの要点だけ出典を引き直す。
+  // 議事録の画面の口（第2a1回 ST1）。中身は await db.call（今は JSON の保存の json-backend）。名前と答えの形は今のまま
+  ipcMain.handle('pages:search', async (_e, q) => await db.call('pages.list', { q: q || '' }));
+  ipcMain.handle('pages:searchFull', async (_e, q) => await db.call('pages.searchFull', { q: q || '', limit: 60 }));
+  // アクション一覧（絞り込み込み）。答え { actions, people, total } をそのまま返す
+  ipcMain.handle('pages:actionView', async (_e, { q, assignee } = {}) => await db.call('pages.actionView', { q, assignee }));
+  // 経路の行（routeText）は保存の側が添える（第1c回 OL6。送り先の名前は labels）
+  ipcMain.handle('page:get', async (_e, id) => await db.call('page.get', { id }));
+  ipcMain.handle('page:delete', async (_e, id) => await db.call('page.delete', { id }));
+  ipcMain.handle('page:setTitle', async (_e, { id, title }) => await db.call('page.setTitle', { id, title }));
+  ipcMain.handle('page:setMemo', async (_e, { id, memo }) => await db.call('page.setMemo', { id, memo }));
+  ipcMain.handle('block:update', async (_e, { pageId, blockId, patch }) => await db.call('block.update', { pageId, blockId, patch }));
+  ipcMain.handle('block:insert', async (_e, { pageId, afterBlockId, type }) => await db.call('block.insert', { pageId, afterBlockId, type }));
+  ipcMain.handle('block:remove', async (_e, { pageId, blockId }) => await db.call('block.remove', { pageId, blockId }));
+  ipcMain.handle('block:move', async (_e, { pageId, blockId, toIndex }) => await db.call('block.move', { pageId, blockId, toIndex }));
+  // 文字起こしの1区間を直す。その区間を根拠にしていた要点と根拠なしの要点だけ出典を引き直す（segment.update の既定 recite）。
   // page:updated は送らない。送ると画面が文字起こし面を全部描き直し、次の行の編集を壊す。
-  // 戻り値（page:get と同じ形）で画面側が要約タブの出典チップだけを描き直す。
-  ipcMain.handle('segment:update', (_e, { pageId, segId, patch }) => {
-    const segments = store.updateSegment(pageId, segId, patch || {});
-    if (!segments) return null;
-    const page = store.getPage(pageId);
-    if (!page) return null;
-    if (page.blocks.length) page.citeStat = refreshCitations(page.blocks, segments.filter((s) => !s.failed), segId);
-    store.savePage(page);
-    return { page: pageForView(page), segments };   // 画面はこのページで curPage を差し替える（経路の行を落とさない）
-  });
-  ipcMain.handle('block:setAction', (_e, { pageId, blockId, assignee, dueRaw }) => {
-    const p = store.getPage(pageId); if (!p) return null;
-    const b = p.blocks.find((x) => x.id === blockId); if (!b) return null;
-    if (typeof assignee === 'string') b.assignee = assignee.trim();
-    if (typeof dueRaw === 'string') {
-      b.dueRaw = dueRaw.trim();
-      const { parseDue } = require('./actions');
-      const r = parseDue(b.dueRaw, new Date(p.createdAt));
-      b.due = r.date; b.dueApprox = r.approx;
-    }
-    return store.savePage(p);
-  });
+  // 戻り値（page:get と同じ形・経路の行つき）で画面側が要約タブの出典チップだけを描き直す。
+  ipcMain.handle('segment:update', async (_e, { pageId, segId, patch }) => await db.call('segment.update', { pageId, segId, patch: patch || {} }));
+  ipcMain.handle('block:setAction', async (_e, { pageId, blockId, assignee, dueRaw }) => await db.call('block.setAction', { pageId, blockId, assignee, dueRaw }));
   ipcMain.handle('page:summarize', (_e, id) => runSummary(id));
-  ipcMain.handle('page:setType', (_e, { id, type }) => {
-    const p = store.getPage(id); if (!p) return null;
-    p.meetingType = type; p.typeAuto = false;   // 手動指定は以後の自動推定より優先
-    return store.savePage(p);
-  });
+  // 手動指定は以後の自動推定より優先（typeAuto: false。json-backend の page.setType）
+  ipcMain.handle('page:setType', async (_e, { id, type }) => await db.call('page.setType', { id, type }));
   ipcMain.handle('meta:types', () => mtype.listTypes());
   ipcMain.handle('meeting:toggle', () => {
     if (state === 'idle') return startMeeting();
@@ -3521,8 +3559,11 @@ function setupIpc() {
   // 画面の覚え書きのうち画面が持つもの（第1b回 N6）。ui:get はサイドバーとタブを返す。タブは今あるページだけにし
   // （消したページのタブを戻さない: F7）、外した数だけを engine.log に1行（ページの id は書かない）。
   // ui:set は画面から来た値を照らしてから（幅を寄せる・録音中のタブと形の悪い鍵を捨てる）まとめ書きにする
-  ipcMain.handle('ui:get', () => {
-    const k = W.keepTabs(winState.tabs, (id) => store.listPages().some((p) => p.id === id));
+  ipcMain.handle('ui:get', async () => {
+    // 今あるページは一覧で見る（第2a1回 ST1）。一覧を読めなかったら、タブは外さずにそのまま返す（読めないのを「無い」にしない: F12）
+    let ids = null;
+    try { ids = new Set((await db.call('pages.list', {})).map((p) => p.id)); } catch (e) { engineLog(`画面の覚え書き: 議事録の一覧を読めませんでした（${errCode(e)}）`); }
+    const k = W.keepTabs(winState.tabs, (id) => !ids || ids.has(id));
     const dropped = k.dropped + winTabsDropped;
     winTabsDropped = 0;
     if (dropped) engineLog(`画面の覚え書き: 無いページのタブを ${dropped} 個外した`);
@@ -3629,7 +3670,7 @@ if (!gotLock) {
   app.on('browser-window-created', (_e, w) => { w.on('session-end', flushAllWriters); w.on('query-session-end', flushAllWriters); });
   // 最後の守り（同期の書き出しは exit の受け口でも効く）
   process.on('exit', flushAllWriters);
-  app.whenReady().then(() => {
+  app.whenReady().then(async () => {
     // 鍵を取った後で、前回残った JSON の一時ファイルを片付ける（JS4。読む前に）
     cleanStartupTemps();
     // スリープ・画面のロック・シャットダウン（powerMonitor は ready の後でしか使えない）
@@ -3648,7 +3689,7 @@ if (!gotLock) {
     // 取り込んだ側は下の起動の行では起動しない（RF3）。手で設定した側は今までどおり起動する
     managedCands = engineInstall.managedCandidates(ENGINE_HOME, MANIFEST, engineInstall.readInstalled(engineInstall.layout(ENGINE_HOME.root, MANIFEST).installed), fs.statSync);
     for (const g of ['whisper', 'sum']) if (managedCands[g]) managedState[g] = 'checking';
-    recoverDraftIfAny();
+    await recoverDraftIfAny();   // 復旧のページは db.call で作る（投げない）。待ってから待ち行列と掃除を決める（復旧中のフォルダを消さない）
     if (!recoveryQueue) recoveryQueue = loadSavedRecoveryQueue();   // 前回エンジンが無くて残した分
     cleanOrphanSegbuf(recoveryQueue ? recoveryQueue.dir : '');   // 復旧の後で（復旧中のフォルダは残す）
     applyTheme();
@@ -3711,18 +3752,25 @@ if (!gotLock) {
     }, 8000);
   });
   app.on('window-all-closed', () => { /* トレイ常駐 */ });
-  app.on('before-quit', () => {
+  app.on('before-quit', (e) => {
     flushAllWriters();
     quitting = true;
     // 取り込みを止める（.part は確定して残り、次の起動で続く。利用者の一時停止としては残さない）。
     // 止めるときに投げても、下の要約の「中断された」の印とエンジンの停止は続ける
     try { if (engineFetch) engineFetch.pause('quit'); } catch (_) { /* noop */ }
-    // 要約の途中で終了するなら、そのページに「中断された」と書いておく（#52。同期・できる範囲で）。
-    // 書かないと、次に開いたときに要約が空のまま何も言わないページになる。
-    for (const id of runSummary.running()) {
-      try {
-        saveIfExists(store, id, (p) => { p.summaryError = '要約が中断されました。「要約を生成」で作り直せます'; });
-      } catch (_) { /* noop */ }
+    // 要約の途中で終了するなら、そのページに「中断された」と書いておく（#52）。書かないと、次に開いたときに要約が空のまま
+    // 何も言わないページになる。書き込みは db.call で非同期なので（第2a1回 ST1）、1回だけ終了を止め、書き込み（合わせて
+    // QUIT_MARK_MS まで）を待ってから app.quit() をもう一度呼ぶ。2回目は quitMarkDone が立っているので止めない
+    const running = runSummary.running();
+    if (running.length && !quitMarkDone) {
+      quitMarkDone = true;
+      if (e) e.preventDefault();
+      const marks = running.map((id) => saveIfExists(db, id, (p) => { p.summaryError = '要約が中断されました。「要約を生成」で作り直せます'; })
+        .catch((err) => engineLog(`終了のときに要約の中断を書けませんでした: ${errCode(err)}`)));
+      let timer = null;
+      Promise.race([Promise.all(marks), new Promise((r) => { timer = setTimeout(r, QUIT_MARK_MS); })])
+        .then(() => { if (timer) clearTimeout(timer); app.quit(); });
+      return;
     }
     stopEngine(whisperEng); stopEngine(sumEng); stopPaster();
   });

@@ -237,6 +237,12 @@ module.exports = {
       'data/segbuf/1700000000000/recovery.json': ({ userData }) => JSON.stringify({ pageId: 'p1', items: [{ id: 's1', wav: require('node:path').join(userData, 'data', 'segbuf', '1700000000000', '0001.wav'), durationMs: 3000 }], retry: false }) },
     faults: [{ op: 'read', match: /recovery\.json$/, code: 'EBUSY', times: 7 }],
     act: async (c) => { c.out.retries = (c.timers.retryDraftRecovery || []).length; for (const f of c.timers.retryDraftRecovery || []) f(); } },
+  // 第2a1回 M-1（ST1）: recovery.json の pageId のページが無い（消された）。フォルダは7日の掃除に当たらない新しい名前。
+  // エンジンを起こさずに、WAV と recovery.json を片付ける（ページの確かめは db.call('page.get') が null と答えたときだけ）
+  'recovery-page-gone': { files: { 'settings.json': pretty(TYPICAL),
+      'data/segbuf/4102444800000/0001.wav': 'RIFF',
+      'data/segbuf/4102444800000/recovery.json': ({ userData }) => JSON.stringify({ pageId: 'pgone1', items: [{ id: 's1', wav: require('node:path').join(userData, 'data', 'segbuf', '4102444800000', '0001.wav'), durationMs: 3000 }], retry: false }) },
+    act: async (c) => { await c.waitFor(() => !c.read('data/segbuf/4102444800000/recovery.json') && !c.read('data/segbuf/4102444800000/0001.wav'), 3000); } },
   // 壊れたページ（p1）と、ページは無事で文字起こしだけ壊れたページ（p2）。起動の reconcile か、開いたときに退けて知らせる
   'page-files-broken': { files: { 'settings.json': pretty(TYPICAL),
       'data/pages/p1.json': '{"id":"p1","title":"壊れ', 'data/transcripts/p1.json': '{"id":"p1","segments":[]}',

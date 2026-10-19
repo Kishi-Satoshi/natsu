@@ -933,12 +933,13 @@ process.on('exit', () => {
   };
   const elogLines = () => { const t = readUser('engine.log'); return t ? t.toString('utf8').split('\n').filter(Boolean).map((l) => l.replace(/^\[[^\]]+\] /, '')) : []; };
   // 画面に渡る経路の行（page:get の返事の routeText）と、最後の page:updated で送った routeText（第1c回 C-3）
-  const pageRouteText = (id) => { const r = handlers['page:get'] ? handlers['page:get']({}, id) : null; return r && r.page ? r.page.routeText : null; };
+  // 第2a1回 M-1（ST1）: ページの口は async（中身は await db.call）。答えを待ってから見る
+  const pageRouteText = async (id) => { const r = handlers['page:get'] ? await handlers['page:get']({}, id) : null; return r && r.page ? r.page.routeText : null; };
   const lastUpdatedRouteText = () => {
     const u = sent.filter(([ch]) => ch === 'page:updated').pop();
     return u && u[1] && u[1].page ? u[1].page.routeText : null;
   };
-  const sttOut = () => {
+  const sttOut = async () => {
     if (!fakeStt) return;
     out.stt = fakeStt.requests.slice();
     out.balloons = balloons.slice();
@@ -951,13 +952,13 @@ process.on('exit', () => {
     out.engineLog = elogLines();
     out.spawns = spawns.slice();
     out.savedSettings = JSON.parse(fs.readFileSync(path.join(userData, 'settings.json'), 'utf8'));
-    out.pages = store.listPages().map((p) => {
+    out.pages = await Promise.all(store.listPages().map(async (p) => {
       const page = store.getPage(p.id);
       return {
-        summaryError: page.summaryError, route: page.route, routeText: pageRouteText(p.id),
+        summaryError: page.summaryError, route: page.route, routeText: await pageRouteText(p.id),
         segments: store.getTranscript(p.id).map((x) => ({ text: x.text, failed: Boolean(x.failed) })),
       };
-    });
+    }));
   };
   // 送り直し（復旧の待ち行列）が済むか、残して止まるまで待つ（--stt・--after-retry のとき）
   const recoverySettled = () => elogLines().some((l) => /復旧の文字起こしを(保留|止めました)/.test(l)) || !segbufLeft().queue;
@@ -966,7 +967,7 @@ process.on('exit', () => {
     // 済んだ（成功した区間がある・待ち行列が片付いた）か、残して止まった（保留・止めました）まで
     await waitFor(() => store.listPages().length > 0 && (recovered().some((x) => !x.failed) || recoverySettled()));
     await sleep(100);
-    sttOut();
+    await sttOut();
     process.stdout.write(`\n${JSON.stringify(out)}\n`);
     process.exit(0);
   }
@@ -979,7 +980,7 @@ process.on('exit', () => {
     await waitFor(() => (handlers['history:get']() || []).length > 0, 15000);
     await sleep(100);
     out.history = handlers['history:get']();
-    sttOut();
+    await sttOut();
     process.stdout.write(`\n${JSON.stringify(out)}\n`);
     process.exit(0);
   }
@@ -1085,17 +1086,17 @@ process.on('exit', () => {
     await sleep(50);
   }
   await sleep(200);
-  const pages = store.listPages().map((p) => {
+  const pages = await Promise.all(store.listPages().map(async (p) => {
     const page = store.getPage(p.id);
     return {
       summaryError: page.summaryError,
       segments: store.getTranscript(p.id).map((s) => ({ text: s.text, failed: Boolean(s.failed) })),
       meetingType: page.meetingType, typeAuto: page.typeAuto, actionStat: page.actionStat,
-      route: page.route, routeText: pageRouteText(p.id), citeStat: page.citeStat || null,
+      route: page.route, routeText: await pageRouteText(p.id), citeStat: page.citeStat || null,
       blocks: (page.blocks || []).map((b) => ({ type: b.type, cites: Array.isArray(b.cites) ? b.cites.length : 0 })),
       todos: (page.blocks || []).filter((b) => b.type === 'todo').map((b) => ({ text: b.text, assignee: b.assignee || '', due: b.due || '', dueRaw: b.dueRaw || '' })),
     };
-  });
+  }));
   out.pages = pages;
   out.updatedRouteText = lastUpdatedRouteText();
   // 文字起こしの行を直したときの返事（segment:update）も経路の行を持つか（画面はその返事で curPage を差し替える）。
@@ -1103,7 +1104,7 @@ process.on('exit', () => {
   if (claudeMode === 'ok' && store.listPages().length) {
     const pid = store.listPages()[0].id;
     const sg = store.getTranscript(pid)[0];
-    const r = sg ? handlers['segment:update']({}, { pageId: pid, segId: sg.id, patch: { text: sg.text } }) : null;
+    const r = sg ? await handlers['segment:update']({}, { pageId: pid, segId: sg.id, patch: { text: sg.text } }) : null;
     out.segUpdateRouteText = r && r.page ? r.page.routeText : null;
   }
   out.claude = claudeLines();
@@ -1138,7 +1139,7 @@ process.on('exit', () => {
     await waitFor(recoverySettled, 15000);
     await sleep(100);
     const pagesBefore = out.pages;
-    sttOut();
+    await sttOut();
     // 今までの欄（要約・会議タイプなど）も残す
     out.pages = out.pages.map((p, i) => ({ ...(pagesBefore[i] || {}), ...p }));
   }

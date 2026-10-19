@@ -321,7 +321,7 @@ module.exports = [
     tests: ['test/stage1b.main.test.js'], why: 'N4c・F6: 再開したら止めた所と長さの印を残す' },
   { id: 'mp-mark-draft', file: 'src/main.js', from: '      pauses: meeting.pauses || [],   // 止めていた時間の印（落ちて復旧したページにも残す。第1b回 N4c）\n', to: '',
     tests: ['test/stage1b.main.test.js'], why: 'N4c: 下書きにも印を書く（落ちても残す）' },
-  { id: 'mp-mark-page', file: 'src/main.js', from: '      pauses: m.pauses,   // 止めていた時間の印（区間とは別の欄。第1b回 N4c・F6）\n', to: '',
+  { id: 'mp-mark-page', file: 'src/main.js', from: '        pauses: m.pauses,   // 止めていた時間の印（区間とは別の欄。第1b回 N4c・F6）\n', to: '',
     tests: ['test/stage1b.main.test.js'], why: 'N4c・F6: 終わったページに印を渡す' },
   { id: 'mp-mark-shape', file: 'src/pagerules.js', from: '  return list.filter((x) => isObj(x) && Number.isFinite(x.atMs) && x.atMs >= 0 && Number.isFinite(x.ms) && x.ms >= 0 && PAUSE_WHY.has(x.why))', to: '  return list.filter((x) => isObj(x))',
     tests: ['test/stage1b.main.test.js'], why: 'F6: 形の悪い印はページに入れない' },

@@ -13,6 +13,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const store = require('../src/store');
+const { makeJsonBackend } = require('../src/db/json-backend');
 const {
   saveIfExists, meetingDurationSec, promptTail, registerHotkeys,
   hotkeyFailureMessage, hotkeyStatus, resolveStartupHotkeys, saveHotkeys,
@@ -28,32 +29,65 @@ const { normalizeSettings } = require('../src/settings');
 // ---------------------------------------------------------------- #46 削除した議事録の復活
 let dir;
 test.before(() => {
-  dir = fs.mkdtempSync(path.join(os.tmpdir(), 'natsu-main-'));
+  dir = fs.mkdtempSync(path.join(os.tmpdir(), 'natsu-main-日本語𠮷-'));
   store.init(dir);
 });
 test.after(() => { try { fs.rmSync(dir, { recursive: true, force: true }); } catch (_) { /* noop */ } });
 
-test('要約中に削除したページは、要約完了時に書き戻さない（復活しない）', () => {
-  // runSummary は入口で page を読み、数分後の完了時に書き戻す。その間に
-  // 利用者がページを削除していると、以前の「getPage(id) || page」は
-  // 手元の古い page を保存して削除済みの議事録を復活させていた。
-  const page = store.createPage({ title: '削除される議事録', segments: [{ id: 's1', atMs: 0, text: '発言' }] });
-  store.deletePage(page.id);
-  assert.strictEqual(store.getPage(page.id), null);
-
-  const saved = saveIfExists(store, page.id, (p) => { p.blocks = [{ id: 'b1', type: 'p', text: '要点' }]; });
-  assert.strictEqual(saved, null, '削除済みなのに保存された');
-  assert.strictEqual(store.getPage(page.id), null, '削除した議事録が復活した');
+// 第2a1回 M-1（ST1）: saveIfExists は非同期になり、db.call（page.get → page.put）を通る。中身は今の JSON の保存（json-backend）
+test('#46 saveIfExists は今ある最新のページに当てる。消されていれば何も書かず null（非同期）', async () => {
+  const jb = makeJsonBackend(store);
+  const page = await jb.call('meeting.finalize', { pageId: 'x', page: { title: '削除される議事録', blocks: [] }, segments: [{ id: 's1', atMs: 0, text: '発言' }] });
+  await jb.call('page.delete', { id: page.id });
+  assert.strictEqual(await saveIfExists(jb, page.id, (p) => { p.blocks = [{ id: 'b1', type: 'p', text: '要点' }]; }), null);
+  assert.strictEqual(await jb.call('page.get', { id: page.id }), null, '削除した議事録が復活した');
   assert.ok(!store.listPages().some((p) => p.id === page.id), '一覧に復活した');
 });
 
-test('ページが残っていれば、最新のページに生成物だけを載せて保存する', () => {
-  const page = store.createPage({ title: '元の題', segments: [] });
-  store.setTitle(page.id, '要約中に変えた題');   // 要約の途中で編集された想定
-  const saved = saveIfExists(store, page.id, (p) => { p.summaryError = 'x'; });
+test('#46 ページが残っていれば、最新のページに生成物だけを載せて保存する（要約中に直した題名を消さない。json-backend）', async () => {
+  const jb = makeJsonBackend(store);
+  const page = await jb.call('meeting.finalize', { pageId: 'y', page: { title: '元の題', blocks: [] }, segments: [] });
+  await jb.call('page.setTitle', { id: page.id, title: '要約中に変えた題' });   // 要約の途中で編集された想定
+  const saved = await saveIfExists(jb, page.id, (p) => { p.summaryError = 'x'; });
   assert.ok(saved);
   assert.strictEqual(saved.title, '要約中に変えた題', '古いページで上書きしている');
-  assert.strictEqual(store.getPage(page.id).summaryError, 'x');
+  const got = await jb.call('page.get', { id: page.id });
+  assert.strictEqual(got.page.summaryError, 'x');
+  assert.ok(!('routeText' in store.getPage(page.id)), 'DB が作る欄（routeText）をページのファイルに書いた');
+});
+
+test('F6: saveIfExists は conflict なら読み直して当て直し、5回続けば投げる（古い写しで上書きしない・要約を黙って捨てない）', async () => {
+  let rev = 1; let puts = 0; let title = '元の題';
+  const db = { call: async (cmd, a) => {
+    if (cmd === 'page.get') return { page: { id: 'pa1', title, rev } };
+    if (cmd === 'page.put') { puts++; if (puts === 1) { title = '要約中に画面で直した題'; rev = 2; const e = new Error('conflict'); e.code = 'conflict'; throw e; } return a.page; }
+  } };
+  const saved = await saveIfExists(db, 'pa1', (p) => { p.summaryError = 'x'; });
+  assert.deepStrictEqual([saved.title, saved.summaryError, puts], ['要約中に画面で直した題', 'x', 2]);
+  let tries = 0;
+  const always = { call: async (cmd) => { if (cmd === 'page.get') return { page: { id: 'pa1', rev: 1 } }; tries++; const e = new Error('c'); e.code = 'conflict'; throw e; } };
+  await assert.rejects(saveIfExists(always, 'pa1', () => {}), (e) => e.code === 'conflict', 'ぶつかり続けたのに null（ページが消された）と答えた');
+  assert.strictEqual(tries, 5);
+  const down = { call: async () => { const e = new Error('db-down'); e.code = 'db-down'; throw e; } };
+  await assert.rejects(saveIfExists(down, 'pa1', () => {}), (e) => e.code === 'db-down', 'DB が止まっているのを「ページが無い」にした');
+});
+
+test('F6: saveIfExists は page.put に読んだときの版（baseRev）を渡す', async () => {
+  const seen = [];
+  const db = { call: async (cmd, a) => {
+    if (cmd === 'page.get') return { page: { id: 'pa1', title: '題', rev: 7 }, segments: [] };
+    seen.push(a); return a.page;
+  } };
+  await saveIfExists(db, 'pa1', (p) => { p.summaryError = 'y'; });
+  assert.deepStrictEqual(seen.map((a) => [a.baseRev, a.page.id, a.page.summaryError]), [[7, 'pa1', 'y']]);
+  // 読めたが書けなかった（DB が止まった・時間切れ）も「ページが無い」にせず投げる（F12）
+  for (const code of ['db-down', 'retry', 'unavailable']) {
+    const putFails = { call: async (cmd) => { if (cmd === 'page.get') return { page: { id: 'pa1', rev: 1 } }; const e = new Error(code); e.code = code; throw e; } };
+    await assert.rejects(saveIfExists(putFails, 'pa1', () => {}), (e) => e.code === code, `page.put の ${code} を null にした`);
+  }
+  // page.put が null（読んだ後に消された）なら null
+  const goneOnPut = { call: async (cmd) => (cmd === 'page.get' ? { page: { id: 'pa1', rev: 1 } } : null) };
+  assert.strictEqual(await saveIfExists(goneOnPut, 'pa1', () => {}), null);
 });
 
 // ---------------------------------------------------------------- #14 所要時間
