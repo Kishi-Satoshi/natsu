@@ -248,6 +248,7 @@ function segmentUpdate(db, { pageId, segId, patch, recite = true }, ctx) {
 // ---------------------------------------------------------------- 会議
 // その ID が取り消した会議（purge の印がある）か。D-5b の取り込みも、印の ID を戻さないために使う。
 // 締め済みのページへの取り消しは何もしない（ops が空の行だけが残る）ので、action だけでなく purge の操作があるかを見る
+// 印の後に finalize が同じ ID を作り直しても true のまま（普通の流れでは起きない）。取り込みは「ページの行が無く、かつ印がある」で見ること
 function isPurged(db, id) {
   return Boolean(db.prepare(HOT_QUERIES.purgeMark).get(id));
 }
@@ -298,7 +299,7 @@ function copyPage(pageId, startedAt, localOnly, now) {
   };
 }
 
-// 写しに書いてよいか: 'create'（行が無い）・'live'（写し）・null（締め済み・会議でない・取り消した）
+// 写しに書いてよいか: 'create'（行が無い）・'live'（写し）・null（締め済み・会議でない・取り消した・ゴミ箱の写し）
 function copyState(db, pageId) {
   const l = loadPage(db, pageId, { trashed: true });
   if (l) return isLive(l.page) && l.trashedAt === null ? 'live' : null;
@@ -327,17 +328,27 @@ function meetingSegment(db, { pageId, seg }, ctx) {
   return { ops, pageIds: [pageId], result: null };
 }
 
+// 締め・復旧のページを書く。前の行がゴミ箱の録音中の写し（app の page.delete で入る）なら、ゴミ箱から出す
+// （締めた議事録・下書きから戻した議事録をゴミ箱に置かない）。当てるのは1回だけ
+function putMeetingPage(db, page, segments, was) {
+  const ops = diffPage(was ? was.page : null, page, { ords: was ? was.ords : undefined });
+  ops.push(...diffSegments(was ? readSegments(db, page.id) : [], segments, page.id));
+  if (was && was.trashedAt !== null && isLive(was.page)) ops.push({ op: 'restore', id: page.id, at: page.updatedAt, old: was.trashedAt });
+  applyOps(db, ops);
+  return ops;
+}
+
 function meetingFinalize(db, { pageId, page, segments }, ctx) {
-  const { ops } = putPageRows(db, meetingPage(pageId, page, ctx.now, { recovered: false }), segments);
+  const ops = putMeetingPage(db, meetingPage(pageId, page, ctx.now, { recovered: false }), segments, loadPage(db, pageId, { trashed: true }));
   return { ops, pageIds: [pageId], result: readPage(db, pageId) };
 }
 
 function meetingRecover(db, { pageId, page, segments }, ctx) {
   const l = loadPage(db, pageId, { trashed: true });
   if (!l && isPurged(db, pageId)) return { ops: [], pageIds: [], result: { page: null, already: true } };
-  if (!l || (isLive(l.page) && l.trashedAt === null)) {
-    // 行が無い・録音中の写し: 下書きの中身で作る・上書きする（下書きが正本）
-    const { ops } = putPageRows(db, meetingPage(pageId, page, ctx.now, { recovered: true }), segments);
+  if (!l || isLive(l.page)) {
+    // 行が無い・録音中の写し（ゴミ箱に入っていても）: 下書きの中身で作る・上書きする（下書きが正本）
+    const ops = putMeetingPage(db, meetingPage(pageId, page, ctx.now, { recovered: true }), segments, l);
     return { ops, pageIds: [pageId], result: { page: readPage(db, pageId), already: false } };
   }
   // 締め済み（F11）: ページは変えず、下書きにあって DB に無い発言だけ後ろに足す

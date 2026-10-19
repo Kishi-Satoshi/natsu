@@ -123,6 +123,48 @@ test('RF16: 取り消した会議は、後から届いた begin・segment・reco
   } finally { t.done(); }
 });
 
+test('ST6: ゴミ箱に入った録音中の写し — begin・segment は何も書かない。recover と finalize は下書き・締めの中身で上書きしてゴミ箱から出す（already: false）', { timeout: 5000 }, () => {
+  const t = tmpDb();
+  try {
+    const { db } = t.open();
+    const trashed = (id) => db.prepare('select trashed_at from blocks where id=?').get(id).trashed_at;
+    // 写しの ID は changed で全ての口に届くので、app の page.delete が写しをゴミ箱に入れられる
+    call(db, 'meeting.begin', { pageId: 'pg1', startedAt: 1760000000000, localOnly: false });
+    call(db, 'meeting.segment', { pageId: 'pg1', seg: { id: 's1', atMs: 0, durationMs: 1, text: '一' } });
+    assert.strictEqual(call(db, 'page.delete', { id: 'pg1' }, 'app').ok, true);
+    assert.ok(trashed('pg1'));
+    call(db, 'meeting.begin', { pageId: 'pg1', startedAt: 1760000000000, localOnly: false });
+    call(db, 'meeting.segment', { pageId: 'pg1', seg: { id: 's2', atMs: 1, durationMs: 1, text: 'ゴミ箱の写しへの発言' } });
+    assert.deepStrictEqual(db.prepare("select id from segments where page_id='pg1' order by id").all().map((r) => r.id), ['s1'], 'ゴミ箱の写しに segment が書いた');
+    // 復旧: 下書きが正本。題・長さ・経路・要約の失敗も残し、ゴミ箱から出して、知らせが出るように already: false
+    const draft = { title: '（復旧）予算の会議', durationSec: 95, route: { stt: { provider: 'local' } }, summaryError: '要約に失敗しました', blocks: [], recovered: true };
+    const segs = [{ id: 's1', atMs: 0, durationMs: 1, text: '一' }, { id: 's2', atMs: 1, durationMs: 1, text: '二' }];
+    const r = call(db, 'meeting.recover', { pageId: 'pg1', page: draft, segments: segs });
+    assert.strictEqual(r.ok, true);
+    assert.strictEqual(r.result.already, false, 'ゴミ箱の写しの復旧を「もう締めてある」とした（下書きが知らせなしに消える）');
+    assert.ok(r.result.page, '復旧したページが答えに無い');
+    assert.strictEqual(trashed('pg1'), null, '復旧したページがゴミ箱に残った');
+    const g = call(db, 'page.get', { id: 'pg1' }).result;
+    assert.deepStrictEqual([g.page.title, g.page.durationSec, g.page.route, g.page.summaryError, g.page.meeting.phase], [draft.title, 95, draft.route, draft.summaryError, 'done']);
+    assert.deepStrictEqual(g.segments.map((s) => s.text), ['一', '二']);
+    assert.ok(call(db, 'pages.list', {}).result.some((p) => p.id === 'pg1'), '復旧したページが一覧に出ない');
+    // 締め: ゴミ箱の写しに締めが届いても、締めた議事録をゴミ箱に置かない
+    call(db, 'meeting.begin', { pageId: 'pg2', startedAt: 2, localOnly: false });
+    call(db, 'page.delete', { id: 'pg2' }, 'app');
+    const f = call(db, 'meeting.finalize', { pageId: 'pg2', page: { title: '締めた会議', blocks: [] }, segments: [{ id: 's1', atMs: 0, durationMs: 1, text: '残す' }] });
+    assert.strictEqual(f.result && f.result.id, 'pg2', '締めの答えにページが無い');
+    assert.strictEqual(trashed('pg2'), null, '締めた議事録がゴミ箱に残った');
+    // 締め済みのページをゴミ箱に入れた後の復旧は、今までどおりゴミ箱から出さず上書きもしない
+    call(db, 'page.delete', { id: 'pg2' }, 'app');
+    const r2 = call(db, 'meeting.recover', { pageId: 'pg2', page: { title: '（復旧）', blocks: [] }, segments: [] });
+    assert.deepStrictEqual(r2.result, { page: null, already: true });
+    assert.ok(trashed('pg2'), '締め済みのゴミ箱のページを復旧が出した');
+    // 締め済みのページをゴミ箱に入れたのは持ち主の判断。遅れて届いた締め（別の tx）もゴミ箱から出さない
+    call(db, 'meeting.finalize', { pageId: 'pg2', page: { title: '締めた会議', blocks: [] }, segments: [{ id: 's1', atMs: 0, durationMs: 1, text: '残す' }] });
+    assert.ok(trashed('pg2'), '持ち主がゴミ箱に入れた締め済みのページを、遅れた締めが出した');
+  } finally { t.done(); }
+});
+
 test('ST6: begin が届かなくても segment が写しを作る（一覧には出ない）。segment の oplog は新しい値と前の値を持つ。締めは写しにだけあった発言を消す', { timeout: 5000 }, () => {
   const t = tmpDb();
   try {
@@ -234,6 +276,10 @@ test('T4b: 会議の命令の oplog を空の DB に当て直すと、今の表�
     call(db, 'meeting.recover', { pageId: 'pt1', page: { title: '（復旧）', blocks: [] }, segments: [{ id: 's3', atMs: 2, durationMs: 1, text: '三' }] });
     call(db, 'segment.fail', { pageId: 'pt1', segId: 's2', text: '（失敗）' });
     call(db, 'segment.remove', { pageId: 'pt1', segId: 's3' });
+    call(db, 'meeting.begin', { pageId: 'pt4', startedAt: 4, localOnly: false });
+    call(db, 'meeting.segment', { pageId: 'pt4', seg: { id: 's1', atMs: 0, durationMs: 1, text: 'ゴミ箱の写し' } });
+    call(db, 'page.delete', { id: 'pt4' }, 'app');
+    call(db, 'meeting.recover', { pageId: 'pt4', page: { title: '（復旧）', blocks: [] }, segments: [{ id: 's1', atMs: 0, durationMs: 1, text: 'ゴミ箱の写し' }] });
     const { applyOps } = require('../src/db/ops');
     copy.exec('BEGIN IMMEDIATE');
     for (const r of db.prepare('select ops from oplog order by seq').all()) applyOps(copy, JSON.parse(r.ops), 'forward');
