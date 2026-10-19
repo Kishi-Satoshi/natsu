@@ -9,12 +9,14 @@ const sqlite = require('node:sqlite');
 const { MessageChannel } = require('node:worker_threads');
 const { tmpData, electronShape, snapshotTree } = require('./helpers/dbtmp');   // electronShape: worker_threads の口を Electron の形（{ data } と start）に包む
 const { startServer } = require('../src/db/server');
+const { withSteps } = require('./helpers/steps');   // 段ごとの時刻を残し、予算を越えたら止まった段を言う（0.7.0 の前）
 
-// 決まった時間ではなく、条件がそろうまで待つ（ほかのレーンのテストで機械が混んでいても落ちない。5 秒で諦める）
-async function waitFor(pred, what, ms = 5000) {
+// 決まった時間ではなく、条件がそろうまで待つ（ほかのレーンのテストで機械が混んでいても落ちない。5 秒で諦める）。
+// 諦めたときは detail()（子の記録の行など）も言う（0.7.0 の前。どの段で止まったかを残す）
+async function waitFor(pred, what, ms = 5000, detail = () => '') {
   const t0 = Date.now();
   while (!pred()) {
-    if (Date.now() - t0 > ms) throw new Error(`待ちきれない: ${what}`);
+    if (Date.now() - t0 > ms) throw new Error(`待ちきれない: ${what}（${ms}ms）${detail()}`);
     await new Promise((res) => setTimeout(res, 10));
   }
 }
@@ -39,15 +41,18 @@ function boot(d, opts = {}) {
     clients.push(c);
     return c;
   };
-  const ready = () => waitFor(() => fromServer.some((m) => m.type === 'ready'), 'ready');
+  // 子の記録の行（snapshot.js の段ごとの時間を含む。待ちきれないときに言う）
+  const logs = () => fromServer.filter((m) => m.type === 'log').map((m) => m.line);
+  const detail = () => `\n子の記録:\n${logs().join('\n')}\n走っている段: ${require('../src/db/snapshot').activeSteps().join(' / ') || 'なし'}`;
+  const ready = (ms) => waitFor(() => fromServer.some((m) => m.type === 'ready'), 'ready', ms, detail);
   // 子を閉じて closed を待ち、テストの側の口も閉じる（Windows で DB を掴んだままフォルダを消さない）
-  const stop = async () => {
+  const stop = async (ms) => {
     const before = fromServer.filter((m) => m.type === 'closed').length;
     parent.emit({ type: 'close' });
-    await waitFor(() => fromServer.filter((m) => m.type === 'closed').length > before, 'closed');
+    await waitFor(() => fromServer.filter((m) => m.type === 'closed').length > before, 'closed', ms, detail);
     for (const c of clients.splice(0)) c.close();
   };
-  return { fromServer, port, parent, ready, stop, late };
+  return { fromServer, port, parent, ready, stop, late, logs };
 }
 
 const readyMsg = (s) => s.fromServer.find((m) => m.type === 'ready');
@@ -339,18 +344,31 @@ test('D7: 新しい版の NaTsu で作った DB は読むだけ（書く命令�
   } finally { if (s) await s.stop(); d.done(); }
 });
 
-test('ST10: 移した直後に落ちて移行の控えが無ければ、次の起動で頼みを受ける前に取る', { timeout: 10000 }, async () => {
+// 0.7.0 の前に意図して変えた: CI run 39243734668 の Windows の electron-smoke で、このテストと db-snapshot の RF11 が別のプロセスで同じ時間帯に
+// 10 秒の時間切れ（ふだんは約 0.9 秒）。同じ時間帯に engine-fetch（SQLite も worker も控えも使わない）も 8〜19 倍遅く、CI の機械の止まりだった。
+// 段は4つ（起動して控えを取る・閉じる・もう一度起動・閉じる）で、どれも 5 秒まで待つ（控えを取る起動は、製品の控えの .gz の名前の変更の
+// 上限 RENAME_WAITS_SHORT（約 0.5 秒）も足す）。前の 10 秒は段の待ちの合計より短く、どの段で止まったかを言わずに切れていた。
+// 予算を段の待ちの合計にし、段の名前と子の記録（snapshot.js の段ごとの時間）を言って落ちる
+const ST10_TAKE_READY_MS = 5000 + require('./helpers/steps').sum(require('../src/db/snapshot').RENAME_WAITS_SHORT);
+const ST10_BUDGET_MS = ST10_TAKE_READY_MS + 3 * 5000;
+test('ST10: 移した直後に落ちて移行の控えが無ければ、次の起動で頼みを受ける前に取る', { timeout: ST10_BUDGET_MS + 5000 }, async () => {
   const d = tmpData({ pages: 1, withJson: true });   // meta.jsonMigration はあるが、控えはまだ無い
   let s = null;
   try {
-    d.close();
-    s = boot(d);
-    await s.ready();
-    assert.strictEqual(readyMsg(s).state, 'ok');
-    assert.strictEqual(fs.readdirSync(path.join(d.dataDir, 'backup')).filter((n) => /-migration\.db\.gz$/.test(n)).length, 1);
-    await s.stop(); s = null;
-    s = boot(d); await s.ready();   // 2回目は取らない
-    assert.strictEqual(fs.readdirSync(path.join(d.dataDir, 'backup')).filter((n) => /-migration\.db\.gz$/.test(n)).length, 1);
+    await withSteps(ST10_BUDGET_MS, async ({ step, log }) => {
+      d.close();
+      step('起動して控えを取る');
+      s = boot(d);
+      try { await s.ready(ST10_TAKE_READY_MS); } finally { for (const l of s.logs()) log(l); }
+      assert.strictEqual(readyMsg(s).state, 'ok');
+      assert.strictEqual(fs.readdirSync(path.join(d.dataDir, 'backup')).filter((n) => /-migration\.db\.gz$/.test(n)).length, 1);
+      step('閉じる');
+      await s.stop(); s = null;
+      step('もう一度起動');
+      s = boot(d); await s.ready();   // 2回目は取らない
+      assert.strictEqual(fs.readdirSync(path.join(d.dataDir, 'backup')).filter((n) => /-migration\.db\.gz$/.test(n)).length, 1);
+      step('閉じる');
+    });
   } finally { if (s) await s.stop(); d.done(); }
 });
 

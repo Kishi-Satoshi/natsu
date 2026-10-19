@@ -7,6 +7,7 @@ const path = require('node:path');
 const sqlite = require('node:sqlite');
 const { tmpData } = require('./helpers/dbtmp');   // data フォルダに natsu.db と見本のページ（種の oplog の時刻は決まった 2026-10-19T00:00:00.000Z）
 const S = require('../src/db/snapshot');
+const { withSteps, sum } = require('./helpers/steps');   // 段ごとの時刻を残し、予算を越えたら止まった段を言う（0.7.0 の前）
 
 test('ST9: 控えは確かめてから縮めて残し、確かめた接続を閉じる（閉じていなければ名前を変えられない形で見る）', { timeout: 10000 }, async () => {
   const d = tmpData({ pages: 3 });
@@ -183,27 +184,42 @@ test('RF11・F8: 残っていた -wal も一緒に退け（戻した DB に当�
   } finally { d.done(); }
 });
 
-test('RF11: 戻した後に、控えより後に古い版が書いた JSON のページを取り込む（reimported に数が出る）', { timeout: 10000 }, async () => {
+// 0.7.0 の前に意図して変えた: CI run 39243734668 の Windows の electron-smoke で、このテストと db-server の ST10 が別のプロセスで同じ時間帯に
+// 10 秒の時間切れ（ふだんは約 0.8 秒）。同じ時間帯に engine-fetch（SQLite も worker も控えも使わない）も 8〜19 倍遅く、CI の機械の止まりだった。
+// 製品のコードの待ちには上限があり（名前の変更の待ちは RENAME_WAITS_LONG で約 6.3 秒・控えの .gz は RENAME_WAITS_SHORT で約 0.5 秒）、
+// この道は名前の変更を 3 回（控えの .gz・natsu.db を退ける・戻す写しを natsu.db にする）する。予算を「前の 10 秒 + その上限」にし、
+// 越えたら最後に始めた段と、製品の段ごとの時間（snapshot.js の記録）を言って落ちる
+const RF11_BUDGET_MS = 10000 + 2 * sum(S.RENAME_WAITS_LONG) + sum(S.RENAME_WAITS_SHORT);
+test('RF11: 戻した後に、控えより後に古い版が書いた JSON のページを取り込む（reimported に数が出る）', { timeout: RF11_BUDGET_MS + 5000 }, async () => {
   const o = oldBuildData({ pages: 1 });
   try {
-    const M = require('../src/db/migrate');
-    assert.strictEqual(M.migrate({ sqlite, dataDir: o.dataDir }).ok, true);
-    const f = path.join(o.dataDir, 'natsu.db');
-    let opened = core.open({ sqlite, file: f });
-    try {
-      assert.strictEqual((await S.take({ sqlite, db: opened.db, dataDir: o.dataDir, kind: 'migration', now: () => new Date('2026-10-18T03:00:00Z') })).ok, true);
-      assert.strictEqual(M.reimport({ db: opened.db, dataDir: o.dataDir }).added, 0);
-    } finally { opened.db.close(); }
-    const later = o.oldBuild((store) => store.createPage({ title: '控えの後に古い版で録った会議', blocks: [], segments: [] }));
-    fs.writeFileSync(f, Buffer.alloc(8192, 0x55));
-    const r = await S.recover({ sqlite, dataDir: o.dataDir, now: () => new Date('2026-10-19T00:00:00Z') });
-    assert.strictEqual(r.ok, true);
-    assert.strictEqual(r.reimported && r.reimported.added, 1);
-    opened = core.open({ sqlite, file: f, readOnly: true });
-    try {
-      const got = core.call(opened.db, { role: 'main', cmd: 'page.get', args: { id: later.id } });
-      assert.strictEqual(got.ok && got.result && got.result.page.title, '控えの後に古い版で録った会議');
-    } finally { opened.db.close(); }
+    await withSteps(RF11_BUDGET_MS, async ({ step, log }) => {
+      const M = require('../src/db/migrate');
+      step('移す');
+      assert.strictEqual(M.migrate({ sqlite, dataDir: o.dataDir }).ok, true);
+      const f = path.join(o.dataDir, 'natsu.db');
+      step('開く');
+      let opened = core.open({ sqlite, file: f });
+      try {
+        step('控え');
+        assert.strictEqual((await S.take({ sqlite, db: opened.db, dataDir: o.dataDir, kind: 'migration', now: () => new Date('2026-10-18T03:00:00Z'), log })).ok, true);
+        step('取り込み');
+        assert.strictEqual(M.reimport({ db: opened.db, dataDir: o.dataDir }).added, 0);
+      } finally { opened.db.close(); }
+      step('古い版で書く');
+      const later = o.oldBuild((store) => store.createPage({ title: '控えの後に古い版で録った会議', blocks: [], segments: [] }));
+      fs.writeFileSync(f, Buffer.alloc(8192, 0x55));
+      step('戻す');
+      const r = await S.recover({ sqlite, dataDir: o.dataDir, now: () => new Date('2026-10-19T00:00:00Z'), log });
+      assert.strictEqual(r.ok, true);
+      assert.strictEqual(r.reimported && r.reimported.added, 1);
+      step('読む');
+      opened = core.open({ sqlite, file: f, readOnly: true });
+      try {
+        const got = core.call(opened.db, { role: 'main', cmd: 'page.get', args: { id: later.id } });
+        assert.strictEqual(got.ok && got.result && got.result.page.title, '控えの後に古い版で録った会議');
+      } finally { opened.db.close(); }
+    }, () => `\n走っている段: ${S.activeSteps().join(' / ') || 'なし'}`);
   } finally { o.done(); }
 });
 
@@ -257,5 +273,99 @@ test('RF11: lock を書けなくても recover は投げずに busy を返し、
     const r = await S.recover({ sqlite, dataDir: d.dataDir, now: () => new Date('2026-10-19T00:00:00Z'), fs: noLock });
     assert.deepStrictEqual([r.ok, r.code], [false, 'busy']);
     assert.deepStrictEqual(fs.readFileSync(f), before);
+  } finally { d.done(); }
+});
+
+// ---- 0.7.0 の前の直し（CI run 39243734668 の Windows の electron-smoke で、RF11 と db-server の ST10 が 10 秒で時間切れ。原因は CI の機械の
+// ほかのテストとも重なった止まり。次に起きたとき、どの段で止まったかが記録に出るように、控えと戻しの段ごとの時間を記録に書く。名前と数だけ）
+const STEP = /^\S+ \d+ms$/;
+
+test('台: withSteps は予算を越えたら、最後に始めた段と段ごとの時刻と記録の行を言って落ちる（越えなければ fn の答えを返す）', { timeout: 5000 }, async () => {
+  assert.strictEqual(await withSteps(1000, async ({ step }) => { step('A'); return 7; }), 7);
+  await assert.rejects(withSteps(50, async ({ step, log }) => { step('A'); log('DB: 何かの記録'); step('B'); await new Promise((res) => setTimeout(res, 300)); }, () => '\n足した文'),
+    (e) => /予算 50ms を越えた。最後に始めた段: B/.test(e.message) && /A@\d+ms → B@\d+ms/.test(e.message) && e.message.includes('DB: 何かの記録') && e.message.endsWith('足した文'));
+});
+const stepsOf = (line) => { const m = /（([^（）]*)）$/.exec(line); return m ? m[1].split('・') : []; };
+
+test('ST9: 控えの記録に段ごとの時間（写し・一つに・確かめ・縮め・名前）が出る。確かめ NG のときも、そこまでの段が出る', { timeout: 10000 }, async () => {
+  const d = tmpData({ pages: 1 });
+  try {
+    const lines = [];
+    const r = await S.take({ sqlite, db: d.db, dataDir: d.dataDir, kind: 'daily', now: () => new Date('2026-10-19T03:00:00Z'), log: (l) => lines.push(l) });
+    assert.strictEqual(r.ok, true);
+    const ok = lines.find((l) => l.startsWith('DB: 控え weekly・確かめ ok'));
+    assert.ok(ok, JSON.stringify(lines));
+    assert.deepStrictEqual(stepsOf(ok).map((s) => s.split(' ')[0]), ['写し', '一つに', '確かめ', '縮め', '名前'], ok);
+    assert.ok(stepsOf(ok).every((s) => STEP.test(s)), ok);
+    const ng = [];
+    await S.take({ sqlite, db: d.db, dataDir: d.dataDir, kind: 'daily', now: () => new Date('2026-10-19T04:00:00Z'), runCheck: async () => { await new Promise((res) => setTimeout(res, 60)); return 'malformed'; }, log: (l) => ng.push(l) });
+    const line = ng.find((l) => l.startsWith('DB: 控え daily・確かめ NG'));
+    assert.ok(line, JSON.stringify(ng));
+    assert.deepStrictEqual(stepsOf(line).map((s) => s.split(' ')[0]), ['写し', '一つに', '確かめ'], line);
+    assert.ok(Number(stepsOf(line)[2].split(' ')[1].replace('ms', '')) >= 50, `確かめの時間が出ていない: ${line}`);
+    assert.ok(!lines.concat(ng).some((l) => l.includes(d.dataDir)), '記録にパスを出した');
+  } finally { d.done(); }
+});
+
+test('ST9・RF18: 控えの名前を変えられずに待ったら回数と時間と符号を書き、取れなければ止まった段を書く', { timeout: 10000 }, async () => {
+  const d = tmpData({ pages: 1 });
+  try {
+    const lines = [];
+    const stuck = { ...fs, renameSync: (a, b) => { if (String(a).endsWith('.db.gz.tmp')) throw Object.assign(new Error('x'), { code: 'EBUSY' }); return fs.renameSync(a, b); } };
+    const r = await S.take({ sqlite, db: d.db, dataDir: d.dataDir, kind: 'daily', now: () => new Date('2026-10-19T03:00:00Z'), fs: stuck, log: (l) => lines.push(l) });
+    assert.deepStrictEqual([r.ok, r.check], [false, 'io']);
+    assert.ok(lines.some((l) => /^DB: 名前の変更を 6 回待った（\d+ms・EBUSY）$/.test(l)), JSON.stringify(lines));
+    const fail = lines.find((l) => l.startsWith('DB: 控え weekly・取れない（rename）・止まった段 名前'));
+    assert.ok(fail, JSON.stringify(lines));
+    assert.deepStrictEqual(stepsOf(fail).map((s) => s.split(' ')[0]), ['写し', '一つに', '確かめ', '縮め', '名前'], fail);
+  } finally { d.done(); }
+});
+
+test('RF11・RF18: 戻すときの記録に段ごとの時間（広げ・確かめ・退け・置き換え・取り込み）と、名前の変更を待った回数が出る', { timeout: 10000 }, async () => {
+  const d = tmpData({ pages: 1 });
+  try {
+    await S.take({ sqlite, db: d.db, dataDir: d.dataDir, kind: 'daily', now: () => new Date('2026-10-18T03:00:00Z') });
+    d.close();
+    let fails = 2;
+    const fsx = { ...fs, renameSync: (a, b) => { if (fails-- > 0) throw Object.assign(new Error('x'), { code: 'EPERM' }); return fs.renameSync(a, b); } };
+    const lines = [];
+    const r = await S.recover({ sqlite, dataDir: d.dataDir, now: () => new Date('2026-10-19T00:00:00Z'), fs: fsx, waits: [1, 1, 1], log: (l) => lines.push(l) });
+    assert.strictEqual(r.ok, true);
+    assert.ok(lines.some((l) => /^DB: 名前の変更を 2 回待った（\d+ms・EPERM）$/.test(l)), JSON.stringify(lines));
+    const done = lines.find((l) => l.startsWith('DB: 戻した段'));
+    assert.ok(done, JSON.stringify(lines));
+    assert.deepStrictEqual(stepsOf(done).map((s) => s.split(' ')[0]), ['広げ', '確かめ', '退け', '置き換え', '取り込み'], done);
+    assert.ok(stepsOf(done).every((s) => STEP.test(s)), done);
+    // 戻せないとき（名前をずっと変えられない）は、止まった段を書く
+    const stuck = { ...fs, renameSync: () => { throw Object.assign(new Error('x'), { code: 'EBUSY' }); } };
+    const ng = [];
+    const r2 = await S.recover({ sqlite, dataDir: d.dataDir, now: () => new Date('2026-10-19T01:00:00Z'), fs: stuck, waits: [1], log: (l) => ng.push(l) });
+    assert.deepStrictEqual([r2.ok, r2.code], [false, 'busy']);
+    assert.ok(ng.some((l) => l.startsWith('DB: 戻せなかった段・止まった段 退け（')), JSON.stringify(ng));
+    assert.ok(!lines.concat(ng).some((l) => l.includes(d.dataDir)), '記録にパスを出した');
+  } finally { d.done(); }
+});
+
+test('ST9・RF11: 走っている控えと戻しの段は activeSteps() で見える（テストが待ちきれないときに、どの段の途中かを言う）。終わったら消える', { timeout: 10000 }, async () => {
+  const d = tmpData({ pages: 1 });
+  try {
+    let release;
+    const gate = new Promise((res) => { release = res; });
+    let seen = null;
+    const p = S.take({ sqlite, db: d.db, dataDir: d.dataDir, kind: 'daily', now: () => new Date('2026-10-19T03:00:00Z'),
+      runCheck: async (o) => { try { seen = S.activeSteps(); } catch (e) { seen = String(e && e.message); } await gate; return S.workerCheck(o); } });
+    for (let i = 0; seen === null && i < 1000; i++) await new Promise((res) => setTimeout(res, 5));
+    assert.ok(Array.isArray(seen), `確かめの途中に activeSteps() を読めない: ${seen}`);
+    assert.strictEqual(seen.length, 1, JSON.stringify(seen));
+    assert.match(seen[0], /^控え weekly: 写し \d+ms・一つに \d+ms・確かめ \d+ms$/);
+    release();
+    assert.strictEqual((await p).ok, true);
+    assert.deepStrictEqual(S.activeSteps(), [], '終わった控えの段が残った');
+    d.close();
+    let seenR = null;
+    const r = await S.recover({ sqlite, dataDir: d.dataDir, now: () => new Date('2026-10-19T04:00:00Z'), runCheck: async (o) => { seenR = S.activeSteps(); return S.workerCheck(o); } });
+    assert.strictEqual(r.ok, true);
+    assert.match(seenR[0], /^戻す: 広げ \d+ms・確かめ \d+ms$/);
+    assert.deepStrictEqual(S.activeSteps(), []);
   } finally { d.done(); }
 });

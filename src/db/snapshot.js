@@ -35,7 +35,13 @@
  *   作ってから fn を呼び、終わったら（投げても）消す。消せなければ log に書くだけ（残った lock は次の起動の D-7 が消す）。
  * listBackups({ dataDir, fs }) → [{ name, at, ms, kind }]（古い順。名前の形の合うものだけ。.tmp は入らない）
  * isNetworkPath(p) → \\server\share（と \\?\UNC\…）の形なら真（P9。\\?\C:\ と \\.\ は手元の場所）
- * RENAME_WAITS_LONG … 戻すときに、ほかのプロセスが閉じるのを待つ間（合わせて約 6.3 秒）
+ * RENAME_WAITS_LONG … 戻すときに、ほかのプロセスが閉じるのを待つ間（合わせて約 6.3 秒）。RENAME_WAITS_SHORT … 控えの .gz の名前の変更（約 0.5 秒）
+ * 記録（log）に、段ごとにかかった時間を名前と数だけで書く（0.7.0 の前。CI や利用者の PC で遅くなったとき、どの段で止まったかを残す）:
+ *   take   「DB: 控え <kind>・確かめ ok（写し 12ms・一つに 3ms・確かめ 210ms・縮め 30ms・名前 1ms）」・確かめ NG・
+ *          「…・取れない（<符号>）・止まった段 <段>（…）」
+ *   recover「DB: 戻した段（広げ …・確かめ …・退け …・置き換え …・取り込み …）」・「DB: 戻せなかった段・止まった段 <段>（…）」
+ *   名前の変更を待ったら「DB: 名前の変更を <回> 回待った（<ms>ms・<符号>）」（変えられても、諦めても）
+ * activeSteps() → 今走っている控え・戻しの段の文の配列（「控え weekly: 写し 12ms・確かめ 5003ms」・「戻す: 広げ …」）。テストの待ちの報告に使う
  */
 'use strict';
 
@@ -66,6 +72,28 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 const inProgress = new Set();   // 走っている take の一時ファイル（始めの片付けで消さない）
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+const clock = () => performance.now();
+// 段ごとにかかった時間（ms）。start(段) で前の段を締めて次の段を始める。text() は「段 12ms・段 3ms」（今の段は今までの時間）。
+// 走っている間は running に入り、activeSteps() で見える（end() で外す）
+const running = new Set();
+function stepTimer(label) {
+  const done = [];
+  let cur = null;
+  let t = clock();
+  const me = {
+    label,
+    start(name) { const n = clock(); if (cur) done.push([cur, Math.round(n - t)]); cur = name; t = n; },
+    get current() { return cur; },
+    text() { const all = cur ? [...done, [cur, Math.round(clock() - t)]] : done; return all.map(([n, ms]) => `${n} ${ms}ms`).join('・'); },
+    end() { running.delete(me); },
+  };
+  running.add(me);
+  return me;
+}
+// 今走っている控え・戻しの段（「控え weekly: 写し 12ms・確かめ 5003ms」。名前と数だけ）。テストが待ちきれないときに、どの段の途中かを言う
+function activeSteps() {
+  return [...running].map((x) => `${x.label}: ${x.text()}`);
+}
 const stamp = (d) => d.toISOString().replace(/[:.]/g, '-');
 const unstamp = (s) => s.replace(/^(\d{4}-\d{2}-\d{2}T\d{2})-(\d{2})-(\d{2})-(\d{3})Z$/, '$1:$2:$3.$4Z');
 const codeOf = (e) => (e && typeof e.code === 'string' && e.code) || 'unknown';
@@ -102,11 +130,16 @@ function dropOwn(fs, file) {
   }
 }
 
-// 名前を変える。掴まれていれば waits の順に待ってやり直す。だめなら false（投げない）
-async function renameWaiting(fs, from, to, waits) {
+// 名前を変える。掴まれていれば waits の順に待ってやり直す。だめなら false（投げない）。待ったら回数・時間・最後の符号を log に書く
+async function renameWaiting(fs, from, to, waits, log = noop) {
+  const t0 = clock();
+  let code = '';
+  const said = (n) => { if (n > 0) log(`DB: 名前の変更を ${n} 回待った（${Math.round(clock() - t0)}ms・${code}）`); };
   for (let i = 0; ; i++) {
-    try { fs.renameSync(from, to); return true; } catch (e) {
+    try { fs.renameSync(from, to); said(i); return true; } catch (e) {
+      code = codeOf(e);
       if (e && BUSY.has(e.code) && i < waits.length) { await sleep(waits[i]); continue; }
+      said(i);
       return false;
     }
   }
@@ -179,39 +212,47 @@ async function take({ sqlite, db, dataDir, kind, now = () => new Date(), runChec
   const at = now();
   let k = kind;
   const mine = [];   // この take の一時ファイル（終わったら消す）
+  const steps = stepTimer(`控え ${kind}`);
   try {
     fs.mkdirSync(dir, { recursive: true });
     if (k === 'daily') {
       const week = weekStart(at.getTime());
       if (!listBackups({ dataDir, fs }).some((b) => b.kind === 'weekly' && weekStart(b.ms) === week)) k = 'weekly';
     }
+    steps.label = `控え ${k}`;
     const base = path.join(dir, `natsu-${stamp(at)}-${k}`);
     const raw = `${base}.db.raw.tmp`;
     const gzTmp = `${base}.db.gz.tmp`;
     mine.push(raw, gzTmp);
     for (const p of mine) for (const s of ['', ...SIDECARS]) inProgress.add(p + s);
     cleanTemps(fs, dir);
+    steps.start('写し');
     await sqlite.backup(db, raw);
     // 写しは WAL のまま。自分の接続で DELETE にして1つのファイルにし、確かめの前に必ず閉じる
+    steps.start('一つに');
     const c = new sqlite.DatabaseSync(raw);
     if (typeof track === 'function') track(c);
     try { c.prepare('pragma journal_mode = DELETE').get(); } finally { c.close(); }
+    steps.start('確かめ');
     const answer = await runCheck({ file: raw });
     if (answer !== 'ok') {
       const check = typeof answer === 'string' && answer ? answer : 'unavailable';
-      log(`DB: 控え ${k}・確かめ NG`);
+      log(`DB: 控え ${k}・確かめ NG（${steps.text()}）`);
       return { ok: false, file: null, check };
     }
+    steps.start('縮め');
     writeSynced(fs, gzTmp, zlib.gzipSync(fs.readFileSync(raw)));
     const file = `${base}.db.gz`;
-    if (!(await renameWaiting(fs, gzTmp, file, RENAME_WAITS_SHORT))) throw Object.assign(new Error('rename'), { code: 'rename' });
+    steps.start('名前');
+    if (!(await renameWaiting(fs, gzTmp, file, RENAME_WAITS_SHORT, log))) throw Object.assign(new Error('rename'), { code: 'rename' });
     fsyncDir(fs, dir);
-    log(`DB: 控え ${k}・確かめ ok`);
+    log(`DB: 控え ${k}・確かめ ok（${steps.text()}）`);
     return { ok: true, file, check: 'ok' };
   } catch (e) {
-    log(`DB: 控え ${k}・取れない（${codeOf(e)}）`);
+    log(`DB: 控え ${k}・取れない（${codeOf(e)}）${steps.current ? `・止まった段 ${steps.current}（${steps.text()}）` : ''}`);
     return { ok: false, file: null, check: 'io' };
   } finally {
+    steps.end();
     for (const p of mine) {
       try { dropOwn(fs, p); } catch (_) { /* 次の take の始めに消す */ }
       for (const s of ['', ...SIDECARS]) inProgress.delete(p + s);
@@ -286,6 +327,20 @@ async function recover({ sqlite, dataDir, now = () => new Date(), fs = nodeFs, r
 }
 
 async function restore({ sqlite, dataDir, now, fs, runCheck, waits, log, reimport }) {
+  const steps = stepTimer('戻す');
+  try {
+    const r = await restoreSteps({ sqlite, dataDir, now, fs, runCheck, waits, log, reimport, steps });
+    log(r.ok ? `DB: 戻した段（${steps.text()}）` : `DB: 戻せなかった段・止まった段 ${steps.current || 'なし'}（${steps.text()}）`);
+    return r;
+  } catch (e) {
+    log(`DB: 戻せなかった段・止まった段 ${steps.current || 'なし'}（${steps.text()}）`);
+    throw e;
+  } finally {
+    steps.end();
+  }
+}
+
+async function restoreSteps({ sqlite, dataDir, now, fs, runCheck, waits, log, reimport, steps }) {
   const dbFile = path.join(dataDir, DB_NAME);
   const restoring = path.join(dataDir, RESTORING);
   dropOwn(fs, restoring);
@@ -293,6 +348,7 @@ async function restore({ sqlite, dataDir, now, fs, runCheck, waits, log, reimpor
   // 1. 戻す写しを先に作って確かめる（natsu.db にはまだ触れない）
   let chosen = null;
   for (const b of listBackups({ dataDir, fs }).reverse()) {
+    steps.start('広げ');
     try {
       writeSynced(fs, restoring, zlib.gunzipSync(fs.readFileSync(path.join(dataDir, BACKUP_DIR, b.name))));
     } catch (e) {
@@ -300,6 +356,7 @@ async function restore({ sqlite, dataDir, now, fs, runCheck, waits, log, reimpor
       dropOwn(fs, restoring);
       continue;
     }
+    steps.start('確かめ');
     const r = checkResult(await runCheck({ file: restoring }));
     if (r === 'ok') { chosen = b; break; }
     log(`DB: 控えの確かめ ${r === 'corrupt' ? 'NG' : '走れない'}。古い控えへ`);
@@ -315,7 +372,7 @@ async function restore({ sqlite, dataDir, now, fs, runCheck, waits, log, reimpor
   const moved = [];
   const undo = async () => {
     for (const [from, to] of moved.reverse()) {
-      if (!(await renameWaiting(fs, to, from, waits))) log('DB: 退けたファイルを元に戻せなかった');
+      if (!(await renameWaiting(fs, to, from, waits, log))) log('DB: 退けたファイルを元に戻せなかった');
     }
   };
   const busy = async () => {
@@ -324,19 +381,22 @@ async function restore({ sqlite, dataDir, now, fs, runCheck, waits, log, reimpor
     return { ok: false, code: 'busy' };
   };
   const hadDb = exists(fs, dbFile);
+  steps.start('退け');
   for (const s of ['', ...SIDECARS]) {
     if (!exists(fs, dbFile + s)) continue;
-    if (!(await renameWaiting(fs, dbFile + s, brokenBase + s, waits))) return busy();
+    if (!(await renameWaiting(fs, dbFile + s, brokenBase + s, waits, log))) return busy();
     moved.push([dbFile + s, brokenBase + s]);
   }
 
   // 3. 確かめた写しを natsu.db にする
-  if (!(await renameWaiting(fs, restoring, dbFile, waits))) return busy();
+  steps.start('置き換え');
+  if (!(await renameWaiting(fs, restoring, dbFile, waits, log))) return busy();
   fsyncDir(fs, dataDir);
   log('DB: 壊れていたので退けて控えから戻した');
 
   // 4. 控えより後に古い版が書いた JSON を取り込む（D-5b）
   let reimported = null;
+  steps.start('取り込み');
   if (reimport) {
     try {
       const o = core.open({ sqlite, file: dbFile });
@@ -359,5 +419,5 @@ function isNetworkPath(p) {
 
 module.exports = {
   take, rotate, oldestKeptAt, recover, classifyOpenError, checkResult, withLock, pruneOplog, isNetworkPath,
-  workerCheck, listBackups, RENAME_WAITS_LONG, LOCK_NAME,
+  workerCheck, listBackups, activeSteps, RENAME_WAITS_LONG, RENAME_WAITS_SHORT, LOCK_NAME,
 };
