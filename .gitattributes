@@ -5,3 +5,4 @@
 *.bat -text
 *.png binary
 *.ico binary
+*.db binary
