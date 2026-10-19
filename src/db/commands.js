@@ -11,6 +11,7 @@
  *     書いた中身を変えない（updatedAt・citeStat を作り直さない）。移行・会議の締め・テストの種が使う。now は呼び手の形をそろえるために受けるだけ
  *   readPage(db, id) … { ...attrs, id, title, createdAt?, updatedAt?, rev, blocks: [{ ...attrs, id, type, text, rich?, children: [] }] }
  *     に今の markShortBlocks を当てたもの（今の store.getPage と同じ）。無い・ゴミ箱なら null
+ *   readRawPage(db, id, { trashed }) … readPage の markShortBlocks の前の形（移行の完全一致の比べ: D-5a）
  *   readSegments(db, pageId) … [{ id, atMs?, durationMs?, text, failed?, ...extra }]（NULL の欄は出さない）
  *
  * 画面の 14 の命令は、答えの形を今の main の IPC（= json-backend）と同じにする（test/db-commands.test.js が比べる）。
@@ -95,6 +96,13 @@ function readPage(db, id) {
   if (!l) return null;
   R.markShortBlocks(l.page.blocks);
   return l.page;
+}
+
+// 生の形（markShortBlocks の前。rev と空の children を持つ）。D-5a の移行の確かめと、テストの dbpeek.rawPage が使う。
+// 無い・ページでない行は null。ゴミ箱のページは { trashed: true } のときだけ返す
+function readRawPage(db, id, { trashed = false } = {}) {
+  const l = loadPage(db, id, { trashed });
+  return l ? l.page : null;
 }
 
 function readSegments(db, pageId) {
@@ -553,4 +561,4 @@ const DEFS = {
 const COMMANDS = Object.freeze(Object.assign(Object.create(null),
   Object.fromEntries(Object.entries(DEFS).map(([k, v]) => [k, Object.freeze(v)]))));
 
-module.exports = { COMMANDS, HOT_QUERIES, putPageRows, readPage, readSegments, listPages, isPurged };
+module.exports = { COMMANDS, HOT_QUERIES, putPageRows, readPage, readRawPage, readSegments, listPages, isPurged };

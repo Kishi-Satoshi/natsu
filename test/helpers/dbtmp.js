@@ -16,6 +16,14 @@
  *     （短い語・全角・句読点をまたぐ語・文法の文字・メモにだけある語・% や \ や _ を含む行・サロゲート・カタカナ・無題のページ）。
  *     createdAt はページごとに違い、返す並び（= 入れる順）は createdAt の順と違える。ブロックの ID は表全体で重ならない。
  *     比べから外す意図した違い（ブロックをまたぐ一致・要約 2 万字とメモ 2 千字の打ち切り）に当たる並びは入れない
+ *   oldBuildData({ pages, bom, broken, badId, unreadable }) → { dataDir, ids, rawPage(id), writePage(page, segments), done() }（D-5a）
+ *     … 0.6.0 と同じ src/store.js（ほかのテストと共有しない別の読み込み）で、古い版の JSON の data を作る。
+ *     pages 個の普通のページ（知らない欄・経路・一時停止・出典・担当と期限・認識に失敗した区間・話者の欄）と、
+ *     bom 個の BOM 付き UTF-8 に書き直したページ（どちらも ids に入り、文字起こしは 3 区間）。
+ *     broken 個の壊れたページのファイル、badId 個のファイル名と page.id が違うページ、unreadable 個の読めないもの
+ *     （pages/ の中の <id>.json という名前のフォルダ。どの OS でも読めない）は ids に入れない。
+ *     rawPage(id) は元のファイルを退けない読み方で読んだもの（markShortBlocks の前の形）。writePage はそのままの形で書く
+ *   snapshotTree(dir) → { 相対パス（'/' 区切り）: sha256 | 'dir' }… フォルダの中の全部の名前と中身（元のファイルが変わらないことを見る）
  * フォルダの名前には日本語と 𠮷（サロゲートの対）を入れる（RF1）。
  */
 'use strict';
@@ -25,6 +33,8 @@ const os = require('node:os');
 const path = require('node:path');
 const sqlite = require('node:sqlite');
 const core = require('../../src/db/core');
+
+const crypto = require('node:crypto');
 
 const SEED_AT = '2026-10-19T00:00:00.000Z';
 
@@ -184,4 +194,87 @@ function searchCorpus() {
   return out;
 }
 
-module.exports = { tmpDb, samplePage, jsonTwin, searchCorpus, SEED_AT };
+// 古い版（0.6.0）の JSON の data（D-5a・D-5b）
+function oldBuildData({ pages = 3, bom = 0, broken = 0, badId = 0, unreadable = 0 } = {}) {
+  const J = require('../../src/jsonfile');
+  const userData = fs.mkdtempSync(path.join(os.tmpdir(), 'natsu-old-議事録𠮷-'));
+  const store = isolatedStore();
+  const dataDir = store.init(userData);
+  const pageFile = (id) => path.join(dataDir, 'pages', `${id}.json`);
+  const transcriptFile = (id) => path.join(dataDir, 'transcripts', `${id}.json`);
+  const ids = [];
+  const make = (i) => {
+    const segments = [
+      { id: 's1', atMs: 0, durationMs: 20000, text: '（この区間の認識に失敗: 見本）', failed: true },
+      { id: 's2', atMs: 20000, durationMs: 20000, text: `第${i + 1}回の予算案の作成は担当Aさんが進めます` },
+      { id: 's3', atMs: 40000, durationMs: 20000, text: '見積書は月末までに先方へ送る予定です', speaker: '話者1' },
+    ];
+    const page = store.createPage({
+      title: `第${i + 1}回の定例会議（𠮷）`,
+      date: `2026-09-${String(i + 1).padStart(2, '0')}`,
+      durationSec: 600 + i,
+      memo: i % 2 ? '' : `メモの文 ${i + 1}`,
+      blocks: [
+        { id: store.newId('b'), type: 'heading', text: '決めたこと', cites: [] },
+        { id: store.newId('b'), type: 'bullet', text: '来月の予算案の作成を担当Aが進める', cites: ['s2'] },
+        { id: store.newId('b'), type: 'bullet', text: '了解', cites: [] },
+        { id: store.newId('b'), type: 'todo', text: '見積書を月末までに先方へ送る', checked: false, assignee: '担当A', dueRaw: '月末', due: '2026-10-31', dueApprox: true, cites: ['s3'] },
+        { id: store.newId('b'), type: 'bullet', text: '次回は来週の同じ時間に集まる', cites: [], extraField: 'ブロックの知らない欄' },
+      ],
+      segments,
+      createdAt: new Date(Date.UTC(2026, 8, 1 + i, 9)).toISOString(),
+      recovered: i === 1,
+      route: { stt: { cloud: 2, local: 1, provider: 'groq' }, localOnly: false, summary: { by: 'claude-code' } },
+      pauses: [{ atMs: 30000, ms: 5000, why: 'user' }],
+    });
+    page.meetingType = 'general';
+    page.extraField = 'ページの知らない欄';
+    store.savePage(page);
+    ids.push(page.id);
+    return page.id;
+  };
+  for (let i = 0; i < pages; i++) make(i);
+  for (let i = 0; i < bom; i++) {
+    const id = make(pages + i);
+    fs.writeFileSync(pageFile(id), Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), fs.readFileSync(pageFile(id))]));
+  }
+  for (let i = 0; i < broken; i++) {
+    const id = `pbroken${String(i + 1).padStart(4, '0')}`;
+    fs.writeFileSync(pageFile(id), `{"id":"${id}","title":"壊れた`);
+  }
+  for (let i = 0; i < badId; i++) {
+    const id = `pbadid${String(i + 1).padStart(4, '0')}`;
+    J.writeJsonFile(pageFile(id), { id: `pother${String(i + 1).padStart(4, '0')}`, title: 'ファイル名と違う ID', blocks: [] });
+    J.writeJsonFile(transcriptFile(id), { id, segments: [{ id: 's1', atMs: 0, text: '数えない' }] });
+  }
+  for (let i = 0; i < unreadable; i++) fs.mkdirSync(pageFile(`punread${String(i + 1).padStart(4, '0')}`));
+  return {
+    dataDir,
+    ids,
+    rawPage(id) {
+      const r = J.readJsonFile(pageFile(id));
+      if (r.state !== 'ok') throw new Error(`oldBuildData.rawPage: ${r.state}`);
+      return r.value;
+    },
+    writePage(page, segments) {
+      J.writeJsonFile(pageFile(page.id), page);
+      if (segments !== undefined) J.writeJsonFile(transcriptFile(page.id), { id: page.id, segments });
+    },
+    done() { fs.rmSync(userData, { recursive: true, force: true }); },
+  };
+}
+
+function snapshotTree(dir) {
+  const out = {};
+  const walk = (abs, rel) => {
+    for (const e of fs.readdirSync(abs, { withFileTypes: true })) {
+      const a = path.join(abs, e.name);
+      const r = rel ? `${rel}/${e.name}` : e.name;
+      if (e.isDirectory()) { out[r] = 'dir'; walk(a, r); } else out[r] = crypto.createHash('sha256').update(fs.readFileSync(a)).digest('hex');
+    }
+  };
+  walk(dir, '');
+  return out;
+}
+
+module.exports = { tmpDb, samplePage, jsonTwin, searchCorpus, oldBuildData, snapshotTree, SEED_AT };
