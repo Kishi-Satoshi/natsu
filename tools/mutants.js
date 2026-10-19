@@ -904,4 +904,16 @@ module.exports = [
     tests: ['test/db-listcache.test.js'], why: 'G-1: 集めた一覧の検索は、ページの行とブロックの行を別に集める（メモとブロックの両方に当たっても、抜き出しはブロックから。G-1 の点検で足した）' },
   { id: 'gp-list-forget', file: 'src/db/commands.js', from: '  for (const id of cache.keys()) if (!listed.has(id)) cache.delete(id);\n', to: '  void listed;\n',
     tests: ['test/db-listcache.test.js'], why: 'G-1: 一覧の全部を作るたびに一覧に無いページを忘れる（消して同じ rid・rev で作り直したページに前の1行を見せない。G-1 の点検で足した）' },
+  // ---------------------------------------------------------------- 第1d回 W-1・D-1 の独立した点検で足したもの（計画 docs/plans/2026-10-19-1d.md。W-1・D-1 は 0.7.0 の版で main に入る）
+  { id: 'rl-deploy-api-redirect', file: 'tools/relay-deploy.js', from: "{ method, headers, body, redirect: 'error', signal:", to: "{ method, headers, body, signal:",
+    tests: ['test/relay-deploy.test.js'], pattern: '^F6: 転送（3xx）を追わない', why: 'D-1 F6: Cloudflare の API の転送を追わない（トークンを付けたまま別の宛先へ行かない）' },
+  { id: 'rl-deploy-health-redirect', file: 'tools/relay-deploy.js', from: "/health`, { redirect: 'error', signal:", to: "/health`, { signal:",
+    tests: ['test/relay-deploy.test.js'], pattern: '^F6: 転送（3xx）を追わない', why: 'D-1 F6: /health の転送を「届いた」に数えない' },
+  { id: 'rl-deploy-run-expr', file: '.github/workflows/relay-deploy.yml', from: '        run: node --test --test-reporter=tap "test/relay-*.test.js"\n',
+    to: '        run: node --test --test-reporter=tap "test/relay-*.test.js"\n      - name: 変更の説明\n        run: printf %s "${{ github.event.head_commit.message }}"\n',
+    tests: ['test/relay-deploy.test.js'], pattern: '^F10: relay-deploy\\.yml は GitHub の ubuntu-latest で走り', why: 'D-1 F10: run の中に ${{ }} の式を書かない（commit の文を shell に差し込まない）' },
+  { id: 'rl-deploy-foreign-action', file: '.github/workflows/relay-deploy.yml', from: '      - uses: actions/setup-node@v4\n', to: '      - uses: someone/setup-thing@main\n      - uses: actions/setup-node@v4\n',
+    tests: ['test/relay-deploy.test.js'], pattern: '^F10: relay-deploy\\.yml は GitHub の ubuntu-latest で走り', why: 'D-1 F10: トークンのある仕事で他人の action を動かさない（ci.yml と同じ固定の2つだけ）' },
+  { id: 'rl-deploy-self-hosted', file: '.github/workflows/relay-deploy.yml', from: '    runs-on: ubuntu-latest\n', to: '    runs-on: self-hosted\n',
+    tests: ['test/relay-deploy.test.js'], pattern: '^F10: relay-deploy\\.yml は GitHub の ubuntu-latest で走り', why: 'D-1 F10: self-hosted の機械にトークンを渡さない' },
 ];

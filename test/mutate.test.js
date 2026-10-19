@@ -239,3 +239,14 @@ test('G3: 第2a1回の点検で足した変異も一覧にそろい、IDS_2A1 �
   const rows = [...table.matchAll(/^\| ([a-z0-9]+(?:-[a-z0-9]+)+) \|/gm)].map((x) => x[1]);
   assert.deepStrictEqual([...rows].sort(), [...IDS_2A1].sort());
 });
+
+// 第1d回 W-1・D-1 の独立した点検で、テストを足して殺した変異（計画 docs/plans/2026-10-19-1d.md の「W-1・D-1 の独立した点検（2026-10-19）で足したもの」）。
+// W-1・D-1 は 0.7.0 の版で main に入るので、この5つも 0.7.0 で一覧に入れる（計画の表の rl-* は G-2 で足す）
+const IDS_1D_REVIEW = ['rl-deploy-api-redirect', 'rl-deploy-health-redirect', 'rl-deploy-run-expr', 'rl-deploy-foreign-action', 'rl-deploy-self-hosted'];
+test('G3: 第1d回 W-1・D-1 の点検で足した5つの変異が一覧にそろい、どれも中継の出し方のテストで赤にする', { timeout: 5000 }, () => {
+  const byId = new Map(MUTANTS.map((m) => [m.id, m]));
+  assert.deepStrictEqual(IDS_1D_REVIEW.filter((id) => !byId.has(id)), []);
+  for (const id of IDS_1D_REVIEW) assert.deepStrictEqual(byId.get(id).tests, ['test/relay-deploy.test.js'], id);
+  const plan = fs.readFileSync(path.join(ROOT, 'docs', 'plans', '2026-10-19-1d.md'), 'utf8');
+  for (const id of IDS_1D_REVIEW) assert.ok(plan.includes(`\`${id}\``), `計画に ${id} が無い`);
+});
