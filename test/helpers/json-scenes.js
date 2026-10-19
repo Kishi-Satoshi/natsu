@@ -33,9 +33,12 @@ const OLD_DRAFT = { startedAt: 1760000000000, memo: '', offsetMs: 3000, savedAt:
 const WS = (o = {}) => JSON.stringify({ v: 1, bounds: { x: 100, y: 80, width: 1200, height: 800 }, maximized: false, zoom: 1, sidebar: { width: 260, collapsed: false }, tabs: { open: [], active: '' }, ...o }, null, 2);
 const WS_FILE = 'natsu/window-state.json';
 const wsText = (c) => { const b = c.readLocal(WS_FILE); return b ? b.toString('utf8') : null; };
+// 0.7.0 U-1: 前の版が groq・custom の名前でしまった鍵（mainrun の偽の safeStorage の暗号 'ENC1:<hex>' の base64）
+const fakeEncB64 = (k) => Buffer.from(`ENC1:${Buffer.from(k, 'utf8').toString('hex')}`).toString('base64');
+const LEGACY_KEYS = { groq: fakeEncB64('gsk_legacy_groq_000'), custom: fakeEncB64('legacy_custom_0000') };
 
 module.exports = {
-  TYPICAL, HISTORY, UI, OLD_DRAFT, WS,
+  TYPICAL, HISTORY, UI, OLD_DRAFT, WS, LEGACY_KEYS,
   plain: { files: { 'settings.json': pretty(TYPICAL), 'history.json': pretty(HISTORY) },
     act: async (c) => { c.out.got = await c.handlers['settings:get'](); c.out.history = await c.handlers['history:get'](); } },
   bom: { engine: true, files: { 'settings.json': ({ base }) => Buffer.concat([BOM, Buffer.from(JSON.stringify({ ...base, theme: 'dark' }))]) } },
@@ -316,8 +319,11 @@ module.exports = {
   // ［鍵を確かめる］は 127.0.0.1 の偽の送り先の /models へ・Claude Code の場所が無いときの文・［PC の中だけ］は片道）。
   // Claude Code の場所は無いファイルに向ける（本物の claude を探しに行かない。子は起こさない）
   // 0.7.0 U-1（設計書 D5）: 送り先は OpenAI に固定。https://api.openai.com/v1 への要求は setOpenAiBase で 127.0.0.1 の偽の口へ書き換える。
-  // settings.json の cloudTranscribe・sttProvider は前の版が書いた値（読まれず、消されないことを見る）
-  'cloud-ipc': { files: { 'settings.json': pretty({ ...TYPICAL, cloudTranscribe: 'off', sttProvider: 'groq', claudeExe: '/natsu-test-missing/claude.exe' }) },
+  // settings.json の cloudTranscribe・sttProvider は前の版が書いた値（読まれず、消されないことを見る）。
+  // secrets.json には前の版がしまった groq・custom の鍵（偽の safeStorage の暗号の形）だけを置く: 状態は「未設定」で、
+  // openai の鍵を保存しても消しても、この2つは残って書き換わらないことを見る
+  'cloud-ipc': { files: { 'settings.json': pretty({ ...TYPICAL, cloudTranscribe: 'off', sttProvider: 'groq', claudeExe: '/natsu-test-missing/claude.exe' }),
+    'secrets.json': JSON.stringify({ schema: 1, keys: { groq: LEGACY_KEYS.groq, custom: LEGACY_KEYS.custom } }) },
     act: async (c) => {
       const KEY = 'gsk_test_0123456789';
       const h = (ch, ...a) => c.handlers[ch]({}, ...a);
@@ -371,6 +377,7 @@ module.exports = {
         o.statusKeyed = await h('cloud:status');
         o.clear = await h('cloud:clear-key', 'openai');
         o.statusCleared = await h('cloud:status');
+        o.secretsAfterClear = String(c.read('secrets.json') || '');
         o.claude = await h('claude:status');
         o.claudeTest = await h('claude:test');
         o.localOnlyTrue = await h('meeting:set-local-only', true);

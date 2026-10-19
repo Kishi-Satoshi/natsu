@@ -12,6 +12,7 @@ const { execFile } = require('node:child_process');
 
 const RUN = path.join(__dirname, 'helpers', 'mainrun.js');
 const KEY = 'gsk_test_0123456789';
+const { LEGACY_KEYS } = require('./helpers/json-scenes');
 const run = (args) => new Promise((resolve, reject) => {
   execFile(process.execPath, [RUN, ...args], { maxBuffer: 1 << 24, timeout: 20000 }, (err, stdout, stderr) => {
     if (err) { reject(new Error(`mainrun ${args.join(' ')} が失敗: ${err.message}\n${stderr}`)); return; }
@@ -34,7 +35,10 @@ test('RF30・OL3・OL5・OL7: 設定のカード「オンライン」の IPC。�
   assert.deepStrictEqual(o.set, { ok: true });
   assert.strictEqual(o.status1.hasKey, true);
   assert.ok(o.secretsAfterSet.includes('"openai"') && !o.secretsAfterSet.includes(KEY), 'secrets.json に鍵が平文で入った');
-  assert.ok(!o.secretsAfterSet.includes('"groq"') && !o.secretsAfterSet.includes('"custom"'), 'ほかの名前で鍵をしまった');
+  // 前の版の groq・custom の鍵は、openai の鍵を保存しても消しても、そのまま残る（読まず・書き換えず・消さない）
+  const keysAfterSet = JSON.parse(o.secretsAfterSet).keys;
+  assert.deepStrictEqual([keysAfterSet.groq, keysAfterSet.custom], [LEGACY_KEYS.groq, LEGACY_KEYS.custom], 'openai の鍵の保存で groq・custom の鍵が消えたか変わった');
+  assert.ok(typeof keysAfterSet.openai === 'string' && keysAfterSet.openai !== '', 'openai の名前で鍵をしまっていない');
   // 前の版の画面が送っていた4つのキーは保存しない。settings.json に前の版が書いた値は残る（JS6）
   assert.strictEqual(o.saved.ok, true);
   const saved = JSON.parse(o.settingsAfterSave);
@@ -60,6 +64,8 @@ test('RF30・OL3・OL5・OL7: 設定のカード「オンライン」の IPC。�
   assert.strictEqual(o.statusKeyed.hasKey, true);
   assert.deepStrictEqual(o.clear, { ok: true });
   assert.strictEqual(o.statusCleared.hasKey, false);
+  const keysAfterClear = JSON.parse(o.secretsAfterClear).keys;
+  assert.deepStrictEqual(keysAfterClear, { groq: LEGACY_KEYS.groq, custom: LEGACY_KEYS.custom }, '［鍵を消す］が openai のほかの鍵まで消したか変えた');
   // Claude Code: 場所が無いファイルなら子を起こさず、入れ方の文（S1）を返す。-p は呼ばない
   for (const c of [o.claude, o.claudeTest]) {
     assert.deepStrictEqual({ ...c, message: '' }, { ok: true, found: false, cmdOnly: false, method: '', message: '' });
