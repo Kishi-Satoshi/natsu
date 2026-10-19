@@ -372,7 +372,8 @@ function stepWinZoom(dir) {
 // 書き出しの合図（第1a回 JS8・RF21）。まとめ書きの残りを全部同期で書く。投げない。受け口はどれも最初にこれを呼ぶ:
 // before-quit・will-quit・すべての窓の session-end・query-session-end・powerMonitor の suspend・lock-screen・shutdown・
 // 本体の窓の close と hide・process の exit・再起動の直前（relaunchAndExit）。名前はこのまま（テストが文字で探す）
-function flushAllWriters() { try { retryUnsavedRecovery(); } catch (_) { /* 書き直せなくても設定などの書き出しは続ける */ } return J.flushAll(); }
+// 取り消しの控えを前に書けなかったら（purgeUnsaved）ここでも書き直す（第2a1回 M-3 の点検。1行のまま: 変異 mn-recovery-rewrite が字面で当てる）
+function flushAllWriters() { try { retryUnsavedRecovery(); } catch (_) { /* 書き直せなくても設定などの書き出しは続ける */ } try { if (purgeUnsaved) savePurgePending(); } catch (_) { /* 同上 */ } return J.flushAll(); }
 // 自動更新と再起動。app.exit は before-quit・will-quit を出さないので、その前に書き出す。app.exit( はここだけ
 function relaunchAndExit() { flushAllWriters(); app.relaunch(); app.exit(0); }
 // 起動のときに、強制終了で残った JSON の一時ファイルを消す（第1a回 JS4。WAV などほかの .tmp は残す）。
@@ -2384,6 +2385,9 @@ const isPurgeShape = (v) => Boolean(v) && typeof v === 'object' && !Array.isArra
 const purgePending = new Set();
 let purgeLoaded = false;
 let purgeBusyNoted = false;
+// 控えを書けなかった（読めない・掴まれている）。ID は purgePending に持ったまま、次に控えを書くときと、終わるとき・スリープなどの
+// 書き出し（flushAllWriters）にもう一度書く（書けないまま DB も止まっていると、次の起動で取り消した会議が復旧される: RF16。M-3 の点検）
+let purgeUnsaved = false;
 function loadPurgePending() {
   if (purgeLoaded) return true;
   const r = J.loadJsonFile(purgePath(), { shape: isPurgeShape });
@@ -2396,13 +2400,18 @@ function loadPurgePending() {
   purgeLoaded = true;
   return true;
 }
+// → 書けたか。投げない
 function savePurgePending() {
-  if (!loadPurgePending()) return;
+  if (!loadPurgePending()) { purgeUnsaved = true; return false; }
   try {
     J.writeJsonFile(purgePath(), { pageIds: [...purgePending] }, { onFsyncUnsupported: noteFsyncOnce });
   } catch (e) {
     engineLog(`取り消しの控えを保存できませんでした（${errCode(e)}）`);
+    purgeUnsaved = true;
+    return false;
   }
+  purgeUnsaved = false;
+  return true;
 }
 // 取り消した会議の写しを DB から消す（meeting.discard。確定の後に DB がチェックポイントして文字を残さない: RF16）。「書けた」で控えから外す。投げない
 async function purgeMeeting(pageId) {
@@ -2472,8 +2481,9 @@ async function recoverDraftIfAny() {
       continue;
     }
     if (!Array.isArray(d.segments) || d.segments.length === 0) {
-      // 発言の無い会議はページを作らない（今どおり）。始めたときに送った写し（空）は取り消しと同じに消す（印を先に書く）
-      if (draftId) { await startPurge(draftId); }
+      // 発言の無い会議はページを作らない（今どおり）。始めたときに送った写し（空）は取り消しと同じに消す（印を先に書く。残すと meeting.settle が
+      // 空の「（復旧）」のページにする）。返事は待たない（起動を DB の用意で止めない。控えの ID は settle の keep に入り、次の起動でも送る）
+      if (draftId) startPurge(draftId).catch(() => {});   // purgeMeeting は投げない
       store.clearDraft(name);
       continue;
     }

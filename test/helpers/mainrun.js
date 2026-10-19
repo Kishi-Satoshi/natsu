@@ -105,6 +105,9 @@
 //     --kill-db-during … 最初の区間が文字起こしされて下書きに書かれ、写しとして DB に届いたら、DB の子を思わず落ちたことにする（fork.crash）。
 //                        録音は続ける（客が起こし直す）
 //     --kill-main-during … 同じ所で main ごと落ちる（process.exit(3)。結果は出さない。DB の子も一緒に止まる）
+//     --kill-main-at-begin … 録音を始めて、始めたときの写し（meeting.begin）が DB に届いたら、区間を1つも送らずに main ごと落ちる
+//                        （process.exit(3)。発言の無い下書きと空の写しが残る。M-3 の点検で足した）
+//     --purge-save-fail-once … 取り消しの控え（purge-pending.json）の最初の書き込みを1回だけ EPERM にする（ウイルス対策が掴んだ。M-3 の点検で足した）
 //     --keep-draft-after-finalize … 締めの返事（meeting.finalize の ack）の後の最初の clearDraft で、下書きの unlinkSync を1回だけ EPERM にする
 //                        （ウイルス対策が掴んだ。store.clearDraft は失敗を黙って飲むので、下書きが残る）
 //     --keep-user-data=<フォルダ> … userData をこのフォルダにし、終わっても消さない（2回の起動で同じ userData を使う）。フォルダに data/ が
@@ -166,6 +169,8 @@ const flagVal = (name) => { const f = flags.find((x) => x.startsWith(`${name}=`)
 // 第2a1回 M-3: 録音と DB のつなぎの場面
 const killDbDuring = flags.includes('--kill-db-during');
 const killMainDuring = flags.includes('--kill-main-during');
+const killMainAtBegin = flags.includes('--kill-main-at-begin');
+const purgeSaveFailOnce = flags.includes('--purge-save-fail-once');
 const keepDraftAfterFinalize = flags.includes('--keep-draft-after-finalize');
 const keepUserData = flagVal('--keep-user-data');
 const setTitleDuring = flagVal('--set-title-during');
@@ -906,6 +911,19 @@ process.on('exit', () => {
     };
     const clearDraft = realStore.clearDraft;
     let eperm = keepDraftAfterFinalize;
+    // --purge-save-fail-once: 取り消しの控えの最初の書き込み（一時ファイルを開くところ）を1回だけ EPERM にする
+    if (purgeSaveFailOnce) {
+      const open = fs.openSync;
+      let failed = false;
+      fs.openSync = function (f, ...r) {
+        if (!failed && r[0] === 'wx' && path.basename(String(f)).startsWith('purge-pending.json')) {   // 読み（readFileSync も openSync を通る）は止めない
+          failed = true;
+          trace.push({ kind: 'purgeSaveFail' });
+          throw Object.assign(new Error('EPERM: operation not permitted, open (試験)'), { code: 'EPERM' });
+        }
+        return open.call(this, f, ...r);
+      };
+    }
     realStore.clearDraft = function (name, ...a) {
       trace.push({ kind: 'clearDraft', name });
       if (!eperm || !trace.some((t) => t.kind === 'ack' && t.cmd === 'meeting.finalize')) return clearDraft.call(this, name, ...a);
@@ -1241,7 +1259,8 @@ process.on('exit', () => {
     // 復旧の文字起こしが済むのを待つ
     const recovered = () => { const p = store.listPages()[0]; return p ? store.getTranscript(p.id) : []; };
     // 下書きが片付く（復旧の頼みの返事が来た）まで待つ（第2a1回 M-3: 締め済みのページの下書きは知らせずに片付ける）
-    await waitFor(() => recovered().some((x) => !x.failed) && !draftNames().length);
+    // 上限は 15 秒（下書きが残ったときに、呼び手の見張り（25 秒）より前に結果を出して、テストの確かめの文で赤にする: M-3 の点検）
+    await waitFor(() => recovered().some((x) => !x.failed) && !draftNames().length, 15000);
     out.recovered = recovered().map((x) => ({ text: x.text, failed: Boolean(x.failed) }));
     out.pages = await Promise.all(store.listPages().map(pageOut));
     out.notices = sent.filter(([ch]) => ch === 'app:notice').map(([, p]) => p);
@@ -1311,6 +1330,11 @@ process.on('exit', () => {
     : Array.from({ length: segCount }, (_, i) => ({ buf: toneWav(i ? 2 : 3, silent ? 0 : 8000), ms: i ? 2000 : 3000 }));
   out.start = await handlers['meeting:toggle']();
   out.statusCloud = handlers['meeting:status']().cloud;   // C-3: 会議の状態の「クラウドで処理する PC か」（0.7.0 U-1 から: OpenAI の鍵があるときだけ true）
+  if (killMainAtBegin) {
+    // 始めたときの写し（下書きの pageId の行）が DB に届くまで待ち、区間を送らずに main ごと落ちる。結果は出さない
+    await waitFor(() => { const d = currentDraft(); return Boolean(d && typeof d.pageId === 'string' && peekDb((h) => h.getPage(d.pageId), null)); }, 15000);
+    process.exit(3);
+  }
   if (localOnlyFlag) {
     out.localOnly = await handlers['meeting:set-local-only']({}, true);
     const st = handlers['meeting:status']();

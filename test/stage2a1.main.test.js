@@ -262,6 +262,18 @@ test('ST6: main ごと落ちた後に下書きを失った録音の写しは、�
   assert.strictEqual(p.segments.length, 1, '写しの発言が残っていない');
 });
 
+// 点検で足した確かめ（M-3 の「発言の無い下書きは、始めたときの空の写しを取り消しと同じ道で消す」を外しても全部が緑だったため）
+test('ST6: 録音を始めた直後（発言の前）に main ごと落ちても、次の起動で空の写しを消し、空の「（復旧）」のページを作らない（0.6.0 と同じ）', { timeout: 30000 }, () => {
+  const dir = tmpUserData();
+  runMain('text', ['--kill-main-at-begin', `--keep-user-data=${dir}`], { expectExit: true });
+  const drafts = fs.readdirSync(path.join(dir, 'data')).filter((n) => /^draft.*\.json$/.test(n));
+  assert.strictEqual(drafts.length, 1, '場面の前提: 落ちた会議の下書きが1つでない');
+  assert.deepStrictEqual(JSON.parse(fs.readFileSync(path.join(dir, 'data', drafts[0]), 'utf8')).segments, [], '場面の前提: 下書きに発言がある');
+  const b = runMain('text', ['--idle', `--keep-user-data=${dir}`]);
+  assert.deepStrictEqual(b.pages, [], '発言の無い会議の空の写しが「（復旧）」のページになった');
+  assert.ok(!b.files.some((f) => /^data\/draft/.test(f)), '発言の無い下書きを片付けなかった');
+});
+
 test('RF10: DB が開けないまま締める（--db-down）→ 下書きが残り、次に DB が開ける起動でちょうど1つになる', { timeout: 30000 }, () => {
   const dir = tmpUserData();
   const a = runMain('text', ['--segs=2', '--db-down', `--keep-user-data=${dir}`]);
@@ -279,6 +291,17 @@ test('RF16: 録音中に取り消すと、写しの発言が DB のファイル�
   const dir = tmpUserData();
   const a = runMain('text', ['--segs=1', '--discard-during', '--kill-db-at-discard', '--secret-text', `--keep-user-data=${dir}`]);
   assert.strictEqual(a.secretSeen, true, '場面の前提: 秘密の語が DB に届く前に取り消した');
+  const b = runMain('text', ['--idle', `--keep-user-data=${dir}`]);
+  assert.deepStrictEqual(b.pages, [], '取り消した会議が「下書きの無い写し」として復旧された');
+  assert.strictEqual(b.dbBytesHave('秘密の語'), false);
+});
+
+// 点検で足した確かめ（取り消しの控えを書けず、DB の取り消しも返事の前に終わると、次の起動で取り消した会議が「（復旧）」のページになっていた）
+test('RF16: 取り消しの控え（purge-pending.json）を1回書けず、DB も落ちていても、終わる前に書き直し、次の起動で写しを消す', { timeout: 30000 }, () => {
+  const dir = tmpUserData();
+  const a = runMain('text', ['--segs=1', '--discard-during', '--kill-db-at-discard', '--secret-text', '--purge-save-fail-once', `--keep-user-data=${dir}`]);
+  assert.strictEqual(a.secretSeen, true, '場面の前提: 秘密の語が DB に届く前に取り消した');
+  assert.ok(a.trace.some((t) => t.kind === 'purgeSaveFail'), '場面の前提: 取り消しの控えの書き込みを失敗させていない');
   const b = runMain('text', ['--idle', `--keep-user-data=${dir}`]);
   assert.deepStrictEqual(b.pages, [], '取り消した会議が「下書きの無い写し」として復旧された');
   assert.strictEqual(b.dbBytesHave('秘密の語'), false);
