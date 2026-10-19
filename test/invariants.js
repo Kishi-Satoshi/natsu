@@ -487,13 +487,8 @@ const INVARIANTS = [
       if (!ch.length) return ['preload.js からチャンネル名が取れない（検査が空振りしている）'];
       const main = w.mainSrc;
       const v = [];
-      // 第2a1回 レーン P だけの橋: P-1（preload が DB の口 'db:port'・'db:lost' を受ける）は、main が配る M-2b より前の
-      // ブランチで作る。main.js がこの2つのどちらも書いていない間だけ、この2つを見ない（M-2b が片方でも書けば両方を見る）。
-      // M-2b の後に載せ直すときは、この commit ごと落とす（残っても、M-2b の後は何もしない）。
-      const dbPortLater = !main.includes("'db:port'") && !main.includes("'db:lost'");
       for (const [kind, name] of ch) {
         const need = kind === 'invoke' ? `ipcMain.handle('${name}'` : kind === 'send' ? `ipcMain.on('${name}'` : null;
-        if (kind === 'on' && dbPortLater && (name === 'db:port' || name === 'db:lost')) continue;
         if (kind === 'on') { if (!main.includes(`'${name}'`)) v.push(`main.js: preload が受ける '${name}' を誰も送っていない`); continue; }
         if (!main.includes(need)) v.push(`main.js: preload が呼ぶ '${name}' の ${kind === 'invoke' ? 'handle' : 'on'} が無い`);
       }
