@@ -16,6 +16,7 @@
 //   drop-first … 最初の文字起こしの要求だけ切る
 //   slow       … 1.5 秒待ってから文
 //   badjson    … 200 のまま JSON でない返事
+//   quota      … 429 と insufficient_quota（残高が無い。retry-after は付けない。第1d回 W-4 で足した: 中継はこれを 503 quota にする）
 // models（第1b回の続き Lane F-e。GET …/models の答え方。鍵が合うときだけ効く。鍵が違えばいつも 401 invalid_api_key）:
 //   ok         … 200 の一覧（既定）
 //   no-scope   … 401 と OpenAI の制限付きの鍵の文（「Missing scopes: api.model.read」。code は null）
@@ -102,6 +103,10 @@ function startFakeStt({ mode = 'text', key = 'gsk_test_0123', text = '本日の�
       if (!authOk || mode === '401') { json(res, 401, { error: { message: 'Invalid API Key', code: 'invalid_api_key' } }); return; }
       if (mode === 'drop' || (mode === 'drop-first' && n === 1)) { req.socket.destroy(); return; }
       if (mode === '429' && n <= times) { json(res, 429, { error: { message: 'Rate limit reached' } }, { 'retry-after': String(retryAfter) }); return; }
+      if (mode === 'quota') {
+        json(res, 429, { error: { message: 'You exceeded your current quota, please check your plan and billing details.', type: 'insufficient_quota', param: null, code: 'insufficient_quota' } });
+        return;
+      }
       if (mode === '429-long') { json(res, 429, { error: { message: 'Rate limit reached (per day)' } }, { 'retry-after': '3600' }); return; }
       if (mode === '500') { json(res, 500, { error: { message: 'internal' } }); return; }
       if (mode === '403' || mode === '413') { json(res, Number(mode), { error: { message: mode === '403' ? 'forbidden' : 'too large' } }); return; }

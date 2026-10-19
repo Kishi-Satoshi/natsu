@@ -1,0 +1,521 @@
+/* relay-stt.test.js — 第1d回 RL7・RF34・RF38・F3・F6・F9: 文字起こしの口 POST /v1/audio/transcriptions
+   （node --test で Worker を起こさずに呼ぶ。偽の OpenAI は test/helpers/fake-stt.js（OpenAI と同じ形）。
+    偽の D1 は文ごとに往復の間を置くので、「送る前に読む・200 の後に足す」形は同時の要求で赤になる） */
+'use strict';
+const test = require('node:test');
+const assert = require('node:assert');
+const crypto = require('node:crypto');
+const http = require('node:http');
+const R = require('./helpers/relay-run');
+const { startFakeStt } = require('./helpers/fake-stt');
+const { startFakeResend } = require('./helpers/fake-resend');
+
+// 試しの時計の始まり: UTC の 1 時ちょうど（日本の 10 時。日本の日付の替わりまで 14 時間）
+const T0 = Date.UTC(2026, 9, 19, 1, 0, 0);
+const S = 1000;
+const H = 3600 * S;
+const DAY = 24 * H;
+const TO_DAY_END = 14 * 3600;
+const KEYS = new Set(['ev', 'st', 'r', 'ms', 'sec', 'n', 'left', 'scope', 'v']);
+const STT_KEYS = new Set(['ev', 'st', 'r', 'ms', 'sec', 'scope']);
+const COUNTER_KEY = /^(?:a:u:[0-9a-f]{32}|a:all|s:e:[0-9a-f]{32}|s:d:[0-9a-f]{32}|s:ip:(?:[0-9a-f]{64}|unknown)|v:ip:(?:[0-9a-f]{64}|unknown)|mail)$/;
+const TABLES = ['meta', 'login_codes', 'sessions', 'blocked_emails', 'counters'];
+const PATH = '/v1/audio/transcriptions';
+const HINT = '見積と予算';
+const SAID = '本日の議題は進捗の確認です。';
+
+// どの場面の記録・答えの見出し・D1 の行も合わせて見る（F9・RL7）
+const ALL = { logs: [], heads: [], secrets: new Set(), results: new Set(), scenes: 0, rows: [] };
+
+const enc = encodeURIComponent;
+const rowsOf = async (db, sql, ...v) => (await db.prepare(sql).bind(...v).all()).results;
+const used = async (db, key) => Number((await rowsOf(db, 'SELECT n FROM counters WHERE key = ?1', key))[0]?.n || 0);
+const userKey = async (email) => 'a:u:' + (await (await R.load('http.mjs')).sha256hex(email)).slice(0, 32);
+
+// 16kHz・モノラル・16 ビットの WAV の頭を書き換えた写し（嘘の頭・ほかの形を作る）
+function wavWith(sec, { rate, channels, byteRate, blockAlign, bits, format, dataLen, riff } = {}) {
+  const b = Buffer.from(R.wav(sec));
+  if (riff !== undefined) b.write(riff, 0, 'ascii');
+  if (format !== undefined) b.writeUInt16LE(format, 20);
+  if (channels !== undefined) b.writeUInt16LE(channels, 22);
+  if (rate !== undefined) b.writeUInt32LE(rate, 24);
+  if (byteRate !== undefined) b.writeUInt32LE(byteRate, 28);
+  if (blockAlign !== undefined) b.writeUInt16LE(blockAlign, 32);
+  if (bits !== undefined) b.writeUInt16LE(bits, 34);
+  if (dataLen !== undefined) b.writeUInt32LE(dataLen, 40);
+  return new Uint8Array(b.buffer, b.byteOffset, b.length);
+}
+
+// 中継の場面: 偽の OpenAI（mode）と偽の Resend を 127.0.0.1 に立て、中継の env の宛先と会社の鍵を合わせる
+async function scene({ env = {}, mode = 'text', stt: sttOpts = {}, start = T0 } = {}, fn) {
+  const key = 'sk-test-' + crypto.randomBytes(12).toString('hex');
+  const stt = await startFakeStt({ mode, key, text: SAID, ...sttOpts });
+  const fr = await startFakeResend();
+  try {
+    await R.withRelay({ env: { OPENAI_API_KEY: key, OPENAI_BASE: stt.base, RESEND_BASE: fr.base, ...env }, start }, async (ctx) => {
+      const { issueSession } = await R.load('auth.mjs');
+      const { readConfig } = await R.load('config.mjs');
+      const secrets = new Set([key, ctx.env.RESEND_API_KEY, HINT, enc(HINT), SAID]);
+      const heads = [];
+      let calls = 0;
+      const api = {
+        // 札を作る（start → verify を通さずに、札を作る1か所 issueSession を呼ぶ）
+        async login(local = 'stt.user') {
+          const email = R.mail(local);
+          const s = await issueSession(ctx.env, readConfig(ctx.env), { email, now: ctx.clock.now });
+          secrets.add(email); secrets.add(s.token);
+          return { token: s.token, email };
+        },
+        // language・prompt・type は null なら、その見出しを付けない
+        async send(token, wav, { language = 'ja', prompt = HINT, headers = {}, query = '', stream = false, type = 'audio/wav' } = {}) {
+          calls += 1;
+          const h = { ...headers };
+          if (token !== undefined) h.authorization = 'Bearer ' + token;
+          if (type !== null) h['content-type'] = type;
+          if (language !== null) h['x-natsu-language'] = language;
+          if (prompt !== null) { h['x-natsu-prompt'] = enc(prompt); if (prompt.trim()) secrets.add(prompt); }
+          const res = await ctx.call('POST', PATH + query, { headers: h, body: wav, stream, ip: '192.0.2.20' });
+          const text = await res.text();
+          let body = null;
+          try { body = JSON.parse(text); } catch (_) { body = null; }
+          assert.ok(body && typeof body === 'object', '答えが JSON でない: ' + text.slice(0, 80));
+          assert.strictEqual(res.headers.get('content-type'), 'application/json; charset=utf-8');
+          assert.strictEqual(res.headers.get('cache-control'), 'no-store');
+          for (const [k, v] of res.headers) heads.push(k + ': ' + v);
+          if (res.status !== 200) {
+            const k = Object.keys(body).sort().join(',');
+            assert.ok(['error', 'error,retryAfter', 'error,retryAfter,scope'].includes(k), '失敗の答えの欄: ' + k);
+          }
+          return { status: res.status, body, headers: res.headers };
+        },
+        // send を通さずに中継を呼んだ回数（記録の行の数の照らしのため）
+        counted() { calls += 1; },
+      };
+      await fn({ ...ctx, stt, fr, key, ...api });
+      // 場面の中で落ちたときは、ここに来ない（下の照らしで元の誤りを隠さない）
+      for (const r of stt.requests) for (const v of Object.values(r.fields)) if (v.length > 4) secrets.add(v);
+      for (const t of TABLES) for (const row of await rowsOf(ctx.db, `SELECT * FROM ${t}`)) ALL.rows.push(JSON.stringify(row));
+      const parsed = ctx.logs.map((l) => JSON.parse(l));
+      for (const p of parsed) {
+        for (const k of Object.keys(p)) assert.ok(KEYS.has(k), `記録に決まりの外の欄 ${k}`);
+        if (p.ev === 'stt') {
+          for (const k of Object.keys(p)) assert.ok(STT_KEYS.has(k), `stt の記録に ${k}`);
+          ALL.results.add(p.st + ':' + p.r);
+        }
+      }
+      assert.strictEqual(parsed.filter((p) => p.ev === 'stt').length, calls, 'stt の1回に記録が1行でない');
+      const text = ctx.logs.join('\n') + '\n' + heads.join('\n');
+      for (const s of secrets) assert.ok(!text.includes(s), `記録か答えの見出しに ${s.slice(0, 12)}…`);
+      for (const { key: k } of await rowsOf(ctx.db, 'SELECT key FROM counters')) assert.match(k, COUNTER_KEY, '数えの鍵にメールか IP');
+      ALL.scenes += 1;
+      ALL.logs.push(...ctx.logs);
+      ALL.heads.push(...heads);
+      for (const s of secrets) ALL.secrets.add(s);
+    });
+  } finally {
+    await stt.close();
+    await fr.close();
+  }
+}
+
+test('RL7: ログインした札で WAV を送ると、中継は会社の鍵とモデルを付けて OpenAI の形で送り、{ text } だけを返す', { timeout: 5000 }, async () => {
+  await scene({}, async ({ login, send, stt, db }) => {
+    const a = await login();
+    const r = await send(a.token, R.wav(2));
+    assert.strictEqual(r.status, 200, JSON.stringify(r.body));
+    assert.deepStrictEqual(r.body, { text: SAID + '区間1' });
+    assert.strictEqual(stt.requests.length, 1);
+    const q = stt.requests[0];
+    assert.strictEqual(q.method, 'POST');
+    assert.strictEqual(q.path, '/openai/v1/audio/transcriptions');
+    assert.strictEqual(q.authOk, true, 'Authorization が Bearer <会社の鍵> でない・ほかの見出しに鍵');
+    assert.deepStrictEqual(q.fields, { model: 'gpt-4o-transcribe', language: 'ja', prompt: HINT, response_format: 'json', temperature: '0' });
+    assert.strictEqual(q.wavOk, true);
+    assert.strictEqual(q.fileName, 'segment.wav');
+    assert.strictEqual(q.fileType, 'audio/wav');
+    // 秒は 200 の区間だけ数える（1人と全体）
+    assert.strictEqual(await used(db, await userKey(a.email)), 2);
+    assert.strictEqual(await used(db, 'a:all'), 2);
+    // ヒントと言語が無ければ、その欄を送らない（言語は自動）
+    const b = await send(a.token, R.wav(1), { language: null, prompt: null });
+    assert.strictEqual(b.status, 200);
+    assert.deepStrictEqual(stt.requests[1].fields, { model: 'gpt-4o-transcribe', response_format: 'json', temperature: '0' });
+    // Content-Type の後ろに付けた値は受ける（audio/wav で始まる）
+    assert.strictEqual((await send(a.token, R.wav(1), { type: 'audio/wav; codecs=1' })).status, 200);
+  });
+});
+
+test('RF34: 客はモデルも欄も差し込めない（見出し・問い合わせの文字・言語の見出しの混ぜ物）。STT_MODEL ならそれ', { timeout: 5000 }, async () => {
+  await scene({}, async ({ login, send, stt }) => {
+    const a = await login();
+    const tries = [
+      { headers: { 'x-natsu-model': 'whisper-1', 'x-natsu-response-format': 'verbose_json', 'x-natsu-temperature': '1' } },
+      { query: '?model=whisper-1&response_format=verbose_json' },
+      // 見出しに改行は入れられない（Headers が断る）ので、区切りの文字と空白で混ぜる
+      { language: 'ja; model=whisper-1' },
+      { language: 'ja model' },
+      { language: 'ja,en' },
+      { language: 'JA' },
+      { language: 'japanese' },
+      { language: 'en' },
+    ];
+    for (const t of tries) assert.strictEqual((await send(a.token, R.wav(1), t)).status, 200, JSON.stringify(t));
+    assert.strictEqual(stt.requests.length, tries.length);
+    const langs = stt.requests.map((q) => q.fields.language);
+    assert.deepStrictEqual(langs, ['ja', 'ja', undefined, undefined, undefined, undefined, undefined, 'en']);
+    for (const q of stt.requests) {
+      assert.strictEqual(q.fields.model, 'gpt-4o-transcribe');
+      assert.strictEqual(q.fields.response_format, 'json');
+      assert.strictEqual(q.fields.temperature, '0');
+      assert.deepStrictEqual(Object.keys(q.fields).filter((k) => !['model', 'language', 'prompt', 'response_format', 'temperature'].includes(k)), []);
+    }
+  });
+  await scene({ env: { STT_MODEL: 'gpt-4o-mini-transcribe' } }, async ({ login, send, stt }) => {
+    const a = await login();
+    assert.strictEqual((await send(a.token, R.wav(1), { headers: { 'x-natsu-model': 'whisper-1' } })).status, 200);
+    assert.strictEqual(stt.requests[0].fields.model, 'gpt-4o-mini-transcribe');
+  });
+});
+
+test('RL7: 札が無い・違う・切れた・取り消した・止めたメール → 401 login、OpenAI へは1回も送らない・秒も数えない', { timeout: 5000 }, async () => {
+  await scene({}, async ({ login, send, stt, db, clock, call }) => {
+    const a = await login('gone.user');
+    const b = await login('logout.user');
+    const c = await login('blocked.user');
+    const cases = [
+      [undefined, '札が無い'],
+      ['nt1_' + 'A'.repeat(43), '違う札'],
+      [a.token.slice(0, -1) + (a.token.endsWith('A') ? 'B' : 'A'), '1字違う札'],
+    ];
+    for (const [token, why] of cases) {
+      const r = await send(token, R.wav(1));
+      assert.strictEqual(r.status, 401, why);
+      assert.deepStrictEqual(r.body, { error: 'login' }, why);
+    }
+    assert.strictEqual((await call('POST', '/auth/logout', { headers: { authorization: 'Bearer ' + b.token } })).status, 200);
+    assert.deepStrictEqual((await send(b.token, R.wav(1))).body, { error: 'login' }, '取り消した札');
+    await db.prepare('INSERT INTO blocked_emails (email, at) VALUES (?1, ?2)').bind(c.email, 1).run();
+    assert.deepStrictEqual((await send(c.token, R.wav(1))).body, { error: 'login' }, '止めたメール');
+    clock.advance(31 * DAY);
+    assert.deepStrictEqual((await send(a.token, R.wav(1))).body, { error: 'login' }, '使わずに 30 日で切れた札');
+    assert.strictEqual(stt.requests.length, 0, 'OpenAI へ送った');
+    assert.deepStrictEqual(await rowsOf(db, "SELECT key FROM counters WHERE key LIKE 'a:%'"), []);
+  });
+});
+
+test('RF34: 大きさの上限は読みながら 413（Content-Length の無い本文でも）。WAV でない・アプリの録音の形でない WAV は 415。どれも OpenAI へ送らない', { timeout: 5000 }, async () => {
+  await scene({ env: { MAX_AUDIO_BYTES: String(44 + 3 * 32000) } }, async ({ login, send, stt, db }) => {
+    const a = await login();
+    assert.strictEqual((await send(a.token, R.wav(3))).status, 200, 'ちょうど上限は通る');
+    for (const stream of [false, true]) {
+      const r = await send(a.token, R.wav(3.5), { stream });
+      assert.strictEqual(r.status, 413, 'stream ' + stream);
+      assert.deepStrictEqual(r.body, { error: 'too-large' });
+    }
+    // 中継の上限は既定（25MB − 4KB）より上げられない
+    const bad = [
+      [new TextEncoder().encode('これは音声ではない'), 'WAV でない'],
+      [new Uint8Array(0), '空'],
+      [R.wav(0), 'data が空'],
+      [wavWith(1, { riff: 'RIFX' }), 'RIFF でない'],
+      [wavWith(1, { rate: 48000, byteRate: 96000 }), '48kHz'],
+      [wavWith(1, { channels: 2, byteRate: 64000, blockAlign: 4 }), 'ステレオ'],
+      [wavWith(1, { byteRate: 64000 }), 'byteRate だけを大きく書いた嘘の頭'],
+      [wavWith(1, { bits: 8, blockAlign: 1, byteRate: 16000 }), '8 ビット'],
+      [wavWith(1, { format: 3 }), 'PCM でない（浮動小数）'],
+      [R.wav(1).slice(0, 40), '頭が途中で切れた'],
+    ];
+    for (const [wav, why] of bad) {
+      const r = await send(a.token, wav);
+      assert.strictEqual(r.status, 415, why);
+      assert.deepStrictEqual(r.body, { error: 'not-wav' }, why);
+    }
+    for (const type of ['application/octet-stream', 'multipart/form-data; boundary=x', 'audio/mpeg', null]) {
+      const r = await send(a.token, R.wav(1), { type });
+      assert.strictEqual(r.status, 415, String(type));
+      assert.deepStrictEqual(r.body, { error: 'not-wav' });
+    }
+    assert.strictEqual(stt.requests.length, 1, 'OpenAI へ送った');
+    assert.strictEqual(await used(db, 'a:all'), 3);
+  });
+  const { readConfig } = await R.load('config.mjs');
+  assert.strictEqual(readConfig({ MAX_AUDIO_BYTES: String(100 * 1024 * 1024) }).maxAudioBytes, 25 * 1024 * 1024 - 4096);
+});
+
+test('RF34: 秒は届いたバイト数で数える（WAV の頭の data の長さの嘘で減らせない・切り上げ）', { timeout: 5000 }, async () => {
+  const { wavInfo } = await R.load('stt.mjs');
+  assert.deepStrictEqual(wavInfo(R.wav(10)), { ok: true, dataBytes: 320000, sec: 10 });
+  assert.deepStrictEqual(wavInfo(wavWith(10, { dataLen: 3600 * 32000 })), { ok: true, dataBytes: 320000, sec: 10 });
+  assert.deepStrictEqual(wavInfo(wavWith(10, { dataLen: 0 })), { ok: true, dataBytes: 320000, sec: 10 });
+  assert.deepStrictEqual(wavInfo(wavWith(10, { dataLen: 32000 })), { ok: true, dataBytes: 320000, sec: 10 });
+  assert.deepStrictEqual(wavInfo(R.wav(0.01)), { ok: true, dataBytes: 320, sec: 1 });
+  assert.deepStrictEqual(wavInfo(R.wav(10.5)), { ok: true, dataBytes: 336000, sec: 11 });
+  assert.strictEqual(wavInfo(wavWith(1, { rate: 8000, byteRate: 16000 })).ok, false);
+  await scene({}, async ({ login, send, db, logs }) => {
+    const a = await login();
+    assert.strictEqual((await send(a.token, wavWith(10, { dataLen: 3600 * 32000 }))).status, 200);
+    assert.strictEqual(await used(db, 'a:all'), 10, 'data の長さを 1 時間と書いた 10 秒');
+    assert.strictEqual((await send(a.token, wavWith(10, { dataLen: 0 }))).status, 200);
+    assert.strictEqual(await used(db, 'a:all'), 20, 'data の長さを 0 と書いた 10 秒');
+    assert.strictEqual(await used(db, await userKey(a.email)), 20);
+    const secs = logs.map((l) => JSON.parse(l)).filter((p) => p.ev === 'stt').map((p) => p.sec);
+    assert.deepStrictEqual(secs, [10, 10]);
+  });
+});
+
+test('RF34: 同時の要求でも1日の上限を越えない（1人の秒・全体の秒。送る前に取り置く）', { timeout: 5000 }, async () => {
+  await scene({ env: { DAILY_USER_SEC: '100' } }, async ({ login, send, stt, db }) => {
+    const a = await login();
+    const rs = await Promise.all(Array.from({ length: 5 }, () => send(a.token, R.wav(60))));
+    const ok = rs.filter((r) => r.status === 200);
+    assert.strictEqual(ok.length, 1, rs.map((r) => r.status).join(','));
+    for (const r of rs.filter((x) => x.status !== 200)) {
+      assert.strictEqual(r.status, 429);
+      assert.deepStrictEqual(r.body, { error: 'daily-cap', scope: 'user', retryAfter: TO_DAY_END });
+    }
+    assert.strictEqual(stt.requests.length, 1, '偽の OpenAI に届いた数');
+    assert.strictEqual(await used(db, await userKey(a.email)), 60, '断った分の秒が残っている');
+    assert.strictEqual(await used(db, 'a:all'), 60);
+  });
+  await scene({ env: { DAILY_ALL_SEC: '100' } }, async ({ login, send, stt, db }) => {
+    const people = await Promise.all(Array.from({ length: 5 }, (_, i) => login('all.user' + i)));
+    const rs = await Promise.all(people.map((p) => send(p.token, R.wav(60))));
+    assert.strictEqual(rs.filter((r) => r.status === 200).length, 1, rs.map((r) => r.status).join(','));
+    for (const r of rs.filter((x) => x.status !== 200)) {
+      assert.strictEqual(r.status, 429);
+      assert.deepStrictEqual(r.body, { error: 'daily-cap', scope: 'all', retryAfter: TO_DAY_END });
+    }
+    assert.strictEqual(stt.requests.length, 1);
+    assert.strictEqual(await used(db, 'a:all'), 60);
+  });
+});
+
+test('RF34: 1日の上限（1人・全体）は 429 daily-cap と日本の日付の替わりまでの retryAfter。数えるのは 200 の区間だけ。日が替われば通る', { timeout: 5000 }, async () => {
+  await scene({ env: { DAILY_USER_SEC: '100', DAILY_ALL_SEC: '150' } }, async ({ login, send, stt, db, env, clock, key }) => {
+    const fails = await Promise.all(['401', '429', '500', 'drop'].map((mode) => startFakeStt({ mode, key, retryAfter: '3' })));
+    try {
+      const a = await login('cap.user');
+      const b = await login('cap.other');
+      // 失敗の区間（偽の OpenAI が 401・429・500・切れた）は秒を数えない
+      for (const f of fails) {
+        env.OPENAI_BASE = f.base;
+        const r = await send(a.token, R.wav(60));
+        assert.notStrictEqual(r.status, 200, f.base);
+      }
+      assert.ok(fails.every((f) => f.requests.length === 1), '失敗の偽物に届いていない');
+      assert.strictEqual(await used(db, await userKey(a.email)), 0, '失敗の区間の秒を数えた');
+      assert.strictEqual(await used(db, 'a:all'), 0);
+      env.OPENAI_BASE = stt.base;
+      assert.strictEqual((await send(a.token, R.wav(60))).status, 200);
+      assert.strictEqual((await send(a.token, R.wav(40))).status, 200, 'ちょうど 100 秒は通る');
+      const r = await send(a.token, R.wav(1));
+      assert.strictEqual(r.status, 429);
+      assert.deepStrictEqual(r.body, { error: 'daily-cap', scope: 'user', retryAfter: TO_DAY_END });
+      assert.strictEqual(r.headers.get('retry-after'), String(TO_DAY_END));
+      // 全体: ほかの人は 50 秒まで（150 − 100）
+      assert.strictEqual((await send(b.token, R.wav(50))).status, 200);
+      const c = await send(b.token, R.wav(1));
+      assert.deepStrictEqual(c.body, { error: 'daily-cap', scope: 'all', retryAfter: TO_DAY_END });
+      assert.strictEqual(stt.requests.length, 3, '上限の後に OpenAI へ送った');
+      assert.strictEqual(await used(db, 'a:all'), 150);
+      // 日本の日付の替わり（UTC の 15 時）の 1 秒前はまだ止まり、替われば通る
+      clock.advance((TO_DAY_END - 1) * S);
+      assert.deepStrictEqual((await send(a.token, R.wav(1))).body, { error: 'daily-cap', scope: 'user', retryAfter: 1 });
+      clock.advance(1 * S);
+      assert.strictEqual((await send(a.token, R.wav(30))).status, 200, '日が替わっても通らない');
+      assert.strictEqual(await used(db, await userKey(a.email)), 30);
+      assert.strictEqual(await used(db, 'a:all'), 30);
+    } finally {
+      await Promise.all(fails.map((f) => f.close()));
+    }
+  });
+});
+
+test('RF34: もう上限に達していれば、本文を読まずに 429（25MB を読ませて CPU を使わせない）', { timeout: 5000 }, async () => {
+  await scene({ env: { DAILY_USER_SEC: '10' } }, async ({ login, send, env, clock, ctx, counted }) => {
+    const a = await login();
+    assert.strictEqual((await send(a.token, R.wav(10))).status, 200);
+    const { makeHandler } = await R.load('worker.mjs');
+    let pulled = 0;
+    const body = new ReadableStream({ pull(c) { pulled += 1; c.enqueue(R.wav(1)); c.close(); } }, { highWaterMark: 0 });
+    const req = new Request('https://relay.test' + PATH, {
+      method: 'POST', body, duplex: 'half',
+      headers: { authorization: 'Bearer ' + a.token, 'content-type': 'audio/wav', 'x-natsu-language': 'ja' },
+    });
+    counted();
+    const res = await makeHandler({ now: clock.now }).fetch(req, env, ctx);
+    assert.strictEqual(res.status, 429);
+    assert.deepStrictEqual(await res.json(), { error: 'daily-cap', scope: 'user', retryAfter: TO_DAY_END });
+    assert.strictEqual(pulled, 0, '上限の後に本文を読んだ');
+  });
+});
+
+test('RL7: 答えの分け方（OpenAI の 429 の retry-after をそのまま・鍵の誤りは 502 upstream-auth で中継の 401 と分ける・残高切れは 503 quota）', { timeout: 5000 }, async () => {
+  const table = [
+    [{ mode: '429', retryAfter: '7', times: 99 }, 429, { error: 'busy', retryAfter: 7 }, '7'],
+    [{ mode: '429', retryAfter: '', times: 99 }, 429, { error: 'busy', retryAfter: 2 }, '2'],
+    [{ mode: '429', retryAfter: 'Wed, 21 Oct 2026 07:28:00 GMT', times: 99 }, 429, { error: 'busy', retryAfter: 2 }, '2'],
+    [{ mode: '429-long' }, 429, { error: 'busy', retryAfter: 3600 }, '3600'],
+    [{ mode: 'quota' }, 503, { error: 'quota' }],
+    [{ mode: '401' }, 502, { error: 'upstream-auth' }],
+    [{ mode: '403' }, 502, { error: 'upstream-auth' }],
+    [{ mode: '500' }, 502, { error: 'upstream' }],
+    [{ mode: 'drop' }, 502, { error: 'upstream' }],
+    [{ mode: 'badjson' }, 502, { error: 'upstream' }],
+    [{ mode: '400-prompt' }, 400, { error: 'bad-request' }],
+    [{ mode: '400' }, 400, { error: 'bad-request' }],
+    [{ mode: '413' }, 413, { error: 'too-large' }],
+  ];
+  const wrongKey = await startFakeStt({ key: 'sk-test-other' });
+  try {
+    await scene({}, async ({ login, send, env, db, key }) => {
+      const a = await login();
+      for (let i = 0; i < table.length; i++) {
+        // 偽物の鍵を中継の鍵に合わせる（401 の行のほかは鍵が合う）
+        const f = await startFakeStt({ key, ...table[i][0] });
+        try {
+          env.OPENAI_BASE = f.base;
+          const r = await send(a.token, R.wav(2));
+          assert.strictEqual(r.status, table[i][1], JSON.stringify(table[i][0]) + ' ' + JSON.stringify(r.body));
+          assert.deepStrictEqual(r.body, table[i][2], JSON.stringify(table[i][0]));
+          assert.strictEqual(r.headers.get('retry-after'), table[i][3] === undefined ? null : table[i][3], JSON.stringify(table[i][0]));
+          assert.strictEqual(f.requests.length, 1);
+        } finally { await f.close(); }
+      }
+      // 400-prompt でもヒントが無ければ文字（アプリはヒントを外して送り直す: F15）
+      const f = await startFakeStt({ key, mode: '400-prompt' });
+      try {
+        env.OPENAI_BASE = f.base;
+        assert.strictEqual((await send(a.token, R.wav(2), { prompt: null })).status, 200);
+      } finally { await f.close(); }
+      assert.strictEqual(await used(db, 'a:all'), 2, '失敗の区間の秒を数えた');
+      // 偽物の鍵が違えば（会社の鍵を OpenAI が断った）upstream-auth
+      env.OPENAI_BASE = wrongKey.base;
+      assert.deepStrictEqual((await send(a.token, R.wav(1))).body, { error: 'upstream-auth' });
+    });
+  } finally {
+    await wrongKey.close();
+  }
+});
+
+test('RL7: 秘密がそろわなければ 503 not-ready・方法が違えば 405・ヒントの見出しが大きい／戻せなければ 400', { timeout: 5000 }, async () => {
+  await scene({ env: { OPENAI_API_KEY: undefined } }, async ({ login, send, stt }) => {
+    const a = await login();
+    const r = await send(a.token, R.wav(1));
+    assert.strictEqual(r.status, 503);
+    assert.deepStrictEqual(r.body, { error: 'not-ready' });
+    assert.strictEqual(stt.requests.length, 0);
+  });
+  await scene({}, async ({ login, send, stt, call }) => {
+    const a = await login();
+    const g = await call('GET', PATH, { headers: { authorization: 'Bearer ' + a.token } });
+    assert.strictEqual(g.status, 405);
+    assert.deepStrictEqual(await g.json(), { error: 'method' });
+    // 見出しの文字のまま 9,000 バイトまで・戻して 1,000 字まで（「見」は戻す前の 9 バイト）
+    assert.strictEqual((await send(a.token, R.wav(1), { prompt: '見'.repeat(1000) })).status, 200, '1,000 字・9,000 バイト');
+    const bad = [
+      [{ prompt: '見'.repeat(1001) }, '9,009 バイト'],
+      [{ prompt: 'a'.repeat(1001) }, '1,001 字'],
+      [{ prompt: null, headers: { 'x-natsu-prompt': '%E8%A6%8' } }, '戻せない'],
+      [{ prompt: null, headers: { 'x-natsu-prompt': '%' } }, '戻せない %'],
+    ];
+    for (const [o, why] of bad) {
+      const r = await send(a.token, R.wav(1), o);
+      assert.strictEqual(r.status, 400, why);
+      assert.deepStrictEqual(r.body, { error: 'bad-request' }, why);
+    }
+    assert.strictEqual(stt.requests.length, 1);
+    assert.strictEqual(stt.requests[0].fields.prompt, '見'.repeat(1000));
+    // 絵文字や 𠮷 も UTF-8 のまま OpenAI へ
+    assert.strictEqual((await send(a.token, R.wav(1), { prompt: '𠮷野の議事録' })).status, 200);
+    assert.strictEqual(stt.requests[1].fields.prompt, '𠮷野の議事録');
+  });
+});
+
+test('RF38: OpenAI の鍵を OpenAI のほかへは送らない（OPENAI_BASE が 127.0.0.1 の形でなければ本物の固定の URL・転送について行かない・偽の Resend の見出しにも鍵が無い）', { timeout: 5000 }, async () => {
+  for (const base of ['https://127.0.0.1:9/v1', 'http://192.0.2.1:8080/v1', 'http://127.0.0.1.example.org:80/v1', 'http://localhost:8080/v1', '']) {
+    await scene({ env: { OPENAI_BASE: base } }, async ({ login, send, stt, db, key }) => {
+      const a = await login();
+      const seen = [];
+      const inner = globalThis.fetch;
+      globalThis.fetch = (input, init) => {
+        const u = typeof input === 'string' ? input : input.url;
+        const h = new Headers(init && init.headers);
+        seen.push({ url: u, auth: h.get('authorization') });
+        return inner(input, init);
+      };
+      let r;
+      try { r = await send(a.token, R.wav(1)); } finally { globalThis.fetch = inner; }
+      assert.strictEqual(r.status, 502, base);
+      assert.deepStrictEqual(r.body, { error: 'upstream' });
+      assert.deepStrictEqual(seen, [{ url: 'https://api.openai.com/v1/audio/transcriptions', auth: 'Bearer ' + key }], base);
+      assert.strictEqual(stt.requests.length, 0);
+      assert.strictEqual(await used(db, 'a:all'), 0);
+    });
+  }
+  // OpenAI の宛先が転送（307）を返しても、ついて行かない（鍵と音声を転送の先へ運ばない）。
+  // Node の fetch はバイトの本文を転送の先へ送り直せずに投げるので、答えだけでは redirect: 'error' の有無が見えない。
+  // だから fetch に渡した redirect も見る（Workers の fetch は転送について行く）
+  await scene({}, async ({ login, send, stt, env, db }) => {
+    const modes = [];
+    const inner = globalThis.fetch;
+    globalThis.fetch = (input, init) => { modes.push(init && init.redirect); return inner(input, init); };
+    const hops = [];
+    const redirector = http.createServer((req, res) => {
+      hops.push(req.url);
+      req.resume();
+      req.on('end', () => { res.writeHead(307, { location: stt.base + '/audio/transcriptions' }); res.end(); });
+    });
+    await new Promise((r) => redirector.listen(0, '127.0.0.1', r));
+    try {
+      env.OPENAI_BASE = `http://127.0.0.1:${redirector.address().port}/v1`;
+      const a = await login();
+      const r = await send(a.token, R.wav(1));
+      assert.strictEqual(r.status, 502);
+      assert.deepStrictEqual(r.body, { error: 'upstream' });
+      assert.deepStrictEqual(hops, ['/v1/audio/transcriptions']);
+      assert.strictEqual(stt.requests.length, 0, '転送の先へ送った');
+      assert.strictEqual(await used(db, 'a:all'), 0);
+      assert.deepStrictEqual(modes, ['error'], '転送について行く fetch');
+    } finally {
+      globalThis.fetch = inner;
+      await new Promise((r) => { redirector.close(() => r()); redirector.closeAllConnections(); });
+    }
+  });
+  await scene({}, async ({ fr, call, key }) => {
+    assert.strictEqual((await call('POST', '/auth/start', { body: { email: R.mail('mail.user') }, ip: '192.0.2.30' })).status, 200);
+    assert.strictEqual(fr.mails.length, 1);
+    assert.ok(!JSON.stringify(fr.mails).includes(key), '偽の Resend に会社の OpenAI の鍵');
+  });
+});
+
+test('limits: 日の番号・日の替わりまでの秒は日本の日付（DAY_OFFSET_MIN）で数える', { timeout: 5000 }, async () => {
+  const L = await R.load('limits.mjs');
+  const t = T0 / 1000;
+  assert.strictEqual(L.secondsToDayEnd(t, 540), TO_DAY_END);
+  assert.strictEqual(L.secondsToDayEnd(t, 0), 23 * 3600);
+  assert.strictEqual(L.dayNumber(t, 540), L.dayNumber(t + TO_DAY_END - 1, 540));
+  assert.strictEqual(L.dayNumber(t + TO_DAY_END, 540), L.dayNumber(t, 540) + 1);
+  assert.strictEqual(L.secondsToDayEnd(t + TO_DAY_END, 540), 86400);
+  assert.strictEqual(L.secondsToDayEnd(t + TO_DAY_END - 1, 540), 1);
+});
+
+test('F9・RL7: 記録は { ev: stt, st, r, ms, sec } の形だけで、ヒント・文字・札・メール・鍵が無い。D1 のどの行にもヒントと文字が無い（上の全部の場面を合わせて）', { timeout: 5000 }, () => {
+  assert.ok(ALL.scenes >= 14, `場面が少ない（${ALL.scenes}）。このテストはファイルの最後に置く`);
+  for (const r of ['200:ok', '401:login', '413:too-large', '415:not-wav', '429:daily-cap', '429:busy', '502:upstream-auth', '502:upstream',
+    '503:quota', '503:not-ready', '400:bad-request']) {
+    assert.ok(ALL.results.has(r), `記録に ${r} の行が無い`);
+  }
+  for (const l of ALL.logs.map((x) => JSON.parse(x)).filter((p) => p.ev === 'stt')) {
+    assert.ok(Number.isInteger(l.st) && typeof l.r === 'string' && Number.isFinite(l.ms) && Number.isInteger(l.sec), JSON.stringify(l));
+  }
+  const text = ALL.logs.join('\n') + '\n' + ALL.heads.join('\n');
+  for (const s of ALL.secrets) assert.ok(!text.includes(s), `記録・見出しに ${s.slice(0, 12)}…`);
+  assert.ok(!/example\./i.test(text), '記録・見出しにドメイン');
+  assert.ok(!/区間|議題|見積|𠮷/.test(text), '記録・見出しに文字かヒント');
+  const rows = ALL.rows.join('\n');
+  assert.ok(ALL.rows.length > 20, `D1 の行が少ない（${ALL.rows.length}）`);
+  assert.ok(!/区間|議題|見積|予算|𠮷/.test(rows), 'D1 の行に文字かヒント');
+  // メールは sessions の行にある（札の持ち主）。ほかの秘密（札・鍵・ヒント・文字）は D1 のどの行にも無い
+  for (const s of ALL.secrets) if (!s.includes(String.fromCharCode(64))) assert.ok(!rows.includes(s), `D1 の行に ${s.slice(0, 12)}…`);
+});

@@ -6,12 +6,14 @@
 //   GET /health → 200 { ok: true, relay: 1, ready: { db, openai, mail, domains } }（秘密があるか・D1 の表があるかだけ。値は出さない）
 //   POST /auth/start → auth.mjs の handleStart（W-2。確認コードを頼む）
 //   POST /auth/verify・POST /auth/logout・GET /auth/me → auth.mjs の handleVerify・handleLogout・handleMe（W-3。札）
+//   POST /v1/audio/transcriptions → stt.mjs の handleTranscribe（W-4。ログインした札で WAV を送り、文字だけを返す）
 
 import { json } from './http.mjs';
 import { readConfig } from './config.mjs';
 import { logEvent } from './log.mjs';
 import { SCHEMA_VERSION } from './schema.mjs';
 import { handleStart, handleVerify, handleLogout, handleMe } from './auth.mjs';
+import { handleTranscribe } from './stt.mjs';
 
 async function health(request, env, { cfg }) {
   let db = false;
@@ -31,6 +33,7 @@ const ROUTES = new Map([
   ['/auth/verify', { POST: handleVerify }],
   ['/auth/logout', { POST: handleLogout }],
   ['/auth/me', { GET: handleMe }],
+  ['/v1/audio/transcriptions', { POST: handleTranscribe }],
 ]);
 
 export function makeHandler({ now = () => Date.now() } = {}) {
