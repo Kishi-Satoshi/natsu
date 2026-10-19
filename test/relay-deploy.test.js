@@ -45,10 +45,10 @@ async function fakeCf({ token, acct, subdomain = 'team-a', dbExists = false, scr
       st.reqs.push({ method: req.method, path: (p + u.search).split(acct).join(':acct'), auth: req.headers.authorization || '', body: raw.toString('latin1') });
       try {
         if (fail && fail.method === req.method && fail.re.test(p)) {
-          return send(res, 403, { success: false, errors: [{ code: 10000, message: `Authentication error ${token} ${acct} body-mark-zz` }], result: null });
+          return send(res, 403, { success: false, errors: [{ code: 10000, message: `Authentication error ${token} ${acct} body-mark-zz` }], messages: [`body-mark-zz ${token}`], result: { note: `body-mark-zz ${acct}` } });
         }
         if (p === '/relay/health' && req.method === 'GET') {
-          if (health === '503') return send(res, 503, { error: 'unavailable' });
+          if (health === '503') return send(res, 503, { ok: true, relay: 1, ready: READY_ALL });   // 本文が整っていても 200 でなければ数えない
           const ready = health === 'partial' ? { db: true, openai: false, mail: false, domains: false }
             : health === 'no-db' ? { ...READY_ALL, db: false } : READY_ALL;
           return send(res, 200, { ok: true, relay: 1, ready });
@@ -271,7 +271,8 @@ test('RF38: 試しの宛先（CF_API_BASE・RELAY_HEALTH_BASE）は 127.0.0.1 �
   const s = secrets();
   const cf = await fakeCf(s);
   try {
-    for (const v of ['https://evil.example/client/v4', 'http://localhost:1/client/v4', 'http://127.0.0.1.example.com:1/x']) {
+    for (const v of ['https://evil.example/client/v4', 'http://localhost:1/client/v4', 'http://127.0.0.1.example.com:1/x',
+      'http://evil.example:8443/client/v4', 'http://localhost:4010/client/v4', 'http://' + R.mail('127.0.0.1:4010', 'evil.example:80') + '/client/v4']) {
       const r = await runDeploy(cf, { ...s, env: { CF_API_BASE: v } });
       assert.strictEqual(r.code, 1, v);
       assert.deepStrictEqual(r.tried.map((u) => new URL(u).origin), ['https://api.cloudflare.com'], v);
@@ -279,6 +280,14 @@ test('RF38: 試しの宛先（CF_API_BASE・RELAY_HEALTH_BASE）は 127.0.0.1 �
       assert.match(r.text, /届きません/);
     }
     assert.deepStrictEqual(cf.st.reqs, []);
+    // /health の試しの宛先も同じ。127.0.0.1 の形でなければ、本物の workers.dev の住所を見る
+    for (const v of ['http://evil.example:8443/relay', 'http://localhost:4010/relay']) {
+      const r = await runDeploy(cf, { ...s, env: { RELAY_HEALTH_BASE: v } });
+      assert.strictEqual(r.code, 1, v);
+      const health = r.tried.filter((u) => /\/health$/.test(u));
+      assert.strictEqual(health.length, 12, v);
+      assert.ok(health.every((u) => u === 'https://natsu-relay.team-a.workers.dev/health'), health[0]);
+    }
   } finally { await cf.close(); }
 });
 
