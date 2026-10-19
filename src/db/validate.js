@@ -1,0 +1,191 @@
+/*
+ * validate.js — 議事録の DB の命令の引数を照らす（第2a1回 ST4。純粋。第15回の MCP の道具と後の shared/api-schema.js でも使う）
+ *
+ * checkArgs(spec, args) は、命令の表の1行の args（spec）に照らして、引数の形・ID の形・長さ・件数・1つの頼みの大きさ・
+ * attrs の決まった名前・rich の飾りとリンクを見る。spec は { 引数の名前: 型 }。型の名前の末尾に '?' があれば無くてよい。
+ * 型は下の TYPES の名前か、(値) → 真偽 の関数。spec に無い引数は断る（知らない欄を黙って通さない）。
+ * 通れば { ok: true, args }（ブロックは normalizeBlock で rich から text を作り直した写し）、だめなら { ok: false, field }。
+ * field は引数の名前だけ（値やパスは入れない）。
+ */
+'use strict';
+
+const ID_RE = /^[A-Za-z0-9_-]{1,64}$/;      // 今の ID（p…・b…・s<n>・テストの p1）を全部通し、区切り・点・空白は通さない
+const TX_RE = /^[A-Za-z0-9:_.-]{8,120}$/;
+// 件数・1つの頼みの大きさ・文字の長さ。segments は計画の 500 から 5000 に変えた（区間の長さは最短 20 秒なので、500 では
+// 2 時間 46 分より長い会議の締め・復旧が DB に入らない。大きさは 1MB の上限が別に押さえる）
+const LIMITS = { blocks: 2000, segments: 5000, bytes: 1024 * 1024, text: 100000, title: 500 };
+const RESERVED_BLOCK = ['id', 'type', 'text', 'rich', 'children'];
+const RESERVED_PAGE = ['id', 'title', 'blocks', 'createdAt', 'updatedAt', 'children', 'type', 'text', 'rich'];
+const RESERVED_SEG = ['id', 'atMs', 'durationMs', 'text', 'failed'];
+const RICH_MARKS = ['b', 'i', 'u', 's', 'code', 'color', 'bg', 'link'];   // 2b の飾り（2a1 では照らしだけ）
+const LINK_RE = /^(https?:\/\/|mailto:|natsu:\/\/)/i;
+const NAME_RE = /^[A-Za-z0-9_-]{1,64}$/;   // ブロックの型・会議の種類の名前（知らない型も通す。2a2 で増える）
+const SHORT = 500;                          // 担当・期限の文字・検索の語などの短い文字
+
+const isObj = (v) => Boolean(v) && typeof v === 'object' && !Array.isArray(v) &&
+  (Object.getPrototypeOf(v) === Object.prototype || Object.getPrototypeOf(v) === null);
+const isStr = (v, max) => typeof v === 'string' && v.length <= max;
+
+function bad(why) { const e = new Error(why); e.code = 'bad-args'; return e; }
+
+// [{t, m}] → 素の文字。m の1つは飾りの名前か [名前, 値]。知らない飾り・http(s)/mailto/natsu 以外のリンクは投げる
+function richText(rich) {
+  if (!Array.isArray(rich)) throw bad('rich');
+  let out = '';
+  for (const run of rich) {
+    if (!isObj(run) || typeof run.t !== 'string') throw bad('rich');
+    const marks = run.m === undefined ? [] : run.m;
+    if (!Array.isArray(marks)) throw bad('rich');
+    for (const mk of marks) {
+      const name = Array.isArray(mk) ? mk[0] : mk;
+      if (typeof name !== 'string' || !RICH_MARKS.includes(name)) throw bad('rich mark');
+      if (name === 'link') {
+        if (!Array.isArray(mk) || typeof mk[1] !== 'string' || mk[1].length > 2048 || !LINK_RE.test(mk[1])) throw bad('rich link');
+      } else if (Array.isArray(mk) && (mk.length !== 2 || typeof mk[1] !== 'string' || mk[1].length > 64)) throw bad('rich mark');
+    }
+    out += run.t;
+  }
+  if (out.length > LIMITS.text) throw bad('rich');
+  return out;
+}
+
+// rich があれば text を richText(rich) で作り直す（食い違ったまま保存しない）
+function normalizeBlock(b) {
+  if (!isObj(b)) return b;
+  if (!Array.isArray(b.rich)) return { ...b };
+  return { ...b, text: richText(b.rich) };
+}
+
+// attrs を明示した形（{ …, attrs: {…} }）で、決まった名前を attrs に入れようとしていないか
+function attrsOk(v, reserved) {
+  if (!Object.hasOwn(v, 'attrs')) return true;
+  if (!isObj(v.attrs)) return false;
+  return !Object.keys(v.attrs).some((k) => reserved.includes(k));
+}
+
+// ブロック1つ（children も数える）。count は { n } で、ブロックの件数を足していく。通れば作り直した写しを返し、だめなら投げる
+function checkBlock(b, count) {
+  if (!isObj(b)) throw bad('block');
+  if (++count.n > LIMITS.blocks) throw bad('blocks');
+  if (typeof b.id !== 'string' || !ID_RE.test(b.id)) throw bad('block.id');
+  if (typeof b.type !== 'string' || !NAME_RE.test(b.type)) throw bad('block.type');
+  if (b.text !== undefined && !isStr(b.text, LIMITS.text)) throw bad('block.text');
+  if (b.rich !== undefined && b.rich !== null) richText(b.rich);
+  if (!attrsOk(b, RESERVED_BLOCK)) throw bad('block.attrs');
+  const out = normalizeBlock(b);
+  if (b.children !== undefined) {
+    if (!Array.isArray(b.children)) throw bad('block.children');
+    out.children = b.children.map((c) => checkBlock(c, count));
+  }
+  return out;
+}
+
+function checkBlocks(list) {
+  if (!Array.isArray(list)) throw bad('blocks');
+  const count = { n: 0 };   // 件数の上限は checkBlock が数えて見る（children も入れて1か所で）
+  return list.map((b) => checkBlock(b, count));
+}
+
+// ページ（page.put・meeting.finalize・meeting.recover）。id は無くてよい（会議の命令は pageId で渡す）
+function checkPage(p) {
+  if (!isObj(p)) throw bad('page');
+  if (p.id !== undefined && (typeof p.id !== 'string' || !ID_RE.test(p.id))) throw bad('page.id');
+  if (p.title !== undefined && !isStr(p.title, LIMITS.title)) throw bad('page.title');
+  if (p.memo !== undefined && !isStr(p.memo, LIMITS.text)) throw bad('page.memo');
+  for (const k of ['type', 'text', 'rich', 'children']) if (Object.hasOwn(p, k)) throw bad('page.' + k);
+  if (!attrsOk(p, RESERVED_PAGE)) throw bad('page.attrs');
+  const out = { ...p };
+  if (p.blocks !== undefined) out.blocks = checkBlocks(p.blocks);
+  return out;
+}
+
+function checkSeg(s) {
+  if (!isObj(s)) throw bad('seg');
+  if (typeof s.id !== 'string' || !ID_RE.test(s.id)) throw bad('seg.id');
+  if (s.text !== undefined && !isStr(s.text, LIMITS.text)) throw bad('seg.text');
+  for (const k of ['atMs', 'durationMs']) if (s[k] !== undefined && s[k] !== null && !Number.isFinite(s[k])) throw bad('seg.' + k);
+  if (s.failed !== undefined && typeof s.failed !== 'boolean') throw bad('seg.failed');
+  if (!attrsOk(s, RESERVED_SEG)) throw bad('seg.attrs');
+  return { ...s };
+}
+
+function checkSegments(list) {
+  if (!Array.isArray(list) || list.length > LIMITS.segments) throw bad('segments');
+  return list.map(checkSeg);
+}
+
+// ブロックの直し（block.update の patch。今の store.updateBlock が見る欄だけ）
+function checkPatch(p) {
+  if (!isObj(p)) throw bad('patch');
+  for (const k of Object.keys(p)) {
+    if (k === 'text') { if (!isStr(p.text, LIMITS.text)) throw bad('patch.text'); }
+    else if (k === 'checked') { if (typeof p.checked !== 'boolean') throw bad('patch.checked'); }
+    else if (k === 'type') { if (typeof p.type !== 'string' || !NAME_RE.test(p.type)) throw bad('patch.type'); }
+    else if (k === 'rich') { richText(p.rich); }
+    else throw bad('patch');
+  }
+  return normalizeBlock(p);
+}
+
+// 発言の直し（segment.update の patch。text だけ）
+function checkSegPatch(p) {
+  if (!isObj(p)) throw bad('patch');
+  for (const k of Object.keys(p)) if (k !== 'text' || !isStr(p.text, LIMITS.text)) throw bad('patch');
+  return { ...p };
+}
+
+// 型の表: 値を照らして、保存してよい写しを返す（だめなら投げる）
+const TYPES = Object.freeze(Object.assign(Object.create(null), {
+  id: (v) => { if (typeof v !== 'string' || !ID_RE.test(v)) throw bad('id'); return v; },
+  ids: (v) => { if (!Array.isArray(v) || v.length > LIMITS.blocks || !v.every((x) => typeof x === 'string' && ID_RE.test(x))) throw bad('ids'); return [...v]; },
+  idOrEmpty: (v) => { if (v !== '' && (typeof v !== 'string' || !ID_RE.test(v))) throw bad('id'); return v; },
+  text: (v) => { if (!isStr(v, LIMITS.text)) throw bad('text'); return v; },
+  title: (v) => { if (!isStr(v, LIMITS.title)) throw bad('title'); return v; },
+  short: (v) => { if (!isStr(v, SHORT)) throw bad('short'); return v; },
+  name: (v) => { if (typeof v !== 'string' || !NAME_RE.test(v)) throw bad('name'); return v; },
+  int: (v) => { if (!Number.isSafeInteger(v)) throw bad('int'); return v; },
+  num: (v) => { if (typeof v !== 'number' || !Number.isFinite(v)) throw bad('num'); return v; },
+  bool: (v) => { if (typeof v !== 'boolean') throw bad('bool'); return v; },
+  block: (v) => checkBlock(v, { n: 0 }),
+  blocks: checkBlocks,
+  page: checkPage,
+  seg: checkSeg,
+  segments: checkSegments,
+  patch: checkPatch,
+  segPatch: checkSegPatch,
+  object: (v) => { if (!isObj(v)) throw bad('object'); return v; },
+}));
+
+function checkArgs(spec, args) {
+  if (!isObj(spec) || !isObj(args)) return { ok: false, field: '' };
+  let size;
+  try { size = Buffer.byteLength(JSON.stringify(args), 'utf8'); } catch (_) { return { ok: false, field: '' }; }
+  if (size > LIMITS.bytes) return { ok: false, field: '' };
+  for (const k of Object.keys(args)) if (!Object.hasOwn(spec, k)) return { ok: false, field: k };
+  const out = {};
+  for (const [k, t] of Object.entries(spec)) {
+    const optional = typeof t === 'string' && t.endsWith('?');
+    const name = optional ? t.slice(0, -1) : t;
+    if (!Object.hasOwn(args, k) || args[k] === undefined) {
+      if (optional) continue;
+      return { ok: false, field: k };
+    }
+    try {
+      if (typeof name === 'function') {
+        if (!name(args[k])) return { ok: false, field: k };
+        out[k] = args[k];
+      } else {
+        if (!Object.hasOwn(TYPES, name)) return { ok: false, field: k };   // spec の書き誤りも通さない
+        out[k] = TYPES[name](args[k]);
+      }
+    } catch (_) {
+      return { ok: false, field: k };
+    }
+  }
+  return { ok: true, args: out };
+}
+
+module.exports = {
+  ID_RE, TX_RE, LIMITS, RESERVED_BLOCK, RESERVED_PAGE, RESERVED_SEG, RICH_MARKS,
+  checkArgs, richText, normalizeBlock,
+};
