@@ -87,25 +87,22 @@ test('RF26: 証明書とプロキシの失敗を分ける（Zscaler で止めら
   assert.deepStrictEqual(await fail('net::ERR_NAME_NOT_RESOLVED').isUp('http://127.0.0.1:9/x'), { up: false, why: 'unreachable' });
 });
 
-test('RF28: 経路の決め方は、会議の印・同意・鍵を、届くかの確かめより先に見る（同意していなければ要求を出さない）', T, async () => {
+// 0.7.0 U-1（設計書 D5・D7）で意図して変えた: 同意の選択を外した（同意は登録の利用規約で取る）。経路は会議の印 → 鍵 → 届くか
+test('U-1: 経路は会議の印 → 鍵 → 届くかの順。同意は見ず、印か鍵で決まるときは届くかの確かめの要求を出さない', T, async () => {
   let asked = 0;
   const up = (r) => async () => { asked += 1; return r; };
   const UP = { up: true, why: 'ok' };
-  const cases = [
-    [{ consent: 'on', localOnly: true, hasKey: true }, 'local', 'local-only'],
-    [{ consent: 'off', localOnly: false, hasKey: true }, 'local', 'consent-off'],
-    [{ consent: 'ask', localOnly: false, hasKey: true }, 'local', 'consent-ask'],
-    [{ consent: 'on', localOnly: false, hasKey: false }, 'local', 'no-key'],
-  ];
-  for (const [c, route, why] of cases) {
-    assert.deepStrictEqual(await O.decideStt({ ...c, up: up(UP) }), { route, why }, JSON.stringify(c));
+  assert.deepStrictEqual(await O.decideStt({ localOnly: true, hasKey: true, up: up(UP) }), { route: 'local', why: 'local-only' });
+  assert.deepStrictEqual(await O.decideStt({ localOnly: true, hasKey: false, up: up(UP) }), { route: 'local', why: 'local-only' });
+  assert.deepStrictEqual(await O.decideStt({ localOnly: false, hasKey: false, up: up(UP) }), { route: 'local', why: 'no-key' });
+  assert.strictEqual(asked, 0, '印・鍵で決まるのに、届くかを確かめた');
+  assert.deepStrictEqual(await O.decideStt({ localOnly: false, hasKey: true, up: up(UP) }), { route: 'cloud', why: 'ok' });
+  assert.deepStrictEqual(await O.decideStt({ localOnly: false, hasKey: true, up: up({ up: false, why: 'cert' }) }), { route: 'local', why: 'cert' });
+  assert.deepStrictEqual(await O.decideStt({ localOnly: false, hasKey: true, up: up({ up: false, why: 'offline' }) }), { route: 'local', why: 'offline' });
+  // 前の版の同意の値を渡されても見ない（保存の値が ask・off でも、鍵があれば使う: 計画 docs/plans/2026-10-19-ui07.md の「決めたこと」の 1）
+  for (const consent of ['ask', 'off', 'yes']) {
+    assert.deepStrictEqual(await O.decideStt({ consent, localOnly: false, hasKey: true, up: up(UP) }), { route: 'cloud', why: 'ok' }, consent);
   }
-  assert.strictEqual(asked, 0, '同意・印・鍵で決まるのに、届くかを確かめた');
-  assert.deepStrictEqual(await O.decideStt({ consent: 'on', localOnly: false, hasKey: true, up: up(UP) }), { route: 'cloud', why: 'ok' });
-  assert.deepStrictEqual(await O.decideStt({ consent: 'on', localOnly: false, hasKey: true, up: up({ up: false, why: 'cert' }) }), { route: 'local', why: 'cert' });
-  assert.deepStrictEqual(await O.decideStt({ consent: 'on', localOnly: false, hasKey: true, up: up({ up: false, why: 'offline' }) }), { route: 'local', why: 'offline' });
-  // 知らない同意の値は「使わない」と同じ（外へ送らない側に倒す）
-  assert.deepStrictEqual(await O.decideStt({ consent: 'yes', localOnly: false, hasKey: true, up: up(UP) }), { route: 'local', why: 'consent-off' });
 });
 
 test('D1・C10: 要約は、届けば Claude Code、届かなければ手元。［PC の中だけ］のページは届くかを確かめずに手元', T, async () => {

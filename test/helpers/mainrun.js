@@ -77,10 +77,13 @@
 //                       同じ文だけを受けて偽の録音バーで本物と同じに動く（場面の overlayPause: 'lost-once'・'late'）。ctx に releasePause()、
 //                       出力に overlayJs（流された文の 'on'／'off' の順）・overlayPaused（偽の録音バーの状態）・balloons を足す。
 //     --stt=<mode>  … 第1c回 A-4: オンラインの文字起こし。127.0.0.1 の偽の送り先（helpers/fake-stt.js）を mode の答え方で開き、
-//                     secrets.json に偽の鍵（偽の safeStorage の暗号）を置き、設定を cloudTranscribe: 'on'・sttProvider: 'custom'・
-//                     sttBaseUrl: 偽の送り先・sttModel: 'whisper-large-v3' にする。mode が cert のときは、偽の送り先への要求に
+//                     secrets.json に偽の鍵（偽の safeStorage の暗号）を openai の名前で置く。0.7.0 U-1（設計書 D5）から送り先は OpenAI に
+//                     固定なので、偽の Electron の net.request が https://api.openai.com/v1 を偽の送り先へ書き換える（out.netHosts に
+//                     書き換える前の宛先のホストを残す）。mode が cert のときは、OpenAI への要求に
 //                     net::ERR_CERT_AUTHORITY_INVALID を返す（makeFakeRequest の before。fake-stt の答え方は text）
-//     --consent=ask|off … cloudTranscribe をその値にする（--stt と組む）
+//     --consent=ask|off … 前の版（0.6.0 まで）が書いた cloudTranscribe をその値で置く（--stt と組む。0.7.0 では読まれないことを見る）
+//     --legacy-provider … 前の版が書いた送り先 sttProvider: 'custom'・sttBaseUrl: 偽の送り先・sttModel: 'whisper-large-v3' を置く（読まれないことを見る）
+//     --key-for=<id> … 鍵を openai でなくその名前（groq・custom）で置く（ほかの送り先の鍵を OpenAI へ送らないことを見る）
 //     --no-key      … secrets.json を置かない
 //     --key-unreadable … 偽の safeStorage の decryptStringAsync が投げる（鍵のファイルはあるが復号できない）
 //     --offline     … net.isOnline() が false
@@ -148,6 +151,9 @@ const slowLoad = flags.includes('--slow-load');
 const sttMode = (flags.find((f) => f.startsWith('--stt=')) || '').slice(6);
 const consentFlag = (flags.find((f) => f.startsWith('--consent=')) || '').slice(10);
 const noKey = flags.includes('--no-key');
+const legacyProvider = flags.includes('--legacy-provider');
+const keyFor = (flags.find((f) => f.startsWith('--key-for=')) || '').slice(10) || 'openai';
+const OPENAI_BASE = 'https://api.openai.com/v1';   // src/stt-cloud.js の PRESETS.openai.base（0.7.0 U-1 で固定の送り先）
 const keyUnreadable = flags.includes('--key-unreadable');
 const offline = flags.includes('--offline');
 const localOnlyFlag = flags.includes('--local-only');
@@ -269,7 +275,7 @@ process.on('exit', () => {
   const fakeStt = sttMode ? await require('./fake-stt').startFakeStt({ mode: sttMode === 'cert' ? 'text' : sttMode, key: STT_KEY }) : null;
   const fakeEnc = (s) => Buffer.from(`ENC1:${Buffer.from(s, 'utf8').toString('hex')}`);
   if (fakeStt && !noKey) {
-    fs.writeFileSync(path.join(userData, 'secrets.json'), JSON.stringify({ schema: 1, keys: { custom: fakeEnc(STT_KEY).toString('base64') } }));
+    fs.writeFileSync(path.join(userData, 'secrets.json'), JSON.stringify({ schema: 1, keys: { [keyFor]: fakeEnc(STT_KEY).toString('base64') } }));
   }
   // 偽のモデル。中身は見られず、大きさの床（50MB）だけを超えればよい。残りは疎にして場所を取らない。
   // 先頭だけは実際に書く（全部が疎だと blocks が 0 になり、OneDrive のプレースホルダと見なされる）
@@ -445,7 +451,8 @@ process.on('exit', () => {
     fs.writeFileSync(path.join(userData, 'settings.json'), JSON.stringify({
       ...(managedMode || noEngine || fetchMode ? {} : { localServerExe: exe, localModelPath: model }), localPort, sumPort, autoLaunch: false,
       ...(withSum ? { sumServerExe: FAKE_SUM, sumModelPath: sumModel } : {}),
-      ...(fakeStt ? { cloudTranscribe: consentFlag || 'on', sttProvider: 'custom', sttBaseUrl: fakeStt.base, sttModel: 'whisper-large-v3' } : {}),
+      ...(fakeStt && consentFlag ? { cloudTranscribe: consentFlag } : {}),
+      ...(fakeStt && legacyProvider ? { sttProvider: 'custom', sttBaseUrl: fakeStt.base, sttModel: 'whisper-large-v3' } : {}),
       ...(noWhisper ? { localServerExe: path.join(tmp, 'no-such-whisper-server.exe') } : {}),
       claudeExe,
     }));
@@ -593,9 +600,18 @@ process.on('exit', () => {
   // 外の宛先の書き換え: Anthropic へ届くかの確かめだけを偽の送り先へ（ほかは書き換えず、127.0.0.1 でなければ fake-net が死ぬ）。
   // 偽の claude を置く場面（--claude）だけ。--stt だけの場面（第1c回 A-4）で書き換えると、要約が Claude Code の道へ行き、
   // PATH の上の claude を探してしまう（起こすのは mainrun の spawn が止めるが、返事の来ない子を待って場面が時間切れになる）
-  const rewrite = (u) => (fakeStt && claudeMode && String(u).startsWith('https://api.anthropic.com/') ? fakeStt.url('/anthropic') : u);
-  // --stt=cert: 偽の送り先への要求は、証明書が差し替えられたときの失敗で死ぬ（会社の通信の検査。RF26）
-  const before = sttMode === 'cert' ? (_n, o) => (o && String(o.url).startsWith(fakeStt.base) ? { error: 'net::ERR_CERT_AUTHORITY_INVALID' } : null) : null;
+  // 0.7.0 U-1: OpenAI（固定の送り先）への要求は、偽の送り先（--stt）か、場面が setOpenAiBase で決めた 127.0.0.1 の口へ書き換える。
+  // 書き換える前の宛先のホストは out.netHosts に残す（前の版の「そのほか」の URL へ直に送っていないことを見る）
+  let openAiBase = fakeStt ? fakeStt.base : '';
+  const netHosts = [];
+  const rewrite = (u) => {
+    const s = String(u);
+    try { netHosts.push(new URL(s).host); } catch (_) { netHosts.push(''); }
+    if (openAiBase && s.startsWith(`${OPENAI_BASE}/`)) return `${openAiBase}${s.slice(OPENAI_BASE.length)}`;
+    return fakeStt && claudeMode && s.startsWith('https://api.anthropic.com/') ? fakeStt.url('/anthropic') : u;
+  };
+  // --stt=cert: OpenAI への要求は、証明書が差し替えられたときの失敗で死ぬ（会社の通信の検査。RF26）
+  const before = sttMode === 'cert' ? (_n, o) => (o && String(o.url).startsWith(`${OPENAI_BASE}/`) ? { error: 'net::ERR_CERT_AUTHORITY_INVALID' } : null) : null;
   // 偽の screen（第1b回 Task A-2）。並びは場面の displays（既定は 1920×1080 が1つ。作業領域は下のタスクバーを除いた 1920×1040）
   const displays = (scene && scene.displays) || [{ id: 1, bounds: { x: 0, y: 0, width: 1920, height: 1080 }, workArea: { x: 0, y: 0, width: 1920, height: 1040 } }];
   const inRect = (p, r) => p && p.x >= r.x && p.x < r.x + r.width && p.y >= r.y && p.y < r.y + r.height;
@@ -784,7 +800,8 @@ process.on('exit', () => {
     const readLocal = (rel) => { try { return fs.readFileSync(path.join(localAppData, ...rel.split('/'))); } catch (_) { return null; } };
     if (typeof scene.act === 'function') {
       await scene.act({ handlers, listeners, app: electron.app, wins, mainWin: wins[1], power: powerMonitor, timers, clearedTimers, shortcuts, store, jsonfile, electron, userData,
-        localAppData, read: readUser, readLocal, waitFor, sleep, toneWav, releasePause, out: actOut, launches, launchPlan, fakeKids });
+        localAppData, read: readUser, readLocal, waitFor, sleep, toneWav, releasePause, out: actOut, launches, launchPlan, fakeKids,
+        setOpenAiBase: (b) => { openAiBase = String(b || ''); } });
     }
     const files = [];
     const walk = (dir, rel) => {
@@ -958,6 +975,7 @@ process.on('exit', () => {
   const sttOut = async () => {
     if (!fakeStt) return;
     out.stt = fakeStt.requests.slice();
+    out.netHosts = netHosts.slice();
     out.balloons = balloons.slice();
     out.decrypts = decrypts;
     const sec = readUser('secrets.json');
@@ -1069,7 +1087,7 @@ process.on('exit', () => {
     ? process.env.NATSU_E2E_WAVS.split(';').map((f) => ({ buf: fs.readFileSync(f), ms: Math.round((fs.statSync(f).size - 44) / 32) }))
     : Array.from({ length: segCount }, (_, i) => ({ buf: toneWav(i ? 2 : 3, silent ? 0 : 8000), ms: i ? 2000 : 3000 }));
   out.start = await handlers['meeting:toggle']();
-  out.statusCloud = handlers['meeting:status']().cloud;   // C-3: 会議の状態の「クラウドで処理する設定か」（同意が on のときだけ true）
+  out.statusCloud = handlers['meeting:status']().cloud;   // C-3: 会議の状態の「クラウドで処理する PC か」（0.7.0 U-1 から: OpenAI の鍵があるときだけ true）
   if (localOnlyFlag) {
     out.localOnly = await handlers['meeting:set-local-only']({}, true);
     const st = handlers['meeting:status']();

@@ -139,15 +139,18 @@ const IDS_1A_1C = ['tabBtnNotes', 'tabBtnDictation', 'tabBtnSettings', 'tabNotes
   'pageWrap', 'pTitle', 'pProps', 'pTypeRow', 'pType', 'pTypeHint', 'pActs', 'paneBtnNote', 'paneBtnScript', 'paneBtnMemo', 'pBody', 'pProgress', 'pNote', 'pScript', 'pMemo',
   'tabDictation', 'stToday', 'stTotal', 'stSaved', 'recBtn', 'histSearch', 'clearBtn', 'histList', 'tabSettings', 'verNow', 'chkUpdBtn', 'applyUpdBtn', 'updMsg', 'updNotes',
   'themeSel', 'hotkey', 'hotkeyWarn', 'meetingHotkey', 'meetingHotkeyWarn', 'pillPos', 'micSelect', 'micReloadBtn', 'useSystemAudio', 'spkField', 'spkNow', 'spkReloadBtn',
-  'spkSettingsBtn', 'language', 'autoPaste', 'removeFillers', 'soundFeedback', 'autoLaunch', 'stayInTray', 'dictionary', 'dictWarn', 'useBuiltinTerms', 'onlineAskNote',
-  'cloudTranscribe', 'sttProvider', 'sttBaseUrl', 'sttModel', 'sttKey', 'sttKeySave', 'sttKeyTest', 'sttKeyClear', 'sttKeyState', 'claudeState', 'claudeTest', 'claudeHelp',
+  'spkSettingsBtn', 'language', 'autoPaste', 'removeFillers', 'soundFeedback', 'autoLaunch', 'stayInTray', 'dictionary', 'dictWarn', 'useBuiltinTerms',
+  'sttKey', 'sttKeySave', 'sttKeyTest', 'sttKeyClear', 'sttKeyState', 'claudeState', 'claudeTest', 'claudeHelp',
   'claudeExe', 'onlineMsg', 'engineState', 'testBtn', 'testMsg', 'testSumMsg', 'engineNote', 'engineFetch', 'engineFetchSummary', 'engineFetchBar', 'engineFetchBtn',
   'engineFetchPause', 'engineFetchSwitch', 'engineDirBtn', 'engineFetchCopy', 'engineFetchMsg', 'engineFetchList', 'engineFetchRows', 'engineAdv', 'localServerExe',
   'pickExeBtn', 'localModelPath', 'pickModelBtn', 'localThreads', 'localPort', 'useVad', 'vadState', 'vadModelPath', 'pickVadBtn', 'suppressNst', 'sumServerExe',
   'pickSumExeBtn', 'sumModelPath', 'pickSumModelBtn', 'sumThreads', 'sumPort', 'sumCtx', 'testSumBtn', 'segmentSec', 'engineIdleMin', 'saveMsg', 'openDataBtn', 'toast',
   'updBadge', 'liveTitle', 'liveSkipBtn', 'liveTm', 'liveEta', 'liveSkipped', 'liveMic', 'meetingLocalOnly', 'meetingLocalOnlyNote'];
-test('N2・F9: 第1b回の前からある id は1つも消えていない（作る id は setMeetingUi の中に残る）', () => {
+// 0.7.0 U-1（設計書 D5）で意図して消した5つ: 同意の案内の行・同意・送り先・URL・モデルの欄（一覧から外し、消えたことを見る）
+const IDS_D5_REMOVED = ['onlineAskNote', 'cloudTranscribe', 'sttProvider', 'sttBaseUrl', 'sttModel'];
+test('N2・F9: 第1b回の前からある id は1つも消えていない（作る id は setMeetingUi の中に残る。D5 で意図して消した5つを除く）', () => {
   for (const id of IDS_1A_1C) assert.ok(html.includes(`id="${id}"`), `id="${id}" が消えた`);
+  for (const id of IDS_D5_REMOVED) assert.ok(!html.includes(`id="${id}"`) && !html.includes(`$('${id}')`), `id="${id}" が残っている`);
 });
 
 // 偽 DOM に配置が無いので、宣言で見る。見た目そのものは C-2 の画像。.pcol は本文の列

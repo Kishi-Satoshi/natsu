@@ -1,8 +1,11 @@
 /*
  * stt-cloud.js — OpenAI と同じ形の文字起こしの口（第1c回 OL2。RF27・RF29・RF30・F15）
  *
- *  - PRESETS          送り先の既定（Groq（無料枠）が既定・OpenAI・そのほか）
- *  - resolveProvider  設定から送り先を決める（そのほかは https だけ。http は 127.0.0.1・localhost だけ＝試験用）
+ *  - PRESETS          送り先の既定（Groq（無料枠）・OpenAI・そのほか）
+ *  - resolveProvider  名前と URL から送り先を決める（そのほかは https だけ。http は 127.0.0.1・localhost だけ＝試験用）
+ *  - fixedProvider    main が使う送り先（0.7.0 U-1・設計書 D5: OpenAI の gpt-4o-transcribe に固定。設定は読まない）。
+ *                     groq・custom の既定は、古いページの経路の名前（☁ 文字起こし: クラウド（Groq（無料枠））…）と
+ *                     tools/electron-smoke の偽の送り先の確かめのために残す（設定からは選べない）
  *  - buildMultipart   multipart/form-data の本文を組み立てる
  *  - postForm         net.request で1回送り、返事を読む（redirect: 'error'。時間切れつき）
  *  - transcribeCloud  1つの区間の WAV を送って文字を返す（429 の待ち・ヒントで 400 なら外して1回だけ送り直す）
@@ -86,6 +89,12 @@ function resolveProvider({ sttProvider, sttBaseUrl, sttModel } = {}) {
   }
   const m = String(sttModel == null ? '' : sttModel).trim();
   return { id: p.id, label: p.label, base, model: m || p.model, host: new URL(base).hostname, reachUrl: `${base}/models` };
+}
+
+// 0.7.0 U-1（設計書 D5）: クラウドの文字起こしの送り先は OpenAI に固定。引数を取らない（設定の送り先・URL・モデルを読ませない）
+const FIXED_PROVIDER_ID = 'openai';
+function fixedProvider() {
+  return resolveProvider({ sttProvider: FIXED_PROVIDER_ID });
 }
 
 const quoteName = (s) => String(s).replace(/[\r\n"]/g, '_');
@@ -294,5 +303,5 @@ function cloudErrorText(e, label) {
   return `${label}: ${why}`;
 }
 
-module.exports = { PRESETS, WAIT_CAP_MS, LONG_WAIT_SEC, SEND_TIMEOUT_MS, CHECK_WAV, resolveProvider, buildMultipart, postForm, CloudSttError, isOfflineError, transcribeCloud,
+module.exports = { PRESETS, FIXED_PROVIDER_ID, fixedProvider, WAIT_CAP_MS, LONG_WAIT_SEC, SEND_TIMEOUT_MS, CHECK_WAV, resolveProvider, buildMultipart, postForm, CloudSttError, isOfflineError, transcribeCloud,
   keyErrorKind, checkKey, cloudErrorText };

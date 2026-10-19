@@ -315,7 +315,9 @@ module.exports = {
   // 第1c回 Task C-2: 設定のカード「オンライン」の IPC を main で本当に呼ぶ（鍵は画面へ返さない・secrets.json は暗号の形・
   // ［鍵を確かめる］は 127.0.0.1 の偽の送り先の /models へ・Claude Code の場所が無いときの文・［PC の中だけ］は片道）。
   // Claude Code の場所は無いファイルに向ける（本物の claude を探しに行かない。子は起こさない）
-  'cloud-ipc': { files: { 'settings.json': pretty({ ...TYPICAL, cloudTranscribe: 'on', sttProvider: 'groq', claudeExe: '/natsu-test-missing/claude.exe' }) },
+  // 0.7.0 U-1（設計書 D5）: 送り先は OpenAI に固定。https://api.openai.com/v1 への要求は setOpenAiBase で 127.0.0.1 の偽の口へ書き換える。
+  // settings.json の cloudTranscribe・sttProvider は前の版が書いた値（読まれず、消されないことを見る）
+  'cloud-ipc': { files: { 'settings.json': pretty({ ...TYPICAL, cloudTranscribe: 'off', sttProvider: 'groq', claudeExe: '/natsu-test-missing/claude.exe' }) },
     act: async (c) => {
       const KEY = 'gsk_test_0123456789';
       const h = (ch, ...a) => c.handlers[ch]({}, ...a);
@@ -344,27 +346,30 @@ module.exports = {
       await new Promise((r) => srv.listen(0, '127.0.0.1', r));
       const o = c.out;
       try {
+        c.setOpenAiBase(`http://127.0.0.1:${srv.address().port}/v1`);
         o.status0 = await h('cloud:status');
         o.badId = await h('cloud:set-key', 'evil', KEY);
-        o.badKey = await h('cloud:set-key', 'groq', 'short');
-        o.set = await h('cloud:set-key', 'groq', KEY);
+        // 0.7.0 U-1: groq・custom の名前は画面から届かない（main も断る）
+        o.badOther = [await h('cloud:set-key', 'groq', KEY), await h('cloud:test-key', 'groq'), await h('cloud:clear-key', 'custom'), await h('cloud:test-key', 'custom')];
+        o.badKey = await h('cloud:set-key', 'openai', 'short');
+        o.testNoKey = await h('cloud:test-key', 'openai');
+        o.set = await h('cloud:set-key', 'openai', ` ${KEY} `);
         o.status1 = await h('cloud:status');
         o.secretsAfterSet = String(c.read('secrets.json') || '');
-        o.testNoBase = await h('cloud:test-key', 'custom');
-        o.saved = await h('settings:save', UI({ cloudTranscribe: 'on', sttProvider: 'custom', sttBaseUrl: `http://127.0.0.1:${srv.address().port}/v1`, claudeExe: '/natsu-test-missing/claude.exe' }));
-        o.testNoKey = await h('cloud:test-key', 'custom');
-        o.setCustom = await h('cloud:set-key', 'custom', ` ${KEY} `);
-        o.testOk = await h('cloud:test-key', 'custom');
-        o.setWrong = await h('cloud:set-key', 'custom', 'gsk_wrong_00000000');
-        o.testAuth = await h('cloud:test-key', 'custom');
+        // 前の版の画面が送っていた4つのキーは保存しない（settings.json には前の版の値が残る）
+        o.saved = await h('settings:save', UI({ cloudTranscribe: 'on', sttProvider: 'custom', sttBaseUrl: 'https://stt.example/v1', sttModel: 'm', claudeExe: '/natsu-test-missing/claude.exe' }));
+        o.settingsAfterSave = String(c.read('settings.json') || '');
+        o.testOk = await h('cloud:test-key', 'openai');
+        o.setWrong = await h('cloud:set-key', 'openai', 'gsk_wrong_00000000');
+        o.testAuth = await h('cloud:test-key', 'openai');
         for (const [name, k] of [['testScope', 'gsk_scope_00000000'], ['testQuota', 'gsk_quota_00000000'], ['testInvalid', 'gsk_invalid_0000000']]) {
-          await h('cloud:set-key', 'custom', k);
-          o[name] = await h('cloud:test-key', 'custom');
+          await h('cloud:set-key', 'openai', k);
+          o[name] = await h('cloud:test-key', 'openai');
         }
         o.seenF = seenF;
-        await h('cloud:set-key', 'custom', 'gsk_wrong_00000000');
-        o.statusCustom = await h('cloud:status');
-        o.clear = await h('cloud:clear-key', 'custom');
+        await h('cloud:set-key', 'openai', 'gsk_wrong_00000000');
+        o.statusKeyed = await h('cloud:status');
+        o.clear = await h('cloud:clear-key', 'openai');
         o.statusCleared = await h('cloud:status');
         o.claude = await h('claude:status');
         o.claudeTest = await h('claude:test');

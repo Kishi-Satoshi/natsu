@@ -10,17 +10,24 @@ const { load } = require('./helpers/simrun.js');
 
 const APP = path.join(__dirname, '..', 'src', 'renderer', 'app.html');
 const fmt = (e) => `${e.constructor.name}: ${e.message}`;
-const status = (o = {}) => ({ ok: true, consent: 'ask', provider: { id: 'groq', label: 'Groq（無料枠）', host: 'api.groq.com' }, hasKey: false, canStore: true, online: { up: true, why: 'ok' }, ...o });
+// 0.7.0 U-1（設計書 D5）で意図して変えた: main の cloud:status は送り先が OpenAI に固定で、同意（consent）を返さない
+const status = (o = {}) => ({ ok: true, provider: { id: 'openai', label: 'OpenAI', host: 'api.openai.com' }, hasKey: false, canStore: true, online: { up: true, why: 'ok' }, ...o });
+const RETIRED_IDS = ['onlineAskNote', 'cloudTranscribe', 'sttProvider', 'sttBaseUrl', 'sttModel'];
 
-test('OL7: カード「オンライン」が出て、同意・送り先・鍵・Claude Code の状態を描く。初期化が最後まで走る', async () => {
-  const l = await load(APP, { returns: { cloudStatus: () => status(), claudeStatus: () => ({ ok: true, found: true, cmdOnly: false, method: 'claude.ai', message: '' }) } });
+// 0.7.0 U-1（設計書 D5）で意図して変えた: 同意・送り先・URL・モデルの欄と案内の行を外し、鍵の欄は［詳細設定（管理者用）］の奥（中継ができるまでの仮の欄）
+test('U-1: カード「オンライン」に同意・送り先・URL・モデルの欄が無く、鍵の欄は［詳細設定（管理者用）］の奥。初期化が最後まで走る', async () => {
+  const l = await load(APP, { returns: { cloudStatus: () => status({ consent: 'ask' }), claudeStatus: () => ({ ok: true, found: true, cmdOnly: false, method: 'claude.ai', message: '' }) } });
   await l.drain();
-  assert.strictEqual(l.byId.get('cloudTranscribe').value, 'ask');
-  assert.strictEqual(l.byId.get('sttProvider').value, 'groq');
+  for (const id of RETIRED_IDS) assert.strictEqual(l.byId.get(id), undefined, `${id} がまだある`);
+  const adv = l.byId.get('sttKey').closest('details');
+  assert.ok(adv && adv.id === 'onlineAdv', '鍵の欄が［詳細設定（管理者用）］の中に無い');
+  assert.strictEqual(adv.querySelector('summary').textContent.trim(), '詳細設定（管理者用）');
+  assert.strictEqual(adv.closest('.card'), l.byId.get('claudeTest').closest('.card'), '［詳細設定（管理者用）］がカード「オンライン」の中に無い');
+  for (const id of ['sttKeySave', 'sttKeyTest', 'sttKeyClear', 'sttKeyState']) assert.strictEqual(l.byId.get(id).closest('details'), adv, id);
   assert.strictEqual(l.byId.get('sttKeyState').textContent, '未設定');
   assert.match(l.byId.get('claudeState').textContent, /ログイン済み（claude\.ai）/);
-  assert.ok(l.byId.get('sttBaseUrl').closest('.field').hidden, '「そのほか」でないのに URL の欄が出ている');
   assert.deepStrictEqual(l.errors.map(fmt), []);
+  assert.deepStrictEqual(l.missingIds.filter((id) => RETIRED_IDS.includes(id)), [], '消した欄をまだ引いている');
 });
 
 test('RF30: 鍵は保存の後に欄から消え、画面は鍵を受け取らない（状態は「保存済み」だけ）', async () => {
@@ -34,58 +41,54 @@ test('RF30: 鍵は保存の後に欄から消え、画面は鍵を受け取ら�
   l.byId.get('sttKey').value = 'gsk_test_0123456789';
   l.byId.get('sttKeySave').dispatchEvent({ type: 'click' });
   await l.drain();
-  assert.deepStrictEqual(calls, [['groq', 'gsk_test_0123456789']]);
+  assert.deepStrictEqual(calls, [['openai', 'gsk_test_0123456789']]);
   assert.strictEqual(l.byId.get('sttKey').value, '', '保存の後も鍵が欄に残っている');
   assert.strictEqual(l.byId.get('sttKeyState').textContent, '保存済み');
   assert.match(l.byId.get('claudeState').textContent, /見つかりません/);
   assert.match(l.byId.get('claudeHelp').textContent, /irm https:\/\/claude\.ai\/install\.ps1 \| iex/);
 });
 
-test('OL7: 送り先を「そのほか」にすると URL とモデルの欄が出る。暗号にできない PC では鍵の保存が押せない', async () => {
+test('OL7: 暗号にできない PC では鍵の保存が押せない', async () => {
   const l = await load(APP, { returns: { cloudStatus: () => status({ canStore: false }), claudeStatus: () => ({ ok: true, found: true, method: 'claude.ai' }) } });
   await l.drain();
-  const sel = l.byId.get('sttProvider'); sel.value = 'custom'; sel.dispatchEvent({ type: 'change' });
-  await l.drain();
-  assert.strictEqual(l.byId.get('sttBaseUrl').closest('.field').hidden, false);
   assert.strictEqual(l.byId.get('sttKeySave').disabled, true);
   assert.match(l.byId.get('sttKeyState').textContent, /この PC では鍵をしまえません/);
 });
 
-test('OL4: カードに送り先・保存の扱い・費用の目安・1on1 の注意が書いてある', async () => {
+// 0.7.0 U-1 で意図して変えた: 送り先は OpenAI だけなので、Groq の無料枠・費用の目安は書かない。1on1 の注意は残す（RF28）
+test('OL4・U-1: カードに送り先（OpenAI）・オフラインのとき・1on1 の注意が書いてあり、「使う」を選ぶ・Groq の話は無い', async () => {
   const l = await load(APP, { returns: { cloudStatus: () => status(), claudeStatus: () => ({ ok: true, found: true, method: 'claude.ai' }) } });
   await l.drain();
-  const t = l.byId.get('cloudTranscribe').closest('.card').textContent;
-  for (const w of ['1日 8 時間分', 'Zero Data Retention', '1分 約 1 円', '［この会議は PC の中だけ］']) assert.ok(t.includes(w), w);
+  const t = l.byId.get('claudeTest').closest('.card').textContent;
+  for (const w of ['OpenAI（gpt-4o-transcribe）', 'つながっていないときは、いつも PC の中で文字起こしします', '［この会議は PC の中だけ］', '管理者用の仮の欄']) assert.ok(t.includes(w), w);
+  for (const w of ['Groq', '「使う」', 'まだ決めていない']) assert.ok(!t.includes(w), `${w} が残っている`);
 });
 
 // ---- 計画の外で足した守り（Task C-2 の実装で決めたこと）----
-test('OL7・RF30: 設定の自動保存は5つのキーを送り、鍵の欄の値は送らない。鍵の保存に失敗しても欄に鍵を残さない', async () => {
+// 0.7.0 U-1 で意図して変えた: 保存の値に送り先と同意の4つのキーは無い（main は読まない。前の版の値は settings.json に残る）
+test('U-1・RF30: 設定の自動保存は送り先と同意のキーを送らず、鍵の欄の値も送らない。鍵の保存に失敗しても欄に鍵を残さない', async () => {
   const l = await load(APP, { returns: {
     cloudStatus: () => status(), cloudSetKey: () => ({ ok: false, code: 'bad-key', message: '鍵の形が正しくありません' }),
     claudeStatus: () => ({ ok: true, found: true, method: 'claude.ai' }),
   } });
   await l.drain();
-  l.byId.get('cloudTranscribe').value = 'on';
-  l.byId.get('sttProvider').value = 'custom';
-  l.byId.get('sttBaseUrl').value = ' https://stt.example/v1 ';
-  l.byId.get('sttModel').value = 'whisper-large-v3';
   l.byId.get('claudeExe').value = 'C:\\c\\claude.exe';
   l.byId.get('sttKey').value = 'gsk_test_0123456789';
   l.byId.get('tabSettings').dispatchEvent({ type: 'change' });
   await l.drain();
   const sent = l.called('saveSettings').pop().args[0];
-  assert.deepStrictEqual([sent.cloudTranscribe, sent.sttProvider, sent.sttBaseUrl, sent.sttModel, sent.claudeExe],
-    ['on', 'custom', 'https://stt.example/v1', 'whisper-large-v3', 'C:\\c\\claude.exe']);
+  assert.strictEqual(sent.claudeExe, 'C:\\c\\claude.exe');
+  for (const k of ['cloudTranscribe', 'sttProvider', 'sttBaseUrl', 'sttModel']) assert.ok(!(k in sent), `保存の値に ${k} がある`);
   assert.ok(!JSON.stringify(sent).includes('gsk_test'), '設定の保存に鍵が混ざった');
   assert.strictEqual(l.called('claudeStatus').length, 2, 'Claude Code の場所を変えたのに確かめ直していない');
   l.byId.get('sttKeySave').dispatchEvent({ type: 'click' });
   await l.drain();
-  assert.deepStrictEqual(l.called('cloudSetKey').map((c) => c.args), [['custom', 'gsk_test_0123456789']]);
+  assert.deepStrictEqual(l.called('cloudSetKey').map((c) => c.args), [['openai', 'gsk_test_0123456789']]);
   assert.strictEqual(l.byId.get('sttKey').value, '', '保存に失敗した鍵が欄に残っている');
   assert.match(l.byId.get('onlineMsg').textContent, /鍵の形が正しくありません/);
 });
 
-test('OL3: 鍵が無いときは［鍵を確かめる］［鍵を消す］が押せず、あれば押せて選んだ送り先の名前で main を呼ぶ', async () => {
+test('OL3: 鍵が無いときは［鍵を確かめる］［鍵を消す］が押せず、あれば押せて OpenAI の名前で main を呼ぶ', async () => {
   const none = await load(APP, { returns: { cloudStatus: () => status(), claudeStatus: () => ({ ok: true, found: true, method: 'claude.ai' }) } });
   await none.drain();
   assert.strictEqual(none.byId.get('sttKeyTest').disabled, true);
@@ -93,7 +96,7 @@ test('OL3: 鍵が無いときは［鍵を確かめる］［鍵を消す］が押
   let has = true;
   const l = await load(APP, { returns: {
     cloudStatus: () => status({ hasKey: has }),
-    cloudTestKey: () => ({ ok: false, code: 'auth', message: 'Groq（無料枠）: 鍵が正しくないか、使えなくなっています。' }),
+    cloudTestKey: () => ({ ok: false, code: 'auth', message: 'OpenAI: 鍵が正しくないか、使えなくなっています。' }),
     cloudClearKey: () => { has = false; return { ok: true }; },
     claudeStatus: () => ({ ok: true, found: true, method: 'claude.ai' }),
   } });
@@ -102,11 +105,11 @@ test('OL3: 鍵が無いときは［鍵を確かめる］［鍵を消す］が押
   assert.strictEqual(l.byId.get('sttKeyTest').disabled, false);
   l.byId.get('sttKeyTest').dispatchEvent({ type: 'click' });
   await l.drain();
-  assert.deepStrictEqual(l.called('cloudTestKey').map((c) => c.args), [['groq']]);
+  assert.deepStrictEqual(l.called('cloudTestKey').map((c) => c.args), [['openai']]);
   assert.match(l.byId.get('onlineMsg').textContent, /鍵が正しくないか/);
   l.byId.get('sttKeyClear').dispatchEvent({ type: 'click' });
   await l.drain();
-  assert.deepStrictEqual(l.called('cloudClearKey').map((c) => c.args), [['groq']]);
+  assert.deepStrictEqual(l.called('cloudClearKey').map((c) => c.args), [['openai']]);
   assert.strictEqual(l.byId.get('sttKeyState').textContent, '未設定');
 });
 
@@ -158,26 +161,7 @@ test('Lane F-b: ［Claude Code を確かめる］で要求まで通れば「ロ�
   assert.doesNotMatch(l.byId.get('claudeState').textContent, /ログイン済み/);
 });
 
-test('OL3: 送り先を変えて設定が保存されると、鍵の状態を main に聞き直し、新しい送り先の鍵で描き直す（前の送り先の「保存済み」を残さない）', async () => {
-  let provider = 'groq';   // main がしまっている送り先（設定の保存で変わる）。鍵は groq にだけある
-  const l = await load(APP, { returns: {
-    cloudStatus: () => status({ provider: { id: provider, label: provider, host: '' }, hasKey: provider === 'groq' }),
-    saveSettings: (s) => { provider = s.sttProvider; return { ok: true }; },
-    claudeStatus: () => ({ ok: true, found: true, method: 'claude.ai' }),
-  } });
-  await l.drain();
-  assert.strictEqual(l.byId.get('sttKeyState').textContent, '保存済み');
-  assert.strictEqual(l.byId.get('sttKeyTest').disabled, false);
-  const before = l.called('cloudStatus').length;
-  const sel = l.byId.get('sttProvider'); sel.value = 'openai';
-  l.byId.get('tabSettings').dispatchEvent({ type: 'change' });
-  await l.drain();
-  assert.strictEqual(l.called('saveSettings').pop().args[0].sttProvider, 'openai');
-  assert.ok(l.called('cloudStatus').length > before, '送り先を変えたのに鍵の状態を聞き直していない');
-  assert.strictEqual(l.byId.get('sttKeyState').textContent, '未設定', '鍵の無い送り先なのに「保存済み」のまま');
-  assert.strictEqual(l.byId.get('sttKeyTest').disabled, true);
-  assert.strictEqual(l.byId.get('sttKeyClear').disabled, true);
-});
+// 0.7.0 U-1 で外した: 「OL3: 送り先を変えて設定が保存されると、鍵の状態を…聞き直し」（送り先を選ぶ欄が無くなった。鍵の状態は設定の保存のたびに今どおり聞き直す）
 
 // ---- 第1c回 Task C-3（OL6・OL4・RF28）----
 test('OL6: ページのプロパティの行に経路が出る（古いページは何も足さない）', async () => {
@@ -218,18 +202,11 @@ test('RF28: ［PC の中だけ］は会議ごと。次の会議ではボタン�
   assert.strictEqual(l.byId.get('meetingLocalOnlyNote').hidden, true, '次の会議なのに「PC の中だけで文字起こししています」と出ている（実際はクラウドへ送る）');
   l.fire('onMeetingUpdate', { active: true, segments: [], localOnly: false, cloud: false });
   await l.drain();
-  assert.strictEqual(l.byId.get('meetingLocalOnly').hidden, true, 'クラウドで処理しない設定（同意が ask・off）なのにボタンが出ている');
+  assert.strictEqual(l.byId.get('meetingLocalOnly').hidden, true, 'クラウドで処理しない PC（OpenAI の鍵が無い）なのにボタンが出ている');
   assert.deepStrictEqual(l.errors.map(fmt), []);
 });
 
-test('OL4: 同意をまだ決めていないときだけ、設定のカード「オンライン」の頭に案内の行が出る', async () => {
-  const a = await load(APP, { returns: { cloudStatus: () => status({ consent: 'ask' }), claudeStatus: () => ({ ok: true, found: true, method: 'claude.ai' }) } });
-  await a.drain();
-  assert.strictEqual(a.byId.get('onlineAskNote').hidden, false);
-  const b = await load(APP, { returns: { cloudStatus: () => status({ consent: 'off' }), claudeStatus: () => ({ ok: true, found: true, method: 'claude.ai' }) } });
-  await b.drain();
-  assert.strictEqual(b.byId.get('onlineAskNote').hidden, true);
-});
+// 0.7.0 U-1 で外した: 「OL4: 同意をまだ決めていないときだけ…案内の行が出る」（同意の選択と案内の行を外した。無いことは上の U-1 のテスト）
 
 // 第1b回の続き Lane F-c・F-d: 利用者は PowerShell を打たない。カード「オンライン」の［Claude Code にログイン］（見つかったとき）と
 // ［Claude Code を入れる］（見つからない・claude.cmd しか無いとき）で、main が見える窓を開き、閉じたら確かめ直した答えで描き直す

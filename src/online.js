@@ -3,7 +3,7 @@
  *
  *  - reachWhy       届かなかった理由を「証明書・プロキシ・届かない」に分ける（第0b回の classifyNetError を借りる）
  *  - makeOnline     net.isOnline() と、送り先の URL に軽く届くかの確かめ（結果を覚える）
- *  - decideStt      文字起こしをクラウドで行うか、手元の whisper で行うか
+ *  - decideStt      文字起こしをクラウドで行うか、手元の whisper で行うか（会議の印 → 鍵 → 届くか）
  *  - decideSummary  要約を利用者の Claude Code で行うか、手元の llama で行うか
  *
  * 決まり:
@@ -114,12 +114,13 @@ function makeOnline({ request, isOnline, now = Date.now, timeoutMs = REACH_TIMEO
 const downWhy = (r) => (r && DOWN_WHYS.has(r.why) ? r.why : 'unreachable');
 
 /**
- * 文字起こしの経路。consent: 'ask'|'on'|'off'。up は「要るときだけ」呼ぶ関数（() => Promise<{up, why}>）。
- * 順: localOnly → consent（'on' のほかは外へ送らない）→ hasKey → up()
+ * 文字起こしの経路。up は「要るときだけ」呼ぶ関数（() => Promise<{up, why}>）。
+ * 順: localOnly → hasKey → up()（印か鍵で決まるときは届くかの確かめの要求を出さない）。
+ * 0.7.0 U-1（設計書 D5・D7）で同意（consent）を外した: 音声を外へ送る同意は登録の利用規約で取り、設定の「使う／使わない」は無い。
+ * 前の版が保存した同意の値は渡されても見ない（鍵がしまってあれば使う）
  */
-async function decideStt({ consent, localOnly, hasKey, up }) {
+async function decideStt({ localOnly, hasKey, up }) {
   if (localOnly) return { route: 'local', why: 'local-only' };
-  if (consent !== 'on') return { route: 'local', why: consent === 'ask' ? 'consent-ask' : 'consent-off' };
   if (!hasKey) return { route: 'local', why: 'no-key' };
   const r = await up();
   if (r && r.up === true) return { route: 'cloud', why: 'ok' };

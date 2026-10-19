@@ -34,6 +34,14 @@ test('OL2: 送り先の既定。Groq が既定の名前、OpenAI、そのほか�
   assert.strictEqual(C.resolveProvider({ sttProvider: 'zzz', sttBaseUrl: '', sttModel: '' }).id, 'groq', '知らない送り先は既定の Groq');
 });
 
+// 0.7.0 U-1（設計書 D5）: main が使う送り先は OpenAI に固定（設定の送り先・URL・モデルは渡さない）。groq・custom の既定は古いページの名前と試しのために残る
+test('U-1: fixedProvider は OpenAI の gpt-4o-transcribe（設定を受け取らない）', () => {
+  assert.strictEqual(C.FIXED_PROVIDER_ID, 'openai');
+  assert.deepStrictEqual(C.fixedProvider(), { id: 'openai', label: 'OpenAI', base: 'https://api.openai.com/v1', model: 'gpt-4o-transcribe',
+    host: 'api.openai.com', reachUrl: 'https://api.openai.com/v1/models' });
+  assert.strictEqual(C.fixedProvider.length, 0, '設定を引数に取る形になった（送り先・URL・モデルを読める）');
+});
+
 test('OL2: OpenAI と同じ形の multipart で送る（file・model・language・prompt・response_format・temperature）。鍵は Authorization だけ', async () => {
   const f = await startFakeStt({ key: KEY });
   try {

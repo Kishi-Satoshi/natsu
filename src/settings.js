@@ -22,6 +22,10 @@
  * - cloudTranscribe の壊れた値は「送らない」側の ask に戻す（true や "yes" を on と読んで、黙って音声を送らない）。
  * - 鍵（API キー）は設定に置かない（secrets.json に暗号でしまう。第1c回 Task A-3）。鍵らしい欄は
  *   表に無いので pickSavable が捨てる（表に無いキーを捨てる今の決まりのまま）。
+ *
+ * 0.7.0 U-1（設計書 D5・D7。計画 docs/plans/2026-10-19-ui07.md）で、送り先と同意の4つのキー（cloudTranscribe・sttProvider・
+ * sttBaseUrl・sttModel）を表と既定から外した（31 のキー）。送り先は OpenAI に固定で、同意は登録の利用規約で取る。
+ * 前の版が書いた値は「知らないキー」として読まず・直さず・消さない（0.6.0 に戻したときに前の選択が戻る）。画面からは保存させない。
  */
 'use strict';
 
@@ -61,11 +65,9 @@ function normalizeSettings(raw, defaults) {
 // 録音バーの表示位置。app.html の #pillPos の選択肢と同じ
 const PILL_POSITIONS = ['bottom', 'top', 'left', 'right', 'top-left', 'top-right', 'bottom-left', 'bottom-right'];
 const THEMES = ['system', 'light', 'dark'];
-// 第1c回: オンラインの文字起こしの同意（ask = まだ聞いていない＝送らない）と送り先
-const CLOUD_CONSENTS = ['ask', 'on', 'off'];
-const STT_PROVIDERS = ['groq', 'openai', 'custom'];
 
-// 既定の設定（第1a回まで main.js の DEFAULT_SETTINGS に書いていた 30 のキーと値に、第1c回の5つを足した 35）。
+// 既定の設定（第1a回まで main.js の DEFAULT_SETTINGS に書いていた 30 のキーと値に、第1c回の claudeExe を足した 31。
+// 第1c回の送り先と同意の4つは 0.7.0 U-1 で外した）。
 // スレッド数は CPU の数から 2 を引いた数（4 より少なくしない）
 function defaultSettings(cpuCount) {
   const threads = Math.max(4, cpuCount - 2);
@@ -91,7 +93,7 @@ function defaultSettings(cpuCount) {
     removeFillers: true,
     soundFeedback: true,
     autoLaunch: false,
-    // 画面の配色。system は Windows の設定に追従する
+    // 外観（画面の配色。0.7.0 U-2 で設定のいちばん上の「外観」へ）。system は Windows の設定に追従する
     theme: 'system',
     // ウィンドウを閉じたときにタスクトレイへ残すか。既定は残さない＝そのまま終了。
     stayInTray: false,
@@ -112,19 +114,12 @@ function defaultSettings(cpuCount) {
     sumCtx: 16384,
     // 使われないエンジンを止めるまでの分。0 = 止めない（#58。releaseIdleEngines）
     engineIdleMin: 10,
-    // 第1c回（OL7）: オンラインのときの文字起こし。既定は ask（同意を聞くまでは送らない＝手元の whisper）
-    cloudTranscribe: 'ask',
-    // 送り先（groq は無料枠。openai・custom を選べる）。custom のときだけ sttBaseUrl を使う
-    sttProvider: 'groq',
-    sttBaseUrl: '',
-    // 空なら送り先ごとの既定のモデル
-    sttModel: '',
     // 空なら Claude Code を探す（第1c回 Task B-1 の findClaude）
     claudeExe: '',
   };
 }
 
-// 35 のキーの決まり。label は設定の画面の言葉（知らせに出す名前。キーの名前は画面に出さない）。
+// 31 のキーの決まり。label は設定の画面の言葉（知らせに出す名前。キーの名前は画面に出さない）。
 // kind ごとの直し方は下の FIX。ここに無いキーは既定にも保存の許可の一覧にも入れない（テストが一致を見る）
 //   int:      normalizeSettings が整数に直して範囲に収める（範囲は normalizeSettings の中だけに書く）
 //   history:  0〜10000 の整数。10000 を越えたら 10000、それ以外の壊れた値は既定（0 に寄せない。F8）
@@ -135,8 +130,6 @@ function defaultSettings(cpuCount) {
 //   point:    null か、x・y が有限の数の { x, y }。違えば null
 //   bool:     真偽値。今の判定で直す（notFalse は「false でなければオン」、ほかは「値があればオン」）
 //   words:    normalizeSettings が文字の並びに整える。配列でなければ []
-//   url:      空か、https:// で始まる 2048 字までの URL（http は 127.0.0.1・localhost だけ）。違えば ''
-//   model:    空か、英数字と . _ : / - の 100 字まで（送り先のモデルの名前）。違えば ''
 //   exe:      文字列。.cmd・.bat・.ps1 で終われば ''（shell を通さないと起こせないので使わない。F12。大小を問わない）。
 //             string の kind は全部のパスの欄が共有するので、この決まりは claudeExe の exe にだけ入れる
 const SETTING_RULES = {
@@ -161,7 +154,7 @@ const SETTING_RULES = {
   removeFillers: { label: 'フィラー除去', kind: 'bool' },
   soundFeedback: { label: '効果音', kind: 'bool' },
   autoLaunch: { label: 'Windowsサインイン時に自動起動', kind: 'bool' },
-  theme: { label: '画面の配色', kind: 'enum', values: THEMES, typeWhy: 'enum' },
+  theme: { label: '外観', kind: 'enum', values: THEMES, typeWhy: 'enum' },
   stayInTray: { label: 'ウィンドウを閉じてもタスクトレイに残す', kind: 'bool' },
   dictionary: { label: 'ユーザー辞書', kind: 'words' },
   useBuiltinTerms: { label: '業務でよく使う言葉のヒントも渡す', kind: 'bool', notFalse: true },
@@ -171,10 +164,6 @@ const SETTING_RULES = {
   sumCtx: { label: '要約の文脈長', kind: 'int' },
   engineIdleMin: { label: '使わないエンジンを止めるまで（分）', kind: 'int' },
   // 第1c回（OL7）
-  cloudTranscribe: { label: 'オンラインの文字起こし', kind: 'enum', values: CLOUD_CONSENTS, typeWhy: 'enum' },
-  sttProvider: { label: '文字起こしの送り先', kind: 'enum', values: STT_PROVIDERS, typeWhy: 'enum' },
-  sttBaseUrl: { label: '送り先の URL（そのほか）', kind: 'url', max: 2048 },
-  sttModel: { label: '送り先のモデル', kind: 'model' },
   claudeExe: { label: 'Claude Code の場所', kind: 'exe' },
 };
 const SETTING_KEYS = Object.keys(SETTING_RULES);
@@ -187,18 +176,6 @@ function toNumber(v) {
 }
 const FALSE_LIKE = /^(false|0|off|no)$/i;
 
-// sttBaseUrl に使える URL か。https のほかは、手元の試し用に http の 127.0.0.1・localhost だけ。
-// 文字の頭と、URL として読んだ結果の両方で見る（http://localhost.example のような名前を通さない）
-function isSttBaseUrl(v, max) {
-  if (v.length > max) return false;
-  let u;
-  try { u = new URL(v); } catch { return false; }
-  if (u.username || u.password) return false;   // https://user:鍵@… の鍵を settings.json に平文で残さない（RF30）
-  if (/^https:\/\//.test(v)) return u.protocol === 'https:' && u.hostname !== '';
-  return /^http:\/\/(127\.0\.0\.1|localhost)(:\d+)?(\/|$)/.test(v)
-    && u.protocol === 'http:' && (u.hostname === '127.0.0.1' || u.hostname === 'localhost');
-}
-const MODEL_RE = /^[A-Za-z0-9._:\/-]{1,100}$/;
 // Windows は名前の後ろの空白と . を無視して開くので（claude.cmd. は claude.cmd）、それも外して見る
 const SHELL_ONLY_RE = /\.(cmd|bat|ps1)[\s.]*$/i;
 
@@ -241,14 +218,6 @@ const FIX = {
   },
   words(v, { norm }) {
     return { value: norm, why: Array.isArray(v) ? null : 'type' };
-  },
-  url(v, { rule }) {
-    if (typeof v !== 'string') return { value: '', why: 'type' };
-    return v === '' || isSttBaseUrl(v, rule.max) ? { value: v, why: null } : { value: '', why: 'enum' };
-  },
-  model(v) {
-    if (typeof v !== 'string') return { value: '', why: 'type' };
-    return v === '' || MODEL_RE.test(v) ? { value: v, why: null } : { value: '', why: 'enum' };
   },
   exe(v) {
     if (typeof v !== 'string') return { value: '', why: 'type' };

@@ -122,11 +122,8 @@ module.exports = [
   { id: 'on-cache-ok', file: 'src/online.js', from: 'until: now() + (res.up ? REACH_OK_MS : REACH_NG_MS)', to: 'until: now() + (res.up ? 0 : REACH_NG_MS)', tests: ['test/online.test.js'], why: 'OL1: 届いた結果は 60 秒覚える' },
   { id: 'on-cache-ng', file: 'src/online.js', from: 'const REACH_NG_MS = 15000;', to: 'const REACH_NG_MS = 60000;', tests: ['test/online.test.js'], why: 'RF27: 届かない結果は短く覚える（戻ったら次の区間で気づく）' },
   { id: 'on-cert', file: 'src/online.js', from: "  if (k === 'cert') return 'cert';", to: "  if (k === 'cert') return 'unreachable';", tests: ['test/online.test.js'], why: 'RF26: 証明書の差し替えを理由として分ける' },
-  { id: 'on-order-consent', file: 'src/online.js', from: "  if (consent !== 'on') return { route: 'local', why: consent === 'ask'", to: "  await up();\n  if (consent !== 'on') return { route: 'local', why: consent === 'ask'",
-    tests: ['test/online.test.js'], why: 'RF28: 同意の前に届くかの確かめの要求を出さない' },
-  { id: 'on-order-localonly', file: 'src/online.js', from: "  if (localOnly) return { route: 'local', why: 'local-only' };\n  if (consent", to: '  if (consent', tests: ['test/online.test.js'], why: 'RF28: ［この会議は PC の中だけ］を一番先に見る' },
+  { id: 'on-order-localonly', file: 'src/online.js', from: "  if (localOnly) return { route: 'local', why: 'local-only' };\n  if (!hasKey)", to: '  if (!hasKey)', tests: ['test/online.test.js'], why: 'RF28: ［この会議は PC の中だけ］を一番先に見る' },
   { id: 'on-order-key', file: 'src/online.js', from: "  if (!hasKey) return { route: 'local', why: 'no-key' };\n", to: '', tests: ['test/online.test.js'], why: 'RF28・F10: 鍵が無ければクラウドにしない' },
-  { id: 'on-consent-unknown', file: 'src/online.js', from: "  if (consent !== 'on') return", to: "  if (consent === 'ask' || consent === 'off') return", tests: ['test/online.test.js'], why: 'RF28: 知らない同意の値は送らない側' },
   { id: 'on-summary-localonly', file: 'src/online.js', from: "  if (localOnly) return { route: 'local', why: 'local-only' };\n  const r = await up();\n  if (r && r.up === true) return { route: 'claude-code'",
     to: "  const r = await up();\n  if (localOnly) return { route: 'local', why: 'local-only' };\n  if (r && r.up === true) return { route: 'claude-code'", tests: ['test/online.test.js'], why: 'C10・F13: PC の中だけのページは届くかを確かめずに手元で要約' },
   // OpenAI と同じ形の文字起こしの口（src/stt-cloud.js）
@@ -180,9 +177,6 @@ module.exports = [
   { id: 'mn-recovery-engine-keep', file: 'src/main.js', from: '        if (e && (e.keepForRetry || e.engineMissing)) {', to: '        if (e && e.keepForRetry) {', tests: ['test/stage1c.main.test.js'], why: '調べた結果の 10: 手元に落ちて whisper が無ければ音声を消さない' },
   { id: 'mn-key-decrypt', file: 'src/main.js', from: "hasKey: key !== '', up });", to: 'hasKey: Boolean(secrets && secrets.has(provider.id)), up });', tests: ['test/stage1c.main.test.js'], why: 'RF30: 復号できた鍵があるときだけクラウドにする（空の鍵で送らない）' },
   // 設定の決まり（src/settings.js）
-  { id: 'st-consent-ask', file: 'src/settings.js', from: "    return rule.values.includes(v) ? { value: v, why: null } : { value: def, why: 'enum' };",
-    to: "    return rule.values.includes(v) ? { value: v, why: null } : { value: rule.values === CLOUD_CONSENTS ? 'on' : def, why: 'enum' };", tests: ['test/settings-rules.test.js'], why: 'OL7: 同意の壊れた値は送らない側の ask' },
-  { id: 'st-url-https', file: 'src/settings.js', from: "  if (/^https:\\/\\//.test(v)) return u.protocol === 'https:' && u.hostname !== '';", to: "  if (/^https?:\\/\\//.test(v)) return u.hostname !== '';", tests: ['test/settings-rules.test.js'], why: 'OL7: sttBaseUrl は https だけ（http は 127.0.0.1・localhost）' },
   { id: 'st-claude-cmd', file: 'src/settings.js', from: "    return SHELL_ONLY_RE.test(v) ? { value: '', why: 'enum' } : { value: v, why: null };", to: '    return { value: v, why: null };', tests: ['test/settings-rules.test.js'], why: 'OL7・F12: claudeExe の .cmd は捨てる' },
   // 画面（src/renderer/app.html）
   { id: 'ui-key-cleared', file: 'src/renderer/app.html', from: "    el.value = '';   // 鍵は欄に残さない", to: '    void el;   // 鍵は欄に残さない', tests: ['test/stage1c.app.test.js'], why: 'RF30: 鍵の保存の後に欄を空にする' },
@@ -192,7 +186,7 @@ module.exports = [
   // 第1c回の各タスクの点検で、テストを足して殺した変異（計画の表の外）
   { id: 'ui-localonly-reset', file: 'src/renderer/app.html', from: '    if (st.active && !mtWasActive) mtLocalOnly = false;', to: '    void mtWasActive;', tests: ['test/stage1c.app.test.js'], why: 'RF28: ［PC の中だけ］は会議ごと（次の会議ではボタンが戻る）' },
   { id: 'ui-localonly-cloud', file: 'src/renderer/app.html', from: "    $('meetingLocalOnly').hidden = on || !st.cloud;", to: "    $('meetingLocalOnly').hidden = on;", tests: ['test/stage1c.app.test.js'], why: 'RF28: クラウドで処理しない設定ではボタンを出さない' },
-  { id: 'mn-status-cloud', file: 'src/main.js', from: "    cloud: settings.cloudTranscribe === 'on',\n  };", to: '    cloud: true,\n  };', tests: ['test/stage1c.main.test.js'], why: 'RF28: 会議の状態の cloud は同意が「使う」のときだけ' },
+  { id: 'mn-status-cloud', file: 'src/main.js', from: '    cloud: hasSttKey(),\n  };', to: '    cloud: true,\n  };', tests: ['test/stage1c.main.test.js'], why: 'RF28・0.7.0 U-1: 会議の状態の cloud は OpenAI の鍵がしまってあるときだけ' },
   { id: 'mn-page-view', file: 'src/main.js', from: "mainWin.webContents.send(ch, ch === 'page:updated' && p && p.page ? { ...p, page: pageForView(p.page) } : p);", to: 'mainWin.webContents.send(ch, p);', tests: ['test/stage1c.main.test.js'], why: 'OL6: 要約の後の page:updated にも経路の行を添える' },
   { id: 'on-redirect-up', file: 'src/online.js', from: "    req.on('redirect', () => { finish({ up: true, why: 'ok' }); try { req.abort(); } catch (_) { /* もう閉じた */ } });\n", to: '', tests: ['test/online.test.js'], why: 'OL1: 転送も返事のうちで、先へは追わない' },
   { id: 'sec-unreadable-set', file: 'src/secrets.js', from: "    load();\n    if (unreadable) return { ok: false, code: 'write' };\n    const next = copy(); next[id] = enc;", to: '    load();\n    const next = copy(); next[id] = enc;', tests: ['test/secrets.test.js'], why: 'RF22: 読めない secrets.json に書かない（ほかの送り先の鍵が消える）' },
@@ -202,7 +196,7 @@ module.exports = [
   { id: 'cl-out-cap', file: 'src/claude-cli.js', from: '        if (outLen + d.length > OUT_MAX) { tooBig = true; stop(); return; }', to: '        if (false) { tooBig = true; stop(); return; }', tests: ['test/claude-cli.test.js'], why: 'F11: stdout は 5MB まで（越えたら止める）' },
   { id: 'cl-exit-nonzero', file: 'src/claude-cli.js', from: '  if (j.is_error !== true && code === 0) {', to: '  if (j.is_error !== true) {', tests: ['test/claude-cli.test.js'], why: 'RF24: 終わりの番号が 0 でなければ失敗' },
   { id: 'cl-auth-timeout', file: 'src/claude-cli.js', from: "  if (r.timedOut || r.tooBig) return { ok: false, code: 'failed', method: '' };\n", to: '', tests: ['test/claude-cli.test.js'], why: 'RF24: auth status の時間切れを「ログインしていない」と言わない' },
-  { id: 'mn-ask-no-decrypt', file: 'src/main.js', from: "  if (!localOnly && consent === 'on' && !provider.error && secrets) {", to: '  if (!localOnly && !provider.error && secrets) {', tests: ['test/stage1c.main.test.js'], why: 'RF28: 同意の前は鍵を復号しない（キーリングの確かめを出さない）' },
+  { id: 'mn-ask-no-decrypt', file: 'src/main.js', from: '  if (!localOnly && secrets) {', to: '  if (secrets) {', tests: ['test/stage1c.main.test.js'], why: 'RF28・0.7.0 U-1: ［PC の中だけ］なら鍵を復号しない（同意の前は復号しない、の代わり。キーリングの確かめを出さない）' },
   { id: 'mn-announce-localonly', file: 'src/main.js', from: "    if (r.route !== 'cloud' || m.localOnly || meeting !== m) return;", to: "    if (r.route !== 'cloud' || meeting !== m) return;", tests: ['test/stage1c.main.test.js'], why: 'RF28: 経路の確かめの間に［PC の中だけ］が押されたら M1 を出さない' },
   { id: 'mn-localonly-oneway', file: 'src/main.js', from: '(on === true && meeting ? setMeetingLocalOnly(true)', to: '(meeting ? setMeetingLocalOnly(on === true)', tests: ['test/stage1c.ipc.test.js'], why: 'RF28: ［PC の中だけ］は片道（会議中に false が来ても戻さない）' },
   // ---------------------------------------------------------------- 第1b回の続き Lane F（Claude Code の確かめ・ログインと入れる窓・文字起こしの鍵の確かめ。点検で 43 個すべて killed を確かめた）
@@ -571,4 +565,17 @@ module.exports = [
   // 文字起こしの直し（CI run 39183232615。区間の要求が返事の前に接続ごと切れた）
   { id: 'mn-stt-resend', file: 'src/main.js', from: '        if (!code || resent) throw new Error(fetchErrorText(e));', to: '        throw new Error(fetchErrorText(e));',
     tests: ['test/transcribe.e2e.test.js'], why: '区間の要求が返事の前に接続ごと切れたら、同じ区間を1回だけ送り直す（失敗にして手でやり直させない）' },
+  // ---------------------------------------------------------------- 0.7.0 U-1・U-2（計画 docs/plans/2026-10-19-ui07.md の「変異確認」。設計書 D5・D8）
+  { id: 'u1-fixed-provider', file: 'src/main.js', from: '  return sttCloud.fixedProvider();\n', to: '  return sttCloud.resolveProvider(settings);\n',
+    tests: ['test/stage1c.main.test.js'], why: 'U-1（D5）: 送り先は OpenAI に固定（前の版の sttProvider・sttBaseUrl・sttModel を読まない）' },
+  { id: 'u1-key-openai-only', file: 'src/main.js', from: "  const keyProvider = (id) => (id === sttCloud.FIXED_PROVIDER_ID ? id : '');",
+    to: "  const keyProvider = (id) => (typeof id === 'string' && Object.prototype.hasOwnProperty.call(sttCloud.PRESETS, id) ? id : '');",
+    tests: ['test/stage1c.ipc.test.js'], why: 'U-1（D5）: 鍵の IPC は openai だけ（groq・custom の鍵に画面から届かない）' },
+  { id: 'u1-nokey-noprobe', file: 'src/online.js', from: "  if (!hasKey) return { route: 'local', why: 'no-key' };\n  const r = await up();",
+    to: "  const r = await up();\n  if (!hasKey) return { route: 'local', why: 'no-key' };", tests: ['test/online.test.js'], why: 'U-1・RF28: 鍵が無ければ届くかの確かめの要求も出さない' },
+  { id: 'u1-retired-keys', file: 'src/settings.js', from: '  // 第1c回（OL7）\n  claudeExe',
+    to: "  // 第1c回（OL7）\n  cloudTranscribe: { label: 'オンラインの文字起こし', kind: 'enum', values: ['ask', 'on', 'off'], typeWhy: 'enum' },\n  claudeExe",
+    tests: ['test/settings-rules.test.js'], why: 'U-1（D5・JS6）: 送り先と同意のキーは決まりの表に無く、前の版の値は読まずに残す' },
+  { id: 'u1-ui-no-provider', file: 'src/renderer/app.html', from: "  const STT_PROVIDER = 'openai';", to: "  const STT_PROVIDER = 'groq';",
+    tests: ['test/stage1c.app.test.js'], why: 'U-1（D5）: 画面の鍵のボタンは openai の名前だけで main を呼ぶ' },
 ];

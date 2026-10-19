@@ -1,6 +1,6 @@
 /*
  * settings-rules.test.js — 設定の決まり（第1a回 JS6。RF23・F8・F11）
- * 35 のキーの表（第1a回の 30 に第1c回 Task C-1 で5つ足した）・項目ごとの読み方・今の読み方（normalizeSettings({ ...既定, ...raw }, 既定)）との比べ・保存の許可の一覧。
+ * 31 のキーの表（第1a回の 30 に第1c回 Task C-1 で5つ足し、0.7.0 U-1（設計書 D5）で送り先と同意の4つを外した）・項目ごとの読み方・今の読み方（normalizeSettings({ ...既定, ...raw }, 既定)）との比べ・保存の許可の一覧。
  */
 'use strict';
 
@@ -22,16 +22,17 @@ const TODAY = {
 const UI = { ...TODAY, localServerExe: 'C:\\e\\w.exe', localModelPath: 'C:\\m\\g.bin', theme: 'dark', micId: 'mic-1', dictionary: ['見積', '検収'] };
 delete UI.pillCustom; delete UI.maxHistory;
 // 第1c回 Task C-1: TODAY に足す（ほかの 30 は変えない）。意図: 既定が今の値のまま・決まりのないキーを足せない
-Object.assign(TODAY, { cloudTranscribe: 'ask', sttProvider: 'groq', sttBaseUrl: '', sttModel: '', claudeExe: '' });
-// 第1c回 Task C-2: 画面のカード「オンライン」が5つのキーも送る（34 のキー）。既定でない値で往復することを見る
-Object.assign(UI, { cloudTranscribe: 'on', sttProvider: 'custom', sttBaseUrl: 'https://stt.example/v1', sttModel: 'whisper-large-v3', claudeExe: 'C:\\c\\claude.exe' });
+// 0.7.0 U-1（設計書 D5）で意図して変えた: 送り先と同意の4つ（cloudTranscribe・sttProvider・sttBaseUrl・sttModel）は表と既定から外した（31 のキー）
+Object.assign(TODAY, { claudeExe: '' });
+// 第1c回 Task C-2: 画面のカード「オンライン」が送るキー（0.7.0 U-1 で claudeExe だけ。30 のキー）。既定でない値で往復することを見る
+Object.assign(UI, { claudeExe: 'C:\\c\\claude.exe' });
 const legacy = (raw) => S.normalizeSettings({ ...D, ...raw }, D);
 const ON = (key, v) => (key === 'useBuiltinTerms' ? v !== false : Boolean(v));
 const BOOLS = ['useVad', 'suppressNst', 'autoPaste', 'removeFillers', 'soundFeedback', 'autoLaunch', 'stayInTray', 'useBuiltinTerms', 'useSystemAudio'];
 
-test('JS6: 決まりの表のキーは既定の 35 のキーとちょうど同じ。どれにも画面の名前がある', { timeout: 5000 }, () => {
+test('JS6: 決まりの表のキーは既定の 31 のキーとちょうど同じ。どれにも画面の名前がある', { timeout: 5000 }, () => {
   assert.deepStrictEqual(D, TODAY);
-  assert.strictEqual(S.SETTING_KEYS.length, 35);
+  assert.strictEqual(S.SETTING_KEYS.length, 31);
   assert.deepStrictEqual([...S.SETTING_KEYS].sort(), Object.keys(TODAY).sort());
   for (const k of S.SETTING_KEYS) assert.ok(typeof S.SETTING_RULES[k].label === 'string' && S.SETTING_RULES[k].label.length > 1, k);
   assert.strictEqual(S.defaultSettings(2).localThreads, 4);
@@ -132,20 +133,21 @@ test('JS6・SEC1: 保存の許可の一覧 — 決まりのないキーは画面
   for (const v of [null, [], 'x', 1]) assert.strictEqual(S.isSettingsShape(v), false, JSON.stringify(v));
 });
 
-test('OL7: 第1c回の5つのキー。同意の壊れた値は送らない側（ask）に戻す', { timeout: 5000 }, () => {
-  assert.strictEqual(S.SETTING_KEYS.length, 35);
-  const r = (raw) => S.readSettings(raw, D);
-  for (const v of [true, 'yes', 1, null, 'ON']) assert.strictEqual(r({ cloudTranscribe: v }).settings.cloudTranscribe, 'ask', JSON.stringify(v));
-  assert.strictEqual(r({ cloudTranscribe: 'on' }).settings.cloudTranscribe, 'on');
-  assert.strictEqual(r({ sttProvider: 'azure' }).settings.sttProvider, 'groq');
-  assert.strictEqual(r({ sttBaseUrl: 'http://stt.example/v1' }).settings.sttBaseUrl, '');
-  assert.strictEqual(r({ sttBaseUrl: 'https://stt.example/v1' }).settings.sttBaseUrl, 'https://stt.example/v1');
-  assert.strictEqual(r({ sttBaseUrl: 'http://127.0.0.1:8123/v1' }).settings.sttBaseUrl, 'http://127.0.0.1:8123/v1');
-  assert.strictEqual(r({ sttModel: 'whisper-large-v3; rm -rf' }).settings.sttModel, '');
-  assert.strictEqual(r({ sttModel: 'gpt-4o-transcribe' }).settings.sttModel, 'gpt-4o-transcribe');
-  assert.strictEqual(r({ claudeExe: 'C:\\npm\\claude.cmd' }).settings.claudeExe, '');
-  assert.strictEqual(r({ claudeExe: 'C:\\Users\\u\\.local\\bin\\claude.exe' }).settings.claudeExe, 'C:\\Users\\u\\.local\\bin\\claude.exe');
-  assert.deepStrictEqual(r({ cloudTranscribe: 'yes' }).repaired, [{ key: 'cloudTranscribe', why: 'enum' }]);
+// 0.7.0 U-1（設計書 D5・D7）: 送り先は OpenAI に固定し、同意の選択も外した。前の版が書いた4つのキーは読まず・直さず・消さず（JS6 の知らないキー。
+// 0.6.0 に戻したときに前の選択が戻る）、画面からは保存させない。claudeExe の決まりは今のまま
+const RETIRED = { cloudTranscribe: 'off', sttProvider: 'custom', sttBaseUrl: 'https://stt.example/v1', sttModel: 'whisper-large-v3' };
+test('U-1: 送り先と同意の4つのキーは決まりの表に無く、保存の値は読まずに残し（知らないキー）、画面からは保存しない', { timeout: 5000 }, () => {
+  for (const k of Object.keys(RETIRED)) assert.ok(!S.SETTING_KEYS.includes(k) && !(k in D), `${k} がまだ決まりの表か既定にある`);
+  const r = S.readSettings({ ...RETIRED }, D);
+  assert.deepStrictEqual(r.repaired, []);
+  for (const [k, v] of Object.entries(RETIRED)) assert.strictEqual(r.settings[k], v, `${k} を書き換えた・消した`);
+  // 壊れた値（前は ask に直していた true・"yes"）もそのまま残す（読まないので直さない）
+  const odd = S.readSettings({ cloudTranscribe: 'yes', sttProvider: 5, sttBaseUrl: 'http://stt.example/v1' }, D);
+  assert.deepStrictEqual(odd.repaired, []);
+  assert.deepStrictEqual([odd.settings.cloudTranscribe, odd.settings.sttProvider, odd.settings.sttBaseUrl], ['yes', 5, 'http://stt.example/v1']);
+  assert.deepStrictEqual(S.pickSavable({ ...RETIRED, theme: 'dark' }), { theme: 'dark' });
+  assert.strictEqual(S.readSettings({ claudeExe: 'C:\\npm\\claude.cmd' }, D).settings.claudeExe, '');
+  assert.strictEqual(S.readSettings({ claudeExe: 'C:\\Users\\u\\.local\\bin\\claude.exe' }, D).settings.claudeExe, 'C:\\Users\\u\\.local\\bin\\claude.exe');
 });
 
 test('OL7: claudeExe は npm 版（.cmd・.bat・.ps1）を大小を問わず捨てる。Windows が無視する後ろの . と空白も外して見る', { timeout: 5000 }, () => {
@@ -159,27 +161,7 @@ test('OL7: claudeExe は npm 版（.cmd・.bat・.ps1）を大小を問わず捨
   assert.strictEqual(exe('/home/u/.local/bin/claude').settings.claudeExe, '/home/u/.local/bin/claude');
 });
 
-test('OL7: sttBaseUrl は 2048 字まで。http は 127.0.0.1・localhost だけで、似た名前と鍵入りの URL は通さない', { timeout: 5000 }, () => {
-  const url = (v) => S.readSettings({ sttBaseUrl: v }, D);
-  const AT = '@';   // 文字のままだと repo.test.js のメールアドレスの見張りに当たるので分けて書く
-  const max = 'https://a.example/' + 'x'.repeat(2048 - 18);
-  assert.strictEqual(max.length, 2048);
-  assert.strictEqual(url(max).settings.sttBaseUrl, max);
-  assert.deepStrictEqual(url(max + 'x').settings.sttBaseUrl, '');
-  assert.deepStrictEqual(url(max + 'x').repaired, [{ key: 'sttBaseUrl', why: 'enum' }]);
-  for (const v of ['http://localhost.example/v1', 'http://127.0.0.1.evil/v1', `http://localhost${AT}evil.example/`, 'HTTPS://stt.example/v1',
-    'https:stt.example/v1', `https://user:gsk_secret${AT}stt.example/v1`, `https://:gsk_secret${AT}stt.example/v1`, `http://u:p${AT}127.0.0.1:8123/v1`,
-    'http://localhost\\v1']) {   // 最後は URL では localhost に読めるが、文字の頭の決まり（名前の後ろは : か / か終わり）で落とす
-    const got = url(v);
-    assert.strictEqual(got.settings.sttBaseUrl, '', JSON.stringify(v));
-    assert.deepStrictEqual(got.repaired, [{ key: 'sttBaseUrl', why: 'enum' }], JSON.stringify(v));
-  }
-  for (const v of ['http://localhost:8123', 'http://127.0.0.1:8123', 'http://localhost/v1', 'https://stt.example/v1/']) {
-    assert.strictEqual(url(v).settings.sttBaseUrl, v, JSON.stringify(v));
-  }
-});
-
 test('RF30: 鍵らしい欄は画面から来ても保存しない（設定の JSON に秘密を置かない）', { timeout: 5000 }, () => {
-  const next = { theme: 'dark', sttKey: 'gsk_x', groqKey: 'gsk_x', openaiKey: 'sk-x', apiKey: 'k', ANTHROPIC_API_KEY: 'sk-ant', cloudTranscribe: 'on' };
-  assert.deepStrictEqual(S.pickSavable(next), { theme: 'dark', cloudTranscribe: 'on' });
+  const next = { theme: 'dark', sttKey: 'gsk_x', groqKey: 'gsk_x', openaiKey: 'sk-x', apiKey: 'k', ANTHROPIC_API_KEY: 'sk-ant', claudeExe: '' };
+  assert.deepStrictEqual(S.pickSavable(next), { theme: 'dark', claudeExe: '' });
 });

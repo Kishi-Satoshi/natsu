@@ -18,6 +18,8 @@ const run = (args) => new Promise((resolve, reject) => {
       resolve(JSON.parse(stdout.trim().split('\n').pop()));
     });
 });
+// net.request に渡した宛先のホスト（書き換える前）。要約の経路の確かめ（Anthropic）は除く
+const sttHosts = (o) => [...new Set(o.netHosts.filter((h) => h !== 'api.anthropic.com'))];
 const sttPosts = (o) => o.stt.filter((r) => r.path.endsWith('/audio/transcriptions'));
 const whisperSpawned = (o) => o.spawns.some((s) => /fake-whisper\.js$/.test(s.cmd) || /whisper-server/.test(s.cmd));
 const noKeyAnywhere = (o) => {
@@ -25,17 +27,18 @@ const noKeyAnywhere = (o) => {
   assert.ok(!blob.includes(KEY), '鍵の文字が設定・記録・知らせ・ページのどこかにある');
 };
 
-test('OL2: オンラインで同意と鍵があれば、区間はクラウドで文字起こしされ、手元の whisper は起動しない。ページに経路が残る', { timeout: 20000 }, async () => {
+test('OL2: オンラインで鍵があれば、区間はクラウド（OpenAI）で文字起こしされ、手元の whisper は起動しない。ページに経路が残る', { timeout: 20000 }, async () => {
   const o = await run(['text', '--stt=text', '--segs=2']);
   assert.strictEqual(sttPosts(o).length, 2);
-  assert.ok(sttPosts(o).every((r) => r.authOk && r.wavOk && r.fields.language === 'ja' && r.fields.model === 'whisper-large-v3'));
+  assert.ok(sttPosts(o).every((r) => r.authOk && r.wavOk && r.fields.language === 'ja' && r.fields.model === 'gpt-4o-transcribe'));
   assert.match(sttPosts(o)[1].fields.prompt, /確認です。区間1$/, '2つ目の区間の認識ヒントの終わりに、直前の区間の尻尾が無い（#15）');
   assert.strictEqual(whisperSpawned(o), false, 'オンラインなのに手元の whisper を起動した');
-  assert.deepStrictEqual(o.pages[0].route.stt, { cloud: 2, local: 0, provider: 'custom' });
-  assert.deepStrictEqual(o.pages[0].routeText.slice(0, 1), ['☁ 文字起こし: クラウド（そのほか）2'], 'page:get の返事に経路の行が無い（C-3）');
-  assert.strictEqual(o.statusCloud, true, '同意が「使う」なのに会議の状態の cloud が true でない（［PC の中だけ］のボタンが出ない）');
+  assert.deepStrictEqual(o.pages[0].route.stt, { cloud: 2, local: 0, provider: 'openai' });
+  assert.deepStrictEqual(o.pages[0].routeText.slice(0, 1), ['☁ 文字起こし: クラウド（OpenAI）2'], 'page:get の返事に経路の行が無い（C-3）');
+  assert.strictEqual(o.statusCloud, true, 'OpenAI の鍵があるのに会議の状態の cloud が true でない（［PC の中だけ］のボタンが出ない）');
+  assert.deepStrictEqual(sttHosts(o), ['api.openai.com'], 'OpenAI のほかの宛先へ文字起こしの要求を出した');
   assert.ok(o.pages[0].segments.every((s) => s.text.startsWith('本日の議題は進捗の確認です') && !s.failed));
-  assert.ok(o.balloons.some((b) => /この会議の音声は そのほか に送って文字起こしします/.test(b)), '会議の始めの知らせ（M1）が無い');
+  assert.ok(o.balloons.some((b) => /この会議の音声は OpenAI に送って文字起こしします/.test(b)), '会議の始めの知らせ（M1）が無い');
   assert.ok(!o.engineLog.some((l) => l.includes('本日の議題')), '記録に文字起こしの本文がある');
   noKeyAnywhere(o);
 });
@@ -44,19 +47,40 @@ test('D1: オフライン（isOnline が false）なら手元の whisper で文�
   const o = await run(['text', '--stt=text', '--offline', '--segs=2']);
   assert.strictEqual(o.stt.length, 0);
   assert.strictEqual(whisperSpawned(o), true);
-  assert.deepStrictEqual(o.pages[0].route.stt, { cloud: 0, local: 2, provider: 'custom' });
+  assert.deepStrictEqual(o.pages[0].route.stt, { cloud: 0, local: 2, provider: 'openai' });
 });
 
-test('RF28: 同意をまだ決めていない・［この会議は PC の中だけ］なら、送り先に1回も要求が無い（届くかの確かめも無い）', { timeout: 20000 }, async () => {
-  const a = await run(['text', '--stt=text', '--consent=ask', '--segs=2']);
-  assert.strictEqual(a.stt.length, 0);
-  assert.ok(a.notices.some((n) => /オンラインの文字起こしを使うかを、設定の「オンライン」で選んでください/.test(n)));
-  assert.strictEqual(a.notices.filter((n) => /オンラインの文字起こしを使うか/.test(n)).length, 1, '同じ案内を区間ごとに出した');
-  assert.strictEqual(a.decrypts, 0, '同意が ask なのに鍵を復号した（要らない復号。キーリングの確かめが出ることがある）');
-  assert.strictEqual(a.statusCloud, false, '同意が ask なのに会議の状態の cloud が true（［PC の中だけ］のボタンが出る）');
+// 0.7.0 U-1（設計書 D5・D7）で意図して変えた: 同意の選択を外した。前の版が保存した同意（ask・off）と送り先（groq・そのほかの URL・モデル）は読まず、
+// OpenAI の鍵があれば OpenAI（gpt-4o-transcribe）で文字起こしする（計画 docs/plans/2026-10-19-ui07.md の「決めたこと」の 1）
+for (const consent of ['ask', 'off']) {
+  test(`U-1: 保存の値が ${consent}・そのほかの URL でも、OpenAI の鍵があれば OpenAI（gpt-4o-transcribe）で文字起こしし、そのほかの URL へは送らない`, { timeout: 20000 }, async () => {
+    const o = await run(['text', '--stt=text', `--consent=${consent}`, '--legacy-provider', '--segs=1']);
+    assert.strictEqual(sttPosts(o).length, 1, consent);
+    assert.ok(sttPosts(o).every((r) => r.authOk && r.fields.model === 'gpt-4o-transcribe'), `${consent}: 前の版のモデルの名前で送った`);
+    assert.deepStrictEqual(sttHosts(o), ['api.openai.com'], `${consent}: 前の版の「そのほか」の URL へ直に送った`);
+    assert.deepStrictEqual(o.pages[0].route.stt, { cloud: 1, local: 0, provider: 'openai' }, consent);
+    assert.strictEqual(o.statusCloud, true, consent);
+    assert.ok(!o.notices.some((n) => /オンラインの文字起こしを使うか/.test(n)), `${consent}: 外した同意の案内が出た`);
+    assert.deepStrictEqual([o.savedSettings.cloudTranscribe, o.savedSettings.sttProvider], [consent, 'custom'], `${consent}: 前の版の値を settings.json から消した・書き換えた（JS6）`);
+    noKeyAnywhere(o);
+  });
+}
+
+for (const id of ['groq', 'custom']) {
+  test(`U-1: ${id} の名前の鍵しか無い PC は、その鍵を OpenAI へ送らず手元で取り、鍵の案内を1回出す（鍵は消さない）`, { timeout: 20000 }, async () => {
+    const o = await run(['text', '--stt=text', `--key-for=${id}`, '--legacy-provider', '--segs=2']);
+    assert.strictEqual(o.stt.length, 0, `${id}: ほかの送り先の鍵で送った`);
+    assert.deepStrictEqual(o.pages[0].route.stt, { cloud: 0, local: 2, provider: 'openai' }, id);
+    assert.strictEqual(o.statusCloud, false, `${id}: OpenAI の鍵が無いのに［PC の中だけ］のボタンが出る`);
+    assert.strictEqual(o.notices.filter((n) => n === 'OpenAI の鍵が入っていないため、PC の中で文字起こししています。鍵は設定の「オンライン」の［詳細設定（管理者用）］で入れます。').length, 1, id);
+    assert.ok(o.secretsRaw.includes(`"${id}"`), `${id}: ほかの送り先の鍵を消した`);
+  });
+}
+
+test('RF28: ［この会議は PC の中だけ］なら、送り先に音声を送らず、鍵も復号しない', { timeout: 20000 }, async () => {
   const l = await run(['text', '--stt=text', '--local-only', '--segs=2']);
   assert.strictEqual(l.stt.filter((r) => r.path.endsWith('/audio/transcriptions')).length, 0);
-  assert.deepStrictEqual(l.pages[0].route.stt, { cloud: 0, local: 2, provider: 'custom' });
+  assert.deepStrictEqual(l.pages[0].route.stt, { cloud: 0, local: 2, provider: 'openai' });
   assert.strictEqual(l.draftLocalOnly, true, '［PC の中だけ］を下書きに書いていない（落ちて復旧すると送り直しがクラウドへ行く）');
   assert.strictEqual(l.pages[0].route.localOnly, true);
   assert.ok(l.engineLog.some((x) => /区間 s1 → local（理由: local-only）/.test(x)), '［PC の中だけ］の区間の理由が local-only でない');
@@ -66,18 +90,22 @@ test('RF28: 同意をまだ決めていない・［この会議は PC の中だ�
   assert.deepStrictEqual(l.localOnly, { ok: true, localOnly: true });
   assert.deepStrictEqual(l.statusLocalOnly, { localOnly: true, cloud: true });
   assert.deepStrictEqual(l.pages[0].routeText.slice(0, 1), ['🖥 文字起こし: PC']);
+  // 0.7.0 U-1: 同意の前は復号しない（mn-ask-no-decrypt）の代わりに、［PC の中だけ］の区間では鍵を復号しない
+  // （復号は起動と会議の始めの経路の確かめの分だけで、区間の数では増えない）
+  const l1 = await run(['text', '--stt=text', '--local-only', '--segs=1']);
+  assert.strictEqual(l.decrypts, l1.decrypts, `［PC の中だけ］の区間で鍵を復号した（区間 2 つで ${l.decrypts} 回・1つで ${l1.decrypts} 回）`);
 });
 
 test('RF27: 送っている途中で切れた区間だけ手元でやり直し、次の区間はクラウドに戻る', { timeout: 20000 }, async () => {
   const o = await run(['text', '--stt=drop-first', '--segs=2']);
-  assert.deepStrictEqual(o.pages[0].route.stt, { cloud: 1, local: 1, provider: 'custom' });
+  assert.deepStrictEqual(o.pages[0].route.stt, { cloud: 1, local: 1, provider: 'openai' });
   assert.ok(o.pages[0].segments.every((s) => !s.failed));
   assert.ok(o.engineLog.some((l) => /区間 s1 → local（理由: net）/.test(l)));
 });
 
 test('RF29: 429 は待ってからクラウドで取れる（手元へ落とさない）。待っていることを1回知らせる', { timeout: 20000 }, async () => {
   const o = await run(['text', '--stt=429', '--segs=2']);
-  assert.deepStrictEqual(o.pages[0].route.stt, { cloud: 2, local: 0, provider: 'custom' });
+  assert.deepStrictEqual(o.pages[0].route.stt, { cloud: 2, local: 0, provider: 'openai' });
   assert.strictEqual(whisperSpawned(o), false);
   assert.strictEqual(o.notices.filter((n) => /利用の上限に近いため/.test(n)).length, 1);
 });
@@ -99,10 +127,11 @@ test('RF30: 鍵のファイルはあるが復号できない（safeStorage が�
   assert.ok(o.engineLog.some((l) => l.includes('key-unreadable')));
 });
 
-test('F10: 鍵が無い最初の日は手元で取れ、鍵の案内が1回出る', { timeout: 20000 }, async () => {
+test('F10: 鍵が無い最初の日は手元で取れ、鍵の案内が1回出る。［PC の中だけ］のボタンは出ない', { timeout: 20000 }, async () => {
   const o = await run(['text', '--stt=text', '--no-key', '--segs=2']);
   assert.strictEqual(o.stt.length, 0);
-  assert.deepStrictEqual(o.pages[0].route.stt, { cloud: 0, local: 2, provider: 'custom' });
+  assert.strictEqual(o.statusCloud, false, 'OpenAI の鍵が無いのに会議の状態の cloud が true（［PC の中だけ］のボタンが出る）');
+  assert.deepStrictEqual(o.pages[0].route.stt, { cloud: 0, local: 2, provider: 'openai' });
   assert.strictEqual(o.notices.filter((n) => /鍵が入っていないため、PC の中で文字起こししています/.test(n)).length, 1);
 });
 
@@ -117,12 +146,12 @@ test('OL2: 復旧の文字起こしもクラウドで処理でき、そのとき
   const o = await run(['text', '--stt=text', '--recover']);
   assert.strictEqual(sttPosts(o).length, 1);
   assert.strictEqual(whisperSpawned(o), false);
-  assert.deepStrictEqual(o.pages[0].route.stt, { cloud: 1, local: 0, provider: 'custom' });
+  assert.deepStrictEqual(o.pages[0].route.stt, { cloud: 1, local: 0, provider: 'openai' });
 });
 
 test('RF26: 送り先に届かない（証明書）ときは手元で続け、理由を会議ごとに1回だけ知らせる', { timeout: 20000 }, async () => {
   const o = await run(['text', '--stt=cert', '--segs=2']);
-  assert.deepStrictEqual(o.pages[0].route.stt, { cloud: 0, local: 2, provider: 'custom' });
+  assert.deepStrictEqual(o.pages[0].route.stt, { cloud: 0, local: 2, provider: 'openai' });
   assert.strictEqual(o.notices.filter((n) => /証明書が差し替えられている可能性があります/.test(n)).length, 1);
 });
 
@@ -131,8 +160,9 @@ test('調べた結果の 10: 復旧をクラウドで先へ通した後、手元
   assert.strictEqual(o.recoveryKept, true, '手元のエンジンが無いのに、送り直しの音声か待ち行列を消した');
 });
 
-test('F14: 手元の場面（同意が既定の ask）は今どおり起動のときに whisper を先読みし、ページに印が残る', { timeout: 20000 }, async () => {
-  const o = await run(['text', '--stt=text', '--consent=ask', '--segs=1']);
+// 0.7.0 U-1 で意図して変えた: 手元の場面は「同意が既定の ask」でなく「OpenAI の鍵が無い PC」
+test('F14: 手元の場面（OpenAI の鍵が無い）は今どおり起動のときに whisper を先読みし、ページに印が残る', { timeout: 20000 }, async () => {
+  const o = await run(['text', '--stt=text', '--no-key', '--segs=1']);
   assert.strictEqual(whisperSpawned(o), true);
   assert.strictEqual(o.pages[0].route.localOnly, false);
 });
@@ -141,7 +171,7 @@ test('RF28: ［PC の中だけ］の会議が落ちて復旧しても、送り�
   const o = await run(['text', '--stt=text', '--recover', '--local-only']);
   assert.strictEqual(o.stt.length, 0);
   assert.strictEqual(whisperSpawned(o), true);
-  assert.deepStrictEqual(o.pages[0].route.stt, { cloud: 0, local: 1, provider: 'custom' });
+  assert.deepStrictEqual(o.pages[0].route.stt, { cloud: 0, local: 1, provider: 'openai' });
   assert.strictEqual(o.pages[0].route.localOnly, true);
 });
 
@@ -167,7 +197,7 @@ test('D2: オンラインの自動の要約は Claude Code で作られ、出典
   const p = o.pages[0];
   assert.strictEqual(p.route.summary.by, 'claude-code');
   // C-3: 画面に渡る経路の行は page:get の返事にも、要約の後の page:updated にも載る（要約の後に描き直しても消えない）
-  assert.deepStrictEqual(p.routeText, ['☁ 文字起こし: クラウド（そのほか）2', '✨ 要約: Claude Code']);
+  assert.deepStrictEqual(p.routeText, ['☁ 文字起こし: クラウド（OpenAI）2', '✨ 要約: Claude Code']);
   assert.deepStrictEqual(o.updatedRouteText, p.routeText, '要約の後の page:updated に経路の行が無い（描き直すとプロパティの行から消える）');
   assert.deepStrictEqual(o.segUpdateRouteText, p.routeText, '文字起こしの行を直した返事に経路の行が無い（直すとプロパティの行から消える）');
   assert.ok(p.citeStat && p.citeStat.total > 0, '出典の照合を通っていない');

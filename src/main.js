@@ -94,7 +94,7 @@ const NOTE_MAX_TOKENS = 900;   // 分割要約の各パート
 const SUM_CTX_MARGIN = 256;
 const ENGINE_READY_TIMEOUT_MS = 90000;
 
-// 既定の設定（35 のキー。第1c回で5つ足した）は settings.js の defaultSettings。スレッド数は CPU の数から決まる（第1a回 Task 2-2 で移した）
+// 既定の設定（31 のキー。第1c回で5つ足し、0.7.0 U-1 で送り先と同意の4つを外した）は settings.js の defaultSettings。スレッド数は CPU の数から決まる（第1a回 Task 2-2 で移した）
 const DEFAULT_SETTINGS = defaultSettings(os.cpus().length);
 
 // ---------------------------------------------------------------- 状態
@@ -1294,16 +1294,16 @@ const STT_SLEEP_SCALE = (() => {
 // 知らせ（M1〜M8。計画「画面と知らせの文」）。{送り先} は送り先の表示の名前、{ホスト} はホストの名前だけ（鍵・URL の道は入れない）
 const STT_NOTICE = {
   cloud: (p) => `この会議の音声は ${p.label} に送って文字起こしします。1on1・面談など外に出したくない会議は、議事録の画面の［この会議は PC の中だけ］を押してください。`,
-  'consent-ask': () => 'オンラインの文字起こしを使うかを、設定の「オンライン」で選んでください。選ぶまでは PC の中で文字起こしします。',
-  'no-key': (p) => `${p.label} の鍵が入っていないため、PC の中で文字起こししています。設定の「オンライン」で鍵を入れてください。`,
+  // 0.7.0 U-1（設計書 D5）: 同意の案内（consent-ask）は外した。鍵の欄は「オンライン」の［詳細設定（管理者用）］の奥（中継ができるまでの仮の欄）
+  'no-key': (p) => `${p.label} の鍵が入っていないため、PC の中で文字起こししています。鍵は設定の「オンライン」の［詳細設定（管理者用）］で入れます。`,
   cert: (p) => `${p.label} につながりません（会社の通信の検査で証明書が差し替えられている可能性があります）。PC の中で文字起こしを続けます。続くときは情報システムに ${p.host} への通信の許可を頼んでください。`,
   unreachable: (p) => `${p.label} につながらないため、PC の中で文字起こしを続けます。`,
   wait: (p, sec) => `${p.label} の利用の上限に近いため、${sec} 秒待ってから送り直しています。`,
   rate: (p) => `${p.label} の利用の上限に達しました。文字起こしできなかった区間の音声は残してあり、議事録を閉じた後にもう一度試します。`,
-  auth: (p) => `${p.label} の鍵が正しくないか、使えなくなっています。設定の「オンライン」で鍵を入れ直してください。`,
+  auth: (p) => `${p.label} の鍵が正しくないか、使えなくなっています。設定の「オンライン」の［詳細設定（管理者用）］で鍵を入れ直してください。`,
 };
-// 経路の理由 → 知らせの符号（M2〜M5）。オフライン・会議の印・「使わない」は知らせない（利用者が決めたこと・見て分かること）
-const ROUTE_NOTICE = { 'consent-ask': 'consent-ask', 'no-key': 'no-key', cert: 'cert', proxy: 'unreachable', unreachable: 'unreachable' };
+// 経路の理由 → 知らせの符号（M3〜M5）。オフライン・会議の印は知らせない（利用者が決めたこと・見て分かること）
+const ROUTE_NOTICE = { 'no-key': 'no-key', cert: 'cert', proxy: 'unreachable', unreachable: 'unreachable' };
 // 知らせを出した印。会議の中は meeting.notified（会議ごとに1回）、会議の外（音声入力・復旧）と M7・M8 は起動ごとに1回
 const bootNotified = new Set();
 // 同じ (scope, code) は1回だけ app:notice と engine.log（記録は符号だけ）→ 出したら true
@@ -1316,12 +1316,13 @@ function noticeOnce(scope, code, text) {
   return true;
 }
 const netOnline = () => { try { return electronNet.isOnline() !== false; } catch (_) { return true; } };
-// 今の設定の送り先（stt-cloud.resolveProvider）。そのほかの URL が無い・使えないときは { error } に名前と表示の名前を添える
+// 送り先（0.7.0 U-1・設計書 D5: OpenAI の gpt-4o-transcribe に固定）。前の版が保存した sttProvider・sttBaseUrl・sttModel は読まない
 function sttProvider() {
-  const p = sttCloud.resolveProvider(settings);
-  if (!p.error) return p;
-  const preset = Object.prototype.hasOwnProperty.call(sttCloud.PRESETS, settings.sttProvider) ? sttCloud.PRESETS[settings.sttProvider] : sttCloud.PRESETS.groq;
-  return { error: p.error, id: preset.id, label: preset.label, host: '', reachUrl: '' };
+  return sttCloud.fixedProvider();
+}
+// OpenAI の鍵がしまってあるか（復号しない: 会議の状態を聞くたびにキーリングの確かめを出さない）。ほかの送り先の鍵は数えない
+function hasSttKey() {
+  try { return Boolean(secrets) && secrets.has(sttProvider().id); } catch (_) { return false; }
 }
 let keyUnreadableLogged = false;
 // 経路を決める（鍵も返す: transcribeAuto だけが使い、ほかへは渡さない）。
@@ -1329,9 +1330,9 @@ let keyUnreadableLogged = false;
 // opts.probe: false なら送り先へ届くかを確かめず net.isOnline() だけで見る（先読みの判断。通信を出さない）
 async function sttRoute(localOnly, { scope = null, quiet = false, probe = true } = {}) {
   const provider = sttProvider();
-  const consent = settings.cloudTranscribe;
   let key = '';
-  if (!localOnly && consent === 'on' && !provider.error && secrets) {
+  // ［この会議は PC の中だけ］なら鍵を復号もしない（送らないのにキーリングの確かめを出さない）
+  if (!localOnly && secrets) {
     // 鍵があるかは、ファイルに暗号の文字があるか（secrets.has）でなく、実際に復号できたかで決める（RF30。
     // safeStorage の非同期の形は一時的に使えないことがあり、空の鍵で送ると 401 で「鍵が正しくない」と誤って知らせる）
     key = await secrets.get(provider.id);
@@ -1340,14 +1341,9 @@ async function sttRoute(localOnly, { scope = null, quiet = false, probe = true }
       keyUnreadableLogged = true;
     } else if (key) keyUnreadableLogged = false;
   }
-  let d;
-  if (!localOnly && consent === 'on' && provider.error) {
-    d = { route: 'local', why: 'bad-base' };
-  } else {
-    const up = probe ? () => online.isUp(provider.reachUrl)
-      : async () => (netOnline() ? { up: true, why: 'ok' } : { up: false, why: 'offline' });
-    d = await decideStt({ consent, localOnly: Boolean(localOnly), hasKey: key !== '', up });
-  }
+  const up = probe ? () => online.isUp(provider.reachUrl)
+    : async () => (netOnline() ? { up: true, why: 'ok' } : { up: false, why: 'offline' });
+  const d = await decideStt({ localOnly: Boolean(localOnly), hasKey: key !== '', up });
   if (!quiet && ROUTE_NOTICE[d.why]) {
     const code = ROUTE_NOTICE[d.why];
     noticeOnce(scope, code, STT_NOTICE[code](provider));
@@ -2167,10 +2163,10 @@ function meetingStatus() {
     pauses: meeting && Array.isArray(meeting.pauses) ? meeting.pauses.map((x) => ({ ...x })) : [],
     pausing: Boolean(meeting && meeting.pauseAsked),
     resumeHint: Boolean(meeting && meeting.resumeHint),
-    // 第1c回 C-3（RF28）: ［この会議は PC の中だけ］の印と、いまクラウドで文字起こしする設定か（同意が「使う」）。
+    // 第1c回 C-3（RF28）: ［この会議は PC の中だけ］の印と、いまクラウドで文字起こしする PC か（0.7.0 U-1 から: OpenAI の鍵がしまってある）。
     // 画面は cloud のときだけ［この会議は PC の中だけ］を出し、押した後（localOnly）は戻すボタンを出さない
     localOnly: Boolean(meeting && meeting.localOnly),
-    cloud: settings.cloudTranscribe === 'on',
+    cloud: hasSttKey(),
   };
 }
 
@@ -3390,7 +3386,6 @@ function setupIpc() {
     write: '鍵を書き込めませんでした（secrets.json に書けません）。',
     'no-key': '鍵が入っていません。',
     'key-unreadable': 'しまってある鍵を読めません。鍵を入れ直してください。',
-    'bad-base': '送り先の URL が正しくありません（https:// で始まる URL を入れてください）。',
     auth: '鍵が正しくないか、使えなくなっています。',
     'invalid-key': '鍵が正しくありません。',   // 第1b回の続き Lane F-e: 返事の符号が invalid_api_key
     rate: '利用の上限に達しています（鍵は使える可能性があります。少し待ってからもう一度確かめてください）。',
@@ -3399,7 +3394,8 @@ function setupIpc() {
     other: 'つながりませんでした（インターネットか、会社の通信の検査を確かめてください）。',
   };
   const keyText = (code) => KEY_TEXT[Object.prototype.hasOwnProperty.call(KEY_TEXT, code) ? code : 'other'];
-  const keyProvider = (id) => (typeof id === 'string' && Object.prototype.hasOwnProperty.call(sttCloud.PRESETS, id) ? id : '');
+  // 鍵の名前は OpenAI だけ（0.7.0 U-1・設計書 D5）。groq・custom の鍵は secrets.json に残っても、読まず・確かめず・消さない
+  const keyProvider = (id) => (id === sttCloud.FIXED_PROVIDER_ID ? id : '');
   ipcMain.handle('cloud:status', async () => {
     const p = sttProvider();
     let canStore = false;
@@ -3408,7 +3404,7 @@ function setupIpc() {
     // 使えるかは［鍵を確かめる］が復号して送り先に聞く
     const hasKey = Boolean(secrets) && secrets.has(p.id);
     const up = netOnline();
-    return { ok: true, consent: settings.cloudTranscribe, provider: { id: p.id, label: p.label, host: p.host || '' },
+    return { ok: true, provider: { id: p.id, label: p.label, host: p.host || '' },
       hasKey, canStore, online: { up, why: up ? 'ok' : 'offline' } };
   });
   ipcMain.handle('cloud:set-key', async (_e, provider, key) => {
@@ -3433,8 +3429,7 @@ function setupIpc() {
   ipcMain.handle('cloud:test-key', async (_e, provider) => {
     const id = keyProvider(provider);
     if (!id) return { ok: false, code: 'bad-id', message: keyText('bad-id') };
-    const p = sttCloud.resolveProvider({ sttProvider: id, sttBaseUrl: settings.sttBaseUrl, sttModel: settings.sttModel });
-    if (p.error) return { ok: false, code: 'bad-base', message: keyText('bad-base') };
+    const p = sttProvider();
     const key = secrets ? await secrets.get(id) : '';
     if (!key) {
       const code = secrets && secrets.has(id) ? 'key-unreadable' : 'no-key';
