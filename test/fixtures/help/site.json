@@ -1,0 +1,10 @@
+{
+  "title": "NaTsu ヘルプセンター",
+  "askNote": "解決しないときは Teams の NaTsu のチャンネルで聞いてください",
+  "categories": [
+    { "id": "start", "title": "はじめに", "description": "試しの分類の説明", "icon": "start", "articles": ["first", "steps"] },
+    { "id": "record", "title": "会議を記録する", "description": "録音の試しの説明", "icon": "record", "articles": ["pause"] },
+    { "id": "admin", "title": "管理者向け", "description": "記事の無い分類", "icon": "admin", "articles": [] }
+  ],
+  "featured": ["start/steps", "record/pause"]
+}

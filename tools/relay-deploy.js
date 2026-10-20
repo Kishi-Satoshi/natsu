@@ -26,6 +26,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { pathToFileURL } = require('node:url');
+const { makeCf, why, hint: hintFor, checkSecrets } = require('./lib/cf-api');
 
 const ROOT = path.join(__dirname, '..');
 const RELAY = path.join(ROOT, 'relay');
@@ -58,16 +59,13 @@ async function deploy({ env = process.env, fetch = globalThis.fetch, out = (l) =
   const say = (l) => out(l);
   const fail = (l) => { say((env.GITHUB_ACTIONS === 'true' ? '::error::' : '') + l); return 1; };
 
-  // ---- 秘密がそろっているか（値は出さない）
-  const token = typeof env.CLOUDFLARE_API_TOKEN === 'string' ? env.CLOUDFLARE_API_TOKEN.trim() : '';
-  const acct = typeof env.CLOUDFLARE_ACCOUNT_ID === 'string' ? env.CLOUDFLARE_ACCOUNT_ID.trim() : '';
-  if (!token && !acct && env.GITHUB_EVENT_NAME === 'push') {
-    say(`中継の秘密がまだ用意されていないので出しません（main への push。手で出すときは ${SETUP}）`);
-    return 0;
+  // ---- 秘密がそろっているか（値は出さない。文は tools/lib/cf-api.js の checkSecrets）
+  const sec = checkSecrets(env, { setupText: SETUP, label: '中継' });
+  if (!sec.ok) {
+    if (sec.code === 0) { say(sec.line); return 0; }
+    return fail(sec.line);
   }
-  if (!token || !acct) return fail(`中継を出せません: 秘密が足りません。${SETUP}`);
-  if (!/^[0-9a-f]{32}$/.test(acct)) return fail(`中継を出せません: CLOUDFLARE_ACCOUNT_ID の形が違います（32 けたの 0〜9 と a〜f）。${SETUP}`);
-  if (!/^[\x21-\x7e]{1,512}$/.test(token)) return fail(`中継を出せません: CLOUDFLARE_API_TOKEN の形が違います（空白や改行が入っていないか）。${SETUP}`);
+  const { token, acct } = sec;
   // Access のサービストークン（無くても出せる。片方だけ・形が違うときは、何も上げずに止める）
   const svcId = typeof env.CF_ACCESS_CLIENT_ID === 'string' ? env.CF_ACCESS_CLIENT_ID.trim() : '';
   const svcSecret = typeof env.CF_ACCESS_CLIENT_SECRET === 'string' ? env.CF_ACCESS_CLIENT_SECRET.trim() : '';
@@ -82,7 +80,8 @@ async function deploy({ env = process.env, fetch = globalThis.fetch, out = (l) =
   try {
     cfg = readDeployConfig();
     schema = await import(pathToFileURL(path.join(RELAY, 'schema.mjs')).href);
-    files = fs.readdirSync(RELAY).filter((f) => f.endsWith('.mjs')).sort();
+    // 上げるのは help- で始まらない .mjs だけ（ヘルプの門 help-gate.mjs は help-deploy が natsu-help に上げる。ヘルプセンター H-10）
+    files = fs.readdirSync(RELAY).filter((f) => f.endsWith('.mjs') && !f.startsWith('help-')).sort();
     if (!files.includes('worker.mjs')) throw new Error('worker.mjs が無い');
   } catch (_) {
     return fail('中継を出せません: relay/ の中身（deploy-config.json・schema.mjs・worker.mjs）を読めません');
@@ -103,27 +102,10 @@ async function deploy({ env = process.env, fetch = globalThis.fetch, out = (l) =
     return fetch(u, { ...init, headers });
   }
 
-  // Cloudflare の API を1回呼ぶ。答えの本文は外に出さず、状態の番号・result・エラーの番号だけを返す
-  async function cf(method, p, { json, form } = {}) {
-    const headers = { authorization: `Bearer ${token}` };
-    let body;
-    if (json !== undefined) { headers['content-type'] = 'application/json'; body = JSON.stringify(json); }
-    if (form) body = form;
-    let res;
-    try {
-      res = await send(api + p, { method, headers, body, redirect: 'error', signal: AbortSignal.timeout(60000) });
-    } catch (e) {
-      return { status: 0, ok: false, result: null, codes: [], net: (e && e.name) || 'Error' };
-    }
-    let j = null;
-    try { j = JSON.parse(await res.text()); } catch (_) { j = null; }
-    const codes = j && Array.isArray(j.errors) ? j.errors.map((x) => (x && Number.isInteger(x.code) ? x.code : null)).filter((x) => x !== null) : [];
-    return { status: res.status, ok: res.ok && Boolean(j) && j.success !== false, result: j && typeof j === 'object' ? j.result : null, codes };
-  }
-  const why = (r) => (r.status === 0 ? `届きません: ${/^[A-Za-z]{1,32}$/.test(r.net) ? r.net : 'Error'}`
-    : `HTTP ${r.status}${r.codes.length ? `・Cloudflare のエラー ${r.codes.slice(0, 5).join(',')}` : ''}`);
-  const hint = (r) => (r.status === 401 || r.status === 403
-    ? '。トークンの権限（このアカウントだけの Workers Scripts: Edit と D1: Edit）と CLOUDFLARE_ACCOUNT_ID を確かめてください' : '');
+  // Cloudflare の API を1回呼ぶ（tools/lib/cf-api.js）。答えの本文は外に出さず、状態の番号・result・エラーの番号だけを返す。
+  // 要求は send を通す（サービストークンの決まり F23 は変えない）。転送は今のまま届かない扱い（Node の fetch の redirect: 'error'）
+  const cf = makeCf({ token, api, fetch: send, timeoutMs: 60000, redirect: 'error' });
+  const hint = (r) => hintFor(r, 'Workers Scripts: Edit と D1: Edit');
   const stepFail = (name, r) => fail(`失敗: ${name}（${why(r)}）${hint(r)}`);
   const stepOk = (name, r) => say(`${name}: HTTP ${r.status}`);
 

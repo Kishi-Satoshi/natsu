@@ -26,9 +26,10 @@ function trackedFiles() {
 }
 
 // .db は第2a1回 G-2 の固定の DB（test/fixtures/db/v1.db）。SQLite は文字を UTF-8 のまま持つので、文字として読んで同じ決まりで調べる（画像のように外さない）
-const TEXT_EXT = new Set(['.js', '.mjs', '.txt', '.html', '.json', '.md', '.ps1', '.bat', '.yml', '.svg', '.gitignore', '.db', '']);
+// .css はヘルプセンターの見た目（help/assets/。H-1 で意図して足した: 追跡する文字のファイルは、どれも公開前の確認で読む）
+const TEXT_EXT = new Set(['.js', '.mjs', '.txt', '.html', '.json', '.md', '.ps1', '.bat', '.yml', '.svg', '.css', '.gitignore', '.db', '']);
 // 文字として調べないファイル（画像）。追跡するファイルの拡張子は、TEXT_EXT かここのどちらかに必ず入れる（下のテスト）
-const BINARY_EXT = new Set(['.png', '.ico']);
+const BINARY_EXT = new Set(['.png', '.ico', '.woff2']);
 
 test('追跡しているファイルの拡張子は、どれも「文字として調べる」か「画像として外す」かに分けてある（調べ漏れを作らない）', () => {
   const files = trackedFiles();

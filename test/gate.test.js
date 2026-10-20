@@ -517,3 +517,68 @@ test('RL12・RF38: ゲートが、src/ に OpenAI と Groq の直の宛先を足
   assert.ok(got.some((x) => x.f === 'src/stt-cloud.js' && x.line.includes('api.groq.com')), `${h} で Groq の宛先が止まらない: ${got.map((x) => x.line).join(' / ')}`);
   assert.ok(got.some((x) => x.f === 'src/stt-cloud.js' && x.line.includes('api.openai.com')), `${h} で OpenAI の宛先が止まらない`);
 });
+
+// ---------------------------------------------------------------- ヘルプセンター H-5（G8・D18・RF51）
+const helpTeam = () => ['natsu', 'test.cloudflareaccess.com'].join('-');
+const helpAud = () => '0f'.repeat(32);
+const helpWinPath = () => ['C:', 'Users', 'taro', 'AppData'].join('\\');
+
+test('G8: help/ の記事・site.json・help/assets/ に足した行で、チームのドメインの字面・64 字の16進・個人の Windows のパスを BLOCK。書体・作った出力・<チームの名前> の形は見ない', { timeout: 5000 }, () => {
+  const R = require('../tools/risk');
+  const bad = [
+    ['help/articles/admin/stop-person.md', `Zero Trust の画面で https://${helpTeam()}/ を開きます`, /チームの名前/],
+    ['help/articles/admin/seats.md', `AUD は ${helpAud()} です`, /ヘルプ/],
+    ['help/site.json', `  "askNote": "${helpAud()}",`, /ヘルプ/],
+    ['help/articles/start/install-update.md', `${helpWinPath()} を開きます`, /ヘルプ/],
+    ['help/articles/start/install-update.md', `${helpWinPath().replace(/\\/g, '\\\\')} を開きます`, /ヘルプ/],
+    ['help/assets/help.css', `/* ${helpAud()} */`, /ヘルプ/],
+    ['help/assets/search.js', `// ${helpTeam()}`, /チームの名前/],
+    ['help/assets/icons/start.svg', `<svg><!-- ${helpAud().toUpperCase()} --></svg>`, /ヘルプ/],
+  ];
+  for (const [file, line, why] of bad) {
+    const got = R.relayFindings(file, '', `${line}\n`);
+    assert.strictEqual(got.length, 1, `${file}: ${line} → ${got.join(' / ')}`);
+    assert.match(got[0], why, got[0]);
+  }
+  const ok = [
+    ['help/articles/admin/stop-person.md', '`https://<チームの名前>.cloudflareaccess.com` を開きます'],
+    ['help/articles/admin/seats.md', `AUD は 64 字の16進です（例: ${'0f'.repeat(31)}…）`],
+    ['help/articles/start/install-update.md', 'C:\\Users\\<あなたの名前>\\AppData を開きます'],
+    ['help/articles/start/install-update.md', '%USERPROFILE%\\AppData を開きます'],
+    ['help/articles/admin/stop-person.md', '中継の秘密の欄 TEAM_DOMAIN: Cloudflare の画面で入れる'],   // Access の秘密の欄の決まりは src・中継・出し方だけ
+    ['help/assets/fonts/ibm-plex-mono-400.woff2', `wOF2\0${helpAud()}`],
+    ['help/dist/index.html', helpAud()],
+    ['docs/guides/tester-guide.md', helpAud()],
+  ];
+  for (const [file, line] of ok) assert.deepStrictEqual(R.relayFindings(file, '', `${line}\n`), [], `${file}: ${line}`);
+  const old = `${helpAud()}\n`;
+  assert.deepStrictEqual(R.relayFindings('help/articles/admin/seats.md', old, `${old}次の行\n`), [], '前からある行で鳴った');
+  for (const f of ['help/site.json', 'help/articles/start/login.md', 'help/assets/help.css', 'help/assets/search.js', 'help/assets/icons/start.svg', 'help/assets/fonts/OFL.txt']) assert.ok(R.relayTarget(f), f);
+  for (const f of ['help/assets/fonts/ibm-plex-mono-400.woff2', 'help/dist/index.html', 'help/dist/search-index.json', 'test/help-content.test.js']) assert.ok(!R.relayTarget(f), f);
+  // 今の help/ には1件も無い
+  const walk = (d) => fs.readdirSync(path.join(ROOT, d), { withFileTypes: true }).flatMap((e) => e.isDirectory() ? walk(`${d}/${e.name}`) : [`${d}/${e.name}`]);
+  const files = walk('help').filter((f) => R.relayTarget(f));
+  assert.ok(files.includes('help/site.json') && files.includes('help/assets/help.css'), '見たファイルが少ない（空振り）');
+  for (const f of files) assert.deepStrictEqual(R.relayFindings(f, '', read(f)), [], f);
+});
+
+test('G8: tools/help-deploy.js・tools/lib/cf-api.js・.github/workflows/help-deploy.yml にも中継の出し方と同じ決まり（鍵の見かけ・秘密の欄に値を書く行・Access の秘密の欄・チームのドメインの字面）を当てる。射程に載る', { timeout: 5000 }, () => {
+  const R = require('../tools/risk');
+  const key = 's' + 'k-proj-' + 'A1b2C3d4'.repeat(3);
+  for (const f of ['tools/help-deploy.js', 'tools/lib/cf-api.js', '.github/workflows/help-deploy.yml']) {
+    assert.ok(R.relayTarget(f), f);
+    const lines = [
+      [`const k = '${key}';`, /鍵の見かけ/],
+      ["const env = { ALLOWED_EMAIL_DOMAINS: 'example.com' };", /ALLOWED_EMAIL_DOMAINS/],
+      ["const env = { POLICY_AUD: 'x' };", /Access の秘密の欄/],
+      [`const host = '${helpTeam()}';`, /チームの名前/],
+    ];
+    for (const [line, why] of lines) {
+      const got = R.relayFindings(f, '', `${line}\n`);
+      assert.strictEqual(got.length, 1, `${f}: ${line} → ${got.join(' / ')}`);
+      assert.match(got[0], why);
+    }
+  }
+  assert.ok(R.SCOPE.sees.some((s) => s.startsWith('ヘルプの公開前の確認')), '射程に載っていない');
+  assert.ok(R.scopeNote(new Set()).includes('ヘルプの公開前の確認'));
+});

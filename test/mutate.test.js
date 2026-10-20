@@ -352,7 +352,8 @@ test('G3: 第1d回の変異が一覧にそろい、IDS_1D は計画の「変異�
   // 中継（relay/）と出し方の変異は、Electron の場面を使わない中継のテストで殺す（CI の mutate を短く保つ）。ゲートの変異はゲートのテストで殺す
   for (const id of IDS_1D.filter((x) => x.startsWith('rl-'))) {
     const m = byId.get(id);
-    assert.ok(/^(relay\/|tools\/relay-deploy\.js$|\.github\/workflows\/relay-deploy\.yml$)/.test(m.file), `${id}: ${m.file}`);
+    // ヘルプセンター H-10 で意図して変えた: 出し方の共通の部品 tools/lib/cf-api.js（relay-deploy から出した。rl-deploy-print が当たる）も中継の出し方
+    assert.ok(/^(relay\/|tools\/relay-deploy\.js$|tools\/lib\/cf-api\.js$|\.github\/workflows\/relay-deploy\.yml$)/.test(m.file), `${id}: ${m.file}`);
     assert.ok(m.tests.every((t) => /^test\/relay-[a-z-]+\.test\.js$/.test(t)), `${id}: ${m.tests}`);
   }
   for (const id of IDS_1D.filter((x) => x.startsWith('rg-'))) assert.deepStrictEqual(byId.get(id).tests, ['test/gate.test.js'], id);
@@ -373,6 +374,29 @@ test('G3: 第1d回の作り替え（G-3）で足した 60 個の変異が一覧�
     const m = byId.get(id);
     if (m.tests.some((t) => /stage1d\.(main|ipc|app|seg|status|restart)\.test\.js$|transcribe\.e2e\.test\.js$/.test(t))) assert.ok(m.pattern, `${id}: pattern が無い`);
   }
+});
+
+// ヘルプセンター H-11: ヘルプの直しを1つずつ戻す変異（計画 docs/plans/2026-10-20-help.md の「変異確認」の表。H-12 の分は IDS_HELP_APP で H-12 が足す）
+const IDS_HELP = [
+  'hp-escape-lt', 'hp-escape-quote', 'hp-raw-html', 'hp-link-scheme', 'hp-anchor', 'hp-nest', 'hp-inline-style', 'hp-label', 'hp-search-nfkc',
+  'hp-gate-require', 'hp-gate-ready', 'hp-gate-readonly', 'hp-gate-nostore', 'hp-gate-set', 'hp-gate-csp', 'hp-gate-need',
+  'hp-deploy-leak', 'hp-deploy-keep', 'hp-deploy-rwf', 'hp-deploy-nocreate', 'hp-relay-skip-help',
+];
+test('G3: ヘルプセンターの変異が一覧にそろい、IDS_HELP は計画 docs/plans/2026-10-20-help.md の「変異確認」の表の id とちょうど同じ', { timeout: 5000 }, () => {
+  const byId = new Map(MUTANTS.map((m) => [m.id, m]));
+  assert.deepStrictEqual(IDS_HELP.filter((id) => !byId.has(id)), []);
+  const plan = fs.readFileSync(path.join(ROOT, 'docs', 'plans', '2026-10-20-help.md'), 'utf8');
+  const table = plan.slice(plan.indexOf('## 変異確認'), plan.indexOf('## ゲート'));
+  const rows = [...table.matchAll(/^\| ([a-z0-9]+(?:-[a-z0-9]+)+) \| `([^`]+)` \| [^|]+ \| ([^\n]+) \|$/gm)];
+  assert.deepStrictEqual(rows.map((x) => x[1]).sort(), [...IDS_HELP].sort());
+  // 表の「当てるファイル」と「赤になるテスト」が一覧と同じ（ヘルプの変異は Electron の場面を使わない help-*・relay-deploy のテストで殺す）
+  for (const [, id, file, tests] of rows) {
+    const m = byId.get(id);
+    assert.strictEqual(m.file, file, id);
+    assert.deepStrictEqual([...m.tests].sort(), [...tests.matchAll(/`([^`]+)`/g)].map((x) => x[1]).sort(), id);
+  }
+  // H-12 の分（アプリの入口）はまだ無い（0.9.0 の U-4 と一緒に H-12 が足す）
+  assert.deepStrictEqual(MUTANTS.filter((m) => /^hp-app-/.test(m.id)).map((m) => m.id), []);
 });
 
 // 0.9.0（計画 docs/plans/2026-10-20-090.md の「変異確認」の表）。G-1 は速さの計り直しの4つを入れる。G-2 が残りの全部を足し、

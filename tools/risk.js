@@ -349,10 +349,16 @@ function onlineFindings(file, before, after) {
 // だけ置き、src・中継・出し方には書かない（注釈の中も）。Access の秘密の欄（TEAM_DOMAIN・POLICY_AUD・CF_ACCESS_CLIENT_ID・
 // CF_ACCESS_CLIENT_SECRET）は名前を読むだけ（ワークフローが同じ名前の GitHub の秘密を渡す行 `NAME: ${{ secrets.NAME }}` だけは通す）。
 // 前の版より増えた行だけを報告する（ほかの決まりと同じ形）。
-const RELAY_DEPLOY = new Set(['tools/relay-deploy.js', '.github/workflows/relay-deploy.yml']);
+// ヘルプセンター H-5（G8・D18）: ヘルプの出し方（help-deploy と共通の部品 cf-api）も中継の出し方と同じ決まりを当てる。
+// ヘルプの記事と資産（help/ の文字のファイル。書体と作った出力 help/dist は見ない）は公開のリポジトリにあるので、
+// チームのドメインの字面・AUD のタグの見かけ（64 字の16進）・個人の Windows のパス・鍵の見かけを足すと止める。
+const RELAY_DEPLOY = new Set(['tools/relay-deploy.js', '.github/workflows/relay-deploy.yml',
+  'tools/help-deploy.js', 'tools/lib/cf-api.js', '.github/workflows/help-deploy.yml']);
 const inSrc = (f) => f.startsWith('src/');
 const inRelay = (f) => f.startsWith('relay/');
-const relayTarget = (f) => inSrc(f) || inRelay(f) || RELAY_DEPLOY.has(f);
+const inHelp = (f) => f.startsWith('help/') && !f.startsWith('help/dist/') && /\.(?:md|json|css|js|svg|txt)$/.test(f);
+const relayTarget = (f) => inSrc(f) || inRelay(f) || RELAY_DEPLOY.has(f) || inHelp(f);
+const HELP_PUBLIC = 'ヘルプの記事と資産は公開のリポジトリにある。チームの名前・AUD のタグ・個人の Windows のパスを書かない（<チームの名前> のように書く。D18）';
 const WEB_ONLY = '中継は Web の標準の部品だけで書く（node: も require も Buffer も Workers では動かない。RL1）';
 const RELAY_RULES = [
   { on: (f) => inSrc(f) && !f.startsWith('src/renderer/'), re: /api\.(?:openai|groq|resend)\.com/i,
@@ -373,9 +379,12 @@ const RELAY_RULES = [
   { raw: true, on: relayTarget, re: /(?<![\w-])[a-z0-9-]+\\?\.cloudflareaccess\\?\.com/i,
     why: 'チームの名前（<チーム>.cloudflareaccess.com）は Cloudflare の設定と Worker の秘密の欄（TEAM_DOMAIN）にだけ置く（D18）' },
   // Access の秘密の欄に値を書く形（上の決まりと同じ形）。ワークフローが同じ名前の GitHub の秘密を渡す行（CF_ACCESS_CLIENT_* だけ）は通す
-  { on: relayTarget, re: /(?<![\w$])['"]?(TEAM_DOMAIN|POLICY_AUD|CF_ACCESS_CLIENT_ID|CF_ACCESS_CLIENT_SECRET)['"]?\s*\]?\s*(?:(?::|=(?![=>]))\s*\S|(?:\|\||\?\?)\s*(['"`])(?!\2))/,
+  { on: (f) => relayTarget(f) && !inHelp(f), re: /(?<![\w$])['"]?(TEAM_DOMAIN|POLICY_AUD|CF_ACCESS_CLIENT_ID|CF_ACCESS_CLIENT_SECRET)['"]?\s*\]?\s*(?:(?::|=(?![=>]))\s*\S|(?:\|\||\?\?)\s*(['"`])(?!\2))/,
     but: /^\s*(CF_ACCESS_CLIENT_ID|CF_ACCESS_CLIENT_SECRET):\s*\$\{\{\s*secrets\.\1\s*\}\}\s*$/,
     why: 'Access の秘密の欄（TEAM_DOMAIN・POLICY_AUD・CF_ACCESS_CLIENT_ID・CF_ACCESS_CLIENT_SECRET）は Cloudflare の画面と GitHub の環境 relay で入れる。名前を読むだけ（F23）' },
+  // ヘルプの記事と資産だけ: AUD のタグの見かけ（ちょうど 64 字の16進）と個人の Windows のパス（<…> や %…% の置き換えの形は通す）
+  { raw: true, on: inHelp, re: /(?<![0-9a-f])[0-9a-f]{64}(?![0-9a-f])/i, why: `64 字の16進（AUD のタグの見かけ）。${HELP_PUBLIC}` },
+  { raw: true, on: inHelp, re: /\b[A-Za-z]:\\{1,2}Users\\{1,2}(?![<%＜])[^\\\s"'`<>]+/i, why: `個人の Windows のパス。${HELP_PUBLIC}` },
 ];
 // 注釈を落とした文字（JS は stripJs、YAML は # から後ろ。ほかはそのまま）。JS の } のすぐ後ろの // は注釈と見ない
 // （逆引用符の `${scheme}//api.openai.com` の宛先を落とさないため。} の直後に空白なしで注釈を書いた行は、増えた行なら鳴りうる）
@@ -485,6 +494,7 @@ function analyze(base, head) {
 // 「危険な変更は見つからなかった」は、ここに挙げた範囲の話でしかない。出典照合や保存の
 // ロジック（src/cite.js など）はこのゲートの射程外で、そこを触ったコミットにも同じ文が
 // 出て全否定に読めた（監査 #38）。射程外は npm test が守る（pre-commit もそれを走らせる）。
+const HELP_SEES = 'ヘルプの公開前の確認（help/ の記事・site.json・資産に足した、チームのドメインの字面・64 字の16進・個人の Windows のパス・鍵の見かけ。ヘルプの出し方は中継の出し方と同じ決まり）';
 const RELAY_SEES = '中継と直の送り先（src/ から OpenAI・Groq・Resend へ直に送る行・鍵の見かけの文字・relay/ の console と node: と Buffer・中継と出し方の中で秘密の欄に値を書く行・チームのドメインの字面・Access の秘密の欄に値を書く行）';
 const SCOPE = {
   sees: [
@@ -498,6 +508,7 @@ const SCOPE = {
     'src の JSON の直書き（src/jsonfile.js のほか）',
     'Claude Code の呼び方と鍵のしまい方（--bare・.credentials.json・同期の safeStorage・claude-cli.js のほかでの claude の起動）',
     RELAY_SEES,
+    HELP_SEES,
   ],
   blind: ['src/cite.js', 'src/store.js', 'src/minutes.js', 'src/actions.js'],
 };
@@ -554,7 +565,8 @@ function main(argv) {
     line('main プロセスの外向きの通信（グローバルの fetch）', blocks.filter((b) => b.rule === 'main の外向き通信').length),
     line('src の JSON の直書き（src/jsonfile.js のほか）', blocks.filter((b) => b.rule === 'JSON の直書き').length),
     line('Claude Code の呼び方と鍵のしまい方（--bare・.credentials.json・同期の safeStorage・claude-cli.js のほかでの claude の起動）', blocks.filter((b) => b.rule === '外への送り方と Claude Code の呼び方').length),
-    line(RELAY_SEES, blocks.filter((b) => b.rule === '中継と直の送り先').length),
+    line(RELAY_SEES, blocks.filter((b) => b.rule === '中継と直の送り先' && !inHelp(b.file)).length),
+    line(HELP_SEES, blocks.filter((b) => b.rule === '中継と直の送り先' && inHelp(b.file)).length),
     '', `このゲートが見ていないもの: ${SCOPE.blind.join(' / ')} のロジック — npm test が守る（リリース前に必ず通す）`);
   const out = arg('--checklist');
   if (out) { fs.writeFileSync(out, md.join('\n') + '\n'); console.log('チェックリストを書き出した: ' + out); }
