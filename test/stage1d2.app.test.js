@@ -122,6 +122,17 @@ test('F4: chosen が偽で、ログインしているなら起動で設定のタ
   assert.deepStrictEqual([...inn.errors, ...out.errors].map(fmt), []);
 });
 
+test('F4: engine:status の答えが他の問い合わせより遅れて届いても、起動の連れて行きは答え（chosen）を待ってから決める（準備していない・ログインしている人を設定へ連れて行かない）', T, async () => {
+  // 偽の IPC は呼んだ順にすぐ答えるので、実機で engine:status が遅いときの競り合いを、わざと遅らせた答えで作る
+  const later = (v, n = 30) => new Promise((resolve) => { let i = 0; const step = () => (++i >= n ? resolve(v) : setImmediate(step)); setImmediate(step); });
+  const l = await open({ getSettings: EMPTY, accountStatus: ACCOUNT(true), engineStatus: () => later({ ok: true, whisper: NOT_FETCHED, sum: '', chosen: false }) });
+  await l.drain(80);
+  assert.strictEqual($(l, 'engineState').textContent, OFF2, '前提: 遅れた答え（chosen が偽）が画面に届いていない');
+  assert.ok(!settingsOpen(l), '答えを待たずに決めて、準備していない人を起動で設定へ連れて行った');
+  assert.ok(!$(l, 'engineAdv').open);
+  assert.deepStrictEqual(l.errors.map(fmt), []);
+});
+
 test('F5: chosen が真か無く、パスが空で取り込んだ組も無ければ、今どおり取り込みの欄へ連れて行く（ログインしていても）', T, async () => {
   for (const chosen of [true, undefined]) {
     const l = await open({ getSettings: EMPTY, engineStatus: ENG(chosen === undefined ? {} : { chosen }), engineFetchStatus: () => FETCH({ consent: true }), accountStatus: ACCOUNT(true) });
