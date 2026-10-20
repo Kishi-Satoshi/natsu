@@ -67,6 +67,55 @@ test('RP2: nearestSlot — 各置き場所の中心はその名前・升の中�
   assert.strictEqual(lib.nearestSlot({ x: 960, y: 4000 }, WA), 'bottom-center');
 });
 
+// ---- O-2（RP3・RP4・F11・F18）: 窓の大きさと吸い付き
+// ピルは窓の真ん中に描かれる（overlay.html の体は flex の真ん中寄せ）。ピルの四角（DIP）
+const pillRect = (b, size) => ({ x: b.x + (b.width - size.w) / 2, y: b.y + (b.height - size.h) / 2, w: size.w, h: size.h });
+const SIZES = [{ w: 240, h: 40 }, { w: 40, h: 240 }, { w: 420, h: 40 }, { w: 236.4, h: 40.2 }, { w: 39.6, h: 251.5 }, { w: 300.5, h: 40.5 }];
+const AREAS = [WA, { x: 0, y: 0, width: 1280, height: 680 }, { x: -1920, y: 0, width: 1920, height: 1040 }, { x: 1920, y: -200, width: 1366, height: 728 }];
+test('RP4・F11: panelBounds — 8つの置き場所 × 横・縦・伸ばした横 × 作業領域で、整数の DIP・ピルの周りに PANEL_PAD 以上の余白・窓は作業領域の中・ピルの端は端から 12px。拡大率 1〜2 で丸めてもピルが窓の内側に 1 点以上の余白で入る', () => {
+  assert.strictEqual(lib.PANEL_PAD, 8);
+  assert.deepStrictEqual(lib.PANEL_MAX, { width: 560, height: 360 });
+  for (const wa of AREAS) for (const slot of PILL_SLOTS) for (const size of SIZES) {
+    const b = lib.panelBounds({ slot, size, workArea: wa });
+    const at = `${slot} ${JSON.stringify(size)} ${JSON.stringify(wa)} → ${JSON.stringify(b)}`;
+    for (const k of ['x', 'y', 'width', 'height']) assert.ok(Number.isInteger(b[k]), `${at} の ${k} が整数でない`);
+    assert.ok(b.x >= wa.x && b.y >= wa.y && b.x + b.width <= wa.x + wa.width && b.y + b.height <= wa.y + wa.height, `${at}: 窓が作業領域の外`);
+    const r = pillRect(b, size);
+    assert.ok(r.x - b.x >= lib.PANEL_PAD && b.x + b.width - (r.x + r.w) >= lib.PANEL_PAD, `${at}: 左右の余白が ${lib.PANEL_PAD} より狭い`);
+    assert.ok(r.y - b.y >= lib.PANEL_PAD && b.y + b.height - (r.y + r.h) >= lib.PANEL_PAD, `${at}: 上下の余白が ${lib.PANEL_PAD} より狭い`);
+    // ピルの端は作業領域の端から 12px（右の置き場所は右から、下は下から。丸めの半点まで）
+    const near = (a, want) => Math.abs(a - want) <= 0.5;
+    if (slot.endsWith('left')) assert.ok(near(r.x - wa.x, 12), `${at}: 左の端から ${r.x - wa.x}`);
+    if (slot.endsWith('right')) assert.ok(near(wa.x + wa.width - (r.x + r.w), 12), `${at}: 右の端から ${wa.x + wa.width - (r.x + r.w)}`);
+    if (slot.startsWith('top')) assert.ok(near(r.y - wa.y, 12), `${at}: 上の端から ${r.y - wa.y}`);
+    if (slot.startsWith('bottom')) assert.ok(near(wa.y + wa.height - (r.y + r.h), 12), `${at}: 下の端から ${wa.y + wa.height - (r.y + r.h)}`);
+    // 拡大率で DIP を画面の点に丸めても、ピルの四角（DIP × 拡大率。丸めない）が窓（丸めた点）の内側に 1 点以上の余白で入る
+    for (const k of [1, 1.25, 1.5, 2]) {
+      const X0 = Math.round(b.x * k); const X1 = Math.round((b.x + b.width) * k);
+      const Y0 = Math.round(b.y * k); const Y1 = Math.round((b.y + b.height) * k);
+      const ok = r.x * k - X0 >= 1 && X1 - (r.x + r.w) * k >= 1 && r.y * k - Y0 >= 1 && Y1 - (r.y + r.h) * k >= 1;
+      assert.ok(ok, `${at} 拡大率 ${k}: ピルが窓の端から 1 点より近い`);
+    }
+  }
+  // 整数の大きさなら、ちょうど ceil + 2 × PANEL_PAD
+  assert.deepStrictEqual(lib.panelBounds({ slot: 'bottom-right', size: { w: 236, h: 40 }, workArea: WA }), { x: 1920 - 4 - 252, y: 1040 - 4 - 56, width: 252, height: 56 });
+  assert.deepStrictEqual(lib.panelBounds({ slot: 'top-left', size: { w: 236.2, h: 40 }, workArea: WA }), { x: 4, y: 4, width: 253, height: 56 });
+  // 大きさが数でなければ PANEL_FIRST（形ごと）
+  for (const size of [null, undefined, {}, { w: 'x', h: 40 }, { w: NaN, h: 1 }, { w: -3, h: 40 }, { w: 0, h: 40 }]) {
+    assert.deepStrictEqual(lib.panelBounds({ slot: 'middle-right', size, workArea: WA }), { x: 1920 - 4 - 56, y: 392, width: 56, height: 256 }, JSON.stringify(size));
+    assert.deepStrictEqual(lib.panelBounds({ slot: 'bottom-center', size, workArea: WA }), { x: 832, y: 1040 - 4 - 56, width: 256, height: 56 }, JSON.stringify(size));
+  }
+  // 最大は 560×360（それより大きい中身は窓で止める）
+  const big = lib.panelBounds({ slot: 'top-center', size: { w: 900, h: 500 }, workArea: WA });
+  assert.deepStrictEqual([big.width, big.height], [560, 360]);
+});
+
+test('F18: ドラッグの止まり（最後の move から PANEL_QUIET_MS）で吸い付くのは Linux だけ（moved の来ない OS）。Windows・macOS は moved を待つ（手を止めただけで吸い付かない）', () => {
+  assert.strictEqual(lib.PANEL_QUIET_MS, 300);
+  assert.strictEqual(lib.snapsOnQuiet('linux'), true);
+  for (const p of ['win32', 'darwin', '', undefined]) assert.strictEqual(lib.snapsOnQuiet(p), false, String(p));
+});
+
 // ---- 場面（main.js を偽の Electron の上で動かす）
 const DISPLAYS2 = '--displays=-1920,0,1920,1040;0,0,1920,1040';
 const logOf = (o) => o.engineLog.filter((l) => l.startsWith('録音バー: 置き場所を'));
@@ -115,5 +164,45 @@ describe('0.9.0 O-1 前の位置の直し（場面）', { concurrency: Number(pr
     } finally {
       fs.rmSync(dir, { recursive: true, force: true });
     }
+  });
+});
+
+// ---- O-2 の場面（録音の始めの後に、録音バーの画面の大きさの知らせ・ドラッグ・カーソルの移動を送る）
+const lastB = (o) => o.overlayBounds[o.overlayBounds.length - 1];
+describe('0.9.0 O-2 窓の大きさと吸い付き（場面）', { concurrency: Number(process.env.NATSU_SCENE_CONCURRENCY) || 4 }, () => {
+  test('RP4: 右下の置き場所で録音バーの画面が 236×40 を送ると、窓は 252×56 になり、右の端と下の端は前と同じ（作業領域の端から 12 − 8）。同じ大きさが2回来ても setBounds は1回', SCENE, async () => {
+    const o = await run(['text', '--dictate', '--settings-json=slot-bottom-right', '--panel-size=236x40']);
+    const atStart = o.panel.boundsAtStartList[o.panel.boundsAtStartList.length - 1];
+    assert.deepStrictEqual(atStart, { x: 1920 - 4 - 256, y: 1040 - 4 - 56, width: 256, height: 56 }, '録音の始めの窓が PANEL_FIRST.h でない');
+    assert.deepStrictEqual(o.panel.afterSize, [{ x: 1920 - 4 - 252, y: 1040 - 4 - 56, width: 252, height: 56 }]);
+    for (const b of [atStart, o.panel.afterSize[0]]) assert.deepStrictEqual([b.x + b.width, b.y + b.height], [1916, 1036]);
+    assert.strictEqual(o.overlaySent[0].form, 'h', '録音の始めの合図に form が無い');
+  });
+
+  test('RP3: 右の真ん中へドラッグして離すと middle-right に吸い付き、pillSlot に middle-right を書き、overlay:form に v を1回送る。窓は縦の大きさ（PANEL_FIRST.v）で右の真ん中', SCENE, async () => {
+    const o = await run(['text', '--drag-to=1880,520']);
+    assert.strictEqual(o.panel.slotAfter, 'middle-right');
+    assert.deepStrictEqual(o.overlayForms, [{ form: 'v' }]);
+    assert.deepStrictEqual(o.panel.afterMoved, [{ x: 1920 - 4 - 56, y: 392, width: 56, height: 256 }]);
+    assert.strictEqual(o.panel.duringDrag, 0);
+  });
+
+  test('RP3: 今の置き場所の近くへ少し動かして離すと、名前が同じなので settings.json を書かず、窓は元の所へ戻る', SCENE, async () => {
+    const o = await run(['text', '--drag-to=1000,990']);
+    assert.strictEqual(o.panel.settingsChanged, false, '名前が同じなのに settings.json を書いた');
+    assert.deepStrictEqual(o.panel.afterMoved, [o.panel.boundsAtStartList[o.panel.boundsAtStartList.length - 1]], '元の所へ戻らない');
+    assert.deepStrictEqual(o.overlayForms, []);
+  });
+
+  test('F18: ドラッグの間に録音バーの画面の大きさが変わっても setBounds は0回（OS のドラッグと取り合わない）。離した後に新しい大きさで1回', SCENE, async () => {
+    const o = await run(['text', '--drag-to=1700,60', '--drag-steps', '--panel-size=300x40']);
+    assert.strictEqual(o.panel.duringDrag, 0, 'ドラッグの間に置き直した');
+    assert.strictEqual(o.panel.slotAfter, 'top-right');
+    assert.deepStrictEqual(o.panel.afterMoved, [{ x: 1920 - 4 - 316, y: 4, width: 316, height: 56 }]);
+  });
+
+  test('F18: 録音の途中でカーソルを左の画面へ動かしてから大きさが変わっても、置き直しは録音を始めた右の画面の作業領域のまま', SCENE, async () => {
+    const o = await run(['text', DISPLAYS2, '--cursor-to=-500,500', '--panel-size=300x40']);
+    assert.deepStrictEqual(o.panel.afterSize, [{ x: Math.round((1920 - 316) / 2), y: 1040 - 4 - 56, width: 316, height: 56 }]);
   });
 });

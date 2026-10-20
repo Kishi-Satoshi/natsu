@@ -105,6 +105,9 @@ contextBridge.exposeInMainWorld('koeOverlay', {
   confirmStop: () => ipcRenderer.send('overlay:confirm'),
   requestCancel: () => ipcRenderer.send('overlay:cancel-request'),
   requestHide: () => ipcRenderer.send('overlay:hidden-request'),
+  // 0.9.0 O-2（RP3・RP4）: 測ったピルの大きさ（CSS の px）を main に送り、main が窓の大きさを合わせる。形（横 h・縦 v）の替わりを受ける
+  reportSize: (size) => ipcRenderer.send('overlay:size', size),
+  onForm: (cb) => ipcRenderer.on('overlay:form', (_e, p) => cb(p)),
 });
 
 // メインウィンドウ（ノート）

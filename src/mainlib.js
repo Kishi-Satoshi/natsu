@@ -1451,6 +1451,29 @@ function nearestSlot(pt, workArea) {
   }
   return best;
 }
+// ---------------------------------------------------------------- 録音バーの窓の大きさ（0.9.0 O-2・設計書 D25・RP3・RP4・F11）
+// ピルの周りの余白（拡大率 125% などで DIP を画面の点に丸めたときの1点のずれと、縦の形の × を飲み込む）と、窓の最大
+const PANEL_PAD = 8;
+const PANEL_MAX = { width: 560, height: 360 };
+// ドラッグの止まり（最後の move から）。moved の来ない Linux だけがこれで吸い付く（snapsOnQuiet）
+const PANEL_QUIET_MS = 300;
+// → 録音バーの窓の { x, y, width, height }（どれも整数の DIP）。size はピルの大きさ（CSS の px。録音バーの画面が測って送る）で、
+// 有限の正の数でなければ形の初めの大きさ（PANEL_FIRST）。窓はピルの大きさを切り上げて周りに PANEL_PAD を足した大きさ（PANEL_MAX まで）。
+// ピルは窓の真ん中に描かれるので、窓の端を作業領域の端から PANEL_EDGE − PANEL_PAD の所に置くと、ピルの端は PANEL_EDGE の所に来る
+// （右の置き場所は右の端、下の置き場所は下の端を保つ。真ん中は真ん中）。窓は作業領域の中に収める。窓の大きさを決めるのはここだけ
+function panelBounds({ slot, size, workArea }) {
+  const okSize = size && Number.isFinite(size.w) && Number.isFinite(size.h) && size.w > 0 && size.h > 0;
+  const s = okSize ? size : PANEL_FIRST[slotForm(slot)];
+  const width = Math.min(PANEL_MAX.width, Math.ceil(s.w) + 2 * PANEL_PAD);
+  const height = Math.min(PANEL_MAX.height, Math.ceil(s.h) + 2 * PANEL_PAD);
+  const o = slotOrigin(slot, { w: width, h: height }, workArea, PANEL_EDGE - PANEL_PAD);
+  const x = Math.max(workArea.x, Math.min(Math.round(o.x), workArea.x + workArea.width - width));
+  const y = Math.max(workArea.y, Math.min(Math.round(o.y), workArea.y + workArea.height - height));
+  return { x, y, width, height };
+}
+// ドラッグの止まり（PANEL_QUIET_MS）で吸い付く OS か。Windows・macOS は OS のドラッグの終わりに moved が来るのでそれを待つ
+// （Windows で止まりを使うと、ドラッグの途中で手を止めただけで吸い付いて OS のドラッグと取り合う: F18）
+function snapsOnQuiet(platform) { return platform === 'linux'; }
 
 module.exports = {
   saveIfExists, meetingDurationSec, promptTail,
@@ -1477,5 +1500,5 @@ module.exports = {
   recordDictation, mergeHistory, chooseDraftName,
   accountMessage,
   // 0.9.0 レーン O（録音バー）
-  PANEL_EDGE, PANEL_FIRST, slotForm, slotOrigin, nearestSlot,
+  PANEL_EDGE, PANEL_FIRST, slotForm, slotOrigin, nearestSlot, PANEL_PAD, PANEL_MAX, PANEL_QUIET_MS, panelBounds, snapsOnQuiet,
 };

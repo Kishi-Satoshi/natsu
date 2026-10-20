@@ -26,26 +26,28 @@ const clipOf = (promise, { dropAbc = false, drop = null } = {}) => {
 // 第1c回 Task A-5 で直した（意図: 本物の net.request の POST（13）と safeStorage の非同期（14）を足して 14）
 // 第2a1回 Task P-2 で直した（意図: 本物の src/db/server.js と本物の src/preload.js の往復（15）を足して 15）
 // 第1d回 A-10 で直した（意図: Access の cookie を本物の net.request が付けるか（16）を足して 16）
-test('electron-smoke: 16 の確かめ。終了コードは 16 件そろって全部 OK のときだけ 0', { timeout: 5000 }, () => {
-  assert.deepStrictEqual(S.CHECKS.map(([n]) => n), [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]);
+// 0.9.0 O-2 で直した（意図: 録音バーの窓の setBounds が本物の Electron で getBounds にそのまま返るか（17）を足して 17）
+test('electron-smoke: 17 の確かめ。終了コードは 17 件そろって全部 OK のときだけ 0', { timeout: 5000 }, () => {
+  assert.deepStrictEqual(S.CHECKS.map(([n]) => n), [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17]);
   const all = S.CHECKS.map(([n]) => ({ n, ok: true }));
   assert.strictEqual(S.exitCodeOf(all), 0);
   assert.strictEqual(S.exitCodeOf(all.map((r) => (r.n === 10 ? { ...r, ok: false } : r))), 1);
   assert.strictEqual(S.exitCodeOf(all.map((r) => (r.n === 14 ? { ...r, ok: false } : r))), 1);
   assert.strictEqual(S.exitCodeOf(all.map((r) => (r.n === 15 ? { ...r, ok: false } : r))), 1);
   assert.strictEqual(S.exitCodeOf(all.map((r) => (r.n === 16 ? { ...r, ok: false } : r))), 1);
-  assert.strictEqual(S.exitCodeOf(all.slice(0, 15)), 1);
+  assert.strictEqual(S.exitCodeOf(all.map((r) => (r.n === 17 ? { ...r, ok: false } : r))), 1);
+  assert.strictEqual(S.exitCodeOf(all.slice(0, 16)), 1);
   assert.strictEqual(S.exitCodeOf([]), 1);
   const lines = [];
   S.finish({ exit: () => {} }, all, { log: (l) => lines.push(l), flush: (cb) => cb() });
-  assert.strictEqual(lines[lines.length - 1], '結果: 16 件とも OK');
-  assert.match(read('tools/electron-smoke/main.js'), /次の 16 を確かめる/);
+  assert.strictEqual(lines[lines.length - 1], '結果: 17 件とも OK');
+  assert.match(read('tools/electron-smoke/main.js'), /次の 17 を確かめる/);
 });
 
 // 第2a1回 Task P-2（ST5・ST7）: 本物の Electron で、本物の server.js（utilityProcess）と本物の preload（sandbox の窓）を往復する
 test('P-2: 15 番目の確かめ（本物の server.js と本物の preload）が一覧にあり、判定は純粋な dbResults', () => {
   const S = require('../tools/electron-smoke/main.js');
-  assert.strictEqual(S.CHECKS.length, 16);   // 第1d回 A-10 で 16 を足した（15 の場所は変えない）
+  assert.strictEqual(S.CHECKS.length, 17);   // 第1d回 A-10 で 16、0.9.0 O-2 で 17 を足した（15 の場所は変えない）
   assert.match(S.CHECKS[14][1], /src\/db\/server\.js.*src\/preload\.js/);
   const good = { got: { title: '見本', routeText: [] }, portOnWindow: false, rejectedWhileDown: true, titleAfter: '直した', oplogRows: 1, killCode: 0, resendOk: true };
   assert.strictEqual(S.dbResults(good)[0].ok, true);
@@ -376,4 +378,42 @@ test('electron-smoke: 16c は 8〜12 の security.install に isLoginContents �
   const checks = m.slice(m.indexOf('async function accessChecks('), m.indexOf('async function accessGuardCheck('));
   assert.ok(checks.includes('o.guard = await accessGuardCheck('), '16c を accessChecks から呼んでいない');
   assert.match(m, /16c/);
+});
+
+// 0.9.0 O-2（RP4・F11）: 録音バーの窓（透過・枠なし・resizable: false・focusable: false・影なし）の setBounds が、本物の Electron で
+// getBounds にちょうど同じ整数の幅と高さで返るか（17）。拡大率 1 と 1.25（--only=17 --scale=1.25 の2回目の起動）の両方で、Windows の CI で見る
+test('electron-smoke: 17 の判定（panelResults）は、当てた大きさが全部そのまま返り、頼んだ拡大率で動いたときだけ OK', { timeout: 5000 }, () => {
+  assert.match(S.CHECKS[16][1], /setBounds/);
+  assert.deepStrictEqual(S.PANEL_SIZES, [[252, 56], [56, 252], [436, 56]]);
+  const good = { sizes: S.PANEL_SIZES, got: S.PANEL_SIZES.map(([w, h]) => ({ width: w, height: h })), scale: 1, want: 1 };
+  assert.deepStrictEqual(S.panelResults(good).map((r) => [r.n, r.ok]), [[17, true]]);
+  assert.strictEqual(S.panelResults({ ...good, scale: 1.25, want: 1.25 })[0].ok, true);
+  assert.strictEqual(S.panelResults({ ...good, got: [good.got[0], { width: 56, height: 251 }, good.got[2]] })[0].ok, false, '1点ずれても OK');
+  assert.strictEqual(S.panelResults({ ...good, got: [good.got[0], { width: 252, height: 56 }, good.got[2]] })[0].ok, false, '大きさが替わらなくても OK');
+  assert.strictEqual(S.panelResults({ ...good, got: good.got.slice(0, 2) })[0].ok, false, '観測が足りなくても OK');
+  assert.strictEqual(S.panelResults({ ...good, scale: 1, want: 1.25 })[0].ok, false, '頼んだ拡大率で動いていないのに OK');
+  assert.strictEqual(S.panelResults({ ...good, error: '作れない' })[0].ok, false);
+  assert.match(S.panelResults({ ...good, scale: 1.25, want: 1.25 })[0].note, /1\.25/);
+  // --only=17 の起動は 17 だけをそろえれば 0
+  assert.deepStrictEqual(S.checksFor(['--only=17']).map(([n]) => n), [17]);
+  assert.deepStrictEqual(S.checksFor([]).map(([n]) => n), S.CHECKS.map(([n]) => n));
+  assert.strictEqual(S.exitCodeOf([{ n: 17, ok: true }], S.checksFor(['--only=17'])), 0);
+  assert.strictEqual(S.exitCodeOf([{ n: 17, ok: false }], S.checksFor(['--only=17'])), 1);
+  assert.strictEqual(S.exitCodeOf([{ n: 17, ok: true }]), 1, '全部の起動で 17 だけでも 0 にした');
+  assert.strictEqual(S.scaleFor(['--only=17', '--scale=1.25']), 1.25);
+  assert.strictEqual(S.scaleFor([]), 0);
+});
+
+test('electron-smoke: 17 は本物の録音バーと同じ作りの窓（transparent・frame: false・resizable: false・focusable: false・hasShadow: false）に setBounds を当て、16 の後・finish の前に走る。拡大率はスイッチで当てる', { timeout: 5000 }, () => {
+  const m = read('tools/electron-smoke/main.js');
+  const fn = m.slice(m.indexOf('async function panelCheck('), m.indexOf('function panelResults('));
+  for (const k of ['transparent: true', 'frame: false', 'resizable: false', 'focusable: false', 'hasShadow: false', '.setBounds(', '.getBounds()', 'scaleFactor'])
+    assert.ok(fn.includes(k), k);
+  assert.ok(!/backgroundThrottling/.test(fn), '透過の窓に backgroundThrottling を付けた（実機で透明が壊れる）');
+  const boot = m.slice(m.indexOf('function boot()'), m.indexOf('\n}\n', m.indexOf('function boot()')));
+  // ふだんの起動では 16 の後・finish の前（--only=17 の起動は版の確かめのすぐ後に 17 だけを回して終える）
+  assert.ok(boot.indexOf('accessChecks(') < boot.lastIndexOf('panelCheck(') && boot.lastIndexOf('panelCheck(') < boot.indexOf('finish(app, results)'), '17 の場所');
+  assert.ok(boot.indexOf('versionGate(') < boot.indexOf('panelCheck('), '--only=17 の起動で版を確かめていない');
+  assert.ok(boot.indexOf("appendSwitch('force-device-scale-factor'") >= 0 && boot.indexOf("appendSwitch('force-device-scale-factor'") < boot.indexOf('app.whenReady()'), '拡大率のスイッチを ready の前に当てていない');
+  assert.match(m, /次の 17 を確かめる/);
 });

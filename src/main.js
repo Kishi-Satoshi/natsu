@@ -2582,8 +2582,12 @@ function pageForView(page) {
 function sendToOverlay(ch, p) { if (overlayWin && !overlayWin.isDestroyed()) overlayWin.webContents.send(ch, p); }
 
 function createOverlay() {
+  // 0.9.0 O-2（RP4）: 初めの大きさは置き場所の形の初めの大きさ（PANEL_FIRST）。大きさは main が setBounds で替える（panelBounds。
+  // resizable: false のまま。透明で枠の無い窓なので外と中が同じで、useContentSize は付けない）
+  overlayForm = lib.slotForm(settings.pillSlot || 'bottom-center');
+  const first = lib.panelBounds({ slot: settings.pillSlot || 'bottom-center', size: null, workArea: screen.getPrimaryDisplay().workArea });
   overlayWin = new BrowserWindow({
-    width: 316, height: 72,
+    width: first.width, height: first.height,
     frame: false, transparent: true, resizable: false, movable: true,
     minimizable: false, maximizable: false, focusable: false,
     alwaysOnTop: true, skipTaskbar: true, show: false, hasShadow: false,
@@ -2596,24 +2600,48 @@ function createOverlay() {
   overlayWin.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
   overlayWin.loadFile(path.join(__dirname, 'renderer', 'overlay.html'));
   overlayWin.on('closed', () => { overlayWin = null; });
-  // 利用者が動かした位置は、窓の中心に一番近い置き場所の名前にして、設定の書き手のまとめ書きにする（第1a回 JS7。最後の名前だけを
-  // 間隔の後に1回書く。残りは書き出しの合図で必ず書く: JS8）。位置を決めて動かした（positionOverlay）ときの move は数えない。
-  // 0.9.0 O-1（RP1）: 前の自由な位置 pillCustom はもう書かない（前の版が書いた値として残す）。名前が同じなら書かない
+  // 利用者のドラッグ（0.9.0 O-2・RP3・F18）: 自分で動かしていない move を受けたらドラッグの間（panelDragging）にし、OS のドラッグの終わり
+  // （moved。Windows・macOS）か、moved の来ない Linux だけ最後の move から PANEL_QUIET_MS で吸い付く（snapOverlay）。位置を決めて動かした
+  // （positionOverlay）ときの move・moved は数えない（programmaticMove と、最後に当てた四角と同じ位置か）
   overlayWin.on('move', () => {
-    if (programmaticMove || !overlayWin || overlayWin.isDestroyed() || !overlayWin.isVisible()) return;
-    const slot = slotAtWindowCenter();
-    if (slot === settings.pillSlot) return;
-    settings.pillSlot = slot;
-    settingsWriter.set(settings);
+    if (!userMovedOverlay()) return;
+    panelDragging = true;
+    if (panelQuietTimer) clearTimeout(panelQuietTimer);
+    panelQuietTimer = lib.snapsOnQuiet(process.platform) ? setTimeout(snapOverlay, lib.PANEL_QUIET_MS) : null;
   });
+  overlayWin.on('moved', () => { if (userMovedOverlay()) snapOverlay(); });
+}
+function userMovedOverlay() {
+  if (programmaticMove || !overlayWin || overlayWin.isDestroyed() || !overlayWin.isVisible()) return false;
+  const [x, y] = overlayWin.getPosition();
+  return !(panelLastBounds && panelLastBounds.x === x && panelLastBounds.y === y);
 }
 
-// 録音バーの窓の中心に一番近い置き場所（中心のある画面の作業領域で。0.9.0 O-1）
-function slotAtWindowCenter() {
-  const [x, y] = overlayWin.getPosition();
-  const [w, h] = overlayWin.getSize();
-  const c = { x: x + w / 2, y: y + h / 2 };
-  return lib.nearestSlot(c, screen.getDisplayNearestPoint(c).workArea);
+// 録音バーの窓の状態（0.9.0 O-2）。overlayForm は今の形（'h'・'v'）、panelSize は録音バーの画面が最後に送ったピルの大きさ（今の形の。
+// 形が替われば捨てる）、overlayDisplayId は録音の始めと吸い付きのときだけ決める画面（その録音の間はその画面を使い続ける: カーソルを
+// 別の画面へ動かしただけで録音バーが飛ばない。F18）、panelDragging はドラッグの間（置き直さない）
+let overlayForm = 'h';
+let panelSize = null;
+let overlayDisplayId = null;
+let panelDragging = false;
+let panelQuietTimer = null;
+let panelLastBounds = null;
+// ドラッグを離したとき: 窓の中心の画面で一番近い置き場所に吸い付き、その画面を録音の画面にし、名前が替われば pillSlot にまとめ書きする
+// （第1a回 JS7。前の自由な位置 pillCustom はもう書かない: 前の版が書いた値として残す）
+function snapOverlay() {
+  if (panelQuietTimer) { clearTimeout(panelQuietTimer); panelQuietTimer = null; }
+  if (!overlayWin || overlayWin.isDestroyed()) return;
+  const b = overlayWin.getBounds();
+  const c = { x: b.x + b.width / 2, y: b.y + b.height / 2 };
+  const d = screen.getDisplayNearestPoint(c);
+  const slot = lib.nearestSlot(c, d.workArea);
+  overlayDisplayId = d.id;
+  if (slot !== settings.pillSlot) {
+    settings.pillSlot = slot;
+    settingsWriter.set(settings);
+  }
+  panelDragging = false;
+  positionOverlay();
 }
 
 // 0.9.0 O-1（設計書 D25・RP2・F12）: 前の版の録音バーの位置（pillCustom・pillPos）を、初めの1回だけ一番近い置き場所に直して pillSlot に書く。
@@ -2648,15 +2676,49 @@ function migratePillSlot() {
   engineLog(`録音バー: 置き場所を ${slot} にした（前の ${was} から）`);
 }
 
-// 0.9.0 O-1（RP1）: 置き場所の名前（pillSlot）と、カーソルのある画面の作業領域で置く（端から 12px。bottom-center は 0.8.0 の bottom と同じ点）
+// 0.9.0 O-1・O-2（RP1・RP4）: 置き場所の名前（pillSlot）と、録音の画面（overlayDisplayId。無い・外れたらカーソルの画面に決め直す）の
+// 作業領域と、最後に受けたピルの大きさで窓の四角を決めて当てる（panelBounds。ピルの端は作業領域の端から 12px）。ドラッグの間は何もしない
+// （吸い付きの後に1回で当てる: OS のドラッグと取り合わない）。形が替われば録音バーの画面に overlay:form を送る
 function positionOverlay() {
-  if (!overlayWin) return;
-  const [w, h] = overlayWin.getSize();
-  const wa = screen.getDisplayNearestPoint(screen.getCursorScreenPoint()).workArea;
-  const p = lib.slotOrigin(settings.pillSlot || 'bottom-center', { w, h }, wa, lib.PANEL_EDGE);
+  if (!overlayWin || overlayWin.isDestroyed() || panelDragging) return;
+  const slot = settings.pillSlot || 'bottom-center';
+  const form = lib.slotForm(slot);
+  if (form !== overlayForm) {
+    overlayForm = form;
+    panelSize = null;   // 前の形の大きさは使わない（新しい形の大きさは録音バーの画面がすぐ送る）
+    sendToOverlay('overlay:form', { form });
+  }
+  let d = overlayDisplayId == null ? null : screen.getAllDisplays().find((x) => x.id === overlayDisplayId);
+  if (!d) { d = screen.getDisplayNearestPoint(screen.getCursorScreenPoint()); overlayDisplayId = d.id; }
+  const b = lib.panelBounds({ slot, size: panelSize, workArea: d.workArea });
   programmaticMove = true;
-  overlayWin.setPosition(Math.round(p.x), Math.round(p.y));
+  panelLastBounds = b;
+  overlayWin.setBounds(b);
   setTimeout(() => { programmaticMove = false; }, 80);
+}
+// 録音の始め: 録音の画面をカーソルの画面に決め直してから置く（ドラッグの途中の印は捨てる）
+function placeOverlayForRecording() {
+  overlayDisplayId = null;
+  panelDragging = false;
+  if (panelQuietTimer) { clearTimeout(panelQuietTimer); panelQuietTimer = null; }
+  positionOverlay();
+}
+// 画面の拡大率や作業領域が変わった・画面が外れた（録音中だけ置き直す。外れたのが録音の画面ならカーソルの画面で決め直す）
+function onDisplayChanged() {
+  if (overlayWin && !overlayWin.isDestroyed() && overlayWin.isVisible() && state !== 'idle') positionOverlay();
+}
+function onDisplayRemoved(_e, display) {
+  if (display && display.id === overlayDisplayId) overlayDisplayId = null;
+  onDisplayChanged();
+}
+// 録音バーの画面が測ったピルの大きさ（CSS の px。有限の正の数でなければ捨てる。form があれば今の形のものだけ）。同じ大きさなら何もしない
+// （置き直し続けない）。ドラッグの間は覚えるだけ（吸い付きの positionOverlay で当てる）
+function onPanelSize(p) {
+  if (!p || typeof p !== 'object' || !Number.isFinite(p.w) || !Number.isFinite(p.h) || p.w <= 0 || p.h <= 0) return;
+  if (p.form !== undefined && p.form !== overlayForm) return;
+  if (panelSize && panelSize.w === p.w && panelSize.h === p.h) return;
+  panelSize = { w: p.w, h: p.h };
+  positionOverlay();
 }
 
 // 窓（題名の帯・タスクバー）のアイコン。Windows では ICO を渡す。ICO なら OS が画面に合う大きさを選び、
@@ -2756,9 +2818,9 @@ function startRecording() {
   state = 'recording';
   // いま前にある窓が貼り付け先。オーバーレイを出す前に控える（#54）
   dictationFg = askPaster('fg', FG_REPLY_MS).then((r) => (r && r.kind === 'hwnd' ? r.value : ''));
-  positionOverlay();
+  placeOverlayForRecording();
   overlayWin.showInactive();
-  sendToOverlay('overlay:start', { mode: 'dictation', micId: settings.micId || '', sound: Boolean(settings.soundFeedback) });
+  sendToOverlay('overlay:start', { mode: 'dictation', micId: settings.micId || '', sound: Boolean(settings.soundFeedback), form: overlayForm });
   syncEscapeHotkey();
   updateTray();
 }
@@ -3922,7 +3984,7 @@ async function startMeeting() {
   // 要約エンジンはここで先読みしない（#58）。記録開始で起動すると約 2〜3GB が上がり、破棄しても
   // 降りない（記録だけして要約しない会議でも掴んだまま）。要約直前の ensureEngineReady(sumEng)
   // （generateMinutes）に任せる。その分、最初の要約はモデル読み込みの待ちを含む
-  positionOverlay();
+  placeOverlayForRecording();
   overlayWin.showInactive();
   // 音声入力の開始（上の 'dictation'）には systemAudio を渡さない。
   // あちらは常にマイクだけで、今回の変更で挙動が変わってはいけない。
@@ -3930,6 +3992,7 @@ async function startMeeting() {
     mode: 'meeting', segmentSec: meeting.segmentMs / 1000,
     micId: settings.micId || '', sound: Boolean(settings.soundFeedback),
     systemAudio: Boolean(settings.useSystemAudio),
+    form: overlayForm,
   };
   if (payload.systemAudio && overlayWin && !overlayWin.isDestroyed()) {
     // 相手の声の取り込みは「ユーザー操作の直後」でないと拒まれることがある。
@@ -5078,6 +5141,8 @@ function setupIpc() {
     } else finishWithError(message || 'マイクにアクセスできません');
   });
   ipcMain.on('overlay:hidden-request', () => hideOverlayIfIdle());
+  // 0.9.0 O-2（RP4）: 録音バーの画面が測ったピルの大きさ
+  ipcMain.on('overlay:size', (_e, p) => onPanelSize(p));
 }
 
 // ---------------------------------------------------------------- 起動
@@ -5164,6 +5229,11 @@ if (!gotLock) {
     // 第1d回 A-11（F25）: ログインの窓（ログインの partition）だけは、全体の「必ず止める」の代わりに loginGuard で行き先を決める
     security.install({ app, session: session.defaultSession, pages: RENDERER_PAGES, log: engineLog, isLoginContents, loginGuard });
     createOverlay();
+    // 0.9.0 O-2: 画面の拡大率・作業領域の変化と、画面が外れたとき（録音中なら置き直す）
+    if (typeof screen.on === 'function') {
+      screen.on('display-metrics-changed', onDisplayChanged);
+      screen.on('display-removed', onDisplayRemoved);
+    }
     // 登録できなかった側だけ既定に落として再試行する（成功した側はそのまま）。
     // 有効なキーは activeHotkeys にだけ持ち、settings には書かない。settings に書くと
     // settings:get が既定を返して設定画面に既定が出、次の無関係な保存（自動起動の

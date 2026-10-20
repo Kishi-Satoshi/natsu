@@ -310,6 +310,14 @@
 //     --displays=<並び> … 偽の screen の画面（x,y,幅,高さ を ; で区切る。作業領域。画面の大きさは高さに 40 を足す）。場面の displays が先
 //     --idle と組むと、出力に settings（終わりの settings.json の生の文字）・settingsGet（起動の直後に画面と同じ口で呼んだ settings:get）・
 //     engineLog を足す
+//     O-2: 録音（議事録か --dictate の音声入力）を始めた直後に、録音バーの画面と利用者の手の代わりをする（panelAct。旗が無ければ何もしない）
+//     --panel-size=<w>x<h> … 録音バーの画面から overlay:size（{ w, h }）が来た形にする（--drag-steps が無ければ同じ大きさを2回）
+//     --drag-to=<x>,<y> … 録音中に録音バーの窓の中心をその点へ動かし（move）、moved を送る（OS のドラッグの終わり）
+//     --drag-steps   … --drag-to の動きを3回の move にし、2回目の後に --panel-size の大きさを送ってから moved
+//     --cursor-to=<x>,<y> … 録音を始めた後に偽のカーソルをその点へ動かす（既定は 0,0）
+//     出力に overlayBounds（録音バーの窓の setBounds の並び）・overlayForms（送った overlay:form）・overlaySent・panel（boundsAtStartList・afterSize・
+//     duringDrag・afterMoved・slotAfter・settingsChanged）を足す。録音バーの窓（wins[0]）は setBounds の大きさと位置を getSize・
+//     getPosition・getBounds で返す（作ったときは作ったときの width・height）
 // 画面へ送った知らせと進み具合は、送った順に out.seq へ残す。進み具合が初めて「使える」（whisperReady・sumReady）と
 // 言ったときの engine:status を out.atReady に、壊れた知らせを送ったときの engine:status を out.atBroken に残す
 // （画面はその知らせでエンジンの状態を聞き直すので、そのとき main の答えがもう新しいこと: 第0b回 Task 14・15）
@@ -339,7 +347,8 @@ const afterDict = flags.includes('--after-dict');
 const withSum = flags.includes('--sum');
 const fixedSumPort = Number((flags.find((f) => f.startsWith('--sum-port=')) || '--sum-port=0').slice(11)) || 0;
 const setTypeDuring = (flags.find((f) => f.startsWith('--set-type-during=')) || '').slice(18);
-const WRITE_SETTLE_MS = 500;   // 0.9.0 O-1: 設定のまとめ書き（main の BATCH_MS 350ms）が済むのを待つ長さ
+const WRITE_SETTLE_MS = 500;
+const xyFlag = (v) => { if (!v) return null; const [x, y] = v.split(',').map(Number); return { x, y }; };   // 0.9.0 O-1: 設定のまとめ書き（main の BATCH_MS 350ms）が済むのを待つ長さ
 const flagVal = (name) => { const f = flags.find((x) => x.startsWith(`${name}=`)); return f ? f.slice(name.length + 1) : ''; };
 // 第2a1回 M-3: 録音と DB のつなぎの場面
 const killDbDuring = flags.includes('--kill-db-during');
@@ -459,6 +468,11 @@ const displaysFlag = flagVal('--displays') ? flagVal('--displays').split(';').ma
   const [x, y, width, height] = t.split(',').map(Number);
   return { id: i + 1, bounds: { x, y, width, height: height + 40 }, workArea: { x, y, width, height } };
 }) : null;
+// 0.9.0 O-2: 録音バーの大きさの知らせ・ドラッグ・カーソル
+const panelSizeFlag = flagVal('--panel-size') ? (([w, h]) => ({ w, h }))(flagVal('--panel-size').split('x').map(Number)) : null;
+const dragTo = xyFlag(flagVal('--drag-to'));
+const dragSteps = flags.includes('--drag-steps');
+const cursorTo = xyFlag(flagVal('--cursor-to'));
 const scene = sceneName ? require('./json-scenes')[sceneName] : null;
 if (sceneName && (!scene || typeof scene !== 'object')) { process.stderr.write(`mainrun: 場面 ${sceneName} が json-scenes.js に無い\n`); process.exit(1); }
 // 第2a1回 M-2b: 議事録の DB を使えない（SQLite が trigram を持たない）
@@ -856,6 +870,10 @@ process.on('exit', () => {
   const handlers = {}, listeners = {}, sent = [];
   // 第1d回 A-5: 録音バーへ送った区切りの長さ（overlay:start の payload と overlay:segment-ms の値）と、それと中継への要求の順
   const overlaySent = [];
+  // 0.9.0 O-2: 録音バーの窓の setBounds の並びと、送った overlay:form。偽のカーソルの点
+  const overlayBounds = [];
+  const overlayForms = [];
+  let cursorAt = { x: 0, y: 0 };
   const order = [];
   // 第1d回 A-6: meeting:update の stt の、前と違ったものだけの並びと、帯の符号ごとの初めのときの区間（WAV が残っているか）
   const sttSeen = [];
@@ -1077,6 +1095,7 @@ process.on('exit', () => {
       const wc = makeEmitter({
         send: (ch, p) => {
           if (wins.indexOf(this) === 0 && (ch === 'overlay:start' || ch === 'overlay:segment-ms')) { overlaySent.push(p); order.push(ch); }
+          if (wins.indexOf(this) === 0 && ch === 'overlay:form') overlayForms.push(p);
           if (wins.indexOf(this) === 1 && ch === 'meeting:update') watchStt(p);
           if (wins.indexOf(this) === 1) mainSent.push(ch); if (loading) { lost.push([ch, p]); return; } sent.push([ch, p]); watch(ch, p); },
         isLoading: () => loading,
@@ -1104,10 +1123,23 @@ process.on('exit', () => {
     restore() { if (this.isMain()) { this.restored = true; mainWinCalls.push('restore'); } }
     isMaximized() { return this.maximized; }
     maximize() { maximizeCalls += 1; this.maximized = true; }
-    getSize() { return [316, 72]; }
+    // 0.9.0 O-2: 録音バーの窓（wins[0]）だけ、作ったときの大きさと setBounds の大きさを返す（本体の窓は今までどおり）
+    getSize() { return this.isOverlay() ? this.panelSize() : [316, 72]; }
     setPosition(x, y) { this.pos = [x, y]; }
     getPosition() { return this.pos.slice(); }
-    getBounds() { return this.bounds ? { ...this.bounds } : { x: 0, y: 0, width: 316, height: 72 }; }
+    getBounds() {
+      if (this.bounds) return { ...this.bounds };
+      if (this.isOverlay()) { const [width, height] = this.panelSize(); return { x: this.pos[0], y: this.pos[1], width, height }; }
+      return { x: 0, y: 0, width: 316, height: 72 };
+    }
+    isOverlay() { return wins.indexOf(this) === 0; }
+    panelSize() { return this.size ? this.size.slice() : [this.opts.width || 316, this.opts.height || 72]; }
+    setBounds(b) {
+      if (!this.isOverlay()) return;
+      overlayBounds.push({ x: b.x, y: b.y, width: b.width, height: b.height });
+      this.pos = [b.x, b.y];
+      this.size = [b.width, b.height];
+    }
     getNormalBounds() {
       if (this.normal) return { ...this.normal };
       const o = this.opts;
@@ -1115,7 +1147,7 @@ process.on('exit', () => {
     }
   }
   for (const m of ['setAlwaysOnTop', 'setVisibleOnAllWorkspaces', 'loadFile', 'showInactive',
-    'hide', 'setBounds', 'setIgnoreMouseEvents', 'setSkipTaskbar', 'close',
+    'hide', 'setIgnoreMouseEvents', 'setSkipTaskbar', 'close',
     'destroy', 'setMenuBarVisibility', 'removeMenu', 'moveTop', 'setBackgroundColor', 'setTitle', 'setIcon']) {
     Win.prototype[m] = function () {};
   }
@@ -1192,7 +1224,7 @@ process.on('exit', () => {
     getAllDisplays: () => displays.map((d) => JSON.parse(JSON.stringify(d))),
     getPrimaryDisplay: () => JSON.parse(JSON.stringify(displays[0])),
     getDisplayNearestPoint: (p) => JSON.parse(JSON.stringify(displays.find((d) => inRect(p, d.bounds)) || displays[0])),
-    getCursorScreenPoint: () => ({ x: 0, y: 0 }),
+    getCursorScreenPoint: () => ({ ...cursorAt }),
   };
   // 第2a1回 M-4: 偽の dialog.showMessageBox（移行の窓 D0）。出した窓の { message, detail, buttons, defaultId, cancelId } を dialogs に順に残し、
   // 場面の dialog が 'quit' なら 2 番目（［今は移さずに終える］）、'hold' なら ctx.answerDialog(i) まで答えず、それ以外（無い）なら
@@ -1923,6 +1955,45 @@ process.on('exit', () => {
     process.stdout.write(`\n${JSON.stringify(out)}\n`);
     await exitClean(0);
   }
+  // 0.9.0 O-2: 録音を始めた直後の録音バーの画面と利用者の手（旗が無ければ何もしない。頭の注釈の --panel-size ほか）
+  const panelAct = async () => {
+    out.overlayBounds = overlayBounds;
+    out.overlayForms = overlayForms;
+    if (!out.overlaySent) out.overlaySent = overlaySent;   // 音声入力の場面の出力にも録音の始めの合図を入れる
+    if (!(panelSizeFlag || dragTo || cursorTo)) return;
+    const ov = wins[0];
+    const p = { boundsAtStartList: overlayBounds.slice() };
+    out.panel = p;
+    const settingsNow = () => { const b = readUser('settings.json'); return b ? b.toString('utf8') : null; };
+    const sendSize = () => listeners['overlay:size']({}, { ...panelSizeFlag });
+    await sleep(120);   // main が自分で置いた直後（80ms）の move は数えないので、録音の始めの置き直しから間を置く
+    if (cursorTo) cursorAt = { ...cursorTo };
+    if (dragTo) {
+      const before = settingsNow();
+      const [w, h] = ov.getSize();
+      const [x0, y0] = ov.getPosition();
+      const x1 = Math.round(dragTo.x - w / 2); const y1 = Math.round(dragTo.y - h / 2);
+      const n0 = overlayBounds.length;
+      const steps = dragSteps ? 3 : 1;
+      for (let i = 1; i <= steps; i++) {
+        ov.setPosition(Math.round(x0 + ((x1 - x0) * i) / steps), Math.round(y0 + ((y1 - y0) * i) / steps));
+        ov.emit('move');
+        if (dragSteps && i === 2 && panelSizeFlag) sendSize();
+      }
+      p.duringDrag = overlayBounds.length - n0;
+      ov.emit('moved');
+      p.afterMoved = overlayBounds.slice(n0);
+      await sleep(WRITE_SETTLE_MS);   // まとめ書き（350ms）の後に読む
+      p.settingsChanged = settingsNow() !== before;
+      try { p.slotAfter = JSON.parse(settingsNow()).pillSlot; } catch (_) { p.slotAfter = null; }
+    }
+    if (panelSizeFlag && !dragSteps) {
+      const n0 = overlayBounds.length;
+      sendSize();
+      sendSize();
+      p.afterSize = overlayBounds.slice(n0);
+    }
+  };
   if (dictate || dictateTwice) {
     // 音声入力を1回（--dictate-twice は2回）: ホットキー → 録音 → 音声が届く → 文字起こし → 履歴
     const hk = (await handlers['settings:get']()).hotkey;
@@ -1946,6 +2017,7 @@ process.on('exit', () => {
         process.stdout.write(`\n${JSON.stringify(out)}\n`);
         await exitClean(0);
       }
+      if (r === 0) await panelAct();   // 0.9.0 O-2: 録音を始めた直後の録音バーの画面と利用者の手（1回目の音声入力だけ）
       // 0.9.0 U-1（SP2・RF9）: 録音中に本体の窓へ focus、続けて blur（偽の窓の isFocused を合わせてから事象を出す）。1回目の音声入力だけ
       if (focusMainDuringDictation && r === 0) {
         const mw = wins[1];
@@ -2163,6 +2235,7 @@ process.on('exit', () => {
     if (process.env.NATSU_E2E_MODEL) throw new Error('--no-whisper-after-start は NATSU_E2E_MODEL と組めない（本物のモデルを消さない）');
     fs.rmSync(model, { force: true });
   }
+  await panelAct();
   // 第1d回 A-8: 画面は会議が始まると録音中のタブを開き、main へ知らせる（--live-not-shown は開いていない形）
   if (listeners['meeting:live-shown']) listeners['meeting:live-shown']({}, !liveNotShown);
   if (reloadMain) wins[1].webContents.emit('did-start-loading');

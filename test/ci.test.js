@@ -303,6 +303,15 @@ test('ci.yml の electron-smoke: 小さなアプリと、テスト全部を Elec
   assert.ok(st[i[2]].includes('# skipped') && st[i[2]].includes('-gt 1'), '飛ばしたテストの数を見ていない');
 });
 
+// 0.9.0 O-2（RP4・F11）: 録音バーの窓の setBounds（17）を、拡大率 1.25 でもう一度本物の Electron で確かめる段が、ふだんの煙テストの後・画面を撮る前にある
+test('ci.yml の electron-smoke: 17（録音バーの窓の大きさ）を拡大率 1.25 で確かめる段が、ふだんの煙テストの後・主な画面を撮る前にある', () => {
+  const st = stepsOf(jobsOf(read('.github/workflows/ci.yml'))['electron-smoke']);
+  const i = [/node_modules\/electron\/dist\/electron\.exe tools\/electron-smoke$/m,
+    /node_modules\/electron\/dist\/electron\.exe tools\/electron-smoke --only=17 --scale=1\.25$/m,
+    /electron\.exe tools\/shots /].map((re) => idxOf(st, re));
+  assert.ok(i[0] >= 0 && i.every((v, k) => k === 0 || v > i[k - 1]), `順が違う: ${i.join(',')}`);
+});
+
 // 第0c回 0.3.0 の CI で見つけた: npm 11（Node 24）の npx は `npx --no electron-builder --win nsis portable` の
 // `--win` を npm の設定として読み、nsis・portable を electron-builder へ渡してしまう（Unknown arguments: nsis, portable で赤）。
 test('ワークフローは npx で道具を呼ばず、node_modules/.bin か npm run で呼ぶ（npx は後ろの --win などを npm の設定として読む）', () => {

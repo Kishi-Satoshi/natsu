@@ -259,7 +259,8 @@ test('公開したのに画面から呼ばれない API がない', () => {
   // 呼び始めたので外して空に戻した
   // 第1d回 Task A-6 で足した meetingRetry（帯の［もう一度］）は、録音中のページの帯（Task A-7）が呼び始めたので外して空に戻した
   // 第1d回 Task A-11 で足した accountLogin（Cloudflare Access のログインの窓）は、設定のカード「アカウント」（Task A-12）が呼び始めたので外して空に戻した
-  const PENDING_APP = new Set([]);
+  // 0.9.0 O-2 で足した koeOverlay.reportSize・onForm（録音バーの窓の大きさと形）は、録音バーの画面（O-3）が呼び始めるまでここに置く
+  const PENDING_APP = new Set(['reportSize', 'onForm']);
   for (const [ns, html] of [['koeApp', appHtml], ['koeOverlay', overlayHtml]]) {
     const names = all(/^\s{2}([A-Za-z][\w$]*):/gm, block(ns));
     const used = new Set(all(new RegExp(`${ns}\\.(\\w+)`, 'g'), html));

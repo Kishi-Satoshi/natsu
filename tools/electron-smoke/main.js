@@ -3,7 +3,7 @@
  *
  * 走らせ方（Electron の main として。窓は見せない）:
  *   node_modules/electron/dist/electron.exe tools/electron-smoke
- * 次の 16 を確かめる（CHECKS）。
+ * 次の 17 を確かめる（CHECKS）。
  *   1〜4. utilityProcess と MessageChannelMain の口で、sandbox の隠れた窓（preload）と往復する。子を落として起こし直す。
  *         子の中で node:sqlite を開く。kill() の終わりの番号を見る
  *   5・6. mainlib の copyPrivate・deliverText を本物の clipboard で動かす（44 では Promise を返す。C1）
@@ -40,7 +40,11 @@
  *         partition natsu-access-smoke の webContents・loginGuard の行き先は試しの 127.0.0.1 のその口）を渡したまま、その partition の sandbox の窓で
  *         許したホストへのフォームの送り（POST）が通って did-navigate が来ること、許していない行き先（別の口）への will-navigate と
  *         will-redirect（許した口の 302 の先）が止まること、window.open が断られることを見る。既定の session の窓のフォームの送りは今のまま止まる
- * 結果は 1 行ずつ OK／NG で出す。16 件そろって全部 OK なら終了コード 0、そうでなければ 1（exitCodeOf）。
+ *   17.   0.9.0 O-2（RP4・F11。panelCheck。判定は純粋な panelResults）: 本物の録音バーと同じ作りの窓（transparent・frame: false・
+ *         resizable: false・focusable: false・hasShadow: false）に setBounds で 252×56 → 56×252 → 436×56 を当て、getBounds() の幅と高さが
+ *         ちょうど同じ整数で返るか。CI では拡大率 1 の全部の起動と、--only=17 --scale=1.25（17 だけを拡大率 1.25 で。force-device-scale-factor
+ *         を ready の前に当てる）の2回目の起動の両方で見る。resizable: false の窓で大きさが替わらない・拡大率で1点ずれる振る舞いはここで赤になる
+ * 結果は 1 行ずつ OK／NG で出す。17 件（--only=17 なら 17 だけ）そろって全部 OK なら終了コード 0、そうでなければ 1（exitCodeOf）。
  * どこかで止まっても、90 秒の見張りで 1 で終わる。
  *
  * Electron を読むのは、Electron の main として動いたときだけ（下の boot。tools/net-smoke.js と同じ形）。
@@ -84,7 +88,21 @@ const CHECKS = [
   [16, 'Access の cookie: メモリの partition に cookies.set で置いた cookie を、本物の net.request が postForm（session・useSessionCookies）で 127.0.0.1 へ付け、'
     + 'X-Requested-With が付き、redirect: manual の 302 についていかない。Partitions のフォルダを作らない（Secure は観測。置けなければ Windows で https の 16b）。'
     + 'ログインの窓の守り（16c）: security.install を付けたまま、ログインの partition の窓だけ許した行き先へのフォームの送りが通り、ほかは止まる'],
+  [17, '録音バーの窓（透過・枠なし・resizable: false・focusable: false・影なし）に setBounds で当てた横・縦・伸ばした横の大きさが、getBounds にちょうど同じ整数で返る'],
 ];
+// 17 で当てる大きさ（横の記録中・縦の記録中・文を伸ばした横。どれも panelBounds の答えの形）
+const PANEL_SIZES = [[252, 56], [56, 252], [436, 56]];
+// 起動の引数から、確かめる番号（--only=17 なら 17 だけ）と、頼む拡大率（--scale=1.25。無ければ 0 = 頼まない）
+function checksFor(argv) {
+  const only = (Array.isArray(argv) ? argv : []).find((a) => /^--only=\d+$/.test(a));
+  if (!only) return CHECKS;
+  const n = Number(only.slice(7));
+  return CHECKS.filter(([k]) => k === n);
+}
+function scaleFor(argv) {
+  const a = (Array.isArray(argv) ? argv : []).find((x) => /^--scale=\d+(\.\d+)?$/.test(x));
+  return a ? Number(a.slice(8)) : 0;
+}
 
 // 13 の送るもの。欄は test/stt-cloud.test.js の OL2 と同じ（鍵は試し用の決まった文字。本物の鍵ではない）
 const SMOKE_STT = Object.freeze({
@@ -131,9 +149,9 @@ function within(promise, ms, what) {
 }
 
 /** CHECKS の全部がそろって全部 OK のときだけ 0 */
-function exitCodeOf(results) {
-  return Array.isArray(results) && results.length === CHECKS.length
-    && CHECKS.every(([n]) => results.some((r) => r && r.n === n && r.ok === true)) ? 0 : 1;
+function exitCodeOf(results, checks = CHECKS) {
+  return Array.isArray(results) && results.length === checks.length
+    && checks.every(([n]) => results.some((r) => r && r.n === n && r.ok === true)) ? 0 : 1;
 }
 
 /**
@@ -310,15 +328,15 @@ function accessResults(o) {
 }
 
 /** 結果を n の順に 1 行ずつ出し、出力を流し切ってから、exitCodeOf の値で Electron を終える */
-function finish(app, results, { log = (l) => console.log(l), flush = (cb) => process.stdout.write('', cb) } = {}) {
+function finish(app, results, { log = (l) => console.log(l), flush = (cb) => process.stdout.write('', cb), checks = CHECKS } = {}) {
   const list = Array.isArray(results) ? results : [];
-  for (const [n, title] of CHECKS) {
+  for (const [n, title] of checks) {
     const r = list.find((x) => x && x.n === n);
     log(r ? `${r.ok ? 'OK' : 'NG'} ${n} ${title} — ${r.note}` : `NG ${n} ${title} — 結果が無い`);
   }
-  const code = exitCodeOf(list);
-  const bad = CHECKS.filter(([n]) => !list.some((r) => r && r.n === n && r.ok === true)).length;
-  log(code === 0 ? `結果: ${CHECKS.length} 件とも OK` : `結果: NG ${bad} 件`);
+  const code = exitCodeOf(list, checks);
+  const bad = checks.filter(([n]) => !list.some((r) => r && r.n === n && r.ok === true)).length;
+  log(code === 0 ? `結果: ${checks.length} 件とも OK` : `結果: NG ${bad} 件`);
   flush(() => { if (code === 0) app.exit(0); else app.exit(1); });
 }
 
@@ -397,6 +415,10 @@ function boot() {
   const { app, BrowserWindow, utilityProcess, MessageChannelMain, clipboard, session, net, safeStorage } = require('electron');
   // 8〜12 の偽のマイク（whenReady の前に付ける）
   app.commandLine.appendSwitch('use-fake-device-for-media-stream');
+  // 17 だけを拡大率を替えて回す起動（--only=17 --scale=1.25。拡大率のスイッチは ready の前に当てる）
+  const checks = checksFor(process.argv);
+  const scale = scaleFor(process.argv);
+  if (scale) app.commandLine.appendSwitch('force-device-scale-factor', String(scale));
   // 見張り: どこかで止まっても、ジョブの 30 分を待たずに赤にする
   setTimeout(() => { console.log('NG 時間切れ'); app.exit(1); }, 90000);
   // 拾われない例外で Electron の窓（エラーの箱）を出すと、そこで止まる。行に出して終わる
@@ -415,6 +437,10 @@ function boot() {
   app.whenReady().then(async () => {
     console.log(`Electron ${process.versions.electron}（Chromium ${process.versions.chrome}、Node ${process.versions.node}、${process.platform}）`);
     if (versionGate(app, versionIssue(process.versions, JSON.parse(fs.readFileSync(PKG, 'utf8'))))) return;
+    if (checks.length === 1 && checks[0][0] === 17) {
+      finish(app, [await panelCheck({ BrowserWindow, screen: require('electron').screen, want: scale || 1 })], { checks });
+      return;
+    }
     const win = new BrowserWindow({
       show: false,
       webPreferences: { preload: path.join(__dirname, 'preload.js'), sandbox: true, contextIsolation: true, nodeIntegration: false },
@@ -429,6 +455,7 @@ function boot() {
     results.push(...await securityChecks({ app, BrowserWindow, session }));
     results.push(...await onlineChecks({ app, net, safeStorage }));
     results.push(...await accessChecks({ app, net, session, BrowserWindow }));
+    results.push(await panelCheck({ BrowserWindow, screen: require('electron').screen, want: scale || 1 }));
     finish(app, results);
   }, die('起動の失敗'));
 }
@@ -982,10 +1009,52 @@ async function accessHttpsCheck({ ses, net }) {
   return out;
 }
 
+/**
+ * 17: 本物の録音バーと同じ作りの窓（src/main.js の createOverlay と同じ透過・枠なし・resizable: false・focusable: false・影なし。
+ * backgroundThrottling は付けない: 透過の窓の地雷）を出して、PANEL_SIZES を順に setBounds で当て、getBounds() の大きさを集める
+ * （判定は panelResults）。scale は主な画面の拡大率（want は頼んだ拡大率）。投げない
+ */
+async function panelCheck({ BrowserWindow, screen, want }) {
+  const out = { sizes: PANEL_SIZES, got: [], scale: 0, want };
+  let w = null;
+  try {
+    out.scale = screen.getPrimaryDisplay().scaleFactor;
+    w = new BrowserWindow({
+      width: 256, height: 56, frame: false, transparent: true, resizable: false, movable: true,
+      minimizable: false, maximizable: false, focusable: false, alwaysOnTop: true, skipTaskbar: true, show: false, hasShadow: false,
+      webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false },
+    });
+    w.showInactive();
+    for (const [width, height] of PANEL_SIZES) {
+      w.setBounds({ x: 100, y: 100, width, height });
+      await new Promise((r) => { setTimeout(r, 50); });
+      const b = w.getBounds();
+      out.got.push({ width: b.width, height: b.height });
+    }
+  } catch (e) {
+    out.error = (e && e.message) || String(e);
+  } finally {
+    try { if (w) w.destroy(); } catch (_) { /* 消せなくても判定は出す */ }
+  }
+  return panelResults(out);
+}
+// 17 の判定（純粋）: 当てた大きさが全部ちょうど同じ整数で返り、頼んだ拡大率で動いた（1.25 を頼んで 1 のままなら確かめになっていない）
+function panelResults(o) {
+  const sizes = Array.isArray(o && o.sizes) ? o.sizes : [];
+  const got = Array.isArray(o && o.got) ? o.got : [];
+  const same = !o.error && sizes.length > 0 && got.length === sizes.length
+    && sizes.every(([w, h], i) => got[i] && got[i].width === w && got[i].height === h);
+  const scaled = Math.abs(Number(o.scale) - Number(o.want)) < 1e-6;
+  const seen = got.map((g) => `${g.width}×${g.height}`).join('・') || 'なし';
+  const note = `拡大率 ${o.scale}（頼んだのは ${o.want}）・当てた ${sizes.map(([w, h]) => `${w}×${h}`).join('・')}・返った ${seen}${o.error ? `・失敗 ${o.error}` : ''}`;
+  return [{ n: 17, ok: same && scaled, note }];
+}
+
 if (process.versions.electron && process.type === 'browser') boot();
 else if (require.main === module) {
   console.error('electron-smoke は Electron の main として動かす: <electron の実行ファイル> tools/electron-smoke');
   process.exitCode = 2;
 }
 
-module.exports = { CHECKS, SMOKE_STT, SMOKE_DB, exitCodeOf, clipboardChecks, securityResults, onlineResults, dbResults, accessResults, reEncryptCheck, finish };
+module.exports = { CHECKS, SMOKE_STT, SMOKE_DB, exitCodeOf, clipboardChecks, securityResults, onlineResults, dbResults, accessResults, reEncryptCheck, finish,
+  PANEL_SIZES, panelResults, checksFor, scaleFor };

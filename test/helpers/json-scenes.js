@@ -115,6 +115,8 @@ const PILL_SETTINGS = {
   'pill-custom-left': { pillPos: 'bottom', pillCustom: { x: -328, y: 12 } },
   'pill-pos-left': { pillPos: 'left', pillCustom: 'x' },
   'pill-slot-kept': { pillSlot: 'top-center', pillPos: 'top-right', pillCustom: { x: 40, y: 60 } },
+  // 0.9.0 O-2: 右下の置き場所（窓の大きさが変わっても右と下の端を保つ）
+  'slot-bottom-right': { pillSlot: 'bottom-right' },
 };
 
 module.exports = {
@@ -235,15 +237,18 @@ module.exports = {
         ['win', overlay, 'session-end'], ['win', main, 'query-session-end'], ['power', null, 'suspend'], ['power', null, 'lock-screen'],
         ['power', null, 'shutdown'], ['win', main, 'hide'], ['win', main, 'close'], ['app', null, 'will-quit'], ['app', null, 'before-quit'],
       ];
-      c.out.signals = order.map(([kind, w, ev], i) => {
-        overlay.setPosition(i % 2 ? 1592 : 12, 12);   // 316×72 の窓の中心が右上か左上の置き場所の近く
+      c.out.signals = [];
+      for (const [i, [kind, w, ev]] of order.entries()) {
+        // 0.9.0 O-2: 吸い付きは窓を置き直し、main は自分で動かした直後（80ms）の move を数えないので、間を置いてから動かす
+        await c.sleep(120);
+        overlay.setPosition(i % 2 ? 1592 : 12, 12);   // 窓の中心が右上か左上の置き場所の近く
         overlay.emit('move');
         overlay.emit('moved');
         const before = pill();
         const e = { preventDefault() {} };
         if (kind === 'win') w.emit(ev, e); else if (kind === 'power') c.power.emit(ev); else c.app.emit(ev, e);
-        return { ev, before, after: pill() };   // 受け口が返った直後（同じ手番の中）に読む
-      });
+        c.out.signals.push({ ev, before, after: pill() });   // 受け口が返った直後（同じ手番の中）に読む
+      }
       c.out.pillCustom = custom();
     } },
   batched: { files: { 'settings.json': pretty(TYPICAL) },
@@ -251,6 +256,7 @@ module.exports = {
       const [overlay] = c.wins;
       // 0.9.0 O-1: 左下（bottom-left）の近くへ動かしてから左上（top-left）の近くへ。最後の名前だけを間隔の後に書く
       overlay.setPosition(7, 956); overlay.emit('move'); overlay.emit('moved');
+      await c.sleep(120);   // 0.9.0 O-2: 吸い付きで置き直した直後（80ms）の move は main が数えない
       overlay.setPosition(9, 10); overlay.emit('move'); overlay.emit('moved');
       c.out.right = JSON.parse(c.read('settings.json').toString('utf8')).pillSlot;
       const pillNow = () => JSON.parse(c.read('settings.json').toString('utf8')).pillSlot;

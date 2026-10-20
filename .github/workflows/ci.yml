@@ -305,6 +305,11 @@ jobs:
         shell: bash
         run: node_modules/electron/dist/electron.exe tools/electron-smoke
 
+      # 0.9.0 O-2（RP4・F11）: 録音バーの窓（透過・resizable: false・focusable: false）の setBounds が、拡大率 125% でも getBounds にそのまま返るか（17）
+      - name: 録音バーの窓の大きさ（17）を拡大率 1.25 でも確かめる
+        shell: bash
+        run: node_modules/electron/dist/electron.exe tools/electron-smoke --only=17 --scale=1.25
+
       # 主な画面を撮り、基準（test/shots/win32。Windows の CI が撮った画像を確かめて置いたもの）と比べる（第1a回 G2・Task 3-5）。
       # 違えば前・後・差分を artifact に上げる。画面を変えた回は、確かめてから基準を取り直す（--compare を外して撮り直す）
       - name: 主な画面を撮る
