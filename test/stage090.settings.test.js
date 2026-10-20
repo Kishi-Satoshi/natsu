@@ -528,6 +528,36 @@ test('SP5: 当たらない語で『当てはまる設定はありません』（
   assert.deepStrictEqual(l.errors.map(fmt), []);
 });
 
+test('SP5: 今は隠れている行（ログインしていない間の『ログアウト』・ログインしている間の『ログイン』・取り込めない PC の取り込みの欄）には当たらない。当たりが隠れた行だけなら『当てはまる設定はありません』', T, async () => {
+  const ACC = (signedIn) => () => ({ ok: true, signedIn, email: '', method: 'access', until: null, canStore: true, online: { up: true, why: 'ok' } });
+  const out = await open({ accountStatus: ACC(false) });
+  await out.drain();
+  await click(out, 'tabBtnSettings');
+  assert.strictEqual($(out, 'accountIn').hidden, true, '前提: ログインしていない間は『ログアウト』の行が隠れている');
+  await search(out, 'ログアウト');
+  assert.deepStrictEqual(shownCards(out), [], 'ログインしていないのに、見出しだけのカード「アカウント」を出した');
+  assert.strictEqual($(out, 'setEmpty').hidden, false, '当たりが隠れた行だけなのに『当てはまる設定はありません』を出さない');
+  await search(out, 'ログイン');
+  assert.deepStrictEqual(shownRows(out), ['ログイン']);
+  const inn = await open({ accountStatus: ACC(true) });
+  await inn.drain();
+  await click(inn, 'tabBtnSettings');
+  await search(inn, 'ログアウト');
+  assert.deepStrictEqual(shownRows(inn), ['ログアウト']);
+  assert.strictEqual($(inn, 'setEmpty').hidden, true);
+  await search(inn, 'ログイン');
+  assert.deepStrictEqual(shownRows(inn), [], 'ログインしているのに隠れた『ログイン』の行に当たった');
+  assert.strictEqual($(inn, 'setEmpty').hidden, false);
+  const no = await open({ engineFetchStatus: () => ({ ok: true, supported: false }) });
+  await no.drain();
+  await click(no, 'tabBtnSettings');
+  assert.strictEqual($(no, 'engineFetch').hidden, true, '前提: 取り込めない PC では取り込みの欄が隠れている');
+  await search(no, '取り込む');
+  assert.deepStrictEqual(shownRows(no), []);
+  assert.strictEqual($(no, 'setEmpty').hidden, false);
+  assert.deepStrictEqual([...out.errors, ...inn.errors, ...no.errors].map(fmt), []);
+});
+
 test('SP5: 検索の欄で Esc を押すと文字が消えて、前の項目に戻る（閉じない）。空の欄の Esc は閉じる。左の列で項目を選ぶと検索をやめる', T, async () => {
   const l = await open();
   await l.drain();

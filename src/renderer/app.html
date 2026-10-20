@@ -1164,7 +1164,9 @@
     let hits = 0, lastSec = '';
     for (const c of setCards()) {
       const rows = [...c.querySelectorAll('[data-row]')];
-      const ok = rows.filter((r) => foldSetting(r.dataset.row).includes(f));
+      // 今は隠れている行（ログインしていない間の「ログアウト」など）は数えない。カードの中の祖先が隠れていても同じ
+      const shown = (r) => { for (let n = r; n && n !== c; n = n.parentNode) if (n.hidden) return false; return true; };
+      const ok = rows.filter((r) => shown(r) && foldSetting(r.dataset.row).includes(f));
       c.hidden = !ok.length;
       if (!ok.length) continue;
       hits += ok.length;

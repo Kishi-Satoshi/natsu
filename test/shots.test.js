@@ -447,9 +447,12 @@ test('G2・F14・G-4・0.9.0: 取り直し待ちは計画の「取り直す画�
 // ページ・検索の窓は基準のまま比べる。値を今の app.html に合わせた
 // 0.9.0 U-4（SP6・SP7・F15）: 設定の左の列の下に［ヘルプセンター］（HELP_SITE_LIVE が偽なので hidden）と版の文字を足した。見える中身が
 // 変わるのは設定の画面だけで、どれも RETAKE にある。ほかの画面は基準のまま比べる。値を今の app.html に合わせた
+// 0.9.0 U-2 の点検の直し（SP5）: 設定の検索が、今は隠れている行（ログインしていない間の「ログアウト」など）に当たらないようにした
+//（filterSettings の <script> の中だけ）。変わり得るのは設定の検索の画面（settings-search-light。RETAKE にある）だけで、ほかの画面は
+// 要素も文も CSS も変えていないので基準のまま比べる。値を今の app.html に合わせた
 test('基準の画像（test/shots/win32）は今の app.html で撮ったもの（app.html を変えたら撮り直しを確かめる）', { timeout: 5000 }, () => {
   const sha = require('node:crypto').createHash('sha256').update(fs.readFileSync(path.join(ROOT, 'src', 'renderer', 'app.html'))).digest('hex');
-  assert.strictEqual(sha, '5613ae0e78fa4c251de3e15e79235992cca92f51ef60cdc1f87a026eb431df49',
+  assert.strictEqual(sha, '2d179eae2f8c77a8d9a202271e3d1656f9bdddd2f83bd85257047ea59586ce98',
     'app.html が基準の画像を撮った時と違う。Windows の CI の画面の比べ（捲り棒のつまみも）を見て、基準を取り直してからこの値を直す');
 });
 
