@@ -1,0 +1,205 @@
+/* help-search.test.js — ヘルプセンター H-4: 検索（search-index.json と help/assets/search.js）
+ *
+ * 索引はテスト用の記事の組（test/fixtures/help/）から写しのフォルダで作る。search.js の並べ方は Node で require して試し、
+ * 検索の箱の配線は、作ったページの HTML を test/helpers/simdom.js で木にして、vm の中で search.js を本当に動かして試す。
+ */
+'use strict';
+const test = require('node:test');
+const assert = require('node:assert');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+const vm = require('node:vm');
+const { parseHTML, Element } = require('./helpers/simdom');
+
+const ROOT = path.join(__dirname, '..');
+const FIX = path.join(__dirname, 'fixtures', 'help');
+const SEARCH_JS = path.join(ROOT, 'help', 'assets', 'search.js');
+const { build } = require('../tools/help-build');
+
+function buildFixture(edit) {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'natsu-help-search-'));
+  fs.mkdirSync(path.join(root, 'help'));
+  fs.cpSync(path.join(FIX, 'site.json'), path.join(root, 'help', 'site.json'));
+  fs.cpSync(path.join(FIX, 'articles'), path.join(root, 'help', 'articles'), { recursive: true });
+  fs.cpSync(path.join(ROOT, 'help', 'assets'), path.join(root, 'help', 'assets'), { recursive: true });
+  if (edit) edit(path.join(root, 'help'));
+  const out = path.join(root, 'out');
+  build({ root, out });
+  return out;
+}
+
+test('H-4: search-index.json は v: 1 と、site.json の順の記事ごとの u・t・d・c・h・x。x は印の無い本文で 4,000 字まで', { timeout: 5000 }, () => {
+  const out = buildFixture((h) => fs.appendFileSync(path.join(h, 'articles', 'record', 'pause.md'), `\n${'あ'.repeat(5000)}\n`));
+  const raw = fs.readFileSync(path.join(out, 'search-index.json'), 'utf8');
+  const idx = JSON.parse(raw);
+  assert.deepStrictEqual(Object.keys(idx), ['v', 'items']);
+  assert.strictEqual(idx.v, 1);
+  assert.deepStrictEqual(idx.items.map((i) => i.u), ['/start/first/', '/start/steps/', '/record/pause/']);
+  for (const it of idx.items) assert.deepStrictEqual(Object.keys(it), ['u', 't', 'd', 'c', 'h', 'x']);
+  const steps = idx.items[1];
+  assert.strictEqual(steps.t, '試しの手順の記事');
+  assert.strictEqual(steps.d, '手順の見出しが3つある記事（このページの内容が出る）');
+  assert.strictEqual(steps.c, 'はじめに');
+  assert.deepStrictEqual(steps.h, ['用意するもの', '手順1. インストールする', '手順2. ログインする', '見出しの id の無い節']);
+  assert.ok(steps.x.includes('大事な注意') && steps.x.includes('Alt+M') && steps.x.includes('irm x | iex'));
+  assert.ok(!/\*\*|\[\[|<|>|\]\(|`/.test(steps.x), steps.x);
+  assert.strictEqual([...idx.items[2].x].length, 4000, '4,000 字で切る');
+  // HTML のページから読む（どのページも同じ search.js）
+  assert.ok(fs.readFileSync(path.join(out, 'index.html'), 'utf8').includes('<script src="/assets/search.js" defer></script>'));
+  // 同じ元なら同じバイト
+  assert.strictEqual(fs.readFileSync(path.join(buildFixture((h) => fs.appendFileSync(path.join(h, 'articles', 'record', 'pause.md'), `\n${'あ'.repeat(5000)}\n`)), 'search-index.json'), 'utf8'), raw);
+});
+
+const S = require('../help/assets/search.js');
+
+test('H-4: fold は NFKC と小文字（全角の英数字・半角のカナ・大文字が同じになる）。空白は詰める', { timeout: 5000 }, () => {
+  assert.strictEqual(S.fold('ＡＢＣ１２３'), 'abc123');
+  assert.strictEqual(S.fold('ｶﾞｲﾄﾞ'), 'ガイド');
+  assert.strictEqual(S.fold('LogIn'), 'login');
+  assert.strictEqual(S.fold('  一時　 停止  '), '一時 停止');
+});
+
+const ITEMS = [
+  { u: '/a/', t: '録音を始める', d: '始め方', c: '会議', h: ['ホットキー'], x: '一時停止もできます' },
+  { u: '/b/', t: '一時停止と再開', d: '止める', c: '会議', h: ['再開'], x: '本文' },
+  { u: '/c/', t: 'ログイン', d: 'コードが届かない', c: 'はじめに', h: ['一時停止の見出し'], x: 'a.b と (x) と [y] と \\ と *' },
+  { u: '/d/', t: 'LOGIN の英語', d: '', c: 'はじめに', h: [], x: '' },
+];
+
+test('H-4: rank は語が全部あるものだけ。題名に語がある記事が、見出し・説明・本文にだけある記事より上。同じ点は site.json の順。8 件まで', { timeout: 5000 }, () => {
+  assert.deepStrictEqual(S.rank(ITEMS, '一時停止').map((r) => r.u), ['/b/', '/c/', '/a/']);   // 題名 3・見出し 2・本文 1
+  assert.deepStrictEqual(S.rank(ITEMS, '一時停止 再開').map((r) => r.u), ['/b/']);           // 語が全部ある記事だけ
+  assert.deepStrictEqual(S.rank(ITEMS, 'ｌｏｇｉｎ').map((r) => r.u), ['/d/']);               // 全角と大文字がそろう
+  assert.deepStrictEqual(S.rank(ITEMS, 'ログイン').map((r) => r.u), ['/c/']);
+  assert.deepStrictEqual(S.rank(ITEMS, '会議'), [], '分類の題名では当てない（見出し・題名・説明・本文だけ）');
+  assert.deepStrictEqual(S.rank(ITEMS, '一時停止')[0], { u: '/b/', t: '一時停止と再開', c: '会議' });
+  // 同じ点は元の順・8 件まで
+  const many = Array.from({ length: 12 }, (_, i) => ({ u: `/m${i}/`, t: `記事${i}`, d: '', c: 'x', h: [], x: '共通の語' }));
+  assert.deepStrictEqual(S.rank(many, '共通').map((r) => r.u), many.slice(0, 8).map((m) => m.u));
+  many[10].t = '共通の題名';
+  assert.strictEqual(S.rank(many, '共通')[0].u, '/m10/');
+});
+
+test('H-4: rank は空の語・空白だけで空の配列。正規表現の文字（. * ( [ \\）を文字として探す', { timeout: 5000 }, () => {
+  assert.deepStrictEqual(S.rank(ITEMS, ''), []);
+  assert.deepStrictEqual(S.rank(ITEMS, '   　 '), []);
+  for (const q of ['.', '*', '(', '[', '\\', 'a.b', '(x)']) assert.deepStrictEqual(S.rank(ITEMS, q).map((r) => r.u), ['/c/'], q);
+  assert.deepStrictEqual(S.rank(ITEMS, '.*'), []);
+});
+
+test('H-4: search.js は外へ通信しない（fetch は /search-index.json だけ・eval も new Function も innerHTML も無い。結果の文字は textContent で入れる）', { timeout: 5000 }, () => {
+  const js = fs.readFileSync(SEARCH_JS, 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
+  const fetches = [...js.matchAll(/fetch\s*\(([^)]*)\)/g)].map((m) => m[1].trim());
+  assert.deepStrictEqual(fetches, ["'/search-index.json'"]);
+  assert.ok(!/XMLHttpRequest|WebSocket|sendBeacon|EventSource|importScripts|eval\s*\(|new Function|innerHTML|outerHTML|insertAdjacentHTML|document\.write|https?:|localStorage|sessionStorage|document\.cookie/.test(js));
+  assert.match(js, /\.textContent = /);
+  assert.match(js, /if \(typeof module === 'object'\) module\.exports = HelpSearch;/);
+});
+
+/** 作ったページを simdom の木にして、search.js を vm の中で動かす */
+function runPage(file) {
+  const out = buildFixture();
+  const html = fs.readFileSync(path.join(out, file), 'utf8');
+  const index = JSON.parse(fs.readFileSync(path.join(out, 'search-index.json'), 'utf8'));
+  const { root } = parseHTML(html);
+  const docListeners = {};
+  const document = {
+    querySelector: (s) => root.querySelector(s),
+    querySelectorAll: (s) => root.querySelectorAll(s),
+    getElementById: (id) => root.querySelector(`#${id}`),
+    createElement: (t) => new Element(t),
+    addEventListener: (t, fn) => { (docListeners[t] = docListeners[t] || []).push(fn); },
+    documentElement: root.querySelector('html'),
+  };
+  const calls = [];
+  const went = [];
+  const fetch = (u) => { calls.push(u); return Promise.resolve({ ok: true, json: () => Promise.resolve(index) }); };
+  const window = { location: { assign: (u) => went.push(u) } };
+  const ctx = vm.createContext({ document, window, fetch, location: window.location });
+  vm.runInContext(fs.readFileSync(SEARCH_JS, 'utf8'), ctx, { filename: 'search.js' });
+  const tick = () => new Promise((r) => setImmediate(r));
+  const key = (el, k) => el.dispatchEvent({ type: 'keydown', key: k });
+  const type = async (el, v) => { el.value = v; el.dispatchEvent({ type: 'input' }); await tick(); await tick(); };
+  return { root, html, calls, went, tick, key, type, docListeners };
+}
+
+test('H-4: 検索の箱の配線（simdom）: JS が動くと箱が出る・打つと結果が出る・↓↑で aria-activedescendant が動く・Enter で選んだ記事の URL へ・Esc で閉じ、もう一度 Esc で空に・index は1回だけ読む', { timeout: 5000 }, async () => {
+  const p = runPage('start/first/index.html');
+  // 初めの HTML では箱は hidden（JS が動かないときは出さない）
+  assert.ok(/<div class="search" hidden>/.test(p.html));
+  const box = p.root.querySelector('.search');
+  const q = p.root.querySelector('#hc-q');
+  const list = p.root.querySelector('#hc-q-results');
+  assert.strictEqual(box.hidden, false, 'JS が箱を出していない');
+  assert.strictEqual(q.getAttribute('role'), 'combobox');
+  assert.strictEqual(q.getAttribute('aria-controls'), 'hc-q-results');
+  assert.strictEqual(list.getAttribute('role'), 'listbox');
+  assert.strictEqual(p.calls.length, 0, '打つ前に読んでいる');
+
+  await p.type(q, '一時停止');
+  assert.deepStrictEqual(p.calls, ['/search-index.json']);
+  assert.strictEqual(list.hidden, false);
+  assert.strictEqual(q.getAttribute('aria-expanded'), 'true');
+  const opts = () => list.querySelectorAll('[role="option"]');
+  // 題名に語のある記事（3 点）が、本文のリンクの文にだけある記事（1 点）より上
+  assert.deepStrictEqual(opts().map((o) => o.querySelector('a').getAttribute('href')), ['/record/pause/', '/start/first/']);
+  assert.strictEqual(opts()[0].querySelector('.rt').textContent, '試しの一時停止');
+  assert.strictEqual(opts()[0].querySelector('.rc').textContent, '会議を記録する');
+
+  await p.type(q, '試し');
+  assert.deepStrictEqual(opts().map((o) => o.querySelector('a').getAttribute('href')), ['/start/first/', '/start/steps/', '/record/pause/']);
+  assert.strictEqual(q.getAttribute('aria-activedescendant'), null);
+  p.key(q, 'ArrowDown');
+  assert.strictEqual(q.getAttribute('aria-activedescendant'), opts()[0].id);
+  assert.strictEqual(opts()[0].getAttribute('aria-selected'), 'true');
+  p.key(q, 'ArrowDown');
+  assert.strictEqual(q.getAttribute('aria-activedescendant'), opts()[1].id);
+  assert.strictEqual(opts()[0].getAttribute('aria-selected'), 'false');
+  p.key(q, 'ArrowUp');
+  p.key(q, 'ArrowUp');
+  assert.strictEqual(q.getAttribute('aria-activedescendant'), opts()[2].id, '↑ は一番上から一番下へ回る');
+  p.key(q, 'Enter');
+  assert.deepStrictEqual(p.went, ['/record/pause/']);
+  assert.strictEqual(new Set(opts().map((o) => o.id)).size, 3);
+
+  // 見つからないとき
+  await p.type(q, 'ありえない語');
+  assert.deepStrictEqual(opts().map((o) => o.textContent), ['見つかりませんでした']);
+  assert.strictEqual(opts()[0].getAttribute('aria-disabled'), 'true');
+  p.key(q, 'Enter');
+  assert.deepStrictEqual(p.went, ['/record/pause/'], '見つからないのに開いた');
+
+  // Esc で閉じ、もう一度 Esc で空に
+  await p.type(q, '試し');
+  p.key(q, 'Escape');
+  assert.strictEqual(list.hidden, true);
+  assert.strictEqual(q.getAttribute('aria-expanded'), 'false');
+  assert.strictEqual(q.value, '試し');
+  p.key(q, 'Escape');
+  assert.strictEqual(q.value, '');
+  // 空にすると閉じる。index は1回だけ読む
+  await p.type(q, '試し');
+  await p.type(q, '   ');
+  assert.strictEqual(list.hidden, true);
+  assert.deepStrictEqual(p.calls, ['/search-index.json']);
+});
+
+test('H-4: どのページの上の帯にも検索の箱があり、ホームには大きな箱もある（id は重ならない）', { timeout: 5000 }, async () => {
+  const p = runPage('index.html');
+  const boxes = p.root.querySelectorAll('.search');
+  assert.strictEqual(boxes.length, 2);
+  assert.ok(p.root.querySelector('header .search #hc-q'), '上の帯の箱');
+  assert.ok(p.root.querySelector('main .search-big #hc-q-home'), 'ホームの大きな箱');
+  assert.strictEqual(p.root.querySelector('#hc-q-home').getAttribute('placeholder'), '記事を探す（例: ログイン、一時停止）');
+  for (const b of boxes) assert.strictEqual(b.hidden, false);
+  const big = p.root.querySelector('#hc-q-home');
+  await p.type(big, 'ホットキー');
+  const list = p.root.querySelector('#hc-q-home-results');
+  assert.deepStrictEqual(list.querySelectorAll('[role="option"]').map((o) => o.querySelector('a').getAttribute('href')), ['/record/pause/', '/start/first/']);
+  assert.strictEqual(p.root.querySelector('#hc-q-results').hidden, true, 'ほかの箱の結果まで開いた');
+  // 外を押すと閉じる
+  for (const fn of p.docListeners.click || []) fn({ type: 'click', target: p.root.querySelector('main h1') });
+  assert.strictEqual(list.hidden, true);
+  assert.deepStrictEqual(p.calls, ['/search-index.json']);
+});

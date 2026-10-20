@@ -162,6 +162,19 @@ function checkPages(pages) {
   }
 }
 
+/** 検索の索引（H-4）: { v: 1, items: [{ u, t, d, c, h, x }] }。記事の順は site.json の順。x は印の無い本文で 4,000 字まで */
+function searchIndex(site, articles) {
+  const items = [...articles.values()].map((a) => ({
+    u: a.url,
+    t: a.meta.title,
+    d: a.meta.description,
+    c: site.categories.find((c) => c.id === a.cat).title,
+    h: a.headings.map((h) => h.text),
+    x: [...a.text.replace(/\s+/g, ' ').trim()].slice(0, 4000).join(''),
+  }));
+  return JSON.stringify({ v: 1, items });
+}
+
 /** 作る。全部のページを先に組み立てて確かめ、通ったときだけ out を空にして書く */
 function build({ root = ROOT, out } = {}) {
   out = out || path.join(root, 'help', 'dist');
@@ -175,8 +188,10 @@ function build({ root = ROOT, out } = {}) {
   for (const c of site.categories) pages.set(`${c.id}/index.html`, P.pageCategory(site, c, ctx));
   for (const a of articles.values()) pages.set(`${a.ref}/index.html`, P.pageArticle(site, a, ctx));
   pages.set('404.html', P.page404(site, ctx));
+  const index = searchIndex(site, articles);
   const assets = listAssets(path.join(help, 'assets'));
   const all = new Map(pages);
+  all.set('search-index.json', null);
   for (const f of assets) all.set(`assets/${f}`, null);
   checkPages(all);
   clearOut(root, out);
@@ -186,6 +201,8 @@ function build({ root = ROOT, out } = {}) {
     fs.writeFileSync(path.join(out, f), h);
     bytes += Buffer.byteLength(h);
   }
+  fs.writeFileSync(path.join(out, 'search-index.json'), index);
+  bytes += Buffer.byteLength(index);
   for (const f of assets) {
     const dst = path.join(out, 'assets', f);
     fs.mkdirSync(path.dirname(dst), { recursive: true });

@@ -49,7 +49,7 @@ test('H-3: 作ると、ホーム・分類ごと・記事ごと・404・assets �
   const { files, r } = buildFixture();
   const pages = ['index.html', '404.html', 'start/index.html', 'start/first/index.html', 'start/steps/index.html', 'record/index.html', 'record/pause/index.html', 'admin/index.html'];
   const assets = listFiles(path.join(ROOT, 'help', 'assets')).map((f) => `assets/${f}`);
-  assert.deepStrictEqual([...files.keys()].sort(), [...pages, ...assets].sort());
+  assert.deepStrictEqual([...files.keys()].sort(), [...pages, 'search-index.json', ...assets].sort());   // search-index.json は H-4
   assert.deepStrictEqual([...r.pages].sort(), [...pages].sort());
   assert.deepStrictEqual(r.articles, [
     { ref: 'start/first', url: '/start/first/', title: '試しの最初の記事' },
@@ -100,11 +100,12 @@ test('HF3: 出力のどの HTML にも style=・on…=・src の無い <script>�
     assert.ok(h.startsWith('<!doctype html>\n<html lang="ja">'), `${f}: lang="ja"`);
     assert.ok(h.includes('<meta name="natsu-help" content="page">'), `${f}: 印が無い`);
     assert.ok(h.includes('<link rel="stylesheet" href="/assets/fonts.css">') && h.includes('<link rel="stylesheet" href="/assets/help.css">'), `${f}: CSS`);
-    assert.ok(h.includes('<script src="/assets/site.js" defer></script>'), `${f}: site.js`);
+    assert.ok(h.includes('<script src="/assets/search.js" defer></script>\n<script src="/assets/site.js" defer></script>'), `${f}: search.js と site.js`);
     // 白黒の指定: ロゴのアイコンを使わない（上の帯は文字だけ）
     const header = h.slice(h.indexOf('<header'), h.indexOf('</header>'));
     assert.ok(header.includes('<a class="brand" href="/">NaTsu ヘルプセンター</a>'), `${f}: 上の帯の題名`);
     assert.ok(!/<img|<svg|logo/.test(header), `${f}: 上の帯にロゴのアイコンがある`);
+    assert.ok(header.includes('<div class="search" hidden>'), `${f}: 上の帯の検索の箱`);
   }
 });
 
@@ -226,7 +227,7 @@ test('白黒: help.css の色の札は指定の値（地 #fff・ink #000・本�
     assert.ok(p && p[0] === p[1] && p[1] === p[2], `灰色でない色: ${c}`);
   }
   assert.ok(!/gradient|box-shadow\s*:\s*(?!none)|text-shadow|filter\s*:|backdrop-filter/i.test(plain), '影・グラデーション・ぼかしを使わない');
-  assert.ok(!/border-radius\s*:\s*(?!0[;}\s])/.test(plain), '角丸を使わない');
+  for (const m of plain.matchAll(/border-radius\s*:\s*([^;}]+)/g)) assert.strictEqual(m[1].trim(), '0', '角丸を使わない');
   assert.ok(!rules.some((r) => r.nested), 'CSS の入れ子');
 });
 

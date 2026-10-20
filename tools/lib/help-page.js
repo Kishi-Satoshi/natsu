@@ -9,6 +9,9 @@ const { escapeHtml: esc } = require('./help-md');
 
 const ARROW = '<span aria-hidden="true">›</span>';
 
+/** 検索の箱（H-4）。JS が動かないときは出さない（hidden のまま。search.js が出す） */
+const searchBox = (id, big) => `<div class="search${big ? ' search-big' : ''}" hidden><label class="vh" for="${id}">記事を探す</label><input id="${id}" class="search-q" type="search" placeholder="${big ? '記事を探す（例: ログイン、一時停止）' : '記事を探す'}" autocomplete="off" spellcheck="false" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="${id}-results"><ul id="${id}-results" class="search-results" role="listbox" aria-label="検索の結果" hidden></ul></div>`;
+
 /** 2026-10-21 → 2026 年 10 月 21 日 */
 const jaDate = (ymd) => { const [y, m, d] = ymd.split('-').map(Number); return `${y} 年 ${m} 月 ${d} 日`; };
 
@@ -24,11 +27,12 @@ function shell(site, { title, main }) {
 <title>${esc(title)}</title>
 <link rel="stylesheet" href="/assets/fonts.css">
 <link rel="stylesheet" href="/assets/help.css">
+<script src="/assets/search.js" defer></script>
 <script src="/assets/site.js" defer></script>
 </head>
 <body>
 <a class="skip" href="#hc-main">本文へ移動</a>
-<header class="top"><div class="top-in"><a class="brand" href="/">${esc(site.title)}</a></div></header>
+<header class="top"><div class="top-in"><a class="brand" href="/">${esc(site.title)}</a>${searchBox('hc-q', false)}</div></header>
 <div class="wrap">
 ${main}
 </div>
@@ -65,6 +69,7 @@ function pageHome(site, ctx) {
   const main = `<main id="hc-main" class="home">
 <h1>${esc(site.title)}</h1>
 <p class="lede">NaTsu（会議の録音・文字起こし・要約と、音声入力のアプリ）の使い方を、分類ごとにまとめています。</p>
+${searchBox('hc-q-home', true)}
 <h2 class="vh" id="hc-cats">分類</h2>
 <ul class="cats">
 ${cats}
