@@ -201,7 +201,7 @@ Write-Host "このファイルを実行するとインストールされます�
 Write-Host "インストール後の更新は数百KBの差分だけを取得するので、"
 Write-Host "この大きなファイルを落とすのは初回だけです。"
 Write-Host ""
-Write-Host "インストールしたら NaTsu を起動し、［設定］→［エンジン］の［エンジンを取り込む］を押してください。" -ForegroundColor Cyan
+Write-Host "インストールしたら NaTsu を起動し、［設定］→［オフライン］の［PC の中の文字起こしを取り込む］を押してください。" -ForegroundColor Cyan
 Write-Host "文字起こしと要約のエンジン（約 5.6GB）は、アプリが取り込みます（途中で切れても続きから取ります）。"
 
 Wait-BeforeClose "取得が終わりました。上の案内を控えてから閉じてください。"

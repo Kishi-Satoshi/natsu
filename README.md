@@ -259,7 +259,7 @@ Electron 42 から、`npm install` だけでは Electron の本体（`electron.e
 
 ### エンジン（文字起こしと要約）
 
-NaTsu を起動し、［設定］→［エンジン］の［エンジンを取り込む］を押すと、文字起こし（whisper.cpp・
+NaTsu を起動し、［設定］→［オフライン］の［PC の中の文字起こしを取り込む］を押すと、文字起こし（whisper.cpp・
 large-v3-turbo・VAD のモデル）と要約（llama.cpp・Gemma 4 E4B）のエンジンを取り込みます（約 5.6GB）。
 置き場所は `%LOCALAPPDATA%\natsu\engine`。版・取得元・SHA-256 はアプリの中（`src/engine-manifest.js`）に
 固定してあり、途中で切れても続きから取ります。記録中は止まります。
@@ -270,7 +270,7 @@ large-v3-turbo・VAD のモデル）と要約（llama.cpp・Gemma 4 E4B）のエ
 powershell -ExecutionPolicy Bypass -File .\setup-local-engine.ps1
 powershell -ExecutionPolicy Bypass -File .\setup-summarizer.ps1
 ```
-表示されたパスを [設定] → [エンジン] → [詳細設定] に貼り付け → 起動テスト（手で入れたパスが優先されます）。
+表示されたパスを [設定] → [オフライン] → [詳細設定] に貼り付け → ［PC の中で試す］（手で入れたパスが優先されます）。
 要約のモデルの既定は、アプリの取り込みと同じ Gemma 4 E4B（`-Model 7b` で Qwen2.5-7B）。
 （setup-local-engine.ps1 の `-Model kotoba` で日本語特化の kotoba-whisper も選べますが、NaTsu の 75 秒ずつの文字起こしでは
 文の抜け落ちが多く、誤りが large-v3-turbo の約 3 倍でした。速さはほぼ同じです。）
@@ -341,7 +341,7 @@ data/                  議事録の保存先
 | `setup-summarizer.ps1` | 要約エンジンを手で入れる（詳しい人向け） |
 
 エンジン（約 5.6GB）は、インストールした後にアプリが取り込む
-（［設定］→［エンジン］の［エンジンを取り込む］）。setup-*.ps1 は手で入れる人のために残している。
+（［設定］→［オフライン］の［PC の中の文字起こしを取り込む］）。setup-*.ps1 は手で入れる人のために残している。
 
 https://github.com/Kishi-Satoshi/natsu/releases/latest
 
@@ -371,7 +371,7 @@ powershell -ExecutionPolicy Bypass -File .\get-installer.ps1
 エンジン（whisper / llama とモデル）は**このインストール先には置かないでください**。
 更新のたびに旧版を消してから入れ直すので、そこへ置いたエンジンは消えます
 （アプリで取り込んだエンジンは `%LOCALAPPDATA%\natsu\engine` に入る。手で入れるときは
-`%LOCALAPPDATA%\natsu-engine` などに置く。起動テストでも注意が出ます）。
+`%LOCALAPPDATA%\natsu-engine` などに置く。［PC の中で試す］でも注意が出ます）。
 設定の「Windowsサインイン時に自動起動」もこの形でのみ動作します。
 
 `build.asar` を `false` にしてあるため、`src/` は素のファイルとして置かれ、

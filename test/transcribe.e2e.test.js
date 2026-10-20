@@ -319,7 +319,7 @@ test('取り込みの状態の受け口（engine:fetch-status）は実際に動�
     // 本当のプロファイルの natsu\engine を見ていない（mainrun が main.js を読む前に LOCALAPPDATA を替える）
     assert.match(s.root, /LocalAppData-取込𠮷\\natsu\\engine$/);
     assert.strictEqual(s.state, 'missing');
-    assert.match(r.engineStatus.sum, /^要約エンジンはまだ取り込んでいません。設定タブの［エンジンを取り込む］を押してください$/);
+    assert.match(r.engineStatus.sum, /^要約エンジンはまだ取り込んでいません。設定タブの［PC の中の文字起こしを取り込む］を押してください$/);
   } else {
     // 取り込めない PC では今までどおり（手の設定だけ）
     assert.deepStrictEqual([s.root, s.state], [null, 'unsupported']);
@@ -348,9 +348,9 @@ test('設計 B・RF3: 詳細設定が空なら、照らし終えた取り込ん�
   assert.strictEqual(r.pages.length, 1, JSON.stringify(r.notices));
   assert.ok(r.pages[0].segments.length === 2 && r.pages[0].segments.every((x) => !x.failed), JSON.stringify(r.pages[0].segments));
   assert.strictEqual(r.engineStatus.whisper, '');
-  // 要約の組はまだ取り込んでいない: ［エンジンを取り込む］を指す。議事録の欄の文は「未設定」の語を残す（画面が設定タブへ案内する）
-  assert.strictEqual(r.engineStatus.sum, '要約エンジンはまだ取り込んでいません。設定タブの［エンジンを取り込む］を押してください');
-  assert.match(r.pages[0].summaryError, /^要約エンジンが未設定のため、文字起こしのみ保存しました。設定タブの［エンジンを取り込む］/);
+  // 要約の組はまだ取り込んでいない: ［PC の中の文字起こしを取り込む］を指す（第1d回 A-13 で前の［エンジンを取り込む］から名前を変えた）。議事録の欄の文は「未設定」の語を残す（画面が設定タブへ案内する）
+  assert.strictEqual(r.engineStatus.sum, '要約エンジンはまだ取り込んでいません。設定タブの［PC の中の文字起こしを取り込む］を押してください');
+  assert.match(r.pages[0].summaryError, /^要約エンジンが未設定のため、文字起こしのみ保存しました。設定タブの［PC の中の文字起こしを取り込む］/);
   // 取り込みの欄の写し
   const s = r.engineFetchStatus;
   assert.deepStrictEqual([s.supported, s.root, s.mode, s.using, s.whisperReady, s.sumReady],
@@ -387,7 +387,7 @@ test('RF3: 大きさと更新時刻が同じでも中身の違う DLL の組は�
 test('RF3: 壊れた組は、取り直されるか触られるまで、60 秒ごとの見回りで照らし直さず、同じ知らせを繰り返さない。同意が無ければ取らずに案内する（第0b回 Task 14）', async () => {
   await need('managedTamper');
   const r = results.managedTamper;
-  const broken = '文字起こしエンジンのファイルが消えたか変わっていました。ウイルス対策が消した可能性があります（Windows セキュリティ → ウイルスと脅威の防止 → 保護の履歴）。設定タブの［エンジンを取り込む］から取り込み直してください。';
+  const broken = '文字起こしエンジンのファイルが消えたか変わっていました。ウイルス対策が消した可能性があります（Windows セキュリティ → ウイルスと脅威の防止 → 保護の履歴）。設定タブの［PC の中の文字起こしを取り込む］から取り込み直してください。';
   // 起動のときの照らしの途中に見回りが来ても、照らしの結果を待つ（二重に照らさない・知らせを 2 回出さない）。
   // 画面の読み込みが照らしより遅くても、知らせは読み終えてから送る（読み込み中に送ると消える）
   assert.strictEqual(r.ticksDuringCheck, 1, '照らしの途中の見回りを呼べていない');
@@ -455,11 +455,11 @@ test('要約の組が壊れていたら、議事録の欄は理由と、終わ�
     + '終わったら「要約を生成」で作成できます。');
 });
 
-test('何も取り込んでいない PC: 取り込める PC では［エンジンを取り込む］へ、取り込めない PC では今までどおりパスの指定へ案内する。どちらも「未設定」の語を残す（第0b回 Task 13）', async () => {
+test('何も取り込んでいない PC: 取り込める PC では［PC の中の文字起こしを取り込む］へ、取り込めない PC では今までどおりパスの指定へ案内する。どちらも「未設定」の語を残す（第0b回 Task 13）', async () => {
   await need('noEngineFetchable', 'noEngineUnsupported');
   const f = results.noEngineFetchable;
-  assert.deepStrictEqual([f.start.ok, f.start.error], [false, '文字起こしエンジンが未設定です。設定タブの［エンジンを取り込む］から取り込んでください。']);
-  assert.strictEqual(f.engineStatus.whisper, '文字起こしエンジンはまだ取り込んでいません。設定タブの［エンジンを取り込む］を押してください');
+  assert.deepStrictEqual([f.start.ok, f.start.error], [false, '文字起こしエンジンが未設定です。設定タブの［PC の中の文字起こしを取り込む］から取り込んでください。']);
+  assert.strictEqual(f.engineStatus.whisper, '文字起こしエンジンはまだ取り込んでいません。設定タブの［PC の中の文字起こしを取り込む］を押してください');
   assert.deepStrictEqual([f.engineFetchStatus.supported, f.engineFetchStatus.state], [true, 'missing']);
   const u = results.noEngineUnsupported;
   assert.deepStrictEqual([u.start.ok, u.start.error], [false, '文字起こしエンジンが未設定です。設定タブでパスを指定してください。']);
@@ -468,12 +468,12 @@ test('何も取り込んでいない PC: 取り込める PC では［エンジ�
   for (const r of [f, u]) assert.deepStrictEqual(r.spawns, []);
 });
 
-test('［エンジンを取り込む］: net.request で取り込み、組がそろうたびに照らして切り替える。文字起こしが先に使え、要約は［要約を生成］を案内する。取り込み中は眠らせない（第0b回 Task 14）', async () => {
+test('［PC の中の文字起こしを取り込む］: net.request で取り込み、組がそろうたびに照らして切り替える。文字起こしが先に使え、要約は［要約を生成］を案内する。取り込み中は眠らせない（第0b回 Task 14）', async () => {
   await need('fetch');
   const r = results.fetch;
   const W = r.managedRoot;
   // 押す前: まだ取り込んでいない
-  assert.strictEqual(r.statusBefore.whisper, '文字起こしエンジンはまだ取り込んでいません。設定タブの［エンジンを取り込む］を押してください');
+  assert.strictEqual(r.statusBefore.whisper, '文字起こしエンジンはまだ取り込んでいません。設定タブの［PC の中の文字起こしを取り込む］を押してください');
   // 押すとすぐ返る（取り込みの終わりを待たない）。押したことが同意
   assert.deepStrictEqual([r.fetchStart.state, r.fetchStart.consent, r.fetchStart.userPaused], ['running', true, false]);
   // 取り込みの途中で記録を始めようとした: 「未設定」の語を残し、取り込み中であることを添える（速さはまだ分からない）
@@ -536,7 +536,7 @@ test('RF3: 起動のときの照らしで壊れていた組は、同意済みな
   assert.deepStrictEqual(r.atReady, settled(r));
 });
 
-test('要約を手で設定している PC で［エンジンを取り込む］: 文字起こしの組だけを取り、main が照らして切り替える前に進み具合で「使える」と言わない（第0b回 Task 14・15）', async () => {
+test('要約を手で設定している PC で［PC の中の文字起こしを取り込む］: 文字起こしの組だけを取り、main が照らして切り替える前に進み具合で「使える」と言わない（第0b回 Task 14・15）', async () => {
   await need('fetchSum');
   const r = results.fetchSum;
   assert.deepStrictEqual([...new Set(r.hits)], ['whisper-engine', 'whisper-vad', 'whisper-model']);

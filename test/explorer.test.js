@@ -174,9 +174,11 @@ function section(md, heading) {
   return j < 0 ? rest : rest.slice(0, j);
 }
 
-test('INSTALL: 手順は［エンジンを取り込む］（約 5.6GB）。置き場所は %LOCALAPPDATA%\\natsu\\engine。スクリプトは詳しい人向けの節に残す', () => {
+// 第1d回 A-13（D19）で意図して変えた: 設定のカード「エンジン」は「オフライン」、ボタンは［PC の中の文字起こしを取り込む］（前の［エンジンを取り込む］）。案内も画面の名前に合わせる
+test('INSTALL: 手順は［設定］→［オフライン］の［PC の中の文字起こしを取り込む］（約 5.6GB）。置き場所は %LOCALAPPDATA%\\natsu\\engine。スクリプトは詳しい人向けの節に残す', () => {
   const s = read('INSTALL.md');
-  assert.ok(s.includes('［エンジンを取り込む］') && s.includes('%LOCALAPPDATA%\\natsu\\engine') && s.includes('約 5.6GB'));
+  assert.ok(s.includes('［設定］→［オフライン］の［PC の中の文字起こしを取り込む］') && s.includes('%LOCALAPPDATA%\\natsu\\engine') && s.includes('約 5.6GB'));
+  assert.ok(!s.includes('［エンジンを取り込む］') && !s.includes('［設定］→［エンジン］'), '前の名前（［エンジンを取り込む］・［設定］→［エンジン］）が残っている');
   const adv = section(s, '## 手で入れる（詳しい人向け）');
   assert.ok(adv && adv.includes('setup-local-engine.ps1') && adv.includes('setup-summarizer.ps1'));
   for (const h of ['github.com', 'huggingface.co', 'hf.co']) assert.ok(s.includes(h), h);
@@ -190,9 +192,10 @@ test('INSTALL の常駐メモリの目安: 手で入れた 3B の「約 3GB」�
   assert.ok(/取り込んだ[^\n]*約\s*4\s*GB/.test(sec), '取り込んだ要約のモデルのメモリが書いていない');
 });
 
-test('get-installer.ps1: セットアップスクリプトを落とさず、終わりの案内は［エンジンを取り込む］', () => {
+test('get-installer.ps1: セットアップスクリプトを落とさず、終わりの案内は［設定］→［オフライン］の［PC の中の文字起こしを取り込む］（第1d回 A-13 で名前を変えた）', () => {
   const s = read('get-installer.ps1');
-  assert.ok(s.includes('［エンジンを取り込む］'));
+  assert.ok(s.includes('［設定］→［オフライン］の［PC の中の文字起こしを取り込む］'));
+  assert.ok(!s.includes('［エンジンを取り込む］'));
   assert.ok(!s.includes('setup-local-engine.ps1') && !s.includes('貼り付け'));
   // 計画の2つの確かめは、名前を書かない `-like "setup-*.ps1"` の取得の繰り返しを見逃すので、注釈でない行に setup- が無いことも見る
   assert.ok(!codeLines(s).some((l) => /setup-/.test(l)), 'get-installer.ps1 がまた setup-*.ps1 を落としている');

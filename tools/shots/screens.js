@@ -63,6 +63,9 @@ const SCREENS = [
   { name: 'search-palette-light', page: 'app', theme: 'light', act: `${OPEN_PAGE}; ${OPEN_PALETTE}` },
   // 第1d回 A-7（RL14・D17）: 録音中のページの頭の帯（live-light と同じ会議に帯 relay-down（B8）を入れた形。取り直し待ち）
   { name: 'live-banner-light', page: 'app', theme: 'light', answers: liveAnswers(BANNER_STT) },
+  // 第1d回 A-13（あとの直し (b)）: 帯の暗い画面と 200% の暗い画面（live-banner-light と同じ会議と帯。注意の色の枠と文字を暗い地と折り返しで見る。取り直し待ち）
+  { name: 'live-banner-dark', page: 'app', theme: 'dark', answers: liveAnswers(BANNER_STT) },
+  { name: 'live-banner-zoom200-dark', page: 'app', theme: 'dark', zoom: 2, answers: liveAnswers(BANNER_STT) },
 ];
 // Tab の輪を見る画面は1つだけ（何も選んでいない所から Tab を3回で［● 記録開始］。サイドバーの頭の［«］→ 検索 → ［● 記録開始］）
 SCREENS.find((x) => x.name === 'notes-page-light').focus = { tabs: 3, want: 'mtToggleBtn' };
@@ -78,7 +81,10 @@ SCREENS.find((x) => x.name === 'notes-page-light').focus = { tabs: 3, want: 'mtT
 // ［詳細設定（管理者用）］の鍵の欄を消した）。0.8.0 を出す前に、利用者が CI の新しい3枚を見て OK と言ったら基準にして空に戻す
 // 第1d回 A-7（RL14・D17）で録音中のページの3枚を足した（記録の行に文字起こしの状態の行、その上に帯。live-banner-light は足した画面でまだ基準が無い）。
 // 同じく、利用者が CI の新しい画像を見て OK と言ったら基準にして空に戻す（空になるまで版を上げられない: test/shots.test.js）
-const RETAKE = new Set(['settings-light', 'settings-dark', 'settings-zoom200-dark', 'live-light', 'live-dark', 'live-banner-light']);
+// 第1d回 A-13 で帯の暗い画面と 200% の暗い画面（live-banner-dark・live-banner-zoom200-dark。足した画面でまだ基準が無い）を足して8枚にした
+// （設定の3枚はカード「オフライン」（D19）、録音中のページの3枚は［この会議は PC の中だけ］を1行目に（D20）でも見た目が変わる）
+const RETAKE = new Set(['settings-light', 'settings-dark', 'settings-zoom200-dark', 'live-light', 'live-dark', 'live-banner-light',
+  'live-banner-dark', 'live-banner-zoom200-dark']);
 const PERF = [{ name: 'open-2000-blocks', budgetMs: 500 }];   // 3回開いた中央値で見る
 const TIME_ZONE = 'Asia/Tokyo';
 const TOLERANCE = 2;   // 色の差（0〜255）がこれ以下の画素は同じとみなす。CI の機械の CPU ごとの描き方の1段の差を拾わないため（揺れの確かめ judgePair は 0 で見る）

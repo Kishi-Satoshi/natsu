@@ -239,11 +239,12 @@ async function 保存した(l) {
   return c[c.length - 1].args[0];
 }
 
-test('設定: 要約の文脈長の欄がエンジンのカードの詳細設定にあり、ラベルと説明が指定どおり', async () => {
+// 第1d回 A-13（D19）で意図して変えた: カードの見出しは「エンジン」から「オフライン」へ（要約の欄の言葉は変えない: 問い Q15）
+test('設定: 要約の文脈長の欄がオフラインのカード（前の「エンジン」）の詳細設定にあり、ラベルと説明が指定どおり', async () => {
   const l = await load(APP);
   const el = l.byId.get('sumCtx');
   assert.ok(el, '#sumCtx が無い');
-  assert.strictEqual(カード見出し(el), 'エンジン');
+  assert.strictEqual(カード見出し(el), 'オフライン');
   assert.ok(el.closest('#engineAdv'), '詳細設定の中に無い');
   const field = el.closest('.field');
   assert.strictEqual(field.querySelector('label').textContent, '要約の文脈長');
@@ -251,11 +252,11 @@ test('設定: 要約の文脈長の欄がエンジンのカードの詳細設定
     '要約エンジンに渡すトークン数（-c）。既定 16384。大きいほどメモリを使い、小さいと長い会議の統合で足りなくなります');
 });
 
-test('設定: エンジンの自動停止の欄がエンジンのカードの詳細設定にあり、単位「分」とラベル・説明が指定どおり', async () => {
+test('設定: エンジンの自動停止の欄がオフラインのカード（前の「エンジン」）の詳細設定にあり、単位「分」とラベル・説明が指定どおり', async () => {
   const l = await load(APP);
   const el = l.byId.get('engineIdleMin');
   assert.ok(el, '#engineIdleMin が無い');
-  assert.strictEqual(カード見出し(el), 'エンジン');
+  assert.strictEqual(カード見出し(el), 'オフライン');
   assert.ok(el.closest('#engineAdv'), '詳細設定の中に無い');
   const field = el.closest('.field');
   assert.strictEqual(field.querySelector('label').textContent, '使わないエンジンを止めるまで（分）');
@@ -291,7 +292,7 @@ test('engineStatus がモデルの勧め（whisperNote）を返すと、エン�
   assert.ok(note && !note.hidden, '勧めが出ない');
   assert.strictEqual(note.textContent, '文字起こしのモデルが kotoba-whisper です。');
   assert.ok(!note.closest('#engineAdv'), '閉じた詳細設定の中にある');
-  assert.strictEqual(l.byId.get('engineState').textContent, 'エンジン：正常', '勧めで「要確認」にしてはいけない');
+  assert.strictEqual(l.byId.get('engineState').textContent, 'PC の中の文字起こし：使えます', '勧めで「使えません」にしてはいけない');
   st = { ok: true, whisper: '', sum: '' };
   l.byId.get('testBtn').onclick && await l.byId.get('testBtn').onclick();
   await l.drain();
@@ -300,31 +301,32 @@ test('engineStatus がモデルの勧め（whisperNote）を返すと、エン�
 });
 
 // ================= 設定: 「エンジン：正常／要確認」と起動テスト（第0a回 R6） =================
+// 第1d回 A-13（D19）で意図して変えた: 文は「PC の中の文字起こし：使えます／使えません（…）」、カードのボタンは［PC の中で試す］（同じ意図を新しい文で見る）
 // 「正常」= 置き場所のファイルがそろっていて（engine:status）、最後の起動テストが失敗していないこと。
 // カードの［起動テスト］は要約エンジンを起動しない（約 3GB が居座る: #58）。要約は engine:status でファイルを見るだけ。
-test('起動すると engineStatus を聞き、問題が無ければ「エンジン：正常」で詳細設定は閉じたまま', async () => {
+test('起動すると engineStatus を聞き、問題が無ければ「PC の中の文字起こし：使えます」で詳細設定は閉じたまま', async () => {
   const l = await load(APP);
   assert.strictEqual(l.called('engineStatus').length, 1);
-  assert.strictEqual(l.byId.get('engineState').textContent, 'エンジン：正常');
+  assert.strictEqual(l.byId.get('engineState').textContent, 'PC の中の文字起こし：使えます');
   const adv = l.byId.get('engineAdv');
   // simdom は open の属性を .open に映さないので、属性も見る
   assert.ok(!adv.open && !adv.hasAttribute('open'), '詳細設定が開いている');
 });
 
-test('engineStatus が問題を返すと「エンジン：要確認（…）」になり、詳細設定が開く', async () => {
+test('engineStatus が問題を返すと「PC の中の文字起こし：使えません（…）」になり、詳細設定が開く', async () => {
   const l = await load(APP, { returns: { engineStatus: () => ({ ok: true, whisper: '文字起こしエンジンの実行ファイルまたはモデルが見つかりません', sum: '' }) } });
-  assert.strictEqual(l.byId.get('engineState').textContent, 'エンジン：要確認（文字起こしエンジンの実行ファイルまたはモデルが見つかりません）');
+  assert.strictEqual(l.byId.get('engineState').textContent, 'PC の中の文字起こし：使えません（文字起こしエンジンの実行ファイルまたはモデルが見つかりません）');
   assert.strictEqual(l.byId.get('engineAdv').open, true);
 });
 
 test('詳細設定にパスを貼って保存すると、状態を聞き直し、「要確認」が「正常」に戻る', async () => {
   let st = { ok: true, whisper: '文字起こしエンジンの実行ファイルまたはモデルが見つかりません', sum: '' };
   const l = await load(APP, { returns: { engineStatus: () => st } });
-  assert.match(l.byId.get('engineState').textContent, /^エンジン：要確認/);
+  assert.match(l.byId.get('engineState').textContent, /^PC の中の文字起こし：使えません/);
   st = { ok: true, whisper: '', sum: '' };
   l.byId.get('tabSettings').dispatchEvent({ type: 'change' });   // 自動保存
   await l.drain();
-  assert.strictEqual(l.byId.get('engineState').textContent, 'エンジン：正常');
+  assert.strictEqual(l.byId.get('engineState').textContent, 'PC の中の文字起こし：使えます');
 });
 
 test('起動テストは testApi の後に engineStatus を聞く。要約エンジン（約 3GB）は起動しない。失敗したら状態も要確認になる', async () => {
@@ -337,7 +339,7 @@ test('起動テストは testApi の後に engineStatus を聞く。要約エン
   assert.strictEqual(seq.filter((m) => m === 'testApi').length, 1);
   assert.strictEqual(seq[seq.length - 1], 'engineStatus', '起動テストの後に状態を聞き直していない');
   assert.ok(seq.indexOf('testApi') < seq.lastIndexOf('engineStatus'));
-  assert.strictEqual(l.byId.get('engineState').textContent, 'エンジン：要確認（起動に失敗しました）');
+  assert.strictEqual(l.byId.get('engineState').textContent, 'PC の中の文字起こし：使えません（起動に失敗しました）');
 });
 
 test('engineStatus の無い古い preload でも、設定画面は落ちない', async () => {

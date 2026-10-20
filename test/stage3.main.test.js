@@ -254,7 +254,7 @@ test('#58 トレイに「エンジンを停止（メモリを解放）」があ�
   assert.strictEqual((fnBody(m, 'function startEngine(eng)', '\nfunction stopEngine').match(/engineChanged\(\)/g) || []).length, 2, '起動と exit でトレイを更新していない');
 });
 
-// ---------------------------------------------------------------- 「エンジン：正常」（第0a回 R6）
+// ---------------------------------------------------------------- 「エンジン：正常」（第0a回 R6。第1d回 A-13・D19 で画面の文は「PC の中の文字起こし：使えます」。main の答えの形は変えない）
 test('engine:status は engineCheck の結果（とモデルの勧め）を返すだけで、エンジンを起動しない', () => {
   assert.ok(code(main).includes("ipcMain.handle('engine:status', () => ({ ok: true, whisper: engineCheck(whisperEng), sum: engineCheck(sumEng),\n    whisperNote: isKotobaModel() ? KOTOBA_NOTE : '' }));"));
   assert.ok(preload.includes("  engineStatus: () => ipcRenderer.invoke('engine:status'),"));

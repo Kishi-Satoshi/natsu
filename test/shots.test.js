@@ -27,12 +27,14 @@ const tmp = (t, name) => {
 // 第1b回 Task C-1 で意図して変えた: 撮る画面は 7 から 13 へ（タブ・畳んだサイドバー・記録中のページの明暗・200% の2つ）
 // 第1b2回 Task R-3 で意図して変えた: 最後に検索の窓の画面を足す（14）
 // 第1d回 Task A-7（RL14・D17）で意図して変えた: 最後に録音中のページの帯の画面（live-banner-light）を足す（15）
-test('G2: 撮る画面は決まった並び（第1b回の 13 と第1b2回の検索の窓と第1d回の録音中のページの帯）で、名前は重ならない', { timeout: 5000 }, () => {
+// 第1d回 Task A-13（あとの直し (b)）で意図して変えた: 最後に帯の暗い画面（live-banner-dark）と 200% の暗い画面（live-banner-zoom200-dark）を足す（17）
+test('G2: 撮る画面は決まった並び（第1b回の 13 と第1b2回の検索の窓と第1d回の録音中のページの帯の3枚）で、名前は重ならない', { timeout: 5000 }, () => {
   assert.deepStrictEqual(SH.SCREENS.map((s) => s.name), ['notes-empty-light', 'notes-page-light', 'notes-page-dark', 'dictation-light', 'settings-light', 'settings-dark', 'overlay-processing',
-    'notes-tabs-light', 'notes-collapsed-light', 'live-light', 'live-dark', 'notes-page-zoom200-light', 'settings-zoom200-dark', 'search-palette-light', 'live-banner-light']);
+    'notes-tabs-light', 'notes-collapsed-light', 'live-light', 'live-dark', 'notes-page-zoom200-light', 'settings-zoom200-dark', 'search-palette-light', 'live-banner-light',
+    'live-banner-dark', 'live-banner-zoom200-dark']);
   assert.strictEqual(new Set(SH.SCREENS.map((s) => s.name)).size, SH.SCREENS.length, '名前が重なっている');
   for (const s of SH.SCREENS) assert.ok(['app', 'overlay'].includes(s.page) && ['light', 'dark'].includes(s.theme), s.name);
-  assert.deepStrictEqual(SH.SCREENS.filter((s) => s.zoom).map((s) => [s.name, s.zoom]), [['notes-page-zoom200-light', 2], ['settings-zoom200-dark', 2]]);
+  assert.deepStrictEqual(SH.SCREENS.filter((s) => s.zoom).map((s) => [s.name, s.zoom]), [['notes-page-zoom200-light', 2], ['settings-zoom200-dark', 2], ['live-banner-zoom200-dark', 2]]);
   const live = SH.SCREENS.find((s) => s.name === 'live-light');
   const st = live.answers['koeApp.meetingStatus'];
   assert.ok(st.active && st.cloud && st.pauses.length === 1, '記録中の画面に一時停止の印か［PC の中だけ］が出ない');
@@ -55,6 +57,24 @@ test('D17: 録音中のページの画面の答えに stt。live-banner-light �
   const B8 = '中継につながりません。PC の中で文字起こしを続けています。録音はそのまま続けてください。';
   assert.strictEqual(bs.stt.problem.text, B8);
   assert.ok(read('src/main.js').includes(`'relay-down': () => '${B8}'`), '帯の文が main の STT_BANNER の B8 と違う');
+});
+
+// 第1d回 Task A-13（あとの直し (b)）: 帯は注意の色（--danger）の枠と文字なので、暗い地と 200% の折り返しでも利用者に見てもらう。
+// 2枚とも live-banner-light と同じ会議・同じ帯（B8）で、明暗と拡大だけが違う。どちらも足した画面でまだ基準が無いので取り直し待ち
+test('あとの直し (b): 撮る画面に live-banner-dark・live-banner-zoom200-dark があり、どちらも取り直し待ち。帯の画面は B8 の文', { timeout: 5000 }, () => {
+  const B8 = '中継につながりません。PC の中で文字起こしを続けています。録音はそのまま続けてください。';
+  const light = SH.SCREENS.find((s) => s.name === 'live-banner-light');
+  for (const [n, zoom] of [['live-banner-dark', undefined], ['live-banner-zoom200-dark', 2]]) {
+    const s = SH.SCREENS.find((x) => x.name === n);
+    assert.ok(s, `${n} が撮る画面に無い`);
+    assert.strictEqual(s.page, 'app', n);
+    assert.strictEqual(s.theme, 'dark', n);
+    assert.strictEqual(s.zoom, zoom, n);
+    assert.ok(!s.act && !s.focus && !s.event, n);
+    assert.deepStrictEqual(s.answers, light.answers, `${n} の会議と帯が live-banner-light と違う`);
+    assert.strictEqual(s.answers['koeApp.meetingStatus'].stt.problem.text, B8, n);
+    assert.ok(SH.RETAKE.has(n), `${n} が取り直し待ちに無い`);
+  }
 });
 
 // 第1b回 Task C-2 で意図して変えた: 基準を取り直したので、検索の窓の画面は取り直し待ちではなく、基準の PNG と比べる（取り直し待ちが空であることは下の C-2 のテスト）
@@ -330,10 +350,14 @@ test('G2: 作業域より大きい窓が作るときに縮められても（Wind
 // 第1d回 A-7（RL14・D17）で意図して変えた: 録音中のページに文字起こしの状態の行と帯を足したので、録音中のページの2枚（live-light・live-dark）と、
 // 足した帯の画面（live-banner-light）を取り直し待ちにした（6枚）。live-banner-light はまだ基準の PNG が無い（CI は比べで「missing」を
 // 取り直し待ちとして NG にしない）。基準が無くてよいのはこの1枚だけで、取り直し待ちにあるときだけ（第1b回 C-1 と同じ形。基準にしたら下の NEW を空にする）
-test('G2・F14・RL10・D17: 取り直し待ちは設定の3枚と録音中のページの3枚。録音バーは入れない。どの画面にも基準の PNG があり（足した帯の画面だけは取り直し待ちの間は無くてよい）、大きさが窓の大きさと同じ', { timeout: 5000 }, () => {
-  assert.deepStrictEqual([...SH.RETAKE], ['settings-light', 'settings-dark', 'settings-zoom200-dark', 'live-light', 'live-dark', 'live-banner-light']);
+// 第1d回 A-13（あとの直し (b)）で意図して変えた: 帯の暗い画面（live-banner-dark）と 200% の暗い画面（live-banner-zoom200-dark）を足して取り直し待ちにした（8枚）。
+// 設定の3枚はカード「エンジン」を「オフライン」にした（D19）ので取り直し待ちのまま、録音中のページの3枚は［この会議は PC の中だけ］を1行目にした（D20）ので
+// 取り直し待ちのまま。基準が無くてよいのは取り直し待ちにある帯の3枚（live-banner-*）だけ
+test('G2・F14・RL10・D17・A-13: 取り直し待ちは設定の3枚と録音中のページの3枚と帯の暗い2枚（8枚）。録音バーは入れない。どの画面にも基準の PNG があり（足した帯の3枚だけは取り直し待ちの間は無くてよい）、大きさが窓の大きさと同じ', { timeout: 5000 }, () => {
+  assert.deepStrictEqual([...SH.RETAKE], ['settings-light', 'settings-dark', 'settings-zoom200-dark', 'live-light', 'live-dark', 'live-banner-light',
+    'live-banner-dark', 'live-banner-zoom200-dark']);
   assert.ok(!SH.RETAKE.has('overlay-processing'), '録音バーを取り直し待ちに入れた（overlay.html は変えない）');
-  const NEW = new Set(['live-banner-light']);
+  const NEW = new Set(['live-banner-light', 'live-banner-dark', 'live-banner-zoom200-dark']);
   for (const s of SH.SCREENS) {
     const f = path.join(ROOT, 'test', 'shots', 'win32', `${s.name}.png`);
     if (NEW.has(s.name) && !fs.existsSync(f)) { assert.ok(SH.RETAKE.has(s.name), `${s.name} の基準が無いのに取り直し待ちに無い`); continue; }
@@ -366,9 +390,13 @@ test('G2・F14・RL10・D17: 取り直し待ちは設定の3枚と録音中の�
 // A-9 と同じく RETAKE に足さない）。値を今の app.html に合わせた
 // 第1d回 A-7・A-8 の点検の直し: 帯の文が同じなら書き直さない（<script> の中の1行だけ。要素・文・CSS は変えていないので見た目も
 // ページの長さも変わらない。RETAKE は今のまま足さない）。値を今の app.html に合わせた
+// 第1d回 A-13（RL17・RL18・D19・D20・あとの直し (a)(b)）: 設定のカード「エンジン」を「オフライン」にして説明の行を足し、文字起こしの言葉を
+// 「PC の中の文字起こし」に（設定の3枚）、［この会議は PC の中だけ］を記録の行の1行目へ（録音中のページの3枚）、入力の欄の決まりに
+// input[type="email"] を足した（設定のメールの欄。設定の3枚）。見える中身が変わるのは設定の3枚と録音中のページの3枚で、どれも RETAKE にある。
+// 帯の暗い画面と 200% の暗い画面を足して RETAKE に入れた（8枚）。議事録・音声入力・検索の窓は要素も文も変えていないので、基準のまま比べる。値を今の app.html に合わせた
 test('基準の画像（test/shots/win32）は今の app.html で撮ったもの（app.html を変えたら撮り直しを確かめる）', { timeout: 5000 }, () => {
   const sha = require('node:crypto').createHash('sha256').update(fs.readFileSync(path.join(ROOT, 'src', 'renderer', 'app.html'))).digest('hex');
-  assert.strictEqual(sha, 'af6d431315fe1329b6958802fe869f79c88cd60283ece11535ae1bb565f63e1f',
+  assert.strictEqual(sha, 'eed7274ecd177903f6ae433c2ef60ec0dcee625139c91ab75b49984f20f90c2e',
     'app.html が基準の画像を撮った時と違う。Windows の CI の画面の比べ（捲り棒のつまみも）を見て、基準を取り直してからこの値を直す');
 });
 

@@ -560,3 +560,142 @@ test('D17: 録音中のタブを開くと meetingLiveShown(true)、ほかのタ�
   l.fire('onShowLive'); await l.drain();
   assert.deepStrictEqual(l.errors.map(fmt), []);
 });
+
+// ================= 第1d回 A-13（RL17・RL18・D19・D20・あとの直し (a)） =================
+// D19: 設定のカード「エンジン」を「オフライン」にし、文字起こしの言葉を決めた文にする（要約の欄の「エンジン」は変えない: 問い Q15）。
+// 文を作るのは画面だけ（main の engine:status の理由の文は「（…）」の中にそのまま入る）
+const OFFLINE_LEAD = 'インターネットにつながっていないときと、［この会議は PC の中だけ］の会議では、この PC の中で文字起こしと要約をします。';
+const LOCK_OFFLINE = '記録中は PC の中の文字起こしの設定を変更できません';
+const { MANIFEST } = require('../src/engine-manifest');
+// 取り込みの欄の写し（engine-app.test.js の ST と同じ形。main の engine:fetch-status の答え）
+const FETCH = (o = {}) => ({ ok: true, supported: true, mode: { whisper: 'managed', sum: 'managed' }, state: 'missing', totalBytes: 5580564403, doneBytes: 0,
+  needBytes: 5580564403, whisperBytes: 583854933, freeBytes: 120e9, whisperReady: false, sumReady: false, runtime: null, askIt: false, report: '',
+  items: MANIFEST.items.map((i) => ({ id: i.id, group: i.group, label: i.label, version: i.version, file: (i.dest || i.dir).split('/').pop(), url: i.url,
+    host: new URL(i.url).hostname, sha256: i.sha256, size: i.size, done: 0, state: 'missing', license: i.license, place: '%LOCALAPPDATA%\\natsu\\engine\\…' })), error: null, ...o });
+const offlineCard = (l) => l.byId.get('engineState').closest('.card');
+// カードの文から、詳細設定の要約の欄（要約の小見出しから後ろ）を除いた分
+const outsideSummaryText = (l) => {
+  const h = l.byId.get('engineAdv').querySelectorAll('h3').find((x) => x.textContent.startsWith('要約'));
+  assert.ok(h, '詳細設定に要約の小見出しが無い');
+  const t = offlineCard(l).textContent;
+  const k = t.indexOf(h.textContent);
+  assert.ok(k > 0 && t.indexOf(h.textContent, k + 1) < 0, '要約の小見出しの文がカードの中で1つでない');
+  return t.slice(0, k);
+};
+
+test('D19: 設定のカードの見出しが『オフライン』で、すぐ下に決めた説明の文。状態は『PC の中の文字起こし：使えます』、ボタンは［PC の中で試す］。カードの中に『エンジン』の語が残るのは、詳細設定の要約の欄だけ', { timeout: 5000 }, async () => {
+  let fetch = FETCH();
+  const l = await load(APP, { returns: { engineStatus: () => ({ ok: true, whisper: '', sum: '' }), engineFetchStatus: () => fetch } });
+  const card = offlineCard(l);
+  const h2 = card.children[0];
+  assert.strictEqual(h2.tagName, 'h2');
+  assert.strictEqual(h2.textContent, 'オフライン');
+  const lead = card.children[1];
+  assert.ok(lead.classList.contains('field') && !lead.classList.contains('lockNote'), '見出しのすぐ下が説明の欄でない');
+  assert.strictEqual(lead.textContent.trim(), OFFLINE_LEAD);
+  assert.strictEqual(l.byId.get('engineState').textContent, 'PC の中の文字起こし：使えます');
+  assert.strictEqual(l.byId.get('testBtn').textContent, 'PC の中で試す');
+  assert.strictEqual(l.byId.get('engineFetchBtn').textContent, 'PC の中の文字起こしを取り込む');
+  assert.ok(l.byId.get('engineFetchSummary').textContent.startsWith('PC の中の文字起こしと要約を、この PC に取り込みます（合計 約 5.6GB'), l.byId.get('engineFetchSummary').textContent);
+  // 記録中の理由（カードの頭と詳細設定の中）。カードの外（動作の「認識言語」）は今のまま
+  const notes = card.querySelectorAll('.lockNote');
+  assert.strictEqual(notes.length, 2);
+  for (const n of notes) assert.strictEqual(n.textContent.trim(), LOCK_OFFLINE);
+  // 取り込むものの名前（main の engine:fetch-status が送る engine-manifest の label。例「文字起こしエンジン（whisper.cpp）」）は、
+  // 理由の文と同じく main の文なので除く（文を作るのは画面だけ: 計画の A-13 の注）
+  const screenText = () => MANIFEST.items.reduce((t, it) => t.split(it.label).join(''), outsideSummaryText(l));
+  const noEngine = (when) => assert.ok(!screenText().includes('エンジン'), `${when}: 要約の欄の外に「エンジン」が残る: ${screenText().match(/.{0,20}エンジン.{0,20}/)}`);
+  noEngine('取り込む前');
+  // 取り込みの欄のどの形でも、要約の欄の外に「エンジン」を出さない
+  const scenes = [
+    ['途中', FETCH({ state: 'partial', doneBytes: 1200000000, needBytes: 4380564403 })],
+    ['取り込み中', FETCH({ state: 'running', current: 'whisper-model', doneBytes: 286000000, etaSec: 180 })],
+    ['待ち', FETCH({ state: 'waiting' })], ['記録中', FETCH({ state: 'held' })], ['一時停止', FETCH({ state: 'paused', doneBytes: 1200000000 })],
+    ['新しい版', FETCH({ state: 'update', updateBytes: 40e6, whisperReady: true, sumReady: true })],
+    ['取り込み済み', FETCH({ state: 'ready', whisperReady: true, sumReady: true, needBytes: 0 })],
+    ['両方とも手の設定', FETCH({ mode: { whisper: 'manual', sum: 'manual' }, state: 'ready', whisperReady: true, sumReady: true })],
+    ['文字起こしだけ手の設定', FETCH({ mode: { whisper: 'manual', sum: 'managed' }, whisperReady: true, needBytes: 1005586654 })],
+    ['要約だけ手の設定・取り込み済み', FETCH({ mode: { whisper: 'managed', sum: 'manual' }, state: 'ready', whisperReady: true })],
+  ];
+  const seen = {};
+  for (const [when, s] of scenes) {
+    fetch = s;
+    l.fire('onEngineFetchProgress', s); await l.drain();
+    noEngine(when);
+    seen[when] = l.byId.get('engineFetchSummary').textContent;
+    if (when === '両方とも手の設定') seen.switch = l.byId.get('engineFetchSwitch').textContent;
+  }
+  assert.strictEqual(seen['新しい版'], '新しい版の PC の中の文字起こし（約 40MB）があります。今のものはそのまま使えます。');
+  assert.strictEqual(seen['取り込み済み'], 'PC の中の文字起こしは取り込み済みです（whisper.cpp 1.9.5・llama.cpp b11669）。');
+  assert.strictEqual(seen['両方とも手の設定'], '手で設定した PC の中の文字起こしを使っています（詳細設定のパス）。');
+  assert.strictEqual(seen.switch, '取り込んだ PC の中の文字起こしに切り替える');
+  assert.ok(seen['文字起こしだけ手の設定'].startsWith('文字起こしは手で設定したものを使っています。要約を、この PC に取り込みます（'), seen['文字起こしだけ手の設定']);
+  assert.ok(seen['要約だけ手の設定・取り込み済み'].startsWith('要約は手で設定したものを使っています。文字起こしは取り込み済みです（whisper.cpp'), seen['要約だけ手の設定・取り込み済み']);
+  // 記録中（理由が出る）も同じ
+  l.fire('onMeetingUpdate', LIVE(undefined)); await l.drain();
+  assert.ok(notes.every((n) => !n.hidden), '記録中の理由が出ない');
+  noEngine('記録中の理由');
+  // 要約の欄の言葉は変えない（問い Q15）
+  assert.strictEqual(l.byId.get('testSumBtn').textContent, '起動テスト');
+  assert.ok(l.byId.get('sumCtx').closest('.field').textContent.includes('要約エンジンに渡すトークン数'));
+  assert.deepStrictEqual(l.errors.map(fmt), []);
+});
+
+test('D19: 問題があれば『PC の中の文字起こし：使えません（{理由}）』（理由は main の文のまま）。［PC の中で試す］が失敗しても同じ形', { timeout: 5000 }, async () => {
+  const WHY = '文字起こしエンジンの実行ファイルまたはモデルが見つかりません';
+  let st = { ok: true, whisper: WHY, sum: '' };
+  const l = await load(APP, { returns: { engineStatus: () => st, testApi: () => ({ ok: false, error: '起動に失敗しました' }) } });
+  assert.strictEqual(l.byId.get('engineState').textContent, `PC の中の文字起こし：使えません（${WHY}）`);
+  assert.strictEqual(l.byId.get('engineState').className, 'eng-state ng');
+  st = { ok: true, whisper: '', sum: '' };
+  await l.byId.get('testBtn').onclick();
+  await l.drain();
+  assert.strictEqual(l.byId.get('engineState').textContent, 'PC の中の文字起こし：使えません（起動に失敗しました）');
+  assert.deepStrictEqual(l.errors.map(fmt), []);
+});
+
+test('D20: 録音中のページの記録の行で、［この会議は PC の中だけ］は説明の行（.desc）のどれよりも前にあり、［文字起こしを打ち切って要約］のすぐ後ろ。#liveTm の次が #liveStt なのは今のまま', { timeout: 5000 }, async () => {
+  const l = await load(APP, { now: T0 });
+  l.fire('onMeetingUpdate', LIVE({ route: 'cloud', lastTextAt: T0 - 12000, segSec: 15, problem: null })); await l.drain();
+  const bar = l.byId.get('liveBar');
+  const kids = bar.children;
+  const at = (id) => kids.indexOf(l.document.getElementById(id));
+  const b = at('meetingLocalOnly');
+  assert.ok(b > 0, '［この会議は PC の中だけ］が記録の行に無い');
+  assert.strictEqual(l.document.getElementById('meetingLocalOnly').hidden, false, '前提: クラウドの会議でボタンが出ていない');
+  assert.strictEqual(b, at('liveSkipBtn') + 1, '［この会議は PC の中だけ］が［文字起こしを打ち切って要約］のすぐ後ろに無い');
+  const descs = kids.filter((k) => k.classList.contains('desc'));
+  assert.ok(descs.length >= 6, `説明の行が足りない（${descs.length}）`);
+  for (const d of descs) assert.ok(kids.indexOf(d) > b, `説明の行 #${d.id} が［この会議は PC の中だけ］より前にある`);
+  assert.strictEqual(nextEl(l.document.getElementById('liveTm')), l.byId.get('liveStt'), '#liveTm の次が #liveStt でない');
+  assert.deepStrictEqual(l.errors.map(fmt), []);
+});
+
+test('あとの直し (a): 入力の欄の見た目 — app.html の <input> の type（text・password・email・number・search・url・tel）は、どれも入力の欄の CSS の決まりに入っている（email も text と同じ高さ・枠・文字）', { timeout: 5000 }, () => {
+  const fs = require('node:fs');
+  const S = require('./helpers/simcss.js');
+  const html = fs.readFileSync(APP, 'utf8');
+  const rules = S.parse([...html.matchAll(/<style[^>]*>([\s\S]*?)<\/style>/g)].map((m) => m[1]).join('\n'));
+  const TEXTISH = ['text', 'password', 'email', 'number', 'search', 'url', 'tel'];
+  // 書いた欄（<input type="…">）と、画面の <script> が作る欄（createElement('input') の直後の .type = '…'）
+  const tags = [...html.matchAll(/<input\b[^>]*>/g)].map((m) => m[0]);
+  for (const t of tags) assert.match(t, /\btype="[a-z]+"/, `type の無い <input>: ${t}`);
+  const used = new Set([...tags.map((t) => /\btype="([a-z]+)"/.exec(t)[1]),
+    ...[...html.matchAll(/createElement\('input'\);\s*\w+\.type = '([a-z]+)'/g)].map((m) => m[1])]);
+  assert.ok(used.has('text') && used.has('checkbox'), `前提: 読めた type が少ない（${[...used].join('・')}）`);
+  const base = S.declsFor(rules, 'input[type="text"]', { at: '' });
+  const tall = S.declsFor(rules, 'input[type="text"]:not(.atag-edit)', { at: '' });
+  assert.strictEqual(tall.height, '32px', '前提: 1行の入力欄の高さが 32px でない');
+  // 決まりの側には、今は欄の無い email も入れておく（A-12 でメールの欄が消えても、足したときに崩れない）
+  for (const ty of new Set([...TEXTISH.filter((x) => used.has(x)), 'email'])) {
+    if (ty === 'text') continue;
+    const d = S.declsFor(rules, `input[type="${ty}"]`, { at: '' });
+    for (const k of ['background', 'border', 'color', 'font', 'padding', 'border-radius', 'width']) {
+      assert.strictEqual(d[k], base[k], `input[type="${ty}"] の ${k} が text と違う（入力の欄の決まりに入っていない）`);
+    }
+    assert.strictEqual(d.height, tall.height, `input[type="${ty}"] の高さが text と違う`);
+    assert.strictEqual(d['padding-top'], tall['padding-top'], `input[type="${ty}"] の上の余白が text と違う`);
+  }
+  // 文字を入れる種類のほかの type（date など）の欄を足したら、ここで止める（決まりに入れるか、この表に足す）
+  for (const ty of used) assert.ok([...TEXTISH, 'checkbox'].includes(ty), `決まりに無い type の欄: ${ty}`);
+});

@@ -330,7 +330,7 @@ if (Test-Path $vadPath) {
     Write-Host "  （VADモデルは自動検出されるため、設定画面への入力は不要です）" -ForegroundColor DarkGray
 }
 Write-Host ""
-Write-Host "「起動テスト」で OK が出れば、以後は完全オフラインで使えます。"
+Write-Host "［設定］→［オフライン］の［PC の中で試す］で OK が出れば、以後は完全オフラインで使えます。"
 Write-Host "※ 起動時にエラーが出る場合は Microsoft Visual C++ 再頒布可能パッケージ（14.51 以上）"
 Write-Host "   (https://aka.ms/vc14/vc_redist.x64.exe) をインストールしてください（管理者の権限が要ります）。"
 

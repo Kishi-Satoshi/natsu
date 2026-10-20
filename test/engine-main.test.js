@@ -259,7 +259,7 @@ test('RF3: whenReady は 候補を読む → 今の起動の行（managed は空
 test('managedIssue: 確かめ中・壊れた・ランタイムで止める・まだ無い を返し、engineCheck の頭で見る', () => {
   const m = code(read('src/main.js'));
   const f = fnBody(m, 'function managedIssue(eng)', '\n}');
-  for (const k of ["'checking'", "'broken'", 'runtimeGate(engineRuntimeIssue(eng), { managed: true })', '［エンジンを取り込む］']) assert.ok(f.includes(k), k);
+  for (const k of ["'checking'", "'broken'", 'runtimeGate(engineRuntimeIssue(eng), { managed: true })', '［PC の中の文字起こしを取り込む］']) assert.ok(f.includes(k), k);
   assert.ok(fnBody(m, 'function engineCheck(eng)', '\n}').includes('if (!manualGroup(eng) && ENGINE_HOME.supported) { const m = managedIssue(eng); if (m) return m; }'));
 });
 test('engine:fetch-status は読むだけ（通信しない・フォルダを作らない）。preload の名前がそろう', () => {
@@ -279,9 +279,10 @@ test('RF4: 2 つの［起動テスト］は、engineCheck の前に覚えたラ�
   }
   assert.ok(fnBody(m, 'function forgetRuntimeIssues()', '\n}').includes('runtimeIssueCache.clear();'));
 });
-test('未設定の文は、取り込める PC では［エンジンを取り込む］を指し、「未設定」の語は残す', () => {
+// 第1d回 A-13（D19）で意図して変えた: 設定のボタンの名前が［エンジンを取り込む］から［PC の中の文字起こしを取り込む］になったので、指す名前も変えた（理由の文の言い方は変えない）
+test('未設定の文は、取り込める PC では［PC の中の文字起こしを取り込む］を指し、「未設定」の語は残す', () => {
   const w = fnBody(code(read('src/main.js')), 'function whisperProblem()', '\n}');
-  assert.ok(w.includes('［エンジンを取り込む］') && (w.match(/未設定/g) || []).length >= 2);
+  assert.ok(w.includes('［PC の中の文字起こしを取り込む］') && (w.match(/未設定/g) || []).length >= 2);
 });
 test('mainrun は main.js を読む前に LOCALAPPDATA を一時フォルダ（日本語と 𠮷 の名前）に向ける（Windows の CI で本当のプロファイルの natsu\\engine を見ない）', () => {
   const r = code(read('test/helpers/mainrun.js'));

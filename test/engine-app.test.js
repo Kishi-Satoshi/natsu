@@ -13,6 +13,10 @@
  *  - 記録の状態の知らせは preload の名前 onMeetingUpdate（計画は onMeetingState）。
  *  - 進み具合の割合は、計画の数（doneBytes 286,000,000 / totalBytes 5,580,564,403）から出る 5%（計画は 18% と書いたが、
  *    その数からは出ない。全体の割合 = doneBytes / totalBytes を見る意図は同じ）。
+ *
+ * 第1d回 A-13（D19）で意図して変えた: カード「エンジン」は「オフライン」になり、カードの中の文字起こしの言葉は「PC の中の文字起こし」
+ * （［PC の中の文字起こしを取り込む］・「PC の中の文字起こし：使えます」・「PC の中の文字起こしは取り込み済みです」など）。同じ意図を新しい文で見る。
+ * main の知らせの文が指すボタンの名前も新しい名前にした（NOTSET。理由の文の言い方は変えない）。
  */
 'use strict';
 
@@ -34,24 +38,24 @@ const ST = (o = {}) => ({ ok: true, supported: true, mode: { whisper: 'managed',
 // パスが空の設定（simrun の既定の getSettings はパスが埋まっているので、初めての PC の形を自分で作る）
 const SET_EMPTY = () => ({ hotkey: 'Control+Shift+Space', meetingHotkey: 'Alt+M', language: 'ja', segmentSec: 75, pillPos: 'bottom',
   theme: 'system', dictionary: [], useBuiltinTerms: true, localPort: 8990, sumPort: 8991, localThreads: 4, sumThreads: 4, useVad: true, ...EMPTY });
-const NOTSET = '文字起こしエンジンが未設定です。設定タブの［エンジンを取り込む］から取り込んでください。';
+const NOTSET = '文字起こしエンジンが未設定です。設定タブの［PC の中の文字起こしを取り込む］から取り込んでください。';
 const base = (st, extra = {}) => load(APP, { returns: { engineFetchStatus: () => st,
   engineStatus: () => ({ ok: true, whisper: NOTSET, sum: '' }), ...extra } });
 
-test('取り込み前: 合計・10Mbps の時間・空き・0.6GB の知らせ・Teams の行・取得元の表と［エンジンを取り込む］。詳細設定は開かない', async () => {
+test('取り込み前: 合計・10Mbps の時間・空き・0.6GB の知らせ・Teams の行・取得元の表と［PC の中の文字起こしを取り込む］。詳細設定は開かない', async () => {
   const l = await base(ST(), { getSettings: SET_EMPTY });
   assert.ok(!l.byId.get('engineFetch').hidden);
   const t = l.byId.get('engineFetchSummary').textContent;
   for (const k of [/約 5\.6GB/, /10Mbps の回線で約 74 分/, /空き 約 120\.0GB|空き 約 120GB/, /約 0\.6GB/, /Teams/]) assert.match(t, k);
   const rows = l.byId.get('engineFetchRows').textContent;
   for (const it of MANIFEST.items) { assert.ok(rows.includes(it.sha256), it.id); assert.ok(rows.includes(it.version), it.id); }
-  assert.strictEqual(l.byId.get('engineFetchBtn').textContent, 'エンジンを取り込む');
+  assert.strictEqual(l.byId.get('engineFetchBtn').textContent, 'PC の中の文字起こしを取り込む');
   const adv = l.byId.get('engineAdv');
   assert.ok(!adv.open && !adv.hasAttribute('open'), '取り込み前なのに詳細設定が開く');
   assert.deepStrictEqual(l.errors.map(fmt), []);
 });
 
-test('［エンジンを取り込む］で engineFetchStart を呼ぶ（confirm は使わない）', async () => {
+test('［PC の中の文字起こしを取り込む］で engineFetchStart を呼ぶ（confirm は使わない）', async () => {
   const l = await base(ST());
   l.byId.get('engineFetchBtn').dispatchEvent({ type: 'click' }); await l.drain();
   assert.strictEqual(l.called('engineFetchStart').length, 1);
@@ -66,11 +70,11 @@ test('記録開始で「未設定」が返ったら（showEngineSettings）、�
 
 test('要約の組だけがまだ（文字起こしは手の設定）でも、取り込みの欄へ案内し、取り込む組の名前を出す', async () => {
   const l = await base(ST({ mode: { whisper: 'manual', sum: 'managed' }, whisperReady: true, needBytes: 1005586654 }));
-  assert.match(l.byId.get('engineFetchSummary').textContent, /文字起こしは手で設定したエンジン.*要約のエンジン/);
+  assert.match(l.byId.get('engineFetchSummary').textContent, /文字起こしは手で設定したものを使っています。要約を、この PC に取り込みます/);
   // 足した確かめ: 要約の「未設定」の知らせ（showEngineSettings を通る）でも、取り込みの欄へ案内し、詳細設定は開かない
   //（計画の変異確認「fetchWantsPanel を whisper だけにする」を、このテストで赤にするため）
   assert.ok(!l.byId.get('engineAdv').open, '要約の組だけがまだなのに詳細設定が開いた');
-  l.fire('onNotice', '要約エンジンが未設定のため、文字起こしのみ保存しました。設定タブの［エンジンを取り込む］から取り込んでください。'); await l.drain();
+  l.fire('onNotice', '要約エンジンが未設定のため、文字起こしのみ保存しました。設定タブの［PC の中の文字起こしを取り込む］から取り込んでください。'); await l.drain();
   assert.ok(l.byId.get('tabSettings').classList.contains('active'), '設定タブへ連れて行かない');
   assert.ok(!l.byId.get('engineFetch').hidden);
   assert.ok(!l.byId.get('engineAdv').open, '要約の組だけがまだなのに詳細設定が開いた');
@@ -96,9 +100,9 @@ test('待っている（waiting）: 待ちの文と［今すぐ試す］。記�
   for (const id of ['engineFetchBtn', 'engineFetchPause', 'engineFetchSwitch']) assert.ok(l.byId.get(id).hidden, id);
 });
 
-test('新しい版（update）: 今のエンジンはそのまま使えることと［新しい版を取り込む］', async () => {
+test('新しい版（update）: 今のものはそのまま使えることと［新しい版を取り込む］', async () => {
   const l = await base(ST({ state: 'update', updateBytes: 40e6, whisperReady: true, sumReady: true }));
-  assert.match(l.byId.get('engineFetchSummary').textContent, /そのまま使えます/);
+  assert.match(l.byId.get('engineFetchSummary').textContent, /^新しい版の PC の中の文字起こし（約 40MB）があります。今のものはそのまま使えます。$/);
   assert.strictEqual(l.byId.get('engineFetchBtn').textContent, '新しい版を取り込む');
 });
 
@@ -118,15 +122,15 @@ test('失敗の知らせ: 文をそのまま出し、［もう一度］にする
   assert.deepStrictEqual(l.called('copy').map((c) => c.args[0]), ['置き場所: X']);
 });
 
-test('手で設定している: 「手で設定したエンジンを使っています」と［アプリの取り込みに切り替える］だけ', async () => {
+test('手で設定している: 「手で設定した PC の中の文字起こしを使っています」と［アプリの取り込みに切り替える］だけ', async () => {
   const l = await base(ST({ mode: { whisper: 'manual', sum: 'manual' } }));
-  assert.match(l.byId.get('engineFetchSummary').textContent, /手で設定したエンジンを使っています/);
+  assert.match(l.byId.get('engineFetchSummary').textContent, /手で設定した PC の中の文字起こしを使っています/);
   assert.ok(!l.byId.get('engineFetchSwitch').hidden && l.byId.get('engineFetchBtn').hidden);
 });
 
 test('切り替え: 取り込み済みで押すと、詳細設定の 5 つのパスを空にして保存する。記録中は押せない', async () => {
   const l = await base(ST({ mode: { whisper: 'manual', sum: 'manual' }, state: 'ready', whisperReady: true, sumReady: true }));
-  assert.strictEqual(l.byId.get('engineFetchSwitch').textContent, '取り込んだエンジンに切り替える');
+  assert.strictEqual(l.byId.get('engineFetchSwitch').textContent, '取り込んだ PC の中の文字起こしに切り替える');
   l.byId.get('engineFetchSwitch').dispatchEvent({ type: 'click' }); await l.drain();
   const saved = l.called('saveSettings').pop().args[0];
   for (const k of Object.keys(EMPTY)) assert.strictEqual(saved[k], '', k);
@@ -140,11 +144,11 @@ test('engineFetchStatus が無い・{ok:true} だけ: 欄は出さず、今ま�
   assert.strictEqual(l.byId.get('engineAdv').open, true);
 });
 
-test('whisper が使えるようになったら engineStatus を聞き直し、「エンジン：正常」になる', async () => {
+test('whisper が使えるようになったら engineStatus を聞き直し、「PC の中の文字起こし：使えます」になる', async () => {
   let n = 0;
   const l = await base(ST(), { engineStatus: () => (++n === 1 ? { ok: true, whisper: NOTSET, sum: '' } : { ok: true, whisper: '', sum: '' }) });
   l.fire('onEngineFetchProgress', ST({ state: 'running', whisperReady: true })); await l.drain();
-  assert.ok(n >= 2); assert.match(l.byId.get('engineState').textContent, /正常/);
+  assert.ok(n >= 2); assert.strictEqual(l.byId.get('engineState').textContent, 'PC の中の文字起こし：使えます');
   // 点検で足した確かめ: 要約の組が使えるようになったときも聞き直す（計画「whisperReady か sumReady が真に変わったら」）。
   // 変わり目の無い進み具合（取り込みの途中は 250ms ごとに来る）では聞き直さない
   const m = n;
@@ -155,31 +159,31 @@ test('whisper が使えるようになったら engineStatus を聞き直し、�
 });
 
 // 点検で足した確かめ（起動のときの「確かめています」が残る・使えなくなった組が「正常」のまま残る）
-test('起動のときに「確かめています」を聞いても詳細設定は開かず、確かめ終えた知らせ（checking が偽）で聞き直して「エンジン：正常」になる（両方の組が前から使える PC）', async () => {
+test('起動のときに「確かめています」を聞いても詳細設定は開かず、確かめ終えた知らせ（checking が偽）で聞き直して「PC の中の文字起こし：使えます」になる（両方の組が前から使える PC）', async () => {
   let n = 0;
   const CHECKING = '文字起こしエンジンを確かめています（数秒で終わります）';
   const ready = { state: 'ready', whisperReady: true, sumReady: true, needBytes: 0, doneBytes: 5580564403 };
   const l = await base(ST({ ...ready, checking: true }),
     { getSettings: SET_EMPTY, engineStatus: () => (++n === 1 ? { ok: true, whisper: CHECKING, sum: '' } : { ok: true, whisper: '', sum: '' }) });
-  assert.strictEqual(l.byId.get('engineState').textContent, `エンジン：要確認（${CHECKING}）`);
+  assert.strictEqual(l.byId.get('engineState').textContent, `PC の中の文字起こし：使えません（${CHECKING}）`);
   assert.ok(!l.byId.get('engineAdv').open, '確かめている間に詳細設定を開いた');
   // whisperReady・sumReady は前から真（変わり目が無い）。確かめ終えたことだけが変わる
   l.fire('onEngineFetchProgress', ST({ ...ready, checking: false })); await l.drain();
   assert.strictEqual(n, 2, '確かめ終えた知らせで聞き直さない');
-  assert.strictEqual(l.byId.get('engineState').textContent, 'エンジン：正常');
+  assert.strictEqual(l.byId.get('engineState').textContent, 'PC の中の文字起こし：使えます');
   assert.ok(!l.byId.get('engineAdv').open);
   assert.deepStrictEqual(l.errors.map(fmt), []);
 });
 
-test('取り込んだ組が使えなくなった知らせ（落ちて照らし直したら合わない）でも聞き直し、「要確認」にする。詳細設定ではなく取り込みの欄へ案内する', async () => {
+test('取り込んだ組が使えなくなった知らせ（落ちて照らし直したら合わない）でも聞き直し、「使えません」にする。詳細設定ではなく取り込みの欄へ案内する', async () => {
   let n = 0;
   const BROKEN = '文字起こしエンジンのファイルが消えたか変わっています。ウイルス対策が消した可能性があります（Windows セキュリティ → ウイルスと脅威の防止 → 保護の履歴）。取り直しています';
   const l = await base(ST({ state: 'ready', whisperReady: true, sumReady: true }),
     { engineStatus: () => (++n === 1 ? { ok: true, whisper: '', sum: '' } : { ok: true, whisper: BROKEN, sum: '' }) });
-  assert.strictEqual(l.byId.get('engineState').textContent, 'エンジン：正常');
+  assert.strictEqual(l.byId.get('engineState').textContent, 'PC の中の文字起こし：使えます');
   l.fire('onEngineFetchProgress', ST({ state: 'running', whisperReady: false, sumReady: true })); await l.drain();
   assert.strictEqual(n, 2, '使えなくなった知らせで聞き直さない');
-  assert.strictEqual(l.byId.get('engineState').textContent, `エンジン：要確認（${BROKEN}）`);
+  assert.strictEqual(l.byId.get('engineState').textContent, `PC の中の文字起こし：使えません（${BROKEN}）`);
   assert.ok(!l.byId.get('engineAdv').open, '取り直している組なのに詳細設定を開いた');
 });
 
@@ -190,7 +194,7 @@ test('取り込み済み（詳細設定のパスは空・ready）で起動して
     { getSettings: SET_EMPTY, engineStatus: () => ({ ok: true, whisper: '', sum: '' }) });
   assert.ok(!l.byId.get('tabSettings').classList.contains('active'), '起動のたびに設定タブへ連れて行く');
   assert.ok(!l.byId.get('engineAdv').open, '詳細設定が開いた');
-  assert.match(l.byId.get('engineFetchSummary').textContent, /エンジンは取り込み済みです（whisper\.cpp 1\.9\.5・llama\.cpp b11669）/);
+  assert.match(l.byId.get('engineFetchSummary').textContent, /^PC の中の文字起こしは取り込み済みです（whisper\.cpp 1\.9\.5・llama\.cpp b11669）。$/);
   assert.ok(!l.byId.get('engineDirBtn').hidden, '［取り込み先を開く］が無い');
   assert.deepStrictEqual(l.errors.map(fmt), []);
 });
@@ -234,7 +238,7 @@ test('INSTALL の手順3 と困ったときに引いた［ボタン］と、取�
   const buttons = [...new Set([...text.matchAll(/［([^］]+)］/g)].map((m) => m[1]))];
   assert.ok(buttons.length >= 8, `引いたボタンが少ない: ${buttons.join('・')}`);
   for (const b of buttons) assert.ok(html.includes(b), `INSTALL の［${b}］が画面に無い`);
-  for (const s of ['取り込むもの（取得元・版・SHA-256・置き場所）', 'エンジンは取り込み済みです', 'つながるのを待っています']) {
+  for (const s of ['取り込むもの（取得元・版・SHA-256・置き場所）', 'PC の中の文字起こしは取り込み済みです', 'つながるのを待っています']) {
     assert.ok(text.includes(`「${s}`), `INSTALL が「${s}」を引いていない`);
     assert.ok(html.includes(s), `INSTALL の「${s}」が画面に無い`);
   }

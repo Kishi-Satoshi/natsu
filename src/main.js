@@ -885,7 +885,8 @@ const appInstallDir = () => path.dirname(process.execPath);
 const engineDirNote = (eng) => engineDirWarning([engineExe(eng), engineModel(eng)], appInstallDir());
 const engineValid = (e) => !engineCheck(e);
 // 未設定なのか、設定はあるが中身に問題があるのかを分けて伝える
-// 取り込める PC で手の設定が無い側は［エンジンを取り込む］へ案内する。どちらの文も「未設定」の語を残す
+// 取り込める PC で手の設定が無い側は［PC の中の文字起こしを取り込む］（第1d回 A-13・D19 で前の［エンジンを取り込む］から名前を変えた）へ案内する。
+// どちらの文も「未設定」の語を残す
 // （画面はこの語で設定タブへ連れて行く）。取り込んだ組を確かめている間・壊れていたときは、その文（engineCheck の頭）
 function whisperProblem() {
   const fetchable = ENGINE_HOME.supported && !manualGroup(whisperEng);
@@ -896,7 +897,7 @@ function whisperProblem() {
       const min = fetchMinutesLeft(engineFetch.status(), 'whisper');
       return `文字起こしエンジンが未設定です（取り込み中${min ? `・あと約 ${min} 分` : ''}）。取り込みが済むと使えるようになります。`;
     }
-    return fetchable ? '文字起こしエンジンが未設定です。設定タブの［エンジンを取り込む］から取り込んでください。'
+    return fetchable ? '文字起こしエンジンが未設定です。設定タブの［PC の中の文字起こしを取り込む］から取り込んでください。'
       : '文字起こしエンジンが未設定です。設定タブでパスを指定してください。';
   }
   return engineCheck(whisperEng);
@@ -910,7 +911,7 @@ function managedIssue(eng) {
   }
   // 取り込んだ組だけ、Visual C++ ランタイムが無い・古いなら起動しない（RF4。手で設定した組は記録だけ: Task 10）
   if (managed[g]) return runtimeGate(engineRuntimeIssue(eng), { managed: true }) === 'block' ? engineRuntimeIssue(eng).message : '';
-  return `${eng.name}はまだ取り込んでいません。設定タブの［エンジンを取り込む］を押してください`;
+  return `${eng.name}はまだ取り込んでいません。設定タブの［PC の中の文字起こしを取り込む］を押してください`;
 }
 
 // Visual C++ ランタイムの版（RF4。判断は mainlib.vcRuntimeIssue）。Windows のときだけ、exe のフォルダを先に、
@@ -1252,7 +1253,7 @@ function repairManaged(cands, checked) {
   const consent = engineInstall.readInstalled(engineInstall.layout(ENGINE_HOME.root, MANIFEST).installed).consent === true;
   const go = consent && repair.length > 0;
   noticeMainWin(`${groups.map((g) => MANAGED_NAMES[g]).join('と')}のファイルが消えたか変わっていました。ウイルス対策が消した可能性があります（Windows セキュリティ → ウイルスと脅威の防止 → 保護の履歴）。`
-    + (go ? '取り直しています。' : '設定タブの［エンジンを取り込む］から取り込み直してください。'));
+    + (go ? '取り直しています。' : '設定タブの［PC の中の文字起こしを取り込む］から取り込み直してください。'));
   if (!go) return [];
   engineLog(`取り込んだエンジンの取り直しを頼みます: ${repair.join('、')}`);
   getEngineFetch().start({ repair });
@@ -3554,7 +3555,7 @@ async function doRunSummary(pageId) {
   const localOnly = Boolean(page.route && page.route.localOnly);
   const route = (await decideSummary({ localOnly, up: () => online.isUp(ANTHROPIC_REACH) })).route;
   if (route === 'local' && !engineValid(sumEng)) {
-    // 取り込める PC で手の設定が無い側は［エンジンを取り込む］を指す（第0b回）。まだ取り込んでいなければ「未設定」の語を残す
+    // 取り込める PC で手の設定が無い側は［PC の中の文字起こしを取り込む］を指す（第0b回。第1d回 A-13 で名前を変えた）。まだ取り込んでいなければ「未設定」の語を残す
     // （画面はこの語で設定タブへ連れて行く）。取り込んだ組を確かめ中・壊れた・ランタイムで止めたときは、その理由を伝える。
     // 確かめ中・取り直し中は待てば使えるようになるので、終わってからすることを1つ書いて終える
     const fetchable = ENGINE_HOME.supported && !manualGroup(sumEng);
@@ -3563,7 +3564,7 @@ async function doRunSummary(pageId) {
       ? '要約エンジンが未設定のため、文字起こしのみ保存しました。'
         + 'setup-summarizer.ps1 を実行し、設定タブでパスを指定すると「要約を生成」で作成できます。'
       : managedState.sum === 'none'
-        ? '要約エンジンが未設定のため、文字起こしのみ保存しました。設定タブの［エンジンを取り込む］で取り込むと「要約を生成」で作成できます。'
+        ? '要約エンジンが未設定のため、文字起こしのみ保存しました。設定タブの［PC の中の文字起こしを取り込む］で取り込むと「要約を生成」で作成できます。'
         : `要約エンジンを使えないため、文字起こしのみ保存しました。${engineCheck(sumEng)}${waitable ? '。終わったら「要約を生成」で作成できます。' : ''}`;
     let saved;
     try { saved = await saveIfExists(db, pageId, (p) => { p.summaryError = err; }); } catch (e) { if (unsaved(e)) return conflicted(unsaved(e)); throw e; }
@@ -4016,7 +4017,7 @@ function setupIpc() {
     return ok ? { ok: true, info: '要約エンジンは起動済みです（オフライン動作可）', warning }
       : { ok: false, error: sumEng.lastError || '起動に失敗しました', warning };
   });
-  // 設定の「エンジン：正常／要確認」。置き場所のファイルを見るだけで、エンジンは起動しない（要約は約 2〜3GB: #58）
+  // 設定の「PC の中の文字起こし：使えます／使えません」（第1d回 A-13・D19。前の「エンジン：正常／要確認」）。置き場所のファイルを見るだけで、エンジンは起動しない（要約は約 2〜3GB: #58）
   ipcMain.handle('engine:status', () => ({ ok: true, whisper: engineCheck(whisperEng), sum: engineCheck(sumEng),
     whisperNote: isKotobaModel() ? KOTOBA_NOTE : '' }));
   // 取り込みの欄の写し（第0b回）。読むだけで、取り込みは始めない
