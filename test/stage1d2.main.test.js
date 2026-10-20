@@ -36,7 +36,7 @@ const KEPT_SEG_TEXT = '（文字起こし待ち: 音声は残してあります�
 const KS = [K1, K2, K3, 'ログインが切れたため、音声を残しています。設定の「アカウント」でもう一度ログインすると、文字起こしします。'];
 const count = (o, text) => o.notices.filter((n) => textOf(n) === text).length;
 // PC で文字起こししたと言う 0.8.0 の知らせ（L2〜L8・L11）は、準備を選んでいない PC では本当でない
-const saysLocal = (o) => o.notices.map(textOf).filter((t) => /PC の中で文字起こし/.test(t));
+const saysLocal = (o) => o.notices.map(textOf).filter((t) => /PC の中で文字起こし(し|を続)/.test(t));
 const segFiles = (o) => o.files.filter((f) => /^data\/segbuf\/[^/]+\/\d+\.wav$/.test(f));
 const os = require('node:os');
 const fs = require('node:fs');
@@ -60,7 +60,7 @@ const dump = (o) => JSON.stringify({ notices: o.notices, engineLog: o.engineLog,
 // ---------------------------------------------------------------- M-1（OF1・F4・F5・F10）
 test('D21: エンジンの無い PC でもログインしてオンラインなら会議が始まり、2 区間とも中継で文字になる。手元のエンジンを起こさない・知らせは L1 だけ・帯は出ない・engine.log に「起動: オフラインの準備 選んでいない」', T, async () => {
   // 要約は Claude Code（偽の claude）。手元の要約の文（M-3 の S1・S2）を「知らせは L1 だけ」に混ぜない
-  const o = await run(['text', '--relay=text', '--no-engine=fetchable', '--segs=2', '--claude=ok']);
+  const o = await run(['text', '--relay=text', '--no-engine=fetchable', '--segs=2', '--claude=text']);
   assert.strictEqual(o.start.ok, true, dump(o));
   assert.strictEqual(posts(o.relayCalls), 2, JSON.stringify(o.relayCalls));
   assert.ok(allText(o.pages[0].segments), JSON.stringify(o.pages[0].segments));
@@ -234,7 +234,7 @@ test('F6: 1つの区間が文字になった後に並べ直すのは2つまで�
 
 test('F6: 残した区間がある会議を止めると、止めた後に中継で文字になる区間があっても並べ直さずにすぐ締める（締めまで 2 秒以内・中継で文字になった要求は 2 つ）。要約の欄は S3、要約は呼ばない。recovery.json に残した2区間', T, async () => {
   // 4つ目（最後）は止めた後に届き、中継で文字になる。中継はその答えの後に止まる（z: 会議の後の待ち行列が送れないまま残るのを見る）
-  const o = await run(['text', '--relay-seq=cnnz', '--no-engine=fetchable', '--claude=ok', '--after-retry']);
+  const o = await run(['text', '--relay-seq=cnnz', '--no-engine=fetchable', '--claude=text', '--after-retry']);
   assert.ok(o.segWaitMs.every((ms) => ms < 2000), JSON.stringify(o.segWaitMs));
   assert.deepStrictEqual(retriedBetween(o.engineLog, 's4', 'none'), [], o.engineLog.join('\n'));
   assert.strictEqual(sttPosts(o), 2, JSON.stringify(o.stt.map((r) => r.path)));
@@ -258,7 +258,7 @@ test('F1・F2・決めたこと 6: 並べ直した残した区間の答えが空
 });
 
 test('OF3・F8: 戻った後の見回り1回で、待ち行列の2区間が中継で文字になり、R1 の知らせ、要約が Claude Code で入り、要約の欄の S3 が消える。WAV と recovery.json が片付く', T, async () => {
-  const o = await run(['text', '--relay-seq=cnn', '--no-engine=fetchable', '--claude=ok', '--back-after']);
+  const o = await run(['text', '--relay-seq=cnn', '--no-engine=fetchable', '--claude=text', '--back-after']);
   assert.strictEqual(o.pages[0].summaryError, S3, '締めで S3 を書いていない');
   const b = o.afterBack;
   assert.ok(b.pages[0].segments.every(isText), JSON.stringify(b.pages[0].segments));
@@ -296,7 +296,7 @@ test('F5・RF49: エンジンのある PC で、起動の後に置いた PC の�
 });
 
 test('F8: 準備を選んでいない PC の、PC の中だけの会議（残した区間あり）の要約の欄は S3\'。偽の claude は呼ばれない', T, async () => {
-  const o = await run(['text', '--relay=text', '--no-engine=fetchable', '--local-only', '--sum', '--claude=ok', '--segs=1']);
+  const o = await run(['text', '--relay=text', '--no-engine=fetchable', '--local-only', '--sum', '--claude=text', '--segs=1']);
   assert.strictEqual(o.pages[0].summaryError, S3L, dump(o));
   assert.deepStrictEqual(o.claude.filter((c) => c.kind === 'p'), []);
 });
@@ -314,4 +314,42 @@ test('OF3: ログインした直後に、待ち行列が中継で文字になる
   assert.strictEqual(o.afterLogin.login.ok, true, JSON.stringify(o.afterLogin.login));
   assert.ok(o.afterLogin.pages[0].segments.every(isText), JSON.stringify(o.afterLogin));
   assert.strictEqual(o.afterLogin.keptTicks, 0, '見回りを呼んだ');
+});
+
+// ---------------------------------------------------------------- M-4（OF4・F3）
+const P1 = 'この会議を PC の中だけにしました。PC の中で文字起こしするには、設定の「オフライン」の準備（数 GB の取り込み）が要ります。今は音声だけをこの PC に残し、外には送りません。準備が済むと文字起こしします。';
+const B14 = 'この会議は PC の中だけです。PC の中の文字起こしが入っていないので、音声だけを残しています（外には送りません）。［オフラインの準備］から取り込むと、文字起こしします。';
+
+test('F3: エンジンの無い PC で押すと受け（localOnly・needsSetup が真。meeting:status の needsSetup も真）、知らせ P1、帯 B14（action offline）。区間は「文字起こし待ち」で WAV が残る。押した後・会議の後・見回りのどれでも、中継の文字起こしの口への要求は 0、偽の claude の呼び出しも 0。recovery.json は localOnly: true で残る', T, async () => {
+  const o = await run(['text', '--relay=text', '--no-engine=fetchable', '--local-only', '--segs=2', '--claude=text', '--back-after']);
+  assert.deepStrictEqual(o.localOnly, { ok: true, localOnly: true, needsSetup: true });
+  assert.strictEqual(o.statusNeedsSetup, true);
+  assert.deepStrictEqual(o.notices.filter((n) => textOf(n) === P1), [{ text: P1, action: 'offline' }], dump(o));
+  const kl = o.sttSeen.filter((s) => s.problem && s.problem.code === 'kept-local');
+  assert.ok(kl.length && kl.every((s) => s.problem.text === B14 && s.problem.action === 'offline'), dump(o));
+  assert.ok(o.pages[0].segments.every((x) => x.text === KEPT_SEG_TEXT && x.failed), JSON.stringify(o.pages[0].segments));
+  assert.strictEqual(sttPosts(o), 0, '押した後・会議の後に中継へ送った');
+  assert.strictEqual(o.afterBack.relayCalls.filter((p) => p === STT).length, 0, '見回りで中継へ送った');
+  assert.strictEqual(o.afterBack.claudeCalls, 0);
+  assert.deepStrictEqual(o.afterBack.queues, [{ localOnly: true, items: 2 }], '待ち行列が localOnly で残っていない');
+  assert.deepStrictEqual(saysLocal(o), []);
+});
+
+test('F3: 中継が止まって残した区間の後に押すと、その区間は中継が戻っても送らない（文字起こしの要求は押す前の1区間だけ）', T, async () => {
+  const o = await run(['text', '--relay-seq=cnccc', '--no-engine=fetchable', '--local-only-after=2', '--back-after']);
+  assert.deepStrictEqual(o.localOnly, { ok: true, localOnly: true, needsSetup: true });
+  assert.strictEqual(sttPosts(o), 1, o.engineLog.join('\n'));
+  assert.strictEqual(o.afterBack.relayCalls.filter((p) => p === STT).length, posts(o.relayCalls), '見回りで中継へ送った');
+  assert.deepStrictEqual(o.afterBack.queues, [{ localOnly: true, items: 4 }]);
+});
+
+test('F5: エンジンのある PC で押すと needsSetup は偽・P1 も B14 も出ず、今どおり PC で文字になる', T, async () => {
+  const o = await run(['text', '--relay=text', '--local-only']);
+  // 答えの needsSetup は真のときだけ（無ければ偽。0.8.0 の答えの形のまま）
+  assert.deepStrictEqual(o.localOnly, { ok: true, localOnly: true });
+  assert.strictEqual(o.statusNeedsSetup, false);
+  assert.ok(!o.notices.some((n) => textOf(n) === P1), dump(o));
+  assert.ok(!problems(o).includes('kept-local'), dump(o));
+  assert.ok(allText(o.pages[0].segments), JSON.stringify(o.pages[0].segments));
+  assert.strictEqual(sttPosts(o), 0);
 });

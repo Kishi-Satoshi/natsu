@@ -83,8 +83,10 @@ const S1 = 'この会議は PC の中だけのため、要約も PC の中で作
 const S2 = '要約の送り先（Claude Code）につながらないため、要約を作りませんでした。インターネットにつながってから［要約を生成］を押してください。';
 const S3 = '文字起こし待ちの音声があります。文字起こしが済むと、自動で要約を作ります。';
 const S3L = 'この会議は PC の中だけです。文字起こし待ちの音声があります。オフラインの準備が済んで文字起こしが済むと、自動で要約を作ります。';
-// 新しい文（「未設定」の語を見ると、画面が設定のタブへ連れて行く: 調べた結果の 7）。M-4・M-5 の文は各タスクで足す
-const NEW_TEXTS = { B11, B12, B13, B14, K1, K2, K3, K4, KEPT_SEG_TEXT, D1, D2, D3, S1, S2, S3, S3L };
+// ［この会議は PC の中だけ］を押したが、PC の中の文字起こしが使えない（M-4）
+const P1 = 'この会議を PC の中だけにしました。PC の中で文字起こしするには、設定の「オフライン」の準備（数 GB の取り込み）が要ります。今は音声だけをこの PC に残し、外には送りません。準備が済むと文字起こしします。';
+// 新しい文（「未設定」の語を見ると、画面が設定のタブへ連れて行く: 調べた結果の 7）。M-5 の文はそのタスクで足す
+const NEW_TEXTS = { B11, B12, B13, B14, K1, K2, K3, K4, KEPT_SEG_TEXT, D1, D2, D3, S1, S2, S3, S3L, P1 };
 
 test('OF2: keptCodeFor の表（受け渡す名前と形に書いた理由の全部と知らない符号 × localOnly）', T, () => {
   const table = {
@@ -127,7 +129,7 @@ test('OF2: recoverSegments は kept を外し、残した区間（失敗・WAV �
   assert.deepStrictEqual(r.todo, [{ id: 's2', wav: '/x/2.wav', durationMs: 2000 }]);
 });
 
-test('F4: B11〜B14・K1〜K4・区間の文・D1〜D3・S1〜S3\'・R1 に「未設定」が無く、main・mainlib の文と同じ（画面の連れて行きに当たらない）', T, () => {
+test('F4: B11〜B14・K1〜K4・P1・区間の文・D1〜D3・S1〜S3\'・R1 に「未設定」が無く、main・mainlib の文と同じ（画面の連れて行きに当たらない）', T, () => {
   const src = require('node:fs').readFileSync(require('node:path').join(__dirname, '..', 'src', 'main.js'), 'utf8')
     + require('node:fs').readFileSync(require('node:path').join(__dirname, '..', 'src', 'mainlib.js'), 'utf8');
   for (const [k, t] of Object.entries(NEW_TEXTS)) {

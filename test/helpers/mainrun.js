@@ -57,6 +57,9 @@
 //     --login-after … 議事録を写した後、画面と同じ account:login でログインし、待ち行列が済むのを待って out.afterLogin
 //                     （{ login, pages, engineLog, relayCalls, keptTicks（見回りを呼んだ数） }）に写す
 //     （--idle の出力に engineLog・requests（偽の whisper の inference）・stt・relayCalls・files を足す）
+//   第1d2回 M-4: --local-only-after=<n> … n 区間が片付いた後（n+1 区間目を送る前）に meeting:set-local-only を呼ぶ（out.localOnly に答え、
+//     out.statusLocalOnly に押した後の meeting:status の localOnly・cloud、out.statusNeedsSetup に needsSetup）。--local-only も out.statusNeedsSetup を出す。
+//     --back-after の out.afterBack に queues（segbuf の下の recovery.json ごとの { localOnly, items: 区間の数 }）を足す
 //     --fetch-consent … 第1d2回 M-1: --no-engine=fetchable と組む。取り込み先の installed.json を consent: true（組は無い）で置く
 //                     （取り込みのボタンを押したが、まだ何も取り込めていない PC。「選んだ」人）
 //     --fetch       … 何も取り込んでいない取り込める PC で、設定の［エンジンを取り込む］（engine:fetch-start）を押す（第0b回 Task 14）。
@@ -354,6 +357,7 @@ const extraQueueLate = flagVal('--extra-queue-late');
 const keptTickN = Number(flagVal('--kept-ticks')) || 0;
 const relayReqText = flagVal('--relay-req-text');
 const loginAfter = flags.includes('--login-after');
+const localOnlyAfterN = Number(flagVal('--local-only-after')) || 0;   // 第1d2回 M-4
 const fetchMode = flags.includes('--fetch');
 const repairMode = flags.includes('--repair');
 const crashMode = flags.includes('--crash') ? 'broken' : (flags.includes('--crash-ok') ? 'ok' : '');
@@ -1996,6 +2000,7 @@ process.on('exit', () => {
     out.localOnly = await handlers['meeting:set-local-only']({}, true);
     const st = handlers['meeting:status']();
     out.statusLocalOnly = { localOnly: st.localOnly, cloud: st.cloud };
+    out.statusNeedsSetup = st.needsSetup;   // 第1d2回 M-4
     // 下書き（draft.json）にも印が書かれたか（落ちて復旧した会議の送り直しも手元にするため）
     try { out.draftLocalOnly = JSON.parse(readUser('data/draft.json').toString('utf8')).localOnly; } catch (_) { out.draftLocalOnly = null; }
   }
@@ -2007,6 +2012,13 @@ process.on('exit', () => {
       relayLocal.clock.advance(61000);   // 取り消した人は 1 分ほどログインし直せない（Access）。偽の Access は取り消した時より後に出した cookie を通す
       out.relogin = { login: await handlers['account:login']({}) };
       out.reloginStt = handlers['meeting:status']().stt;
+    }
+    // 第1d2回 M-4: n 区間が片付いた後に［この会議は PC の中だけ］を押す
+    if (localOnlyAfterN && i === localOnlyAfterN) {
+      out.localOnly = await handlers['meeting:set-local-only']({}, true);
+      const st = handlers['meeting:status']();
+      out.statusLocalOnly = { localOnly: st.localOnly, cloud: st.cloud };
+      out.statusNeedsSetup = st.needsSetup;
     }
     if (relaySeq) await relayLocal.setAnswer(relaySeq[i] || 'c');   // 第1d回 A-5: この区間の中継の答え方
     // 第1d回 A-6: n 区間の後（この区間の答え方にしてから）に［もう一度］を返事を待たずに2回
@@ -2158,11 +2170,16 @@ process.on('exit', () => {
     await relayLocal.setAnswer('c');
     netUp = true;
     await keptTick();
-    // 待ち行列が片付き、要約の欄が S3 から替わり、要約が済む（ブロックか理由）まで
-    await waitFor(() => !segbufLeft().queue && pagesNow().every((p) => !S3_RE.test(p.summaryError || '') && (p.blocks > 0 || p.summaryError)), 10000);
+    // 待ち行列が片付いたら、要約の欄が S3 から替わり、要約が済む（ブロックか理由）まで待つ。見回りは文字起こしを待って返すので、
+    // 待ち行列が残っていれば（PC の中だけの待ち行列は送らない）待たない
+    if (!segbufLeft().queue) await waitFor(() => pagesNow().every((p) => !S3_RE.test(p.summaryError || '') && (p.blocks > 0 || p.summaryError)), 10000);
     await sleep(200);
     out.afterBack = { pages: pagesNow(), engineLog: elogLines(), relayCalls: relayPaths.slice(), notices: sent.filter(([ch]) => ch === 'app:notice').map(([, p]) => p),
-      claudeCalls: claudeLines().filter((c) => c.kind === 'p').length, files: listFiles(userData) };
+      claudeCalls: claudeLines().filter((c) => c.kind === 'p').length, files: listFiles(userData),
+      queues: listFiles(userData).filter((f) => /^data\/segbuf\/[^/]+\/recovery\.json$/.test(f)).map((f) => {
+        const j = JSON.parse(readUser(f).toString('utf8'));
+        return { localOnly: j.localOnly === true, items: Array.isArray(j.items) ? j.items.length : 0 };
+      }) };
   }
   if (loginAfter) {
     const login = await handlers['account:login']({});

@@ -1592,6 +1592,8 @@ const STALL_SEG_TEXT = '（音はありましたが、文字になりません�
 const KEPT_SEG_TEXT = '（文字起こし待ち: 音声は残してあります）';
 // その区間の Error の文（会議の区間は KEPT_SEG_TEXT にする。音声入力は M-5 が残す）
 const KEPT_ERROR_TEXT = 'クラウドで文字起こしできず、PC の中の文字起こしも準備していないため、文字起こしできませんでした';
+// ［この会議は PC の中だけ］を押したが PC の中の文字起こしが使えない（計画の P1。準備を選んでいない PC だけ。ボタン［オフラインの準備］: 第1d2回 M-4）
+const LOCAL_SETUP_NOTICE = 'この会議を PC の中だけにしました。PC の中で文字起こしするには、設定の「オフライン」の準備（数 GB の取り込み）が要ります。今は音声だけをこの PC に残し、外には送りません。準備が済むと文字起こしします。';
 // 会議の中の左下の知らせ（計画「画面と知らせの文」の K1〜K4。準備を選んでいない PC だけ。今の L2〜L8 の代わりに、残し始めたときの1回）
 const KEPT_NOTICE = {
   k1: '今はクラウドで文字起こしできないため、音声だけを残します。つながると、この会議の音声を OpenAI に送って文字起こしします。1on1・面談など外に出したくない会議は、議事録の画面の［この会議は PC の中だけ］を押してください。',
@@ -2050,6 +2052,9 @@ async function warmWhisper() {
   return true;
 }
 // 今の会議の［この会議は PC の中だけ］（第1c回 OL4・RF28）。下書きにも書く（落ちて復旧した会議の送り直しも手元）
+// 第1d2回 M-4（OF4・D21・決めたこと 2）: PC の中の文字起こしが使えなくても断らずに受け（断ると音声がクラウドへ送られ続ける）、押した瞬間から
+// 何も送らない（押す前に残した区間も: 並べ直し・会議の後の待ち行列・見回りは会議の印を見る）。答えの needsSetup は手元が使えないか（真のときだけ）。準備を選んで
+// いない PC では、準備が要ることと仕方を知らせ P1（［オフラインの準備］）で1回伝え、音声を残している帯をその場で B14 にする
 function setMeetingLocalOnly(on) {
   if (!meeting) return { ok: false };
   meeting.localOnly = Boolean(on);
@@ -2057,7 +2062,17 @@ function setMeetingLocalOnly(on) {
   // その場で設定の長さへ（次の区間から。手元の whisper を短い区間で細切れにしない。戻すボタンは無い: RF28。第1d回 A-5）
   if (meeting.localOnly) applySegmentLength(meeting, 0, 'local-only');
   writeDraft();
-  return { ok: true, localOnly: meeting.localOnly };
+  const needsSetup = !engineValid(whisperEng);
+  if (meeting.localOnly && needsSetup && !isOfflineChosen()) {
+    noticeOnce(meeting, 'p1', { text: LOCAL_SETUP_NOTICE, action: 'offline' });
+    if (meeting.segments.some((s) => s.kept && s.wav)) {
+      clearSttProblem(meeting, ...KEPT_CODES.filter((c) => c !== 'kept-local'));
+      setSttProblem(meeting, 'kept-local', {});
+    }
+    sendToMainWin('meeting:update', meetingStatus());
+  }
+  // needsSetup は真のときだけ入れる（無ければ偽。手元が使える PC の答えの形は 0.8.0 のまま: stage1c のテストが形を固定している）
+  return needsSetup ? { ok: true, localOnly: meeting.localOnly, needsSetup } : { ok: true, localOnly: meeting.localOnly };
 }
 
 // ---- ページからの一時停止とスリープ（第1b回 N4c・RF4）
@@ -3033,6 +3048,8 @@ function meetingStatus() {
     // 第1c回 C-3（RF28）: ［この会議は PC の中だけ］の印と、いまクラウドで文字起こしする PC か（第1d回 A-3 から: ログインの札がしまってある）。
     // 画面は cloud のときだけ［この会議は PC の中だけ］を出し、押した後（localOnly）は戻すボタンを出さない
     localOnly: Boolean(meeting && meeting.localOnly),
+    // 第1d2回 M-4: PC の中だけの会議で、PC の中の文字起こしが使えない（画面を読み直しても「文字起こししています」の文に戻らない）
+    needsSetup: Boolean(meeting && meeting.localOnly && !engineValid(whisperEng)),
     // 第1d2回 M-1: 準備を選んでいない PC は、残した音声が後でクラウドへ行きうるので、ログインしていなくても出す（選んだ人は 0.8.0 のまま）
     cloud: hasRelayLogin() || !isOfflineChosen(),
     // 第1d回 A-6（RL14・D17）: 文字起こしの状態（経路・最後の文字の時刻・区切り・帯）。会議の外は null
