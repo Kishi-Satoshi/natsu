@@ -193,7 +193,7 @@ test('RL2: v2 の SQL の途中まで（DROP の前で止めた形）を流し�
     await seedV1(db);
     await db.exec(SCHEMA_SQL.slice(0, cut));   // 出す台本が DROP の前で止まった（D1 の口の誤り・時間切れ）
     const half = await shapeOf(db);
-    assert.ok(half.objs.some((o) => o.name === 'sessions'), '途中まででもう sessions が無い（途中の形になっていない）');
+    assert.ok(half.objs.some((o) => o.name === 'sessions'), 'DROP の前で止めたのに sessions が無い（途中の形を作れていない）');
     assert.strictEqual(half.rows.meta[0].value, '1', '途中までで meta.schema が 2 になった（/health の ready.db が早く真になる）');
     await db.exec(SCHEMA_SQL);   // 次の［Run workflow］
     assert.deepStrictEqual(await shapeOf(db), V2_SHAPE());
