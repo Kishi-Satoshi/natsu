@@ -127,6 +127,7 @@ test('RF42: 署名の違う・alg が none／HS256・知らない kid・切れ�
       ['kid', await sign({}, { kid: 'no-such-kid' }), 401],
       ['kid', await sign({}, { kid: null }), 401],
       ['exp', await sign({ exp: t - 1 }), 401],
+      ['exp', await sign({ exp: t }), 401],   // exp > 今（ちょうど今の秒は切れている）
       ['exp', await sign({ exp: undefined }), 401],
       ['exp', await sign({ exp: String(t + 3600) }), 401],
       ['nbf', await sign({ nbf: t + 3600 }), 401],
@@ -154,6 +155,8 @@ test('RF42: 署名の違う・alg が none／HS256・知らない kid・切れ�
       assert.strictEqual(b.status, st, `文字起こしの口 ${r}`);
       assert.deepStrictEqual(b.body, { error: st === 401 ? 'login' : 'not-ready' }, r);
     }
+    // exp が今の次の秒なら通る（境目は exp > 今）
+    assert.strictEqual((await me({ jwt: await sign({ exp: t + 1 }) })).status, 200, 'exp が今の次の秒');
     // 未来の nbf でも 60 秒の内（時計のずれ）は通る
     assert.strictEqual((await me({ jwt: await sign({ nbf: t + 60 }) })).status, 200, 'nbf が 60 秒の内');
     assert.strictEqual(stt.requests.length, 0, 'OpenAI へ送った');
@@ -205,6 +208,15 @@ test('K13: 会社のドメインでないメール（サブドメインも）は
     for (const email of ['test.user', R.mail('', 'example.com'), R.mail('a b', 'example.com'), R.mail('test.user', '')]) {
       assert.strictEqual((await me({ jwt: await sign({ email }) })).status, 403, String(email));
     }
+    // 小文字にすると ASCII になる字（KELVIN SIGN U+212A → k）も、小文字にする前に断る（Unicode の畳み込みで別のメールにしない）
+    for (const email of [R.mail('test.\u212Aate'), R.mail('\u212A')]) {
+      const before = accessRs().length;
+      const r = await me({ jwt: await sign({ email }) });
+      assert.strictEqual(r.status, 403, 'U+212A');
+      assert.deepStrictEqual(accessRs().slice(before), ['domain'], 'U+212A の r');
+      assert.strictEqual((await stt1({ jwt: await sign({ email }) })).status, 403, 'U+212A 文字起こしの口');
+    }
+    assert.strictEqual(stt.requests.length, 0, 'OpenAI へ送った');
   });
   await scene({ env: { ALLOWED_EMAIL_DOMAINS: 'example.com, Example.org' } }, async ({ sign, me }) => {
     for (const domain of ['example.com', 'example.org', 'EXAMPLE.ORG']) {
@@ -573,6 +585,30 @@ test('F18: 知らない kid の要求が同時に 5 本来ても鍵の口へは1
     assert.strictEqual((await me({ jwt: await sign() })).status, 200, '30 秒の後に取り直さない');
     assert.strictEqual(fa.certHits, 4);
   });
+});
+
+test('RL2・RF42: TEAM_DOMAIN か POLICY_AUD がそろっていない（用意の途中）ときは、署名の合う JWT でも /v1/me・/auth/done・文字起こしの口は 503 not-ready（r: not-ready）。鍵の口に行かず、OpenAI に送らず、JWT があれば Bearer の札に回らない', { timeout: 5000 }, async () => {
+  for (const [why, env] of [['POLICY_AUD が無い', { POLICY_AUD: undefined }], ['TEAM_DOMAIN が無い', { TEAM_DOMAIN: undefined }],
+    ['POLICY_AUD の形が違う', { POLICY_AUD: 'zz' }]]) {
+    await scene({ env }, async ({ sign, me, done, stt1, stt, fa, accessRs, env: e, clock }) => {
+      assert.strictEqual(e.ACCESS_CERTS_BASE, fa.certsBase, why);
+      const jwt = await sign();
+      for (const [name, r] of [['/v1/me', await me({ jwt })], ['/auth/done', await done({ jwt })], [PATH, await stt1({ jwt })],
+        ['cookie', await me({ cookie: jwt })]]) {
+        assert.strictEqual(r.status, 503, `${why} ${name}: ${r.text}`);
+        assert.deepStrictEqual(r.body, { error: 'not-ready' }, `${why} ${name}`);
+      }
+      // JWT があれば、正しい Bearer の札を一緒に送っても札に回らない
+      const { issueSession } = await R.load('auth.mjs');
+      const { readConfig } = await R.load('config.mjs');
+      const s = await issueSession(e, readConfig(e), { email: R.mail('bearer.user'), now: clock.now });
+      const both = await stt1({ jwt, headers: { authorization: 'Bearer ' + s.token } });
+      assert.strictEqual(both.status, 503, `${why} JWT と札: ${both.text}`);
+      assert.deepStrictEqual(accessRs(), ['not-ready', 'not-ready', 'not-ready', 'not-ready', 'not-ready'], why);
+      assert.strictEqual(fa.certHits, 0, `${why}: そろっていないのに鍵の口へ行った`);
+      assert.strictEqual(stt.requests.length, 0, `${why}: OpenAI へ送った`);
+    });
+  }
 });
 
 test('F9: どの場面の記録にも JWT・メール・チームの名前・kid が無い', { timeout: 5000 }, () => {

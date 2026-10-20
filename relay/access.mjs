@@ -13,7 +13,7 @@
 //         401 にしてアプリに全員の cookie を消させない: F28。ほかの失敗は 401 login）
 //       → 人かサービスか（人 = email が文字・sub が空でない文字・common_name が無い。サービス = sub が ''・common_name が文字・email が無い。
 //         どちらでもなければ 401 bad-jwt）。サービスは need: 'any' のときだけ通し、ほかは 403 service
-//       → 人なら email の形（小文字にする。形が違えば 403 domain。@ より前に + があれば 403 alias: F24）
+//       → 人なら email の形（ASCII の見える字だけかを先に見てから小文字にする。形が違えば 403 domain。@ より前に + があれば 403 alias: F24）
 //       → 会社のドメイン（cfg.domains とちょうど同じ。2つ目の照らし: K13。ドメインを入れていなければ 503 not-ready）
 //       → blocked_emails（あれば 403 blocked。D1 が投げたら 503 not-ready）
 //     失敗は記録 { ev: 'access', st, r }。通ったときは、取り方（via）ごとに isolate で最初の1回だけ { ev: 'access', r: 'ok', v: via }
@@ -203,6 +203,7 @@ export async function requireAccess(request, env, cfg, { now = Date.now, need = 
   const kind = kindOf(v.claims);
   if (!kind) return fail(401, 'bad-jwt');
   if (kind === 'service') return need === 'any' ? passed({ ok: true, kind: 'service', via: got.via }) : fail(403, 'service');
+  if (!/^[\x21-\x7e]+$/.test(v.claims.email)) return fail(403, 'domain');   // 小文字にする前に ASCII だけ（U+212A が k になるような畳み込みをしない）
   const email = v.claims.email.toLowerCase();
   if (!EMAIL.test(email)) return fail(403, 'domain');
   const at = email.indexOf('@');
