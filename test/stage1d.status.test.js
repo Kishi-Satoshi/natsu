@@ -234,7 +234,8 @@ test('RF28: オフライン・ログインしていない・PC の中だけの�
 // out.notifications は偽の Notification の show() の { title, body }。--main-hidden は本体の窓が隠れている（isVisible が false）、
 // --live-not-shown は画面が「録音中のページを開いていない」と知らせた（mainrun は既定で、会議を始めた後に画面と同じ meeting:live-shown true を送る）、
 // --no-notify は Notification.isSupported() が false、--click-notify は出した知らせを押す（out.mainWinCalls・out.showLive）。
-// 計画の外で足した: --main-minimized（最小化した窓）・--reload-main（画面の読み込み直し）
+// 計画の外で足した: --main-minimized（最小化した窓）・--reload-main（画面の読み込み直し）。A-8 の点検で足した: --main-unfocused
+// （窓は見えているが前にない）・--notify-throws（偽の Notification の show() が投げる）
 const WN = {
   'engine-down': 'PC の中の文字起こしエンジンが動いていません。録音中のページを開いてください。',
   stall: '文字起こしが止まっているかもしれません。録音中のページを開いてください。',
@@ -263,16 +264,19 @@ test('D17: 知らせを押すと窓が前に出て、画面に meeting:show-live
 });
 
 test('D17: 窓が前にあり録音中のページを開いているときは出さない。窓は前でも画面が『録音中のページではない』と知らせていれば出す', T, async () => {
-  const [shown, notShown, minimized] = await Promise.all([
+  const [shown, notShown, minimized, unfocused] = await Promise.all([
     run(['err200', '--relay=text', '--relay-down', '--segs=2']),
     run(['err200', '--relay=text', '--relay-down', '--live-not-shown', '--segs=2']),
     run(['err200', '--relay=text', '--relay-down', '--main-minimized', '--segs=2']),
+    run(['err200', '--relay=text', '--relay-down', '--main-unfocused', '--segs=2']),
   ]);
   assert.deepStrictEqual(shown.notifications, [], '録音中のページが見えているのに Windows の知らせを出した');
   assert.ok(shown.engineLog.includes('文字起こしの状態: 帯 engine-down'), shown.engineLog.join('\n'));
   assert.ok(!shown.engineLog.some((l) => l.includes('Windows の知らせ')), shown.engineLog.join('\n'));
   assert.deepStrictEqual(notShown.notifications, [{ title: 'NaTsu', body: WN['engine-down'] }]);
   assert.deepStrictEqual(minimized.notifications, [{ title: 'NaTsu', body: WN['engine-down'] }], '最小化した窓を見えているとした');
+  // ほかのアプリで作業している（窓は見えていて最小化もしていないが、前にない）: いちばんよくある場面（A-8 の点検で足した）
+  assert.deepStrictEqual(unfocused.notifications, [{ title: 'NaTsu', body: WN['engine-down'] }], '前にない窓を見えているとした');
   // 画面を読み込み直すと、まだ録音中のページを開いていない扱いに戻る（開けば画面が知らせ直す）
   const reloaded = await run(['err200', '--relay=text', '--relay-down', '--reload-main', '--segs=2']);
   assert.deepStrictEqual(reloaded.notifications, [{ title: 'NaTsu', body: WN['engine-down'] }], '読み込み直す前の「録音中のページを開いている」を使い続けた');
@@ -302,6 +306,14 @@ test('D17: 止まり・ログイン切れ・残した失敗の本文も表のと
   assert.deepStrictEqual(login.notifications, [{ title: 'NaTsu', body: WN.login }]);
   assert.deepStrictEqual(failed.notifications, [{ title: 'NaTsu', body: WN['seg-failed'] }], '残した区間の数が増えても出すのは1回');
   assert.strictEqual(winLines(failed, 'seg-failed').length, 1, failed.engineLog.join('\n'));
+});
+
+test('D17: Windows の知らせが投げても区間は落ちない（4 区間ともページに残り、記録は『出せない』の1行）', T, async () => {
+  // A-8 の点検で足した: setSttProblem は区間の流れの中で呼ばれるので、知らせの失敗が外へ出ると区間が1つ消える
+  const o = await run(['err200', '--relay=text', '--relay-down', '--main-hidden', '--notify-throws', '--segs=4']);
+  assert.deepStrictEqual(o.notifications, []);
+  assert.strictEqual(o.pages[0].segments.length, 4, `知らせの失敗で区間が落ちた: ${JSON.stringify(o.pages[0].segments)}`);
+  assert.deepStrictEqual(o.engineLog.filter((l) => l.includes('Windows の知らせ')), ['文字起こしの状態: Windows の知らせを出せない engine-down'], o.engineLog.join('\n'));
 });
 
 test('D17: Notification.isSupported() が false なら出さず、記録に符号だけ', T, async () => {

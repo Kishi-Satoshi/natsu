@@ -188,6 +188,8 @@
 //     --no-notify      … Notification.isSupported() が false（出せない PC）
 //     --click-notify   … 出した知らせを、出した直後に押す（click を起こす）
 //     --reload-main    … meeting:live-shown true を送った後に、本体の窓の画面の読み込み直し（did-start-loading）を起こす
+//     --main-unfocused … 本体の窓が見えていて最小化もしていないが、前にない（isFocused が false。ほかのアプリで作業している。focus() で前に）
+//     --notify-throws  … 偽の Notification の show() が投げる（Windows の知らせが壊れていても、区間を落とさないことを見る）
 //     出力に mainWinCalls（本体の窓の show・focus・restore の呼ばれた順。起動の後から）と showLive（本体の窓へ送った meeting:show-live の数）を足す
 //   出力に足すもの（議事録の場面）: pages[].id・title・recovered、files（userData の下の相対パス）、dbStarts（DB の子を起こした回数）、trace
 //   ctx.appCall(cmd, args) … 画面と同じ役 app の口（客の rendererPort() で作る偽の MessageChannelMain の口）で DB に頼む。書く命令には
@@ -313,6 +315,8 @@ const liveNotShown = flags.includes('--live-not-shown');
 const noNotify = flags.includes('--no-notify');
 const clickNotify = flags.includes('--click-notify');
 const reloadMain = flags.includes('--reload-main');
+const mainUnfocused = flags.includes('--main-unfocused');   // 第1d回 A-8 の点検で足した
+const notifyThrows = flags.includes('--notify-throws');     // 第1d回 A-8 の点検で足した
 // 第1c回 B-3: オンラインの要約の場面（偽の claude）
 const claudeMode = (flags.find((f) => f.startsWith('--claude=')) || '').slice(9);
 const claudeAuth = (flags.find((f) => f.startsWith('--claude-auth=')) || '').slice(14);
@@ -732,6 +736,7 @@ process.on('exit', () => {
     static isSupported() { return !noNotify; }
     constructor(o) { makeEmitter(this); this.o = o || {}; }
     show() {
+      if (notifyThrows) throw new Error('偽の知らせが壊れている');
       notifications.push({ title: this.o.title, body: this.o.body });
       if (clickNotify) setTimeout(() => this.emit('click', {}), 0);
     }
@@ -799,11 +804,11 @@ process.on('exit', () => {
     isDestroyed() { return false; }
     // 第1d回 A-8: 本体の窓（wins[1]）だけ --main-hidden で隠れ、--main-minimized で最小化した形で始まる。show・focus・restore は順に覚える
     isVisible() { return !(this.isMain() && mainHidden && !this.shown); }
-    isFocused() { return true; }
+    isFocused() { return !(this.isMain() && mainUnfocused && !this.focused); }
     isMinimized() { return this.minimized || (this.isMain() && mainMinimized && !this.restored); }
     isMain() { return wins.indexOf(this) === 1; }
     show() { if (this.isMain()) { this.shown = true; mainWinCalls.push('show'); } }
-    focus() { if (this.isMain()) mainWinCalls.push('focus'); }
+    focus() { if (this.isMain()) { this.focused = true; mainWinCalls.push('focus'); } }
     restore() { if (this.isMain()) { this.restored = true; mainWinCalls.push('restore'); } }
     isMaximized() { return this.maximized; }
     maximize() { maximizeCalls += 1; this.maximized = true; }

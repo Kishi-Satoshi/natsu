@@ -2650,7 +2650,8 @@
     const p = mtSt && mtSt.active && mtSt.stt && typeof mtSt.stt === 'object' ? mtSt.stt.problem : null;
     const text = p && typeof p.text === 'string' ? p.text : '';
     bn.hidden = !text || !liveShown();
-    $('liveSttBannerText').textContent = text;
+    const tx = $('liveSttBannerText');
+    if (tx.textContent !== text) tx.textContent = text;   // 同じ文は書き直さない（role="alert" の読み上げ直しを避ける: F15）
     sttAct = text && Object.prototype.hasOwnProperty.call(STT_ACT_LABEL, p.action) ? p.action : '';
     const btn = $('liveSttBannerBtn');
     btn.hidden = !sttAct;

@@ -411,6 +411,11 @@ test('D17: 帯は #liveBar の上に1つ。文は main の text のまま、ボ�
   assert.strictEqual(l.root.querySelectorAll('.stt-banner').length, 1, '帯が2つ以上ある');
   assert.strictEqual(l.byId.get('liveSttBannerText').textContent, '中継につながりません。PC の中で文字起こしを続けています。録音はそのまま続けてください。');
   assert.strictEqual(l.byId.get('liveSttBannerBtn').hidden, true);
+  // F15: 区間ごとの meeting:update で同じ帯の文を書き直さない（role="alert" は書き直すたびに読み上げ直されることがある）。
+  // simdom の textContent の代入は子の並びを作り直すので、並びが同じなら書いていない（A-7 の点検で足した）
+  const kids = l.byId.get('liveSttBannerText').childNodes;
+  l.fire('onMeetingUpdate', { ...PROB('relay-down', '', '中継につながりません。PC の中で文字起こしを続けています。録音はそのまま続けてください。'), segments: [{ atMs: 0, text: '区間', failed: false }] }); await l.drain();
+  assert.strictEqual(l.byId.get('liveSttBannerText').childNodes, kids, '同じ帯の文を区間の知らせのたびに書き直した');
   for (const [action, label] of [['retry', 'もう一度'], ['account', 'ログインし直す'], ['engine', 'エンジンを確かめる']]) {
     l.fire('onMeetingUpdate', PROB('x', action, '文')); await l.drain();
     assert.strictEqual(l.byId.get('liveSttBannerBtn').textContent, label, action);
@@ -451,7 +456,7 @@ test('D17: ［もう一度］は meetingRetry を1回だけ呼び、返事まで
   t.fire('onMeetingUpdate', PROB('stall', 'retry', '文')); await t.drain();
   t.byId.get('liveSttBannerBtn').dispatchEvent({ type: 'click' }); await t.drain();
   assert.strictEqual(t.byId.get('liveSttBannerBtn').disabled, false);
-  assert.deepStrictEqual(l.errors.map(fmt), []);
+  assert.deepStrictEqual([...l.errors, ...t.errors].map(fmt), []);
 });
 
 test('D17: ［ログインし直す］は設定の『アカウント』を開いてメールの欄にフォーカス。［エンジンを確かめる］は詳細設定の『文字起こし』を開く', { timeout: 5000 }, async () => {
