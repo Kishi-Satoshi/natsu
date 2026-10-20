@@ -26,7 +26,7 @@
 //     exp（数）> 今・nbf（あれば数）<= 今 + 60・type === 'app' の順に見る
 //   鍵の写し: モジュールの Map（certsBase ごと）。1時間で取り直す。知らない kid は、前に取ってから 30 秒より後なら1回だけ取り直す（鍵の替わり目）。
 //     取りに行っている間の要求は同じ Promise を待つ（同時の知らない kid で何本も取りに行かない）。取れなかった後 30 秒は取りに行かずに 'certs'。
-//     fetch は redirect: 'error'・AbortSignal.timeout(5000)・答えは 64KB まで。keys の kty 'RSA'・alg が無いか 'RS256'・use が無いか 'sig' だけを読む
+//     fetch は redirect: 'manual'（Workers は 'error' を受けない。3xx は 200 でないので取れなかった扱い）・AbortSignal.timeout(5000)・答えは 64KB まで。keys の kty 'RSA'・alg が無いか 'RS256'・use が無いか 'sig' だけを読む
 //   _resetCertsCache()（テストだけが呼ぶ）
 
 import { readCapped } from './http.mjs';
@@ -92,7 +92,7 @@ function b64urlJson(s) {
 async function loadCerts(certsBase, fetchFn) {
   const res = await fetchFn(certsBase + '/cdn-cgi/access/certs', {
     method: 'GET',
-    redirect: 'error',
+    redirect: 'manual',
     signal: AbortSignal.timeout(CERTS_TIMEOUT_MS),
     headers: { accept: 'application/json' },
   });

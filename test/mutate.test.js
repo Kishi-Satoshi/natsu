@@ -292,6 +292,8 @@ const IDS_1D = [
   ...IDS_1D_ACCESS_ADDED(),
   // 第1d回 統合（G-4 の前）: W-5 の点検の直しのテストに当てる3つ（exp の境目・access がそろう前の 503・ASCII でないメール）
   'rl-jwt-exp-boundary', 'rl-access-not-ready', 'rl-email-ascii',
+  // 0.8.0 の出し直し: Workers は fetch の redirect: 'error' を受けない（鍵の口が 503 certs になった）
+  'rl-workers-redirect',
 ];
 // 中継の Access の確かめ（W-5・W-6）・出し方のサービストークン（D-2）・アプリの送り方とログインの窓と cookie（A-10〜A-14）・ゲート（G-3）
 function IDS_1D_ACCESS_ADDED() {

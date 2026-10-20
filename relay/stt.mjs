@@ -13,7 +13,7 @@
 //     → 本文を読みながら数える（cfg.maxAudioBytes を越えたら読むのをやめて 413 too-large）
 //     → wavInfo（アプリの録音の形だけ。ほかは 415 not-wav）
 //     → reserveUsage（1人と全体の秒を送る前に取り置く。越えれば 429 daily-cap。同じ batch で 2 日より前の日の数えの行を片付ける: W-6）
-//     → OpenAI へ（cfg.openaiBase は試しの 127.0.0.1 のほかは本物の固定の URL。redirect: 'error' で鍵を別の宛先へ運ばない）
+//     → OpenAI へ（cfg.openaiBase は試しの 127.0.0.1 のほかは本物の固定の URL。redirect: 'manual' で転送に付いていかず、3xx は upstream の失敗にして鍵を別の宛先へ運ばない。Workers は 'error' を受けない）
 //     → 答えの分け方 → 200 でなければ取り置いた秒を戻す（refundUsage）→ 記録 1 行 { ev: 'stt', st, r, ms, sec }（scope は daily-cap だけ）
 //   取り置きの後に Worker が止まると秒は戻らない（使った側に多く数える。費用は越えない側に倒れる）。
 //   OpenAI の答えの本文は、200 の text と、429 の error.code（insufficient_quota を見るため）のほかは読まない・記録に写さない。
@@ -103,13 +103,13 @@ async function upstream(cfg, form) {
   try {
     res = await fetch(cfg.openaiBase + '/audio/transcriptions', {
       method: 'POST',
-      redirect: 'error',
+      redirect: 'manual',
       signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
       headers: { authorization: 'Bearer ' + cfg.openaiKey, 'content-type': 'multipart/form-data; boundary=' + boundary },
       body: buildForm({ ...form, boundary }),
     });
   } catch (_) {
-    return fail(502, 'upstream');   // 届かない・切れた・時間切れ・転送された。例外の文は写さない
+    return fail(502, 'upstream');   // 届かない・切れた・時間切れ。例外の文は写さない（転送の 3xx は下の 502 upstream）
   }
   const st = res.status;
   if (st === 200) {

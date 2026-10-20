@@ -488,10 +488,10 @@ test('RF38: OpenAI の鍵を OpenAI のほかへは送らない（OPENAI_BASE �
     });
   }
   // OpenAI の宛先が転送（307）を返しても、ついて行かない（鍵と音声を転送の先へ運ばない）。
-  // Node の fetch はバイトの本文を転送の先へ送り直せずに投げるので、答えだけでは redirect: 'error' の有無が見えない。
-  // だから fetch に渡した redirect も見る（Workers の fetch は転送について行く）
+  // Node の fetch はバイトの本文を転送の先へ送り直せずに投げるので、答えだけでは転送を追ったかが見えない。
+  // だから fetch に渡した redirect も見る（Workers の fetch は既定で転送について行き、'error' は受けない）
   await scene({}, async ({ login, send, stt, env, db }) => {
-    const a = await login();   // 鍵の口への取りに行き（redirect: 'error'）を下の modes に混ぜない
+    const a = await login();   // 鍵の口への取りに行き（redirect: 'manual'）を下の modes に混ぜない
     const modes = [];
     const inner = globalThis.fetch;
     globalThis.fetch = (input, init) => { modes.push(init && init.redirect); return inner(input, init); };
@@ -510,7 +510,7 @@ test('RF38: OpenAI の鍵を OpenAI のほかへは送らない（OPENAI_BASE �
       assert.deepStrictEqual(hops, ['/v1/audio/transcriptions']);
       assert.strictEqual(stt.requests.length, 0, '転送の先へ送った');
       assert.strictEqual(await used(db, 'a:all'), 0);
-      assert.deepStrictEqual(modes, ['error'], '転送について行く fetch');
+      assert.deepStrictEqual(modes, ['manual'], '転送について行く fetch（Workers は error を受けないので manual。3xx は 502 upstream）');
     } finally {
       globalThis.fetch = inner;
       await new Promise((r) => { redirector.close(() => r()); redirector.closeAllConnections(); });
@@ -546,7 +546,7 @@ test('RF34: OpenAI が答えないままなら 120 秒で切って 502 upstream�
       assert.deepStrictEqual(hung, ['/v1/audio/transcriptions']);
       assert.strictEqual(inits.length, 1);
       assert.ok(inits[0].signal instanceof AbortSignal, 'OpenAI への fetch に時間切れが無い');
-      assert.strictEqual(inits[0].redirect, 'error');
+      assert.strictEqual(inits[0].redirect, 'manual');   // Workers は 'error' を受けない（relay-workers-compat.test.js）
       assert.strictEqual(await used(db, await userKey(a.email)), 0, '切れた区間の秒を戻していない');
       assert.strictEqual(await used(db, 'a:all'), 0);
     });

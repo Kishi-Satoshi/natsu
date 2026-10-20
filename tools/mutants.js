@@ -1163,6 +1163,8 @@ module.exports = [
     tests: ['test/relay-access.test.js'], why: 'W-5 RL2: ACCESS_CERTS_BASE は 127.0.0.1 の http だけ（鍵をほかのホストから読まない）' },
   { id: 'rl-certs-timeout', file: 'relay/access.mjs', from: '    signal: AbortSignal.timeout(CERTS_TIMEOUT_MS),\n', to: '',
     tests: ['test/relay-access.test.js'], why: 'W-5 F18: 答えない鍵の口は 5 秒で切る（503 certs）' },
+  { id: 'rl-workers-redirect', file: 'relay/access.mjs', from: "    redirect: 'manual',\n    signal: AbortSignal.timeout(CERTS_TIMEOUT_MS),", to: "    redirect: 'error',\n    signal: AbortSignal.timeout(CERTS_TIMEOUT_MS),",
+    tests: ['test/relay-workers-compat.test.js'], why: "0.8.0 の出し直し: Workers の fetch は redirect: 'error' で TypeError（鍵を取りに行けず /health が 503 certs）。relay/ の redirect は manual だけ" },
   { id: 'rl-certs-inflight', file: 'relay/access.mjs', from: '  if (!e.inflight) {   // 取りに行っている間に来た要求は、同じ Promise を待つ（何本も取りに行かない）', to: '  {',
     tests: ['test/relay-access.test.js'], why: 'W-5 F18: 同時の知らない kid の要求は同じ取り直しを待つ（鍵の口へは1回）' },
   { id: 'rl-health-open', file: 'relay/worker.mjs', from: "    if (!a.ok) {\n      logEvent('health', { st: a.st });", to: "    if (!a.ok && a.r !== 'no-jwt') {\n      logEvent('health', { st: a.st });",
