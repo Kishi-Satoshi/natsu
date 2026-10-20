@@ -409,6 +409,9 @@ test('RL12・D18: src/・relay/・出し方にチームのドメインの字面�
     ['tools/relay-deploy.js', "const url = 'https://Natsu-Test.CloudflareAccess.com/cdn-cgi/access/certs';"],
     ['.github/workflows/relay-deploy.yml', '          TEAM: x1.cloudflareaccess.com'],
     ['relay/worker.mjs', "const t = 'a.b.cloudflareaccess.com';"],
+    // 正規表現に \\. で書いた名前も字面（G-3 の点検）
+    ['src/stt-cloud.js', 'const ACCESS_HOST = /^natsu-test\\.cloudflareaccess\\.com$/;'],
+    ['relay/config.mjs', 'const TEAM_RE = /^https:\\/\\/Natsu-Test\\.cloudflareaccess\\.com$/i;'],
   ];
   for (const [file, line] of bad) {
     const got = R.relayFindings(file, '', `${line}\n`);

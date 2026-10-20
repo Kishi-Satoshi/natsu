@@ -367,8 +367,10 @@ const RELAY_RULES = [
   // 書く形: 欄の名前（引用符や角かっこの中でも）に : か = で値を置く・読めなかったときの既定の文字（|| と ?? の後の空でない文字）
   { on: (f) => inRelay(f) || RELAY_DEPLOY.has(f), re: /(?<![\w$])['"]?(?:ALLOWED_EMAIL_DOMAINS|MAIL_FROM)['"]?\s*\]?\s*(?:(?::|=(?![=>]))\s*\S|(?:\|\||\?\?)\s*(['"`])(?!\1))/,
     why: '秘密の欄（ALLOWED_EMAIL_DOMAINS・MAIL_FROM）は利用者が Cloudflare の画面で入れる。中継と出し方は名前を読むだけ（会社のドメインを混ぜない）' },
-  // チームのドメインの字面（* や . で始まる照らし・<チーム>. の説明・正規表現の \. の形は当たらない）。注釈の中の名前も漏れなので、注釈を落とす前の行で見る
-  { raw: true, on: relayTarget, re: /(?<![\w-])[a-z0-9-]+\.cloudflareaccess\.com/i,
+  // チームのドメインの字面（* や . で始まる照らし・<チーム>. の説明・文字の組や ? の後に \. を続けた照らしは当たらない）。正規表現に
+  // \. で書いた名前（natsu-test\.cloudflareaccess\.com）は当たる。文字をつないで作った名前は字面では見えない（このゲートの限り。点検で見る）。
+  // 注釈の中の名前も漏れなので、注釈を落とす前の行で見る
+  { raw: true, on: relayTarget, re: /(?<![\w-])[a-z0-9-]+\\?\.cloudflareaccess\\?\.com/i,
     why: 'チームの名前（<チーム>.cloudflareaccess.com）は Cloudflare の設定と Worker の秘密の欄（TEAM_DOMAIN）にだけ置く（D18）' },
   // Access の秘密の欄に値を書く形（上の決まりと同じ形）。ワークフローが同じ名前の GitHub の秘密を渡す行（CF_ACCESS_CLIENT_* だけ）は通す
   { on: relayTarget, re: /(?<![\w$])['"]?(TEAM_DOMAIN|POLICY_AUD|CF_ACCESS_CLIENT_ID|CF_ACCESS_CLIENT_SECRET)['"]?\s*\]?\s*(?:(?::|=(?![=>]))\s*\S|(?:\|\||\?\?)\s*(['"`])(?!\2))/,

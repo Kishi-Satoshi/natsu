@@ -1254,7 +1254,7 @@ module.exports = [
     tests: ['test/transcribe.e2e.test.js'], pattern: '^あとの直し \\(c\\): transcribeAuto に区間の番号', why: 'A-14 (c): transcribeAuto に区間の番号を渡すのは議事録の区間・［もう一度］・復旧の3か所' },
   // ゲート（tools/risk.js。G-3）
   { id: 'rg-team-domain', file: 'tools/risk.js',
-    from: "  { raw: true, on: relayTarget, re: /(?<![\\w-])[a-z0-9-]+\\.cloudflareaccess\\.com/i,\n    why: 'チームの名前（<チーム>.cloudflareaccess.com）は Cloudflare の設定と Worker の秘密の欄（TEAM_DOMAIN）にだけ置く（D18）' },\n",
+    from: "  { raw: true, on: relayTarget, re: /(?<![\\w-])[a-z0-9-]+\\\\?\\.cloudflareaccess\\\\?\\.com/i,\n    why: 'チームの名前（<チーム>.cloudflareaccess.com）は Cloudflare の設定と Worker の秘密の欄（TEAM_DOMAIN）にだけ置く（D18）' },\n",
     to: '', tests: ['test/gate.test.js'], why: 'G-3 RL12・D18: src/・relay/・出し方にチームのドメインの字面を書いた行を BLOCK にする' },
   { id: 'rg-access-secret', file: 'tools/risk.js',
     from: "  { on: relayTarget, re: /(?<![\\w$])['\"]?(TEAM_DOMAIN|POLICY_AUD|CF_ACCESS_CLIENT_ID|CF_ACCESS_CLIENT_SECRET)['\"]?\\s*\\]?\\s*(?:(?::|=(?![=>]))\\s*\\S|(?:\\|\\||\\?\\?)\\s*(['\"`])(?!\\2))/,\n    but: /^\\s*(CF_ACCESS_CLIENT_ID|CF_ACCESS_CLIENT_SECRET):\\s*\\$\\{\\{\\s*secrets\\.\\1\\s*\\}\\}\\s*$/,\n    why: 'Access の秘密の欄（TEAM_DOMAIN・POLICY_AUD・CF_ACCESS_CLIENT_ID・CF_ACCESS_CLIENT_SECRET）は Cloudflare の画面と GitHub の環境 relay で入れる。名前を読むだけ（F23）' },\n",

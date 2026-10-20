@@ -179,6 +179,10 @@ test('RL6・RL12・D18: README の管理者の節は、Access の用意・取り
   // + の付いた別名は中継がいつも断る・Worker 単位の Access は外さない
   assert.match(sec, /`\+`[^\n]*中継[^\n]*断/, '+ の付いた別名を中継が断ると書いていない');
   assert.match(sec, /Worker 単位の Access は外さない/, 'Worker 単位の Access を外さないと書いていない');
+  // 外しても止まるのは新しいログインだけで、もう出たログインは期限まで中継で通る（外すことを止め方と読ませない。G-3 の点検）
+  const keep = sec.split('\n').find((l) => l.includes('Worker 単位の Access は外さない')) || '';
+  assert.ok(!keep.includes('全員が使えなく'), 'Access を外すと全員が使えなくなると書いている（もう出たログインは期限まで通る）');
+  assert.match(keep, /新しいログイン[^\n]*もう出たログイン[^\n]*期限[^\n]*通/, '外しても、もう出たログインは期限まで通ると書いていない');
   // 送り元のアドレスは ＠ を全角で書き、半角で入れると添える（公開前の確認: test/repo.test.js）
   assert.match(sec, /noreply＠notify\.cloudflare\.com[^\n]*半角/, '送り元（＠ は全角・半角で入れる）が無い');
   // 会社のドメインとチームの名前は書かない（Cloudflare の設定と Worker の秘密の欄にだけ）
