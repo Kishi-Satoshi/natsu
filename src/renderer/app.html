@@ -439,6 +439,12 @@
   #liveStopBtn { color: var(--danger); background: var(--hover); border-color: transparent; }
   #liveStopBtn:hover { background: var(--tint); }
   .live[hidden] { display: none; }
+  /* 文字起こしの帯（第1d回 A-7・D17）: 録音中のページの頭（記録の行の上）に、理由と1つの行動。注意の色は .desc.ng と同じ組で、色だけで伝えない（文がある） */
+  .stt-banner { display: flex; align-items: center; gap: 6px 10px; flex-wrap: wrap; padding: 6px 10px; margin-bottom: 8px;
+    border: 1px solid var(--danger); border-radius: 6px; font-size: 13px; color: var(--danger); }
+  .stt-banner span { flex: 1 1 16em; min-width: 0; overflow-wrap: anywhere; }
+  .stt-banner button.ghost { font-size: 12px; padding: 0 10px; }
+  .stt-banner[hidden] { display: none; }
   /* 記録中のページの題名は「記録中の会議」で編集できない（JS が #pageWrap に live-on を付け外しする） */
   #pageWrap.live-on .ptitle { cursor: default; }
   /* 止めていた時間の印（区間の行の間。区間ではない） */
@@ -1229,6 +1235,7 @@
       }
       const lb = $('liveBar');
       if (lb) lb.hidden = true;   // 記録中のバーは記録中のタブだけのもの
+      renderSttBanner();          // 帯も記録中のタブだけのもの
       showSection('notes');
     } else if (key === 'live') {
       showLive();
@@ -2517,6 +2524,7 @@
           + '<button class="ghost" id="liveStopBtn" type="button">■ 終了して作成</button>'
           + '<button class="ghost" id="liveSkipBtn" type="button" hidden>文字起こしを打ち切って要約</button>'
           + '<span class="tm" id="liveTm">0:00</span>'
+          + '<div class="desc" id="liveStt" hidden></div>'
           + '<div class="desc" id="liveResumeNote" role="status" hidden></div>'
           + '<div class="desc" id="liveEta" hidden></div>'
           + '<div class="desc" id="liveSkipped" hidden></div>'
@@ -2530,6 +2538,12 @@
         $('meetingLocalOnly').onclick = setLocalOnly;
         $('livePauseBtn').onclick = askPause;
         $('liveStopBtn').onclick = toggleMeeting;
+        // 文字起こしの帯（第1d回 A-7・D17）は記録の行と一緒に作り、そのすぐ上に置く（会議が終われば一緒に外す）
+        const hold = document.createElement('div');
+        hold.innerHTML = '<div class="stt-banner" id="liveSttBanner" role="alert" hidden><span id="liveSttBannerText"></span>'
+          + '<button class="ghost" id="liveSttBannerBtn" type="button" hidden></button></div>';
+        live.parentNode.insertBefore(hold.firstChild, live);
+        $('liveSttBannerBtn').onclick = sttBannerAct;
       }
       // 相手の声も録れているかは、会議が終わってから気づくと手遅れなので
       // 記録中のバーに出す。
@@ -2547,7 +2561,7 @@
       rn.hidden = !st.resumeHint;
       rn.textContent = st.resumeHint ? 'スリープから戻りました。会議の録音は一時停止しています。続けるときは、録音中のページの［再開］を押してください。' : '';
       renderLiveNotes(st);
-      if (!mtTimer) mtTimer = setInterval(() => { const e = $('liveTm'); if (e) e.textContent = mtClock(); }, 500);
+      if (!mtTimer) mtTimer = setInterval(() => { const e = $('liveTm'); if (e) e.textContent = mtClock(); renderSttLine(); }, 500);
       if (started) {
         if (!hasTab('live')) openTabs.push({ key: 'live' });
         activateTab('live');   // 開いていたページを確定して閉じ、記録中の描き方で描く（activateTab → showLive）
@@ -2556,8 +2570,12 @@
         if (liveShown()) drawLive(st);
       }
       live.hidden = !liveShown();   // 記録中のバーは記録中のタブにだけ出す（ほかのページのタブでは、タブの名前が状態を出す）
+      renderSttLine();
+      renderSttBanner();
     } else {
       if (live) live.remove();
+      const bn = live && $('liveSttBanner');   // 帯は記録の行と一緒に作ったので、一緒に外す
+      if (bn) bn.remove();
       if (mtTimer) { clearInterval(mtTimer); mtTimer = null; }
       if (!st.finalizing) $('pProgress').style.display = 'none';
       // 記録中のメモ欄は片付ける。この後、作られたページ側の表示に切り替わる（page:open で記録中のタブをそのページのタブに替える）
@@ -2578,6 +2596,7 @@
     const live = $('liveBar');
     if (live) live.hidden = false;
     if (mtSt.active) drawLive(mtSt);
+    renderSttBanner();
   }
   // 記録中のページの題名は「記録中の会議」で編集できない（打った文字は保存先が無く黙って消えるため。G10）。
   // ページに替わると renderPage が live-on を外し、題名を編集できる形に戻す
@@ -2587,6 +2606,54 @@
     t.setAttribute('contenteditable', 'false');
     $('pIcon').hidden = false;
     $('pageWrap').classList.add('live-on');
+  }
+
+  // 録音中のページの文字起こしの状態の行と帯（第1d回 A-7・D17）。main の meetingStatus().stt（A-6）をそのまま描く。
+  // 帯の文は main の stt.problem.text をそのまま出す（画面は文を作らない）。ボタンは action ごとに1つ（'' なら出さない）
+  const STT_ACT_LABEL = { retry: 'もう一度', account: 'ログインし直す', engine: 'エンジンを確かめる' };
+  let sttAct = '';          // 帯のボタンの今の働き（'' | 'retry' | 'account' | 'engine'）
+  let sttRetrying = false;  // ［もう一度］の返事を待っている（返事まで押せない）
+  // 「文字起こし中（クラウド）・最後の文字 {n} 秒前」（60 秒からは「{m} 分前」）。まだ文字が無ければ「最初の文字を待っています」
+  function sttLineText(s) {
+    const head = `文字起こし中（${s.route === 'cloud' ? 'クラウド' : 'この PC'}）`;
+    if (typeof s.lastTextAt !== 'number' || !Number.isFinite(s.lastTextAt)) return `${head}・最初の文字を待っています`;
+    const sec = Math.max(0, Math.floor((Date.now() - s.lastTextAt) / 1000));
+    return `${head}・最後の文字 ${sec < 60 ? `${sec} 秒前` : `${Math.floor(sec / 60)} 分前`}`;
+  }
+  // 状態の行（0.5 秒ごとの mtTimer でも描き直す）。一時停止の間と、stt の無い答えでは隠す。aria-live は付けない（毎秒読み上げさせない）
+  function renderSttLine() {
+    const el = $('liveStt');
+    if (!el) return;
+    const s = mtSt && mtSt.active && !mtSt.paused ? mtSt.stt : null;
+    const t = s && typeof s === 'object' ? sttLineText(s) : '';
+    el.hidden = !t;
+    if (el.textContent !== t) el.textContent = t;
+  }
+  // 帯（problem が null なら隠す）。記録の行と同じく録音中のタブにだけ出す。帯は記録の行と一緒に作るので、記録の行が無ければ探さない
+  function renderSttBanner() {
+    const bn = $('liveBar') && $('liveSttBanner');
+    if (!bn) return;
+    const p = mtSt && mtSt.active && mtSt.stt && typeof mtSt.stt === 'object' ? mtSt.stt.problem : null;
+    const text = p && typeof p.text === 'string' ? p.text : '';
+    bn.hidden = !text || !liveShown();
+    $('liveSttBannerText').textContent = text;
+    sttAct = text && Object.prototype.hasOwnProperty.call(STT_ACT_LABEL, p.action) ? p.action : '';
+    const btn = $('liveSttBannerBtn');
+    btn.hidden = !sttAct;
+    btn.textContent = sttAct ? STT_ACT_LABEL[sttAct] : '';
+    btn.disabled = sttAct === 'retry' && sttRetrying;
+  }
+  // 帯のボタン: ［ログインし直す］は知らせのボタンと同じ道（設定の「アカウント」・メールの欄）、［エンジンを確かめる］は「未設定」の知らせと同じ道、
+  // ［もう一度］は main の meeting:retry を1回（返事まで押せない。帯は main の meeting:update が描き直す）
+  async function sttBannerAct() {
+    if (sttAct === 'account') { showAccount(); return; }
+    if (sttAct === 'engine') { showEngineSettings(); return; }
+    if (sttAct !== 'retry' || sttRetrying) return;
+    sttRetrying = true;
+    $('liveSttBannerBtn').disabled = true;
+    try { await window.koeApp.meetingRetry(); } catch (_) { /* 帯は main が描き直す */ }
+    sttRetrying = false;
+    renderSttBanner();
   }
 
   // 終了後に残っている文字起こしの進み具合と、それを打ち切る導線。

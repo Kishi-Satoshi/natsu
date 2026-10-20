@@ -4,6 +4,8 @@
  * A-4（RL10・RL11・F5・F11）: 設定のカード「アカウント」（メール → 確認コード → ログイン中・ログアウト）、ログイン切れの知らせの
  * ［ログインし直す］、0.7.0 の管理者用の鍵の欄が無いこと。main の答えは偽物（preload.js の名前から作る）。文は main が返す message を
  * そのまま出すので、試験の文は本物の文（mainlib.accountMessage）と、画面が作れない印の文の両方で見る。
+ * A-7（RL14・D17・F14）: 録音中のページの文字起こしの状態の行（#liveStt）と頭の帯（#liveSttBanner）。main の meetingStatus().stt を
+ * そのまま描く（帯の文は main の text）。ボタンは［もう一度］（meetingRetry を1回）・［ログインし直す］・［エンジンを確かめる］。
  */
 'use strict';
 
@@ -360,5 +362,148 @@ test('F5: app:notice が { text, action: \'account\' } のとき、トースト�
   l.fire('onNotice', 'エンジンが未設定です');
   await l.drain();
   assert.strictEqual(l.byId.get('engineAdv').open, true);
+  assert.deepStrictEqual(l.errors.map(fmt), []);
+});
+
+// ---------------------------------------------------------------- 第1d回 A-7（RL14・D17・F14）
+// 録音中のページの状態の行（#liveStt）と帯（#liveSttBanner）。main の meetingStatus().stt（A-6）をそのまま描く（文は main の text）
+const T0 = Date.UTC(2026, 9, 19, 1, 0, 0);
+const LIVE = (stt, o = {}) => ({ active: true, finalizing: false, startedAt: T0 - 60000, memo: '', segments: [], pending: 0, stoppedAt: null,
+  stopping: false, paused: false, pausedMs: 0, systemAudio: false, micFallback: false, etaSec: null, skipped: 0, pauses: [], pausing: false,
+  resumeHint: false, localOnly: false, cloud: true, stt, ...o });
+const PROB = (code, action, text) => LIVE({ route: 'local', lastTextAt: T0 - 5000, segSec: 15, problem: { code, action, text } });
+// 次の要素（simdom には nextElementSibling が無いので、親の子の並びから引く）
+const nextEl = (el) => { const kids = el.parentNode.children; return kids[kids.indexOf(el) + 1] || null; };
+// 今の木の中にその id の要素があるか（会議が終わって外した要素は数えない）
+const inTree = (l, id) => l.root.querySelectorAll(`#${id}`).length > 0;
+
+test('D17: 録音中のページの状態の行（クラウド・この PC・最初の文字を待っています・1 分を越えたら分。一時停止では隠す）', { timeout: 5000 }, async () => {
+  const l = await load(APP, { now: T0 });
+  l.fire('onMeetingUpdate', LIVE({ route: 'cloud', lastTextAt: T0 - 12000, segSec: 15, problem: null })); await l.drain();
+  assert.strictEqual(l.byId.get('liveStt').textContent, '文字起こし中（クラウド）・最後の文字 12 秒前');
+  // 状態の行は #liveTitle の行のすぐ下（1行目の時計の後の最初の説明の行）
+  const stt = l.byId.get('liveStt');
+  assert.strictEqual(stt.parentNode, l.byId.get('liveBar'));
+  assert.strictEqual(nextEl(l.document.getElementById('liveTm')), stt, '状態の行が記録の行の1行目のすぐ下に無い');
+  assert.strictEqual(stt.hidden, false);
+  await l.clock.advance(60000);
+  assert.strictEqual(l.byId.get('liveStt').textContent, '文字起こし中（クラウド）・最後の文字 1 分前');
+  l.fire('onMeetingUpdate', LIVE({ route: 'local', lastTextAt: null, segSec: 75, problem: null })); await l.drain();
+  assert.strictEqual(l.byId.get('liveStt').textContent, '文字起こし中（この PC）・最初の文字を待っています');
+  l.fire('onMeetingUpdate', LIVE({ route: 'local', lastTextAt: null, segSec: 75, problem: null }, { paused: true })); await l.drain();
+  assert.strictEqual(l.byId.get('liveStt').hidden, true);
+  assert.strictEqual(l.byId.get('liveStt').getAttribute('aria-live'), null);
+  // 再開すれば出る。stt の無い古い main の答えでは隠す（画面を壊さない）
+  l.fire('onMeetingUpdate', LIVE({ route: 'local', lastTextAt: T0, segSec: 75, problem: null })); await l.drain();
+  assert.strictEqual(l.byId.get('liveStt').hidden, false);
+  l.fire('onMeetingUpdate', LIVE(undefined)); await l.drain();
+  assert.strictEqual(l.byId.get('liveStt').hidden, true);
+  assert.deepStrictEqual(l.errors.map(fmt), []);
+});
+
+test('D17: 帯は #liveBar の上に1つ。文は main の text のまま、ボタンは action ごとに1つ。problem が null になると消える', { timeout: 5000 }, async () => {
+  const l = await load(APP, { now: T0 });
+  l.fire('onMeetingUpdate', PROB('relay-down', '', '中継につながりません。PC の中で文字起こしを続けています。録音はそのまま続けてください。')); await l.drain();
+  const b = l.byId.get('liveSttBanner');
+  assert.strictEqual(b.hidden, false);
+  assert.strictEqual(b.getAttribute('role'), 'alert');
+  assert.strictEqual(nextEl(b), l.byId.get('liveBar'), '帯が録音中のページの頭（#liveBar の上）に無い');
+  assert.strictEqual(l.root.querySelectorAll('.stt-banner').length, 1, '帯が2つ以上ある');
+  assert.strictEqual(l.byId.get('liveSttBannerText').textContent, '中継につながりません。PC の中で文字起こしを続けています。録音はそのまま続けてください。');
+  assert.strictEqual(l.byId.get('liveSttBannerBtn').hidden, true);
+  for (const [action, label] of [['retry', 'もう一度'], ['account', 'ログインし直す'], ['engine', 'エンジンを確かめる']]) {
+    l.fire('onMeetingUpdate', PROB('x', action, '文')); await l.drain();
+    assert.strictEqual(l.byId.get('liveSttBannerBtn').textContent, label, action);
+    assert.strictEqual(l.byId.get('liveSttBannerBtn').hidden, false, action);
+  }
+  // 画面は文を作らない: main の文がそのまま出る（符号から画面の中の表を引かない）
+  const odd = '（main の文: 印 5c1e）';
+  l.fire('onMeetingUpdate', PROB('relay-down', '', odd)); await l.drain();
+  assert.strictEqual(l.byId.get('liveSttBannerText').textContent, odd);
+  assert.strictEqual(l.byId.get('liveSttBannerBtn').hidden, true, 'action が空なのにボタンが残った');
+  l.fire('onMeetingUpdate', LIVE({ route: 'cloud', lastTextAt: T0, segSec: 15, problem: null })); await l.drain();
+  assert.strictEqual(b.hidden, true, '戻ったのに帯が残った');
+  assert.strictEqual(l.root.querySelectorAll('.stt-banner').length, 1, '帯を作り直して増やした');
+  assert.deepStrictEqual(l.errors.map(fmt), []);
+});
+
+test('D17: ［もう一度］は meetingRetry を1回だけ呼び、返事まで押せない', { timeout: 5000 }, async () => {
+  let release = null;
+  const l = await load(APP, { now: T0, returns: { meetingRetry: () => new Promise((r) => { release = () => r({ ok: true, n: 2 }); }) } });
+  l.fire('onMeetingUpdate', PROB('seg-failed', 'retry', '2 区間の文字起こしに失敗しました（音声は残してあります）。［もう一度］を押してください。')); await l.drain();
+  const btn = l.byId.get('liveSttBannerBtn');
+  assert.strictEqual(btn.textContent, 'もう一度');
+  btn.dispatchEvent({ type: 'click' }); await l.drain();
+  assert.strictEqual(btn.disabled, true, '返事を待つ間に押せる');
+  btn.dispatchEvent({ type: 'click' }); await l.drain();
+  // 返事の前に main の知らせ（同じ帯）が来ても、押せるようには戻さない
+  l.fire('onMeetingUpdate', PROB('seg-failed', 'retry', '2 区間の文字起こしに失敗しました（音声は残してあります）。［もう一度］を押してください。')); await l.drain();
+  assert.strictEqual(btn.disabled, true, '返事の前の知らせで押せるように戻った');
+  btn.dispatchEvent({ type: 'click' }); await l.drain();
+  assert.strictEqual(l.called('meetingRetry').length, 1, '返事の前に2回呼んだ');
+  release(); await l.drain();
+  assert.strictEqual(btn.disabled, false, '返事の後も押せない');
+  btn.dispatchEvent({ type: 'click' }); await l.drain();
+  assert.strictEqual(l.called('meetingRetry').length, 2);
+  release(); await l.drain();
+  // 投げても押せるように戻る
+  const t = await load(APP, { now: T0, returns: { meetingRetry: () => { throw new Error('x'); } } });
+  t.fire('onMeetingUpdate', PROB('stall', 'retry', '文')); await t.drain();
+  t.byId.get('liveSttBannerBtn').dispatchEvent({ type: 'click' }); await t.drain();
+  assert.strictEqual(t.byId.get('liveSttBannerBtn').disabled, false);
+  assert.deepStrictEqual(l.errors.map(fmt), []);
+});
+
+test('D17: ［ログインし直す］は設定の『アカウント』を開いてメールの欄にフォーカス。［エンジンを確かめる］は詳細設定の『文字起こし』を開く', { timeout: 5000 }, async () => {
+  const l = await load(APP, { now: T0, returns: fakeMain().returns });
+  l.fire('onMeetingUpdate', PROB('login', 'account', 'ログインが切れたため、PC の中で文字起こししています。［ログインし直す］を押して、もう一度ログインしてください。')); await l.drain();
+  assert.ok(!l.byId.get('tabSettings').classList.contains('active'));
+  const n = l.called('accountStatus').length;
+  await click(l, 'liveSttBannerBtn');
+  assert.ok(l.byId.get('tabSettings').classList.contains('active'), '設定が開かない');
+  assert.ok(l.called('accountStatus').length > n, '開いたのにログインの状態を聞き直していない');
+  assert.strictEqual(l.document.activeElement, l.byId.get('accountEmail'), 'メールの欄にフォーカスが行かない');
+  assert.strictEqual(l.called('meetingRetry').length, 0);
+  const e = await load(APP, { now: T0 });
+  e.fire('onMeetingUpdate', PROB('engine-down', 'engine', 'PC の中の文字起こしエンジンが動いていません（音声は残してあります）。［エンジンを確かめる］を押してください。')); await e.drain();
+  assert.strictEqual(e.byId.get('engineAdv').open, undefined, '押す前に詳細設定が開いている');
+  await click(e, 'liveSttBannerBtn');
+  assert.ok(e.byId.get('tabSettings').classList.contains('active'), '設定が開かない');
+  assert.strictEqual(e.byId.get('engineAdv').open, true, '詳細設定（文字起こし）が開かない');
+  assert.deepStrictEqual([...l.errors, ...e.errors].map(fmt), []);
+});
+
+test('D17: 会議が終わる（active: false）と帯も状態の行も消える', { timeout: 5000 }, async () => {
+  const l = await load(APP, { now: T0 });
+  l.fire('onMeetingUpdate', PROB('relay-down', '', '文')); await l.drain();
+  assert.ok(inTree(l, 'liveStt') && inTree(l, 'liveSttBanner'));
+  l.fire('onMeetingUpdate', { active: false, finalizing: false, paused: false, startedAt: null, segments: [], stt: null }); await l.drain();
+  assert.ok(!inTree(l, 'liveSttBanner'), '会議が終わったのに帯が残った');
+  assert.ok(!inTree(l, 'liveStt'), '会議が終わったのに状態の行が残った');
+  assert.ok(!inTree(l, 'liveBar'));
+  // 時計が進んでも投げない（片付けた行を描きに行かない）
+  await l.clock.advance(2000);
+  assert.deepStrictEqual(l.errors.map(fmt), []);
+});
+
+test('D17: 帯は録音中のタブだけのもの。ほかのページのタブを開くと記録の行と一緒に隠れ、録音中のタブに戻ると出る', { timeout: 5000 }, async () => {
+  const PAGES = [{ id: 'pa1', title: '定例（見本）', date: '10/16', durationSec: 1800, hasSummary: true }];
+  const pageGet = (id) => ({ page: { id, title: '定例（見本）', createdAt: '2026-10-16T01:00:00.000Z', durationSec: 1800, blocks: [], memo: '', meetingType: 'general' }, segments: [] });
+  const l = await load(APP, { now: T0, returns: { pagesSearch: () => PAGES, pageGet } });
+  await l.drain();
+  l.fire('onMeetingUpdate', PROB('relay-down', '', '文')); await l.drain();
+  assert.strictEqual(l.byId.get('liveSttBanner').hidden, false);
+  await click(l, 'tabBtnNotes');
+  const item = l.root.querySelector('#plist .pitem');
+  assert.ok(item, '一覧にページが無い（simrun の見本）');
+  item.dispatchEvent({ type: 'click' }); await l.drain();
+  assert.strictEqual(l.byId.get('liveBar').hidden, true);
+  assert.strictEqual(l.byId.get('liveSttBanner').hidden, true, 'ほかのページのタブに帯が出ている');
+  l.fire('onMeetingUpdate', PROB('relay-down', '', '文')); await l.drain();
+  assert.strictEqual(l.byId.get('liveSttBanner').hidden, true, 'ほかのページのタブで、知らせのたびに帯が出た');
+  const liveTab = l.root.querySelectorAll('[data-key]').find((x) => x.dataset.key === 'live');
+  assert.ok(liveTab, '録音中のタブが無い');
+  liveTab.dispatchEvent({ type: 'click' }); await l.drain();
+  assert.strictEqual(l.byId.get('liveSttBanner').hidden, false, '録音中のタブに戻っても帯が出ない');
   assert.deepStrictEqual(l.errors.map(fmt), []);
 });

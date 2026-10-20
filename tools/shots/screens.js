@@ -20,6 +20,10 @@ const mtype = require('../../src/meetingType');
 const SIZE = { width: 1120, height: 780 };         // 本体の窓の既定（main.js の createMainWindow）
 const OVERLAY_SIZE = { width: 316, height: 72 };   // 録音バー（main.js の createOverlay）
 const FIXED_NOW = Date.UTC(2026, 9, 18, 0, 0, 0);   // 撮るときの時計（2026-10-18 09:00 日本時間）。見本の日付はこれより前の決まった日
+// 録音中のページの文字起こしの状態（第1d回 A-7。main の meetingStatus().stt の形）。帯の文は main の STT_BANNER の B8 と同じ（test/shots.test.js が照らす）
+const LIVE_STT = { route: 'cloud', lastTextAt: FIXED_NOW - 12000, segSec: 15, problem: null };
+const BANNER_STT = { route: 'local', lastTextAt: FIXED_NOW - 12000, segSec: 15,
+  problem: { code: 'relay-down', action: '', text: '中継につながりません。PC の中で文字起こしを続けています。録音はそのまま続けてください。' } };
 
 // 録音バーは onStart（録音を始める。マイクを開く）を受けるまでピルを見せない（.pill に visible が付かない）。
 // 録音は始めずに見た目だけを撮るので、onPhase の後にピルを見せる（overlay.html は変えない）
@@ -57,6 +61,8 @@ const SCREENS = [
   { name: 'settings-zoom200-dark', page: 'app', theme: 'dark', zoom: 2, act: "document.getElementById('tabBtnSettings').click()" },
   // 第1b2回 R-3: 検索の窓（L-2 の #sideSearch を押して開く）。L-2 の前は押す物が無いので何もしない（取り直し待ちなので赤にならない）
   { name: 'search-palette-light', page: 'app', theme: 'light', act: `${OPEN_PAGE}; ${OPEN_PALETTE}` },
+  // 第1d回 A-7（RL14・D17）: 録音中のページの頭の帯（live-light と同じ会議に帯 relay-down（B8）を入れた形。取り直し待ち）
+  { name: 'live-banner-light', page: 'app', theme: 'light', answers: liveAnswers(BANNER_STT) },
 ];
 // Tab の輪を見る画面は1つだけ（何も選んでいない所から Tab を3回で［● 記録開始］。サイドバーの頭の［«］→ 検索 → ［● 記録開始］）
 SCREENS.find((x) => x.name === 'notes-page-light').focus = { tabs: 3, want: 'mtToggleBtn' };
@@ -70,7 +76,9 @@ SCREENS.find((x) => x.name === 'notes-page-light').focus = { tabs: 3, want: 'mtT
 // 利用者が CI の新しい画像を見て OK と言ったら、その画像を基準にして空に戻す（2026-10-19 に OK をもらって空にした）。
 // 第1d回 A-4（RL10・F11）で設定の3枚をまた取り直し待ちにした（外観のすぐ下に「アカウント」のカードを足し、「オンライン」のカードの説明を替えて
 // ［詳細設定（管理者用）］の鍵の欄を消した）。0.8.0 を出す前に、利用者が CI の新しい3枚を見て OK と言ったら基準にして空に戻す
-const RETAKE = new Set(['settings-light', 'settings-dark', 'settings-zoom200-dark']);
+// 第1d回 A-7（RL14・D17）で録音中のページの3枚を足した（記録の行に文字起こしの状態の行、その上に帯。live-banner-light は足した画面でまだ基準が無い）。
+// 同じく、利用者が CI の新しい画像を見て OK と言ったら基準にして空に戻す（空になるまで版を上げられない: test/shots.test.js）
+const RETAKE = new Set(['settings-light', 'settings-dark', 'settings-zoom200-dark', 'live-light', 'live-dark', 'live-banner-light']);
 const PERF = [{ name: 'open-2000-blocks', budgetMs: 500 }];   // 3回開いた中央値で見る
 const TIME_ZONE = 'Asia/Tokyo';
 const TOLERANCE = 2;   // 色の差（0〜255）がこれ以下の画素は同じとみなす。CI の機械の CPU ごとの描き方の1段の差を拾わないため（揺れの確かめ judgePair は 0 で見る）
@@ -151,8 +159,10 @@ const HISTORY = [
 /**
  * 記録中の画面（live-light・live-dark）の答え: main の meetingStatus() の形。区間3つ・一時停止の印1つ（第1b回 A-3 の pauses）・
  * クラウドで文字起こしする設定（cloud: true）で［この会議は PC の中だけ］が出る。時刻は止めた時計からの決まった差
+ * 第1d回 A-7（D17）: 文字起こしの状態 stt（A-6 の形）。既定はクラウドで最後の文字が 12 秒前・帯なし（撮るときの時計は止まるので揺れない）。
+ * stt を渡すとそれに替える（live-banner-light は帯 relay-down）
  */
-function liveAnswers() {
+function liveAnswers(stt = LIVE_STT) {
   const segs = [
     { id: 's1', atMs: 0, durationMs: 75000, text: 'それでは週次の定例を始めます。まず進み具合から順にお願いします。' },
     { id: 's2', atMs: 75000, durationMs: 75000, text: '受注の画面の直しは、結合の試験が今週で終わりました。残りの不具合は2件です。' },
@@ -164,7 +174,7 @@ function liveAnswers() {
       segments: segs, pending: 0, stoppedAt: null, stopping: false, paused: false, pausedMs: 45000,
       systemAudio: false, micFallback: false, etaSec: null, skipped: 0,
       pauses: [{ atMs: 150000, ms: 45000, why: 'user' }], pausing: false, resumeHint: false,
-      localOnly: false, cloud: true,
+      localOnly: false, cloud: true, stt,
     },
   };
 }

@@ -26,14 +26,35 @@ const tmp = (t, name) => {
 
 // 第1b回 Task C-1 で意図して変えた: 撮る画面は 7 から 13 へ（タブ・畳んだサイドバー・記録中のページの明暗・200% の2つ）
 // 第1b2回 Task R-3 で意図して変えた: 最後に検索の窓の画面を足す（14）
-test('G2: 撮る画面は決まった並び（第1b回の 13 と第1b2回の検索の窓）で、名前は重ならない', { timeout: 5000 }, () => {
+// 第1d回 Task A-7（RL14・D17）で意図して変えた: 最後に録音中のページの帯の画面（live-banner-light）を足す（15）
+test('G2: 撮る画面は決まった並び（第1b回の 13 と第1b2回の検索の窓と第1d回の録音中のページの帯）で、名前は重ならない', { timeout: 5000 }, () => {
   assert.deepStrictEqual(SH.SCREENS.map((s) => s.name), ['notes-empty-light', 'notes-page-light', 'notes-page-dark', 'dictation-light', 'settings-light', 'settings-dark', 'overlay-processing',
-    'notes-tabs-light', 'notes-collapsed-light', 'live-light', 'live-dark', 'notes-page-zoom200-light', 'settings-zoom200-dark', 'search-palette-light']);
+    'notes-tabs-light', 'notes-collapsed-light', 'live-light', 'live-dark', 'notes-page-zoom200-light', 'settings-zoom200-dark', 'search-palette-light', 'live-banner-light']);
+  assert.strictEqual(new Set(SH.SCREENS.map((s) => s.name)).size, SH.SCREENS.length, '名前が重なっている');
   for (const s of SH.SCREENS) assert.ok(['app', 'overlay'].includes(s.page) && ['light', 'dark'].includes(s.theme), s.name);
   assert.deepStrictEqual(SH.SCREENS.filter((s) => s.zoom).map((s) => [s.name, s.zoom]), [['notes-page-zoom200-light', 2], ['settings-zoom200-dark', 2]]);
   const live = SH.SCREENS.find((s) => s.name === 'live-light');
   const st = live.answers['koeApp.meetingStatus'];
   assert.ok(st.active && st.cloud && st.pauses.length === 1, '記録中の画面に一時停止の印か［PC の中だけ］が出ない');
+});
+
+// 第1d回 Task A-7（RL14・D17）: 録音中のページの2枚は状態の行（クラウド・最後の文字 12 秒前）を出し、帯の画面は同じ会議に帯 relay-down（B8）を入れた形。
+// 帯の文は main の STT_BANNER の文（画面は文を作らない）。撮るときの時計は FIXED_NOW に止まるので「12 秒前」は揺れない
+test('D17: 録音中のページの画面の答えに stt。live-banner-light は live-light と同じ会議に帯 relay-down（文は main の B8・ボタン無し）', { timeout: 5000 }, () => {
+  const st = (n) => SH.SCREENS.find((s) => s.name === n).answers['koeApp.meetingStatus'];
+  for (const n of ['live-light', 'live-dark']) assert.deepStrictEqual(st(n).stt, { route: 'cloud', lastTextAt: SH.FIXED_NOW - 12000, segSec: 15, problem: null }, n);
+  const b = SH.SCREENS.find((s) => s.name === 'live-banner-light');
+  assert.strictEqual(b.page, 'app');
+  assert.strictEqual(b.theme, 'light');
+  assert.ok(!b.zoom && !b.act && !b.focus);
+  const bs = st('live-banner-light');
+  assert.deepStrictEqual({ ...bs, stt: undefined }, { ...st('live-light'), stt: undefined }, '帯の画面の会議が live-light と違う');
+  assert.strictEqual(bs.stt.route, 'local');
+  assert.strictEqual(bs.stt.problem.code, 'relay-down');
+  assert.strictEqual(bs.stt.problem.action, '');
+  const B8 = '中継につながりません。PC の中で文字起こしを続けています。録音はそのまま続けてください。';
+  assert.strictEqual(bs.stt.problem.text, B8);
+  assert.ok(read('src/main.js').includes(`'relay-down': () => '${B8}'`), '帯の文が main の STT_BANNER の B8 と違う');
 });
 
 // 第1b回 Task C-2 で意図して変えた: 基準を取り直したので、検索の窓の画面は取り直し待ちではなく、基準の PNG と比べる（取り直し待ちが空であることは下の C-2 のテスト）
@@ -306,10 +327,16 @@ test('G2: 作業域より大きい窓が作るときに縮められても（Wind
 // 第1d回 A-4（RL10・F11）で意図して変えた: 設定の2つ目に「アカウント」のカードを足し、「オンライン」のカードの説明を替えて［詳細設定（管理者用）］を
 // 消したので、設定の3枚を取り直し待ちにした（計画の「意図して変えるもの」の RETAKE の行）。CI は「取り直し待ち」と出して NG にしない。
 // 利用者が CI の新しい3枚を見て OK と言ったら、その画像を基準にして取り直し待ちを空に戻す（0.8.0 を出す前。上の版のテスト）
-test('G2・F14・RL10: 取り直し待ちは設定の3枚だけ。どの画面にも基準の PNG があり、大きさが窓の大きさと同じ', { timeout: 5000 }, () => {
-  assert.deepStrictEqual([...SH.RETAKE], ['settings-light', 'settings-dark', 'settings-zoom200-dark']);
+// 第1d回 A-7（RL14・D17）で意図して変えた: 録音中のページに文字起こしの状態の行と帯を足したので、録音中のページの2枚（live-light・live-dark）と、
+// 足した帯の画面（live-banner-light）を取り直し待ちにした（6枚）。live-banner-light はまだ基準の PNG が無い（CI は比べで「missing」を
+// 取り直し待ちとして NG にしない）。基準が無くてよいのはこの1枚だけで、取り直し待ちにあるときだけ（第1b回 C-1 と同じ形。基準にしたら下の NEW を空にする）
+test('G2・F14・RL10・D17: 取り直し待ちは設定の3枚と録音中のページの3枚。録音バーは入れない。どの画面にも基準の PNG があり（足した帯の画面だけは取り直し待ちの間は無くてよい）、大きさが窓の大きさと同じ', { timeout: 5000 }, () => {
+  assert.deepStrictEqual([...SH.RETAKE], ['settings-light', 'settings-dark', 'settings-zoom200-dark', 'live-light', 'live-dark', 'live-banner-light']);
+  assert.ok(!SH.RETAKE.has('overlay-processing'), '録音バーを取り直し待ちに入れた（overlay.html は変えない）');
+  const NEW = new Set(['live-banner-light']);
   for (const s of SH.SCREENS) {
     const f = path.join(ROOT, 'test', 'shots', 'win32', `${s.name}.png`);
+    if (NEW.has(s.name) && !fs.existsSync(f)) { assert.ok(SH.RETAKE.has(s.name), `${s.name} の基準が無いのに取り直し待ちに無い`); continue; }
     assert.ok(fs.existsSync(f), `${s.name} の基準が無い`);
     const im = P.decodePng(fs.readFileSync(f));
     const want = s.page === 'overlay' ? SH.OVERLAY_SIZE : SH.SIZE;
@@ -331,9 +358,12 @@ test('G2・F14・RL10: 取り直し待ちは設定の3枚だけ。どの画面�
 // ほかの画面（議事録・音声入力・録音中のページ・検索の窓）は要素も文も変えていないので、基準のまま比べる。値を今の app.html に合わせた
 // 第1d回 A-1〜A-4 の点検の直し: ［ログイン］が確かめるメールを「コードを送ったメール」にした（<script> の中の1行だけ。要素・文・CSS は
 // 変えていないので見た目もページの長さも変わらない。RETAKE は設定の3枚のまま足さない）。値を今の app.html に合わせた
+// 第1d回 A-7（RL14・D17）: 録音中のページの記録の行に状態の行（#liveStt）を、その上に帯（#liveSttBanner）を足した（CSS の .stt-banner も）。
+// 見える中身が変わるのは録音中のページの2枚と足した帯の画面なので RETAKE に入れた（上の「取り直し待ちは設定の3枚と録音中のページの3枚」）。
+// 議事録・音声入力・設定・検索の窓は要素も文も変えていないので、基準のまま比べる。値を今の app.html に合わせた
 test('基準の画像（test/shots/win32）は今の app.html で撮ったもの（app.html を変えたら撮り直しを確かめる）', { timeout: 5000 }, () => {
   const sha = require('node:crypto').createHash('sha256').update(fs.readFileSync(path.join(ROOT, 'src', 'renderer', 'app.html'))).digest('hex');
-  assert.strictEqual(sha, '9183914c2e201bd4aece5df9f0c1c1e2d917b3e9e19455d1f6b849fb777991f0',
+  assert.strictEqual(sha, '927552f4278f5cbdb25f2253ffecdc35e70961e01d1e90ef1deaab96e3c74c84',
     'app.html が基準の画像を撮った時と違う。Windows の CI の画面の比べ（捲り棒のつまみも）を見て、基準を取り直してからこの値を直す');
 });
 

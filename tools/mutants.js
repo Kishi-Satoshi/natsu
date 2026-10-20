@@ -544,8 +544,8 @@ module.exports = [
     tests: ['test/invariants.test.js'], why: '不変条件 COLOR-04: JS が付ける live-on に CSS がある' },
   { id: 'shots-palette', file: 'tools/shots/screens.js', from: '  { name: \'search-palette-light\', page: \'app\', theme: \'light\', act: `${OPEN_PAGE}; ${OPEN_PALETTE}` },\n', to: '',
     tests: ['test/shots.test.js'], why: 'R-3: 検索の窓の画面を撮る' },
-  { id: 'shots-palette-retake', file: 'tools/shots/screens.js', from: "'settings-zoom200-dark']);", to: "'settings-zoom200-dark', 'search-palette-light']);",
-    tests: ['test/shots.test.js'], why: 'R-3 G12・第1b回 C-2: 検索の窓の画面も基準と比べる（取り直し待ちに戻さない）' },
+  { id: 'shots-palette-retake', file: 'tools/shots/screens.js', from: "'live-dark', 'live-banner-light']);", to: "'live-dark', 'live-banner-light', 'search-palette-light']);",
+    tests: ['test/shots.test.js'], why: 'R-3 G12・第1b回 C-2: 検索の窓の画面も基準と比べる（取り直し待ちに戻さない。第1d回 A-7 で RETAKE の末尾が録音中のページの3枚になったので from を直した）' },
   { id: 'gate-1b2-ledger', file: 'tools/lib/moves.js', from: 'ids: [\'pActs\', \'pMore\', \'pMenu\'],', to: 'ids: [\'pActs\', \'pMore\', \'pMenu\', \'pTitle\'],',
     tests: ['test/gate.test.js'], why: 'L-1: 台帳の中身の固定（1b2 の行に pTitle を足さない）' },
   { id: 'gate-1b2-release', file: 'tools/lib/moves.js', from: '  { file: \'src/renderer/app.html\', lost: [\'section#tabNotes.tab.active\', \'div.notes\', \'aside.side\'],\n    ids: [\'searchBox\', \'fltAll\', \'fltActions\', \'fltFull\'],\n    why: \'第1b2回: 検索の欄と絞り込みを検索の窓へ移すのを natsu-v0.5.0 から1つの差分で見たときの形（リリースのゲート）\' },\n', to: '',
@@ -573,8 +573,8 @@ module.exports = [
     tests: ['test/ui07.app.test.js'], why: 'U-2: 押しっぱなしの繰り返しでは切り替えず、保存もし直さない' },
   { id: 'u2-toggle-revert', file: 'src/renderer/app.html', from: '    if (!(await save(true))) sel.value = prev;', to: '    await save(true);',
     tests: ['test/ui07.app.test.js'], why: 'U-2: 保存しなかったときは欄を前の値に戻す' },
-  { id: 'u2-retake-settings', file: 'tools/shots/screens.js', from: "'settings-dark', 'settings-zoom200-dark']);", to: "'settings-dark']);",
-    tests: ['test/shots.test.js'], why: 'U-2・第1d回 A-4: 設定の3枚を取り直し待ちにする（CI が NG にせず「取り直し待ち」と出す。A-4 で、空から3枚に戻した形の from に直した）' },
+  { id: 'u2-retake-settings', file: 'tools/shots/screens.js', from: "'settings-dark', 'settings-zoom200-dark', 'live-light',", to: "'settings-dark', 'live-light',",
+    tests: ['test/shots.test.js'], why: 'U-2・第1d回 A-4: 設定の3枚を取り直し待ちにする（CI が NG にせず「取り直し待ち」と出す。A-4 で、空から3枚に戻した形の from に直した。A-7 で後ろに録音中のページの3枚が付いたので from を直した）' },
   // 第2a1回（Task G-3。計画 docs/plans/2026-10-19-2a1.md の「変異確認」の表と、各レーンの点検で足した行）。
   // 場面（mainrun）を使う stage2a1.main.test.js などは pattern で赤になるテストだけを回す（CI の mutate を 20 分に収める）
   { id: 'dk-between-order', file: 'src/db/keys.js', from: '  if (lo !== null && hi !== null && lo >= hi) throw new Error(\'keyBetween: a < b の順になっていない\');\n', to: '',
