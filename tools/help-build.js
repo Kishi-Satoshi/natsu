@@ -9,7 +9,8 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
-const { HelpBuildError } = require('./lib/help-md');
+const { HelpBuildError, parseFrontMatter, renderMarkdown } = require('./lib/help-md');
+const P = require('./lib/help-page');
 
 const ROOT = path.resolve(__dirname, '..');
 const NAME = /^[a-z0-9-]{1,40}$/;
@@ -76,16 +77,122 @@ function clearOut(root, out) {
   fs.mkdirSync(o, { recursive: true });
 }
 
-const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+const toPosix = (p) => p.split(path.sep).join('/');
 
-/** 作る（H-1 は骨組み: 分類の名前だけの仮のページ） */
+/** help/assets の下の全部のファイル（相対の道。順は決まった並び） */
+function listAssets(dir, base = dir) {
+  if (!fs.existsSync(dir)) return [];
+  return fs.readdirSync(dir, { withFileTypes: true })
+    .sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0))
+    .flatMap((e) => (e.isDirectory() ? listAssets(path.join(dir, e.name), base) : [toPosix(path.relative(base, path.join(dir, e.name)))]));
+}
+
+/** 分類のアイコン（自作の線の絵）を HTML に差し込む形にする（名前空間の住所を外し、class="ic" を付ける） */
+function iconMarkup(help, name) {
+  const svg = fs.readFileSync(path.join(help, 'assets', 'icons', `${name}.svg`), 'utf8').trim();
+  if (!/^<svg [^>]*>[\s\S]*<\/svg>$/.test(svg) || /<script|\son[a-z]+\s*=|<image|<foreignObject|href=/i.test(svg)) badSite(`アイコン ${name}.svg の形が違う`);
+  return svg.replace(/ xmlns="http:\/\/www\.w3\.org\/2000\/svg"/, '').replace(/^<svg /, '<svg class="ic" ');
+}
+
+/** 記事を読む（1回目: 前置きと見出し、2回目: ほかの記事の #id も確かめる）→ Map(ref → 記事) */
+function readArticles(root, site) {
+  const help = path.join(root, 'help');
+  const refs = site.categories.flatMap((c) => c.articles.map((a) => `${c.id}/${a}`));
+  const exists = new Set(refs);
+  const assetExists = (p) => { const f = path.join(help, p); return f.startsWith(path.join(help, 'assets') + path.sep) && fs.existsSync(f) && fs.statSync(f).isFile(); };
+  const arts = new Map();
+  for (const ref of refs) {
+    const file = `help/articles/${ref}.md`;
+    const text = fs.readFileSync(path.join(root, file), 'utf8');
+    const fm = parseFrontMatter(text, { file });
+    const opts = { file, bodyLine: fm.bodyLine, articleExists: (r) => exists.has(r), assetExists };
+    const first = renderMarkdown(fm.body, opts);
+    const bodyLines = fm.body.split('\n');
+    for (const h of first.headings) {
+      if (h.id.startsWith('hc-')) {
+        const k = bodyLines.findIndex((l) => l.includes(`{#${h.id}}`));
+        throw new HelpBuildError(`hc- で始まる id はページの部品が使う: ${h.id}`, { file, line: fm.bodyLine + Math.max(k, 0), code: 'syntax' });
+      }
+    }
+    const relLine = text.replace(/\r\n?/g, '\n').split('\n').findIndex((l) => l.startsWith('related:')) + 1;
+    for (const r of fm.meta.related) {
+      if (!exists.has(r)) throw new HelpBuildError(`related の記事が無い: ${r}`, { file, line: relLine || null, code: 'missing-article' });
+    }
+    const [cat, name] = ref.split('/');
+    arts.set(ref, { ref, cat, name, url: `/${ref}/`, meta: fm.meta, fm, opts, headings: first.headings });
+  }
+  const anchors = new Map([...arts].map(([ref, a]) => [ref, new Set(a.headings.filter((h) => h.linkable).map((h) => h.id))]));
+  for (const a of arts.values()) {
+    const r = renderMarkdown(a.fm.body, { ...a.opts, anchorExists: (ref, id) => anchors.has(ref) && anchors.get(ref).has(id) });
+    Object.assign(a, { html: r.html, headings: r.headings, text: r.text, links: r.links });
+    // 関連記事: related のとおり。無ければ同じ分類の前後の記事を近い順に3つまで
+    const own = site.categories.find((c) => c.id === a.cat).articles;
+    const i = own.indexOf(a.name);
+    a.related = a.meta.related.length
+      ? a.meta.related.filter((r) => r !== a.ref)
+      : own.map((n, k) => ({ n, k })).filter((x) => x.k !== i).sort((x, y) => Math.abs(x.k - i) - Math.abs(y.k - i) || x.k - y.k).slice(0, 3).map((x) => `${a.cat}/${x.n}`);
+  }
+  return arts;
+}
+
+/**
+ * 出力のページの中の / で始まる住所と #id が、出力のファイルと id にあるかを確かめる（HF4）。
+ * pages: Map(出力の相対の道 → HTML の文字。HTML でないファイルは null)
+ */
+function checkPages(pages) {
+  const idsOf = (h) => new Set([...h.matchAll(/\sid="([^"]+)"/g)].map((m) => m[1]));
+  const ids = new Map();
+  for (const [f, h] of pages) if (typeof h === 'string') ids.set(f, idsOf(h));
+  for (const [f, h] of pages) {
+    if (typeof h !== 'string') continue;
+    const file = `help/dist/${f}`;
+    for (const m of h.matchAll(/\s(?:href|src)="([^"]*)"/g)) {
+      const url = m[1].replace(/&amp;/g, '&');
+      if (url.startsWith('https://')) continue;
+      if (url.startsWith('#')) {
+        if (!ids.get(f).has(url.slice(1))) throw new HelpBuildError(`無い飛び先: ${url}`, { file, code: 'missing-anchor' });
+        continue;
+      }
+      if (!url.startsWith('/') || url.startsWith('//')) throw new HelpBuildError(`形の違う住所: ${url}`, { file, code: 'bad-link' });
+      const [p, anchor] = url.split('#');
+      const target = p.endsWith('/') ? `${p.slice(1)}index.html` : p.slice(1);
+      if (!pages.has(target)) throw new HelpBuildError(`リンク先が無い: ${url}`, { file, code: 'missing-article' });
+      if (anchor !== undefined && !(ids.get(target) || new Set()).has(anchor)) throw new HelpBuildError(`無い飛び先: ${url}`, { file, code: 'missing-anchor' });
+    }
+  }
+}
+
+/** 作る。全部のページを先に組み立てて確かめ、通ったときだけ out を空にして書く */
 function build({ root = ROOT, out } = {}) {
   out = out || path.join(root, 'help', 'dist');
+  const help = path.join(root, 'help');
   const { site } = loadSite(root);
+  const articles = readArticles(root, site);
+  const icons = new Map(site.categories.map((c) => [c.icon, iconMarkup(help, c.icon)]));
+  const ctx = { articles, icons };
+  const pages = new Map();
+  pages.set('index.html', P.pageHome(site, ctx));
+  for (const c of site.categories) pages.set(`${c.id}/index.html`, P.pageCategory(site, c, ctx));
+  for (const a of articles.values()) pages.set(`${a.ref}/index.html`, P.pageArticle(site, a, ctx));
+  pages.set('404.html', P.page404(site, ctx));
+  const assets = listAssets(path.join(help, 'assets'));
+  const all = new Map(pages);
+  for (const f of assets) all.set(`assets/${f}`, null);
+  checkPages(all);
   clearOut(root, out);
-  const html = `<!doctype html>\n<html lang="ja">\n<head>\n<meta charset="utf-8">\n<title>${esc(site.title)}</title>\n</head>\n<body>\n<h1>${esc(site.title)}</h1>\n<ul>\n${site.categories.map((c) => `<li>${esc(c.title)}</li>`).join('\n')}\n</ul>\n</body>\n</html>\n`;
-  fs.writeFileSync(path.join(out, 'index.html'), html);
-  return { pages: ['index.html'], articles: [], bytes: Buffer.byteLength(html) };
+  let bytes = 0;
+  for (const [f, h] of pages) {
+    fs.mkdirSync(path.dirname(path.join(out, f)), { recursive: true });
+    fs.writeFileSync(path.join(out, f), h);
+    bytes += Buffer.byteLength(h);
+  }
+  for (const f of assets) {
+    const dst = path.join(out, 'assets', f);
+    fs.mkdirSync(path.dirname(dst), { recursive: true });
+    fs.copyFileSync(path.join(help, 'assets', f), dst);
+    bytes += fs.statSync(dst).size;
+  }
+  return { pages: [...pages.keys()], articles: [...articles.values()].map((a) => ({ ref: a.ref, url: a.url, title: a.meta.title })), bytes };
 }
 
 function main() {
@@ -103,4 +210,4 @@ function main() {
 }
 
 if (require.main === module) process.exitCode = main();
-module.exports = { build, loadSite, HelpBuildError };
+module.exports = { build, loadSite, checkPages, HelpBuildError };
