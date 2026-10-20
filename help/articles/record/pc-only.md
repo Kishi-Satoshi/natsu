@@ -6,7 +6,7 @@ sources: README.md, src/renderer/app.html, src/main.js
 related: start/what-natsu-does, record/start-stop, start/login
 ---
 
-**押さなければ、** ログインしていてインターネットにつながっているときは、会議の音声を会社の文字起こしの中継を通して OpenAI へ送って文字起こしします。
+**押さなければ、**ログインしていてインターネットにつながっているときは、会議の音声を会社の文字起こしの中継を通して OpenAI へ送って文字起こしします。
 要約のときは、文字起こしの文とメモをご自分の Claude Code（Anthropic）へ渡します。
 
 > [!WARNING]
