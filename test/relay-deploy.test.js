@@ -24,15 +24,20 @@ const WF = '.github/workflows/relay-deploy.yml';
 let CFG = {};
 try { CFG = JSON.parse(read('relay/deploy-config.json')); } catch (_) { /* 無ければ、使うテストが落ちる */ }
 const MJS = fs.readdirSync(path.join(ROOT, 'relay')).filter((f) => f.endsWith('.mjs')).sort();
-const READY_ALL = { db: true, openai: true, mail: true, domains: true };
+const READY_ALL = { db: true, openai: true, access: true, domains: true };   // W-5 の /health の ready（mail は外れた）
 
 // ---------------------------------------------------------------- 偽の Cloudflare の API（127.0.0.1）
-// opts: subdomain（'' なら無い）・dbExists・scriptExists・health（'ok'｜'partial'｜'no-db'｜'503'｜'redirect'）・
+// opts: subdomain（'' なら無い）・dbExists・scriptExists・health（'ok'｜'partial'｜'no-db'｜'503'｜'redirect'｜D-2 の下の形）・
+//       svc（{ id, secret }。health が 'svc' のとき、/health はこの2つの見出しがちょうど合うときだけ 200、ほかは中継の 401 login）・
 //       fail（{ method, re }。当たった要求に 403 と、トークン・アカウントの ID・本文の印を入れた答えを返す）・
 //       redirect（{ method, re }。当たった要求に 302 で同じ偽物の /client/v4/moved を返す。/moved は 200 の整った答え）
-async function fakeCf({ token, acct, subdomain = 'team-a', dbExists = false, scriptExists = false, health = 'ok', fail = null, redirect = null } = {}) {
+// D-2 の health: 'no-access'（ready.access がまだ）・'login'（中継の JSON の 401 login）・'denied'（中継の JSON の 403 denied）・
+//   'access-302'（Access の前の 302。行き先は同じ偽物の /cdn-cgi/access/login/…。そこへ来た要求は reqs に残る）・
+//   'access-401'／'access-403'（中継の形でない HTML の 401／403）・'not-ready'（中継の JSON の 503 not-ready）・'svc'（上の svc）
+async function fakeCf({ token, acct, subdomain = 'team-a', dbExists = false, scriptExists = false, health = 'ok', fail = null, redirect = null, svc = null } = {}) {
   const st = { reqs: [], dbs: dbExists ? [{ uuid: crypto.randomUUID(), name: CFG.dbName }] : [], scriptExists, created: null, sql: [], put: null, sub: null, d1: makeFakeD1() };
   const A = `/client/v4/accounts/${acct}`;
+  let base = '';
   const send = (res, code, body, type = 'application/json') => { res.writeHead(code, { 'content-type': type }); res.end(typeof body === 'string' ? body : JSON.stringify(body)); };
   const ok = (res, result) => send(res, 200, { success: true, errors: [], messages: [], result });
   const nf = (res, code = 7003) => send(res, 404, { success: false, errors: [{ code, message: 'Could not route' }], result: null });
@@ -43,7 +48,8 @@ async function fakeCf({ token, acct, subdomain = 'team-a', dbExists = false, scr
       const raw = Buffer.concat(chunks);
       const u = new URL(req.url, 'http://127.0.0.1');
       const p = u.pathname;
-      st.reqs.push({ method: req.method, path: (p + u.search).split(acct).join(':acct'), auth: req.headers.authorization || '', body: raw.toString('latin1') });
+      st.reqs.push({ method: req.method, path: (p + u.search).split(acct).join(':acct'), auth: req.headers.authorization || '', body: raw.toString('latin1'),
+        svcId: req.headers['cf-access-client-id'], svcSecret: req.headers['cf-access-client-secret'] });
       try {
         if (fail && fail.method === req.method && fail.re.test(p)) {
           return send(res, 403, { success: false, errors: [{ code: 10000, message: `Authentication error ${token} ${acct} body-mark-zz` }], messages: [`body-mark-zz ${token}`], result: { note: `body-mark-zz ${acct}` } });
@@ -52,13 +58,24 @@ async function fakeCf({ token, acct, subdomain = 'team-a', dbExists = false, scr
           res.writeHead(302, { location: '/client/v4/moved' }); return res.end();
         }
         if (p === '/client/v4/moved') return ok(res, { subdomain: 'team-a' });
-        if (p === '/relay/health-moved') return send(res, 200, { ok: true, relay: 1, ready: READY_ALL });
+        if (p === '/relay/health-moved') return send(res, 200, { ok: true, relay: 2, ready: READY_ALL });
+        if (p.startsWith('/cdn-cgi/access/login')) return send(res, 200, { ok: true, relay: 2, ready: READY_ALL });   // ここへ来たら転送を追った
         if (p === '/relay/health' && req.method === 'GET') {
           if (health === 'redirect') { res.writeHead(302, { location: '/relay/health-moved' }); return res.end(); }
-          if (health === '503') return send(res, 503, { ok: true, relay: 1, ready: READY_ALL });   // 本文が整っていても 200 でなければ数えない
-          const ready = health === 'partial' ? { db: true, openai: false, mail: false, domains: false }
-            : health === 'no-db' ? { ...READY_ALL, db: false } : READY_ALL;
-          return send(res, 200, { ok: true, relay: 1, ready });
+          if (health === '503') return send(res, 503, { ok: true, relay: 2, ready: READY_ALL });   // 本文が整っていても 200 でなければ数えない
+          if (health === 'access-302') { res.writeHead(302, { location: `${base}/cdn-cgi/access/login/natsu-relay?redirect_url=%2Fhealth` }); return res.end(); }
+          if (health === 'access-401') return send(res, 401, '<html><body>Unauthorized</body></html>', 'text/html');
+          if (health === 'access-403') return send(res, 403, '<html><body>Forbidden</body></html>', 'text/html');
+          if (health === 'login') return send(res, 401, { error: 'login' });
+          if (health === 'denied') return send(res, 403, { error: 'denied' });
+          if (health === 'not-ready') return send(res, 503, { error: 'not-ready' });
+          if (health === 'svc' && !(svc && req.headers['cf-access-client-id'] === svc.id && req.headers['cf-access-client-secret'] === svc.secret)) {
+            return send(res, 401, { error: 'login' });
+          }
+          const ready = health === 'partial' ? { db: true, openai: false, access: false, domains: false }
+            : health === 'no-db' ? { ...READY_ALL, db: false }
+              : health === 'no-access' ? { ...READY_ALL, access: false } : READY_ALL;
+          return send(res, 200, { ok: true, relay: 2, ready });
         }
         if (req.headers.authorization !== `Bearer ${token}`) return send(res, 401, { success: false, errors: [{ code: 10001 }] });
         if (req.method === 'GET' && p === `${A}/workers/subdomain`) {
@@ -96,7 +113,7 @@ async function fakeCf({ token, acct, subdomain = 'team-a', dbExists = false, scr
     });
   });
   await new Promise((r) => server.listen(0, '127.0.0.1', r));
-  const base = `http://127.0.0.1:${server.address().port}`;
+  base = `http://127.0.0.1:${server.address().port}`;
   return { st, base, close: () => { st.d1.close(); return new Promise((r) => server.close(r)); } };
 }
 
@@ -110,15 +127,23 @@ async function runDeploy(cf, { token, acct, env = {}, attempts } = {}) {
   for (const [k, v] of Object.entries(env)) { if (v === undefined) delete e[k]; else e[k] = v; }
   const out = [];
   const tried = [];
+  const calls = [];   // { url, headers（小文字の名前）, redirect }。外へ出なかった要求（127.0.0.1 のほか）も残る
   const guarded = R.loopbackOnlyFetch(globalThis.fetch);
-  const fetch = (input, init) => { tried.push(String(input && input.url ? input.url : input)); return guarded(input, init); };
+  const fetch = (input, init) => {
+    const url = String(input && input.url ? input.url : input);
+    tried.push(url);
+    const headers = {};
+    for (const [k, v] of new Headers((init && init.headers) || {}).entries()) headers[k] = v;
+    calls.push({ url, headers, redirect: init && init.redirect });
+    return guarded(input, init);
+  };
   const realErr = console.error, realWarn = console.warn;
   const errs = [];
   console.error = (...a) => errs.push(a.join(' ')); console.warn = console.error;
   let code;
   try {
     const logged = await R.captureConsole(async () => { code = await deploy({ env: e, fetch, out: (l) => out.push(String(l)), sleep: async () => {} }); });
-    return { code, text: [...out, ...logged, ...errs].join('\n'), out, tried };
+    return { code, text: [...out, ...logged, ...errs].join('\n'), out, tried, calls };
   } finally { console.error = realErr; console.warn = realWarn; }
 }
 
@@ -163,7 +188,7 @@ test('RL8: 1回目は D1 を作り（apac）、表の形を流し、keep_binding
     }
     assert.deepStrictEqual(cf.st.sub, { enabled: true, previews_enabled: false });
     assert.match(r.text, /公開した URL: https:\/\/natsu-relay\.team-a\.workers\.dev$/m);
-    assert.match(r.text, /ready: db はい・openai はい・mail はい・domains はい/);
+    assert.match(r.text, /ready: db はい・openai はい・access はい・domains はい$/m);
     assert.ok(!/秘密の欄を入れてください/.test(r.text));
   } finally { await cf.close(); }
 });
@@ -263,8 +288,9 @@ test('RL8: /health が 200 にならなければ 1・ready に「まだ」があ
   try {
     const r = await runDeploy(cf, s);
     assert.strictEqual(r.code, 0, r.text);
-    assert.match(r.text, /ready: db はい・openai まだ・mail まだ・domains まだ/);
-    assert.match(r.text, /Cloudflare の画面で秘密の欄を入れてください: OPENAI_API_KEY・RESEND_API_KEY・MAIL_FROM・ALLOWED_EMAIL_DOMAINS/);
+    assert.match(r.text, /ready: db はい・openai まだ・access まだ・domains まだ/);
+    assert.match(r.text, /Cloudflare の画面で秘密の欄を入れてください: OPENAI_API_KEY・ALLOWED_EMAIL_DOMAINS（/);
+    assert.match(r.text, /Cloudflare の画面で TEAM_DOMAIN と POLICY_AUD を入れてください（利用者の用意の 8/);
   } finally { await cf.close(); }
   cf = await fakeCf({ ...s, health: 'no-db' });
   try {
@@ -313,6 +339,194 @@ test('F6: 転送（3xx）を追わない。API の答えが転送なら止まり
     assert.strictEqual(r.code, 1, r.text);
     assert.ok(!seq(cf.st).includes('GET /relay/health-moved'), '/health の転送の先へ行った');
     assert.ok(!/公開した URL/.test(r.text), '転送を「届いた」に数えた');
+  } finally { await cf.close(); }
+});
+
+// ---------------------------------------------------------------- /health のサービストークン（D-2。RL8・F23・F28）
+// サービストークンの形（Client ID は 32 けたの16進と .access・Client Secret は空白の無い字）。値は場面ごとに乱数で作る
+const svcPair = () => ({ id: crypto.randomBytes(16).toString('hex') + '.access', secret: crypto.randomBytes(32).toString('hex') });
+const svcEnv = (svc) => ({ CF_ACCESS_CLIENT_ID: svc.id, CF_ACCESS_CLIENT_SECRET: svc.secret });
+const HEALTH = 'GET /relay/health';
+const noSvcValues = (text, svc) => {
+  for (const bad of [svc.id, svc.id.slice(0, 32), svc.secret, svc.secret.slice(0, 16)]) assert.ok(!text.includes(bad), `出力にサービストークンの値: ${bad.slice(0, 6)}…`);
+};
+
+test('RL8: 2つの秘密があれば /health の要求にだけ CF-Access-Client-Id と CF-Access-Client-Secret が付き、Cloudflare の API の要求には付かない', { timeout: 5000 }, async () => {
+  const s = secrets();
+  const svc = svcPair();
+  const cf = await fakeCf({ ...s, health: 'svc', svc });
+  try {
+    const r = await runDeploy(cf, { ...s, env: svcEnv(svc) });
+    assert.strictEqual(r.code, 0, r.text);
+    assert.match(r.text, /ready: db はい・openai はい・access はい・domains はい$/m);
+    const health = cf.st.reqs.filter((q) => `${q.method} ${q.path}` === HEALTH);
+    assert.strictEqual(health.length, 1);
+    assert.strictEqual(health[0].svcId, svc.id);
+    assert.strictEqual(health[0].svcSecret, svc.secret);
+    assert.strictEqual(health[0].auth, '', '/health に Cloudflare の API のトークン');
+    const api = cf.st.reqs.filter((q) => q.path.startsWith('/client/v4/'));
+    assert.ok(api.length >= 7, seq(cf.st).join(' / '));
+    for (const q of api) {
+      assert.strictEqual(q.svcId, undefined, `${q.method} ${q.path}: CF-Access-Client-Id`);
+      assert.strictEqual(q.svcSecret, undefined, `${q.method} ${q.path}: CF-Access-Client-Secret`);
+      assert.ok(!q.body.includes(svc.secret) && !q.body.includes(svc.id), `${q.method} ${q.path}: 本文にサービストークン`);
+    }
+    // 秘密が無ければ /health にも付けない（偽物は 401 login を返し、push でなければ 1）
+    const cf2 = await fakeCf({ ...s, health: 'svc', svc });
+    try {
+      const r2 = await runDeploy(cf2, s);
+      assert.strictEqual(r2.code, 1, r2.text);
+      assert.ok(cf2.st.reqs.every((q) => q.svcId === undefined && q.svcSecret === undefined));
+    } finally { await cf2.close(); }
+  } finally { await cf.close(); }
+});
+
+test('F23: 出力（標準出力と標準エラー）に Client ID と Secret が無い。宛先が本物の workers.dev か試しの 127.0.0.1 でないとき（RELAY_HEALTH_BASE: \'http://evil.example:8443\'）は見出しを付けない', { timeout: 5000 }, async () => {
+  const s = secrets();
+  const svc = svcPair();
+  for (const health of ['svc', 'login', 'denied', 'not-ready', 'access-302', 'access-401', 'access-403', 'no-access', '503']) {
+    const cf = await fakeCf({ ...s, health, svc });
+    try {
+      for (const ev of ['push', 'workflow_dispatch']) {
+        const r = await runDeploy(cf, { ...s, env: { ...svcEnv(svc), GITHUB_EVENT_NAME: ev, GITHUB_ACTIONS: 'true' } });
+        noSvcValues(r.text, svc);
+        assert.ok(r.text.length > 0, health);
+      }
+    } finally { await cf.close(); }
+  }
+  // /health の宛先が試しの形でなければ、見る先は本物の workers.dev の住所だけ（evil.example へは見出しどころか要求も出さない）
+  const cf = await fakeCf({ ...s, svc });
+  try {
+    for (const v of ['http://evil.example:8443', 'http://evil.example:8443/relay', 'https://natsu-relay.team-a.workers.dev.evil.example']) {
+      const r = await runDeploy(cf, { ...s, env: { ...svcEnv(svc), RELAY_HEALTH_BASE: v } });
+      assert.strictEqual(r.code, 1, v);
+      noSvcValues(r.text, svc);
+      assert.ok(!r.calls.some((c) => /evil\.example/.test(new URL(c.url).hostname)), `${v} へ要求を出した`);
+      const withSvc = r.calls.filter((c) => 'cf-access-client-id' in c.headers || 'cf-access-client-secret' in c.headers);
+      assert.strictEqual(withSvc.length, 12, v);
+      assert.ok(withSvc.every((c) => c.url === 'https://natsu-relay.team-a.workers.dev/health'), withSvc.map((c) => c.url).join(' / '));
+    }
+  } finally { await cf.close(); }
+});
+
+test('RL8・F23: CF_ACCESS_CLIENT_ID と CF_ACCESS_CLIENT_SECRET の片方だけ・形が違う → 値を出さずに「確かめてください」で 1。要求を1つも出さない', { timeout: 5000 }, async () => {
+  const s = secrets();
+  const svc = svcPair();
+  const cf = await fakeCf(s);
+  try {
+    for (const env of [
+      { CF_ACCESS_CLIENT_ID: svc.id }, { CF_ACCESS_CLIENT_SECRET: svc.secret },
+      { ...svcEnv(svc), CF_ACCESS_CLIENT_ID: svc.id.slice(0, 32) }, { ...svcEnv(svc), CF_ACCESS_CLIENT_ID: svc.id.toUpperCase() },
+      { ...svcEnv(svc), CF_ACCESS_CLIENT_SECRET: svc.secret.slice(0, 19) }, { ...svcEnv(svc), CF_ACCESS_CLIENT_SECRET: `${svc.secret} ${svc.secret}` },
+      { ...svcEnv(svc), CF_ACCESS_CLIENT_SECRET: `${svc.secret}\n${svc.secret}` }, { ...svcEnv(svc), CF_ACCESS_CLIENT_SECRET: svc.secret.repeat(4) },
+    ]) {
+      for (const ev of ['push', 'workflow_dispatch']) {
+        const r = await runDeploy(cf, { ...s, env: { ...env, GITHUB_EVENT_NAME: ev } });
+        assert.strictEqual(r.code, 1, Object.keys(env).join(','));
+        assert.match(r.text, /CF_ACCESS_CLIENT_ID と CF_ACCESS_CLIENT_SECRET を確かめてください/);
+        noSvcValues(r.text, svc);
+        assert.deepStrictEqual(r.tried, [], '形の違う秘密のまま要求を出した');
+      }
+    }
+    assert.deepStrictEqual(cf.st.reqs, []);
+    // 前後の空白と改行は落として使う（秘密の欄に貼ったときの改行）
+    const cf2 = await fakeCf({ ...s, health: 'svc', svc });
+    try {
+      const r = await runDeploy(cf2, { ...s, env: { CF_ACCESS_CLIENT_ID: ` ${svc.id}\n`, CF_ACCESS_CLIENT_SECRET: `${svc.secret}\n` } });
+      assert.strictEqual(r.code, 0, r.text);
+    } finally { await cf2.close(); }
+  } finally { await cf.close(); }
+});
+
+test('RL8: ready の4つは db・openai・access・domains。access がまだなら TEAM_DOMAIN と POLICY_AUD の名前を出して 0、db がまだなら 1', { timeout: 5000 }, async () => {
+  const s = secrets();
+  let cf = await fakeCf({ ...s, health: 'no-access' });
+  try {
+    const r = await runDeploy(cf, s);
+    assert.strictEqual(r.code, 0, r.text);
+    assert.match(r.text, /^ready: db はい・openai はい・access まだ・domains はい$/m);
+    assert.match(r.text, /Cloudflare の画面で TEAM_DOMAIN と POLICY_AUD を入れてください（利用者の用意の 8/);
+    assert.ok(!/秘密の欄を入れてください: /.test(r.text), 'openai・domains はそろっているのに名前を出した');
+    assert.ok(!/mail|RESEND/.test(r.text), r.text);
+  } finally { await cf.close(); }
+  cf = await fakeCf(s);
+  try {
+    const r = await runDeploy(cf, s);
+    assert.strictEqual(r.code, 0, r.text);
+    assert.ok(!/TEAM_DOMAIN|POLICY_AUD/.test(r.text), 'access がそろっているのに名前を出した');
+  } finally { await cf.close(); }
+  cf = await fakeCf({ ...s, health: 'no-db' });
+  try {
+    const r = await runDeploy(cf, s);
+    assert.strictEqual(r.code, 1, r.text);
+    assert.match(r.text, /^ready: db まだ・openai はい・access はい・domains はい$/m);
+  } finally { await cf.close(); }
+});
+
+test('RL8: 中継の 401 で秘密が無い → push は 0・手で押したら 1、秘密がある → 1。302（Access の前）でも同じ', { timeout: 5000 }, async () => {
+  const s = secrets();
+  const svc = svcPair();
+  const NEED = /GitHub の Environments → relay に CF_ACCESS_CLIENT_ID と CF_ACCESS_CLIENT_SECRET を入れてください（利用者の用意の 7）/;
+  const POLICY = /Access の決まりに Service Auth（サービストークン）の決まりがあるかを確かめてください/;
+  for (const health of ['login', 'denied', 'access-302', 'access-401', 'access-403', 'redirect']) {
+    const cf = await fakeCf({ ...s, health, svc });
+    try {
+      const push = await runDeploy(cf, { ...s, env: { GITHUB_EVENT_NAME: 'push' } });
+      assert.strictEqual(push.code, 0, `${health} push: ${push.text}`);
+      assert.match(push.text, NEED, health);
+      assert.ok(!POLICY.test(push.text), health);
+      const manual = await runDeploy(cf, { ...s, env: { GITHUB_ACTIONS: 'true' } });
+      assert.strictEqual(manual.code, 1, `${health} 手: ${manual.text}`);
+      assert.match(manual.text, NEED, health);
+      assert.match(manual.text, /^::error::/m, `${health}: Actions の要約に赤く出ない`);
+      for (const ev of ['push', 'workflow_dispatch']) {
+        const withSvc = await runDeploy(cf, { ...s, env: { ...svcEnv(svc), GITHUB_EVENT_NAME: ev } });
+        assert.strictEqual(withSvc.code, 1, `${health} ${ev} 秘密あり: ${withSvc.text}`);
+        assert.match(withSvc.text, POLICY, health);
+        assert.ok(!NEED.test(withSvc.text), health);
+        noSvcValues(withSvc.text, svc);
+      }
+      for (const r of [push, manual]) {
+        assert.ok(!/公開した URL|^ready: /m.test(r.text), `${health}: 止められたのに ready を出した`);
+        assert.match(r.text, /7\/7 \/health: HTTP (30[1278]|401|403)/, health);
+      }
+      // Access の決まりは数秒では変わらないので、何回も試さない（1回で分ける）
+      assert.strictEqual(seq(cf.st).filter((x) => x === HEALTH).length, 4, `${health}: /health を何回も試した`);
+    } finally { await cf.close(); }
+  }
+});
+
+test('RL8・F28: /health が中継の JSON の 503 not-ready → TEAM_DOMAIN と POLICY_AUD の名前を出して 1（値は出さない）', { timeout: 5000 }, async () => {
+  const s = secrets();
+  const svc = svcPair();
+  for (const ev of ['push', 'workflow_dispatch']) {
+    const cf = await fakeCf({ ...s, health: 'not-ready', svc });
+    try {
+      const r = await runDeploy(cf, { ...s, env: { ...svcEnv(svc), GITHUB_EVENT_NAME: ev, TEAM_DOMAIN: 'https://team-value-zz.example', POLICY_AUD: 'aud-value-zz' } });
+      assert.strictEqual(r.code, 1, r.text);
+      assert.match(r.text, /Cloudflare の画面の TEAM_DOMAIN と POLICY_AUD が、natsu-relay の Access の app のものかを確かめてください（利用者の用意の 8）/);
+      assert.ok(!/ready: |公開した URL|届きませんでした/.test(r.text), r.text);
+      assert.ok(!/value-zz/.test(r.text), '値を出した');
+      noSvcValues(r.text, svc);
+      // 鍵の口の一時の失敗（r: certs）も 503 not-ready なので、ほかの 200 でない答えと同じく 12 回まで試してから分ける
+      assert.strictEqual(seq(cf.st).filter((x) => x === HEALTH).length, 12);
+    } finally { await cf.close(); }
+  }
+});
+
+test('F23: /health は redirect: \'manual\' で、302 の行き先へサービストークンの見出しを運ばない（偽の口の 302 の先に要求が来ない）', { timeout: 5000 }, async () => {
+  const s = secrets();
+  const svc = svcPair();
+  const cf = await fakeCf({ ...s, health: 'access-302', svc });
+  try {
+    const r = await runDeploy(cf, { ...s, env: svcEnv(svc) });
+    assert.strictEqual(r.code, 1, r.text);
+    assert.ok(!cf.st.reqs.some((q) => q.path.startsWith('/cdn-cgi/')), '302 の行き先へ行った');
+    const health = r.calls.filter((c) => /\/health$/.test(c.url));
+    assert.strictEqual(health.length, 1);
+    assert.strictEqual(health[0].redirect, 'manual');
+    // Cloudflare の API は今のまま転送で止まる（redirect: 'error'）
+    for (const c of r.calls.filter((x) => x.url.includes('/client/v4/'))) assert.strictEqual(c.redirect, 'error', c.url);
   } finally { await cf.close(); }
 });
 
@@ -398,9 +612,9 @@ test('F10: relay-deploy.yml は手で押すか main への push だけで走り�
   assert.ok(iTest >= 0 && iDeploy > iTest, `中継のテストが中継を出すより前に無い: ${names.join(' / ')}`);
   assert.match(st[iTest], /^\s+run: node --test --test-reporter=tap "test\/relay-\*\.test\.js"$/m);
   assert.match(st[iDeploy], /^\s+run: node tools\/relay-deploy\.js$/m, 'トークンを引数で渡していないか');
-  // 秘密を参照するのは「中継を出す」の env の2つだけ
+  // 秘密を参照するのは「中継を出す」の env の4つだけ（Cloudflare の API の2つと、/health のサービストークンの2つ: D-2）
   const refs = y.match(/secrets\./g) || [];
-  assert.strictEqual(refs.length, 2, `secrets. が ${refs.length} か所`);
+  assert.strictEqual(refs.length, 4, `secrets. が ${refs.length} か所`);
   const env = st[iDeploy].slice(st[iDeploy].indexOf('env:'), st[iDeploy].indexOf('run:'));
   assert.match(env, /^\s+CLOUDFLARE_API_TOKEN: \$\{\{ secrets\.CLOUDFLARE_API_TOKEN \}\}$/m);
   assert.match(env, /^\s+CLOUDFLARE_ACCOUNT_ID: \$\{\{ secrets\.CLOUDFLARE_ACCOUNT_ID \}\}$/m);
@@ -452,6 +666,26 @@ test('F6: ほかのワークフローは CLOUDFLARE_ の秘密を参照しない
     assert.ok(!/CLOUDFLARE_/.test(y), `${f} が CLOUDFLARE_ を参照する`);
     assert.ok(!/environment:\s*relay\b/.test(y), `${f} が環境 relay を使う`);
   }
+});
+
+test('F10・F23: ワークフローの形: CF_ACCESS_ の秘密を参照するのは『中継を出す』の env だけ。ci.yml・release.yml・ほかのワークフローは CF_ACCESS_ を参照しない', { timeout: 5000 }, () => {
+  const y = read(WF);
+  const st = stepsOf(jobsOf(y).deploy);
+  const names = st.map(nameOf);
+  const deployStep = st[names.indexOf('中継を出す')];
+  assert.ok(deployStep, names.join(' / '));
+  const env = deployStep.slice(deployStep.indexOf('env:'), deployStep.indexOf('run:'));
+  assert.match(env, /^\s+CF_ACCESS_CLIENT_ID: \$\{\{ secrets\.CF_ACCESS_CLIENT_ID \}\}$/m);
+  assert.match(env, /^\s+CF_ACCESS_CLIENT_SECRET: \$\{\{ secrets\.CF_ACCESS_CLIENT_SECRET \}\}$/m);
+  // ほかの段（中継のテストなど）とジョブ・ワークフローの頭（env:）には渡さない
+  const lines = y.split('\n').filter((l) => /CF_ACCESS_/.test(l) && !/^\s*#/.test(l));
+  assert.strictEqual(lines.length, 2, lines.join(' / '));
+  for (const l of lines) assert.ok(env.includes(l), `「中継を出す」の env の外で CF_ACCESS_: ${l.trim()}`);
+  for (const s of st) if (s !== deployStep) assert.ok(!/CF_ACCESS_/.test(s.split('\n').filter((l) => !/^\s*#/.test(l)).join('\n')), `${nameOf(s)} が CF_ACCESS_ を参照する`);
+  const dir = path.join(ROOT, '.github', 'workflows');
+  const others = fs.readdirSync(dir).filter((f) => /\.ya?ml$/.test(f) && f !== 'relay-deploy.yml');
+  assert.ok(others.includes('ci.yml') && others.includes('release.yml'), others.join(','));
+  for (const f of others) assert.ok(!/CF_ACCESS_/.test(fs.readFileSync(path.join(dir, f), 'utf8')), `${f} が CF_ACCESS_ を参照する`);
 });
 
 // ---------------------------------------------------------------- アプリに入らない（F6・F10）

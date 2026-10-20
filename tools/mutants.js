@@ -896,8 +896,8 @@ module.exports = [
   // ---------------------------------------------------------------- 第1d回 W-1・D-1 の独立した点検で足したもの（計画 docs/plans/2026-10-19-1d.md。W-1・D-1 は 0.7.0 の版で main に入る）
   { id: 'rl-deploy-api-redirect', file: 'tools/relay-deploy.js', from: "{ method, headers, body, redirect: 'error', signal:", to: "{ method, headers, body, signal:",
     tests: ['test/relay-deploy.test.js'], pattern: '^F6: 転送（3xx）を追わない', why: 'D-1 F6: Cloudflare の API の転送を追わない（トークンを付けたまま別の宛先へ行かない）' },
-  { id: 'rl-deploy-health-redirect', file: 'tools/relay-deploy.js', from: "/health`, { redirect: 'error', signal:", to: "/health`, { signal:",
-    tests: ['test/relay-deploy.test.js'], pattern: '^F6: 転送（3xx）を追わない', why: 'D-1 F6: /health の転送を「届いた」に数えない' },
+  { id: 'rl-deploy-health-redirect', file: 'tools/relay-deploy.js', from: "send(healthUrl, { redirect: 'manual', signal:", to: "send(healthUrl, { signal:",
+    tests: ['test/relay-deploy.test.js'], pattern: '^F6: 転送（3xx）を追わない', why: 'D-1 F6・D-2 F23: /health の転送を追わない（「届いた」に数えない・サービストークンを行き先へ運ばない。D-2 で redirect: \'error\' から \'manual\' に）' },
   { id: 'rl-deploy-run-expr', file: '.github/workflows/relay-deploy.yml', from: '        run: node --test --test-reporter=tap "test/relay-*.test.js"\n',
     to: '        run: node --test --test-reporter=tap "test/relay-*.test.js"\n      - name: 変更の説明\n        run: printf %s "${{ github.event.head_commit.message }}"\n',
     tests: ['test/relay-deploy.test.js'], pattern: '^F10: relay-deploy\\.yml は GitHub の ubuntu-latest で走り', why: 'D-1 F10: run の中に ${{ }} の式を書かない（commit の文を shell に差し込まない）' },
