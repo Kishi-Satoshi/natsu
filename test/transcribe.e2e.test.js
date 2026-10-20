@@ -322,6 +322,52 @@ test('送り直すのは、返事の前に接続が切れたときだけ。拒�
   }
 });
 
+// あとの直し (c) の記録の符号の掃除（第1d回 A-14 の点検）: 場面では符号の形が崩れた失敗が起きないので、localFailCode を字面から取り出して動かす
+test('あとの直し (c): 記録の符号は英大文字と _ の 2〜40 文字だけ。数の符号（DOMException の 23）・小文字・URL とポート・空白・長すぎ・無しは「なし」', () => {
+  const m = /^const localFailCode = (\(e\) => \{[\s\S]*?\n\});/m.exec(fs.readFileSync(path.join(__dirname, '..', 'src', 'main.js'), 'utf8'));
+  assert.ok(m, 'main.js に localFailCode が見つからない');
+  const localFailCode = new Function(`return ${m[1]}`)();
+  const failed = (cause) => Object.assign(new TypeError('fetch failed'), { cause });
+  assert.strictEqual(localFailCode(failed({ code: 'ECONNREFUSED' })), 'ECONNREFUSED');
+  assert.strictEqual(localFailCode({ cause: { code: 'ECONNREFUSED' } }), 'ECONNREFUSED');
+  assert.strictEqual(localFailCode(Object.assign(new Error('x'), { code: 'UND_ERR_SOCKET' })), 'UND_ERR_SOCKET');
+  const timeout = new DOMException('The operation was aborted due to timeout', 'TimeoutError');
+  assert.strictEqual(timeout.code, 23);
+  for (const e of [timeout, { code: 23 }, { code: 'econnreset' }, { code: 'http://127.0.0.1:8990/x' }, { cause: { code: 'a b' } },
+    { code: 'A'.repeat(41) }, { code: 'E' }, { code: '' }, failed(undefined), new Error('文字起こしエンジンエラー (500)'), null, undefined]) {
+    assert.strictEqual(localFailCode(e), 'なし', JSON.stringify(e && (e.cause || e.code)));
+  }
+  assert.strictEqual(localFailCode({ code: 'A'.repeat(40) }), 'A'.repeat(40));
+});
+
+// あとの直し (c): 区間の番号（opts.seg）を渡すのは、議事録の区間・［もう一度］・復旧の3か所。音声入力は渡さない
+// （［もう一度］と復旧の失敗の行は場面の照らしに出ないので、呼び出しの字面で見る）
+test('あとの直し (c): transcribeAuto に区間の番号を渡すのは議事録の区間・［もう一度］・復旧の3か所で、音声入力は渡さない', () => {
+  const src = fs.readFileSync(path.join(__dirname, '..', 'src', 'main.js'), 'utf8').replace(/^[ \t]*\/\/.*$/gm, '').replace(/\/\*[\s\S]*?\*\//g, '');
+  const body = (from) => {
+    const i = src.indexOf(from);
+    assert.ok(i >= 0, `${from} が無い`);
+    const j = src.indexOf('\n}', i);
+    return src.slice(i, j > 0 ? j : src.length);
+  };
+  // 本文の中の transcribeAuto( … ) の引数（かっこを数えて閉じまで）
+  const callArgs = (b) => {
+    const i = b.indexOf('transcribeAuto(');
+    assert.ok(i >= 0, `transcribeAuto の呼び出しが無い: ${b.slice(0, 60)}`);
+    let depth = 0;
+    for (let k = i + 'transcribeAuto'.length; k < b.length; k++) {
+      if (b[k] === '(') depth++;
+      else if (b[k] === ')' && --depth === 0) return b.slice(i, k + 1);
+    }
+    assert.fail('transcribeAuto の呼び出しが閉じていない');
+  };
+  for (const [fn, seg] of [['function onMeetingSegment(', 'seg.id'], ['function retryFailedSegments(', 'seg.id'], ['async function transcribeRecoveredItems(', 'item.id']]) {
+    const args = callArgs(body(fn));
+    assert.ok(args.includes(`seg: ${seg} `) || args.includes(`seg: ${seg},`) || args.includes(`seg: ${seg}}`), `${fn}: ${args}`);
+  }
+  assert.ok(!/\bseg:/.test(callArgs(body('async function handleDictationAudio('))), '音声入力が区間の番号を渡している');
+});
+
 sceneTest('起動テストは /inference に正しい WAV の無音を実際に送り、返事の異常を見逃さない', async (need) => {
   await need('text', 'promptEmpty', 'empty', 'err200', 'probe500', 'probeBadJson', 'probeDrop');
   for (const k of ['text', 'promptEmpty', 'empty']) {
