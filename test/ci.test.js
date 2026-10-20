@@ -156,10 +156,16 @@ test('net-smoke.js: 転送・Range・abort・no-store・identity・圧縮と、�
 // 終わること（いつも OK を出す確かめではないこと）を見る。
 const { fakeRequest } = require('./helpers/fake-net');
 
+// 1 つの確かめの上限は、本物の確かめ（electron-net の net-smoke.js）と同じ既定の 12 秒にする（前は 4 秒）。確かめ 7・8 は本番の fetchFile で
+// 1MB を本物のディスクに書き、途中の確定ごとに fsync と記録の書き込み（jsonfile。Windows でファイルが掴まれていれば同期で最大 0.5 秒待って
+// やり直す: RENAME_WAITS）をする。electron-smoke の npm test（Windows・ほかのテストと並べて走る）では、偽のサーバーが要求を全部受けた
+// （+162ms）後の書き込みだけで 4 秒を越えた（CI run 39510667416。イベントループの最大の止まり 1600ms。第1a回 d873976 の 1 回目も同じ確かめ）。
+// 上限は止まらないことの守りで、速さの目安ではない（中身の確かめ「8 つとも OK」は変えない）
+const NET_CHECK_MS = 12000;
 test('net-smoke.js: 偽物の net.request（fake-net）の上では、8 つの確かめが全部 OK で終わる', async () => {
   const { runChecks } = require('../tools/net-smoke');
   const lines = [];
-  const r = await runChecks({ request: fakeRequest, log: (l) => lines.push(l), checkMs: 4000 });
+  const r = await runChecks({ request: fakeRequest, log: (l) => lines.push(l), checkMs: NET_CHECK_MS });
   assert.deepStrictEqual(r.map((x) => x.n), [1, 2, 3, 4, 5, 6, 7, 8]);
   assert.deepStrictEqual(r.filter((x) => !x.ok).map((x) => x.line), []);
   assert.strictEqual(lines.filter((l) => /^OK [1-8] /.test(l)).length, 8, lines.join('\n'));
@@ -174,7 +180,7 @@ test('net-smoke.js: Range と Accept-Encoding を送らない net.request では
     return req;
   };
   const lines = [];
-  const r = await runChecks({ request: dropping, log: (l) => lines.push(l), checkMs: 4000 });
+  const r = await runChecks({ request: dropping, log: (l) => lines.push(l), checkMs: NET_CHECK_MS });
   assert.deepStrictEqual(r.filter((x) => !x.ok).map((x) => x.n), [3, 6, 7], lines.join('\n'));
   assert.deepStrictEqual(lines.filter((l) => /^NG /.test(l)).map((l) => l.slice(0, 4)), ['NG 3', 'NG 6', 'NG 7']);
 });
