@@ -56,6 +56,25 @@ test('RF27: 届かない結果は 15 秒だけ覚える（届いた結果の 60 
   assert.strictEqual(asked, 2, '15 秒を過ぎても確かめ直さない（届いた結果と同じ長さ覚えている）');
 });
 
+test('D16・F13: peek は覚えている答えだけを返す（届く true・届かない false・覚えていないか期限切れ null）。通信しない', T, async (tc) => {
+  const s = await serve((req, res) => { res.writeHead(401); res.end(); });
+  tc.after(() => shut(s));
+  let asked = 0;
+  let fail = false;
+  let t = 5000;
+  const o = O.makeOnline({ isOnline: () => true, now: () => t, request: makeFakeRequest({ before: () => { asked += 1; return fail ? { error: 'net::ERR_CONNECTION_REFUSED' } : null; } }) });
+  const u = urlOf(s, '/health');
+  assert.strictEqual(o.peek(u), null);
+  assert.strictEqual(asked, 0, 'peek が確かめの要求を出した');
+  await o.isUp(u);
+  assert.strictEqual(o.peek(u), true);
+  t += O.REACH_OK_MS; assert.strictEqual(o.peek(u), null, '期限の切れた答えを返した');
+  fail = true; await o.isUp(u);
+  assert.strictEqual(o.peek(u), false);
+  o.forget(u); assert.strictEqual(o.peek(u), null);
+  assert.strictEqual(asked, 2, 'peek が確かめの要求を出した');
+});
+
 test('OL1: 転送（302）も返事のうちで「届く」。転送の先へは追わない（鍵は付けていないが、先の宛先へ要求を出さない）', T, async (tc) => {
   let moved = 0;
   const s = await serve((req, res) => {

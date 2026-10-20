@@ -1059,16 +1059,19 @@ test('#8/#42(2) 復旧ページの「文字起こし待ち」は起動後に文�
 });
 
 test('#42(3) 文字起こしが追いつかないときは区間を伸ばして送る回数を減らし、追いついたら戻す', () => {
-  // 判断は mainlib.nextSegmentMs（main.test.js で実行）。ここは結線だけ見る
+  // 判断は mainlib.nextLiveSegmentMs（中で nextSegmentMs を使う。main.test.js・stage1d.lib.test.js で実行）。ここは結線だけ見る。
+  // 第1d回 A-5（D16）で意図して直した: 背圧と経路の唯一の入口は applySegmentLength、始めの長さは segmentBaseMs の答え（オンラインなら 15 秒）
   const m = code(main);
-  const bp = fnBody(m, 'function applyBackpressure(', '\n}');
-  assert.ok(bp.includes('nextSegmentMs(pendingSegs, '), '判断を mainlib.nextSegmentMs で行っていない');
+  const bp = fnBody(m, 'function applySegmentLength(', '\n}');
+  assert.ok(bp.includes('nextLiveSegmentMs(pendingSegs, '), '判断を mainlib.nextLiveSegmentMs で行っていない');
   assert.ok(bp.includes("sendToOverlay('overlay:segment-ms', next)"), 'オーバーレイへ区間の長さを送っていない');
   assert.ok(bp.includes('if (next === m.segmentMs) return;'), '変わっていないのに送っている');
   const on = fnBody(m, 'function onMeetingSegment(', '\nasync function maybeFinalizeMeeting');
-  assert.ok(on.includes('pendingSegs++;\n  applyBackpressure(m, 1);'), '増えたときに見ていない');
-  assert.ok(on.includes('pendingSegs = Math.max(0, pendingSegs - 1); applyBackpressure(m, -1);'), '減ったときに見ていない');
-  assert.ok(fnBody(m, 'function startMeeting()', '\nfunction stopMeeting').includes('segmentMs: (settings.segmentSec || 75) * 1000'), '開始時の長さを持っていない');
+  assert.ok(on.includes("pendingSegs++;\n  applySegmentLength(m, 1, 'backpressure');"), '増えたときに見ていない');
+  assert.ok(on.includes("pendingSegs = Math.max(0, pendingSegs - 1); applySegmentLength(m, -1, 'backpressure');"), '減ったときに見ていない');
+  const sm = fnBody(m, 'function startMeeting()', '\nfunction stopMeeting');
+  assert.ok(sm.includes('meeting.segmentMs = segmentBaseMs('), '開始時の長さを持っていない');
+  assert.ok(sm.includes('segmentSec: meeting.segmentMs / 1000,'), '録音バーへ始めの長さを渡していない');
   assert.ok(preload.includes("  onSegmentMs: (cb) => ipcRenderer.on('overlay:segment-ms', (_e, ms) => cb(ms)),"), 'preload の onSegmentMs が無い');
 });
 

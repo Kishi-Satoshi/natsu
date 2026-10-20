@@ -886,6 +886,61 @@ function nextSegmentMs(pending, currentMs, baseMs, delta) {
   return cur;
 }
 
+// ---------------------------------------------------------------- 区切りの長さ: オンライン 15 秒・オフライン 75 秒（第1d回 A-5・D16・RF40）
+// 中継で文字起こしする会議は区切りを 15 秒にして止まりに早く気づけるようにする。手元の whisper・オフライン・［この会議は PC の中だけ］は
+// 設定の長さ（既定 75 秒。15 秒より短いと言葉の途中で切れることが増えて精度が落ちる）。
+// 録音バー（overlay.html。変えない）は、始めの segmentSec を丸めずに使い、途中の overlay:segment-ms は SEG_MIN_MS（20 秒）〜
+// SEG_MAX_MS（300 秒）に丸めて次の区間から使う。だから 15 秒になるのは始めに 15 を渡した会議だけで、途中で短い側へ戻すときは 20 秒
+// （設計書 D16 の「正直な限界」）。main は録音バーが今使っている値と同じ値を持つ（丸める前の値を持つと、同じ長さを何度も送る）。
+// 区切りは区間ごとに今の経路で決め、同じ側が SEG_SWITCH_AFTER 区間続いてから替える（1 区間の失敗で長さを揺らさない）。
+// ログイン切れ・上限・会社の鍵の誤り・PC の中だけは、続けて手元になると分かっているのですぐ長い側
+const ONLINE_SEGMENT_SEC = 15;        // 中継で文字起こしする会議の区切り
+const OVERLAY_SEG_MIN_MS = 20000;     // 録音バー（overlay.html の SEG_MIN_MS。変えない）が途中の値を丸める下限の写し
+const SEG_SWITCH_AFTER = 2;           // 同じ側が続けてこの数になったら替える（行ったり来たりしない）
+const STICKY_LOCAL = ['local-only', 'signed-out', 'login', 'daily-cap', 'quota', 'upstream-auth'];   // この理由の手元はすぐ長い側
+
+/**
+ * 会議の始めの区切り → 'short' | 'long'。short は「印なし・ログインしている・hold が ''・net.isOnline() が true・
+ * 覚えている /health の答え（peekUp: true | false | null）が false でない」ときだけ。中継へ届くかは聞かない
+ * （録音の始まりを待たせない。外れたら区間の後で替わる）
+ */
+function startSegmentMode({ localOnly, signedIn, hold, netOnline, peekUp } = {}) {
+  return !localOnly && signedIn === true && !hold && netOnline === true && peekUp !== false ? 'short' : 'long';
+}
+
+/** 区間の後の区切り。st = { mode, localRun, cloudRun }、route は 'cloud' | 'local'、why は手元にした理由 → 新しい st */
+function segmentModeNext(st, { route, why } = {}) {
+  const cur = st && typeof st === 'object' ? st : {};
+  const mode = cur.mode === 'short' ? 'short' : 'long';
+  const localRun = Number.isInteger(cur.localRun) ? cur.localRun : 0;
+  const cloudRun = Number.isInteger(cur.cloudRun) ? cur.cloudRun : 0;
+  if (route === 'cloud') {
+    const n = cloudRun + 1;
+    return { mode: n >= SEG_SWITCH_AFTER ? 'short' : mode, localRun: 0, cloudRun: n };
+  }
+  const n = localRun + 1;
+  return { mode: STICKY_LOCAL.includes(why) || n >= SEG_SWITCH_AFTER ? 'long' : mode, localRun: n, cloudRun: 0 };
+}
+
+/** 区切りの基準（ミリ秒）。short は設定に関わらず 15 秒、long は設定の長さ（無ければ 75 秒） */
+function segmentBaseMs(mode, settingsSec) {
+  return mode === 'short' ? ONLINE_SEGMENT_SEC * 1000 : (Number(settingsSec) || 75) * 1000;
+}
+
+/** 途中で録音バーへ送る値（録音バーが丸めるのと同じ 20〜300 秒） */
+function liveSegmentMs(ms) {
+  return Math.min(SEGMENT_MS_CAP, Math.max(OVERLAY_SEG_MIN_MS, Math.round(ms)));
+}
+
+/**
+ * 次の区切り（背圧と経路の両方）。長い側へは待ちが残っていてもすぐ替える（nextSegmentMs は待ちが 2〜3 なら今の値のまま）。
+ * 答えが今の値と同じなら今の値（始めの 15 秒のまま。丸めない）、ほかは録音バーと同じ丸めの値
+ */
+function nextLiveSegmentMs(pending, currentMs, baseMs, delta) {
+  const raw = Math.max(nextSegmentMs(pending, currentMs, baseMs, delta), baseMs);
+  return raw === currentMs ? currentMs : liveSegmentMs(raw);
+}
+
 // ---------------------------------------------------------------- 残り時間の見積もり（#42）
 // 区間ごとの「処理時間 ÷ 音声の長さ」を指数移動平均（EMA）で持ち、残りの待ち（文字起こし
 // 待ちの区間の長さの合計）に掛けて秒で返す。材料が無いうちは null（0 を出すと「もう終わる」
@@ -1237,6 +1292,7 @@ module.exports = {
   extractNotes, truncationMessage, buildPromptParts,
   publicSegments, settledSegments, pendingDurationMs, recoverSegments, staleSegbufDirs,
   nextSegmentMs, EtaTracker, skipPendingSegments,
+  ONLINE_SEGMENT_SEC, OVERLAY_SEG_MIN_MS, SEG_SWITCH_AFTER, STICKY_LOCAL, startSegmentMode, segmentModeNext, segmentBaseMs, liveSegmentMs, nextLiveSegmentMs,
   estimateTokens, foldNotes, idleEnginesToStop, silentWav, wavLevelDbfs, mergeSummaryType, memoEvidence, buildClaudeInput, routeLabel,
   isLoopbackUrl, loopbackOnlyFetch,
   sameShas, keepPrevious, candStamp, repairIdsOf, pathUsedBy, fetchMinutesLeft,

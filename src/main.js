@@ -87,8 +87,8 @@ const {
   engineFileIssue, engineIssueMessage, engineInAppDir, engineDirWarning, portInUseError, guardEngineSettings, keptDifferent, closeConfirm, restartBlock, logReason,
   engineSpawnPlan, vcRuntimeVersions, vcRuntimeIssue, runtimeGate, engineExitHint, spawnErrorHint, speedLine,
   extractNotes, truncationMessage, buildPromptParts,
-  publicSegments, settledSegments, pendingDurationMs, recoverSegments, staleSegbufDirs, nextSegmentMs, EtaTracker, chooseDraftName,
-  skipPendingSegments,
+  publicSegments, settledSegments, pendingDurationMs, recoverSegments, staleSegbufDirs, EtaTracker, chooseDraftName,
+  skipPendingSegments, startSegmentMode, segmentModeNext, segmentBaseMs, nextLiveSegmentMs,
   estimateTokens, foldNotes, idleEnginesToStop, silentWav, wavLevelDbfs, mergeSummaryType, memoEvidence,
   sameShas, keepPrevious, candStamp, repairIdsOf, pathUsedBy, fetchMinutesLeft,
   pickDefaultPath,
@@ -1703,6 +1703,8 @@ function setMeetingLocalOnly(on) {
   if (!meeting) return { ok: false };
   meeting.localOnly = Boolean(on);
   engineLog(`文字起こしの経路: この会議は PC の中だけ: ${meeting.localOnly ? 'on' : 'off'}`);
+  // その場で設定の長さへ（次の区間から。手元の whisper を短い区間で細切れにしない。戻すボタンは無い: RF28。第1d回 A-5）
+  if (meeting.localOnly) applySegmentLength(meeting, 0, 'local-only');
   writeDraft();
   return { ok: true, localOnly: meeting.localOnly };
 }
@@ -2394,15 +2396,24 @@ function settleSegment(m, seg, patch) {
   sendToMainWin('meeting:update', meetingStatus());
 }
 
-// 文字起こしが追いつかないとき（待ちが 3 区間を超える）は区間を倍に伸ばして送る回数を
-// 減らし、追いついたら（待ち 1 以下）設定の長さに戻す（判断は mainlib.nextSegmentMs。#42）。
-// 変わったときだけオーバーレイへ送る（次の区切りから効く）
-function applyBackpressure(m, delta) {
-  const base = (settings.segmentSec || 75) * 1000;
-  const next = nextSegmentMs(pendingSegs, m.segmentMs || base, base, delta);
+// 区切りの長さの唯一の入口（背圧と経路。第1d回 A-5・D16 で applyBackpressure を置き換えた）。
+// 基準は今の側の長さ（中継で文字起こししている側は 15 秒、手元・PC の中だけの会議は設定の長さ: mainlib.segmentBaseMs）。
+// 文字起こしが追いつかないとき（待ちが 3 区間を超える）は区間を倍に伸ばして送る回数を減らし、追いついたら（待ち 1 以下）基準に戻す
+// （判断は mainlib.nextLiveSegmentMs。中で nextSegmentMs を使う。#42）。m.segmentMs は録音バーが今使っている長さで、途中の値は
+// 録音バーと同じく 20〜300 秒に丸めた値。変わったときだけ録音バーへ送る（次の区切りから効く）
+function applySegmentLength(m, delta, why) {
+  const mode = m.localOnly ? 'long' : m.segMode.mode;
+  const base = segmentBaseMs(mode, settings.segmentSec);
+  const next = nextLiveSegmentMs(pendingSegs, m.segmentMs, base, delta);
   if (next === m.segmentMs) return;
   m.segmentMs = next;
   sendToOverlay('overlay:segment-ms', next);
+  engineLog(`文字起こしの状態: 区切り ${next / 1000} 秒（${mode}・理由 ${why}）`);
+}
+// 区間の後（文字になっても空でも失敗でも）: 今の経路で区切りの側を決め直す（同じ側が2区間続いてから替える。mainlib.segmentModeNext）
+function segmentRouted(m, route, why) {
+  m.segMode = segmentModeNext(m.segMode, { route, why });
+  applySegmentLength(m, 0, why);
 }
 
 // 残りの待ち時間（秒）。待ちの区間の長さの合計に、区間ごとの処理時間の比（EMA。
@@ -2942,17 +2953,24 @@ async function startMeeting() {
   meeting = { pageId, startedAt, draftName, memo: '', segments: [], offsetMs: 0, stopping: false, seq: 0,
     systemAudio: false, paused: false, pausedMs: 0, pausedAt: 0,
     // gen: 打ち切り（meeting:skipPending）で進める世代。進行中の結果を捨てる判断に使う
-    // segmentMs: いま録音側に頼んでいる区間の長さ（背圧で伸縮する）
+    // segmentMs: いま録音側に頼んでいる区間の長さ（経路と背圧で伸縮する。第1d回 A-5: 下の segMode と segmentBaseMs で決めて上書きする）
     // inFlightSince: 文字起こし中の区間の開始時刻（残り時間の見積もりで経過分を引く）
     // finalSeen: 録音側の最後の区間が届いたか。skipAll: 打ち切り後に届く区間も文字起こしせず数だけ残す
     // emptySegs: 文字起こしが空で除いた区間の数（全部が空なら、締めるときに知らせる）
-    gen: 0, skipped: 0, micFallback: false, segmentMs: (settings.segmentSec || 75) * 1000, inFlightSince: 0,
+    gen: 0, skipped: 0, micFallback: false, segmentMs: 0, inFlightSince: 0,
     finalSeen: false, skipAll: false, emptySegs: 0,
     // 第1b回 A-3: pauses は再開した一時停止の印、pauseAsked は録音バーに頼んで返事を待つ間、pauseWhy は今の一時停止の理由、
     // suspendAsked はスリープで頼んだ、hintOnPause は復帰の頼み直しの返事で再開を促す、resumeHint は再開を促している
     pauses: [], pauseAsked: false, pauseAskTimer: null, pauseWhy: '', suspendAsked: false, hintOnPause: false, resumeHint: false,
     // 第1c回: localOnly は［この会議は PC の中だけ］、route は経路ごとの文字起こしできた区間の数、notified は会議ごとの知らせの印
     localOnly: false, route: { cloud: 0, local: 0 }, notified: new Set() };
+  // 第1d回 A-5（D16）: 始めの区切り。中継へ届くかは聞かない（録音の始まりを待たせない）。札があるか（復号しない）・hold・net.isOnline()・
+  // 覚えている /health の答えだけで決め、外れたら区間の後で替わる（segmentRouted）
+  const h0 = holdNow();
+  const segMode = startSegmentMode({ localOnly: false, signedIn: hasRelayToken(), hold: h0 ? h0.why : '', netOnline: netOnline(), peekUp: online.peek(sttProvider().reachUrl) });
+  meeting.segMode = { mode: segMode, localRun: 0, cloudRun: 0 };
+  meeting.segmentMs = segmentBaseMs(segMode, settings.segmentSec);
+  engineLog(`文字起こしの状態: 区切り ${meeting.segmentMs / 1000} 秒（${segMode}・理由 start）`);
   segChain = Promise.resolve(); pendingSegs = 0;
   state = 'meeting';
   writeDraft();
@@ -2969,7 +2987,7 @@ async function startMeeting() {
   // 音声入力の開始（上の 'dictation'）には systemAudio を渡さない。
   // あちらは常にマイクだけで、今回の変更で挙動が変わってはいけない。
   const payload = {
-    mode: 'meeting', segmentSec: settings.segmentSec || 75,
+    mode: 'meeting', segmentSec: meeting.segmentMs / 1000,
     micId: settings.micId || '', sound: Boolean(settings.soundFeedback),
     systemAudio: Boolean(settings.useSystemAudio),
   };
@@ -3075,7 +3093,7 @@ function onMeetingSegment(buffer, durationMs, isFinal) {
   // 打ち切り（meeting:skipPending）で世代が進んだら、進行中・待ち行列の結果は捨てる
   const gen = m.gen;
   pendingSegs++;
-  applyBackpressure(m, 1);
+  applySegmentLength(m, 1, 'backpressure');
   sendToMainWin('meeting:update', meetingStatus());
   segChain = segChain.then(async () => {
     if (meeting !== m || m.gen !== gen || !seg) return;
@@ -3086,16 +3104,20 @@ function onMeetingSegment(buffer, durationMs, isFinal) {
     m.inFlightSince = t0;
     let text = '';
     let route = 'local';
+    let why = 'engine';
     try {
-      ({ text, route } = await transcribeAuto(buffer, tail, durationMs, { isStale: () => meeting !== m || m.gen !== gen, learn: true, localOnly: m.localOnly, notice: m, what: `区間 ${seg.id}` }));
+      ({ text, route, why } = await transcribeAuto(buffer, tail, durationMs, { isStale: () => meeting !== m || m.gen !== gen, learn: true, localOnly: m.localOnly, notice: m, what: `区間 ${seg.id}` }));
     } catch (e) {
       if (meeting !== m || m.gen !== gen) return;
       m.inFlightSince = 0;
+      // 失敗は手元の側に数える（中継の失敗の符号があればその符号: rate-long など。無ければ手元のエンジンの失敗 engine）
+      segmentRouted(m, 'local', (e && typeof e.cloudCode === 'string' && e.cloudCode) || 'engine');
       settleSegment(m, seg, { text: `（この区間の認識に失敗: ${e.message}）`, failed: true });
       return;
     }
     if (meeting !== m || m.gen !== gen) return;
     m.inFlightSince = 0;
+    segmentRouted(m, route, why);
     m.route[route] += 1;   // 経路ごとの、文字起こしできた区間の数（ページの route.stt。第1c回 OL6）
     eta.record(Date.now() - t0, durationMs, route);   // 成功した区間だけで、経路ごとに学習（失敗は時間の目安にならない。クラウドの速さを手元の見積もりに混ぜない）
     m.etaRoute = route;
@@ -3113,7 +3135,7 @@ function onMeetingSegment(buffer, durationMs, isFinal) {
     settleSegment(m, seg, { text });
   }).catch(() => {}).finally(() => {
     // 破棄済みの議事録の区間は、破棄時に数え直した件数を減らさない
-    if (meeting === m) { pendingSegs = Math.max(0, pendingSegs - 1); applyBackpressure(m, -1); }
+    if (meeting === m) { pendingSegs = Math.max(0, pendingSegs - 1); applySegmentLength(m, -1, 'backpressure'); }
     sendToMainWin('meeting:update', meetingStatus());
     if (meeting === m && (isFinal || (m.stopping && pendingSegs === 0))) {
       maybeFinalizeMeeting().catch((e) => engineLog(`finalize failed: ${e.message}`));

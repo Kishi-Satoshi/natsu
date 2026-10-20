@@ -2,7 +2,10 @@
 'use strict';
 const test = require('node:test');
 const assert = require('node:assert');
+const fs = require('node:fs');
+const path = require('node:path');
 const L = require('../src/mainlib');
+const ROOT = path.join(__dirname, '..');
 
 // ---------------------------------------------------------------- A-9（RL16・F16・RF41）: 更新の再起動を断る理由
 test('RF41: 録音中（会議・音声入力の録音と文字起こし）は recording、締めと残りの区間は finalizing、要約は summary、ほかは \'\'', { timeout: 5000 }, () => {
@@ -37,4 +40,46 @@ test('RL10: ログインの答えの符号ごとの文は計画の R4〜R17 の�
     assert.strictEqual(M(c), '文字起こしの中継の準備ができていません。管理者に知らせてください。', c);
   }
   assert.strictEqual(M('code'), '確認コードが違います。メールの 6 けたを入れ直してください。', '残りの回数が無いときは括弧ごと外す');
+});
+
+// ---------------------------------------------------------------- A-5（RL13・D16・F13・RF40）: 区切りの長さ
+test('D16: 始めの区切りは、ログインしてオンラインで、覚えている /health が「届かない」でなければ 15 秒。ほかは設定の長さ', { timeout: 5000 }, () => {
+  const base = { localOnly: false, signedIn: true, hold: '', netOnline: true, peekUp: null };
+  assert.strictEqual(L.startSegmentMode(base), 'short');
+  assert.strictEqual(L.startSegmentMode({ ...base, peekUp: true }), 'short');
+  for (const o of [{ peekUp: false }, { signedIn: false }, { hold: 'daily-cap' }, { netOnline: false }, { localOnly: true }]) {
+    assert.strictEqual(L.startSegmentMode({ ...base, ...o }), 'long', JSON.stringify(o));
+  }
+  assert.strictEqual(L.segmentBaseMs('short', 75), 15000);
+  assert.strictEqual(L.segmentBaseMs('long', 75), 75000);
+  assert.strictEqual(L.segmentBaseMs('long', 120), 120000);
+  assert.strictEqual(L.segmentBaseMs('short', 120), 15000, 'オンラインの 15 秒は設定の長さに引きずられない');
+});
+
+test('D16: 経路の切り替えは同じ側が2区間続いてから（行ったり来たりしない）。ログイン切れ・上限・PC の中だけはすぐ長い側', { timeout: 5000 }, () => {
+  let st = { mode: 'short', localRun: 0, cloudRun: 0 };
+  const step = (route, why = route === 'cloud' ? 'ok' : 'net') => (st = L.segmentModeNext(st, { route, why })).mode;
+  assert.deepStrictEqual(['local', 'cloud', 'local', 'cloud'].map((r) => step(r)), ['short', 'short', 'short', 'short']);
+  assert.deepStrictEqual(['local', 'local'].map((r) => step(r)), ['short', 'long']);
+  assert.deepStrictEqual(['cloud', 'local', 'cloud', 'cloud'].map((r) => step(r)), ['long', 'long', 'long', 'short']);
+  for (const why of ['login', 'daily-cap', 'quota', 'upstream-auth', 'signed-out', 'local-only']) {
+    assert.strictEqual(L.segmentModeNext({ mode: 'short', localRun: 0, cloudRun: 5 }, { route: 'local', why }).mode, 'long', why);
+  }
+  assert.strictEqual(L.segmentModeNext({ mode: 'short', localRun: 0, cloudRun: 5 }, { route: 'local', why: 'server' }).mode, 'short', '1 区間の 502 で替えた');
+});
+
+test('D16: 途中で送る長さは録音バーと同じく 20〜300 秒に丸める。始めの 15 秒のままなら送らない。75 秒の会議の背圧は今と同じ', { timeout: 5000 }, () => {
+  const ov = fs.readFileSync(path.join(ROOT, 'src', 'renderer', 'overlay.html'), 'utf8');
+  assert.match(ov, /const SEG_MIN_MS = 20000, SEG_MAX_MS = 300000;/, '録音バーの丸めが変わった（mainlib の写しを合わせる）');
+  assert.strictEqual(L.OVERLAY_SEG_MIN_MS, 20000);
+  const n = L.nextLiveSegmentMs;
+  assert.strictEqual(n(0, 15000, 15000, -1), 15000, '始めの 15 秒のまま');
+  assert.strictEqual(n(4, 15000, 15000, 1), 30000, '背圧で倍');
+  assert.strictEqual(n(1, 30000, 15000, -1), 20000, '戻すときは録音バーの下限の 20 秒');
+  assert.strictEqual(n(1, 20000, 15000, -1), 20000, '同じ値（送らない）');
+  assert.strictEqual(n(2, 20000, 75000, 0), 75000, '長い側へは待ちが残っていてもすぐ');
+  assert.strictEqual(n(6, 300000, 15000, 1), 300000, '上限');
+  for (const [p, c, d] of [[4, 75000, 1], [5, 150000, 1], [3, 150000, 1], [2, 150000, -1], [1, 300000, -1], [0, 75000, -1]]) {
+    assert.strictEqual(n(p, c, 75000, d), L.nextSegmentMs(p, c, 75000, d), `75 秒の会議の背圧が変わった ${[p, c, d]}`);
+  }
 });

@@ -13,7 +13,14 @@
 //                  （会社の通信の検査やログインの画面が返す形。WWW-Authenticate つき）、'drop' は返事をせずに切る。
 //                  第1d回 A-3 で足した（文字起こしの口 POST /v1/audio/transcriptions にだけ効き、ほかの道は中継へ渡す）:
 //                  'not-wav' は中継の形の 415 { error: 'not-wav' }、'cut-first' は最初の文字起こしの要求だけを返事せずに切る、
-//                  'delay-stt' は文字起こしの要求を 800 ミリ秒止めてから中継へ渡す（送っている間に別のことをする場面）
+//                  'delay-stt' は文字起こしの要求を 800 ミリ秒止めてから中継へ渡す（送っている間に別のことをする場面）。
+//                  第1d回 A-5 で足した: 'lag-stt' は文字起こしの要求を 300 ミリ秒止めてから中継へ渡す（待ちが積もる背圧の場面を 5 秒の内に）
+//   rl.setAnswer(ch) → Promise … 第1d回 A-5: 並びの1文字ごとの答え方（mainrun の --relay-seq。区間ごとに替える）。どの文字も先に前の答え方を戻す
+//                  （中継の前は ''・口は開く・DAILY_USER_SEC は始めの値・偽の OpenAI は text）。
+//                  'c' 文字・'n' 中継の口を閉じる（つないだらすぐ切る。/health も届かない）・'5' 中継が 502 upstream（偽の OpenAI が 500）・
+//                  'l' 401 login（D1 の札を全部取り消す。戻さない）・'u' 429 daily-cap の user（DAILY_USER_SEC を 1）・
+//                  'a' 503 quota（偽の OpenAI が insufficient_quota）・'e' 200 で空の文字・'L' 429 busy の長い待ち（偽の OpenAI が retry-after 3600。
+//                  アプリは rate-long）。知らない文字は投げる
 //   rl.stt・rl.resend … 偽の OpenAI・偽の Resend（requests・mails・codeFor・setMode）
 //   rl.codeFor(email) … 偽の Resend へ送った最後の確認コード
 //   rl.db・rl.env・rl.logs（中継の記録の行）・rl.clock
@@ -106,8 +113,11 @@ async function startRelayLocal({ stt: sttOpts = {}, env: over = {}, start = Date
   const handler = makeHandler({ now: clock.now });
   let front = '';
   let cutDone = false;
+  let closed = false;   // 第1d回 A-5: 'n'（口を閉じる）の間は、つないだらすぐ切る
+  const baseUserSec = env.DAILY_USER_SEC;
 
   const server = http.createServer((req, res) => {
+    if (closed) { req.socket.destroy(); return; }   // つないだままの口（keep-alive）で来た要求も切る
     const chunks = [];
     req.on('data', (d) => chunks.push(d));
     req.on('end', async () => {
@@ -115,6 +125,7 @@ async function startRelayLocal({ stt: sttOpts = {}, env: over = {}, start = Date
       const isStt = req.method === 'POST' && req.url.split('?')[0] === '/v1/audio/transcriptions';
       if (front === 'cut-first' && isStt && !cutDone) { cutDone = true; req.socket.destroy(); return; }
       if (front === 'delay-stt' && isStt) await new Promise((r) => setTimeout(r, 800));
+      if (front === 'lag-stt' && isStt) await new Promise((r) => setTimeout(r, 300));
       if (front === 'not-wav' && isStt) {
         res.writeHead(415, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' });
         res.end(JSON.stringify({ error: 'not-wav' }));
@@ -137,6 +148,7 @@ async function startRelayLocal({ stt: sttOpts = {}, env: over = {}, start = Date
       }
     });
   });
+  server.on('connection', (sock) => { if (closed) sock.destroy(); });
   await new Promise((resolve, reject) => { server.on('error', reject); server.listen(0, '127.0.0.1', resolve); });
   const base = `http://127.0.0.1:${server.address().port}`;
   const sent = [];
@@ -144,6 +156,17 @@ async function startRelayLocal({ stt: sttOpts = {}, env: over = {}, start = Date
     base, env, db, clock, stt, resend, sent, logs: [],
     request: recordingRequest(base, sent),
     setFront(mode) { front = mode || ''; },
+    async setAnswer(ch) {
+      front = ''; closed = false; stt.setMode('text');
+      if (baseUserSec === undefined) delete env.DAILY_USER_SEC; else env.DAILY_USER_SEC = baseUserSec;
+      if (ch === 'c') return;
+      if (ch === 'n') { closed = true; server.closeAllConnections(); return; }
+      if (ch === 'l') { await db.prepare('UPDATE sessions SET revoked_at = ?1 WHERE revoked_at IS NULL').bind(Math.floor(clock.now() / 1000)).run(); return; }
+      if (ch === 'u') { env.DAILY_USER_SEC = '1'; return; }
+      const mode = { 5: '500', a: 'quota', e: 'empty', L: '429-long' }[ch];
+      if (!mode) throw new Error(`relay-local: 並びの文字 ${JSON.stringify(ch)} を知らない`);
+      stt.setMode(mode);
+    },
     codeFor: (email) => resend.codeFor(email),
     async close() {
       await new Promise((r) => { server.close(() => r()); server.closeAllConnections(); });

@@ -145,7 +145,8 @@
 //     --relay=<mode> の mode は fake-stt の答え方（text・500・slow・429・429-long・quota・badjson・drop・drop-first）のほか、
 //                        daily-cap（中継の DAILY_USER_SEC を 4）・daily-cap-all（DAILY_ALL_SEC を 4）・upstream-auth（偽の OpenAI が 401）・
 //                        foreign401（中継の前が HTML の 401: setFront('html401')）・415（中継の前が文字起こしの口にだけ 415 not-wav）・
-//                        cut-first（中継の前が最初の文字起こしの要求だけを返事せずに切る）
+//                        cut-first（中継の前が最初の文字起こしの要求だけを返事せずに切る）・lag（第1d回 A-5: 中継の前が文字起こしの要求を
+//                        300 ミリ秒止める。待ちが積もる背圧の場面）
 //     --signed-out   … 札の種をまかない（ログインしていない PC）
 //     --revoked      … 種をまいた札を、main を読む前に D1 で取り消す（revoked_at。中継は 401 login を返す: ログインが切れた PC）
 //     --relay-down   … RELAY_BASE を、だれも聞いていない 127.0.0.1 の口へ書き換える（中継が落ちている・届かない）
@@ -159,6 +160,13 @@
 //   ctx.relay に revoke()（D1 の札を全部取り消す: revoked_at）・sttRequests()・seededMail・base（中継の口。場面から直に GET /auth/me を聞く）を、ctx に advanceClock(ms)（main の Date.now と
 //   中継の試しの時計を ms だけ進める）を足す
 //   ctx.setOnline(bool) … 偽の net.isOnline() の答えを場面の途中で変える（--offline の場面は false から始まる）
+//   第1d回 A-5（D16）: 区切りの長さの場面
+//     --relay-seq=<並び> … 区間 i を送る前に、中継の答え方を並びの i 文字目にし（relay-local の setAnswer: c・n・5・l・u・a・e・L）、
+//                        その区間が文字になるか失敗するまで（meeting:status の pending が 0）待ってから次を送る（区間と並びが1対1）。
+//                        --relay が無ければ --relay=text と同じ。--segs が無ければ区間の数は並びの長さ
+//     出力（議事録の場面と json の場面）に overlaySent（録音バーへ送った overlay:start の payload と overlay:segment-ms の値の、送った順）と
+//     order（'overlay:start'・'overlay:segment-ms' と、中継へ送った要求 'relay <道>' の順）を足す。届くかの覚えの長さを縮めるのは、
+//     main を起こす側が渡す試しだけの環境変数 NATSU_TEST_ONLINE_MEMO_SCALE（src/online.js）
 //   出力に足すもの（議事録の場面）: pages[].id・title・recovered、files（userData の下の相対パス）、dbStarts（DB の子を起こした回数）、trace
 //   ctx.appCall(cmd, args) … 画面と同じ役 app の口（客の rendererPort() で作る偽の MessageChannelMain の口）で DB に頼む。書く命令には
 //                      'a:' + randomUUID の tx を付ける。答えは result（失敗は Error に .code）。場面（act）にも渡す
@@ -229,7 +237,8 @@ const secretText = flags.includes('--secret-text');
 const killDbAtDiscard = flags.includes('--kill-db-at-discard');
 const idleMode = flags.includes('--idle');
 const restartDuring = flagVal('--restart-during');   // 第1d回 A-9
-const relayMode = flagVal('--relay');   // 第1d回 A-2
+const relaySeq = flagVal('--relay-seq');   // 第1d回 A-5
+const relayMode = flagVal('--relay') || (relaySeq ? 'text' : '');   // 第1d回 A-2
 const noStore = flags.includes('--no-store');
 // 第1d回 A-3（RL11）: 文字起こしを中継へ送る場面
 const signedOut = flags.includes('--signed-out');
@@ -239,7 +248,7 @@ const relayCert = flags.includes('--relay-cert');
 const keyForFlag = flagVal('--key-for');
 const oldKeys = flags.includes('--old-keys');   // 第1d回 A-4（F11・K2）
 // --relay の mode → 中継の前の答え方・中継の env・中継の後ろの偽の OpenAI の答え方
-const RELAY_FRONT = { foreign401: 'html401', 415: 'not-wav', 'cut-first': 'cut-first' };
+const RELAY_FRONT = { foreign401: 'html401', 415: 'not-wav', 'cut-first': 'cut-first', lag: 'lag-stt' };
 const RELAY_ENV = { 'daily-cap': { DAILY_USER_SEC: '4' }, 'daily-cap-all': { DAILY_ALL_SEC: '4' } };
 const RELAY_STT = { 'upstream-auth': '401' };
 const relaySttMode = RELAY_STT[relayMode] || (RELAY_FRONT[relayMode] || RELAY_ENV[relayMode] ? 'text' : relayMode);
@@ -247,7 +256,7 @@ const UPDATE_URL = 'https://example.invalid/natsu-src-0.8.1.zip';   // 取り込
 const SECRET = '秘密の語';
 const fakeText = flagVal('--text') || (secretText ? `${SECRET}を含む発言です` : '');
 const FAKE_SUM = path.join(__dirname, 'fake-llama.js');
-const segCount = Number((flags.find((f) => f.startsWith('--segs=')) || '--segs=2').slice(7)) || 2;
+const segCount = Number((flags.find((f) => f.startsWith('--segs=')) || `--segs=${relaySeq ? relaySeq.length : 2}`).slice(7)) || 2;
 const managedMode = flags.includes('--managed') ? 'ok' : (flags.includes('--managed-tamper') ? 'tamper' : '');
 const recoverMode = flags.includes('--recover');
 const afterRetry = flags.includes('--after-retry');
@@ -626,6 +635,9 @@ process.on('exit', () => {
   }
 
   const handlers = {}, listeners = {}, sent = [];
+  // 第1d回 A-5: 録音バーへ送った区切りの長さ（overlay:start の payload と overlay:segment-ms の値）と、それと中継への要求の順
+  const overlaySent = [];
+  const order = [];
   const shortcuts = {};   // globalShortcut.register の受け口（キー → 関数）。場面がホットキーを押す
   // 画面へ送った知らせと進み具合の順。進み具合が初めて組を「使える」と言ったとき・壊れた知らせを送ったときの engine:status
   const seq = [];
@@ -707,7 +719,9 @@ process.on('exit', () => {
       this.zoom = 1;
       // 受け口つきの webContents（on／once／emit）。読み込み中の once('did-finish-load') は今までどおり読み終えたときに呼ぶ
       const wc = makeEmitter({
-        send: (ch, p) => { if (wins.indexOf(this) === 1) mainSent.push(ch); if (loading) { lost.push([ch, p]); return; } sent.push([ch, p]); watch(ch, p); },
+        send: (ch, p) => {
+          if (wins.indexOf(this) === 0 && (ch === 'overlay:start' || ch === 'overlay:segment-ms')) { overlaySent.push(p); order.push(ch); }
+          if (wins.indexOf(this) === 1) mainSent.push(ch); if (loading) { lost.push([ch, p]); return; } sent.push([ch, p]); watch(ch, p); },
         isLoading: () => loading,
         setWindowOpenHandler() {}, executeJavaScript: (code) => overlayExec(this, code),
         setZoomFactor: (z) => { zooms.push(z); this.zoom = z; },
@@ -793,7 +807,7 @@ process.on('exit', () => {
   const rewrite = (u) => {
     const s = String(u);
     try { netHosts.push(new URL(s).host); } catch (_) { netHosts.push(''); }
-    if (relayLocal && s.startsWith(`${RELAY_BASE}/`)) { relayPaths.push(s.slice(RELAY_BASE.length)); return relayTarget + s.slice(RELAY_BASE.length); }
+    if (relayLocal && s.startsWith(`${RELAY_BASE}/`)) { relayPaths.push(s.slice(RELAY_BASE.length)); order.push(`relay ${s.slice(RELAY_BASE.length)}`); return relayTarget + s.slice(RELAY_BASE.length); }
     if (openAiBase && s.startsWith(`${OPENAI_BASE}/`)) return `${openAiBase}${s.slice(OPENAI_BASE.length)}`;
     const anth = fakeStt || (relayLocal && relayLocal.stt);   // 第1d回 A-3: --relay の場面は中継の後ろの偽の OpenAI の /anthropic
     return anth && claudeMode && s.startsWith('https://api.anthropic.com/') ? anth.url('/anthropic') : u;
@@ -1268,6 +1282,8 @@ process.on('exit', () => {
       quitCalled: quitCalls > 0,
       overlayDone: sent.filter(([ch, p]) => ch === 'overlay:phase' && p && p.phase === 'done').map(([, p]) => p.message),
       pages: dbView.listPages().map((p) => ({ id: p.id, title: p.title })),
+      overlaySent: overlaySent.slice(),
+      order: order.slice(),
       ...actOut,
     };
     process.stdout.write(`\n${JSON.stringify(result)}\n`);
@@ -1628,9 +1644,11 @@ process.on('exit', () => {
   for (let i = 0; i < wavs.length; i++) {
     // 取り消す場面（--discard-during）は最初の区間の後で取り消すので、止めない（--segs=1 でも録音中のまま取り消す）
     const last = i === wavs.length - 1 && !discardDuring;
+    if (relaySeq) await relayLocal.setAnswer(relaySeq[i] || 'c');   // 第1d回 A-5: この区間の中継の答え方
     if (last) out.stop = await handlers['meeting:toggle']();
     listeners['audio:segment']({}, { buffer: new Uint8Array(wavs[i].buf), durationMs: wavs[i].ms, final: last });
     await sleep(50);
+    if (relaySeq) await waitFor(() => handlers['meeting:status']().pending === 0, 15000);   // 文字になるか失敗するまで（区間と並びが1対1）
     if (i === 0 && testDuring) out.testDuring = await handlers['app:test']();
     // 第1d回 A-9: 会議の録音中に再起動と取り込みを頼む（断られて、録音はそのまま続く）
     if (i === 0 && restartDuring === 'meeting') {
@@ -1697,6 +1715,8 @@ process.on('exit', () => {
   }
   out.claude = claudeLines();
   out.notices = sent.filter(([ch]) => ch === 'app:notice').map(([, p]) => p);
+  out.overlaySent = overlaySent.slice();
+  out.order = order.slice();
   const elog = path.join(userData, 'engine.log');
   out.engineLog = fs.existsSync(elog) ? fs.readFileSync(elog, 'utf8').split('\n').filter(Boolean).map((l) => l.replace(/^\[[^\]]+\] /, '')) : [];
   out.requests = fs.readFileSync(flog, 'utf8').split('\n').filter((l) => l.startsWith('inference'));

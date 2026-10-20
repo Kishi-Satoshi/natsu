@@ -17,6 +17,8 @@
 //   slow       … 1.5 秒待ってから文
 //   badjson    … 200 のまま JSON でない返事
 //   quota      … 429 と insufficient_quota（残高が無い。retry-after は付けない。第1d回 W-4 で足した: 中継はこれを 503 quota にする）
+//   empty      … 200 {"text": ""}（音はあるのに文字が無い。第1d回 A-5 で足した）
+// setMode(mode) … 答え方を途中で替える（第1d回 A-5。区間ごとに中継の後ろの答えを替える場面: mainrun の --relay-seq）。今の答え方は変えない
 // models（第1b回の続き Lane F-e。GET …/models の答え方。鍵が合うときだけ効く。鍵が違えばいつも 401 invalid_api_key）:
 //   ok         … 200 の一覧（既定）
 //   no-scope   … 401 と OpenAI の制限付きの鍵の文（「Missing scopes: api.model.read」。code は null）
@@ -112,6 +114,7 @@ function startFakeStt({ mode = 'text', key = 'gsk_test_0123', text = '本日の�
       if (mode === '403' || mode === '413') { json(res, Number(mode), { error: { message: mode === '403' ? 'forbidden' : 'too large' } }); return; }
       if (mode === '400' || (mode === '400-prompt' && 'prompt' in form.fields)) { json(res, 400, { error: { message: 'bad request' } }); return; }
       if (mode === 'badjson') { json(res, 200, '<html>not json</html>'); return; }
+      if (mode === 'empty') { json(res, 200, { text: '' }); return; }
       if (mode === 'slow') { later(1500, () => { if (!res.destroyed && !res.writableEnded) reply(); }); return; }
       reply();
     });
@@ -126,6 +129,7 @@ function startFakeStt({ mode = 'text', key = 'gsk_test_0123', text = '本日の�
         base: `${origin}/openai/v1`,
         url: (path) => `${origin}${path}`,
         requests,
+        setMode: (m) => { mode = String(m); },
         close: () => new Promise((r) => {
           for (const t of timers) clearTimeout(t);
           timers.clear();

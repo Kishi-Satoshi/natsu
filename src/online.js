@@ -2,7 +2,7 @@
  * online.js — オンラインかの判定と、文字起こし・要約の経路の決め方（第1c回 OL1・OL4。RF26・RF27・RF28・C10）
  *
  *  - reachWhy       届かなかった理由を「証明書・プロキシ・届かない」に分ける（第0b回の classifyNetError を借りる）
- *  - makeOnline     net.isOnline() と、送り先の URL に軽く届くかの確かめ（結果を覚える）
+ *  - makeOnline     net.isOnline() と、送り先の URL に軽く届くかの確かめ（結果を覚える）。peek は覚えている答えだけを返す（第1d回 A-5）
  *  - decideStt      文字起こしを中継（クラウド）で行うか、手元の whisper で行うか（会議の印 → ログイン → しばらく手元の印 → 届くか。第1d回 RL11）
  *  - decideSummary  要約を利用者の Claude Code で行うか、手元の llama で行うか
  *
@@ -33,6 +33,14 @@ const REACH_TIMEOUT_MS = 3000;
 
 const DOWN_WHYS = new Set(['offline', 'unreachable', 'cert', 'proxy']);
 
+// 試しだけ: 覚える長さを縮める倍率（第1d回 A-5。区間ごとに中継の答えを替える場面で、次の区間で気づくように）。
+// 0〜1 の数のときだけ効き、ほかの値（無い・形が違う・1 より大きい）は 1（本番の長さのまま。main の NATSU_TEST_STT_SLEEP_SCALE と同じ形）
+function memoScale(raw) {
+  const t = String(raw == null ? '' : raw).trim();
+  const v = /^\d*\.?\d+$/.test(t) ? Number(t) : NaN;
+  return v >= 0 && v <= 1 ? v : 1;
+}
+
 /** 通信の失敗 → 'cert' | 'proxy' | 'unreachable'（classifyNetError の cert・proxy／proxy-auth・ほか全部） */
 function reachWhy(err) {
   const k = classifyNetError(err);
@@ -43,6 +51,7 @@ function reachWhy(err) {
 
 function makeOnline({ request, isOnline, now = Date.now, timeoutMs = REACH_TIMEOUT_MS, setTimer = setTimeout, clearTimer = clearTimeout } = {}) {
   const cache = new Map();     // url → { res, until }
+  const scale = memoScale(process.env.NATSU_TEST_ONLINE_MEMO_SCALE);
   const inflight = new Map();  // url → Promise（同じ送り先への確かめは1つにまとめる）
 
   const online = () => {
@@ -93,7 +102,7 @@ function makeOnline({ request, isOnline, now = Date.now, timeoutMs = REACH_TIMEO
       p = probe(url).then((res) => {
         if (inflight.get(url) === p) {
           inflight.delete(url);
-          cache.set(url, { res, until: now() + (res.up ? REACH_OK_MS : REACH_NG_MS) });
+          cache.set(url, { res, until: now() + (res.up ? REACH_OK_MS : REACH_NG_MS) * scale });
         }
         return res;
       });
@@ -107,7 +116,15 @@ function makeOnline({ request, isOnline, now = Date.now, timeoutMs = REACH_TIMEO
     inflight.delete(url);
   }
 
-  return { isUp, forget };
+  // 覚えている答えだけ（届く true・届かない false・覚えていないか期限切れ null）。通信しない・net.isOnline() も見ない（第1d回 A-5:
+  // 会議の始めの区切りを、録音の始まりを待たせずに決める）
+  function peek(url) {
+    const hit = cache.get(url);
+    if (!hit || !(now() < hit.until)) return null;
+    return hit.res.up === true;
+  }
+
+  return { isUp, forget, peek };
 }
 
 const downWhy = (r) => (r && DOWN_WHYS.has(r.why) ? r.why : 'unreachable');
