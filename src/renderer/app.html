@@ -311,8 +311,9 @@
   #tabSettings .field.frow { display: flex; align-items: center; gap: 24px; min-height: 56px; padding: 8px 0; margin-bottom: 0; }
   #tabSettings .field.frow > .flead { flex: 1; min-width: 0; }
   #tabSettings .field.frow > input, #tabSettings .field.frow > select, #tabSettings .field.frow > .hkbox { flex: none; width: 240px; }
-  #tabSettings .field.frow > .row { flex: 0 1 auto; max-width: 400px; flex-wrap: wrap; justify-content: flex-end; }
-  #tabSettings .field.frow > .row > input, #tabSettings .field.frow > .row > select { flex: 1 1 180px; }
+  /* 入力とボタンの行（マイク・スピーカー・Claude Code）は右の列で 1 行に収める（スピーカーの欄とボタン 2 つで 400px では折り返した: CI の撮った画面） */
+  #tabSettings .field.frow > .row { flex: 0 1 auto; max-width: 460px; flex-wrap: wrap; justify-content: flex-end; }
+  #tabSettings .field.frow > .row > input, #tabSettings .field.frow > .row > select { flex: 1 1 160px; }
   #tabSettings .field.frow > .flead > label { margin-bottom: 0; }
   #tabSettings .field.frow > .flead > .desc { margin-top: 2px; line-height: 1.5; }
   .flab { font-size: 14px; color: var(--text); }

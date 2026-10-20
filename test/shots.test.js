@@ -547,9 +547,10 @@ test('CI: 撮る道具の見張りの時間は 30 秒 + SCREENS の数 × 6 秒�
 // 項目の見出しと同じ言葉のカードの見出しを出さない）。CSS はどれも設定のポップアップの中（#tabSettings・.setpane・.setsearch・.hkbox・.frow）だけで、
 // 見える中身が変わるのは設定の画面（6枚とも RETAKE にある）。議事録・音声入力・録音中のページ・検索の窓は要素も文も CSS も変えていないので
 // 基準のまま比べる。値を今の app.html に合わせた
+// 同じ直しの続き: 設定の入力とボタンの行（スピーカーの欄とボタン 2 つ）が右の列で折り返したので、行の幅の上限を 460px に（設定の画面だけ。RETAKE にある）。値を今の app.html に合わせた
 test('基準の画像（test/shots/win32）は今の app.html で撮ったもの（app.html を変えたら撮り直しを確かめる）', { timeout: 5000 }, () => {
   const sha = require('node:crypto').createHash('sha256').update(fs.readFileSync(path.join(ROOT, 'src', 'renderer', 'app.html'))).digest('hex');
-  assert.strictEqual(sha, 'cf87403359ac5df5cbc3a5ed975af9569ce90e11c1ee6d8a6963bd44e9f90cae',
+  assert.strictEqual(sha, '1b9de993cd9440da55e21bdacd3cdcd38654d41ba3833a235c5805cce72e023f',
     'app.html が基準の画像を撮った時と違う。Windows の CI の画面の比べ（捲り棒のつまみも）を見て、基準を取り直してからこの値を直す');
 });
 
