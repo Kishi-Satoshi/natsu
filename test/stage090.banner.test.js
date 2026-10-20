@@ -245,12 +245,13 @@ test('F14: 帯が区間のクラウドの答えで消えた後にまた切れた
 
 test('F14: 準備を選んでいない PC（エンジンが無い）では net-offline は出ない（「この PC で文字起こしを続けています」が本当でない）', S, async () => {
   const o = await run(['text', '--relay=text', '--no-engine=fetchable', '--net-seq=0:on,10:off']);
-  // この版の土台では、エンジンの無い PC は会議を始められない（「文字起こしエンジンが未設定です…」）ので、下の2つは空で通る。
-  // A レーン（M-1・M-5: オフラインを任意に）を載せると始められるようになり、ここが赤になる: そのとき true に替え、
-  // 帯 kept-wait（B11）が出ることを足す（net-offline の代わりに言う帯）
-  assert.strictEqual(o.start.ok, false, JSON.stringify(o.start));
+  // A レーン（M-1: オフラインを任意に）を載せたので、準備を選んでいない PC でもオンラインでログインしていれば会議を始められる（統合で true に替えた）。
+  // 切れている間の区間は手元で文字起こしせず音声を残すので、net-offline の代わりに帯 kept-wait（B11）が出る（場面が空で通っていないことも見る）
+  assert.strictEqual(o.start.ok, true, JSON.stringify(o.start));
   assert.ok(!everOffline(o), JSON.stringify(o.netProblems));
   assert.deepStrictEqual(shownLines(o), []);
+  assert.ok(o.netProblems.some(([, c]) => c === 'kept-wait'), JSON.stringify(o.netProblems));
+  assert.ok(o.engineLog.includes('文字起こしの状態: 帯 kept-wait'), JSON.stringify(o.engineLog));
 });
 
 test('F14: 会議の途中で手元のエンジンが使えなくなった（モデルが消えた）ら、ネットワークが切れても net-offline は出ない', S, async () => {
