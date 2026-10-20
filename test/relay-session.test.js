@@ -28,11 +28,13 @@ const sec = (ms) => Math.floor(ms / 1000);
 // 正しいコードと違う 6 けた（i ごとに別の値）
 const wrong = (code, i = 0) => String((Number(code) + 1 + i) % 1000000).padStart(6, '0');
 
-// 取り消しの SQL は README の管理者の節に書くもの（計画の Task G-2 の 2・3）と同じ文字を、そのまま D1 に流す
-const PLAN = fs.readFileSync(path.join(__dirname, '..', 'docs', 'plans', '2026-10-19-1d.md'), 'utf8');
+// 取り消しの SQL は README の管理者の節（「## 管理者の手順」の取り消しの手順の 2・3）に書いた文字を、そのまま D1 に流す
+// （第1d回 G-2 で意図して変えた: W-3 のときは README に管理者の節がまだ無かったので、計画の Task G-2 の 2・3 の文から読んでいた）
+const README = fs.readFileSync(path.join(__dirname, '..', 'README.md'), 'utf8');
+const ADMIN = README.includes('## 管理者の手順') ? README.slice(README.indexOf('## 管理者の手順')) : '';
 function adminSql(head) {
-  const m = new RegExp('`(' + head.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + "[^`]*'<[^>]+>'[^`]*;)`").exec(PLAN);
-  assert.ok(m, `計画に「${head}」の SQL が無い`);
+  const m = new RegExp('`(' + head.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + "[^`]*'<[^>]+>'[^`]*;)`").exec(ADMIN);
+  assert.ok(m, `README の管理者の節に「${head}」の SQL が無い`);
   assert.match(m[1], /CAST\(strftime\('%s','now'\) AS INTEGER\)/, '取り消しの SQL の時刻の書き方が計画と違う');
   return (email) => m[1].replace(/'<[^>]+>'/, `'${email}'`);
 }

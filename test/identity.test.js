@@ -122,17 +122,45 @@ test('.ps1 の BOM は1つだけ（4バイト目から EF BB BF が続かない�
 
 // 第1c回 Task D-2（OL9）: 0.5.0 からはオンラインのとき音声を送り先へ、文字起こしの文を Claude へ送る。
 // 「完全オフライン」「外へ送らない」と言い続けると、利用者が音声の行き先を誤って思う
-test('OL9: README と INSTALL は、送るもの・送り先・同意・［この会議は PC の中だけ］・Claude Code の入れ方・上限を書き、「完全オフライン」と言わない', () => {
-  for (const w of ['音声', '送り先', '同意', 'PC の中だけ', 'irm https://claude.ai/install.ps1 | iex', '上限', 'claude auth status', '"authMethod": "claude.ai"',
-    'api.groq.com', 'api.openai.com', 'claude.ai', 'api.anthropic.com', 'Zscaler']) {
+// 第1d回 G-2 で意図して変えた: 0.8.0 からは、音声は PC → 文字起こしの中継（Cloudflare の workers.dev）→ OpenAI。PC は OpenAI・Groq へ直に送らない
+// （src/ に api.openai.com・api.groq.com を書けない: ゲート）。README と INSTALL には中継の住所・中継の先の OpenAI・確認コードのメール（Resend）と、
+// 管理者の取り消しの手順（D1 で流す SQL）を書き、前の版の送り先の表（api.groq.com）と、PC が直に送る先としての api.openai.com は書かない。
+// 0.7.0 の D5 で消した「使う／使わない」の同意の選択は、もう求めない
+const RELAY_HOST = 'natsu-relay.<サブドメイン>.workers.dev';
+test('OL9・RL9: README と INSTALL は、中継の住所・中継の先の OpenAI・確認コードのメール・ログイン・［この会議は PC の中だけ］・Claude Code の入れ方・上限を書き、Groq の送り先と「完全オフライン」を書かない', () => {
+  for (const w of ['音声', '送り先', RELAY_HOST, 'Cloudflare', 'OpenAI', '確認コード', 'Resend', 'ログイン', 'PC の中だけ', 'オフライン',
+    'irm https://claude.ai/install.ps1 | iex', '上限', 'claude auth status', '"authMethod": "claude.ai"', 'claude.ai', 'api.anthropic.com', 'Zscaler', '情報システム']) {
     assert.ok(readme.includes(w), `README に「${w}」が無い`);
   }
+  for (const w of [RELAY_HOST, 'OpenAI', '確認コード', 'ログイン', 'PC の中だけ']) assert.ok(install.includes(w), `INSTALL に「${w}」が無い`);
   for (const [n, s] of [['README.md', readme], ['INSTALL.md', install], ['package.json', JSON.stringify(pkg)], ['src/main.js', main]]) {
     assert.ok(!s.includes('完全オフライン'), `${n} に「完全オフライン」が残っている`);
+    assert.ok(!s.includes('api.groq.com'), `${n} に前の版の送り先 api.groq.com が残っている`);
   }
   assert.ok(!readme.includes('外部への送信は一切ありません') && !readme.includes('外部へ送信されることはありません'), 'README が外へ送らないと言っている');
   assert.ok(!install.includes('外部に音声やテキストが送られることはありません'), 'INSTALL が外へ送らないと言っている');
-  for (const h of ['api.groq.com', 'api.openai.com', 'claude.ai', 'api.anthropic.com']) assert.ok(install.includes(h), `INSTALL の接続先に ${h} が無い`);
+  // 社内のプロキシで通す接続先: PC が直に話す先は中継・claude.ai・api.anthropic.com だけ（OpenAI へは中継が送る）
+  const hosts = install.slice(install.indexOf('## 通す必要のある接続先'), install.indexOf('\n## ', install.indexOf('## 通す必要のある接続先') + 3));
+  for (const h of [RELAY_HOST, 'claude.ai', 'api.anthropic.com']) assert.ok(hosts.includes(h), `INSTALL の接続先に ${h} が無い`);
+  assert.ok(!hosts.includes('api.openai.com'), 'INSTALL の接続先に api.openai.com が残っている（PC は OpenAI へ直に送らない）');
+});
+
+// 第1d回 G-2: README の管理者の節に、中継の用意と取り消しの手順を書く（計画の Task G-2 の「取り消しの手順」をそのまま。
+// 2・3 の SQL は test/relay-session.test.js が README から読み、偽の D1 に流して 401 になることを見る）
+test('RL6・RF32: README の管理者の節は、取り消しの SQL・会社の鍵とトークンが漏れたときの替え方・確認コードを頼めないときの直し方・用意の手順を書く', () => {
+  const at = readme.indexOf('## 管理者の手順');
+  assert.ok(at > 0, 'README に「## 管理者の手順」が無い');
+  const sec = readme.slice(at, readme.indexOf('\n## ', at + 3) < 0 ? readme.length : readme.indexOf('\n## ', at + 3));
+  for (const w of [
+    "UPDATE sessions SET revoked_at = CAST(strftime('%s','now') AS INTEGER) WHERE email = '<その人のメール（小文字）>';",
+    "INSERT INTO blocked_emails (email, at) VALUES ('<メール（小文字）>', CAST(strftime('%s','now') AS INTEGER));",
+    "DELETE FROM blocked_emails WHERE email = '<メール>';",
+    '［Storage & Databases］', '［D1］', '`natsu-relay`', '［Console］', '［Execute］', '［Variables and Secrets］', '`OPENAI_API_KEY`', '［Deploy］',
+    '［API Tokens］', '`CLOUDFLARE_API_TOKEN`', '`CLOUDFLARE_ACCOUNT_ID`', '`MAIL_DAILY_MAX`', '15 分', '朝 9 時', '180 日',
+    '`RESEND_API_KEY`', '`ALLOWED_EMAIL_DOMAINS`', '`MAIL_FROM`', '［Run workflow］', '/health', 'Environments',
+  ]) assert.ok(sec.includes(w), `管理者の節に「${w}」が無い`);
+  // 送り元の見本のアドレスは ＠ を全角で書き、半角で入れると添える（公開前の確認: test/repo.test.js）
+  assert.ok(sec.includes('onboarding＠resend.dev') && /半角/.test(sec), '送り元の見本（＠ は全角・半角で入れる）が無い');
 });
 
 test('OL9: CHANGELOG の 0.5.0 の節は、更新の前に Claude Code を入れてログインすることを、入れ方の文と一緒に頭に書く', () => {

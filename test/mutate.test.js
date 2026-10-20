@@ -274,3 +274,34 @@ test('G3: 第1d回 W-1・D-1 の点検で足した5つの変異が一覧にそ�
   const plan = fs.readFileSync(path.join(ROOT, 'docs', 'plans', '2026-10-19-1d.md'), 'utf8');
   for (const id of IDS_1D_REVIEW) assert.ok(plan.includes(`\`${id}\``), `計画に ${id} が無い`);
 });
+
+// 第1d回 Task G-2（計画 docs/plans/2026-10-19-1d.md の「変異確認」の表。W・D・A・G の各レーンの直しを1つずつ戻す）
+const IDS_1D = [
+  'rl-log-fields', 'rl-test-base', 'rl-health-db', 'rl-domain-exact', 'rl-code-hash', 'rl-code-ttl', 'rl-start-email-limit', 'rl-start-ip-limit',
+  'rl-ip-before-domain', 'rl-blocked-order', 'rl-mail-cap', 'rl-mail-fail-keep', 'rl-mail-redirect', 'rl-mail-timeout', 'rl-verify-attempts', 'rl-verify-once',
+  'rl-verify-atomic', 'rl-usage-reserve', 'rl-wav-bytes', 'rl-wav-format', 'rl-wav-rate', 'rl-wav-bits', 'rl-prompt-bytes', 'rl-stt-timeout',
+  'rl-token-hash', 'rl-idle', 'rl-absolute', 'rl-revoked', 'rl-blocked', 'rl-model-forced', 'rl-size-cap', 'rl-daily-user',
+  'rl-daily-all', 'rl-usage-on-fail', 'rl-upstream-401', 'rl-retry-after', 'rl-deploy-keep', 'rl-deploy-invocation', 'rl-deploy-print', 'rl-deploy-env',
+  'ra-token-header', 'ra-login-code', 'ra-login-strict', 'ra-redo-all', 'ra-no-direct', 'ra-secrets-relay-only', 'ra-purge-old', 'ra-logout-local',
+  'ra-status-offline', 'ra-401-redo', 'ra-401-forget', 'ra-hold', 'ra-signed-out-probe', 'ra-notice-action', 'ra-ui-code-clear', 'rg-direct-host',
+  'rg-relay-console', 'ra-seg-online-75', 'ra-seg-flap', 'ra-seg-sticky', 'ra-seg-no-clamp', 'ra-seg-probe-start', 'ra-seg-localonly', 'ra-seg-bp-base',
+  'ra-stall-silent', 'ra-stall-n', 'ra-stall-drop-wav', 'ra-problem-sticky', 'ra-problem-offline', 'ra-login-clear', 'ra-retry-once', 'ra-retry-localonly',
+  'ra-discard-keep-quiet', 'ra-finalize-keep-quiet', 'ra-text-no-reset', 'ra-retry-no-pending', 'ra-seg-fail-why', 'ra-memo-scale-floor', 'ra-ui-banner-text', 'ra-ui-stt-live',
+  'ra-notify-visible', 'ra-notify-once', 'ra-notify-codes', 'ra-notify-text', 'ra-notify-throw-guard', 'ra-notify-focused', 'ra-restart-recording', 'ra-restart-finalizing',
+  'ra-apply-recording', 'ra-tray-late', 'ra-ui-restart-result', 'ra-restart-stops', 'ra-restart-quitting', 'ra-start-quitting', 'ra-dictate-quitting',
+];
+test('G3: 第1d回の変異が一覧にそろい、IDS_1D は計画の「変異確認」の表の id とちょうど同じ（中継・出し方・アプリ・ゲートの直しを1つずつ戻す）', { timeout: 5000 }, () => {
+  const byId = new Map(MUTANTS.map((m) => [m.id, m]));
+  assert.deepStrictEqual(IDS_1D.filter((id) => !byId.has(id)), []);
+  const plan = fs.readFileSync(path.join(ROOT, 'docs', 'plans', '2026-10-19-1d.md'), 'utf8');
+  const table = plan.slice(plan.indexOf('## 変異確認'), plan.indexOf('## ゲート'));
+  const rows = [...table.matchAll(/^\| ([a-z0-9]+(?:-[a-z0-9]+)+) \|/gm)].map((x) => x[1]);
+  assert.deepStrictEqual([...rows].sort(), [...IDS_1D].sort());
+  // 中継（relay/）と出し方の変異は、Electron の場面を使わない中継のテストで殺す（CI の mutate を短く保つ）。ゲートの変異はゲートのテストで殺す
+  for (const id of IDS_1D.filter((x) => x.startsWith('rl-'))) {
+    const m = byId.get(id);
+    assert.ok(/^(relay\/|tools\/relay-deploy\.js$|\.github\/workflows\/relay-deploy\.yml$)/.test(m.file), `${id}: ${m.file}`);
+    assert.ok(m.tests.every((t) => /^test\/relay-[a-z-]+\.test\.js$/.test(t)), `${id}: ${m.tests}`);
+  }
+  for (const id of IDS_1D.filter((x) => x.startsWith('rg-'))) assert.deepStrictEqual(byId.get(id).tests, ['test/gate.test.js'], id);
+});
