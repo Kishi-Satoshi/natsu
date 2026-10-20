@@ -260,6 +260,7 @@ test('公開したのに画面から呼ばれない API がない', () => {
   // 呼び始めたので外して空に戻した
   // 第1d回 Task A-6 で足した meetingRetry（帯の［もう一度］）は、録音中のページの帯（Task A-7）が呼び始めたので外して空に戻した
   // 第1d回 Task A-11 で足した accountLogin（Cloudflare Access のログインの窓）は、設定のカード「アカウント」（Task A-12）が呼び始めたので外して空に戻した
+  // 0.9.0 O-2 で足した koeOverlay.reportSize・onForm（録音バーの窓の大きさと形）は、録音バーの画面（O-3）が呼び始めたので外して空に戻した
   const PENDING_APP = new Set([]);
   for (const [ns, html] of [['koeApp', appHtml], ['koeOverlay', overlayHtml]]) {
     const names = all(/^\s{2}([A-Za-z][\w$]*):/gm, block(ns));
@@ -603,8 +604,9 @@ test('「すべて」の検索が要約の本文とメモに当たる', () => {
 test('録音バーは一時停止と停止のボタンを持つ', () => {
   assert.ok(overlayHtml.includes('id="pauseBtn"'), '一時停止ボタンが無い');
   assert.ok(overlayHtml.includes('id="stopBtn"'), '停止ボタンが無い');
-  // 停止は赤い四角、一時停止は二本線
-  assert.match(overlayHtml, /\.pbtn \.sq \{[\s\S]{0,160}?background: var\(--rec\)/);
+  // 0.9.0 O-3（設計書 D25）で意図して変えた: 停止は赤い丸に白い四角（いちばん強い色）、一時停止は二本線
+  assert.match(overlayHtml, /\.pbtn\.stop \{[\s\S]{0,160}?background: var\(--rec\)/);
+  assert.match(overlayHtml, /\.pbtn \.sq \{[\s\S]{0,160}?background: #fff/);
   assert.match(overlayHtml, /class="pause-ico"><span class="bar"><\/span><span class="bar">/);
 });
 
@@ -642,22 +644,33 @@ test('議事録の破棄ボタンは録音バーに出さない（誤操作で�
   assert.match(overlayHtml, /\.pill\.meeting \.pbtn\.ng \{ display: none; \}/);
 });
 
+// 0.9.0 U-2（SP4・D24）で意図して変えた: 設定は項目ごとのカード（計画「設定の項目とカード」の表の順）。「動作」と「オンライン」の
+// カードは無くなった（中の欄はホットキー・起動と終了・録音バー・マイクと相手の声・文字起こし・要約（Claude Code）へ動いた）。
+// 外観（#appearanceTitle）とアカウント（#accountTitle）は id の付いた <h2> なのでここには出ない
+// 0.9.0 見た目の直し（利用者に見せる前の見直し）で意図して変えた: 項目の見出しと同じ言葉のカードの見出し（「オフライン」）は hidden で出さない。
+// カードの名前としては残るので、hidden の付いた <h2> もここで数える（並びと数は変えない）
 test('設定カードの並びは指定通り', () => {
-  const heads = [...appHtml.matchAll(/<h2>(.+?)<\/h2>/g)].map((m) => m[1]);
+  const heads = [...appHtml.matchAll(/<h2(?: hidden)?>(.+?)<\/h2>/g)].map((m) => m[1]);
   assert.deepStrictEqual(heads, [
-    'アップデート',
-    '動作',
+    'ホットキー',
+    '起動と終了',
+    '録音バー',
+    'マイクと相手の声',
+    '文字起こし',
     'ユーザー辞書（認識ヒント）',
-    'オンライン',   // 第1c回 Task C-2: 辞書とエンジンの間にカード「オンライン」（OL7）
+    '要約（Claude Code）',
     'オフライン',   // 第1d回 A-13（D19）で意図して変えた: カード「エンジン」を「オフライン」に
+    'アップデート',
   ]);
 });
 
 test('録音バーは暗色地に合った色で描く', () => {
   // ピルを暗色にしたのに描画色を明るい地のままにすると、
   // 波形もスピナーも見えなくなる（実機で波形が真っ黒になった）
+  // 0.9.0 O-3（設計書 D25）で意図して変えた: 波形（canvas の fillStyle）を5つの点にした。点の色は明るい（一時停止中も白の 45%）
   const c = code(overlayHtml);
-  assert.match(c, /ctx2d\.fillStyle = paused \? 'rgba\(255,255,255/, '波形が暗いまま');
+  assert.match(c, /\.lv i \{[^}]*background: var\(--fg\)/, '点が暗いまま');
+  assert.match(c, /\.pill\.paused \.lv i \{ background: rgba\(255, 255, 255, 0\.45\)/, '一時停止中の点が暗いまま');
   assert.ok(!/rgba\(27,\s*30,\s*37/.test(c), '明るい地向けの墨色が残っている');
 });
 
@@ -684,7 +697,7 @@ function divDepthMap(html) {
   let depth = 0;
   for (const line of html.split('\n')) {
     depth += (line.match(/<div\b/g) || []).length - (line.match(/<\/div>/g) || []).length;
-    const h = line.match(/<h2>(.+?)<\/h2>/);
+    const h = line.match(/<h2(?: hidden)?>(.+?)<\/h2>/);   // 0.9.0 見た目の直し: 出さないカードの見出し（hidden）も数える
     if (h) out.push({ title: h[1], depth });
   }
   return { heads: out, depth };
@@ -695,7 +708,7 @@ test('設定の各カードが同じ深さにある（枠の外に出ていな�
   const sec = appHtml.slice(a, appHtml.indexOf('    </section>', a));
   const { heads, depth } = divDepthMap(sec);
   assert.strictEqual(depth, 0, '設定セクションの div が閉じ切れていない');
-  assert.strictEqual(heads.length, 5);   // 第1c回 Task C-2: カード「オンライン」を足して 5 つ
+  assert.strictEqual(heads.length, 9);   // 第1c回 Task C-2: カード「オンライン」を足して 5 つ。0.9.0 U-2 で項目ごとに分けて 9 つ（意図して変えた）
   for (const h of heads) {
     assert.strictEqual(h.depth, heads[0].depth, `「${h.title}」だけ深さが違う（枠の外に出ている）`);
   }

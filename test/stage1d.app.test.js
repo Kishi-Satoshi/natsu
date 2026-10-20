@@ -86,13 +86,14 @@ const mail = (local) => local + String.fromCharCode(64) + 'example.com';
 const M = mail('kaigi');
 const R1 = '会社のメールアドレスでログインすると、インターネットにつながっているときに、会議と音声入力の音声を文字起こしの中継に送り、OpenAI で文字起こしします。ログインしていないときと、つながっていないときは、PC の中で文字起こしします。';
 const ONLINE = 'ログインしていて、インターネットにつながっているときは、会議と音声入力の音声を文字起こしの中継に送り、OpenAI（gpt-4o-transcribe）で文字起こしします。中継も OpenAI も、音声と文字を保存しません。つながっていないときは、いつも PC の中で文字起こしします。1on1・面談など外に出したくない会議は、議事録の画面の［この会議は PC の中だけ］を押してください。';
-const L3 = 'ログインが切れたため、PC の中で文字起こししています。設定の「アカウント」でもう一度ログインしてください。';
+const L3 = 'ログインが切れたため、この PC で文字起こししています（精度が落ちます）。設定の「アカウント」でもう一度ログインしてください。';
 const CLAUDE = () => ({ ok: true, found: true, cmdOnly: false, method: 'claude.ai', message: '' });
 const status = (o = {}) => ({ ok: true, signedIn: false, email: '', method: 'access', until: null, canStore: true, online: { up: true, why: 'ok' }, ...o });
 const RETIRED = ['onlineAdv', 'sttKey', 'sttKeySave', 'sttKeyTest', 'sttKeyClear', 'sttKeyState'];
 
-// 要素とその祖先のどれにも hidden が無い（画面に出ている）
-const shown = (el) => { for (let n = el; n && n.tagName && !n.tagName.startsWith('#'); n = n.parentNode) if (n.hidden) return false; return true; };
+// 要素とその祖先のどれにも hidden が無い（画面に出ている）。
+// 0.9.0 U-1（SP1・D24）で意図して変えた: 設定はポップアップ（#settingsModal）の中なので、ポップアップの hidden は見ない（開けば出る形か）
+const shown = (el) => { for (let n = el; n && n.tagName && !n.tagName.startsWith('#'); n = n.parentNode) if (n.hidden && n.id !== 'settingsModal') return false; return true; };
 const click = async (l, id) => { l.byId.get(id).dispatchEvent({ type: 'click' }); await l.drain(); };
 
 // 第1d回 A-12 で意図して変えた: 自前のログイン（メール → 確認コード）の試しを、Cloudflare Access の窓の［ログイン］／［ログアウト］の試しに替えた
@@ -125,11 +126,12 @@ test('RL10: ログインしていなければ AR1・AR2 と［ログイン］、
   const l = await load(APP, { returns: f.returns });
   await l.drain();
   assert.deepStrictEqual(l.errors.map(fmt), []);
+  // 0.9.0 U-2（SP4・D24）で意図して変えた: 設定は項目ごと。アカウントのカードは設定の頭（項目「アカウント」の1枚）、外観はその次（項目「一般」の頭）
   const cards = l.byId.get('tabSettings').querySelectorAll('.card');
-  assert.strictEqual(cards[0].id, 'appearanceCard', '1つ目のカードが外観でない');
-  assert.strictEqual(cards[1].id, 'accountCard', '2つ目のカードがアカウントでない');
-  assert.strictEqual(cards[1].querySelector('h2').textContent.trim(), 'アカウント');
-  assert.ok(cards[1].textContent.includes(R1), 'カードの説明（R1）が無い');
+  assert.strictEqual(cards[0].id, 'accountCard', '1つ目のカードがアカウントでない');
+  assert.strictEqual(cards[1].id, 'appearanceCard', '2つ目のカードが外観でない');
+  assert.strictEqual(cards[0].querySelector('h2').textContent.trim(), 'アカウント');
+  assert.ok(cards[0].textContent.includes(R1), 'カードの説明（R1）が無い');
   // ログインしていない: AR1・AR2 と［ログイン］。［ログアウト］は出ない
   const out = l.byId.get('accountOut');
   assert.ok(shown(out) && !shown(l.byId.get('accountIn')));
@@ -142,7 +144,7 @@ test('RL10: ログインしていなければ AR1・AR2 と［ログイン］、
     assert.ok(d && shown(d), `${name} の行が出ていない`);
   }
   const btn = l.byId.get('accountSignIn');
-  assert.strictEqual(btn.closest('.card'), cards[1]);
+  assert.strictEqual(btn.closest('.card'), cards[0]);
   assert.ok(out.querySelectorAll('button').includes(btn), '［ログイン］がログインしていないときの欄に無い');
   assert.strictEqual(btn.textContent.trim(), 'ログイン');
   assert.ok(shown(btn) && !shown(l.byId.get('accountLogout')));
@@ -264,8 +266,10 @@ test('F11: ［詳細設定（管理者用）］・鍵の欄・3つのボタン�
   await l.drain();
   for (const id of RETIRED) assert.strictEqual(l.byId.get(id), undefined, `${id} がまだある`);
   assert.deepStrictEqual(l.missingIds.filter((id) => RETIRED.includes(id)), [], '消した欄をまだ引いている');
-  const card = l.byId.get('claudeTest').closest('.card');
-  assert.strictEqual(card.querySelector('h2').textContent.trim(), 'オンライン');
+  // 0.9.0 U-2（SP4・D24）で意図して変えた: Claude Code の欄は「要約（Claude Code）」のカード、前の「オンライン」の説明は「文字起こし」のカード（文は今のまま）
+  assert.strictEqual(l.byId.get('claudeTest').closest('.card').querySelector('h2').textContent.trim(), '要約（Claude Code）');
+  const card = l.byId.get('language').closest('.card');
+  assert.strictEqual(card.querySelector('h2').textContent.trim(), '文字起こし');
   const t = l.byId.get('tabSettings').textContent;
   for (const w of ['詳細設定（管理者用）', '管理者用の仮の欄', 'OpenAI の鍵', '鍵を確かめる', '鍵を消す', 'API キー']) assert.ok(!t.includes(w), `${w} が残っている`);
   const desc = card.querySelectorAll('.desc').find((d) => d.textContent.includes('文字起こしの中継'));
@@ -361,18 +365,18 @@ test('D17: 録音中のページの状態の行（クラウド・この PC・最
 
 test('D17: 帯は #liveBar の上に1つ。文は main の text のまま、ボタンは action ごとに1つ。problem が null になると消える', { timeout: 5000 }, async () => {
   const l = await load(APP, { now: T0 });
-  l.fire('onMeetingUpdate', PROB('relay-down', '', '中継につながりません。PC の中で文字起こしを続けています。録音はそのまま続けてください。')); await l.drain();
+  l.fire('onMeetingUpdate', PROB('relay-down', '', 'NaTsu のサーバーにつながりません。この PC で文字起こしを続けていますが、精度が落ちます。録音はそのまま続けてください。')); await l.drain();
   const b = l.byId.get('liveSttBanner');
   assert.strictEqual(b.hidden, false);
   assert.strictEqual(b.getAttribute('role'), 'alert');
   assert.strictEqual(nextEl(b), l.byId.get('liveBar'), '帯が録音中のページの頭（#liveBar の上）に無い');
   assert.strictEqual(l.root.querySelectorAll('.stt-banner').length, 1, '帯が2つ以上ある');
-  assert.strictEqual(l.byId.get('liveSttBannerText').textContent, '中継につながりません。PC の中で文字起こしを続けています。録音はそのまま続けてください。');
+  assert.strictEqual(l.byId.get('liveSttBannerText').textContent, 'NaTsu のサーバーにつながりません。この PC で文字起こしを続けていますが、精度が落ちます。録音はそのまま続けてください。');
   assert.strictEqual(l.byId.get('liveSttBannerBtn').hidden, true);
   // F15: 区間ごとの meeting:update で同じ帯の文を書き直さない（role="alert" は書き直すたびに読み上げ直されることがある）。
   // simdom の textContent の代入は子の並びを作り直すので、並びが同じなら書いていない（A-7 の点検で足した）
   const kids = l.byId.get('liveSttBannerText').childNodes;
-  l.fire('onMeetingUpdate', { ...PROB('relay-down', '', '中継につながりません。PC の中で文字起こしを続けています。録音はそのまま続けてください。'), segments: [{ atMs: 0, text: '区間', failed: false }] }); await l.drain();
+  l.fire('onMeetingUpdate', { ...PROB('relay-down', '', 'NaTsu のサーバーにつながりません。この PC で文字起こしを続けていますが、精度が落ちます。録音はそのまま続けてください。'), segments: [{ atMs: 0, text: '区間', failed: false }] }); await l.drain();
   assert.strictEqual(l.byId.get('liveSttBannerText').childNodes, kids, '同じ帯の文を区間の知らせのたびに書き直した');
   for (const [action, label] of [['retry', 'もう一度'], ['account', 'ログインし直す'], ['engine', 'エンジンを確かめる']]) {
     l.fire('onMeetingUpdate', PROB('x', action, '文')); await l.drain();
@@ -420,7 +424,7 @@ test('D17: ［もう一度］は meetingRetry を1回だけ呼び、返事まで
 // 第1d回 A-12 で意図して変えた: フォーカスの行き先は［ログイン］
 test('D17: ［ログインし直す］は設定の『アカウント』を開いて［ログイン］にフォーカス。［エンジンを確かめる］は詳細設定の『文字起こし』を開く', { timeout: 5000 }, async () => {
   const l = await load(APP, { now: T0, returns: fakeMain().returns });
-  l.fire('onMeetingUpdate', PROB('login', 'account', 'ログインが切れたため、PC の中で文字起こししています。［ログインし直す］を押して、もう一度ログインしてください。')); await l.drain();
+  l.fire('onMeetingUpdate', PROB('login', 'account', 'ログインが切れたため、この PC で文字起こしを続けていますが、精度が落ちます。［ログインし直す］を押して、もう一度ログインしてください。')); await l.drain();
   assert.ok(!l.byId.get('tabSettings').classList.contains('active'));
   const n = l.called('accountStatus').length;
   await click(l, 'liveSttBannerBtn');
@@ -490,10 +494,12 @@ test('D17: 録音中のタブを開くと meetingLiveShown(true)、ほかのタ�
   const n = sent().length;
   l.fire('onMeetingUpdate', PROB('relay-down', '', '文')); await l.drain();
   assert.strictEqual(sent().length, n, '変わっていないのに送った');
+  // 0.9.0 U-1（SP1・D24）で意図して変えた: 設定はタブでなく、録音中のページの上に開くポップアップ。開いている間は見えていない（false）、
+  // 閉じると録音中のタブのままなので見えている（true）
   await click(l, 'tabBtnSettings');
-  assert.strictEqual(lastSent(), false, '設定のタブへ移ったのに録音中のページを開いているまま');
-  liveTab().dispatchEvent({ type: 'click' }); await l.drain();
-  assert.strictEqual(lastSent(), true);
+  assert.strictEqual(lastSent(), false, '設定のポップアップで覆ったのに録音中のページを開いているまま');
+  await click(l, 'setClose');
+  assert.strictEqual(lastSent(), true, '設定を閉じて録音中のページが見えたのに知らせない');
   await click(l, 'tabBtnNotes');
   l.root.querySelector('#plist .pitem').dispatchEvent({ type: 'click' }); await l.drain();
   assert.strictEqual(lastSent(), false, 'ほかのページのタブへ移ったのに録音中のページを開いているまま');
@@ -507,10 +513,12 @@ test('D17: 録音中のタブを開くと meetingLiveShown(true)、ほかのタ�
   await vis('visible');
   assert.strictEqual(sent().length, m, '見えたままの visibilitychange でも送った（変わったときだけ）');
   // 知らせを押した（main の meeting:show-live）: ほかのタブにいても録音中のタブが開く
+  // 0.9.0 U-1: 設定のポップアップを開いている間に知らせを押すと、ポップアップを閉じて録音中のページを見せる
   await click(l, 'tabBtnSettings');
   assert.strictEqual(lastSent(), false);
   assert.ok(l.fire('onShowLive') > 0, '画面が onShowLive を受けていない');
   await l.drain();
+  assert.strictEqual(l.byId.get('settingsModal').hidden, true, '知らせを押したのに設定のポップアップが録音中のページを覆ったまま');
   assert.strictEqual(liveTab().getAttribute('aria-selected'), 'true', '録音中のタブが開かない');
   assert.strictEqual(l.byId.get('liveBar').hidden, false);
   assert.strictEqual(l.byId.get('liveSttBanner').hidden, false);
@@ -524,7 +532,8 @@ test('D17: 録音中のタブを開くと meetingLiveShown(true)、ほかのタ�
 // ================= 第1d回 A-13（RL17・RL18・D19・D20・あとの直し (a)） =================
 // D19: 設定のカード「エンジン」を「オフライン」にし、文字起こしの言葉を決めた文にする（要約の欄の「エンジン」は変えない: 問い Q15）。
 // 文を作るのは画面だけ（main の engine:status の理由の文は「（…）」の中にそのまま入る）
-const OFFLINE_LEAD = 'インターネットにつながっていないときと、［この会議は PC の中だけ］の会議では、この PC の中で文字起こしと要約をします。';
+// 0.9.0 U-3（OFF1・D21）で意図して変えた: 説明の文は「準備（任意）」の文（stage1d2.app の OFF1。選んだ人も選んでいない人も同じ）
+const OFFLINE_LEAD = 'インターネットにつながっていないときと、［この会議は PC の中だけ］の会議でも、この PC の中で文字起こしと要約ができるようにする準備です（任意）。準備しなくても、インターネットにつながっていてログインしていれば、会議と音声入力はそのまま使えます。';
 const LOCK_OFFLINE = '記録中は PC の中の文字起こしの設定を変更できません';
 const { MANIFEST } = require('../src/engine-manifest');
 // 取り込みの欄の写し（engine-app.test.js の ST と同じ形。main の engine:fetch-status の答え）

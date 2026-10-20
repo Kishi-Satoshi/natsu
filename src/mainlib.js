@@ -828,8 +828,9 @@ function buildPromptParts({ ja, dictionary, useBuiltinTerms, tail, limitBytes, b
 
 // 画面へ返す形。wav（ファイルのパス）は外す。画面に出す理由が無く、状態をそのまま
 // ログや不具合報告に貼られるとパスが漏れる。待ちの区間は残す（進捗が見える）
+// 第1d2回 M-2: 音声を残した区間の印 kept も外す（会議と下書きの中だけに持つ。ページ・画面・DB には出さない）
 function publicSegments(segments) {
-  return (segments || []).map(({ wav, ...s }) => s);
+  return (segments || []).map(({ wav, kept, ...s }) => s);
 }
 // ページに保存する形。待ちの区間（本文が無い）は入れない。wav も外す
 function settledSegments(segments) {
@@ -850,7 +851,7 @@ function recoverSegments(segments, exists) {
   const todo = [];
   for (const raw of (segments || [])) {
     if (!raw || typeof raw !== 'object') continue;
-    const { wav, pending, ...s } = raw;
+    const { wav, pending, kept, ...s } = raw;   // kept（第1d2回 M-2）はページに入れない（publicSegments を通らないので、ここで外す）
     if (pending) {
       s.failed = true;
       if (wav && exists(wav)) {
@@ -905,7 +906,73 @@ const STICKY_LOCAL = ['local-only', 'signed-out', 'login', 'daily-cap', 'quota',
  * （録音の始まりを待たせない。外れたら区間の後で替わる）
  */
 function startSegmentMode({ localOnly, signedIn, hold, netOnline, peekUp } = {}) {
-  return !localOnly && signedIn === true && !hold && netOnline === true && peekUp !== false ? 'short' : 'long';
+  return !localOnly && cloudLikely({ signedIn, hold, netOnline, peekUp }) ? 'short' : 'long';
+}
+
+// ---------------------------------------------------------------- オフラインの準備を任意にする（第1d2回 M-1・D21・OF1）
+// 要約の欄の文（第1d2回 M-3。計画「画面と知らせの文」の S1〜S3'）。local・offline は準備を選んでいない PC で手元の LLM が無いとき
+// （PC の中だけの会議・Claude Code に届かない）。wait・waitLocal は締めたときに文字起こし待ちの区間がある会議（済んだら自動で要約する）
+const KEPT_SUMMARY_TEXT = {
+  local: 'この会議は PC の中だけのため、要約も PC の中で作ります。オフラインの準備をしていないので、要約は作りませんでした。設定の「オフライン」で準備すると、［要約を生成］で作れます。',
+  offline: '要約の送り先（Claude Code）につながらないため、要約を作りませんでした。インターネットにつながってから［要約を生成］を押してください。',
+  wait: '文字起こし待ちの音声があります。文字起こしが済むと、自動で要約を作ります。',
+  waitLocal: 'この会議は PC の中だけです。文字起こし待ちの音声があります。オフラインの準備が済んで文字起こしが済むと、自動で要約を作ります。',
+};
+const LOGIN_WHYS = ['signed-out', 'login'];   // ログインしていない・切れた
+// 準備を選んでいない PC で音声を残している帯の符号（第1d2回 M-2。B14・B13・B12・B11）。Windows の知らせにはしない（WIN_NOTIFY_CODES は変えない）
+const KEPT_CODES = ['kept-local', 'kept-login', 'kept-relay', 'kept-wait'];
+// つながれば戻る理由（オフライン・届かない・会社の通信の検査）
+const KEPT_WAIT_WHYS = ['offline', 'unreachable', 'net', 'timeout', 'cert', 'proxy', 'key-unreadable'];
+// 中継が音声を見て断った（待っても同じ答え）。残さない（決めたこと 12）
+const KEPT_REFUSED_WHYS = ['bad-request', 'too-large'];
+/**
+ * 音声を残した区間の帯の符号。localOnly なら理由に関わらず kept-local、ログインしていない・切れたは kept-login、つながれば戻る理由は
+ * kept-wait、中継が断ったものは ''（残さない）、ほか（上限・止めたメール・中継の誤り・知らない中継の符号）は kept-relay
+ */
+function keptCodeFor({ localOnly, why } = {}) {
+  if (localOnly) return 'kept-local';
+  if (LOGIN_WHYS.includes(why)) return 'kept-login';
+  if (KEPT_WAIT_WHYS.includes(why)) return 'kept-wait';
+  if (KEPT_REFUSED_WHYS.includes(why)) return '';
+  return 'kept-relay';
+}
+/**
+ * クラウド（中継）で文字起こしできそうか。ログインしている・hold が ''・net.isOnline() が true・覚えている /health の答え
+ * （peekUp: true | false | null）が false でない。通信しない（startSegmentMode の short と同じ材料・同じ答え）
+ */
+function cloudLikely({ signedIn, hold, netOnline, peekUp } = {}) {
+  return signedIn === true && !hold && netOnline === true && peekUp !== false;
+}
+/**
+ * オフラインの準備を「選んだ」か: 手のパスがある・取り込んだ組の候補がある・取り込みのボタンを押した（installed.json の consent）・
+ * 取り込み中のどれか1つ。選んだ人はエンジンの誤りの扱い（帯 B1・「未設定」の案内・始めないこと）を 0.8.0 のまま残す（RF49）
+ */
+function offlineChosen({ manual, managedCand, consent, fetching } = {}) {
+  return Boolean(manual) || Boolean(managedCand) || Boolean(consent) || Boolean(fetching);
+}
+// 選んでいない PC で音声入力を始めない文（計画「画面と知らせの文」の D1〜D3。「未設定」の語を使わない: 画面が設定へ連れて行く）
+const DICTATION_REFUSE_TEXT = {
+  offline: 'インターネットにつながっていないため、音声入力を始めませんでした。オンラインに戻ってから、もう一度お試しください。オフラインでも使うには、設定の「オフライン」で準備します。',
+  login: 'ログインしていないため、音声入力を始めませんでした。設定の「アカウント」でログインしてください。',
+  relay: '文字起こしの中継が今は使えないため、音声入力を始めませんでした。少し待ってから、もう一度お試しください。',
+};
+/**
+ * 会議の始め方。localUsable（手元が使える）・chosen（準備を選んだ）・cloud（cloudLikely）・problem（whisperProblem の文）・
+ * why（cloud を偽にした理由: signed-out・login・offline・hold の理由・relay-down）→ { ok: true, keep } | { ok: false, error }。
+ * keep: '' は今どおり、'login' はログインするまで音声を残す、'wait' はつながるまで音声を残す（選んでいない PC だけ）
+ */
+function startPlan({ localUsable, chosen, cloud, problem, why } = {}) {
+  if (localUsable || cloud) return { ok: true, keep: '' };
+  if (chosen) return { ok: false, error: problem };
+  return { ok: true, keep: LOGIN_WHYS.includes(why) ? 'login' : 'wait' };
+}
+/** 音声入力の始め方（材料は startPlan と同じ）→ { ok: true } | { ok: false, error, action? }（action: 'signin' は［ログイン］） */
+function dictationPlan({ localUsable, chosen, cloud, problem, why } = {}) {
+  if (localUsable || cloud) return { ok: true };
+  if (chosen) return { ok: false, error: problem };
+  if (LOGIN_WHYS.includes(why)) return { ok: false, error: DICTATION_REFUSE_TEXT.login, action: 'signin' };
+  if (why === 'offline') return { ok: false, error: DICTATION_REFUSE_TEXT.offline };
+  return { ok: false, error: DICTATION_REFUSE_TEXT.relay };
 }
 
 /** 区間の後の区切り。st = { mode, localRun, cloudRun }、route は 'cloud' | 'local'、why は手元にした理由 → 新しい st */
@@ -959,7 +1026,10 @@ function stallStep(run, { text, levelDbfs } = {}) {
   return Number(levelDbfs) > STALL_MIN_DBFS ? n + 1 : n;
 }
 // 帯（録音中のページの頭。計画「画面と知らせの文」の B1〜B10）の符号。同時に1つだけで、前ほど先に出す
-const PROBLEM_ORDER = ['engine-down', 'stall', 'login', 'seg-failed', 'relay-off', 'daily-cap', 'relay-blocked', 'relay-down', 'relay-busy', 'wait'];
+// 第1d2回 M-2: 準備を選んでいない PC で音声を残している帯（kept の4つ。B11〜B14）は、ログインの後・残した失敗の前
+// 0.9.0 B-2: net-offline（B15。ネットワークから外れた・この PC で続けている）は seg-failed の後・中継の帯の前
+const PROBLEM_ORDER = ['engine-down', 'stall', 'login', 'kept-local', 'kept-login', 'kept-relay', 'kept-wait', 'seg-failed', 'net-offline',
+  'relay-off', 'daily-cap', 'relay-blocked', 'relay-down', 'relay-busy', 'wait'];
 /** problems: Map<符号, 詳しさ（{ n } や { sec }）> → 一番前の { code, ...詳しさ } か null（表に無い符号は見ない） */
 function sttProblemOf(problems) {
   if (!(problems instanceof Map)) return null;
@@ -985,6 +1055,25 @@ function problemForRoute({ route, why, scope } = {}) {
   if (route !== 'local') return '';
   if (why === 'daily-cap') return scope === 'all' ? 'relay-off' : 'daily-cap';
   return Object.hasOwn(PROBLEM_FOR_WHY, why) ? PROBLEM_FOR_WHY[why] : 'relay-busy';
+}
+
+// 0.9.0 B-2（BN2・D26・決めたこと 34）: 会議の途中でネットワークから外れたときの帯（B15 net-offline）の出し消し。main の 1 秒の見張り
+// （watchOffline）が呼ぶ。切れているのが OFFLINE_SHOW_MS 続いたら 'show'、出ている間につながっているのが OFFLINE_CLEAR_MS 続いたら 'clear'
+// （行き来では点滅しない。帯は role="alert" で出し直すたびに読み上げる）。eligible が偽なら、出ていれば 'clear'（出さない）。
+// shown は呼び手が帯の今の様子から渡す（見張りの中に「出ている」を持たない: ほかの道で消えたら、切れたままなら出し直す）。
+// st = { offSince, onSince }（今の様子が続いている始まりの時刻）。時計が戻ったら（now が始まりより前）戻った所から数え直す（投げない）
+const OFFLINE_SHOW_MS = 5000;
+const OFFLINE_CLEAR_MS = 10000;
+/** (st, { online, now, eligible, shown }) → { st, act: 'show' | 'clear' | '' } */
+function offlineBannerStep(st, { online, now, eligible, shown } = {}) {
+  const t = Number.isFinite(now) ? now : 0;
+  const prev = st && typeof st === 'object' ? st : {};
+  const since = (v) => (Number.isFinite(v) && v <= t ? v : t);
+  const next = online ? { offSince: null, onSince: since(prev.onSince) } : { offSince: since(prev.offSince), onSince: null };
+  if (!eligible) return { st: next, act: shown ? 'clear' : '' };
+  if (!online && !shown && t - next.offSince >= OFFLINE_SHOW_MS) return { st: next, act: 'show' };
+  if (online && shown && t - next.onSince >= OFFLINE_CLEAR_MS) return { st: next, act: 'clear' };
+  return { st: next, act: '' };
 }
 
 // Windows の知らせ（第1d回 D17・RL15。A-8）: 録音中のページが見えていないとき、文字起こしが止まる・行動が要る帯だけを出す
@@ -1334,6 +1423,66 @@ function logReason(e) {
   return String(msg).replace(LOG_PATH_RE, '$1…$2');
 }
 
+// ---------------------------------------------------------------- 録音バーの置き場所（0.9.0 O-1・設計書 D25・RP1〜RP3）
+// 8つの置き場所（settings.js の PILL_SLOTS と同じ並び。同じ距離のときはこの順で前）。左右の中央だけ縦の形
+const PANEL_SLOTS = ['top-left', 'top-center', 'top-right', 'middle-left', 'middle-right', 'bottom-left', 'bottom-center', 'bottom-right'];
+// ピルの端と画面の作業領域の端の間（0.8.0 の録音バーと同じ 12px）
+const PANEL_EDGE = 12;
+// 形ごとのピルの初めの大きさ（CSS の px。録音バーの画面がまだ大きさを送っていないときと、置き場所の中心を決めるとき）
+const PANEL_FIRST = { h: { w: 240, h: 40 }, v: { w: 40, h: 240 } };
+// → 'v'（middle-left・middle-right）か 'h'
+function slotForm(slot) { return slot === 'middle-left' || slot === 'middle-right' ? 'v' : 'h'; }
+// 置き場所に size（{ w, h }）のピルを、作業領域の端から edge の所に置いた四角の左上（DIP。丸めない）
+function slotOrigin(slot, size, wa, edge) {
+  const x = slot.endsWith('left') ? wa.x + edge : slot.endsWith('right') ? wa.x + wa.width - edge - size.w : wa.x + (wa.width - size.w) / 2;
+  const y = slot.startsWith('top') ? wa.y + edge : slot.startsWith('bottom') ? wa.y + wa.height - edge - size.h : wa.y + (wa.height - size.h) / 2;
+  return { x, y };
+}
+// 点（ドラッグを離した窓の中心・前の版の位置）に一番近い置き場所の名前。距離は、作業領域の各置き場所にその形の初めの大きさ
+// （PANEL_FIRST）のピルを置いた中心との距離。同じ距離なら PANEL_SLOTS の順で前（RP2・F12）
+function nearestSlot(pt, workArea) {
+  let best = PANEL_SLOTS[0];
+  let bestD = Infinity;
+  for (const slot of PANEL_SLOTS) {
+    const size = PANEL_FIRST[slotForm(slot)];
+    const o = slotOrigin(slot, size, workArea, PANEL_EDGE);
+    const d = (o.x + size.w / 2 - pt.x) ** 2 + (o.y + size.h / 2 - pt.y) ** 2;
+    if (d < bestD) { best = slot; bestD = d; }
+  }
+  return best;
+}
+// ---------------------------------------------------------------- 録音バーの窓の大きさ（0.9.0 O-2・設計書 D25・RP3・RP4・F11）
+// ピルの周りの余白（拡大率 125% などで DIP を画面の点に丸めたときの1点のずれと、縦の形の × を飲み込む）と、窓の最大
+const PANEL_PAD = 8;
+const PANEL_MAX = { width: 560, height: 360 };
+// ドラッグの止まり（最後の move から）。moved の来ない Linux だけがこれで吸い付く（snapsOnQuiet）
+const PANEL_QUIET_MS = 300;
+// → 録音バーの窓の { x, y, width, height }（どれも整数の DIP）。size はピルの大きさ（CSS の px。録音バーの画面が測って送る）で、
+// 有限の正の数でなければ形の初めの大きさ（PANEL_FIRST）。窓はピルの大きさを切り上げて周りに PANEL_PAD を足した大きさ（PANEL_MAX まで）。
+// ピルは窓の真ん中に描かれるので、窓の端を作業領域の端から PANEL_EDGE − PANEL_PAD の所に置くと、ピルの端は PANEL_EDGE の所に来る
+// （右の置き場所は右の端、下の置き場所は下の端を保つ。真ん中は真ん中）。窓は作業領域の中に収める。窓の大きさを決めるのはここだけ
+function panelBounds({ slot, size, workArea }) {
+  const okSize = size && Number.isFinite(size.w) && Number.isFinite(size.h) && size.w > 0 && size.h > 0;
+  const s = okSize ? size : PANEL_FIRST[slotForm(slot)];
+  const width = Math.min(PANEL_MAX.width, Math.ceil(s.w) + 2 * PANEL_PAD);
+  const height = Math.min(PANEL_MAX.height, Math.ceil(s.h) + 2 * PANEL_PAD);
+  const o = slotOrigin(slot, { w: width, h: height }, workArea, PANEL_EDGE - PANEL_PAD);
+  const x = Math.max(workArea.x, Math.min(Math.round(o.x), workArea.x + workArea.width - width));
+  const y = Math.max(workArea.y, Math.min(Math.round(o.y), workArea.y + workArea.height - height));
+  return { x, y, width, height };
+}
+// ドラッグの止まり（PANEL_QUIET_MS）で吸い付く OS か。Windows・macOS は OS のドラッグの終わりに moved が来るのでそれを待つ
+// （Windows で止まりを使うと、ドラッグの途中で手を止めただけで吸い付いて OS のドラッグと取り合う: F18）
+function snapsOnQuiet(platform) { return platform === 'linux'; }
+// ---------------------------------------------------------------- 録音バーのボタンの名前のキー（0.9.0 O-3・設計書 D25・RP7）
+// Electron のキーの書き方（Control+Shift+Space）を画面の書き方（Ctrl+Shift+Space）に直す。渡すのは実際に登録しているキー（activeHotkeys）。
+// 文字でない・空なら ''（名前にキーを付けない）
+function keyLabel(accel) {
+  if (typeof accel !== 'string' || !accel.trim()) return '';
+  const MAP = { control: 'Ctrl', ctrl: 'Ctrl', commandorcontrol: 'Ctrl', cmdorctrl: 'Ctrl', super: 'Win', meta: 'Win' };
+  return accel.split('+').map((k) => MAP[k.trim().toLowerCase()] || k.trim()).join('+');
+}
+
 module.exports = {
   saveIfExists, meetingDurationSec, promptTail,
   registerHotkeys, hotkeyFailureMessage, hotkeyStatus, resolveStartupHotkeys, saveHotkeys,
@@ -1349,11 +1498,15 @@ module.exports = {
   publicSegments, settledSegments, pendingDurationMs, recoverSegments, staleSegbufDirs,
   nextSegmentMs, EtaTracker, skipPendingSegments,
   ONLINE_SEGMENT_SEC, OVERLAY_SEG_MIN_MS, SEG_SWITCH_AFTER, STICKY_LOCAL, startSegmentMode, segmentModeNext, segmentBaseMs, liveSegmentMs, nextLiveSegmentMs,
+  cloudLikely, offlineChosen, DICTATION_REFUSE_TEXT, startPlan, dictationPlan, KEPT_CODES, keptCodeFor, KEPT_SUMMARY_TEXT,
   STALL_SPAN_MS, STALL_MIN_DBFS, stallAfter, stallStep, PROBLEM_ORDER, sttProblemOf, problemForRoute,
   WIN_NOTIFY_CODES, WIN_NOTIFY_GAP_MS, notifyGate,
+  OFFLINE_SHOW_MS, OFFLINE_CLEAR_MS, offlineBannerStep,
   estimateTokens, foldNotes, idleEnginesToStop, silentWav, wavLevelDbfs, mergeSummaryType, memoEvidence, buildClaudeInput, routeLabel,
   isLoopbackUrl, loopbackOnlyFetch,
   sameShas, keepPrevious, candStamp, repairIdsOf, pathUsedBy, fetchMinutesLeft,
   recordDictation, mergeHistory, chooseDraftName,
   accountMessage,
+  // 0.9.0 レーン O（録音バー）
+  PANEL_EDGE, PANEL_FIRST, slotForm, slotOrigin, nearestSlot, PANEL_PAD, PANEL_MAX, PANEL_QUIET_MS, panelBounds, snapsOnQuiet, keyLabel,
 };

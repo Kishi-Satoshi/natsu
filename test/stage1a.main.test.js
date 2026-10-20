@@ -60,12 +60,14 @@ describe('第1a回 保存の守り（main）', { concurrency: Number(process.env
     assert.strictEqual(copies.length, 1);
     assert.match(copies[0], ISO_BROKEN('settings.json'));
     const saved = JSON.parse(r.settingsText);
-    assert.deepStrictEqual([saved.maxHistory, saved.pillPos, saved.theme, saved.futureKey], [500, 'bottom', 'dark', { a: 1 }]);
+    // 0.9.0 O-1 で意図して変えた: 壊れた録音バーの値は pillSlot で見る（pillPos は知らないキーになり、0.9.0 は直さない）。壊れた pillSlot は
+    // 既定に戻した後、正しい pillSlot が無いので起動の前の位置の直しが前の版の pillCustom（40, 60）から一番近い top-left にする
+    assert.deepStrictEqual([saved.maxHistory, saved.pillSlot, saved.theme, saved.futureKey], [500, 'top-left', 'dark', { a: 1 }]);
     const n = ours(r.notices);
     assert.strictEqual(n.length, 1);
-    assert.ok(n[0].includes(label('maxHistory')) && n[0].includes(label('pillPos')) && n[0].includes(copies[0]), n[0]);
-    assert.ok(r.engineLog.some((l) => /設定: 一部を既定に戻しました（pillPos: type、maxHistory: range）/.test(l)), r.engineLog.join('\n'));
-    assert.ok(!r.engineLog.some((l) => /"pillPos"\s*:\s*5|pillPos: 5/.test(l)), '値を記録に書いた');
+    assert.ok(n[0].includes(label('maxHistory')) && n[0].includes(label('pillSlot')) && n[0].includes(copies[0]), n[0]);
+    assert.ok(r.engineLog.some((l) => /設定: 一部を既定に戻しました（pillSlot: type、maxHistory: range）/.test(l)), r.engineLog.join('\n'));
+    assert.ok(!r.engineLog.some((l) => /"pillSlot"\s*:\s*5|pillSlot: 5/.test(l)), '値を記録に書いた');
   });
 
   test('JS6・N8: オンとオフの欄の "false" の文字は、今までどおりオンのまま、知らせて真偽値で書き戻す', SCENE, async () => {
@@ -204,19 +206,23 @@ describe('第1a回 保存の守り（main）', { concurrency: Number(process.env
   });
 
   // 第1a回 Task 2-4: 録音バーの位置のまとめ書き・書き出しの合図・始めの片付け
-  test('RF21・JS8: どの合図でも、受け口が返る前に録音バーの位置がファイルに書かれている（合図の前はまだ書かれていない）', SCENE, async () => {
+  // 0.9.0 O-1（設計書 D25）で意図して変えた: 録音バーを動かすと、前の自由な位置（pillCustom）でなく一番近い置き場所の名前（pillSlot）を
+  // まとめ書きする。pillCustom は前の版が書いた値として置いたまま変わらない
+  test('RF21・JS8: どの合図でも、受け口が返る前に録音バーの置き場所がファイルに書かれている（合図の前はまだ書かれていない）', SCENE, async () => {
     const r = await run('signals');
     assert.deepStrictEqual(r.signals.map((s) => s.ev), ['session-end', 'query-session-end', 'suspend', 'lock-screen', 'shutdown', 'hide', 'close', 'will-quit', 'before-quit']);
     r.signals.forEach((s, i) => {
-      assert.deepStrictEqual(s.after, { x: 100 + i, y: 200 }, `${s.ev} で書き出していない`);
+      assert.strictEqual(s.after, i % 2 ? 'top-right' : 'top-left', `${s.ev} で書き出していない`);
       assert.notDeepStrictEqual(s.before, s.after, `${s.ev}: 合図の前にもう書かれていた（確かめになっていない）`);
     });
+    assert.deepStrictEqual(r.pillCustom, SC.TYPICAL.pillCustom, '前の版の pillCustom を書き換えた');
   });
 
-  test('JS7: 続けて動かした録音バーは、間隔の後に最後の位置だけを1回書く', SCENE, async () => {
+  test('JS7: 続けて動かした録音バーは、間隔の後に最後の置き場所だけを1回書く', SCENE, async () => {
     const r = await run('batched');
-    assert.deepStrictEqual(r.right, SC.TYPICAL.pillCustom, '間隔を待たずに書いた');
-    assert.deepStrictEqual(r.later, { x: 9, y: 10 });
+    assert.strictEqual(r.right, SC.TYPICAL.pillSlot, '間隔を待たずに書いた');
+    assert.strictEqual(r.later, 'top-left');
+    assert.deepStrictEqual(r.laterCustom, SC.TYPICAL.pillCustom, '前の版の pillCustom を書き換えた');
   });
 
   test('JS4: 起動のときに、残った JSON の一時ファイルを消す（WAV の一時ファイルは残す）', SCENE, async () => {
@@ -229,6 +235,7 @@ describe('第1a回 保存の守り（main）', { concurrency: Number(process.env
     const r = await run('unreadable-move');
     assert.strictEqual(r.textAfterSignal, JSON.stringify(SC.TYPICAL, null, 2), '読めない間に合図で書いた');
     assert.strictEqual(r.textLater, JSON.stringify(SC.TYPICAL, null, 2), '読み直した後に、読めない間の位置を書いた');
+    assert.strictEqual(r.after.pillSlot, SC.TYPICAL.pillSlot);   // 0.9.0 O-1 で意図して変えた（置き場所の名前で見る）
     assert.deepStrictEqual(r.after.pillCustom, SC.TYPICAL.pillCustom);
   });
 

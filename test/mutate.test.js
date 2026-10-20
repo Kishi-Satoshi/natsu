@@ -92,6 +92,20 @@ test('G3: pattern は正規表現として読め、tests のファイルのど�
   }
 });
 
+// 0.9.0 見た目の直しの CI（run 39491867266）: 元のままの確かめは一覧のテストのほぼ全部（ふだん 100〜130 秒）を1回で走らせるのに、
+// 変異1つの見張り（120 秒）と同じ見張りだったので、遅い機械で「元のままで赤（時間切れ）」になり、変異を1つも試さずに止まった。
+// 元のままの確かめは自分の見張り（baseTimeoutMs）を持つ。変異1つの見張りは今のまま
+test('G3: 元のままの確かめは変異1つの見張り（timeoutMs）でなく、自分の見張り（baseTimeoutMs）で切る', { timeout: 30000 }, async () => {
+  const mut = [{ id: 'kill', file: 'src/add.js', from: 'a + b', to: 'a - b', tests: ['test/add.test.js'], why: 'x' }];
+  // 変異1つの見張りより長くかかる元のままの確かめも、元のままの見張りの中なら赤にしない
+  const ok = await M.runAll({ root: fixtureRepo(), jobs: 1, timeoutMs: 1, baseTimeoutMs: 20000, mutants: mut });
+  assert.ok(!ok.some((x) => x.status === 'baseline-red'), `元のままの確かめを変異1つの見張りで切った: ${JSON.stringify(ok.map((x) => [x.id, x.status, x.timedOut]))}`);
+  // 元のままの見張りを越えたら、今どおり「元のままで赤（時間切れ）」で止める
+  const late = await M.runAll({ root: fixtureRepo(), jobs: 1, timeoutMs: 20000, baseTimeoutMs: 1, mutants: mut });
+  assert.deepStrictEqual(late.map((x) => [x.status, x.timedOut]), [['baseline-red', true]]);
+  assert.ok(M.BASE_TIMEOUT_MS >= 4 * 120000, '元のままの見張りの既定が、一覧のテストの全部を走らせる長さに足りない');
+});
+
 test('G3・F10: 元のテストが赤なら、変異を試さずに止める（何でも「殺した」に見えるため）', { timeout: 20000 }, async () => {
   const r = await M.runAll({ root: fixtureRepo({ red: true }), jobs: 1, mutants: [{ id: 'kill', file: 'src/add.js', from: 'a + b', to: 'a - b', tests: ['test/add.test.js'], why: 'x' }] });
   assert.deepStrictEqual(r.map((x) => x.status), ['baseline-red']);
@@ -383,4 +397,68 @@ test('G3: ヘルプセンターの変異が一覧にそろい、IDS_HELP は計�
   }
   // H-12 の分（アプリの入口）はまだ無い（0.9.0 の U-4 と一緒に H-12 が足す）
   assert.deepStrictEqual(MUTANTS.filter((m) => /^hp-app-/.test(m.id)).map((m) => m.id), []);
+});
+
+// 0.9.0（計画 docs/plans/2026-10-20-090.md の「変異確認」の表）。G-1 は速さの計り直しの4つを入れる。G-2 が残りの全部を足し、
+// この並びが計画の表の id とちょうど同じことを見るテストを足す
+// 0.9.0（G-1 で perf の6つ、G-2 で計画 docs/plans/2026-10-20-090.md の「変異確認」の表の全部）
+const IDS_090 = [
+  'op-chosen-manual', 'op-chosen-managed', 'op-chosen-consent', 'op-chosen-fetching', 'op-cloud-likely', 'op-start-refuse', 'op-start-chosen',
+  'op-start-cloud', 'op-dict-refuse', 'op-status-cloud', 'op-kept-wav', 'op-kept-text', 'op-kept-refused', 'op-k1-first', 'op-recover-kept',
+  'op-kept-banner', 'op-kept-login', 'op-kept-segfailed', 'op-kept-notify', 'op-kept-notice-text', 'op-start-k1', 'op-public-kept', 'op-auto-retry',
+  'op-auto-retry-cap', 'op-auto-retry-stopping', 'op-kept-empty', 'op-summary-wait', 'op-auto-summary', 'op-queue-skip', 'op-watcher',
+  'op-watcher-offline', 'op-log-once', 'op-hold-log-once', 'op-watch-engine', 'op-relogin-kick', 'op-sum-text', 'op-localonly-queue',
+  'op-localonly-needs', 'op-status-needs', 'op-dict-keep', 'op-dict-nopaste', 'op-dict-readd', 'op-dict-dup', 'op-dict-broken', 'op-ui-neutral',
+  'op-ui-startup-jump', 'op-ui-signin-account', 'op-ui-fetch-label', 'op-ui-test-hidden', 'op-ui-banner-signin', 'op-ui-notice-signin',
+  'op-shots-retake', 'sp-tab-open', 'sp-open-sec', 'sp-esc-hotkey', 'sp-inert', 'sp-focus-back', 'sp-keys-behind', 'sp-restore-settings',
+  'sp-winstate-fixed', 'sp-esc-global', 'sp-nav-blue', 'sp-sec-show', 'sp-search-nfkc', 'sp-search-esc', 'sp-help-live', 'sp-help-args',
+  'sp-section-keep', 'sp-hotkey-tab', 'rp-slot-default', 'rp-nearest-tie', 'rp-migrate-once', 'rp-migrate-display', 'rp-legacy-keep', 'rp-pad',
+  'rp-ceil', 'rp-anchor', 'rp-size-repeat', 'rp-snap-write', 'rp-form', 'rp-migrate-startup', 'rp-drag-defer', 'rp-display-keep', 'rp-move-fallback',
+  'rp-pill-flex', 'rp-shots-watchdog', 'rp-dots-silent', 'rp-dots-five', 'rp-spk-sea', 'rp-spk-hidden', 'rp-warn-sticky', 'rp-title-key',
+  'rp-report-once', 'rp-hide-v', 'rp-show-inactive', 'rp-hide-error', 'rp-tray-show', 'rp-hover-poll', 'bn-relay-down', 'bn-accuracy',
+  'bn-kept-plain', 'bn-offline-show', 'bn-offline-clear', 'bn-offline-eligible', 'bn-offline-notify', 'bn-offline-relay-clear', 'bn-offline-shown',
+  'bn-offline-relay-swap', 'bn-offline-engine', 'perf-recheck-any', 'perf-recheck-all', 'perf-recheck-skip', 'perf-again-tx', 'perf-readback',
+  'perf-bench-close',
+];
+test('PG1: 変異 perf-recheck-any・perf-recheck-all・perf-recheck-skip・perf-again-tx・perf-readback・perf-bench-close が一覧にあり、IDS_090 に入っている', { timeout: 5000 }, () => {
+  const byId = new Map(MUTANTS.map((m) => [m.id, m]));
+  for (const id of ['perf-recheck-any', 'perf-recheck-all', 'perf-recheck-skip', 'perf-again-tx', 'perf-readback', 'perf-bench-close']) {
+    assert.ok(IDS_090.includes(id), `IDS_090 に ${id} が無い`);
+    assert.ok(byId.has(id), `一覧に ${id} が無い`);
+    assert.strictEqual(byId.get(id).file, 'tools/perf.js', id);
+    assert.deepStrictEqual(byId.get(id).tests, ['test/perf.test.js'], id);
+  }
+  const plan = fs.readFileSync(path.join(ROOT, 'docs', 'plans', '2026-10-20-090.md'), 'utf8');
+  const table = plan.slice(plan.indexOf('## 変異確認'), plan.indexOf('## ゲート'));
+  for (const id of IDS_090) assert.ok(table.includes(`| ${id} |`), `計画の「変異確認」の表に ${id} が無い`);
+});
+
+test('CI: mutate のジョブの timeout-minutes は 40（0.9.0 の約 99 の変異で 20 分を越える見込み。PG1・決めたこと 37）', { timeout: 5000 }, () => {
+  const j = jobsOf(fs.readFileSync(path.join(ROOT, '.github', 'workflows', 'ci.yml'), 'utf8')).mutate;
+  assert.match(j, /^    timeout-minutes: 40$/m);
+  assert.ok(stepsOf(j).some((s) => /^\s*run: node tools\/mutate\.js --jobs 2$/m.test(s)), '変異確認の写しの数を変えた');
+});
+
+// 0.9.0 の各レーンの点検で足した変異（計画の表の行の場面・lib の分け・点検する人が殺せなかった行に場面を足して殺したもの）
+const IDS_090_REVIEW = [
+  'op-start-refuse-scene', 'op-recover-kept-lib', 'op-kept-login-scene', 'op-kept-notify-scene', 'op-p1', 'op-dict-delete', 'op-dict-refuse-lib',
+  'rv-consent-unreadable', 'rv-dict-user-deleted', 'rv-kept-banner-clear', 'rv-localonly-exec-guard', 'rv-dict-save-before-unlink', 'rv-dict-empty-before-unlink',
+  'op-watch-cloudonly-dict', 'op-watch-cloudonly-item', 'op-watch-cloudonly-throw', 'op-dict-rename-retry', 'op-finalize-s3',
+  'op-ui-startup-await', 'op-ui-chosen-missing', 'sp-showlive-close', 'sp-liveshown-modal', 'sp-esc-unregister', 'op-ui-search-hidden',
+  'rp-size-form', 'rp-self-move', 'rp-meeting-error-show', 'rp-hidden-status', 'rp-snap-patch',
+];
+test('G3: 0.9.0 の変異が一覧にそろい、IDS_090 は計画の「変異確認」の表の id とちょうど同じ（点検で足した変異も一覧にある）', { timeout: 5000 }, () => {
+  const ids = new Set(MUTANTS.map((m) => m.id));
+  assert.deepStrictEqual(IDS_090.filter((id) => !ids.has(id)), [], '計画の表の変異が一覧に無い');
+  assert.deepStrictEqual(IDS_090_REVIEW.filter((id) => !ids.has(id)), [], '点検で足した変異が一覧に無い');
+  assert.deepStrictEqual(IDS_090_REVIEW.filter((id) => IDS_090.includes(id)), [], '点検で足した変異と計画の表の id が重なる');
+  const plan = fs.readFileSync(path.join(ROOT, 'docs', 'plans', '2026-10-20-090.md'), 'utf8');
+  const table = plan.slice(plan.indexOf('## 変異確認'), plan.indexOf('## ゲート'));
+  const rows = new Set([...table.matchAll(/^\| ([a-z][a-z0-9-]*) \|/gm)].map((m) => m[1]).filter((id) => id !== 'id'));
+  assert.deepStrictEqual([...rows].sort(), [...IDS_090].sort());
+  // 0.9.0 の変異は、どれも決まったテストのファイルを持ち、なぜ戻すと困るかを書く
+  for (const m of MUTANTS.filter((x) => IDS_090.includes(x.id) || IDS_090_REVIEW.includes(x.id))) {
+    assert.ok(Array.isArray(m.tests) && m.tests.length > 0 && m.tests.every((t) => /^test\/[^/]+\.test\.js$/.test(t)), `${m.id}: tests`);
+    assert.ok(typeof m.why === 'string' && m.why.length > 8, `${m.id}: why`);
+  }
 });

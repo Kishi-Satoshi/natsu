@@ -10,7 +10,8 @@ const W = require('../src/winstate');
 
 const D1 = [{ id: 1, bounds: { x: 0, y: 0, width: 1920, height: 1080 }, workArea: { x: 0, y: 0, width: 1920, height: 1040 } }];
 const D2 = [...D1, { id: 2, bounds: { x: 1920, y: 0, width: 1280, height: 1024 }, workArea: { x: 1920, y: 0, width: 1280, height: 984 } }];
-const good = (o = {}) => ({ v: 1, bounds: { x: 100, y: 80, width: 1200, height: 800 }, maximized: false, zoom: 1.25, sidebar: { width: 300, collapsed: false }, tabs: { open: ['page:pa1', 'settings'], active: 'settings' }, ...o });
+// 0.9.0 U-1（SP3）で意図して変えた: 設定はタブで開かない（settings は読むときに落とす）ので、見本の固定のタブは dictation にした
+const good = (o = {}) => ({ v: 1, bounds: { x: 100, y: 80, width: 1200, height: 800 }, maximized: false, zoom: 1.25, sidebar: { width: 300, collapsed: false }, tabs: { open: ['page:pa1', 'dictation'], active: 'dictation' }, ...o });
 
 test('N6: 置き場所は %LOCALAPPDATA%\\natsu\\window-state.json（Roaming の userData ではない）。無ければ userData', () => {
   const local = path.join(path.parse(process.cwd()).root, 'Local');
@@ -78,5 +79,17 @@ test('N6・F7: タブは形の正しい鍵だけ・録音中のページ（live�
   assert.deepStrictEqual(r, { tabs: { open: ['page:pa1', 'dictation'], active: 'dictation' }, dropped: 3 });
   const many = Array.from({ length: 30 }, (_, i) => `page:p${i}`);
   assert.strictEqual(W.applyUi(W.defaults(), { tabs: { open: many, active: 'page:p29' } }).tabs.open.length, 20);
-  assert.deepStrictEqual(W.applyUi(W.defaults(), { tabs: { open: ['live', 'settings'], active: 'live' } }).tabs, { open: ['settings'], active: 'settings' });
+  // 0.9.0 U-1（SP3）で意図して変えた: 固定のタブは dictation だけ（settings は下の SP3 のテスト）
+  assert.deepStrictEqual(W.applyUi(W.defaults(), { tabs: { open: ['live', 'dictation'], active: 'live' } }).tabs, { open: ['dictation'], active: 'dictation' });
+});
+
+// 0.9.0 U-1（SP3・D24）: 設定はタブでなくポップアップで開く。前の版が覚えたタブの settings は、読むときに黙って落とす
+//（無いページとして数えない: 数えると main が「無いページのタブを N 個外した」と事実と違う記録を書く）
+test('SP3: TAB_FIXED は dictation だけ。settings は黙って落とす（dropped に数えない・active が settings なら残りの最後）', () => {
+  assert.strictEqual(W.tabKeyOk('settings'), false);
+  assert.strictEqual(W.tabKeyOk('dictation'), true);
+  assert.deepStrictEqual(W.keepTabs({ open: ['page:pa1', 'settings', 'dictation'], active: 'settings' }, () => true), { tabs: { open: ['page:pa1', 'dictation'], active: 'dictation' }, dropped: 0 });
+  assert.deepStrictEqual(W.keepTabs({ open: ['settings', 'page:pgone'], active: 'settings' }, () => false), { tabs: { open: [], active: '' }, dropped: 1 });
+  assert.deepStrictEqual(W.normalize(good({ tabs: { open: ['page:pa1', 'settings'], active: 'settings' } }), D1).state.tabs, { open: ['page:pa1'], active: 'page:pa1' });
+  assert.deepStrictEqual(W.applyUi(W.defaults(), { tabs: { open: ['settings', 'page:pa1'], active: 'settings' } }).tabs, { open: ['page:pa1'], active: 'page:pa1' });
 });

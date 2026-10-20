@@ -93,8 +93,10 @@ test('D17: 止まりの見張りは約 45 秒（15 秒なら3区間・75 秒な�
   assert.strictEqual(L.stallStep(2, { text: '', levelDbfs: -40 }), 2, 'ちょうど -40 dBFS を数えた（より大きい音だけ）');
 });
 
-test('D17: 帯は1つだけで、エンジン → 止まり → ログイン → 残した失敗 → 中継の順。手元に落ちた理由ごとの符号', { timeout: 5000 }, () => {
-  assert.deepStrictEqual(L.PROBLEM_ORDER, ['engine-down', 'stall', 'login', 'seg-failed', 'relay-off', 'daily-cap', 'relay-blocked', 'relay-down', 'relay-busy', 'wait']);
+// 第1d2回 M-2（D21）で意図して変えた: ログインの後・残した失敗の前に、準備を選んでいない PC で音声を残している帯（kept の4つ）を足した
+test('D17: 帯は1つだけで、エンジン → 止まり → ログイン → 音声を残している → 残した失敗 → 中継の順。手元に落ちた理由ごとの符号', { timeout: 5000 }, () => {
+  // 0.9.0 B-2（BN2）で意図して変えた: ネットワークから外れた帯 net-offline を seg-failed の後・中継の帯の前に足した
+  assert.deepStrictEqual(L.PROBLEM_ORDER, ['engine-down', 'stall', 'login', 'kept-local', 'kept-login', 'kept-relay', 'kept-wait', 'seg-failed', 'net-offline', 'relay-off', 'daily-cap', 'relay-blocked', 'relay-down', 'relay-busy', 'wait']);
   const m = new Map([['relay-down', {}], ['seg-failed', { n: 2 }], ['wait', { sec: 7 }]]);
   assert.deepStrictEqual(L.sttProblemOf(m), { code: 'seg-failed', n: 2 });
   m.set('engine-down', {});

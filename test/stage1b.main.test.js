@@ -91,10 +91,11 @@ describe('第1b回 画面の覚え書き（main）', { concurrency: Number(proce
     assert.ok(r.localFiles.includes('natsu/window-state.json'));
   });
 
-  test('N6: 画面から来た覚え書きは照らしてから書く（幅を寄せる・録音中のタブと形の悪い鍵を捨てる）', SCENE, async () => {
+  // 0.9.0 U-1（SP3・D24）で意図して変えた: 設定はタブにしないので、画面から来た settings も落とす（残るタブは無い）
+  test('N6: 画面から来た覚え書きは照らしてから書く（幅を寄せる・録音中のタブと形の悪い鍵と前の版の settings を捨てる）', SCENE, async () => {
     const r = await run('ws-ui-set');
     assert.deepStrictEqual(ws(r).sidebar, { width: 480, collapsed: false });
-    assert.deepStrictEqual(ws(r).tabs, { open: ['settings'], active: 'settings' });
+    assert.deepStrictEqual(ws(r).tabs, { open: [], active: '' });
   });
 });
 

@@ -39,9 +39,15 @@ function hold(file, ms) {
 // PowerShell 5.1 を温める（CI の機械の最初の起動は数秒かかることがある）。起動だけでなく、掴む命令と同じ道
 // （[IO.File]::Open・[Console]::Out・[Threading.Thread]::Sleep）も1回通しておく。node:test はこの時間を最初のテストの
 // duration_ms に数えるが、テストの見張りには入れない（before の見張りは 60 秒）
+// 0.9.0 見た目の直しの CI（run 39488461030 の electron-smoke）で、下の Out-File と Set-Content のテストが見張りの 20 秒を越えた
+// （ふつうは 1〜2 秒）。この2つはモジュールの命令（Microsoft.PowerShell.Utility・Microsoft.PowerShell.Management）で、新しい機械で
+// 初めて使うときの読み込みがテストの見張りの中に入っていた。温めで同じ命令を1回通し、最初の読み込みの遅さを before（60 秒）に寄せる
 test.before(async () => {
   await run('exit 0');
-  const f = path.join(dir('-温め'), 'warm.json');
+  const w = dir('-温め');
+  await run('$env:NATSU_JSON | Out-File -FilePath $env:NATSU_P1; Set-Content -Path $env:NATSU_P2 -Value $env:NATSU_JSON -Encoding UTF8',
+    { NATSU_JSON: '{}', NATSU_P1: path.join(w, 'warm-outfile.json'), NATSU_P2: path.join(w, 'warm-setcontent.json') });
+  const f = path.join(w, 'warm.json');
   fs.writeFileSync(f, '{}');
   const h = hold(f, 1);
   await h.locked;

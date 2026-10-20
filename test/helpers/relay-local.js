@@ -22,7 +22,11 @@
 //                  'a' 503 quota（偽の OpenAI が insufficient_quota）・'e' 200 で空の文字・'L' 429 busy の長い待ち（偽の OpenAI が retry-after 3600。
 //                  アプリは rate-long）。知らない文字は投げる。
 //                  第1d回 A-11: 'l' は偽の Access で出した cookie を取り消す（rl.revokeAt と同じ。W-6 で中継の札の表を消したので、
-//                  札の取り消しは外した）。'd' は出した cookie の人を止めたメールにする（中継は 403 denied。戻さない）
+//                  札の取り消しは外した）。'd' は出した cookie の人を止めたメールにする（中継は 403 denied。戻さない）。
+//                  第1d2回 M-2: 'b' は中継が音声を見て断った答え（文字起こしの口にだけ 415 not-wav。アプリは bad-request。setFront('not-wav') と同じ）。
+//                  第1d2回 M-3: 'z' は次の文字起こしの要求に今どおり答えてから口を閉じる（'n' と同じ。会議の後の待ち行列が送れないまま残る形）
+//   rl.setReqText(seq) … 第1d2回 M-3: 中継が偽の OpenAI へ渡した文字起こしの要求の i 番目の答えを seq の i 文字目にする（c は文字・e は空。
+//                  足りなければ c）。setAnswer の口の開け閉めはそのまま（並べ直した区間の答えだけを空にする場面）
 //   第1d回 A-10（RL9・F19）: startRelayLocal({ access: true }) で、中継の前に偽の Cloudflare Access の前を置く（既定は置かない。
 //                  今の札（nt1_）の場面と mainrun はそのまま。A-11 で main が cookie で送るようになったら mainrun が access: true にする）。
 //                  偽の Access（test/helpers/fake-access.js）を起こし、中継の env に TEAM_DOMAIN・POLICY_AUD・ACCESS_CERTS_BASE を足す
@@ -149,6 +153,9 @@ async function startRelayLocal({ stt: sttOpts = {}, env: over = {}, start = Date
   let front = '';
   let cutDone = false;
   let closed = false;   // 第1d回 A-5: 'n'（口を閉じる）の間は、つないだらすぐ切る
+  let closeAfterStt = false;   // 第1d2回 M-3: 'z'（次の文字起こしの答えの後に閉じる）
+  let reqText = '';   // 第1d2回 M-3: setReqText の並び
+  let sttRelayed = 0;   // 偽の OpenAI へ渡した文字起こしの要求の数
   const baseUserSec = env.DAILY_USER_SEC;
   const issued = new Map();    // 偽の Access が出した CF_Authorization → { email, iat（ミリ秒）, exp（秒） }
   const revoked = new Map();   // email → 取り消した時（ミリ秒）
@@ -213,12 +220,16 @@ async function startRelayLocal({ stt: sttOpts = {}, env: over = {}, start = Date
         return;
       }
       try {
+        if (isStt && reqText) stt.setMode(reqText[sttRelayed] === 'e' ? 'empty' : 'text');   // 第1d2回 M-3
+        if (isStt) sttRelayed += 1;
         const out = await handler.fetch(toRequest(req, Buffer.concat(chunks), over), env, ctx);
         const headers = {};
         out.headers.forEach((v, k) => { headers[k] = v; });
         const body = Buffer.from(await out.arrayBuffer());
         res.writeHead(out.status, headers);
         res.end(body);
+        // 第1d2回 M-3: 'z' は答えてから口を閉じる（'n' と同じ）
+        if (isStt && closeAfterStt) { closeAfterStt = false; closed = true; setImmediate(() => server.closeAllConnections()); }
       } catch (_) {
         res.writeHead(599); res.end();   // 中継は例外を外に投げない約束。ここへ来たら試しの台の誤り
       }
@@ -232,8 +243,9 @@ async function startRelayLocal({ stt: sttOpts = {}, env: over = {}, start = Date
     base, env, db, clock, stt, sent, received, access: fa, logs: [],
     request: recordingRequest(base, sent),
     setFront(mode) { front = mode || ''; },
+    setReqText(seq) { reqText = String(seq || ''); },
     async setAnswer(ch) {
-      front = ''; closed = false; stt.setMode('text');
+      front = ''; closed = false; closeAfterStt = false; stt.setMode('text');
       if (baseUserSec === undefined) delete env.DAILY_USER_SEC; else env.DAILY_USER_SEC = baseUserSec;
       if (ch === 'c') return;
       if (ch === 'n') { closed = true; server.closeAllConnections(); return; }
@@ -246,6 +258,8 @@ async function startRelayLocal({ stt: sttOpts = {}, env: over = {}, start = Date
         return;
       }
       if (ch === 'u') { env.DAILY_USER_SEC = '1'; return; }
+      if (ch === 'b') { front = 'not-wav'; return; }   // 第1d2回 M-2
+      if (ch === 'z') { closeAfterStt = true; return; }   // 第1d2回 M-3
       const mode = { 5: '500', a: 'quota', e: 'empty', L: '429-long' }[ch];
       if (!mode) throw new Error(`relay-local: 並びの文字 ${JSON.stringify(ch)} を知らない`);
       stt.setMode(mode);

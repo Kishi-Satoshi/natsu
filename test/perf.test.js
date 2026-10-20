@@ -157,3 +157,158 @@ test('JS7・Task 5-1: Windows の CI の計りで決めた2つの値が main に
   assert.ok(main.includes('}, meeting.draftName, { fsync: DRAFT_FSYNC });'), '下書きを書くときに DRAFT_FSYNC を渡していない');
   assert.deepStrictEqual([PF.suggestBatchMs(32.69), PF.suggestDraftFsync(16.22)], [350, true]);
 });
+
+// ---------------------------------------------------------------- 0.9.0 G-1（PG1・F17）: 目安を越えた名前だけを計り直す
+// 共用の機械のディスクの一瞬の遅れ（main の run の write-commit 157.42ms・write-256k-fsync 125.84ms）で赤にしない。
+// はじめの1回と計り直しの2回の中央値で決める。本当に遅くなれば3回とも越えるので赤のまま。目安の値は変えない
+test('PG1: recheck は NG の名前だけを again で2回計り直し、3回の中央値で決める: [157, 12, 11] → OK、[157, 12, 140] → NG、[157, 151, 149] → NG。OK の名前は again を呼ばない。log に3回の値と中央値の1行', { timeout: 5000 }, async () => {
+  const run = async (first, rest) => {
+    const calls = [];
+    const lines = [];
+    const queue = [...rest];
+    const judged = PF.judge([{ name: 'write-commit', ms: first }, { name: 'list', ms: 20 }]);
+    const r = await PF.recheck(judged, (name) => { calls.push(name); return queue.shift(); }, { log: (s) => lines.push(s) });
+    return { r, calls, lines };
+  };
+  const a = await run(157, [12, 11]);
+  assert.deepStrictEqual(a.r.map((x) => [x.name, x.ms, x.ok]), [['write-commit', 12, true], ['list', 20, true]]);
+  assert.deepStrictEqual(a.r[0].tries, [157, 12, 11]);
+  assert.strictEqual(a.r[0].budget, 50);
+  assert.deepStrictEqual(a.calls, ['write-commit', 'write-commit'], 'OK の名前（list）まで計り直した');
+  assert.ok(!('tries' in a.r[1]), 'OK の名前に tries を付けた');
+  assert.deepStrictEqual(a.lines, ['計り直し write-commit: 157ms・12ms・11ms → 中央値 12ms（目安 50ms）OK']);
+  const b = await run(157, [12, 140]);
+  assert.deepStrictEqual([b.r[0].ms, b.r[0].ok, b.r[0].tries], [140, false, [157, 12, 140]], '1回でも目安に入れば OK にしている');
+  assert.deepStrictEqual(b.lines, ['計り直し write-commit: 157ms・12ms・140ms → 中央値 140ms（目安 50ms）NG']);
+  const c = await run(157, [151, 149]);
+  assert.deepStrictEqual([c.r[0].ms, c.r[0].ok], [151, false]);
+  assert.strictEqual(PF.exitCodeOf(c.r), 1);
+  assert.strictEqual(PF.exitCodeOf(a.r), 0);
+  // NG が無ければ again も log も呼ばない（出力に計り直しの行が出ない）
+  const d = await run(30, []);
+  assert.deepStrictEqual([d.calls, d.lines], [[], []]);
+});
+
+test('PG1・F17: 目安の 2 倍の時間がかかる偽の計り（中で Atomics.wait で 100ms 待つ）は、計り直しても NG', { timeout: 5000 }, async () => {
+  const slow = () => {
+    const t0 = performance.now();
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 100);
+    return performance.now() - t0;
+  };
+  const judged = PF.judge([{ name: 'write-commit', ms: slow() }]);
+  assert.strictEqual(judged[0].ok, false);
+  const r = await PF.recheck(judged, async () => slow(), { log: () => {} });
+  assert.strictEqual(r[0].ok, false, '本当に遅い操作が計り直しで OK になった');
+  assert.strictEqual(r[0].tries.length, 3);
+  for (const t of r[0].tries) assert.ok(t >= 90, `計り直しが待っていない: ${t}`);
+  assert.strictEqual(PF.exitCodeOf(r), 1);
+});
+
+test('PG1: benchDb の again(\'write-commit\') は同じ見本で数を返し、close の後は見本のフォルダが無い。measureDb の答えの名前と順は今と同じ', { timeout: 5000 }, async () => {
+  const dir = tmpDir();
+  try {
+    const NAMES = ['db-open', 'list', 'searchIndex-typical', 'searchIndex-all', 'searchFull-trigram', 'searchFull-short', 'open-page', 'write-commit'];
+    const b = await PF.benchDb({ pages: 10, segments: 5, bigBlocks: 20, bigSegments: 40, dir });
+    try {
+      assert.deepStrictEqual(b.results.map((x) => x.name), NAMES);
+      assert.strictEqual(fs.readdirSync(dir).length, 1, '見本のフォルダが1つ無い');
+      for (const name of NAMES) {
+        const ms = await b.again(name);
+        assert.ok(Number.isFinite(ms) && ms >= 0, `${name}: ${ms}`);
+      }
+      assert.throws(() => b.again('no-such'), /計り直せない/);
+    } finally { b.close(); }
+    assert.deepStrictEqual(fs.readdirSync(dir), [], '見本を消していない');
+    const r = await PF.measureDb({ pages: 10, segments: 5, bigBlocks: 20, bigSegments: 40, dir });
+    assert.deepStrictEqual(r.map((x) => x.name), NAMES);
+    for (const x of r) assert.ok(Number.isFinite(x.ms) && Number.isFinite(x.first), x.name);
+    assert.deepStrictEqual(fs.readdirSync(dir), [], '見本を消していない');
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('PG1・F17: again(\'write-commit\') を2回呼んでも、書いた題名は毎回新しい値で、core.call の答えに dup が無い（小さな見本 pages: 3 で）', { timeout: 5000 }, async () => {
+  const core = require('../src/db/core');
+  const dir = tmpDir();
+  const orig = core.call;
+  const writes = [];
+  core.call = (db, req, ctx) => {
+    const r = orig(db, req, ctx);
+    if (req && req.cmd === 'page.setTitle') writes.push({ tx: req.tx, title: req.args.title, dup: r.dup === true, ok: r.ok });
+    return r;
+  };
+  try {
+    const b = await PF.benchDb({ pages: 3, segments: 2, bigBlocks: 6, bigSegments: 6, dir });
+    try {
+      const first = writes.length;
+      assert.ok(first > 0, 'はじめの計りで題名を書いていない');
+      await b.again('write-commit');
+      await b.again('write-commit');
+      assert.ok(writes.length >= first * 3, `計り直しが同じ数だけ書いていない: ${writes.length}`);
+    } finally { b.close(); }
+    assert.deepStrictEqual(writes.filter((w) => w.dup || !w.ok), [], '計り直しが dup（書かない速い道）を計った');
+    assert.strictEqual(new Set(writes.map((w) => w.tx)).size, writes.length, 'tx が重なった');
+    assert.strictEqual(new Set(writes.map((w) => w.title)).size, writes.length, '題名が重なった（新しい値を書いていない）');
+  } finally {
+    core.call = orig;
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('PG1・決めたこと 36: again(\'write-commit\') は、書いたはずの題名が読めなければ『題名が読めない』で投げ、答えが dup なら投げる。投げても、again の間でないときは DB を閉じておく（isOpen が偽）', { timeout: 5000 }, async () => {
+  const core = require('../src/db/core');
+  const dir = tmpDir();
+  const orig = core.call;
+  // fake: '' は本物のまま、'lost' は書かずに ok で返す（書いたことにして残らない）、'dup' は書かずに dup で返す
+  let fake = '';
+  core.call = (db, req, ctx) => {
+    if (fake && req && req.cmd === 'page.setTitle') return fake === 'dup' ? { ok: true, result: null, dup: true } : { ok: true, result: null };
+    return orig(db, req, ctx);
+  };
+  try {
+    const b = await PF.benchDb({ pages: 3, segments: 2, bigBlocks: 6, bigSegments: 6, dir });
+    try {
+      assert.strictEqual(b.isOpen(), false, 'はじめの計りの後に DB を開いたまま');
+      assert.ok(Number.isFinite(b.again('write-commit')));
+      assert.strictEqual(b.isOpen(), false, 'again の後に DB を開いたまま');
+      fake = 'lost';
+      assert.throws(() => b.again('write-commit'), /題名が読めない/);
+      assert.strictEqual(b.isOpen(), false, '投げた again の後に DB を開いたまま');
+      fake = 'dup';
+      assert.throws(() => b.again('write-commit'), /dup/);
+      assert.strictEqual(b.isOpen(), false, '投げた again の後に DB を開いたまま');
+      fake = '';
+      for (const name of PF.DB_NAMES) { b.again(name); assert.strictEqual(b.isOpen(), false, `again('${name}') の後に DB を開いたまま`); }
+    } finally { b.close(); }
+  } finally {
+    core.call = orig;
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('PG1: measureWrites({ only: \'write-256k-fsync\' }) はその名前だけを返す（fsync まで含めて計る: 今の『書く時間は fsync まで』のテストの形）', { timeout: 5000 }, () => {
+  const dir = tmpDir();
+  try {
+    const tmpFds = new Set();
+    let fileFsyncs = 0;
+    const countingFs = { ...fs,
+      openSync(p, flags, ...rest) { const fd = fs.openSync(p, flags, ...rest); if (flags === 'wx') tmpFds.add(fd); return fd; },
+      fsyncSync(fd) { if (tmpFds.has(fd)) fileFsyncs++; return fs.fsyncSync(fd); },
+      closeSync(fd) { tmpFds.delete(fd); return fs.closeSync(fd); } };
+    const w = PF.measureWrites({ reps: 2, dir, fs: countingFs, only: 'write-256k-fsync' });
+    assert.deepStrictEqual(w.map((x) => x.name), ['write-256k-fsync']);
+    assert.strictEqual(fileFsyncs, 2, '書いたファイルを fsync していない');
+    assert.ok(Number.isFinite(w[0].ms) && w[0].ms >= 0);
+    assert.throws(() => PF.measureWrites({ reps: 1, dir, only: 'no-such' }), /計れない/);
+    assert.deepStrictEqual(fs.readdirSync(dir), [], '見本を消していない');
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('PG1: 本番の計り（main）は NG の名前だけを同じ見本で計り直し、PERF_JSON の judged に3回の値（tries）を書く', { timeout: 5000 }, () => {
+  const src = fs.readFileSync(path.join(__dirname, '..', 'tools', 'perf.js'), 'utf8');
+  const body = src.slice(src.indexOf('async function main()'));
+  assert.match(body, /await recheck\(judge\(\[[^\n]*\], budgetsFor\(process\.platform\)\), again, \{ log: \(s\) => console\.log\(s\) \}\)/);
+  // 計り直しは名前で振り分ける（DB は benchDb の again・書く時間は measureWrites({ only })・移行は measureMigrate）
+  assert.match(body, /bench\.again\(name\)/);
+  assert.match(body, /measureWrites\(\{ dir, only: name \}\)/);
+  assert.match(body, /measureMigrate\(\{ dir \}\)/);
+});

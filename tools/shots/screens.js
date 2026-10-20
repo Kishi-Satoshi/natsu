@@ -10,37 +10,45 @@
  *
  * 第1b回 C-1: 画面ごとに、偽の橋の答えを足せる（answers。fixtures に上から重ねる）・拡大できる（zoom）・Tab を送ってから撮れる（focus）。
  * 本体の画面はどれも、撮る前に横のはみ出しを集めて（OVERFLOW_PROBE）judgeOverflow で決める。
- * 意図して変える画面は取り直し待ちの一覧（RETAKE）に入れ、基準と違っても NG にしない（録音バーは入れない。揺れ・CSP・はみ出しは NG のまま）。
+ * 意図して変える画面は取り直し待ちの一覧（RETAKE）に入れ、基準と違っても NG にしない（揺れ・CSP・はみ出しは NG のまま）。
+ *
+ * 0.9.0 O-3（設計書 D25・RP9・F11）: 録音バーを作り直したので、録音バーの画面を状態 × 形 × 地 × 拡大率（tools/shots/pill-states.js）で撮る
+ * （第1a回の overlay-processing は外した）。窓の大きさは撮るときに測ったピルの大きさから main と同じ panelBounds で決め（panelWindowFor）、
+ * 拡大率の画面は「窓 × 拡大率」の大きさで撮れたかを見る（shotSizeFor）。ピルが窓の内側に 4px 以上の余白で入るか（PANEL_PROBE・judgePanel）は
+ * 取り直し待ちでも NG。撮る道具の見張りは画面の数で決める（watchdogMs: 30 秒 + 枚数 × 6 秒）。
  */
 'use strict';
 
 const path = require('path');
 const mtype = require('../../src/meetingType');
+const { MANIFEST } = require('../../src/engine-manifest');
+const lib = require('../../src/mainlib');
+const PS = require('./pill-states');
 
 const SIZE = { width: 1120, height: 780 };         // 本体の窓の既定（main.js の createMainWindow）
-const OVERLAY_SIZE = { width: 316, height: 72 };   // 録音バー（main.js の createOverlay）
+// 録音バーの窓の初めの大きさ（main.js の createOverlay と同じ panelBounds の PANEL_FIRST の横。撮るときは測ったピルの大きさに合わせ直す）
+const SHOT_AREA = { x: 0, y: 0, width: 4000, height: 4000 };
+const OVERLAY_SIZE = (({ width, height }) => ({ width, height }))(lib.panelBounds({ slot: 'bottom-center', size: null, workArea: SHOT_AREA }));
 const FIXED_NOW = Date.UTC(2026, 9, 18, 0, 0, 0);   // 撮るときの時計（2026-10-18 09:00 日本時間）。見本の日付はこれより前の決まった日
 // 録音中のページの文字起こしの状態（第1d回 A-7。main の meetingStatus().stt の形）。帯の文は main の STT_BANNER の B8 と同じ（test/shots.test.js が照らす）
 const LIVE_STT = { route: 'cloud', lastTextAt: FIXED_NOW - 12000, segSec: 15, problem: null };
 const BANNER_STT = { route: 'local', lastTextAt: FIXED_NOW - 12000, segSec: 15,
-  problem: { code: 'relay-down', action: '', text: '中継につながりません。PC の中で文字起こしを続けています。録音はそのまま続けてください。' } };
+  problem: { code: 'relay-down', action: '', text: 'NaTsu のサーバーにつながりません。この PC で文字起こしを続けていますが、精度が落ちます。録音はそのまま続けてください。' } };
 
-// 録音バーは onStart（録音を始める。マイクを開く）を受けるまでピルを見せない（.pill に visible が付かない）。
-// 録音は始めずに見た目だけを撮るので、onPhase の後にピルを見せる（overlay.html は変えない）
-const SHOW_PILL = "document.querySelector('.pill').classList.add('visible')";
 // 一覧の1行目を開く（今の画面と同じ）
 const OPEN_PAGE = "document.getElementById('tabBtnNotes').click(); document.querySelector('#plist .pitem').click()";
 // サイドバーを畳む。第1b回 B-2 の前は［«］が無いので何もしない
 const COLLAPSE_SIDE = "(document.getElementById('sideCollapse') || { click() {} }).click()";
 // 検索の窓を開く（第1b2回 L-2 の［🔍 検索］）。L-2 の前は押す物が無いので何もしない
 const OPEN_PALETTE = "(document.getElementById('sideSearch') || { click() {} }).click()";
-// タブ3つ（ページ・音声入力・設定）を開いて、最後にページを選ぶ。ページを開くのは非同期なので、押すたびに少し待つ（返す promise を main が待つ）
+// タブ3つ（ページ・音声入力・ページ）を開いて、最後にページを選ぶ。ページを開くのは非同期なので、押すたびに少し待つ（返す promise を main が待つ）。
+// 0.9.0 U-1（SP1・D24）で意図して変えた: 設定はタブで開かない（ポップアップ）ので、3つ目は2行目のページを新しいタブ（Ctrl+クリック）で開く
 const OPEN_THREE_TABS = `(async () => {
   const w = () => new Promise((r) => setTimeout(r, 150));
-  const item = () => document.querySelector('#plist .pitem');
+  const item = (i) => document.querySelectorAll('#plist .pitem')[i || 0];
   document.getElementById('tabBtnNotes').click(); item().click(); await w();
   document.getElementById('tabBtnDictation').click(); await w();
-  document.getElementById('tabBtnSettings').click(); await w();
+  item(1).dispatchEvent(new MouseEvent('click', { bubbles: true, ctrlKey: true })); await w();
   document.getElementById('tabBtnNotes').click(); item().click(); await w();
   return 1;
 })()`;
@@ -51,7 +59,6 @@ const SCREENS = [
   { name: 'dictation-light', page: 'app', theme: 'light', act: "document.getElementById('tabBtnDictation').click()" },
   { name: 'settings-light', page: 'app', theme: 'light', act: "document.getElementById('tabBtnSettings').click()" },
   { name: 'settings-dark', page: 'app', theme: 'dark', act: "document.getElementById('tabBtnSettings').click()" },
-  { name: 'overlay-processing', page: 'overlay', theme: 'light', event: ['onPhase', { phase: 'processing', message: '文字起こし中…' }], act: SHOW_PILL },
   // 第1b回で足した画面（C-2 で基準を取るまでは取り直し待ち）
   { name: 'notes-tabs-light', page: 'app', theme: 'light', act: OPEN_THREE_TABS },
   { name: 'notes-collapsed-light', page: 'app', theme: 'light', act: `${OPEN_PAGE}; ${COLLAPSE_SIDE}` },
@@ -66,7 +73,29 @@ const SCREENS = [
   // 第1d回 A-13（あとの直し (b)）: 帯の暗い画面と 200% の暗い画面（live-banner-light と同じ会議と帯。注意の色の枠と文字を暗い地と折り返しで見る。取り直し待ち）
   { name: 'live-banner-dark', page: 'app', theme: 'dark', answers: liveAnswers(BANNER_STT) },
   { name: 'live-banner-zoom200-dark', page: 'app', theme: 'dark', zoom: 2, answers: liveAnswers(BANNER_STT) },
+  // 0.9.0 U-2（SP4・SP5・D24）: 設定のポップアップの項目「録音」と、検索「マイク」の結果（足した画面でまだ基準が無い。取り直し待ち）
+  { name: 'settings-record-light', page: 'app', theme: 'light', act: "document.getElementById('tabBtnSettings').click(); document.getElementById('setNavRecord').click()" },
+  { name: 'settings-search-light', page: 'app', theme: 'light',
+    act: "document.getElementById('tabBtnSettings').click(); const b = document.getElementById('setSearch'); b.value = 'マイク'; b.dispatchEvent(new Event('input', { bubbles: true }))" },
+  // 0.9.0 U-3（OF7・D21）: オフラインの準備を選んでいない人のカード「オフライン」（OFF1〜OFF5。足した画面でまだ基準が無い。取り直し待ち）。
+  // ログインしている形にする（ログインしていないと、起動で設定の「アカウント」が開く: 計画 U-3）
+  { name: 'settings-offline-light', page: 'app', theme: 'light', answers: offlineAnswers(),
+    act: "document.getElementById('tabBtnSettings').click(); document.getElementById('setNavOffline').click()" },
 ];
+// 0.9.0 O-3（RP9）: 録音バーの画面（形 → 地 → 拡大率 → 状態の順。撮る道具は形・地・拡大率の組ごとに窓を1つ開いて状態を act で替える）。
+// 録音は始めずに見た目だけを撮る（act は pill-states の見本を録音バーの DOM に当てる。撮るときだけ体の地にデスクトップの色を塗る）。
+// slot は窓の大きさを決める置き場所（横は下の中央、縦は右の中央）
+for (const form of PS.FORMS) for (const desk of Object.keys(PS.DESKS)) for (const scale of PS.SCALES) for (const st of PS.STATES) {
+  SCREENS.push({
+    name: `overlay-${form}-${desk}-${st.state}-${Math.round(scale * 100)}`, page: 'overlay', theme: desk, act: PS.actFor(st.state, form, desk),
+    scale, slot: form === 'v' ? 'middle-right' : 'bottom-center', pill: { state: st.state, form, desk, scale },
+  });
+}
+// 0.9.0 O-4（RP8）: 縦の形の × が出た形（カーソルが乗った記録中。暗い地・150%）
+SCREENS.push({
+  name: PS.HOVER.name, page: 'overlay', theme: PS.HOVER.desk, act: PS.actFor(PS.HOVER.state, PS.HOVER.form, PS.HOVER.desk, true),
+  scale: PS.HOVER.scale, slot: 'middle-right', pill: { state: PS.HOVER.state, form: PS.HOVER.form, desk: PS.HOVER.desk, scale: PS.HOVER.scale, hover: true },
+});
 // Tab の輪を見る画面は1つだけ（何も選んでいない所から Tab を3回で［● 記録開始］。サイドバーの頭の［«］→ 検索 → ［● 記録開始］）
 SCREENS.find((x) => x.name === 'notes-page-light').focus = { tabs: 3, want: 'mtToggleBtn' };
 
@@ -84,7 +113,19 @@ SCREENS.find((x) => x.name === 'notes-page-light').focus = { tabs: 3, want: 'mtT
 // 第1d回 A-13 で帯の暗い画面と 200% の暗い画面（live-banner-dark・live-banner-zoom200-dark。足した画面でまだ基準が無い）を足して8枚にした
 // （設定の3枚はカード「オフライン」（D19）、録音中のページの3枚は［この会議は PC の中だけ］を1行目に（D20）でも見た目が変わる）
 // 第1d回 G-4: 利用者が 2026-10-20 に CI の新しい8枚（run 39398639423・artifact 12252523286）を見て OK と言ったので、その画像を基準にして空に戻した
-const RETAKE = new Set([]);
+// 0.9.0（計画 docs/plans/2026-10-20-090.md の「取り直す画面」）: B-1（BN1・D26）で帯の文を B8 の新しい文にしたので、帯の3枚を取り直し待ちにした。
+// U・O の画面は各タスクが足す。利用者がまとめて OK と言ったら G-3 で基準にして空に戻す
+// 0.9.0（計画 docs/plans/2026-10-20-090.md の「取り直す画面」）: U-1（SP1〜SP3・D24）で設定をポップアップにしたので、設定の3枚と、
+// 3つのタブの並びから設定のタブが消える notes-tabs-light を取り直し待ちにした（B・O の画面は各タスクが足す）。
+// 利用者がまとめて OK と言ったら G-3 で基準にして空に戻す
+// U-2（SP4・SP5）で足した設定の項目「録音」と検索の画面（settings-record-light・settings-search-light。まだ基準が無い）も入れた。
+// U-3（OF7）で足した準備を選んでいない人のカード「オフライン」の画面（settings-offline-light。まだ基準が無い）も入れた。
+const RETAKE = new Set(['live-banner-light', 'live-banner-dark', 'live-banner-zoom200-dark', 'notes-tabs-light', 'settings-light', 'settings-dark', 'settings-zoom200-dark', 'settings-record-light', 'settings-search-light', 'settings-offline-light']);
+// 0.9.0 O-3（設計書 D25）: 録音バーを作り直したので、録音バーの画面は全部取り直し待ち（新しい画面で基準がまだ無い）。利用者が CI の画像を見て
+// OK と言ったら、G-3 でその画像を基準にして、この行ごと外して空に戻す
+for (const s of SCREENS) if (s.page === 'overlay') RETAKE.add(s.name);
+// 0.9.0 O-4（RP1）: 設定の「録音バーの置き場所」の欄の名前と選択肢を替えたので、設定の3枚も取り直し待ち（U-1 でも入る）
+for (const n of ['settings-light', 'settings-dark', 'settings-zoom200-dark']) RETAKE.add(n);
 const PERF = [{ name: 'open-2000-blocks', budgetMs: 500 }];   // 3回開いた中央値で見る
 const TIME_ZONE = 'Asia/Tokyo';
 const TOLERANCE = 2;   // 色の差（0〜255）がこれ以下の画素は同じとみなす。CI の機械の CPU ごとの描き方の1段の差を拾わないため（揺れの確かめ judgePair は 0 で見る）
@@ -168,6 +209,20 @@ const HISTORY = [
  * 第1d回 A-7（D17）: 文字起こしの状態 stt（A-6 の形）。既定はクラウドで最後の文字が 12 秒前・帯なし（撮るときの時計は止まるので揺れない）。
  * stt を渡すとそれに替える（live-banner-light は帯 relay-down）
  */
+// 0.9.0 U-3: オフラインの準備を選んでいない PC の答え（engine:status の chosen が偽・取り込みの欄はまだ取り込んでいず、押したことも無い。空き 20GB）
+function offlineAnswers() {
+  const total = MANIFEST.items.reduce((n, i) => n + i.size, 0);
+  const whisperBytes = MANIFEST.items.filter((i) => i.group === 'whisper').reduce((n, i) => n + i.size, 0);
+  return {
+    'koeApp.engineStatus': { ok: true, whisper: 'PC の中の文字起こしはまだ取り込んでいません。', sum: '', chosen: false },
+    'koeApp.engineFetchStatus': { ok: true, supported: true, mode: { whisper: 'managed', sum: 'managed' }, state: 'missing', totalBytes: total, doneBytes: 0,
+      needBytes: total, whisperBytes, freeBytes: 20e9, whisperReady: false, sumReady: false, runtime: null, askIt: false, report: '', consent: false, userPaused: false,
+      items: MANIFEST.items.map((i) => ({ id: i.id, group: i.group, label: i.label, version: i.version, file: (i.dest || i.dir).split('/').pop(), url: i.url,
+        host: new URL(i.url).hostname, sha256: i.sha256, size: i.size, done: 0, state: 'missing', license: i.license, place: '%LOCALAPPDATA%\\natsu\\engine\\…' })),
+      error: null },
+    'koeApp.accountStatus': { ok: true, signedIn: true, email: '', method: 'access', until: null, canStore: true, online: { up: true, why: 'ok' } },
+  };
+}
 function liveAnswers(stt = LIVE_STT) {
   const segs = [
     { id: 's1', atMs: 0, durationMs: 75000, text: 'それでは週次の定例を始めます。まず進み具合から順にお願いします。' },
@@ -368,16 +423,51 @@ function judgeZoom(innerWidth, zoom) {
   return { ok, note: ok ? `拡大 ${Math.round((Number(zoom) || 1) * 100)}%（幅 ${want}）` : `拡大が効いていない（innerWidth ${innerWidth}・${want} のはず）` };
 }
 
+/** 撮る道具の見張りの時間（ms）: 30 秒 + 撮る画面の数 × 6 秒（決まった 90 秒では録音バーの 80 枚を足すと必ず時間切れになる） */
+function watchdogMs(n) { return 30000 + Math.max(0, Number(n) || 0) * 6000; }
+
+/** 撮るときに測ったピルの大きさ（CSS の px）→ 録音バーの窓の大きさ（main.js と同じ panelBounds。置き場所 slot の形） */
+function panelWindowFor(size, slot) {
+  const b = lib.panelBounds({ slot, size, workArea: SHOT_AREA });
+  return { width: b.width, height: b.height };
+}
+/** 窓の大きさ（DIP）× 拡大率 → 撮れるはずの画像の大きさ（点） */
+function shotSizeFor(win, scale) {
+  const k = Number(scale) || 1;
+  return { width: Math.round(win.width * k), height: Math.round(win.height * k) };
+}
+/**
+ * 録音バーの画面で、ピルの四角と窓の内側の大きさを集める文 → { pill: { left, top, right, bottom }, iw, ih }（CSS の px）。
+ * 撮る道具は、これでピルの大きさを測って窓を合わせ（panelWindowFor）、合わせた後の余白を judgePanel で決める
+ */
+const PANEL_PROBE = `(() => {
+  const r = document.getElementById('pill').getBoundingClientRect();
+  return { pill: { left: r.left, top: r.top, right: r.right, bottom: r.bottom }, iw: window.innerWidth, ih: window.innerHeight };
+})()`;
+// 余白を確かめる拡大率と状態（横と縦の記録中と、文を伸ばした警告）。基準の画像は 100・150% だけ（pill-states の SCALES）
+const PANEL_PROBE_SCALES = [1, 1.25, 1.5, 2];
+const PANEL_PROBE_STATES = ['rec', 'warn'];
+/** PANEL_PROBE の結果 → { ok, note }。ピルの四角が窓の内側に 4px 以上の余白で入らなければ NG（拡大率で切れる: F11）。計れなければ NG */
+function judgePanel(r) {
+  if (!r || !r.pill || ![r.pill.left, r.pill.top, r.pill.right, r.pill.bottom, r.iw, r.ih].every(Number.isFinite)) return { ok: false, note: '余白を計れなかった' };
+  const m = [r.pill.left, r.pill.top, r.iw - r.pill.right, r.ih - r.pill.bottom];
+  const ok = m.every((x) => x >= 4 - 1e-6);
+  const f = (x) => Math.round(x * 100) / 100;
+  return { ok, note: `${ok ? '' : '切れる・'}余白 左 ${f(m[0])}・上 ${f(m[1])}・右 ${f(m[2])}・下 ${f(m[3])}（窓 ${r.iw}x${r.ih}）` };
+}
+
 /**
  * 終了コード。比べるとき（compare がある）は全部 'same'、撮るだけのときは shots が1枚以上で、
  * 揺れ・CSP の違反・速さの NG・撮れなかった画面（errors）が無いときだけ 0。
  * 第1b回 C-1: 横のはみ出し（overflow）の NG はいつも 1。Tab の輪（focus）の NG は取り直し待ち（retake）でない画面なら 1。
  * 比べた結果が 'same' でなくても、取り直し待ちの画面なら NG にしない（録音バーは RETAKE に入らない）
  */
-function exitCodeOf({ shots, compare, flaky = [], csp = [], perf = [], errors = [], retake = new Set(), overflow = [], focus = [] } = {}) {
+function exitCodeOf({ shots, compare, flaky = [], csp = [], perf = [], errors = [], retake = new Set(), overflow = [], focus = [], panel = [] } = {}) {
   const bad = flaky.length > 0 || csp.length > 0 || errors.length > 0 || perf.some((p) => !p || p.ok !== true);
   if (bad) return 1;
   if (overflow.some((o) => !o || o.ok !== true)) return 1;
+  // 0.9.0 O-3（F11）: 録音バーのピルが窓の内側に入らない（拡大率で切れる）は、取り直し待ちの画面でも NG
+  if (panel.some((p) => !p || p.ok !== true)) return 1;
   if (focus.some((x) => !x || (x.ok !== true && !retake.has(x.name)))) return 1;
   if (compare !== undefined) return Array.isArray(compare) && compare.length > 0 && compare.every((c) => c && (c.status === 'same' || retake.has(c.name))) ? 0 : 1;
   const n = Array.isArray(shots) ? shots.length : shots && typeof shots === 'object' ? Object.keys(shots).length : 0;
@@ -394,7 +484,8 @@ function ensureContentSize(win, size) {
 }
 
 module.exports = {
-  SIZE, OVERLAY_SIZE, SCREENS, RETAKE, PERF, FIXED_NOW, TIME_ZONE, TOLERANCE, FREEZE_CSS, OVERFLOW_PROBE,
+  SIZE, OVERLAY_SIZE, SHOT_AREA, SCREENS, RETAKE, PERF, FIXED_NOW, TIME_ZONE, TOLERANCE, FREEZE_CSS, OVERFLOW_PROBE,
+  PANEL_PROBE, PANEL_PROBE_SCALES, PANEL_PROBE_STATES, judgePanel, panelWindowFor, shotSizeFor, watchdogMs,
   apiNamesOf, fixtures, liveAnswers, bigPage, bigListEntry, judgePair, compareAll, cspViolation, median, judgePerf, judgeOverflow, judgeFocus, judgeZoom,
   exitCodeOf, ensureContentSize,
 };

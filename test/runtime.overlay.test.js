@@ -122,16 +122,21 @@ test('音声入力で送られる音声は、16kHz・mono・16bit の本物の W
   assert.strictEqual(log.called('sendError').length, 0, '変換に成功したのにエラーを伝えている');
 });
 
-test('実際に描いた色は、ピルの地の上で見える', () => {
+// 0.9.0 O-3（設計書 D25）で意図して変えた: canvas の波形を5つの点にした。描いた色の代わりに、点が実際に書いた長さ（--l）と、
+// 点・印・文の色がピルの地の上で見えること（比べる組と値は test/stage090.overlay.test.js の「色の差」）を見る
+test('実際に描いた点は、ピルの地の上で見える', () => {
   const css = 録音.root.querySelectorAll('style').map((s) => s._raw).join('\n');
-  const bg = C.firstColor(C.declsFor(C.parse(css), '.pill', { at: '' }).background);
+  const rules = C.parse(css);
+  const bg = C.firstColor(C.declsFor(rules, '.pill', { at: '' }).background);
   assert.ok(bg, '.pill の背景色が読めない');
-  assert.ok(録音.paints.length > 0, '波形が一度も描かれていない（描画ループが回っていない）');
-  for (const p of 録音.paints) {
-    const c = C.parseColor(p);
-    assert.ok(c, `描画色が読めない: ${p}`);
+  const dots = 録音.byId.get('lv').children.filter((e) => e.tagName === 'i');
+  assert.strictEqual(dots.length, 5);
+  assert.ok(dots.every((i) => /^\d+px$/.test(i.style.getPropertyValue('--l'))), '点の長さが一度も書かれていない（描く輪が回っていない）');
+  for (const sel of ['.lv i', '.pill.paused .lv i', '.pill.warn .lv i']) {
+    const c = C.firstColor(C.resolveVar(rules, C.declsFor(rules, sel, { at: '' }).background));
+    assert.ok(c, `${sel} の色が読めない`);
     const r = C.contrast(C.over(c, bg), bg);
-    assert.ok(r >= 2.0, `描画色 ${p} がピルの地 rgb(${bg.slice(0, 3).join(',')}) に埋もれる（コントラスト比 ${r.toFixed(2)}）`);
+    assert.ok(r >= 3, `${sel} の点がピルの地 rgb(${bg.slice(0, 3).join(',')}) に埋もれる（コントラスト比 ${r.toFixed(2)}）`);
   }
 });
 
@@ -565,13 +570,14 @@ function マイクを(deviceId) {
   };
 }
 
+// 0.9.0 O-3（設計書 D25・RP6）で意図して変えた: ピルの代替の表示は、ロゴの角の黄色い点（#micBadge）と、はじめの 4 秒だけの文「既定のマイクで録音中」
 test('選んだマイクが無く既定のマイクで開いたときは、代替中を main とピルに伝える', async () => {
   const { log } = await 議事録を開始({ load: { preloadSrc: 拡張preload() }, setup: マイクを('other'), start: { micId: 'chosen' } });
   assert.deepStrictEqual(log.called('reportMic').map((c) => c.args[0]), [{ requested: true, matched: false }],
     '選んだマイクと違うマイクで開いたことが main に伝わっていない（機器名を送ってもいけない）');
   const label = log.byId.get('status').textContent;
-  assert.ok(/既定のマイク/.test(label), `ピルに代替中と出ない: ${label}`);
-  assert.ok(label.length <= 15, `ピルの文言が長すぎる（全角15文字ほどが限度）: ${label}`);
+  assert.strictEqual(label, '既定のマイクで録音中', `ピルに代替中と出ない: ${label}`);
+  assert.strictEqual(log.byId.get('micBadge').hidden, false, 'ロゴの角に代替中の点が出ない');
   // 開き直すたびに1回。一時停止→再開でマイクを開き直したら、また報告する
   log.byId.get('pauseBtn').click();
   await log.drain();
@@ -579,26 +585,26 @@ test('選んだマイクが無く既定のマイクで開いたときは、代�
   await log.drain();
   assert.deepStrictEqual(log.errors.map(fmt), [], '一時停止・再開で例外');
   assert.strictEqual(log.called('reportMic').length, 2, 'マイクを開き直したのに報告し直していない');
-  assert.ok(/既定のマイク/.test(log.byId.get('status').textContent), '再開後のピルに代替中と出ない');
+  assert.strictEqual(log.byId.get('micBadge').hidden, false, '再開後のピルに代替中と出ない');
 });
 
 test('選んだマイクで開けたとき・マイクを選んでいないときは、合っていると伝え、ピルは通常の文言', async () => {
   const 合致 = await 議事録を開始({ load: { preloadSrc: 拡張preload() }, setup: マイクを('chosen'), start: { micId: 'chosen' } });
   assert.deepStrictEqual(合致.log.called('reportMic').map((c) => c.args[0]), [{ requested: true, matched: true }]);
-  assert.ok(!/既定のマイク/.test(合致.log.byId.get('status').textContent), '合っているのに代替中と出る');
+  assert.ok(!/既定のマイク/.test(合致.log.byId.get('status').textContent) && 合致.log.byId.get('micBadge').hidden, '合っているのに代替中と出る');
   const 未選択 = await 議事録を開始({ load: { preloadSrc: 拡張preload() }, setup: マイクを('default'), start: { micId: '' } });
   assert.deepStrictEqual(未選択.log.called('reportMic').map((c) => c.args[0]), [{ requested: false, matched: true }]);
-  assert.ok(!/既定のマイク/.test(未選択.log.byId.get('status').textContent), '選んでいないのに代替中と出る');
+  assert.ok(!/既定のマイク/.test(未選択.log.byId.get('status').textContent) && 未選択.log.byId.get('micBadge').hidden, '選んでいないのに代替中と出る');
   // getSettings が無い／deviceId を返さない実装では判定できないので、合っていると扱う（誤警告を出さない）
   const 不明 = await 議事録を開始({ load: { preloadSrc: 拡張preload() }, setup: (l) => { マイクを数える(l); }, start: { micId: 'chosen' } });
   assert.deepStrictEqual(不明.log.called('reportMic').map((c) => c.args[0]), [{ requested: true, matched: true }]);
-  assert.ok(!/既定のマイク/.test(不明.log.byId.get('status').textContent), '判定できないのに代替中と出る');
+  assert.ok(!/既定のマイク/.test(不明.log.byId.get('status').textContent) && 不明.log.byId.get('micBadge').hidden, '判定できないのに代替中と出る');
 });
 
 test('preload に reportMic が無くても、録音は例外なく始まり、ピルの代替表示は出る', async () => {
   const { log } = await 議事録を開始({ setup: マイクを('other'), start: { micId: 'chosen' } });
   assert.deepStrictEqual(log.errors.map(fmt), []);
-  assert.ok(/既定のマイク/.test(log.byId.get('status').textContent), 'ピルの代替表示は preload に依らず出る');
+  assert.ok(/既定のマイク/.test(log.byId.get('status').textContent) && !log.byId.get('micBadge').hidden, 'ピルの代替表示は preload に依らず出る');
 });
 
 /*

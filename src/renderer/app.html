@@ -61,7 +61,6 @@
   /* タブの頭のアイコンは CSS で足す（textContent は変えない）。記録中のタブは今の「● 記録中」の文のまま */
   .tabitem[data-key^="page:"] .tt::before { content: '🎙\FE0F\00a0'; }
   .tabitem[data-key="dictation"] .tt::before { content: '🎤\00a0'; }
-  .tabitem[data-key="settings"] .tt::before { content: '⚙\FE0F\00a0'; }
   .tabitem .tx { background: none; border: none; color: var(--muted); font: inherit; font-weight: 400; line-height: 1;
     padding: 2px 4px; border-radius: 4px; cursor: pointer; flex: none; }
   .tabitem .tx:hover { background: var(--hover); color: var(--text); }
@@ -124,12 +123,12 @@
   button.ghost:disabled { opacity: .5; cursor: default; }
   input:disabled, select:disabled, textarea:disabled { opacity: .55; cursor: not-allowed; }
 
-  input[type="text"], input[type="password"], input[type="email"], select, textarea {
+  input[type="text"], input[type="password"], input[type="email"], input[type="search"], select, textarea {
     background: var(--hover); border: 1px solid var(--line);
     color: var(--text); font: inherit; padding: 7px 10px; border-radius: 6px; width: 100%; }
   /* 1行の入力欄は高さ 32px（第1b2回 L-1）。ページの中の小さな欄（要約タイプ・担当と期限の欄）は P の区画の形のまま。
-     文字を入れる欄の type を足したら、上の決まりとここの両方に足す（第1d回 A-13・あとの直し (a)。email はメールの欄） */
-  input[type="text"]:not(.atag-edit), input[type="password"], input[type="email"], select:not(.typeSel) { height: 32px; padding-top: 0; padding-bottom: 0; }
+     文字を入れる欄の type を足したら、上の決まりとここの両方に足す（第1d回 A-13・あとの直し (a)。email はメールの欄。search は 0.9.0 U-2 の設定の検索） */
+  input[type="text"]:not(.atag-edit), input[type="password"], input[type="email"], input[type="search"], select:not(.typeSel) { height: 32px; padding-top: 0; padding-bottom: 0; }
   input:focus, select:focus, textarea:focus { outline: none; border-color: var(--accent);
     background: var(--bg); }
   ::placeholder { color: var(--muted); }
@@ -259,6 +258,89 @@
   @media (max-width: 760px) {
     .side { max-width: 200px; }
     .palbox { top: 16px; max-height: calc(100vh - 32px); }
+  }
+
+  /* ---------- 設定のポップアップ（0.9.0 U-1。SP1〜SP3・設計書 D24 の案C） ----------
+     今のページの上に開く。後ろの全面は検索の窓と同じ --scrim（文字を載せない。押して離すと閉じる）。箱は角丸 10px のまとまりで、
+     影は浮く部品の --shadow だけ。大きさは min(1020px, 100vw - 48px) × min(700px, 100vh - 48px)。窓の幅が 640px より狭い
+     （拡大 200%）ときは余白 0 で窓いっぱい。#toast（z-index 99）はこの上に出す（開いている間の知らせのボタンを押せる）。
+     .setmodal に display を書くので、hidden が負けないように [hidden] を必ず置く */
+  .setmodal { position: fixed; inset: 0; z-index: 60; display: flex; align-items: center; justify-content: center; background: var(--scrim); }
+  .setmodal[hidden] { display: none; }
+  .setbox { position: relative; display: flex; width: min(1020px, calc(100vw - 48px)); height: min(700px, calc(100vh - 48px));
+    overflow: hidden; background: var(--bg); border-radius: 10px; box-shadow: var(--shadow); }
+  /* 左の項目の列（幅 180px）。選んだ行は灰色の丸い地（--hover・角丸 6px）で、青（--accent）は使わない（フォーカスの輪だけ） */
+  .setnav { width: 180px; flex: none; display: flex; flex-direction: column; gap: 8px; padding: 12px 10px;
+    background: var(--side); border-right: 1px solid var(--line); overflow-y: auto; }
+  #setNav { display: flex; flex-direction: column; gap: 1px; }
+  .setnav-item { display: flex; align-items: center; gap: 10px; width: 100%; height: 30px; padding: 0 10px; flex: none;
+    border: none; border-radius: 6px; background: transparent; color: var(--text-2); font: inherit; font-size: 14px;
+    text-align: left; white-space: nowrap; cursor: pointer; }
+  .setnav-item svg { flex: none; color: var(--muted); }
+  /* 0.9.0 U-4: 左の列の下（［ヘルプセンター］と版の文字）。上に --line の線 */
+  .setfoot { margin-top: auto; display: flex; flex-direction: column; gap: 4px; padding-top: 8px; border-top: 1px solid var(--line); }
+  .setver { padding: 2px 10px; font-size: 11px; color: var(--muted); }
+  /* 0.9.0 U-2（SP5）: 上の検索の欄。検索の間は当たった行だけを出し（外した行・カードは .set-miss）、項目の名前の小見出し（.setgroup）の下に並べる */
+  #setSearch { height: 30px; flex: none; font-size: 13px; }
+  /* 0.9.0 見た目の直し（モック 案C）: 検索の欄の左に虫めがねの印。印は押せない飾りで、文字は印の右から */
+  .setsearch { position: relative; flex: none; }
+  .setsearch svg { position: absolute; left: 10px; top: 50%; transform: translateY(-50%); color: var(--muted); pointer-events: none; }
+  #setSearch { padding-left: 32px; }
+  .setgroup { font-size: 12px; font-weight: 600; color: var(--muted); margin-top: 24px; }
+  .set-empty { padding-top: 24px; }
+  /* 欄や知らせが自分で付け外しする hidden には触らないので、印は class。id の詳細度で .check・.field .row の display に勝つ
+     （!important は [hidden] だけ: stage1b2.fix。行の display は規則に書き、インラインの style に書かない） */
+  #tabSettings .set-miss { display: none; }
+  .eng-row { display: flex; gap: 8px; align-items: center; }
+  .eng-msgs { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 6px; }
+  .upd-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+  .setnav-item:hover { background: var(--hover); color: var(--text); }
+  .setnav-item.on { background: var(--hover); color: var(--text); font-weight: 500; }
+  .setnav-item.on svg { color: var(--text); }
+  /* 右: 今の設定の section（.tab の active で出る）。× は右上 */
+  .setpane { flex: 1; min-width: 0; }
+  /* 0.9.0 見た目の直し: 右の捲り棒（.scroll）は × の下（12px + 28px）から始め、下と右は角の丸み（10px）より内側で止める（捲り棒の矢印が
+     角の丸みにかからない）。捲り棒の分の幅はいつも取っておき（scrollbar-gutter: stable）、捲り棒の出る項目と出ない項目で中身を左右にずらさない */
+  .setpane { padding-top: 40px; padding-bottom: 12px; padding-right: 4px; }
+  .setpane > .scroll { scrollbar-gutter: stable; }
+  /* 項目の見出し（「一般」など）とカードの見出しはモック 案C の大きさ（音声入力のページの題名 .stitle は今のまま） */
+  .setpane .stitle { font-size: 20px; font-weight: 600; line-height: 28px; margin-top: 0; margin-bottom: 0; }
+  .setpane .card h2 { font-size: 14px; margin-bottom: 4px; }
+  /* モック 案C の行: 名前のある欄（.frow）は、左に名前と説明（.flead）、右に入力。説明だけの欄・詳細設定の中は今のまま。
+     狭い窓（拡大 200%）では縦に積む（下の @media） */
+  #tabSettings .field.frow { display: flex; align-items: center; gap: 24px; min-height: 56px; padding: 8px 0; margin-bottom: 0; }
+  #tabSettings .field.frow > .flead { flex: 1; min-width: 0; }
+  #tabSettings .field.frow > input, #tabSettings .field.frow > select, #tabSettings .field.frow > .hkbox { flex: none; width: 240px; }
+  /* 入力とボタンの行（マイク・スピーカー・Claude Code）は右の列で 1 行に収める（スピーカーの欄とボタン 2 つで 400px では折り返した: CI の撮った画面） */
+  #tabSettings .field.frow > .row { flex: 0 1 auto; max-width: 460px; flex-wrap: wrap; justify-content: flex-end; }
+  #tabSettings .field.frow > .row > input, #tabSettings .field.frow > .row > select { flex: 1 1 160px; }
+  #tabSettings .field.frow > .flead > label { margin-bottom: 0; }
+  #tabSettings .field.frow > .flead > .desc { margin-top: 2px; line-height: 1.5; }
+  .flab { font-size: 14px; color: var(--text); }
+  /* 名前の後ろの（…）は名前の下の説明（label の文はそのまま。かっこは画面に出さない） */
+  #tabSettings .field label .lhint { display: block; font-size: 12px; color: var(--muted); margin-top: 2px; line-height: 1.5; }
+  #tabSettings .field label .lhint .lp { display: none; }
+  /* トグルの行もモックの高さ（名前と説明が左・トグルが右は今のまま） */
+  #tabSettings .check { min-height: 56px; padding: 8px 0; margin-bottom: 0; }
+  #tabSettings .check .d { font-size: 12px; line-height: 1.5; }
+  /* ホットキーはキーの形の箱（Ctrl・Shift・Space）。箱は欄の上に重ねる飾り（押すと下の欄に届き、読み上げは欄の値）。欄の文字は見せない */
+  .hkbox { position: relative; }
+  .hkbox input { color: transparent; caret-color: transparent; }
+  .hkcaps { position: absolute; inset: 0; display: flex; align-items: center; gap: 4px; padding: 0 6px; overflow: hidden; pointer-events: none; }
+  .hkcaps kbd { font-family: inherit; font-size: 12px; line-height: 18px; color: var(--text); background: var(--bg); border: 1px solid var(--line);
+    border-bottom-width: 2px; border-radius: 4px; padding: 0 7px; white-space: nowrap; }
+  .setclose { position: absolute; top: 12px; right: 12px; z-index: 1; width: 28px; height: 28px; display: flex; align-items: center;
+    justify-content: center; border: none; border-radius: 6px; background: transparent; color: var(--muted); font: inherit; font-size: 18px; cursor: pointer; }
+  .setclose:hover { background: var(--hover); color: var(--text); }
+  @media (max-width: 640px) {
+    .setbox { width: 100vw; height: 100vh; border-radius: 0; }
+  }
+  /* 狭い窓（拡大 200%）: 設定の行は名前・説明・入力を縦に積む（2列では入力が潰れる） */
+  @media (max-width: 760px) {
+    #tabSettings .field.frow { display: block; min-height: 0; }
+    #tabSettings .field.frow > .flead { margin-bottom: 5px; }
+    #tabSettings .field.frow > input, #tabSettings .field.frow > select, #tabSettings .field.frow > .hkbox { width: 100%; }
+    #tabSettings .field.frow > .row { max-width: none; justify-content: flex-start; flex-wrap: nowrap; }
   }
 
   /* ---------- ページ本体 ---------- */
@@ -671,297 +753,6 @@
         <div id="histList"></div>
       </div>
     </section>
-
-    <!-- ================= 設定 ================= -->
-    <section id="tabSettings" class="tab">
-      <div class="scroll">
-        <h1 class="stitle">設定</h1>
-        <!-- 0.7.0 U-2（設計書 D8）: 外観は設定のいちばん上。選んだら今の自動保存ですぐ切り替わる（main の applyTheme） -->
-        <div class="card" id="appearanceCard">
-          <h2 id="appearanceTitle">外観</h2>
-          <div class="field">
-            <select id="themeSel" aria-labelledby="appearanceTitle">
-              <option value="system">システム設定を使用</option>
-              <option value="light">ライト</option>
-              <option value="dark">ダーク</option>
-            </select>
-            <div class="desc">この PC での NaTsu の見た目です。Ctrl+Shift+L でライトとダークを切り替えられます。</div>
-          </div>
-        </div>
-        <!-- 第1d回 A-4（RL10）: ログインは外観のすぐ下。A-12: ［ログイン］で Cloudflare Access のログインの窓（英語）を開く → ログイン中。
-             メールと確認コードは Cloudflare の画面で入れる（画面には欄が無い）。文は main が返す（AR4〜AR7・R12〜R16）。cookie は画面に来ない。
-             ［ログイン］の id は accountSignIn（前の #accountLogin は消した #accountCodeField の中のボタンで、同じ id で外へ出すとゲートの「枠からの離脱」になる） -->
-        <div class="card" id="accountCard">
-          <h2 id="accountTitle">アカウント</h2>
-          <div class="field">
-            <div class="desc">会社のメールアドレスでログインすると、インターネットにつながっているときに、会議と音声入力の音声を文字起こしの中継に送り、OpenAI で文字起こしします。ログインしていないときと、つながっていないときは、PC の中で文字起こしします。</div>
-          </div>
-          <div id="accountOut">
-            <div class="field">
-              <div class="desc">［ログイン］を押すと、ログインの画面が別の窓で開きます。画面は Cloudflare（中継を守る仕組み）のもので、英語です。会社のメールアドレスを入れて［Send login code］を押し、届いたメール（差出人は Cloudflare。英語）の 6 けたのコードを入れて［Sign in］を押してください。ログインできると、窓は自動で閉じます。</div>
-              <div class="row" style="margin-top:8px">
-                <button class="action" id="accountSignIn" type="button">ログイン</button>
-              </div>
-              <div class="desc" style="margin-top:8px">コードのメールが届かないときは、迷惑メールのフォルダも見てください。「already been used」と出たら、［Request new code］でコードを頼み直してください（会社のメールの検査が、先にコードを使ってしまうことがあります）。</div>
-            </div>
-          </div>
-          <div class="field" id="accountIn" hidden>
-            <div class="row">
-              <span id="accountWho" style="font-size:13px"></span>
-              <button class="ghost" id="accountLogout" type="button">ログアウト</button>
-            </div>
-          </div>
-          <div class="desc save-msg" id="accountMsg" role="status"></div>
-        </div>
-        <div class="card">
-          <h2>アップデート</h2>
-          <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
-            <span id="verNow" style="font-size:13px"></span>
-            <button class="ghost" id="chkUpdBtn" type="button">更新を確認</button>
-            <button class="action" id="applyUpdBtn" type="button" style="display:none">更新して再起動</button>
-            <span class="save-msg" id="updMsg"></span>
-          </div>
-          <div id="updNotes" style="display:none;margin-top:12px;font-size:12px;line-height:1.7;
-            white-space:pre-wrap;background:var(--hover);border-radius:4px;padding:12px;max-height:200px;overflow-y:auto"></div>
-          <div class="desc" style="margin-top:10px">
-            更新はアプリ本体（数百KB）のみを取得します。エンジンやモデル、保存済みの議事録はそのままです。<br />
-            更新前のバージョンは <code>src.backup-*</code> として1世代だけ残ります。
-          </div>
-        </div>
-        <div class="card">
-          <h2>動作</h2>
-          <div class="field">
-            <label for="hotkey">音声入力ホットキー（クリックしてキーを押す）</label>
-            <input type="text" id="hotkey" readonly />
-            <div class="desc ng" id="hotkeyWarn" hidden></div>
-          </div>
-          <div class="field">
-            <label for="meetingHotkey">議事録ホットキー（開始／終了をトグル）</label>
-            <input type="text" id="meetingHotkey" readonly />
-            <div class="desc ng" id="meetingHotkeyWarn" hidden></div>
-            <div class="desc">※ 左右のAltは区別されません（どちらでも動作）。</div>
-          </div>
-          <div class="field">
-            <label for="pillPos">録音バーの表示位置（表示中はドラッグでも移動できます）</label>
-            <select id="pillPos">
-              <option value="bottom">下・中央（既定）</option>
-              <option value="top">上・中央</option>
-              <option value="left">左・中央</option>
-              <option value="right">右・中央</option>
-              <option value="top-left">左上</option>
-              <option value="top-right">右上</option>
-              <option value="bottom-left">左下</option>
-              <option value="bottom-right">右下</option>
-            </select>
-          </div>
-          <div class="field">
-            <label for="micSelect">使用するマイク</label>
-            <div class="row">
-              <select id="micSelect"></select>
-              <button class="ghost" id="micReloadBtn" type="button">更新</button>
-            </div>
-          </div>
-          <label class="check"><input type="checkbox" id="useSystemAudio" />
-            <span>議事録で相手の声も録る（パソコンから出ている音）<br />
-              <span class="d">マイクに加えて、スピーカーやイヤホンへ流れている音も一緒に記録します。
-                Web会議の相手の発言を議事録に残せます。Windows でのみ動作します。<br />
-                パソコンで鳴っている音はすべて入ります（通知音や動画の音も）。
-                二重に入るのを避けるため、イヤホンの使用をおすすめします。
-                音声入力（ホットキー）ではこれまで通りマイクだけを使います。<br />
-                ※ 録音していることは、会議の参加者へ伝えてください。</span></span></label>
-          <div class="field" id="spkField">
-            <label>録音されるスピーカー</label>
-            <div class="row">
-              <input type="text" id="spkNow" readonly />
-              <button class="ghost" id="spkReloadBtn" type="button">更新</button>
-              <button class="ghost" id="spkSettingsBtn" type="button">Windowsの設定</button>
-            </div>
-            <div class="desc">Windows の「既定の再生デバイス」に出ている音が録音されます。
-              アプリ側から選ぶことはできない仕組みのため、変えたいときは
-              Windows のサウンド設定で既定のデバイスを切り替えてください。
-              録音の開始時点のデバイスに固定されます（録音中に切り替えても追従しません）。</div>
-          </div>
-          <div class="field">
-            <label for="language">認識言語</label>
-            <select id="language">
-              <option value="ja">日本語</option><option value="en">英語</option><option value="auto">自動判定</option>
-            </select>
-            <div class="desc ng lockNote" hidden>記録中はエンジンの設定を変更できません</div>
-          </div>
-          <label class="check"><input type="checkbox" id="autoPaste" />
-            <span>文字起こし後、カーソル位置へ自動貼り付け</span></label>
-          <label class="check"><input type="checkbox" id="removeFillers" />
-            <span>フィラー除去（えー、あのー 等）</span></label>
-          <label class="check"><input type="checkbox" id="soundFeedback" />
-            <span>効果音</span></label>
-          <label class="check"><input type="checkbox" id="autoLaunch" />
-            <span>Windowsサインイン時に自動起動<br />
-              <span class="d">インストーラー版でのみ動作します。</span></span></label>
-          <label class="check"><input type="checkbox" id="stayInTray" />
-            <span>ウィンドウを閉じてもタスクトレイに残す<br />
-              <span class="d">オフのときは、閉じるとアプリも終了します。
-                終了中はホットキーの音声入力も使えません。</span></span></label>
-        </div>
-        <div class="card">
-          <h2>ユーザー辞書（認識ヒント）</h2>
-          <div class="field">
-            <textarea id="dictionary" rows="5" placeholder="1行に1語ずつ&#10;自社名&#10;製品名&#10;部署名"></textarea>
-            <div class="desc">固有名詞・社内用語をエンジンへ渡し、認識精度を上げます。</div>
-            <div class="desc ng" id="dictWarn" hidden></div>
-          </div>
-          <label class="check"><input type="checkbox" id="useBuiltinTerms" />
-            <span>業務でよく使う言葉のヒントも渡す<br />
-              <span class="d">「不具合」「改修」「結合テスト」「今週」などをあらかじめ渡します。
-                上の辞書が優先で、余った分だけ使われます。</span></span></label>
-        </div>
-        <div class="card">
-          <h2>オンライン</h2>
-          <div class="field">
-            <div class="desc">ログインしていて、インターネットにつながっているときは、会議と音声入力の音声を文字起こしの中継に送り、OpenAI（gpt-4o-transcribe）で文字起こしします。中継も OpenAI も、音声と文字を保存しません。つながっていないときは、いつも PC の中で文字起こしします。1on1・面談など外に出したくない会議は、議事録の画面の［この会議は PC の中だけ］を押してください。</div>
-          </div>
-          <div class="field">
-            <label for="claudeTest">要約（Claude Code）</label>
-            <div class="row">
-              <span class="eng-state" id="claudeState"></span>
-              <button class="ghost" id="claudeTest" type="button">Claude Code を確かめる</button>
-              <button class="ghost" id="claudeLogin" type="button" hidden>Claude Code にログイン</button>
-              <button class="ghost" id="claudeInstall" type="button" hidden>Claude Code を入れる</button>
-            </div>
-            <div class="desc" id="claudeHelp">［Claude Code を入れる］は、PowerShell の窓で Anthropic の公式の入れ方 <code>irm https://claude.ai/install.ps1 | iex</code> を実行します（インターネットから取った命令をそのまま実行します。Git for Windows は無くても動きます）。
-              ［Claude Code にログイン］はログインの窓を開きます（NaTsu はログインの情報を読みません）。要約は各自の Claude のプランの上限（5時間ごと・週ごと）を使います。</div>
-          </div>
-          <div class="field">
-            <label for="claudeExe">Claude Code の場所（空なら自動で探します）</label>
-            <input type="text" id="claudeExe" placeholder="claude.exe の場所" spellcheck="false" />
-          </div>
-          <div class="desc save-msg" id="onlineMsg"></div>
-        </div>
-        <div class="card">
-          <!-- 第1d回 A-13（D19）: カード「エンジン」を「オフライン」に。カードの中の文字起こしの言葉は「PC の中の文字起こし」。要約の欄の言葉は変えない（問い Q15） -->
-          <h2>オフライン</h2>
-          <div class="field">
-            <div class="desc">インターネットにつながっていないときと、［この会議は PC の中だけ］の会議では、この PC の中で文字起こしと要約をします。</div>
-          </div>
-          <div class="field lockNote" hidden><div class="desc ng">記録中は PC の中の文字起こしの設定を変更できません</div></div>
-          <div class="row" style="display:flex;gap:8px;align-items:center">
-            <span class="eng-state" id="engineState"></span>
-            <button class="ghost" id="testBtn" type="button">PC の中で試す</button>
-          </div>
-          <div class="row" style="display:flex;gap:12px;flex-wrap:wrap;margin-top:6px">
-            <span class="desc save-msg" id="testMsg"></span>
-            <span class="desc save-msg" id="testSumMsg"></span>
-          </div>
-          <div class="desc" id="engineNote" hidden></div>
-          <div class="field" id="engineFetch" hidden>
-            <div class="desc" id="engineFetchSummary"></div>
-            <progress id="engineFetchBar" max="1000" value="0" hidden></progress>
-            <div class="row" style="display:flex;gap:8px;flex-wrap:wrap;margin-top:6px">
-              <button class="ghost" id="engineFetchBtn" type="button">PC の中の文字起こしを取り込む</button>
-              <button class="ghost" id="engineFetchPause" type="button" hidden>一時停止</button>
-              <button class="ghost" id="engineFetchSwitch" type="button" hidden>アプリの取り込みに切り替える</button>
-              <button class="ghost" id="engineDirBtn" type="button" hidden>取り込み先を開く</button>
-              <button class="ghost" id="engineFetchCopy" type="button" hidden>担当に渡す内容を写す</button>
-            </div>
-            <div class="desc save-msg" id="engineFetchMsg"></div>
-            <details class="adv" id="engineFetchList"><summary>取り込むもの（取得元・版・SHA-256・置き場所）</summary><div id="engineFetchRows"></div></details>
-          </div>
-          <details class="adv" id="engineAdv">
-            <summary>詳細設定</summary>
-            <h3>文字起こし（whisper.cpp・オフライン）</h3>
-            <div class="field">
-              <label for="localServerExe">whisper-server.exe のパス</label>
-              <div class="row">
-                <input type="text" id="localServerExe" placeholder="…\local-engine\bin\Release\whisper-server.exe" />
-                <button class="ghost" id="pickExeBtn" type="button">参照…</button>
-              </div>
-            </div>
-            <div class="field">
-              <label for="localModelPath">モデルファイル（ggml-*.bin）のパス</label>
-              <div class="row">
-                <input type="text" id="localModelPath" placeholder="…\local-engine\ggml-large-v3-turbo-q5_0.bin" />
-                <button class="ghost" id="pickModelBtn" type="button">参照…</button>
-              </div>
-            </div>
-            <div class="field">
-              <div class="row">
-                <div style="flex:1"><label for="localThreads">スレッド数</label><input type="text" id="localThreads" /></div>
-                <div style="flex:1"><label for="localPort">ポート</label><input type="text" id="localPort" /></div>
-              </div>
-              <div class="desc">通常は変更不要です。スレッド数は文字起こしに使うCPUの数
-                （初期値はこのPCのコア数−2。増やすと速くなりますが、他の作業が重くなります）。
-                ポートはこのPCの中だけで使う通信の番号で、他のソフトと番号が
-                ぶつかって PC の中の文字起こしが起動できないときだけ変えてください。</div>
-            </div>
-            <label class="check">
-              <input type="checkbox" id="useVad" />
-              <span>VAD（無音スキップ）を使う<br />
-                <span class="d">無音を除いてから文字起こしするため高速化し、繰り返し誤認識も減ります。<span id="vadState"></span></span></span>
-            </label>
-            <div class="field">
-              <label for="vadModelPath">VADモデル（空欄なら上のモデルと同じフォルダから自動検出）</label>
-              <div class="row">
-                <input type="text" id="vadModelPath" placeholder="自動検出" />
-                <button class="ghost" id="pickVadBtn" type="button">参照…</button>
-              </div>
-            </div>
-            <label class="check">
-              <input type="checkbox" id="suppressNst" />
-              <span>非発話トークンを抑制する<br /><span class="d">咳・雑音が文字として出るのを抑えます。</span></span>
-            </label>
-            <h3>要約（llama.cpp・オフライン）— 議事録の自動要約に使用</h3>
-            <div class="field">
-              <label for="sumServerExe">llama-server.exe のパス</label>
-              <div class="row">
-                <input type="text" id="sumServerExe" placeholder="…\local-engine\llm\bin\llama-server.exe" />
-                <button class="ghost" id="pickSumExeBtn" type="button">参照…</button>
-              </div>
-            </div>
-            <div class="field">
-              <label for="sumModelPath">モデルファイル（*.gguf）のパス</label>
-              <div class="row">
-                <input type="text" id="sumModelPath" placeholder="…\local-engine\llm\Qwen2.5-3B-Instruct-Q4_K_M.gguf" />
-                <button class="ghost" id="pickSumModelBtn" type="button">参照…</button>
-              </div>
-              <div class="desc">初回セットアップ: setup-summarizer.ps1 を実行。未設定でも文字起こしは使えます。</div>
-            </div>
-            <div class="field">
-              <div class="row">
-                <div style="flex:1"><label for="sumThreads">スレッド数</label><input type="text" id="sumThreads" /></div>
-                <div style="flex:1"><label for="sumPort">ポート</label><input type="text" id="sumPort" /></div>
-              </div>
-              <div class="desc">通常は変更不要です。意味は文字起こしエンジンの欄と同じです
-                （こちらは要約に使われます）。2つのエンジンのポートは別の番号にしてください。</div>
-            </div>
-            <div class="field">
-              <label for="sumCtx">要約の文脈長</label>
-              <input type="text" id="sumCtx" />
-              <div class="desc">要約エンジンに渡すトークン数（-c）。既定 16384。大きいほどメモリを使い、小さいと長い会議の統合で足りなくなります</div>
-            </div>
-            <div class="row" style="display:flex;gap:8px">
-              <button class="ghost" id="testSumBtn" type="button">起動テスト</button>
-            </div>
-            <h3>記録とメモリ</h3>
-            <div class="field">
-              <label for="segmentSec">議事録の文字起こし間隔（秒）</label>
-              <input type="text" id="segmentSec" />
-              <div class="desc">短いほど早く画面に出ますが、文の切れ目が増えます（既定75秒。最初の1回は20秒）。</div>
-              <div class="desc ng lockNote" hidden>記録中は PC の中の文字起こしの設定を変更できません</div>
-            </div>
-            <div class="field">
-              <label for="engineIdleMin">使わないエンジンを止めるまで（分）</label>
-              <input type="text" id="engineIdleMin" />
-              <div class="desc">記録も要約もしていない時間がこれを超えたらエンジンを止めてメモリを空けます（次に使うとき起動し直します。0 で止めない）</div>
-            </div>
-          </details>
-        </div>
-
-        <div style="display:flex;align-items:center;gap:12px;padding-bottom:20px">
-          <span class="save-msg" id="saveMsg"></span>
-          <span style="flex:1"></span>
-          <button class="ghost" id="openDataBtn" type="button">データ保存先を開く</button>
-        </div>
-      </div>
-    </section>
   </main>
   </div>
   <div class="palette" id="palette" role="dialog" aria-modal="true" aria-label="検索" hidden>
@@ -977,6 +768,363 @@
       <div class="plist" id="palList" role="listbox" aria-label="検索の結果"></div>
     </div>
   </div>
+  </div>
+
+  <!-- 0.9.0 U-1（SP1〜SP3・設計書 D24 の案C）: 設定は今のページの上に開くポップアップ（タブにしない）。体の直の子（.app の後・#toast の前）。
+       後ろの暗い地は .setmodal 自身（外を押して離すと閉じる）。開いている間は .side と .col を inert にし、Tab はこの中だけを回る。
+       左は幅 180px の項目の列（自作の線のアイコン。選んだ行は灰色の丸い地で、青を使わない）、右は今の設定の section（id と class の tab はそのまま。
+       開いた印は今のテストの見方と同じ #tabSettings の active。付け外しするのは openSettings・closeSettings だけ） -->
+  <div class="setmodal" id="settingsModal" role="dialog" aria-modal="true" aria-labelledby="setTitle" hidden>
+    <div class="setbox">
+      <nav class="setnav" aria-label="設定の項目">
+        <div class="setsearch">
+          <svg viewBox="0 0 20 20" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="9" r="5"/><path d="M13 13l3.5 3.5"/></svg>
+          <input type="search" id="setSearch" placeholder="検索" aria-label="設定を検索" spellcheck="false" />
+        </div>
+        <div id="setNav" role="tablist" aria-orientation="vertical" aria-label="設定の項目">
+          <button type="button" class="setnav-item" id="setNavAccount" role="tab" data-sec="account" aria-selected="false" tabindex="-1"><svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="10" cy="7" r="3.2"/><path d="M3.8 16.5c1.1-3 3.4-4.5 6.2-4.5s5.1 1.5 6.2 4.5"/></svg><span>アカウント</span></button>
+          <button type="button" class="setnav-item" id="setNavGeneral" role="tab" data-sec="general" aria-selected="false" tabindex="-1"><svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 6h7.5M15.5 6h1M3.5 14h1M9 14h7.5"/><circle cx="13.2" cy="6" r="2"/><circle cx="6.8" cy="14" r="2"/></svg><span>一般</span></button>
+          <button type="button" class="setnav-item" id="setNavRecord" role="tab" data-sec="record" aria-selected="false" tabindex="-1"><svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="7.5" y="2.8" width="5" height="9" rx="2.5"/><path d="M4.8 9.8a5.2 5.2 0 0 0 10.4 0M10 15v2.4"/></svg><span>録音</span></button>
+          <button type="button" class="setnav-item" id="setNavSummary" role="tab" data-sec="summary" aria-selected="false" tabindex="-1"><svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 5h9M3.5 9h6.5M3.5 13h4.5"/><path d="M14.5 9.5l1 2.3 2.3 1-2.3 1-1 2.3-1-2.3-2.3-1 2.3-1z"/></svg><span>要約</span></button>
+          <button type="button" class="setnav-item" id="setNavOffline" role="tab" data-sec="offline" aria-selected="false" tabindex="-1"><svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="4" width="13" height="9" rx="1.5"/><path d="M1.8 15.8h16.4M8 8.5h4"/></svg><span>オフライン</span></button>
+          <button type="button" class="setnav-item" id="setNavUpdate" role="tab" data-sec="update" aria-selected="false" tabindex="-1"><svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M16 10a6 6 0 0 1-10.6 3.9M4 10a6 6 0 0 1 10.6-3.9M14.9 3v3.2h-3.2M5.1 17v-3.2h3.2"/></svg><span>更新</span></button>
+        </div>
+        <!-- 0.9.0 U-4（SP6・SP7・F15）: 下に［ヘルプセンター］（ヘルプのサイトが出るまで hidden: HELP_SITE_LIVE と koeApp.openHelp）と版の文字 -->
+        <div class="setfoot">
+          <button type="button" class="setnav-item" id="setHelpLink" hidden><svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="10" cy="10" r="7"/><path d="M8 8a2 2 0 1 1 2.8 1.8c-.5.3-.8.7-.8 1.2v.4M10 14h.01"/></svg><span>ヘルプセンター</span></button>
+          <span class="setver" id="setVer"></span>
+        </div>
+      </nav>
+      <button type="button" class="setclose" id="setClose" aria-label="設定を閉じる" title="設定を閉じる（Esc）">×</button>
+      <!-- ================= 設定 ================= -->
+      <section id="tabSettings" class="tab setpane">
+        <div class="scroll">
+          <h1 class="stitle" id="setTitle">一般</h1>
+          <!-- 0.9.0 U-2（SP4・設計書 D24）: カードは項目ごと（data-sec）に、左の列の順（アカウント・一般・録音・要約・オフライン・更新）で並べる。
+               カードは .scroll の直の子のまま、選んだ項目のカードだけを出す（selectSettingsSec）。検索で見る行は data-row（名前は画面に出ている名前の頭）。
+               「動作」と「オンライン」のカードは、中の欄を表の所へ動かして無くした（tools/hedit.js move。入力の id・label for・文は変えない） -->
+          <!-- 第1d回 A-4（RL10）: ログイン（0.9.0 U-2 から項目「アカウント」の1枚）。A-12: ［ログイン］で Cloudflare Access のログインの窓（英語）を開く → ログイン中。
+               メールと確認コードは Cloudflare の画面で入れる（画面には欄が無い）。文は main が返す（AR4〜AR7・R12〜R16）。cookie は画面に来ない。
+               ［ログイン］の id は accountSignIn（前の #accountLogin は消した #accountCodeField の中のボタンで、同じ id で外へ出すとゲートの「枠からの離脱」になる） -->
+          <div class="card" id="accountCard" data-sec="account">
+            <!-- 0.9.0 見た目の直し: 項目の見出し「アカウント」と同じ言葉なので、カードの見出しは出さない（id とカードの名前はそのまま） -->
+            <h2 id="accountTitle" hidden>アカウント</h2>
+            <div class="field">
+              <div class="desc">会社のメールアドレスでログインすると、インターネットにつながっているときに、会議と音声入力の音声を文字起こしの中継に送り、OpenAI で文字起こしします。ログインしていないときと、つながっていないときは、PC の中で文字起こしします。</div>
+            </div>
+            <div id="accountOut" data-row="ログイン">
+              <div class="field">
+                <div class="desc">［ログイン］を押すと、ログインの画面が別の窓で開きます。画面は Cloudflare（中継を守る仕組み）のもので、英語です。会社のメールアドレスを入れて［Send login code］を押し、届いたメール（差出人は Cloudflare。英語）の 6 けたのコードを入れて［Sign in］を押してください。ログインできると、窓は自動で閉じます。</div>
+                <div class="row" style="margin-top:8px">
+                  <button class="action" id="accountSignIn" type="button">ログイン</button>
+                </div>
+                <div class="desc" style="margin-top:8px">コードのメールが届かないときは、迷惑メールのフォルダも見てください。「already been used」と出たら、［Request new code］でコードを頼み直してください（会社のメールの検査が、先にコードを使ってしまうことがあります）。</div>
+              </div>
+            </div>
+            <div class="field" id="accountIn" data-row="ログアウト" hidden>
+              <div class="row">
+                <span id="accountWho" style="font-size:13px"></span>
+                <button class="ghost" id="accountLogout" type="button">ログアウト</button>
+              </div>
+            </div>
+            <div class="desc save-msg" id="accountMsg" role="status"></div>
+          </div>
+          <!-- 0.7.0 U-2（設計書 D8）: 外観は項目「一般」のいちばん上。選んだら今の自動保存ですぐ切り替わる（main の applyTheme） -->
+          <div class="card" id="appearanceCard" data-sec="general">
+            <h2 id="appearanceTitle">外観</h2>
+            <div class="field frow" data-row="外観">
+              <div class="flead">
+                <!-- 0.9.0 見た目の直し（モック 案C）: 左の名前は飾り（選ぶ欄の名前は今どおり見出し #appearanceTitle） -->
+                <div class="flab" aria-hidden="true">外観</div>
+                <div class="desc">この PC での NaTsu の見た目です。Ctrl+Shift+L でライトとダークを切り替えられます。</div>
+              </div>
+              <select id="themeSel" aria-labelledby="appearanceTitle">
+                <option value="system">システム設定を使用</option>
+                <option value="light">ライト</option>
+                <option value="dark">ダーク</option>
+              </select>
+            </div>
+          </div>
+          <div class="card" data-sec="general">
+            <h2>ホットキー</h2>
+            <div class="field frow" data-row="音声入力ホットキー">
+              <div class="flead">
+                <label for="hotkey">音声入力ホットキー<span class="lhint"><span class="lp">（</span>クリックしてキーを押す<span class="lp">）</span></span></label>
+                <div class="desc ng" id="hotkeyWarn" hidden></div>
+              </div>
+              <div class="hkbox"><input type="text" id="hotkey" readonly /><span class="hkcaps" id="hotkeyCaps" aria-hidden="true"></span></div>
+            </div>
+            <div class="field frow" data-row="議事録ホットキー">
+              <div class="flead">
+                <label for="meetingHotkey">議事録ホットキー<span class="lhint"><span class="lp">（</span>開始／終了をトグル<span class="lp">）</span></span></label>
+                <div class="desc ng" id="meetingHotkeyWarn" hidden></div>
+                <div class="desc">※ 左右のAltは区別されません（どちらでも動作）。</div>
+              </div>
+              <div class="hkbox"><input type="text" id="meetingHotkey" readonly /><span class="hkcaps" id="meetingHotkeyCaps" aria-hidden="true"></span></div>
+            </div>
+          </div>
+          <div class="card" data-sec="general">
+            <h2>起動と終了</h2>
+            <label class="check" data-row="Windowsサインイン時に自動起動"><input type="checkbox" id="autoLaunch" />
+              <span>Windowsサインイン時に自動起動<br />
+                <span class="d">インストーラー版でのみ動作します。</span></span></label>
+            <label class="check" data-row="ウィンドウを閉じてもタスクトレイに残す"><input type="checkbox" id="stayInTray" />
+              <span>ウィンドウを閉じてもタスクトレイに残す<br />
+                <span class="d">オフのときは、閉じるとアプリも終了します。
+                  終了中はホットキーの音声入力も使えません。</span></span></label>
+            <label class="check" data-row="効果音"><input type="checkbox" id="soundFeedback" />
+              <span>効果音</span></label>
+          </div>
+          <div class="card" data-sec="record">
+            <h2>録音バー</h2>
+            <div class="field frow" data-row="録音バーの置き場所">
+              <div class="flead">
+                <label for="pillPos">録音バーの置き場所<span class="lhint"><span class="lp">（</span>表示中はドラッグでも動かせます<span class="lp">）</span></span></label>
+              </div>
+              <select id="pillPos">
+                <option value="top-left">左上</option>
+                <option value="top-center">上の中央</option>
+                <option value="top-right">右上</option>
+                <option value="middle-left">左の中央（縦）</option>
+                <option value="middle-right">右の中央（縦）</option>
+                <option value="bottom-left">左下</option>
+                <option value="bottom-center">下の中央（既定）</option>
+                <option value="bottom-right">右下</option>
+              </select>
+            </div>
+          </div>
+          <div class="card" data-sec="record">
+            <h2>マイクと相手の声</h2>
+            <div class="field frow" data-row="使用するマイク">
+              <div class="flead">
+                <label for="micSelect">使用するマイク</label>
+              </div>
+              <div class="row">
+                <select id="micSelect"></select>
+                <button class="ghost" id="micReloadBtn" type="button">更新</button>
+              </div>
+            </div>
+            <label class="check" data-row="議事録で相手の声も録る"><input type="checkbox" id="useSystemAudio" />
+              <span>議事録で相手の声も録る（パソコンから出ている音）<br />
+                <span class="d">マイクに加えて、スピーカーやイヤホンへ流れている音も一緒に記録します。
+                  Web会議の相手の発言を議事録に残せます。Windows でのみ動作します。<br />
+                  パソコンで鳴っている音はすべて入ります（通知音や動画の音も）。
+                  二重に入るのを避けるため、イヤホンの使用をおすすめします。
+                  音声入力（ホットキー）ではこれまで通りマイクだけを使います。<br />
+                  ※ 録音していることは、会議の参加者へ伝えてください。</span></span></label>
+            <div class="field frow" id="spkField" data-row="録音されるスピーカー">
+              <div class="flead">
+                <label>録音されるスピーカー</label>
+                <div class="desc">Windows の「既定の再生デバイス」に出ている音が録音されます。
+                  アプリ側から選ぶことはできない仕組みのため、変えたいときは
+                  Windows のサウンド設定で既定のデバイスを切り替えてください。
+                  録音の開始時点のデバイスに固定されます（録音中に切り替えても追従しません）。</div>
+              </div>
+              <div class="row">
+                <input type="text" id="spkNow" readonly />
+                <button class="ghost" id="spkReloadBtn" type="button">更新</button>
+                <button class="ghost" id="spkSettingsBtn" type="button">Windowsの設定</button>
+              </div>
+            </div>
+          </div>
+          <div class="card" data-sec="record">
+            <h2>文字起こし</h2>
+            <div class="field">
+              <div class="desc">ログインしていて、インターネットにつながっているときは、会議と音声入力の音声を文字起こしの中継に送り、OpenAI（gpt-4o-transcribe）で文字起こしします。中継も OpenAI も、音声と文字を保存しません。つながっていないときは、いつも PC の中で文字起こしします。1on1・面談など外に出したくない会議は、議事録の画面の［この会議は PC の中だけ］を押してください。</div>
+            </div>
+            <div class="field frow" data-row="認識言語">
+              <div class="flead">
+                <label for="language">認識言語</label>
+                <div class="desc ng lockNote" hidden>記録中はエンジンの設定を変更できません</div>
+              </div>
+              <select id="language">
+                <option value="ja">日本語</option><option value="en">英語</option><option value="auto">自動判定</option>
+              </select>
+            </div>
+            <label class="check" data-row="文字起こし後、カーソル位置へ自動貼り付け"><input type="checkbox" id="autoPaste" />
+              <span>文字起こし後、カーソル位置へ自動貼り付け</span></label>
+            <label class="check" data-row="フィラー除去"><input type="checkbox" id="removeFillers" />
+              <span>フィラー除去（えー、あのー 等）</span></label>
+          </div>
+          <div class="card" data-sec="record">
+            <h2>ユーザー辞書（認識ヒント）</h2>
+            <div class="field" data-row="ユーザー辞書">
+              <textarea id="dictionary" aria-label="ユーザー辞書" rows="5" placeholder="1行に1語ずつ&#10;自社名&#10;製品名&#10;部署名"></textarea>
+              <div class="desc">固有名詞・社内用語をエンジンへ渡し、認識精度を上げます。</div>
+              <div class="desc ng" id="dictWarn" hidden></div>
+            </div>
+            <label class="check" data-row="業務でよく使う言葉のヒントも渡す"><input type="checkbox" id="useBuiltinTerms" />
+              <span>業務でよく使う言葉のヒントも渡す<br />
+                <span class="d">「不具合」「改修」「結合テスト」「今週」などをあらかじめ渡します。
+                  上の辞書が優先で、余った分だけ使われます。</span></span></label>
+          </div>
+          <div class="card" data-sec="summary">
+            <h2>要約（Claude Code）</h2>
+            <div class="field frow" data-row="Claude Code">
+              <div class="flead">
+                <label for="claudeTest">要約（Claude Code）</label>
+                <div class="desc" id="claudeHelp">［Claude Code を入れる］は、PowerShell の窓で Anthropic の公式の入れ方 <code>irm https://claude.ai/install.ps1 | iex</code> を実行します（インターネットから取った命令をそのまま実行します。Git for Windows は無くても動きます）。
+                  ［Claude Code にログイン］はログインの窓を開きます（NaTsu はログインの情報を読みません）。要約は各自の Claude のプランの上限（5時間ごと・週ごと）を使います。</div>
+              </div>
+              <div class="row">
+                <span class="eng-state" id="claudeState"></span>
+                <button class="ghost" id="claudeTest" type="button">Claude Code を確かめる</button>
+                <button class="ghost" id="claudeLogin" type="button" hidden>Claude Code にログイン</button>
+                <button class="ghost" id="claudeInstall" type="button" hidden>Claude Code を入れる</button>
+              </div>
+            </div>
+            <div class="field frow" data-row="Claude Code の場所">
+              <div class="flead">
+                <label for="claudeExe">Claude Code の場所<span class="lhint"><span class="lp">（</span>空なら自動で探します<span class="lp">）</span></span></label>
+              </div>
+              <input type="text" id="claudeExe" placeholder="claude.exe の場所" spellcheck="false" />
+            </div>
+            <div class="desc save-msg" id="onlineMsg"></div>
+          </div>
+          <div class="card" data-sec="offline">
+            <!-- 第1d回 A-13（D19）: カード「エンジン」を「オフライン」に。カードの中の文字起こしの言葉は「PC の中の文字起こし」。要約の欄の言葉は変えない（問い Q15） -->
+            <!-- 0.9.0 見た目の直し: 項目の見出し「オフライン」と同じ言葉なので、カードの見出しは出さない（カードの名前はそのまま） -->
+            <h2 hidden>オフライン</h2>
+            <div class="field">
+              <div class="desc">インターネットにつながっていないときと、［この会議は PC の中だけ］の会議でも、この PC の中で文字起こしと要約ができるようにする準備です（任意）。準備しなくても、インターネットにつながっていてログインしていれば、会議と音声入力はそのまま使えます。</div>
+            </div>
+            <div class="field lockNote" hidden><div class="desc ng">記録中は PC の中の文字起こしの設定を変更できません</div>
+          </div>
+            <div class="row eng-row" data-row="PC の中の文字起こし">
+              <span class="eng-state" id="engineState"></span>
+              <button class="ghost" id="testBtn" type="button">PC の中で試す</button>
+            </div>
+            <div class="row eng-msgs">
+              <span class="desc save-msg" id="testMsg"></span>
+              <span class="desc save-msg" id="testSumMsg"></span>
+            </div>
+            <div class="desc" id="engineNote" hidden></div>
+            <div class="field" id="engineFetch" data-row="PC の中の文字起こしを取り込む" hidden>
+              <div class="desc" id="engineFetchSummary"></div>
+              <progress id="engineFetchBar" max="1000" value="0" hidden></progress>
+              <div class="row" style="display:flex;gap:8px;flex-wrap:wrap;margin-top:6px">
+                <button class="ghost" id="engineFetchBtn" type="button">PC の中の文字起こしを取り込む</button>
+                <button class="ghost" id="engineFetchPause" type="button" hidden>一時停止</button>
+                <button class="ghost" id="engineFetchSwitch" type="button" hidden>アプリの取り込みに切り替える</button>
+                <button class="ghost" id="engineDirBtn" type="button" hidden>取り込み先を開く</button>
+                <button class="ghost" id="engineFetchCopy" type="button" hidden>担当に渡す内容を写す</button>
+              </div>
+              <div class="desc save-msg" id="engineFetchMsg"></div>
+              <details class="adv" id="engineFetchList"><summary>取り込むもの（取得元・版・SHA-256・置き場所）</summary><div id="engineFetchRows"></div></details>
+            </div>
+            <details class="adv" id="engineAdv" data-row="詳細設定">
+              <summary>詳細設定</summary>
+              <h3>文字起こし（whisper.cpp・オフライン）</h3>
+              <div class="field">
+                <label for="localServerExe">whisper-server.exe のパス</label>
+                <div class="row">
+                  <input type="text" id="localServerExe" placeholder="…\local-engine\bin\Release\whisper-server.exe" />
+                  <button class="ghost" id="pickExeBtn" type="button">参照…</button>
+                </div>
+              </div>
+              <div class="field">
+                <label for="localModelPath">モデルファイル（ggml-*.bin）のパス</label>
+                <div class="row">
+                  <input type="text" id="localModelPath" placeholder="…\local-engine\ggml-large-v3-turbo-q5_0.bin" />
+                  <button class="ghost" id="pickModelBtn" type="button">参照…</button>
+                </div>
+              </div>
+              <div class="field">
+                <div class="row">
+                  <div style="flex:1"><label for="localThreads">スレッド数</label><input type="text" id="localThreads" /></div>
+                  <div style="flex:1"><label for="localPort">ポート</label><input type="text" id="localPort" /></div>
+                </div>
+                <div class="desc">通常は変更不要です。スレッド数は文字起こしに使うCPUの数
+                  （初期値はこのPCのコア数−2。増やすと速くなりますが、他の作業が重くなります）。
+                  ポートはこのPCの中だけで使う通信の番号で、他のソフトと番号が
+                  ぶつかって PC の中の文字起こしが起動できないときだけ変えてください。</div>
+              </div>
+              <label class="check">
+                <input type="checkbox" id="useVad" />
+                <span>VAD（無音スキップ）を使う<br />
+                  <span class="d">無音を除いてから文字起こしするため高速化し、繰り返し誤認識も減ります。<span id="vadState"></span></span></span>
+              </label>
+              <div class="field">
+                <label for="vadModelPath">VADモデル（空欄なら上のモデルと同じフォルダから自動検出）</label>
+                <div class="row">
+                  <input type="text" id="vadModelPath" placeholder="自動検出" />
+                  <button class="ghost" id="pickVadBtn" type="button">参照…</button>
+                </div>
+              </div>
+              <label class="check">
+                <input type="checkbox" id="suppressNst" />
+                <span>非発話トークンを抑制する<br /><span class="d">咳・雑音が文字として出るのを抑えます。</span></span>
+              </label>
+              <h3>要約（llama.cpp・オフライン）— 議事録の自動要約に使用</h3>
+              <div class="field">
+                <label for="sumServerExe">llama-server.exe のパス</label>
+                <div class="row">
+                  <input type="text" id="sumServerExe" placeholder="…\local-engine\llm\bin\llama-server.exe" />
+                  <button class="ghost" id="pickSumExeBtn" type="button">参照…</button>
+                </div>
+              </div>
+              <div class="field">
+                <label for="sumModelPath">モデルファイル（*.gguf）のパス</label>
+                <div class="row">
+                  <input type="text" id="sumModelPath" placeholder="…\local-engine\llm\Qwen2.5-3B-Instruct-Q4_K_M.gguf" />
+                  <button class="ghost" id="pickSumModelBtn" type="button">参照…</button>
+                </div>
+                <div class="desc">初回セットアップ: setup-summarizer.ps1 を実行。未設定でも文字起こしは使えます。</div>
+              </div>
+              <div class="field">
+                <div class="row">
+                  <div style="flex:1"><label for="sumThreads">スレッド数</label><input type="text" id="sumThreads" /></div>
+                  <div style="flex:1"><label for="sumPort">ポート</label><input type="text" id="sumPort" /></div>
+                </div>
+                <div class="desc">通常は変更不要です。意味は文字起こしエンジンの欄と同じです
+                  （こちらは要約に使われます）。2つのエンジンのポートは別の番号にしてください。</div>
+              </div>
+              <div class="field">
+                <label for="sumCtx">要約の文脈長</label>
+                <input type="text" id="sumCtx" />
+                <div class="desc">要約エンジンに渡すトークン数（-c）。既定 16384。大きいほどメモリを使い、小さいと長い会議の統合で足りなくなります</div>
+              </div>
+              <div class="row" style="display:flex;gap:8px">
+                <button class="ghost" id="testSumBtn" type="button">起動テスト</button>
+              </div>
+              <h3>記録とメモリ</h3>
+              <div class="field">
+                <label for="segmentSec">議事録の文字起こし間隔（秒）</label>
+                <input type="text" id="segmentSec" />
+                <div class="desc">短いほど早く画面に出ますが、文の切れ目が増えます（既定75秒。最初の1回は20秒）。</div>
+                <div class="desc ng lockNote" hidden>記録中は PC の中の文字起こしの設定を変更できません</div>
+              </div>
+              <div class="field">
+                <label for="engineIdleMin">使わないエンジンを止めるまで（分）</label>
+                <input type="text" id="engineIdleMin" />
+                <div class="desc">記録も要約もしていない時間がこれを超えたらエンジンを止めてメモリを空けます（次に使うとき起動し直します。0 で止めない）</div>
+              </div>
+            </details>
+          </div><div class="card" data-sec="update">
+            <h2>アップデート</h2>
+            <div class="upd-row" data-row="更新を確認">
+              <span id="verNow" style="font-size:13px"></span>
+              <button class="ghost" id="chkUpdBtn" type="button">更新を確認</button>
+              <button class="action" id="applyUpdBtn" type="button" style="display:none">更新して再起動</button>
+              <span class="save-msg" id="updMsg"></span>
+            </div>
+            <div id="updNotes" style="display:none;margin-top:12px;font-size:12px;line-height:1.7;
+              white-space:pre-wrap;background:var(--hover);border-radius:4px;padding:12px;max-height:200px;overflow-y:auto"></div>
+            <div class="desc" style="margin-top:10px">
+              更新はアプリ本体（数百KB）のみを取得します。エンジンやモデル、保存済みの議事録はそのままです。<br />
+              更新前のバージョンは <code>src.backup-*</code> として1世代だけ残ります。
+            </div>
+          </div>
+          <!-- 0.9.0 U-2（SP5）: 検索で当たる行が無いとき -->
+          <div class="desc set-empty" id="setEmpty" hidden>当てはまる設定はありません</div>
+          <div style="display:flex;align-items:center;gap:12px;padding-bottom:20px">
+            <span class="save-msg" id="saveMsg"></span>
+            <span style="flex:1"></span>
+            <button class="ghost" id="openDataBtn" type="button">データ保存先を開く</button>
+          </div>
+        </div>
+      </section>
+    </div>
   </div>
 
   <div id="toast" role="status"></div>
@@ -1011,22 +1159,212 @@
   const imeEnter = (ev) => ev.isComposing || ev.keyCode === 229;
 
   // ---------------- タブ ----------------
-  // 中身の切り替え（section とサイドバーのボタンの active）。上のタブはこれと openPage を呼ぶ
+  // 中身の切り替え（section とサイドバーのボタンの active）。上のタブはこれと openPage を呼ぶ。
+  // 0.9.0 U-1（調べた結果の 36）: 設定（#tabSettings・#tabBtnSettings）には触らない。設定のポップアップを開いている間に
+  // 録音中のタブ・復旧のページ・知らせのボタンでタブが替わっても、ポップアップの中身を消さない（付け外しは openSettings・closeSettings だけ）
   function showSection(n) {
-    for (const t of ['Notes', 'Dictation', 'Settings']) {
+    for (const t of ['Notes', 'Dictation']) {
       $('tab' + t).classList.toggle('active', n === t.toLowerCase());
       $('tabBtn' + t).classList.toggle('active', n === t.toLowerCase());
     }
   }
-  // 音声入力・設定は上のタブを開いて（あれば移って）出す。notes は中身だけ（ページのタブは openPageTab が開く）
+  // 音声入力は上のタブを開いて（あれば移って）出す。notes は中身だけ（ページのタブは openPageTab が開く）。
+  // 設定は 0.9.0 U-1（SP1・D24）からタブにせず、今のページの上にポップアップで開く（上の帯にタブを足さない・今のタブを替えない）
   function showTab(n) {
-    if (n === 'dictation' || n === 'settings') { openTab(n); return; }
+    if (n === 'settings') { openSettings(); return; }
+    if (n === 'dictation') { openTab(n); return; }
     showSection(n);
   }
   $('tabBtnNotes').onclick = () => goNotes();
   $('tabBtnDictation').onclick = () => showTab('dictation');
-  // 設定を開くたびに認識ヒントの状態を聞き直す（記録の途中で main がヒントを止めることがある。0.1.1）
-  $('tabBtnSettings').onclick = () => { showTab('settings'); refreshPromptInfo(); refreshAccount(); refreshClaude(); };
+  // 設定を開くたびに認識ヒントの状態を聞き直す（記録の途中で main がヒントを止めることがある。0.1.1）。聞き直しは openSettings の中
+  $('tabBtnSettings').onclick = () => showTab('settings');
+
+  // ---------------- 設定のポップアップ（0.9.0 U-1。SP1〜SP3・設計書 D24 の案C・決めたこと 15〜17） ----------------
+  // 開く道（サイドバー・showAccount・showEngineSettings・帯と知らせのボタン・起動の連れて行き）は、どれも openSettings を通る。
+  // 開いた印は #tabSettings の active（今のテストの見方のまま）と #settingsModal の hidden。付け外しするのは openSettings・closeSettings だけ。
+  // 閉じ方は Esc・×・外の暗い所。Esc は中の小さな部品が先に使う（ホットキーの欄は欄から抜けるだけ）。後ろ（.side・.col）は inert
+  // ［ヘルプセンター］はヘルプのサイトが出るまで出さない（決めたこと 19）。真にするのは G-3 だけ（ヘルプの計画の H-12 が入り、利用者がサイトを開けたと言ったとき）
+  const HELP_SITE_LIVE = false;
+  const SETTINGS_SECS = [{ sec: 'account', name: 'アカウント' }, { sec: 'general', name: '一般' }, { sec: 'record', name: '録音' },
+    { sec: 'summary', name: '要約' }, { sec: 'offline', name: 'オフライン' }, { sec: 'update', name: '更新' }];
+  let setSec = 'general';     // 前に選んだ項目（アプリを閉じるまで覚える。window-state.json には書かない: K8）
+  let setFrom = null;         // 開く前にフォーカスのあった要素（閉じたらそこへ戻す）
+  let setDownOnScrim = false; // 外の暗い所で押した（.setbox の中で押して外で離したときは閉じない）
+  const settingsOpen = () => !$('settingsModal').hidden;
+  const setNavItems = () => [...$('setNav').querySelectorAll('.setnav-item')];
+  const setBehind = () => [document.querySelector('.side'), document.querySelector('.col')].filter(Boolean);
+  // 今の画面の木の中にある（消えた知らせのボタンなどへフォーカスを戻さない）
+  const inPage = (el) => { for (let n = el; n; n = n.parentNode) if (n === document.body) return true; return false; };
+  const setCards = () => [...$('tabSettings').querySelector('.scroll').children].filter((c) => c.classList.contains('card'));
+  // 項目を選ぶ: その項目のカードだけを出す（ほかは hidden）。題名はその項目の名前。検索の途中なら検索をやめる
+  function selectSettingsSec(sec, focus) {
+    const hit = SETTINGS_SECS.find((x) => x.sec === sec) || SETTINGS_SECS.find((x) => x.sec === 'general');
+    setSec = hit.sec;
+    if ($('setSearch').value) $('setSearch').value = '';
+    clearSettingsFilter();
+    for (const c of setCards()) c.hidden = c.dataset.sec !== hit.sec;
+    for (const b of setNavItems()) {
+      const on = b.dataset.sec === hit.sec;
+      b.classList.toggle('on', on);
+      b.setAttribute('aria-selected', on ? 'true' : 'false');
+      b.tabIndex = on ? 0 : -1;   // 選んだ行だけ Tab で届く（ほかは ↑↓・Home・End）
+      if (on && focus && typeof b.focus === 'function') b.focus();
+    }
+    $('setTitle').textContent = hit.name;
+  }
+  // 検索（0.9.0 U-2・SP5・決めたこと 18）: 行（data-row）の名前だけで絞る。全角と半角・大文字と小文字は同じ（NFKC と小文字）。
+  // 説明の長い文の中までは探さない。当たった行だけを、項目の名前の小見出し（h3.setgroup。検索の間だけ作る）の下に出す。
+  // 欄や知らせが自分で付け外しする hidden には触らず、外すのは印の class（set-miss）だけ（検索をやめたら全部外す）
+  const foldSetting = (q) => String(q || '').normalize('NFKC').toLowerCase().trim();
+  function clearSettingsFilter() {
+    for (const h of $('tabSettings').querySelectorAll('.setgroup')) h.remove();
+    for (const el of $('tabSettings').querySelectorAll('.set-miss')) el.classList.remove('set-miss');
+    $('setEmpty').hidden = true;
+  }
+  function filterSettings(q) {
+    const f = foldSetting(q);
+    if (!f) { selectSettingsSec(setSec, false); return; }
+    clearSettingsFilter();
+    for (const b of setNavItems()) { b.classList.remove('on'); b.setAttribute('aria-selected', 'false'); }
+    let hits = 0, lastSec = '';
+    for (const c of setCards()) {
+      const rows = [...c.querySelectorAll('[data-row]')];
+      // 今は隠れている行（ログインしていない間の「ログアウト」など）は数えない。カードの中の祖先が隠れていても同じ
+      const shown = (r) => { for (let n = r; n && n !== c; n = n.parentNode) if (n.hidden) return false; return true; };
+      const ok = rows.filter((r) => shown(r) && foldSetting(r.dataset.row).includes(f));
+      c.hidden = !ok.length;
+      if (!ok.length) continue;
+      hits += ok.length;
+      // カードの中は見出しと当たった行だけ（行でない説明や、当たらない行は外す。行はどれもカードの直の子）
+      for (const k of [...c.children]) if (k.tagName.toLowerCase() !== 'h2' && !ok.includes(k)) k.classList.add('set-miss');
+      if (c.dataset.sec !== lastSec) {
+        lastSec = c.dataset.sec;
+        const h = document.createElement('h3');
+        h.className = 'setgroup';
+        h.textContent = (SETTINGS_SECS.find((x) => x.sec === lastSec) || { name: '' }).name;
+        c.parentNode.insertBefore(h, c);
+      }
+    }
+    $('setTitle').textContent = '検索の結果';
+    $('setEmpty').hidden = hits > 0;
+    // 0.9.0 見た目の直し: 検索の間は［データ保存先を開く］も外す（当たった行とその行の部品だけを出す。保存の文は出したまま）。検索をやめると clearSettingsFilter が戻す
+    $('openDataBtn').classList.add('set-miss');
+  }
+  $('setSearch').addEventListener('input', () => filterSettings($('setSearch').value));
+  // 検索の欄の Esc: 文字があれば消すだけ（前の項目に戻る。ポップアップは閉じない）。空なら外の受け口が閉じる
+  $('setSearch').addEventListener('keydown', (ev) => {
+    if (ev.key !== 'Escape' || imeEnter(ev) || !$('setSearch').value) return;
+    ev.preventDefault();
+    $('setSearch').value = '';
+    filterSettings('');
+  });
+  // sec を省くと前に選んだ項目（初めは「一般」）。もう開いていれば項目を替えるだけ（フォーカスを戻す先を覚え直さない:
+  // 知らせのボタンから開き直すと、閉じたときに消えた知らせへ戻ろうとするため）
+  function openSettings(sec) {
+    const was = settingsOpen();
+    if (!was) {
+      const a = document.activeElement;
+      setFrom = a && a !== document.body && typeof a.focus === 'function' ? a : null;
+    }
+    $('tabSettings').classList.add('active');
+    $('tabBtnSettings').classList.add('active');
+    $('settingsModal').hidden = false;
+    for (const el of setBehind()) el.inert = true;
+    selectSettingsSec(sec || setSec, true);
+    if (!was) { refreshPromptInfo(); refreshAccount(); refreshClaude(); }   // 開くたびに聞き直す（0.1.1。今までの設定のタブと同じ）
+    reportLiveShown();   // 録音中のページの上を覆った（第1d回 A-8 の知らせの判断）
+  }
+  function closeSettings() {
+    if (!settingsOpen()) return;
+    $('settingsModal').hidden = true;
+    $('tabSettings').classList.remove('active');
+    $('tabBtnSettings').classList.remove('active');
+    for (const el of setBehind()) el.inert = false;
+    const to = setFrom && inPage(setFrom) ? setFrom : $('tabBtnSettings');
+    setFrom = null;
+    if (to && typeof to.focus === 'function') to.focus();
+    reportLiveShown();
+  }
+  // ポップアップの中で Tab で届く部品（隠れた欄・閉じた詳細設定の中・tabindex -1 は除く）。木の順
+  function setTabbables() {
+    const modal = $('settingsModal');
+    return [...modal.querySelectorAll('button, input, select, textarea, summary, [tabindex]')].filter((e) => {
+      const ti = typeof e.tabIndex === 'number' ? e.tabIndex : Number(e.getAttribute('tabindex') || 0);
+      if (e.disabled || ti < 0) return false;
+      for (let n = e; n && n !== modal; n = n.parentNode) {
+        if (n.hidden || (n.style && n.style.display === 'none')) return false;
+        const t = String(n.tagName || '').toLowerCase();
+        if (t === 'details' && !n.open && n !== e && !(e.closest && e.closest('summary') && e.closest('summary').parentNode === n)) return false;
+      }
+      return true;
+    });
+  }
+  // Esc と Tab（ポップアップの受け口と document の両方から呼ぶ。同じ事象は1回だけ扱う）
+  function onSettingsKey(ev) {
+    if (!settingsOpen() || ev.natsuSettings) return;
+    ev.natsuSettings = true;
+    if (imeEnter(ev)) return;
+    if (ev.key === 'Escape') {
+      if (palOpen) return;   // 検索の窓が開いていれば今どおり検索の窓が先
+      const t = ev.target;
+      if (t && (t.id === 'hotkey' || t.id === 'meetingHotkey')) {   // ホットキーの欄は欄から抜けるだけ（閉じない）
+        ev.preventDefault();
+        if (typeof t.blur === 'function') t.blur();
+        return;
+      }
+      if (ev.defaultPrevented) return;   // 中の部品が先に使った Esc（開いた <select> の Esc は Chromium が頁へ渡さない）
+      ev.preventDefault();
+      closeSettings();
+      return;
+    }
+    if (ev.key !== 'Tab' || ev.ctrlKey || ev.altKey || ev.metaKey) return;
+    const items = setTabbables();
+    if (!items.length) return;
+    const a = document.activeElement, i = items.indexOf(a);
+    let to = null;
+    if (i < 0) to = ev.shiftKey ? items[items.length - 1] : items[0];
+    else if (!ev.shiftKey && i === items.length - 1) to = items[0];
+    else if (ev.shiftKey && i === 0) to = items[items.length - 1];
+    if (!to) return;   // 途中は本物の Tab に任せる（検索の窓と同じ）
+    ev.preventDefault();
+    to.focus();
+  }
+  $('settingsModal').addEventListener('keydown', onSettingsKey);
+  document.addEventListener('keydown', onSettingsKey);
+  // 外の暗い所: 押した（pointerdown）のと離した（click）のが両方 .setmodal 自身のときだけ閉じる
+  $('settingsModal').addEventListener('pointerdown', (ev) => { setDownOnScrim = ev.target === $('settingsModal'); });
+  $('settingsModal').addEventListener('click', (ev) => {
+    const out = ev.target === $('settingsModal') && setDownOnScrim;
+    setDownOnScrim = false;
+    if (out) closeSettings();
+  });
+  $('setClose').addEventListener('click', () => closeSettings());
+  // ［ヘルプセンター］: 押したら main の openHelp を引数なしで1回（URL は main だけが持つ: ヘルプの計画の H-12）。ポップアップは閉じない。
+  // 口 openHelp はヘルプの計画の H-12 が preload に足す（この版の preload にはまだ無い）。preload に無い口を名前で書くと、画面が使う口は
+  // preload にあることの見張り（不変条件 IPC-02・repo）が赤になるので、H-12 が入るまでは名前を文字列で引き、無ければ出さない・呼ばない
+  //（H-12 が入ったら、口の名前をそのまま書く形に直す）
+  const HELP_API = 'openHelp';
+  const helpApi = () => (HELP_SITE_LIVE && typeof window.koeApp[HELP_API] === 'function' ? window.koeApp[HELP_API] : null);
+  $('setHelpLink').hidden = !helpApi();
+  $('setHelpLink').addEventListener('click', () => { const f = helpApi(); if (f) f(); });
+  // 左の列: 押すとその項目。↑↓ で前後（端で回る）、Home・End で端（role="tablist"・縦）
+  $('setNav').addEventListener('click', (ev) => {
+    const b = ev.target && typeof ev.target.closest === 'function' ? ev.target.closest('.setnav-item') : null;
+    if (b && b.dataset && b.dataset.sec) selectSettingsSec(b.dataset.sec, true);
+  });
+  $('setNav').addEventListener('keydown', (ev) => {
+    const items = setNavItems(), n = items.length;
+    const i = items.findIndex((b) => b.dataset.sec === setSec);
+    let j;
+    if (ev.key === 'ArrowDown') j = (i + 1) % n;
+    else if (ev.key === 'ArrowUp') j = (i - 1 + n) % n;
+    else if (ev.key === 'Home') j = 0;
+    else if (ev.key === 'End') j = n - 1;
+    else return;
+    if (typeof ev.preventDefault === 'function') ev.preventDefault();
+    selectSettingsSec(items[j].dataset.sec, true);
+  });
 
   // ---------------- サイドバー（第1b回 N2） ----------------
   // 幅は 200〜480px（既定 260）。つまみのドラッグと ←／→（16px ずつ）で変え、«・Ctrl+\・つまみの Enter で畳み、»・Ctrl+\ で出す。
@@ -1095,13 +1433,13 @@
   $('sideExpand').onclick = () => setSideCollapsed(false);
   // Ctrl+\ で畳む・出す（JIS の配列では ¥ の刻印のキー）
   document.addEventListener('keydown', (ev) => {
-    if (!ev.ctrlKey || ev.altKey || ev.shiftKey || ev.metaKey) return;
+    if (!ev.ctrlKey || ev.altKey || ev.shiftKey || ev.metaKey || settingsOpen()) return;   // 設定のポップアップの間は後ろを替えない（0.9.0 U-1）
     if (!(ev.key === '\\' || ev.key === '¥' || ev.code === 'Backslash' || ev.code === 'IntlYen')) return;
     ev.preventDefault();
     setSideCollapsed(!sideState.collapsed);
   });
   // ---------------- 上のタブ = 開いているページ（第1b回 N3） ----------------
-  // 鍵は 'page:<id>'・'dictation'・'settings'・'live'（録音中のページ。B-5。覚えない）。
+  // 鍵は 'page:<id>'・'dictation'・'live'（録音中のページ。B-5。覚えない）。設定は 0.9.0 U-1 からタブにしない（ポップアップ）。
   // 中身は今の showSection（showTab の役目）と openPage を呼ぶだけ。替える前に flushEdits（blur は来ない: F8）。
   // 並びと選んでいるタブは変わるたびに uiSave({ tabs }) で覚え、起動のときに uiState() のタブを戻す（N6）
   let openTabs = [];          // [{ key }] 帯の並び
@@ -1116,7 +1454,7 @@
   function tabLabel(k) {
     if (isPageKey(k)) return tabTitles.get(k.slice(5)) || '議事録';
     if (k === 'live') return mtPhase === 'paused' ? '⏸ 一時停止中' : '● 記録中';
-    return { dictation: '音声入力', settings: '設定' }[k] || k;
+    return { dictation: '音声入力' }[k] || k;
   }
   // 記録中のタブ（live）は覚えない（N6）。選んでいる間は、その前に選んでいたタブを覚える
   function saveTabs() {
@@ -1173,15 +1511,17 @@
   }
   // 録音中のページが見えているかを main へ知らせる（第1d回 A-8・D17）。録音中のタブを選んでいてページを開いておらず、窓が隠れていない
   //（最小化・ほかの仮想デスクトップでは visibilityState が hidden）。main は見えていないときだけ Windows の知らせを出す。変わったときだけ送る
+  // 0.9.0 U-1: 設定のポップアップが上に開いている間は、録音中のページ（帯）は見えていない
   function reportLiveShown() {
-    const on = activeTab === 'live' && !curId && document.visibilityState !== 'hidden';
+    const on = activeTab === 'live' && !curId && document.visibilityState !== 'hidden' && !settingsOpen();
     if (on === liveShownSent || typeof window.koeApp.meetingLiveShown !== 'function') return;
     liveShownSent = on;
     window.koeApp.meetingLiveShown(on);
   }
   document.addEventListener('visibilitychange', reportLiveShown);
-  // Windows の知らせを押した（main の meeting:show-live）: 録音中のタブへ移る（会議が終わってタブが無ければ何もしない）
-  if (typeof window.koeApp.onShowLive === 'function') window.koeApp.onShowLive(() => { if (hasTab('live')) activateTab('live', { fromBar: true }); });
+  // Windows の知らせを押した（main の meeting:show-live）: 録音中のタブへ移る（会議が終わってタブが無ければ何もしない）。
+  // 0.9.0 U-1: 設定のポップアップが開いていれば閉じる（知らせは録音中のページの帯を見てもらうためのもの）
+  if (typeof window.koeApp.onShowLive === 'function') window.koeApp.onShowLive(() => { if (hasTab('live')) { closeSettings(); activateTab('live', { fromBar: true }); } });
   // 上の帯（第1b2回 P-1）: パンくずは選んでいるタブを追う。ページの操作（#pActs）は、選んでいるタブがページで、
   // そのページを開いている（curPage がある）ときだけ出す（G6: 設定・音声入力・記録中・何も無いときに［削除］を押せない）
   function renderCrumb() {
@@ -1192,7 +1532,6 @@
       const id = k.slice(5);
       title = tabTitles.get(id) || (curPage && curId === id && typeof curPage.title === 'string' ? curPage.title : '') || '議事録';
     } else if (k === 'dictation') { icon = '🎤'; title = '音声入力'; }
-    else if (k === 'settings') { icon = '⚙️'; title = '設定'; }
     else if (k === 'live') { icon = '🎙️'; title = '記録中の会議'; }
     const c = $('crumb');
     c.querySelector('.ci').textContent = icon;
@@ -1252,13 +1591,12 @@
       showLive();
     } else {
       showSection(key);
-      if (o.fromBar && key === 'settings') { refreshPromptInfo(); refreshAccount(); refreshClaude(); }   // 設定を開くたびに聞き直す（0.1.1）
     }
     if (o.save !== false) saveTabs();
     syncNoPage();
     return true;
   }
-  // 音声入力・設定のタブを開く（1つずつ。あれば移る）
+  // 音声入力のタブを開く（1つずつ。あれば移る）
   function openTab(key) {
     tabsTouched = true;
     if (!hasTab(key)) openTabs.push({ key });
@@ -1319,16 +1657,18 @@
   // Ctrl+Tab／Ctrl+Shift+Tab で次・前のタブ
   document.addEventListener('keydown', (ev) => {
     if (!ev.ctrlKey || ev.altKey || ev.metaKey || ev.key !== 'Tab' || !openTabs.length) return;
+    if (settingsOpen()) return;   // 設定のポップアップの間は後ろのタブを替えない（0.9.0 U-1・SP2）
     if (typeof ev.preventDefault === 'function') ev.preventDefault();
     const i = openTabs.findIndex((t) => t.key === activeTab), n = openTabs.length;
     const j = i < 0 ? 0 : (i + (ev.shiftKey ? -1 : 1) + n) % n;
     activateTab(openTabs[j].key, { fromBar: true });
   });
-  // 起動のときに覚えたタブを戻す（main が形の正しい鍵・あるページ・20 個までに絞って渡す。live は来ない）
+  // 起動のときに覚えたタブを戻す（main が形の正しい鍵・あるページ・20 個までに絞って渡す。live は来ない）。
+  // 0.9.0 U-1（SP3）: 前の版が覚えた settings は受けない（設定はポップアップで、起動では開かない。active が settings なら残りの最後）
   function restoreTabs(tb) {
     const hasLive = hasTab('live');
     const open = [];
-    for (const k of tb.open) if ((isPageKey(k) || k === 'dictation' || k === 'settings') && !open.includes(k) && open.length < 20) open.push(k);
+    for (const k of tb.open) if ((isPageKey(k) || k === 'dictation') && !open.includes(k) && open.length < 20) open.push(k);
     if (!open.length) return;
     openTabs = open.map((key) => ({ key }));
     const active = open.includes(tb.active) ? tb.active : open[open.length - 1];
@@ -1357,7 +1697,7 @@
   // それ以外は、パスを貼る欄が閉じた「詳細設定」の中にあるので開いて見せる。
   // 記録開始の失敗・要約の失敗・知らせ・初回の4つの道は、全部ここを通る
   function showEngineSettings() {
-    showTab('settings');
+    openSettings('offline');
     if (fetchWantsPanel()) showEngineFetch(); else $('engineAdv').open = true;
     refreshPromptInfo();
   }
@@ -1723,7 +2063,7 @@
   });
   // Ctrl+P で開く（Shift・Alt・Meta なし。Ctrl+Shift+P は一時停止）。変換中・ほかの受け口が先に止めた打鍵（ホットキーの欄）では開かない
   document.addEventListener('keydown', (ev) => {
-    if (imeEnter(ev)) return;
+    if (imeEnter(ev) || settingsOpen()) return;   // 設定のポップアップの間は開かない（0.9.0 U-1・SP2）
     if (!ev.ctrlKey || ev.shiftKey || ev.altKey || ev.metaKey) return;
     if (!(ev.code === 'KeyP' || String(ev.key).toLowerCase() === 'p')) return;
     if (ev.defaultPrevented) return;
@@ -2536,6 +2876,8 @@
           + '<button class="ghost" id="liveSkipBtn" type="button" hidden>文字起こしを打ち切って要約</button>'
           // 第1d回 A-13（D20）: ［この会議は PC の中だけ］は1行目（説明の行より前）。後ろに置くと説明の行の数だけ下へ押し出される
           + '<button class="ghost" id="meetingLocalOnly" type="button" hidden>この会議は PC の中だけ</button>'
+          // 0.9.0 O-4（RP8）: 録音バーを × で隠しているときだけ出す
+          + '<button class="ghost" id="livePanelShow" type="button" hidden>録音バーを出す</button>'
           + '<span class="tm" id="liveTm">0:00</span>'
           + '<div class="desc" id="liveStt" hidden></div>'
           + '<div class="desc" id="liveResumeNote" role="status" hidden></div>'
@@ -2548,6 +2890,7 @@
         mb.insertBefore(live, mb.querySelector('.ptabs'));
         $('liveSkipBtn').onclick = skipPending;
         $('meetingLocalOnly').onclick = setLocalOnly;
+        $('livePanelShow').onclick = () => { if (typeof window.koeApp.showPanel === 'function') window.koeApp.showPanel(); };
         $('livePauseBtn').onclick = askPause;
         $('liveStopBtn').onclick = toggleMeeting;
         // 文字起こしの帯（第1d回 A-7・D17）は記録の行と一緒に作り、そのすぐ上に置く（会議が終われば一緒に外す）
@@ -2623,8 +2966,9 @@
 
   // 録音中のページの文字起こしの状態の行と帯（第1d回 A-7・D17）。main の meetingStatus().stt（A-6）をそのまま描く。
   // 帯の文は main の stt.problem.text をそのまま出す（画面は文を作らない）。ボタンは action ごとに1つ（'' なら出さない）
-  const STT_ACT_LABEL = { retry: 'もう一度', account: 'ログインし直す', engine: 'エンジンを確かめる' };
-  let sttAct = '';          // 帯のボタンの今の働き（'' | 'retry' | 'account' | 'engine'）
+  // 0.9.0 U-3（OF2・OF4）: signin は［ログイン］（設定の「アカウント」。ログインしていない）、offline は［オフラインの準備］（カード「オフライン」の取り込みの欄）
+  const STT_ACT_LABEL = { retry: 'もう一度', account: 'ログインし直す', engine: 'エンジンを確かめる', signin: 'ログイン', offline: 'オフラインの準備' };
+  let sttAct = '';          // 帯のボタンの今の働き（'' | 'retry' | 'account' | 'engine' | 'signin' | 'offline'）
   let sttRetrying = false;  // ［もう一度］の返事を待っている（返事まで押せない）
   // 「文字起こし中（クラウド）・最後の文字 {n} 秒前」（60 秒からは「{m} 分前」）。まだ文字が無ければ「最初の文字を待っています」
   function sttLineText(s) {
@@ -2660,8 +3004,8 @@
   // 帯のボタン: ［ログインし直す］は知らせのボタンと同じ道（設定の「アカウント」・メールの欄）、［エンジンを確かめる］は「未設定」の知らせと同じ道、
   // ［もう一度］は main の meeting:retry を1回（返事まで押せない。帯は main の meeting:update が描き直す）
   async function sttBannerAct() {
-    if (sttAct === 'account') { showAccount(); return; }
-    if (sttAct === 'engine') { showEngineSettings(); return; }
+    if (sttAct === 'account' || sttAct === 'signin') { showAccount(); return; }
+    if (sttAct === 'engine' || sttAct === 'offline') { showEngineSettings(); return; }
     if (sttAct !== 'retry' || sttRetrying) return;
     sttRetrying = true;
     $('liveSttBannerBtn').disabled = true;
@@ -2693,6 +3037,8 @@
     const micEl = $('liveMic');
     micEl.hidden = !st.micFallback;
     micEl.textContent = st.micFallback ? '選んだマイクが見つからないため、既定のマイクで録音しています' : '';
+    // 0.9.0 O-4（RP8）: 録音バーを隠している間だけ［録音バーを出す］（作成中は出さない）
+    $('livePanelShow').hidden = !st.panelHidden || Boolean(st.finalizing);
     renderLocalOnly(st);
   }
   // ［この会議は PC の中だけ］（第1c回 RF28・OL4）。クラウドで文字起こしする設定（st.cloud）の会議にだけ出す。
@@ -2703,7 +3049,9 @@
     $('meetingLocalOnly').hidden = on || !st.cloud;
     const note = $('meetingLocalOnlyNote');
     note.hidden = !on;
-    note.textContent = on ? 'この会議は PC の中だけで文字起こししています' : '';
+    // 0.9.0 U-3（OF4・D21）: PC の中の文字起こしが使えない（needsSetup）なら、音声だけを残していることと準備で文字起こしすることを書く
+    note.textContent = !on ? '' : st.needsSetup ? 'この会議は PC の中だけです。音声だけを残しています（外には送りません）。オフラインの準備が済むと文字起こしします。'
+      : 'この会議は PC の中だけで文字起こししています';
   }
   async function setLocalOnly() {
     const b = $('meetingLocalOnly');
@@ -2713,7 +3061,9 @@
     b.disabled = false;
     if (r && r.ok && r.localOnly) mtLocalOnly = true;
     else toast('この会議を PC の中だけにできませんでした（会議が終わっているか、記録していません）');
-    renderLocalOnly(await window.koeApp.meetingStatus());
+    // 押した直後だけ、答えの needsSetup も見る（ふだんは meetingStatus().needsSetup で決める）
+    const st = await window.koeApp.meetingStatus();
+    renderLocalOnly(r && r.needsSetup === true ? { ...st, needsSetup: true } : st);
   }
   async function skipPending() {
     if (!confirm('残っている文字起こしを打ち切り、いまある分だけで議事録を作ります。\n打ち切った区間の発言は議事録に入りません。よろしいですか？')) return;
@@ -2775,7 +3125,10 @@
     const obj = m && typeof m === 'object';
     const text = obj ? String(m.text == null ? '' : m.text) : String(m == null ? '' : m);
     if (/未設定/.test(text)) showEngineSettings();
-    if (obj && m.action === 'account') toast(text, { label: 'ログインし直す', run: () => showAccount() });
+    // 0.9.0 U-3（OF2・OF4）: signin は［ログイン］（K2・D2）、offline は［オフラインの準備］（P1）。account は今どおり［ログインし直す］（K4・L3）
+    const act = obj ? { account: { label: 'ログインし直す', run: () => showAccount() }, signin: { label: 'ログイン', run: () => showAccount() },
+      offline: { label: 'オフラインの準備', run: () => showEngineSettings() } }[m.action] : null;
+    if (act) toast(text, act);
     else toast(text);
   });
 
@@ -2887,8 +3240,9 @@
     $('engineIdleMin').value = intOr(s.engineIdleMin, 10);   // 0 は「止めない」。|| で既定に化けさせない
     $('hotkey').value = s.hotkey || '';
     $('meetingHotkey').value = s.meetingHotkey || '';
+    showKeyCaps('hotkey'); showKeyCaps('meetingHotkey');
     $('segmentSec').value = s.segmentSec || 75;
-    $('pillPos').value = s.pillPos || 'bottom';
+    $('pillPos').value = s.pillSlot || 'bottom-center';   // 0.9.0 O-4（RP1）: 置き場所の名前（前の版の pillPos・pillCustom は読まない）
     $('language').value = s.language || 'ja';
     $('autoPaste').checked = s.autoPaste !== false;
     $('removeFillers').checked = s.removeFillers !== false;
@@ -2928,6 +3282,10 @@
 
   function attachHotkey(id) {
     $(id).onkeydown = (e) => {
+      // 0.9.0 U-1（SP2）: Esc と、修飾キーの無い Tab・Shift+Tab はキーとして受けずに通す（Esc は欄から抜ける・Tab は次の部品へ。
+      // 設定のポップアップはフォーカスを中に閉じ込めるので、Tab まで受けるとキーボードでは欄から出られない）
+      if (e.key === 'Escape') return;
+      if (e.key === 'Tab' && !e.ctrlKey && !e.altKey && !e.metaKey) return;
       e.preventDefault();
       const mods = [];
       if (e.ctrlKey) mods.push('Control');
@@ -2944,8 +3302,22 @@
         $('saveMsg').className = 'save-msg ng'; return;
       }
       $(id).value = [...mods, k].join('+');
+      showKeyCaps(id);
       $('saveMsg').textContent = '';
     };
+  }
+  // 0.9.0 見た目の直し（モック 案C）: ホットキーの欄の上に重ねるキーの形の箱（欄の値 Control+Shift+Space → Ctrl・Shift・Space）。
+  // 保存する値と読み上げは今どおり欄の値。欄の値を入れる所（設定の読み込み・キーを押した・保存で main が戻した値）で呼ぶ
+  const KEY_CAP = { Control: 'Ctrl', CommandOrControl: 'Ctrl', CmdOrCtrl: 'Ctrl', Super: 'Win', Meta: 'Win' };
+  function showKeyCaps(id) {
+    const box = $(id + 'Caps');
+    if (!box) return;
+    box.textContent = '';
+    for (const k of String($(id).value || '').split('+').map((x) => x.trim()).filter(Boolean)) {
+      const kb = document.createElement('kbd');
+      kb.textContent = KEY_CAP[k] || k;
+      box.appendChild(kb);
+    }
   }
   attachHotkey('hotkey'); attachHotkey('meetingHotkey');
 
@@ -3030,14 +3402,24 @@
     // 起動のときに取り込んだ組を確かめている間（数秒）も開かない。確かめ終えた知らせで聞き直す
     if (!ok && !fetchWantsPanel() && !(lastFetch && lastFetch.checking)) $('engineAdv').open = true;
   }
+  // 0.9.0 U-3（OF7・F4・F5・D21）: オフラインの準備を選んでいない人（engine:status の chosen が false）は、中立の文（OFF2。赤にしない）で、
+  // 詳細設定を開かず、［PC の中で試す］を出さない。chosen が真か無い（古い main）ときは 0.8.0 のまま
+  let engineChosen = true;
   async function refreshEngineState() {
     if (!window.koeApp.engineStatus) return;   // 古い preload
     let s;
     try { s = await window.koeApp.engineStatus(); } catch (_) { return; }
-    // lastTestError は答えの後で読む。保存のときに聞いた分の答えが起動テストの後に届いても、
-    // テストの失敗を「正常」で上書きしない
-    const why = (s && s.whisper) || lastTestError;
-    setEngineState(!why, why);
+    engineChosen = !(s && s.chosen === false);
+    $('testBtn').hidden = !engineChosen;
+    if (!engineChosen) {
+      $('engineState').textContent = 'PC の中の文字起こし：準備していません（任意）';
+      $('engineState').className = 'eng-state';
+    } else {
+      // lastTestError は答えの後で読む。保存のときに聞いた分の答えが起動テストの後に届いても、
+      // テストの失敗を「正常」で上書きしない
+      const why = (s && s.whisper) || lastTestError;
+      setEngineState(!why, why);
+    }
     // モデルの勧め（kotoba のときに large-v3-turbo を勧める。0.1.1）
     const note = $('engineNote');
     if (note) { note.textContent = (s && s.whisperNote) || ''; note.hidden = !note.textContent; }
@@ -3083,7 +3465,7 @@
     const item = (id) => s.items.find((i) => i && i.id === id);
     const imported = manual.every((g) => fetchReady(s, g));   // 手の設定の組も、取り込んだものがそろっている
     const lines = [];                                          // [文, 薄い文か]
-    let btn = '', pause = false, sw = false, dir = false, copyIt = false, bar = false, msg = '', ng = false;
+    let btn = '', pause = false, sw = false, dir = false, copyIt = false, bar = false, msg = '', ng = false, offer = false;
     // 第1d回 A-13（D19）: カードの中の文字起こしの言葉は「PC の中の文字起こし」。手の設定の組が1つなら組の名前（文字起こし・要約）で言う
     const handPrefix = manual.length === 1 ? `${FETCH_GROUPS[manual[0]].name}は手で設定したものを使っています。` : '';
     const versions = (gs) => gs.map((g) => { const it = item(FETCH_GROUPS[g].engine); return `${FETCH_GROUPS[g].tool}${it ? ` ${it.version}` : ''}`; }).join('・');
@@ -3119,6 +3501,14 @@
     } else if (state === 'ready') {
       lines.push([`${handPrefix}${manual.length ? `${FETCH_GROUPS[fetching[0]].name}は取り込み済みです` : 'PC の中の文字起こしは取り込み済みです'}（${versions(fetching)}）。`]);
       dir = true; sw = manual.length > 0;
+    } else if (state === 'missing' && s.consent === false && !manual.length && !s.whisperReady && !s.sumReady) {
+      // 0.9.0 U-3（OF7・D21・決めたこと 10）: まだ取り込んでいず、押したことも無い（consent が偽）・手の組も無い: 任意の選択として、
+      // 得るもの（OFF3）とかかるもの（OFF4。数は下の今の計算と同じ）を書き、ボタンは［オフラインでも使う（数 GB を取り込む）］（OFF5）。押したことが同意
+      const free = s.freeBytes !== null && s.freeBytes !== undefined && Number.isFinite(Number(s.freeBytes)) ? `（今の空き 約 ${fetchGB(s.freeBytes)}）` : '';
+      lines.push(['取り込むと: インターネットにつながっていないときや［この会議は PC の中だけ］の会議でも、PC の中で文字起こしと要約ができます。音声や議事録は外に送りません。']);
+      lines.push([`かかるもの: ディスクの空き 約 ${fetchGB(need)}${free}・取り込みの時間 10Mbps の回線で約 ${fetchMinutes(need)} 分。議事録の記録中は、Web 会議の回線を守るため取り込みを止めます。`]);
+      btn = 'オフラインでも使う（数 GB を取り込む）';
+      offer = true;
     } else {   // missing・partial
       const what = manual.length ? `${handPrefix}${FETCH_GROUPS[fetching[0]].name}を` : 'PC の中の文字起こしと要約を';
       const free = s.freeBytes !== null && s.freeBytes !== undefined && Number.isFinite(Number(s.freeBytes)) ? `・空き 約 ${fetchGB(s.freeBytes)}` : '';
@@ -3146,6 +3536,7 @@
     const b = $('engineFetchBtn');
     b.hidden = !btn;
     if (btn) b.textContent = btn;
+    box.dataset.row = offer ? 'オフラインでも使う' : 'PC の中の文字起こしを取り込む';   // 検索の行の名前は、出ているボタンの文の頭（0.9.0 U-2・U-3）
     $('engineFetchPause').hidden = !pause;
     const swb = $('engineFetchSwitch');
     swb.hidden = !sw;
@@ -3221,13 +3612,14 @@
 
   // 設定のキー → 入力欄。ほとんどは id がキーと同じで、違うものだけここに書く。
   // main が採らなかった値を欄へ戻すときに使う（save の applied）。
-  const FIELD_IDS = { micId: 'micSelect', theme: 'themeSel' };
+  const FIELD_IDS = { micId: 'micSelect', theme: 'themeSel', pillSlot: 'pillPos' };
   function setField(k, v) {
     const el = $(FIELD_IDS[k] || k);
     if (!el) return;
     if (el.getAttribute('type') === 'checkbox') el.checked = Boolean(v);
     else if (k === 'dictionary') el.value = (Array.isArray(v) ? v : [v]).join('\n');
     else el.value = v;
+    if (k === 'hotkey' || k === 'meetingHotkey') showKeyCaps(k);
   }
 
   async function save(silent) {
@@ -3252,7 +3644,7 @@
       hotkey: $('hotkey').value.trim() || 'Control+Shift+Space',
       meetingHotkey: $('meetingHotkey').value.trim() || 'Alt+M',
       segmentSec: parseInt($('segmentSec').value, 10) || 75,
-      pillPos: $('pillPos').value,
+      pillSlot: $('pillPos').value,   // 0.9.0 O-4（RP1）: 欄の id は前のまま、保存は置き場所の名前
       micId: $('micSelect').value,
       language: $('language').value,
       autoPaste: $('autoPaste').checked,
@@ -3297,6 +3689,19 @@
     }
     m.textContent = r.error || '保存に失敗しました'; m.className = 'save-msg ng';
     return false;
+  }
+  // main が画面の外で変えた設定（録音バーのドラッグで吸い付いた置き場所）を欄と写しに入れる（保存はしない: main はもう書いている）。
+  // 入れないと、欄の古い置き場所を無関係な自動保存が送り、吸い付きを黙って元に戻す（0.9.0 O-2・O-4 の点検の直し）
+  const PATCHABLE = ['pillSlot'];
+  if (typeof window.koeApp.onSettingsPatched === 'function') {
+    window.koeApp.onSettingsPatched((p) => {
+      if (!p || typeof p !== 'object') return;
+      for (const k of PATCHABLE) {
+        if (typeof p[k] !== 'string' || !p[k]) continue;
+        if (settings) settings[k] = p[k];   // 読み込む前なら、起動の settings:get が今の値を持ってくる
+        setField(k, p[k]);
+      }
+    });
   }
   // 設定は変更したら自動で保存する。change はテキスト欄では入力を終えて
   // フォーカスを外したときに発火するので、パスを打っている途中で
@@ -3380,7 +3785,7 @@
   };
   // ログイン切れの知らせと帯の［ログインし直す］（F5）: 設定の「アカウント」を開き、［ログイン］へ（窓は自分から開かない: F27）
   async function showAccount() {
-    showTab('settings');
+    openSettings('account');
     await refreshAccount();
     $('accountCard').scrollIntoView({ block: 'nearest' });
     $('accountSignIn').focus();
@@ -3616,7 +4021,7 @@
     settingsLoaded = true;   // ここを通るまで save() は書き込まない
     refreshVad();
     await refreshEngineFetch();   // 取り込みの欄を先に描く（エンジンが要確認のとき、どちらの欄を見せるかがこれで決まる。第0b回）
-    refreshEngineState();
+    const engineStateP = refreshEngineState();   // 起動の連れて行きは、この答え（chosen）を待ってから決める
     refreshHotkeyState();
     refreshPromptInfo();
     refreshAccount();
@@ -3625,13 +4030,23 @@
     try {
       const v = await window.koeApp.appVersion();
       $('verNow').textContent = `現在のバージョン: ${v.version}`;
+      if (v && typeof v.version === 'string' && v.version) $('setVer').textContent = `NaTsu ${v.version}`;   // 0.9.0 U-4（SP7）: 設定の左の列の下
     } catch (_) { /* noop */ }
     history = await window.koeApp.getHistory();
     renderHistory();
     await refreshList();
     renderPage();
     setMeetingUi(await window.koeApp.meetingStatus());
-    // 詳細設定のパスが空でも、取り込んだ文字起こしの組がそろっていれば連れて行かない（そのエンジンを使う。第0b回）
+    // 詳細設定のパスが空でも、取り込んだ文字起こしの組がそろっていれば連れて行かない（そのエンジンを使う。第0b回）。
+    // 0.9.0 U-3（F4・D21・決めたこと 9）: オフラインの準備を選んでいない人は連れて行かない。ただしログインしていなければ設定の「アカウント」を開く
+    //（中継でしか文字起こしできないので、ログインが唯一の行動。エンジンの文は出さない）。選んだ人（chosen が真か無い）は 0.8.0 のまま
+    await engineStateP;
+    if (!engineChosen) {
+      let a = null;
+      try { a = window.koeApp.accountStatus ? await window.koeApp.accountStatus() : null; } catch (_) { a = null; }
+      if (!(a && a.signedIn)) showAccount();
+      return;
+    }
     const managedWhisper = Boolean(lastFetch && lastFetch.supported && lastFetch.mode.whisper === 'managed' && lastFetch.whisperReady);
     if ((!settings.localServerExe || !settings.localModelPath) && !managedWhisper) showEngineSettings();
   })();

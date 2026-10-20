@@ -58,9 +58,13 @@ test('画面の使いやすさ・F10: 明と暗のすべての「文字 × 地�
   }
 });
 
-test('録音バーは触らない: overlay.html は第1b回の前（HEAD 21872fa。最後に変えたのは ce93e99）と1バイトも違わない', () => {
+// 0.9.0 O-3・O-4 で意図して変えた: 利用者が D25 で凍結を解き、録音バーを作り直した（O-3 の見た目と O-4 の縦の形の ×）。O-4 の最後の中身の
+// ハッシュにして、凍結をかけ直した。変えるのは利用者の決定のときだけ（D25 で一度解いた）
+// 0.9.0 見た目の直し（利用者に見せる前の見直しの指示）で意図して変えた: 縦の形の縦書きを縦向きの字（「︱」「︙」）にし、禁則で2字並ばないようにした。
+// その中身のハッシュで凍結をかけ直した（O-4 の値は 943d8c9a…）
+test('録音バーは触らない（D25 で 0.9.0 の形にした。変えるのは利用者の決定のときだけ）: overlay.html は 0.9.0 の見た目の直しの中身と1バイトも違わない', () => {
   const buf = fs.readFileSync(path.join(__dirname, '..', 'src', 'renderer', 'overlay.html'));
-  assert.strictEqual(require('node:crypto').createHash('sha256').update(buf).digest('hex'), 'f01892bb7b5a7b3ce73c828777c07d6510848b5a93d74afea54d1f3f32d8808e');
+  assert.strictEqual(require('node:crypto').createHash('sha256').update(buf).digest('hex'), '788dad76727e86f12b0e751ebad4aa5e6706d451f329ac5f5b43d778a2100cf9');
 });
 
 test('N1: ガラス風をやめた（backdrop-filter・グラデーション・ぼかし玉・filter: blur が無い）', () => {
@@ -75,7 +79,8 @@ test('N1: ガラス風をやめた（backdrop-filter・グラデーション・�
 // 第1b2回 L-1: 部品は 6px まで・まとまり（会議のブロック・検索の窓・囲み）は 10px まで・丸いタブは 14px（高さ 28px の丸）
 test('N1: 角丸は部品 6px・まとまり 10px・丸いタブ 14px まで（例外は設定のトグルと丸い点）。影は浮く部品の --shadow だけで、青い影が無い', () => {
   const ROUND_OK = new Set(['.check input', '.check input::after', '.rec-dot', '#updBadge .dot']);
-  const R10 = new Set(['.mblock', '.palbox', '.note']);
+  // 0.9.0 U-1（SP1・D24）で意図して変えた: 設定のポップアップの箱（.setbox）も角丸 10px のまとまり（計画 U-1 の「角丸 10px（まとまり）」）
+  const R10 = new Set(['.mblock', '.palbox', '.note', '.setbox']);
   const R14 = new Set(['.ptab']);
   const limit = (sel) => sel.split(',').map((s) => s.trim()).reduce((m, s) => Math.max(m, R14.has(s) ? 14 : R10.has(s) ? 10 : 6), 0);
   for (const r of rules) {
@@ -108,7 +113,8 @@ test('F10: 規則の文字の色は文字のトークンだけ、地は地のト
     if (!bg) continue;
     assert.match(bg.trim(), GROUND, `${r.sel} の地`);
     if (/var\(--(level|line)\)/.test(bg)) assert.ok(decor(r.sel), `${r.sel}: --level・--line は飾りの地だけ（文字の地にしない）`);
-    if (/var\(--scrim\)/.test(bg)) assert.ok(r.sel === '#palette', `${r.sel}: --scrim は検索の窓の後ろだけ`);
+    // 0.9.0 U-1（SP1・D24）で意図して変えた: 設定のポップアップの後ろ（.setmodal）も検索の窓と同じ --scrim（文字を載せない飾りの地）
+    if (/var\(--scrim\)/.test(bg)) assert.ok(r.sel === '#palette' || r.sel === '.setmodal', `${r.sel}: --scrim は検索の窓と設定のポップアップの後ろだけ`);
     if (/var\(--accent\)/.test(bg) && !decor(r.sel)) assert.match(r.decls.color || '', /var\(--on-accent\)/, `${r.sel}: 強調の面の上の文字は --on-accent`);
   }
   for (const m of html.matchAll(/style="([^"]*)"/g)) assert.ok(!RAW.test(m[1]), `インラインの style に生の色: ${m[1]}`);

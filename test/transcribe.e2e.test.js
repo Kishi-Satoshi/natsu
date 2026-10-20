@@ -28,13 +28,31 @@ const RUN = path.join(__dirname, 'helpers', 'mainrun.js');
 const { vcRuntimeIssue } = require('../src/mainlib');
 
 // 場面ごとの文字起こしエンジンのポートを、先にまとめて取る。別々に空きを探すと、並べて走らせた
-// 場面どうしで同じポートを掴むことがある（100 回に 1 回ほど落ちた）
+// 場面どうしで同じポートを掴むことがある（100 回に 1 回ほど落ちた）。
+// 0.9.0 見た目の直しの CI（run 39484701958・ubuntu）で、取ってから場面がエンジンを起こすまでの間に、そのポートを別の場面の
+// 外向きの接続（OS が送り元に選ぶ一時的なポート）が使い、「ポート 45481 は他のプロセスが使用中」で2つのテストが落ちた。
+// listen(0) で取るポートは、その一時的なポートと同じ範囲（Linux 32768〜60999・Windows 49152〜65535）から出るので、
+// 取ったポートを閉じた後に送り元として使われ得る。Linux と macOS では一時的なポートの範囲より下（20000〜32767）から、実際に listen
+// できたものだけを取る。Windows は今までどおり listen(0)（範囲より下のポートでは、Windows の CI で多くの場面の最初の区間が
+// ECONNABORTED になった: run 39491867266 の electron-smoke。Windows の機械はその範囲を別の仕組みが使うことがある）
+const LOW_RANGE = process.platform !== 'win32';
+const PORT_LO = 20000, PORT_HI = 32767;
+const tryListen = (port) => new Promise((resolve) => {
+  const s = net.createServer();
+  s.once('error', () => resolve(null));
+  s.listen(port, '127.0.0.1', () => resolve(s));
+});
 async function reservePorts(n) {
-  const servers = await Promise.all(Array.from({ length: n }, () => new Promise((resolve, reject) => {
-    const s = net.createServer();
-    s.once('error', reject);
-    s.listen(0, '127.0.0.1', () => resolve(s));
-  })));
+  const servers = [];
+  if (!LOW_RANGE) {
+    for (let i = 0; i < n; i++) { const s = await tryListen(0); if (!s) throw new Error('空きのポートを取れない'); servers.push(s); }
+  }
+  let port = PORT_LO + Math.floor(Math.random() * (PORT_HI - PORT_LO - 2000));   // 別のテストの走りと重ならないよう、始めを散らす
+  for (let tries = 0; servers.length < n && tries < 4000; tries++, port = port >= PORT_HI ? PORT_LO : port + 1) {
+    const s = await tryListen(port);
+    if (s) servers.push(s);
+  }
+  if (servers.length < n) throw new Error(`一時的なポートの範囲の外に空きのポートが ${n} 個ない`);
   const ports = servers.map((s) => s.address().port);
   await Promise.all(servers.map((s) => new Promise((r) => s.close(r))));
   return ports;
@@ -567,17 +585,24 @@ sceneTest('要約の組が壊れていたら、議事録の欄は理由と、終
     + '終わったら「要約を生成」で作成できます。');
 });
 
-sceneTest('何も取り込んでいない PC: 取り込める PC では［PC の中の文字起こしを取り込む］へ、取り込めない PC では今までどおりパスの指定へ案内する。どちらも「未設定」の語を残す（第0b回 Task 13）', async (need) => {
+// 第1d2回 M-1（D21）で意図して変えた: 何も取り込んでいない・ログインしていない PC は「準備を選んでいない」人。記録は始まり（音声を残す）、
+// エンジンの誤り（「未設定」の語で設定のタブへ連れて行く文）でなくログインを案内する。engine:status の文・取り込みの欄の写し・spawns は今のまま
+sceneTest('何も取り込んでいない・ログインしていない PC: 記録は始まって音声を残し、エンジンの誤りでなくログインを案内する（第1d2回 D21）', async (need) => {
   await need('noEngineFetchable', 'noEngineUnsupported');
   const f = results.noEngineFetchable;
-  assert.deepStrictEqual([f.start.ok, f.start.error], [false, '文字起こしエンジンが未設定です。設定タブの［PC の中の文字起こしを取り込む］から取り込んでください。']);
+  assert.strictEqual(f.start.ok, true, JSON.stringify(f.start));
   assert.strictEqual(f.engineStatus.whisper, '文字起こしエンジンはまだ取り込んでいません。設定タブの［PC の中の文字起こしを取り込む］を押してください');
   assert.deepStrictEqual([f.engineFetchStatus.supported, f.engineFetchStatus.state], [true, 'missing']);
   const u = results.noEngineUnsupported;
-  assert.deepStrictEqual([u.start.ok, u.start.error], [false, '文字起こしエンジンが未設定です。設定タブでパスを指定してください。']);
+  assert.strictEqual(u.start.ok, true, JSON.stringify(u.start));
   assert.strictEqual(u.engineStatus.whisper, '文字起こしエンジンの実行ファイルまたはモデルが見つかりません');
   assert.deepStrictEqual([u.engineFetchStatus.supported, u.engineFetchStatus.state], [false, 'unsupported']);
-  for (const r of [f, u]) assert.deepStrictEqual(r.spawns, []);
+  for (const r of [f, u]) {
+    assert.deepStrictEqual(r.spawns, []);
+    assert.ok(!JSON.stringify(r.notices).includes('未設定'), `「未設定」の語の知らせ（画面が設定のタブへ連れて行く）: ${JSON.stringify(r.notices)}`);
+    // 第1d2回 M-2: 知らせは K2（［ログイン］のボタン付き。音声だけを残すこと・ログインすると OpenAI に送ること）
+    assert.deepStrictEqual(r.notices, [{ text: 'ログインしていないため、音声だけを残します。設定の「アカウント」でログインすると、この会議の音声を OpenAI に送って文字起こしします。1on1・面談など外に出したくない会議は、議事録の画面の［この会議は PC の中だけ］を押してください。', action: 'signin' }]);
+  }
 });
 
 sceneTest('［PC の中の文字起こしを取り込む］: net.request で取り込み、組がそろうたびに照らして切り替える。文字起こしが先に使え、要約は［要約を生成］を案内する。取り込み中は眠らせない（第0b回 Task 14）', async (need) => {

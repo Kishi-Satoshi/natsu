@@ -35,10 +35,14 @@ test('1b2 P-1・G6: 操作（#pActs）は上の帯（.pagebar）にあり、ペ�
   assert.ok(acts.closest('.pagebar') && !acts.closest('#pageWrap'), '操作がページの中にある');
   assert.strictEqual(acts.hidden, false);
   assert.deepStrictEqual(crumb(l), ['🎙️', '定例（見本）']);
+  // 0.9.0 U-1（SP1・SP2・D24）で意図して変えた: 設定はタブでなくページの上のポップアップ。パンくずはページのまま、後ろ（.col）は inert で
+  //［削除］は押せない（見えていないページを消さない）。閉じると戻る
   l.byId.get('tabBtnSettings').dispatchEvent({ type: 'click' }); await l.drain();
-  assert.strictEqual(acts.hidden, true, '設定のタブで［削除］が押せる（見えていないページを消す）');
+  assert.strictEqual(acts.closest('.col').inert, true, '設定のポップアップの後ろで［削除］が押せる（見えていないページを消す）');
+  assert.deepStrictEqual(crumb(l), ['🎙️', '定例（見本）']);
+  l.key({ key: 'Escape' }); await l.drain();
+  assert.ok(!acts.closest('.col').inert && acts.hidden === false);
   assert.strictEqual(S.declsFor(rules, '.pacts[hidden]', { at: '' }).display, 'none', '本物の画面で hidden が .pacts の display に負ける');
-  assert.deepStrictEqual(crumb(l), ['⚙️', '設定']);
   l.byId.get('tabBtnDictation').dispatchEvent({ type: 'click' }); await l.drain();
   assert.strictEqual(acts.hidden, true);
   assert.deepStrictEqual(crumb(l), ['🎤', '音声入力']);

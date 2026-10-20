@@ -143,6 +143,13 @@ test('警告の文言が毎フレーム入れ替わらない', () => {
   const chk = fn(overlayHtml, /function checkSilence\([\s\S]*?\n {2}\}/);
   assert.match(chk, /if \(label !== shownLabel\)/);
   assert.ok(!/silentWarned/.test(overlayHtml), '取り合うフラグが残っている');
+  // 0.9.0 O-3（設計書 D25・RP6）で意図して変えた: 警告は点を黄色に（#pill の warn）して、短い文を音が戻るまで出したまま（flashMsg の ms 0）
+  const show = fn(overlayHtml, /function showRecording\([\s\S]*?\n {2}\}/);
+  assert.ok(show, 'showRecording が見つからない');
+  assert.match(show, /pill\.classList\.toggle\('warn', Boolean\(label\)\)/);
+  assert.match(show, /flashMsg\(label, 'warn', 0\)/);
+  assert.match(chk, /label = '音が入っていません'/);
+  assert.match(chk, /label = 'マイクの音が入っていません'/);
 });
 
 test('新しい設定キーがエンジンの再起動条件に入っていない', () => {

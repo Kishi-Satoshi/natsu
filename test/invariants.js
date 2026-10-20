@@ -41,9 +41,10 @@ const CONTAINMENT = [
     親: (n) => n.tag === 'section' && n.attrs.id === 'tabSettings',
     表明: '設定の footer（保存メッセージ・データ保存先を開く）は設定タブの中に残っていること',
     由来: 'v0.10.2 でこの2つが切り落とされ、初期化が例外で止まった（v0.10.3で修正）' },
-  { screen: 'overlay', 子: (n) => ['canvas', 'button'].includes(n.tag) || H.has(n, 'status') || H.has(n, 'timer') || H.has(n, 'dot'),
+  // 0.9.0 O-3（設計書 D25）で意図して変えた: 波形の canvas・状態の .status・点の .dot を、ロゴと印の svg・一時的な文の .msg・5つの点の .lv にした
+  { screen: 'overlay', 子: (n) => ['svg', 'button'].includes(n.tag) || H.has(n, 'msg') || H.has(n, 'timer') || H.has(n, 'lv'),
     親: (n) => H.has(n, 'pill'),
-    表明: 'ピルの中身（波形・状態・時刻・ボタン・点）はすべて .pill の中にいること',
+    表明: 'ピルの中身（ロゴと印・文・時刻・ボタン・5つの点）はすべて .pill の中にいること',
     由来: '.pill の外に出た要素は透過ウィンドウの地の上に裸で描かれる' },
 ];
 
@@ -77,7 +78,12 @@ const WIRED = [
   { screen: 'app', id: 'tabSettings', types: ['change'], 由来: '設定の自動保存。切れると入力が黙って捨てられる' },
   { screen: 'app', id: 'tabBtnNotes', types: ['click'], 由来: 'タブ切り替え' },
   { screen: 'app', id: 'tabBtnDictation', types: ['click'], 由来: 'タブ切り替え' },
-  { screen: 'app', id: 'tabBtnSettings', types: ['click'], 由来: 'タブ切り替え。設定画面へ入る唯一の導線' },
+  { screen: 'app', id: 'tabBtnSettings', types: ['click'], 由来: 'タブ切り替え。設定画面へ入る唯一の導線（0.9.0 U-1 からポップアップを開く）' },
+  // 0.9.0 U-1（SP1〜SP3・F13）: 設定のポップアップの閉じ方（×・Esc と Tab の閉じ込め・外の地）と左の項目の列（押す・↑↓）。切れると閉じられない・項目を替えられない
+  { screen: 'app', id: 'setClose', types: ['click'], 由来: '0.9.0 U-1: 設定のポップアップの ×。切れるとマウスでは閉じられない' },
+  { screen: 'app', id: 'settingsModal', types: ['keydown'], 由来: '0.9.0 U-1: 設定のポップアップの Esc と Tab の閉じ込め（外の地の pointerdown・click も同じ要素）' },
+  { screen: 'app', id: 'setNav', types: ['click', 'keydown'], 由来: '0.9.0 U-1: 設定の左の項目の列（押す・↑↓・Home・End）' },
+  { screen: 'app', id: 'setSearch', types: ['input', 'keydown'], 由来: '0.9.0 U-2: 設定の検索の欄（打つと行の名前で絞る・Esc で文字を消す）' },
   { screen: 'app', id: 'searchBox', types: ['input'], 由来: '議事録の検索' },
   { screen: 'app', id: 'sideSearch', types: ['click'], 由来: '検索の窓を開く（第1b2回）' },
   { screen: 'app', id: 'sideGrip', types: ['pointerdown', 'keydown'], 由来: '第1b回 N2: サイドバーの幅のつまみ（ドラッグと ←／→・Enter）。切れると幅を変えられず、キーボードでは畳めない' },

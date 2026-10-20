@@ -105,6 +105,12 @@ contextBridge.exposeInMainWorld('koeOverlay', {
   confirmStop: () => ipcRenderer.send('overlay:confirm'),
   requestCancel: () => ipcRenderer.send('overlay:cancel-request'),
   requestHide: () => ipcRenderer.send('overlay:hidden-request'),
+  // 0.9.0 O-2（RP3・RP4）: 測ったピルの大きさ（CSS の px）を main に送り、main が窓の大きさを合わせる。形（横 h・縦 v）の替わりを受ける
+  reportSize: (size) => ipcRenderer.send('overlay:size', size),
+  onForm: (cb) => ipcRenderer.on('overlay:form', (_e, p) => cb(p)),
+  // 0.9.0 O-4（RP8）: 縦の形の × で録音バーを隠す（録音は続ける）。カーソルがピルに乗ったか（main が見る: Windows のドラッグの領域に :hover は来ない）
+  hidePanel: () => ipcRenderer.send('overlay:hide-panel'),
+  onHover: (cb) => ipcRenderer.on('overlay:hover', (_e, on) => cb(on)),
 });
 
 // メインウィンドウ（ノート）
@@ -192,6 +198,10 @@ contextBridge.exposeInMainWorld('koeApp', {
   onHistoryUpdated: (cb) => ipcRenderer.on('history:updated', (_e, h) => cb(h)),
   onNotice: (cb) => ipcRenderer.on('app:notice', (_e, m) => cb(m)),
   onMeetingUpdate: (cb) => ipcRenderer.on('meeting:update', (_e, s) => cb(s)),
+  // 0.9.0 O-2・O-4 の点検の直し: main が画面の外で変えた設定（録音バーのドラッグで吸い付いた置き場所 pillSlot）を欄へ戻す
+  onSettingsPatched: (cb) => ipcRenderer.on('settings:patched', (_e, p) => cb(p)),
+  // 0.9.0 O-4（RP8）: 隠した録音バーを出し直す（録音中のページの［録音バーを出す］）
+  showPanel: () => ipcRenderer.invoke('panel:show'),
   onShowLive: (cb) => ipcRenderer.on('meeting:show-live', () => cb()),   // 第1d回 A-8: Windows の知らせを押した → 録音中のタブへ
   onMeetingProgress: (cb) => ipcRenderer.on('meeting:progress', (_e, p) => cb(p)),
   onPagesUpdated: (cb) => ipcRenderer.on('pages:updated', (_e, p) => cb(p)),
