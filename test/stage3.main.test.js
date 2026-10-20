@@ -255,8 +255,10 @@ test('#58 トレイに「エンジンを停止（メモリを解放）」があ�
 });
 
 // ---------------------------------------------------------------- 「エンジン：正常」（第0a回 R6。第1d回 A-13・D19 で画面の文は「PC の中の文字起こし：使えます」。main の答えの形は変えない）
-test('engine:status は engineCheck の結果（とモデルの勧め）を返すだけで、エンジンを起動しない', () => {
-  assert.ok(code(main).includes("ipcMain.handle('engine:status', () => ({ ok: true, whisper: engineCheck(whisperEng), sum: engineCheck(sumEng),\n    whisperNote: isKotobaModel() ? KOTOBA_NOTE : '' }));"));
+// 第1d2回 M-1（D21）で意図して変えた: 答えに準備を選んだか（chosen: isOfflineChosen()。設定のカード「オフライン」の形を決める: U-3）を足した。
+// 選んだかは覚えた値だけで決める（エンジンを起動しない・ファイルを読まない）
+test('engine:status は engineCheck の結果（とモデルの勧め・準備を選んだか）を返すだけで、エンジンを起動しない', () => {
+  assert.ok(code(main).includes("ipcMain.handle('engine:status', () => ({ ok: true, chosen: isOfflineChosen(), whisper: engineCheck(whisperEng), sum: engineCheck(sumEng),\n    whisperNote: isKotobaModel() ? KOTOBA_NOTE : '' }));"));
   assert.ok(preload.includes("  engineStatus: () => ipcRenderer.invoke('engine:status'),"));
 });
 

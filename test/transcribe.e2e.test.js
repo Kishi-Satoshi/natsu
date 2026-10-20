@@ -567,17 +567,22 @@ sceneTest('要約の組が壊れていたら、議事録の欄は理由と、終
     + '終わったら「要約を生成」で作成できます。');
 });
 
-sceneTest('何も取り込んでいない PC: 取り込める PC では［PC の中の文字起こしを取り込む］へ、取り込めない PC では今までどおりパスの指定へ案内する。どちらも「未設定」の語を残す（第0b回 Task 13）', async (need) => {
+// 第1d2回 M-1（D21）で意図して変えた: 何も取り込んでいない・ログインしていない PC は「準備を選んでいない」人。記録は始まり（音声を残す）、
+// エンジンの誤り（「未設定」の語で設定のタブへ連れて行く文）でなくログインを案内する。engine:status の文・取り込みの欄の写し・spawns は今のまま
+sceneTest('何も取り込んでいない・ログインしていない PC: 記録は始まって音声を残し、エンジンの誤りでなくログインを案内する（第1d2回 D21）', async (need) => {
   await need('noEngineFetchable', 'noEngineUnsupported');
   const f = results.noEngineFetchable;
-  assert.deepStrictEqual([f.start.ok, f.start.error], [false, '文字起こしエンジンが未設定です。設定タブの［PC の中の文字起こしを取り込む］から取り込んでください。']);
+  assert.strictEqual(f.start.ok, true, JSON.stringify(f.start));
   assert.strictEqual(f.engineStatus.whisper, '文字起こしエンジンはまだ取り込んでいません。設定タブの［PC の中の文字起こしを取り込む］を押してください');
   assert.deepStrictEqual([f.engineFetchStatus.supported, f.engineFetchStatus.state], [true, 'missing']);
   const u = results.noEngineUnsupported;
-  assert.deepStrictEqual([u.start.ok, u.start.error], [false, '文字起こしエンジンが未設定です。設定タブでパスを指定してください。']);
+  assert.strictEqual(u.start.ok, true, JSON.stringify(u.start));
   assert.strictEqual(u.engineStatus.whisper, '文字起こしエンジンの実行ファイルまたはモデルが見つかりません');
   assert.deepStrictEqual([u.engineFetchStatus.supported, u.engineFetchStatus.state], [false, 'unsupported']);
-  for (const r of [f, u]) assert.deepStrictEqual(r.spawns, []);
+  for (const r of [f, u]) {
+    assert.deepStrictEqual(r.spawns, []);
+    assert.ok(!JSON.stringify(r.notices).includes('未設定'), `「未設定」の語の知らせ（画面が設定のタブへ連れて行く）: ${JSON.stringify(r.notices)}`);
+  }
 });
 
 sceneTest('［PC の中の文字起こしを取り込む］: net.request で取り込み、組がそろうたびに照らして切り替える。文字起こしが先に使え、要約は［要約を生成］を案内する。取り込み中は眠らせない（第0b回 Task 14）', async (need) => {

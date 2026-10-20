@@ -96,6 +96,7 @@ const {
   estimateTokens, foldNotes, idleEnginesToStop, silentWav, wavLevelDbfs, mergeSummaryType, memoEvidence,
   sameShas, keepPrevious, candStamp, repairIdsOf, pathUsedBy, fetchMinutesLeft,
   pickDefaultPath,
+  cloudLikely, offlineChosen, startPlan, dictationPlan,
 } = require('./mainlib');
 // クリップボードの読み書き（mainlib.copyPrivate・deliverText）は main.js の同じ名前の包みとぶつかるので、lib から呼ぶ
 const lib = require('./mainlib');
@@ -1214,6 +1215,13 @@ function getEngineFetch() {
 // 取り込みが動いているか（待っている・記録中で止めている間も含む）。忙しさ（isBusy）には数えない
 // （数えると、取り込みの間エンジンを止められなくなる）。未設定の文が見る
 function engineFetchRunning() { return Boolean(engineFetch && engineFetch.running()); }
+// 取り込みのボタンを押したか（installed.json の consent。第1d2回 M-1）。起動で1回読み、取り込みの係の状態の知らせ（onEngineFetchState）で
+// 真にする（区間ごとにファイルを読まない）
+let offlineConsent = false;
+// オフラインの準備を選んだか（第1d2回 M-1・D21。判断は mainlib.offlineChosen）。選んだ人はエンジンの誤りの扱いを 0.8.0 のまま残す（RF49）
+function isOfflineChosen() {
+  return offlineChosen({ manual: manualGroup(whisperEng), managedCand: Boolean(managedCands.whisper), consent: offlineConsent, fetching: engineFetchRunning() });
+}
 // 実際に取っているか（係の state が running）。省電力の抑止が見る（待っている・止めている間は眠らせてよい。Q14）
 function engineFetchDownloading() { return Boolean(engineFetch && engineFetch.downloading()); }
 
@@ -1233,6 +1241,8 @@ function fetchView(s) {
 let updateNoticeSent = false;
 function onEngineFetchState(s) {
   updatePowerBlock();
+  // 取り込みのボタンを押したことが同意（係が installed.json に consent を書いてから、状態が替わったこの写しで知らせる）。第1d2回 M-1: 選んだ人になる
+  if (s && s.consent === true) offlineConsent = true;
   if (!updateNoticeSent && s && s.state === 'update' && s.updateBytes > 100e6) {
     updateNoticeSent = true;
     noticeMainWin(`新しい版のエンジン（約 ${(s.updateBytes / 1e9).toFixed(1)} GB）があります。設定タブの［新しい版を取り込む］から取り込めます。今のエンジンはそのまま使えます。`);
@@ -1817,6 +1827,17 @@ const HOLD_MS = 10 * 60 * 1000;
 const HOLD_MAX_MS = 24 * 3600 * 1000;
 let sttHold = { until: 0, why: '', scope: '' };
 const holdNow = () => (Date.now() < sttHold.until ? sttHold : null);
+// クラウド（中継）で文字起こしできそうか（第1d2回 M-1。mainlib.cloudLikely）→ { cloud, why }。通信しない・復号しない。
+// why は cloud を偽にした理由（signed-out・login・hold の理由・offline・relay-down）。会議と音声入力の始め方が見る
+function cloudNow() {
+  const inNow = hasRelayLogin();
+  const h = holdNow();
+  const on = netOnline();
+  const peekUp = online.peek(sttProvider().reachUrl);
+  const cloud = cloudLikely({ signedIn: inNow, hold: h ? h.why : '', netOnline: on, peekUp });
+  if (cloud) return { cloud, why: '' };
+  return { cloud, why: !inNow ? (loginExpired ? 'login' : 'signed-out') : h ? h.why : !on ? 'offline' : 'relay-down' };
+}
 // ログイン中のメールアドレスを書く（'' はログインしていない）。書けなくても投げない（書き手が次の機会にやり直す）
 function setAccountEmail(email) {
   settings = readSettings({ ...settings, accountEmail: email }, DEFAULT_SETTINGS).settings;
@@ -2554,10 +2575,12 @@ function createMainWindow() {
 // ---------------------------------------------------------------- 音声入力
 function startRecording() {
   if (state !== 'idle' || quitting) return;   // 終了・再起動の途中は始めない（第1d回 A-9 の点検。startMeeting と同じ）
-  const problem = whisperProblem();
-  if (problem) {
+  // 第1d2回 M-1（D21）: 手元が使えるかクラウドが使えそうなら始める。選んだ人で両方だめなら今の文、選んでいない人は D1〜D3（mainlib.dictationPlan）
+  const c = cloudNow();
+  const plan = dictationPlan({ localUsable: engineValid(whisperEng), chosen: isOfflineChosen(), cloud: c.cloud, problem: whisperProblem(), why: c.why });
+  if (!plan.ok) {
     createMainWindow();
-    sendToMainWin('app:notice', problem);
+    sendToMainWin('app:notice', plan.action ? { text: plan.error, action: plan.action } : plan.error);
     return;
   }
   warmWhisper().catch((e) => engineLog(`文字起こしエンジンの先読みに失敗: ${logReason(e)}`));
@@ -2918,7 +2941,8 @@ function meetingStatus() {
     // 第1c回 C-3（RF28）: ［この会議は PC の中だけ］の印と、いまクラウドで文字起こしする PC か（第1d回 A-3 から: ログインの札がしまってある）。
     // 画面は cloud のときだけ［この会議は PC の中だけ］を出し、押した後（localOnly）は戻すボタンを出さない
     localOnly: Boolean(meeting && meeting.localOnly),
-    cloud: hasRelayLogin(),
+    // 第1d2回 M-1: 準備を選んでいない PC は、残した音声が後でクラウドへ行きうるので、ログインしていなくても出す（選んだ人は 0.8.0 のまま）
+    cloud: hasRelayLogin() || !isOfflineChosen(),
     // 第1d回 A-6（RL14・D17）: 文字起こしの状態（経路・最後の文字の時刻・区切り・帯）。会議の外は null
     stt: meeting ? sttStatus(meeting) : null,
   };
@@ -3397,8 +3421,11 @@ function cleanOrphanSegbuf(keepDir) {
 async function startMeeting() {
   // 終了・再起動の途中（quitting。DB を閉じている間など）は始めない（始めると relaunch・終了で録音が切れる。第1d回 A-9 の点検）
   if (state !== 'idle' || quitting) return { ok: false, error: '他の処理を実行中です' };
-  const problem = whisperProblem();
-  if (problem) return { ok: false, error: problem };
+  // 第1d2回 M-1（D21）: 手元が使えるかクラウドが使えそうなら始める。選んだ人で両方だめなら今の文で始めない。選んでいない人は始めて音声を残す
+  // （mainlib.startPlan。keep は会議に覚える: M-2 が残し方と知らせに使う）
+  const cloudAtStart = cloudNow();
+  const plan = startPlan({ localUsable: engineValid(whisperEng), chosen: isOfflineChosen(), cloud: cloudAtStart.cloud, problem: whisperProblem(), why: cloudAtStart.why });
+  if (!plan.ok) return { ok: false, error: plan.error };
   // 前の起動で読めなかった控えが残っていれば、始める前に1回だけ復旧を試す（第1a回 JS9）。復旧のページは
   // db.call で作るので待つ（待たずに進むと、復旧中の draft.json を下の chooseDraftName が脇へ退け、消しそこねて2つ目のページになる）。
   // 待つ間に別の処理が始まっていたら始めない（第2a1回 ST1）。DB の用意の前（移行の窓・移行・起こし直し）は待たない（録音は DB に頼らない:
@@ -3433,7 +3460,9 @@ async function startMeeting() {
     // quietKept はその区間（WAV を消さずに控える。止まりとみなしたら失敗の区間としてページへ戻す）、retrying は［もう一度］で並べ直した区間の id
     stt: { route: '', lastTextAt: null }, problems: new Map(), stallRun: 0, quietKept: [], retrying: new Set(),
     // 第1d回 A-8（D17）: Windows の知らせの間引き（mainlib.notifyGate。出した符号と、最後に出した時刻）
-    winNotify: { sent: [], lastAt: 0 } };
+    winNotify: { sent: [], lastAt: 0 },
+    // 第1d2回 M-1: 始めたときの残し方（mainlib.startPlan の keep。'' | 'login' | 'wait'）
+    keepAtStart: plan.keep };
   // 第1d回 A-5（D16）: 始めの区切り。中継へ届くかは聞かない（録音の始まりを待たせない）。札があるか（復号しない）・hold・net.isOnline()・
   // 覚えている /health の答えだけで決め、外れたら区間の後で替わる（segmentRouted）
   const h0 = holdNow();
@@ -4262,7 +4291,7 @@ function setupIpc() {
       : { ok: false, error: sumEng.lastError || '起動に失敗しました', warning };
   });
   // 設定の「PC の中の文字起こし：使えます／使えません」（第1d回 A-13・D19。前の「エンジン：正常／要確認」）。置き場所のファイルを見るだけで、エンジンは起動しない（要約は約 2〜3GB: #58）
-  ipcMain.handle('engine:status', () => ({ ok: true, whisper: engineCheck(whisperEng), sum: engineCheck(sumEng),
+  ipcMain.handle('engine:status', () => ({ ok: true, chosen: isOfflineChosen(), whisper: engineCheck(whisperEng), sum: engineCheck(sumEng),
     whisperNote: isKotobaModel() ? KOTOBA_NOTE : '' }));
   // 取り込みの欄の写し（第0b回）。読むだけで、取り込みは始めない
   ipcMain.handle('engine:fetch-status', () => engineFetchStatus());
@@ -4622,8 +4651,13 @@ if (!gotLock) {
     accessReady = restoreAccessCookies().catch((e) => engineLog(`アカウント: しまったログインを戻せません（${errCode(e)}）`));
     // 取り込んだエンジンの候補を記録から読む（読むだけ。フォルダは作らない）。照らし終えるまで managed は空なので、
     // 取り込んだ側は下の起動の行では起動しない（RF3）。手で設定した側は今までどおり起動する
-    managedCands = engineInstall.managedCandidates(ENGINE_HOME, MANIFEST, engineInstall.readInstalled(engineInstall.layout(ENGINE_HOME.root, MANIFEST).installed), fs.statSync);
+    const installedRec = engineInstall.readInstalled(engineInstall.layout(ENGINE_HOME.root, MANIFEST).installed);
+    managedCands = engineInstall.managedCandidates(ENGINE_HOME, MANIFEST, installedRec, fs.statSync);
     for (const g of ['whisper', 'sum']) if (managedCands[g]) managedState[g] = 'checking';
+    // 取り込みのボタンを押したか（第1d2回 M-1）。読めなかった（掴まれている）ときは押したものとして扱う（0.8.0 の動きに倒す）。
+    // 取り込めない PC（置き場所が無い）には記録が無い
+    offlineConsent = Boolean(ENGINE_HOME.supported && (installedRec.consent || installedRec.unreadable));
+    engineLog(`起動: オフラインの準備 ${isOfflineChosen() ? '選んだ' : '選んでいない'}`);
     // 起動の片付け（どれも DB の用意を待つ。投げない）: 1. 前に消しきれなかった取り消しを、下書きの復旧と写しの片付けより先に送る（第2a1回
     // RF16）。2. 下書きの復旧（復旧のページは db.call で作る）。待ってから待ち行列と掃除を決める（復旧中のフォルダを消さない）。
     // 3. 下書きを失った録音の写しを recovered で残す（読めない下書きが無ければ。keep はこの時の録音中・締めの返事待ちを入れて決める）。

@@ -905,7 +905,48 @@ const STICKY_LOCAL = ['local-only', 'signed-out', 'login', 'daily-cap', 'quota',
  * （録音の始まりを待たせない。外れたら区間の後で替わる）
  */
 function startSegmentMode({ localOnly, signedIn, hold, netOnline, peekUp } = {}) {
-  return !localOnly && signedIn === true && !hold && netOnline === true && peekUp !== false ? 'short' : 'long';
+  return !localOnly && cloudLikely({ signedIn, hold, netOnline, peekUp }) ? 'short' : 'long';
+}
+
+// ---------------------------------------------------------------- オフラインの準備を任意にする（第1d2回 M-1・D21・OF1）
+/**
+ * クラウド（中継）で文字起こしできそうか。ログインしている・hold が ''・net.isOnline() が true・覚えている /health の答え
+ * （peekUp: true | false | null）が false でない。通信しない（startSegmentMode の short と同じ材料・同じ答え）
+ */
+function cloudLikely({ signedIn, hold, netOnline, peekUp } = {}) {
+  return signedIn === true && !hold && netOnline === true && peekUp !== false;
+}
+/**
+ * オフラインの準備を「選んだ」か: 手のパスがある・取り込んだ組の候補がある・取り込みのボタンを押した（installed.json の consent）・
+ * 取り込み中のどれか1つ。選んだ人はエンジンの誤りの扱い（帯 B1・「未設定」の案内・始めないこと）を 0.8.0 のまま残す（RF49）
+ */
+function offlineChosen({ manual, managedCand, consent, fetching } = {}) {
+  return Boolean(manual) || Boolean(managedCand) || Boolean(consent) || Boolean(fetching);
+}
+// 選んでいない PC で音声入力を始めない文（計画「画面と知らせの文」の D1〜D3。「未設定」の語を使わない: 画面が設定へ連れて行く）
+const DICTATION_REFUSE_TEXT = {
+  offline: 'インターネットにつながっていないため、音声入力を始めませんでした。オンラインに戻ってから、もう一度お試しください。オフラインでも使うには、設定の「オフライン」で準備します。',
+  login: 'ログインしていないため、音声入力を始めませんでした。設定の「アカウント」でログインしてください。',
+  relay: '文字起こしの中継が今は使えないため、音声入力を始めませんでした。少し待ってから、もう一度お試しください。',
+};
+const LOGIN_WHYS = ['signed-out', 'login'];
+/**
+ * 会議の始め方。localUsable（手元が使える）・chosen（準備を選んだ）・cloud（cloudLikely）・problem（whisperProblem の文）・
+ * why（cloud を偽にした理由: signed-out・login・offline・hold の理由・relay-down）→ { ok: true, keep } | { ok: false, error }。
+ * keep: '' は今どおり、'login' はログインするまで音声を残す、'wait' はつながるまで音声を残す（選んでいない PC だけ）
+ */
+function startPlan({ localUsable, chosen, cloud, problem, why } = {}) {
+  if (localUsable || cloud) return { ok: true, keep: '' };
+  if (chosen) return { ok: false, error: problem };
+  return { ok: true, keep: LOGIN_WHYS.includes(why) ? 'login' : 'wait' };
+}
+/** 音声入力の始め方（材料は startPlan と同じ）→ { ok: true } | { ok: false, error, action? }（action: 'signin' は［ログイン］） */
+function dictationPlan({ localUsable, chosen, cloud, problem, why } = {}) {
+  if (localUsable || cloud) return { ok: true };
+  if (chosen) return { ok: false, error: problem };
+  if (LOGIN_WHYS.includes(why)) return { ok: false, error: DICTATION_REFUSE_TEXT.login, action: 'signin' };
+  if (why === 'offline') return { ok: false, error: DICTATION_REFUSE_TEXT.offline };
+  return { ok: false, error: DICTATION_REFUSE_TEXT.relay };
 }
 
 /** 区間の後の区切り。st = { mode, localRun, cloudRun }、route は 'cloud' | 'local'、why は手元にした理由 → 新しい st */
@@ -1349,6 +1390,7 @@ module.exports = {
   publicSegments, settledSegments, pendingDurationMs, recoverSegments, staleSegbufDirs,
   nextSegmentMs, EtaTracker, skipPendingSegments,
   ONLINE_SEGMENT_SEC, OVERLAY_SEG_MIN_MS, SEG_SWITCH_AFTER, STICKY_LOCAL, startSegmentMode, segmentModeNext, segmentBaseMs, liveSegmentMs, nextLiveSegmentMs,
+  cloudLikely, offlineChosen, DICTATION_REFUSE_TEXT, startPlan, dictationPlan,
   STALL_SPAN_MS, STALL_MIN_DBFS, stallAfter, stallStep, PROBLEM_ORDER, sttProblemOf, problemForRoute,
   WIN_NOTIFY_CODES, WIN_NOTIFY_GAP_MS, notifyGate,
   estimateTokens, foldNotes, idleEnginesToStop, silentWav, wavLevelDbfs, mergeSummaryType, memoEvidence, buildClaudeInput, routeLabel,

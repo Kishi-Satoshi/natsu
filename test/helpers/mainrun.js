@@ -37,6 +37,11 @@
 //     --sum-tamper  … --managed と組み合わせる。要約の組も置き、その llama.dll を大きさを変えずに書き換える（要約の組は壊れている）
 //     --no-engine=fetchable|unsupported … 詳細設定の文字起こしを空にし、何も取り込んでいない PC にする。fetchable は取り込める PC、
 //                     unsupported は取り込めない PC（engineRoot だけを差し替える）。記録はしない
+//                     （第1d2回 M-1: --relay・--offline・--signed-out・--dictate・--local-only と組んだときは記録しない早い分かれ道に入らず、
+//                     議事録・音声入力の場面を回す。エンジンの子は起こさない。会議が始まらなかったら（start.ok が偽）、区間を送らずに
+//                     start・notices・engineLog・spawns と中継の写し（sttOut）を出して終える）
+//     --fetch-consent … 第1d2回 M-1: --no-engine=fetchable と組む。取り込み先の installed.json を consent: true（組は無い）で置く
+//                     （取り込みのボタンを押したが、まだ何も取り込めていない PC。「選んだ」人）
 //     --fetch       … 何も取り込んでいない取り込める PC で、設定の［エンジンを取り込む］（engine:fetch-start）を押す（第0b回 Task 14）。
 //                     engine-small の小さな組を 127.0.0.1 の偽のサーバーから、Electron の net.request の偽物（fake-net）で取り込み、
 //                     組がそろうたびに main が照らして切り替えるのを見る（文字起こしのモデルだけ、大きさの床 50MB を超える本物の中身）。
@@ -322,6 +327,7 @@ const noVcRuntime = flags.includes('--no-vc-runtime');
 const verifyThrows = flags.includes('--verify-throws');
 const sumTamper = flags.includes('--sum-tamper');
 const noEngine = (flags.find((f) => f.startsWith('--no-engine=')) || '').slice(12);
+const fetchConsent = flags.includes('--fetch-consent');   // 第1d2回 M-1
 const fetchMode = flags.includes('--fetch');
 const repairMode = flags.includes('--repair');
 const crashMode = flags.includes('--crash') ? 'broken' : (flags.includes('--crash-ok') ? 'ok' : '');
@@ -337,6 +343,8 @@ const keyUnreadable = flags.includes('--key-unreadable');
 const offline = flags.includes('--offline');
 const localOnlyFlag = flags.includes('--local-only');
 const dictate = flags.includes('--dictate');
+// 第1d2回 M-1: 何も取り込んでいない PC（--no-engine）を、議事録・音声入力の場面として回す（早い分かれ道に入らない）
+const noEngineScene = Boolean(noEngine) && (Boolean(relayMode) || offline || signedOut || dictate || localOnlyFlag);
 const noWhisper = flags.includes('--no-whisper');
 // 第1d回 A-8: Windows の知らせの場面
 const mainHidden = flags.includes('--main-hidden');
@@ -641,6 +649,12 @@ process.on('exit', () => {
     const home = noEngine === 'fetchable' ? { supported: true, root: path.join(localAppData, 'natsu', 'engine'), reason: '' }
       : I.engineRoot({}, 'linux', 'x64');
     managedMods = { install: { ...I, engineRoot: () => home }, manifest: require(path.join(ROOT, 'src', 'engine-manifest.js')) };
+    // 第1d2回 M-1: 取り込みのボタンを押した（同意）が、まだ何も取り込めていない
+    if (fetchConsent && home.supported) {
+      const instFile = I.layout(home.root, managedMods.manifest.MANIFEST).installed;
+      fs.mkdirSync(path.dirname(instFile), { recursive: true });
+      I.writeInstalled(instFile, { ...I.readInstalled(instFile), consent: true });
+    }
   }
   // 取り込みを押す PC（--fetch）。置き場所だけを決め、フォルダは作らない（作るのは main の取り込みの係）。
   // 偽のサーバーは終わるまで開いておく
@@ -1080,9 +1094,14 @@ process.on('exit', () => {
     exit() {},
     getAppPath() { const d = path.join(tmp, 'アプリ𠮷'); fs.mkdirSync(d, { recursive: true }); return d; },
   } : {};
+  // 第1d2回 M-1: 偽のクリップボード。書いた文字を順に覚える（音声入力の文字を貼り付けに回したか。out.pastes）
+  const clipWrites = [];
+  let clipText = '';
+  const clipboard = withFallback({ writeText: (t) => { clipText = String(t); clipWrites.push(clipText); }, readText: () => clipText });
   const electron = withFallback({
     screen,
     dialog,
+    clipboard,
     app: withFallback(Object.assign(appEvents, {
       getPath: () => userData, whenReady: () => ready, requestSingleInstanceLock: () => true,
       getVersion: () => require(path.join(ROOT, 'package.json')).version, isPackaged: false,
@@ -1713,6 +1732,19 @@ process.on('exit', () => {
     const hk = (await handlers['settings:get']()).hotkey;
     if (!shortcuts[hk]) throw new Error(`音声入力のホットキー ${hk} が登録されていない`);
     shortcuts[hk]();
+    // 第1d2回 M-1: 録音バーへ送った overlay:start の数（音声入力を始めなかったら 0。そのときは音声を送らず、履歴を待たずに終える）
+    out.overlayStarts = sent.filter(([ch]) => ch === 'overlay:start').length;
+    if (!out.overlayStarts) {
+      await sleep(100);
+      out.history = handlers['history:get']();
+      out.pastes = clipWrites.slice();
+      await sttOut();
+      out.notices = sent.filter(([ch]) => ch === 'app:notice').map(([, p]) => p);
+      out.engineLog = elogLines();
+      out.spawns = spawns.slice();
+      process.stdout.write(`\n${JSON.stringify(out)}\n`);
+      await exitClean(0);
+    }
     // 第1d回 A-9: 音声入力の録音中に再起動を頼む
     // 断る前後で子の kill() を数える（out.killsAtRefusal）。そのとき動いていたエンジンの数は out.enginesAtRefusal
     const kills0 = killCalls;
@@ -1731,6 +1763,7 @@ process.on('exit', () => {
     await waitFor(() => (handlers['history:get']() || []).length > 0, 15000);
     await sleep(100);
     out.history = handlers['history:get']();
+    out.pastes = clipWrites.slice();   // 第1d2回 M-1
     if (restartDuring) Object.assign(out, { relaunches, relaunchDb, applyCalls });
     await sttOut();
     process.stdout.write(`\n${JSON.stringify(out)}\n`);
@@ -1769,7 +1802,7 @@ process.on('exit', () => {
     process.stdout.write(`\n${JSON.stringify(out)}\n`);
     await exitClean(0);
   }
-  if (managedMode === 'tamper' || noVcRuntime || verifyThrows || noEngine) {
+  if (managedMode === 'tamper' || noVcRuntime || verifyThrows || (noEngine && !noEngineScene)) {
     // 使えない組は使わない。記録も始めない（区間を送らずに終える）
     await sleep(300);
     out.engineStatus = handlers['engine:status']();
@@ -1777,6 +1810,8 @@ process.on('exit', () => {
     out.start = await handlers['meeting:toggle']();
     out.test = await handlers['app:test']();
     out.spawns = spawns.slice();
+    await sleep(100);
+    out.notices = sent.filter(([ch]) => ch === 'app:notice').map(([, p]) => p);   // 第1d2回 M-1: 始めた会議の知らせ（「未設定」の語が無いか）
     if (managedMode === 'tamper') {
       // 60 秒ごとの見回りを 2 回呼ぶ。壊れた組は、取り直されるか触られるまで照らし直さない（Task 14）
       out.noticesBeforeTicks = sent.filter(([ch]) => ch === 'app:notice').map(([, p]) => p);
@@ -1872,6 +1907,16 @@ process.on('exit', () => {
   if (listeners['meeting:live-shown']) listeners['meeting:live-shown']({}, !liveNotShown);
   if (reloadMain) wins[1].webContents.emit('did-start-loading');
   out.statusCloud = handlers['meeting:status']().cloud;   // C-3: 会議の状態の「クラウドで処理する PC か」（0.7.0 U-1 から: OpenAI の鍵があるときだけ true）
+  // 第1d2回 M-1: 何も取り込んでいない PC の場面で会議が始まらなかった。区間を送らずに出して終える（ページを待たない）
+  if (noEngineScene && !(out.start && out.start.ok)) {
+    await sleep(100);
+    await sttOut();
+    out.notices = sent.filter(([ch]) => ch === 'app:notice').map(([, p]) => p);
+    out.engineLog = elogLines();
+    out.spawns = spawns.slice();
+    process.stdout.write(`\n${JSON.stringify(out)}\n`);
+    await exitClean(0);
+  }
   if (killMainAtBegin) {
     // 始めたときの写し（下書きの pageId の行）が DB に届くまで待ち、区間を送らずに main ごと落ちる。結果は出さない
     await waitFor(() => { const d = currentDraft(); return Boolean(d && typeof d.pageId === 'string' && peekDb((h) => h.getPage(d.pageId), null)); }, 15000);
