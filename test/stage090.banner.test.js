@@ -18,13 +18,15 @@ const MAIN = fs.readFileSync(path.join(ROOT, 'src', 'main.js'), 'utf8');
 const HOST = 'relay.example.test';
 const T = { timeout: 5000 };
 
-// main.js の `const NAME = {` から、行頭の `};` までを1つの式として読む（関数の表はそのまま関数になる。外の名前は使わない）
+// main.js の `const NAME = {` から、行頭の `};` まで（1行の表はその行の `};` まで）を1つの式として読む
+// （関数の表はそのまま関数になる。外の名前は使わない）
 function tableOf(name) {
-  const at = MAIN.indexOf(`\nconst ${name} = {\n`);
+  const at = MAIN.indexOf(`\nconst ${name} = {`);
   assert.ok(at >= 0, `main.js に ${name} が無い`);
   const from = MAIN.indexOf('{', at);
-  const to = MAIN.indexOf('\n};\n', from);
-  return vm.runInNewContext(`(${MAIN.slice(from, to + 2)})`, {});
+  const eol = MAIN.indexOf('\n', from);
+  const to = MAIN.slice(from, eol).trimEnd().endsWith('};') ? MAIN.lastIndexOf('};', eol) : MAIN.indexOf('\n};\n', from) + 1;
+  return vm.runInNewContext(`(${MAIN.slice(from, to + 1)})`, {});
 }
 const textOf = (v) => (v && typeof v === 'object' ? v.text : v);
 const NOTICE = tableOf('STT_NOTICE');
@@ -104,4 +106,161 @@ test('BN1: 撮る画面の帯（BANNER_STT）の文は main の B8 と同じ。�
     assert.strictEqual(s.answers['koeApp.meetingStatus'].stt.problem.text, banner('relay-down'), n);
     assert.ok(SH.RETAKE.has(n), `${n} が取り直し待ちに無い（帯の文が変わる）`);
   }
+});
+
+// ---------------------------------------------------------------- B-2（BN2・F14）: 会議の途中でネットワークから外れたら帯を出し、戻ったら消す
+// 見張りは main の自前の 1 秒の間隔（watchOffline。今の overlay:tick は 5 秒で拾い間違える）。続いた時間で出し消しする
+// （5 秒続けて切れたら出す・10 秒続けてつながったら消す。行き来では点滅しない: 帯は role="alert" で、出し直すたびに読み上げる）
+const LIB = require('../src/mainlib');
+const B15 = 'ネットワークにつながっていません。この PC で文字起こしを続けていますが、精度が落ちます。録音はそのまま続けてください。';
+
+// 1 秒ごとの online の並び（true/false）を順に渡し、帯の様子（shown）は答えの act で持つ（main と同じく呼び手が持つ）
+function simulate(onlineBySec, { eligibleBySec = () => true, t0 = 1000000 } = {}) {
+  let st = {};
+  let shown = false;
+  const acts = [];
+  onlineBySec.forEach((online, s) => {
+    const r = LIB.offlineBannerStep(st, { online, now: t0 + s * 1000, eligible: eligibleBySec(s), shown });
+    st = r.st;
+    if (r.act === 'show') shown = true;
+    if (r.act === 'clear') shown = false;
+    if (r.act) acts.push([s, r.act]);
+  });
+  return acts;
+}
+const secs = (n, fn) => Array.from({ length: n }, (_, s) => fn(s));
+
+test('BN2: offlineBannerStep の表（切れて 4.9 秒は何もしない・5 秒で show・出ている間につながって 9.9 秒は何もしない・10 秒で clear・3 秒ずつの行き来を 60 秒続けても show は0回・8 秒ずつのくり返しは show 1回で clear 0回・eligible が偽なら出ていれば clear・時計が戻っても投げない）', T, () => {
+  assert.strictEqual(LIB.OFFLINE_SHOW_MS, 5000);
+  assert.strictEqual(LIB.OFFLINE_CLEAR_MS, 10000);
+  const t0 = 50000;
+  let r = LIB.offlineBannerStep({}, { online: false, now: t0, eligible: true, shown: false });
+  assert.strictEqual(r.act, '');
+  assert.strictEqual(LIB.offlineBannerStep(r.st, { online: false, now: t0 + 4900, eligible: true, shown: false }).act, '');
+  r = LIB.offlineBannerStep(r.st, { online: false, now: t0 + 5000, eligible: true, shown: false });
+  assert.strictEqual(r.act, 'show');
+  r = LIB.offlineBannerStep(r.st, { online: true, now: t0 + 6000, eligible: true, shown: true });
+  assert.strictEqual(r.act, '');
+  assert.strictEqual(LIB.offlineBannerStep(r.st, { online: true, now: t0 + 15900, eligible: true, shown: true }).act, '');
+  assert.strictEqual(LIB.offlineBannerStep(r.st, { online: true, now: t0 + 16000, eligible: true, shown: true }).act, 'clear');
+  // 3 秒ずつの行き来（3 秒つながり・3 秒切れる）を 60 秒
+  assert.deepStrictEqual(simulate(secs(60, (s) => Math.floor(s / 3) % 2 === 0)), [], '3 秒ずつの行き来で帯を出した');
+  // 8 秒切れて 8 秒つながるのをくり返す: 1回出たまま（10 秒続けてつながらないので消さない）
+  const flap8 = simulate(secs(80, (s) => Math.floor(s / 8) % 2 === 1));
+  assert.deepStrictEqual(flap8.filter(([, a]) => a === 'show').length, 1, JSON.stringify(flap8));
+  assert.deepStrictEqual(flap8.filter(([, a]) => a === 'clear').length, 0, JSON.stringify(flap8));
+  // ずっとつながっていれば何もしない
+  assert.deepStrictEqual(simulate(secs(30, () => true)), []);
+  // eligible が偽になれば、出ていれば clear、出ていなければ ''（切れたままでも出さない）
+  assert.deepStrictEqual(simulate(secs(20, () => false), { eligibleBySec: (s) => s < 10 }), [[5, 'show'], [10, 'clear']]);
+  assert.deepStrictEqual(simulate(secs(20, () => false), { eligibleBySec: () => false }), []);
+  assert.strictEqual(LIB.offlineBannerStep({}, { online: false, now: t0, eligible: false, shown: true }).act, 'clear');
+  // 時計が戻っても（now が前より小さい）投げず、戻った所から数え直す
+  let back = LIB.offlineBannerStep({}, { online: false, now: t0 + 9000, eligible: true, shown: false });
+  back = LIB.offlineBannerStep(back.st, { online: false, now: t0, eligible: true, shown: false });
+  assert.strictEqual(back.act, '');
+  assert.strictEqual(LIB.offlineBannerStep(back.st, { online: false, now: t0 + 5000, eligible: true, shown: false }).act, 'show');
+  // 壊れた st・材料でも投げない
+  for (const st of [undefined, null, 'x', { offSince: 'a', onSince: NaN }]) assert.doesNotThrow(() => LIB.offlineBannerStep(st, { online: false, now: t0, eligible: true, shown: false }));
+});
+
+test('BN2: PROBLEM_ORDER の net-offline は seg-failed の後・relay-off の前。WIN_NOTIFY_CODES は 0.8.0 の4つのまま', T, () => {
+  const o = LIB.PROBLEM_ORDER;
+  assert.ok(o.includes('net-offline'));
+  assert.strictEqual(o.indexOf('net-offline'), o.indexOf('seg-failed') + 1 + o.slice(o.indexOf('seg-failed') + 1).findIndex((c) => c === 'net-offline'));
+  assert.ok(o.indexOf('seg-failed') < o.indexOf('net-offline') && o.indexOf('net-offline') < o.indexOf('relay-off'), o.join(','));
+  // 中継の帯（relay-off〜relay-busy）は net-offline の後ろ（同じ会議で両方が立つことは無いが、並びは決めておく）
+  for (const c of ['relay-off', 'daily-cap', 'relay-blocked', 'relay-down', 'relay-busy', 'wait']) assert.ok(o.indexOf(c) > o.indexOf('net-offline'), c);
+  assert.deepStrictEqual(LIB.WIN_NOTIFY_CODES, ['engine-down', 'stall', 'login', 'seg-failed']);
+  assert.deepStrictEqual(LIB.sttProblemOf(new Map([['relay-down', {}], ['net-offline', {}]])), { code: 'net-offline' });
+  // 帯の文（B15）とボタン（無い）
+  assert.strictEqual(banner('net-offline'), B15);
+  const action = tableOf('STT_BANNER_ACTION');
+  assert.ok(!('net-offline' in action), '帯 net-offline にボタンを付けた');
+});
+
+test('BN2: shown が偽で渡れば（ほかの道で消えた）、切れたのが 5 秒続いていれば次の呼び出しで show', T, () => {
+  const t0 = 70000;
+  let r = LIB.offlineBannerStep({}, { online: false, now: t0, eligible: true, shown: false });
+  r = LIB.offlineBannerStep(r.st, { online: false, now: t0 + 5000, eligible: true, shown: false });
+  assert.strictEqual(r.act, 'show');
+  // 帯はほかの道で消えた（呼び手が帯の様子から shown: false を渡す）。切れたままなら次の呼び出しで出し直す
+  r = LIB.offlineBannerStep(r.st, { online: false, now: t0 + 6000, eligible: true, shown: false });
+  assert.strictEqual(r.act, 'show');
+  // 出ている間（shown: true）は出し直さない
+  assert.strictEqual(LIB.offlineBannerStep(r.st, { online: false, now: t0 + 7000, eligible: true, shown: true }).act, '');
+});
+
+// 場面（helpers/mainrun.js の --net-seq）: 偽の時計で net.isOnline() の答えを秒ごとに替え、拾った watchOffline を 1 秒ずつ偽の時刻で呼ぶ。
+// 区間は --net-seg-at の秒（無ければ最初に切れた秒の 5 秒後から 5 秒ごと）に送って片付くまで待ち、最後の区間は並びの後で止めてから送る。
+// out.netProblems は [秒, 帯の符号か null] の移り変わり（meeting:status の stt.problem）
+const RUN = path.join(__dirname, 'helpers', 'mainrun.js');
+const { execFile } = require('node:child_process');
+const S = { timeout: 20000 };   // 場面は今の場面のテストと同じ見張り（stage1d.status）
+const run = (args) => new Promise((resolve, reject) => {
+  execFile(process.execPath, [RUN, ...args], { env: { ...process.env, NATSU_TEST_STT_SLEEP_SCALE: '0.01', NATSU_TEST_ONLINE_MEMO_SCALE: '0.001' }, maxBuffer: 1 << 24, timeout: 20000 },
+    (err, stdout, stderr) => {
+      if (err) { reject(new Error(`mainrun ${args.join(' ')} が失敗: ${err.message}\n${stderr}`)); return; }
+      resolve(JSON.parse(stdout.trim().split('\n').pop()));
+    });
+});
+const shownLines = (o) => o.engineLog.filter((l) => l === '文字起こしの状態: 帯 net-offline');
+const clearedLines = (o) => o.engineLog.filter((l) => l === '文字起こしの状態: 帯を消した net-offline');
+const everOffline = (o) => o.netProblems.some(([, c]) => c === 'net-offline') || o.sttSeen.some((s) => s.problem && s.problem.code === 'net-offline');
+
+test('BN2・F14: クラウドの会議でネットワークが切れると 15 秒で帯 net-offline（文は B15・ボタン無し）、手元の区間が文字になっても出たまま、50 秒で消える。Windows の知らせは 0。記録の『帯 net-offline』は出したときと消したときの2行', S, async () => {
+  const o = await run(['text', '--relay=text', '--net-seq=0:on,10:off,40:on', '--segs=3', '--main-hidden']);
+  assert.strictEqual(o.start.ok, true, JSON.stringify(o.start));
+  assert.deepStrictEqual(o.netProblems, [[0, null], [15, 'net-offline'], [50, null]], JSON.stringify(o.netProblems));
+  const p = o.sttSeen.map((s) => s.problem).find((x) => x && x.code === 'net-offline');
+  assert.deepStrictEqual({ text: p.text, action: p.action }, { text: B15, action: '' });
+  // 切れている間の2つの区間（15 秒・20 秒）は手元で文字になった（帯 net-offline のまま、経路は local）
+  assert.ok(o.sttSeen.some((s) => s.route === 'local' && s.problem && s.problem.code === 'net-offline' && s.lastTextAt), JSON.stringify(o.sttSeen));
+  assert.strictEqual(o.netSegs.length, 2);
+  assert.ok(o.netSegs.every((x) => x.problem === 'net-offline'), `手元の区間で帯が消えた: ${JSON.stringify(o.netSegs)}`);
+  const segs = o.pages[0].segments;
+  assert.strictEqual(segs.filter((x) => !x.failed && x.text).length, 3, JSON.stringify(segs));
+  assert.deepStrictEqual(o.notifications, [], 'Windows の知らせを出した');
+  assert.strictEqual(shownLines(o).length, 1, JSON.stringify(o.engineLog));
+  assert.strictEqual(clearedLines(o).length, 1, JSON.stringify(o.engineLog));
+  // 見張りは議事録の録音の間だけ（始めに1つ・録音が終わると止める）
+  assert.deepStrictEqual(o.offlineWatch, { started: 1, cleared: 1 });
+});
+
+test('F14: ネットワークが 3 秒ずつ切れたりつながったりしても、帯 net-offline は1回も出ない', S, async () => {
+  const o = await run(['text', '--relay=text', '--net-seq=0:on,10:off,13:on,16:off,19:on,22:off,25:on']);
+  assert.strictEqual(o.start.ok, true);
+  assert.ok(!everOffline(o), JSON.stringify(o.netProblems));
+  assert.deepStrictEqual(shownLines(o), []);
+});
+
+test('F14: 帯が区間のクラウドの答えで消えた後にまた切れたら、5 秒で出し直す（見張りは「出ている」を帯の様子から読む）', S, async () => {
+  const o = await run(['text', '--relay=text', '--net-seq=0:on,10:off,20:on,25:off,40:on', '--net-seg-at=22', '--segs=2']);
+  assert.strictEqual(o.start.ok, true);
+  assert.deepStrictEqual(o.netProblems, [[0, null], [15, 'net-offline'], [22, null], [30, 'net-offline'], [50, null]], JSON.stringify(o.netProblems));
+  assert.strictEqual(shownLines(o).length, 2, JSON.stringify(o.engineLog));
+});
+
+test('F14: 準備を選んでいない PC（エンジンが無い）では net-offline は出ない（「この PC で文字起こしを続けています」が本当でない）', S, async () => {
+  const o = await run(['text', '--relay=text', '--no-engine=fetchable', '--net-seq=0:on,10:off']);
+  assert.ok(!everOffline(o), JSON.stringify(o.netProblems));
+  assert.deepStrictEqual(shownLines(o), []);
+});
+
+test('F14: PC の中だけの会議には net-offline を出さない', S, async () => {
+  const o = await run(['text', '--relay=text', '--local-only', '--net-seq=0:on,10:off']);
+  assert.strictEqual(o.start.ok, true);
+  assert.strictEqual(o.localOnly.localOnly, true, JSON.stringify(o.localOnly));
+  assert.ok(!everOffline(o), JSON.stringify(o.netProblems));
+  assert.deepStrictEqual(shownLines(o), []);
+});
+
+test('F14: ログインしていない会議には net-offline を出さない（知らせは L2 だけ）', S, async () => {
+  const o = await run(['text', '--relay=text', '--signed-out', '--net-seq=0:on,10:off']);
+  assert.strictEqual(o.start.ok, true);
+  assert.ok(!everOffline(o), JSON.stringify(o.netProblems));
+  assert.deepStrictEqual(shownLines(o), []);
+  // 文字起こしの知らせ（STT_NOTICE の文）のうち出たのは L2 だけ（ネットワークの帯の代わりに別の知らせを足していない）
+  const sttTexts = new Set(Object.keys(NOTICE).map(notice));
+  assert.deepStrictEqual(o.notices.map(textOf).filter((t) => sttTexts.has(t)), [L_090['signed-out']], JSON.stringify(o.notices));
 });

@@ -1571,6 +1571,8 @@ const STT_BANNER = {
   'kept-relay': () => '文字起こしの中継が今は使えないため、音声を残しています。使えるようになると自動で文字起こしします。録音はそのまま続けてください。',
   'kept-login': () => 'ログインしていないため、音声を残しています。［ログイン］を押してログインすると、文字起こしします。',
   'kept-local': () => 'この会議は PC の中だけです。PC の中の文字起こしが入っていないので、音声だけを残しています（外には送りません）。［オフラインの準備］から取り込むと、文字起こしします。',
+  // B15（0.9.0 B-2・BN2・D26。利用者の文のまま。ボタン無し）: クラウドで文字起こししていた会議の途中でネットワークから外れた
+  'net-offline': () => 'ネットワークにつながっていません。この PC で文字起こしを続けていますが、精度が落ちます。録音はそのまま続けてください。',
 };
 // 録音中のページが見えないときの Windows の知らせ（第1d回 A-8・D17。計画「画面と知らせの文」の WN1〜WN4）。題は「NaTsu」、本文はこの決まった文だけ
 // （文字起こしの文・メール・ホスト・数を入れない）。符号は mainlib.WIN_NOTIFY_CODES と同じ4つ
@@ -1586,6 +1588,42 @@ const STT_BANNER_ACTION = { 'engine-down': 'engine', stall: 'retry', login: 'acc
 // 中継の様子の帯。互いに替わる（新しい様子を立てたら前の様子は消す）。クラウドで答えが来た・オフライン・ログインしていない・
 // PC の中だけになったら全部消す（オフラインなどは帯にしない: RF28）
 const RELAY_PROBLEMS = ['relay-off', 'daily-cap', 'relay-blocked', 'relay-down', 'relay-busy'];
+// 0.9.0 B-2（BN2・決めたこと 34）: ネットワークから外れた帯。中継の帯とは互いに替わるが RELAY_PROBLEMS には入れない（オフラインの区間ごとに
+// noteSttRoute が RELAY_PROBLEMS を全部消すので、入れると出した次の区間で消える）。出し消しは自前の 1 秒の見張り（watchOffline）
+const NET_PROBLEMS = ['net-offline'];
+const OFFLINE_WATCH_MS = 1000;
+let offlineWatchId = null;
+// 議事録の録音の始めに回す（overlay:tick は 5 秒で、3 秒ずつの行き来を「続けて切れた」と拾い間違える）。録音が終わったら次の回で自分で止まる
+function startOfflineWatch() {
+  if (offlineWatchId) return;
+  offlineWatchId = setInterval(watchOffline, OFFLINE_WATCH_MS);
+}
+// 出すのは、ログインしていて PC の中だけでない会議（クラウドで文字起こししていた会議）で、手元のエンジンが使えるときだけ
+// （「この PC で文字起こしを続けています」が本当のときだけ）。「出ている」は毎回帯の様子から読む（ほかの道で消えたら見張りも知る）。
+// Windows の知らせにはしない（WIN_NOTIFY_CODES は変えない）。記録は setSttProblem・clearSttProblem の1行ずつ
+function watchOffline(now = Date.now()) {
+  const m = meeting;
+  if (!m || state !== 'meeting') {
+    if (offlineWatchId) clearInterval(offlineWatchId);
+    offlineWatchId = null;
+    return;
+  }
+  const online = netOnline();
+  const shown = m.problems.has('net-offline');
+  // つながっていて出ていなければ、出す・消すは起きない（毎秒エンジンのファイルを stat しない）
+  const eligible = (!online || shown) && !m.localOnly && hasRelayLogin() && engineValid(whisperEng);
+  const r = lib.offlineBannerStep(m.offlineWatch, { online, now, eligible, shown });
+  m.offlineWatch = r.st;
+  if (r.act === 'show') {
+    clearSttProblem(m, ...RELAY_PROBLEMS);
+    setSttProblem(m, 'net-offline');
+  } else if (r.act === 'clear') {
+    clearSttProblem(m, ...NET_PROBLEMS);
+  } else {
+    return;
+  }
+  sendToMainWin('meeting:update', meetingStatus());
+}
 // 止まりの見張りで残した区間の文（音声は残し、［もう一度］と会議の後の送り直しに載せる）
 const STALL_SEG_TEXT = '（音はありましたが、文字になりませんでした）';
 // 第1d2回 M-2（D21）: 準備を選んでいない PC で、クラウドで文字起こしできなかった区間の文（音声は残し、戻ったら文字起こしする）
@@ -3029,13 +3067,15 @@ function clearSttProblem(m, ...codes) {
 function noteSttRoute(m, { route, why, scope } = {}) {
   // 第1d2回 M-2: 区間が中継で文字になった（中継が戻った・ログインした）ら、音声を残している帯も消す（PC の中だけの B14 は残した区間が無くなるまで）
   if (route === 'cloud') clearSttProblem(m, 'kept-wait', 'kept-relay', 'kept-login');
+  // 0.9.0 B-2: クラウドで文字になったらネットワークの帯も消す（オフライン・ログインしていない・PC の中だけの道では消さない: 消すのは見張り）
+  if (route === 'cloud') clearSttProblem(m, ...NET_PROBLEMS);
   if (route === 'cloud' || why === 'offline' || why === 'signed-out' || why === 'local-only') {
     clearSttProblem(m, ...RELAY_PROBLEMS);
     return;
   }
   const code = problemForRoute({ route, why, scope });
   if (!code) return;
-  if (RELAY_PROBLEMS.includes(code)) clearSttProblem(m, ...RELAY_PROBLEMS.filter((c) => c !== code));
+  if (RELAY_PROBLEMS.includes(code)) clearSttProblem(m, ...RELAY_PROBLEMS.filter((c) => c !== code), ...NET_PROBLEMS);
   setSttProblem(m, code, {});
 }
 // 区間が文字になった: 経路と時刻を覚え、エンジンと止まりの帯を消し、止まりの数えを戻して控えた WAV を消す
@@ -3856,6 +3896,7 @@ async function startMeeting() {
     sendToOverlay('overlay:start', payload);
   }
   startMeetingTick();
+  startOfflineWatch();   // 0.9.0 B-2
   updateTray();
   sendToMainWin('meeting:update', meetingStatus());
   return { ok: true };

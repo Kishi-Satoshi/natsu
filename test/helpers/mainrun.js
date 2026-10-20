@@ -288,6 +288,17 @@
 //   書き換えず fake-net が死ぬ: 試験が外へ出たら赤）。Tray の displayBalloon は out.balloons に残す。
 //   --stt のときの出力に足すもの: stt（偽の送り先の要求の一覧）・pages[].route・balloons・secretsRaw（secrets.json の中身）・
 //   recoveryKept（segbuf の下に recovery.json と WAV が残っているか）・decrypts（偽の safeStorage で鍵を復号した回数）。--recover と組むと、復旧が済むか止まるのを待って同じ形で出す
+//   0.9.0 B-2（BN2・F14）: オフラインの帯の見張り。main が setInterval に渡す名前 watchOffline の関数を拾い、本物の時計では回さない
+//   （何もしない間隔を代わりに渡す: 場面の実際の時間で出し消しが揺れないため。clearInterval は数える）。出力の offlineWatch に
+//   { started（拾った数）, cleared（その間隔を止めた数） }
+//     --net-seq=<秒:on|off の並び> … 議事録の場面で、偽の時計（会議を始めた時刻 + 秒）を 1 秒ずつ進め、その秒の net.isOnline() の答えを並びの
+//                        とおりにして（例 0:on,10:off,13:on。並びの間は前の値のまま）、拾った watchOffline をその偽の時刻で呼ぶ。区間 i は
+//                        --net-seg-at の i 番目の秒（無ければ最初に off になる秒の 5 秒後から 5 秒ごと）に送り、片付く（pending 0）まで待つ。
+//                        最後の区間は、並びの最後の秒の 12 秒後まで進めてから会議を止めて送る。--no-engine とも組める（記録を始める。
+//                        始められなければ out.start を出して終える）。出力に netProblems（[秒, 帯の符号か null] の移り変わり。meeting:status の
+//                        stt.problem）と netSegs（送った区間ごとに { s, problem }。片付いたときの帯の符号）を足す。議事録ができた後に
+//                        watchOffline をもう1回呼ぶ（本物の間隔なら録音の後 1 秒以内に来る1回。録音していなければ見張りは自分で止まる）
+//     --net-seg-at=<秒,秒> … --net-seq の区間を送る秒
 // 画面へ送った知らせと進み具合は、送った順に out.seq へ残す。進み具合が初めて「使える」（whisperReady・sumReady）と
 // 言ったときの engine:status を out.atReady に、壊れた知らせを送ったときの engine:status を out.atBroken に残す
 // （画面はその知らせでエンジンの状態を聞き直すので、そのとき main の答えがもう新しいこと: 第0b回 Task 14・15）
@@ -332,6 +343,9 @@ const killDbAtDiscard = flags.includes('--kill-db-at-discard');
 const idleMode = flags.includes('--idle');
 const restartDuring = flagVal('--restart-during');   // 第1d回 A-9
 const relaySeq = flagVal('--relay-seq');   // 第1d回 A-5
+// 0.9.0 B-2: オフラインの帯の場面（[秒, つながっているか] の並び・区間を送る秒）
+const netSeq = flagVal('--net-seq') ? flagVal('--net-seq').split(',').map((x) => { const [sec, v] = x.split(':'); return [Number(sec), v === 'on']; }) : null;
+const netSegAtFlag = flagVal('--net-seg-at') ? flagVal('--net-seg-at').split(',').map(Number) : null;
 const retryAfterN = Number(flagVal('--retry-after')) || 0;   // 第1d回 A-6
 const reloginAfterN = Number(flagVal('--relogin-after')) || 0;   // 第1d回 A-6
 const retryAtStop = flags.includes('--retry-at-stop');   // 第1d回 A-6 の点検
@@ -1384,11 +1398,23 @@ process.on('exit', () => {
   const ticks = [];
   const realSetInterval = global.setInterval;
   const keptTicks = [];   // 第1d2回 M-3: 文字起こし待ちの見回り（retryKeptWhenBack）
+  // 0.9.0 B-2: オフラインの帯の見張り（watchOffline）も拾う。本物の時計では回さず（何もしない間隔を渡す）、場面（--net-seq）が偽の時刻で呼ぶ
+  const offTicks = [];
+  const offHandles = new Set();
+  let offCleared = 0;
   global.setInterval = function (fn, ms, ...a) {
+    if (fn && fn.name === 'watchOffline') {
+      offTicks.push(fn);
+      const h = realSetInterval.call(this, () => {}, ms);
+      offHandles.add(h);
+      return h;
+    }
     if (fn && fn.name === 'releaseIdleEngines') ticks.push(fn);
     if (fn && fn.name === 'retryKeptWhenBack') keptTicks.push(fn);
     return realSetInterval.call(this, fn, ms, ...a);
   };
+  const realClearInterval = global.clearInterval;
+  global.clearInterval = function (h) { if (offHandles.delete(h)) offCleared++; return realClearInterval.call(this, h); };
   let keptTicksCalled = 0;
   const keptTick = async () => { keptTicksCalled += 1; for (const t of keptTicks) await t(); };
   const jsonfile = require(path.join(ROOT, 'src', 'jsonfile.js'));
@@ -1984,7 +2010,7 @@ process.on('exit', () => {
     process.stdout.write(`\n${JSON.stringify(out)}\n`);
     await exitClean(0);
   }
-  if (managedMode === 'tamper' || noVcRuntime || verifyThrows || (noEngine && !noEngineScene)) {
+  if (managedMode === 'tamper' || noVcRuntime || verifyThrows || (noEngine && !noEngineScene && !netSeq)) {
     // 使えない組は使わない。記録も始めない（区間を送らずに終える）
     await sleep(300);
     out.engineStatus = handlers['engine:status']();
@@ -2104,6 +2130,39 @@ process.on('exit', () => {
     await waitFor(() => { const d = currentDraft(); return Boolean(d && typeof d.pageId === 'string' && peekDb((h) => h.getPage(d.pageId), null)); }, 15000);
     process.exit(3);
   }
+  // 0.9.0 B-2（--net-seq）: 偽の時計を 1 秒ずつ進め、net.isOnline() の答えを並びのとおりにして watchOffline を呼ぶ
+  const netT0 = Date.now();
+  let netSec = 0;
+  const netProblems = [];
+  const netSegs = [];
+  const netValueAt = (sec) => { let v = true; for (const [t, on] of netSeq || []) if (t <= sec) v = on; return v; };
+  const netNote = (sec) => {
+    const st = handlers['meeting:status']();
+    const code = st && st.stt && st.stt.problem ? st.stt.problem.code : null;
+    if (!netProblems.length || netProblems[netProblems.length - 1][1] !== code) netProblems.push([sec, code]);
+    return code;
+  };
+  const netRunTo = (until) => {
+    for (; netSec <= until; netSec++) {
+      netUp = netValueAt(netSec);
+      for (const f of offTicks) f(netT0 + netSec * 1000);
+      netNote(netSec);
+    }
+  };
+  const netEnd = netSeq ? netSeq[netSeq.length - 1][0] + 12 : 0;
+  const firstOff = netSeq ? (netSeq.find(([, on]) => !on) || [0])[0] : 0;
+  const netSegAt = (i) => (netSegAtFlag && Number.isFinite(netSegAtFlag[i]) ? netSegAtFlag[i] : firstOff + 5 + 5 * i);
+  if (netSeq && !(out.start && out.start.ok)) {
+    out.engineLog = elogLines();
+    out.netProblems = netProblems;
+    out.netSegs = netSegs;
+    out.sttSeen = sttSeen.slice();
+    out.notices = sent.filter(([ch]) => ch === 'app:notice').map(([, p]) => p);
+    out.notifications = notifications.slice();
+    out.offlineWatch = { started: offTicks.length, cleared: offCleared };
+    process.stdout.write(`\n${JSON.stringify(out)}\n`);
+    await exitClean(0);
+  }
   if (localOnlyFlag) {
     out.localOnly = await handlers['meeting:set-local-only']({}, true);
     const st = handlers['meeting:status']();
@@ -2134,6 +2193,7 @@ process.on('exit', () => {
     const sttSentNow = () => relayPaths.filter((x) => x === '/v1/audio/transcriptions').length;
     const sttSent0 = sttSentNow();
     if (atRetry) relayLocal.setFront('delay-stt');
+    if (netSeq) netRunTo(last ? Math.max(netEnd, netSec) : netSegAt(i));   // 0.9.0 B-2: この区間を送る秒まで（最後は並びの後まで）進める
     // 第1d回 A-6: n 区間の後（この区間の答え方にしてから）に［もう一度］を返事を待たずに2回
     if (retryAfterN && i === retryAfterN) {
       const r1 = handlers['meeting:retry']();
@@ -2159,6 +2219,11 @@ process.on('exit', () => {
       (out.segWaitMs || (out.segWaitMs = [])).push(Date.now() - t0);   // 第1d2回 M-2
       // 第1d2回 M-2: 音声を残した区間が下書きに書かれたら、main ごと落ちる（結果は出さない）
       if (killMainAfterKept) { const d = currentDraft(); if (d && Array.isArray(d.segments) && d.segments.some((x) => x && x.kept)) process.exit(3); }
+    }
+    if (netSeq && !last) {
+      // 0.9.0 B-2: その秒のつながり方のまま、区間が片付くまで待ち、そのときの帯を残す
+      await waitFor(() => handlers['meeting:status']().pending === 0, 15000);
+      netSegs.push({ s: netSec - 1, problem: netNote(netSec - 1) });
     }
     if (i === 0 && testDuring) out.testDuring = await handlers['app:test']();
     // 第1d回 A-9: 会議の録音中に再起動と取り込みを頼む（断られて、録音はそのまま続く）
@@ -2231,6 +2296,9 @@ process.on('exit', () => {
   out.order = order.slice();
   out.sttSeen = sttSeen.slice();
   out.sttAt = sttAt;
+  // 0.9.0 B-2: 会議が終わった後の見張りの1回（本物の間隔なら 1 秒以内に来る）。録音していなければ自分で止まる
+  if (netSeq) { for (const f of offTicks) f(netT0 + (netSec + 1) * 1000); Object.assign(out, { netProblems, netSegs }); }
+  out.offlineWatch = { started: offTicks.length, cleared: offCleared };
   out.notifications = notifications.slice();
   out.mainWinCalls = mainWinCalls.slice();
   out.showLive = mainSent.filter((ch) => ch === 'meeting:show-live').length;

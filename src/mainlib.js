@@ -1027,7 +1027,8 @@ function stallStep(run, { text, levelDbfs } = {}) {
 }
 // 帯（録音中のページの頭。計画「画面と知らせの文」の B1〜B10）の符号。同時に1つだけで、前ほど先に出す
 // 第1d2回 M-2: 準備を選んでいない PC で音声を残している帯（kept の4つ。B11〜B14）は、ログインの後・残した失敗の前
-const PROBLEM_ORDER = ['engine-down', 'stall', 'login', 'kept-local', 'kept-login', 'kept-relay', 'kept-wait', 'seg-failed',
+// 0.9.0 B-2: net-offline（B15。ネットワークから外れた・この PC で続けている）は seg-failed の後・中継の帯の前
+const PROBLEM_ORDER = ['engine-down', 'stall', 'login', 'kept-local', 'kept-login', 'kept-relay', 'kept-wait', 'seg-failed', 'net-offline',
   'relay-off', 'daily-cap', 'relay-blocked', 'relay-down', 'relay-busy', 'wait'];
 /** problems: Map<符号, 詳しさ（{ n } や { sec }）> → 一番前の { code, ...詳しさ } か null（表に無い符号は見ない） */
 function sttProblemOf(problems) {
@@ -1054,6 +1055,25 @@ function problemForRoute({ route, why, scope } = {}) {
   if (route !== 'local') return '';
   if (why === 'daily-cap') return scope === 'all' ? 'relay-off' : 'daily-cap';
   return Object.hasOwn(PROBLEM_FOR_WHY, why) ? PROBLEM_FOR_WHY[why] : 'relay-busy';
+}
+
+// 0.9.0 B-2（BN2・D26・決めたこと 34）: 会議の途中でネットワークから外れたときの帯（B15 net-offline）の出し消し。main の 1 秒の見張り
+// （watchOffline）が呼ぶ。切れているのが OFFLINE_SHOW_MS 続いたら 'show'、出ている間につながっているのが OFFLINE_CLEAR_MS 続いたら 'clear'
+// （行き来では点滅しない。帯は role="alert" で出し直すたびに読み上げる）。eligible が偽なら、出ていれば 'clear'（出さない）。
+// shown は呼び手が帯の今の様子から渡す（見張りの中に「出ている」を持たない: ほかの道で消えたら、切れたままなら出し直す）。
+// st = { offSince, onSince }（今の様子が続いている始まりの時刻）。時計が戻ったら（now が始まりより前）戻った所から数え直す（投げない）
+const OFFLINE_SHOW_MS = 5000;
+const OFFLINE_CLEAR_MS = 10000;
+/** (st, { online, now, eligible, shown }) → { st, act: 'show' | 'clear' | '' } */
+function offlineBannerStep(st, { online, now, eligible, shown } = {}) {
+  const t = Number.isFinite(now) ? now : 0;
+  const prev = st && typeof st === 'object' ? st : {};
+  const since = (v) => (Number.isFinite(v) && v <= t ? v : t);
+  const next = online ? { offSince: null, onSince: since(prev.onSince) } : { offSince: since(prev.offSince), onSince: null };
+  if (!eligible) return { st: next, act: shown ? 'clear' : '' };
+  if (!online && !shown && t - next.offSince >= OFFLINE_SHOW_MS) return { st: next, act: 'show' };
+  if (online && shown && t - next.onSince >= OFFLINE_CLEAR_MS) return { st: next, act: 'clear' };
+  return { st: next, act: '' };
 }
 
 // Windows の知らせ（第1d回 D17・RL15。A-8）: 録音中のページが見えていないとき、文字起こしが止まる・行動が要る帯だけを出す
@@ -1421,6 +1441,7 @@ module.exports = {
   cloudLikely, offlineChosen, DICTATION_REFUSE_TEXT, startPlan, dictationPlan, KEPT_CODES, keptCodeFor, KEPT_SUMMARY_TEXT,
   STALL_SPAN_MS, STALL_MIN_DBFS, stallAfter, stallStep, PROBLEM_ORDER, sttProblemOf, problemForRoute,
   WIN_NOTIFY_CODES, WIN_NOTIFY_GAP_MS, notifyGate,
+  OFFLINE_SHOW_MS, OFFLINE_CLEAR_MS, offlineBannerStep,
   estimateTokens, foldNotes, idleEnginesToStop, silentWav, wavLevelDbfs, mergeSummaryType, memoEvidence, buildClaudeInput, routeLabel,
   isLoopbackUrl, loopbackOnlyFetch,
   sameShas, keepPrevious, candStamp, repairIdsOf, pathUsedBy, fetchMinutesLeft,
