@@ -1111,6 +1111,7 @@
   let lastPageTab = '';       // 最後に選んだページのタブ（サイドバーの「議事録」が戻る先）
   let beforeLiveTab = '';     // 記録中のタブを選ぶ前に選んでいたタブ（記録中のタブの代わりに覚える）
   let tabsTouched = false;    // 覚えたタブが届く前に利用者が動かしたら、届いた並びで上書きしない
+  let liveShownSent = null;   // main へ最後に知らせた「録音中のページを開いていて、窓が隠れていない」（第1d回 A-8。変わったときだけ送る）
   const tabTitles = new Map();   // ページの id → 題名（一覧・開いたページ・打ち替えた題名から）
   const isPageKey = (k) => typeof k === 'string' && k.startsWith('page:') && k.length > 5;
   const hasTab = (k) => openTabs.some((t) => t.key === k);
@@ -1170,7 +1171,19 @@
       if (key === focusKey) { if (focusX && x.parentNode === el) x.focus(); else el.focus(); }
     }
     renderCrumb();
+    reportLiveShown();
   }
+  // 録音中のページが見えているかを main へ知らせる（第1d回 A-8・D17）。録音中のタブを選んでいてページを開いておらず、窓が隠れていない
+  //（最小化・ほかの仮想デスクトップでは visibilityState が hidden）。main は見えていないときだけ Windows の知らせを出す。変わったときだけ送る
+  function reportLiveShown() {
+    const on = activeTab === 'live' && !curId && document.visibilityState !== 'hidden';
+    if (on === liveShownSent || typeof window.koeApp.meetingLiveShown !== 'function') return;
+    liveShownSent = on;
+    window.koeApp.meetingLiveShown(on);
+  }
+  document.addEventListener('visibilitychange', reportLiveShown);
+  // Windows の知らせを押した（main の meeting:show-live）: 録音中のタブへ移る（会議が終わってタブが無ければ何もしない）
+  if (typeof window.koeApp.onShowLive === 'function') window.koeApp.onShowLive(() => { if (hasTab('live')) activateTab('live', { fromBar: true }); });
   // 上の帯（第1b2回 P-1）: パンくずは選んでいるタブを追う。ページの操作（#pActs）は、選んでいるタブがページで、
   // そのページを開いている（curPage がある）ときだけ出す（G6: 設定・音声入力・記録中・何も無いときに［削除］を押せない）
   function renderCrumb() {
@@ -2597,6 +2610,7 @@
     if (live) live.hidden = false;
     if (mtSt.active) drawLive(mtSt);
     renderSttBanner();
+    reportLiveShown();   // タブを替えた時はまだページを開いていたことがある（activateTab の renderTabs の後で閉じた）
   }
   // 記録中のページの題名は「記録中の会議」で編集できない（打った文字は保存先が無く黙って消えるため。G10）。
   // ページに替わると renderPage が live-on を外し、題名を編集できる形に戻す

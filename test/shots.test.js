@@ -361,9 +361,12 @@ test('G2・F14・RL10・D17: 取り直し待ちは設定の3枚と録音中の�
 // 第1d回 A-7（RL14・D17）: 録音中のページの記録の行に状態の行（#liveStt）を、その上に帯（#liveSttBanner）を足した（CSS の .stt-banner も）。
 // 見える中身が変わるのは録音中のページの2枚と足した帯の画面なので RETAKE に入れた（上の「取り直し待ちは設定の3枚と録音中のページの3枚」）。
 // 議事録・音声入力・設定・検索の窓は要素も文も変えていないので、基準のまま比べる。値を今の app.html に合わせた
+// 第1d回 A-8（RL15・D17）: 録音中のページが見えているかを main へ知らせる（meetingLiveShown）のと、Windows の知らせを押したら録音中のタブへ
+// 移る（onShowLive）を、<script> の中だけに足した（要素・文・CSS は変えていないので、撮る画面の見た目もページの長さも変わらない。
+// A-9 と同じく RETAKE に足さない）。値を今の app.html に合わせた
 test('基準の画像（test/shots/win32）は今の app.html で撮ったもの（app.html を変えたら撮り直しを確かめる）', { timeout: 5000 }, () => {
   const sha = require('node:crypto').createHash('sha256').update(fs.readFileSync(path.join(ROOT, 'src', 'renderer', 'app.html'))).digest('hex');
-  assert.strictEqual(sha, '927552f4278f5cbdb25f2253ffecdc35e70961e01d1e90ef1deaab96e3c74c84',
+  assert.strictEqual(sha, '6f9ee3cebab4172bf327f4f78cec678025e73cf2542b2b4817d2881997f4b8b8',
     'app.html が基準の画像を撮った時と違う。Windows の CI の画面の比べ（捲り棒のつまみも）を見て、基準を取り直してからこの値を直す');
 });
 

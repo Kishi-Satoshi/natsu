@@ -507,3 +507,51 @@ test('D17: 帯は録音中のタブだけのもの。ほかのページのタブ
   assert.strictEqual(l.byId.get('liveSttBanner').hidden, false, '録音中のタブに戻っても帯が出ない');
   assert.deepStrictEqual(l.errors.map(fmt), []);
 });
+
+// ---------------------------------------------------------------- A-8（RL15・D17・F15）: 録音中のページが見えているかを main へ知らせる
+test('D17: 録音中のタブを開くと meetingLiveShown(true)、ほかのタブ・ページへ移ると false、visibilitychange で隠れると false。onShowLive で録音中のタブが開く', { timeout: 5000 }, async () => {
+  const PAGES = [{ id: 'pa1', title: '定例（見本）', date: '10/16', durationSec: 1800, hasSummary: true }];
+  const pageGet = (id) => ({ page: { id, title: '定例（見本）', createdAt: '2026-10-16T01:00:00.000Z', durationSec: 1800, blocks: [], memo: '', meetingType: 'general' }, segments: [] });
+  const l = await load(APP, { now: T0, returns: { pagesSearch: () => PAGES, pageGet } });
+  await l.drain();
+  const sent = () => l.called('meetingLiveShown').map((c) => c.args[0]);
+  const lastSent = () => sent()[sent().length - 1];
+  const liveTab = () => l.root.querySelectorAll('[data-key]').find((x) => x.dataset.key === 'live');
+  const vis = async (state) => { l.document.visibilityState = state; l.key({ type: 'visibilitychange' }); await l.drain(); };
+  assert.notStrictEqual(lastSent(), true, '会議の前から録音中のページを開いていると知らせた');
+  l.fire('onMeetingUpdate', PROB('relay-down', '', '文')); await l.drain();
+  assert.strictEqual(lastSent(), true, '録音中のタブを開いたのに知らせない');
+  // 知らせるのは変わったときだけ（meeting:update のたびに送らない）
+  const n = sent().length;
+  l.fire('onMeetingUpdate', PROB('relay-down', '', '文')); await l.drain();
+  assert.strictEqual(sent().length, n, '変わっていないのに送った');
+  await click(l, 'tabBtnSettings');
+  assert.strictEqual(lastSent(), false, '設定のタブへ移ったのに録音中のページを開いているまま');
+  liveTab().dispatchEvent({ type: 'click' }); await l.drain();
+  assert.strictEqual(lastSent(), true);
+  await click(l, 'tabBtnNotes');
+  l.root.querySelector('#plist .pitem').dispatchEvent({ type: 'click' }); await l.drain();
+  assert.strictEqual(lastSent(), false, 'ほかのページのタブへ移ったのに録音中のページを開いているまま');
+  liveTab().dispatchEvent({ type: 'click' }); await l.drain();
+  assert.strictEqual(lastSent(), true);
+  await vis('hidden');
+  assert.strictEqual(lastSent(), false, '窓が隠れたのに録音中のページを開いているまま');
+  await vis('visible');
+  assert.strictEqual(lastSent(), true, '窓が見えるようになったのに知らせない');
+  const m = sent().length;
+  await vis('visible');
+  assert.strictEqual(sent().length, m, '見えたままの visibilitychange でも送った（変わったときだけ）');
+  // 知らせを押した（main の meeting:show-live）: ほかのタブにいても録音中のタブが開く
+  await click(l, 'tabBtnSettings');
+  assert.strictEqual(lastSent(), false);
+  assert.ok(l.fire('onShowLive') > 0, '画面が onShowLive を受けていない');
+  await l.drain();
+  assert.strictEqual(liveTab().getAttribute('aria-selected'), 'true', '録音中のタブが開かない');
+  assert.strictEqual(l.byId.get('liveBar').hidden, false);
+  assert.strictEqual(l.byId.get('liveSttBanner').hidden, false);
+  assert.strictEqual(lastSent(), true);
+  // 会議が終わった後に押しても、録音中のタブは無いので何もしない（投げない）
+  l.fire('onMeetingUpdate', { active: false, finalizing: false, paused: false, startedAt: null, segments: [], stt: null }); await l.drain();
+  l.fire('onShowLive'); await l.drain();
+  assert.deepStrictEqual(l.errors.map(fmt), []);
+});

@@ -500,7 +500,8 @@ module.exports = [
     tests: ['test/stage1b2.page.test.js'], why: 'P-1 G6: 別のページのタブを読み込んでいる間は前のページの［削除］を出さない（点検で足した）' },
   { id: 'bar-pacts-hidden-css', file: 'src/renderer/app.html', from: '  .pacts[hidden] { display: none; }\n', to: '',
     tests: ['test/stage1b2.page.test.js'], why: 'P-1 G6: hidden の「···」は本物の画面でも消える' },
-  { id: 'bar-crumb', file: 'src/renderer/app.html', from: '    }\n    renderCrumb();\n  }\n  // 上の帯', to: '    }\n  }\n  // 上の帯',
+  // 第1d回 A-8: renderTabs の終わりに reportLiveShown() を足したので、from をその行までにした（同じ所の renderCrumb() を消す変異のまま）
+  { id: 'bar-crumb', file: 'src/renderer/app.html', from: '    }\n    renderCrumb();\n    reportLiveShown();\n  }', to: '    }\n    reportLiveShown();\n  }',
     tests: ['test/stage1b2.page.test.js'], why: 'P-1 G6: タブを替えたらパンくずを直す' },
   { id: 'bar-regen-menu', file: 'src/renderer/app.html', from: 'curPage.blocks.length > 0);', to: 'false);',
     tests: ['test/stage1b2.page.test.js'], why: 'P-1: 要約を再生成は「···」の中' },

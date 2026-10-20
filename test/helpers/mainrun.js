@@ -179,6 +179,16 @@
 //                        並べ直した区間は最後の区間の後ろに並ぶので、締めが［もう一度］の返事を待つかを見る（A-6 の点検で足した）
 //     --relogin-after=<n> … n 区間を送って片付いた後に、画面と同じ IPC の account:start・account:verify（種まきのメールと、偽の Resend へ
 //                        送ったコード）でログインし直す（out.relogin = { start, verify }）。その直後の meeting:status の stt を out.reloginStt に残す
+//   第1d回 A-8（RL15・D17）: 録音中のページが見えないときの Windows の知らせ。偽の Electron に Notification を足し、show() した
+//   { title, body } を out.notifications に残す（議事録の場面）。本体の窓（wins[1]）は既定で見えていて前にあり（isVisible・isFocused が true）、
+//   会議を始めた後に画面と同じ meeting:live-shown true を送る（録音中のタブを開いた画面と同じ）
+//     --main-hidden    … 本体の窓が隠れている（isVisible が false。show() で見える）
+//     --main-minimized … 本体の窓が最小化している（isMinimized が true。restore() で戻る）
+//     --live-not-shown … 会議を始めた後に meeting:live-shown false を送る（窓は前でも、録音中のページを開いていない）
+//     --no-notify      … Notification.isSupported() が false（出せない PC）
+//     --click-notify   … 出した知らせを、出した直後に押す（click を起こす）
+//     --reload-main    … meeting:live-shown true を送った後に、本体の窓の画面の読み込み直し（did-start-loading）を起こす
+//     出力に mainWinCalls（本体の窓の show・focus・restore の呼ばれた順。起動の後から）と showLive（本体の窓へ送った meeting:show-live の数）を足す
 //   出力に足すもの（議事録の場面）: pages[].id・title・recovered、files（userData の下の相対パス）、dbStarts（DB の子を起こした回数）、trace
 //   ctx.appCall(cmd, args) … 画面と同じ役 app の口（客の rendererPort() で作る偽の MessageChannelMain の口）で DB に頼む。書く命令には
 //                      'a:' + randomUUID の tx を付ける。答えは result（失敗は Error に .code）。場面（act）にも渡す
@@ -296,6 +306,13 @@ const offline = flags.includes('--offline');
 const localOnlyFlag = flags.includes('--local-only');
 const dictate = flags.includes('--dictate');
 const noWhisper = flags.includes('--no-whisper');
+// 第1d回 A-8: Windows の知らせの場面
+const mainHidden = flags.includes('--main-hidden');
+const mainMinimized = flags.includes('--main-minimized');
+const liveNotShown = flags.includes('--live-not-shown');
+const noNotify = flags.includes('--no-notify');
+const clickNotify = flags.includes('--click-notify');
+const reloadMain = flags.includes('--reload-main');
 // 第1c回 B-3: オンラインの要約の場面（偽の claude）
 const claudeMode = (flags.find((f) => f.startsWith('--claude=')) || '').slice(9);
 const claudeAuth = (flags.find((f) => f.startsWith('--claude-auth=')) || '').slice(14);
@@ -708,6 +725,17 @@ process.on('exit', () => {
     ...(dbDown ? { preload: path.join(__dirname, 'no-trigram.js') } : {}),
     ...(restartDuring === 'finalizing' ? { holdReply: 'meeting.finalize' } : {}),   // 第1d回 A-9: 締めの返事を場面が離すまで止める
   });   // 偽の utilityProcess.fork（場面が dbCrash で子を落とす）
+  const mainWinCalls = [];   // 第1d回 A-8: 本体の窓の show・focus・restore の順
+  const notifications = [];   // 第1d回 A-8: 偽の Notification の show() の { title, body }
+  // 偽の Electron の Notification（第1d回 A-8）。on('click') の受け口を覚え、--click-notify なら show() の直後に押す
+  class FakeNotification {
+    static isSupported() { return !noNotify; }
+    constructor(o) { makeEmitter(this); this.o = o || {}; }
+    show() {
+      notifications.push({ title: this.o.title, body: this.o.body });
+      if (clickNotify) setTimeout(() => this.emit('click', {}), 0);
+    }
+  }
   const mainSent = [];   // 本体の窓（wins[1]）の webContents.send の channel（読み込み中で届かなかったものも。第2a1回 M-2b の db:lost）
   // 第1b回 Task A-3: 録音バー（wins[0]）の［一時停止］の真似。main.js の2つの定数（PAUSE_ENSURE_ON・PAUSE_ENSURE_OFF）と同じ文だけを受け、
   // 本物の録音バーと同じく文が見る印のとおりに押す（'on' は止まっていなければ止める、'off' は止まっていれば再開する。同じなら何もしない）。
@@ -769,8 +797,14 @@ process.on('exit', () => {
       this.webContents = withFallback(wc);
     }
     isDestroyed() { return false; }
-    isVisible() { return true; }
-    isMinimized() { return this.minimized; }
+    // 第1d回 A-8: 本体の窓（wins[1]）だけ --main-hidden で隠れ、--main-minimized で最小化した形で始まる。show・focus・restore は順に覚える
+    isVisible() { return !(this.isMain() && mainHidden && !this.shown); }
+    isFocused() { return true; }
+    isMinimized() { return this.minimized || (this.isMain() && mainMinimized && !this.restored); }
+    isMain() { return wins.indexOf(this) === 1; }
+    show() { if (this.isMain()) { this.shown = true; mainWinCalls.push('show'); } }
+    focus() { if (this.isMain()) mainWinCalls.push('focus'); }
+    restore() { if (this.isMain()) { this.restored = true; mainWinCalls.push('restore'); } }
     isMaximized() { return this.maximized; }
     maximize() { maximizeCalls += 1; this.maximized = true; }
     getSize() { return [316, 72]; }
@@ -783,8 +817,8 @@ process.on('exit', () => {
       return { x: Number.isFinite(o.x) ? o.x : 0, y: Number.isFinite(o.y) ? o.y : 0, width: o.width || 800, height: o.height || 600 };
     }
   }
-  for (const m of ['setAlwaysOnTop', 'setVisibleOnAllWorkspaces', 'loadFile', 'show', 'showInactive',
-    'hide', 'focus', 'setBounds', 'setIgnoreMouseEvents', 'setSkipTaskbar', 'restore', 'close',
+  for (const m of ['setAlwaysOnTop', 'setVisibleOnAllWorkspaces', 'loadFile', 'showInactive',
+    'hide', 'setBounds', 'setIgnoreMouseEvents', 'setSkipTaskbar', 'close',
     'destroy', 'setMenuBarVisibility', 'removeMenu', 'moveTop', 'setBackgroundColor', 'setTitle', 'setIcon']) {
     Win.prototype[m] = function () {};
   }
@@ -919,6 +953,7 @@ process.on('exit', () => {
     // 第2a1回 M-2b: 議事録の DB のプロセス（worker_threads の中の本物の server.js）と口
     utilityProcess: { fork: utilFork },
     MessageChannelMain: FakeChannel,
+    Notification: FakeNotification,
   });
   // エンジンの spawn だけを本物にする（.js なら node で起動）。それ以外（貼り付け用の PowerShell など）は起動しない
   const realSpawn = cp.spawn;
@@ -1663,6 +1698,9 @@ process.on('exit', () => {
     ? process.env.NATSU_E2E_WAVS.split(';').map((f) => ({ buf: fs.readFileSync(f), ms: Math.round((fs.statSync(f).size - 44) / 32) }))
     : Array.from({ length: segCount }, (_, i) => ({ buf: toneWav(i ? 2 : 3, silent ? 0 : 8000), ms: i ? 2000 : 3000 }));
   out.start = await handlers['meeting:toggle']();
+  // 第1d回 A-8: 画面は会議が始まると録音中のタブを開き、main へ知らせる（--live-not-shown は開いていない形）
+  if (listeners['meeting:live-shown']) listeners['meeting:live-shown']({}, !liveNotShown);
+  if (reloadMain) wins[1].webContents.emit('did-start-loading');
   out.statusCloud = handlers['meeting:status']().cloud;   // C-3: 会議の状態の「クラウドで処理する PC か」（0.7.0 U-1 から: OpenAI の鍵があるときだけ true）
   if (killMainAtBegin) {
     // 始めたときの写し（下書きの pageId の行）が DB に届くまで待ち、区間を送らずに main ごと落ちる。結果は出さない
@@ -1773,6 +1811,9 @@ process.on('exit', () => {
   out.order = order.slice();
   out.sttSeen = sttSeen.slice();
   out.sttAt = sttAt;
+  out.notifications = notifications.slice();
+  out.mainWinCalls = mainWinCalls.slice();
+  out.showLive = mainSent.filter((ch) => ch === 'meeting:show-live').length;
   const elog = path.join(userData, 'engine.log');
   out.engineLog = fs.existsSync(elog) ? fs.readFileSync(elog, 'utf8').split('\n').filter(Boolean).map((l) => l.replace(/^\[[^\]]+\] /, '')) : [];
   out.requests = fs.readFileSync(flog, 'utf8').split('\n').filter((l) => l.startsWith('inference'));

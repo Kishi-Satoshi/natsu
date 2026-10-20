@@ -4,6 +4,7 @@
  * 中継は本物の relay/ のコードを 127.0.0.1 で包んだもの（helpers/relay-local.js）。
  * out.sttSeen は本体の窓へ送った meeting:update の stt の、前と違ったものだけの並び。out.sttAt は帯の符号 → その符号が初めて帯になった
  * ときの区間（wav はそのとき segbuf にその区間の WAV があるか）。帯の文は計画「画面と知らせの文」の B1〜B10 のまま（画面は文を作らない）。
+ * A-8（RL15・D17・F15）: 録音中のページが見えないときの Windows の知らせ（out.notifications。本文は WN1〜WN4 のまま）。
  */
 'use strict';
 
@@ -229,6 +230,86 @@ test('RF28: オフライン・ログインしていない・PC の中だけの�
   assert.strictEqual(outs[1].sttSeen[0].route, 'local');
 });
 
+// ---------------------------------------------------------------- A-8（RL15・D17・F15）: 録音中のページが見えないときの Windows の知らせ
+// out.notifications は偽の Notification の show() の { title, body }。--main-hidden は本体の窓が隠れている（isVisible が false）、
+// --live-not-shown は画面が「録音中のページを開いていない」と知らせた（mainrun は既定で、会議を始めた後に画面と同じ meeting:live-shown true を送る）、
+// --no-notify は Notification.isSupported() が false、--click-notify は出した知らせを押す（out.mainWinCalls・out.showLive）。
+// 計画の外で足した: --main-minimized（最小化した窓）・--reload-main（画面の読み込み直し）
+const WN = {
+  'engine-down': 'PC の中の文字起こしエンジンが動いていません。録音中のページを開いてください。',
+  stall: '文字起こしが止まっているかもしれません。録音中のページを開いてください。',
+  login: 'ログインが切れたため、PC の中で文字起こししています。録音中のページを開いてください。',
+  'seg-failed': '文字起こしに失敗した区間があります（音声は残してあります）。録音中のページを開いてください。',
+};
+const winLines = (o, code) => o.engineLog.filter((l) => l === `文字起こしの状態: Windows の知らせ ${code}`);
+
+test('D17: 窓が隠れているとき、エンジンが止まると Windows の知らせ WN1 が1回だけ（4 区間とも失敗でも）。本文は表のとおりで、文字起こしの文・ホスト・メールが無い', T, async () => {
+  // 計画は --relay-down --no-whisper。whisper の実行ファイルが無いと会議を始めない（A-6 の B1 と同じ）ので、手元のエンジンが 200 のまま誤りを返す err200
+  const o = await run(['err200', '--relay=text', '--relay-down', '--main-hidden', '--segs=4']);
+  assert.deepStrictEqual(o.notifications, [{ title: 'NaTsu', body: WN['engine-down'] }], JSON.stringify(o.notifications));
+  // 帯は engine-down の後に seg-failed も立つが、前の知らせから 5 分の間は出さない
+  assert.ok(o.engineLog.includes('文字起こしの状態: 帯 seg-failed'), o.engineLog.join('\n'));
+  assert.strictEqual(winLines(o, 'engine-down').length, 1, o.engineLog.join('\n'));
+  assert.deepStrictEqual(o.engineLog.filter((l) => l.includes('Windows の知らせ')), ['文字起こしの状態: Windows の知らせ engine-down'], o.engineLog.join('\n'));
+  assert.strictEqual(o.showLive, 0, '押していないのに録音中のページを開いた');
+  assert.deepStrictEqual(o.mainWinCalls, [], '押していないのに窓を前に出した');
+});
+
+test('D17: 知らせを押すと窓が前に出て、画面に meeting:show-live が送られる', T, async () => {
+  const o = await run(['err200', '--relay=text', '--relay-down', '--main-hidden', '--click-notify', '--segs=2']);
+  assert.strictEqual(o.notifications.length, 1, JSON.stringify(o.notifications));
+  assert.ok(o.mainWinCalls.includes('show') && o.mainWinCalls.includes('focus'), JSON.stringify(o.mainWinCalls));
+  assert.strictEqual(o.showLive, 1);
+});
+
+test('D17: 窓が前にあり録音中のページを開いているときは出さない。窓は前でも画面が『録音中のページではない』と知らせていれば出す', T, async () => {
+  const [shown, notShown, minimized] = await Promise.all([
+    run(['err200', '--relay=text', '--relay-down', '--segs=2']),
+    run(['err200', '--relay=text', '--relay-down', '--live-not-shown', '--segs=2']),
+    run(['err200', '--relay=text', '--relay-down', '--main-minimized', '--segs=2']),
+  ]);
+  assert.deepStrictEqual(shown.notifications, [], '録音中のページが見えているのに Windows の知らせを出した');
+  assert.ok(shown.engineLog.includes('文字起こしの状態: 帯 engine-down'), shown.engineLog.join('\n'));
+  assert.ok(!shown.engineLog.some((l) => l.includes('Windows の知らせ')), shown.engineLog.join('\n'));
+  assert.deepStrictEqual(notShown.notifications, [{ title: 'NaTsu', body: WN['engine-down'] }]);
+  assert.deepStrictEqual(minimized.notifications, [{ title: 'NaTsu', body: WN['engine-down'] }], '最小化した窓を見えているとした');
+  // 画面を読み込み直すと、まだ録音中のページを開いていない扱いに戻る（開けば画面が知らせ直す）
+  const reloaded = await run(['err200', '--relay=text', '--relay-down', '--reload-main', '--segs=2']);
+  assert.deepStrictEqual(reloaded.notifications, [{ title: 'NaTsu', body: WN['engine-down'] }], '読み込み直す前の「録音中のページを開いている」を使い続けた');
+});
+
+test('D17: relay-down・daily-cap・relay-busy・wait は Windows の知らせにしない', T, async () => {
+  const outs = await Promise.all([
+    ['text', '--relay=text', '--relay-down', '--segs=3'],
+    ['text', '--relay=daily-cap'],
+    ['text', '--relay-seq=c5c'],
+    ['text', '--relay=429'],
+  ].map((a) => run([...a, '--main-hidden'])));
+  for (const o of outs) {
+    assert.ok(o.sttSeen.some((s) => s.problem), `帯が立たない場面になった: ${JSON.stringify(o.sttSeen)}`);
+    assert.deepStrictEqual(o.notifications, [], JSON.stringify(o.sttSeen));
+    assert.ok(!o.engineLog.some((l) => l.includes('Windows の知らせ')), o.engineLog.join('\n'));
+  }
+});
+
+test('D17: 止まり・ログイン切れ・残した失敗の本文も表のとおり（WN2〜WN4）', T, async () => {
+  const [stall, login, failed] = await Promise.all([
+    run(['empty', '--offline', '--main-hidden', '--segs=3']),
+    run(['text', '--relay-seq=cl', '--main-hidden', '--segs=2']),
+    run(['text', '--relay-seq=LLcc', '--main-hidden']),
+  ]);
+  assert.deepStrictEqual(stall.notifications, [{ title: 'NaTsu', body: WN.stall }], '止まりの後の seg-failed は 5 分の間は出さない');
+  assert.deepStrictEqual(login.notifications, [{ title: 'NaTsu', body: WN.login }]);
+  assert.deepStrictEqual(failed.notifications, [{ title: 'NaTsu', body: WN['seg-failed'] }], '残した区間の数が増えても出すのは1回');
+  assert.strictEqual(winLines(failed, 'seg-failed').length, 1, failed.engineLog.join('\n'));
+});
+
+test('D17: Notification.isSupported() が false なら出さず、記録に符号だけ', T, async () => {
+  const o = await run(['err200', '--relay=text', '--relay-down', '--main-hidden', '--no-notify', '--segs=2']);
+  assert.deepStrictEqual(o.notifications, []);
+  assert.deepStrictEqual(o.engineLog.filter((l) => l.includes('Windows の知らせ')), ['文字起こしの状態: Windows の知らせを出せない engine-down'], o.engineLog.join('\n'));
+});
+
 test('F9: stt・帯の文・engine.log に、文字起こしの文・札・メール・URL の道が無い', T, () => {
   assert.ok(seen.length >= 15, `場面の数 ${seen.length}`);
   for (const o of seen) {
@@ -237,5 +318,8 @@ test('F9: stt・帯の文・engine.log に、文字起こしの文・札・メ�
     assert.ok(!/本日の議題|手元で起こした|nt1_|@|https?:|\/health|\/v1\/|\/auth\//.test(s), s);
     const log = o.engineLog.join('\n');
     assert.ok(!/本日の議題|手元で起こした|nt1_|@|\/health|\/v1\/|\/auth\//.test(log), log);
+    // A-8: Windows の知らせの本文は決まった文だけ（文字起こしの文・ホスト・メール・札が入らない）
+    assert.ok(Array.isArray(o.notifications), '場面の出力に notifications が無い');
+    for (const n of o.notifications) assert.ok(n.title === 'NaTsu' && Object.values(WN).includes(n.body), JSON.stringify(n));
   }
 });

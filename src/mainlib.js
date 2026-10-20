@@ -986,6 +986,20 @@ function problemForRoute({ route, why, scope } = {}) {
   return Object.hasOwn(PROBLEM_FOR_WHY, why) ? PROBLEM_FOR_WHY[why] : 'relay-busy';
 }
 
+// Windows の知らせ（第1d回 D17・RL15。A-8）: 録音中のページが見えていないとき、文字起こしが止まる・行動が要る帯だけを出す
+// （B5〜B10 は PC の中で文字起こしが続いていて、帯と左下の知らせで足りる）。同じ符号は会議ごとに1回、違う符号でも前の知らせから 5 分は出さない
+const WIN_NOTIFY_CODES = ['engine-down', 'stall', 'login', 'seg-failed'];
+const WIN_NOTIFY_GAP_MS = 5 * 60 * 1000;
+/** st = { sent: string[], lastAt: number }（会議ごと）→ { ok, st }。出したときだけ st に覚える（前の st は書き換えない） */
+function notifyGate(st, code, now) {
+  const sent = st && Array.isArray(st.sent) ? st.sent.filter((c) => typeof c === 'string') : [];
+  const lastAt = st && Number.isFinite(st.lastAt) ? st.lastAt : 0;
+  const cur = { sent, lastAt };
+  if (!WIN_NOTIFY_CODES.includes(code) || sent.includes(code)) return { ok: false, st: cur };
+  if (sent.length && now - lastAt < WIN_NOTIFY_GAP_MS) return { ok: false, st: cur };
+  return { ok: true, st: { sent: [...sent, code], lastAt: now } };
+}
+
 // ---------------------------------------------------------------- 残り時間の見積もり（#42）
 // 区間ごとの「処理時間 ÷ 音声の長さ」を指数移動平均（EMA）で持ち、残りの待ち（文字起こし
 // 待ちの区間の長さの合計）に掛けて秒で返す。材料が無いうちは null（0 を出すと「もう終わる」
@@ -1339,6 +1353,7 @@ module.exports = {
   nextSegmentMs, EtaTracker, skipPendingSegments,
   ONLINE_SEGMENT_SEC, OVERLAY_SEG_MIN_MS, SEG_SWITCH_AFTER, STICKY_LOCAL, startSegmentMode, segmentModeNext, segmentBaseMs, liveSegmentMs, nextLiveSegmentMs,
   STALL_SPAN_MS, STALL_MIN_DBFS, stallAfter, stallStep, PROBLEM_ORDER, sttProblemOf, problemForRoute,
+  WIN_NOTIFY_CODES, WIN_NOTIFY_GAP_MS, notifyGate,
   estimateTokens, foldNotes, idleEnginesToStop, silentWav, wavLevelDbfs, mergeSummaryType, memoEvidence, buildClaudeInput, routeLabel,
   isLoopbackUrl, loopbackOnlyFetch,
   sameShas, keepPrevious, candStamp, repairIdsOf, pathUsedBy, fetchMinutesLeft,

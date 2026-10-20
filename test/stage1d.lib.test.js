@@ -119,3 +119,25 @@ test('D17: 帯は1つだけで、エンジン → 止まり → ログイン →
   assert.strictEqual(L.problemForRoute({ route: 'local', why: 'daily-cap', scope: 'user' }), 'daily-cap');
   assert.strictEqual(L.problemForRoute({ route: 'local', why: 'daily-cap', scope: 'all' }), 'relay-off');
 });
+
+// ---------------------------------------------------------------- A-8（RL15・D17・F15）: Windows の知らせの間引き
+test('D17: Windows の知らせは4つの符号だけ・同じ符号は会議で1回・違う符号でも 5 分は出さない・5 分後は出す', { timeout: 5000 }, () => {
+  assert.deepStrictEqual(L.WIN_NOTIFY_CODES, ['engine-down', 'stall', 'login', 'seg-failed']);
+  assert.strictEqual(L.WIN_NOTIFY_GAP_MS, 5 * 60 * 1000);
+  let st = { sent: [], lastAt: 0 };
+  const g = (code, now) => { const r = L.notifyGate(st, code, now); st = r.st; return r.ok; };
+  assert.deepStrictEqual([g('relay-down', 1e6), g('login', 1e6), g('login', 2e6), g('stall', 1e6 + 299999), g('stall', 1e6 + 300000)], [false, true, false, false, true]);
+  assert.deepStrictEqual(st, { sent: ['login', 'stall'], lastAt: 1e6 + 300000 }, '出さなかった知らせを数えた');
+  // B5〜B10 と表に無い符号は出さない（PC の中で文字起こしが続いていて、帯と左下の知らせで足りる）
+  for (const c of ['relay-off', 'daily-cap', 'relay-blocked', 'relay-down', 'relay-busy', 'wait', '知らない', '__proto__']) {
+    assert.strictEqual(L.notifyGate({ sent: [], lastAt: 0 }, c, 1e6).ok, false, c);
+  }
+  // 4つの符号は、その会議で初めてなら出す（起動の直後の小さな時刻でも）
+  for (const c of L.WIN_NOTIFY_CODES) assert.strictEqual(L.notifyGate({ sent: [], lastAt: 0 }, c, 1000).ok, true, c);
+  // 前の st は書き換えない（main は答えの st を会議に持つ）。壊れた st でも投げない
+  const s0 = { sent: [], lastAt: 0 };
+  L.notifyGate(s0, 'login', 1e6);
+  assert.deepStrictEqual(s0, { sent: [], lastAt: 0 });
+  assert.deepStrictEqual(L.notifyGate(undefined, 'stall', 1e6), { ok: true, st: { sent: ['stall'], lastAt: 1e6 } });
+  assert.strictEqual(L.notifyGate({ sent: 'login', lastAt: 'x' }, 'login', 1e6).ok, true);
+});

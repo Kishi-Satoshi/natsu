@@ -15,6 +15,8 @@ const {
   utilityProcess, MessageChannelMain,
   // クラウドの文字起こしの鍵の暗号（第1c回 OL3。非同期の形だけを secrets.js が使う）
   safeStorage,
+  // 録音中のページが見えないときの Windows の知らせ（第1d回 A-8・RL15・D17）
+  Notification,
   // エンジンの取り込みの通信（第0b回 RF2。会社のプロキシ・PAC・証明書のストアを使う）。net の名前は下の Node の net が使う
   net: electronNet,
 } = require('electron');
@@ -89,7 +91,7 @@ const {
   extractNotes, truncationMessage, buildPromptParts,
   publicSegments, settledSegments, pendingDurationMs, recoverSegments, staleSegbufDirs, EtaTracker, chooseDraftName,
   skipPendingSegments, startSegmentMode, segmentModeNext, segmentBaseMs, nextLiveSegmentMs,
-  stallAfter, stallStep, sttProblemOf, problemForRoute,
+  stallAfter, stallStep, sttProblemOf, problemForRoute, notifyGate,
   estimateTokens, foldNotes, idleEnginesToStop, silentWav, wavLevelDbfs, mergeSummaryType, memoEvidence,
   sameShas, keepPrevious, candStamp, repairIdsOf, pathUsedBy, fetchMinutesLeft,
   pickDefaultPath,
@@ -126,6 +128,10 @@ let trayIconIdle = null;
 let trayIconRec = null;
 let overlayWin = null;
 let mainWin = null;
+// 第1d回 A-8（D17）: 画面が最後に送った meeting:live-shown（録音中のページを開いていて、窓が隠れていない）。読み込み直すと false に戻す。
+// lastWinNotice は出した Windows の知らせ（押したときの受け口が消えないよう、次を出すまで持つ）
+let liveShownByUi = false;
+let lastWinNotice = null;
 let quitting = false;
 // 終了のときの「要約が中断されました」の書き込みを1回だけ待つ（第2a1回 ST1。before-quit）。待つのは合わせて QUIT_MARK_MS まで
 let quitMarkDone = false;
@@ -1537,6 +1543,14 @@ const STT_BANNER = {
   'relay-busy': () => '文字起こしの中継が混み合っているため、PC の中で文字起こししています。録音はそのまま続けてください。',
   wait: (d) => `OpenAI が混み合っているため、${d.sec} 秒待ってから送り直しています。録音はそのまま続けてください。`,
 };
+// 録音中のページが見えないときの Windows の知らせ（第1d回 A-8・D17。計画「画面と知らせの文」の WN1〜WN4）。題は「NaTsu」、本文はこの決まった文だけ
+// （文字起こしの文・メール・ホスト・数を入れない）。符号は mainlib.WIN_NOTIFY_CODES と同じ4つ
+const WIN_NOTIFY = {
+  'engine-down': 'PC の中の文字起こしエンジンが動いていません。録音中のページを開いてください。',
+  stall: '文字起こしが止まっているかもしれません。録音中のページを開いてください。',
+  login: 'ログインが切れたため、PC の中で文字起こししています。録音中のページを開いてください。',
+  'seg-failed': '文字起こしに失敗した区間があります（音声は残してあります）。録音中のページを開いてください。',
+};
 // 帯のボタン（画面が付ける。engine は設定の「文字起こし」、retry は meeting:retry、account は設定の「アカウント」）
 const STT_BANNER_ACTION = { 'engine-down': 'engine', stall: 'retry', login: 'account', 'seg-failed': 'retry' };
 // 中継の様子の帯。互いに替わる（新しい様子を立てたら前の様子は消す）。クラウドで答えが来た・オフライン・ログインしていない・
@@ -2268,6 +2282,8 @@ function createMainWindow() {
   });
   // 議事録の DB の口は読み込みのたびに新しく渡す（読み込み直すと前の口は閉じる。第2a1回 ST7）
   mainWin.webContents.on('did-finish-load', sendDbPort);
+  // 読み込み直した画面はまだ録音中のページを開いていない（開けば画面が meeting:live-shown で知らせ直す。第1d回 A-8）
+  mainWin.webContents.on('did-start-loading', () => { liveShownByUi = false; });
   // 隠す・閉じるの前に、まとめ書きの残りを書き出す（第1a回 JS8。トレイ常駐で隠したまま電源を切られることがある）
   mainWin.on('hide', flushAllWriters);
   // 閉じるボタンの挙動。既定はそのまま終了。設定でトレイ常駐に切り替えられる。
@@ -2455,8 +2471,43 @@ function segmentRouted(m, route, why) {
 // ---- 会議ごとの文字起こしの状態（第1d回 A-6・RL14・D17）
 // 帯の符号を立てる・消す。同じ符号は1つだけで、記録は立てたとき・消したときだけ（区間ごとに重ねない: F15）。符号と数だけを書く
 function setSttProblem(m, code, detail = {}) {
-  if (!m.problems.has(code)) engineLog(`文字起こしの状態: 帯 ${code}`);
+  const fresh = !m.problems.has(code);
+  if (fresh) engineLog(`文字起こしの状態: 帯 ${code}`);
   m.problems.set(code, detail);
+  if (fresh) winNotifyProblem(m, code);
+}
+// 録音中のページが見えているか（第1d回 A-8・D17）: 本体の窓があり、隠れていない・最小化していない・前にあり、画面が最後に
+// 「録音中のページを開いている」と知らせた（meeting:live-shown）
+function liveVisible() {
+  if (!mainWin || mainWin.isDestroyed()) return false;
+  return mainWin.isVisible() && !mainWin.isMinimized() && mainWin.isFocused() && liveShownByUi;
+}
+// 帯の符号が新しく立った: 録音中のページが見えていなければ、止まる・行動が要る4つの符号だけを会議ごとに1回（違う符号でも 5 分は空ける）。
+// 出せない PC（Notification.isSupported() が false）では記録だけ。記録は符号だけを書く
+function winNotifyProblem(m, code) {
+  if (m !== meeting || liveVisible()) return;
+  const g = notifyGate(m.winNotify, code, Date.now());
+  m.winNotify = g.st;
+  if (!g.ok) return;
+  let shown = false;
+  try {
+    if (Notification.isSupported()) {
+      const n = new Notification({ title: APP_TITLE, body: WIN_NOTIFY[code] });
+      n.on('click', showLiveFromNotice);
+      n.show();
+      lastWinNotice = n;
+      shown = true;
+    }
+  } catch (_) { shown = false; }
+  engineLog(shown ? `文字起こしの状態: Windows の知らせ ${code}` : `文字起こしの状態: Windows の知らせを出せない ${code}`);
+}
+// Windows の知らせを押した: 本体の窓を前に出し（無ければ作る）、画面に録音中のページを開かせる（読み込み中なら読み終えてから）
+function showLiveFromNotice() {
+  createMainWindow();
+  if (!mainWin || mainWin.isDestroyed()) return;
+  if (mainWin.isMinimized()) mainWin.restore();
+  if (mainWin.webContents.isLoading()) mainWin.webContents.once('did-finish-load', () => sendToMainWin('meeting:show-live'));
+  else sendToMainWin('meeting:show-live');
 }
 function clearSttProblem(m, ...codes) {
   for (const code of codes) if (m.problems.delete(code)) engineLog(`文字起こしの状態: 帯を消した ${code}`);
@@ -3135,7 +3186,9 @@ async function startMeeting() {
     localOnly: false, route: { cloud: 0, local: 0 }, notified: new Set(),
     // 第1d回 A-6（D17）: stt は最後に文字になった区間の経路と時刻、problems は帯の符号 → 詳しさ、stallRun は続けて空だった音のある区間の数、
     // quietKept はその区間（WAV を消さずに控える。止まりとみなしたら失敗の区間としてページへ戻す）、retrying は［もう一度］で並べ直した区間の id
-    stt: { route: '', lastTextAt: null }, problems: new Map(), stallRun: 0, quietKept: [], retrying: new Set() };
+    stt: { route: '', lastTextAt: null }, problems: new Map(), stallRun: 0, quietKept: [], retrying: new Set(),
+    // 第1d回 A-8（D17）: Windows の知らせの間引き（mainlib.notifyGate。出した符号と、最後に出した時刻）
+    winNotify: { sent: [], lastAt: 0 } };
   // 第1d回 A-5（D16）: 始めの区切り。中継へ届くかは聞かない（録音の始まりを待たせない）。札があるか（復号しない）・hold・net.isOnline()・
   // 覚えている /health の答えだけで決め、外れたら区間の後で替わる（segmentRouted）
   const h0 = holdNow();
@@ -3903,6 +3956,8 @@ function setupIpc() {
   ipcMain.handle('meeting:status', () => meetingStatus());
   // 第1d回 A-6（D17）: 帯の［もう一度］。失敗して音声を残した区間を今の経路で並べ直す → { ok: true, n } | { ok: false }
   ipcMain.handle('meeting:retry', () => retryFailedSegments());
+  // 第1d回 A-8（D17）: 画面が「録音中のページを開いていて、窓が隠れていない」かを知らせる（変わったときだけ送ってくる）
+  ipcMain.on('meeting:live-shown', (_e, on) => { liveShownByUi = on === true; });
   ipcMain.handle('meeting:set-memo', (_e, memo) => { if (meeting) { meeting.memo = String(memo || ''); writeDraft(); } return true; });
   // 終了後の文字起こし待ちを打ち切る（#42）。記録中（終了前）は打ち切れない。待ちの区間は
   // 「（文字起こしを打ち切り）」の失敗扱いでページに残し、wav は消す（mainlib.skipPendingSegments）。

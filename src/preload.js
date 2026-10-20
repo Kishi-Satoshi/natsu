@@ -167,6 +167,8 @@ contextBridge.exposeInMainWorld('koeApp', {
   meetingSetLocalOnly: (on) => ipcRenderer.invoke('meeting:set-local-only', on),
   // 第1d回 A-6（D17）: 帯の［もう一度］（失敗して音声を残した区間を送り直す）
   meetingRetry: () => ipcRenderer.invoke('meeting:retry'),
+  // 第1d回 A-8（D17）: 録音中のページを開いていて窓が隠れていないか（変わったときだけ）。main は見えていないときだけ Windows の知らせを出す
+  meetingLiveShown: (on) => ipcRenderer.send('meeting:live-shown', on === true),
   meetingSetPaused: (on) => ipcRenderer.invoke('meeting:set-paused', on),   // 第1b回 N4c: → { ok, pending, paused }
 
   // ログイン（第1d回 Task A-2。設定のカード「アカウント」が呼ぶ: A-4）。札（トークン）と確認コードは main から返らない
@@ -189,6 +191,7 @@ contextBridge.exposeInMainWorld('koeApp', {
   onHistoryUpdated: (cb) => ipcRenderer.on('history:updated', (_e, h) => cb(h)),
   onNotice: (cb) => ipcRenderer.on('app:notice', (_e, m) => cb(m)),
   onMeetingUpdate: (cb) => ipcRenderer.on('meeting:update', (_e, s) => cb(s)),
+  onShowLive: (cb) => ipcRenderer.on('meeting:show-live', () => cb()),   // 第1d回 A-8: Windows の知らせを押した → 録音中のタブへ
   onMeetingProgress: (cb) => ipcRenderer.on('meeting:progress', (_e, p) => cb(p)),
   onPagesUpdated: (cb) => ipcRenderer.on('pages:updated', (_e, p) => cb(p)),
   onPageOpen: (cb) => ipcRenderer.on('page:open', (_e, id) => cb(id)),
