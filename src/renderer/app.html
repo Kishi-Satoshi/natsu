@@ -912,7 +912,7 @@
             <!-- 第1d回 A-13（D19）: カード「エンジン」を「オフライン」に。カードの中の文字起こしの言葉は「PC の中の文字起こし」。要約の欄の言葉は変えない（問い Q15） -->
             <h2>オフライン</h2>
             <div class="field">
-              <div class="desc">インターネットにつながっていないときと、［この会議は PC の中だけ］の会議では、この PC の中で文字起こしと要約をします。</div>
+              <div class="desc">インターネットにつながっていないときと、［この会議は PC の中だけ］の会議でも、この PC の中で文字起こしと要約ができるようにする準備です（任意）。準備しなくても、インターネットにつながっていてログインしていれば、会議と音声入力はそのまま使えます。</div>
             </div>
             <div class="field lockNote" hidden><div class="desc ng">記録中は PC の中の文字起こしの設定を変更できません</div>
           </div>
@@ -2875,8 +2875,9 @@
 
   // 録音中のページの文字起こしの状態の行と帯（第1d回 A-7・D17）。main の meetingStatus().stt（A-6）をそのまま描く。
   // 帯の文は main の stt.problem.text をそのまま出す（画面は文を作らない）。ボタンは action ごとに1つ（'' なら出さない）
-  const STT_ACT_LABEL = { retry: 'もう一度', account: 'ログインし直す', engine: 'エンジンを確かめる' };
-  let sttAct = '';          // 帯のボタンの今の働き（'' | 'retry' | 'account' | 'engine'）
+  // 0.9.0 U-3（OF2・OF4）: signin は［ログイン］（設定の「アカウント」。ログインしていない）、offline は［オフラインの準備］（カード「オフライン」の取り込みの欄）
+  const STT_ACT_LABEL = { retry: 'もう一度', account: 'ログインし直す', engine: 'エンジンを確かめる', signin: 'ログイン', offline: 'オフラインの準備' };
+  let sttAct = '';          // 帯のボタンの今の働き（'' | 'retry' | 'account' | 'engine' | 'signin' | 'offline'）
   let sttRetrying = false;  // ［もう一度］の返事を待っている（返事まで押せない）
   // 「文字起こし中（クラウド）・最後の文字 {n} 秒前」（60 秒からは「{m} 分前」）。まだ文字が無ければ「最初の文字を待っています」
   function sttLineText(s) {
@@ -2912,8 +2913,8 @@
   // 帯のボタン: ［ログインし直す］は知らせのボタンと同じ道（設定の「アカウント」・メールの欄）、［エンジンを確かめる］は「未設定」の知らせと同じ道、
   // ［もう一度］は main の meeting:retry を1回（返事まで押せない。帯は main の meeting:update が描き直す）
   async function sttBannerAct() {
-    if (sttAct === 'account') { showAccount(); return; }
-    if (sttAct === 'engine') { showEngineSettings(); return; }
+    if (sttAct === 'account' || sttAct === 'signin') { showAccount(); return; }
+    if (sttAct === 'engine' || sttAct === 'offline') { showEngineSettings(); return; }
     if (sttAct !== 'retry' || sttRetrying) return;
     sttRetrying = true;
     $('liveSttBannerBtn').disabled = true;
@@ -2955,7 +2956,9 @@
     $('meetingLocalOnly').hidden = on || !st.cloud;
     const note = $('meetingLocalOnlyNote');
     note.hidden = !on;
-    note.textContent = on ? 'この会議は PC の中だけで文字起こししています' : '';
+    // 0.9.0 U-3（OF4・D21）: PC の中の文字起こしが使えない（needsSetup）なら、音声だけを残していることと準備で文字起こしすることを書く
+    note.textContent = !on ? '' : st.needsSetup ? 'この会議は PC の中だけです。音声だけを残しています（外には送りません）。オフラインの準備が済むと文字起こしします。'
+      : 'この会議は PC の中だけで文字起こししています';
   }
   async function setLocalOnly() {
     const b = $('meetingLocalOnly');
@@ -2965,7 +2968,9 @@
     b.disabled = false;
     if (r && r.ok && r.localOnly) mtLocalOnly = true;
     else toast('この会議を PC の中だけにできませんでした（会議が終わっているか、記録していません）');
-    renderLocalOnly(await window.koeApp.meetingStatus());
+    // 押した直後だけ、答えの needsSetup も見る（ふだんは meetingStatus().needsSetup で決める）
+    const st = await window.koeApp.meetingStatus();
+    renderLocalOnly(r && r.needsSetup === true ? { ...st, needsSetup: true } : st);
   }
   async function skipPending() {
     if (!confirm('残っている文字起こしを打ち切り、いまある分だけで議事録を作ります。\n打ち切った区間の発言は議事録に入りません。よろしいですか？')) return;
@@ -3027,7 +3032,10 @@
     const obj = m && typeof m === 'object';
     const text = obj ? String(m.text == null ? '' : m.text) : String(m == null ? '' : m);
     if (/未設定/.test(text)) showEngineSettings();
-    if (obj && m.action === 'account') toast(text, { label: 'ログインし直す', run: () => showAccount() });
+    // 0.9.0 U-3（OF2・OF4）: signin は［ログイン］（K2・D2）、offline は［オフラインの準備］（P1）。account は今どおり［ログインし直す］（K4・L3）
+    const act = obj ? { account: { label: 'ログインし直す', run: () => showAccount() }, signin: { label: 'ログイン', run: () => showAccount() },
+      offline: { label: 'オフラインの準備', run: () => showEngineSettings() } }[m.action] : null;
+    if (act) toast(text, act);
     else toast(text);
   });
 
@@ -3286,14 +3294,24 @@
     // 起動のときに取り込んだ組を確かめている間（数秒）も開かない。確かめ終えた知らせで聞き直す
     if (!ok && !fetchWantsPanel() && !(lastFetch && lastFetch.checking)) $('engineAdv').open = true;
   }
+  // 0.9.0 U-3（OF7・F4・F5・D21）: オフラインの準備を選んでいない人（engine:status の chosen が false）は、中立の文（OFF2。赤にしない）で、
+  // 詳細設定を開かず、［PC の中で試す］を出さない。chosen が真か無い（古い main）ときは 0.8.0 のまま
+  let engineChosen = true;
   async function refreshEngineState() {
     if (!window.koeApp.engineStatus) return;   // 古い preload
     let s;
     try { s = await window.koeApp.engineStatus(); } catch (_) { return; }
-    // lastTestError は答えの後で読む。保存のときに聞いた分の答えが起動テストの後に届いても、
-    // テストの失敗を「正常」で上書きしない
-    const why = (s && s.whisper) || lastTestError;
-    setEngineState(!why, why);
+    engineChosen = !(s && s.chosen === false);
+    $('testBtn').hidden = !engineChosen;
+    if (!engineChosen) {
+      $('engineState').textContent = 'PC の中の文字起こし：準備していません（任意）';
+      $('engineState').className = 'eng-state';
+    } else {
+      // lastTestError は答えの後で読む。保存のときに聞いた分の答えが起動テストの後に届いても、
+      // テストの失敗を「正常」で上書きしない
+      const why = (s && s.whisper) || lastTestError;
+      setEngineState(!why, why);
+    }
     // モデルの勧め（kotoba のときに large-v3-turbo を勧める。0.1.1）
     const note = $('engineNote');
     if (note) { note.textContent = (s && s.whisperNote) || ''; note.hidden = !note.textContent; }
@@ -3339,7 +3357,7 @@
     const item = (id) => s.items.find((i) => i && i.id === id);
     const imported = manual.every((g) => fetchReady(s, g));   // 手の設定の組も、取り込んだものがそろっている
     const lines = [];                                          // [文, 薄い文か]
-    let btn = '', pause = false, sw = false, dir = false, copyIt = false, bar = false, msg = '', ng = false;
+    let btn = '', pause = false, sw = false, dir = false, copyIt = false, bar = false, msg = '', ng = false, offer = false;
     // 第1d回 A-13（D19）: カードの中の文字起こしの言葉は「PC の中の文字起こし」。手の設定の組が1つなら組の名前（文字起こし・要約）で言う
     const handPrefix = manual.length === 1 ? `${FETCH_GROUPS[manual[0]].name}は手で設定したものを使っています。` : '';
     const versions = (gs) => gs.map((g) => { const it = item(FETCH_GROUPS[g].engine); return `${FETCH_GROUPS[g].tool}${it ? ` ${it.version}` : ''}`; }).join('・');
@@ -3375,6 +3393,14 @@
     } else if (state === 'ready') {
       lines.push([`${handPrefix}${manual.length ? `${FETCH_GROUPS[fetching[0]].name}は取り込み済みです` : 'PC の中の文字起こしは取り込み済みです'}（${versions(fetching)}）。`]);
       dir = true; sw = manual.length > 0;
+    } else if (state === 'missing' && s.consent === false && !manual.length && !s.whisperReady && !s.sumReady) {
+      // 0.9.0 U-3（OF7・D21・決めたこと 10）: まだ取り込んでいず、押したことも無い（consent が偽）・手の組も無い: 任意の選択として、
+      // 得るもの（OFF3）とかかるもの（OFF4。数は下の今の計算と同じ）を書き、ボタンは［オフラインでも使う（数 GB を取り込む）］（OFF5）。押したことが同意
+      const free = s.freeBytes !== null && s.freeBytes !== undefined && Number.isFinite(Number(s.freeBytes)) ? `（今の空き 約 ${fetchGB(s.freeBytes)}）` : '';
+      lines.push(['取り込むと: インターネットにつながっていないときや［この会議は PC の中だけ］の会議でも、PC の中で文字起こしと要約ができます。音声や議事録は外に送りません。']);
+      lines.push([`かかるもの: ディスクの空き 約 ${fetchGB(need)}${free}・取り込みの時間 10Mbps の回線で約 ${fetchMinutes(need)} 分。議事録の記録中は、Web 会議の回線を守るため取り込みを止めます。`]);
+      btn = 'オフラインでも使う（数 GB を取り込む）';
+      offer = true;
     } else {   // missing・partial
       const what = manual.length ? `${handPrefix}${FETCH_GROUPS[fetching[0]].name}を` : 'PC の中の文字起こしと要約を';
       const free = s.freeBytes !== null && s.freeBytes !== undefined && Number.isFinite(Number(s.freeBytes)) ? `・空き 約 ${fetchGB(s.freeBytes)}` : '';
@@ -3402,6 +3428,7 @@
     const b = $('engineFetchBtn');
     b.hidden = !btn;
     if (btn) b.textContent = btn;
+    box.dataset.row = offer ? 'オフラインでも使う' : 'PC の中の文字起こしを取り込む';   // 検索の行の名前は、出ているボタンの文の頭（0.9.0 U-2・U-3）
     $('engineFetchPause').hidden = !pause;
     const swb = $('engineFetchSwitch');
     swb.hidden = !sw;
@@ -3872,7 +3899,7 @@
     settingsLoaded = true;   // ここを通るまで save() は書き込まない
     refreshVad();
     await refreshEngineFetch();   // 取り込みの欄を先に描く（エンジンが要確認のとき、どちらの欄を見せるかがこれで決まる。第0b回）
-    refreshEngineState();
+    const engineStateP = refreshEngineState();   // 起動の連れて行きは、この答え（chosen）を待ってから決める
     refreshHotkeyState();
     refreshPromptInfo();
     refreshAccount();
@@ -3887,7 +3914,16 @@
     await refreshList();
     renderPage();
     setMeetingUi(await window.koeApp.meetingStatus());
-    // 詳細設定のパスが空でも、取り込んだ文字起こしの組がそろっていれば連れて行かない（そのエンジンを使う。第0b回）
+    // 詳細設定のパスが空でも、取り込んだ文字起こしの組がそろっていれば連れて行かない（そのエンジンを使う。第0b回）。
+    // 0.9.0 U-3（F4・D21・決めたこと 9）: オフラインの準備を選んでいない人は連れて行かない。ただしログインしていなければ設定の「アカウント」を開く
+    //（中継でしか文字起こしできないので、ログインが唯一の行動。エンジンの文は出さない）。選んだ人（chosen が真か無い）は 0.8.0 のまま
+    await engineStateP;
+    if (!engineChosen) {
+      let a = null;
+      try { a = window.koeApp.accountStatus ? await window.koeApp.accountStatus() : null; } catch (_) { a = null; }
+      if (!(a && a.signedIn)) showAccount();
+      return;
+    }
     const managedWhisper = Boolean(lastFetch && lastFetch.supported && lastFetch.mode.whisper === 'managed' && lastFetch.whisperReady);
     if ((!settings.localServerExe || !settings.localModelPath) && !managedWhisper) showEngineSettings();
   })();

@@ -33,7 +33,9 @@ test('G2: 撮る画面は決まった並び（第1b回の 13 と第1b2回の検�
     'notes-tabs-light', 'notes-collapsed-light', 'live-light', 'live-dark', 'notes-page-zoom200-light', 'settings-zoom200-dark', 'search-palette-light', 'live-banner-light',
     'live-banner-dark', 'live-banner-zoom200-dark',
     // 0.9.0 U-2（SP4・SP5）で意図して変えた: 設定のポップアップの項目「録音」と検索の画面を足した（取り直し待ち・まだ基準が無い）
-    'settings-record-light', 'settings-search-light']);
+    'settings-record-light', 'settings-search-light',
+    // 0.9.0 U-3（OF7）で意図して変えた: 準備を選んでいない人のカード「オフライン」の画面を足した（取り直し待ち・まだ基準が無い）
+    'settings-offline-light']);
   assert.strictEqual(new Set(SH.SCREENS.map((s) => s.name)).size, SH.SCREENS.length, '名前が重なっている');
   for (const s of SH.SCREENS) assert.ok(['app', 'overlay'].includes(s.page) && ['light', 'dark'].includes(s.theme), s.name);
   assert.deepStrictEqual(SH.SCREENS.filter((s) => s.zoom).map((s) => [s.name, s.zoom]), [['notes-page-zoom200-light', 2], ['settings-zoom200-dark', 2], ['live-banner-zoom200-dark', 2]]);
@@ -366,9 +368,26 @@ test('G2: 作業域より大きい窓が作るときに縮められても（Wind
 // 0.9.0 で意図して変えた: 取り直し待ちは計画（docs/plans/2026-10-20-090.md）の「取り直す画面」の表の画面だけ。U-1 は設定の3枚と
 // notes-tabs-light（設定がポップアップになり、3つのタブの並びから設定のタブが消える）。B・O は各タスクが足す。
 // 利用者がまとめて OK と言ったら G-3 で基準にして空に戻す（空になるまで版を上げられない: 上の版のテスト）
-const RETAKE_090 = ['live-banner-light', 'live-banner-dark', 'live-banner-zoom200-dark', 'notes-tabs-light', 'settings-light', 'settings-dark', 'settings-zoom200-dark', 'settings-record-light', 'settings-search-light'];
+const RETAKE_090 = ['live-banner-light', 'live-banner-dark', 'live-banner-zoom200-dark', 'notes-tabs-light', 'settings-light', 'settings-dark', 'settings-zoom200-dark', 'settings-record-light', 'settings-search-light', 'settings-offline-light'];
 // 0.9.0 で足した画面で、まだ基準の PNG が無いもの（取り直し待ちにあるときだけ無くてよい。G-3 で基準にしたらここを空にする）
-const NEW_090 = ['settings-record-light', 'settings-search-light'];
+const NEW_090 = ['settings-record-light', 'settings-search-light', 'settings-offline-light'];
+
+// 0.9.0 U-3（OF7・D21）: 準備を選んでいない人のカード「オフライン」の画面。偽の答えは engine:status の chosen が偽・取り込みの欄は
+// まだ取り込んでいず押したことも無い（consent 偽・missing）・空き 20GB。ログインしている形（していないと起動で「アカウント」が開く）
+test('U-3: 取り直し待ちに settings-offline-light がある。答えは chosen 偽・consent 偽の missing・空き 20GB・ログイン中で、項目「オフライン」を開く', { timeout: 5000 }, () => {
+  assert.ok(SH.RETAKE.has('settings-offline-light'), '準備を選んでいない人のカードの画面が取り直し待ちに無い');
+  const s = SH.SCREENS.find((x) => x.name === 'settings-offline-light');
+  assert.ok(s, '撮る画面に無い');
+  assert.deepStrictEqual([s.page, s.theme, s.zoom], ['app', 'light', undefined]);
+  const a = s.answers;
+  assert.strictEqual(a['koeApp.engineStatus'].chosen, false);
+  assert.match(a['koeApp.engineStatus'].whisper, /まだ取り込んでいません/);
+  const f = a['koeApp.engineFetchStatus'];
+  assert.deepStrictEqual([f.state, f.consent, f.freeBytes, f.whisperReady, f.sumReady, f.mode], ['missing', false, 20e9, false, false, { whisper: 'managed', sum: 'managed' }]);
+  assert.ok(Array.isArray(f.items) && f.items.length > 0);
+  assert.strictEqual(a['koeApp.accountStatus'].signedIn, true);
+  assert.match(s.act, /setNavOffline/);
+});
 test('G2・F14・G-4・0.9.0: 取り直し待ちは計画の「取り直す画面」の画面だけ。録音バーは入れない。どの画面にも基準の PNG があり、大きさが窓の大きさと同じ', { timeout: 5000 }, () => {
   assert.deepStrictEqual([...SH.RETAKE].filter((n) => !RETAKE_090.includes(n)), []);
   for (const n of RETAKE_090) assert.ok(SH.RETAKE.has(n), `${n} が取り直し待ちに無い（見た目が変わった）`);
@@ -422,9 +441,13 @@ test('G2・F14・G-4・0.9.0: 取り直し待ちは計画の「取り直す画�
 // 相手の声・文字起こし・要約（Claude Code）へ。id と文はそのまま）、上に検索の欄を足した。見える中身が変わるのは設定の画面だけで、どれも RETAKE
 // にある（項目「録音」と検索の画面を足した）。入力の欄の決まりに input[type="search"] を足したが、議事録・音声入力・録音中のページ・検索の窓に
 // search の欄は無いので、基準のまま比べる。値を今の app.html に合わせた
+// 0.9.0 U-3（OF7・F4・D21）: カード「オフライン」の説明を OFF1 に、準備を選んでいない人の状態の文・取り込みの欄の文とボタン・起動の連れて行き・
+// 帯と知らせの［ログイン］［オフラインの準備］・PC の中だけの文を足した。見える中身が変わるのは設定の画面（RETAKE にある。準備を選んでいない人の
+// カードの画面 settings-offline-light を足した）。録音中のページの画面の答えは action も needsSetup も持たないので、議事録・音声入力・録音中の
+// ページ・検索の窓は基準のまま比べる。値を今の app.html に合わせた
 test('基準の画像（test/shots/win32）は今の app.html で撮ったもの（app.html を変えたら撮り直しを確かめる）', { timeout: 5000 }, () => {
   const sha = require('node:crypto').createHash('sha256').update(fs.readFileSync(path.join(ROOT, 'src', 'renderer', 'app.html'))).digest('hex');
-  assert.strictEqual(sha, '00b8b4c95f415bc914bb0530b840c15f4a10520d67a87870bb78cd7300dec38d',
+  assert.strictEqual(sha, '2a32a55a55d7a4abce5f2fc78fa46caaa5c451d2b577e06c59976feddd9860d1',
     'app.html が基準の画像を撮った時と違う。Windows の CI の画面の比べ（捲り棒のつまみも）を見て、基準を取り直してからこの値を直す');
 });
 

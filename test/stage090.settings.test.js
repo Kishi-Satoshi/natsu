@@ -432,8 +432,9 @@ test('SP4: カードの data-sec と見出しの並びが「設定の項目と�
 });
 
 // 0.8.0（34c9dfa）の #tabSettings の中の <label> の文 29 と .desc の文 20 を、並びに依らず数えた指紋（空白をまとめて並べ替えた JSON の sha256）。
-// カードを動かしただけで文を変えていないことを見る（文を意図して変えるタスクは、この値をその commit で直す）
-const TEXTS_080 = { labels: [29, '5c94550c717872728cfa63e36897a6f63a01a343a21064bb62bf561c95fe948d'], descs: [20, 'dee8088740a63c227369dba4dfa7f08e93c986f527bd33ebecbf560598da8567'] };
+// カードを動かしただけで文を変えていないことを見る（文を意図して変えるタスクは、この値をその commit で直す）。
+// 0.9.0 U-3（OFF1・D21）で意図して変えた: カード「オフライン」の説明の文を D21 の文にした（説明の数は 20 のまま。0.8.0 の値は dee80887…）
+const TEXTS_080 = { labels: [29, '5c94550c717872728cfa63e36897a6f63a01a343a21064bb62bf561c95fe948d'], descs: [20, '5c595e07bc93cfdb6f4abd222827eca5056e89609b012ea0039f6763dcdad711'] };
 test('SP4: 動かした入力の id が全部あり、その行の中にある。文が 0.8.0 と同じ（label の文・.check の文・説明の文）', T, () => {
   const sec = doc.querySelector('#tabSettings');
   for (const [name, ids] of Object.entries(ROW_IDS)) {

@@ -16,6 +16,7 @@
 
 const path = require('path');
 const mtype = require('../../src/meetingType');
+const { MANIFEST } = require('../../src/engine-manifest');
 
 const SIZE = { width: 1120, height: 780 };         // 本体の窓の既定（main.js の createMainWindow）
 const OVERLAY_SIZE = { width: 316, height: 72 };   // 録音バー（main.js の createOverlay）
@@ -71,6 +72,10 @@ const SCREENS = [
   { name: 'settings-record-light', page: 'app', theme: 'light', act: "document.getElementById('tabBtnSettings').click(); document.getElementById('setNavRecord').click()" },
   { name: 'settings-search-light', page: 'app', theme: 'light',
     act: "document.getElementById('tabBtnSettings').click(); const b = document.getElementById('setSearch'); b.value = 'マイク'; b.dispatchEvent(new Event('input', { bubbles: true }))" },
+  // 0.9.0 U-3（OF7・D21）: オフラインの準備を選んでいない人のカード「オフライン」（OFF1〜OFF5。足した画面でまだ基準が無い。取り直し待ち）。
+  // ログインしている形にする（ログインしていないと、起動で設定の「アカウント」が開く: 計画 U-3）
+  { name: 'settings-offline-light', page: 'app', theme: 'light', answers: offlineAnswers(),
+    act: "document.getElementById('tabBtnSettings').click(); document.getElementById('setNavOffline').click()" },
 ];
 // Tab の輪を見る画面は1つだけ（何も選んでいない所から Tab を3回で［● 記録開始］。サイドバーの頭の［«］→ 検索 → ［● 記録開始］）
 SCREENS.find((x) => x.name === 'notes-page-light').focus = { tabs: 3, want: 'mtToggleBtn' };
@@ -95,7 +100,8 @@ SCREENS.find((x) => x.name === 'notes-page-light').focus = { tabs: 3, want: 'mtT
 // 3つのタブの並びから設定のタブが消える notes-tabs-light を取り直し待ちにした（B・O の画面は各タスクが足す）。
 // 利用者がまとめて OK と言ったら G-3 で基準にして空に戻す
 // U-2（SP4・SP5）で足した設定の項目「録音」と検索の画面（settings-record-light・settings-search-light。まだ基準が無い）も入れた。
-const RETAKE = new Set(['live-banner-light', 'live-banner-dark', 'live-banner-zoom200-dark', 'notes-tabs-light', 'settings-light', 'settings-dark', 'settings-zoom200-dark', 'settings-record-light', 'settings-search-light']);
+// U-3（OF7）で足した準備を選んでいない人のカード「オフライン」の画面（settings-offline-light。まだ基準が無い）も入れた。
+const RETAKE = new Set(['live-banner-light', 'live-banner-dark', 'live-banner-zoom200-dark', 'notes-tabs-light', 'settings-light', 'settings-dark', 'settings-zoom200-dark', 'settings-record-light', 'settings-search-light', 'settings-offline-light']);
 const PERF = [{ name: 'open-2000-blocks', budgetMs: 500 }];   // 3回開いた中央値で見る
 const TIME_ZONE = 'Asia/Tokyo';
 const TOLERANCE = 2;   // 色の差（0〜255）がこれ以下の画素は同じとみなす。CI の機械の CPU ごとの描き方の1段の差を拾わないため（揺れの確かめ judgePair は 0 で見る）
@@ -179,6 +185,20 @@ const HISTORY = [
  * 第1d回 A-7（D17）: 文字起こしの状態 stt（A-6 の形）。既定はクラウドで最後の文字が 12 秒前・帯なし（撮るときの時計は止まるので揺れない）。
  * stt を渡すとそれに替える（live-banner-light は帯 relay-down）
  */
+// 0.9.0 U-3: オフラインの準備を選んでいない PC の答え（engine:status の chosen が偽・取り込みの欄はまだ取り込んでいず、押したことも無い。空き 20GB）
+function offlineAnswers() {
+  const total = MANIFEST.items.reduce((n, i) => n + i.size, 0);
+  const whisperBytes = MANIFEST.items.filter((i) => i.group === 'whisper').reduce((n, i) => n + i.size, 0);
+  return {
+    'koeApp.engineStatus': { ok: true, whisper: 'PC の中の文字起こしはまだ取り込んでいません。', sum: '', chosen: false },
+    'koeApp.engineFetchStatus': { ok: true, supported: true, mode: { whisper: 'managed', sum: 'managed' }, state: 'missing', totalBytes: total, doneBytes: 0,
+      needBytes: total, whisperBytes, freeBytes: 20e9, whisperReady: false, sumReady: false, runtime: null, askIt: false, report: '', consent: false, userPaused: false,
+      items: MANIFEST.items.map((i) => ({ id: i.id, group: i.group, label: i.label, version: i.version, file: (i.dest || i.dir).split('/').pop(), url: i.url,
+        host: new URL(i.url).hostname, sha256: i.sha256, size: i.size, done: 0, state: 'missing', license: i.license, place: '%LOCALAPPDATA%\\natsu\\engine\\…' })),
+      error: null },
+    'koeApp.accountStatus': { ok: true, signedIn: true, email: '', method: 'access', until: null, canStore: true, online: { up: true, why: 'ok' } },
+  };
+}
 function liveAnswers(stt = LIVE_STT) {
   const segs = [
     { id: 's1', atMs: 0, durationMs: 75000, text: 'それでは週次の定例を始めます。まず進み具合から順にお願いします。' },
