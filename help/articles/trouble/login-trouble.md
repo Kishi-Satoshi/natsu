@@ -1,7 +1,7 @@
 ---
 title: ログインできない・コードが届かない
 description: コードのメールが届かない・「already been used」と出る・会社のネットワークでつながらないときに見るところと、管理者に知らせること
-updated: 2026-10-20
+updated: 2026-10-21
 sources: README.md, INSTALL.md, src/renderer/app.html, src/main.js, src/mainlib.js
 related: start/login, settings/account, admin/stop-person
 ---
@@ -33,4 +33,4 @@ related: start/login, settings/account, admin/stop-person
 ## 管理者に知らせること {#tell-admin}
 
 どの画面のどの文で止まったかと、いつ試したかだけを知らせてください。コードやメールの中身は送らないでください。
-ログインできない間も、NaTsu は PC の中で文字起こしできます。
+ログインできない間も、録音はできます。オフラインの準備をした PC は PC の中で文字起こしし、準備をしていない PC は会議の音声を残して、ログインすると文字起こしします（音声入力は、ログインするまで始めません）。

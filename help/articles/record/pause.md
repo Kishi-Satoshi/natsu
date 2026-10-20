@@ -1,7 +1,7 @@
 ---
 title: 一時停止と再開
 description: 会議の途中で録音を止めて、また始める。Ctrl+Shift+P と、PC がスリープしたときの動き
-updated: 2026-10-20
+updated: 2026-10-21
 sources: CHANGELOG.md, README.md, src/renderer/app.html, src/renderer/overlay.html, src/main.js
 related: record/start-stop, record/status-line
 ---
@@ -13,14 +13,15 @@ related: record/start-stop, record/status-line
 
 - 録音中のページの ［⏸ 一時停止］ を押す
 - NaTsu の窓で [[Ctrl+Shift+P]] を押す（NaTsu の窓の中だけで効きます）
-- 録音バーの一時停止のボタンを押す
+- 録音バーの一時停止のボタン（二本線）を押す
 
 一時停止の間は、タブの名前が「⏸ 一時停止中」になり、録音中のページに「一時停止中（録音していません）」と出ます。
+録音バーは、5つの点と経過時間が薄くなり、一時停止のボタンが再開の印（▶）に替わります。
 
 ## 再開する {#resume}
 
 録音中のページの ［▶ 再開］ を押すか、もう一度 [[Ctrl+Shift+P]] を押します。
-録音バーの同じボタンでも再開できます。
+録音バーの同じボタン（▶）でも再開できます。
 
 ## PC がスリープしたとき {#sleep}
 

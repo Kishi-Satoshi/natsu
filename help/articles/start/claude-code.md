@@ -1,14 +1,14 @@
 ---
 title: Claude Code を入れてログインする
-description: 要約に使う Claude Code を、設定の「オンライン」のボタンで入れてログインし、使えるかを確かめる
-updated: 2026-10-20
+description: 要約に使う Claude Code を、［設定］の「要約」のボタンで入れてログインし、使えるかを確かめる
+updated: 2026-10-21
 sources: README.md, INSTALL.md, src/renderer/app.html, src/main.js, src/claude-cli.js
 related: start/tester-guide, start/what-natsu-does, start/login
 ---
 
 インターネットにつながっているときの要約は、ご自分の Claude Code で作ります。
 Claude の有料のプラン（Pro・Max・Team・Enterprise）が要ります。
-PowerShell を打たなくても、［設定］→「オンライン」のボタンで用意できます。
+PowerShell を打たなくても、［設定］→［要約］のボタンで用意できます（サイドバーの ［設定］ を押し、左の列の ［要約］ を押します）。
 
 ## 入れてログインする {#steps}
 

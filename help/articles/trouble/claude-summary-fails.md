@@ -1,7 +1,7 @@
 ---
 title: Claude Code の要約ができない
 description: 要約の欄に出る文ごとの対処。Claude Code が入っていない・ログイン切れ・上限・API キー・古い版・時間切れ
-updated: 2026-10-20
+updated: 2026-10-21
 sources: src/claude-cli.js, src/main.js, src/renderer/app.html, README.md
 related: start/claude-code, summary/how-summaries, trouble/banners
 ---
@@ -15,7 +15,7 @@ related: start/claude-code, summary/how-summaries, trouble/banners
 
 | 要約の欄の文（はじめの部分） | すること |
 | --- | --- |
-| Claude Code が見つからないため、要約を作れませんでした。 | ［設定］の「オンライン」の ［Claude Code を入れる］ で入れ、［Claude Code にログイン］ でログインします |
+| Claude Code が見つからないため、要約を作れませんでした。 | ［設定］の「要約」の ［Claude Code を入れる］ で入れ、［Claude Code にログイン］ でログインします |
 | Claude Code にログインしていないか、ログインが切れています。 | ［Claude Code にログイン］ でログインします |
 | Claude Code のログインが切れています。 | ［Claude Code にログイン］ でログインします |
 | Claude の利用の上限に達しました（… に戻ります）。 | 出た時刻まで待ちます。Claude のチャットと同じ上限（5時間ごと・週ごと）です |
@@ -28,7 +28,7 @@ related: start/claude-code, summary/how-summaries, trouble/banners
 
 ## 確かめる {#check}
 
-［設定］の「オンライン」の ［Claude Code を確かめる］ を押すと、小さな要求を1つ送って、要約を頼めるかを確かめます。「ログイン済み（確かめ済み）」と出れば使えます。
+［設定］の「要約」の ［Claude Code を確かめる］ を押すと、小さな要求を1つ送って、要約を頼めるかを確かめます。「ログイン済み（確かめ済み）」と出れば使えます。
 入れ方とログインは [Claude Code を入れてログインする](start/claude-code.md) を見てください。
 
 ## 長すぎる会議 {#too-long}
