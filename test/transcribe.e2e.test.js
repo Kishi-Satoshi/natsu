@@ -161,11 +161,14 @@ test('文字が取れたときは 1 回だけ送り、ヒントも止めない',
 test('本当に空なら、engine.log に区間ごとの理由を書き、全部が空なら利用者に知らせる', async () => {
   await need('empty');
   const r = results.empty;
-  assert.strictEqual(r.pages[0].segments.length, 0);
+  // 第1d回 A-6（D17）で意図して変えた: 音のある区間が 75 秒の会議で2つ続けて空なら「止まっているかもしれない」とし、2区間を
+  // 音声ごと失敗の区間として残す（前は区間ごと消していた）。会議の後の送り直しでも空なら消えるので、どちらの形でも文字は残らない
+  assert.ok(r.pages[0].segments.every((s) => s.failed && s.text === '（音はありましたが、文字になりませんでした）'), JSON.stringify(r.pages[0].segments));
   // 通知は数秒で消えるので、議事録の要約の欄にも同じ理由と確かめ方を残す（理由の記録の場所は札を付けて最後に）
   assert.match(r.pages[0].summaryError, /^2 区間の音声を受け取りましたが、文字起こしの結果がすべて空でした。.*使用するマイク.*理由の記録: %APPDATA%\\natsu\\engine\.log$/);
-  // [BLANK_AUDIO] だけの返事も空として扱う
-  assert.strictEqual(r.engineLog.filter((l) => /^文字起こし: 認識ヒント（\d+ バイト）付きでは空 → ヒントなしでも空/.test(l)).length, 2, JSON.stringify(r.engineLog));
+  // [BLANK_AUDIO] だけの返事も空として扱う（数えるのは議事録を保存するまでの2区間。A-6 から、残した2区間は会議の後にもう一度送る）
+  const live = r.engineLog.slice(0, r.engineLog.indexOf('議事録を保存: 文字起こしが空の区間が 2、文字の残った区間は 0'));
+  assert.strictEqual(live.filter((l) => /^文字起こし: 認識ヒント（\d+ バイト）付きでは空 → ヒントなしでも空/.test(l)).length, 2, JSON.stringify(r.engineLog));
   assert.strictEqual(r.engineLog.filter((l) => /^区間 s\d+（音声 \d+ 秒）: 文字起こしが空のため除きました$/.test(l)).length, 2, JSON.stringify(r.engineLog));
   assert.ok(r.engineLog.includes('議事録を保存: 文字起こしが空の区間が 2、文字の残った区間は 0'), JSON.stringify(r.engineLog));
   const notice = r.notices.find((n) => n.startsWith('2 区間の音声を受け取りましたが、文字起こしの結果がすべて空でした。'));

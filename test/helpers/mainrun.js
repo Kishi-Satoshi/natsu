@@ -167,6 +167,14 @@
 //     出力（議事録の場面と json の場面）に overlaySent（録音バーへ送った overlay:start の payload と overlay:segment-ms の値の、送った順）と
 //     order（'overlay:start'・'overlay:segment-ms' と、中継へ送った要求 'relay <道>' の順）を足す。届くかの覚えの長さを縮めるのは、
 //     main を起こす側が渡す試しだけの環境変数 NATSU_TEST_ONLINE_MEMO_SCALE（src/online.js）
+//   第1d回 A-6（RL14・D17）: 文字起こしの状態の場面
+//     出力（議事録の場面）に sttSeen（本体の窓へ送った meeting:update の stt の、前と違ったものだけの並び。会議の外の null は入れない）と sttAt（帯の符号 → その符号が
+//     初めて帯になった meeting:update の区間 [{ id, text, failed, wav }]。wav はそのとき segbuf にその区間の WAV があるか）を足す
+//     --retry-after=<n> … n 区間を送って片付いた後（n+1 区間目の答え方にしてから、送る前）に、画面と同じ IPC の meeting:retry を
+//                        返事を待たずに2回続けて呼ぶ（out.retry に2つの返事）。並べ直した区間が片付く（pending 0）のを待ち、そのときの
+//                        stt と区間（sttAt と同じ形）を out.retried に残してから、続きの区間を送る
+//     --relogin-after=<n> … n 区間を送って片付いた後に、画面と同じ IPC の account:start・account:verify（種まきのメールと、偽の Resend へ
+//                        送ったコード）でログインし直す（out.relogin = { start, verify }）。その直後の meeting:status の stt を out.reloginStt に残す
 //   出力に足すもの（議事録の場面）: pages[].id・title・recovered、files（userData の下の相対パス）、dbStarts（DB の子を起こした回数）、trace
 //   ctx.appCall(cmd, args) … 画面と同じ役 app の口（客の rendererPort() で作る偽の MessageChannelMain の口）で DB に頼む。書く命令には
 //                      'a:' + randomUUID の tx を付ける。答えは result（失敗は Error に .code）。場面（act）にも渡す
@@ -238,6 +246,8 @@ const killDbAtDiscard = flags.includes('--kill-db-at-discard');
 const idleMode = flags.includes('--idle');
 const restartDuring = flagVal('--restart-during');   // 第1d回 A-9
 const relaySeq = flagVal('--relay-seq');   // 第1d回 A-5
+const retryAfterN = Number(flagVal('--retry-after')) || 0;   // 第1d回 A-6
+const reloginAfterN = Number(flagVal('--relogin-after')) || 0;   // 第1d回 A-6
 const relayMode = flagVal('--relay') || (relaySeq ? 'text' : '');   // 第1d回 A-2
 const noStore = flags.includes('--no-store');
 // 第1d回 A-3（RL11）: 文字起こしを中継へ送る場面
@@ -638,6 +648,24 @@ process.on('exit', () => {
   // 第1d回 A-5: 録音バーへ送った区切りの長さ（overlay:start の payload と overlay:segment-ms の値）と、それと中継への要求の順
   const overlaySent = [];
   const order = [];
+  // 第1d回 A-6: meeting:update の stt の、前と違ったものだけの並びと、帯の符号ごとの初めのときの区間（WAV が残っているか）
+  const sttSeen = [];
+  const sttAt = {};
+  const segWavExists = (id) => {
+    const root = path.join(userData, 'data', 'segbuf');
+    let dirs = [];
+    try { dirs = fs.readdirSync(root); } catch (_) { return false; }
+    return dirs.some((d) => fs.existsSync(path.join(root, d, `${String(id).slice(1)}.wav`)));
+  };
+  const segSnap = (segs) => (Array.isArray(segs) ? segs : []).map((x) => ({ id: x.id, text: x.text, failed: Boolean(x.failed), wav: segWavExists(x.id) }));
+  const watchStt = (p) => {
+    if (!p || typeof p !== 'object' || !p.stt || typeof p.stt !== 'object') return;   // 会議の外（stt: null）は並べない
+    const j = JSON.stringify(p.stt);
+    if (sttSeen.length && JSON.stringify(sttSeen[sttSeen.length - 1]) === j) return;
+    sttSeen.push(JSON.parse(j));
+    const code = p.stt && p.stt.problem ? p.stt.problem.code : '';
+    if (code && !(code in sttAt)) sttAt[code] = segSnap(p.segments);
+  };
   const shortcuts = {};   // globalShortcut.register の受け口（キー → 関数）。場面がホットキーを押す
   // 画面へ送った知らせと進み具合の順。進み具合が初めて組を「使える」と言ったとき・壊れた知らせを送ったときの engine:status
   const seq = [];
@@ -721,6 +749,7 @@ process.on('exit', () => {
       const wc = makeEmitter({
         send: (ch, p) => {
           if (wins.indexOf(this) === 0 && (ch === 'overlay:start' || ch === 'overlay:segment-ms')) { overlaySent.push(p); order.push(ch); }
+          if (wins.indexOf(this) === 1 && ch === 'meeting:update') watchStt(p);
           if (wins.indexOf(this) === 1) mainSent.push(ch); if (loading) { lost.push([ch, p]); return; } sent.push([ch, p]); watch(ch, p); },
         isLoading: () => loading,
         setWindowOpenHandler() {}, executeJavaScript: (code) => overlayExec(this, code),
@@ -1644,7 +1673,24 @@ process.on('exit', () => {
   for (let i = 0; i < wavs.length; i++) {
     // 取り消す場面（--discard-during）は最初の区間の後で取り消すので、止めない（--segs=1 でも録音中のまま取り消す）
     const last = i === wavs.length - 1 && !discardDuring;
+    // 第1d回 A-6: n 区間の後にログインし直す（区間を待たずに帯 login が消えるか）
+    if (reloginAfterN && i === reloginAfterN) {
+      const start = await handlers['account:start']({}, seededMail);
+      const verify = await handlers['account:verify']({}, seededMail, relayLocal.codeFor(seededMail));
+      out.relogin = { start, verify };
+      out.reloginStt = handlers['meeting:status']().stt;
+    }
     if (relaySeq) await relayLocal.setAnswer(relaySeq[i] || 'c');   // 第1d回 A-5: この区間の中継の答え方
+    // 第1d回 A-6: n 区間の後（この区間の答え方にしてから）に［もう一度］を返事を待たずに2回
+    if (retryAfterN && i === retryAfterN) {
+      const r1 = handlers['meeting:retry']();
+      const r2 = handlers['meeting:retry']();
+      out.retry = [await r1, await r2];
+      await sleep(50);
+      await waitFor(() => handlers['meeting:status']().pending === 0, 15000);
+      const st = handlers['meeting:status']();
+      out.retried = { stt: st.stt, segments: segSnap(st.segments) };
+    }
     if (last) out.stop = await handlers['meeting:toggle']();
     listeners['audio:segment']({}, { buffer: new Uint8Array(wavs[i].buf), durationMs: wavs[i].ms, final: last });
     await sleep(50);
@@ -1717,6 +1763,8 @@ process.on('exit', () => {
   out.notices = sent.filter(([ch]) => ch === 'app:notice').map(([, p]) => p);
   out.overlaySent = overlaySent.slice();
   out.order = order.slice();
+  out.sttSeen = sttSeen.slice();
+  out.sttAt = sttAt;
   const elog = path.join(userData, 'engine.log');
   out.engineLog = fs.existsSync(elog) ? fs.readFileSync(elog, 'utf8').split('\n').filter(Boolean).map((l) => l.replace(/^\[[^\]]+\] /, '')) : [];
   out.requests = fs.readFileSync(flog, 'utf8').split('\n').filter((l) => l.startsWith('inference'));

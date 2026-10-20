@@ -83,3 +83,39 @@ test('D16: 途中で送る長さは録音バーと同じく 20〜300 秒に丸�
     assert.strictEqual(n(p, c, 75000, d), L.nextSegmentMs(p, c, 75000, d), `75 秒の会議の背圧が変わった ${[p, c, d]}`);
   }
 });
+
+// ---------------------------------------------------------------- A-6（RL14・D17・F14・F15）: 止まりの見張りと帯の選び方
+test('D17: 止まりの見張りは約 45 秒（15 秒なら3区間・75 秒なら2区間）。無音の空は数えず戻しもしない', { timeout: 5000 }, () => {
+  assert.deepStrictEqual([15000, 20000, 30000, 75000, 300000].map(L.stallAfter), [3, 3, 2, 2, 2]);
+  assert.strictEqual(L.STALL_SPAN_MS, 45000);
+  assert.strictEqual(L.STALL_MIN_DBFS, -40);
+  let run = 0;
+  const s = (text, levelDbfs) => (run = L.stallStep(run, { text, levelDbfs }));
+  assert.deepStrictEqual([s('', -20), s('', -70), s('', -30), s('こんにちは', -20), s('', -35)], [1, 1, 2, 0, 1]);
+  assert.strictEqual(L.stallStep(0, { text: '', levelDbfs: -Infinity }), 0, '無音を数えた');
+  assert.strictEqual(L.stallStep(0, { text: '', levelDbfs: -41 }), 0, '-40 dBFS より小さい音を数えた');
+  assert.strictEqual(L.stallStep(2, { text: '', levelDbfs: -40 }), 2, 'ちょうど -40 dBFS を数えた（より大きい音だけ）');
+});
+
+test('D17: 帯は1つだけで、エンジン → 止まり → ログイン → 残した失敗 → 中継の順。手元に落ちた理由ごとの符号', { timeout: 5000 }, () => {
+  assert.deepStrictEqual(L.PROBLEM_ORDER, ['engine-down', 'stall', 'login', 'seg-failed', 'relay-off', 'daily-cap', 'relay-blocked', 'relay-down', 'relay-busy', 'wait']);
+  const m = new Map([['relay-down', {}], ['seg-failed', { n: 2 }], ['wait', { sec: 7 }]]);
+  assert.deepStrictEqual(L.sttProblemOf(m), { code: 'seg-failed', n: 2 });
+  m.set('engine-down', {});
+  assert.strictEqual(L.sttProblemOf(m).code, 'engine-down');
+  m.set('stall', { sec: 45 }); m.set('login', {});
+  assert.deepStrictEqual(['engine-down', 'stall', 'login', 'seg-failed', 'relay-down'].map((c) => { const r = L.sttProblemOf(m).code; m.delete(c); return r; }),
+    ['engine-down', 'stall', 'login', 'seg-failed', 'relay-down']);
+  assert.deepStrictEqual(L.sttProblemOf(m), { code: 'wait', sec: 7 });
+  assert.strictEqual(L.sttProblemOf(new Map()), null);
+  assert.strictEqual(L.sttProblemOf(new Map([['知らない', {}]])), null, '表に無い符号を帯にした');
+  const P = (why) => L.problemForRoute({ route: 'local', why });
+  assert.deepStrictEqual(['unreachable', 'net', 'timeout', 'cert', 'proxy', 'login', 'server', 'bad-reply', 'quota', 'upstream-auth'].map(P),
+    ['relay-down', 'relay-down', 'relay-down', 'relay-blocked', 'relay-blocked', 'login', 'relay-busy', 'relay-busy', 'relay-off', 'relay-off']);
+  assert.deepStrictEqual(['too-large', 'bad-request', 'まだ無い符号'].map(P), ['relay-busy', 'relay-busy', 'relay-busy']);
+  assert.deepStrictEqual(['offline', 'signed-out', 'local-only', 'ok'].map(P), ['', '', '', ''], 'オフライン・ログインしていない・PC の中だけを帯にした');
+  assert.strictEqual(L.problemForRoute({ route: 'cloud', why: 'ok' }), '');
+  // daily-cap は scope で分かれる（1人の上限は daily-cap、全体の上限は relay-off）
+  assert.strictEqual(L.problemForRoute({ route: 'local', why: 'daily-cap', scope: 'user' }), 'daily-cap');
+  assert.strictEqual(L.problemForRoute({ route: 'local', why: 'daily-cap', scope: 'all' }), 'relay-off');
+});

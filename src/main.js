@@ -89,6 +89,7 @@ const {
   extractNotes, truncationMessage, buildPromptParts,
   publicSegments, settledSegments, pendingDurationMs, recoverSegments, staleSegbufDirs, EtaTracker, chooseDraftName,
   skipPendingSegments, startSegmentMode, segmentModeNext, segmentBaseMs, nextLiveSegmentMs,
+  stallAfter, stallStep, sttProblemOf, problemForRoute,
   estimateTokens, foldNotes, idleEnginesToStop, silentWav, wavLevelDbfs, mergeSummaryType, memoEvidence,
   sameShas, keepPrevious, candStamp, repairIdsOf, pathUsedBy, fetchMinutesLeft,
   pickDefaultPath,
@@ -1522,6 +1523,27 @@ const noticeFor = (why, scope) => {
   if (why === 'daily-cap') return scope === 'all' ? 'relay-off' : 'daily-cap';
   return Object.prototype.hasOwnProperty.call(LOCAL_NOTICE, why) ? LOCAL_NOTICE[why] : 'server';
 };
+// 録音中のページの帯（第1d回 A-6・D17。計画「画面と知らせの文」の B1〜B10）。画面は文を作らず、この文をそのまま出す。
+// d は帯の詳しさ（seg-failed の n・stall と wait の sec）、p は送り先（{ホスト} は中継のホストの名前だけ。札・URL の道は入れない）
+const STT_BANNER = {
+  'engine-down': () => 'PC の中の文字起こしエンジンが動いていません（音声は残してあります）。［エンジンを確かめる］を押してください。',
+  stall: (d) => `文字起こしが止まっているかもしれません（音はあるのに、約 ${d.sec} 秒文字が出ていません）。［もう一度］で、その区間を送り直してください。`,
+  login: () => 'ログインが切れたため、PC の中で文字起こししています。［ログインし直す］を押して、もう一度ログインしてください。',
+  'seg-failed': (d) => `${d.n} 区間の文字起こしに失敗しました（音声は残してあります）。［もう一度］を押してください。`,
+  'relay-off': () => '文字起こしの中継が今は使えないため、PC の中で文字起こしを続けています。続くときは管理者に知らせてください。',
+  'daily-cap': () => '今日のクラウドの文字起こしの上限に達したため、今日の残りは PC の中で文字起こしします。録音はそのまま続けてください。',
+  'relay-blocked': (_d, p) => `文字起こしの中継につながりません（会社の通信の検査で止められている可能性があります）。PC の中で文字起こしを続けています。続くときは情報システムに ${p.host} への通信の許可を頼んでください。`,
+  'relay-down': () => '中継につながりません。PC の中で文字起こしを続けています。録音はそのまま続けてください。',
+  'relay-busy': () => '文字起こしの中継が混み合っているため、PC の中で文字起こししています。録音はそのまま続けてください。',
+  wait: (d) => `OpenAI が混み合っているため、${d.sec} 秒待ってから送り直しています。録音はそのまま続けてください。`,
+};
+// 帯のボタン（画面が付ける。engine は設定の「文字起こし」、retry は meeting:retry、account は設定の「アカウント」）
+const STT_BANNER_ACTION = { 'engine-down': 'engine', stall: 'retry', login: 'account', 'seg-failed': 'retry' };
+// 中継の様子の帯。互いに替わる（新しい様子を立てたら前の様子は消す）。クラウドで答えが来た・オフライン・ログインしていない・
+// PC の中だけになったら全部消す（オフラインなどは帯にしない: RF28）
+const RELAY_PROBLEMS = ['relay-off', 'daily-cap', 'relay-blocked', 'relay-down', 'relay-busy'];
+// 止まりの見張りで残した区間の文（音声は残し、［もう一度］と会議の後の送り直しに載せる）
+const STALL_SEG_TEXT = '（音はありましたが、文字になりませんでした）';
 // 知らせを出した印。会議の中は meeting.notified（会議ごとに1回）、会議の外（音声入力・復旧）と L10 は起動ごとに1回
 const bootNotified = new Set();
 const noticeSeen = (scope) => (scope && scope.notified instanceof Set ? scope.notified : bootNotified);
@@ -1642,14 +1664,18 @@ async function relayFallback(e, scope, provider, sentToken) {
   if (n) noticeOnce(scope, n, STT_NOTICE[n](provider));
   return code;
 }
-// opts: transcribeLocal と同じ（isStale・learn）＋ localOnly・notice（会議の知らせの係。無ければ起動ごと）・what（記録の名前）
-// → { text, route: 'cloud'|'local', provider, why }。手元のエンジンが用意できないときの Error は engineMissing を持つ
+// opts: transcribeLocal と同じ（isStale・learn）＋ localOnly・notice（会議の知らせの係。無ければ起動ごと）・what（記録の名前）・
+// onWait(sec)（OpenAI の短い 429 を待つとき。会議の帯 wait: 第1d回 A-6）
+// → { text, route: 'cloud'|'local', provider, why, scope? }（scope は why が daily-cap のときだけ 'user'|'all'。帯の分け方: A-6）。
+// 手元のエンジンが用意できないときの Error は engineMissing を持つ。手元で文字起こしする区間の失敗の Error には sttRoute
+// （{ route: 'local', why, scope? }。帯の符号を決める: A-6）を付ける
 async function transcribeAuto(wav, tail, durationMs, opts = {}) {
   const scope = opts.notice || null;
   const what = opts.what || '音声入力';
   const d = await sttRoute(Boolean(opts.localOnly), { scope });
   const provider = d.provider;
   let why = d.why;
+  let capScope = d.scope || '';
   if (d.route === 'cloud') {
     const t0 = Date.now();
     try {
@@ -1659,6 +1685,7 @@ async function transcribeAuto(wav, tail, durationMs, opts = {}) {
         onWait: (sec) => {
           engineLog(`文字起こしの経路: 中継が 429（OpenAI の上限に近い）。${sec} 秒待つ`);
           noticeOnce(scope, 'wait', STT_NOTICE.wait(provider, sec));
+          if (typeof opts.onWait === 'function') opts.onWait(sec);   // 会議の帯 wait（第1d回 A-6）
         },
         onPromptDropped: () => engineLog('文字起こしの経路: 中継が認識ヒント付きの要求を断ったため、ヒントを外して送り直しました'),
       });
@@ -1668,16 +1695,23 @@ async function transcribeAuto(wav, tail, durationMs, opts = {}) {
       if (!sttCloud.redoLocally(e)) throw cloudFailure(e, provider);
       // この区間だけ手元でやり直す（録音と文字起こしは中継に頼らない: RF35）
       why = await relayFallback(e, scope, provider, d.token);
+      capScope = why === 'daily-cap' ? (e.scope === 'all' ? 'all' : 'user') : '';
     }
   }
   engineLog(`文字起こしの経路: ${what} → local（理由: ${why}）`);
-  if (!(await ensureEngineReady(whisperEng))) {
-    const err = new Error(whisperEng.lastError || '文字起こしエンジンが起動していません');
-    err.engineMissing = true;
-    throw err;
+  const via = { route: 'local', why, ...(capScope ? { scope: capScope } : {}) };
+  try {
+    if (!(await ensureEngineReady(whisperEng))) {
+      const err = new Error(whisperEng.lastError || '文字起こしエンジンが起動していません');
+      err.engineMissing = true;
+      throw err;
+    }
+    const text = await transcribeLocal(wav, tail, durationMs, opts);
+    return { text, provider, ...via };
+  } catch (e) {
+    if (e && typeof e === 'object') e.sttRoute = via;
+    throw e;
   }
-  const text = await transcribeLocal(wav, tail, durationMs, opts);
-  return { text, route: 'local', provider, why };
 }
 // 復旧の前: q.localOnly でなく、クラウドで処理できるなら true（エンジンを起こさない。知らせは出さない）
 async function recoveryCloudReady(q) {
@@ -2370,6 +2404,7 @@ function removeDirIfEmpty(dir) { try { fs.rmdirSync(dir); } catch (_) { /* noop 
 // 破棄: 退避した音声は復旧の材料にしない（破棄は利用者の意思）
 function cleanupSegbuf(m) {
   for (const s of m.segments) unlinkQuiet(s.wav);   // 待ちの区間も、失敗して残した区間も
+  dropQuietKept(m);   // 止まりの見張りで控えた区間も（第1d回 A-6）
   removeDirIfEmpty(segbufDir(m.startedAt));
 }
 // 文字起こし待ちの区間を結果で置き換える（id/atMs はそのまま。pending/wav を外し、wav を消す）。
@@ -2390,6 +2425,7 @@ function settleSegment(m, seg, patch) {
     if (i >= 0) m.segments.splice(i, 1);
   }
   writeDraft();
+  refreshSegFailed(m);
   // 確定した区間を DB の写しへ（第2a1回 ST6）。返事を待たない（失敗しても録音は続ける。下書きが正本）。送るたびに別の tx（客が作る）。
   // 下書きに書いてから送る（写しが下書きより先に進まない）。音声のパスは載せない
   if (patch && m.pageId) db.send('meeting.segment', { pageId: m.pageId, seg: settledSegments([seg])[0] });
@@ -2414,6 +2450,137 @@ function applySegmentLength(m, delta, why) {
 function segmentRouted(m, route, why) {
   m.segMode = segmentModeNext(m.segMode, { route, why });
   applySegmentLength(m, 0, why);
+}
+
+// ---- 会議ごとの文字起こしの状態（第1d回 A-6・RL14・D17）
+// 帯の符号を立てる・消す。同じ符号は1つだけで、記録は立てたとき・消したときだけ（区間ごとに重ねない: F15）。符号と数だけを書く
+function setSttProblem(m, code, detail = {}) {
+  if (!m.problems.has(code)) engineLog(`文字起こしの状態: 帯 ${code}`);
+  m.problems.set(code, detail);
+}
+function clearSttProblem(m, ...codes) {
+  for (const code of codes) if (m.problems.delete(code)) engineLog(`文字起こしの状態: 帯を消した ${code}`);
+}
+// 区間の経路（transcribeAuto の答えか、手元の失敗の Error の sttRoute）から中継の様子の帯を決める。クラウドで答えが来たら（空の文でも
+// 中継は戻っている）中継の帯を全部消す。オフライン・ログインしていない・PC の中だけは帯にせず、立っている中継の帯も消す（RF28）
+function noteSttRoute(m, { route, why, scope } = {}) {
+  if (route === 'cloud' || why === 'offline' || why === 'signed-out' || why === 'local-only') {
+    clearSttProblem(m, ...RELAY_PROBLEMS);
+    return;
+  }
+  const code = problemForRoute({ route, why, scope });
+  if (!code) return;
+  if (RELAY_PROBLEMS.includes(code)) clearSttProblem(m, ...RELAY_PROBLEMS.filter((c) => c !== code));
+  setSttProblem(m, code, {});
+}
+// 区間が文字になった: 経路と時刻を覚え、エンジンと止まりの帯を消し、止まりの数えを戻して控えた WAV を消す
+function noteSttText(m, route) {
+  m.stt = { route, lastTextAt: Date.now() };
+  m.stallRun = 0;
+  dropQuietKept(m);
+  clearSttProblem(m, 'engine-down', 'stall');
+}
+function dropQuietKept(m) {
+  for (const s of m.quietKept.splice(0)) unlinkQuiet(s.wav);
+}
+// 失敗して音声を残した区間の数（［もう一度］と会議の後の送り直しの材料）→ 帯 seg-failed
+function refreshSegFailed(m) {
+  const n = m.segments.filter((s) => s.failed && s.wav).length;
+  if (n > 0) setSttProblem(m, 'seg-failed', { n });
+  else clearSttProblem(m, 'seg-failed');
+}
+// 文字が空だった区間（直前と同じ文で除いた区間は呼ばない）。音のある空は WAV を消さずに控え、stallAfter 個続いたら止まりとみなし、
+// 控えた区間を失敗の区間として atMs の順にページへ戻す。音の無い空は今どおり消す（数えも戻しもしない）→ 控えたら true
+function noteEmptySegment(m, seg, buffer) {
+  const run = stallStep(m.stallRun, { text: '', levelDbfs: wavLevelDbfs(buffer) });
+  if (run === m.stallRun) return false;
+  m.stallRun = run;
+  const i = m.segments.indexOf(seg);
+  if (i >= 0) m.segments.splice(i, 1);
+  delete seg.pending;
+  m.quietKept.push(seg);
+  if (run >= stallAfter(m.segmentMs)) {
+    const kept = m.quietKept.splice(0);
+    m.stallRun = 0;
+    const sec = Math.round(kept.reduce((a, x) => a + (Number(x.durationMs) || 0), 0) / 1000);
+    for (const x of kept) {
+      x.text = STALL_SEG_TEXT;
+      x.failed = true;
+      let at = m.segments.findIndex((y) => y.atMs > x.atMs);
+      if (at < 0) at = m.segments.length;
+      m.segments.splice(at, 0, x);
+    }
+    engineLog(`文字起こしの状態: 止まっているかもしれない（音のある空の区間 ${kept.length}）`);
+    setSttProblem(m, 'stall', { sec });
+    if (m.pageId) for (const x of kept) db.send('meeting.segment', { pageId: m.pageId, seg: settledSegments([x])[0] });
+  }
+  refreshSegFailed(m);
+  writeDraft();
+  sendToMainWin('meeting:update', meetingStatus());
+  return true;
+}
+// 画面へ渡す状態（文字起こしの文・札・メール・URL の道は入れない）。まだ文字が無いときの経路は見込み（PC の中だけ・長い側なら 'local'）
+function sttStatus(m) {
+  const route = m.stt.route || (m.localOnly || !m.segMode || m.segMode.mode === 'long' ? 'local' : 'cloud');
+  const p = sttProblemOf(m.problems);
+  return {
+    route, lastTextAt: m.stt.lastTextAt, segSec: m.segmentMs / 1000,
+    problem: p ? { ...p, text: STT_BANNER[p.code](p, sttProvider()), action: STT_BANNER_ACTION[p.code] || '' } : null,
+  };
+}
+// 会議の区間の文字起こしの後始末で共通: 手元の失敗はその経路の帯とエンジンの帯（中継の失敗 rate・rate-long は区間の失敗だけ）
+function noteSttFailure(m, e) {
+  if (e && e.sttRoute) {
+    noteSttRoute(m, e.sttRoute);
+    setSttProblem(m, 'engine-down', {});
+  }
+}
+// ［もう一度］（meeting:retry）: 失敗して音声を残した区間（止まりで残した区間も）を、今の経路で segChain の後ろに並べ直す。atMs はそのまま。
+// 文字になればその区間を置き換え（WAV を消す）、失敗か空なら元の失敗のまま。並べ直した区間が返事を待つ間の2回目は n: 0
+function retryFailedSegments() {
+  const m = meeting;
+  if (!m || m.skipAll) return { ok: false };
+  const segs = m.segments.filter((s) => s.failed && s.wav && !m.retrying.has(s.id)).sort((a, b) => a.atMs - b.atMs);
+  if (!segs.length) return { ok: true, n: 0 };
+  engineLog(`文字起こしの状態: もう一度 ${segs.length} 区間`);
+  for (const seg of segs) {
+    m.retrying.add(seg.id);
+    const gen = m.gen;
+    const stale = () => meeting !== m || m.gen !== gen;
+    pendingSegs++;
+    segChain = segChain.then(async () => {
+      if (stale() || !m.segments.includes(seg) || !seg.failed || !seg.wav) return;
+      let buffer;
+      try { buffer = fs.readFileSync(seg.wav); } catch (e) { engineLog(`区間 ${seg.id}: もう一度の音声を読めません（${errCode(e)}）`); return; }
+      let r;
+      try {
+        r = await transcribeAuto(buffer, promptTail(m.segments), seg.durationMs, { isStale: stale, learn: true, localOnly: m.localOnly, notice: m,
+          what: `区間 ${seg.id}（もう一度）`, onWait: (sec) => { if (!stale()) { setSttProblem(m, 'wait', { sec }); sendToMainWin('meeting:update', meetingStatus()); } } });
+      } catch (e) {
+        if (!stale()) noteSttFailure(m, e);
+        return;
+      }
+      if (stale()) return;
+      clearSttProblem(m, 'wait');
+      noteSttRoute(m, r);
+      const text = settings.removeFillers ? removeFillersRule(r.text) : r.text;
+      if (!text) return;
+      m.route[r.route] += 1;
+      noteSttText(m, r.route);
+      delete seg.failed;
+      settleSegment(m, seg, { text });
+    }).catch(() => {}).finally(() => {
+      m.retrying.delete(seg.id);
+      if (meeting !== m) return;
+      pendingSegs = Math.max(0, pendingSegs - 1);
+      clearSttProblem(m, 'wait');
+      refreshSegFailed(m);
+      sendToMainWin('meeting:update', meetingStatus());
+      if (m.stopping && pendingSegs === 0) maybeFinalizeMeeting().catch((e) => engineLog(`finalize failed: ${e.message}`));
+    });
+  }
+  sendToMainWin('meeting:update', meetingStatus());
+  return { ok: true, n: segs.length };
 }
 
 // 残りの待ち時間（秒）。待ちの区間の長さの合計に、区間ごとの処理時間の比（EMA。
@@ -2456,6 +2623,8 @@ function meetingStatus() {
     // 画面は cloud のときだけ［この会議は PC の中だけ］を出し、押した後（localOnly）は戻すボタンを出さない
     localOnly: Boolean(meeting && meeting.localOnly),
     cloud: hasRelayToken(),
+    // 第1d回 A-6（RL14・D17）: 文字起こしの状態（経路・最後の文字の時刻・区切り・帯）。会議の外は null
+    stt: meeting ? sttStatus(meeting) : null,
   };
 }
 
@@ -2963,7 +3132,10 @@ async function startMeeting() {
     // suspendAsked はスリープで頼んだ、hintOnPause は復帰の頼み直しの返事で再開を促す、resumeHint は再開を促している
     pauses: [], pauseAsked: false, pauseAskTimer: null, pauseWhy: '', suspendAsked: false, hintOnPause: false, resumeHint: false,
     // 第1c回: localOnly は［この会議は PC の中だけ］、route は経路ごとの文字起こしできた区間の数、notified は会議ごとの知らせの印
-    localOnly: false, route: { cloud: 0, local: 0 }, notified: new Set() };
+    localOnly: false, route: { cloud: 0, local: 0 }, notified: new Set(),
+    // 第1d回 A-6（D17）: stt は最後に文字になった区間の経路と時刻、problems は帯の符号 → 詳しさ、stallRun は続けて空だった音のある区間の数、
+    // quietKept はその区間（WAV を消さずに控える。止まりとみなしたら失敗の区間としてページへ戻す）、retrying は［もう一度］で並べ直した区間の id
+    stt: { route: '', lastTextAt: null }, problems: new Map(), stallRun: 0, quietKept: [], retrying: new Set() };
   // 第1d回 A-5（D16）: 始めの区切り。中継へ届くかは聞かない（録音の始まりを待たせない）。札があるか（復号しない）・hold・net.isOnline()・
   // 覚えている /health の答えだけで決め、外れたら区間の後で替わる（segmentRouted）
   const h0 = holdNow();
@@ -3105,11 +3277,16 @@ function onMeetingSegment(buffer, durationMs, isFinal) {
     let text = '';
     let route = 'local';
     let why = 'engine';
+    let scope = '';
+    // 第1d回 A-6: OpenAI の短い 429 を待つ間の帯 wait（区間が終わったら消す）
+    const onWait = (sec) => { if (meeting === m && m.gen === gen) { setSttProblem(m, 'wait', { sec }); sendToMainWin('meeting:update', meetingStatus()); } };
     try {
-      ({ text, route, why } = await transcribeAuto(buffer, tail, durationMs, { isStale: () => meeting !== m || m.gen !== gen, learn: true, localOnly: m.localOnly, notice: m, what: `区間 ${seg.id}` }));
+      ({ text, route, why, scope } = await transcribeAuto(buffer, tail, durationMs, { isStale: () => meeting !== m || m.gen !== gen, learn: true, localOnly: m.localOnly, notice: m, what: `区間 ${seg.id}`, onWait }));
     } catch (e) {
       if (meeting !== m || m.gen !== gen) return;
       m.inFlightSince = 0;
+      clearSttProblem(m, 'wait');
+      noteSttFailure(m, e);
       // 失敗は手元の側に数える（中継の失敗の符号があればその符号: rate-long など。無ければ手元のエンジンの失敗 engine）
       segmentRouted(m, 'local', (e && typeof e.cloudCode === 'string' && e.cloudCode) || 'engine');
       settleSegment(m, seg, { text: `（この区間の認識に失敗: ${e.message}）`, failed: true });
@@ -3117,6 +3294,8 @@ function onMeetingSegment(buffer, durationMs, isFinal) {
     }
     if (meeting !== m || m.gen !== gen) return;
     m.inFlightSince = 0;
+    clearSttProblem(m, 'wait');
+    noteSttRoute(m, { route, why, scope });
     segmentRouted(m, route, why);
     m.route[route] += 1;   // 経路ごとの、文字起こしできた区間の数（ページの route.stt。第1c回 OL6）
     eta.record(Date.now() - t0, durationMs, route);   // 成功した区間だけで、経路ごとに学習（失敗は時間の目安にならない。クラウドの速さを手元の見積もりに混ぜない）
@@ -3129,13 +3308,16 @@ function onMeetingSegment(buffer, durationMs, isFinal) {
     if (!text || (prev && text.length > 6 && prev === text)) {
       if (!text) m.emptySegs++;
       engineLog(`区間 ${seg.id}（音声 ${Math.round(durationMs / 1000)} 秒）: ${text ? '直前と同じ文のため' : '文字起こしが空のため'}除きました`);
+      // 第1d回 A-6: 音のある空はページから除くが WAV は控える（止まりの見張り）。直前と同じ文で除いた区間は数えも戻しもしない
+      if (!text && noteEmptySegment(m, seg, buffer)) return;
       settleSegment(m, seg, null);
       return;
     }
+    noteSttText(m, route);
     settleSegment(m, seg, { text });
   }).catch(() => {}).finally(() => {
     // 破棄済みの議事録の区間は、破棄時に数え直した件数を減らさない
-    if (meeting === m) { pendingSegs = Math.max(0, pendingSegs - 1); applySegmentLength(m, -1, 'backpressure'); }
+    if (meeting === m) { pendingSegs = Math.max(0, pendingSegs - 1); applySegmentLength(m, -1, 'backpressure'); clearSttProblem(m, 'wait'); }
     sendToMainWin('meeting:update', meetingStatus());
     if (meeting === m && (isFinal || (m.stopping && pendingSegs === 0))) {
       maybeFinalizeMeeting().catch((e) => engineLog(`finalize failed: ${e.message}`));
@@ -3151,6 +3333,7 @@ async function maybeFinalizeMeeting() {
   if (meeting.skipAll && !meeting.finalSeen) return;
   const m = meeting;
   meeting = null;
+  dropQuietKept(m);   // 止まりの見張りで控えたまま会議が終わった区間の WAV（ページには無い。第1d回 A-6）
 
   // 一時停止していた時間は会議の長さに含めない。基準は停止時刻であって
   // 「今」ではない（今で計ると文字起こし待ちが混ざる。mainlib.meetingDurationSec）。
@@ -3220,7 +3403,8 @@ async function maybeFinalizeMeeting() {
   sendToMainWin('page:open', page.id);
   // 音声は届いたのに、文字起こしが全部空だった。黙っていると「0 区間」の理由が分からない。
   // 通知は数秒で消えるので、要約の欄（summaryError）にも同じ文を残す（下の runSummary の後）
-  const allEmpty = m.emptySegs > 0 && !settledSegments(m.segments).length;
+  // 止まりの見張りで音声ごと残した区間（第1d回 A-6。文字は無い）は「文字の残った区間」に数えない（全部が空なら、マイクの確かめ方も知らせる）
+  const allEmpty = m.emptySegs > 0 && !settledSegments(m.segments).some((s) => s.text !== STALL_SEG_TEXT);
   const allEmptyText = `${m.emptySegs} 区間の音声を受け取りましたが、文字起こしの結果がすべて空でした。`
     + '設定の「使用するマイク」が話している人の声を拾うマイクになっているか確かめてください。'
     + '続くときは、理由の記録を見てください。理由の記録: %APPDATA%\\natsu\\engine.log';
@@ -3715,6 +3899,8 @@ function setupIpc() {
   });
   ipcMain.handle('meeting:discard', () => discardMeeting());
   ipcMain.handle('meeting:status', () => meetingStatus());
+  // 第1d回 A-6（D17）: 帯の［もう一度］。失敗して音声を残した区間を今の経路で並べ直す → { ok: true, n } | { ok: false }
+  ipcMain.handle('meeting:retry', () => retryFailedSegments());
   ipcMain.handle('meeting:set-memo', (_e, memo) => { if (meeting) { meeting.memo = String(memo || ''); writeDraft(); } return true; });
   // 終了後の文字起こし待ちを打ち切る（#42）。記録中（終了前）は打ち切れない。待ちの区間は
   // 「（文字起こしを打ち切り）」の失敗扱いでページに残し、wav は消す（mainlib.skipPendingSegments）。
@@ -3892,6 +4078,11 @@ function setupIpc() {
     }
     setAccountEmail(isEmailShape(r.email) ? r.email : mail);
     engineLog('アカウント: ログインした');
+    // 録音中の会議の帯 login は、区間を待たずに消す（第1d回 A-6）
+    if (meeting && meeting.problems.has('login')) {
+      clearSttProblem(meeting, 'login');
+      sendToMainWin('meeting:update', meetingStatus());
+    }
     // 前の札は使われないまま 30 日残さず、中継で取り消す（答えは待たない: ログインを遅らせない。届かなければ 30 日で切れる）
     if (prev && prev !== r.token) {
       accountApi.logout(prev).then((out) => engineLog(`アカウント: 前の札を中継で取り消した（${out && out.ok ? 'ok' : '届かない'}）`),

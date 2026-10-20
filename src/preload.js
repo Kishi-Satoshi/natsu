@@ -165,6 +165,8 @@ contextBridge.exposeInMainWorld('koeApp', {
   meetingSetMemo: (memo) => ipcRenderer.invoke('meeting:set-memo', memo),
   meetingSkipPending: () => ipcRenderer.invoke('meeting:skipPending'),
   meetingSetLocalOnly: (on) => ipcRenderer.invoke('meeting:set-local-only', on),
+  // 第1d回 A-6（D17）: 帯の［もう一度］（失敗して音声を残した区間を送り直す）
+  meetingRetry: () => ipcRenderer.invoke('meeting:retry'),
   meetingSetPaused: (on) => ipcRenderer.invoke('meeting:set-paused', on),   // 第1b回 N4c: → { ok, pending, paused }
 
   // ログイン（第1d回 Task A-2。設定のカード「アカウント」が呼ぶ: A-4）。札（トークン）と確認コードは main から返らない

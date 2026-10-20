@@ -941,6 +941,51 @@ function nextLiveSegmentMs(pending, currentMs, baseMs, delta) {
   return raw === currentMs ? currentMs : liveSegmentMs(raw);
 }
 
+// ---------------------------------------------------------------- 文字起こしの状態（第1d回 D17・RL14。A-6）
+// 止まりの見張り: 音のある区間（STALL_MIN_DBFS より大きい）が続けて空なら、約 STALL_SPAN_MS で「止まっているかもしれない」にする。
+// 区間の数は区切りで割って切り上げ、2 以上（15 秒・20 秒なら 3、30 秒より長ければ 2）。無音の空は数えず、戻しもしない
+const STALL_SPAN_MS = 45000;
+// 話し声はふつう -40 dBFS より大きい。ヒントなしのやり直しの RETRY_MIN_DBFS（-50）より厳しくする（小さな雑音の空で止まりにしない）
+const STALL_MIN_DBFS = -40;
+/** 止まりとみなす、音のある空の区間の数 */
+function stallAfter(segMs) {
+  const ms = Number(segMs) > 0 ? Number(segMs) : 75000;
+  return Math.max(2, Math.ceil(STALL_SPAN_MS / ms));
+}
+/** 区間の後の数え: 文字あり → 0、音のある空 → run + 1、音の無い空 → run のまま */
+function stallStep(run, { text, levelDbfs } = {}) {
+  const n = Number.isInteger(run) && run > 0 ? run : 0;
+  if (text) return 0;
+  return Number(levelDbfs) > STALL_MIN_DBFS ? n + 1 : n;
+}
+// 帯（録音中のページの頭。計画「画面と知らせの文」の B1〜B10）の符号。同時に1つだけで、前ほど先に出す
+const PROBLEM_ORDER = ['engine-down', 'stall', 'login', 'seg-failed', 'relay-off', 'daily-cap', 'relay-blocked', 'relay-down', 'relay-busy', 'wait'];
+/** problems: Map<符号, 詳しさ（{ n } や { sec }）> → 一番前の { code, ...詳しさ } か null（表に無い符号は見ない） */
+function sttProblemOf(problems) {
+  if (!(problems instanceof Map)) return null;
+  for (const code of PROBLEM_ORDER) {
+    if (problems.has(code)) {
+      const d = problems.get(code);
+      return { code, ...(d && typeof d === 'object' ? d : {}) };
+    }
+  }
+  return null;
+}
+// 手元に落ちた理由（経路の why・中継の失敗の符号）→ 帯の符号。表に無い中継の失敗（server・bad-reply・too-large・bad-request・
+// 知らない符号）はその区間を PC でやり直したので relay-busy。オフライン・ログインしていない・PC の中だけ・ok は帯にしない（RF28）
+const PROBLEM_FOR_WHY = {
+  unreachable: 'relay-down', net: 'relay-down', timeout: 'relay-down',
+  cert: 'relay-blocked', proxy: 'relay-blocked',
+  login: 'login', quota: 'relay-off', 'upstream-auth': 'relay-off',
+  offline: '', 'signed-out': '', 'local-only': '', ok: '',
+};
+/** → 帯の符号か ''。daily-cap は scope で分ける（1人の上限は daily-cap、全体の上限は relay-off） */
+function problemForRoute({ route, why, scope } = {}) {
+  if (route !== 'local') return '';
+  if (why === 'daily-cap') return scope === 'all' ? 'relay-off' : 'daily-cap';
+  return Object.hasOwn(PROBLEM_FOR_WHY, why) ? PROBLEM_FOR_WHY[why] : 'relay-busy';
+}
+
 // ---------------------------------------------------------------- 残り時間の見積もり（#42）
 // 区間ごとの「処理時間 ÷ 音声の長さ」を指数移動平均（EMA）で持ち、残りの待ち（文字起こし
 // 待ちの区間の長さの合計）に掛けて秒で返す。材料が無いうちは null（0 を出すと「もう終わる」
@@ -1293,6 +1338,7 @@ module.exports = {
   publicSegments, settledSegments, pendingDurationMs, recoverSegments, staleSegbufDirs,
   nextSegmentMs, EtaTracker, skipPendingSegments,
   ONLINE_SEGMENT_SEC, OVERLAY_SEG_MIN_MS, SEG_SWITCH_AFTER, STICKY_LOCAL, startSegmentMode, segmentModeNext, segmentBaseMs, liveSegmentMs, nextLiveSegmentMs,
+  STALL_SPAN_MS, STALL_MIN_DBFS, stallAfter, stallStep, PROBLEM_ORDER, sttProblemOf, problemForRoute,
   estimateTokens, foldNotes, idleEnginesToStop, silentWav, wavLevelDbfs, mergeSummaryType, memoEvidence, buildClaudeInput, routeLabel,
   isLoopbackUrl, loopbackOnlyFetch,
   sameShas, keepPrevious, candStamp, repairIdsOf, pathUsedBy, fetchMinutesLeft,
