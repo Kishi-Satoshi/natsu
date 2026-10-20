@@ -313,12 +313,13 @@ test('RP6: 作成中・完了・エラーは形ごとの文（横は main の文
   assert.ok(!pillOf(h.log).classList.contains('visible'), '完了で 1.6 秒で隠さない');
   const v = await 録音を始める({ form: 'v' });
   v.log.fire('onPhase', { phase: 'processing', message: '議事録を作成中…' });
-  assert.strictEqual(msgText(v.log), '作成中…');
+  // 0.9.0 見た目の直し（統合の後の見直し）で意図して変えた: 縦の形の文は縦向きの字（「…」は「︙」、「ー」は「︱」。下のテスト）
+  assert.strictEqual(msgText(v.log), '作成中︙');
   v.log.fire('onPhase', { phase: 'done', message: '議事録を保存しました' });
   assert.strictEqual(msgText(v.log), '保存しました');
   const e = await 録音を始める({ form: 'v' });
   e.log.fire('onPhase', { phase: 'error', message: '議事録を保存できませんでした' });
-  assert.strictEqual(msgText(e.log), 'エラー');
+  assert.strictEqual(msgText(e.log), 'エラ︱');
   assert.strictEqual(pillOf(e.log).getAttribute('title'), '議事録を保存できませんでした', '縦の形のエラーの文がピルの title に無い');
   await e.log.clock.advance(2799);
   assert.ok(pillOf(e.log).classList.contains('visible'));
@@ -331,6 +332,42 @@ test('RP6: 作成中・完了・エラーは形ごとの文（横は main の文
   assert.strictEqual(msgText(d.log), '1.2 秒・明日の定例は10時から');
 });
 const log0 = (log, id) => log.byId.get(id);
+
+// 0.9.0 見た目の直し（統合の後の見直し）: 縦の形の文は1字ずつの列に並べるので、横向きの字（伸ばす棒「ー」・「…」）は縦向きの字にして出す。
+// 横の形のままだと「エラー」の「ー」が横棒に、「作成中…」の「…」が「中」の横に並ぶ（CI の撮った画面で見つけた）。横の形の文は今のまま
+const SIDEWAYS = /[ー―—－‐~〜～…‥、。]/;
+test('RP6: 縦の形の文は縦向きの字（「エラー」は「エラ︱」、「作成中…」は「作成中︙」）で、横向きの字が残らない。横の形は main の文のまま。形を替えると書き直す', async () => {
+  const cases = [
+    [{}, { phase: 'processing', message: '議事録を作成中…' }, '作成中︙', '議事録を作成中…'],
+    [{ mode: 'dictation' }, { phase: 'processing', message: '文字起こし中…' }, '文字起こし中︙', '文字起こし中…'],
+    [{}, { phase: 'processing', message: '知らない文…' }, '作成中︙', '知らない文…'],
+    [{}, { phase: 'error', message: '議事録を保存できませんでした' }, 'エラ︱', '議事録を保存できませんでした'],
+    [{}, { phase: 'error', message: 'キャンセルしました' }, 'キャンセル', 'キャンセルしました'],
+    [{}, { phase: 'done', message: '議事録を保存しました' }, '保存しました', '議事録を保存しました'],
+  ];
+  for (const [start, ph, v, h] of cases) {
+    const rv = await 録音を始める({ form: 'v', ...start });
+    rv.log.fire('onPhase', ph);
+    assert.strictEqual(msgText(rv.log), v, `縦: ${ph.message}`);
+    assert.ok(!SIDEWAYS.test(msgText(rv.log)), `縦の文に横向きの字: ${msgText(rv.log)}`);
+    const rh = await 録音を始める(start);
+    rh.log.fire('onPhase', ph);
+    assert.strictEqual(msgText(rh.log), h, `横: ${ph.message}`);
+    assert.ok(!/[︱︙︰︑︒]/.test(msgText(rh.log)), `横の文に縦向きの字: ${msgText(rh.log)}`);
+  }
+  // 形を替えたら書き直す（横 → 縦で縦向き、縦 → 横で main の文）
+  const r = await 録音を始める();
+  r.log.fire('onPhase', { phase: 'processing', message: '議事録を作成中…' });
+  r.log.fire('onForm', { form: 'v' });
+  assert.strictEqual(msgText(r.log), '作成中︙');
+  r.log.fire('onForm', { form: 'h' });
+  assert.strictEqual(msgText(r.log), '議事録を作成中…');
+  assert.deepStrictEqual(r.log.errors.map(fmt), []);
+  // 1字ずつの列: 「︙」は行の頭に置けない字（禁則）なので、word-break だけでは「中」の横に並ぶ。どの字の間でも折り返し、幅は1字
+  const vmsg = C.declsFor(CSS(), '.pill[data-form="v"][data-phase="processing"] .msg');
+  assert.strictEqual(vmsg['line-break'], 'anywhere', '縦の文が禁則で2字並ぶ');
+  assert.strictEqual(vmsg.width, 'min-content', '縦の文の幅が1字でない');
+});
 
 // 撮る画面の見本（tools/shots/pill-states.js）は、本物の録音バーをその状態にしたときと同じ DOM になる（撮る act が本物とずれない）
 test('RP9: 撮る画面の見本の act は、本物の録音バーを同じ状態にしたときと同じ DOM（形・段階・印・点・文）になる', async () => {

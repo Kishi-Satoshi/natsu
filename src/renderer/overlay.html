@@ -89,8 +89,12 @@
   .pill[data-form="v"][data-phase="processing"] .msg,
   .pill[data-form="v"][data-phase="done"] .msg,
   .pill[data-form="v"][data-phase="error"] .msg {
-    /* 縦書きは1字ずつ折り返して並べる（writing-mode: vertical-rl は縦の列の中で高さを測り違え、字が重なった: O-3 で撮った画像で見つけた） */
-    display: block; width: 1.2em; max-width: none; white-space: normal; word-break: break-all; text-align: center; overflow: visible; text-overflow: clip;
+    /* 縦書きは1字ずつ折り返して並べる（writing-mode: vertical-rl は縦の列の中で高さを測り違え、字が重なった: O-3 で撮った画像で見つけた）。
+       横向きの字（「ー」「…」）は showPhaseText が縦向きの字（「︱」「︙」）に替えて入れる。「…」「︙」は行の頭に置けない字（禁則）なので、
+       word-break だけでは前の字の横に並ぶ。line-break: anywhere でどの字の間でも折り返し、幅はいちばん広い1字（min-content）にする。
+       縦向きの字は日本語の書体から先に取る */
+    display: block; width: min-content; max-width: none; white-space: normal; word-break: break-all; line-break: anywhere; text-align: center; overflow: visible; text-overflow: clip;
+    font-family: "Yu Gothic UI", "Meiryo UI", "Hiragino Sans", "Noto Sans JP", sans-serif;
     line-height: 1.25; max-height: 200px; padding: 0 0 6px;
   }
 
@@ -370,19 +374,23 @@
   }
   // 段階ごとの文（横は main の文、縦は短い縦書き）。縦のエラーは「エラー」だけにして、main の文はピルの title に入れる
   const SHORT_V = { '議事録を作成中…': '作成中…', '文字起こし中…': '文字起こし中…' };
+  // 0.9.0 見た目の直し: 縦書きは1字ずつの列なので、横向きの字（伸ばす棒・「…」・句読点）は縦向きの字に替えて出す
+  // （そのままだと「エラー」の「ー」が横棒に、「作成中…」の「…」が「中」の横に並ぶ: CI の撮った画面で見つけた）
+  const UPRIGHT = { 'ー': '︱', '―': '︱', '—': '︱', '－': '︱', '‐': '︱', '~': '︴', '〜': '︴', '～': '︴', '…': '︙', '‥': '︰', '、': '︑', '。': '︒' };
+  const upright = (t) => Array.from(String(t), (c) => UPRIGHT[c] || c).join('');
   function showPhaseText(phase, message, procSec) {
     pill.removeAttribute('title');
     if (message == null) return;
     const m = String(message);
     if (phase === 'recording') { flashMsg(m, 'err', 4000); return; }
-    if (phase === 'processing') { flashMsg(form === 'v' ? (SHORT_V[m] || '作成中…') : m, '', 0); return; }
+    if (phase === 'processing') { flashMsg(form === 'v' ? upright(SHORT_V[m] || '作成中…') : m, '', 0); return; }
     if (phase === 'done') {
-      flashMsg(form === 'v' ? '保存しました' : (procSec ? `${procSec} 秒・${m}` : m), 'ok', 0);
+      flashMsg(form === 'v' ? upright('保存しました') : (procSec ? `${procSec} 秒・${m}` : m), 'ok', 0);
       return;
     }
     if (phase === 'error') {
       if (form === 'v') pill.setAttribute('title', m);
-      flashMsg(form === 'v' ? (m === 'キャンセルしました' ? 'キャンセル' : 'エラー') : m, 'err', 0);
+      flashMsg(form === 'v' ? upright(m === 'キャンセルしました' ? 'キャンセル' : 'エラー') : m, 'err', 0);
     }
   }
   function setPhase(phase, message, procSec) {

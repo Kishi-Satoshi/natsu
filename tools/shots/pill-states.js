@@ -15,14 +15,14 @@ const SCALES = [1, 1.5];
 // 見本の音の大きさ（rec・dict は声あり。点の長さは overlay.html の levelDots と同じ計算: dotsFor）
 const VOICE = 0.6;
 // state: 名前。mode: 議事録 meeting・音声入力 dictation。phase: 段階（data-phase）。level: 点の音の大きさ。paused・warn: #pill の印。
-// spk: 相手の声の印（'' は出さない）。badge: 代替のマイクの角の点。msg: 一時的な文（形ごと）と kind
+// spk: 相手の声の印（'' は出さない）。badge: 代替のマイクの角の点。msg: 一時的な文（形ごと。縦は overlay.html の upright と同じ縦向きの字: 0.9.0 見た目の直し）と kind
 const STATES = [
   { state: 'rec', mode: 'meeting', phase: 'recording', level: VOICE, spk: 'on' },
   { state: 'silent', mode: 'meeting', phase: 'recording', level: 0, spk: 'idle' },
   { state: 'paused', mode: 'meeting', phase: 'recording', level: 0, spk: 'idle', paused: true },
-  { state: 'proc', mode: 'meeting', phase: 'processing', level: 0, spk: '', msg: { h: '議事録を作成中…', v: '作成中…' }, kind: '' },
+  { state: 'proc', mode: 'meeting', phase: 'processing', level: 0, spk: '', msg: { h: '議事録を作成中…', v: '作成中︙' }, kind: '' },
   { state: 'done', mode: 'meeting', phase: 'done', level: 0, spk: '', msg: { h: '議事録を保存しました', v: '保存しました' }, kind: 'ok' },
-  { state: 'error', mode: 'meeting', phase: 'error', level: 0, spk: '', msg: { h: '議事録を保存できませんでした', v: 'エラー' }, kind: 'err', title: { v: '議事録を保存できませんでした' } },
+  { state: 'error', mode: 'meeting', phase: 'error', level: 0, spk: '', msg: { h: '議事録を保存できませんでした', v: 'エラ︱' }, kind: 'err', title: { v: '議事録を保存できませんでした' } },
   { state: 'dict', mode: 'dictation', phase: 'recording', level: VOICE, spk: '' },
   { state: 'warn', mode: 'meeting', phase: 'recording', level: 0, spk: '', warn: true, msg: { h: '音が入っていません', v: '音が入っていません' }, kind: 'warn' },
   { state: 'fallback', mode: 'meeting', phase: 'recording', level: VOICE, spk: '', badge: true, msg: { h: '既定のマイクで録音中', v: '既定のマイクで録音中' }, kind: 'warn' },

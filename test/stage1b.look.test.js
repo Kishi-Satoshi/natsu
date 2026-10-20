@@ -60,9 +60,11 @@ test('画面の使いやすさ・F10: 明と暗のすべての「文字 × 地�
 
 // 0.9.0 O-3・O-4 で意図して変えた: 利用者が D25 で凍結を解き、録音バーを作り直した（O-3 の見た目と O-4 の縦の形の ×）。O-4 の最後の中身の
 // ハッシュにして、凍結をかけ直した。変えるのは利用者の決定のときだけ（D25 で一度解いた）
-test('録音バーは触らない（D25 で 0.9.0 の形にした。変えるのは利用者の決定のときだけ）: overlay.html は 0.9.0 O-4 の中身と1バイトも違わない', () => {
+// 0.9.0 見た目の直し（利用者に見せる前の見直しの指示）で意図して変えた: 縦の形の縦書きを縦向きの字（「︱」「︙」）にし、禁則で2字並ばないようにした。
+// その中身のハッシュで凍結をかけ直した（O-4 の値は 943d8c9a…）
+test('録音バーは触らない（D25 で 0.9.0 の形にした。変えるのは利用者の決定のときだけ）: overlay.html は 0.9.0 の見た目の直しの中身と1バイトも違わない', () => {
   const buf = fs.readFileSync(path.join(__dirname, '..', 'src', 'renderer', 'overlay.html'));
-  assert.strictEqual(require('node:crypto').createHash('sha256').update(buf).digest('hex'), '943d8c9af722ce9a9737f10bb1716985677a317c0d25c15821f0de8cd10fd2a7');
+  assert.strictEqual(require('node:crypto').createHash('sha256').update(buf).digest('hex'), '788dad76727e86f12b0e751ebad4aa5e6706d451f329ac5f5b43d778a2100cf9');
 });
 
 test('N1: ガラス風をやめた（backdrop-filter・グラデーション・ぼかし玉・filter: blur が無い）', () => {
