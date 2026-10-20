@@ -12,6 +12,8 @@
 //     --kotoba      … 偽のモデルの名前を kotoba-whisper のものにする（認識ヒントを渡さない場面）
 //     --port=N      … 文字起こしエンジンのポート（並べて走らせるとき、呼ぶ側が重ならないように決めて渡す）
 //     --discard-during … 最初の区間を送った直後に議事録を破棄する（返事を待つ間の破棄）
+//     --discard-settled … --discard-during と組む。最初の区間が片付く（meeting:status の pending が 0）のを待ってから破棄する
+//                        （第1d回 A-6 の点検: 止まりの見張りで控えた WAV が、破棄で消えるかを見る）
 //     --after-retry … 議事録を写した後、会議の後の送り直し（認識に失敗した区間の待ち行列）が済むまで待ち、その後の区間・
 //                     engine.log・要求を out.afterRetry（{ segments, engineLog, requests }）に写す（送り直しまで含めて数える場面）
 //     --after-dict  … 記録の後で辞書を保存し、認識ヒントの状態を聞き直す
@@ -173,6 +175,8 @@
 //     --retry-after=<n> … n 区間を送って片付いた後（n+1 区間目の答え方にしてから、送る前）に、画面と同じ IPC の meeting:retry を
 //                        返事を待たずに2回続けて呼ぶ（out.retry に2つの返事）。並べ直した区間が片付く（pending 0）のを待ち、そのときの
 //                        stt と区間（sttAt と同じ形）を out.retried に残してから、続きの区間を送る
+//     --retry-at-stop … 最後の区間を送った直後（会議を止め、最後の区間を文字起こししている間）に meeting:retry を1回呼ぶ（out.retryAtStop に返事）。
+//                        並べ直した区間は最後の区間の後ろに並ぶので、締めが［もう一度］の返事を待つかを見る（A-6 の点検で足した）
 //     --relogin-after=<n> … n 区間を送って片付いた後に、画面と同じ IPC の account:start・account:verify（種まきのメールと、偽の Resend へ
 //                        送ったコード）でログインし直す（out.relogin = { start, verify }）。その直後の meeting:status の stt を out.reloginStt に残す
 //   出力に足すもの（議事録の場面）: pages[].id・title・recovered、files（userData の下の相対パス）、dbStarts（DB の子を起こした回数）、trace
@@ -227,6 +231,7 @@ const withVad = flags.includes('--vad');
 const kotoba = flags.includes('--kotoba');
 const fixedPort = Number((flags.find((f) => f.startsWith('--port=')) || '--port=0').slice(7)) || 0;
 const discardDuring = flags.includes('--discard-during');
+const discardSettled = flags.includes('--discard-settled');   // 第1d回 A-6 の点検
 const afterDict = flags.includes('--after-dict');
 const withSum = flags.includes('--sum');
 const fixedSumPort = Number((flags.find((f) => f.startsWith('--sum-port=')) || '--sum-port=0').slice(11)) || 0;
@@ -248,6 +253,7 @@ const restartDuring = flagVal('--restart-during');   // 第1d回 A-9
 const relaySeq = flagVal('--relay-seq');   // 第1d回 A-5
 const retryAfterN = Number(flagVal('--retry-after')) || 0;   // 第1d回 A-6
 const reloginAfterN = Number(flagVal('--relogin-after')) || 0;   // 第1d回 A-6
+const retryAtStop = flags.includes('--retry-at-stop');   // 第1d回 A-6 の点検
 const relayMode = flagVal('--relay') || (relaySeq ? 'text' : '');   // 第1d回 A-2
 const noStore = flags.includes('--no-store');
 // 第1d回 A-3（RL11）: 文字起こしを中継へ送る場面
@@ -1693,6 +1699,7 @@ process.on('exit', () => {
     }
     if (last) out.stop = await handlers['meeting:toggle']();
     listeners['audio:segment']({}, { buffer: new Uint8Array(wavs[i].buf), durationMs: wavs[i].ms, final: last });
+    if (last && retryAtStop) out.retryAtStop = await handlers['meeting:retry']();
     await sleep(50);
     if (relaySeq) await waitFor(() => handlers['meeting:status']().pending === 0, 15000);   // 文字になるか失敗するまで（区間と並びが1対1）
     if (i === 0 && testDuring) out.testDuring = await handlers['app:test']();
@@ -1715,6 +1722,7 @@ process.on('exit', () => {
     }
     if (i === 0 && discardDuring) {
       if (secretText) out.secretSeen = await waitFor(() => settledInDb(SECRET), 15000);
+      else if (discardSettled) out.settledBeforeDiscard = await waitFor(() => handlers['meeting:status']().pending === 0, 15000);
       else await sleep(300);
       if (killDbAtDiscard) utilFork.crash(1);   // 取り消しの頼みは起こし直しを待つ。その前に終える
       out.discard = await handlers['meeting:discard']();

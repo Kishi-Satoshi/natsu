@@ -44,6 +44,10 @@ const problemOf = (o, code) => o.sttSeen.map((s) => s && s.problem).find((p) => 
 const last = (o) => o.sttSeen[o.sttSeen.length - 1];
 const texts = (segs) => segs.length > 0 && segs.every((s) => !s.failed && s.text.startsWith('本日の議題は進捗の確認です'));
 const bandLines = (o, code) => o.engineLog.filter((l) => l === `文字起こしの状態: 帯 ${code}`);
+const STT_POST = '/v1/audio/transcriptions';
+// userData の下に残った区間の控えの WAV（data/segbuf/<会議>/<番号>.wav）
+const segWavs = (o) => o.files.filter((f) => /segbuf\/.*\.wav$/i.test(f));
+const emptyLine = (o, id) => o.engineLog.some((l) => l.startsWith(`区間 ${id}（`) && l.endsWith('文字起こしが空のため除きました'));
 
 test('D17: クラウドで文字になると stt.route は cloud・lastTextAt が入り・segSec は 15・帯は無い', T, async () => {
   const o = await run(['text', '--relay=text', '--segs=3']);
@@ -149,6 +153,10 @@ test('B2（オフライン）: 音のある区間が手元の whisper で2つ続
   assert.deepStrictEqual(o.sttAt.stall.filter((s) => s.failed).map((s) => [s.id, s.text, s.wav]), [['s1', STALL_SEG, true], ['s2', STALL_SEG, true]], JSON.stringify(o.sttAt));
   assert.ok(o.engineLog.includes('文字起こしの状態: 止まっているかもしれない（音のある空の区間 2）'), o.engineLog.join('\n'));
   assert.ok(o.sttSeen.every((s) => s.route === 'local'), JSON.stringify(o.sttSeen));
+  // 3 区間目は止まりの後の1つ目の音のある空で、控えたまま会議が終わる。締めでその WAV を消す（ページに無い音声を残さない）。
+  // 止まりで戻した s1・s2 の WAV は会議の後の送り直しに載る（ここでは見ない）
+  assert.ok(emptyLine(o, 's3'), o.engineLog.join('\n'));
+  assert.deepStrictEqual(segWavs(o).filter((f) => /\/3\.wav$/.test(f)), [], `締めた後も控えた 3 区間目の WAV が残った: ${segWavs(o)}`);
 });
 
 test('B2（クラウド）: 15 秒の会議では3区間続けて空で stall（2区間では立たない）', T, async () => {
@@ -167,9 +175,39 @@ test('D17: 無音の空の区間は止まりに数えない', T, async () => {
 });
 
 test('D17: 文字になった区間で数えが戻り、控えた WAV は消える', T, async () => {
-  const o = await run(['text', '--relay-seq=ecec', '--segs=4']);
+  // 15 秒の会議の止まりは3区間。空・空・文字・空・空なら、数えが戻らないと4区間目で3に達して止まりになる（A-6 の点検で ecec から直した）
+  const o = await run(['text', '--relay-seq=eecee', '--segs=5']);
+  assert.ok(['s1', 's2', 's4', 's5'].every((id) => emptyLine(o, id)), o.engineLog.join('\n'));
   assert.deepStrictEqual(codes(o), [null], JSON.stringify(o.sttSeen));
-  assert.deepStrictEqual(o.files.filter((f) => /segbuf\/.*\.wav$/i.test(f)), [], '控えた WAV が残った');
+  assert.deepStrictEqual(segWavs(o), [], '控えた WAV が残った');
+});
+
+test('D17: 会議を破棄すると、止まりの見張りで控えた WAV も消す（破棄は利用者の意思）', T, async () => {
+  // オフラインは 75 秒の側で止まりは2区間。1区間目の音のある空は控えたまま、そこで破棄する
+  const o = await run(['empty', '--offline', '--discard-during', '--discard-settled']);
+  assert.strictEqual(o.settledBeforeDiscard, true);
+  assert.ok(emptyLine(o, 's1'), o.engineLog.join('\n'));
+  assert.deepStrictEqual(o.discard, { ok: true });
+  assert.deepStrictEqual(segWavs(o), [], `破棄した会議の WAV が残った: ${segWavs(o)}`);
+});
+
+test('RF28: PC の中だけの会議の［もう一度］も PC の中で起こす（中継へ音声を送らない）。失敗のままなら区間と WAV は残る', T, async () => {
+  const o = await run(['err200', '--relay-seq=cc', '--local-only', '--retry-after=1']);
+  assert.deepStrictEqual(o.localOnly && o.localOnly.ok, true, JSON.stringify(o.localOnly));
+  assert.deepStrictEqual(o.retry, [{ ok: true, n: 1 }, { ok: true, n: 0 }]);
+  assert.strictEqual(o.relayCalls.filter((p) => p === STT_POST).length, 0, `PC の中だけの会議の音声を中継へ送った: ${o.relayCalls}`);
+  assert.ok(o.engineLog.includes('文字起こしの経路: 区間 s1（もう一度） → local（理由: local-only）'), o.engineLog.join('\n'));
+  assert.deepStrictEqual(o.retried.segments.map((s) => [s.id, s.failed, s.wav]), [['s1', true, true]], JSON.stringify(o.retried));
+});
+
+test('［もう一度］の直後に会議を止めても、締めは並べ直した区間の返事を待つ（待ちの数に入る）', T, async () => {
+  // 1区間目は長い 429 で失敗。最後の区間を送った直後に［もう一度］: 並べ直した区間は最後の区間の後ろ。待ちに数えないと、
+  // 最後の区間で締めてしまい、並べ直した区間は会議の後の送り直し（復旧 s1）に回る
+  const o = await run(['text', '--relay-seq=Lc', '--retry-at-stop']);
+  assert.deepStrictEqual(o.retryAtStop, { ok: true, n: 1 });
+  assert.ok(!o.engineLog.some((l) => l.startsWith('文字起こしの経路: 復旧 s1')), `締めが［もう一度］を待たなかった: ${o.engineLog.join('\n')}`);
+  assert.ok(o.engineLog.some((l) => l.startsWith('文字起こしの経路: 区間 s1（もう一度） → cloud')), o.engineLog.join('\n'));
+  assert.ok(texts(o.pages[0].segments) && o.pages[0].segments.length === 2, JSON.stringify(o.pages[0].segments));
 });
 
 test('F15: 同じ問題が区間ごとに続いても帯は1つで、記録の『帯 relay-down』は1行', T, async () => {

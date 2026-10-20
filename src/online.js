@@ -34,11 +34,13 @@ const REACH_TIMEOUT_MS = 3000;
 const DOWN_WHYS = new Set(['offline', 'unreachable', 'cert', 'proxy']);
 
 // 試しだけ: 覚える長さを縮める倍率（第1d回 A-5。区間ごとに中継の答えを替える場面で、次の区間で気づくように）。
-// 0〜1 の数のときだけ効き、ほかの値（無い・形が違う・1 より大きい）は 1（本番の長さのまま。main の NATSU_TEST_STT_SLEEP_SCALE と同じ形）
+// 0〜1 の数のときだけ効き、ほかの値（無い・形が違う・1 より大きい）は 1（本番の長さのまま。main の NATSU_TEST_STT_SLEEP_SCALE と同じ形）。
+// 0.001 倍より短くはしない（0 で覚えるのをやめ、区間ごとに /health を聞く形にさせない。A-5 の点検）
+const MEMO_SCALE_MIN = 0.001;
 function memoScale(raw) {
   const t = String(raw == null ? '' : raw).trim();
   const v = /^\d*\.?\d+$/.test(t) ? Number(t) : NaN;
-  return v >= 0 && v <= 1 ? v : 1;
+  return v >= 0 && v <= 1 ? Math.max(MEMO_SCALE_MIN, v) : 1;
 }
 
 /** 通信の失敗 → 'cert' | 'proxy' | 'unreachable'（classifyNetError の cert・proxy／proxy-auth・ほか全部） */

@@ -96,6 +96,14 @@ test('D16: ログインが切れたら、その区間の後すぐ 75 秒', T, as
   assert.ok(texts(o.pages[0].segments), JSON.stringify(o.pages[0].segments));
 });
 
+test('D16: ログインが切れて PC で起こした区間がエンジンの失敗でも、その区間の後すぐ 75 秒（理由は login。A-5 の点検）', T, async () => {
+  // 手元のエンジンが 200 のまま誤りを返す err200: 2 区間目は中継の 401 で手元に落ち、手元でも失敗する
+  const o = await run(['err200', '--relay-seq=cl']);
+  assert.deepStrictEqual(starts(o), [15]);
+  assert.deepStrictEqual(live(o), [75000], JSON.stringify(o.overlaySent));
+  assert.ok(o.engineLog.includes('文字起こしの状態: 区切り 75 秒（long・理由 login）'), o.engineLog.join('\n'));
+});
+
 test('D16: 15 秒の会議でも背圧が効く（待ちが 3 を越えて増えたら倍、追いついたら 20 秒）', T, async () => {
   // 計画は --relay=slow --segs=7（偽の OpenAI が 1.5 秒ずつ。合わせて 11 秒）。1つのテストを 5 秒の内にするため、中継の前で 300 ミリ秒ずつ止める
   // --relay=lag で同じ形（区間を 50 ミリ秒ごとに送り、待ちが 4 になる）を作る

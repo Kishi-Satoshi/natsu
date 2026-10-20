@@ -56,6 +56,26 @@ test('RF27: 届かない結果は 15 秒だけ覚える（届いた結果の 60 
   assert.strictEqual(asked, 2, '15 秒を過ぎても確かめ直さない（届いた結果と同じ長さ覚えている）');
 });
 
+test('A-5 の点検: 試しだけの NATSU_TEST_ONLINE_MEMO_SCALE は 0 でも 0.001 倍より短くしない（区間ごとに /health を聞く形にさせない）', T, async (tc) => {
+  const before = process.env.NATSU_TEST_ONLINE_MEMO_SCALE;
+  tc.after(() => { if (before === undefined) delete process.env.NATSU_TEST_ONLINE_MEMO_SCALE; else process.env.NATSU_TEST_ONLINE_MEMO_SCALE = before; });
+  const probe = async (raw) => {
+    process.env.NATSU_TEST_ONLINE_MEMO_SCALE = raw;
+    let asked = 0;
+    let t = 5000;
+    const o = O.makeOnline({ isOnline: () => true, now: () => t, request: makeFakeRequest({ before: (n) => { asked = n; return { error: 'net::ERR_CONNECTION_REFUSED' }; } }) });
+    const u = 'http://127.0.0.1:9/v1/models';
+    await o.isUp(u);
+    t += O.REACH_NG_MS * 0.001 - 1; await o.isUp(u);
+    const within = asked;
+    t += 2; await o.isUp(u);
+    return [within, asked];
+  };
+  assert.deepStrictEqual(await probe('0'), [1, 2], '0 で覚えるのをやめた');
+  assert.deepStrictEqual(await probe('0.0000001'), [1, 2], '0.001 倍より短くした');
+  assert.deepStrictEqual(await probe('0.001'), [1, 2]);
+});
+
 test('D16・F13: peek は覚えている答えだけを返す（届く true・届かない false・覚えていないか期限切れ null）。通信しない', T, async (tc) => {
   const s = await serve((req, res) => { res.writeHead(401); res.end(); });
   tc.after(() => shut(s));

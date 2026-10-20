@@ -3287,8 +3287,10 @@ function onMeetingSegment(buffer, durationMs, isFinal) {
       m.inFlightSince = 0;
       clearSttProblem(m, 'wait');
       noteSttFailure(m, e);
-      // 失敗は手元の側に数える（中継の失敗の符号があればその符号: rate-long など。無ければ手元のエンジンの失敗 engine）
-      segmentRouted(m, 'local', (e && typeof e.cloudCode === 'string' && e.cloudCode) || 'engine');
+      // 失敗は手元の側に数える。手元に落ちた区間でエンジンも失敗したら、落ちた理由（login・daily-cap などはすぐ長い側。A-5 の点検）、
+      // 中継の失敗の符号があればその符号（rate-long など）、どちらも無ければ手元のエンジンの失敗 engine
+      const failWhy = (e && e.sttRoute && typeof e.sttRoute.why === 'string' && e.sttRoute.why) || (e && typeof e.cloudCode === 'string' && e.cloudCode) || 'engine';
+      segmentRouted(m, 'local', failWhy);
       settleSegment(m, seg, { text: `（この区間の認識に失敗: ${e.message}）`, failed: true });
       return;
     }
