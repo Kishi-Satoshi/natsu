@@ -222,7 +222,7 @@ async function deploy({ env = process.env, fetch = globalThis.fetch, out = (l) =
     return 0;
   }
   if (notReady) {
-    return fail('失敗: 7/7 /health: HTTP 503（中継が Access の確かめを断りました: not-ready）。Cloudflare の画面の TEAM_DOMAIN と POLICY_AUD が、natsu-relay の Access の app のものかを確かめてください（利用者の用意の 8）。値はこの記録に出しません');
+    return fail('失敗: 7/7 /health: HTTP 503（中継が Access の確かめを断りました: not-ready）。Cloudflare の画面の TEAM_DOMAIN と POLICY_AUD が、natsu-relay の Access の app のものかを確かめてください（利用者の用意の 8）。合っていれば、少し待ってからもう一度 Run workflow を押してください。値はこの記録に出しません');
   }
   return fail(`失敗: 7/7 中継の /health に届きませんでした（${last ? `HTTP ${last}` : '返事なし'}）。${HEALTH_GAP_MS / 1000} 秒おきに ${HEALTH_TRIES} 回試しました`);
 }

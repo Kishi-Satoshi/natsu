@@ -505,6 +505,8 @@ test('RL8・F28: /health が中継の JSON の 503 not-ready → TEAM_DOMAIN と
       const r = await runDeploy(cf, { ...s, env: { ...svcEnv(svc), GITHUB_EVENT_NAME: ev, TEAM_DOMAIN: 'https://team-value-zz.example', POLICY_AUD: 'aud-value-zz' } });
       assert.strictEqual(r.code, 1, r.text);
       assert.match(r.text, /Cloudflare の画面の TEAM_DOMAIN と POLICY_AUD が、natsu-relay の Access の app のものかを確かめてください（利用者の用意の 8）/);
+      // 鍵の口の一時の失敗（r: certs）・D1 の失敗でも not-ready なので、値が合っていたときの次の1手も言う
+      assert.match(r.text, /合っていれば、少し待ってからもう一度 Run workflow を押してください/);
       assert.ok(!/ready: |公開した URL|届きませんでした/.test(r.text), r.text);
       assert.ok(!/value-zz/.test(r.text), '値を出した');
       noSvcValues(r.text, svc);
