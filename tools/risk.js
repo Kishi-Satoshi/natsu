@@ -345,6 +345,9 @@ function onlineFindings(file, before, after) {
 // PC のコードにも中継にも出し方にも置かない（会社の鍵は Worker の秘密の欄だけ。D14）。中継は Web の標準の部品だけで書き、
 // 記録は relay/log.mjs の logEvent（決まった欄だけ）を通す（RL1・RL7。test/relay-health.test.js の字面の照らしと同じ決まり）。
 // 秘密の欄（ALLOWED_EMAIL_DOMAINS・MAIL_FROM）は利用者が Cloudflare の画面で入れ、中継と出し方は名前を読むだけ（会社のドメインを混ぜない）。
+// 第1d回 G-3（作り替え。D18・F23）: チームの名前（<チーム>.cloudflareaccess.com）は Cloudflare の設定と Worker の秘密の欄（TEAM_DOMAIN）に
+// だけ置き、src・中継・出し方には書かない（注釈の中も）。Access の秘密の欄（TEAM_DOMAIN・POLICY_AUD・CF_ACCESS_CLIENT_ID・
+// CF_ACCESS_CLIENT_SECRET）は名前を読むだけ（ワークフローが同じ名前の GitHub の秘密を渡す行 `NAME: ${{ secrets.NAME }}` だけは通す）。
 // 前の版より増えた行だけを報告する（ほかの決まりと同じ形）。
 const RELAY_DEPLOY = new Set(['tools/relay-deploy.js', '.github/workflows/relay-deploy.yml']);
 const inSrc = (f) => f.startsWith('src/');
@@ -364,6 +367,13 @@ const RELAY_RULES = [
   // 書く形: 欄の名前（引用符や角かっこの中でも）に : か = で値を置く・読めなかったときの既定の文字（|| と ?? の後の空でない文字）
   { on: (f) => inRelay(f) || RELAY_DEPLOY.has(f), re: /(?<![\w$])['"]?(?:ALLOWED_EMAIL_DOMAINS|MAIL_FROM)['"]?\s*\]?\s*(?:(?::|=(?![=>]))\s*\S|(?:\|\||\?\?)\s*(['"`])(?!\1))/,
     why: '秘密の欄（ALLOWED_EMAIL_DOMAINS・MAIL_FROM）は利用者が Cloudflare の画面で入れる。中継と出し方は名前を読むだけ（会社のドメインを混ぜない）' },
+  // チームのドメインの字面（* や . で始まる照らし・<チーム>. の説明・正規表現の \. の形は当たらない）。注釈の中の名前も漏れなので、注釈を落とす前の行で見る
+  { raw: true, on: relayTarget, re: /(?<![\w-])[a-z0-9-]+\.cloudflareaccess\.com/i,
+    why: 'チームの名前（<チーム>.cloudflareaccess.com）は Cloudflare の設定と Worker の秘密の欄（TEAM_DOMAIN）にだけ置く（D18）' },
+  // Access の秘密の欄に値を書く形（上の決まりと同じ形）。ワークフローが同じ名前の GitHub の秘密を渡す行（CF_ACCESS_CLIENT_* だけ）は通す
+  { on: relayTarget, re: /(?<![\w$])['"]?(TEAM_DOMAIN|POLICY_AUD|CF_ACCESS_CLIENT_ID|CF_ACCESS_CLIENT_SECRET)['"]?\s*\]?\s*(?:(?::|=(?![=>]))\s*\S|(?:\|\||\?\?)\s*(['"`])(?!\2))/,
+    but: /^\s*(CF_ACCESS_CLIENT_ID|CF_ACCESS_CLIENT_SECRET):\s*\$\{\{\s*secrets\.\1\s*\}\}\s*$/,
+    why: 'Access の秘密の欄（TEAM_DOMAIN・POLICY_AUD・CF_ACCESS_CLIENT_ID・CF_ACCESS_CLIENT_SECRET）は Cloudflare の画面と GitHub の環境 relay で入れる。名前を読むだけ（F23）' },
 ];
 // 注釈を落とした文字（JS は stripJs、YAML は # から後ろ。ほかはそのまま）。JS の } のすぐ後ろの // は注釈と見ない
 // （逆引用符の `${scheme}//api.openai.com` の宛先を落とさないため。} の直後に空白なしで注釈を書いた行は、増えた行なら鳴りうる）
@@ -377,7 +387,7 @@ function relayLines(file, src) {
   RELAY_RULES.forEach((r, i) => {
     if (!r.on(file)) return;
     for (const raw of r.raw ? texts.raw : texts.stripped) {
-      if (!r.re.test(raw)) continue;
+      if (!r.re.test(raw) || (r.but && r.but.test(raw))) continue;
       const key = `${i}\t${raw.replace(/\s+/g, ' ').trim()}`;
       const cur = out.get(key);
       out.set(key, { n: (cur ? cur.n : 0) + 1, why: r.why });
@@ -455,7 +465,7 @@ function analyze(base, head) {
   // 中継と直の送り先（新しく足した行だけ。第1d回 RL12・RF38）
   for (const f of [...changed].filter(relayTarget)) {
     for (const line of relayFindings(f, at(base, f), at(head, f)))
-      add('BLOCK', '中継と直の送り先', f, `決まりに触れる行を足した: ${line}`, '文字起こしと確認コードは src/relay.js（中継）を通す・鍵は Worker の秘密の欄だけ・中継の記録は relay/log.mjs・秘密の欄は Cloudflare の画面で入れる');
+      add('BLOCK', '中継と直の送り先', f, `決まりに触れる行を足した: ${line}`, '文字起こしと確認コードは src/relay.js（中継）を通す・鍵は Worker の秘密の欄だけ・中継の記録は relay/log.mjs・秘密の欄は Cloudflare の画面で入れる・チームの名前と Access の秘密の値はリポジトリに書かない');
   }
 
   // 実機確認が要る変更の判定
@@ -473,7 +483,7 @@ function analyze(base, head) {
 // 「危険な変更は見つからなかった」は、ここに挙げた範囲の話でしかない。出典照合や保存の
 // ロジック（src/cite.js など）はこのゲートの射程外で、そこを触ったコミットにも同じ文が
 // 出て全否定に読めた（監査 #38）。射程外は npm test が守る（pre-commit もそれを走らせる）。
-const RELAY_SEES = '中継と直の送り先（src/ から OpenAI・Groq・Resend へ直に送る行・鍵の見かけの文字・relay/ の console と node: と Buffer・中継と出し方の中で秘密の欄に値を書く行）';
+const RELAY_SEES = '中継と直の送り先（src/ から OpenAI・Groq・Resend へ直に送る行・鍵の見かけの文字・relay/ の console と node: と Buffer・中継と出し方の中で秘密の欄に値を書く行・チームのドメインの字面・Access の秘密の欄に値を書く行）';
 const SCOPE = {
   sees: [
     'HTML の木の健全さ（閉じ忘れ・相手のいない閉じタグ）',

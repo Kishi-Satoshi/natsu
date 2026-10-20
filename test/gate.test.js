@@ -394,6 +394,85 @@ test('RL12・F6: relay/・tools/relay-deploy.js・relay-deploy.yml で ALLOWED_E
   assert.deepStrictEqual(R.relayFindings('relay/config.mjs', old, `${old}const b = 2;\n`), [], '前からある行で鳴った');
 });
 
+// 第1d回 Task G-3（作り替え。RL12・D18・F17・F23）: チームの名前（<チーム>.cloudflareaccess.com）は Cloudflare の設定と Worker の秘密の欄
+// （TEAM_DOMAIN）にだけ置き、アプリ・中継・出し方には書かない。Access の秘密の欄（TEAM_DOMAIN・POLICY_AUD・CF_ACCESS_CLIENT_ID・
+// CF_ACCESS_CLIENT_SECRET）は名前を読むだけにし、値を書かない（ワークフローが同じ名前の GitHub の秘密を渡す行だけは通す）。
+// テストの中の名前（natsu-test）は、テストの外の決まりを見るための見本
+test('RL12・D18: src/・relay/・出し方にチームのドメインの字面（<名前>.cloudflareaccess.com）を書いた行を足すと BLOCK（注釈の中も・大文字も）。終わりの照らし・*.・<チーム>.・正規表現の形は通る', { timeout: 5000 }, () => {
+  const R = require('../tools/risk');
+  const bad = [
+    ['src/relay.js', "const TEAM = 'natsu-test.cloudflareaccess.com';"],
+    ['src/main.js', "  if (host === 'other-team.cloudflareaccess.com') return true;"],
+    ['src/renderer/app.html', '<p>https://natsu-test.cloudflareaccess.com のログインの画面</p>'],
+    ['relay/config.mjs', "const CERTS = 'https://natsu-test.cloudflareaccess.com/cdn-cgi/access/certs';"],
+    ['relay/access.mjs', '// 試しに https://natsu-test.cloudflareaccess.com/cdn-cgi/access/certs で見た'],
+    ['tools/relay-deploy.js', "const url = 'https://Natsu-Test.CloudflareAccess.com/cdn-cgi/access/certs';"],
+    ['.github/workflows/relay-deploy.yml', '          TEAM: x1.cloudflareaccess.com'],
+    ['relay/worker.mjs', "const t = 'a.b.cloudflareaccess.com';"],
+  ];
+  for (const [file, line] of bad) {
+    const got = R.relayFindings(file, '', `${line}\n`);
+    assert.strictEqual(got.length, 1, `${file}: ${line} → ${got.join(' / ')}`);
+    assert.match(got[0], /チームの名前/, got[0]);
+  }
+  const ok = [
+    ['src/relay.js', "  return host.endsWith('.cloudflareaccess.com');"],
+    ['src/stt-cloud.js', 'const ACCESS_HOST = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\\.cloudflareaccess\\.com$/;'],
+    ['relay/config.mjs', 'const TEAM_RE = /^https:\\/\\/[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\\.cloudflareaccess\\.com$/;'],
+    ['src/security.js', ' *  - 行き先は中継のホストか <チーム>.cloudflareaccess.com（チームの名前はアプリに書かない）'],
+    ['relay/config.mjs', '// TEAM_DOMAIN（https://<チームの名前>.cloudflareaccess.com の形のときだけ）'],
+    ['src/main.js', '// *.cloudflareaccess.com への転送は Access のログインの画面'],
+    ['src/stt-cloud.js', '/** cloudflareaccess.com そのもの・後ろに続くホストは偽 */'],
+    ['test/stage1d.ipc.test.js', "const team = 'https://natsu-test.cloudflareaccess.com';"],
+    ['README.md', '`https://<チームの名前>.cloudflareaccess.com/cdn-cgi/access/certs`'],
+  ];
+  for (const [file, line] of ok) assert.deepStrictEqual(R.relayFindings(file, '', `${line}\n`), [], `${file}: ${line}`);
+  const old = "const TEAM = 'natsu-test.cloudflareaccess.com';\n";
+  assert.deepStrictEqual(R.relayFindings('src/relay.js', old, `${old}const b = 2;\n`), [], '前からある行で鳴った');
+  assert.strictEqual(R.relayFindings('src/relay.js', old, old + old).length, 1, '同じ行を2つにしたのに鳴らない');
+});
+
+test('RL12・F23: src/・relay/・出し方で TEAM_DOMAIN・POLICY_AUD・CF_ACCESS_CLIENT_ID・CF_ACCESS_CLIENT_SECRET に値を書く行を足すと BLOCK。名前を読む行と、ワークフローが同じ名前の秘密を渡す行は通る', { timeout: 5000 }, () => {
+  const R = require('../tools/risk');
+  const bad = [
+    ['relay/config.mjs', "const env = { TEAM_DOMAIN: 'https://x.example' };"],
+    ['relay/config.mjs', "  const aud = text(e.POLICY_AUD || 'ab'.repeat(32));"],
+    ['relay/worker.mjs', "  env['POLICY_AUD'] = x;"],
+    ['relay/access.mjs', '  const team = e["TEAM_DOMAIN"] ?? `https://x.example`;'],
+    ['tools/relay-deploy.js', "  const svcId = env.CF_ACCESS_CLIENT_ID ?? '0123abcd.access';"],
+    ['tools/relay-deploy.js', "const CF_ACCESS_CLIENT_SECRET = 'x';"],
+    ['src/relay.js', "const TEAM_DOMAIN = 'https://x.example';"],
+    ['src/main.js', "  process.env.CF_ACCESS_CLIENT_ID = 'x';"],
+    ['.github/workflows/relay-deploy.yml', '          TEAM_DOMAIN: ${{ secrets.TEAM_DOMAIN }}'],
+    ['.github/workflows/relay-deploy.yml', '          POLICY_AUD: ${{ vars.POLICY_AUD }}'],
+    ['.github/workflows/relay-deploy.yml', '          CF_ACCESS_CLIENT_ID: ${{ secrets.OTHER_ID }}'],
+    ['.github/workflows/relay-deploy.yml', '          CF_ACCESS_CLIENT_SECRET: abc123'],
+    ['.github/workflows/relay-deploy.yml', '        run: CF_ACCESS_CLIENT_SECRET=x node tools/relay-deploy.js'],
+  ];
+  for (const [file, line] of bad) {
+    const got = R.relayFindings(file, '', `${line}\n`);
+    assert.strictEqual(got.length, 1, `${file}: ${line} → ${got.join(' / ')}`);
+    assert.match(got[0], /Access の秘密の欄/, got[0]);
+  }
+  const ok = [
+    ['relay/config.mjs', "  const teamDomain = TEAM_RE.test(text(e.TEAM_DOMAIN)) ? text(e.TEAM_DOMAIN) : '';"],
+    ['relay/config.mjs', "  const policyAud = AUD_RE.test(text(e.POLICY_AUD)) ? text(e.POLICY_AUD) : '';"],
+    ['relay/config.mjs', '// TEAM_DOMAIN: Cloudflare の画面で入れる'],
+    ['relay/config.mjs', 'const TEAM_DOMAIN_RE = /x/;'],
+    ['tools/relay-deploy.js', "  const svcId = typeof env.CF_ACCESS_CLIENT_ID === 'string' ? env.CF_ACCESS_CLIENT_ID.trim() : '';"],
+    ['tools/relay-deploy.js', '    if (j.ready.access !== true) say(`Cloudflare の画面で TEAM_DOMAIN と POLICY_AUD を入れてください`);'],
+    ['tools/relay-deploy.js', "  const need = 'GitHub の Environments → relay に CF_ACCESS_CLIENT_ID と CF_ACCESS_CLIENT_SECRET を入れてください';"],
+    ['.github/workflows/relay-deploy.yml', '          CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}'],
+    ['.github/workflows/relay-deploy.yml', '          CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}'],
+    ['.github/workflows/relay-deploy.yml', '# CF_ACCESS_CLIENT_ID・CF_ACCESS_CLIENT_SECRET は Access のサービストークン'],
+    ['src/main.js', "const NOTE = 'POLICY_AUD は 64 字';"],
+    ['test/relay-access.test.js', 'const env = { TEAM_DOMAIN: fa.teamDomain, POLICY_AUD: fa.aud };'],
+  ];
+  for (const [file, line] of ok) assert.deepStrictEqual(R.relayFindings(file, '', `${line}\n`), [], `${file}: ${line}`);
+  const old = "const env = { POLICY_AUD: 'x' };\n";
+  assert.deepStrictEqual(R.relayFindings('relay/config.mjs', old, `${old}const b = 2;\n`), [], '前からある行で鳴った');
+});
+
 test('RL12: analyze が中継と直の送り先の検査を呼んで BLOCK にし、射程とチェックリストに載る。今の src・relay・出し方には1件も無い', { timeout: 5000 }, () => {
   const R = require('../tools/risk');
   const src = read('tools/risk.js');
@@ -405,7 +484,8 @@ test('RL12: analyze が中継と直の送り先の検査を呼んで BLOCK に�
   assert.match(body, /const changed = new Set\(\n\s*\(head === null \? git\(\['diff', '--name-only', base\]\)/, 'changed が base からの差分で作られていない');
   assert.match(body, /relayFindings\(f, at\(base, f\), at\(head, f\)\)/, 'analyze が relayFindings を呼んでいない');
   assert.match(body, /add\('BLOCK', '中継と直の送り先', f,/, '見つけても BLOCK にしていない');
-  const sees = '中継と直の送り先（src/ から OpenAI・Groq・Resend へ直に送る行・鍵の見かけの文字・relay/ の console と node: と Buffer・中継と出し方の中で秘密の欄に値を書く行）';
+  // 第1d回 G-3 で意図して変えた: チームのドメインの字面と Access の秘密の欄に値を書く行も見る
+  const sees = '中継と直の送り先（src/ から OpenAI・Groq・Resend へ直に送る行・鍵の見かけの文字・relay/ の console と node: と Buffer・中継と出し方の中で秘密の欄に値を書く行・チームのドメインの字面・Access の秘密の欄に値を書く行）';
   assert.ok(R.SCOPE.sees.includes(sees), '射程に載っていない');
   assert.ok(R.scopeNote(new Set()).includes('中継と直の送り先'), '射程の但し書きに出ない');
   for (const f of ['src/main.js', 'src/relay.js', 'relay/log.mjs', 'tools/relay-deploy.js', '.github/workflows/relay-deploy.yml', 'relay/deploy-config.json']) assert.ok(R.relayTarget(f), f);

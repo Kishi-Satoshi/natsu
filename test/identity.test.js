@@ -123,48 +123,67 @@ test('.ps1 の BOM は1つだけ（4バイト目から EF BB BF が続かない�
 // 第1c回 Task D-2（OL9）: 0.5.0 からはオンラインのとき音声を送り先へ、文字起こしの文を Claude へ送る。
 // 「完全オフライン」「外へ送らない」と言い続けると、利用者が音声の行き先を誤って思う
 // 第1d回 G-2 で意図して変えた: 0.8.0 からは、音声は PC → 文字起こしの中継（Cloudflare の workers.dev）→ OpenAI。PC は OpenAI・Groq へ直に送らない
-// （src/ に api.openai.com・api.groq.com を書けない: ゲート）。README と INSTALL には中継の住所・中継の先の OpenAI・確認コードのメール（Resend）と、
-// 管理者の取り消しの手順（D1 で流す SQL）を書き、前の版の送り先の表（api.groq.com）と、PC が直に送る先としての api.openai.com は書かない。
+// （src/ に api.openai.com・api.groq.com を書けない: ゲート）。前の版の送り先の表（api.groq.com）と、PC が直に送る先としての api.openai.com は書かない。
 // 0.7.0 の D5 で消した「使う／使わない」の同意の選択は、もう求めない
-const RELAY_HOST = 'natsu-relay.<サブドメイン>.workers.dev';
-test('OL9・RL9: README と INSTALL は、中継の住所・中継の先の OpenAI・確認コードのメール・ログイン・［この会議は PC の中だけ］・Claude Code の入れ方・上限を書き、Groq の送り先と「完全オフライン」を書かない', () => {
-  for (const w of ['音声', '送り先', RELAY_HOST, 'Cloudflare', 'OpenAI', '確認コード', 'Resend', 'ログイン', 'PC の中だけ', 'オフライン',
-    'irm https://claude.ai/install.ps1 | iex', '上限', 'claude auth status', '"authMethod": "claude.ai"', 'claude.ai', 'api.anthropic.com', 'Zscaler', '情報システム']) {
+// 第1d回 G-3 で意図して変えた（作り替え。D18）: ログインは Cloudflare Access の One-time PIN（英語の Cloudflare の画面と、Cloudflare が送るコードの
+// メール）。NaTsu の自前の確認コードのメール（Resend）・MAIL_DAILY_MAX の話は書かない。中継の住所は src/relay.js の RELAY_BASE（本物の住所。
+// 第1d回 A-10）と同じ。INSTALL の接続先に Access のログインの画面（<チームの名前>.cloudflareaccess.com）を足す（チームの名前は書かない）
+const RELAY_HOST = new URL(require('../src/relay').RELAY_BASE).host;
+test('OL9・RL9・D18: README と INSTALL は、中継の住所・中継の先の OpenAI・Cloudflare Access のログイン（One-time PIN）・［この会議は PC の中だけ］・Claude Code の入れ方・上限を書き、Groq の送り先・「完全オフライン」・Resend・確認コードを書かない', () => {
+  assert.match(RELAY_HOST, /^natsu-relay\.[a-z0-9-]+\.workers\.dev$/);
+  for (const w of ['音声', '送り先', RELAY_HOST, 'Cloudflare Access', 'One-time PIN', 'OpenAI', 'ログイン', '［ログイン］', '［Send login code］', '［Sign in］', '英語',
+    'PC の中だけ', 'オフライン', 'irm https://claude.ai/install.ps1 | iex', '上限', 'claude auth status', '"authMethod": "claude.ai"', 'claude.ai', 'api.anthropic.com',
+    'Zscaler', '情報システム', 'noreply＠notify.cloudflare.com']) {
     assert.ok(readme.includes(w), `README に「${w}」が無い`);
   }
-  for (const w of [RELAY_HOST, 'OpenAI', '確認コード', 'ログイン', 'PC の中だけ']) assert.ok(install.includes(w), `INSTALL に「${w}」が無い`);
+  for (const w of [RELAY_HOST, 'Cloudflare', 'One-time PIN', 'OpenAI', 'ログイン', '［ログイン］', '［Send login code］', '［Sign in］', '英語', 'PC の中だけ']) {
+    assert.ok(install.includes(w), `INSTALL に「${w}」が無い`);
+  }
   for (const [n, s] of [['README.md', readme], ['INSTALL.md', install], ['package.json', JSON.stringify(pkg)], ['src/main.js', main]]) {
     assert.ok(!s.includes('完全オフライン'), `${n} に「完全オフライン」が残っている`);
     assert.ok(!s.includes('api.groq.com'), `${n} に前の版の送り先 api.groq.com が残っている`);
   }
+  for (const [n, s] of [['README.md', readme], ['INSTALL.md', install]]) {
+    for (const w of ['確認コード', 'Resend', 'MAIL_DAILY_MAX', 'MAIL_FROM', 'RESEND_API_KEY', '/auth/start', 'UPDATE sessions', '<サブドメイン>']) {
+      assert.ok(!s.includes(w), `${n} に自前のログインの「${w}」が残っている（D18）`);
+    }
+  }
   assert.ok(!readme.includes('外部への送信は一切ありません') && !readme.includes('外部へ送信されることはありません'), 'README が外へ送らないと言っている');
   assert.ok(!install.includes('外部に音声やテキストが送られることはありません'), 'INSTALL が外へ送らないと言っている');
-  // 社内のプロキシで通す接続先: PC が直に話す先は中継・claude.ai・api.anthropic.com だけ（OpenAI へは中継が送る）
+  // 社内のプロキシで通す接続先: PC が直に話す先は中継・Access のログインの画面・claude.ai・api.anthropic.com だけ（OpenAI へは中継が送る）
   const hosts = install.slice(install.indexOf('## 通す必要のある接続先'), install.indexOf('\n## ', install.indexOf('## 通す必要のある接続先') + 3));
-  for (const h of [RELAY_HOST, 'claude.ai', 'api.anthropic.com']) assert.ok(hosts.includes(h), `INSTALL の接続先に ${h} が無い`);
+  for (const h of [RELAY_HOST, '<チームの名前>.cloudflareaccess.com', 'claude.ai', 'api.anthropic.com']) assert.ok(hosts.includes(h), `INSTALL の接続先に ${h} が無い`);
   assert.ok(!hosts.includes('api.openai.com'), 'INSTALL の接続先に api.openai.com が残っている（PC は OpenAI へ直に送らない）');
 });
 
-// 第1d回 G-2: README の管理者の節に、中継の用意と取り消しの手順を書く（計画の Task G-2 の「取り消しの手順」をそのまま。
-// 2・3 の SQL は test/relay-session.test.js が README から読み、偽の D1 に流して 401 になることを見る）
-test('RL6・RF32: README の管理者の節は、取り消しの SQL・会社の鍵とトークンが漏れたときの替え方・確認コードを頼めないときの直し方・用意の手順を書く', () => {
+// 第1d回 G-2: README の管理者の節に、中継の用意と取り消しの手順を書く。第1d回 G-3 で意図して変えた（作り替え。D18）: 用意は計画の
+// 「利用者の用意（作り替え）」を写し（会社のドメインとチームの名前は <会社のドメイン>・<チームの名前>）、取り消しは Cloudflare Access の画面
+// （Revoke・Exclude・Remove users・Revoke existing tokens）と、中継の止めたメールの SQL（test/relay-access.test.js の RL6 が README から読み、
+// 偽の D1 に流して 403 になることを見る）。自前の札の取り消しの SQL（UPDATE sessions）と確認コードの節は書かない
+test('RL6・RL12・D18: README の管理者の節は、Access の用意・取り消し（Revoke）・止め方（Exclude と止めたメールの SQL）・席・全員のログアウト・送り元の許可・サービストークンの期限・会社の鍵とトークンが漏れたときの替え方を書く', () => {
   const at = readme.indexOf('## 管理者の手順');
   assert.ok(at > 0, 'README に「## 管理者の手順」が無い');
   const sec = readme.slice(at, readme.indexOf('\n## ', at + 3) < 0 ? readme.length : readme.indexOf('\n## ', at + 3));
   for (const w of [
-    "UPDATE sessions SET revoked_at = CAST(strftime('%s','now') AS INTEGER) WHERE email = '<その人のメール（小文字）>';",
     "INSERT INTO blocked_emails (email, at) VALUES ('<メール（小文字）>', CAST(strftime('%s','now') AS INTEGER));",
     "DELETE FROM blocked_emails WHERE email = '<メール>';",
     '［Storage & Databases］', '［D1］', '`natsu-relay`', '［Console］', '［Execute］', '［Variables and Secrets］', '`OPENAI_API_KEY`', '［Deploy］',
-    '［API Tokens］', '`CLOUDFLARE_API_TOKEN`', '`CLOUDFLARE_ACCOUNT_ID`', '`MAIL_DAILY_MAX`', '15 分', '朝 9 時', '180 日',
-    '`RESEND_API_KEY`', '`ALLOWED_EMAIL_DOMAINS`', '`MAIL_FROM`', '［Run workflow］', '/health', 'Environments',
+    '［API Tokens］', '`CLOUDFLARE_API_TOKEN`', '`CLOUDFLARE_ACCOUNT_ID`', '`ALLOWED_EMAIL_DOMAINS`', '`TEAM_DOMAIN`', '`POLICY_AUD`',
+    '`CF_ACCESS_CLIENT_ID`', '`CF_ACCESS_CLIENT_SECRET`', '［Run workflow］', '/health', 'Environments',
+    '［Zero Trust］', 'One-time PIN', '［Protect this Worker behind Access］', 'Login Methods', 'Service Auth', 'Application Audience (AUD) Tag',
+    '<会社のドメイン>', '<チームの名前>', '［Team & Resources］', '［Users］', '［Revoke］', 'Exclude', '［Remove users］', '［Revoke existing tokens］',
+    '［Refresh］', '［Rotate secret］', 'noreply＠notify.cloudflare.com', '1 month',
   ]) assert.ok(sec.includes(w), `管理者の節に「${w}」が無い`);
-  // MAIL_DAILY_MAX を上げるときも種類は Secret（relay-deploy は keep_bindings: ['secret_text'] で、画面で入れた Text は次の出し直しで消える）
-  const cap = sec.slice(sec.indexOf('### 確認コードが届かない・頼めないとき'));
-  assert.match(cap, /`MAIL_DAILY_MAX`[^\n]*種類は「Secret」/, '確認コードの節で、MAIL_DAILY_MAX の種類を「Secret」と書いていない');
-  assert.match(cap, /Text[^\n]*次[^\n]*消え/, '確認コードの節で、Text にすると次の出し直しで消えると書いていない');
-  // 送り元の見本のアドレスは ＠ を全角で書き、半角で入れると添える（公開前の確認: test/repo.test.js）
-  assert.ok(sec.includes('onboarding＠resend.dev') && /半角/.test(sec), '送り元の見本（＠ は全角・半角で入れる）が無い');
+  // Revoke だけでは、その人はまたログインできる（止めるには Exclude と中継の止めたメール）
+  assert.match(sec, /［Revoke］[^\n]*またログインできます/, 'Revoke だけではまたログインできると書いていない');
+  // + の付いた別名は中継がいつも断る・Worker 単位の Access は外さない
+  assert.match(sec, /`\+`[^\n]*中継[^\n]*断/, '+ の付いた別名を中継が断ると書いていない');
+  assert.match(sec, /Worker 単位の Access は外さない/, 'Worker 単位の Access を外さないと書いていない');
+  // 送り元のアドレスは ＠ を全角で書き、半角で入れると添える（公開前の確認: test/repo.test.js）
+  assert.match(sec, /noreply＠notify\.cloudflare\.com[^\n]*半角/, '送り元（＠ は全角・半角で入れる）が無い');
+  // 会社のドメインとチームの名前は書かない（Cloudflare の設定と Worker の秘密の欄にだけ）
+  assert.ok(!/(?<![\w-])[a-z0-9-]+\.cloudflareaccess\.com/i.test(readme), 'README にチームのドメインの字面がある');
+  assert.ok(!/(?<![\w-])[a-z0-9-]+\.cloudflareaccess\.com/i.test(install), 'INSTALL にチームのドメインの字面がある');
 });
 
 test('OL9: CHANGELOG の 0.5.0 の節は、更新の前に Claude Code を入れてログインすることを、入れ方の文と一緒に頭に書く', () => {

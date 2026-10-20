@@ -120,7 +120,7 @@ LLM が創作した内容をそこで見分けられるようにするためで�
 どこで処理したかは、議事録の上の行に「☁ 文字起こし: クラウド（OpenAI）12・PC 2」「✨ 要約: Claude Code」「🖥 要約: PC（オフライン）」のように出ます。
 
 **0.8.0 から、クラウドの文字起こしは会社の「文字起こしの中継」を通します。** PC には OpenAI の鍵を置きません。
-［設定］の「アカウント」で会社のメールアドレスと確認コードでログインすると、クラウドで文字起こしします。
+［設定］の「アカウント」の［ログイン］から、会社のメールアドレスと、メールで届くコードでログインすると、クラウドで文字起こしします（ログインの画面は Cloudflare Access の英語の画面です）。
 ログインしていないときと、つながっていないときは、PC の中で文字起こしします。
 0.7.0 までの［詳細設定（管理者用）］の鍵の欄は無くなり、PC にしまってあった前の版の鍵（OpenAI・Groq など）は、0.8.0 の起動のときに消します（鍵そのものは OpenAI などの画面に残ります）。
 
@@ -128,8 +128,9 @@ LLM が創作した内容をそこで見分けられるようにするためで�
 
 音声の通る道は、**PC → 文字起こしの中継（Cloudflare の workers.dev）→ OpenAI** です。
 
-- 中継の住所は `https://natsu-relay.<サブドメイン>.workers.dev` です（`<サブドメイン>` は管理者が Cloudflare で決めた名前。会社名や人の名前は入れません）。
-- PC は、録った区間の音声（WAV）と、ログインの札（トークン）を中継へ送ります。中継は会社の OpenAI の鍵を付けて OpenAI（`gpt-4o-transcribe`）へ渡し、文字だけを PC へ返します。会社の鍵は Cloudflare の秘密の欄にだけあり、PC・リポジトリ・記録には出ません。
+- 中継の住所は `https://natsu-relay.natsu-code.workers.dev` です（会社名や人の名前は入れていません）。
+- 中継は **Cloudflare Access**（Cloudflare の、ログインした人だけを通す仕組み）の後ろにあります。ログインしていない要求は、中継に届く前に Cloudflare が断ります。中継も、Cloudflare Access の札（JWT）を自分で確かめ、会社のドメインのメールアドレスだけを通します。
+- PC は、録った区間の音声（WAV）と、ログインの cookie（Cloudflare Access の札）を中継へ送ります。中継は会社の OpenAI の鍵を付けて OpenAI（`gpt-4o-transcribe`）へ渡し、文字だけを PC へ返します。会社の鍵は Cloudflare の秘密の欄にだけあり、PC・リポジトリ・記録には出ません。
 - **中継は音声も文字も保存しません。** 中継の記録に残すのは、状態の番号・かかった時間・音声の秒数などの数と符号だけです（メールアドレス・IP・文字・認識ヒントは残しません）。OpenAI での扱いは OpenAI の API の規約のとおりです。会社の情報を米国の会社（OpenAI・Anthropic）へ送ってよいかは、情報システムの確認を取ってください。
 - 中継で文字起こしする会議は、区切りを **15 秒**にします（文字が早く出て、止まったときにすぐ気づけます）。PC の中で文字起こしする会議は今までどおり設定の長さ（既定 75 秒）です。
 - 1人の1日の音声と、全員の1日の音声には上限があります（既定は 1人 4 時間・全体 100 時間。日本の日付で数えます）。上限に達した日は、残りを PC の中で文字起こしします。
@@ -138,28 +139,30 @@ LLM が創作した内容をそこで見分けられるようにするためで�
 
 - **文字起こし:** 会議と音声入力（ホットキー）の音声を、区間ごとに WAV で中継へ送ります。認識ヒントとして、ユーザー辞書の語と直前の発言の終わりも一緒に送ります。
   送るのは、ログインしていて、中継につながるときだけです。会議を始めると「この会議の音声は OpenAI に送られます…」と知らせます。
-- **ログイン:** ［確認コードを送る］を押すと、入れたメールアドレスを中継へ送ります。中継は確認コードのメール（題は「NaTsu の確認コード」）を Resend というメールの送り元のサービスで送ります。
+- **ログイン:** ［ログイン］で開く窓（Cloudflare Access のログインの画面）に入れたメールアドレスは、Cloudflare へ送られます。コードのメールは Cloudflare（Cloudflare Access の One-time PIN）が送ります。NaTsu はメールアドレスとコードを扱いません（ログインした後に、中継が確かめたメールアドレスを設定の画面に出すだけです）。
 - **要約:** 文字起こしの文・メモ・要約タイプの指示を、ご自分の Claude Code に標準入力で渡します。Claude Code はそれを Claude（Anthropic）へ送って要約します（要約は中継を通しません）。
 - **送らないもの:** 録音の控え（`segbuf/`）・議事録・設定・PC のファイル。Claude Code には NaTsu が作る空の作業フォルダ（`%APPDATA%\natsu\claude-run`）だけを渡し、道具（ファイルの読み書き・コマンド）・MCP・あなたの `~/.claude` の CLAUDE.md・フック・プラグインは使わせません（`--safe-mode`）。会話も保存させません。
 
 | 送り先 | 送るもの | 費用 | 保存の扱い |
 | --- | --- | --- | --- |
-| 文字起こしの中継（Cloudflare） | 音声・ログインの札・確認コードを頼むメールアドレス | 会社が持つ（利用者は払わない） | 音声も文字も保存しない（数と符号の記録だけ） |
+| 文字起こしの中継（Cloudflare） | 音声・ログインの cookie | 会社が持つ（利用者は払わない） | 音声も文字も保存しない（数と符号の記録だけ） |
+| Cloudflare Access（ログインの画面） | ログインするメールアドレス | 会社が持つ（Zero Trust Free。50 人まで無料） | Cloudflare の規約のとおり（だれがいつログインしたかを Cloudflare が残す） |
 | OpenAI（中継の先） | 音声と認識ヒント | 会社が持つ（1分 約 1 円） | OpenAI の API の規約のとおり |
-| Resend（中継の先） | 確認コードのメールの宛先と本文 | 会社が持つ（無料の枠） | Resend の規約のとおり |
 | Claude Code（要約） | 文字起こしの文・メモ | ご自分の Claude のプランの中（API の従量課金は使わない） | Claude（Anthropic）の規約のとおり |
 
-### ログインの仕方（会社のメールと確認コード）
+### ログインの仕方（Cloudflare Access の One-time PIN）
 
-1. ［設定］の上から2つ目の「アカウント」に、会社のメールアドレスを入れて［確認コードを送る］を押します。
-2. 数分以内に「NaTsu の確認コード」のメールが届きます（届かなければ迷惑メールのフォルダも見てください）。6 けたのコードは 10 分の間だけ使えます。
-3. 6 けたを「確認コード」の欄に入れて［ログイン］を押すと「ログイン中: …」になります。違うコードは 5 回まで試せます（「確認コードが違います（あと 4 回試せます）」）。
-4. ［ログアウト］でログアウトできます。中継に届かないときも、PC の札は消します。
+1. ［設定］の上から2つ目の「アカウント」の［ログイン］を押します。NaTsu の上に小さな窓が開き、Cloudflare（中継を守る仕組み）のログインの画面が出ます。画面は英語です。
+2. 会社のメールアドレスを入れて［Send login code］を押します。数分以内に、Cloudflare から英語のメール（差出人は `noreply＠notify.cloudflare.com`。＠ は半角の @）が届きます。届かなければ迷惑メールのフォルダも見てください。
+3. メールの 6 けたのコードを入れて［Sign in］を押します。コードは 10 分で切れ、1回だけ使えます。「already been used」と出たら、［Request new code］でコードを頼み直してください（会社のメールの検査が、先にコードを使ってしまうことがあります。続くときは管理者に知らせてください）。
+4. 窓に「ログインできました。この窓は自動で閉じます。」と出て閉じ、カードが「ログイン中: {メール}（{M} 月 {D} 日まで、このままです）」になります。
+5. ［ログアウト］でログアウトできます。中継に届かないときも、PC のログインは消します。ログアウトは、同じ人のほかの PC の NaTsu の Cloudflare Access のログインも切ります（Cloudflare の仕組み）。
 
-- 登録できるのは会社のメールアドレスだけです（ほかのアドレスでは「このメールアドレスでは登録できません。会社のメールアドレスを入れてください。」と出ます）。
-- 確認コードは、同じメールアドレスで 15 分に 3 回・1日 10 回まで頼めます。
-- ログインの札は Windows の仕組み（DPAPI）で暗号にして `%APPDATA%\natsu\secrets.json` にしまいます。`settings.json`・`engine.log`・画面には出しません。暗号にできない PC ではログインできません。
-- ログインは、30 日使わないと切れます。使い続けても、ログインしてから 180 日で切れます。切れると「ログインが切れたため、PC の中で文字起こししています…」と［ログインし直す］が出ます。押すと「アカウント」が開きます。
+- 使えるのは会社のメールアドレスだけです。会社のものでないアドレスでも画面は「A code has been emailed to you」と出ますが、メールは届きません（送ったかを明かさない Cloudflare の作りです）。
+- ログインの窓は、押したときだけ開きます。ログインが切れても NaTsu が窓を勝手に開くことはありません。録音中に窓を開いたままでも、録音中のページの［■ 終了して作成］は押せます。
+- ログインの cookie は Windows の仕組み（DPAPI）で暗号にして `%APPDATA%\natsu\secrets.json` にしまいます（ディスクに平文の cookie を残しません）。`settings.json`・`engine.log`・画面には出しません。暗号にできない PC ではログインできません。
+- ログインは、管理者が決めた長さ（1 か月）で切れます。切れたときと、管理者が取り消したときは「ログインが切れたため、PC の中で文字起こししています…」と［ログインし直す］が出ます。押すと「アカウント」が開きます。
+- 止められたメールアドレスでは「このメールアドレスでは文字起こしの中継を使えないため、PC の中で文字起こしを続けます。管理者に知らせてください。」と出ます。
 
 ### オフラインと［この会議は PC の中だけ］
 
@@ -189,17 +192,21 @@ PowerShell を打たなくても、NaTsu の［設定］→「オンライン」
 ### 届かないとき（会社の通信の検査・Zscaler など）
 
 中継につながらないときは、理由（証明書が差し替えられている・プロキシ）を知らせて、PC の中で文字起こしを続けます。
-続くときは、情報システムに次の接続先への通信の許可を頼んでください（文字起こしとログインと要約で PC が直に話すのはこの3つだけです。OpenAI と Resend へは中継が送ります。更新の確かめは `api.github.com`・`github.com`、エンジンの取り込みは INSTALL.md の「通す必要のある接続先」の先を使います）。
+続くときは、情報システムに次の接続先への通信の許可を頼んでください（文字起こしとログインと要約で PC が直に話すのはこの4つだけです。OpenAI へは中継が送ります。更新の確かめは `api.github.com`・`github.com`、エンジンの取り込みは INSTALL.md の「通す必要のある接続先」の先を使います）。
 
-- `natsu-relay.<サブドメイン>.workers.dev`（文字起こしの中継）… ログインと文字起こし
+- `natsu-relay.natsu-code.workers.dev`（文字起こしの中継）… ログインと文字起こし
+- `<チームの名前>.cloudflareaccess.com`（Cloudflare Access のログインの画面。`<チームの名前>` は管理者が知っています）… ログイン
 - `claude.ai`・`api.anthropic.com` … Claude Code のログインと要約
 
 ## 管理者の手順
 
-中継（`relay/`）を出し、会社の鍵を入れ、人を止めるのは管理者の仕事です。ブラウザと Cloudflare・Resend・GitHub・OpenAI の画面だけで行います（PowerShell は使いません）。
+中継（`relay/`）を出し、会社の鍵を入れ、ログインの決まりを決め、人を止めるのは管理者の仕事です。ブラウザと Cloudflare・GitHub・OpenAI の画面だけで行います（PowerShell は使いません）。
 鍵やトークンは、メモ帳・チャット・メールに貼らず、作った画面からそのまま次の画面へ貼ってください。
+ここでは、会社のメールの `@` より後ろを `<会社のドメイン>`、Cloudflare の Zero Trust のチームの名前を `<チームの名前>` と書きます。どちらもリポジトリ・アプリ・中継のコードには書きません（Cloudflare の設定と Worker の秘密の欄にだけ置きます）。
 
 ### 用意（初めの1回）
+
+**中継を出す**
 
 1. **Cloudflare のアカウントを作る:** https://dash.cloudflare.com で会社のメールアドレスで登録し、会社のカードを登録します（最初は無料のままでかまいません）。
 2. **workers.dev の名前を決め、会社の PC で開く:** 左の［Workers & Pages］→［作成］→ 見本の「Hello World」を選びます。初めてなら workers.dev の「サブドメイン」を決める画面が出ます。**会社名や人の名前を含まない名前**にしてください（アプリとリポジトリに書くため）。Worker の名前は `natsu-relay` にして［デプロイ］。出た住所を会社の PC の Edge で開き、「Hello World!」が出るかを見ます。
@@ -208,33 +215,73 @@ PowerShell を打たなくても、NaTsu の［設定］→「オンライン」
    - 「Deployment branches and tags」を「Selected branches and tags」にし、`main` だけを足します（main のほかからは秘密が使えなくなります）。
    - 「Environment secrets」の［Add environment secret］で、`CLOUDFLARE_API_TOKEN` に 3 のトークンを、`CLOUDFLARE_ACCOUNT_ID` に Cloudflare の［Workers & Pages］の右側にある「Account ID」を貼ります。
    - リポジトリの［Secrets and variables］→［Actions］の「Repository secrets」には入れません（ほかの枝からも読めるため）。
-5. **Resend のアカウントを作る:** https://resend.com で、会社のメールアドレスで登録します（送り元のドメインを確かめるまでは、確認コードが届くのはこのアドレスだけです）。
-6. **OpenAI の使いすぎの守り:** 会社の OpenAI の画面で、月の使いすぎの知らせや上限を決められるなら決めておきます（中継の1日の上限とは別に効きます）。
-7. **中継を出す:** GitHub の［Actions］→ 左の［relay-deploy］→［Run workflow］（枝は main）→ 緑になるのを待ちます。開いて「中継を出す」の最後の行の「公開した URL」を見ます（2 の住所と同じ）。赤になったら、最後の行の文を写して作り手に送ってください（トークンは記録に出ません）。
-8. **Cloudflare に秘密を入れる:** ［Workers & Pages］→ `natsu-relay` →［Settings］→［Variables and Secrets］→［Add］で、種類はどれも「Secret」にして4つ入れ、［Deploy］を押します。鍵はその場で作って、そのまま貼ります。
-   - `OPENAI_API_KEY` … 会社の OpenAI の画面で文字起こし用の鍵を作ってコピーし、貼る
-   - `RESEND_API_KEY` … Resend の［API Keys］→［Create API Key］→ 権限は「Sending access」で作ってコピーし、貼る
-   - `ALLOWED_EMAIL_DOMAINS` … 会社のメールの `@` より後ろ（2つ以上なら `,` で区切る）
-   - `MAIL_FROM` … ドメインを確かめるまでは `NaTsu <onboarding＠resend.dev>`（＠ は半角の @ にして入れてください。Resend の画面の見本にも出ています）
-9. **確かめる:** 会社の PC の Edge で、中継の住所の後ろに `/health` を付けて開き、`"ready"` の4つ（`db`・`openai`・`mail`・`domains`）が `true` なのを見ます。もう一度［Run workflow］を押しても `true` のままです（秘密は消えません）。
+5. **OpenAI の使いすぎの守り:** 会社の OpenAI の画面で、月の使いすぎの知らせや上限を決められるなら決めておきます（中継の1日の上限とは別に効きます）。
 
-### 取り消しの手順
+**ログイン（Cloudflare Access）を用意する**
 
-1. Cloudflare の画面で［Storage & Databases］→［D1］→ `natsu-relay` →［Console］を開く。
-2. ある人をすべての PC でログアウトさせる: `UPDATE sessions SET revoked_at = CAST(strftime('%s','now') AS INTEGER) WHERE email = '<その人のメール（小文字）>';` を入れて［Execute］。
-3. ある人がもう一度ログインできないようにする: `INSERT INTO blocked_emails (email, at) VALUES ('<メール（小文字）>', CAST(strftime('%s','now') AS INTEGER));`。戻すときは `DELETE FROM blocked_emails WHERE email = '<メール>';`。
-4. 会社の鍵が漏れたかもしれないとき: OpenAI の画面で鍵を消して新しい鍵を作り、Cloudflare の［Workers & Pages］→ `natsu-relay` →［Settings］→［Variables and Secrets］の `OPENAI_API_KEY` を新しい鍵に替えて［Deploy］。
-5. Cloudflare のトークンが漏れたかもしれないとき（このトークンで中継のコードを替えられ、会社の鍵を読み出せる）: Cloudflare の［My Profile］→［API Tokens］でそのトークンを［Delete］し、4 と同じく会社の鍵も替える。新しいトークンを作って GitHub の Environments → relay の `CLOUDFLARE_API_TOKEN` を替える。
+6. **チームのドメインを確かめる:** ［Zero Trust］を開き、チーム（組織）があることを見ます。ブラウザで `https://<チームの名前>.cloudflareaccess.com/cdn-cgi/access/certs` を開くと、RS256 の鍵が並んだ JSON（`"keys": [...]`）が出ます。この `https://<チームの名前>.cloudflareaccess.com` が 12 の `TEAM_DOMAIN` になります。
+   - プランは「Zero Trust Free」（席 50・月 0 ドル）で足ります。席は、NaTsu に初めてログインした人が1つずつ使います。
+   - 組織は消さないでください（消すとチームの名前は二度と使えません）。「Protect all Workers」（アカウントの全部の Worker を守る）は使わず、`natsu-relay` だけを 8 で守ります。
+7. **One-time PIN を足す:** ［Zero Trust］→［Integrations］→［Identity providers］。「Your identity providers」に One-time PIN がもう並んでいれば何もしません。無ければ［Add new identity provider］→［One-time PIN］→ 保存。
+8. **natsu-relay を Worker 単位の Access で守る:** ［Workers & Pages］→ `natsu-relay` →［Access］のタブ →［Protect this Worker behind Access］→「All traffic」を選ぶ →「Authentication policy」は「Email domain」にして `<会社のドメイン>` を入れる →［Apply Access］。
+   - この後は、ブラウザで中継の住所を開くとログインの画面が出ます。出し方（relay-deploy）の `/health` の確かめは、11 のサービストークンを入れるまで「Access に止められた」で止まります。
+9. **決まりとログインの長さを直す:** ［Zero Trust］→［Access controls］→［Applications］→ `natsu-relay` の app の［Configure］。
+   - 「Policies」で 8 で作った決まりを開き、Include が「Emails ending in」`@<会社のドメイン>` だけであることを見ます（ほかの Include、たとえば「Cloudflare account」や「Everyone」があれば消す）。
+   - 同じ決まりに［Add require］で「Login Methods」→「One-time PIN」を足します。
+   - 同じ決まりの「Session duration」が「Same as application session timeout」であることを見ます（違う長さなら、それにする。決まりの長さは app の長さより先に効くので、24 時間のままだと毎日ログインし直しになります）→［Save］。
+   - 「Overview」の「Session Duration」を「1 month」にします（いちばん長い。月に1回ログインし直す）。
+   - 「Cookie settings」は既定のまま（Binding Cookie を有効にしない・HttpOnly は有効のまま・Cookie Path Attribute を有効にしない）。
+   - 「Additional settings」の「Application Audience (AUD) Tag」（64 字）は、12 で `POLICY_AUD` を入れるときに、この画面をもう一度開いてコピーします（秘密ではなく、いつでも見られます）。
+   - アカウントに Access で守るほかの app が無ければ、全体のログインの長さ（［Access controls］→［Access settings］の「global session duration」）も「1 month」にします。ほかの app があるときは変えません。
+10. **ログインの画面の見た目:** ［Zero Trust］→［Reusable components］→［Custom pages］→「Access login page」の［Manage］。
+    - 組織の名前（Your Organization's name）: `NaTsu`
+    - 頭の文（header）: `NaTsu（議事録アプリ）のログイン ─ 会社のメールアドレスを入れて［Send login code］を押してください`
+    - 足の文（footer）: `メールで届く 6 けたのコードを入れて［Sign in］を押します。コードは 10 分で切れます。届かないときは迷惑メールのフォルダを見てください`
+    - ［Save］。画面の英語そのものとコードのメールは変えられません（英語のまま）。この見た目はアカウントの全部の Access の app に効きます（ほかの app があるときは、頭の文を「NaTsu などのログイン」のように広くします）。
+    - 会社の PC の Edge の InPrivate の窓で中継の住所の後ろに `/health` を付けて開き、英語のログインの画面 → コードのメール → 中継の答え、まで通るかを見ます。会社のものでないメールアドレスでは、画面は「A code has been emailed to you」と出ますが、メールは届きません（決まりのとおり）。
+11. **サービストークンを作り、GitHub に入れる:** ［Zero Trust］→［Access controls］→［Service credentials］→［Service Tokens］→［Create Service Token］→ 名前 `natsu-relay-deploy` → 期限（Service Token Duration）は「1 year」→［Generate token］。
+    - 出た Client ID と Client Secret を、そのまま GitHub のリポジトリの［Settings］→［Environments］→ `relay` →［Add environment secret］で、名前 `CF_ACCESS_CLIENT_ID` と `CF_ACCESS_CLIENT_SECRET` に貼ります（Client Secret はこの画面でしか見られません。2つの画面を並べて、片方からもう片方へ直に貼る）。リポジトリの秘密（Repository secrets）には入れません。
+    - ［Access controls］→［Applications］→ `natsu-relay` の［Configure］→「Policies」→［Add a policy］→ Action を「Service Auth」、Include を「Service Token」→ `natsu-relay-deploy` →［Save］。
+    - ［Access controls］→［Access settings］の「Manage service tokens」に「Strict service token authentication」があり、無効なら有効にします（サービストークンの要求は Service Auth の決まりだけで通り、失敗は 302 でなく 401／403 になります）。
+12. **Worker の秘密を入れる:** ［Workers & Pages］→ `natsu-relay` →［Settings］→［Variables and Secrets］→［Add］。どれも種類は「Secret」にします（「Text」にすると次の出し直しで消えます）。鍵はその場で作って、そのまま貼ります。
+    - `OPENAI_API_KEY` … 会社の OpenAI の画面で文字起こし用の鍵を作ってコピーし、貼る
+    - `ALLOWED_EMAIL_DOMAINS` … `<会社のドメイン>`（会社のメールの `@` より後ろ。2つ以上なら `,` で区切る。Access の決まりとは別の、中継の2つ目の照らし）
+    - `TEAM_DOMAIN` … 6 で確かめた `https://<チームの名前>.cloudflareaccess.com`（終わりに `/` と `/cdn-cgi/…` を付けない）
+    - `POLICY_AUD` … 9 の画面をもう一度開いてコピーした AUD のタグ（64 字）
+    - ［Deploy］を押します。
+13. **中継を出す:** GitHub の［Actions］→ 左の［relay-deploy］→［Run workflow］（枝は main）→ 緑になるのを待ちます。最後の行が「ready: db はい・openai はい・access はい・domains はい」なら済んでいます。赤になったら、最後の行の文を写して作り手に送ってください（トークンは記録に出ません）。もう一度［Run workflow］を押しても緑のままです（秘密も Access も消えません）。
+14. **コードのメールの送り元を許してもらう（配る前に）:** 情報システムに「`noreply＠notify.cloudflare.com`（＠ は半角の @ にして伝えてください）からのメールを止めない・メールの中の印を先に開かない（メールの検査の除外）」を頼みます。会社の PC でコードが「already been used」になったときは必ず頼みます。
 
-`'<…>'` の所は、引用符を残して、中をその人のメールアドレス（小文字）に替えて入れてください。
-取り消した人の PC は、次の区間（または音声入力）で「ログインが切れました…」と［ログインし直す］を出し、PC の中で文字起こしを続けます。
+### 取り消しと止め方
 
-### 確認コードが届かない・頼めないとき
+- **ある人を今すぐログアウトさせる:** ［Zero Trust］→［Team & Resources］→［Users］→ その人に印 →［Action］→［Revoke］。［Revoke］だけでは、その人はまたログインできます（止めるには次の「使えなくする」）。取り消された人の PC は、次の区間（または音声入力）で「ログインが切れたため…」と［ログインし直す］を出し、PC の中で文字起こしを続けます。
+- **ある人を使えなくする:** 9 の決まりに［Add exclude］で「Emails」→ その人のメールを足して［Save］し、続けて上の［Revoke］をします。**中継の止めたメールにも必ず入れます**（Access の Exclude はメールちょうどしか見ないため）:
+  1. Cloudflare の画面で［Storage & Databases］→［D1］→ `natsu-relay` →［Console］を開く。
+  2. `INSERT INTO blocked_emails (email, at) VALUES ('<メール（小文字）>', CAST(strftime('%s','now') AS INTEGER));` を入れて［Execute］。中継はそのメールを 403 で断ります。
+  3. 戻すときは Exclude を消し、`DELETE FROM blocked_emails WHERE email = '<メール>';` を［Execute］。
+  - `'<…>'` の所は、引用符を残して、中をその人のメールアドレス（小文字）に替えて入れてください。
+  - `+` の付いた別名（`名前+何か@<会社のドメイン>`）は、中継がいつも断ります（Exclude と止めたメールをすり抜けられないため）。
+  - いちばん確かなのは、会社のメールのアカウントが止まることです（コードが届かなくなります）。
+- **辞めた人の席を空ける（Free は 50 人まで）:** 同じ［Users］で［Action］→［Remove users］→［Remove］。
+- **全員を一度ログアウトさせる:** ［Applications］→ `natsu-relay` の［Configure］→［Revoke existing tokens］。
+- **Worker 単位の Access は外さない:** 外すと、取り消した人のログインも期限（1 か月）まで中継で通ります（中継の止めたメールだけが残る守りになります）。中継は確かめられない要求を通さないので、外すと全員が使えなくなります。
 
-- だれかが同じメールアドレスで `/auth/start`（［確認コードを送る］）を 4 回送ると、その人は 15 分、10 回なら日本の朝 9 時（UTC の日の替わり）まで確認コードを頼めません。
-- 2 つの IP から送れば、全体の1日の通数（`MAIL_DAILY_MAX` = 90）も 45 分ほどで使い切れます。これは設計で受け入れた点です。今ある札（180 日）と PC の中の文字起こしで録音は続き、費用の上限も越えません。
-- だから、**確認コードが届かない・頼めないときは、次の日まで待つか、管理者が Cloudflare の［Variables and Secrets］で `MAIL_DAILY_MAX` を上げてください**（種類は「Secret」にして入れ、［Deploy］を押します。Text にすると、次に中継を出し直したときに消えて 90 に戻ります）。
-- 送り元のドメインを Resend で確かめるまでは、確認コードは Resend に登録したアドレスにしか届きません（ほかの人は「確認コードのメールを送れませんでした…」になります）。確かめたら `MAIL_FROM` を替えるだけで、アプリも中継も出し直しません。
+### 鍵とトークンが漏れたかもしれないとき
+
+1. 会社の鍵: OpenAI の画面で鍵を消して新しい鍵を作り、Cloudflare の［Workers & Pages］→ `natsu-relay` →［Settings］→［Variables and Secrets］の `OPENAI_API_KEY` を新しい鍵に替えて［Deploy］。
+2. Cloudflare のトークン（このトークンで中継のコードを替えられ、会社の鍵を読み出せる）: Cloudflare の［My Profile］→［API Tokens］でそのトークンを［Delete］し、1 と同じく会社の鍵も替える。新しいトークンを作って GitHub の Environments → relay の `CLOUDFLARE_API_TOKEN` を替える。
+3. サービストークン: ［Service Tokens］でそのトークンの［Rotate secret］（前の Secret をすぐ使えなくする）か削除をし、新しい Secret を GitHub の Environments → relay の `CF_ACCESS_CLIENT_SECRET` に入れ直す（削除したときは 11 の手順で作り直し、`CF_ACCESS_CLIENT_ID` も替える）。
+
+### サービストークンの期限
+
+- 11 のサービストークンは 1 年で切れます。切れると relay-deploy が「Access に止められた」で止まります（アプリの文字起こしには関係しません）。
+- 1 年たつ前に、［Zero Trust］→［Access controls］→［Service credentials］→［Service Tokens］のトークンの［Refresh］で 1 年延ばします（Client ID と Secret は変わらないので、GitHub は直さなくてかまいません）。
+
+### コードのメールが届かないとき
+
+- まず迷惑メールのフォルダを見てもらい、コードは 10 分で切れ、頼み直すと前のコードは使えないことを伝えます。
+- 会社のメールの検査で止まる・「already been used」になるときは、14 のとおり情報システムに `noreply＠notify.cloudflare.com`（＠ は半角）を許してもらいます。
+- それでも届かないときは、9 の決まりの Include が `@<会社のドメイン>` か、その人を Exclude に入れていないかを見ます。
 
 ## セットアップ
 

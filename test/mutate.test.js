@@ -288,7 +288,24 @@ const IDS_1D = [
   'ra-discard-keep-quiet', 'ra-finalize-keep-quiet', 'ra-text-no-reset', 'ra-retry-no-pending', 'ra-seg-fail-why', 'ra-memo-scale-floor', 'ra-ui-banner-text', 'ra-ui-stt-live',
   'ra-notify-visible', 'ra-notify-once', 'ra-notify-codes', 'ra-notify-text', 'ra-notify-throw-guard', 'ra-notify-focused', 'ra-restart-recording', 'ra-restart-finalizing',
   'ra-apply-recording', 'ra-tray-late', 'ra-ui-restart-result', 'ra-restart-stops', 'ra-restart-quitting', 'ra-start-quitting', 'ra-dictate-quitting',
+  // 第1d回 Task G-3（作り替え: Cloudflare Access のログイン。計画の「作り替えの変異」の「足す変異」を「変異確認」の表へ移した 60 個）
+  ...IDS_1D_ACCESS_ADDED(),
 ];
+// 中継の Access の確かめ（W-5・W-6）・出し方のサービストークン（D-2）・アプリの送り方とログインの窓と cookie（A-10〜A-14）・ゲート（G-3）
+function IDS_1D_ACCESS_ADDED() {
+  return [
+    'rl-jwt-sig', 'rl-jwt-alg', 'rl-jwt-kid', 'rl-jwt-iss', 'rl-jwt-aud', 'rl-jwt-exp', 'rl-jwt-type', 'rl-jwt-service', 'rl-jwt-cookie', 'rl-jwt-ctx-any',
+    'rl-jwt-aud-503', 'rl-jwt-kind', 'rl-email-alias', 'rl-certs-cache', 'rl-certs-refetch', 'rl-certs-base', 'rl-certs-timeout', 'rl-certs-inflight',
+    'rl-health-open', 'rl-done-csp', 'rl-no-cors', 'rl-schema-drop',
+    'rl-deploy-svc-header', 'rl-deploy-svc-host', 'rl-deploy-svc-env', 'rl-deploy-svc-503',
+    'ra-no-token-header', 'ra-xrw', 'ra-session-cookies', 'ra-redirect-follow', 'ra-302-login', 'ra-cfray', 'ra-403-server', 'ra-nav-any',
+    'ra-cookie-names', 'ra-cookie-host', 'ra-login-persist', 'ra-login-sandbox', 'ra-login-popup', 'ra-login-modal', 'ra-login-me', 'ra-cookie-plain',
+    'ra-logout-clear', 'ra-expired-l3', 'ra-denied-l11', 'ra-login-guard', 'ra-login-guard-all', 'ra-login-contents-any', 'ra-login-pin',
+    'ra-login-blocked-once', 'ra-restore-unreadable', 'ra-login-race', 'ra-no-autoopen',
+    'ra-ui-offline-text', 'ra-ui-localonly-row', 'ra-e2e-cause', 'ra-e2e-code-shape', 'ra-e2e-seg-retry',
+    'rg-team-domain', 'rg-access-secret',
+  ];
+}
 // 第1d回の作り替え（Cloudflare Access のログイン）で、直しそのものが無くなったので外した変異（上の IDS_1D と計画の「変異確認」の表からも外した）。
 // 外したタスクが理由を書く（計画「作り替え」の「作り替えの変異」の「外す変異」の表）:
 //  - ra-token-header（A-11）: 文字起こしの要求に札を入れる道（Authorization: Bearer）が無い。札を見出しに入れない守りは G-3 の ra-no-token-header が受け継ぐ
@@ -321,4 +338,21 @@ test('G3: 第1d回の変異が一覧にそろい、IDS_1D は計画の「変異�
     assert.ok(m.tests.every((t) => /^test\/relay-[a-z-]+\.test\.js$/.test(t)), `${id}: ${m.tests}`);
   }
   for (const id of IDS_1D.filter((x) => x.startsWith('rg-'))) assert.deepStrictEqual(byId.get(id).tests, ['test/gate.test.js'], id);
+});
+test('G3: 第1d回の作り替え（G-3）で足した 60 個の変異が一覧にそろい、計画の「作り替えの変異」の節には足す表が残っていない（「変異確認」の表へ移した）', { timeout: 5000 }, () => {
+  const added = IDS_1D_ACCESS_ADDED();
+  assert.strictEqual(added.length, 60);
+  assert.strictEqual(new Set(added).size, added.length);
+  const byId = new Map(MUTANTS.map((m) => [m.id, m]));
+  assert.deepStrictEqual(added.filter((id) => !byId.has(id)), []);
+  const plan = fs.readFileSync(path.join(ROOT, 'docs', 'plans', '2026-10-19-1d.md'), 'utf8');
+  const at = plan.indexOf('### 作り替えの変異');
+  const sec = plan.slice(at, plan.indexOf('\n### ', at + 5));
+  assert.ok(at > 0 && sec.length > 100, '計画に「作り替えの変異」の節が無い');
+  assert.deepStrictEqual([...sec.matchAll(/^\| ([a-z0-9]+(?:-[a-z0-9]+)+) \|/gm)].map((x) => x[1]), [], '「作り替えの変異」の節に足す表の行が残っている');
+  // 重い場面のテスト（Electron の場面を起こすファイル）は、赤になるテストの名前だけを回す（CI の mutate を短く保つ）
+  for (const id of added) {
+    const m = byId.get(id);
+    if (m.tests.some((t) => /stage1d\.(main|ipc|app|seg|status|restart)\.test\.js$|transcribe\.e2e\.test\.js$/.test(t))) assert.ok(m.pattern, `${id}: pattern が無い`);
+  }
 });
