@@ -9,20 +9,10 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
+const { HelpBuildError } = require('./lib/help-md');
 
 const ROOT = path.resolve(__dirname, '..');
 const NAME = /^[a-z0-9-]{1,40}$/;
-
-/** 作るのを止める誤り。file はリポジトリの根からの道、line は 1 から（分からなければ null） */
-class HelpBuildError extends Error {
-  constructor(message, { file = null, line = null, code } = {}) {
-    super(message);
-    this.name = 'HelpBuildError';
-    this.file = file;
-    this.line = line;
-    this.code = code;
-  }
-}
 
 const badSite = (msg) => { throw new HelpBuildError(msg, { file: 'help/site.json', code: 'bad-site' }); };
 const isText = (v) => typeof v === 'string' && v.trim().length > 0 && !/[\r\n]/.test(v);
