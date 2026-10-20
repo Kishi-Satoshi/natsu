@@ -60,8 +60,9 @@ test('D17: 録音中のページの画面の答えに stt。live-banner-light �
 });
 
 // 第1d回 Task A-13（あとの直し (b)）: 帯は注意の色（--danger）の枠と文字なので、暗い地と 200% の折り返しでも利用者に見てもらう。
-// 2枚とも live-banner-light と同じ会議・同じ帯（B8）で、明暗と拡大だけが違う。どちらも足した画面でまだ基準が無いので取り直し待ち
-test('あとの直し (b): 撮る画面に live-banner-dark・live-banner-zoom200-dark があり、どちらも取り直し待ち。帯の画面は B8 の文', { timeout: 5000 }, () => {
+// 2枚とも live-banner-light と同じ会議・同じ帯（B8）で、明暗と拡大だけが違う。
+// 第1d回 G-4 で意図して変えた: 利用者が CI の新しい画像を見て OK と言ったので基準にした。取り直し待ちではなく、基準の PNG と比べる
+test('あとの直し (b): 撮る画面に live-banner-dark・live-banner-zoom200-dark があり、基準の PNG と比べる（取り直し待ちではない）。帯の画面は B8 の文', { timeout: 5000 }, () => {
   const B8 = '中継につながりません。PC の中で文字起こしを続けています。録音はそのまま続けてください。';
   const light = SH.SCREENS.find((s) => s.name === 'live-banner-light');
   for (const [n, zoom] of [['live-banner-dark', undefined], ['live-banner-zoom200-dark', 2]]) {
@@ -73,7 +74,8 @@ test('あとの直し (b): 撮る画面に live-banner-dark・live-banner-zoom20
     assert.ok(!s.act && !s.focus && !s.event, n);
     assert.deepStrictEqual(s.answers, light.answers, `${n} の会議と帯が live-banner-light と違う`);
     assert.strictEqual(s.answers['koeApp.meetingStatus'].stt.problem.text, B8, n);
-    assert.ok(SH.RETAKE.has(n), `${n} が取り直し待ちに無い`);
+    assert.ok(!SH.RETAKE.has(n), `${n} が取り直し待ちに残っている`);
+    assert.ok(fs.existsSync(path.join(ROOT, 'test', 'shots', 'win32', `${n}.png`)), `${n} の基準が無い`);
   }
 });
 
@@ -167,8 +169,9 @@ test('G2・F14: 録音バーの基準の PNG は第1a回のまま（取り直し
 // 0.7.0 U-2 で意図して変えた: 今の版は 0.6.0。取り直し待ち（設定の3枚）が残る間は 0.7.0 に上げさせない（利用者が新しい画像を見る前に出さない）。
 // 第1d回 A-4 で意図して変えた: 今の版は 0.7.0。取り直し待ち（設定の3枚。A-7 で録音中のページの3枚も）が残る間は 0.8.0 に上げさせない
 // （G-2 で版を上げる前に、利用者が CI の新しい画像を見て OK と言い、基準にして空に戻す）
-test('F14: 取り直し待ちが残っている間は、版を上げられない（取り直し待ちのまま 0.8.0 を出さない）', { timeout: 5000 }, () => {
-  if (SH.RETAKE.size) assert.strictEqual(JSON.parse(read('package.json')).version, '0.7.0', `取り直し待ち ${[...SH.RETAKE].join(',')} を残したまま版を上げた`);
+// 第1d回 G-4 で意図して変えた: 利用者が8枚を OK と言ったので取り直し待ちを空にし、版を 0.8.0 にした。次の版も、取り直し待ちが残る間は 0.8.0 のまま
+test('F14: 取り直し待ちが残っている間は、版を上げられない（取り直し待ちのまま次の版を出さない）', { timeout: 5000 }, () => {
+  if (SH.RETAKE.size) assert.strictEqual(JSON.parse(read('package.json')).version, '0.8.0', `取り直し待ち ${[...SH.RETAKE].join(',')} を残したまま版を上げた`);
 });
 
 test('tools/shots/main.js は画面ごとの答え・拡大・はみ出し・Tab を使う', { timeout: 5000 }, () => {
@@ -353,14 +356,13 @@ test('G2: 作業域より大きい窓が作るときに縮められても（Wind
 // 第1d回 A-13（あとの直し (b)）で意図して変えた: 帯の暗い画面（live-banner-dark）と 200% の暗い画面（live-banner-zoom200-dark）を足して取り直し待ちにした（8枚）。
 // 設定の3枚はカード「エンジン」を「オフライン」にした（D19）ので取り直し待ちのまま、録音中のページの3枚は［この会議は PC の中だけ］を1行目にした（D20）ので
 // 取り直し待ちのまま。基準が無くてよいのは取り直し待ちにある帯の3枚（live-banner-*）だけ
-test('G2・F14・RL10・D17・A-13: 取り直し待ちは設定の3枚と録音中のページの3枚と帯の暗い2枚（8枚）。録音バーは入れない。どの画面にも基準の PNG があり（足した帯の3枚だけは取り直し待ちの間は無くてよい）、大きさが窓の大きさと同じ', { timeout: 5000 }, () => {
-  assert.deepStrictEqual([...SH.RETAKE], ['settings-light', 'settings-dark', 'settings-zoom200-dark', 'live-light', 'live-dark', 'live-banner-light',
-    'live-banner-dark', 'live-banner-zoom200-dark']);
+// 第1d回 G-4 で意図して変えた: 利用者が 2026-10-20 に CI の新しい8枚（run 39398639423・artifact 12252523286 の .after.png）を見て OK と言ったので、
+// その画像をバイトのまま基準にして取り直し待ちを空に戻した（0.7.0 U-2・第1b回 C-2 と同じ手順）。帯の3枚の「基準が無くてよい」の例外も外した
+test('G2・F14・G-4: 取り直し待ちは無い。録音バーは入れない。どの画面にも基準の PNG があり、大きさが窓の大きさと同じ', { timeout: 5000 }, () => {
+  assert.deepStrictEqual([...SH.RETAKE], []);
   assert.ok(!SH.RETAKE.has('overlay-processing'), '録音バーを取り直し待ちに入れた（overlay.html は変えない）');
-  const NEW = new Set(['live-banner-light', 'live-banner-dark', 'live-banner-zoom200-dark']);
   for (const s of SH.SCREENS) {
     const f = path.join(ROOT, 'test', 'shots', 'win32', `${s.name}.png`);
-    if (NEW.has(s.name) && !fs.existsSync(f)) { assert.ok(SH.RETAKE.has(s.name), `${s.name} の基準が無いのに取り直し待ちに無い`); continue; }
     assert.ok(fs.existsSync(f), `${s.name} の基準が無い`);
     const im = P.decodePng(fs.readFileSync(f));
     const want = s.page === 'overlay' ? SH.OVERLAY_SIZE : SH.SIZE;
@@ -398,6 +400,7 @@ test('G2・F14・RL10・D17・A-13: 取り直し待ちは設定の3枚と録音�
 // ［ログイン］と英語の Cloudflare の画面の説明（AR1）・コードのメールの注意（AR2）にした。見える中身が変わるのは設定の3枚で、どれも RETAKE にある
 // （tools/shots/screens.js の accountStatus の答えはログインしていない形）。録音中のページ・議事録・音声入力・検索の窓は要素も文も変えていない
 // （［ログインし直す］のフォーカスの行き先は <script> の中だけ）ので、基準のまま比べる。値を今の app.html に合わせた
+// 第1d回 G-4: 取り直し待ちの8枚を、この値の app.html で CI（run 39398639423・4f47ad0）が撮った画像にした（app.html は変えていないので値はそのまま）
 test('基準の画像（test/shots/win32）は今の app.html で撮ったもの（app.html を変えたら撮り直しを確かめる）', { timeout: 5000 }, () => {
   const sha = require('node:crypto').createHash('sha256').update(fs.readFileSync(path.join(ROOT, 'src', 'renderer', 'app.html'))).digest('hex');
   assert.strictEqual(sha, 'c25700fc5a26b7aa947bb6ab956d844cc760835fe3f3053676fbbba437f39117',

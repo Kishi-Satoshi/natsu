@@ -38,13 +38,15 @@ test('表示名は NaTsu（画面・録音バー・ウィンドウ・トレイ�
   for (const s of ["'NaTsu — 議事録を記録中'", "'NaTsu — 録音中'", "'NaTsu — 処理中'", '`NaTsu — ${activeHotkeys.hotkey}: 音声入力']) {
     assert.ok(main.includes(s), s);
   }
-  assert.strictEqual(pkg.description, 'NaTsu — 音声入力・議事録ツール（オンラインはクラウドの文字起こしと各自の Claude Code の要約、オフラインは手元の whisper と llama。出典リンク付き）');
+  // 第1d回 G-4 で意図して変えた: オンラインの文字起こしは会社の中継を通した OpenAI（PC は OpenAI へ直に送らない）
+  assert.strictEqual(pkg.description, 'NaTsu — 音声入力・議事録ツール（オンラインは文字起こしの中継を通した OpenAI の文字起こしと各自の Claude Code の要約、オフラインは手元の whisper と llama。出典リンク付き）');
 });
 
 // 第1b回 Task C-3 で意図して変えた: 版を 0.6.0 に（第1b回と第1b2回の画面・窓の覚え書き・一時停止。Electron は 44.9.0 のままなので［更新して再起動］で当たる）
-test('識別子: name は natsu・版は 0.7.0・productName は build の中だけ（userData は %APPDATA%\\natsu）', () => {
+// 第1d回 G-4 で意図して変えた: 版を 0.8.0 に（中継と Cloudflare Access のログイン・区切り 15 秒・録音中のページの状態・録音中の再起動の守り。Electron は 44.9.0 のまま）
+test('識別子: name は natsu・版は 0.8.0・productName は build の中だけ（userData は %APPDATA%\\natsu）', () => {
   assert.strictEqual(pkg.name, 'natsu');
-  assert.strictEqual(pkg.version, '0.7.0');
+  assert.strictEqual(pkg.version, '0.8.0');
   assert.strictEqual(pkg.productName, undefined, 'top-level の productName は userData の名前を変える');
   assert.strictEqual(pkg.build.productName, 'NaTsu');
   assert.strictEqual(pkg.build.appId, 'local.natsu.app');
@@ -249,8 +251,9 @@ test('2a1: 試作の名前を持ち込んでいない（listener.db・Listener D
   }
 });
 
-test('0.7.0: 版と、README の保存の説明（natsu.db・backup・元の JSON を残す・古い版に戻したとき・控えに残る期間）', () => {
-  assert.strictEqual(require('../package.json').version, '0.7.0');
+// 第1d回 G-4 で意図して変えた: 版は 0.8.0（README の保存の説明は 0.7.0 のまま）
+test('0.7.0・0.8.0: 版と、README の保存の説明（natsu.db・backup・元の JSON を残す・古い版に戻したとき・控えに残る期間）', () => {
+  assert.strictEqual(require('../package.json').version, '0.8.0');
   const r = read('README.md');
   for (const w of ['natsu.db', 'data\\backup', '元の JSON', '古い版', '3 日', '2 週']) assert.ok(r.includes(w), w);
 });
@@ -268,4 +271,27 @@ test('0.7.0: CHANGELOG の 0.7.0 の節は、更新の仕方・保存の形・�
   assert.ok(!/notion/i.test(sec), '0.7.0 の節に「Notion」と書いた');
   // 第1d回 W-1・D-1（中継の骨組みと出し方）は 0.7.0 の版で main に入る。アプリには入らず、動きは変わらないことを1行で書く
   assert.ok(/^- .*次の版（0\.8\.0）の中継の準備.*アプリの動きは変わりません/m.test(sec), '0.7.0 の節に中継の準備の行が無い');
+});
+
+// 第1d回 G-4: CHANGELOG の 0.8.0 の節（保留した 0647c6c の節を、ログインを Cloudflare Access にした作り替えに合わせて書き直した）。
+// 頭に「更新の後、［ログイン］で英語の Cloudflare の画面からログインする（するまでは PC の中）」を書き、中継・ログインの窓・7 日・鍵の欄を消したこと・
+// 手元でやり直すこと・区切り 15 秒・録音中のページの状態と帯・Windows の知らせ・［この会議は PC の中だけ］の場所・カード「オフライン」・録音中の再起動の守り・
+// 接続先を平易な日本語で書く。前の自前のログイン（確認コードのメール・Resend・30 日／180 日）は書かない
+test('0.8.0: CHANGELOG の 0.8.0 の節は、頭に更新の後の Cloudflare の画面でのログインを書き、中継・ログインの窓・7 日・鍵の欄・手元のやり直し・15 秒・帯・再起動の守りを書く', () => {
+  const cl = read('CHANGELOG.md');
+  assert.ok(cl.indexOf('## natsu-v0.8.0') >= 0 && cl.indexOf('## natsu-v0.8.0') < cl.indexOf('## natsu-v0.7.0'), '0.8.0 の節が 0.7.0 の上に無い');
+  const sec = cl.slice(cl.indexOf('## natsu-v0.8.0'), cl.indexOf('## natsu-v0.7.0'));
+  const head = sec.split('\n').slice(0, 4).join('\n');
+  assert.ok(head.includes('［更新して再起動］'), '頭に［更新して再起動］で当たることが無い');
+  assert.ok(head.includes('更新の後、設定の「アカウント」の［ログイン］を押し、英語の Cloudflare の画面で会社のメールアドレスとメールの 6 けたのコードでログインしてください。ログインするまでは PC の中で文字起こしします'),
+    '頭に更新の後のログインが無い');
+  for (const w of ['文字起こしの中継', 'workers.dev', 'OpenAI', '［ログイン］', '［Send login code］', '［Sign in］', '7 日', '［ログインし直す］', '［詳細設定（管理者用）］', '鍵',
+    'PC の中で文字起こしし直します', 'この会議は PC の中だけ', '15 秒', '録音中のページ', '［もう一度］', 'Windows の知らせ', 'オフライン', '［PC の中で試す］', '再起動',
+    'natsu-relay.natsu-code.workers.dev', '<チームの名前>.cloudflareaccess.com', 'claude.ai', 'api.anthropic.com', '管理者の手順']) {
+    assert.ok(sec.includes(w), `0.8.0 の節に「${w}」が無い`);
+  }
+  for (const w of ['確認コード', 'Resend', '30 日', '180 日', '［確認コードを送る］', 'nt1_', '1 か月', '1 month']) assert.ok(!sec.includes(w), `0.8.0 の節に前のログインの「${w}」を書いた`);
+  assert.ok(!/(?<![\w-])[a-z0-9-]+\.cloudflareaccess\.com/i.test(sec), '0.8.0 の節にチームのドメインの字面がある');
+  assert.ok(!sec.includes('api.groq.com') && !sec.includes('api.openai.com'), '0.8.0 の節に PC が直に送る前の送り先を書いた');
+  assert.ok(!/notion/i.test(sec), '0.8.0 の節に「Notion」と書いた');
 });

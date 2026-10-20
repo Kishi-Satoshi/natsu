@@ -83,8 +83,8 @@ SCREENS.find((x) => x.name === 'notes-page-light').focus = { tabs: 3, want: 'mtT
 // 同じく、利用者が CI の新しい画像を見て OK と言ったら基準にして空に戻す（空になるまで版を上げられない: test/shots.test.js）
 // 第1d回 A-13 で帯の暗い画面と 200% の暗い画面（live-banner-dark・live-banner-zoom200-dark。足した画面でまだ基準が無い）を足して8枚にした
 // （設定の3枚はカード「オフライン」（D19）、録音中のページの3枚は［この会議は PC の中だけ］を1行目に（D20）でも見た目が変わる）
-const RETAKE = new Set(['settings-light', 'settings-dark', 'settings-zoom200-dark', 'live-light', 'live-dark', 'live-banner-light',
-  'live-banner-dark', 'live-banner-zoom200-dark']);
+// 第1d回 G-4: 利用者が 2026-10-20 に CI の新しい8枚（run 39398639423・artifact 12252523286）を見て OK と言ったので、その画像を基準にして空に戻した
+const RETAKE = new Set([]);
 const PERF = [{ name: 'open-2000-blocks', budgetMs: 500 }];   // 3回開いた中央値で見る
 const TIME_ZONE = 'Asia/Tokyo';
 const TOLERANCE = 2;   // 色の差（0〜255）がこれ以下の画素は同じとみなす。CI の機械の CPU ごとの描き方の1段の差を拾わないため（揺れの確かめ judgePair は 0 で見る）
