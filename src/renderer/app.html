@@ -688,7 +688,9 @@
             <div class="desc">この PC での NaTsu の見た目です。Ctrl+Shift+L でライトとダークを切り替えられます。</div>
           </div>
         </div>
-        <!-- 第1d回 A-4（RL10）: ログインは外観のすぐ下。メール → 確認コード → ログイン中。文は main が返す（R4〜R17）。札は画面に来ない -->
+        <!-- 第1d回 A-4（RL10）: ログインは外観のすぐ下。A-12: ［ログイン］で Cloudflare Access のログインの窓（英語）を開く → ログイン中。
+             メールと確認コードは Cloudflare の画面で入れる（画面には欄が無い）。文は main が返す（AR4〜AR7・R12〜R16）。cookie は画面に来ない。
+             ［ログイン］の id は accountSignIn（前の #accountLogin は消した #accountCodeField の中のボタンで、同じ id で外へ出すとゲートの「枠からの離脱」になる） -->
         <div class="card" id="accountCard">
           <h2 id="accountTitle">アカウント</h2>
           <div class="field">
@@ -696,20 +698,11 @@
           </div>
           <div id="accountOut">
             <div class="field">
-              <label for="accountEmail">メールアドレス</label>
-              <div class="row">
-                <input type="email" id="accountEmail" autocomplete="email" spellcheck="false" maxlength="254" />
-                <button class="ghost" id="accountSend" type="button">確認コードを送る</button>
+              <div class="desc">［ログイン］を押すと、ログインの画面が別の窓で開きます。画面は Cloudflare（中継を守る仕組み）のもので、英語です。会社のメールアドレスを入れて［Send login code］を押し、届いたメール（差出人は Cloudflare。英語）の 6 けたのコードを入れて［Sign in］を押してください。ログインできると、窓は自動で閉じます。</div>
+              <div class="row" style="margin-top:8px">
+                <button class="action" id="accountSignIn" type="button">ログイン</button>
               </div>
-            </div>
-            <div class="field" id="accountCodeField" hidden>
-              <div class="desc" id="accountSent"></div>
-              <label for="accountCode" style="margin-top:10px">確認コード</label>
-              <div class="row">
-                <input type="text" id="accountCode" inputmode="numeric" autocomplete="one-time-code" spellcheck="false" maxlength="20" />
-                <button class="action" id="accountLogin" type="button">ログイン</button>
-                <button class="ghost" id="accountResend" type="button">コードを送り直す</button>
-              </div>
+              <div class="desc" style="margin-top:8px">コードのメールが届かないときは、迷惑メールのフォルダも見てください。「already been used」と出たら、［Request new code］でコードを頼み直してください（会社のメールの検査が、先にコードを使ってしまうことがあります）。</div>
             </div>
           </div>
           <div class="field" id="accountIn" hidden>
@@ -3272,7 +3265,7 @@
       theme: $('themeSel').value,
       useSystemAudio: $('useSystemAudio').checked,
       // オンライン（第1c回 C-2）。送り先と同意のキーは 0.7.0 U-1 で外した（送らない。前の版の値は main が settings.json に残す）。
-      // ログインのメールと確認コード（#accountEmail・#accountCode）はここに入れない（account:* だけで送る。main は画面のメールを保存しない）
+      // ログイン（第1d回 A-12 から Cloudflare Access の窓）は account:* だけ。画面にメールと確認コードの欄は無い（main は画面のメールを保存しない）
       claudeExe: $('claudeExe').value.trim(),
     };
     const prevClaudeExe = settings.claudeExe || '';
@@ -3335,25 +3328,28 @@
   // Claude Code の状態は auth status だけ（claudeStatus。要約の -p は呼ばない）
   const CLAUDE_OK = 'ログイン済み（claude.ai）';
   const CLAUDE_VERIFIED = 'ログイン済み（確かめ済み）';   // ［Claude Code を確かめる］で小さな要求まで通った（第1b回の続き Lane F-b）
-  // アカウント: 描くのは main の写し（accountStatus。札は入っていない。外へは通信しない口）。メールと確認コードは account:* で送るだけ。
-  // 文は main が返す message をそのまま出す（R4〜R17。画面では作らない）。送れた（R3）とログイン中（R11）だけは画面の文
-  let accountSentTo = '';   // 確認コードを送れたメール（コードの欄を出す間だけ。ログインした・ログアウトしたら空）
-  let accountBusy = false;  // 送っている間はボタンを止め、2回押しても1回だけ送る
+  // アカウント: 描くのは main の写し（accountStatus。cookie は入っていない。外へは通信しない口）。第1d回 A-12: ［ログイン］は main に
+  // Cloudflare Access のログインの窓を開いてもらうだけ（accountLogin。画面はメールもコードも扱わない）。
+  // 文は main が返す message をそのまま出す（AR4〜AR7・R12〜R16。画面では作らない）。ログイン中の行（AR3）だけは画面の文
+  let accountBusy = false;  // 返事を待つ間はボタンを止め、2回押しても1回だけ頼む
   function accountMsg(text, ok) {
     const m = $('accountMsg');
     m.textContent = text || '';
     m.className = ok === true ? 'desc save-msg ok' : ok === false ? 'desc save-msg ng' : 'desc save-msg';
+  }
+  // 期限（UNIX 秒）→「（{M} 月 {D} 日まで、このままです）」。分からなければ ''（括弧ごと外す）
+  function accountUntil(until) {
+    if (!Number.isInteger(until) || until <= 0) return '';
+    const d = new Date(until * 1000);
+    if (Number.isNaN(d.getTime())) return '';
+    return `（${d.getMonth() + 1} 月 ${d.getDate()} 日まで、このままです）`;
   }
   function renderAccount(s) {
     const st = s && typeof s === 'object' ? s : null;
     const signedIn = Boolean(st && st.signedIn === true);
     $('accountOut').hidden = signedIn;
     $('accountIn').hidden = !signedIn;
-    $('accountWho').textContent = signedIn ? `ログイン中: ${typeof st.email === 'string' ? st.email : ''}` : '';
-    if (signedIn) accountSentTo = '';
-    $('accountCodeField').hidden = signedIn || !accountSentTo;
-    $('accountSent').textContent = accountSentTo
-      ? `${accountSentTo} に 6 けたの確認コードを送りました（10 分の間だけ使えます）。届かないときは迷惑メールのフォルダも見てください。` : '';
+    $('accountWho').textContent = signedIn ? `ログイン中: ${typeof st.email === 'string' ? st.email : ''}${accountUntil(st.until)}` : '';
   }
   async function refreshAccount() {
     if (!window.koeApp.accountStatus) return;   // 古い preload
@@ -3363,39 +3359,17 @@
   }
   function setAccountBusy(on) {
     accountBusy = on;
-    for (const id of ['accountSend', 'accountLogin', 'accountResend', 'accountLogout']) $(id).disabled = on;
+    for (const id of ['accountSignIn', 'accountLogout']) $(id).disabled = on;
   }
-  async function accountSend() {
+  $('accountSignIn').onclick = async () => {
     if (accountBusy) return;
-    const email = $('accountEmail').value.trim();
     setAccountBusy(true);
+    accountMsg('');
     let r = null;
-    try { r = await window.koeApp.accountStart(email); } catch (_) { r = null; } finally { setAccountBusy(false); }
-    if (r && r.ok) {
-      accountSentTo = email;
-      accountMsg('');
-      renderAccount({ signedIn: false });
-      $('accountCode').focus();
-    } else accountMsg((r && r.message) || '確認コードを送れませんでした。', false);
-  }
-  async function accountLogin() {
-    if (accountBusy) return;
-    // 確かめるのはコードを送ったメール（送った後にメールの欄を書き換えても、コードの無い宛先へは送らない）
-    const email = accountSentTo || $('accountEmail').value.trim();
-    const code = $('accountCode').value;
-    $('accountCode').value = '';   // コードは欄に残さない（成功でも失敗でも。メールの欄は残す）
-    setAccountBusy(true);
-    let r = null;
-    try { r = await window.koeApp.accountVerify(email, code); } catch (_) { r = null; } finally { setAccountBusy(false); }
-    if (r && r.ok) {
-      accountSentTo = '';
-      accountMsg('');
-      await refreshAccount();
-    } else accountMsg((r && r.message) || 'ログインできませんでした。', false);
-  }
-  $('accountSend').onclick = () => accountSend();
-  $('accountResend').onclick = () => accountSend();
-  $('accountLogin').onclick = () => accountLogin();
+    try { r = await window.koeApp.accountLogin(); } catch (_) { r = null; } finally { setAccountBusy(false); }
+    accountMsg((r && r.message) || (r && r.ok ? '' : 'ログインできませんでした。'), Boolean(r && r.ok));
+    await refreshAccount();
+  };
   $('accountLogout').onclick = async () => {
     if (accountBusy) return;
     setAccountBusy(true);
@@ -3404,23 +3378,12 @@
     accountMsg((r && r.message) || (r && r.ok ? '' : 'ログアウトできませんでした。'), Boolean(r && r.ok));
     await refreshAccount();
   };
-  // Enter でも送れる（変換の確定の Enter では送らない）
-  $('accountEmail').addEventListener('keydown', (ev) => {
-    if (ev.key !== 'Enter' || imeEnter(ev)) return;
-    ev.preventDefault();
-    accountSend();
-  });
-  $('accountCode').addEventListener('keydown', (ev) => {
-    if (ev.key !== 'Enter' || imeEnter(ev)) return;
-    ev.preventDefault();
-    accountLogin();
-  });
-  // ログイン切れの知らせの［ログインし直す］（F5）: 設定の「アカウント」を開き、メールの欄へ
+  // ログイン切れの知らせと帯の［ログインし直す］（F5）: 設定の「アカウント」を開き、［ログイン］へ（窓は自分から開かない: F27）
   async function showAccount() {
     showTab('settings');
     await refreshAccount();
     $('accountCard').scrollIntoView({ block: 'nearest' });
-    $('accountEmail').focus();
+    $('accountSignIn').focus();
   }
   function renderClaude(s) {
     const el = $('claudeState');

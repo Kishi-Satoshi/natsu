@@ -394,9 +394,13 @@ test('G2・F14・RL10・D17・A-13: 取り直し待ちは設定の3枚と録音�
 // 「PC の中の文字起こし」に（設定の3枚）、［この会議は PC の中だけ］を記録の行の1行目へ（録音中のページの3枚）、入力の欄の決まりに
 // input[type="email"] を足した（設定のメールの欄。設定の3枚）。見える中身が変わるのは設定の3枚と録音中のページの3枚で、どれも RETAKE にある。
 // 帯の暗い画面と 200% の暗い画面を足して RETAKE に入れた（8枚）。議事録・音声入力・検索の窓は要素も文も変えていないので、基準のまま比べる。値を今の app.html に合わせた
+// 第1d回 A-12（RL10）: 設定のカード「アカウント」のメールアドレスと確認コードの欄・［確認コードを送る］［コードを送り直す］を消し、
+// ［ログイン］と英語の Cloudflare の画面の説明（AR1）・コードのメールの注意（AR2）にした。見える中身が変わるのは設定の3枚で、どれも RETAKE にある
+// （tools/shots/screens.js の accountStatus の答えはログインしていない形）。録音中のページ・議事録・音声入力・検索の窓は要素も文も変えていない
+// （［ログインし直す］のフォーカスの行き先は <script> の中だけ）ので、基準のまま比べる。値を今の app.html に合わせた
 test('基準の画像（test/shots/win32）は今の app.html で撮ったもの（app.html を変えたら撮り直しを確かめる）', { timeout: 5000 }, () => {
   const sha = require('node:crypto').createHash('sha256').update(fs.readFileSync(path.join(ROOT, 'src', 'renderer', 'app.html'))).digest('hex');
-  assert.strictEqual(sha, 'eed7274ecd177903f6ae433c2ef60ec0dcee625139c91ab75b49984f20f90c2e',
+  assert.strictEqual(sha, 'c25700fc5a26b7aa947bb6ab956d844cc760835fe3f3053676fbbba437f39117',
     'app.html が基準の画像を撮った時と違う。Windows の CI の画面の比べ（捲り棒のつまみも）を見て、基準を取り直してからこの値を直す');
 });
 

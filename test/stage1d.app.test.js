@@ -1,7 +1,8 @@
 /*
  * stage1d.app.test.js — 第1d回の画面（app.html）の確かめ（最小 DOM（helpers/simrun.js）の上で画面の <script> を本当に走らせる）
  * A-9（RL16・F16・RF41）: ［更新して再起動］で取り込みが通っても、restart が断ったら文を出してボタンを戻し、次は取り込み直さずに restart だけ。
- * A-4（RL10・RL11・F5・F11）: 設定のカード「アカウント」（メール → 確認コード → ログイン中・ログアウト）、ログイン切れの知らせの
+ * A-4（RL10・RL11・F5・F11）・A-12（RL10）: 設定のカード「アカウント」（A-12 から［ログイン］（Cloudflare Access の窓）→ ログイン中・
+ * ［ログアウト］。メールと確認コードの欄は無い）、ログイン切れの知らせの
  * ［ログインし直す］、0.7.0 の管理者用の鍵の欄が無いこと。main の答えは偽物（preload.js の名前から作る）。文は main が返す message を
  * そのまま出すので、試験の文は本物の文（mainlib.accountMessage）と、画面が作れない印の文の両方で見る。
  * A-7（RL14・D17・F14）: 録音中のページの文字起こしの状態の行（#liveStt）と頭の帯（#liveSttBanner）。main の meetingStatus().stt を
@@ -84,34 +85,42 @@ const fmt = (e) => `${e.constructor.name}: ${e.message}`;
 const mail = (local) => local + String.fromCharCode(64) + 'example.com';
 const M = mail('kaigi');
 const R1 = '会社のメールアドレスでログインすると、インターネットにつながっているときに、会議と音声入力の音声を文字起こしの中継に送り、OpenAI で文字起こしします。ログインしていないときと、つながっていないときは、PC の中で文字起こしします。';
-const R3 = (m) => `${m} に 6 けたの確認コードを送りました（10 分の間だけ使えます）。届かないときは迷惑メールのフォルダも見てください。`;
 const ONLINE = 'ログインしていて、インターネットにつながっているときは、会議と音声入力の音声を文字起こしの中継に送り、OpenAI（gpt-4o-transcribe）で文字起こしします。中継も OpenAI も、音声と文字を保存しません。つながっていないときは、いつも PC の中で文字起こしします。1on1・面談など外に出したくない会議は、議事録の画面の［この会議は PC の中だけ］を押してください。';
 const L3 = 'ログインが切れたため、PC の中で文字起こししています。設定の「アカウント」でもう一度ログインしてください。';
 const CLAUDE = () => ({ ok: true, found: true, cmdOnly: false, method: 'claude.ai', message: '' });
-const status = (o = {}) => ({ ok: true, signedIn: false, email: '', method: 'email', canStore: true, online: { up: true, why: 'ok' }, ...o });
+const status = (o = {}) => ({ ok: true, signedIn: false, email: '', method: 'access', until: null, canStore: true, online: { up: true, why: 'ok' }, ...o });
 const RETIRED = ['onlineAdv', 'sttKey', 'sttKeySave', 'sttKeyTest', 'sttKeyClear', 'sttKeyState'];
 
 // 要素とその祖先のどれにも hidden が無い（画面に出ている）
 const shown = (el) => { for (let n = el; n && n.tagName && !n.tagName.startsWith('#'); n = n.parentNode) if (n.hidden) return false; return true; };
 const click = async (l, id) => { l.byId.get(id).dispatchEvent({ type: 'click' }); await l.drain(); };
 
-// ログインの流れを覚える偽の main（start・verify・logout の答えは差し替えられる）
+// 第1d回 A-12 で意図して変えた: 自前のログイン（メール → 確認コード）の試しを、Cloudflare Access の窓の［ログイン］／［ログアウト］の試しに替えた
+// （計画「作り替え」の「画面と知らせの文」の AR1〜AR7。R2〜R10・R17 の文と、メールとコードの欄は無い）
+const AR1 = '［ログイン］を押すと、ログインの画面が別の窓で開きます。画面は Cloudflare（中継を守る仕組み）のもので、英語です。会社のメールアドレスを入れて［Send login code］を押し、届いたメール（差出人は Cloudflare。英語）の 6 けたのコードを入れて［Sign in］を押してください。ログインできると、窓は自動で閉じます。';
+const AR2 = 'コードのメールが届かないときは、迷惑メールのフォルダも見てください。「already been used」と出たら、［Request new code］でコードを頼み直してください（会社のメールの検査が、先にコードを使ってしまうことがあります）。';
+// 前の［ログイン］#accountLogin は消した #accountCodeField の中のボタン。A-12 の［ログイン］は #accountSignIn（同じ id で外へ出すとゲートの「枠からの離脱」）
+const RETIRED_ACCOUNT = ['accountEmail', 'accountSend', 'accountCodeField', 'accountSent', 'accountCode', 'accountResend', 'accountLogin'];
+// 期限（UNIX 秒）→「{M} 月 {D} 日」（画面と同じく、この PC の時刻で）
+const md = (sec) => { const d = new Date(sec * 1000); return `${d.getMonth() + 1} 月 ${d.getDate()} 日`; };
+const UNTIL = Math.floor(Date.UTC(2026, 10, 18, 3, 0, 0) / 1000);
+
+// ログインの流れを覚える偽の main（login・logout の答えは差し替えられる）
 function fakeMain(over = {}) {
-  const st = { signedIn: false, email: '' };
+  const st = { signedIn: false, email: '', until: null };
   return {
     st,
     returns: {
       claudeStatus: CLAUDE,
-      accountStatus: () => status({ signedIn: st.signedIn, email: st.signedIn ? st.email : '' }),
-      accountStart: () => ({ ok: true }),
-      accountVerify: (email) => { st.signedIn = true; st.email = email; return { ok: true, email }; },
-      accountLogout: () => { st.signedIn = false; st.email = ''; return { ok: true, message: lib.accountMessage('logout') }; },
+      accountStatus: () => status({ signedIn: st.signedIn, email: st.signedIn ? st.email : '', until: st.signedIn ? st.until : null }),
+      accountLogin: () => { st.signedIn = true; st.email = M; st.until = UNTIL; return { ok: true, email: M, message: lib.accountMessage('login-ok') }; },
+      accountLogout: () => { st.signedIn = false; st.email = ''; st.until = null; return { ok: true, message: lib.accountMessage('logout') }; },
       ...over,
     },
   };
 }
 
-test('RL10: 設定の2つ目のカードが「アカウント」（1つ目は外観）。ログインしていなければメールの欄と［確認コードを送る］、送れたら R3 とコードの欄・［ログイン］［コードを送り直す］、ログインしたら R11 と［ログアウト］', async () => {
+test('RL10: ログインしていなければ AR1・AR2 と［ログイン］、ログイン中は『ログイン中: {メール}（{M} 月 {D} 日まで、このままです）』と［ログアウト］。期限が無ければ括弧ごと外す', async () => {
   const f = fakeMain();
   const l = await load(APP, { returns: f.returns });
   await l.drain();
@@ -121,186 +130,133 @@ test('RL10: 設定の2つ目のカードが「アカウント」（1つ目は外
   assert.strictEqual(cards[1].id, 'accountCard', '2つ目のカードがアカウントでない');
   assert.strictEqual(cards[1].querySelector('h2').textContent.trim(), 'アカウント');
   assert.ok(cards[1].textContent.includes(R1), 'カードの説明（R1）が無い');
-  // ログインしていない: メールの欄と［確認コードを送る］だけ
-  assert.strictEqual(l.byId.get('accountEmail').closest('.card'), cards[1]);
-  assert.ok(shown(l.byId.get('accountEmail')) && shown(l.byId.get('accountSend')));
-  assert.strictEqual(l.byId.get('accountSend').textContent.trim(), '確認コードを送る');
-  assert.ok(l.byId.get('tabSettings').querySelectorAll('label').some((x) => x.getAttribute('for') === 'accountEmail' && x.textContent.trim() === 'メールアドレス'), '欄の名前「メールアドレス」が無い');
-  assert.ok(!shown(l.byId.get('accountCode')) && !shown(l.byId.get('accountLogin')) && !shown(l.byId.get('accountLogout')), 'ログインしていないのにコードの欄かログアウトが出ている');
-  // 送れた: R3 とコードの欄・［ログイン］［コードを送り直す］
-  l.byId.get('accountEmail').value = ` ${M} `;
-  await click(l, 'accountSend');
-  assert.deepStrictEqual(l.called('accountStart').map((c) => c.args), [[M]]);
-  assert.strictEqual(l.byId.get('accountSent').textContent, R3(M));
-  assert.ok(shown(l.byId.get('accountSent')) && shown(l.byId.get('accountCode')) && shown(l.byId.get('accountLogin')) && shown(l.byId.get('accountResend')));
-  assert.ok(l.byId.get('tabSettings').querySelectorAll('label').some((x) => x.getAttribute('for') === 'accountCode' && x.textContent.trim() === '確認コード'), '欄の名前「確認コード」が無い');
-  assert.strictEqual(l.byId.get('accountLogin').textContent.trim(), 'ログイン');
-  assert.strictEqual(l.byId.get('accountResend').textContent.trim(), 'コードを送り直す');
-  assert.strictEqual(l.document.activeElement, l.byId.get('accountCode'), '送れた後にコードの欄へフォーカスが行かない');
-  // ［コードを送り直す］はメールの欄のメールでもう一度頼む
-  await click(l, 'accountResend');
-  assert.deepStrictEqual(l.called('accountStart').map((c) => c.args), [[M], [M]]);
-  // ログインした: R11 と［ログアウト］。メールとコードの欄は出ない
-  l.byId.get('accountCode').value = '123456';
-  await click(l, 'accountLogin');
-  assert.deepStrictEqual(l.called('accountVerify').map((c) => c.args), [[M, '123456']]);
-  assert.strictEqual(l.byId.get('accountWho').textContent, `ログイン中: ${M}`);
-  assert.ok(shown(l.byId.get('accountWho')) && shown(l.byId.get('accountLogout')));
+  // ログインしていない: AR1・AR2 と［ログイン］。［ログアウト］は出ない
+  const out = l.byId.get('accountOut');
+  assert.ok(shown(out) && !shown(l.byId.get('accountIn')));
+  const outText = out.textContent.replace(/\s+/g, ' ');
+  assert.ok(outText.includes(AR1), `AR1 が無い: ${outText}`);
+  assert.ok(outText.includes(AR2), `AR2 が無い: ${outText}`);
+  // AR1・AR2 の行はどちらも画面に出ている（隠した説明にしない）
+  for (const [name, text] of [['AR1', AR1], ['AR2', AR2]]) {
+    const d = out.querySelectorAll('.desc').find((x) => x.textContent.replace(/\s+/g, ' ').trim() === text);
+    assert.ok(d && shown(d), `${name} の行が出ていない`);
+  }
+  const btn = l.byId.get('accountSignIn');
+  assert.strictEqual(btn.closest('.card'), cards[1]);
+  assert.ok(out.querySelectorAll('button').includes(btn), '［ログイン］がログインしていないときの欄に無い');
+  assert.strictEqual(btn.textContent.trim(), 'ログイン');
+  assert.ok(shown(btn) && !shown(l.byId.get('accountLogout')));
+  // ログインした: AR4（ok の色）と「ログイン中: {メール}（{M} 月 {D} 日まで、このままです）」・［ログアウト］
+  await click(l, 'accountSignIn');
+  assert.strictEqual(l.called('accountLogin').length, 1);
+  assert.strictEqual(l.byId.get('accountWho').textContent, `ログイン中: ${M}（${md(UNTIL)}まで、このままです）`);
+  assert.ok(shown(l.byId.get('accountWho')) && shown(l.byId.get('accountLogout')) && !shown(btn) && !shown(out));
   assert.strictEqual(l.byId.get('accountLogout').textContent.trim(), 'ログアウト');
-  assert.ok(!shown(l.byId.get('accountEmail')) && !shown(l.byId.get('accountCode')), 'ログインしたのにメールかコードの欄が出ている');
-  // ログアウト: main の文（R12）を出し、メールの欄に戻る（コードの欄は出ない）
+  // ログアウト: main の文（R12）を出し、ログインしていない形に戻る
   await click(l, 'accountLogout');
   assert.strictEqual(l.called('accountLogout').length, 1);
   assert.strictEqual(l.byId.get('accountMsg').textContent, lib.accountMessage('logout'));
-  assert.ok(shown(l.byId.get('accountEmail')) && !shown(l.byId.get('accountCode')) && !shown(l.byId.get('accountLogout')));
+  assert.ok(shown(btn) && !shown(l.byId.get('accountLogout')));
   // 設定を開くたびに main の写しを聞き直す（外へは通信しない口: account:status）
   const before = l.called('accountStatus').length;
   await click(l, 'tabBtnSettings');
   assert.strictEqual(l.called('accountStatus').length, before + 1, '設定を開いたのに状態を聞き直していない');
+  // 期限が分からない（null・数でない・0 以下）ときは括弧ごと外す
+  for (const until of [null, undefined, '1790000000', 0, -5, 1.5, NaN]) {
+    const g = fakeMain();
+    Object.assign(g.st, { signedIn: true, email: M, until });
+    const w = await load(APP, { returns: g.returns });
+    await w.drain();
+    assert.strictEqual(w.byId.get('accountWho').textContent, `ログイン中: ${M}`, String(until));
+    assert.deepStrictEqual(w.errors.map(fmt), []);
+  }
   assert.deepStrictEqual(l.errors.map(fmt), []);
 });
 
-test('RL10: 開いたときにログイン中なら R11 と［ログアウト］だけを出す（メールは main の写し）', async () => {
+test('RL10: 開いたときにログイン中ならログイン中の行と［ログアウト］だけ（メールと期限は main の写し）。答えが読めなければログインしていない形', async () => {
   const f = fakeMain();
-  f.st.signedIn = true; f.st.email = M;
+  Object.assign(f.st, { signedIn: true, email: M, until: UNTIL });
   const l = await load(APP, { returns: f.returns });
   await l.drain();
-  assert.strictEqual(l.byId.get('accountWho').textContent, `ログイン中: ${M}`);
-  assert.ok(shown(l.byId.get('accountLogout')) && !shown(l.byId.get('accountEmail')));
-  // 答えが読めない（古い main・投げた）ときもメールの欄を出し、初期化は最後まで走る
+  assert.strictEqual(l.byId.get('accountWho').textContent, `ログイン中: ${M}（${md(UNTIL)}まで、このままです）`);
+  assert.ok(shown(l.byId.get('accountLogout')) && !shown(l.byId.get('accountSignIn')));
+  // 答えが読めない（古い main・投げた）ときも［ログイン］を出し、初期化は最後まで走る
   const odd = await load(APP, { returns: { claudeStatus: CLAUDE, accountStatus: () => { throw new Error('x'); } } });
   await odd.drain();
-  assert.ok(shown(odd.byId.get('accountEmail')) && !shown(odd.byId.get('accountLogout')));
+  assert.ok(shown(odd.byId.get('accountSignIn')) && !shown(odd.byId.get('accountLogout')));
   assert.deepStrictEqual(odd.errors.map(fmt), []);
 });
 
-test('RL10: ［ログイン］を押したらコードの欄を空にする（成功でも失敗でも）。メールの欄は残す', async () => {
-  let answer = { ok: false, code: 'code', left: 4, message: lib.accountMessage('code', { left: 4 }) };
-  const f = fakeMain({ accountVerify: (email) => { const a = answer; if (a.ok) { f.st.signedIn = true; f.st.email = email; } return a; } });
+test('RL10: ［ログイン］は accountLogin を1回だけ呼び、返事まで押せない。答えの message をそのまま出す（成功は ok・断りは ng の色）', async () => {
+  let release = null;
+  const f = fakeMain({ accountLogin: () => new Promise((r) => { release = () => { Object.assign(f.st, { signedIn: true, email: M, until: UNTIL }); r({ ok: true, email: M, message: lib.accountMessage('login-ok') }); }; }) });
   const l = await load(APP, { returns: f.returns });
   await l.drain();
-  l.byId.get('accountEmail').value = M;
-  await click(l, 'accountSend');
-  l.byId.get('accountCode').value = '000000';
-  await click(l, 'accountLogin');
-  assert.strictEqual(l.byId.get('accountCode').value, '', '違うコードが欄に残っている');
-  assert.strictEqual(l.byId.get('accountEmail').value, M, 'メールの欄を消した');
-  assert.strictEqual(l.byId.get('accountMsg').textContent, '確認コードが違います（あと 4 回試せます）。メールの 6 けたを入れ直してください。');
-  assert.match(l.byId.get('accountMsg').className, /\bng\b/);
-  assert.ok(shown(l.byId.get('accountCode')), '違うコードの後にコードの欄が消えた（入れ直せない）');
-  answer = { ok: true, email: M };
-  l.byId.get('accountCode').value = '123456';
-  await click(l, 'accountLogin');
-  assert.strictEqual(l.byId.get('accountCode').value, '', 'ログインした後もコードが欄に残っている');
-  assert.strictEqual(l.byId.get('accountMsg').textContent, '', 'ログインした後も前の断りの文が残っている');
-  assert.deepStrictEqual(l.called('accountVerify').map((c) => c.args), [[M, '000000'], [M, '123456']]);
-});
-
-test('RL10: ［ログイン］は確認コードを送ったメールで確かめる（送った後にメールの欄を書き換えても、コードの無い宛先へ送らない）', async () => {
-  const f = fakeMain();
-  const l = await load(APP, { returns: f.returns });
+  l.byId.get('accountMsg').textContent = '前の文';
+  l.byId.get('accountSignIn').dispatchEvent({ type: 'click' });
   await l.drain();
-  l.byId.get('accountEmail').value = M;
-  await click(l, 'accountSend');
-  l.byId.get('accountEmail').value = mail('betsu');
-  l.byId.get('accountCode').value = '123456';
-  await click(l, 'accountLogin');
-  assert.deepStrictEqual(l.called('accountVerify').map((c) => c.args), [[M, '123456']], '確認コードを送っていないメールで確かめた');
-  assert.deepStrictEqual(l.errors.map(fmt), []);
-});
-
-test('RL10: main の答えの code ごとに R4〜R16 の文を出す（文は main が返す message をそのまま）', async () => {
+  assert.strictEqual(l.byId.get('accountSignIn').disabled, true, '返事を待つ間に［ログイン］を押せる');
+  l.byId.get('accountSignIn').dispatchEvent({ type: 'click' });
+  await l.drain();
+  assert.strictEqual(l.called('accountLogin').length, 1, '2回押して窓を2回頼んだ');
+  assert.deepStrictEqual(l.called('accountLogin')[0].args, [], '画面から main へ何かを渡した');
+  release();
+  await l.drain();
+  assert.strictEqual(l.byId.get('accountSignIn').disabled, false);
+  assert.strictEqual(l.byId.get('accountMsg').textContent, lib.accountMessage('login-ok'));
+  assert.match(l.byId.get('accountMsg').className, /\bok\b/);
+  assert.ok(shown(l.byId.get('accountLogout')), 'ログインできたのにログイン中の形にならない');
+  // 断り: main の文（AR5〜AR7・R13〜R16）をそのまま ng の色で。ログイン中の形にしない
   const host = new URL(require('../src/relay').RELAY_BASE).hostname;   // 第1d回 A-10: RELAY_BASE から取る
-  const startCodes = ['domain', 'bad-email', 'rate', 'mail', 'mail-cap', 'offline', 'net', 'timeout', 'cert', 'proxy', 'not-ready', 'server'];
-  for (const code of startCodes) {
-    const message = lib.accountMessage(code, { host, retryAfter: 600 });
-    const l = await load(APP, { returns: fakeMain({ accountStart: () => ({ ok: false, code, message }) }).returns });
-    await l.drain();
-    l.byId.get('accountEmail').value = M;
-    await click(l, 'accountSend');
-    assert.strictEqual(l.byId.get('accountMsg').textContent, message, code);
-    assert.match(l.byId.get('accountMsg').className, /\bng\b/, code);
-    assert.ok(!shown(l.byId.get('accountCode')), `${code}: 送れなかったのにコードの欄が出た`);
+  for (const code of ['cancel', 'no-cookie', 'login', 'denied', 'offline', 'net', 'timeout', 'cert', 'proxy', 'not-ready', 'server', 'store']) {
+    const message = lib.accountMessage(code, { host });
+    const w = await load(APP, { returns: fakeMain({ accountLogin: () => ({ ok: false, code, message }) }).returns });
+    await w.drain();
+    await click(w, 'accountSignIn');
+    assert.strictEqual(w.byId.get('accountMsg').textContent, message, code);
+    assert.match(w.byId.get('accountMsg').className, /\bng\b/, code);
+    assert.ok(!shown(w.byId.get('accountLogout')) && shown(w.byId.get('accountSignIn')), `${code}: 断られたのにログイン中の形になった`);
+    assert.strictEqual(w.byId.get('accountSignIn').disabled, false, `${code}: 断られた後に押せない`);
   }
-  for (const code of ['code', 'code-expired', 'blocked', 'store', 'bad-code', 'rate', 'offline', 'cert']) {
-    const message = lib.accountMessage(code, { host, left: 2, retryAfter: 120 });
-    const l = await load(APP, { returns: fakeMain({ accountVerify: () => ({ ok: false, code, message }) }).returns });
-    await l.drain();
-    l.byId.get('accountEmail').value = M;
-    await click(l, 'accountSend');
-    l.byId.get('accountCode').value = '123456';
-    await click(l, 'accountLogin');
-    assert.strictEqual(l.byId.get('accountMsg').textContent, message, code);
-    assert.ok(!shown(l.byId.get('accountLogout')), `${code}: 断られたのにログイン中の形になった`);
-  }
-  // 画面は文を作らない: main の文がそのまま出る（画面の中の表から引かない）
+  // 画面は文を作らない: main の文がそのまま出る（画面の中の表から引かない）。投げても押せるように戻る
   const odd = '（main の文: 印 7f3a）';
-  const l = await load(APP, { returns: fakeMain({ accountStart: () => ({ ok: false, code: 'domain', message: odd }) }).returns });
-  await l.drain();
-  l.byId.get('accountEmail').value = M;
-  await click(l, 'accountSend');
-  assert.strictEqual(l.byId.get('accountMsg').textContent, odd);
-  // ログアウトで PC の札を消せなかった（R15 の文）: 文を出して、ログイン中の形のまま
-  const f = fakeMain({ accountLogout: () => ({ ok: false, code: 'write', message: lib.accountMessage('write') }) });
-  f.st.signedIn = true; f.st.email = M;
-  const w = await load(APP, { returns: f.returns });
+  const o = await load(APP, { returns: fakeMain({ accountLogin: () => ({ ok: false, code: 'cancel', message: odd }) }).returns });
+  await o.drain();
+  await click(o, 'accountSignIn');
+  assert.strictEqual(o.byId.get('accountMsg').textContent, odd);
+  const t = await load(APP, { returns: fakeMain({ accountLogin: () => { throw new Error('x'); } }).returns });
+  await t.drain();
+  await click(t, 'accountSignIn');
+  assert.strictEqual(t.byId.get('accountSignIn').disabled, false);
+  assert.match(t.byId.get('accountMsg').className, /\bng\b/);
+  // ログアウトで PC のログインを消せなかった（R15 の文）: 文を出して、ログイン中の形のまま
+  const g = fakeMain({ accountLogout: () => ({ ok: false, code: 'write', message: lib.accountMessage('write') }) });
+  Object.assign(g.st, { signedIn: true, email: M, until: UNTIL });
+  const w = await load(APP, { returns: g.returns });
   await w.drain();
   await click(w, 'accountLogout');
   assert.strictEqual(w.byId.get('accountMsg').textContent, lib.accountMessage('write'));
   assert.match(w.byId.get('accountMsg').className, /\bng\b/);
   assert.ok(shown(w.byId.get('accountLogout')));
+  assert.deepStrictEqual([...l.errors, ...o.errors, ...t.errors, ...w.errors].map(fmt), []);
 });
 
-test('RL10: Enter でも送れる。IME の確定の Enter では送らない（imeEnter）', async () => {
+test('RL10: メールアドレスと確認コードの欄・［確認コードを送る］［コードを送り直す］が無い（画面はメールもコードも扱わない）', async () => {
   const l = await load(APP, { returns: fakeMain().returns });
   await l.drain();
-  const email = l.byId.get('accountEmail');
-  email.value = M;
-  l.key({ key: 'Enter', isComposing: true }, email);
-  l.key({ key: 'Enter', keyCode: 229 }, email);
-  await l.drain();
-  assert.strictEqual(l.called('accountStart').length, 0, '変換の確定の Enter で送った');
-  const ev = l.key({ key: 'Enter' }, email);
-  await l.drain();
-  assert.deepStrictEqual(l.called('accountStart').map((c) => c.args), [[M]]);
-  assert.strictEqual(ev.defaultPrevented, true);
-  const code = l.byId.get('accountCode');
-  code.value = '１２３４５６';
-  l.key({ key: 'Enter', isComposing: true }, code);
-  await l.drain();
-  assert.strictEqual(l.called('accountVerify').length, 0, '変換の確定の Enter でログインした');
-  l.key({ key: 'Enter' }, code);
-  await l.drain();
-  // 全角の数字の直しは main がする（画面はそのまま渡す）
-  assert.deepStrictEqual(l.called('accountVerify').map((c) => c.args), [[M, '１２３４５６']]);
-  assert.strictEqual(code.value, '');
-  // ほかのキーでは送らない
-  l.key({ key: 'a' }, l.byId.get('accountEmail'));
-  await l.drain();
-  assert.strictEqual(l.called('accountStart').length, 1);
-});
-
-test('RL10: 送っている間はボタンを止め、2回押しても1回だけ送る。メールとコードは設定の自動保存に混ざらない', async () => {
-  let release = null;
-  const f = fakeMain({ accountStart: () => new Promise((r) => { release = () => r({ ok: true }); }) });
-  const l = await load(APP, { returns: f.returns });
-  await l.drain();
-  l.byId.get('accountEmail').value = M;
-  l.byId.get('accountSend').dispatchEvent({ type: 'click' });
-  await l.drain();
-  assert.strictEqual(l.byId.get('accountSend').disabled, true, '送っている間に［確認コードを送る］を押せる');
-  l.byId.get('accountSend').dispatchEvent({ type: 'click' });
-  await l.drain();
-  assert.strictEqual(l.called('accountStart').length, 1, '2回押して2回頼んだ');
-  release();
-  await l.drain();
-  assert.strictEqual(l.byId.get('accountSend').disabled, false);
-  l.byId.get('accountCode').value = '654321';
-  l.byId.get('tabSettings').dispatchEvent({ type: 'change' });
-  await l.drain();
-  const sent = l.called('saveSettings').pop().args[0];
-  assert.ok(!JSON.stringify(sent).includes('654321') && !JSON.stringify(sent).includes('example.com'), '設定の保存にメールかコードが混ざった');
-  assert.ok(!('accountEmail' in sent), '設定の保存に accountEmail を送った（main は画面のメールを使わない）');
+  for (const id of RETIRED_ACCOUNT) assert.strictEqual(l.byId.get(id), undefined, `${id} がまだある`);
+  assert.deepStrictEqual(l.missingIds.filter((id) => RETIRED_ACCOUNT.includes(id)), [], '消した欄をまだ引いている');
+  const card = l.byId.get('accountCard');
+  assert.deepStrictEqual(card.querySelectorAll('input'), [], 'カード「アカウント」に入力の欄がある');
+  assert.deepStrictEqual(card.querySelectorAll('button').map((b) => b.id).sort(), ['accountLogout', 'accountSignIn']);
+  const t = card.textContent;
+  // （「会社のメールアドレス」は R1・AR1 の説明が言うので、欄の名前「メールアドレス」は label が無いことで見る）
+  for (const w of ['確認コード', 'コードを送り直す', '6 けたの確認コードを送りました']) assert.ok(!t.includes(w), `${w} が残っている`);
+  assert.ok(!card.querySelectorAll('label').length, 'カード「アカウント」に欄の名前がある');
+  // preload にも画面にも、前の自前のログインの口が無い
+  for (const n of ['accountStart', 'accountVerify']) assert.ok(!l.apis.koeApp.includes(n), `preload に ${n} が残っている`);
+  assert.ok(l.apis.koeApp.includes('accountLogin'));
+  assert.deepStrictEqual(l.errors.map(fmt), []);
 });
 
 test('F11: ［詳細設定（管理者用）］・鍵の欄・3つのボタンが無い。カード「オンライン」の説明は新しい文', async () => {
@@ -321,7 +277,8 @@ test('F11: ［詳細設定（管理者用）］・鍵の欄・3つのボタン�
   assert.deepStrictEqual(l.errors.map(fmt), []);
 });
 
-test('F5: app:notice が { text, action: \'account\' } のとき、トーストに［ログインし直す］があり、押すと設定の「アカウント」のカードが開いてメールの欄にフォーカスが行く。文字だけの知らせは今のまま', async () => {
+// 第1d回 A-12 で意図して変えた: フォーカスの行き先はメールの欄でなく［ログイン］（メールの欄は無い）
+test('F5: app:notice が { text, action: \'account\' } のとき、トーストに［ログインし直す］があり、押すと設定の「アカウント」のカードが開いて［ログイン］にフォーカスが行く。文字だけの知らせは今のまま', async () => {
   const l = await load(APP, { returns: fakeMain().returns });
   await l.drain();
   await click(l, 'tabBtnNotes');
@@ -346,7 +303,8 @@ test('F5: app:notice が { text, action: \'account\' } のとき、トースト�
   await l.drain();
   assert.ok(l.byId.get('tabSettings').classList.contains('active'), '設定が開かない');
   assert.ok(l.called('accountStatus').length > n, '開いたのにログインの状態を聞き直していない');
-  assert.strictEqual(l.document.activeElement, l.byId.get('accountEmail'), 'メールの欄にフォーカスが行かない');
+  // 要素どうしの strictEqual は、落ちたときに DOM の木を全部書き出して遅いので、真偽で見る
+  assert.ok(l.document.activeElement === l.byId.get('accountSignIn'), '［ログイン］にフォーカスが行かない');
   assert.ok(!toastEl.classList.contains('show'), '押した後も知らせが残っている');
   // 次の文字だけの知らせには、前のボタンが残らない
   l.fire('onNotice', 'コピーしました');
@@ -459,7 +417,8 @@ test('D17: ［もう一度］は meetingRetry を1回だけ呼び、返事まで
   assert.deepStrictEqual([...l.errors, ...t.errors].map(fmt), []);
 });
 
-test('D17: ［ログインし直す］は設定の『アカウント』を開いてメールの欄にフォーカス。［エンジンを確かめる］は詳細設定の『文字起こし』を開く', { timeout: 5000 }, async () => {
+// 第1d回 A-12 で意図して変えた: フォーカスの行き先は［ログイン］
+test('D17: ［ログインし直す］は設定の『アカウント』を開いて［ログイン］にフォーカス。［エンジンを確かめる］は詳細設定の『文字起こし』を開く', { timeout: 5000 }, async () => {
   const l = await load(APP, { now: T0, returns: fakeMain().returns });
   l.fire('onMeetingUpdate', PROB('login', 'account', 'ログインが切れたため、PC の中で文字起こししています。［ログインし直す］を押して、もう一度ログインしてください。')); await l.drain();
   assert.ok(!l.byId.get('tabSettings').classList.contains('active'));
@@ -467,7 +426,8 @@ test('D17: ［ログインし直す］は設定の『アカウント』を開い
   await click(l, 'liveSttBannerBtn');
   assert.ok(l.byId.get('tabSettings').classList.contains('active'), '設定が開かない');
   assert.ok(l.called('accountStatus').length > n, '開いたのにログインの状態を聞き直していない');
-  assert.strictEqual(l.document.activeElement, l.byId.get('accountEmail'), 'メールの欄にフォーカスが行かない');
+  // 要素どうしの strictEqual は、落ちたときに DOM の木を全部書き出して遅いので、真偽で見る
+  assert.ok(l.document.activeElement === l.byId.get('accountSignIn'), '［ログイン］にフォーカスが行かない');
   assert.strictEqual(l.called('meetingRetry').length, 0);
   const e = await load(APP, { now: T0 });
   e.fire('onMeetingUpdate', PROB('engine-down', 'engine', 'PC の中の文字起こしエンジンが動いていません（音声は残してあります）。［エンジンを確かめる］を押してください。')); await e.drain();
@@ -686,7 +646,7 @@ test('あとの直し (a): 入力の欄の見た目 — app.html の <input> の
   const base = S.declsFor(rules, 'input[type="text"]', { at: '' });
   const tall = S.declsFor(rules, 'input[type="text"]:not(.atag-edit)', { at: '' });
   assert.strictEqual(tall.height, '32px', '前提: 1行の入力欄の高さが 32px でない');
-  // 決まりの側には、今は欄の無い email も入れておく（A-12 でメールの欄が消えても、足したときに崩れない）
+  // 決まりの側には、今は欄の無い email も入れておく（A-12 でメールの欄が消えたが、足したときに崩れない）
   for (const ty of new Set([...TEXTISH.filter((x) => used.has(x)), 'email'])) {
     if (ty === 'text') continue;
     const d = S.declsFor(rules, `input[type="${ty}"]`, { at: '' });

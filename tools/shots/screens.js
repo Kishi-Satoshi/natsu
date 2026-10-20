@@ -204,6 +204,8 @@ function fixtures() {
     'koeApp.engineStatus': { ok: true, whisper: '', sum: '' },
     'koeApp.engineFetchStatus': null,   // 取り込みの欄は出さない（取り込みの状態で画面が変わらないように）
     'koeApp.hotkeyState': { ok: true, failed: [], fallback: {}, message: '' },
+    // 第1d回 A-12: カード「アカウント」はログインしていない形（AR1・AR2 と［ログイン］）。main の account:status の形（cookie は入っていない）
+    'koeApp.accountStatus': { ok: true, signedIn: false, email: '', method: 'access', until: null, canStore: true, online: { up: true, why: 'ok' } },
     'koeApp.promptInfo': { ok: true, kept: 2, total: 2, over: false },
     'koeApp.meetingTypes': mtype.listTypes(),
     'koeApp.appVersion': { version: '0.4.0', repo: '' },   // 版を上げても画面が変わらないように決まった値

@@ -4,9 +4,7 @@
  *  - RELAY_BASE      中継の住所（workers.dev。会社名を含まない名前: 問い Q7）
  *  - relayProvider   文字起こしの送り先の形 { id, label, base, host, reachUrl }。id は文字起こしをした相手の名前のまま 'openai'
  *                    （ページの route.stt.provider と「クラウド（OpenAI）」の行は今と同じ）。届くかは中継の GET /health で見る
- *  - makeAccountApi  ログインの口（start・verify・logout）。どれも投げない。
- *                    /auth/me は持たない（設定を開いただけで外へ通信しないため。ログインしているかは PC にしまった札で決める）
- *                    （第1d回 A-12 で消す。ログインは Cloudflare Access の窓になる）
+ *  （前の自前のログインの口 makeAccountApi（start・verify・logout。確認コードと札）は第1d回 A-12 で消した。ログインは Cloudflare Access の窓）
  *  第1d回 A-10（RL9・F19・F21。Cloudflare Access のログイン）:
  *  - ACCESS_PARTITION  ログインの窓と中継への要求が使う session の partition（persist: を付けない = メモリの中だけ。cookie を
  *                    ディスクに平文で置かない。しまうのは safeStorage の secrets だけ: 計画「作り替え」の要約の 2）
@@ -18,9 +16,8 @@
  *
  * 決まり:
  *  - Electron のモジュールは読み込まない。通信は呼ぶ側から request（本番は net.request）と session をもらう（RF2）。
- *    送り方は stt-cloud.postForm（札の口は redirect: 'error'、Access の口は session・redirect: 'manual'。時間切れ・返事の大きさの上限）。
+ *    送り方は stt-cloud.postForm（Access の口は session・redirect: 'manual'。時間切れ・返事の大きさの上限）。
  *  - cookie の値は、記録・答え・例外に出さない（packCookies の文字は secrets.js（safeStorage）にだけしまう）。
- *  - 札は Authorization: Bearer の見出しにだけ入れる（logout のとき）。URL・本文・ほかの見出し・答え・例外には入れない。
  *  - 中継の答えの符号は、中継の JSON の { error: '<符号>' } だけを読む（relayErrorCode）。中継の形でない答え
  *    （会社の通信の検査やログインの画面が返した HTML など）は 'server'。
  *  - HTTP の約束は計画 docs/plans/2026-10-19-1d.md の「受け渡す名前と形」（relay/ と同じ）。
@@ -38,76 +35,9 @@ const LOGIN_URL = `${RELAY_BASE}/auth/done`;
 const LOGOUT_URL = `${RELAY_BASE}/cdn-cgi/access/logout`;
 
 const ACCOUNT_TIMEOUT_MS = 15000;
-const TOKEN = /^nt1_[A-Za-z0-9_-]{43}$/;
 
 function relayProvider() {
   return { id: 'openai', label: 'OpenAI', base: RELAY_BASE, host: new URL(RELAY_BASE).hostname, reachUrl: `${RELAY_BASE}/health` };
-}
-
-const posInt = (v) => (Number.isInteger(v) && v > 0 ? v : undefined);
-
-/**
- * makeAccountApi({ request, base = RELAY_BASE, timeoutMs }) → {
- *   start(email)        → { ok: true } | { ok: false, code, retryAfter? }
- *   verify(email, code) → { ok: true, token, email, expiresAt } | { ok: false, code, left?, retryAfter? }
- *   logout(token)       → { ok: boolean }
- * }
- * code は中継の error の符号（bad-email・domain・rate・mail・mail-cap・not-ready・code・code-expired・blocked・bad-request・
- * too-large など）か、通信の符号（offline・cert・proxy・timeout・net）、中継の形でない答えなら 'server'、
- * 200 なのに形が違えば 'bad-reply'。
- */
-function makeAccountApi({ request, base = RELAY_BASE, timeoutMs = ACCOUNT_TIMEOUT_MS } = {}) {
-  async function send(path, { json, token } = {}) {
-    const headers = {};
-    let body = null;
-    if (json !== undefined) {
-      headers['Content-Type'] = 'application/json';
-      body = Buffer.from(JSON.stringify(json), 'utf8');
-    }
-    if (token !== undefined) headers.Authorization = `Bearer ${token}`;
-    try {
-      const res = await postForm({ request, url: `${base}${path}`, headers, body, timeoutMs });
-      let j = null;
-      try { j = JSON.parse(res.body.toString('utf8')); } catch (_) { j = null; }
-      if (!j || typeof j !== 'object' || Array.isArray(j)) j = null;
-      return { status: res.status, j, code: relayErrorCode(res.body) };
-    } catch (e) {
-      return { status: 0, j: null, code: e instanceof CloudSttError ? e.code : 'net' };
-    }
-  }
-
-  // 断りの答え → { ok: false, code, left?, retryAfter? }
-  function refusal(r) {
-    if (r.status === 0) return { ok: false, code: r.code };
-    if (r.status >= 200 && r.status <= 299) return { ok: false, code: 'bad-reply' };
-    if (!r.code) return { ok: false, code: 'server' };
-    const out = { ok: false, code: r.code };
-    if (Number.isInteger(r.j.left) && r.j.left >= 0) out.left = r.j.left;
-    const ra = posInt(r.j.retryAfter);
-    if (ra !== undefined) out.retryAfter = ra;
-    return out;
-  }
-
-  return {
-    async start(email) {
-      const r = await send('/auth/start', { json: { email: String(email == null ? '' : email) } });
-      if (r.status === 200 && r.j && r.j.ok === true) return { ok: true };
-      return refusal(r);
-    },
-    async verify(email, code) {
-      const r = await send('/auth/verify', { json: { email: String(email == null ? '' : email), code: String(code == null ? '' : code) } });
-      if (r.status === 200 && r.j && r.j.ok === true) {
-        const { token, email: e, expiresAt } = r.j;
-        if (typeof token !== 'string' || !TOKEN.test(token) || typeof e !== 'string' || !Number.isInteger(expiresAt)) return { ok: false, code: 'bad-reply' };
-        return { ok: true, token, email: e, expiresAt };
-      }
-      return refusal(r);
-    },
-    async logout(token) {
-      const r = await send('/auth/logout', { token: String(token == null ? '' : token) });
-      return { ok: r.status === 200 };
-    },
-  };
 }
 
 // ================= Cloudflare Access（第1d回 A-10） =================
@@ -222,5 +152,5 @@ function unpackCookies(text, nowSec) {
   return { ok: true, until: j.until, cookies };
 }
 
-module.exports = { RELAY_BASE, ACCESS_PARTITION, LOGIN_URL, LOGOUT_URL, relayProvider, makeAccountApi, makeAccessApi,
+module.exports = { RELAY_BASE, ACCESS_PARTITION, LOGIN_URL, LOGOUT_URL, relayProvider, makeAccessApi,
   isAccessHost, classifyAuth, loginNavAllowed, packCookies, unpackCookies };

@@ -1047,8 +1047,7 @@ module.exports = [
     from: "  login: () => ({ text: 'ログインが切れたため、PC の中で文字起こししています。設定の「アカウント」でもう一度ログインしてください。', action: 'account' }),",
     to: "  login: () => 'ログインが切れたため、PC の中で文字起こししています。設定の「アカウント」でもう一度ログインしてください。',",
     tests: ['test/stage1d.main.test.js'], pattern: '^F5・F19: 会議の途中で偽の Access', why: 'A-3・A-4 F5: ログイン切れの知らせ（L3）は［ログインし直す］付き（action: account。A-11 でテストの名前を直した）' },
-  { id: 'ra-ui-code-clear', file: 'src/renderer/app.html', from: "    $('accountCode').value = '';   // コードは欄に残さない（成功でも失敗でも。メールの欄は残す）\n", to: '',
-    tests: ['test/stage1d.app.test.js'], pattern: '^RL10: ［ログイン］を押したらコードの欄を空にする', why: 'A-4 RL10: ［ログイン］を押したら確認コードの欄を空にする' },
+  // ra-ui-code-clear は第1d回 A-12 で外した（確認コードの欄が無い。理由は test/mutate.test.js の IDS_1D_ACCESS_RETIRED）
   // ゲート（tools/risk.js。レーン G）
   { id: 'rg-direct-host', file: 'tools/risk.js',
     from: "  { on: (f) => inSrc(f) && !f.startsWith('src/renderer/'), re: /api\\.(?:openai|groq|resend)\\.com/i,\n    why: '文字起こしと確認コードは中継を通す。PC から直に送らない（RF38）' },\n",

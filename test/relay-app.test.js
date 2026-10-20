@@ -1,10 +1,10 @@
 /*
- * relay-app.test.js — 第1d回 RL9・F5: アプリの中継の口（src/relay.js のログインの口と、stt-cloud.transcribeRelay）を、
+ * relay-app.test.js — 第1d回 RL9・F5: アプリの中継の口（src/relay.js の Access の口と、stt-cloud.transcribeRelay）を、
  * 本物の中継のコード（relay/worker.mjs）を 127.0.0.1 で動かした台（helpers/relay-local.js）を相手に試す。
  * アプリの側は偽の net.request（helpers/fake-net.js）で送り、RELAY_BASE を 127.0.0.1 の中継へ書き換える。外へはつながない。
  * 第1d回 A-10（RL9・F19・F21）: Cloudflare Access の cookie で送る道（偽の session の cookie・useSessionCookies・X-Requested-With・
  * redirect: 'manual'）と Access の答えの分け方を、relay-local の偽の Access の前（startRelayLocal({ access: true })）を相手に見る。
- * 第1d回 A-11: 文字起こしの札（nt1_）の道を消した。文字起こしの試しは全部 cookie の道。ログインの口（makeAccountApi）の試しは A-12 まで残す。
+ * 第1d回 A-11: 文字起こしの札（nt1_）の道を消した。文字起こしの試しは全部 cookie の道。ログインの口（makeAccountApi）の試しは A-12 で口ごと消した。
  */
 'use strict';
 
@@ -20,21 +20,7 @@ const { startRelayLocal } = require('./helpers/relay-local');
 const SAID = '本日の議題は進捗の確認です。';
 const wav = (sec) => Buffer.from(R.wav(sec));
 const noSleep = async () => {};
-const TOKEN = /^nt1_[A-Za-z0-9_-]{43}$/;
 
-async function withLocal(opts, fn) {
-  const rl = await startRelayLocal(opts);
-  try { return await fn(rl); } finally { await rl.close(); }
-}
-
-// ログインして札をもらう（アプリの口で）
-async function signIn(rl, email = R.mail('a')) {
-  const api = relay.makeAccountApi({ request: rl.request });
-  assert.deepStrictEqual(await api.start(email), { ok: true });
-  const v = await api.verify(email, rl.codeFor(email));
-  assert.strictEqual(v.ok, true, JSON.stringify(v));
-  return v.token;
-}
 
 // 閉じた口（つながらない 127.0.0.1 のポート）
 async function closedBase() {
@@ -59,68 +45,11 @@ test('RL9: relayProvider の id は \'openai\'、label は \'OpenAI\'、reachUrl
   assert.strictEqual(relay.relayProvider.length, 0, '設定を引数に取る形になった');
 });
 
-test('RL9: ログインの口: start → メールのコード → verify で札が返る（me はアプリの口に持たない。設定を開いても外へ通信しないため）', { timeout: 5000 }, async () => {
-  await withLocal({}, async (rl) => {
-    const api = relay.makeAccountApi({ request: rl.request });
-    assert.deepStrictEqual(Object.keys(api).sort(), ['logout', 'start', 'verify'], 'me などの口が増えた');
-    const email = R.mail('a');
-    assert.deepStrictEqual(await api.start(email), { ok: true });
-    const code = rl.codeFor(email);
-    assert.match(code, /^\d{6}$/);
-    const wrong = code === '000000' ? '111111' : '000000';
-    assert.deepStrictEqual(await api.verify(email, wrong), { ok: false, code: 'code', left: 4 });
-    const v = await api.verify(email, code);
-    assert.deepStrictEqual(Object.keys(v).sort(), ['email', 'expiresAt', 'ok', 'token']);
-    assert.strictEqual(v.ok, true);
-    assert.match(v.token, TOKEN);
-    assert.strictEqual(v.email, email);
-    assert.ok(Number.isInteger(v.expiresAt) && v.expiresAt > rl.clock.now() / 1000, String(v.expiresAt));
-    // 同じコードの2回目は使えない
-    assert.deepStrictEqual(await api.verify(email, code), { ok: false, code: 'code-expired' });
-    // 送った要求は全部 RELAY_BASE の道（書き換えの前）で、redirect: 'error'
-    assert.deepStrictEqual(rl.sent.map((s) => `${s.method} ${s.url}`), [
-      `POST ${relay.RELAY_BASE}/auth/start`, `POST ${relay.RELAY_BASE}/auth/verify`, `POST ${relay.RELAY_BASE}/auth/verify`, `POST ${relay.RELAY_BASE}/auth/verify`]);
-    assert.ok(rl.sent.every((s) => s.redirect === 'error'));
-  });
-});
-
-test('RL9: ログインの口の断り（domain・rate と retryAfter・mail）はそのまま返し、投げない', { timeout: 5000 }, async () => {
-  await withLocal({}, async (rl) => {
-    const api = relay.makeAccountApi({ request: rl.request });
-    assert.deepStrictEqual(await api.start(R.mail('a', 'example.net')), { ok: false, code: 'domain' });
-    assert.deepStrictEqual(await api.start('not-an-address'), { ok: false, code: 'bad-email' });
-    const b = R.mail('b');
-    for (let i = 0; i < 3; i++) assert.deepStrictEqual(await api.start(b), { ok: true });
-    const r = await api.start(b);
-    assert.strictEqual(r.ok, false);
-    assert.strictEqual(r.code, 'rate');
-    assert.ok(Number.isInteger(r.retryAfter) && r.retryAfter > 0 && r.retryAfter <= 900, String(r.retryAfter));
-    rl.resend.setMode('500');
-    assert.deepStrictEqual(await api.start(R.mail('c')), { ok: false, code: 'mail' });
-    rl.resend.setMode('ok');
-    // 中継の形でない答え（会社の通信の検査のログインの画面）は server
-    rl.setFront('html401');
-    assert.deepStrictEqual(await api.start(R.mail('d')), { ok: false, code: 'server' });
-    assert.deepStrictEqual(await api.verify(R.mail('d'), '123456'), { ok: false, code: 'server' });
-  });
-});
-
-test('RL9: 中継に届かない（閉じた口・切れた）ときは { ok: false, code: offline | net } で、どれも投げない', { timeout: 5000 }, async () => {
-  const base = await closedBase();
-  const api = relay.makeAccountApi({ request: makeFakeRequest(), base });
-  const s = await api.start(R.mail('a'));
-  assert.strictEqual(s.ok, false);
-  assert.ok(['offline', 'net'].includes(s.code), s.code);
-  const v = await api.verify(R.mail('a'), '123456');
-  assert.strictEqual(v.ok, false);
-  assert.ok(['offline', 'net'].includes(v.code), v.code);
-  assert.deepStrictEqual(await api.logout('nt1_' + 'A'.repeat(43)), { ok: false });
-  await withLocal({}, async (rl) => {
-    rl.setFront('drop');
-    const a2 = relay.makeAccountApi({ request: rl.request });
-    assert.deepStrictEqual(await a2.start(R.mail('a')), { ok: false, code: 'net' });
-    assert.deepStrictEqual(await a2.logout('nt1_' + 'A'.repeat(43)), { ok: false });
-  });
+// 第1d回 A-12 で意図して変えた: 前の自前のログインの口（makeAccountApi の start・verify・logout）を消したので、その試し
+// （札が返る・断りの符号・届かないとき・logout の札の見出し・200 で形の違う答え）も消した。ログインは Access の窓（makeAccessApi.me の試しは下の A-10）
+test('F11: relay.js に前の自前のログインの口（makeAccountApi）が無い（ログインは Cloudflare Access の窓だけ）', () => {
+  assert.strictEqual(relay.makeAccountApi, undefined);
+  assert.ok(!Object.keys(relay).some((k) => /account/i.test(k)), Object.keys(relay).join('・'));
 });
 
 // 第1d回 A-11 で意図して変えた: 札の道（Authorization: Bearer）を消したので、文字起こしの試しは全部 Access の cookie の道（偽の session）で送る。
@@ -165,26 +94,6 @@ test('RL9: transcribeRelay は WAV を生のまま送り、言語とヒントは
     await C.transcribeRelay(w, cookieCall(rl, session, { prompt: '' }));
     assert.ok(!('X-Natsu-Prompt' in rl.sent.at(-1).headers));
     assert.ok(!('prompt' in rl.stt.requests.at(-1).fields));
-  });
-});
-
-// 第1d回 A-11 で意図して変えた: 文字起こしは札を送らない（cookie の道の見出しは A-10 の「transcribeRelay は session の cookie で送り…」が見る）。
-// ログインの口の logout だけが札を Authorization に入れる（A-12 で口ごと消す）
-test('RL9: ログインの口の logout は、札を Authorization の見出しにだけ入れる（どの要求の見出し・本文・URL にも、ほかに出ない）・redirect: \'error\'', { timeout: 5000 }, async () => {
-  await withLocal({}, async (rl) => {
-    const token = await signIn(rl);
-    await relay.makeAccountApi({ request: rl.request }).logout(token);
-    let auth = 0;
-    for (const s of rl.sent) {
-      assert.strictEqual(s.redirect, 'error', s.url);
-      assert.ok(!s.url.includes(token), 'URL に札');
-      assert.ok(!s.body.includes(Buffer.from(token)), `本文に札: ${s.url}`);
-      for (const [k, v] of Object.entries(s.headers)) {
-        if (k === 'Authorization') { assert.strictEqual(v, `Bearer ${token}`); auth += 1; } else assert.ok(!String(v).includes(token), `見出し ${k} に札`);
-      }
-    }
-    assert.strictEqual(auth, 1, '札を付けたのは logout の1回だけのはず');
-    assert.ok(rl.logs.length > 0 && rl.logs.every((l) => !l.includes(token)), '中継の記録に札');
   });
 });
 
@@ -282,31 +191,6 @@ test('F5: relayErrorCode は中継の JSON の error の符号だけを読む（
   assert.strictEqual(C.relayErrorCode('{"error":"daily-cap","scope":"user","retryAfter":5}'), 'daily-cap');
   for (const b of ['<html>Sign in</html>', '', '{"error":{"code":"invalid_api_key"}}', '{"error":"LOGIN"}', '{"error":"' + 'a'.repeat(25) + '"}', '[1]', 'null', null, undefined]) {
     assert.strictEqual(C.relayErrorCode(b), '', String(b));
-  }
-});
-
-test('RL9: 200 でも中継の約束の形でない答えは bad-reply（札の形でないものを札として返さない）', { timeout: 5000 }, async () => {
-  const replies = [
-    { token: 'x', email: R.mail('a'), expiresAt: 1 },
-    { token: 'nt1_' + 'A'.repeat(42), email: R.mail('a'), expiresAt: 1 },
-    { token: 'nt1_' + 'A'.repeat(43), expiresAt: 1 },
-    { token: 'nt1_' + 'A'.repeat(43), email: R.mail('a'), expiresAt: '1' },
-  ];
-  let i = 0;
-  const s = http.createServer((req, res) => {
-    req.resume();
-    req.on('end', () => {
-      res.writeHead(200, { 'content-type': 'application/json' });
-      res.end(JSON.stringify(req.url === '/auth/verify' ? { ok: true, ...replies[i++] } : { queued: true }));
-    });
-  });
-  await new Promise((r) => s.listen(0, '127.0.0.1', r));
-  try {
-    const api = relay.makeAccountApi({ request: makeFakeRequest(), base: `http://127.0.0.1:${s.address().port}` });
-    assert.deepStrictEqual(await api.start(R.mail('a')), { ok: false, code: 'bad-reply' });
-    for (const r of replies) assert.deepStrictEqual(await api.verify(R.mail('a'), '123456'), { ok: false, code: 'bad-reply' }, JSON.stringify(r));
-  } finally {
-    await new Promise((r) => { s.close(() => r()); s.closeAllConnections(); });
   }
 });
 

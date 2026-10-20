@@ -171,11 +171,10 @@ contextBridge.exposeInMainWorld('koeApp', {
   meetingLiveShown: (on) => ipcRenderer.send('meeting:live-shown', on === true),
   meetingSetPaused: (on) => ipcRenderer.invoke('meeting:set-paused', on),   // 第1b回 N4c: → { ok, pending, paused }
 
-  // ログイン（第1d回 Task A-2。設定のカード「アカウント」が呼ぶ: A-4）。札（トークン）と確認コードは main から返らない
-  // （返るのはログインしているか・メール・文と符号だけ）。0.7.0 の鍵の口（cloudStatus・cloudSetKey・cloudClearKey・cloudTestKey）は A-4 で消した
+  // ログイン（第1d回 Task A-2・A-11・A-12。設定のカード「アカウント」が呼ぶ）。cookie と JWT は main から返らない
+  // （返るのはログインしているか・メール・期限・文と符号だけ）。0.7.0 の鍵の口（cloudStatus・cloudSetKey・cloudClearKey・cloudTestKey）は A-4 で、
+  // 前の自前のログインの口（accountStart・accountVerify。メールと確認コード）は A-12 で消した
   accountStatus: () => ipcRenderer.invoke('account:status'),
-  accountStart: (email) => ipcRenderer.invoke('account:start', email),
-  accountVerify: (email, code) => ipcRenderer.invoke('account:verify', email, code),
   // 第1d回 A-11: Cloudflare Access のログインの窓を開く（cookie も JWT も画面へ返さない。答えは { ok, email?, code?, message }）
   accountLogin: () => ipcRenderer.invoke('account:login'),
   accountLogout: () => ipcRenderer.invoke('account:logout'),

@@ -4344,10 +4344,8 @@ function setupIpc() {
     const up = netOnline();
     return { ok: true, signedIn: on, email: on ? settings.accountEmail : '', method: 'access', until: on ? accessState.until : null, canStore, online: { up, why: up ? 'ok' : 'offline' } };
   });
-  // 前の自前のログイン（確認コード）の口。画面のカード「アカウント」を Access にする A-12 で受け口ごと消す。それまでは札を作らずに断る
-  // （札をしまうと Access の cookie を上書きしてしまうため。中継へも送らない）
-  ipcMain.handle('account:start', async () => accountFail('not-ready'));
-  ipcMain.handle('account:verify', async () => accountFail('not-ready'));
+  // 前の自前のログイン（確認コード）の口 account:start・account:verify は、画面のカード「アカウント」を Access の［ログイン］にした
+  // 第1d回 A-12 で受け口ごと消した（preload の accountStart・accountVerify と relay.makeAccountApi も）
   ipcMain.handle('account:login', async () => {
     const r = await openLoginWindow();
     if (r.ok) return { ok: true, email: r.email, message: lib.accountMessage('login-ok') };

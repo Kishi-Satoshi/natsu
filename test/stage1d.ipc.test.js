@@ -4,7 +4,7 @@
  * 包んだもの（helpers/relay-local.js）の前に偽の Cloudflare Access を置いたもので、偽の Electron の net.request が RELAY_BASE を書き換えて
  * 届ける。ログインの窓は偽物（mainrun の --access-login・ctx.access）。外へはつながない。
  * 第1d回 A-11 で意図して変えた: 自前のログイン（account:start・verify・確認コード・札）の試しを、Access のログインの窓の試しに替えた
- * （account:start・verify の受け口は A-12 で消すまで残り、札を作らずに断る）。
+ * （account:start・verify の受け口は A-12 で消した）。
  */
 'use strict';
 
@@ -231,8 +231,9 @@ test('F11・K2: 前の版の鍵が無い PC では、起動で何も消さず、
   assert.strictEqual(o.status.signedIn, true);
 });
 
-test('F11: cloud:status・cloud:set-key・cloud:test-key・cloud:clear-key の受け口が無い（ログインの5つはある。A-11 で account:login を足した）', { timeout: 20000 }, async () => {
+// 第1d回 A-12 で意図して変えた: 前の自前のログイン（確認コード）の受け口 account:start・account:verify を消した（ログインは account:login の窓だけ）
+test('F11: cloud:status・cloud:set-key・cloud:test-key・cloud:clear-key の受け口が無い。account:start・account:verify の受け口も無い（ログインの3つだけ）', { timeout: 20000 }, async () => {
   const o = await run(['text', '--json-scene=old-keys', '--relay=text', '--old-keys']);
   assert.deepStrictEqual(o.cloudHandlers, [], '鍵の IPC の受け口が残っている');
-  assert.deepStrictEqual(o.accountHandlers, ['account:login', 'account:logout', 'account:start', 'account:status', 'account:verify']);
+  assert.deepStrictEqual(o.accountHandlers, ['account:login', 'account:logout', 'account:status']);
 });
