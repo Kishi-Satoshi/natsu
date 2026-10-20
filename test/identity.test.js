@@ -172,7 +172,7 @@ test('RL6・RL12・D18: README の管理者の節は、Access の用意・取り
     '`CF_ACCESS_CLIENT_ID`', '`CF_ACCESS_CLIENT_SECRET`', '［Run workflow］', '/health', 'Environments',
     '［Zero Trust］', 'One-time PIN', '［Protect this Worker behind Access］', 'Login Methods', 'Service Auth', 'Application Audience (AUD) Tag',
     '<会社のドメイン>', '<チームの名前>', '［Team & Resources］', '［Users］', '［Revoke］', 'Exclude', '［Remove users］', '［Revoke existing tokens］',
-    '［Refresh］', '［Rotate secret］', 'noreply＠notify.cloudflare.com', '1 month',
+    '［Refresh］', '［Rotate secret］', 'noreply＠notify.cloudflare.com', '7 日（1 週間）',
   ]) assert.ok(sec.includes(w), `管理者の節に「${w}」が無い`);
   // Revoke だけでは、その人はまたログインできる（止めるには Exclude と中継の止めたメール）
   assert.match(sec, /［Revoke］[^\n]*またログインできます/, 'Revoke だけではまたログインできると書いていない');
@@ -188,6 +188,18 @@ test('RL6・RL12・D18: README の管理者の節は、Access の用意・取り
   // 会社のドメインとチームの名前は書かない（Cloudflare の設定と Worker の秘密の欄にだけ）
   assert.ok(!/(?<![\w-])[a-z0-9-]+\.cloudflareaccess\.com/i.test(readme), 'README にチームのドメインの字面がある');
   assert.ok(!/(?<![\w-])[a-z0-9-]+\.cloudflareaccess\.com/i.test(install), 'INSTALL にチームのドメインの字面がある');
+});
+
+// 第1d回 統合（G-4 の前）: ログインの長さは 7 日（利用者が 2026-10-20 に決め、Access の app の Session Duration を 7 日にした）。
+// G-3 で書いた「1 month」「1 か月」は README・INSTALL に残さない（ログインの長さを2通りに書かない）
+test('D18・K15: ログインの長さは 7 日。README の利用者の節と管理者の節・INSTALL のログインの手順が同じ 7 日を書き、「1 か月」「1 month」を書かない', () => {
+  for (const [n, s] of [['README.md', readme], ['INSTALL.md', install]]) {
+    assert.ok(!/1 ?か月|1 ?month/i.test(s), `${n} にログインの長さの「1 か月」「1 month」が残っている`);
+  }
+  assert.ok(readme.includes('ログインは、管理者が決めた長さ（7 日）で切れます'), 'README の利用者の節にログインの長さ（7 日）が無い');
+  assert.match(readme, /「Session Duration」を 7 日（1 週間）にします/, 'README の管理者の節に Session Duration の 7 日が無い');
+  assert.match(readme, /Worker 単位の Access は外さない[^\n]*期限（7 日）/, 'README の「Worker 単位の Access は外さない」の期限が 7 日でない');
+  assert.ok(install.includes('ログインは 7 日で切れます'), 'INSTALL のログインの手順にログインの長さ（7 日）が無い');
 });
 
 test('OL9: CHANGELOG の 0.5.0 の節は、更新の前に Claude Code を入れてログインすることを、入れ方の文と一緒に頭に書く', () => {

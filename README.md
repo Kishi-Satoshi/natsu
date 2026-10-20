@@ -161,7 +161,7 @@ LLM が創作した内容をそこで見分けられるようにするためで�
 - 使えるのは会社のメールアドレスだけです。会社のものでないアドレスでも画面は「A code has been emailed to you」と出ますが、メールは届きません（送ったかを明かさない Cloudflare の作りです）。
 - ログインの窓は、押したときだけ開きます。ログインが切れても NaTsu が窓を勝手に開くことはありません。録音中に窓を開いたままでも、録音中のページの［■ 終了して作成］は押せます。
 - ログインの cookie は Windows の仕組み（DPAPI）で暗号にして `%APPDATA%\natsu\secrets.json` にしまいます（ディスクに平文の cookie を残しません）。`settings.json`・`engine.log`・画面には出しません。暗号にできない PC ではログインできません。
-- ログインは、管理者が決めた長さ（1 か月）で切れます。切れたときと、管理者が取り消したときは「ログインが切れたため、PC の中で文字起こししています…」と［ログインし直す］が出ます。押すと「アカウント」が開きます。
+- ログインは、管理者が決めた長さ（7 日）で切れます。切れたときと、管理者が取り消したときは「ログインが切れたため、PC の中で文字起こししています…」と［ログインし直す］が出ます。押すと「アカウント」が開きます。
 - 止められたメールアドレスでは「このメールアドレスでは文字起こしの中継を使えないため、PC の中で文字起こしを続けます。管理者に知らせてください。」と出ます。
 
 ### オフラインと［この会議は PC の中だけ］
@@ -229,10 +229,10 @@ PowerShell を打たなくても、NaTsu の［設定］→「オンライン」
    - 「Policies」で 8 で作った決まりを開き、Include が「Emails ending in」`@<会社のドメイン>` だけであることを見ます（ほかの Include、たとえば「Cloudflare account」や「Everyone」があれば消す）。
    - 同じ決まりに［Add require］で「Login Methods」→「One-time PIN」を足します。
    - 同じ決まりの「Session duration」が「Same as application session timeout」であることを見ます（違う長さなら、それにする。決まりの長さは app の長さより先に効くので、24 時間のままだと毎日ログインし直しになります）→［Save］。
-   - 「Overview」の「Session Duration」を「1 month」にします（いちばん長い。月に1回ログインし直す）。
+   - 「Overview」の「Session Duration」を 7 日（1 週間）にします（週に1回ログインし直す）。
    - 「Cookie settings」は既定のまま（Binding Cookie を有効にしない・HttpOnly は有効のまま・Cookie Path Attribute を有効にしない）。
    - 「Additional settings」の「Application Audience (AUD) Tag」（64 字）は、12 で `POLICY_AUD` を入れるときに、この画面をもう一度開いてコピーします（秘密ではなく、いつでも見られます）。
-   - アカウントに Access で守るほかの app が無ければ、全体のログインの長さ（［Access controls］→［Access settings］の「global session duration」）も「1 month」にします。ほかの app があるときは変えません。
+   - アカウントに Access で守るほかの app が無ければ、全体のログインの長さ（［Access controls］→［Access settings］の「global session duration」）も 7 日（1 週間）にします。ほかの app があるときは変えません。
 10. **ログインの画面の見た目:** ［Zero Trust］→［Reusable components］→［Custom pages］→「Access login page」の［Manage］。
     - 組織の名前（Your Organization's name）: `NaTsu`
     - 頭の文（header）: `NaTsu（議事録アプリ）のログイン ─ 会社のメールアドレスを入れて［Send login code］を押してください`
@@ -264,7 +264,7 @@ PowerShell を打たなくても、NaTsu の［設定］→「オンライン」
   - いちばん確かなのは、会社のメールのアカウントが止まることです（コードが届かなくなります）。
 - **辞めた人の席を空ける（Free は 50 人まで）:** 同じ［Users］で［Action］→［Remove users］→［Remove］。
 - **全員を一度ログアウトさせる:** ［Applications］→ `natsu-relay` の［Configure］→［Revoke existing tokens］。
-- **Worker 単位の Access は外さない:** 外すと、取り消した人のログインも期限（1 か月）まで中継で通ります（中継の止めたメールだけが残る守りになります）。外して止まるのは新しいログインだけで、もう出たログインは期限まで中継で通ります（外すことは止め方になりません）。
+- **Worker 単位の Access は外さない:** 外すと、取り消した人のログインも期限（7 日）まで中継で通ります（中継の止めたメールだけが残る守りになります）。外して止まるのは新しいログインだけで、もう出たログインは期限まで中継で通ります（外すことは止め方になりません）。
 
 ### 鍵とトークンが漏れたかもしれないとき
 
