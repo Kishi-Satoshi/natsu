@@ -1,6 +1,7 @@
 /*
  * settings-rules.test.js — 設定の決まり（第1a回 JS6。RF23・F8・F11）
- * 32 のキーの表（第1a回の 30 に第1c回 Task C-1 で5つ足し、0.7.0 U-1（設計書 D5）で送り先と同意の4つを外し、第1d回 A-2 で accountEmail を足した）・項目ごとの読み方・今の読み方（normalizeSettings({ ...既定, ...raw }, 既定)）との比べ・保存の許可の一覧。
+ * 31 のキーの表（第1a回の 30 に第1c回 Task C-1 で5つ足し、0.7.0 U-1（設計書 D5）で送り先と同意の4つを外し、第1d回 A-2 で accountEmail を足し、
+ * 0.9.0 O-1（設計書 D25）で pillPos・pillCustom を外して pillSlot を足した）・項目ごとの読み方・今の読み方（normalizeSettings({ ...既定, ...raw }, 既定)）との比べ・保存の許可の一覧。
  */
 'use strict';
 
@@ -21,6 +22,10 @@ const TODAY = {
 // 第1a回の画面（app.html の save）が送る 29 のキー（第1c回 Task C-2 で下の5つを足して 34。pillCustom は録音バーを動かしたときだけ main が書く）
 const UI = { ...TODAY, localServerExe: 'C:\\e\\w.exe', localModelPath: 'C:\\m\\g.bin', theme: 'dark', micId: 'mic-1', dictionary: ['見積', '検収'] };
 delete UI.pillCustom; delete UI.maxHistory;
+// 0.9.0 O-1（設計書 D25・RP1）で意図して変えた: 録音バーの pillPos・pillCustom を表と既定から外し、8つの置き場所の pillSlot（既定 bottom-center）を
+// 足した（31 のキー）。画面は pillPos の代わりに pillSlot を送る（O-4 で画面の欄を替える）
+delete TODAY.pillPos; delete TODAY.pillCustom; Object.assign(TODAY, { pillSlot: 'bottom-center' });
+delete UI.pillPos; Object.assign(UI, { pillSlot: 'top-right' });
 // 第1c回 Task C-1: TODAY に足す（ほかの 30 は変えない）。意図: 既定が今の値のまま・決まりのないキーを足せない
 // 0.7.0 U-1（設計書 D5）で意図して変えた: 送り先と同意の4つ（cloudTranscribe・sttProvider・sttBaseUrl・sttModel）は表と既定から外した（31 のキー）
 Object.assign(TODAY, { claudeExe: '' });
@@ -32,9 +37,9 @@ const legacy = (raw) => S.normalizeSettings({ ...D, ...raw }, D);
 const ON = (key, v) => (key === 'useBuiltinTerms' ? v !== false : Boolean(v));
 const BOOLS = ['useVad', 'suppressNst', 'autoPaste', 'removeFillers', 'soundFeedback', 'autoLaunch', 'stayInTray', 'useBuiltinTerms', 'useSystemAudio'];
 
-test('JS6: 決まりの表のキーは既定の 32 のキーとちょうど同じ。どれにも画面の名前がある', { timeout: 5000 }, () => {
+test('JS6: 決まりの表のキーは既定の 31 のキーとちょうど同じ。どれにも画面の名前がある', { timeout: 5000 }, () => {
   assert.deepStrictEqual(D, TODAY);
-  assert.strictEqual(S.SETTING_KEYS.length, 32);
+  assert.strictEqual(S.SETTING_KEYS.length, 31);
   assert.deepStrictEqual([...S.SETTING_KEYS].sort(), Object.keys(TODAY).sort());
   for (const k of S.SETTING_KEYS) assert.ok(typeof S.SETTING_RULES[k].label === 'string' && S.SETTING_RULES[k].label.length > 1, k);
   assert.strictEqual(S.defaultSettings(2).localThreads, 4);
@@ -42,10 +47,12 @@ test('JS6: 決まりの表のキーは既定の 32 のキーとちょうど同�
 });
 
 test('JS6: 無いキーは黙って既定で埋める（版を上げたときのふつうのこと）。今の画面が書く値はそのまま往復する', { timeout: 5000 }, () => {
-  assert.deepStrictEqual(S.readSettings({}, D), { settings: D, repaired: [], falseLike: [] });
+  // 0.9.0 O-1: pillSlot の無い raw には前の位置の読み pillFrom が付く（何も無ければ point も pos も null）
+  assert.deepStrictEqual(S.readSettings({}, D), { settings: D, repaired: [], falseLike: [], pillFrom: { point: null, pos: null } });
   const r = S.readSettings(JSON.parse(JSON.stringify({ ...UI, pillCustom: { x: 10, y: 20 }, maxHistory: 300 })), D);
   assert.deepStrictEqual(r.repaired, []);
   assert.deepStrictEqual(r.settings, { ...D, ...UI, pillCustom: { x: 10, y: 20 }, maxHistory: 300 });
+  assert.strictEqual(r.pillFrom, null);
 });
 
 test('JS6・RF23: 壊れた項目だけを直し、ほかは残す（キーごとの表）', { timeout: 5000 }, () => {
@@ -59,8 +66,9 @@ test('JS6・RF23: 壊れた項目だけを直し、ほかは残す（キーご�
     ['localModelPath', 5, '', 'type'], ['micId', 7, '', 'type'], ['vadModelPath', null, '', 'type'],
     ['language', 'zh', 'zh', null], ['language', 'auto', 'auto', null], ['language', 'JA', 'ja', 'enum'], ['language', 5, 'ja', 'enum'],
     ['hotkey', '', 'Control+Shift+Space', 'empty'], ['meetingHotkey', 5, 'Alt+M', 'type'],
-    ['pillPos', 'top-left', 'top-left', null], ['pillPos', 5, 'bottom', 'type'], ['pillPos', 'center', 'bottom', 'enum'],
-    ['pillCustom', { x: 1, y: 2 }, { x: 1, y: 2 }, null], ['pillCustom', { x: '1', y: 2 }, null, 'type'], ['pillCustom', 'x', null, 'type'],
+    // 0.9.0 O-1: pillPos・pillCustom は知らないキー（下の RP2）。前の表示位置の名前（bottom）は置き場所の名前でない
+    ['pillSlot', 'top-left', 'top-left', null], ['pillSlot', 'middle-right', 'middle-right', null], ['pillSlot', 5, 'bottom-center', 'type'],
+    ['pillSlot', 'center', 'bottom-center', 'enum'], ['pillSlot', 'bottom', 'bottom-center', 'enum'],
     ['theme', 'blue', 'system', 'enum'], ['theme', 5, 'system', 'enum'], ['dictionary', 'x', [], 'type'], ['dictionary', [' 見積 ', '', 42], ['見積', '42'], null],
   ];
   for (const [key, raw, want, why] of rows) {
@@ -116,7 +124,7 @@ test('RF23: 今の読み方と比べる — 今の結果が正しかった所は
 });
 
 test('JS6・P16: 直した設定をもう一度読むと、直すものは何も無い（書き戻した後の2回目の起動では、知らせも新しい写しも出ない）', { timeout: 5000 }, () => {
-  const raws = [{ maxHistory: -1, pillPos: 5, futureKey: { a: 1 } }, { useVad: 'true', autoPaste: 'false', useBuiltinTerms: null, stayInTray: '' },
+  const raws = [{ maxHistory: -1, pillSlot: 5, futureKey: { a: 1 } }, { useVad: 'true', autoPaste: 'false', useBuiltinTerms: null, stayInTray: '' },
     { localPort: 'abc', language: 'JA', hotkey: '', pillCustom: { x: '1', y: 2 }, theme: 'blue', dictionary: 'x', micId: 7 }, { maxHistory: 20000, sumCtx: 999999 }];
   for (const raw of raws) {
     const once = S.readSettings(raw, D).settings;
@@ -127,8 +135,9 @@ test('JS6・P16: 直した設定をもう一度読むと、直すものは何も
 });
 
 test('JS6・SEC1: 保存の許可の一覧 — 決まりのないキーは画面から来ても保存しない（__proto__・constructor も通さない）', { timeout: 5000 }, () => {
-  const next = JSON.parse('{"theme":"dark","evil":"x","dataDir":"C:\\\\old","__proto__":{"polluted":1},"constructor":"y","pillCustom":{"x":1,"y":2}}');
-  assert.deepStrictEqual(S.pickSavable(next), { theme: 'dark', pillCustom: { x: 1, y: 2 } });
+  // 0.9.0 O-1 で意図して変えた: pillCustom は決まりの表に無くなったので、画面から来ても保存しない（置き場所は pillSlot）
+  const next = JSON.parse('{"theme":"dark","evil":"x","dataDir":"C:\\\\old","__proto__":{"polluted":1},"constructor":"y","pillCustom":{"x":1,"y":2},"pillSlot":"top-left"}');
+  assert.deepStrictEqual(S.pickSavable(next), { theme: 'dark', pillSlot: 'top-left' });
   assert.deepStrictEqual(S.pickSavable(null), {});
   assert.strictEqual({}.polluted, undefined);
   assert.strictEqual(S.isSettingsShape({}), true);
@@ -171,8 +180,8 @@ test('RF30: 鍵らしい欄は画面から来ても保存しない（設定の J
 // 第1d回 A-2（RL10・F1）: ログイン中のメールアドレス。形の悪い値は '' に戻し（ログインしていない形）、repaired にはキーの名前と理由だけ
 // （値は入れない: main は記録にキーの名前だけを書く）。テストの中にメールアドレスの形の文字を書かないため @ は文字の番号で作る
 const AT = String.fromCharCode(64);
-test('RL10: accountEmail は 32 番目のキー。形の良いメールアドレスはそのまま、形の悪い値は \'\' に戻し、キーの名前だけを記録する', { timeout: 5000 }, () => {
-  assert.strictEqual(S.SETTING_KEYS[31], 'accountEmail');
+test('RL10: accountEmail は最後（31 番目。0.9.0 O-1 で pillPos・pillCustom を外して pillSlot を足した）のキー。形の良いメールアドレスはそのまま、形の悪い値は \'\' に戻し、キーの名前だけを記録する', { timeout: 5000 }, () => {
+  assert.strictEqual(S.SETTING_KEYS[30], 'accountEmail');
   assert.strictEqual(S.SETTING_RULES.accountEmail.kind, 'email');
   const good = `kaigi${AT}example.com`;
   assert.deepStrictEqual(S.readSettings({ accountEmail: good }, D).settings.accountEmail, good);
@@ -191,4 +200,43 @@ test('RL10: accountEmail は 32 番目のキー。形の良いメールアドレ
     assert.deepStrictEqual(r.repaired, [{ key: 'accountEmail', why }], JSON.stringify(raw));
   }
   assert.ok(S.isEmailShape(good) && !S.isEmailShape(`a b${AT}example.com`) && !S.isEmailShape(5));
+});
+
+// 0.9.0 O-1（設計書 D25・RP1・RP2・F12）: 録音バーの置き場所は8つの名前の pillSlot。前の版の pillPos・pillCustom は 0.7.0 U-1 の4つのキーと
+// 同じく読まず・直さず・消さない（0.8.0 に戻すと前の位置が戻る）。pillFrom は raw に正しい pillSlot が無いときだけ前の2つの読みを返す
+const SLOTS8 = ['top-left', 'top-center', 'top-right', 'middle-left', 'middle-right', 'bottom-left', 'bottom-center', 'bottom-right'];
+test('RP1: pillSlot は8つの名前の enum で既定 bottom-center。壊れた値は既定に戻し、記録にキーの名前', { timeout: 5000 }, () => {
+  assert.deepStrictEqual(S.PILL_SLOTS, SLOTS8);
+  assert.deepStrictEqual(S.SETTING_RULES.pillSlot, { label: '録音バーの置き場所', kind: 'enum', values: SLOTS8 });
+  assert.strictEqual(D.pillSlot, 'bottom-center');
+  for (const v of SLOTS8) assert.deepStrictEqual(S.readSettings({ pillSlot: v }, D).repaired, [], v);
+  for (const [v, why] of [['center', 'enum'], [3, 'type'], [null, 'type'], ['BOTTOM-CENTER', 'enum']]) {
+    const r = S.readSettings({ pillSlot: v }, D);
+    assert.strictEqual(r.settings.pillSlot, 'bottom-center', JSON.stringify(v));
+    assert.deepStrictEqual(r.repaired, [{ key: 'pillSlot', why }], JSON.stringify(v));
+  }
+  for (const k of ['pillPos', 'pillCustom']) assert.ok(!S.SETTING_KEYS.includes(k) && !(k in D), `${k} がまだ決まりの表か既定にある`);
+});
+
+test('RP2: pillFrom は raw に正しい pillSlot が無いときだけ { point, pos }。pillPos・pillCustom は知らないキーとして残り、画面からは保存できない', { timeout: 5000 }, () => {
+  const from = (raw) => S.readSettings(raw, D).pillFrom;
+  assert.deepStrictEqual(from({ pillCustom: { x: -200, y: 40 }, pillPos: 'left' }), { point: { x: -200, y: 40 }, pos: 'middle-left' });
+  assert.deepStrictEqual(from({ pillPos: 'bottom' }), { point: null, pos: 'bottom-center' });
+  assert.deepStrictEqual(from({ pillPos: 'top' }), { point: null, pos: 'top-center' });
+  assert.deepStrictEqual(from({ pillPos: 'right' }), { point: null, pos: 'middle-right' });
+  for (const p of ['top-left', 'top-right', 'bottom-left', 'bottom-right']) assert.deepStrictEqual(from({ pillPos: p }), { point: null, pos: p });
+  // 壊れた前の値は読まない（落ちない）。__proto__ の名前も前の表示位置にしない
+  for (const c of [{ x: '1', y: 2 }, 'x', [1, 2], { x: Infinity, y: 0 }, { x: 1 }, null]) assert.deepStrictEqual(from({ pillCustom: c }), { point: null, pos: null }, JSON.stringify(c));
+  for (const p of ['center', 5, '__proto__', 'constructor']) assert.deepStrictEqual(from({ pillPos: p }), { point: null, pos: null }, JSON.stringify(p));
+  // 正しい pillSlot があれば直さない（null）。壊れた pillSlot なら前の値から直す
+  assert.strictEqual(from({ pillSlot: 'top-center', pillCustom: { x: 1, y: 2 } }), null);
+  assert.deepStrictEqual(from({ pillSlot: 'middle', pillPos: 'top-left' }), { point: null, pos: 'top-left' });
+  // 前の2つの値は読んだ後もバイトのまま残り（直さない・消さない）、画面からは保存できない
+  const raw = { pillPos: 5, pillCustom: { x: '1', y: 2 } };
+  const r = S.readSettings(raw, D);
+  assert.deepStrictEqual(r.repaired, []);
+  assert.deepStrictEqual([r.settings.pillPos, r.settings.pillCustom], [5, { x: '1', y: 2 }]);
+  assert.deepStrictEqual(S.pickSavable({ pillPos: 'top', pillCustom: { x: 1, y: 2 }, pillSlot: 'top-center' }), { pillSlot: 'top-center' });
+  assert.deepStrictEqual(S.SLOT_FROM_POS, { bottom: 'bottom-center', top: 'top-center', left: 'middle-left', right: 'middle-right',
+    'top-left': 'top-left', 'top-right': 'top-right', 'bottom-left': 'bottom-left', 'bottom-right': 'bottom-right' });
 });

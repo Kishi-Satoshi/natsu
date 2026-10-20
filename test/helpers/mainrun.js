@@ -304,6 +304,12 @@
 //                        stt.problem）と netSegs（送った区間ごとに { s, problem }。片付いたときの帯の符号）を足す。議事録ができた後に
 //                        watchOffline をもう1回呼ぶ（本物の間隔なら録音の後 1 秒以内に来る1回。録音していなければ見張りは自分で止まる）
 //     --net-seg-at=<秒,秒> … --net-seq の区間を送る秒
+//   0.9.0 レーン O（録音バー。計画 docs/plans/2026-10-20-090.md の O-1〜O-4。今の旗の動きは変えない）
+//     --settings-json=<名前> … ふだんの settings.json に、json-scenes.js の PILL_SETTINGS[名前] を重ねて置く（前の版の録音バーの位置）。
+//                        --keep-user-data のフォルダに settings.json がもうあれば置かない（2回目の起動）。out.settingsBefore に置いた値
+//     --displays=<並び> … 偽の screen の画面（x,y,幅,高さ を ; で区切る。作業領域。画面の大きさは高さに 40 を足す）。場面の displays が先
+//     --idle と組むと、出力に settings（終わりの settings.json の生の文字）・settingsGet（起動の直後に画面と同じ口で呼んだ settings:get）・
+//     engineLog を足す
 // 画面へ送った知らせと進み具合は、送った順に out.seq へ残す。進み具合が初めて「使える」（whisperReady・sumReady）と
 // 言ったときの engine:status を out.atReady に、壊れた知らせを送ったときの engine:status を out.atBroken に残す
 // （画面はその知らせでエンジンの状態を聞き直すので、そのとき main の答えがもう新しいこと: 第0b回 Task 14・15）
@@ -333,6 +339,7 @@ const afterDict = flags.includes('--after-dict');
 const withSum = flags.includes('--sum');
 const fixedSumPort = Number((flags.find((f) => f.startsWith('--sum-port=')) || '--sum-port=0').slice(11)) || 0;
 const setTypeDuring = (flags.find((f) => f.startsWith('--set-type-during=')) || '').slice(18);
+const WRITE_SETTLE_MS = 500;   // 0.9.0 O-1: 設定のまとめ書き（main の BATCH_MS 350ms）が済むのを待つ長さ
 const flagVal = (name) => { const f = flags.find((x) => x.startsWith(`${name}=`)); return f ? f.slice(name.length + 1) : ''; };
 // 第2a1回 M-3: 録音と DB のつなぎの場面
 const killDbDuring = flags.includes('--kill-db-during');
@@ -444,6 +451,14 @@ const claudeAuth = (flags.find((f) => f.startsWith('--claude-auth=')) || '').sli
 const FAKE_CLAUDE = path.join(__dirname, 'fake-claude.js');
 const STT_KEY = 'gsk_test_0123456789';   // stage1c.main.test.js の KEY と同じ（どこにも漏れていないかを試験が探す）
 const sceneName = (flags.find((f) => f.startsWith('--json-scene=')) || '').slice(13);
+// 0.9.0 O-1: 置く settings.json の上に重ねる録音バーの前の位置（json-scenes の PILL_SETTINGS）と、偽の画面の並び
+const settingsJsonName = flagVal('--settings-json');
+const pillSettings = settingsJsonName ? require('./json-scenes').PILL_SETTINGS[settingsJsonName] : null;
+if (settingsJsonName && !pillSettings) { process.stderr.write(`mainrun: --settings-json=${settingsJsonName} が json-scenes.js の PILL_SETTINGS に無い\n`); process.exit(1); }
+const displaysFlag = flagVal('--displays') ? flagVal('--displays').split(';').map((t, i) => {
+  const [x, y, width, height] = t.split(',').map(Number);
+  return { id: i + 1, bounds: { x, y, width, height: height + 40 }, workArea: { x, y, width, height } };
+}) : null;
 const scene = sceneName ? require('./json-scenes')[sceneName] : null;
 if (sceneName && (!scene || typeof scene !== 'object')) { process.stderr.write(`mainrun: 場面 ${sceneName} が json-scenes.js に無い\n`); process.exit(1); }
 // 第2a1回 M-2b: 議事録の DB を使えない（SQLite が trigram を持たない）
@@ -823,7 +838,7 @@ process.on('exit', () => {
       const cur = fs.existsSync(f) ? JSON.parse(fs.readFileSync(f, 'utf8')) : {};
       fs.writeFileSync(f, JSON.stringify({ ...cur, accountEmail: seededMail }));
     }
-  } else {
+  } else if (!(pillSettings && keepUserData && fs.existsSync(path.join(userData, 'settings.json')))) {
     fs.writeFileSync(path.join(userData, 'settings.json'), JSON.stringify({
       ...(managedMode || noEngine || fetchMode ? {} : { localServerExe: exe, localModelPath: model }), localPort, sumPort, autoLaunch: false,
       ...(withSum ? { sumServerExe: FAKE_SUM, sumModelPath: sumModel } : {}),
@@ -833,8 +848,10 @@ process.on('exit', () => {
       ...(noWhisper ? { localServerExe: path.join(tmp, 'no-such-whisper-server.exe') } : {}),
       ...(maxHistoryFlag ? { maxHistory: Number(maxHistoryFlag) } : {}),   // 第1d2回 M-5
       claudeExe,
+      ...(pillSettings || {}),
     }));
   }
+  const settingsBefore = pillSettings ? JSON.parse(fs.readFileSync(path.join(userData, 'settings.json'), 'utf8')) : null;
 
   const handlers = {}, listeners = {}, sent = [];
   // 第1d回 A-5: 録音バーへ送った区切りの長さ（overlay:start の payload と overlay:segment-ms の値）と、それと中継への要求の順
@@ -1169,7 +1186,7 @@ process.on('exit', () => {
   const certFor = sttMode === 'cert' ? `${OPENAI_BASE}/` : (relayCert ? `${RELAY_BASE}/` : '');
   const before = certFor ? (_n, o) => (o && String(o.url).startsWith(certFor) ? { error: 'net::ERR_CERT_AUTHORITY_INVALID' } : null) : null;
   // 偽の screen（第1b回 Task A-2）。並びは場面の displays（既定は 1920×1080 が1つ。作業領域は下のタスクバーを除いた 1920×1040）
-  const displays = (scene && scene.displays) || [{ id: 1, bounds: { x: 0, y: 0, width: 1920, height: 1080 }, workArea: { x: 0, y: 0, width: 1920, height: 1040 } }];
+  const displays = (scene && scene.displays) || displaysFlag || [{ id: 1, bounds: { x: 0, y: 0, width: 1920, height: 1080 }, workArea: { x: 0, y: 0, width: 1920, height: 1040 } }];
   const inRect = (p, r) => p && p.x >= r.x && p.x < r.x + r.width && p.y >= r.y && p.y < r.y + r.height;
   const screen = {
     getAllDisplays: () => displays.map((d) => JSON.parse(JSON.stringify(d))),
@@ -1778,6 +1795,8 @@ process.on('exit', () => {
     await exitClean(0);
   }
   await waitFor(() => handlers['meeting:toggle']);
+  // 0.9.0 O-1: 起動の直後に画面と同じ口で読む設定（前の位置の直しが、画面の最初の settings:get より前に済んでいるか: F18）
+  const settingsGetAtStart = pillSettings ? await handlers['settings:get']() : null;
   // 第2a1回 M-3: 画面と同じ役 app の口で読む（main はもう page:get を中継しない）。DB を使えなければ null
   const pageRouteText = async (id) => { let r = null; try { r = await appCall('page.get', { id }); } catch (_) { r = null; } return r && r.page ? r.page.routeText : null; };
   // ページの形（議事録の場面の出力。第2a1回 M-3 で id・title・recovered を足した）
@@ -1829,6 +1848,11 @@ process.on('exit', () => {
     out.requests = fs.readFileSync(flog, 'utf8').split('\n').filter((l) => l.startsWith('inference'));
     if (relayLocal) { out.stt = relayLocal.stt.requests.slice(); out.relayCalls = relayPaths.slice(); }
     out.history = handlers['history:get']();   // 第1d2回 M-5
+    if (pillSettings) {
+      await sleep(WRITE_SETTLE_MS);   // まとめ書き（350ms）が済んでから写す
+      const t = readUser('settings.json');
+      Object.assign(out, { settings: t ? t.toString('utf8') : null, settingsBefore, settingsGet: settingsGetAtStart, engineLog: engineLogLines() });
+    }
     process.stdout.write(`\n${JSON.stringify(m3Out(out))}\n`);
     await exitClean(0);
   }

@@ -1423,6 +1423,35 @@ function logReason(e) {
   return String(msg).replace(LOG_PATH_RE, '$1…$2');
 }
 
+// ---------------------------------------------------------------- 録音バーの置き場所（0.9.0 O-1・設計書 D25・RP1〜RP3）
+// 8つの置き場所（settings.js の PILL_SLOTS と同じ並び。同じ距離のときはこの順で前）。左右の中央だけ縦の形
+const PANEL_SLOTS = ['top-left', 'top-center', 'top-right', 'middle-left', 'middle-right', 'bottom-left', 'bottom-center', 'bottom-right'];
+// ピルの端と画面の作業領域の端の間（0.8.0 の録音バーと同じ 12px）
+const PANEL_EDGE = 12;
+// 形ごとのピルの初めの大きさ（CSS の px。録音バーの画面がまだ大きさを送っていないときと、置き場所の中心を決めるとき）
+const PANEL_FIRST = { h: { w: 240, h: 40 }, v: { w: 40, h: 240 } };
+// → 'v'（middle-left・middle-right）か 'h'
+function slotForm(slot) { return slot === 'middle-left' || slot === 'middle-right' ? 'v' : 'h'; }
+// 置き場所に size（{ w, h }）のピルを、作業領域の端から edge の所に置いた四角の左上（DIP。丸めない）
+function slotOrigin(slot, size, wa, edge) {
+  const x = slot.endsWith('left') ? wa.x + edge : slot.endsWith('right') ? wa.x + wa.width - edge - size.w : wa.x + (wa.width - size.w) / 2;
+  const y = slot.startsWith('top') ? wa.y + edge : slot.startsWith('bottom') ? wa.y + wa.height - edge - size.h : wa.y + (wa.height - size.h) / 2;
+  return { x, y };
+}
+// 点（ドラッグを離した窓の中心・前の版の位置）に一番近い置き場所の名前。距離は、作業領域の各置き場所にその形の初めの大きさ
+// （PANEL_FIRST）のピルを置いた中心との距離。同じ距離なら PANEL_SLOTS の順で前（RP2・F12）
+function nearestSlot(pt, workArea) {
+  let best = PANEL_SLOTS[0];
+  let bestD = Infinity;
+  for (const slot of PANEL_SLOTS) {
+    const size = PANEL_FIRST[slotForm(slot)];
+    const o = slotOrigin(slot, size, workArea, PANEL_EDGE);
+    const d = (o.x + size.w / 2 - pt.x) ** 2 + (o.y + size.h / 2 - pt.y) ** 2;
+    if (d < bestD) { best = slot; bestD = d; }
+  }
+  return best;
+}
+
 module.exports = {
   saveIfExists, meetingDurationSec, promptTail,
   registerHotkeys, hotkeyFailureMessage, hotkeyStatus, resolveStartupHotkeys, saveHotkeys,
@@ -1447,4 +1476,6 @@ module.exports = {
   sameShas, keepPrevious, candStamp, repairIdsOf, pathUsedBy, fetchMinutesLeft,
   recordDictation, mergeHistory, chooseDraftName,
   accountMessage,
+  // 0.9.0 レーン O（録音バー）
+  PANEL_EDGE, PANEL_FIRST, slotForm, slotOrigin, nearestSlot,
 };

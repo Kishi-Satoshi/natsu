@@ -22,10 +22,12 @@ const pretty = (o) => JSON.stringify(o, null, 2);   // 今の saveJson が書く
 const BOM = Buffer.from([0xef, 0xbb, 0xbf]);
 const CP932_NIHONGO = Buffer.from([0x93, 0xfa, 0x96, 0x7b, 0x8c, 0xea]);
 // 今の利用者がふつうに持っている設定（30 のキー。localThreads は CPU の移し替えに当たらない 3）
+// 0.9.0 O-1（設計書 D25）で意図して変えた: 0.9.0 の置き場所 pillSlot を足した（0.9.0 で一度起動した人の形）。前の版が書いた pillPos・pillCustom は
+// 知らないキーとして残っている（0.9.0 は読み書きしない）。pillSlot があるので、起動の前の位置の直し（migratePillSlot）はこの設定を書き直さない
 const TYPICAL = {
   localServerExe: 'C:\\engine\\whisper-server.exe', localModelPath: 'C:\\engine\\ggml-model.bin', localPort: 8990, localThreads: 3,
   vadModelPath: '', useVad: true, suppressNst: true, sumServerExe: '', sumModelPath: '', sumPort: 8991, sumThreads: 3, language: 'ja',
-  hotkey: 'Control+Shift+Space', meetingHotkey: 'Alt+M', micId: 'mic-1', pillPos: 'top-right', pillCustom: { x: 40, y: 60 },
+  hotkey: 'Control+Shift+Space', meetingHotkey: 'Alt+M', micId: 'mic-1', pillPos: 'top-right', pillCustom: { x: 40, y: 60 }, pillSlot: 'top-right',
   autoPaste: true, removeFillers: true, soundFeedback: true, autoLaunch: false, theme: 'dark', stayInTray: false,
   dictionary: ['見積', '検収'], useBuiltinTerms: true, useSystemAudio: false, maxHistory: 300, segmentSec: 75, sumCtx: 32768, engineIdleMin: 10,
 };
@@ -107,14 +109,23 @@ async function relayMeeting(c, n, { afterFirst } = {}) {
 const logText = (c) => { const b = c.read('engine.log'); return b ? b.toString('utf8') : ''; };
 const RELAY_BASE_SETTINGS = ({ base, userData }) => JSON.stringify({ ...base, autoLaunch: false, claudeExe: require('node:path').join(userData, 'no-such-claude.exe') });
 
+// 0.9.0 O-1（RP2・F12）: mainrun の --settings-json=<名前> が、ふだんの settings.json に重ねて置く設定（前の版の録音バーの位置）。
+// pill-custom-left は左の画面（x が負）の右上に 0.8.0 の 316×72 の窓を動かしていた人（pillPos は 0.8.0 の既定 bottom）
+const PILL_SETTINGS = {
+  'pill-custom-left': { pillPos: 'bottom', pillCustom: { x: -328, y: 12 } },
+  'pill-pos-left': { pillPos: 'left', pillCustom: 'x' },
+  'pill-slot-kept': { pillSlot: 'top-center', pillPos: 'top-right', pillCustom: { x: 40, y: 60 } },
+};
+
 module.exports = {
-  TYPICAL, HISTORY, UI, OLD_DRAFT, WS, OLD_KEY_TEXT,
+  TYPICAL, HISTORY, UI, OLD_DRAFT, WS, OLD_KEY_TEXT, PILL_SETTINGS,
   plain: { files: { 'settings.json': pretty(TYPICAL), 'history.json': pretty(HISTORY) },
     act: async (c) => { c.out.got = await c.handlers['settings:get'](); c.out.history = await c.handlers['history:get'](); } },
   bom: { engine: true, files: { 'settings.json': ({ base }) => Buffer.concat([BOM, Buffer.from(JSON.stringify({ ...base, theme: 'dark' }))]) } },
   utf16: { files: { 'settings.json': Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from(JSON.stringify({ theme: 'dark', micId: 'マイク' }), 'utf16le')]) },
     act: async (c) => { c.out.got = await c.handlers['settings:get'](); } },
-  repair: { files: { 'settings.json': pretty({ ...TYPICAL, maxHistory: -1, pillPos: 5, futureKey: { a: 1 } }) } },
+  // 0.9.0 O-1 で意図して変えた: 壊れた録音バーの値は pillSlot（pillPos は知らないキーになったので直さない）
+  repair: { files: { 'settings.json': pretty({ ...TYPICAL, maxHistory: -1, pillSlot: 5, futureKey: { a: 1 } }) } },
   falselike: { files: { 'settings.json': pretty({ ...TYPICAL, autoPaste: 'false' }) } },
   'broken-json': { files: { 'settings.json': '{"theme":"da' }, act: async (c) => { c.out.got = await c.handlers['settings:get'](); } },
   ansi: { files: { 'settings.json': Buffer.concat([Buffer.from('{"micId":"'), CP932_NIHONGO, Buffer.from('"}')]) } },
@@ -212,32 +223,40 @@ module.exports = {
       c.out.after = await c.handlers['history:get']();
     } },
   // 第1a回 Task 2-4: 録音バーの位置のまとめ書き・書き出しの合図・始めの片付け
+  // 0.9.0 O-1 で意図して変えた: 録音バーを動かすと、窓の中心に一番近い置き場所の名前を pillSlot にまとめ書きする（pillCustom は置いたまま
+  // 変わらない）。動かす先は左上（top-left）と右上（top-right）を交互にして、合図の前と後で名前が変わるようにした。move の後の moved は
+  // OS のドラッグの終わり（Windows。O-2 の吸い付きの合図）
   signals: { files: { 'settings.json': pretty(TYPICAL) },
     act: async (c) => {
       const [overlay, main] = c.wins;   // createOverlay が先、createMainWindow が後
-      const pill = () => { const t = c.read('settings.json'); return t ? JSON.parse(t.toString('utf8')).pillCustom : undefined; };
+      const pill = () => { const t = c.read('settings.json'); return t ? JSON.parse(t.toString('utf8')).pillSlot : undefined; };
+      const custom = () => JSON.parse(c.read('settings.json').toString('utf8')).pillCustom;
       const order = [
         ['win', overlay, 'session-end'], ['win', main, 'query-session-end'], ['power', null, 'suspend'], ['power', null, 'lock-screen'],
         ['power', null, 'shutdown'], ['win', main, 'hide'], ['win', main, 'close'], ['app', null, 'will-quit'], ['app', null, 'before-quit'],
       ];
       c.out.signals = order.map(([kind, w, ev], i) => {
-        overlay.setPosition(100 + i, 200);
+        overlay.setPosition(i % 2 ? 1592 : 12, 12);   // 316×72 の窓の中心が右上か左上の置き場所の近く
         overlay.emit('move');
+        overlay.emit('moved');
         const before = pill();
         const e = { preventDefault() {} };
         if (kind === 'win') w.emit(ev, e); else if (kind === 'power') c.power.emit(ev); else c.app.emit(ev, e);
         return { ev, before, after: pill() };   // 受け口が返った直後（同じ手番の中）に読む
       });
+      c.out.pillCustom = custom();
     } },
   batched: { files: { 'settings.json': pretty(TYPICAL) },
     act: async (c) => {
       const [overlay] = c.wins;
-      overlay.setPosition(7, 8); overlay.emit('move');
-      overlay.setPosition(9, 10); overlay.emit('move');
-      c.out.right = JSON.parse(c.read('settings.json').toString('utf8')).pillCustom;
-      const pillNow = () => JSON.parse(c.read('settings.json').toString('utf8')).pillCustom;
-      await c.waitFor(() => pillNow().x === 9, 3000);   // 間隔（350ms）の後に書かれるのを待つ（決まった長さで眠らない。混んだ CI でも揺れない）
+      // 0.9.0 O-1: 左下（bottom-left）の近くへ動かしてから左上（top-left）の近くへ。最後の名前だけを間隔の後に書く
+      overlay.setPosition(7, 956); overlay.emit('move'); overlay.emit('moved');
+      overlay.setPosition(9, 10); overlay.emit('move'); overlay.emit('moved');
+      c.out.right = JSON.parse(c.read('settings.json').toString('utf8')).pillSlot;
+      const pillNow = () => JSON.parse(c.read('settings.json').toString('utf8')).pillSlot;
+      await c.waitFor(() => pillNow() === 'top-left', 3000);   // 間隔（350ms）の後に書かれるのを待つ（決まった長さで眠らない。混んだ CI でも揺れない）
       c.out.later = pillNow();
+      c.out.laterCustom = JSON.parse(c.read('settings.json').toString('utf8')).pillCustom;
     } },
   // segbuf のフォルダの名前は録音を始めた時刻。7日より前の時刻の名前は起動のときの cleanOrphanSegbuf がフォルダごと消すので
   // （計画の 1760000000000 = 2025-10-09 では WAV が残るかを確かめられない）、先の時刻（2100-01-01）にして残す
@@ -248,7 +267,7 @@ module.exports = {
     faults: [{ op: 'read', match: /settings\.json$/, code: 'EBUSY', times: 7 }],
     act: async (c) => {
       const [overlay] = c.wins;
-      overlay.setPosition(5, 6); overlay.emit('move');
+      overlay.setPosition(5, 6); overlay.emit('move'); overlay.emit('moved');
       c.power.emit('suspend');
       c.out.textAfterSignal = c.read('settings.json').toString('utf8');
       c.timers.retrySettingsRead[0]();

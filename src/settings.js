@@ -29,6 +29,11 @@
  *
  * 第1d回 A-2（RL10）で、ログイン中のメールアドレス accountEmail を足した（32 のキー）。書くのは main のログインの IPC だけ
  * （settings:save は画面から来た値を使わない）。札（トークン）は設定に置かない（secrets.json に暗号でしまう）。
+ *
+ * 0.9.0 O-1（設計書 D25・RP1・RP2。計画 docs/plans/2026-10-20-090.md）で、録音バーの置き場所を8つの名前の pillSlot にし、
+ * 前の表示位置 pillPos と前の自由な位置 pillCustom を表と既定から外した（31 のキー）。前の2つは 0.7.0 U-1 の4つのキーと同じく
+ * 「前の版が書いた値」として読まず・直さず・消さない（0.8.0 に戻すと前の位置が戻る）。画面からは保存させない。readSettings は、
+ * raw に正しい pillSlot が無いときだけ前の2つの読みを pillFrom で返し、main が起動で1回だけ一番近い置き場所に直す（migratePillSlot）。
  */
 'use strict';
 
@@ -65,8 +70,15 @@ function normalizeSettings(raw, defaults) {
   return s;
 }
 
-// 録音バーの表示位置。app.html の #pillPos の選択肢と同じ
+// 0.8.0 までの録音バーの表示位置（pillPos の値。0.9.0 は読み書きしない: 前の位置の直しの材料だけ）
 const PILL_POSITIONS = ['bottom', 'top', 'left', 'right', 'top-left', 'top-right', 'bottom-left', 'bottom-right'];
+// 0.9.0 O-1（RP1）: 録音バーの8つの置き場所（pillSlot の値）。middle-left・middle-right は縦の形（mainlib.slotForm）
+const PILL_SLOTS = ['top-left', 'top-center', 'top-right', 'middle-left', 'middle-right', 'bottom-left', 'bottom-center', 'bottom-right'];
+// 前の表示位置 → 同じ意味の置き場所（RP2。0.8.0 の bottom は下の中央、left は左の真ん中）
+const SLOT_FROM_POS = {
+  bottom: 'bottom-center', top: 'top-center', left: 'middle-left', right: 'middle-right',
+  'top-left': 'top-left', 'top-right': 'top-right', 'bottom-left': 'bottom-left', 'bottom-right': 'bottom-right',
+};
 const THEMES = ['system', 'light', 'dark'];
 // ログイン中のメールアドレスの形（第1d回 A-2。中継が受けるのと同じ「空白と @ の無い前 1〜64 字 @ 後ろ 1〜190 字」・全体で 254 字まで）
 const EMAIL_RE = /^[^\s@]{1,64}@[^\s@]{1,190}$/;
@@ -94,8 +106,8 @@ function defaultSettings(cpuCount) {
     hotkey: 'Control+Shift+Space',
     meetingHotkey: 'Alt+M',
     micId: '',
-    pillPos: 'bottom',
-    pillCustom: null,
+    // 録音バーの置き場所（0.9.0 O-1。前の pillPos・pillCustom は既定に無い）
+    pillSlot: 'bottom-center',
     autoPaste: true,
     removeFillers: true,
     soundFeedback: true,
@@ -128,7 +140,7 @@ function defaultSettings(cpuCount) {
   };
 }
 
-// 32 のキーの決まり。label は設定の画面の言葉（知らせに出す名前。キーの名前は画面に出さない）。
+// 31 のキーの決まり（0.9.0 O-1 で pillPos・pillCustom を外して pillSlot を足した）。label は設定の画面の言葉（知らせに出す名前。キーの名前は画面に出さない）。
 // kind ごとの直し方は下の FIX。ここに無いキーは既定にも保存の許可の一覧にも入れない（テストが一致を見る）
 //   int:      normalizeSettings が整数に直して範囲に収める（範囲は normalizeSettings の中だけに書く）
 //   history:  0〜10000 の整数。10000 を越えたら 10000、それ以外の壊れた値は既定（0 に寄せない。F8）
@@ -136,7 +148,6 @@ function defaultSettings(cpuCount) {
 //   language: auto か英小文字 2〜3 字。違えば 'ja'
 //   hotkey:   空でない文字列（本当の確かめは今どおり登録で）。違えば既定
 //   enum:     values のどれか。違えば既定（形が違うときの why は typeWhy があればそれ。theme は計画の表のとおり enum だけ）
-//   point:    null か、x・y が有限の数の { x, y }。違えば null
 //   bool:     真偽値。今の判定で直す（notFalse は「false でなければオン」、ほかは「値があればオン」）
 //   words:    normalizeSettings が文字の並びに整える。配列でなければ []
 //   exe:      文字列。.cmd・.bat・.ps1 で終われば ''（shell を通さないと起こせないので使わない。F12。大小を問わない）。
@@ -158,8 +169,7 @@ const SETTING_RULES = {
   hotkey: { label: '音声入力ホットキー', kind: 'hotkey' },
   meetingHotkey: { label: '議事録ホットキー', kind: 'hotkey' },
   micId: { label: '使用するマイク', kind: 'string' },
-  pillPos: { label: '録音バーの表示位置', kind: 'enum', values: PILL_POSITIONS },
-  pillCustom: { label: '録音バーを動かした位置', kind: 'point' },
+  pillSlot: { label: '録音バーの置き場所', kind: 'enum', values: PILL_SLOTS },
   autoPaste: { label: '文字起こし後、カーソル位置へ自動貼り付け', kind: 'bool' },
   removeFillers: { label: 'フィラー除去', kind: 'bool' },
   soundFeedback: { label: '効果音', kind: 'bool' },
@@ -219,11 +229,6 @@ const FIX = {
     if (typeof v !== 'string') return { value: def, why: rule.typeWhy || 'type' };
     return rule.values.includes(v) ? { value: v, why: null } : { value: def, why: 'enum' };
   },
-  point(v) {
-    if (v === null) return { value: null, why: null };
-    const ok = isSettingsShape(v) && Number.isFinite(v.x) && Number.isFinite(v.y);   // Number.isFinite は数の型だけ真
-    return ok ? { value: { x: v.x, y: v.y }, why: null } : { value: null, why: 'type' };
-  },
   bool(v, { rule }) {
     if (typeof v === 'boolean') return { value: v, why: null };
     return { value: rule.notFalse ? v !== false : Boolean(v), why: 'type' };
@@ -243,8 +248,10 @@ const FIX = {
 
 // raw: settings.json から読んだ普通のオブジェクト（形の確かめは呼び手が isSettingsShape で済ませる）。
 // defaults: 既定（defaultSettings の結果）。raw も defaults も書き換えない。
-// → { settings, repaired: [{ key, why }], falseLike: [{ key, raw }] }
+// → { settings, repaired: [{ key, why }], falseLike: [{ key, raw }], pillFrom }
 //   repaired にはオンとオフの欄を真偽値に直したものも入る（記録にキーの名前を書くため）
+//   pillFrom（0.9.0 O-1・RP2）: raw に正しい pillSlot が無いときだけ { point, pos }（前の版の pillCustom と pillPos の読み。
+//   point は x・y が有限の数なら { x, y }、pos は同じ意味の置き場所の名前。どちらも無ければ null）。正しい pillSlot があれば null
 function readSettings(raw, defaults) {
   const d = defaults || {};
   const norm = normalizeSettings({ ...d, ...raw }, d);   // 知らないキーは残り、REMOVED_KEYS は消える
@@ -264,10 +271,19 @@ function readSettings(raw, defaults) {
     if (why) repaired.push({ key, why });
     if (rule.kind === 'bool' && typeof v === 'string' && FALSE_LIKE.test(v.trim())) falseLike.push({ key, raw: v });
   }
-  return { settings, repaired, falseLike };
+  const slotOk = typeof raw.pillSlot === 'string' && PILL_SLOTS.includes(raw.pillSlot);
+  return { settings, repaired, falseLike, pillFrom: slotOk ? null : legacyPill(raw) };
 }
 
-// 既定の値を、呼び手が書き換えても既定に響かない形で返す（pillCustom・dictionary のため）
+// 前の版の録音バーの位置（pillCustom・pillPos）の読み。どちらも読むだけで、settings には触らない（RP2）
+function legacyPill(raw) {
+  const c = raw.pillCustom;
+  const point = isSettingsShape(c) && Number.isFinite(c.x) && Number.isFinite(c.y) ? { x: c.x, y: c.y } : null;   // Number.isFinite は数の型だけ真
+  const pos = typeof raw.pillPos === 'string' && Object.hasOwn(SLOT_FROM_POS, raw.pillPos) ? SLOT_FROM_POS[raw.pillPos] : null;
+  return { point, pos };
+}
+
+// 既定の値を、呼び手が書き換えても既定に響かない形で返す（dictionary のため）
 function cloneDefault(v) {
   if (Array.isArray(v)) return [...v];
   if (v && typeof v === 'object') return { ...v };
@@ -291,6 +307,6 @@ function pickSavable(next) {
 }
 
 module.exports = {
-  normalizeSettings, REMOVED_KEYS, PILL_POSITIONS, defaultSettings, SETTING_RULES, SETTING_KEYS,
+  normalizeSettings, REMOVED_KEYS, PILL_POSITIONS, PILL_SLOTS, SLOT_FROM_POS, defaultSettings, SETTING_RULES, SETTING_KEYS,
   readSettings, pickSavable, isSettingsShape, isEmailShape,
 };

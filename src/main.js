@@ -557,7 +557,8 @@ function loadSettingsFromDisk() {
   settingsState = r.state === 'unreadable' ? 'unreadable' : 'ok';
   const notices = [];
   const notify = (m) => notices.push(m);
-  const res = (v) => ({ state: r.state, settings: v, notices });
+  // pillFrom（0.9.0 O-1・RP2）: 前の版の録音バーの位置の読み（settings.js の readSettings）。読めた設定だけ（壊れた・読めないときは null）
+  const res = (v, pillFrom = null) => ({ state: r.state, settings: v, notices, pillFrom });
   if (r.state === 'missing') return res(readSettings({}, DEFAULT_SETTINGS).settings);
   if (r.state === 'ok') {
     // 読めない間に待っていた変更は捨てる（読めた値が勝つ）
@@ -580,7 +581,7 @@ function loadSettingsFromDisk() {
       if (labels.length) notify(NOTICE.settingsRepaired(labels.join('・'), kept));
       for (const f of rs.falseLike) notify(NOTICE.settingsFalseLike(SETTING_RULES[f.key].label, f.raw));
     }
-    return res(rs.settings);
+    return res(rs.settings, rs.pillFrom);
   }
   if (r.state === 'broken') {
     const name = path.basename(r.movedTo);
@@ -695,6 +696,7 @@ function loadStores() {
   // 範囲外だと、起動直後だけ正規化をすり抜けてエンジンの起動待ちが静かに失敗する。
   const ls = loadSettingsFromDisk();
   settings = ls.settings;
+  pillFromAtLoad = ls.pillFrom;
   startupNotices.push(...ls.notices);
   if (settingsState === 'unreadable') {
     startupNotices.push(NOTICE.settingsBusy);
@@ -2594,34 +2596,66 @@ function createOverlay() {
   overlayWin.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
   overlayWin.loadFile(path.join(__dirname, 'renderer', 'overlay.html'));
   overlayWin.on('closed', () => { overlayWin = null; });
-  // 利用者が動かした位置は、設定の書き手のまとめ書きにする（第1a回 JS7。最後の位置だけを間隔の後に1回書く。
-  // 残りは書き出しの合図で必ず書く: JS8）。位置を決めて動かした（positionOverlay）ときの move は数えない
+  // 利用者が動かした位置は、窓の中心に一番近い置き場所の名前にして、設定の書き手のまとめ書きにする（第1a回 JS7。最後の名前だけを
+  // 間隔の後に1回書く。残りは書き出しの合図で必ず書く: JS8）。位置を決めて動かした（positionOverlay）ときの move は数えない。
+  // 0.9.0 O-1（RP1）: 前の自由な位置 pillCustom はもう書かない（前の版が書いた値として残す）。名前が同じなら書かない
   overlayWin.on('move', () => {
     if (programmaticMove || !overlayWin || overlayWin.isDestroyed() || !overlayWin.isVisible()) return;
-    const [x, y] = overlayWin.getPosition();
-    settings.pillCustom = { x, y };
+    const slot = slotAtWindowCenter();
+    if (slot === settings.pillSlot) return;
+    settings.pillSlot = slot;
     settingsWriter.set(settings);
   });
 }
 
+// 録音バーの窓の中心に一番近い置き場所（中心のある画面の作業領域で。0.9.0 O-1）
+function slotAtWindowCenter() {
+  const [x, y] = overlayWin.getPosition();
+  const [w, h] = overlayWin.getSize();
+  const c = { x: x + w / 2, y: y + h / 2 };
+  return lib.nearestSlot(c, screen.getDisplayNearestPoint(c).workArea);
+}
+
+// 0.9.0 O-1（設計書 D25・RP2・F12）: 前の版の録音バーの位置（pillCustom・pillPos）を、初めの1回だけ一番近い置き場所に直して pillSlot に書く。
+// whenReady の中、loadStores の後で、窓と IPC の受け口を作る前に1回だけ呼ぶ。pillPos・pillCustom は消さない（0.8.0 に戻すと前の位置が戻る）。
+// 前の値が何も無い（新しく入れた・壊れていて退けた）ときは、既定のままで書かない（起動だけで settings.json を作らない）。設定が読めない
+// ときは直さない（読めたら次の起動で直す）。投げない
+let pillFromAtLoad = null;
+const PILL_OLD_SIZE = { w: 316, h: 72 };   // 0.8.0 の録音バーの窓（pillCustom はその左上）
+function migratePillSlot() {
+  const from = pillFromAtLoad;
+  pillFromAtLoad = null;
+  if (!from || settingsState === 'unreadable') return;
+  let slot = '';
+  let was = '';
+  try {
+    if (from.point) {
+      const c = { x: from.point.x + PILL_OLD_SIZE.w / 2, y: from.point.y + PILL_OLD_SIZE.h / 2 };
+      slot = lib.nearestSlot(c, screen.getDisplayNearestPoint(from.point).workArea);
+      was = 'pillCustom';
+    } else if (from.pos) {
+      slot = from.pos;
+      was = 'pillPos';
+    }
+  } catch (e) {
+    engineLog(`録音バー: 前の位置を置き場所に直せませんでした（${errCode(e)}）`);
+    return;
+  }
+  if (!slot) return;
+  settings.pillSlot = slot;
+  const w = settingsWriter.now(settings);
+  if (!w.ok) engineLog(`録音バー: 直した置き場所を書けませんでした（${errCode(w.error)}）。次の保存でもう一度書きます`);
+  engineLog(`録音バー: 置き場所を ${slot} にした（前の ${was} から）`);
+}
+
+// 0.9.0 O-1（RP1）: 置き場所の名前（pillSlot）と、カーソルのある画面の作業領域で置く（端から 12px。bottom-center は 0.8.0 の bottom と同じ点）
 function positionOverlay() {
   if (!overlayWin) return;
   const [w, h] = overlayWin.getSize();
-  let px; let py;
-  const c = settings.pillCustom;
-  if (c && Number.isFinite(c.x) && Number.isFinite(c.y)) {
-    const d = screen.getDisplayNearestPoint({ x: c.x, y: c.y }).workArea;
-    px = Math.min(Math.max(c.x, d.x), d.x + d.width - w);
-    py = Math.min(Math.max(c.y, d.y), d.y + d.height - h);
-  } else {
-    const { x, y, width, height } = screen.getDisplayNearestPoint(screen.getCursorScreenPoint()).workArea;
-    const mgn = 12;
-    const pos = settings.pillPos || 'bottom';
-    px = pos.includes('left') ? x + mgn : pos.includes('right') ? x + width - w - mgn : x + (width - w) / 2;
-    py = pos.includes('top') ? y + mgn : pos.includes('bottom') ? y + height - h - mgn : y + (height - h) / 2;
-  }
+  const wa = screen.getDisplayNearestPoint(screen.getCursorScreenPoint()).workArea;
+  const p = lib.slotOrigin(settings.pillSlot || 'bottom-center', { w, h }, wa, lib.PANEL_EDGE);
   programmaticMove = true;
-  overlayWin.setPosition(Math.round(px), Math.round(py));
+  overlayWin.setPosition(Math.round(p.x), Math.round(p.y));
   setTimeout(() => { programmaticMove = false; }, 80);
 }
 
@@ -4580,7 +4614,6 @@ function setupIpc() {
   ipcMain.handle('settings:get', () => { if (settingsState === 'unreadable') retrySettingsRead(); return settings; });
   ipcMain.handle('settings:save', (_e, next) => {
     const prevAutoLaunch = settings.autoLaunch;
-    const prevPillPos = settings.pillPos;
     // 決まりのあるキーだけを受け取り（許可の一覧 pickSavable）、読み込みと同じ決まりで整える。知らないキーは
     // ファイルにあったものだけが残る（画面から新しく入れさせない）
     // ログイン中のメールアドレスは main のログインの IPC だけが書く（第1d回 A-2。画面の古い写しで消したり、ほかの名前にしたりさせない）
@@ -4610,7 +4643,6 @@ function setupIpc() {
       warning = hk.warning;
     }
     if (guard.warning) warning = warning ? `${warning}。${guard.warning}` : guard.warning;
-    if (merged.pillPos !== prevPillPos) merged.pillCustom = null;
     settings = merged;
     // 書けなくても投げず、当てる行（テーマ・エンジン・保留の復旧・ログイン時の起動・トレイ）は最後まで行い、warning で返す。
     // 書けなかった値は書き手に「まだ書いていない」として残り、次の保存と書き出しの合図でやり直す（JS1・JS5・P14・RF22）
@@ -5073,6 +5105,9 @@ if (!gotLock) {
     powerMonitor.on('suspend', pauseForSuspend);
     powerMonitor.on('resume', promptAfterResume);
     loadStores();
+    // 録音バーの前の位置を、置き場所の名前に1回だけ直す（0.9.0 O-1・RP2。screen は ready の後でしか使えない。窓と IPC の前に直さないと、
+    // 画面の最初の settings:get が既定の置き場所を出し、ほかの欄の自動保存がそれを書いて直しを潰す: 計画の調べた結果の 41）
+    migratePillSlot();
     // 画面の覚え書き（第1b回 N6）。窓を作る前に読んで照らす（壊れていたら知らせ W1 を startupNotices に）
     loadWinState();
     // ログインの札の保管（第1c回 OL3・第1d回 A-2。ready の後に作る）。作った直後に、0.7.0 までの鍵（groq・openai・custom。会社の
