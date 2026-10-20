@@ -24,3 +24,30 @@ test('Workers: relay/ の fetch の redirect はどれも manual（error は Wor
   }
   assert.ok(seen >= 2, 'access.mjs（鍵）と stt.mjs（OpenAI）の2か所の fetch が見つかること');
 });
+
+// ヘルプセンター H-9: 門の Worker（relay/help-gate.mjs）も Workers で動く。門と、それが import でたどるファイルの組を見る
+// （出し方の help-deploy が上げるのもこの組）。どれも redirect は manual だけで、Node だけの部品（node:・require・Buffer・process）を使わない。
+function importClosure(entry) {
+  const seen = new Set();
+  const walk = (f) => {
+    if (seen.has(f)) return;
+    seen.add(f);
+    const src = fs.readFileSync(path.join(RELAY, f), 'utf8').replace(/^\s*\/\/.*$/gm, '');
+    for (const m of src.matchAll(/\bfrom\s+['"]\.\/([^'"]+)['"]|\bimport\s*\(\s*['"]\.\/([^'"]+)['"]/g)) walk(m[1] || m[2]);
+  };
+  walk(entry);
+  return [...seen].sort();
+}
+
+test('Workers: ヘルプの門（help-gate.mjs）と、それが読む relay/ のファイルは redirect が manual だけで、Node だけの部品を使わない', () => {
+  const files = importClosure('help-gate.mjs');
+  assert.deepStrictEqual(files, ['access.mjs', 'config.mjs', 'help-gate.mjs', 'http.mjs', 'log.mjs']);
+  for (const f of files) {
+    const code = fs.readFileSync(path.join(RELAY, f), 'utf8').split('\n').filter((l) => !/^\s*\/\//.test(l)).join('\n');
+    for (const m of code.matchAll(/redirect\s*:\s*(['"`])([^'"`]*)\1/g)) assert.strictEqual(m[2], 'manual', `${f}: redirect: '${m[2]}'`);
+    assert.ok(!/['"]node:|\brequire\s*\(|\bBuffer\b|\bprocess\./.test(code), `${f} が Node だけの部品を使う`);
+  }
+  // 門は ASSETS の答えを写してから見出しを付ける（Workers の ASSETS の答えの見出しは書き換えられない）
+  const gate = fs.readFileSync(path.join(RELAY, 'help-gate.mjs'), 'utf8');
+  assert.match(gate, /new Response\(/, '答えを写していない');
+});
