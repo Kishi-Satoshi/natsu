@@ -2579,7 +2579,12 @@ function pageForView(page) {
   const preset = typeof id === 'string' && Object.prototype.hasOwnProperty.call(sttCloud.PRESETS, id) ? sttCloud.PRESETS[id] : null;
   return { ...page, routeText: lib.routeLabel(page.route, preset ? preset.label : '') };
 }
-function sendToOverlay(ch, p) { if (overlayWin && !overlayWin.isDestroyed()) overlayWin.webContents.send(ch, p); }
+function sendToOverlay(ch, p) {
+  if (!overlayWin || overlayWin.isDestroyed()) return;
+  // 0.9.0 O-4（RP8）: 録音バーを隠したままでも、エラーの文は出し直してから送る（マイクを開けない・保存できないを見落とさない）
+  if (ch === 'overlay:phase' && p && p.phase === 'error' && panelHidden) showPanel();
+  overlayWin.webContents.send(ch, p);
+}
 
 function createOverlay() {
   // 0.9.0 O-2（RP4）: 初めの大きさは置き場所の形の初めの大きさ（PANEL_FIRST）。大きさは main が setBounds で替える（panelBounds。
@@ -2687,6 +2692,7 @@ function positionOverlay() {
     overlayForm = form;
     panelSize = null;   // 前の形の大きさは使わない（新しい形の大きさは録音バーの画面がすぐ送る）
     sendToOverlay('overlay:form', { form });
+    syncPanelHover();   // 縦の形になったらカーソルを見始める（横の形になったら見張りが自分で止まる）
   }
   let d = overlayDisplayId == null ? null : screen.getAllDisplays().find((x) => x.id === overlayDisplayId);
   if (!d) { d = screen.getDisplayNearestPoint(screen.getCursorScreenPoint()); overlayDisplayId = d.id; }
@@ -2704,12 +2710,67 @@ function panelKeys(which) {
   if (stop) keys.stop = stop;
   return keys;
 }
-// 録音の始め: 録音の画面をカーソルの画面に決め直してから置く（ドラッグの途中の印は捨てる）
+// 録音の始め: 録音の画面をカーソルの画面に決め直してから置く（ドラッグの途中の印は捨てる）。前の録音で隠していても、次の録音では出す（O-4）
 function placeOverlayForRecording() {
   overlayDisplayId = null;
   panelDragging = false;
   if (panelQuietTimer) { clearTimeout(panelQuietTimer); panelQuietTimer = null; }
+  panelHidden = false;
   positionOverlay();
+  syncPanelHover();
+}
+
+// ---------------------------------------------------------------- 録音バーを隠す・出し直す（0.9.0 O-4・設計書 D25・RP8・決めたこと 23）
+// 縦の形の × で隠す（録音は録音バーの画面が隠れた窓のまま続ける。区間を切るのは main の 5 秒の overlay:tick なので長さは変わらない）。
+// 出し直すのは、録音中のページの［録音バーを出す］（panel:show）・トレイの［録音バーを表示］・エラーの文の前・次の録音の始め。
+// 出し直しはフォーカスを取らない（showInactive: 貼り付け先の窓と会議のアプリの入力を替えない）
+let panelHidden = false;
+const panelRecording = () => state === 'recording' || state === 'meeting';
+function hidePanel() {
+  if (!panelRecording() || panelHidden || !overlayWin || overlayWin.isDestroyed()) return false;
+  panelHidden = true;
+  overlayWin.hide();
+  syncPanelHover();
+  updateTray();
+  sendToMainWin('meeting:update', meetingStatus());
+  return true;
+}
+function showPanel() {
+  if (!panelHidden) return false;
+  panelHidden = false;
+  if (overlayWin && !overlayWin.isDestroyed()) {
+    positionOverlay();
+    overlayWin.showInactive();
+  }
+  syncPanelHover();
+  updateTray();
+  sendToMainWin('meeting:update', meetingStatus());
+  return true;
+}
+// 縦の形の × を出すための「カーソルが乗っているか」（ピルはドラッグの領域で、Windows では :hover が来ない: 調べた結果の 37）。
+// 縦の形で録音バーが出ている録音中だけ PANEL_HOVER_MS ごとにカーソルを窓の四角と比べ、変わったときだけ overlay:hover を送る。
+// 横の形・隠した・録音が終わったら、次の見回りで自分で止まる（送らない）
+const PANEL_HOVER_MS = 120;
+let panelHoverTimer = null;
+let panelHoverIn = false;
+const panelHoverWanted = () => overlayForm === 'v' && !panelHidden && panelRecording() && Boolean(overlayWin) && !overlayWin.isDestroyed();
+function syncPanelHover() {
+  if (panelHoverWanted()) {
+    if (!panelHoverTimer) { panelHoverIn = false; panelHoverTimer = setInterval(watchPanelHover, PANEL_HOVER_MS); }
+  } else stopPanelHover();
+}
+function stopPanelHover() {
+  if (panelHoverTimer) { clearInterval(panelHoverTimer); panelHoverTimer = null; }
+  panelHoverIn = false;
+}
+function watchPanelHover() {
+  if (!panelHoverWanted()) { stopPanelHover(); return; }
+  const c = screen.getCursorScreenPoint();
+  const b = overlayWin.getBounds();
+  const inside = c.x >= b.x && c.x < b.x + b.width && c.y >= b.y && c.y < b.y + b.height;
+  if (inside === panelHoverIn) return;
+  panelHoverIn = inside;
+  sendToOverlay('overlay:hover', inside);
 }
 // 画面の拡大率や作業領域が変わった・画面が外れた（録音中だけ置き直す。外れたのが録音の画面ならカーソルの画面で決め直す）
 function onDisplayChanged() {
@@ -3375,6 +3436,8 @@ function meetingStatus() {
     cloud: hasRelayLogin() || !isOfflineChosen(),
     // 第1d回 A-6（RL14・D17）: 文字起こしの状態（経路・最後の文字の時刻・区切り・帯）。会議の外は null
     stt: meeting ? sttStatus(meeting) : null,
+    // 0.9.0 O-4（RP8）: 録音バーを × で隠している（録音中のページは［録音バーを出す］を出す）
+    panelHidden: panelHidden && panelRecording(),
   };
 }
 
@@ -4604,6 +4667,8 @@ function updateTray() {
     });
     items.push({ label: '議事録の記録を開始', enabled: state === 'idle', click: () => { startMeeting().catch((e) => engineLog(`議事録を開始できません: ${errCode(e)}`)); createMainWindow(); } });
   }
+  // 0.9.0 O-4（RP8）: 録音中に録音バーを隠しているときだけ、出し直す口
+  if (panelHidden && (state === 'recording' || state === 'meeting')) items.push({ label: '録音バーを表示', click: showPanel });
   items.push({ type: 'separator' });
   items.push({ label: 'ノートを開く', click: createMainWindow });
   // 更新はトレイからも行えるようにする。画面側の組み立てが1か所でも
@@ -5134,6 +5199,9 @@ function setupIpc() {
   });
   ipcMain.on('audio:error', (_e, { message }) => {
     if (state === 'meeting' || state === 'meeting-finalizing') {
+      // 0.9.0 O-4（RP8）: 隠したままマイクのエラーが来たら、録音バーを出してから締める（作成中の文を見せる）。音声入力は
+      // finishWithError のエラーの文の前に sendToOverlay が出し直す
+      showPanel();
       if (meeting) {
         // 録音側は最後の区間を送り終えてからこれを送る（overlay の settleSeg）ので、
         // ここで締めに入っても変換中の区間を取りこぼさない
@@ -5152,6 +5220,9 @@ function setupIpc() {
   ipcMain.on('overlay:hidden-request', () => hideOverlayIfIdle());
   // 0.9.0 O-2（RP4）: 録音バーの画面が測ったピルの大きさ
   ipcMain.on('overlay:size', (_e, p) => onPanelSize(p));
+  // 0.9.0 O-4（RP8）: 縦の形の × で隠す（録音中だけ。録音は止めない）と、録音中のページの［録音バーを出す］
+  ipcMain.on('overlay:hide-panel', () => hidePanel());
+  ipcMain.handle('panel:show', () => { showPanel(); return { ok: true }; });
 }
 
 // ---------------------------------------------------------------- 起動

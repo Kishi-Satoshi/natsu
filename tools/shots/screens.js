@@ -91,6 +91,11 @@ for (const form of PS.FORMS) for (const desk of Object.keys(PS.DESKS)) for (cons
     scale, slot: form === 'v' ? 'middle-right' : 'bottom-center', pill: { state: st.state, form, desk, scale },
   });
 }
+// 0.9.0 O-4（RP8）: 縦の形の × が出た形（カーソルが乗った記録中。暗い地・150%）
+SCREENS.push({
+  name: PS.HOVER.name, page: 'overlay', theme: PS.HOVER.desk, act: PS.actFor(PS.HOVER.state, PS.HOVER.form, PS.HOVER.desk, true),
+  scale: PS.HOVER.scale, slot: 'middle-right', pill: { state: PS.HOVER.state, form: PS.HOVER.form, desk: PS.HOVER.desk, scale: PS.HOVER.scale, hover: true },
+});
 // Tab の輪を見る画面は1つだけ（何も選んでいない所から Tab を3回で［● 記録開始］。サイドバーの頭の［«］→ 検索 → ［● 記録開始］）
 SCREENS.find((x) => x.name === 'notes-page-light').focus = { tabs: 3, want: 'mtToggleBtn' };
 
@@ -119,6 +124,8 @@ const RETAKE = new Set(['live-banner-light', 'live-banner-dark', 'live-banner-zo
 // 0.9.0 O-3（設計書 D25）: 録音バーを作り直したので、録音バーの画面は全部取り直し待ち（新しい画面で基準がまだ無い）。利用者が CI の画像を見て
 // OK と言ったら、G-3 でその画像を基準にして、この行ごと外して空に戻す
 for (const s of SCREENS) if (s.page === 'overlay') RETAKE.add(s.name);
+// 0.9.0 O-4（RP1）: 設定の「録音バーの置き場所」の欄の名前と選択肢を替えたので、設定の3枚も取り直し待ち（U-1 でも入る）
+for (const n of ['settings-light', 'settings-dark', 'settings-zoom200-dark']) RETAKE.add(n);
 const PERF = [{ name: 'open-2000-blocks', budgetMs: 500 }];   // 3回開いた中央値で見る
 const TIME_ZONE = 'Asia/Tokyo';
 const TOLERANCE = 2;   // 色の差（0〜255）がこれ以下の画素は同じとみなす。CI の機械の CPU ごとの描き方の1段の差を拾わないため（揺れの確かめ judgePair は 0 で見る）

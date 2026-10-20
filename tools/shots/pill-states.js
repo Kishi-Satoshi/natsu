@@ -29,6 +29,8 @@ const STATES = [
   { state: 'spk-ng', mode: 'meeting', phase: 'recording', level: VOICE, spk: 'ng', msg: { h: '相手の声を録れません', v: '相手の声を録れません' }, kind: 'warn' },
 ];
 const byState = Object.fromEntries(STATES.map((s) => [s.state, s]));
+// 0.9.0 O-4（RP8）: 縦の形の × が出た形（カーソルが乗った記録中）を、暗い地・150% で1枚だけ撮る（モックの overlay-vertical-dark-hover-150）
+const HOVER = { name: 'overlay-vertical-dark-hover-150', state: 'rec', form: 'v', desk: 'dark', scale: 1.5 };
 
 // overlay.html の levelDots と同じ（無音は 4px が5つ、声は左ほど早く伸びて 16px まで）
 const DOT_W = [1, 0.85, 0.7, 0.55, 0.4];
@@ -43,6 +45,7 @@ function screenNames() {
   for (const form of FORMS) for (const desk of Object.keys(DESKS)) for (const scale of SCALES) for (const s of STATES) {
     out.push(`overlay-${form}-${desk}-${s.state}-${Math.round(scale * 100)}`);
   }
+  out.push(HOVER.name);
   return out;
 }
 
@@ -50,14 +53,14 @@ function screenNames() {
  * 状態を録音バーの DOM に当てる文（executeJavaScript で流す）。当てるものは毎回全部決め直す（同じ窓で状態を替えて撮る）。
  * 時間は決まった見本（12:34）。撮るときだけ体の地にデスクトップの色を塗る（製品の体は透明）
  */
-function actFor(state, form, desk) {
+function actFor(state, form, desk, hover = false) {
   const s = byState[state];
   if (!s) throw new Error(`pill-states: 状態 ${state} が無い`);
   const d = {
     form, phase: s.phase, meeting: s.mode === 'meeting', paused: Boolean(s.paused), warn: Boolean(s.warn),
     dots: dotsFor(s.level, s.paused), spk: s.spk, badge: Boolean(s.badge),
     msg: s.msg ? s.msg[form] : '', kind: s.msg ? s.kind : '', title: s.title && s.title[form] ? s.title[form] : '',
-    desk: DESKS[desk] || '',
+    desk: DESKS[desk] || '', hover: Boolean(hover),
   };
   return `(() => {
   const d = ${JSON.stringify(d)};
@@ -67,7 +70,8 @@ function actFor(state, form, desk) {
   const p = $('pill');
   p.dataset.form = d.form;
   p.dataset.phase = d.phase;
-  for (const [c, on] of [['visible', true], ['meeting', d.meeting], ['paused', d.paused], ['warn', d.warn]]) p.classList.toggle(c, on);
+  for (const [c, on] of [['visible', true], ['meeting', d.meeting], ['paused', d.paused], ['warn', d.warn], ['hover', d.hover]]) p.classList.toggle(c, on);
+  show($('hideBtn'), d.form === 'v');
   if (d.title) p.setAttribute('title', d.title); else p.removeAttribute('title');
   Array.from($('lv').children).forEach((el, i) => el.style.setProperty('--l', d.dots[i] + 'px'));
   const spk = $('spk');
@@ -93,14 +97,14 @@ function signature(doc) {
   const hidden = (el) => el.hidden === true;
   return {
     form: p.dataset.form, phase: p.dataset.phase,
-    classes: ['visible', 'meeting', 'paused', 'warn'].filter((c) => p.classList.contains(c)),
+    classes: ['visible', 'meeting', 'paused', 'warn', 'hover'].filter((c) => p.classList.contains(c)),
     title: p.getAttribute('title') || '',
     dots: Array.from($('lv').children).map((i) => i.style.getPropertyValue('--l')),
     spk: hidden(spk) ? '' : (['on', 'idle', 'ng'].find((c) => spk.classList.contains(c)) || ''),
     badge: !hidden($('micBadge')),
     msg: m.textContent, kind: ['warn', 'err', 'ok'].find((c) => m.classList.contains(c)) || '',
-    pauseShown: !hidden($('pauseBtn')), ngShown: !hidden($('ngBtn')),
+    pauseShown: !hidden($('pauseBtn')), ngShown: !hidden($('ngBtn')), hideShown: !hidden($('hideBtn')),
   };
 }
 
-module.exports = { FORMS, DESKS, SCALES, STATES, byState, dotsFor, screenNames, actFor, signature };
+module.exports = { FORMS, DESKS, SCALES, STATES, HOVER, byState, dotsFor, screenNames, actFor, signature };

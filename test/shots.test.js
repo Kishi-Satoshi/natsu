@@ -403,6 +403,7 @@ test('U-3: 取り直し待ちに settings-offline-light がある。答えは ch
 });
 // 0.9.0 O-3（設計書 D25・RP9）で意図して変えた: 録音バーの画面（80 枚）を全部取り直し待ちにした（新しい画面で基準がまだ無い）。利用者が CI の画像を
 // 見て OK と言ったら、G-3 でその画像を基準にして空に戻す（空になるまで版を上げられない: 上の F14）。本体の画面は取り直し待ちでなければ基準と比べる
+// 0.9.0 O-4（RP1）で意図して変えた: 設定の「録音バーの置き場所」の欄の名前と選択肢を替えたので、設定の3枚も取り直し待ちにした
 test('G2・F14・G-4・0.9.0: 取り直し待ちは計画の「取り直す画面」の本体の画面と、録音バーの画面の全部（O-3）だけ。取り直し待ちでない本体の画面には基準の PNG があり、大きさが窓の大きさと同じ', { timeout: 5000 }, () => {
   // 統合（B・U・O）: 本体の画面は計画の表（RETAKE_090）、録音バーの画面は全部（基準がまだ無い）
   const overlay = SH.SCREENS.filter((s) => s.page === 'overlay').map((s) => s.name);
@@ -423,8 +424,15 @@ test('G2・F14・G-4・0.9.0: 取り直し待ちは計画の「取り直す画�
 
 // 0.9.0 O-3（設計書 D25・RP9・F11）: 録音バーの画面は pill-states の表の状態 × 形（横・縦）× 地（明るい・暗いデスクトップ）× 拡大率（100・150%）。
 // 窓の大きさは、撮るときに測ったピルの大きさから main と同じ panelBounds で決め、拡大率の画面は × 拡大率の大きさで撮れたかを見る
-test('RP9: 録音バーの画面は pill-states の表の状態 × 形 × 地 × 拡大率で 80 枚。名前は overlay-<形>-<地>-<状態>-<100|150>、act は表の見本', { timeout: 5000 }, () => {
-  const ov = SH.SCREENS.filter((s) => s.page === 'overlay');
+// 0.9.0 O-4（RP8）で足した: 縦の形の × が出た1枚（overlay-vertical-dark-hover-150。モックの名前）を最後に
+test('RP9: 録音バーの画面は pill-states の表の状態 × 形 × 地 × 拡大率で 80 枚と、縦の形の × の1枚。名前は overlay-<形>-<地>-<状態>-<100|150>、act は表の見本', { timeout: 5000 }, () => {
+  const all = SH.SCREENS.filter((s) => s.page === 'overlay');
+  assert.strictEqual(all.length, 81);
+  const hv = all.pop();
+  assert.deepStrictEqual([hv.name, hv.scale, hv.slot, hv.theme], ['overlay-vertical-dark-hover-150', 1.5, 'middle-right', 'dark']);
+  assert.strictEqual(hv.act, PS.actFor('rec', 'v', 'dark', true));
+  assert.ok(hv.act.includes('"hover":true') && !PS.actFor('rec', 'v', 'dark').includes('"hover":true'));
+  const ov = all;
   assert.strictEqual(ov.length, 80);
   assert.deepStrictEqual(PS.FORMS, ['h', 'v']);
   assert.deepStrictEqual(Object.keys(PS.DESKS), ['light', 'dark']);
@@ -527,9 +535,13 @@ test('CI: 撮る道具の見張りの時間は 30 秒 + SCREENS の数 × 6 秒�
 // 0.9.0 U-2 の点検の直し（SP5）: 設定の検索が、今は隠れている行（ログインしていない間の「ログアウト」など）に当たらないようにした
 //（filterSettings の <script> の中だけ）。変わり得るのは設定の検索の画面（settings-search-light。RETAKE にある）だけで、ほかの画面は
 // 要素も文も CSS も変えていないので基準のまま比べる。値を今の app.html に合わせた
+// 0.9.0 O-4（RP1・RP8）: 設定の「録音バーの置き場所」の欄の名前と8つの選択肢を替え（設定の3枚。RETAKE に入れた）、録音中のページの記録の行に
+// ［録音バーを出す］を足した（録音バーを隠しているときだけ出す hidden のボタン。撮る画面の録音中のページは隠していないので見た目は変わらない）。値を今の app.html に合わせた
+// 統合（U・O）: U の設定のポップアップの中へ動かした「録音バーの置き場所」の欄（data-row も「録音バーの置き場所」に）に O-4 の名前と8つの選択肢を当てた。
+// 見える中身が変わるのは設定の画面（RETAKE にある）だけ。値を今の app.html に合わせた
 test('基準の画像（test/shots/win32）は今の app.html で撮ったもの（app.html を変えたら撮り直しを確かめる）', { timeout: 5000 }, () => {
   const sha = require('node:crypto').createHash('sha256').update(fs.readFileSync(path.join(ROOT, 'src', 'renderer', 'app.html'))).digest('hex');
-  assert.strictEqual(sha, '2d179eae2f8c77a8d9a202271e3d1656f9bdddd2f83bd85257047ea59586ce98',
+  assert.strictEqual(sha, '968243490d8d3b2b4bf0450846c4b51e25bf155624b17660d3ba4ba15f0931da',
     'app.html が基準の画像を撮った時と違う。Windows の CI の画面の比べ（捲り棒のつまみも）を見て、基準を取り直してからこの値を直す');
 });
 

@@ -206,3 +206,106 @@ describe('0.9.0 O-2 窓の大きさと吸い付き（場面）', { concurrency: 
     assert.deepStrictEqual(o.panel.afterSize, [{ x: Math.round((1920 - 316) / 2), y: 1040 - 4 - 56, width: 316, height: 56 }]);
   });
 });
+
+// ---- O-4（RP8・F18）: 縦の形の × で隠す・出し直す・トレイ・カーソルを見る見張り
+const SHOW_TRAY = '録音バーを表示';
+describe('0.9.0 O-4 隠す・出し直す（場面）', { concurrency: Number(process.env.NATSU_SCENE_CONCURRENCY) || 4 }, () => {
+  test('RP8: 隠すと録音は続き（区間が届く）、meeting:status の panelHidden が真、トレイに［録音バーを表示］。panel:show で出し直し（showInactive。フォーカスを取らない）、panelHidden が偽、トレイの項目が消える', SCENE, async () => {
+    const o = await run(['text', '--hide-panel']);
+    const h = o.panel.hide;
+    assert.strictEqual(h.afterHide.panelHidden, true);
+    assert.ok(h.afterHide.tray.includes(SHOW_TRAY), `トレイに［録音バーを表示］が無い: ${h.afterHide.tray}`);
+    assert.deepStrictEqual(h.afterHide.calls.slice(-1), ['hide'], '録音バーの窓を隠していない');
+    assert.deepStrictEqual(h.show, { ok: true });
+    assert.strictEqual(h.afterShow.panelHidden, false);
+    assert.ok(!h.afterShow.tray.includes(SHOW_TRAY), '出し直した後もトレイに項目が残る');
+    assert.deepStrictEqual(h.afterShow.calls.slice(h.afterHide.calls.length), ['showInactive'], '出し直しがフォーカスを取る（show）か、出していない');
+    // 録音は止めていない: 隠した後に送った区間も文字になって議事録に入る
+    assert.strictEqual(o.pages.length, 1);
+    assert.ok(o.pages[0].segments.length >= 2 && o.pages[0].segments.every((s) => !s.failed && s.text), JSON.stringify(o.pages[0].segments));
+  });
+
+  test('RP8: 隠したままマイクのエラーが来ると、録音バーを出してから（showInactive）エラーの文を送る', SCENE, async () => {
+    const o = await run(['text', '--dictate', '--hide-panel=error']);
+    const calls = o.panel.hide.afterError.calls;
+    const iHide = calls.lastIndexOf('hide');
+    const iShow = calls.indexOf('showInactive', iHide);
+    const iErr = calls.indexOf('phase:error', iHide);
+    assert.ok(iHide >= 0 && iErr > iHide, `エラーの文を送っていない: ${calls}`);
+    assert.ok(iShow > iHide && iShow < iErr, `隠したままエラーの文を送った: ${calls}`);
+    assert.strictEqual(o.panel.hide.afterError.panelHidden, false);
+    // 議事録でも、隠したままマイクのエラーが来たら出し直してから締める（作成中の文を見せる）
+    const m = await run(['text', '--hide-panel=error']);
+    const mc = m.panel.hide.afterError.calls;
+    const mHide = mc.lastIndexOf('hide');
+    assert.ok(mHide >= 0 && mc.indexOf('showInactive', mHide) > mHide, `議事録で隠したまま締めた: ${mc}`);
+  });
+
+  test('RP8: 隠した後の次の録音では、録音バーを出す（panelHidden は偽に戻り、トレイの項目も無い）', SCENE, async () => {
+    const o = await run(['text', '--dictate', '--hide-panel=next']);
+    const h = o.panel.hide;
+    assert.strictEqual(h.afterHide.panelHidden, true);
+    assert.strictEqual(h.afterNext.panelHidden, false);
+    assert.ok(!h.afterNext.tray.includes(SHOW_TRAY), `次の録音でトレイに項目が残る: ${h.afterNext.tray}`);
+    assert.deepStrictEqual(h.afterNext.calls.slice(h.afterHide.calls.length).filter((c) => !c.startsWith('phase:')), ['showInactive']);
+    assert.strictEqual(o.history.length, 1, '次の録音の音声入力が履歴に入らない');
+  });
+
+  test('F18: 縦の形でカーソルが窓に入ると overlay:hover の真を1回、出ると偽を1回。横の形・隠した後は送らない（見張りが止まる）', SCENE, async () => {
+    const o = await run(['text', '--drag-to=1880,520', '--hover-panel']);
+    const hv = o.panel.hover;
+    assert.deepStrictEqual(hv.horizontal, { sent: [], intervals: 0 }, '横の形でカーソルを見て送った');
+    assert.strictEqual(hv.intervals, 1, '縦の形になっても 120ms の見張りを始めない');
+    assert.deepStrictEqual(hv.sent, [true, false], 'カーソルの出入りを1回ずつ送っていない');
+    assert.deepStrictEqual(hv.afterHide, [true, false], '隠した後にも送った');
+    assert.strictEqual(hv.cleared, true, '隠しても見張りを止めない');
+  });
+});
+
+// ---- O-4（RP1・RP8）: 本体の画面の設定の置き場所と［録音バーを出す］（app.html を simrun で走らせる。計画の stage090.settings の2つ:
+// U の台（stage090.settings.test.js）はこのレーンの元に無いので、ここに置く）
+const { load } = require('./helpers/simrun.js');
+const APP = path.join(__dirname, '..', 'src', 'renderer', 'app.html');
+const fmtE = (e) => `${e.constructor.name}: ${e.message}`;
+const SLOT_NAMES = [['top-left', '左上'], ['top-center', '上の中央'], ['top-right', '右上'], ['middle-left', '左の中央（縦）'], ['middle-right', '右の中央（縦）'],
+  ['bottom-left', '左下'], ['bottom-center', '下の中央（既定）'], ['bottom-right', '右下']];
+test('RP1: 設定の #pillPos の選択肢は8つの置き場所（値は PILL_SLOTS）で、起動で pillSlot を出し、保存は pillSlot。pillPos・pillCustom を保存に入れない', { timeout: 5000 }, async () => {
+  const l = await load(APP, { returns: { getSettings: () => ({ hotkey: 'Control+Shift+Space', meetingHotkey: 'Alt+M', segmentSec: 75, language: 'ja', dictionary: [], pillSlot: 'middle-right' }) } });
+  await l.drain();
+  const sel = l.byId.get('pillPos');
+  assert.deepStrictEqual(sel.querySelectorAll('option').map((o) => [o.getAttribute('value'), o.textContent.trim()]), SLOT_NAMES);
+  assert.deepStrictEqual(SLOT_NAMES.map(([v]) => v), PILL_SLOTS);
+  const label = l.root.querySelectorAll('label').find((x) => x.getAttribute('for') === 'pillPos');
+  assert.strictEqual(label.textContent.trim(), '録音バーの置き場所（表示中はドラッグでも動かせます）');
+  assert.strictEqual(sel.value, 'middle-right', '起動で pillSlot を出していない');
+  sel.value = 'top-left';
+  l.byId.get('tabSettings').dispatchEvent({ type: 'change' });
+  await l.drain();
+  const saved = l.called('saveSettings').map((c) => c.args[0]);
+  assert.strictEqual(saved.length, 1);
+  assert.strictEqual(saved[0].pillSlot, 'top-left');
+  assert.ok(!('pillPos' in saved[0]) && !('pillCustom' in saved[0]), '前の版のキーを保存に入れた');
+  assert.deepStrictEqual(l.errors.map(fmtE), []);
+});
+
+test('RP8: 録音中のページの記録の行に、panelHidden のときだけ［録音バーを出す］があり、押すと showPanel が1回', { timeout: 5000 }, async () => {
+  const st = (panelHidden) => ({ active: true, startedAt: Date.now(), memo: '', segments: [], pending: 0, panelHidden });
+  const l = await load(APP, { returns: { meetingStatus: () => st(false) } });
+  await l.drain();
+  l.fire('onMeetingUpdate', st(false));
+  await l.drain();
+  const btn = l.byId.get('livePanelShow');
+  assert.ok(btn, '記録の行に［録音バーを出す］が無い');
+  assert.strictEqual(btn.textContent.trim(), '録音バーを出す');
+  assert.strictEqual(btn.hidden, true, '隠していないのに出ている');
+  l.fire('onMeetingUpdate', st(true));
+  await l.drain();
+  assert.strictEqual(l.byId.get('livePanelShow').hidden, false, '隠したのに出ない');
+  l.byId.get('livePanelShow').click();
+  await l.drain();
+  assert.strictEqual(l.called('showPanel').length, 1);
+  l.fire('onMeetingUpdate', st(false));
+  await l.drain();
+  assert.strictEqual(l.byId.get('livePanelShow').hidden, true);
+  assert.deepStrictEqual(l.errors.map(fmtE), []);
+});

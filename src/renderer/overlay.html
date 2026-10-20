@@ -146,6 +146,21 @@
   .pbtn.ng { color: rgba(255, 255, 255, 0.75); }
   .pbtn.ng:hover { color: #fff; }
   .pill.meeting .pbtn.ng { display: none; }
+
+  /* 0.9.0 O-4（RP8・決めたこと 23）: 縦の形の × （録音バーを隠す。録音は続ける）。カーソルが乗っている間だけ右上に出す。
+     「乗った」は main がカーソルを見て送る（.pill.hover。ピルはドラッグの領域なので、Windows では :hover が来ない）。:hover はボタンの上で効く。
+     ピルの角からはみ出す分は、窓の周りの余白（PANEL_PAD）が飲む。横の形には出さない */
+  .hide {
+    display: none; position: absolute; top: -6px; right: -6px; width: 18px; height: 18px; border-radius: 50%;
+    border: none; padding: 0; cursor: pointer; align-items: center; justify-content: center;
+    font-size: 10px; line-height: 1; background: #3a3a3a; color: var(--fg);
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.2);
+  }
+  #hideBtn { -webkit-app-region: no-drag; }
+  .pill[data-form="v"][data-phase="recording"].hover .hide,
+  .pill[data-form="v"][data-phase="recording"]:hover .hide { display: flex; }
+  .hide:hover { background: #4a4a4a; }
+  .hide:focus-visible { outline: 2px solid var(--fg); outline-offset: 1px; }
 </style>
 </head>
 <body>
@@ -177,6 +192,7 @@
       <button class="pbtn stop" id="stopBtn" type="button" title="停止して議事録を作成" aria-label="停止して議事録を作成"><span class="sq"></span></button>
       <button class="pbtn ng" id="ngBtn" type="button" title="キャンセル" aria-label="キャンセル">✕</button>
     </div>
+    <button class="hide" id="hideBtn" type="button" title="録音バーを隠す" aria-label="録音バーを隠す" hidden>✕</button>
   </div>
 
 <script>
@@ -193,6 +209,7 @@
   const pauseBtn = document.getElementById('pauseBtn');
   const stopBtn = document.getElementById('stopBtn');
   const ngBtn = document.getElementById('ngBtn');
+  const hideBtn = document.getElementById('hideBtn');   // 0.9.0 O-4: 縦の形の ×
 
   let mode = 'dictation'; // 'dictation' | 'meeting'
   let segmentMs = 75000;
@@ -378,6 +395,7 @@
   function applyForm(f) {
     form = f === 'v' ? 'v' : 'h';
     pill.dataset.form = form;
+    setShown(hideBtn, form === 'v');   // × は縦の形だけ（O-4・RP8）
     if (lastPhase.phase !== 'recording' && lastPhase.message != null) showPhaseText(lastPhase.phase, lastPhase.message, lastPhase.procSec);
     reportSize();
   }
@@ -393,6 +411,8 @@
     lastSize = key;
     window.koeOverlay.reportSize({ w: r.width, h: r.height, form });
   }
+  // カーソルがピルに乗っている印（縦の形の × を出す。0.9.0 O-4）
+  function setHover(on) { pill.classList.toggle('hover', on === true); }
   // 相手の声の印。'' は出さない（録らない設定・音声入力）
   function setSpeaker(state) {
     if (state === spkState) return;
@@ -1093,6 +1113,7 @@
     keys = {};
     for (const n of ['stop', 'cancel']) if (typeof k[n] === 'string' && k[n] && k[n].length <= 40) keys[n] = k[n];
     if (p && p.form) applyForm(p.form);
+    setHover(false);   // 0.9.0 O-4: 前の録音でカーソルが乗っていた印を持ち越さない
     pill.classList.add('visible');
     start();
   };
@@ -1113,6 +1134,9 @@
   window.koeOverlay.onCancel(() => cancel());
   // 0.9.0 O-2・O-3: 形の替わり（main がドラッグの吸い付きで決める）。ピルの大きさが替われば測って送る（ResizeObserver が無ければ書き換えのたびに）
   if (typeof window.koeOverlay.onForm === 'function') window.koeOverlay.onForm((p) => applyForm(p && p.form));
+  // 0.9.0 O-4（RP8）: カーソルがピルに乗ったか（main が縦の形の録音中だけ見て、変わったときだけ送る）と、× で隠す（録音は止めない）
+  if (typeof window.koeOverlay.onHover === 'function') window.koeOverlay.onHover((on) => setHover(on));
+  hideBtn.addEventListener('click', () => { if (typeof window.koeOverlay.hidePanel === 'function') window.koeOverlay.hidePanel(); });
   if (typeof ResizeObserver === 'function') new ResizeObserver(() => reportSize()).observe(pill);
   window.koeOverlay.onPhase(({ phase, message, procSec }) => {
     setPhase(phase, message, procSec);

@@ -58,11 +58,11 @@ test('画面の使いやすさ・F10: 明と暗のすべての「文字 × 地�
   }
 });
 
-// 0.9.0 O-3 で意図して変えた: 利用者が D25 で凍結を解き、録音バーを作り直した（O-3）。O-3 の中身のハッシュに替えた。
-// O-4 が最後の中身（縦の形の ×）のハッシュに替え、名前を「D25 で 0.9.0 の形にした」に直して凍結をかけ直す
-test('録音バーは触らない: overlay.html は 0.9.0 O-3 の中身（D25 で凍結を解いた間。O-4 でかけ直す）と1バイトも違わない', () => {
+// 0.9.0 O-3・O-4 で意図して変えた: 利用者が D25 で凍結を解き、録音バーを作り直した（O-3 の見た目と O-4 の縦の形の ×）。O-4 の最後の中身の
+// ハッシュにして、凍結をかけ直した。変えるのは利用者の決定のときだけ（D25 で一度解いた）
+test('録音バーは触らない（D25 で 0.9.0 の形にした。変えるのは利用者の決定のときだけ）: overlay.html は 0.9.0 O-4 の中身と1バイトも違わない', () => {
   const buf = fs.readFileSync(path.join(__dirname, '..', 'src', 'renderer', 'overlay.html'));
-  assert.strictEqual(require('node:crypto').createHash('sha256').update(buf).digest('hex'), 'c939376e203daea8deb5c3a578e717c597ab114e0003f48218d9c235307814ef');
+  assert.strictEqual(require('node:crypto').createHash('sha256').update(buf).digest('hex'), '943d8c9af722ce9a9737f10bb1716985677a317c0d25c15821f0de8cd10fd2a7');
 });
 
 test('N1: ガラス風をやめた（backdrop-filter・グラデーション・ぼかし玉・filter: blur が無い）', () => {

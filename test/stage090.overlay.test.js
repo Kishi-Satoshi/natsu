@@ -359,6 +359,14 @@ test('RP9: 撮る画面の見本の act は、本物の録音バーを同じ状�
     new Function('document', PS.actFor(s.state, form, 'light'))(shot.document);   // eslint-disable-line no-new-func
     assert.deepStrictEqual(PS.signature(shot.document), real, `${s.state} ${form} の見本が本物とずれた`);
   }
+  // 0.9.0 O-4: 縦の形の × が出た形（カーソルが乗った記録中）
+  const real = await drive.rec('v');
+  const rl = await (async () => { const r = await 録音を始める({ systemAudio: true, form: 'v' }); r.an[0].fill = fillFor(PS.byState.rec.level); r.an[1].fill = fillFor(0.5); r.log.fire('onHover', true); await r.log.drain(); return r.log; })();
+  const shot = await load(OVL);
+  new Function('document', PS.actFor('rec', 'v', 'dark', true))(shot.document);   // eslint-disable-line no-new-func
+  assert.deepStrictEqual(PS.signature(shot.document), PS.signature(rl.document), '× の見本が本物とずれた');
+  assert.ok(PS.signature(shot.document).classes.includes('hover') && PS.signature(shot.document).hideShown);
+  assert.ok(!PS.signature(real.document).classes.includes('hover'));
 });
 
 test('RP4・F16: 録る処理の関数は今のまま（字面）— 区間・WAV・一時停止・停止・キャンセル・二重起動よけ・効果音', () => {
@@ -368,4 +376,66 @@ test('RP4・F16: 録る処理の関数は今のまま（字面）— 区間・WA
   }
   assert.match(SRC, /if \(starting \|\| active\) return;/);
   assert.match(SRC, /const SEG_MIN_MS = 20000, SEG_MAX_MS = 300000;/);
+});
+
+// ---- O-4（RP8・F18）: 縦の形の ×（録音バーを隠す。録音は止めない）
+test('RP8: 縦の形のときだけ #hideBtn があり、押すと hidePanel が1回。横の形には無い（押せない）', async () => {
+  const h = await 録音を始める();
+  const btn = h.log.byId.get('hideBtn');
+  assert.ok(btn && btn.tagName === 'button', '#hideBtn が本物の button でない');
+  for (let n = btn; n !== pillOf(h.log); n = n.parentNode) assert.ok(n, '#hideBtn がピルの中に無い');
+  assert.strictEqual(btn.getAttribute('aria-label'), '録音バーを隠す');
+  assert.strictEqual(btn.getAttribute('title'), '録音バーを隠す');
+  assert.strictEqual(btn.hidden, true, '横の形に × がある');
+  h.log.fire('onForm', { form: 'v' });
+  await h.log.drain();
+  assert.strictEqual(btn.hidden, false, '縦の形に × が無い');
+  btn.click();
+  await h.log.drain();
+  assert.strictEqual(h.log.called('hidePanel').length, 1);
+  assert.strictEqual(h.log.called('confirmStop').length + h.log.called('requestCancel').length, 0, '× で録音を止めた');
+  h.log.fire('onForm', { form: 'h' });
+  await h.log.drain();
+  assert.strictEqual(btn.hidden, true, '横の形に戻っても × が残る');
+  // 始めの合図の形でも決める
+  const v = await 録音を始める({ form: 'v' });
+  assert.strictEqual(v.log.byId.get('hideBtn').hidden, false);
+  assert.deepStrictEqual([...h.log.errors, ...v.log.errors].map(fmt), []);
+});
+
+test('RP8: onHover(true) で .pill に hover が付き（main がカーソルを見る: Windows のドラッグの領域に :hover は来ない）、縦の形なら × が見える。横の形では見えない', async () => {
+  const { log } = await 録音を始める({ form: 'v' });
+  log.fire('onHover', true);
+  await log.drain();
+  assert.ok(pillOf(log).classList.contains('hover'));
+  log.fire('onHover', false);
+  await log.drain();
+  assert.ok(!pillOf(log).classList.contains('hover'));
+  log.fire('onHover', true);
+  // 次の録音では hover を外して始める
+  log.fire('onStop');
+  await log.drain();
+  await log.clock.advance(2000);
+  log.fire('onStart', { mode: 'meeting', segmentSec: 75, form: 'h' });
+  await log.drain();
+  assert.ok(!pillOf(log).classList.contains('hover'), '前の録音の hover が残った');
+  // CSS: × は録音中の縦の形の .pill.hover と、そのピルの :hover のときだけ出す。横の形・hover でない・作成中のときは出さない
+  const rules = CSS();
+  const disp = (sel) => C.declsFor(rules, sel, { at: '' }).display;
+  assert.strictEqual(disp('.hide'), 'none');
+  const V = '.pill[data-form="v"][data-phase="recording"]';
+  assert.ok(disp(`${V}.hover .hide`) && disp(`${V}.hover .hide`) !== 'none', '縦の形の hover で × が出ない');
+  assert.ok(disp(`${V}:hover .hide`) && disp(`${V}:hover .hide`) !== 'none', '縦の形の :hover で × が出ない');
+  for (const r of rules) {
+    if (r.at || !/\.hide\b/.test(r.sel) || r.decls.display === undefined || r.decls.display === 'none') continue;
+    assert.ok(r.sel.split(',').every((s) => s.includes(V)), `横の形か作成中にも × を出す規則: ${r.sel}`);
+  }
+  // 押せるように、ドラッグの領域から外す
+  assert.strictEqual(C.declsFor(rules, '#hideBtn', { at: '' })['-webkit-app-region'], 'no-drag');
+  // preload に hidePanel・onHover が無い古い版でも落ちない
+  const pre = fs.readFileSync(path.join(ROOT, 'src', 'preload.js'), 'utf8').replace(/^\s{2}(hidePanel|onHover):.*\n/gm, '');
+  const old = await 録音を始める({ form: 'v' }, { load: { preloadSrc: pre } });
+  old.log.byId.get('hideBtn').click();
+  await old.log.drain();
+  assert.deepStrictEqual(old.log.errors.map(fmt), []);
 });

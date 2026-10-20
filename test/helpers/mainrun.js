@@ -318,6 +318,14 @@
 //     出力に overlayBounds（録音バーの窓の setBounds の並び）・overlayForms（送った overlay:form）・overlaySent・panel（boundsAtStartList・afterSize・
 //     duringDrag・afterMoved・slotAfter・settingsChanged）を足す。録音バーの窓（wins[0]）は setBounds の大きさと位置を getSize・
 //     getPosition・getBounds で返す（作ったときは作ったときの width・height）
+//     O-4: --hide-panel … 録音の始めの後に録音バーから overlay:hide-panel を送り、panel.hide.afterHide（meeting:status の panelHidden・
+//                        トレイの項目の名前・録音バーの窓の hide／show／showInactive と送った overlay:phase の並び）を写してから、画面から
+//                        panel:show を送る（panel.hide.show・afterShow）
+//          --hide-panel=error … 隠した後に録音バーからマイクのエラー（audio:error）を送り、panel.hide.afterError を写して終える（結果を出す）
+//          --hide-panel=next  … 隠した後に音声入力を取り消して、もう一度ホットキーで始め、panel.hide.afterNext を写す（その後は今の流れ）
+//          --hover-panel      … 縦の形の見張り（watchPanelHover。名前で拾う）を偽のカーソルで回す。panel.hover に、横の形の間（ドラッグの前に
+//                        カーソルを窓の中へ）の { sent, intervals }・縦の形にした後の intervals・送った overlay:hover の並び（sent）・
+//                        隠した後に送った並び（afterHide）・隠した後の見回りで見張りを止めたか（cleared）
 // 画面へ送った知らせと進み具合は、送った順に out.seq へ残す。進み具合が初めて「使える」（whisperReady・sumReady）と
 // 言ったときの engine:status を out.atReady に、壊れた知らせを送ったときの engine:status を out.atBroken に残す
 // （画面はその知らせでエンジンの状態を聞き直すので、そのとき main の答えがもう新しいこと: 第0b回 Task 14・15）
@@ -473,6 +481,9 @@ const panelSizeFlag = flagVal('--panel-size') ? (([w, h]) => ({ w, h }))(flagVal
 const dragTo = xyFlag(flagVal('--drag-to'));
 const dragSteps = flags.includes('--drag-steps');
 const cursorTo = xyFlag(flagVal('--cursor-to'));
+// 0.9.0 O-4: 録音バーを隠す・出し直す（頭の注釈）。--hide-panel だけなら 'show'
+const hidePanelMode = flags.includes('--hide-panel') ? 'show' : flagVal('--hide-panel') || '';
+const hoverPanel = flags.includes('--hover-panel');
 const scene = sceneName ? require('./json-scenes')[sceneName] : null;
 if (sceneName && (!scene || typeof scene !== 'object')) { process.stderr.write(`mainrun: 場面 ${sceneName} が json-scenes.js に無い\n`); process.exit(1); }
 // 第2a1回 M-2b: 議事録の DB を使えない（SQLite が trigram を持たない）
@@ -873,6 +884,10 @@ process.on('exit', () => {
   // 0.9.0 O-2: 録音バーの窓の setBounds の並びと、送った overlay:form。偽のカーソルの点
   const overlayBounds = [];
   const overlayForms = [];
+  // 0.9.0 O-4: 録音バーの窓の hide／show／showInactive と送った overlay:phase の並び（panelCalls）・送った overlay:hover（hoverSent）・トレイの項目
+  const panelCalls = [];
+  const hoverSent = [];
+  let trayItems = [];
   let cursorAt = { x: 0, y: 0 };
   const order = [];
   // 第1d回 A-6: meeting:update の stt の、前と違ったものだけの並びと、帯の符号ごとの初めのときの区間（WAV が残っているか）
@@ -1096,6 +1111,8 @@ process.on('exit', () => {
         send: (ch, p) => {
           if (wins.indexOf(this) === 0 && (ch === 'overlay:start' || ch === 'overlay:segment-ms')) { overlaySent.push(p); order.push(ch); }
           if (wins.indexOf(this) === 0 && ch === 'overlay:form') overlayForms.push(p);
+          if (wins.indexOf(this) === 0 && ch === 'overlay:phase') panelCalls.push(`phase:${p && p.phase}`);
+          if (wins.indexOf(this) === 0 && ch === 'overlay:hover') hoverSent.push(p);
           if (wins.indexOf(this) === 1 && ch === 'meeting:update') watchStt(p);
           if (wins.indexOf(this) === 1) mainSent.push(ch); if (loading) { lost.push([ch, p]); return; } sent.push([ch, p]); watch(ch, p); },
         isLoading: () => loading,
@@ -1118,7 +1135,10 @@ process.on('exit', () => {
     isFocused() { return !(this.isMain() && mainUnfocused && !this.focused); }
     isMinimized() { return this.minimized || (this.isMain() && mainMinimized && !this.restored); }
     isMain() { return wins.indexOf(this) === 1; }
-    show() { if (this.isMain()) { this.shown = true; mainWinCalls.push('show'); } }
+    show() { if (this.isMain()) { this.shown = true; mainWinCalls.push('show'); } else if (this.isOverlay()) panelCalls.push('show'); }
+    // 0.9.0 O-4: 録音バーの窓の出し隠しを順に覚える（本体の窓は今までどおり何もしない）
+    showInactive() { if (this.isOverlay()) panelCalls.push('showInactive'); }
+    hide() { if (this.isOverlay()) panelCalls.push('hide'); }
     focus() { if (this.isMain()) { this.focused = true; mainWinCalls.push('focus'); } }
     restore() { if (this.isMain()) { this.restored = true; mainWinCalls.push('restore'); } }
     isMaximized() { return this.maximized; }
@@ -1146,8 +1166,8 @@ process.on('exit', () => {
       return { x: Number.isFinite(o.x) ? o.x : 0, y: Number.isFinite(o.y) ? o.y : 0, width: o.width || 800, height: o.height || 600 };
     }
   }
-  for (const m of ['setAlwaysOnTop', 'setVisibleOnAllWorkspaces', 'loadFile', 'showInactive',
-    'hide', 'setIgnoreMouseEvents', 'setSkipTaskbar', 'close',
+  for (const m of ['setAlwaysOnTop', 'setVisibleOnAllWorkspaces', 'loadFile',
+    'setIgnoreMouseEvents', 'setSkipTaskbar', 'close',
     'destroy', 'setMenuBarVisibility', 'removeMenu', 'moveTop', 'setBackgroundColor', 'setTitle', 'setIcon']) {
     Win.prototype[m] = function () {};
   }
@@ -1173,7 +1193,13 @@ process.on('exit', () => {
   // トレイ（第1c回 A-4: displayBalloon の文を残す。ほかの呼び出しは今までどおり受け流す）
   const balloons = [];
   class FakeTray {
-    constructor() { return withFallback(makeEmitter({ displayBalloon: (o) => { balloons.push(String((o && o.content) || '')); } })); }
+    constructor() {
+      return withFallback(makeEmitter({
+        displayBalloon: (o) => { balloons.push(String((o && o.content) || '')); },
+        // 0.9.0 O-4: 今のトレイの項目（Menu.buildFromTemplate の偽物が項目をそのまま持つ）
+        setContextMenu: (menu) => { trayItems = menu && Array.isArray(menu.items) ? menu.items : []; },
+      }));
+    }
   }
   // 偽の safeStorage（secrets.test.js の偽物と同じ形。暗号の代わりに印を付けた hex）。復号の回数は out.decrypts に残す
   // （同意が ask・［PC の中だけ］では鍵を復号しない。Linux・macOS では復号でキーリングの確かめが出ることがある）
@@ -1291,6 +1317,7 @@ process.on('exit', () => {
     // 取り込みの通信は Electron の net.request（第0b回 RF2）。テストでは同じ振る舞いの偽物（127.0.0.1 の偽のサーバーへ）
     net: { request: require('./fake-net').makeFakeRequest({ before, rewrite }), isOnline: () => netUp },
     Tray: FakeTray,
+    Menu: { buildFromTemplate: (items) => ({ items }) },   // 0.9.0 O-4: トレイの項目を読めるように
     safeStorage,
     powerSaveBlocker: { start: (type) => { powerId += 1; power.push(['start', type, powerId]); return powerId; }, stop: (id) => { power.push(['stop', id]); }, isStarted: () => false },
     shell: withFallback({ openPath: (p) => { opened.push(p); return Promise.resolve(''); } }),
@@ -1460,12 +1487,18 @@ process.on('exit', () => {
   process.env.LOCALAPPDATA = localAppData;
   // 60 秒ごとの見回り（releaseIdleEngines）を拾い、待たずに呼べるようにする（本物の setInterval にも渡す）
   const ticks = [];
+  // 0.9.0 O-4: 録音バーのカーソルの見張り（watchPanelHover）を始めた数と、それを止めた（clearInterval）か。場面は関数を偽のカーソルで直に呼ぶ
+  const hoverIntervals = [];
+  const hoverHandles = new Set();
+  let hoverCleared = 0;
+  let hoverFn = null;
   const realSetInterval = global.setInterval;
   const keptTicks = [];   // 第1d2回 M-3: 文字起こし待ちの見回り（retryKeptWhenBack）
   // 0.9.0 B-2: オフラインの帯の見張り（watchOffline）も拾う。本物の時計では回さず（何もしない間隔を渡す）、場面（--net-seq）が偽の時刻で呼ぶ
   const offTicks = [];
   const offHandles = new Set();
   let offCleared = 0;
+  const realClearInterval = global.clearInterval;
   global.setInterval = function (fn, ms, ...a) {
     if (fn && fn.name === 'watchOffline') {
       offTicks.push(fn);
@@ -1475,10 +1508,15 @@ process.on('exit', () => {
     }
     if (fn && fn.name === 'releaseIdleEngines') ticks.push(fn);
     if (fn && fn.name === 'retryKeptWhenBack') keptTicks.push(fn);
-    return realSetInterval.call(this, fn, ms, ...a);
+    const h = realSetInterval.call(this, fn, ms, ...a);
+    if (fn && fn.name === 'watchPanelHover') { hoverIntervals.push(ms); hoverHandles.add(h); hoverFn = fn; }   // 0.9.0 O-4
+    return h;
   };
-  const realClearInterval = global.clearInterval;
-  global.clearInterval = function (h) { if (offHandles.delete(h)) offCleared++; return realClearInterval.call(this, h); };
+  global.clearInterval = function (h) {
+    if (offHandles.delete(h)) offCleared++;
+    if (hoverHandles.delete(h)) hoverCleared += 1;
+    return realClearInterval.call(this, h);
+  };
   let keptTicksCalled = 0;
   const keptTick = async () => { keptTicksCalled += 1; for (const t of keptTicks) await t(); };
   const jsonfile = require(path.join(ROOT, 'src', 'jsonfile.js'));
@@ -1960,10 +1998,19 @@ process.on('exit', () => {
     out.overlayBounds = overlayBounds;
     out.overlayForms = overlayForms;
     if (!out.overlaySent) out.overlaySent = overlaySent;   // 音声入力の場面の出力にも録音の始めの合図を入れる
-    if (!(panelSizeFlag || dragTo || cursorTo)) return;
+    if (!(panelSizeFlag || dragTo || cursorTo || hidePanelMode || hoverPanel)) return;
     const ov = wins[0];
     const p = { boundsAtStartList: overlayBounds.slice() };
     out.panel = p;
+    // 0.9.0 O-4: 横の形の間にカーソルを窓の中へ（見張りを始めていない・送らないことを見る）
+    const centerOfPanel = () => { const b = ov.getBounds(); return { x: b.x + Math.floor(b.width / 2), y: b.y + Math.floor(b.height / 2) }; };
+    if (hoverPanel) {
+      cursorAt = centerOfPanel();
+      if (hoverFn) hoverFn();
+      await sleep(200);
+      p.hover = { horizontal: { sent: hoverSent.slice(), intervals: hoverIntervals.length } };
+      cursorAt = { x: 0, y: 0 };
+    }
     const settingsNow = () => { const b = readUser('settings.json'); return b ? b.toString('utf8') : null; };
     const sendSize = () => listeners['overlay:size']({}, { ...panelSizeFlag });
     await sleep(120);   // main が自分で置いた直後（80ms）の move は数えないので、録音の始めの置き直しから間を置く
@@ -1992,6 +2039,47 @@ process.on('exit', () => {
       sendSize();
       sendSize();
       p.afterSize = overlayBounds.slice(n0);
+    }
+    // 0.9.0 O-4: 縦の形にした後のカーソルの出入りと、隠した後（見張りが止まる）
+    if (hoverPanel) {
+      const hv = p.hover;
+      hv.intervals = hoverIntervals.length;
+      const n0 = hoverSent.length;
+      const tick = () => { if (hoverFn) hoverFn(); };
+      cursorAt = centerOfPanel(); tick(); tick();
+      cursorAt = { x: 5, y: 5 }; tick(); tick();
+      hv.sent = hoverSent.slice(n0);
+      const cleared0 = hoverCleared;
+      listeners['overlay:hide-panel']({});
+      cursorAt = centerOfPanel(); tick(); await sleep(300);
+      cursorAt = { x: 5, y: 5 }; tick();
+      hv.afterHide = hoverSent.slice(n0);
+      hv.cleared = hoverCleared > cleared0;
+    }
+    // 0.9.0 O-4: 隠す・出し直す（頭の注釈の --hide-panel）
+    if (hidePanelMode) {
+      const trayLabels = () => trayItems.filter((i) => i && i.label).map((i) => i.label);
+      const snap = () => ({ panelHidden: handlers['meeting:status']().panelHidden, tray: trayLabels(), calls: panelCalls.slice() });
+      const h = {};
+      p.hide = h;
+      listeners['overlay:hide-panel']({});
+      h.afterHide = snap();
+      if (hidePanelMode === 'show') {
+        h.show = await handlers['panel:show']({});
+        h.afterShow = snap();
+      } else if (hidePanelMode === 'error') {
+        listeners['audio:error']({}, { message: 'マイクが見つかりません' });
+        await sleep(50);
+        h.afterError = snap();
+        process.stdout.write(`\n${JSON.stringify(out)}\n`);
+        await exitClean(0);
+      } else if (hidePanelMode === 'next') {
+        listeners['overlay:cancel-request']({});
+        await sleep(20);
+        shortcuts[(await handlers['settings:get']()).hotkey]();
+        await sleep(20);
+        h.afterNext = snap();
+      }
     }
   };
   if (dictate || dictateTwice) {

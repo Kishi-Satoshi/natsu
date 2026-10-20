@@ -824,16 +824,16 @@
           </div>
           <div class="card" data-sec="record">
             <h2>録音バー</h2>
-            <div class="field" data-row="録音バーの表示位置">
-              <label for="pillPos">録音バーの表示位置（表示中はドラッグでも移動できます）</label>
+            <div class="field" data-row="録音バーの置き場所">
+              <label for="pillPos">録音バーの置き場所（表示中はドラッグでも動かせます）</label>
               <select id="pillPos">
-                <option value="bottom">下・中央（既定）</option>
-                <option value="top">上・中央</option>
-                <option value="left">左・中央</option>
-                <option value="right">右・中央</option>
                 <option value="top-left">左上</option>
+                <option value="top-center">上の中央</option>
                 <option value="top-right">右上</option>
+                <option value="middle-left">左の中央（縦）</option>
+                <option value="middle-right">右の中央（縦）</option>
                 <option value="bottom-left">左下</option>
+                <option value="bottom-center">下の中央（既定）</option>
                 <option value="bottom-right">右下</option>
               </select>
             </div>
@@ -2808,6 +2808,8 @@
           + '<button class="ghost" id="liveSkipBtn" type="button" hidden>文字起こしを打ち切って要約</button>'
           // 第1d回 A-13（D20）: ［この会議は PC の中だけ］は1行目（説明の行より前）。後ろに置くと説明の行の数だけ下へ押し出される
           + '<button class="ghost" id="meetingLocalOnly" type="button" hidden>この会議は PC の中だけ</button>'
+          // 0.9.0 O-4（RP8）: 録音バーを × で隠しているときだけ出す
+          + '<button class="ghost" id="livePanelShow" type="button" hidden>録音バーを出す</button>'
           + '<span class="tm" id="liveTm">0:00</span>'
           + '<div class="desc" id="liveStt" hidden></div>'
           + '<div class="desc" id="liveResumeNote" role="status" hidden></div>'
@@ -2820,6 +2822,7 @@
         mb.insertBefore(live, mb.querySelector('.ptabs'));
         $('liveSkipBtn').onclick = skipPending;
         $('meetingLocalOnly').onclick = setLocalOnly;
+        $('livePanelShow').onclick = () => { if (typeof window.koeApp.showPanel === 'function') window.koeApp.showPanel(); };
         $('livePauseBtn').onclick = askPause;
         $('liveStopBtn').onclick = toggleMeeting;
         // 文字起こしの帯（第1d回 A-7・D17）は記録の行と一緒に作り、そのすぐ上に置く（会議が終われば一緒に外す）
@@ -2966,6 +2969,8 @@
     const micEl = $('liveMic');
     micEl.hidden = !st.micFallback;
     micEl.textContent = st.micFallback ? '選んだマイクが見つからないため、既定のマイクで録音しています' : '';
+    // 0.9.0 O-4（RP8）: 録音バーを隠している間だけ［録音バーを出す］（作成中は出さない）
+    $('livePanelShow').hidden = !st.panelHidden || Boolean(st.finalizing);
     renderLocalOnly(st);
   }
   // ［この会議は PC の中だけ］（第1c回 RF28・OL4）。クラウドで文字起こしする設定（st.cloud）の会議にだけ出す。
@@ -3168,7 +3173,7 @@
     $('hotkey').value = s.hotkey || '';
     $('meetingHotkey').value = s.meetingHotkey || '';
     $('segmentSec').value = s.segmentSec || 75;
-    $('pillPos').value = s.pillPos || 'bottom';
+    $('pillPos').value = s.pillSlot || 'bottom-center';   // 0.9.0 O-4（RP1）: 置き場所の名前（前の版の pillPos・pillCustom は読まない）
     $('language').value = s.language || 'ja';
     $('autoPaste').checked = s.autoPaste !== false;
     $('removeFillers').checked = s.removeFillers !== false;
@@ -3555,7 +3560,7 @@
       hotkey: $('hotkey').value.trim() || 'Control+Shift+Space',
       meetingHotkey: $('meetingHotkey').value.trim() || 'Alt+M',
       segmentSec: parseInt($('segmentSec').value, 10) || 75,
-      pillPos: $('pillPos').value,
+      pillSlot: $('pillPos').value,   // 0.9.0 O-4（RP1）: 欄の id は前のまま、保存は置き場所の名前
       micId: $('micSelect').value,
       language: $('language').value,
       autoPaste: $('autoPaste').checked,
