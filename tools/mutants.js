@@ -400,8 +400,11 @@ module.exports = [
     tests: ['test/stage1b.app.test.js'], why: 'B-5 RF4: スリープから戻ったら再開を促す文' },
   { id: 'ui-side-ime', file: 'src/renderer/app.html', from: '} else if (ev.key === \'Enter\' && !imeEnter(ev)) {', to: '} else if (ev.key === \'Enter\') {',
     tests: ['test/stage1b.app.test.js'], why: 'B-6: つまみの Enter は変換の確定を見る（imeEnter）' },
-  { id: 'shots-retake-overlay', file: 'tools/shots/screens.js', from: "const RETAKE = new Set(['live-banner-light', 'live-banner-dark', 'live-banner-zoom200-dark', 'notes-tabs-light', 'settings-light', 'settings-dark', 'settings-zoom200-dark', 'settings-record-light', 'settings-search-light', 'settings-offline-light']);", to: "const RETAKE = new Set(['live-banner-light', 'live-banner-dark', 'live-banner-zoom200-dark', 'notes-tabs-light', 'settings-light', 'settings-dark', 'settings-zoom200-dark', 'settings-record-light', 'settings-search-light', 'settings-offline-light', 'overlay-processing']);",
-    tests: ['test/shots.test.js'], why: 'C-1 F14: 録音バーの基準は取り直し待ちに入れられない（0.9.0 U-1 で RETAKE が設定の3枚と notes-tabs-light に、U-2 で設定の項目と検索の2枚、U-3 で準備を選んでいない人のカード「オフライン」の画面も足したので from を直した）' },
+  // 0.9.0 O-3 で意図して直した: 第1a回の録音バーの画面（overlay-processing）は無くなった。録音バーの画面は基準を置くまで全部取り直し待ちで、
+  // 1枚でも外すと、基準が無いまま比べて赤になることを見る
+  { id: 'shots-retake-overlay', file: 'tools/shots/screens.js', from: "for (const s of SCREENS) if (s.page === 'overlay') RETAKE.add(s.name);",
+    to: "for (const s of SCREENS) if (s.page === 'overlay' && s.name !== 'overlay-h-light-rec-100') RETAKE.add(s.name);",
+    tests: ['test/shots.test.js'], why: 'O-3 RP9・F14: 基準の無い録音バーの画面は取り直し待ちから外せない' },
   { id: 'shots-overflow', file: 'tools/shots/screens.js', from: 'function judgeOverflow(r) {\n', to: 'function judgeOverflow(r) {\n  return { ok: true, note: \'\' };\n',
     tests: ['test/shots.test.js'], why: 'C-1 F11: 横のはみ出しを NG にする' },
   { id: 'shots-zoom', file: 'tools/shots/screens.js', from: '{ name: \'settings-zoom200-dark\', page: \'app\', theme: \'dark\', zoom: 2,', to: '{ name: \'settings-zoom200-dark\', page: \'app\', theme: \'dark\', zoom: 1,',
@@ -417,7 +420,7 @@ module.exports = [
     tests: ['test/stage1b.main.test.js'], why: 'A-2 点検: 起動のときに %LOCALAPPDATA%\\natsu の一時ファイルも片付ける' },
   { id: 'shots-focus-fatal', file: 'tools/shots/screens.js', from: '  if (focus.some((x) => !x || (x.ok !== true && !retake.has(x.name)))) return 1;\n', to: '',
     tests: ['test/shots.test.js'], why: 'C-1 点検: Tab の輪の NG だけでも終わりの答えは 1' },
-  { id: 'shots-main-overflow', file: 'tools/shots/main.js', from: 'retake: SH.RETAKE, overflow, focus });', to: 'retake: SH.RETAKE, focus });',
+  { id: 'shots-main-overflow', file: 'tools/shots/main.js', from: 'retake: SH.RETAKE, overflow, focus, panel });', to: 'retake: SH.RETAKE, focus, panel });',
     tests: ['test/shots.test.js'], why: 'C-1 点検: はみ出しを終わりの答えに渡す' },
   { id: 'shots-main-zoom-fatal', file: 'tools/shots/main.js', from: 'if (!z.ok) errors.push(`${s.name}: ${z.note}`);', to: 'void z;',
     tests: ['test/shots.test.js'], why: 'C-1 点検: 拡大できていない画面は NG' },

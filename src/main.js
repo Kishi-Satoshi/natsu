@@ -2696,6 +2696,14 @@ function positionOverlay() {
   overlayWin.setBounds(b);
   setTimeout(() => { programmaticMove = false; }, 80);
 }
+// 録音バーのボタンの名前に入れるキー（0.9.0 O-3・RP7）。設定の値でなく実際に登録しているキー（退避中は既定のキー）を画面の書き方で。
+// 登録できていない・空なら入れない（名前にキーを付けない）
+function panelKeys(which) {
+  const keys = { cancel: 'Esc' };
+  const stop = lib.keyLabel(activeHotkeys && activeHotkeys[which]);
+  if (stop) keys.stop = stop;
+  return keys;
+}
 // 録音の始め: 録音の画面をカーソルの画面に決め直してから置く（ドラッグの途中の印は捨てる）
 function placeOverlayForRecording() {
   overlayDisplayId = null;
@@ -2820,7 +2828,7 @@ function startRecording() {
   dictationFg = askPaster('fg', FG_REPLY_MS).then((r) => (r && r.kind === 'hwnd' ? r.value : ''));
   placeOverlayForRecording();
   overlayWin.showInactive();
-  sendToOverlay('overlay:start', { mode: 'dictation', micId: settings.micId || '', sound: Boolean(settings.soundFeedback), form: overlayForm });
+  sendToOverlay('overlay:start', { mode: 'dictation', micId: settings.micId || '', sound: Boolean(settings.soundFeedback), form: overlayForm, keys: panelKeys('hotkey') });
   syncEscapeHotkey();
   updateTray();
 }
@@ -3993,6 +4001,7 @@ async function startMeeting() {
     micId: settings.micId || '', sound: Boolean(settings.soundFeedback),
     systemAudio: Boolean(settings.useSystemAudio),
     form: overlayForm,
+    keys: panelKeys('meetingHotkey'),
   };
   if (payload.systemAudio && overlayWin && !overlayWin.isDestroyed()) {
     // 相手の声の取り込みは「ユーザー操作の直後」でないと拒まれることがある。

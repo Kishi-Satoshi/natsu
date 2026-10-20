@@ -158,7 +158,7 @@ class Element {
     this.parentNode = null;
     this.attributes = {};
     this.dataset = {};
-    this.style = {};
+    this.style = makeStyle();
     this._text = '';
     this._listeners = {};
     this._uid = ++uid;
@@ -250,7 +250,12 @@ class Element {
   blur() { if (Element.focused === this) Element.focused = null; }
   select() {} scrollIntoView() {}
   click() { return this.dispatchEvent({ type: 'click' }); }
-  getBoundingClientRect() { return { top: 0, left: 0, right: 0, bottom: 0, width: 0, height: 0, x: 0, y: 0 }; }
+  // 0.9.0 O-3: テストが _rect（{ width, height }）を置くと、その大きさを返す（録音バーがピルの大きさを測って main へ送る所を見る）
+  getBoundingClientRect() {
+    const r = this._rect || {};
+    const w = Number(r.width) || 0, h = Number(r.height) || 0;
+    return { top: 0, left: 0, right: w, bottom: h, width: w, height: h, x: 0, y: 0 };
+  }
   getContext() { return canvas2d(this); }
   add(opt) { this.appendChild(opt); }          // select.add()
   cloneNode() { const c = new Element(this.tagName); Object.assign(c.attributes, this.attributes); return c; }
@@ -261,6 +266,18 @@ class Element {
 
 /** 今フォーカスのある要素（focus() で入り、blur() で自分なら外れる）。木から外れた要素は simrun が見ない */
 Element.focused = null;
+
+/* 0.9.0 O-3: style は今までどおりの素の入れ物に、CSS 変数を書く setProperty・getPropertyValue・removeProperty を足したもの
+   （3つは数えない名前にして、style を素の値として見る今のテストに混ざらない） */
+function makeStyle() {
+  const st = {};
+  Object.defineProperties(st, {
+    setProperty: { value(k, v) { this[k] = v === null || v === undefined ? '' : String(v); } },
+    getPropertyValue: { value(k) { return Object.prototype.hasOwnProperty.call(this, k) ? String(this[k]) : ''; } },
+    removeProperty: { value(k) { const v = this.getPropertyValue(k); delete this[k]; return v; } },
+  });
+  return st;
+}
 
 /* canvas の 2D コンテキスト。fillStyle / strokeStyle だけは記録する */
 function canvas2d(el) {

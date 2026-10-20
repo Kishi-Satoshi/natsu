@@ -259,8 +259,8 @@ test('公開したのに画面から呼ばれない API がない', () => {
   // 呼び始めたので外して空に戻した
   // 第1d回 Task A-6 で足した meetingRetry（帯の［もう一度］）は、録音中のページの帯（Task A-7）が呼び始めたので外して空に戻した
   // 第1d回 Task A-11 で足した accountLogin（Cloudflare Access のログインの窓）は、設定のカード「アカウント」（Task A-12）が呼び始めたので外して空に戻した
-  // 0.9.0 O-2 で足した koeOverlay.reportSize・onForm（録音バーの窓の大きさと形）は、録音バーの画面（O-3）が呼び始めるまでここに置く
-  const PENDING_APP = new Set(['reportSize', 'onForm']);
+  // 0.9.0 O-2 で足した koeOverlay.reportSize・onForm（録音バーの窓の大きさと形）は、録音バーの画面（O-3）が呼び始めたので外して空に戻した
+  const PENDING_APP = new Set([]);
   for (const [ns, html] of [['koeApp', appHtml], ['koeOverlay', overlayHtml]]) {
     const names = all(/^\s{2}([A-Za-z][\w$]*):/gm, block(ns));
     const used = new Set(all(new RegExp(`${ns}\\.(\\w+)`, 'g'), html));
@@ -603,8 +603,9 @@ test('「すべて」の検索が要約の本文とメモに当たる', () => {
 test('録音バーは一時停止と停止のボタンを持つ', () => {
   assert.ok(overlayHtml.includes('id="pauseBtn"'), '一時停止ボタンが無い');
   assert.ok(overlayHtml.includes('id="stopBtn"'), '停止ボタンが無い');
-  // 停止は赤い四角、一時停止は二本線
-  assert.match(overlayHtml, /\.pbtn \.sq \{[\s\S]{0,160}?background: var\(--rec\)/);
+  // 0.9.0 O-3（設計書 D25）で意図して変えた: 停止は赤い丸に白い四角（いちばん強い色）、一時停止は二本線
+  assert.match(overlayHtml, /\.pbtn\.stop \{[\s\S]{0,160}?background: var\(--rec\)/);
+  assert.match(overlayHtml, /\.pbtn \.sq \{[\s\S]{0,160}?background: #fff/);
   assert.match(overlayHtml, /class="pause-ico"><span class="bar"><\/span><span class="bar">/);
 });
 
@@ -663,8 +664,10 @@ test('設定カードの並びは指定通り', () => {
 test('録音バーは暗色地に合った色で描く', () => {
   // ピルを暗色にしたのに描画色を明るい地のままにすると、
   // 波形もスピナーも見えなくなる（実機で波形が真っ黒になった）
+  // 0.9.0 O-3（設計書 D25）で意図して変えた: 波形（canvas の fillStyle）を5つの点にした。点の色は明るい（一時停止中も白の 45%）
   const c = code(overlayHtml);
-  assert.match(c, /ctx2d\.fillStyle = paused \? 'rgba\(255,255,255/, '波形が暗いまま');
+  assert.match(c, /\.lv i \{[^}]*background: var\(--fg\)/, '点が暗いまま');
+  assert.match(c, /\.pill\.paused \.lv i \{ background: rgba\(255, 255, 255, 0\.45\)/, '一時停止中の点が暗いまま');
   assert.ok(!/rgba\(27,\s*30,\s*37/.test(c), '明るい地向けの墨色が残っている');
 });
 

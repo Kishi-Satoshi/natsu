@@ -31,4 +31,7 @@ module.exports = [
       'sumServerExe', 'pickSumExeBtn', 'sumModelPath', 'pickSumModelBtn', 'sumThreads', 'sumPort', 'sumCtx', 'testSumBtn', 'segmentSec',
       'engineIdleMin', 'saveMsg', 'openDataBtn'],
     why: '0.9.0 U-1（SP1・設計書 D24）: 設定の section（#tabSettings。中身は動かさない）を、<main> から体の直の子の設定のポップアップ（#settingsModal > .setbox）へ移す（tools/hedit.js move --allow-reparent）' },
+  { file: 'src/renderer/overlay.html', lost: ['div.center'],
+    ids: ['status'],
+    why: '0.9.0 O-3（設計書 D25）: 録音バーを作り直し、状態の文（#status）を真ん中の列から出して、ピルの直の子の一時的な文（.msg）にした（ピルの中のまま）' },
 ];

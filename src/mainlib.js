@@ -1474,6 +1474,14 @@ function panelBounds({ slot, size, workArea }) {
 // ドラッグの止まり（PANEL_QUIET_MS）で吸い付く OS か。Windows・macOS は OS のドラッグの終わりに moved が来るのでそれを待つ
 // （Windows で止まりを使うと、ドラッグの途中で手を止めただけで吸い付いて OS のドラッグと取り合う: F18）
 function snapsOnQuiet(platform) { return platform === 'linux'; }
+// ---------------------------------------------------------------- 録音バーのボタンの名前のキー（0.9.0 O-3・設計書 D25・RP7）
+// Electron のキーの書き方（Control+Shift+Space）を画面の書き方（Ctrl+Shift+Space）に直す。渡すのは実際に登録しているキー（activeHotkeys）。
+// 文字でない・空なら ''（名前にキーを付けない）
+function keyLabel(accel) {
+  if (typeof accel !== 'string' || !accel.trim()) return '';
+  const MAP = { control: 'Ctrl', ctrl: 'Ctrl', commandorcontrol: 'Ctrl', cmdorctrl: 'Ctrl', super: 'Win', meta: 'Win' };
+  return accel.split('+').map((k) => MAP[k.trim().toLowerCase()] || k.trim()).join('+');
+}
 
 module.exports = {
   saveIfExists, meetingDurationSec, promptTail,
@@ -1500,5 +1508,5 @@ module.exports = {
   recordDictation, mergeHistory, chooseDraftName,
   accountMessage,
   // 0.9.0 レーン O（録音バー）
-  PANEL_EDGE, PANEL_FIRST, slotForm, slotOrigin, nearestSlot, PANEL_PAD, PANEL_MAX, PANEL_QUIET_MS, panelBounds, snapsOnQuiet,
+  PANEL_EDGE, PANEL_FIRST, slotForm, slotOrigin, nearestSlot, PANEL_PAD, PANEL_MAX, PANEL_QUIET_MS, panelBounds, snapsOnQuiet, keyLabel,
 };

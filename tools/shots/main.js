@@ -14,7 +14,15 @@
  * Tab の後の輪（s.focus。sendInputEvent で Tab を送る。効かなければ el.focus() に落として参考に出す）・本体の画面の横のはみ出し
  * （SH.OVERFLOW_PROBE）を見る。取り直し待ち（SH.RETAKE）の画面は基準と違っても「取り直し待ち」と出し、前・後・差分は今までどおり書く。
  * 結果は 1 行ずつ OK／NG で出す。最初の行に機械の版（環境変数 ImageOS・ImageVersion。無ければ「手元」）を出す
- * （基準と違ったときに、CI の機械の更新かどうかを見分ける）。どこかで止まっても、90 秒の見張りで 1 で終わる。
+ * （基準と違ったときに、CI の機械の更新かどうかを見分ける）。どこかで止まっても、見張り（SH.watchdogMs: 30 秒 + 撮る画面の数 × 6 秒）で 1 で終わる。
+ * 0.9.0 O-3（設計書 D25・RP9・F11）: 録音バーの画面（SH.SCREENS の page 'overlay'。tools/shots/pill-states.js の状態 × 形 × 地 × 拡大率）は、
+ * 形・地・拡大率の組ごとに窓を1つ開き、状態を act で替えて撮る。撮る前にピルの大きさを測り（SH.PANEL_PROBE）、main と同じ panelBounds で
+ * 窓の大きさを決め直す（SH.panelWindowFor）。拡大率の画面は、画面の外で描く窓そのものに拡大率を持たせて（webPreferences の
+ * offscreen: { deviceScaleFactor }）同じプロセスで撮り、撮れた画像が「窓 × 拡大率」（SH.shotSizeFor）でなければ NG。
+ * （O-3 で作るときに確かめた: 44.9.0 の画面の外で描く窓は、DevTools の拡大率の上書き（Emulation の device metrics）の deviceScaleFactor を
+ * devicePixelRatio には当てるが撮った画像は 1 倍のまま、プロセスの --force-device-scale-factor は窓に当たらない。offscreen の deviceScaleFactor
+ * だけが 1.25・1.5・2 で「窓 × 拡大率」の画像になった）。ピルが窓の内側に 4px 以上の余白で入るか（SH.judgePanel）を、撮る画面の全部と、
+ * 横と縦の記録中と警告を拡大率 1・1.25・1.5・2 で見る（SH.PANEL_PROBE_SCALES。取り直し待ちでも NG）。
  *
  * Electron を読むのは、Electron の main として動いたときだけ（下の boot。tools/electron-smoke と同じ形）。
  * テスト（test/shots.test.js）がこのファイルを読むので、頭で読むと 44 の包みが本体を落としにいく（第0c回 C6）。
@@ -34,7 +42,7 @@ const BRIDGE = { app: 'koeApp', overlay: 'koeOverlay' };
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 const msgOf = (e) => (e && e.message) || String(e);
 
-/** promise を ms で打ち切る（止まったまま見張りの 90 秒を待たない） */
+/** promise を ms で打ち切る（止まったまま見張りの時間を待たない） */
 function within(promise, ms, what) {
   let t;
   return Promise.race([
@@ -67,8 +75,9 @@ function boot() {
     if (data) { try { fs.rmSync(data, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }); } catch (_) { /* 消せなくても終わる */ } }
     app.exit(code);
   };
-  // 見張り: どこかで止まっても、ジョブの 30 分を待たずに赤にする
-  setTimeout(() => { console.log('NG 時間切れ（90 秒）'); exit(1); }, 90000);
+  // 見張り: どこかで止まっても、ジョブの 30 分を待たずに赤にする。時間は撮る画面の数で決める（決まった値では録音バーの画面を足すと必ず切れる）
+  const limitMs = SH.watchdogMs(SH.SCREENS.length);
+  setTimeout(() => { console.log(`NG 時間切れ（${Math.round(limitMs / 1000)} 秒）`); exit(1); }, limitMs);
   const die = (what) => (e) => { console.log(`NG ${what}: ${(e && e.stack) || e}`); exit(1); };
   process.on('uncaughtException', die('拾われない例外'));
   process.on('unhandledRejection', die('拾われない失敗'));
@@ -118,16 +127,16 @@ function boot() {
     };
     /**
      * 窓を開く（守りを付けた session・sandbox・偽の橋）。時間帯と色の主題は開く前に決める。
-     * 拡大は開いた後に決める。倍率は同じ出どころ（file://）の窓どうしで引き継がれるので、拡大しない窓も 1 を決め直す
+     * 拡大は開いた後に決める。倍率は同じ出どころ（file://）の窓どうしで引き継がれるので、拡大しない窓も 1 を決め直す。
+     * 0.9.0 O-3: 拡大率（scale。録音バーの 150% などの画面）は、画面の外で描く窓そのものに持たせる（offscreen: { deviceScaleFactor }）
      */
-    const open = async (page, theme, answers, zoom = 1) => {
-      const size = page === 'overlay' ? SH.OVERLAY_SIZE : SH.SIZE;
+    const open = async (page, theme, answers, zoom = 1, size = page === 'overlay' ? SH.OVERLAY_SIZE : SH.SIZE, scale = 1) => {
       nativeTheme.themeSource = theme;
       const win = new BrowserWindow({
         ...size, useContentSize: true, show: false, frame: false, resizable: false,
         ...(page === 'overlay' ? { transparent: true, backgroundColor: '#00000000' } : {}),
         webPreferences: {
-          offscreen: true, sandbox: true, contextIsolation: true, nodeIntegration: false,
+          offscreen: scale === 1 ? true : { deviceScaleFactor: scale }, sandbox: true, contextIsolation: true, nodeIntegration: false,
           preload: path.join(__dirname, 'preload.js'), session: ses,
         },
       });
@@ -216,7 +225,69 @@ function boot() {
     } catch (e) {
       console.log(`参考: 慣らしの画面を撮れなかった（本番は続ける）: ${msgOf(e)}`);
     }
+    // ---- 録音バーの画面（0.9.0 O-3・設計書 D25・RP9・F11）
+    const panel = [];   // ピルが窓の内側に 4px 以上の余白で入るかの { name, ok, note }（取り直し待ちでも NG）
+    let ov = null;      // 今開いている録音バーの窓 { key, win, wc, t }（形・地・拡大率の組ごとに1つ）
+    const closeOverlay = () => {
+      if (!ov) return;
+      tables.delete(ov.wc.id);
+      try { ov.win.destroy(); } catch (_) { /* もう無い */ }
+      ov = null;
+    };
+    const probePanel = async (o) => within(o.wc.executeJavaScript(SH.PANEL_PROBE), 10000, 'ピルを測る');
+    /** 録音バーの窓を、ピルの大きさ（CSS の px）から main と同じ panelBounds の大きさにする。答えは窓の大きさ（DIP） */
+    const fitPanel = async (o, slot) => {
+      const r = await probePanel(o);
+      if (!r || !r.pill) throw new Error('ピルを測れなかった');
+      const winSize = SH.panelWindowFor({ w: r.pill.right - r.pill.left, h: r.pill.bottom - r.pill.top }, slot);
+      o.win.setContentSize(winSize.width, winSize.height);
+      await settle(o.wc, o.t);
+      await wait(150);
+      return winSize;
+    };
+    /** 録音バーの画面を1枚撮る（窓は形・地・拡大率の組が替わったときだけ開き直す。状態は act で替える） */
+    const shootPanel = async (s) => {
+      const { form, desk, scale } = s.pill;
+      try {
+        const key = `${form}|${desk}|${scale}`;
+        if (!ov || ov.key !== key) {
+          closeOverlay();
+          ov = { key, ...(await open('overlay', s.theme, SH.fixtures(), 1, SH.OVERLAY_SIZE, scale)) };
+        }
+        await within(ov.wc.executeJavaScript(s.act, true), 10000, `${s.name} の操作`);
+        await settle(ov.wc, ov.t);
+        const winSize = await fitPanel(ov, s.slot);
+        const room = SH.judgePanel(await probePanel(ov));
+        panel.push({ name: s.name, ok: room.ok, note: room.note });
+        if (!room.ok) console.log(`NG 余白 ${s.name} — ${room.note}`);
+        const a = await capture(ov.wc);
+        // 2枚目は描き直させてから撮る（同じ描き終わりの写しを2回比べても、描くたびの揺れは見つからない）
+        ov.wc.invalidate();
+        await settle(ov.wc, ov.t);
+        await wait(300);
+        const b = await capture(ov.wc);
+        const want = SH.shotSizeFor(winSize, scale);
+        const j = SH.judgePair(a, b, png);
+        shots[s.name] = a;
+        if (!j.ok) {
+          flaky.push(s.name);
+          fs.mkdirSync(args.out, { recursive: true });
+          fs.writeFileSync(path.join(args.out, `${s.name}.flaky-2.png`), png.encodePng(b));
+        }
+        // 拡大率の画面は「窓 × 拡大率」の大きさで撮れていなければ NG（拡大率が当たっていない画像を 150% と言わない）
+        const sizeOk = a.width === want.width && a.height === want.height;
+        if (!sizeOk) errors.push(`${s.name}: 大きさが ${a.width}x${a.height}（窓 ${winSize.width}x${winSize.height} × 拡大率 ${scale} は ${want.width}x${want.height}）`);
+        console.log(`${j.ok && sizeOk ? 'OK' : 'NG'} ${s.name} — ${j.note}${sizeOk ? '' : `、${want.width}x${want.height} のはず`}`);
+      } catch (e) {
+        errors.push(`${s.name}: ${msgOf(e)}`);
+        console.log(`NG ${s.name} — 撮れなかった: ${msgOf(e)}`);
+        closeOverlay();   // 次の画面は窓を開き直す
+      }
+    };
+
     for (const s of SH.SCREENS) {
+      if (s.page === 'overlay') { await shootPanel(s); continue; }
+      closeOverlay();
       let win = null;
       try {
         const o = await open(s.page, s.theme, { ...SH.fixtures(), ...JSON.parse(JSON.stringify(s.answers || {})) }, s.zoom || 1);
@@ -244,6 +315,12 @@ function boot() {
           overflow.push({ name: s.name, ok: j.ok, note: j.note });
           console.log(`${j.ok ? 'OK' : 'NG'} はみ出し ${s.name} — ${j.note}`);
         }
+        // 0.9.0 O-3: 1枚目も描き直させてから撮る。本体の画面の間にあった録音バーの画面（overlay-processing）を外すと、Linux の手元で
+        // live-banner-zoom200-dark の初めの描き終わりが1画素だけ後の描き直しと違うことがあった（34c9dfa の道具で、その1枚を外しただけで
+        // 3回に2回。1枚目も描き直しの後にすると4回とも同じ）。2枚とも描き直しの後なので、描くたびの揺れは今どおり見つかる
+        o.wc.invalidate();
+        await settle(o.wc, o.t);
+        await wait(300);
         const a = await capture(o.wc);
         // 2枚目は描き直させてから撮る（同じ描き終わりの写しを2回比べても、描くたびの揺れは見つからない）
         o.wc.invalidate();
@@ -254,7 +331,7 @@ function boot() {
           const w = png.diffImages(warmShot, a, { tolerance: 0 });
           console.log(`参考: 慣らしの画像と本番の ${s.name} は${w.same ? '同じ' : `${w.sizeMismatch ? '大きさが違う' : `${w.count} 画素違う`}`}`);
         }
-        const want = s.page === 'overlay' ? SH.OVERLAY_SIZE : SH.SIZE;
+        const want = SH.SIZE;
         const j = SH.judgePair(a, b, png);
         shots[s.name] = a;
         if (!j.ok) {
@@ -270,6 +347,37 @@ function boot() {
         console.log(`NG ${s.name} — 撮れなかった: ${msgOf(e)}`);
       } finally {
         if (win) { tables.delete(win.webContents.id); try { win.destroy(); } catch (_) { /* もう無い */ } }
+      }
+    }
+    closeOverlay();
+
+    // ---- 録音バーの余白（F11）: 横と縦の記録中と警告を、拡大率 1・1.25・1.5・2 で（基準の画像は 100・150% だけ。ここは測るだけ）
+    for (const form of [...new Set(SH.SCREENS.filter((x) => x.pill).map((x) => x.pill.form))]) {
+      for (const scale of SH.PANEL_PROBE_SCALES) {
+        let o = null;
+        try {
+          o = await open('overlay', 'light', SH.fixtures(), 1, SH.OVERLAY_SIZE, scale);
+          for (const state of SH.PANEL_PROBE_STATES) {
+            const name = `panel-${form}-${state}-${Math.round(scale * 100)}`;
+            const s = SH.SCREENS.find((x) => x.pill && x.pill.form === form && x.pill.state === state && x.pill.desk === 'light' && x.pill.scale === 1);
+            if (!s) throw new Error(`録音バーの画面 ${form}・${state} が無い`);
+            await within(o.wc.executeJavaScript(s.act, true), 10000, `${name} の操作`);
+            await settle(o.wc, o.t);
+            const winSize = await fitPanel(o, s.slot);
+            const dpr = await within(o.wc.executeJavaScript('window.devicePixelRatio'), 10000, '拡大率を読む');
+            const j = SH.judgePanel(await probePanel(o));
+            // 拡大率が窓に当たっていなければ、確かめになっていないので NG
+            const ok = j.ok && dpr === scale;
+            const note = `${j.note}・devicePixelRatio ${dpr}${dpr === scale ? '' : `（${scale} のはず）`}・窓 ${winSize.width}x${winSize.height}`;
+            panel.push({ name, ok, note });
+            console.log(`${ok ? 'OK' : 'NG'} 余白 ${name} — ${note}`);
+          }
+        } catch (e) {
+          panel.push({ name: `panel-${form}-${Math.round(scale * 100)}`, ok: false, note: msgOf(e) });
+          console.log(`NG 余白 panel-${form}-${Math.round(scale * 100)} — 測れなかった: ${msgOf(e)}`);
+        } finally {
+          if (o) { tables.delete(o.wc.id); try { o.win.destroy(); } catch (_) { /* もう無い */ } }
+        }
       }
     }
 
@@ -318,12 +426,12 @@ function boot() {
     }
 
     for (const c of csp) console.log(`NG CSP の違反: ${c}`);
-    const code = SH.exitCodeOf({ shots, compare, flaky, csp, perf, errors, retake: SH.RETAKE, overflow, focus });
+    const code = SH.exitCodeOf({ shots, compare, flaky, csp, perf, errors, retake: SH.RETAKE, overflow, focus, panel });
     const retakeN = compare ? compare.filter((c) => c.status !== 'same' && SH.RETAKE.has(c.name)).length : 0;
     const overN = overflow.filter((x) => !x.ok).length;
     console.log(code === 0
-      ? `結果: OK（${Object.keys(shots).length} 枚${compare ? (retakeN ? `・取り直し待ち ${retakeN}・ほかは基準と同じ` : '・基準と全部同じ') : ''}・はみ出し 0・揺れ 0・CSP の違反 0・速さ OK）`
-      : `結果: NG（揺れ ${flaky.length}・CSP の違反 ${csp.length}・撮れない ${errors.length}・はみ出し ${overN}・Tab の輪の NG ${focus.filter((x) => !x.ok && !SH.RETAKE.has(x.name)).length}・速さの NG ${perf.filter((p) => !p.ok).length}${compare ? `・基準と違う ${compare.filter((c) => c.status !== 'same' && !SH.RETAKE.has(c.name)).length}・取り直し待ち ${retakeN}` : ''}）`);
+      ? `結果: OK（${Object.keys(shots).length} 枚${compare ? (retakeN ? `・取り直し待ち ${retakeN}・ほかは基準と同じ` : '・基準と全部同じ') : ''}・はみ出し 0・録音バーの余白 OK・揺れ 0・CSP の違反 0・速さ OK）`
+      : `結果: NG（揺れ ${flaky.length}・CSP の違反 ${csp.length}・撮れない ${errors.length}・はみ出し ${overN}・録音バーの余白の NG ${panel.filter((x) => !x.ok).length}・Tab の輪の NG ${focus.filter((x) => !x.ok && !SH.RETAKE.has(x.name)).length}・速さの NG ${perf.filter((p) => !p.ok).length}${compare ? `・基準と違う ${compare.filter((c) => c.status !== 'same' && !SH.RETAKE.has(c.name)).length}・取り直し待ち ${retakeN}` : ''}）`);
     for (const e of errors) console.log(`参考: ${e}`);
     process.stdout.write('', () => exit(code));
   }, die('起動の失敗'));

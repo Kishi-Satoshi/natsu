@@ -41,9 +41,10 @@ const CONTAINMENT = [
     親: (n) => n.tag === 'section' && n.attrs.id === 'tabSettings',
     表明: '設定の footer（保存メッセージ・データ保存先を開く）は設定タブの中に残っていること',
     由来: 'v0.10.2 でこの2つが切り落とされ、初期化が例外で止まった（v0.10.3で修正）' },
-  { screen: 'overlay', 子: (n) => ['canvas', 'button'].includes(n.tag) || H.has(n, 'status') || H.has(n, 'timer') || H.has(n, 'dot'),
+  // 0.9.0 O-3（設計書 D25）で意図して変えた: 波形の canvas・状態の .status・点の .dot を、ロゴと印の svg・一時的な文の .msg・5つの点の .lv にした
+  { screen: 'overlay', 子: (n) => ['svg', 'button'].includes(n.tag) || H.has(n, 'msg') || H.has(n, 'timer') || H.has(n, 'lv'),
     親: (n) => H.has(n, 'pill'),
-    表明: 'ピルの中身（波形・状態・時刻・ボタン・点）はすべて .pill の中にいること',
+    表明: 'ピルの中身（ロゴと印・文・時刻・ボタン・5つの点）はすべて .pill の中にいること',
     由来: '.pill の外に出た要素は透過ウィンドウの地の上に裸で描かれる' },
 ];
 
