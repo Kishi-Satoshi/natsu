@@ -31,7 +31,9 @@ const tmp = (t, name) => {
 test('G2: 撮る画面は決まった並び（第1b回の 13 と第1b2回の検索の窓と第1d回の録音中のページの帯の3枚）で、名前は重ならない', { timeout: 5000 }, () => {
   assert.deepStrictEqual(SH.SCREENS.map((s) => s.name), ['notes-empty-light', 'notes-page-light', 'notes-page-dark', 'dictation-light', 'settings-light', 'settings-dark', 'overlay-processing',
     'notes-tabs-light', 'notes-collapsed-light', 'live-light', 'live-dark', 'notes-page-zoom200-light', 'settings-zoom200-dark', 'search-palette-light', 'live-banner-light',
-    'live-banner-dark', 'live-banner-zoom200-dark']);
+    'live-banner-dark', 'live-banner-zoom200-dark',
+    // 0.9.0 U-2（SP4・SP5）で意図して変えた: 設定のポップアップの項目「録音」と検索の画面を足した（取り直し待ち・まだ基準が無い）
+    'settings-record-light', 'settings-search-light']);
   assert.strictEqual(new Set(SH.SCREENS.map((s) => s.name)).size, SH.SCREENS.length, '名前が重なっている');
   for (const s of SH.SCREENS) assert.ok(['app', 'overlay'].includes(s.page) && ['light', 'dark'].includes(s.theme), s.name);
   assert.deepStrictEqual(SH.SCREENS.filter((s) => s.zoom).map((s) => [s.name, s.zoom]), [['notes-page-zoom200-light', 2], ['settings-zoom200-dark', 2], ['live-banner-zoom200-dark', 2]]);
@@ -364,13 +366,16 @@ test('G2: 作業域より大きい窓が作るときに縮められても（Wind
 // 0.9.0 で意図して変えた: 取り直し待ちは計画（docs/plans/2026-10-20-090.md）の「取り直す画面」の表の画面だけ。U-1 は設定の3枚と
 // notes-tabs-light（設定がポップアップになり、3つのタブの並びから設定のタブが消える）。B・O は各タスクが足す。
 // 利用者がまとめて OK と言ったら G-3 で基準にして空に戻す（空になるまで版を上げられない: 上の版のテスト）
-const RETAKE_090 = ['live-banner-light', 'live-banner-dark', 'live-banner-zoom200-dark', 'notes-tabs-light', 'settings-light', 'settings-dark', 'settings-zoom200-dark'];
+const RETAKE_090 = ['live-banner-light', 'live-banner-dark', 'live-banner-zoom200-dark', 'notes-tabs-light', 'settings-light', 'settings-dark', 'settings-zoom200-dark', 'settings-record-light', 'settings-search-light'];
+// 0.9.0 で足した画面で、まだ基準の PNG が無いもの（取り直し待ちにあるときだけ無くてよい。G-3 で基準にしたらここを空にする）
+const NEW_090 = ['settings-record-light', 'settings-search-light'];
 test('G2・F14・G-4・0.9.0: 取り直し待ちは計画の「取り直す画面」の画面だけ。録音バーは入れない。どの画面にも基準の PNG があり、大きさが窓の大きさと同じ', { timeout: 5000 }, () => {
   assert.deepStrictEqual([...SH.RETAKE].filter((n) => !RETAKE_090.includes(n)), []);
   for (const n of RETAKE_090) assert.ok(SH.RETAKE.has(n), `${n} が取り直し待ちに無い（見た目が変わった）`);
   assert.ok(!SH.RETAKE.has('overlay-processing'), '録音バーを取り直し待ちに入れた（overlay.html は変えない）');
   for (const s of SH.SCREENS) {
     const f = path.join(ROOT, 'test', 'shots', 'win32', `${s.name}.png`);
+    if (NEW_090.includes(s.name)) { assert.ok(SH.RETAKE.has(s.name), `${s.name} は基準が無いのに取り直し待ちに無い`); if (!fs.existsSync(f)) continue; }
     assert.ok(fs.existsSync(f), `${s.name} の基準が無い`);
     const im = P.decodePng(fs.readFileSync(f));
     const want = s.page === 'overlay' ? SH.OVERLAY_SIZE : SH.SIZE;
@@ -413,9 +418,13 @@ test('G2・F14・G-4・0.9.0: 取り直し待ちは計画の「取り直す画�
 // 選んだ項目の名前に）。見える中身が変わるのは設定の3枚と、3つのタブの並びから設定のタブが消える notes-tabs-light で、どれも RETAKE に入れた
 // （上の「取り直し待ちは計画の画面だけ」）。議事録・音声入力・録音中のページ・検索の窓は要素も文も CSS も変えていない（設定の section は
 // main から動いたが、閉じている間は hidden）ので、基準のまま比べる。値を今の app.html に合わせた
+// 0.9.0 U-2（SP4・SP5・D24）: 設定のカードを項目ごとに分け（「動作」「オンライン」を無くしてホットキー・起動と終了・録音バー・マイクと
+// 相手の声・文字起こし・要約（Claude Code）へ。id と文はそのまま）、上に検索の欄を足した。見える中身が変わるのは設定の画面だけで、どれも RETAKE
+// にある（項目「録音」と検索の画面を足した）。入力の欄の決まりに input[type="search"] を足したが、議事録・音声入力・録音中のページ・検索の窓に
+// search の欄は無いので、基準のまま比べる。値を今の app.html に合わせた
 test('基準の画像（test/shots/win32）は今の app.html で撮ったもの（app.html を変えたら撮り直しを確かめる）', { timeout: 5000 }, () => {
   const sha = require('node:crypto').createHash('sha256').update(fs.readFileSync(path.join(ROOT, 'src', 'renderer', 'app.html'))).digest('hex');
-  assert.strictEqual(sha, '81949b3134ad94c37995929e5ebca7149d5c111c16a4cefc0de4d199bf5e6386',
+  assert.strictEqual(sha, '00b8b4c95f415bc914bb0530b840c15f4a10520d67a87870bb78cd7300dec38d',
     'app.html が基準の画像を撮った時と違う。Windows の CI の画面の比べ（捲り棒のつまみも）を見て、基準を取り直してからこの値を直す');
 });
 

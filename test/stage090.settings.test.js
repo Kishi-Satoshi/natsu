@@ -380,3 +380,228 @@ test('SP2・RF9（場面 esc-focus）: 音声入力の録音中に本体の窓�
   assert.deepStrictEqual(o.escapeAt, { start: true, focus: false, blur: true, end: false });
   assert.strictEqual(o.history.length, 1, '音声入力が最後まで通らない');
 });
+
+// ---------------------------------------------------------------- U-2（SP4・SP5・F13）
+// 計画「設定の項目とカード」の表（カードの見出し → 項目・行の名前）。外観とアカウントのカードは id の付いた <h2>
+const CARDS = [
+  ['account', 'アカウント', ['ログイン', 'ログアウト']],
+  ['general', '外観', ['外観']],
+  ['general', 'ホットキー', ['音声入力ホットキー', '議事録ホットキー']],
+  ['general', '起動と終了', ['Windowsサインイン時に自動起動', 'ウィンドウを閉じてもタスクトレイに残す', '効果音']],
+  ['record', '録音バー', ['録音バーの表示位置']],
+  ['record', 'マイクと相手の声', ['使用するマイク', '議事録で相手の声も録る', '録音されるスピーカー']],
+  ['record', '文字起こし', ['認識言語', '文字起こし後、カーソル位置へ自動貼り付け', 'フィラー除去']],
+  ['record', 'ユーザー辞書（認識ヒント）', ['ユーザー辞書', '業務でよく使う言葉のヒントも渡す']],
+  ['summary', '要約（Claude Code）', ['Claude Code', 'Claude Code の場所']],
+  ['offline', 'オフライン', ['PC の中の文字起こし', 'PC の中の文字起こしを取り込む', '詳細設定']],
+  ['update', 'アップデート', ['更新を確認']],
+];
+// 行の名前 → その行にある入力の id（今の id のまま動かしたことを見る）
+const ROW_IDS = {
+  ログイン: ['accountSignIn'], ログアウト: ['accountLogout', 'accountWho'], 外観: ['themeSel'], 音声入力ホットキー: ['hotkey', 'hotkeyWarn'], 議事録ホットキー: ['meetingHotkey', 'meetingHotkeyWarn'],
+  Windowsサインイン時に自動起動: ['autoLaunch'], ウィンドウを閉じてもタスクトレイに残す: ['stayInTray'], 効果音: ['soundFeedback'], 録音バーの表示位置: ['pillPos'],
+  使用するマイク: ['micSelect', 'micReloadBtn'], 議事録で相手の声も録る: ['useSystemAudio'], 録音されるスピーカー: ['spkNow', 'spkReloadBtn', 'spkSettingsBtn'], 認識言語: ['language'],
+  '文字起こし後、カーソル位置へ自動貼り付け': ['autoPaste'], フィラー除去: ['removeFillers'], ユーザー辞書: ['dictionary', 'dictWarn'], 業務でよく使う言葉のヒントも渡す: ['useBuiltinTerms'],
+  'Claude Code': ['claudeState', 'claudeTest', 'claudeLogin', 'claudeInstall', 'claudeHelp'], 'Claude Code の場所': ['claudeExe'], 'PC の中の文字起こし': ['engineState', 'testBtn'],
+  'PC の中の文字起こしを取り込む': ['engineFetchBtn', 'engineFetchSummary'], 詳細設定: ['localServerExe', 'sumCtx', 'engineIdleMin'], 更新を確認: ['verNow', 'chkUpdBtn', 'applyUpdBtn', 'updMsg'],
+};
+const cardsOf = (root) => root.querySelector('#tabSettings').querySelector('.scroll').children.filter((c) => c.classList.contains('card'));
+const titleOf = (c) => c.querySelector('h2').textContent.trim();
+// 画面に出ている（hidden も、検索で外す印 set-miss も、祖先に無い）。ポップアップそのものの hidden は見ない
+const visible = (el) => { for (let n = el; n && n.tagName && !n.tagName.startsWith('#'); n = n.parentNode) { if (n.id === 'settingsModal') return true; if (n.hidden || n.classList.contains('set-miss')) return false; } return true; };
+const shownCards = (l) => cardsOf(l.root).filter(visible).map(titleOf);
+const shownRows = (l) => l.byId.get('tabSettings').querySelectorAll('[data-row]').filter(visible).map((r) => r.dataset.row);
+// 左の列の項目を押す（受け口は #setNav の1つ。偽 DOM は泡立たないので、#setNav に target 付きで送る）
+const pick = async (l, sec) => { const nav = $(l, 'setNav'); nav.dispatchEvent({ type: 'click', target: nav.querySelector(`[data-sec="${sec}"]`) }); await l.drain(); };
+const search = async (l, q) => { const b = $(l, 'setSearch'); b.value = q; b.dispatchEvent({ type: 'input', target: b }); await l.drain(); };
+
+test('SP4: カードの data-sec と見出しの並びが「設定の項目とカード」の表のとおり。どのカードも .scroll の直の子で、行（data-row）はその行のカードの中', T, () => {
+  const cards = cardsOf(doc);
+  assert.deepStrictEqual(cards.map((c) => [c.dataset.sec, titleOf(c)]), CARDS.map(([sec, t]) => [sec, t]));
+  assert.ok(doc.querySelector('#tabSettings').querySelectorAll('.card').every((c) => c.parentNode.classList.contains('scroll')), '.scroll の直の子でないカードがある');
+  for (const [, t, rows] of CARDS) {
+    const c = cards.find((x) => titleOf(x) === t);
+    assert.deepStrictEqual(c.querySelectorAll('[data-row]').map((r) => r.dataset.row), rows, `${t} の行`);
+    for (const r of c.querySelectorAll('[data-row]')) assert.strictEqual(r.parentNode, c, `「${r.dataset.row}」の行がカードの直の子でない（検索で外す単位）`);
+  }
+  assert.strictEqual(doc.querySelectorAll('[data-row]').length, Object.keys(ROW_IDS).length, '表に無い行がある');
+  // 「動作」と「オンライン」のカードは無くなる（中の欄は表の所へ動く）
+  assert.ok(!cards.some((c) => ['動作', 'オンライン'].includes(titleOf(c))), '前の「動作」「オンライン」のカードが残っている');
+  // 項目の名前は左の列の名前と同じ（SETTINGS_SECS）
+  assert.deepStrictEqual([...new Set(cards.map((c) => c.dataset.sec))], ['account', 'general', 'record', 'summary', 'offline', 'update']);
+});
+
+// 0.8.0（34c9dfa）の #tabSettings の中の <label> の文 29 と .desc の文 20 を、並びに依らず数えた指紋（空白をまとめて並べ替えた JSON の sha256）。
+// カードを動かしただけで文を変えていないことを見る（文を意図して変えるタスクは、この値をその commit で直す）
+const TEXTS_080 = { labels: [29, '5c94550c717872728cfa63e36897a6f63a01a343a21064bb62bf561c95fe948d'], descs: [20, 'dee8088740a63c227369dba4dfa7f08e93c986f527bd33ebecbf560598da8567'] };
+test('SP4: 動かした入力の id が全部あり、その行の中にある。文が 0.8.0 と同じ（label の文・.check の文・説明の文）', T, () => {
+  const sec = doc.querySelector('#tabSettings');
+  for (const [name, ids] of Object.entries(ROW_IDS)) {
+    const r = sec.querySelectorAll('[data-row]').find((x) => x.dataset.row === name);
+    assert.ok(r, `${name} の行が無い`);
+    for (const id of ids) {
+      const el = doc.querySelector(`#${id}`);
+      assert.ok(el, `#${id} が無い（id を消した）`);
+      assert.ok(el.closest('[data-row]') === r, `#${id} が「${name}」の行の中に無い`);
+    }
+  }
+  const norm = (s) => s.replace(/\s+/g, ' ').trim();
+  const fp = (xs) => [xs.length, require('node:crypto').createHash('sha256').update(JSON.stringify([...xs].sort())).digest('hex')];
+  assert.deepStrictEqual(fp(sec.querySelectorAll('label').map((e) => norm(e.textContent))), TEXTS_080.labels, '<label> の文が 0.8.0 と違う');
+  // 足した「当てはまる設定はありません」（#setEmpty）は数えない
+  assert.deepStrictEqual(fp(sec.querySelectorAll('.desc').filter((e) => e.id !== 'setEmpty').map((e) => norm(e.textContent)).filter(Boolean)), TEXTS_080.descs, '説明の文が 0.8.0 と違う');
+  // 「文字起こし」のカードの頭は、前の「オンライン」のカードの説明（行でない説明）
+  const tc = cardsOf(doc).find((c) => titleOf(c) === '文字起こし');
+  assert.match(tc.querySelector('.desc').textContent, /^ログインしていて、インターネットにつながっているときは、会議と音声入力の音声を文字起こしの中継に送り/);
+  // .lockNote（記録中は変えられない）は今の欄に付いたまま
+  assert.ok(doc.querySelector('#language').closest('.field').querySelector('.lockNote'), '認識言語の .lockNote が欄から外れた');
+});
+
+test('SP4: 『録音』を選ぶと、録音バー・マイクと相手の声・文字起こし・ユーザー辞書の4枚だけが出て、#setTitle が『録音』。保存の文と［データ保存先を開く］はどの項目でも出る', T, async () => {
+  const l = await open();
+  await l.drain();
+  await click(l, 'tabBtnSettings');
+  assert.deepStrictEqual(shownCards(l), ['外観', 'ホットキー', '起動と終了'], '初めの「一般」のカードが違う');
+  await pick(l, 'record');
+  assert.deepStrictEqual(shownCards(l), ['録音バー', 'マイクと相手の声', '文字起こし', 'ユーザー辞書（認識ヒント）']);
+  assert.strictEqual($(l, 'setTitle').textContent, '録音');
+  assert.ok(visible($(l, 'openDataBtn')) && visible($(l, 'saveMsg')), '保存の文と［データ保存先を開く］が隠れた');
+  for (const [sec, want] of [['account', ['アカウント']], ['summary', ['要約（Claude Code）']], ['offline', ['オフライン']], ['update', ['アップデート']]]) {
+    await pick(l, sec);
+    assert.deepStrictEqual(shownCards(l), want, sec);
+  }
+  // showAccount・showEngineSettings で開いたときもその項目のカード
+  l.fire('onNotice', '要約エンジンが未設定です（見本）'); await l.drain();
+  assert.deepStrictEqual(shownCards(l), ['オフライン']);
+  assert.deepStrictEqual(l.errors.map(fmt), []);
+});
+
+test('SP5: 『マイク』で使用するマイクの行だけ、『ﾏｲｸ』（半角）でも同じ、『CLAUDE』で Claude Code の2行が当たり、小見出しは『録音』と『要約』。検索の間は左の列のどれも選ばない', T, async () => {
+  const l = await open();
+  await l.drain();
+  await click(l, 'tabBtnSettings');
+  const sb = $(l, 'setSearch');
+  assert.strictEqual(sb.getAttribute('type'), 'search');
+  assert.strictEqual(sb.getAttribute('placeholder'), '検索');
+  assert.strictEqual(sb.getAttribute('aria-label'), '設定を検索');
+  const groups = () => l.root.querySelectorAll('.setgroup').filter(visible).map((h) => h.textContent);
+  for (const q of ['マイク', 'ﾏｲｸ']) {
+    await search(l, q);
+    assert.deepStrictEqual(shownRows(l), ['使用するマイク'], q);
+    assert.deepStrictEqual(shownCards(l), ['マイクと相手の声'], q);
+    assert.deepStrictEqual(groups(), ['録音'], q);
+    assert.strictEqual($(l, 'setTitle').textContent, '検索の結果');
+    assert.strictEqual($(l, 'setEmpty').hidden, true);
+    assert.strictEqual(secOf(l), '(0 個)', '検索の間も左の列の項目を選んだまま');
+  }
+  await search(l, 'CLAUDE');
+  assert.deepStrictEqual(shownRows(l), ['Claude Code', 'Claude Code の場所']);
+  assert.deepStrictEqual(groups(), ['要約']);
+  // 項目をまたぐ当たりは、項目ごとの小見出しの下に（左の列の順）
+  await search(l, 'ホットキー');
+  assert.deepStrictEqual(shownRows(l), ['音声入力ホットキー', '議事録ホットキー']);
+  await search(l, '文字起こし');
+  assert.deepStrictEqual(groups(), ['録音', 'オフライン']);
+  // 説明の長い文の中までは探さない（行の名前だけ）
+  await search(l, 'OpenAI');
+  assert.deepStrictEqual(shownRows(l), [], '説明の文の中で当たった');
+  // 消すと前の項目に戻る
+  await search(l, '');
+  assert.strictEqual(secOf(l), 'general');
+  assert.deepStrictEqual(shownCards(l), ['外観', 'ホットキー', '起動と終了']);
+  assert.deepStrictEqual(groups(), [], '小見出しが残った');
+  assert.ok(l.byId.get('tabSettings').querySelectorAll('.set-miss').length === 0, '検索で外した印が残った');
+  assert.deepStrictEqual(l.errors.map(fmt), []);
+});
+
+test('SP5: 当たらない語で『当てはまる設定はありません』（カードは出さない）', T, async () => {
+  const l = await open();
+  await l.drain();
+  await click(l, 'tabBtnSettings');
+  await search(l, 'あてはまらない語（見本）');
+  assert.strictEqual($(l, 'setEmpty').hidden, false);
+  assert.strictEqual($(l, 'setEmpty').textContent.trim(), '当てはまる設定はありません');
+  assert.deepStrictEqual(shownCards(l), []);
+  assert.strictEqual($(l, 'setTitle').textContent, '検索の結果');
+  assert.ok($(l, 'setEmpty').parentNode.classList.contains('scroll'));
+  assert.deepStrictEqual(l.errors.map(fmt), []);
+});
+
+test('SP5: 検索の欄で Esc を押すと文字が消えて、前の項目に戻る（閉じない）。空の欄の Esc は閉じる。左の列で項目を選ぶと検索をやめる', T, async () => {
+  const l = await open();
+  await l.drain();
+  await click(l, 'tabBtnSettings');
+  await pick(l, 'summary');
+  const sb = $(l, 'setSearch');
+  sb.focus();
+  await search(l, 'マイク');
+  const ev = await key(l, { key: 'Escape' }, sb);
+  assert.strictEqual(ev.defaultPrevented, true);
+  assert.ok(isOpen(l), '検索の欄の Esc で閉じた');
+  assert.strictEqual(sb.value, '', '文字が消えない');
+  assert.strictEqual(secOf(l), 'summary', '前の項目に戻らない');
+  assert.deepStrictEqual(shownCards(l), ['要約（Claude Code）']);
+  await key(l, { key: 'Escape' }, sb);
+  assert.ok(!isOpen(l), '空の検索の欄の Esc で閉じない');
+  await click(l, 'tabBtnSettings');
+  await search(l, 'マイク');
+  await pick(l, 'update');
+  assert.strictEqual($(l, 'setSearch').value, '', '項目を選んでも検索の文字が残った');
+  assert.deepStrictEqual(shownCards(l), ['アップデート']);
+  // 閉じて開き直すと検索をやめて前の項目（開くときの selectSettingsSec が検索の文字を消す）
+  await search(l, 'マイク');
+  await click(l, 'setClose');
+  await click(l, 'tabBtnSettings');
+  assert.strictEqual($(l, 'setSearch').value, '');
+  assert.deepStrictEqual(shownCards(l), ['アップデート']);
+  assert.deepStrictEqual(l.errors.map(fmt), []);
+});
+
+// 行の名前の照らし先: その行の <label> の文・.check の span の最初の行・ボタンの文・<summary> の文・aria-label・aria-labelledby の要素の文・
+// 状態の文（.eng-state。main の答えで描いた後）。名前はどれかの頭と同じ（検索で当たる語と、画面に出ている語を食い違わせない）
+test('SP5: data-row の名前はどれも、その行のラベル（label の文か .check の span の最初の行か、ボタンの文など）の頭と同じ', T, async () => {
+  const l = await open();
+  await l.drain();
+  const norm = (s) => String(s || '').replace(/\s+/g, ' ').trim();
+  const rows = l.byId.get('tabSettings').querySelectorAll('[data-row]');
+  assert.strictEqual(rows.length, Object.keys(ROW_IDS).length, '行が表の数だけ無い（照らしが空振りする）');
+  for (const r of rows) {
+    const cands = [
+      ...r.querySelectorAll('label').map((e) => e.textContent),
+      ...(r.tagName === 'label' ? [r.textContent] : []),
+      ...[r, ...r.querySelectorAll('.check')].filter((e) => e.classList.contains('check')).map((e) => (e.querySelector('span') ? e.querySelector('span').childNodes[0].textContent : '')),
+      ...r.querySelectorAll('button').map((e) => e.textContent),
+      ...r.querySelectorAll('summary').map((e) => e.textContent),
+      ...r.querySelectorAll('[aria-label]').map((e) => e.getAttribute('aria-label')),
+      ...r.querySelectorAll('[aria-labelledby]').map((e) => (l.document.getElementById(e.getAttribute('aria-labelledby')) || {}).textContent),
+      ...r.querySelectorAll('.eng-state').map((e) => e.textContent),
+    ].map(norm).filter(Boolean);
+    assert.ok(cands.some((c) => c.startsWith(r.dataset.row)), `「${r.dataset.row}」がその行の画面の文の頭に無い: ${JSON.stringify(cands)}`);
+  }
+  assert.deepStrictEqual(l.errors.map(fmt), []);
+});
+
+// 0.8.0 の自動保存の引数（simrun の既定の getSettings を読んで、何も変えずに #tabSettings の change を起こしたとき）
+const SAVED_080 = { localServerExe: 'C:\\srv\\whisper.exe', localModelPath: 'C:\\m\\ggml.bin', localThreads: 4, localPort: 8990, vadModelPath: '', useVad: true, suppressNst: true,
+  sumServerExe: 'C:\\srv\\sum.exe', sumModelPath: 'C:\\m\\sum.gguf', sumThreads: 4, sumPort: 8991, sumCtx: 16384, engineIdleMin: 10, hotkey: 'Control+Shift+Space', meetingHotkey: 'Alt+M',
+  segmentSec: 75, pillPos: 'bottom', micId: '', language: 'ja', autoPaste: true, removeFillers: true, soundFeedback: true, autoLaunch: false, dictionary: ['固有名詞'],
+  useBuiltinTerms: true, stayInTray: false, theme: 'system', useSystemAudio: false, claudeExe: '' };
+test('SP4: 選んだ項目でない欄を変えても、自動保存が今と同じ値を保存する（#tabSettings の change → saveSettings の引数が 0.8.0 と同じキーと値）', T, async () => {
+  const l = await open();
+  await l.drain();
+  await click(l, 'tabBtnSettings');
+  await pick(l, 'account');   // 録音の欄は隠れている
+  $(l, 'autoPaste').checked = false;
+  l.byId.get('tabSettings').dispatchEvent({ type: 'change', target: $(l, 'autoPaste') });
+  await l.drain();
+  const saved = l.called('saveSettings');
+  assert.strictEqual(saved.length, 1, '自動保存が走らない（結線が切れた）');
+  assert.deepStrictEqual(saved[0].args[0], { ...SAVED_080, autoPaste: false });
+  // 検索の間も同じ
+  await search(l, 'フィラー');
+  $(l, 'removeFillers').checked = false;
+  l.byId.get('tabSettings').dispatchEvent({ type: 'change', target: $(l, 'removeFillers') });
+  await l.drain();
+  assert.deepStrictEqual(l.called('saveSettings')[1].args[0], { ...SAVED_080, autoPaste: false, removeFillers: false });
+  assert.deepStrictEqual(l.errors.map(fmt), []);
+});

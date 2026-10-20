@@ -38,25 +38,28 @@ test('OL5: Claude Code が見つからなければ main の文と、入れ方の
 
 // 0.7.0 U-1 で意図して変えた: 送り先は OpenAI だけなので、Groq の無料枠・費用の目安は書かない。1on1 の注意は残す（RF28）。
 // 第1d回 A-4 で意図して変えた: 送り先は文字起こしの中継（その先は OpenAI）。管理者用の仮の欄の案内は無い
+// 0.9.0 U-2（SP4・D24）で意図して変えた: 送り先の説明は「文字起こし」のカード（認識言語の欄のあるカード）、Claude Code の欄は「要約（Claude Code）」のカード。
+// 文は今のまま。管理者用の仮の欄などが無いことは、両方のカードで見る
 test('OL4・U-1・RL11: カードに送り先（中継と OpenAI）・オフラインのとき・1on1 の注意が書いてあり、「使う」を選ぶ・Groq・管理者用の仮の欄の話は無い', async () => {
   const l = await load(APP, { returns: { claudeStatus: CLAUDE_OK } });
   await l.drain();
-  const t = l.byId.get('claudeTest').closest('.card').textContent;
+  const t = l.byId.get('language').closest('.card').textContent + l.byId.get('claudeTest').closest('.card').textContent;
   for (const w of ['文字起こしの中継', 'OpenAI（gpt-4o-transcribe）', 'つながっていないときは、いつも PC の中で文字起こしします', '［この会議は PC の中だけ］']) assert.ok(t.includes(w), w);
   for (const w of ['Groq', '「使う」', 'まだ決めていない', '管理者用の仮の欄']) assert.ok(!t.includes(w), `${w} が残っている`);
 });
 
 // 0.7.0 の後の直し: カードの頭の説明は、ほかの説明と同じく .field の中の .desc（.field .desc の 12px・薄い色。.field の下の間で
 // 「要約（Claude Code）」の名前と離れる）。HTML の改行は画面で空白になるので、「します。」と「1on1」の間に空白を置かない
-test('OL4: カード「オンライン」の頭の説明は .field の中の .desc で、「します。」と「1on1」の間に空白が無い', async () => {
+// 0.9.0 U-2 で意図して変えた: 説明は「文字起こし」のカードの頭（認識言語の欄の前）
+test('OL4: カード「文字起こし」（前の「オンライン」）の頭の説明は .field の中の .desc で、「します。」と「1on1」の間に空白が無い', async () => {
   const l = await load(APP, { returns: { claudeStatus: CLAUDE_OK } });
   await l.drain();
-  const card = l.byId.get('claudeTest').closest('.card');
+  const card = l.byId.get('language').closest('.card');
   const desc = card.querySelectorAll('.desc').find((d) => d.textContent.includes('OpenAI（gpt-4o-transcribe）'));
   assert.ok(desc, '頭の説明が無い');
   const field = desc.closest('.field');
   assert.ok(field && field.parentNode === card, '頭の説明がカードの直下にあり、.field の中に無い（.field .desc の書式と .field の下の間が効かない）');
-  assert.ok(card.children.indexOf(field) < card.children.indexOf(l.byId.get('claudeTest').closest('.field')), '頭の説明が「要約（Claude Code）」の前に無い');
+  assert.ok(card.children.indexOf(field) < card.children.indexOf(l.byId.get('language').closest('.field')), '頭の説明が「認識言語」の前に無い');
   assert.match(desc.textContent, /文字起こしします。1on1・面談/, '「します。」と「1on1」の間に空白がある（HTML の改行が空白になる）');
 });
 

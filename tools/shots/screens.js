@@ -67,6 +67,10 @@ const SCREENS = [
   // 第1d回 A-13（あとの直し (b)）: 帯の暗い画面と 200% の暗い画面（live-banner-light と同じ会議と帯。注意の色の枠と文字を暗い地と折り返しで見る。取り直し待ち）
   { name: 'live-banner-dark', page: 'app', theme: 'dark', answers: liveAnswers(BANNER_STT) },
   { name: 'live-banner-zoom200-dark', page: 'app', theme: 'dark', zoom: 2, answers: liveAnswers(BANNER_STT) },
+  // 0.9.0 U-2（SP4・SP5・D24）: 設定のポップアップの項目「録音」と、検索「マイク」の結果（足した画面でまだ基準が無い。取り直し待ち）
+  { name: 'settings-record-light', page: 'app', theme: 'light', act: "document.getElementById('tabBtnSettings').click(); document.getElementById('setNavRecord').click()" },
+  { name: 'settings-search-light', page: 'app', theme: 'light',
+    act: "document.getElementById('tabBtnSettings').click(); const b = document.getElementById('setSearch'); b.value = 'マイク'; b.dispatchEvent(new Event('input', { bubbles: true }))" },
 ];
 // Tab の輪を見る画面は1つだけ（何も選んでいない所から Tab を3回で［● 記録開始］。サイドバーの頭の［«］→ 検索 → ［● 記録開始］）
 SCREENS.find((x) => x.name === 'notes-page-light').focus = { tabs: 3, want: 'mtToggleBtn' };
@@ -90,7 +94,8 @@ SCREENS.find((x) => x.name === 'notes-page-light').focus = { tabs: 3, want: 'mtT
 // 0.9.0（計画 docs/plans/2026-10-20-090.md の「取り直す画面」）: U-1（SP1〜SP3・D24）で設定をポップアップにしたので、設定の3枚と、
 // 3つのタブの並びから設定のタブが消える notes-tabs-light を取り直し待ちにした（B・O の画面は各タスクが足す）。
 // 利用者がまとめて OK と言ったら G-3 で基準にして空に戻す
-const RETAKE = new Set(['live-banner-light', 'live-banner-dark', 'live-banner-zoom200-dark', 'notes-tabs-light', 'settings-light', 'settings-dark', 'settings-zoom200-dark']);
+// U-2（SP4・SP5）で足した設定の項目「録音」と検索の画面（settings-record-light・settings-search-light。まだ基準が無い）も入れた。
+const RETAKE = new Set(['live-banner-light', 'live-banner-dark', 'live-banner-zoom200-dark', 'notes-tabs-light', 'settings-light', 'settings-dark', 'settings-zoom200-dark', 'settings-record-light', 'settings-search-light']);
 const PERF = [{ name: 'open-2000-blocks', budgetMs: 500 }];   // 3回開いた中央値で見る
 const TIME_ZONE = 'Asia/Tokyo';
 const TOLERANCE = 2;   // 色の差（0〜255）がこれ以下の画素は同じとみなす。CI の機械の CPU ごとの描き方の1段の差を拾わないため（揺れの確かめ judgePair は 0 で見る）

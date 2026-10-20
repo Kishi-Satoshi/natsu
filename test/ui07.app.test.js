@@ -23,12 +23,14 @@ const scheme = (dark) => (q) => ({ matches: /prefers-color-scheme:\s*dark/.test(
 const CTRL_SHIFT_L = { key: 'L', code: 'KeyL', ctrlKey: true, shiftKey: true };
 const themesSaved = (l) => l.called('saveSettings').map((c) => c.args[0].theme);
 
-test('D8: 設定の画面のいちばん上のカードが「外観」で、選択肢は「システム設定を使用」「ライト」「ダーク」。「動作」のカードに「画面の配色」が無い', T, async () => {
+// 0.9.0 U-2（SP4・D24）で意図して変えた: 設定は項目ごと。外観は項目「一般」のいちばん上のカード（設定の全体の頭はアカウント）。
+// 「動作」のカードは無くなり（中の欄は「ホットキー」「起動と終了」などへ動いた）、どのカードにも前の「画面の配色」が無い
+test('D8: 設定の項目「一般」のいちばん上のカードが「外観」で、選択肢は「システム設定を使用」「ライト」「ダーク」。どのカードにも「画面の配色」が無い', T, async () => {
   const l = await load(APP);
   await l.drain();
   const cards = l.byId.get('tabSettings').querySelectorAll('.card');
-  const top = cards[0];
-  assert.strictEqual(top.id, 'appearanceCard', '設定のいちばん上が外観のカードでない');
+  const top = cards.filter((c) => c.dataset.sec === 'general')[0];
+  assert.strictEqual(top.id, 'appearanceCard', '項目「一般」のいちばん上が外観のカードでない');
   assert.strictEqual(top.querySelector('h2').textContent.trim(), '外観');
   const sel = l.byId.get('themeSel');
   assert.strictEqual(sel.closest('.card'), top, '外観の欄が外観のカードの中に無い');
@@ -38,9 +40,7 @@ test('D8: 設定の画面のいちばん上のカードが「外観」で、選�
   const named = l.byId.get(sel.getAttribute('aria-labelledby'));
   assert.ok(named && named.textContent.trim() === '外観', '外観の欄に名前が無い');
   assert.match(top.textContent, /Ctrl\+Shift\+L でライトとダークを切り替えられます/);
-  const work = cards.find((c) => c.querySelector('h2') && c.querySelector('h2').textContent.trim() === '動作');
-  assert.ok(work, '動作のカードが無い');
-  assert.ok(!work.textContent.includes('画面の配色') && !work.querySelector('#themeSel'), '動作のカードに前の「画面の配色」が残っている');
+  for (const c of cards.filter((x) => x !== top)) assert.ok(!c.textContent.includes('画面の配色') && !c.querySelector('#themeSel'), 'ほかのカードに前の「画面の配色」が残っている');
   assert.ok(!l.byId.get('tabSettings').textContent.includes('Windowsの設定に合わせる'), '前の選択肢の文が残っている');
   assert.strictEqual(sel.value, 'system');
   assert.deepStrictEqual(l.errors.map(fmt), []);

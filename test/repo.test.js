@@ -641,14 +641,21 @@ test('議事録の破棄ボタンは録音バーに出さない（誤操作で�
   assert.match(overlayHtml, /\.pill\.meeting \.pbtn\.ng \{ display: none; \}/);
 });
 
+// 0.9.0 U-2（SP4・D24）で意図して変えた: 設定は項目ごとのカード（計画「設定の項目とカード」の表の順）。「動作」と「オンライン」の
+// カードは無くなった（中の欄はホットキー・起動と終了・録音バー・マイクと相手の声・文字起こし・要約（Claude Code）へ動いた）。
+// 外観（#appearanceTitle）とアカウント（#accountTitle）は id の付いた <h2> なのでここには出ない
 test('設定カードの並びは指定通り', () => {
   const heads = [...appHtml.matchAll(/<h2>(.+?)<\/h2>/g)].map((m) => m[1]);
   assert.deepStrictEqual(heads, [
-    'アップデート',
-    '動作',
+    'ホットキー',
+    '起動と終了',
+    '録音バー',
+    'マイクと相手の声',
+    '文字起こし',
     'ユーザー辞書（認識ヒント）',
-    'オンライン',   // 第1c回 Task C-2: 辞書とエンジンの間にカード「オンライン」（OL7）
+    '要約（Claude Code）',
     'オフライン',   // 第1d回 A-13（D19）で意図して変えた: カード「エンジン」を「オフライン」に
+    'アップデート',
   ]);
 });
 
@@ -694,7 +701,7 @@ test('設定の各カードが同じ深さにある（枠の外に出ていな�
   const sec = appHtml.slice(a, appHtml.indexOf('    </section>', a));
   const { heads, depth } = divDepthMap(sec);
   assert.strictEqual(depth, 0, '設定セクションの div が閉じ切れていない');
-  assert.strictEqual(heads.length, 5);   // 第1c回 Task C-2: カード「オンライン」を足して 5 つ
+  assert.strictEqual(heads.length, 9);   // 第1c回 Task C-2: カード「オンライン」を足して 5 つ。0.9.0 U-2 で項目ごとに分けて 9 つ（意図して変えた）
   for (const h of heads) {
     assert.strictEqual(h.depth, heads[0].depth, `「${h.title}」だけ深さが違う（枠の外に出ている）`);
   }

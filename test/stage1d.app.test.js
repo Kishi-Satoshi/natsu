@@ -126,11 +126,12 @@ test('RL10: ログインしていなければ AR1・AR2 と［ログイン］、
   const l = await load(APP, { returns: f.returns });
   await l.drain();
   assert.deepStrictEqual(l.errors.map(fmt), []);
+  // 0.9.0 U-2（SP4・D24）で意図して変えた: 設定は項目ごと。アカウントのカードは設定の頭（項目「アカウント」の1枚）、外観はその次（項目「一般」の頭）
   const cards = l.byId.get('tabSettings').querySelectorAll('.card');
-  assert.strictEqual(cards[0].id, 'appearanceCard', '1つ目のカードが外観でない');
-  assert.strictEqual(cards[1].id, 'accountCard', '2つ目のカードがアカウントでない');
-  assert.strictEqual(cards[1].querySelector('h2').textContent.trim(), 'アカウント');
-  assert.ok(cards[1].textContent.includes(R1), 'カードの説明（R1）が無い');
+  assert.strictEqual(cards[0].id, 'accountCard', '1つ目のカードがアカウントでない');
+  assert.strictEqual(cards[1].id, 'appearanceCard', '2つ目のカードが外観でない');
+  assert.strictEqual(cards[0].querySelector('h2').textContent.trim(), 'アカウント');
+  assert.ok(cards[0].textContent.includes(R1), 'カードの説明（R1）が無い');
   // ログインしていない: AR1・AR2 と［ログイン］。［ログアウト］は出ない
   const out = l.byId.get('accountOut');
   assert.ok(shown(out) && !shown(l.byId.get('accountIn')));
@@ -143,7 +144,7 @@ test('RL10: ログインしていなければ AR1・AR2 と［ログイン］、
     assert.ok(d && shown(d), `${name} の行が出ていない`);
   }
   const btn = l.byId.get('accountSignIn');
-  assert.strictEqual(btn.closest('.card'), cards[1]);
+  assert.strictEqual(btn.closest('.card'), cards[0]);
   assert.ok(out.querySelectorAll('button').includes(btn), '［ログイン］がログインしていないときの欄に無い');
   assert.strictEqual(btn.textContent.trim(), 'ログイン');
   assert.ok(shown(btn) && !shown(l.byId.get('accountLogout')));
@@ -265,8 +266,10 @@ test('F11: ［詳細設定（管理者用）］・鍵の欄・3つのボタン�
   await l.drain();
   for (const id of RETIRED) assert.strictEqual(l.byId.get(id), undefined, `${id} がまだある`);
   assert.deepStrictEqual(l.missingIds.filter((id) => RETIRED.includes(id)), [], '消した欄をまだ引いている');
-  const card = l.byId.get('claudeTest').closest('.card');
-  assert.strictEqual(card.querySelector('h2').textContent.trim(), 'オンライン');
+  // 0.9.0 U-2（SP4・D24）で意図して変えた: Claude Code の欄は「要約（Claude Code）」のカード、前の「オンライン」の説明は「文字起こし」のカード（文は今のまま）
+  assert.strictEqual(l.byId.get('claudeTest').closest('.card').querySelector('h2').textContent.trim(), '要約（Claude Code）');
+  const card = l.byId.get('language').closest('.card');
+  assert.strictEqual(card.querySelector('h2').textContent.trim(), '文字起こし');
   const t = l.byId.get('tabSettings').textContent;
   for (const w of ['詳細設定（管理者用）', '管理者用の仮の欄', 'OpenAI の鍵', '鍵を確かめる', '鍵を消す', 'API キー']) assert.ok(!t.includes(w), `${w} が残っている`);
   const desc = card.querySelectorAll('.desc').find((d) => d.textContent.includes('文字起こしの中継'));

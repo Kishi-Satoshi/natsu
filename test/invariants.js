@@ -82,6 +82,7 @@ const WIRED = [
   { screen: 'app', id: 'setClose', types: ['click'], 由来: '0.9.0 U-1: 設定のポップアップの ×。切れるとマウスでは閉じられない' },
   { screen: 'app', id: 'settingsModal', types: ['keydown'], 由来: '0.9.0 U-1: 設定のポップアップの Esc と Tab の閉じ込め（外の地の pointerdown・click も同じ要素）' },
   { screen: 'app', id: 'setNav', types: ['click', 'keydown'], 由来: '0.9.0 U-1: 設定の左の項目の列（押す・↑↓・Home・End）' },
+  { screen: 'app', id: 'setSearch', types: ['input', 'keydown'], 由来: '0.9.0 U-2: 設定の検索の欄（打つと行の名前で絞る・Esc で文字を消す）' },
   { screen: 'app', id: 'searchBox', types: ['input'], 由来: '議事録の検索' },
   { screen: 'app', id: 'sideSearch', types: ['click'], 由来: '検索の窓を開く（第1b2回）' },
   { screen: 'app', id: 'sideGrip', types: ['pointerdown', 'keydown'], 由来: '第1b回 N2: サイドバーの幅のつまみ（ドラッグと ←／→・Enter）。切れると幅を変えられず、キーボードでは畳めない' },
