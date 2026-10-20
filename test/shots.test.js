@@ -445,9 +445,11 @@ test('G2・F14・G-4・0.9.0: 取り直し待ちは計画の「取り直す画�
 // 帯と知らせの［ログイン］［オフラインの準備］・PC の中だけの文を足した。見える中身が変わるのは設定の画面（RETAKE にある。準備を選んでいない人の
 // カードの画面 settings-offline-light を足した）。録音中のページの画面の答えは action も needsSetup も持たないので、議事録・音声入力・録音中の
 // ページ・検索の窓は基準のまま比べる。値を今の app.html に合わせた
+// 0.9.0 U-4（SP6・SP7・F15）: 設定の左の列の下に［ヘルプセンター］（HELP_SITE_LIVE が偽なので hidden）と版の文字を足した。見える中身が
+// 変わるのは設定の画面だけで、どれも RETAKE にある。ほかの画面は基準のまま比べる。値を今の app.html に合わせた
 test('基準の画像（test/shots/win32）は今の app.html で撮ったもの（app.html を変えたら撮り直しを確かめる）', { timeout: 5000 }, () => {
   const sha = require('node:crypto').createHash('sha256').update(fs.readFileSync(path.join(ROOT, 'src', 'renderer', 'app.html'))).digest('hex');
-  assert.strictEqual(sha, '2a32a55a55d7a4abce5f2fc78fa46caaa5c451d2b577e06c59976feddd9860d1',
+  assert.strictEqual(sha, '5613ae0e78fa4c251de3e15e79235992cca92f51ef60cdc1f87a026eb431df49',
     'app.html が基準の画像を撮った時と違う。Windows の CI の画面の比べ（捲り棒のつまみも）を見て、基準を取り直してからこの値を直す');
 });
 

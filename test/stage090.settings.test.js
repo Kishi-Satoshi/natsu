@@ -606,3 +606,61 @@ test('SP4: 選んだ項目でない欄を変えても、自動保存が今と同
   assert.deepStrictEqual(l.called('saveSettings')[1].args[0], { ...SAVED_080, autoPaste: false, removeFillers: false });
   assert.deepStrictEqual(l.errors.map(fmt), []);
 });
+
+// ---------------------------------------------------------------- U-4（SP6・SP7・F15）
+// ［ヘルプセンター］は、ヘルプのサイトが出るまで出さない（HELP_SITE_LIVE が真で、ヘルプの計画の H-12 の koeApp.openHelp があるときだけ）。
+// 真の形は、app.html の定数の行を書き換えた写しで走らせる（真にするのは G-3 だけ）
+const LIVE_LINE = 'const HELP_SITE_LIVE = false;';
+const P_HELP = preloadWith('uiState', 'uiSave', 'meetingSetPaused', 'openHelp');
+const openHelpApp = (live, preloadSrc) => load(APP, { preloadSrc, html: live ? html.replace(LIVE_LINE, 'const HELP_SITE_LIVE = true;') : html,
+  returns: { pagesSearch: () => LIST, pageGet: PAGE, uiState: UI(), openHelp: () => ({ ok: true }) } });
+test('SP6・F15: HELP_SITE_LIVE が偽なら、openHelp があっても［ヘルプセンター］は hidden', T, async () => {
+  assert.strictEqual(html.split(LIVE_LINE).length, 2, 'app.html に HELP_SITE_LIVE = false の行がちょうど1つ無い');
+  const l = await openHelpApp(false, P_HELP);
+  await l.drain();
+  assert.ok(l.apis.koeApp.includes('openHelp'), '前提: 偽の preload に openHelp が無い');
+  await click(l, 'tabBtnSettings');
+  const b = $(l, 'setHelpLink');
+  assert.ok(b, '［ヘルプセンター］の要素が無い');
+  assert.strictEqual(b.hidden, true, 'サイトが出る前に［ヘルプセンター］を出した');
+  assert.ok(b.closest('.setfoot') && b.closest('.setnav'), '［ヘルプセンター］が左の列の下に無い');
+  assert.deepStrictEqual(l.errors.map(fmt), []);
+});
+test('SP6・F15: HELP_SITE_LIVE が真でも openHelp が無ければ hidden', T, async () => {
+  const l = await openHelpApp(true, P1B);
+  await l.drain();
+  assert.ok(!l.apis.koeApp.includes('openHelp'), '前提: preload に openHelp がある');
+  await click(l, 'tabBtnSettings');
+  assert.strictEqual($(l, 'setHelpLink').hidden, true, '押しても何も起きない［ヘルプセンター］を出した');
+  assert.deepStrictEqual(l.errors.map(fmt), []);
+});
+test('SP6・F15: HELP_SITE_LIVE が真で openHelp があれば出て、押すと openHelp が引数なしで1回呼ばれ、ポップアップは開いたまま', T, async () => {
+  const l = await openHelpApp(true, P_HELP);
+  await l.drain();
+  await click(l, 'tabBtnSettings');
+  const b = $(l, 'setHelpLink');
+  assert.strictEqual(b.hidden, false);
+  assert.strictEqual(b.textContent.trim(), 'ヘルプセンター');
+  await click(l, b);
+  assert.deepStrictEqual(l.called('openHelp').map((c) => c.args), [[]], 'openHelp を引数なしで1回呼んでいない（URL を渡した）');
+  assert.ok(isOpen(l), '［ヘルプセンター］でポップアップが閉じた');
+  assert.deepStrictEqual(l.errors.map(fmt), []);
+});
+test('F15: app.html にヘルプのサイトの住所を書かない（https://natsu-help の字面が無い。http の住所は 0.8.0 の Claude Code の入れ方の1つだけ）', T, () => {
+  assert.ok(!/natsu-help/i.test(html), 'app.html にヘルプのサイトの住所がある（URL は main だけが持つ）');
+  assert.deepStrictEqual([...new Set(html.match(/https?:\/\/[^\s"'<>）]+/g) || [])], ['https://claude.ai/install.ps1']);
+});
+test('SP7: 左の列の下に「NaTsu {版}」（appVersion の答え）。答えが無ければ空', T, async () => {
+  const l = await open();
+  await l.drain();
+  const v = $(l, 'setVer');
+  assert.ok(v.closest('.setfoot'), '版の文字が左の列の下に無い');
+  assert.strictEqual(v.textContent, 'NaTsu 0.10.4');
+  for (const appVersion of [() => { throw new Error('x'); }, () => null, () => ({})]) {
+    const n = await open({ appVersion });
+    await n.drain();
+    assert.strictEqual($(n, 'setVer').textContent, '', '版が分からないのに文字を出した');
+    assert.deepStrictEqual(n.errors.map(fmt), []);
+  }
+  assert.deepStrictEqual(l.errors.map(fmt), []);
+});
