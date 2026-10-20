@@ -478,6 +478,11 @@ const displaysFlag = flagVal('--displays') ? flagVal('--displays').split(';').ma
 }) : null;
 // 0.9.0 O-2: 録音バーの大きさの知らせ・ドラッグ・カーソル
 const panelSizeFlag = flagVal('--panel-size') ? (([w, h]) => ({ w, h }))(flagVal('--panel-size').split('x').map(Number)) : null;
+// G-2（統合）: --panel-size-form=<h|v> … --panel-size の知らせに form を付ける（今の形でない形の古い大きさ）。--self-move … 録音の始めの後に、
+// main が置いた所のまま録音バーの窓に move・moved を出し、置き直した数を panel.selfMove に（ドラッグでない move は数えない）
+const panelSizeForm = flagVal('--panel-size-form') || '';
+const selfMove = flags.includes('--self-move');
+if (panelSizeFlag && panelSizeForm) panelSizeFlag.form = panelSizeForm;
 const dragTo = xyFlag(flagVal('--drag-to'));
 const dragSteps = flags.includes('--drag-steps');
 const cursorTo = xyFlag(flagVal('--cursor-to'));
@@ -1998,7 +2003,7 @@ process.on('exit', () => {
     out.overlayBounds = overlayBounds;
     out.overlayForms = overlayForms;
     if (!out.overlaySent) out.overlaySent = overlaySent;   // 音声入力の場面の出力にも録音の始めの合図を入れる
-    if (!(panelSizeFlag || dragTo || cursorTo || hidePanelMode || hoverPanel)) return;
+    if (!(panelSizeFlag || dragTo || cursorTo || hidePanelMode || hoverPanel || selfMove)) return;
     const ov = wins[0];
     const p = { boundsAtStartList: overlayBounds.slice() };
     out.panel = p;
@@ -2035,6 +2040,15 @@ process.on('exit', () => {
       try { p.slotAfter = JSON.parse(settingsNow()).pillSlot; } catch (_) { p.slotAfter = null; }
       // 本体の画面へ送った置き場所の知らせ（O-2・O-4 の点検の直し: 画面の欄を今の値にする。読み込み中で届かなかったものも数える）
       p.patched = [...lost, ...sent].filter(([ch]) => ch === 'settings:patched').map(([, x]) => x);
+    }
+    if (selfMove) {
+      const before = settingsNow();
+      const n0 = overlayBounds.length;
+      ov.emit('move');
+      ov.emit('moved');
+      await sleep(WRITE_SETTLE_MS);
+      p.selfMove = overlayBounds.length - n0;
+      p.settingsChanged = settingsNow() !== before;
     }
     if (panelSizeFlag && !dragSteps) {
       const n0 = overlayBounds.length;
@@ -2078,6 +2092,7 @@ process.on('exit', () => {
       } else if (hidePanelMode === 'next') {
         listeners['overlay:cancel-request']({});
         await sleep(20);
+        h.afterCancel = snap();   // G-2（統合）: 録音していない間の meeting:status の panelHidden
         shortcuts[(await handlers['settings:get']()).hotkey]();
         await sleep(20);
         h.afterNext = snap();

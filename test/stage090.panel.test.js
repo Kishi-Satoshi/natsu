@@ -193,6 +193,18 @@ describe('0.9.0 O-2 窓の大きさと吸い付き（場面）', { concurrency: 
     assert.deepStrictEqual(o.panel.patched, [{ pillSlot: 'middle-right' }]);
   });
 
+  // G-2（統合）: 点検する人の変異 rp-size-form・rp-self-move（生き残った）を殺す場面
+  test('RP4: 今の形でない形（縦）の大きさの知らせ（形を替える前に録音バーの画面が送った古い大きさ）では、横の窓を作り直さない', SCENE, async () => {
+    const o = await run(['text', '--dictate', '--panel-size=56x236', '--panel-size-form=v']);
+    assert.strictEqual(o.overlaySent[0].form, 'h', '前提: 横の形で始まっていない');
+    assert.deepStrictEqual(o.panel.afterSize, [], '前の形の大きさで窓を作り直した');
+  });
+  test('RP3・F18: main が自分で置いた所の move・moved（ドラッグでない）は吸い付き直さない（窓を置き直さない・settings.json を書かない）', SCENE, async () => {
+    const o = await run(['text', '--self-move']);
+    assert.strictEqual(o.panel.selfMove, 0, '自分で置いた所の move をドラッグと数えて置き直した');
+    assert.strictEqual(o.panel.settingsChanged, false);
+  });
+
   test('RP3: 今の置き場所の近くへ少し動かして離すと、名前が同じなので settings.json を書かず、窓は元の所へ戻る', SCENE, async () => {
     const o = await run(['text', '--drag-to=1000,990']);
     assert.strictEqual(o.panel.settingsChanged, false, '名前が同じなのに settings.json を書いた');
@@ -252,6 +264,8 @@ describe('0.9.0 O-4 隠す・出し直す（場面）', { concurrency: Number(pr
     const o = await run(['text', '--dictate', '--hide-panel=next']);
     const h = o.panel.hide;
     assert.strictEqual(h.afterHide.panelHidden, true);
+    // G-2（統合）: 点検する人の変異 rp-hidden-status を殺す: 録音を取り消した後（録音していない間）は、meeting:status の panelHidden は偽
+    assert.strictEqual(h.afterCancel.panelHidden, false, '録音していないのに panelHidden が真のまま');
     assert.strictEqual(h.afterNext.panelHidden, false);
     assert.ok(!h.afterNext.tray.includes(SHOW_TRAY), `次の録音でトレイに項目が残る: ${h.afterNext.tray}`);
     assert.deepStrictEqual(h.afterNext.calls.slice(h.afterHide.calls.length).filter((c) => !c.startsWith('phase:')), ['showInactive']);

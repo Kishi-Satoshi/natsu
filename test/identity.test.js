@@ -295,3 +295,93 @@ test('0.8.0: CHANGELOG の 0.8.0 の節は、頭に更新の後の Cloudflare �
   assert.ok(!sec.includes('api.groq.com') && !sec.includes('api.openai.com'), '0.8.0 の節に PC が直に送る前の送り先を書いた');
   assert.ok(!/notion/i.test(sec), '0.8.0 の節に「Notion」と書いた');
 });
+
+// ---------------------------------------------------------------- 0.9.0 G-2（OF8・D27・D28）
+// 計画 docs/plans/2026-10-20-090.md の Task G-2「案内に書くこと」。版は G-3 で上げるので、CHANGELOG の 0.9.0 の節はそれまで計画の
+// 「CHANGELOG の 0.9.0 の節（下書き）」に置き、G-3 が版を上げる commit で CHANGELOG.md の頭へ移す（今の版の節が先頭という守りを崩さない）
+const secOf = (md, heading) => {
+  const i = md.indexOf(`\n${heading}`);
+  if (i < 0) return '';
+  const rest = md.slice(i + 1);
+  const j = rest.indexOf('\n## ', 1);
+  return j < 0 ? rest : rest.slice(0, j);
+};
+const FETCH_BTN = 'オフラインでも使う（数 GB を取り込む）';
+test('0.9.0: README・INSTALL は手順3を任意と書き、ログインを先に書く。［オフラインでも使う（数 GB を取り込む）］は画面にある', () => {
+  assert.ok(app.includes(FETCH_BTN), '画面に［オフラインでも使う（数 GB を取り込む）］が無い');
+  const step3 = '## 手順3.（任意）オフラインでも使う（約 5.6GB を取り込む）';
+  assert.ok(install.includes(`\n${step3}\n`), 'INSTALL の手順3 の見出しが任意の形でない');
+  const login = install.indexOf('\n## ログインする');
+  assert.ok(login > 0 && login < install.indexOf(`\n${step3}`), 'INSTALL のログインの手順が手順3 の前に無い');
+  assert.ok(!install.includes('この時点で起動はしますが、文字起こしと要約はまだ動きません。'), 'INSTALL に「まだ動きません」が残っている');
+  assert.ok(install.includes('設定の「アカウント」でログインすると、インターネットにつながっているときは会議と音声入力が使えます。'));
+  const s3 = secOf(install, step3);
+  assert.ok(s3.includes(`［${FETCH_BTN}］`), 'INSTALL の手順3 に初めのボタンの名前が無い');
+  for (const w of ['オフラインの会議', '音声を残し', '音声入力はオフラインでは始めません', 'PC の中だけ']) assert.ok(s3.includes(w), `INSTALL の手順3 に「${w}」が無い`);
+  assert.ok(!/約\s*7\s*GB 必要です/.test(install.split('\n').slice(0, 20).join('\n')) || /オフラインでも使うときだけ/.test(install.split('\n').slice(0, 20).join('\n')),
+    'INSTALL の前提の空きが「オフラインでも使うときだけ」の書き方でない');
+  assert.ok(!install.includes('ふつうは手順3（［PC の中の文字起こしを取り込む］）で足ります。'), 'INSTALL の困ったときに手順3 が要る書き方が残っている');
+  assert.ok(readme.includes(`［${FETCH_BTN}］`) && readme.includes('任意'), 'README に任意の取り込みが無い');
+  const ps = read('get-installer.ps1');
+  assert.ok(ps.includes('インストールしたら NaTsu を起動し、［設定］→［アカウント］でログインしてください。'), 'get-installer.ps1 の終わりの案内がログインを先に言わない');
+  assert.ok(ps.includes(`オフラインでも使うときは、［設定］→［オフライン］の［${FETCH_BTN}］を押します（約 5.6GB。途中で切れても続きから取ります）。`));
+});
+
+const SECS = (() => {
+  const m = app.match(/const SETTINGS_SECS = (\[[^\]]+\]);/);
+  return m ? [...m[1].matchAll(/name: '([^']+)'/g)].map((x) => x[1]) : [];
+})();
+test('0.9.0: README・INSTALL に「設定タブ」「設定のタブ」の言葉が無く、設定の項目の名前は画面の SETTINGS_SECS の名前', () => {
+  assert.deepStrictEqual(SECS, ['アカウント', '一般', '録音', '要約', 'オフライン', '更新']);
+  for (const [f, t] of [['README.md', readme], ['INSTALL.md', install], ['get-installer.ps1', read('get-installer.ps1')]]) {
+    assert.ok(!t.includes('設定タブ') && !t.includes('設定のタブ'), `${f} に「設定タブ」「設定のタブ」がある`);
+    const named = [...t.matchAll(/［設定］→［([^］]+)］/g), ...t.matchAll(/［設定］の「([^」]+)」/g)].map((m) => m[1]);
+    for (const n of named) assert.ok(SECS.includes(n), `${f} の［設定］の「${n}」が設定の項目の名前でない`);
+  }
+  assert.ok(readme.includes('［⚙️ 設定］は、今のページの上に開きます。左の列で項目を選び、上の欄で設定の名前を探せます。Esc か × で閉じます。'), 'README に設定のポップアップの使い方が無い');
+});
+
+test('0.9.0: README は録音バーの置き場所（8か所・吸い付く・左右の中央は縦・× で隠す・出し直し）と5つの点・相手の声の印を書き、引いた名前は画面にある', () => {
+  for (const w of ['8か所', 'ドラッグ', '縦', '×', '［録音バーを出す］', '［録音バーを表示］', '5つの点', 'スピーカーの印']) assert.ok(readme.includes(w), `README に「${w}」が無い`);
+  assert.ok(app.includes('録音バーを出す'), '画面に［録音バーを出す］が無い');
+  assert.ok(main.includes("label: '録音バーを表示'"), 'トレイに［録音バーを表示］が無い');
+});
+
+test('D28: README の管理者の手順の頭に、会社の回線では Cloudflare の画面の書き込みができず、会社の外の回線で行う1段がある（漏れたときの手順にも）', () => {
+  const D28 = '会社の回線からは、Cloudflare の画面での書き込み（Worker の秘密の欄の追加・変更、Access の決まりの変更など）ができません（会社の通信の検査が止めます）。管理の操作は、会社の外の回線（自宅の回線・スマートフォンのテザリングなど）で行ってください。見るだけの操作と、GitHub の［Run workflow］は会社の回線でもできます。';
+  const admin = secOf(readme, '## 管理者の手順');
+  const head = admin.slice(0, admin.indexOf('\n### '));
+  assert.ok(head.includes(D28), 'README の管理者の手順の頭に D28 の1段が無い');
+  const leak = admin.slice(admin.indexOf('### 鍵とトークンが漏れたかもしれないとき'));
+  assert.ok(leak.slice(0, leak.indexOf('\n### ', 4)).includes('会社の外の回線'), '漏れたときの手順に会社の外の回線の1行が無い');
+});
+
+test('D27: README の頭の「このリポジトリについて」に、公開のリポジトリの決まりの1段がある', () => {
+  const D27 = 'このリポジトリは作っている間は公開しています。会社の名前・会社のドメイン・人の名前・社内の情報は、コード・文書・テストに書きません（公開前の確認の決まり）。';
+  const i = readme.indexOf('\n## このリポジトリについて\n');
+  assert.ok(i > 0 && i < readme.indexOf('\n## 機能'), 'README の頭に「このリポジトリについて」が無い');
+  assert.ok(secOf(readme, '## このリポジトリについて').includes(D27));
+});
+
+// CHANGELOG の 0.9.0 の節（G-3 までは計画の下書き）の［…］は、どれも画面かトレイの名前（src/ にある）。案内の語を画面で探せるように
+const changelog090 = () => {
+  const cl = read('CHANGELOG.md');
+  if (cl.includes('\n## natsu-v0.9.0\n')) return secOf(cl, '## natsu-v0.9.0');
+  const plan = read('docs/plans/2026-10-20-090.md');
+  const i = plan.indexOf('\n### CHANGELOG の 0.9.0 の節（下書き）\n');
+  if (i < 0) return '';
+  const rest = plan.slice(i + 1);
+  const j = rest.indexOf('\n#', 4);
+  return j < 0 ? rest : rest.slice(0, j);
+};
+test('0.9.0: CHANGELOG の 0.9.0 の節（G-3 までは計画の下書き）は任意の取り込み・設定の画面・録音バー・帯の文を書き、引いた［…］はどれも src/ にある', () => {
+  const sec = changelog090();
+  assert.ok(sec, 'CHANGELOG の 0.9.0 の節（下書き）が無い');
+  for (const w of ['［更新して再起動］', '任意', 'もう取り込んでいる PC は、今までどおりです。', 'この会議は PC の中だけ', 'Esc か × で閉じます',
+    '8か所', '縦', '精度が落ちます', 'ネットワークから外れた']) assert.ok(sec.includes(w), `0.9.0 の節に「${w}」が無い`);
+  const src = ['src/renderer/app.html', 'src/renderer/overlay.html', 'src/main.js', 'src/mainlib.js'].map(read).join('\n');
+  const names = [...new Set([...sec.matchAll(/［([^］]+)］/g)].map((m) => m[1]))];
+  assert.ok(names.length >= 5, `引いた［…］が少ない: ${names.join('・')}`);
+  for (const n of names) assert.ok(src.includes(n), `0.9.0 の節の［${n}］が src/ に無い`);
+  assert.ok(!/notion/i.test(sec) && !/(?<![\w-])[a-z0-9-]+\.cloudflareaccess\.com/i.test(sec), '0.9.0 の節に書いてはいけない字面がある');
+});
