@@ -123,3 +123,24 @@ test('HF2: 作るのが通る（build() が help/ の全部の記事で HelpBuil
   assert.strictEqual(r.articles.length, refs.length);
   assert.ok(fs.existsSync(path.join(out, 'index.html')) && fs.existsSync(path.join(out, 'search-index.json')));
 });
+
+// H-11: README の「ヘルプセンター」の節（置き場所・作り方・出し方・利用者の用意の Access の手順）。計画の「利用者の用意」と同じ中身
+test('H-11: README の「ヘルプセンター」の節に、住所・作り方（npm run help:build）・出し方（help-deploy）・利用者の用意の Access の手順がある', { timeout: 5000 }, () => {
+  const readme = read('README.md');
+  const at = readme.indexOf('\n## ヘルプセンター\n');
+  assert.ok(at >= 0, 'README に「## ヘルプセンター」の節が無い');
+  const next = readme.indexOf('\n## ', at + 5);
+  const sec = readme.slice(at, next < 0 ? undefined : next);
+  for (const w of [
+    'https://natsu-help.natsu-code.workers.dev/',   // 住所
+    'help/articles/', 'help/site.json',            // 置き場所
+    'npm run help:build', 'help/dist',             // 作り方
+    'help-deploy', 'Run workflow',                 // 出し方（GitHub の Actions の手で押す）
+    'Protect this Worker behind Access', 'One-time PIN', '1 week',   // 利用者の用意の 1〜3（Access・7 日）
+    'TEAM_DOMAIN', 'POLICY_AUD', 'ALLOWED_EMAIL_DOMAINS', 'Secret', // 利用者の用意の 5（秘密の欄。種類は Secret）
+    'Access に守られています', 'Exclude',          // 2回目の確かめ・人を止めるときは両方の app に
+    'node tools/help-shots.js',                    // 見た目を変えたら撮り直す（R7）
+  ]) assert.ok(sec.includes(w), `README の「ヘルプセンター」の節に「${w}」が無い`);
+  // 会社の固有の情報は書かない（チームの名前・会社のドメインは <…> の形だけ）
+  assert.doesNotMatch(sec, /(?<![<\w-])[a-z0-9-]+\.cloudflareaccess\.com/i);
+});

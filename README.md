@@ -283,6 +283,29 @@ PowerShell を打たなくても、NaTsu の［設定］→「オンライン」
 - 会社のメールの検査で止まる・「already been used」になるときは、14 のとおり情報システムに `noreply＠notify.cloudflare.com`（＠ は半角）を許してもらいます。
 - それでも届かないときは、9 の決まりの Include が `@<会社のドメイン>` か、その人を Exclude に入れていないかを見ます。
 
+## ヘルプセンター
+
+NaTsu の使い方の記事を集めた、ログインの要るサイトです（`https://natsu-help.natsu-code.workers.dev/`）。会社のメールアドレスでログインした人だけが読めます（中継と同じ Cloudflare Access の One-time PIN）。アプリにも自動更新の zip にも入りません。
+
+- **記事の元:** `help/articles/<分類>/<名前>.md`。分類と並びは `help/site.json`、見た目（白黒・同梱の IBM Plex の書体）は `help/assets/`。リポジトリは公開なので、記事の元は誰でも読めます。会社の固有の情報（人・社名・会社のドメイン・チームの名前）は記事に書きません。
+- **書き方:** 実装計画 `docs/plans/2026-10-20-help.md` の「記事の書き方」。記事の ［…］ は NaTsu の画面の言葉だけで、どれもアプリのコードにちょうどその文字があることを `npm test` が確かめます（ほかの画面のボタンは太字）。
+- **作り方:** `npm run help:build` で `help/dist` にサイトができます（git には入りません）。
+- **見た目を変えたら:** `node tools/help-shots.js` で写真を撮り直します（作業環境の Playwright と Chromium の場所を `HELP_SHOTS_PLAYWRIGHT`・`HELP_SHOTS_CHROMIUM` で渡す）。ホーム・分類・記事を明暗と幅 1280・390 で撮り、全部を目で見てから `help/shots.json` を commit します（CSS を変えたのに撮り直していなければ `npm test` が赤になります）。
+- **出し方:** GitHub の［Actions］→［help-deploy］→［Run workflow］（main だけ・環境 `relay`）。main に `help/` などの変更が入ったときも自動で出します。最後に、ログインしていない要求で中身が返らないことを確かめ、返れば赤で止まります。
+
+### 初めて出すとき（利用者の用意）
+
+中継の用意（Cloudflare のアカウント・Zero Trust のチーム・One-time PIN・API トークン・GitHub の環境 `relay`）が済んでいれば、新しいトークンも環境も要りません。会社のドメイン・チームの名前・AUD は Cloudflare の画面にだけ入れます。
+
+0. **1回目を出す:** ［Run workflow］→ 緑で、最後の行が「準備中（Access の app と秘密の欄がまだ。利用者の用意の 1〜5）」。サイトを開くと「NaTsu ヘルプセンターは準備中です。…」だけが出ます（記事は見えません）。
+1. **natsu-help を Access で守る:** ［Workers & Pages］→ `natsu-help` →［Access］のタブ → **Protect this Worker behind Access** →「All traffic」→「Authentication policy」は「Email domain」で `<会社のドメイン>` →［Apply Access］。
+2. **決まりを中継と同じ形にする:** ［Zero Trust］→［Access controls］→［Applications］→ `natsu-help` の［Configure］。「Policies」の決まりの Include が「Emails ending in」`@<会社のドメイン>` だけであることを見て、［Add require］で「Login Methods」→「One-time PIN」を足す。「Session duration」は「Same as application session timeout」→［Save］。
+3. **ログインの長さ:** 同じ app の「Overview」の「Session Duration」を「1 week」（7 日。中継の app も 7 日）。
+4. **AUD を見る:** 同じ app の「Additional settings」の「Application Audience (AUD) Tag」。中継（`natsu-relay`）の AUD とは違います。
+5. **Worker の秘密を入れる:** ［Workers & Pages］→ `natsu-help` →［Settings］→［Variables and Secrets］。種類はどれも「Secret」（「Text」にすると次の出し直しで消えます）。`TEAM_DOMAIN`（中継と同じ `https://<チームの名前>.cloudflareaccess.com`）・`POLICY_AUD`（4 の natsu-help の AUD）・`ALLOWED_EMAIL_DOMAINS`（中継と同じ）→［Deploy］。
+6. **2回目を出す:** ［Run workflow］→ 緑で「Access に守られています」。会社の PC の InPrivate の窓でサイトを開き、ログインの画面が出ること・ログインすると読めること・ログインせずに `…/search-index.json` を開くとログインの画面になることを確かめます。
+7. **覚えておくこと:** 人を止める手順は「取り消しと止め方」と同じです。Exclude は app ごとなので、**natsu-relay と natsu-help の両方の決まり**に足します（中継の止めたメールはヘルプにも効きます）。Worker の Access は外しません。
+
 ## セットアップ
 
 ソースから動かすには **Node.js 22.12 以上**が要ります（Electron 44 の包みが求める版。https://nodejs.org/ja の LTS 版で足ります）。

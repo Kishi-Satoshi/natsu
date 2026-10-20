@@ -353,3 +353,38 @@ test('H-3: site.js は［目次］の開け閉めだけ（外へ通信しない�
   assert.match(js, /aria-expanded/);
   assert.match(js, /classList\.add\('js'\)/);
 });
+
+// H-11（R7）: 画面の写真は CI の基準にしないが、CSS を変えたら撮り直す。tools/help-shots.js が最後に撮った CSS の指紋を help/shots.json に書く。
+// 指紋はファイルごとの SHA-256 の base64url（改行を LF にそろえてから。Windows の取り出しの CRLF でも同じ。16進の 64 字はゲートが AUD の見かけとして止める）
+test('R7: help/shots.json の CSS の指紋が、今の help/assets/*.css の指紋と同じ（CSS を変えたら node tools/help-shots.js で撮り直す）', { timeout: 5000 }, () => {
+  const crypto = require('node:crypto');
+  const p = path.join(ROOT, 'help', 'shots.json');
+  assert.ok(fs.existsSync(p), 'help/shots.json が無い（node tools/help-shots.js で撮る）');
+  const shots = JSON.parse(fs.readFileSync(p, 'utf8'));
+  const dir = path.join(ROOT, 'help', 'assets');
+  const now = {};
+  for (const f of fs.readdirSync(dir).filter((x) => x.endsWith('.css')).sort()) {
+    now[f] = crypto.createHash('sha256').update(fs.readFileSync(path.join(dir, f), 'utf8').replace(/\r\n?/g, '\n')).digest('base64url');
+  }
+  assert.ok(Object.keys(now).length >= 2);
+  assert.deepStrictEqual(shots.css, now, 'CSS が撮った後に変わった。node tools/help-shots.js で撮り直し、写真を見てから help/shots.json を commit する');
+  // 撮った組: ホーム・分類（record）・記事（record/pc-only）と試験利用の手順 × 明暗 × 1280 と 390
+  assert.deepStrictEqual(shots.pages, ['/', '/record/', '/record/pc-only/', '/start/tester-guide/']);
+  assert.deepStrictEqual(shots.schemes, ['light', 'dark']);
+  assert.deepStrictEqual(shots.widths, [1280, 390]);
+});
+
+test('H-11: help-shots.js は作業環境の Playwright と Chromium の場所を環境変数で受け、無ければ使い方を出して 1（npm の依存を足さず、外へ通信しない）', { timeout: 5000 }, () => {
+  const { spawnSync } = require('node:child_process');
+  const env = { ...process.env };
+  delete env.HELP_SHOTS_PLAYWRIGHT;
+  delete env.HELP_SHOTS_CHROMIUM;
+  const r = spawnSync(process.execPath, [path.join(ROOT, 'tools', 'help-shots.js')], { env, encoding: 'utf8', timeout: 4000 });
+  assert.strictEqual(r.status, 1);
+  assert.match(r.stderr, /HELP_SHOTS_PLAYWRIGHT/);
+  assert.match(r.stderr, /HELP_SHOTS_CHROMIUM/);
+  const src = fs.readFileSync(path.join(ROOT, 'tools', 'help-shots.js'), 'utf8');
+  assert.doesNotMatch(src, /require\(['"]playwright/, 'Playwright はリポジトリの依存ではない（場所を HELP_SHOTS_PLAYWRIGHT で受ける）');
+  assert.doesNotMatch(src, /https?:\/\/(?!127\.0\.0\.1)/, '写真の道具は 127.0.0.1 のほかへ通信しない');
+  assert.match(src, /helpHeaders/, '門と同じ見出し（CSP）で出して撮る');
+});
