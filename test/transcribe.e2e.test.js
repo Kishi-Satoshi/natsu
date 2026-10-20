@@ -28,13 +28,25 @@ const RUN = path.join(__dirname, 'helpers', 'mainrun.js');
 const { vcRuntimeIssue } = require('../src/mainlib');
 
 // 場面ごとの文字起こしエンジンのポートを、先にまとめて取る。別々に空きを探すと、並べて走らせた
-// 場面どうしで同じポートを掴むことがある（100 回に 1 回ほど落ちた）
+// 場面どうしで同じポートを掴むことがある（100 回に 1 回ほど落ちた）。
+// 0.9.0 見た目の直しの CI（run 39484701958・ubuntu）で、取ってから場面がエンジンを起こすまでの間に、そのポートを別の場面の
+// 外向きの接続（OS が送り元に選ぶ一時的なポート）が使い、「ポート 45481 は他のプロセスが使用中」で2つのテストが落ちた。
+// listen(0) で取るポートは、その一時的なポートと同じ範囲（Linux 32768〜60999・Windows 49152〜65535）から出るので、
+// 取ったポートを閉じた後に送り元として使われ得る。一時的なポートの範囲より下（20000〜32767）から、実際に listen できたものだけを取る
+const PORT_LO = 20000, PORT_HI = 32767;
+const tryListen = (port) => new Promise((resolve) => {
+  const s = net.createServer();
+  s.once('error', () => resolve(null));
+  s.listen(port, '127.0.0.1', () => resolve(s));
+});
 async function reservePorts(n) {
-  const servers = await Promise.all(Array.from({ length: n }, () => new Promise((resolve, reject) => {
-    const s = net.createServer();
-    s.once('error', reject);
-    s.listen(0, '127.0.0.1', () => resolve(s));
-  })));
+  const servers = [];
+  let port = PORT_LO + Math.floor(Math.random() * (PORT_HI - PORT_LO - 2000));   // 別のテストの走りと重ならないよう、始めを散らす
+  for (let tries = 0; servers.length < n && tries < 4000; tries++, port = port >= PORT_HI ? PORT_LO : port + 1) {
+    const s = await tryListen(port);
+    if (s) servers.push(s);
+  }
+  if (servers.length < n) throw new Error(`一時的なポートの範囲の外に空きのポートが ${n} 個ない`);
   const ports = servers.map((s) => s.address().port);
   await Promise.all(servers.map((s) => new Promise((r) => s.close(r))));
   return ports;
