@@ -3,16 +3,16 @@
 // 中継がモデル（cfg.model）・response_format・temperature を決めて OpenAI の multipart を自分で組み立て、会社の鍵を付けて送り、
 // 文字だけを返す。アプリから来た欄を解かないので、客はモデルも欄も差し込めない。
 //
-//   handleTranscribe(request, env, { cfg, now, ctx }) → Response（道の関数。worker.mjs の health・auth.mjs と同じ形。now はミリ秒の時計）
-//   順: ready（503 not-ready）→ 認め（W-5: JWT（見出し Cf-Access-Jwt-Assertion か Cookie の CF_Authorization）があれば access.mjs の
-//     requireAccess だけで決める（401 login・403 denied・503 not-ready）。W-6 までは、JWT が無いときだけ今の札 requireSession（401 login））
+//   handleTranscribe(request, env, { cfg, now, ctx }) → Response（道の関数。worker.mjs の health・me と同じ形。now はミリ秒の時計）
+//   順: ready（503 not-ready）→ 認め（access.mjs の requireAccess（人の JWT。見出し Cf-Access-Jwt-Assertion か Cookie の CF_Authorization）
+//     だけ。401 login・403 denied・503 not-ready。W-6 で自前の札（Authorization: Bearer）の道を消した）
 //     → Content-Type が audio/wav で始まる（415 not-wav）
 //     → 言語（/^[a-z]{2,3}$/ のときだけ送る。ほかと無いときは送らない＝自動）
 //     → ヒント（見出しの文字のまま 9,000 バイトまで・decodeURIComponent で戻せる・戻して 1,000 字まで。ほかは 400 bad-request）
 //     → 1日の上限の先の確かめ（1人と全体。もう上限なら本文を読まずに 429 daily-cap）
 //     → 本文を読みながら数える（cfg.maxAudioBytes を越えたら読むのをやめて 413 too-large）
 //     → wavInfo（アプリの録音の形だけ。ほかは 415 not-wav）
-//     → reserveUsage（1人と全体の秒を送る前に取り置く。越えれば 429 daily-cap）
+//     → reserveUsage（1人と全体の秒を送る前に取り置く。越えれば 429 daily-cap。同じ batch で 2 日より前の日の数えの行を片付ける: W-6）
 //     → OpenAI へ（cfg.openaiBase は試しの 127.0.0.1 のほかは本物の固定の URL。redirect: 'error' で鍵を別の宛先へ運ばない）
 //     → 答えの分け方 → 200 でなければ取り置いた秒を戻す（refundUsage）→ 記録 1 行 { ev: 'stt', st, r, ms, sec }（scope は daily-cap だけ）
 //   取り置きの後に Worker が止まると秒は戻らない（使った側に多く数える。費用は越えない側に倒れる）。
@@ -27,8 +27,7 @@
 //     response_format=json・temperature=0・file（filename="segment.wav"・Content-Type: audio/wav）。文字の欄は UTF-8）
 
 import { json, readCapped, sha256hex } from './http.mjs';
-import { requireSession } from './auth.mjs';
-import { requireAccess, accessError, takeJwt } from './access.mjs';
+import { requireAccess, accessError } from './access.mjs';
 import { ALL_USAGE_KEY, dayNumber, secondsToDayEnd, usage, reserveUsage, refundUsage } from './limits.mjs';
 import { logEvent } from './log.mjs';
 
@@ -144,14 +143,8 @@ export async function handleTranscribe(request, env, { cfg, now, ctx }) {
     return json(st, body, headers);
   };
   if (!cfg.ready.openai) return done(503, { error: 'not-ready' });
-  let s;
-  if (takeJwt(request)) {
-    s = await requireAccess(request, env, cfg, { now, ctx });
-    if (!s.ok) return done(s.st, { error: accessError(s.st) });
-  } else {
-    s = await requireSession(request, env, cfg, { now });   // W-6 で消す（アプリの移り目の間だけ）
-    if (!s) return done(401, { error: 'login' });
-  }
+  const s = await requireAccess(request, env, cfg, { now, ctx });   // ctx.access は need: 'any'（/health）のほかでは見ない
+  if (!s.ok) return done(s.st, { error: accessError(s.st) });
   if (!(request.headers.get('content-type') || '').trim().toLowerCase().startsWith('audio/wav')) return done(415, { error: 'not-wav' });
   const langRaw = (request.headers.get('x-natsu-language') || '').trim();
   const language = LANG.test(langRaw) ? langRaw : '';

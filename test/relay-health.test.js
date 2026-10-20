@@ -16,17 +16,13 @@ test('RL1: GET /health は 200 で、秘密の有無と D1 の表だけを真偽
     const j = await res.json();
     assert.deepStrictEqual(j, { ok: true, relay: 2, ready: { db: true, openai: true, access: false, domains: true } });
     const all = JSON.stringify(j) + logs.join('\n');
-    for (const s of [env.OPENAI_API_KEY, env.RESEND_API_KEY, 'example.com']) assert.ok(!all.includes(s), `答えか記録に ${s}`);
+    for (const s of [env.OPENAI_API_KEY, 'example.com']) assert.ok(!all.includes(s), `答えか記録に ${s}`);
   });
   await R.withRelay({ env: { OPENAI_API_KEY: undefined, ALLOWED_EMAIL_DOMAINS: ' , ' } }, async ({ call }) => {
     const j = await (await call('GET', '/health')).json();
     assert.deepStrictEqual(j.ready, { db: true, openai: false, access: false, domains: false });
   });
-  // Resend の秘密の欄は ready にも答えにも出ない（W-5 で mail を ready から外した。/auth/start は W-6 まで自分の中で見る）
-  await R.withRelay({ env: { RESEND_API_KEY: undefined, MAIL_FROM: undefined } }, async ({ call }) => {
-    const j = await (await call('GET', '/health')).json();
-    assert.deepStrictEqual(Object.keys(j.ready), ['db', 'openai', 'access', 'domains']);
-  });
+  // （第1d回 W-6 で、Resend の秘密の欄の場面は下の「RL2: RESEND_API_KEY・MAIL_FROM・MAIL_DAILY_MAX を入れても…」に移した）
   await R.withRelay({ noSchema: true }, async ({ call }) => {
     assert.strictEqual((await (await call('GET', '/health')).json()).ready.db, false);
   });
@@ -34,6 +30,11 @@ test('RL1: GET /health は 200 で、秘密の有無と D1 の表だけを真偽
   await R.withRelay({}, async ({ call, db }) => {
     await db.prepare("UPDATE meta SET value = '0' WHERE key = 'schema'").run();
     assert.strictEqual((await (await call('GET', '/health')).json()).ready.db, false, "meta.schema が '0'");
+    // 第1d回 W-6: 表の形 v2。v1 の印のままの D1（v2 を流していない）は false
+    await db.prepare("UPDATE meta SET value = '1' WHERE key = 'schema'").run();
+    assert.strictEqual((await (await call('GET', '/health')).json()).ready.db, false, "meta.schema が '1'");
+    await db.prepare("UPDATE meta SET value = '3' WHERE key = 'schema'").run();
+    assert.strictEqual((await (await call('GET', '/health')).json()).ready.db, true, "meta.schema が '3'（2 以上）");
     await db.prepare('DELETE FROM meta').run();
     assert.strictEqual((await (await call('GET', '/health')).json()).ready.db, false, 'meta.schema が無い');
   });
@@ -80,14 +81,12 @@ test('RL7: logEvent は決まった欄と形の値だけを書く（メール・
 
 test('RL2: 試しの宛先は 127.0.0.1 の http だけ。ほかの値は本物の固定の URL（鍵をほかのホストへ運ばない）', { timeout: 5000 }, async () => {
   const { readConfig } = await R.load('config.mjs');
-  const base = { OPENAI_API_KEY: 'k', RESEND_API_KEY: 'k', ALLOWED_EMAIL_DOMAINS: 'Example.com, example.org ', MAIL_FROM: `NaTsu <${R.mail('a')}>` };
+  const base = { OPENAI_API_KEY: 'k', ALLOWED_EMAIL_DOMAINS: 'Example.com, example.org ' };
   assert.strictEqual(readConfig({ ...base, OPENAI_BASE: 'http://127.0.0.1:4010/openai/v1' }).openaiBase, 'http://127.0.0.1:4010/openai/v1');
-  assert.strictEqual(readConfig({ ...base, RESEND_BASE: 'http://127.0.0.1:4011' }).resendBase, 'http://127.0.0.1:4011');
   for (const v of ['https://evil.example/v1', 'http://localhost:1/v1', 'http://127.0.0.1.example.com:1/v1', '',
     'http://evil.example:8080/v1', 'http://localhost:4010/v1', 'http://127.0.0.1.example.com:4010/v1', 'http://' + R.mail('127.0.0.1:4010', 'evil.example:80') + '/v1',
     'https://127.0.0.1:4010/v1', 'http://127.0.0.1:4010/v1?x=1', ' http://127.0.0.1:4010/v1', undefined, 4010]) {
     assert.strictEqual(readConfig({ ...base, OPENAI_BASE: v }).openaiBase, 'https://api.openai.com/v1', String(v));
-    assert.strictEqual(readConfig({ ...base, RESEND_BASE: v }).resendBase, 'https://api.resend.com', String(v));
   }
   const c = readConfig({ ...base, STT_MODEL: 'gpt-4o-transcribe; drop' });
   assert.strictEqual(c.model, 'gpt-4o-transcribe');
@@ -106,19 +105,105 @@ test('RL1: 中継のコードは node: を読まず Buffer も console も直に
   }
 });
 
-test('RL2: 表の形 v1 を偽の D1 に2回流しても同じ（IF NOT EXISTS）で、meta.schema は 1', { timeout: 5000 }, async () => {
+// 第1d回 W-6 で意図して変えた: 表の形は v2（自前のログインの login_codes と sessions を消し、1日の秒の数えと止めたメールは残す）。
+// v1 の表のある D1（0.8.0 の前の試しの D1）に v2 を流したときの形を見る。V1_SQL は W-1 の relay/schema.mjs の SCHEMA_SQL の写し
+const V1_SQL = `CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS login_codes (
+  email TEXT PRIMARY KEY,
+  code_hash TEXT NOT NULL,
+  expires_at INTEGER NOT NULL,
+  attempts INTEGER NOT NULL DEFAULT 0,
+  created_at INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS sessions (
+  token_hash TEXT PRIMARY KEY,
+  email TEXT NOT NULL,
+  idp TEXT NOT NULL DEFAULT 'email',
+  created_at INTEGER NOT NULL,
+  last_used_at INTEGER NOT NULL,
+  expires_at INTEGER NOT NULL,
+  revoked_at INTEGER
+);
+CREATE INDEX IF NOT EXISTS sessions_email ON sessions (email);
+CREATE TABLE IF NOT EXISTS blocked_emails (email TEXT PRIMARY KEY, at INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS counters (key TEXT PRIMARY KEY, win INTEGER NOT NULL, n INTEGER NOT NULL);
+INSERT INTO meta (key, value) VALUES ('schema', '1') ON CONFLICT (key) DO UPDATE SET value = excluded.value;
+`;
+const H32 = 'ab'.repeat(16);
+const H64 = 'cd'.repeat(32);
+
+// v1 の D1 に、どの表にも行を1つ以上置く（数えの鍵は W-2〜W-4 の全部の形）
+async function seedV1(db) {
+  await db.exec(V1_SQL);
+  await db.prepare('INSERT INTO login_codes (email, code_hash, expires_at, attempts, created_at) VALUES (?1, ?2, ?3, 0, ?4)').bind(R.mail('code.user'), H64, 2000, 1000).run();
+  await db.prepare('INSERT INTO sessions (token_hash, email, idp, created_at, last_used_at, expires_at) VALUES (?1, ?2, ?3, ?4, ?4, ?5)').bind(H64, R.mail('code.user'), 'email', 1000, 9000).run();
+  await db.prepare('INSERT INTO blocked_emails (email, at) VALUES (?1, ?2)').bind(R.mail('blocked.user'), 1234).run();
+  for (const [key, win, n] of [['a:u:' + H32, 86400 * 20000, 75], ['a:all', 86400 * 20000, 300], ['s:e:' + H32, 900, 2], ['s:d:' + H32, 86400, 3],
+    ['s:ip:' + H64, 3600, 4], ['v:ip:unknown', 3600, 5], ['mail', 86400, 6]]) {
+    await db.prepare('INSERT INTO counters (key, win, n) VALUES (?1, ?2, ?3)').bind(key, win, n).run();
+  }
+}
+
+// 表と索引の名前（sqlite_ の内側のものを除く）と、残る表の全部の行
+async function shapeOf(db) {
+  const objs = (await db.prepare("SELECT type, name FROM sqlite_master WHERE name NOT LIKE 'sqlite_%' ORDER BY name").all()).results;
+  const rows = {};
+  for (const { type, name } of objs) if (type === 'table') rows[name] = (await db.prepare(`SELECT * FROM ${name} ORDER BY 1`).all()).results;
+  return { objs, rows };
+}
+
+const V2_SHAPE = () => ({
+  objs: [{ type: 'table', name: 'blocked_emails' }, { type: 'table', name: 'counters' }, { type: 'table', name: 'meta' }],
+  rows: {
+    blocked_emails: [{ email: R.mail('blocked.user'), at: 1234 }],
+    counters: [{ key: 'a:all', win: 86400 * 20000, n: 300 }, { key: 'a:u:' + H32, win: 86400 * 20000, n: 75 }],
+    meta: [{ key: 'schema', value: '2' }],
+  },
+});
+
+test('RL2: 表の形 v2 を v1 の D1 に流すと login_codes と sessions が無くなり、counters の a: の行と blocked_emails の行は残る。2回流しても同じ。meta.schema は 2', { timeout: 5000 }, async () => {
   const { SCHEMA_SQL, SCHEMA_VERSION } = await R.load('schema.mjs');
+  assert.strictEqual(SCHEMA_VERSION, 2);
   const db = require('./helpers/fake-d1').makeFakeD1();
   try {
-    await db.exec(SCHEMA_SQL); await db.exec(SCHEMA_SQL);
-    assert.strictEqual(SCHEMA_VERSION, 1);
-    assert.strictEqual(await db.prepare("SELECT value FROM meta WHERE key = 'schema'").first('value'), '1');
+    await seedV1(db);
+    await db.exec(SCHEMA_SQL);
+    assert.deepStrictEqual(await shapeOf(db), V2_SHAPE(), '1回目');
+    await db.exec(SCHEMA_SQL);
+    assert.deepStrictEqual(await shapeOf(db), V2_SHAPE(), '2回目');
+  } finally { db.close(); }
+  // 空の D1 に流しても同じ表の形（行は meta だけ）。2回流しても同じ
+  const fresh = require('./helpers/fake-d1').makeFakeD1();
+  try {
+    await fresh.exec(SCHEMA_SQL); await fresh.exec(SCHEMA_SQL);
+    const sh = await shapeOf(fresh);
+    assert.deepStrictEqual(sh.objs, V2_SHAPE().objs);
+    assert.deepStrictEqual(sh.rows, { blocked_emails: [], counters: [], meta: [{ key: 'schema', value: '2' }] });
+  } finally { fresh.close(); }
+  // 注釈は SQL の中に書かない（D1 の問い合わせの API にそのまま渡す）。札・コード・Resend の語も無い
+  assert.ok(!/--|\/\*|login_codes \(|sessions \(|token_hash|code_hash/.test(SCHEMA_SQL), SCHEMA_SQL);
+});
+
+test('RL2: v2 の SQL の途中まで（DROP の前で止めた形）を流した D1 に、もう一度全部を流すと v2 の形になる', { timeout: 5000 }, async () => {
+  const { SCHEMA_SQL } = await R.load('schema.mjs');
+  const cut = SCHEMA_SQL.indexOf('DROP TABLE');
+  assert.ok(cut > 0, 'v2 の SQL に DROP TABLE が無い');
+  const db = require('./helpers/fake-d1').makeFakeD1();
+  try {
+    await seedV1(db);
+    await db.exec(SCHEMA_SQL.slice(0, cut));   // 出す台本が DROP の前で止まった（D1 の口の誤り・時間切れ）
+    const half = await shapeOf(db);
+    assert.ok(half.objs.some((o) => o.name === 'sessions'), '途中まででもう sessions が無い（途中の形になっていない）');
+    assert.strictEqual(half.rows.meta[0].value, '1', '途中までで meta.schema が 2 になった（/health の ready.db が早く真になる）');
+    await db.exec(SCHEMA_SQL);   // 次の［Run workflow］
+    assert.deepStrictEqual(await shapeOf(db), V2_SHAPE());
   } finally { db.close(); }
 });
 
 // ---- ここから下は計画の W-1 の手順 1 に足したもの（W-2〜W-4 が使う部品と、テストの台そのものを先に固める）
 
-test('RL1: http の部品 — json は no-store・readCapped は上限を越えたら null（流れの本文でも）・readJson は 2KB を越えれば too-large', { timeout: 5000 }, async () => {
+// 第1d回 W-6 で意図して変えた: readJson（/auth/start・/auth/verify の本文）は使う所が無くなったので消した（下の「札・確認コード・IP の鍵の部品は無い」）
+test('RL1: http の部品 — json は no-store・readCapped は上限を越えたら null（流れの本文でも）', { timeout: 5000 }, async () => {
   const H = await R.load('http.mjs');
   const res = H.json(201, { a: 1 }, { 'retry-after': '3' });
   assert.strictEqual(res.status, 201);
@@ -140,35 +225,16 @@ test('RL1: http の部品 — json は no-store・readCapped は上限を越え�
     assert.strictEqual(await H.readCapped(req('abcdefg', stream), 6), null, `stream=${stream}`);
   }
   assert.strictEqual((await H.readCapped(new Request('https://relay.test/x'), 6)).length, 0);
-  assert.deepStrictEqual(await H.readJson(req('{"email":"x"}'), 2048), { ok: true, value: { email: 'x' } });
-  assert.deepStrictEqual(await H.readJson(req('{"a":"' + 'x'.repeat(2100) + '"}', true), 2048), { ok: false, error: 'too-large' });
-  for (const bad of ['{', '[1]', 'null', '"s"', '']) assert.deepStrictEqual(await H.readJson(req(bad), 2048), { ok: false, error: 'bad-request' }, bad);
 });
 
-test('RL1: http の部品 — sha256hex・札（nt1_ と base64url 43 字）・6 けたのコード・IP の鍵（ハッシュだけ。無ければ ip:unknown）', { timeout: 5000 }, async () => {
+// 第1d回 W-6 で意図して変えた: 自前のログインを消したので、札（randomToken）・確認コード（randomCode）・IP の鍵（clientIpKey）・
+// JSON の本文（readJson）と、窓の数え（hits・hit・windowStart・release）は中継に無い。sha256hex（1日の秒の鍵）は残す
+test('RL1: http の部品 — sha256hex は残り、札・確認コード・IP の鍵・JSON の本文の部品と、/auth/start の窓の数えは無い', { timeout: 5000 }, async () => {
   const H = await R.load('http.mjs');
   assert.strictEqual(await H.sha256hex('abc'), 'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad');
-  const toks = new Set();
-  for (let i = 0; i < 50; i++) {
-    const t = H.randomToken();
-    assert.match(t, /^nt1_[A-Za-z0-9_-]{43}$/);
-    toks.add(t);
-    assert.match(H.randomCode(), /^[0-9]{6}$/);
-  }
-  assert.strictEqual(toks.size, 50);
-  // 棄却: 2^32 を 100 万で割った余りの分（4,294,000,000 以上）が出たら捨てて引き直す（そのまま割ると 0〜967295 が出やすくなる）
-  const seq = [4294967295, 4294000000, 123];
-  const draws = [];
-  globalThis.crypto.getRandomValues = (a) => { const v = seq.shift(); draws.push(v); a[0] = v; return a; };
-  try { assert.strictEqual(H.randomCode(), '000123'); } finally { delete globalThis.crypto.getRandomValues; }
-  assert.deepStrictEqual(draws, [4294967295, 4294000000, 123]);
-  assert.match(H.randomCode(), /^[0-9]{6}$/, '本物の getRandomValues に戻していない');
-  const ipReq = (ip) => new Request('https://relay.test/x', { headers: ip === undefined ? {} : { 'cf-connecting-ip': ip, 'x-forwarded-for': '198.51.100.7' } });
-  const k = await H.clientIpKey(ipReq('192.0.2.1'));
-  assert.strictEqual(k, 'ip:' + await H.sha256hex('192.0.2.1'));
-  assert.ok(!k.includes('192.0.2.1'));
-  assert.strictEqual(await H.clientIpKey(ipReq(undefined)), 'ip:unknown');
-  assert.strictEqual(await H.clientIpKey(ipReq('  ')), 'ip:unknown');
+  assert.deepStrictEqual(Object.keys(H).sort(), ['json', 'readCapped', 'sha256hex']);
+  const L = await R.load('limits.mjs');
+  assert.deepStrictEqual(Object.keys(L).sort(), ['ALL_USAGE_KEY', 'dayNumber', 'refundUsage', 'reserveUsage', 'secondsToDayEnd', 'usage']);
 });
 
 test('テストの台: 中継の中の fetch は 127.0.0.1 のほかへ出られない・偽の D1 の batch は1つのトランザクション', { timeout: 5000 }, async () => {
@@ -186,4 +252,40 @@ test('テストの台: 中継の中の fetch は 127.0.0.1 のほかへ出られ
     assert.deepStrictEqual((await db.prepare('SELECT key, n FROM counters').all()).results, [{ key: 'k', n: 1 }]);
   });
   assert.ok(!String(globalThis.fetch).includes('外への通信'), 'fetch を戻していない');
+});
+
+// ---- 第1d回 W-6（自前のログインを消す）
+test('RL1: /auth/start・/auth/verify・/auth/logout・/auth/me は 404', { timeout: 5000 }, async () => {
+  await R.withRelay({}, async ({ call, db, logs }) => {
+    for (const [method, p, body] of [['POST', '/auth/start', { email: R.mail('a') }], ['POST', '/auth/verify', { email: R.mail('a'), code: '123456' }],
+      ['POST', '/auth/logout'], ['GET', '/auth/me'], ['GET', '/auth/start'], ['DELETE', '/auth/me']]) {
+      const r = await call(method, p, { body, headers: { authorization: 'Bearer nt1_' + 'A'.repeat(43) }, ip: '192.0.2.1' });
+      assert.strictEqual(r.status, 404, `${method} ${p}`);
+      assert.deepStrictEqual(await r.json(), { error: 'not-found' }, `${method} ${p}`);
+    }
+    assert.deepStrictEqual(db.ran, [], 'D1 に触れた');
+    assert.deepStrictEqual(logs, [], '記録を書いた');
+  });
+  // 自前のログインのファイル（確認コード・札・Resend のメール）は中継に無い
+  for (const f of ['auth.mjs', 'mail.mjs']) assert.ok(!fs.existsSync(path.join(R.RELAY_DIR, f)), `relay/${f} が残っている`);
+  const src = fs.readdirSync(R.RELAY_DIR).filter((x) => x.endsWith('.mjs')).map((x) => fs.readFileSync(path.join(R.RELAY_DIR, x), 'utf8')).join('\n');
+  assert.ok(!/\/auth\/(?:start|verify|logout|me)\b|requireSession|issueSession|resend|MAIL_FROM|nt1_|code_hash|token_hash/i.test(src.replace(/^\s*\/\/.*$/gm, '')),
+    '中継のコード（注釈の外）に自前のログインの名前が残っている（表の形 v2 の DROP の行は上の RL2 の表の形のテストが見る）');
+});
+
+test('RL2: RESEND_API_KEY・MAIL_FROM・MAIL_DAILY_MAX を入れても ready にも答えにも出ない', { timeout: 5000 }, async () => {
+  const { readConfig, DEFAULTS } = await R.load('config.mjs');
+  const old = { RESEND_API_KEY: 're_test_must_not_show_1', MAIL_FROM: 'NaTsu <' + R.mail('login') + '>', MAIL_DAILY_MAX: '77', RESEND_BASE: 'http://127.0.0.1:4011' };
+  const c = readConfig({ OPENAI_API_KEY: 'k', ALLOWED_EMAIL_DOMAINS: 'example.com', ...old });
+  assert.deepStrictEqual(Object.keys(c).sort(), ['certsBase', 'dailyAllSec', 'dailyUserSec', 'dayOffsetMin', 'domains', 'maxAudioBytes', 'model',
+    'openaiBase', 'openaiKey', 'policyAud', 'ready', 'teamDomain']);
+  assert.deepStrictEqual(Object.keys(c.ready).sort(), ['access', 'domains', 'openai']);
+  assert.deepStrictEqual(Object.keys(DEFAULTS).sort(), ['dailyAllSec', 'dailyUserSec', 'dayOffsetMin', 'maxAudioBytes', 'model', 'openaiBase']);
+  assert.ok(!JSON.stringify(c, (k, v) => (v instanceof Set ? [...v] : v)).match(/re_test|login|4011|77/), '読んだ値に Resend とメールの欄');
+  await R.withRelay({ env: old }, async ({ call, logs }) => {
+    const res = await call('GET', '/health');
+    const text = await res.text();
+    assert.deepStrictEqual(JSON.parse(text), { ok: true, relay: 2, ready: { db: true, openai: true, access: false, domains: true } });
+    for (const v of Object.values(old)) assert.ok(!(text + logs.join('\n')).includes(v), `答えか記録に ${v}`);
+  });
 });

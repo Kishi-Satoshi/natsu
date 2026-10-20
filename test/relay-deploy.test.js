@@ -171,7 +171,7 @@ test('RL8: 1回目は D1 を作り（apac）、表の形を流し、keep_binding
     const uuid = cf.st.dbs[0].uuid;
     const { SCHEMA_SQL } = await R.load('schema.mjs');
     assert.deepStrictEqual(cf.st.sql, [{ uuid, sql: SCHEMA_SQL }]);
-    assert.strictEqual(await cf.st.d1.prepare("SELECT value FROM meta WHERE key = 'schema'").first('value'), '1');
+    assert.strictEqual(await cf.st.d1.prepare("SELECT value FROM meta WHERE key = 'schema'").first('value'), '2');   // 第1d回 W-6: 表の形 v2
     const put = cf.st.put;
     assert.match(put.contentType, /^multipart\/form-data; boundary=/);
     assert.deepStrictEqual(put.metadata, {

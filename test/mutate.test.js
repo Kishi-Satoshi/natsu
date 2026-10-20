@@ -277,10 +277,9 @@ test('G3: 第1d回 W-1・D-1 の点検で足した5つの変異が一覧にそ�
 
 // 第1d回 Task G-2（計画 docs/plans/2026-10-19-1d.md の「変異確認」の表。W・D・A・G の各レーンの直しを1つずつ戻す）
 const IDS_1D = [
-  'rl-log-fields', 'rl-test-base', 'rl-health-db', 'rl-domain-exact', 'rl-code-hash', 'rl-code-ttl', 'rl-start-email-limit', 'rl-start-ip-limit',
-  'rl-ip-before-domain', 'rl-blocked-order', 'rl-mail-cap', 'rl-mail-fail-keep', 'rl-mail-redirect', 'rl-mail-timeout', 'rl-verify-attempts', 'rl-verify-once',
-  'rl-verify-atomic', 'rl-usage-reserve', 'rl-wav-bytes', 'rl-wav-format', 'rl-wav-rate', 'rl-wav-bits', 'rl-prompt-bytes', 'rl-stt-timeout',
-  'rl-token-hash', 'rl-idle', 'rl-absolute', 'rl-revoked', 'rl-blocked', 'rl-model-forced', 'rl-size-cap', 'rl-daily-user',
+  'rl-log-fields', 'rl-test-base', 'rl-health-db', 'rl-domain-exact',
+  'rl-usage-reserve', 'rl-wav-bytes', 'rl-wav-format', 'rl-wav-rate', 'rl-wav-bits', 'rl-prompt-bytes', 'rl-stt-timeout',
+  'rl-blocked', 'rl-model-forced', 'rl-size-cap', 'rl-daily-user',
   'rl-daily-all', 'rl-usage-on-fail', 'rl-upstream-401', 'rl-retry-after', 'rl-deploy-keep', 'rl-deploy-invocation', 'rl-deploy-print', 'rl-deploy-env',
   'ra-login-code', 'ra-login-strict', 'ra-redo-all', 'ra-no-direct', 'ra-secrets-relay-only', 'ra-purge-old', 'ra-logout-local',
   'ra-status-offline', 'ra-401-redo', 'ra-401-forget', 'ra-hold', 'ra-signed-out-probe', 'ra-notice-action', 'rg-direct-host',
@@ -294,7 +293,16 @@ const IDS_1D = [
 // 外したタスクが理由を書く（計画「作り替え」の「作り替えの変異」の「外す変異」の表）:
 //  - ra-token-header（A-11）: 文字起こしの要求に札を入れる道（Authorization: Bearer）が無い。札を見出しに入れない守りは G-3 の ra-no-token-header が受け継ぐ
 //  - ra-ui-code-clear（A-12）: 設定のカード「アカウント」に確認コードの欄が無い（コードは Cloudflare のログインの画面で入れる。画面はコードを扱わない）
-const IDS_1D_ACCESS_RETIRED = ['ra-token-header', 'ra-ui-code-clear'];
+//  - rl-code-hash・rl-code-ttl・rl-start-email-limit・rl-start-ip-limit・rl-ip-before-domain・rl-blocked-order（W-6）: /auth/start・/auth/verify と
+//    確認コードの表（login_codes）が無い（コードは Cloudflare の One-time PIN。10 分・1回だけ・頼み直すと前のコードは使えない）
+//  - rl-mail-cap・rl-mail-fail-keep・rl-mail-redirect・rl-mail-timeout（W-6）: Resend のメールの道（relay/mail.mjs）が無い（あとの直し (d)）
+//  - rl-verify-attempts・rl-verify-once・rl-verify-atomic（W-6）: 中継でのコードの確かめが無い
+//  - rl-token-hash・rl-idle・rl-absolute・rl-revoked（W-6）: 中継の札の表（sessions）が無い（ログインの長さと取り消しは Access の側）
+//  （rl-domain-exact・rl-blocked は外さず、W-6 で relay/access.mjs の requireAccess へ移した）
+const IDS_1D_ACCESS_RETIRED = ['ra-token-header', 'ra-ui-code-clear',
+  'rl-code-hash', 'rl-code-ttl', 'rl-start-email-limit', 'rl-start-ip-limit', 'rl-ip-before-domain', 'rl-blocked-order',
+  'rl-mail-cap', 'rl-mail-fail-keep', 'rl-mail-redirect', 'rl-mail-timeout', 'rl-verify-attempts', 'rl-verify-once', 'rl-verify-atomic',
+  'rl-token-hash', 'rl-idle', 'rl-absolute', 'rl-revoked'];
 test('G3: 第1d回の作り替えで外した変異（IDS_1D_ACCESS_RETIRED）は一覧にも IDS_1D にも無い', { timeout: 5000 }, () => {
   const ids = new Set(MUTANTS.map((m) => m.id));
   assert.deepStrictEqual(IDS_1D_ACCESS_RETIRED.filter((id) => ids.has(id) || IDS_1D.includes(id)), []);

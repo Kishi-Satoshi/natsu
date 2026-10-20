@@ -25,7 +25,7 @@ const ALL = { logs: [], heads: [], bodies: [], secrets: new Set(), scenes: 0, rs
 const rowsOf = async (db, sql, ...v) => (await db.prepare(sql).bind(...v).all()).results;
 const userKey = async (email) => 'a:u:' + (await (await R.load('http.mjs')).sha256hex(email)).slice(0, 32);
 
-// 止めたメールの SQL は README の管理者の節に書いた文字を、そのまま D1 に流す（relay-session の adminSql と同じ形）
+// 止めたメールの SQL は README の管理者の節に書いた文字を、そのまま D1 に流す（W-3 の relay-session の adminSql と同じ形。relay-session は W-6 で消した）
 const README = fs.readFileSync(path.join(__dirname, '..', 'README.md'), 'utf8');
 const ADMIN = README.includes('## 管理者の手順') ? README.slice(README.indexOf('## 管理者の手順')) : '';
 function adminSql(head) {
@@ -402,8 +402,10 @@ test('RL5: /auth/done は人の JWT で 200 の HTML（「ログインできま�
   });
 });
 
-test('RL7: 文字起こしの口は正しい JWT のメールで通り、1日の秒は a:u:<そのメールの sha256 の先頭 32 字> に数える（W-6 まで Bearer の札も通る）', { timeout: 5000 }, async () => {
-  await scene({}, async ({ sign, stt1, stt, db, env, clock }) => {
+// 第1d回 W-6 で意図して変えた: 自前の札（Bearer）の道を消したので、名前の「（W-6 まで Bearer の札も通る）」と札の場面を外した
+// （札だけの要求は下の「RL7: Authorization: Bearer の札だけの要求は 401 login（札の道が無い）」が見る）
+test('RL7: 文字起こしの口は正しい JWT のメールで通り、1日の秒は a:u:<そのメールの sha256 の先頭 32 字> に数える', { timeout: 5000 }, async () => {
+  await scene({}, async ({ sign, stt1, stt, db }) => {
     const email = R.mail('stt.user');
     const r = await stt1({ jwt: await sign({ email: R.mail('STT.User') }) });
     assert.strictEqual(r.status, 200, r.text);
@@ -415,16 +417,26 @@ test('RL7: 文字起こしの口は正しい JWT のメールで通り、1日の
     // cookie の JWT でも同じ
     assert.strictEqual((await stt1({ cookie: await sign({ email }) })).status, 200);
     assert.deepStrictEqual(await rowsOf(db, "SELECT key, n FROM counters WHERE key LIKE 'a:u:%'"), [{ key: await userKey(email), n: 2 }]);
-    // W-6 までは、JWT が無ければ今の Bearer の札も通る（アプリの移り目）
-    const { issueSession } = await R.load('auth.mjs');
-    const { readConfig } = await R.load('config.mjs');
-    const s = await issueSession(env, readConfig(env), { email: R.mail('bearer.user'), now: clock.now });
-    const b = await stt1({ headers: { authorization: 'Bearer ' + s.token } });
-    assert.strictEqual(b.status, 200, b.text);
-    // JWT があれば JWT だけで決める（偽の JWT と正しい札を一緒に送っても通さない）
-    const both = await stt1({ jwt: await sign({}, { key: 'stray' }), headers: { authorization: 'Bearer ' + s.token } });
-    assert.strictEqual(both.status, 401);
-    assert.strictEqual(stt.requests.length, 3);
+    assert.strictEqual(stt.requests.length, 2);
+  });
+});
+
+// 第1d回 W-6: 中継の札（nt1_）の道は無い。札の形の見出しだけの要求は、Access の JWT の無い要求と同じ 401 login（r: no-jwt）で、
+// D1 を1回も引かず（札の表を探さない）、OpenAI に送らない。偽の JWT と札を一緒に送っても通さない
+test('RL7: Authorization: Bearer の札だけの要求は 401 login（札の道が無い）', { timeout: 5000 }, async () => {
+  await scene({}, async ({ sign, stt1, me, done, stt, db, accessRs }) => {
+    const bearer = { authorization: 'Bearer nt1_' + 'A'.repeat(43) };
+    const ran0 = db.ran.length;
+    for (const [name, r] of [[PATH, await stt1({ headers: bearer })], ['/v1/me', await me({ headers: bearer })], ['/auth/done', await done({ headers: bearer })]]) {
+      assert.strictEqual(r.status, 401, `${name}: ${r.text}`);
+      assert.deepStrictEqual(r.body, { error: 'login' }, name);
+    }
+    assert.deepStrictEqual(db.ran.slice(ran0), [], '札だけの要求で D1 を引いた（札の表を探した）');
+    assert.deepStrictEqual(accessRs(), ['no-jwt', 'no-jwt', 'no-jwt'], 'Access の確かめを通っていない');
+    const both = await stt1({ jwt: await sign({}, { key: 'stray' }), headers: bearer });
+    assert.strictEqual(both.status, 401, both.text);
+    assert.strictEqual(stt.requests.length, 0, 'OpenAI へ送った');
+    assert.deepStrictEqual(await rowsOf(db, "SELECT key FROM counters WHERE key LIKE 'a:%'"), []);
   });
 });
 
@@ -587,10 +599,11 @@ test('F18: 知らない kid の要求が同時に 5 本来ても鍵の口へは1
   });
 });
 
-test('RL2・RF42: TEAM_DOMAIN か POLICY_AUD がそろっていない（用意の途中）ときは、署名の合う JWT でも /v1/me・/auth/done・文字起こしの口は 503 not-ready（r: not-ready）。鍵の口に行かず、OpenAI に送らず、JWT があれば Bearer の札に回らない', { timeout: 5000 }, async () => {
+// 第1d回 W-6 で意図して変えた: 札の道が無いので、「JWT があれば Bearer の札に回らない」を「札の形の見出しを一緒に送っても 503 のまま」にした
+test('RL2・RF42: TEAM_DOMAIN か POLICY_AUD がそろっていない（用意の途中）ときは、署名の合う JWT でも /v1/me・/auth/done・文字起こしの口は 503 not-ready（r: not-ready）。鍵の口に行かず、OpenAI に送らず、札の形の見出しを一緒に送っても 503 のまま', { timeout: 5000 }, async () => {
   for (const [why, env] of [['POLICY_AUD が無い', { POLICY_AUD: undefined }], ['TEAM_DOMAIN が無い', { TEAM_DOMAIN: undefined }],
     ['POLICY_AUD の形が違う', { POLICY_AUD: 'zz' }]]) {
-    await scene({ env }, async ({ sign, me, done, stt1, stt, fa, accessRs, env: e, clock }) => {
+    await scene({ env }, async ({ sign, me, done, stt1, stt, fa, accessRs, env: e }) => {
       assert.strictEqual(e.ACCESS_CERTS_BASE, fa.certsBase, why);
       const jwt = await sign();
       for (const [name, r] of [['/v1/me', await me({ jwt })], ['/auth/done', await done({ jwt })], [PATH, await stt1({ jwt })],
@@ -598,11 +611,8 @@ test('RL2・RF42: TEAM_DOMAIN か POLICY_AUD がそろっていない（用意�
         assert.strictEqual(r.status, 503, `${why} ${name}: ${r.text}`);
         assert.deepStrictEqual(r.body, { error: 'not-ready' }, `${why} ${name}`);
       }
-      // JWT があれば、正しい Bearer の札を一緒に送っても札に回らない
-      const { issueSession } = await R.load('auth.mjs');
-      const { readConfig } = await R.load('config.mjs');
-      const s = await issueSession(e, readConfig(e), { email: R.mail('bearer.user'), now: clock.now });
-      const both = await stt1({ jwt, headers: { authorization: 'Bearer ' + s.token } });
+      // 札の形の見出しを一緒に送っても同じ
+      const both = await stt1({ jwt, headers: { authorization: 'Bearer nt1_' + 'A'.repeat(43) } });
       assert.strictEqual(both.status, 503, `${why} JWT と札: ${both.text}`);
       assert.deepStrictEqual(accessRs(), ['not-ready', 'not-ready', 'not-ready', 'not-ready', 'not-ready'], why);
       assert.strictEqual(fa.certHits, 0, `${why}: そろっていないのに鍵の口へ行った`);

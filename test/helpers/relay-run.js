@@ -1,11 +1,11 @@
 'use strict';
 // 中継（relay/*.mjs）を Worker を起こさずに node --test で呼ぶ台（第1d回 W-1）。
 //   load(name) → import('relay/<name>')（中継のファイルは .mjs なので、CommonJS のテストからは import で読む）
-//   withRelay({ env, noSchema, start, access }, fn) … 偽の D1（test/helpers/fake-d1.js）に表の形 v1 を流し（noSchema なら流さない）、
+//   withRelay({ env, noSchema, start, access }, fn) … 偽の D1（test/helpers/fake-d1.js）に今の表の形（第1d回 W-6 から v2）を流し（noSchema なら流さない）、
 //     env の既定に重ね（undefined の欄は消す）、globalThis.fetch を「127.0.0.1 のほかは断る」で包み、console.log を取り込んで、
 //     fn({ call, env, logs, db, clock, ctx }) を呼ぶ。終わったら fetch と console.log を戻し、ctx.waitUntil の約束を待ち、D1 を閉じる。
-//       env の既定: OPENAI_API_KEY 'sk-test-<乱数>'・RESEND_API_KEY 're_test_<乱数>'・ALLOWED_EMAIL_DOMAINS 'example.com'・
-//                   MAIL_FROM 'NaTsu <' + mail('login') + '>'・DB 偽の D1
+//       env の既定: OPENAI_API_KEY 'sk-test-<乱数>'・ALLOWED_EMAIL_DOMAINS 'example.com'・DB 偽の D1
+//                   （第1d回 W-6 で RESEND_API_KEY・MAIL_FROM を外した。中継に Resend の道が無い）
 //       access（第1d回 W-5）… 偽の Access（test/helpers/fake-access.js の fa）を渡すと、env の既定に TEAM_DOMAIN（fa.teamDomain）・
 //         POLICY_AUD（fa.aud）・ACCESS_CERTS_BASE（fa.certsBase）を足し、中継の鍵の写しを空にする（_resetCertsCache。ポートの使い回しで
 //         前の場面の鍵が残らないように）。渡さなければ TEAM_DOMAIN・POLICY_AUD は無い（ready.access は false。今までの場面のまま）
@@ -90,9 +90,7 @@ async function withRelay(opts, fn) {
     const env = {
       DB: db,
       OPENAI_API_KEY: 'sk-test-' + rand,
-      RESEND_API_KEY: 're_test_' + rand,
       ALLOWED_EMAIL_DOMAINS: 'example.com',
-      MAIL_FROM: 'NaTsu <' + mail('login') + '>',
     };
     if (access) {
       Object.assign(env, { TEAM_DOMAIN: access.teamDomain, POLICY_AUD: access.aud, ACCESS_CERTS_BASE: access.certsBase });

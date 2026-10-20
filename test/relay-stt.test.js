@@ -1,6 +1,8 @@
 /* relay-stt.test.js — 第1d回 RL7・RF34・RF38・F3・F6・F9: 文字起こしの口 POST /v1/audio/transcriptions
    （node --test で Worker を起こさずに呼ぶ。偽の OpenAI は test/helpers/fake-stt.js（OpenAI と同じ形）。
-    偽の D1 は文ごとに往復の間を置くので、「送る前に読む・200 の後に足す」形は同時の要求で赤になる） */
+    偽の D1 は文ごとに往復の間を置くので、「送る前に読む・200 の後に足す」形は同時の要求で赤になる）
+   第1d回 W-6 で意図して変えた: ログインは Cloudflare Access の JWT だけ（自前の札と確認コードのメールを消した）。場面は偽の Access
+   （test/helpers/fake-access.js）を立て、login は偽の Access が署名した JWT を作り、send はそれを Cf-Access-Jwt-Assertion で送る */
 'use strict';
 const test = require('node:test');
 const assert = require('node:assert');
@@ -8,7 +10,7 @@ const crypto = require('node:crypto');
 const http = require('node:http');
 const R = require('./helpers/relay-run');
 const { startFakeStt } = require('./helpers/fake-stt');
-const { startFakeResend } = require('./helpers/fake-resend');
+const { startFakeAccess } = require('./helpers/fake-access');
 
 // 試しの時計の始まり: UTC の 1 時ちょうど（日本の 10 時。日本の日付の替わりまで 14 時間）
 const T0 = Date.UTC(2026, 9, 19, 1, 0, 0);
@@ -18,8 +20,8 @@ const DAY = 24 * H;
 const TO_DAY_END = 14 * 3600;
 const KEYS = new Set(['ev', 'st', 'r', 'ms', 'sec', 'n', 'left', 'scope', 'v']);
 const STT_KEYS = new Set(['ev', 'st', 'r', 'ms', 'sec', 'scope']);
-const COUNTER_KEY = /^(?:a:u:[0-9a-f]{32}|a:all|s:e:[0-9a-f]{32}|s:d:[0-9a-f]{32}|s:ip:(?:[0-9a-f]{64}|unknown)|v:ip:(?:[0-9a-f]{64}|unknown)|mail)$/;
-const TABLES = ['meta', 'login_codes', 'sessions', 'blocked_emails', 'counters'];
+const COUNTER_KEY = /^(?:a:u:[0-9a-f]{32}|a:all)$/;
+const TABLES = ['meta', 'blocked_emails', 'counters'];
 const PATH = '/v1/audio/transcriptions';
 const HINT = '見積と予算';
 const SAID = '本日の議題は進捗の確認です。';
@@ -46,31 +48,38 @@ function wavWith(sec, { rate, channels, byteRate, blockAlign, bits, format, data
   return new Uint8Array(b.buffer, b.byteOffset, b.length);
 }
 
-// 中継の場面: 偽の OpenAI（mode）と偽の Resend を 127.0.0.1 に立て、中継の env の宛先と会社の鍵を合わせる
+// 中継の場面: 偽の OpenAI（mode）と偽の Access を 127.0.0.1 に立て、中継の env の宛先と会社の鍵を合わせる
 async function scene({ env = {}, mode = 'text', stt: sttOpts = {}, start = T0 } = {}, fn) {
   const key = 'sk-test-' + crypto.randomBytes(12).toString('hex');
   const stt = await startFakeStt({ mode, key, text: SAID, ...sttOpts });
-  const fr = await startFakeResend();
+  const fa = await startFakeAccess();
   try {
-    await R.withRelay({ env: { OPENAI_API_KEY: key, OPENAI_BASE: stt.base, RESEND_BASE: fr.base, ...env }, start }, async (ctx) => {
-      const { issueSession } = await R.load('auth.mjs');
-      const { readConfig } = await R.load('config.mjs');
-      const secrets = new Set([key, ctx.env.RESEND_API_KEY, HINT, enc(HINT), SAID]);
+    await R.withRelay({ access: fa, env: { OPENAI_API_KEY: key, OPENAI_BASE: stt.base, ...env }, start }, async (ctx) => {
+      const secrets = new Set([key, HINT, enc(HINT), SAID, fa.teamDomain, fa.aud]);
       const heads = [];
       let calls = 0;
       const api = {
-        // 札を作る（start → verify を通さずに、札を作る1か所 issueSession を呼ぶ）
+        // 偽の Access が署名した JWT（試しの時計で。作った JWT・署名・メールは記録に出てはいけない秘密に足す）
+        async sign(claims = {}, opts = {}) {
+          const t = await fa.sign(claims, { now: ctx.clock.now(), ...opts });
+          secrets.add(t); secrets.add(t.split('.')[2]);
+          if (typeof claims.email === 'string') secrets.add(claims.email);
+          return t;
+        },
+        // ログインした人の JWT（30 日もつ。日をまたぐ場面のため）。/v1/me を1回開いて確かめ、鍵の写しも温める
+        // （後で globalThis.fetch や AbortSignal.timeout を包む場面に、鍵の口への取りに行きが混ざらないように）
         async login(local = 'stt.user') {
           const email = R.mail(local);
-          const s = await issueSession(ctx.env, readConfig(ctx.env), { email, now: ctx.clock.now });
-          secrets.add(email); secrets.add(s.token);
-          return { token: s.token, email };
+          const token = await api.sign({ email, exp: Math.floor(ctx.clock.now() / 1000) + 30 * 86400 });
+          const me = await ctx.call('GET', '/v1/me', { jwt: token });
+          assert.strictEqual(me.status, 200, 'login の JWT が通らない: ' + await me.text());
+          return { token, email };
         },
-        // language・prompt・type は null なら、その見出しを付けない
+        // language・prompt・type は null なら、その見出しを付けない。token は Cf-Access-Jwt-Assertion の見出しで送る
         async send(token, wav, { language = 'ja', prompt = HINT, headers = {}, query = '', stream = false, type = 'audio/wav' } = {}) {
           calls += 1;
           const h = { ...headers };
-          if (token !== undefined) h.authorization = 'Bearer ' + token;
+          if (token !== undefined) h['cf-access-jwt-assertion'] = token;
           if (type !== null) h['content-type'] = type;
           if (language !== null) h['x-natsu-language'] = language;
           if (prompt !== null) { h['x-natsu-prompt'] = enc(prompt); if (prompt.trim()) secrets.add(prompt); }
@@ -91,7 +100,7 @@ async function scene({ env = {}, mode = 'text', stt: sttOpts = {}, start = T0 } 
         // send を通さずに中継を呼んだ回数（記録の行の数の照らしのため）
         counted() { calls += 1; },
       };
-      await fn({ ...ctx, stt, fr, key, ...api });
+      await fn({ ...ctx, stt, fa, key, ...api });
       // 場面の中で落ちたときは、ここに来ない（下の照らしで元の誤りを隠さない）
       for (const r of stt.requests) for (const v of Object.values(r.fields)) if (v.length > 4) secrets.add(v);
       for (const t of TABLES) for (const row of await rowsOf(ctx.db, `SELECT * FROM ${t}`)) ALL.rows.push(JSON.stringify(row));
@@ -114,11 +123,11 @@ async function scene({ env = {}, mode = 'text', stt: sttOpts = {}, start = T0 } 
     });
   } finally {
     await stt.close();
-    await fr.close();
+    await fa.close();
   }
 }
 
-test('RL7: ログインした札で WAV を送ると、中継は会社の鍵とモデルを付けて OpenAI の形で送り、{ text } だけを返す', { timeout: 5000 }, async () => {
+test('RL7: ログインした JWT で WAV を送ると、中継は会社の鍵とモデルを付けて OpenAI の形で送り、{ text } だけを返す', { timeout: 5000 }, async () => {
   await scene({}, async ({ login, send, stt, db }) => {
     const a = await login();
     const r = await send(a.token, R.wav(2));
@@ -177,29 +186,36 @@ test('RF34: 客はモデルも欄も差し込めない（見出し・問い合�
   });
 });
 
-test('RL7: 札が無い・違う・切れた・取り消した・止めたメール → 401 login、OpenAI へは1回も送らない・秒も数えない', { timeout: 5000 }, async () => {
-  await scene({}, async ({ login, send, stt, db, clock, call }) => {
+// 第1d回 W-6 で意図して変えた: 札（取り消し・30 日の期限は中継の札の表のもの）を Access の JWT にした。取り消しとログインの長さは
+// Access の側（Zero Trust の Revoke・決まりのログインの長さ）。止めたメールは 401 login でなく 403 denied（W-5 の requireAccess）
+test('RL7: JWT が無い・違う・切れた → 401 login、止めたメール → 403 denied。OpenAI へは1回も送らない・秒も数えない', { timeout: 5000 }, async () => {
+  await scene({}, async ({ login, sign, send, stt, db, clock }) => {
     const a = await login('gone.user');
-    const b = await login('logout.user');
     const c = await login('blocked.user');
+    const short = await sign({ email: R.mail('short.user'), exp: Math.floor(clock.now() / 1000) + 60 });
     const cases = [
-      [undefined, '札が無い'],
-      ['nt1_' + 'A'.repeat(43), '違う札'],
-      [a.token.slice(0, -1) + (a.token.endsWith('A') ? 'B' : 'A'), '1字違う札'],
+      [undefined, 'JWT が無い'],
+      ['', '空の JWT'],
+      ['nt1_' + 'A'.repeat(43), '札の形'],
+      [await sign({}, { key: 'stray' }), '署名の違う JWT'],
+      [a.token.slice(0, -2) + (a.token.endsWith('AA') ? 'BB' : 'AA'), '署名の2字違う JWT'],
+      [await sign({ email: R.mail('old.user'), exp: Math.floor(clock.now() / 1000) - 1 }), '切れた JWT'],
     ];
     for (const [token, why] of cases) {
       const r = await send(token, R.wav(1));
       assert.strictEqual(r.status, 401, why);
       assert.deepStrictEqual(r.body, { error: 'login' }, why);
     }
-    assert.strictEqual((await call('POST', '/auth/logout', { headers: { authorization: 'Bearer ' + b.token } })).status, 200);
-    assert.deepStrictEqual((await send(b.token, R.wav(1))).body, { error: 'login' }, '取り消した札');
     await db.prepare('INSERT INTO blocked_emails (email, at) VALUES (?1, ?2)').bind(c.email, 1).run();
-    assert.deepStrictEqual((await send(c.token, R.wav(1))).body, { error: 'login' }, '止めたメール');
-    clock.advance(31 * DAY);
-    assert.deepStrictEqual((await send(a.token, R.wav(1))).body, { error: 'login' }, '使わずに 30 日で切れた札');
+    const b = await send(c.token, R.wav(1));
+    assert.strictEqual(b.status, 403, '止めたメール');
+    assert.deepStrictEqual(b.body, { error: 'denied' }, '止めたメール');
+    clock.advance(61 * S);
+    assert.deepStrictEqual((await send(short, R.wav(1))).body, { error: 'login' }, '送る前に切れた JWT');
     assert.strictEqual(stt.requests.length, 0, 'OpenAI へ送った');
     assert.deepStrictEqual(await rowsOf(db, "SELECT key FROM counters WHERE key LIKE 'a:%'"), []);
+    // 切れていない JWT は通る（同じ場面で、ほかの理由で断っていないことを見る）
+    assert.strictEqual((await send(a.token, R.wav(1))).status, 200);
   });
 });
 
@@ -351,7 +367,7 @@ test('RF34: もう上限に達していれば、本文を読まずに 429（25MB
     const body = new ReadableStream({ pull(c) { pulled += 1; c.enqueue(R.wav(1)); c.close(); } }, { highWaterMark: 0 });
     const req = new Request('https://relay.test' + PATH, {
       method: 'POST', body, duplex: 'half',
-      headers: { authorization: 'Bearer ' + a.token, 'content-type': 'audio/wav', 'x-natsu-language': 'ja' },
+      headers: { 'cf-access-jwt-assertion': a.token, 'content-type': 'audio/wav', 'x-natsu-language': 'ja' },
     });
     counted();
     const res = await makeHandler({ now: clock.now }).fetch(req, env, ctx);
@@ -419,7 +435,7 @@ test('RL7: 秘密がそろわなければ 503 not-ready・方法が違えば 405
   });
   await scene({}, async ({ login, send, stt, call }) => {
     const a = await login();
-    const g = await call('GET', PATH, { headers: { authorization: 'Bearer ' + a.token } });
+    const g = await call('GET', PATH, { jwt: a.token });
     assert.strictEqual(g.status, 405);
     assert.deepStrictEqual(await g.json(), { error: 'method' });
     // 見出しの文字のまま 9,000 バイトまで・戻して 1,000 字まで（「見」は戻す前の 9 バイト）
@@ -449,7 +465,8 @@ test('RL7: 秘密がそろわなければ 503 not-ready・方法が違えば 405
   });
 });
 
-test('RF38: OpenAI の鍵を OpenAI のほかへは送らない（OPENAI_BASE が 127.0.0.1 の形でなければ本物の固定の URL・転送について行かない・偽の Resend の見出しにも鍵が無い）', { timeout: 5000 }, async () => {
+// 第1d回 W-6 で意図して変えた: Resend の道を消したので、名前と場面から「偽の Resend の見出しにも鍵が無い」を外した
+test('RF38: OpenAI の鍵を OpenAI のほかへは送らない（OPENAI_BASE が 127.0.0.1 の形でなければ本物の固定の URL・転送について行かない）', { timeout: 5000 }, async () => {
   for (const base of ['https://127.0.0.1:9/v1', 'http://192.0.2.1:8080/v1', 'http://127.0.0.1.example.org:80/v1', 'http://localhost:8080/v1', '']) {
     await scene({ env: { OPENAI_BASE: base } }, async ({ login, send, stt, db, key }) => {
       const a = await login();
@@ -474,6 +491,7 @@ test('RF38: OpenAI の鍵を OpenAI のほかへは送らない（OPENAI_BASE �
   // Node の fetch はバイトの本文を転送の先へ送り直せずに投げるので、答えだけでは redirect: 'error' の有無が見えない。
   // だから fetch に渡した redirect も見る（Workers の fetch は転送について行く）
   await scene({}, async ({ login, send, stt, env, db }) => {
+    const a = await login();   // 鍵の口への取りに行き（redirect: 'error'）を下の modes に混ぜない
     const modes = [];
     const inner = globalThis.fetch;
     globalThis.fetch = (input, init) => { modes.push(init && init.redirect); return inner(input, init); };
@@ -486,7 +504,6 @@ test('RF38: OpenAI の鍵を OpenAI のほかへは送らない（OPENAI_BASE �
     await new Promise((r) => redirector.listen(0, '127.0.0.1', r));
     try {
       env.OPENAI_BASE = `http://127.0.0.1:${redirector.address().port}/v1`;
-      const a = await login();
       const r = await send(a.token, R.wav(1));
       assert.strictEqual(r.status, 502);
       assert.deepStrictEqual(r.body, { error: 'upstream' });
@@ -499,18 +516,13 @@ test('RF38: OpenAI の鍵を OpenAI のほかへは送らない（OPENAI_BASE �
       await new Promise((r) => { redirector.close(() => r()); redirector.closeAllConnections(); });
     }
   });
-  await scene({}, async ({ fr, call, key }) => {
-    assert.strictEqual((await call('POST', '/auth/start', { body: { email: R.mail('mail.user') }, ip: '192.0.2.30' })).status, 200);
-    assert.strictEqual(fr.mails.length, 1);
-    assert.ok(!JSON.stringify(fr.mails).includes(key), '偽の Resend に会社の OpenAI の鍵');
-  });
 });
 
 test('RF34: OpenAI が答えないままなら 120 秒で切って 502 upstream、取り置いた秒を戻す（Worker の要求を開いたままにしない）', { timeout: 5000 }, async () => {
   // 本物の 120 秒は待てないので、AbortSignal.timeout に渡した長さを覚え、実際には 50 ミリ秒で切る
+  // （第1d回 W-6: 包むのはログインの後。ログインの /v1/me の鍵の口への取りに行きの 5 秒を asked に混ぜない）
   const asked = [];
   const real = AbortSignal.timeout;
-  AbortSignal.timeout = (ms) => { asked.push(ms); return real.call(AbortSignal, 50); };
   const hung = [];
   const silent = http.createServer((req) => { hung.push(req.url); req.resume(); });
   await new Promise((r) => silent.listen(0, '127.0.0.1', r));
@@ -520,6 +532,7 @@ test('RF34: OpenAI が答えないままなら 120 秒で切って 502 upstream�
     await scene({}, async ({ login, send, env, db }) => {
       env.OPENAI_BASE = `http://127.0.0.1:${silent.address().port}/v1`;
       const a = await login();
+      AbortSignal.timeout = (ms) => { asked.push(ms); return real.call(AbortSignal, 50); };
       const inits = [];
       const inner = globalThis.fetch;
       globalThis.fetch = (input, init) => { inits.push(init || {}); return inner(input, init); };
@@ -545,6 +558,44 @@ test('RF34: OpenAI が答えないままなら 120 秒で切って 502 upstream�
   assert.deepStrictEqual(asked, [120000], 'OpenAI の時間切れが 120 秒でない');
 });
 
+// 第1d回 W-6: 古い窓の片付けは /auth/start がしていた。/auth/start を消したので、文字起こしの取り置きの batch で続ける
+// （日本の日付の番号で、おととい（2 日前）までの日の行は残し、それより前の日の行を消す。今の日・きのうの行と a:all は消さない）
+test('RL7: 2 日より前の窓の counters の行は、文字起こしの取り置きのときに消える', { timeout: 5000 }, async () => {
+  const L = await R.load('limits.mjs');
+  const day = L.dayNumber(T0 / 1000, 540);
+  const DAYSEC = 86400;
+  const other = (n) => 'a:u:' + String(n).repeat(32);
+  await scene({}, async ({ login, send, db, stt }) => {
+    const a = await login();
+    const seed = [[other(1), (day - 3) * DAYSEC, 50], [other(2), (day - 2) * DAYSEC - 1, 40], [other(3), (day - 2) * DAYSEC, 30],
+      [other(4), (day - 1) * DAYSEC, 20], [other(5), day * DAYSEC, 10]];
+    for (const [k, w, n] of seed) await db.prepare('INSERT INTO counters (key, win, n) VALUES (?1, ?2, ?3)').bind(k, w, n).run();
+    // 断った要求（JWT が無い・WAV でない）では片付けない（取り置きのときだけ書く）
+    assert.strictEqual((await send(undefined, R.wav(1))).status, 401);
+    assert.strictEqual((await send(a.token, new Uint8Array(10))).status, 415);
+    assert.strictEqual((await rowsOf(db, 'SELECT key FROM counters')).length, 5, '取り置きの前に片付けた');
+    assert.strictEqual((await send(a.token, R.wav(2))).status, 200);
+    const rows = await rowsOf(db, 'SELECT key, win, n FROM counters ORDER BY key');
+    assert.deepStrictEqual(rows, [
+      { key: 'a:all', win: day * DAYSEC, n: 2 },
+      { key: other(3), win: (day - 2) * DAYSEC, n: 30 },
+      { key: other(4), win: (day - 1) * DAYSEC, n: 20 },
+      { key: other(5), win: day * DAYSEC, n: 10 },
+      { key: await userKey(a.email), win: day * DAYSEC, n: 2 },
+    ].sort((x, y) => (x.key < y.key ? -1 : 1)));
+    assert.strictEqual(stt.requests.length, 1);
+  });
+  // 上限で断った（取り置けなかった）ときも、取り置きの batch は流れるので片付く。数えは戻る
+  await scene({ env: { DAILY_USER_SEC: '1' } }, async ({ login, send, db }) => {
+    const a = await login();
+    await db.prepare('INSERT INTO counters (key, win, n) VALUES (?1, ?2, ?3)').bind(other(6), (day - 5) * DAYSEC, 9).run();
+    const r = await send(a.token, R.wav(2));
+    assert.strictEqual(r.status, 429);
+    assert.deepStrictEqual(await rowsOf(db, 'SELECT key FROM counters WHERE key = ?1', other(6)), []);
+    assert.strictEqual(await used(db, await userKey(a.email)), 0);
+  });
+});
+
 test('limits: 日の番号・日の替わりまでの秒は日本の日付（DAY_OFFSET_MIN）で数える', { timeout: 5000 }, async () => {
   const L = await R.load('limits.mjs');
   const t = T0 / 1000;
@@ -558,7 +609,7 @@ test('limits: 日の番号・日の替わりまでの秒は日本の日付（DAY
 
 test('F9・RL7: 記録は { ev: stt, st, r, ms, sec } の形だけで、ヒント・文字・札・メール・鍵が無い。D1 のどの行にもヒントと文字が無い（上の全部の場面を合わせて）', { timeout: 5000 }, () => {
   assert.ok(ALL.scenes >= 14, `場面が少ない（${ALL.scenes}）。このテストはファイルの最後に置く`);
-  for (const r of ['200:ok', '401:login', '413:too-large', '415:not-wav', '429:daily-cap', '429:busy', '502:upstream-auth', '502:upstream',
+  for (const r of ['200:ok', '401:login', '403:denied', '413:too-large', '415:not-wav', '429:daily-cap', '429:busy', '502:upstream-auth', '502:upstream',
     '503:quota', '503:not-ready', '400:bad-request']) {
     assert.ok(ALL.results.has(r), `記録に ${r} の行が無い`);
   }
@@ -572,6 +623,6 @@ test('F9・RL7: 記録は { ev: stt, st, r, ms, sec } の形だけで、ヒン�
   const rows = ALL.rows.join('\n');
   assert.ok(ALL.rows.length > 20, `D1 の行が少ない（${ALL.rows.length}）`);
   assert.ok(!/区間|議題|見積|予算|𠮷/.test(rows), 'D1 の行に文字かヒント');
-  // メールは sessions の行にある（札の持ち主）。ほかの秘密（札・鍵・ヒント・文字）は D1 のどの行にも無い
+  // メールは blocked_emails の行にある（止めたメール）。ほかの秘密（JWT・鍵・ヒント・文字）は D1 のどの行にも無い
   for (const s of ALL.secrets) if (!s.includes(String.fromCharCode(64))) assert.ok(!rows.includes(s), `D1 の行に ${s.slice(0, 12)}…`);
 });

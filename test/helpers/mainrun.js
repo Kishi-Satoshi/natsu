@@ -138,7 +138,7 @@
 //   第1d回 A-2（RL10）: ログインの場面
 //     --relay=<mode> … 本物の中継のコード（relay/）を 127.0.0.1 で動かす（helpers/relay-local.js。後ろの偽の OpenAI は fake-stt の mode）。
 //                        偽の Electron の net.request が src/relay.js の RELAY_BASE を中継の口へ書き換え、書き換える前の道（/auth/start など）を
-//                        順に覚える。場面の ctx に relay = { mail(local, domain), codeFor(email), setFront(mode), db, calls() } を足す
+//                        順に覚える。場面の ctx に relay = { mail(local, domain), setFront(mode), db, calls() } を足す（codeFor は第1d回 W-6 で外した）
 //                        （calls() は覚えた道の写し。setFront は relay-local の中継の前の答え方: '' ・'drop'・'html401'）
 //     --no-store     … 偽の safeStorage の isAsyncEncryptionAvailable が false（暗号にできない PC。secrets.js は保存を断る）
 //   第1d回 A-3（RL11）: 文字起こしを中継へ送る場面。--relay の議事録・音声入力・復旧の場面は、main を読む前にログインの種をまく
@@ -1463,7 +1463,7 @@ process.on('exit', () => {
         overlayDone: () => sent.filter(([ch, p]) => ch === 'overlay:phase' && p && p.phase === 'done').map(([, p]) => p.message),
         mainProgress: () => sent.filter(([ch]) => ch === 'meeting:progress').map(([, p]) => (p ? p.message : undefined)),
         setOnline: (on) => { netUp = Boolean(on); },
-        relay: relayLocal ? { mail: require('./relay-run').mail, codeFor: (e) => relayLocal.codeFor(e), setFront: (m) => relayLocal.setFront(m), db: relayLocal.db,
+        relay: relayLocal ? { mail: require('./relay-run').mail, setFront: (m) => relayLocal.setFront(m), db: relayLocal.db,
           calls: () => relayPaths.slice(), seededMail, base: relayLocal.base, sttRequests: () => relayLocal.stt.requests.slice(), logs: () => relayLocal.logs.slice(),
           // 第1d回 A-11: 取り消しは偽の Access で（Zero Trust の Revoke）。block は種の人を止めたメールにする（中継は 403 denied）
           revoke: async () => { relayLocal.revokeAt(loginMail()); },
