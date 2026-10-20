@@ -94,7 +94,9 @@ test('BN3: PC で文字起こしに切り替えたと言う文（上の全部）
   const PHRASE = '精度が落ちます';
   const inTables = [...Object.keys(BANNER).map(banner), ...Object.keys(NOTICE).map(notice), ...Object.values(WIN)]
     .reduce((n, t) => n + t.split(PHRASE).length - 1, 0);
-  assert.strictEqual(MAIN.split(PHRASE).length - 1, inTables, 'main.js の帯と知らせの表の外の文に「精度が落ちます」がある');
+  // 注釈（// の後と /* */ の中の * の行）は数えない（後で注釈にこの言葉を書いても赤にしない）
+  const code = MAIN.split('\n').map((l) => (/^\s*\*/.test(l) ? '' : l.replace(/(^|\s)\/\/.*$/, ''))).join('\n');
+  assert.strictEqual(code.split(PHRASE).length - 1, inTables, 'main.js の帯と知らせの表の外の文に「精度が落ちます」がある');
   for (const t of [...Object.keys(BANNER).map(banner), ...Object.keys(NOTICE).map(notice), ...Object.values(WIN)]) assert.ok(!t.includes('未設定'), `「未設定」がある: ${t}`);
 });
 
