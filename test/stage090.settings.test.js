@@ -696,3 +696,167 @@ test('SP7: 左の列の下に「NaTsu {版}」（appVersion の答え）。答�
   }
   assert.deepStrictEqual(l.errors.map(fmt), []);
 });
+
+// ---------------------------------------------------------------- 0.9.0 見た目の直し（利用者に見せる前の見直し。CI run 39477163013 の撮った画面）
+// 設定のポップアップの4つの不具合（捲り棒が角の丸みにかかる・検索の結果に［データ保存先を開く］・項目で中身が約 7px ずれる・
+// 「オフライン」が2回）と、OK をもらったモック 案C に合わせる所（検索の虫めがね・名前が左で入力が右の行・キーの形の箱のホットキー・項目の見出しの大きさ）
+
+const decl = (sel, at = '') => S.declsFor(rules, sel, { at });
+const px = (v) => { const m = /^(-?\d+(?:\.\d+)?)px$/.exec(String(v || '').trim()); return m ? Number(m[1]) : NaN; };
+
+test('見た目の直し: 設定の右の捲り棒はポップアップの角の丸みと × にかからない（右の列の上は × の下から、下は角の丸みより内側）。捲り棒の分の幅はいつも取っておく（項目を替えても中身が左右にずれない）', T, () => {
+  const pane = decl('.setpane');
+  const radius = px(decl('.setbox')['border-radius']);
+  const close = decl('.setclose');
+  assert.ok(px(pane['padding-top']) >= px(close.top) + px(close.height), `右の列の上の余白 ${pane['padding-top']} が × の下（${close.top} + ${close.height}）に届かない`);
+  assert.ok(px(pane['padding-bottom']) >= radius, `右の列の下の余白 ${pane['padding-bottom']} が角の丸み ${radius}px より小さい`);
+  assert.ok(px(pane['padding-right']) > 0, '捲り棒がポップアップの右の端にくっつく');
+  assert.strictEqual(decl('.setpane > .scroll')['scrollbar-gutter'], 'stable', '捲り棒の出る項目と出ない項目で中身が左右にずれる');
+  // 設定の section は .tab の決まり（height: 100%）のまま、余白を含めた高さで収まる（box-sizing が border-box）
+  assert.strictEqual(S.declsFor(rules, '*', { at: '' })['box-sizing'], 'border-box');
+});
+
+test('見た目の直し: 検索の間は［データ保存先を開く］を出さない（当たった行とその行の部品だけ）。検索をやめると戻る。保存の文は検索の間も出る', T, async () => {
+  const l = await open();
+  await l.drain();
+  await click(l, 'tabBtnSettings');
+  assert.ok(visible($(l, 'openDataBtn')), '前提: 項目では出ている');
+  for (const q of ['マイク', 'ホットキー', 'あてはまらない語（見本）']) {
+    await search(l, q);
+    assert.ok(!visible($(l, 'openDataBtn')), `「${q}」の検索の結果に［データ保存先を開く］が出た`);
+    assert.ok(visible($(l, 'saveMsg')), '検索の間に保存の文を隠した');
+    // .scroll の中で出ているのは、題名・小見出し・当たったカード・当てはまらない文・保存の文の行だけ
+    const sc = $(l, 'tabSettings').querySelector('.scroll');
+    for (const k of sc.children.filter(visible)) {
+      const ok = k.id === 'setTitle' || k.classList.contains('setgroup') || k.classList.contains('card') || k.id === 'setEmpty' || $(l, 'saveMsg').parentNode === k;
+      assert.ok(ok, `検索の結果に当たっていない物が出た: <${k.tagName} id="${k.id}" class="${k.className}">`);
+    }
+  }
+  await search(l, '');
+  assert.ok(visible($(l, 'openDataBtn')), '検索をやめても［データ保存先を開く］が戻らない');
+  await search(l, 'マイク');
+  await pick(l, 'record');
+  assert.ok(visible($(l, 'openDataBtn')), '項目を選び直しても［データ保存先を開く］が戻らない');
+  assert.deepStrictEqual(l.errors.map(fmt), []);
+});
+
+test('見た目の直し（モック 案C）: 検索の欄の左に虫めがねの印（aria-hidden の線の SVG）。印は押せず（pointer-events: none）、文字は印の右から', T, () => {
+  const sb = doc.querySelector('#setSearch');
+  const wrap = sb.parentNode;
+  assert.ok(wrap.classList.contains('setsearch'), '検索の欄が .setsearch に入っていない');
+  assert.ok(wrap.closest('.setnav'), '検索の欄が左の列に無い');
+  const svg = wrap.querySelector('svg');
+  assert.ok(svg, '虫めがねの印が無い');
+  assert.strictEqual(svg.getAttribute('aria-hidden'), 'true');
+  assert.strictEqual(svg.getAttribute('fill'), 'none');
+  assert.strictEqual(svg.getAttribute('stroke'), 'currentColor');
+  assert.ok(svg.querySelector('circle') && svg.querySelector('path'), '虫めがねの形（丸と柄）でない');
+  assert.strictEqual(decl('.setsearch svg')['pointer-events'], 'none', '印が押せる（欄を押しても文字を入れられない所がある）');
+  assert.strictEqual(decl('.setsearch svg').position, 'absolute');
+  assert.ok(px(decl('#setSearch')['padding-left']) >= 28, '文字が印に重なる');
+});
+
+// 2列の行（名前と説明が左、入力が右）。表のどの欄が2列になるか（左の名前の文）
+const TWO_COL = { themeSel: '外観', hotkey: '音声入力ホットキー', meetingHotkey: '議事録ホットキー', pillPos: '録音バーの置き場所', micSelect: '使用するマイク',
+  spkNow: '録音されるスピーカー', language: '認識言語', claudeTest: '要約（Claude Code）', claudeExe: 'Claude Code の場所' };
+const TWO_SEL = '#tabSettings .field.frow';
+test('見た目の直し（モック 案C）: 設定の行は、名前（と説明）が左・入力が右の2列。狭い窓（拡大 200%）では縦に積む', T, () => {
+  const g = decl(TWO_SEL);
+  assert.strictEqual(g.display, 'flex', '名前と入力の2列になっていない');
+  assert.strictEqual(g['align-items'], 'center', '名前と入力の高さの真ん中がそろわない');
+  assert.ok(/^1\b/.test(decl(`${TWO_SEL} > .flead`).flex || ''), '左の名前と説明が残りの幅を取らない');
+  for (const c of ['input', 'select', '.hkbox']) assert.ok(/^none$/.test(decl(`${TWO_SEL} > ${c}`).flex || ''), `入力（${c}）が縮む`);
+  assert.strictEqual(decl(TWO_SEL, '@media (max-width: 760px)').display, 'block', '狭い窓で2列のまま（拡大 200% で入力が潰れる）');
+  for (const c of ['input', 'select', '.hkbox']) assert.strictEqual(decl(`${TWO_SEL} > ${c}`, '@media (max-width: 760px)').width, '100%', `狭い窓で入力（${c}）が幅いっぱいでない`);
+  // 2列になる欄（.frow）は表の欄だけ（詳細設定の中は今のまま）。左（.flead）に名前と説明、右に入力が1つ
+  assert.deepStrictEqual(doc.querySelectorAll('.frow').map((f) => f.dataset.row), ['外観', '音声入力ホットキー', '議事録ホットキー', '録音バーの置き場所', '使用するマイク',
+    '録音されるスピーカー', '認識言語', 'Claude Code', 'Claude Code の場所']);
+  for (const [id, name] of Object.entries(TWO_COL)) {
+    const field = doc.querySelector(`#${id}`).closest('.field');
+    assert.ok(field.classList.contains('frow'), `#${id} の欄が2列（.frow）でない`);
+    const kids = field.children;
+    assert.strictEqual(kids.length, 2, `#${id} の欄の直の子が左と右の2つでない`);
+    assert.ok(kids[0].classList.contains('flead'), `#${id} の欄の左が .flead でない`);
+    const lab = kids[0].children.find((c) => c.tagName === 'label' || c.classList.contains('flab'));
+    assert.ok(lab && kids[0].children[0] === lab, `#${id} の欄の左の頭に名前が無い`);
+    assert.ok(lab.textContent.replace(/\s+/g, ' ').trim().startsWith(name), `#${id} の左の名前が「${name}」で始まらない: ${lab.textContent}`);
+    assert.ok(['input', 'select'].includes(kids[1].tagName) || kids[1].classList.contains('row') || kids[1].classList.contains('hkbox'), `#${id} の欄の右が入力でない`);
+    assert.ok(kids[1] === doc.querySelector(`#${id}`) || kids[1].querySelector(`#${id}`), `#${id} が右に無い`);
+    assert.ok(kids[0].children.every((c) => c === lab || c.classList.contains('desc')), `#${id} の欄の左に名前と説明でない物がある`);
+  }
+  // 外観の欄の左の名前は飾り（選ぶ欄の名前は今どおり見出し #appearanceTitle）
+  const flab = doc.querySelector('#themeSel').closest('.field').querySelector('.flab');
+  assert.strictEqual(flab.getAttribute('aria-hidden'), 'true');
+  assert.strictEqual(doc.querySelector('#themeSel').getAttribute('aria-labelledby'), 'appearanceTitle');
+  // 名前の後ろの（…）は説明として名前の下に出す（label の文は 0.8.0 のまま: 上の「文が 0.8.0 と同じ」。かっこは出さない）
+  for (const id of ['hotkey', 'meetingHotkey', 'pillPos', 'claudeExe']) {
+    const lab = doc.querySelector(`label[for="${id}"]`);
+    assert.ok(lab.querySelector('.lhint'), `#${id} の名前の（…）が説明になっていない`);
+  }
+  assert.strictEqual(decl('#tabSettings .field label .lhint').display, 'block');
+  assert.strictEqual(decl('#tabSettings .field label .lhint .lp').display, 'none');
+});
+
+const capsOf = (l, id) => $(l, `${id}Caps`).querySelectorAll('kbd').map((k) => k.textContent);
+test('見た目の直し（モック 案C）: ホットキーはキーの形の箱（Ctrl・Shift・Space）。欄を押してキーを押すと今どおり取り込み、箱も替わる。保存で戻った値・設定の読み込みでも箱が替わる', T, async () => {
+  const l = await open({ saveSettings: (next) => ({ ok: true, applied: { hotkey: 'Control+Shift+Space' } }) });
+  await l.drain();
+  await click(l, 'tabBtnSettings');
+  assert.deepStrictEqual(capsOf(l, 'hotkey'), ['Ctrl', 'Shift', 'Space']);
+  assert.deepStrictEqual(capsOf(l, 'meetingHotkey'), ['Alt', 'M']);
+  for (const id of ['hotkey', 'meetingHotkey']) {
+    const caps = $(l, `${id}Caps`);
+    assert.strictEqual(caps.getAttribute('aria-hidden'), 'true', `${id}: 箱が読み上げに出る（読み上げは欄の値）`);
+    assert.strictEqual(caps.parentNode, $(l, id).parentNode, `${id}: 箱が欄と同じ .hkbox に無い`);
+    assert.ok(caps.parentNode.classList.contains('hkbox'));
+    assert.strictEqual($(l, id).getAttribute('readonly'), '', `${id}: 欄が readonly でない`);
+  }
+  const hk = $(l, 'hotkey');
+  hk.focus();
+  const ev = l.key({ key: 'k', ctrlKey: true, altKey: true }, hk);
+  assert.strictEqual(ev.defaultPrevented, true);
+  assert.strictEqual(hk.value, 'Control+Alt+K', '欄の値（保存する値）が変わった');
+  assert.deepStrictEqual(capsOf(l, 'hotkey'), ['Ctrl', 'Alt', 'K'], 'キーを押しても箱が替わらない');
+  l.key({ key: 'F9' }, $(l, 'meetingHotkey'));
+  assert.deepStrictEqual(capsOf(l, 'meetingHotkey'), ['F9']);
+  // 保存で main が戻した値（applied）に箱もそろえる
+  $(l, 'tabSettings').dispatchEvent({ type: 'change' });
+  await l.drain();
+  assert.strictEqual(hk.value, 'Control+Shift+Space');
+  assert.deepStrictEqual(capsOf(l, 'hotkey'), ['Ctrl', 'Shift', 'Space'], '保存で戻った値に箱がそろわない');
+  // 箱は欄の上に重ねる飾り: 押すと下の欄に届き（pointer-events: none）、欄の文字は見せない
+  assert.strictEqual(decl('.hkcaps')['pointer-events'], 'none');
+  assert.strictEqual(decl('.hkbox input').color, 'transparent');
+  assert.ok(/var\(--bg\)/.test(decl('.hkcaps kbd').background || ''), 'キーの箱の地が --bg でない（モックの白い箱）');
+  assert.deepStrictEqual(l.errors.map(fmt), []);
+});
+
+test('見た目の直し（モック 案C）: 設定の項目の見出し（「一般」など）は 20px・600（音声入力のページの題名は 32px のまま）。カードの見出しは 14px', T, () => {
+  const t = decl('.setpane .stitle');
+  assert.strictEqual(t['font-size'], '20px');
+  assert.strictEqual(t['font-weight'], '600');
+  assert.strictEqual(t['line-height'], '28px');
+  assert.strictEqual(decl('.stitle')['font-size'], '32px', '音声入力のページの題名まで小さくした');
+  assert.strictEqual(decl('.setpane .card h2')['font-size'], '14px');
+});
+
+test('見た目の直し: 項目の見出しと同じ言葉のカードの見出しは出さない（「オフライン」「アカウント」が2回出ない）。検索の結果でも小見出しと同じ言葉を2回出さない', T, async () => {
+  const l = await open();
+  await l.drain();
+  await click(l, 'tabBtnSettings');
+  const shownH2 = () => cardsOf(l.root).filter(visible).map((c) => c.querySelector('h2')).filter((h) => h && visible(h)).map((h) => h.textContent.trim());
+  for (const sec of ['account', 'general', 'record', 'summary', 'offline', 'update']) {
+    await pick(l, sec);
+    const title = $(l, 'setTitle').textContent;
+    assert.ok(!shownH2().includes(title), `項目「${title}」で同じ言葉のカードの見出しが出た`);
+    assert.ok(cardsOf(l.root).filter(visible).length > 0, `項目「${title}」でカードが出ない`);
+  }
+  await pick(l, 'offline');
+  assert.deepStrictEqual(shownH2(), [], '「オフライン」のカードの見出しが出た');
+  await pick(l, 'general');
+  assert.deepStrictEqual(shownH2(), ['外観', 'ホットキー', '起動と終了'], 'ほかのカードの見出しまで隠した');
+  await search(l, '文字起こし');
+  const groups = l.root.querySelectorAll('.setgroup').filter(visible).map((h) => h.textContent);
+  for (const g of groups) assert.ok(!shownH2().includes(g), `検索の結果で小見出し「${g}」と同じ言葉のカードの見出しが出た`);
+  assert.deepStrictEqual(l.errors.map(fmt), []);
+});

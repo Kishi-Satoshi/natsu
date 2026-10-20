@@ -282,6 +282,10 @@
   .setver { padding: 2px 10px; font-size: 11px; color: var(--muted); }
   /* 0.9.0 U-2（SP5）: 上の検索の欄。検索の間は当たった行だけを出し（外した行・カードは .set-miss）、項目の名前の小見出し（.setgroup）の下に並べる */
   #setSearch { height: 30px; flex: none; font-size: 13px; }
+  /* 0.9.0 見た目の直し（モック 案C）: 検索の欄の左に虫めがねの印。印は押せない飾りで、文字は印の右から */
+  .setsearch { position: relative; flex: none; }
+  .setsearch svg { position: absolute; left: 10px; top: 50%; transform: translateY(-50%); color: var(--muted); pointer-events: none; }
+  #setSearch { padding-left: 32px; }
   .setgroup { font-size: 12px; font-weight: 600; color: var(--muted); margin-top: 24px; }
   .set-empty { padding-top: 24px; }
   /* 欄や知らせが自分で付け外しする hidden には触らないので、印は class。id の詳細度で .check・.field .row の display に勝つ
@@ -295,11 +299,47 @@
   .setnav-item.on svg { color: var(--text); }
   /* 右: 今の設定の section（.tab の active で出る）。× は右上 */
   .setpane { flex: 1; min-width: 0; }
+  /* 0.9.0 見た目の直し: 右の捲り棒（.scroll）は × の下（12px + 28px）から始め、下と右は角の丸み（10px）より内側で止める（捲り棒の矢印が
+     角の丸みにかからない）。捲り棒の分の幅はいつも取っておき（scrollbar-gutter: stable）、捲り棒の出る項目と出ない項目で中身を左右にずらさない */
+  .setpane { padding-top: 40px; padding-bottom: 12px; padding-right: 4px; }
+  .setpane > .scroll { scrollbar-gutter: stable; }
+  /* 項目の見出し（「一般」など）とカードの見出しはモック 案C の大きさ（音声入力のページの題名 .stitle は今のまま） */
+  .setpane .stitle { font-size: 20px; font-weight: 600; line-height: 28px; margin-top: 0; margin-bottom: 0; }
+  .setpane .card h2 { font-size: 14px; margin-bottom: 4px; }
+  /* モック 案C の行: 名前のある欄（.frow）は、左に名前と説明（.flead）、右に入力。説明だけの欄・詳細設定の中は今のまま。
+     狭い窓（拡大 200%）では縦に積む（下の @media） */
+  #tabSettings .field.frow { display: flex; align-items: center; gap: 24px; min-height: 56px; padding: 8px 0; margin-bottom: 0; }
+  #tabSettings .field.frow > .flead { flex: 1; min-width: 0; }
+  #tabSettings .field.frow > input, #tabSettings .field.frow > select, #tabSettings .field.frow > .hkbox { flex: none; width: 240px; }
+  #tabSettings .field.frow > .row { flex: 0 1 auto; max-width: 400px; flex-wrap: wrap; justify-content: flex-end; }
+  #tabSettings .field.frow > .row > input, #tabSettings .field.frow > .row > select { flex: 1 1 180px; }
+  #tabSettings .field.frow > .flead > label { margin-bottom: 0; }
+  #tabSettings .field.frow > .flead > .desc { margin-top: 2px; line-height: 1.5; }
+  .flab { font-size: 14px; color: var(--text); }
+  /* 名前の後ろの（…）は名前の下の説明（label の文はそのまま。かっこは画面に出さない） */
+  #tabSettings .field label .lhint { display: block; font-size: 12px; color: var(--muted); margin-top: 2px; line-height: 1.5; }
+  #tabSettings .field label .lhint .lp { display: none; }
+  /* トグルの行もモックの高さ（名前と説明が左・トグルが右は今のまま） */
+  #tabSettings .check { min-height: 56px; padding: 8px 0; margin-bottom: 0; }
+  #tabSettings .check .d { font-size: 12px; line-height: 1.5; }
+  /* ホットキーはキーの形の箱（Ctrl・Shift・Space）。箱は欄の上に重ねる飾り（押すと下の欄に届き、読み上げは欄の値）。欄の文字は見せない */
+  .hkbox { position: relative; }
+  .hkbox input { color: transparent; caret-color: transparent; }
+  .hkcaps { position: absolute; inset: 0; display: flex; align-items: center; gap: 4px; padding: 0 6px; overflow: hidden; pointer-events: none; }
+  .hkcaps kbd { font-family: inherit; font-size: 12px; line-height: 18px; color: var(--text); background: var(--bg); border: 1px solid var(--line);
+    border-bottom-width: 2px; border-radius: 4px; padding: 0 7px; white-space: nowrap; }
   .setclose { position: absolute; top: 12px; right: 12px; z-index: 1; width: 28px; height: 28px; display: flex; align-items: center;
     justify-content: center; border: none; border-radius: 6px; background: transparent; color: var(--muted); font: inherit; font-size: 18px; cursor: pointer; }
   .setclose:hover { background: var(--hover); color: var(--text); }
   @media (max-width: 640px) {
     .setbox { width: 100vw; height: 100vh; border-radius: 0; }
+  }
+  /* 狭い窓（拡大 200%）: 設定の行は名前・説明・入力を縦に積む（2列では入力が潰れる） */
+  @media (max-width: 760px) {
+    #tabSettings .field.frow { display: block; min-height: 0; }
+    #tabSettings .field.frow > .flead { margin-bottom: 5px; }
+    #tabSettings .field.frow > input, #tabSettings .field.frow > select, #tabSettings .field.frow > .hkbox { width: 100%; }
+    #tabSettings .field.frow > .row { max-width: none; justify-content: flex-start; flex-wrap: nowrap; }
   }
 
   /* ---------- ページ本体 ---------- */
@@ -736,7 +776,10 @@
   <div class="setmodal" id="settingsModal" role="dialog" aria-modal="true" aria-labelledby="setTitle" hidden>
     <div class="setbox">
       <nav class="setnav" aria-label="設定の項目">
-        <input type="search" id="setSearch" placeholder="検索" aria-label="設定を検索" spellcheck="false" />
+        <div class="setsearch">
+          <svg viewBox="0 0 20 20" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="9" r="5"/><path d="M13 13l3.5 3.5"/></svg>
+          <input type="search" id="setSearch" placeholder="検索" aria-label="設定を検索" spellcheck="false" />
+        </div>
         <div id="setNav" role="tablist" aria-orientation="vertical" aria-label="設定の項目">
           <button type="button" class="setnav-item" id="setNavAccount" role="tab" data-sec="account" aria-selected="false" tabindex="-1"><svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="10" cy="7" r="3.2"/><path d="M3.8 16.5c1.1-3 3.4-4.5 6.2-4.5s5.1 1.5 6.2 4.5"/></svg><span>アカウント</span></button>
           <button type="button" class="setnav-item" id="setNavGeneral" role="tab" data-sec="general" aria-selected="false" tabindex="-1"><svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 6h7.5M15.5 6h1M3.5 14h1M9 14h7.5"/><circle cx="13.2" cy="6" r="2"/><circle cx="6.8" cy="14" r="2"/></svg><span>一般</span></button>
@@ -763,7 +806,8 @@
                メールと確認コードは Cloudflare の画面で入れる（画面には欄が無い）。文は main が返す（AR4〜AR7・R12〜R16）。cookie は画面に来ない。
                ［ログイン］の id は accountSignIn（前の #accountLogin は消した #accountCodeField の中のボタンで、同じ id で外へ出すとゲートの「枠からの離脱」になる） -->
           <div class="card" id="accountCard" data-sec="account">
-            <h2 id="accountTitle">アカウント</h2>
+            <!-- 0.9.0 見た目の直し: 項目の見出し「アカウント」と同じ言葉なので、カードの見出しは出さない（id とカードの名前はそのまま） -->
+            <h2 id="accountTitle" hidden>アカウント</h2>
             <div class="field">
               <div class="desc">会社のメールアドレスでログインすると、インターネットにつながっているときに、会議と音声入力の音声を文字起こしの中継に送り、OpenAI で文字起こしします。ログインしていないときと、つながっていないときは、PC の中で文字起こしします。</div>
             </div>
@@ -787,27 +831,35 @@
           <!-- 0.7.0 U-2（設計書 D8）: 外観は項目「一般」のいちばん上。選んだら今の自動保存ですぐ切り替わる（main の applyTheme） -->
           <div class="card" id="appearanceCard" data-sec="general">
             <h2 id="appearanceTitle">外観</h2>
-            <div class="field" data-row="外観">
+            <div class="field frow" data-row="外観">
+              <div class="flead">
+                <!-- 0.9.0 見た目の直し（モック 案C）: 左の名前は飾り（選ぶ欄の名前は今どおり見出し #appearanceTitle） -->
+                <div class="flab" aria-hidden="true">外観</div>
+                <div class="desc">この PC での NaTsu の見た目です。Ctrl+Shift+L でライトとダークを切り替えられます。</div>
+              </div>
               <select id="themeSel" aria-labelledby="appearanceTitle">
                 <option value="system">システム設定を使用</option>
                 <option value="light">ライト</option>
                 <option value="dark">ダーク</option>
               </select>
-              <div class="desc">この PC での NaTsu の見た目です。Ctrl+Shift+L でライトとダークを切り替えられます。</div>
             </div>
           </div>
           <div class="card" data-sec="general">
             <h2>ホットキー</h2>
-            <div class="field" data-row="音声入力ホットキー">
-              <label for="hotkey">音声入力ホットキー（クリックしてキーを押す）</label>
-              <input type="text" id="hotkey" readonly />
-              <div class="desc ng" id="hotkeyWarn" hidden></div>
+            <div class="field frow" data-row="音声入力ホットキー">
+              <div class="flead">
+                <label for="hotkey">音声入力ホットキー<span class="lhint"><span class="lp">（</span>クリックしてキーを押す<span class="lp">）</span></span></label>
+                <div class="desc ng" id="hotkeyWarn" hidden></div>
+              </div>
+              <div class="hkbox"><input type="text" id="hotkey" readonly /><span class="hkcaps" id="hotkeyCaps" aria-hidden="true"></span></div>
             </div>
-            <div class="field" data-row="議事録ホットキー">
-              <label for="meetingHotkey">議事録ホットキー（開始／終了をトグル）</label>
-              <input type="text" id="meetingHotkey" readonly />
-              <div class="desc ng" id="meetingHotkeyWarn" hidden></div>
-              <div class="desc">※ 左右のAltは区別されません（どちらでも動作）。</div>
+            <div class="field frow" data-row="議事録ホットキー">
+              <div class="flead">
+                <label for="meetingHotkey">議事録ホットキー<span class="lhint"><span class="lp">（</span>開始／終了をトグル<span class="lp">）</span></span></label>
+                <div class="desc ng" id="meetingHotkeyWarn" hidden></div>
+                <div class="desc">※ 左右のAltは区別されません（どちらでも動作）。</div>
+              </div>
+              <div class="hkbox"><input type="text" id="meetingHotkey" readonly /><span class="hkcaps" id="meetingHotkeyCaps" aria-hidden="true"></span></div>
             </div>
           </div>
           <div class="card" data-sec="general">
@@ -824,8 +876,10 @@
           </div>
           <div class="card" data-sec="record">
             <h2>録音バー</h2>
-            <div class="field" data-row="録音バーの置き場所">
-              <label for="pillPos">録音バーの置き場所（表示中はドラッグでも動かせます）</label>
+            <div class="field frow" data-row="録音バーの置き場所">
+              <div class="flead">
+                <label for="pillPos">録音バーの置き場所<span class="lhint"><span class="lp">（</span>表示中はドラッグでも動かせます<span class="lp">）</span></span></label>
+              </div>
               <select id="pillPos">
                 <option value="top-left">左上</option>
                 <option value="top-center">上の中央</option>
@@ -840,8 +894,10 @@
           </div>
           <div class="card" data-sec="record">
             <h2>マイクと相手の声</h2>
-            <div class="field" data-row="使用するマイク">
-              <label for="micSelect">使用するマイク</label>
+            <div class="field frow" data-row="使用するマイク">
+              <div class="flead">
+                <label for="micSelect">使用するマイク</label>
+              </div>
               <div class="row">
                 <select id="micSelect"></select>
                 <button class="ghost" id="micReloadBtn" type="button">更新</button>
@@ -855,17 +911,19 @@
                   二重に入るのを避けるため、イヤホンの使用をおすすめします。
                   音声入力（ホットキー）ではこれまで通りマイクだけを使います。<br />
                   ※ 録音していることは、会議の参加者へ伝えてください。</span></span></label>
-            <div class="field" id="spkField" data-row="録音されるスピーカー">
-              <label>録音されるスピーカー</label>
+            <div class="field frow" id="spkField" data-row="録音されるスピーカー">
+              <div class="flead">
+                <label>録音されるスピーカー</label>
+                <div class="desc">Windows の「既定の再生デバイス」に出ている音が録音されます。
+                  アプリ側から選ぶことはできない仕組みのため、変えたいときは
+                  Windows のサウンド設定で既定のデバイスを切り替えてください。
+                  録音の開始時点のデバイスに固定されます（録音中に切り替えても追従しません）。</div>
+              </div>
               <div class="row">
                 <input type="text" id="spkNow" readonly />
                 <button class="ghost" id="spkReloadBtn" type="button">更新</button>
                 <button class="ghost" id="spkSettingsBtn" type="button">Windowsの設定</button>
               </div>
-              <div class="desc">Windows の「既定の再生デバイス」に出ている音が録音されます。
-                アプリ側から選ぶことはできない仕組みのため、変えたいときは
-                Windows のサウンド設定で既定のデバイスを切り替えてください。
-                録音の開始時点のデバイスに固定されます（録音中に切り替えても追従しません）。</div>
             </div>
           </div>
           <div class="card" data-sec="record">
@@ -873,12 +931,14 @@
             <div class="field">
               <div class="desc">ログインしていて、インターネットにつながっているときは、会議と音声入力の音声を文字起こしの中継に送り、OpenAI（gpt-4o-transcribe）で文字起こしします。中継も OpenAI も、音声と文字を保存しません。つながっていないときは、いつも PC の中で文字起こしします。1on1・面談など外に出したくない会議は、議事録の画面の［この会議は PC の中だけ］を押してください。</div>
             </div>
-            <div class="field" data-row="認識言語">
-              <label for="language">認識言語</label>
+            <div class="field frow" data-row="認識言語">
+              <div class="flead">
+                <label for="language">認識言語</label>
+                <div class="desc ng lockNote" hidden>記録中はエンジンの設定を変更できません</div>
+              </div>
               <select id="language">
                 <option value="ja">日本語</option><option value="en">英語</option><option value="auto">自動判定</option>
               </select>
-              <div class="desc ng lockNote" hidden>記録中はエンジンの設定を変更できません</div>
             </div>
             <label class="check" data-row="文字起こし後、カーソル位置へ自動貼り付け"><input type="checkbox" id="autoPaste" />
               <span>文字起こし後、カーソル位置へ自動貼り付け</span></label>
@@ -899,26 +959,31 @@
           </div>
           <div class="card" data-sec="summary">
             <h2>要約（Claude Code）</h2>
-            <div class="field" data-row="Claude Code">
-              <label for="claudeTest">要約（Claude Code）</label>
+            <div class="field frow" data-row="Claude Code">
+              <div class="flead">
+                <label for="claudeTest">要約（Claude Code）</label>
+                <div class="desc" id="claudeHelp">［Claude Code を入れる］は、PowerShell の窓で Anthropic の公式の入れ方 <code>irm https://claude.ai/install.ps1 | iex</code> を実行します（インターネットから取った命令をそのまま実行します。Git for Windows は無くても動きます）。
+                  ［Claude Code にログイン］はログインの窓を開きます（NaTsu はログインの情報を読みません）。要約は各自の Claude のプランの上限（5時間ごと・週ごと）を使います。</div>
+              </div>
               <div class="row">
                 <span class="eng-state" id="claudeState"></span>
                 <button class="ghost" id="claudeTest" type="button">Claude Code を確かめる</button>
                 <button class="ghost" id="claudeLogin" type="button" hidden>Claude Code にログイン</button>
                 <button class="ghost" id="claudeInstall" type="button" hidden>Claude Code を入れる</button>
               </div>
-              <div class="desc" id="claudeHelp">［Claude Code を入れる］は、PowerShell の窓で Anthropic の公式の入れ方 <code>irm https://claude.ai/install.ps1 | iex</code> を実行します（インターネットから取った命令をそのまま実行します。Git for Windows は無くても動きます）。
-                ［Claude Code にログイン］はログインの窓を開きます（NaTsu はログインの情報を読みません）。要約は各自の Claude のプランの上限（5時間ごと・週ごと）を使います。</div>
             </div>
-            <div class="field" data-row="Claude Code の場所">
-              <label for="claudeExe">Claude Code の場所（空なら自動で探します）</label>
+            <div class="field frow" data-row="Claude Code の場所">
+              <div class="flead">
+                <label for="claudeExe">Claude Code の場所<span class="lhint"><span class="lp">（</span>空なら自動で探します<span class="lp">）</span></span></label>
+              </div>
               <input type="text" id="claudeExe" placeholder="claude.exe の場所" spellcheck="false" />
             </div>
             <div class="desc save-msg" id="onlineMsg"></div>
           </div>
           <div class="card" data-sec="offline">
             <!-- 第1d回 A-13（D19）: カード「エンジン」を「オフライン」に。カードの中の文字起こしの言葉は「PC の中の文字起こし」。要約の欄の言葉は変えない（問い Q15） -->
-            <h2>オフライン</h2>
+            <!-- 0.9.0 見た目の直し: 項目の見出し「オフライン」と同じ言葉なので、カードの見出しは出さない（カードの名前はそのまま） -->
+            <h2 hidden>オフライン</h2>
             <div class="field">
               <div class="desc">インターネットにつながっていないときと、［この会議は PC の中だけ］の会議でも、この PC の中で文字起こしと要約ができるようにする準備です（任意）。準備しなくても、インターネットにつながっていてログインしていれば、会議と音声入力はそのまま使えます。</div>
             </div>
@@ -1182,6 +1247,8 @@
     }
     $('setTitle').textContent = '検索の結果';
     $('setEmpty').hidden = hits > 0;
+    // 0.9.0 見た目の直し: 検索の間は［データ保存先を開く］も外す（当たった行とその行の部品だけを出す。保存の文は出したまま）。検索をやめると clearSettingsFilter が戻す
+    $('openDataBtn').classList.add('set-miss');
   }
   $('setSearch').addEventListener('input', () => filterSettings($('setSearch').value));
   // 検索の欄の Esc: 文字があれば消すだけ（前の項目に戻る。ポップアップは閉じない）。空なら外の受け口が閉じる
@@ -3172,6 +3239,7 @@
     $('engineIdleMin').value = intOr(s.engineIdleMin, 10);   // 0 は「止めない」。|| で既定に化けさせない
     $('hotkey').value = s.hotkey || '';
     $('meetingHotkey').value = s.meetingHotkey || '';
+    showKeyCaps('hotkey'); showKeyCaps('meetingHotkey');
     $('segmentSec').value = s.segmentSec || 75;
     $('pillPos').value = s.pillSlot || 'bottom-center';   // 0.9.0 O-4（RP1）: 置き場所の名前（前の版の pillPos・pillCustom は読まない）
     $('language').value = s.language || 'ja';
@@ -3233,8 +3301,22 @@
         $('saveMsg').className = 'save-msg ng'; return;
       }
       $(id).value = [...mods, k].join('+');
+      showKeyCaps(id);
       $('saveMsg').textContent = '';
     };
+  }
+  // 0.9.0 見た目の直し（モック 案C）: ホットキーの欄の上に重ねるキーの形の箱（欄の値 Control+Shift+Space → Ctrl・Shift・Space）。
+  // 保存する値と読み上げは今どおり欄の値。欄の値を入れる所（設定の読み込み・キーを押した・保存で main が戻した値）で呼ぶ
+  const KEY_CAP = { Control: 'Ctrl', CommandOrControl: 'Ctrl', CmdOrCtrl: 'Ctrl', Super: 'Win', Meta: 'Win' };
+  function showKeyCaps(id) {
+    const box = $(id + 'Caps');
+    if (!box) return;
+    box.textContent = '';
+    for (const k of String($(id).value || '').split('+').map((x) => x.trim()).filter(Boolean)) {
+      const kb = document.createElement('kbd');
+      kb.textContent = KEY_CAP[k] || k;
+      box.appendChild(kb);
+    }
   }
   attachHotkey('hotkey'); attachHotkey('meetingHotkey');
 
@@ -3536,6 +3618,7 @@
     if (el.getAttribute('type') === 'checkbox') el.checked = Boolean(v);
     else if (k === 'dictionary') el.value = (Array.isArray(v) ? v : [v]).join('\n');
     else el.value = v;
+    if (k === 'hotkey' || k === 'meetingHotkey') showKeyCaps(k);
   }
 
   async function save(silent) {

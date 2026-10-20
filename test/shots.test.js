@@ -542,9 +542,14 @@ test('CI: 撮る道具の見張りの時間は 30 秒 + SCREENS の数 × 6 秒�
 // 0.9.0 O-2・O-4 の点検の直し: ドラッグで吸い付いた置き場所を main から受けて #pillPos に入れる（onSettingsPatched）のと、保存の applied の
 // pillSlot を #pillPos に戻す（FIELD_IDS）を、<script> の中だけに足した（要素・文・CSS は変えていないので見た目もページの長さも変わらない。
 // RETAKE は今のまま足さない）。値を今の app.html に合わせた
+// 0.9.0 見た目の直し（利用者に見せる前の見直し）: 設定のポップアップの捲り棒を × の下から角の丸みの内側までにし（scrollbar-gutter: stable）、検索の間は
+// ［データ保存先を開く］を外し、モック 案C に合わせた（検索の虫めがね・名前が左で入力が右の行・キーの形の箱のホットキー・項目の見出し 20px・
+// 項目の見出しと同じ言葉のカードの見出しを出さない）。CSS はどれも設定のポップアップの中（#tabSettings・.setpane・.setsearch・.hkbox・.frow）だけで、
+// 見える中身が変わるのは設定の画面（6枚とも RETAKE にある）。議事録・音声入力・録音中のページ・検索の窓は要素も文も CSS も変えていないので
+// 基準のまま比べる。値を今の app.html に合わせた
 test('基準の画像（test/shots/win32）は今の app.html で撮ったもの（app.html を変えたら撮り直しを確かめる）', { timeout: 5000 }, () => {
   const sha = require('node:crypto').createHash('sha256').update(fs.readFileSync(path.join(ROOT, 'src', 'renderer', 'app.html'))).digest('hex');
-  assert.strictEqual(sha, '4ac62af83304a7e895bda0b6f741162c1707ae3d27fa94ebe14fac0400a3b64b',
+  assert.strictEqual(sha, 'cf87403359ac5df5cbc3a5ed975af9569ce90e11c1ee6d8a6963bd44e9f90cae',
     'app.html が基準の画像を撮った時と違う。Windows の CI の画面の比べ（捲り棒のつまみも）を見て、基準を取り直してからこの値を直す');
 });
 

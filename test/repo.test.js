@@ -646,8 +646,10 @@ test('議事録の破棄ボタンは録音バーに出さない（誤操作で�
 // 0.9.0 U-2（SP4・D24）で意図して変えた: 設定は項目ごとのカード（計画「設定の項目とカード」の表の順）。「動作」と「オンライン」の
 // カードは無くなった（中の欄はホットキー・起動と終了・録音バー・マイクと相手の声・文字起こし・要約（Claude Code）へ動いた）。
 // 外観（#appearanceTitle）とアカウント（#accountTitle）は id の付いた <h2> なのでここには出ない
+// 0.9.0 見た目の直し（利用者に見せる前の見直し）で意図して変えた: 項目の見出しと同じ言葉のカードの見出し（「オフライン」）は hidden で出さない。
+// カードの名前としては残るので、hidden の付いた <h2> もここで数える（並びと数は変えない）
 test('設定カードの並びは指定通り', () => {
-  const heads = [...appHtml.matchAll(/<h2>(.+?)<\/h2>/g)].map((m) => m[1]);
+  const heads = [...appHtml.matchAll(/<h2(?: hidden)?>(.+?)<\/h2>/g)].map((m) => m[1]);
   assert.deepStrictEqual(heads, [
     'ホットキー',
     '起動と終了',
@@ -694,7 +696,7 @@ function divDepthMap(html) {
   let depth = 0;
   for (const line of html.split('\n')) {
     depth += (line.match(/<div\b/g) || []).length - (line.match(/<\/div>/g) || []).length;
-    const h = line.match(/<h2>(.+?)<\/h2>/);
+    const h = line.match(/<h2(?: hidden)?>(.+?)<\/h2>/);   // 0.9.0 見た目の直し: 出さないカードの見出し（hidden）も数える
     if (h) out.push({ title: h[1], depth });
   }
   return { heads: out, depth };
