@@ -54,7 +54,7 @@ test('D17: 録音中のページの画面の答えに stt。live-banner-light �
   assert.strictEqual(bs.stt.route, 'local');
   assert.strictEqual(bs.stt.problem.code, 'relay-down');
   assert.strictEqual(bs.stt.problem.action, '');
-  const B8 = '中継につながりません。PC の中で文字起こしを続けています。録音はそのまま続けてください。';
+  const B8 = 'NaTsu のサーバーにつながりません。この PC で文字起こしを続けていますが、精度が落ちます。録音はそのまま続けてください。';
   assert.strictEqual(bs.stt.problem.text, B8);
   assert.ok(read('src/main.js').includes(`'relay-down': () => '${B8}'`), '帯の文が main の STT_BANNER の B8 と違う');
 });
@@ -62,8 +62,9 @@ test('D17: 録音中のページの画面の答えに stt。live-banner-light �
 // 第1d回 Task A-13（あとの直し (b)）: 帯は注意の色（--danger）の枠と文字なので、暗い地と 200% の折り返しでも利用者に見てもらう。
 // 2枚とも live-banner-light と同じ会議・同じ帯（B8）で、明暗と拡大だけが違う。
 // 第1d回 G-4 で意図して変えた: 利用者が CI の新しい画像を見て OK と言ったので基準にした。取り直し待ちではなく、基準の PNG と比べる
-test('あとの直し (b): 撮る画面に live-banner-dark・live-banner-zoom200-dark があり、基準の PNG と比べる（取り直し待ちではない）。帯の画面は B8 の文', { timeout: 5000 }, () => {
-  const B8 = '中継につながりません。PC の中で文字起こしを続けています。録音はそのまま続けてください。';
+// 0.9.0 B-1（BN1・D26）で意図して変えた: 帯の文を B8 の新しい文にしたので、帯の3枚を取り直し待ちにした（基準の PNG は 0.8.0 のまま残り、G-3 で取り直す）
+test('あとの直し (b)・0.9.0 B-1: 撮る画面に live-banner-dark・live-banner-zoom200-dark があり、基準の PNG がある。帯の画面は B8 の文で、取り直し待ち（G-3 で基準にする）', { timeout: 5000 }, () => {
+  const B8 = 'NaTsu のサーバーにつながりません。この PC で文字起こしを続けていますが、精度が落ちます。録音はそのまま続けてください。';
   const light = SH.SCREENS.find((s) => s.name === 'live-banner-light');
   for (const [n, zoom] of [['live-banner-dark', undefined], ['live-banner-zoom200-dark', 2]]) {
     const s = SH.SCREENS.find((x) => x.name === n);
@@ -74,7 +75,7 @@ test('あとの直し (b): 撮る画面に live-banner-dark・live-banner-zoom20
     assert.ok(!s.act && !s.focus && !s.event, n);
     assert.deepStrictEqual(s.answers, light.answers, `${n} の会議と帯が live-banner-light と違う`);
     assert.strictEqual(s.answers['koeApp.meetingStatus'].stt.problem.text, B8, n);
-    assert.ok(!SH.RETAKE.has(n), `${n} が取り直し待ちに残っている`);
+    assert.ok(SH.RETAKE.has(n), `${n} が取り直し待ちに無い（帯の文が変わった）`);
     assert.ok(fs.existsSync(path.join(ROOT, 'test', 'shots', 'win32', `${n}.png`)), `${n} の基準が無い`);
   }
 });
@@ -358,8 +359,11 @@ test('G2: 作業域より大きい窓が作るときに縮められても（Wind
 // 取り直し待ちのまま。基準が無くてよいのは取り直し待ちにある帯の3枚（live-banner-*）だけ
 // 第1d回 G-4 で意図して変えた: 利用者が 2026-10-20 に CI の新しい8枚（run 39398639423・artifact 12252523286 の .after.png）を見て OK と言ったので、
 // その画像をバイトのまま基準にして取り直し待ちを空に戻した（0.7.0 U-2・第1b回 C-2 と同じ手順）。帯の3枚の「基準が無くてよい」の例外も外した
-test('G2・F14・G-4: 取り直し待ちは無い。録音バーは入れない。どの画面にも基準の PNG があり、大きさが窓の大きさと同じ', { timeout: 5000 }, () => {
-  assert.deepStrictEqual([...SH.RETAKE], []);
+// 0.9.0 で意図して変えた: 取り直し待ちは計画（docs/plans/2026-10-20-090.md）の「取り直す画面」の表の画面だけ。B-1 は帯の3枚（U・O は各タスクが足す）。
+// 利用者がまとめて OK と言ったら G-3 で基準にして空に戻す（空になるまで版を上げられない: 下の版のテスト）
+const RETAKE_090 = ['live-banner-light', 'live-banner-dark', 'live-banner-zoom200-dark'];
+test('G2・F14・G-4・0.9.0: 取り直し待ちは計画の「取り直す画面」の画面だけ。録音バーは入れない。どの画面にも基準の PNG があり、大きさが窓の大きさと同じ', { timeout: 5000 }, () => {
+  assert.deepStrictEqual([...SH.RETAKE].filter((n) => !RETAKE_090.includes(n)), []);
   assert.ok(!SH.RETAKE.has('overlay-processing'), '録音バーを取り直し待ちに入れた（overlay.html は変えない）');
   for (const s of SH.SCREENS) {
     const f = path.join(ROOT, 'test', 'shots', 'win32', `${s.name}.png`);

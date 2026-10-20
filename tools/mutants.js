@@ -400,8 +400,8 @@ module.exports = [
     tests: ['test/stage1b.app.test.js'], why: 'B-5 RF4: スリープから戻ったら再開を促す文' },
   { id: 'ui-side-ime', file: 'src/renderer/app.html', from: '} else if (ev.key === \'Enter\' && !imeEnter(ev)) {', to: '} else if (ev.key === \'Enter\') {',
     tests: ['test/stage1b.app.test.js'], why: 'B-6: つまみの Enter は変換の確定を見る（imeEnter）' },
-  { id: 'shots-retake-overlay', file: 'tools/shots/screens.js', from: 'const RETAKE = new Set([]);', to: "const RETAKE = new Set(['overlay-processing']);",
-    tests: ['test/shots.test.js'], why: 'C-1 F14: 録音バーの基準は取り直し待ちに入れられない' },
+  { id: 'shots-retake-overlay', file: 'tools/shots/screens.js', from: "const RETAKE = new Set(['live-banner-light', 'live-banner-dark', 'live-banner-zoom200-dark']);", to: "const RETAKE = new Set(['live-banner-light', 'live-banner-dark', 'live-banner-zoom200-dark', 'overlay-processing']);",
+    tests: ['test/shots.test.js'], why: 'C-1 F14: 録音バーの基準は取り直し待ちに入れられない（0.9.0 B-1 で RETAKE が帯の3枚になったので from を直した）' },
   { id: 'shots-overflow', file: 'tools/shots/screens.js', from: 'function judgeOverflow(r) {\n', to: 'function judgeOverflow(r) {\n  return { ok: true, note: \'\' };\n',
     tests: ['test/shots.test.js'], why: 'C-1 F11: 横のはみ出しを NG にする' },
   { id: 'shots-zoom', file: 'tools/shots/screens.js', from: '{ name: \'settings-zoom200-dark\', page: \'app\', theme: \'dark\', zoom: 2,', to: '{ name: \'settings-zoom200-dark\', page: \'app\', theme: \'dark\', zoom: 1,',
@@ -552,8 +552,8 @@ module.exports = [
     tests: ['test/invariants.test.js'], why: '不変条件 COLOR-04: JS が付ける live-on に CSS がある' },
   { id: 'shots-palette', file: 'tools/shots/screens.js', from: '  { name: \'search-palette-light\', page: \'app\', theme: \'light\', act: `${OPEN_PAGE}; ${OPEN_PALETTE}` },\n', to: '',
     tests: ['test/shots.test.js'], why: 'R-3: 検索の窓の画面を撮る' },
-  { id: 'shots-palette-retake', file: 'tools/shots/screens.js', from: 'const RETAKE = new Set([]);', to: "const RETAKE = new Set(['search-palette-light']);",
-    tests: ['test/shots.test.js'], why: 'R-3 G12・第1b回 C-2: 検索の窓の画面も基準と比べる（取り直し待ちに戻さない。第1d回 A-7 で RETAKE の末尾が録音中のページの3枚に、A-13 で帯の暗い2枚になったので from を直した。G-4 で RETAKE を空に戻したので、空に当たる形にした）' },
+  { id: 'shots-palette-retake', file: 'tools/shots/screens.js', from: "const RETAKE = new Set(['live-banner-light', 'live-banner-dark', 'live-banner-zoom200-dark']);", to: "const RETAKE = new Set(['live-banner-light', 'live-banner-dark', 'live-banner-zoom200-dark', 'search-palette-light']);",
+    tests: ['test/shots.test.js'], why: 'R-3 G12・第1b回 C-2: 検索の窓の画面も基準と比べる（取り直し待ちに戻さない。第1d回 A-7 で RETAKE の末尾が録音中のページの3枚に、A-13 で帯の暗い2枚になったので from を直した。G-4 で RETAKE を空に戻したので、空に当たる形にした。0.9.0 B-1 で帯の3枚になったので from を直した）' },
   { id: 'gate-1b2-ledger', file: 'tools/lib/moves.js', from: 'ids: [\'pActs\', \'pMore\', \'pMenu\'],', to: 'ids: [\'pActs\', \'pMore\', \'pMenu\', \'pTitle\'],',
     tests: ['test/gate.test.js'], why: 'L-1: 台帳の中身の固定（1b2 の行に pTitle を足さない）' },
   { id: 'gate-1b2-release', file: 'tools/lib/moves.js', from: '  { file: \'src/renderer/app.html\', lost: [\'section#tabNotes.tab.active\', \'div.notes\', \'aside.side\'],\n    ids: [\'searchBox\', \'fltAll\', \'fltActions\', \'fltFull\'],\n    why: \'第1b2回: 検索の欄と絞り込みを検索の窓へ移すのを natsu-v0.5.0 から1つの差分で見たときの形（リリースのゲート）\' },\n', to: '',
@@ -581,8 +581,8 @@ module.exports = [
     tests: ['test/ui07.app.test.js'], why: 'U-2: 押しっぱなしの繰り返しでは切り替えず、保存もし直さない' },
   { id: 'u2-toggle-revert', file: 'src/renderer/app.html', from: '    if (!(await save(true))) sel.value = prev;', to: '    await save(true);',
     tests: ['test/ui07.app.test.js'], why: 'U-2: 保存しなかったときは欄を前の値に戻す' },
-  { id: 'u2-retake-settings', file: 'tools/shots/screens.js', from: 'const RETAKE = new Set([]);', to: "const RETAKE = new Set(['settings-light']);",
-    tests: ['test/shots.test.js'], why: 'U-2・第1d回 A-4・G-4: 取り直し待ちを空に戻した後に、設定の画面を黙って取り直し待ちに入れない（A-4 で、空から3枚に戻した形の from に直した。A-7 で後ろに録音中のページの3枚が付いたので from を直した。G-4 で空に戻したので、0.7.0 U-2 と同じ空に当たる形にした）' },
+  { id: 'u2-retake-settings', file: 'tools/shots/screens.js', from: "const RETAKE = new Set(['live-banner-light', 'live-banner-dark', 'live-banner-zoom200-dark']);", to: "const RETAKE = new Set(['live-banner-light', 'live-banner-dark', 'live-banner-zoom200-dark', 'settings-light']);",
+    tests: ['test/shots.test.js'], why: 'U-2・第1d回 A-4・G-4: 取り直し待ちを空に戻した後に、設定の画面を黙って取り直し待ちに入れない（A-4 で、空から3枚に戻した形の from に直した。A-7 で後ろに録音中のページの3枚が付いたので from を直した。G-4 で空に戻したので、0.7.0 U-2 と同じ空に当たる形にした。0.9.0 B-1 で帯の3枚になったので from を直した）' },
   // 第2a1回（Task G-3。計画 docs/plans/2026-10-19-2a1.md の「変異確認」の表と、各レーンの点検で足した行）。
   // 場面（mainrun）を使う stage2a1.main.test.js などは pattern で赤になるテストだけを回す（CI の mutate を 20 分に収める）
   { id: 'dk-between-order', file: 'src/db/keys.js', from: '  if (lo !== null && hi !== null && lo >= hi) throw new Error(\'keyBetween: a < b の順になっていない\');\n', to: '',
@@ -1014,8 +1014,8 @@ module.exports = [
     tests: ['test/online.test.js', 'test/stage1d.main.test.js'], pattern: '^RL11: (経路は印|ログインしていなければ)',
     why: 'A-3 RL11: ログインしていなければ中継へ届くか（/health）も聞かない' },
   { id: 'ra-notice-action', file: 'src/main.js',
-    from: "  login: () => ({ text: 'ログインが切れたため、PC の中で文字起こししています。設定の「アカウント」でもう一度ログインしてください。', action: 'account' }),",
-    to: "  login: () => 'ログインが切れたため、PC の中で文字起こししています。設定の「アカウント」でもう一度ログインしてください。',",
+    from: "  login: () => ({ text: 'ログインが切れたため、この PC で文字起こししています（精度が落ちます）。設定の「アカウント」でもう一度ログインしてください。', action: 'account' }),",
+    to: "  login: () => 'ログインが切れたため、この PC で文字起こししています（精度が落ちます）。設定の「アカウント」でもう一度ログインしてください。',",
     tests: ['test/stage1d.main.test.js'], pattern: '^F5・F19: 会議の途中で偽の Access', why: 'A-3・A-4 F5: ログイン切れの知らせ（L3）は［ログインし直す］付き（action: account。A-11 でテストの名前を直した）' },
   // ra-ui-code-clear は第1d回 A-12 で外した（確認コードの欄が無い。理由は test/mutate.test.js の IDS_1D_ACCESS_RETIRED）
   // ゲート（tools/risk.js。レーン G）

@@ -86,7 +86,7 @@ const mail = (local) => local + String.fromCharCode(64) + 'example.com';
 const M = mail('kaigi');
 const R1 = '会社のメールアドレスでログインすると、インターネットにつながっているときに、会議と音声入力の音声を文字起こしの中継に送り、OpenAI で文字起こしします。ログインしていないときと、つながっていないときは、PC の中で文字起こしします。';
 const ONLINE = 'ログインしていて、インターネットにつながっているときは、会議と音声入力の音声を文字起こしの中継に送り、OpenAI（gpt-4o-transcribe）で文字起こしします。中継も OpenAI も、音声と文字を保存しません。つながっていないときは、いつも PC の中で文字起こしします。1on1・面談など外に出したくない会議は、議事録の画面の［この会議は PC の中だけ］を押してください。';
-const L3 = 'ログインが切れたため、PC の中で文字起こししています。設定の「アカウント」でもう一度ログインしてください。';
+const L3 = 'ログインが切れたため、この PC で文字起こししています（精度が落ちます）。設定の「アカウント」でもう一度ログインしてください。';
 const CLAUDE = () => ({ ok: true, found: true, cmdOnly: false, method: 'claude.ai', message: '' });
 const status = (o = {}) => ({ ok: true, signedIn: false, email: '', method: 'access', until: null, canStore: true, online: { up: true, why: 'ok' }, ...o });
 const RETIRED = ['onlineAdv', 'sttKey', 'sttKeySave', 'sttKeyTest', 'sttKeyClear', 'sttKeyState'];
@@ -361,18 +361,18 @@ test('D17: 録音中のページの状態の行（クラウド・この PC・最
 
 test('D17: 帯は #liveBar の上に1つ。文は main の text のまま、ボタンは action ごとに1つ。problem が null になると消える', { timeout: 5000 }, async () => {
   const l = await load(APP, { now: T0 });
-  l.fire('onMeetingUpdate', PROB('relay-down', '', '中継につながりません。PC の中で文字起こしを続けています。録音はそのまま続けてください。')); await l.drain();
+  l.fire('onMeetingUpdate', PROB('relay-down', '', 'NaTsu のサーバーにつながりません。この PC で文字起こしを続けていますが、精度が落ちます。録音はそのまま続けてください。')); await l.drain();
   const b = l.byId.get('liveSttBanner');
   assert.strictEqual(b.hidden, false);
   assert.strictEqual(b.getAttribute('role'), 'alert');
   assert.strictEqual(nextEl(b), l.byId.get('liveBar'), '帯が録音中のページの頭（#liveBar の上）に無い');
   assert.strictEqual(l.root.querySelectorAll('.stt-banner').length, 1, '帯が2つ以上ある');
-  assert.strictEqual(l.byId.get('liveSttBannerText').textContent, '中継につながりません。PC の中で文字起こしを続けています。録音はそのまま続けてください。');
+  assert.strictEqual(l.byId.get('liveSttBannerText').textContent, 'NaTsu のサーバーにつながりません。この PC で文字起こしを続けていますが、精度が落ちます。録音はそのまま続けてください。');
   assert.strictEqual(l.byId.get('liveSttBannerBtn').hidden, true);
   // F15: 区間ごとの meeting:update で同じ帯の文を書き直さない（role="alert" は書き直すたびに読み上げ直されることがある）。
   // simdom の textContent の代入は子の並びを作り直すので、並びが同じなら書いていない（A-7 の点検で足した）
   const kids = l.byId.get('liveSttBannerText').childNodes;
-  l.fire('onMeetingUpdate', { ...PROB('relay-down', '', '中継につながりません。PC の中で文字起こしを続けています。録音はそのまま続けてください。'), segments: [{ atMs: 0, text: '区間', failed: false }] }); await l.drain();
+  l.fire('onMeetingUpdate', { ...PROB('relay-down', '', 'NaTsu のサーバーにつながりません。この PC で文字起こしを続けていますが、精度が落ちます。録音はそのまま続けてください。'), segments: [{ atMs: 0, text: '区間', failed: false }] }); await l.drain();
   assert.strictEqual(l.byId.get('liveSttBannerText').childNodes, kids, '同じ帯の文を区間の知らせのたびに書き直した');
   for (const [action, label] of [['retry', 'もう一度'], ['account', 'ログインし直す'], ['engine', 'エンジンを確かめる']]) {
     l.fire('onMeetingUpdate', PROB('x', action, '文')); await l.drain();
@@ -420,7 +420,7 @@ test('D17: ［もう一度］は meetingRetry を1回だけ呼び、返事まで
 // 第1d回 A-12 で意図して変えた: フォーカスの行き先は［ログイン］
 test('D17: ［ログインし直す］は設定の『アカウント』を開いて［ログイン］にフォーカス。［エンジンを確かめる］は詳細設定の『文字起こし』を開く', { timeout: 5000 }, async () => {
   const l = await load(APP, { now: T0, returns: fakeMain().returns });
-  l.fire('onMeetingUpdate', PROB('login', 'account', 'ログインが切れたため、PC の中で文字起こししています。［ログインし直す］を押して、もう一度ログインしてください。')); await l.drain();
+  l.fire('onMeetingUpdate', PROB('login', 'account', 'ログインが切れたため、この PC で文字起こしを続けていますが、精度が落ちます。［ログインし直す］を押して、もう一度ログインしてください。')); await l.drain();
   assert.ok(!l.byId.get('tabSettings').classList.contains('active'));
   const n = l.called('accountStatus').length;
   await click(l, 'liveSttBannerBtn');
