@@ -1,0 +1,5 @@
+{
+  "scriptName": "natsu-help",
+  "compatibilityDate": "2026-10-01",
+  "entry": "help-gate.mjs"
+}

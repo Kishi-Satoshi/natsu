@@ -338,7 +338,8 @@ test('G3: 第1d回の変異が一覧にそろい、IDS_1D は計画の「変異�
   // 中継（relay/）と出し方の変異は、Electron の場面を使わない中継のテストで殺す（CI の mutate を短く保つ）。ゲートの変異はゲートのテストで殺す
   for (const id of IDS_1D.filter((x) => x.startsWith('rl-'))) {
     const m = byId.get(id);
-    assert.ok(/^(relay\/|tools\/relay-deploy\.js$|\.github\/workflows\/relay-deploy\.yml$)/.test(m.file), `${id}: ${m.file}`);
+    // ヘルプセンター H-10 で意図して変えた: 出し方の共通の部品 tools/lib/cf-api.js（relay-deploy から出した。rl-deploy-print が当たる）も中継の出し方
+    assert.ok(/^(relay\/|tools\/relay-deploy\.js$|tools\/lib\/cf-api\.js$|\.github\/workflows\/relay-deploy\.yml$)/.test(m.file), `${id}: ${m.file}`);
     assert.ok(m.tests.every((t) => /^test\/relay-[a-z-]+\.test\.js$/.test(t)), `${id}: ${m.tests}`);
   }
   for (const id of IDS_1D.filter((x) => x.startsWith('rg-'))) assert.deepStrictEqual(byId.get(id).tests, ['test/gate.test.js'], id);

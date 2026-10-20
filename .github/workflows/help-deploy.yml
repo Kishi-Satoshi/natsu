@@ -1,0 +1,36 @@
+# NaTsu ヘルプセンター（help/）を Cloudflare に出す（ヘルプセンター H-10。計画 docs/plans/2026-10-20-help.md）。
+# 手で押す（Actions → help-deploy → Run workflow。main を選ぶ）か、main にヘルプの変更が入ったときに走る。
+# PR では走らない。秘密は中継と同じ環境 relay（main だけ）に置き、「ヘルプを出す」の手順の env にだけ渡す（記録に出さない。R5）。
+# 秘密がまだ無いときの main への push は、何も出さずに緑で終わる（手で押したときは、足りない秘密の名前を出して赤）。
+# 最後にログインしていない GET で中身が返らないことを確かめ、返れば赤で止まる（HF1）。Access のサービストークンは渡さない。
+name: help-deploy
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ['help/**', 'relay/help-gate.mjs', 'relay/access.mjs', 'relay/config.mjs', 'relay/http.mjs', 'relay/log.mjs', 'tools/help-build.js', 'tools/lib/help-*.js', 'tools/lib/cf-api.js', 'tools/help-deploy.js', '.github/workflows/help-deploy.yml']
+permissions:
+  contents: read
+concurrency:
+  group: help-deploy
+  cancel-in-progress: false
+jobs:
+  deploy:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: relay   # 秘密は中継と同じこの環境にだけ置く。環境の Deployment branches は main だけ
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: ヘルプのテスト
+        run: node --test --test-reporter=tap "test/help-*.test.js"
+      - name: ヘルプを出す
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: node tools/help-deploy.js

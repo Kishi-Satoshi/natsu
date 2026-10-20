@@ -894,7 +894,9 @@ module.exports = [
   { id: 'm4b-quit-after-recording', file: 'src/main.js', from: "    engineLog('DB: 今は移さずに終える');\n    quitWhenRecordingEnds();", to: "    engineLog('DB: 今は移さずに終える');\n    app.quit();",
     tests: ['test/stage2a1.main.test.js'], pattern: '^Q1・F9: 録音の最中に', why: 'M-4 の残り: 録音の最中の［今は移さずに終える］は録音を切らず、止めて下書きに書き終えてから終える' },
   // ---------------------------------------------------------------- 第1d回 W-1・D-1 の独立した点検で足したもの（計画 docs/plans/2026-10-19-1d.md。W-1・D-1 は 0.7.0 の版で main に入る）
-  { id: 'rl-deploy-api-redirect', file: 'tools/relay-deploy.js', from: "{ method, headers, body, redirect: 'error', signal:", to: "{ method, headers, body, signal:",
+  // ヘルプセンター H-10 で、Cloudflare の API を呼ぶ口を tools/lib/cf-api.js に出した。relay-deploy は makeCf に redirect: 'error' を渡す。
+  // 外す形（既定の manual）も転送を追わないので、変異は「追う」（follow）にした
+  { id: 'rl-deploy-api-redirect', file: 'tools/relay-deploy.js', from: "timeoutMs: 60000, redirect: 'error' })", to: "timeoutMs: 60000, redirect: 'follow' })",
     tests: ['test/relay-deploy.test.js'], pattern: '^F6: 転送（3xx）を追わない', why: 'D-1 F6: Cloudflare の API の転送を追わない（トークンを付けたまま別の宛先へ行かない）' },
   { id: 'rl-deploy-health-redirect', file: 'tools/relay-deploy.js', from: "send(healthUrl, { redirect: 'manual', signal:", to: "send(healthUrl, { signal:",
     tests: ['test/relay-deploy.test.js'], pattern: '^F6: 転送（3xx）を追わない', why: 'D-1 F6・D-2 F23: /health の転送を追わない（「届いた」に数えない・サービストークンを行き先へ運ばない。D-2 で redirect: \'error\' から \'manual\' に）' },
@@ -962,8 +964,9 @@ module.exports = [
     tests: ['test/relay-deploy.test.js'], why: 'D-1 RL8: 2回目からは keep_bindings で、利用者が画面で入れた秘密を残す' },
   { id: 'rl-deploy-invocation', file: 'tools/relay-deploy.js', from: 'invocation_logs: false', to: 'invocation_logs: true',
     tests: ['test/relay-deploy.test.js'], why: 'D-1 F6: 呼び出しごとの記録（URL・見出し）を Cloudflare に残さない' },
-  { id: 'rl-deploy-print', file: 'tools/relay-deploy.js', from: '    let j = null;\n    try { j = JSON.parse(await res.text()); } catch (_) { j = null; }\n    const codes',
-    to: '    let j = null;\n    const raw = await res.text();\n    if (!res.ok) say(raw);\n    try { j = JSON.parse(raw); } catch (_) { j = null; }\n    const codes',
+  // ヘルプセンター H-10 で、答えを読む所は tools/lib/cf-api.js に移った（relay-deploy と help-deploy の両方が使う）
+  { id: 'rl-deploy-print', file: 'tools/lib/cf-api.js', from: '    let j = null;\n    try { j = JSON.parse(await res.text()); } catch (_) { j = null; }\n    const codes',
+    to: '    let j = null;\n    const raw = await res.text();\n    if (!res.ok) console.log(raw);\n    try { j = JSON.parse(raw); } catch (_) { j = null; }\n    const codes',
     tests: ['test/relay-deploy.test.js'], why: 'D-1 F6: 失敗の答えの本文を出さない（Cloudflare が本文にトークンを入れて返しても記録に出ない）' },
   { id: 'rl-deploy-env', file: '.github/workflows/relay-deploy.yml', from: '    environment: relay   # 秘密はこの環境にだけ置く。環境の Deployment branches は main だけ（利用者の用意の 4）\n', to: '',
     tests: ['test/relay-deploy.test.js'], why: 'D-1 F10: Cloudflare のトークンは環境 relay（main の枝だけ）の秘密から読む' },

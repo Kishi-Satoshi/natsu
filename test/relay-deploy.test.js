@@ -23,7 +23,9 @@ const SCRIPT = path.join(ROOT, 'tools', 'relay-deploy.js');
 const WF = '.github/workflows/relay-deploy.yml';
 let CFG = {};
 try { CFG = JSON.parse(read('relay/deploy-config.json')); } catch (_) { /* 無ければ、使うテストが落ちる */ }
-const MJS = fs.readdirSync(path.join(ROOT, 'relay')).filter((f) => f.endsWith('.mjs')).sort();
+// ヘルプセンター H-10 で意図して変えた: 中継の Worker に上げるのは relay/ の help- で始まらない .mjs だけ（門の help-gate.mjs は
+// ヘルプの出し方 help-deploy が natsu-help に上げる。中継の Worker には上げない）
+const MJS = fs.readdirSync(path.join(ROOT, 'relay')).filter((f) => f.endsWith('.mjs') && !f.startsWith('help-')).sort();
 const READY_ALL = { db: true, openai: true, access: true, domains: true };   // W-5 の /health の ready（mail は外れた）
 
 // ---------------------------------------------------------------- 偽の Cloudflare の API（127.0.0.1）
@@ -151,6 +153,21 @@ const secrets = () => ({ token: 'cf-test-token-' + crypto.randomBytes(12).toStri
 const seq = (st) => st.reqs.map((r) => `${r.method} ${r.path.replace(/[0-9a-f]{8}-[0-9a-f-]{27}/, ':db')}`);
 
 // ---------------------------------------------------------------- 台本の動き
+test('R3: relay/ に help-gate.mjs があっても、中継の Worker には上げない（上げるのは help- で始まらない .mjs だけ）', { timeout: 5000 }, async () => {
+  const all = fs.readdirSync(path.join(ROOT, 'relay')).filter((f) => f.endsWith('.mjs'));
+  assert.ok(all.includes('help-gate.mjs'), 'relay/help-gate.mjs が無い（この照らしが空振りする）');
+  const s = secrets();
+  const cf = await fakeCf({ ...s, dbExists: true, scriptExists: true });
+  try {
+    const r = await runDeploy(cf, s);
+    assert.strictEqual(r.code, 0, r.text);
+    const up = Object.keys(cf.st.put.parts).filter((k) => k !== 'metadata').sort();
+    assert.ok(!up.some((f) => f.startsWith('help-')), `中継に門を上げた: ${up.join(',')}`);
+    assert.deepStrictEqual(up, all.filter((f) => !f.startsWith('help-')).sort());
+    assert.match(r.text, new RegExp(`5/7 Worker を上げる（${up.length} ファイル）`));
+  } finally { await cf.close(); }
+});
+
 test('RL8: 1回目は D1 を作り（apac）、表の形を流し、keep_bindings なしで上げ、workers.dev を有効にし、/health を確かめる', { timeout: 5000 }, async () => {
   const s = secrets();
   const cf = await fakeCf(s);
@@ -580,7 +597,8 @@ test('RL8: 出す台本は Node に入っている部品だけを使う（wrangl
   const src = read('tools/relay-deploy.js');
   const mods = [...src.matchAll(/require\(\s*['"]([^'"]+)['"]\s*\)/g)].map((m) => m[1]);
   assert.ok(mods.length > 0);
-  for (const m of mods) assert.match(m, /^node:/, m);
+  // ヘルプセンター H-10 で意図して変えた: 共通の部品 tools/lib/cf-api.js（これも Node に入っている部品だけ。test/help-deploy.test.js が見る）を読んでよい
+  for (const m of mods) assert.match(m, /^(node:|\.\/lib\/cf-api$)/, m);
   assert.ok(!/wrangler/i.test(src.replace(/^\s*\/\/.*$/gm, '')), 'wrangler を使っている');
   assert.match(CFG.compatibilityDate, /^\d{4}-\d{2}-\d{2}$/);
   // Cloudflare の実行環境は数日おくれて新しい日付に追いつく。出す日と同じ日付だと「未来の日付」で上げを断られうるので、1週間より前にする
@@ -659,9 +677,11 @@ test('F10: relay-deploy.yml の YAML の書き方（引用符の無い値に「:
   for (const m of read(WF).matchAll(/^\s*- name: (.+)$/gm)) assert.ok(Buffer.byteLength(m[1], 'utf8') <= 200, m[1]);
 });
 
-test('F6: ほかのワークフローは CLOUDFLARE_ の秘密を参照しない（秘密は relay-deploy の環境 relay だけ）', { timeout: 5000 }, () => {
+// ヘルプセンター H-10 で意図して変えた: CLOUDFLARE_ の秘密を参照し、環境 relay を使うのは relay-deploy.yml の『中継を出す』と
+// help-deploy.yml の『ヘルプを出す』の2つだけ（help-deploy.yml の側の形は test/help-deploy.test.js が見る）
+test('F6: ほかのワークフローは CLOUDFLARE_ の秘密を参照しない（秘密は relay-deploy と help-deploy の環境 relay だけ）', { timeout: 5000 }, () => {
   const dir = path.join(ROOT, '.github', 'workflows');
-  const others = fs.readdirSync(dir).filter((f) => /\.ya?ml$/.test(f) && f !== 'relay-deploy.yml');
+  const others = fs.readdirSync(dir).filter((f) => /\.ya?ml$/.test(f) && f !== 'relay-deploy.yml' && f !== 'help-deploy.yml');
   assert.ok(others.includes('ci.yml') && others.includes('release.yml'), others.join(','));
   for (const f of others) {
     const y = fs.readFileSync(path.join(dir, f), 'utf8');
