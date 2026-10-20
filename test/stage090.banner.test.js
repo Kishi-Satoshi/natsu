@@ -100,13 +100,16 @@ test('BN3: PC で文字起こしに切り替えたと言う文（上の全部）
   for (const t of [...Object.keys(BANNER).map(banner), ...Object.keys(NOTICE).map(notice), ...Object.values(WIN)]) assert.ok(!t.includes('未設定'), `「未設定」がある: ${t}`);
 });
 
-test('BN1: 撮る画面の帯（BANNER_STT）の文は main の B8 と同じ。帯の3枚（live-banner-light・live-banner-dark・live-banner-zoom200-dark）は取り直し待ち', T, () => {
+// 0.9.0 G-3 で意図して変えた: 利用者が CI の帯の3枚（B8 の新しい文）を見て OK と言ったので基準にし、取り直し待ちを空に戻した。
+// 帯の3枚は取り直し待ちでなく、新しい文で撮った基準の PNG と比べる
+test('BN1・G-3: 撮る画面の帯（BANNER_STT）の文は main の B8 と同じ。帯の3枚（live-banner-light・live-banner-dark・live-banner-zoom200-dark）は新しい文の基準と比べる（取り直し待ちではない）', T, () => {
   const SH = require('../tools/shots/screens');
   for (const n of ['live-banner-light', 'live-banner-dark', 'live-banner-zoom200-dark']) {
     const s = SH.SCREENS.find((x) => x.name === n);
     assert.ok(s, `${n} が撮る画面に無い`);
     assert.strictEqual(s.answers['koeApp.meetingStatus'].stt.problem.text, banner('relay-down'), n);
-    assert.ok(SH.RETAKE.has(n), `${n} が取り直し待ちに無い（帯の文が変わる）`);
+    assert.ok(!SH.RETAKE.has(n), `${n} が取り直し待ちに残っている`);
+    assert.ok(fs.existsSync(path.join(__dirname, 'shots', 'win32', `${n}.png`)), `${n} の基準が無い`);
   }
 });
 

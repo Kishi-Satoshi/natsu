@@ -72,7 +72,8 @@ test('D17: 録音中のページの画面の答えに stt。live-banner-light �
 // 2枚とも live-banner-light と同じ会議・同じ帯（B8）で、明暗と拡大だけが違う。
 // 第1d回 G-4 で意図して変えた: 利用者が CI の新しい画像を見て OK と言ったので基準にした。取り直し待ちではなく、基準の PNG と比べる
 // 0.9.0 B-1（BN1・D26）で意図して変えた: 帯の文を B8 の新しい文にしたので、帯の3枚を取り直し待ちにした（基準の PNG は 0.8.0 のまま残り、G-3 で取り直す）
-test('あとの直し (b)・0.9.0 B-1: 撮る画面に live-banner-dark・live-banner-zoom200-dark があり、基準の PNG がある。帯の画面は B8 の文で、取り直し待ち（G-3 で基準にする）', { timeout: 5000 }, () => {
+// 0.9.0 G-3 で意図して変えた: 利用者が CI の新しい画像を見て OK と言ったので基準にした。取り直し待ちではなく、基準の PNG と比べる
+test('あとの直し (b)・0.9.0 B-1・G-3: 撮る画面に live-banner-dark・live-banner-zoom200-dark があり、基準の PNG と比べる（取り直し待ちではない）。帯の画面は B8 の文', { timeout: 5000 }, () => {
   const B8 = 'NaTsu のサーバーにつながりません。この PC で文字起こしを続けていますが、精度が落ちます。録音はそのまま続けてください。';
   const light = SH.SCREENS.find((s) => s.name === 'live-banner-light');
   for (const [n, zoom] of [['live-banner-dark', undefined], ['live-banner-zoom200-dark', 2]]) {
@@ -84,7 +85,7 @@ test('あとの直し (b)・0.9.0 B-1: 撮る画面に live-banner-dark・live-b
     assert.ok(!s.act && !s.focus && !s.event, n);
     assert.deepStrictEqual(s.answers, light.answers, `${n} の会議と帯が live-banner-light と違う`);
     assert.strictEqual(s.answers['koeApp.meetingStatus'].stt.problem.text, B8, n);
-    assert.ok(SH.RETAKE.has(n), `${n} が取り直し待ちに無い（帯の文が変わった）`);
+    assert.ok(!SH.RETAKE.has(n), `${n} が取り直し待ちに残っている`);
     assert.ok(fs.existsSync(path.join(ROOT, 'test', 'shots', 'win32', `${n}.png`)), `${n} の基準が無い`);
   }
 });
@@ -175,11 +176,27 @@ test('G2: 画面ごとの答えの名前も、本物の preload.js にあるも�
 
 // 0.9.0 O-3 で意図して変えた: 第1a回の録音バーの基準（overlay-processing.png）は、録音バーを作り直した（D25）ので外した。新しい録音バーの基準は
 // 利用者が CI の画像を見て OK と言った後に G-3 で置く（それまでは録音バーの画面は全部取り直し待ち）
-test('G2・F14・RP9: 第1a回の録音バーの画面と基準は無い。録音バーの画面は、基準を置くまで全部取り直し待ち', { timeout: 5000 }, () => {
+// 0.9.0 G-3 で意図して変えた: 利用者が CI の録音バーの 81 枚（run 39496101442・artifact 12297628165 の .after.png）を見て OK と言ったので、バイトのまま
+// 基準にした。どの録音バーの画面にも基準があり、取り直し待ちではない。基準の大きさは「main と同じ panelBounds の窓 × 拡大率」で（撮る道具の
+// shotSizeFor・panelWindowFor）、ピルの太さは形の初めの太さ（PANEL_FIRST）+ 余白、明るい地と暗い地で同じ大きさ
+test('G2・F14・RP9・G-3: 第1a回の録音バーの画面と基準は無い。録音バーの画面にはどれも基準があり、大きさは panelBounds の窓 × 拡大率で、地で変わらない', { timeout: 5000 }, () => {
   assert.ok(!SH.SCREENS.some((s) => s.name === 'overlay-processing'));
   assert.ok(!fs.existsSync(path.join(ROOT, 'test', 'shots', 'win32', 'overlay-processing.png')), '外した画面の基準が残っている');
+  const byDesk = new Map();
   for (const s of SH.SCREENS.filter((x) => x.page === 'overlay')) {
-    if (!fs.existsSync(path.join(ROOT, 'test', 'shots', 'win32', `${s.name}.png`))) assert.ok(SH.RETAKE.has(s.name), `${s.name} は基準も取り直し待ちも無い`);
+    assert.ok(!SH.RETAKE.has(s.name), `${s.name} が取り直し待ちに残っている`);
+    const f = path.join(ROOT, 'test', 'shots', 'win32', `${s.name}.png`);
+    assert.ok(fs.existsSync(f), `${s.name} の基準が無い`);
+    const im = P.decodePng(fs.readFileSync(f));
+    const k = s.scale || 1;
+    const win = { width: Math.round(im.width / k), height: Math.round(im.height / k) };
+    assert.deepStrictEqual(SH.shotSizeFor(win, k), { width: im.width, height: im.height }, `${s.name}: 窓 × 拡大率 ${k} の大きさでない`);
+    assert.deepStrictEqual(SH.panelWindowFor({ w: win.width - 2 * lib.PANEL_PAD, h: win.height - 2 * lib.PANEL_PAD }, s.slot), win, `${s.name}: panelBounds の窓の大きさでない`);
+    const thick = s.pill.form === 'v' ? [win.width, lib.PANEL_FIRST.v.w] : [win.height, lib.PANEL_FIRST.h.h];
+    assert.strictEqual(thick[0], thick[1] + 2 * lib.PANEL_PAD, `${s.name}: ピルの太さが形の太さでない`);
+    const key = `${s.pill.form}|${s.pill.state}|${k}|${s.pill.hover ? 'hover' : ''}`;
+    if (byDesk.has(key)) assert.deepStrictEqual([im.width, im.height], byDesk.get(key), `${s.name}: 明るい地と暗い地で大きさが違う`);
+    else byDesk.set(key, [im.width, im.height]);
   }
 });
 
@@ -187,8 +204,9 @@ test('G2・F14・RP9: 第1a回の録音バーの画面と基準は無い。録�
 // 第1d回 A-4 で意図して変えた: 今の版は 0.7.0。取り直し待ち（設定の3枚。A-7 で録音中のページの3枚も）が残る間は 0.8.0 に上げさせない
 // （G-2 で版を上げる前に、利用者が CI の新しい画像を見て OK と言い、基準にして空に戻す）
 // 第1d回 G-4 で意図して変えた: 利用者が8枚を OK と言ったので取り直し待ちを空にし、版を 0.8.0 にした。次の版も、取り直し待ちが残る間は 0.8.0 のまま
+// 0.9.0 G-3 で意図して変えた: 利用者が取り直しの画像を OK と言ったので取り直し待ちを空にし、版を 0.9.0 にした。次の版も、取り直し待ちが残る間は 0.9.0 のまま
 test('F14: 取り直し待ちが残っている間は、版を上げられない（取り直し待ちのまま次の版を出さない）', { timeout: 5000 }, () => {
-  if (SH.RETAKE.size) assert.strictEqual(JSON.parse(read('package.json')).version, '0.8.0', `取り直し待ち ${[...SH.RETAKE].join(',')} を残したまま版を上げた`);
+  if (SH.RETAKE.size) assert.strictEqual(JSON.parse(read('package.json')).version, '0.9.0', `取り直し待ち ${[...SH.RETAKE].join(',')} を残したまま版を上げた`);
 });
 
 test('tools/shots/main.js は画面ごとの答え・拡大・はみ出し・Tab を使う', { timeout: 5000 }, () => {
@@ -381,14 +399,16 @@ test('G2: 作業域より大きい窓が作るときに縮められても（Wind
 // 0.9.0 で意図して変えた: 取り直し待ちは計画（docs/plans/2026-10-20-090.md）の「取り直す画面」の表の画面だけ。U-1 は設定の3枚と
 // notes-tabs-light（設定がポップアップになり、3つのタブの並びから設定のタブが消える）。B・O は各タスクが足す。
 // 利用者がまとめて OK と言ったら G-3 で基準にして空に戻す（空になるまで版を上げられない: 上の版のテスト）
-const RETAKE_090 = ['live-banner-light', 'live-banner-dark', 'live-banner-zoom200-dark', 'notes-tabs-light', 'settings-light', 'settings-dark', 'settings-zoom200-dark', 'settings-record-light', 'settings-search-light', 'settings-offline-light'];
-// 0.9.0 で足した画面で、まだ基準の PNG が無いもの（取り直し待ちにあるときだけ無くてよい。G-3 で基準にしたらここを空にする）
-const NEW_090 = ['settings-record-light', 'settings-search-light', 'settings-offline-light'];
+// 0.9.0 G-3 で意図して変えた: 利用者が 2026-10-20 に CI の取り直しの画像（run 39496101442（ed9365a）・artifact 12297628165 の .after.png。計画の
+// 「取り直す画面」の全部: 本体の 10 枚と録音バーの 81 枚）を見て OK と言ったので、その画像をバイトのまま基準にして取り直し待ちを空に戻した
+// （第1d回 G-4 と同じ手順）。計画の表の画面（前の RETAKE_090）と、0.9.0 で足した画面の「取り直し待ちの間は基準が無くてよい」の例外（前の NEW_090）は外した
 
 // 0.9.0 U-3（OF7・D21）: 準備を選んでいない人のカード「オフライン」の画面。偽の答えは engine:status の chosen が偽・取り込みの欄は
 // まだ取り込んでいず押したことも無い（consent 偽・missing）・空き 20GB。ログインしている形（していないと起動で「アカウント」が開く）
-test('U-3: 取り直し待ちに settings-offline-light がある。答えは chosen 偽・consent 偽の missing・空き 20GB・ログイン中で、項目「オフライン」を開く', { timeout: 5000 }, () => {
-  assert.ok(SH.RETAKE.has('settings-offline-light'), '準備を選んでいない人のカードの画面が取り直し待ちに無い');
+// 0.9.0 G-3 で意図して変えた: 利用者が CI の画像を見て OK と言ったので基準にした。取り直し待ちではなく、基準の PNG と比べる
+test('U-3・G-3: settings-offline-light は基準の PNG と比べる（取り直し待ちではない）。答えは chosen 偽・consent 偽の missing・空き 20GB・ログイン中で、項目「オフライン」を開く', { timeout: 5000 }, () => {
+  assert.ok(!SH.RETAKE.has('settings-offline-light'), '準備を選んでいない人のカードの画面が取り直し待ちに残っている');
+  assert.ok(fs.existsSync(path.join(ROOT, 'test', 'shots', 'win32', 'settings-offline-light.png')), '準備を選んでいない人のカードの画面の基準が無い');
   const s = SH.SCREENS.find((x) => x.name === 'settings-offline-light');
   assert.ok(s, '撮る画面に無い');
   assert.deepStrictEqual([s.page, s.theme, s.zoom], ['app', 'light', undefined]);
@@ -404,22 +424,20 @@ test('U-3: 取り直し待ちに settings-offline-light がある。答えは ch
 // 0.9.0 O-3（設計書 D25・RP9）で意図して変えた: 録音バーの画面（80 枚）を全部取り直し待ちにした（新しい画面で基準がまだ無い）。利用者が CI の画像を
 // 見て OK と言ったら、G-3 でその画像を基準にして空に戻す（空になるまで版を上げられない: 上の F14）。本体の画面は取り直し待ちでなければ基準と比べる
 // 0.9.0 O-4（RP1）で意図して変えた: 設定の「録音バーの置き場所」の欄の名前と選択肢を替えたので、設定の3枚も取り直し待ちにした
-test('G2・F14・G-4・0.9.0: 取り直し待ちは計画の「取り直す画面」の本体の画面と、録音バーの画面の全部（O-3）だけ。取り直し待ちでない本体の画面には基準の PNG があり、大きさが窓の大きさと同じ', { timeout: 5000 }, () => {
-  // 統合（B・U・O）: 本体の画面は計画の表（RETAKE_090）、録音バーの画面は全部（基準がまだ無い）
-  const overlay = SH.SCREENS.filter((s) => s.page === 'overlay').map((s) => s.name);
-  for (const n of overlay) assert.ok(SH.RETAKE.has(n), `${n} が取り直し待ちに無い`);
-  assert.deepStrictEqual([...SH.RETAKE].filter((n) => !overlay.includes(n) && !RETAKE_090.includes(n)), [], '計画の表に無い本体の画面を取り直し待ちに入れた');
-  for (const n of RETAKE_090) assert.ok(SH.RETAKE.has(n), `${n} が取り直し待ちに無い（見た目が変わった）`);
+// 0.9.0 G-3 で意図して変えた: 取り直し待ちを空に戻した（上の注）。録音バーの画面の基準の大きさは、上の「G2・F14・RP9・G-3」が panelBounds の答えと比べる
+test('G2・F14・G-4・0.9.0 G-3: 取り直し待ちは無い。どの画面にも基準の PNG があり、本体の画面の大きさは窓の大きさと同じ', { timeout: 5000 }, () => {
+  assert.deepStrictEqual([...SH.RETAKE], []);
+  assert.ok(!SH.RETAKE.has('overlay-processing'), '外した録音バーの画面を取り直し待ちに入れた');
   for (const s of SH.SCREENS) {
-    // 基準を見ないのは取り直し待ちの録音バーの画面だけ（基準がまだ無い）。取り直し待ちの本体の画面も、今の基準があって大きさが合うことは見る
-    if (s.page === 'overlay' && SH.RETAKE.has(s.name)) continue;
     const f = path.join(ROOT, 'test', 'shots', 'win32', `${s.name}.png`);
-    if (NEW_090.includes(s.name)) { assert.ok(SH.RETAKE.has(s.name), `${s.name} は基準が無いのに取り直し待ちに無い`); if (!fs.existsSync(f)) continue; }
     assert.ok(fs.existsSync(f), `${s.name} の基準が無い`);
+    if (s.page === 'overlay') continue;
     const im = P.decodePng(fs.readFileSync(f));
-    assert.strictEqual(s.page, 'app', `${s.name}: 録音バーの画面の大きさは中身で決まる（取り直し待ちでなくなったら、ここで panelBounds の答えと比べる）`);
     assert.deepStrictEqual([im.width, im.height], [SH.SIZE.width, SH.SIZE.height], s.name);
   }
+  // 基準のフォルダに、撮る画面に無い名前の画像を置かない（外した画面の基準が残らない）
+  const names = new Set(SH.SCREENS.map((s) => `${s.name}.png`));
+  assert.deepStrictEqual(fs.readdirSync(path.join(ROOT, 'test', 'shots', 'win32')).filter((n) => !names.has(n)), [], '撮る画面に無い基準がある');
 });
 
 // 0.9.0 O-3（設計書 D25・RP9・F11）: 録音バーの画面は pill-states の表の状態 × 形（横・縦）× 地（明るい・暗いデスクトップ）× 拡大率（100・150%）。

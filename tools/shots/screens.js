@@ -73,11 +73,11 @@ const SCREENS = [
   // 第1d回 A-13（あとの直し (b)）: 帯の暗い画面と 200% の暗い画面（live-banner-light と同じ会議と帯。注意の色の枠と文字を暗い地と折り返しで見る。取り直し待ち）
   { name: 'live-banner-dark', page: 'app', theme: 'dark', answers: liveAnswers(BANNER_STT) },
   { name: 'live-banner-zoom200-dark', page: 'app', theme: 'dark', zoom: 2, answers: liveAnswers(BANNER_STT) },
-  // 0.9.0 U-2（SP4・SP5・D24）: 設定のポップアップの項目「録音」と、検索「マイク」の結果（足した画面でまだ基準が無い。取り直し待ち）
+  // 0.9.0 U-2（SP4・SP5・D24）: 設定のポップアップの項目「録音」と、検索「マイク」の結果（足した画面。G-3 で CI の画像を基準にした）
   { name: 'settings-record-light', page: 'app', theme: 'light', act: "document.getElementById('tabBtnSettings').click(); document.getElementById('setNavRecord').click()" },
   { name: 'settings-search-light', page: 'app', theme: 'light',
     act: "document.getElementById('tabBtnSettings').click(); const b = document.getElementById('setSearch'); b.value = 'マイク'; b.dispatchEvent(new Event('input', { bubbles: true }))" },
-  // 0.9.0 U-3（OF7・D21）: オフラインの準備を選んでいない人のカード「オフライン」（OFF1〜OFF5。足した画面でまだ基準が無い。取り直し待ち）。
+  // 0.9.0 U-3（OF7・D21）: オフラインの準備を選んでいない人のカード「オフライン」（OFF1〜OFF5。足した画面。G-3 で CI の画像を基準にした）。
   // ログインしている形にする（ログインしていないと、起動で設定の「アカウント」が開く: 計画 U-3）
   { name: 'settings-offline-light', page: 'app', theme: 'light', answers: offlineAnswers(),
     act: "document.getElementById('tabBtnSettings').click(); document.getElementById('setNavOffline').click()" },
@@ -120,12 +120,9 @@ SCREENS.find((x) => x.name === 'notes-page-light').focus = { tabs: 3, want: 'mtT
 // 利用者がまとめて OK と言ったら G-3 で基準にして空に戻す
 // U-2（SP4・SP5）で足した設定の項目「録音」と検索の画面（settings-record-light・settings-search-light。まだ基準が無い）も入れた。
 // U-3（OF7）で足した準備を選んでいない人のカード「オフライン」の画面（settings-offline-light。まだ基準が無い）も入れた。
-const RETAKE = new Set(['live-banner-light', 'live-banner-dark', 'live-banner-zoom200-dark', 'notes-tabs-light', 'settings-light', 'settings-dark', 'settings-zoom200-dark', 'settings-record-light', 'settings-search-light', 'settings-offline-light']);
-// 0.9.0 O-3（設計書 D25）: 録音バーを作り直したので、録音バーの画面は全部取り直し待ち（新しい画面で基準がまだ無い）。利用者が CI の画像を見て
-// OK と言ったら、G-3 でその画像を基準にして、この行ごと外して空に戻す
-for (const s of SCREENS) if (s.page === 'overlay') RETAKE.add(s.name);
-// 0.9.0 O-4（RP1）: 設定の「録音バーの置き場所」の欄の名前と選択肢を替えたので、設定の3枚も取り直し待ち（U-1 でも入る）
-for (const n of ['settings-light', 'settings-dark', 'settings-zoom200-dark']) RETAKE.add(n);
+// 0.9.0 G-3: 利用者が 2026-10-20 に CI の取り直しの画像（run 39496101442（ed9365a）・artifact 12297628165 の .after.png。帯の3枚・notes-tabs-light・
+// 設定の6枚・録音バーの 81 枚）を見て OK と言ったので、その画像をバイトのまま基準にし、録音バーの行と設定の3枚の行ごと外して空に戻した
+const RETAKE = new Set([]);
 const PERF = [{ name: 'open-2000-blocks', budgetMs: 500 }];   // 3回開いた中央値で見る
 const TIME_ZONE = 'Asia/Tokyo';
 const TOLERANCE = 2;   // 色の差（0〜255）がこれ以下の画素は同じとみなす。CI の機械の CPU ごとの描き方の1段の差を拾わないため（揺れの確かめ judgePair は 0 で見る）
