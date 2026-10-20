@@ -124,8 +124,25 @@ const W_READY = /^文字起こしが使えるようになりました。/;
 const S_READY = /^要約のエンジンが使えるようになりました。/;
 const meetingReqs = (r) => r.requests.filter((l) => !/probe=true/.test(l));
 const prompted = (r) => meetingReqs(r).map((l) => /prompt=true/.test(l));
+// 照らしが落ちたときの手がかり（第1d回 A-14・あとの直し (c)。CI run 39335178338 の Windows で1回だけ「# fail 2」になり、どの区間が
+// なぜ落ちたかが記録から分からなかった）: 失敗の文に、場面の engine.log と要求の全部をいつも添える（会議の後の送り直しの写しも）
+const explain = (r) => JSON.stringify({ engineLog: r && r.engineLog, requests: r && r.requests,
+  ...(r && r.afterRetry ? { afterRetry: { engineLog: r.afterRetry.engineLog, requests: r.afterRetry.requests } } : {}) });
+// 場面を使うテストの中身を包む。中身には、待った場面を覚える need を渡し、どの assert が落ちても、待った場面ごとの explain を
+// 失敗の文の後ろに足す（文の頭と、落ちた行の stack はそのまま）。1つずつの assert の文に書くと、足し忘れた照らしで手がかりが欠ける
+const withExplain = (fn) => async () => {
+  const seen = new Set();
+  try {
+    await fn((...ks) => { ks.forEach((k) => seen.add(k)); return need(...ks); });
+  } catch (e) {
+    if (e && typeof e === 'object' && seen.size) e.message += `\n${[...seen].map((k) => `${k}: ${explain(results[k])}`).join('\n')}`;
+    throw e;
+  }
+};
+// 場面を使うテストは test の代わりにこれで書く
+const sceneTest = (name, fn) => test(name, withExplain(fn));
 
-test('ヒント付きで空なら、ヒントなしでもう一度送り、区間を残す。2 回続いたら以後はヒントを渡さない（0.1.0 の「0 区間」）', async () => {
+sceneTest('ヒント付きで空なら、ヒントなしでもう一度送り、区間を残す。2 回続いたら以後はヒントを渡さない（0.1.0 の「0 区間」）', async (need) => {
   await need('promptEmpty');
   const r = results.promptEmpty;
   assert.strictEqual(r.pages.length, 1, '議事録が 1 つできていない');
@@ -144,7 +161,7 @@ test('ヒント付きで空なら、ヒントなしでもう一度送り、区�
   assert.ok(!r.notices.some((n) => /すべて空/.test(n)), '取れたのに「すべて空」と知らせている');
 });
 
-test('文字が取れたときは 1 回だけ送り、ヒントも止めない', async () => {
+sceneTest('文字が取れたときは 1 回だけ送り、ヒントも止めない', async (need) => {
   await need('text');
   const r = results.text;
   assert.deepStrictEqual(prompted(r), [true, true]);
@@ -158,7 +175,7 @@ test('文字が取れたときは 1 回だけ送り、ヒントも止めない',
   assert.strictEqual(r.promptInfo.off, false);
 });
 
-test('本当に空なら、engine.log に区間ごとの理由を書き、全部が空なら利用者に知らせる', async () => {
+sceneTest('本当に空なら、engine.log に区間ごとの理由を書き、全部が空なら利用者に知らせる', async (need) => {
   await need('empty');
   const r = results.empty;
   // 第1d回 A-6（D17）で意図して変えた: 音のある区間が 75 秒の会議で2つ続けて空なら「止まっているかもしれない」とし、2区間を
@@ -180,7 +197,7 @@ test('本当に空なら、engine.log に区間ごとの理由を書き、全部
   assert.strictEqual(r.promptInfo.off, false);
 });
 
-test('空の区間が 1 つだけでも、全部が空なら知らせる。一部だけ空なら知らせない', async () => {
+sceneTest('空の区間が 1 つだけでも、全部が空なら知らせる。一部だけ空なら知らせない', async (need) => {
   await need('emptyOne', 'mixed');
   assert.ok(results.emptyOne.notices.some((n) => n.startsWith('1 区間の音声を受け取りましたが、文字起こしの結果がすべて空でした。')),
     JSON.stringify(results.emptyOne.notices));
@@ -190,7 +207,7 @@ test('空の区間が 1 つだけでも、全部が空なら知らせる。一�
   assert.ok(!m.notices.some((n) => /すべて空/.test(n)), `一部が取れたのに知らせた: ${JSON.stringify(m.notices)}`);
 });
 
-test('VAD が無く、ほぼ無音なら、ヒントなしのやり直しをしない（VAD があればやり直す）', async () => {
+sceneTest('VAD が無く、ほぼ無音なら、ヒントなしのやり直しをしない（VAD があればやり直す）', async (need) => {
   await need('silentNoVad', 'silentVad');
   const a = results.silentNoVad;
   assert.deepStrictEqual(prompted(a), [true], JSON.stringify(a.requests));
@@ -200,7 +217,7 @@ test('VAD が無く、ほぼ無音なら、ヒントなしのやり直しをし�
   assert.deepStrictEqual(prompted(b), [true, false], JSON.stringify(b.requests));
 });
 
-test('200 のまま {"error"} を返すエンジンは、空ではなく失敗として区間を残す', async () => {
+sceneTest('200 のまま {"error"} を返すエンジンは、空ではなく失敗として区間を残す', async (need) => {
   await need('err200');
   const r = results.err200;
   const segs = r.pages[0].segments;
@@ -214,7 +231,7 @@ test('200 のまま {"error"} を返すエンジンは、空ではなく失敗�
 // 失敗した区間は会議の後の送り直しでも文字起こしされるので、それが済むまで待って数える（mainrun の --after-retry）
 const DROP_LOG = /^文字起こしの接続: エンジンとの接続が切れたため、同じ区間をもう一度送りました（(UND_ERR_SOCKET|ECONNRESET|EPIPE)・音声 3 秒）$/;
 
-test('区間の要求の途中でエンジンとの接続が切れたら、同じ区間を 1 回だけ送り直して文字を残す', async () => {
+sceneTest('区間の要求の途中でエンジンとの接続が切れたら、同じ区間を 1 回だけ送り直して文字を残す', async (need) => {
   await need('dropFirst');
   const r = results.dropFirst;
   const a = r.afterRetry;
@@ -227,7 +244,56 @@ test('区間の要求の途中でエンジンとの接続が切れたら、同�
   assert.ok(!a.engineLog.some((l) => /^文字起こし:/.test(l)), JSON.stringify(a.engineLog));
 });
 
-test('送り直しても接続が切れるなら 2 回で止め、区間は失敗として日本語の理由で残す（"fetch failed" を見せない）', async () => {
+// あとの直し (c)（第1d回 A-14）: 手元の文字起こしの区間が失敗したら、engine.log に区間の番号と失敗の符号だけを1行書く
+// （符号は英大文字と _ だけ。ほかは「なし」。文の本文・URL・ポートは書かない）。頭は「文字起こし:」「文字起こしの経路:」にしない
+const LOCAL_FAIL_LOG = /^手元の文字起こしの失敗: /;
+
+sceneTest('あとの直し (c): 手元の区間がつながらずに失敗したら、engine.log に「手元の文字起こしの失敗: s1（ECONNRESET）」の形の行（符号は英大文字と _ だけ）。文字起こしの文・ポートは無い', async (need) => {
+  await need('dropAll', 'err200');
+  const a = results.dropAll.afterRetry;
+  const lines = a.engineLog.filter((l) => LOCAL_FAIL_LOG.test(l));
+  // 会議の中の区間 s1 と、会議の後の送り直し（復旧 s1）がどちらも失敗する。区間が失敗するたびに1行ずつ（ほかの行は足さない）
+  assert.strictEqual(lines.length, 2, explain(a));
+  for (const l of lines) assert.match(l, /^手元の文字起こしの失敗: s1（(UND_ERR_SOCKET|ECONNRESET|EPIPE)）$/, explain(a));
+  // どちらの失敗の行も、その区間の経路の行の後ろ（どの区間の失敗かが前後から読める）
+  const at = (re) => a.engineLog.findIndex((l) => re.test(l));
+  assert.ok(at(/^文字起こしの経路: 区間 s1 → local/) < a.engineLog.indexOf(lines[0]), explain(a));
+  assert.ok(at(/^文字起こしの経路: 復旧 s1 → local/) < a.engineLog.lastIndexOf(lines[1]), explain(a));
+  // 足した行で、engine.log の行を数える今の照らし（DROP_LOG・文字起こしの経路:・文字起こし:）の数は変わらない
+  assert.strictEqual(a.engineLog.filter((l) => DROP_LOG.test(l)).length, 2, explain(a));
+  assert.ok(!lines.some((l) => /^文字起こし(の経路)?:/.test(l)), explain(a));
+  // 符号の無い失敗（200 のまま {"error"}）は「なし」。エンジンの文（failed to read audio data）は書かない
+  const e = results.err200.engineLog.filter((l) => LOCAL_FAIL_LOG.test(l));
+  assert.ok(['s1', 's2'].every((s) => e.includes(`手元の文字起こしの失敗: ${s}（なし）`)), explain(results.err200));
+  assert.ok(e.every((l) => /^手元の文字起こしの失敗: s\d+（なし）$/.test(l)), explain(results.err200));
+});
+
+sceneTest('あとの直し (c): 区間が成功した場面には「手元の文字起こしの失敗」の行が無い（接続が1回切れて送り直しで取れた区間も）', async (need) => {
+  await need('text', 'promptEmpty', 'mixed', 'dropFirst', 'kotoba');
+  for (const k of ['text', 'promptEmpty', 'mixed', 'kotoba']) {
+    assert.ok(!results[k].engineLog.some((l) => LOCAL_FAIL_LOG.test(l)), `${k}: ${explain(results[k])}`);
+  }
+  const a = results.dropFirst.afterRetry;
+  assert.strictEqual(a.engineLog.filter((l) => DROP_LOG.test(l)).length, 1, explain(a));
+  assert.ok(!a.engineLog.some((l) => LOCAL_FAIL_LOG.test(l)), explain(a));
+});
+
+test('あとの直し (c): 場面の照らしが落ちたら、失敗の文の後ろに、待った場面の engine.log と要求の全部が付く（文の頭はそのまま）', async () => {
+  const body = withExplain(async (n) => { await n('dropFirst'); assert.strictEqual(1, 2, '照らしの文'); });
+  await assert.rejects(body(), (e) => {
+    assert.ok(e instanceof assert.AssertionError, String(e));
+    assert.ok(e.message.startsWith('照らしの文'), e.message);
+    const r = results.dropFirst;
+    assert.ok(e.message.endsWith(`\ndropFirst: ${explain(r)}`), e.message);
+    // explain は engine.log と要求の全部（会議の後の送り直しの写しも）
+    assert.deepStrictEqual(JSON.parse(explain(r)), { engineLog: r.engineLog, requests: r.requests,
+      afterRetry: { engineLog: r.afterRetry.engineLog, requests: r.afterRetry.requests } });
+    assert.ok(r.engineLog.length > 0 && r.requests.length > 0, explain(r));
+    return true;
+  });
+});
+
+sceneTest('送り直しても接続が切れるなら 2 回で止め、区間は失敗として日本語の理由で残す（"fetch failed" を見せない）', async (need) => {
   await need('dropAll');
   const r = results.dropAll;
   const a = r.afterRetry;
@@ -256,7 +322,7 @@ test('送り直すのは、返事の前に接続が切れたときだけ。拒�
   }
 });
 
-test('起動テストは /inference に正しい WAV の無音を実際に送り、返事の異常を見逃さない', async () => {
+sceneTest('起動テストは /inference に正しい WAV の無音を実際に送り、返事の異常を見逃さない', async (need) => {
   await need('text', 'promptEmpty', 'empty', 'err200', 'probe500', 'probeBadJson', 'probeDrop');
   for (const k of ['text', 'promptEmpty', 'empty']) {
     const t = results[k].test;
@@ -278,7 +344,7 @@ test('起動テストは /inference に正しい WAV の無音を実際に送り
   }
 });
 
-test('記録や文字起こしの最中は、起動テストで試しの文字起こしをしない', async () => {
+sceneTest('記録や文字起こしの最中は、起動テストで試しの文字起こしをしない', async (need) => {
   await need('busy');
   const r = results.busy;
   assert.strictEqual(r.testDuring.ok, true, JSON.stringify(r.testDuring));
@@ -287,7 +353,7 @@ test('記録や文字起こしの最中は、起動テストで試しの文字�
   assert.strictEqual(r.pages[0].segments.length, 2);
 });
 
-test('モデルが kotoba-whisper なら認識ヒントを渡さず（1 回だけ送る）、設定で large-v3-turbo を勧める', async () => {
+sceneTest('モデルが kotoba-whisper なら認識ヒントを渡さず（1 回だけ送る）、設定で large-v3-turbo を勧める', async (need) => {
   await need('kotoba', 'text', 'promptEmpty');
   const r = results.kotoba;
   // ヒント付きなら空を返す偽エンジンでも、最初からヒントなしなので区間は残り、やり直しも起きない
@@ -304,7 +370,7 @@ test('モデルが kotoba-whisper なら認識ヒントを渡さず（1 回だ�
   assert.strictEqual(results.promptEmpty.promptInfo.offReason, 'empty');
 });
 
-test('取り込みの状態の受け口（engine:fetch-status）は実際に動き、手の設定の側は manual。置き場所は一時フォルダの LOCALAPPDATA の下（第0b回 Task 13）', async () => {
+sceneTest('取り込みの状態の受け口（engine:fetch-status）は実際に動き、手の設定の側は manual。置き場所は一時フォルダの LOCALAPPDATA の下（第0b回 Task 13）', async (need) => {
   await need('text');
   const r = results.text;
   const s = r.engineFetchStatus;
@@ -327,7 +393,7 @@ test('取り込みの状態の受け口（engine:fetch-status）は実際に動�
   }
 });
 
-test('設計 B・RF3: 詳細設定が空なら、照らし終えた取り込んだ組で起動する。照らす前は起動せず「確かめています」。設定には書かない（第0b回 Task 13）', async () => {
+sceneTest('設計 B・RF3: 詳細設定が空なら、照らし終えた取り込んだ組で起動する。照らす前は起動せず「確かめています」。設定には書かない（第0b回 Task 13）', async (need) => {
   await need('managed');
   const r = results.managed;
   const W = r.managedRoot;
@@ -359,7 +425,7 @@ test('設計 B・RF3: 詳細設定が空なら、照らし終えた取り込ん�
   for (const k of ['localServerExe', 'localModelPath', 'vadModelPath', 'sumServerExe', 'sumModelPath']) assert.ok(!r.savedSettings[k], `${k} を書いた: ${r.savedSettings[k]}`);
 });
 
-test('起動のときの照らしが済んだら、画面へ取り込みの欄の写しを送る（確かめ終えた・使える）。そのとき engine:status はもう「確かめています」でない（画面はそこで聞き直す。第0b回 Task 14・15）', async () => {
+sceneTest('起動のときの照らしが済んだら、画面へ取り込みの欄の写しを送る（確かめ終えた・使える）。そのとき engine:status はもう「確かめています」でない（画面はそこで聞き直す。第0b回 Task 14・15）', async (need) => {
   await need('managed');
   const r = results.managed;
   // 起動のときの画面は「確かめています」を聞いて「要確認」にしている。照らしが済んだことを知らせないと、そのまま残る
@@ -369,7 +435,7 @@ test('起動のときの照らしが済んだら、画面へ取り込みの欄�
   assert.strictEqual(r.atReady.whisper, '');
 });
 
-test('RF3: 大きさと更新時刻が同じでも中身の違う DLL の組は使わない。起動せず、記録・起動テスト・engine.log に理由を出す（第0b回 Task 13）', async () => {
+sceneTest('RF3: 大きさと更新時刻が同じでも中身の違う DLL の組は使わない。起動せず、記録・起動テスト・engine.log に理由を出す（第0b回 Task 13）', async (need) => {
   await need('managedTamper');
   const r = results.managedTamper;
   assert.strictEqual(r.statusChecking.whisper, '文字起こしエンジンを確かめています（数秒で終わります）');
@@ -384,7 +450,7 @@ test('RF3: 大きさと更新時刻が同じでも中身の違う DLL の組は�
   assert.deepStrictEqual([s.mode.whisper, s.using.whisper, s.whisperReady], ['managed', null, false]);
 });
 
-test('RF3: 壊れた組は、取り直されるか触られるまで、60 秒ごとの見回りで照らし直さず、同じ知らせを繰り返さない。同意が無ければ取らずに案内する（第0b回 Task 14）', async () => {
+sceneTest('RF3: 壊れた組は、取り直されるか触られるまで、60 秒ごとの見回りで照らし直さず、同じ知らせを繰り返さない。同意が無ければ取らずに案内する（第0b回 Task 14）', async (need) => {
   await need('managedTamper');
   const r = results.managedTamper;
   const broken = '文字起こしエンジンのファイルが消えたか変わっていました。ウイルス対策が消した可能性があります（Windows セキュリティ → ウイルスと脅威の防止 → 保護の履歴）。設定タブの［PC の中の文字起こしを取り込む］から取り込み直してください。';
@@ -399,7 +465,7 @@ test('RF3: 壊れた組は、取り直されるか触られるまで、60 秒ご
   assert.deepStrictEqual([r.verifyCallsAfterTicks, r.noticesAfterTicks, r.spawnsAfterTicks], [1, [broken], []]);
 });
 
-test('起動のときの復旧の文字起こしは、取り込んだ組を照らし終えたらもう一度試す（照らす前は「確かめています」で保留になる。第0b回 Task 13）', async () => {
+sceneTest('起動のときの復旧の文字起こしは、取り込んだ組を照らし終えたらもう一度試す（照らす前は「確かめています」で保留になる。第0b回 Task 13）', async (need) => {
   await need('managedRecover');
   const r = results.managedRecover;
   assert.ok(r.engineLog.includes('復旧の文字起こしを保留: 文字起こしエンジンを確かめています（数秒で終わります）'), JSON.stringify(r.engineLog));
@@ -407,7 +473,7 @@ test('起動のときの復旧の文字起こしは、取り込んだ組を照�
   assert.deepStrictEqual(r.spawns.map((x) => x.cmd), [path.join(r.managedRoot, 'whisper-1.0.0', 'whisper-server.exe')]);
 });
 
-test('RF4: 取り込んだ組は、Visual C++ ランタイムが無い PC では起動しない。engine:status・起動テスト・記録の開始・取り込みの欄に同じ案内（第0b回 Task 13）', async () => {
+sceneTest('RF4: 取り込んだ組は、Visual C++ ランタイムが無い PC では起動しない。engine:status・起動テスト・記録の開始・取り込みの欄に同じ案内（第0b回 Task 13）', async (need) => {
   await need('managedNoRuntime');
   const r = results.managedNoRuntime;
   // 照らしは通っている（ランタイムの前に「確かめています」「壊れた」で止まっていない）
@@ -422,7 +488,7 @@ test('RF4: 取り込んだ組は、Visual C++ ランタイムが無い PC では
   assert.deepStrictEqual(r.engineFetchStatus.runtime, { level: 'missing', message: msg });
 });
 
-test('RF4: 担当にランタイムを入れてもらった後は、NaTsu を起動し直さなくても［起動テスト］で版を読み直し、取り込んだ組を起動する（統合）', async () => {
+sceneTest('RF4: 担当にランタイムを入れてもらった後は、NaTsu を起動し直さなくても［起動テスト］で版を読み直し、取り込んだ組を起動する（統合）', async (need) => {
   await need('managedNoRuntime');
   const r = results.managedNoRuntime;
   const msg = vcRuntimeIssue({}, { whisper: true }).message;
@@ -434,7 +500,7 @@ test('RF4: 担当にランタイムを入れてもらった後は、NaTsu を起
   assert.ok(r.engineLog.some((l) => /文字起こしエンジン: Visual C\+\+ ランタイム ok（.*vcomp140\.dll 14\.51\.36247\.0/.test(l)), JSON.stringify(r.engineLog));
 });
 
-test('RF3: 照らしが例外で終わっても「確かめています」のまま残さず、壊れた組として使わない（第0b回 Task 13）', async () => {
+sceneTest('RF3: 照らしが例外で終わっても「確かめています」のまま残さず、壊れた組として使わない（第0b回 Task 13）', async (need) => {
   await need('managedVerifyThrows');
   const r = results.managedVerifyThrows;
   assert.ok(r.engineLog.includes('取り込んだエンジンの照らしに失敗: 照らしの試験の失敗𠮷'), JSON.stringify(r.engineLog));
@@ -445,7 +511,7 @@ test('RF3: 照らしが例外で終わっても「確かめています」のま
   assert.deepStrictEqual([r.engineFetchStatus.using.whisper, r.engineFetchStatus.whisperReady], [null, false]);
 });
 
-test('要約の組が壊れていたら、議事録の欄は理由と、終わったら「要約を生成」で作れることを伝える（文字起こしは取り込んだ組で動く。第0b回 Task 13）', async () => {
+sceneTest('要約の組が壊れていたら、議事録の欄は理由と、終わったら「要約を生成」で作れることを伝える（文字起こしは取り込んだ組で動く。第0b回 Task 13）', async (need) => {
   await need('managedSumBroken');
   const r = results.managedSumBroken;
   assert.strictEqual(r.engineStatus.whisper, '');
@@ -455,7 +521,7 @@ test('要約の組が壊れていたら、議事録の欄は理由と、終わ�
     + '終わったら「要約を生成」で作成できます。');
 });
 
-test('何も取り込んでいない PC: 取り込める PC では［PC の中の文字起こしを取り込む］へ、取り込めない PC では今までどおりパスの指定へ案内する。どちらも「未設定」の語を残す（第0b回 Task 13）', async () => {
+sceneTest('何も取り込んでいない PC: 取り込める PC では［PC の中の文字起こしを取り込む］へ、取り込めない PC では今までどおりパスの指定へ案内する。どちらも「未設定」の語を残す（第0b回 Task 13）', async (need) => {
   await need('noEngineFetchable', 'noEngineUnsupported');
   const f = results.noEngineFetchable;
   assert.deepStrictEqual([f.start.ok, f.start.error], [false, '文字起こしエンジンが未設定です。設定タブの［PC の中の文字起こしを取り込む］から取り込んでください。']);
@@ -468,7 +534,7 @@ test('何も取り込んでいない PC: 取り込める PC では［PC の中�
   for (const r of [f, u]) assert.deepStrictEqual(r.spawns, []);
 });
 
-test('［PC の中の文字起こしを取り込む］: net.request で取り込み、組がそろうたびに照らして切り替える。文字起こしが先に使え、要約は［要約を生成］を案内する。取り込み中は眠らせない（第0b回 Task 14）', async () => {
+sceneTest('［PC の中の文字起こしを取り込む］: net.request で取り込み、組がそろうたびに照らして切り替える。文字起こしが先に使え、要約は［要約を生成］を案内する。取り込み中は眠らせない（第0b回 Task 14）', async (need) => {
   await need('fetch');
   const r = results.fetch;
   const W = r.managedRoot;
@@ -511,7 +577,7 @@ test('［PC の中の文字起こしを取り込む］: net.request で取り込
   for (const k of ['localServerExe', 'localModelPath', 'vadModelPath', 'sumServerExe', 'sumModelPath']) assert.ok(!r.savedSettings[k], `${k} を書いた: ${r.savedSettings[k]}`);
 });
 
-test('RF3: 起動のときの照らしで壊れていた組は、同意済みなら合わなかった項目だけを取り直し、照らし直してから使う（第0b回 Task 14）', async () => {
+sceneTest('RF3: 起動のときの照らしで壊れていた組は、同意済みなら合わなかった項目だけを取り直し、照らし直してから使う（第0b回 Task 14）', async (need) => {
   await need('repair');
   const r = results.repair;
   const W = r.managedRoot;
@@ -536,7 +602,7 @@ test('RF3: 起動のときの照らしで壊れていた組は、同意済みな
   assert.deepStrictEqual(r.atReady, settled(r));
 });
 
-test('要約を手で設定している PC で［PC の中の文字起こしを取り込む］: 文字起こしの組だけを取り、main が照らして切り替える前に進み具合で「使える」と言わない（第0b回 Task 14・15）', async () => {
+sceneTest('要約を手で設定している PC で［PC の中の文字起こしを取り込む］: 文字起こしの組だけを取り、main が照らして切り替える前に進み具合で「使える」と言わない（第0b回 Task 14・15）', async (need) => {
   await need('fetchSum');
   const r = results.fetchSum;
   assert.deepStrictEqual([...new Set(r.hits)], ['whisper-engine', 'whisper-vad', 'whisper-model']);
@@ -551,7 +617,7 @@ test('要約を手で設定している PC で［PC の中の文字起こしを�
   assert.deepStrictEqual([s.mode, s.state, s.using.whisper, s.whisperReady], [{ whisper: 'managed', sum: 'manual' }, 'ready', 'current', true]);
 });
 
-test('RF3: 取り込んだ文字起こしエンジンが 0xC0000135 で落ち、照らし直して合わなければ、使うのをやめて知らせ、同意済みなら取り直してから使い直す（第0b回 Task 14）', async () => {
+sceneTest('RF3: 取り込んだ文字起こしエンジンが 0xC0000135 で落ち、照らし直して合わなければ、使うのをやめて知らせ、同意済みなら取り直してから使い直す（第0b回 Task 14）', async (need) => {
   await need('managedCrash');
   const r = results.managedCrash;
   const W = r.managedRoot;
@@ -577,7 +643,7 @@ test('RF3: 取り込んだ文字起こしエンジンが 0xC0000135 で落ち、
   assert.deepStrictEqual([r.engineFetchStatus.using.whisper, r.engineFetchStatus.whisperReady], ['current', true]);
 });
 
-test('RF3: 0xC0000135 で落ちても、照らし直して合えば組は使い続ける（知らせない・取り直さない。Visual C++ ランタイムの案内のまま。第0b回 Task 14）', async () => {
+sceneTest('RF3: 0xC0000135 で落ちても、照らし直して合えば組は使い続ける（知らせない・取り直さない。Visual C++ ランタイムの案内のまま。第0b回 Task 14）', async (need) => {
   await need('managedCrashOk');
   const r = results.managedCrashOk;
   const exe = path.join(r.managedRoot, 'whisper-1.0.0', 'whisper-server.exe');
@@ -594,7 +660,7 @@ test('RF3: 0xC0000135 で落ちても、照らし直して合えば組は使い�
   assert.deepStrictEqual(r.spawns.map((x) => [x.cmd, Boolean(x.crash)]), [[exe, true], [exe, false]]);
 });
 
-test('雑音の 1 区間だけヒント付きで空になっても、ヒントは止めない（続けて起きたときだけ止める）', async () => {
+sceneTest('雑音の 1 区間だけヒント付きで空になっても、ヒントは止めない（続けて起きたときだけ止める）', async (need) => {
   await need('noiseFirst');
   const r = results.noiseFirst;
   // 1 つ目（3 秒）はヒント付きで空 → ヒントなし。2・3 つ目はヒント付きのまま取れる
@@ -604,7 +670,7 @@ test('雑音の 1 区間だけヒント付きで空になっても、ヒント�
   assert.ok(!r.engineLog.some((l) => /認識ヒントを渡しません/.test(l)), JSON.stringify(r.engineLog));
 });
 
-test('返事を待つ間に議事録を破棄したら、ヒントなしのやり直しは送らない', async () => {
+sceneTest('返事を待つ間に議事録を破棄したら、ヒントなしのやり直しは送らない', async (need) => {
   await need('discard');
   const r = results.discard;
   assert.strictEqual(r.discard && r.discard.ok, true, JSON.stringify(r.discard));
@@ -613,7 +679,7 @@ test('返事を待つ間に議事録を破棄したら、ヒントなしのや�
   assert.strictEqual(r.pages.length, 0, '破棄した議事録が保存された');
 });
 
-test('ヒントを止めた後で辞書を変えたら、またヒントを渡す（設定画面の約束どおり）', async () => {
+sceneTest('ヒントを止めた後で辞書を変えたら、またヒントを渡す（設定画面の約束どおり）', async (need) => {
   await need('dict');
   const r = results.dict;
   assert.deepStrictEqual([r.promptInfo.off, r.promptInfo.offReason], [true, 'empty']);
@@ -622,7 +688,7 @@ test('ヒントを止めた後で辞書を変えたら、またヒントを渡�
 });
 
 // ================= 要約（0.1.2）。偽の要約エンジン helpers/fake-llama.js を相手にする =================
-test('要約が文字起こしに無い担当・期限を書いても、議事録には載せない（発言にある担当・期限は残す）', async () => {
+sceneTest('要約が文字起こしに無い担当・期限を書いても、議事録には載せない（発言にある担当・期限は残す）', async (need) => {
   await need('sumGround');
   const p = results.sumGround.pages[0];
   // 偽の要約は「進捗の確認をまとめる（担当: 山田 / 期限: 来週金曜）」と「資料を配布する（担当: 鈴木 / 期限: 10/23）」を返す。
@@ -639,7 +705,7 @@ test('要約が文字起こしに無い担当・期限を書いても、議事�
   assert.ok(!results.sumGround.engineLog.some((l) => /鈴木|山田/.test(l)), JSON.stringify(results.sumGround.engineLog));
 });
 
-test('要約の途中で会議タイプを手で選び直したら、その選択を残し、作り直しを勧める', async () => {
+sceneTest('要約の途中で会議タイプを手で選び直したら、その選択を残し、作り直しを勧める', async (need) => {
   await need('sumType', 'sumGround');
   const r = results.sumType;
   assert.strictEqual(r.setType && r.setType.meetingType, 'standup', JSON.stringify(r.setType));

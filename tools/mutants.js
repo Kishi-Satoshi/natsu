@@ -552,7 +552,7 @@ module.exports = [
   { id: 'gate-1b2-release', file: 'tools/lib/moves.js', from: '  { file: \'src/renderer/app.html\', lost: [\'section#tabNotes.tab.active\', \'div.notes\', \'aside.side\'],\n    ids: [\'searchBox\', \'fltAll\', \'fltActions\', \'fltFull\'],\n    why: \'第1b2回: 検索の欄と絞り込みを検索の窓へ移すのを natsu-v0.5.0 から1つの差分で見たときの形（リリースのゲート）\' },\n', to: '',
     tests: ['test/gate.test.js'], why: 'L-1 G1: 0.5.0 からの形の行（リリースのゲートで BLOCK にしない）' },
   // 文字起こしの直し（CI run 39183232615。区間の要求が返事の前に接続ごと切れた）
-  { id: 'mn-stt-resend', file: 'src/main.js', from: '        if (!code || resent) throw new Error(fetchErrorText(e));', to: '        throw new Error(fetchErrorText(e));',
+  { id: 'mn-stt-resend', file: 'src/main.js', from: '        if (!code || resent) throw new Error(fetchErrorText(e), { cause: (e && e.cause) || e });', to: '        throw new Error(fetchErrorText(e), { cause: (e && e.cause) || e });',
     tests: ['test/transcribe.e2e.test.js'], why: '区間の要求が返事の前に接続ごと切れたら、同じ区間を1回だけ送り直す（失敗にして手でやり直させない）' },
   // ---------------------------------------------------------------- 0.7.0 U-1・U-2（計画 docs/plans/2026-10-19-ui07.md の「変異確認」。設計書 D5・D8）
   // u1-fixed-provider（送り先を OpenAI に固定）は第1d回 A-3 で外した: 送り先は中継（relayProvider）になり、直しそのものが無い（G-2 の ra-no-direct が受け継ぐ）

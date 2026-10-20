@@ -1382,6 +1382,12 @@ const droppedCode = (e) => {
   const code = (e.cause && e.cause.code) || e.code || '';
   return /^(UND_ERR_SOCKET|ECONNRESET|EPIPE)$/.test(code) ? code : '';
 };
+// 手元の文字起こしの区間が失敗したときの記録の符号（第1d回 A-14・あとの直し (c)。Windows の CI の揺れの手がかり）。
+// ECONNREFUSED・ECONNRESET・UND_ERR_SOCKET などの英大文字と _ だけを書き、ほか（文・数の符号・無し）は「なし」。文の本文・URL・ポートは書かない
+const localFailCode = (e) => {
+  const code = (e && e.cause && e.cause.code) || (e && e.code);
+  return typeof code === 'string' && /^[A-Z_]{2,40}$/.test(code) ? code : 'なし';
+};
 
 // opts.isStale: やり直しの前に聞く。true なら（議事録の破棄・打ち切りの後）送り直さない。
 // opts.learn: 議事録の区間のとき true。ヒントを止めるかの数え（promptEmptyStreak）に入れる
@@ -1449,7 +1455,8 @@ async function transcribeLocal(wavBuffer, extraPromptTail, durationMs, opts = {}
       } catch (e) {
         // 区間の失敗の文になる（議事録・音声入力・復旧）。英語の "fetch failed" をそのまま見せない
         const code = droppedCode(e);
-        if (!code || resent) throw new Error(fetchErrorText(e));
+        // 失敗の符号を cause に持たせる（engine.log の「手元の文字起こしの失敗」の行が読む: 第1d回 A-14。文は今のまま）
+        if (!code || resent) throw new Error(fetchErrorText(e), { cause: (e && e.cause) || e });
         resent = true;
         // 記録の頭は「文字起こし:」にしない（認識ヒントのやり直しの行だけが使う。transcribe.e2e.test.js がその頭で見る）
         engineLog(`文字起こしの接続: エンジンとの接続が切れたため、同じ区間をもう一度送りました（${code}・音声 ${sec} 秒）`);
@@ -1680,6 +1687,7 @@ async function relayFallback(e, scope, provider, sentToken) {
   return code;
 }
 // opts: transcribeLocal と同じ（isStale・learn）＋ localOnly・notice（会議の知らせの係。無ければ起動ごと）・what（記録の名前）・
+// seg（区間の番号 s{n}。手元で失敗したら engine.log に番号と符号を1行: 第1d回 A-14）・
 // onWait(sec)（OpenAI の短い 429 を待つとき。会議の帯 wait: 第1d回 A-6）
 // → { text, route: 'cloud'|'local', provider, why, scope? }（scope は why が daily-cap のときだけ 'user'|'all'。帯の分け方: A-6）。
 // 手元のエンジンが用意できないときの Error は engineMissing を持つ。手元で文字起こしする区間の失敗の Error には sttRoute
@@ -1725,6 +1733,8 @@ async function transcribeAuto(wav, tail, durationMs, opts = {}) {
     return { text, provider, ...via };
   } catch (e) {
     if (e && typeof e === 'object') e.sttRoute = via;
+    // 区間の失敗は番号と符号だけを1行（頭は「文字起こし:」「文字起こしの経路:」にしない。送り直し・知らせ・区間の扱いは変えない）
+    if (typeof opts.seg === 'string' && /^s\d+$/.test(opts.seg)) engineLog(`手元の文字起こしの失敗: ${opts.seg}（${localFailCode(e)}）`);
     throw e;
   }
 }
@@ -2607,7 +2617,7 @@ function retryFailedSegments() {
       let r;
       try {
         r = await transcribeAuto(buffer, promptTail(m.segments), seg.durationMs, { isStale: stale, learn: true, localOnly: m.localOnly, notice: m,
-          what: `区間 ${seg.id}（もう一度）`, onWait: (sec) => { if (!stale()) { setSttProblem(m, 'wait', { sec }); sendToMainWin('meeting:update', meetingStatus()); } } });
+          what: `区間 ${seg.id}（もう一度）`, seg: seg.id, onWait: (sec) => { if (!stale()) { setSttProblem(m, 'wait', { sec }); sendToMainWin('meeting:update', meetingStatus()); } } });
       } catch (e) {
         if (!stale()) noteSttFailure(m, e);
         return;
@@ -3078,7 +3088,7 @@ async function transcribeRecoveredItems(q) {
     let route = 'local';
     if (!err) {
       try {
-        ({ text, route } = await transcribeAuto(fs.readFileSync(item.wav), '', item.durationMs, { localOnly: Boolean(q.localOnly), what: `復旧 ${item.id}` }));
+        ({ text, route } = await transcribeAuto(fs.readFileSync(item.wav), '', item.durationMs, { localOnly: Boolean(q.localOnly), what: `復旧 ${item.id}`, seg: item.id }));
         if (settings.removeFillers) text = removeFillersRule(text);
       } catch (e) {
         if (e && (e.keepForRetry || e.engineMissing)) {
@@ -3335,7 +3345,7 @@ function onMeetingSegment(buffer, durationMs, isFinal) {
     // 第1d回 A-6: OpenAI の短い 429 を待つ間の帯 wait（区間が終わったら消す）
     const onWait = (sec) => { if (meeting === m && m.gen === gen) { setSttProblem(m, 'wait', { sec }); sendToMainWin('meeting:update', meetingStatus()); } };
     try {
-      ({ text, route, why, scope } = await transcribeAuto(buffer, tail, durationMs, { isStale: () => meeting !== m || m.gen !== gen, learn: true, localOnly: m.localOnly, notice: m, what: `区間 ${seg.id}`, onWait }));
+      ({ text, route, why, scope } = await transcribeAuto(buffer, tail, durationMs, { isStale: () => meeting !== m || m.gen !== gen, learn: true, localOnly: m.localOnly, notice: m, what: `区間 ${seg.id}`, seg: seg.id, onWait }));
     } catch (e) {
       if (meeting !== m || m.gen !== gen) return;
       m.inFlightSince = 0;
