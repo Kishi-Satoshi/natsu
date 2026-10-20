@@ -828,8 +828,9 @@ function buildPromptParts({ ja, dictionary, useBuiltinTerms, tail, limitBytes, b
 
 // 画面へ返す形。wav（ファイルのパス）は外す。画面に出す理由が無く、状態をそのまま
 // ログや不具合報告に貼られるとパスが漏れる。待ちの区間は残す（進捗が見える）
+// 第1d2回 M-2: 音声を残した区間の印 kept も外す（会議と下書きの中だけに持つ。ページ・画面・DB には出さない）
 function publicSegments(segments) {
-  return (segments || []).map(({ wav, ...s }) => s);
+  return (segments || []).map(({ wav, kept, ...s }) => s);
 }
 // ページに保存する形。待ちの区間（本文が無い）は入れない。wav も外す
 function settledSegments(segments) {
@@ -850,7 +851,7 @@ function recoverSegments(segments, exists) {
   const todo = [];
   for (const raw of (segments || [])) {
     if (!raw || typeof raw !== 'object') continue;
-    const { wav, pending, ...s } = raw;
+    const { wav, pending, kept, ...s } = raw;   // kept（第1d2回 M-2）はページに入れない（publicSegments を通らないので、ここで外す）
     if (pending) {
       s.failed = true;
       if (wav && exists(wav)) {
@@ -909,6 +910,24 @@ function startSegmentMode({ localOnly, signedIn, hold, netOnline, peekUp } = {})
 }
 
 // ---------------------------------------------------------------- オフラインの準備を任意にする（第1d2回 M-1・D21・OF1）
+const LOGIN_WHYS = ['signed-out', 'login'];   // ログインしていない・切れた
+// 準備を選んでいない PC で音声を残している帯の符号（第1d2回 M-2。B14・B13・B12・B11）。Windows の知らせにはしない（WIN_NOTIFY_CODES は変えない）
+const KEPT_CODES = ['kept-local', 'kept-login', 'kept-relay', 'kept-wait'];
+// つながれば戻る理由（オフライン・届かない・会社の通信の検査）
+const KEPT_WAIT_WHYS = ['offline', 'unreachable', 'net', 'timeout', 'cert', 'proxy', 'key-unreadable'];
+// 中継が音声を見て断った（待っても同じ答え）。残さない（決めたこと 12）
+const KEPT_REFUSED_WHYS = ['bad-request', 'too-large'];
+/**
+ * 音声を残した区間の帯の符号。localOnly なら理由に関わらず kept-local、ログインしていない・切れたは kept-login、つながれば戻る理由は
+ * kept-wait、中継が断ったものは ''（残さない）、ほか（上限・止めたメール・中継の誤り・知らない中継の符号）は kept-relay
+ */
+function keptCodeFor({ localOnly, why } = {}) {
+  if (localOnly) return 'kept-local';
+  if (LOGIN_WHYS.includes(why)) return 'kept-login';
+  if (KEPT_WAIT_WHYS.includes(why)) return 'kept-wait';
+  if (KEPT_REFUSED_WHYS.includes(why)) return '';
+  return 'kept-relay';
+}
 /**
  * クラウド（中継）で文字起こしできそうか。ログインしている・hold が ''・net.isOnline() が true・覚えている /health の答え
  * （peekUp: true | false | null）が false でない。通信しない（startSegmentMode の short と同じ材料・同じ答え）
@@ -929,7 +948,6 @@ const DICTATION_REFUSE_TEXT = {
   login: 'ログインしていないため、音声入力を始めませんでした。設定の「アカウント」でログインしてください。',
   relay: '文字起こしの中継が今は使えないため、音声入力を始めませんでした。少し待ってから、もう一度お試しください。',
 };
-const LOGIN_WHYS = ['signed-out', 'login'];
 /**
  * 会議の始め方。localUsable（手元が使える）・chosen（準備を選んだ）・cloud（cloudLikely）・problem（whisperProblem の文）・
  * why（cloud を偽にした理由: signed-out・login・offline・hold の理由・relay-down）→ { ok: true, keep } | { ok: false, error }。
@@ -1000,7 +1018,9 @@ function stallStep(run, { text, levelDbfs } = {}) {
   return Number(levelDbfs) > STALL_MIN_DBFS ? n + 1 : n;
 }
 // 帯（録音中のページの頭。計画「画面と知らせの文」の B1〜B10）の符号。同時に1つだけで、前ほど先に出す
-const PROBLEM_ORDER = ['engine-down', 'stall', 'login', 'seg-failed', 'relay-off', 'daily-cap', 'relay-blocked', 'relay-down', 'relay-busy', 'wait'];
+// 第1d2回 M-2: 準備を選んでいない PC で音声を残している帯（kept の4つ。B11〜B14）は、ログインの後・残した失敗の前
+const PROBLEM_ORDER = ['engine-down', 'stall', 'login', 'kept-local', 'kept-login', 'kept-relay', 'kept-wait', 'seg-failed',
+  'relay-off', 'daily-cap', 'relay-blocked', 'relay-down', 'relay-busy', 'wait'];
 /** problems: Map<符号, 詳しさ（{ n } や { sec }）> → 一番前の { code, ...詳しさ } か null（表に無い符号は見ない） */
 function sttProblemOf(problems) {
   if (!(problems instanceof Map)) return null;
@@ -1390,7 +1410,7 @@ module.exports = {
   publicSegments, settledSegments, pendingDurationMs, recoverSegments, staleSegbufDirs,
   nextSegmentMs, EtaTracker, skipPendingSegments,
   ONLINE_SEGMENT_SEC, OVERLAY_SEG_MIN_MS, SEG_SWITCH_AFTER, STICKY_LOCAL, startSegmentMode, segmentModeNext, segmentBaseMs, liveSegmentMs, nextLiveSegmentMs,
-  cloudLikely, offlineChosen, DICTATION_REFUSE_TEXT, startPlan, dictationPlan,
+  cloudLikely, offlineChosen, DICTATION_REFUSE_TEXT, startPlan, dictationPlan, KEPT_CODES, keptCodeFor,
   STALL_SPAN_MS, STALL_MIN_DBFS, stallAfter, stallStep, PROBLEM_ORDER, sttProblemOf, problemForRoute,
   WIN_NOTIFY_CODES, WIN_NOTIFY_GAP_MS, notifyGate,
   estimateTokens, foldNotes, idleEnginesToStop, silentWav, wavLevelDbfs, mergeSummaryType, memoEvidence, buildClaudeInput, routeLabel,

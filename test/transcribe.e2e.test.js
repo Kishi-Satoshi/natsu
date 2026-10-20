@@ -582,6 +582,8 @@ sceneTest('何も取り込んでいない・ログインしていない PC: 記�
   for (const r of [f, u]) {
     assert.deepStrictEqual(r.spawns, []);
     assert.ok(!JSON.stringify(r.notices).includes('未設定'), `「未設定」の語の知らせ（画面が設定のタブへ連れて行く）: ${JSON.stringify(r.notices)}`);
+    // 第1d2回 M-2: 知らせは K2（［ログイン］のボタン付き。音声だけを残すこと・ログインすると OpenAI に送ること）
+    assert.deepStrictEqual(r.notices, [{ text: 'ログインしていないため、音声だけを残します。設定の「アカウント」でログインすると、この会議の音声を OpenAI に送って文字起こしします。1on1・面談など外に出したくない会議は、議事録の画面の［この会議は PC の中だけ］を押してください。', action: 'signin' }]);
   }
 });
 

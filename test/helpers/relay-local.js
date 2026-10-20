@@ -22,7 +22,8 @@
 //                  'a' 503 quota（偽の OpenAI が insufficient_quota）・'e' 200 で空の文字・'L' 429 busy の長い待ち（偽の OpenAI が retry-after 3600。
 //                  アプリは rate-long）。知らない文字は投げる。
 //                  第1d回 A-11: 'l' は偽の Access で出した cookie を取り消す（rl.revokeAt と同じ。W-6 で中継の札の表を消したので、
-//                  札の取り消しは外した）。'd' は出した cookie の人を止めたメールにする（中継は 403 denied。戻さない）
+//                  札の取り消しは外した）。'd' は出した cookie の人を止めたメールにする（中継は 403 denied。戻さない）。
+//                  第1d2回 M-2: 'b' は中継が音声を見て断った答え（文字起こしの口にだけ 415 not-wav。アプリは bad-request。setFront('not-wav') と同じ）
 //   第1d回 A-10（RL9・F19）: startRelayLocal({ access: true }) で、中継の前に偽の Cloudflare Access の前を置く（既定は置かない。
 //                  今の札（nt1_）の場面と mainrun はそのまま。A-11 で main が cookie で送るようになったら mainrun が access: true にする）。
 //                  偽の Access（test/helpers/fake-access.js）を起こし、中継の env に TEAM_DOMAIN・POLICY_AUD・ACCESS_CERTS_BASE を足す
@@ -246,6 +247,7 @@ async function startRelayLocal({ stt: sttOpts = {}, env: over = {}, start = Date
         return;
       }
       if (ch === 'u') { env.DAILY_USER_SEC = '1'; return; }
+      if (ch === 'b') { front = 'not-wav'; return; }   // 第1d2回 M-2
       const mode = { 5: '500', a: 'quota', e: 'empty', L: '429-long' }[ch];
       if (!mode) throw new Error(`relay-local: 並びの文字 ${JSON.stringify(ch)} を知らない`);
       stt.setMode(mode);

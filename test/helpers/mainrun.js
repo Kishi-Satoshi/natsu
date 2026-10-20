@@ -40,6 +40,10 @@
 //                     （第1d2回 M-1: --relay・--offline・--signed-out・--dictate・--local-only と組んだときは記録しない早い分かれ道に入らず、
 //                     議事録・音声入力の場面を回す。エンジンの子は起こさない。会議が始まらなかったら（start.ok が偽）、区間を送らずに
 //                     start・notices・engineLog・spawns と中継の写し（sttOut）を出して終える）
+//     --kill-main-after-kept … 第1d2回 M-2: --relay-seq と組む。区間が片付くたびに下書きを見て、音声を残した区間（kept）が書かれていたら
+//                     main ごと落ちる（process.exit(3)。結果は出さない）。--keep-user-data と組んで、次の起動の復旧を見る
+//     （第1d2回 M-2: --relay-seq の場面は、区間ごとに片付くまで待った時間（ミリ秒）を out.segWaitMs に順に残す。--relay の場面の
+//     out.pages[].keys は DB の発言の欄の名前（区間ごと。ページに kept の印が入っていないかを見る））
 //     --fetch-consent … 第1d2回 M-1: --no-engine=fetchable と組む。取り込み先の installed.json を consent: true（組は無い）で置く
 //                     （取り込みのボタンを押したが、まだ何も取り込めていない PC。「選んだ」人）
 //     --fetch       … 何も取り込んでいない取り込める PC で、設定の［エンジンを取り込む］（engine:fetch-start）を押す（第0b回 Task 14）。
@@ -328,6 +332,7 @@ const verifyThrows = flags.includes('--verify-throws');
 const sumTamper = flags.includes('--sum-tamper');
 const noEngine = (flags.find((f) => f.startsWith('--no-engine=')) || '').slice(12);
 const fetchConsent = flags.includes('--fetch-consent');   // 第1d2回 M-1
+const killMainAfterKept = flags.includes('--kill-main-after-kept');   // 第1d2回 M-2
 const fetchMode = flags.includes('--fetch');
 const repairMode = flags.includes('--repair');
 const crashMode = flags.includes('--crash') ? 'broken' : (flags.includes('--crash-ok') ? 'ok' : '');
@@ -1713,6 +1718,7 @@ process.on('exit', () => {
       return {
         summaryError: page.summaryError, route: page.route, routeText: await pageRouteText(p.id),
         segments: store.getTranscript(p.id).map((x) => ({ text: x.text, failed: Boolean(x.failed) })),
+        keys: store.getTranscript(p.id).map((x) => Object.keys(x).sort()),   // 第1d2回 M-2
       };
     }));
   };
@@ -1953,7 +1959,13 @@ process.on('exit', () => {
     listeners['audio:segment']({}, { buffer: new Uint8Array(wavs[i].buf), durationMs: wavs[i].ms, final: last });
     if (last && retryAtStop) out.retryAtStop = await handlers['meeting:retry']();
     await sleep(50);
-    if (relaySeq) await waitFor(() => handlers['meeting:status']().pending === 0, 15000);   // 文字になるか失敗するまで（区間と並びが1対1）
+    if (relaySeq) {
+      const t0 = Date.now();
+      await waitFor(() => handlers['meeting:status']().pending === 0, 15000);   // 文字になるか失敗するまで（区間と並びが1対1）
+      (out.segWaitMs || (out.segWaitMs = [])).push(Date.now() - t0);   // 第1d2回 M-2
+      // 第1d2回 M-2: 音声を残した区間が下書きに書かれたら、main ごと落ちる（結果は出さない）
+      if (killMainAfterKept) { const d = currentDraft(); if (d && Array.isArray(d.segments) && d.segments.some((x) => x && x.kept)) process.exit(3); }
+    }
     if (i === 0 && testDuring) out.testDuring = await handlers['app:test']();
     // 第1d回 A-9: 会議の録音中に再起動と取り込みを頼む（断られて、録音はそのまま続く）
     if (i === 0 && restartDuring === 'meeting') {

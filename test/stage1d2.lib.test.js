@@ -66,3 +66,67 @@ test('OF1: dictationPlan — 選んでいない人で両方だめなら D1・D2�
   assert.deepStrictEqual(P({ why: 'login' }), { ok: false, error: D2, action: 'signin' });
   for (const why of ['relay-down', 'daily-cap', 'quota', 'upstream-auth']) assert.deepStrictEqual(P({ why }), { ok: false, error: D3 }, why);
 });
+
+// ---------------------------------------------------------------- M-2（OF2・F1・F4・F6）
+// 帯（計画「画面と知らせの文」の B11〜B14）と、会議の中の左下の知らせ（K1〜K4）
+const B11 = 'PC の中の文字起こしが入っていないので、音声を残しています。オンラインに戻ると文字起こしします。録音はそのまま続けてください。';
+const B12 = '文字起こしの中継が今は使えないため、音声を残しています。使えるようになると自動で文字起こしします。録音はそのまま続けてください。';
+const B13 = 'ログインしていないため、音声を残しています。［ログイン］を押してログインすると、文字起こしします。';
+const B14 = 'この会議は PC の中だけです。PC の中の文字起こしが入っていないので、音声だけを残しています（外には送りません）。［オフラインの準備］から取り込むと、文字起こしします。';
+const K1 = '今はクラウドで文字起こしできないため、音声だけを残します。つながると、この会議の音声を OpenAI に送って文字起こしします。1on1・面談など外に出したくない会議は、議事録の画面の［この会議は PC の中だけ］を押してください。';
+const K2 = 'ログインしていないため、音声だけを残します。設定の「アカウント」でログインすると、この会議の音声を OpenAI に送って文字起こしします。1on1・面談など外に出したくない会議は、議事録の画面の［この会議は PC の中だけ］を押してください。';
+const K3 = '文字起こしの中継が使えないため、音声を残しています。使えるようになると自動で文字起こしします。録音はそのまま続けてください。';
+const K4 = 'ログインが切れたため、音声を残しています。設定の「アカウント」でもう一度ログインすると、文字起こしします。';
+const KEPT_SEG_TEXT = '（文字起こし待ち: 音声は残してあります）';
+// 新しい文（「未設定」の語を見ると、画面が設定のタブへ連れて行く: 調べた結果の 7）。M-3〜M-5 の文は各タスクで足す
+const NEW_TEXTS = { B11, B12, B13, B14, K1, K2, K3, K4, KEPT_SEG_TEXT, D1, D2, D3 };
+
+test('OF2: keptCodeFor の表（受け渡す名前と形に書いた理由の全部と知らない符号 × localOnly）', T, () => {
+  const table = {
+    'kept-login': ['signed-out', 'login'],
+    'kept-relay': ['daily-cap', 'quota', 'upstream-auth', 'denied', 'server', 'bad-reply', 'something-new'],
+    'kept-wait': ['offline', 'unreachable', 'net', 'timeout', 'cert', 'proxy', 'key-unreadable'],
+    '': ['bad-request', 'too-large'],
+  };
+  for (const [code, whys] of Object.entries(table)) {
+    for (const why of whys) {
+      assert.strictEqual(L.keptCodeFor({ localOnly: false, why }), code, why);
+      assert.strictEqual(L.keptCodeFor({ localOnly: true, why }), 'kept-local', `PC の中だけ（${why}）`);
+    }
+  }
+  assert.strictEqual(L.keptCodeFor({ localOnly: true, why: 'local-only' }), 'kept-local');
+  assert.deepStrictEqual(L.KEPT_CODES, ['kept-local', 'kept-login', 'kept-relay', 'kept-wait']);
+});
+
+test('OF2: PROBLEM_ORDER は login の後・seg-failed の前に kept の4つ。WIN_NOTIFY_CODES は 0.8.0 の4つのまま', T, () => {
+  const o = L.PROBLEM_ORDER;
+  assert.deepStrictEqual(o.slice(o.indexOf('login'), o.indexOf('seg-failed') + 1), ['login', 'kept-local', 'kept-login', 'kept-relay', 'kept-wait', 'seg-failed']);
+  assert.deepStrictEqual(L.WIN_NOTIFY_CODES, ['engine-down', 'stall', 'login', 'seg-failed']);
+  for (const c of L.KEPT_CODES) assert.strictEqual(L.notifyGate({ sent: [], lastAt: 0 }, c, 1000).ok, false, `${c} を Windows の知らせにした`);
+  // 残した区間の帯は、失敗の区間の帯（B4）より前に出る
+  assert.strictEqual(L.sttProblemOf(new Map([['seg-failed', { n: 1 }], ['kept-wait', {}]])).code, 'kept-wait');
+});
+
+test('OF2: publicSegments は wav と kept を外す（ページと画面に印を出さない。下書きには残る）', T, () => {
+  const segs = [{ id: 's1', text: KEPT_SEG_TEXT, failed: true, kept: true, wav: '/x/1.wav' }, { id: 's2', text: 'a' }];
+  assert.deepStrictEqual(L.publicSegments(segs), [{ id: 's1', text: KEPT_SEG_TEXT, failed: true }, { id: 's2', text: 'a' }]);
+  assert.deepStrictEqual(L.settledSegments(segs), [{ id: 's1', text: KEPT_SEG_TEXT, failed: true }, { id: 's2', text: 'a' }]);
+  assert.strictEqual(segs[0].kept, true, '入力を書き換えた');
+});
+
+test('OF2: recoverSegments は kept を外し、残した区間（失敗・WAV あり）は文をそのままにして todo に入れる', T, () => {
+  const has = (f) => f === '/x/2.wav';
+  const r = L.recoverSegments([{ id: 's1', atMs: 0, durationMs: 3000, text: 'a' },
+    { id: 's2', atMs: 3000, durationMs: 2000, text: KEPT_SEG_TEXT, failed: true, kept: true, wav: '/x/2.wav' }], has);
+  assert.deepStrictEqual(r.segments, [{ id: 's1', atMs: 0, durationMs: 3000, text: 'a' }, { id: 's2', atMs: 3000, durationMs: 2000, text: KEPT_SEG_TEXT, failed: true }]);
+  assert.deepStrictEqual(r.todo, [{ id: 's2', wav: '/x/2.wav', durationMs: 2000 }]);
+});
+
+test('F4: B11〜B14・K1〜K4・区間の文・D1〜D3 に「未設定」が無く、main・mainlib の文と同じ（画面の連れて行きに当たらない）', T, () => {
+  const src = require('node:fs').readFileSync(require('node:path').join(__dirname, '..', 'src', 'main.js'), 'utf8')
+    + require('node:fs').readFileSync(require('node:path').join(__dirname, '..', 'src', 'mainlib.js'), 'utf8');
+  for (const [k, t] of Object.entries(NEW_TEXTS)) {
+    assert.ok(!t.includes('未設定'), `${k} に「未設定」`);
+    assert.ok(src.includes(`'${t}'`), `${k} の文が src に無い`);
+  }
+});

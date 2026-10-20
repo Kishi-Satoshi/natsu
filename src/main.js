@@ -96,7 +96,7 @@ const {
   estimateTokens, foldNotes, idleEnginesToStop, silentWav, wavLevelDbfs, mergeSummaryType, memoEvidence,
   sameShas, keepPrevious, candStamp, repairIdsOf, pathUsedBy, fetchMinutesLeft,
   pickDefaultPath,
-  cloudLikely, offlineChosen, startPlan, dictationPlan,
+  cloudLikely, offlineChosen, startPlan, dictationPlan, KEPT_CODES, keptCodeFor,
 } = require('./mainlib');
 // クリップボードの読み書き（mainlib.copyPrivate・deliverText）は main.js の同じ名前の包みとぶつかるので、lib から呼ぶ
 const lib = require('./mainlib');
@@ -1566,6 +1566,11 @@ const STT_BANNER = {
   'relay-down': () => '中継につながりません。PC の中で文字起こしを続けています。録音はそのまま続けてください。',
   'relay-busy': () => '文字起こしの中継が混み合っているため、PC の中で文字起こししています。録音はそのまま続けてください。',
   wait: (d) => `OpenAI が混み合っているため、${d.sec} 秒待ってから送り直しています。録音はそのまま続けてください。`,
+  // 第1d2回 M-2（D21。計画「画面と知らせの文」の B11〜B14）: 準備を選んでいない PC で、区間の音声を残している。Windows の知らせにはしない
+  'kept-wait': () => 'PC の中の文字起こしが入っていないので、音声を残しています。オンラインに戻ると文字起こしします。録音はそのまま続けてください。',
+  'kept-relay': () => '文字起こしの中継が今は使えないため、音声を残しています。使えるようになると自動で文字起こしします。録音はそのまま続けてください。',
+  'kept-login': () => 'ログインしていないため、音声を残しています。［ログイン］を押してログインすると、文字起こしします。',
+  'kept-local': () => 'この会議は PC の中だけです。PC の中の文字起こしが入っていないので、音声だけを残しています（外には送りません）。［オフラインの準備］から取り込むと、文字起こしします。',
 };
 // 録音中のページが見えないときの Windows の知らせ（第1d回 A-8・D17。計画「画面と知らせの文」の WN1〜WN4）。題は「NaTsu」、本文はこの決まった文だけ
 // （文字起こしの文・メール・ホスト・数を入れない）。符号は mainlib.WIN_NOTIFY_CODES と同じ4つ
@@ -1576,12 +1581,24 @@ const WIN_NOTIFY = {
   'seg-failed': '文字起こしに失敗した区間があります（音声は残してあります）。録音中のページを開いてください。',
 };
 // 帯のボタン（画面が付ける。engine は設定の「文字起こし」、retry は meeting:retry、account は設定の「アカウント」）
-const STT_BANNER_ACTION = { 'engine-down': 'engine', stall: 'retry', login: 'account', 'seg-failed': 'retry' };
+// 第1d2回 M-2: signin は［ログイン］（設定の「アカウント」）、offline は［オフラインの準備］（カード「オフライン」の取り込みの欄）
+const STT_BANNER_ACTION = { 'engine-down': 'engine', stall: 'retry', login: 'account', 'seg-failed': 'retry', 'kept-login': 'signin', 'kept-local': 'offline' };
 // 中継の様子の帯。互いに替わる（新しい様子を立てたら前の様子は消す）。クラウドで答えが来た・オフライン・ログインしていない・
 // PC の中だけになったら全部消す（オフラインなどは帯にしない: RF28）
 const RELAY_PROBLEMS = ['relay-off', 'daily-cap', 'relay-blocked', 'relay-down', 'relay-busy'];
 // 止まりの見張りで残した区間の文（音声は残し、［もう一度］と会議の後の送り直しに載せる）
 const STALL_SEG_TEXT = '（音はありましたが、文字になりませんでした）';
+// 第1d2回 M-2（D21）: 準備を選んでいない PC で、クラウドで文字起こしできなかった区間の文（音声は残し、戻ったら文字起こしする）
+const KEPT_SEG_TEXT = '（文字起こし待ち: 音声は残してあります）';
+// その区間の Error の文（会議の区間は KEPT_SEG_TEXT にする。音声入力は M-5 が残す）
+const KEPT_ERROR_TEXT = 'クラウドで文字起こしできず、PC の中の文字起こしも準備していないため、文字起こしできませんでした';
+// 会議の中の左下の知らせ（計画「画面と知らせの文」の K1〜K4。準備を選んでいない PC だけ。今の L2〜L8 の代わりに、残し始めたときの1回）
+const KEPT_NOTICE = {
+  k1: '今はクラウドで文字起こしできないため、音声だけを残します。つながると、この会議の音声を OpenAI に送って文字起こしします。1on1・面談など外に出したくない会議は、議事録の画面の［この会議は PC の中だけ］を押してください。',
+  k2: 'ログインしていないため、音声だけを残します。設定の「アカウント」でログインすると、この会議の音声を OpenAI に送って文字起こしします。1on1・面談など外に出したくない会議は、議事録の画面の［この会議は PC の中だけ］を押してください。',
+  k3: '文字起こしの中継が使えないため、音声を残しています。使えるようになると自動で文字起こしします。録音はそのまま続けてください。',
+  k4: 'ログインが切れたため、音声を残しています。設定の「アカウント」でもう一度ログインすると、文字起こしします。',
+};
 // 知らせを出した印。会議の中は meeting.notified（会議ごとに1回）、会議の外（音声入力・復旧）と L10 は起動ごとに1回
 const bootNotified = new Set();
 const noticeSeen = (scope) => (scope && scope.notified instanceof Set ? scope.notified : bootNotified);
@@ -1751,8 +1768,8 @@ async function finishAccessLogin() {
 }
 // 録音中の会議の帯 login は、区間を待たずに消す（第1d回 A-6。A-11 でログインの窓の成功から呼ぶ）
 function clearLoginProblem() {
-  if (meeting && meeting.problems.has('login')) {
-    clearSttProblem(meeting, 'login');
+  if (meeting && (meeting.problems.has('login') || meeting.problems.has('kept-login'))) {
+    clearSttProblem(meeting, 'login', 'kept-login');   // 第1d2回 M-2: ログインしていないため音声を残している帯（B13）も
     sendToMainWin('meeting:update', meetingStatus());
   }
 }
@@ -1871,7 +1888,8 @@ async function sttRoute(localOnly, { scope = null, quiet = false, probe = true }
   if (d0.why === 'signed-out' && accessState.state === 'unreadable') d = { route: 'local', why: 'key-unreadable' };
   else if (d0.why === 'signed-out' && loginExpired) d = { route: 'local', why: 'login' };
   const scopeOf = d.why === 'daily-cap' && h ? h.scope : '';
-  if (!quiet && d.route === 'local') {
+  // 準備を選んでいない PC は PC で文字起こししない（L2〜L8 は本当でない）。会議の中は音声を残すときに K1〜K4（第1d2回 M-2）
+  if (!quiet && d.route === 'local' && isOfflineChosen()) {
     const code = noticeFor(d.why, scopeOf);
     if (code) noticeOnce(scope, code, STT_NOTICE[code](provider));
   }
@@ -1922,7 +1940,7 @@ async function relayFallback(e, scope, provider, sentPack) {
     }
     const removed = await forgetAccessLogin();
     engineLog(`アカウント: 中継が ${code}。ログインを消した${removed && removed.ok === false ? `（消せませんでした: ${removed.code || 'write'}）` : ''}`);
-    noticeOnce(scope, code, STT_NOTICE[code](provider));
+    if (isOfflineChosen()) noticeOnce(scope, code, STT_NOTICE[code](provider));   // 選んでいない PC は K4・K3（第1d2回 M-2）
     noticeSeen(scope).add('signed-out');
     return code;
   }
@@ -1937,7 +1955,7 @@ async function relayFallback(e, scope, provider, sentPack) {
     online.forget(provider.reachUrl);
   }
   if (sttHold.why === code && sttHold.until > Date.now()) engineLog(`文字起こしの経路: ${Math.round((sttHold.until - Date.now()) / 1000)} 秒の間は中継へ送りません（${code}${scopeOf ? ` ${scopeOf}` : ''}）`);
-  const n = noticeFor(code, scopeOf);
+  const n = isOfflineChosen() ? noticeFor(code, scopeOf) : '';   // 選んでいない PC は K3（第1d2回 M-2）
   if (n) noticeOnce(scope, n, STT_NOTICE[n](provider));
   return code;
 }
@@ -1954,6 +1972,7 @@ async function transcribeAuto(wav, tail, durationMs, opts = {}) {
   const provider = d.provider;
   let why = d.why;
   let capScope = d.scope || '';
+  let relayErr = null;   // 手元へ戻した中継の失敗（第1d2回 M-2: 断った区間の文）
   if (d.route === 'cloud') {
     const t0 = Date.now();
     try {
@@ -1974,10 +1993,27 @@ async function transcribeAuto(wav, tail, durationMs, opts = {}) {
       // この区間だけ手元でやり直す（録音と文字起こしは中継に頼らない: RF35）
       why = await relayFallback(e, scope, provider, d.pack);
       capScope = why === 'daily-cap' ? (e.scope === 'all' ? 'all' : 'user') : '';
+      relayErr = e;
     }
   }
   engineLog(`文字起こしの経路: ${what} → local（理由: ${why}）`);
   const via = { route: 'local', why, ...(capScope ? { scope: capScope } : {}) };
+  // 第1d2回 M-2（D21）: 準備を選んでいない PC は手元を待たない（起こすものが無い）。音声を残す Error（kept）を投げる。
+  // 中継が音声を見て断った（bad-request・too-large: 待っても同じ答え）は残さず、今の失敗の Error（refused。決めたこと 12）
+  if (!isOfflineChosen() && !engineValid(whisperEng)) {
+    if (!keptCodeFor({ localOnly: false, why })) {
+      const err = new Error(sttCloud.cloudErrorText(relayErr, provider.label));
+      err.refused = true;
+      err.sttRoute = via;
+      throw err;
+    }
+    engineLog(`文字起こしの経路: ${what} → 音声を残した（${why}）`);
+    const err = new Error(KEPT_ERROR_TEXT);
+    err.engineMissing = true;
+    err.kept = true;
+    err.sttRoute = via;
+    throw err;
+  }
   try {
     if (!(await ensureEngineReady(whisperEng))) {
       const err = new Error(whisperEng.lastError || '文字起こしエンジンが起動していません');
@@ -2089,6 +2125,13 @@ function promptAfterResume() {
 }
 // 会議の始めに経路を1回聞き、クラウドなら L1（トレイの知らせと画面）。ログインしていない（L2）・届かない（L4・L5）・hold（L6・L7）は sttRoute が出す
 function announceSttRoute(m) {
+  // 第1d2回 M-2: 準備を選んでいない PC でクラウドが使えそうにない会議は、始めに K1（つながると OpenAI に送る）か K2（ログインが要る）。経路は聞かない
+  if (m.keepAtStart) {
+    if (m.localOnly) return;
+    if (m.keepAtStart === 'login') noticeOnce(m, 'k2', { text: KEPT_NOTICE.k2, action: 'signin' });
+    else announceK1(m);
+    return;
+  }
   sttRoute(Boolean(m.localOnly), { scope: m }).then((r) => {
     // 確かめの返事（最大 3 秒）を待つ間に［PC の中だけ］が押された・会議が終わったなら、送ると知らせない
     if (r.route !== 'cloud' || m.localOnly || meeting !== m) return;
@@ -2096,6 +2139,27 @@ function announceSttRoute(m) {
     if (!noticeOnce(m, 'cloud', text)) return;
     try { if (tray && typeof tray.displayBalloon === 'function') tray.displayBalloon({ title: APP_TITLE, content: text }); } catch (_) { /* Windows の外には無い */ }
   }).catch((e) => engineLog(`文字起こしの経路: 会議の始めの経路を決められません: ${logReason(e)}`));
+}
+// K1（第1d2回 M-2）: 左下とトレイの吹き出し（L1 と同じ）。会議ごとに1回
+function announceK1(m) {
+  if (!noticeOnce(m, 'k1', KEPT_NOTICE.k1)) return;
+  try { if (tray && typeof tray.displayBalloon === 'function') tray.displayBalloon({ title: APP_TITLE, content: KEPT_NOTICE.k1 }); } catch (_) { /* Windows の外には無い */ }
+}
+// 音声を残し始めた（第1d2回 M-2）: 会議ごとに1回（決めたこと 8）。まだ L1・K1・K2 のどれも出していなければ、後で OpenAI に送ることを
+// 先に知らせる K1（ログインが要る理由なら K2。決めたこと 13・RF28）。L1 だけを出した会議（クラウドで文字起こししていた）は、途中の中継は K3、
+// 途中のログイン切れ（login・ログアウト）は K4（［ログインし直す］）。K1・K2 を出した会議は、もう残していると伝えたので重ねない
+// （ログイン切れの K4 だけは、行動が要るので出す）。PC の中だけの会議は M-4 の P1
+function noticeKept(m, why) {
+  if (m.localOnly) return;
+  const login = why === 'signed-out' || why === 'login';
+  const keptTold = m.notified.has('k1') || m.notified.has('k2');
+  if (!keptTold && !m.notified.has('cloud')) {
+    if (login) noticeOnce(m, 'k2', { text: KEPT_NOTICE.k2, action: 'signin' });
+    else announceK1(m);
+    return;
+  }
+  if (why === 'login' || (why === 'signed-out' && !keptTold)) noticeOnce(m, 'k4', { text: KEPT_NOTICE.k4, action: 'account' });
+  else if (!login && !keptTold && why !== 'key-unreadable') noticeOnce(m, 'k3', KEPT_NOTICE.k3);
 }
 // fetch の失敗を、利用者に見せる一文にする（英語の "fetch failed" や時間切れの文をそのまま出さない）
 function fetchErrorText(e) {
@@ -2783,6 +2847,8 @@ function clearSttProblem(m, ...codes) {
 // 区間の経路（transcribeAuto の答えか、手元の失敗の Error の sttRoute）から中継の様子の帯を決める。クラウドで答えが来たら（空の文でも
 // 中継は戻っている）中継の帯を全部消す。オフライン・ログインしていない・PC の中だけは帯にせず、立っている中継の帯も消す（RF28）
 function noteSttRoute(m, { route, why, scope } = {}) {
+  // 第1d2回 M-2: 区間が中継で文字になった（中継が戻った・ログインした）ら、音声を残している帯も消す（PC の中だけの B14 は残した区間が無くなるまで）
+  if (route === 'cloud') clearSttProblem(m, 'kept-wait', 'kept-relay', 'kept-login');
   if (route === 'cloud' || why === 'offline' || why === 'signed-out' || why === 'local-only') {
     clearSttProblem(m, ...RELAY_PROBLEMS);
     return;
@@ -2803,10 +2869,21 @@ function dropQuietKept(m) {
   for (const s of m.quietKept.splice(0)) unlinkQuiet(s.wav);
 }
 // 失敗して音声を残した区間の数（［もう一度］と会議の後の送り直しの材料）→ 帯 seg-failed
+// 第1d2回 M-2: 音声を残した区間（kept）は数えない（B4 と B11〜B14 を重ねない）。残した区間が無くなったら kept の帯を消す
 function refreshSegFailed(m) {
-  const n = m.segments.filter((s) => s.failed && s.wav).length;
+  const n = m.segments.filter((s) => s.failed && s.wav && !s.kept).length;
   if (n > 0) setSttProblem(m, 'seg-failed', { n });
   else clearSttProblem(m, 'seg-failed');
+  if (!m.segments.some((s) => s.kept && s.wav)) clearSttProblem(m, ...KEPT_CODES);
+}
+// 区間の音声を残した（第1d2回 M-2）: その理由の帯（mainlib.keptCodeFor）を立て、ほかの kept の帯と中継の帯を消し、残し始めの知らせ（noticeKept）
+function noteKept(m, e) {
+  const why = e && e.sttRoute ? e.sttRoute.why : '';
+  const code = keptCodeFor({ localOnly: m.localOnly, why });
+  if (!code) return;
+  clearSttProblem(m, ...KEPT_CODES.filter((c) => c !== code), ...RELAY_PROBLEMS);
+  setSttProblem(m, code, {});
+  noticeKept(m, why);
 }
 // 文字が空だった区間（直前と同じ文で除いた区間は呼ばない）。音のある空は WAV を消さずに控え、stallAfter 個続いたら止まりとみなし、
 // 控えた区間を失敗の区間として atMs の順にページへ戻す。音の無い空は今どおり消す（数えも戻しもしない）→ 控えたら true
@@ -2876,7 +2953,9 @@ function retryFailedSegments() {
         r = await transcribeAuto(buffer, promptTail(m.segments), seg.durationMs, { isStale: stale, learn: true, localOnly: m.localOnly, notice: m,
           what: `区間 ${seg.id}（もう一度）`, seg: seg.id, onWait: (sec) => { if (!stale()) { setSttProblem(m, 'wait', { sec }); sendToMainWin('meeting:update', meetingStatus()); } } });
       } catch (e) {
-        if (!stale()) noteSttFailure(m, e);
+        if (stale()) return;
+        // 第1d2回 M-2: 音声を残した（kept）は区間に印を付けて kept の帯、中継が断った（refused）はエンジンの帯を立てない
+        if (e && e.kept) { seg.kept = true; noteKept(m, e); } else if (!(e && e.refused)) noteSttFailure(m, e);
         return;
       }
       if (stale()) return;
@@ -2887,6 +2966,7 @@ function retryFailedSegments() {
       m.route[r.route] += 1;
       noteSttText(m, r.route);
       delete seg.failed;
+      delete seg.kept;
       settleSegment(m, seg, { text });
     }).catch(() => {}).finally(() => {
       m.retrying.delete(seg.id);
@@ -3613,12 +3693,15 @@ function onMeetingSegment(buffer, durationMs, isFinal) {
       if (meeting !== m || m.gen !== gen) return;
       m.inFlightSince = 0;
       clearSttProblem(m, 'wait');
-      noteSttFailure(m, e);
+      // 第1d2回 M-2（D21）: 準備を選んでいない PC で音声を残した区間（kept）は、エンジンの帯でなく kept の帯と残し始めの知らせ。
+      // 中継が断った区間（refused）は今の失敗の区間で、帯は B4 だけ（B1・中継の帯を立てない）
+      if (e && e.kept) { seg.kept = true; noteKept(m, e); } else if (!(e && e.refused)) noteSttFailure(m, e);
       // 失敗は手元の側に数える。手元に落ちた区間でエンジンも失敗したら、落ちた理由（login・daily-cap などはすぐ長い側。A-5 の点検）、
       // 中継の失敗の符号があればその符号（rate-long など）、どちらも無ければ手元のエンジンの失敗 engine
       const failWhy = (e && e.sttRoute && typeof e.sttRoute.why === 'string' && e.sttRoute.why) || (e && typeof e.cloudCode === 'string' && e.cloudCode) || 'engine';
       segmentRouted(m, 'local', failWhy);
-      settleSegment(m, seg, { text: `（この区間の認識に失敗: ${e.message}）`, failed: true });
+      // 残した区間は「文字起こし待ち」の失敗の区間（WAV を残す: settleSegment。締めで待ち行列に載る）
+      settleSegment(m, seg, { text: e && e.kept ? KEPT_SEG_TEXT : `（この区間の認識に失敗: ${e.message}）`, failed: true });
       return;
     }
     if (meeting !== m || m.gen !== gen) return;
