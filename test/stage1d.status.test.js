@@ -84,18 +84,18 @@ test('B7: cert は relay-blocked で、文に中継のホストの名前が入�
   assert.ok(texts(o.pages[0].segments), JSON.stringify(o.pages[0].segments));
 });
 
-test('B3: 401 は login（action \'account\'）。account:verify が通ると、区間を待たずに帯が消える', T, async () => {
+// 第1d回 A-11 で意図して変えた: ログインし直すのは account:verify でなく account:login（Access のログインの窓）。'l' は偽の Access の取り消し
+test('B3: 401 は login（action \'account\'）。account:login が通ると、区間を待たずに帯が消える', T, async () => {
   const o = await run(['text', '--relay-seq=cl', '--segs=3', '--relogin-after=2']);
   assert.deepStrictEqual(problemOf(o, 'login'), { code: 'login', text: B.login, action: 'account' });
-  assert.strictEqual(o.relogin.start.ok, true, JSON.stringify(o.relogin));
-  assert.strictEqual(o.relogin.verify.ok, true, JSON.stringify(o.relogin));
+  assert.strictEqual(o.relogin.login.ok, true, JSON.stringify(o.relogin));
   assert.strictEqual(o.reloginStt.problem, null, `ログインし直した直後に帯が残った: ${JSON.stringify(o.reloginStt)}`);
   // 帯を消したことを、区間を待たずに画面へ送る（login → null の移り変わりが、3 区間目の文字より前）
   const at = o.sttSeen.findIndex((s, i) => i > 0 && s.problem === null && o.sttSeen[i - 1].problem && o.sttSeen[i - 1].problem.code === 'login');
   assert.ok(at > 0 && o.sttSeen[at].lastTextAt === o.sttSeen[at - 1].lastTextAt, JSON.stringify(o.sttSeen));
   assert.deepStrictEqual(codes(o), [null, 'login', null], JSON.stringify(o.sttSeen));
   assert.ok(o.engineLog.includes('文字起こしの状態: 帯を消した login'), o.engineLog.join('\n'));
-  assert.strictEqual(last(o).route, 'cloud', '3 区間目は新しい札でクラウド');
+  assert.strictEqual(last(o).route, 'cloud', '3 区間目は新しい cookie でクラウド');
 });
 
 test('B6・B5: daily-cap（user）は daily-cap、quota は relay-off（どちらも action \'\'）', T, async () => {

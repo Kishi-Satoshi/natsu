@@ -4,7 +4,7 @@
  * アプリの側は偽の net.request（helpers/fake-net.js）で送り、RELAY_BASE を 127.0.0.1 の中継へ書き換える。外へはつながない。
  * 第1d回 A-10（RL9・F19・F21）: Cloudflare Access の cookie で送る道（偽の session の cookie・useSessionCookies・X-Requested-With・
  * redirect: 'manual'）と Access の答えの分け方を、relay-local の偽の Access の前（startRelayLocal({ access: true })）を相手に見る。
- * 札（nt1_）の道は A-11 まで残る（今の main がまだ札でログインする移り目）ので、札の試しはそのまま。
+ * 第1d回 A-11: 文字起こしの札（nt1_）の道を消した。文字起こしの試しは全部 cookie の道。ログインの口（makeAccountApi）の試しは A-12 まで残す。
  */
 'use strict';
 
@@ -45,7 +45,6 @@ async function closedBase() {
   return `http://127.0.0.1:${port}`;
 }
 
-const sttCall = (rl, extra = {}) => ({ request: rl.request, provider: relay.relayProvider(), language: 'ja', prompt: '', sleep: noSleep, ...extra });
 
 async function codeOf(p) {
   try { await p; } catch (e) { return e; }
@@ -124,54 +123,56 @@ test('RL9: 中継に届かない（閉じた口・切れた）ときは { ok: fa
   });
 });
 
-test('RL9: logout の後は、その札で文字起こしできない（login）', { timeout: 5000 }, async () => {
-  await withLocal({}, async (rl) => {
-    const token = await signIn(rl);
-    assert.strictEqual(await C.transcribeRelay(wav(1), sttCall(rl, { token })), `${SAID}区間1`);
-    const api = relay.makeAccountApi({ request: rl.request });
-    assert.deepStrictEqual(await api.logout(token), { ok: true });
-    assert.deepStrictEqual(await api.logout(token), { ok: true }, '何回でも同じ');
-    const e = await codeOf(C.transcribeRelay(wav(1), sttCall(rl, { token })));
+// 第1d回 A-11 で意図して変えた: 札の道（Authorization: Bearer）を消したので、文字起こしの試しは全部 Access の cookie の道（偽の session）で送る。
+// 前の「logout の後は、その札で文字起こしできない」は、Access の取り消し（Zero Trust の Revoke・ログアウト）の後の login にした
+test('RL9・F22: Access で取り消した（Revoke・ログアウト）後は、その cookie で文字起こしできない（login）', { timeout: 5000 }, async () => {
+  await withAccess({}, async (rl) => {
+    const session = await sessionFor(rl);
+    assert.strictEqual(await C.transcribeRelay(wav(1), cookieCall(rl, session)), `${SAID}区間1`);
+    rl.revokeAt(R.mail('a'));
+    const e = await codeOf(C.transcribeRelay(wav(1), cookieCall(rl, session)));
     assert.ok(e instanceof C.CloudSttError);
-    assert.strictEqual(e.code, 'login');
+    assert.deepStrictEqual([e.code, e.status], ['login', 401]);
+    assert.strictEqual(rl.stt.requests.length, 1, '取り消した cookie の要求が中継の後ろへ届いた');
   });
 });
 
 test('RL9: transcribeRelay は WAV を生のまま送り、言語とヒントは見出しで渡す（ヒントに改行や % があっても壊れない）', { timeout: 5000 }, async () => {
-  await withLocal({ stt: { text: SAID } }, async (rl) => {
-    const token = await signIn(rl);
+  await withAccess({ stt: { text: SAID } }, async (rl) => {
+    const session = await sessionFor(rl);
     const before = rl.sent.length;
     const w = wav(2);
-    assert.strictEqual(await C.transcribeRelay(w, sttCall(rl, { token, prompt: '見積と予算' })), `${SAID}区間1`);
+    assert.strictEqual(await C.transcribeRelay(w, cookieCall(rl, session, { prompt: '見積と予算' })), `${SAID}区間1`);
     const r1 = rl.stt.requests.at(-1);
     assert.deepStrictEqual([r1.fields.model, r1.fields.language, r1.fields.prompt, r1.wavOk], ['gpt-4o-transcribe', 'ja', '見積と予算', true]);
     const s1 = rl.sent[before];
     assert.strictEqual(`${s1.method} ${s1.url}`, `POST ${relay.RELAY_BASE}/v1/audio/transcriptions`);
-    assert.strictEqual(s1.redirect, 'error');
-    assert.deepStrictEqual(Object.keys(s1.headers).sort(), ['Authorization', 'Content-Type', 'X-Natsu-Language', 'X-Natsu-Prompt']);
+    assert.strictEqual(s1.redirect, 'manual');
+    assert.deepStrictEqual(Object.keys(s1.headers).sort(), ['Content-Type', 'X-Natsu-Language', 'X-Natsu-Prompt', 'X-Requested-With']);
     assert.strictEqual(s1.headers['Content-Type'], 'audio/wav');
     assert.strictEqual(s1.headers['X-Natsu-Language'], 'ja');
     assert.strictEqual(s1.headers['X-Natsu-Prompt'], encodeURIComponent('見積と予算'));
     assert.ok(s1.body.equals(w), '本文が WAV そのものでない');
 
     const odd = '見積 100%\n予算%E3「𠮷」';
-    assert.strictEqual(await C.transcribeRelay(w, sttCall(rl, { token, prompt: odd, language: 'auto' })), `${SAID}区間2`);
+    assert.strictEqual(await C.transcribeRelay(w, cookieCall(rl, session, { prompt: odd, language: 'auto' })), `${SAID}区間2`);
     const r2 = rl.stt.requests.at(-1);
     assert.strictEqual(r2.fields.prompt, odd);
     assert.ok(!('language' in r2.fields), '自動なのに言語を送った');
     const s2 = rl.sent.at(-1);
     assert.ok(!('X-Natsu-Language' in s2.headers), 'auto で X-Natsu-Language を付けた');
     // ヒントが空なら見出しも付けない
-    await C.transcribeRelay(w, sttCall(rl, { token, prompt: '' }));
+    await C.transcribeRelay(w, cookieCall(rl, session, { prompt: '' }));
     assert.ok(!('X-Natsu-Prompt' in rl.sent.at(-1).headers));
     assert.ok(!('prompt' in rl.stt.requests.at(-1).fields));
   });
 });
 
-test('RL9: 札は Authorization の見出しにだけ入る（どの要求の見出し・本文・URL にも、ほかに出ない）・redirect: \'error\'', { timeout: 5000 }, async () => {
+// 第1d回 A-11 で意図して変えた: 文字起こしは札を送らない（cookie の道の見出しは A-10 の「transcribeRelay は session の cookie で送り…」が見る）。
+// ログインの口の logout だけが札を Authorization に入れる（A-12 で口ごと消す）
+test('RL9: ログインの口の logout は、札を Authorization の見出しにだけ入れる（どの要求の見出し・本文・URL にも、ほかに出ない）・redirect: \'error\'', { timeout: 5000 }, async () => {
   await withLocal({}, async (rl) => {
     const token = await signIn(rl);
-    await C.transcribeRelay(wav(1), sttCall(rl, { token, prompt: '見積' }));
     await relay.makeAccountApi({ request: rl.request }).logout(token);
     let auth = 0;
     for (const s of rl.sent) {
@@ -182,85 +183,88 @@ test('RL9: 札は Authorization の見出しにだけ入る（どの要求の見
         if (k === 'Authorization') { assert.strictEqual(v, `Bearer ${token}`); auth += 1; } else assert.ok(!String(v).includes(token), `見出し ${k} に札`);
       }
     }
-    assert.strictEqual(auth, 2, '札を付けたのは文字起こしと logout の2回だけのはず');
+    assert.strictEqual(auth, 1, '札を付けたのは logout の1回だけのはず');
     assert.ok(rl.logs.length > 0 && rl.logs.every((l) => !l.includes(token)), '中継の記録に札');
   });
 });
 
 test('F5: 符号の分け方 — 札が違えば login、中継の形でない 401 は server、OpenAI の 401 は upstream-auth、500 は server', { timeout: 5000 }, async () => {
-  await withLocal({}, async (rl) => {
-    const token = await signIn(rl);
-    const bad = await codeOf(C.transcribeRelay(wav(1), sttCall(rl, { token: 'nt1_' + 'A'.repeat(43) })));
+  await withAccess({}, async (rl) => {
+    const session = await sessionFor(rl);
+    // 偽の Access が出していない（知らない）cookie は、Access の前の cf-ray つきの 401 → login
+    const stranger = makeFakeSession();
+    await stranger.cookies.set({ url: relay.RELAY_BASE, name: 'CF_Authorization', value: 'eyJx.eyJy.z', secure: true, httpOnly: true, sameSite: 'no_restriction' });
+    const bad = await codeOf(C.transcribeRelay(wav(1), cookieCall(rl, stranger)));
     assert.deepStrictEqual([bad.code, bad.status], ['login', 401]);
     rl.setFront('html401');
-    const foreign = await codeOf(C.transcribeRelay(wav(1), sttCall(rl, { token })));
+    const foreign = await codeOf(C.transcribeRelay(wav(1), cookieCall(rl, session)));
     assert.deepStrictEqual([foreign.code, foreign.status], ['server', 401], '中継の形でない 401 を login にした（全員の札を消してしまう）');
     rl.setFront('drop');
-    assert.strictEqual((await codeOf(C.transcribeRelay(wav(1), sttCall(rl, { token })))).code, 'net');
+    assert.strictEqual((await codeOf(C.transcribeRelay(wav(1), cookieCall(rl, session)))).code, 'net');
   });
-  await withLocal({ stt: { mode: '401' } }, async (rl) => {
-    const token = await signIn(rl);
-    const e = await codeOf(C.transcribeRelay(wav(1), sttCall(rl, { token })));
+  await withAccess({ stt: { mode: '401' } }, async (rl) => {
+    const session = await sessionFor(rl);
+    const e = await codeOf(C.transcribeRelay(wav(1), cookieCall(rl, session)));
     assert.deepStrictEqual([e.code, e.status], ['upstream-auth', 502], '会社の鍵の誤りを利用者のログイン切れと取り違えた');
   });
-  await withLocal({ stt: { mode: '500' } }, async (rl) => {
-    const token = await signIn(rl);
-    const e = await codeOf(C.transcribeRelay(wav(1), sttCall(rl, { token })));
+  await withAccess({ stt: { mode: '500' } }, async (rl) => {
+    const session = await sessionFor(rl);
+    const e = await codeOf(C.transcribeRelay(wav(1), cookieCall(rl, session)));
     assert.deepStrictEqual([e.code, e.status], ['server', 502]);
   });
 });
 
 test('F5: 429（7 秒）は onWait(7) の後に送り直して文字、429-long は rate-long、400-prompt はヒントを外して1回だけ送り直す', { timeout: 5000 }, async () => {
-  await withLocal({ stt: { mode: '429', times: 1, retryAfter: '7' } }, async (rl) => {
-    const token = await signIn(rl);
+  await withAccess({ stt: { mode: '429', times: 1, retryAfter: '7' } }, async (rl) => {
+    const session = await sessionFor(rl);
     const waits = []; const slept = [];
-    const text = await C.transcribeRelay(wav(1), sttCall(rl, { token, onWait: (s) => waits.push(s), sleep: async (ms) => { slept.push(ms); } }));
+    const text = await C.transcribeRelay(wav(1), cookieCall(rl, session, { onWait: (s) => waits.push(s), sleep: async (ms) => { slept.push(ms); } }));
     assert.strictEqual(text, `${SAID}区間2`);
     assert.deepStrictEqual([waits, slept], [[7], [7000]]);
   });
-  await withLocal({ stt: { mode: '429', times: 1, retryAfter: '7' } }, async (rl) => {
-    const token = await signIn(rl);
-    const e = await codeOf(C.transcribeRelay(wav(1), sttCall(rl, { token, waitCapMs: 5000 })));
+  await withAccess({ stt: { mode: '429', times: 1, retryAfter: '7' } }, async (rl) => {
+    const session = await sessionFor(rl);
+    const e = await codeOf(C.transcribeRelay(wav(1), cookieCall(rl, session, { waitCapMs: 5000 })));
     assert.deepStrictEqual([e.code, e.retryAfter], ['rate', 7], '待ちの合計の上限を越えても待った');
     assert.strictEqual(C.redoLocally(e), false, 'rate は WAV を残す（手元でやり直さない）');
   });
-  await withLocal({ stt: { mode: '429-long' } }, async (rl) => {
-    const token = await signIn(rl);
-    const e = await codeOf(C.transcribeRelay(wav(1), sttCall(rl, { token })));
+  await withAccess({ stt: { mode: '429-long' } }, async (rl) => {
+    const session = await sessionFor(rl);
+    const e = await codeOf(C.transcribeRelay(wav(1), cookieCall(rl, session)));
     assert.deepStrictEqual([e.code, e.retryAfter], ['rate-long', 3600]);
   });
-  await withLocal({ stt: { mode: '400-prompt' } }, async (rl) => {
-    const token = await signIn(rl);
+  await withAccess({ stt: { mode: '400-prompt' } }, async (rl) => {
+    const session = await sessionFor(rl);
     let dropped = 0;
-    const text = await C.transcribeRelay(wav(1), sttCall(rl, { token, prompt: '見積と予算', onPromptDropped: () => { dropped += 1; } }));
+    const text = await C.transcribeRelay(wav(1), cookieCall(rl, session, { prompt: '見積と予算', onPromptDropped: () => { dropped += 1; } }));
     assert.strictEqual(text, `${SAID}区間2`);
     assert.strictEqual(dropped, 1);
     const tx = rl.sent.filter((s) => s.url.endsWith('/v1/audio/transcriptions'));
     assert.deepStrictEqual(tx.map((s) => 'X-Natsu-Prompt' in s.headers), [true, false]);
   });
-  await withLocal({ stt: { mode: '400' } }, async (rl) => {
-    const token = await signIn(rl);
+  await withAccess({ stt: { mode: '400' } }, async (rl) => {
+    const session = await sessionFor(rl);
     let dropped = 0;
-    const e = await codeOf(C.transcribeRelay(wav(1), sttCall(rl, { token, prompt: '見積', onPromptDropped: () => { dropped += 1; } })));
+    const e = await codeOf(C.transcribeRelay(wav(1), cookieCall(rl, session, { prompt: '見積', onPromptDropped: () => { dropped += 1; } })));
     assert.deepStrictEqual([e.code, dropped], ['bad-request', 1], 'ヒントを外しても 400 なら bad-request（送り直しは1回だけ）');
   });
 });
 
 test('F5: 1日の上限は daily-cap（retryAfter つき）、残高が無ければ quota、大きすぎれば too-large', { timeout: 5000 }, async () => {
-  await withLocal({ env: { DAILY_USER_SEC: '1' } }, async (rl) => {
-    const token = await signIn(rl);
-    const e = await codeOf(C.transcribeRelay(wav(2), sttCall(rl, { token })));
+  await withAccess({ env: { DAILY_USER_SEC: '1' } }, async (rl) => {
+    const session = await sessionFor(rl);
+    const e = await codeOf(C.transcribeRelay(wav(2), cookieCall(rl, session)));
     assert.deepStrictEqual([e.code, e.status, e.scope], ['daily-cap', 429, 'user']);
     assert.ok(Number.isInteger(e.retryAfter) && e.retryAfter > 0 && e.retryAfter <= 86400, String(e.retryAfter));
   });
-  await withLocal({ stt: { mode: 'quota' } }, async (rl) => {
-    const token = await signIn(rl);
-    const e = await codeOf(C.transcribeRelay(wav(1), sttCall(rl, { token })));
+  await withAccess({ stt: { mode: 'quota' } }, async (rl) => {
+    const session = await sessionFor(rl);
+    const e = await codeOf(C.transcribeRelay(wav(1), cookieCall(rl, session)));
     assert.deepStrictEqual([e.code, e.status], ['quota', 503]);
   });
-  await withLocal({ env: { MAX_AUDIO_BYTES: '40000' } }, async (rl) => {
-    const token = await signIn(rl);
-    assert.strictEqual((await codeOf(C.transcribeRelay(wav(2), sttCall(rl, { token })))).code, 'too-large');
+  await withAccess({ env: { MAX_AUDIO_BYTES: '40000' } }, async (rl) => {
+    const session = await sessionFor(rl);
+    assert.strictEqual((await codeOf(C.transcribeRelay(wav(2), cookieCall(rl, session)))).code, 'too-large');
   });
 });
 
@@ -362,6 +366,21 @@ test('RL9・F21: transcribeRelay は session の cookie で送り、Authorizatio
     const e = await codeOf(C.transcribeRelay(w, cookieCall(rl, makeFakeSession())));
     assert.deepStrictEqual([e.code, e.status], ['login', 401]);
     assert.strictEqual(rl.stt.requests.length, 2);
+  });
+});
+
+// 第1d回 A-11（RL9・RF32）: 札の道を消した。札（token）を渡されても見出しに入れず、いつも redirect: 'manual'（転送について行かない）で送る
+test('RL9: transcribeRelay は札（token）を渡されても Authorization を付けず、session が無くても redirect: \'manual\'（札の道は無い）', { timeout: 5000 }, async () => {
+  await withAccess({}, async (rl) => {
+    const token = 'nt1_' + 'A'.repeat(43);
+    const e = await codeOf(C.transcribeRelay(wav(1), { ...cookieCall(rl, null), token }));
+    const s = rl.sent.at(-1);
+    assert.ok(!('Authorization' in s.headers), '札を Authorization に入れた');
+    assert.ok(!Object.values(s.headers).some((v) => String(v).includes(token)), '見出しに札');
+    assert.strictEqual(s.redirect, 'manual');
+    // cookie の無い要求は Access の前で止まる（X-Requested-With が無いので 302 → ついて行かずに login）
+    assert.deepStrictEqual([e.code, e.status], ['login', 302]);
+    assert.strictEqual(rl.stt.requests.length, 0);
   });
 });
 

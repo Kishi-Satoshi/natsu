@@ -49,7 +49,8 @@ test('RF30: 暗号にできない PC では保存を断り、ファイルを作�
 
 test('OL3: 見出しに入れられない鍵（空白・日本語・短すぎ）と知らない送り先は断る', async () => {
   const s = makeSecrets({ file: path.join(dir(), 'secrets.json'), safeStorage: fakeSafe(), J });
-  for (const bad of ['', 'abc', 'gsk test 0123', 'gsk_鍵_0123456', `gsk_${'x'.repeat(600)}`]) assert.deepStrictEqual(await s.set('relay', bad), { ok: false, code: 'bad-key' }, bad);
+  // 第1d回 A-11 で意図して変えた: relay の値は cookie をしまう文字（packCookies）で 16KB まで（前は鍵の 512 字の上限で 604 字を断った）
+  for (const bad of ['', 'abc', 'gsk test 0123', 'gsk_鍵_0123456', `gsk_${'x'.repeat(16381)}`]) assert.deepStrictEqual(await s.set('relay', bad), { ok: false, code: 'bad-key' }, bad);
   assert.deepStrictEqual(await s.set('__proto__', KEY), { ok: false, code: 'bad-id' });
 });
 
@@ -184,4 +185,26 @@ test('K2: purgeOld は読めない secrets.json（unreadable）にも控えに�
   assert.deepStrictEqual(s.purgeOld(), { removed: 4 });
   assert.deepStrictEqual(writes, [{ schema: 1, keys: {} }]);
   assert.strictEqual(fs.readdirSync(d).length, 0);
+});
+
+// 第1d回 A-11（RL10・F21）: relay の値は、ログインの窓で取った Access の cookie を packCookies でまとめた文字（JSON。cookie の値の JWT は
+// 数 KB になる）。印字できる ASCII（空白なし）の 16KB まで（src/relay.js の packCookies の上限と同じ）。鍵の形 KEY_RE（512 字）は変えない
+test('RL10・F21: relay の値は印字できる ASCII（空白なし）の 16KB まで（packCookies の形）。ほかの名前の上限は今の KEY_RE の 512 字のまま', async () => {
+  const { RELAY_RE, KEY_RE } = require('../src/secrets');
+  const relay = require('../src/relay');
+  const host = new URL(relay.RELAY_BASE).hostname;
+  const jwt = `eyJ${'a'.repeat(3000)}.eyJ${'b'.repeat(2000)}.${'c'.repeat(342)}`;
+  const pack = relay.packCookies([{ name: 'CF_Authorization', value: jwt, domain: host, path: '/', secure: true, httpOnly: true, sameSite: 'no_restriction', expirationDate: 1900000000 }], { exp: 1900000000 });
+  assert.ok(pack.length > 5000 && pack.length <= 16384, `packCookies の文字の長さ ${pack.length}`);
+  const d = dir(); const file = path.join(d, 'secrets.json');
+  const s = makeSecrets({ file, safeStorage: fakeSafe(), J });
+  assert.deepStrictEqual(await s.set('relay', pack), { ok: true });
+  assert.strictEqual(await makeSecrets({ file, safeStorage: fakeSafe(), J }).get('relay'), pack);
+  assert.ok(!fs.readFileSync(file, 'utf8').includes(jwt.slice(0, 40)), 'cookie の値が平文で入った');
+  assert.deepStrictEqual(await s.set('relay', 'x'.repeat(16384)), { ok: true });
+  for (const bad of ['x'.repeat(16385), `${pack.slice(0, 20)}\n${pack.slice(20)}`, `${pack} `, `{"v":1,"鍵":1}`, 'short']) {
+    assert.deepStrictEqual(await s.set('relay', bad), { ok: false, code: 'bad-key' }, bad.slice(0, 40));
+  }
+  assert.ok(RELAY_RE.test('x'.repeat(16384)) && !RELAY_RE.test('x'.repeat(16385)));
+  assert.ok(KEY_RE.test('x'.repeat(512)) && !KEY_RE.test('x'.repeat(513)), '鍵の形の上限を変えた');
 });

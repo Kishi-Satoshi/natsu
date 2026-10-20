@@ -10,7 +10,7 @@
  *                     Access の cookie の道（useSessionCookies・X-Requested-With）で、redirect: 'manual' の転送にはついて行かずに止める）
  *  - isOfflineError   その区間を手元でやり直してよい失敗か（切れた・時間切れ・届かない）
  *  - transcribeRelay  1つの区間の WAV を中継（relay/。第1d回 RL9）へ生のまま送って文字を返す（言語とヒントは見出し。
- *                     第1d回 A-10: session があれば Access の cookie で送り、見出しに札を入れない。無ければ今の札の Authorization（A-11 まで残す移り目）。
+ *                     第1d回 A-10・A-11: Access の cookie（session）で送り、見出しに札を入れない。札の道は A-11 で消した。
  *                     429 の待ち・ヒントで 400 なら外して1回だけ送り直す）
  *  - isAccessHost     ホストが <チーム>.cloudflareaccess.com の形か（チームの名前はアプリに書かない。第1d回 A-10）
  *  - classifyAuth     中継への答えの 3xx・401・403 → 'login' | 'denied' | 'server' | ''（Access と会社の通信の検査の答えを取り違えない。F19）。
@@ -28,8 +28,8 @@
  * 決まり:
  *  - Electron のモジュールは読み込まない。通信は呼ぶ側から request（本番は net.request）をもらう。
  *    Node のグローバルの通信の関数は使わない（RF2）。
- *  - 札は Authorization: Bearer の見出しだけに入れる。ほかの見出し・本文・例外・文には入れない（RF30・RF32）。
- *    redirect: 'error' で、札を別の宛先へ運ばない。
+ *  - 文字起こしの要求に札を入れない（第1d回 A-11。前の札の道は Authorization: Bearer だけだった: RF30・RF32）。
+ *    postForm の既定は redirect: 'error'（ログインの口の札を別の宛先へ運ばない）。
  *  - （第1d回 A-10・RL9）Access の cookie は Chromium が session（メモリの partition）から付ける。アプリは cookie の値を見出し・本文・
  *    例外・文に入れない（Authorization も cf-access-token も付けない）。転送（Access のログインの画面への 302 など）には
  *    redirect: 'manual' でついて行かない（followRedirect を呼ばない）。
@@ -55,13 +55,16 @@ const OFFLINE_CODES = new Set(['offline', 'cert', 'proxy', 'timeout', 'net']);
 
 // CloudSttError の符号（第1d回 A-10 で 'denied' を足した: 中継の JSON の 403 denied。その区間は手元でやり直す）
 class CloudSttError extends Error {
-  constructor(code, { status, retryAfter, scope } = {}) {
+  constructor(code, { status, retryAfter, scope, hint } = {}) {
     super(`cloud-stt: ${code}${status ? ` (${status})` : ''}`);
     this.name = 'CloudSttError';
     this.code = code;
     if (status !== undefined) this.status = status;
     if (retryAfter !== undefined) this.retryAfter = retryAfter;
     if (scope !== undefined) this.scope = scope;   // daily-cap の 'user' | 'all'（第1d回）
+    // Access の答えの形（第1d回 A-11。記録の1行「中継の答え …」の手がかり）: { cfRay: cf-ray の見出しがあったか, dest: 転送の行き先の種類 'access'|'other'|'' }。
+    // 値・URL は持たない
+    if (hint !== undefined) this.hint = hint;
   }
 }
 
@@ -179,7 +182,10 @@ function postForm({ request, url, headers = {}, body = null, timeoutMs = SEND_TI
     });
     // 転送にはついて行かない（followRedirect を呼ばない）。redirect: 'manual' のときだけ来る
     req.on('redirect', (status, _method, redirectUrl, resHeaders) => {
-      finish(new CloudSttError(classifyAuth({ status, headers: resHeaders, location: redirectUrl }) || 'server', { status }));
+      let host = '';
+      try { host = new URL(String(redirectUrl)).hostname; } catch (_) { host = ''; }
+      const hint = { cfRay: hget(resHeaders || {}, 'cf-ray') != null, dest: isAccessHost(host) ? 'access' : 'other' };
+      finish(new CloudSttError(classifyAuth({ status, headers: resHeaders, location: redirectUrl }) || 'server', { status, hint }));
     });
     // 認証を求められても名乗らない（取り消すと、401 はそのまま返事として届く。プロキシの認証は error で来る）
     req.on('login', (_info, cb) => { try { cb(); } catch (_) { /* 取り消し済み */ } });
@@ -229,9 +235,8 @@ function redoLocally(e) {
  * 1つの区間の WAV を中継の POST {base}/v1/audio/transcriptions へ生のまま送り、文字を返す。失敗は CloudSttError を投げる。
  * 見出し: Content-Type: audio/wav・X-Natsu-Language（/^[a-z]{2,3}$/ のときだけ。auto は付けない）・
  *         X-Natsu-Prompt（ヒントを encodeURIComponent。空なら付けない）。モデルは中継が決める。
- * 第1d回 A-10: session があれば Access の cookie で送る（postForm の session・redirect: 'manual'。X-Requested-With が付き、札の見出しは
- *         付けない）。session が無ければ今の札の Authorization: Bearer <札> と redirect: 'error'（今の main がまだ札でログインする
- *         移り目。A-11 で札の道を消す）。
+ * 第1d回 A-10・A-11: Access の cookie で送る（postForm の session・redirect: 'manual'。X-Requested-With が付く）。札の見出し
+ *         （Authorization・cf-access-token）は付けない（A-11 で札の道を消した。転送にはいつもついて行かない）。
  * 答えの分け方（中継の JSON の error の符号で。中継の形でない答えは 'server' にして、ログインを消させない）:
  *  - 3xx（session の道）・401・403 → classifyAuth（'login'・'denied'・'server'）。cf-ray のある中継の形でない 401 と、Access のホストへの
  *    3xx だけがログイン切れ。中継の JSON の 403 denied は 'denied'
@@ -240,17 +245,15 @@ function redoLocally(e) {
  *  - 400 bad-request: ヒントを送っていたら外して1回だけ送り直す（onPromptDropped。F15）。それでも 400 なら 'bad-request'
  *  - 415 not-wav → 'bad-request'・413 → 'too-large'・502 upstream-auth → 'upstream-auth'・503 quota → 'quota'・ほかは 'server'
  */
-async function transcribeRelay(wav, { request, provider, session, token, language, prompt, sleep = defaultSleep, onWait, onPromptDropped, timeoutMs = SEND_TIMEOUT_MS, waitCapMs = WAIT_CAP_MS } = {}) {
+async function transcribeRelay(wav, { request, provider, session, language, prompt, sleep = defaultSleep, onWait, onPromptDropped, timeoutMs = SEND_TIMEOUT_MS, waitCapMs = WAIT_CAP_MS } = {}) {
   const body = Buffer.isBuffer(wav) ? wav : Buffer.from(wav.buffer, wav.byteOffset, wav.byteLength);
   let usePrompt = Boolean(prompt);
   let waitedMs = 0;
   for (;;) {
     const headers = { 'Content-Type': 'audio/wav' };
-    if (!session) headers.Authorization = `Bearer ${token}`;   // 札の道（A-11 で消す）
     if (typeof language === 'string' && RELAY_LANG.test(language)) headers['X-Natsu-Language'] = language;
     if (usePrompt) headers['X-Natsu-Prompt'] = encodeURIComponent(String(prompt));
-    const res = await postForm({ request, url: `${provider.base}/v1/audio/transcriptions`, headers, body, timeoutMs,
-      ...(session ? { session, redirect: 'manual' } : {}) });
+    const res = await postForm({ request, url: `${provider.base}/v1/audio/transcriptions`, headers, body, timeoutMs, session, redirect: 'manual' });
     const st = res.status;
     if (st >= 200 && st <= 299) {
       let j;
@@ -260,7 +263,7 @@ async function transcribeRelay(wav, { request, provider, session, token, languag
     }
     const code = relayErrorCode(res.body);
     const auth = classifyAuth({ status: st, headers: res.headers, body: res.body });
-    if (auth) throw new CloudSttError(auth, { status: st });
+    if (auth) throw new CloudSttError(auth, { status: st, hint: { cfRay: hget(res.headers || {}, 'cf-ray') != null, dest: '' } });
     if (st === 429 && code === 'daily-cap') {
       let j = null;
       try { j = JSON.parse(res.body.toString('utf8')); } catch (_) { j = null; }

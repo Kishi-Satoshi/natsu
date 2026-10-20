@@ -977,7 +977,8 @@ const PROBLEM_FOR_WHY = {
   unreachable: 'relay-down', net: 'relay-down', timeout: 'relay-down',
   cert: 'relay-blocked', proxy: 'relay-blocked',
   login: 'login', quota: 'relay-off', 'upstream-auth': 'relay-off',
-  offline: '', 'signed-out': '', 'local-only': '', ok: '',
+  denied: 'relay-off',   // 第1d回 A-11: 止めたメール・会社のドメインでない（L11）
+  offline: '', 'signed-out': '', 'local-only': '', ok: '', 'key-unreadable': '',   // key-unreadable（第1d回 A-11・F26）も帯にしない（記録だけ）
 };
 /** → 帯の符号か ''。daily-cap は scope で分ける（1人の上限は daily-cap、全体の上限は relay-off） */
 function problemForRoute({ route, why, scope } = {}) {
@@ -1303,7 +1304,7 @@ function chooseDraftName({ existing, startedAt, park }) {
 // 記録（engine.log）に書く失敗の理由（第1a回の決まり「記録にはファイルの名前（パスの最後だけ）だけ」）。
 // 符号のあるエラー（fs の EACCES など）は符号だけ（fs のエラーの文はパス全体を含む）。ほかは文の中のパスを最後の部分だけにする。
 // URL（http://…）は区切りの前が「:」なので変えない
-// ログインの IPC の文（第1d回 A-2。計画 docs/plans/2026-10-19-1d.md「画面と知らせの文」の R4〜R17）。
+// ログインの IPC の文（第1d回 A-2。計画 docs/plans/2026-10-19-1d.md「画面と知らせの文」の R4〜R17。A-11 で AR4〜AR7 を足した）。
 // code: 中継の答えの符号・通信の符号・main の符号（store・bad-code・logout）。o.left は残りの回数、o.retryAfter は待ちの秒、o.host は中継のホスト。
 // 知らない符号（中継の形でない答え server・約束の形でない答え bad-reply・not-ready など）は R15（管理者へ）。符号の文字は文に入れない
 const ACCOUNT_TEXT = {
@@ -1322,8 +1323,13 @@ const ACCOUNT_TEXT = {
   'not-ready': () => '文字起こしの中継の準備ができていません。管理者に知らせてください。',
   store: () => 'この PC ではログインの情報をしまえません（暗号にする仕組みが使えません）。管理者に知らせてください。',
   'bad-code': () => '確認コードは 6 けたの数字です。メールの 6 けたを入れ直してください。',
+  // 第1d回 A-11（Cloudflare Access のログインの窓。計画「作り替え」の「画面と知らせの文」の AR4〜AR7）
+  'login-ok': () => 'ログインしました。インターネットにつながっているときは、クラウドで文字起こしします。',
+  cancel: () => 'ログインの窓を閉じたため、ログインしていません。もう一度［ログイン］を押してください。',
+  login: () => 'ログインを確かめられませんでした。もう一度［ログイン］を押してください。',
+  denied: () => 'このメールアドレスでは文字起こしの中継を使えません。管理者に知らせてください。',
 };
-const ACCOUNT_ALIAS = { 'mail-cap': 'mail', net: 'offline', timeout: 'offline', proxy: 'cert' };
+const ACCOUNT_ALIAS = { 'mail-cap': 'mail', net: 'offline', timeout: 'offline', proxy: 'cert', 'no-cookie': 'login' };
 function accountMessage(code, o = {}) {
   const c = Object.hasOwn(ACCOUNT_ALIAS, code) ? ACCOUNT_ALIAS[code] : code;
   return (Object.hasOwn(ACCOUNT_TEXT, c) ? ACCOUNT_TEXT[c] : ACCOUNT_TEXT['not-ready'])(o || {});

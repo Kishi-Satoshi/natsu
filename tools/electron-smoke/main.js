@@ -35,7 +35,11 @@
  *         Partitions のフォルダを作らない。Secure・SameSite=None の cookie を http://127.0.0.1 に置けたか（secureLoopback）と届いたかは観測。
  *         置けなければ Windows では 16b: PowerShell の New-SelfSignedCertificate（CN=127.0.0.1・CurrentUser\My）と Export-PfxCertificate で作った
  *         一時の証明書で 127.0.0.1 に https の口を開き、その partition にだけ setCertificateVerifyProc でその証明書の指紋だけを通して、
- *         Secure・SameSite=None・HttpOnly の cookie が届くかを見る。終わったら証明書を店とファイルの両方から消す（鍵はリポジトリに置かない）
+ *         Secure・SameSite=None・HttpOnly の cookie が届くかを見る。終わったら証明書を店とファイルの両方から消す（鍵はリポジトリに置かない）。
+ *         16c（第1d回 A-11・F25。accessGuardCheck）: 8〜12 で付けた本物の security.install（1つだけ）に、ログインの窓の守り（isLoginContents は
+ *         partition natsu-access-smoke の webContents・loginGuard の行き先は試しの 127.0.0.1 のその口）を渡したまま、その partition の sandbox の窓で
+ *         許したホストへのフォームの送り（POST）が通って did-navigate が来ること、許していない行き先（別の口）への will-navigate と
+ *         will-redirect（許した口の 302 の先）が止まること、window.open が断られることを見る。既定の session の窓のフォームの送りは今のまま止まる
  * 結果は 1 行ずつ OK／NG で出す。16 件そろって全部 OK なら終了コード 0、そうでなければ 1（exitCodeOf）。
  * どこかで止まっても、90 秒の見張りで 1 で終わる。
  *
@@ -78,7 +82,8 @@ const CHECKS = [
   [15, '本物の src/db/server.js（utilityProcess・NaTsu DB）に main の口で締めを書き、本物の src/preload.js（sandbox の窓）の koeApp.pageGet が routeText 付きで返す。'
     + '口は window に出ない。子を落とすと読みは失敗で返り、書き込みは起こし直した後に1回だけ効く'],
   [16, 'Access の cookie: メモリの partition に cookies.set で置いた cookie を、本物の net.request が postForm（session・useSessionCookies）で 127.0.0.1 へ付け、'
-    + 'X-Requested-With が付き、redirect: manual の 302 についていかない。Partitions のフォルダを作らない（Secure は観測。置けなければ Windows で https の 16b）'],
+    + 'X-Requested-With が付き、redirect: manual の 302 についていかない。Partitions のフォルダを作らない（Secure は観測。置けなければ Windows で https の 16b）。'
+    + 'ログインの窓の守り（16c）: security.install を付けたまま、ログインの partition の窓だけ許した行き先へのフォームの送りが通り、ほかは止まる'],
 ];
 
 // 13 の送るもの。欄は test/stt-cloud.test.js の OL2 と同じ（鍵は試し用の決まった文字。本物の鍵ではない）
@@ -105,6 +110,15 @@ const SMOKE_DB = Object.freeze({
   labels: Object.freeze({ openai: 'OpenAI' }),
 });
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+// 16c（第1d回 A-11）: 8〜12 の security.install に渡すログインの窓の守り。行き先の判断は 16c の間だけ試しの口を許す（ほかのときは何も許さない）
+let smokeLoginAllow = () => false;
+let smokeLoginSes = null;
+const smokeLoginBlocked = [];
+const smokeIsLogin = (wc) => smokeLoginSes !== null && Boolean(wc) && wc.session === smokeLoginSes;
+const smokeLoginGuard = {
+  allow: (url) => smokeLoginAllow(url),
+  blocked: (url, d) => { smokeLoginBlocked.push({ url, kind: d && d.kind, isMainFrame: d && d.isMainFrame }); },
+};
 const msgOf = (e) => (e && e.message) || String(e);
 
 /** promise を ms で打ち切る（止まったまま見張りの 90 秒を待たない） */
@@ -271,7 +285,8 @@ function dbResults(o) {
  *   secureLoopback は Secure・SameSite=None の cookie を http://127.0.0.1 に cookies.set で置けたか、secureSent はそれが届いたか（どちらも観測）。
  *   redirectEvent は 302 で 'redirect' が起きたか、redirectCode は postForm の失敗の符号（行き先が 127.0.0.1 なので 'server'）、
  *   targetHits は転送の先が受けた要求の数、afterRedirect は 'redirect' の後に来た出来事（観測）。partitionsDir は userData の下に
- *   Partitions があるか。https は 16b（Secure を置けない Windows だけ動かす）の結果
+ *   Partitions があるか。https は 16b（Secure を置けない Windows だけ動かす）の結果。guard は 16c（第1d回 A-11）の窓の守りの観測
+ *   { formPosted, navBlocked, redirectBlocked, openDenied, defaultBlocked }（どれも真で OK）
  * @returns {Array<{ n: number, ok: boolean, note: string }>}
  */
 function accessResults(o) {
@@ -279,14 +294,18 @@ function accessResults(o) {
   const j = (v) => JSON.stringify(v);
   const h = x.https && typeof x.https === 'object' ? x.https : null;
   const secureOk = x.secureLoopback === true || x.platform !== 'win32' || Boolean(h && h.ran === true && h.sent === true);
+  const gd = x.guard && typeof x.guard === 'object' ? x.guard : {};
+  const GUARD = ['formPosted', 'navBlocked', 'redirectBlocked', 'openDenied', 'defaultBlocked'];
+  const guardOk = !gd.error && GUARD.every((k) => gd[k] === true);
   const ok = !x.error && x.laxStrictSent === true && x.xrw === true && x.redirectEvent === true && x.redirectCode === 'server'
-    && x.targetHits === 0 && x.partitionsDir === false && secureOk && Object.keys(x).length > 0;
+    && x.targetHits === 0 && x.partitionsDir === false && secureOk && guardOk && Object.keys(x).length > 0;
+  const guardNote = `、16c（窓の守り）は ${GUARD.map((k) => `${k} ${gd[k] === true ? 'はい' : j(gd[k])}`).join('・')}${gd.blocked ? `（止めた ${j(gd.blocked)}）` : ''}${gd.error ? `・止まった ${j(gd.error)}` : ''}`;
   const https = h ? `、16b（https）は ${h.ran === true ? `動いて Secure の cookie が ${h.sent === true ? '届いた' : '届かない'}` : `動かない（${j(h.error || '?')}）`}` : '';
   const note = `lax・strict の cookie は ${x.laxStrictSent === true ? '届いた' : '届かない'}、X-Requested-With は ${x.xrw === true ? 'ある' : '無い'}、`
     + `Secure の cookie を http://127.0.0.1 に ${x.secureLoopback === true ? `置けて${x.secureSent === true ? '届いた' : '届かない'}` : '置けない'}（観測）${https}、`
     + `302 で redirect は ${x.redirectEvent === true ? '起きた' : '起きない'}（postForm は ${j(x.redirectCode)}・転送の先が受けたのは ${j(x.targetHits)} 件・`
     + `後に来たのは ${j(x.afterRedirect || 'none')}）、Partitions のフォルダは ${x.partitionsDir === false ? '無い' : `ある（${j(x.partitionsDir)}）`}`
-    + `${x.error ? `、止まった: ${x.error}` : ''}`;
+    + `${guardNote}${x.error ? `、止まった: ${x.error}` : ''}`;
   return [{ n: 16, ok, note }];
 }
 
@@ -409,7 +428,7 @@ function boot() {
     results.push(...await dbChecks({ BrowserWindow, utilityProcess, MessageChannelMain }));
     results.push(...await securityChecks({ app, BrowserWindow, session }));
     results.push(...await onlineChecks({ app, net, safeStorage }));
-    results.push(...await accessChecks({ app, net, session }));
+    results.push(...await accessChecks({ app, net, session, BrowserWindow }));
     finish(app, results);
   }, die('起動の失敗'));
 }
@@ -580,7 +599,8 @@ async function securityChecks({ app, BrowserWindow, session }) {
   const onCreated = () => { o.opened = true; };
   try {
     const ses = session.fromPartition('natsu-sec-smoke');
-    security.install({ app, session: ses, pages: PAGES, log: (l) => console.log(`参考: ${l}`) });
+    smokeLoginSes = session.fromPartition('natsu-access-smoke');   // 16c のログインの partition（install は1つだけ: 2つ付けるとログインの窓も全体の止めに当たる）
+    security.install({ app, session: ses, pages: PAGES, log: (l) => console.log(`参考: ${l}`), isLoginContents: smokeIsLogin, loginGuard: smokeLoginGuard });
     ses.setDisplayMediaRequestHandler((req, cb) => { o.handlerCalls += 1; cb(null); });
     const open = async (file) => {
       const w = new BrowserWindow({
@@ -765,7 +785,7 @@ async function reEncryptCheck({ file, safeStorage }) {
  * 16: 本物の net.request と、メモリの partition（natsu-access-smoke）の cookie で観測を集める（判定は accessResults）。
  * 送り先は 127.0.0.1 の口だけ（外へはつながない）。どこかで止まっても観測を残して判定に回す（見張りの 90 秒を待たない）。
  */
-async function accessChecks({ app, net, session }) {
+async function accessChecks({ app, net, session, BrowserWindow }) {
   const o = { platform: process.platform, targetHits: 0 };
   const got = [];
   let server = null;
@@ -819,6 +839,7 @@ async function accessChecks({ app, net, session }) {
     o.redirectEvent = o.redirectEvent === true;
     o.afterRedirect = after || 'none';
     if (!o.secureLoopback && process.platform === 'win32') o.https = await accessHttpsCheck({ ses, net });
+    o.guard = await accessGuardCheck({ BrowserWindow });
     o.partitionsDir = ['userData', 'sessionData'].some((k) => fs.existsSync(path.join(app.getPath(k), 'Partitions')));
   } catch (e) {
     o.error = msgOf(e);
@@ -826,6 +847,77 @@ async function accessChecks({ app, net, session }) {
     if (server) await new Promise((r) => { server.close(() => r()); server.closeAllConnections(); });
   }
   return accessResults(o);
+}
+
+/**
+ * 16c（第1d回 A-11・F25）: ログインの窓の守りの仕組み（security.install の除外と止め方）を本物の Electron で見る。行き先の判断そのもの
+ * （relay.loginNavAllowed）は relay-app の単体テストが見るので、ここでは試しの行き先（127.0.0.1 の口 A）だけを許す。口 B は許さない。
+ * → { formPosted, navBlocked, redirectBlocked, openDenied, defaultBlocked, blocked（止めた出来事の種類）, error? }
+ */
+async function accessGuardCheck({ BrowserWindow }) {
+  const g = { formPosted: false, navBlocked: false, redirectBlocked: false, openDenied: false, defaultBlocked: false };
+  const hits = { a: [], b: [] };
+  const servers = [];
+  const wins = [];
+  const FORM = '<!doctype html><meta charset="utf-8"><title>16c</title><form id="f" method="post" action="/post"><input name="x" value="1"></form>';
+  try {
+    let baseB = '';
+    const serve = (tag) => http.createServer((req, res) => {
+      req.resume();
+      req.on('end', () => {
+        hits[tag].push(`${req.method} ${req.url}`);
+        if (tag === 'a' && req.url.startsWith('/redir')) { res.writeHead(302, { location: `${baseB}/redirected` }); res.end(); return; }
+        res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
+        res.end(FORM);
+      });
+    });
+    const listen = async (srv) => { servers.push(srv); await new Promise((resolve, reject) => { srv.once('error', reject); srv.listen(0, '127.0.0.1', resolve); }); return srv.address().port; };
+    const portA = await listen(serve('a'));
+    baseB = `http://127.0.0.1:${await listen(serve('b'))}`;
+    const baseA = `http://127.0.0.1:${portA}`;
+    smokeLoginAllow = (url) => { try { const u = new URL(String(url)); return u.protocol === 'http:' && u.hostname === '127.0.0.1' && u.port === String(portA); } catch (_) { return false; } };
+    smokeLoginBlocked.length = 0;
+    const win = new BrowserWindow({ show: false, webPreferences: { partition: 'natsu-access-smoke', sandbox: true, contextIsolation: true, nodeIntegration: false } });
+    wins.push(win);
+    const navs = [];
+    win.webContents.on('did-navigate', (_e, url, code) => { navs.push({ url, code }); });
+    await within(win.loadURL(`${baseA}/form`), 10000, '16c の読み込み');
+    const run = (w, js, what) => within(w.webContents.executeJavaScript(js), 10000, what).catch((e) => `止まった（${what}）: ${msgOf(e)}`);
+    // 許した口へのフォームの送り（POST）が通り、did-navigate が来る
+    await run(win, "(() => { document.getElementById('f').submit(); return 1; })()", '16c のフォームの送り');
+    for (let i = 0; i < 50 && !navs.some((n) => n.url === `${baseA}/post`); i++) await wait(100);
+    g.formPosted = hits.a.includes('POST /post') && navs.some((n) => n.url === `${baseA}/post` && n.code === 200);
+    // 許していない口への移動は止まる（口 B に要求が来ない・ページは替わらない）
+    await run(win, `(() => { location.href = '${baseB}/x'; return 1; })()`, '16c の許していない移動');
+    await wait(500);
+    g.navBlocked = hits.b.length === 0 && smokeLoginBlocked.some((b) => b.kind === 'will-navigate' || b.kind === 'will-frame-navigate')
+      && win.webContents.getURL() === `${baseA}/post`;
+    // 許した口の 302 の先（口 B）への転送は止まる
+    const nBlocked = smokeLoginBlocked.length;
+    await run(win, `(() => { location.href = '${baseA}/redir'; return 1; })()`, '16c の転送');
+    await wait(500);
+    g.redirectBlocked = hits.a.includes('GET /redir') && hits.b.length === 0 && smokeLoginBlocked.slice(nBlocked).some((b) => b.kind === 'will-redirect');
+    // window.open は断る
+    const before = BrowserWindow.getAllWindows().length;
+    const opened = await run(win, `window.open('${baseA}/form') === null`, '16c の window.open');
+    await wait(300);
+    g.openDenied = opened === true && BrowserWindow.getAllWindows().length === before;
+    // 既定の session の窓（ログインの窓でない）のフォームの送りは、今のまま全体の守りが止める
+    const dwin = new BrowserWindow({ show: false, webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false } });
+    wins.push(dwin);
+    await within(dwin.loadURL(`${baseA}/form?w=default`), 10000, '16c の既定の session の読み込み');
+    await run(dwin, "(() => { const f = document.getElementById('f'); f.action = '/post-default'; f.submit(); return 1; })()", '16c の既定の session の送り');
+    await wait(500);
+    g.defaultBlocked = !hits.a.includes('POST /post-default');
+    g.blocked = smokeLoginBlocked.map((b) => b.kind);
+  } catch (e) {
+    g.error = msgOf(e);
+  } finally {
+    smokeLoginAllow = () => false;
+    for (const w of wins) { try { w.destroy(); } catch (_) { /* もう無い */ } }
+    for (const srv of servers) await new Promise((r) => { srv.close(() => r()); srv.closeAllConnections(); });
+  }
+  return g;
 }
 
 // 16b の PowerShell（一時の証明書を CurrentUser\My に作り、鍵つきで pfx に書き出し、指紋と DER を返す）。値は環境変数で渡す

@@ -141,25 +141,48 @@
 //                        順に覚える。場面の ctx に relay = { mail(local, domain), codeFor(email), setFront(mode), db, calls() } を足す
 //                        （calls() は覚えた道の写し。setFront は relay-local の中継の前の答え方: '' ・'drop'・'html401'）
 //     --no-store     … 偽の safeStorage の isAsyncEncryptionAvailable が false（暗号にできない PC。secrets.js は保存を断る）
-//   第1d回 A-3（RL11）: 文字起こしを中継へ送る場面。--relay の議事録・音声入力・復旧の場面は、main を読む前に relay-local で
-//   start → verify してログインの札を作り、偽の safeStorage の暗号で secrets.json の relay に置き、settings.json の accountEmail に
-//   そのメールを書く（札の種まき）。json の場面は scene.relaySeed のときだけ種をまく（A-2 の account-ipc はログインしていない形から）
+//   第1d回 A-3（RL11）: 文字起こしを中継へ送る場面。--relay の議事録・音声入力・復旧の場面は、main を読む前にログインの種をまく
+//   （A-11 から: 偽の Access が出した cookie を packCookies でまとめ、偽の safeStorage の暗号で secrets.json の relay に置く）。settings.json の
+//   accountEmail にそのメールを書く。json の場面は scene.relaySeed のときだけ種をまく（access-ipc はログインしていない形から）
 //     --relay=<mode> の mode は fake-stt の答え方（text・500・slow・429・429-long・quota・badjson・drop・drop-first）のほか、
 //                        daily-cap（中継の DAILY_USER_SEC を 4）・daily-cap-all（DAILY_ALL_SEC を 4）・upstream-auth（偽の OpenAI が 401）・
 //                        foreign401（中継の前が HTML の 401: setFront('html401')）・415（中継の前が文字起こしの口にだけ 415 not-wav）・
 //                        cut-first（中継の前が最初の文字起こしの要求だけを返事せずに切る）・lag（第1d回 A-5: 中継の前が文字起こしの要求を
 //                        300 ミリ秒止める。待ちが積もる背圧の場面）
-//     --signed-out   … 札の種をまかない（ログインしていない PC）
-//     --revoked      … 種をまいた札を、main を読む前に D1 で取り消す（revoked_at。中継は 401 login を返す: ログインが切れた PC）
+//     --signed-out   … ログインの種をまかない（ログインしていない PC）
+//     --revoked      … 種をまいた cookie の人を、main を読む前に偽の Access で取り消す（A-11 から。Access の前が 401: ログインが切れた PC）
 //     --relay-down   … RELAY_BASE を、だれも聞いていない 127.0.0.1 の口へ書き換える（中継が落ちている・届かない）
 //     --relay-cert   … RELAY_BASE への要求は net::ERR_CERT_AUTHORITY_INVALID で死ぬ（会社の通信の検査が証明書を差し替えた）
 //     --key-for=<id> … --relay と組むと、前の版の鍵（groq・openai・custom）も secrets.json に置く（中継へ送らないことを見る）
 //   第1d回 A-4（F11・K2）
 //     --old-keys     … secrets.json に 0.7.0 までの鍵（groq・openai・custom。平文は json-scenes.js の OLD_KEY_TEXT）を足し、
 //                        退けた控え secrets.json.broken-2026-10-01T00-00-00-000Z も置く（起動のときに purgeOld が消すことを見る）
+//   第1d回 A-11（RL10・F20・F21・F22・F26・F27）: ログインは Cloudflare Access の窓。--relay はいつも relay-local の偽の Access の前を置き
+//   （startRelayLocal({ access: true })）、種まきは札でなく cookie: main を読む前に偽の Access が出した CF_Authorization を relay.packCookies で
+//   まとめ、偽の safeStorage の暗号で secrets.json の relay に置く（--revoked は種の人を偽の Access で取り消す: rl.revokeAt）。
+//   偽の Electron に session.fromPartition を足す（名前ごとに helpers/fake-net.js の makeFakeSession。setPermissionRequestHandler・
+//   setPermissionCheckHandler・on('will-download') を覚える。名前が persist: で始まれば、本物と同じく userData の下に Partitions のフォルダを作る）。
+//   窓を作ると app の 'web-contents-created' を出し（security.install の守りが付く）、webContents.session はその partition の偽の session。
+//   ログインの partition の窓（偽のログインの窓）は loadURL で、そのときの動き（--access-login・ctx.access.mode）のとおりに出来事を起こす:
+//     ok        … Access のホストへのフォームの送り（will-navigate）と /auth/done への転送（will-redirect）を起こし、偽の Access がその人
+//                 （r.mail('kaigi')）に出した CF_Authorization と、しまってはいけない cookie（CF_AppSession・親のドメインの CF_Authorization・
+//                 ほかのホストの cookie）を partition に置いてから did-navigate（/auth/done・200）
+//     denied    … 同じだが、cookie は会社のドメインでない人のもの（/v1/me が 403 denied）
+//     nocookie  … cookie を置かずに did-navigate 200
+//     denied403・notready … did-navigate が 403・503
+//     failload  … did-fail-load（-130 ERR_PROXY_CONNECTION_FAILED・本体の枠）
+//     wander    … 許していないホスト（https://evil.example/phish）への will-navigate（本体の枠）
+//     cancel    … 利用者が窓を閉じる（'closed'）
+//     hold      … 何も起こさない（ctx.access.close() で閉じるまで開いたまま）
+//     unreadable … 窓の動きは ok のまま、偽の safeStorage の復号が ctx.access.allowDecrypt() まで失敗する（起動のときに復号できない: F26）
+//   --relay-expired … 種の cookie の期限が切れている（起動で消して L3・B3: F19）、--old-token … 種が nt1_ の札（起動で消して記録1行）
+//   出力に loginWins（作ったログインの窓ごとに { webPreferences, modal, parent, width, height, title, show, openHandler（新しい窓を頼んだ答え）,
+//   accessFormAllowed, redirectAllowed, wanderPrevented, shown, closed }）・loginWin（最初の1つか null）・cookiesOnDisk（userData の下に Partitions が
+//   あるか）・accessPerms（ログインの partition の権限の頼み・確かめ・ダウンロードの答え）を足す。ctx.access = { mode(m), wins(), close(), cookies(),
+//   allowDecrypt(), mail }。ctx.relay.revoke() は偽の Access の取り消し、ctx.relay.block() は種の人を止めたメールにする
 //   --relay の議事録・音声入力・復旧の場面の出力に、stt（中継の後ろの偽の OpenAI が受けた要求）・relayCalls（main が中継へ送った道の順）・
 //   relayLog（中継の記録の行）・netHosts・secretsRaw・recoveryKept・decrypts・balloons を足す（--stt と同じ形）
-//   ctx.relay に revoke()（D1 の札を全部取り消す: revoked_at）・sttRequests()・seededMail・base（中継の口。場面から直に GET /auth/me を聞く）を、ctx に advanceClock(ms)（main の Date.now と
+//   ctx.relay に revoke()（A-11 から: 偽の Access で種の人を取り消す）・sttRequests()・seededMail・base（中継の口。場面から直に GET /auth/me を聞く）を、ctx に advanceClock(ms)（main の Date.now と
 //   中継の試しの時計を ms だけ進める）を足す
 //   ctx.setOnline(bool) … 偽の net.isOnline() の答えを場面の途中で変える（--offline の場面は false から始まる）
 //   第1d回 A-5（D16）: 区切りの長さの場面
@@ -177,8 +200,8 @@
 //                        stt と区間（sttAt と同じ形）を out.retried に残してから、続きの区間を送る
 //     --retry-at-stop … 最後の区間を送った直後（会議を止め、最後の区間を文字起こししている間）に meeting:retry を1回呼ぶ（out.retryAtStop に返事）。
 //                        並べ直した区間は最後の区間の後ろに並ぶので、締めが［もう一度］の返事を待つかを見る（A-6 の点検で足した）
-//     --relogin-after=<n> … n 区間を送って片付いた後に、画面と同じ IPC の account:start・account:verify（種まきのメールと、偽の Resend へ
-//                        送ったコード）でログインし直す（out.relogin = { start, verify }）。その直後の meeting:status の stt を out.reloginStt に残す
+//     --relogin-after=<n> … n 区間を送って片付いた後に、画面と同じ IPC の account:login（偽のログインの窓は ok。第1d回 A-11 で
+//                        account:start・account:verify から替えた）でログインし直す（out.relogin = { login }）。その直後の meeting:status の stt を out.reloginStt に残す
 //   第1d回 A-8（RL15・D17）: 録音中のページが見えないときの Windows の知らせ。偽の Electron に Notification を足し、show() した
 //   { title, body } を out.notifications に残す（議事録の場面）。本体の窓（wins[1]）は既定で見えていて前にあり（isVisible・isFocused が true）、
 //   会議を始めた後に画面と同じ meeting:live-shown true を送る（録音中のタブを開いた画面と同じ）
@@ -275,6 +298,11 @@ const relayDown = flags.includes('--relay-down');
 const relayCert = flags.includes('--relay-cert');
 const keyForFlag = flagVal('--key-for');
 const oldKeys = flags.includes('--old-keys');   // 第1d回 A-4（F11・K2）
+// 第1d回 A-11（RL10・F20・F21・F26・F27）: Cloudflare Access のログインの窓と、しまった cookie の場面
+const accessLoginFlag = flagVal('--access-login');   // 偽のログインの窓の動き（ok・cancel・nocookie・denied・denied403・notready・failload・wander・hold）か unreadable
+const relayExpired = flags.includes('--relay-expired');   // 種の cookie の期限が切れている
+const oldToken = flags.includes('--old-token');   // 種が 0.8.0 の前の試しの札（nt1_）
+const SEED_TTL_SEC = 30 * 24 * 3600;   // 種の cookie の長さ（Access の app のログインの長さの上限 1 か月。relay-day の 1 日進めても切れない）
 // --relay の mode → 中継の前の答え方・中継の env・中継の後ろの偽の OpenAI の答え方
 const RELAY_FRONT = { foreign401: 'html401', 415: 'not-wav', 'cut-first': 'cut-first', lag: 'lag-stt' };
 const RELAY_ENV = { 'daily-cap': { DAILY_USER_SEC: '4' }, 'daily-cap-all': { DAILY_ALL_SEC: '4' } };
@@ -448,20 +476,27 @@ process.on('exit', () => {
   const fakeStt = sttMode ? await require('./fake-stt').startFakeStt({ mode: sttMode === 'cert' ? 'text' : sttMode, key: STT_KEY }) : null;
   const fakeEnc = (s) => Buffer.from(`ENC1:${Buffer.from(s, 'utf8').toString('hex')}`);
   // 本物の中継のコードを 127.0.0.1 で（--relay。第1d回 A-2）。終わるときに閉じなくても、process.exit で消える
-  const relayLocal = relayMode ? await require('./relay-local').startRelayLocal({ stt: { mode: relaySttMode }, env: RELAY_ENV[relayMode] || {} }) : null;
-  const { RELAY_BASE, makeAccountApi } = require(path.join(ROOT, 'src', 'relay.js'));
+  const relayLocal = relayMode ? await require('./relay-local').startRelayLocal({ stt: { mode: relaySttMode }, env: RELAY_ENV[relayMode] || {}, access: true }) : null;
+  const { RELAY_BASE, ACCESS_PARTITION, LOGIN_URL, packCookies } = require(path.join(ROOT, 'src', 'relay.js'));
+  const RELAY_HOST = new URL(RELAY_BASE).hostname;
+  // rl.cookieFor の形（cookies.set に渡す形）→ cookies.get が返す形（packCookies が読む）
+  const jarShape = (c) => ({ name: c.name, value: c.value, domain: RELAY_HOST, hostOnly: true, path: '/', secure: c.secure, httpOnly: c.httpOnly,
+    sameSite: c.sameSite, expirationDate: c.expirationDate });
   const relayPaths = [];   // 中継へ送った要求の道（書き換える前の RELAY_BASE の後ろ。/auth/start など）
-  // 第1d回 A-3: 札の種まき（main を読む前に、本物の中継のコードで start → verify）。main からの要求ではないので relayPaths に数えない
+  // 第1d回 A-3・A-11: ログインの種まき（main を読む前に、偽の Access がその人に出した cookie を packCookies でまとめてしまう）。
+  // main からの要求ではないので relayPaths に数えない
   let seededMail = '';
   const seedKeys = {};
   if (relayLocal && !signedOut && (!scene || scene.relaySeed)) {
-    const api = makeAccountApi({ request: relayLocal.request });
     seededMail = require('./relay-run').mail('kaigi');
-    const st = await api.start(seededMail);
-    const v = st.ok ? await api.verify(seededMail, relayLocal.codeFor(seededMail)) : st;
-    if (!v.ok) throw new Error(`mainrun: 札の種まきに失敗（${v.code}）`);
-    seedKeys.relay = fakeEnc(v.token).toString('base64');
-    if (revokedFlag) await relayLocal.db.prepare('UPDATE sessions SET revoked_at = ?1').bind(Math.floor(relayLocal.clock.now() / 1000)).run();
+    if (oldToken) seedKeys.relay = fakeEnc(`nt1_${'A'.repeat(43)}`).toString('base64');
+    else {
+      const c = await relayLocal.cookieFor(seededMail, { ttlSec: relayExpired ? -60 : SEED_TTL_SEC });
+      const pack = packCookies([jarShape(c)], { exp: c.expirationDate });
+      if (!pack) throw new Error('mainrun: cookie の種まきに失敗');
+      seedKeys.relay = fakeEnc(pack).toString('base64');
+    }
+    if (revokedFlag) relayLocal.revokeAt(seededMail);
   }
   if (fakeStt && !noKey) seedKeys[keyFor] = fakeEnc(STT_KEY).toString('base64');
   if (relayLocal && keyForFlag) seedKeys[keyForFlag] = fakeEnc(STT_KEY).toString('base64');
@@ -773,6 +808,91 @@ process.on('exit', () => {
     }
     return Promise.resolve();
   };
+  // 第1d回 A-11: 偽の session（partition ごと。fake-net の makeFakeSession に、権限の受け口・will-download・clearStorageData の記録を足す）。
+  // 名前が persist: で始まれば、本物と同じく userData の下に Partitions のフォルダを作る（cookie をディスクに置く形を試験が見つける）
+  const { makeFakeSession } = require('./fake-net');
+  const fakeSessions = new Map();
+  const defaultSes = anyProxy();
+  const fromPartition = (name) => {
+    const key = String(name);
+    if (fakeSessions.has(key)) return fakeSessions.get(key);
+    if (key.startsWith('persist:')) fs.mkdirSync(path.join(userData, 'Partitions', key.slice(8) || 'x'), { recursive: true });
+    const ses = makeEmitter(makeFakeSession());
+    ses.perm = {};
+    ses.setPermissionRequestHandler = (f) => { ses.perm.req = f; };
+    ses.setPermissionCheckHandler = (f) => { ses.perm.check = f; };
+    const clear = ses.clearStorageData;
+    ses.clears = [];
+    ses.clearStorageData = async (o) => { ses.clears.push(o === undefined ? 'all' : ((o && o.storages) || []).join(',')); return clear(); };
+    fakeSessions.set(key, ses);
+    return ses;
+  };
+  // ログインの partition の権限の頼み・確かめ・ダウンロードの答え（main が守りを付けたか）
+  const accessPerms = () => {
+    const ses = fakeSessions.get(ACCESS_PARTITION);
+    if (!ses) return null;
+    let req = null;
+    try { if (ses.perm.req) ses.perm.req(null, 'media', (g) => { req = g; }, { mediaTypes: ['audio'] }); } catch (_) { req = 'threw'; }
+    let check = null;
+    try { check = ses.perm.check ? ses.perm.check(null, 'media', '', { mediaType: 'audio' }) : null; } catch (_) { check = 'threw'; }
+    let downloadPrevented = false;
+    ses.emit('will-download', { preventDefault() { downloadPrevented = true; } });
+    return { req, check, downloadPrevented };
+  };
+  // 偽のログインの窓（ログインの partition の BrowserWindow）。動きは loginMode（--access-login・ctx.access.mode）
+  let loginMode = accessLoginFlag && accessLoginFlag !== 'unreadable' ? accessLoginFlag : 'ok';
+  const loginRecs = [];
+  const loginWinsList = [];
+  const loginMail = () => seededMail || require('./relay-run').mail('kaigi');
+  const fireNav = (wc, kind, url) => {
+    const ev = { url, isMainFrame: true, prevented: false, preventDefault() { ev.prevented = true; } };
+    wc.emit(kind, ev);
+    return !ev.prevented;
+  };
+  async function runLogin(win, rec, mode) {
+    if (win.destroyed) return;
+    const wc = win.webContents;
+    rec.openHandler = typeof wc.openHandler === 'function' ? wc.openHandler({ url: 'https://evil.example/popup' }) : null;
+    win.emit('ready-to-show');
+    const nav = (code) => wc.emit('did-navigate', {}, LOGIN_URL, code, '');
+    if (mode === 'hold') return;
+    if (mode === 'cancel') { win.close(); return; }
+    if (mode === 'wander') { rec.wanderPrevented = !fireNav(wc, 'will-navigate', 'https://evil.example/phish'); return; }
+    if (mode === 'failload') { wc.emit('did-fail-load', {}, -130, 'ERR_PROXY_CONNECTION_FAILED', LOGIN_URL, true); return; }
+    if (mode === 'denied403') { nav(403); return; }
+    if (mode === 'notready') { nav(503); return; }
+    if (mode === 'nocookie') { nav(200); return; }
+    // ok・denied: Cloudflare のログインの画面へのフォームの送りと、/auth/done への転送（どちらも守りが通すはず）
+    rec.accessFormAllowed = fireNav(wc, 'will-navigate', 'https://natsu-test.cloudflareaccess.com/cdn-cgi/access/login/natsu');
+    rec.redirectAllowed = fireNav(wc, 'will-redirect', LOGIN_URL);
+    const ses = wc.session;
+    const mail = mode === 'denied' ? require('./relay-run').mail('kaigi', 'other.example') : loginMail();
+    await ses.cookies.set(await relayLocal.cookieFor(mail, { ttlSec: SEED_TTL_SEC }));
+    // しまってはいけない cookie（Access の CSRF 用・親のドメイン・ほかのホスト）
+    await ses.cookies.set({ url: RELAY_BASE, name: 'CF_AppSession', value: 'app-session-cookie', secure: true, httpOnly: true, sameSite: 'no_restriction' });
+    await ses.cookies.set({ url: `https://${RELAY_HOST.split('.').slice(1).join('.')}/`, domain: RELAY_HOST.split('.').slice(1).join('.'), name: 'CF_Authorization', value: 'parent-domain-cookie', secure: true, sameSite: 'no_restriction' });
+    await ses.cookies.set({ url: 'https://other.example/', name: 'CF_Authorization', value: 'other-host-cookie', secure: true, sameSite: 'no_restriction' });
+    if (!win.destroyed) nav(200);
+  }
+  function makeLoginWin(win) {
+    const o = win.opts;
+    const rec = { webPreferences: { ...(o.webPreferences || {}) }, modal: o.modal, parent: o.parent && o.parent === wins[1] ? 'main' : (o.parent ? 'other' : 'none'),
+      width: o.width, height: o.height, title: o.title, show: o.show, openHandler: null, accessFormAllowed: null, redirectAllowed: null,
+      wanderPrevented: null, shown: false, focused: 0, closed: false };
+    loginRecs.push(rec);
+    loginWinsList.push(win);
+    win.destroyed = false;
+    win.isDestroyed = () => win.destroyed;
+    win.show = () => { rec.shown = true; };
+    win.focus = () => { rec.focused += 1; };
+    win.close = () => { if (win.destroyed) return; win.destroyed = true; rec.closed = true; setImmediate(() => win.emit('closed')); };
+    win.loadURL = (url) => {
+      rec.url = String(url);
+      const mode = loginMode;
+      setTimeout(() => { runLogin(win, rec, mode).catch((e) => { rec.error = String((e && e.message) || e); }); }, 0);
+      return Promise.resolve();
+    };
+  }
   let maximizeCalls = 0;
   class Win {
     constructor(opts) {
@@ -791,12 +911,15 @@ process.on('exit', () => {
           if (wins.indexOf(this) === 1 && ch === 'meeting:update') watchStt(p);
           if (wins.indexOf(this) === 1) mainSent.push(ch); if (loading) { lost.push([ch, p]); return; } sent.push([ch, p]); watch(ch, p); },
         isLoading: () => loading,
-        setWindowOpenHandler() {}, executeJavaScript: (code) => overlayExec(this, code),
+        setWindowOpenHandler(f) { wc.openHandler = f; }, executeJavaScript: (code) => overlayExec(this, code),
         setZoomFactor: (z) => { zooms.push(z); this.zoom = z; },
         // 第2a1回 M-2b: DB の口を渡した窓と channel（口はこの台では誰も使わない）
         postMessage: (ch) => { portsSent.push({ win: wins.indexOf(this) === 0 ? 'overlay' : 'main', channel: ch }); },
         getZoomFactor: () => this.zoom,
       });
+      // 第1d回 A-11: webContents の session（ログインの窓はその partition の偽の session。ほかは既定の session）
+      const part = this.opts.webPreferences && typeof this.opts.webPreferences.partition === 'string' ? this.opts.webPreferences.partition : '';
+      wc.session = part ? fromPartition(part) : defaultSes;
       const emitterOnce = wc.once;
       wc.once = (ev, cb) => { if (ev === 'did-finish-load' && loading) { loadWaiters.push(cb); return wc; } return emitterOnce(ev, cb); };
       this.webContents = withFallback(wc);
@@ -832,7 +955,9 @@ process.on('exit', () => {
     constructor(...a) {
       super(...a);
       wins.push(this);
+      if (this.opts.webPreferences && this.opts.webPreferences.partition === ACCESS_PARTITION) makeLoginWin(this);
       appEvents.emit('browser-window-created', {}, this);
+      appEvents.emit('web-contents-created', {}, this.webContents);   // 第1d回 A-11: security.install の守りを付ける
     }
   }
   let readyResolve;
@@ -852,13 +977,14 @@ process.on('exit', () => {
   // 偽の safeStorage（secrets.test.js の偽物と同じ形。暗号の代わりに印を付けた hex）。復号の回数は out.decrypts に残す
   // （同意が ask・［PC の中だけ］では鍵を復号しない。Linux・macOS では復号でキーリングの確かめが出ることがある）
   let decrypts = 0;
+  let decryptBlocked = accessLoginFlag === 'unreadable';   // 第1d回 A-11（F26）: ctx.access.allowDecrypt() まで復号できない
   const safeStorage = {
     isAsyncEncryptionAvailable: async () => !noStore,
     getSelectedStorageBackend: () => 'gnome_libsecret',
     encryptStringAsync: async (str) => fakeEnc(str),
     decryptStringAsync: async (b) => {
       decrypts += 1;
-      if (keyUnreadable) throw Object.assign(new Error('safeStorage: 一時的に使えない（試験）'), { code: 'ERR_TEST_UNAVAILABLE' });
+      if (keyUnreadable || decryptBlocked) throw Object.assign(new Error('safeStorage: 一時的に使えない（試験）'), { code: 'ERR_TEST_UNAVAILABLE' });
       return { result: Buffer.from(String(b).slice(5), 'hex').toString('utf8'), shouldReEncrypt: false };
     },
   };
@@ -943,6 +1069,7 @@ process.on('exit', () => {
       ...restartApp,
     })),
     BrowserWindow: TrackedWin,
+    session: withFallback({ defaultSession: defaultSes, fromPartition }),   // 第1d回 A-11
     powerMonitor,
     // engine:status を付けたら（setupIpc）、その同じ手番が済んだ直後のマイクロタスクで ipcReady を解く（第2a1回 M-2b。起動は復旧の
     // DB の書き込みを待ってから setupIpc に来るので、ready からマイクロタスクを数えるだけでは届かない）
@@ -1273,6 +1400,8 @@ process.on('exit', () => {
   // 議事録の場面の出力に足すもの（第2a1回 M-3）
   const m3Out = (o) => {
     o.files = listFiles(userData);
+    o.loginWins = loginRecs.slice();   // 第1d回 A-11
+    o.cookiesOnDisk = fs.existsSync(path.join(userData, 'Partitions'));
     o.dbStarts = utilFork.starts();
     o.trace = trace.slice();
     o.dbHas = { [SECRET]: dbBytesHave(SECRET) };   // 秘密の語（--secret-text の語）が natsu.db か -wal に残っているか
@@ -1314,7 +1443,13 @@ process.on('exit', () => {
         setOnline: (on) => { netUp = Boolean(on); },
         relay: relayLocal ? { mail: require('./relay-run').mail, codeFor: (e) => relayLocal.codeFor(e), setFront: (m) => relayLocal.setFront(m), db: relayLocal.db,
           calls: () => relayPaths.slice(), seededMail, base: relayLocal.base, sttRequests: () => relayLocal.stt.requests.slice(), logs: () => relayLocal.logs.slice(),
-          revoke: () => relayLocal.db.prepare('UPDATE sessions SET revoked_at = ?1 WHERE revoked_at IS NULL').bind(Math.floor(relayLocal.clock.now() / 1000)).run() } : null,
+          // 第1d回 A-11: 取り消しは偽の Access で（Zero Trust の Revoke）。block は種の人を止めたメールにする（中継は 403 denied）
+          revoke: async () => { relayLocal.revokeAt(loginMail()); },
+          block: () => relayLocal.db.prepare('INSERT OR IGNORE INTO blocked_emails (email, at) VALUES (?1, ?2)').bind(loginMail(), 0).run() } : null,
+        access: { mode: (m) => { loginMode = m; }, wins: () => loginRecs.map((r) => ({ ...r })), close: () => { const w = loginWinsList.filter((x) => !x.destroyed).pop(); if (w) w.close(); },
+          cookies: async () => { const ses = fakeSessions.get(ACCESS_PARTITION); return ses ? ses.cookies.get({}) : []; },
+          clears: () => { const ses = fakeSessions.get(ACCESS_PARTITION); return ses ? ses.clears.slice() : []; },
+          allowDecrypt: () => { decryptBlocked = false; }, mail: () => loginMail(), perms: accessPerms },
         advanceClock });
     }
     const files = listFiles(userData);
@@ -1359,6 +1494,10 @@ process.on('exit', () => {
       pages: dbView.listPages().map((p) => ({ id: p.id, title: p.title })),
       overlaySent: overlaySent.slice(),
       order: order.slice(),
+      loginWins: loginRecs.slice(),
+      loginWin: loginRecs[0] || null,
+      cookiesOnDisk: fs.existsSync(path.join(userData, 'Partitions')),
+      accessPerms: accessPerms(),
       ...actOut,
     };
     process.stdout.write(`\n${JSON.stringify(result)}\n`);
@@ -1512,6 +1651,10 @@ process.on('exit', () => {
     if (relayLocal) {
       out.relayCalls = relayPaths.slice();
       out.relayLog = relayLocal.logs.slice();
+      // 第1d回 A-11: 中継の口（偽の Access の前）が受けた要求の形（線の上の Cookie に CF_Authorization があるか・Authorization の見出し・X-Requested-With）
+      out.relayWire = relayLocal.received.map((x) => ({ path: x.path, cookie: /(?:^|;\s*)CF_Authorization=/.test(String(x.headers.cookie || '')),
+        authorization: 'authorization' in x.headers, xrw: String(x.headers['x-requested-with'] || '') }));
+      out.loginWins = loginRecs.slice();
     }
     out.netHosts = netHosts.slice();
     out.balloons = balloons.slice();
@@ -1724,9 +1867,8 @@ process.on('exit', () => {
     const last = i === wavs.length - 1 && !discardDuring;
     // 第1d回 A-6: n 区間の後にログインし直す（区間を待たずに帯 login が消えるか）
     if (reloginAfterN && i === reloginAfterN) {
-      const start = await handlers['account:start']({}, seededMail);
-      const verify = await handlers['account:verify']({}, seededMail, relayLocal.codeFor(seededMail));
-      out.relogin = { start, verify };
+      relayLocal.clock.advance(61000);   // 取り消した人は 1 分ほどログインし直せない（Access）。偽の Access は取り消した時より後に出した cookie を通す
+      out.relogin = { login: await handlers['account:login']({}) };
       out.reloginStt = handlers['meeting:status']().stt;
     }
     if (relaySeq) await relayLocal.setAnswer(relaySeq[i] || 'c');   // 第1d回 A-5: この区間の中継の答え方

@@ -176,6 +176,8 @@ contextBridge.exposeInMainWorld('koeApp', {
   accountStatus: () => ipcRenderer.invoke('account:status'),
   accountStart: (email) => ipcRenderer.invoke('account:start', email),
   accountVerify: (email, code) => ipcRenderer.invoke('account:verify', email, code),
+  // 第1d回 A-11: Cloudflare Access のログインの窓を開く（cookie も JWT も画面へ返さない。答えは { ok, email?, code?, message }）
+  accountLogin: () => ipcRenderer.invoke('account:login'),
   accountLogout: () => ipcRenderer.invoke('account:logout'),
   claudeStatus: () => ipcRenderer.invoke('claude:status'),
   claudeTest: () => ipcRenderer.invoke('claude:test'),

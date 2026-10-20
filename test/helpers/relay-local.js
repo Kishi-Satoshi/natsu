@@ -20,7 +20,9 @@
 //                  'c' 文字・'n' 中継の口を閉じる（つないだらすぐ切る。/health も届かない）・'5' 中継が 502 upstream（偽の OpenAI が 500）・
 //                  'l' 401 login（D1 の札を全部取り消す。戻さない）・'u' 429 daily-cap の user（DAILY_USER_SEC を 1）・
 //                  'a' 503 quota（偽の OpenAI が insufficient_quota）・'e' 200 で空の文字・'L' 429 busy の長い待ち（偽の OpenAI が retry-after 3600。
-//                  アプリは rate-long）。知らない文字は投げる
+//                  アプリは rate-long）。知らない文字は投げる。
+//                  第1d回 A-11: 'l' は偽の Access で出した cookie も取り消す（rl.revokeAt と同じ）。'd' は出した cookie の人を止めたメールにする
+//                  （中継は 403 denied。戻さない）
 //   第1d回 A-10（RL9・F19）: startRelayLocal({ access: true }) で、中継の前に偽の Cloudflare Access の前を置く（既定は置かない。
 //                  今の札（nt1_）の場面と mainrun はそのまま。A-11 で main が cookie で送るようになったら mainrun が access: true にする）。
 //                  偽の Access（test/helpers/fake-access.js）を起こし、中継の env に TEAM_DOMAIN・POLICY_AUD・ACCESS_CERTS_BASE を足す
@@ -38,6 +40,8 @@
 //   rl.cookieFor(email, { ttlSec = 3600 }) → Promise<cookie> … 偽の Access がその人に出す CF_Authorization（中継の時計で iat・exp を付けた
 //                  本物の形の JWT）を、session.cookies.set にそのまま渡せる形 { url: RELAY_BASE, name, value, secure, httpOnly, sameSite, expirationDate } で返す
 //   rl.revokeAt(email) … その人に今までに出した cookie を、偽の Access の前で断る（Zero Trust の Revoke と同じ）
+//   第1d回 A-11: 偽の Access の前は /cdn-cgi/access/logout を自分で答える（cookie の人を取り消して 200 の HTML。中継へは渡さない）。
+//                  'delay-stt'・'lag-stt' の止めは偽の Access の前より先（取り消した cookie の 401 も遅れて届く）
 //   rl.received  … 中継の口（偽の Access の前）が受けた要求の全部 [{ method, path, headers（小文字のキー）, relayed }]（線の上の Cookie を見る）
 //   rl.access    … 偽の Access（fa。access: true のときだけ）
 //   rl.stt・rl.resend … 偽の OpenAI・偽の Resend（requests・mails・codeFor・setMode）
@@ -167,13 +171,27 @@ async function startRelayLocal({ stt: sttOpts = {}, env: over = {}, start = Date
       // 第1d回 A-10: Access の前の答え（どの道にも効く）
       const html = (st, extra = {}) => {
         res.writeHead(st, { 'content-type': 'text/html; charset=utf-8', 'cf-ray': cfRay(), ...extra });
-        res.end(st === 302 ? '' : '<html><body>Forbidden</body></html>');
+        res.end(st === 302 ? '' : (st === 200 ? '<html><body>Logged out</body></html>' : '<html><body>Forbidden</body></html>'));
       };
       if (front === 'access401') { html(401); return; }
       if (front === 'access403') { html(403); return; }
       if (front === 'access302') { html(302, { location: accessLogin }); return; }
       if (front === 'redirect-other') { res.writeHead(302, { location: 'https://proxy.example/blocked?u=1', 'content-type': 'text/html' }); res.end(''); return; }
+      // 文字起こしの要求の止め（第1d回 A-11 で偽の Access の前より先に置いた: 取り消した cookie の 401 も遅れて届く。送っている間に
+      // ログインし直す・ログアウトする場面のため）
+      const isStt = req.method === 'POST' && req.url.split('?')[0] === '/v1/audio/transcriptions';
+      if (front === 'delay-stt' && isStt) await new Promise((r) => setTimeout(r, 800));
+      if (front === 'lag-stt' && isStt) await new Promise((r) => setTimeout(r, 300));
       let over = {};
+      // 偽の Access のログアウト（第1d回 A-11。本物の Access は中継の住所の /cdn-cgi/access/logout を Worker へ渡さずに自分で答え、
+      // その人のログインを取り消す）。cookie の人を取り消して 200 の HTML（中継へは渡さない）
+      if (fa && seen.path === '/cdn-cgi/access/logout') {
+        const jwt0 = (cookiePairs(req.headers.cookie).find(([k]) => k === 'CF_Authorization') || [])[1] || '';
+        const e0 = jwt0 ? issued.get(jwt0) : null;
+        if (e0) revoked.set(e0.email, clock.now());
+        html(200);
+        return;
+      }
       if (fa) {
         const pairs = cookiePairs(req.headers.cookie);
         const jwt = (pairs.find(([k]) => k === 'CF_Authorization') || [])[1] || '';
@@ -191,10 +209,7 @@ async function startRelayLocal({ stt: sttOpts = {}, env: over = {}, start = Date
         }
       }
       seen.relayed = true;
-      const isStt = req.method === 'POST' && req.url.split('?')[0] === '/v1/audio/transcriptions';
       if (front === 'cut-first' && isStt && !cutDone) { cutDone = true; req.socket.destroy(); return; }
-      if (front === 'delay-stt' && isStt) await new Promise((r) => setTimeout(r, 800));
-      if (front === 'lag-stt' && isStt) await new Promise((r) => setTimeout(r, 300));
       if (front === 'not-wav' && isStt) {
         res.writeHead(415, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' });
         res.end(JSON.stringify({ error: 'not-wav' }));
@@ -230,7 +245,15 @@ async function startRelayLocal({ stt: sttOpts = {}, env: over = {}, start = Date
       if (baseUserSec === undefined) delete env.DAILY_USER_SEC; else env.DAILY_USER_SEC = baseUserSec;
       if (ch === 'c') return;
       if (ch === 'n') { closed = true; server.closeAllConnections(); return; }
-      if (ch === 'l') { await db.prepare('UPDATE sessions SET revoked_at = ?1 WHERE revoked_at IS NULL').bind(Math.floor(clock.now() / 1000)).run(); return; }
+      if (ch === 'l') {
+        await db.prepare('UPDATE sessions SET revoked_at = ?1 WHERE revoked_at IS NULL').bind(Math.floor(clock.now() / 1000)).run();
+        for (const e of issued.values()) revoked.set(e.email, clock.now());   // 第1d回 A-11: Access で出した cookie も取り消す（Zero Trust の Revoke）
+        return;
+      }
+      if (ch === 'd') {   // 第1d回 A-11: 出した cookie の人を止めたメールにする（中継は 403 denied）
+        for (const e of issued.values()) await db.prepare('INSERT OR IGNORE INTO blocked_emails (email, at) VALUES (?1, ?2)').bind(e.email, 0).run();
+        return;
+      }
       if (ch === 'u') { env.DAILY_USER_SEC = '1'; return; }
       const mode = { 5: '500', a: 'quota', e: 'empty', L: '429-long' }[ch];
       if (!mode) throw new Error(`relay-local: 並びの文字 ${JSON.stringify(ch)} を知らない`);

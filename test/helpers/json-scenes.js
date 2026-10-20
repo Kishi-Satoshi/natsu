@@ -789,8 +789,10 @@ module.exports = {
       o.statusCloudAfter = c.handlers['meeting:status']().cloud;
       o.m2 = await relayMeeting(c, 1);
     } },
-  // 第1d回 Task A-3（F5）: --relay=text。札 A を D1 で取り消し、文字起こしの要求を中継の前で 800 ミリ秒止めている間に、設定の画面と同じ IPC で
-  // ログインし直す（札 B）。遅れて届いた A の 401 login で、しまった B を消さない。次の会議は B で中継へ送る
+  // 第1d回 Task A-3（F5）: --relay=text。第1d回 A-11 で cookie にした: 種の cookie A を偽の Access で取り消し（Zero Trust の Revoke）、
+  // 文字起こしの要求を中継の前で 800 ミリ秒止めている間に、設定の画面と同じ IPC（account:login。偽のログインの窓は ok）でログインし直す
+  // （cookie B。取り消した人は 1 分ほどログインし直せないので、中継の時計を 61 秒進めてから）。遅れて届いた A の 401 で、しまった B を消さない。
+  // 次の会議は B で中継へ送る
   'relay-relogin': { relaySeed: true, engine: 'lazy', files: { 'settings.json': RELAY_BASE_SETTINGS },
     act: async (c) => {
       const h = (ch, ...a) => c.handlers[ch]({}, ...a);
@@ -798,11 +800,10 @@ module.exports = {
       const fileText = (rel) => { const b = c.read(rel); return b ? b.toString('utf8') : null; };
       o.secretsBefore = fileText('secrets.json');
       await c.relay.revoke();
+      c.advanceClock(61000);
       c.relay.setFront('delay-stt');
-      const M = c.relay.seededMail;
       o.m1 = await relayMeeting(c, 1, { afterFirst: async () => {
-        o.start = await h('account:start', M);
-        o.verify = await h('account:verify', M, c.relay.codeFor(M));
+        o.login = await h('account:login');
         o.secretsRelogin = fileText('secrets.json');
       } });
       o.secretsAfter = fileText('secrets.json');
@@ -810,7 +811,7 @@ module.exports = {
       o.m2 = await relayMeeting(c, 1);
     } },
   // 第1d回 A-3 の点検の直し（F5）: --relay=text。文字起こしの要求を中継の前で 800 ミリ秒止めている間に、設定の画面と同じ IPC で
-  // ログアウトする（中継の札は /auth/logout で取り消される）。遅れて届いた古い札の 401 login は、自分でログアウトした後なので
+  // ログアウトする（第1d回 A-11: Access のログアウトがその人の cookie を取り消す）。遅れて届いた古い cookie の 401 は、自分でログアウトした後なので
   // 「ログインが切れた」（L3）を出さない。その区間は手元でやり直す
   'relay-logout': { relaySeed: true, engine: 'lazy', files: { 'settings.json': RELAY_BASE_SETTINGS },
     act: async (c) => {
@@ -848,112 +849,135 @@ module.exports = {
       c.advanceClock(2 * 60 * 1000);
       o.m3 = await relayMeeting(c, 1);
     } },
-  // 第1d回 Task A-2（RL10・RF32・F1）: ログインの IPC を main で本当に呼ぶ（mainrun の --relay で、本物の中継のコードを 127.0.0.1 で動かす）。
-  // 1つの流れ: 設定を開く → コードを頼む → 違うコード → 正しいコード → 設定を開く・オフライン → 画面の保存 → ログアウト → もう一度ログイン
-  // （全角の数字と空白のコード）→ 中継の前で切れた中のログアウトと start → ログインしていない logout → 形の悪いメールとコード →
-  // ほかのドメイン → 頼んでいないメール → 止めたメール → 同じメールの 15 分の上限。どの account:status の前後でも中継への要求の数を見る
-  'account-ipc': { files: { 'settings.json': pretty(TYPICAL) },
+  // 第1d回 Task A-11（RL10・F20・F21・F22・F27）: ログインの IPC を main で本当に呼ぶ（mainrun の --relay。本物の中継のコードの前に偽の Access。
+  // ログインは偽のログインの窓）。1つの流れ: 設定を開く → 窓が開いている間にもう一度押す → 窓を閉じる（cancel）→ cookie が無い・/v1/me が 403・
+  // /auth/done が 403・503・読めない（プロキシ）・許していないホストへ行く → オフラインで押す → ログインできる → 設定を開く・オフライン →
+  // 画面の保存 → ログアウト → もう一度ログイン（中継の時計を 61 秒進める: 偽の Access はログアウトの時より後の cookie を通す）→ 中継の前で
+  // 切れた中のログアウト → ログインしていない logout。どの account:status の前後でも中継への要求の数を見る
+  'access-ipc': { files: { 'settings.json': pretty(TYPICAL) },
     act: async (c) => {
       const h = (ch, ...a) => c.handlers[ch]({}, ...a);
       const o = c.out;
       const r = c.relay;
-      const M = r.mail('kaigi');
+      const A = c.access;
       const fileText = (rel) => { const b = c.read(rel); return b ? b.toString('utf8') : null; };
       const statusCalls = [];
-      const status = async () => { const n = r.calls().length; const s = await h('account:status'); statusCalls.push(r.calls().length - n); return s; };
-      const revoked = () => r.db.prepare('SELECT COUNT(*) AS n FROM sessions WHERE revoked_at IS NOT NULL').first('n');
-      const wide = (code) => ` ${[...code].map((d) => String.fromCharCode(0xff10 + Number(d))).join('')} `;
-      o.mail = M;
+      const status = async () => { const n = r.calls().length; const st = await h('account:status'); statusCalls.push(r.calls().length - n); return st; };
+      o.mail = A.mail();
       o.status0 = await status();
-      o.start = await h('account:start', M);
-      o.code = r.codeFor(M);
-      o.wrong = await h('account:verify', M, o.code === '000000' ? '111111' : '000000');
-      o.verify = await h('account:verify', M, o.code);
+      // 窓が開いている間にもう一度押しても窓は1つ（前に出すだけ）。閉じたら両方 cancel
+      A.mode('hold');
+      const p1 = h('account:login');
+      await c.sleep(30);
+      const p2 = h('account:login');
+      await c.sleep(30);
+      o.winsWhileOpen = A.wins().length;
+      o.focusedWhileOpen = A.wins()[0] ? A.wins()[0].focused : 0;
+      A.close();
+      o.cancel = [await p1, await p2];
+      o.secretsAfterCancel = fileText('secrets.json');
+      for (const m of ['nocookie', 'denied', 'denied403', 'notready', 'failload', 'wander']) {
+        A.mode(m);
+        o[m] = await h('account:login');
+        o[`${m}Secrets`] = fileText('secrets.json');
+        o[`${m}Cookies`] = (await A.cookies()).length;
+      }
+      c.setOnline(false);
+      const w0 = A.wins().length;
+      o.offline = await h('account:login');
+      o.offlineWins = A.wins().length - w0;
+      c.setOnline(true);
+      A.mode('ok');
+      o.login = await h('account:login');
       o.secretsRaw = fileText('secrets.json');
-      // mainrun の偽の safeStorage の暗号（'ENC1:' + hex）を戻して、しまった札を取り出す（どこにも漏れていないかを試験が探す）
-      try { o.token = Buffer.from(Buffer.from(JSON.parse(o.secretsRaw).keys.relay, 'base64').toString('latin1').slice(5), 'hex').toString('utf8'); } catch (_) { o.token = ''; }
       o.settingsAfter = fileText('settings.json');
+      o.cookiesAfterLogin = (await A.cookies()).map((x) => `${x.name}|${x.domain}`).sort();
       o.status1 = await status();
       c.setOnline(false);
       o.statusOffline = await status();
       c.setOnline(true);
       o.saveSpoof = await h('settings:save', UI({ accountEmail: r.mail('other') }));
       o.settingsAfterSpoof = fileText('settings.json');
+      const n0 = r.calls().length;
       o.logout = await h('account:logout');
-      o.revokedAfterLogout = await revoked();
+      o.logoutCalls = r.calls().slice(n0);
+      o.cookiesAfterLogout = (await A.cookies()).length;
       o.secretsAfterLogout = fileText('secrets.json');
       o.settingsAfterLogout = fileText('settings.json');
       o.status2 = await status();
       o.statusCalls = statusCalls;
-      await h('account:start', M);
-      o.code2 = r.codeFor(M);
-      o.verify2 = await h('account:verify', ` ${M} `, wide(o.code2));
-      o.verifyWide = o.verify2;
+      c.advanceClock(61000);
+      o.login2 = await h('account:login');
       r.setFront('drop');
       o.logoutDown = await h('account:logout');
+      r.setFront('');
       o.secretsAfterLogoutDown = fileText('secrets.json');
       o.settingsAfterLogoutDown = fileText('settings.json');
-      o.startDown = await h('account:start', M);
-      r.setFront('');
-      let n = r.calls().length;
+      o.cookiesAfterLogoutDown = (await A.cookies()).length;
+      const n1 = r.calls().length;
       o.logoutSignedOut = await h('account:logout');
-      o.callsAtSignedOutLogout = r.calls().length - n;
-      n = r.calls().length;
-      o.startBad = await h('account:start', 'not-an-email');
-      o.verifyBadCode = await h('account:verify', M, '12345');
-      o.callsAtLocalRefusals = r.calls().length - n;
-      o.startDomain = await h('account:start', r.mail('a', 'other.example'));
-      o.verifyExpired = await h('account:verify', r.mail('nobody'), '123456');
-      const B = r.mail('tome');
-      await r.db.prepare('INSERT INTO blocked_emails (email, at) VALUES (?1, ?2)').bind(B, 0).run();
-      await h('account:start', B);
-      o.verifyBlocked = await h('account:verify', B, r.codeFor(B));
-      await h('account:start', M);
-      o.rate = await h('account:start', M);
+      o.callsAtSignedOutLogout = r.calls().length - n1;
       o.relayCalls = r.calls();
+      o.clears = A.clears();
     } },
-  // A-1〜A-4 の点検の直し（RL10）: ログインしたまま、もう一度 start → verify でログインし直す。前の札（A）は中継で取り消し、
-  // 新しい札（B）だけが使える（使われない札を 30 日残さない）。どちらが使えるかは中継の GET /auth/me で見る
-  'account-relogin': { files: { 'settings.json': pretty(TYPICAL) },
+  // 同じ IPC の、暗号にできない PC（mainrun の --no-store: 偽の safeStorage の isAsyncEncryptionAvailable が false）。settings.json には前のログインの
+  // メールだけが残っている（しまった cookie は無い: ログインしていない形で、メールは返さない）。窓でログインできても cookie をしまえず store（R16）、
+  // partition の cookie も消す（その場のメモリだけで使い続けない）
+  'access-ipc-nostore': { files: { 'settings.json': pretty({ ...TYPICAL, accountEmail: require('./relay-run').mail('mae') }) },
     act: async (c) => {
       const h = (ch, ...a) => c.handlers[ch]({}, ...a);
       const o = c.out;
-      const r = c.relay;
-      const M = r.mail('kaigi');
-      const fileText = (rel) => { const b = c.read(rel); return b ? b.toString('utf8') : null; };
-      const tokenNow = () => { try { return Buffer.from(Buffer.from(JSON.parse(fileText('secrets.json')).keys.relay, 'base64').toString('latin1').slice(5), 'hex').toString('utf8'); } catch (_) { return ''; } };
-      const revoked = () => r.db.prepare('SELECT COUNT(*) AS n FROM sessions WHERE revoked_at IS NOT NULL').first('n');
-      const me = async (t) => (await fetch(`${r.base}/auth/me`, { headers: { Authorization: `Bearer ${t}` } })).status;
-      await h('account:start', M);
-      o.verify1 = await h('account:verify', M, r.codeFor(M));
-      o.tokenA = tokenNow();
-      await h('account:start', M);
-      o.verify2 = await h('account:verify', M, r.codeFor(M));
-      o.tokenB = tokenNow();
-      // 前の札の取り消しは待たずに送る（ログインの答えを遅らせない）ので、届くまで少し待つ
-      for (let until = Date.now() + 3000; Date.now() < until && ((await revoked()) < 1 || !logText(c).includes('前の札を中継で取り消した'));) await c.sleep(20);
-      o.revoked = await revoked();
-      o.meA = await me(o.tokenA);
-      o.meB = await me(o.tokenB);
-      o.relayCalls = r.calls();
-    } },
-  // 同じ流れの、暗号にできない PC（mainrun の --no-store: 偽の safeStorage の isAsyncEncryptionAvailable が false）。
-  // settings.json には前のログインのメールだけが残っている（札は無い: ログインしていない形で、メールは返さない）
-  'account-ipc-nostore': { files: { 'settings.json': pretty({ ...TYPICAL, accountEmail: require('./relay-run').mail('mae') }) },
-    act: async (c) => {
-      const h = (ch, ...a) => c.handlers[ch]({}, ...a);
-      const o = c.out;
-      const r = c.relay;
-      const M = r.mail('kaigi');
       const fileText = (rel) => { const b = c.read(rel); return b ? b.toString('utf8') : null; };
       o.status0 = await h('account:status');
-      o.start = await h('account:start', M);
-      o.verify = await h('account:verify', M, r.codeFor(M));
+      o.login = await h('account:login');
       o.secretsRaw = fileText('secrets.json');
       o.settingsAfter = fileText('settings.json');
-      o.relayCalls = r.calls();
-      o.revoked = await r.db.prepare('SELECT COUNT(*) AS n FROM sessions WHERE revoked_at IS NOT NULL').first('n');
+      o.cookies = (await c.access.cookies()).length;
       o.status1 = await h('account:status');
+    } },
+  // 第1d回 A-11（F27）: --relay=text・ログインしていない PC。録音中に設定の［ログイン］を押して窓を開いたまま（偽のログインの窓は hold）、
+  // 録音を止めて議事録ができる。その後に窓を閉じると cancel
+  'access-recording': { engine: 'lazy', files: { 'settings.json': RELAY_BASE_SETTINGS },
+    act: async (c) => {
+      const h = (ch, ...a) => c.handlers[ch]({}, ...a);
+      const o = c.out;
+      let loginP = null;
+      c.access.mode('hold');
+      o.m1 = await relayMeeting(c, 2, { afterFirst: async () => {
+        loginP = h('account:login');
+        await c.sleep(30);
+        o.winsDuring = c.access.wins().filter((w) => !w.closed).length;
+        o.stateDuring = c.mainState();
+      } });
+      o.winsOpenAfterStop = c.access.wins().filter((w) => !w.closed).length;
+      c.access.close();
+      o.login = await loginP;
+    } },
+  // 第1d回 A-11（F26）: --relay=text・--access-login=unreadable。起動のときに safeStorage が復号できない（一時的に使えない）。しまった cookie を
+  // 消さず、1回目の会議は手元（key-unreadable。L2・L3 を出さない）。復号できるようになったら、次の会議の経路の判断で戻して中継へ送る
+  'access-unreadable': { relaySeed: true, engine: 'lazy', files: { 'settings.json': RELAY_BASE_SETTINGS },
+    act: async (c) => {
+      const o = c.out;
+      const fileText = (rel) => { const b = c.read(rel); return b ? b.toString('utf8') : null; };
+      o.secretsBefore = fileText('secrets.json');
+      o.status0 = await c.handlers['account:status']({});
+      o.m1 = await relayMeeting(c, 1);
+      o.secretsAfterM1 = fileText('secrets.json');
+      c.access.allowDecrypt();
+      o.m2 = await relayMeeting(c, 1);
+      o.status1 = await c.handlers['account:status']({});
+    } },
+  // 第1d回 A-11（RL10・F19）: しまったログインの様子を account:status で見る（外へ通信しない）。--relay-expired なら期限の切れた cookie で起動
+  'access-status': { relaySeed: true, files: { 'settings.json': pretty(TYPICAL) },
+    act: async (c) => {
+      const o = c.out;
+      const n = c.relay.calls().length;
+      o.status = await c.handlers['account:status']({});
+      o.statusCalls = c.relay.calls().length - n;
+      const b = c.read('secrets.json');
+      o.secretsRaw = b ? b.toString('utf8') : null;
+      o.settingsText2 = String(c.read('settings.json') || '');
+      o.cookies = (await c.access.cookies()).map((x) => x.name);
     } },
   // 第1d回 Task A-4（F11・K2）: 起動のときに 0.7.0 までの鍵（--old-keys が置く groq・openai・custom と退けた控え）を purgeOld で消す。
   // ログインの札（種をまいた relay）は残る。鍵の IPC（cloud:*）の受け口は無く、ログインの IPC（account:*）はある

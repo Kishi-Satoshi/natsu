@@ -155,15 +155,103 @@ test('SEC1: install は許可の受け口2つ・file:// の画面への CSP の�
   assert.deepStrictEqual(opener({ url: 'https://example.invalid/' }), { action: 'deny' });
 });
 
-test('SEC1: main は両方の窓に sandbox: true を明記し、窓を作る前に security.install を呼ぶ', { timeout: 5000 }, () => {
+// 第1d回 A-11 で意図して変えた: 窓は3つ（録音バー・本体・ログインの窓）。ログインの窓は preload を持たず、partition はログインの partition。
+// install にはログインの窓の守り（isLoginContents・loginGuard）を渡す
+test('SEC1: main はどの窓にも sandbox: true を明記し、窓を作る前に security.install を呼ぶ（第1d回 A-11: ログインの窓も）', { timeout: 5000 }, () => {
   const m = code(read('src/main.js'));
   assert.match(m, /const security = require\('\.\/security'\);/);
   assert.match(m, /const RENDERER_PAGES = \{ app: path\.join\(__dirname, 'renderer', 'app\.html'\), overlay: path\.join\(__dirname, 'renderer', 'overlay\.html'\) \};/);
   const prefs = [...m.matchAll(/webPreferences: \{([^}]*)\}/g)].map((x) => x[1]);
-  assert.strictEqual(prefs.length, 2);
+  assert.strictEqual(prefs.length, 3);
   for (const p of prefs) for (const k of ['sandbox: true', 'contextIsolation: true', 'nodeIntegration: false']) assert.ok(p.includes(k), `${k}: ${p}`);
+  const login = prefs.filter((p) => p.includes('partition: relay.ACCESS_PARTITION'));
+  assert.strictEqual(login.length, 1, 'ログインの窓の webPreferences が無い');
+  for (const k of ['webviewTag: false', 'spellcheck: false']) assert.ok(login[0].includes(k), `${k}: ${login[0]}`);
+  assert.ok(!login[0].includes('preload'), 'ログインの窓に preload を付けた（Cloudflare の画面に NaTsu の口を渡す）');
   const ready = fnBody(m, 'app.whenReady().then(', '\n  });');
-  const i = ready.indexOf('security.install({ app, session: session.defaultSession, pages: RENDERER_PAGES, log: engineLog });');
+  const i = ready.indexOf('security.install({ app, session: session.defaultSession, pages: RENDERER_PAGES, log: engineLog, isLoginContents, loginGuard });');
   assert.ok(i > 0 && i < ready.indexOf('createOverlay();') && i < ready.indexOf('createMainWindow();'), '窓を作った後に守りを付けている');
   assert.ok(!/webSecurity: false|allowRunningInsecureContent|nodeIntegration: true|contextIsolation: false/.test(m));
+});
+
+// ---------------------------------------------------------------- 第1d回 A-11（F25・F20）: ログインの窓だけ、許した行き先を通す
+// 全体の守り（どの webContents の移動も止める）のままでは、ログインの窓の中のフォームの送り（［Send login code］・［Sign in］）が止まり、
+// ログインが終わらない。isLoginContents が真の webContents（ログインの partition）だけ、loginGuard で決める。ほかは今のまま必ず止める
+test('F25・F20: isLoginContents が真の webContents だけ、will-navigate・will-frame-navigate・will-redirect を loginGuard で決め（許す行き先は通し、ほかは止める）、will-attach-webview と window.open は止める。偽の webContents（本体・録音バー・ほかの partition）は今のまま必ず止める', { timeout: 5000 }, (t) => {
+  const dir = fs.mkdtempSync(path.join(require('node:os').tmpdir(), 'natsu-取込𠮷-sec-login-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const pages = { app: path.join(dir, 'app.html'), overlay: path.join(dir, 'overlay.html') };
+  const session = { setPermissionRequestHandler() {}, setPermissionCheckHandler() {}, webRequest: { onHeadersReceived() {} } };
+  const loginSes = { partition: 'natsu-access' };
+  const RELAY = 'natsu-relay.example-team.workers.dev';
+  const ACCESS = 'example-team.cloudflareaccess.com';
+  const allowed = new Set([RELAY, ACCESS]);
+  const blocked = [];
+  const appEv = {};
+  S.install({ app: { on: (ev, f) => { appEv[ev] = f; } }, session, pages, readFile: () => '',
+    isLoginContents: (wc) => wc.session === loginSes,
+    loginGuard: {
+      allow: (url) => { try { const u = new URL(url); return u.protocol === 'https:' && allowed.has(u.hostname); } catch (_) { return false; } },
+      blocked: (url, d) => { blocked.push([url, d.kind, d.isMainFrame]); },
+    } });
+  const make = (ses) => {
+    const ev = {};
+    let opener = null;
+    appEv['web-contents-created']({}, { session: ses, on: (e, f) => { ev[e] = f; }, setWindowOpenHandler: (f) => { opener = f; } });
+    return { ev, open: (url) => opener({ url }) };
+  };
+  // 止めたら true。Electron 44 の出来事は details（url・isMainFrame）を持つ。古い形（位置の引数 url・isInPlace・isMainFrame）も読む
+  const fire = (w, kind, details, ...pos) => { let prevented = false; w.ev[kind]({ preventDefault: () => { prevented = true; }, ...details }, ...pos); return prevented; };
+  const login = make(loginSes);
+  // 許した行き先（本体の枠）: 中継のホストと Access のホストへのフォームの送り・転送は通す
+  assert.strictEqual(fire(login, 'will-navigate', { url: `https://${ACCESS}/cdn-cgi/access/login/x`, isMainFrame: true }), false);
+  assert.strictEqual(fire(login, 'will-frame-navigate', { url: `https://${ACCESS}/cdn-cgi/access/callback`, isMainFrame: true }), false);
+  assert.strictEqual(fire(login, 'will-redirect', { url: `https://${RELAY}/auth/done`, isMainFrame: true }), false);
+  assert.deepStrictEqual(blocked, [], '許した行き先を止めた');
+  // 許していない行き先（本体の枠）: 止めて loginGuard.blocked に知らせる
+  assert.strictEqual(fire(login, 'will-navigate', { url: 'https://evil.example/phish', isMainFrame: true }), true);
+  assert.strictEqual(fire(login, 'will-redirect', { url: 'https://proxy.example/blocked?u=1', isMainFrame: true }), true);
+  assert.strictEqual(fire(login, 'will-frame-navigate', { url: `http://${RELAY}/auth/done`, isMainFrame: true }), true);
+  // 古い形: details に url が無く、位置の引数（url・isInPlace・isMainFrame）で来る
+  assert.strictEqual(fire(login, 'will-navigate', {}, 'https://evil.example/old', false, true), true);
+  // 中の枠: https は通し（ログインの画面の中の確かめの枠など）、ほかは止める
+  assert.strictEqual(fire(login, 'will-frame-navigate', { url: 'https://challenges.cloudflare.com/x', isMainFrame: false }), false);
+  assert.strictEqual(fire(login, 'will-frame-navigate', { url: 'http://challenges.example/x', isMainFrame: false }), true);
+  assert.strictEqual(fire(login, 'will-frame-navigate', { url: 'javascript:alert(1)', isMainFrame: false }), true);
+  // webview と新しい窓は止める
+  assert.strictEqual(fire(login, 'will-attach-webview', {}), true);
+  assert.deepStrictEqual(login.open(`https://${ACCESS}/`), { action: 'deny' });
+  assert.deepStrictEqual(blocked, [
+    ['https://evil.example/phish', 'will-navigate', true],
+    ['https://proxy.example/blocked?u=1', 'will-redirect', true],
+    [`http://${RELAY}/auth/done`, 'will-frame-navigate', true],
+    ['https://evil.example/old', 'will-navigate', true],
+    ['http://challenges.example/x', 'will-frame-navigate', false],
+    ['javascript:alert(1)', 'will-frame-navigate', false],
+  ]);
+  // ほかの webContents（本体・録音バー・既定の session・同じ名前の別の session の偽物）は、許した行き先でも今のまま必ず止める
+  for (const ses of [undefined, { partition: '' }, { partition: 'natsu-access' }]) {
+    const w = make(ses);
+    for (const kind of ['will-navigate', 'will-frame-navigate', 'will-attach-webview']) {
+      assert.strictEqual(fire(w, kind, { url: `https://${RELAY}/auth/done`, isMainFrame: true }), true, `${kind} を止めなかった`);
+    }
+    assert.deepStrictEqual(w.open(`https://${RELAY}/`), { action: 'deny' });
+  }
+  // isLoginContents が投げたら、ログインの窓とみなさない（必ず止める）
+  const appEv2 = {};
+  S.install({ app: { on: (ev, f) => { appEv2[ev] = f; } }, session, pages, readFile: () => '',
+    isLoginContents: () => { throw new Error('壊れた'); }, loginGuard: { allow: () => true, blocked() {} } });
+  const ev2 = {};
+  appEv2['web-contents-created']({}, { session: loginSes, on: (e, f) => { ev2[e] = f; }, setWindowOpenHandler() {} });
+  let p2 = false;
+  ev2['will-navigate']({ preventDefault: () => { p2 = true; }, url: `https://${RELAY}/` });
+  assert.strictEqual(p2, true);
+  // loginGuard を渡さなければ、ログインの partition でも必ず止める（今までの install の形）
+  const appEv3 = {};
+  S.install({ app: { on: (ev, f) => { appEv3[ev] = f; } }, session, pages, readFile: () => '', isLoginContents: () => true });
+  const ev3 = {};
+  appEv3['web-contents-created']({}, { session: loginSes, on: (e, f) => { ev3[e] = f; }, setWindowOpenHandler() {} });
+  let p3 = false;
+  ev3['will-navigate']({ preventDefault: () => { p3 = true; }, url: `https://${RELAY}/` });
+  assert.strictEqual(p3, true);
 });

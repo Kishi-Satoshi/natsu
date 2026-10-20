@@ -23,6 +23,16 @@
  *    'media' の 'audio' だけを許すと、マイクとスピーカーの両方の名前が出て、カメラの名前は出ない。
  *    全部断ると名前が空になる（RF19）。'speaker-selection' は許さなくてよい。
  *
+ * 第1d回 A-11（F25・F20）: ログインの窓（Cloudflare Access のログインの画面を出す BrowserWindow。partition は natsu-access）だけは、
+ * 全体の「必ず止める」の代わりに、main が渡す loginGuard で行き先を決める（そのままではログインの画面のフォームの送り
+ * ［Send login code］・［Sign in］が止まり、ログインが終わらない）。どの webContents がログインの窓かは main の isLoginContents（session で見る）。
+ *  - 本体の枠の will-navigate・will-frame-navigate・will-redirect: loginGuard.allow(url) が真のときだけ通す（中継のホストか <チーム>.cloudflareaccess.com）
+ *  - 中の枠の will-frame-navigate: https のほかは止める（ログインの画面の中の確かめの枠は通す）
+ *  - will-attach-webview と新しい窓（setWindowOpenHandler）は、ほかの窓と同じく止める
+ *  - 止めたら loginGuard.blocked(url, { kind, isMainFrame }) を呼ぶ（main は記録1行と、本体の枠なら窓を閉じる）
+ *  資料: api/web-contents.md の 'will-navigate'・'will-frame-navigate'・'will-redirect'（44 は details に url・isMainFrame を持つ。
+ *  古い位置の引数 url・isInPlace・isMainFrame も読む）
+ *
  * CSP のハッシュ:
  *  - HTML は読み込むときに CRLF と CR を LF にそろえる
  *    （https://html.spec.whatwg.org/multipage/parsing.html#preprocessing-the-input-stream）。
@@ -133,6 +143,41 @@ function windowOpen() { return { action: 'deny' }; }
 
 const prevent = (e) => { e.preventDefault(); };
 
+/**
+ * ログインの窓の移動の出来事 → { url, isMainFrame }。44 の details（e.url・e.isMainFrame）を先に読み、無ければ古い位置の引数
+ * （will-navigate・will-redirect の url・isInPlace・isMainFrame）。will-frame-navigate は details だけ。分からなければ本体の枠とみなす（きつい側）
+ */
+function navDetails(kind, e, pos) {
+  const d = e && typeof e === 'object' ? e : {};
+  const url = typeof d.url === 'string' ? d.url : (typeof pos[0] === 'string' ? pos[0] : '');
+  let isMainFrame = true;
+  if (typeof d.isMainFrame === 'boolean') isMainFrame = d.isMainFrame;
+  else if (kind !== 'will-frame-navigate' && typeof pos[2] === 'boolean') isMainFrame = pos[2];
+  return { url, isMainFrame };
+}
+
+/** ログインの窓の行き先の判断（純粋）: 本体の枠は allow(url)、中の枠は https だけ */
+function loginNavOk({ url, isMainFrame }, allow) {
+  if (isMainFrame) {
+    try { return allow(url) === true; } catch { return false; }
+  }
+  try { return new URL(String(url)).protocol === 'https:'; } catch { return false; }
+}
+
+// ログインの窓の守り（第1d回 A-11）。止めたら loginGuard.blocked に知らせる（投げても止めたまま）
+function guardLogin(wc, loginGuard) {
+  for (const kind of ['will-navigate', 'will-frame-navigate', 'will-redirect']) {
+    wc.on(kind, (e, ...pos) => {
+      const d = navDetails(kind, e, pos);
+      if (loginNavOk(d, loginGuard.allow)) return;
+      e.preventDefault();
+      try { loginGuard.blocked(d.url, { kind, isMainFrame: d.isMainFrame }); } catch { /* 止めたまま */ }
+    });
+  }
+  wc.on('will-attach-webview', prevent);
+  wc.setWindowOpenHandler(windowOpen);
+}
+
 /** 受け口が渡す webContents の URL（無い・投げるときは ''） */
 function wcUrl(wc) {
   try { return wc && typeof wc.getURL === 'function' ? String(wc.getURL() || '') : ''; } catch { return ''; }
@@ -144,7 +189,7 @@ function wcUrl(wc) {
  * CSP はその時のファイルから毎回計算する（自動更新で src/ が入れ替わってもハッシュがずれない）。
  * 読めなければゆるめずに STRICT_CSP を付け、log に理由の符号とファイルの名前だけを書く。
  */
-function install({ app, session, pages, readFile = (p) => fs.readFileSync(p, 'utf8'), log = () => {} }) {
+function install({ app, session, pages, readFile = (p) => fs.readFileSync(p, 'utf8'), log = () => {}, isLoginContents = () => false, loginGuard = null }) {
   const pageUrls = {};
   for (const k of PAGE_KINDS) pageUrls[k] = pathToFileURL(pages[k]).href;
   const kindOf = (url) => pageKind(url, pageUrls);
@@ -174,6 +219,10 @@ function install({ app, session, pages, readFile = (p) => fs.readFileSync(p, 'ut
   });
 
   app.on('web-contents-created', (_e, wc) => {
+    // ログインの窓（第1d回 A-11）だけは許した行き先を通す。決められない・投げるときは、ほかの窓と同じく必ず止める
+    let login = false;
+    try { login = Boolean(loginGuard) && isLoginContents(wc) === true; } catch { login = false; }
+    if (login) { guardLogin(wc, loginGuard); return; }
     wc.on('will-navigate', prevent);
     wc.on('will-frame-navigate', prevent);
     wc.on('will-attach-webview', prevent);
@@ -183,4 +232,4 @@ function install({ app, session, pages, readFile = (p) => fs.readFileSync(p, 'ut
   return { kindOf };
 }
 
-module.exports = { pageKind, allowRequest, allowCheck, inlineScriptHashes, cspFor, STRICT_CSP, windowOpen, install };
+module.exports = { pageKind, allowRequest, allowCheck, inlineScriptHashes, cspFor, STRICT_CSP, windowOpen, loginNavOk, install };

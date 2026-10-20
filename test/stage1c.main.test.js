@@ -32,13 +32,18 @@ const sttPosts = (o) => o.stt.filter((r) => r.path.endsWith('/audio/transcriptio
 const textOf = (n) => (typeof n === 'string' ? n : (n && typeof n.text === 'string' ? n.text : ''));
 const count = (o, text) => o.notices.filter((n) => textOf(n) === text).length;
 const whisperSpawned = (o) => o.spawns.some((s) => /fake-whisper\.js$/.test(s.cmd) || /whisper-server/.test(s.cmd));
-// mainrun の偽の safeStorage の暗号（'ENC1:' + hex を base64）を戻した札
-const tokenOf = (o) => { try { return Buffer.from(Buffer.from(JSON.parse(o.secretsRaw).keys.relay, 'base64').toString('latin1').slice(5), 'hex').toString('utf8'); } catch (_) { return ''; } };
+// mainrun の偽の safeStorage の暗号（'ENC1:' + hex を base64）を戻した、しまったログインの CF_Authorization（第1d回 A-11 で札から cookie にした）
+const tokenOf = (o) => {
+  try {
+    const pack = JSON.parse(Buffer.from(Buffer.from(JSON.parse(o.secretsRaw).keys.relay, 'base64').toString('latin1').slice(5), 'hex').toString('utf8'));
+    return pack.c.find((x) => x.name === 'CF_Authorization').value;
+  } catch (_) { return ''; }
+};
 const noTokenAnywhere = (o) => {
   const token = tokenOf(o);
-  assert.match(token, /^nt1_[A-Za-z0-9_-]{43}$/, 'secrets.json にログインの札が無い');
+  assert.match(token, /^eyJ[\w-]+\.[\w-]+\.[\w-]+$/, 'secrets.json にログインの cookie が無い');
   const blob = JSON.stringify([o.savedSettings, o.engineLog, o.notices, o.balloons, o.pages, o.relayLog]);
-  assert.ok(!blob.includes(token), '札の文字が設定・記録・知らせ・ページのどこかにある');
+  assert.ok(!blob.includes(token), 'cookie の文字が設定・記録・知らせ・ページのどこかにある');
 };
 
 test('OL2・RL11: オンラインでログインしていれば、区間は中継の先のクラウド（OpenAI）で文字起こしされ、手元の whisper は起動しない。ページに経路が残る', { timeout: 20000 }, async () => {
@@ -115,6 +120,12 @@ test('RF28: ［この会議は PC の中だけ］なら、中継に音声を送�
   // ［PC の中だけ］の区間では札を復号しない（復号は起動と会議の始めの経路の確かめの分だけで、区間の数では増えない）
   const l1 = await run(['text', '--relay=text', '--local-only', '--segs=1']);
   assert.strictEqual(l.decrypts, l1.decrypts, `［PC の中だけ］の区間で札を復号した（区間 2 つで ${l.decrypts} 回・1つで ${l1.decrypts} 回）`);
+  // 第1d回 A-11（F26）: 経路の判断のたびに復号し直すのは、起動のときに復号できなかった（key-unreadable）ときだけ。そのときも［PC の中だけ］の
+  // 区間では復号し直さない（区間の数で増えない）
+  const [u2, u1] = await Promise.all([run(['text', '--relay=text', '--local-only', '--key-unreadable', '--segs=2']),
+    run(['text', '--relay=text', '--local-only', '--key-unreadable', '--segs=1'])]);
+  assert.ok(u1.decrypts >= 1, '場面の前提: 起動のときに復号を試していない');
+  assert.strictEqual(u2.decrypts, u1.decrypts, `復号できないとき、［PC の中だけ］の区間で復号し直した（区間 2 つで ${u2.decrypts} 回・1つで ${u1.decrypts} 回）`);
 });
 
 test('RF27: 中継へ送っている途中で切れた区間だけ手元でやり直し、次の区間はクラウドに戻る', { timeout: 20000 }, async () => {
@@ -133,13 +144,14 @@ test('RF29: 429 は待ってからクラウドで取れる（手元へ落とさ�
 
 // 第1d回 A-3（F5）で意図して変えた: 前は 401（鍵の誤り）を区間の失敗として残した。中継の 401 login（ログイン切れ）は、その区間を手元でやり直し、
 // 札を消して［ログインし直す］付きの L3 を1回出す。次の区間は中継へ送らない（会社の鍵の誤りは中継の 502 upstream-auth で、別の符号: stage1d.main）
-test('F5: 中継の 401 login（札が取り消されていた）は、その区間を手元でやり直し（失敗として残さない）、札を消して L3 を1回。次の区間は中継へ送らない', { timeout: 20000 }, async () => {
+// 第1d回 A-11 で意図して変えた: 取り消しは偽の Access の前（--revoked はその人の cookie を取り消す）。答えは Access の 401（cf-ray つき）
+test('F5: Access の 401（cookie が取り消されていた）は、その区間を手元でやり直し（失敗として残さない）、cookie を消して L3 を1回。次の区間は中継へ送らない', { timeout: 20000 }, async () => {
   const o = await run(['text', '--relay=text', '--revoked', '--segs=2']);
   assert.ok(o.pages[0].segments.every((s) => !s.failed && s.text.startsWith('本日の議題は進捗の確認です')), JSON.stringify(o.pages[0].segments));
   assert.deepStrictEqual(o.pages[0].route.stt, { cloud: 0, local: 2, provider: 'openai' });
   assert.strictEqual(o.relayCalls.filter((p) => p === '/v1/audio/transcriptions').length, 1, `札を消した後も中継へ送った: ${o.relayCalls}`);
   assert.deepStrictEqual(o.notices.filter((n) => textOf(n) === L3), [{ text: L3, action: 'account' }]);
-  assert.strictEqual(tokenOf(o), '', '中継が 401 login を返したのに札を残した');
+  assert.strictEqual(tokenOf(o), '', 'Access が 401 を返したのに cookie を残した');
   assert.strictEqual(o.recoveryKept, false, '手元で取れたのに送り直しの待ち行列に残した');
   assert.strictEqual(whisperSpawned(o), true);
 });
@@ -154,14 +166,15 @@ test('RF29・OL2: 長い 429（OpenAI の 1日の上限）は区間を失敗と�
   noTokenAnywhere(o);
 });
 
-test('RF30: 札のファイルはあるが復号できない（safeStorage が一時的に使えない）ときは、空の札で送らずに手元で取り、札は消さない', { timeout: 20000 }, async () => {
+// 第1d回 A-11（F26）で意図して変えた: 復号できないだけのときは「ログインしていない」（L2）も出さない（記録1行だけ。次の判断で戻し直す）
+test('RF30・F26: しまったログインのファイルはあるが復号できない（safeStorage が一時的に使えない）ときは、空の partition で送らずに手元で取り、ログインは消さない。L2・L3 は出さない', { timeout: 20000 }, async () => {
   const o = await run(['text', '--relay=text', '--key-unreadable', '--segs=1']);
-  assert.strictEqual(o.stt.length, 0, '空の札で送った');
+  assert.strictEqual(o.stt.length, 0, '空の partition で送った');
   assert.deepStrictEqual(o.relayCalls, []);
-  assert.strictEqual(count(o, L2), 1);
+  assert.strictEqual(count(o, L2), 0, '復号できないだけなのに「ログインしていない」と知らせた');
   assert.strictEqual(count(o, L3), 0, 'ログイン切れ（L3）と誤って知らせた');
   assert.ok(o.engineLog.some((l) => l.includes('key-unreadable')));
-  assert.ok(JSON.parse(o.secretsRaw).keys.relay, '復号できないだけの札を消した');
+  assert.ok(JSON.parse(o.secretsRaw).keys.relay, '復号できないだけのログインを消した');
 });
 
 test('F10: ログインしていない最初の日は手元で取れ、ログインの案内が1回出る。［PC の中だけ］のボタンは出ない', { timeout: 20000 }, async () => {

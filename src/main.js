@@ -40,6 +40,7 @@ const { chooseDisplayMedia } = require('./loopback');
 // オンラインの文字起こし（第1c回 OL1〜OL4）: オンラインかの判定と経路・OpenAI と同じ形の口・鍵の保管
 const { makeOnline, decideStt, decideSummary } = require('./online');
 const sttCloud = require('./stt-cloud');
+const { classifyNetError } = require('./engine-fetch');   // ログインの窓の did-fail-load の分け方（第1d回 A-11）
 // 議事録の保存（第2a1回 ST1・ST2）。main の議事録の読み書きは await db.call(cmd, args) を通る。中身は議事録の DB のプロセス
 // （utilityProcess・NaTsu DB。src/db/server.js）で、main は客（src/db/client.js）と自分用の口（役 main）で頼む。
 // 子は loadStores（whenReady の中。utilityProcess は ready の後でしか起こせない）で起こす。init の dataDir・network もそこで決める。
@@ -1503,7 +1504,9 @@ async function transcribeLocal(wavBuffer, extraPromptTail, durationMs, opts = {}
 // 知らせは L1〜L10（計画「画面と知らせの文」）を会議ごとに1回（会議の外は起動ごとに1回）。
 // 記録には経路・符号・秒数・区間の番号だけを書く（本文・札・メールは書かない）。
 // 記録の行の頭は「文字起こしの経路:」（「文字起こし:」は手元の認識ヒントのやり直しの行だけが使う。transcribe.e2e.test.js がその頭で見る）
-const online = makeOnline({ request: (o) => electronNet.request(o), isOnline: () => electronNet.isOnline() });
+// 中継への届くかの確かめ（/health）は、ほかの中継への要求と同じ partition で送る（第1d回 A-11 の relayRequest）。要約の経路の確かめは今のまま
+const online = makeOnline({ request: (o) => (String(o && o.url).startsWith(`${relay.RELAY_BASE}/`) ? relayRequest(o) : electronNet.request(o)),
+  isOnline: () => electronNet.isOnline() });
 // 鍵と札の保管。whenReady の後に作る（safeStorage の非同期の形は ready の後で用意される）
 let secrets = null;
 // 試験だけ: 429 の待ちを縮める（数で 0〜1 のときだけ効き、ほかは 1。実機の確かめの環境には置かない）
@@ -1522,6 +1525,8 @@ const STT_NOTICE = {
   cert: (p) => `文字起こしの中継につながりません（会社の通信の検査で証明書が差し替えられている可能性があります）。PC の中で文字起こしを続けます。続くときは情報システムに ${p.host} への通信の許可を頼んでください。`,
   'daily-cap': () => '今日のクラウドの文字起こしの上限に達したため、今日の残りは PC の中で文字起こしします。録音はそのまま続けてください。',
   'relay-off': () => '文字起こしの中継が今は使えません。PC の中で文字起こしを続けます。続くときは管理者に知らせてください。',
+  // L11（第1d回 A-11）: 中継が 403 denied（会社のドメインでない・止めたメール）
+  denied: () => 'このメールアドレスでは文字起こしの中継を使えないため、PC の中で文字起こしを続けます。管理者に知らせてください。',
   server: () => '文字起こしの中継が混み合っているか、止まっているため、この区間は PC の中で文字起こししました。録音はそのまま続けてください。',
   wait: (_p, sec) => `OpenAI の利用の上限に近いため、${sec} 秒待ってから送り直しています。録音はそのまま続けてください。`,
   rate: () => 'OpenAI の利用の上限に達しました。文字起こしできなかった区間の音声は残してあり、議事録を閉じた後にもう一度試します。録音はそのまま続けてください。',
@@ -1533,7 +1538,8 @@ const LOCAL_NOTICE = {
   quota: 'relay-off', 'upstream-auth': 'relay-off',
 };
 const noticeFor = (why, scope) => {
-  if (why === 'offline' || why === 'local-only') return '';
+  // key-unreadable（しまったログインを今は復号できない。第1d回 A-11・F26）は知らせない（記録1行だけ。次の判断で戻し直す）
+  if (why === 'offline' || why === 'local-only' || why === 'key-unreadable') return '';
   if (why === 'daily-cap') return scope === 'all' ? 'relay-off' : 'daily-cap';
   return Object.prototype.hasOwnProperty.call(LOCAL_NOTICE, why) ? LOCAL_NOTICE[why] : 'server';
 };
@@ -1584,9 +1590,226 @@ const netOnline = () => { try { return electronNet.isOnline() !== false; } catch
 function sttProvider() {
   return relay.relayProvider();
 }
-// ログインの札がしまってあるか（復号しない: 会議の状態を聞くたびにキーリングの確かめを出さない）
-function hasRelayToken() {
-  try { return Boolean(secrets) && secrets.has('relay'); } catch (_) { return false; }
+// ---- Cloudflare Access のログイン（第1d回 A-11。RL10・F20・F21・F22・F26・F27。計画「作り替え」の要約の 1〜3）
+// ログインの窓（Cloudflare のログインの画面。英語）で Access が中継の住所に付けた CF_Authorization（と CF_Binding）の cookie を、
+// relay.packCookies でまとめて secrets（safeStorage。Windows では DPAPI）の relay の名前にしまい、起動のときにメモリの partition
+// （relay.ACCESS_PARTITION。persist: なし = ディスクに cookie を置かない）へ戻す。中継への要求は全部 relayRequest（その partition）で送り、
+// cookie は Chromium が付ける（アプリは見出しに札を入れない）。cookie・JWT は画面・記録・知らせ・IPC の答えに出さない。
+// ログインしているかは PC の中だけで決める（accessState。外へ通信しない・毎回復号しない）
+let accessSes = null;
+// ログインの partition の session。初めて作るときに守りを付ける（権限の頼みと確かめは全部断る・ダウンロードは止める）
+function accessSession() {
+  if (accessSes) return accessSes;
+  const ses = session.fromPartition(relay.ACCESS_PARTITION);
+  try { ses.setPermissionRequestHandler((_wc, _permission, cb) => { cb(false); }); } catch (_) { /* 付けられなくても続ける */ }
+  try { ses.setPermissionCheckHandler(() => false); } catch (_) { /* 同上 */ }
+  try { ses.on('will-download', (e) => { e.preventDefault(); }); } catch (_) { /* 同上 */ }
+  accessSes = ses;
+  return ses;
+}
+// 中継への要求（文字起こし・/health・/v1/me・ログアウト）。cookie を付けるかは送り手（postForm の useSessionCookies）が決める
+const relayRequest = (o) => electronNet.request({ ...o, session: accessSession() });
+// しまったログインの今の様子（メモリ）。state: 'restored'（partition に戻した）| 'none' | 'unreadable'（safeStorage が今は使えない。消さない）。
+// until は ログインの期限（秒）か null、pack は secrets にしまった文字（ログイン切れの後始末で「送ったときと同じログインか」を比べる）
+let accessState = { state: 'none', until: null, pack: '' };
+// しまったログインの期限が切れていた・中継の外で切れた印（次の経路の why を 'login' にして L3・B3 を出す。L2 にしない）。ログイン・ログアウトで下ろす
+let loginExpired = false;
+let accessReady = Promise.resolve();
+const nowSec = () => Math.floor(Date.now() / 1000);
+const ACCESS_NONE = Object.freeze({ state: 'none', until: null, pack: '' });
+// partition の cookie を消す（取れなかったときの後始末）。しまったログインがあれば、それを戻し直す（前のログインを消さない）
+async function resetAccessCookies() {
+  try { await accessSession().clearStorageData({ storages: ['cookies'] }); } catch (e) { engineLog(`アカウント: ログインの入れ物を空にできません（${errCode(e)}）`); }
+  if (accessState.state === 'restored' && accessState.pack) {
+    const r = relay.unpackCookies(accessState.pack, nowSec());
+    if (r.ok) await putAccessCookies(r.cookies);
+  }
+}
+// cookie を partition に置く（host-only は domain を付けずに url だけ。資料: api/cookies.md）→ 置けた数
+async function putAccessCookies(cookies) {
+  const ses = accessSession();
+  let n = 0;
+  for (const c of cookies) {
+    const d = { url: `${relay.RELAY_BASE}${c.path}`, name: c.name, value: c.value, path: c.path, secure: c.secure, httpOnly: c.httpOnly, sameSite: c.sameSite };
+    if (!c.hostOnly) d.domain = c.domain;
+    if (c.expirationDate !== undefined) d.expirationDate = c.expirationDate;
+    try { await ses.cookies.set(d); n += 1; } catch (e) { engineLog(`アカウント: cookie を戻せません（${errCode(e)}）`); }
+  }
+  return n;
+}
+// しまったログインを消す（ログイン切れ・止めたメール・期限切れ・形の違うもの）。secrets・partition・accountEmail・accessState
+async function forgetAccessLogin() {
+  const removed = secrets ? secrets.remove('relay') : { ok: true };
+  accessState = ACCESS_NONE;
+  try { await accessSession().clearStorageData({ storages: ['cookies'] }); } catch (_) { /* メモリの中だけ。次の起動で無くなる */ }
+  if (settings.accountEmail) setAccountEmail('');
+  return removed;
+}
+// 起動のとき（と、復号できなかった後の次の経路の判断のとき）に、しまったログインを partition へ戻す。投げない
+async function restoreAccessCookies() {
+  if (!secrets || !secrets.has('relay')) { accessState = ACCESS_NONE; return; }
+  const text = await secrets.get('relay');
+  if (!text) {
+    // 復号できない（safeStorage が一時的に使えない: RF30・F26）。消さない（空の partition で送ると 401 でログイン切れと取り違える）
+    if (accessState.state !== 'unreadable') engineLog('アカウント: しまったログインを復号できません（key-unreadable）。消さずに PC の中で文字起こしします');
+    accessState = { state: 'unreadable', until: null, pack: '' };
+    return;
+  }
+  const r = relay.unpackCookies(text, nowSec());
+  if (!r.ok) {
+    await forgetAccessLogin();
+    if (r.why === 'expired') {
+      loginExpired = true;
+      engineLog('アカウント: しまったログインの期限が切れていた');
+    } else engineLog(`アカウント: しまったログインの形が違うため消した（${r.why}）`);
+    return;
+  }
+  const n = await putAccessCookies(r.cookies);
+  accessState = { state: 'restored', until: r.until, pack: text };
+  engineLog(`アカウント: しまったログインを戻した（cookie ${n} 個）`);
+}
+// ログインしているか（PC の中だけで決める。外へ通信しない・復号しない）
+function hasRelayLogin() {
+  return accessState.state === 'restored' && (accessState.until === null || accessState.until > nowSec());
+}
+// ---- ログインの窓（第1d回 A-11。RL10・F20・F27）
+// 設定の［ログイン］（account:login）を押したときだけ開く（ログイン切れ・止めたメールでは開かない: F27）。本体の窓を parent にした小さな窓で、
+// モーダルにしない（録音中のページの［■ 終了して作成］を押せなくしない）。中継の /auth/done を読み、Access が Cloudflare のログインの画面
+// （英語）を出す。メールの 6 けたのコードを入れると、Access が中継の住所に cookie を付けて /auth/done に戻す。そこに着いたら窓を閉じ、
+// cookie を読んで（packCookies）すぐ /v1/me で確かめ（通らなければログインにしない）、secrets にしまう。
+// 行き先の守りは security.install の loginGuard（中継のホストと、最初に着いた <チーム>.cloudflareaccess.com だけ）
+const LOGIN_WIN = { width: 480, height: 680 };
+const LOGOUT_TIMEOUT_MS = 5000;
+let loginOpen = null;   // { win, promise, pinned, stop(r) } 開いている窓（同時に1つだけ）
+const hostKind = (url) => {
+  let host = '';
+  try { host = new URL(String(url)).hostname.toLowerCase(); } catch (_) { return 'other'; }
+  if (host === relay.relayProvider().host) return 'relay';
+  return relay.isAccessHost(host) ? 'access' : 'other';
+};
+// security.install に渡す: ログインの窓（ログインの partition）の webContents か
+const isLoginContents = (wc) => Boolean(wc) && accessSes !== null && wc.session === accessSes;
+// security.install に渡す: ログインの窓の行き先の判断（本体の枠）と、止めたときの後始末
+const loginGuard = {
+  allow(url) {
+    const pinned = loginOpen ? loginOpen.pinned : '';
+    if (!relay.loginNavAllowed(url, pinned)) return false;
+    // 窓が最初に着いた Access のホストに、その窓の間は留める
+    if (loginOpen && !loginOpen.pinned && hostKind(url) === 'access') loginOpen.pinned = new URL(String(url)).hostname.toLowerCase();
+    return true;
+  },
+  blocked(url, { isMainFrame } = {}) {
+    engineLog(`アカウント: ログインの窓が許していない行き先（${hostKind(url)}）へ行こうとしたので止めた`);
+    // 本体の枠なら窓を閉じる（会社の通信の検査の転送のことが多い: R14。{ホスト} は窓が着いた Access のホストか、まだなら中継のホスト）
+    if (isMainFrame && loginOpen) loginOpen.stop({ ok: false, code: 'proxy', ...(loginOpen.pinned ? { host: loginOpen.pinned } : {}) });
+  },
+};
+// did-fail-load の errorCode・説明 → 通信の符号（R13・R14 の分け方は classifyNetError と同じ）
+function loadFailCode(errorCode, desc) {
+  const text = `${String(desc || '')} ${errorCode}`;
+  if (Number(errorCode) === -7 || /TIMED_OUT/.test(text)) return 'timeout';
+  const k = classifyNetError({ message: `net::${String(desc || '')}` });
+  if (k === 'cert' || (Number(errorCode) <= -200 && Number(errorCode) > -300)) return 'cert';
+  if (k === 'proxy' || k === 'proxy-auth') return 'proxy';
+  if (k === 'offline') return 'offline';
+  return 'net';
+}
+// /auth/done に 200 で着いた: cookie を読み、/v1/me で確かめ、しまう → { ok, email } | { ok: false, code }
+async function finishAccessLogin() {
+  const ses = accessSession();
+  let cookies = [];
+  try { cookies = await ses.cookies.get({ url: relay.RELAY_BASE }); } catch (_) { cookies = []; }
+  if (!relay.packCookies(cookies)) return { ok: false, code: 'no-cookie' };
+  const me = await relay.makeAccessApi({ request: relayRequest, session: ses }).me();
+  if (!me.ok) {
+    engineLog(`アカウント: ログインの直後の確かめが通りませんでした（${me.code}）`);
+    return { ok: false, code: me.code === 'denied' ? 'denied' : 'login' };
+  }
+  const pack = relay.packCookies(cookies, { exp: me.exp });
+  if (!pack) return { ok: false, code: 'no-cookie' };
+  const saved = secrets ? await secrets.set('relay', pack) : { ok: false, code: 'unavailable' };
+  if (!saved.ok) {
+    engineLog(`アカウント: ログインの情報をしまえません（${saved.code || 'write'}）`);
+    return { ok: false, code: 'store' };
+  }
+  accessState = { state: 'restored', until: me.exp, pack };
+  loginExpired = false;
+  setAccountEmail(me.email);
+  online.forget(relay.relayProvider().reachUrl);
+  clearLoginProblem();
+  return { ok: true, email: me.email };
+}
+// 録音中の会議の帯 login は、区間を待たずに消す（第1d回 A-6。A-11 でログインの窓の成功から呼ぶ）
+function clearLoginProblem() {
+  if (meeting && meeting.problems.has('login')) {
+    clearSttProblem(meeting, 'login');
+    sendToMainWin('meeting:update', meetingStatus());
+  }
+}
+// ログインの窓を開く → Promise<{ ok: true, email } | { ok: false, code, host? }>（投げない）。開いている間にもう一度呼ばれたら、
+// 前の窓を前に出して同じ Promise を返す。オフライン（net.isOnline() が false）なら窓を作らずに offline
+function openLoginWindow() {
+  if (loginOpen) {
+    try { if (!loginOpen.win.isDestroyed()) { loginOpen.win.show(); loginOpen.win.focus(); } } catch (_) { /* 閉じかけ */ }
+    return loginOpen.promise;
+  }
+  if (!netOnline()) return Promise.resolve({ ok: false, code: 'offline' });
+  const ses = accessSession();
+  let win;
+  try {
+    win = new BrowserWindow({
+      parent: mainWin && !mainWin.isDestroyed() ? mainWin : undefined, modal: false, ...LOGIN_WIN, title: 'NaTsu のログイン', autoHideMenuBar: true, show: false,
+      webPreferences: { partition: relay.ACCESS_PARTITION, sandbox: true, contextIsolation: true, nodeIntegration: false, webviewTag: false, spellcheck: false },
+    });
+  } catch (e) {
+    engineLog(`アカウント: ログインの窓を開けません（${errCode(e)}）`);
+    return Promise.resolve({ ok: false, code: 'server' });
+  }
+  let settle;
+  const promise = new Promise((r) => { settle = r; });
+  const st = { win, promise, pinned: '', done: false, busy: false };
+  // 終える（1回だけ）。失敗なら partition を空にして前のログインを戻す。窓は閉じる
+  st.stop = (r) => {
+    if (st.done) return;
+    st.done = true;
+    if (loginOpen === st) loginOpen = null;
+    try { if (!win.isDestroyed()) win.close(); } catch (_) { /* 閉じた */ }
+    const fin = r.ok ? Promise.resolve() : resetAccessCookies();
+    fin.catch(() => {}).then(() => {
+      engineLog(r.ok ? 'アカウント: ログインした' : `アカウント: ログインできませんでした（${r.code}）`);
+      settle(r);
+    });
+  };
+  loginOpen = st;
+  engineLog('アカウント: ログインの窓を開いた');
+  win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+  win.once('ready-to-show', () => { try { if (!win.isDestroyed()) win.show(); } catch (_) { /* 閉じた */ } });
+  win.on('closed', () => { if (!st.busy) st.stop({ ok: false, code: 'cancel' }); });
+  win.webContents.on('did-navigate', (_e, url, httpResponseCode) => {
+    let u;
+    try { u = new URL(String(url)); } catch (_) { return; }
+    if (st.done || st.busy || `${u.origin}${u.pathname}` !== relay.LOGIN_URL) return;
+    const code = Number(httpResponseCode);
+    if (code !== 200) {
+      st.stop({ ok: false, code: code === 401 ? 'login' : code === 403 ? 'denied' : code === 503 ? 'not-ready' : 'server' });
+      return;
+    }
+    // 確かめて・しまう間に窓を閉じても cancel にしない（busy）。終わったら閉じる
+    st.busy = true;
+    finishAccessLogin().catch((e) => { engineLog(`アカウント: ログインを確かめられません（${errCode(e)}）`); return { ok: false, code: 'login' }; })
+      .then((r) => { st.busy = false; st.stop(r); });
+  });
+  win.webContents.on('did-fail-load', (_e, errorCode, errorDescription, _validatedURL, isMainFrame) => {
+    if (st.done || isMainFrame === false || Number(errorCode) === -3) return;   // -3 は取り消し（移動を止めた・閉じた）
+    const code = loadFailCode(errorCode, errorDescription);
+    engineLog(`アカウント: ログインの窓を読めませんでした（${code}）`);
+    st.stop({ ok: false, code });
+  });
+  try {
+    const p = win.loadURL(relay.LOGIN_URL);
+    if (p && typeof p.catch === 'function') p.catch(() => { /* 失敗は did-fail-load で受ける */ });
+  } catch (_) { st.stop({ ok: false, code: 'net' }); }
+  return promise;
 }
 // しばらく手元の印（hold。第1d回 A-3・RL11）: 中継が 1日の上限（daily-cap）・会社の鍵の誤り（upstream-auth）・残高なし（quota）を
 // 返したら、until まで中継へ送らない（/health も聞かない）。起動ごと（覚えない: 起動し直せばまた中継を試す）
@@ -1600,39 +1823,44 @@ function setAccountEmail(email) {
   const w = settingsWriter.now(settings);
   if (!w.ok) engineLog(`アカウント: 設定に書けませんでした（${errCode(w.error)}）`);
 }
-let keyUnreadableLogged = false;
-// 経路を決める（札も返す: transcribeAuto だけが使い、ほかへは渡さない）。
+// 経路を決める（送るときのログイン（pack）も返す: transcribeAuto だけが使い、ほかへは渡さない）。
 // opts.scope: 知らせの係（会議。無ければ起動ごと）、opts.quiet: 知らせを出さない、
 // opts.probe: false なら中継へ届くかを確かめず net.isOnline() だけで見る（先読みの判断。通信を出さない）
 async function sttRoute(localOnly, { scope = null, quiet = false, probe = true } = {}) {
   const provider = sttProvider();
-  let token = '';
-  // ［この会議は PC の中だけ］なら札を復号もしない（送らないのにキーリングの確かめを出さない）
-  if (!localOnly && secrets) {
-    // ログインしているかは、ファイルに暗号の文字があるか（secrets.has）でなく、実際に復号できたかで決める（RF30。
-    // safeStorage の非同期の形は一時的に使えないことがあり、空の札で送ると 401 で「ログインが切れた」と誤って札を消す）
-    token = await secrets.get('relay');
-    if (!token && secrets.has('relay')) {
-      if (!keyUnreadableLogged) engineLog('文字起こしの経路: ログインの札を復号できません（key-unreadable）。PC の中で文字起こしします');
-      keyUnreadableLogged = true;
-    } else if (token) keyUnreadableLogged = false;
+  // ［この会議は PC の中だけ］ならしまったログインを復号もしない（送らないのにキーリングの確かめを出さない）
+  if (!localOnly) {
+    await accessReady;
+    // 起動のときに復号できなかった（F26）: 経路を決めるたびに、もう一度復号して戻す
+    if (accessState.state === 'unreadable') await restoreAccessCookies();
+    // 起動の後に期限が来た: ログイン切れとして消す（L3・B3。黙って「ログインしていない」にしない）
+    if (accessState.state === 'restored' && accessState.until !== null && accessState.until <= nowSec()) {
+      await forgetAccessLogin();
+      loginExpired = true;
+      engineLog('アカウント: しまったログインの期限が切れていた');
+    }
   }
   const h = holdNow();
   const up = probe ? () => online.isUp(provider.reachUrl)
     : async () => (netOnline() ? { up: true, why: 'ok' } : { up: false, why: 'offline' });
-  const d = await decideStt({ localOnly: Boolean(localOnly), signedIn: token !== '', hold: h ? h.why : '', up });
+  const signedIn = hasRelayLogin();
+  const d0 = await decideStt({ localOnly: Boolean(localOnly), signedIn, hold: h ? h.why : '', up });
+  // ログインしていない理由を分ける: 今は復号できない（key-unreadable。知らせなし）・期限切れ・ログイン切れ（login。L3・B3）
+  let d = d0;
+  if (d0.why === 'signed-out' && accessState.state === 'unreadable') d = { route: 'local', why: 'key-unreadable' };
+  else if (d0.why === 'signed-out' && loginExpired) d = { route: 'local', why: 'login' };
   const scopeOf = d.why === 'daily-cap' && h ? h.scope : '';
   if (!quiet && d.route === 'local') {
     const code = noticeFor(d.why, scopeOf);
     if (code) noticeOnce(scope, code, STT_NOTICE[code](provider));
   }
-  const r = { route: d.route, why: d.why, provider, token: d.route === 'cloud' ? token : '' };
+  const r = { route: d.route, why: d.why, provider, pack: d.route === 'cloud' ? accessState.pack : '' };
   if (scopeOf) r.scope = scopeOf;
   return r;
 }
-// → { route, why, provider, scope? }（札は返さない）
+// → { route, why, provider, scope? }（送るときのログインは返さない）
 async function chooseSttRoute(localOnly, opts = {}) {
-  const { token: _token, ...r } = await sttRoute(localOnly, opts);
+  const { pack: _pack, ...r } = await sttRoute(localOnly, opts);
   return r;
 }
 // 中継の失敗（rate・rate-long の短い 429 を待ちきれなかった）→ 区間の失敗の文の Error。上限（L10）は起動ごとに1回知らせる。
@@ -1646,28 +1874,34 @@ function cloudFailure(e, provider) {
   err.keepForRetry = code === 'rate' || code === 'rate-long';
   return err;
 }
+// 中継の答えの形（状態・cf-ray があるか・転送の行き先の種類）を1行（実機の R4 の手がかり。値・URL・メールは書かない）
+function logAccessAnswer(e, code) {
+  const h = e && e.hint && typeof e.hint === 'object' ? e.hint : {};
+  engineLog(`アカウント: 中継の答え ${e && e.status ? e.status : '-'}（cf-ray ${h.cfRay ? 'あり' : 'なし'}・行き先 ${h.dest === 'access' || h.dest === 'other' ? h.dest : 'なし'}）→ ${code}`);
+}
 // 中継の失敗のうち、その区間を手元でやり直すもの（stt-cloud.redoLocally）の後始末 → 手元にした理由の符号。
-// login: 送った札がまだしまってある札なら消して、ログインしていない形に（送っている間にログインし直した新しい札は消さない）。
-// L3 は［ログインし直す］付きで、札を消したときだけ（送った後に自分でログアウト・ログインし直したなら出さない）。同じ会議では L2 を重ねない。daily-cap: 日の替わりまで hold。
+// login（Access のログイン切れ・取り消し）・denied（止めたメール・会社のドメインでない）: 送ったときのログイン（pack）がまだ今のログインなら、
+// しまったログイン（secrets・partition・accountEmail）を消す（送っている間にログアウト・ログインし直したなら今のログインは消さない）。
+// L3（［ログインし直す］付き）・L11 は消したときだけ。どちらもログインの窓は開かない（F27）。同じ会議では L2 を重ねない。daily-cap: 日の替わりまで hold。
 // quota・upstream-auth: 10 分の hold。通信の符号と server: 届いた結果の覚えを捨て、次の区間は届くかを確かめ直す
-async function relayFallback(e, scope, provider, sentToken) {
+async function relayFallback(e, scope, provider, sentPack) {
   const code = e instanceof sttCloud.CloudSttError && typeof e.code === 'string' ? e.code : 'server';
   engineLog(`文字起こしの経路: 中継で失敗（${code}${e && e.status ? ` ${e.status}` : ''}）。この区間は PC で文字起こしします`);
-  if (code === 'login') {
-    const current = secrets ? await secrets.get('relay') : '';
-    // 送った後に自分でログアウトした・ログインし直したときは「ログインが切れた」（L3）を出さない（点検の目で足した: 場面 relay-logout）
+  if (code === 'login' || code === 'denied') {
+    logAccessAnswer(e, code);
+    const current = accessState.state === 'restored' ? accessState.pack : '';
+    // 送った後に自分でログアウトした・ログインし直したときは、今のログインを消さず L3・L11 も出さない（場面 relay-logout・relay-relogin）
     if (!current) {
-      engineLog('アカウント: 中継が 401。送った後にログアウトしていた');
+      engineLog(`アカウント: 中継が ${code}。送った後にログアウトしていた`);
       return code;
     }
-    if (current !== sentToken) {
-      engineLog('アカウント: 中継が 401。送った後にログインし直していたので、今の札は消さない');
+    if (current !== sentPack) {
+      engineLog(`アカウント: 中継が ${code}。送った後にログインし直していたので、今のログインは消さない`);
       return code;
     }
-    const removed = secrets ? secrets.remove('relay') : { ok: true };
-    if (settings.accountEmail) setAccountEmail('');
-    engineLog(`アカウント: 中継が 401。札を消した${removed && removed.ok === false ? `（消せませんでした: ${removed.code || 'write'}）` : ''}`);
-    noticeOnce(scope, 'login', STT_NOTICE.login(provider));
+    const removed = await forgetAccessLogin();
+    engineLog(`アカウント: 中継が ${code}。ログインを消した${removed && removed.ok === false ? `（消せませんでした: ${removed.code || 'write'}）` : ''}`);
+    noticeOnce(scope, code, STT_NOTICE[code](provider));
     noticeSeen(scope).add('signed-out');
     return code;
   }
@@ -1703,7 +1937,7 @@ async function transcribeAuto(wav, tail, durationMs, opts = {}) {
     const t0 = Date.now();
     try {
       const raw = await sttCloud.transcribeRelay(wav, {
-        request: (o) => electronNet.request(o), provider, token: d.token, language: settings.language, prompt: buildPrompt(tail),
+        request: relayRequest, session: accessSession(), provider, language: settings.language, prompt: buildPrompt(tail),
         sleep: (ms) => sleepMs(ms * STT_SLEEP_SCALE),
         onWait: (sec) => {
           engineLog(`文字起こしの経路: 中継が 429（OpenAI の上限に近い）。${sec} 秒待つ`);
@@ -1717,7 +1951,7 @@ async function transcribeAuto(wav, tail, durationMs, opts = {}) {
     } catch (e) {
       if (!sttCloud.redoLocally(e)) throw cloudFailure(e, provider);
       // この区間だけ手元でやり直す（録音と文字起こしは中継に頼らない: RF35）
-      why = await relayFallback(e, scope, provider, d.token);
+      why = await relayFallback(e, scope, provider, d.pack);
       capScope = why === 'daily-cap' ? (e.scope === 'all' ? 'all' : 'user') : '';
     }
   }
@@ -2684,7 +2918,7 @@ function meetingStatus() {
     // 第1c回 C-3（RF28）: ［この会議は PC の中だけ］の印と、いまクラウドで文字起こしする PC か（第1d回 A-3 から: ログインの札がしまってある）。
     // 画面は cloud のときだけ［この会議は PC の中だけ］を出し、押した後（localOnly）は戻すボタンを出さない
     localOnly: Boolean(meeting && meeting.localOnly),
-    cloud: hasRelayToken(),
+    cloud: hasRelayLogin(),
     // 第1d回 A-6（RL14・D17）: 文字起こしの状態（経路・最後の文字の時刻・区切り・帯）。会議の外は null
     stt: meeting ? sttStatus(meeting) : null,
   };
@@ -3203,7 +3437,7 @@ async function startMeeting() {
   // 第1d回 A-5（D16）: 始めの区切り。中継へ届くかは聞かない（録音の始まりを待たせない）。札があるか（復号しない）・hold・net.isOnline()・
   // 覚えている /health の答えだけで決め、外れたら区間の後で替わる（segmentRouted）
   const h0 = holdNow();
-  const segMode = startSegmentMode({ localOnly: false, signedIn: hasRelayToken(), hold: h0 ? h0.why : '', netOnline: netOnline(), peekUp: online.peek(sttProvider().reachUrl) });
+  const segMode = startSegmentMode({ localOnly: false, signedIn: hasRelayLogin(), hold: h0 ? h0.why : '', netOnline: netOnline(), peekUp: online.peek(sttProvider().reachUrl) });
   meeting.segMode = { mode: segMode, localRun: 0, cloudRun: 0 };
   meeting.segmentMs = segmentBaseMs(segMode, settings.segmentSec);
   engineLog(`文字起こしの状態: 区切り ${meeting.segmentMs / 1000} 秒（${segMode}・理由 start）`);
@@ -4097,75 +4331,49 @@ function setupIpc() {
   // ---- 設定のカード「オンライン」（第1c回 Task C-2。OL7・OL3・OL5・RF30）----
   // 0.7.0 の鍵の欄の IPC（cloud:status・cloud:set-key・cloud:test-key・cloud:clear-key）は、文字起こしを中継へ送るようにしたので
   // 第1d回 A-4（RL10・F11）で受け口・preload・画面を一緒に消した（PC に会社の鍵を置かない。残った鍵は起動のときに purgeOld が消す）
-  // ---- ログイン（第1d回 Task A-2。RL10・RF32・F1・F12）----
-  // 札（中継のトークン）は secrets に relay の名前でしまうだけで、画面・記録・知らせには出さない（返すのはログインしているかとメールだけ）。
-  // 確認コードも返さず記録しない。記録は符号だけ（メールアドレスも書かない）。account:status は外へ通信しない（/auth/me を呼ばない。
-  // 札があるかは暗号の文字があるかだけで見る: 設定を開くたびにキーリングの確かめを出さない）。文は計画「画面と知らせの文」の R4〜R17
-  const accountApi = relay.makeAccountApi({ request: (o) => electronNet.request(o) });
+  // ---- ログイン（第1d回 Task A-2・A-11。RL10・RF32・F1・F12・F20・F21・F22・F27）----
+  // ログインは Cloudflare Access の窓（openLoginWindow）。cookie は secrets に relay の名前でしまうだけで、画面・記録・知らせ・IPC の答えには
+  // 出さない（返すのはログインしているか・メール・期限だけ）。記録は符号だけ（メールアドレスも書かない）。account:status は外へ通信しない
+  // （ログインしているかは PC の中の accessState で決める）。文は計画「作り替え」の「画面と知らせの文」の AR1〜AR7・R12〜R16
   const relayHost = relay.relayProvider().host;
-  const accountFail = (code, extra = {}) => ({ ok: false, code, message: lib.accountMessage(code, { host: relayHost, ...extra }), ...extra });
-  const signedIn = () => { try { return Boolean(secrets) && secrets.has('relay'); } catch (_) { return false; } };
+  const accountFail = (code, extra = {}) => ({ ok: false, code, message: lib.accountMessage(code, { host: relayHost, ...extra }) });
   ipcMain.handle('account:status', async () => {
     let canStore = false;
     try { canStore = Boolean(secrets) && await secrets.available(); } catch (_) { canStore = false; }
-    const on = signedIn();
+    const on = hasRelayLogin();
     const up = netOnline();
-    return { ok: true, signedIn: on, email: on ? settings.accountEmail : '', method: 'email', canStore, online: { up, why: up ? 'ok' : 'offline' } };
+    return { ok: true, signedIn: on, email: on ? settings.accountEmail : '', method: 'access', until: on ? accessState.until : null, canStore, online: { up, why: up ? 'ok' : 'offline' } };
   });
-  ipcMain.handle('account:start', async (_e, email) => {
-    const mail = typeof email === 'string' ? email.trim() : '';
-    if (!isEmailShape(mail)) return accountFail('bad-email');
-    const r = await accountApi.start(mail);
-    engineLog(`アカウント: 確認コードを頼んだ（${r.ok ? 'sent' : r.code}）`);
-    if (r.ok) return { ok: true };
-    return accountFail(r.code, r.retryAfter !== undefined ? { retryAfter: r.retryAfter } : {});
-  });
-  ipcMain.handle('account:verify', async (_e, email, code) => {
-    const mail = typeof email === 'string' ? email.trim() : '';
-    // IME で打った全角の数字と、間と前後の空白は送る前に直す（中継は 6 けたの半角の数字だけを受ける）
-    const digits = typeof code === 'string' ? code.normalize('NFKC').replace(/\s+/g, '') : '';
-    if (!isEmailShape(mail)) return accountFail('bad-email');
-    if (!/^[0-9]{6}$/.test(digits)) return accountFail('bad-code');
-    const r = await accountApi.verify(mail, digits);
-    if (!r.ok) {
-      engineLog(`アカウント: ログインできませんでした（${r.code}）`);
-      const extra = {};
-      if (r.left !== undefined) extra.left = r.left;
-      if (r.retryAfter !== undefined) extra.retryAfter = r.retryAfter;
-      return accountFail(r.code, extra);
-    }
-    // ログインしたままログインし直したときの前の札（しまえたら中継で取り消す）
-    let prev = '';
-    try { prev = signedIn() ? await secrets.get('relay') : ''; } catch (_) { prev = ''; }
-    // しまえない PC（暗号にできない）・書けないときは、札をその場で中継で取り消す（使われない札を残さない: RF32）
-    const saved = secrets ? await secrets.set('relay', r.token) : { ok: false, code: 'unavailable' };
-    if (!saved.ok) {
-      const out = await accountApi.logout(r.token);
-      engineLog(`アカウント: ログインの札をしまえません（${saved.code || 'write'}）。中継の札を取り消しました（${out.ok ? 'ok' : '届かない'}）`);
-      return accountFail('store');
-    }
-    setAccountEmail(isEmailShape(r.email) ? r.email : mail);
-    engineLog('アカウント: ログインした');
-    // 録音中の会議の帯 login は、区間を待たずに消す（第1d回 A-6）
-    if (meeting && meeting.problems.has('login')) {
-      clearSttProblem(meeting, 'login');
-      sendToMainWin('meeting:update', meetingStatus());
-    }
-    // 前の札は使われないまま 30 日残さず、中継で取り消す（答えは待たない: ログインを遅らせない。届かなければ 30 日で切れる）
-    if (prev && prev !== r.token) {
-      accountApi.logout(prev).then((out) => engineLog(`アカウント: 前の札を中継で取り消した（${out && out.ok ? 'ok' : '届かない'}）`),
-        () => engineLog('アカウント: 前の札を中継で取り消した（届かない）'));
-    }
-    return { ok: true, email: settings.accountEmail };
+  // 前の自前のログイン（確認コード）の口。画面のカード「アカウント」を Access にする A-12 で受け口ごと消す。それまでは札を作らずに断る
+  // （札をしまうと Access の cookie を上書きしてしまうため。中継へも送らない）
+  ipcMain.handle('account:start', async () => accountFail('not-ready'));
+  ipcMain.handle('account:verify', async () => accountFail('not-ready'));
+  ipcMain.handle('account:login', async () => {
+    const r = await openLoginWindow();
+    if (r.ok) return { ok: true, email: r.email, message: lib.accountMessage('login-ok') };
+    return accountFail(r.code, r.host ? { host: r.host } : {});
   });
   ipcMain.handle('account:logout', async () => {
-    const token = secrets && signedIn() ? await secrets.get('relay') : '';
-    let reached = '札なし';
-    if (token) reached = (await accountApi.logout(token)).ok ? 'ok' : '届かない';
-    // 中継に届かなくても PC の札は消す（中継の札は使わなければ 30 日で切れる）
+    const was = hasRelayLogin() || accessState.state !== 'none';
+    let reached = 'ログインなし';
+    if (was) {
+      // Access のログアウト（その人のログインを全部の app で取り消す）。同じ partition の cookie で開き、転送にはついて行かない。
+      // 届かなくても PC からは消す（F22）。見えない窓は作らない
+      try {
+        await sttCloud.postForm({ request: relayRequest, session: accessSession(), method: 'GET', url: relay.LOGOUT_URL, redirect: 'manual', timeoutMs: LOGOUT_TIMEOUT_MS });
+        reached = 'ok';
+      } catch (e) {
+        reached = e instanceof sttCloud.CloudSttError && Number.isInteger(e.status) ? 'ok' : '届かない';
+      }
+    }
+    // partition の中は全部空にする（cookie・localstorage など）
+    try { await accessSession().clearStorageData(); } catch (e) { engineLog(`アカウント: ログインの入れ物を空にできません（${errCode(e)}）`); }
     const removed = secrets ? secrets.remove('relay') : { ok: true };
+    accessState = ACCESS_NONE;
+    loginExpired = false;
     setAccountEmail('');
-    engineLog(`アカウント: ログアウトした（中継 ${reached}）`);
+    online.forget(relay.relayProvider().reachUrl);
+    engineLog(`アカウント: ログアウトした（Access ${reached}）`);
     if (!removed.ok) return accountFail(removed.code || 'write');
     return { ok: true, message: lib.accountMessage('logout') };
   });
@@ -4412,6 +4620,8 @@ if (!gotLock) {
     // OpenAI の鍵が入りうる）と退けた控えを消す（第1d回 A-4・K2・F11。記録の1行は purgeOld が書く。投げない）
     secrets = makeSecrets({ file: path.join(app.getPath('userData'), 'secrets.json'), safeStorage, J, log: engineLog });
     secrets.purgeOld();
+    // しまった Access のログイン（cookie）をメモリの partition へ戻す（第1d回 A-11。待たない: 経路の判断が accessReady を待つ）
+    accessReady = restoreAccessCookies().catch((e) => engineLog(`アカウント: しまったログインを戻せません（${errCode(e)}）`));
     // 取り込んだエンジンの候補を記録から読む（読むだけ。フォルダは作らない）。照らし終えるまで managed は空なので、
     // 取り込んだ側は下の起動の行では起動しない（RF3）。手で設定した側は今までどおり起動する
     managedCands = engineInstall.managedCandidates(ENGINE_HOME, MANIFEST, engineInstall.readInstalled(engineInstall.layout(ENGINE_HOME.root, MANIFEST).installed), fs.statSync);
@@ -4452,7 +4662,8 @@ if (!gotLock) {
       try { callback(streams); } catch (e) { engineLog(`相手の声の取り込みを渡せませんでした: ${e && e.message}`); }
     });
     // 窓を作る前に守りを付ける（許可の受け口・file:// の画面への CSP・移動と新しい窓の禁止。第1a回 SEC1）
-    security.install({ app, session: session.defaultSession, pages: RENDERER_PAGES, log: engineLog });
+    // 第1d回 A-11（F25）: ログインの窓（ログインの partition）だけは、全体の「必ず止める」の代わりに loginGuard で行き先を決める
+    security.install({ app, session: session.defaultSession, pages: RENDERER_PAGES, log: engineLog, isLoginContents, loginGuard });
     createOverlay();
     // 登録できなかった側だけ既定に落として再試行する（成功した側はそのまま）。
     // 有効なキーは activeHotkeys にだけ持ち、settings には書かない。settings に書くと

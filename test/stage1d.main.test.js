@@ -2,7 +2,7 @@
  * stage1d.main.test.js — 第1d回 Task A-3（RL11・RF35・RF36・F4・F5・F7）: 文字起こしを中継へ送る main のつなぎを、偽の Electron の上で
  * main.js を本当に動かして確かめる（helpers/mainrun.js の --relay）。中継は本物の relay/ のコードを 127.0.0.1 で包んだもの
  * （helpers/relay-local.js）で、その後ろの OpenAI は偽物（helpers/fake-stt.js）。偽の Electron の net.request が RELAY_BASE を書き換えて
- * 届ける。外へはつながない。ログインの札は mainrun が main を読む前に中継で start → verify して置く（--signed-out なら置かない）。
+ * 届ける。外へはつながない。ログインは mainrun が main を読む前に、偽の Access がその人に出した cookie を packCookies でまとめて secrets に置く（第1d回 A-11。--signed-out なら置かない）。
  */
 'use strict';
 
@@ -31,6 +31,7 @@ const L6 = '今日のクラウドの文字起こしの上限に達したため�
 const L7 = '文字起こしの中継が今は使えません。PC の中で文字起こしを続けます。続くときは管理者に知らせてください。';
 const L8 = '文字起こしの中継が混み合っているか、止まっているため、この区間は PC の中で文字起こししました。録音はそのまま続けてください。';
 const L9 = (sec) => `OpenAI の利用の上限に近いため、${sec} 秒待ってから送り直しています。録音はそのまま続けてください。`;
+const L11 = 'このメールアドレスでは文字起こしの中継を使えないため、PC の中で文字起こしを続けます。管理者に知らせてください。';   // 第1d回 A-11
 const L10 = 'OpenAI の利用の上限に達しました。文字起こしできなかった区間の音声は残してあり、議事録を閉じた後にもう一度試します。録音はそのまま続けてください。';
 const ALL_L = [L1, L2, L3, L4, L5, L6, L7, L8, L10];
 
@@ -40,15 +41,19 @@ const STT = '/v1/audio/transcriptions';
 const posts = (calls) => calls.filter((p) => p === STT).length;
 const whisperSpawned = (o) => o.spawns.some((s) => /fake-whisper\.js$/.test(s.cmd) || /whisper-server/.test(s.cmd));
 const allText = (segs) => segs.length > 0 && segs.every((s) => !s.failed && s.text.startsWith('本日の議題は進捗の確認です'));
-// mainrun の偽の safeStorage の暗号（'ENC1:' + hex を base64）を戻す
-const tokenOf = (secretsRaw) => {
+// mainrun の偽の safeStorage の暗号（'ENC1:' + hex を base64）を戻した、しまった文字（第1d回 A-11: packCookies の JSON）
+const plainOf = (secretsRaw) => {
   try { return Buffer.from(Buffer.from(JSON.parse(secretsRaw).keys.relay, 'base64').toString('latin1').slice(5), 'hex').toString('utf8'); } catch (_) { return ''; }
 };
-// 札の文字が、設定・記録・知らせ・ページ・中継の記録のどこにも無い（F1）
-const noTokenAnywhere = (o, token) => {
-  assert.match(token, /^nt1_[A-Za-z0-9_-]{43}$/, 'secrets.json に札が無い');
+// しまった CF_Authorization の値（JWT）。無ければ ''
+const cookieOf = (secretsRaw) => {
+  try { return JSON.parse(plainOf(secretsRaw)).c.find((x) => x.name === 'CF_Authorization').value; } catch (_) { return ''; }
+};
+// cookie（JWT）の文字が、設定・記録・知らせ・ページ・中継の記録のどこにも無い（F1・F21）
+const noTokenAnywhere = (o, jwt) => {
+  assert.match(jwt, /^eyJ[\w-]+\.[\w-]+\.[\w-]+$/, 'secrets.json に cookie が無い');
   const blob = JSON.stringify([o.savedSettings, o.settingsText, o.engineLog, o.notices, o.balloons, o.pages, o.relayLog]);
-  assert.ok(!blob.includes(token), '札の文字が設定・記録・知らせ・ページのどこかにある');
+  assert.ok(!blob.includes(jwt), 'cookie の文字が設定・記録・知らせ・ページのどこかにある');
 };
 
 test('RL11: ログインしてオンラインなら、会議の全部の区間を中継で文字起こしし、ページの経路は『クラウド（OpenAI）』。L1 の知らせが1回。手元の whisper は起きない', T, async () => {
@@ -72,7 +77,12 @@ test('RL11: ログインしてオンラインなら、会議の全部の区間�
   // RF2・F6: 外へ出た要求は全部 RELAY_BASE のホストだけで、api.openai.com に1回も行かない（要約の経路の確かめの Anthropic は除く）
   assert.deepStrictEqual([...new Set(o.netHosts.filter((h) => h !== 'api.anthropic.com'))], [HOST]);
   assert.ok(!o.netHosts.includes('api.openai.com'));
-  noTokenAnywhere(o, tokenOf(o.secretsRaw));
+  noTokenAnywhere(o, cookieOf(o.secretsRaw));
+  // 第1d回 A-11（RL9・F21）: 文字起こしの要求は cookie つき（線の上の Cookie）で、Authorization の見出しは無く、X-Requested-With が付く。
+  // 届くかの確かめ（/health）も同じ partition で送るが、cookie を付けなくてよい（転送も「届く」なので、Access のログインの画面への 302 でも届く）
+  const sttWire = o.relayWire.filter((x) => x.path === STT);
+  assert.ok(sttWire.length === 2 && sttWire.every((x) => x.cookie && !x.authorization && x.xrw === 'XMLHttpRequest'), JSON.stringify(o.relayWire));
+  assert.ok(o.relayWire.every((x) => !x.authorization), JSON.stringify(o.relayWire));
 });
 
 test('RL11: ログインしていなければ、中継へ1回も送らず（/health も聞かない）手元で、L2 を1回', T, async () => {
@@ -87,55 +97,59 @@ test('RL11: ログインしていなければ、中継へ1回も送らず（/hea
   assert.ok(o.engineLog.some((l) => /区間 s1 → local（理由: signed-out）/.test(l)), o.engineLog.join('\n'));
 });
 
-test('F5: 会議の途中で札を取り消す（D1 に revoked_at）→ その区間から手元でやり直し、全部の区間に文字がある。L3 の知らせは1回で action: account。札は secrets.json から消える。次の会議は手元のまま（中継に送らない）', T, async () => {
+// 第1d回 A-11 で意図して変えた: 札の取り消し（D1 の revoked_at）を、偽の Access の前での取り消し（Zero Trust の Revoke）に。消すのは cookie
+test('F5・F19: 会議の途中で偽の Access の前がその人を取り消す（Zero Trust の Revoke と同じ）→ その区間から手元でやり直し、全部の区間に文字がある。L3 の知らせは1回で action: account。cookie は secrets.json から消える。次の会議は手元のまま（中継に送らない）。ログインの窓は開かない', T, async () => {
   const o = await run(['text', '--json-scene=relay-revoke', '--relay=text']);
   assert.strictEqual(o.firstCloud, true, '1つ目の区間が中継で文字にならなかった');
   assert.deepStrictEqual(o.m1.route.stt, { cloud: 1, local: 2, provider: 'openai' });
   assert.ok(allText(o.m1.segments), `取り消した後の区間に文字が無い: ${JSON.stringify(o.m1.segments)}`);
-  // 2つ目の区間で 401 login。3つ目の区間は札が無いので、/health も文字起こしも送らない
+  // 2つ目の区間で Access の 401（cf-ray つきの HTML）。3つ目の区間はログインが無いので、/health も文字起こしも送らない
   assert.strictEqual(posts(o.m1.calls), 2);
-  assert.strictEqual(o.m1.calls[o.m1.calls.length - 1], STT, `札を消した後に中継へ送った: ${o.m1.calls}`);
+  assert.strictEqual(o.m1.calls[o.m1.calls.length - 1], STT, `ログインを消した後に中継へ送った: ${o.m1.calls}`);
   const l3 = o.notices.filter((n) => textOf(n) === L3);
   assert.deepStrictEqual(l3, [{ text: L3, action: 'account' }], `L3 は ［ログインし直す］のボタン付きで1回: ${JSON.stringify(o.notices)}`);
   assert.strictEqual(count(o, L2), 1, 'L3 を出した会議の中で「ログインしていない」（L2）を重ねた・次の会議で L2 が出ない');
-  assert.ok(tokenOf(o.secretsBefore), '種をまいた札が無い');
-  assert.strictEqual(JSON.parse(o.secretsAfter).keys.relay, undefined, '中継が 401 login を返したのに札を secrets.json に残した');
+  assert.ok(cookieOf(o.secretsBefore), '種をまいた cookie が無い');
+  assert.strictEqual(JSON.parse(o.secretsAfter).keys.relay, undefined, 'Access が 401 を返したのに cookie を secrets.json に残した');
   assert.strictEqual(JSON.parse(o.settingsAfter).accountEmail, '', 'ログイン切れなのに accountEmail を残した');
   assert.strictEqual(o.statusCloudAfter, false);
-  assert.ok(o.engineLog.includes('アカウント: 中継が 401。札を消した'), o.engineLog.join('\n'));
-  // 2回目の会議: 札が無いので /health も文字起こしも送らない
-  assert.deepStrictEqual(o.m2.calls, [], '札が消えた後の会議で中継へ送った');
+  assert.ok(o.engineLog.includes('アカウント: 中継が login。ログインを消した'), o.engineLog.join('\n'));
+  // Access の答えの形を1行（実機の R4 の手がかり。値・URL は書かない）
+  assert.ok(o.engineLog.includes('アカウント: 中継の答え 401（cf-ray あり・行き先 なし）→ login'), o.engineLog.join('\n'));
+  // 2回目の会議: ログインが無いので /health も文字起こしも送らない
+  assert.deepStrictEqual(o.m2.calls, [], 'ログインが消えた後の会議で中継へ送った');
   assert.deepStrictEqual(o.m2.route.stt, { cloud: 0, local: 1, provider: 'openai' });
   assert.ok(allText(o.m2.segments));
-  assert.ok(!JSON.stringify([o.engineLog, o.notices]).includes(tokenOf(o.secretsBefore)), '札の文字が記録か知らせにある');
+  assert.ok(!JSON.stringify([o.engineLog, o.notices]).includes(cookieOf(o.secretsBefore)), 'cookie の文字が記録か知らせにある');
+  assert.deepStrictEqual(o.loginWins, [], 'ログイン切れでログインの窓を開いた（F27）');
 });
 
-test('F5: 古い札の 401 login が、送っている間にログインし直した新しい札を消さない（次の会議は新しい札で中継へ）', T, async () => {
+test('F5: 古い cookie の 401 が、送っている間にログインし直した新しい cookie を消さない（送ったときの pack と比べる。次の会議は新しい cookie で中継へ）', T, async () => {
   const o = await run(['text', '--json-scene=relay-relogin', '--relay=text']);
-  assert.deepStrictEqual([o.start.ok, o.verify.ok], [true, true], `ログインし直せなかった: ${JSON.stringify([o.start, o.verify])}`);
-  const a = tokenOf(o.secretsBefore);
-  const b = tokenOf(o.secretsRelogin);
-  assert.ok(a && b && a !== b, 'ログインし直して新しい札になっていない（場面の前提）');
-  assert.strictEqual(tokenOf(o.secretsAfter), b, '古い札の 401 で、ログインし直した新しい札を消した');
+  assert.strictEqual(o.login.ok, true, `ログインし直せなかった: ${JSON.stringify(o.login)}`);
+  const a = cookieOf(o.secretsBefore);
+  const b = cookieOf(o.secretsRelogin);
+  assert.ok(a && b && a !== b, 'ログインし直して新しい cookie になっていない（場面の前提）');
+  assert.strictEqual(cookieOf(o.secretsAfter), b, '古い cookie の 401 で、ログインし直した新しい cookie を消した');
   assert.deepStrictEqual(o.m1.route.stt, { cloud: 0, local: 1, provider: 'openai' });
   assert.ok(allText(o.m1.segments));
-  assert.ok(o.engineLog.includes('アカウント: 中継が 401。送った後にログインし直していたので、今の札は消さない'), o.engineLog.join('\n'));
+  assert.ok(o.engineLog.includes('アカウント: 中継が login。送った後にログインし直していたので、今のログインは消さない'), o.engineLog.join('\n'));
   assert.strictEqual(count(o, L3), 0, `ログインし直した後なのに「ログインが切れた」を出した: ${JSON.stringify(o.notices)}`);
-  assert.deepStrictEqual(o.m2.route.stt, { cloud: 1, local: 0, provider: 'openai' }, '新しい札で中継へ送っていない');
+  assert.deepStrictEqual(o.m2.route.stt, { cloud: 1, local: 0, provider: 'openai' }, '新しい cookie で中継へ送っていない');
 });
 
-test('F5: 送っている間に自分でログアウトした後の古い札の 401 login は、「ログインが切れた」（L3）を出さず、記録も「ログアウトした後」。その区間は手元でやり直す', T, async () => {
+test('F5・F22: 送っている間に自分でログアウトした後の古い cookie の 401 は、「ログインが切れた」（L3）を出さず、記録も「ログアウトした後」。その区間は手元でやり直す', T, async () => {
   const o = await run(['text', '--json-scene=relay-logout', '--relay=text']);
-  assert.ok(tokenOf(o.secretsBefore), '種をまいた札が無い（場面の前提）');
+  assert.ok(cookieOf(o.secretsBefore), '種をまいた cookie が無い（場面の前提）');
   assert.strictEqual(o.logout.ok, true, JSON.stringify(o.logout));
-  assert.ok(o.engineLog.includes('アカウント: ログアウトした（中継 ok）'), o.engineLog.join('\n'));
+  assert.ok(o.engineLog.includes('アカウント: ログアウトした（Access ok）'), o.engineLog.join('\n'));
   assert.deepStrictEqual(o.m1.route.stt, { cloud: 0, local: 1, provider: 'openai' });
   assert.ok(allText(o.m1.segments));
-  assert.ok(o.engineLog.some((l) => /中継で失敗（login 401）/.test(l)), `古い札の 401 login になっていない（場面の前提）: ${o.engineLog.join('\n')}`);
+  assert.ok(o.engineLog.some((l) => /中継で失敗（login 401）/.test(l)), `古い cookie の 401 になっていない（場面の前提）: ${o.engineLog.join('\n')}`);
   assert.strictEqual(count(o, L3), 0, `自分でログアウトしたのに「ログインが切れた」を出した: ${JSON.stringify(o.notices)}`);
-  assert.ok(o.engineLog.includes('アカウント: 中継が 401。送った後にログアウトしていた'), o.engineLog.join('\n'));
+  assert.ok(o.engineLog.includes('アカウント: 中継が login。送った後にログアウトしていた'), o.engineLog.join('\n'));
   assert.ok(!o.engineLog.some((l) => l.includes('ログインし直していた')), '理由の違う記録を書いた');
-  assert.ok(!JSON.parse(o.secretsAfter || '{"keys":{}}').keys.relay, 'ログアウトしたのに札が残った');
+  assert.ok(!JSON.parse(o.secretsAfter || '{"keys":{}}').keys.relay, 'ログアウトしたのに cookie が残った');
 });
 
 test('F4・RF35: --relay-down（中継の口が閉じている）→ 全部の区間が手元・L4 を1回', T, async () => {
@@ -182,15 +196,15 @@ test('F7・RF36: --relay-cert → 手元・L5 を1回で、ホストの名前（
   assert.ok(o.engineLog.some((l) => /区間 s1 → local（理由: cert）/.test(l)), o.engineLog.join('\n'));
 });
 
-test('F5: --relay=foreign401（中継の形でない 401。会社の通信の検査の画面など）→ その区間は手元でやり直し、札は secrets.json に残る（次の区間はまた中継を試す）', T, async () => {
+test('F5: --relay=foreign401（中継の形でない 401。会社の通信の検査の画面など）→ その区間は手元でやり直し、cookie は secrets.json に残る（次の区間はまた中継を試す）', T, async () => {
   const o = await run(['text', '--relay=foreign401', '--segs=2']);
   assert.deepStrictEqual(o.pages[0].route.stt, { cloud: 0, local: 2, provider: 'openai' });
   assert.ok(allText(o.pages[0].segments));
   assert.strictEqual(posts(o.relayCalls), 2, '中継の形でない 401 の後に、次の区間で中継を試していない');
-  assert.ok(tokenOf(o.secretsRaw), '中継の形でない 401 で札を消した（取り違えて全員の札を消す）');
+  assert.ok(cookieOf(o.secretsRaw), '中継の形でない 401 で cookie を消した（取り違えて全員のログインを消す）');
   assert.strictEqual(count(o, L3), 0, '中継の形でない 401 を「ログインが切れた」と知らせた');
   assert.strictEqual(count(o, L8), 1);
-  assert.ok(!o.engineLog.includes('アカウント: 中継が 401。札を消した'));
+  assert.ok(!o.engineLog.some((l) => l.includes('ログインを消した')));
 });
 
 for (const mode of ['415', 'badjson']) {
@@ -260,7 +274,7 @@ test('RF29（今の守り）: 長い 429 は区間を失敗として WAV を残�
   assert.strictEqual(count(o, L10), 1, JSON.stringify(o.notices));
 });
 
-test('RF28（今の守り）: ［この会議は PC の中だけ］の会議では、札を復号もせず、中継に1回も送らない', T, async () => {
+test('RF28（今の守り）: ［この会議は PC の中だけ］の会議では、しまったログインを復号もせず、中継に1回も送らない', T, async () => {
   const l = await run(['text', '--relay=text', '--local-only', '--segs=2']);
   assert.strictEqual(posts(l.relayCalls), 0);
   assert.deepStrictEqual(l.pages[0].route.stt, { cloud: 0, local: 2, provider: 'openai' });
@@ -269,7 +283,7 @@ test('RF28（今の守り）: ［この会議は PC の中だけ］の会議で�
   assert.ok(!l.notices.some((n) => textOf(n) === L2), '［PC の中だけ］なのに、ログインしていないと知らせた');
   // 復号は起動と会議の始めの経路の確かめの分だけで、区間の数では増えない
   const l1 = await run(['text', '--relay=text', '--local-only', '--segs=1']);
-  assert.strictEqual(l.decrypts, l1.decrypts, `［PC の中だけ］の区間で札を復号した（区間 2 つで ${l.decrypts} 回・1つで ${l1.decrypts} 回）`);
+  assert.strictEqual(l.decrypts, l1.decrypts, `［PC の中だけ］の区間で復号した（区間 2 つで ${l.decrypts} 回・1つで ${l1.decrypts} 回）`);
 });
 
 test('RL11: 音声入力（口述）も同じ経路（ログインしていれば中継）', T, async () => {
@@ -284,4 +298,64 @@ test('RL11: 復旧の文字起こしも同じ経路（ログインしていれ�
   assert.strictEqual(posts(o.relayCalls), 1);
   assert.strictEqual(whisperSpawned(o), false);
   assert.deepStrictEqual(o.pages[0].route.stt, { cloud: 1, local: 0, provider: 'openai' });
+});
+
+// ---------------------------------------------------------------- 第1d回 A-11（RL10・F19・F21・F26・L11）: しまった Access のログイン
+test('F21: 起動のとき、しまった cookie を partition に戻し、最初の会議の区間は中継へ cookie つきで送られる。nt1_ の前の試しの札は消して記録1行（ログインしていない形で L2）', T, async () => {
+  const [o, old] = await Promise.all([run(['text', '--relay=text', '--segs=1']), run(['text', '--relay=text', '--old-token', '--segs=1'])]);
+  assert.ok(o.engineLog.includes('アカウント: しまったログインを戻した（cookie 1 個）'), o.engineLog.join('\n'));
+  assert.deepStrictEqual(o.pages[0].route.stt, { cloud: 1, local: 0, provider: 'openai' });
+  const stt = o.relayWire.filter((x) => x.path === STT);
+  assert.deepStrictEqual(stt.map((x) => [x.cookie, x.authorization]), [[true, false]], '区間を cookie つきで送っていない・札の見出しを付けた');
+  assert.strictEqual(o.cookiesOnDisk, false, 'userData の下に Partitions のフォルダがある');
+  // 0.8.0 の前の試しの札は消す（中継へ送らない）
+  assert.ok(old.engineLog.includes('アカウント: しまったログインの形が違うため消した（old）'), old.engineLog.join('\n'));
+  assert.ok(!JSON.parse(old.secretsRaw).keys.relay, '前の試しの札を残した');
+  assert.deepStrictEqual(old.relayCalls, []);
+  assert.strictEqual(count(old, L2), 1);
+  assert.strictEqual(count(old, L3), 0);
+});
+
+test('F19: しまった cookie が期限切れで起動 → 最初の会議で L3（action: account）と帯 B3（login）。L2 にしない。中継へは送らず、ログインの窓は開かない', T, async () => {
+  const o = await run(['text', '--relay=text', '--relay-expired', '--segs=2']);
+  assert.deepStrictEqual(o.relayCalls, [], '期限の切れた cookie で中継へ送った');
+  assert.deepStrictEqual(o.pages[0].route.stt, { cloud: 0, local: 2, provider: 'openai' });
+  assert.ok(allText(o.pages[0].segments));
+  assert.deepStrictEqual(o.notices.filter((n) => textOf(n) === L3), [{ text: L3, action: 'account' }], JSON.stringify(o.notices));
+  assert.strictEqual(count(o, L2), 0, '期限切れを「ログインしていない」（L2）にした');
+  assert.ok(o.sttSeen.some((x) => x.problem && x.problem.code === 'login'), `帯 B3（login）が出ない: ${JSON.stringify(o.sttSeen)}`);
+  assert.ok(!JSON.parse(o.secretsRaw).keys.relay, '期限の切れた cookie を残した');
+  assert.ok(o.engineLog.includes('アカウント: しまったログインの期限が切れていた'), o.engineLog.join('\n'));
+  assert.deepStrictEqual(o.loginWins, [], 'ログイン切れでログインの窓を開いた（F27）');
+});
+
+test('L11: 中継が 403 denied（止めたメール）→ その区間から手元・L11 を1回・帯 B5（relay-off）・cookie を消す。次の区間は中継へ送らない。ログインの窓は開かない', T, async () => {
+  const o = await run(['text', '--relay-seq=cdc', `--text=${'手元で起こした文です。'}`]);
+  assert.deepStrictEqual(o.pages[0].route.stt, { cloud: 1, local: 2, provider: 'openai' });
+  assert.ok(o.pages[0].segments.every((x) => !x.failed && x.text), JSON.stringify(o.pages[0].segments));
+  assert.strictEqual(count(o, L11), 1, JSON.stringify(o.notices));
+  assert.strictEqual(count(o, L8), 0, '止めたメールを「混み合っている」（L8）にした');
+  assert.strictEqual(count(o, L3), 0);
+  assert.ok(o.sttSeen.some((x) => x.problem && x.problem.code === 'relay-off'), `帯 B5（relay-off）が出ない: ${JSON.stringify(o.sttSeen)}`);
+  assert.ok(!JSON.parse(o.secretsRaw).keys.relay, '止めたメールの cookie を残した');
+  assert.strictEqual(JSON.parse(o.settingsText || JSON.stringify(o.savedSettings)).accountEmail, '');
+  assert.strictEqual(posts(o.relayCalls), 2, `止めた後に中継へ送った: ${o.relayCalls}`);
+  assert.ok(o.engineLog.includes('アカウント: 中継が denied。ログインを消した'), o.engineLog.join('\n'));
+  assert.ok(o.engineLog.includes('アカウント: 中継の答え 403（cf-ray なし・行き先 なし）→ denied'), o.engineLog.join('\n'));
+  assert.deepStrictEqual(o.loginWins, [], '止めたメールでログインの窓を開いた（F27）');
+});
+
+test('F26: 起動のときに safeStorage の復号が失敗（unreadable）→ secrets の relay を消さず、最初の会議は手元（why: key-unreadable・L2 も L3 も出さない）・記録1行。次の会議の前に復号できれば戻して中継へ送る', T, async () => {
+  const o = await run(['text', '--json-scene=access-unreadable', '--relay=text', '--access-login=unreadable']);
+  assert.strictEqual(o.status0.signedIn, false);
+  assert.deepStrictEqual(o.m1.calls, [], '復号できないのに中継へ送った（空の partition の 401 をログイン切れと取り違える）');
+  assert.deepStrictEqual(o.m1.route.stt, { cloud: 0, local: 1, provider: 'openai' });
+  assert.ok(allText(o.m1.segments));
+  assert.strictEqual(o.secretsAfterM1, o.secretsBefore, '復号できないだけの cookie を消した・書き換えた');
+  assert.ok(o.engineLog.some((l) => /区間 s1 → local（理由: key-unreadable）/.test(l)), o.engineLog.join('\n'));
+  assert.deepStrictEqual(o.engineLog.filter((l) => l.includes('しまったログインを復号できません')), ['アカウント: しまったログインを復号できません（key-unreadable）。消さずに PC の中で文字起こしします']);
+  assert.strictEqual(count(o, L2) + count(o, L3), 0, `復号できないだけなのに知らせた: ${JSON.stringify(o.notices)}`);
+  assert.deepStrictEqual(o.m2.route.stt, { cloud: 1, local: 0, provider: 'openai' }, '復号できるようになっても中継へ戻らない');
+  assert.ok(o.engineLog.includes('アカウント: しまったログインを戻した（cookie 1 個）'), o.engineLog.join('\n'));
+  assert.strictEqual(o.status1.signedIn, true);
 });

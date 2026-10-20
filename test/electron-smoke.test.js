@@ -307,9 +307,13 @@ test('electron-smoke の形: sandbox の窓で preload を使い、utilityProces
 // 第1d回 A-10（RL9・F19・F21）: 16 は本物の Electron の net.request が、メモリの partition に cookies.set で置いた cookie を
 // useSessionCookies で 127.0.0.1 へ付けるか・X-Requested-With・redirect: 'manual' の 302 でついて行かないか・Partitions のフォルダを作らないか。
 // Secure の cookie を http://127.0.0.1 に置けたかは観測（secureLoopback）で、置けなければ Windows では 16b（自分で作った証明書の https の口）で見る
+// 第1d回 A-11（F25・F20）: 16c 窓の守り。本物の security.install を付けたまま、ログインの partition の sandbox の窓で、許したホストへの
+// フォームの送り（POST）が通って did-navigate が来る（formPosted）・許していない行き先への will-navigate（navBlocked）と will-redirect
+// （redirectBlocked）が止まる・window.open が断られる（openDenied）・既定の session の窓のフォームの送りは今のまま止まる（defaultBlocked）
+const GUARD_GOOD = { formPosted: true, navBlocked: true, redirectBlocked: true, openDenied: true, defaultBlocked: true };
 const ACCESS_GOOD = {
   platform: 'win32', laxStrictSent: true, xrw: true, secureLoopback: true, secureSent: true, redirectEvent: true, redirectCode: 'server',
-  targetHits: 0, afterRedirect: 'abort', partitionsDir: false,
+  targetHits: 0, afterRedirect: 'abort', partitionsDir: false, guard: GUARD_GOOD,
 };
 test('electron-smoke: 16 の判定（accessResults）は、よい観測で OK。1つ崩すと NG。Secure の cookie は観測で、置けないときだけ 16b の https で届くことを求める', { timeout: 5000 }, () => {
   assert.deepStrictEqual(S.accessResults(ACCESS_GOOD).map((r) => [r.n, r.ok]), [[16, true]]);
@@ -330,6 +334,12 @@ test('electron-smoke: 16 の判定（accessResults）は、よい観測で OK。
   assert.strictEqual(S.accessResults({ ...noSecure, platform: 'linux' })[0].ok, true);
   assert.strictEqual(S.accessResults({})[0].ok, false);
   assert.strictEqual(S.accessResults(null)[0].ok, false);
+  // 16c（第1d回 A-11）: 窓の守りの観測が1つでも崩れれば NG。無ければ NG
+  for (const k of Object.keys(GUARD_GOOD)) {
+    assert.strictEqual(S.accessResults({ ...ACCESS_GOOD, guard: { ...GUARD_GOOD, [k]: false } })[0].ok, false, `16c の ${k}`);
+  }
+  assert.strictEqual(S.accessResults({ ...ACCESS_GOOD, guard: undefined })[0].ok, false, '16c を見ずに OK にした');
+  assert.match(S.accessResults(ACCESS_GOOD)[0].note, /16c/);
   const note = S.accessResults({ ...noSecure, https: { ran: true, sent: true } })[0].note;
   assert.match(note, /Secure/);
   assert.match(note, /16b/);
@@ -352,4 +362,18 @@ test('electron-smoke: 16 は本物の net.request を stt-cloud.postForm（sessi
   assert.ok(https.includes('fs.rmSync(tmp, { recursive: true, force: true })'));
   assert.ok(fn.includes('if (!o.secureLoopback && process.platform === \'win32\')'), '16b は Secure を置けない Windows だけ');
   assert.ok(!/\.pfx'\)/.test(m.slice(0, m.indexOf('async function accessHttpsCheck('))), '証明書のファイルを決まった場所に置いた');
+});
+
+// 第1d回 A-11（F25）: 16c は、8〜12 で付けた本物の security.install（1つだけ。2つ付けるとログインの窓も全体の止めに当たる）に
+// isLoginContents（partition natsu-access-smoke）と loginGuard（試しの行き先: 127.0.0.1 のその口）を渡したまま、ログインの partition の窓で見る
+test('electron-smoke: 16c は 8〜12 の security.install に isLoginContents と loginGuard を渡し、accessChecks の中で sandbox のログインの partition の窓と既定の session の窓のフォームの送り・移動・転送・window.open を見る', { timeout: 5000 }, () => {
+  const m = read('tools/electron-smoke/main.js');
+  const sec = m.slice(m.indexOf('async function securityChecks('), m.indexOf('async function smokeTranscribe('));
+  assert.ok(sec.includes('security.install({ app, session: ses, pages: PAGES, log: (l) => console.log(`参考: ${l}`), isLoginContents: smokeIsLogin, loginGuard: smokeLoginGuard });'), '8〜12 の install にログインの窓の守りを渡していない');
+  assert.strictEqual((m.match(/security\.install\(/g) || []).length, 1, 'security.install を2回付けた（ログインの窓も全体の止めに当たる）');
+  const fn = m.slice(m.indexOf('async function accessGuardCheck('), m.indexOf('async function accessHttpsCheck('));
+  for (const k of ["partition: 'natsu-access-smoke'", 'sandbox: true', "'did-navigate'", 'submit()', 'window.open(', 'smokeLoginAllow =', "'/redir'"]) assert.ok(fn.includes(k), k);
+  const checks = m.slice(m.indexOf('async function accessChecks('), m.indexOf('async function accessGuardCheck('));
+  assert.ok(checks.includes('o.guard = await accessGuardCheck('), '16c を accessChecks から呼んでいない');
+  assert.match(m, /16c/);
 });

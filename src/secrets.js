@@ -5,6 +5,7 @@
  *                  OpenAI へ直に送る道と鍵の IPC・画面と一緒に外した。しまえず・読めず・消せない。残った鍵は起動のときに purgeOld が消す）
  *  - OLD_IDS       0.7.0 までの鍵の名前（purgeOld が消す）
  *  - KEY_RE        鍵として受け付ける形（HTTP の見出しに入れられる文字だけ。空白・日本語は断る）
+ *  - RELAY_RE      relay の値の形（第1d回 A-11: Access の cookie をまとめた文字。印字できる ASCII の 16KB まで）
  *  - makeSecrets   送り先ごとの鍵を safeStorage の非同期の形で暗号にし、<userData>/secrets.json に書く
  *
  *  - purgeOld      0.7.0 までの鍵（OLD_IDS）と、退けた控え secrets.json.broken-* を消す（K2。起動のときに main が呼ぶ。A-4 から）
@@ -36,6 +37,10 @@ const path = require('path');
 const PROVIDER_IDS = Object.freeze(['relay']);
 const OLD_IDS = Object.freeze(['groq', 'openai', 'custom']);
 const KEY_RE = /^[\x21-\x7e]{8,512}$/;   // 見出しに入れられる文字だけ（空白・日本語は断る）
+// relay の値（第1d回 A-11）: ログインの窓で取った Access の cookie を src/relay.js の packCookies でまとめた文字（JSON。値の JWT は数 KB）。
+// 印字できる ASCII（空白なし）の 16KB まで（packCookies の上限と同じ）。0.8.0 の前の試しの札（nt1_）もこの形に入る（起動で消す: unpackCookies の 'old'）
+const RELAY_RE = /^[\x21-\x7e]{8,16384}$/;
+const valueRe = (id) => (id === 'relay' ? RELAY_RE : KEY_RE);
 const SCHEMA = 1;
 
 const isObj = (v) => v != null && typeof v === 'object' && !Array.isArray(v);
@@ -139,7 +144,7 @@ function makeSecrets({ file, safeStorage, J, platform = process.platform, log = 
 
   async function set(id, key) {
     if (!knownId(id)) return { ok: false, code: 'bad-id' };
-    if (typeof key !== 'string' || !KEY_RE.test(key)) return { ok: false, code: 'bad-key' };
+    if (typeof key !== 'string' || !valueRe(id).test(key)) return { ok: false, code: 'bad-key' };
     if (!(await available())) return { ok: false, code: 'unavailable' };
     let enc;
     try {
@@ -205,4 +210,4 @@ function makeSecrets({ file, safeStorage, J, platform = process.platform, log = 
   return { available, has, get, set, remove, purgeOld };
 }
 
-module.exports = { PROVIDER_IDS, OLD_IDS, KEY_RE, makeSecrets };
+module.exports = { PROVIDER_IDS, OLD_IDS, KEY_RE, RELAY_RE, makeSecrets };

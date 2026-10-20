@@ -282,7 +282,7 @@ const IDS_1D = [
   'rl-verify-atomic', 'rl-usage-reserve', 'rl-wav-bytes', 'rl-wav-format', 'rl-wav-rate', 'rl-wav-bits', 'rl-prompt-bytes', 'rl-stt-timeout',
   'rl-token-hash', 'rl-idle', 'rl-absolute', 'rl-revoked', 'rl-blocked', 'rl-model-forced', 'rl-size-cap', 'rl-daily-user',
   'rl-daily-all', 'rl-usage-on-fail', 'rl-upstream-401', 'rl-retry-after', 'rl-deploy-keep', 'rl-deploy-invocation', 'rl-deploy-print', 'rl-deploy-env',
-  'ra-token-header', 'ra-login-code', 'ra-login-strict', 'ra-redo-all', 'ra-no-direct', 'ra-secrets-relay-only', 'ra-purge-old', 'ra-logout-local',
+  'ra-login-code', 'ra-login-strict', 'ra-redo-all', 'ra-no-direct', 'ra-secrets-relay-only', 'ra-purge-old', 'ra-logout-local',
   'ra-status-offline', 'ra-401-redo', 'ra-401-forget', 'ra-hold', 'ra-signed-out-probe', 'ra-notice-action', 'ra-ui-code-clear', 'rg-direct-host',
   'rg-relay-console', 'ra-seg-online-75', 'ra-seg-flap', 'ra-seg-sticky', 'ra-seg-no-clamp', 'ra-seg-probe-start', 'ra-seg-localonly', 'ra-seg-bp-base',
   'ra-stall-silent', 'ra-stall-n', 'ra-stall-drop-wav', 'ra-problem-sticky', 'ra-problem-offline', 'ra-login-clear', 'ra-retry-once', 'ra-retry-localonly',
@@ -290,6 +290,14 @@ const IDS_1D = [
   'ra-notify-visible', 'ra-notify-once', 'ra-notify-codes', 'ra-notify-text', 'ra-notify-throw-guard', 'ra-notify-focused', 'ra-restart-recording', 'ra-restart-finalizing',
   'ra-apply-recording', 'ra-tray-late', 'ra-ui-restart-result', 'ra-restart-stops', 'ra-restart-quitting', 'ra-start-quitting', 'ra-dictate-quitting',
 ];
+// 第1d回の作り替え（Cloudflare Access のログイン）で、直しそのものが無くなったので外した変異（上の IDS_1D と計画の「変異確認」の表からも外した）。
+// 外したタスクが理由を書く（計画「作り替え」の「作り替えの変異」の「外す変異」の表）:
+//  - ra-token-header（A-11）: 文字起こしの要求に札を入れる道（Authorization: Bearer）が無い。札を見出しに入れない守りは G-3 の ra-no-token-header が受け継ぐ
+const IDS_1D_ACCESS_RETIRED = ['ra-token-header'];
+test('G3: 第1d回の作り替えで外した変異（IDS_1D_ACCESS_RETIRED）は一覧にも IDS_1D にも無い', { timeout: 5000 }, () => {
+  const ids = new Set(MUTANTS.map((m) => m.id));
+  assert.deepStrictEqual(IDS_1D_ACCESS_RETIRED.filter((id) => ids.has(id) || IDS_1D.includes(id)), []);
+});
 test('G3: 第1d回の変異が一覧にそろい、IDS_1D は計画の「変異確認」の表の id とちょうど同じ（中継・出し方・アプリ・ゲートの直しを1つずつ戻す）', { timeout: 5000 }, () => {
   const byId = new Map(MUTANTS.map((m) => [m.id, m]));
   assert.deepStrictEqual(IDS_1D.filter((id) => !byId.has(id)), []);
