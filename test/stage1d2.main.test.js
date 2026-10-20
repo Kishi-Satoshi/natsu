@@ -353,3 +353,78 @@ test('F5: エンジンのある PC で押すと needsSetup は偽・P1 も B14 �
   assert.ok(allText(o.pages[0].segments), JSON.stringify(o.pages[0].segments));
   assert.strictEqual(sttPosts(o), 0);
 });
+
+// ---------------------------------------------------------------- M-5（OF5・F7・F9）
+const D4 = '文字起こしできなかったので、音声を残しました。つながると文字起こしして、履歴に入れます。';
+const D5 = '（文字起こし待ち: 音声は残してあります）';
+const D6 = (n) => `残しておいた音声入力を ${n} 件文字起こしして、履歴に入れました（貼り付けはしていません）。`;
+const waitFiles = (files) => files.filter((f) => /^data\/dictwait\/\d+-[A-Za-z0-9]+\.wav$/.test(f));
+const overlayMsgs = (o) => (o.overlayPhases || []).map((p) => p.message);
+
+test('F7: 録った後で中継が使えないと、音声を dictwait に残し、履歴に D5 の行、録音バーに D4。貼り付けは 0 回。戻った見回りで行が文字になり、WAV が消え、D6 を1回、貼り付けは 0 回のまま', T, async () => {
+  const o = await run(['text', '--dictate', '--relay-seq=n', '--no-engine=fetchable', '--dict-back']);
+  assert.strictEqual(o.history.length, 1, dump(o));
+  const h = o.history[0];
+  assert.strictEqual(h.text, D5);
+  assert.match(h.wait, /^\d+-[A-Za-z0-9]+\.wav$/);
+  assert.ok(h.wait.endsWith(`-${h.id}.wav`), `ファイルの名前に履歴の id が無い: ${h.wait}`);
+  assert.ok(!h.wait.includes('/') && !h.wait.includes('\\'), 'パスを書いた');
+  assert.ok(overlayMsgs(o).includes(D4), JSON.stringify(o.overlayPhases));
+  assert.deepStrictEqual(o.pastes, []);
+  assert.deepStrictEqual(waitFiles(o.files), [`data/dictwait/${h.wait}`]);
+  assert.ok(o.engineLog.some((l) => /^音声入力: 音声を残した（\d+ 秒）$/.test(l)), o.engineLog.join('\n'));
+  // 戻った
+  const b = o.dictBack;
+  assert.strictEqual(b.history.length, 1);
+  assert.strictEqual(b.history[0].id, h.id);
+  assert.match(b.history[0].text, /^本日の議題は進捗の確認です/);
+  assert.strictEqual(b.history[0].wait, undefined);
+  assert.deepStrictEqual(waitFiles(b.files), []);
+  assert.strictEqual(b.notices.filter((n) => textOf(n) === D6(1)).length, 1, JSON.stringify(b.notices));
+  assert.deepStrictEqual(b.pastes, [], '戻った後に貼り付けた');
+});
+
+test('F7: 履歴の上限で行が切れても、見回りがその時刻の行を足し直して文字にする', T, async () => {
+  const o = await run(['text', '--dictate-twice', '--relay-seq=nc', '--max-history=1', '--no-engine=fetchable', '--dict-back']);
+  assert.strictEqual(o.history.length, 1, '前提: 上限で残した行が切れていない');
+  assert.strictEqual(o.history[0].wait, undefined);
+  assert.strictEqual(waitFiles(o.files).length, 1, '前提: 残した音声が無い');
+  const id = waitFiles(o.files)[0].match(/-([A-Za-z0-9]+)\.wav$/)[1];
+  const b = o.dictBack;
+  const row = b.history.find((x) => x.id === id);
+  assert.ok(row, JSON.stringify(b.history));
+  assert.match(row.text, /^本日の議題は進捗の確認です/);
+  assert.deepStrictEqual(b.history.map((x) => x.id), [o.history[0].id, id], '時刻の順の所に足していない');
+  assert.deepStrictEqual(waitFiles(b.files), []);
+});
+
+test('F9: 8 日前の残した音声入力の WAV は起動の掃除で消えない', T, async () => {
+  const o = await run(['text', '--old-dictwait', '--idle']);
+  assert.strictEqual(waitFiles(o.files).length, 1, JSON.stringify(o.files));
+});
+
+test('OF5: 履歴の行を消すと、残した WAV も消える（全部消すときも）', T, async () => {
+  const [d, c] = await Promise.all([run(['text', '--dictate', '--relay-seq=n', '--no-engine=fetchable', '--dict-delete']),
+    run(['text', '--dictate', '--relay-seq=n', '--no-engine=fetchable', '--dict-clear'])]);
+  for (const o of [d, c]) assert.strictEqual(waitFiles(o.files).length, 1, '前提: 残した音声が無い');
+  assert.deepStrictEqual(d.afterDelete.history, []);
+  assert.deepStrictEqual(waitFiles(d.afterDelete.files), [], '行を消しても WAV が残った');
+  assert.deepStrictEqual(c.afterClear.history, []);
+  assert.deepStrictEqual(waitFiles(c.afterClear.files), [], '全部消しても WAV が残った');
+});
+
+test('F7: 保存した後・消す前に落ちた WAV は、行を足し直さずに消す（履歴の行の数は変わらない・中継へ送らない）', T, async () => {
+  const o = await run(['text', '--done-dictwait', '--relay=text', '--idle', '--kept-ticks=1']);
+  assert.deepStrictEqual(waitFiles(o.files), []);
+  assert.strictEqual(o.history.length, 1, JSON.stringify(o.history));
+  assert.strictEqual(o.history[0].text, '保存した後に落ちた音声入力の文');
+  assert.strictEqual(sttPosts(o), 0);
+});
+
+test('F5・F7・決めたこと 14: 選んだ人でも、手元が使えずクラウドで始めた音声入力は、中継が使えないと音声を dictwait に残す（音声を捨てない）', T, async () => {
+  const o = await run(['text', '--dictate', '--relay-seq=n', '--no-whisper']);
+  assert.strictEqual(o.history.length, 1, dump(o));
+  assert.strictEqual(o.history[0].text, D5);
+  assert.strictEqual(waitFiles(o.files).length, 1, JSON.stringify(o.files));
+  assert.ok(overlayMsgs(o).includes(D4), JSON.stringify(o.overlayPhases));
+});

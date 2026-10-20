@@ -60,6 +60,13 @@
 //   第1d2回 M-4: --local-only-after=<n> … n 区間が片付いた後（n+1 区間目を送る前）に meeting:set-local-only を呼ぶ（out.localOnly に答え、
 //     out.statusLocalOnly に押した後の meeting:status の localOnly・cloud、out.statusNeedsSetup に needsSetup）。--local-only も out.statusNeedsSetup を出す。
 //     --back-after の out.afterBack に queues（segbuf の下の recovery.json ごとの { localOnly, items: 区間の数 }）を足す
+//   第1d2回 M-5（音声入力の音声を残す）: --relay-seq は音声入力にも効く（i 回目の音声入力の音声を送る前に i 文字目）。音声入力の場面の出力に
+//     overlayPhases（録音バーへ送った overlay:phase の順）と files を足す
+//     --dictate-twice … 音声入力を2回続けて行う。--max-history=<n> … 置く設定の maxHistory を n にする
+//     --dict-back … 音声入力の後、中継の答えを c にして見回りを1回呼び、out.dictBack（{ history, pastes, notices, files, engineLog }）に写す
+//     --dict-delete・--dict-clear … 音声入力の後に、残した行を history:delete で消す（out.afterDelete）・history:clear で全部消す（out.afterClear）
+//     --old-dictwait … 起動の前に 8 日前の名前の WAV を data/dictwait に置く。--done-dictwait … 起動の前に、文字の入った履歴の行（wait 無し）と
+//     同じ id の名前の WAV を置く（--idle の出力に history を足した）
 //     --fetch-consent … 第1d2回 M-1: --no-engine=fetchable と組む。取り込み先の installed.json を consent: true（組は無い）で置く
 //                     （取り込みのボタンを押したが、まだ何も取り込めていない PC。「選んだ」人）
 //     --fetch       … 何も取り込んでいない取り込める PC で、設定の［エンジンを取り込む］（engine:fetch-start）を押す（第0b回 Task 14）。
@@ -358,6 +365,14 @@ const keptTickN = Number(flagVal('--kept-ticks')) || 0;
 const relayReqText = flagVal('--relay-req-text');
 const loginAfter = flags.includes('--login-after');
 const localOnlyAfterN = Number(flagVal('--local-only-after')) || 0;   // 第1d2回 M-4
+// 第1d2回 M-5（音声入力の音声を残す）
+const dictateTwice = flags.includes('--dictate-twice');
+const dictBack = flags.includes('--dict-back');
+const dictDelete = flags.includes('--dict-delete');
+const dictClear = flags.includes('--dict-clear');
+const oldDictwait = flags.includes('--old-dictwait');
+const doneDictwait = flags.includes('--done-dictwait');
+const maxHistoryFlag = flagVal('--max-history');
 const fetchMode = flags.includes('--fetch');
 const repairMode = flags.includes('--repair');
 const crashMode = flags.includes('--crash') ? 'broken' : (flags.includes('--crash-ok') ? 'ok' : '');
@@ -374,7 +389,7 @@ const offline = flags.includes('--offline');
 const localOnlyFlag = flags.includes('--local-only');
 const dictate = flags.includes('--dictate');
 // 第1d2回 M-1: 何も取り込んでいない PC（--no-engine）を、議事録・音声入力の場面として回す（早い分かれ道に入らない）
-const noEngineScene = Boolean(noEngine) && (Boolean(relayMode) || offline || signedOut || dictate || localOnlyFlag);
+const noEngineScene = Boolean(noEngine) && (Boolean(relayMode) || offline || signedOut || dictate || localOnlyFlag || flags.includes('--dictate-twice'));
 const noWhisper = flags.includes('--no-whisper');
 // 第1d回 A-8: Windows の知らせの場面
 const mainHidden = flags.includes('--main-hidden');
@@ -711,6 +726,18 @@ process.on('exit', () => {
     };
   }
   // 前回落ちた会議の下書き（main は起動のときに復旧ページを作り、残った音声を文字起こしし直す）
+  // 第1d2回 M-5: 残した音声入力の WAV（8 日前の名前）・文字の入った同じ id の行がある WAV（保存した後・消す前に落ちた）
+  if (oldDictwait || doneDictwait) {
+    const dw = path.join(userData, 'data', 'dictwait');
+    fs.mkdirSync(dw, { recursive: true });
+    if (oldDictwait) fs.writeFileSync(path.join(dw, `${Date.now() - 8 * 86400000}-hold8days.wav`), toneWav(1));
+    if (doneDictwait) {
+      const at = Date.now() - 60000;
+      fs.writeFileSync(path.join(dw, `${at}-hdone1.wav`), toneWav(1));
+      fs.writeFileSync(path.join(userData, 'history.json'), JSON.stringify([{ id: 'hdone1', text: '保存した後に落ちた音声入力の文', raw: '保存した後に落ちた音声入力の文',
+        createdAt: new Date(at).toISOString(), durationSec: 1, procMs: 10, chars: 15 }]));
+    }
+  }
   // 第1d2回 M-3: PC の中だけの会議の下書き（--recover の draft.json より前の名前・前の時刻のフォルダ）
   if (extraQueue === 'localonly') {
     const startedAt = Date.now() - 900000;
@@ -758,6 +785,7 @@ process.on('exit', () => {
       ...((fakeStt || relayLocal) && legacyProvider ? { sttProvider: 'custom', sttBaseUrl: (fakeStt || relayLocal.stt).base, sttModel: 'whisper-large-v3' } : {}),
       ...(seededMail ? { accountEmail: seededMail } : {}),
       ...(noWhisper ? { localServerExe: path.join(tmp, 'no-such-whisper-server.exe') } : {}),
+      ...(maxHistoryFlag ? { maxHistory: Number(maxHistoryFlag) } : {}),   // 第1d2回 M-5
       claudeExe,
     }));
   }
@@ -1731,6 +1759,7 @@ process.on('exit', () => {
     out.engineLog = engineLogLines();
     out.requests = fs.readFileSync(flog, 'utf8').split('\n').filter((l) => l.startsWith('inference'));
     if (relayLocal) { out.stt = relayLocal.stt.requests.slice(); out.relayCalls = relayPaths.slice(); }
+    out.history = handlers['history:get']();   // 第1d2回 M-5
     process.stdout.write(`\n${JSON.stringify(m3Out(out))}\n`);
     await exitClean(0);
   }
@@ -1801,45 +1830,71 @@ process.on('exit', () => {
     process.stdout.write(`\n${JSON.stringify(out)}\n`);
     await exitClean(0);
   }
-  if (dictate) {
-    // 音声入力を1回: ホットキー → 録音 → 音声が届く → 文字起こし → 履歴
+  if (dictate || dictateTwice) {
+    // 音声入力を1回（--dictate-twice は2回）: ホットキー → 録音 → 音声が届く → 文字起こし → 履歴
     const hk = (await handlers['settings:get']()).hotkey;
     if (!shortcuts[hk]) throw new Error(`音声入力のホットキー ${hk} が登録されていない`);
-    shortcuts[hk]();
-    // 第1d2回 M-1: 録音バーへ送った overlay:start の数（音声入力を始めなかったら 0。そのときは音声を送らず、履歴を待たずに終える）
-    out.overlayStarts = sent.filter(([ch]) => ch === 'overlay:start').length;
-    if (!out.overlayStarts) {
+    // 第1d2回 M-5: 録音バーの終わりの合図（done・error）の数。1回ずつ、その合図か履歴が増えるのを待つ
+    const endPhases = () => sent.filter(([ch, p]) => ch === 'overlay:phase' && p && (p.phase === 'done' || p.phase === 'error')).length;
+    for (let r = 0; r < (dictateTwice ? 2 : 1); r++) {
+      const phases0 = endPhases();
+      const hist0 = (handlers['history:get']() || []).length;
+      shortcuts[hk]();
+      // 第1d2回 M-1: 録音バーへ送った overlay:start の数（音声入力を始めなかったら 0。そのときは音声を送らず、履歴を待たずに終える）
+      out.overlayStarts = sent.filter(([ch]) => ch === 'overlay:start').length;
+      if (!out.overlayStarts) {
+        await sleep(100);
+        out.history = handlers['history:get']();
+        out.pastes = clipWrites.slice();
+        await sttOut();
+        out.notices = sent.filter(([ch]) => ch === 'app:notice').map(([, p]) => p);
+        out.engineLog = elogLines();
+        out.spawns = spawns.slice();
+        process.stdout.write(`\n${JSON.stringify(out)}\n`);
+        await exitClean(0);
+      }
+      // 第1d回 A-9: 音声入力の録音中に再起動を頼む
+      // 断る前後で子の kill() を数える（out.killsAtRefusal）。そのとき動いていたエンジンの数は out.enginesAtRefusal
+      const kills0 = killCalls;
+      if (restartDuring === 'dictation') {
+        await waitFor(() => liveEngines() > 0, 5000);   // 音声入力の始めに先読みしたエンジンが起きるまで（止めたら見えるように）
+        out.enginesAtRefusal = liveEngines();
+        out.restartRecording = await handlers['app:restart']();
+      }
+      if (relaySeq) await relayLocal.setAnswer(relaySeq[r] || 'c');   // 第1d2回 M-5: この音声入力の中継の答え方
+      listeners['audio:done']({}, { buffer: new Uint8Array(toneWav(3)), durationMs: 3000 });
+      // 第1d回 A-9: 音声が届いて文字起こし中（handleDictationAudio は最初の await の前に processing にする）に再起動と取り込みを頼む
+      if (restartDuring === 'dictation') {
+        out.restartProcessing = await handlers['app:restart']();
+        out.apply = await handlers['update:apply']({}, UPDATE_URL);
+        out.killsAtRefusal = killCalls - kills0;
+      }
+      await waitFor(() => (handlers['history:get']() || []).length > hist0 || endPhases() > phases0, 15000);
       await sleep(100);
-      out.history = handlers['history:get']();
-      out.pastes = clipWrites.slice();
-      await sttOut();
-      out.notices = sent.filter(([ch]) => ch === 'app:notice').map(([, p]) => p);
-      out.engineLog = elogLines();
-      out.spawns = spawns.slice();
-      process.stdout.write(`\n${JSON.stringify(out)}\n`);
-      await exitClean(0);
     }
-    // 第1d回 A-9: 音声入力の録音中に再起動を頼む
-    // 断る前後で子の kill() を数える（out.killsAtRefusal）。そのとき動いていたエンジンの数は out.enginesAtRefusal
-    const kills0 = killCalls;
-    if (restartDuring === 'dictation') {
-      await waitFor(() => liveEngines() > 0, 5000);   // 音声入力の始めに先読みしたエンジンが起きるまで（止めたら見えるように）
-      out.enginesAtRefusal = liveEngines();
-      out.restartRecording = await handlers['app:restart']();
-    }
-    listeners['audio:done']({}, { buffer: new Uint8Array(toneWav(3)), durationMs: 3000 });
-    // 第1d回 A-9: 音声が届いて文字起こし中（handleDictationAudio は最初の await の前に processing にする）に再起動と取り込みを頼む
-    if (restartDuring === 'dictation') {
-      out.restartProcessing = await handlers['app:restart']();
-      out.apply = await handlers['update:apply']({}, UPDATE_URL);
-      out.killsAtRefusal = killCalls - kills0;
-    }
-    await waitFor(() => (handlers['history:get']() || []).length > 0, 15000);
-    await sleep(100);
-    out.history = handlers['history:get']();
+    out.history = JSON.parse(JSON.stringify(handlers['history:get']()));   // 写し（後の見回りが同じ行を書き換える）
     out.pastes = clipWrites.slice();   // 第1d2回 M-1
+    out.overlayPhases = sent.filter(([ch]) => ch === 'overlay:phase').map(([, p]) => p);   // 第1d2回 M-5
+    out.files = listFiles(userData);
     if (restartDuring) Object.assign(out, { relaunches, relaunchDb, applyCalls });
     await sttOut();
+    // 第1d2回 M-5: 残した音声入力の行を消す・全部消す
+    if (dictDelete) {
+      const row = (handlers['history:get']() || []).find((h) => h && h.wait);
+      out.afterDelete = { history: row ? await handlers['history:delete']({}, row.id) : null, files: listFiles(userData) };
+    }
+    if (dictClear) out.afterClear = { history: await handlers['history:clear']({}), files: listFiles(userData) };
+    // 第1d2回 M-5: 中継の答えを c にして見回りを1回呼び、残した音声入力が片付くのを待つ
+    if (dictBack) {
+      await relayLocal.setAnswer('c');
+      netUp = true;
+      await keptTick();
+      const waits = () => listFiles(userData).filter((f) => /^data\/dictwait\/.+\.wav$/.test(f)).length;
+      await waitFor(() => waits() === 0, 5000);
+      await sleep(100);
+      out.dictBack = { history: handlers['history:get'](), pastes: clipWrites.slice(), notices: sent.filter(([ch]) => ch === 'app:notice').map(([, p]) => p),
+        files: listFiles(userData), engineLog: elogLines() };
+    }
     process.stdout.write(`\n${JSON.stringify(out)}\n`);
     await exitClean(0);
   }

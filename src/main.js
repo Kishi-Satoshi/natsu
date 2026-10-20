@@ -2663,6 +2663,9 @@ function startRecording() {
     sendToMainWin('app:notice', plan.action ? { text: plan.error, action: plan.action } : plan.error);
     return;
   }
+  // 第1d2回 M-5: 始めたときに手元が使えたか（使えずにクラウドで始めた音声入力は、選んだ人でも音声を残す: 決めたこと 14）と、始めた時刻（残す名前）
+  dictLocalAtStart = engineValid(whisperEng);
+  dictStartedAt = Date.now();
   warmWhisper().catch((e) => engineLog(`文字起こしエンジンの先読みに失敗: ${logReason(e)}`));
   state = 'recording';
   // いま前にある窓が貼り付け先。オーバーレイを出す前に控える（#54）
@@ -2726,8 +2729,132 @@ async function handleDictationAudio(buffer, durationMs) {
     sendToOverlay('overlay:phase', { phase: 'done', message: preview, procSec: (procMs / 1000).toFixed(1) });
     setTimeout(hideOverlayIfIdle, 1500);
     state = 'idle'; updateTray();
-  } catch (e) { finishWithError(e.message || '不明なエラー'); }
+  } catch (e) {
+    if (keepsDictation(e)) { await keepDictation(buffer, durationMs, e); return; }
+    finishWithError(e.message || '不明なエラー');
+  }
 }
+
+// ---------------------------------------------------------------- 音声入力の音声を残す（第1d2回 M-5・OF5・D21・決めたこと 5・14）
+// 録った後でクラウドで文字起こしできず、PC の中の文字起こしも使えないとき、音声を <userData>/data/dictwait/<始めた時刻 ms>-<履歴の行の id>.wav に
+// 残し、履歴に「文字起こし待ち」の行（wait にファイルの名前だけ）を足す。戻ったら見回りが文字起こしして行を文字に替える（貼り付けはしない:
+// 貼る先の窓はもう分からず、後から急に文字が入ると困る）。残した音声は自動で消さない（利用者が行を消したときだけ）
+const DICT_WAIT_TEXT = '（文字起こし待ち: 音声は残してあります）';
+const DICT_KEPT_TEXT = '文字起こしできなかったので、音声を残しました。つながると文字起こしして、履歴に入れます。';
+const DICT_WAIT_RE = /^(\d+)-([A-Za-z0-9]+)\.wav$/;
+const dictwaitRoot = () => path.join(app.getPath('userData'), 'data', 'dictwait');
+let dictLocalAtStart = true;
+let dictStartedAt = 0;
+let dictWaitRunning = false;
+// 残すか: 準備を選んでいない PC で手元を待たなかった（kept）・選んでいない PC で中継の短い 429 を待ちきれなかった（keepForRetry）・始めたときに
+// 手元が使えなかった（選んだ人で壊れている・確かめ中）の engineMissing。中継が音声を見て断った（refused）は残さない（決めたこと 12）
+function keepsDictation(e) {
+  if (!e || e.refused) return false;
+  return Boolean(e.kept || (e.keepForRetry && !isOfflineChosen()) || (e.engineMissing && !dictLocalAtStart));
+}
+async function keepDictation(buffer, durationMs, e) {
+  const id = store.newId('h');
+  const at = dictStartedAt || Date.now();
+  const name = `${at}-${id}.wav`;
+  try {
+    fs.mkdirSync(dictwaitRoot(), { recursive: true });
+    const file = path.join(dictwaitRoot(), name);
+    // 一時ファイルに書いてから置き換える（書き込み中に落ちても半端な wav を文字起こししない）
+    fs.writeFileSync(`${file}.tmp`, Buffer.from(buffer));
+    fs.renameSync(`${file}.tmp`, file);
+  } catch (err) {
+    engineLog(`音声入力: 音声を残せませんでした（${errCode(err)}）`);
+    finishWithError(`${(e && e.message) || '不明なエラー'}（音声を残せませんでした）`);
+    return;
+  }
+  const sec = Math.round(durationMs / 1000);
+  engineLog(`音声入力: 音声を残した（${sec} 秒）`);
+  const rec = await lib.recordDictation({
+    history,
+    entry: { id, text: DICT_WAIT_TEXT, raw: '', createdAt: new Date(at).toISOString(), durationSec: sec, procMs: 0, chars: 0, wait: name },
+    max: settings.maxHistory,
+    save: () => historyWriter.now(history),
+    notify: (h) => sendToMainWin('history:updated', h),
+    deliver: () => {},   // 貼り付けない
+  });
+  if (!rec.saved) engineLog('履歴: 残した音声入力の行を保存できませんでした（音声は残してあります）');
+  finishWithError(DICT_KEPT_TEXT);
+}
+// 残した音声入力を古い順に文字起こしする（見回りから。走っている間は重ねない）。行は名前の id で探す（文字を入れて保存した後・WAV を消す前に
+// 落ちた・見回りが重なった、で行を二重にしない）。文字は行に入れ（行が上限で切れていれば、その時刻の順の所に足す。足すときは上限で切らない）、
+// 履歴を保存してから WAV を消す（この順。逆だと落ちたときに文字を失う）。空の答えは行と WAV を消す。まだ使えなければ止めて次の見回りへ
+async function transcribeDictWaits() {
+  if (dictWaitRunning || historyState === 'unreadable') return;
+  let names = [];
+  try { names = fs.readdirSync(dictwaitRoot()).filter((n) => DICT_WAIT_RE.test(n)).sort(); } catch (_) { return; }
+  if (!names.length) return;
+  dictWaitRunning = true;
+  let n = 0;
+  let changed = false;
+  try {
+    for (const name of names) {
+      const [, ms, id] = name.match(DICT_WAIT_RE);
+      const file = path.join(dictwaitRoot(), name);
+      const row0 = history.find((h) => h && h.id === id);
+      if (row0 && !row0.wait) { unlinkQuiet(file); continue; }   // もう文字が入っている
+      let buf;
+      try { buf = fs.readFileSync(file); } catch (_) { continue; }
+      const durationMs = row0 && Number(row0.durationSec) > 0 ? Number(row0.durationSec) * 1000 : Math.max(0, Math.round((buf.length - 44) / 32));
+      let raw = '';
+      let failText = '';
+      try {
+        ({ text: raw } = await transcribeAuto(buf, '', durationMs, { what: '音声入力（残した音声）' }));
+      } catch (e) {
+        if (e && (e.kept || e.keepForRetry || e.engineMissing)) break;   // まだ使えない: 次の見回りで
+        failText = `（この音声入力の文字起こしに失敗: ${(e && e.message) || '不明なエラー'}）`;   // 待っても同じ答え（中継が断ったなど）
+      }
+      if (!fs.existsSync(file)) continue;   // 待つ間に利用者が行を消した（音声も消えた）
+      const row = history.find((h) => h && h.id === id);
+      if (!raw && !failText) {
+        // 無音だった: 行と音声を消す
+        if (row) { history.splice(history.indexOf(row), 1); changed = true; }
+        const w = historyWriter.now(history);
+        if (!w.ok) break;
+        unlinkQuiet(file);
+        continue;
+      }
+      let text = failText || (settings.removeFillers ? removeFillersRule(raw) : raw);
+      if (!text) text = raw;
+      if (row) {
+        row.text = text; row.raw = raw; row.chars = failText ? 0 : text.length;
+        delete row.wait;
+      } else {
+        const createdAt = new Date(Number(ms)).toISOString();
+        let i = history.findIndex((h) => h && String(h.createdAt) < createdAt);
+        if (i < 0) i = history.length;
+        history.splice(i, 0, { id, text, raw, createdAt, durationSec: Math.round(durationMs / 1000), procMs: 0, chars: failText ? 0 : text.length });
+      }
+      changed = true;
+      const w = historyWriter.now(history);
+      if (!w.ok) { engineLog('履歴: 残した音声入力の文字を保存できませんでした（音声は残します）'); break; }
+      unlinkQuiet(file);
+      if (!failText) n += 1;
+    }
+  } finally {
+    dictWaitRunning = false;
+  }
+  if (changed) sendToMainWin('history:updated', history);
+  if (n) {
+    engineLog(`音声入力: 残した音声を文字起こしした（${n} 件）`);
+    noticeMainWin(`残しておいた音声入力を ${n} 件文字起こしして、履歴に入れました（貼り付けはしていません）。`);
+  }
+}
+// 利用者が履歴の行を消した（全部消した）: その行の残した音声も消す（利用者の意思）。全部消すときは、上限で切れた行の音声も消す
+function dropDictWaits(rows, all) {
+  if (all) {
+    let names = [];
+    try { names = fs.readdirSync(dictwaitRoot()).filter((x) => DICT_WAIT_RE.test(x)); } catch (_) { names = []; }
+    for (const x of names) unlinkQuiet(path.join(dictwaitRoot(), x));
+    return;
+  }
+  for (const h of rows) if (h && typeof h.wait === 'string' && DICT_WAIT_RE.test(h.wait)) unlinkQuiet(path.join(dictwaitRoot(), h.wait));
+}
+const dictWaitCount = () => { try { return fs.readdirSync(dictwaitRoot()).filter((x) => DICT_WAIT_RE.test(x)).length; } catch (_) { return 0; } };
 
 function finishWithError(message) {
   // 録音中に確保した Escape を必ず手放す。ここを抜かすと、以後アプリ以外の
@@ -3566,13 +3693,15 @@ async function retryKeptWhenBack() {
     else if (!hasRelayLogin()) why = 'signed-out';
     else if (holdNow()) why = 'hold';
     const queues = savedQueueCount() || (recoveryQueue ? 1 : 0);
-    if (queues > 0) {
-      const note = `${queues}・0・${why}`;
+    const dicts = dictWaitCount();   // 第1d2回 M-5: 残した音声入力
+    if (queues > 0 || dicts > 0) {
+      const note = `${queues}・${dicts}・${why}`;
       if (note !== keptWatchNote) { keptWatchNote = note; engineLog(`文字起こし待ち: 見回り（${note}）`); }
     }
     if (why !== 'ok') return;
     if (!recoveryQueue) recoveryQueue = loadSavedRecoveryQueue();
     if (recoveryQueue) await transcribeRecoveredCloud();
+    if (dicts > 0) await transcribeDictWaits();
   } catch (e) {
     engineLog(`文字起こし待ちの見回りに失敗: ${logReason(e)}`);
   }
@@ -4427,8 +4556,9 @@ function setupIpc() {
   ipcMain.handle('hotkey:state', () => hotkeyState);
 
   ipcMain.handle('history:get', () => history);
-  ipcMain.handle('history:delete', (_e, id) => { history = history.filter((h) => h.id !== id); saveHistoryOrNotice(); return history; });
-  ipcMain.handle('history:clear', () => { history = []; saveHistoryOrNotice(); return history; });
+  // 第1d2回 M-5: 残した音声入力の行を消したら、その音声も消す
+  ipcMain.handle('history:delete', (_e, id) => { dropDictWaits(history.filter((h) => h.id === id)); history = history.filter((h) => h.id !== id); saveHistoryOrNotice(); return history; });
+  ipcMain.handle('history:clear', () => { dropDictWaits(history, true); history = []; saveHistoryOrNotice(); return history; });
   ipcMain.handle('app:toggle-recording', () => { toggleRecording(); return state; });
 
   // 議事録の画面の口は main を通らない（第2a1回 ST5。preload が DB の口（役 app）へ直に頼む）。要約だけは今どおり main の IPC
