@@ -5,6 +5,8 @@
  * keyErrorKind・CHECK_WAV）を消したので、その試しを外し、同じ意図（429 の待ち・待ちの上限・ヒントの 400 の送り直し・413・5xx・
  * 通信の失敗の分け方・札を運ばない）を transcribeRelay で、本物の中継のコード（helpers/relay-local.js）を相手に見る。
  * 中継の符号の分け方（login・upstream-auth・daily-cap・quota）は test/relay-app.test.js が見る。外へはつながない。
+ * 第1d回 A-10（RL9）で意図して変えた: 同じ意図の試しを、札（nt1_）でなく Cloudflare Access の cookie の道（偽の session・
+ * useSessionCookies・X-Requested-With・redirect: 'manual'）で、relay-local の偽の Access の前を相手に通す（札の引数を外した）。
  */
 'use strict';
 
@@ -12,7 +14,7 @@ const test = require('node:test');
 const assert = require('node:assert');
 const fs = require('node:fs');
 const path = require('node:path');
-const { makeFakeRequest } = require('./helpers/fake-net');
+const { makeFakeRequest, makeFakeSession } = require('./helpers/fake-net');
 const R = require('./helpers/relay-run');
 const relay = require('../src/relay');
 const C = require('../src/stt-cloud');
@@ -21,17 +23,15 @@ const { startRelayLocal } = require('./helpers/relay-local');
 const wav = (sec) => Buffer.from(R.wav(sec));
 const SAID = /^本日の議題は進捗の確認です。区間\d+$/;
 
-// 中継を起こしてログインし、札で fn(rl, call) を呼ぶ。call(extra) は transcribeRelay の引数
+// 中継を偽の Access の前つきで起こし、その人の CF_Authorization を偽の session に置いて fn(rl, call, cookie) を呼ぶ。call(extra) は transcribeRelay の引数
 async function withRelay(stt, fn) {
-  const rl = await startRelayLocal({ stt });
+  const rl = await startRelayLocal({ stt, access: true });
   try {
-    const api = relay.makeAccountApi({ request: rl.request });
-    const email = R.mail('stt');
-    assert.deepStrictEqual(await api.start(email), { ok: true });
-    const v = await api.verify(email, rl.codeFor(email));
-    assert.strictEqual(v.ok, true, JSON.stringify(v));
-    const call = (extra = {}) => ({ request: rl.request, provider: relay.relayProvider(), token: v.token, language: 'ja', prompt: '', sleep: async () => {}, ...extra });
-    return await fn(rl, call, v.token);
+    const session = makeFakeSession();
+    const c = await rl.cookieFor(R.mail('stt'));
+    await session.cookies.set(c);
+    const call = (extra = {}) => ({ request: rl.request, provider: relay.relayProvider(), session, language: 'ja', prompt: '', sleep: async () => {}, ...extra });
+    return await fn(rl, call, c.value);
   } finally { await rl.close(); }
 }
 const posts = (rl) => rl.stt.requests.filter((x) => x.path.endsWith('/audio/transcriptions'));
@@ -111,17 +111,26 @@ test('RF27: 中継へ送っている途中で切れた・返事が来ない・�
   });
 });
 
-test('RF30: 札を別の宛先へ運ばない（redirect: error）。失敗の例外と区間の失敗の文（M9）に札を含めない', { timeout: 5000 }, async () => {
-  await withRelay({}, async (rl, call, token) => {
+test('RF30: cookie を別の宛先へ運ばない（redirect: manual でついて行かない。session の無い postForm は redirect: error）。失敗の例外と区間の失敗の文（M9）に cookie を含めない', { timeout: 5000 }, async () => {
+  await withRelay({}, async (rl, call, cookie) => {
     let opts = null;
     const spy = (o) => { opts = o; return rl.request(o); };
     assert.match(await C.transcribeRelay(wav(1), call({ request: spy })), SAID);
-    assert.deepStrictEqual([opts.method, opts.redirect], ['POST', 'error']);
-    rl.setFront('html401');
-    let err = null;
-    try { await C.transcribeRelay(wav(1), call()); } catch (e) { err = e; }
-    assert.ok(err && err.code === 'server', '中継の形でない 401 は server');
-    assert.ok(!JSON.stringify({ m: err.message, s: err.stack, t: C.cloudErrorText(err, 'OpenAI') }).includes(token), '札が例外か文に入った');
+    assert.deepStrictEqual([opts.method, opts.redirect, opts.useSessionCookies], ['POST', 'manual', true]);
+    for (const front of ['html401', 'access302', 'redirect-other']) {
+      rl.setFront(front);
+      let err = null;
+      try { await C.transcribeRelay(wav(1), call()); } catch (e) { err = e; }
+      assert.ok(err && ['server', 'login'].includes(err.code), front);
+      assert.ok(!JSON.stringify({ m: err.message, s: err.stack, t: C.cloudErrorText(err, 'OpenAI') }).includes(cookie), `${front}: cookie が例外か文に入った`);
+    }
+    // session を渡さない postForm（札の道・ログインの口）は今のまま redirect: 'error' で、cookie を付けない
+    rl.setFront('');
+    let o2 = null;
+    await C.postForm({ request: (o) => { o2 = o; return rl.request(o); }, url: `${relay.RELAY_BASE}/health`, method: 'GET', timeoutMs: 2000 }).catch(() => {});
+    assert.strictEqual(o2.redirect, 'error');
+    assert.ok(!('session' in o2) && !('useSessionCookies' in o2), 'session の無い要求に cookie の印を付けた');
+    assert.ok(!('cookie' in rl.received.at(-1).headers), 'session の無い要求に cookie が付いた');
   });
   assert.match(C.cloudErrorText(new C.CloudSttError('rate-long', { retryAfter: 3600 }), 'OpenAI'), /^OpenAI: 上限に達しました$/);
   assert.match(C.cloudErrorText(new C.CloudSttError('rate', { retryAfter: 60 }), 'OpenAI'), /^OpenAI: 上限に達しました$/);

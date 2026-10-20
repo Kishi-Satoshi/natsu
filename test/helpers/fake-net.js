@@ -20,6 +20,15 @@
 //  - redirect: 'error' … 3xx が来たら net::ERR_UNSAFE_REDIRECT で死ぬ（Electron の資料の redirect の error）。
 //  - rewrite(url) → url … 渡したときだけ、go(url) の頭で宛先を書き換える（本番の送り先を偽の送り先へ）。
 //    書き換えた後のホストが 127.0.0.1・localhost・::1 でなければ net::ERR_BLOCKED_BY_CLIENT で死ぬ（試験が外へ出た）。
+//  - 第1d回 A-10（足しただけ。今の書き換えと止めは変えない）: opts.session（makeFakeSession() の偽の session）と
+//    opts.useSessionCookies: true のときだけ、その session の cookie の入れ物から、**書き換える前の宛先**（本番の URL）に合う cookie を
+//    Cookie の見出しにして送る（本物は Chromium が付ける。呼び手の setHeader には出ない）。useSessionCookies が無ければ付けない
+//    （Electron の既定は false）。redirect: 'manual' の 'redirect' イベントは上のまま。
+//  - makeFakeSession() → { cookies: { set(details), get(filter), remove(url, name) }, clearStorageData(), cookieHeader(url) }
+//    Electron の session.cookies の形を真似る: set は url（と domain・path・secure・httpOnly・sameSite・expirationDate）。domain を渡すと
+//    頭に '.' を付けて下のドメインにも効く形にし（hostOnly: false）、渡さなければ url のホストだけ（hostOnly: true）。
+//    sameSite: 'no_restriction' は secure が無ければ断る（Chromium と同じ）。get は url（送るときに合うもの）・name・domain で絞る。
+//    送るときは、期限（expirationDate の秒。本物の時計）の切れたもの・secure で https でない宛先・道の合わないものは付けない。
 const http = require('http');
 const https = require('https');
 const zlib = require('zlib');
@@ -69,6 +78,54 @@ function deliverAllThenFail(res) {
 const LOOPBACK = new Set(['127.0.0.1', 'localhost', '[::1]', '::1']);
 const isLoopback = (url) => { try { return LOOPBACK.has(new URL(url).hostname); } catch (_) { return false; } };
 
+const SAME_SITE = new Set(['unspecified', 'no_restriction', 'lax', 'strict']);
+
+function makeFakeSession() {
+  const jar = [];
+  const matches = (c, url) => {
+    let u;
+    try { u = new URL(url); } catch (_) { return false; }
+    const host = u.hostname.toLowerCase();
+    if (c.hostOnly ? host !== c.domain : !(host === c.domain.slice(1) || host.endsWith(c.domain))) return false;
+    if (c.secure && u.protocol !== 'https:') return false;
+    const p = u.pathname || '/';
+    return p === c.path || p.startsWith(c.path.endsWith('/') ? c.path : c.path + '/');
+  };
+  const alive = (c) => c.expirationDate === undefined || c.expirationDate > Date.now() / 1000;
+  const copy = (c) => ({ ...c });
+  const cookies = {
+    async set(d) {
+      const u = new URL(String(d.url));
+      const name = String(d.name || '');
+      const sameSite = d.sameSite === undefined ? 'unspecified' : d.sameSite;
+      if (!SAME_SITE.has(sameSite)) throw new Error('Failed to set cookie - bad sameSite');
+      if (sameSite === 'no_restriction' && d.secure !== true) throw new Error('Failed to set cookie - SameSite=None needs Secure');
+      const hostOnly = !d.domain;
+      const domain = hostOnly ? u.hostname.toLowerCase() : (String(d.domain).startsWith('.') ? String(d.domain) : '.' + String(d.domain)).toLowerCase();
+      const c = { name, value: String(d.value == null ? '' : d.value), domain, hostOnly, path: d.path || '/', secure: d.secure === true,
+        httpOnly: d.httpOnly === true, session: d.expirationDate === undefined, sameSite };
+      if (d.expirationDate !== undefined) c.expirationDate = d.expirationDate;
+      const at = jar.findIndex((x) => x.name === c.name && x.domain === c.domain && x.path === c.path);
+      if (at >= 0) jar.splice(at, 1);
+      jar.push(c);
+    },
+    async get(filter = {}) {
+      return jar.filter((c) => alive(c)
+        && (filter.url === undefined || matches(c, filter.url))
+        && (filter.name === undefined || c.name === filter.name)
+        && (filter.domain === undefined || c.domain === filter.domain || c.domain === '.' + filter.domain)).map(copy);
+    },
+    async remove(url, name) {
+      for (let i = jar.length - 1; i >= 0; i--) if (jar[i].name === name && matches(jar[i], url)) jar.splice(i, 1);
+    },
+  };
+  return {
+    cookies,
+    async clearStorageData() { jar.length = 0; },
+    cookieHeader(url) { return jar.filter((c) => alive(c) && matches(c, url)).map((c) => `${c.name}=${c.value}`).join('; '); },
+  };
+}
+
 function makeFakeRequest({ before = null, rewrite = null } = {}) {
   let n = 0;
   return function request(opts) {
@@ -103,6 +160,10 @@ function makeFakeRequest({ before = null, rewrite = null } = {}) {
       }
       const lib = url.startsWith('https:') ? https : http;
       const wire = { ...headers };
+      if (opts.session && opts.useSessionCookies === true && typeof opts.session.cookieHeader === 'function') {
+        const ck = opts.session.cookieHeader(url0);
+        if (ck) wire.Cookie = ck;
+      }
       if (!hasHeader(wire, 'accept-encoding')) {
         wire['Accept-Encoding'] = hasHeader(wire, 'range') ? 'identity' : url.startsWith('https:') ? 'gzip, deflate, br' : 'gzip, deflate';
       }
@@ -170,4 +231,4 @@ function makeFakeRequest({ before = null, rewrite = null } = {}) {
 }
 
 const fakeRequest = makeFakeRequest();
-module.exports = { makeFakeRequest, fakeRequest };
+module.exports = { makeFakeRequest, makeFakeSession, fakeRequest };

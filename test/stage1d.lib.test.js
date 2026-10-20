@@ -19,7 +19,7 @@ test('RF41: 録音中（会議・音声入力の録音と文字起こし）は r
 
 // ---------------------------------------------------------------- A-2（RL10）: ログインの IPC の文（計画「画面と知らせの文」の R4〜R17）
 test('RL10: ログインの答えの符号ごとの文は計画の R4〜R17 のまま。{n} は分（切り上げ・1 以上）と回数、{ホスト} は中継のホストの名前だけ', { timeout: 5000 }, () => {
-  const host = 'natsu-relay.-unset-.workers.dev';
+  const host = new URL(require('../src/relay').RELAY_BASE).hostname;   // 第1d回 A-10: RELAY_BASE から取る
   const M = (code, o = {}) => L.accountMessage(code, { host, ...o });
   assert.strictEqual(M('domain'), 'このメールアドレスでは登録できません。会社のメールアドレスを入れてください。');
   assert.strictEqual(M('bad-email'), 'メールアドレスの形が正しくありません。入れ直してください。');

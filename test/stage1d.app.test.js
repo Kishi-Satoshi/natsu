@@ -210,7 +210,7 @@ test('RL10: ［ログイン］は確認コードを送ったメールで確か�
 });
 
 test('RL10: main の答えの code ごとに R4〜R16 の文を出す（文は main が返す message をそのまま）', async () => {
-  const host = 'natsu-relay.-unset-.workers.dev';
+  const host = new URL(require('../src/relay').RELAY_BASE).hostname;   // 第1d回 A-10: RELAY_BASE から取る
   const startCodes = ['domain', 'bad-email', 'rate', 'mail', 'mail-cap', 'offline', 'net', 'timeout', 'cert', 'proxy', 'not-ready', 'server'];
   for (const code of startCodes) {
     const message = lib.accountMessage(code, { host, retryAfter: 600 });

@@ -20,7 +20,7 @@ const runOnce = (args) => new Promise((resolve, reject) => {
 // 同じ場面は1回だけ動かし、どのテストも同じ結果を見る（場面は順に start・verify・logout と進む1つの流れ）
 const cache = new Map();
 const run = (args) => { const k = args.join(' '); if (!cache.has(k)) cache.set(k, runOnce(args)); return cache.get(k); };
-const HOST = 'natsu-relay.-unset-.workers.dev';
+const HOST = new URL(require('../src/relay').RELAY_BASE).hostname;   // 第1d回 A-10: 仮の値を書かずに RELAY_BASE から取る
 const R8 = (n) => `確認コードが違います（あと ${n} 回試せます）。メールの 6 けたを入れ直してください。`;
 const R13 = '文字起こしの中継につながりませんでした。インターネットにつながっているかを確かめてください。';
 const R16 = 'この PC ではログインの情報をしまえません（暗号にする仕組みが使えません）。管理者に知らせてください。';

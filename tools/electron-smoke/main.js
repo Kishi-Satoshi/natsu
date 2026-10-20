@@ -3,7 +3,7 @@
  *
  * 走らせ方（Electron の main として。窓は見せない）:
  *   node_modules/electron/dist/electron.exe tools/electron-smoke
- * 次の 15 を確かめる（CHECKS）。
+ * 次の 16 を確かめる（CHECKS）。
  *   1〜4. utilityProcess と MessageChannelMain の口で、sandbox の隠れた窓（preload）と往復する。子を落として起こし直す。
  *         子の中で node:sqlite を開く。kill() の終わりの番号を見る
  *   5・6. mainlib の copyPrivate・deliverText を本物の clipboard で動かす（44 では Promise を返す。C1）
@@ -28,7 +28,15 @@
  *         （終わりの番号 0）、起こし直した子が用意の前のうちに pageGet と pageSetTitle を頼み、その子も落とす → pageGet は retry で
  *         返る。もう一度起こし直すと、A の締めを同じ tx で送り直しても「済み」で返る（2回は効かない）。口を配り直すと
  *         pageSetTitle が済み、oplog にその書き込みの行（役 app・tx 'a:…'）が1つだけある。
- * 結果は 1 行ずつ OK／NG で出す。15 件そろって全部 OK なら終了コード 0、そうでなければ 1（exitCodeOf）。
+ *   16.   第1d回 A-10（RL9・F19・F21。accessChecks。判定は純粋な accessResults）: メモリの partition（natsu-access-smoke。persist: なし）に
+ *         cookies.set で置いた cookie を、本物の net.request が stt-cloud.postForm（session・redirect: 'manual'）で 127.0.0.1 の口へ
+ *         Cookie の見出しとして付けるか（16a）。lax・strict（secure なし）の2つが届き、X-Requested-With が付き、302 で 'redirect' が起きて
+ *         ついて行かず（postForm は 'server' で終わる）、その後に来た出来事（abort・error・close・何も来ない）を記録し、userData の下に
+ *         Partitions のフォルダを作らない。Secure・SameSite=None の cookie を http://127.0.0.1 に置けたか（secureLoopback）と届いたかは観測。
+ *         置けなければ Windows では 16b: PowerShell の New-SelfSignedCertificate（CN=127.0.0.1・CurrentUser\My）と Export-PfxCertificate で作った
+ *         一時の証明書で 127.0.0.1 に https の口を開き、その partition にだけ setCertificateVerifyProc でその証明書の指紋だけを通して、
+ *         Secure・SameSite=None・HttpOnly の cookie が届くかを見る。終わったら証明書を店とファイルの両方から消す（鍵はリポジトリに置かない）
+ * 結果は 1 行ずつ OK／NG で出す。16 件そろって全部 OK なら終了コード 0、そうでなければ 1（exitCodeOf）。
  * どこかで止まっても、90 秒の見張りで 1 で終わる。
  *
  * Electron を読むのは、Electron の main として動いたときだけ（下の boot。tools/net-smoke.js と同じ形）。
@@ -49,6 +57,7 @@ const sttCloud = require('../../src/stt-cloud');
 const { makeSecrets } = require('../../src/secrets');
 const J = require('../../src/jsonfile');
 const { startFakeStt } = require('../../test/helpers/fake-stt');
+const { execFile } = require('child_process');
 const { versionIssue, versionGate } = require('../electron-version');
 
 const CHECKS = [
@@ -68,6 +77,8 @@ const CHECKS = [
   [14, 'safeStorage の非同期: 暗号にして同じ文字に戻り、secrets.js でしまって読み返せる（Linux の basic_text は「使えない」で OK）'],
   [15, '本物の src/db/server.js（utilityProcess・NaTsu DB）に main の口で締めを書き、本物の src/preload.js（sandbox の窓）の koeApp.pageGet が routeText 付きで返す。'
     + '口は window に出ない。子を落とすと読みは失敗で返り、書き込みは起こし直した後に1回だけ効く'],
+  [16, 'Access の cookie: メモリの partition に cookies.set で置いた cookie を、本物の net.request が postForm（session・useSessionCookies）で 127.0.0.1 へ付け、'
+    + 'X-Requested-With が付き、redirect: manual の 302 についていかない。Partitions のフォルダを作らない（Secure は観測。置けなければ Windows で https の 16b）'],
 ];
 
 // 13 の送るもの。欄は test/stt-cloud.test.js の OL2 と同じ（鍵は試し用の決まった文字。本物の鍵ではない）
@@ -251,6 +262,34 @@ function dbResults(o) {
   return [{ n: 15, ok, note }];
 }
 
+/**
+ * 16 の判定（純粋）。accessChecks が本物の Electron で集めた観測を渡す。
+ * @param {{ platform: string, laxStrictSent: boolean, xrw: boolean, secureLoopback: boolean, secureSent: boolean, redirectEvent: boolean,
+ *   redirectCode: string, targetHits: number, afterRedirect: string, partitionsDir: boolean, https?: { ran: boolean, sent?: boolean, error?: string },
+ *   error?: string }} o
+ *   laxStrictSent は口が受けた Cookie の見出しに lax・strict の2つの cookie があったか。xrw は X-Requested-With: XMLHttpRequest があったか。
+ *   secureLoopback は Secure・SameSite=None の cookie を http://127.0.0.1 に cookies.set で置けたか、secureSent はそれが届いたか（どちらも観測）。
+ *   redirectEvent は 302 で 'redirect' が起きたか、redirectCode は postForm の失敗の符号（行き先が 127.0.0.1 なので 'server'）、
+ *   targetHits は転送の先が受けた要求の数、afterRedirect は 'redirect' の後に来た出来事（観測）。partitionsDir は userData の下に
+ *   Partitions があるか。https は 16b（Secure を置けない Windows だけ動かす）の結果
+ * @returns {Array<{ n: number, ok: boolean, note: string }>}
+ */
+function accessResults(o) {
+  const x = o || {};
+  const j = (v) => JSON.stringify(v);
+  const h = x.https && typeof x.https === 'object' ? x.https : null;
+  const secureOk = x.secureLoopback === true || x.platform !== 'win32' || Boolean(h && h.ran === true && h.sent === true);
+  const ok = !x.error && x.laxStrictSent === true && x.xrw === true && x.redirectEvent === true && x.redirectCode === 'server'
+    && x.targetHits === 0 && x.partitionsDir === false && secureOk && Object.keys(x).length > 0;
+  const https = h ? `、16b（https）は ${h.ran === true ? `動いて Secure の cookie が ${h.sent === true ? '届いた' : '届かない'}` : `動かない（${j(h.error || '?')}）`}` : '';
+  const note = `lax・strict の cookie は ${x.laxStrictSent === true ? '届いた' : '届かない'}、X-Requested-With は ${x.xrw === true ? 'ある' : '無い'}、`
+    + `Secure の cookie を http://127.0.0.1 に ${x.secureLoopback === true ? `置けて${x.secureSent === true ? '届いた' : '届かない'}` : '置けない'}（観測）${https}、`
+    + `302 で redirect は ${x.redirectEvent === true ? '起きた' : '起きない'}（postForm は ${j(x.redirectCode)}・転送の先が受けたのは ${j(x.targetHits)} 件・`
+    + `後に来たのは ${j(x.afterRedirect || 'none')}）、Partitions のフォルダは ${x.partitionsDir === false ? '無い' : `ある（${j(x.partitionsDir)}）`}`
+    + `${x.error ? `、止まった: ${x.error}` : ''}`;
+  return [{ n: 16, ok, note }];
+}
+
 /** 結果を n の順に 1 行ずつ出し、出力を流し切ってから、exitCodeOf の値で Electron を終える */
 function finish(app, results, { log = (l) => console.log(l), flush = (cb) => process.stdout.write('', cb) } = {}) {
   const list = Array.isArray(results) ? results : [];
@@ -370,6 +409,7 @@ function boot() {
     results.push(...await dbChecks({ BrowserWindow, utilityProcess, MessageChannelMain }));
     results.push(...await securityChecks({ app, BrowserWindow, session }));
     results.push(...await onlineChecks({ app, net, safeStorage }));
+    results.push(...await accessChecks({ app, net, session }));
     finish(app, results);
   }, die('起動の失敗'));
 }
@@ -721,10 +761,139 @@ async function reEncryptCheck({ file, safeStorage }) {
     && !text.includes(SMOKE_STT.key) && back === SMOKE_STT.key;
 }
 
+/**
+ * 16: 本物の net.request と、メモリの partition（natsu-access-smoke）の cookie で観測を集める（判定は accessResults）。
+ * 送り先は 127.0.0.1 の口だけ（外へはつながない）。どこかで止まっても観測を残して判定に回す（見張りの 90 秒を待たない）。
+ */
+async function accessChecks({ app, net, session }) {
+  const o = { platform: process.platform, targetHits: 0 };
+  const got = [];
+  let server = null;
+  try {
+    const ses = session.fromPartition('natsu-access-smoke');
+    server = http.createServer((req, res) => {
+      req.resume();
+      req.on('end', () => {
+        got.push({ url: req.url, headers: req.headers });
+        if (req.url.startsWith('/r302')) { res.writeHead(302, { location: `http://127.0.0.1:${server.address().port}/target` }); res.end(); return; }
+        if (req.url.startsWith('/target')) o.targetHits += 1;
+        res.writeHead(200, { 'content-type': 'application/json' });
+        res.end('{}');
+      });
+    });
+    await new Promise((resolve, reject) => { server.once('error', reject); server.listen(0, '127.0.0.1', resolve); });
+    const base = `http://127.0.0.1:${server.address().port}`;
+    const expirationDate = Math.floor(Date.now() / 1000) + 3600;
+    // url だけで置く = host-only。Chromium は SameSite=None を Secure なしでは置かない
+    await within(ses.cookies.set({ url: base, name: 'a_lax', value: '1', httpOnly: true, secure: false, sameSite: 'lax', expirationDate }), 10000, 'cookies.set（lax）');
+    await within(ses.cookies.set({ url: base, name: 'a_strict', value: '1', httpOnly: true, secure: false, sameSite: 'strict', expirationDate }), 10000, 'cookies.set（strict）');
+    try {
+      await within(ses.cookies.set({ url: base, name: 'a_none', value: '1', httpOnly: true, secure: true, sameSite: 'no_restriction', expirationDate }), 10000, 'cookies.set（Secure）');
+      o.secureLoopback = true;
+    } catch (e) {
+      o.secureLoopback = false;
+      o.secureSetError = msgOf(e);
+    }
+    const request = (opts) => net.request(opts);
+    await within(sttCloud.postForm({ request, url: `${base}/ok`, method: 'GET', session: ses, redirect: 'manual', timeoutMs: 10000 }), 15000, '16a の送り');
+    const h = (got.find((g) => g.url === '/ok') || {}).headers || {};
+    const sent = String(h.cookie || '').split(';').map((x) => x.trim());
+    o.laxStrictSent = sent.includes('a_lax=1') && sent.includes('a_strict=1');
+    o.secureSent = sent.includes('a_none=1');
+    o.xrw = h['x-requested-with'] === 'XMLHttpRequest';
+    // 302: 'redirect' が起きて、followRedirect を呼ばなければ転送の先に要求が来ない。その後の出来事を記録する
+    let after = '';
+    const watching = (opts) => {
+      const r = net.request(opts);
+      r.on('redirect', () => { o.redirectEvent = true; });
+      for (const ev of ['abort', 'error', 'close']) r.on(ev, (e) => { if (o.redirectEvent && !after) after = ev + (e && e.message ? `（${e.message}）` : ''); });
+      return r;
+    };
+    try {
+      await within(sttCloud.postForm({ request: watching, url: `${base}/r302`, method: 'GET', session: ses, redirect: 'manual', timeoutMs: 10000 }), 15000, '16a の 302');
+      o.redirectCode = '失敗にならない';
+    } catch (e) {
+      o.redirectCode = e instanceof sttCloud.CloudSttError ? e.code : `投げた（${msgOf(e)}）`;
+    }
+    await wait(300);
+    o.redirectEvent = o.redirectEvent === true;
+    o.afterRedirect = after || 'none';
+    if (!o.secureLoopback && process.platform === 'win32') o.https = await accessHttpsCheck({ ses, net });
+    o.partitionsDir = ['userData', 'sessionData'].some((k) => fs.existsSync(path.join(app.getPath(k), 'Partitions')));
+  } catch (e) {
+    o.error = msgOf(e);
+  } finally {
+    if (server) await new Promise((r) => { server.close(() => r()); server.closeAllConnections(); });
+  }
+  return accessResults(o);
+}
+
+// 16b の PowerShell（一時の証明書を CurrentUser\My に作り、鍵つきで pfx に書き出し、指紋と DER を返す）。値は環境変数で渡す
+const MAKE_CERT_PS = [
+  "$ErrorActionPreference = 'Stop'",
+  "$c = New-SelfSignedCertificate -Subject 'CN=127.0.0.1' -CertStoreLocation 'Cert:\\CurrentUser\\My' -KeyExportPolicy Exportable -KeyAlgorithm RSA -KeyLength 2048 "
+    + "-NotAfter (Get-Date).AddDays(1) -TextExtension @('2.5.29.17={text}IPAddress=127.0.0.1')",
+  '$p = ConvertTo-SecureString -String $env:NATSU_PFX_PASS -Force -AsPlainText',
+  'Export-PfxCertificate -Cert $c -FilePath $env:NATSU_PFX_PATH -Password $p -CryptoAlgorithmOption TripleDES_SHA1 | Out-Null',
+  "Write-Output ($c.Thumbprint + ' ' + [Convert]::ToBase64String($c.RawData))",
+].join('; ');
+
+const powershell = (command, env, ms) => new Promise((resolve, reject) => {
+  execFile('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', command],
+    { env: { ...process.env, ...env }, timeout: ms, windowsHide: true }, (err, stdout) => (err ? reject(err) : resolve(String(stdout))));
+});
+
+/**
+ * 16b（Secure を http://127.0.0.1 に置けない Windows だけ）: 一時の証明書で 127.0.0.1 に https の口を開き、その partition にだけ
+ * setCertificateVerifyProc でその証明書の指紋（sha256）だけを通して、Secure・SameSite=None・HttpOnly の cookie が届くかを見る。
+ * 終わったら証明書を店（Remove-Item）とファイル（一時フォルダごと）の両方から消し、確かめの口を外す。→ { ran, sent, error? }
+ */
+async function accessHttpsCheck({ ses, net }) {
+  const out = { ran: false };
+  let tmp = '';
+  let thumb = '';
+  let server = null;
+  try {
+    tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'natsu-smoke-https-証明書𠮷-'));
+    const pfxPath = path.join(tmp, 'smoke.pfx');
+    const pass = crypto.randomBytes(16).toString('hex');
+    const line = (await within(powershell(MAKE_CERT_PS, { NATSU_PFX_PASS: pass, NATSU_PFX_PATH: pfxPath }, 30000), 35000, '証明書を作る')).trim().split(/\s+/);
+    thumb = /^[0-9A-F]{40}$/i.test(line[0] || '') ? line[0] : '';
+    if (!thumb || !line[1]) throw new Error('証明書の指紋が返らない');
+    const want = 'sha256/' + crypto.createHash('sha256').update(Buffer.from(line[1], 'base64')).digest('base64');
+    const https = require('https');
+    let cookie = '';
+    server = https.createServer({ pfx: fs.readFileSync(pfxPath), passphrase: pass }, (req, res) => {
+      req.resume();
+      req.on('end', () => { cookie = String(req.headers.cookie || ''); res.writeHead(200, { 'content-type': 'application/json' }); res.end('{}'); });
+    });
+    await new Promise((resolve, reject) => { server.once('error', reject); server.listen(0, '127.0.0.1', resolve); });
+    const base = `https://127.0.0.1:${server.address().port}`;
+    ses.setCertificateVerifyProc((req, cb) => cb(req.hostname === '127.0.0.1' && req.certificate && req.certificate.fingerprint === want ? 0 : -2));
+    await within(ses.cookies.set({ url: base, name: 'a_none', value: '1', httpOnly: true, secure: true, sameSite: 'no_restriction',
+      expirationDate: Math.floor(Date.now() / 1000) + 3600 }), 10000, 'cookies.set（https の Secure）');
+    await within(sttCloud.postForm({ request: (opts) => net.request(opts), url: `${base}/ok`, method: 'GET', session: ses, redirect: 'manual', timeoutMs: 10000 }), 15000, '16b の送り');
+    out.ran = true;
+    out.sent = cookie.split(';').map((x) => x.trim()).includes('a_none=1');
+  } catch (e) {
+    out.error = msgOf(e);
+  } finally {
+    try { ses.setCertificateVerifyProc(null); } catch (_) { /* 外せなくても判定は出す */ }
+    if (server) await new Promise((r) => { server.close(() => r()); server.closeAllConnections(); });
+    if (thumb) {
+      try { await within(powershell(`Remove-Item -Path ('Cert:\\CurrentUser\\My\\' + $env:NATSU_THUMB) -DeleteKey`, { NATSU_THUMB: thumb }, 30000), 35000, '証明書を消す'); } catch (e) {
+        out.cleanup = `証明書を消せない: ${msgOf(e)}`;
+      }
+    }
+    if (tmp) { try { fs.rmSync(tmp, { recursive: true, force: true }); } catch (_) { /* 消せなくても判定は出す */ } }
+  }
+  return out;
+}
+
 if (process.versions.electron && process.type === 'browser') boot();
 else if (require.main === module) {
   console.error('electron-smoke は Electron の main として動かす: <electron の実行ファイル> tools/electron-smoke');
   process.exitCode = 2;
 }
 
-module.exports = { CHECKS, SMOKE_STT, SMOKE_DB, exitCodeOf, clipboardChecks, securityResults, onlineResults, dbResults, reEncryptCheck, finish };
+module.exports = { CHECKS, SMOKE_STT, SMOKE_DB, exitCodeOf, clipboardChecks, securityResults, onlineResults, dbResults, accessResults, reEncryptCheck, finish };

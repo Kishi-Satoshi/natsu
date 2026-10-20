@@ -2,13 +2,16 @@
  * relay-app.test.js — 第1d回 RL9・F5: アプリの中継の口（src/relay.js のログインの口と、stt-cloud.transcribeRelay）を、
  * 本物の中継のコード（relay/worker.mjs）を 127.0.0.1 で動かした台（helpers/relay-local.js）を相手に試す。
  * アプリの側は偽の net.request（helpers/fake-net.js）で送り、RELAY_BASE を 127.0.0.1 の中継へ書き換える。外へはつながない。
+ * 第1d回 A-10（RL9・F19・F21）: Cloudflare Access の cookie で送る道（偽の session の cookie・useSessionCookies・X-Requested-With・
+ * redirect: 'manual'）と Access の答えの分け方を、relay-local の偽の Access の前（startRelayLocal({ access: true })）を相手に見る。
+ * 札（nt1_）の道は A-11 まで残る（今の main がまだ札でログインする移り目）ので、札の試しはそのまま。
  */
 'use strict';
 
 const test = require('node:test');
 const assert = require('node:assert');
 const http = require('node:http');
-const { makeFakeRequest } = require('./helpers/fake-net');
+const { makeFakeRequest, makeFakeSession } = require('./helpers/fake-net');
 const R = require('./helpers/relay-run');
 const relay = require('../src/relay');
 const C = require('../src/stt-cloud');
@@ -264,7 +267,7 @@ test('F5: 1日の上限は daily-cap（retryAfter つき）、残高が無けれ
 test('F5: redoLocally が偽なのは rate・rate-long だけ（ほかは全部、その区間を手元でやり直す）', () => {
   const E = (code) => new C.CloudSttError(code);
   for (const code of ['rate', 'rate-long']) assert.strictEqual(C.redoLocally(E(code)), false, code);
-  for (const code of ['offline', 'cert', 'proxy', 'timeout', 'net', 'login', 'server', 'upstream-auth', 'quota', 'daily-cap',
+  for (const code of ['offline', 'cert', 'proxy', 'timeout', 'net', 'login', 'denied', 'server', 'upstream-auth', 'quota', 'daily-cap',
     'too-large', 'bad-request', 'bad-reply', 'zzz-unknown']) assert.strictEqual(C.redoLocally(E(code)), true, code);
   assert.strictEqual(C.redoLocally(new Error('x')), true, 'CloudSttError でない失敗も手元で');
   assert.strictEqual(C.redoLocally(null), true);
@@ -300,5 +303,256 @@ test('RL9: 200 でも中継の約束の形でない答えは bad-reply（札の�
     for (const r of replies) assert.deepStrictEqual(await api.verify(R.mail('a'), '123456'), { ok: false, code: 'bad-reply' }, JSON.stringify(r));
   } finally {
     await new Promise((r) => { s.close(() => r()); s.closeAllConnections(); });
+  }
+});
+
+// ================= 第1d回 A-10（RL9・F19・F21）: Access の cookie の道 =================
+const HOST = new URL(relay.RELAY_BASE).hostname;
+
+async function withAccess(opts, fn) {
+  const rl = await startRelayLocal({ ...opts, access: true });
+  try { return await fn(rl); } finally { await rl.close(); }
+}
+// 偽の Access がその人に出した CF_Authorization を、偽の session（メモリの partition の代わり）に置く
+async function sessionFor(rl, email = R.mail('a'), opts) {
+  const s = makeFakeSession();
+  await s.cookies.set(await rl.cookieFor(email, opts));
+  return s;
+}
+const cookieCall = (rl, session, extra = {}) => ({ request: rl.request, provider: relay.relayProvider(), session, language: 'ja', prompt: '', sleep: noSleep, ...extra });
+
+test('RL9: Access の名前と形（ACCESS_PARTITION は persist: の無いメモリの partition・LOGIN_URL・LOGOUT_URL は中継の住所の下）', () => {
+  assert.strictEqual(relay.ACCESS_PARTITION, 'natsu-access');
+  assert.ok(!relay.ACCESS_PARTITION.startsWith('persist:'), 'cookie をディスクに置く partition になった（F21）');
+  assert.strictEqual(relay.LOGIN_URL, relay.RELAY_BASE + '/auth/done');
+  assert.strictEqual(relay.LOGOUT_URL, relay.RELAY_BASE + '/cdn-cgi/access/logout');
+  assert.strictEqual(relay.classifyAuth, C.classifyAuth, 'classifyAuth は stt-cloud と同じ1つ');
+  assert.strictEqual(relay.isAccessHost, C.isAccessHost);
+});
+
+test('RL9・F21: transcribeRelay は session の cookie で送り、Authorization も cf-access-token も付けない。X-Requested-With: XMLHttpRequest と redirect: \'manual\' が付く', { timeout: 5000 }, async () => {
+  await withAccess({ stt: { text: SAID } }, async (rl) => {
+    const session = await sessionFor(rl);
+    const cookie = (await session.cookies.get({ name: 'CF_Authorization' }))[0].value;
+    const w = wav(1);
+    assert.strictEqual(await C.transcribeRelay(w, cookieCall(rl, session, { prompt: '見積' })), `${SAID}区間1`);
+    const s = rl.sent.at(-1);
+    assert.strictEqual(`${s.method} ${s.url}`, `POST ${relay.RELAY_BASE}/v1/audio/transcriptions`);
+    assert.deepStrictEqual([s.redirect, s.useSessionCookies, s.session === session], ['manual', true, true]);
+    assert.deepStrictEqual(Object.keys(s.headers).sort(), ['Content-Type', 'X-Natsu-Language', 'X-Natsu-Prompt', 'X-Requested-With']);
+    assert.strictEqual(s.headers['X-Requested-With'], 'XMLHttpRequest');
+    assert.ok(s.body.equals(w), '本文が WAV そのものでない');
+    // 線の上（偽の Access の前が受けた要求）では、cookie は Cookie の見出しにだけある（アプリは見出しに札を入れない）
+    const got = rl.received.at(-1);
+    assert.strictEqual(got.path, '/v1/audio/transcriptions');
+    assert.ok(String(got.headers.cookie).split('; ').includes('CF_Authorization=' + cookie), 'cookie が届いていない');
+    assert.ok(!('authorization' in got.headers) && !('cf-access-token' in got.headers), '見出しに札を入れた');
+    assert.strictEqual(got.headers['x-requested-with'], 'XMLHttpRequest');
+    // アプリが組んだ見出し・URL・本文に cookie の値は無い（Chromium が付ける）
+    for (const x of rl.sent) {
+      assert.ok(!x.url.includes(cookie) && !x.body.includes(Buffer.from(cookie)), 'URL か本文に cookie');
+      for (const v of Object.values(x.headers)) assert.ok(!String(v).includes(cookie), '見出しに cookie');
+    }
+    // Worker 単位の Access が Cf-Access-Jwt-Assertion を付けず Cookie だけを渡す形でも通る
+    rl.setFront('cookie-only');
+    assert.strictEqual(await C.transcribeRelay(w, cookieCall(rl, session)), `${SAID}区間2`);
+    assert.strictEqual(rl.stt.requests.length, 2);
+    // cookie の無い session は Access の前で止まり（X-Requested-With があるので 401）、中継の後ろの OpenAI へは行かない
+    rl.setFront('');
+    const e = await codeOf(C.transcribeRelay(w, cookieCall(rl, makeFakeSession())));
+    assert.deepStrictEqual([e.code, e.status], ['login', 401]);
+    assert.strictEqual(rl.stt.requests.length, 2);
+  });
+});
+
+test('F19: cf-ray のある中継の形でない 401 → login・cf-ray の無い HTML の 401 → server・302 で行き先が *.cloudflareaccess.com → login（ついて行かない）・ほかの 302 → server・中継の JSON の 403 denied → denied・cf-ray のある中継の形でない 403 → server・中継の JSON の 503 not-ready → server', { timeout: 5000 }, async () => {
+  await withAccess({}, async (rl) => {
+    const email = R.mail('a');
+    const session = await sessionFor(rl, email);
+    const codeFor = async (s = session) => { const e = await codeOf(C.transcribeRelay(wav(1), cookieCall(rl, s))); return [e.code, e.status]; };
+    rl.setFront('access401');
+    assert.deepStrictEqual(await codeFor(), ['login', 401], 'Access の前の 401');
+    rl.setFront('html401');
+    assert.deepStrictEqual(await codeFor(), ['server', 401], '会社の通信の検査の 401 をログイン切れにした（全員のログインを消してしまう）');
+    rl.setFront('access302');
+    const before = rl.received.length;
+    assert.deepStrictEqual(await codeFor(), ['login', 302], 'Access のログインの画面への 302');
+    assert.strictEqual(rl.received.length, before + 1, '302 の後にもう一度送った');
+    rl.setFront('redirect-other');
+    assert.deepStrictEqual(await codeFor(), ['server', 302], 'ほかのホストへの 302 をログイン切れにした');
+    rl.setFront('access403');
+    assert.deepStrictEqual(await codeFor(), ['server', 403], 'cf-ray のある 403 を denied にした（Cloudflare の 403 は Access のほかにも出る）');
+    rl.setFront('');
+    assert.deepStrictEqual(await codeFor(await sessionFor(rl, R.mail('a', 'example.net'))), ['denied', 403], '中継の 403 denied');
+    // Zero Trust の Revoke と同じ: 偽の Access の前がその人の cookie を断る → X-Requested-With があるので cf-ray つきの 401
+    rl.revokeAt(email);
+    assert.deepStrictEqual(await codeFor(), ['login', 401]);
+    assert.strictEqual(rl.stt.requests.length, 0, 'どれも OpenAI へ送っていない');
+  });
+  // 秘密の欄の入れ間違い（POLICY_AUD が別の app のもの）は中継の 503 not-ready → server（cookie を残す: F28）
+  await withAccess({ env: { POLICY_AUD: 'f'.repeat(64) } }, async (rl) => {
+    const e = await codeOf(C.transcribeRelay(wav(1), cookieCall(rl, await sessionFor(rl))));
+    assert.deepStrictEqual([e.code, e.status], ['server', 503]);
+    assert.strictEqual(C.redoLocally(e), true);
+  });
+});
+
+test('F19: classifyAuth の表（cf-ray は見出しがあるかだけを見る。3xx は行き先のホストだけ）', () => {
+  const A = C.classifyAuth;
+  const j = (o) => Buffer.from(JSON.stringify(o));
+  assert.strictEqual(A({ status: 401, headers: {}, body: j({ error: 'login' }) }), 'login');
+  assert.strictEqual(A({ status: 401, headers: { 'cf-ray': ['8c0ffee-NRT'] }, body: Buffer.from('<html>Forbidden</html>') }), 'login');
+  assert.strictEqual(A({ status: 401, headers: { 'cf-ray': '' }, body: Buffer.from('<html></html>') }), 'login', 'cf-ray の値は見ない');
+  assert.strictEqual(A({ status: 401, headers: { 'content-type': 'text/html' }, body: Buffer.from('<html>Sign in</html>') }), 'server');
+  assert.strictEqual(A({ status: 401, headers: { 'cf-ray': 'x' }, body: j({ error: 'other' }) }), 'server', '中継の形の 401 で login でない');
+  assert.strictEqual(A({ status: 403, headers: { 'cf-ray': 'x' }, body: j({ error: 'denied' }) }), 'denied');
+  assert.strictEqual(A({ status: 403, headers: { 'cf-ray': 'x' }, body: Buffer.from('<html>Access denied</html>') }), 'server');
+  assert.strictEqual(A({ status: 403, headers: {}, body: j({ error: 'service' }) }), 'server');
+  for (const st of [301, 302, 303, 307, 308]) {
+    assert.strictEqual(A({ status: st, headers: {}, location: 'https://natsu-test.cloudflareaccess.com/cdn-cgi/access/login/x?kid=1' }), 'login', String(st));
+    assert.strictEqual(A({ status: st, headers: {}, location: 'https://proxy.example/block' }), 'server', String(st));
+  }
+  for (const loc of ['https://cloudflareaccess.com/x', 'https://cloudflareaccess.com.evil.example/x', '/cdn-cgi/access/login', '', undefined, 'not a url']) {
+    assert.strictEqual(A({ status: 302, headers: {}, location: loc }), 'server', String(loc));
+  }
+  for (const st of [200, 400, 413, 429, 500, 502, 503]) assert.strictEqual(A({ status: st, headers: { 'cf-ray': 'x' }, body: j({ error: 'login' }) }), '', String(st));
+  assert.strictEqual(A({}), '');
+});
+
+test('RL9: makeAccessApi.me() は cookie で /v1/me を開き { ok, email, exp, via }。401 → login・403 → denied・届かない → 通信の符号（投げない）', { timeout: 5000 }, async () => {
+  await withAccess({}, async (rl) => {
+    const email = R.mail('a');
+    const session = await sessionFor(rl, email);
+    const api = relay.makeAccessApi({ request: rl.request, session });
+    assert.deepStrictEqual(Object.keys(api), ['me'], 'ほかの口が増えた');
+    const m = await api.me();
+    assert.deepStrictEqual(Object.keys(m).sort(), ['email', 'exp', 'ok', 'via']);
+    assert.deepStrictEqual([m.ok, m.email, m.via], [true, email, 'hdr']);
+    assert.ok(Number.isInteger(m.exp) && m.exp > rl.clock.now() / 1000, String(m.exp));
+    const s = rl.sent.at(-1);
+    assert.deepStrictEqual([`${s.method} ${s.url}`, s.redirect, s.useSessionCookies, s.session === session],
+      [`GET ${relay.RELAY_BASE}/v1/me`, 'manual', true, true]);
+    assert.deepStrictEqual(s.headers, { 'X-Requested-With': 'XMLHttpRequest' });
+    rl.setFront('cookie-only');
+    assert.strictEqual((await api.me()).via, 'cookie');
+    rl.setFront('access302');
+    assert.deepStrictEqual(await api.me(), { ok: false, code: 'login' });
+    rl.setFront('redirect-other');
+    assert.deepStrictEqual(await api.me(), { ok: false, code: 'server' });
+    rl.setFront('html401');
+    assert.deepStrictEqual(await api.me(), { ok: false, code: 'server' });
+    rl.setFront('drop');
+    assert.deepStrictEqual(await api.me(), { ok: false, code: 'net' });
+    rl.setFront('');
+    assert.deepStrictEqual(await relay.makeAccessApi({ request: rl.request, session: makeFakeSession() }).me(), { ok: false, code: 'login' }, 'cookie が無い');
+    assert.deepStrictEqual(await relay.makeAccessApi({ request: rl.request, session: await sessionFor(rl, R.mail('b', 'example.net')) }).me(), { ok: false, code: 'denied' });
+    rl.revokeAt(email);
+    assert.deepStrictEqual(await api.me(), { ok: false, code: 'login' });
+  });
+  await withAccess({ env: { POLICY_AUD: 'e'.repeat(64) } }, async (rl) => {
+    assert.deepStrictEqual(await relay.makeAccessApi({ request: rl.request, session: await sessionFor(rl) }).me(), { ok: false, code: 'not-ready' });
+  });
+  const base = await closedBase();
+  const r = await relay.makeAccessApi({ request: makeFakeRequest(), session: makeFakeSession(), base }).me();
+  assert.strictEqual(r.ok, false);
+  assert.ok(['offline', 'net'].includes(r.code), r.code);
+});
+
+test('RL9: makeAccessApi.me() は 200 でも形の違う答え（email が文字でない・exp が整数でない・via が知らない値・JSON でない）を bad-reply にする', { timeout: 5000 }, async () => {
+  const replies = [{ email: 1, exp: 1, via: 'hdr' }, { email: R.mail('a'), exp: '1', via: 'hdr' }, { email: R.mail('a'), exp: 1, via: 'ctx' }, 'not json', [1]];
+  let i = 0;
+  const s = http.createServer((req, res) => {
+    req.resume();
+    req.on('end', () => {
+      const r = replies[i++];
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(typeof r === 'string' ? r : JSON.stringify(r));
+    });
+  });
+  await new Promise((r) => s.listen(0, '127.0.0.1', r));
+  try {
+    const api = relay.makeAccessApi({ request: makeFakeRequest(), session: makeFakeSession(), base: `http://127.0.0.1:${s.address().port}` });
+    for (const r of replies) assert.deepStrictEqual(await api.me(), { ok: false, code: 'bad-reply' }, JSON.stringify(r));
+  } finally {
+    await new Promise((r) => { s.close(() => r()); s.closeAllConnections(); });
+  }
+});
+
+const ck = (o = {}) => ({ name: 'CF_Authorization', value: 'aa.bb.cc', domain: HOST, hostOnly: true, path: '/', secure: true, httpOnly: true,
+  session: false, sameSite: 'no_restriction', expirationDate: 2000000000.5, ...o });
+
+test('F21: packCookies は中継のホストちょうど（host-only か \'.\' ＋中継のホスト）の CF_Authorization と CF_Binding だけ（親のドメイン・ほかのホスト・CF_AppSession などほかの名前は捨てる）・CF_Authorization が無ければ \'\'・8KB まで・until は me() の exp', () => {
+  const text = relay.packCookies([
+    ck(),
+    ck({ name: 'CF_Binding', value: 'bind1' }),
+    ck({ name: 'CF_AppSession', value: 'app1' }),
+    ck({ name: 'CF_Other', value: 'oth1' }),
+    ck({ domain: '.natsu-code.workers.dev', hostOnly: false, value: 'parent1' }),
+    ck({ domain: 'other.example', value: 'other1' }),
+    ck({ domain: HOST + '.evil.example', value: 'evil1' }),
+    ck({ domain: '.' + HOST, hostOnly: false, value: 'dot1', sameSite: 'lax', httpOnly: false }),
+  ], { exp: 1900000000 });
+  const j = JSON.parse(text);
+  assert.deepStrictEqual(Object.keys(j), ['v', 'until', 'c']);
+  assert.deepStrictEqual([j.v, j.until], [1, 1900000000]);
+  assert.deepStrictEqual(j.c.map((c) => [c.name, c.value, c.domain, c.hostOnly]),
+    [['CF_Authorization', 'aa.bb.cc', HOST, true], ['CF_Binding', 'bind1', HOST, true], ['CF_Authorization', 'dot1', '.' + HOST, false]]);
+  assert.deepStrictEqual(j.c[0], { name: 'CF_Authorization', value: 'aa.bb.cc', path: '/', secure: true, httpOnly: true, sameSite: 'no_restriction',
+    hostOnly: true, domain: HOST, expirationDate: 2000000000.5 });
+  assert.deepStrictEqual([j.c[2].sameSite, j.c[2].httpOnly], ['lax', false]);
+  for (const w of ['app1', 'oth1', 'parent1', 'other1', 'evil1']) assert.ok(!text.includes(w), `${w} をしまった`);
+  // CF_Authorization が無い・名前の大文字小文字が違う・値が 8KB を越える・値が空 → ''
+  assert.strictEqual(relay.packCookies([ck({ name: 'CF_Binding' })], { exp: 1 }), '');
+  assert.strictEqual(relay.packCookies([ck({ name: 'cf_authorization' })], { exp: 1 }), '');
+  assert.strictEqual(relay.packCookies([ck({ value: 'a'.repeat(8193) })], { exp: 1 }), '');
+  assert.ok(relay.packCookies([ck({ value: 'a'.repeat(8192) })], { exp: 1 }).length > 8192);
+  assert.strictEqual(relay.packCookies([ck({ value: '' })], { exp: 1 }), '');
+  assert.strictEqual(relay.packCookies([ck({ value: 'a;b' })], { exp: 1 }), '');
+  assert.strictEqual(relay.packCookies([], { exp: 1 }), '');
+  assert.strictEqual(relay.packCookies(null), '');
+  // until: exp が無ければ、しまう cookie のいちばん早い expirationDate（秒）。それも無ければ null
+  assert.strictEqual(JSON.parse(relay.packCookies([ck({ expirationDate: 1800000000.9 }), ck({ name: 'CF_Binding', expirationDate: 1700000000.2 })])).until, 1700000000);
+  assert.strictEqual(JSON.parse(relay.packCookies([ck({ expirationDate: undefined, session: true })], {})).until, null);
+  assert.ok(!('expirationDate' in JSON.parse(relay.packCookies([ck({ expirationDate: undefined })], {})).c[0]));
+});
+
+test('F21: unpackCookies は期限の切れたものを expired、nt1_ の前の試しの札を old、壊れた形を shape にし、名前と domain の照らしをもう一度かける', () => {
+  const text = relay.packCookies([ck(), ck({ name: 'CF_Binding', value: 'bind1' })], { exp: 1900000000 });
+  const u = relay.unpackCookies(text, 1800000000);
+  assert.deepStrictEqual(Object.keys(u).sort(), ['cookies', 'ok', 'until']);
+  assert.deepStrictEqual([u.ok, u.until, u.cookies.map((c) => c.name)], [true, 1900000000, ['CF_Authorization', 'CF_Binding']]);
+  assert.deepStrictEqual(relay.unpackCookies(text, 1900000000), { ok: false, why: 'expired' });
+  assert.deepStrictEqual(relay.unpackCookies(text, 1900000001), { ok: false, why: 'expired' });
+  // until が null（期限の分からない cookie）は切れていない
+  const noUntil = relay.packCookies([ck({ expirationDate: undefined })], {});
+  assert.strictEqual(relay.unpackCookies(noUntil, 1900000000).ok, true);
+  assert.deepStrictEqual(relay.unpackCookies('nt1_' + 'A'.repeat(43), 1), { ok: false, why: 'old' });
+  for (const bad of ['', '{', 'null', '[]', '{"v":2,"until":null,"c":[]}', '{"v":1,"until":"x","c":[]}', '{"v":1,"until":null,"c":{}}', null, undefined, 7]) {
+    assert.deepStrictEqual(relay.unpackCookies(bad, 1), { ok: false, why: 'shape' }, String(bad));
+  }
+  // しまった文字が書き換えられて、親のドメインやほかの名前の cookie だけになっていたら戻さない
+  const forged = JSON.stringify({ v: 1, until: null, c: [{ ...ck({ domain: '.natsu-code.workers.dev', hostOnly: false }) }, { ...ck({ name: 'CF_AppSession' }) }] });
+  assert.deepStrictEqual(relay.unpackCookies(forged, 1), { ok: false, why: 'shape' });
+  const mixed = JSON.stringify({ v: 1, until: null, c: [ck(), ck({ name: 'CF_AppSession', value: 'app1' }), ck({ domain: 'other.example', value: 'o1' })] });
+  const m = relay.unpackCookies(mixed, 1);
+  assert.deepStrictEqual(m.cookies.map((c) => [c.name, c.value]), [['CF_Authorization', 'aa.bb.cc']]);
+});
+
+test('RL9: loginNavAllowed は https の中継のホストと *.cloudflareaccess.com だけ。pinnedAccessHost を渡すと、ほかのチームの *.cloudflareaccess.com は偽', () => {
+  const T = 'natsu-test.cloudflareaccess.com';
+  for (const u of [relay.LOGIN_URL, relay.RELAY_BASE + '/cdn-cgi/access/authorized?x=1', `https://${T}/cdn-cgi/access/login/natsu`, `https://${T}/`]) {
+    assert.strictEqual(relay.loginNavAllowed(u), true, u);
+  }
+  for (const u of [`http://${HOST}/auth/done`, 'https://other.example/', `https://${HOST}.evil.example/`, 'https://natsu-relay.natsu-code.workers.dev.evil.example/',
+    'https://cloudflareaccess.com.evil.example/', 'https://cloudflareaccess.com/', `http://${T}/`, `https://${HOST}:8443/`, `https://${T}:8443/`,
+    `https://user:pw@${HOST}/`, 'https://a.b.cloudflareaccess.com/', 'https://natsu-code.workers.dev/', 'javascript:alert(1)', 'file:///C:/x', '', 'not a url', null, undefined]) {
+    assert.strictEqual(relay.loginNavAllowed(u), false, String(u));
+  }
+  assert.strictEqual(relay.loginNavAllowed(`https://${T}/x`, T), true);
+  assert.strictEqual(relay.loginNavAllowed('https://other-team.cloudflareaccess.com/x', T), false, 'ほかのチームへ行けた');
+  assert.strictEqual(relay.loginNavAllowed(relay.LOGIN_URL, T), true, '留めても中継へは戻れる');
+  assert.strictEqual(relay.isAccessHost(T), true);
+  for (const h of ['cloudflareaccess.com', 'x.cloudflareaccess.com.evil.example', '-x.cloudflareaccess.com', 'X.cloudflareaccess.com.', '', null, 3]) {
+    assert.strictEqual(relay.isAccessHost(h), false, String(h));
   }
 });

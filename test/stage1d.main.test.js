@@ -20,7 +20,7 @@ const run = (args) => new Promise((resolve, reject) => {
     });
 });
 const T = { timeout: 20000 };
-const HOST = 'natsu-relay.-unset-.workers.dev';   // src/relay.js の RELAY_BASE のホスト（実機の 0a までの仮の値）
+const HOST = new URL(require('../src/relay').RELAY_BASE).hostname;   // src/relay.js の RELAY_BASE のホスト（第1d回 A-10: 仮の値を書かずに RELAY_BASE から取る）
 // 知らせ（計画「画面と知らせの文」の L1〜L10）
 const L1 = 'この会議の音声は OpenAI に送られます（文字起こしのため）。1on1・面談など外に出したくない会議は、議事録の画面の［この会議は PC の中だけ］を押してください。';
 const L2 = 'ログインしていないため、PC の中で文字起こししています。設定の「アカウント」でログインしてください。';

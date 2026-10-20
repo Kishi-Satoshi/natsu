@@ -14,7 +14,7 @@ const path = require('node:path');
 const { execFile } = require('node:child_process');
 
 const RUN = path.join(__dirname, 'helpers', 'mainrun.js');
-const HOST = 'natsu-relay.-unset-.workers.dev';   // src/relay.js の RELAY_BASE のホスト
+const HOST = new URL(require('../src/relay').RELAY_BASE).hostname;   // src/relay.js の RELAY_BASE のホスト（第1d回 A-10: 仮の値を書かずに RELAY_BASE から取る）
 const L1 = 'この会議の音声は OpenAI に送られます（文字起こしのため）。1on1・面談など外に出したくない会議は、議事録の画面の［この会議は PC の中だけ］を押してください。';
 const L2 = 'ログインしていないため、PC の中で文字起こししています。設定の「アカウント」でログインしてください。';
 const L3 = 'ログインが切れたため、PC の中で文字起こししています。設定の「アカウント」でもう一度ログインしてください。';

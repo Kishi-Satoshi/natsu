@@ -21,6 +21,25 @@
 //                  'l' 401 login（D1 の札を全部取り消す。戻さない）・'u' 429 daily-cap の user（DAILY_USER_SEC を 1）・
 //                  'a' 503 quota（偽の OpenAI が insufficient_quota）・'e' 200 で空の文字・'L' 429 busy の長い待ち（偽の OpenAI が retry-after 3600。
 //                  アプリは rate-long）。知らない文字は投げる
+//   第1d回 A-10（RL9・F19）: startRelayLocal({ access: true }) で、中継の前に偽の Cloudflare Access の前を置く（既定は置かない。
+//                  今の札（nt1_）の場面と mainrun はそのまま。A-11 で main が cookie で送るようになったら mainrun が access: true にする）。
+//                  偽の Access（test/helpers/fake-access.js）を起こし、中継の env に TEAM_DOMAIN・POLICY_AUD・ACCESS_CERTS_BASE を足す
+//                  （env の引数はその後に重ねるので、POLICY_AUD を別の値にして F28 の場面を作れる）。前の動き:
+//                    - 要求の Cookie の CF_Authorization が rl.cookieFor で出したもので、切れていず（中継の時計）、rl.revokeAt で取り消していなければ、
+//                      客の付けた Cf-Access-Jwt-Assertion を捨ててその JWT を付け、Cookie から CF_Binding を落として中継へ渡す
+//                      （Cloudflare の資料のとおり）。'cookie-only' の間は見出しを付けずに Cookie だけを渡す（Worker 単位の Access が
+//                      見出しを付けない場合の形）
+//                    - 無い・知らない・切れた・取り消した: X-Requested-With: XMLHttpRequest があれば cf-ray つきの HTML の 401、
+//                      無ければ 302 で https://natsu-test.cloudflareaccess.com/cdn-cgi/access/login/… へ
+//                    - 移り目（W-6 まで）: Cookie の CF_Authorization が無く Authorization: Bearer がある要求は、今のまま中継へ渡す
+//                  setFront に足した答え方（access でなくても効く。どの道にも効く）: 'access401'（cf-ray つきの HTML の 401）・
+//                  'access403'（cf-ray つきの HTML の 403）・'access302'（Access のログインの画面への 302）・
+//                  'redirect-other'（ほかのホストへの 302。会社の通信の検査の転送）・'cookie-only'（上）
+//   rl.cookieFor(email, { ttlSec = 3600 }) → Promise<cookie> … 偽の Access がその人に出す CF_Authorization（中継の時計で iat・exp を付けた
+//                  本物の形の JWT）を、session.cookies.set にそのまま渡せる形 { url: RELAY_BASE, name, value, secure, httpOnly, sameSite, expirationDate } で返す
+//   rl.revokeAt(email) … その人に今までに出した cookie を、偽の Access の前で断る（Zero Trust の Revoke と同じ）
+//   rl.received  … 中継の口（偽の Access の前）が受けた要求の全部 [{ method, path, headers（小文字のキー）, relayed }]（線の上の Cookie を見る）
+//   rl.access    … 偽の Access（fa。access: true のときだけ）
 //   rl.stt・rl.resend … 偽の OpenAI・偽の Resend（requests・mails・codeFor・setMode）
 //   rl.codeFor(email) … 偽の Resend へ送った最後の確認コード
 //   rl.db・rl.env・rl.logs（中継の記録の行）・rl.clock
@@ -35,6 +54,7 @@ const { makeFakeD1 } = require('./fake-d1');
 const { makeFakeRequest } = require('./fake-net');
 const { startFakeStt } = require('./fake-stt');
 const { startFakeResend } = require('./fake-resend');
+const { startFakeAccess } = require('./fake-access');
 const { RELAY_BASE } = require('../../src/relay');
 
 const open = new Set();
@@ -58,24 +78,35 @@ function unhook(rl) {
   realFetch = null; realLog = null;
 }
 
-// node の要求 → Web の Request（本文は全部読んでから渡す）
-function toRequest(req, body) {
+// node の要求 → Web の Request（本文は全部読んでから渡す）。over: { set: { 名前: 値 }, drop: [小文字の名前], cookie: 文字 | undefined }
+function toRequest(req, body, over = {}) {
   const h = new Headers();
+  const drop = new Set(over.drop || []);
   for (let i = 0; i < req.rawHeaders.length; i += 2) {
     const k = req.rawHeaders[i];
-    if (/^(host|connection|content-length|transfer-encoding)$/i.test(k)) continue;
+    if (/^(host|connection|content-length|transfer-encoding)$/i.test(k) || drop.has(k.toLowerCase())) continue;
+    if (over.cookie !== undefined && k.toLowerCase() === 'cookie') continue;
     h.append(k, req.rawHeaders[i + 1]);
   }
+  if (over.cookie) h.set('cookie', over.cookie);
+  for (const [k, v] of Object.entries(over.set || {})) h.set(k, v);
   const init = { method: req.method, headers: h };
   if (req.method !== 'GET' && req.method !== 'HEAD') init.body = body;
   return new Request('https://relay.test' + req.url, init);
 }
+
+const cookiePairs = (header) => String(header || '').split(';').map((x) => x.trim()).filter(Boolean)
+  .map((x) => { const at = x.indexOf('='); return at < 0 ? [x, ''] : [x.slice(0, at), x.slice(at + 1)]; });
+
+const cfRay = () => crypto.randomBytes(8).toString('hex') + '-NRT';
 
 // 書き換えと記録をする偽の net.request
 function recordingRequest(base, sent) {
   const inner = makeFakeRequest({ rewrite: (u) => (String(u).startsWith(RELAY_BASE) ? base + String(u).slice(RELAY_BASE.length) : u) });
   return function request(opts) {
     const rec = { method: String(opts.method || 'GET').toUpperCase(), url: String(opts.url), redirect: opts.redirect, headers: {}, chunks: [] };
+    if (opts.session !== undefined) rec.session = opts.session;   // 第1d回 A-10: cookie の道（偽の session と useSessionCookies）
+    if (opts.useSessionCookies !== undefined) rec.useSessionCookies = opts.useSessionCookies;
     Object.defineProperty(rec, 'body', { enumerable: true, get() { return Buffer.concat(rec.chunks); } });
     sent.push(rec);
     const req = inner(opts);
@@ -87,7 +118,7 @@ function recordingRequest(base, sent) {
   };
 }
 
-async function startRelayLocal({ stt: sttOpts = {}, env: over = {}, start = Date.now() } = {}) {
+async function startRelayLocal({ stt: sttOpts = {}, env: over = {}, start = Date.now(), access = false } = {}) {
   const key = 'sk-test-' + crypto.randomBytes(12).toString('hex');
   const stt = await startFakeStt({ key, ...sttOpts });
   const resend = await startFakeResend();
@@ -102,6 +133,11 @@ async function startRelayLocal({ stt: sttOpts = {}, env: over = {}, start = Date
     ALLOWED_EMAIL_DOMAINS: 'example.com',
     MAIL_FROM: 'NaTsu <' + R.mail('login') + '>',
   };
+  const fa = access ? await startFakeAccess() : null;
+  if (fa) {
+    Object.assign(env, { TEAM_DOMAIN: fa.teamDomain, POLICY_AUD: fa.aud, ACCESS_CERTS_BASE: fa.certsBase });
+    (await R.load('access.mjs'))._resetCertsCache();   // ポートの使い回しで前の場面の鍵が残らないように（relay-run の withRelay と同じ）
+  }
   for (const [k, v] of Object.entries(over)) {
     if (v === undefined) delete env[k]; else env[k] = v;
   }
@@ -115,13 +151,46 @@ async function startRelayLocal({ stt: sttOpts = {}, env: over = {}, start = Date
   let cutDone = false;
   let closed = false;   // 第1d回 A-5: 'n'（口を閉じる）の間は、つないだらすぐ切る
   const baseUserSec = env.DAILY_USER_SEC;
+  const issued = new Map();    // 偽の Access が出した CF_Authorization → { email, iat（ミリ秒）, exp（秒） }
+  const revoked = new Map();   // email → 取り消した時（ミリ秒）
+  const received = [];
+  const accessLogin = `${fa ? fa.teamDomain : 'https://natsu-test.cloudflareaccess.com'}/cdn-cgi/access/login/relay.test`;
 
   const server = http.createServer((req, res) => {
     if (closed) { req.socket.destroy(); return; }   // つないだままの口（keep-alive）で来た要求も切る
     const chunks = [];
     req.on('data', (d) => chunks.push(d));
     req.on('end', async () => {
+      const seen = { method: req.method, path: req.url.split('?')[0], headers: { ...req.headers }, relayed: false };
+      received.push(seen);
       if (front === 'drop') { req.socket.destroy(); return; }
+      // 第1d回 A-10: Access の前の答え（どの道にも効く）
+      const html = (st, extra = {}) => {
+        res.writeHead(st, { 'content-type': 'text/html; charset=utf-8', 'cf-ray': cfRay(), ...extra });
+        res.end(st === 302 ? '' : '<html><body>Forbidden</body></html>');
+      };
+      if (front === 'access401') { html(401); return; }
+      if (front === 'access403') { html(403); return; }
+      if (front === 'access302') { html(302, { location: accessLogin }); return; }
+      if (front === 'redirect-other') { res.writeHead(302, { location: 'https://proxy.example/blocked?u=1', 'content-type': 'text/html' }); res.end(''); return; }
+      let over = {};
+      if (fa) {
+        const pairs = cookiePairs(req.headers.cookie);
+        const jwt = (pairs.find(([k]) => k === 'CF_Authorization') || [])[1] || '';
+        const bearer = /^Bearer\s/i.test(String(req.headers.authorization || ''));
+        if (jwt || !bearer) {
+          const e = jwt ? issued.get(jwt) : null;
+          const ok = Boolean(e) && e.exp > clock.now() / 1000 && !(revoked.has(e.email) && revoked.get(e.email) >= e.iat);
+          if (!ok) {
+            if (String(req.headers['x-requested-with'] || '') === 'XMLHttpRequest') html(401);
+            else html(302, { location: accessLogin });
+            return;
+          }
+          const cookie = pairs.filter(([k]) => k !== 'CF_Binding').map(([k, v]) => `${k}=${v}`).join('; ');
+          over = { drop: ['cf-access-jwt-assertion'], cookie, set: front === 'cookie-only' ? {} : { 'Cf-Access-Jwt-Assertion': jwt } };
+        }
+      }
+      seen.relayed = true;
       const isStt = req.method === 'POST' && req.url.split('?')[0] === '/v1/audio/transcriptions';
       if (front === 'cut-first' && isStt && !cutDone) { cutDone = true; req.socket.destroy(); return; }
       if (front === 'delay-stt' && isStt) await new Promise((r) => setTimeout(r, 800));
@@ -137,7 +206,7 @@ async function startRelayLocal({ stt: sttOpts = {}, env: over = {}, start = Date
         return;
       }
       try {
-        const out = await handler.fetch(toRequest(req, Buffer.concat(chunks)), env, ctx);
+        const out = await handler.fetch(toRequest(req, Buffer.concat(chunks), over), env, ctx);
         const headers = {};
         out.headers.forEach((v, k) => { headers[k] = v; });
         const body = Buffer.from(await out.arrayBuffer());
@@ -153,7 +222,7 @@ async function startRelayLocal({ stt: sttOpts = {}, env: over = {}, start = Date
   const base = `http://127.0.0.1:${server.address().port}`;
   const sent = [];
   const rl = {
-    base, env, db, clock, stt, resend, sent, logs: [],
+    base, env, db, clock, stt, resend, sent, received, access: fa, logs: [],
     request: recordingRequest(base, sent),
     setFront(mode) { front = mode || ''; },
     async setAnswer(ch) {
@@ -168,12 +237,22 @@ async function startRelayLocal({ stt: sttOpts = {}, env: over = {}, start = Date
       stt.setMode(mode);
     },
     codeFor: (email) => resend.codeFor(email),
+    async cookieFor(email, { ttlSec = 3600 } = {}) {
+      if (!fa) throw new Error('relay-local: cookieFor は access: true のときだけ');
+      const iatMs = clock.now();
+      const exp = Math.floor(iatMs / 1000) + ttlSec;
+      const value = await fa.sign({ email, exp }, { now: iatMs });
+      issued.set(value, { email, iat: iatMs, exp });
+      return { url: RELAY_BASE, name: 'CF_Authorization', value, secure: true, httpOnly: true, sameSite: 'no_restriction', expirationDate: exp };
+    },
+    revokeAt(email) { revoked.set(email, clock.now()); },
     async close() {
       await new Promise((r) => { server.close(() => r()); server.closeAllConnections(); });
       await Promise.allSettled(pending);
       unhook(rl);
       await stt.close();
       await resend.close();
+      if (fa) await fa.close();
       db.close();
     },
   };

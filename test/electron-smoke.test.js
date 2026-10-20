@@ -25,24 +25,27 @@ const clipOf = (promise, { dropAbc = false, drop = null } = {}) => {
 // 第1a回 Task 3-3 で直した（意図: 全部そろって OK のときだけ 0。確かめは 12 になった）
 // 第1c回 Task A-5 で直した（意図: 本物の net.request の POST（13）と safeStorage の非同期（14）を足して 14）
 // 第2a1回 Task P-2 で直した（意図: 本物の src/db/server.js と本物の src/preload.js の往復（15）を足して 15）
-test('electron-smoke: 15 の確かめ。終了コードは 15 件そろって全部 OK のときだけ 0', { timeout: 5000 }, () => {
-  assert.deepStrictEqual(S.CHECKS.map(([n]) => n), [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]);
+// 第1d回 A-10 で直した（意図: Access の cookie を本物の net.request が付けるか（16）を足して 16）
+test('electron-smoke: 16 の確かめ。終了コードは 16 件そろって全部 OK のときだけ 0', { timeout: 5000 }, () => {
+  assert.deepStrictEqual(S.CHECKS.map(([n]) => n), [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]);
   const all = S.CHECKS.map(([n]) => ({ n, ok: true }));
   assert.strictEqual(S.exitCodeOf(all), 0);
   assert.strictEqual(S.exitCodeOf(all.map((r) => (r.n === 10 ? { ...r, ok: false } : r))), 1);
   assert.strictEqual(S.exitCodeOf(all.map((r) => (r.n === 14 ? { ...r, ok: false } : r))), 1);
   assert.strictEqual(S.exitCodeOf(all.map((r) => (r.n === 15 ? { ...r, ok: false } : r))), 1);
-  assert.strictEqual(S.exitCodeOf(all.slice(0, 14)), 1);
+  assert.strictEqual(S.exitCodeOf(all.map((r) => (r.n === 16 ? { ...r, ok: false } : r))), 1);
+  assert.strictEqual(S.exitCodeOf(all.slice(0, 15)), 1);
   assert.strictEqual(S.exitCodeOf([]), 1);
   const lines = [];
   S.finish({ exit: () => {} }, all, { log: (l) => lines.push(l), flush: (cb) => cb() });
-  assert.strictEqual(lines[lines.length - 1], '結果: 15 件とも OK');
+  assert.strictEqual(lines[lines.length - 1], '結果: 16 件とも OK');
+  assert.match(read('tools/electron-smoke/main.js'), /次の 16 を確かめる/);
 });
 
 // 第2a1回 Task P-2（ST5・ST7）: 本物の Electron で、本物の server.js（utilityProcess）と本物の preload（sandbox の窓）を往復する
 test('P-2: 15 番目の確かめ（本物の server.js と本物の preload）が一覧にあり、判定は純粋な dbResults', () => {
   const S = require('../tools/electron-smoke/main.js');
-  assert.strictEqual(S.CHECKS.length, 15);
+  assert.strictEqual(S.CHECKS.length, 16);   // 第1d回 A-10 で 16 を足した（15 の場所は変えない）
   assert.match(S.CHECKS[14][1], /src\/db\/server\.js.*src\/preload\.js/);
   const good = { got: { title: '見本', routeText: [] }, portOnWindow: false, rejectedWhileDown: true, titleAfter: '直した', oplogRows: 1, killCode: 0, resendOk: true };
   assert.strictEqual(S.dbResults(good)[0].ok, true);
@@ -299,4 +302,54 @@ test('electron-smoke の形: sandbox の窓で preload を使い、utilityProces
   assert.ok(!/\bBuffer\b|setImmediate/.test(pre), '45 から sandbox の preload に無いものを使っている');
   assert.deepStrictEqual(JSON.parse(read('tools/electron-smoke/package.json')).main, 'main.js');
   assert.ok(!/<script/i.test(read('tools/electron-smoke/page.html')));
+});
+
+// 第1d回 A-10（RL9・F19・F21）: 16 は本物の Electron の net.request が、メモリの partition に cookies.set で置いた cookie を
+// useSessionCookies で 127.0.0.1 へ付けるか・X-Requested-With・redirect: 'manual' の 302 でついて行かないか・Partitions のフォルダを作らないか。
+// Secure の cookie を http://127.0.0.1 に置けたかは観測（secureLoopback）で、置けなければ Windows では 16b（自分で作った証明書の https の口）で見る
+const ACCESS_GOOD = {
+  platform: 'win32', laxStrictSent: true, xrw: true, secureLoopback: true, secureSent: true, redirectEvent: true, redirectCode: 'server',
+  targetHits: 0, afterRedirect: 'abort', partitionsDir: false,
+};
+test('electron-smoke: 16 の判定（accessResults）は、よい観測で OK。1つ崩すと NG。Secure の cookie は観測で、置けないときだけ 16b の https で届くことを求める', { timeout: 5000 }, () => {
+  assert.deepStrictEqual(S.accessResults(ACCESS_GOOD).map((r) => [r.n, r.ok]), [[16, true]]);
+  // Secure が置けても届かないのは観測（失敗にしない）。後の出来事が何も来ないのも観測
+  assert.strictEqual(S.accessResults({ ...ACCESS_GOOD, secureSent: false })[0].ok, true);
+  assert.strictEqual(S.accessResults({ ...ACCESS_GOOD, afterRedirect: 'none' })[0].ok, true);
+  for (const patch of [{ laxStrictSent: false }, { xrw: false }, { redirectEvent: false }, { redirectCode: 'net' }, { redirectCode: 'login' },
+    { targetHits: 1 }, { targetHits: undefined }, { partitionsDir: true }, { partitionsDir: undefined }, { error: '止まった' }]) {
+    assert.strictEqual(S.accessResults({ ...ACCESS_GOOD, ...patch })[0].ok, false, JSON.stringify(patch));
+  }
+  // Secure を http://127.0.0.1 に置けない Windows では 16b が要る
+  const noSecure = { ...ACCESS_GOOD, secureLoopback: false, secureSent: false };
+  assert.strictEqual(S.accessResults(noSecure)[0].ok, false, '16b を見ずに OK にした');
+  assert.strictEqual(S.accessResults({ ...noSecure, https: { ran: true, sent: true } })[0].ok, true);
+  assert.strictEqual(S.accessResults({ ...noSecure, https: { ran: true, sent: false } })[0].ok, false);
+  assert.strictEqual(S.accessResults({ ...noSecure, https: { ran: false, error: 'PowerShell が無い' } })[0].ok, false);
+  // Windows でなければ 16b は動かさない（観測だけ）
+  assert.strictEqual(S.accessResults({ ...noSecure, platform: 'linux' })[0].ok, true);
+  assert.strictEqual(S.accessResults({})[0].ok, false);
+  assert.strictEqual(S.accessResults(null)[0].ok, false);
+  const note = S.accessResults({ ...noSecure, https: { ran: true, sent: true } })[0].note;
+  assert.match(note, /Secure/);
+  assert.match(note, /16b/);
+});
+
+test('electron-smoke: 16 は本物の net.request を stt-cloud.postForm（session・redirect: manual）に渡し、メモリの partition に cookies.set で置き、15 の後・finish の前に走る', { timeout: 5000 }, () => {
+  const m = read('tools/electron-smoke/main.js');
+  for (const k of ["session.fromPartition('natsu-access-smoke')", 'ses.cookies.set(', "sameSite: 'lax'", "sameSite: 'strict'", "sameSite: 'no_restriction'",
+    'sttCloud.postForm({ request', "redirect: 'manual'", 'session: ses', "'Partitions'", 'accessResults(', 'accessChecks(',
+    // 16b: 一時の証明書（CurrentUser\My）を作って消す・その partition にだけ指紋で通す
+    'New-SelfSignedCertificate', 'Export-PfxCertificate', 'Cert:\\\\CurrentUser\\\\My', 'setCertificateVerifyProc(', 'Remove-Item'])
+    assert.ok(m.includes(k), k);
+  assert.ok(!m.includes("fromPartition('persist:"), 'ディスクに置く partition を使った');
+  const boot = m.slice(m.indexOf('function boot()'));
+  assert.ok(boot.indexOf('onlineChecks(') < boot.indexOf('accessChecks(') && boot.indexOf('accessChecks(') < boot.indexOf('finish(app, results)'), '16 の場所');
+  const fn = m.slice(m.indexOf('async function accessChecks('), m.indexOf('async function accessHttpsCheck('));
+  // 一時フォルダは日本語と 𠮷 の名前・鍵はリポジトリに置かない（一時フォルダに作って消す）
+  const https = m.slice(m.indexOf('async function accessHttpsCheck('));
+  assert.match(https, /mkdtempSync\(path\.join\(os\.tmpdir\(\), '[^']*[ぁ-ん一-龠][^']*𠮷[^']*'\)\)/);
+  assert.ok(https.includes('fs.rmSync(tmp, { recursive: true, force: true })'));
+  assert.ok(fn.includes('if (!o.secureLoopback && process.platform === \'win32\')'), '16b は Secure を置けない Windows だけ');
+  assert.ok(!/\.pfx'\)/.test(m.slice(0, m.indexOf('async function accessHttpsCheck('))), '証明書のファイルを決まった場所に置いた');
 });
