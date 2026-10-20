@@ -7,18 +7,19 @@
 const test = require('node:test');
 const assert = require('node:assert');
 const fs = require('node:fs');
-const os = require('node:os');
 const path = require('node:path');
 const vm = require('node:vm');
 const { parseHTML, Element } = require('./helpers/simdom');
+const { tmpDir } = require('./helpers/help-tmp');
 
 const ROOT = path.join(__dirname, '..');
 const FIX = path.join(__dirname, 'fixtures', 'help');
 const SEARCH_JS = path.join(ROOT, 'help', 'assets', 'search.js');
 const { build } = require('../tools/help-build');
 
-function buildFixture(edit) {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'natsu-help-search-'));
+/** 写しのフォルダで作り、出力の場所を返す。写した help/assets と出力で 1 つ約 15 MB になるので、そのテストの終わりに消す（tmpDir） */
+function buildFixture(t, edit) {
+  const root = tmpDir(t, 'natsu-help-search-');
   fs.mkdirSync(path.join(root, 'help'));
   fs.cpSync(path.join(FIX, 'site.json'), path.join(root, 'help', 'site.json'));
   fs.cpSync(path.join(FIX, 'articles'), path.join(root, 'help', 'articles'), { recursive: true });
@@ -29,8 +30,8 @@ function buildFixture(edit) {
   return out;
 }
 
-test('H-4: search-index.json は v: 1 と、site.json の順の記事ごとの u・t・d・c・h・x。x は印の無い本文で 4,000 字まで', { timeout: 5000 }, () => {
-  const out = buildFixture((h) => fs.appendFileSync(path.join(h, 'articles', 'record', 'pause.md'), `\n${'あ'.repeat(5000)}\n`));
+test('H-4: search-index.json は v: 1 と、site.json の順の記事ごとの u・t・d・c・h・x。x は印の無い本文で 4,000 字まで', { timeout: 5000 }, (t) => {
+  const out = buildFixture(t, (h) => fs.appendFileSync(path.join(h, 'articles', 'record', 'pause.md'), `\n${'あ'.repeat(5000)}\n`));
   const raw = fs.readFileSync(path.join(out, 'search-index.json'), 'utf8');
   const idx = JSON.parse(raw);
   assert.deepStrictEqual(Object.keys(idx), ['v', 'items']);
@@ -48,7 +49,7 @@ test('H-4: search-index.json は v: 1 と、site.json の順の記事ごとの u
   // HTML のページから読む（どのページも同じ search.js）
   assert.ok(fs.readFileSync(path.join(out, 'index.html'), 'utf8').includes('<script src="/assets/search.js" defer></script>'));
   // 同じ元なら同じバイト
-  assert.strictEqual(fs.readFileSync(path.join(buildFixture((h) => fs.appendFileSync(path.join(h, 'articles', 'record', 'pause.md'), `\n${'あ'.repeat(5000)}\n`)), 'search-index.json'), 'utf8'), raw);
+  assert.strictEqual(fs.readFileSync(path.join(buildFixture(t, (h) => fs.appendFileSync(path.join(h, 'articles', 'record', 'pause.md'), `\n${'あ'.repeat(5000)}\n`)), 'search-index.json'), 'utf8'), raw);
 });
 
 const S = require('../help/assets/search.js');
@@ -98,8 +99,8 @@ test('H-4: search.js は外へ通信しない（fetch は /search-index.json だ
 });
 
 /** 作ったページを simdom の木にして、search.js を vm の中で動かす */
-function runPage(file) {
-  const out = buildFixture();
+function runPage(t, file) {
+  const out = buildFixture(t);
   const html = fs.readFileSync(path.join(out, file), 'utf8');
   const index = JSON.parse(fs.readFileSync(path.join(out, 'search-index.json'), 'utf8'));
   const { root } = parseHTML(html);
@@ -124,8 +125,8 @@ function runPage(file) {
   return { root, html, calls, went, tick, key, type, docListeners };
 }
 
-test('H-4: 検索の箱の配線（simdom）: JS が動くと箱が出る・打つと結果が出る・↓↑で aria-activedescendant が動く・Enter で選んだ記事の URL へ・Esc で閉じ、もう一度 Esc で空に・index は1回だけ読む', { timeout: 5000 }, async () => {
-  const p = runPage('start/first/index.html');
+test('H-4: 検索の箱の配線（simdom）: JS が動くと箱が出る・打つと結果が出る・↓↑で aria-activedescendant が動く・Enter で選んだ記事の URL へ・Esc で閉じ、もう一度 Esc で空に・index は1回だけ読む', { timeout: 5000 }, async (t) => {
+  const p = runPage(t, 'start/first/index.html');
   // 初めの HTML では箱は hidden（JS が動かないときは出さない）
   assert.ok(/<div class="search" hidden>/.test(p.html));
   const box = p.root.querySelector('.search');
@@ -185,8 +186,8 @@ test('H-4: 検索の箱の配線（simdom）: JS が動くと箱が出る・打�
   assert.deepStrictEqual(p.calls, ['/search-index.json']);
 });
 
-test('H-4: どのページの上の帯にも検索の箱があり、ホームには大きな箱もある（id は重ならない）', { timeout: 5000 }, async () => {
-  const p = runPage('index.html');
+test('H-4: どのページの上の帯にも検索の箱があり、ホームには大きな箱もある（id は重ならない）', { timeout: 5000 }, async (t) => {
+  const p = runPage(t, 'index.html');
   const boxes = p.root.querySelectorAll('.search');
   assert.strictEqual(boxes.length, 2);
   assert.ok(p.root.querySelector('header .search #hc-q'), '上の帯の箱');

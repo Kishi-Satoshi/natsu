@@ -8,17 +8,18 @@
 const test = require('node:test');
 const assert = require('node:assert');
 const fs = require('node:fs');
-const os = require('node:os');
 const path = require('node:path');
 const C = require('./helpers/simcss');
+const { tmpDir } = require('./helpers/help-tmp');
 
 const ROOT = path.join(__dirname, '..');
 const FIX = path.join(__dirname, 'fixtures', 'help');
 const { build, checkPages } = require('../tools/help-build');
 
-/** 写しのフォルダ: 記事の組（fixtures か、edit で書き換えたもの）と本物の help/assets */
-function fixtureRoot(edit) {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'natsu-help-build-'));
+/** 写しのフォルダ: 記事の組（fixtures か、edit で書き換えたもの）と本物の help/assets。
+ *  写した help/assets と出力で 1 つ約 15 MB になるので、そのテストの終わりに消す（tmpDir） */
+function fixtureRoot(t, edit) {
+  const root = tmpDir(t, 'natsu-help-build-');
   fs.mkdirSync(path.join(root, 'help'));
   fs.cpSync(path.join(FIX, 'site.json'), path.join(root, 'help', 'site.json'));
   fs.cpSync(path.join(FIX, 'articles'), path.join(root, 'help', 'articles'), { recursive: true });
@@ -27,8 +28,8 @@ function fixtureRoot(edit) {
   return root;
 }
 /** 作って、出力の全部のファイル（相対の道 → Buffer）を返す */
-function buildFixture(edit) {
-  const root = fixtureRoot(edit);
+function buildFixture(t, edit) {
+  const root = fixtureRoot(t, edit);
   const out = path.join(root, 'out');
   const r = build({ root, out });
   const files = new Map();
@@ -45,8 +46,8 @@ const listFiles = (dir, base = dir) => fs.readdirSync(dir, { withFileTypes: true
 const CSS = () => fs.readFileSync(path.join(ROOT, 'help', 'assets', 'help.css'), 'utf8');
 const DARK = '@media (prefers-color-scheme: dark)';
 
-test('H-3: 作ると、ホーム・分類ごと・記事ごと・404・assets の全部のファイルができる（多くも少なくもない）', { timeout: 5000 }, () => {
-  const { files, r } = buildFixture();
+test('H-3: 作ると、ホーム・分類ごと・記事ごと・404・assets の全部のファイルができる（多くも少なくもない）', { timeout: 5000 }, (t) => {
+  const { files, r } = buildFixture(t);
   const pages = ['index.html', '404.html', 'start/index.html', 'start/first/index.html', 'start/steps/index.html', 'record/index.html', 'record/pause/index.html', 'admin/index.html'];
   const assets = listFiles(path.join(ROOT, 'help', 'assets')).map((f) => `assets/${f}`);
   assert.deepStrictEqual([...files.keys()].sort(), [...pages, 'search-index.json', ...assets].sort());   // search-index.json は H-4
@@ -59,8 +60,8 @@ test('H-3: 作ると、ホーム・分類ごと・記事ごと・404・assets �
   for (const a of assets) assert.ok(files.get(a).equals(fs.readFileSync(path.join(ROOT, 'help', a))), `${a} がそのまま写っていない`);
 });
 
-test('HF4: 作った全部のページの中の / で始まるリンクと #id が、出力のファイルと id にある（a・link・script・img の全部）', { timeout: 5000 }, () => {
-  const { files, html } = buildFixture();
+test('HF4: 作った全部のページの中の / で始まるリンクと #id が、出力のファイルと id にある（a・link・script・img の全部）', { timeout: 5000 }, (t) => {
+  const { files, html } = buildFixture(t);
   const idsOf = (h) => new Set([...h.matchAll(/\sid="([^"]+)"/g)].map((m) => m[1]));
   let checked = 0;
   for (const f of files.keys()) {
@@ -88,8 +89,8 @@ test('HF4: 作った全部のページの中の / で始まるリンクと #id �
   assert.doesNotThrow(() => checkPages(new Map([['index.html', '<a href="/a/#y">x</a><link rel="stylesheet" href="/assets/help.css">'], ['a/index.html', '<p id="y">y</p>'], ['assets/help.css', null]])));
 });
 
-test('HF3: 出力のどの HTML にも style=・on…=・src の無い <script>・http:// が無い。どのページにも <meta name="natsu-help" content="page"> と lang="ja"', { timeout: 5000 }, () => {
-  const { files, html } = buildFixture();
+test('HF3: 出力のどの HTML にも style=・on…=・src の無い <script>・http:// が無い。どのページにも <meta name="natsu-help" content="page"> と lang="ja"', { timeout: 5000 }, (t) => {
+  const { files, html } = buildFixture(t);
   for (const f of files.keys()) {
     if (!f.endsWith('.html')) continue;
     const h = html(f);
@@ -109,9 +110,9 @@ test('HF3: 出力のどの HTML にも style=・on…=・src の無い <script>�
   }
 });
 
-test('H-3: 同じ元から2回作ると、全部のファイルが同じバイト（日付は記事の updated だけ）', { timeout: 5000 }, () => {
-  const a = buildFixture();
-  const b = buildFixture();
+test('H-3: 同じ元から2回作ると、全部のファイルが同じバイト（日付は記事の updated だけ）', { timeout: 5000 }, (t) => {
+  const a = buildFixture(t);
+  const b = buildFixture(t);
   assert.deepStrictEqual([...a.files.keys()].sort(), [...b.files.keys()].sort());
   for (const [f, buf] of a.files) assert.ok(buf.equals(b.files.get(f)), `${f} が違う`);
   const all = [...a.files].filter(([f]) => f.endsWith('.html')).map(([, v]) => v.toString('utf8')).join('\n');
@@ -119,8 +120,8 @@ test('H-3: 同じ元から2回作ると、全部のファイルが同じバイ�
   assert.deepStrictEqual([...years], ['2026'], '記事の updated のほかの日付がある');
 });
 
-test('H-3: 記事のページにパンくず・題名・最終更新日（2026 年 10 月 21 日）・左の目次で今の記事に aria-current="page"・関連記事・askNote がある', { timeout: 5000 }, () => {
-  const { html } = buildFixture();
+test('H-3: 記事のページにパンくず・題名・最終更新日（2026 年 10 月 21 日）・左の目次で今の記事に aria-current="page"・関連記事・askNote がある', { timeout: 5000 }, (t) => {
+  const { html } = buildFixture(t);
   const h = html('start/first/index.html');
   assert.ok(h.includes('<title>試しの最初の記事 — NaTsu ヘルプセンター</title>'));
   assert.match(h, /<nav class="crumbs" aria-label="パンくず"><a href="\/">ホーム<\/a> <span aria-hidden="true">›<\/span> <a href="\/start\/">はじめに<\/a><\/nav>/);
@@ -149,8 +150,8 @@ test('H-3: 記事のページにパンくず・題名・最終更新日（2026 �
   assert.ok(html('record/pause/index.html').includes('<a href="https://example.com/docs" rel="noreferrer">外の資料</a>'));
 });
 
-test('H-3: 「このページの内容」は linkable な ## が3つ以上の記事にだけ出る', { timeout: 5000 }, () => {
-  const { html } = buildFixture();
+test('H-3: 「このページの内容」は linkable な ## が3つ以上の記事にだけ出る', { timeout: 5000 }, (t) => {
+  const { html } = buildFixture(t);
   const s = html('start/steps/index.html');
   assert.ok(s.includes('<aside class="onpage" aria-labelledby="hc-onpage">'));
   const on = s.slice(s.indexOf('<aside class="onpage"'), s.indexOf('</aside>', s.indexOf('<aside class="onpage"')));
@@ -159,8 +160,8 @@ test('H-3: 「このページの内容」は linkable な ## が3つ以上の記
   assert.ok(!html('record/pause/index.html').includes('class="onpage"'));
 });
 
-test('H-3: ホームに分類の格子（題名・説明・記事の件数）と「はじめての方へ」（featured の順）がある。格子の順は site.json の順', { timeout: 5000 }, () => {
-  const { html } = buildFixture();
+test('H-3: ホームに分類の格子（題名・説明・記事の件数）と「はじめての方へ」（featured の順）がある。格子の順は site.json の順', { timeout: 5000 }, (t) => {
+  const { html } = buildFixture(t);
   const h = html('index.html');
   assert.ok(h.includes('<h1>NaTsu ヘルプセンター</h1>'));
   assert.match(h, /<p class="lede">[^<]+<\/p>/);
@@ -190,7 +191,7 @@ test('H-3: ホームに分類の格子（題名・説明・記事の件数）と
   assert.ok(!nf.includes('試しの'), '404 に記事の文字がある');
 });
 
-test('H-3: 作るのを止める（記事の形の誤り・無い related・作る道具の id と重なる hc- の id）。止めたときは出力に何も書かない', { timeout: 5000 }, () => {
+test('H-3: 作るのを止める（記事の形の誤り・無い related・作る道具の id と重なる hc- の id）。止めたときは出力に何も書かない', { timeout: 5000 }, (t) => {
   const cases = [
     ['raw-html', (h) => fs.appendFileSync(path.join(h, 'articles', 'start', 'first.md'), '\n<b>x</b>\n'), 'help/articles/start/first.md'],
     ['missing-article', (h) => { const f = path.join(h, 'articles', 'record', 'pause.md'); fs.writeFileSync(f, fs.readFileSync(f, 'utf8').replace('related: start/first, start/steps', 'related: start/none')); }, 'help/articles/record/pause.md'],
@@ -199,10 +200,25 @@ test('H-3: 作るのを止める（記事の形の誤り・無い related・作�
     ['bad-front', (h) => { const f = path.join(h, 'articles', 'start', 'first.md'); fs.writeFileSync(f, fs.readFileSync(f, 'utf8').replace('updated: 2026-10-21', 'updated: 2026-13-01')); }, 'help/articles/start/first.md'],
   ];
   for (const [code, edit, file] of cases) {
-    const root = fixtureRoot(edit);
+    const root = fixtureRoot(t, edit);
     const out = path.join(root, 'out');
     assert.throws(() => build({ root, out }), (e) => e.name === 'HelpBuildError' && e.code === code && e.file === file && (code === 'missing-article' || Number.isInteger(e.line)), code);
     assert.ok(!fs.existsSync(out), `${code}: 止めたのに出力がある`);
+  }
+});
+
+test('H-1: 書き出す先が元のフォルダ・その中・それを含む所なら bad-out で止め、何も消さない。help の中は help/dist とその下だけ', { timeout: 5000 }, (t) => {
+  const root = fixtureRoot(t);
+  const h = path.join(root, 'help');
+  const before = listFiles(h);
+  const bad = [root, path.dirname(root), h, path.join(h, 'articles'), path.join(h, 'articles', 'start'), path.join(h, 'assets'), path.join(h, 'assets', 'fonts'), path.join(h, 'other'), path.join(h, 'distx')];
+  for (const out of bad) {
+    assert.throws(() => build({ root, out }), (e) => e.name === 'HelpBuildError' && e.code === 'bad-out', out);
+    assert.deepStrictEqual(listFiles(h), before, `${out}: 元のファイルを消した`);
+  }
+  for (const out of [path.join(h, 'dist'), path.join(h, 'dist', 'sub'), path.join(root, 'out')]) {
+    build({ root, out });
+    assert.ok(fs.existsSync(path.join(out, 'index.html')), out);
   }
 });
 
@@ -269,6 +285,24 @@ test('画面の使いやすさ: help.css に :focus-visible の輪があり、ou
   assert.strictEqual(C.declsFor(rules, '.table')['overflow-x'], 'auto');
   assert.strictEqual(C.declsFor(rules, 'pre')['overflow-x'], 'auto');
   assert.ok(/break-word|anywhere/.test(C.declsFor(rules, '.body')['overflow-wrap'] || ''));
+});
+
+test('画面の使いやすさ: 広い画面の左の目次は止まる（sticky）が、窓より高くならずその中で縦に送れる（記事が 26・分類が 8 でも下の分類が切れない）。狭い画面では止めず、高さも切らない', { timeout: 5000 }, () => {
+  const rules = C.parse(CSS());
+  const wide = C.declsFor(rules, '.toc', { at: '' });
+  assert.strictEqual(wide.position, 'sticky');
+  assert.strictEqual(wide.top, '24px');
+  assert.strictEqual(wide['max-height'], 'calc(100vh - 48px)', '広い画面の目次に高さの上限が無い');
+  assert.strictEqual(wide['overflow-y'], 'auto', '広い画面の目次がその中で縦に送れない');
+  // 送れる箱は中の輪（:focus-visible の 2px と間 2px）を切るので、内に 4px の余白を取り、外へ 4px 戻して位置を変えない
+  assert.strictEqual(wide.padding, '4px', '目次の中の輪が箱の端で切れる');
+  assert.strictEqual(wide.margin, '-4px');
+  const narrow = C.declsFor(rules, '.toc', { at: '@media (max-width: 639px)' });
+  assert.strictEqual(narrow.position, 'static');
+  assert.strictEqual(narrow['max-height'], 'none', '狭い画面で目次の高さを切っている');
+  assert.strictEqual(narrow['overflow-y'], 'visible');
+  assert.strictEqual(narrow.padding, '1rem 0 0');
+  assert.strictEqual(narrow.margin, '2.5rem 0 0');
 });
 
 test('白黒: 大きな数字は順番のある手順（.step .n）にだけ。書体は同梱の IBM Plex Sans JP（本文）と IBM Plex Mono（コード）', { timeout: 5000 }, () => {

@@ -1,16 +1,16 @@
 /* help-site.test.js — ヘルプセンター H-1（D22・HC0）: 置き場所（help/）・分類の形（site.json）・作る道具の骨組み
  *
- * 本物の help/site.json と help/assets/icons/ を読む。build() は写しのフォルダ（os.tmpdir の下）で走らせ、
+ * 本物の help/site.json と help/assets/icons/ を読む。build() は写しのフォルダ（os.tmpdir の下。test/helpers/help-tmp.js の tmpDir）で走らせ、
  * リポジトリの help/dist には書かない。
  */
 'use strict';
 const test = require('node:test');
 const assert = require('node:assert');
 const fs = require('node:fs');
-const os = require('node:os');
 const path = require('node:path');
 const { execFileSync } = require('node:child_process');
 const { jobsOf, stepsOf, nameOf } = require('./helpers/yml');
+const { tmpDir } = require('./helpers/help-tmp');
 
 const ROOT = path.join(__dirname, '..');
 const read = (f) => fs.readFileSync(path.join(ROOT, f), 'utf8');
@@ -18,9 +18,9 @@ const NAME = /^[a-z0-9-]{1,40}$/;
 
 function site() { return JSON.parse(read('help/site.json')); }
 
-/** 本物の help/ を写したフォルダ（root）を作る。edit(site) で site.json を書き換えられる */
-function copyRoot(edit) {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'natsu-help-site-'));
+/** 本物の help/ を写したフォルダ（root）を作る。edit(site) で site.json を書き換えられる。テスト t の終わりに消す（早く消してもよい） */
+function copyRoot(t, edit) {
+  const root = tmpDir(t, 'natsu-help-site-');
   fs.cpSync(path.join(ROOT, 'help'), path.join(root, 'help'), { recursive: true, filter: (s) => !s.split(path.sep).includes('dist') });
   if (edit) {
     const s = JSON.parse(fs.readFileSync(path.join(root, 'help', 'site.json'), 'utf8'));
@@ -113,7 +113,7 @@ test('D22: package.json に依存が増えていない（dependencies が無く�
   for (const r of reqs) assert.ok(/^node:/.test(r) || /^\.\/lib\/help-[a-z]+(\.js)?$/.test(r), `help-build.js が ${r} を読む`);
 });
 
-test('D22: site.json の形が違えば build は HelpBuildError（code: bad-site）で止まり、help/dist に何も書かない', { timeout: 5000 }, () => {
+test('D22: site.json の形が違えば build は HelpBuildError（code: bad-site）で止まり、help/dist に何も書かない', { timeout: 5000 }, (t) => {
   const { build } = require('../tools/help-build');
   const bad = [
     ['知らない鍵', (s) => { s.extra = 1; }],
@@ -129,14 +129,14 @@ test('D22: site.json の形が違えば build は HelpBuildError（code: bad-sit
     ['分類が無い', (s) => { s.categories = []; }],
   ];
   for (const [why, edit] of bad) {
-    const root = copyRoot(edit);
+    const root = copyRoot(t, edit);
     try {
       assert.throws(() => build({ root, out: path.join(root, 'help', 'dist') }), (e) => e.name === 'HelpBuildError' && e.code === 'bad-site', why);
       assert.ok(!fs.existsSync(path.join(root, 'help', 'dist')), `${why}: help/dist に書いた`);
     } finally { fs.rmSync(root, { recursive: true, force: true }); }
   }
   // site.json に無い記事のファイルも止める（分類の articles と help/articles/<id>/*.md はちょうど同じ）
-  const root = copyRoot();
+  const root = copyRoot(t);
   try {
     fs.mkdirSync(path.join(root, 'help', 'articles', 'start'), { recursive: true });
     fs.writeFileSync(path.join(root, 'help', 'articles', 'start', 'stray.md'), '---\ntitle: x\n---\n');
@@ -144,7 +144,7 @@ test('D22: site.json の形が違えば build は HelpBuildError（code: bad-sit
     assert.ok(!fs.existsSync(path.join(root, 'help', 'dist')));
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
   // 正しい形なら作れる（写しのフォルダの help/dist に index.html と分類の名前）
-  const ok = copyRoot();
+  const ok = copyRoot(t);
   try {
     const out = path.join(ok, 'help', 'dist');
     const r = build({ root: ok, out });

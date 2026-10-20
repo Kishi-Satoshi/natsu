@@ -73,6 +73,10 @@ function clearOut(root, out) {
   const o = path.resolve(out);
   const keep = [path.resolve(root), path.resolve(root, 'help'), path.resolve(root, 'help', 'articles'), path.resolve(root, 'help', 'assets')];
   if (keep.some((k) => k === o || k.startsWith(o + path.sep))) throw new HelpBuildError(`書き出す先が元を含む: ${out}`, { code: 'bad-out' });
+  // help の中は help/dist とその下だけ（help/articles・help/assets の中を消さない）
+  const help = path.resolve(root, 'help');
+  const dist = path.join(help, 'dist');
+  if (o.startsWith(help + path.sep) && o !== dist && !o.startsWith(dist + path.sep)) throw new HelpBuildError(`書き出す先が元の中: ${out}`, { code: 'bad-out' });
   fs.rmSync(o, { recursive: true, force: true });
   fs.mkdirSync(o, { recursive: true });
 }

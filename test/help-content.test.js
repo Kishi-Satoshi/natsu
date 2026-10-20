@@ -7,13 +7,13 @@
 const test = require('node:test');
 const assert = require('node:assert');
 const fs = require('node:fs');
-const os = require('node:os');
 const path = require('node:path');
 
 const ROOT = path.join(__dirname, '..');
 const { build, loadSite } = require('../tools/help-build');
 const { parseFrontMatter } = require('../tools/lib/help-md');
 const L = require('../tools/lib/help-labels');
+const { tmpDir } = require('./helpers/help-tmp');
 
 const { site, refs } = loadSite(ROOT);
 const fileOf = (ref) => `help/articles/${ref}.md`;
@@ -81,8 +81,8 @@ test('RF28: record/pc-only の記事に「1on1」「面談」「OpenAI」「［�
   assert.ok(site.featured.includes('record/pc-only'), 'featured に record/pc-only が無い');
 });
 
-test('HF2: 照らしの元（appLabelText）は src/ の .html と .js だけを読み、help/ を読まない', { timeout: 5000 }, () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'natsu-help-labels-'));
+test('HF2: 照らしの元（appLabelText）は src/ の .html と .js だけを読み、help/ を読まない', { timeout: 5000 }, (t) => {
+  const root = tmpDir(t, 'natsu-help-labels-');
   const put = (f, s) => { fs.mkdirSync(path.dirname(path.join(root, f)), { recursive: true }); fs.writeFileSync(path.join(root, f), s); };
   put('src/renderer/app.html', '<button>開始する</button>');
   put('src/main.js', "const t = '止める';");
@@ -117,8 +117,8 @@ test('公開前の確認: 記事と site.json に、チームのドメインの�
   assert.ok(bad[2][0].test(['C:', 'Users', 'x'].join('\\')));
 });
 
-test('HF2: 作るのが通る（build() が help/ の全部の記事で HelpBuildError を投げない）', { timeout: 5000 }, () => {
-  const out = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'natsu-help-real-')), 'out');
+test('HF2: 作るのが通る（build() が help/ の全部の記事で HelpBuildError を投げない）', { timeout: 5000 }, (t) => {
+  const out = path.join(tmpDir(t, 'natsu-help-real-'), 'out');
   const r = build({ root: ROOT, out });
   assert.strictEqual(r.articles.length, refs.length);
   assert.ok(fs.existsSync(path.join(out, 'index.html')) && fs.existsSync(path.join(out, 'search-index.json')));
