@@ -1,13 +1,18 @@
 'use strict';
 // 中継（relay/*.mjs）を Worker を起こさずに node --test で呼ぶ台（第1d回 W-1）。
 //   load(name) → import('relay/<name>')（中継のファイルは .mjs なので、CommonJS のテストからは import で読む）
-//   withRelay({ env, noSchema, start }, fn) … 偽の D1（test/helpers/fake-d1.js）に表の形 v1 を流し（noSchema なら流さない）、
+//   withRelay({ env, noSchema, start, access }, fn) … 偽の D1（test/helpers/fake-d1.js）に表の形 v1 を流し（noSchema なら流さない）、
 //     env の既定に重ね（undefined の欄は消す）、globalThis.fetch を「127.0.0.1 のほかは断る」で包み、console.log を取り込んで、
 //     fn({ call, env, logs, db, clock, ctx }) を呼ぶ。終わったら fetch と console.log を戻し、ctx.waitUntil の約束を待ち、D1 を閉じる。
 //       env の既定: OPENAI_API_KEY 'sk-test-<乱数>'・RESEND_API_KEY 're_test_<乱数>'・ALLOWED_EMAIL_DOMAINS 'example.com'・
 //                   MAIL_FROM 'NaTsu <' + mail('login') + '>'・DB 偽の D1
-//       call(method, path, { headers, body, ip, stream }) → Response。makeHandler({ now: clock.now }).fetch(new Request('https://relay.test' + path, …), env, ctx)
+//       access（第1d回 W-5）… 偽の Access（test/helpers/fake-access.js の fa）を渡すと、env の既定に TEAM_DOMAIN（fa.teamDomain）・
+//         POLICY_AUD（fa.aud）・ACCESS_CERTS_BASE（fa.certsBase）を足し、中継の鍵の写しを空にする（_resetCertsCache。ポートの使い回しで
+//         前の場面の鍵が残らないように）。渡さなければ TEAM_DOMAIN・POLICY_AUD は無い（ready.access は false。今までの場面のまま）
+//       call(method, path, { headers, body, ip, stream, jwt, cookie, ctx }) → Response。makeHandler({ now: clock.now }).fetch(new Request('https://relay.test' + path, …), env, ctx)
 //         body が文字・Uint8Array のほかのオブジェクトなら JSON にする（Content-Type も付ける）。ip は CF-Connecting-IP の見出し。
+//         jwt は Cf-Access-Jwt-Assertion の見出し・cookie は Cookie の見出しの CF_Authorization（文字そのまま）・
+//         ctx はその1回の ctx に重ねる欄（偽の ctx.access など。第1d回 W-5）
 //         stream: true は本文を 64KB ずつの ReadableStream にして Content-Length を付けない（Node の Request は duplex: 'half' が要る）
 //       clock: { now(), advance(ms), set(ms) }。start（既定 Date.now()）から始まり、advance でだけ進む
 //       logs: console.log に書かれた行（文字）の配列
@@ -74,7 +79,7 @@ function streamOf(bytes) {
 }
 
 async function withRelay(opts, fn) {
-  const { env: over = {}, noSchema = false, start = Date.now() } = opts || {};
+  const { env: over = {}, noSchema = false, start = Date.now(), access = null } = opts || {};
   const db = makeFakeD1();
   const realFetch = globalThis.fetch;
   const realLog = console.log;
@@ -89,6 +94,10 @@ async function withRelay(opts, fn) {
       ALLOWED_EMAIL_DOMAINS: 'example.com',
       MAIL_FROM: 'NaTsu <' + mail('login') + '>',
     };
+    if (access) {
+      Object.assign(env, { TEAM_DOMAIN: access.teamDomain, POLICY_AUD: access.aud, ACCESS_CERTS_BASE: access.certsBase });
+      (await load('access.mjs'))._resetCertsCache();
+    }
     for (const [k, v] of Object.entries(over)) {
       if (v === undefined) delete env[k]; else env[k] = v;
     }
@@ -101,9 +110,11 @@ async function withRelay(opts, fn) {
     console.log = (...a) => { logs.push(a.map(String).join(' ')); };
     globalThis.fetch = loopbackOnlyFetch(realFetch);
 
-    async function call(method, p, { headers = {}, body, ip, stream = false } = {}) {
+    async function call(method, p, { headers = {}, body, ip, stream = false, jwt, cookie, ctx: more } = {}) {
       const h = new Headers(headers);
       if (ip) h.set('cf-connecting-ip', ip);
+      if (jwt !== undefined) h.set('cf-access-jwt-assertion', jwt);
+      if (cookie !== undefined) h.set('cookie', 'CF_Authorization=' + cookie);
       let b = body;
       if (b != null && typeof b === 'object' && !(b instanceof Uint8Array) && !(b instanceof ArrayBuffer)) {
         b = JSON.stringify(b);
@@ -116,7 +127,7 @@ async function withRelay(opts, fn) {
           init.duplex = 'half';
         } else init.body = b;
       }
-      return handler.fetch(new Request('https://relay.test' + p, init), env, ctx);
+      return handler.fetch(new Request('https://relay.test' + p, init), env, more ? { ...ctx, ...more } : ctx);
     }
 
     return await fn({ call, env, logs, db, clock, ctx });

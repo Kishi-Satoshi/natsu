@@ -3,8 +3,10 @@
 // 中継がモデル（cfg.model）・response_format・temperature を決めて OpenAI の multipart を自分で組み立て、会社の鍵を付けて送り、
 // 文字だけを返す。アプリから来た欄を解かないので、客はモデルも欄も差し込めない。
 //
-//   handleTranscribe(request, env, { cfg, now }) → Response（道の関数。worker.mjs の health・auth.mjs と同じ形。now はミリ秒の時計）
-//   順: ready（503 not-ready）→ requireSession（401 login）→ Content-Type が audio/wav で始まる（415 not-wav）
+//   handleTranscribe(request, env, { cfg, now, ctx }) → Response（道の関数。worker.mjs の health・auth.mjs と同じ形。now はミリ秒の時計）
+//   順: ready（503 not-ready）→ 認め（W-5: JWT（見出し Cf-Access-Jwt-Assertion か Cookie の CF_Authorization）があれば access.mjs の
+//     requireAccess だけで決める（401 login・403 denied・503 not-ready）。W-6 までは、JWT が無いときだけ今の札 requireSession（401 login））
+//     → Content-Type が audio/wav で始まる（415 not-wav）
 //     → 言語（/^[a-z]{2,3}$/ のときだけ送る。ほかと無いときは送らない＝自動）
 //     → ヒント（見出しの文字のまま 9,000 バイトまで・decodeURIComponent で戻せる・戻して 1,000 字まで。ほかは 400 bad-request）
 //     → 1日の上限の先の確かめ（1人と全体。もう上限なら本文を読まずに 429 daily-cap）
@@ -26,6 +28,7 @@
 
 import { json, readCapped, sha256hex } from './http.mjs';
 import { requireSession } from './auth.mjs';
+import { requireAccess, accessError, takeJwt } from './access.mjs';
 import { ALL_USAGE_KEY, dayNumber, secondsToDayEnd, usage, reserveUsage, refundUsage } from './limits.mjs';
 import { logEvent } from './log.mjs';
 
@@ -134,15 +137,21 @@ function fail(st, r) {
   return { st, r, body: { error: r }, headers: {} };
 }
 
-export async function handleTranscribe(request, env, { cfg, now }) {
+export async function handleTranscribe(request, env, { cfg, now, ctx }) {
   const started = Date.now();
   const done = (st, body, headers = {}, { r, sec = 0, scope } = {}) => {
     logEvent('stt', { st, r: r || body.error || 'ok', ms: Date.now() - started, sec, scope });
     return json(st, body, headers);
   };
   if (!cfg.ready.openai) return done(503, { error: 'not-ready' });
-  const s = await requireSession(request, env, cfg, { now });
-  if (!s) return done(401, { error: 'login' });
+  let s;
+  if (takeJwt(request)) {
+    s = await requireAccess(request, env, cfg, { now, ctx });
+    if (!s.ok) return done(s.st, { error: accessError(s.st) });
+  } else {
+    s = await requireSession(request, env, cfg, { now });   // W-6 で消す（アプリの移り目の間だけ）
+    if (!s) return done(401, { error: 'login' });
+  }
   if (!(request.headers.get('content-type') || '').trim().toLowerCase().startsWith('audio/wav')) return done(415, { error: 'not-wav' });
   const langRaw = (request.headers.get('x-natsu-language') || '').trim();
   const language = LANG.test(langRaw) ? langRaw : '';

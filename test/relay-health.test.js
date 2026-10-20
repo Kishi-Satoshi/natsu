@@ -6,19 +6,26 @@ const fs = require('node:fs');
 const path = require('node:path');
 const R = require('./helpers/relay-run');
 
+// 第1d回 W-5 で意図して変えた: ready の名前は db・openai・access・domains（mail を外し、Access の秘密の欄 TEAM_DOMAIN・POLICY_AUD が
+// そろったかの access を足した）・relay は 2。Access がそろった後の /health（確かめた JWT のときだけ）は test/relay-access.test.js が見る
 test('RL1: GET /health は 200 で、秘密の有無と D1 の表だけを真偽で返す（値は出さない）', { timeout: 5000 }, async () => {
   await R.withRelay({}, async ({ call, env, logs }) => {
     const res = await call('GET', '/health');
     assert.strictEqual(res.status, 200);
     assert.strictEqual(res.headers.get('cache-control'), 'no-store');
     const j = await res.json();
-    assert.deepStrictEqual(j, { ok: true, relay: 1, ready: { db: true, openai: true, mail: true, domains: true } });
+    assert.deepStrictEqual(j, { ok: true, relay: 2, ready: { db: true, openai: true, access: false, domains: true } });
     const all = JSON.stringify(j) + logs.join('\n');
     for (const s of [env.OPENAI_API_KEY, env.RESEND_API_KEY, 'example.com']) assert.ok(!all.includes(s), `答えか記録に ${s}`);
   });
   await R.withRelay({ env: { OPENAI_API_KEY: undefined, ALLOWED_EMAIL_DOMAINS: ' , ' } }, async ({ call }) => {
     const j = await (await call('GET', '/health')).json();
-    assert.deepStrictEqual(j.ready, { db: true, openai: false, mail: true, domains: false });
+    assert.deepStrictEqual(j.ready, { db: true, openai: false, access: false, domains: false });
+  });
+  // Resend の秘密の欄は ready にも答えにも出ない（W-5 で mail を ready から外した。/auth/start は W-6 まで自分の中で見る）
+  await R.withRelay({ env: { RESEND_API_KEY: undefined, MAIL_FROM: undefined } }, async ({ call }) => {
+    const j = await (await call('GET', '/health')).json();
+    assert.deepStrictEqual(Object.keys(j.ready), ['db', 'openai', 'access', 'domains']);
   });
   await R.withRelay({ noSchema: true }, async ({ call }) => {
     assert.strictEqual((await (await call('GET', '/health')).json()).ready.db, false);
