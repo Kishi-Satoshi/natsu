@@ -14,7 +14,8 @@
     "gate:staged": "node tools/risk.js --staged",
     "hedit": "node tools/hedit.js",
     "checklist": "node tools/risk.js --checklist RELEASE-CHECK.md",
-    "hook": "node tools/install-hook.js"
+    "hook": "node tools/install-hook.js",
+    "help:build": "node tools/help-build.js"
   },
   "devDependencies": {
     "electron": "44.9.0",
