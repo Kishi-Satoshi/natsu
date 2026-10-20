@@ -14,6 +14,8 @@
  *   - 覚えるのは getNormalBounds（最小化中の -32000 や、最大化中の大きさを残さない）
  *   - 拡大は決まった段の上だけ（200% で止まる）。JIS の Ctrl+；（＋の刻印のキー）も拡大
  *   - タブは形の正しい鍵だけ。録音中のページ（live）は覚えない。無いページは外す
+ *   - 0.9.0 U-1（SP3・D24）: 設定はタブでなくポップアップで開くので、前の版が覚えた settings は黙って落とす
+ *     （無いページとして数えない。数えると main が「無いページのタブを N 個外した」と事実と違う記録を書く）
  *
  * 壊れた項目だけを既定に戻し、ほかの項目は残す。v が 1 でなくても読めるものは読む
  * （後の版の覚え書きを古い版で開いても落ちない）。
@@ -31,7 +33,8 @@ const SIDEBAR = { min: 200, max: 480, width: 260 };
 const MAX_TABS = 20;
 
 const TAB_PAGE_RE = /^page:p[a-z0-9]{1,40}$/;
-const TAB_FIXED = ['dictation', 'settings'];
+const TAB_FIXED = ['dictation'];
+const TAB_RETIRED = 'settings';   // 0.8.0 までの設定のタブ（読むときに黙って落とす）
 
 function isObj(v) {
   if (v === null || typeof v !== 'object' || Array.isArray(v)) return false;
@@ -114,6 +117,7 @@ function filterTabs(tabs, exists) {
   const open = [];
   let dropped = 0;
   for (const k of tabs.open) {
+    if (k === TAB_RETIRED) continue;
     let keep = tabKeyOk(k) && !open.includes(k) && open.length < MAX_TABS;
     if (keep && exists && k.startsWith('page:')) {
       try { keep = Boolean(exists(k.slice('page:'.length))); } catch (_) { keep = false; }

@@ -34,13 +34,14 @@ const OPEN_PAGE = "document.getElementById('tabBtnNotes').click(); document.quer
 const COLLAPSE_SIDE = "(document.getElementById('sideCollapse') || { click() {} }).click()";
 // 検索の窓を開く（第1b2回 L-2 の［🔍 検索］）。L-2 の前は押す物が無いので何もしない
 const OPEN_PALETTE = "(document.getElementById('sideSearch') || { click() {} }).click()";
-// タブ3つ（ページ・音声入力・設定）を開いて、最後にページを選ぶ。ページを開くのは非同期なので、押すたびに少し待つ（返す promise を main が待つ）
+// タブ3つ（ページ・音声入力・ページ）を開いて、最後にページを選ぶ。ページを開くのは非同期なので、押すたびに少し待つ（返す promise を main が待つ）。
+// 0.9.0 U-1（SP1・D24）で意図して変えた: 設定はタブで開かない（ポップアップ）ので、3つ目は2行目のページを新しいタブ（Ctrl+クリック）で開く
 const OPEN_THREE_TABS = `(async () => {
   const w = () => new Promise((r) => setTimeout(r, 150));
-  const item = () => document.querySelector('#plist .pitem');
+  const item = (i) => document.querySelectorAll('#plist .pitem')[i || 0];
   document.getElementById('tabBtnNotes').click(); item().click(); await w();
   document.getElementById('tabBtnDictation').click(); await w();
-  document.getElementById('tabBtnSettings').click(); await w();
+  item(1).dispatchEvent(new MouseEvent('click', { bubbles: true, ctrlKey: true })); await w();
   document.getElementById('tabBtnNotes').click(); item().click(); await w();
   return 1;
 })()`;
@@ -86,7 +87,10 @@ SCREENS.find((x) => x.name === 'notes-page-light').focus = { tabs: 3, want: 'mtT
 // 第1d回 G-4: 利用者が 2026-10-20 に CI の新しい8枚（run 39398639423・artifact 12252523286）を見て OK と言ったので、その画像を基準にして空に戻した
 // 0.9.0（計画 docs/plans/2026-10-20-090.md の「取り直す画面」）: B-1（BN1・D26）で帯の文を B8 の新しい文にしたので、帯の3枚を取り直し待ちにした。
 // U・O の画面は各タスクが足す。利用者がまとめて OK と言ったら G-3 で基準にして空に戻す
-const RETAKE = new Set(['live-banner-light', 'live-banner-dark', 'live-banner-zoom200-dark']);
+// 0.9.0（計画 docs/plans/2026-10-20-090.md の「取り直す画面」）: U-1（SP1〜SP3・D24）で設定をポップアップにしたので、設定の3枚と、
+// 3つのタブの並びから設定のタブが消える notes-tabs-light を取り直し待ちにした（B・O の画面は各タスクが足す）。
+// 利用者がまとめて OK と言ったら G-3 で基準にして空に戻す
+const RETAKE = new Set(['live-banner-light', 'live-banner-dark', 'live-banner-zoom200-dark', 'notes-tabs-light', 'settings-light', 'settings-dark', 'settings-zoom200-dark']);
 const PERF = [{ name: 'open-2000-blocks', budgetMs: 500 }];   // 3回開いた中央値で見る
 const TIME_ZONE = 'Asia/Tokyo';
 const TOLERANCE = 2;   // 色の差（0〜255）がこれ以下の画素は同じとみなす。CI の機械の CPU ごとの描き方の1段の差を拾わないため（揺れの確かめ judgePair は 0 で見る）

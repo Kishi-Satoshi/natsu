@@ -91,8 +91,9 @@ const CLAUDE = () => ({ ok: true, found: true, cmdOnly: false, method: 'claude.a
 const status = (o = {}) => ({ ok: true, signedIn: false, email: '', method: 'access', until: null, canStore: true, online: { up: true, why: 'ok' }, ...o });
 const RETIRED = ['onlineAdv', 'sttKey', 'sttKeySave', 'sttKeyTest', 'sttKeyClear', 'sttKeyState'];
 
-// 要素とその祖先のどれにも hidden が無い（画面に出ている）
-const shown = (el) => { for (let n = el; n && n.tagName && !n.tagName.startsWith('#'); n = n.parentNode) if (n.hidden) return false; return true; };
+// 要素とその祖先のどれにも hidden が無い（画面に出ている）。
+// 0.9.0 U-1（SP1・D24）で意図して変えた: 設定はポップアップ（#settingsModal）の中なので、ポップアップの hidden は見ない（開けば出る形か）
+const shown = (el) => { for (let n = el; n && n.tagName && !n.tagName.startsWith('#'); n = n.parentNode) if (n.hidden && n.id !== 'settingsModal') return false; return true; };
 const click = async (l, id) => { l.byId.get(id).dispatchEvent({ type: 'click' }); await l.drain(); };
 
 // 第1d回 A-12 で意図して変えた: 自前のログイン（メール → 確認コード）の試しを、Cloudflare Access の窓の［ログイン］／［ログアウト］の試しに替えた
@@ -490,10 +491,12 @@ test('D17: 録音中のタブを開くと meetingLiveShown(true)、ほかのタ�
   const n = sent().length;
   l.fire('onMeetingUpdate', PROB('relay-down', '', '文')); await l.drain();
   assert.strictEqual(sent().length, n, '変わっていないのに送った');
+  // 0.9.0 U-1（SP1・D24）で意図して変えた: 設定はタブでなく、録音中のページの上に開くポップアップ。開いている間は見えていない（false）、
+  // 閉じると録音中のタブのままなので見えている（true）
   await click(l, 'tabBtnSettings');
-  assert.strictEqual(lastSent(), false, '設定のタブへ移ったのに録音中のページを開いているまま');
-  liveTab().dispatchEvent({ type: 'click' }); await l.drain();
-  assert.strictEqual(lastSent(), true);
+  assert.strictEqual(lastSent(), false, '設定のポップアップで覆ったのに録音中のページを開いているまま');
+  await click(l, 'setClose');
+  assert.strictEqual(lastSent(), true, '設定を閉じて録音中のページが見えたのに知らせない');
   await click(l, 'tabBtnNotes');
   l.root.querySelector('#plist .pitem').dispatchEvent({ type: 'click' }); await l.drain();
   assert.strictEqual(lastSent(), false, 'ほかのページのタブへ移ったのに録音中のページを開いているまま');
@@ -507,10 +510,12 @@ test('D17: 録音中のタブを開くと meetingLiveShown(true)、ほかのタ�
   await vis('visible');
   assert.strictEqual(sent().length, m, '見えたままの visibilitychange でも送った（変わったときだけ）');
   // 知らせを押した（main の meeting:show-live）: ほかのタブにいても録音中のタブが開く
+  // 0.9.0 U-1: 設定のポップアップを開いている間に知らせを押すと、ポップアップを閉じて録音中のページを見せる
   await click(l, 'tabBtnSettings');
   assert.strictEqual(lastSent(), false);
   assert.ok(l.fire('onShowLive') > 0, '画面が onShowLive を受けていない');
   await l.drain();
+  assert.strictEqual(l.byId.get('settingsModal').hidden, true, '知らせを押したのに設定のポップアップが録音中のページを覆ったまま');
   assert.strictEqual(liveTab().getAttribute('aria-selected'), 'true', '録音中のタブが開かない');
   assert.strictEqual(l.byId.get('liveBar').hidden, false);
   assert.strictEqual(l.byId.get('liveSttBanner').hidden, false);

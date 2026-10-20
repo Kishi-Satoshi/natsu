@@ -99,7 +99,9 @@ test('N2・F9: 台帳にある意図した移動だけ WARN「意図した移動
       'src/renderer/app.html aside#side.side: searchBox,fltAll,fltActions,fltFull',
       'src/renderer/app.html section#tabNotes.tab.active / div.notes / div#pageWrap.page / div.phead / div.pcol: pActs,pMore,pMenu',
       'src/renderer/app.html section#tabNotes.tab.active / div.notes / aside.side: searchBox,fltAll,fltActions,fltFull',
-      'src/renderer/app.html section#tabNotes.tab.active / div.notes / div#pageWrap.page / div.phead: pActs']);
+      'src/renderer/app.html section#tabNotes.tab.active / div.notes / div#pageWrap.page / div.phead: pActs',
+      // 0.9.0 U-1（SP1・D24）で足した: 設定の section を設定のポップアップへ移す（中の id は全部そのまま）
+      `src/renderer/app.html div.app / div.col: ${['tabSettings', 'appearanceCard', 'appearanceTitle', 'themeSel', 'accountCard', 'accountTitle', 'accountOut', 'accountSignIn', 'accountIn', 'accountWho', 'accountLogout', 'accountMsg', 'verNow', 'chkUpdBtn', 'applyUpdBtn', 'updMsg', 'updNotes', 'hotkey', 'hotkeyWarn', 'meetingHotkey', 'meetingHotkeyWarn', 'pillPos', 'micSelect', 'micReloadBtn', 'useSystemAudio', 'spkField', 'spkNow', 'spkReloadBtn', 'spkSettingsBtn', 'language', 'autoPaste', 'removeFillers', 'soundFeedback', 'autoLaunch', 'stayInTray', 'dictionary', 'dictWarn', 'useBuiltinTerms', 'claudeState', 'claudeTest', 'claudeLogin', 'claudeInstall', 'claudeHelp', 'claudeExe', 'onlineMsg', 'engineState', 'testBtn', 'testMsg', 'testSumMsg', 'engineNote', 'engineFetch', 'engineFetchSummary', 'engineFetchBar', 'engineFetchBtn', 'engineFetchPause', 'engineFetchSwitch', 'engineDirBtn', 'engineFetchCopy', 'engineFetchMsg', 'engineFetchList', 'engineFetchRows', 'engineAdv', 'localServerExe', 'pickExeBtn', 'localModelPath', 'pickModelBtn', 'localThreads', 'localPort', 'useVad', 'vadState', 'vadModelPath', 'pickVadBtn', 'suppressNst', 'sumServerExe', 'pickSumExeBtn', 'sumModelPath', 'pickSumModelBtn', 'sumThreads', 'sumPort', 'sumCtx', 'testSumBtn', 'segmentSec', 'engineIdleMin', 'saveMsg', 'openDataBtn'].join(',')}`]);
 });
 
 // 第1b回の「台帳にある意図した移動だけ WARN」と同じ形の rules(before, after)（あちらはテストの中の const なので、ここでも作る）

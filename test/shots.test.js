@@ -361,9 +361,13 @@ test('G2: 作業域より大きい窓が作るときに縮められても（Wind
 // その画像をバイトのまま基準にして取り直し待ちを空に戻した（0.7.0 U-2・第1b回 C-2 と同じ手順）。帯の3枚の「基準が無くてよい」の例外も外した
 // 0.9.0 で意図して変えた: 取り直し待ちは計画（docs/plans/2026-10-20-090.md）の「取り直す画面」の表の画面だけ。B-1 は帯の3枚（U・O は各タスクが足す）。
 // 利用者がまとめて OK と言ったら G-3 で基準にして空に戻す（空になるまで版を上げられない: 下の版のテスト）
-const RETAKE_090 = ['live-banner-light', 'live-banner-dark', 'live-banner-zoom200-dark'];
+// 0.9.0 で意図して変えた: 取り直し待ちは計画（docs/plans/2026-10-20-090.md）の「取り直す画面」の表の画面だけ。U-1 は設定の3枚と
+// notes-tabs-light（設定がポップアップになり、3つのタブの並びから設定のタブが消える）。B・O は各タスクが足す。
+// 利用者がまとめて OK と言ったら G-3 で基準にして空に戻す（空になるまで版を上げられない: 上の版のテスト）
+const RETAKE_090 = ['live-banner-light', 'live-banner-dark', 'live-banner-zoom200-dark', 'notes-tabs-light', 'settings-light', 'settings-dark', 'settings-zoom200-dark'];
 test('G2・F14・G-4・0.9.0: 取り直し待ちは計画の「取り直す画面」の画面だけ。録音バーは入れない。どの画面にも基準の PNG があり、大きさが窓の大きさと同じ', { timeout: 5000 }, () => {
   assert.deepStrictEqual([...SH.RETAKE].filter((n) => !RETAKE_090.includes(n)), []);
+  for (const n of RETAKE_090) assert.ok(SH.RETAKE.has(n), `${n} が取り直し待ちに無い（見た目が変わった）`);
   assert.ok(!SH.RETAKE.has('overlay-processing'), '録音バーを取り直し待ちに入れた（overlay.html は変えない）');
   for (const s of SH.SCREENS) {
     const f = path.join(ROOT, 'test', 'shots', 'win32', `${s.name}.png`);
@@ -405,9 +409,13 @@ test('G2・F14・G-4・0.9.0: 取り直し待ちは計画の「取り直す画�
 // （tools/shots/screens.js の accountStatus の答えはログインしていない形）。録音中のページ・議事録・音声入力・検索の窓は要素も文も変えていない
 // （［ログインし直す］のフォーカスの行き先は <script> の中だけ）ので、基準のまま比べる。値を今の app.html に合わせた
 // 第1d回 G-4: 取り直し待ちの8枚を、この値の app.html で CI（run 39398639423・4f47ad0）が撮った画像にした（app.html は変えていないので値はそのまま）
+// 0.9.0 U-1（SP1〜SP3・D24）: 設定をタブでなく、ページの上に開くポップアップにした（左の項目の列・×・設定の section を中へ動かし、題名を
+// 選んだ項目の名前に）。見える中身が変わるのは設定の3枚と、3つのタブの並びから設定のタブが消える notes-tabs-light で、どれも RETAKE に入れた
+// （上の「取り直し待ちは計画の画面だけ」）。議事録・音声入力・録音中のページ・検索の窓は要素も文も CSS も変えていない（設定の section は
+// main から動いたが、閉じている間は hidden）ので、基準のまま比べる。値を今の app.html に合わせた
 test('基準の画像（test/shots/win32）は今の app.html で撮ったもの（app.html を変えたら撮り直しを確かめる）', { timeout: 5000 }, () => {
   const sha = require('node:crypto').createHash('sha256').update(fs.readFileSync(path.join(ROOT, 'src', 'renderer', 'app.html'))).digest('hex');
-  assert.strictEqual(sha, 'c25700fc5a26b7aa947bb6ab956d844cc760835fe3f3053676fbbba437f39117',
+  assert.strictEqual(sha, '81949b3134ad94c37995929e5ebca7149d5c111c16a4cefc0de4d199bf5e6386',
     'app.html が基準の画像を撮った時と違う。Windows の CI の画面の比べ（捲り棒のつまみも）を見て、基準を取り直してからこの値を直す');
 });
 

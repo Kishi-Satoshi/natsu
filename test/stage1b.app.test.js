@@ -103,34 +103,43 @@ test('N3: 一覧を押すと今のページのタブで開き、Ctrl+クリッ�
   assert.strictEqual(tabs(l)[0].getAttribute('aria-selected'), 'true');
 });
 
-test('N3: 音声入力と設定もタブで開き（1つずつ）、× と中クリックで閉じる。選んでいたタブを閉じたら隣へ移り、全部閉じたら空のページ', async () => {
+// 0.9.0 U-1（SP1・D24）で意図して変えた: 設定はタブでなく、今のページの上に開くポップアップ（上の帯に足さない・今のタブを替えない）。
+// 1つずつ開くことと閉じ方は、音声入力とページのタブで見る
+test('N3・0.9.0 U-1: 音声入力はタブで開き（1つずつ）、設定はタブにしない。× と中クリックで閉じる。選んでいたタブを閉じたら隣へ移り、全部閉じたら空のページ', async () => {
   const l = await open();
   await l.drain();
-  l.byId.get('tabBtnSettings').dispatchEvent({ type: 'click' });
+  l.byId.get('tabBtnDictation').dispatchEvent({ type: 'click' });
+  await l.drain();
+  row(l, 0).dispatchEvent({ type: 'click' });
+  await l.drain();
   l.byId.get('tabBtnDictation').dispatchEvent({ type: 'click' });
   l.byId.get('tabBtnSettings').dispatchEvent({ type: 'click' });
   await l.drain();
-  assert.deepStrictEqual(keysOf(l), ['settings', 'dictation']);
+  assert.deepStrictEqual(keysOf(l), ['dictation', 'page:pa1'], '音声入力のタブを2つ作った・設定のタブを足した');
   assert.ok(l.byId.get('tabSettings').className.includes('active'));
+  assert.ok(l.byId.get('tabDictation').className.includes('active'), '設定を開いたら後ろのタブが替わった');
+  l.key({ key: 'Escape' });
+  await l.drain();
   tabs(l)[0].querySelector('button').dispatchEvent({ type: 'click' });
   await l.drain();
-  assert.deepStrictEqual(keysOf(l), ['dictation']);
-  assert.ok(l.byId.get('tabDictation').className.includes('active'), '隣のタブへ移っていない');
+  assert.deepStrictEqual(keysOf(l), ['page:pa1']);
+  assert.ok(l.byId.get('tabNotes').className.includes('active'), '隣のタブへ移っていない');
   tabs(l)[0].dispatchEvent({ type: 'auxclick', button: 1 });
   await l.drain();
   assert.deepStrictEqual(keysOf(l), []);
   assert.match(l.byId.get('pNote').textContent, /左の一覧から議事録を選んでください/);
 });
 
+// 0.9.0 U-1（SP3）で意図して変えた: 覚えたタブの settings は受けない（下の stage090.settings の SP3）。固定のタブは音声入力で見る
 test('N3・N6・F7: 起動のときに覚えたタブを開いて選んでいたタブに移り、変わるたびに覚える', async () => {
-  const l = await open({ uiState: () => ({ sidebar: { width: 260, collapsed: false }, tabs: { open: ['page:pa1', 'settings'], active: 'page:pa1' } }) });
+  const l = await open({ uiState: () => ({ sidebar: { width: 260, collapsed: false }, tabs: { open: ['page:pa1', 'page:pb2'], active: 'page:pa1' } }) });
   await l.drain();
-  assert.deepStrictEqual(keysOf(l), ['page:pa1', 'settings']);
+  assert.deepStrictEqual(keysOf(l), ['page:pa1', 'page:pb2']);
   assert.strictEqual(tabs(l)[0].textContent.includes('定例（見本）'), true, 'タブの名前がページの題名でない');
   assert.deepStrictEqual(l.called('pageGet').map((c) => c.args[0]), ['pa1']);
   l.byId.get('tabBtnDictation').dispatchEvent({ type: 'click' });
   await l.drain();
-  assert.deepStrictEqual(saves(l).pop(), { tabs: { open: ['page:pa1', 'settings', 'dictation'], active: 'dictation' } });
+  assert.deepStrictEqual(saves(l).pop(), { tabs: { open: ['page:pa1', 'page:pb2', 'dictation'], active: 'dictation' } });
 });
 
 test('N3・F8: タブを替える前に書きかけの題名を元のページへ保存する（blur は来ない）', async () => {
@@ -139,13 +148,15 @@ test('N3・F8: タブを替える前に書きかけの題名を元のページ�
   row(l, 0).dispatchEvent({ type: 'click' });
   await l.drain();
   l.byId.get('pTitle').textContent = '直した題名';
-  l.byId.get('tabBtnSettings').dispatchEvent({ type: 'click' });
+  // 0.9.0 U-1 で意図して変えた: 設定はタブを替えない（ポップアップ）ので、音声入力のタブへ替える
+  l.byId.get('tabBtnDictation').dispatchEvent({ type: 'click' });
   await l.drain();
   assert.deepStrictEqual(l.called('pageSetTitle').map((c) => c.args), [['pa1', '直した題名']]);
 });
 
+// 0.9.0 U-1（SP1・SP3）で意図して変えた: 設定のタブは無いので、3つ目は2つ目のページのタブ（End で移り、Ctrl+Tab で最初のページへ回る）
 test('N3・画面の使いやすさ: タブの帯は ←／→／Home／End で移り（選んでいるタブだけ Tab で届く）、Ctrl+Tab で次のタブ', async () => {
-  const l = await open({ uiState: () => ({ sidebar: { width: 260, collapsed: false }, tabs: { open: ['page:pa1', 'dictation', 'settings'], active: 'page:pa1' } }) });
+  const l = await open({ uiState: () => ({ sidebar: { width: 260, collapsed: false }, tabs: { open: ['page:pa1', 'dictation', 'page:pb2'], active: 'page:pa1' } }) });
   await l.drain();
   assert.deepStrictEqual(tabs(l).map((t) => t.tabIndex), [0, -1, -1]);
   tabs(l)[0].dispatchEvent({ type: 'keydown', key: 'ArrowRight' });
@@ -154,10 +165,12 @@ test('N3・画面の使いやすさ: タブの帯は ←／→／Home／End で�
   assert.ok(l.byId.get('tabDictation').className.includes('active'));
   tabs(l)[1].dispatchEvent({ type: 'keydown', key: 'End' });
   await l.drain();
-  assert.ok(l.byId.get('tabSettings').className.includes('active'));
+  assert.ok(l.byId.get('tabNotes').className.includes('active'));
+  assert.strictEqual(tabs(l)[2].getAttribute('aria-selected'), 'true', 'End で最後のタブへ移らない');
   l.key({ key: 'Tab', ctrlKey: true });
   await l.drain();
-  assert.ok(l.byId.get('tabNotes').className.includes('active'), 'Ctrl+Tab で最初へ回らない');
+  assert.strictEqual(tabs(l)[0].getAttribute('aria-selected'), 'true', 'Ctrl+Tab で最初へ回らない');
+  assert.ok(l.byId.get('tabNotes').className.includes('active'));
 });
 
 test('N3・F7（足した守り）: 消したページのタブを残さず隣へ移り、開けないページ（幽霊行）のタブは作らずに今のページのまま', async () => {
@@ -356,7 +369,7 @@ test('N3・N6（足した守り）: 覚えたタブが届く前に記録が始�
   l.fire('onMeetingUpdate', ST());
   await l.drain();
   assert.deepStrictEqual(keysOf(l), ['live'], '前提: 記録中のタブが開いている');
-  ui.give({ sidebar: { width: 260, collapsed: false }, tabs: { open: ['page:pa1', 'settings'], active: 'page:pa1' } });
+  ui.give({ sidebar: { width: 260, collapsed: false }, tabs: { open: ['page:pa1', 'dictation'], active: 'page:pa1' } });   // 0.9.0 U-1: 設定のタブは無い（音声入力にした）
   await l.drain();
   assert.ok(keysOf(l).includes('live'), '遅れて届いた覚え書きが記録中のタブを消した（次の会議まで戻れない）');
   assert.strictEqual(tabs(l).find((t) => t.dataset.key === 'live').getAttribute('aria-selected'), 'true', '記録中のタブから移された');
@@ -372,7 +385,7 @@ test('N2・N3（足した守り）: 覚え書きが届く前に利用者がサ�
   row(l, 0).dispatchEvent({ type: 'click' });
   await l.drain();
   assert.strictEqual(l.byId.get('side').style.width, '276px', '前提: ← → で幅が変わる');
-  ui.give({ sidebar: { width: 400, collapsed: true }, tabs: { open: ['settings'], active: 'settings' } });
+  ui.give({ sidebar: { width: 400, collapsed: true }, tabs: { open: ['dictation'], active: 'dictation' } });   // 0.9.0 U-1: 設定のタブは無い（落とすので上書きの見張りが空振りする）。音声入力にした
   await l.drain();
   assert.strictEqual(l.byId.get('side').style.width, '276px', '遅れて届いた幅で利用者の幅を上書きした');
   assert.ok(!l.byId.get('side').closest('.app').className.includes('side-collapsed'), '遅れて届いた畳みで畳んだ');
@@ -431,7 +444,8 @@ test('画面の使いやすさ: つまみの Enter は畳む・出すだが、�
 });
 
 test('画面の使いやすさ・F12（足した守り）: 選んでいるタブの × にも Tab で届き（ほかのタブの × は届かない）、× で閉じたらフォーカスは隣のタブへ移る', async () => {
-  const l = await open({ uiState: () => ({ sidebar: { width: 260, collapsed: false }, tabs: { open: ['page:pa1', 'dictation', 'settings'], active: 'dictation' } }) });
+  // 0.9.0 U-1（SP3）で意図して変えた: 設定のタブは無いので、3つ目は2つ目のページのタブ
+  const l = await open({ uiState: () => ({ sidebar: { width: 260, collapsed: false }, tabs: { open: ['page:pa1', 'dictation', 'page:pb2'], active: 'dictation' } }) });
   await l.drain();
   const xs = () => tabs(l).map((t) => t.querySelector('.tx').tabIndex);
   assert.deepStrictEqual(xs(), [-1, 0, -1]);
@@ -441,7 +455,7 @@ test('画面の使いやすさ・F12（足した守り）: 選んでいるタブ
   x.focus();
   x.dispatchEvent({ type: 'click' });
   await l.drain();
-  assert.deepStrictEqual(keysOf(l), ['page:pa1', 'settings']);
+  assert.deepStrictEqual(keysOf(l), ['page:pa1', 'page:pb2']);
   assert.strictEqual(l.document.activeElement, tabs(l)[1], '× で閉じた後、フォーカスがどこにも無い');
   assert.deepStrictEqual(xs(), [-1, 0]);
 });

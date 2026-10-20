@@ -138,6 +138,9 @@
 //                     --recover と組むと、置く下書きに localOnly: true を書く
 //     （議事録の場面では、記録を始めた直後の meeting:status の cloud をいつも out.statusCloud に入れる）
 //     --dictate     … 議事録の代わりに音声入力を1回（ホットキー → audio:done）。out.history に履歴
+//     --focus-main-during-dictation … 0.9.0 U-1（SP2・RF9）: --dictate と組む。本体の窓は前にない形で始め（--main-unfocused と同じ）、
+//                     音声入力の録音中に本体の窓へ focus、続けて blur を送る。out.escape に globalShortcut の Escape の付け外しの順、
+//                     out.escapeAt に録音の始め・focus の後・blur の後・終わりのそれぞれで Escape が付いていたか
 //     --no-whisper  … 設定の whisper の実行ファイルを無いファイルにする
 //     --no-whisper-after-start … 0.9.0 B-2（F14）: 議事録の記録を始めた直後に、偽のモデル（この場面が作ったもの）を消す（会議の途中で手元の
 //                     エンジンが使えなくなった形。NATSU_E2E_MODEL の本物のモデルとは組めない: 消さずに止める）
@@ -423,6 +426,7 @@ const localOnlyFlag = flags.includes('--local-only');
 const dictate = flags.includes('--dictate');
 // 第1d2回 M-1: 何も取り込んでいない PC（--no-engine）を、議事録・音声入力の場面として回す（早い分かれ道に入らない）
 const noEngineScene = Boolean(noEngine) && (Boolean(relayMode) || offline || signedOut || dictate || localOnlyFlag || flags.includes('--dictate-twice'));
+const focusMainDuringDictation = flags.includes('--focus-main-during-dictation');   // 0.9.0 U-1（SP2・RF9）
 const noWhisper = flags.includes('--no-whisper');
 const noWhisperAfterStart = flags.includes('--no-whisper-after-start');   // 0.9.0 B-2
 // 第1d回 A-8: Windows の知らせの場面
@@ -432,7 +436,7 @@ const liveNotShown = flags.includes('--live-not-shown');
 const noNotify = flags.includes('--no-notify');
 const clickNotify = flags.includes('--click-notify');
 const reloadMain = flags.includes('--reload-main');
-const mainUnfocused = flags.includes('--main-unfocused');   // 第1d回 A-8 の点検で足した
+const mainUnfocused = flags.includes('--main-unfocused') || flags.includes('--focus-main-during-dictation');   // 第1d回 A-8 の点検で足した（0.9.0 U-1 の旗も前にない形で始める）
 const notifyThrows = flags.includes('--notify-throws');     // 第1d回 A-8 の点検で足した
 // 第1c回 B-3: オンラインの要約の場面（偽の claude）
 const claudeMode = (flags.find((f) => f.startsWith('--claude=')) || '').slice(9);
@@ -855,6 +859,8 @@ process.on('exit', () => {
     if (code && !(code in sttAt)) sttAt[code] = segSnap(p.segments);
   };
   const shortcuts = {};   // globalShortcut.register の受け口（キー → 関数）。場面がホットキーを押す
+  const registered = new Set();   // 0.9.0 U-1: 今登録している鍵（globalShortcut.isRegistered の答え）
+  const escapeLog = [];           // 0.9.0 U-1: Escape の付け外しの順（'register'・'unregister'）
   // 画面へ送った知らせと進み具合の順。進み具合が初めて組を「使える」と言ったとき・壊れた知らせを送ったときの engine:status
   const seq = [];
   const atReady = {};
@@ -1225,7 +1231,13 @@ process.on('exit', () => {
     // engine:status を付けたら（setupIpc）、その同じ手番が済んだ直後のマイクロタスクで ipcReady を解く（第2a1回 M-2b。起動は復旧の
     // DB の書き込みを待ってから setupIpc に来るので、ready からマイクロタスクを数えるだけでは届かない）
     ipcMain: { handle: (ch, f) => { handlers[ch] = f; if (ch === 'engine:status') queueMicrotask(ipcReady); }, on: (ch, f) => { listeners[ch] = f; }, removeHandler() {} },
-    globalShortcut: { register: (acc, cb) => { shortcuts[acc] = cb; return true; }, unregister() {}, unregisterAll() {}, isRegistered: () => false },
+    // 0.9.0 U-1: 登録している鍵を覚え（isRegistered が答える）、Escape の付け外しを out.escape に順に残す（--focus-main-during-dictation）
+    globalShortcut: {
+      register: (acc, cb) => { shortcuts[acc] = cb; registered.add(acc); if (acc === 'Escape') escapeLog.push('register'); return true; },
+      unregister: (acc) => { if (registered.delete(acc) && acc === 'Escape') escapeLog.push('unregister'); },
+      unregisterAll: () => { if (registered.has('Escape')) escapeLog.push('unregister'); registered.clear(); },
+      isRegistered: (acc) => registered.has(acc),
+    },
     nativeTheme: { shouldUseDarkColors: false, themeSource: 'system', on() {} },
     // 取り込みの通信は Electron の net.request（第0b回 RF2）。テストでは同じ振る舞いの偽物（127.0.0.1 の偽のサーバーへ）
     net: { request: require('./fake-net').makeFakeRequest({ before, rewrite }), isOnline: () => netUp },
@@ -1910,6 +1922,13 @@ process.on('exit', () => {
         process.stdout.write(`\n${JSON.stringify(out)}\n`);
         await exitClean(0);
       }
+      // 0.9.0 U-1（SP2・RF9）: 録音中に本体の窓へ focus、続けて blur（偽の窓の isFocused を合わせてから事象を出す）。1回目の音声入力だけ
+      if (focusMainDuringDictation && r === 0) {
+        const mw = wins[1];
+        out.escapeAt = { start: registered.has('Escape') };
+        mw.focused = true; mw.emit('focus'); out.escapeAt.focus = registered.has('Escape');
+        mw.focused = false; mw.emit('blur'); out.escapeAt.blur = registered.has('Escape');
+      }
       // 第1d回 A-9: 音声入力の録音中に再起動を頼む
       // 断る前後で子の kill() を数える（out.killsAtRefusal）。そのとき動いていたエンジンの数は out.enginesAtRefusal
       const kills0 = killCalls;
@@ -1945,6 +1964,7 @@ process.on('exit', () => {
     out.pastes = clipWrites.slice();   // 第1d2回 M-1
     out.overlayPhases = sent.filter(([ch]) => ch === 'overlay:phase').map(([, p]) => p);   // 第1d2回 M-5
     out.files = listFiles(userData);
+    if (focusMainDuringDictation) { out.escape = escapeLog.slice(); out.escapeAt.end = registered.has('Escape'); }
     if (restartDuring) Object.assign(out, { relaunches, relaunchDb, applyCalls });
     await sttOut();
     // 第1d2回 M-5: 残した音声入力の行を消す・全部消す

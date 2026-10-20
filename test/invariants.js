@@ -77,7 +77,11 @@ const WIRED = [
   { screen: 'app', id: 'tabSettings', types: ['change'], 由来: '設定の自動保存。切れると入力が黙って捨てられる' },
   { screen: 'app', id: 'tabBtnNotes', types: ['click'], 由来: 'タブ切り替え' },
   { screen: 'app', id: 'tabBtnDictation', types: ['click'], 由来: 'タブ切り替え' },
-  { screen: 'app', id: 'tabBtnSettings', types: ['click'], 由来: 'タブ切り替え。設定画面へ入る唯一の導線' },
+  { screen: 'app', id: 'tabBtnSettings', types: ['click'], 由来: 'タブ切り替え。設定画面へ入る唯一の導線（0.9.0 U-1 からポップアップを開く）' },
+  // 0.9.0 U-1（SP1〜SP3・F13）: 設定のポップアップの閉じ方（×・Esc と Tab の閉じ込め・外の地）と左の項目の列（押す・↑↓）。切れると閉じられない・項目を替えられない
+  { screen: 'app', id: 'setClose', types: ['click'], 由来: '0.9.0 U-1: 設定のポップアップの ×。切れるとマウスでは閉じられない' },
+  { screen: 'app', id: 'settingsModal', types: ['keydown'], 由来: '0.9.0 U-1: 設定のポップアップの Esc と Tab の閉じ込め（外の地の pointerdown・click も同じ要素）' },
+  { screen: 'app', id: 'setNav', types: ['click', 'keydown'], 由来: '0.9.0 U-1: 設定の左の項目の列（押す・↑↓・Home・End）' },
   { screen: 'app', id: 'searchBox', types: ['input'], 由来: '議事録の検索' },
   { screen: 'app', id: 'sideSearch', types: ['click'], 由来: '検索の窓を開く（第1b2回）' },
   { screen: 'app', id: 'sideGrip', types: ['pointerdown', 'keydown'], 由来: '第1b回 N2: サイドバーの幅のつまみ（ドラッグと ←／→・Enter）。切れると幅を変えられず、キーボードでは畳めない' },

@@ -75,7 +75,8 @@ test('N1: ガラス風をやめた（backdrop-filter・グラデーション・�
 // 第1b2回 L-1: 部品は 6px まで・まとまり（会議のブロック・検索の窓・囲み）は 10px まで・丸いタブは 14px（高さ 28px の丸）
 test('N1: 角丸は部品 6px・まとまり 10px・丸いタブ 14px まで（例外は設定のトグルと丸い点）。影は浮く部品の --shadow だけで、青い影が無い', () => {
   const ROUND_OK = new Set(['.check input', '.check input::after', '.rec-dot', '#updBadge .dot']);
-  const R10 = new Set(['.mblock', '.palbox', '.note']);
+  // 0.9.0 U-1（SP1・D24）で意図して変えた: 設定のポップアップの箱（.setbox）も角丸 10px のまとまり（計画 U-1 の「角丸 10px（まとまり）」）
+  const R10 = new Set(['.mblock', '.palbox', '.note', '.setbox']);
   const R14 = new Set(['.ptab']);
   const limit = (sel) => sel.split(',').map((s) => s.trim()).reduce((m, s) => Math.max(m, R14.has(s) ? 14 : R10.has(s) ? 10 : 6), 0);
   for (const r of rules) {
@@ -108,7 +109,8 @@ test('F10: 規則の文字の色は文字のトークンだけ、地は地のト
     if (!bg) continue;
     assert.match(bg.trim(), GROUND, `${r.sel} の地`);
     if (/var\(--(level|line)\)/.test(bg)) assert.ok(decor(r.sel), `${r.sel}: --level・--line は飾りの地だけ（文字の地にしない）`);
-    if (/var\(--scrim\)/.test(bg)) assert.ok(r.sel === '#palette', `${r.sel}: --scrim は検索の窓の後ろだけ`);
+    // 0.9.0 U-1（SP1・D24）で意図して変えた: 設定のポップアップの後ろ（.setmodal）も検索の窓と同じ --scrim（文字を載せない飾りの地）
+    if (/var\(--scrim\)/.test(bg)) assert.ok(r.sel === '#palette' || r.sel === '.setmodal', `${r.sel}: --scrim は検索の窓と設定のポップアップの後ろだけ`);
     if (/var\(--accent\)/.test(bg) && !decor(r.sel)) assert.match(r.decls.color || '', /var\(--on-accent\)/, `${r.sel}: 強調の面の上の文字は --on-accent`);
   }
   for (const m of html.matchAll(/style="([^"]*)"/g)) assert.ok(!RAW.test(m[1]), `インラインの style に生の色: ${m[1]}`);

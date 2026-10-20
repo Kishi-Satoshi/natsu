@@ -2665,6 +2665,9 @@ function createMainWindow() {
   // preventDefault で既定のメニューに渡さない（メニューの段は 1.2 倍ずつで、覚えた倍率が段に無い値になる: F4）。
   // ホイールの拡大（zoom-changed）は Electron が自分では拡大しないので、同じ段で動かす。読み込むたびに覚えた倍率を当てる
   for (const ev of ['resize', 'move', 'maximize', 'unmaximize']) mainWin.on(ev, rememberWinBounds);
+  // 0.9.0 U-1（SP2・RF9）: 音声入力の録音中に本体の窓が前に来たら Esc の全体のホットキーを外し、離れたら付け直す
+  mainWin.on('focus', syncEscapeHotkey);
+  mainWin.on('blur', syncEscapeHotkey);
   mainWin.webContents.on('before-input-event', (e, input) => {
     const dir = W.zoomDir(input);
     if (!dir) return;
@@ -2722,20 +2725,32 @@ function startRecording() {
   positionOverlay();
   overlayWin.showInactive();
   sendToOverlay('overlay:start', { mode: 'dictation', micId: settings.micId || '', sound: Boolean(settings.soundFeedback) });
-  globalShortcut.register('Escape', cancelRecording);
+  syncEscapeHotkey();
   updateTray();
+}
+// 0.9.0 U-1（SP2・設計書 RF9・決めたこと 16）: 音声入力の録音中だけ Esc を全体のホットキーにして取り消しに使う。
+// ただし本体の窓にフォーカスがある間は付けない（全体のホットキーは窓より先に取るので、設定のポップアップや検索の窓の Esc が
+// 音声入力の取り消しになる）。本体の窓の focus・blur と、録音の始め・終わり（今の register・unregister の所）から呼ぶ。
+// 議事録の録音中・録音していないときは Esc を取らない（付いていれば外す）。付いているかは自分の印でなく isRegistered で見る
+//（ホットキーの登録し直し applyHotkeys の unregisterAll で外れても、次の呼び出しで付け直す）
+function syncEscapeHotkey() {
+  const mainFocused = Boolean(mainWin && !mainWin.isDestroyed() && mainWin.isFocused());
+  const want = state === 'recording' && !mainFocused;
+  const held = globalShortcut.isRegistered('Escape');
+  if (want && !held) globalShortcut.register('Escape', cancelRecording);
+  else if (!want && held) globalShortcut.unregister('Escape');
 }
 function stopRecording() {
   if (state !== 'recording') return;
   state = 'processing';
-  globalShortcut.unregister('Escape');
+  syncEscapeHotkey();
   sendToOverlay('overlay:stop', {});
   updateTray();
 }
 function cancelRecording() {
   if (state !== 'recording') return;
   state = 'idle';
-  globalShortcut.unregister('Escape');
+  syncEscapeHotkey();
   sendToOverlay('overlay:cancel', {});
   updateTray();
 }
@@ -2749,8 +2764,7 @@ async function handleDictationAudio(buffer, durationMs) {
   // Escape で取り消しても、録音側の停止処理が終わってから音声が届くことがあり、
   // そのまま進むと取り消したはずの文章が貼り付けられる。
   if (state !== 'recording' && state !== 'processing') return;
-  if (state === 'recording') globalShortcut.unregister('Escape');
-  state = 'processing'; updateTray();
+  state = 'processing'; syncEscapeHotkey(); updateTray();
   if (durationMs < MIN_RECORD_MS || buffer.byteLength < 1000) { finishWithError('録音が短すぎます'); return; }
   sendToOverlay('overlay:phase', { phase: 'processing', message: '文字起こし中…' });
   try {
@@ -2934,8 +2948,7 @@ const dictWaitCount = () => { try { return fs.readdirSync(dictwaitRoot()).filter
 function finishWithError(message) {
   // 録音中に確保した Escape を必ず手放す。ここを抜かすと、以後アプリ以外の
   // 場所でも Escape が効かなくなる（録音中だけの横取りのはずが残り続ける）。
-  if (state === 'recording') globalShortcut.unregister('Escape');
-  state = 'idle'; updateTray();
+  state = 'idle'; syncEscapeHotkey(); updateTray();
   sendToOverlay('overlay:phase', { phase: 'error', message });
   setTimeout(hideOverlayIfIdle, 3000);
 }
