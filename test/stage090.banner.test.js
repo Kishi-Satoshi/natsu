@@ -245,8 +245,21 @@ test('F14: 帯が区間のクラウドの答えで消えた後にまた切れた
 
 test('F14: 準備を選んでいない PC（エンジンが無い）では net-offline は出ない（「この PC で文字起こしを続けています」が本当でない）', S, async () => {
   const o = await run(['text', '--relay=text', '--no-engine=fetchable', '--net-seq=0:on,10:off']);
+  // この版の土台では、エンジンの無い PC は会議を始められない（「文字起こしエンジンが未設定です…」）ので、下の2つは空で通る。
+  // A レーン（M-1・M-5: オフラインを任意に）を載せると始められるようになり、ここが赤になる: そのとき true に替え、
+  // 帯 kept-wait（B11）が出ることを足す（net-offline の代わりに言う帯）
+  assert.strictEqual(o.start.ok, false, JSON.stringify(o.start));
   assert.ok(!everOffline(o), JSON.stringify(o.netProblems));
   assert.deepStrictEqual(shownLines(o), []);
+});
+
+test('F14: 会議の途中で手元のエンジンが使えなくなった（モデルが消えた）ら、ネットワークが切れても net-offline は出ない', S, async () => {
+  const o = await run(['text', '--relay=text', '--net-seq=0:on,10:off', '--no-whisper-after-start']);
+  assert.strictEqual(o.start.ok, true, JSON.stringify(o.start));
+  assert.ok(!everOffline(o), JSON.stringify(o.netProblems));
+  assert.deepStrictEqual(shownLines(o), []);
+  // 切れている間の区間は手元で文字にならない（エンジンの帯になる）: 見張りの外の道で帯が出ていることも見て、場面が空で通っていないことを確かめる
+  assert.ok(o.netProblems.some(([, c]) => c === 'engine-down'), JSON.stringify(o.netProblems));
 });
 
 test('F14: PC の中だけの会議には net-offline を出さない', S, async () => {
@@ -265,4 +278,13 @@ test('F14: ログインしていない会議には net-offline を出さない�
   // 文字起こしの知らせ（STT_NOTICE の文）のうち出たのは L2 だけ（ネットワークの帯の代わりに別の知らせを足していない）
   const sttTexts = new Set(Object.keys(NOTICE).map(notice));
   assert.deepStrictEqual(o.notices.map(textOf).filter((t) => sttTexts.has(t)), [L_090['signed-out']], JSON.stringify(o.notices));
+});
+
+test('BN2・決めたこと 34: 帯 net-offline が出ている間につながり直し、次の区間が中継で失敗したら、中継の帯（B8 relay-down）が net-offline と替わる（見張りの 10 秒を待たずに「NaTsu のサーバーにつながりません」）', S, async () => {
+  const o = await run(['text', '--relay=text', '--net-seq=0:on,10:off,20:on', '--net-seg-at=15,22', '--relay-seq=cnc']);
+  assert.strictEqual(o.start.ok, true, JSON.stringify(o.start));
+  // 中継の帯を立てたら net-offline は消える（PROBLEM_ORDER で net-offline が前なので、残すと 30 秒まで中継の帯が隠れる）
+  assert.deepStrictEqual(o.netProblems, [[0, null], [15, 'net-offline'], [22, 'relay-down']], JSON.stringify(o.netProblems));
+  assert.strictEqual(o.netSegs[1].problem, 'relay-down', JSON.stringify(o.netSegs));
+  assert.strictEqual(clearedLines(o).length, 1, JSON.stringify(o.engineLog));
 });

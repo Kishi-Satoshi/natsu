@@ -139,6 +139,8 @@
 //     （議事録の場面では、記録を始めた直後の meeting:status の cloud をいつも out.statusCloud に入れる）
 //     --dictate     … 議事録の代わりに音声入力を1回（ホットキー → audio:done）。out.history に履歴
 //     --no-whisper  … 設定の whisper の実行ファイルを無いファイルにする
+//     --no-whisper-after-start … 0.9.0 B-2（F14）: 議事録の記録を始めた直後に、偽のモデル（この場面が作ったもの）を消す（会議の途中で手元の
+//                     エンジンが使えなくなった形。NATSU_E2E_MODEL の本物のモデルとは組めない: 消さずに止める）
 //     --claude=<mode> … 第1c回 B-3: オンラインの要約。設定の claudeExe を偽の claude（helpers/fake-claude.js）に向け、FAKE_CLAUDE_MODE に
 //                     mode を、FAKE_CLAUDE_LOG に記録のファイルを置く（spawn は偽の whisper と同じく node で台本を起こす）。
 //                     mode が missing か、--claude が無ければ claudeExe を無いファイルに向ける（Claude Code が入っていない PC。PATH を探さない）。--stt と組むと、Anthropic へ
@@ -422,6 +424,7 @@ const dictate = flags.includes('--dictate');
 // 第1d2回 M-1: 何も取り込んでいない PC（--no-engine）を、議事録・音声入力の場面として回す（早い分かれ道に入らない）
 const noEngineScene = Boolean(noEngine) && (Boolean(relayMode) || offline || signedOut || dictate || localOnlyFlag || flags.includes('--dictate-twice'));
 const noWhisper = flags.includes('--no-whisper');
+const noWhisperAfterStart = flags.includes('--no-whisper-after-start');   // 0.9.0 B-2
 // 第1d回 A-8: Windows の知らせの場面
 const mainHidden = flags.includes('--main-hidden');
 const mainMinimized = flags.includes('--main-minimized');
@@ -2111,6 +2114,11 @@ process.on('exit', () => {
     ? process.env.NATSU_E2E_WAVS.split(';').map((f) => ({ buf: fs.readFileSync(f), ms: Math.round((fs.statSync(f).size - 44) / 32) }))
     : Array.from({ length: segCount }, (_, i) => ({ buf: toneWav(i ? 2 : 3, silent ? 0 : 8000), ms: i ? 2000 : 3000 }));
   out.start = await handlers['meeting:toggle']();
+  // 0.9.0 B-2（--no-whisper-after-start）: 始めた直後に偽のモデルを消す（engineValid(whisperEng) が偽になる）
+  if (noWhisperAfterStart) {
+    if (process.env.NATSU_E2E_MODEL) throw new Error('--no-whisper-after-start は NATSU_E2E_MODEL と組めない（本物のモデルを消さない）');
+    fs.rmSync(model, { force: true });
+  }
   // 第1d回 A-8: 画面は会議が始まると録音中のタブを開き、main へ知らせる（--live-not-shown は開いていない形）
   if (listeners['meeting:live-shown']) listeners['meeting:live-shown']({}, !liveNotShown);
   if (reloadMain) wins[1].webContents.emit('did-start-loading');
