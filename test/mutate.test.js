@@ -360,3 +360,25 @@ test('G3: 第1d回の作り替え（G-3）で足した 60 個の変異が一覧�
     if (m.tests.some((t) => /stage1d\.(main|ipc|app|seg|status|restart)\.test\.js$|transcribe\.e2e\.test\.js$/.test(t))) assert.ok(m.pattern, `${id}: pattern が無い`);
   }
 });
+
+// 0.9.0（計画 docs/plans/2026-10-20-090.md の「変異確認」の表）。G-1 は速さの計り直しの4つを入れる。G-2 が残りの全部を足し、
+// この並びが計画の表の id とちょうど同じことを見るテストを足す
+const IDS_090 = ['perf-recheck-any', 'perf-recheck-all', 'perf-recheck-skip', 'perf-again-tx'];
+test('PG1: 変異 perf-recheck-any・perf-recheck-all・perf-recheck-skip・perf-again-tx が一覧にあり、IDS_090 に入っている', { timeout: 5000 }, () => {
+  const byId = new Map(MUTANTS.map((m) => [m.id, m]));
+  for (const id of ['perf-recheck-any', 'perf-recheck-all', 'perf-recheck-skip', 'perf-again-tx']) {
+    assert.ok(IDS_090.includes(id), `IDS_090 に ${id} が無い`);
+    assert.ok(byId.has(id), `一覧に ${id} が無い`);
+    assert.strictEqual(byId.get(id).file, 'tools/perf.js', id);
+    assert.deepStrictEqual(byId.get(id).tests, ['test/perf.test.js'], id);
+  }
+  const plan = fs.readFileSync(path.join(ROOT, 'docs', 'plans', '2026-10-20-090.md'), 'utf8');
+  const table = plan.slice(plan.indexOf('## 変異確認'), plan.indexOf('## ゲート'));
+  for (const id of IDS_090) assert.ok(table.includes(`| ${id} |`), `計画の「変異確認」の表に ${id} が無い`);
+});
+
+test('CI: mutate のジョブの timeout-minutes は 40（0.9.0 の約 99 の変異で 20 分を越える見込み。PG1・決めたこと 37）', { timeout: 5000 }, () => {
+  const j = jobsOf(fs.readFileSync(path.join(ROOT, '.github', 'workflows', 'ci.yml'), 'utf8')).mutate;
+  assert.match(j, /^    timeout-minutes: 40$/m);
+  assert.ok(stepsOf(j).some((s) => /^\s*run: node tools\/mutate\.js --jobs 2$/m.test(s)), '変異確認の写しの数を変えた');
+});

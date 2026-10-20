@@ -115,6 +115,11 @@ module.exports = [
   { id: 'gate-json', file: 'tools/risk.js', from: '  if (!jsonWriteTarget(file) || after == null) return [];', to: '  return [];', tests: ['test/gate.test.js'], why: 'G8・JS5: src の JSON の直書きを見つける' },
   { id: 'perf-judge', file: 'tools/perf.js', from: '    return { name, ms, budget, ok: ms <= budget };', to: '    return { name, ms, budget, ok: true };', tests: ['test/perf.test.js'], why: 'PERF: 目安を越えたら NG' },
   { id: 'perf-fsync', file: 'tools/perf.js', from: 'J.writeJsonFile(file, value, { fsync: true, fs: writeFs })', to: 'J.writeJsonFile(file, value, { fsync: false, fs: writeFs })', tests: ['test/perf.test.js'], why: 'Task 5-1 の2つの決め方: 書く時間に fsync を入れる' },
+  // 0.9.0 G-1（PG1・F17）: 目安を越えた名前だけを計り直し、3回の中央値で決める。計り直しも同じ仕事（新しい tx）を計る
+  { id: 'perf-recheck-any', file: 'tools/perf.js', from: '    const ok = ms <= x.budget;', to: '    const ok = tries.some((t) => t <= x.budget);', tests: ['test/perf.test.js'], why: 'PG1・F17: 計り直しは3回の中央値で決める（1回でも目安に入れば OK、にしない）' },
+  { id: 'perf-recheck-all', file: 'tools/perf.js', from: '    if (x.ok) { out.push(x); continue; }\n', to: '', tests: ['test/perf.test.js'], why: 'PG1: OK の名前は計り直さない（時間を延ばさない）' },
+  { id: 'perf-recheck-skip', file: 'tools/perf.js', from: '    const ms = round2(median(tries));', to: '    const ms = x.ms;', tests: ['test/perf.test.js'], why: 'PG1: 計り直した値で決める（はじめの1回の一瞬の遅れで赤にしない）' },
+  { id: 'perf-again-tx', file: 'tools/perf.js', from: '      const r = med(10, () => { n++;', to: '      n = 0;\n      const r = med(10, () => { n++;', tests: ['test/perf.test.js'], why: 'PG1・F17: 計り直しの write-commit は tx を続きから数える（1 から数え直すと dup で書かない速い道を計る）' },
   // ---------------------------------------------------------------- 第1c回（Task D-1。計画 docs/plans/2026-10-18-1c.md の「変異確認」の表）
   // オンラインかの判定と経路の決め方（src/online.js）
   { id: 'on-offline-noask', file: 'src/online.js', from: "    if (!online()) return { up: false, why: 'offline' };\n", to: '', tests: ['test/online.test.js'], why: 'OL1: isOnline() が false なら届くかを確かめない' },

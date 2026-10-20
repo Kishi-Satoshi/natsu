@@ -8,10 +8,12 @@
 //   exitCodeOf(judged)      … NG が1つでもあれば 1
 //   suggestBatchMs(p95)     … 設定の大きさの書き込み＋fsync の p95 が 100ms までなら 350（今のまま）、越えたら 1000
 //   suggestDraftFsync(p95)  … 512KB（下書きの大きさ）の書き込み＋fsync の p95 が 20ms までなら true（足す）、越えたら false
-//   measureDb({ pages, segments, bigBlocks, bigSegments, dir })   → [{ name, ms }]（db-open・list・searchIndex-*・searchFull-*・open-page・write-commit）
+//   measureDb({ pages, segments, bigBlocks, bigSegments, dir })   → [{ name, ms, first }]（db-open・list・searchIndex-*・searchFull-*・open-page・write-commit）
+//   benchDb(同じ)                                                 → { results（measureDb と同じ）, again(name) → ms, close() }（0.9.0 G-1。見本を残して計り直す）
+//   recheck(judged, again, { rounds, log })                       → judged と同じ形（NG の名前だけを again で rounds 回計り直し、3回の中央値と tries。PG1）
 //   measureMigrate({ pages, segments, blocks, rounds, dir, onDone }) → [{ name: 'migrate-500', ms }]
 //   measureDraftWhileBusy({ reps, dir })                          → { name: 'draft-write-while-db-busy', ms, p95, dbWritesDuring, stillWriting }（参考の値）
-//   measureWrites({ reps, dir, fs })                              → [{ name, ms（median）, p95 }]（fs は試しで fsync を数えるため。既定は node の fs）
+//   measureWrites({ reps, dir, fs, only })                        → [{ name, ms（median）, p95 }]（fs は試しで fsync を数えるため。既定は node の fs。only はその名前だけ）
 //   sampleDbPage(i, { rare, segments }) → { page, segments }・insertSample(db, items) … DB の見本（テストが形を putPageRows と比べる）
 //
 // 決め方:
@@ -30,10 +32,13 @@
 //  - Windows の CI（windows-latest）は Linux より遅い。越えた名前だけを BUDGETS_WIN（測った中央値の 2 倍）にし、main は
 //    budgetsFor(process.platform) で目安を選ぶ。第1a回の searchIndex-all（JSON の保存で 729.43ms）は DB にしたので外した。
 //    DB の Windows の値は CI の出力から決め直す。
+//  - （0.9.0 G-1・PG1）共用の CI の機械のディスクの一瞬の遅れ（write-commit 157.42ms・write-256k-fsync 125.84ms。隣の書き込みは
+//    7〜13ms）で赤にしないため、目安を越えた名前だけを同じ見本・同じ操作でもう2回計り、はじめの1回と合わせた3回の中央値で決める。
+//    目安の値は変えない。本当に遅くなれば3回とも越えるので赤のまま。計り直しの write-commit は新しい tx で書く（dup なら投げる）。
 //
 // node tools/perf.js [--pages=N] [--segments=N]
-//   1 行ずつ「OK／NG 名前 ms（目安 ms）」、目安の無い参考の値、決め方の答え（まとめ書きの間隔・draft.json の fsync）、
-//   最後に `PERF_JSON {…}` を出し、exitCodeOf で終わる。--pages・--segments は手で見本の大きさを変えて計るとき（既定 5000・60）。
+//   計り直した名前ごとに「計り直し 名前: 1回目ms・2回目ms・3回目ms → 中央値 ms（目安 ms）OK／NG」、1 行ずつ「OK／NG 名前 ms（目安 ms）」、目安の無い参考の値、決め方の答え（まとめ書きの間隔・draft.json の fsync）、
+//   最後に `PERF_JSON {…}`（judged の計り直した名前に tries）を出し、exitCodeOf で終わる。--pages・--segments は手で見本の大きさを変えて計るとき（既定 5000・60）。
 
 'use strict';
 
@@ -205,7 +210,14 @@ function checkSampleShape(C, db, { page, segments }) {
   }
 }
 
-async function measureDb({ pages = 5000, segments = 60, bigBlocks = 2000, bigSegments = 10000, dir } = {}) {
+// DB の計り（0.9.0 G-1 で、見本を残して1つの名前だけを計り直せる形にした）。見本を作り、DB_NAMES を順に計って閉じる。
+// again(name) は同じ見本・同じ操作をもう1回計り（今と同じ回数の median）、その ms を返す。again の間でないときは DB を閉じておく
+// （ほかの計りの間に開いた接続を残さない）。close() で見本を消す（失敗しても消す）。
+// write-commit は tx の番号 n を続きから数える（同じ (role, tx) は core.call が書かずに dup で返すので、1 から数え直すと
+// 何も書かない速い道を計る）。答えが dup なら投げ、最後に書いた題名が読めるかを毎回確かめる（PG1・F17）
+const DB_NAMES = ['db-open', 'list', 'searchIndex-typical', 'searchIndex-all', 'searchFull-trigram', 'searchFull-short', 'open-page', 'write-commit'];
+
+async function benchDb({ pages = 5000, segments = 60, bigBlocks = 2000, bigSegments = 10000, dir } = {}) {
   const sqlite = require('node:sqlite');
   const core = require('../src/db/core');
   const C = require('../src/db/commands');
@@ -213,54 +225,100 @@ async function measureDb({ pages = 5000, segments = 60, bigBlocks = 2000, bigSeg
   const file = path.join(root, 'natsu.db');
   let db = null;
   const close = () => { if (db) { db.close(); db = null; } };
+  const openDb = () => { if (!db) db = core.open({ sqlite, file }).db; if (!db) throw new Error('見本の DB を開き直せない'); };
+  const bigId = 'pbig';
+  const ask = (cmd, args, tx) => {
+    const r = core.call(db, { role: tx ? 'main' : 'app', cmd, args, tx }, { labels: {} });
+    if (!r.ok) throw new Error(`${cmd} が ${r.code} で返った`);
+    if (r.dup) throw new Error(`${cmd} が dup で返った（tx ${tx} を前に使った。書かない速い道を計っている）`);
+    return r.result;
+  };
+  // median と、1回目（一覧の1行を覚える前・問い合わせを用意する前）の値
+  const med = (n, fn) => { const list = timesOf(n, fn); return { ms: median(list), first: list[0] }; };
+  let n = 0;
+  const target = pageId(0);
+  const OPS = {
+    'db-open': () => med(ROUNDS, () => { close(); db = core.open({ sqlite, file }).db; }),
+    'list': () => { let hit = null; const r = med(ROUNDS, () => { hit = ask('pages.list', {}); });
+      if (hit.length !== pages + 1) throw new Error(`一覧の数が合わない: ${hit.length}（見本は ${pages + 1}）`); return r; },
+    'searchIndex-typical': () => { let hit = null; const r = med(ROUNDS, () => { hit = ask('pages.list', { q: RARE }); });
+      if (hit.length !== 1) throw new Error(`1件に当たる語が ${hit.length} 件に当たった`); return r; },
+    'searchIndex-all': () => { let hit = null; const r = med(ROUNDS, () => { hit = ask('pages.list', { q: COMMON }); });
+      if (hit.length !== pages) throw new Error(`全ページに当たる語が ${hit.length} 件に当たった（見本は ${pages}）`); return r; },
+    'searchFull-trigram': () => { let hit = null; const r = med(ROUNDS, () => { hit = ask('pages.searchFull', { q: RARE }); });
+      if (hit.total !== 1) throw new Error(`全文検索の1件に当たる語が ${hit.total} 件に当たった`); return r; },
+    'searchFull-short': () => { let hit = null; const r = med(ROUNDS, () => { hit = ask('pages.searchFull', { q: SHORT }); });
+      if (hit.total !== pages + 1) throw new Error(`全文検索の 2 文字の語が ${hit.total} 件に当たった（見本は ${pages + 1}）`); return r; },
+    'open-page': () => { let opened = null; const r = med(ROUNDS, () => { opened = ask('page.get', { id: bigId }); });
+      if (!opened || opened.page.blocks.length !== bigBlocks || opened.segments.length !== bigSegments) throw new Error('大きなページを開けない'); return r; },
+    'write-commit': () => {
+      const r = med(10, () => { n++; ask('page.setTitle', { id: target, title: `定例会議 0（${n}）` }, `m:perf:${n}`); });
+      if (ask('page.get', { id: target }).page.title !== `定例会議 0（${n}）`) throw new Error('書いた題名が読めない');
+      return r;
+    },
+  };
+  const measure = (name) => {
+    try {
+      if (name !== 'db-open') openDb();   // db-open は閉じた所から開く時間を計る（今と同じ）
+      const r = OPS[name]();
+      if (!db) throw new Error('見本の DB を開き直せない');
+      return r;
+    } finally { close(); }
+  };
+  const results = [];
   try {
     const first = core.open({ sqlite, file });
     if (first.state !== 'ok') throw new Error(`見本の DB を開けない（${first.state}・${first.code || ''}）`);
     db = first.db;
-    const bigId = 'pbig';
     const rareAt = pages >> 1;
     const items = [sampleBigPage(bigId, bigBlocks, bigSegments)];
     for (let i = 0; i < pages; i++) items.push(sampleDbPage(i, { rare: i === rareAt, segments }));
     insertSample(db, items);
     checkSampleShape(C, db, items[1 + rareAt]);
     close();
-
-    const out = [];
-    // median と、1回目（一覧の1行を覚える前・問い合わせを用意する前）の値
-    const med = (n, fn) => { const list = timesOf(n, fn); return { ms: median(list), first: list[0] }; };
-    out.push({ name: 'db-open', ...med(ROUNDS, () => { close(); db = core.open({ sqlite, file }).db; }) });
-    if (!db) throw new Error('見本の DB を開き直せない');
-    const ask = (cmd, args, tx) => {
-      const r = core.call(db, { role: tx ? 'main' : 'app', cmd, args, tx }, { labels: {} });
-      if (!r.ok) throw new Error(`${cmd} が ${r.code} で返った`);
-      return r.result;
-    };
-    let hit = null;
-    out.push({ name: 'list', ...med(ROUNDS, () => { hit = ask('pages.list', {}); }) });
-    if (hit.length !== pages + 1) throw new Error(`一覧の数が合わない: ${hit.length}（見本は ${pages + 1}）`);
-    out.push({ name: 'searchIndex-typical', ...med(ROUNDS, () => { hit = ask('pages.list', { q: RARE }); }) });
-    if (hit.length !== 1) throw new Error(`1件に当たる語が ${hit.length} 件に当たった`);
-    out.push({ name: 'searchIndex-all', ...med(ROUNDS, () => { hit = ask('pages.list', { q: COMMON }); }) });
-    if (hit.length !== pages) throw new Error(`全ページに当たる語が ${hit.length} 件に当たった（見本は ${pages}）`);
-    out.push({ name: 'searchFull-trigram', ...med(ROUNDS, () => { hit = ask('pages.searchFull', { q: RARE }); }) });
-    if (hit.total !== 1) throw new Error(`全文検索の1件に当たる語が ${hit.total} 件に当たった`);
-    out.push({ name: 'searchFull-short', ...med(ROUNDS, () => { hit = ask('pages.searchFull', { q: SHORT }); }) });
-    if (hit.total !== pages + 1) throw new Error(`全文検索の 2 文字の語が ${hit.total} 件に当たった（見本は ${pages + 1}）`);
-
-    let opened = null;
-    out.push({ name: 'open-page', ...med(ROUNDS, () => { opened = ask('page.get', { id: bigId }); }) });
-    if (!opened || opened.page.blocks.length !== bigBlocks || opened.segments.length !== bigSegments) throw new Error('大きなページを開けない');
-
-    let n = 0;
-    const target = pageId(0);
-    out.push({ name: 'write-commit', ...med(10, () => { n++; ask('page.setTitle', { id: target, title: `定例会議 0（${n}）` }, `m:perf:${n}`); }) });
-    if (ask('page.get', { id: target }).page.title !== `定例会議 0（${n}）`) throw new Error('書いた題名が読めない');
-
-    return out.map((x) => ({ name: x.name, ms: round2(x.ms), first: round2(x.first) }));
-  } finally {
+    for (const name of DB_NAMES) {
+      const x = measure(name);
+      results.push({ name, ms: round2(x.ms), first: round2(x.first) });
+    }
+  } catch (e) {
     close();
     removeDir(root);
+    throw e;
   }
+  return {
+    results,
+    again(name) {
+      if (!Object.prototype.hasOwnProperty.call(OPS, name)) throw new Error(`DB の計りで計り直せない名前: ${name}`);
+      return round2(measure(name).ms);
+    },
+    close() { close(); removeDir(root); },
+  };
+}
+
+async function measureDb(opts = {}) {
+  const bench = await benchDb(opts);
+  try {
+    return bench.results;
+  } finally {
+    bench.close();
+  }
+}
+
+// 目安を越えた名前だけを again(name) で rounds 回計り直し、はじめの1回と合わせた中央値で決める（PG1・決めたこと 36）。
+// OK の名前は計り直さない（時間を延ばさない）。計り直した名前は tries に全部の回を持ち、log に1行ずつ書く。
+// 本当に遅くなれば3回とも越えるので NG のまま（1回でも目安に入れば OK、にはしない）
+async function recheck(judged, again, { rounds = 2, log = () => {} } = {}) {
+  const out = [];
+  for (const x of judged) {
+    if (x.ok) { out.push(x); continue; }
+    const tries = [x.ms];
+    for (let k = 0; k < rounds; k++) tries.push(await again(x.name));
+    const ms = round2(median(tries));
+    const ok = ms <= x.budget;
+    log(`計り直し ${x.name}: ${tries.map((t) => `${t}ms`).join('・')} → 中央値 ${ms}ms（目安 ${x.budget}ms）${ok ? 'OK' : 'NG'}`);
+    out.push({ ...x, ms, ok, tries });
+  }
+  return out;
 }
 
 // 0.6.0 の store.js が書くのと同じ形の JSON（JSON.stringify(…, null, 2)）を pages/・transcripts/ に直接書く
@@ -384,11 +442,13 @@ function sampleOfSize(bytes) {
   return { version: 1, segments: sampleSegments(Math.max(1, Math.round((bytes - base) / per))) };
 }
 
-function measureWrites({ reps = 20, dir, fs: writeFs } = {}) {
+function measureWrites({ reps = 20, dir, fs: writeFs, only } = {}) {
   if (!dir) throw new Error('measureWrites: dir が要る');
+  const list = only === undefined ? WRITES : WRITES.filter(([name]) => name === only);
+  if (!list.length) throw new Error(`書く時間で計れない名前: ${only}`);
   const root = fs.mkdtempSync(path.join(dir, 'write-'));
   try {
-    return WRITES.map(([name, bytes]) => {
+    return list.map(([name, bytes]) => {
       const value = sampleOfSize(bytes);
       const file = path.join(root, `${name}.json`);
       const list = timesOf(reps, () => J.writeJsonFile(file, value, { fsync: true, fs: writeFs }));
@@ -408,16 +468,24 @@ const argOf = (name, fallback) => {
 
 async function main() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'natsu-perf-'));
+  let bench = null;
   try {
     const t0 = performance.now();
     const pages = argOf('pages', 5000);
     const segments = argOf('segments', 60);
-    const d = await measureDb({ pages, segments, dir });
+    bench = await benchDb({ pages, segments, dir });
+    const d = bench.results;
     const m = await measureMigrate({ dir });
     const busy = await measureDraftWhileBusy({ dir });
     const w = measureWrites({ dir });
-    const judged = judge([...d, ...m, ...w.filter((x) => Object.prototype.hasOwnProperty.call(BUDGETS, x.name))], budgetsFor(process.platform));
     console.log(`見本: ${pages} ページ × 発言 ${segments}（${pages * segments} 発言）＋ 2,000 ブロック・1 万発言のページ`);
+    // 目安を越えた名前だけを、同じ見本・同じ操作でもう2回計る（PG1）。名前で振り分ける
+    const again = async (name) => {
+      if (DB_NAMES.includes(name)) return bench.again(name);
+      if (name === 'migrate-500') return (await measureMigrate({ dir }))[0].ms;
+      return measureWrites({ dir, only: name })[0].ms;
+    };
+    const judged = await recheck(judge([...d, ...m, ...w.filter((x) => Object.prototype.hasOwnProperty.call(BUDGETS, x.name))], budgetsFor(process.platform)), again, { log: (s) => console.log(s) });
     for (const x of judged) console.log(`${x.ok ? 'OK' : 'NG'} ${x.name} ${x.ms}ms（目安 ${x.budget}ms）`);
     for (const x of w) console.log(`書く時間 ${x.name} 中央値 ${x.ms}ms・p95 ${x.p95}ms（${x.bytes} バイト）`);
     console.log(`参考 1回目（一覧の1行を覚える前）: ${d.map((x) => `${x.name} ${x.first}ms`).join('・')}`);
@@ -431,6 +499,7 @@ async function main() {
     console.log(`PERF_JSON ${JSON.stringify({ platform: process.platform, node: process.version, sample: { pages, segments }, judged, writes: w, reference: [busy], suggest: { batchMs, draftFsync } })}`);
     process.exitCode = exitCodeOf(judged);
   } finally {
+    if (bench) bench.close();
     removeDir(dir);
   }
 }
@@ -442,4 +511,4 @@ if (!isMainThread && workerData && workerData.role === WRITER_ROLE) {
 }
 
 module.exports = { BUDGETS, BUDGETS_WIN, budgetsFor, p95, median, judge, exitCodeOf, suggestBatchMs, suggestDraftFsync,
-  measureDb, measureMigrate, measureDraftWhileBusy, measureWrites, sampleDbPage, insertSample };
+  measureDb, benchDb, recheck, DB_NAMES, measureMigrate, measureDraftWhileBusy, measureWrites, sampleDbPage, insertSample };
