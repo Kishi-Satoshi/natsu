@@ -851,7 +851,7 @@ module.exports = {
     } },
   // 第1d回 Task A-11（RL10・F20・F21・F22・F27）: ログインの IPC を main で本当に呼ぶ（mainrun の --relay。本物の中継のコードの前に偽の Access。
   // ログインは偽のログインの窓）。1つの流れ: 設定を開く → 窓が開いている間にもう一度押す → 窓を閉じる（cancel）→ cookie が無い・/v1/me が 403・
-  // /auth/done が 403・503・読めない（プロキシ）・許していないホストへ行く → オフラインで押す → ログインできる → 設定を開く・オフライン →
+  // /auth/done が 403・503・読めない（プロキシ）・許していないホストへ行く → ほかのチームの Access へ行く → オフラインで押す → ログインできる → 設定を開く・オフライン →
   // 画面の保存 → ログアウト → もう一度ログイン（中継の時計を 61 秒進める: 偽の Access はログアウトの時より後の cookie を通す）→ 中継の前で
   // 切れた中のログアウト → ログインしていない logout。どの account:status の前後でも中継への要求の数を見る
   'access-ipc': { files: { 'settings.json': pretty(TYPICAL) },
@@ -873,6 +873,8 @@ module.exports = {
       await c.sleep(30);
       o.winsWhileOpen = A.wins().length;
       o.focusedWhileOpen = A.wins()[0] ? A.wins()[0].focused : 0;
+      // 第1d回 A-11 の点検（F25）: ログインの窓が開いている（ログインの partition がある）間も、本体の窓と録音バーは必ず止める
+      o.navProbe = A.navProbe();
       A.close();
       o.cancel = [await p1, await p2];
       o.secretsAfterCancel = fileText('secrets.json');
@@ -882,6 +884,11 @@ module.exports = {
         o[`${m}Secrets`] = fileText('secrets.json');
         o[`${m}Cookies`] = (await A.cookies()).length;
       }
+      // 第1d回 A-11 の点検: 最初に着いた Access のホストに窓を留め、ほかのチームの Access への転送は止めて R14（{ホスト} は留めたホスト）
+      A.mode('other-team');
+      o.otherTeam = await h('account:login');
+      o.otherTeamSecrets = fileText('secrets.json');
+      o.otherTeamCookies = (await A.cookies()).length;
       c.setOnline(false);
       const w0 = A.wins().length;
       o.offline = await h('account:login');

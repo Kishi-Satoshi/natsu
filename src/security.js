@@ -29,7 +29,8 @@
  *  - 本体の枠の will-navigate・will-frame-navigate・will-redirect: loginGuard.allow(url) が真のときだけ通す（中継のホストか <チーム>.cloudflareaccess.com）
  *  - 中の枠の will-frame-navigate: https のほかは止める（ログインの画面の中の確かめの枠は通す）
  *  - will-attach-webview と新しい窓（setWindowOpenHandler）は、ほかの窓と同じく止める
- *  - 止めたら loginGuard.blocked(url, { kind, isMainFrame }) を呼ぶ（main は記録1行と、本体の枠なら窓を閉じる）
+ *  - 止めたら loginGuard.blocked(url, { kind, isMainFrame }) を呼ぶ（main は記録1行と、本体の枠なら窓を閉じる）。本体の枠の同じ行き先を
+ *    1秒の内に続けて止めたとき（1つの移動の will-frame-navigate と will-navigate）は1回だけ
  *  資料: api/web-contents.md の 'will-navigate'・'will-frame-navigate'・'will-redirect'（44 は details に url・isMainFrame を持つ。
  *  古い位置の引数 url・isInPlace・isMainFrame も読む）
  *
@@ -164,13 +165,22 @@ function loginNavOk({ url, isMainFrame }, allow) {
   try { return new URL(String(url)).protocol === 'https:'; } catch { return false; }
 }
 
-// ログインの窓の守り（第1d回 A-11）。止めたら loginGuard.blocked に知らせる（投げても止めたまま）
+// ログインの窓の守り（第1d回 A-11）。止めたら loginGuard.blocked に知らせる（投げても止めたまま）。
+// 44 では本体の枠の1つの移動で will-frame-navigate と will-navigate の両方が来るので、本体の枠の同じ行き先を続けて止めたときは
+// 知らせを1回にする（止めるのはどちらも。A-11 の点検: engine.log の行が2つにならない）
+const SAME_NAV_MS = 1000;
 function guardLogin(wc, loginGuard) {
+  let lastMain = { url: null, at: 0 };
   for (const kind of ['will-navigate', 'will-frame-navigate', 'will-redirect']) {
     wc.on(kind, (e, ...pos) => {
       const d = navDetails(kind, e, pos);
       if (loginNavOk(d, loginGuard.allow)) return;
       e.preventDefault();
+      if (d.isMainFrame) {
+        const now = Date.now();
+        if (lastMain.url === d.url && now - lastMain.at < SAME_NAV_MS) return;
+        lastMain = { url: d.url, at: now };
+      }
       try { loginGuard.blocked(d.url, { kind, isMainFrame: d.isMainFrame }); } catch { /* 止めたまま */ }
     });
   }

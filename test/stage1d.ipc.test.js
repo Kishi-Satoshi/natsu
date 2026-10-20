@@ -59,11 +59,35 @@ test('RL10・F20・F27: account:login は本体の窓を parent にした窓（�
   assert.deepStrictEqual([ok.accessFormAllowed, ok.redirectAllowed], [true, true], 'ログインの画面のフォームの送りを止めた（ログインが終わらない: F25）');
   assert.strictEqual(o.loginWins.find((x) => x.wanderPrevented !== null).wanderPrevented, true, '許していないホストへの移動を止めなかった');
   assert.deepStrictEqual(o.wander, { ok: false, code: 'proxy', message: R14 });
+  // （A-11 の点検で意図して直した: 場面にほかのチームの Access へ行く other-team を足したので、その（access）の1行も並ぶ）
   const lines = o.engineLog.filter((l) => l.startsWith('アカウント: ログインの窓が許していない行き先'));
-  assert.deepStrictEqual(lines, ['アカウント: ログインの窓が許していない行き先（other）へ行こうとしたので止めた']);
+  assert.deepStrictEqual(lines, ['アカウント: ログインの窓が許していない行き先（other）へ行こうとしたので止めた',
+    'アカウント: ログインの窓が許していない行き先（access）へ行こうとしたので止めた']);
   assert.ok(!o.engineLog.some((l) => l.includes('evil.example')), '記録にホストの名前を書いた');
   // ログインの partition の権限の頼み・確かめは全部断り、ダウンロードは止める
   assert.deepStrictEqual(o.accessPerms, { req: false, check: false, downloadPrevented: true });
+});
+
+test('F25（A-11 の点検）: ログインの窓が開いていても、本体の窓と録音バーの webContents は中継の /auth/done・Access のログインの画面への移動（will-navigate・will-frame-navigate、本体の枠も中の枠も）を全部止める。同じ移動をログインの窓は通す', { timeout: 20000 }, async () => {
+  const o = await run(['text', '--json-scene=access-ipc', '--relay=text']);
+  const p = o.navProbe;
+  assert.ok(p && Array.isArray(p.login) && p.login.length === 4, `ログインの窓が開いていない: ${JSON.stringify(p)}`);
+  assert.deepStrictEqual(p.login, [true, true, true, true], 'ログインの窓が許した行き先を止めた（場面の前提）');
+  assert.deepStrictEqual(p.main, [false, false, false, false], '本体の窓がログインの窓の守りになった（中継・Access へ移動できる）');
+  assert.deepStrictEqual(p.overlay, [false, false, false, false], '録音バーがログインの窓の守りになった（中継・Access へ移動できる）');
+});
+
+test('A-11 の点検（R14）: ログインの窓は最初に着いた Access のホストに留める。ほかのチームの Access への転送は止めて窓を閉じ、R14 の {ホスト} は留めたホスト（natsu-test.cloudflareaccess.com）。partition を空にし、secrets に何も書かない。記録にホストを書かない', { timeout: 20000 }, async () => {
+  const o = await run(['text', '--json-scene=access-ipc', '--relay=text']);
+  const w = o.loginWins.find((x) => x.otherTeamPrevented !== null);
+  assert.ok(w, 'other-team の窓が無い（場面の前提）');
+  assert.strictEqual(w.accessFormAllowed, true, '最初の Access のホストへの移動を止めた（場面の前提）');
+  assert.strictEqual(w.otherTeamPrevented, true, 'ほかのチームの Access への転送を止めなかった（窓を最初の Access のホストに留めていない）');
+  assert.deepStrictEqual(o.otherTeam, { ok: false, code: 'proxy', message: R14.replace(HOST, 'natsu-test.cloudflareaccess.com') });
+  assert.ok(noRelay(o.otherTeamSecrets), 'secrets に書いた');
+  assert.strictEqual(o.otherTeamCookies, 0, 'partition の cookie を空にしていない');
+  assert.strictEqual(w.closed, true, '窓を閉じていない');
+  assert.ok(!o.engineLog.some((l) => l.includes('other-team') || l.includes('natsu-test')), '記録にホストの名前を書いた');
 });
 
 test('RL10・F21: ログインできたら cookie は secrets.json に暗号の文字でだけ入り、settings.json には accountEmail だけ。どの IPC の答え・engine.log・知らせにも cookie と JWT が無い。userData の下に Partitions のフォルダが無い', { timeout: 20000 }, async () => {
@@ -77,7 +101,7 @@ test('RL10・F21: ログインできたら cookie は secrets.json に暗号の�
   assert.strictEqual(JSON.parse(o.settingsAfter).accountEmail, o.mail);
   assert.ok(!o.settingsAfter.includes(jwt) && !o.settingsAfter.includes('CF_'), 'settings.json に cookie がある');
   assert.deepStrictEqual(o.status1, status({ signedIn: true, email: o.mail, until: pack.until }));
-  const blob = JSON.stringify([o.status0, o.cancel, o.nocookie, o.denied, o.denied403, o.notready, o.failload, o.wander, o.offline, o.login, o.status1,
+  const blob = JSON.stringify([o.status0, o.cancel, o.nocookie, o.denied, o.denied403, o.notready, o.failload, o.wander, o.otherTeam, o.offline, o.login, o.status1,
     o.statusOffline, o.saveSpoof, o.logout, o.status2, o.login2, o.logoutDown, o.logoutSignedOut, o.settingsAfter, o.settingsAfterLogout,
     o.engineLog, o.notices, o.balloons]);
   assert.ok(!blob.includes(jwt) && !blob.includes('eyJ'), 'cookie（JWT）の文字が答え・設定・記録・知らせのどこかにある');
@@ -117,7 +141,7 @@ test('RL10: /auth/done が 403 → 窓を閉じて AR7・503 → R15。did-fail-
   assert.deepStrictEqual(o.denied403, { ok: false, code: 'denied', message: AR7 });
   assert.deepStrictEqual(o.notready, { ok: false, code: 'not-ready', message: R15 });
   assert.deepStrictEqual(o.failload, { ok: false, code: 'proxy', message: R14 });
-  for (const k of ['denied403', 'notready', 'failload', 'wander']) {
+  for (const k of ['denied403', 'notready', 'failload', 'wander', 'otherTeam']) {
     assert.ok(noRelay(o[`${k}Secrets`]), `${k}: secrets に書いた`);
     assert.strictEqual(o[`${k}Cookies`], 0, `${k}: partition の cookie を空にしていない`);
   }

@@ -172,6 +172,8 @@
 //     denied403・notready … did-navigate が 403・503
 //     failload  … did-fail-load（-130 ERR_PROXY_CONNECTION_FAILED・本体の枠）
 //     wander    … 許していないホスト（https://evil.example/phish）への will-navigate（本体の枠）
+//     other-team … natsu-test.cloudflareaccess.com への will-navigate（通るはず。窓をそのホストに留める）の後、other-team.cloudflareaccess.com への
+//                 will-redirect（本体の枠。止めるはず。止めなければ窓を閉じる）。出力の窓ごとの otherTeamPrevented
 //     cancel    … 利用者が窓を閉じる（'closed'）
 //     hold      … 何も起こさない（ctx.access.close() で閉じるまで開いたまま）
 //     unreadable … 窓の動きは ok のまま、偽の safeStorage の復号が ctx.access.allowDecrypt() まで失敗する（起動のときに復号できない: F26）
@@ -179,7 +181,7 @@
 //   出力に loginWins（作ったログインの窓ごとに { webPreferences, modal, parent, width, height, title, show, openHandler（新しい窓を頼んだ答え）,
 //   accessFormAllowed, redirectAllowed, wanderPrevented, shown, closed }）・loginWin（最初の1つか null）・cookiesOnDisk（userData の下に Partitions が
 //   あるか）・accessPerms（ログインの partition の権限の頼み・確かめ・ダウンロードの答え）を足す。ctx.access = { mode(m), wins(), close(), cookies(),
-//   allowDecrypt(), mail }。ctx.relay.revoke() は偽の Access の取り消し、ctx.relay.block() は種の人を止めたメールにする
+//   allowDecrypt(), mail, navProbe() }（navProbe は A-11 の点検: 本体の窓・録音バー・開いているログインの窓に、ログインの窓なら通す移動を起こし、通したかを返す）。ctx.relay.revoke() は偽の Access の取り消し、ctx.relay.block() は種の人を止めたメールにする
 //   --relay の議事録・音声入力・復旧の場面の出力に、stt（中継の後ろの偽の OpenAI が受けた要求）・relayCalls（main が中継へ送った道の順）・
 //   relayLog（中継の記録の行）・netHosts・secretsRaw・recoveryKept・decrypts・balloons を足す（--stt と同じ形）
 //   ctx.relay に revoke()（A-11 から: 偽の Access で種の人を取り消す）・sttRequests()・seededMail・base（中継の口。場面から直に GET /auth/me を聞く）を、ctx に advanceClock(ms)（main の Date.now と
@@ -299,7 +301,7 @@ const relayCert = flags.includes('--relay-cert');
 const keyForFlag = flagVal('--key-for');
 const oldKeys = flags.includes('--old-keys');   // 第1d回 A-4（F11・K2）
 // 第1d回 A-11（RL10・F20・F21・F26・F27）: Cloudflare Access のログインの窓と、しまった cookie の場面
-const accessLoginFlag = flagVal('--access-login');   // 偽のログインの窓の動き（ok・cancel・nocookie・denied・denied403・notready・failload・wander・hold）か unreadable
+const accessLoginFlag = flagVal('--access-login');   // 偽のログインの窓の動き（ok・cancel・nocookie・denied・denied403・notready・failload・wander・other-team・hold）か unreadable
 const relayExpired = flags.includes('--relay-expired');   // 種の cookie の期限が切れている
 const oldToken = flags.includes('--old-token');   // 種が 0.8.0 の前の試しの札（nt1_）
 const SEED_TTL_SEC = 30 * 24 * 3600;   // 種の cookie の長さ（Access の app のログインの長さの上限 1 か月。relay-day の 1 日進めても切れない）
@@ -844,10 +846,22 @@ process.on('exit', () => {
   const loginRecs = [];
   const loginWinsList = [];
   const loginMail = () => seededMail || require('./relay-run').mail('kaigi');
-  const fireNav = (wc, kind, url) => {
-    const ev = { url, isMainFrame: true, prevented: false, preventDefault() { ev.prevented = true; } };
+  const fireNav = (wc, kind, url, isMainFrame = true) => {
+    const ev = { url, isMainFrame, prevented: false, preventDefault() { ev.prevented = true; } };
     wc.emit(kind, ev);
     return !ev.prevented;
+  };
+  // 第1d回 A-11 の点検（F25）: 本体の窓（wins[1]）・録音バー（wins[0]）・開いているログインの窓の webContents に、ログインの窓なら通す移動
+  // （中継の /auth/done と Access のログインの画面。本体の枠と中の枠）を起こし、通したか（true）を窓ごとの並びで返す（will-redirect は
+  // 起こさない: 全体の守りは移動の始まりを止めるので、ほかの窓に転送は来ない）。
+  // 本体の窓と録音バーは main の isLoginContents が偽で、全体の「必ず止める」のまま（全部 false）であること
+  const NAV_PROBE = [['will-navigate', 'relay', true], ['will-navigate', 'access', true], ['will-frame-navigate', 'access', true],
+    ['will-frame-navigate', 'access', false]];
+  const navProbe = () => {
+    const url = (k) => (k === 'relay' ? LOGIN_URL : 'https://natsu-test.cloudflareaccess.com/cdn-cgi/access/login/natsu');
+    const probe = (wc) => (wc ? NAV_PROBE.map(([kind, k, main]) => fireNav(wc, kind, url(k), main)) : null);
+    const lw = loginWinsList.filter((x) => !x.destroyed).pop();
+    return { overlay: probe(wins[0] && wins[0].webContents), main: probe(wins[1] && wins[1].webContents), login: probe(lw && lw.webContents) };
   };
   async function runLogin(win, rec, mode) {
     if (win.destroyed) return;
@@ -858,6 +872,14 @@ process.on('exit', () => {
     if (mode === 'hold') return;
     if (mode === 'cancel') { win.close(); return; }
     if (mode === 'wander') { rec.wanderPrevented = !fireNav(wc, 'will-navigate', 'https://evil.example/phish'); return; }
+    // 第1d回 A-11 の点検: 最初に着いた Access のホスト（natsu-test）に窓を留める。そこからほかのチームの Access へ転送されたら止める。
+    // 止めなければ（留めていない）窓を利用者が閉じた形にする（場面が待ち続けない。答えは cancel になり、試験が赤になる）
+    if (mode === 'other-team') {
+      rec.accessFormAllowed = fireNav(wc, 'will-navigate', 'https://natsu-test.cloudflareaccess.com/cdn-cgi/access/login/natsu');
+      rec.otherTeamPrevented = !fireNav(wc, 'will-redirect', 'https://other-team.cloudflareaccess.com/cdn-cgi/access/login/natsu');
+      if (!rec.otherTeamPrevented && !win.destroyed) win.close();
+      return;
+    }
     if (mode === 'failload') { wc.emit('did-fail-load', {}, -130, 'ERR_PROXY_CONNECTION_FAILED', LOGIN_URL, true); return; }
     if (mode === 'denied403') { nav(403); return; }
     if (mode === 'notready') { nav(503); return; }
@@ -878,7 +900,7 @@ process.on('exit', () => {
     const o = win.opts;
     const rec = { webPreferences: { ...(o.webPreferences || {}) }, modal: o.modal, parent: o.parent && o.parent === wins[1] ? 'main' : (o.parent ? 'other' : 'none'),
       width: o.width, height: o.height, title: o.title, show: o.show, openHandler: null, accessFormAllowed: null, redirectAllowed: null,
-      wanderPrevented: null, shown: false, focused: 0, closed: false };
+      wanderPrevented: null, otherTeamPrevented: null, shown: false, focused: 0, closed: false };
     loginRecs.push(rec);
     loginWinsList.push(win);
     win.destroyed = false;
@@ -1449,7 +1471,7 @@ process.on('exit', () => {
         access: { mode: (m) => { loginMode = m; }, wins: () => loginRecs.map((r) => ({ ...r })), close: () => { const w = loginWinsList.filter((x) => !x.destroyed).pop(); if (w) w.close(); },
           cookies: async () => { const ses = fakeSessions.get(ACCESS_PARTITION); return ses ? ses.cookies.get({}) : []; },
           clears: () => { const ses = fakeSessions.get(ACCESS_PARTITION); return ses ? ses.clears.slice() : []; },
-          allowDecrypt: () => { decryptBlocked = false; }, mail: () => loginMail(), perms: accessPerms },
+          allowDecrypt: () => { decryptBlocked = false; }, mail: () => loginMail(), perms: accessPerms, navProbe },
         advanceClock });
     }
     const files = listFiles(userData);

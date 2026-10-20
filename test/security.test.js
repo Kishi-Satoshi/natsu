@@ -255,3 +255,31 @@ test('F25・F20: isLoginContents が真の webContents だけ、will-navigate・
   ev3['will-navigate']({ preventDefault: () => { p3 = true; }, url: `https://${RELAY}/` });
   assert.strictEqual(p3, true);
 });
+
+// 第1d回 A-11 の点検: Electron 44 では本体の枠の移動1つで will-frame-navigate と will-navigate の両方が来る（順も、片方を止めたときに
+// もう片方が来るかも決まっていない）。どちらも止めるが、loginGuard.blocked（main の記録の1行と窓を閉じること）は1回だけにする
+test('F25（A-11 の点検）: ログインの窓の本体の枠の1つの移動で will-frame-navigate と will-navigate の両方が来ても、どちらも止め、loginGuard.blocked は1回だけ。違う行き先・中の枠は別に数える', { timeout: 5000 }, (t) => {
+  const dir = fs.mkdtempSync(path.join(require('node:os').tmpdir(), 'natsu-取込𠮷-sec-login2-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const pages = { app: path.join(dir, 'app.html'), overlay: path.join(dir, 'overlay.html') };
+  const session = { setPermissionRequestHandler() {}, setPermissionCheckHandler() {}, webRequest: { onHeadersReceived() {} } };
+  const blocked = [];
+  const appEv = {};
+  S.install({ app: { on: (ev, f) => { appEv[ev] = f; } }, session, pages, readFile: () => '', isLoginContents: () => true,
+    loginGuard: { allow: () => false, blocked: (url, d) => { blocked.push([url, d.kind, d.isMainFrame]); } } });
+  const ev = {};
+  appEv['web-contents-created']({}, { session: {}, on: (e, f) => { ev[e] = f; }, setWindowOpenHandler() {} });
+  const fire = (kind, details) => { let prevented = false; ev[kind]({ preventDefault: () => { prevented = true; }, ...details }); return prevented; };
+  assert.strictEqual(fire('will-frame-navigate', { url: 'https://proxy.example/a', isMainFrame: true }), true);
+  assert.strictEqual(fire('will-navigate', { url: 'https://proxy.example/a', isMainFrame: true }), true);
+  assert.strictEqual(fire('will-navigate', { url: 'https://proxy.example/b', isMainFrame: true }), true);
+  assert.strictEqual(fire('will-frame-navigate', { url: 'https://proxy.example/b', isMainFrame: true }), true);
+  assert.strictEqual(fire('will-frame-navigate', { url: 'http://proxy.example/c', isMainFrame: false }), true);
+  assert.strictEqual(fire('will-frame-navigate', { url: 'http://proxy.example/c', isMainFrame: false }), true);
+  assert.deepStrictEqual(blocked, [
+    ['https://proxy.example/a', 'will-frame-navigate', true],
+    ['https://proxy.example/b', 'will-navigate', true],
+    ['http://proxy.example/c', 'will-frame-navigate', false],
+    ['http://proxy.example/c', 'will-frame-navigate', false],
+  ]);
+});
