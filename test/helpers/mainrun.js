@@ -316,7 +316,7 @@
 //     --drag-steps   … --drag-to の動きを3回の move にし、2回目の後に --panel-size の大きさを送ってから moved
 //     --cursor-to=<x>,<y> … 録音を始めた後に偽のカーソルをその点へ動かす（既定は 0,0）
 //     出力に overlayBounds（録音バーの窓の setBounds の並び）・overlayForms（送った overlay:form）・overlaySent・panel（boundsAtStartList・afterSize・
-//     duringDrag・afterMoved・slotAfter・settingsChanged）を足す。録音バーの窓（wins[0]）は setBounds の大きさと位置を getSize・
+//     duringDrag・afterMoved・slotAfter・settingsChanged・patched（本体の窓へ送った settings:patched の並び））を足す。録音バーの窓（wins[0]）は setBounds の大きさと位置を getSize・
 //     getPosition・getBounds で返す（作ったときは作ったときの width・height）
 //     O-4: --hide-panel … 録音の始めの後に録音バーから overlay:hide-panel を送り、panel.hide.afterHide（meeting:status の panelHidden・
 //                        トレイの項目の名前・録音バーの窓の hide／show／showInactive と送った overlay:phase の並び）を写してから、画面から
@@ -2033,6 +2033,8 @@ process.on('exit', () => {
       await sleep(WRITE_SETTLE_MS);   // まとめ書き（350ms）の後に読む
       p.settingsChanged = settingsNow() !== before;
       try { p.slotAfter = JSON.parse(settingsNow()).pillSlot; } catch (_) { p.slotAfter = null; }
+      // 本体の画面へ送った置き場所の知らせ（O-2・O-4 の点検の直し: 画面の欄を今の値にする。読み込み中で届かなかったものも数える）
+      p.patched = [...lost, ...sent].filter(([ch]) => ch === 'settings:patched').map(([, x]) => x);
     }
     if (panelSizeFlag && !dragSteps) {
       const n0 = overlayBounds.length;

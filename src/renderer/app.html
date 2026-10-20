@@ -3529,7 +3529,7 @@
 
   // 設定のキー → 入力欄。ほとんどは id がキーと同じで、違うものだけここに書く。
   // main が採らなかった値を欄へ戻すときに使う（save の applied）。
-  const FIELD_IDS = { micId: 'micSelect', theme: 'themeSel' };
+  const FIELD_IDS = { micId: 'micSelect', theme: 'themeSel', pillSlot: 'pillPos' };
   function setField(k, v) {
     const el = $(FIELD_IDS[k] || k);
     if (!el) return;
@@ -3605,6 +3605,19 @@
     }
     m.textContent = r.error || '保存に失敗しました'; m.className = 'save-msg ng';
     return false;
+  }
+  // main が画面の外で変えた設定（録音バーのドラッグで吸い付いた置き場所）を欄と写しに入れる（保存はしない: main はもう書いている）。
+  // 入れないと、欄の古い置き場所を無関係な自動保存が送り、吸い付きを黙って元に戻す（0.9.0 O-2・O-4 の点検の直し）
+  const PATCHABLE = ['pillSlot'];
+  if (typeof window.koeApp.onSettingsPatched === 'function') {
+    window.koeApp.onSettingsPatched((p) => {
+      if (!p || typeof p !== 'object') return;
+      for (const k of PATCHABLE) {
+        if (typeof p[k] !== 'string' || !p[k]) continue;
+        if (settings) settings[k] = p[k];   // 読み込む前なら、起動の settings:get が今の値を持ってくる
+        setField(k, p[k]);
+      }
+    });
   }
   // 設定は変更したら自動で保存する。change はテキスト欄では入力を終えて
   // フォーカスを外したときに発火するので、パスを打っている途中で

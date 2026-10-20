@@ -539,9 +539,12 @@ test('CI: 撮る道具の見張りの時間は 30 秒 + SCREENS の数 × 6 秒�
 // ［録音バーを出す］を足した（録音バーを隠しているときだけ出す hidden のボタン。撮る画面の録音中のページは隠していないので見た目は変わらない）。値を今の app.html に合わせた
 // 統合（U・O）: U の設定のポップアップの中へ動かした「録音バーの置き場所」の欄（data-row も「録音バーの置き場所」に）に O-4 の名前と8つの選択肢を当てた。
 // 見える中身が変わるのは設定の画面（RETAKE にある）だけ。値を今の app.html に合わせた
+// 0.9.0 O-2・O-4 の点検の直し: ドラッグで吸い付いた置き場所を main から受けて #pillPos に入れる（onSettingsPatched）のと、保存の applied の
+// pillSlot を #pillPos に戻す（FIELD_IDS）を、<script> の中だけに足した（要素・文・CSS は変えていないので見た目もページの長さも変わらない。
+// RETAKE は今のまま足さない）。値を今の app.html に合わせた
 test('基準の画像（test/shots/win32）は今の app.html で撮ったもの（app.html を変えたら撮り直しを確かめる）', { timeout: 5000 }, () => {
   const sha = require('node:crypto').createHash('sha256').update(fs.readFileSync(path.join(ROOT, 'src', 'renderer', 'app.html'))).digest('hex');
-  assert.strictEqual(sha, '968243490d8d3b2b4bf0450846c4b51e25bf155624b17660d3ba4ba15f0931da',
+  assert.strictEqual(sha, '4ac62af83304a7e895bda0b6f741162c1707ae3d27fa94ebe14fac0400a3b64b',
     'app.html が基準の画像を撮った時と違う。Windows の CI の画面の比べ（捲り棒のつまみも）を見て、基準を取り直してからこの値を直す');
 });
 

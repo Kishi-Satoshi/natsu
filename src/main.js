@@ -2644,6 +2644,9 @@ function snapOverlay() {
   if (slot !== settings.pillSlot) {
     settings.pillSlot = slot;
     settingsWriter.set(settings);
+    // 本体の画面の欄（#pillPos）も今の置き場所にする。古いままだと、無関係な自動保存（テーマの近道・試す・取り込みの切り替えも）が
+    // 前の置き場所を送り、吸い付きを黙って元に戻す（0.9.0 O-2・O-4 の点検の直し）
+    sendToMainWin('settings:patched', { pillSlot: slot });
   }
   panelDragging = false;
   positionOverlay();

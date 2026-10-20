@@ -187,9 +187,16 @@ describe('0.9.0 O-2 窓の大きさと吸い付き（場面）', { concurrency: 
     assert.strictEqual(o.panel.duringDrag, 0);
   });
 
+  test('F18: ドラッグで吸い付いた置き場所は、本体の画面へ settings:patched（{ pillSlot }）で1回知らせる（画面の欄が古いままだと、無関係な自動保存が前の置き場所へ戻す）', SCENE, async () => {
+    const o = await run(['text', '--drag-to=1880,520']);
+    assert.strictEqual(o.panel.slotAfter, 'middle-right');
+    assert.deepStrictEqual(o.panel.patched, [{ pillSlot: 'middle-right' }]);
+  });
+
   test('RP3: 今の置き場所の近くへ少し動かして離すと、名前が同じなので settings.json を書かず、窓は元の所へ戻る', SCENE, async () => {
     const o = await run(['text', '--drag-to=1000,990']);
     assert.strictEqual(o.panel.settingsChanged, false, '名前が同じなのに settings.json を書いた');
+    assert.deepStrictEqual(o.panel.patched, [], '名前が同じなのに本体の画面へ知らせた');
     assert.deepStrictEqual(o.panel.afterMoved, [o.panel.boundsAtStartList[o.panel.boundsAtStartList.length - 1]], '元の所へ戻らない');
     assert.deepStrictEqual(o.overlayForms, []);
   });
@@ -285,6 +292,36 @@ test('RP1: 設定の #pillPos の選択肢は8つの置き場所（値は PILL_S
   assert.strictEqual(saved.length, 1);
   assert.strictEqual(saved[0].pillSlot, 'top-left');
   assert.ok(!('pillPos' in saved[0]) && !('pillCustom' in saved[0]), '前の版のキーを保存に入れた');
+  assert.deepStrictEqual(l.errors.map(fmtE), []);
+});
+
+test('F18: ドラッグの吸い付きを知らせる onSettingsPatched({ pillSlot }) で #pillPos が今の置き場所になり（保存はしない）、その後の無関係な自動保存も今の置き場所を送る（前の置き場所へ戻さない）', { timeout: 5000 }, async () => {
+  const l = await load(APP, { returns: { getSettings: () => ({ hotkey: 'Control+Shift+Space', meetingHotkey: 'Alt+M', segmentSec: 75, language: 'ja', dictionary: [], pillSlot: 'bottom-center' }) } });
+  await l.drain();
+  assert.strictEqual(l.byId.get('pillPos').value, 'bottom-center');
+  assert.strictEqual(l.fire('onSettingsPatched', { pillSlot: 'middle-right' }), 1, '画面が onSettingsPatched を受けていない');
+  await l.drain();
+  assert.strictEqual(l.byId.get('pillPos').value, 'middle-right', '吸い付いた置き場所を欄に出していない');
+  assert.strictEqual(l.called('saveSettings').length, 0, '知らせを受けただけで保存した');
+  l.byId.get('segmentSec').value = '90';
+  l.byId.get('tabSettings').dispatchEvent({ type: 'change' });
+  await l.drain();
+  const saved = l.called('saveSettings').map((c) => c.args[0]);
+  assert.strictEqual(saved.length, 1);
+  assert.strictEqual(saved[0].pillSlot, 'middle-right', '無関係な自動保存が前の置き場所を送った');
+  assert.deepStrictEqual(l.errors.map(fmtE), []);
+});
+
+test('F18: 保存の答えの applied に pillSlot があれば（main が送った値と違う置き場所で残した）、#pillPos をその置き場所に戻す', { timeout: 5000 }, async () => {
+  const l = await load(APP, { returns: {
+    getSettings: () => ({ hotkey: 'Control+Shift+Space', meetingHotkey: 'Alt+M', segmentSec: 75, language: 'ja', dictionary: [], pillSlot: 'bottom-center' }),
+    saveSettings: () => ({ ok: true, applied: { hotkey: 'Control+Shift+Space', meetingHotkey: 'Alt+M', pillSlot: 'top-right' } }) } });
+  await l.drain();
+  l.byId.get('pillPos').value = 'top-left';
+  l.byId.get('tabSettings').dispatchEvent({ type: 'change' });
+  await l.drain();
+  assert.strictEqual(l.called('saveSettings').length, 1);
+  assert.strictEqual(l.byId.get('pillPos').value, 'top-right', 'applied の置き場所を欄に戻していない');
   assert.deepStrictEqual(l.errors.map(fmtE), []);
 });
 
