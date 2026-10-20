@@ -254,6 +254,37 @@ test('PG1・F17: again(\'write-commit\') を2回呼んでも、書いた題名�
   }
 });
 
+test('PG1・決めたこと 36: again(\'write-commit\') は、書いたはずの題名が読めなければ『題名が読めない』で投げ、答えが dup なら投げる。投げても、again の間でないときは DB を閉じておく（isOpen が偽）', { timeout: 5000 }, async () => {
+  const core = require('../src/db/core');
+  const dir = tmpDir();
+  const orig = core.call;
+  // fake: '' は本物のまま、'lost' は書かずに ok で返す（書いたことにして残らない）、'dup' は書かずに dup で返す
+  let fake = '';
+  core.call = (db, req, ctx) => {
+    if (fake && req && req.cmd === 'page.setTitle') return fake === 'dup' ? { ok: true, result: null, dup: true } : { ok: true, result: null };
+    return orig(db, req, ctx);
+  };
+  try {
+    const b = await PF.benchDb({ pages: 3, segments: 2, bigBlocks: 6, bigSegments: 6, dir });
+    try {
+      assert.strictEqual(b.isOpen(), false, 'はじめの計りの後に DB を開いたまま');
+      assert.ok(Number.isFinite(b.again('write-commit')));
+      assert.strictEqual(b.isOpen(), false, 'again の後に DB を開いたまま');
+      fake = 'lost';
+      assert.throws(() => b.again('write-commit'), /題名が読めない/);
+      assert.strictEqual(b.isOpen(), false, '投げた again の後に DB を開いたまま');
+      fake = 'dup';
+      assert.throws(() => b.again('write-commit'), /dup/);
+      assert.strictEqual(b.isOpen(), false, '投げた again の後に DB を開いたまま');
+      fake = '';
+      for (const name of PF.DB_NAMES) { b.again(name); assert.strictEqual(b.isOpen(), false, `again('${name}') の後に DB を開いたまま`); }
+    } finally { b.close(); }
+  } finally {
+    core.call = orig;
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('PG1: measureWrites({ only: \'write-256k-fsync\' }) はその名前だけを返す（fsync まで含めて計る: 今の『書く時間は fsync まで』のテストの形）', { timeout: 5000 }, () => {
   const dir = tmpDir();
   try {

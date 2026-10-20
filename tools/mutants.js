@@ -120,6 +120,8 @@ module.exports = [
   { id: 'perf-recheck-all', file: 'tools/perf.js', from: '    if (x.ok) { out.push(x); continue; }\n', to: '', tests: ['test/perf.test.js'], why: 'PG1: OK の名前は計り直さない（時間を延ばさない）' },
   { id: 'perf-recheck-skip', file: 'tools/perf.js', from: '    const ms = round2(median(tries));', to: '    const ms = x.ms;', tests: ['test/perf.test.js'], why: 'PG1: 計り直した値で決める（はじめの1回の一瞬の遅れで赤にしない）' },
   { id: 'perf-again-tx', file: 'tools/perf.js', from: '      const r = med(10, () => { n++;', to: '      n = 0;\n      const r = med(10, () => { n++;', tests: ['test/perf.test.js'], why: 'PG1・F17: 計り直しの write-commit は tx を続きから数える（1 から数え直すと dup で書かない速い道を計る）' },
+  { id: 'perf-readback', file: 'tools/perf.js', from: "      if (ask('page.get', { id: target }).page.title !== `定例会議 0（${n}）`) throw new Error('書いた題名が読めない');\n", to: '', tests: ['test/perf.test.js'], why: 'PG1・決めたこと 36: 計り直しの write-commit は書いた題名が読めるかを毎回確かめる（書かない道を計らない）' },
+  { id: 'perf-bench-close', file: 'tools/perf.js', from: '    } finally { close(); }', to: '    } finally { }', tests: ['test/perf.test.js'], why: 'PG1: again の間でないときは見本の DB を閉じておく（ほかの計りの間に開いた接続を残さない）' },
   // ---------------------------------------------------------------- 第1c回（Task D-1。計画 docs/plans/2026-10-18-1c.md の「変異確認」の表）
   // オンラインかの判定と経路の決め方（src/online.js）
   { id: 'on-offline-noask', file: 'src/online.js', from: "    if (!online()) return { up: false, why: 'offline' };\n", to: '', tests: ['test/online.test.js'], why: 'OL1: isOnline() が false なら届くかを確かめない' },

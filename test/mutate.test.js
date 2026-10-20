@@ -363,10 +363,10 @@ test('G3: 第1d回の作り替え（G-3）で足した 60 個の変異が一覧�
 
 // 0.9.0（計画 docs/plans/2026-10-20-090.md の「変異確認」の表）。G-1 は速さの計り直しの4つを入れる。G-2 が残りの全部を足し、
 // この並びが計画の表の id とちょうど同じことを見るテストを足す
-const IDS_090 = ['perf-recheck-any', 'perf-recheck-all', 'perf-recheck-skip', 'perf-again-tx'];
-test('PG1: 変異 perf-recheck-any・perf-recheck-all・perf-recheck-skip・perf-again-tx が一覧にあり、IDS_090 に入っている', { timeout: 5000 }, () => {
+const IDS_090 = ['perf-recheck-any', 'perf-recheck-all', 'perf-recheck-skip', 'perf-again-tx', 'perf-readback', 'perf-bench-close'];
+test('PG1: 変異 perf-recheck-any・perf-recheck-all・perf-recheck-skip・perf-again-tx・perf-readback・perf-bench-close が一覧にあり、IDS_090 に入っている', { timeout: 5000 }, () => {
   const byId = new Map(MUTANTS.map((m) => [m.id, m]));
-  for (const id of ['perf-recheck-any', 'perf-recheck-all', 'perf-recheck-skip', 'perf-again-tx']) {
+  for (const id of ['perf-recheck-any', 'perf-recheck-all', 'perf-recheck-skip', 'perf-again-tx', 'perf-readback', 'perf-bench-close']) {
     assert.ok(IDS_090.includes(id), `IDS_090 に ${id} が無い`);
     assert.ok(byId.has(id), `一覧に ${id} が無い`);
     assert.strictEqual(byId.get(id).file, 'tools/perf.js', id);

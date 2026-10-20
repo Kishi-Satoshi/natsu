@@ -9,7 +9,7 @@
 //   suggestBatchMs(p95)     … 設定の大きさの書き込み＋fsync の p95 が 100ms までなら 350（今のまま）、越えたら 1000
 //   suggestDraftFsync(p95)  … 512KB（下書きの大きさ）の書き込み＋fsync の p95 が 20ms までなら true（足す）、越えたら false
 //   measureDb({ pages, segments, bigBlocks, bigSegments, dir })   → [{ name, ms, first }]（db-open・list・searchIndex-*・searchFull-*・open-page・write-commit）
-//   benchDb(同じ)                                                 → { results（measureDb と同じ）, again(name) → ms, close() }（0.9.0 G-1。見本を残して計り直す）
+//   benchDb(同じ)                                                 → { results（measureDb と同じ）, again(name) → ms, isOpen(), close() }（0.9.0 G-1。見本を残して計り直す）
 //   recheck(judged, again, { rounds, log })                       → judged と同じ形（NG の名前だけを again で rounds 回計り直し、3回の中央値と tries。PG1）
 //   measureMigrate({ pages, segments, blocks, rounds, dir, onDone }) → [{ name: 'migrate-500', ms }]
 //   measureDraftWhileBusy({ reps, dir })                          → { name: 'draft-write-while-db-busy', ms, p95, dbWritesDuring, stillWriting }（参考の値）
@@ -291,6 +291,7 @@ async function benchDb({ pages = 5000, segments = 60, bigBlocks = 2000, bigSegme
       if (!Object.prototype.hasOwnProperty.call(OPS, name)) throw new Error(`DB の計りで計り直せない名前: ${name}`);
       return round2(measure(name).ms);
     },
+    isOpen: () => db !== null,   // テストの口: again の間でないときは閉じている
     close() { close(); removeDir(root); },
   };
 }
