@@ -44,6 +44,19 @@
 //                     main ごと落ちる（process.exit(3)。結果は出さない）。--keep-user-data と組んで、次の起動の復旧を見る
 //     （第1d2回 M-2: --relay-seq の場面は、区間ごとに片付くまで待った時間（ミリ秒）を out.segWaitMs に順に残す。--relay の場面の
 //     out.pages[].keys は DB の発言の欄の名前（区間ごと。ページに kept の印が入っていないかを見る））
+//   第1d2回 M-3（戻ったら文字起こしする）: 60 秒ごとの見回り（setInterval の名前 retryKeptWhenBack）を拾い、待たずに呼べるようにする（keptTicks）
+//     --back-after … 議事録を写した後、中継の答えを c に・net.isOnline() を true にして見回りを1回呼び、待ち行列と要約が済むのを待って
+//                     out.afterBack（{ pages, engineLog, relayCalls, notices, claudeCalls, files }）に写す
+//     --ticks-offline=<n> … 議事録を写した後、net.isOnline() を false にして見回りを n 回呼び、増えた記録と中継への要求を out.ticksOffline に
+//     --extra-queue=localonly … 起動の前に、PC の中だけの会議の下書き（draft-<開始時刻>.json。文字起こし待ちの区間 1 つと、その WAV）を置く。
+//                     起動の復旧がページと待ち行列（localOnly: true）を作る。名前は --recover の draft.json より前に並ぶ（先に復旧される）
+//     --extra-queue-late=localonly … --idle と組む。起動の片付けが済んだ後に、PC の中だけの待ち行列（WAV 1つと recovery.json）と、そのページ
+//                     （main の DB の客で meeting.recover）を置く
+//     --kept-ticks=<n> … --idle と組む。起動の片付けの後（--extra-queue-late の後）に見回りを n 回呼び、待ち行列が落ち着くのを待つ
+//     --relay-req-text=<c|e の並び> … 中継に届いた文字起こしの要求の i 番目の答えを i 文字目にする（relay-local の setReqText）
+//     --login-after … 議事録を写した後、画面と同じ account:login でログインし、待ち行列が済むのを待って out.afterLogin
+//                     （{ login, pages, engineLog, relayCalls, keptTicks（見回りを呼んだ数） }）に写す
+//     （--idle の出力に engineLog・requests（偽の whisper の inference）・stt・relayCalls・files を足す）
 //     --fetch-consent … 第1d2回 M-1: --no-engine=fetchable と組む。取り込み先の installed.json を consent: true（組は無い）で置く
 //                     （取り込みのボタンを押したが、まだ何も取り込めていない PC。「選んだ」人）
 //     --fetch       … 何も取り込んでいない取り込める PC で、設定の［エンジンを取り込む］（engine:fetch-start）を押す（第0b回 Task 14）。
@@ -333,6 +346,14 @@ const sumTamper = flags.includes('--sum-tamper');
 const noEngine = (flags.find((f) => f.startsWith('--no-engine=')) || '').slice(12);
 const fetchConsent = flags.includes('--fetch-consent');   // 第1d2回 M-1
 const killMainAfterKept = flags.includes('--kill-main-after-kept');   // 第1d2回 M-2
+// 第1d2回 M-3
+const backAfter = flags.includes('--back-after');
+const ticksOffline = Number(flagVal('--ticks-offline')) || 0;
+const extraQueue = flagVal('--extra-queue');
+const extraQueueLate = flagVal('--extra-queue-late');
+const keptTickN = Number(flagVal('--kept-ticks')) || 0;
+const relayReqText = flagVal('--relay-req-text');
+const loginAfter = flags.includes('--login-after');
 const fetchMode = flags.includes('--fetch');
 const repairMode = flags.includes('--repair');
 const crashMode = flags.includes('--crash') ? 'broken' : (flags.includes('--crash-ok') ? 'ok' : '');
@@ -523,6 +544,7 @@ process.on('exit', () => {
   }
   if (Object.keys(seedKeys).length) fs.writeFileSync(path.join(userData, 'secrets.json'), JSON.stringify({ schema: 1, keys: seedKeys }));
   if (relayLocal && RELAY_FRONT[relayMode]) relayLocal.setFront(RELAY_FRONT[relayMode]);
+  if (relayLocal && relayReqText) relayLocal.setReqText(relayReqText);   // 第1d2回 M-3
   // --relay-down: RELAY_BASE をだれも聞いていない口へ（書き換えの先）
   const relayTarget = relayLocal ? (relayDown ? `http://127.0.0.1:${await freePort()}` : relayLocal.base) : '';
   // 偽のモデル。中身は見られず、大きさの床（50MB）だけを超えればよい。残りは疎にして場所を取らない。
@@ -685,6 +707,15 @@ process.on('exit', () => {
     };
   }
   // 前回落ちた会議の下書き（main は起動のときに復旧ページを作り、残った音声を文字起こしし直す）
+  // 第1d2回 M-3: PC の中だけの会議の下書き（--recover の draft.json より前の名前・前の時刻のフォルダ）
+  if (extraQueue === 'localonly') {
+    const startedAt = Date.now() - 900000;
+    const wav = path.join(userData, 'data', 'segbuf', String(startedAt), '0001.wav');
+    fs.mkdirSync(path.dirname(wav), { recursive: true });
+    fs.writeFileSync(wav, toneWav(3));
+    fs.writeFileSync(path.join(userData, 'data', `draft-${startedAt}.json`), JSON.stringify({ startedAt, memo: '', offsetMs: 3000, savedAt: startedAt + 3000,
+      segments: [{ id: 's1', atMs: 0, durationMs: 3000, pending: true, wav, text: '' }], localOnly: true }));
+  }
   if (recoverMode && !reuseData) {
     const startedAt = Date.now() - 600000;
     const wav = path.join(userData, 'data', 'segbuf', String(startedAt), '0001.wav');
@@ -1295,7 +1326,14 @@ process.on('exit', () => {
   // 60 秒ごとの見回り（releaseIdleEngines）を拾い、待たずに呼べるようにする（本物の setInterval にも渡す）
   const ticks = [];
   const realSetInterval = global.setInterval;
-  global.setInterval = function (fn, ms, ...a) { if (fn && fn.name === 'releaseIdleEngines') ticks.push(fn); return realSetInterval.call(this, fn, ms, ...a); };
+  const keptTicks = [];   // 第1d2回 M-3: 文字起こし待ちの見回り（retryKeptWhenBack）
+  global.setInterval = function (fn, ms, ...a) {
+    if (fn && fn.name === 'releaseIdleEngines') ticks.push(fn);
+    if (fn && fn.name === 'retryKeptWhenBack') keptTicks.push(fn);
+    return realSetInterval.call(this, fn, ms, ...a);
+  };
+  let keptTicksCalled = 0;
+  const keptTick = async () => { keptTicksCalled += 1; for (const t of keptTicks) await t(); };
   const jsonfile = require(path.join(ROOT, 'src', 'jsonfile.js'));
   const timers = {};
   const clearedTimers = {};   // 場面の時計のうち clearTimeout で止められた数（名前ごと）。待っている数 = timers[名前].length - clearedTimers[名前]
@@ -1661,8 +1699,34 @@ process.on('exit', () => {
     // 記録しない。起動の片付け（取り消しの残り → 下書きの復旧 → meeting.settle）が済むのを待つ
     await waitFor(() => trace.some((t) => (t.kind === 'ack' || t.kind === 'fail') && t.cmd === 'meeting.settle'), 15000);
     await sleep(100);
+    // 第1d2回 M-3: 起動の片付けの後に、PC の中だけの待ち行列とそのページを置く
+    if (extraQueueLate === 'localonly') {
+      const startedAt = Date.now() - 300000;
+      const dir = path.join(userData, 'data', 'segbuf', String(startedAt));
+      fs.mkdirSync(dir, { recursive: true });
+      const wav = path.join(dir, '1.wav');
+      fs.writeFileSync(wav, toneWav(3));
+      const pageId = `plate${startedAt}`;
+      await dbClient.call('meeting.recover', { pageId, segments: [{ id: 's1', atMs: 0, durationMs: 3000, text: '（復旧中: 文字起こし待ち）', failed: true }],
+        page: { title: '後から置いた議事録（復旧）', date: '2026-10-20', durationSec: 3, memo: '', blocks: [], createdAt: new Date(startedAt).toISOString(), recovered: true,
+          route: { stt: { cloud: 0, local: 0, provider: 'openai' }, localOnly: true }, summaryError: '' } });
+      fs.writeFileSync(path.join(dir, 'recovery.json'), JSON.stringify({ pageId, items: [{ id: 's1', wav, durationMs: 3000 }], retry: false, localOnly: true }));
+    }
+    if (keptTickN) {
+      // 待ち行列が落ち着く（クラウドで送れる待ち行列の区間が文字になる）まで待つ（PC の中だけの区間は残る）。起動の復旧が回っている間の
+      // 見回りは何もしないので、見回りの前にも待つ
+      const settledCloud = () => store.listPages().every((p) => { const pg = store.getPage(p.id); return (pg.route && pg.route.localOnly) || store.getTranscript(p.id).every((x) => !x.failed); });
+      await waitFor(settledCloud, 5000);
+      await sleep(100);
+      for (let k = 0; k < keptTickN; k++) await keptTick();
+      await waitFor(settledCloud, 5000);
+      await sleep(200);
+    }
     out.pages = await Promise.all(store.listPages().map(pageOut));
     out.notices = sent.filter(([ch]) => ch === 'app:notice').map(([, p]) => p);
+    out.engineLog = engineLogLines();
+    out.requests = fs.readFileSync(flog, 'utf8').split('\n').filter((l) => l.startsWith('inference'));
+    if (relayLocal) { out.stt = relayLocal.stt.requests.slice(); out.relayCalls = relayPaths.slice(); }
     process.stdout.write(`\n${JSON.stringify(m3Out(out))}\n`);
     await exitClean(0);
   }
@@ -2075,6 +2139,37 @@ process.on('exit', () => {
     out.pages = out.pages.map((p, i) => ({ ...(pagesBefore[i] || {}), ...p }));
   }
   if (restartDuring) Object.assign(out, { relaunches, relaunchDb, applyCalls });
+  // 第1d2回 M-3: 写した後の見回り・戻り・ログイン
+  const pagesNow = () => store.listPages().map((p) => {
+    const page = store.getPage(p.id);
+    return { id: p.id, summaryError: page.summaryError, blocks: (page.blocks || []).length,
+      segments: store.getTranscript(p.id).map((x) => ({ text: x.text, failed: Boolean(x.failed) })) };
+  });
+  const S3_RE = /^(この会議は PC の中だけです。)?文字起こし待ちの音声があります。/;
+  if (ticksOffline) {
+    netUp = false;
+    const log0 = elogLines().length;
+    const rel0 = relayPaths.length;
+    for (let k = 0; k < ticksOffline; k++) await keptTick();
+    await sleep(200);
+    out.ticksOffline = { ticks: keptTicksCalled, logAdded: elogLines().slice(log0), relayAdded: relayPaths.slice(rel0) };
+  }
+  if (backAfter) {
+    await relayLocal.setAnswer('c');
+    netUp = true;
+    await keptTick();
+    // 待ち行列が片付き、要約の欄が S3 から替わり、要約が済む（ブロックか理由）まで
+    await waitFor(() => !segbufLeft().queue && pagesNow().every((p) => !S3_RE.test(p.summaryError || '') && (p.blocks > 0 || p.summaryError)), 10000);
+    await sleep(200);
+    out.afterBack = { pages: pagesNow(), engineLog: elogLines(), relayCalls: relayPaths.slice(), notices: sent.filter(([ch]) => ch === 'app:notice').map(([, p]) => p),
+      claudeCalls: claudeLines().filter((c) => c.kind === 'p').length, files: listFiles(userData) };
+  }
+  if (loginAfter) {
+    const login = await handlers['account:login']({});
+    await waitFor(() => !segbufLeft().queue && pagesNow().every((p) => p.segments.every((x) => !x.failed)), 10000);
+    await sleep(200);
+    out.afterLogin = { login, pages: pagesNow(), engineLog: elogLines(), relayCalls: relayPaths.slice(), keptTicks: keptTicksCalled };
+  }
   process.stdout.write(`\n${JSON.stringify(m3Out(out))}\n`);
   await exitClean(0);
 })().catch((e) => { process.stderr.write(`mainrun: ${e.stack || e}\n`); process.exit(1); });

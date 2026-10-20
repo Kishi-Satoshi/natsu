@@ -910,6 +910,14 @@ function startSegmentMode({ localOnly, signedIn, hold, netOnline, peekUp } = {})
 }
 
 // ---------------------------------------------------------------- オフラインの準備を任意にする（第1d2回 M-1・D21・OF1）
+// 要約の欄の文（第1d2回 M-3。計画「画面と知らせの文」の S1〜S3'）。local・offline は準備を選んでいない PC で手元の LLM が無いとき
+// （PC の中だけの会議・Claude Code に届かない）。wait・waitLocal は締めたときに文字起こし待ちの区間がある会議（済んだら自動で要約する）
+const KEPT_SUMMARY_TEXT = {
+  local: 'この会議は PC の中だけのため、要約も PC の中で作ります。オフラインの準備をしていないので、要約は作りませんでした。設定の「オフライン」で準備すると、［要約を生成］で作れます。',
+  offline: '要約の送り先（Claude Code）につながらないため、要約を作りませんでした。インターネットにつながってから［要約を生成］を押してください。',
+  wait: '文字起こし待ちの音声があります。文字起こしが済むと、自動で要約を作ります。',
+  waitLocal: 'この会議は PC の中だけです。文字起こし待ちの音声があります。オフラインの準備が済んで文字起こしが済むと、自動で要約を作ります。',
+};
 const LOGIN_WHYS = ['signed-out', 'login'];   // ログインしていない・切れた
 // 準備を選んでいない PC で音声を残している帯の符号（第1d2回 M-2。B14・B13・B12・B11）。Windows の知らせにはしない（WIN_NOTIFY_CODES は変えない）
 const KEPT_CODES = ['kept-local', 'kept-login', 'kept-relay', 'kept-wait'];
@@ -1410,7 +1418,7 @@ module.exports = {
   publicSegments, settledSegments, pendingDurationMs, recoverSegments, staleSegbufDirs,
   nextSegmentMs, EtaTracker, skipPendingSegments,
   ONLINE_SEGMENT_SEC, OVERLAY_SEG_MIN_MS, SEG_SWITCH_AFTER, STICKY_LOCAL, startSegmentMode, segmentModeNext, segmentBaseMs, liveSegmentMs, nextLiveSegmentMs,
-  cloudLikely, offlineChosen, DICTATION_REFUSE_TEXT, startPlan, dictationPlan, KEPT_CODES, keptCodeFor,
+  cloudLikely, offlineChosen, DICTATION_REFUSE_TEXT, startPlan, dictationPlan, KEPT_CODES, keptCodeFor, KEPT_SUMMARY_TEXT,
   STALL_SPAN_MS, STALL_MIN_DBFS, stallAfter, stallStep, PROBLEM_ORDER, sttProblemOf, problemForRoute,
   WIN_NOTIFY_CODES, WIN_NOTIFY_GAP_MS, notifyGate,
   estimateTokens, foldNotes, idleEnginesToStop, silentWav, wavLevelDbfs, mergeSummaryType, memoEvidence, buildClaudeInput, routeLabel,

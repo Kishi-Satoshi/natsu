@@ -11,8 +11,10 @@ const path = require('node:path');
 const { execFile } = require('node:child_process');
 
 const RUN = path.join(__dirname, 'helpers', 'mainrun.js');
+// NATSU_TEST_ONLINE_MEMO_SCALE: 届くかの覚え（届いた 60 秒・届かない 15 秒）を縮め、区間ごとに中継の答えを替えても次の区間で気づくようにする（stage1d.seg と同じ）
+const ENV = { ...process.env, NATSU_TEST_STT_SLEEP_SCALE: '0.01', NATSU_TEST_ONLINE_MEMO_SCALE: '0.001' };
 const run = (args) => new Promise((resolve, reject) => {
-  execFile(process.execPath, [RUN, ...args], { env: { ...process.env, NATSU_TEST_STT_SLEEP_SCALE: '0.01' }, maxBuffer: 1 << 24, timeout: 20000 },
+  execFile(process.execPath, [RUN, ...args], { env: ENV, maxBuffer: 1 << 24, timeout: 20000 },
     (err, stdout, stderr) => {
       if (err) { reject(new Error(`mainrun ${args.join(' ')} が失敗: ${err.message}\n${stderr}`)); return; }
       resolve(JSON.parse(stdout.trim().split('\n').pop()));
@@ -43,7 +45,7 @@ const tmpUserData = () => { const d = fs.mkdtempSync(path.join(os.tmpdir(), 'nat
 test.after(() => { for (const d of tmpDirs) { try { fs.rmSync(d, { recursive: true, force: true }); } catch (_) { /* 消せなくても結果は変わらない */ } } });
 // main ごと落ちる場面（終わりの番号が 0 でない）を1回動かす
 const runExit = (args) => new Promise((resolve, reject) => {
-  execFile(process.execPath, [RUN, ...args], { env: { ...process.env, NATSU_TEST_STT_SLEEP_SCALE: '0.01' }, maxBuffer: 1 << 24, timeout: 20000 },
+  execFile(process.execPath, [RUN, ...args], { env: ENV, maxBuffer: 1 << 24, timeout: 20000 },
     (err, _stdout, stderr) => { if (err && typeof err.code === 'number' && err.code !== 0) resolve(err.code); else reject(new Error(`main ごと落ちなかった: ${stderr}`)); });
 });
 
@@ -195,4 +197,121 @@ test('F5: エンジンのある PC では、中継が止まっても kept の帯
   const o = await run(['text', '--relay-seq=cnc']);
   assert.ok(!problems(o).some((c) => c.startsWith('kept-')), dump(o));
   assert.ok(!o.notices.some((n) => KS.includes(textOf(n))), dump(o));
+});
+
+// ---------------------------------------------------------------- M-3（OF3・OF6・F2・F6・F8）
+const S2 = '要約の送り先（Claude Code）につながらないため、要約を作りませんでした。インターネットにつながってから［要約を生成］を押してください。';
+const S3 = '文字起こし待ちの音声があります。文字起こしが済むと、自動で要約を作ります。';
+const S3L = 'この会議は PC の中だけです。文字起こし待ちの音声があります。オフラインの準備が済んで文字起こしが済むと、自動で要約を作ります。';
+const R1 = (n, m) => `残しておいた音声を文字起こししました（${n}/${m} 区間）。続けて要約を作ります。`;
+const isText = (x) => !x.failed && x.text.startsWith('本日の議題は進捗の確認です');
+const sttPosts = (o) => o.stt.filter((r) => r.path.endsWith('/audio/transcriptions')).length;
+// engine.log の、区間 a の文字起こしの後から区間 b の前までにある「（もう一度）」の区間
+const retriedBetween = (log, a, b) => {
+  const i = log.findIndex((l) => l.startsWith(`文字起こしの経路: 区間 ${a} → cloud`));
+  const j = log.findIndex((l) => l.startsWith(`文字起こしの経路: 区間 ${b} → `));
+  return log.slice(i + 1, j < 0 ? undefined : j).filter((l) => /^文字起こしの経路: 区間 s\d+（もう一度） → /.test(l)).map((l) => l.match(/区間 (s\d+)/)[1]);
+};
+
+test('OF3: 中継が戻った区間の後、残した2つの区間が自動で並べ直されて文字になり、WAV が消え、帯 B11 が消える。ページの5区間がどれも文字', T, async () => {
+  const o = await run(['text', '--relay-seq=cnncc', '--no-engine=fetchable']);
+  assert.deepStrictEqual(retriedBetween(o.engineLog, 's4', 's5'), ['s2', 's3'], o.engineLog.join('\n'));
+  assert.ok(o.engineLog.includes('文字起こしの経路: 残した区間 2 を並べ直した'), o.engineLog.join('\n'));
+  assert.strictEqual(o.pages[0].segments.length, 5);
+  assert.ok(o.pages[0].segments.every(isText), JSON.stringify(o.pages[0].segments));
+  assert.deepStrictEqual(segFiles(o), [], JSON.stringify(o.files));
+  assert.strictEqual(o.sttSeen[o.sttSeen.length - 1].problem, null, dump(o));
+});
+
+test('F6: 1つの区間が文字になった後に並べ直すのは2つまで（中継への文字起こしの要求の並びで見る）', T, async () => {
+  const o = await run(['text', '--relay-seq=cnnnncc', '--no-engine=fetchable']);
+  assert.deepStrictEqual(retriedBetween(o.engineLog, 's6', 's7'), ['s2', 's3'], o.engineLog.join('\n'));
+  // 最後の区間（s7）は止めた後に届くので並べ直さない。残りの s4・s5 は会議の後の待ち行列が送る
+  assert.deepStrictEqual(retriedBetween(o.engineLog, 's7', 'none'), [], o.engineLog.join('\n'));
+  assert.deepStrictEqual(o.engineLog.filter((l) => /^文字起こしの経路: 復旧 s\d+ → cloud/.test(l)).map((l) => l.match(/復旧 (s\d+)/)[1]), ['s4', 's5'], o.engineLog.join('\n'));
+  assert.ok(o.pages[0].segments.every(isText), JSON.stringify(o.pages[0].segments));
+});
+
+test('F6: 残した区間がある会議を止めると、止めた後に中継で文字になる区間があっても並べ直さずにすぐ締める（締めまで 2 秒以内・中継で文字になった要求は 2 つ）。要約の欄は S3、要約は呼ばない。recovery.json に残した2区間', T, async () => {
+  // 4つ目（最後）は止めた後に届き、中継で文字になる。中継はその答えの後に止まる（z: 会議の後の待ち行列が送れないまま残るのを見る）
+  const o = await run(['text', '--relay-seq=cnnz', '--no-engine=fetchable', '--claude=ok', '--after-retry']);
+  assert.ok(o.segWaitMs.every((ms) => ms < 2000), JSON.stringify(o.segWaitMs));
+  assert.deepStrictEqual(retriedBetween(o.engineLog, 's4', 'none'), [], o.engineLog.join('\n'));
+  assert.strictEqual(sttPosts(o), 2, JSON.stringify(o.stt.map((r) => r.path)));
+  assert.strictEqual(o.pages[0].summaryError, S3);
+  assert.deepStrictEqual(o.claude.filter((c) => c.kind === 'p'), [], '要約を Claude Code へ送った');
+  assert.strictEqual(o.recoveryKept, true);
+  assert.strictEqual(segFiles(o).length, 2, JSON.stringify(o.files));
+});
+
+test('F1・F2・決めたこと 6: 並べ直した残した区間の答えが空なら区間ごと消え（WAV も消える）、次の区間の後にもう一度送らない（中継への文字起こしの要求はちょうど 5 つ）。帯 B11 が消える', T, async () => {
+  const o = await run(['text', '--relay-seq=cnccc', '--relay-req-text=ccecc', '--no-engine=fetchable']);
+  assert.strictEqual(sttPosts(o), 5, o.engineLog.join('\n'));
+  // 3つ目の要求（空の答え）は、s3 の後に並べ直した s2。その後は s2 を送らない（並べ直しも、会議の後の待ち行列も）
+  assert.deepStrictEqual(retriedBetween(o.engineLog, 's3', 's4'), ['s2'], o.engineLog.join('\n'));
+  assert.deepStrictEqual(retriedBetween(o.engineLog, 's4', 'none'), [], o.engineLog.join('\n'));
+  assert.ok(!o.engineLog.some((l) => /^文字起こしの経路: 復旧 s2 /.test(l)), o.engineLog.join('\n'));
+  assert.strictEqual(o.pages[0].segments.length, 4, JSON.stringify(o.pages[0].segments));
+  assert.ok(o.pages[0].segments.every(isText), JSON.stringify(o.pages[0].segments));
+  assert.deepStrictEqual(segFiles(o), []);
+  assert.strictEqual(o.sttSeen[o.sttSeen.length - 1].problem, null, dump(o));
+});
+
+test('OF3・F8: 戻った後の見回り1回で、待ち行列の2区間が中継で文字になり、R1 の知らせ、要約が Claude Code で入り、要約の欄の S3 が消える。WAV と recovery.json が片付く', T, async () => {
+  const o = await run(['text', '--relay-seq=cnn', '--no-engine=fetchable', '--claude=ok', '--back-after']);
+  assert.strictEqual(o.pages[0].summaryError, S3, '締めで S3 を書いていない');
+  const b = o.afterBack;
+  assert.ok(b.pages[0].segments.every(isText), JSON.stringify(b.pages[0].segments));
+  assert.ok(b.notices.map(textOf).includes(R1(2, 2)), JSON.stringify(b.notices));
+  assert.strictEqual(b.claudeCalls, 1, '要約を Claude Code で作っていない');
+  assert.strictEqual(b.pages[0].summaryError, '');
+  assert.ok(b.pages[0].blocks > 0, '要約が入っていない');
+  assert.deepStrictEqual(b.files.filter((f) => /^data\/segbuf\//.test(f)), [], JSON.stringify(b.files));
+});
+
+test('F2: オフラインの見回り3回では中継へ何も送らず（/health も）、見回りの3回で増えた記録は「文字起こし待ち: 見回り」の1行だけ（「復旧の文字起こしを保留」も増えない）', T, async () => {
+  const o = await run(['text', '--relay-seq=cn', '--no-engine=fetchable', '--ticks-offline=3']);
+  assert.strictEqual(o.ticksOffline.ticks, 3);
+  assert.deepStrictEqual(o.ticksOffline.relayAdded, []);
+  // 待ち行列 1・音声入力 0・理由 offline（オフラインの間は何もしない）
+  assert.deepStrictEqual(o.ticksOffline.logAdded, ['文字起こし待ち: 見回り（1・0・offline）']);
+});
+
+test('F2: PC の中だけの待ち行列が先にあっても、後ろのクラウドの待ち行列が見回りで文字になる。PC の中だけの区間は中継へ送らず、その WAV と recovery.json は残る。「復旧の文字起こしを保留」は起動から終わりまでで1行', T, async () => {
+  const o = await run(['text', '--relay=text', '--no-engine=fetchable', '--extra-queue=localonly', '--recover', '--idle', '--kept-ticks=2']);
+  const byLocal = (local) => o.pages.find((p) => Boolean(p.route && p.route.localOnly) === local);
+  assert.ok(byLocal(false).segments.every((x) => !x.failed), JSON.stringify(o.pages));
+  assert.ok(byLocal(true).segments.every((x) => x.failed), JSON.stringify(o.pages));
+  assert.strictEqual(sttPosts(o), 1, 'PC の中だけの区間を中継へ送った');
+  assert.strictEqual(o.engineLog.filter((l) => l.startsWith('復旧の文字起こしを保留')).length, 1, o.engineLog.join('\n'));
+  assert.ok(o.files.some((f) => /^data\/segbuf\/[^/]+\/recovery\.json$/.test(f)), JSON.stringify(o.files));
+  assert.strictEqual(o.files.filter((f) => /^data\/segbuf\/.+\.wav$/.test(f)).length, 1, JSON.stringify(o.files));
+});
+
+test('F5・RF49: エンジンのある PC で、起動の後に置いた PC の中だけの待ち行列は、見回りでは手元のエンジンで文字起こししない（inference 0・待ち行列は残る）。中継へも送らない', T, async () => {
+  const o = await run(['text', '--relay=text', '--extra-queue-late=localonly', '--idle', '--kept-ticks=1']);
+  assert.deepStrictEqual(o.requests, [], '手元のエンジンで文字起こしした');
+  assert.strictEqual(sttPosts(o), 0);
+  assert.ok(o.files.some((f) => /^data\/segbuf\/[^/]+\/recovery\.json$/.test(f)), JSON.stringify(o.files));
+});
+
+test('F8: 準備を選んでいない PC の、PC の中だけの会議（残した区間あり）の要約の欄は S3\'。偽の claude は呼ばれない', T, async () => {
+  const o = await run(['text', '--relay=text', '--no-engine=fetchable', '--local-only', '--sum', '--claude=ok', '--segs=1']);
+  assert.strictEqual(o.pages[0].summaryError, S3L, dump(o));
+  assert.deepStrictEqual(o.claude.filter((c) => c.kind === 'p'), []);
+});
+
+test('S2: 準備を選んでいない PC で、要約のときに Claude Code へ届かない（手元の LLM も無い）なら、要約の欄と知らせは S2（「未設定」の文で設定へ連れて行かない）', T, async () => {
+  const o = await run(['text', '--relay=text', '--no-engine=fetchable', '--segs=1']);
+  assert.strictEqual(o.pages[0].summaryError, S2, dump(o));
+  assert.ok(o.notices.map(textOf).includes(S2), dump(o));
+  assert.ok(!JSON.stringify(o.notices).includes('未設定'), dump(o));
+});
+
+test('OF3: ログインした直後に、待ち行列が中継で文字になる（見回りを待たない）', T, async () => {
+  const o = await run(['text', '--relay=text', '--signed-out', '--no-engine=fetchable', '--segs=2', '--login-after']);
+  assert.ok(o.pages[0].segments.every((x) => x.failed), '前提: ログインする前は文字起こし待ち');
+  assert.strictEqual(o.afterLogin.login.ok, true, JSON.stringify(o.afterLogin.login));
+  assert.ok(o.afterLogin.pages[0].segments.every(isText), JSON.stringify(o.afterLogin));
+  assert.strictEqual(o.afterLogin.keptTicks, 0, '見回りを呼んだ');
 });

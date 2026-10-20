@@ -78,8 +78,13 @@ const K2 = 'ログインしていないため、音声だけを残します。�
 const K3 = '文字起こしの中継が使えないため、音声を残しています。使えるようになると自動で文字起こしします。録音はそのまま続けてください。';
 const K4 = 'ログインが切れたため、音声を残しています。設定の「アカウント」でもう一度ログインすると、文字起こしします。';
 const KEPT_SEG_TEXT = '（文字起こし待ち: 音声は残してあります）';
-// 新しい文（「未設定」の語を見ると、画面が設定のタブへ連れて行く: 調べた結果の 7）。M-3〜M-5 の文は各タスクで足す
-const NEW_TEXTS = { B11, B12, B13, B14, K1, K2, K3, K4, KEPT_SEG_TEXT, D1, D2, D3 };
+// 要約の欄（計画「画面と知らせの文」の S1〜S3'。M-3）
+const S1 = 'この会議は PC の中だけのため、要約も PC の中で作ります。オフラインの準備をしていないので、要約は作りませんでした。設定の「オフライン」で準備すると、［要約を生成］で作れます。';
+const S2 = '要約の送り先（Claude Code）につながらないため、要約を作りませんでした。インターネットにつながってから［要約を生成］を押してください。';
+const S3 = '文字起こし待ちの音声があります。文字起こしが済むと、自動で要約を作ります。';
+const S3L = 'この会議は PC の中だけです。文字起こし待ちの音声があります。オフラインの準備が済んで文字起こしが済むと、自動で要約を作ります。';
+// 新しい文（「未設定」の語を見ると、画面が設定のタブへ連れて行く: 調べた結果の 7）。M-4・M-5 の文は各タスクで足す
+const NEW_TEXTS = { B11, B12, B13, B14, K1, K2, K3, K4, KEPT_SEG_TEXT, D1, D2, D3, S1, S2, S3, S3L };
 
 test('OF2: keptCodeFor の表（受け渡す名前と形に書いた理由の全部と知らない符号 × localOnly）', T, () => {
   const table = {
@@ -122,11 +127,17 @@ test('OF2: recoverSegments は kept を外し、残した区間（失敗・WAV �
   assert.deepStrictEqual(r.todo, [{ id: 's2', wav: '/x/2.wav', durationMs: 2000 }]);
 });
 
-test('F4: B11〜B14・K1〜K4・区間の文・D1〜D3 に「未設定」が無く、main・mainlib の文と同じ（画面の連れて行きに当たらない）', T, () => {
+test('F4: B11〜B14・K1〜K4・区間の文・D1〜D3・S1〜S3\'・R1 に「未設定」が無く、main・mainlib の文と同じ（画面の連れて行きに当たらない）', T, () => {
   const src = require('node:fs').readFileSync(require('node:path').join(__dirname, '..', 'src', 'main.js'), 'utf8')
     + require('node:fs').readFileSync(require('node:path').join(__dirname, '..', 'src', 'mainlib.js'), 'utf8');
   for (const [k, t] of Object.entries(NEW_TEXTS)) {
     assert.ok(!t.includes('未設定'), `${k} に「未設定」`);
     assert.ok(src.includes(`'${t}'`), `${k} の文が src に無い`);
   }
+  // R1（数を入れる文）
+  assert.ok(src.includes('`残しておいた音声を文字起こししました（${done}/${q.items.length} 区間）。続けて要約を作ります。`'), 'R1 の文が main に無い');
+});
+
+test('S1・S2: 準備を選んでいない PC で手元の LLM が無いときの要約の欄の文は、PC の中だけなら S1、そうでなければ S2。文字起こし待ちのある会議は S3・S3\'', T, () => {
+  assert.deepStrictEqual(L.KEPT_SUMMARY_TEXT, { local: S1, offline: S2, wait: S3, waitLocal: S3L });
 });
