@@ -438,7 +438,7 @@ function boot() {
     console.log(`Electron ${process.versions.electron}（Chromium ${process.versions.chrome}、Node ${process.versions.node}、${process.platform}）`);
     if (versionGate(app, versionIssue(process.versions, JSON.parse(fs.readFileSync(PKG, 'utf8'))))) return;
     if (checks.length === 1 && checks[0][0] === 17) {
-      finish(app, [await panelCheck({ BrowserWindow, screen: require('electron').screen, want: scale || 1 })], { checks });
+      finish(app, await panelCheck({ BrowserWindow, screen: require('electron').screen, want: scale || 1 }), { checks });   // panelCheck は結果の配列を返す
       return;
     }
     const win = new BrowserWindow({
@@ -455,7 +455,7 @@ function boot() {
     results.push(...await securityChecks({ app, BrowserWindow, session }));
     results.push(...await onlineChecks({ app, net, safeStorage }));
     results.push(...await accessChecks({ app, net, session, BrowserWindow }));
-    results.push(await panelCheck({ BrowserWindow, screen: require('electron').screen, want: scale || 1 }));
+    results.push(...await panelCheck({ BrowserWindow, screen: require('electron').screen, want: scale || 1 }));
     finish(app, results);
   }, die('起動の失敗'));
 }

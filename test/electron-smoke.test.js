@@ -416,4 +416,8 @@ test('electron-smoke: 17 は本物の録音バーと同じ作りの窓（transpa
   assert.ok(boot.indexOf('versionGate(') < boot.indexOf('panelCheck('), '--only=17 の起動で版を確かめていない');
   assert.ok(boot.indexOf("appendSwitch('force-device-scale-factor'") >= 0 && boot.indexOf("appendSwitch('force-device-scale-factor'") < boot.indexOf('app.whenReady()'), '拡大率のスイッチを ready の前に当てていない');
   assert.match(m, /次の 17 を確かめる/);
+  // 統合（CI run 39474527787 の electron-smoke「NG 17 … 結果が無い」）で足した: panelCheck は panelResults の配列を返すので、ふだんの起動では
+  // 広げて足し、--only=17 の起動ではそのまま finish に渡す（配列を配列で包むと 17 の結果が見つからず、Windows の CI で NG になる）
+  assert.ok(boot.includes('results.push(...await panelCheck('), 'ふだんの起動で panelCheck の配列を広げずに足した');
+  assert.ok(boot.includes('finish(app, await panelCheck('), '--only=17 の起動で panelCheck の配列をもう一度包んだ');
 });
