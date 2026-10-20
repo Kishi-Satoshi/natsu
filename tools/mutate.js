@@ -4,7 +4,7 @@
 //   applyMutant(text, m)       … m.from がちょうど1回なら m.to に置き換えた文字を返す。0 回か2回以上なら投げる。
 //                                m.also（[{ from, to }]）があれば、その後に順に同じ決まりで置き換える（離れた2か所を一緒に戻す変異。第2a1回 G-3）
 //   findStale(mutants, read)   → 当たらない（0 回か2回以上・ファイルが無い。also も）変異の id の配列
-//   runAll({ root, mutants, jobs, timeoutMs })
+//   runAll({ root, mutants, jobs, timeoutMs, baseTimeoutMs })
 //                              → [{ id, status: 'killed' | 'survived' | 'stale' | 'baseline-red', file, why }]
 //   exitCodeOf(results)        … 全部 'killed' なら 0、それ以外は 1
 //
@@ -94,7 +94,10 @@ function runTests(cwd, tests, timeoutMs, pattern) {
   });
 }
 
-async function runAll({ root, mutants, jobs = 2, timeoutMs = 120000 }) {
+// 元のままの確かめの見張り。一覧のテストのほぼ全部（ふだん 100〜130 秒）を1回で走らせるので、変異1つの見張り（120 秒）とは分ける
+// （同じ見張りだと遅い機械で「元のままで赤（時間切れ）」になり、変異を1つも試さずに止まった: CI run 39491867266）
+const BASE_TIMEOUT_MS = 600000;
+async function runAll({ root, mutants, jobs = 2, timeoutMs = 120000, baseTimeoutMs = BASE_TIMEOUT_MS }) {
   const read = (f) => fs.readFileSync(path.join(root, f), 'utf8');
   const stale = new Set(findStale(mutants, read));
   const results = mutants.map((m) => ({ id: m.id, status: stale.has(m.id) ? 'stale' : null, file: m.file, why: m.why }));
@@ -108,7 +111,7 @@ async function runAll({ root, mutants, jobs = 2, timeoutMs = 120000 }) {
 
     // 元のままで、一覧のテストの組が緑か
     const allTests = [...new Set(todo.flatMap(({ m }) => m.tests))];
-    const base = await runTests(copies[0], allTests, timeoutMs);
+    const base = await runTests(copies[0], allTests, baseTimeoutMs);
     if (base.code !== 0) {
       return [
         ...results.filter((r) => r.status === 'stale'),
@@ -172,4 +175,4 @@ if (require.main === module) {
   main(process.argv.slice(2)).then((code) => { process.exitCode = code; }, (e) => { console.error(e && e.stack || e); process.exitCode = 1; });
 }
 
-module.exports = { applyMutant, findStale, runAll, exitCodeOf, copyRepo };
+module.exports = { applyMutant, findStale, runAll, exitCodeOf, copyRepo, BASE_TIMEOUT_MS };

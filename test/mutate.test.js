@@ -92,6 +92,20 @@ test('G3: pattern は正規表現として読め、tests のファイルのど�
   }
 });
 
+// 0.9.0 見た目の直しの CI（run 39491867266）: 元のままの確かめは一覧のテストのほぼ全部（ふだん 100〜130 秒）を1回で走らせるのに、
+// 変異1つの見張り（120 秒）と同じ見張りだったので、遅い機械で「元のままで赤（時間切れ）」になり、変異を1つも試さずに止まった。
+// 元のままの確かめは自分の見張り（baseTimeoutMs）を持つ。変異1つの見張りは今のまま
+test('G3: 元のままの確かめは変異1つの見張り（timeoutMs）でなく、自分の見張り（baseTimeoutMs）で切る', { timeout: 30000 }, async () => {
+  const mut = [{ id: 'kill', file: 'src/add.js', from: 'a + b', to: 'a - b', tests: ['test/add.test.js'], why: 'x' }];
+  // 変異1つの見張りより長くかかる元のままの確かめも、元のままの見張りの中なら赤にしない
+  const ok = await M.runAll({ root: fixtureRepo(), jobs: 1, timeoutMs: 1, baseTimeoutMs: 20000, mutants: mut });
+  assert.ok(!ok.some((x) => x.status === 'baseline-red'), `元のままの確かめを変異1つの見張りで切った: ${JSON.stringify(ok.map((x) => [x.id, x.status, x.timedOut]))}`);
+  // 元のままの見張りを越えたら、今どおり「元のままで赤（時間切れ）」で止める
+  const late = await M.runAll({ root: fixtureRepo(), jobs: 1, timeoutMs: 20000, baseTimeoutMs: 1, mutants: mut });
+  assert.deepStrictEqual(late.map((x) => [x.status, x.timedOut]), [['baseline-red', true]]);
+  assert.ok(M.BASE_TIMEOUT_MS >= 4 * 120000, '元のままの見張りの既定が、一覧のテストの全部を走らせる長さに足りない');
+});
+
 test('G3・F10: 元のテストが赤なら、変異を試さずに止める（何でも「殺した」に見えるため）', { timeout: 20000 }, async () => {
   const r = await M.runAll({ root: fixtureRepo({ red: true }), jobs: 1, mutants: [{ id: 'kill', file: 'src/add.js', from: 'a + b', to: 'a - b', tests: ['test/add.test.js'], why: 'x' }] });
   assert.deepStrictEqual(r.map((x) => x.status), ['baseline-red']);

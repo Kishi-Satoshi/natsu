@@ -32,7 +32,10 @@ const { vcRuntimeIssue } = require('../src/mainlib');
 // 0.9.0 見た目の直しの CI（run 39484701958・ubuntu）で、取ってから場面がエンジンを起こすまでの間に、そのポートを別の場面の
 // 外向きの接続（OS が送り元に選ぶ一時的なポート）が使い、「ポート 45481 は他のプロセスが使用中」で2つのテストが落ちた。
 // listen(0) で取るポートは、その一時的なポートと同じ範囲（Linux 32768〜60999・Windows 49152〜65535）から出るので、
-// 取ったポートを閉じた後に送り元として使われ得る。一時的なポートの範囲より下（20000〜32767）から、実際に listen できたものだけを取る
+// 取ったポートを閉じた後に送り元として使われ得る。Linux と macOS では一時的なポートの範囲より下（20000〜32767）から、実際に listen
+// できたものだけを取る。Windows は今までどおり listen(0)（範囲より下のポートでは、Windows の CI で多くの場面の最初の区間が
+// ECONNABORTED になった: run 39491867266 の electron-smoke。Windows の機械はその範囲を別の仕組みが使うことがある）
+const LOW_RANGE = process.platform !== 'win32';
 const PORT_LO = 20000, PORT_HI = 32767;
 const tryListen = (port) => new Promise((resolve) => {
   const s = net.createServer();
@@ -41,6 +44,9 @@ const tryListen = (port) => new Promise((resolve) => {
 });
 async function reservePorts(n) {
   const servers = [];
+  if (!LOW_RANGE) {
+    for (let i = 0; i < n; i++) { const s = await tryListen(0); if (!s) throw new Error('空きのポートを取れない'); servers.push(s); }
+  }
   let port = PORT_LO + Math.floor(Math.random() * (PORT_HI - PORT_LO - 2000));   // 別のテストの走りと重ならないよう、始めを散らす
   for (let tries = 0; servers.length < n && tries < 4000; tries++, port = port >= PORT_HI ? PORT_LO : port + 1) {
     const s = await tryListen(port);
