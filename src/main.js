@@ -1963,6 +1963,7 @@ async function relayFallback(e, scope, provider, sentPack) {
   return code;
 }
 // opts: transcribeLocal と同じ（isStale・learn）＋ localOnly・notice（会議の知らせの係。無ければ起動ごと）・what（記録の名前）・
+// cloudOnly（見回りから: 手元へ落ちる区間は手元のエンジンを起こさずに keepForRetry の Error を投げる。第1d2回 M-3 の点検・F5・RF49）・
 // seg（区間の番号 s{n}。手元で失敗したら engine.log に番号と符号を1行: 第1d回 A-14）・
 // onWait(sec)（OpenAI の短い 429 を待つとき。会議の帯 wait: 第1d回 A-6）
 // → { text, route: 'cloud'|'local', provider, why, scope? }（scope は why が daily-cap のときだけ 'user'|'all'。帯の分け方: A-6）。
@@ -2014,6 +2015,16 @@ async function transcribeAuto(wav, tail, durationMs, opts = {}) {
     const err = new Error(KEPT_ERROR_TEXT);
     err.engineMissing = true;
     err.kept = true;
+    err.sttRoute = via;
+    throw err;
+  }
+  // 第1d2回 M-3 の点検（F5・RF49）: 見回りは、/health に答えた中継が文字起こしで落ちても手元のエンジンを起こさない（壊れた組なら
+  // 毎分起動して落ちる）。音声と待ち行列は残し、次の見回り・設定の保存・次の起動でやり直す
+  if (opts.cloudOnly) {
+    engineLog(`文字起こしの経路: ${what} → 見回りでは手元で文字起こししない（${why}）`);
+    const err = new Error('今はクラウドで文字起こしできません');
+    err.keepForRetry = true;
+    err.cloudCode = why;
     err.sttRoute = via;
     throw err;
   }
@@ -2759,9 +2770,18 @@ async function keepDictation(buffer, durationMs, e) {
   try {
     fs.mkdirSync(dictwaitRoot(), { recursive: true });
     const file = path.join(dictwaitRoot(), name);
-    // 一時ファイルに書いてから置き換える（書き込み中に落ちても半端な wav を文字起こししない）
+    // 一時ファイルに書いてから置き換える（書き込み中に落ちても半端な wav を文字起こししない）。名前の変更がウイルス対策に掴まれたら
+    // jsonfile と同じ待ち（RENAME_WAITS）でやり直す（RF20）。だめなら一時ファイルを消す
     fs.writeFileSync(`${file}.tmp`, Buffer.from(buffer));
-    fs.renameSync(`${file}.tmp`, file);
+    for (let i = 0; ; i++) {
+      try {
+        fs.renameSync(`${file}.tmp`, file);
+        break;
+      } catch (err) {
+        if (!(err && J.BUSY.has(err.code)) || i >= J.RENAME_WAITS.length) { unlinkQuiet(`${file}.tmp`); throw err; }
+        J.sleepSync(J.RENAME_WAITS[i]);
+      }
+    }
   } catch (err) {
     engineLog(`音声入力: 音声を残せませんでした（${errCode(err)}）`);
     finishWithError(`${(e && e.message) || '不明なエラー'}（音声を残せませんでした）`);
@@ -2782,7 +2802,9 @@ async function keepDictation(buffer, durationMs, e) {
 }
 // 残した音声入力を古い順に文字起こしする（見回りから。走っている間は重ねない）。行は名前の id で探す（文字を入れて保存した後・WAV を消す前に
 // 落ちた・見回りが重なった、で行を二重にしない）。文字は行に入れ（行が上限で切れていれば、その時刻の順の所に足す。足すときは上限で切らない）、
-// 履歴を保存してから WAV を消す（この順。逆だと落ちたときに文字を失う）。空の答えは行と WAV を消す。まだ使えなければ止めて次の見回りへ
+// 履歴を保存してから WAV を消す（この順。逆だと落ちたときに文字を失う）。保存できなければ行を元に戻し（画面にも次の見回りにも「文字起こし待ち」の
+// まま）、WAV を残して止める。空の答えは行と WAV を消す。まだ使えなければ止めて次の見回りへ。見回りからだけ呼ぶので手元のエンジンは起こさない
+// （cloudOnly: RF49）。WAV を消して失敗の文にするのは中継が音声を見て断った（refused: 待っても同じ答え）ときだけ。ほかの失敗は残して次の見回りへ
 async function transcribeDictWaits() {
   if (dictWaitRunning || historyState === 'unreadable') return;
   let names = [];
@@ -2803,23 +2825,31 @@ async function transcribeDictWaits() {
       let raw = '';
       let failText = '';
       try {
-        ({ text: raw } = await transcribeAuto(buf, '', durationMs, { what: '音声入力（残した音声）' }));
+        ({ text: raw } = await transcribeAuto(buf, '', durationMs, { what: '音声入力（残した音声）', cloudOnly: true }));
       } catch (e) {
-        if (e && (e.kept || e.keepForRetry || e.engineMissing)) break;   // まだ使えない: 次の見回りで
-        failText = `（この音声入力の文字起こしに失敗: ${(e && e.message) || '不明なエラー'}）`;   // 待っても同じ答え（中継が断ったなど）
+        if (!(e && e.refused)) break;   // まだ使えない・待てば変わりうる: 次の見回りで（音声は消さない）
+        failText = `（この音声入力の文字起こしに失敗: ${(e && e.message) || '不明なエラー'}）`;   // 待っても同じ答え（中継が断った）
       }
       if (!fs.existsSync(file)) continue;   // 待つ間に利用者が行を消した（音声も消えた）
       const row = history.find((h) => h && h.id === id);
+      const before = row ? { ...row } : null;
+      const at = row ? history.indexOf(row) : -1;
       if (!raw && !failText) {
         // 無音だった: 行と音声を消す
-        if (row) { history.splice(history.indexOf(row), 1); changed = true; }
+        if (row) history.splice(at, 1);
         const w = historyWriter.now(history);
-        if (!w.ok) break;
+        if (!w.ok) {
+          if (row) history.splice(at, 0, row);   // 保存できない: 行を戻して音声を残す
+          engineLog('履歴: 残した音声入力の行を消せませんでした（音声は残します）');
+          break;
+        }
+        if (row) changed = true;
         unlinkQuiet(file);
         continue;
       }
       let text = failText || (settings.removeFillers ? removeFillersRule(raw) : raw);
       if (!text) text = raw;
+      let added = null;
       if (row) {
         row.text = text; row.raw = raw; row.chars = failText ? 0 : text.length;
         delete row.wait;
@@ -2827,11 +2857,18 @@ async function transcribeDictWaits() {
         const createdAt = new Date(Number(ms)).toISOString();
         let i = history.findIndex((h) => h && String(h.createdAt) < createdAt);
         if (i < 0) i = history.length;
-        history.splice(i, 0, { id, text, raw, createdAt, durationSec: Math.round(durationMs / 1000), procMs: 0, chars: failText ? 0 : text.length });
+        added = { id, text, raw, createdAt, durationSec: Math.round(durationMs / 1000), procMs: 0, chars: failText ? 0 : text.length };
+        history.splice(i, 0, added);
+      }
+      const w = historyWriter.now(history);
+      if (!w.ok) {
+        // 保存できない: 行を元に戻す（文字を入れたまま WAV を残すと、次の見回りが「もう文字が入っている」と WAV を消してしまう）
+        if (row) { for (const k of Object.keys(row)) delete row[k]; Object.assign(row, before); }
+        if (added) { const k = history.indexOf(added); if (k >= 0) history.splice(k, 1); }
+        engineLog('履歴: 残した音声入力の文字を保存できませんでした（音声は残します）');
+        break;
       }
       changed = true;
-      const w = historyWriter.now(history);
-      if (!w.ok) { engineLog('履歴: 残した音声入力の文字を保存できませんでした（音声は残します）'); break; }
       unlinkQuiet(file);
       if (!failText) n += 1;
     }
@@ -3572,7 +3609,7 @@ async function transcribeRecovered() {
         continue;
       }
       recoveryQueue = null;
-      const kept = await transcribeRecoveredItems(q);
+      const kept = await transcribeRecoveredItems(q, { cloudOnly });
       if (kept) {
         // 文字起こしまで届かなかった（クラウドの鍵・上限、手元に落ちたがエンジンが無い）: WAV と待ち行列を残して止め、
         // 設定の保存か次の起動でやり直す（エンジンが未設定のときと同じ扱い）
@@ -3591,7 +3628,7 @@ async function transcribeRecovered() {
   }
 }
 // → null（済んだ）| 残した待ち行列（文字起こしまで届かなかった区間から先。WAV と recovery.json を消していない）
-async function transcribeRecoveredItems(q) {
+async function transcribeRecoveredItems(q, { cloudOnly = false } = {}) {
   let done = 0;
   for (let i = 0; i < q.items.length; i++) {
     const item = q.items[i];
@@ -3610,7 +3647,7 @@ async function transcribeRecoveredItems(q) {
     let route = 'local';
     if (!err) {
       try {
-        ({ text, route } = await transcribeAuto(fs.readFileSync(item.wav), '', item.durationMs, { localOnly: Boolean(q.localOnly), what: `復旧 ${item.id}`, seg: item.id }));
+        ({ text, route } = await transcribeAuto(fs.readFileSync(item.wav), '', item.durationMs, { localOnly: Boolean(q.localOnly), cloudOnly, what: `復旧 ${item.id}`, seg: item.id }));
         if (settings.removeFillers) text = removeFillersRule(text);
       } catch (e) {
         if (e && (e.keepForRetry || e.engineMissing)) {
@@ -3995,6 +4032,10 @@ async function maybeFinalizeMeeting() {
 
   // 会議のページの ID は録音を始めたときに作って下書きに書いた（第2a1回 ST6。写し・復旧と同じ ID）
   const pageId = m.pageId || store.newId('p');
+  // 第1d2回 M-3（決めたこと 7）: 文字起こし待ちの区間（残した音声）がある会議は、一部だけの要約を作らない。要約の欄の S3（PC の中だけなら S3'）は
+  // 締めの tx で書く（待ち行列を置いた後に別に書くと、その間に見回り・ログインの直後が待ち行列を済ませ、自動の要約が S3 を見つけられない）
+  const keptWhy = m.segments.some((s) => s.kept && s.wav && fs.existsSync(s.wav))
+    ? (m.localOnly ? KEPT_SUMMARY_TEXT.waitLocal : KEPT_SUMMARY_TEXT.wait) : '';
   finalizingPageIds.add(pageId);
   finalizingDrafts.add(m.draftName);
   // 録音の状態は DB を待たせない（F9。「録音は DB に頼らない」）。すぐ待機に戻して次の録音を始められるようにし、締めの返事は裏で待つ。
@@ -4023,7 +4064,7 @@ async function maybeFinalizeMeeting() {
         // 文字起こしの経路と、会議の印（要約の経路が見る: C10）
         route: { stt: { ...m.route, provider: sttProvider().id }, localOnly: Boolean(m.localOnly) },
         pauses: m.pauses,   // 止めていた時間の印（区間とは別の欄。第1b回 N4c・F6）
-        recovered: false, summaryError: '', meeting: { phase: 'done' },
+        recovered: false, summaryError: keptWhy, meeting: { phase: 'done' },
       },
     }, { tx: `meeting:${m.startedAt}` });
     store.clearDraft(m.draftName);
@@ -4064,16 +4105,10 @@ async function maybeFinalizeMeeting() {
     sendToMainWin('app:notice', allEmptyText);
   }
 
-  // 第1d2回 M-3（決めたこと 7）: 文字起こし待ちの区間（残した音声）がある会議は、一部だけの要約を作らない。要約の欄に S3（PC の中だけなら S3'）を
-  // 書き、待ち行列が済んだら自動で要約する（transcribeRecoveredItems）
-  if (m.segments.some((s) => s.kept && s.wav && fs.existsSync(s.wav))) {
-    const why = m.localOnly ? KEPT_SUMMARY_TEXT.waitLocal : KEPT_SUMMARY_TEXT.wait;
-    engineLog('議事録を保存: 文字起こし待ちの区間があるので、要約は文字起こしが済んでから作ります');
-    let saved = null;
-    try { saved = await saveIfExists(db, page.id, (p) => { p.summaryError = why; }); } catch (e) { engineLog(`要約の欄を書けませんでした（${errCode(e)}）`); }
-    const now = saved ? await db.call('page.get', { id: page.id }) : null;
-    if (saved) sendToMainWin('page:updated', { page: saved, segments: now ? now.segments : [] });
-  } else await runSummary(page.id);
+  // 第1d2回 M-3（決めたこと 7）: 文字起こし待ちの区間がある会議は要約を作らない（要約の欄の S3・S3' は締めで書いた）。
+  // 待ち行列が済んだら自動で要約する（transcribeRecoveredItems）
+  if (keptWhy) engineLog('議事録を保存: 文字起こし待ちの区間があるので、要約は文字起こしが済んでから作ります');
+  else await runSummary(page.id);
   if (allEmpty) {
     const saved = await saveIfExists(db, page.id, (p) => { p.summaryError = allEmptyText; });
     const now = saved ? await db.call('page.get', { id: page.id }) : null;

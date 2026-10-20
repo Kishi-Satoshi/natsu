@@ -69,6 +69,18 @@
 //     同じ id の名前の WAV を置く（--idle の出力に history を足した）
 //     --fetch-consent … 第1d2回 M-1: --no-engine=fetchable と組む。取り込み先の installed.json を consent: true（組は無い）で置く
 //                     （取り込みのボタンを押したが、まだ何も取り込めていない PC。「選んだ」人）
+//   第1d2回 M-1〜M-5 の点検で足した:
+//     --installed-unreadable … --no-engine=fetchable と組む。installed.json を読めない（ウイルス対策が掴んでいる）PC にする
+//                     （engine-install の readInstalled が印 unreadable の空の記録を返す。jsonfile の待ちは通さない）
+//     --local-only-at-retry=<n> … --relay-seq と組む。n 区間目（1 から）の答え方を中継の前で 800 ミリ秒止め（delay-stt）、その区間が中継で
+//                     文字になって並べ直した最初の残した区間の要求を main が出したところで（2つ目の並べ直しは segChain で待っている）
+//                     meeting:set-local-only を押す（out.localOnly）
+//     --dict-back=delete … 見回りの文字起こしの要求を中継の前で止め、その間に残した行を history:delete で消してから、見回りの済むのを待つ
+//     --dict-back=readonly … 見回りの間だけ history.json を読み取り専用にする（履歴を保存できない）
+//     --wait-dictwait … 起動の前に、文字起こし待ちの履歴の行（wait あり）と同じ id の名前の WAV を data/dictwait に置く
+//     --extra-queue-late=cloud … --extra-queue-late=localonly と同じ形で、PC の中だけでない待ち行列を置く
+//                     （--idle --kept-ticks の見回りの前に、--relay-seq の1文字目の答え方にする）
+//     --dict-rename-busy-once … 音声入力の音声を残す一時ファイル（.wav.tmp）の名前の変更を1回だけ EPERM にする（ウイルス対策が掴んだ）
 //     --fetch       … 何も取り込んでいない取り込める PC で、設定の［エンジンを取り込む］（engine:fetch-start）を押す（第0b回 Task 14）。
 //                     engine-small の小さな組を 127.0.0.1 の偽のサーバーから、Electron の net.request の偽物（fake-net）で取り込み、
 //                     組がそろうたびに main が照らして切り替えるのを見る（文字起こしのモデルだけ、大きさの床 50MB を超える本物の中身）。
@@ -355,6 +367,7 @@ const verifyThrows = flags.includes('--verify-throws');
 const sumTamper = flags.includes('--sum-tamper');
 const noEngine = (flags.find((f) => f.startsWith('--no-engine=')) || '').slice(12);
 const fetchConsent = flags.includes('--fetch-consent');   // 第1d2回 M-1
+const installedUnreadable = flags.includes('--installed-unreadable');   // 第1d2回 M-1 の点検
 const killMainAfterKept = flags.includes('--kill-main-after-kept');   // 第1d2回 M-2
 // 第1d2回 M-3
 const backAfter = flags.includes('--back-after');
@@ -365,9 +378,13 @@ const keptTickN = Number(flagVal('--kept-ticks')) || 0;
 const relayReqText = flagVal('--relay-req-text');
 const loginAfter = flags.includes('--login-after');
 const localOnlyAfterN = Number(flagVal('--local-only-after')) || 0;   // 第1d2回 M-4
+const localOnlyAtRetryN = Number(flagVal('--local-only-at-retry')) || 0;   // 第1d2回 M-3・M-4 の点検
 // 第1d2回 M-5（音声入力の音声を残す）
 const dictateTwice = flags.includes('--dictate-twice');
-const dictBack = flags.includes('--dict-back');
+const dictBack = flags.includes('--dict-back') || Boolean(flagVal('--dict-back'));
+const dictBackMode = flagVal('--dict-back');   // 第1d2回 M-5 の点検: '' ・delete・readonly
+const waitDictwait = flags.includes('--wait-dictwait');   // 第1d2回 M-5 の点検
+const dictRenameBusyOnce = flags.includes('--dict-rename-busy-once');   // 第1d2回 M-5 の点検
 const dictDelete = flags.includes('--dict-delete');
 const dictClear = flags.includes('--dict-clear');
 const oldDictwait = flags.includes('--old-dictwait');
@@ -695,6 +712,8 @@ process.on('exit', () => {
     const home = noEngine === 'fetchable' ? { supported: true, root: path.join(localAppData, 'natsu', 'engine'), reason: '' }
       : I.engineRoot({}, 'linux', 'x64');
     managedMods = { install: { ...I, engineRoot: () => home }, manifest: require(path.join(ROOT, 'src', 'engine-manifest.js')) };
+    // 第1d2回 M-1 の点検: installed.json を読めない（掴まれている）PC。readInstalled と同じ形（印 unreadable の空の記録）を返す
+    if (installedUnreadable) managedMods.install.readInstalled = (f) => Object.defineProperty(I.readInstalled(path.join(f, '..', 'なし𠮷.json')), 'unreadable', { value: true });
     // 第1d2回 M-1: 取り込みのボタンを押した（同意）が、まだ何も取り込めていない
     if (fetchConsent && home.supported) {
       const instFile = I.layout(home.root, managedMods.manifest.MANIFEST).installed;
@@ -727,7 +746,7 @@ process.on('exit', () => {
   }
   // 前回落ちた会議の下書き（main は起動のときに復旧ページを作り、残った音声を文字起こしし直す）
   // 第1d2回 M-5: 残した音声入力の WAV（8 日前の名前）・文字の入った同じ id の行がある WAV（保存した後・消す前に落ちた）
-  if (oldDictwait || doneDictwait) {
+  if (oldDictwait || doneDictwait || waitDictwait) {
     const dw = path.join(userData, 'data', 'dictwait');
     fs.mkdirSync(dw, { recursive: true });
     if (oldDictwait) fs.writeFileSync(path.join(dw, `${Date.now() - 8 * 86400000}-hold8days.wav`), toneWav(1));
@@ -736,6 +755,12 @@ process.on('exit', () => {
       fs.writeFileSync(path.join(dw, `${at}-hdone1.wav`), toneWav(1));
       fs.writeFileSync(path.join(userData, 'history.json'), JSON.stringify([{ id: 'hdone1', text: '保存した後に落ちた音声入力の文', raw: '保存した後に落ちた音声入力の文',
         createdAt: new Date(at).toISOString(), durationSec: 1, procMs: 10, chars: 15 }]));
+    }
+    if (waitDictwait) {
+      const at = Date.now() - 60000;
+      fs.writeFileSync(path.join(dw, `${at}-hwait1.wav`), toneWav(1));
+      fs.writeFileSync(path.join(userData, 'history.json'), JSON.stringify([{ id: 'hwait1', text: '（文字起こし待ち: 音声は残してあります）', raw: '',
+        createdAt: new Date(at).toISOString(), durationSec: 1, procMs: 0, chars: 0, wait: `${at}-hwait1.wav` }]));
     }
   }
   // 第1d2回 M-3: PC の中だけの会議の下書き（--recover の draft.json より前の名前・前の時刻のフォルダ）
@@ -1732,7 +1757,8 @@ process.on('exit', () => {
     await waitFor(() => trace.some((t) => (t.kind === 'ack' || t.kind === 'fail') && t.cmd === 'meeting.settle'), 15000);
     await sleep(100);
     // 第1d2回 M-3: 起動の片付けの後に、PC の中だけの待ち行列とそのページを置く
-    if (extraQueueLate === 'localonly') {
+    if (extraQueueLate === 'localonly' || extraQueueLate === 'cloud') {
+      const lateLocal = extraQueueLate === 'localonly';
       const startedAt = Date.now() - 300000;
       const dir = path.join(userData, 'data', 'segbuf', String(startedAt));
       fs.mkdirSync(dir, { recursive: true });
@@ -1741,15 +1767,17 @@ process.on('exit', () => {
       const pageId = `plate${startedAt}`;
       await dbClient.call('meeting.recover', { pageId, segments: [{ id: 's1', atMs: 0, durationMs: 3000, text: '（復旧中: 文字起こし待ち）', failed: true }],
         page: { title: '後から置いた議事録（復旧）', date: '2026-10-20', durationSec: 3, memo: '', blocks: [], createdAt: new Date(startedAt).toISOString(), recovered: true,
-          route: { stt: { cloud: 0, local: 0, provider: 'openai' }, localOnly: true }, summaryError: '' } });
-      fs.writeFileSync(path.join(dir, 'recovery.json'), JSON.stringify({ pageId, items: [{ id: 's1', wav, durationMs: 3000 }], retry: false, localOnly: true }));
+          route: { stt: { cloud: 0, local: 0, provider: 'openai' }, localOnly: lateLocal }, summaryError: '' } });
+      fs.writeFileSync(path.join(dir, 'recovery.json'), JSON.stringify({ pageId, items: [{ id: 's1', wav, durationMs: 3000 }], retry: false, localOnly: lateLocal }));
     }
     if (keptTickN) {
       // 待ち行列が落ち着く（クラウドで送れる待ち行列の区間が文字になる）まで待つ（PC の中だけの区間は残る）。起動の復旧が回っている間の
       // 見回りは何もしないので、見回りの前にも待つ
-      const settledCloud = () => store.listPages().every((p) => { const pg = store.getPage(p.id); return (pg.route && pg.route.localOnly) || store.getTranscript(p.id).every((x) => !x.failed); });
+      // （--extra-queue-late=cloud のページは、見回りが送れない形にした場面なので待たない。見回りは済むまで await する）
+      const settledCloud = () => store.listPages().every((p) => { const pg = store.getPage(p.id); return (pg.route && pg.route.localOnly) || (extraQueueLate === 'cloud' && p.id.startsWith('plate')) || store.getTranscript(p.id).every((x) => !x.failed); });
       await waitFor(settledCloud, 5000);
       await sleep(100);
+      if (relaySeq) await relayLocal.setAnswer(relaySeq[0]);   // 第1d2回 M-3 の点検: 見回りの前の中継の答え方
       for (let k = 0; k < keptTickN; k++) await keptTick();
       await waitFor(settledCloud, 5000);
       await sleep(200);
@@ -1862,6 +1890,18 @@ process.on('exit', () => {
         out.restartRecording = await handlers['app:restart']();
       }
       if (relaySeq) await relayLocal.setAnswer(relaySeq[r] || 'c');   // 第1d2回 M-5: この音声入力の中継の答え方
+      // 第1d2回 M-5 の点検: 音声を残す一時ファイルの名前の変更を1回だけ EPERM にする
+      if (dictRenameBusyOnce && r === 0) {
+        const rename = fs.renameSync;
+        fs.renameSync = function (a, b, ...rest) {
+          if (/[\\/]dictwait[\\/][^\\/]+\.wav\.tmp$/.test(String(a))) {
+            fs.renameSync = rename;
+            out.dictRenameBusy = (out.dictRenameBusy || 0) + 1;
+            throw Object.assign(new Error('EPERM: operation not permitted, rename (試験)'), { code: 'EPERM' });
+          }
+          return rename.call(this, a, b, ...rest);
+        };
+      }
       listeners['audio:done']({}, { buffer: new Uint8Array(toneWav(3)), durationMs: 3000 });
       // 第1d回 A-9: 音声が届いて文字起こし中（handleDictationAudio は最初の await の前に processing にする）に再起動と取り込みを頼む
       if (restartDuring === 'dictation') {
@@ -1888,9 +1928,22 @@ process.on('exit', () => {
     if (dictBack) {
       await relayLocal.setAnswer('c');
       netUp = true;
-      await keptTick();
+      const histFile = path.join(userData, 'history.json');
+      if (dictBackMode === 'readonly') fs.chmodSync(histFile, 0o444);   // 第1d2回 M-5 の点検: 履歴を保存できない
+      if (dictBackMode === 'delete') {
+        // 第1d2回 M-5 の点検: 見回りの文字起こしの要求を中継の前で止め、その間に残した行を消す
+        relayLocal.setFront('delay-stt');
+        const sttSent = () => relayPaths.filter((x) => x === '/v1/audio/transcriptions').length;
+        const n0 = sttSent();
+        const row = (handlers['history:get']() || []).find((h) => h && h.wait);
+        const tick = keptTick();
+        await waitFor(() => sttSent() > n0, 5000);
+        out.deletedDuring = { id: row ? row.id : null, history: row ? (await handlers['history:delete']({}, row.id)).length : null };
+        await tick;
+      } else await keptTick();
+      if (dictBackMode === 'readonly') fs.chmodSync(histFile, 0o644);
       const waits = () => listFiles(userData).filter((f) => /^data\/dictwait\/.+\.wav$/.test(f)).length;
-      await waitFor(() => waits() === 0, 5000);
+      if (!dictBackMode) await waitFor(() => waits() === 0, 5000);
       await sleep(100);
       out.dictBack = { history: handlers['history:get'](), pastes: clipWrites.slice(), notices: sent.filter(([ch]) => ch === 'app:notice').map(([, p]) => p),
         files: listFiles(userData), engineLog: elogLines() };
@@ -2076,6 +2129,11 @@ process.on('exit', () => {
       out.statusNeedsSetup = st.needsSetup;
     }
     if (relaySeq) await relayLocal.setAnswer(relaySeq[i] || 'c');   // 第1d回 A-5: この区間の中継の答え方
+    // 第1d2回 M-3・M-4 の点検: この区間の答えを止め、文字になって並べ直した最初の要求を main が出したら［この会議は PC の中だけ］を押す
+    const atRetry = localOnlyAtRetryN && i === localOnlyAtRetryN - 1;
+    const sttSentNow = () => relayPaths.filter((x) => x === '/v1/audio/transcriptions').length;
+    const sttSent0 = sttSentNow();
+    if (atRetry) relayLocal.setFront('delay-stt');
     // 第1d回 A-6: n 区間の後（この区間の答え方にしてから）に［もう一度］を返事を待たずに2回
     if (retryAfterN && i === retryAfterN) {
       const r1 = handlers['meeting:retry']();
@@ -2089,6 +2147,11 @@ process.on('exit', () => {
     if (last) out.stop = await handlers['meeting:toggle']();
     listeners['audio:segment']({}, { buffer: new Uint8Array(wavs[i].buf), durationMs: wavs[i].ms, final: last });
     if (last && retryAtStop) out.retryAtStop = await handlers['meeting:retry']();
+    if (atRetry) {
+      await waitFor(() => sttSentNow() >= sttSent0 + 2, 5000);   // この区間と、並べ直した1つ目
+      out.localOnly = await handlers['meeting:set-local-only']({}, true);
+      out.sttSentAtLocalOnly = sttSentNow() - sttSent0;
+    }
     await sleep(50);
     if (relaySeq) {
       const t0 = Date.now();
