@@ -274,6 +274,8 @@ test('RL12・RF38: src/（画面を除く）に OpenAI・Groq・Resend へ直に
     ['src/stt-cloud.js', "  { id: 'groq', base: 'https://api.groq.com/openai/v1' },"],
     ['src/relay.js', "const MAIL = 'https://api.resend.com/emails';"],
     ['src/new-part.js', 'const host = `api.openai.com`;'],
+    // 逆引用符の中の ${…} のすぐ後ろの // は注釈ではない（注釈と見て宛先を落とさない）
+    ['src/new-part.js', 'const u = `${scheme}//api.openai.com/v1`;'],
   ];
   for (const [file, line] of bad) {
     const got = R.relayFindings(file, '', `${line}\n`);
@@ -360,6 +362,12 @@ test('RL12・F6: relay/・tools/relay-deploy.js・relay-deploy.yml で ALLOWED_E
     ['.github/workflows/relay-deploy.yml', '          ALLOWED_EMAIL_DOMAINS: ${{ secrets.ALLOWED_EMAIL_DOMAINS }}'],
     ['.github/workflows/relay-deploy.yml', '        run: MAIL_FROM=x node tools/relay-deploy.js'],
     ['relay/worker.mjs', "  env.MAIL_FROM = 'x';"],
+    // 角かっこで書く形と、読めなかったときの既定の値（|| と ??）で会社のドメインを混ぜる形も止める
+    ['relay/worker.mjs', "  env['MAIL_FROM'] = 'x';"],
+    ['relay/config.mjs', '  env["ALLOWED_EMAIL_DOMAINS"]=x;'],
+    ['relay/config.mjs', "  const domains = text(e.ALLOWED_EMAIL_DOMAINS || 'example.test');"],
+    ['relay/config.mjs', '  const mailFrom = text(e.MAIL_FROM ?? `NaTsu <no-reply＠example.test>`);'],
+    ['relay/config.mjs', "  const d = e['ALLOWED_EMAIL_DOMAINS'] ?? \"example.test\";"],
   ];
   for (const [file, line] of bad) {
     const got = R.relayFindings(file, '', `${line}\n`);
@@ -377,6 +385,9 @@ test('RL12・F6: relay/・tools/relay-deploy.js・relay-deploy.yml で ALLOWED_E
     ['relay/config.mjs', "const SMTP_MAIL_FROM = 'x';"],
     ['test/relay-auth.test.js', "const env = { ALLOWED_EMAIL_DOMAINS: 'example.test' };"],
     ['src/main.js', "const env = { MAIL_FROM: 'x' };"],
+    ['relay/config.mjs', "  if (env['MAIL_FROM'] === undefined) return null;"],
+    ['relay/config.mjs', "  const mailFrom = text(e.MAIL_FROM || '');"],
+    ['relay/config.mjs', '  const mailFrom = text(e.MAIL_FROM ?? fallback);'],
   ];
   for (const [file, line] of ok) assert.deepStrictEqual(R.relayFindings(file, '', `${line}\n`), [], `${file}: ${line}`);
   const old = "const env = { MAIL_FROM: 'x' };\n";
@@ -389,6 +400,9 @@ test('RL12: analyze が中継と直の送り先の検査を呼んで BLOCK に�
   const at = src.indexOf('function analyze(');
   const body = src.slice(at, src.indexOf('\n}\n', at));
   assert.match(body, /\.filter\(relayTarget\)/, 'analyze が変わったファイルを relayTarget で選んでいない');
+  // 選ぶ元は、base と head の間で変わったファイルの全部（changed）。空の並びや一部に替えると、どの commit も止まらない
+  assert.match(body, /\n  for \(const f of \[\.\.\.changed\]\.filter\(relayTarget\)\) \{\n/, 'analyze が変わったファイル（changed）の全部を中継の検査に渡していない');
+  assert.match(body, /const changed = new Set\(\n\s*\(head === null \? git\(\['diff', '--name-only', base\]\)/, 'changed が base からの差分で作られていない');
   assert.match(body, /relayFindings\(f, at\(base, f\), at\(head, f\)\)/, 'analyze が relayFindings を呼んでいない');
   assert.match(body, /add\('BLOCK', '中継と直の送り先', f,/, '見つけても BLOCK にしていない');
   const sees = '中継と直の送り先（src/ から OpenAI・Groq・Resend へ直に送る行・鍵の見かけの文字・relay/ の console と node: と Buffer・中継と出し方の中で秘密の欄に値を書く行）';
@@ -403,10 +417,16 @@ test('RL12: analyze が中継と直の送り先の検査を呼んで BLOCK に�
 });
 
 test('RL12・RF38: ゲートが、src/ に OpenAI と Groq の直の宛先を足した commit（第1c回 A-2）を、その commit で止める', { skip: !hasGit && 'git が無い', timeout: 5000 }, () => {
+  // analyze を丸ごと回すと git を 200 回あまり呼び、Windows では 5 秒を越えうる。analyze と同じく、その commit で変わった
+  // ファイルを relayTarget で選び、前と後の中身を relayFindings に渡す（git は数回。analyze の結線は上のテストが字面で見る）
   const R = require('../tools/risk');
-  const h = cp.execFileSync('git', ['log', '--reverse', '--format=%h', '-S', 'api.groq.com', '--', 'src/stt-cloud.js'], { cwd: ROOT }).toString().trim().split('\n')[0];
+  const git = (...a) => cp.execFileSync('git', a, { cwd: ROOT, maxBuffer: 64 * 1024 * 1024 }).toString();
+  const h = git('log', '--reverse', '--format=%h', '-S', 'api.groq.com', '--', 'src/stt-cloud.js').trim().split('\n')[0];
   assert.ok(h, 'src/stt-cloud.js に api.groq.com を足した commit が見つからない');
-  const got = R.analyze(h + '^', h).findings.filter((f) => f.level === 'BLOCK' && f.rule === '中継と直の送り先');
-  assert.ok(got.some((f) => f.file === 'src/stt-cloud.js' && f.msg.includes('api.groq.com')), `${h} で Groq の宛先が止まらない: ${got.map((f) => f.msg.split('\n')[0]).join(' / ')}`);
-  assert.ok(got.some((f) => f.file === 'src/stt-cloud.js' && f.msg.includes('api.openai.com')), `${h} で OpenAI の宛先が止まらない`);
+  const show = (rev, f) => { try { return git('show', `${rev}:${f}`); } catch { return null; } };
+  const files = git('diff', '--name-only', h + '^', h).split('\n').filter(Boolean).filter(R.relayTarget);
+  assert.ok(files.includes('src/stt-cloud.js'), `${h} の変わったファイルに src/stt-cloud.js が無い: ${files.join(' ')}`);
+  const got = files.flatMap((f) => R.relayFindings(f, show(h + '^', f), show(h, f)).map((line) => ({ f, line })));
+  assert.ok(got.some((x) => x.f === 'src/stt-cloud.js' && x.line.includes('api.groq.com')), `${h} で Groq の宛先が止まらない: ${got.map((x) => x.line).join(' / ')}`);
+  assert.ok(got.some((x) => x.f === 'src/stt-cloud.js' && x.line.includes('api.openai.com')), `${h} で OpenAI の宛先が止まらない`);
 });

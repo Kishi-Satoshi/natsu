@@ -361,11 +361,14 @@ const RELAY_RULES = [
     why: '中継の記録は relay/log.mjs の logEvent だけで書く（決まった欄だけ。RL7）' },
   { on: inRelay, re: /from\s+['"]node:|import\s*\(\s*['"]node:|\brequire\s*\(/, why: WEB_ONLY },
   { on: inRelay, re: /\bBuffer\b/, why: WEB_ONLY },
-  { on: (f) => inRelay(f) || RELAY_DEPLOY.has(f), re: /(?<![\w$])['"]?(?:ALLOWED_EMAIL_DOMAINS|MAIL_FROM)['"]?\s*(?::|=(?![=>]))\s*\S/,
+  // 書く形: 欄の名前（引用符や角かっこの中でも）に : か = で値を置く・読めなかったときの既定の文字（|| と ?? の後の空でない文字）
+  { on: (f) => inRelay(f) || RELAY_DEPLOY.has(f), re: /(?<![\w$])['"]?(?:ALLOWED_EMAIL_DOMAINS|MAIL_FROM)['"]?\s*\]?\s*(?:(?::|=(?![=>]))\s*\S|(?:\|\||\?\?)\s*(['"`])(?!\1))/,
     why: '秘密の欄（ALLOWED_EMAIL_DOMAINS・MAIL_FROM）は利用者が Cloudflare の画面で入れる。中継と出し方は名前を読むだけ（会社のドメインを混ぜない）' },
 ];
-// 注釈を落とした文字（JS は stripJs、YAML は # から後ろ。ほかはそのまま）
-const relayStrip = (file, src) => /\.m?js$/.test(file) ? stripJs(src) : /\.ya?ml$/.test(file) ? src.replace(/(^|\s)#[^\n]*/g, '$1') : src;
+// 注釈を落とした文字（JS は stripJs、YAML は # から後ろ。ほかはそのまま）。JS の } のすぐ後ろの // は注釈と見ない
+// （逆引用符の `${scheme}//api.openai.com` の宛先を落とさないため。} の直後に空白なしで注釈を書いた行は、増えた行なら鳴りうる）
+const relayStrip = (file, src) => /\.m?js$/.test(file) ? stripJs(src.replace(/\}\/\//g, '}\u0001\u0001')).replace(/\u0001\u0001/g, '//')
+  : /\.ya?ml$/.test(file) ? src.replace(/(^|\s)#[^\n]*/g, '$1') : src;
 /** 決まりに触れる行（'決まりの番号\t空白をつぶした文字' → { n, why }） */
 function relayLines(file, src) {
   const out = new Map();

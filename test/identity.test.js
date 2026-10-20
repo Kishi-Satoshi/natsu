@@ -159,6 +159,10 @@ test('RL6・RF32: README の管理者の節は、取り消しの SQL・会社の
     '［API Tokens］', '`CLOUDFLARE_API_TOKEN`', '`CLOUDFLARE_ACCOUNT_ID`', '`MAIL_DAILY_MAX`', '15 分', '朝 9 時', '180 日',
     '`RESEND_API_KEY`', '`ALLOWED_EMAIL_DOMAINS`', '`MAIL_FROM`', '［Run workflow］', '/health', 'Environments',
   ]) assert.ok(sec.includes(w), `管理者の節に「${w}」が無い`);
+  // MAIL_DAILY_MAX を上げるときも種類は Secret（relay-deploy は keep_bindings: ['secret_text'] で、画面で入れた Text は次の出し直しで消える）
+  const cap = sec.slice(sec.indexOf('### 確認コードが届かない・頼めないとき'));
+  assert.match(cap, /`MAIL_DAILY_MAX`[^\n]*種類は「Secret」/, '確認コードの節で、MAIL_DAILY_MAX の種類を「Secret」と書いていない');
+  assert.match(cap, /Text[^\n]*次[^\n]*消え/, '確認コードの節で、Text にすると次の出し直しで消えると書いていない');
   // 送り元の見本のアドレスは ＠ を全角で書き、半角で入れると添える（公開前の確認: test/repo.test.js）
   assert.ok(sec.includes('onboarding＠resend.dev') && /半角/.test(sec), '送り元の見本（＠ は全角・半角で入れる）が無い');
 });
