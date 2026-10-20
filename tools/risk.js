@@ -340,6 +340,55 @@ function onlineFindings(file, before, after) {
   return [...a].filter(([line, x]) => x.n > ((b.get(line) || {}).n || 0)).map(([line, x]) => `${line} — ${x.why}`);
 }
 
+// ---------- 中継と直の送り先（第1d回 RL12・RF38・F6） ----------
+// 文字起こしと確認コードは中継（relay/）を通し、PC から OpenAI・Groq・Resend へ直に送らない。鍵の見かけの文字は
+// PC のコードにも中継にも出し方にも置かない（会社の鍵は Worker の秘密の欄だけ。D14）。中継は Web の標準の部品だけで書き、
+// 記録は relay/log.mjs の logEvent（決まった欄だけ）を通す（RL1・RL7。test/relay-health.test.js の字面の照らしと同じ決まり）。
+// 秘密の欄（ALLOWED_EMAIL_DOMAINS・MAIL_FROM）は利用者が Cloudflare の画面で入れ、中継と出し方は名前を読むだけ（会社のドメインを混ぜない）。
+// 前の版より増えた行だけを報告する（ほかの決まりと同じ形）。
+const RELAY_DEPLOY = new Set(['tools/relay-deploy.js', '.github/workflows/relay-deploy.yml']);
+const inSrc = (f) => f.startsWith('src/');
+const inRelay = (f) => f.startsWith('relay/');
+const relayTarget = (f) => inSrc(f) || inRelay(f) || RELAY_DEPLOY.has(f);
+const WEB_ONLY = '中継は Web の標準の部品だけで書く（node: も require も Buffer も Workers では動かない。RL1）';
+const RELAY_RULES = [
+  { on: (f) => inSrc(f) && !f.startsWith('src/renderer/'), re: /api\.(?:openai|groq|resend)\.com/i,
+    why: '文字起こしと確認コードは中継を通す。PC から直に送らない（RF38）' },
+  // 注釈の中の鍵も漏れなので、この決まりだけは注釈を落とす前の行で見る。今の OpenAI の鍵は sk-proj-… なので - と _ も数える
+  { raw: true, on: relayTarget, re: /(?<![\w-])(?:sk-|re_)[A-Za-z0-9_-]{20,}/,
+    why: '鍵の見かけの文字。鍵は PC にもリポジトリにも置かない（会社の鍵は Worker の秘密の欄だけ。D14）' },
+  { on: (f) => inRelay(f) && f !== 'relay/log.mjs', re: /\bconsole\./,
+    why: '中継の記録は relay/log.mjs の logEvent だけで書く（決まった欄だけ。RL7）' },
+  { on: inRelay, re: /from\s+['"]node:|import\s*\(\s*['"]node:|\brequire\s*\(/, why: WEB_ONLY },
+  { on: inRelay, re: /\bBuffer\b/, why: WEB_ONLY },
+  { on: (f) => inRelay(f) || RELAY_DEPLOY.has(f), re: /(?<![\w$])['"]?(?:ALLOWED_EMAIL_DOMAINS|MAIL_FROM)['"]?\s*(?::|=(?![=>]))\s*\S/,
+    why: '秘密の欄（ALLOWED_EMAIL_DOMAINS・MAIL_FROM）は利用者が Cloudflare の画面で入れる。中継と出し方は名前を読むだけ（会社のドメインを混ぜない）' },
+];
+// 注釈を落とした文字（JS は stripJs、YAML は # から後ろ。ほかはそのまま）
+const relayStrip = (file, src) => /\.m?js$/.test(file) ? stripJs(src) : /\.ya?ml$/.test(file) ? src.replace(/(^|\s)#[^\n]*/g, '$1') : src;
+/** 決まりに触れる行（'決まりの番号\t空白をつぶした文字' → { n, why }） */
+function relayLines(file, src) {
+  const out = new Map();
+  if (src == null || src.includes('\0')) return out;
+  const texts = { raw: src.split('\n'), stripped: relayStrip(file, src).split('\n') };
+  RELAY_RULES.forEach((r, i) => {
+    if (!r.on(file)) return;
+    for (const raw of r.raw ? texts.raw : texts.stripped) {
+      if (!r.re.test(raw)) continue;
+      const key = `${i}\t${raw.replace(/\s+/g, ' ').trim()}`;
+      const cur = out.get(key);
+      out.set(key, { n: (cur ? cur.n : 0) + 1, why: r.why });
+    }
+  });
+  return out;
+}
+/** 前の版より数が増えた、決まりに触れる行（1つの行と決まりごとに1件。'行 — 理由' の文字） */
+function relayFindings(file, before, after) {
+  if (!relayTarget(file) || after == null) return [];
+  const b = relayLines(file, before), a = relayLines(file, after);
+  return [...a].filter(([k, x]) => x.n > ((b.get(k) || {}).n || 0)).map(([k, x]) => `${k.slice(k.indexOf('\t') + 1)} — ${x.why}`);
+}
+
 function analyze(base, head) {
   F = [];
   const changed = new Set(
@@ -400,6 +449,12 @@ function analyze(base, head) {
       add('BLOCK', '外への送り方と Claude Code の呼び方', f, `決まりに触れる行を足した: ${line}`, 'src/claude-cli.js の部品（findClaude・claudeAuthStatus・claudeSummarize）と src/secrets.js（safeStorage の非同期の形）を使う');
   }
 
+  // 中継と直の送り先（新しく足した行だけ。第1d回 RL12・RF38）
+  for (const f of [...changed].filter(relayTarget)) {
+    for (const line of relayFindings(f, at(base, f), at(head, f)))
+      add('BLOCK', '中継と直の送り先', f, `決まりに触れる行を足した: ${line}`, '文字起こしと確認コードは src/relay.js（中継）を通す・鍵は Worker の秘密の欄だけ・中継の記録は relay/log.mjs・秘密の欄は Cloudflare の画面で入れる');
+  }
+
   // 実機確認が要る変更の判定
   const needs = [];
   if ([...changed].some((f) => f.includes('overlay.html'))) needs.push('録音バーの透過（ピルの外に矩形が出ていないか）と、暗い地の上で波形・文字が読めるか');
@@ -415,6 +470,7 @@ function analyze(base, head) {
 // 「危険な変更は見つからなかった」は、ここに挙げた範囲の話でしかない。出典照合や保存の
 // ロジック（src/cite.js など）はこのゲートの射程外で、そこを触ったコミットにも同じ文が
 // 出て全否定に読めた（監査 #38）。射程外は npm test が守る（pre-commit もそれを走らせる）。
+const RELAY_SEES = '中継と直の送り先（src/ から OpenAI・Groq・Resend へ直に送る行・鍵の見かけの文字・relay/ の console と node: と Buffer・中継と出し方の中で秘密の欄に値を書く行）';
 const SCOPE = {
   sees: [
     'HTML の木の健全さ（閉じ忘れ・相手のいない閉じタグ）',
@@ -426,6 +482,7 @@ const SCOPE = {
     'main プロセスの外向きの通信（グローバルの fetch）',
     'src の JSON の直書き（src/jsonfile.js のほか）',
     'Claude Code の呼び方と鍵のしまい方（--bare・.credentials.json・同期の safeStorage・claude-cli.js のほかでの claude の起動）',
+    RELAY_SEES,
   ],
   blind: ['src/cite.js', 'src/store.js', 'src/minutes.js', 'src/actions.js'],
 };
@@ -482,6 +539,7 @@ function main(argv) {
     line('main プロセスの外向きの通信（グローバルの fetch）', blocks.filter((b) => b.rule === 'main の外向き通信').length),
     line('src の JSON の直書き（src/jsonfile.js のほか）', blocks.filter((b) => b.rule === 'JSON の直書き').length),
     line('Claude Code の呼び方と鍵のしまい方（--bare・.credentials.json・同期の safeStorage・claude-cli.js のほかでの claude の起動）', blocks.filter((b) => b.rule === '外への送り方と Claude Code の呼び方').length),
+    line(RELAY_SEES, blocks.filter((b) => b.rule === '中継と直の送り先').length),
     '', `このゲートが見ていないもの: ${SCOPE.blind.join(' / ')} のロジック — npm test が守る（リリース前に必ず通す）`);
   const out = arg('--checklist');
   if (out) { fs.writeFileSync(out, md.join('\n') + '\n'); console.log('チェックリストを書き出した: ' + out); }
@@ -490,4 +548,4 @@ function main(argv) {
   return blocks.length ? 1 : 0;
 }
 if (require.main === module) process.exit(main(process.argv.slice(2)));
-module.exports = { analyze, checkHtml, htmlFindings, windows, mineHits, inkFindings, refIds, fetchFindings, jsonWriteFindings, onlineFindings, SCOPE, scopeNote };
+module.exports = { analyze, checkHtml, htmlFindings, windows, mineHits, inkFindings, refIds, fetchFindings, jsonWriteFindings, onlineFindings, relayFindings, relayTarget, SCOPE, scopeNote };

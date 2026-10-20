@@ -261,3 +261,152 @@ test('OL8: analyze が外への送り方と Claude Code の呼び方の検査を
   const files = fs.readdirSync(path.join(ROOT, 'src')).filter((f) => f.endsWith('.js')).map((f) => `src/${f}`);
   for (const f of files) assert.deepStrictEqual(R.onlineFindings(f, '', read(f)), [], f);
 });
+
+// ---------- 中継と直の送り先（第1d回 Task G-1。RL12・RF38・F6） ----------
+// 鍵の見かけの文字は、このファイルにも書かない（実行のときに組み立てる）
+const fakeKey = (head) => head + 'proj-' + 'A1b2C3d4'.repeat(3);
+const fakeMailKey = () => 're' + '_' + 'Z9y8X7w6'.repeat(3);
+
+test('RL12・RF38: src/（画面を除く）に OpenAI・Groq・Resend へ直に送る行を足すと BLOCK。画面・注釈・前からある行・消した行・src の外は通す', { timeout: 5000 }, () => {
+  const R = require('../tools/risk');
+  const bad = [
+    ['src/main.js', "const u = 'https://api.openai.com/v1/audio/transcriptions';"],
+    ['src/stt-cloud.js', "  { id: 'groq', base: 'https://api.groq.com/openai/v1' },"],
+    ['src/relay.js', "const MAIL = 'https://api.resend.com/emails';"],
+    ['src/new-part.js', 'const host = `api.openai.com`;'],
+  ];
+  for (const [file, line] of bad) {
+    const got = R.relayFindings(file, '', `${line}\n`);
+    assert.strictEqual(got.length, 1, `${file}: ${line}`);
+    assert.match(got[0], /中継を通す/, got[0]);
+  }
+  assert.strictEqual(R.relayFindings('src/x.js', null, "fetchVia('https://api.openai.com/v1');\n").length, 1, '新しいファイルで鳴らない');
+  assert.deepStrictEqual(R.relayFindings('src/renderer/app.html', '', '<p>api.openai.com</p>\n'), [], '画面まで止めた');
+  assert.deepStrictEqual(R.relayFindings('src/main.js', '', '// api.openai.com へは直に送らない（中継を通す）\n'), [], '注釈の中で鳴った');
+  assert.deepStrictEqual(R.relayFindings('test/x.test.js', '', "const u = 'https://api.openai.com/v1';\n"), [], 'テストまで止めた');
+  assert.deepStrictEqual(R.relayFindings('relay/stt.mjs', '', "const OPENAI = 'https://api.openai.com/v1';\n"), [], '中継の本物の宛先まで止めた');
+  const old = "const u = 'https://api.openai.com/v1';\n";
+  assert.deepStrictEqual(R.relayFindings('src/x.js', old, `${old}const b = 2;\n`), [], '前からある行で鳴った');
+  assert.deepStrictEqual(R.relayFindings('src/x.js', old, 'const b = 2;\n'), [], '消したら鳴った');
+  assert.strictEqual(R.relayFindings('src/x.js', old, old + old).length, 1, '同じ行を2つにしたのに鳴らない');
+  assert.deepStrictEqual(R.relayFindings('src/x.js', old, null), [], '消したファイルで鳴った');
+});
+
+test('RL12・RF38: 鍵の見かけの文字（sk-・re_ で始まる 20 字以上）を src/ の全部（画面も・注釈も）・relay/・出し方に足すと BLOCK', { timeout: 5000 }, () => {
+  const R = require('../tools/risk');
+  const sk = fakeKey('sk-'), re = fakeMailKey();
+  const bad = [
+    ['src/main.js', `const k = '${sk}';`],
+    ['src/main.js', `// 試し: ${sk}`],
+    ['src/renderer/app.html', `<input value="${sk}">`],
+    ['src/renderer/app.html', `<!-- ${re} -->`],
+    ['src/secrets.js', `const r = "${re}";`],
+    ['src/main.js', `const k = 'sk-${'Ab12'.repeat(5)}';`],
+    ['relay/config.mjs', `const KEY = '${sk}';`],
+    ['tools/relay-deploy.js', `const RESEND = '${re}';`],
+    ['.github/workflows/relay-deploy.yml', `      OPENAI_API_KEY: ${sk}`],
+  ];
+  for (const [file, line] of bad) {
+    const got = R.relayFindings(file, '', `${line}\n`);
+    assert.strictEqual(got.length, 1, `${file}: ${line}`);
+    assert.match(got[0], /鍵の見かけ/, got[0]);
+  }
+  // 短いもの・ほかの語の途中・鍵の欄の名前・テストは通す
+  const ok = [
+    ['src/main.js', "const k = 'sk-ant-x';"],
+    ['src/main.js', `const t = 'task-${'Ab12'.repeat(6)}';`],
+    ['src/main.js', `const t = 'pre_${'Ab12'.repeat(6)}';`],
+    ['src/main.js', "const n = 'OPENAI_API_KEY';"],
+    ['src/renderer/app.html', '<div class="disk-usage-indicator-panel-wide"></div>'],
+    ['test/x.test.js', `const k = '${sk}';`],
+  ];
+  for (const [file, line] of ok) assert.deepStrictEqual(R.relayFindings(file, '', `${line}\n`), [], `${file}: ${line}`);
+  const old = `const k = '${sk}';\n`;
+  assert.deepStrictEqual(R.relayFindings('src/x.js', old, `${old}const b = 2;\n`), [], '前からある行で鳴った');
+});
+
+test('RL12・RL1: relay/ で console を relay/log.mjs のほかで使う行・node: の読み込み・require(・Buffer を足すと BLOCK。log.mjs の console.log は通る', { timeout: 5000 }, () => {
+  const R = require('../tools/risk');
+  const bad = [
+    ['relay/auth.mjs', "console.log('code', code);", /log\.mjs/],
+    ['relay/stt.mjs', 'console.error(e);', /log\.mjs/],
+    ['relay/http.mjs', "import { createHash } from 'node:crypto';", /Web の標準/],
+    ['relay/http.mjs', 'import fs from "node:fs";', /Web の標準/],
+    ['relay/http.mjs', "const m = await import('node:crypto');", /Web の標準/],
+    ['relay/limits.mjs', "const crypto = require('crypto');", /Web の標準/],
+    ['relay/mail.mjs', "const b64 = Buffer.from(s).toString('base64');", /Web の標準/],
+  ];
+  for (const [file, line, why] of bad) {
+    const got = R.relayFindings(file, '', `${line}\n`);
+    assert.ok(got.length >= 1, `${file}: ${line}`);
+    assert.ok(got.some((g) => why.test(g)), got.join('\n'));
+  }
+  assert.deepStrictEqual(R.relayFindings('relay/log.mjs', '', '  console.log(JSON.stringify(out));\n'), [], 'log.mjs の console.log まで止めた');
+  assert.deepStrictEqual(R.relayFindings('relay/auth.mjs', '', '// console.log は使わない（Buffer も node: も無し）\n'), [], '注釈の中で鳴った');
+  assert.deepStrictEqual(R.relayFindings('relay/auth.mjs', '', "import { logEvent } from './log.mjs';\n"), []);
+  assert.deepStrictEqual(R.relayFindings('src/main.js', '', "const { Buffer } = require('node:buffer'); console.log(1);\n"), [], 'src まで中継の決まりで止めた');
+  assert.deepStrictEqual(R.relayFindings('tools/relay-deploy.js', '', "const fs = require('node:fs'); console.log('ok');\n"), [], '出す台本（Node で動く）まで止めた');
+  const old = 'console.warn(x);\n';
+  assert.deepStrictEqual(R.relayFindings('relay/stt.mjs', old, `${old}const b = 2;\n`), [], '前からある行で鳴った');
+});
+
+test('RL12・F6: relay/・tools/relay-deploy.js・relay-deploy.yml で ALLOWED_EMAIL_DOMAINS・MAIL_FROM に値を書く行を足すと BLOCK。名前を読む行は通る', { timeout: 5000 }, () => {
+  const R = require('../tools/risk');
+  const bad = [
+    ['relay/config.mjs', "const env = { ALLOWED_EMAIL_DOMAINS: 'example.test' };"],
+    ['relay/config.mjs', "e.x = 1; const MAIL_FROM = 'NaTsu <no-reply＠example.test>';"],
+    ['relay/deploy-config.json', '  "ALLOWED_EMAIL_DOMAINS": "example.test",'],
+    ['tools/relay-deploy.js', "  bindings.push({ type: 'plain_text', name: 'x', MAIL_FROM: process.env.MAIL_FROM });"],
+    ['.github/workflows/relay-deploy.yml', '          ALLOWED_EMAIL_DOMAINS: ${{ secrets.ALLOWED_EMAIL_DOMAINS }}'],
+    ['.github/workflows/relay-deploy.yml', '        run: MAIL_FROM=x node tools/relay-deploy.js'],
+    ['relay/worker.mjs', "  env.MAIL_FROM = 'x';"],
+  ];
+  for (const [file, line] of bad) {
+    const got = R.relayFindings(file, '', `${line}\n`);
+    assert.strictEqual(got.length, 1, `${file}: ${line}`);
+    assert.match(got[0], /秘密の欄/, got[0]);
+  }
+  const ok = [
+    ['relay/config.mjs', '  const domains = new Set(text(e.ALLOWED_EMAIL_DOMAINS).split(\',\'));'],
+    ['relay/config.mjs', '  const mailFrom = text(env.MAIL_FROM);'],
+    ['relay/config.mjs', '  if (env.MAIL_FROM === undefined) return null;'],
+    ['tools/relay-deploy.js', "const SECRET_NAMES = { openai: 'OPENAI_API_KEY', mail: 'RESEND_API_KEY・MAIL_FROM', domains: 'ALLOWED_EMAIL_DOMAINS' };"],
+    ['relay/config.mjs', '// ALLOWED_EMAIL_DOMAINS: Cloudflare の画面で入れる'],
+    ['.github/workflows/relay-deploy.yml', '      # MAIL_FROM: 利用者が Cloudflare の画面で入れる'],
+    ['relay/config.mjs', "const MAIL_FROM_NAME = 'NaTsu';"],
+    ['relay/config.mjs', "const SMTP_MAIL_FROM = 'x';"],
+    ['test/relay-auth.test.js', "const env = { ALLOWED_EMAIL_DOMAINS: 'example.test' };"],
+    ['src/main.js', "const env = { MAIL_FROM: 'x' };"],
+  ];
+  for (const [file, line] of ok) assert.deepStrictEqual(R.relayFindings(file, '', `${line}\n`), [], `${file}: ${line}`);
+  const old = "const env = { MAIL_FROM: 'x' };\n";
+  assert.deepStrictEqual(R.relayFindings('relay/config.mjs', old, `${old}const b = 2;\n`), [], '前からある行で鳴った');
+});
+
+test('RL12: analyze が中継と直の送り先の検査を呼んで BLOCK にし、射程とチェックリストに載る。今の src・relay・出し方には1件も無い', { timeout: 5000 }, () => {
+  const R = require('../tools/risk');
+  const src = read('tools/risk.js');
+  const at = src.indexOf('function analyze(');
+  const body = src.slice(at, src.indexOf('\n}\n', at));
+  assert.match(body, /\.filter\(relayTarget\)/, 'analyze が変わったファイルを relayTarget で選んでいない');
+  assert.match(body, /relayFindings\(f, at\(base, f\), at\(head, f\)\)/, 'analyze が relayFindings を呼んでいない');
+  assert.match(body, /add\('BLOCK', '中継と直の送り先', f,/, '見つけても BLOCK にしていない');
+  const sees = '中継と直の送り先（src/ から OpenAI・Groq・Resend へ直に送る行・鍵の見かけの文字・relay/ の console と node: と Buffer・中継と出し方の中で秘密の欄に値を書く行）';
+  assert.ok(R.SCOPE.sees.includes(sees), '射程に載っていない');
+  assert.ok(R.scopeNote(new Set()).includes('中継と直の送り先'), '射程の但し書きに出ない');
+  for (const f of ['src/main.js', 'src/relay.js', 'relay/log.mjs', 'tools/relay-deploy.js', '.github/workflows/relay-deploy.yml', 'relay/deploy-config.json']) assert.ok(R.relayTarget(f), f);
+  for (const f of ['test/gate.test.js', 'tools/risk.js', 'docs/plans/natsu-design.md', '.github/workflows/ci.yml']) assert.ok(!R.relayTarget(f), f);
+  const walk = (d) => fs.readdirSync(path.join(ROOT, d), { withFileTypes: true }).flatMap((e) => e.isDirectory() ? walk(`${d}/${e.name}`) : [`${d}/${e.name}`]);
+  const files = [...walk('src'), ...walk('relay'), 'tools/relay-deploy.js', '.github/workflows/relay-deploy.yml'];
+  assert.ok(files.length > 30 && files.includes('relay/log.mjs') && files.includes('src/renderer/app.html'), '見たファイルが少ない（空振り）');
+  for (const f of files) assert.deepStrictEqual(R.relayFindings(f, '', read(f)), [], f);
+});
+
+test('RL12・RF38: ゲートが、src/ に OpenAI と Groq の直の宛先を足した commit（第1c回 A-2）を、その commit で止める', { skip: !hasGit && 'git が無い', timeout: 5000 }, () => {
+  const R = require('../tools/risk');
+  const h = cp.execFileSync('git', ['log', '--reverse', '--format=%h', '-S', 'api.groq.com', '--', 'src/stt-cloud.js'], { cwd: ROOT }).toString().trim().split('\n')[0];
+  assert.ok(h, 'src/stt-cloud.js に api.groq.com を足した commit が見つからない');
+  const got = R.analyze(h + '^', h).findings.filter((f) => f.level === 'BLOCK' && f.rule === '中継と直の送り先');
+  assert.ok(got.some((f) => f.file === 'src/stt-cloud.js' && f.msg.includes('api.groq.com')), `${h} で Groq の宛先が止まらない: ${got.map((f) => f.msg.split('\n')[0]).join(' / ')}`);
+  assert.ok(got.some((f) => f.file === 'src/stt-cloud.js' && f.msg.includes('api.openai.com')), `${h} で OpenAI の宛先が止まらない`);
+});
