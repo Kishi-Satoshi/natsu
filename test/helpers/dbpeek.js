@@ -36,7 +36,9 @@ function strip(page) {
 function open(dataDir) {
   const file = path.join(dataDir, 'natsu.db');
   if (!fs.existsSync(file)) throw new Error('dbpeek: natsu.db が無い');
-  const db = new sqlite.DatabaseSync(file, { readOnly: true });
+  // timeout: アプリの DB のプロセスが書いている・落ちた後の WAL を直している間は、読み取り専用でも一瞬 SQLITE_BUSY になる。
+  // アプリ自身の読み手（src/db/server.js の classify・core.js）と同じく待ってから読む（待たないと Windows の CI で「database is locked」）
+  const db = new sqlite.DatabaseSync(file, { readOnly: true, timeout: 2000 });
   return {
     db,
     listPages: () => C.listPages(db),
