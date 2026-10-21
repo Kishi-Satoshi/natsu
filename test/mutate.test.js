@@ -462,3 +462,25 @@ test('G3: 0.9.0 の変異が一覧にそろい、IDS_090 は計画の「変異�
     assert.ok(typeof m.why === 'string' && m.why.length > 8, `${m.id}: why`);
   }
 });
+
+// 0.9.1（計画 docs/plans/2026-10-21-091.md の「変異確認」の表。Task Q-6 で全部を入れた）
+const IDS_091 = [
+  'q-loud-window', 'q-loud-hop', 'q-loud-unreadable', 'q-silent-level', 'q-gate-off', 'q-echo-off', 'q-echo-terms', 'q-echo-sample', 'q-echo-join',
+  'q-echo-tail', 'q-echo-tail-min', 'q-echo-dict-level', 'q-echo-dict-flag', 'q-repeat-two', 'q-repeat-quiet', 'q-echo-stall', 'q-quiet-ask',
+  'q-quiet-grace', 'q-quiet-speech', 'q-quiet-keep', 'q-quiet-off', 'q-quiet-wall', 'q-quiet-paused', 'q-quiet-resume', 'q-quiet-failed',
+  'q-quiet-empty-loud', 'q-quiet-stopping', 'q-quiet-stop-close', 'q-quiet-note-close', 'q-recover-silent-route', 'q-trim', 'q-trim-end',
+  'q-done-notice', 'q-setting-pick', 'q-ui-keep',
+];
+test('G3: 0.9.1 の変異が一覧にそろい、IDS_091 は計画の「変異確認」の表の id とちょうど同じ。どれも決まったテストのファイルを持ち、なぜ戻すと困るかを書く', { timeout: 5000 }, () => {
+  const byId = new Map(MUTANTS.map((m) => [m.id, m]));
+  assert.deepStrictEqual(IDS_091.filter((id) => !byId.has(id)), [], '計画の表の変異が一覧に無い');
+  const plan = fs.readFileSync(path.join(ROOT, 'docs', 'plans', '2026-10-21-091.md'), 'utf8');
+  const table = plan.slice(plan.indexOf('## 変異確認'), plan.indexOf('## ゲート'));
+  const rows = [...table.matchAll(/^\| ([a-z][a-z0-9-]*) \|/gm)].map((m) => m[1]).filter((id) => id !== 'id');
+  assert.deepStrictEqual([...rows].sort(), [...IDS_091].sort());
+  for (const id of IDS_091) {
+    const m = byId.get(id);
+    assert.ok(Array.isArray(m.tests) && m.tests.length > 0 && m.tests.every((t) => /^test\/[^/]+\.test\.js$/.test(t)), `${id}: tests`);
+    assert.ok(typeof m.why === 'string' && m.why.startsWith('0.9.1 '), `${id}: why`);
+  }
+});
