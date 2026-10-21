@@ -1198,6 +1198,138 @@ function wavLevelDbfs(buf) {
   return -Infinity;
 }
 
+// ---------------------------------------------------------------- 話し声の無い区間（0.9.1 Q-1。計画 docs/plans/2026-10-21-091.md の決めたこと 1〜4・8・11）
+// 無音の判定は一番大きい 0.5 秒の窓（0.25 秒ずつずらす）の RMS で見る。区間全体の RMS（wavLevelDbfs）では、15 秒の区間の中の短い小さな
+// 発言が 10 dB 以上薄まって無音に見える。しきい値 -55 dBFS は、録音バーの無音の警告（RMS 約 -44.6 dBFS: overlay.html の SILENT_LEVEL）より
+// 10 dB 小さく、話し声（ふつう -40 dBFS より大きい: STALL_MIN_DBFS）より 15 dB 小さい
+const QUIET_WIN_MS = 500;
+const QUIET_HOP_MS = 250;
+const SILENT_DBFS = -55;
+// 音声入力で、認識ヒントの言葉だけの答えを作り話として除くのは、録った音がこれより小さいときだけ（話し声の大きさ）
+const SPEECH_DBFS = STALL_MIN_DBFS;
+/** 16bit PCM の WAV の { rate, body, n }（data の頭と標本の数）か null（読めない・中身が無い） */
+function pcmOf(buf) {
+  if (!Buffer.isBuffer(buf) || buf.length < 12 || buf.toString('ascii', 0, 4) !== 'RIFF' || buf.toString('ascii', 8, 12) !== 'WAVE') return null;
+  let off = 12;
+  let bits = 16;
+  let rate = 16000;
+  while (off + 8 <= buf.length) {
+    const id = buf.toString('ascii', off, off + 4);
+    const size = buf.readUInt32LE(off + 4);
+    const body = off + 8;
+    if (id === 'fmt ' && body + 16 <= buf.length) { rate = buf.readUInt32LE(body + 4) || 16000; bits = buf.readUInt16LE(body + 14); }
+    if (id === 'data') {
+      if (bits !== 16) return null;
+      const n = ((Math.min(buf.length, body + size) - body) / 2) | 0;
+      return n > 0 ? { rate, body, n } : null;
+    }
+    off = body + size + (size & 1);
+  }
+  return null;
+}
+/** 一番大きい 0.5 秒の窓の RMS（dBFS。デジタルの 0 は -Infinity）。窓より短い音声は全体で1つの窓。16bit PCM の WAV として読めなければ null */
+function wavLoudestDbfs(buf) {
+  const p = pcmOf(buf);
+  if (!p) return null;
+  const win = Math.max(1, Math.round((p.rate * QUIET_WIN_MS) / 1000));
+  const hop = Math.max(1, Math.round((p.rate * QUIET_HOP_MS) / 1000));
+  // 標本の2乗の累積和（窓ごとの和を引き算で出す）
+  const acc = new Float64Array(p.n + 1);
+  for (let i = 0; i < p.n; i++) { const v = buf.readInt16LE(p.body + i * 2); acc[i + 1] = acc[i] + v * v; }
+  const w = Math.min(win, p.n);
+  let best = 0;
+  for (let s = 0; ; s += hop) {
+    const e = Math.min(p.n, s + w);
+    best = Math.max(best, (acc[e] - acc[e - w]) / w);
+    if (e >= p.n) break;
+  }
+  const rms = Math.sqrt(best) / 32768;
+  return rms > 0 ? 20 * Math.log10(rms) : -Infinity;
+}
+
+// 認識ヒントの作り話（決めたこと 2・3）。畳み方は検索と同じ（cite.js の searchFold・app.html の fold: NFKC・句読点と記号と空白を外す・小文字）
+const HINT_TAIL_MIN = 4;
+const hintFold = (s) => String(s || '').normalize('NFKC')
+  .replace(/[、。「」『』（）()［］[\]【】・,.!?！？"'`~\-—…:：;；*_/\s]/g, '').toLowerCase();
+const hintPieces = (s) => String(s || '').normalize('NFKC').split(/[、。，．,.!?！？\s]+/).map(hintFold).filter(Boolean);
+/**
+ * 答えが認識ヒントの材料だけでできているか。hint = { sample（文例）, terms（業務の言葉と辞書の語）, tail（直前の発言の尻尾） }。
+ * 答えを句読点と空白で切った各片が、ヒントの単位（文例の文・言葉。畳んで2字以上）だけでつながる（区切りが無くても）か、4字以上で尻尾の一部なら材料。
+ * 全部の片が材料なら真。音声入力（opts.dictation）は録った音の一番大きい窓（opts.loudDbfs）が SPEECH_DBFS より小さいときだけ真
+ */
+function hintEcho(text, hint, opts = {}) {
+  const pieces = hintPieces(text);
+  if (!pieces.length) return false;
+  const h = hint && typeof hint === 'object' ? hint : {};
+  const units = new Set([...hintPieces(h.sample), ...(Array.isArray(h.terms) ? h.terms : []).map(hintFold)].filter((u) => u.length >= 2));
+  const tail = hintFold(h.tail);
+  if (!units.size && !tail) return false;
+  const lens = [...new Set([...units].map((u) => u.length))];
+  const joins = (p) => {
+    const ok = new Array(p.length + 1).fill(false);
+    ok[0] = true;
+    for (let i = 0; i < p.length; i++) {
+      if (!ok[i]) continue;
+      for (const n of lens) if (i + n <= p.length && units.has(p.slice(i, i + n))) ok[i + n] = true;
+    }
+    return ok[p.length];
+  };
+  const made = (p) => joins(p) || (p.length >= HINT_TAIL_MIN && tail.includes(p));
+  if (!pieces.every(made)) return false;
+  if (opts && opts.dictation) return Number.isFinite(opts.loudDbfs) && opts.loudDbfs < SPEECH_DBFS;
+  return true;
+}
+
+// 話し声が無いときに聞いて止める（決めたこと 7〜9）。時計は会議の時計（区間の長さの和。一時停止の時間を含まない）
+const QUIET_GRACE_MS = 5 * 60000;
+/**
+ * st = { sinceMs（話し声の無い長さの始め）, untilMs（最後に分けた区間の終わり）, askedAt（聞いた時か null）, askMin（聞いたときの分） }
+ * ev = { kind: 'speech' | 'quiet' | 'keep-going', endMs }、cfg = { on, askMin } → { st, act: '' | 'ask' | 'withdraw' | 'stop' }。
+ * 話し声の無い長さが askMin 分で ask、聞いた時から QUIET_GRACE_MS で stop（stop は条件が続く間は毎回返す。止めるかは呼び手が決める）
+ */
+function quietStep(st, ev, cfg) {
+  const num = (v, d) => (Number.isFinite(v) ? v : d);
+  const s0 = st && typeof st === 'object' ? st : {};
+  const next = { sinceMs: num(s0.sinceMs, 0), untilMs: num(s0.untilMs, 0), askedAt: Number.isFinite(s0.askedAt) ? s0.askedAt : null, askMin: num(s0.askMin, 0) };
+  const e = ev && typeof ev === 'object' ? ev : {};
+  const c = cfg && typeof cfg === 'object' ? cfg : {};
+  const end = num(e.endMs, next.untilMs);
+  const askMin = Number(c.askMin) > 0 ? Number(c.askMin) : 10;
+  const withdraw = () => { next.askedAt = null; return { st: next, act: 'withdraw' }; };
+  next.untilMs = Math.max(next.untilMs, end);
+  if (e.kind === 'speech') {
+    next.sinceMs = next.untilMs;
+    return next.askedAt !== null ? withdraw() : { st: next, act: '' };
+  }
+  if (e.kind === 'keep-going') {
+    next.sinceMs = Math.max(next.untilMs, end);
+    return next.askedAt !== null ? withdraw() : { st: next, act: '' };
+  }
+  if (!c.on) return next.askedAt !== null ? withdraw() : { st: next, act: '' };
+  if (next.askedAt === null) {
+    if (next.untilMs - next.sinceMs < askMin * 60000) return { st: next, act: '' };
+    next.askedAt = next.untilMs;
+    next.askMin = askMin;
+    return { st: next, act: 'ask' };
+  }
+  return { st: next, act: next.untilMs - next.askedAt >= QUIET_GRACE_MS ? 'stop' : '' };
+}
+/** 区間の終わり（atMs + durationMs）の一番遅い値。無ければ null（所要時間を切らない） */
+function quietTrimEnd(segments) {
+  let best = null;
+  for (const s of (Array.isArray(segments) ? segments : [])) {
+    if (!s || !Number.isFinite(s.atMs)) continue;
+    const end = s.atMs + (Number.isFinite(s.durationMs) ? s.durationMs : 0);
+    if (best === null || end > best) best = end;
+  }
+  return best;
+}
+/** 時刻の書き方（画面の fmtClock と同じ。m:ss か h:mm:ss） */
+function clockText(ms) {
+  const s = Math.floor(ms / 1000), h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), x = s % 60;
+  return h > 0 ? `${h}:${String(m).padStart(2, '0')}:${String(x).padStart(2, '0')}` : `${m}:${String(x).padStart(2, '0')}`;
+}
+
 // 要約を保存するときの会議タイプ。saved: いまディスクにあるページ、used: 要約を始めたときのページ
 // （meetingType は要約に使った種類）。要約の途中で利用者が種類を手で選んでいたら（saved.typeAuto === false）、
 // その選択を残す。changed: 残した種類が要約に使った種類と違う（作り直しを勧める）
@@ -1509,4 +1641,6 @@ module.exports = {
   accountMessage,
   // 0.9.0 レーン O（録音バー）
   PANEL_EDGE, PANEL_FIRST, slotForm, slotOrigin, nearestSlot, PANEL_PAD, PANEL_MAX, PANEL_QUIET_MS, panelBounds, snapsOnQuiet, keyLabel,
+  // 0.9.1 Q-1（話し声の無い区間）
+  QUIET_WIN_MS, QUIET_HOP_MS, SILENT_DBFS, SPEECH_DBFS, wavLoudestDbfs, HINT_TAIL_MIN, hintFold, hintEcho, QUIET_GRACE_MS, quietStep, quietTrimEnd, clockText,
 };
