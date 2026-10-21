@@ -32,6 +32,8 @@ const OVERLAY_SIZE = (({ width, height }) => ({ width, height }))(lib.panelBound
 const FIXED_NOW = Date.UTC(2026, 9, 18, 0, 0, 0);   // 撮るときの時計（2026-10-18 09:00 日本時間）。見本の日付はこれより前の決まった日
 // 録音中のページの文字起こしの状態（第1d回 A-7。main の meetingStatus().stt の形）。帯の文は main の STT_BANNER の B8 と同じ（test/shots.test.js が照らす）
 const LIVE_STT = { route: 'cloud', lastTextAt: FIXED_NOW - 12000, segSec: 15, problem: null };
+// 0.9.1 Q-5: 話し声が無いので聞く帯の文（main の quietAskText(10) と同じ。test/shots.test.js が照らす）
+const QUIET_ASK = { text: '10 分ほど話し声がありません。会議は終わりましたか？ このままなら 5 分後に録音を止めて議事録を作ります。' };
 const BANNER_STT = { route: 'local', lastTextAt: FIXED_NOW - 12000, segSec: 15,
   problem: { code: 'relay-down', action: '', text: 'NaTsu のサーバーにつながりません。この PC で文字起こしを続けていますが、精度が落ちます。録音はそのまま続けてください。' } };
 
@@ -81,6 +83,11 @@ const SCREENS = [
   // ログインしている形にする（ログインしていないと、起動で設定の「アカウント」が開く: 計画 U-3）
   { name: 'settings-offline-light', page: 'app', theme: 'light', answers: offlineAnswers(),
     act: "document.getElementById('tabBtnSettings').click(); document.getElementById('setNavOffline').click()" },
+  // 0.9.1 Q-5（計画 docs/plans/2026-10-21-091.md の「取り直す画面」）: 録音中のページの「会議は終わりましたか？」の帯（live-light と同じ会議）と、設定の検索「自動で止める」
+  { name: 'live-quiet-light', page: 'app', theme: 'light', answers: liveAnswers(LIVE_STT, { quiet: QUIET_ASK }) },
+  { name: 'live-quiet-dark', page: 'app', theme: 'dark', answers: liveAnswers(LIVE_STT, { quiet: QUIET_ASK }) },
+  { name: 'settings-quiet-search-light', page: 'app', theme: 'light',
+    act: "document.getElementById('tabBtnSettings').click(); const b = document.getElementById('setSearch'); b.value = '自動で止める'; b.dispatchEvent(new Event('input', { bubbles: true }))" },
 ];
 // 0.9.0 O-3（RP9）: 録音バーの画面（形 → 地 → 拡大率 → 状態の順。撮る道具は形・地・拡大率の組ごとに窓を1つ開いて状態を act で替える）。
 // 録音は始めずに見た目だけを撮る（act は pill-states の見本を録音バーの DOM に当てる。撮るときだけ体の地にデスクトップの色を塗る）。
@@ -123,8 +130,10 @@ SCREENS.find((x) => x.name === 'notes-page-light').focus = { tabs: 3, want: 'mtT
 // 0.9.0 G-3: 利用者が 2026-10-20 に CI の取り直しの画像（run 39496101442（ed9365a）・artifact 12297628165 の .after.png。帯の3枚・notes-tabs-light・
 // 設定の6枚・録音バーの 81 枚）を見て OK と言ったので、その画像をバイトのまま基準にし、録音バーの行と設定の3枚の行ごと外して空に戻した
 // 0.9.1（計画 docs/plans/2026-10-21-091.md の「取り直す画面」）: Q-3 で設定の項目「録音」にカード「話し声が無いとき」を足したので settings-record-light を入れた。
+// Q-5 で足した画面（「会議は終わりましたか？」の帯の2枚・設定の検索「自動で止める」・録音バーの状態 quiet の 8 枚。まだ基準が無い）も入れた。
 // 利用者がまとめて OK と言ったら、版を上げる commit で基準にして空に戻す
-const RETAKE = new Set(['settings-record-light']);
+const RETAKE = new Set(['settings-record-light', 'live-quiet-light', 'live-quiet-dark', 'settings-quiet-search-light',
+  ...PS.FORMS.flatMap((f) => Object.keys(PS.DESKS).flatMap((d) => PS.SCALES.map((k) => `overlay-${f}-${d}-quiet-${Math.round(k * 100)}`)))]);
 const PERF = [{ name: 'open-2000-blocks', budgetMs: 500 }];   // 3回開いた中央値で見る
 const TIME_ZONE = 'Asia/Tokyo';
 const TOLERANCE = 2;   // 色の差（0〜255）がこれ以下の画素は同じとみなす。CI の機械の CPU ごとの描き方の1段の差を拾わないため（揺れの確かめ judgePair は 0 で見る）
@@ -222,7 +231,7 @@ function offlineAnswers() {
     'koeApp.accountStatus': { ok: true, signedIn: true, email: '', method: 'access', until: null, canStore: true, online: { up: true, why: 'ok' } },
   };
 }
-function liveAnswers(stt = LIVE_STT) {
+function liveAnswers(stt = LIVE_STT, extra = {}) {
   const segs = [
     { id: 's1', atMs: 0, durationMs: 75000, text: 'それでは週次の定例を始めます。まず進み具合から順にお願いします。' },
     { id: 's2', atMs: 75000, durationMs: 75000, text: '受注の画面の直しは、結合の試験が今週で終わりました。残りの不具合は2件です。' },
@@ -234,7 +243,7 @@ function liveAnswers(stt = LIVE_STT) {
       segments: segs, pending: 0, stoppedAt: null, stopping: false, paused: false, pausedMs: 45000,
       systemAudio: false, micFallback: false, etaSec: null, skipped: 0,
       pauses: [{ atMs: 150000, ms: 45000, why: 'user' }], pausing: false, resumeHint: false,
-      localOnly: false, cloud: true, stt,
+      localOnly: false, cloud: true, stt, ...extra,
     },
   };
 }

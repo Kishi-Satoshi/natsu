@@ -380,6 +380,11 @@ test('RP9: 撮る画面の見本の act は、本物の録音バーを同じ状�
     error: async (form) => { const r = await 録音を始める({ form }); r.log.fire('onPhase', { phase: 'error', message: '議事録を保存できませんでした' }); return r.log; },
     dict: async (form) => { const r = await 録音を始める({ mode: 'dictation', form }); r.an[0].fill = fillFor(PS.byState.dict.level); await r.log.drain(); return r.log; },
     warn: async (form) => { const r = await 録音を始める({ form }); r.log.clock.jump(8001); await r.log.drain(); return r.log; },
+    // 0.9.1 Q-5: 話し声が無いので main が「会議は終わりましたか？」を overlay:phase の recording の文で送った形（無音の警告の点のまま、文だけ赤の短い文）
+    quiet: async (form) => {
+      const r = await 録音を始める({ form }); r.log.clock.jump(8001); await r.log.drain();
+      r.log.fire('onPhase', { phase: 'recording', message: '会議は終わりましたか？' }); await r.log.drain(); return r.log;
+    },
     fallback: async (form) => {
       const r = await 録音を始める({ micId: 'chosen', form }, { setup: (l) => { l.window.navigator.mediaDevices.getUserMedia = () => { const t = { stop() {}, kind: 'audio', enabled: true, addEventListener() {}, getSettings: () => ({ deviceId: 'other' }) }; return Promise.resolve({ getTracks: () => [t], getAudioTracks: () => [t], addTrack() {}, active: true }); }; } });
       r.an[0].fill = fillFor(PS.byState.fallback.level); await r.log.drain(); return r.log;
@@ -389,7 +394,8 @@ test('RP9: 撮る画面の見本の act は、本物の録音バーを同じ状�
       r.an[0].fill = fillFor(PS.byState['spk-ng'].level); await r.log.drain(); return r.log;
     },
   };
-  assert.deepStrictEqual(PS.STATES.map((s) => s.state), ['rec', 'silent', 'paused', 'proc', 'done', 'error', 'dict', 'warn', 'fallback', 'spk-ng']);
+  // 0.9.1 Q-5 で意図して変えた: 状態 quiet（「会議は終わりましたか？」）を最後に足した
+  assert.deepStrictEqual(PS.STATES.map((s) => s.state), ['rec', 'silent', 'paused', 'proc', 'done', 'error', 'dict', 'warn', 'fallback', 'spk-ng', 'quiet']);
   for (const s of PS.STATES) for (const form of PS.FORMS) {
     const real = PS.signature((await drive[s.state](form)).document);
     const shot = await load(OVL);

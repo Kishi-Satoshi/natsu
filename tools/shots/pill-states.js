@@ -27,6 +27,8 @@ const STATES = [
   { state: 'warn', mode: 'meeting', phase: 'recording', level: 0, spk: '', warn: true, msg: { h: '音が入っていません', v: '音が入っていません' }, kind: 'warn' },
   { state: 'fallback', mode: 'meeting', phase: 'recording', level: VOICE, spk: '', badge: true, msg: { h: '既定のマイクで録音中', v: '既定のマイクで録音中' }, kind: 'warn' },
   { state: 'spk-ng', mode: 'meeting', phase: 'recording', level: VOICE, spk: 'ng', msg: { h: '相手の声を録れません', v: '相手の声を録れません' }, kind: 'warn' },
+  // 0.9.1 Q-5（計画 docs/plans/2026-10-21-091.md の決めたこと 10）: 話し声が無いので main が overlay:phase の recording の文で聞いた形（無音の警告の黄色い点のまま、文は赤の短い文）
+  { state: 'quiet', mode: 'meeting', phase: 'recording', level: 0, spk: '', warn: true, msg: { h: '会議は終わりましたか？', v: '会議は終わりましたか？' }, kind: 'err' },
 ];
 const byState = Object.fromEntries(STATES.map((s) => [s.state, s]));
 // 0.9.0 O-4（RP8）: 縦の形の × が出た形（カーソルが乗った記録中）を、暗い地・150% で1枚だけ撮る（モックの overlay-vertical-dark-hover-150）
