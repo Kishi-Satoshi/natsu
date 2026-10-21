@@ -587,7 +587,9 @@ test('設定は自動保存（保存ボタンは無い）', () => {
 });
 
 test('スレッド数とポートに説明がある', () => {
-  assert.ok(appHtml.includes('通常は変更不要です。スレッド数は文字起こしに使うCPUの数'));
+  // 0.9.2 I-3（計画 docs/plans/2026-10-21-092.md）で意図して変えた: 見える説明は「通常は変更不要です。」の1行、意味は ⓘ の吹き出し
+  assert.ok(appHtml.includes('通常は変更不要です。<button type="button" class="setinfo"'));
+  assert.ok(appHtml.includes('スレッド数は文字起こしに使う CPU の数です'));
   assert.ok(appHtml.includes('2つのエンジンのポートは別の番号にしてください'));
 });
 

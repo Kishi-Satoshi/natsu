@@ -441,7 +441,9 @@ test('SP4: カードの data-sec と見出しの並びが「設定の項目と�
 // 0.9.1 Q-3（D29）で意図して変えた: カード「話し声が無いとき」の label を2つ足した（29 → 31。説明は .desc でなく .check の中の .d なので 20 のまま。前の値は ef12d932…）
 // 0.9.2 I-2（計画 docs/plans/2026-10-21-092.md）で意図して変えた: 「録音」と「要約」の説明を1行にし、長い文を ⓘ の吹き出しへ動かした。ⓘ の付くトグルの行は
 // 名前の label for と、トグルだけを包む label.check（文の無い label）に分けた（31 → 34）。説明の数は 20 のまま（前の値は bf7bd5c3…・5c595e07…）
-const TEXTS_080 = { labels: [34, 'c1ab87330d983b30b5017e6b2e1ca8c2c70b53f345c7bbd47980fd4928f5b7f2'], descs: [20, 'bbc9b31d7a5304aa817f1be677c105d93afcf3c8bad98ae9869d6ab125ac6433'] };
+// 0.9.2 I-3 で意図して変えた: 「アカウント」「一般」「オフライン」「更新」の説明も1行にした（議事録ホットキーの「左右の Alt」は名前の下の1行へ・ログインの
+// 2つの説明は1行と吹き出しへ: 説明 20 → 18。I-2 の値は c1ab8733…・bbc9b31d…）
+const TEXTS_080 = { labels: [34, 'e1329af4b3a7c6b79e151e2f396d18f80e9c4406fffcb5c48239b554fe1aba25'], descs: [18, 'ce9122946c75b8ee9f4ab660dce671e2feadcab72746c71b75d90527b913ed46'] };
 test('SP4: 動かした入力の id が全部あり、その行の中にある。文が 0.8.0 と同じ（label の文・.check の文・説明の文）', T, () => {
   const sec = doc.querySelector('#tabSettings');
   for (const [name, ids] of Object.entries(ROW_IDS)) {
@@ -513,12 +515,14 @@ test('SP5: 『マイク』で使用するマイクの行だけ、『ﾏｲｸ』
   await search(l, 'ホットキー');
   assert.deepStrictEqual(shownRows(l), ['音声入力ホットキー', '議事録ホットキー', 'ウィンドウを閉じてもタスクトレイに残す', '議事録で相手の声も録る']);
   assert.deepStrictEqual(groups(), ['一般', '録音']);
+  // 0.9.2 I-3 で意図して変えた: アカウントのカードの頭（「…クラウドで文字起こしします。」）でも当たる
   await search(l, '文字起こし');
-  assert.deepStrictEqual(groups(), ['録音', 'オフライン']);
+  assert.deepStrictEqual(groups(), ['アカウント', '録音', 'オフライン']);
   // 0.9.2 I-2 で意図して変えた: 吹き出しの中の言葉でも当たる（前は「説明の長い文の中までは探さない」）。文字起こしのカードの頭が出る（行は出ない）
+  // 0.9.2 I-3 で意図して変えた: ログインの行の吹き出し（「…OpenAI で文字起こしします」）でも当たる
   await search(l, 'OpenAI');
-  assert.deepStrictEqual(shownRows(l), [], '行でない所の言葉で行を出した');
-  assert.deepStrictEqual(shownCards(l), ['文字起こし'], 'カードの吹き出しの言葉でカードの頭が出ない');
+  assert.deepStrictEqual(shownRows(l), ['ログイン'], '吹き出しの言葉で行が出ない・行でない所の言葉で行を出した');
+  assert.deepStrictEqual(shownCards(l), ['アカウント', '文字起こし'], 'カードの吹き出しの言葉でカードの頭が出ない');
   // 消すと前の項目に戻る
   await search(l, '');
   assert.strictEqual(secOf(l), 'general');
@@ -789,7 +793,8 @@ test('見た目の直し（モック 案C）: 設定の行は、名前（と説�
   assert.strictEqual(decl(TWO_SEL, '@media (max-width: 760px)').display, 'block', '狭い窓で2列のまま（拡大 200% で入力が潰れる）');
   for (const c of ['input', 'select', '.hkbox']) assert.strictEqual(decl(`${TWO_SEL} > ${c}`, '@media (max-width: 760px)').width, '100%', `狭い窓で入力（${c}）が幅いっぱいでない`);
   // 2列になる欄（.frow）は表の欄だけ（詳細設定の中は今のまま）。左（.flead）に名前と説明、右に入力が1つ
-  assert.deepStrictEqual(doc.querySelectorAll('.frow').map((f) => f.dataset.row), ['外観', '音声入力ホットキー', '議事録ホットキー', '録音バーの置き場所', '使用するマイク',
+  // 0.9.2 I-3 で意図して変えた: ログインの行も名前（と ⓘ）が左・［ログイン］が右の2列
+  assert.deepStrictEqual(doc.querySelectorAll('.frow').map((f) => f.dataset.row), ['ログイン', '外観', '音声入力ホットキー', '議事録ホットキー', '録音バーの置き場所', '使用するマイク',
     '録音されるスピーカー', '知らせるまでの時間', '認識言語', 'Claude Code', 'Claude Code の場所']);
   for (const [id, name] of Object.entries(TWO_COL)) {
     const field = doc.querySelector(`#${id}`).closest('.field');

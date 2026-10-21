@@ -16,6 +16,7 @@ const APP = path.join(__dirname, '..', 'src', 'renderer', 'app.html');
 const T = { timeout: 5000 };
 const fmt = (e) => `${e.constructor.name}: ${e.message}`;
 // 計画「画面と知らせの文」の設定のカード「オフライン」（OFF1〜OFF5）
+const OFF1_LEAD = 'PC の中で文字起こしと要約をするための準備です（任意）。';
 const OFF1 = 'インターネットにつながっていないときと、［この会議は PC の中だけ］の会議でも、この PC の中で文字起こしと要約ができるようにする準備です（任意）。準備しなくても、インターネットにつながっていてログインしていれば、会議と音声入力はそのまま使えます。';
 const OFF2 = 'PC の中の文字起こし：準備していません（任意）';
 const OFF3 = '取り込むと: インターネットにつながっていないときや［この会議は PC の中だけ］の会議でも、PC の中で文字起こしと要約ができます。音声や議事録は外に送りません。';
@@ -204,7 +205,10 @@ test('OFF1: カードの説明は D21 の文（選んだ人も選んでいない
     const l = await open({ engineStatus: ENG({ chosen }) });
     await l.drain();
     const card = $(l, 'engineState').closest('.card');
-    assert.strictEqual(card.children[1].textContent.trim(), OFF1, String(chosen));
+    // 0.9.2 I-3（計画 docs/plans/2026-10-21-092.md）で意図して変えた: 頭の説明は1行（OFF1_LEAD）。D21 の文の芯は ⓘ の吹き出し（#setPopOffline）にある
+    assert.strictEqual(card.children[1].textContent.trim(), OFF1_LEAD, String(chosen));
+    const pop = $(l, 'setPopOffline').textContent;
+    for (const w of ['準備しなくても、インターネットにつながっていてログインしていれば、会議と音声入力はそのまま使えます。', '［この会議は PC の中だけ］の会議でも']) assert.ok(pop.includes(w), w);
   }
-  for (const t of [OFF1, OFF2, OFF3, OFF4('1GB', '2GB', 3), OFF5, NEEDS, 'ログイン', 'オフラインの準備']) assert.ok(!t.includes('未設定'), t);
+  for (const t of [OFF1_LEAD, OFF1, OFF2, OFF3, OFF4('1GB', '2GB', 3), OFF5, NEEDS, 'ログイン', 'オフラインの準備']) assert.ok(!t.includes('未設定'), t);
 });

@@ -54,9 +54,19 @@ const POPS = {
   setPopStt: { help: 'record/pc-only', must: ['中継も OpenAI も、音声と文字を保存しません。', '文字起こしの中継', 'OpenAI（gpt-4o-transcribe）', 'つながっていないときは、いつも PC の中で文字起こしします', '1on1・面談', '［この会議は PC の中だけ］'] },
   setPopTerms: { help: 'settings/appearance', must: ['「不具合」「改修」「結合テスト」「今週」', '上の辞書が優先で、余った分だけ使われます'] },
   claudeHelp: { help: 'start/claude-code', must: ['irm https://claude.ai/install.ps1 | iex', 'Anthropic の公式の入れ方', 'そのまま実行します', 'Git for Windows は無くても動きます', 'NaTsu はログインの情報を読みません', '5 時間ごと・週ごと'] },
+  // I-3: アカウント・オフライン（詳細設定も）・更新
+  setPopLogin: { help: 'start/login', must: ['Cloudflare（中継を守る仕組み）', '英語', '［ログイン］を押すと、ログインの画面が別の窓で開きます。', '［Send login code］', '6 けたのコード', '［Sign in］', '窓は自動で閉じます',
+    '迷惑メールのフォルダ', '「already been used」', '［Request new code］', '会社のメールの検査が、先にコードを使ってしまうことがあります', '文字起こしの中継に送り、OpenAI で文字起こしします',
+    'ログインしていないときと、つながっていないときは、PC の中で文字起こしします。'] },
+  setPopOffline: { help: 'settings/offline', must: ['準備しなくても、インターネットにつながっていてログインしていれば、会議と音声入力はそのまま使えます。', '［この会議は PC の中だけ］', 'この PC の中で文字起こしと要約ができるようになります'] },
+  setPopWThreads: { help: 'settings/offline', must: ['文字起こしに使う CPU の数', 'コア数−2', '他の作業が重くなります', 'この PC の中だけで使う通信の番号', 'ぶつかって PC の中の文字起こしが起動できないときだけ変えてください'] },
+  setPopSThreads: { help: 'settings/offline', must: ['意味は文字起こしエンジンの欄と同じです（こちらは要約に使われます）。', '2つのエンジンのポートは別の番号にしてください。'] },
+  setPopCtx: { help: 'settings/offline', must: ['大きいほどメモリを使い、小さいと長い会議の統合で足りなくなります。'] },
+  setPopIdle: { help: 'settings/offline', must: ['記録も要約もしていない時間', 'メモリを空けます', '次に使うとき起動し直します'] },
+  setPopUpdate: { help: 'start/install-update', must: ['アプリ本体（数百KB）', 'エンジンやモデル、保存済みの議事録はそのままです。', 'src.backup-*', '1世代だけ残ります'] },
 };
-// I-3 で書き直す項目（I-2 の時点では「見える説明は1行」の外。I-3 で空にする）
-const LATER_I3 = new Set(['account', 'general', 'offline', 'update']);
+// I-3 で書き直す項目（I-2 の時点では「見える説明は1行」の外だった。I-3 で空にした: 全部の項目を見る）
+const LATER_I3 = new Set([]);
 
 // ---------------------------------------------------------------- 形（静的）
 
@@ -386,5 +396,27 @@ test('I7: 吹き出しの中にだけある言葉で検索すると、その行�
   await search(l, '');
   assert.strictEqual(l.byId.get('tabSettings').querySelectorAll('.setinfo').filter((b) => b.classList.contains('hit')).length, 0, '検索をやめても印が残った');
   assert.ok(!lead.classList.contains('set-miss'));
+  assert.deepStrictEqual(l.errors.map(fmt), []);
+});
+
+test('I3: ログインの行は名前（と ⓘ）が左・［ログイン］が右の2列で、ログインしていなければ出る。カードの頭は1行。議事録ホットキーの「左右の Alt」は名前の下の1行に入れた', T, async () => {
+  const row = doc.querySelector('#accountOut');
+  assert.ok(row.classList.contains('field') && row.classList.contains('frow'), 'ログインの行が2列（.field.frow）でない');
+  assert.strictEqual(row.dataset.row, 'ログイン');
+  assert.ok(row.children[0].classList.contains('flead') && row.children[1].querySelector('#accountSignIn'), '左に名前、右に［ログイン］の形でない');
+  assert.strictEqual(norm(row.querySelector('.fname').textContent), 'ログイン');
+  assert.ok(infoFor(doc, 'setPopLogin').closest('#accountOut'), 'ログインの ⓘ が行に無い');
+  const lead = doc.querySelector('#accountCard').querySelector('.setlead');
+  assert.ok(lead, 'アカウントのカードの頭が無い');
+  assert.strictEqual(norm(lead.textContent), 'ログインすると、つながっている間はクラウドで文字起こしします。');
+  const mh = doc.querySelector('label[for="meetingHotkey"]').querySelector('.lhint');
+  assert.strictEqual(norm(textOf(mh)), '開始／終了をトグル。左右の Alt は区別しません');
+  const l = await open({ accountStatus: () => ({ ok: true, signedIn: false, email: '', method: 'access', until: null, canStore: true, online: { up: true, why: 'ok' } }) });
+  await l.drain();
+  await click(l, 'tabBtnSettings');
+  await pick(l, 'account');
+  assert.ok(visible($(l, 'accountSignIn')) && visible($(l, 'accountOut')), 'ログインしていないのに［ログイン］が出ない');
+  await click(l, infoFor(l.root, 'setPopLogin'));
+  assert.ok(isOpenPop(l, 'setPopLogin'));
   assert.deepStrictEqual(l.errors.map(fmt), []);
 });

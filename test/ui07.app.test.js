@@ -39,7 +39,8 @@ test('D8: 設定の項目「一般」のいちばん上のカードが「外観�
   // 欄の名前は見出し「外観」（読み上げでも「外観」）
   const named = l.byId.get(sel.getAttribute('aria-labelledby'));
   assert.ok(named && named.textContent.trim() === '外観', '外観の欄に名前が無い');
-  assert.match(top.textContent, /Ctrl\+Shift\+L でライトとダークを切り替えられます/);
+  // 0.9.2 I-3（計画 docs/plans/2026-10-21-092.md）で意図して変えた: 説明を1行（全角 40 字ほど）に縮めた
+  assert.match(top.textContent, /Ctrl\+Shift\+L で明暗を切り替えます/);
   for (const c of cards.filter((x) => x !== top)) assert.ok(!c.textContent.includes('画面の配色') && !c.querySelector('#themeSel'), 'ほかのカードに前の「画面の配色」が残っている');
   assert.ok(!l.byId.get('tabSettings').textContent.includes('Windowsの設定に合わせる'), '前の選択肢の文が残っている');
   assert.strictEqual(sel.value, 'system');

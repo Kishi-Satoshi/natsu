@@ -131,18 +131,23 @@ test('RL10: ログインしていなければ AR1・AR2 と［ログイン］、
   assert.strictEqual(cards[0].id, 'accountCard', '1つ目のカードがアカウントでない');
   assert.strictEqual(cards[1].id, 'appearanceCard', '2つ目のカードが外観でない');
   assert.strictEqual(cards[0].querySelector('h2').textContent.trim(), 'アカウント');
-  assert.ok(cards[0].textContent.includes(R1), 'カードの説明（R1）が無い');
+  // 0.9.2 I-3（計画 docs/plans/2026-10-21-092.md）で意図して変えた: カードの頭は1行（.setlead）、R1・AR1・AR2 はログインの行の ⓘ の吹き出し（#setPopLogin）の
+  // 頭と箇条書きに分けた。どの文も吹き出しにある（R1 の頭の文は「ログインしていて、…」の言い方にした: 芯の言葉を見る）
+  assert.strictEqual(cards[0].querySelector('.setlead').textContent.trim(), 'ログインすると、つながっている間はクラウドで文字起こしします。');
   // ログインしていない: AR1・AR2 と［ログイン］。［ログアウト］は出ない
   const out = l.byId.get('accountOut');
   assert.ok(shown(out) && !shown(l.byId.get('accountIn')));
-  const outText = out.textContent.replace(/\s+/g, ' ');
-  assert.ok(outText.includes(AR1), `AR1 が無い: ${outText}`);
-  assert.ok(outText.includes(AR2), `AR2 が無い: ${outText}`);
+  const pop = l.byId.get('setPopLogin');
+  assert.ok(pop && pop.closest('#accountOut'), 'ログインの行に吹き出しが無い');
+  const popText = pop.textContent.replace(/\s+/g, ' ');
+  for (const sent of [...AR1.split('。'), ...AR2.split('。'), R1.split('。')[1]].filter(Boolean).map((x) => `${x}。`)) assert.ok(popText.includes(sent), `「${sent}」が無い: ${popText}`);
+  assert.ok(popText.includes('文字起こしの中継に送り、OpenAI で文字起こしします'), 'R1 の送り先の説明が無い');
   // AR1・AR2 の行はどちらも画面に出ている（隠した説明にしない）
-  for (const [name, text] of [['AR1', AR1], ['AR2', AR2]]) {
-    const d = out.querySelectorAll('.desc').find((x) => x.textContent.replace(/\s+/g, ' ').trim() === text);
-    assert.ok(d && shown(d), `${name} の行が出ていない`);
-  }
+  // 0.9.2 I-3 で意図して変えた: 見える説明は1行（画面が英語であることは見える行に残す）。AR1・AR2 は名前の横の ⓘ を押すと出る（計画の問い Q9）
+  const seen = out.querySelectorAll('.desc').filter((x) => !x.closest('.setpop') && shown(x)).map((x) => x.textContent.trim());
+  assert.deepStrictEqual(seen, ['会社のメールアドレスでログインします（画面は英語です）。'], 'ログインの行の見える説明が1行でない');
+  const info = out.querySelector('.setinfo');
+  assert.ok(info && shown(info) && info.getAttribute('aria-controls') === 'setPopLogin', 'AR1・AR2 を開く ⓘ が出ていない');
   const btn = l.byId.get('accountSignIn');
   assert.strictEqual(btn.closest('.card'), cards[0]);
   assert.ok(out.querySelectorAll('button').includes(btn), '［ログイン］がログインしていないときの欄に無い');
@@ -250,7 +255,9 @@ test('RL10: メールアドレスと確認コードの欄・［確認コード�
   assert.deepStrictEqual(l.missingIds.filter((id) => RETIRED_ACCOUNT.includes(id)), [], '消した欄をまだ引いている');
   const card = l.byId.get('accountCard');
   assert.deepStrictEqual(card.querySelectorAll('input'), [], 'カード「アカウント」に入力の欄がある');
-  assert.deepStrictEqual(card.querySelectorAll('button').map((b) => b.id).sort(), ['accountLogout', 'accountSignIn']);
+  // 0.9.2 I-3 で意図して変えた: ほかのボタンは ⓘ と吹き出しの「ヘルプで詳しく見る ↗」だけ（id は無い）
+  assert.deepStrictEqual(card.querySelectorAll('button').filter((b) => b.id).map((b) => b.id).sort(), ['accountLogout', 'accountSignIn']);
+  assert.ok(card.querySelectorAll('button').filter((b) => !b.id).every((b) => b.classList.contains('setinfo') || b.classList.contains('setpop-help')), 'カード「アカウント」に知らないボタンがある');
   const t = card.textContent;
   // （「会社のメールアドレス」は R1・AR1 の説明が言うので、欄の名前「メールアドレス」は label が無いことで見る）
   for (const w of ['確認コード', 'コードを送り直す', '6 けたの確認コードを送りました']) assert.ok(!t.includes(w), `${w} が残っている`);
@@ -535,7 +542,9 @@ test('D17: 録音中のタブを開くと meetingLiveShown(true)、ほかのタ�
 // D19: 設定のカード「エンジン」を「オフライン」にし、文字起こしの言葉を決めた文にする（要約の欄の「エンジン」は変えない: 問い Q15）。
 // 文を作るのは画面だけ（main の engine:status の理由の文は「（…）」の中にそのまま入る）
 // 0.9.0 U-3（OFF1・D21）で意図して変えた: 説明の文は「準備（任意）」の文（stage1d2.app の OFF1。選んだ人も選んでいない人も同じ）
-const OFFLINE_LEAD = 'インターネットにつながっていないときと、［この会議は PC の中だけ］の会議でも、この PC の中で文字起こしと要約ができるようにする準備です（任意）。準備しなくても、インターネットにつながっていてログインしていれば、会議と音声入力はそのまま使えます。';
+// 0.9.2 I-3（計画 docs/plans/2026-10-21-092.md）で意図して変えた: 頭の説明は1行。前の D21 の文（OFFLINE_D21）は頭の説明の ⓘ の吹き出し（#setPopOffline）にある
+const OFFLINE_LEAD = 'PC の中で文字起こしと要約をするための準備です（任意）。';
+const OFFLINE_D21 = 'インターネットにつながっていないときと、［この会議は PC の中だけ］の会議でも、この PC の中で文字起こしと要約ができるようにする準備です（任意）。準備しなくても、インターネットにつながっていてログインしていれば、会議と音声入力はそのまま使えます。';
 const LOCK_OFFLINE = '記録中は PC の中の文字起こしの設定を変更できません';
 const { MANIFEST } = require('../src/engine-manifest');
 // 取り込みの欄の写し（engine-app.test.js の ST と同じ形。main の engine:fetch-status の答え）
@@ -564,6 +573,11 @@ test('D19: 設定のカードの見出しが『オフライン』で、すぐ下
   const lead = card.children[1];
   assert.ok(lead.classList.contains('field') && !lead.classList.contains('lockNote'), '見出しのすぐ下が説明の欄でない');
   assert.strictEqual(lead.textContent.trim(), OFFLINE_LEAD);
+  const offPop = l.byId.get('setPopOffline');
+  assert.ok(offPop && offPop.parentNode === card, 'オフラインのカードに頭の説明の吹き出しが無い');
+  for (const w of ['準備しなくても、インターネットにつながっていてログインしていれば、会議と音声入力はそのまま使えます。', 'インターネットにつながっていないときと、［この会議は PC の中だけ］の会議でも、この PC の中で文字起こしと要約が']) {
+    assert.ok(offPop.textContent.includes(w), `吹き出しに「${w}」が無い（前の文 ${OFFLINE_D21.length} 字の芯）`);
+  }
   assert.strictEqual(l.byId.get('engineState').textContent, 'PC の中の文字起こし：使えます');
   assert.strictEqual(l.byId.get('testBtn').textContent, 'PC の中で試す');
   assert.strictEqual(l.byId.get('engineFetchBtn').textContent, 'PC の中の文字起こしを取り込む');

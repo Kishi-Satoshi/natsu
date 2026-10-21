@@ -248,8 +248,9 @@ test('設定: 要約の文脈長の欄がオフラインのカード（前の「
   assert.ok(el.closest('#engineAdv'), '詳細設定の中に無い');
   const field = el.closest('.field');
   assert.strictEqual(field.querySelector('label').textContent, '要約の文脈長');
-  assert.strictEqual(field.querySelector('.desc').textContent.trim(),
-    '要約エンジンに渡すトークン数（-c）。既定 16384。大きいほどメモリを使い、小さいと長い会議の統合で足りなくなります');
+  // 0.9.2 I-3（計画 docs/plans/2026-10-21-092.md）で意図して変えた: 見える説明は1行、続きは ⓘ の吹き出し
+  assert.strictEqual(field.querySelector('.desc').textContent.trim(), '要約エンジンに渡すトークン数（-c）。既定 16384。');
+  assert.strictEqual(field.querySelector('.setpop li').textContent.trim(), '大きいほどメモリを使い、小さいと長い会議の統合で足りなくなります。');
 });
 
 test('設定: エンジンの自動停止の欄がオフラインのカード（前の「エンジン」）の詳細設定にあり、単位「分」とラベル・説明が指定どおり', async () => {
@@ -260,8 +261,9 @@ test('設定: エンジンの自動停止の欄がオフラインのカード（
   assert.ok(el.closest('#engineAdv'), '詳細設定の中に無い');
   const field = el.closest('.field');
   assert.strictEqual(field.querySelector('label').textContent, '使わないエンジンを止めるまで（分）');
-  assert.strictEqual(field.querySelector('.desc').textContent.trim(),
-    '記録も要約もしていない時間がこれを超えたらエンジンを止めてメモリを空けます（次に使うとき起動し直します。0 で止めない）');
+  // 0.9.2 I-3 で意図して変えた: 見える説明は1行、続きは ⓘ の吹き出し
+  assert.strictEqual(field.querySelector('.desc').textContent.trim(), '使わない時間がこれを超えたらエンジンを止めます（0 で止めない）。');
+  assert.strictEqual(field.querySelector('.setpop li').textContent.trim(), '記録も要約もしていない時間がこれを超えたらエンジンを止めて、メモリを空けます。次に使うとき起動し直します。');
 });
 
 // 第0a回 R6: エンジンの細かい設定は1枚のカード「エンジン」の閉じた「詳細設定」へまとめる。
@@ -280,8 +282,9 @@ test('設定: エンジンの細かい設定は閉じた「詳細設定」の中
   const desc = (el) => el.children.flatMap((c) => [c, ...desc(c)]);   // simdom は [id] のセレクタを解さない（simdom.js の parseSimple）
   const outside = desc(card).filter((e) => e.id && !e.closest('#engineAdv')).map((e) => e.id);
   // engineNote はモデルの勧め（kotoba のとき。0.1.1）。注意の一つ。engineFetch… と engineDirBtn は取り込みの欄（第0b回 Task 15）
+  // 0.9.2 I-3 で意図して変えた: カードの頭の説明の ⓘ の吹き出し（setPopOffline）も外にある（説明なので、閉じた詳細設定の中に入れない）
   assert.deepStrictEqual(outside.sort(), ['engineDirBtn', 'engineFetch', 'engineFetchBar', 'engineFetchBtn', 'engineFetchCopy', 'engineFetchList',
-    'engineFetchMsg', 'engineFetchPause', 'engineFetchRows', 'engineFetchSummary', 'engineFetchSwitch', 'engineNote', 'engineState', 'testBtn', 'testMsg', 'testSumMsg']);
+    'engineFetchMsg', 'engineFetchPause', 'engineFetchRows', 'engineFetchSummary', 'engineFetchSwitch', 'engineNote', 'engineState', 'setPopOffline', 'testBtn', 'testMsg', 'testSumMsg']);
   assert.ok(card.querySelectorAll('.lockNote').some((n) => !n.closest('#engineAdv')), '記録中の理由が閉じた中にしか無い');
 });
 
