@@ -46,9 +46,10 @@ test('表示名は NaTsu（画面・録音バー・ウィンドウ・トレイ�
 // 第1d回 G-4 で意図して変えた: 版を 0.8.0 に（中継と Cloudflare Access のログイン・区切り 15 秒・録音中のページの状態・録音中の再起動の守り。Electron は 44.9.0 のまま）
 // 0.9.0 G-3 で意図して変えた: 版を 0.9.0 に（任意のオフラインの準備・設定のポップアップ・録音バーの作り直し・帯の文。Electron は 44.9.0 のまま）
 // 0.9.1 で意図して変えた: 版を 0.9.1 に（話し声の無い区間を書かない・話し声が無いときに自動で止める。Electron は 44.9.0 のまま）
-test('識別子: name は natsu・版は 0.9.1・productName は build の中だけ（userData は %APPDATA%\\natsu）', () => {
+// 0.9.2 で意図して変えた: 版を 0.9.2 に（設定の説明を1行にして ⓘ の吹き出しへ・アプリからヘルプを開く。Electron は 44.9.0 のまま）
+test('識別子: name は natsu・版は 0.9.2・productName は build の中だけ（userData は %APPDATA%\\natsu）', () => {
   assert.strictEqual(pkg.name, 'natsu');
-  assert.strictEqual(pkg.version, '0.9.1');
+  assert.strictEqual(pkg.version, '0.9.2');
   assert.strictEqual(pkg.productName, undefined, 'top-level の productName は userData の名前を変える');
   assert.strictEqual(pkg.build.productName, 'NaTsu');
   assert.strictEqual(pkg.build.appId, 'local.natsu.app');
@@ -256,8 +257,9 @@ test('2a1: 試作の名前を持ち込んでいない（listener.db・Listener D
 // 第1d回 G-4 で意図して変えた: 版は 0.8.0（README の保存の説明は 0.7.0 のまま）
 // 0.9.0 G-3 で意図して変えた: 版は 0.9.0（README の保存の説明は 0.7.0 のまま）
 // 0.9.1 で意図して変えた: 版は 0.9.1（README の保存の説明は 0.7.0 のまま）
-test('0.7.0・0.8.0・0.9.0・0.9.1: 版と、README の保存の説明（natsu.db・backup・元の JSON を残す・古い版に戻したとき・控えに残る期間）', () => {
-  assert.strictEqual(require('../package.json').version, '0.9.1');
+// 0.9.2 で意図して変えた: 版は 0.9.2（README の保存の説明は 0.7.0 のまま）
+test('0.7.0・0.8.0・0.9.0・0.9.1・0.9.2: 版と、README の保存の説明（natsu.db・backup・元の JSON を残す・古い版に戻したとき・控えに残る期間）', () => {
+  assert.strictEqual(require('../package.json').version, '0.9.2');
   const r = read('README.md');
   for (const w of ['natsu.db', 'data\\backup', '元の JSON', '古い版', '3 日', '2 週']) assert.ok(r.includes(w), w);
 });
@@ -410,4 +412,29 @@ test('0.9.1: CHANGELOG の 0.9.1 の節（計画の下書きから移した）�
   assert.ok(names.length >= 4, `引いた［…］が少ない: ${names.join('・')}`);
   for (const n of names) assert.ok(src.includes(n), `0.9.1 の節の［${n}］が src/ に無い`);
   assert.ok(!/notion/i.test(sec) && !/(?<![\w-])[a-z0-9-]+\.cloudflareaccess\.com/i.test(sec), '0.9.1 の節に書いてはいけない字面がある');
+});
+
+// 0.9.2（計画 docs/plans/2026-10-21-092.md の「CHANGELOG の 0.9.2 の節（下書き）」）: 版を 0.9.2 に上げる commit で、下書きを CHANGELOG.md の頭
+// （0.9.1 の節の上）へ移した（0.9.1 と同じ手順）。計画には「移した」の1行だけを残す。引いた［…］はどれも画面の名前（src/ にある）
+test('0.9.2: CHANGELOG の 0.9.2 の節（計画の下書きから移した）は 0.9.1 の節の上にあり、説明の1行と ⓘ・注意は見えたまま・［ヘルプ］・検索の直しを書き、引いた［…］と画面の文はどれも src/ にある', () => {
+  const cl = read('CHANGELOG.md');
+  assert.ok(cl.includes('\n## natsu-v0.9.2\n'), 'CHANGELOG.md に 0.9.2 の節が無い');
+  const sec = secOf(cl, '## natsu-v0.9.2');
+  assert.ok(cl.indexOf('## natsu-v0.9.2') < cl.indexOf('## natsu-v0.9.1'), '0.9.2 の節が 0.9.1 の上に無い');
+  const plan = read('docs/plans/2026-10-21-092.md');
+  const d = plan.indexOf('\n### CHANGELOG の 0.9.2 の節（下書き）\n');
+  assert.ok(d >= 0, '計画に「CHANGELOG の 0.9.2 の節（下書き）」の見出しが無い');
+  assert.ok(!plan.slice(d, plan.indexOf('\n## ', d + 2)).includes('［更新して再起動］'), '計画に下書きの本文が残っている（移したら「移した」の1行にする）');
+  for (const w of ['［更新して再起動］', '見える説明は1行だけ', 'ⓘ を押すと出ます', 'Esc', '大事な注意は、今までどおり見えたまま', 'ⓘ の中の言葉でも探せます',
+    '［ヘルプ］', 'ヘルプで詳しく見る ↗', '説明の下に並べました', '名前に当たらない行']) assert.ok(sec.includes(w), `0.9.2 の節に「${w}」が無い`);
+  const src = ['src/renderer/app.html', 'src/renderer/overlay.html', 'src/main.js', 'src/mainlib.js'].map(read).join('\n');
+  const names = [...new Set([...sec.matchAll(/［([^］]+)］/g)].map((m) => m[1]))];
+  assert.ok(names.length >= 2, `引いた［…］が少ない: ${names.join('・')}`);
+  for (const n of names) assert.ok(src.includes(n), `0.9.2 の節の［${n}］が src/ に無い`);
+  // 節が引く画面の文（「…」）も、画面にそのままある
+  for (const q of ['※ 録音していることは、会議の参加者に伝えてください。', 'ヘルプで詳しく見る ↗', '録音されるスピーカー']) {
+    assert.ok(sec.includes(q), `0.9.2 の節に「${q}」が無い`);
+    assert.ok(read('src/renderer/app.html').includes(q), `0.9.2 の節の「${q}」が画面に無い`);
+  }
+  assert.ok(!/notion/i.test(sec) && !/(?<![\w-])[a-z0-9-]+\.cloudflareaccess\.com/i.test(sec), '0.9.2 の節に書いてはいけない字面がある');
 });

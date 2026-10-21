@@ -96,6 +96,7 @@ const SCREENS = [
     act: "document.getElementById('tabBtnSettings').click(); const b = document.getElementById('setSearch'); b.value = '自動で止める'; b.dispatchEvent(new Event('input', { bubbles: true }))" },
   // 0.9.2 I-4（計画 docs/plans/2026-10-21-092.md の「取り直す画面」）: 設定の説明を1行にして ⓘ を足した項目（「録音」の暗い・200%・要約・ログインしていない
   // アカウント）、ⓘ の吹き出しを開いた形（モックの「相手の声」「暗い地の文字起こし」「要約」と、200% で箱の中に収まるか）、吹き出しの中にだけある言葉の検索
+  // （足した画面。版を 0.9.2 に上げる commit で CI の画像を基準にした）
   { name: 'settings-record-dark', page: 'app', theme: 'dark', act: `${OPEN_SETTINGS}; ${NAV('setNavRecord')}` },
   { name: 'settings-record-zoom200-light', page: 'app', theme: 'light', zoom: 2, act: `${OPEN_SETTINGS}; ${NAV('setNavRecord')}` },
   { name: 'settings-summary-light', page: 'app', theme: 'light', act: `${OPEN_SETTINGS}; ${NAV('setNavSummary')}` },
@@ -156,9 +157,9 @@ SCREENS.find((x) => x.name === 'notes-page-light').focus = { tabs: 3, want: 'mtT
 // 0.9.2（計画 docs/plans/2026-10-21-092.md の「取り直す画面」）: I-1 で設定の左の列の下に［ヘルプ］を出したので、設定の 7 枚を入れた
 // （I-2・I-3 で説明を1行にして ⓘ を足すのも同じ 7 枚に写る）。I-4 で足す画面も入れる。利用者がまとめて OK と言ったら、版を上げる commit で基準にして空に戻す
 // I-4 で足した画面（まだ基準が無い）も入れた
-const RETAKE = new Set(['settings-light', 'settings-dark', 'settings-zoom200-dark', 'settings-record-light', 'settings-search-light', 'settings-offline-light',
-  'settings-quiet-search-light', 'settings-record-dark', 'settings-record-zoom200-light', 'settings-summary-light', 'settings-account-light',
-  'settings-info-loop-light', 'settings-info-stt-dark', 'settings-info-claude-light', 'settings-info-zoom200-light', 'settings-info-search-light']);
+// 0.9.2（版を 0.9.2 に上げる commit）: 利用者が 2026-10-21 に CI の取り直しの画像（run 39560229700（2649858）・artifact 12327173484 の .after.png。
+// 設定の 7 枚と I-4 で足した 9 枚の 16 枚）を見て OK と言ったので、その画像をバイトのまま基準にし、空に戻した
+const RETAKE = new Set([]);
 const PERF = [{ name: 'open-2000-blocks', budgetMs: 500 }];   // 3回開いた中央値で見る
 const TIME_ZONE = 'Asia/Tokyo';
 const TOLERANCE = 2;   // 色の差（0〜255）がこれ以下の画素は同じとみなす。CI の機械の CPU ごとの描き方の1段の差を拾わないため（揺れの確かめ judgePair は 0 で見る）

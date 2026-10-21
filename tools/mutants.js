@@ -404,8 +404,9 @@ module.exports = [
   // 1枚でも外すと、基準が無いまま比べて赤になることを見る
   // 0.9.0 G-3 で意図して直した: 録音バーの 81 枚を基準にして取り直し待ちを空に戻したので、空の RETAKE に録音バーの画面を黙って入れる形にした
   // 0.9.1 で意図して直した: 版を 0.9.1 に上げる commit で取り直しの 12 枚を基準にして RETAKE を空に戻したので、RETAKE に当たる4つの変異をまた空に当たる形にした
-  { id: 'shots-retake-overlay', file: 'tools/shots/screens.js', from: "const RETAKE = new Set(['settings-light', ", to: "const RETAKE = new Set(['overlay-h-light-rec-100', 'settings-light', ",
-    tests: ['test/shots.test.js'], why: 'O-3 RP9・F14・G-3: 基準にした録音バーの画面を、黙って取り直し待ちに戻さない（基準と違っても NG にしない形に戻さない）。0.9.1 の版を上げる commit で RETAKE を空に戻したので、また空に当たる形にした。0.9.2 I-1 で設定の 7 枚が計画どおり取り直し待ちに入ったので、頭に足す形にした' },
+  // 0.9.2 で意図して直した: 版を 0.9.2 に上げる commit で取り直しの 16 枚を基準にして RETAKE を空に戻したので、RETAKE に当たる4つの変異をまた空に当たる形にした
+  { id: 'shots-retake-overlay', file: 'tools/shots/screens.js', from: 'const RETAKE = new Set([]);', to: "const RETAKE = new Set(['overlay-h-light-rec-100']);",
+    tests: ['test/shots.test.js'], why: 'O-3 RP9・F14・G-3: 基準にした録音バーの画面を、黙って取り直し待ちに戻さない（基準と違っても NG にしない形に戻さない）。0.9.1 の版を上げる commit で RETAKE を空に戻したので、また空に当たる形にした。0.9.2 I-1 で設定の 7 枚が計画どおり取り直し待ちに入ったので、頭に足す形にした。0.9.2 の版を上げる commit で RETAKE を空に戻したので、また空に当たる形にした' },
   { id: 'shots-overflow', file: 'tools/shots/screens.js', from: 'function judgeOverflow(r) {\n', to: 'function judgeOverflow(r) {\n  return { ok: true, note: \'\' };\n',
     tests: ['test/shots.test.js'], why: 'C-1 F11: 横のはみ出しを NG にする' },
   { id: 'shots-zoom', file: 'tools/shots/screens.js', from: '{ name: \'settings-zoom200-dark\', page: \'app\', theme: \'dark\', zoom: 2,', to: '{ name: \'settings-zoom200-dark\', page: \'app\', theme: \'dark\', zoom: 1,',
@@ -556,8 +557,8 @@ module.exports = [
     tests: ['test/invariants.test.js'], why: '不変条件 COLOR-04: JS が付ける live-on に CSS がある' },
   { id: 'shots-palette', file: 'tools/shots/screens.js', from: '  { name: \'search-palette-light\', page: \'app\', theme: \'light\', act: `${OPEN_PAGE}; ${OPEN_PALETTE}` },\n', to: '',
     tests: ['test/shots.test.js'], why: 'R-3: 検索の窓の画面を撮る' },
-  { id: 'shots-palette-retake', file: 'tools/shots/screens.js', from: "const RETAKE = new Set(['settings-light', ", to: "const RETAKE = new Set(['search-palette-light', 'settings-light', ",
-    tests: ['test/shots.test.js'], why: 'R-3 G12・第1b回 C-2: 検索の窓の画面も基準と比べる（取り直し待ちに戻さない。第1d回 A-7 で RETAKE の末尾が録音中のページの3枚に、A-13 で帯の暗い2枚になったので from を直した。G-4 で RETAKE を空に戻したので、空に当たる形にした。0.9.0 U-1 で設定の3枚と notes-tabs-light に、U-2 で設定の項目と検索の2枚、U-3 で準備を選んでいない人のカード「オフライン」の画面も足したので from を直した）。0.9.0 G-3 で RETAKE を空に戻したので、また空に当たる形にした。0.9.1 の版を上げる commit でも空に戻したので、また空に当たる形にした。0.9.2 I-1 で設定の 7 枚が計画どおり取り直し待ちに入ったので、頭に足す形にした' },
+  { id: 'shots-palette-retake', file: 'tools/shots/screens.js', from: 'const RETAKE = new Set([]);', to: "const RETAKE = new Set(['search-palette-light']);",
+    tests: ['test/shots.test.js'], why: 'R-3 G12・第1b回 C-2: 検索の窓の画面も基準と比べる（取り直し待ちに戻さない。第1d回 A-7 で RETAKE の末尾が録音中のページの3枚に、A-13 で帯の暗い2枚になったので from を直した。G-4 で RETAKE を空に戻したので、空に当たる形にした。0.9.0 U-1 で設定の3枚と notes-tabs-light に、U-2 で設定の項目と検索の2枚、U-3 で準備を選んでいない人のカード「オフライン」の画面も足したので from を直した）。0.9.0 G-3 で RETAKE を空に戻したので、また空に当たる形にした。0.9.1 の版を上げる commit でも空に戻したので、また空に当たる形にした。0.9.2 I-1 で設定の 7 枚が計画どおり取り直し待ちに入ったので、頭に足す形にした。0.9.2 の版を上げる commit で RETAKE を空に戻したので、また空に当たる形にした' },
   { id: 'gate-1b2-ledger', file: 'tools/lib/moves.js', from: 'ids: [\'pActs\', \'pMore\', \'pMenu\'],', to: 'ids: [\'pActs\', \'pMore\', \'pMenu\', \'pTitle\'],',
     tests: ['test/gate.test.js'], why: 'L-1: 台帳の中身の固定（1b2 の行に pTitle を足さない）' },
   { id: 'gate-1b2-release', file: 'tools/lib/moves.js', from: '  { file: \'src/renderer/app.html\', lost: [\'section#tabNotes.tab.active\', \'div.notes\', \'aside.side\'],\n    ids: [\'searchBox\', \'fltAll\', \'fltActions\', \'fltFull\'],\n    why: \'第1b2回: 検索の欄と絞り込みを検索の窓へ移すのを natsu-v0.5.0 から1つの差分で見たときの形（リリースのゲート）\' },\n', to: '',
@@ -585,8 +586,8 @@ module.exports = [
     tests: ['test/ui07.app.test.js'], why: 'U-2: 押しっぱなしの繰り返しでは切り替えず、保存もし直さない' },
   { id: 'u2-toggle-revert', file: 'src/renderer/app.html', from: '    if (!(await save(true))) sel.value = prev;', to: '    await save(true);',
     tests: ['test/ui07.app.test.js'], why: 'U-2: 保存しなかったときは欄を前の値に戻す' },
-  { id: 'u2-retake-settings', file: 'tools/shots/screens.js', from: "const RETAKE = new Set(['settings-light', ", to: "const RETAKE = new Set(['notes-page-light', 'settings-light', ",
-    tests: ['test/shots.test.js'], why: 'U-2・第1d回 A-4・G-4: 取り直し待ちを空に戻した後に、設定の画面を黙って取り直し待ちに入れない（A-4 で、空から3枚に戻した形の from に直した。A-7 で後ろに録音中のページの3枚が付いたので from を直した。G-4 で空に戻したので、0.7.0 U-2 と同じ空に当たる形にした。0.9.0 U-1 で設定の3枚が計画どおり取り直し待ちに入ったので、計画の表に無い画面（notes-page-light）を黙って足す形にした）。0.9.0 G-3 で空に戻したので、また空に当たる形にした（計画の表に無い画面を黙って取り直し待ちに入れない）。0.9.1 の版を上げる commit でも空に戻したので、また空に当たる形にした。0.9.2 I-1 で設定の 7 枚が計画どおり取り直し待ちに入ったので、頭に足す形にした' },
+  { id: 'u2-retake-settings', file: 'tools/shots/screens.js', from: 'const RETAKE = new Set([]);', to: "const RETAKE = new Set(['notes-page-light']);",
+    tests: ['test/shots.test.js'], why: 'U-2・第1d回 A-4・G-4: 取り直し待ちを空に戻した後に、設定の画面を黙って取り直し待ちに入れない（A-4 で、空から3枚に戻した形の from に直した。A-7 で後ろに録音中のページの3枚が付いたので from を直した。G-4 で空に戻したので、0.7.0 U-2 と同じ空に当たる形にした。0.9.0 U-1 で設定の3枚が計画どおり取り直し待ちに入ったので、計画の表に無い画面（notes-page-light）を黙って足す形にした）。0.9.0 G-3 で空に戻したので、また空に当たる形にした（計画の表に無い画面を黙って取り直し待ちに入れない）。0.9.1 の版を上げる commit でも空に戻したので、また空に当たる形にした。0.9.2 I-1 で設定の 7 枚が計画どおり取り直し待ちに入ったので、頭に足す形にした。0.9.2 の版を上げる commit で RETAKE を空に戻したので、また空に当たる形にした' },
   // 第2a1回（Task G-3。計画 docs/plans/2026-10-19-2a1.md の「変異確認」の表と、各レーンの点検で足した行）。
   // 場面（mainrun）を使う stage2a1.main.test.js などは pattern で赤になるテストだけを回す（CI の mutate を 20 分に収める）
   { id: 'dk-between-order', file: 'src/db/keys.js', from: '  if (lo !== null && hi !== null && lo >= hi) throw new Error(\'keyBetween: a < b の順になっていない\');\n', to: '',
@@ -1458,7 +1459,7 @@ module.exports = [
   { id: "op-ui-test-hidden", file: "src/renderer/app.html", from: "$('testBtn').hidden = !engineChosen;", to: "$('testBtn').hidden = false;", tests: ["test/stage1d2.app.test.js"], why: "0.9.0 U-3: ［PC の中で試す］を選んでいない人にも出す" },
   { id: "op-ui-banner-signin", file: "src/renderer/app.html", from: "engine: 'エンジンを確かめる', signin: 'ログイン', offline:", to: "engine: 'エンジンを確かめる', offline:", tests: ["test/stage1d2.app.test.js"], why: "0.9.0 U-3: 帯の signin のボタンを出さない" },
   { id: "op-ui-notice-signin", file: "src/renderer/app.html", from: "signin: { label: 'ログイン', run: () => showAccount() }", to: "signin: { label: 'ログインし直す', run: () => showAccount() }", tests: ["test/stage1d2.app.test.js"], why: "0.9.0 U-3: 知らせの signin のボタンを［ログインし直す］にする" },
-  { id: "op-shots-retake", file: "tools/shots/screens.js", from: "const RETAKE = new Set(['settings-light', ", to: "const RETAKE = new Set(['live-light', 'settings-light', ", tests: ["test/shots.test.js"], why: "0.9.0 U-3: RETAKE から settings-offline-light を外す（0.9.0 G-3 で基準にして RETAKE を空に戻したので、settings-offline-light を黙って取り直し待ちに戻す形にした。0.9.1 の版を上げる commit でも RETAKE を空に戻したので、また空に当たる形にした。0.9.2 I-1 で settings-offline-light が計画どおり取り直し待ちに入ったので、計画の表に無い live-light を頭に足す形にした）" },
+  { id: "op-shots-retake", file: "tools/shots/screens.js", from: "const RETAKE = new Set([]);", to: "const RETAKE = new Set(['settings-offline-light']);", tests: ["test/shots.test.js"], why: "0.9.0 U-3: RETAKE から settings-offline-light を外す（0.9.0 G-3 で基準にして RETAKE を空に戻したので、settings-offline-light を黙って取り直し待ちに戻す形にした。0.9.1 の版を上げる commit でも RETAKE を空に戻したので、また空に当たる形にした。0.9.2 I-1 で settings-offline-light が計画どおり取り直し待ちに入ったので、計画の表に無い live-light を頭に足す形にした。0.9.2 の版を上げる commit で RETAKE を空に戻し、settings-offline-light を基準にしたので、また settings-offline-light を黙って取り直し待ちに戻す形にした）" },
   { id: "op-ui-startup-await", file: "src/renderer/app.html", from: "    await engineStateP;\n", to: "", tests: ["test/stage1d2.app.test.js"], why: "0.9.0 U-3（点検・F4）: 起動の連れて行きが engine:status の答えを待たない（準備していない人を設定へ連れて行く）" },
   { id: "op-ui-chosen-missing", file: "src/renderer/app.html", from: "engineChosen = !(s && s.chosen === false);", to: "engineChosen = Boolean(s && s.chosen);", tests: ["test/stage1d2.app.test.js"], why: "0.9.0 U-3（点検・F5）: engine:status に chosen が無いときを「選んでいない」と読む（0.8.0 の人の画面が変わる）" },
   { id: "sp-showlive-close", file: "src/renderer/app.html", from: "if (hasTab('live')) { closeSettings(); activateTab", to: "if (hasTab('live')) { activateTab", tests: ["test/stage1d.app.test.js"], why: "0.9.0 U-1（点検）: Windows の知らせを押しても設定のポップアップを閉じない（録音中のページが後ろに隠れたまま）" },

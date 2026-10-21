@@ -30,12 +30,15 @@ const ADDED_091 = ['settings-record-light', 'live-quiet-light', 'live-quiet-dark
 // 0.9.2（計画 docs/plans/2026-10-21-092.md の「取り直す画面」）で意図して変えた: 取り直し待ちは計画の表の画面だけ（RETAKE_092）。I-1 で設定の左の列の下に
 // ［ヘルプ］を出したので、設定の 7 枚を入れた（I-2・I-3 で説明も変わる）。I-4 で足す画面（NEW_092）は、取り直し待ちの間は基準が無くてよい。
 // 利用者がまとめて OK と言ったら、版を上げる commit で基準にして空に戻す（空になるまで版を上げられない: 下の F14）
-const SETTINGS_092 = ['settings-light', 'settings-dark', 'settings-zoom200-dark', 'settings-record-light', 'settings-search-light', 'settings-offline-light',
-  'settings-quiet-search-light'];
-// I-4 で足した画面（計画の「取り直す画面」の表の（新））
-const NEW_092 = new Set(['settings-record-dark', 'settings-record-zoom200-light', 'settings-summary-light', 'settings-account-light', 'settings-info-loop-light',
-  'settings-info-stt-dark', 'settings-info-claude-light', 'settings-info-zoom200-light', 'settings-info-search-light']);
-const RETAKE_092 = [...SETTINGS_092, ...NEW_092];
+// 0.9.2 で意図して変えた（版を 0.9.2 に上げる commit）: 利用者が 2026-10-21 に CI の取り直しの画像（run 39560229700（2649858）・artifact 12327173484 の
+// .after.png。計画の「取り直す画面」の全部の 16 枚）を見て OK と言ったので、その画像をバイトのまま基準にして取り直し待ちを空に戻した（0.9.1 と同じ手順）。
+// 計画の表の画面（前の RETAKE_092）と、足した画面の「取り直し待ちの間は基準が無くてよい」の例外（前の NEW_092）は外した
+// I-4 で足した画面（計画の「取り直す画面」の表の（新）。撮る並びの順）
+const I4_SCREENS_092 = ['settings-record-dark', 'settings-record-zoom200-light', 'settings-summary-light', 'settings-account-light', 'settings-info-loop-light',
+  'settings-info-stt-dark', 'settings-info-claude-light', 'settings-info-zoom200-light', 'settings-info-search-light'];
+// 0.9.2 で基準にした画面（計画の「取り直す画面」の表の全部: 設定の 7 枚と I-4 で足した 9 枚）
+const ADDED_092 = ['settings-light', 'settings-dark', 'settings-zoom200-dark', 'settings-record-light', 'settings-search-light', 'settings-offline-light',
+  'settings-quiet-search-light', ...I4_SCREENS_092];
 const img = (w, h, fill = [255, 255, 255, 255]) => ({ width: w, height: h, data: Buffer.from(Array.from({ length: w * h }, () => fill).flat()) });
 // 一時フォルダ（日本語と 𠮷 の名前。RF1 と同じ形）。テストの終わりに消す
 const tmp = (t, name) => {
@@ -60,7 +63,7 @@ test('G2: 撮る画面は決まった並び（第1b回の 13 と第1b2回の検�
     // 0.9.1 Q-5 で意図して変えた: 「会議は終わりましたか？」の帯の2枚と、設定の検索「自動で止める」を足した（取り直し待ち・まだ基準が無い）
     'live-quiet-light', 'live-quiet-dark', 'settings-quiet-search-light',
     // 0.9.2 I-4 で意図して変えた: 設定の「録音」の暗い・200%・要約・アカウント、ⓘ の吹き出しを開いた4枚、吹き出しの中の言葉で当たる検索を足した（取り直し待ち・まだ基準が無い）
-    ...NEW_092]);
+    ...I4_SCREENS_092]);
   assert.deepStrictEqual(SH.SCREENS.filter((s) => s.page === 'overlay').map((s) => s.name), PS.screenNames());
   assert.ok(SH.SCREENS.findIndex((s) => s.page === 'overlay') > SH.SCREENS.map((s) => s.page).lastIndexOf('app'), '録音バーの画面が本体の画面の間にある');
   assert.strictEqual(new Set(SH.SCREENS.map((s) => s.name)).size, SH.SCREENS.length, '名前が重なっている');
@@ -229,8 +232,9 @@ test('G2・F14・RP9・G-3: 第1a回の録音バーの画面と基準は無い�
 // 第1d回 G-4 で意図して変えた: 利用者が8枚を OK と言ったので取り直し待ちを空にし、版を 0.8.0 にした。次の版も、取り直し待ちが残る間は 0.8.0 のまま
 // 0.9.0 G-3 で意図して変えた: 利用者が取り直しの画像を OK と言ったので取り直し待ちを空にし、版を 0.9.0 にした。次の版も、取り直し待ちが残る間は 0.9.0 のまま
 // 0.9.1 で意図して変えた: 利用者が取り直しの 12 枚を OK と言ったので取り直し待ちを空にし、版を 0.9.1 にした。次の版も、取り直し待ちが残る間は 0.9.1 のまま
+// 0.9.2 で意図して変えた: 利用者が取り直しの 16 枚を OK と言ったので取り直し待ちを空にし、版を 0.9.2 にした。次の版も、取り直し待ちが残る間は 0.9.2 のまま
 test('F14: 取り直し待ちが残っている間は、版を上げられない（取り直し待ちのまま次の版を出さない）', { timeout: 5000 }, () => {
-  if (SH.RETAKE.size) assert.strictEqual(JSON.parse(read('package.json')).version, '0.9.1', `取り直し待ち ${[...SH.RETAKE].join(',')} を残したまま版を上げた`);
+  if (SH.RETAKE.size) assert.strictEqual(JSON.parse(read('package.json')).version, '0.9.2', `取り直し待ち ${[...SH.RETAKE].join(',')} を残したまま版を上げた`);
 });
 
 test('tools/shots/main.js は画面ごとの答え・拡大・はみ出し・Tab を使う', { timeout: 5000 }, () => {
@@ -432,7 +436,8 @@ test('G2: 作業域より大きい窓が作るときに縮められても（Wind
 // 0.9.0 G-3 で意図して変えた: 利用者が CI の画像を見て OK と言ったので基準にした。取り直し待ちではなく、基準の PNG と比べる
 test('U-3・G-3: settings-offline-light は基準の PNG と比べる（取り直し待ちではない）。答えは chosen 偽・consent 偽の missing・空き 20GB・ログイン中で、項目「オフライン」を開く', { timeout: 5000 }, () => {
   // 0.9.2 I-1 で意図して変えた: 0.9.2 の計画の表（RETAKE_092）にあるときだけ取り直し待ちでよい（［ヘルプ］と I-3 のオフラインの頭の説明）
-  assert.ok(!SH.RETAKE.has('settings-offline-light') || RETAKE_092.includes('settings-offline-light'), '準備を選んでいない人のカードの画面が、計画の表に無いのに取り直し待ちにある');
+  // 0.9.2 で意図して変えた（版を 0.9.2 に上げる commit）: 利用者が OK と言った CI の画像を基準にしたので、また取り直し待ちではない
+  assert.ok(!SH.RETAKE.has('settings-offline-light'), '準備を選んでいない人のカードの画面が取り直し待ちに残っている');
   assert.ok(fs.existsSync(path.join(ROOT, 'test', 'shots', 'win32', 'settings-offline-light.png')), '準備を選んでいない人のカードの画面の基準が無い');
   const s = SH.SCREENS.find((x) => x.name === 'settings-offline-light');
   assert.ok(s, '撮る画面に無い');
@@ -453,19 +458,19 @@ test('U-3・G-3: settings-offline-light は基準の PNG と比べる（取り�
 // 0.9.1: 取り直し待ちは計画の表の画面（ファイルの頭の RETAKE_091）とちょうど同じ
 // 0.9.1 で意図して変えた（版を 0.9.1 に上げる commit）: 取り直し待ちを空に戻した（ファイルの頭の注）。計画の表の画面（ADDED_091）にはどれも基準がある
 // 0.9.2 で意図して変えた: 取り直し待ちは 0.9.2 の計画の表の画面（ファイルの頭の RETAKE_092）とちょうど同じ。取り直し待ちの新しい画面（NEW_092）のほかは基準がある
-test('G2・F14・G-4・0.9.0 G-3・0.9.1・0.9.2: 取り直し待ちは 0.9.2 の計画の表の画面とちょうど同じ。取り直し待ちの新しい画面のほかは、どの画面にも基準の PNG があり（0.9.1 で足した画面も）、本体の画面の大きさは窓の大きさと同じ', { timeout: 5000 }, () => {
-  assert.deepStrictEqual([...SH.RETAKE].sort(), [...RETAKE_092].sort());
+// 0.9.2 で意図して変えた（版を 0.9.2 に上げる commit）: 取り直し待ちを空に戻した（ファイルの頭の注）。計画の表の画面（ADDED_092）にはどれも基準がある
+test('G2・F14・G-4・0.9.0 G-3・0.9.1・0.9.2: 取り直し待ちは無い。どの画面にも基準の PNG があり（0.9.1・0.9.2 で足した画面も）、本体の画面の大きさは窓の大きさと同じ', { timeout: 5000 }, () => {
+  assert.deepStrictEqual([...SH.RETAKE], []);
   const plan = read('docs/plans/2026-10-21-092.md');
   const table = plan.slice(plan.indexOf('## 取り直す画面（RETAKE）'), plan.indexOf('## 実機で利用者に見てもらうこと'));
-  for (const n of RETAKE_092) assert.ok(table.includes(`\`${n}\``), `計画の「取り直す画面」の表に ${n} が無い`);
+  for (const n of ADDED_092) assert.ok(table.includes(`\`${n}\``), `計画の「取り直す画面」の表に ${n} が無い`);
   assert.ok(!SH.RETAKE.has('overlay-processing'), '外した録音バーの画面を取り直し待ちに入れた');
-  for (const n of ADDED_091) {
+  for (const n of [...ADDED_091, ...ADDED_092]) {
     assert.ok(SH.SCREENS.some((s) => s.name === n), `${n} が撮る画面に無い`);
     assert.ok(fs.existsSync(path.join(ROOT, 'test', 'shots', 'win32', `${n}.png`)), `${n} の基準が無い`);
   }
   for (const s of SH.SCREENS) {
     const f = path.join(ROOT, 'test', 'shots', 'win32', `${s.name}.png`);
-    if (NEW_092.has(s.name) && SH.RETAKE.has(s.name)) { assert.ok(!fs.existsSync(f), `${s.name} は新しい画面なのに基準がある`); continue; }
     assert.ok(fs.existsSync(f), `${s.name} の基準が無い`);
     if (s.page === 'overlay') continue;
     const im = P.decodePng(fs.readFileSync(f));
