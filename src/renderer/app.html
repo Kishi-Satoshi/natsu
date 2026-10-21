@@ -928,6 +928,27 @@
             </div>
           </div>
           <div class="card" data-sec="record">
+            <h2>話し声が無いとき</h2>
+            <label class="check" data-row="話し声が無いときに自動で止める"><input type="checkbox" id="autoStopQuiet" />
+              <span>話し声が無いときに自動で止める<br />
+                <span class="d">話し声が続けて無いと、録音中のページと録音バーと Windows の知らせで「会議は終わりましたか？」と聞きます。
+                  5 分たっても答えが無ければ録音を止めて議事録を作ります（話し声の無い終わりの部分は所要時間に入れません）。
+                  一時停止の間は数えません。</span></span></label>
+            <div class="field frow" data-row="知らせるまでの時間">
+              <div class="flead">
+                <label for="autoStopMin">知らせるまでの時間</label>
+              </div>
+              <select id="autoStopMin">
+                <option value="5">5 分</option>
+                <option value="10">10 分（既定）</option>
+                <option value="15">15 分</option>
+                <option value="20">20 分</option>
+                <option value="30">30 分</option>
+                <option value="60">60 分</option>
+              </select>
+            </div>
+          </div>
+          <div class="card" data-sec="record">
             <h2>文字起こし</h2>
             <div class="field">
               <div class="desc">ログインしていて、インターネットにつながっているときは、会議と音声入力の音声を文字起こしの中継に送り、OpenAI（gpt-4o-transcribe）で文字起こしします。中継も OpenAI も、音声と文字を保存しません。つながっていないときは、いつも PC の中で文字起こしします。1on1・面談など外に出したくない会議は、議事録の画面の［この会議は PC の中だけ］を押してください。</div>
@@ -3253,6 +3274,9 @@
     $('stayInTray').checked = Boolean(s.stayInTray);              // 既定 false
     $('themeSel').value = ['light', 'dark'].includes(s.theme) ? s.theme : 'system';
     $('useSystemAudio').checked = Boolean(s.useSystemAudio);      // 既定 false
+    // 0.9.1 Q-3: 話し声が無いときに自動で止める（既定オン・10 分。選ぶ欄に無い値は 10 分を出す）
+    $('autoStopQuiet').checked = s.autoStopQuiet !== false;
+    $('autoStopMin').value = [5, 10, 15, 20, 30, 60].includes(Number(s.autoStopMin)) ? String(Number(s.autoStopMin)) : '10';
     // オンライン（第1c回 C-2）。送り先と同意の欄は 0.7.0 U-1（設計書 D5）で外した
     $('claudeExe').value = s.claudeExe || '';
     loadSpeaker();
@@ -3656,6 +3680,8 @@
       stayInTray: $('stayInTray').checked,
       theme: $('themeSel').value,
       useSystemAudio: $('useSystemAudio').checked,
+      autoStopQuiet: $('autoStopQuiet').checked,   // 0.9.1 Q-3
+      autoStopMin: parseInt($('autoStopMin').value, 10) || 10,
       // オンライン（第1c回 C-2）。送り先と同意のキーは 0.7.0 U-1 で外した（送らない。前の版の値は main が settings.json に残す）。
       // ログイン（第1d回 A-12 から Cloudflare Access の窓）は account:* だけ。画面にメールと確認コードの欄は無い（main は画面のメールを保存しない）
       claudeExe: $('claudeExe').value.trim(),

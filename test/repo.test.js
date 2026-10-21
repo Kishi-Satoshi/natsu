@@ -658,6 +658,7 @@ test('設定カードの並びは指定通り', () => {
     '起動と終了',
     '録音バー',
     'マイクと相手の声',
+    '話し声が無いとき',   // 0.9.1 Q-3（D29）で意図して変えた: 話し声が無いときに自動で止める
     '文字起こし',
     'ユーザー辞書（認識ヒント）',
     '要約（Claude Code）',
@@ -710,7 +711,7 @@ test('設定の各カードが同じ深さにある（枠の外に出ていな�
   const sec = appHtml.slice(a, appHtml.indexOf('    </section>', a));
   const { heads, depth } = divDepthMap(sec);
   assert.strictEqual(depth, 0, '設定セクションの div が閉じ切れていない');
-  assert.strictEqual(heads.length, 9);   // 第1c回 Task C-2: カード「オンライン」を足して 5 つ。0.9.0 U-2 で項目ごとに分けて 9 つ（意図して変えた）
+  assert.strictEqual(heads.length, 10);   // 第1c回 Task C-2: カード「オンライン」を足して 5 つ。0.9.0 U-2 で項目ごとに分けて 9 つ（意図して変えた）。0.9.1 Q-3 で「話し声が無いとき」を足して 10
   for (const h of heads) {
     assert.strictEqual(h.depth, heads[0].depth, `「${h.title}」だけ深さが違う（枠の外に出ている）`);
   }

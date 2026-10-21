@@ -425,11 +425,17 @@ test('U-3・G-3: settings-offline-light は基準の PNG と比べる（取り�
 // 見て OK と言ったら、G-3 でその画像を基準にして空に戻す（空になるまで版を上げられない: 上の F14）。本体の画面は取り直し待ちでなければ基準と比べる
 // 0.9.0 O-4（RP1）で意図して変えた: 設定の「録音バーの置き場所」の欄の名前と選択肢を替えたので、設定の3枚も取り直し待ちにした
 // 0.9.0 G-3 で意図して変えた: 取り直し待ちを空に戻した（上の注）。録音バーの画面の基準の大きさは、上の「G2・F14・RP9・G-3」が panelBounds の答えと比べる
-test('G2・F14・G-4・0.9.0 G-3: 取り直し待ちは無い。どの画面にも基準の PNG があり、本体の画面の大きさは窓の大きさと同じ', { timeout: 5000 }, () => {
-  assert.deepStrictEqual([...SH.RETAKE], []);
+// 0.9.1（計画 docs/plans/2026-10-21-091.md の「取り直す画面」）で意図して変えた: 取り直し待ちは計画の表の画面だけ（RETAKE_091）。Q-3 で設定の項目「録音」に
+// カード「話し声が無いとき」を足したので settings-record-light を入れた。Q-5 が足す新しい画面（NEW_091）は、取り直し待ちの間は基準が無くてよい。
+// 利用者がまとめて OK と言ったら、版を上げる commit で基準にして空に戻す（空になるまで版を上げられない: 上の F14）
+const RETAKE_091 = ['settings-record-light'];
+const NEW_091 = new Set([]);
+test('G2・F14・G-4・0.9.0 G-3・0.9.1: 取り直し待ちは計画の表の画面だけ。取り直し待ちの新しい画面のほかは、どの画面にも基準の PNG があり、本体の画面の大きさは窓の大きさと同じ', { timeout: 5000 }, () => {
+  for (const n of SH.RETAKE) assert.ok(RETAKE_091.includes(n), `${n} は 0.9.1 の計画の「取り直す画面」に無い`);
   assert.ok(!SH.RETAKE.has('overlay-processing'), '外した録音バーの画面を取り直し待ちに入れた');
   for (const s of SH.SCREENS) {
     const f = path.join(ROOT, 'test', 'shots', 'win32', `${s.name}.png`);
+    if (NEW_091.has(s.name) && SH.RETAKE.has(s.name)) { assert.ok(!fs.existsSync(f), `${s.name} は新しい画面なのに基準がある`); continue; }
     assert.ok(fs.existsSync(f), `${s.name} の基準が無い`);
     if (s.page === 'overlay') continue;
     const im = P.decodePng(fs.readFileSync(f));
@@ -568,7 +574,9 @@ test('CI: 撮る道具の見張りの時間は 30 秒 + SCREENS の数 × 6 秒�
 // 同じ直しの続き: 設定の入力とボタンの行（スピーカーの欄とボタン 2 つ）が右の列で折り返したので、行の幅の上限を 460px に（設定の画面だけ。RETAKE にある）。値を今の app.html に合わせた
 test('基準の画像（test/shots/win32）は今の app.html で撮ったもの（app.html を変えたら撮り直しを確かめる）', { timeout: 5000 }, () => {
   const sha = require('node:crypto').createHash('sha256').update(fs.readFileSync(path.join(ROOT, 'src', 'renderer', 'app.html'))).digest('hex');
-  assert.strictEqual(sha, '1b9de993cd9440da55e21bdacd3cdcd38654d41ba3833a235c5805cce72e023f',
+  // 0.9.1 Q-3（D29）: 設定の項目「録音」にカード「話し声が無いとき」（チェックと選ぶ欄）を足した。見える中身が変わるのは settings-record-light で、
+  // RETAKE に入れた（設定のほかの画面は項目「一般」を開くので変わらない）。値を今の app.html に合わせた
+  assert.strictEqual(sha, '56adb2476ba22d4b7153d881405ad0de64e0dfcd9807d3646196578968e9102d',
     'app.html が基準の画像を撮った時と違う。Windows の CI の画面の比べ（捲り棒のつまみも）を見て、基準を取り直してからこの値を直す');
 });
 

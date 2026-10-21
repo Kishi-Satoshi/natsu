@@ -390,6 +390,8 @@ const CARDS = [
   ['general', '起動と終了', ['Windowsサインイン時に自動起動', 'ウィンドウを閉じてもタスクトレイに残す', '効果音']],
   ['record', '録音バー', ['録音バーの置き場所']],
   ['record', 'マイクと相手の声', ['使用するマイク', '議事録で相手の声も録る', '録音されるスピーカー']],
+  // 0.9.1 Q-3（D29）で意図して変えた: 「話し声が無いとき」のカード
+  ['record', '話し声が無いとき', ['話し声が無いときに自動で止める', '知らせるまでの時間']],
   ['record', '文字起こし', ['認識言語', '文字起こし後、カーソル位置へ自動貼り付け', 'フィラー除去']],
   ['record', 'ユーザー辞書（認識ヒント）', ['ユーザー辞書', '業務でよく使う言葉のヒントも渡す']],
   ['summary', '要約（Claude Code）', ['Claude Code', 'Claude Code の場所']],
@@ -401,6 +403,7 @@ const ROW_IDS = {
   ログイン: ['accountSignIn'], ログアウト: ['accountLogout', 'accountWho'], 外観: ['themeSel'], 音声入力ホットキー: ['hotkey', 'hotkeyWarn'], 議事録ホットキー: ['meetingHotkey', 'meetingHotkeyWarn'],
   Windowsサインイン時に自動起動: ['autoLaunch'], ウィンドウを閉じてもタスクトレイに残す: ['stayInTray'], 効果音: ['soundFeedback'], 録音バーの置き場所: ['pillPos'],
   使用するマイク: ['micSelect', 'micReloadBtn'], 議事録で相手の声も録る: ['useSystemAudio'], 録音されるスピーカー: ['spkNow', 'spkReloadBtn', 'spkSettingsBtn'], 認識言語: ['language'],
+  話し声が無いときに自動で止める: ['autoStopQuiet'], 知らせるまでの時間: ['autoStopMin'],
   '文字起こし後、カーソル位置へ自動貼り付け': ['autoPaste'], フィラー除去: ['removeFillers'], ユーザー辞書: ['dictionary', 'dictWarn'], 業務でよく使う言葉のヒントも渡す: ['useBuiltinTerms'],
   'Claude Code': ['claudeState', 'claudeTest', 'claudeLogin', 'claudeInstall', 'claudeHelp'], 'Claude Code の場所': ['claudeExe'], 'PC の中の文字起こし': ['engineState', 'testBtn'],
   'PC の中の文字起こしを取り込む': ['engineFetchBtn', 'engineFetchSummary'], 詳細設定: ['localServerExe', 'sumCtx', 'engineIdleMin'], 更新を確認: ['verNow', 'chkUpdBtn', 'applyUpdBtn', 'updMsg'],
@@ -435,7 +438,8 @@ test('SP4: カードの data-sec と見出しの並びが「設定の項目と�
 // カードを動かしただけで文を変えていないことを見る（文を意図して変えるタスクは、この値をその commit で直す）。
 // 0.9.0 U-3（OFF1・D21）で意図して変えた: カード「オフライン」の説明の文を D21 の文にした（説明の数は 20 のまま。0.8.0 の値は dee80887…）
 // 0.9.0 O-4（RP1）で意図して変えた（統合で当てた）: 録音バーの欄の label を「録音バーの置き場所（表示中はドラッグでも動かせます）」にした（label の数は 29 のまま。U-3 の後の値は 5c94550c…）
-const TEXTS_080 = { labels: [29, 'ef12d932fafab42dc2be223d0f1da8af96a8645104ebaa911558bc58808918e3'], descs: [20, '5c595e07bc93cfdb6f4abd222827eca5056e89609b012ea0039f6763dcdad711'] };
+// 0.9.1 Q-3（D29）で意図して変えた: カード「話し声が無いとき」の label を2つ足した（29 → 31。説明は .desc でなく .check の中の .d なので 20 のまま。前の値は ef12d932…）
+const TEXTS_080 = { labels: [31, 'bf7bd5c38eb12881274e5f77bfb2343f8fc9db1a3287cf58b9df992be9ae45f6'], descs: [20, '5c595e07bc93cfdb6f4abd222827eca5056e89609b012ea0039f6763dcdad711'] };
 test('SP4: 動かした入力の id が全部あり、その行の中にある。文が 0.8.0 と同じ（label の文・.check の文・説明の文）', T, () => {
   const sec = doc.querySelector('#tabSettings');
   for (const [name, ids] of Object.entries(ROW_IDS)) {
@@ -459,13 +463,13 @@ test('SP4: 動かした入力の id が全部あり、その行の中にある�
   assert.ok(doc.querySelector('#language').closest('.field').querySelector('.lockNote'), '認識言語の .lockNote が欄から外れた');
 });
 
-test('SP4: 『録音』を選ぶと、録音バー・マイクと相手の声・文字起こし・ユーザー辞書の4枚だけが出て、#setTitle が『録音』。保存の文と［データ保存先を開く］はどの項目でも出る', T, async () => {
+test('SP4: 『録音』を選ぶと、録音バー・マイクと相手の声・話し声が無いとき（0.9.1 Q-3 で意図して足した）・文字起こし・ユーザー辞書の5枚だけが出て、#setTitle が『録音』。保存の文と［データ保存先を開く］はどの項目でも出る', T, async () => {
   const l = await open();
   await l.drain();
   await click(l, 'tabBtnSettings');
   assert.deepStrictEqual(shownCards(l), ['外観', 'ホットキー', '起動と終了'], '初めの「一般」のカードが違う');
   await pick(l, 'record');
-  assert.deepStrictEqual(shownCards(l), ['録音バー', 'マイクと相手の声', '文字起こし', 'ユーザー辞書（認識ヒント）']);
+  assert.deepStrictEqual(shownCards(l), ['録音バー', 'マイクと相手の声', '話し声が無いとき', '文字起こし', 'ユーザー辞書（認識ヒント）']);
   assert.strictEqual($(l, 'setTitle').textContent, '録音');
   assert.ok(visible($(l, 'openDataBtn')) && visible($(l, 'saveMsg')), '保存の文と［データ保存先を開く］が隠れた');
   for (const [sec, want] of [['account', ['アカウント']], ['summary', ['要約（Claude Code）']], ['offline', ['オフライン']], ['update', ['アップデート']]]) {
@@ -618,7 +622,9 @@ test('SP5: data-row の名前はどれも、その行のラベル（label の文
 const SAVED_080 = { localServerExe: 'C:\\srv\\whisper.exe', localModelPath: 'C:\\m\\ggml.bin', localThreads: 4, localPort: 8990, vadModelPath: '', useVad: true, suppressNst: true,
   sumServerExe: 'C:\\srv\\sum.exe', sumModelPath: 'C:\\m\\sum.gguf', sumThreads: 4, sumPort: 8991, sumCtx: 16384, engineIdleMin: 10, hotkey: 'Control+Shift+Space', meetingHotkey: 'Alt+M',
   segmentSec: 75, pillSlot: 'bottom-center', micId: '', language: 'ja', autoPaste: true, removeFillers: true, soundFeedback: true, autoLaunch: false, dictionary: ['固有名詞'],
-  useBuiltinTerms: true, stayInTray: false, theme: 'system', useSystemAudio: false, claudeExe: '' };
+  useBuiltinTerms: true, stayInTray: false, theme: 'system', useSystemAudio: false, claudeExe: '',
+  // 0.9.1 Q-3（D29）で意図して変えた: 話し声が無いときに自動で止める（読んだ設定に無ければ既定のオン・10 分で送る）
+  autoStopQuiet: true, autoStopMin: 10 };
 test('SP4: 選んだ項目でない欄を変えても、自動保存が今と同じ値を保存する（#tabSettings の change → saveSettings の引数が 0.8.0 と同じキーと値）', T, async () => {
   const l = await open();
   await l.drain();
@@ -758,7 +764,8 @@ test('見た目の直し（モック 案C）: 検索の欄の左に虫めがね�
 
 // 2列の行（名前と説明が左、入力が右）。表のどの欄が2列になるか（左の名前の文）
 const TWO_COL = { themeSel: '外観', hotkey: '音声入力ホットキー', meetingHotkey: '議事録ホットキー', pillPos: '録音バーの置き場所', micSelect: '使用するマイク',
-  spkNow: '録音されるスピーカー', language: '認識言語', claudeTest: '要約（Claude Code）', claudeExe: 'Claude Code の場所' };
+  spkNow: '録音されるスピーカー', language: '認識言語', claudeTest: '要約（Claude Code）', claudeExe: 'Claude Code の場所',
+  autoStopMin: '知らせるまでの時間' };   // 0.9.1 Q-3 で意図して足した
 const TWO_SEL = '#tabSettings .field.frow';
 test('見た目の直し（モック 案C）: 設定の行は、名前（と説明）が左・入力が右の2列。狭い窓（拡大 200%）では縦に積む', T, () => {
   const g = decl(TWO_SEL);
@@ -770,7 +777,7 @@ test('見た目の直し（モック 案C）: 設定の行は、名前（と説�
   for (const c of ['input', 'select', '.hkbox']) assert.strictEqual(decl(`${TWO_SEL} > ${c}`, '@media (max-width: 760px)').width, '100%', `狭い窓で入力（${c}）が幅いっぱいでない`);
   // 2列になる欄（.frow）は表の欄だけ（詳細設定の中は今のまま）。左（.flead）に名前と説明、右に入力が1つ
   assert.deepStrictEqual(doc.querySelectorAll('.frow').map((f) => f.dataset.row), ['外観', '音声入力ホットキー', '議事録ホットキー', '録音バーの置き場所', '使用するマイク',
-    '録音されるスピーカー', '認識言語', 'Claude Code', 'Claude Code の場所']);
+    '録音されるスピーカー', '知らせるまでの時間', '認識言語', 'Claude Code', 'Claude Code の場所']);
   for (const [id, name] of Object.entries(TWO_COL)) {
     const field = doc.querySelector(`#${id}`).closest('.field');
     assert.ok(field.classList.contains('frow'), `#${id} の欄が2列（.frow）でない`);

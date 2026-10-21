@@ -34,6 +34,9 @@
  * 前の表示位置 pillPos と前の自由な位置 pillCustom を表と既定から外した（31 のキー）。前の2つは 0.7.0 U-1 の4つのキーと同じく
  * 「前の版が書いた値」として読まず・直さず・消さない（0.8.0 に戻すと前の位置が戻る）。画面からは保存させない。readSettings は、
  * raw に正しい pillSlot が無いときだけ前の2つの読みを pillFrom で返し、main が起動で1回だけ一番近い置き場所に直す（migratePillSlot）。
+ *
+ * 0.9.1 Q-3（設計書 D29。計画 docs/plans/2026-10-21-091.md の決めたこと 12）で、話し声が無いときに自動で止めるかの autoStopQuiet（既定オン。
+ * useBuiltinTerms と同じく「false でなければオン」）と、知らせるまでの分 autoStopMin（AUTO_STOP_CHOICES のどれか。既定 10。新しい kind pick）を足した（33 のキー）。
  */
 'use strict';
 
@@ -80,6 +83,8 @@ const SLOT_FROM_POS = {
   'top-left': 'top-left', 'top-right': 'top-right', 'bottom-left': 'bottom-left', 'bottom-right': 'bottom-right',
 };
 const THEMES = ['system', 'light', 'dark'];
+// 0.9.1 Q-3: 話し声が無いときに知らせるまでの分（止めるのはその 5 分後。画面の選ぶ欄の選択肢と同じ）
+const AUTO_STOP_CHOICES = [5, 10, 15, 20, 30, 60];
 // ログイン中のメールアドレスの形（第1d回 A-2。中継が受けるのと同じ「空白と @ の無い前 1〜64 字 @ 後ろ 1〜190 字」・全体で 254 字まで）
 const EMAIL_RE = /^[^\s@]{1,64}@[^\s@]{1,190}$/;
 const EMAIL_MAX = 254;
@@ -137,6 +142,9 @@ function defaultSettings(cpuCount) {
     claudeExe: '',
     // ログイン中のメールアドレス（第1d回 A-2。'' はログインしていない）。main のログインの IPC だけが書く
     accountEmail: '',
+    // 話し声が無いときに自動で止める（0.9.1 Q-3）。知らせるまでの分（止めるのはその 5 分後）
+    autoStopQuiet: true,
+    autoStopMin: 10,
   };
 }
 
@@ -153,6 +161,7 @@ function defaultSettings(cpuCount) {
 //   exe:      文字列。.cmd・.bat・.ps1 で終われば ''（shell を通さないと起こせないので使わない。F12。大小を問わない）。
 //             string の kind は全部のパスの欄が共有するので、この決まりは claudeExe の exe にだけ入れる
 //   email:    '' か、メールアドレスの形（isEmailShape）の文字列。違えば ''（ログインしていない形）。文字でなければ why は type
+//   pick:     values のどれかの数（数の文字も数として受け、直した印 type）。違えば既定（範囲の端に寄せない: 選ぶ欄に無い値を作らない）
 const SETTING_RULES = {
   localServerExe: { label: 'whisper-server.exe のパス', kind: 'string' },
   localModelPath: { label: '文字起こしのモデルファイルのパス', kind: 'string' },
@@ -187,6 +196,9 @@ const SETTING_RULES = {
   claudeExe: { label: 'Claude Code の場所', kind: 'exe' },
   // 第1d回 A-2（RL10）
   accountEmail: { label: 'ログイン中のメールアドレス', kind: 'email' },
+  // 0.9.1 Q-3（D29）
+  autoStopQuiet: { label: '話し声が無いときに自動で止める', kind: 'bool', notFalse: true },
+  autoStopMin: { label: '知らせるまでの時間', kind: 'pick', values: AUTO_STOP_CHOICES },
 };
 const SETTING_KEYS = Object.keys(SETTING_RULES);
 
@@ -243,6 +255,13 @@ const FIX = {
   email(v) {
     if (typeof v !== 'string') return { value: '', why: 'type' };
     return v === '' || isEmailShape(v) ? { value: v, why: null } : { value: '', why: 'enum' };
+  },
+  pick(v, { def, rule }) {
+    if (typeof v !== 'number' && typeof v !== 'string') return { value: def, why: 'type' };
+    const n = toNumber(v);
+    if (!Number.isFinite(n)) return { value: def, why: 'type' };
+    if (!rule.values.includes(n)) return { value: def, why: 'enum' };
+    return { value: n, why: typeof v === 'number' ? null : 'type' };
   },
 };
 
@@ -307,6 +326,6 @@ function pickSavable(next) {
 }
 
 module.exports = {
-  normalizeSettings, REMOVED_KEYS, PILL_POSITIONS, PILL_SLOTS, SLOT_FROM_POS, defaultSettings, SETTING_RULES, SETTING_KEYS,
+  normalizeSettings, REMOVED_KEYS, PILL_POSITIONS, PILL_SLOTS, SLOT_FROM_POS, AUTO_STOP_CHOICES, defaultSettings, SETTING_RULES, SETTING_KEYS,
   readSettings, pickSavable, isSettingsShape, isEmailShape,
 };

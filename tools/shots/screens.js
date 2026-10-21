@@ -122,7 +122,9 @@ SCREENS.find((x) => x.name === 'notes-page-light').focus = { tabs: 3, want: 'mtT
 // U-3（OF7）で足した準備を選んでいない人のカード「オフライン」の画面（settings-offline-light。まだ基準が無い）も入れた。
 // 0.9.0 G-3: 利用者が 2026-10-20 に CI の取り直しの画像（run 39496101442（ed9365a）・artifact 12297628165 の .after.png。帯の3枚・notes-tabs-light・
 // 設定の6枚・録音バーの 81 枚）を見て OK と言ったので、その画像をバイトのまま基準にし、録音バーの行と設定の3枚の行ごと外して空に戻した
-const RETAKE = new Set([]);
+// 0.9.1（計画 docs/plans/2026-10-21-091.md の「取り直す画面」）: Q-3 で設定の項目「録音」にカード「話し声が無いとき」を足したので settings-record-light を入れた。
+// 利用者がまとめて OK と言ったら、版を上げる commit で基準にして空に戻す
+const RETAKE = new Set(['settings-record-light']);
 const PERF = [{ name: 'open-2000-blocks', budgetMs: 500 }];   // 3回開いた中央値で見る
 const TIME_ZONE = 'Asia/Tokyo';
 const TOLERANCE = 2;   // 色の差（0〜255）がこれ以下の画素は同じとみなす。CI の機械の CPU ごとの描き方の1段の差を拾わないため（揺れの確かめ judgePair は 0 で見る）
