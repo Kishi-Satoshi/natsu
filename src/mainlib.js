@@ -1231,17 +1231,18 @@ function pcmOf(buf) {
 function wavLoudestDbfs(buf) {
   const p = pcmOf(buf);
   if (!p) return null;
-  const win = Math.max(1, Math.round((p.rate * QUIET_WIN_MS) / 1000));
   const hop = Math.max(1, Math.round((p.rate * QUIET_HOP_MS) / 1000));
-  // 標本の2乗の累積和（窓ごとの和を引き算で出す）
-  const acc = new Float64Array(p.n + 1);
-  for (let i = 0; i < p.n; i++) { const v = buf.readInt16LE(p.body + i * 2); acc[i + 1] = acc[i] + v * v; }
-  const w = Math.min(win, p.n);
+  const per = Math.max(1, Math.round(QUIET_WIN_MS / QUIET_HOP_MS));   // 窓は hop の per 個分（0.5 秒 = 0.25 秒 × 2）
+  // hop ごとの2乗の和（区間の長さの配列を作らない: 300 秒の区間でも hop の数だけ）
+  const blocks = new Float64Array(Math.ceil(p.n / hop));
+  for (let i = 0; i < p.n; i++) { const v = buf.readInt16LE(p.body + i * 2); blocks[(i / hop) | 0] += v * v; }
+  const w = Math.min(per, blocks.length);   // 窓の中の hop の数（音声が窓より短ければ全体で1つの窓）
   let best = 0;
-  for (let s = 0; ; s += hop) {
-    const e = Math.min(p.n, s + w);
-    best = Math.max(best, (acc[e] - acc[e - w]) / w);
-    if (e >= p.n) break;
+  for (let k = 0; k + w <= blocks.length; k++) {
+    let sum = 0;
+    let len = 0;
+    for (let j = k; j < k + w; j++) { sum += blocks[j]; len += Math.min(hop, p.n - j * hop); }
+    best = Math.max(best, sum / len);
   }
   const rms = Math.sqrt(best) / 32768;
   return rms > 0 ? 20 * Math.log10(rms) : -Infinity;
