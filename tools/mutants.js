@@ -975,8 +975,9 @@ module.exports = [
   { id: 'rl-deploy-invocation', file: 'tools/relay-deploy.js', from: 'invocation_logs: false', to: 'invocation_logs: true',
     tests: ['test/relay-deploy.test.js'], why: 'D-1 F6: 呼び出しごとの記録（URL・見出し）を Cloudflare に残さない' },
   // ヘルプセンター H-10 で、答えを読む所は tools/lib/cf-api.js に移った（relay-deploy と help-deploy の両方が使う）
-  { id: 'rl-deploy-print', file: 'tools/lib/cf-api.js', from: '    let j = null;\n    try { j = JSON.parse(await res.text()); } catch (_) { j = null; }\n    const codes',
-    to: '    let j = null;\n    const raw = await res.text();\n    if (!res.ok) console.log(raw);\n    try { j = JSON.parse(raw); } catch (_) { j = null; }\n    const codes',
+  // help-deploy の 403 の調べ（run 39520207427）で、本文を先に text に読むようにした（本文の形と、洗った errors[].message だけを出す）
+  { id: 'rl-deploy-print', file: 'tools/lib/cf-api.js', from: '    let j = null;\n    try { j = JSON.parse(text); } catch (_) { j = null; }\n    const errs',
+    to: '    let j = null;\n    if (!res.ok) console.log(text);\n    try { j = JSON.parse(text); } catch (_) { j = null; }\n    const errs',
     tests: ['test/relay-deploy.test.js'], why: 'D-1 F6: 失敗の答えの本文を出さない（Cloudflare が本文にトークンを入れて返しても記録に出ない）' },
   { id: 'rl-deploy-env', file: '.github/workflows/relay-deploy.yml', from: '    environment: relay   # 秘密はこの環境にだけ置く。環境の Deployment branches は main だけ（利用者の用意の 4）\n', to: '',
     tests: ['test/relay-deploy.test.js'], why: 'D-1 F10: Cloudflare のトークンは環境 relay（main の枝だけ）の秘密から読む' },

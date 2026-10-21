@@ -21,7 +21,8 @@
 //   - サービストークンは、要求を出す口（send）が宛先をちょうど /health の URL（本物の workers.dev の住所か、試しの 127.0.0.1）と
 //     比べて、合うときだけ付ける（Cloudflare の API・転送の行き先には付けない。/health は redirect: 'manual'）。値は出さない（F23）。
 //   - 出すのは手順の名前・HTTP の状態の番号・Cloudflare のエラーの番号（errors[].code の数）・公開した URL・ready の真偽だけ。
-//     答えの本文・トークン・アカウントの ID・例外の文は出さない（このリポジトリの Actions の記録は誰でも読める）。
+//     答えの本文・トークン・アカウントの ID・例外の文は出さない（このリポジトリの Actions の記録は誰でも読める）。失敗のときだけ、
+//     本文の形・決まった字に洗った errors[].message・cf-ray を足す（tools/lib/cf-api.js の why。ヘルプの 4/9 の 403 の調べで足した）。
 
 const fs = require('node:fs');
 const path = require('node:path');

@@ -97,8 +97,17 @@ async function fakeCf({ token, acct, subdomain = 'team-a', dbExists = true, scri
       const p = u.pathname;
       st.reqs.push({ method: req.method, path: (p + u.search).split(acct).join(':acct'), auth: req.headers.authorization || '', cookie: req.headers.cookie || '', body: raw.toString('latin1') });
       try {
-        if (fail && fail.method === req.method && fail.re.test(p)) {
-          return send(res, 403, { success: false, errors: [{ code: 10000, message: `Authentication error ${token} ${acct} ${sessionJwt} body-mark-zz` }], messages: [`body-mark-zz ${token}`], result: { jwt: doneJwt, note: `body-mark-zz ${acct}` } });
+        if (fail && [].concat(fail.method).includes(req.method) && fail.re.test(p)) {
+          // fail.method は1つか配列。fail.body: 'json'（既定。errors[].message にトークン・アカウントの ID・札・メール・HTML を混ぜる）・'html'（前に立つ守りの頁）・
+          //            'empty'・'text'・'json-noerr'（errors の無い JSON）。fail.ray: 見出し cf-ray の値。fail.status: 既定 403
+          const extra = fail.ray ? { 'cf-ray': fail.ray } : {};
+          const code = fail.status || 403;
+          if (fail.body === 'html') return send(res, code, `<!DOCTYPE html><html><head><title>Attention Required! body-mark-zz</title></head><body>${token} ${acct}</body></html>`, 'text/html; charset=UTF-8', extra);
+          if (fail.body === 'empty') return send(res, code, '', 'text/plain', extra);
+          if (fail.body === 'text') return send(res, code, `error code: 1020 body-mark-zz ${acct}`, 'text/plain', extra);
+          if (fail.body === 'json-noerr') return send(res, code, { success: false, result: null, note: `body-mark-zz ${token}` }, 'application/json', extra);
+          return send(res, code, { success: false, errors: [{ code: 10000, message: `Authentication error ${token} ${acct} ${sessionJwt} ${R.mail('owner.test', 'example.co.jp')} <b>x</b>`, documentation_url: 'https://developers.cloudflare.com/workers/authorization/' }],
+            messages: [`body-mark-zz ${token}`], result: { jwt: doneJwt, note: `body-mark-zz ${acct}` } }, 'application/json', extra);
         }
         if (redirect && redirect.method === req.method && redirect.re.test(p)) { res.writeHead(302, { location: '/client/v4/moved' }); return res.end(); }
         if (p === '/client/v4/moved' || p.startsWith('/elsewhere')) return ok(res, { subdomain: 'team-a', note: ARTICLE });
@@ -283,11 +292,104 @@ test('HF5: 出力にトークン・アカウントの ID・上げの札・済み
       assert.strictEqual(r.code, 1, r.text);
       assert.match(r.text, /HTTP 403/);
       assert.match(r.text, /10000/);
-      for (const bad of [s.token, s.acct, cf.st.sessionJwt, cf.st.doneJwt, 'body-mark-zz', 'Authentication error']) assert.ok(!r.text.includes(bad), `出力に ${bad.slice(0, 12)}…`);
+      // run 39520207427 の調べで意図して変えた: errors[].message は洗って出す（トークン・アカウントの ID・札・メール・HTML の字は伏せる・落とす）
+      assert.match(r.text, /本文 JSON・Cloudflare のエラー 10000・文「Authentication error \(redacted\) \(redacted\) \(redacted\) \(email\) bx\/b」・資料 https:\/\/developers\.cloudflare\.com\/workers\/authorization\//);
+      for (const bad of [s.token, s.acct, cf.st.sessionJwt, cf.st.doneJwt, 'body-mark-zz', 'example.co.jp', 'owner.test', '<b>']) assert.ok(!r.text.includes(bad), `出力に ${bad.slice(0, 12)}…`);
       assert.ok(!seq(cf.st).some((x) => x.endsWith('/subdomain') && x.startsWith('POST')), '失敗の後も先へ進んだ');
       assert.strictEqual(cf.st.siteHits, 0, '失敗の後に漏れの確かめをした');
     });
   }
+});
+
+test('H-10（run 39520207427 の調べ）: 失敗の答えの本文の形（JSON・HTML・空・ほか）と cf-ray を出す。本文の文字・トークン・アカウントの ID は出さない', { timeout: 5000 }, async () => {
+  const RAY_OK = '0123456789abcdef-NRT';
+  const want = [
+    ['html', /失敗: 4\/9 資産の上げを始める（HTTP 403・本文 HTML（Cloudflare の API の JSON でない）・cf-ray 0123456789abcdef-NRT）/],
+    ['empty', /失敗: 4\/9 資産の上げを始める（HTTP 403・本文 空・cf-ray 0123456789abcdef-NRT）/],
+    ['text', /失敗: 4\/9 資産の上げを始める（HTTP 403・本文 JSON でも HTML でもない・cf-ray 0123456789abcdef-NRT）/],
+    ['json-noerr', /失敗: 4\/9 資産の上げを始める（HTTP 403・本文 JSON・cf-ray 0123456789abcdef-NRT）/],
+  ];
+  for (const [body, re] of want) {
+    await withCf({ fail: { method: 'POST', re: /\/assets-upload-session$/, body, ray: RAY_OK } }, async ({ s, cf, run }) => {
+      const r = await run();
+      assert.strictEqual(r.code, 1, r.text);
+      assert.match(r.text, re, body);
+      for (const bad of [s.token, s.acct, cf.st.sessionJwt, 'body-mark-zz', 'Attention', '1020']) assert.ok(!r.text.includes(bad), `${body}: 出力に ${bad.slice(0, 12)}…`);
+      assert.strictEqual(cf.st.put, null, `${body}: 上げた`);
+    });
+  }
+  // 形の違う cf-ray は出さない（見出しに混ぜた文字を記録に出さない）
+  for (const ray of ['0123456789abcdef-nrt', '0123456789ABCDEF-NRT', '0123456789abcdef-NRT x', '0123456789abcdef', `0123456789abcdef-NRT${'a'.repeat(40)}`]) {
+    await withCf({ fail: { method: 'GET', re: /\/d1\/database$/, body: 'html', ray } }, async ({ run }) => {
+      const r = await run();
+      assert.strictEqual(r.code, 1, r.text);
+      assert.match(r.text, /失敗: 3\/9 中継の D1 を探す（HTTP 403・本文 HTML（Cloudflare の API の JSON でない））/, ray);
+      assert.ok(!/cf-ray/.test(r.text), `${ray}: 形の違う cf-ray を出した`);
+    });
+  }
+});
+
+test('H-10（run 39520207427 の調べ）: 4/9 が 401・403 なら、natsu-help があるかを1回だけ見て、新しい Worker を作る権限の文を足す（状態の番号だけ。先へ進まない）', { timeout: 5000 }, async () => {
+  const S = `/client/v4/accounts/:acct/workers/scripts/${CFG.scriptName}`;
+  const want = [
+    [false, 403, /4\/9 の調べ: natsu-help はまだありません（HTTP 404）。新しい Worker を作るには、トークンに Workers の Admin の権限が要ります/],
+    [true, 403, /4\/9 の調べ: natsu-help はあります（HTTP 200）。トークンが中継（natsu-relay）だけに絞られていないかを確かめてください/],
+    [false, 401, /4\/9 の調べ: natsu-help はまだありません（HTTP 404）/],
+  ];
+  for (const [scriptExists, status, re] of want) {
+    await withCf({ scriptExists, fail: { method: 'POST', re: /\/assets-upload-session$/, status } }, async ({ s, cf, run }) => {
+      const r = await run();
+      assert.strictEqual(r.code, 1, r.text);
+      assert.match(r.text, re);
+      assert.match(r.text, new RegExp(`失敗: 4/9 資産の上げを始める（HTTP ${status}・`));
+      assert.deepStrictEqual(seq(cf.st).slice(2), [`POST ${S}/assets-upload-session`, `GET ${S}`]);
+      for (const bad of [s.token, s.acct]) assert.ok(!r.text.includes(bad));
+    });
+  }
+  // 見るのも断られたら（Worker を1つに絞ったトークンなど）、その文。ほかの失敗（500）では見に行かない
+  await withCf({ fail: { method: ['POST', 'GET'], re: /\/workers\/scripts\/natsu-help(\/assets-upload-session)?$/ } }, async ({ cf, run }) => {
+    const r = await run();
+    assert.strictEqual(r.code, 1, r.text);
+    assert.match(r.text, /4\/9 の調べ: natsu-help を見られません（HTTP 403）。トークンが中継（natsu-relay）だけに絞られていないか、Workers の Admin の権限があるかを確かめてください/);
+  });
+  await withCf({ fail: { method: 'POST', re: /\/assets-upload-session$/, status: 500 } }, async ({ cf, run }) => {
+    const r = await run();
+    assert.strictEqual(r.code, 1, r.text);
+    assert.ok(!/4\/9 の調べ/.test(r.text), r.text);
+    assert.deepStrictEqual(seq(cf.st).slice(2), [`POST ${S}/assets-upload-session`]);
+  });
+});
+
+test('H-10（run 39520207427 の調べ）: cleanMessage は決まった字（英数字・空白・. , : ; \' ( ) / _ -）だけを残し、メール・URL・長い英数字の並びを伏せ、160 字まで', { timeout: 5000 }, () => {
+  const { cleanMessage, why } = require('../tools/lib/cf-api');
+  const OK = /^[A-Za-z0-9 .,:;'()/_-]*$/;
+  assert.strictEqual(cleanMessage('Authentication error'), 'Authentication error');
+  assert.strictEqual(cleanMessage("workers.api.error.unauthorized: can't (yet) do a/b_c-d; ok,"), "workers.api.error.unauthorized: can't (yet) do a/b_c-d; ok,");
+  const acct = crypto.randomBytes(16).toString('hex');
+  const tok = 'cfut_' + crypto.randomBytes(30).toString('base64url');
+  const jwt = ['eyJhbGciOiJIUzI1NiJ9', 'eyJzdWIiOiJ4In0', crypto.randomBytes(32).toString('base64url')].join('.');
+  const nasty = [
+    `token ${tok} acct ${acct} jwt ${jwt}`, `mail ${R.mail('someone')} end`, 'see https://evil.example/?a=b&c=d end', 'x://y',
+    '<script>alert(1)</script>"`$' + '{x}[]{}<>|&*?!#%^=+~\\', '日本語の文 と 全角（かっこ）', 'line1\nline2\r\n\tline3\u0000\u202e',
+    'a'.repeat(500), 'short ' + 'ab12'.repeat(10), 'deadbeefdeadbeef0', 'secret-value-8', '',
+  ];
+  for (const m of nasty) {
+    const c = cleanMessage(m, ['secret-value-8']);
+    assert.match(c, OK, JSON.stringify(m));
+    assert.ok(c.length <= 160, `${c.length}`);
+    for (const bad of [acct, tok, jwt.split('.')[2], 'someone', 'example.com', 'evil.example', '<', '"', '`', '$', '{', '[', '\\', '日', '（', '\n', 'secret-value-8', 'deadbeefdeadbeef']) {
+      assert.ok(!c.includes(bad), `${JSON.stringify(m)} → ${c}: ${bad}`);
+    }
+  }
+  assert.strictEqual(cleanMessage(`mail ${R.mail('someone')} end`), 'mail (email) end');
+  assert.strictEqual(cleanMessage('see https://evil.example/?a=b end'), 'see (url) end');
+  assert.strictEqual(cleanMessage(`token ${tok}`), 'token (redacted)');
+  assert.strictEqual(cleanMessage('日本語だけ'), '');
+  for (const v of [undefined, null, 1, {}, []]) assert.strictEqual(cleanMessage(v), '');
+  // why は文を 3 つまで・洗い直して出す（cf の外で作った r でも）。cf-ray と資料の URL も形が合うときだけ
+  const w = why({ status: 403, kind: 'json', codes: [10000], messages: ['a1', 'b<2>', `c ${acct}`, 'd4'], doc: 'https://developers.cloudflare.com/x"y', ray: '0123456789abcdef-NRT' });
+  assert.strictEqual(w, 'HTTP 403・本文 JSON・Cloudflare のエラー 10000・文「a1」「b2」「c (redacted)」・cf-ray 0123456789abcdef-NRT');
+  assert.strictEqual(why({ status: 0, net: 'TypeError' }), '届きません: TypeError');
 });
 
 test('HF1: 漏れの確かめ: どれかの道が 2xx なら 1（「ログインせずに中身が見えます」）。Access への 302 なら 0。門の 401・403・503 なら 0 と文。ほかのホストへの 302 は 1。転送を追わない', { timeout: 5000 }, async () => {

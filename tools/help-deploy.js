@@ -21,7 +21,8 @@
 //     漏れの確かめには見出しも cookie も付けない。どれも出力に出さない。
 //   - 転送は追わない（どの要求も redirect: 'manual'。Workers の fetch と同じ決まり。3xx は失敗か、漏れの確かめの分け方で扱う）。
 //   - 出すのは手順の名前・HTTP の状態の番号・Cloudflare のエラーの番号・公開した URL・確かめの結果だけ。答えの本文・転送の行き先
-//     （チームの名前が入る）・例外の文は出さない（このリポジトリの Actions の記録は誰でも読める）。
+//     （チームの名前が入る）・例外の文は出さない（このリポジトリの Actions の記録は誰でも読める）。失敗のときだけ、本文の形
+//     （JSON・HTML・空・ほか）・決まった字に洗った errors[].message・cf-ray を足す（tools/lib/cf-api.js。run 39520207427 の調べ）。
 //   - スクリプトの名前は help/deploy-config.json の natsu-help だけ（中継の natsu-relay とは違う名前でなければ止まる）。
 
 const fs = require('node:fs');
@@ -255,6 +256,17 @@ async function deploy({ env = process.env, fetch = globalThis.fetch, out = (l) =
   const cf = makeCf({ token, api, fetch, timeoutMs: 60000 });
   const stepFail = (name, r) => fail(`失敗: ${name}（${why(r)}）${hintFor(r, PERMS)}`);
   const stepOk = (name, r) => say(`${name}: HTTP ${r.status}`);
+  const sessionDenied = async () => {
+    const g = await cf('GET', S);
+    const head = `4/9 の調べ: ${cfg.scriptName}`;
+    if (g.status === 404) {
+      return `${head} はまだありません（HTTP 404）。新しい Worker を作るには、トークンに Workers の Admin の権限が要ります（Cloudflare の新しい役割の Editor は、今ある Worker を直すだけで作れません）。`
+        + `Cloudflare の画面でトークンに Workers の Admin を足すか、${cfg.scriptName} という名前の Worker を画面で一度作ってから、もう一度 Run workflow を押してください`;
+    }
+    if (g.status === 200) return `${head} はあります（HTTP 200）。トークンが中継（natsu-relay）だけに絞られていないかを確かめてください`;
+    if (g.status === 401 || g.status === 403) return `${head} を見られません（HTTP ${g.status}）。トークンが中継（natsu-relay）だけに絞られていないか、Workers の Admin の権限があるかを確かめてください`;
+    return `${head} があるかを見る: ${why(g)}`;
+  };
 
   // 2. workers.dev のサブドメイン
   let r = await cf('GET', `${A}/workers/subdomain`);
@@ -279,7 +291,14 @@ async function deploy({ env = process.env, fetch = globalThis.fetch, out = (l) =
 
   // 4. 資産の上げの session
   r = await cf('POST', `${S}/assets-upload-session`, { json: { manifest } });
-  if (!r.ok) return stepFail('4/9 資産の上げを始める', r);
+  if (!r.ok) {
+    // 権限に断られたら、natsu-help があるかを1回だけ見て文を足す（状態の番号だけ。run 39520207427 の 4/9 の 403 の調べ）。
+    // Cloudflare の新しい役割では、今ある Worker を直す Editor は新しい Worker を作れず、作るのは Workers の Admin
+    // （https://developers.cloudflare.com/workers/authorization/ 。前の Workers Scripts: Edit に当たるのは Editor:
+    // https://blog.cloudflare.com/workers-granular-authorization/ ）。中継（natsu-relay）は前からあるので、同じトークンでも通りうる（見立て）
+    if (r.status === 401 || r.status === 403) say(await sessionDenied());
+    return stepFail('4/9 資産の上げを始める', r);
+  }
   const sessionJwt = r.result && typeof r.result.jwt === 'string' && /^[\x21-\x7e]{1,8192}$/.test(r.result.jwt) ? r.result.jwt : '';
   const buckets = r.result && Array.isArray(r.result.buckets) ? r.result.buckets : null;
   if (!sessionJwt || !buckets || !buckets.every((b) => Array.isArray(b) && b.every((h) => typeof h === 'string' && assets.has(h)))) {

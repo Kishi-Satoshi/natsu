@@ -54,7 +54,7 @@ async function fakeCf({ token, acct, subdomain = 'team-a', dbExists = false, scr
         svcId: req.headers['cf-access-client-id'], svcSecret: req.headers['cf-access-client-secret'] });
       try {
         if (fail && fail.method === req.method && fail.re.test(p)) {
-          return send(res, 403, { success: false, errors: [{ code: 10000, message: `Authentication error ${token} ${acct} body-mark-zz` }], messages: [`body-mark-zz ${token}`], result: { note: `body-mark-zz ${acct}` } });
+          return send(res, 403, { success: false, errors: [{ code: 10000, message: `Authentication error ${token} ${acct}` }], messages: [`body-mark-zz ${token}`], result: { note: `body-mark-zz ${acct}` } });
         }
         if (redirect && redirect.method === req.method && redirect.re.test(p)) {
           res.writeHead(302, { location: '/client/v4/moved' }); return res.end();
@@ -254,7 +254,7 @@ test('F6: 呼び出しごとの記録を止める（observability.logs.invocatio
   } finally { await cf.close(); }
 });
 
-test('F6: 失敗の答えの本文を出さない（Cloudflare が本文にトークンを入れて返しても）。出すのは手順・状態の番号・エラーの番号だけ', { timeout: 5000 }, async () => {
+test('F6: 失敗の答えの本文を出さない（Cloudflare が本文にトークンを入れて返しても）。出すのは手順・状態の番号・エラーの番号・本文の形・洗ったエラーの文だけ', { timeout: 5000 }, async () => {
   const s = secrets();
   for (const fail of [{ method: 'PUT', re: /\/workers\/scripts\/natsu-relay$/ }, { method: 'GET', re: /\/workers\/subdomain$/ }, { method: 'POST', re: /\/query$/ }]) {
     const cf = await fakeCf({ ...s, fail });
@@ -264,7 +264,10 @@ test('F6: 失敗の答えの本文を出さない（Cloudflare が本文にト�
       assert.match(r.text, /HTTP 403/);
       assert.match(r.text, /10000/);
       assert.match(r.text, /トークンの権限/);
-      for (const bad of [s.token, s.acct, 'body-mark-zz', 'Authentication error']) assert.ok(!r.text.includes(bad), `出力に ${bad}`);
+      // ヘルプの 4/9 の 403 の調べ（run 39520207427）で意図して変えた: 本文の形と、洗った errors[].message（トークン・アカウントの ID は伏せる）を出す。
+      // ほかの本文（messages・result）は今までどおり出さない
+      assert.match(r.text, /（HTTP 403・本文 JSON・Cloudflare のエラー 10000・文「Authentication error \(redacted\) \(redacted\)」）/);
+      for (const bad of [s.token, s.acct, 'body-mark-zz']) assert.ok(!r.text.includes(bad), `出力に ${bad}`);
       assert.ok(!seq(cf.st).some((x) => x.endsWith('/subdomain') && x.startsWith('POST')), '失敗の後も先へ進んだ');
     } finally { await cf.close(); }
   }
