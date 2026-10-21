@@ -374,6 +374,18 @@ test('H-9: 門のページは <meta name="natsu-help" content="gate"> で、scri
   const r405 = gatePage(405);
   assert.strictEqual(r405.status, 405);
   assert.strictEqual(await r405.text(), '');
+  // 準備中の理由: 503 のページにだけ、小さな灰色の行で決まった短い符号（小文字・数字・ハイフン）を出す。符号でなければ行ごと出さない
+  for (const st of [401, 403, 503]) assert.ok(!(await gatePage(st).text()).includes('理由'), `${st}: 理由を渡していないのに行がある`);
+  const why = await gatePage(503, { why: 'cfg-aud' }).text();
+  assert.ok(why.includes('<p class="why">（理由: cfg-aud）</p>'), why);
+  assert.ok(why.indexOf(TEXT[503]) < why.indexOf('（理由: cfg-aud）'), '理由の行は準備中の文の後');
+  assert.match(why, /\.why\{[^}]*color:#[0-9a-f]{6}/, '理由の行の色（灰色）が無い');
+  for (const st of [401, 403]) assert.ok(!(await gatePage(st, { why: 'aud' }).text()).includes('理由'), `${st}: 401・403 のページは変えない`);
+  for (const bad of ['Cfg-Aud', 'cfg aud', '<b>x</b>', 'a'.repeat(33), '', R.mail('x'), 1, null, { toString: () => 'cfg-aud' }]) {
+    assert.ok(!(await gatePage(503, { why: bad }).text()).includes('理由'), `符号でない理由を出した: ${String(bad)}`);
+  }
+  assert.strictEqual(await gatePage(503, { why: 'cfg-aud', head: true }).text(), '', 'HEAD に本文');
+  assert.strictEqual(await gatePage(405, { why: 'method' }).text(), '', '405 に本文');
 });
 
 test('H-9: 門の記録にメール・JWT・チームの名前が無い（requireAccess の記録のまま）', { timeout: 5000 }, async () => {
@@ -397,11 +409,127 @@ test('H-9: 門の記録にメール・JWT・チームの名前が無い（requir
   });
 });
 
-test('R3: help-gate.mjs が読むのは ./access.mjs・./config.mjs だけ（stt・limits・schema・worker を読まない）。console・node:・Buffer が無い', { timeout: 5000 }, () => {
+// 準備中の理由（門の 503・405 の1行）: 出した後に Workers Logs に何も出ず、どの 503 か分からなかった（記録は requireAccess の
+// 失敗だけで、門が自分で返す 503 は何も残さなかった）。門が自分で返す 503・405 は必ず1行 { ev: 'help', st, r } を残し、503 のページにも
+// 同じ符号を「（理由: …）」で出す。値（チームの名前・AUD・ドメイン・メール・例外の文）は出さない
+const helpLogs = (logs) => logs.map((l) => JSON.parse(l)).filter((e) => e.ev === 'help');
+
+test('HF1（準備中の理由）: 設定の欠けは、欠けた欄を cfg-team・cfg-aud・cfg-domains（重なれば cfg-team-aud のようにつなぐ）で、記録の r と 503 のページの「（理由: …）」に出す。値は出さない', { timeout: 10000 }, async () => {
+  const cases = [
+    [{ TEAM_DOMAIN: undefined }, 'cfg-team'],
+    [{ TEAM_DOMAIN: 'https://natsu-test.cloudflareaccess.com.evil.example' }, 'cfg-team'],
+    [{ POLICY_AUD: undefined }, 'cfg-aud'],
+    [{ POLICY_AUD: 'AB'.repeat(32) }, 'cfg-aud'],
+    [{ POLICY_AUD: 'ab'.repeat(31) }, 'cfg-aud'],
+    [{ ALLOWED_EMAIL_DOMAINS: undefined }, 'cfg-domains'],
+    [{ ALLOWED_EMAIL_DOMAINS: 'not valid, @x' }, 'cfg-domains'],
+    [{ TEAM_DOMAIN: undefined, POLICY_AUD: undefined }, 'cfg-team-aud'],
+    [{ TEAM_DOMAIN: undefined, ALLOWED_EMAIL_DOMAINS: '' }, 'cfg-team-domains'],
+    [{ POLICY_AUD: 'x', ALLOWED_EMAIL_DOMAINS: undefined }, 'cfg-aud-domains'],
+    [{ TEAM_DOMAIN: '', POLICY_AUD: '', ALLOWED_EMAIL_DOMAINS: '' }, 'cfg-team-aud-domains'],
+  ];
+  for (const [over, code] of cases) {
+    await scene({ env: over }, async ({ call, sign, fa, logs, assets }) => {
+      const jwt = await sign();
+      const label = `${Object.keys(over).join('+')} → ${code}`;
+      for (const j of [undefined, jwt]) {
+        logs.length = 0;
+        const r = await call('GET', '/', { jwt: j });
+        assertGate(r, 503, label);
+        assert.ok(r.text.includes(TEXT[503]), label);
+        assert.ok(r.text.includes(`（理由: ${code}）`), `${label}: ${r.text}`);
+        assert.deepStrictEqual(logs.map((l) => JSON.parse(l)), [{ ev: 'help', st: 503, r: code }], label);
+        const seen = logs.join('\n') + r.text;
+        for (const s of [fa.teamDomain, 'natsu-test', fa.aud, 'example.com', jwt]) assert.ok(!seen.includes(s), `${label}: 値 ${s.slice(0, 16)}… が出た`);
+      }
+      logs.length = 0;
+      const h = await call('HEAD', '/search-index.json');
+      assertGate(h, 503, `${label} HEAD`);
+      assert.strictEqual(h.text, '');
+      assert.deepStrictEqual(helpLogs(logs), [{ ev: 'help', st: 503, r: code }], `${label} HEAD`);
+      assert.strictEqual(assets.hits, 0, label);
+    });
+  }
+});
+
+test('H-9（門の理由）: ASSETS が無い → no-assets、ほかのサイトへの転送 → assets-redirect、思わぬ誤り → error（例外の型の名前だけを小文字で v に。文は出さない）、GET・HEAD のほか → 405 で method。requireAccess の 503 はその符号をページに出し、門は記録を重ねない。401・403 のページに理由は無い', { timeout: 10000 }, async () => {
+  await scene({ env: { ASSETS: undefined } }, async ({ call, sign, logs }) => {
+    const r = await call('GET', '/', { jwt: await sign() });
+    assertGate(r, 503, 'ASSETS なし');
+    assert.ok(r.text.includes('（理由: no-assets）'), r.text);
+    assert.deepStrictEqual(helpLogs(logs), [{ ev: 'help', st: 503, r: 'no-assets' }]);
+  });
+  await scene({}, async ({ call, sign, logs, env, fa }) => {
+    const jwt = await sign();
+    // 正しい人の 200 と転送の 307 では門の記録を残さない
+    for (const p of ['/', '/start']) await call('GET', p, { jwt });
+    assert.deepStrictEqual(helpLogs(logs), [], '通った要求で門の記録が出た');
+    for (const p of ['/away-host', '/away-slashes', '/away-backslash']) {
+      logs.length = 0;
+      const r = await call('GET', p, { jwt });
+      assertGate(r, 503, p);
+      assert.ok(r.text.includes('（理由: assets-redirect）'), `${p}: ${r.text}`);
+      assert.deepStrictEqual(helpLogs(logs), [{ ev: 'help', st: 503, r: 'assets-redirect' }], p);
+      assert.ok(!logs.join('\n').includes('evil.example'), p);
+    }
+    // 405（本文なし）も1行
+    for (const method of ['POST', 'OPTIONS']) {
+      logs.length = 0;
+      const r = await call(method, '/', { jwt });
+      assertGate(r, 405, method);
+      assert.strictEqual(r.text, '');
+      assert.deepStrictEqual(logs.map((l) => JSON.parse(l)), [{ ev: 'help', st: 405, r: 'method' }], method);
+    }
+    // 思わぬ誤り: 例外の型の名前（英字だけ・32 字まで）だけを小文字で v に。文（メール・ドメイン）は記録にもページにも出ない
+    const secret = `${R.mail('Secret.Person')} ${fa.teamDomain}`;
+    class Odd1 extends Error {}
+    const named = (n) => { const C = class extends Error {}; Object.defineProperty(C, 'name', { value: n }); return new C(secret); };
+    for (const [label, thrown, v] of [
+      ['TypeError', new TypeError(secret), 'typeerror'],
+      ['RangeError', new RangeError(secret), 'rangeerror'],
+      ['英字と数字の名前', new Odd1(secret), undefined],
+      ['ハイフンの名前', named('Bad-Name'), undefined],
+      ['33 字の名前', named('E'.repeat(33)), undefined],
+      ['文字を投げる', secret, undefined],
+      ['null を投げる', null, undefined],
+    ]) {
+      env.ASSETS = { fetch: async () => { throw thrown; } };
+      logs.length = 0;
+      const r = await call('GET', '/', { jwt });
+      assertGate(r, 503, label);
+      assert.ok(r.text.includes('（理由: error）'), `${label}: ${r.text}`);
+      assert.deepStrictEqual(helpLogs(logs), [v ? { ev: 'help', st: 503, r: 'error', v } : { ev: 'help', st: 503, r: 'error' }], label);
+      const seen = logs.join('\n') + r.text;
+      for (const s of [secret, 'secret.person', 'natsu-test', 'example.com']) assert.ok(!seen.toLowerCase().includes(s.toLowerCase()), `${label}: ${s.slice(0, 16)}… が出た`);
+    }
+  });
+  // requireAccess の 503（ほかの app の aud・D1 が無い）: ページに requireAccess の符号を出す。記録は requireAccess の1行だけ（門は重ねない）
+  for (const [label, over, signOpts, code] of [['ほかの app の aud', {}, { aud: ['ab'.repeat(32)] }, 'aud'], ['D1 なし', { DB: undefined }, {}, 'not-ready']]) {
+    await scene({ env: over }, async ({ call, sign, logs }) => {
+      const r = await call('GET', '/', { jwt: await sign(signOpts) });
+      assertGate(r, 503, label);
+      assert.ok(r.text.includes(`（理由: ${code}）`), `${label}: ${r.text}`);
+      assert.deepStrictEqual(helpLogs(logs), [], label);
+      assert.ok(logs.map((l) => JSON.parse(l)).some((e) => e.ev === 'access' && e.st === 503 && e.r === code), logs.join('\n'));
+    });
+  }
+  // 401・403 のページは変えない（理由の行が無い）
+  await scene({}, async ({ call, sign, fa, logs }) => {
+    for (const [label, r, st] of [['JWT なし', await call('GET', '/'), 401], ['サービストークン', await call('GET', '/', { jwt: await fa.service() }), 403],
+      ['会社のドメインでない', await call('GET', '/', { jwt: await sign({ email: R.mail('test.user', 'evil.example') }) }), 403]]) {
+      assertGate(r, st, label);
+      assert.ok(!r.text.includes('理由'), `${label}: ${r.text}`);
+    }
+    assert.deepStrictEqual(helpLogs(logs), []);
+  });
+});
+
+// 準備中の理由の記録（門の 503・405 の1行）で意図して変えた: 門は ./log.mjs の logEvent も読む（access.mjs がもう読んでいるので、上げるファイルの組は変わらない）
+test('R3: help-gate.mjs が読むのは ./access.mjs・./config.mjs・./log.mjs だけ（stt・limits・schema・worker を読まない）。console・node:・Buffer が無い', { timeout: 5000 }, () => {
   const src = fs.readFileSync(path.join(R.RELAY_DIR, 'help-gate.mjs'), 'utf8');
   const code = src.replace(/^\s*\/\/.*$/gm, '');
   const mods = [...code.matchAll(/\bfrom\s+['"]([^'"]+)['"]|\bimport\s*\(\s*['"]([^'"]+)['"]|^\s*import\s+['"]([^'"]+)['"]/gm)].map((m) => m[1] || m[2] || m[3]);
-  assert.deepStrictEqual(mods.sort(), ['./access.mjs', './config.mjs']);
+  assert.deepStrictEqual(mods.sort(), ['./access.mjs', './config.mjs', './log.mjs']);
   assert.ok(!/\bconsole\./.test(code), 'console を使う');
   assert.ok(!/node:|\brequire\s*\(/.test(code), 'node: か require を使う');
   assert.ok(!/\bBuffer\b/.test(code), 'Buffer を使う');
