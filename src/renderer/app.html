@@ -795,9 +795,9 @@
           <button type="button" class="setnav-item" id="setNavOffline" role="tab" data-sec="offline" aria-selected="false" tabindex="-1"><svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="4" width="13" height="9" rx="1.5"/><path d="M1.8 15.8h16.4M8 8.5h4"/></svg><span>オフライン</span></button>
           <button type="button" class="setnav-item" id="setNavUpdate" role="tab" data-sec="update" aria-selected="false" tabindex="-1"><svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M16 10a6 6 0 0 1-10.6 3.9M4 10a6 6 0 0 1 10.6-3.9M14.9 3v3.2h-3.2M5.1 17v-3.2h3.2"/></svg><span>更新</span></button>
         </div>
-        <!-- 0.9.0 U-4（SP6・SP7・F15）: 下に［ヘルプセンター］（ヘルプのサイトが出るまで hidden: HELP_SITE_LIVE と koeApp.openHelp）と版の文字 -->
+        <!-- 0.9.0 U-4（SP6・SP7・F15）: 下に［ヘルプ］（ヘルプのサイトが出るまで hidden: HELP_SITE_LIVE と koeApp.openHelp。0.9.2 I-1 で名前を「ヘルプ」にして出した）と版の文字 -->
         <div class="setfoot">
-          <button type="button" class="setnav-item" id="setHelpLink" hidden><svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="10" cy="10" r="7"/><path d="M8 8a2 2 0 1 1 2.8 1.8c-.5.3-.8.7-.8 1.2v.4M10 14h.01"/></svg><span>ヘルプセンター</span></button>
+          <button type="button" class="setnav-item" id="setHelpLink" hidden><svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="10" cy="10" r="7"/><path d="M8 8a2 2 0 1 1 2.8 1.8c-.5.3-.8.7-.8 1.2v.4M10 14h.01"/></svg><span>ヘルプ</span></button>
           <span class="setver" id="setVer"></span>
         </div>
       </nav>
@@ -1211,8 +1211,9 @@
   // 開く道（サイドバー・showAccount・showEngineSettings・帯と知らせのボタン・起動の連れて行き）は、どれも openSettings を通る。
   // 開いた印は #tabSettings の active（今のテストの見方のまま）と #settingsModal の hidden。付け外しするのは openSettings・closeSettings だけ。
   // 閉じ方は Esc・×・外の暗い所。Esc は中の小さな部品が先に使う（ホットキーの欄は欄から抜けるだけ）。後ろ（.side・.col）は inert
-  // ［ヘルプセンター］はヘルプのサイトが出るまで出さない（決めたこと 19）。真にするのは G-3 だけ（ヘルプの計画の H-12 が入り、利用者がサイトを開けたと言ったとき）
-  const HELP_SITE_LIVE = false;
+  // ［ヘルプ］（0.9.0 の［ヘルプセンター］）はヘルプのサイトが出るまで出さない（0.9.0 決めたこと 19）。
+  // 0.9.2 I-1: ヘルプの計画の H-12 が入り（main の app:open-help・preload の openHelp）、利用者がログインしてサイトを開けた（2026-10-21）ので真にした
+  const HELP_SITE_LIVE = true;
   const SETTINGS_SECS = [{ sec: 'account', name: 'アカウント' }, { sec: 'general', name: '一般' }, { sec: 'record', name: '録音' },
     { sec: 'summary', name: '要約' }, { sec: 'offline', name: 'オフライン' }, { sec: 'update', name: '更新' }];
   let setSec = 'general';     // 前に選んだ項目（アプリを閉じるまで覚える。window-state.json には書かない: K8）
@@ -1367,14 +1368,11 @@
     if (out) closeSettings();
   });
   $('setClose').addEventListener('click', () => closeSettings());
-  // ［ヘルプセンター］: 押したら main の openHelp を引数なしで1回（URL は main だけが持つ: ヘルプの計画の H-12）。ポップアップは閉じない。
-  // 口 openHelp はヘルプの計画の H-12 が preload に足す（この版の preload にはまだ無い）。preload に無い口を名前で書くと、画面が使う口は
-  // preload にあることの見張り（不変条件 IPC-02・repo）が赤になるので、H-12 が入るまでは名前を文字列で引き、無ければ出さない・呼ばない
-  //（H-12 が入ったら、口の名前をそのまま書く形に直す）
-  const HELP_API = 'openHelp';
-  const helpApi = () => (HELP_SITE_LIVE && typeof window.koeApp[HELP_API] === 'function' ? window.koeApp[HELP_API] : null);
-  $('setHelpLink').hidden = !helpApi();
-  $('setHelpLink').addEventListener('click', () => { const f = helpApi(); if (f) f(); });
+  // ［ヘルプ］: 押したら main の openHelp を引数なしで1回（ヘルプのホーム。URL は main だけが持つ: ヘルプの計画の H-12）。ポップアップは閉じない。
+  // 0.9.2 I-1: H-12 が preload に口を足したので、0.9.0 の口の名前を文字列で引く回り道をやめ、名前をそのまま書く（口が無い古い preload では出さない・呼ばない）
+  const helpOk = () => HELP_SITE_LIVE && typeof window.koeApp.openHelp === 'function';
+  $('setHelpLink').hidden = !helpOk();
+  $('setHelpLink').addEventListener('click', () => { if (helpOk()) window.koeApp.openHelp(); });
   // 左の列: 押すとその項目。↑↓ で前後（端で回る）、Home・End で端（role="tablist"・縦）
   $('setNav').addEventListener('click', (ev) => {
     const b = ev.target && typeof ev.target.closest === 'function' ? ev.target.closest('.setnav-item') : null;

@@ -101,6 +101,9 @@ const {
 } = require('./mainlib');
 // クリップボードの読み書き（mainlib.copyPrivate・deliverText）は main.js の同じ名前の包みとぶつかるので、lib から呼ぶ
 const lib = require('./mainlib');
+// 0.9.2 I-1（ヘルプの計画の H-12）: NaTsu ヘルプセンター（Access の後ろ。中継と同じ natsu-code の workers.dev）。住所はここにだけ置き、
+// 画面は記事の名前だけを渡す（app:open-help が lib.helpPath の決まった一覧で照らし、無ければホーム）
+const HELP_URL = 'https://natsu-help.natsu-code.workers.dev/';
 
 // package.json の build.appId の写し。配る package.json から build は消えるので、ここに持つ
 // （identity.test.js が食い違いを見る）。インストーラーが付けるショートカットの AppUserModelID と同じ
@@ -5113,6 +5116,12 @@ function setupIpc() {
     // URL は REPO 定数から組み立てる。画面から受け取ったURLを開くと、
     // 表示中の文字列次第で任意のページを開けてしまう。
     shell.openExternal(`https://github.com/${updater.REPO}/releases/latest`);
+    return true;
+  });
+  // 0.9.2 I-1: ヘルプセンターを既定のブラウザで開く。画面から来るのは記事の名前（例 record/pause）だけで、決まった一覧
+  // （lib.HELP_ARTICLES = help/site.json）にちょうどある名前だけ道にする。ほか（住所・文字でない物）はホーム。住所は画面から受け取らない
+  ipcMain.handle('app:open-help', (_e, article) => {
+    shell.openExternal(`${HELP_URL}${lib.helpPath(article)}`).catch(() => {});
     return true;
   });
   ipcMain.handle('app:version', () => ({ version: app.getVersion(), repo: updater.REPO }));

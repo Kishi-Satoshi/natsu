@@ -210,9 +210,11 @@ test('外部URLを開くのはコード内で組み立てたものだけ', () =>
   // 任意のページを開けてしまう。許すのは次の2つだけ。
   //   - REPO 定数から組み立てたリリースページ
   //   - Windows のサウンド設定（固定のURI）
+  //   - （0.9.2 I-1 で意図して足した）HELP_URL の定数と、決まった記事の一覧で照らした道（lib.helpPath。一覧に無ければ ''）
   const ALLOWED = [
     /^`https:\/\/github\.com\/\$\{updater\.REPO\}/,
     /^'ms-settings:[a-z]+'$/,
+    /^`\$\{HELP_URL\}\$\{lib\.helpPath\(article$/,
   ];
   const calls = [...main.matchAll(/shell\.openExternal\(([^)]*)\)/g)].map((m) => m[1].trim());
   assert.ok(calls.length > 0, 'openExternal の呼び出しが見つからない');

@@ -648,28 +648,33 @@ test('SP4: 選んだ項目でない欄を変えても、自動保存が今と同
 // ---------------------------------------------------------------- U-4（SP6・SP7・F15）
 // ［ヘルプセンター］は、ヘルプのサイトが出るまで出さない（HELP_SITE_LIVE が真で、ヘルプの計画の H-12 の koeApp.openHelp があるときだけ）。
 // 真の形は、app.html の定数の行を書き換えた写しで走らせる（真にするのは G-3 だけ）
-const LIVE_LINE = 'const HELP_SITE_LIVE = false;';
+// 0.9.2 I-1 で意図して変えた: H-12 が入り（preload の openHelp・main の app:open-help）、利用者がサイトを開けたので HELP_SITE_LIVE を真にし、名前を「ヘルプ」に
+// した（計画 docs/plans/2026-10-21-092.md の決めたこと 11）。偽の形は定数の行を偽に書き換えた写しで、口の無い形は preload から openHelp の行を外した写しで走らせる
+const LIVE_LINE = 'const HELP_SITE_LIVE = true;';
 const P_HELP = preloadWith('uiState', 'uiSave', 'meetingSetPaused', 'openHelp');
-const openHelpApp = (live, preloadSrc) => load(APP, { preloadSrc, html: live ? html.replace(LIVE_LINE, 'const HELP_SITE_LIVE = true;') : html,
+const P_NOHELP = P1B.replace(/^ {2}openHelp:.*\n/m, '');
+const openHelpApp = (live, preloadSrc) => load(APP, { preloadSrc, html: live ? html : html.replace(LIVE_LINE, 'const HELP_SITE_LIVE = false;'),
   returns: { pagesSearch: () => LIST, pageGet: PAGE, uiState: UI(), openHelp: () => ({ ok: true }) } });
-test('SP6・F15: HELP_SITE_LIVE が偽なら、openHelp があっても［ヘルプセンター］は hidden', T, async () => {
-  assert.strictEqual(html.split(LIVE_LINE).length, 2, 'app.html に HELP_SITE_LIVE = false の行がちょうど1つ無い');
+test('SP6・F15: HELP_SITE_LIVE が偽なら、openHelp があっても［ヘルプ］は hidden', T, async () => {
+  assert.strictEqual(html.split(LIVE_LINE).length, 2, 'app.html に HELP_SITE_LIVE = true の行がちょうど1つ無い');
   const l = await openHelpApp(false, P_HELP);
   await l.drain();
   assert.ok(l.apis.koeApp.includes('openHelp'), '前提: 偽の preload に openHelp が無い');
   await click(l, 'tabBtnSettings');
   const b = $(l, 'setHelpLink');
-  assert.ok(b, '［ヘルプセンター］の要素が無い');
-  assert.strictEqual(b.hidden, true, 'サイトが出る前に［ヘルプセンター］を出した');
-  assert.ok(b.closest('.setfoot') && b.closest('.setnav'), '［ヘルプセンター］が左の列の下に無い');
+  assert.ok(b, '［ヘルプ］の要素が無い');
+  assert.strictEqual(b.hidden, true, 'サイトが出る前に［ヘルプ］を出した');
+  assert.ok(b.closest('.setfoot') && b.closest('.setnav'), '［ヘルプ］が左の列の下に無い');
+  await click(l, b);
+  assert.deepStrictEqual(l.called('openHelp'), [], '隠した［ヘルプ］で openHelp を呼んだ');
   assert.deepStrictEqual(l.errors.map(fmt), []);
 });
 test('SP6・F15: HELP_SITE_LIVE が真でも openHelp が無ければ hidden', T, async () => {
-  const l = await openHelpApp(true, P1B);
+  const l = await openHelpApp(true, P_NOHELP);
   await l.drain();
   assert.ok(!l.apis.koeApp.includes('openHelp'), '前提: preload に openHelp がある');
   await click(l, 'tabBtnSettings');
-  assert.strictEqual($(l, 'setHelpLink').hidden, true, '押しても何も起きない［ヘルプセンター］を出した');
+  assert.strictEqual($(l, 'setHelpLink').hidden, true, '押しても何も起きない［ヘルプ］を出した');
   assert.deepStrictEqual(l.errors.map(fmt), []);
 });
 test('SP6・F15: HELP_SITE_LIVE が真で openHelp があれば出て、押すと openHelp が引数なしで1回呼ばれ、ポップアップは開いたまま', T, async () => {
@@ -678,10 +683,10 @@ test('SP6・F15: HELP_SITE_LIVE が真で openHelp があれば出て、押す�
   await click(l, 'tabBtnSettings');
   const b = $(l, 'setHelpLink');
   assert.strictEqual(b.hidden, false);
-  assert.strictEqual(b.textContent.trim(), 'ヘルプセンター');
+  assert.strictEqual(b.textContent.trim(), 'ヘルプ');
   await click(l, b);
   assert.deepStrictEqual(l.called('openHelp').map((c) => c.args), [[]], 'openHelp を引数なしで1回呼んでいない（URL を渡した）');
-  assert.ok(isOpen(l), '［ヘルプセンター］でポップアップが閉じた');
+  assert.ok(isOpen(l), '［ヘルプ］でポップアップが閉じた');
   assert.deepStrictEqual(l.errors.map(fmt), []);
 });
 test('F15: app.html にヘルプのサイトの住所を書かない（https://natsu-help の字面が無い。http の住所は 0.8.0 の Claude Code の入れ方の1つだけ）', T, () => {

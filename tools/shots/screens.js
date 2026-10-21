@@ -135,7 +135,10 @@ SCREENS.find((x) => x.name === 'notes-page-light').focus = { tabs: 3, want: 'mtT
 // 利用者がまとめて OK と言ったら、版を上げる commit で基準にして空に戻す
 // 0.9.1（版を 0.9.1 に上げる commit）: 利用者が 2026-10-21 に CI の取り直しの画像（run 39539780418（a83d61d）・artifact 12319056756 の .after.png。
 // settings-record-light・帯の2枚・settings-quiet-search-light・録音バーの quiet の 8 枚）を見て OK と言ったので、その画像をバイトのまま基準にし、空に戻した
-const RETAKE = new Set([]);
+// 0.9.2（計画 docs/plans/2026-10-21-092.md の「取り直す画面」）: I-1 で設定の左の列の下に［ヘルプ］を出したので、設定の 7 枚を入れた
+// （I-2・I-3 で説明を1行にして ⓘ を足すのも同じ 7 枚に写る）。I-4 で足す画面も入れる。利用者がまとめて OK と言ったら、版を上げる commit で基準にして空に戻す
+const RETAKE = new Set(['settings-light', 'settings-dark', 'settings-zoom200-dark', 'settings-record-light', 'settings-search-light', 'settings-offline-light',
+  'settings-quiet-search-light']);
 const PERF = [{ name: 'open-2000-blocks', budgetMs: 500 }];   // 3回開いた中央値で見る
 const TIME_ZONE = 'Asia/Tokyo';
 const TOLERANCE = 2;   // 色の差（0〜255）がこれ以下の画素は同じとみなす。CI の機械の CPU ごとの描き方の1段の差を拾わないため（揺れの確かめ judgePair は 0 で見る）

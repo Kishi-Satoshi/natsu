@@ -27,6 +27,13 @@ const read = (p) => fs.readFileSync(path.join(ROOT, p), 'utf8');
 // 計画の表の画面（前の RETAKE_091）と、足した画面の「取り直し待ちの間は基準が無くてよい」の例外（前の NEW_091）は外した
 const QUIET_OVERLAY = PS.FORMS.flatMap((f) => Object.keys(PS.DESKS).flatMap((d) => PS.SCALES.map((k) => `overlay-${f}-${d}-quiet-${Math.round(k * 100)}`)));
 const ADDED_091 = ['settings-record-light', 'live-quiet-light', 'live-quiet-dark', 'settings-quiet-search-light', ...QUIET_OVERLAY];
+// 0.9.2（計画 docs/plans/2026-10-21-092.md の「取り直す画面」）で意図して変えた: 取り直し待ちは計画の表の画面だけ（RETAKE_092）。I-1 で設定の左の列の下に
+// ［ヘルプ］を出したので、設定の 7 枚を入れた（I-2・I-3 で説明も変わる）。I-4 で足す画面（NEW_092）は、取り直し待ちの間は基準が無くてよい。
+// 利用者がまとめて OK と言ったら、版を上げる commit で基準にして空に戻す（空になるまで版を上げられない: 下の F14）
+const SETTINGS_092 = ['settings-light', 'settings-dark', 'settings-zoom200-dark', 'settings-record-light', 'settings-search-light', 'settings-offline-light',
+  'settings-quiet-search-light'];
+const NEW_092 = new Set([]);
+const RETAKE_092 = [...SETTINGS_092, ...NEW_092];
 const img = (w, h, fill = [255, 255, 255, 255]) => ({ width: w, height: h, data: Buffer.from(Array.from({ length: w * h }, () => fill).flat()) });
 // 一時フォルダ（日本語と 𠮷 の名前。RF1 と同じ形）。テストの終わりに消す
 const tmp = (t, name) => {
@@ -419,7 +426,8 @@ test('G2: 作業域より大きい窓が作るときに縮められても（Wind
 // まだ取り込んでいず押したことも無い（consent 偽・missing）・空き 20GB。ログインしている形（していないと起動で「アカウント」が開く）
 // 0.9.0 G-3 で意図して変えた: 利用者が CI の画像を見て OK と言ったので基準にした。取り直し待ちではなく、基準の PNG と比べる
 test('U-3・G-3: settings-offline-light は基準の PNG と比べる（取り直し待ちではない）。答えは chosen 偽・consent 偽の missing・空き 20GB・ログイン中で、項目「オフライン」を開く', { timeout: 5000 }, () => {
-  assert.ok(!SH.RETAKE.has('settings-offline-light'), '準備を選んでいない人のカードの画面が取り直し待ちに残っている');
+  // 0.9.2 I-1 で意図して変えた: 0.9.2 の計画の表（RETAKE_092）にあるときだけ取り直し待ちでよい（［ヘルプ］と I-3 のオフラインの頭の説明）
+  assert.ok(!SH.RETAKE.has('settings-offline-light') || RETAKE_092.includes('settings-offline-light'), '準備を選んでいない人のカードの画面が、計画の表に無いのに取り直し待ちにある');
   assert.ok(fs.existsSync(path.join(ROOT, 'test', 'shots', 'win32', 'settings-offline-light.png')), '準備を選んでいない人のカードの画面の基準が無い');
   const s = SH.SCREENS.find((x) => x.name === 'settings-offline-light');
   assert.ok(s, '撮る画面に無い');
@@ -439,8 +447,12 @@ test('U-3・G-3: settings-offline-light は基準の PNG と比べる（取り�
 // 0.9.0 G-3 で意図して変えた: 取り直し待ちを空に戻した（上の注）。録音バーの画面の基準の大きさは、上の「G2・F14・RP9・G-3」が panelBounds の答えと比べる
 // 0.9.1: 取り直し待ちは計画の表の画面（ファイルの頭の RETAKE_091）とちょうど同じ
 // 0.9.1 で意図して変えた（版を 0.9.1 に上げる commit）: 取り直し待ちを空に戻した（ファイルの頭の注）。計画の表の画面（ADDED_091）にはどれも基準がある
-test('G2・F14・G-4・0.9.0 G-3・0.9.1: 取り直し待ちは無い。どの画面にも基準の PNG があり（0.9.1 で足した画面も）、本体の画面の大きさは窓の大きさと同じ', { timeout: 5000 }, () => {
-  assert.deepStrictEqual([...SH.RETAKE], []);
+// 0.9.2 で意図して変えた: 取り直し待ちは 0.9.2 の計画の表の画面（ファイルの頭の RETAKE_092）とちょうど同じ。取り直し待ちの新しい画面（NEW_092）のほかは基準がある
+test('G2・F14・G-4・0.9.0 G-3・0.9.1・0.9.2: 取り直し待ちは 0.9.2 の計画の表の画面とちょうど同じ。取り直し待ちの新しい画面のほかは、どの画面にも基準の PNG があり（0.9.1 で足した画面も）、本体の画面の大きさは窓の大きさと同じ', { timeout: 5000 }, () => {
+  assert.deepStrictEqual([...SH.RETAKE].sort(), [...RETAKE_092].sort());
+  const plan = read('docs/plans/2026-10-21-092.md');
+  const table = plan.slice(plan.indexOf('## 取り直す画面（RETAKE）'), plan.indexOf('## 実機で利用者に見てもらうこと'));
+  for (const n of RETAKE_092) assert.ok(table.includes(`\`${n}\``), `計画の「取り直す画面」の表に ${n} が無い`);
   assert.ok(!SH.RETAKE.has('overlay-processing'), '外した録音バーの画面を取り直し待ちに入れた');
   for (const n of ADDED_091) {
     assert.ok(SH.SCREENS.some((s) => s.name === n), `${n} が撮る画面に無い`);
@@ -448,6 +460,7 @@ test('G2・F14・G-4・0.9.0 G-3・0.9.1: 取り直し待ちは無い。どの�
   }
   for (const s of SH.SCREENS) {
     const f = path.join(ROOT, 'test', 'shots', 'win32', `${s.name}.png`);
+    if (NEW_092.has(s.name) && SH.RETAKE.has(s.name)) { assert.ok(!fs.existsSync(f), `${s.name} は新しい画面なのに基準がある`); continue; }
     assert.ok(fs.existsSync(f), `${s.name} の基準が無い`);
     if (s.page === 'overlay') continue;
     const im = P.decodePng(fs.readFileSync(f));
@@ -591,7 +604,9 @@ test('基準の画像（test/shots/win32）は今の app.html で撮ったもの
   // RETAKE に入れた（設定のほかの画面は項目「一般」を開くので変わらない）。値を今の app.html に合わせた
   // 0.9.1 Q-4（D29）: 録音中のページの頭に「会議は終わりましたか？」の帯（#liveQuietAsk。quiet が無ければ hidden）と、その CSS（.quiet-ask だけ）を足した。
   // 撮る今の録音中のページは quiet が無いので見た目は変わらない。帯の出た画面は Q-5 で足して RETAKE に入れる。値を今の app.html に合わせた
-  assert.strictEqual(sha, '25011637a86da94020d8d7e207cae06ebe48f138df3a3fcec2c42f8f5f5ef58f',
+  // 0.9.2 I-1: 設定の左の列の下の［ヘルプセンター］を「ヘルプ」にして出した（HELP_SITE_LIVE を真に・口の名前の回り道をやめた）。見える中身が変わるのは
+  // 設定の 7 枚で、どれも RETAKE に入れた。ほかの画面は設定のポップアップを開かないので変わらない。値を今の app.html に合わせた
+  assert.strictEqual(sha, 'dcec0058ecac47506f259938c864b549fb54dc3afe8a42d0808e123212ea8371',
     'app.html が基準の画像を撮った時と違う。Windows の CI の画面の比べ（捲り棒のつまみも）を見て、基準を取り直してからこの値を直す');
 });
 

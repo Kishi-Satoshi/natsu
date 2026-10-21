@@ -10,6 +10,7 @@
 //     --blip        … 0.9.1 Q-2: 区間の音声を「--blip-sec 秒（既定 15）の無音の真ん中に 0.6 秒の小さな音（振幅 261。窓の RMS 約 -45 dBFS）」にする
 //                     （短い小さな発言。区間全体の RMS は -55 dBFS より小さい）。--recover の下書きの音声と音声入力の音声（3 秒）にも効く
 //     --vad         … VAD のモデル（偽物）をモデルの隣に置く（エンジンが --vad 付きで起動する）
+//     --open-help=<JSON> … 0.9.2 I-1: 起動の後に app:open-help を引数の並びの並び（例 [[],["record/pause"]]）で順に呼び、out.openHelp・out.external（shell.openExternal の住所）を書いて終わる
 //     --segs=N      … 送る区間の数（既定 2。1 つ目は 3 秒、2 つ目からは 2 秒）
 //     --kotoba      … 偽のモデルの名前を kotoba-whisper のものにする（認識ヒントを渡さない場面）
 //     --port=N      … 文字起こしエンジンのポート（並べて走らせるとき、呼ぶ側が重ならないように決めて渡す）
@@ -415,6 +416,8 @@ const SECRET = '秘密の語';
 const fakeText = flagVal('--text') || (secretText ? `${SECRET}を含む発言です` : '');
 const FAKE_SUM = path.join(__dirname, 'fake-llama.js');
 const blipSec = Number(flagVal('--blip-sec')) || 15;   // 0.9.1 Q-2
+// 0.9.2 I-1: 起動の後に app:open-help を、この JSON の引数の並びの並びで順に呼び、答え（out.openHelp）と shell.openExternal の住所（out.external）を書いて終わる
+const openHelpCalls = flagVal('--open-help') ? JSON.parse(flagVal('--open-help')) : null;
 // 0.9.1 Q-4: 話し声が無いときに自動で止める場面（頭の注釈）
 const quietSeq = flagVal('--quiet-seq') ? flagVal('--quiet-seq').split(',').flatMap((t) => {
   const m = /^([stbkxXPdSR])(?::(.))?(?:\*(\d+))?$/.exec(t);
@@ -1234,6 +1237,7 @@ process.on('exit', () => {
   const power = [];
   let powerId = 0;
   const opened = [];
+  const external = [];   // 0.9.2 I-1: shell.openExternal に渡した住所
   const powerMonitor = withFallback(makeEmitter());
   // トレイ（第1c回 A-4: displayBalloon の文を残す。ほかの呼び出しは今までどおり受け流す）
   const balloons = [];
@@ -1365,7 +1369,7 @@ process.on('exit', () => {
     Menu: { buildFromTemplate: (items) => ({ items }) },   // 0.9.0 O-4: トレイの項目を読めるように
     safeStorage,
     powerSaveBlocker: { start: (type) => { powerId += 1; power.push(['start', type, powerId]); return powerId; }, stop: (id) => { power.push(['stop', id]); }, isStarted: () => false },
-    shell: withFallback({ openPath: (p) => { opened.push(p); return Promise.resolve(''); } }),
+    shell: withFallback({ openPath: (p) => { opened.push(p); return Promise.resolve(''); }, openExternal: (u) => { external.push(String(u)); return Promise.resolve(); } }),
     // 第2a1回 M-2b: 議事録の DB のプロセス（worker_threads の中の本物の server.js）と口
     utilityProcess: { fork: utilFork },
     MessageChannelMain: FakeChannel,
@@ -2312,6 +2316,15 @@ process.on('exit', () => {
     await exitClean(0);
   }
   if (runTest) out.test = await handlers['app:test']();
+  // 0.9.2 I-1: 場面 open-help（ヘルプセンターを開く口。記録しない）
+  if (openHelpCalls) {
+    out.openHelp = [];
+    for (const args of openHelpCalls) out.openHelp.push(await handlers['app:open-help']({}, ...args));
+    await sleep(50);
+    out.external = external.slice();
+    process.stdout.write(`\n${JSON.stringify(out)}\n`);
+    await exitClean(0);
+  }
 
   // 第1d回 A-9: 何もしていないときの取り込みと再起動（記録しない）
   if (restartDuring === 'idle') {

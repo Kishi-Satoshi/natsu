@@ -131,6 +131,8 @@ contextBridge.exposeInMainWorld('koeApp', {
   openDataDir: () => ipcRenderer.invoke('app:open-data-dir'),
   openSoundSettings: () => ipcRenderer.invoke('app:open-sound-settings'),
   openReleases: () => ipcRenderer.invoke('app:open-releases'),
+  // 0.9.2 I-1: ヘルプセンターを開く。渡すのは記事の名前（help/site.json の「<分類>/<記事>」）だけ。省けばホーム。住所は main だけが持つ
+  openHelp: (article) => ipcRenderer.invoke('app:open-help', typeof article === 'string' ? article : ''),
   appVersion: () => ipcRenderer.invoke('app:version'),
   updateCheck: () => ipcRenderer.invoke('update:check'),
   updateApply: (url) => ipcRenderer.invoke('update:apply', url),

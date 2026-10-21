@@ -1616,6 +1616,24 @@ function keyLabel(accel) {
   return accel.split('+').map((k) => MAP[k.trim().toLowerCase()] || k.trim()).join('+');
 }
 
+// ---------------------------------------------------------------- ヘルプセンターの記事（0.9.2 I-1。ヘルプの計画の H-12）
+// 画面は記事の名前（help/site.json の「<分類>/<記事>」）だけを渡し、main がこの一覧で照らして道を作る（住所は main.js の HELP_URL だけ）。
+// 一覧は help/site.json の分類の articles と同じ並び（test/help-app.test.js が照らす。記事を足したらここも直す）。
+// 一覧にちょうどある文字だけ「<記事>/」を返し、ほか（文字でない・空・住所・../・#・前後の空白・大文字）は ''（ヘルプのホーム）
+const HELP_ARTICLES = Object.freeze([
+  'start/what-natsu-does', 'start/install-update', 'start/login', 'start/claude-code', 'start/tester-guide',
+  'record/start-stop', 'record/pause', 'record/pc-only', 'record/status-line',
+  'summary/how-summaries', 'summary/summary-types', 'summary/citations',
+  'dictation/dictation',
+  'find/search', 'find/delete-and-backups',
+  'settings/appearance', 'settings/account', 'settings/offline', 'settings/hotkeys',
+  'trouble/banners', 'trouble/login-trouble', 'trouble/transcription-stops', 'trouble/claude-summary-fails',
+  'admin/stop-person', 'admin/seats', 'admin/relay-limits',
+]);
+function helpPath(article) {
+  return typeof article === 'string' && HELP_ARTICLES.includes(article) ? `${article}/` : '';
+}
+
 module.exports = {
   saveIfExists, meetingDurationSec, promptTail,
   registerHotkeys, hotkeyFailureMessage, hotkeyStatus, resolveStartupHotkeys, saveHotkeys,
@@ -1644,4 +1662,6 @@ module.exports = {
   PANEL_EDGE, PANEL_FIRST, slotForm, slotOrigin, nearestSlot, PANEL_PAD, PANEL_MAX, PANEL_QUIET_MS, panelBounds, snapsOnQuiet, keyLabel,
   // 0.9.1 Q-1（話し声の無い区間）
   QUIET_WIN_MS, QUIET_HOP_MS, SILENT_DBFS, SPEECH_DBFS, wavLoudestDbfs, HINT_TAIL_MIN, hintFold, hintEcho, QUIET_GRACE_MS, quietStep, quietTrimEnd, clockText,
+  // 0.9.2 I-1（ヘルプセンターの記事）
+  HELP_ARTICLES, helpPath,
 };
