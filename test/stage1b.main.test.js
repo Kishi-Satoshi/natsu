@@ -7,14 +7,14 @@
 const { describe, test } = require('node:test');
 const assert = require('node:assert');
 const path = require('node:path');
-const { execFile } = require('node:child_process');
+const { execScene, sceneTimeout } = require('./helpers/scene-slots');
 
 const RUN = path.join(__dirname, 'helpers', 'mainrun.js');
 // 場面は作業環境で 0.3〜1 秒。見張りは 20 秒（Windows の CI と変異確認の写しでは機械が混むため。「この回で足す決まり」）
-const SCENE = { timeout: 20000 };
+const SCENE = { timeout: sceneTimeout(20000) };
 function run(scene) {
   return new Promise((resolve, reject) => {
-    execFile(process.execPath, [RUN, 'text', `--json-scene=${scene}`], { timeout: 19000, maxBuffer: 4 * 1024 * 1024 }, (err, stdout, stderr) => {
+    execScene(process.execPath, [RUN, 'text', `--json-scene=${scene}`], { timeout: 19000, maxBuffer: 4 * 1024 * 1024 }, (err, stdout, stderr) => {
       if (err) { reject(new Error(`場面 ${scene} が失敗: ${err.message}\n${stderr}`)); return; }
       const last = stdout.trim().split('\n').pop();
       try { resolve(JSON.parse(last)); } catch (e) { reject(new Error(`場面 ${scene} の出力を読めない: ${last}\n${stderr}`)); }

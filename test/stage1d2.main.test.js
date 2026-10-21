@@ -8,19 +8,19 @@
 const test = require('node:test');
 const assert = require('node:assert');
 const path = require('node:path');
-const { execFile } = require('node:child_process');
+const { execScene, sceneTimeout } = require('./helpers/scene-slots');
 
 const RUN = path.join(__dirname, 'helpers', 'mainrun.js');
 // NATSU_TEST_ONLINE_MEMO_SCALE: 届くかの覚え（届いた 60 秒・届かない 15 秒）を縮め、区間ごとに中継の答えを替えても次の区間で気づくようにする（stage1d.seg と同じ）
 const ENV = { ...process.env, NATSU_TEST_STT_SLEEP_SCALE: '0.01', NATSU_TEST_ONLINE_MEMO_SCALE: '0.001' };
 const run = (args) => new Promise((resolve, reject) => {
-  execFile(process.execPath, [RUN, ...args], { env: ENV, maxBuffer: 1 << 24, timeout: 20000 },
+  execScene(process.execPath, [RUN, ...args], { env: ENV, maxBuffer: 1 << 24, timeout: 20000 },
     (err, stdout, stderr) => {
       if (err) { reject(new Error(`mainrun ${args.join(' ')} が失敗: ${err.message}\n${stderr}`)); return; }
       resolve(JSON.parse(stdout.trim().split('\n').pop()));
     });
 });
-const T = { timeout: 20000 };
+const T = { timeout: sceneTimeout(20000) };
 
 const L1 = 'この会議の音声は OpenAI に送られます（文字起こしのため）。1on1・面談など外に出したくない会議は、議事録の画面の［この会議は PC の中だけ］を押してください。';
 const D1 = 'インターネットにつながっていないため、音声入力を始めませんでした。オンラインに戻ってから、もう一度お試しください。オフラインでも使うには、設定の「オフライン」で準備します。';
@@ -45,7 +45,7 @@ const tmpUserData = () => { const d = fs.mkdtempSync(path.join(os.tmpdir(), 'nat
 test.after(() => { for (const d of tmpDirs) { try { fs.rmSync(d, { recursive: true, force: true }); } catch (_) { /* 消せなくても結果は変わらない */ } } });
 // main ごと落ちる場面（終わりの番号が 0 でない）を1回動かす
 const runExit = (args) => new Promise((resolve, reject) => {
-  execFile(process.execPath, [RUN, ...args], { env: ENV, maxBuffer: 1 << 24, timeout: 20000 },
+  execScene(process.execPath, [RUN, ...args], { env: ENV, maxBuffer: 1 << 24, timeout: 20000 },
     (err, _stdout, stderr) => { if (err && typeof err.code === 'number' && err.code !== 0) resolve(err.code); else reject(new Error(`main ごと落ちなかった: ${stderr}`)); });
 });
 

@@ -10,20 +10,20 @@ const assert = require('node:assert');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { execFile } = require('node:child_process');
+const { execScene, sceneTimeout } = require('./helpers/scene-slots');
 const lib = require('../src/mainlib');
 const { PILL_SLOTS } = require('../src/settings');
 
 const RUN = path.join(__dirname, 'helpers', 'mainrun.js');
 const run = (args) => new Promise((resolve, reject) => {
-  execFile(process.execPath, [RUN, ...args], { env: { ...process.env, NATSU_TEST_STT_SLEEP_SCALE: '0.01' }, maxBuffer: 1 << 24, timeout: 19000 },
+  execScene(process.execPath, [RUN, ...args], { env: { ...process.env, NATSU_TEST_STT_SLEEP_SCALE: '0.01' }, maxBuffer: 1 << 24, timeout: 19000 },
     (err, stdout, stderr) => {
       if (err) { reject(new Error(`mainrun ${args.join(' ')} が失敗: ${err.message}\n${stderr}`)); return; }
       resolve(JSON.parse(stdout.trim().split('\n').pop()));
     });
 });
 // 場面は作業環境で 1〜2 秒。見張りは 20 秒（Windows の CI と変異確認の写しでは機械が混むため。今の場面のテストの決まり）
-const SCENE = { timeout: 20000 };
+const SCENE = { timeout: sceneTimeout(20000) };
 const WA = { x: 0, y: 0, width: 1920, height: 1040 };
 // 置き場所のピルの中心（端から PANEL_EDGE に、その形の初めの大きさ PANEL_FIRST のピルを置いた中心）。lib と別に、計画の言葉どおりに計算する
 const centerOf = (slot, wa) => {

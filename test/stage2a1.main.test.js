@@ -13,7 +13,7 @@ const test = require('node:test');
 const assert = require('node:assert');
 const fs = require('node:fs');
 const path = require('node:path');
-const { execFileSync } = require('node:child_process');
+const { execSceneSync, sceneTimeout } = require('./helpers/scene-slots');
 
 const ROOT = path.join(__dirname, '..');
 const RUN = path.join(__dirname, 'helpers', 'mainrun.js');
@@ -26,7 +26,7 @@ const fnBody = (src, from, to) => {
 };
 // 場面を1つ動かして、最後の行の JSON を返す（stage1a.main.test.js の run と同じ。見張りは 19 秒）
 function runScene(scene) {
-  const stdout = execFileSync(process.execPath, [RUN, 'text', `--json-scene=${scene}`], { timeout: 19000, maxBuffer: 4 * 1024 * 1024, encoding: 'utf8' });
+  const stdout = execSceneSync(process.execPath, [RUN, 'text', `--json-scene=${scene}`], { timeout: 19000, maxBuffer: 4 * 1024 * 1024, encoding: 'utf8' });
   return JSON.parse(stdout.trim().split('\n').pop());
 }
 
@@ -39,7 +39,7 @@ test('ST1: main は下書きと newId のほかに store を直に呼ばない�
   assert.ok(!/\bdb\.call\(/.test(m.replace(/await db\.call\(/g, '')), 'await の無い db.call がある（返事を待たずに先へ進む）');
 });
 
-test('ST1: 消されたページの待ち行列は、エンジンを起こさずに WAV と recovery.json を片付ける（今と同じ）', { timeout: 20000 }, () => {
+test('ST1: 消されたページの待ち行列は、エンジンを起こさずに WAV と recovery.json を片付ける（今と同じ）', { timeout: sceneTimeout(20000) }, () => {
   const out = runScene('recovery-page-gone');   // recovery.json の pageId のページが無い
   assert.deepStrictEqual(out.spawns, []);
   assert.ok(!out.files.some((f) => /^data\/segbuf\/.*(recovery\.json|\.wav)$/.test(f)), JSON.stringify(out.files));
@@ -50,7 +50,7 @@ test('ST1: before-quit は要約中なら1回だけ止めて「中断」を書�
   assert.ok(q.includes('e.preventDefault()') && q.includes('app.quit()') && q.includes('saveIfExists(db, id'));
 });
 
-test('ST1: 要約の途中の終了は、1回だけ止め、「中断」がページに書けてから app.quit() を呼ぶ。2回目は止めずにエンジンを止める', { timeout: 20000 }, () => {
+test('ST1: 要約の途中の終了は、1回だけ止め、「中断」がページに書けてから app.quit() を呼ぶ。2回目は止めずにエンジンを止める', { timeout: sceneTimeout(20000) }, () => {
   const out = runScene('quit-during-summary');   // 要約エンジンは応えない（要約は終わらない）。app.quit は偽物で、呼ばれた瞬間のページを覚える
   assert.ok(out.sumStarted && out.quitted, JSON.stringify(out));
   assert.deepStrictEqual(out.prevented, [1, 0], '1回目だけ止める（2回目も止めると終われない）');
@@ -62,7 +62,7 @@ test('ST1: 要約の途中の終了は、1回だけ止め、「中断」がペ�
   assert.strictEqual(out.summaryErrorAfter, '要約が中断されました。「要約を生成」で作り直せます', '終了の後に要約の失敗が「中断」を上書きした');
 });
 
-test('ST1: 録音を始める前の復旧を待ってから下書きを選ぶ（今の会議の下書きを消さない・復旧のページは1つ）', { timeout: 20000 }, () => {
+test('ST1: 録音を始める前の復旧を待ってから下書きを選ぶ（今の会議の下書きを消さない・復旧のページは1つ）', { timeout: sceneTimeout(20000) }, () => {
   const out = runScene('draft-recover-before-start');   // 起動では draft.json を読めず、録音を始める前の読みで読める
   assert.strictEqual(out.pagesAtStart, 0);
   assert.strictEqual(out.start.ok, true, JSON.stringify(out.start));
@@ -124,7 +124,7 @@ test('ST1: 議事録のホットキーと下書きのやり直しは、失敗を
 });
 
 // ---------------------------------------------------------------- M-2b（ST2 の配線・ST7・ST12・F12）: main を DB のプロセスにつなぐ
-test('ST12・RF10: DB が開けなくても（--db-down）設定・画面の覚え書き・履歴は読み書きでき、知らせ D1 が1回、録音は下書きに残る', { timeout: 20000 }, () => {
+test('ST12・RF10: DB が開けなくても（--db-down）設定・画面の覚え書き・履歴は読み書きでき、知らせ D1 が1回、録音は下書きに残る', { timeout: sceneTimeout(20000) }, () => {
   const out = runScene('db-down');   // json-scenes: 設定を保存・ui:set・音声入力1回・会議を始めて区間1つで止める
   assert.strictEqual(out.notices.filter((n) => n.startsWith('議事録の保存の仕組みを使えません。')).length, 1);
   assert.ok(out.settingsSaved && out.winStateText && out.history.length === 1);
@@ -132,7 +132,7 @@ test('ST12・RF10: DB が開けなくても（--db-down）設定・画面の覚�
   assert.ok(out.engineLog.some((l) => /^DB: 諦めた/.test(l) || /^DB: SQLite .*trigram NG/.test(l)));
   assert.ok(out.engineLog.some((l) => /^DB: 起動（番号 \d+）$/.test(l)), '実機の 4 で照らす番号の行が無い');
 });
-test('F12: DB が止まっている間は、復旧の待ち行列の WAV と recovery.json を消さず、覚えたタブも外さない', { timeout: 20000 }, () => {
+test('F12: DB が止まっている間は、復旧の待ち行列の WAV と recovery.json を消さず、覚えたタブも外さない', { timeout: sceneTimeout(20000) }, () => {
   const out = runScene('recovery-db-down');   // segbuf に recovery.json（pageId は移したページ）と WAV 2つ、window-state.json に開いたタブ2つ。--db-down で起動
   // 計画の外で足した確かめ: 保留したのは「DB を読めない」ためであること（エンジンが無いための保留と取り違えない）
   assert.strictEqual(out.held, true, '復旧の文字起こしが「議事録を読めません」で保留していない');
@@ -140,7 +140,7 @@ test('F12: DB が止まっている間は、復旧の待ち行列の WAV と rec
   assert.strictEqual(out.files.filter((f) => /^data\/segbuf\/.*\.wav$/.test(f)).length, 2, 'DB が止まっているだけなのに WAV を消した');
   assert.strictEqual(out.uiTabs.open.length, 2, 'DB が止まっているだけなのに覚えたタブを外した');
 });
-test('F12: DB の用意の前（起動・移行の途中）の ui:get は、用意を待たずに覚えたタブをそのまま返す。用意の後は無いページのタブを外す', { timeout: 20000 }, () => {
+test('F12: DB の用意の前（起動・移行の途中）の ui:get は、用意を待たずに覚えたタブをそのまま返す。用意の後は無いページのタブを外す', { timeout: sceneTimeout(20000) }, () => {
   const out = runScene('ui-before-db-ready');
   assert.ok(['starting', 'migrating'].includes(out.stateBefore), `場面の前提: 用意の前に聞いていない（${out.stateBefore}）`);
   assert.deepStrictEqual(out.before.open, ['page:pkeep1', 'page:pgone'], '用意の前に覚えたタブを外した');
@@ -148,19 +148,19 @@ test('F12: DB の用意の前（起動・移行の途中）の ui:get は、用�
   assert.ok(out.ready);
   assert.deepStrictEqual(out.after.open, ['page:pkeep1'], '用意の後に無いページのタブを外していない');
 });
-test('ST7: 口は本体の窓の読み込みのたびに配り、録音バーには渡さない', { timeout: 20000 }, () => {
+test('ST7: 口は本体の窓の読み込みのたびに配り、録音バーには渡さない', { timeout: sceneTimeout(20000) }, () => {
   const out = runScene('db-ports');   // 本体の窓の did-finish-load を2回、録音バーの did-finish-load を1回出す
   assert.deepStrictEqual(out.portsSent, [{ win: 'main', channel: 'db:port' }, { win: 'main', channel: 'db:port' }]);
 });
 // 点検で足した確かめ（M-2b の目的の「客の lost で db:lost を本体の窓に送り、起こし直したら口を配り直す」を押さえるテストが無かったため）
-test('ST7: 用意の後に DB の子が落ちたら、本体の窓に db:lost を送り、起こし直した子の用意ができたら口を配り直す', { timeout: 20000 }, () => {
+test('ST7: 用意の後に DB の子が落ちたら、本体の窓に db:lost を送り、起こし直した子の用意ができたら口を配り直す', { timeout: sceneTimeout(20000) }, () => {
   const out = runScene('db-restart');
   assert.ok(out.crashed && out.restarted, JSON.stringify(out));
   assert.deepStrictEqual(out.mainSent, ['db:lost'], '子が落ちたことを本体の窓に知らせていない');
   assert.deepStrictEqual(out.portsSent, [{ win: 'main', channel: 'db:port' }, { win: 'main', channel: 'db:port' }], '起こし直した後に口を配り直していない');
   assert.ok(out.engineLog.some((l) => /^DB: 子が終わった（1）。500ms 後に起こし直す$/.test(l)));
 });
-test('ST7・RF10: 最初の用意の前（移行の途中）に DB の子が落ちても、db:lost を送り、起こし直した子の用意で口を配り直す。移行はやり直し、元の JSON は変えない', { timeout: 20000 }, () => {
+test('ST7・RF10: 最初の用意の前（移行の途中）に DB の子が落ちても、db:lost を送り、起こし直した子の用意で口を配り直す。移行はやり直し、元の JSON は変えない', { timeout: sceneTimeout(20000) }, () => {
   const out = runScene('db-restart-before-ready');
   assert.ok(out.migrating, '場面の前提: 移行の途中で落としていない');
   assert.ok(out.crashed && out.restarted, JSON.stringify(out));
@@ -171,7 +171,7 @@ test('ST7・RF10: 最初の用意の前（移行の途中）に DB の子が落�
 });
 
 // 計画の外で足した確かめ（M-2b の目的の「終わるときと更新の前に DB を閉じる」「起動では元の JSON に触れない」を押さえるテストが無かったため）
-test('ST7: 終わるときは要約が無くても1回だけ止め、DB を閉じてから app.quit() を呼ぶ（書き出しはいつも最初に同期で）', { timeout: 20000 }, () => {
+test('ST7: 終わるときは要約が無くても1回だけ止め、DB を閉じてから app.quit() を呼ぶ（書き出しはいつも最初に同期で）', { timeout: sceneTimeout(20000) }, () => {
   const out = runScene('quit-closes-db');
   assert.deepStrictEqual(out.prevented, [1, 0], '1回目だけ止める');
   assert.strictEqual(out.quits.length, 1);
@@ -205,7 +205,7 @@ const tmpUserData = () => {
 function runMain(mode, flags, { expectExit = false } = {}) {
   let stdout = '';
   try {
-    stdout = execFileSync(process.execPath, [RUN, mode, ...flags], { timeout: 25000, maxBuffer: 16 * 1024 * 1024, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+    stdout = execSceneSync(process.execPath, [RUN, mode, ...flags], { timeout: 25000, maxBuffer: 16 * 1024 * 1024, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
   } catch (e) {
     if (expectExit && typeof e.status === 'number' && e.status !== 0) return null;
     throw e;
@@ -220,7 +220,7 @@ function runMain(mode, flags, { expectExit = false } = {}) {
 }
 const onePage = (out) => { assert.strictEqual(out.pages.length, 1, JSON.stringify(out.pages.map((p) => p.title))); return out.pages[0]; };
 
-test('ST6: 下書きに pageId があり、締めた会議のページは同じ ID。下書きは「書けた」の後に消える', { timeout: 20000 }, () => {
+test('ST6: 下書きに pageId があり、締めた会議のページは同じ ID。下書きは「書けた」の後に消える', { timeout: sceneTimeout(20000) }, () => {
   const out = runMain('text', ['--segs=2', '--draft-trace']);   // 下書きを書くたびの中身と、clearDraft と meeting.finalize の返事の順を out.trace に
   const ids = new Set(out.trace.filter((t) => t.kind === 'draft').map((t) => t.pageId));
   assert.strictEqual(ids.size, 1);
@@ -230,14 +230,14 @@ test('ST6: 下書きに pageId があり、締めた会議のページは同じ 
   assert.ok(iAck >= 0 && iAck < iClear, '返事の前に下書きを消した');
 });
 
-test('RF10: 最初の発言の後に DB を落としても（--kill-db-during）録音は続き、会議はちょうど1つ・下書きは残らない', { timeout: 20000 }, () => {
+test('RF10: 最初の発言の後に DB を落としても（--kill-db-during）録音は続き、会議はちょうど1つ・下書きは残らない', { timeout: sceneTimeout(20000) }, () => {
   const out = runMain('text', ['--segs=3', '--kill-db-during']);
   assert.strictEqual(onePage(out).segments.length, 3);
   assert.ok(out.dbStarts >= 2);
   assert.ok(!out.files.some((f) => /^data\/draft/.test(f)));
 });
 
-test('RF10: 最初の発言の後に main ごと落として起動し直す（--kill-main-during）→ 同じ ID のページがちょうど1つ・recovered', { timeout: 30000 }, () => {
+test('RF10: 最初の発言の後に main ごと落として起動し直す（--kill-main-during）→ 同じ ID のページがちょうど1つ・recovered', { timeout: sceneTimeout(30000) }, () => {
   const dir = tmpUserData();
   runMain('text', ['--segs=3', '--kill-main-during', `--keep-user-data=${dir}`], { expectExit: true });
   const out = runMain('text', ['--recover', `--keep-user-data=${dir}`]);
@@ -247,7 +247,7 @@ test('RF10: 最初の発言の後に main ごと落として起動し直す（--
 });
 
 // 計画の外で足した確かめ（目的の「下書きを失った写しだけを recovered: true で残す」（meeting.settle）を押さえるテストが無かったため）
-test('ST6: main ごと落ちた後に下書きを失った録音の写しは、次の起動で同じ ID の recovered のページとして1つ残る（meeting.settle）', { timeout: 30000 }, () => {
+test('ST6: main ごと落ちた後に下書きを失った録音の写しは、次の起動で同じ ID の recovered のページとして1つ残る（meeting.settle）', { timeout: sceneTimeout(30000) }, () => {
   const dir = tmpUserData();
   runMain('text', ['--segs=3', '--kill-main-during', `--keep-user-data=${dir}`], { expectExit: true });
   const drafts = fs.readdirSync(path.join(dir, 'data')).filter((n) => /^draft.*\.json$/.test(n));
@@ -263,7 +263,7 @@ test('ST6: main ごと落ちた後に下書きを失った録音の写しは、�
 });
 
 // 点検で足した確かめ（M-3 の「発言の無い下書きは、始めたときの空の写しを取り消しと同じ道で消す」を外しても全部が緑だったため）
-test('ST6: 録音を始めた直後（発言の前）に main ごと落ちても、次の起動で空の写しを消し、空の「（復旧）」のページを作らない（0.6.0 と同じ）', { timeout: 30000 }, () => {
+test('ST6: 録音を始めた直後（発言の前）に main ごと落ちても、次の起動で空の写しを消し、空の「（復旧）」のページを作らない（0.6.0 と同じ）', { timeout: sceneTimeout(30000) }, () => {
   const dir = tmpUserData();
   runMain('text', ['--kill-main-at-begin', `--keep-user-data=${dir}`], { expectExit: true });
   const drafts = fs.readdirSync(path.join(dir, 'data')).filter((n) => /^draft.*\.json$/.test(n));
@@ -274,7 +274,7 @@ test('ST6: 録音を始めた直後（発言の前）に main ごと落ちても
   assert.ok(!b.files.some((f) => /^data\/draft/.test(f)), '発言の無い下書きを片付けなかった');
 });
 
-test('RF10: DB が開けないまま締める（--db-down）→ 下書きが残り、次に DB が開ける起動でちょうど1つになる', { timeout: 30000 }, () => {
+test('RF10: DB が開けないまま締める（--db-down）→ 下書きが残り、次に DB が開ける起動でちょうど1つになる', { timeout: sceneTimeout(30000) }, () => {
   const dir = tmpUserData();
   const a = runMain('text', ['--segs=2', '--db-down', `--keep-user-data=${dir}`]);
   assert.strictEqual(a.pages.length, 0);
@@ -282,7 +282,7 @@ test('RF10: DB が開けないまま締める（--db-down）→ 下書きが残�
   onePage(b);
 });
 
-test('RF16: 録音中に取り消すと、写しの発言が DB のファイルに残らない（DB が落ちていたら次の起動で消す）', { timeout: 30000 }, () => {
+test('RF16: 録音中に取り消すと、写しの発言が DB のファイルに残らない（DB が落ちていたら次の起動で消す）', { timeout: sceneTimeout(30000) }, () => {
   const out = runMain('text', ['--segs=2', '--discard-during', '--secret-text']);   // 偽の文字起こしが秘密の語を返す
   // 計画の外で足した確かめ（場面の前提）: 取り消す前に、秘密の語が写しとして DB に届いていた
   assert.strictEqual(out.secretSeen, true, '場面の前提: 秘密の語が DB に届く前に取り消した');
@@ -297,7 +297,7 @@ test('RF16: 録音中に取り消すと、写しの発言が DB のファイル�
 });
 
 // 点検で足した確かめ（取り消しの控えを書けず、DB の取り消しも返事の前に終わると、次の起動で取り消した会議が「（復旧）」のページになっていた）
-test('RF16: 取り消しの控え（purge-pending.json）を1回書けず、DB も落ちていても、終わる前に書き直し、次の起動で写しを消す', { timeout: 30000 }, () => {
+test('RF16: 取り消しの控え（purge-pending.json）を1回書けず、DB も落ちていても、終わる前に書き直し、次の起動で写しを消す', { timeout: sceneTimeout(30000) }, () => {
   const dir = tmpUserData();
   const a = runMain('text', ['--segs=1', '--discard-during', '--kill-db-at-discard', '--secret-text', '--purge-save-fail-once', `--keep-user-data=${dir}`]);
   assert.strictEqual(a.secretSeen, true, '場面の前提: 秘密の語が DB に届く前に取り消した');
@@ -307,7 +307,7 @@ test('RF16: 取り消しの控え（purge-pending.json）を1回書けず、DB �
   assert.strictEqual(b.dbBytesHave('秘密の語'), false);
 });
 
-test('F11: 締めた後に下書きを消せず（ウイルス対策が掴んだ）、要約と直しをしてから起動し直しても、要約と直しが残り、ページは1つ', { timeout: 30000 }, () => {
+test('F11: 締めた後に下書きを消せず（ウイルス対策が掴んだ）、要約と直しをしてから起動し直しても、要約と直しが残り、ページは1つ', { timeout: sceneTimeout(30000) }, () => {
   const dir = tmpUserData();
   const a = runMain('text', ['--segs=2', '--sum', '--keep-draft-after-finalize', '--set-title-after-sum=後で直した題', `--keep-user-data=${dir}`]);
   assert.ok(a.files.some((f) => /^data\/draft/.test(f)), '場面の前提: 下書きが残っていない');
@@ -318,7 +318,7 @@ test('F11: 締めた後に下書きを消せず（ウイルス対策が掴んだ
   assert.ok(!b.files.some((f) => /^data\/draft/.test(f)), '下書きを片付けなかった');
 });
 
-test('F6: 要約の途中に画面で直した題名を、要約の書き戻しが消さない', { timeout: 30000 }, () => {
+test('F6: 要約の途中に画面で直した題名を、要約の書き戻しが消さない', { timeout: sceneTimeout(30000) }, () => {
   const out = runMain('text', ['--sum', '--set-title-during=画面で直した題']);   // 要約は 1.5 秒。その間に appCall('page.setTitle')
   const p = onePage(out);
   assert.strictEqual(p.title, '画面で直した題');
@@ -333,7 +333,7 @@ test('ST5: main は画面のページの口を中継しない（ipcMain の page
 
 // ---------------------------------------------------------------- M-4（ST10 の配線・ST9 の配線・RF14・F9）: 移行の窓・移行の間の録音・起動のたびの取り込み・毎日の控え
 // 場面は helpers/json-scenes.js（migrate-*・snapshot-daily・summary-bad-args）。偽の dialog は場面が決めなければ［移す］を押す
-test('ST10: 初めての起動で数を窓で見せ、［移す］で移して知らせる。元の JSON は1バイトも変わらない', { timeout: 30000 }, () => {
+test('ST10: 初めての起動で数を窓で見せ、［移す］で移して知らせる。元の JSON は1バイトも変わらない', { timeout: sceneTimeout(30000) }, () => {
   const out = runScene('migrate-go');   // 0.6.0 の store.js で 6 ページ（BOM 付き 1）と壊れたページのファイル 1 つを置いて起動し、窓で［移す］
   assert.match(out.dialogs[0].message, /議事録 6 件・文字起こしの発言 15 件/);
   assert.match(out.dialogs[0].message, /壊れているか形が合わず移せないファイル: 1 件/);
@@ -349,7 +349,7 @@ test('ST10: 初めての起動で数を窓で見せ、［移す］で移して�
   assert.ok(!out.notices.some((n) => n.startsWith('古い版で保存された議事録')), '移した直後の取り込みが同じページを「取り込んだ」と知らせた');
 });
 
-test('Q1: ［今は移さずに終える］なら natsu.db を作らずに終え、元の JSON も下書きもそのまま', { timeout: 30000 }, () => {
+test('Q1: ［今は移さずに終える］なら natsu.db を作らずに終え、元の JSON も下書きもそのまま', { timeout: sceneTimeout(30000) }, () => {
   const out = runScene('migrate-quit');
   assert.strictEqual(out.quitCalled, true);
   assert.strictEqual(out.closed, true, '終える前に DB を閉じていない');
@@ -358,7 +358,7 @@ test('Q1: ［今は移さずに終える］なら natsu.db を作らずに終え
   assert.strictEqual(out.draftSame, true, '下書きが変わった・消えた');
 });
 
-test('RF14・F9: 移行の間にホットキーで録音して止めると、待つ間も状態は待機に戻って次の録音を始められ、移行の後に会議が増える（窓が出ている間も同じ）', { timeout: 30000 }, () => {
+test('RF14・F9: 移行の間にホットキーで録音して止めると、待つ間も状態は待機に戻って次の録音を始められ、移行の後に会議が増える（窓が出ている間も同じ）', { timeout: sceneTimeout(30000) }, () => {
   const out = runScene('migrate-record-during');   // 窓を開いたまま録音 → 停止 → もう1回録音 → 停止 → 3回目の録音中に［移す］→ 止める
   assert.strictEqual(out.dialogShown, true, '場面の前提: 移行の窓が出ていない');
   // 録音の状態の確かめを場面の前提より先に見る（状態が戻らないと場面はそこで結果を出し、dbStateBeforeAnswer を入れない。M-4 の点検）
@@ -381,7 +381,7 @@ test('RF14・F9: 移行の間にホットキーで録音して止めると、待
 });
 
 // M-4 の点検で足した確かめ（利用者の 0.6.0 → 0.7.0 の初めての起動: 0.6.0 で落ちた会議の下書きが残っている）
-test('F9・RF14: 0.6.0 の下書き（pageId が無い）を起動の復旧が DB を待って抱えている間も、窓 D0 を開いたまま録音をすぐ始められ、録音中の下書きを復旧が消さない。0.6.0 の下書きは1つのページになり、下書きは残らない', { timeout: 30000 }, () => {
+test('F9・RF14: 0.6.0 の下書き（pageId が無い）を起動の復旧が DB を待って抱えている間も、窓 D0 を開いたまま録音をすぐ始められ、録音中の下書きを復旧が消さない。0.6.0 の下書きは1つのページになり、下書きは残らない', { timeout: sceneTimeout(30000) }, () => {
   const out = runScene('migrate-old-draft-record');
   assert.strictEqual(out.dialogShown, true, '場面の前提: 移行の窓が出ていない');
   assert.strictEqual(out.startedQuick, true, '録音を始めるのが、起動の復旧（DB の用意）を待った（録音は DB に頼らない: F9）');
@@ -397,7 +397,7 @@ test('F9・RF14: 0.6.0 の下書き（pageId が無い）を起動の復旧が D
 });
 
 // 0.7.0 の前の直し（M-4 の点検で残したこと。データの守り）: 締めの返事を待つ会議は、録音の状態が待機に戻っても「忙しい」
-test('F9: 締めの返事を待つ会議がある間は、省電力の抑止を外さず、閉じるボタンで確かめる。返事と要約の試みの後は外す', { timeout: 30000 }, () => {
+test('F9: 締めの返事を待つ会議がある間は、省電力の抑止を外さず、閉じるボタンで確かめる。返事と要約の試みの後は外す', { timeout: sceneTimeout(30000) }, () => {
   const out = runScene('finalize-wait-busy');
   assert.strictEqual(out.dialogShown, true, '場面の前提: 移行の窓が出ていない');
   assert.strictEqual(out.waiting, true, '場面の前提: 締めが DB を待つ間に録音の状態が待機に戻らない');
@@ -415,7 +415,7 @@ test('F9: 締めの返事を待つ会議がある間は、省電力の抑止を�
 
 // 0.7.0 の前の直し（M-4 の点検で残したこと。計画 2026-10-19-2a1.md の M-4「残したことの直し」）: 録音の最中の［今は移さずに終える］は、
 // 録音を切らずに続け、止めて下書きに書き終えてから終える
-test('Q1・F9: 録音の最中に［今は移さずに終える］を選ぶと、録音を切らずに知らせ、止めて下書きに書き終えてから終える（natsu.db は作らず、下書きは残る）', { timeout: 30000 }, () => {
+test('Q1・F9: 録音の最中に［今は移さずに終える］を選ぶと、録音を切らずに知らせ、止めて下書きに書き終えてから終える（natsu.db は作らず、下書きは残る）', { timeout: sceneTimeout(30000) }, () => {
   const out = runScene('migrate-quit-recording');
   assert.strictEqual(out.dialogShown, true, '場面の前提: 移行の窓が出ていない');
   assert.strictEqual(out.started, true, '場面の前提: 窓の間に録音を始められない');
@@ -429,7 +429,7 @@ test('Q1・F9: 録音の最中に［今は移さずに終える］を選ぶと�
   assert.deepStrictEqual(out.jsonShaAfter, out.jsonShaBefore);
 });
 
-test('F9: 下書きの復旧は1つずつ回す。DB の用意を待つ復旧が2つ重なっても、pageId の無い 0.6.0 の下書きは1つのページになる', { timeout: 30000 }, () => {
+test('F9: 下書きの復旧は1つずつ回す。DB の用意を待つ復旧が2つ重なっても、pageId の無い 0.6.0 の下書きは1つのページになる', { timeout: sceneTimeout(30000) }, () => {
   const out = runScene('migrate-draft-retry-twice');
   assert.strictEqual(out.dialogShown, true, '場面の前提: 移行の窓が出ていない');
   assert.ok(out.retries >= 1, '場面の前提: 起動で下書きを読めず、やり直しの時計が置かれていない');
@@ -439,7 +439,7 @@ test('F9: 下書きの復旧は1つずつ回す。DB の用意を待つ復旧が
   assert.deepStrictEqual(out.draftsEnd, []);
 });
 
-test('ST10: 移行の確かめが合わなければ「使えない」で起き、録音は下書きに残り、次の起動でやり直す', { timeout: 30000 }, () => {
+test('ST10: 移行の確かめが合わなければ「使えない」で起き、録音は下書きに残り、次の起動でやり直す', { timeout: sceneTimeout(30000) }, () => {
   const out = runScene('migrate-verify-fail');
   assert.ok(out.notices.some((n) => n.startsWith('議事録を新しい保存の形に移せませんでした。元のファイルはそのまま残っています。')));
   assert.ok(!out.files.includes('data/natsu.db'));
@@ -449,7 +449,7 @@ test('ST10: 移行の確かめが合わなければ「使えない」で起き�
   assert.deepStrictEqual(out.jsonShaAfter, out.jsonShaBefore);
 });
 
-test('ST9: 録音中は控えを取らず、手が空いたら1日1回 daily を取る', { timeout: 30000 }, () => {
+test('ST9: 録音中は控えを取らず、手が空いたら1日1回 daily を取る', { timeout: sceneTimeout(30000) }, () => {
   const out = runScene('snapshot-daily');
   assert.strictEqual(out.scheduledAtStart, 1, '起動の後に毎日の控えを見る時計を置いていない');
   assert.deepStrictEqual(out.snapshotKindsDuringMeeting, []);
@@ -457,7 +457,7 @@ test('ST9: 録音中は控えを取らず、手が空いたら1日1回 daily を
 });
 
 // 計画の外で足した確かめ（M-4 の点検の申し送り: 保存の決まりを超えたページへの書き戻しの bad-args を黙って飲まない）
-test('F6: 保存の決まり（ブロック 2,000 個まで）を超えたページへの要約の書き戻しが断られたら、平易な文で知らせる（投げて黙らない）', { timeout: 30000 }, () => {
+test('F6: 保存の決まり（ブロック 2,000 個まで）を超えたページへの要約の書き戻しが断られたら、平易な文で知らせる（投げて黙らない）', { timeout: sceneTimeout(30000) }, () => {
   const out = runScene('summary-bad-args');
   assert.strictEqual(out.inserted, true, '場面の前提: 2,001 個目の行を足せなかった');
   assert.strictEqual(out.summaryThrew, undefined, `要約が bad-args を投げた（画面に理由が出ない）: ${out.summaryThrew}`);
@@ -477,14 +477,14 @@ test('F9: 起動は、DB が利用者を待つ（移行の窓）か少し待っ�
 });
 
 // 計画の外で足した確かめ（M-4 の目的の「起動のたびの取り込みで入れたものがあれば D5、飛ばしたファイルの組が変わったときだけ D3」「新しすぎる版なら D7」を押さえるテストが無かったため）
-test('RF17: 移した後に古い版が足したページを、起動のたびの取り込みで入れて知らせ D5。飛ばしたファイルの組が変わったので D3 も1回', { timeout: 30000 }, () => {
+test('RF17: 移した後に古い版が足したページを、起動のたびの取り込みで入れて知らせ D5。飛ばしたファイルの組が変わったので D3 も1回', { timeout: sceneTimeout(30000) }, () => {
   const out = runScene('reimport-after-migrate');
   assert.deepStrictEqual(out.notices.filter((n) => n === '古い版で保存された議事録 1 件を取り込みました。'), ['古い版で保存された議事録 1 件を取り込みました。'], JSON.stringify(out.notices));
   assert.strictEqual(out.notices.filter((n) => n.startsWith('壊れているか形が合わなかったため、1 件のファイルを移せませんでした')).length, 1, JSON.stringify(out.notices));
   assert.ok(!out.notices.some((n) => n.startsWith('議事録 ') && n.includes('新しい保存の形に移しました')), '移していない起動で D2 を出した');
   assert.strictEqual(out.pages.length, 3);
 });
-test('D7: 新しい版の NaTsu で作られた DB は読むだけで開き、知らせ D7 を1回', { timeout: 30000 }, () => {
+test('D7: 新しい版の NaTsu で作られた DB は読むだけで開き、知らせ D7 を1回', { timeout: sceneTimeout(30000) }, () => {
   const out = runScene('db-newer');
   assert.strictEqual(out.dbState, 'read-only');
   assert.strictEqual(out.notices.filter((n) => n.startsWith('この議事録の保存は、新しい版の NaTsu で作られています。')).length, 1, JSON.stringify(out.notices));

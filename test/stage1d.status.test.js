@@ -11,14 +11,14 @@
 const test = require('node:test');
 const assert = require('node:assert');
 const path = require('node:path');
-const { execFile } = require('node:child_process');
+const { execScene, sceneTimeout } = require('./helpers/scene-slots');
 const { RELAY_BASE } = require('../src/relay');
 
 const RUN = path.join(__dirname, 'helpers', 'mainrun.js');
 const HOST = new URL(RELAY_BASE).host;
 // NATSU_TEST_ONLINE_MEMO_SCALE: 届くかの覚えを縮め、区間ごとに中継の答えを替えても次の区間で気づくようにする（stage1d.seg と同じ）
 const run = (args) => new Promise((resolve, reject) => {
-  execFile(process.execPath, [RUN, ...args], { env: { ...process.env, NATSU_TEST_STT_SLEEP_SCALE: '0.01', NATSU_TEST_ONLINE_MEMO_SCALE: '0.001' }, maxBuffer: 1 << 24, timeout: 20000 },
+  execScene(process.execPath, [RUN, ...args], { env: { ...process.env, NATSU_TEST_STT_SLEEP_SCALE: '0.01', NATSU_TEST_ONLINE_MEMO_SCALE: '0.001' }, maxBuffer: 1 << 24, timeout: 20000 },
     (err, stdout, stderr) => {
       if (err) { reject(new Error(`mainrun ${args.join(' ')} が失敗: ${err.message}\n${stderr}`)); return; }
       const o = JSON.parse(stdout.trim().split('\n').pop());
@@ -27,7 +27,7 @@ const run = (args) => new Promise((resolve, reject) => {
     });
 });
 const seen = [];   // F9: 全部の場面の出力を最後に合わせて見る
-const T = { timeout: 20000 };
+const T = { timeout: sceneTimeout(20000) };
 const B = {
   'engine-down': 'PC の中の文字起こしエンジンが動いていません（音声は残してあります）。［エンジンを確かめる］を押してください。',
   login: 'ログインが切れたため、この PC で文字起こしを続けていますが、精度が落ちます。［ログインし直す］を押して、もう一度ログインしてください。',

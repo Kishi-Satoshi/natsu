@@ -11,11 +11,11 @@
 const test = require('node:test');
 const assert = require('node:assert');
 const path = require('node:path');
-const { execFile } = require('node:child_process');
+const { execScene, sceneTimeout } = require('./helpers/scene-slots');
 
 const RUN = path.join(__dirname, 'helpers', 'mainrun.js');
 const runOnce = (args) => new Promise((resolve, reject) => {
-  execFile(process.execPath, [RUN, ...args], { maxBuffer: 1 << 24, timeout: 20000 }, (err, stdout, stderr) => {
+  execScene(process.execPath, [RUN, ...args], { maxBuffer: 1 << 24, timeout: 20000 }, (err, stdout, stderr) => {
     if (err) { reject(new Error(`mainrun ${args.join(' ')} が失敗: ${err.message}\n${stderr}`)); return; }
     resolve(JSON.parse(stdout.trim().split('\n').pop()));
   });
@@ -42,7 +42,7 @@ const pick = (o, keys) => Object.fromEntries(keys.map((k) => [k, o[k]]));
 const noRelay = (raw) => raw === null || !JSON.parse(raw).keys.relay;
 const status = (o) => ({ ok: true, signedIn: false, email: '', method: 'access', until: null, canStore: true, online: { up: true, why: 'ok' }, ...o });
 
-test('RL10・F20・F27: account:login は本体の窓を parent にした窓（モーダルにしない）を開き、設定は partition natsu-access（persist: なし）・sandbox・contextIsolation・nodeIntegration: false・webviewTag: false・spellcheck: false。新しい窓は断り、許していないホストへの移動は止めて記録1行（ホストを書かない）', { timeout: 20000 }, async () => {
+test('RL10・F20・F27: account:login は本体の窓を parent にした窓（モーダルにしない）を開き、設定は partition natsu-access（persist: なし）・sandbox・contextIsolation・nodeIntegration: false・webviewTag: false・spellcheck: false。新しい窓は断り、許していないホストへの移動は止めて記録1行（ホストを書かない）', { timeout: sceneTimeout(20000) }, async () => {
   const o = await run(['text', '--json-scene=access-ipc', '--relay=text']);
   const w = o.loginWin;
   assert.ok(w, 'ログインの窓を作っていない');
@@ -68,7 +68,7 @@ test('RL10・F20・F27: account:login は本体の窓を parent にした窓（�
   assert.deepStrictEqual(o.accessPerms, { req: false, check: false, downloadPrevented: true });
 });
 
-test('F25（A-11 の点検）: ログインの窓が開いていても、本体の窓と録音バーの webContents は中継の /auth/done・Access のログインの画面への移動（will-navigate・will-frame-navigate、本体の枠も中の枠も）を全部止める。同じ移動をログインの窓は通す', { timeout: 20000 }, async () => {
+test('F25（A-11 の点検）: ログインの窓が開いていても、本体の窓と録音バーの webContents は中継の /auth/done・Access のログインの画面への移動（will-navigate・will-frame-navigate、本体の枠も中の枠も）を全部止める。同じ移動をログインの窓は通す', { timeout: sceneTimeout(20000) }, async () => {
   const o = await run(['text', '--json-scene=access-ipc', '--relay=text']);
   const p = o.navProbe;
   assert.ok(p && Array.isArray(p.login) && p.login.length === 4, `ログインの窓が開いていない: ${JSON.stringify(p)}`);
@@ -77,7 +77,7 @@ test('F25（A-11 の点検）: ログインの窓が開いていても、本体�
   assert.deepStrictEqual(p.overlay, [false, false, false, false], '録音バーがログインの窓の守りになった（中継・Access へ移動できる）');
 });
 
-test('A-11 の点検（R14）: ログインの窓は最初に着いた Access のホストに留める。ほかのチームの Access への転送は止めて窓を閉じ、R14 の {ホスト} は留めたホスト（natsu-test.cloudflareaccess.com）。partition を空にし、secrets に何も書かない。記録にホストを書かない', { timeout: 20000 }, async () => {
+test('A-11 の点検（R14）: ログインの窓は最初に着いた Access のホストに留める。ほかのチームの Access への転送は止めて窓を閉じ、R14 の {ホスト} は留めたホスト（natsu-test.cloudflareaccess.com）。partition を空にし、secrets に何も書かない。記録にホストを書かない', { timeout: sceneTimeout(20000) }, async () => {
   const o = await run(['text', '--json-scene=access-ipc', '--relay=text']);
   const w = o.loginWins.find((x) => x.otherTeamPrevented !== null);
   assert.ok(w, 'other-team の窓が無い（場面の前提）');
@@ -90,7 +90,7 @@ test('A-11 の点検（R14）: ログインの窓は最初に着いた Access �
   assert.ok(!o.engineLog.some((l) => l.includes('other-team') || l.includes('natsu-test')), '記録にホストの名前を書いた');
 });
 
-test('RL10・F21: ログインできたら cookie は secrets.json に暗号の文字でだけ入り、settings.json には accountEmail だけ。どの IPC の答え・engine.log・知らせにも cookie と JWT が無い。userData の下に Partitions のフォルダが無い', { timeout: 20000 }, async () => {
+test('RL10・F21: ログインできたら cookie は secrets.json に暗号の文字でだけ入り、settings.json には accountEmail だけ。どの IPC の答え・engine.log・知らせにも cookie と JWT が無い。userData の下に Partitions のフォルダが無い', { timeout: sceneTimeout(20000) }, async () => {
   const o = await run(['text', '--json-scene=access-ipc', '--relay=text']);
   assert.deepStrictEqual(o.login, { ok: true, email: o.mail, message: AR4 });
   const pack = packOf(o.secretsRaw);
@@ -113,7 +113,7 @@ test('RL10・F21: ログインできたら cookie は secrets.json に暗号の�
   assert.strictEqual(JSON.parse(o.settingsAfterSpoof).accountEmail, o.mail, '画面から来た accountEmail で書き換えた');
 });
 
-test('F21: しまうのは CF_Authorization（と CF_Binding）だけ。partition に CF_AppSession・ほかのホストの cookie・\'.natsu-code.workers.dev\' の cookie があっても secrets に入らない', { timeout: 20000 }, async () => {
+test('F21: しまうのは CF_Authorization（と CF_Binding）だけ。partition に CF_AppSession・ほかのホストの cookie・\'.natsu-code.workers.dev\' の cookie があっても secrets に入らない', { timeout: sceneTimeout(20000) }, async () => {
   const o = await run(['text', '--json-scene=access-ipc', '--relay=text']);
   const parent = HOST.split('.').slice(1).join('.');
   // 偽のログインの窓は、しまってはいけない cookie も partition に置いた（場面の前提）
@@ -123,7 +123,7 @@ test('F21: しまうのは CF_Authorization（と CF_Binding）だけ。partitio
   assert.deepStrictEqual(pack.c.map((x) => [x.name, x.domain, x.hostOnly]), [['CF_Authorization', HOST, true]]);
 });
 
-test('RL10: ログインの直後に /v1/me で確かめ、通らなければログインしたことにしない（AR6・secrets に残さない）。403 なら AR7', { timeout: 20000 }, async () => {
+test('RL10: ログインの直後に /v1/me で確かめ、通らなければログインしたことにしない（AR6・secrets に残さない）。403 なら AR7', { timeout: sceneTimeout(20000) }, async () => {
   const o = await run(['text', '--json-scene=access-ipc', '--relay=text']);
   assert.deepStrictEqual(o.nocookie, { ok: false, code: 'no-cookie', message: AR6 });
   assert.deepStrictEqual(o.denied, { ok: false, code: 'denied', message: AR7 });
@@ -136,7 +136,7 @@ test('RL10: ログインの直後に /v1/me で確かめ、通らなければロ
   assert.ok(o.engineLog.includes('アカウント: ログインできませんでした（no-cookie）'), o.engineLog.join('\n'));
 });
 
-test('RL10: /auth/done が 403 → 窓を閉じて AR7・503 → R15。did-fail-load のプロキシ → R14（{ホスト} は中継のホスト）。どれも partition を空にし、secrets に何も書かない', { timeout: 20000 }, async () => {
+test('RL10: /auth/done が 403 → 窓を閉じて AR7・503 → R15。did-fail-load のプロキシ → R14（{ホスト} は中継のホスト）。どれも partition を空にし、secrets に何も書かない', { timeout: sceneTimeout(20000) }, async () => {
   const o = await run(['text', '--json-scene=access-ipc', '--relay=text']);
   assert.deepStrictEqual(o.denied403, { ok: false, code: 'denied', message: AR7 });
   assert.deepStrictEqual(o.notready, { ok: false, code: 'not-ready', message: R15 });
@@ -149,7 +149,7 @@ test('RL10: /auth/done が 403 → 窓を閉じて AR7・503 → R15。did-fail-
   assert.ok(o.loginWins.every((x) => x.closed), JSON.stringify(o.loginWins.map((x) => x.closed)));
 });
 
-test('RL10: 窓を閉じたら cancel（AR5）。開いている間にもう一度押しても窓は1つ（前に出す）。オフライン（net.isOnline が偽）なら窓を作らずに R13', { timeout: 20000 }, async () => {
+test('RL10: 窓を閉じたら cancel（AR5）。開いている間にもう一度押しても窓は1つ（前に出す）。オフライン（net.isOnline が偽）なら窓を作らずに R13', { timeout: sceneTimeout(20000) }, async () => {
   const o = await run(['text', '--json-scene=access-ipc', '--relay=text']);
   assert.strictEqual(o.winsWhileOpen, 1, '開いている間にもう一度押して、窓を2つ作った');
   assert.ok(o.focusedWhileOpen >= 1, '2回目に押したときに前の窓を前に出していない');
@@ -159,7 +159,7 @@ test('RL10: 窓を閉じたら cancel（AR5）。開いている間にもう一�
   assert.strictEqual(o.offlineWins, 0, 'オフラインなのにログインの窓を作った');
 });
 
-test('RL10: account:status は外へ通信せず（偽の中継に要求が来ない）、signedIn・email・method: \'access\'・until・canStore・online を返す', { timeout: 20000 }, async () => {
+test('RL10: account:status は外へ通信せず（偽の中継に要求が来ない）、signedIn・email・method: \'access\'・until・canStore・online を返す', { timeout: sceneTimeout(20000) }, async () => {
   const o = await run(['text', '--json-scene=access-ipc', '--relay=text']);
   assert.deepStrictEqual(o.status0, status({}));
   assert.deepStrictEqual(o.statusCalls, [0, 0, 0, 0], 'account:status で中継へ要求を出した');
@@ -168,7 +168,7 @@ test('RL10: account:status は外へ通信せず（偽の中継に要求が来�
   assert.deepStrictEqual(o.status2, status({}));
 });
 
-test('RL10・F19: 期限の切れた cookie は signedIn: false（起動で消し、accountEmail も消す）。期限の内なら signedIn: true で until は cookie の期限。どちらも外へ通信しない', { timeout: 20000 }, async () => {
+test('RL10・F19: 期限の切れた cookie は signedIn: false（起動で消し、accountEmail も消す）。期限の内なら signedIn: true で until は cookie の期限。どちらも外へ通信しない', { timeout: sceneTimeout(20000) }, async () => {
   const [live, dead] = await Promise.all([
     run(['text', '--json-scene=access-status', '--relay=text']),
     run(['text', '--json-scene=access-status', '--relay=text', '--relay-expired']),
@@ -185,7 +185,7 @@ test('RL10・F19: 期限の切れた cookie は signedIn: false（起動で消�
   assert.deepStrictEqual([live.statusCalls, dead.statusCalls], [0, 0]);
 });
 
-test('F22: account:logout は LOGOUT_URL を relayRequest で開き（窓は作らない・ついて行かない）、cookie を全部消し、secrets と accountEmail を消す。LOGOUT_URL に届かなくても PC からは消す。次の account:status は signedIn: false', { timeout: 20000 }, async () => {
+test('F22: account:logout は LOGOUT_URL を relayRequest で開き（窓は作らない・ついて行かない）、cookie を全部消し、secrets と accountEmail を消す。LOGOUT_URL に届かなくても PC からは消す。次の account:status は signedIn: false', { timeout: sceneTimeout(20000) }, async () => {
   const o = await run(['text', '--json-scene=access-ipc', '--relay=text']);
   assert.deepStrictEqual(o.logout, { ok: true, message: R12 });
   assert.deepStrictEqual(o.logoutCalls, ['/cdn-cgi/access/logout'], 'Access のログアウトを開いていない');
@@ -209,7 +209,7 @@ test('F22: account:logout は LOGOUT_URL を relayRequest で開き（窓は作�
   assert.strictEqual(o.callsAtSignedOutLogout, 0, 'ログインしていないのに Access のログアウトを開いた');
 });
 
-test('RL10: 暗号にできない PC（偽の safeStorage が使えない）では cookie をしまえず store（R16）。partition の cookie も消し（その場のメモリだけで使い続けない）、accountEmail を書かない', { timeout: 20000 }, async () => {
+test('RL10: 暗号にできない PC（偽の safeStorage が使えない）では cookie をしまえず store（R16）。partition の cookie も消し（その場のメモリだけで使い続けない）、accountEmail を書かない', { timeout: sceneTimeout(20000) }, async () => {
   const o = await run(['text', '--json-scene=access-ipc-nostore', '--relay=text', '--no-store']);
   assert.deepStrictEqual(o.status0, status({ canStore: false }));
   assert.deepStrictEqual(o.login, { ok: false, code: 'store', message: R16 });
@@ -220,7 +220,7 @@ test('RL10: 暗号にできない PC（偽の safeStorage が使えない）で�
   assert.ok(o.engineLog.includes('アカウント: ログインの情報をしまえません（unavailable）'), o.engineLog.join('\n'));
 });
 
-test('F27: 録音中に account:login を呼んでも録音は続き、窓を開いたまま会議を止めて議事録ができる（窓はモーダルでない）。窓を閉じると cancel', { timeout: 20000 }, async () => {
+test('F27: 録音中に account:login を呼んでも録音は続き、窓を開いたまま会議を止めて議事録ができる（窓はモーダルでない）。窓を閉じると cancel', { timeout: sceneTimeout(20000) }, async () => {
   const o = await run(['text', '--json-scene=access-recording', '--relay=text']);
   assert.strictEqual(o.winsDuring, 1);
   assert.strictEqual(o.stateDuring, 'meeting', '録音中にログインの窓を開いたら録音が止まった');
@@ -235,7 +235,7 @@ test('F27: 録音中に account:login を呼んでも録音は続き、窓を開
 // 0.7.0 までの鍵（会社の OpenAI の鍵が入りうる）は、起動のときに purgeOld で消す。鍵の IPC（cloud:*）の受け口は無い
 const { OLD_KEY_TEXT } = require('./helpers/json-scenes');
 
-test('F11・K2: --old-keys で起動すると、groq・openai・custom の鍵と退けた控えが消え、engine.log に「secrets: 前の鍵 4 個を消しました」が1行。ログインの札は残り、鍵の文字は記録に無い', { timeout: 20000 }, async () => {
+test('F11・K2: --old-keys で起動すると、groq・openai・custom の鍵と退けた控えが消え、engine.log に「secrets: 前の鍵 4 個を消しました」が1行。ログインの札は残り、鍵の文字は記録に無い', { timeout: sceneTimeout(20000) }, async () => {
   const o = await run(['text', '--json-scene=old-keys', '--relay=text', '--old-keys']);
   const keys = JSON.parse(o.secretsRaw).keys;
   assert.deepStrictEqual(Object.keys(keys), ['relay'], '前の版の鍵が残った');
@@ -248,7 +248,7 @@ test('F11・K2: --old-keys で起動すると、groq・openai・custom の鍵と
   assert.ok(!blob.includes('ENC1') && !blob.includes(keys.relay), '暗号の文字が記録か答えに出た');
 });
 
-test('F11・K2: 前の版の鍵が無い PC では、起動で何も消さず、記録もしない（ログインの札はそのまま）', { timeout: 20000 }, async () => {
+test('F11・K2: 前の版の鍵が無い PC では、起動で何も消さず、記録もしない（ログインの札はそのまま）', { timeout: sceneTimeout(20000) }, async () => {
   const o = await run(['text', '--json-scene=old-keys', '--relay=text']);
   assert.deepStrictEqual(Object.keys(JSON.parse(o.secretsRaw).keys), ['relay']);
   assert.deepStrictEqual(o.engineLog.filter((l) => l.startsWith('secrets:')), []);
@@ -256,7 +256,7 @@ test('F11・K2: 前の版の鍵が無い PC では、起動で何も消さず、
 });
 
 // 第1d回 A-12 で意図して変えた: 前の自前のログイン（確認コード）の受け口 account:start・account:verify を消した（ログインは account:login の窓だけ）
-test('F11: cloud:status・cloud:set-key・cloud:test-key・cloud:clear-key の受け口が無い。account:start・account:verify の受け口も無い（ログインの3つだけ）', { timeout: 20000 }, async () => {
+test('F11: cloud:status・cloud:set-key・cloud:test-key・cloud:clear-key の受け口が無い。account:start・account:verify の受け口も無い（ログインの3つだけ）', { timeout: sceneTimeout(20000) }, async () => {
   const o = await run(['text', '--json-scene=old-keys', '--relay=text', '--old-keys']);
   assert.deepStrictEqual(o.cloudHandlers, [], '鍵の IPC の受け口が残っている');
   assert.deepStrictEqual(o.accountHandlers, ['account:login', 'account:logout', 'account:status']);

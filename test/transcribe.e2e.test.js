@@ -21,7 +21,7 @@ const test = require('node:test');
 const assert = require('node:assert');
 const fs = require('node:fs');
 const path = require('node:path');
-const { execFile } = require('node:child_process');
+const { execScene } = require('./helpers/scene-slots');
 const net = require('node:net');
 
 const RUN = path.join(__dirname, 'helpers', 'mainrun.js');
@@ -60,7 +60,7 @@ async function reservePorts(n) {
 
 function run(args) {
   return new Promise((resolve, reject) => {
-    execFile(process.execPath, [RUN, ...args], { timeout: 90000, maxBuffer: 4 * 1024 * 1024 }, (err, stdout, stderr) => {
+    execScene(process.execPath, [RUN, ...args], { timeout: 90000, maxBuffer: 4 * 1024 * 1024 }, (err, stdout, stderr) => {
       if (err) { reject(new Error(`mainrun ${args.join(' ')} が失敗: ${err.message}\n${stderr}`)); return; }
       const last = stdout.trim().split('\n').pop();
       try { resolve(JSON.parse(last)); } catch (e) { reject(new Error(`mainrun ${args.join(' ')} の出力を読めない: ${last}\n${stderr}`)); }

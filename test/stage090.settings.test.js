@@ -10,7 +10,7 @@ const test = require('node:test');
 const assert = require('node:assert');
 const fs = require('node:fs');
 const path = require('node:path');
-const { execFile } = require('node:child_process');
+const { execScene, sceneTimeout } = require('./helpers/scene-slots');
 const { load } = require('./helpers/simrun.js');
 const { parseHTML } = require('./helpers/simdom');
 const S = require('./helpers/simcss');
@@ -366,14 +366,14 @@ test('SP3: 覚えたタブ { open: [page:pa1, settings], active: settings } で�
 // 場面 esc-focus（helpers/mainrun.js の --dictate --focus-main-during-dictation）。音声入力の録音中に本体の窓へ focus、続けて blur を送る
 const RUN = path.join(__dirname, 'helpers', 'mainrun.js');
 const runMain = (args) => new Promise((resolve, reject) => {
-  execFile(process.execPath, [RUN, ...args], { env: { ...process.env, NATSU_TEST_STT_SLEEP_SCALE: '0.01' }, maxBuffer: 1 << 24, timeout: 20000 },
+  execScene(process.execPath, [RUN, ...args], { env: { ...process.env, NATSU_TEST_STT_SLEEP_SCALE: '0.01' }, maxBuffer: 1 << 24, timeout: 20000 },
     (err, stdout, stderr) => {
       if (err) { reject(new Error(`mainrun ${args.join(' ')} が失敗: ${err.message}\n${stderr}`)); return; }
       resolve(JSON.parse(stdout.trim().split('\n').pop()));
     });
 });
 
-test('SP2・RF9（場面 esc-focus）: 音声入力の録音中に本体の窓へフォーカスが来ると Escape の全体のホットキーを外し、離れると付け直す。録音の終わりには付いていない', { timeout: 20000 }, async () => {
+test('SP2・RF9（場面 esc-focus）: 音声入力の録音中に本体の窓へフォーカスが来ると Escape の全体のホットキーを外し、離れると付け直す。録音の終わりには付いていない', { timeout: sceneTimeout(20000) }, async () => {
   const o = await runMain(['text', '--dictate', '--focus-main-during-dictation']);
   // 録音の始め（窓は前にない）で付ける → focus で外す → blur で付け直す → 音声が届いて外す
   assert.deepStrictEqual(o.escape, ['register', 'unregister', 'register', 'unregister'], JSON.stringify(o.escape));

@@ -9,7 +9,7 @@ const test = require('node:test');
 const assert = require('node:assert');
 const fs = require('node:fs');
 const path = require('node:path');
-const { execFile } = require('node:child_process');
+const { execScene, sceneTimeout } = require('./helpers/scene-slots');
 const lib = require('../src/mainlib');
 const { RELAY_BASE } = require('../src/relay');
 const { load } = require('./helpers/simrun.js');
@@ -53,13 +53,13 @@ test('I1: HELP_URL は https で、ホストは natsu-help.<RELAY_BASE と同じ
 // 場面 open-help（helpers/mainrun.js の --open-help）: 起動の後に app:open-help を引数の並びで順に呼び、shell.openExternal の住所を集める
 const RUN = path.join(__dirname, 'helpers', 'mainrun.js');
 const runMain = (args) => new Promise((resolve, reject) => {
-  execFile(process.execPath, [RUN, ...args], { maxBuffer: 1 << 24, timeout: 20000 }, (err, stdout, stderr) => {
+  execScene(process.execPath, [RUN, ...args], { maxBuffer: 1 << 24, timeout: 20000 }, (err, stdout, stderr) => {
     if (err) { reject(new Error(`mainrun ${args.join(' ')} が失敗: ${err.message}\n${stderr}`)); return; }
     resolve(JSON.parse(stdout.trim().split('\n').pop()));
   });
 });
 const CALLS = [[], ['record/pause'], ['settings/offline'], ['https://example.invalid/'], ['../admin/seats'], ['record/pause#sleep'], ['RECORD/PAUSE'], [7], [{}], [null]];
-test('I1（場面 open-help）: app:open-help は一覧の記事だけを開き、ほかはホームを開く。どの呼び出しも openExternal を1回だけ、答えは true', { timeout: 20000 }, async () => {
+test('I1（場面 open-help）: app:open-help は一覧の記事だけを開き、ほかはホームを開く。どの呼び出しも openExternal を1回だけ、答えは true', { timeout: sceneTimeout(20000) }, async () => {
   const o = await runMain(['text', `--open-help=${JSON.stringify(CALLS)}`]);
   assert.deepStrictEqual(o.openHelp, CALLS.map(() => true));
   assert.deepStrictEqual(o.external, [HELP_URL, `${HELP_URL}record/pause/`, `${HELP_URL}settings/offline/`, ...Array(7).fill(HELP_URL)]);

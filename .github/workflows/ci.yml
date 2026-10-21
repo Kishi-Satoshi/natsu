@@ -52,9 +52,17 @@ jobs:
       # 飛ばしたテストの数も見る。許すのは Linux で 0 件、Windows で 1 件
       # （stage3.infra.test.js の pre-commit を sh で実際に走らせるテスト。Windows には sh が無い）。
       # 環境のせいで静かに飛ばされるテストが増えたら、ここで止める。
+      # Windows では一時フォルダ（os.tmpdir()）を作業のディスク（RUNNER_TEMP。D:）に置く（CI の直し: run 39583796615）。
+      # 既定の %TEMP% は C:（OS のディスク）で、場面（mainrun）の DB・JSON の fsync とファイルを多く書くテストが2〜4倍遅くなり
+      # （CPU だけを使うゲートのテストは同じ速さ）、場面が見張り（19〜20 秒）に当たった。場面を同時に走らせる数は test/helpers/scene-slots.js が決める
       - name: テスト
         shell: bash
         run: |
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            mkdir -p "$RUNNER_TEMP/natsu-tmp"
+            export TEMP="$(cygpath -w "$RUNNER_TEMP/natsu-tmp")" TMP="$(cygpath -w "$RUNNER_TEMP/natsu-tmp")"
+            node -p "'一時フォルダ: ' + require('os').tmpdir()"
+          fi
           LOG="$RUNNER_TEMP/npm-test.log"
           npm test 2>&1 | tee "$LOG"
           SKIPPED="$(grep -E '^# skipped [0-9]+' "$LOG" | tail -n 1 | sed -E 's/^# skipped ([0-9]+).*/\1/' || true)"
@@ -325,9 +333,12 @@ jobs:
           if-no-files-found: ignore
 
       # CI の Node（24）とアプリの Node（Electron 44 の 24.22）の違いを早く見つける（RF15）。飛ばすのは 1 件まで（test のジョブと同じ）
+      # 一時フォルダは test のジョブと同じく作業のディスク（RUNNER_TEMP。D:）に置く（CI の直し: run 39583796615）
       - name: テスト全部を Electron の Node（ELECTRON_RUN_AS_NODE=1）でも回す
         shell: bash
         run: |
+          mkdir -p "$RUNNER_TEMP/natsu-tmp"
+          export TEMP="$(cygpath -w "$RUNNER_TEMP/natsu-tmp")" TMP="$(cygpath -w "$RUNNER_TEMP/natsu-tmp")"
           LOG="$RUNNER_TEMP/electron-node-test.log"
           ELECTRON_RUN_AS_NODE=1 node_modules/electron/dist/electron.exe --test --test-reporter=tap "test/*.test.js" 2>&1 | tee "$LOG"
           SKIPPED="$(grep -E '^# skipped [0-9]+' "$LOG" | tail -n 1 | sed -E 's/^# skipped ([0-9]+).*/\1/' || true)"

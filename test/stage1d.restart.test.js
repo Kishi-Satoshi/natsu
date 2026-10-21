@@ -12,7 +12,7 @@ const test = require('node:test');
 const assert = require('node:assert');
 const fs = require('node:fs');
 const path = require('node:path');
-const { execFileSync } = require('node:child_process');
+const { execSceneSync, sceneTimeout } = require('./helpers/scene-slots');
 
 const ROOT = path.join(__dirname, '..');
 const RUN = path.join(__dirname, 'helpers', 'mainrun.js');
@@ -29,12 +29,12 @@ const U2 = '議事録を保存しています。保存が終わってから、�
 const U3 = '録音中のため、再起動しませんでした。更新は次に NaTsu を起動したときに使われます。録音を終えてから、NaTsu を終了して起動し直してください。';
 
 function runMain(mode, flags) {
-  const stdout = execFileSync(process.execPath, [RUN, mode, ...flags], { timeout: 25000, maxBuffer: 16 * 1024 * 1024, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+  const stdout = execSceneSync(process.execPath, [RUN, mode, ...flags], { timeout: 25000, maxBuffer: 16 * 1024 * 1024, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
   return JSON.parse(stdout.trim().split('\n').pop());
 }
 const refused = (code, error) => ({ ok: false, code, error });
 
-test('RF41: 会議の録音中に app:restart を呼ぶと断り（code recording・U1 の文）、再起動しない。エンジンも DB も止めず、録音はそのまま最後まで保存される', { timeout: 30000 }, () => {
+test('RF41: 会議の録音中に app:restart を呼ぶと断り（code recording・U1 の文）、再起動しない。エンジンも DB も止めず、録音はそのまま最後まで保存される', { timeout: sceneTimeout(30000) }, () => {
   const out = runMain('text', ['--segs=2', '--restart-during=meeting']);
   assert.deepStrictEqual(out.restart, refused('recording', U1));
   assert.strictEqual(out.relaunches, 0, '録音中に再起動した');
@@ -50,14 +50,14 @@ test('RF41: 会議の録音中に app:restart を呼ぶと断り（code recordin
   assert.deepStrictEqual(out.closeAfterRefusal, { prevented: 1, asked: ['議事録を記録中です'] }, '断った後に閉じるボタンが確かめずに閉じる（終了の途中のまま）');
 });
 
-test('RF41: update:apply も録音中は取り込みを始めずに断る（取り込みの要求が 0）', { timeout: 30000 }, () => {
+test('RF41: update:apply も録音中は取り込みを始めずに断る（取り込みの要求が 0）', { timeout: sceneTimeout(30000) }, () => {
   const out = runMain('text', ['--segs=2', '--restart-during=meeting']);
   assert.deepStrictEqual(out.apply, refused('recording', U1));
   assert.strictEqual(out.applyCalls, 0, '録音中に取り込みを始めた');
   assert.strictEqual(out.pages.length, 1);
 });
 
-test('RF41: 音声入力の録音中・文字起こし中も断る', { timeout: 30000 }, () => {
+test('RF41: 音声入力の録音中・文字起こし中も断る', { timeout: sceneTimeout(30000) }, () => {
   const out = runMain('text', ['--dictate', '--restart-during=dictation']);
   assert.deepStrictEqual(out.restartRecording, refused('recording', U1), '音声入力の録音中');
   assert.deepStrictEqual(out.restartProcessing, refused('recording', U1), '音声入力の文字起こし中');
@@ -69,7 +69,7 @@ test('RF41: 音声入力の録音中・文字起こし中も断る', { timeout: 
   assert.strictEqual(out.killsAtRefusal, 0, '断ったのにエンジンか貼り付けを止めた');
 });
 
-test('RF41: 議事録の締めの返事を待つ間は finalizing（U2）。返事が来た後は再起動する（DB を閉じてから relaunch 1 回）', { timeout: 30000 }, () => {
+test('RF41: 議事録の締めの返事を待つ間は finalizing（U2）。返事が来た後は再起動する（DB を閉じてから relaunch 1 回）', { timeout: sceneTimeout(30000) }, () => {
   const out = runMain('text', ['--segs=2', '--restart-during=finalizing']);
   assert.strictEqual(out.stateHeld, 'idle', '場面の前提: 録音の状態はもう待機（締めの返事だけを待つ）');
   assert.strictEqual(out.heldAcked, false, '場面の前提: 止めている間に締めの返事が来た');
@@ -83,7 +83,7 @@ test('RF41: 議事録の締めの返事を待つ間は finalizing（U2）。返�
   assert.strictEqual(out.pages.length, 1, '締めた議事録が残っていない');
 });
 
-test('RF41: 何もしていないときは今までどおり取り込んで再起動する（DB を閉じてから relaunch 1 回）', { timeout: 30000 }, () => {
+test('RF41: 何もしていないときは今までどおり取り込んで再起動する（DB を閉じてから relaunch 1 回）', { timeout: sceneTimeout(30000) }, () => {
   const out = runMain('text', ['--restart-during=idle']);
   assert.deepStrictEqual(out.apply, { ok: true });
   assert.strictEqual(out.applyCalls, 1);
@@ -93,7 +93,7 @@ test('RF41: 何もしていないときは今までどおり取り込んで再�
   assert.ok(!out.engineLog.some((l) => l.startsWith('更新の再起動: 断った')), out.engineLog.join('\n'));
 });
 
-test('RF41: 再起動を受けて DB を閉じている間は、会議（ボタン・ホットキー）も音声入力も始めない（始めると relaunch で録音が切れる）', { timeout: 30000 }, () => {
+test('RF41: 再起動を受けて DB を閉じている間は、会議（ボタン・ホットキー）も音声入力も始めない（始めると relaunch で録音が切れる）', { timeout: sceneTimeout(30000) }, () => {
   const out = runMain('text', ['--restart-during=closing']);
   assert.strictEqual(out.closeHeld, true, '場面の前提: DB を閉じるところで止まっていない');
   assert.strictEqual(out.hotkeysFound, true, '場面の前提: ホットキーが登録されていない');

@@ -8,11 +8,11 @@
 const test = require('node:test');
 const assert = require('node:assert');
 const path = require('node:path');
-const { execFile } = require('node:child_process');
+const { execScene, sceneTimeout } = require('./helpers/scene-slots');
 
 const RUN = path.join(__dirname, 'helpers', 'mainrun.js');
 const run = (args) => new Promise((resolve, reject) => {
-  execFile(process.execPath, [RUN, ...args], { maxBuffer: 1 << 24, timeout: 20000 }, (err, stdout, stderr) => {
+  execScene(process.execPath, [RUN, ...args], { maxBuffer: 1 << 24, timeout: 20000 }, (err, stdout, stderr) => {
     if (err) { reject(new Error(`mainrun ${args.join(' ')} が失敗: ${err.message}\n${stderr}`)); return; }
     resolve(JSON.parse(stdout.trim().split('\n').pop()));
   });
@@ -21,7 +21,7 @@ const run = (args) => new Promise((resolve, reject) => {
 // 第1d回 A-4（RL10・F11）で意図して変えた: 鍵の IPC（cloud:status・cloud:set-key・cloud:test-key・cloud:clear-key）の受け口を消したので、
 // 鍵を画面へ返さない・鍵の確かめ・前の版の鍵を残すことの確かめを外した（受け口が無いことと、前の版の鍵を起動で消すことは
 // test/stage1d.ipc.test.js の F11 が見る）。Claude Code と［PC の中だけ］の部分だけを残す
-test('OL5・OL7: 設定のカード「オンライン」の IPC（Claude Code の確かめ・［PC の中だけ］）。前の版の画面の4つのキーは保存しない', { timeout: 20000 }, async () => {
+test('OL5・OL7: 設定のカード「オンライン」の IPC（Claude Code の確かめ・［PC の中だけ］）。前の版の画面の4つのキーは保存しない', { timeout: sceneTimeout(20000) }, async () => {
   const o = await run(['text', '--json-scene=cloud-ipc']);
   // 前の版の画面が送っていた4つのキーは保存しない。settings.json に前の版が書いた値は残る（JS6）
   assert.strictEqual(o.saved.ok, true);
@@ -42,7 +42,7 @@ test('OL5・OL7: 設定のカード「オンライン」の IPC（Claude Code �
   assert.ok(!o.engineLog.some((l) => /の鍵を保存しました|の鍵の確かめ/.test(l)), '鍵を扱った');
 });
 
-test('RF28: ［この会議は PC の中だけ］の IPC は片道。会議中に true の後で false が来ても PC の中だけのまま（下書きにも残る）。会議の外は { ok:false, localOnly:false }', { timeout: 30000 }, async () => {
+test('RF28: ［この会議は PC の中だけ］の IPC は片道。会議中に true の後で false が来ても PC の中だけのまま（下書きにも残る）。会議の外は { ok:false, localOnly:false }', { timeout: sceneTimeout(30000) }, async () => {
   const o = await run(['text', '--json-scene=local-only-ipc']);
   // 会議の外: どちらの値でも何もせず、計画の表の形 { ok, localOnly } で返す
   assert.deepStrictEqual(o.idleTrue, { ok: false, localOnly: false });
@@ -63,7 +63,7 @@ test('RF28: ［この会議は PC の中だけ］の IPC は片道。会議中�
   assert.deepStrictEqual(o.discard, { ok: true });
 });
 
-test('OL5・RF25・RF31: 設定の［Claude Code を確かめる］を偽の claude で通す。claude.ai なら ok、未ログイン・API キー・起こせない・分からない答えは設定の画面の文。-p は確かめの1語だけ（第1b回の続き Lane F-b）、課金の変数は子に渡らず、作業フォルダは claude-run。同時に押しても子は1つ', { timeout: 30000 }, async () => {
+test('OL5・RF25・RF31: 設定の［Claude Code を確かめる］を偽の claude で通す。claude.ai なら ok、未ログイン・API キー・起こせない・分からない答えは設定の画面の文。-p は確かめの1語だけ（第1b回の続き Lane F-b）、課金の変数は子に渡らず、作業フォルダは claude-run。同時に押しても子は1つ', { timeout: sceneTimeout(30000) }, async () => {
   const o = await run(['text', '--json-scene=claude-status']);
   assert.deepStrictEqual(o.ok, { ok: true, found: true, cmdOnly: false, method: 'claude.ai', message: '' });
   // 開いたときの確かめと［Claude Code を確かめる］が重なっても auth status は1回だけ（同じ答えを使う）。
@@ -132,7 +132,7 @@ test('OL5・RF25・RF31: 設定の［Claude Code を確かめる］を偽の cla
 // 第1b回の続き Lane F-c・F-d（利用者は PowerShell を打たない）: ［Claude Code にログイン］は見つけた claude.exe の auth login を、
 // ［Claude Code を入れる］は Anthropic の公式の入れ方を、見える窓で開き、閉じたら確かめ直す。窓を開くのは隠した PowerShell で、
 // claude.exe の場所は環境の変数だけで渡す。窓は1つずつ。NaTsu はログインの情報を読まない
-test('Lane F-c・F-d: ログインと入れる窓の IPC。閉じたら確かめ直し（ログインの後は小さな要求まで）、窓は1つずつ、開けなければ設定の画面の文', { timeout: 30000 }, async () => {
+test('Lane F-c・F-d: ログインと入れる窓の IPC。閉じたら確かめ直し（ログインの後は小さな要求まで）、窓は1つずつ、開けなければ設定の画面の文', { timeout: sceneTimeout(30000) }, async () => {
   const o = await run(['text', '--json-scene=claude-window']);
   const decode = (l) => Buffer.from(l.args[l.args.indexOf('-EncodedCommand') + 1], 'base64').toString('utf16le');
   // ログイン: 窓が閉じたら auth status と確かめの要求まで通して「確かめ済み」

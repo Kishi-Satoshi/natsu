@@ -39,6 +39,25 @@ test('ci.yml: Linux と Windows で、改行を変えずに履歴ごと取り、
   assert.ok(gate.includes('git cat-file -e "$BASE^{commit}"'), '履歴に無い基準（force-push の後）で risk.js が落ちる');
 });
 
+// CI の直し（run 39583796615 の Windows）: テスト全部を回す段は、一時フォルダ（os.tmpdir() が読む TEMP・TMP）を作業のディスク（RUNNER_TEMP）に置いてから回す。
+// 既定の C: の %TEMP% では、場面の DB・JSON の fsync とファイルを多く書くテストが遅くなり、場面が見張りに当たった
+test('ci.yml: Windows でテスト全部を回す段（test と electron-smoke）は、TEMP・TMP を RUNNER_TEMP の下にしてから回す', () => {
+  const jobs = jobsOf(read('.github/workflows/ci.yml'));
+  const steps = [
+    stepsOf(jobs.test).find((s) => /^\s*npm test/m.test(s)),
+    stepsOf(jobs['electron-smoke']).find((s) => s.includes('--test --test-reporter=tap "test/*.test.js"')),
+  ];
+  for (const st of steps) {
+    assert.ok(st, 'テスト全部を回す段が無い');
+    const set = st.indexOf('export TEMP="$(cygpath -w "$RUNNER_TEMP/natsu-tmp")" TMP="$(cygpath -w "$RUNNER_TEMP/natsu-tmp")"');
+    assert.ok(set >= 0, 'TEMP・TMP を RUNNER_TEMP の下にしていない');
+    assert.ok(st.indexOf('mkdir -p "$RUNNER_TEMP/natsu-tmp"') >= 0 && st.indexOf('mkdir -p "$RUNNER_TEMP/natsu-tmp"') < set, '一時フォルダを作る前に TEMP にしている');
+    assert.ok(set < st.search(/^\s*(npm test|ELECTRON_RUN_AS_NODE=1 node_modules)/m), 'テストを回した後に TEMP を変えている');
+  }
+  // test のジョブは Linux でも回るので、Windows のときだけ変える（Linux の os.tmpdir() は TMPDIR を読み、TEMP は見ない）
+  assert.match(steps[0], /if \[ "\$RUNNER_OS" = "Windows" \]; then\n\s+mkdir -p "\$RUNNER_TEMP\/natsu-tmp"/);
+});
+
 test('ci.yml: Windows では .ps1 を Windows PowerShell 5.1 で構文解析し、BOM と CRLF を確かめる', () => {
   const ci = read('.github/workflows/ci.yml');
   const st = stepsOf(jobsOf(ci).test);

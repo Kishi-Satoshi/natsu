@@ -30,6 +30,9 @@
 //     --managed-tamper … --managed と同じ組の whisper.dll を、大きさを変えずに書き換える（照らしで合わず、起動しない。RF3）
 //     --recover     … 前回落ちた会議の下書き（文字起こし待ちの区間 1 つと、その音声）を置いて起動し、復旧の文字起こしを待って終える
 //                     （記録はしない。--managed と組み合わせると、照らし終えた後に復旧が動くかを見る）
+//     --slow-ack=<cmd>:<ms> … main の db.call(<cmd>) の答えを、DB が書き終えた後、main に返す前に ms だけ止める（CI の直し:
+//                     混んだ機械では、復旧のページが DB に入ってから main が recovery.json を書くまでに間が空く。その間に「待ち行列が無い」を
+//                     「済んだ」と読まないことを見る）
 //     --no-vc-runtime … --managed と組み合わせる。Visual C++ ランタイムが無い PC にする（RF4）。whenReady の後で System32 を
 //                     空のフォルダに向け、Windows の外では process.platform を win32 と読ませる（main.js の engineRuntimeIssue は
 //                     Windows でだけ DLL を読む）。記録はせず、engine:status・起動テスト・記録の開始の答えを見る。
@@ -430,6 +433,7 @@ const autoStopMinFlag = Number(flagVal('--auto-stop-min')) || 0;
 const segCount = Number((flags.find((f) => f.startsWith('--segs=')) || `--segs=${relaySeq ? relaySeq.length : 2}`).slice(7)) || 2;
 const managedMode = flags.includes('--managed') ? 'ok' : (flags.includes('--managed-tamper') ? 'tamper' : '');
 const recoverMode = flags.includes('--recover');
+const slowAck = (() => { const m = /^([\w.]+):(\d+)$/.exec(flagVal('--slow-ack') || ''); return m ? { cmd: m[1], ms: Number(m[2]) } : null; })();
 const afterRetry = flags.includes('--after-retry');
 const noVcRuntime = flags.includes('--no-vc-runtime');
 const verifyThrows = flags.includes('--verify-throws');
@@ -1506,6 +1510,7 @@ process.on('exit', () => {
           trace.push({ kind: 'call', cmd, ...(cmd === 'snapshot.take' && args ? { snap: args.kind } : {}) });
           try {
             const r = await c.call(cmd, args, o);
+            if (slowAck && slowAck.cmd === cmd) await sleep(slowAck.ms);   // --slow-ack: DB は書き終えた・main はまだ答えを受けていない
             trace.push({ kind: 'ack', cmd });
             return r;
           } catch (e) {
@@ -2036,7 +2041,10 @@ process.on('exit', () => {
   if (recoverMode && (fakeStt || relayLocal)) {
     const recovered = () => { const p = store.listPages()[0]; return p ? store.getTranscript(p.id) : []; };
     // 済んだ（成功した区間がある・待ち行列が片付いた）か、残して止まった（保留・止めました）まで
-    await waitFor(() => store.listPages().length > 0 && (recovered().some((x) => !x.failed) || recoverySettled()));
+    // CI の直し（run 39583796615 の Windows の OL2）: 復旧のページは DB に入った後、main が答えを受けてから下書きを消し、同じ手番で recovery.json を
+    // 書く。下書きが残っている間の「待ち行列が無い」は「まだ書いていない」なので、済んだと読まない（下書きの復旧に失敗したら、そこで終わり）
+    const draftTaken = () => !draftNames().length || elogLines().some((l) => /^下書き（.+）の復旧に失敗/.test(l));
+    await waitFor(() => store.listPages().length > 0 && draftTaken() && (recovered().some((x) => !x.failed) || recoverySettled()));
     await sleep(100);
     await sttOut();
     process.stdout.write(`\n${JSON.stringify(out)}\n`);
