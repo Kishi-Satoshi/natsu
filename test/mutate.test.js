@@ -376,7 +376,7 @@ test('G3: 第1d回の作り替え（G-3）で足した 60 個の変異が一覧�
   }
 });
 
-// ヘルプセンター H-11: ヘルプの直しを1つずつ戻す変異（計画 docs/plans/2026-10-20-help.md の「変異確認」の表。H-12 の分は IDS_HELP_APP で H-12 が足す）
+// ヘルプセンター H-11: ヘルプの直しを1つずつ戻す変異（計画 docs/plans/2026-10-20-help.md の「変異確認」の表。H-12 の分は 0.9.2 の IDS_092 の i-help-*）
 const IDS_HELP = [
   'hp-escape-lt', 'hp-escape-quote', 'hp-raw-html', 'hp-link-scheme', 'hp-anchor', 'hp-nest', 'hp-inline-style', 'hp-label', 'hp-search-nfkc',
   'hp-gate-require', 'hp-gate-ready', 'hp-gate-readonly', 'hp-gate-nostore', 'hp-gate-set', 'hp-gate-csp', 'hp-gate-need',
@@ -484,5 +484,27 @@ test('G3: 0.9.1 の変異が一覧にそろい、IDS_091 は計画の「変異�
     const m = byId.get(id);
     assert.ok(Array.isArray(m.tests) && m.tests.length > 0 && m.tests.every((t) => /^test\/[^/]+\.test\.js$/.test(t)), `${id}: tests`);
     assert.ok(typeof m.why === 'string' && m.why.startsWith('0.9.1 '), `${id}: why`);
+  }
+});
+
+// 0.9.2（計画 docs/plans/2026-10-21-092.md の「変異確認」の表）: ヘルプの口・ⓘ の吹き出し・検索・説明の直しを1つずつ戻す変異
+const IDS_092 = [
+  'i-help-url-arg', 'i-help-allow', 'i-help-list', 'i-help-preload', 'i-help-live', 'i-help-nav-args',
+  'i-pop-article', 'i-pop-link-live', 'i-pop-esc', 'i-pop-esc-focus', 'i-pop-search-esc', 'i-pop-one', 'i-pop-aria', 'i-pop-toggle', 'i-pop-outside',
+  'i-pop-inside', 'i-pop-sec', 'i-pop-clamp', 'i-pop-flip', 'i-pop-width', 'i-pop-height', 'i-pop-scroll', 'i-search-pop', 'i-search-hit', 'i-search-lead',
+  'i-search-css', 'i-desc-alt', 'i-warn-hidden', 'i-check-label',
+];
+test('G3: 0.9.2 の変異が一覧にそろい、IDS_092 は計画の「変異確認」の表の id とちょうど同じ。どれも決まったテストのファイルを持ち、なぜ戻すと困るかを書く', { timeout: 5000 }, () => {
+  const byId = new Map(MUTANTS.map((m) => [m.id, m]));
+  assert.deepStrictEqual(IDS_092.filter((id) => !byId.has(id)), [], '計画の表の変異が一覧に無い');
+  assert.deepStrictEqual(MUTANTS.filter((m) => /^i-/.test(m.id) && !IDS_092.includes(m.id)).map((m) => m.id), [], 'IDS_092 に無い i- の変異がある');
+  const plan = fs.readFileSync(path.join(ROOT, 'docs', 'plans', '2026-10-21-092.md'), 'utf8');
+  const table = plan.slice(plan.indexOf('## 変異確認'), plan.indexOf('## ゲート'));
+  const rows = [...table.matchAll(/^\| ([a-z][a-z0-9-]*) \|/gm)].map((m) => m[1]).filter((id) => id !== 'id');
+  assert.deepStrictEqual([...rows].sort(), [...IDS_092].sort());
+  for (const id of IDS_092) {
+    const m = byId.get(id);
+    assert.ok(Array.isArray(m.tests) && m.tests.length > 0 && m.tests.every((t) => /^test\/[^/]+\.test\.js$/.test(t)), `${id}: tests`);
+    assert.ok(typeof m.why === 'string' && m.why.startsWith('0.9.2 '), `${id}: why`);
   }
 });

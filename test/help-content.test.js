@@ -144,3 +144,18 @@ test('H-11: README の「ヘルプセンター」の節に、住所・作り方�
   // 会社の固有の情報は書かない（チームの名前・会社のドメインは <…> の形だけ）
   assert.doesNotMatch(sec, /(?<![<\w-])[a-z0-9-]+\.cloudflareaccess\.com/i);
 });
+
+// 0.9.2 I-5（計画 docs/plans/2026-10-21-092.md の C）: 一時停止のスリープの節で、引いた知らせの文がもう「続けるときは、…［再開］を押してください」と
+// 言うので、次の行で同じことを繰り返さない。設定の画面の使い方は、0.9.2 の ⓘ の説明と［ヘルプ］に合わせる
+const sectionOf = (ref, id) => { const t = read(fileOf(ref)); const at = t.indexOf(`{#${id}}`); assert.ok(at > 0, `${ref} に #${id} が無い`); const end = t.indexOf('\n## ', at); return t.slice(at, end < 0 ? t.length : end); };
+test('0.9.2 C: record/pause の「PC がスリープしたとき」は、続け方（［再開］を押す）を1回だけ言い、自動では再開しないことは残す', { timeout: 5000 }, () => {
+  const s = sectionOf('record/pause', 'sleep');
+  assert.strictEqual(s.split('続けるときは').length - 1, 1, `続け方を2回言っている:\n${s}`);
+  assert.ok(s.includes('自動では再開しません'), '自動では再開しないことが無い');
+  assert.ok(s.includes('スリープから戻りました。会議の録音は一時停止しています。続けるときは、録音中のページの［再開］を押してください。'), '引いた知らせの文が無い');
+});
+test('0.9.2 C: settings/appearance の「設定の画面の使い方」に、1行の説明と ⓘ（Esc はまず説明を閉じる）・「ヘルプで詳しく見る ↗」・ⓘ の中の言葉でも当たる検索・左の列の下の［ヘルプ］がある', { timeout: 5000 }, () => {
+  const s = sectionOf('settings/appearance', 'settings-screen');
+  for (const w of ['ⓘ', '1行', 'ヘルプで詳しく見る ↗', '［ヘルプ］', 'ⓘ の中の言葉', '[[Esc]]']) assert.ok(s.includes(w), `「${w}」が無い`);
+  assert.ok(!s.includes('NaTsu 0.9.0'), '版の例が古い');
+});
