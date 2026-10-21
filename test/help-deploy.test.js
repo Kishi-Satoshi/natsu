@@ -76,7 +76,10 @@ const hashOf = (bytes, f) => crypto.createHash('sha256').update(Buffer.from(byte
 // site: 'gate-503'（既定）・'gate-401'・'gate-403'・'access-302'（Access のログインへ）・'open'（どの道も 200 の中身）・
 //       'open-index'（/search-index.json だけ 200）・'open-article'（featured の最初の記事だけ 200）・'other-302'（ほかのホストへ）・
 //       'same-302'（同じホストの道へ）・'not-found'（いつも 404）・'flaky'（はじめの 2 回は 404、その後は gate-503）・
-//       'plain-503'（門の印の無い 503）・'plain-403'（門の印の無い 403。Access の前で止められた）
+//       'plain-503'（門の印の無い 503）・'plain-403'（門の印の無い 403。Access の前で止められた）・
+//       'hello'（どの道も 200 の Hello World!。画面の見本で作った前の版）・'hello-then-gate'（はじめの 6 回は Hello World!、その後は gate-503）・
+//       'hello-index'（/search-index.json だけいつも Hello World!、ほかは gate-503）・'open-json'（/search-index.json だけ本物の形の検索の索引の
+//       JSON の 200、ほかは gate-503）・'hello-then-open-json'（はじめの 3 回は Hello World!、その後は open-json）
 async function fakeCf({ token, acct, subdomain = 'team-a', dbExists = true, scriptExists = false, buckets = 'all', noJwt = false, site = 'gate-503', fail = null, redirect = null } = {}) {
   const sessionJwt = 'upl-session-' + crypto.randomBytes(12).toString('hex');
   const doneJwt = 'upl-done-' + crypto.randomBytes(12).toString('hex');
@@ -118,6 +121,11 @@ async function fakeCf({ token, acct, subdomain = 'team-a', dbExists = true, scri
           if (site === 'open') return content();
           if (site === 'open-index' && sp === '/search-index.json') return content();
           if (site === 'open-article' && sp === '/start/first/') return content();
+          const hello = () => send(res, 200, 'Hello World!', 'text/plain;charset=UTF-8');
+          const index = () => send(res, 200, JSON.stringify({ v: 1, items: [{ u: '/start/first/', t: 'はじめての方へ', x: ARTICLE }] }), 'application/json');
+          if (site === 'hello' || (site === 'hello-then-gate' && st.siteHits <= 6) || (site === 'hello-then-open-json' && st.siteHits <= 3)) return hello();
+          if (site === 'hello-index' && sp === '/search-index.json') return hello();
+          if ((site === 'open-json' || site === 'hello-then-open-json') && sp === '/search-index.json') return index();
           if (site === 'other-302') { res.writeHead(302, { location: 'https://evil.example/start/' }); return res.end(); }
           if (site === 'same-302') { res.writeHead(302, { location: '/elsewhere/' }); return res.end(); }
           if (site === 'access-302') { res.writeHead(302, { location: ACCESS_LOGIN }); return res.end(); }
@@ -186,6 +194,7 @@ async function runDeploy(cf, site, { token, acct, env = {}, build } = {}) {
   const out = [];
   const tried = [];
   const calls = [];
+  const sleeps = [];
   const guarded = R.loopbackOnlyFetch(globalThis.fetch);
   const fetch = (input, init) => {
     const url = String(input && input.url ? input.url : input);
@@ -203,9 +212,9 @@ async function runDeploy(cf, site, { token, acct, env = {}, build } = {}) {
   let code;
   try {
     const logged = await R.captureConsole(async () => {
-      code = await deploy({ env: e, fetch, out: (l) => out.push(String(l)), sleep: async () => {}, root: site.root, build: build || site.build });
+      code = await deploy({ env: e, fetch, out: (l) => out.push(String(l)), sleep: async (ms) => { sleeps.push(ms); }, root: site.root, build: build || site.build });
     });
-    return { code, text: [...out, ...logged, ...errs].join('\n'), out, tried, calls };
+    return { code, text: [...out, ...logged, ...errs].join('\n'), out, tried, calls, sleeps };
   } finally { console.error = realErr; console.warn = realWarn; }
 }
 
@@ -435,6 +444,66 @@ test('HF1: 漏れの確かめ: どれかの道が 2xx なら 1（「ログイン
   assert.strictEqual(c.ok, false, 'ほかのホストを Access に数えた');
   c = await leakCheck({ base: 'https://natsu-help.team-a.workers.dev', paths: ['/'], fetch: fake(204), sleep: async () => {} });
   assert.strictEqual(c.ok, false, '204 を守られているに数えた');
+});
+
+test('HF1（run 39520207427 の調べ）: 漏れの確かめは新しい版が答えるまで待つ。前の版（画面の見本の Hello World! の 200）は漏れでも成功でもない。新しい版が効かないまま約 90 秒たてば「まだ効いていません。もう一度」で 1', { timeout: 5000 }, async () => {
+  const sum = (a) => a.reduce((n, x) => n + x, 0);
+  // 前の版が少しの間だけ答え、その後は門の 503（run 39520207427 の2回目と同じ）→ 待って 0
+  await withCf({ site: 'hello-then-gate' }, async ({ cf, run }) => {
+    const r = await run();
+    assert.strictEqual(r.code, 0, r.text);
+    assert.ok(!/中身が見えます/.test(r.text), r.text);
+    assert.match(r.text, /9\/9 漏れの確かめ: まだ前の版が答えています（HTTP 200）。新しい版が効くまで最長 90 秒待ちます/);
+    assert.match(r.text, /準備中（Access の app と秘密の欄がまだ。利用者の用意の 1〜5）/);
+    assert.match(r.text, /9\/9 漏れの確かめ \/search-index\.json: HTTP 503（門が断った）/);
+    assert.ok(cf.st.siteHits > 6, `待たなかった: ${cf.st.siteHits}`);
+    assert.ok(r.sleeps[0] <= 2000, `はじめの待ちが長い: ${r.sleeps.join(',')}`);
+    assert.ok(!r.text.includes('Hello World'), '答えの本文を出した');
+  });
+  // 前の版のまま → 少しずつ間を延ばして合わせて約 90 秒待ち、「まだ効いていません」で 1（「中身が見えます」と言わない）
+  await withCf({ site: 'hello' }, async ({ cf, run }) => {
+    const r = await run();
+    assert.strictEqual(r.code, 1, r.text);
+    assert.ok(!/中身が見えます/.test(r.text), r.text);
+    assert.match(r.text, /失敗: 9\/9 漏れの確かめ: 新しい版がまだ効いていません（\/・\/search-index\.json・\/start\/first\/ が、前の版の答え（HTTP 200。ヘルプのページでも門でもない）を返します。90 秒待ちました）。数分待ってから、もう一度 Run workflow を押してください/);
+    assert.ok(sum(r.sleeps) >= 85000 && sum(r.sleeps) <= 100000, `待ちの合計 ${sum(r.sleeps)}`);
+    for (let i = 1; i < r.sleeps.length; i++) assert.ok(r.sleeps[i] >= r.sleeps[i - 1], `間が延びない: ${r.sleeps.join(',')}`);
+    assert.ok(r.sleeps.length >= 5 && r.sleeps[0] < r.sleeps[r.sleeps.length - 1], `間が延びない: ${r.sleeps.join(',')}`);
+    assert.strictEqual(cf.st.siteHits, (r.sleeps.length + 1) * 3);
+    assert.ok(!r.text.includes('Hello World'), '答えの本文を出した');
+  });
+  // 1つの道だけ前の版のまま → その道を名指しして 1（ほかが門でも成功にしない）
+  await withCf({ site: 'hello-index' }, async ({ run }) => {
+    const r = await run();
+    assert.strictEqual(r.code, 1, r.text);
+    assert.match(r.text, /新しい版がまだ効いていません（\/search-index\.json が、前の版の答え/);
+    assert.ok(!/中身が見えます|準備中（/.test(r.text), r.text);
+  });
+  // 検索の索引の本物の形（JSON）の 200 はヘルプの中身 → すぐに「中身が見えます」で 1（待たない）
+  await withCf({ site: 'open-json' }, async ({ cf, run }) => {
+    const r = await run();
+    assert.strictEqual(r.code, 1, r.text);
+    assert.match(r.text, /9\/9 漏れの確かめ \/search-index\.json: HTTP 200\n失敗: ログインせずに中身が見えます。すぐに Cloudflare の画面で natsu-help の Access を確かめてください/);
+    assert.ok(cf.st.siteHits <= 3, `見えたのに試し続けた: ${cf.st.siteHits}`);
+    assert.ok(!r.text.includes(ARTICLE));
+  });
+  // 前の版の後に中身が見えれば、待った後でも「中身が見えます」で 1
+  await withCf({ site: 'hello-then-open-json' }, async ({ run }) => {
+    const r = await run();
+    assert.strictEqual(r.code, 1, r.text);
+    assert.match(r.text, /まだ前の版が答えています/);
+    assert.match(r.text, /失敗: ログインせずに中身が見えます/);
+  });
+  // leakCheck だけでも: 知らない 200 は 'stale'・ページの印か索引の形の 200 は 'leak'
+  const { leakCheck } = require(SCRIPT);
+  const fake = (st, body, type = 'text/plain') => async () => new Response(body, { status: st, headers: { 'content-type': type } });
+  const base = 'https://natsu-help.team-a.workers.dev';
+  let c = await leakCheck({ base, paths: ['/'], fetch: fake(200, 'Hello World!'), sleep: async () => {} });
+  assert.deepStrictEqual([c.ok, c.state], [false, 'stale']);
+  for (const body of [JSON.stringify({ v: 1, items: [] }), ' {\n "v": 2, "items": [ ] }', `<!doctype html><html lang="ja"><head><meta charset="utf-8">${PAGE}</head></html>`]) {
+    c = await leakCheck({ base, paths: ['/'], fetch: fake(200, body), sleep: async () => { throw new Error('待った'); } });
+    assert.deepStrictEqual([c.ok, c.state], [false, 'leak'], body);
+  }
 });
 
 test('H-10: 中継の D1 が無い → 作らずに「先に relay-deploy」で 1。D1 を作る要求を出さない', { timeout: 5000 }, async () => {

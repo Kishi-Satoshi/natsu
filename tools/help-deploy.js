@@ -16,6 +16,10 @@
 //       6 Worker があるかを見る（無ければ1回目: keep_bindings を付けない）→ 7 門（relay/help-gate.mjs と、それが import でたどるファイル）を
 //       上げる（バインドは ASSETS と DB だけ。assets.config.run_worker_first: true。2回目からは keep_bindings: ['secret_text']）→
 //       8 workers.dev を有効にする → 9 漏れの確かめ（leakCheck。ログインしていない GET で中身が返れば赤）。
+//       9 は新しい版が答えるまで待つ（run 39520207427 の調べ: 画面の見本の Hello World! で作った Worker の前の版が、上げた約 1 秒後も
+//       どの道にも 200 を返し、それを漏れと見ていた）。新しい版の印は、門の印（gate）・Access への転送と断り・ヘルプのページの印（page）・
+//       検索の索引の形。2xx は本文がヘルプの中身（page の印か索引の形）のときだけ漏れ。知らない 2xx は前の版で、漏れでも成功でもない
+//       （間を延ばしながら合わせて約 90 秒待ち、まだなら「新しい版がまだ効いていません」で赤）。
 // 守り（HF5）:
 //   - トークンは Cloudflare の API の Authorization にだけ入れる。上げの札はバケットの要求にだけ、済みの札は Worker の上げの本文にだけ。
 //     漏れの確かめには見出しも cookie も付けない。どれも出力に出さない。
@@ -36,9 +40,13 @@ const TEST_BASE = /^http:\/\/127\.0\.0\.1:\d{2,5}(\/[A-Za-z0-9/_-]*)?$/;
 const REAL_API = 'https://api.cloudflare.com/client/v4';
 const CHECK_TRIES = 12;
 const CHECK_GAP_MS = 5000;
+const NEW_WAIT_MS = 90000;                              // 前の版が答える間、新しい版を待つ合わせての長さ
+const NEW_WAIT_GAPS = [1000, 2000, 4000, 8000, 15000];  // その間の待ち（最後の値をくり返す）
 const MAX_FILES = 2000;
 const MAX_FILE_BYTES = 5 * 1024 * 1024;
 const GATE_MARK = '<meta name="natsu-help" content="gate">';
+const PAGE_MARK = /<meta\s+name=["']?natsu-help["']?\s+content=["']?page\b/i;   // ヘルプのページの印（tools/lib/help-page.js）
+const INDEX_SHAPE = /^\s*\{\s*"v"\s*:\s*\d+\s*,\s*"items"\s*:\s*\[/;            // 検索の索引の形（tools/help-build.js の searchIndex）
 const ACCESS_HOST = '.cloudflareaccess.com';
 const LABEL = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
 const NAME = /^[a-z0-9][a-z0-9-]{0,62}$/;
@@ -48,6 +56,7 @@ const LEAK = '失敗: ログインせずに中身が見えます。すぐに Clo
 const READYING = '準備中（Access の app と秘密の欄がまだ。利用者の用意の 1〜5）';
 const REFUSED = 'Worker が断りました。natsu-help の Access が有効かを確かめてください（利用者の用意の 1）';
 const GUARDED = 'Access に守られています';
+const WAITING = `9/9 漏れの確かめ: まだ前の版が答えています（HTTP 200）。新しい版が効くまで最長 ${NEW_WAIT_MS / 1000} 秒待ちます`;
 // 資産の型（拡張子の表。表に無ければ application/null = 型を決めない）
 const TYPES = {
   html: 'text/html', css: 'text/css', js: 'application/javascript', json: 'application/json', svg: 'image/svg+xml',
@@ -131,7 +140,13 @@ async function probe(url, fetchFn) {
     return { kind: 'retry', st: 0 };
   }
   const st = res.status;
-  if (st >= 200 && st < 300) { await drop(res); return { kind: 'leak', st }; }
+  if (st >= 200 && st < 300) {
+    // 本文がヘルプの中身なら漏れ。知らない本文（前の版の Hello World! など）は前の版（漏れでも成功でもない。新しい版を待つ）
+    let text = '';
+    try { text = (await res.text()).slice(0, 65536); } catch (_) { text = ''; }
+    const ours = PAGE_MARK.test(text) || INDEX_SHAPE.test(text);
+    return ours ? { kind: 'leak', st } : { kind: 'old', st };
+  }
   if (st >= 300 && st < 400) {
     let u = null;
     try { u = new URL(res.headers.get('location') || '', url); } catch (_) { u = null; }
@@ -152,31 +167,60 @@ async function probe(url, fetchFn) {
 
 /**
  * ログインしていない GET で、ヘルプの中身が返らないことを確かめる（HF1）。投げない。
- * 2xx（どの道でも）と、Cloudflare Access のほかへの転送は、その場で ok: false。404 と届かないのは gapMs おきに tries 回まで試す。
- * @returns {Promise<{ ok: boolean, state: 'guarded'|'refused'|'readying'|'leak'|'unreached', lines: string[] }>}
+ * 中身の 2xx（ページの印か検索の索引の形）と、Cloudflare Access のほかへの転送は、その場で ok: false。
+ * 404 と届かないのは gapMs おきに tries 回まで試す。知らない 2xx（前の版）は、新しい版が答えるまで waitGaps の間をあけて
+ * 合わせて waitMs まで待ち、まだなら ok: false（'stale'。漏れとは言わない）。
+ * @returns {Promise<{ ok: boolean, state: 'guarded'|'refused'|'readying'|'leak'|'unreached'|'stale', lines: string[] }>}
  */
-async function leakCheck({ base, paths, fetch: fetchFn = globalThis.fetch, sleep = sleepMs, tries = CHECK_TRIES, gapMs = CHECK_GAP_MS }) {
+async function leakCheck({ base, paths, fetch: fetchFn = globalThis.fetch, sleep = sleepMs, tries = CHECK_TRIES, gapMs = CHECK_GAP_MS, waitMs = NEW_WAIT_MS, waitGaps = NEW_WAIT_GAPS }) {
   const lines = [];
   const got = new Map();
+  const seen = new Map();                        // 道 → 最後の答え（retry か old）
+  const probes = new Map(paths.map((p) => [p, 0]));
+  const left = [];                               // 試し終えても決まらなかった道
   let pending = [...paths];
   let last = 0;
-  for (let i = 0; i < tries && pending.length; i++) {
-    if (i > 0) await sleep(gapMs);
+  let waited = 0;
+  let oldGaps = 0;
+  let told = false;
+  for (let i = 0; pending.length; i++) {
+    if (i > 0) {
+      const gap = pending.some((p) => seen.get(p).kind === 'old') ? waitGaps[Math.min(oldGaps++, waitGaps.length - 1)] : gapMs;
+      await sleep(gap);
+      waited += gap;
+    }
     const next = [];
     for (const p of pending) {
       const v = await probe(base + p, fetchFn);
+      probes.set(p, probes.get(p) + 1);
       if (v.kind === 'leak') {
         lines.push(`9/9 漏れの確かめ ${p}: HTTP ${v.st}`);
         lines.push(LEAK);
         return { ok: false, state: 'leak', lines };
       }
-      if (v.kind === 'retry') { next.push(p); last = v.st; continue; }
+      if (v.kind === 'retry' || v.kind === 'old') {
+        seen.set(p, v);
+        next.push(p);
+        if (v.kind === 'retry') last = v.st;
+        continue;
+      }
       got.set(p, v);
     }
-    pending = next;
+    if (!told && next.some((p) => seen.get(p).kind === 'old')) { told = true; lines.push(WAITING); }
+    pending = [];
+    for (const p of next) {
+      const more = seen.get(p).kind === 'old' ? waited < waitMs : probes.get(p) < tries;
+      (more ? pending : left).push(p);
+    }
   }
-  if (pending.length) {
-    lines.push(`失敗: 9/9 漏れの確かめ: ${pending.join('・')} に届きませんでした（${last ? `HTTP ${last}` : '返事なし'}）。${gapMs / 1000} 秒おきに ${tries} 回試しました`);
+  const stale = left.filter((p) => seen.get(p).kind === 'old');
+  if (stale.length) {
+    lines.push(`失敗: 9/9 漏れの確かめ: 新しい版がまだ効いていません（${stale.join('・')} が、前の版の答え（HTTP 200。ヘルプのページでも門でもない）を返します。`
+      + `${Math.round(waited / 1000)} 秒待ちました）。数分待ってから、もう一度 Run workflow を押してください`);
+    return { ok: false, state: 'stale', lines };
+  }
+  if (left.length) {
+    lines.push(`失敗: 9/9 漏れの確かめ: ${left.join('・')} に届きませんでした（${last ? `HTTP ${last}` : '返事なし'}）。${gapMs / 1000} 秒おきに ${tries} 回試しました`);
     return { ok: false, state: 'unreached', lines };
   }
   for (const p of paths) {
