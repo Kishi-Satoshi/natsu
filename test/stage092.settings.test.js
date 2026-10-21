@@ -221,7 +221,7 @@ test('I6: placeInfoPop は ⓘ の下（10px）に置き、左は ⓘ − 12。�
   const box = R(50, 40, 1020, 700);   // 100%（窓 1120×780）の設定の箱
   // 真ん中の行の ⓘ: 下に出す
   let p = placeInfoPop(R(446, 335, 18, 18), box, 360, 236);
-  assert.deepStrictEqual([p.left, p.top, p.width, p.below], [434, 363, 360, true]);
+  assert.deepStrictEqual([p.left, p.top, p.width, p.below, p.fits], [434, 363, 360, true, true]);
   assert.strictEqual(p.arrow, 446 + 9 - 434 - 5, '矢印が ⓘ の真ん中でない');
   assert.strictEqual(p.maxHeight, 700 - 16);
   // 右の端の ⓘ: 箱の右の内側 8px に寄せる（矢印は吹き出しの右の端の手前で止める）
@@ -239,6 +239,8 @@ test('I6: placeInfoPop は ⓘ の下（10px）に置き、左は ⓘ − 12。�
   const zbox = R(0, 0, 560, 390);
   p = placeInfoPop(R(500, 180, 18, 18), zbox, 360, 300);
   assert.strictEqual(p.width, 360);
+  assert.strictEqual(p.fits, false, '上にも下にも入らないのに収まったと言う（ⓘ を捲らずに覆う）');
+  assert.strictEqual(placeInfoPop(R(500, 60, 18, 18), zbox, 360, 280).fits, true, '上の行の ⓘ は下に収まる');
   assert.ok(p.left >= 8 && p.left + p.width <= 552, `左右がはみ出す: ${p.left}`);
   assert.ok(p.top >= 8 && p.top + 300 <= 382, `上下がはみ出す: ${p.top}`);
   // とても狭い箱: 幅は箱 − 16
@@ -419,4 +421,22 @@ test('I3: ログインの行は名前（と ⓘ）が左・［ログイン］が
   await click(l, infoFor(l.root, 'setPopLogin'));
   assert.ok(isOpenPop(l, 'setPopLogin'));
   assert.deepStrictEqual(l.errors.map(fmt), []);
+});
+
+test('I6: 開いた吹き出しが上にも下にも収まらないときだけ、ⓘ を右の列の上へ捲ってから置き直す（収まるときは捲らない）', T, async () => {
+  for (const [what, roomy, want] of [['箱が無い大きさ（収まらない）', false, 1], ['広い箱（収まる）', true, 0]]) {
+    const l = await open();
+    await l.drain();
+    await click(l, 'tabBtnSettings');
+    await pick(l, 'record');
+    if (roomy) l.document.querySelector('#settingsModal .setbox')._rect = { width: 1020, height: 700 };
+    const b = infoFor(l.root, 'setPopLoop');
+    b._rect = { width: 18, height: 18 };
+    let n = 0;
+    b.scrollIntoView = (o) => { n += 1; assert.deepStrictEqual(o, { block: 'start' }); };
+    await click(l, b);
+    assert.ok(isOpenPop(l, 'setPopLoop'));
+    assert.strictEqual(n, want, `${what}: ⓘ を捲った回数`);
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  }
 });

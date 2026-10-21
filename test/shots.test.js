@@ -32,7 +32,9 @@ const ADDED_091 = ['settings-record-light', 'live-quiet-light', 'live-quiet-dark
 // 利用者がまとめて OK と言ったら、版を上げる commit で基準にして空に戻す（空になるまで版を上げられない: 下の F14）
 const SETTINGS_092 = ['settings-light', 'settings-dark', 'settings-zoom200-dark', 'settings-record-light', 'settings-search-light', 'settings-offline-light',
   'settings-quiet-search-light'];
-const NEW_092 = new Set([]);
+// I-4 で足した画面（計画の「取り直す画面」の表の（新））
+const NEW_092 = new Set(['settings-record-dark', 'settings-record-zoom200-light', 'settings-summary-light', 'settings-account-light', 'settings-info-loop-light',
+  'settings-info-stt-dark', 'settings-info-claude-light', 'settings-info-zoom200-light', 'settings-info-search-light']);
 const RETAKE_092 = [...SETTINGS_092, ...NEW_092];
 const img = (w, h, fill = [255, 255, 255, 255]) => ({ width: w, height: h, data: Buffer.from(Array.from({ length: w * h }, () => fill).flat()) });
 // 一時フォルダ（日本語と 𠮷 の名前。RF1 と同じ形）。テストの終わりに消す
@@ -56,12 +58,15 @@ test('G2: 撮る画面は決まった並び（第1b回の 13 と第1b2回の検�
     // 0.9.0 U-3（OF7）で意図して変えた: 準備を選んでいない人のカード「オフライン」の画面を足した（取り直し待ち・まだ基準が無い）
     'settings-offline-light',
     // 0.9.1 Q-5 で意図して変えた: 「会議は終わりましたか？」の帯の2枚と、設定の検索「自動で止める」を足した（取り直し待ち・まだ基準が無い）
-    'live-quiet-light', 'live-quiet-dark', 'settings-quiet-search-light']);
+    'live-quiet-light', 'live-quiet-dark', 'settings-quiet-search-light',
+    // 0.9.2 I-4 で意図して変えた: 設定の「録音」の暗い・200%・要約・アカウント、ⓘ の吹き出しを開いた4枚、吹き出しの中の言葉で当たる検索を足した（取り直し待ち・まだ基準が無い）
+    ...NEW_092]);
   assert.deepStrictEqual(SH.SCREENS.filter((s) => s.page === 'overlay').map((s) => s.name), PS.screenNames());
   assert.ok(SH.SCREENS.findIndex((s) => s.page === 'overlay') > SH.SCREENS.map((s) => s.page).lastIndexOf('app'), '録音バーの画面が本体の画面の間にある');
   assert.strictEqual(new Set(SH.SCREENS.map((s) => s.name)).size, SH.SCREENS.length, '名前が重なっている');
   for (const s of SH.SCREENS) assert.ok(['app', 'overlay'].includes(s.page) && ['light', 'dark'].includes(s.theme), s.name);
-  assert.deepStrictEqual(SH.SCREENS.filter((s) => s.zoom).map((s) => [s.name, s.zoom]), [['notes-page-zoom200-light', 2], ['settings-zoom200-dark', 2], ['live-banner-zoom200-dark', 2]]);
+  assert.deepStrictEqual(SH.SCREENS.filter((s) => s.zoom).map((s) => [s.name, s.zoom]), [['notes-page-zoom200-light', 2], ['settings-zoom200-dark', 2], ['live-banner-zoom200-dark', 2],
+    ['settings-record-zoom200-light', 2], ['settings-info-zoom200-light', 2]]);   // 0.9.2 I-4 で意図して足した
   const live = SH.SCREENS.find((s) => s.name === 'live-light');
   const st = live.answers['koeApp.meetingStatus'];
   assert.ok(st.active && st.cloud && st.pauses.length === 1, '記録中の画面に一時停止の印か［PC の中だけ］が出ない');
@@ -610,7 +615,9 @@ test('基準の画像（test/shots/win32）は今の app.html で撮ったもの
   // のも直した（.set-miss の詳細度）。見える中身が変わるのは設定の画面で、どれも RETAKE にある。値を今の app.html に合わせた
   // 0.9.2 I-3: 「アカウント」「一般」「オフライン」「更新」の説明も1行にし、ⓘ の吹き出しを足した（ログインの行は2列に）。見える中身が変わるのは設定の画面で、
   // どれも RETAKE にある。値を今の app.html に合わせた
-  assert.strictEqual(sha, '23963f23dc7a5a60fbcccdb9a6eb09cd1048812a0b97b4665dbf658d35458dd2',
+  // 0.9.2 I-4: 吹き出しを開いたときに上にも下にも収まらなければ ⓘ を右の列の上へ捲る・書体の読み込みの後に置き直す（<script> の中だけ）。撮る吹き出しの画面は
+  // どれも RETAKE にある。値を今の app.html に合わせた
+  assert.strictEqual(sha, '44d18d94035dd74eeec7a4b5fec6cf0101791bee70703a4e837ef0b8de4d0894',
     'app.html が基準の画像を撮った時と違う。Windows の CI の画面の比べ（捲り棒のつまみも）を見て、基準を取り直してからこの値を直す');
 });
 
@@ -688,4 +695,34 @@ test('Q-5: live-quiet-light・live-quiet-dark は live-light と同じ会議に 
   const bar = (/const QUIET_BAR_TEXT = '([^']+)';/.exec(main) || [])[1];
   assert.deepStrictEqual(PS.byState.quiet, { state: 'quiet', mode: 'meeting', phase: 'recording', level: 0, spk: '', warn: true, msg: { h: bar, v: bar }, kind: 'err' });
   for (const n of QUIET_OVERLAY) assert.ok(SH.SCREENS.some((s) => s.name === n), `${n} が撮る画面に無い`);
+});
+
+// 0.9.2 I-4（計画 docs/plans/2026-10-21-092.md の「取り直す画面」）: ⓘ の吹き出しを開いた画面と、吹き出しの中にだけある言葉の検索
+test('I-4: 吹き出しの画面は項目を開いて ⓘ を押す act を持ち（モックの3枚と 200%）、検索の画面は吹き出しの中にだけある言葉で探す。アカウントの画面はログインしていない形', { timeout: 5000 }, () => {
+  const by = (n) => SH.SCREENS.find((x) => x.name === n);
+  const INFO = { 'settings-info-loop-light': ['setNavRecord', 'setPopLoop', 'light', undefined], 'settings-info-stt-dark': ['setNavRecord', 'setPopStt', 'dark', undefined],
+    'settings-info-claude-light': ['setNavSummary', 'claudeHelp', 'light', undefined], 'settings-info-zoom200-light': ['setNavRecord', 'setPopLoop', 'light', 2] };
+  for (const [n, [nav, pop, theme, zoom]] of Object.entries(INFO)) {
+    const s = by(n);
+    assert.ok(s, `${n} が撮る画面に無い`);
+    assert.deepStrictEqual([s.page, s.theme, s.zoom], ['app', theme, zoom], n);
+    assert.ok(s.act.includes('tabBtnSettings') && s.act.includes(nav), `${n}: 項目を開いていない`);
+    assert.ok(s.act.includes(`[aria-controls="${pop}"]`) && /\.click\(\)\s*$/.test(s.act.trim().replace(/;$/, '')), `${n}: 最後に ⓘ（${pop}）を押していない`);
+  }
+  for (const [n, nav, theme, zoom] of [['settings-record-dark', 'setNavRecord', 'dark', undefined], ['settings-record-zoom200-light', 'setNavRecord', 'light', 2],
+    ['settings-summary-light', 'setNavSummary', 'light', undefined], ['settings-account-light', 'setNavAccount', 'light', undefined]]) {
+    const s = by(n);
+    assert.ok(s && s.act.includes(nav) && s.theme === theme && s.zoom === zoom && !s.act.includes('aria-controls'), n);
+  }
+  assert.strictEqual(by('settings-account-light').answers['koeApp.accountStatus'].signedIn, false, 'アカウントの画面がログインしている形');
+  // 検索の言葉は、吹き出しの中にだけある（行の名前・見える説明には無い）
+  const q = by('settings-info-search-light');
+  const word = (/b\.value = '([^']+)'/.exec(q.act) || [])[1];
+  assert.strictEqual(word, 'イヤホン');
+  const { parseHTML } = require('./helpers/simdom');
+  const doc = parseHTML(read('src/renderer/app.html')).root;
+  const sec = doc.querySelector('#tabSettings');
+  assert.ok(doc.querySelector('#setPopLoop').textContent.includes(word), '吹き出しに検索の言葉が無い');
+  assert.ok(!sec.querySelectorAll('[data-row]').some((r) => r.dataset.row.includes(word)), '行の名前に検索の言葉がある');
+  assert.ok(!sec.querySelectorAll('.desc, .d, .lhint').some((d) => !d.closest('.setpop') && d.textContent.includes(word)), '見える説明に検索の言葉がある');
 });

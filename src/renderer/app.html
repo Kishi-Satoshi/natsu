@@ -1615,12 +1615,14 @@
     const top0 = below ? b.bottom + G : b.top - G - hh;
     const top = Math.max(box.top + M, Math.min(top0, box.bottom - M - hh));
     const arrow = Math.max(8, Math.min(width - 18, b.left + b.width / 2 - left - 5));
-    return { left, top, width, maxHeight, below, arrow };
+    const fits = h <= maxHeight && (hh <= roomBelow || hh <= roomAbove);   // ⓘ を覆わずに上か下に収まる
+    return { left, top, width, maxHeight, below, arrow, fits };
   }
+  // 置いて、ⓘ を覆わずに収まったかを返す
   function placeOpenInfo() {
     const pop = infoPopOf(infoOpen);
     const box = document.querySelector('#settingsModal .setbox');
-    if (!pop || !box) return;
+    if (!pop || !box) return true;
     const br = box.getBoundingClientRect();
     const w = Math.max(0, Math.min(INFO_W, br.width - 16));
     pop.style.width = `${w}px`;
@@ -1631,6 +1633,7 @@
     const arrow = pop.querySelector('.setpop-arrow');
     if (arrow) arrow.style.left = `${p.arrow}px`;
     pop.classList.toggle('above', !p.below);
+    return p.fits;
   }
   // 閉じる（focusBack なら ⓘ へフォーカスを戻す: Esc のとき）。閉じたら true
   function closeInfo(focusBack) {
@@ -1652,7 +1655,10 @@
     b.setAttribute('aria-expanded', 'true');
     b.classList.add('open');
     pop.hidden = false;
-    placeOpenInfo();
+    // 上にも下にも収まらない（拡大 200% の狭い箱の真ん中の行など）ときは、ⓘ を右の列の上へ捲ってから置き直す（吹き出しで ⓘ と名前を覆わない）
+    if (!placeOpenInfo() && typeof b.scrollIntoView === 'function') { b.scrollIntoView({ block: 'start' }); placeOpenInfo(); }
+    // 書体の読み込みで行の高さが変わったら置き直す（開いた直後だけ）
+    if (document.fonts && document.fonts.ready && typeof document.fonts.ready.then === 'function') document.fonts.ready.then(() => { if (infoOpen === b) placeOpenInfo(); });
   }
   for (const b of $('tabSettings').querySelectorAll('.setinfo')) b.addEventListener('click', () => { if (infoOpen === b) closeInfo(false); else openInfo(b); });
   // 吹き出しの「ヘルプで詳しく見る ↗」: その話の記事の名前（data-help）だけを main へ渡す（住所は main だけ）。［ヘルプ］と同じく、出せるときだけ出す。吹き出しは閉じない

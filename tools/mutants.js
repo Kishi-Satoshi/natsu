@@ -1578,4 +1578,6 @@ module.exports = [
   { id: "i-search-css", file: "src/renderer/app.html", from: "  #settingsModal #tabSettings .set-miss { display: none; }", to: "  #tabSettings .set-miss { display: none; }", tests: ["test/stage092.settings.test.js"], why: "0.9.2 I-2: 検索で外した 2列の行・ⓘ の付くトグルの行が CSS で消えない（.set-miss が行の display に負ける。0.9.0・0.9.1 の「マイク」でスピーカーの行が出ていた）" },
   // I-3: 「アカウント」「一般」「オフライン」「更新」の説明
   { id: "i-desc-alt", file: "src/renderer/app.html", from: "                <div class=\"desc ng\" id=\"meetingHotkeyWarn\" hidden></div>\n", to: "                <div class=\"desc ng\" id=\"meetingHotkeyWarn\" hidden></div>\n                <div class=\"desc\">※ 左右のAltは区別されません（どちらでも動作）。</div>\n", tests: ["test/stage092.settings.test.js"], why: "0.9.2 I-3: 議事録ホットキーの行に2行目の説明（「※ 左右のAltは…」）を戻す（見える説明は1行の決まり）" },
+  // I-4: 200% の狭い箱で吹き出しが ⓘ を覆わない
+  { id: "i-pop-scroll", file: "src/renderer/app.html", from: "    if (!placeOpenInfo() && typeof b.scrollIntoView === 'function') { b.scrollIntoView({ block: 'start' }); placeOpenInfo(); }", to: "    placeOpenInfo();", tests: ["test/stage092.settings.test.js"], why: "0.9.2 I-4: 上にも下にも収まらないときに ⓘ を捲らない（拡大 200% で吹き出しが ⓘ と名前を覆う）" },
 ];
