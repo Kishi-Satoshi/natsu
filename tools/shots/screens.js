@@ -84,6 +84,7 @@ const SCREENS = [
   { name: 'settings-offline-light', page: 'app', theme: 'light', answers: offlineAnswers(),
     act: "document.getElementById('tabBtnSettings').click(); document.getElementById('setNavOffline').click()" },
   // 0.9.1 Q-5（計画 docs/plans/2026-10-21-091.md の「取り直す画面」）: 録音中のページの「会議は終わりましたか？」の帯（live-light と同じ会議）と、設定の検索「自動で止める」
+  // （足した画面。版を 0.9.1 に上げる commit で CI の画像を基準にした）
   { name: 'live-quiet-light', page: 'app', theme: 'light', answers: liveAnswers(LIVE_STT, { quiet: QUIET_ASK }) },
   { name: 'live-quiet-dark', page: 'app', theme: 'dark', answers: liveAnswers(LIVE_STT, { quiet: QUIET_ASK }) },
   { name: 'settings-quiet-search-light', page: 'app', theme: 'light',
@@ -132,8 +133,9 @@ SCREENS.find((x) => x.name === 'notes-page-light').focus = { tabs: 3, want: 'mtT
 // 0.9.1（計画 docs/plans/2026-10-21-091.md の「取り直す画面」）: Q-3 で設定の項目「録音」にカード「話し声が無いとき」を足したので settings-record-light を入れた。
 // Q-5 で足した画面（「会議は終わりましたか？」の帯の2枚・設定の検索「自動で止める」・録音バーの状態 quiet の 8 枚。まだ基準が無い）も入れた。
 // 利用者がまとめて OK と言ったら、版を上げる commit で基準にして空に戻す
-const RETAKE = new Set(['settings-record-light', 'live-quiet-light', 'live-quiet-dark', 'settings-quiet-search-light',
-  ...PS.FORMS.flatMap((f) => Object.keys(PS.DESKS).flatMap((d) => PS.SCALES.map((k) => `overlay-${f}-${d}-quiet-${Math.round(k * 100)}`)))]);
+// 0.9.1（版を 0.9.1 に上げる commit）: 利用者が 2026-10-21 に CI の取り直しの画像（run 39539780418（a83d61d）・artifact 12319056756 の .after.png。
+// settings-record-light・帯の2枚・settings-quiet-search-light・録音バーの quiet の 8 枚）を見て OK と言ったので、その画像をバイトのまま基準にし、空に戻した
+const RETAKE = new Set([]);
 const PERF = [{ name: 'open-2000-blocks', budgetMs: 500 }];   // 3回開いた中央値で見る
 const TIME_ZONE = 'Asia/Tokyo';
 const TOLERANCE = 2;   // 色の差（0〜255）がこれ以下の画素は同じとみなす。CI の機械の CPU ごとの描き方の1段の差を拾わないため（揺れの確かめ judgePair は 0 で見る）
