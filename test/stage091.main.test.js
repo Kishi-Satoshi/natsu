@@ -96,3 +96,132 @@ test('Q-2・Q1・決めたこと 3: 小さな音の音声入力の作り話は�
   const l = await run(['text', '--dictate', '--relay-seq=p']);
   assert.deepStrictEqual(l.history.map((h) => h.text), [SAMPLE], JSON.stringify(l.history));
 });
+
+// ---------------------------------------------------------------- Q-4（決めたこと 7〜11・14）: 話し声が無いときに聞いて止める
+// --quiet-seq の区間は 1 つ 60 秒（会議の時計）。t は音のある区間（中継が文字を返す）、s は無音の区間（送らない）
+const QA1 = (n) => `${n} 分ほど話し声がありません。会議は終わりましたか？ このままなら 5 分後に録音を止めて議事録を作ります。`;
+const QA2 = '会議は終わりましたか？';
+const QA3 = (t) => `話し声が無かったので録音を止め、議事録を作りました（最後の発言 ${t}）。`;
+const askedAt = (o) => o.quietTrace.findIndex((x) => x.asked);
+const asksAll = (o) => o.quietTrace.filter((x) => x.asked).map((x) => x.i);
+const barMsgs = (o) => o.overlaySeq.filter((p) => p && p.phase === 'recording').map((p) => p.message);
+const afterStop = (o) => o.overlaySeq.slice(o.overlaySeq.findIndex((p) => p && p.stop) + 1);
+
+test('Q-4・Q4: 話し声の無い 10 分で帯 QA1・録音バー QA2・Windows の知らせ（録音中のページが見えない）。15 分で自動で止め、議事録の所要時間は最後の発言の区間の終わり（60 秒）。知らせ QA3。止める頼みは1回', S, async () => {
+  const o = await run(['text', '--relay=text', '--quiet-seq=t,s*20', '--main-hidden']);
+  assert.strictEqual(askedAt(o), 10, JSON.stringify(o.quietTrace));
+  assert.strictEqual(o.quietText, QA1(10));
+  assert.strictEqual(o.quietStopAt, 15, JSON.stringify(o.quietTrace));
+  assert.strictEqual(o.stopCalls, 1);
+  assert.ok(barMsgs(o).includes(QA2), JSON.stringify(o.overlaySeq));
+  assert.ok(o.notifications.some((n) => n.title === 'NaTsu' && n.body === QA1(10)), JSON.stringify(o.notifications));
+  assert.ok(o.notifications.some((n) => n.body === QA3('0:00')), JSON.stringify(o.notifications));
+  assert.ok(o.notices.map(textOf).includes(QA3('0:00')), JSON.stringify(o.notices));
+  assert.strictEqual(o.pageDur.durationSec, 60, JSON.stringify(o.pageDur));
+  assert.deepStrictEqual(o.pages[0].segments.map((s) => s.text), ['本日の議題は進捗の確認です。区間1']);
+  assert.ok(o.engineLog.includes('話し声の見張り: 話し声の無い時間が 10 分になったので聞いた'), o.engineLog.join('\n'));
+  assert.ok(o.engineLog.includes('話し声の見張り: 聞いてから 5 分たっても話し声が無いので、録音を止めた'), o.engineLog.join('\n'));
+  // 止めた後に録音バーへ「会議は終わりましたか？」を送らない（「議事録を作成中…」を消さない）
+  assert.ok(!afterStop(o).some((p) => p && p.phase === 'recording'), JSON.stringify(afterStop(o)));
+});
+
+test('Q-4・Q4: 聞いている間に話し声が戻ったら聞くのをやめ（帯が消え・Windows の知らせを閉じ・録音バーへ空の文）、止めない', S, async () => {
+  const o = await run(['text', '--relay=text', '--quiet-seq=t,s*12,t,s*3', '--main-hidden']);
+  assert.strictEqual(askedAt(o), 10);
+  assert.deepStrictEqual(asksAll(o), [10, 11, 12], JSON.stringify(o.quietTrace));
+  assert.strictEqual(o.quietStopAt, undefined);
+  assert.ok(o.notifyClosed >= 1, '知らせを閉じていない');
+  const msgs = barMsgs(o);
+  assert.ok(msgs.indexOf('') > msgs.indexOf(QA2), JSON.stringify(msgs));
+  assert.ok(o.engineLog.includes('話し声の見張り: 話し声が戻ったので聞くのをやめた'), o.engineLog.join('\n'));
+});
+
+test('Q-4・Q4: ［続ける］で聞くのをやめ、数え直す（続けて 6 分では聞き直さない）', S, async () => {
+  const o = await run(['text', '--relay=text', '--quiet-seq=t,s*11,k,s*6']);
+  assert.deepStrictEqual(asksAll(o), [10, 11], JSON.stringify(o.quietTrace));
+  assert.deepStrictEqual(o.keepGoing, { ok: true });
+  assert.ok(o.engineLog.includes('話し声の見張り: ［続ける］が押されたので数え直す'), o.engineLog.join('\n'));
+});
+
+test('Q-4・Q4・決めたこと 14: 一時停止の 20 分は数えない（聞かない）', S, async () => {
+  const o = await run(['text', '--relay=text', '--quiet-seq=t,s*5,P,s*4']);
+  assert.deepStrictEqual(asksAll(o), [], JSON.stringify(o.quietTrace));
+  assert.ok(!barMsgs(o).includes(QA2));
+});
+
+test('Q-4・Q4: 設定がオフなら聞かず止めない', S, async () => {
+  const off = await run(['text', '--relay=text', '--quiet-seq=t,s*20', '--auto-stop=off']);
+  assert.deepStrictEqual(asksAll(off), []);
+  assert.strictEqual(off.quietStopAt, undefined);
+});
+
+test('Q-4: 知らせるまでの時間を 5 分にすれば 5 分で聞き 10 分で止める', S, async () => {
+  const five = await run(['text', '--relay=text', '--quiet-seq=t,s*11', '--auto-stop-min=5']);
+  assert.strictEqual(askedAt(five), 5, JSON.stringify(five.quietTrace));
+  assert.strictEqual(five.quietText, QA1(5));
+  assert.strictEqual(five.quietStopAt, 10);
+});
+
+test('Q-4・Q4・決めたこと 7: 失敗して音声を残した区間は話し声ありに数える（聞かない）', S, async () => {
+  const f = await run(['text', '--relay=text', '--quiet-seq=t,s*9,t:L,s*3']);
+  assert.deepStrictEqual(asksAll(f), [], JSON.stringify(f.quietTrace));
+  assert.ok(f.engineLog.some((l) => /429/.test(l) || /rate-long/.test(l)), '前提: 区間が中継の 429 の長い待ちで失敗していない');
+});
+
+test('Q-4・Q4・決めたこと 7: 音のある空の区間は話し声ありに数える（聞かない）', S, async () => {
+  const e = await run(['text', '--relay=text', '--quiet-seq=t,s*9,t:e,s*3']);
+  assert.deepStrictEqual(asksAll(e), [], JSON.stringify(e.quietTrace));
+});
+
+test('Q-4・Q2・決めたこと 7: 認識ヒントの作り話の区間は話し声なしに数える（聞く）', S, async () => {
+  const p = await run(['text', '--relay=text', '--quiet-seq=t,t:p*12']);
+  assert.strictEqual(askedAt(p), 10, JSON.stringify(p.quietTrace));
+});
+
+test('Q-4・Q5・Q6: 聞いている間に手で止めると、止める頼みは1回・所要時間は最後の発言の区間の終わり・止めた後に録音バーへ文を送らない・Windows の知らせを閉じる・QA3 は出ない', S, async () => {
+  const o = await run(['text', '--relay=text', '--quiet-seq=t,s*11,x', '--main-hidden']);
+  assert.strictEqual(askedAt(o), 10);
+  assert.strictEqual(o.stopCalls, 1);
+  assert.strictEqual(o.quietStopAt, undefined);
+  assert.strictEqual(o.pageDur.durationSec, 60, JSON.stringify(o.pageDur));
+  assert.ok(!afterStop(o).some((p) => p && p.phase === 'recording'), JSON.stringify(afterStop(o)));
+  assert.ok(o.notifyClosed >= 1, '止めたのに Windows の知らせを閉じていない');
+  assert.ok(!o.notices.map(textOf).some((t) => /話し声が無かったので/.test(t || '')), JSON.stringify(o.notices));
+});
+
+test('Q-4・Q5: 止めた後の最後の区間で 10 分に達しても聞かない（帯・録音バー・Windows の知らせを出さない）。聞いていない手の停止は所要時間を切らない', S, async () => {
+  const o = await run(['text', '--relay=text', '--quiet-seq=t,s*9,X', '--main-hidden']);
+  assert.deepStrictEqual(asksAll(o), []);
+  assert.ok(!barMsgs(o).includes(QA2), JSON.stringify(o.overlaySeq));
+  assert.ok(!o.notifications.some((n) => n.body === QA1(10)), JSON.stringify(o.notifications));
+  assert.ok(o.pageDur.durationSec < 60, JSON.stringify(o.pageDur));
+});
+
+test('Q-4・Q5: 聞いている間に破棄したら、録音バーへ何も送らず、Windows の知らせを閉じる', S, async () => {
+  const o = await run(['text', '--relay=text', '--quiet-seq=t,s*11,d', '--main-hidden']);
+  assert.strictEqual(o.discard.ok, true);
+  assert.strictEqual(o.overlaySeq.length, o.seqAtDiscard, JSON.stringify(o.overlaySeq.slice(o.seqAtDiscard)));
+  assert.ok(o.notifyClosed >= 1);
+});
+
+test('Q-4・Q3: PC の中だけの会議でも、無音の区間は中継へ送らない（文字起こしの要求 0）', S, async () => {
+  const o = await run(['text', '--relay=text', '--local-only', '--quiet-seq=t,s*3']);
+  assert.strictEqual(o.localOnly.localOnly, true, JSON.stringify(o.localOnly));
+  assert.strictEqual(sttCalls(o), 0, JSON.stringify(o.relayCalls));
+  assert.strictEqual(o.engineLog.filter((l) => l.startsWith('音の無い区間: ')).length, 3, o.engineLog.join('\n'));
+});
+
+test('Q-4・Q4・決めたこと 14: 一時停止の間に分けた区間で 15 分に達しても止めない（聞くのも、再開の後に決め直す）。再開は［続ける］と同じに数え直す', S, async () => {
+  const o = await run(['text', '--relay=text', '--quiet-seq=t,s*14,S,R,s*3']);
+  assert.strictEqual(askedAt(o), 10, JSON.stringify(o.quietTrace));
+  assert.strictEqual(o.quietStopAt, undefined, JSON.stringify(o.quietTrace));
+  assert.strictEqual(o.stopCalls, 1, '一時停止の間に止めた');
+  // 再開で聞くのをやめ、続けて 3 分では聞き直さない
+  assert.deepStrictEqual(asksAll(o).filter((i) => i > 16), [], JSON.stringify(o.quietTrace));
+  assert.ok(o.engineLog.includes('話し声の見張り: 再開したので数え直す'), o.engineLog.join('\n'));
+});
+
+test('Q-4・Q4・決めたこと 14: 一時停止の間に分けた区間で 10 分に達しても聞かない（再開で数え直す）', S, async () => {
+  const a = await run(['text', '--relay=text', '--quiet-seq=t,s*9,S,R,s*2']);
+  assert.deepStrictEqual(asksAll(a), [], JSON.stringify(a.quietTrace));
+});

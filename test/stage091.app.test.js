@@ -109,3 +109,52 @@ test('Q-3: 設定の検索「自動で止める」「話し声」でチェック
   assert.deepStrictEqual(shownRows(l), ['知らせるまでの時間']);
   assert.deepStrictEqual(l.errors.map(fmt), []);
 });
+
+// ---------------------------------------------------------------- Q-4（決めたこと 10）: 「会議は終わりましたか？」の帯
+const T0 = Date.UTC(2026, 9, 21, 1, 0, 0);
+const LIVE = (o = {}) => ({ active: true, finalizing: false, startedAt: T0 - 60000, memo: '', segments: [], pending: 0, stoppedAt: null,
+  stopping: false, paused: false, pausedMs: 0, systemAudio: false, micFallback: false, etaSec: null, skipped: 0, pauses: [], pausing: false,
+  resumeHint: false, localOnly: false, cloud: true, stt: { route: 'cloud', lastTextAt: T0 - 5000, segSec: 15, problem: null }, quiet: null, ...o });
+const QA1 = '10 分ほど話し声がありません。会議は終わりましたか？ このままなら 5 分後に録音を止めて議事録を作ります。';
+const nextEl = (el) => { const kids = el.parentNode.children; return kids[kids.indexOf(el) + 1] || null; };
+const inTree = (l, id) => l.root.querySelectorAll(`#${id}`).length > 0;
+
+test('Q-4: quiet があれば録音中のページの頭（文字起こしの帯の上）に帯 #liveQuietAsk（文は main の text・ボタン［続ける］［終了して作成］）。［続ける］は meetingKeepGoing、［終了して作成］は meetingToggle', T, async () => {
+  const l = await load(APP, { now: T0, preloadSrc: P, returns: { uiState: UI, meetingKeepGoing: () => ({ ok: true }), meetingToggle: () => ({ ok: true }) } });
+  l.fire('onMeetingUpdate', LIVE()); await l.drain();
+  const b = $(l, 'liveQuietAsk');
+  assert.ok(b, '帯が無い');
+  assert.strictEqual(b.hidden, true, 'quiet が null なのに出ている');
+  l.fire('onMeetingUpdate', LIVE({ quiet: { text: QA1 } })); await l.drain();
+  assert.strictEqual(b.hidden, false);
+  assert.strictEqual(b.getAttribute('role'), 'alert');
+  assert.strictEqual($(l, 'liveQuietAskText').textContent, QA1);
+  assert.strictEqual(nextEl(b), $(l, 'liveSttBanner'), '帯が録音中のページの頭（文字起こしの帯のすぐ上）に無い');
+  assert.strictEqual(nextEl($(l, 'liveSttBanner')), $(l, 'liveBar'), '文字起こしの帯が記録の行のすぐ上でなくなった');
+  assert.deepStrictEqual([$(l, 'liveQuietGo').textContent, $(l, 'liveQuietStop').textContent], ['続ける', '終了して作成']);
+  // 同じ文は書き直さない（role="alert" の読み上げ直しを避ける）
+  const kids = $(l, 'liveQuietAskText').childNodes;
+  l.fire('onMeetingUpdate', LIVE({ quiet: { text: QA1 }, pending: 1 })); await l.drain();
+  assert.strictEqual($(l, 'liveQuietAskText').childNodes, kids);
+  await click(l, 'liveQuietGo');
+  assert.strictEqual(l.called('meetingKeepGoing').length, 1);
+  await click(l, 'liveQuietStop');
+  assert.strictEqual(l.called('meetingToggle').length, 1);
+  assert.deepStrictEqual(l.errors.map(fmt), []);
+});
+
+test('Q-4: quiet が null に戻る・作成中なら隠し、会議が終わると帯を外す', T, async () => {
+  const l = await load(APP, { now: T0, preloadSrc: P, returns: { uiState: UI } });
+  l.fire('onMeetingUpdate', LIVE({ quiet: { text: QA1 } })); await l.drain();
+  assert.strictEqual($(l, 'liveQuietAsk').hidden, false);
+  l.fire('onMeetingUpdate', LIVE({ quiet: null })); await l.drain();
+  assert.strictEqual($(l, 'liveQuietAsk').hidden, true);
+  l.fire('onMeetingUpdate', LIVE({ quiet: { text: QA1 }, finalizing: true, stopping: true })); await l.drain();
+  assert.strictEqual($(l, 'liveQuietAsk').hidden, true, '作成中に聞いた');
+  l.fire('onMeetingUpdate', { active: false }); await l.drain();
+  assert.ok(!inTree(l, 'liveQuietAsk'), '会議が終わっても帯が残った');
+  // quiet の無い古い main の答えでも落ちない
+  l.fire('onMeetingUpdate', LIVE({ quiet: undefined })); await l.drain();
+  assert.strictEqual($(l, 'liveQuietAsk').hidden, true);
+  assert.deepStrictEqual(l.errors.map(fmt), []);
+});

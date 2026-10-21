@@ -576,7 +576,9 @@ test('基準の画像（test/shots/win32）は今の app.html で撮ったもの
   const sha = require('node:crypto').createHash('sha256').update(fs.readFileSync(path.join(ROOT, 'src', 'renderer', 'app.html'))).digest('hex');
   // 0.9.1 Q-3（D29）: 設定の項目「録音」にカード「話し声が無いとき」（チェックと選ぶ欄）を足した。見える中身が変わるのは settings-record-light で、
   // RETAKE に入れた（設定のほかの画面は項目「一般」を開くので変わらない）。値を今の app.html に合わせた
-  assert.strictEqual(sha, '56adb2476ba22d4b7153d881405ad0de64e0dfcd9807d3646196578968e9102d',
+  // 0.9.1 Q-4（D29）: 録音中のページの頭に「会議は終わりましたか？」の帯（#liveQuietAsk。quiet が無ければ hidden）と、その CSS（.quiet-ask だけ）を足した。
+  // 撮る今の録音中のページは quiet が無いので見た目は変わらない。帯の出た画面は Q-5 で足して RETAKE に入れる。値を今の app.html に合わせた
+  assert.strictEqual(sha, '25011637a86da94020d8d7e207cae06ebe48f138df3a3fcec2c42f8f5f5ef58f',
     'app.html が基準の画像を撮った時と違う。Windows の CI の画面の比べ（捲り棒のつまみも）を見て、基準を取り直してからこの値を直す');
 });
 

@@ -173,6 +173,7 @@ contextBridge.exposeInMainWorld('koeApp', {
   meetingSetLocalOnly: (on) => ipcRenderer.invoke('meeting:set-local-only', on),
   // 第1d回 A-6（D17）: 帯の［もう一度］（失敗して音声を残した区間を送り直す）
   meetingRetry: () => ipcRenderer.invoke('meeting:retry'),
+  meetingKeepGoing: () => ipcRenderer.invoke('meeting:keep-going'),   // 0.9.1 Q-4: 「会議は終わりましたか？」の帯の［続ける］ → { ok }
   // 第1d回 A-8（D17）: 録音中のページを開いていて窓が隠れていないか（変わったときだけ）。main は見えていないときだけ Windows の知らせを出す
   meetingLiveShown: (on) => ipcRenderer.send('meeting:live-shown', on === true),
   meetingSetPaused: (on) => ipcRenderer.invoke('meeting:set-paused', on),   // 第1b回 N4c: → { ok, pending, paused }

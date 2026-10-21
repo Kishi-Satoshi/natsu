@@ -3347,6 +3347,112 @@ function noteEmptySegment(m, seg, buffer) {
   sendToMainWin('meeting:update', meetingStatus());
   return true;
 }
+// ---- 話し声が無いときに聞いて止める（0.9.1 Q-4。計画 docs/plans/2026-10-21-091.md の決めたこと 7〜11・14）
+// 区間の文字起こしが済むたびに「話し声あり（speech）」「なし（quiet）」を mainlib.quietStep に渡す。時計は会議の時計（区間の長さの和。一時停止の時間を
+// 含まない）。聞く（ask）: 録音中のページの帯（meetingStatus().quiet）・録音バーの短い文（今の overlay:phase の口を 3 秒ごとに送り直す。overlay.html は
+// 変えない）・録音中のページが見えないときの Windows の知らせ。止める（stop）: 今の stopMeeting だけを通す（録音中で、ほかに文字起こしを待つ区間が無いとき）
+const QUIET_BAR_TEXT = '会議は終わりましたか？';
+const QUIET_BAR_MS = 3000;
+const quietAskText = (min) => `${min} 分ほど話し声がありません。会議は終わりましたか？ このままなら 5 分後に録音を止めて議事録を作ります。`;
+const quietDoneText = (clock) => (clock ? `話し声が無かったので録音を止め、議事録を作りました（最後の発言 ${clock}）。`
+  : '話し声が無かったので録音を止め、議事録を作りました（話し声はありませんでした）。');
+const quietCfg = () => ({ on: settings.autoStopQuiet !== false, askMin: Number(settings.autoStopMin) || 10 });
+// 区間を分けた（kind: 'speech' | 'quiet'）。区間の終わりは会議の時計（atMs + durationMs）
+function noteHeard(m, seg, kind) {
+  if (meeting !== m || !seg) return;
+  const r = lib.quietStep(m.quiet, { kind, endMs: seg.atMs + seg.durationMs }, quietCfg());
+  if (r.act === 'withdraw') { m.quiet = r.st; hideQuietAsk(m, kind === 'speech' ? 'speech' : 'off'); return; }
+  // 聞く・止めるのは録音中で一時停止していないときだけ（止めた後・作成中・破棄の後・一時停止中は何もしない: Q4・Q5）。一時停止中に聞く長さに
+  // 達したら聞いた印を付けない（再開で数え直す: restartQuiet）
+  if (state !== 'meeting' || m.paused) { m.quiet = r.act === 'ask' ? { ...r.st, askedAt: null } : r.st; return; }
+  m.quiet = r.st;
+  if (r.act === 'ask') showQuietAsk(m);
+  else if (r.act === 'stop' && pendingSegs <= 1) autoStopQuiet(m);   // 文字起こしを待つ区間が残っていれば、その区間を分けたときに決め直す
+}
+function sendQuietBar(m) {
+  if (!m.paused) sendToOverlay('overlay:phase', { phase: 'recording', message: QUIET_BAR_TEXT });   // 一時停止中は文を出さない（O-3）
+}
+function quietBarTick(m) {
+  if (meeting !== m || state !== 'meeting' || m.quiet.askedAt === null) {
+    if (m.quietBar) { clearInterval(m.quietBar); m.quietBar = null; }
+    return;
+  }
+  sendQuietBar(m);
+}
+function quietNotify(body, onClick) {
+  try {
+    if (!Notification.isSupported()) { engineLog('話し声の見張り: Windows の知らせを出せない'); return null; }
+    const n = new Notification({ title: APP_TITLE, body });
+    n.on('click', onClick);
+    n.show();
+    engineLog('話し声の見張り: Windows の知らせ');
+    return n;
+  } catch (_) {
+    engineLog('話し声の見張り: Windows の知らせを出せない');
+    return null;
+  }
+}
+function showQuietAsk(m) {
+  engineLog(`話し声の見張り: 話し声の無い時間が ${m.quiet.askMin} 分になったので聞いた`);
+  if (panelHidden) showPanel();   // × で隠した録音バーも出し直す（決めたこと 10）
+  sendQuietBar(m);
+  if (m.quietBar) clearInterval(m.quietBar);
+  m.quietBar = setInterval(() => quietBarTick(m), QUIET_BAR_MS);
+  if (typeof m.quietBar.unref === 'function') m.quietBar.unref();
+  if (!liveVisible()) m.quietNote = quietNotify(quietAskText(m.quiet.askMin), showLiveFromNotice);
+  sendToMainWin('meeting:update', meetingStatus());
+}
+// 聞いた知らせを閉じる（録音バーへは送らない: 止めるときは「議事録を作成中…」が続く）
+function closeQuietAsk(m) {
+  if (m.quietBar) { clearInterval(m.quietBar); m.quietBar = null; }
+  if (m.quietNote) {
+    try { if (typeof m.quietNote.close === 'function') m.quietNote.close(); } catch (_) { /* 閉じられなくても続ける */ }
+    m.quietNote = null;
+  }
+}
+// 聞くのをやめた（話し声が戻った・［続ける］・設定をオフにした）: 帯・録音バーの文・Windows の知らせを下げる
+function hideQuietAsk(m, why) {
+  closeQuietAsk(m);
+  engineLog(why === 'keep' ? '話し声の見張り: ［続ける］が押されたので数え直す' : why === 'resume' ? '話し声の見張り: 再開したので数え直す'
+    : why === 'speech' ? '話し声の見張り: 話し声が戻ったので聞くのをやめた' : '話し声の見張り: 設定がオフになったので聞くのをやめた');
+  if (meeting !== m) return;
+  if (state === 'meeting') sendToOverlay('overlay:phase', { phase: 'recording', message: '' });
+  sendToMainWin('meeting:update', meetingStatus());
+}
+// ［続ける］（meeting:keep-going）と一時停止からの再開: 数えを、その時までに届いた音声の終わりから数え直す（聞いていれば聞くのをやめる）
+function restartQuiet(m, why) {
+  const r = lib.quietStep(m.quiet, { kind: 'keep-going', endMs: m.offsetMs }, quietCfg());
+  m.quiet = r.st;
+  if (r.act === 'withdraw') hideQuietAsk(m, why);
+}
+function keepGoingQuiet() {
+  const m = meeting;
+  if (!m || state !== 'meeting') return { ok: false };
+  restartQuiet(m, 'keep');
+  return { ok: true };
+}
+function autoStopQuiet(m) {
+  engineLog('話し声の見張り: 聞いてから 5 分たっても話し声が無いので、録音を止めた');
+  m.autoStopped = true;
+  stopMeeting();
+}
+// 自動で止めた会議の議事録を保存した後の知らせ（本体の窓が前にないときは Windows の知らせも。押すとそのページを開く）
+function quietDoneNotice(m, pageId) {
+  let last = null;
+  for (const s of settledSegments(m.segments)) if (Number.isFinite(s.atMs) && (last === null || s.atMs > last)) last = s.atMs;
+  const text = quietDoneText(last === null ? '' : lib.clockText(last));
+  noticeMainWin(text);
+  const front = mainWin && !mainWin.isDestroyed() && mainWin.isVisible() && mainWin.isFocused();
+  if (!front) {
+    quietNotify(text, () => {
+      createMainWindow();
+      if (!mainWin || mainWin.isDestroyed()) return;
+      if (mainWin.isMinimized()) mainWin.restore();
+      mainWin.show();
+      sendToMainWin('page:open', pageId);
+    });
+  }
+}
 // 画面へ渡す状態（文字起こしの文・札・メール・URL の道は入れない）。まだ文字が無いときの経路は見込み（PC の中だけ・長い側なら 'local'）
 function sttStatus(m) {
   const route = m.stt.route || (m.localOnly || !m.segMode || m.segMode.mode === 'long' ? 'local' : 'cloud');
@@ -3473,6 +3579,8 @@ function meetingStatus() {
     stt: meeting ? sttStatus(meeting) : null,
     // 0.9.0 O-4（RP8）: 録音バーを × で隠している（録音中のページは［録音バーを出す］を出す）
     panelHidden: panelHidden && panelRecording(),
+    // 0.9.1 Q-4: 話し声が無いので聞いている（録音中のページの帯。文は main が作る）。止めた後・作成中は null
+    quiet: meeting && state === 'meeting' && meeting.quiet && meeting.quiet.askedAt !== null ? { text: quietAskText(meeting.quiet.askMin) } : null,
   };
 }
 
@@ -4074,7 +4182,10 @@ async function startMeeting() {
     // 第1d2回 M-1: 始めたときの残し方（mainlib.startPlan の keep。'' | 'login' | 'wait'）
     keepAtStart: plan.keep,
     // 0.9.1 Q-2: この会議で認識ヒントの繰り返しとして除いた答え（畳んだ形。メモリの中だけ・20 まで）
-    echoSeen: new Set() };
+    echoSeen: new Set(),
+    // 0.9.1 Q-4: 話し声が無いときに聞いて止める見張り（mainlib.quietStep の st。会議の時計）・録音バーへの送り直しのタイマー・Windows の知らせ・
+    // 聞いている間に止めた（所要時間の終わりを切る）・自動で止めた（保存の後に知らせる）
+    quiet: { sinceMs: 0, untilMs: 0, askedAt: null, askMin: 0 }, quietBar: null, quietNote: null, quietTrim: false, autoStopped: false };
   // 第1d回 A-5（D16）: 始めの区切り。中継へ届くかは聞かない（録音の始まりを待たせない）。札があるか（復号しない）・hold・net.isOnline()・
   // 覚えている /health の答えだけで決め、外れたら区間の後で替わる（segmentRouted）
   const h0 = holdNow();
@@ -4126,6 +4237,10 @@ function stopMeeting() {
   if (state !== 'meeting') return { ok: false };
   state = 'meeting-finalizing';
   meeting.stopping = true;
+  // 0.9.1 Q-4（決めたこと 11）: 聞いている間に止めたら（自動でも、帯の［終了して作成］・ホットキー・録音バー・トレイでも）、話し声の無い終わりを
+  // 所要時間から外す。聞いた知らせを閉じる（録音バーへは送らない: この後の「議事録を作成中…」を消さない）
+  if (meeting.quiet && meeting.quiet.askedAt !== null) meeting.quietTrim = true;
+  closeQuietAsk(meeting);
   // 会議の長さはここまで。以降の文字起こし待ちを所要時間に混ぜると、
   // 実際の会議時間が分からなくなる（4分の会議が12分と記録されていた）。
   meeting.stoppedAt = Date.now();
@@ -4151,6 +4266,7 @@ function discardMeeting() {
   if (state !== 'meeting' && state !== 'meeting-finalizing') return { ok: false };
   sendToOverlay('overlay:cancel', {});
   const m = meeting;
+  closeQuietAsk(m);   // 0.9.1 Q-4
   cleanupSegbuf(m);
   // 写しの発言を DB に残さない（第2a1回 RF16）。取り消しの印（purge-pending.json）を先に書いてから下書きを消し、DB の purge は裏で待つ
   const purging = startPurge(m.pageId);
@@ -4241,6 +4357,8 @@ function onMeetingSegment(buffer, durationMs, isFinal) {
       segmentRouted(m, 'local', failWhy);
       // 残した区間は「文字起こし待ち」の失敗の区間（WAV を残す: settleSegment。締めで待ち行列に載る）
       settleSegment(m, seg, { text: e && e.kept ? KEPT_SEG_TEXT : `（この区間の認識に失敗: ${e.message}）`, failed: true });
+      // 0.9.1 Q-4（決めたこと 7）: 文字起こしできていない区間は、無音の判定を通った音声なので話し声ありに数える（分からないときは止めない側）
+      noteHeard(m, seg, 'speech');
       return;
     }
     if (meeting !== m || m.gen !== gen) return;
@@ -4250,6 +4368,7 @@ function onMeetingSegment(buffer, durationMs, isFinal) {
     if (silent) {
       m.emptySegs++;
       settleSegment(m, seg, null);
+      noteHeard(m, seg, 'quiet');   // 0.9.1 Q-4
       return;
     }
     noteSttRoute(m, { route, why, scope });
@@ -4271,12 +4390,15 @@ function onMeetingSegment(buffer, durationMs, isFinal) {
       engineLog(`区間 ${seg.id}（音声 ${Math.round(durationMs / 1000)} 秒）: ${repeat ? '直前と同じ文のため' : echo ? '認識ヒントの繰り返しのため' : '文字起こしが空のため'}除きました`);
       // 第1d回 A-6: 音のある空はページから除くが WAV は控える（止まりの見張り）。直前と同じ文で除いた区間は数えも戻しもしない
       // 0.9.1 Q-2（決めたこと 6）: 認識ヒントの繰り返しで除いた区間も止まりの見張りに渡さない（音のある作り話で帯 stall を出さない）
-      if (!text && !echo && noteEmptySegment(m, seg, buffer)) return;
+      // 0.9.1 Q-4（決めたこと 7）: 音のある空（止まりの見張りが控えた区間）は話し声ありに、無音の空・作り話・繰り返しは話し声なしに数える
+      if (!text && !echo && noteEmptySegment(m, seg, buffer)) { noteHeard(m, seg, 'speech'); return; }
       settleSegment(m, seg, null);
+      noteHeard(m, seg, 'quiet');
       return;
     }
     noteSttText(m, route);
     settleSegment(m, seg, { text });
+    noteHeard(m, seg, 'speech');   // 0.9.1 Q-4
     // 第1d2回 M-3（OF3）: 中継が戻った（この区間がクラウドで文字になった）。録音中で PC の中だけでなければ、残した区間を古い順に2つまで並べ直す
     if (route === 'cloud' && !m.stopping && !m.localOnly && m.segments.some((s) => s.kept)) retryFailedSegments({ only: 'kept', max: KEPT_RETRY_MAX });
   }).catch(() => {}).finally(() => {
@@ -4302,7 +4424,15 @@ async function maybeFinalizeMeeting() {
   // 一時停止していた時間は会議の長さに含めない。基準は停止時刻であって
   // 「今」ではない（今で計ると文字起こし待ちが混ざる。mainlib.meetingDurationSec）。
   const endAt = m.stoppedAt || Date.now();
-  const durationSec = meetingDurationSec(m, endAt);
+  let durationSec = meetingDurationSec(m, endAt);
+  let pauses = m.pauses;
+  // 0.9.1 Q-4（決めたこと 11）: 聞いている間に止めた会議は、所要時間を残った区間の一番遅い終わり（会議の時計）までにし、その後の一時停止の印を外す
+  // （区間が1つも無ければ切らない）
+  const trimEnd = m.quietTrim ? lib.quietTrimEnd(m.segments) : null;
+  if (trimEnd !== null) {
+    durationSec = Math.round(trimEnd / 1000);
+    pauses = (m.pauses || []).filter((x) => !(x && x.atMs >= trimEnd));
+  }
   const dt = new Date(m.startedAt);
   const fallbackTitle = `${dt.getFullYear()}/${dt.getMonth() + 1}/${dt.getDate()} ${String(dt.getHours()).padStart(2, '0')}:${String(dt.getMinutes()).padStart(2, '0')} の議事録`;
 
@@ -4339,7 +4469,7 @@ async function maybeFinalizeMeeting() {
         createdAt: dt.toISOString(),
         // 文字起こしの経路と、会議の印（要約の経路が見る: C10）
         route: { stt: { ...m.route, provider: sttProvider().id }, localOnly: Boolean(m.localOnly) },
-        pauses: m.pauses,   // 止めていた時間の印（区間とは別の欄。第1b回 N4c・F6）
+        pauses,   // 止めていた時間の印（区間とは別の欄。第1b回 N4c・F6）
         recovered: false, summaryError: keptWhy, meeting: { phase: 'done' },
       },
     }, { tx: `meeting:${m.startedAt}` });
@@ -4369,6 +4499,7 @@ async function maybeFinalizeMeeting() {
   if (overlayFree()) sendToOverlay('overlay:phase', { phase: 'done', message: '議事録を保存しました' });
   sendToMainWin('pages:updated', await db.call('pages.list', {}));
   sendToMainWin('page:open', page.id);
+  if (m.autoStopped) quietDoneNotice(m, page.id);   // 0.9.1 Q-4
   // 音声は届いたのに、文字起こしが全部空だった。黙っていると「0 区間」の理由が分からない。
   // 通知は数秒で消えるので、要約の欄（summaryError）にも同じ文を残す（下の runSummary の後）
   // 止まりの見張りで音声ごと残した区間（第1d回 A-6。文字は無い）は「文字の残った区間」に数えない（全部が空なら、マイクの確かめ方も知らせる）
@@ -4884,6 +5015,7 @@ function setupIpc() {
   ipcMain.handle('meeting:status', () => meetingStatus());
   // 第1d回 A-6（D17）: 帯の［もう一度］。失敗して音声を残した区間を今の経路で並べ直す → { ok: true, n } | { ok: false }
   ipcMain.handle('meeting:retry', () => retryFailedSegments());
+  ipcMain.handle('meeting:keep-going', () => keepGoingQuiet());   // 0.9.1 Q-4: 帯の［続ける］
   // 第1d回 A-8（D17）: 画面が「録音中のページを開いていて、窓が隠れていない」かを知らせる（変わったときだけ送ってくる）
   ipcMain.on('meeting:live-shown', (_e, on) => { liveShownByUi = on === true; });
   ipcMain.handle('meeting:set-memo', (_e, memo) => { if (meeting) { meeting.memo = String(memo || ''); writeDraft(); } return true; });
@@ -5228,6 +5360,7 @@ function setupIpc() {
       meeting.resumeHint = false;
       meeting.hintOnPause = false;
       writeDraft();
+      restartQuiet(meeting, 'resume');   // 0.9.1 Q-4（決めたこと 14）: 再開は人の答え。［続ける］と同じに数え直す
     }
     if (paused && meeting.paused && meeting.hintOnPause) { meeting.hintOnPause = false; showResumeHint(meeting); return; }
     sendToMainWin('meeting:update', meetingStatus());

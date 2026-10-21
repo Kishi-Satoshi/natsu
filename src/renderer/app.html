@@ -528,6 +528,12 @@
   .stt-banner span { flex: 1 1 16em; min-width: 0; overflow-wrap: anywhere; }
   .stt-banner button.ghost { font-size: 12px; padding: 0 10px; }
   .stt-banner[hidden] { display: none; }
+  /* 0.9.1 Q-4: 話し声が無いので「会議は終わりましたか？」と聞く帯（録音中のページの頭。文字起こしの帯の上。注意の色にしない: 問いで、誤りではない） */
+  .quiet-ask { display: flex; align-items: center; gap: 6px 10px; flex-wrap: wrap; padding: 6px 10px; margin-bottom: 8px;
+    border: 1px solid var(--line); border-radius: 6px; background: var(--tint); font-size: 13px; color: var(--text); }
+  .quiet-ask span { flex: 1 1 16em; min-width: 0; overflow-wrap: anywhere; }
+  .quiet-ask button.ghost { font-size: 12px; padding: 0 10px; }
+  .quiet-ask[hidden] { display: none; }
   /* 記録中のページの題名は「記録中の会議」で編集できない（JS が #pageWrap に live-on を付け外しする） */
   #pageWrap.live-on .ptitle { cursor: default; }
   /* 止めていた時間の印（区間の行の間。区間ではない） */
@@ -2920,6 +2926,13 @@
           + '<button class="ghost" id="liveSttBannerBtn" type="button" hidden></button></div>';
         live.parentNode.insertBefore(hold.firstChild, live);
         $('liveSttBannerBtn').onclick = sttBannerAct;
+        // 0.9.1 Q-4: 「会議は終わりましたか？」の帯（文は main の quiet.text）。［続ける］は main の meeting:keep-going、［終了して作成］は［■ 終了して作成］と同じ
+        // 文字起こしの帯の上に置く（文字起こしの帯は今どおり記録の行のすぐ上）
+        hold.innerHTML = '<div class="quiet-ask" id="liveQuietAsk" role="alert" hidden><span id="liveQuietAskText"></span>'
+          + '<button class="ghost" id="liveQuietGo" type="button">続ける</button><button class="ghost" id="liveQuietStop" type="button">終了して作成</button></div>';
+        live.parentNode.insertBefore(hold.firstChild, $('liveSttBanner'));
+        $('liveQuietGo').onclick = () => { if (typeof window.koeApp.meetingKeepGoing === 'function') window.koeApp.meetingKeepGoing(); };
+        $('liveQuietStop').onclick = toggleMeeting;
       }
       // 相手の声も録れているかは、会議が終わってから気づくと手遅れなので
       // 記録中のバーに出す。
@@ -2948,10 +2961,13 @@
       live.hidden = !liveShown();   // 記録中のバーは記録中のタブにだけ出す（ほかのページのタブでは、タブの名前が状態を出す）
       renderSttLine();
       renderSttBanner();
+      renderQuietAsk();
     } else {
       if (live) live.remove();
       const bn = live && $('liveSttBanner');   // 帯は記録の行と一緒に作ったので、一緒に外す
       if (bn) bn.remove();
+      const qa = live && $('liveQuietAsk');   // 0.9.1 Q-4
+      if (qa) qa.remove();
       if (mtTimer) { clearInterval(mtTimer); mtTimer = null; }
       if (!st.finalizing) $('pProgress').style.display = 'none';
       // 記録中のメモ欄は片付ける。この後、作られたページ側の表示に切り替わる（page:open で記録中のタブをそのページのタブに替える）
@@ -2973,6 +2989,7 @@
     if (live) live.hidden = false;
     if (mtSt.active) drawLive(mtSt);
     renderSttBanner();
+    renderQuietAsk();
     reportLiveShown();   // タブを替えた時はまだページを開いていたことがある（activateTab の renderTabs の後で閉じた）
   }
   // 記録中のページの題名は「記録中の会議」で編集できない（打った文字は保存先が無く黙って消えるため。G10）。
@@ -3021,6 +3038,16 @@
     btn.hidden = !sttAct;
     btn.textContent = sttAct ? STT_ACT_LABEL[sttAct] : '';
     btn.disabled = sttAct === 'retry' && sttRetrying;
+  }
+  // 0.9.1 Q-4: 「会議は終わりましたか？」の帯（quiet が null・作成中・録音中のタブでないときは隠す）。同じ文は書き直さない（role="alert" の読み上げ直しを避ける）
+  function renderQuietAsk() {
+    const bn = $('liveBar') && $('liveQuietAsk');
+    if (!bn) return;
+    const q = mtSt && mtSt.active && !mtSt.finalizing && mtSt.quiet && typeof mtSt.quiet === 'object' ? mtSt.quiet : null;
+    const text = q && typeof q.text === 'string' ? q.text : '';
+    bn.hidden = !text || !liveShown();
+    const tx = $('liveQuietAskText');
+    if (tx.textContent !== text) tx.textContent = text;
   }
   // 帯のボタン: ［ログインし直す］は知らせのボタンと同じ道（設定の「アカウント」・メールの欄）、［エンジンを確かめる］は「未設定」の知らせと同じ道、
   // ［もう一度］は main の meeting:retry を1回（返事まで押せない。帯は main の meeting:update が描き直す）

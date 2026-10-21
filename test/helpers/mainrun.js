@@ -328,6 +328,16 @@
 //          --hover-panel      … 縦の形の見張り（watchPanelHover。名前で拾う）を偽のカーソルで回す。panel.hover に、横の形の間（ドラッグの前に
 //                        カーソルを窓の中へ）の { sent, intervals }・縦の形にした後の intervals・送った overlay:hover の並び（sent）・
 //                        隠した後に送った並び（afterHide）・隠した後の見回りで見張りを止めたか（cleared）
+//   0.9.1 Q-4（話し声が無いときに自動で止める。計画 docs/plans/2026-10-21-091.md）
+//     --quiet-seq=<並び> … 議事録の場面で、, で区切った字を順に行う（今の区間の並びの代わり）。区間: s（2 秒の無音）・t（2 秒の音）・b（3 秒の --blip の音）。
+//                        区間の長さ（durationMs。会議の時計）は --quiet-seg-ms（既定 60000）。:<字> で中継の答え方（--relay-seq と同じ字。既定 c）、*<n> でくり返し。
+//                        区間はそれぞれ片付く（meeting:status の pending が 0）まで待つ。動き: k（画面と同じ meeting:keep-going。答えは out.keepGoing）・
+//                        x（手で止める。最後の区間は空）・X（手で止める。最後の区間は 60 秒の無音）・P（一時停止して偽の時計を 20 分進めて再開）・
+//                        d（破棄して、その場で出力して終える）・S（無音の区間を送り、文字起こしが済む前に一時停止する。分けるのは一時停止の間）・R（再開）。main が自分で止めたら（overlay:stop を送ったら）、最後の空の区間を送って並びを止める（out.quietStopAt）。
+//                        出力に quietTrace（字ごとに { i, tok, asked（meeting:status の quiet があるか）, active, stopping }）・quietText（初めの quiet.text）・
+//                        stopCalls（overlay:stop を送った数）・overlaySeq（送った overlay:phase と overlay:stop の順。stop は { stop: true }）・
+//                        notifyClosed（偽の Notification の close() の数）・pageDur（議事録の durationSec と pauses）を足す
+//     --auto-stop=off・--auto-stop-min=<n> … 置く settings.json の autoStopQuiet: false・autoStopMin: n
 // 画面へ送った知らせと進み具合は、送った順に out.seq へ残す。進み具合が初めて「使える」（whisperReady・sumReady）と
 // 言ったときの engine:status を out.atReady に、壊れた知らせを送ったときの engine:status を out.atBroken に残す
 // （画面はその知らせでエンジンの状態を聞き直すので、そのとき main の答えがもう新しいこと: 第0b回 Task 14・15）
@@ -405,6 +415,15 @@ const SECRET = '秘密の語';
 const fakeText = flagVal('--text') || (secretText ? `${SECRET}を含む発言です` : '');
 const FAKE_SUM = path.join(__dirname, 'fake-llama.js');
 const blipSec = Number(flagVal('--blip-sec')) || 15;   // 0.9.1 Q-2
+// 0.9.1 Q-4: 話し声が無いときに自動で止める場面（頭の注釈）
+const quietSeq = flagVal('--quiet-seq') ? flagVal('--quiet-seq').split(',').flatMap((t) => {
+  const m = /^([stbkxXPdSR])(?::(.))?(?:\*(\d+))?$/.exec(t);
+  if (!m) { process.stderr.write(`mainrun: --quiet-seq の ${t} が読めない\n`); process.exit(1); }
+  return Array.from({ length: Number(m[3] || 1) }, () => ({ k: m[1], ans: m[2] || 'c', tok: t }));
+}) : null;
+const quietSegMs = Number(flagVal('--quiet-seg-ms')) || 60000;
+const autoStopFlag = flagVal('--auto-stop');
+const autoStopMinFlag = Number(flagVal('--auto-stop-min')) || 0;
 const segCount = Number((flags.find((f) => f.startsWith('--segs=')) || `--segs=${relaySeq ? relaySeq.length : 2}`).slice(7)) || 2;
 const managedMode = flags.includes('--managed') ? 'ok' : (flags.includes('--managed-tamper') ? 'tamper' : '');
 const recoverMode = flags.includes('--recover');
@@ -894,6 +913,8 @@ process.on('exit', () => {
       ...(seededMail ? { accountEmail: seededMail } : {}),
       ...(noWhisper ? { localServerExe: path.join(tmp, 'no-such-whisper-server.exe') } : {}),
       ...(maxHistoryFlag ? { maxHistory: Number(maxHistoryFlag) } : {}),   // 第1d2回 M-5
+      ...(autoStopFlag === 'off' ? { autoStopQuiet: false } : {}),   // 0.9.1 Q-4
+      ...(autoStopMinFlag ? { autoStopMin: autoStopMinFlag } : {}),
       claudeExe,
       ...(pillSettings || {}),
     }));
@@ -970,6 +991,7 @@ process.on('exit', () => {
   });   // 偽の utilityProcess.fork（場面が dbCrash で子を落とす）
   const mainWinCalls = [];   // 第1d回 A-8: 本体の窓の show・focus・restore の順
   const notifications = [];   // 第1d回 A-8: 偽の Notification の show() の { title, body }
+  let notifyClosed = 0;       // 0.9.1 Q-4: 偽の Notification の close() の数
   // 偽の Electron の Notification（第1d回 A-8）。on('click') の受け口を覚え、--click-notify なら show() の直後に押す
   class FakeNotification {
     static isSupported() { return !noNotify; }
@@ -979,6 +1001,7 @@ process.on('exit', () => {
       notifications.push({ title: this.o.title, body: this.o.body });
       if (clickNotify) setTimeout(() => this.emit('click', {}), 0);
     }
+    close() { notifyClosed += 1; }
   }
   const mainSent = [];   // 本体の窓（wins[1]）の webContents.send の channel（読み込み中で届かなかったものも。第2a1回 M-2b の db:lost）
   // 第1b回 Task A-3: 録音バー（wins[0]）の［一時停止］の真似。main.js の2つの定数（PAUSE_ENSURE_ON・PAUSE_ENSURE_OFF）と同じ文だけを受け、
@@ -2418,6 +2441,71 @@ process.on('exit', () => {
     // 下書き（draft.json）にも印が書かれたか（落ちて復旧した会議の送り直しも手元にするため）
     try { out.draftLocalOnly = JSON.parse(readUser('data/draft.json').toString('utf8')).localOnly; } catch (_) { out.draftLocalOnly = null; }
   }
+  // 0.9.1 Q-4（--quiet-seq）: 字を順に行う（今の区間の並びの代わり）
+  if (quietSeq) {
+    const stopsSent = () => sent.filter(([ch]) => ch === 'overlay:stop').length;
+    const settled = async () => { await sleep(30); await waitFor(() => handlers['meeting:status']().pending === 0, 15000); await sleep(30); };
+    const sendSeg = (buf, final) => listeners['audio:segment']({}, { buffer: new Uint8Array(buf), durationMs: quietSegMs, final });
+    const bufOf = (k) => (k === 's' ? toneWav(2, 0) : k === 'b' ? blipWav(3) : toneWav(2));
+    out.quietTrace = [];
+    let stopped = false;
+    for (let i = 0; i < quietSeq.length && !stopped; i++) {
+      const { k, ans, tok } = quietSeq[i];
+      if ('stb'.includes(k)) {
+        if (relayLocal) await relayLocal.setAnswer(ans);
+        const s0 = stopsSent();
+        sendSeg(bufOf(k), false);
+        await settled();
+        if (stopsSent() > s0) {
+          // main が自分で止めた: 録音バーの代わりに最後の空の区間を送る
+          out.quietStopAt = i;
+          stopped = true;
+          listeners['audio:segment']({}, { buffer: new Uint8Array(0), durationMs: 0, final: true });
+        }
+      } else if (k === 'S') {
+        sendSeg(toneWav(2, 0), false);
+        listeners['overlay:pause']({}, { paused: true });   // 区間を分ける前（segChain の次の番）に一時停止にする
+        await settled();
+        if (stopsSent() > 0 && !out.quietStopAt) out.quietStopAt = i;
+      } else if (k === 'R') {
+        listeners['overlay:pause']({}, { paused: false });
+        await sleep(30);
+      } else if (k === 'k') {
+        out.keepGoing = await handlers['meeting:keep-going']();
+      } else if (k === 'P') {
+        listeners['overlay:pause']({}, { paused: true });
+        await sleep(30);
+        advanceClock(20 * 60000);
+        listeners['overlay:pause']({}, { paused: false });
+        await sleep(30);
+      } else if (k === 'x' || k === 'X') {
+        out.stop = await handlers['meeting:toggle']();
+        stopped = true;
+        if (relayLocal) await relayLocal.setAnswer('c');
+        if (k === 'X') sendSeg(toneWav(2, 0), true);
+        else listeners['audio:segment']({}, { buffer: new Uint8Array(0), durationMs: 0, final: true });
+        await sleep(100);
+      } else if (k === 'd') {
+        out.seqAtDiscard = sent.filter(([ch]) => ch === 'overlay:phase' || ch === 'overlay:stop').length;
+        out.discard = await handlers['meeting:discard']();
+        await sleep(3500);   // 録音バーへの送り直し（3 秒）が残っていないことを見る
+        Object.assign(out, { notifications: notifications.slice(), notifyClosed, engineLog: elogLines(),
+          overlaySeq: sent.filter(([ch]) => ch === 'overlay:phase' || ch === 'overlay:stop').map(([ch, p]) => (ch === 'overlay:stop' ? { stop: true } : p)) });
+        const st0 = handlers['meeting:status']();
+        out.quietTrace.push({ i, tok, asked: Boolean(st0.quiet), active: Boolean(st0.active), stopping: Boolean(st0.stopping) });
+        process.stdout.write(`\n${JSON.stringify(out)}\n`);
+        await exitClean(0);
+      }
+      const st = handlers['meeting:status']();
+      if (st.quiet && !out.quietText) out.quietText = st.quiet.text;
+      out.quietTrace.push({ i, tok, asked: Boolean(st.quiet), active: Boolean(st.active), stopping: Boolean(st.stopping) });
+    }
+    if (!stopped) {
+      out.stop = await handlers['meeting:toggle']();
+      listeners['audio:segment']({}, { buffer: new Uint8Array(0), durationMs: 0, final: true });
+    }
+    wavs.length = 0;   // 今の区間の並びは回さない
+  }
   for (let i = 0; i < wavs.length; i++) {
     // 取り消す場面（--discard-during）は最初の区間の後で取り消すので、止めない（--segs=1 でも録音中のまま取り消す）
     const last = i === wavs.length - 1 && !discardDuring;
@@ -2547,6 +2635,14 @@ process.on('exit', () => {
   if (netSeq) { for (const f of offTicks) f(netT0 + (netSec + 1) * 1000); Object.assign(out, { netProblems, netSegs }); }
   out.offlineWatch = { started: offTicks.length, cleared: offCleared };
   out.notifications = notifications.slice();
+  out.notifyClosed = notifyClosed;   // 0.9.1 Q-4
+  if (quietSeq) {
+    out.stopCalls = sent.filter(([ch]) => ch === 'overlay:stop').length;
+    out.overlaySeq = sent.filter(([ch]) => ch === 'overlay:phase' || ch === 'overlay:stop').map(([ch, p]) => (ch === 'overlay:stop' ? { stop: true } : p));
+    const p0 = store.listPages()[0];
+    const pg = p0 && store.getPage(p0.id);
+    out.pageDur = pg ? { durationSec: pg.durationSec, pauses: pg.pauses || [] } : null;
+  }
   out.mainWinCalls = mainWinCalls.slice();
   out.showLive = mainSent.filter((ch) => ch === 'meeting:show-live').length;
   const elog = path.join(userData, 'engine.log');
