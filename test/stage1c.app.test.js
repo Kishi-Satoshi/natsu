@@ -51,16 +51,21 @@ test('OL4・U-1・RL11: カードに送り先（中継と OpenAI）・オフラ�
 // 0.7.0 の後の直し: カードの頭の説明は、ほかの説明と同じく .field の中の .desc（.field .desc の 12px・薄い色。.field の下の間で
 // 「要約（Claude Code）」の名前と離れる）。HTML の改行は画面で空白になるので、「します。」と「1on1」の間に空白を置かない
 // 0.9.0 U-2 で意図して変えた: 説明は「文字起こし」のカードの頭（認識言語の欄の前）
-test('OL4: カード「文字起こし」（前の「オンライン」）の頭の説明は .field の中の .desc で、「します。」と「1on1」の間に空白が無い', async () => {
+// 0.9.2 I-2（計画 docs/plans/2026-10-21-092.md）で意図して変えた: 頭の説明は1行（.setlead の .desc）にし、長い文は見出しの ⓘ の吹き出し（#setPopStt）の
+// 箇条書きにした。文の中に HTML の改行の空白が混ざらないことは、吹き出しの頭と箇条の1つずつで見る
+test('OL4: カード「文字起こし」（前の「オンライン」）の頭の説明は .field の中の .desc（1行）で、長い文は吹き出しの箇条書き。どの文にも改行の空白が無い', async () => {
   const l = await load(APP, { returns: { claudeStatus: CLAUDE_OK } });
   await l.drain();
   const card = l.byId.get('language').closest('.card');
-  const desc = card.querySelectorAll('.desc').find((d) => d.textContent.includes('OpenAI（gpt-4o-transcribe）'));
-  assert.ok(desc, '頭の説明が無い');
-  const field = desc.closest('.field');
-  assert.ok(field && field.parentNode === card, '頭の説明がカードの直下にあり、.field の中に無い（.field .desc の書式と .field の下の間が効かない）');
-  assert.ok(card.children.indexOf(field) < card.children.indexOf(l.byId.get('language').closest('.field')), '頭の説明が「認識言語」の前に無い');
-  assert.match(desc.textContent, /文字起こしします。1on1・面談/, '「します。」と「1on1」の間に空白がある（HTML の改行が空白になる）');
+  const lead = card.querySelector('.setlead');
+  assert.ok(lead, '頭の説明が無い');
+  const desc = lead.querySelector('.desc');
+  assert.ok(lead.classList.contains('field') && lead.parentNode === card, '頭の説明がカードの直下の .field に無い（.field .desc の書式と .field の下の間が効かない）');
+  assert.ok(card.children.indexOf(lead) < card.children.indexOf(l.byId.get('language').closest('.field')), '頭の説明が「認識言語」の前に無い');
+  assert.strictEqual(desc.textContent, 'つながっているときはクラウド、つながっていないときは PC の中で文字起こしします。');
+  const pop = l.byId.get('setPopStt');
+  for (const el of [pop.querySelector('.setpop-head'), ...pop.querySelectorAll('li')]) assert.ok(!/\s{2,}|\n/.test(el.textContent), `吹き出しの文に改行の空白がある: ${el.textContent}`);
+  assert.ok(pop.querySelectorAll('li').some((li) => li.textContent.startsWith('1on1・面談')), '1on1 の注意の箇条が無い');
 });
 
 // ---- 計画の外で足した守り（Task C-2 の実装で決めたこと）----

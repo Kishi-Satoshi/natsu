@@ -290,7 +290,9 @@
   .set-empty { padding-top: 24px; }
   /* 欄や知らせが自分で付け外しする hidden には触らないので、印は class。id の詳細度で .check・.field .row の display に勝つ
      （!important は [hidden] だけ: stage1b2.fix。行の display は規則に書き、インラインの style に書かない） */
-  #tabSettings .set-miss { display: none; }
+  /* 0.9.2 I-2 で直した: 前は #tabSettings .set-miss（1,1,0）が 2列の行の #tabSettings .field.frow（1,2,0）の display: flex に負け、検索で外した
+     2列の行（「マイク」で「録音されるスピーカー」）が出ていた。#settingsModal を足して、行の display のどの規則より強くする（test/stage092.settings が詳細度を見る） */
+  #settingsModal #tabSettings .set-miss { display: none; }
   .eng-row { display: flex; gap: 8px; align-items: center; }
   .eng-msgs { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 6px; }
   .upd-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
@@ -314,6 +316,8 @@
   /* 入力とボタンの行（マイク・スピーカー・Claude Code）は右の列で 1 行に収める（スピーカーの欄とボタン 2 つで 400px では折り返した: CI の撮った画面） */
   #tabSettings .field.frow > .row { flex: 0 1 auto; max-width: 460px; flex-wrap: wrap; justify-content: flex-end; }
   #tabSettings .field.frow > .row > input, #tabSettings .field.frow > .row > select { flex: 1 1 160px; }
+  /* 0.9.2 I-2: スピーカーの行は1行の説明が左に収まるように、右（欄とボタン 2 つ）を 400px まで */
+  #tabSettings #spkField > .row { max-width: 400px; }
   #tabSettings .field.frow > .flead > label { margin-bottom: 0; }
   #tabSettings .field.frow > .flead > .desc { margin-top: 2px; line-height: 1.5; }
   .flab { font-size: 14px; color: var(--text); }
@@ -332,6 +336,47 @@
   .setclose { position: absolute; top: 12px; right: 12px; z-index: 1; width: 28px; height: 28px; display: flex; align-items: center;
     justify-content: center; border: none; border-radius: 6px; background: transparent; color: var(--muted); font: inherit; font-size: 18px; cursor: pointer; }
   .setclose:hover { background: var(--hover); color: var(--text); }
+  /* 0.9.2 I-2（計画 docs/plans/2026-10-21-092.md。モック mock092）: 見える説明は1行。長い文は名前・見出しの横の ⓘ を押すと開く吹き出し（.setpop）。
+     吹き出しは右の列の捲り（.scroll）に切られないように position: fixed で、置く所は JS（placeInfoPop）が設定の箱の内側に決める。
+     ⓘ の丸は文字を持たない飾り（トグルと同じ例外）。開いた ⓘ（open）と、検索で吹き出しの中だけが当たった ⓘ（hit）は薄い地 */
+  .setinfo { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; padding: 0; margin: 0 0 0 4px; flex: none;
+    border: none; border-radius: 50%; background: transparent; color: var(--muted); vertical-align: middle; cursor: pointer; }
+  .setinfo svg { width: 16px; height: 16px; }
+  .setinfo:hover, .setinfo.open, .setinfo.hit { background: var(--tint); color: var(--text); }
+  .setinfo:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  /* 吹き出しの中身（.setpop-body）は高さが箱 − 16px を越えたら中で捲る（下の行と矢印は捲らない。矢印は吹き出しの外へ出るので、外の箱は捲らない） */
+  .setpop { position: fixed; z-index: 70; left: 0; top: 0; display: flex; flex-direction: column; width: 360px; max-width: calc(100vw - 16px);
+    padding: 12px 14px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); box-shadow: var(--shadow);
+    font-size: 12.5px; font-weight: 400; line-height: 1.65; color: var(--text-2); text-align: left; white-space: normal; letter-spacing: 0; cursor: auto; }
+  .setpop-body { flex: 0 1 auto; min-height: 0; overflow-y: auto; }
+  .setpop-arrow { position: absolute; top: -6px; left: 14px; width: 10px; height: 10px; background: var(--bg);
+    border-left: 1px solid var(--line); border-top: 1px solid var(--line); transform: rotate(45deg); }
+  .setpop.above .setpop-arrow { top: auto; bottom: -6px; transform: rotate(225deg); }
+  .setpop-head { margin: 0; color: var(--text); font-weight: 600; }
+  .setpop ul { margin: 4px 0 0 16px; padding: 0; }
+  .setpop li { margin: 2px 0; }
+  .setpop code { font-size: 12px; }
+  .setpop-foot { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--line); }
+  .setpop-help { border: none; background: transparent; padding: 0; color: var(--accent-text); font: inherit; font-size: 12px; cursor: pointer; }
+  .setpop-help:hover { text-decoration: underline; }
+  .setpop-help:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .setpop-esc { margin-left: auto; font-size: 11px; color: var(--muted); }
+  /* 名前と ⓘ の行（2列の行の左の頭・トグルの行の名前） */
+  .fname { display: flex; align-items: center; gap: 2px; min-width: 0; }
+  #tabSettings .fname > label { margin-bottom: 0; }
+  /* ⓘ の付くトグルの行（div.checkrow）: 左に名前・説明・注意（.ctext）、右にトグルだけを包む label.check（今の .check と同じ並び・高さ） */
+  #tabSettings .checkrow { display: flex; align-items: center; gap: 24px; min-height: 56px; padding: 8px 0; }
+  #tabSettings .checkrow > .ctext { flex: 1; min-width: 0; }
+  #tabSettings .checkrow > .check { flex: none; min-height: 0; padding: 0; margin: 0; }
+  .ctext label { font-size: 14px; color: var(--text); cursor: pointer; }
+  .ctext .d { display: block; font-size: 12px; line-height: 1.5; color: var(--muted); }
+  .ctext .d.warn { color: var(--text-2); }
+  /* カードの頭の1行の説明（.setlead） */
+  #tabSettings .setlead { margin: 6px 0 2px; }
+  #tabSettings .setlead .desc { margin-top: 0; line-height: 1.5; }
+  /* 要約（Claude Code）の行: 2列にせず、ボタンの行を説明の下に左寄せ（決めたこと 10） */
+  #tabSettings .field.frow.fstack { display: block; }
+  #tabSettings .field.frow.fstack > .row { max-width: none; justify-content: flex-start; margin-top: 8px; }
   @media (max-width: 640px) {
     .setbox { width: 100vw; height: 100vh; border-radius: 0; }
   }
@@ -341,6 +386,9 @@
     #tabSettings .field.frow > .flead { margin-bottom: 5px; }
     #tabSettings .field.frow > input, #tabSettings .field.frow > select, #tabSettings .field.frow > .hkbox { width: 100%; }
     #tabSettings .field.frow > .row { max-width: none; justify-content: flex-start; flex-wrap: nowrap; }
+    #tabSettings .field.frow.fstack > .row { flex-wrap: wrap; }
+    /* 0.9.2 I-2: ⓘ の付くトグルの行も、狭い窓では今の .check と同じくトグルを左に */
+    #tabSettings .checkrow { flex-direction: row-reverse; justify-content: flex-end; gap: 10px; }
   }
 
   /* ---------- ページ本体 ---------- */
@@ -910,21 +958,45 @@
                 <button class="ghost" id="micReloadBtn" type="button">更新</button>
               </div>
             </div>
-            <label class="check" data-row="議事録で相手の声も録る"><input type="checkbox" id="useSystemAudio" />
-              <span>議事録で相手の声も録る（パソコンから出ている音）<br />
-                <span class="d">マイクに加えて、スピーカーやイヤホンへ流れている音も一緒に記録します。
-                  Web会議の相手の発言を議事録に残せます。Windows でのみ動作します。<br />
-                  パソコンで鳴っている音はすべて入ります（通知音や動画の音も）。
-                  二重に入るのを避けるため、イヤホンの使用をおすすめします。
-                  音声入力（ホットキー）ではこれまで通りマイクだけを使います。<br />
-                  ※ 録音していることは、会議の参加者へ伝えてください。</span></span></label>
+            <!-- 0.9.2 I-2（計画 docs/plans/2026-10-21-092.md の決めたこと 9）: ⓘ の付くトグルの行。行は div.checkrow で包み直し、トグルだけを今の label.check で
+                 包む（入力は label.check の枠から出ない）。名前は label for、見える説明は1行・注意は自分の行で見えたまま、長い文は ⓘ の吹き出し（ラベルの外なので、
+                 吹き出しの文や ⓘ を押してもトグルは切り替わらない） -->
+            <div class="checkrow" data-row="議事録で相手の声も録る">
+              <span class="ctext">
+                <span class="fname"><label for="useSystemAudio">議事録で相手の声も録る</label><button type="button" class="setinfo" aria-expanded="false" aria-controls="setPopLoop" aria-label="「議事録で相手の声も録る」の説明"><svg viewBox="0 0 20 20" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="10" cy="10" r="7"/><path d="M10 9v4.5M10 6.3h.01"/></svg></button></span>
+                <span class="d" id="useSystemAudioDesc">Web 会議の相手の声も残せます。</span>
+                <span class="d warn" id="useSystemAudioWarn">※ 録音していることは、会議の参加者に伝えてください。</span>
+              </span>
+              <label class="check"><input type="checkbox" id="useSystemAudio" aria-describedby="useSystemAudioDesc useSystemAudioWarn" /></label>
+              <div class="setpop" id="setPopLoop" hidden>
+                <span class="setpop-arrow" aria-hidden="true"></span>
+                <div class="setpop-body">
+                  <p class="setpop-head">パソコンから出ている音を、マイクと一緒に録ります。</p>
+                  <ul>
+                    <li>通知音や動画の音など、パソコンで鳴っている音はすべて入ります。</li>
+                    <li>声が二重に入るのを避けるため、イヤホンをおすすめします。</li>
+                    <li>音声入力（ホットキー）は、これまでどおりマイクだけを使います。</li>
+                    <li>Windows でだけ動きます。</li>
+                  </ul>
+                </div>
+                <div class="setpop-foot"><button type="button" class="setpop-help" data-help="record/start-stop">ヘルプで詳しく見る ↗</button><span class="setpop-esc">Esc で閉じる</span></div>
+              </div>
+            </div>
             <div class="field frow" id="spkField" data-row="録音されるスピーカー">
               <div class="flead">
-                <label>録音されるスピーカー</label>
-                <div class="desc">Windows の「既定の再生デバイス」に出ている音が録音されます。
-                  アプリ側から選ぶことはできない仕組みのため、変えたいときは
-                  Windows のサウンド設定で既定のデバイスを切り替えてください。
-                  録音の開始時点のデバイスに固定されます（録音中に切り替えても追従しません）。</div>
+                <div class="fname"><label>録音されるスピーカー</label><button type="button" class="setinfo" aria-expanded="false" aria-controls="setPopSpk" aria-label="「録音されるスピーカー」の説明"><svg viewBox="0 0 20 20" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="10" cy="10" r="7"/><path d="M10 9v4.5M10 6.3h.01"/></svg></button></div>
+                <div class="desc">Windows の既定の再生デバイスの音を録ります。</div>
+                <div class="setpop" id="setPopSpk" hidden>
+                  <span class="setpop-arrow" aria-hidden="true"></span>
+                  <div class="setpop-body">
+                    <p class="setpop-head">録るのは、Windows の「既定の再生デバイス」の音です。</p>
+                    <ul>
+                      <li>アプリの側からは選べない仕組みです。変えたいときは［Windowsの設定］で既定のデバイスを切り替えてください。</li>
+                      <li>録音を始めた時点のデバイスに固定されます（録音中に切り替えても追いかけません）。</li>
+                    </ul>
+                  </div>
+                  <div class="setpop-foot"><button type="button" class="setpop-help" data-help="record/start-stop">ヘルプで詳しく見る ↗</button><span class="setpop-esc">Esc で閉じる</span></div>
+                </div>
               </div>
               <div class="row">
                 <input type="text" id="spkNow" readonly />
@@ -935,11 +1007,25 @@
           </div>
           <div class="card" data-sec="record">
             <h2>話し声が無いとき</h2>
-            <label class="check" data-row="話し声が無いときに自動で止める"><input type="checkbox" id="autoStopQuiet" />
-              <span>話し声が無いときに自動で止める<br />
-                <span class="d">話し声が続けて無いと、録音中のページと録音バーと Windows の知らせで「会議は終わりましたか？」と聞きます。
-                  5 分たっても答えが無ければ録音を止めて議事録を作ります（話し声の無い終わりの部分は所要時間に入れません）。
-                  一時停止の間は数えません。</span></span></label>
+            <div class="checkrow" data-row="話し声が無いときに自動で止める">
+              <span class="ctext">
+                <span class="fname"><label for="autoStopQuiet">話し声が無いときに自動で止める</label><button type="button" class="setinfo" aria-expanded="false" aria-controls="setPopQuiet" aria-label="「話し声が無いときに自動で止める」の説明"><svg viewBox="0 0 20 20" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="10" cy="10" r="7"/><path d="M10 9v4.5M10 6.3h.01"/></svg></button></span>
+                <span class="d" id="autoStopQuietDesc">話し声が続けて無いと「会議は終わりましたか？」と聞きます。</span>
+              </span>
+              <label class="check"><input type="checkbox" id="autoStopQuiet" aria-describedby="autoStopQuietDesc" /></label>
+              <div class="setpop" id="setPopQuiet" hidden>
+                <span class="setpop-arrow" aria-hidden="true"></span>
+                <div class="setpop-body">
+                  <p class="setpop-head">聞いてから 5 分たっても答えが無ければ、録音を止めて議事録を作ります。</p>
+                  <ul>
+                    <li>聞くのは、録音中のページ・録音バー・Windows の知らせです。</li>
+                    <li>話し声の無い終わりの部分は、所要時間に入れません。</li>
+                    <li>一時停止の間は数えません。</li>
+                  </ul>
+                </div>
+                <div class="setpop-foot"><button type="button" class="setpop-help" data-help="record/start-stop">ヘルプで詳しく見る ↗</button><span class="setpop-esc">Esc で閉じる</span></div>
+              </div>
+            </div>
             <div class="field frow" data-row="知らせるまでの時間">
               <div class="flead">
                 <label for="autoStopMin">知らせるまでの時間</label>
@@ -955,9 +1041,22 @@
             </div>
           </div>
           <div class="card" data-sec="record">
-            <h2>文字起こし</h2>
-            <div class="field">
-              <div class="desc">ログインしていて、インターネットにつながっているときは、会議と音声入力の音声を文字起こしの中継に送り、OpenAI（gpt-4o-transcribe）で文字起こしします。中継も OpenAI も、音声と文字を保存しません。つながっていないときは、いつも PC の中で文字起こしします。1on1・面談など外に出したくない会議は、議事録の画面の［この会議は PC の中だけ］を押してください。</div>
+            <!-- 0.9.2 I-2: 見出しの横の ⓘ。カードの頭の説明（.setlead）は1行、長い文はカードの吹き出し（カードの直の子。検索で隠さない） -->
+            <h2>文字起こし<button type="button" class="setinfo" aria-expanded="false" aria-controls="setPopStt" aria-label="「文字起こし」の説明"><svg viewBox="0 0 20 20" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="10" cy="10" r="7"/><path d="M10 9v4.5M10 6.3h.01"/></svg></button></h2>
+            <div class="field setlead">
+              <div class="desc">つながっているときはクラウド、つながっていないときは PC の中で文字起こしします。</div>
+            </div>
+            <div class="setpop" id="setPopStt" hidden>
+              <span class="setpop-arrow" aria-hidden="true"></span>
+              <div class="setpop-body">
+                <p class="setpop-head">中継も OpenAI も、音声と文字を保存しません。</p>
+                <ul>
+                  <li>ログインしていて、インターネットにつながっているときは、会議と音声入力の音声を文字起こしの中継に送り、OpenAI（gpt-4o-transcribe）で文字起こしします。</li>
+                  <li>つながっていないときは、いつも PC の中で文字起こしします。</li>
+                  <li>1on1・面談など外に出したくない会議は、議事録の画面の［この会議は PC の中だけ］を押してください。</li>
+                </ul>
+              </div>
+              <div class="setpop-foot"><button type="button" class="setpop-help" data-help="record/pc-only">ヘルプで詳しく見る ↗</button><span class="setpop-esc">Esc で閉じる</span></div>
             </div>
             <div class="field frow" data-row="認識言語">
               <div class="flead">
@@ -980,18 +1079,43 @@
               <div class="desc">固有名詞・社内用語をエンジンへ渡し、認識精度を上げます。</div>
               <div class="desc ng" id="dictWarn" hidden></div>
             </div>
-            <label class="check" data-row="業務でよく使う言葉のヒントも渡す"><input type="checkbox" id="useBuiltinTerms" />
-              <span>業務でよく使う言葉のヒントも渡す<br />
-                <span class="d">「不具合」「改修」「結合テスト」「今週」などをあらかじめ渡します。
-                  上の辞書が優先で、余った分だけ使われます。</span></span></label>
+            <div class="checkrow" data-row="業務でよく使う言葉のヒントも渡す">
+              <span class="ctext">
+                <span class="fname"><label for="useBuiltinTerms">業務でよく使う言葉のヒントも渡す</label><button type="button" class="setinfo" aria-expanded="false" aria-controls="setPopTerms" aria-label="「業務でよく使う言葉のヒントも渡す」の説明"><svg viewBox="0 0 20 20" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="10" cy="10" r="7"/><path d="M10 9v4.5M10 6.3h.01"/></svg></button></span>
+                <span class="d" id="useBuiltinTermsDesc">「不具合」「改修」などの言葉をあらかじめ渡します。</span>
+              </span>
+              <label class="check"><input type="checkbox" id="useBuiltinTerms" aria-describedby="useBuiltinTermsDesc" /></label>
+              <div class="setpop" id="setPopTerms" hidden>
+                <span class="setpop-arrow" aria-hidden="true"></span>
+                <div class="setpop-body">
+                  <p class="setpop-head">「不具合」「改修」「結合テスト」「今週」など、業務でよく使う言葉を認識ヒントとして渡します。</p>
+                  <ul>
+                    <li>上の辞書が優先で、余った分だけ使われます。</li>
+                  </ul>
+                </div>
+                <div class="setpop-foot"><button type="button" class="setpop-help" data-help="settings/appearance">ヘルプで詳しく見る ↗</button><span class="setpop-esc">Esc で閉じる</span></div>
+              </div>
+            </div>
           </div>
           <div class="card" data-sec="summary">
             <h2>要約（Claude Code）</h2>
-            <div class="field frow" data-row="Claude Code">
+            <!-- 0.9.2 I-2（決めたこと 10）: 2列にすると詰まるので、ボタンの行を説明の下に置く（.fstack）。長い文は ⓘ の吹き出し（id は今の claudeHelp） -->
+            <div class="field frow fstack" data-row="Claude Code">
               <div class="flead">
-                <label for="claudeTest">要約（Claude Code）</label>
-                <div class="desc" id="claudeHelp">［Claude Code を入れる］は、PowerShell の窓で Anthropic の公式の入れ方 <code>irm https://claude.ai/install.ps1 | iex</code> を実行します（インターネットから取った命令をそのまま実行します。Git for Windows は無くても動きます）。
-                  ［Claude Code にログイン］はログインの窓を開きます（NaTsu はログインの情報を読みません）。要約は各自の Claude のプランの上限（5時間ごと・週ごと）を使います。</div>
+                <div class="fname"><label for="claudeTest">要約（Claude Code）</label><button type="button" class="setinfo" aria-expanded="false" aria-controls="claudeHelp" aria-label="「要約（Claude Code）」の説明"><svg viewBox="0 0 20 20" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="10" cy="10" r="7"/><path d="M10 9v4.5M10 6.3h.01"/></svg></button></div>
+                <div class="desc">要約は各自の Claude Code で作ります。</div>
+                <div class="setpop" id="claudeHelp" hidden>
+                  <span class="setpop-arrow" aria-hidden="true"></span>
+                  <div class="setpop-body">
+                    <p class="setpop-head">要約は、各自の Claude Code で作ります。</p>
+                    <ul>
+                      <li>［Claude Code を入れる］は、PowerShell の窓で Anthropic の公式の入れ方（<code>irm https://claude.ai/install.ps1 | iex</code>）を実行します。インターネットから取った命令をそのまま実行します。Git for Windows は無くても動きます。</li>
+                      <li>［Claude Code にログイン］はログインの窓を開きます（NaTsu はログインの情報を読みません）。</li>
+                      <li>要約は各自の Claude のプランの上限（5 時間ごと・週ごと）を使います。</li>
+                    </ul>
+                  </div>
+                  <div class="setpop-foot"><button type="button" class="setpop-help" data-help="start/claude-code">ヘルプで詳しく見る ↗</button><span class="setpop-esc">Esc で閉じる</span></div>
+                </div>
               </div>
               <div class="row">
                 <span class="eng-state" id="claudeState"></span>
@@ -1229,6 +1353,7 @@
   function selectSettingsSec(sec, focus) {
     const hit = SETTINGS_SECS.find((x) => x.sec === sec) || SETTINGS_SECS.find((x) => x.sec === 'general');
     setSec = hit.sec;
+    closeInfo(false);   // 0.9.2 I-2: 項目を替えたら吹き出しを閉じる
     if ($('setSearch').value) $('setSearch').value = '';
     clearSettingsFilter();
     for (const c of setCards()) c.hidden = c.dataset.sec !== hit.sec;
@@ -1241,31 +1366,50 @@
     }
     $('setTitle').textContent = hit.name;
   }
-  // 検索（0.9.0 U-2・SP5・決めたこと 18）: 行（data-row）の名前だけで絞る。全角と半角・大文字と小文字は同じ（NFKC と小文字）。
-  // 説明の長い文の中までは探さない。当たった行だけを、項目の名前の小見出し（h3.setgroup。検索の間だけ作る）の下に出す。
-  // 欄や知らせが自分で付け外しする hidden には触らず、外すのは印の class（set-miss）だけ（検索をやめたら全部外す）
+  // 検索（0.9.0 U-2・SP5・決めたこと 18）: 行（data-row）の名前で絞る。全角と半角・大文字と小文字は同じ（NFKC と小文字）。
+  // 0.9.2 I-2（決めたこと 8）で意図して広げた: 行の名前に加えて、行の見える説明（.desc・.d・.lhint）と ⓘ の吹き出しの文も見る（長い文を吹き出しへ
+  // 動かしたので、吹き出しの中にだけある言葉でも行を出す）。吹き出しの文だけで当たった ⓘ には印 hit。カードの頭（.setlead）は、頭の説明か
+  // カードの吹き出し（見出しの ⓘ）に当たれば出す。選ぶ欄の選択肢・ボタンの文・状態の文は見ない。当たった行だけを、項目の名前の小見出し
+  // （h3.setgroup。検索の間だけ作る）の下に出す。欄や知らせが自分で付け外しする hidden には触らず、外すのは印の class（set-miss）だけ（検索をやめたら全部外す）
   const foldSetting = (q) => String(q || '').normalize('NFKC').toLowerCase().trim();
+  // 見える説明の文（吹き出しの中と、main の答えで書く状態の文（id のあるもの）は除く）と、中の吹き出しの文
+  const seenText = (el) => [...el.querySelectorAll('.desc, .d, .lhint')].filter((d) => !d.closest('.setpop') && !d.classList.contains('ng')
+    && !d.classList.contains('save-msg')).map((d) => d.textContent).join(' ');
+  const popText = (el) => [...el.querySelectorAll('.setpop')].map((p) => p.textContent).join(' ');
   function clearSettingsFilter() {
     for (const h of $('tabSettings').querySelectorAll('.setgroup')) h.remove();
     for (const el of $('tabSettings').querySelectorAll('.set-miss')) el.classList.remove('set-miss');
+    for (const b of $('tabSettings').querySelectorAll('.setinfo')) b.classList.remove('hit');
     $('setEmpty').hidden = true;
   }
   function filterSettings(q) {
     const f = foldSetting(q);
+    closeInfo(false);   // 0.9.2 I-2: 検索を打ったら吹き出しを閉じる（当たる行が替わる）
     if (!f) { selectSettingsSec(setSec, false); return; }
     clearSettingsFilter();
     for (const b of setNavItems()) { b.classList.remove('on'); b.setAttribute('aria-selected', 'false'); }
     let hits = 0, lastSec = '';
+    const has = (t) => foldSetting(t).includes(f);
+    // 吹き出しの文だけで当たった（名前と見える説明では当たらない）ら、その ⓘ に印
+    const markHit = (el, seen) => { if (!seen && has(popText(el))) for (const b of el.querySelectorAll('.setinfo')) b.classList.add('hit'); };
     for (const c of setCards()) {
       const rows = [...c.querySelectorAll('[data-row]')];
       // 今は隠れている行（ログインしていない間の「ログアウト」など）は数えない。カードの中の祖先が隠れていても同じ
       const shown = (r) => { for (let n = r; n && n !== c; n = n.parentNode) if (n.hidden) return false; return true; };
-      const ok = rows.filter((r) => shown(r) && foldSetting(r.dataset.row).includes(f));
-      c.hidden = !ok.length;
-      if (!ok.length) continue;
-      hits += ok.length;
-      // カードの中は見出しと当たった行だけ（行でない説明や、当たらない行は外す。行はどれもカードの直の子）
-      for (const k of [...c.children]) if (k.tagName.toLowerCase() !== 'h2' && !ok.includes(k)) k.classList.add('set-miss');
+      const ok = rows.filter((r) => shown(r) && (has(r.dataset.row) || has(seenText(r)) || has(popText(r))));
+      for (const r of ok) markHit(r, has(r.dataset.row) || has(seenText(r)));
+      // カードの頭（.setlead）と、カードの直の子の吹き出し（見出しの ⓘ）
+      const cardPops = [...c.children].filter((k) => k.classList.contains('setpop'));
+      const leads = [...c.children].filter((k) => k.classList.contains('setlead'));
+      const leadSeen = leads.some((k) => has(seenText(k)));
+      const leadHit = leadSeen || cardPops.some((k) => has(k.textContent));
+      if (leadHit && !leadSeen) for (const k of cardPops) if (has(k.textContent)) { const b = c.querySelector(`.setinfo[aria-controls="${k.id}"]`); if (b) b.classList.add('hit'); }
+      c.hidden = !ok.length && !leadHit;
+      if (c.hidden) continue;
+      hits += ok.length + (leadHit ? 1 : 0);
+      // カードの中は見出しと当たった行だけ（行でない説明や、当たらない行は外す。行はどれもカードの直の子）。
+      // カードの吹き出しは外さない（閉じていれば hidden）。カードの頭は、頭か吹き出しに当たったときだけ出す
+      for (const k of [...c.children]) if (k.tagName.toLowerCase() !== 'h2' && !ok.includes(k) && !k.classList.contains('setpop') && !(leadHit && leads.includes(k))) k.classList.add('set-miss');
       if (c.dataset.sec !== lastSec) {
         lastSec = c.dataset.sec;
         const h = document.createElement('h3');
@@ -1282,7 +1426,7 @@
   $('setSearch').addEventListener('input', () => filterSettings($('setSearch').value));
   // 検索の欄の Esc: 文字があれば消すだけ（前の項目に戻る。ポップアップは閉じない）。空なら外の受け口が閉じる
   $('setSearch').addEventListener('keydown', (ev) => {
-    if (ev.key !== 'Escape' || imeEnter(ev) || !$('setSearch').value) return;
+    if (ev.key !== 'Escape' || imeEnter(ev) || !$('setSearch').value || infoOpen) return;   // 吹き出しが開いていれば吹き出しが先（onSettingsKey）
     ev.preventDefault();
     $('setSearch').value = '';
     filterSettings('');
@@ -1305,6 +1449,7 @@
   }
   function closeSettings() {
     if (!settingsOpen()) return;
+    closeInfo(false);   // 0.9.2 I-2
     $('settingsModal').hidden = true;
     $('tabSettings').classList.remove('active');
     $('tabBtnSettings').classList.remove('active');
@@ -1335,6 +1480,8 @@
     if (imeEnter(ev)) return;
     if (ev.key === 'Escape') {
       if (palOpen) return;   // 検索の窓が開いていれば今どおり検索の窓が先
+      // 0.9.2 I-2（決めたこと 6）: ⓘ の吹き出しが開いていれば、設定より先に吹き出しだけを閉じ、フォーカスは ⓘ へ（検索の欄・吹き出しの中のリンクでも）
+      if (infoOpen) { ev.preventDefault(); closeInfo(true); return; }
       const t = ev.target;
       if (t && (t.id === 'hotkey' || t.id === 'meetingHotkey')) {   // ホットキーの欄は欄から抜けるだけ（閉じない）
         ev.preventDefault();
@@ -1361,7 +1508,12 @@
   $('settingsModal').addEventListener('keydown', onSettingsKey);
   document.addEventListener('keydown', onSettingsKey);
   // 外の暗い所: 押した（pointerdown）のと離した（click）のが両方 .setmodal 自身のときだけ閉じる
-  $('settingsModal').addEventListener('pointerdown', (ev) => { setDownOnScrim = ev.target === $('settingsModal'); });
+  $('settingsModal').addEventListener('pointerdown', (ev) => {
+    setDownOnScrim = ev.target === $('settingsModal');
+    // 0.9.2 I-2: 開いた吹き出しとその ⓘ の外を押したら閉じる（ⓘ は click で開け閉めする）
+    const t = ev.target;
+    if (infoOpen && !(t && typeof t.closest === 'function' && (t.closest('.setpop') === infoPopOf(infoOpen) || t.closest('.setinfo') === infoOpen))) closeInfo(false);
+  });
   $('settingsModal').addEventListener('click', (ev) => {
     const out = ev.target === $('settingsModal') && setDownOnScrim;
     setDownOnScrim = false;
@@ -1373,6 +1525,75 @@
   const helpOk = () => HELP_SITE_LIVE && typeof window.koeApp.openHelp === 'function';
   $('setHelpLink').hidden = !helpOk();
   $('setHelpLink').addEventListener('click', () => { if (helpOk()) window.koeApp.openHelp(); });
+
+  // ---------------- 設定の説明の ⓘ と吹き出し（0.9.2 I-2。計画 docs/plans/2026-10-21-092.md の方針 1〜5・決めたこと 4〜8） ----------------
+  // ⓘ（.setinfo）は aria-controls で自分の吹き出し（.setpop。hidden）を指す。押したときだけ開き（カーソルを乗せても開かない）、開くのはいつも1つ（infoOpen）。
+  // hidden・aria-expanded・印 open を付け外しするのは openInfo・closeInfo だけ。閉じ方は Esc（設定より先: onSettingsKey）・外の pointerdown・
+  // 同じ ⓘ をもう一度・ほかの ⓘ・項目を替える・検索を打つ・設定を閉じる。吹き出しは position: fixed で、置く所は placeInfoPop が設定の箱の内側に決める
+  const INFO_W = 360;   // 吹き出しの幅（箱が狭ければ箱 − 16px）
+  let infoOpen = null;  // 開いている吹き出しの ⓘ（無ければ null）
+  const infoPopOf = (b) => (b ? document.getElementById(b.getAttribute('aria-controls')) : null);
+  // ⓘ の矩形 b・設定の箱の矩形 box・吹き出しの幅 w と高さ h → 置く所。下（ⓘ の 10px 下）に入らず上に入れば上、どちらも入らなければ広い方。
+  // 左は ⓘ − 12 を、縦も、箱の内側 8px に寄せる。高さは箱 − 16 まで（越えれば吹き出しの中で捲る）。矢印は ⓘ の真ん中（吹き出しの 8〜幅 − 18）
+  function placeInfoPop(b, box, w, h) {
+    const M = 8, G = 10;
+    const width = Math.max(0, Math.min(w, box.width - 2 * M));
+    const maxHeight = Math.max(0, box.height - 2 * M);
+    const hh = Math.min(h, maxHeight);
+    const left = Math.max(box.left + M, Math.min(b.left - 12, box.right - M - width));
+    const roomBelow = box.bottom - M - (b.bottom + G), roomAbove = (b.top - G) - (box.top + M);
+    const below = hh <= roomBelow || (hh > roomAbove && roomBelow >= roomAbove);
+    const top0 = below ? b.bottom + G : b.top - G - hh;
+    const top = Math.max(box.top + M, Math.min(top0, box.bottom - M - hh));
+    const arrow = Math.max(8, Math.min(width - 18, b.left + b.width / 2 - left - 5));
+    return { left, top, width, maxHeight, below, arrow };
+  }
+  function placeOpenInfo() {
+    const pop = infoPopOf(infoOpen);
+    const box = document.querySelector('#settingsModal .setbox');
+    if (!pop || !box) return;
+    const br = box.getBoundingClientRect();
+    const w = Math.max(0, Math.min(INFO_W, br.width - 16));
+    pop.style.width = `${w}px`;
+    pop.style.maxHeight = `${Math.max(0, br.height - 16)}px`;
+    const p = placeInfoPop(infoOpen.getBoundingClientRect(), br, w, pop.getBoundingClientRect().height);
+    pop.style.left = `${p.left}px`;
+    pop.style.top = `${p.top}px`;
+    const arrow = pop.querySelector('.setpop-arrow');
+    if (arrow) arrow.style.left = `${p.arrow}px`;
+    pop.classList.toggle('above', !p.below);
+  }
+  // 閉じる（focusBack なら ⓘ へフォーカスを戻す: Esc のとき）。閉じたら true
+  function closeInfo(focusBack) {
+    const b = infoOpen;
+    if (!b) return false;
+    infoOpen = null;
+    b.setAttribute('aria-expanded', 'false');
+    b.classList.remove('open');
+    const pop = infoPopOf(b);
+    if (pop) { pop.hidden = true; pop.classList.remove('above'); }
+    if (focusBack && typeof b.focus === 'function') b.focus();
+    return true;
+  }
+  function openInfo(b) {
+    closeInfo(false);
+    const pop = infoPopOf(b);
+    if (!pop) return;
+    infoOpen = b;
+    b.setAttribute('aria-expanded', 'true');
+    b.classList.add('open');
+    pop.hidden = false;
+    placeOpenInfo();
+  }
+  for (const b of $('tabSettings').querySelectorAll('.setinfo')) b.addEventListener('click', () => { if (infoOpen === b) closeInfo(false); else openInfo(b); });
+  // 吹き出しの「ヘルプで詳しく見る ↗」: その話の記事の名前（data-help）だけを main へ渡す（住所は main だけ）。［ヘルプ］と同じく、出せるときだけ出す。吹き出しは閉じない
+  for (const a of $('tabSettings').querySelectorAll('.setpop-help')) {
+    a.hidden = !helpOk();
+    a.addEventListener('click', () => { if (helpOk()) window.koeApp.openHelp(a.dataset.help); });
+  }
+  // 右の列を捲ったとき・窓の大きさ（拡大率）が変わったときは置き直す（ⓘ から離さない）
+  $('tabSettings').querySelector('.scroll').addEventListener('scroll', () => placeOpenInfo());
+  window.addEventListener('resize', () => placeOpenInfo());
   // 左の列: 押すとその項目。↑↓ で前後（端で回る）、Home・End で端（role="tablist"・縦）
   $('setNav').addEventListener('click', (ev) => {
     const b = ev.target && typeof ev.target.closest === 'function' ? ev.target.closest('.setnav-item') : null;

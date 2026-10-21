@@ -78,7 +78,8 @@ test('N1: ガラス風をやめた（backdrop-filter・グラデーション・�
 
 // 第1b2回 L-1: 部品は 6px まで・まとまり（会議のブロック・検索の窓・囲み）は 10px まで・丸いタブは 14px（高さ 28px の丸）
 test('N1: 角丸は部品 6px・まとまり 10px・丸いタブ 14px まで（例外は設定のトグルと丸い点）。影は浮く部品の --shadow だけで、青い影が無い', () => {
-  const ROUND_OK = new Set(['.check input', '.check input::after', '.rec-dot', '#updBadge .dot']);
+  // 0.9.2 I-2 で意図して変えた: 設定の ⓘ（.setinfo）の丸も、文字を持たない飾りの丸（トグル・点と同じ）
+  const ROUND_OK = new Set(['.check input', '.check input::after', '.rec-dot', '#updBadge .dot', '.setinfo']);
   // 0.9.0 U-1（SP1・D24）で意図して変えた: 設定のポップアップの箱（.setbox）も角丸 10px のまとまり（計画 U-1 の「角丸 10px（まとまり）」）
   const R10 = new Set(['.mblock', '.palbox', '.note', '.setbox']);
   const R14 = new Set(['.ptab']);

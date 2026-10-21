@@ -272,10 +272,12 @@ test('F11: ［詳細設定（管理者用）］・鍵の欄・3つのボタン�
   assert.strictEqual(card.querySelector('h2').textContent.trim(), '文字起こし');
   const t = l.byId.get('tabSettings').textContent;
   for (const w of ['詳細設定（管理者用）', '管理者用の仮の欄', 'OpenAI の鍵', '鍵を確かめる', '鍵を消す', 'API キー']) assert.ok(!t.includes(w), `${w} が残っている`);
-  const desc = card.querySelectorAll('.desc').find((d) => d.textContent.includes('文字起こしの中継'));
-  assert.ok(desc, 'カード「オンライン」の説明が無い');
-  assert.strictEqual(desc.textContent.replace(/\s+/g, ' ').trim(), ONLINE);
-  assert.strictEqual(desc.textContent, ONLINE, '説明の中に改行か空白が混ざった（HTML の改行は画面で空白になる）');
+  // 0.9.2 I-2（計画 docs/plans/2026-10-21-092.md）で意図して変えた: 説明は見出しの ⓘ の吹き出し（#setPopStt）の頭と箇条書きに分けた。文は今のまま1つずつある
+  const pop = l.byId.get('setPopStt');
+  assert.ok(pop && pop.closest('.card') === card, 'カード「オンライン」の説明（吹き出し）が無い');
+  const parts = [pop.querySelector('.setpop-head'), ...pop.querySelectorAll('li')].map((e) => e.textContent);
+  for (const sent of ONLINE.split('。').filter(Boolean).map((x) => `${x}。`)) assert.ok(parts.some((x) => x.includes(sent)), `「${sent}」が無い`);
+  for (const x of parts) assert.ok(!/\n|\s{2,}/.test(x), '説明の中に改行か空白が混ざった（HTML の改行は画面で空白になる）');
   // 画面は鍵の口を呼ばない（preload にも無い）
   for (const n of ['cloudStatus', 'cloudSetKey', 'cloudTestKey', 'cloudClearKey']) assert.ok(!l.apis.koeApp.includes(n), `preload に ${n} が残っている`);
   assert.deepStrictEqual(l.errors.map(fmt), []);

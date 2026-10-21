@@ -439,7 +439,9 @@ test('SP4: カードの data-sec と見出しの並びが「設定の項目と�
 // 0.9.0 U-3（OFF1・D21）で意図して変えた: カード「オフライン」の説明の文を D21 の文にした（説明の数は 20 のまま。0.8.0 の値は dee80887…）
 // 0.9.0 O-4（RP1）で意図して変えた（統合で当てた）: 録音バーの欄の label を「録音バーの置き場所（表示中はドラッグでも動かせます）」にした（label の数は 29 のまま。U-3 の後の値は 5c94550c…）
 // 0.9.1 Q-3（D29）で意図して変えた: カード「話し声が無いとき」の label を2つ足した（29 → 31。説明は .desc でなく .check の中の .d なので 20 のまま。前の値は ef12d932…）
-const TEXTS_080 = { labels: [31, 'bf7bd5c38eb12881274e5f77bfb2343f8fc9db1a3287cf58b9df992be9ae45f6'], descs: [20, '5c595e07bc93cfdb6f4abd222827eca5056e89609b012ea0039f6763dcdad711'] };
+// 0.9.2 I-2（計画 docs/plans/2026-10-21-092.md）で意図して変えた: 「録音」と「要約」の説明を1行にし、長い文を ⓘ の吹き出しへ動かした。ⓘ の付くトグルの行は
+// 名前の label for と、トグルだけを包む label.check（文の無い label）に分けた（31 → 34）。説明の数は 20 のまま（前の値は bf7bd5c3…・5c595e07…）
+const TEXTS_080 = { labels: [34, 'c1ab87330d983b30b5017e6b2e1ca8c2c70b53f345c7bbd47980fd4928f5b7f2'], descs: [20, 'bbc9b31d7a5304aa817f1be677c105d93afcf3c8bad98ae9869d6ab125ac6433'] };
 test('SP4: 動かした入力の id が全部あり、その行の中にある。文が 0.8.0 と同じ（label の文・.check の文・説明の文）', T, () => {
   const sec = doc.querySelector('#tabSettings');
   for (const [name, ids] of Object.entries(ROW_IDS)) {
@@ -458,7 +460,9 @@ test('SP4: 動かした入力の id が全部あり、その行の中にある�
   assert.deepStrictEqual(fp(sec.querySelectorAll('.desc').filter((e) => e.id !== 'setEmpty').map((e) => norm(e.textContent)).filter(Boolean)), TEXTS_080.descs, '説明の文が 0.8.0 と違う');
   // 「文字起こし」のカードの頭は、前の「オンライン」のカードの説明（行でない説明）
   const tc = cardsOf(doc).find((c) => titleOf(c) === '文字起こし');
-  assert.match(tc.querySelector('.desc').textContent, /^ログインしていて、インターネットにつながっているときは、会議と音声入力の音声を文字起こしの中継に送り/);
+  // 0.9.2 I-2 で意図して変えた: 頭の説明は1行（.setlead）。長い文は見出しの ⓘ の吹き出し（stage092.settings の「I3: 動かした文の芯」が見る）
+  assert.strictEqual(tc.querySelector('.desc').textContent.trim(), 'つながっているときはクラウド、つながっていないときは PC の中で文字起こしします。');
+  assert.ok(tc.querySelector('.desc').closest('.setlead'), '頭の説明が .setlead に無い');
   // .lockNote（記録中は変えられない）は今の欄に付いたまま
   assert.ok(doc.querySelector('#language').closest('.field').querySelector('.lockNote'), '認識言語の .lockNote が欄から外れた');
 });
@@ -491,9 +495,10 @@ test('SP5: 『マイク』で使用するマイクの行だけ、『ﾏｲｸ』
   assert.strictEqual(sb.getAttribute('placeholder'), '検索');
   assert.strictEqual(sb.getAttribute('aria-label'), '設定を検索');
   const groups = () => l.root.querySelectorAll('.setgroup').filter(visible).map((h) => h.textContent);
+  // 0.9.2 I-2（決めたこと 8）で意図して変えた: 検索は行の名前に加えて、見える説明と ⓘ の吹き出しの文も見る（相手の声の行は吹き出しの「マイクと一緒に録ります」で当たる）
   for (const q of ['マイク', 'ﾏｲｸ']) {
     await search(l, q);
-    assert.deepStrictEqual(shownRows(l), ['使用するマイク'], q);
+    assert.deepStrictEqual(shownRows(l), ['使用するマイク', '議事録で相手の声も録る'], q);
     assert.deepStrictEqual(shownCards(l), ['マイクと相手の声'], q);
     assert.deepStrictEqual(groups(), ['録音'], q);
     assert.strictEqual($(l, 'setTitle').textContent, '検索の結果');
@@ -504,13 +509,16 @@ test('SP5: 『マイク』で使用するマイクの行だけ、『ﾏｲｸ』
   assert.deepStrictEqual(shownRows(l), ['Claude Code', 'Claude Code の場所']);
   assert.deepStrictEqual(groups(), ['要約']);
   // 項目をまたぐ当たりは、項目ごとの小見出しの下に（左の列の順）
+  // 0.9.2 I-2 で意図して変えた: 説明（トレイに残す）と吹き出し（相手の声の「音声入力（ホットキー）」）でも当たる
   await search(l, 'ホットキー');
-  assert.deepStrictEqual(shownRows(l), ['音声入力ホットキー', '議事録ホットキー']);
+  assert.deepStrictEqual(shownRows(l), ['音声入力ホットキー', '議事録ホットキー', 'ウィンドウを閉じてもタスクトレイに残す', '議事録で相手の声も録る']);
+  assert.deepStrictEqual(groups(), ['一般', '録音']);
   await search(l, '文字起こし');
   assert.deepStrictEqual(groups(), ['録音', 'オフライン']);
-  // 説明の長い文の中までは探さない（行の名前だけ）
+  // 0.9.2 I-2 で意図して変えた: 吹き出しの中の言葉でも当たる（前は「説明の長い文の中までは探さない」）。文字起こしのカードの頭が出る（行は出ない）
   await search(l, 'OpenAI');
-  assert.deepStrictEqual(shownRows(l), [], '説明の文の中で当たった');
+  assert.deepStrictEqual(shownRows(l), [], '行でない所の言葉で行を出した');
+  assert.deepStrictEqual(shownCards(l), ['文字起こし'], 'カードの吹き出しの言葉でカードの頭が出ない');
   // 消すと前の項目に戻る
   await search(l, '');
   assert.strictEqual(secOf(l), 'general');
@@ -542,8 +550,9 @@ test('SP5: 今は隠れている行（ログインしていない間の『ログ
   await search(out, 'ログアウト');
   assert.deepStrictEqual(shownCards(out), [], 'ログインしていないのに、見出しだけのカード「アカウント」を出した');
   assert.strictEqual($(out, 'setEmpty').hidden, false, '当たりが隠れた行だけなのに『当てはまる設定はありません』を出さない');
+  // 0.9.2 I-2 で意図して変えた: 要約（Claude Code）の吹き出しの「［Claude Code にログイン］はログインの窓を開きます」でも当たる
   await search(out, 'ログイン');
-  assert.deepStrictEqual(shownRows(out), ['ログイン']);
+  assert.deepStrictEqual(shownRows(out), ['ログイン', 'Claude Code']);
   const inn = await open({ accountStatus: ACC(true) });
   await inn.drain();
   await click(inn, 'tabBtnSettings');
@@ -551,8 +560,7 @@ test('SP5: 今は隠れている行（ログインしていない間の『ログ
   assert.deepStrictEqual(shownRows(inn), ['ログアウト']);
   assert.strictEqual($(inn, 'setEmpty').hidden, true);
   await search(inn, 'ログイン');
-  assert.deepStrictEqual(shownRows(inn), [], 'ログインしているのに隠れた『ログイン』の行に当たった');
-  assert.strictEqual($(inn, 'setEmpty').hidden, false);
+  assert.deepStrictEqual(shownRows(inn), ['Claude Code'], 'ログインしているのに隠れた『ログイン』の行に当たった');
   const no = await open({ engineFetchStatus: () => ({ ok: true, supported: false }) });
   await no.drain();
   await click(no, 'tabBtnSettings');
@@ -789,12 +797,15 @@ test('見た目の直し（モック 案C）: 設定の行は、名前（と説�
     const kids = field.children;
     assert.strictEqual(kids.length, 2, `#${id} の欄の直の子が左と右の2つでない`);
     assert.ok(kids[0].classList.contains('flead'), `#${id} の欄の左が .flead でない`);
-    const lab = kids[0].children.find((c) => c.tagName === 'label' || c.classList.contains('flab'));
-    assert.ok(lab && kids[0].children[0] === lab, `#${id} の欄の左の頭に名前が無い`);
+    // 0.9.2 I-2 で意図して変えた: ⓘ の付く行は、左の頭が名前と ⓘ の行（.fname。中の頭が名前）
+    const head = kids[0].children[0];
+    const lab = head && head.classList.contains('fname') ? head.children.find((c) => c.tagName === 'label' || c.classList.contains('flab'))
+      : kids[0].children.find((c) => c.tagName === 'label' || c.classList.contains('flab'));
+    assert.ok(lab && (head === lab || (head.classList.contains('fname') && head.children[0] === lab)), `#${id} の欄の左の頭に名前が無い`);
     assert.ok(lab.textContent.replace(/\s+/g, ' ').trim().startsWith(name), `#${id} の左の名前が「${name}」で始まらない: ${lab.textContent}`);
     assert.ok(['input', 'select'].includes(kids[1].tagName) || kids[1].classList.contains('row') || kids[1].classList.contains('hkbox'), `#${id} の欄の右が入力でない`);
     assert.ok(kids[1] === doc.querySelector(`#${id}`) || kids[1].querySelector(`#${id}`), `#${id} が右に無い`);
-    assert.ok(kids[0].children.every((c) => c === lab || c.classList.contains('desc')), `#${id} の欄の左に名前と説明でない物がある`);
+    assert.ok(kids[0].children.every((c) => c === lab || c === head || c.classList.contains('desc') || c.classList.contains('setpop')), `#${id} の欄の左に名前と説明（と ⓘ の吹き出し）でない物がある`);
   }
   // 外観の欄の左の名前は飾り（選ぶ欄の名前は今どおり見出し #appearanceTitle）
   const flab = doc.querySelector('#themeSel').closest('.field').querySelector('.flab');

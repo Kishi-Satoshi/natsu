@@ -654,7 +654,8 @@ test('議事録の破棄ボタンは録音バーに出さない（誤操作で�
 // 0.9.0 見た目の直し（利用者に見せる前の見直し）で意図して変えた: 項目の見出しと同じ言葉のカードの見出し（「オフライン」）は hidden で出さない。
 // カードの名前としては残るので、hidden の付いた <h2> もここで数える（並びと数は変えない）
 test('設定カードの並びは指定通り', () => {
-  const heads = [...appHtml.matchAll(/<h2(?: hidden)?>(.+?)<\/h2>/g)].map((m) => m[1]);
+  // 0.9.2 I-2 で意図して変えた: 見出しの横の ⓘ（<button class="setinfo">）は名前でないので、タグを外した文で見る
+  const heads = [...appHtml.matchAll(/<h2(?: hidden)?>(.+?)<\/h2>/g)].map((m) => m[1].replace(/<[^>]+>/g, ''));
   assert.deepStrictEqual(heads, [
     'ホットキー',
     '起動と終了',
