@@ -380,6 +380,8 @@ test('G3: 第1d回の作り替え（G-3）で足した 60 個の変異が一覧�
 const IDS_HELP = [
   'hp-escape-lt', 'hp-escape-quote', 'hp-raw-html', 'hp-link-scheme', 'hp-anchor', 'hp-nest', 'hp-inline-style', 'hp-label', 'hp-search-nfkc',
   'hp-gate-require', 'hp-gate-ready', 'hp-gate-readonly', 'hp-gate-nostore', 'hp-gate-set', 'hp-gate-csp', 'hp-gate-need',
+  'hp-gate-why-team', 'hp-gate-why-aud', 'hp-gate-why-domains', 'hp-gate-why-log', 'hp-gate-why-page', 'hp-gate-why-word', 'hp-gate-why-access',
+  'hp-gate-why-assets', 'hp-gate-why-redirect', 'hp-gate-why-error', 'hp-gate-why-errname', 'hp-gate-why-method',
   'hp-deploy-leak', 'hp-deploy-old', 'hp-deploy-stale', 'hp-deploy-index', 'hp-deploy-wait', 'hp-deploy-keep', 'hp-deploy-rwf', 'hp-deploy-nocreate', 'hp-relay-skip-help',
 ];
 test('G3: ヘルプセンターの変異が一覧にそろい、IDS_HELP は計画 docs/plans/2026-10-20-help.md の「変異確認」の表の id とちょうど同じ', { timeout: 5000 }, () => {
