@@ -25,6 +25,7 @@
 //                  札の取り消しは外した）。'd' は出した cookie の人を止めたメールにする（中継は 403 denied。戻さない）。
 //                  第1d2回 M-2: 'b' は中継が音声を見て断った答え（文字起こしの口にだけ 415 not-wav。アプリは bad-request。setFront('not-wav') と同じ）。
 //                  第1d2回 M-3: 'z' は次の文字起こしの要求に今どおり答えてから口を閉じる（'n' と同じ。会議の後の待ち行列が送れないまま残る形）
+//                  0.9.1 Q-2: 'p' は偽の OpenAI が認識ヒントを繰り返す（parrot）、'A'・'B' はいつも同じ作り話の文（fixA・fixB）
 //   rl.setReqText(seq) … 第1d2回 M-3: 中継が偽の OpenAI へ渡した文字起こしの要求の i 番目の答えを seq の i 文字目にする（c は文字・e は空。
 //                  足りなければ c）。setAnswer の口の開け閉めはそのまま（並べ直した区間の答えだけを空にする場面）
 //   第1d回 A-10（RL9・F19）: startRelayLocal({ access: true }) で、中継の前に偽の Cloudflare Access の前を置く（既定は置かない。
@@ -260,7 +261,7 @@ async function startRelayLocal({ stt: sttOpts = {}, env: over = {}, start = Date
       if (ch === 'u') { env.DAILY_USER_SEC = '1'; return; }
       if (ch === 'b') { front = 'not-wav'; return; }   // 第1d2回 M-2
       if (ch === 'z') { closeAfterStt = true; return; }   // 第1d2回 M-3
-      const mode = { 5: '500', a: 'quota', e: 'empty', L: '429-long' }[ch];
+      const mode = { 5: '500', a: 'quota', e: 'empty', L: '429-long', p: 'parrot', A: 'fixA', B: 'fixB' }[ch];
       if (!mode) throw new Error(`relay-local: 並びの文字 ${JSON.stringify(ch)} を知らない`);
       stt.setMode(mode);
     },

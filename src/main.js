@@ -97,6 +97,7 @@ const {
   sameShas, keepPrevious, candStamp, repairIdsOf, pathUsedBy, fetchMinutesLeft,
   pickDefaultPath,
   cloudLikely, offlineChosen, startPlan, dictationPlan, KEPT_CODES, keptCodeFor, KEPT_SUMMARY_TEXT,
+  SILENT_DBFS, SPEECH_DBFS, wavLoudestDbfs, hintFold, hintEcho,
 } = require('./mainlib');
 // クリップボードの読み書き（mainlib.copyPrivate・deliverText）は main.js の同じ名前の包みとぶつかるので、lib から呼ぶ
 const lib = require('./mainlib');
@@ -779,6 +780,13 @@ function promptParts(extraTail) {
   });
 }
 function buildPrompt(extraTail) { return promptParts(extraTail).prompt; }
+// 0.9.1 Q-2（計画 docs/plans/2026-10-21-091.md の決めたこと 2）: 認識ヒントの材料（作り話の判定 mainlib.hintEcho に渡す）。promptParts と同じ設定から作る
+// （予算で切った後でなく全部の語。切られた語を作り話として除いても、語1つだけの答えは議事録の中身にならない）
+function hintOf(extraTail) {
+  const ja = settings.language === 'ja';
+  const words = Array.isArray(settings.dictionary) ? settings.dictionary : [];
+  return { sample: ja ? PROMPT_SAMPLE : '', terms: [...words, ...(ja && settings.useBuiltinTerms !== false ? BUILTIN_TERMS : [])], tail: String(extraTail || '') };
+}
 
 // ---------------------------------------------------------------- エンジン管理
 function makeEngine(name) {
@@ -2005,13 +2013,36 @@ async function relayFallback(e, scope, provider, sentPack) {
 // opts: transcribeLocal と同じ（isStale・learn）＋ localOnly・notice（会議の知らせの係。無ければ起動ごと）・what（記録の名前）・
 // cloudOnly（見回りから: 手元へ落ちる区間は手元のエンジンを起こさずに keepForRetry の Error を投げる。第1d2回 M-3 の点検・F5・RF49）・
 // seg（区間の番号 s{n}。手元で失敗したら engine.log に番号と符号を1行: 第1d回 A-14）・
-// onWait(sec)（OpenAI の短い 429 を待つとき。会議の帯 wait: 第1d回 A-6）
+// onWait(sec)（OpenAI の短い 429 を待つとき。会議の帯 wait: 第1d回 A-6）・dictation（音声入力: 作り話の判定を小さな音の録音だけにする。0.9.1 Q-2）
+// 0.9.1 Q-2: 無音の音声は { text: '', route: 'none', silent: true }、作り話の答えは { …, text: '', echo: true, echoFold } で返す。どの答えにも loudDbfs
+// （一番大きい 0.5 秒の窓。読めない WAV は null）を付ける
 // → { text, route: 'cloud'|'local', provider, why, scope? }（scope は why が daily-cap のときだけ 'user'|'all'。帯の分け方: A-6）。
 // 手元のエンジンが用意できないときの Error は engineMissing を持つ。手元で文字起こしする区間の失敗の Error には sttRoute
 // （{ route: 'local', why, scope? }。帯の符号を決める: A-6）を付ける
 async function transcribeAuto(wav, tail, durationMs, opts = {}) {
   const scope = opts.notice || null;
   const what = opts.what || '音声入力';
+  // 0.9.1 Q-2（決めたこと 1・13）: 音がほとんど無い（一番大きい 0.5 秒が SILENT_DBFS より小さい）音声は、経路を決める前に（中継へも手元へも）送らず、
+  // 空の答えと同じに返す（呼び手は今の「空」の扱いで除く）。経路は 'none'（経路で数える所・帯に渡さない）。読めない WAV（null）は今どおり送る
+  const loud = wavLoudestDbfs(wav);
+  if (loud !== null && loud < SILENT_DBFS) {
+    quietDrops += 1;
+    engineLog(`音の無い区間: ${what} を送らずに除きました（${loud === -Infinity ? '無音' : `${Math.round(loud)} dBFS`}・起動から ${quietDrops} 回目）`);
+    return { text: '', route: 'none', why: 'silent', provider: sttProvider(), silent: true, loudDbfs: loud };
+  }
+  const r = { ...(await transcribeRouted(wav, tail, durationMs, opts, scope, what)), loudDbfs: loud };
+  // 0.9.1 Q-2（決めたこと 2・3）: 答えが認識ヒントの材料だけ（作り話）なら、空の答えと同じに返す（echo。会議の区間は止まりの見張りに数えない）
+  if (r.text && hintEcho(r.text, hintOf(tail), { dictation: Boolean(opts.dictation), loudDbfs: loud })) {
+    echoDrops += 1;
+    engineLog(`認識ヒントの繰り返し: ${what} の答えを除きました（起動から ${echoDrops} 回目）`);
+    return { ...r, text: '', echo: true, echoFold: hintFold(r.text) };
+  }
+  return r;
+}
+// 除いた数（起動ごと。記録の行に書く）
+let quietDrops = 0;
+let echoDrops = 0;
+async function transcribeRouted(wav, tail, durationMs, opts, scope, what) {
   const d = await sttRoute(Boolean(opts.localOnly), { scope });
   const provider = d.provider;
   let why = d.why;
@@ -2937,7 +2968,7 @@ async function handleDictationAudio(buffer, durationMs) {
   sendToOverlay('overlay:phase', { phase: 'processing', message: '文字起こし中…' });
   try {
     const t0 = Date.now();
-    const { text: raw } = await transcribeAuto(buffer, '', durationMs);
+    const { text: raw } = await transcribeAuto(buffer, '', durationMs, { dictation: true });
     if (!raw) throw new Error('音声を認識できませんでした');
     let text = settings.removeFillers ? removeFillersRule(raw) : raw;
     if (!text) text = raw;
@@ -3045,7 +3076,7 @@ async function transcribeDictWaits() {
       let raw = '';
       let failText = '';
       try {
-        ({ text: raw } = await transcribeAuto(buf, '', durationMs, { what: '音声入力（残した音声）', cloudOnly: true }));
+        ({ text: raw } = await transcribeAuto(buf, '', durationMs, { what: '音声入力（残した音声）', cloudOnly: true, dictation: true }));
       } catch (e) {
         if (!(e && e.refused)) break;   // まだ使えない・待てば変わりうる: 次の見回りで（音声は消さない）
         failText = `（この音声入力の文字起こしに失敗: ${(e && e.message) || '不明なエラー'}）`;   // 待っても同じ答え（中継が断った）
@@ -3368,7 +3399,8 @@ function retryFailedSegments({ only = '', max = 0 } = {}) {
       }
       if (stale()) return;
       clearSttProblem(m, 'wait');
-      noteSttRoute(m, r);
+      // 0.9.1 Q-2: 無音の答えの経路（none）は帯に渡さない（失敗・残した区間は無音の判定を通った音声なので、ふつうは来ない）
+      if (!r.silent) noteSttRoute(m, r);
       const text = settings.removeFillers ? removeFillersRule(r.text) : r.text;
       if (!text) {
         // 第1d2回 M-3: 自動で並べ直した残した区間の空の答えは、区間ごと消す（人が押した［もう一度］の空は今どおり失敗のまま）
@@ -3882,7 +3914,8 @@ async function transcribeRecoveredItems(q, { cloudOnly = false } = {}) {
       }
     }
     // 経路ごとの数え直し（ページの route.stt。第1c回 OL6）
-    if (!err) await saveIfExists(db, q.pageId, (p) => { if (p.route && p.route.stt) p.route.stt[route] = (Number(p.route.stt[route]) || 0) + 1; });
+    // 0.9.1 Q-2: 無音で送らなかった区間（経路 none）は数えない
+    if (!err && route !== 'none') await saveIfExists(db, q.pageId, (p) => { if (p.route && p.route.stt) p.route.stt[route] = (Number(p.route.stt[route]) || 0) + 1; });
     if (err) {
       // 失敗の文を残す（segment.update は failed を外してしまうので、失敗の印を付ける命令で書く）
       await db.call('segment.fail', { pageId: q.pageId, segId: item.id, text: `（この区間の認識に失敗: ${err}）` });
@@ -4039,7 +4072,9 @@ async function startMeeting() {
     // 第1d回 A-8（D17）: Windows の知らせの間引き（mainlib.notifyGate。出した符号と、最後に出した時刻）
     winNotify: { sent: [], lastAt: 0 },
     // 第1d2回 M-1: 始めたときの残し方（mainlib.startPlan の keep。'' | 'login' | 'wait'）
-    keepAtStart: plan.keep };
+    keepAtStart: plan.keep,
+    // 0.9.1 Q-2: この会議で認識ヒントの繰り返しとして除いた答え（畳んだ形。メモリの中だけ・20 まで）
+    echoSeen: new Set() };
   // 第1d回 A-5（D16）: 始めの区切り。中継へ届くかは聞かない（録音の始まりを待たせない）。札があるか（復号しない）・hold・net.isOnline()・
   // 覚えている /health の答えだけで決め、外れたら区間の後で替わる（segmentRouted）
   const h0 = holdNow();
@@ -4185,10 +4220,14 @@ function onMeetingSegment(buffer, durationMs, isFinal) {
     let route = 'local';
     let why = 'engine';
     let scope = '';
+    let silent = false;
+    let echo = false;
+    let echoFold = '';
+    let loudDbfs = null;
     // 第1d回 A-6: OpenAI の短い 429 を待つ間の帯 wait（区間が終わったら消す）
     const onWait = (sec) => { if (meeting === m && m.gen === gen) { setSttProblem(m, 'wait', { sec }); sendToMainWin('meeting:update', meetingStatus()); } };
     try {
-      ({ text, route, why, scope } = await transcribeAuto(buffer, tail, durationMs, { isStale: () => meeting !== m || m.gen !== gen, learn: true, localOnly: m.localOnly, notice: m, what: `区間 ${seg.id}`, seg: seg.id, onWait }));
+      ({ text, route, why, scope, silent, echo, echoFold, loudDbfs } = await transcribeAuto(buffer, tail, durationMs, { isStale: () => meeting !== m || m.gen !== gen, learn: true, localOnly: m.localOnly, notice: m, what: `区間 ${seg.id}`, seg: seg.id, onWait }));
     } catch (e) {
       if (meeting !== m || m.gen !== gen) return;
       m.inFlightSince = 0;
@@ -4207,6 +4246,12 @@ function onMeetingSegment(buffer, durationMs, isFinal) {
     if (meeting !== m || m.gen !== gen) return;
     m.inFlightSince = 0;
     clearSttProblem(m, 'wait');
+    // 0.9.1 Q-2: 無音で送らなかった区間は、空の区間と同じに除く（経路・区切り・帯・止まりの見張りには渡さない。全部が空の知らせには数える）
+    if (silent) {
+      m.emptySegs++;
+      settleSegment(m, seg, null);
+      return;
+    }
     noteSttRoute(m, { route, why, scope });
     segmentRouted(m, route, why);
     m.route[route] += 1;   // 経路ごとの、文字起こしできた区間の数（ページの route.stt。第1c回 OL6）
@@ -4215,13 +4260,18 @@ function onMeetingSegment(buffer, durationMs, isFinal) {
     if (route === 'local') { const sp = speedLine('whisper', { audioMs: durationMs, procMs: Date.now() - t0 }); if (sp) engineLog(sp); }   // 実際の速さを残す（第0b回 Task 16）
     if (settings.removeFillers) text = removeFillersRule(text);
     // 空・直前と同じ（繰り返しハルシネーション）は区間ごと消す
+    // 0.9.1 Q-2（決めたこと 4）: 話し声の大きさより小さな区間（一番大きい窓が SPEECH_DBFS より小さい）では、直前の2つの済んだ区間のどちらかと同じ文
+    // （交互の作り話 A・B・A・B）も消す。この会議で認識ヒントの繰り返しとして除いた答えと同じ文も消す
+    if (echo && echoFold) { m.echoSeen.add(echoFold); if (m.echoSeen.size > 20) m.echoSeen.delete(m.echoSeen.values().next().value); }
     const done = m.segments.filter((s) => !s.pending);
-    const prev = done.length ? done[done.length - 1].text : '';
-    if (!text || (prev && text.length > 6 && prev === text)) {
+    const recent = done.slice(Number.isFinite(loudDbfs) && loudDbfs < SPEECH_DBFS ? -2 : -1).map((s) => s.text);
+    const repeat = Boolean(text) && ((text.length > 6 && recent.includes(text)) || m.echoSeen.has(hintFold(text)));
+    if (!text || repeat) {
       if (!text) m.emptySegs++;
-      engineLog(`区間 ${seg.id}（音声 ${Math.round(durationMs / 1000)} 秒）: ${text ? '直前と同じ文のため' : '文字起こしが空のため'}除きました`);
+      engineLog(`区間 ${seg.id}（音声 ${Math.round(durationMs / 1000)} 秒）: ${repeat ? '直前と同じ文のため' : echo ? '認識ヒントの繰り返しのため' : '文字起こしが空のため'}除きました`);
       // 第1d回 A-6: 音のある空はページから除くが WAV は控える（止まりの見張り）。直前と同じ文で除いた区間は数えも戻しもしない
-      if (!text && noteEmptySegment(m, seg, buffer)) return;
+      // 0.9.1 Q-2（決めたこと 6）: 認識ヒントの繰り返しで除いた区間も止まりの見張りに渡さない（音のある作り話で帯 stall を出さない）
+      if (!text && !echo && noteEmptySegment(m, seg, buffer)) return;
       settleSegment(m, seg, null);
       return;
     }

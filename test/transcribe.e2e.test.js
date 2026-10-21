@@ -78,8 +78,10 @@ const SCENES = {
   empty: ['empty', '--test'],
   emptyOne: ['empty', '--segs=1'],
   mixed: ['mixed'],
-  silentNoVad: ['empty', '--silent', '--segs=1'],
-  silentVad: ['empty', '--silent', '--vad', '--segs=1'],
+  // 0.9.1 Q-2 で意図して変えた: 無音（一番大きい 0.5 秒が -55 dBFS より小さい）はエンジンへ送らなくなったので、「3 秒の無音の真ん中の 0.6 秒の小さな音」
+  // （窓 約 -45 dBFS で送るが、区間全体は約 -52 dBFS で RETRY_MIN_DBFS より小さい）にした。無音を送らないことは stage091.main が見る
+  silentNoVad: ['empty', '--blip', '--blip-sec=3', '--segs=1'],
+  silentVad: ['empty', '--blip', '--blip-sec=3', '--vad', '--segs=1'],
   err200: ['err200', '--test'],
   dropFirst: ['drop-first', '--segs=1', '--after-retry'],
   dropAll: ['drop-all', '--segs=1', '--after-retry'],
@@ -229,7 +231,7 @@ sceneTest('VAD が無く、ほぼ無音なら、ヒントなしのやり直し�
   await need('silentNoVad', 'silentVad');
   const a = results.silentNoVad;
   assert.deepStrictEqual(prompted(a), [true], JSON.stringify(a.requests));
-  assert.ok(a.engineLog.some((l) => /^文字起こし: 認識ヒント付きでは空。音がほとんど無いため（無音）、ヒントなしでのやり直しは省きました/.test(l)), JSON.stringify(a.engineLog));
+  assert.ok(a.engineLog.some((l) => /^文字起こし: 認識ヒント付きでは空。音がほとんど無いため（-5\d dBFS）、ヒントなしでのやり直しは省きました/.test(l)), JSON.stringify(a.engineLog));
   const b = results.silentVad;
   assert.match(b.spawnArgs, /--vad/, 'VAD の偽モデルを置いたのに --vad で起動していない');
   assert.deepStrictEqual(prompted(b), [true, false], JSON.stringify(b.requests));

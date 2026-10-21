@@ -6,7 +6,9 @@
 //     FAKE_MODE     … fake-whisper.js の答え方（text / empty / prompt-empty / mixed / err200 / probe500 など）
 //     --test        … 記録の前に設定の［起動テスト］（app:test）を呼ぶ
 //     --test-during … 最初の区間を送った直後（文字起こしの最中）に［起動テスト］を呼ぶ
-//     --silent      … 区間の音声を無音にする（既定は 220Hz の音）
+//     --silent      … 区間の音声を無音にする（既定は 220Hz の音）。0.9.1 Q-2 から --recover の下書きの音声と音声入力の音声にも効く
+//     --blip        … 0.9.1 Q-2: 区間の音声を「--blip-sec 秒（既定 15）の無音の真ん中に 0.6 秒の小さな音（振幅 261。窓の RMS 約 -45 dBFS）」にする
+//                     （短い小さな発言。区間全体の RMS は -55 dBFS より小さい）。--recover の下書きの音声と音声入力の音声（3 秒）にも効く
 //     --vad         … VAD のモデル（偽物）をモデルの隣に置く（エンジンが --vad 付きで起動する）
 //     --segs=N      … 送る区間の数（既定 2。1 つ目は 3 秒、2 つ目からは 2 秒）
 //     --kotoba      … 偽のモデルの名前を kotoba-whisper のものにする（認識ヒントを渡さない場面）
@@ -346,6 +348,7 @@ const flags = process.argv.slice(3);
 const runTest = flags.includes('--test');
 const testDuring = flags.includes('--test-during');
 const silent = flags.includes('--silent');
+const blip = flags.includes('--blip');   // 0.9.1 Q-2
 const withVad = flags.includes('--vad');
 const kotoba = flags.includes('--kotoba');
 const fixedPort = Number((flags.find((f) => f.startsWith('--port=')) || '--port=0').slice(7)) || 0;
@@ -401,6 +404,7 @@ const UPDATE_URL = 'https://example.invalid/natsu-src-0.8.1.zip';   // 取り込
 const SECRET = '秘密の語';
 const fakeText = flagVal('--text') || (secretText ? `${SECRET}を含む発言です` : '');
 const FAKE_SUM = path.join(__dirname, 'fake-llama.js');
+const blipSec = Number(flagVal('--blip-sec')) || 15;   // 0.9.1 Q-2
 const segCount = Number((flags.find((f) => f.startsWith('--segs=')) || `--segs=${relaySeq ? relaySeq.length : 2}`).slice(7)) || 2;
 const managedMode = flags.includes('--managed') ? 'ok' : (flags.includes('--managed-tamper') ? 'tamper' : '');
 const recoverMode = flags.includes('--recover');
@@ -565,6 +569,19 @@ function toneWav(sec, amp = 8000) {
   b.write('data', 36, 'ascii'); b.writeUInt32LE(n * 2, 40);
   for (let i = 0; i < n; i++) b.writeInt16LE(Math.round(amp * Math.sin(2 * Math.PI * 220 * i / 16000)), 44 + i * 2);
   return b;
+}
+
+// 0.9.1 Q-2: sec 秒の無音の真ん中に 0.6 秒の小さな音（振幅 261 の 220Hz。RMS 約 -45 dBFS）
+function blipWav(sec) {
+  const b = toneWav(sec, 0);
+  const from = Math.round(16000 * (sec / 2 - 0.3));
+  for (let i = from; i < from + 9600; i++) b.writeInt16LE(Math.round(261 * Math.sin(2 * Math.PI * 220 * i / 16000)), 44 + i * 2);
+  return b;
+}
+// 旗（--silent・--blip）のとおりの音声。区間・音声入力・復旧の下書きが使う
+function audioWav(sec) {
+  if (blip) return blipWav(sec);
+  return toneWav(sec, silent ? 0 : 8000);
 }
 
 // 何を聞かれても、それらしい値か自分自身を返す（使わない Electron の API を丸ごと受け流す）
@@ -842,7 +859,7 @@ process.on('exit', () => {
     const startedAt = Date.now() - 600000;
     const wav = path.join(userData, 'data', 'segbuf', String(startedAt), '0001.wav');
     fs.mkdirSync(path.dirname(wav), { recursive: true });
-    fs.writeFileSync(wav, toneWav(3));
+    fs.writeFileSync(wav, audioWav(3));
     fs.writeFileSync(path.join(userData, 'data', 'draft.json'), JSON.stringify({ startedAt, memo: '', offsetMs: 3000, savedAt: startedAt + 3000,
       segments: [{ id: 's1', atMs: 0, durationMs: 3000, pending: true, wav, text: '' }], ...(localOnlyFlag ? { localOnly: true } : {}) }));
   }
@@ -2151,7 +2168,7 @@ process.on('exit', () => {
           return rename.call(this, a, b, ...rest);
         };
       }
-      listeners['audio:done']({}, { buffer: new Uint8Array(toneWav(3)), durationMs: 3000 });
+      listeners['audio:done']({}, { buffer: new Uint8Array(audioWav(3)), durationMs: 3000 });
       // 第1d回 A-9: 音声が届いて文字起こし中（handleDictationAudio は最初の await の前に processing にする）に再起動と取り込みを頼む
       if (restartDuring === 'dictation') {
         out.restartProcessing = await handlers['app:restart']();
@@ -2333,7 +2350,7 @@ process.on('exit', () => {
 
   const wavs = process.env.NATSU_E2E_WAVS
     ? process.env.NATSU_E2E_WAVS.split(';').map((f) => ({ buf: fs.readFileSync(f), ms: Math.round((fs.statSync(f).size - 44) / 32) }))
-    : Array.from({ length: segCount }, (_, i) => ({ buf: toneWav(i ? 2 : 3, silent ? 0 : 8000), ms: i ? 2000 : 3000 }));
+    : Array.from({ length: segCount }, (_, i) => (blip ? { buf: blipWav(blipSec), ms: blipSec * 1000 } : { buf: toneWav(i ? 2 : 3, silent ? 0 : 8000), ms: i ? 2000 : 3000 }));
   out.start = await handlers['meeting:toggle']();
   // 0.9.0 B-2（--no-whisper-after-start）: 始めた直後に偽のモデルを消す（engineValid(whisperEng) が偽になる）
   if (noWhisperAfterStart) {

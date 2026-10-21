@@ -18,6 +18,9 @@
 //   badjson    … 200 のまま JSON でない返事
 //   quota      … 429 と insufficient_quota（残高が無い。retry-after は付けない。第1d回 W-4 で足した: 中継はこれを 503 quota にする）
 //   empty      … 200 {"text": ""}（音はあるのに文字が無い。第1d回 A-5 で足した）
+//   parrot     … 0.9.1 Q-2: 認識ヒントの繰り返し（作り話）。受けた prompt を「 」で切った部品の、1つ目（文例）→ 2つ目（言葉の並び）→ 2つ目の最初の語
+//                の順に、文字起こしの要求の通し番号でくり返す（利用者の 0.8.0 の記録の形）
+//   fixA・fixB … 0.9.1 Q-2: いつも同じ文（A・B。7 字以上の、ヒントに無い作り話）
 // setMode(mode) … 答え方を途中で替える（第1d回 A-5。区間ごとに中継の後ろの答えを替える場面: mainrun の --relay-seq）。今の答え方は変えない
 // models（第1b回の続き Lane F-e。GET …/models の答え方。鍵が合うときだけ効く。鍵が違えばいつも 401 invalid_api_key）:
 //   ok         … 200 の一覧（既定）
@@ -115,6 +118,14 @@ function startFakeStt({ mode = 'text', key = 'gsk_test_0123', text = '本日の�
       if (mode === '400' || (mode === '400-prompt' && 'prompt' in form.fields)) { json(res, 400, { error: { message: 'bad request' } }); return; }
       if (mode === 'badjson') { json(res, 200, '<html>not json</html>'); return; }
       if (mode === 'empty') { json(res, 200, { text: '' }); return; }
+      if (mode === 'parrot') {
+        const parts = String(form.fields.prompt || '').split(' ').filter(Boolean);
+        const terms = parts[1] || parts[0] || '';
+        const k = (n - 1) % 3;
+        json(res, 200, { text: k === 0 ? (parts[0] || '') : k === 1 ? terms : terms.split('、')[0].replace(/。$/, '') });
+        return;
+      }
+      if (mode === 'fixA' || mode === 'fixB') { json(res, 200, { text: mode === 'fixA' ? 'ご視聴ありがとうございました。' : 'チャンネル登録をお願いします。' }); return; }
       if (mode === 'slow') { later(1500, () => { if (!res.destroyed && !res.writableEnded) reply(); }); return; }
       reply();
     });

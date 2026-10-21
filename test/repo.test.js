@@ -438,9 +438,11 @@ test('文字起こしが切れる問題への3段の対策が入っている', (
   assert.match(main, /const deadline = Date\.now\(\) \+ waitMs;/, '計算した待ち時間が使われていない');
   assert.match(main, /AbortSignal\.timeout\(Math\.max\(1000, deadline - Date\.now\(\)\)\)/, '計算した待ち時間が使われていない');
   // 第1c回 Task A-4（意図して変えた）: 区間と音声入力は transcribeAuto を通り、手元の道で transcribeLocal に尻尾と長さをそのまま渡す
+  // 0.9.1 Q-2（意図して変えた）: 音声入力は { dictation: true } を渡す。経路を決めて送る所は transcribeRouted（transcribeAuto は無音と作り話を見てから呼ぶ）
   assert.match(main, /transcribeAuto\(buffer, tail, durationMs[,)]/);
-  assert.match(main, /transcribeAuto\(buffer, '', durationMs\)/);
-  assert.match(fnBody(code(main), 'async function transcribeAuto(', '\n}'), /transcribeLocal\(wav, tail, durationMs, opts\)/, '手元の道に尻尾と長さをそのまま渡していない');
+  assert.match(main, /transcribeAuto\(buffer, '', durationMs, \{ dictation: true \}\)/);
+  assert.match(fnBody(code(main), 'async function transcribeAuto(', '\n}'), /transcribeRouted\(wav, tail, durationMs, opts, scope, what\)/, '経路を決めて送る所に尻尾と長さをそのまま渡していない');
+  assert.match(fnBody(code(main), 'async function transcribeRouted(', '\n}'), /transcribeLocal\(wav, tail, durationMs, opts\)/, '手元の道に尻尾と長さをそのまま渡していない');
   // (3) 区切りの保険（音声パイプライン由来のイベントで見張る）
   assert.match(overlayHtml,
     /mode === 'meeting' && segDeadline && Date\.now\(\) >= segDeadline/, '区切りの保険が無い');
