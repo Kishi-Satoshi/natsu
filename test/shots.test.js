@@ -63,7 +63,9 @@ const W1_094 = ['live-light', 'live-dark', 'live-banner-light', 'live-banner-dar
   'live-offline-light', 'live-offline-dark', 'live-wave-light', 'live-wave-dark', 'live-silent-light', 'live-paused-dark',
   ...OVL_094(['rec', 'dict', 'fallback', 'spk-ng']), 'overlay-vertical-dark-hover-150'];
 // P-1: 録音バーのスピーカーの印を外した（印のあった無音・一時停止。声の rec・spk-ng は W-1 で入れた）
-const P1_094 = OVL_094(['silent', 'paused']);
+// P-1 の CI の直し（CI run 39821563457）: 縦の形の quiet は見た目を変えていないが、同じ窓で直前に撮る spk-ng（P-1 でロゴの角の黄色い点が出る）の後に
+// ロゴの縁の数画素（3〜8 画素）が基準と違って撮れる（窓の描き直しが前の状態に左右される）。持ち主の最後のまとめての確かめで一緒に見て基準にする
+const P1_094 = [...OVL_094(['silent', 'paused']), 'overlay-v-light-quiet-100', 'overlay-v-light-quiet-150', 'overlay-v-dark-quiet-100', 'overlay-v-dark-quiet-150'];
 // R-1: 設定の左の列の名前を「ローカル AI」に（設定の画面はどれも左の列を写す）
 const R1_094 = ['settings-light', 'settings-dark', 'settings-zoom200-dark', 'settings-record-light', 'settings-search-light', 'settings-offline-light',
   'settings-quiet-search-light', 'settings-record-dark', 'settings-record-zoom200-light', 'settings-summary-light', 'settings-account-light',

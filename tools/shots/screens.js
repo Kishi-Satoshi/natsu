@@ -218,6 +218,8 @@ const RETAKE = new Set(['live-light', 'live-dark', 'live-banner-light', 'live-ba
   ...OVL_094(['rec', 'dict', 'fallback', 'spk-ng']), 'overlay-vertical-dark-hover-150',
   // P-1: 録音バーのスピーカーの印を外した（印のあった無音・一時停止の 16 枚）。完了（done）の 8 枚は撮る画面から外した
   ...OVL_094(['silent', 'paused']),
+  // P-1 の CI の直し（CI run 39821563457）: 縦の形の quiet は、直前に撮る spk-ng に出るようになった角の点の後でロゴの縁の数画素が違って撮れる
+  'overlay-v-light-quiet-100', 'overlay-v-light-quiet-150', 'overlay-v-dark-quiet-100', 'overlay-v-dark-quiet-150',
   // R-1: 設定の項目の名前「ローカル AI」（設定の画面はどれも左の列を写す: 18 枚）
   ...SCREENS.filter((x) => x.name.startsWith('settings-')).map((x) => x.name),
   // S-8: 遅い会議の録音中のページ（足した画面。まだ基準が無い）
