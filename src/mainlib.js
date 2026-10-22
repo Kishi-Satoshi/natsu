@@ -878,11 +878,11 @@ function recoverSegments(segments, exists) {
 //   pending: いまの待ち件数、currentMs: いまの区間の長さ、baseMs: 設定の長さ、
 //   delta: 待ちが増えた(+1)のか減った(-1)のか。減った側では倍にしない（5→4 で倍にすると
 //   一気に上限へ張り付く）。2〜3 のあいだは変えない（行ったり来たりで何度も送らない）。
-// 0.9.4 S-1（決めたこと 14）で意図して直した: 背圧で伸ばすのは PC の側だけで、上限は LOCAL_SEGMENT_MS_CAP（120 秒）。300 秒の区間は
+// 0.9.4 S-1（決めたこと 14）で意図して直した: 背圧で伸ばすのは PC の側だけで、上限は LOCAL_SEGMENT_MS_CAP（90 秒。持ち主の答え Q3）。300 秒の区間は
 // PC で 300 秒を越えて undici の時間切れに当たり、会議の後のやり直しでも同じ長さで失敗した（持ち主の engine.log 10-21・10-22）。
 // SEGMENT_MS_CAP（300 秒）は録音バー（overlay.html の SEG_MAX_MS。変えない）の丸めの写しとして liveSegmentMs だけが使う
 const SEGMENT_MS_CAP = 300000;
-const LOCAL_SEGMENT_MS_CAP = 120000;
+const LOCAL_SEGMENT_MS_CAP = 90000;
 function nextSegmentMs(pending, currentMs, baseMs, delta) {
   const base = Math.min(LOCAL_SEGMENT_MS_CAP, Math.max(1000, Number(baseMs) || 75000));
   const cur = Number(currentMs) > 0 ? Math.min(LOCAL_SEGMENT_MS_CAP, Number(currentMs)) : base;
@@ -998,7 +998,7 @@ function segmentModeNext(st, { route, why } = {}) {
   return { mode: STICKY_LOCAL.includes(why) || why === 'slow' || n >= SEG_SWITCH_AFTER ? 'long' : mode, localRun: n, cloudRun: 0 };
 }
 
-/** 区切りの基準（ミリ秒）。short は設定に関わらず 15 秒、long は設定の長さ（無ければ 75 秒。0.9.4 S-1: 120 秒まで） */
+/** 区切りの基準（ミリ秒）。short は設定に関わらず 15 秒、long は設定の長さ（無ければ 75 秒。0.9.4 S-1: 90 秒まで） */
 function segmentBaseMs(mode, settingsSec) {
   return mode === 'short' ? ONLINE_SEGMENT_SEC * 1000 : Math.min(LOCAL_SEGMENT_MS_CAP, (Number(settingsSec) || 75) * 1000);
 }
@@ -1013,7 +1013,7 @@ function liveSegmentMs(ms) {
  * 答えが今の値と同じなら今の値（始めの 15 秒のまま。丸めない）、ほかは録音バーと同じ丸めの値
  */
 // 0.9.4 S-1（決めたこと 29）: mode が 'short'（クラウドの側）なら待ちの数を見ず基準（15 秒。途中で戻すときは録音バーの下限の 20 秒）のまま。
-// 背圧で伸ばすのは long（PC の側）だけで、120 秒まで
+// 背圧で伸ばすのは long（PC の側）だけで、90 秒まで
 function nextLiveSegmentMs(pending, currentMs, baseMs, delta, mode) {
   const raw = mode === 'short' ? baseMs : Math.max(nextSegmentMs(pending, currentMs, baseMs, delta), Math.min(LOCAL_SEGMENT_MS_CAP, baseMs));
   return raw === currentMs ? currentMs : liveSegmentMs(raw);

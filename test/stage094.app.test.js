@@ -35,3 +35,13 @@ test('S-3: 打ち切りのボタンは『文字起こしを後回しにして要
   const html = fs.readFileSync(APP, 'utf8');
   assert.ok(!html.includes('打ち切って要約') && !html.includes('打ち切った区間の発言は議事録に入りません'), '前の名前と文が残っている');
 });
+
+test('Q3: ヘルプに PC の区切りは 90 秒まで（設定の画面は変えない: 「議事録の文字起こし間隔（秒）」の欄と説明は今のまま）', T, () => {
+  const offline = fs.readFileSync(path.join(ROOT, 'help', 'articles', 'settings', 'offline.md'), 'utf8');
+  assert.match(offline, /「議事録の文字起こし間隔（秒）」に 90 より大きい値を入れても、PC の中で文字起こしする区切りは 90 秒までです/);
+  const line = fs.readFileSync(path.join(ROOT, 'help', 'articles', 'record', 'status-line.md'), 'utf8');
+  assert.match(line, /長くても 90 秒/);
+  const html = fs.readFileSync(APP, 'utf8');
+  assert.ok(html.includes('<div class="desc">短いほど早く画面に出ますが、文の切れ目が増えます（既定75秒。最初の1回は20秒）。</div>'), '設定の画面の説明を変えた');
+  assert.strictEqual(require('../src/mainlib').LOCAL_SEGMENT_MS_CAP, 90000);
+});

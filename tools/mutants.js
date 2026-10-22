@@ -1676,7 +1676,7 @@ module.exports = [
     tests: ['test/stage094.lib.test.js'], why: '0.9.4 S-1 決めたこと 10: 覚えが 14 日で切れない（PC が速くなっても会議中に二度と試さない）' },
   { id: 'lt-timeout', file: 'src/mainlib.js', from: '  return Math.min(1800000, Math.max(240000, Math.round(a * k * 2 + 60000)));', to: '  return Math.min(1800000, Math.max(240000, Math.round((Number(audioMs) || 0) * 5 + 60000)));',
     tests: ['test/stage094.lib.test.js', 'test/stage094.main.test.js'], pattern: 'localTimeoutMs', why: '0.9.4 S-1 決めたこと 16: PC への待ち時間に測った速さを使わない（今の 5 倍 + 60 秒）' },
-  { id: 'lt-cap', file: 'src/mainlib.js', from: 'const LOCAL_SEGMENT_MS_CAP = 120000;', to: 'const LOCAL_SEGMENT_MS_CAP = 300000;',
+  { id: 'lt-cap', file: 'src/mainlib.js', from: 'const LOCAL_SEGMENT_MS_CAP = 90000;', to: 'const LOCAL_SEGMENT_MS_CAP = 300000;',
     tests: ['test/stage094.lib.test.js'], why: '0.9.4 S-1 決めたこと 14: PC の区間の上限を 300 秒に戻す（PC で 300 秒を越えて時間切れになる）' },
   { id: 'sg-cloud-grow', file: 'src/mainlib.js', from: "  const raw = mode === 'short' ? baseMs : Math.max(", to: "  const raw = mode === 'never' ? baseMs : Math.max(",
     tests: ['test/stage094.lib.test.js', 'test/stage1d.lib.test.js'], why: '0.9.4 S-1 決めたこと 29: クラウドの側も背圧で伸ばす（中継へ送る WAV が大きくなり、中継の CPU をさらに使う）' },

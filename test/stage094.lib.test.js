@@ -132,7 +132,7 @@ test('localTimeoutMs の表', T, () => {
   assert.strictEqual(L.localTimeoutMs({ audioMs: 120000, rtf: 0.5 }), 300000, 'rtf 0.5 は 1 として数える');
   assert.strictEqual(L.localTimeoutMs({ audioMs: 2000, rtf: 3 }), 240000, '30 秒の床と 240 秒の床');
   assert.strictEqual(L.localTimeoutMs({ audioMs: NaN, rtf: 'x' }), 240000);
-  assert.strictEqual(L.LOCAL_SEGMENT_MS_CAP, 120000);
+  assert.strictEqual(L.LOCAL_SEGMENT_MS_CAP, 90000);   // 持ち主の答え Q3
 });
 
 test('afterEtaMin: 音声 × max(rtf, 1) を分に切り上げ', T, () => {
@@ -142,27 +142,29 @@ test('afterEtaMin: 音声 × max(rtf, 1) を分に切り上げ', T, () => {
   assert.strictEqual(L.afterEtaMin({ audioMs: 0, rtf: 2 }), 0);
 });
 
-test('S6: クラウドの側は背圧で伸ばさない（short は待ち 5 でも 15 秒・途中なら 20 秒）。PC の側は 120 秒まで', T, () => {
+test('S6: クラウドの側は背圧で伸ばさない（short は待ち 5 でも 15 秒・途中なら 20 秒）。PC の側は 90 秒まで（持ち主の答え Q3）', T, () => {
   const n = L.nextLiveSegmentMs;
   // short（クラウド）
   assert.strictEqual(n(5, 15000, 15000, 1, 'short'), 15000, '始めの 15 秒のまま');
   assert.strictEqual(n(6, 20000, 15000, 1, 'short'), 20000, '途中で戻した 20 秒のまま');
   assert.strictEqual(n(4, 75000, 15000, 1, 'short'), 20000, '長い側から戻すときは 20 秒（録音バーの下限）');
   assert.strictEqual(n(0, 15000, 15000, -1, 'short'), 15000);
-  // long（PC）: 75 → 120（150 にならない）→ 120、待ち 1 以下で基準へ
-  assert.strictEqual(n(4, 75000, 75000, 1, 'long'), 120000);
-  assert.strictEqual(n(5, 120000, 75000, 1, 'long'), 120000);
-  assert.strictEqual(n(1, 120000, 75000, -1, 'long'), 75000);
+  // long（PC）: 75 → 90（150 にならない）→ 90、待ち 1 以下で基準へ
+  assert.strictEqual(n(4, 75000, 75000, 1, 'long'), 90000);
+  assert.strictEqual(n(5, 90000, 75000, 1, 'long'), 90000);
+  assert.strictEqual(n(1, 90000, 75000, -1, 'long'), 75000);
   assert.strictEqual(n(2, 15000, 75000, 0, 'long'), 75000, '長い側へは待ちが残っていてもすぐ');
-  // 設定 300 秒でも long の基準は 120 秒
-  assert.strictEqual(L.segmentBaseMs('long', 300), 120000);
-  assert.strictEqual(L.segmentBaseMs('long', 120), 120000);
+  // 設定 300 秒・120 秒でも long の基準は 90 秒
+  assert.strictEqual(L.segmentBaseMs('long', 300), 90000);
+  assert.strictEqual(L.segmentBaseMs('long', 120), 90000);
+  assert.strictEqual(L.segmentBaseMs('long', 90), 90000);
   assert.strictEqual(L.segmentBaseMs('long', 75), 75000);
-  assert.strictEqual(n(0, 120000, L.segmentBaseMs('long', 300), -1, 'long'), 120000);
-  assert.strictEqual(n(4, 60000, 60000, 1, 'long'), 120000);
-  // 背圧の素の判断も 120 秒まで
-  assert.strictEqual(L.nextSegmentMs(4, 75000, 75000, 1), 120000);
-  assert.strictEqual(L.nextSegmentMs(6, 120000, 75000, 1), 120000);
+  assert.strictEqual(n(0, 90000, L.segmentBaseMs('long', 300), -1, 'long'), 90000);
+  assert.strictEqual(n(4, 40000, 40000, 1, 'long'), 80000);
+  assert.strictEqual(n(4, 60000, 60000, 1, 'long'), 90000);
+  // 背圧の素の判断も 90 秒まで
+  assert.strictEqual(L.nextSegmentMs(4, 75000, 75000, 1), 90000);
+  assert.strictEqual(L.nextSegmentMs(6, 120000, 75000, 1), 90000);
 });
 
 test('segmentModeNext は中継の一時の失敗を数えない', T, () => {

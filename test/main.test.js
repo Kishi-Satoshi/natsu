@@ -873,21 +873,21 @@ test('staleSegbufDirs: 7 日より古い退避フォルダだけを選ぶ（名�
 });
 
 // ---------------------------------------------------------------- #42 背圧（区間の長さ）
-// 0.9.4 S-1（決めたこと 14）で意図して直した: 背圧で伸ばすのは PC の側だけで、上限は 300 秒から 120 秒（LOCAL_SEGMENT_MS_CAP）にした
-// （300 秒の区間は PC で 300 秒を越えて時間切れになった）。倍にする・2〜3 は変えない・減った側では倍にしない・1 以下で戻すはそのまま
-test('nextSegmentMs: 待ちが 3 を超えたら区間を倍に（上限 120 秒）、1 以下に戻ったら設定の長さへ', () => {
+// 0.9.4 S-1（決めたこと 14）で意図して直した: 背圧で伸ばすのは PC の側だけで、上限は 300 秒から 90 秒（LOCAL_SEGMENT_MS_CAP）にした
+// （300 秒の区間は PC で 300 秒を越えて時間切れになった。上限は持ち主の答え Q3 で 90 秒）。倍にする・2〜3 は変えない・減った側では倍にしない・1 以下で戻すはそのまま
+test('nextSegmentMs: 待ちが 3 を超えたら区間を倍に（上限 90 秒）、1 以下に戻ったら設定の長さへ', () => {
   // 短い区間を積み上げ続けると待ちがどこまでも伸び、終了後の待ち時間になる
   assert.strictEqual(nextSegmentMs(4, 30000, 30000, 1), 60000);
-  assert.strictEqual(nextSegmentMs(4, 75000, 75000, 1), 120000);
-  assert.strictEqual(nextSegmentMs(5, 120000, 75000, 1), 120000);
-  assert.strictEqual(nextSegmentMs(6, 300000, 75000, 1), 120000, '上限を超えている');
+  assert.strictEqual(nextSegmentMs(4, 75000, 75000, 1), 90000);
+  assert.strictEqual(nextSegmentMs(5, 90000, 75000, 1), 90000);
+  assert.strictEqual(nextSegmentMs(6, 300000, 75000, 1), 90000, '上限を超えている');
   // 2〜3 のあいだは変えない（行ったり来たりでオーバーレイに何度も送らない）
-  assert.strictEqual(nextSegmentMs(3, 120000, 75000, 1), 120000);
-  assert.strictEqual(nextSegmentMs(2, 120000, 75000, -1), 120000);
+  assert.strictEqual(nextSegmentMs(3, 80000, 40000, 1), 80000);
+  assert.strictEqual(nextSegmentMs(2, 80000, 40000, -1), 80000);
   // 減った側では倍にしない（5→4 で倍にすると一気に上限へ張り付く）
   assert.strictEqual(nextSegmentMs(4, 60000, 30000, -1), 60000);
-  assert.strictEqual(nextSegmentMs(1, 120000, 75000, -1), 75000);
-  assert.strictEqual(nextSegmentMs(0, 120000, 75000, -1), 75000);
+  assert.strictEqual(nextSegmentMs(1, 90000, 75000, -1), 75000);
+  assert.strictEqual(nextSegmentMs(0, 90000, 75000, -1), 75000);
   // 現在の長さが無ければ設定の長さから数える
   assert.strictEqual(nextSegmentMs(4, 0, 30000, 1), 60000);
 });
