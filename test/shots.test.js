@@ -657,7 +657,9 @@ test('基準の画像（test/shots/win32）は今の app.html で撮ったもの
   // 見える中身が変わるのは録音中のページの 7 枚で、どれも RETAKE にある（保存したページ・設定・音声入力・検索の窓は波を出さないので変わらない）。値を今の app.html に合わせた
   // 0.9.3 M-4 の CI の直し（CI run 39745472232）: 出さないアプリの札を .chip でなく .mutechip で描く（.chip の規則を足すと検索の窓の絞り込みの札の形まで
   // 変わり、search-palette-light が基準と違った）。検索の窓は 0.9.2 の基準と同じに戻る。値を今の app.html に合わせた
-  assert.strictEqual(sha, '88b3015ca406b31c2c687783556781e6a2576e62ad5361465d765f397de71da0',
+  // 0.9.3 M-6 の撮った画面の直し（CI run 39751610440）: 「聞き取り中」の行を区間の行と同じ並びにした（CSS .livetail だけ）。変わるのは録音中のページの画面で、
+  // どれも RETAKE にある。値を今の app.html に合わせた
+  assert.strictEqual(sha, '211721de5ba11056bade53c8e0144fd8ea44feb03e705fdedcaf632c896673dc',
     'app.html が基準の画像を撮った時と違う。Windows の CI の画面の比べ（捲り棒のつまみも）を見て、基準を取り直してからこの値を直す');
 });
 
@@ -782,6 +784,8 @@ test('0.9.3 M-7: 音の波の画面は WAVE_SPEECH の 20 の出来事を送る�
     const s = by(n);
     assert.ok(s, `${n} が撮る画面に無い`);
     assert.deepStrictEqual([s.page, s.theme, s.zoom, s.act], ['app', theme, undefined, undefined], n);
+    // CI run 39751610440 で、Windows の CI の機械の「動きを減らす」（reduce）のために真ん中の5本だけの形で撮れた。話している波は no-preference で撮る
+    assert.strictEqual(s.motion, 'no-preference', `${n}: 動きを減らさない形で撮っていない`);
     assert.deepStrictEqual(s.events, SH.WAVE_SPEECH.map((v) => ['onMeetingLevel', v]), n);
     assert.deepStrictEqual(s.answers['koeApp.meetingStatus'], live, `${n} の会議が live-light と違う`);
   }
@@ -808,6 +812,7 @@ test('0.9.3 M-7: 音の波の画面は WAVE_SPEECH の 20 の出来事を送る�
   }
   // 撮る道具は events を順に送る（本体の画面も、パネルも）
   const m = read('tools/shots/main.js');
+  assert.match(m, /if \(s\.motion\) await o\.wc\.debugger\.sendCommand\('Emulation\.setEmulatedMedia', \{ features: \[\{ name: 'prefers-reduced-motion', value: s\.motion \}\] \}\);\n\s*\/\/[^\n]*\n\s*for \(const \[name, payload\] of s\.events/, '出来事を送る前に motion を当てていない');
   assert.match(m, /for \(const \[name, payload\] of s\.events \|\| \[\]\) o\.wc\.send\(`shots:event:\$\{BRIDGE\[s\.page\]\}\.\$\{name\}`, payload\)/);
 });
 

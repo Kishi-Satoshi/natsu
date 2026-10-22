@@ -459,8 +459,10 @@
   #liveWaveNote { font-size: 12px; color: var(--muted); white-space: nowrap; }
   #liveWaveNote.warn { color: var(--danger); }
   /* 文字起こしの一番下の「聞き取り中…」（.seg でない: 区間の数・出典・コピーに入らない。時刻の欄は空） */
-  .livetail { color: var(--muted); }
-  .livetail .sub { font-size: 12px; margin-left: 6px; }
+  /* 時刻の欄（空）を区間の行（.seg）と同じ幅で持ち、文を区間の文と同じ位置に揃える（CI の撮った画面で左の線に寄っていた） */
+  .livetail { display: flex; align-items: baseline; gap: 10px; padding: 4px 6px; font-size: 15px; line-height: 24px; color: var(--muted); }
+  .livetail .at { flex: none; min-width: 44px; }
+  .livetail .sub { font-size: 12px; margin-left: -4px; }
   .pane { display: none; }
   .pane.active { display: block; }
   /* 要約の失敗の文は囲み（灰色の地・角丸 10px）。頭に ⚠ */

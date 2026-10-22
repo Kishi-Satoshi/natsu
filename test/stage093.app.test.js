@@ -322,3 +322,17 @@ test('M10: #liveTail は録音中（一時停止でない）の #pScript の一�
   await l.drain();
   assert.strictEqual(tail(l), null, '作成中も「聞き取り中」の行を出した');
 });
+
+// CI run 39751610440 の撮った画面（live-wave-light など）で、「聞き取り中」の行が時刻の欄を持たず、文字起こしの左の線に寄って区間の文と揃わなかった
+// （計画の決めたこと 20「時刻の欄は空」）。区間の行（.seg）と同じ並び・余白・時刻の欄の幅にする
+test('M10: 「聞き取り中」の行は区間の行（.seg）と同じ並び（flex・gap 10px・余白 4px 6px・15px/24px）で、空の時刻の欄が 44px（文が区間の文と揃う）', T, () => {
+  const rule = (sel) => { const m = new RegExp(`\\n  ${sel.replace(/[.*]/g, '\\$&')} \\{([^}]*)\\}`).exec(html); assert.ok(m, `${sel} の規則が無い`); return m[1]; };
+  const seg = rule('.seg');
+  const tail = rule('.livetail');
+  for (const p of ['display: flex', 'gap: 10px', 'padding: 4px 6px', 'font-size: 15px', 'line-height: 24px']) {
+    assert.ok(seg.includes(p), `.seg に ${p} が無い（区間の行が変わった）`);
+    assert.ok(tail.includes(p), `.livetail に ${p} が無い`);
+  }
+  assert.match(rule('.seg .at'), /min-width: 44px/);
+  assert.match(rule('.livetail .at'), /flex: none; min-width: 44px/);
+});

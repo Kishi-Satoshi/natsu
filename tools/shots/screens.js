@@ -121,8 +121,10 @@ const SCREENS = [
     act: `${OPEN_SETTINGS}; const b = document.getElementById('setSearch'); b.value = 'イヤホン'; b.dispatchEvent(new Event('input', { bubbles: true }))` },
   // 0.9.3 M-7（計画 docs/plans/2026-10-22-093.md の「取り直す画面」）: 録音中のページの音の波（話している WAVE_SPEECH・無音・一時停止。live-light と同じ会議）と、
   // 設定の「録音」の頭の「会議の検出」（出さないアプリ Zoom の札のある形）。足した画面（まだ基準が無い）
-  { name: 'live-wave-light', page: 'app', theme: 'light', answers: liveAnswers(), events: WAVE_EVENTS },
-  { name: 'live-wave-dark', page: 'app', theme: 'dark', answers: liveAnswers(), events: WAVE_EVENTS },
+  // 話している波は「動きを減らす」でない形で撮る（Windows の CI の機械は prefers-reduced-motion が reduce で、CI run 39751610440 では
+  // 真ん中の5本だけの形になった。main.js が DevTools の Emulation.setEmulatedMedia で motion を当てる）
+  { name: 'live-wave-light', page: 'app', theme: 'light', answers: liveAnswers(), events: WAVE_EVENTS, motion: 'no-preference' },
+  { name: 'live-wave-dark', page: 'app', theme: 'dark', answers: liveAnswers(), events: WAVE_EVENTS, motion: 'no-preference' },
   { name: 'live-silent-light', page: 'app', theme: 'light', answers: liveAnswers(), events: SILENT_EVENTS },
   { name: 'live-paused-dark', page: 'app', theme: 'dark', answers: liveAnswers(LIVE_STT, { paused: true }) },
   // 答えは見本の設定に2つのキーを足した形（見本の fixtures はこのファイルの後ろで決まるので、読むときに作る）

@@ -1655,4 +1655,6 @@ module.exports = [
   { id: "w-tail-paused", file: "src/renderer/app.html", from: "    if (st.active && !st.paused && !st.finalizing) {", to: "    if (st.active && !st.finalizing) {", tests: ["test/stage093.app.test.js"], why: "0.9.3 M-6 M10: 一時停止中も「聞き取り中」の行を出す（録っていないのに聞き取っているように読める）" },
   // 0.9.3 M-4 の CI の直し（CI run 39745472232）: 札の規則の名前
   { id: "d-chip-class", file: "src/renderer/app.html", from: "  .mutechip { display: inline-flex; align-items: center; gap: 2px; height: 26px;", to: "  .chip { display: inline-flex; align-items: center; gap: 2px; height: 26px;", tests: ["test/stage093.app.test.js"], pattern: ".mutechip", why: "0.9.3 M-4 の CI の直し: 出さないアプリの札を検索の窓の札と同じ .chip の規則で描くと、検索の窓の絞り込みの札の形まで変わる（CI run 39745472232 の search-palette-light）" },
+  // 0.9.3 M-6 の撮った画面の直し（CI run 39751610440）: 「聞き取り中」の行の並び
+  { id: "w-tail-align", file: "src/renderer/app.html", from: "  .livetail .at { flex: none; min-width: 44px; }\n", to: "", tests: ["test/stage093.app.test.js"], pattern: "聞き取り中」の行は区間の行", why: "0.9.3 M-6 の撮った画面の直し: 「聞き取り中」の行に時刻の欄の幅が無いと、文が区間の文と揃わず左の線に寄る（CI run 39751610440 の live-wave-light）" },
 ];

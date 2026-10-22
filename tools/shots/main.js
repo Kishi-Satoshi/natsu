@@ -346,6 +346,8 @@ function boot() {
       try {
         const o = await open(s.page, s.theme, { ...SH.fixtures(), ...JSON.parse(JSON.stringify(s.answers || {})) }, s.zoom || 1);
         win = o.win;
+        // 0.9.3 M-7: 「動きを減らす」の設定を画面ごとに決める（CI の機械の設定で撮る形が変わらないように）
+        if (s.motion) await o.wc.debugger.sendCommand('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: s.motion }] });
         // 0.9.3 M-7: main から届く出来事の並び（音の波の WAVE_SPEECH など）を順に送る
         for (const [name, payload] of s.events || []) o.wc.send(`shots:event:${BRIDGE[s.page]}.${name}`, payload);
         if (s.act) await within(o.wc.executeJavaScript(s.act, true), 10000, `${s.name} の操作`);
