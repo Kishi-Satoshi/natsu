@@ -130,7 +130,8 @@ test('決めたこと 3: proc のプロセスが無いアプリの古い値は�
 test('決めたこと 13: 1 回の読みは 20ms まで（読みごとの時間の中央値。最初の読みは .NET の読み込みを含むので除く）。親が居なければ自分で終わる', { timeout: 30000 }, async () => {
   const w = watch({ timing: true });
   try {
-    const ls = await w.waitLines(8);
+    // 0.9.4 D-1 で意図して直した: 見張りは読むたびに mic の行も書くので、読み1回で2行（mic と t）。t の行を 5 つ以上集める（前は 8 行で t が 5 つ以上あった）
+    const ls = await w.waitLines(12);
     const ts = ls.filter((l) => l.startsWith('t ')).map((l) => Number(l.slice(2))).slice(1).sort((a, b) => a - b);
     assert.ok(ts.length >= 4, JSON.stringify(ls));
     assert.ok(ts[Math.floor(ts.length / 2)] <= 20, `読みが遅い: ${ts.join(',')}`);
