@@ -292,3 +292,22 @@ test('T4b: 会議の命令の oplog を空の DB に当て直すと、今の表�
     assert.ok(dump(db)[0].some((r) => r.id === 'pt2'), '見本に写しが無い');
   } finally { t.done(); u.done(); }
 });
+
+// 0.10.0 Task P-1（D57。計画 docs/plans/2026-10-20-100.md）: オフラインモードの印の判定は pagerules.localOnlyOf の1か所
+const R = require('../src/pagerules');
+test('P-1: localOnlyOf の表（経路の印か録音の写しの印が真なら真。印の分からない片付けた会議は偽: D57）', { timeout: 5000 }, () => {
+  const rows = [
+    [{ route: { localOnly: true } }, true],
+    [{ route: { localOnly: false } }, false],
+    [{ route: {} }, false],
+    [{ meeting: { phase: 'done', localOnly: true } }, true],
+    [{ meeting: { phase: 'done', localOnly: false } }, false],
+    [{ route: { localOnly: false }, meeting: { localOnly: true } }, true],
+    [{ route: { localOnly: true }, meeting: { localOnly: false } }, true],
+    [{ meeting: { phase: 'done', recovered: true } }, false],
+    [{ recovered: true }, false],
+    [{ route: { localOnly: 'true' } }, false],
+    [{}, false], [null, false], [undefined, false], ['x', false], [[], false], [{ route: null, meeting: null }, false],
+  ];
+  for (const [page, want] of rows) assert.strictEqual(R.localOnlyOf(page), want, JSON.stringify(page));
+});

@@ -154,7 +154,16 @@ function snippetOf(text, q) {
   return (head > 0 ? '…' : '') + text.slice(head, e + 40);
 }
 
+// オフラインモード（［オフラインモード］。内部の名前は localOnly）の会議か（0.10.0 P-1・D57）。締めと戻しのページの経路の印 route.localOnly か、
+// 録音の写しの印 meeting.localOnly（P-2 で録音の途中で押したときにも書き、片付けても残る）のどちらかが真なら真。印の分からない片付けた会議は
+// ふつうの会議（持ち主の答え D57）。［要約を生成］の経路と残した区間の後の案内が使う1か所。MCP の道具はこれで会議を出し分けない（D57）
+function localOnlyOf(page) {
+  if (!page || typeof page !== 'object' || Array.isArray(page)) return false;
+  const on = (o) => Boolean(o) && typeof o === 'object' && o.localOnly === true;
+  return on(page.route) || on(page.meeting);
+}
+
 module.exports = {
   SEARCH_TEXT_MAX, MEMO_TEXT_MAX,
-  summarize, listEntry, citeStatOf, markShortBlocks, cleanPauses, actionRow, byDue, foldWithMap, snippetOf,
+  summarize, localOnlyOf, listEntry, citeStatOf, markShortBlocks, cleanPauses, actionRow, byDue, foldWithMap, snippetOf,
 };
