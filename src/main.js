@@ -1989,6 +1989,8 @@ function openLoginWindow() {
 const HOLD_MS = 10 * 60 * 1000;
 const HOLD_MAX_MS = 24 * 3600 * 1000;
 let sttHold = { until: 0, why: '', scope: '' };
+// 0.9.4 S-5（決めたこと 31）: 中継の 5xx（server）が続いた数（mainlib.relayHoldStep）。2 回続いたら relay-hold で 60 秒から 10 分まで間を空ける
+let relayHold = { run: 0 };
 const holdNow = () => (Date.now() < sttHold.until ? sttHold : null);
 // クラウド（中継）で文字起こしできそうか（第1d2回 M-1。mainlib.cloudLikely）→ { cloud, why }。通信しない・復号しない。
 // why は cloud を偽にした理由（signed-out・login・hold の理由・offline・relay-down）。会議と音声入力の始め方が見る
@@ -2100,6 +2102,15 @@ async function relayFallback(e, scope, provider, sentPack) {
   } else if (sttCloud.isOfflineError(e) || code === 'server') {
     online.forget(provider.reachUrl);
   }
+  // 0.9.4 S-5（決めたこと 31）: 5xx が続いたら間を空ける（その間は中継へも /health へも送らない。cloudNow・見回りも hold として見る）
+  {
+    const r = lib.relayHoldStep(relayHold, { code, now: Date.now() });
+    relayHold = r.st;
+    if (r.holdMs > 0) {
+      sttHold = { until: Date.now() + r.holdMs, why: 'relay-hold', scope: '' };
+      engineLog(`文字起こしの経路: 中継の失敗が続いたため、${Math.round(r.holdMs / 1000)} 秒の間は中継へ送りません（${code}）`);
+    }
+  }
   if (sttHold.why === code && sttHold.until > Date.now()) engineLog(`文字起こしの経路: ${Math.round((sttHold.until - Date.now()) / 1000)} 秒の間は中継へ送りません（${code}${scopeOf ? ` ${scopeOf}` : ''}）`);
   const n = isOfflineChosen() ? noticeFor(code, scopeOf) : '';   // 選んでいない PC は K3（第1d2回 M-2）
   if (n) noticeOnce(scope, n, STT_NOTICE[n](provider));
@@ -2157,6 +2168,7 @@ async function transcribeRouted(wav, tail, durationMs, opts, scope, what) {
         onPromptDropped: () => engineLog('文字起こしの経路: 中継が認識ヒント付きの要求を断ったため、ヒントを外して送り直しました'),
       });
       engineLog(`文字起こしの経路: ${what} → cloud(relay) ${((Date.now() - t0) / 1000).toFixed(1)} 秒`);
+      relayHold = lib.relayHoldStep(relayHold, { code: 'ok', now: Date.now() }).st;   // 0.9.4 S-5: 中継が答えたら数えを 0 に戻す
       return { text: cleanWhisperText(raw), route: 'cloud', provider, why: 'ok' };
     } catch (e) {
       if (!sttCloud.redoLocally(e)) throw cloudFailure(e, provider);
@@ -3569,7 +3581,8 @@ function settleSegment(m, seg, patch) {
 function applySegmentLength(m, delta, why) {
   const mode = m.localOnly ? 'long' : m.segMode.mode;
   const base = segmentBaseMs(mode, settings.segmentSec);
-  const next = nextLiveSegmentMs(pendingSegs, m.segmentMs, base, delta);
+  // 0.9.4 S-5（決めたこと 29）: 背圧で伸ばすのは PC の側（long）だけ。クラウドの側（short）は基準のまま（mainlib.nextLiveSegmentMs の5つ目）
+  const next = nextLiveSegmentMs(pendingSegs, m.segmentMs, base, delta, mode);
   if (next === m.segmentMs) return;
   m.segmentMs = next;
   sendToOverlay('overlay:segment-ms', next);

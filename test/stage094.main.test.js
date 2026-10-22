@@ -251,3 +251,48 @@ test('音声入力は遅い PC でも PC で文字起こしする', T, async () 
   assert.strictEqual(o.history.length, 1, JSON.stringify(o.history));
   assert.ok(!o.history[0].wait && /本日の議題/.test(o.history[0].text), JSON.stringify(o.history));
 });
+
+// ---------------------------------------------------------------- S-5（決めたこと 29〜32）: クラウドの区切りを伸ばさない・中継の失敗が続いたら間を空ける
+const liveMs = (o) => o.overlaySent.filter((x) => typeof x === 'number');
+const sttPosts = (o) => o.relayCalls.filter((p) => p === '/v1/audio/transcriptions').length;
+
+test('S6: クラウドの会議で PC に落ちた区間が詰まっても（待ち 5）、録音バーへ送る区切りは 15 秒のまま（overlay:segment-ms を送らない）', T, async () => {
+  const o = await run(['slow', '--relay=text', '--relay-down', '--segs=6'], { scale: '1' });
+  assert.deepStrictEqual(o.overlaySent.filter((x) => x && typeof x === 'object').map((x) => x.segmentSec), [15]);
+  assert.deepStrictEqual(liveMs(o), [], JSON.stringify(o.overlaySent));
+  assert.ok(!o.engineLog.some((l) => /区切り \d+ 秒（short・理由 backpressure）/.test(l)), o.engineLog.join('\n'));
+});
+
+test('S6: 中継が 503 を返し続けても、区切りは short のまま（long へ替えない）', T, async () => {
+  const o = await run(['text', '--relay-seq=5555']);
+  assert.deepStrictEqual(liveMs(o), [], JSON.stringify(o.overlaySent));
+  assert.ok(!o.engineLog.some((l) => /区切り \d+ 秒（long/.test(l)), o.engineLog.join('\n'));
+});
+
+test('PC の会議（オフラインモード）で待ちが増えると 75 → 90 秒（150 にしない）', T, async () => {
+  const o = await run(['slow', '--relay=text', '--local-only', '--segs=6'], { scale: '1' });
+  const l = liveMs(o);
+  assert.ok(l.includes(90000), JSON.stringify(o.overlaySent));
+  assert.ok(l.every((ms) => ms <= 90000), `PC の区間を 90 秒より長くした: ${JSON.stringify(l)}`);
+});
+
+test('S7: 中継の 503 が 2 回続くと、60 秒の間は中継へも /health へも送らない（偽の中継が受けた数）。その後の 1 区間で 503 なら 120 秒。中継が答えたら 0 に戻る', T, async () => {
+  const o = await run(['text', '--relay-seq=55c5cc55', '--clock-seq=3:61000,5:121000']);
+  const holds = o.engineLog.filter((l) => /^文字起こしの経路: 中継の失敗が続いたため、\d+ 秒の間は中継へ送りません（server）$/.test(l)).map((l) => Number(/(\d+) 秒/.exec(l)[1]));
+  assert.deepStrictEqual(holds, [60, 120, 60], o.engineLog.join('\n'));
+  assert.strictEqual(sttPosts(o), 6, `間を空けている間に中継へ送った: ${o.relayCalls}`);
+  for (const id of ['s3', 's5']) assert.ok(o.engineLog.includes(`文字起こしの経路: 区間 ${id} → local（理由: relay-hold）`), o.engineLog.join('\n'));
+  // 間を空けている間（s3・s5）は /health も聞かない: 中継への道の並びで、s2 の後 s4 の前に /health が無い
+  const seq = o.relayCalls.filter((p) => p === '/health' || p === '/v1/audio/transcriptions');
+  const posts = seq.map((p, i) => (p === '/v1/audio/transcriptions' ? i : -1)).filter((i) => i >= 0);
+  // （間が明けた次の区間の前に 1 回だけ聞く。間を空けていなければ s3・s5 の前にも聞く）
+  assert.ok(seq.slice(posts[1] + 1, posts[2]).filter((p) => p === '/health').length <= 1, JSON.stringify(seq));
+  assert.ok(seq.slice(posts[2] + 1, posts[3]).filter((p) => p === '/health').length <= 1, JSON.stringify(seq));
+  assert.ok(o.pages[0].segments.every((s) => !s.failed), JSON.stringify(o.pages[0].segments));
+});
+
+test('S5: 遅い PC で中継の間が空いている間の区間は kept', T, async () => {
+  const o = await run(['text', '--relay-seq=55c', `--pace=${JSON.stringify({ schema: 1, model: 'same', rtf: 1.6, slow: true, at: 'now-1', from: 'live' })}`], { scale: '1' });
+  assert.ok(o.engineLog.includes('文字起こしの経路: 区間 s3 → 遅い PC のため音声を残した（relay-hold）'), o.engineLog.join('\n'));
+  assert.strictEqual(sttPosts(o), 2);
+});

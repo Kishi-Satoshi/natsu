@@ -540,7 +540,7 @@ const IDS_094 = [
   'lt-fetch', 'lt-destroy', 'lt-restart', 'wd-late-text', 'wd-down-text', 'wd-late-banner', 'ka-live-late', 'ka-live-down',
   'ka-recover-late', 'ka-recover-error', 'ka-held-retry', 'ka-old-queue', 'ka-skip-wav', 'ka-skip-auto', 'ka-rec-busy',
   'rx-buffer', 'rx-cl-cap', 'rx-head', 'rx-count', 'rx-refund', 'rx-sec', 'rx-compat', 'rx-fixed', 'rx-fields', 'rx-keys',
-  'pc-proc', 'pc-relay-local', 'pc-local-only', 'pc-cloud', 'pc-dict',
+  'pc-proc', 'pc-relay-local', 'pc-local-only', 'pc-cloud', 'pc-dict', 'sg-hold-health',
 ];
 test('G3: 0.9.4 の変異が一覧にそろい、IDS_094 は計画の「変異確認」の表の id の中にある。どれも決まったテストのファイルを持ち、なぜ戻すと困るかを書く', { timeout: 5000 }, () => {
   const byId = new Map(MUTANTS.map((m) => [m.id, m]));

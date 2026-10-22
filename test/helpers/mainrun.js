@@ -419,6 +419,8 @@ const relaySeq = flagVal('--relay-seq');   // 第1d回 A-5
 // 0.9.4 S-2: 区間の長さ（会議の時計の durationMs。音声のバイトは今の 3 秒・2 秒のまま）と、この PC の速さの覚え（local-pace.json）
 const segMsFlag = Number(flagVal('--seg-ms')) || 0;
 const paceFlag = flagVal('--pace');
+// 0.9.4 S-5: --clock-seq=<i>:<ミリ秒>,… … i 番目（0 から）の区間を送る前に main の時計（と中継の試しの時計）をその分だけ進める
+const clockSeq = new Map((flagVal('--clock-seq') || '').split(',').filter(Boolean).map((x) => x.split(':').map(Number)));
 // 0.9.4 S-3: 会議の後の文字起こしを引き直す・ページを消して引き直す・止めた後に後回しにする・待ち行列が無くなるまで待つ
 const recoverAgainN = Number(flagVal('--recover-again')) || 0;
 const deletePagesThenRecover = flags.includes('--delete-pages-then-recover');
@@ -2711,6 +2713,7 @@ process.on('exit', () => {
       out.statusLocalOnly = { localOnly: st.localOnly, cloud: st.cloud };
       out.statusNeedsSetup = st.needsSetup;
     }
+    if (clockSeq.has(i)) advanceClock(clockSeq.get(i));   // 0.9.4 S-5
     if (relaySeq) await relayLocal.setAnswer(relaySeq[i] || 'c');   // 第1d回 A-5: この区間の中継の答え方
     // 第1d2回 M-3・M-4 の点検: この区間の答えを止め、文字になって並べ直した最初の要求を main が出したら［この会議は PC の中だけ］を押す
     const atRetry = localOnlyAtRetryN && i === localOnlyAtRetryN - 1;

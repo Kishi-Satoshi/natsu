@@ -1056,7 +1056,7 @@ module.exports = [
   { id: 'ra-seg-localonly', file: 'src/main.js', from: "  const mode = m.localOnly ? 'long' : m.segMode.mode;", to: '  const mode = m.segMode.mode;',
     tests: ['test/stage1d.seg.test.js'], pattern: '^D16・RF28: ［この会議は PC の中だけ］', why: 'A-5 D16・RF28: ［この会議は PC の中だけ］の会議は設定の長さ（75 秒）' },
   { id: 'ra-seg-bp-base', file: 'src/main.js', from: '  const base = segmentBaseMs(mode, settings.segmentSec);', to: '  const base = (Number(settings.segmentSec) || 75) * 1000;',
-    tests: ['test/stage1d.seg.test.js'], pattern: '^D16: 15 秒の会議でも背圧', why: 'A-5 D16: 背圧の基準は今の側の長さ（15 秒の会議は 15 秒の側へ戻す）' },
+    tests: ['test/stage1d.seg.test.js'], pattern: '^D16: 15 秒の会議は待ちが', why: 'A-5 D16: 背圧の基準は今の側の長さ（15 秒の会議は 15 秒のまま。0.9.4 S-5 でクラウドの側は伸ばさなくなった）' },
   // 文字起こしの状態（A-6・D17）
   { id: 'ra-stall-silent', file: 'src/mainlib.js', from: '  return Number(levelDbfs) > STALL_MIN_DBFS ? n + 1 : n;', to: '  return n + 1;',
     tests: ['test/stage1d.lib.test.js', 'test/stage1d.status.test.js'], pattern: '^D17: (止まりの見張り|無音の空の区間)', why: 'A-6 D17: 無音の空の区間は止まりに数えない' },
@@ -1682,13 +1682,13 @@ module.exports = [
   { id: 'lt-timeout', file: 'src/mainlib.js', from: '  return Math.min(1800000, Math.max(240000, Math.round(a * k * 2 + 60000)));', to: '  return Math.min(1800000, Math.max(240000, Math.round((Number(audioMs) || 0) * 5 + 60000)));',
     tests: ['test/stage094.lib.test.js', 'test/stage094.main.test.js'], pattern: 'localTimeoutMs', why: '0.9.4 S-1 決めたこと 16: PC への待ち時間に測った速さを使わない（今の 5 倍 + 60 秒）' },
   { id: 'lt-cap', file: 'src/mainlib.js', from: 'const LOCAL_SEGMENT_MS_CAP = 90000;', to: 'const LOCAL_SEGMENT_MS_CAP = 300000;',
-    tests: ['test/stage094.lib.test.js'], why: '0.9.4 S-1 決めたこと 14: PC の区間の上限を 300 秒に戻す（PC で 300 秒を越えて時間切れになる）' },
+    tests: ['test/stage094.lib.test.js', 'test/stage094.main.test.js'], pattern: '^(S6: クラウドの側|PC の会議（オフラインモード）)', why: '0.9.4 S-1 決めたこと 14: PC の区間の上限を 300 秒に戻す（PC で 300 秒を越えて時間切れになる）' },
   { id: 'sg-cloud-grow', file: 'src/mainlib.js', from: "  const raw = mode === 'short' ? baseMs : Math.max(", to: "  const raw = mode === 'never' ? baseMs : Math.max(",
-    tests: ['test/stage094.lib.test.js', 'test/stage1d.lib.test.js'], why: '0.9.4 S-1 決めたこと 29: クラウドの側も背圧で伸ばす（中継へ送る WAV が大きくなり、中継の CPU をさらに使う）' },
+    tests: ['test/stage094.lib.test.js', 'test/stage1d.lib.test.js', 'test/stage094.main.test.js'], pattern: '^(S6: クラウド|D16: 途中で送る長さ)', why: '0.9.4 S-1 決めたこと 29: クラウドの側も背圧で伸ばす（中継へ送る WAV が大きくなり、中継の CPU をさらに使う）' },
   { id: 'sg-transient', file: 'src/mainlib.js', from: "  if (route !== 'cloud' && RELAY_TRANSIENT.includes(why)) return { mode, localRun, cloudRun };\n", to: '',
-    tests: ['test/stage094.lib.test.js'], why: '0.9.4 S-1 決めたこと 30: 中継の一時の失敗で長い側へ替える（クラウドの区間まで 75 秒になる）' },
+    tests: ['test/stage094.lib.test.js', 'test/stage094.main.test.js'], pattern: '^(segmentModeNext|S6: 中継が 503)', why: '0.9.4 S-1 決めたこと 30: 中継の一時の失敗で長い側へ替える（クラウドの区間まで 75 秒になる）' },
   { id: 'sg-hold', file: 'src/mainlib.js', from: '  return { st: { run: n, at: now }, holdMs: n >= 2 ?', to: '  return { st: { run: n, at: now }, holdMs: n >= 99 ?',
-    tests: ['test/stage094.lib.test.js'], why: '0.9.4 S-1 決めたこと 31: 中継の 5xx が続いても間を空けない（止まった中継を区間ごとに叩き続ける）' },
+    tests: ['test/stage094.lib.test.js', 'test/stage094.main.test.js'], pattern: '^(relayHoldStep|S7:)', why: '0.9.4 S-1 決めたこと 31: 中継の 5xx が続いても間を空けない（止まった中継を区間ごとに叩き続ける）' },
   { id: 'sg-hold-reset', file: 'src/mainlib.js', from: "  if (code === 'ok') return { st: { run: 0, at: now }, holdMs: 0 };", to: "  if (code === 'ok') return { st: { run, at: now }, holdMs: 0 };",
     tests: ['test/stage094.lib.test.js'], why: '0.9.4 S-1 決めたこと 31: 中継が答えても間を 0 に戻さない（次の 1 回の 5xx で長く空ける）' },
   // S-2: PC への要求を node:http に・時間切れの扱いと文
@@ -1759,4 +1759,7 @@ module.exports = [
     tests: ['test/stage094.main.test.js'], pattern: '^S4・S5:', why: '0.9.4 S-4 決めたこと 11: 遅い会議ではクラウドの区間も残す（中継が使えるのに会議中に文字にならない）' },
   { id: 'pc-dict', file: 'src/main.js', from: "transcribeAuto(buffer, '', durationMs, { dictation: true })", to: "transcribeAuto(buffer, '', durationMs, { dictation: true, paceSlow: () => Boolean(readLocalPace() && readLocalPace().slow) })",
     tests: ['test/stage094.main.test.js'], pattern: '^音声入力は遅い PC でも', why: '0.9.4 S-4 K5: 遅い PC で音声入力も PC に送らない（短い音声入力が貼り付けられない）' },
+  // S-5: クラウドの区切りを伸ばさない・中継の失敗が続いたら間を空ける
+  { id: 'sg-hold-health', file: 'src/main.js', from: '  const h = holdNow();\n  const up = probe ?', to: "  const h0 = holdNow();\n  const h = h0 && h0.why === 'relay-hold' ? null : h0;\n  const up = probe ?",
+    tests: ['test/stage094.main.test.js'], pattern: '^S7:', why: '0.9.4 S-5 決めたこと 31: 間を空けている間も /health を聞いて中継へ送る（止まった中継を区間ごとに叩く）' },
 ];
