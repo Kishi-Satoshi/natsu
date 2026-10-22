@@ -387,8 +387,10 @@ test('I7: 吹き出しの中にだけある言葉で検索すると、その行�
   assert.strictEqual($(l, 'setEmpty').hidden, true, 'カードの頭で当たったのに「当てはまる設定はありません」');
   // 名前で当たった行（使用するマイク）と、吹き出しで当たった行（相手の声）
   await search(l, 'マイク');
-  assert.deepStrictEqual(shownRows(l), ['使用するマイク', '議事録で相手の声も録る']);
+  // 0.9.3 M-4 で意図して変えた: 「会議の検出の通知」の行も見える説明（「会議のアプリがマイクを使い始めたら…」）で当たる（吹き出しでないので印は無い）
+  assert.deepStrictEqual(shownRows(l), ['会議の検出の通知', '使用するマイク', '議事録で相手の声も録る']);
   assert.ok(hit('setPopLoop'));
+  assert.ok(!hit('setPopDetect'), '見える説明で当たった行の ⓘ に印を付けた');
   await search(l, 'スピーカー');
   assert.deepStrictEqual(shownRows(l), ['録音されるスピーカー']);
   assert.ok(!hit('setPopSpk'), '名前で当たった行の ⓘ に印を付けた');

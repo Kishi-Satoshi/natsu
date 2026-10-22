@@ -63,7 +63,7 @@ test('Q-3: ［録音］の「マイクと相手の声」の後にカード「話
   await click(l, 'tabBtnSettings');
   await pick(l, 'record');
   const titles = cardsOf(l).filter(visible).map(titleOf);
-  assert.deepStrictEqual(titles, ['録音バー', 'マイクと相手の声', '話し声が無いとき', '文字起こし', 'ユーザー辞書（認識ヒント）']);
+  assert.deepStrictEqual(titles, ['会議の検出', '録音バー', 'マイクと相手の声', '話し声が無いとき', '文字起こし', 'ユーザー辞書（認識ヒント）']);   // 0.9.3 M-4 で意図して足した: 頭に「会議の検出」
   const card = cardsOf(l).find((c) => titleOf(c) === '話し声が無いとき');
   assert.strictEqual(card.dataset.sec, 'record');
   assert.deepStrictEqual(card.querySelectorAll('[data-row]').map((r) => r.dataset.row), ['話し声が無いときに自動で止める', '知らせるまでの時間']);

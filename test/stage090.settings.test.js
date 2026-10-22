@@ -389,6 +389,8 @@ const CARDS = [
   ['general', '外観', ['外観']],
   ['general', 'ホットキー', ['音声入力ホットキー', '議事録ホットキー']],
   ['general', '起動と終了', ['Windowsサインイン時に自動起動', 'ウィンドウを閉じてもタスクトレイに残す', '効果音']],
+  // 0.9.3 M-4（計画 docs/plans/2026-10-22-093.md の決めたこと 11）で意図して変えた: 「録音」の頭に「会議の検出」のカード
+  ['record', '会議の検出', ['会議の検出の通知', '通知を出さないアプリ']],
   ['record', '録音バー', ['録音バーの置き場所']],
   ['record', 'マイクと相手の声', ['使用するマイク', '議事録で相手の声も録る', '録音されるスピーカー']],
   // 0.9.1 Q-3（D29）で意図して変えた: 「話し声が無いとき」のカード
@@ -403,6 +405,7 @@ const CARDS = [
 // 行の名前 → その行にある入力の id（今の id のまま動かしたことを見る）
 const ROW_IDS = {
   ログイン: ['accountSignIn'], ログアウト: ['accountLogout', 'accountWho'], 外観: ['themeSel'], 音声入力ホットキー: ['hotkey', 'hotkeyWarn'], 議事録ホットキー: ['meetingHotkey', 'meetingHotkeyWarn'],
+  会議の検出の通知: ['meetingDetect'], 通知を出さないアプリ: ['meetingDetectMuteList'],   // 0.9.3 M-4 で意図して足した
   Windowsサインイン時に自動起動: ['autoLaunch'], ウィンドウを閉じてもタスクトレイに残す: ['stayInTray'], 効果音: ['soundFeedback'], 録音バーの置き場所: ['pillPos'],
   使用するマイク: ['micSelect', 'micReloadBtn'], 議事録で相手の声も録る: ['useSystemAudio'], 録音されるスピーカー: ['spkNow', 'spkReloadBtn', 'spkSettingsBtn'], 認識言語: ['language'],
   話し声が無いときに自動で止める: ['autoStopQuiet'], 知らせるまでの時間: ['autoStopMin'],
@@ -445,7 +448,8 @@ test('SP4: カードの data-sec と見出しの並びが「設定の項目と�
 // 名前の label for と、トグルだけを包む label.check（文の無い label）に分けた（31 → 34）。説明の数は 20 のまま（前の値は bf7bd5c3…・5c595e07…）
 // 0.9.2 I-3 で意図して変えた: 「アカウント」「一般」「オフライン」「更新」の説明も1行にした（議事録ホットキーの「左右の Alt」は名前の下の1行へ・ログインの
 // 2つの説明は1行と吹き出しへ: 説明 20 → 18。I-2 の値は c1ab8733…・bbc9b31d…）
-const TEXTS_080 = { labels: [34, 'e1329af4b3a7c6b79e151e2f396d18f80e9c4406fffcb5c48239b554fe1aba25'], descs: [18, 'ce9122946c75b8ee9f4ab660dce671e2feadcab72746c71b75d90527b913ed46'] };
+// 0.9.3 M-4 で意図して変えた: カード「会議の検出」の label を3つ足した（名前の label for・トグルを包む label.check・通知を出さないアプリの名前。34 → 37。前の値は e1329af4…）
+const TEXTS_080 = { labels: [37, '38f5bece35ad38c1f2bb5a0ca76c871476d80df7112fe907f907cdb0fefd5002'], descs: [18, 'ce9122946c75b8ee9f4ab660dce671e2feadcab72746c71b75d90527b913ed46'] };
 test('SP4: 動かした入力の id が全部あり、その行の中にある。文が 0.8.0 と同じ（label の文・.check の文・説明の文）', T, () => {
   const sec = doc.querySelector('#tabSettings');
   for (const [name, ids] of Object.entries(ROW_IDS)) {
@@ -477,7 +481,7 @@ test('SP4: 『録音』を選ぶと、録音バー・マイクと相手の声・
   await click(l, 'tabBtnSettings');
   assert.deepStrictEqual(shownCards(l), ['外観', 'ホットキー', '起動と終了'], '初めの「一般」のカードが違う');
   await pick(l, 'record');
-  assert.deepStrictEqual(shownCards(l), ['録音バー', 'マイクと相手の声', '話し声が無いとき', '文字起こし', 'ユーザー辞書（認識ヒント）']);
+  assert.deepStrictEqual(shownCards(l), ['会議の検出', '録音バー', 'マイクと相手の声', '話し声が無いとき', '文字起こし', 'ユーザー辞書（認識ヒント）']);   // 0.9.3 M-4 で意図して足した
   assert.strictEqual($(l, 'setTitle').textContent, '録音');
   assert.ok(visible($(l, 'openDataBtn')) && visible($(l, 'saveMsg')), '保存の文と［データ保存先を開く］が隠れた');
   for (const [sec, want] of [['account', ['アカウント']], ['summary', ['要約（Claude Code）']], ['offline', ['ローカル AI の設定']], ['update', ['アップデート']]]) {
@@ -502,8 +506,9 @@ test('SP5: 『マイク』で使用するマイクの行だけ、『ﾏｲｸ』
   // 0.9.2 I-2（決めたこと 8）で意図して変えた: 検索は行の名前に加えて、見える説明と ⓘ の吹き出しの文も見る（相手の声の行は吹き出しの「マイクと一緒に録ります」で当たる）
   for (const q of ['マイク', 'ﾏｲｸ']) {
     await search(l, q);
-    assert.deepStrictEqual(shownRows(l), ['使用するマイク', '議事録で相手の声も録る'], q);
-    assert.deepStrictEqual(shownCards(l), ['マイクと相手の声'], q);
+    // 0.9.3 M-4 で意図して変えた: 「会議の検出の通知」の行も説明（「会議のアプリがマイクを使い始めたら…」）で当たる
+    assert.deepStrictEqual(shownRows(l), ['会議の検出の通知', '使用するマイク', '議事録で相手の声も録る'], q);
+    assert.deepStrictEqual(shownCards(l), ['会議の検出', 'マイクと相手の声'], q);
     assert.deepStrictEqual(groups(), ['録音'], q);
     assert.strictEqual($(l, 'setTitle').textContent, '検索の結果');
     assert.strictEqual($(l, 'setEmpty').hidden, true);
@@ -638,7 +643,9 @@ const SAVED_080 = { localServerExe: 'C:\\srv\\whisper.exe', localModelPath: 'C:\
   segmentSec: 75, pillSlot: 'bottom-center', micId: '', language: 'ja', autoPaste: true, removeFillers: true, soundFeedback: true, autoLaunch: false, dictionary: ['固有名詞'],
   useBuiltinTerms: true, stayInTray: false, theme: 'system', useSystemAudio: false, claudeExe: '',
   // 0.9.1 Q-3（D29）で意図して変えた: 話し声が無いときに自動で止める（読んだ設定に無ければ既定のオン・10 分で送る）
-  autoStopQuiet: true, autoStopMin: 10 };
+  autoStopQuiet: true, autoStopMin: 10,
+  // 0.9.3 M-4 で意図して変えた: 会議の検出の通知（読んだ設定に無ければ既定のオン）と、通知を出さないアプリ（無ければ []）
+  meetingDetect: true, meetingDetectMute: [] };
 test('SP4: 選んだ項目でない欄を変えても、自動保存が今と同じ値を保存する（#tabSettings の change → saveSettings の引数が 0.8.0 と同じキーと値）', T, async () => {
   const l = await open();
   await l.drain();
@@ -796,7 +803,8 @@ test('見た目の直し（モック 案C）: 設定の行は、名前（と説�
   for (const c of ['input', 'select', '.hkbox']) assert.strictEqual(decl(`${TWO_SEL} > ${c}`, '@media (max-width: 760px)').width, '100%', `狭い窓で入力（${c}）が幅いっぱいでない`);
   // 2列になる欄（.frow）は表の欄だけ（詳細設定の中は今のまま）。左（.flead）に名前と説明、右に入力が1つ
   // 0.9.2 I-3 で意図して変えた: ログインの行も名前（と ⓘ）が左・［ログイン］が右の2列
-  assert.deepStrictEqual(doc.querySelectorAll('.frow').map((f) => f.dataset.row), ['ログイン', '外観', '音声入力ホットキー', '議事録ホットキー', '録音バーの置き場所', '使用するマイク',
+  // 0.9.3 M-4 で意図して変えた: 「通知を出さないアプリ」も名前が左・札が右の2列
+  assert.deepStrictEqual(doc.querySelectorAll('.frow').map((f) => f.dataset.row), ['ログイン', '外観', '音声入力ホットキー', '議事録ホットキー', '通知を出さないアプリ', '録音バーの置き場所', '使用するマイク',
     '録音されるスピーカー', '知らせるまでの時間', '認識言語', 'Claude Code', 'Claude Code の場所']);
   for (const [id, name] of Object.entries(TWO_COL)) {
     const field = doc.querySelector(`#${id}`).closest('.field');

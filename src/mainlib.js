@@ -1622,7 +1622,7 @@ function keyLabel(accel) {
 // 一覧にちょうどある文字だけ「<記事>/」を返し、ほか（文字でない・空・住所・../・#・前後の空白・大文字）は ''（ヘルプのホーム）
 const HELP_ARTICLES = Object.freeze([
   'start/what-natsu-does', 'start/install-update', 'start/login', 'start/claude-code', 'start/tester-guide',
-  'record/start-stop', 'record/pause', 'record/pc-only', 'record/status-line',
+  'record/start-stop', 'record/pause', 'record/pc-only', 'record/status-line', 'record/meeting-detect',
   'summary/how-summaries', 'summary/summary-types', 'summary/citations',
   'dictation/dictation',
   'find/search', 'find/delete-and-backups',
