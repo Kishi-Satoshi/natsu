@@ -448,13 +448,14 @@
   .ptab:hover { background: var(--hover); }
   .ptab.on { background: var(--tint); color: var(--text); font-weight: 500; }
   .pbody { padding: 0; }
-  /* 0.9.3 M-6（計画 docs/plans/2026-10-22-093.md の決めたこと 16〜20）: 録音中のページの「文字起こし」の右の音の波（20 本・幅 3px・間 2px・高さ 3〜16px）と横の文。
-     音のある棒は --level、無音の点は --muted、一時停止中は --line の点。文は無音の警告なら --danger。棒は飾り（aria-hidden）で意味は文で出す */
+  /* 0.9.3 M-6（計画 docs/plans/2026-10-22-093.md の決めたこと 16〜20）: 録音中のページの「文字起こし」の右の音の波と横の文。
+     文は無音の警告なら --danger。点は飾り（aria-hidden）で意味は文で出す */
   .lwave { display: inline-flex; align-items: center; gap: 10px; height: 28px; margin-left: 8px; }
   .lwave[hidden] { display: none; }
-  #liveWave { display: inline-flex; align-items: center; gap: 2px; height: 16px; }
-  #liveWave i { display: block; width: 3px; height: 3px; border-radius: 1.5px; background: var(--level); }
-  #liveWave.quiet i { background: var(--muted); }
+  /* 0.9.4 W-1（持ち主の答え「音の波はパネル（録音バー）と同じように」「5本がそれぞれ揺れる」）: 録音バーと同じ5つの点（幅 4px・間 3px・箱 32 × 20px）。
+     無音は同じ 4px の点、声は5本がそれぞれ揺れる。色は文字の灰色（--text-2。青は使わない）、一時停止中は --line の点。高さは .1 秒で移る（動きを減らす設定では移らない） */
+  #liveWave { display: inline-flex; align-items: center; justify-content: center; gap: 3px; width: 32px; height: 20px; }
+  #liveWave i { display: block; width: 4px; height: 4px; border-radius: 2px; background: var(--text-2); transition: height .1s ease-out; }
   #liveWave.paused i { background: var(--line); }
   #liveWaveNote { font-size: 12px; color: var(--muted); white-space: nowrap; }
   #liveWaveNote.warn { color: var(--danger); }
@@ -802,7 +803,7 @@
             <button class="ptab on" id="paneBtnNote" type="button" role="tab" aria-selected="true" aria-controls="pNote">AI 要約</button>
             <button class="ptab" id="paneBtnMemo" type="button" role="tab" aria-selected="false" aria-controls="pMemo" tabindex="-1">メモ</button>
             <button class="ptab" id="paneBtnScript" type="button" role="tab" aria-selected="false" aria-controls="pScript" tabindex="-1">文字起こし</button>
-            <span class="lwave" id="liveWaveBox" role="presentation" hidden><span id="liveWave" class="quiet" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span><span id="liveWaveNote" role="status"></span></span>
+            <span class="lwave" id="liveWaveBox" role="presentation" hidden><span id="liveWave" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></span><span id="liveWaveNote" role="status"></span></span>
             </div>
           </div>
           <div class="pbody" id="pBody">
@@ -3183,19 +3184,17 @@
     }
   }
   // ---------------- 録音中のページの音の波（0.9.3 M-6。決めたこと 16〜19）
-  // 高さ（純粋。外の名前を使わない: test/stage093.app が取り出して試す）: 値は右の 20 本。無音（0.02 以下）・数でないは 3px の点、ほかは 4〜16px
-  function waveHeights(levels) {
-    const vs = (Array.isArray(levels) ? levels : []).slice(-20);
-    const out = vs.map((l) => (typeof l === 'number' && l > 0.02 ? Math.max(4, Math.min(16, Math.round(3 + 13 * Math.min(1, l * 1.25)))) : 3));
-    while (out.length < 20) out.unshift(3);
-    return out;
-  }
-  // 動きを減らす設定: 流さず、真ん中の5本だけを今の大きさで（録音バーの点と同じ左右対称の重み）
-  const WAVE_MID = [0.55, 0.85, 1, 0.85, 0.55];
-  function waveStill(level) {
-    const out = Array(20).fill(3);
-    if (typeof level === 'number' && level > 0.02) WAVE_MID.forEach((w, i) => { out[7 + i] = Math.max(4, Math.min(16, Math.round(3 + 13 * Math.min(1, level * 1.25 * w)))); });
-    return out;
+  // 0.9.4 W-1: 5本の高さ（px）。録音バーと同じ式（src/mainlib.js の levelBars。test/stage094.wave が同じ値になることを見る）。
+  // 無音（0.02 以下・数でない）は同じ 4px の点が5つ、声は5本がそれぞれ揺れる。tMs が null なら揺らさない（動きを減らす設定）
+  const LEVEL_BAR_W = [0.75, 0.9, 1, 0.9, 0.75];
+  const LEVEL_BAR_SPEED = [7.1, 9.3, 5.7, 8.4, 6.6];
+  const LEVEL_BAR_PHASE = [0.3, 1.9, 0.8, 2.6, 1.4];
+  function levelBars(level, tMs) {
+    if (!(typeof level === 'number' && level > 0.02)) return [4, 4, 4, 4, 4];
+    return LEVEL_BAR_W.map((w, i) => {
+      const g = typeof tMs === 'number' && Number.isFinite(tMs) ? 0.35 + 0.65 * Math.abs(Math.sin(LEVEL_BAR_PHASE[i] + (LEVEL_BAR_SPEED[i] * tMs) / 1000)) : 1;
+      return Math.round(4 + 12 * Math.min(1, level * 1.6 * w * g));
+    });
   }
   const reducedMotion = () => { try { return Boolean(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches); } catch (_) { return false; } };
   const waveState = { levels: [], at: 0, shown: '', note: null };
@@ -3205,8 +3204,7 @@
     if (!p || typeof p !== 'object' || !mtSt || !mtSt.active || mtSt.paused || mtSt.finalizing) return;
     const mic = typeof p.mic === 'number' ? p.mic : 0;
     const sys = typeof p.sys === 'number' ? p.sys : 0;
-    waveState.levels.push(Math.max(mic, sys));
-    if (waveState.levels.length > 20) waveState.levels.splice(0, waveState.levels.length - 20);
+    waveState.levels = [Math.max(mic, sys)];   // 0.9.4 W-1: 流さないので今の大きさだけ
     waveState.at = Date.now();
     waveState.warn = typeof p.warn === 'string' ? p.warn : '';
     renderWave();
@@ -3221,7 +3219,7 @@
     if (paused) { waveState.levels = []; waveState.warn = ''; }
     const fresh = !paused && Date.now() - waveState.at <= WAVE_STALE_MS;
     const lv = fresh ? waveState.levels : [];
-    const h = reducedMotion() ? waveStill(lv.length ? lv[lv.length - 1] : 0) : waveHeights(lv);
+    const h = levelBars(lv.length ? lv[lv.length - 1] : 0, reducedMotion() ? null : Date.now());
     const key = h.join(',');
     const wave = $('liveWave');
     if (key !== waveState.shown) {
@@ -3229,7 +3227,6 @@
       wave.querySelectorAll('i').forEach((el, i) => { el.style.height = `${h[i]}px`; });
     }
     wave.classList.toggle('paused', paused);
-    wave.classList.toggle('quiet', !paused && h.every((x) => x === 3));
     // 文は届いた文そのまま（画面は文を作らない）。一時停止中は「一時停止中」。変わったときだけ書く（読み上げを繰り返さない）
     const note = paused ? '一時停止中' : fresh ? (waveState.warn || '') : '';
     const n = $('liveWaveNote');

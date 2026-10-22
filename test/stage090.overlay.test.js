@@ -72,19 +72,21 @@ test('RP5: ピルの中に、ロゴの SVG（assets/icon.svg と同じ3本の pa
   assert.ok(SRC.includes('<title>NaTsu Overlay</title>'));
 });
 
-test('RP5: 無音（level 0）は5つとも 4px、声（level 0.6）は左から伸び、どれも 16px まで。縦の形でも同じ長さが入る。一時停止中は5つとも 4px で class paused', async () => {
+// 0.9.4 W-1（持ち主の答え「5本がそれぞれ揺れる」）で意図して直した: 声の点は左から順に伸びる形でなく、5本がそれぞれ揺れる（式は mainlib.levelBars。
+// 揺れと左右対称は test/stage094.wave が見る）。ここでは今の時刻の levelBars と同じ長さが入ること・縦の形・一時停止を見る
+test('RP5・0.9.4 W-1: 無音（level 0）は5つとも 4px、声は今の時刻の levelBars の長さ（4〜16px）。縦の形でも同じ長さが入る。一時停止中は5つとも 4px で class paused', async () => {
   const { log, an } = await 録音を始める();
   assert.deepStrictEqual(dots(log), [4, 4, 4, 4, 4], '無音の点が 4px でない');
   an[0].fill = fillFor(0.6);
   await log.drain();
   const loud = dots(log);
-  assert.ok(loud[0] > 4, `声で点が伸びない: ${loud}`);
-  for (let i = 1; i < 5; i++) assert.ok(loud[i] <= loud[i - 1], `左ほど早く伸びていない: ${loud}`);
+  assert.ok(loud.some((x) => x > 4), `声で点が伸びない: ${loud}`);
   assert.ok(loud.every((x) => x >= 4 && x <= 16), `点が 4〜16px の外: ${loud}`);
+  const lv = Math.min(1, Math.sqrt(((fillFor(0.6) - 128) / 128) ** 2) * 3.4);
+  assert.deepStrictEqual(loud, lib.levelBars(lv, log.clock.now), '今の時刻の levelBars と違う');
   an[0].fill = fillFor(1);
   await log.drain();
   assert.ok(dots(log).every((x) => x <= 16), `最大の声で 16px を越えた: ${dots(log)}`);
-  assert.strictEqual(dots(log)[0], 16);
   // 縦の形でも同じ長さ（CSS が横の長さに使う）
   an[0].fill = fillFor(0.6);
   log.fire('onForm', { form: 'v' });

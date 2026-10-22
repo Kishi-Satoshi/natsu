@@ -34,11 +34,11 @@ const byState = Object.fromEntries(STATES.map((s) => [s.state, s]));
 // 0.9.0 O-4（RP8）: 縦の形の × が出た形（カーソルが乗った記録中）を、暗い地・150% で1枚だけ撮る（モックの overlay-vertical-dark-hover-150）
 const HOVER = { name: 'overlay-vertical-dark-hover-150', state: 'rec', form: 'v', desk: 'dark', scale: 1.5 };
 
-// overlay.html の levelDots と同じ（無音は 4px が5つ、声は左ほど早く伸びて 16px まで）
-const DOT_W = [1, 0.85, 0.7, 0.55, 0.4];
+// overlay.html の levelBars と同じ（0.9.4 W-1: 無音は 4px が5つ、声は5本がそれぞれ揺れる）。撮る画面は時刻 0 の形（揺れの1つの瞬間）
+const { levelBars } = require('../../src/mainlib');
 function dotsFor(level, paused) {
-  if (paused || !(level > 0.02)) return [4, 4, 4, 4, 4];
-  return DOT_W.map((w) => Math.round(4 + 12 * Math.min(1, level * 1.6 * w)));
+  if (paused) return [4, 4, 4, 4, 4];
+  return levelBars(level, 0);
 }
 
 /** 撮る画面の名前（形 → 地 → 拡大率 → 状態の順。撮る道具は形・地・拡大率の組ごとに窓を1つ開いて状態を替える） */
@@ -101,7 +101,9 @@ function signature(doc) {
     form: p.dataset.form, phase: p.dataset.phase,
     classes: ['visible', 'meeting', 'paused', 'warn', 'hover'].filter((c) => p.classList.contains(c)),
     title: p.getAttribute('title') || '',
-    dots: Array.from($('lv').children).map((i) => i.style.getPropertyValue('--l')),
+    // 0.9.4 W-1 で意図して変えた: 声の点は時刻で揺れる（本物と見本で同じ瞬間にならない）ので、同じ 4px の点か揺れている（voice）かで比べる。
+    // 高さの式は test/stage094.wave が mainlib・overlay.html・見本の3つで同じことを見る
+    dots: ((d) => (d.every((x) => x === '4px') ? d : 'voice'))(Array.from($('lv').children).map((i) => i.style.getPropertyValue('--l'))),
     spk: hidden(spk) ? '' : (['on', 'idle', 'ng'].find((c) => spk.classList.contains(c)) || ''),
     badge: !hidden($('micBadge')),
     msg: m.textContent, kind: ['warn', 'err', 'ok'].find((c) => m.classList.contains(c)) || '',

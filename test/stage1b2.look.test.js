@@ -35,7 +35,8 @@ test('1b2 L-1: トークンは測った参考の値（4.5:1 に届かないも�
 test('1b2 L-1・G8: 海の色（--level）はロゴの波と録音中の点だけ。選んでいる行は灰色の地で、左の線も青も持たない', () => {
   const users = new Set(rules.filter((r) => !r.sel.startsWith(':root') && Object.values(r.decls).some((v) => /var\(--level\)/.test(v))).map((r) => r.sel));
   // 0.9.3 M-6 で意図して足した: 録音中のページの音の波の棒（録音中の点と同じ「音を拾っている」の印）
-  assert.deepStrictEqual([...users].sort(), ['#liveWave i', '.logo .wave', '.rec-dot']);
+  // 0.9.4 W-1 で意図して外した: 波は文字の灰色の5つの点（持ち主の答え「青を使わない」）
+  assert.deepStrictEqual([...users].sort(), ['.logo .wave', '.rec-dot']);
   const sel = S.declsFor(rules, '.pitem.sel', { at: '' });
   assert.strictEqual(sel.background, 'var(--tint)');
   assert.ok(!/accent|level/.test(Object.values(sel).join(' ')), JSON.stringify(sel));

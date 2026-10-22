@@ -64,9 +64,11 @@ test('画面の使いやすさ・F10: 明と暗のすべての「文字 × 地�
 // その中身のハッシュで凍結をかけ直した（O-4 の値は 943d8c9a…）
 // 0.9.3 M-5 で意図して変えた: 利用者が問い Q1 で「録音バーに音の大きさを答える受け口を数行足す」ことを認めたので、凍結を解いて受け口（onLevelAsk → reportLevel）
 // だけを <script> に足した（見た目・点・文・区切り・無音の見張りは変えない）。その中身のハッシュで凍結をかけ直した（0.9.0 の値は 788dad76…）
-test('録音バーは触らない（D25 で 0.9.0 の形にした。変えるのは利用者の決定のときだけ）: overlay.html は 0.9.3 の受け口を足した中身と1バイトも違わない', () => {
+// 0.9.4 W-1 で意図して変えた: 持ち主の決定（2026-10-22「5本がそれぞれ揺れる」・録音中のページと同じ）で凍結を解き、5つの点の長さを mainlib.levelBars と
+// 同じ式（左右対称の重み・1本ずつ違う速さの揺れ・動きを減らす設定では揺らさない）にした。その中身のハッシュで凍結をかけ直した（0.9.3 の値は 8f6d2fac…）
+test('録音バーは触らない（D25 で 0.9.0 の形にした。変えるのは利用者の決定のときだけ）: overlay.html は 0.9.4 の持ち主の決定で直した中身と1バイトも違わない', () => {
   const buf = fs.readFileSync(path.join(__dirname, '..', 'src', 'renderer', 'overlay.html'));
-  assert.strictEqual(require('node:crypto').createHash('sha256').update(buf).digest('hex'), '8f6d2fac8e5dc7cc68b3758d86573e7fc03f7e90c35acf343cd9a8a8e49129da');
+  assert.strictEqual(require('node:crypto').createHash('sha256').update(buf).digest('hex'), '35a9a04c8275b0de28297517899a97d32328eaee584e86a08f1d2de473fe0d2a');
 });
 
 test('N1: ガラス風をやめた（backdrop-filter・グラデーション・ぼかし玉・filter: blur が無い）', () => {
@@ -110,10 +112,11 @@ test('F10: 規則の文字の色は文字のトークンだけ、地は地のト
   // 0.9.3 M-6 で意図して足した: 録音中のページの音の波の棒（#liveWave i。文字を持たない飾り。音のある棒は --level、一時停止は --line）
   const decor = (sel) => sel.split(',').every((s) => /^\.check input/.test(s.trim()) || ['.rec-dot', '#updBadge .dot', '#palette', '#liveWave i', '#liveWave.paused i'].includes(s.trim()));   // 文字を持たない飾り
   // 0.9.3 M-6 で意図して足した: 無音の点（#liveWave.quiet i）だけは地に文字のトークン --muted を使う（点は文字を載せない飾りで、文字の色と同じ灰色に見せる）
-  const MUTED_DOT = '#liveWave.quiet i';
+  // 0.9.4 W-1 で意図して変えた: 点は録音バーと同じ5つで、無音も声も文字の灰色（--text-2。持ち主の答え「青を使わない」）。無音の色分け（.quiet）は無くした
+  const MUTED_DOT = '#liveWave i';
   for (const r of rules) {
     if (r.sel === ':root') continue;   // トークンの定義（明・暗）
-    if (r.sel === MUTED_DOT) { assert.strictEqual((r.decls.background || '').trim(), 'var(--muted)', MUTED_DOT); continue; }
+    if (r.sel === MUTED_DOT) { assert.strictEqual((r.decls.background || '').trim(), 'var(--text-2)', MUTED_DOT); continue; }
     for (const [k, v] of Object.entries(r.decls)) if (!k.startsWith('--')) assert.ok(!RAW.test(v), `${r.sel} { ${k}: ${v} } に生の色`);
     if (r.decls.color) assert.match(r.decls.color.trim(), TEXT, `${r.sel} の文字の色（強調の面の色 --accent・--level を文字にしない）`);
     const bg = r.decls.background || r.decls['background-color'];

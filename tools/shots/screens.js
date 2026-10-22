@@ -199,7 +199,13 @@ SCREENS.find((x) => x.name === 'notes-page-light').focus = { tabs: 3, want: 'mtT
 // 利用者がまとめて OK と言ったら、版を上げる commit で基準にして空に戻す
 // 0.9.3（版を 0.9.3 に上げる commit）: 持ち主が 2026-10-22 に「CI の画像を基準にして 0.9.3 の版を上げてよい」と言ったので、オフラインモードの札の commit
 // （a6b8271）の CI run 39769254304 の取り直しの画像（.after.png。計画の「取り直す画面」の全部の 36 枚）をバイトのまま基準にし、空に戻した
-const RETAKE = new Set([]);
+// 0.9.4（計画 docs/plans/2026-10-22-094.md の「取り直す画面（決めた形）」）: W-1 で録音中のページの波を5つの灰色の点に・録音バーの声の点を5本がそれぞれ
+// 揺れる形にしたので、録音中のページの 13 枚と録音バーの声のある状態（rec・dict・fallback・spk-ng）の 32 枚と縦の × の1枚を入れた。タスクごとに足し、
+// 持ち主が最後にまとめて OK と言ったら、版を上げる commit で基準にして空に戻す
+const OVL_094 = (states) => PS.FORMS.flatMap((form) => Object.keys(PS.DESKS).flatMap((desk) => PS.SCALES.flatMap((sc) => states.map((st) => `overlay-${form}-${desk}-${st}-${Math.round(sc * 100)}`))));
+const RETAKE = new Set(['live-light', 'live-dark', 'live-banner-light', 'live-banner-dark', 'live-banner-zoom200-dark', 'live-quiet-light', 'live-quiet-dark',
+  'live-offline-light', 'live-offline-dark', 'live-wave-light', 'live-wave-dark', 'live-silent-light', 'live-paused-dark',
+  ...OVL_094(['rec', 'dict', 'fallback', 'spk-ng']), 'overlay-vertical-dark-hover-150']);
 const PERF = [{ name: 'open-2000-blocks', budgetMs: 500 }];   // 3回開いた中央値で見る
 const TIME_ZONE = 'Asia/Tokyo';
 const TOLERANCE = 2;   // 色の差（0〜255）がこれ以下の画素は同じとみなす。CI の機械の CPU ごとの描き方の1段の差を拾わないため（揺れの確かめ judgePair は 0 で見る）

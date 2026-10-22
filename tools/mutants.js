@@ -407,7 +407,7 @@ module.exports = [
   // 0.9.2 で意図して直した: 版を 0.9.2 に上げる commit で取り直しの 16 枚を基準にして RETAKE を空に戻したので、RETAKE に当たる4つの変異をまた空に当たる形にした
   // 0.9.3 M-0 で意図して直した: 設定の 16 枚と録音中のページの 7 枚が計画どおり取り直し待ちに入ったので、RETAKE に当たる4つの変異を、空でない RETAKE の頭に表に無い画面を足す形にした（0.9.2 I-1 と同じ）
   // 0.9.3 で意図して直した: 版を 0.9.3 に上げる commit で取り直しの画像を基準にして RETAKE を空に戻したので、RETAKE に当たる4つの変異をまた空に当たる形にした
-  { id: 'shots-retake-overlay', file: 'tools/shots/screens.js', from: 'const RETAKE = new Set([]);', to: "const RETAKE = new Set(['overlay-h-light-rec-100']);",
+  { id: 'shots-retake-overlay', file: 'tools/shots/screens.js', from: 'const RETAKE = new Set([', to: "const RETAKE = new Set(['overlay-h-light-error-100', ",
     tests: ['test/shots.test.js'], why: 'O-3 RP9・F14・G-3: 基準にした録音バーの画面を、黙って取り直し待ちに戻さない（基準と違っても NG にしない形に戻さない）。0.9.1 の版を上げる commit で RETAKE を空に戻したので、また空に当たる形にした。0.9.2 I-1 で設定の 7 枚が計画どおり取り直し待ちに入ったので、頭に足す形にした。0.9.2 の版を上げる commit で RETAKE を空に戻したので、また空に当たる形にした' },
   { id: 'shots-overflow', file: 'tools/shots/screens.js', from: 'function judgeOverflow(r) {\n', to: 'function judgeOverflow(r) {\n  return { ok: true, note: \'\' };\n',
     tests: ['test/shots.test.js'], why: 'C-1 F11: 横のはみ出しを NG にする' },
@@ -559,7 +559,7 @@ module.exports = [
     tests: ['test/invariants.test.js'], why: '不変条件 COLOR-04: JS が付ける live-on に CSS がある' },
   { id: 'shots-palette', file: 'tools/shots/screens.js', from: '  { name: \'search-palette-light\', page: \'app\', theme: \'light\', act: `${OPEN_PAGE}; ${OPEN_PALETTE}` },\n', to: '',
     tests: ['test/shots.test.js'], why: 'R-3: 検索の窓の画面を撮る' },
-  { id: 'shots-palette-retake', file: 'tools/shots/screens.js', from: 'const RETAKE = new Set([]);', to: "const RETAKE = new Set(['search-palette-light']);",
+  { id: 'shots-palette-retake', file: 'tools/shots/screens.js', from: 'const RETAKE = new Set([', to: "const RETAKE = new Set(['search-palette-light', ",
     tests: ['test/shots.test.js'], why: 'R-3 G12・第1b回 C-2: 検索の窓の画面も基準と比べる（取り直し待ちに戻さない。第1d回 A-7 で RETAKE の末尾が録音中のページの3枚に、A-13 で帯の暗い2枚になったので from を直した。G-4 で RETAKE を空に戻したので、空に当たる形にした。0.9.0 U-1 で設定の3枚と notes-tabs-light に、U-2 で設定の項目と検索の2枚、U-3 で準備を選んでいない人のカード「オフライン」の画面も足したので from を直した）。0.9.0 G-3 で RETAKE を空に戻したので、また空に当たる形にした。0.9.1 の版を上げる commit でも空に戻したので、また空に当たる形にした。0.9.2 I-1 で設定の 7 枚が計画どおり取り直し待ちに入ったので、頭に足す形にした。0.9.2 の版を上げる commit で RETAKE を空に戻したので、また空に当たる形にした' },
   { id: 'gate-1b2-ledger', file: 'tools/lib/moves.js', from: 'ids: [\'pActs\', \'pMore\', \'pMenu\'],', to: 'ids: [\'pActs\', \'pMore\', \'pMenu\', \'pTitle\'],',
     tests: ['test/gate.test.js'], why: 'L-1: 台帳の中身の固定（1b2 の行に pTitle を足さない）' },
@@ -588,7 +588,7 @@ module.exports = [
     tests: ['test/ui07.app.test.js'], why: 'U-2: 押しっぱなしの繰り返しでは切り替えず、保存もし直さない' },
   { id: 'u2-toggle-revert', file: 'src/renderer/app.html', from: '    if (!(await save(true))) sel.value = prev;', to: '    await save(true);',
     tests: ['test/ui07.app.test.js'], why: 'U-2: 保存しなかったときは欄を前の値に戻す' },
-  { id: 'u2-retake-settings', file: 'tools/shots/screens.js', from: 'const RETAKE = new Set([]);', to: "const RETAKE = new Set(['notes-page-light']);",
+  { id: 'u2-retake-settings', file: 'tools/shots/screens.js', from: 'const RETAKE = new Set([', to: "const RETAKE = new Set(['notes-page-light', ",
     tests: ['test/shots.test.js'], why: 'U-2・第1d回 A-4・G-4: 取り直し待ちを空に戻した後に、設定の画面を黙って取り直し待ちに入れない（A-4 で、空から3枚に戻した形の from に直した。A-7 で後ろに録音中のページの3枚が付いたので from を直した。G-4 で空に戻したので、0.7.0 U-2 と同じ空に当たる形にした。0.9.0 U-1 で設定の3枚が計画どおり取り直し待ちに入ったので、計画の表に無い画面（notes-page-light）を黙って足す形にした）。0.9.0 G-3 で空に戻したので、また空に当たる形にした（計画の表に無い画面を黙って取り直し待ちに入れない）。0.9.1 の版を上げる commit でも空に戻したので、また空に当たる形にした。0.9.2 I-1 で設定の 7 枚が計画どおり取り直し待ちに入ったので、頭に足す形にした。0.9.2 の版を上げる commit で RETAKE を空に戻したので、また空に当たる形にした' },
   // 第2a1回（Task G-3。計画 docs/plans/2026-10-19-2a1.md の「変異確認」の表と、各レーンの点検で足した行）。
   // 場面（mainrun）を使う stage2a1.main.test.js などは pattern で赤になるテストだけを回す（CI の mutate を 20 分に収める）
@@ -1467,7 +1467,7 @@ module.exports = [
   { id: "op-ui-test-hidden", file: "src/renderer/app.html", from: "$('testBtn').hidden = !engineChosen;", to: "$('testBtn').hidden = false;", tests: ["test/stage1d2.app.test.js"], why: "0.9.0 U-3: ［PC の中で試す］を選んでいない人にも出す" },
   { id: "op-ui-banner-signin", file: "src/renderer/app.html", from: "engine: 'エンジンを確かめる', signin: 'ログイン', offline:", to: "engine: 'エンジンを確かめる', offline:", tests: ["test/stage1d2.app.test.js"], why: "0.9.0 U-3: 帯の signin のボタンを出さない" },
   { id: "op-ui-notice-signin", file: "src/renderer/app.html", from: "signin: { label: 'ログイン', run: () => showAccount() }", to: "signin: { label: 'ログインし直す', run: () => showAccount() }", tests: ["test/stage1d2.app.test.js"], why: "0.9.0 U-3: 知らせの signin のボタンを［ログインし直す］にする" },
-  { id: "op-shots-retake", file: "tools/shots/screens.js", from: "const RETAKE = new Set([]);", to: "const RETAKE = new Set(['settings-offline-light']);", tests: ["test/shots.test.js"], why: "0.9.0 U-3: RETAKE から settings-offline-light を外す（0.9.0 G-3 で基準にして RETAKE を空に戻したので、settings-offline-light を黙って取り直し待ちに戻す形にした。0.9.1 の版を上げる commit でも RETAKE を空に戻したので、また空に当たる形にした。0.9.2 I-1 で settings-offline-light が計画どおり取り直し待ちに入ったので、計画の表に無い live-light を頭に足す形にした。0.9.2 の版を上げる commit で RETAKE を空に戻し、settings-offline-light を基準にしたので、また settings-offline-light を黙って取り直し待ちに戻す形にした）" },
+  { id: "op-shots-retake", file: "tools/shots/screens.js", from: "const RETAKE = new Set([", to: "const RETAKE = new Set(['settings-offline-light', ", tests: ["test/shots.test.js"], why: "0.9.0 U-3: RETAKE から settings-offline-light を外す（0.9.0 G-3 で基準にして RETAKE を空に戻したので、settings-offline-light を黙って取り直し待ちに戻す形にした。0.9.1 の版を上げる commit でも RETAKE を空に戻したので、また空に当たる形にした。0.9.2 I-1 で settings-offline-light が計画どおり取り直し待ちに入ったので、計画の表に無い live-light を頭に足す形にした。0.9.2 の版を上げる commit で RETAKE を空に戻し、settings-offline-light を基準にしたので、また settings-offline-light を黙って取り直し待ちに戻す形にした）" },
   { id: "op-ui-startup-await", file: "src/renderer/app.html", from: "    await engineStateP;\n", to: "", tests: ["test/stage1d2.app.test.js"], why: "0.9.0 U-3（点検・F4）: 起動の連れて行きが engine:status の答えを待たない（準備していない人を設定へ連れて行く）" },
   { id: "op-ui-chosen-missing", file: "src/renderer/app.html", from: "engineChosen = !(s && s.chosen === false);", to: "engineChosen = Boolean(s && s.chosen);", tests: ["test/stage1d2.app.test.js"], why: "0.9.0 U-3（点検・F5）: engine:status に chosen が無いときを「選んでいない」と読む（0.8.0 の人の画面が変わる）" },
   { id: "sp-showlive-close", file: "src/renderer/app.html", from: "if (hasTab('live')) { closeSettings(); activateTab", to: "if (hasTab('live')) { activateTab", tests: ["test/stage1d.app.test.js"], why: "0.9.0 U-1（点検）: Windows の知らせを押しても設定のポップアップを閉じない（録音中のページが後ろに隠れたまま）" },
@@ -1491,7 +1491,7 @@ module.exports = [
   { id: "rp-move-fallback", file: "src/mainlib.js", from: "function snapsOnQuiet(platform) { return platform === 'linux'; }", to: "function snapsOnQuiet(platform) { return true; }", tests: ["test/stage090.panel.test.js"], why: "0.9.0 O: 300ms の代わりの吸い付きを Linux だけでなくどの OS でも使う" },
   { id: "rp-pill-flex", file: "src/renderer/overlay.html", from: "    flex: none; width: max-content;\n", to: "    width: max-content;\n", tests: ["test/stage090.overlay.test.js"], why: "0.9.0 O: .pill から flex: none を外す" },
   { id: "rp-shots-watchdog", file: "tools/shots/main.js", from: "const limitMs = SH.watchdogMs(SH.SCREENS.length);", to: "const limitMs = 90000;", tests: ["test/shots.test.js"], why: "0.9.0 O: 撮る道具の見張りを今の決まった 90 秒に戻す" },
-  { id: "rp-dots-silent", file: "src/renderer/overlay.html", from: "    if (!(level > SILENT_LEVEL)) return [4, 4, 4, 4, 4];\n", to: "    if (!(level > SILENT_LEVEL)) return [16, 16, 16, 16, 16];\n", tests: ["test/stage090.overlay.test.js"], why: "0.9.0 O-3: 無音の点を 4px にしない（無音で返す長さを 16px にする。無音の守りを外す形は声の計算でも無音で 4px になり同じ答えの変異なので、言い直した）" },
+  { id: "rp-dots-silent", file: "src/renderer/overlay.html", from: "    if (!(typeof level === 'number' && level > 0.02)) return [4, 4, 4, 4, 4];\n    return LEVEL_BAR_W.map((w, i) => {\n      const g = typeof tMs", to: "    if (!(typeof level === 'number' && level > 0.02)) return [16, 16, 16, 16, 16];\n    return LEVEL_BAR_W.map((w, i) => {\n      const g = typeof tMs", tests: ["test/stage090.overlay.test.js"], why: "0.9.0 O-3: 無音の点を 4px にしない（無音で返す長さを 16px にする。無音の守りを外す形は声の計算でも無音で 4px になり同じ答えの変異なので、言い直した）" },
   { id: "rp-dots-five", file: "src/renderer/overlay.html", from: "<i></i><i></i><i></i><i></i><i></i></span>", to: "<i></i><i></i><i></i><i></i></span>", tests: ["test/stage090.overlay.test.js"], why: "0.9.0 O: 点を4つにする" },
   { id: "rp-spk-sea", file: "src/renderer/overlay.html", from: "setSpeaker(!sysOn ? 'ng' : sysLevel > SILENT_LEVEL ? 'on' : 'idle');", to: "setSpeaker(!sysOn ? 'ng' : 'idle');", tests: ["test/stage090.overlay.test.js"], why: "0.9.0 O: 相手の声の印の波を海の色にしない（いつも灰色）" },
   { id: "rp-spk-hidden", file: "src/renderer/overlay.html", from: "setSpeaker(sysWanted ? 'idle' : '');", to: "setSpeaker('idle');", tests: ["test/stage090.overlay.test.js"], why: "0.9.0 O: 相手の声を録らない設定でも印を出す" },
@@ -1654,10 +1654,10 @@ module.exports = [
   { id: "w-ask-raf", file: "src/renderer/overlay.html", from: "    window.koeOverlay.onLevelAsk(() => window.koeOverlay.reportLevel({", to: "    window.koeOverlay.onLevelAsk(() => requestAnimationFrame(() => window.koeOverlay.reportLevel({", also: [{ from: "warn: typeof shownLabel === 'string' ? shownLabel : '' }));", to: "warn: typeof shownLabel === 'string' ? shownLabel : '' })));" }], tests: ["test/stage093.app.test.js"], why: "0.9.3 M-5 M8: 録音バーが毎フレームの描きの中でだけ答える（録音バーを隠すと Chromium が requestAnimationFrame を止め、波が止まる）" },
   { id: "w-level-raw", file: "src/main.js", from: "  sendToMainWin('meeting:level', lib.levelMsg(p));", to: "  sendToMainWin('meeting:level', p);", tests: ["test/stage093.main.test.js"], pattern: "M8: overlay:level", why: "0.9.3 M-5 M8: 録音バーの答えを照らさずに録音中のページへ送る（好きな文・範囲の外の数が画面に届く）" },
   // M-6: 音の波と「聞き取り中」の行
-  { id: "w-silent", file: "src/renderer/app.html", from: "(typeof l === 'number' && l > 0.02 ? Math.max(4,", to: "(typeof l === 'number' && l > 0 ? Math.max(4,", tests: ["test/stage093.app.test.js"], why: "0.9.3 M-6 決めたこと 17: 無音（0.02 以下）を 3px の点にしない（無音でも波が立って見える）" },
+  { id: "w-silent", file: "src/renderer/app.html", from: "    const h = levelBars(lv.length ? lv[lv.length - 1] : 0, reducedMotion() ? null : Date.now());", to: "    const h = levelBars(lv.length ? Math.max(lv[lv.length - 1], 0.05) : 0.05, reducedMotion() ? null : Date.now());", tests: ["test/stage093.app.test.js"], why: "0.9.3 M-6 決めたこと 17（0.9.4 W-1 で5つの点に合わせた）: 無音でも点を伸ばす（無音でも波が立って見える）" },
   { id: "w-stale", file: "src/renderer/app.html", from: "    const fresh = !paused && Date.now() - waveState.at <= WAVE_STALE_MS;", to: "    const fresh = !paused;", tests: ["test/stage093.app.test.js"], why: "0.9.3 M-6 M8: 1 秒届かなくても平らにしない（止まった波を「音がある」と読ませる）" },
   { id: "w-paused", file: "src/renderer/app.html", from: "    const fresh = !paused && Date.now() - waveState.at <= WAVE_STALE_MS;", to: "    const fresh = Date.now() - waveState.at <= WAVE_STALE_MS;", also: [{ from: "    if (paused) { waveState.levels = []; waveState.warn = ''; }\n", to: "" }], tests: ["test/stage093.app.test.js"], why: "0.9.3 M-6 M8: 一時停止でも列を残す（止めているのに波が見える）" },
-  { id: "w-reduced", file: "src/renderer/app.html", from: "    const h = reducedMotion() ? waveStill(lv.length ? lv[lv.length - 1] : 0) : waveHeights(lv);", to: "    const h = waveHeights(lv);", tests: ["test/stage093.app.test.js"], why: "0.9.3 M-6 決めたこと 19: 動きを減らす設定でも流す" },
+  { id: "w-reduced", file: "src/renderer/app.html", from: "    const h = levelBars(lv.length ? lv[lv.length - 1] : 0, reducedMotion() ? null : Date.now());", to: "    const h = levelBars(lv.length ? lv[lv.length - 1] : 0, Date.now());", tests: ["test/stage093.app.test.js"], why: "0.9.3 M-6 決めたこと 19（0.9.4 W-1 で5つの点に合わせた）: 動きを減らす設定でも揺らす" },
   { id: "w-tail-seg", file: "src/renderer/app.html", from: "      t.className = 'livetail';", to: "      t.className = 'seg livetail';", tests: ["test/stage093.app.test.js", "test/stage1b.app.test.js"], why: "0.9.3 M-6 M10: 「聞き取り中」の行を .seg にする（区間の数・出典の飛び先・コピーがずれる）" },
   { id: "w-tail-paused", file: "src/renderer/app.html", from: "    if (st.active && !st.paused && !st.finalizing) {", to: "    if (st.active && !st.finalizing) {", tests: ["test/stage093.app.test.js"], why: "0.9.3 M-6 M10: 一時停止中も「聞き取り中」の行を出す（録っていないのに聞き取っているように読める）" },
   // 0.9.3 M-4 の CI の直し（CI run 39745472232）: 札の規則の名前
@@ -1787,4 +1787,17 @@ module.exports = [
     tests: ['test/stage094.detect.test.js'], pattern: '^D-1（場面）: 本物と同じく', why: '0.9.4 D-1: マイクの記録の数を記録に書かない（記録が来たかが engine.log で分からない）' },
   { id: 'dt-trigger', file: 'src/main.js', from: "  if (r && r.ok) engineLog(`会議: 始めた（${trigger}）`);", to: '',
     tests: ['test/stage094.detect.test.js'], pattern: '引き金', why: '0.9.4 D-1: 会議の始まりの引き金を書かない（検出が出ずに何で始めたかが分からない）' },
+  // W-1: 5本がそれぞれ揺れる波（録音バーと録音中のページ）
+  { id: 'wv-weights', file: 'src/mainlib.js', from: 'const LEVEL_BAR_W = [0.75, 0.9, 1, 0.9, 0.75];', to: 'const LEVEL_BAR_W = [1, 0.85, 0.7, 0.55, 0.4];',
+    tests: ['test/stage094.wave.test.js'], why: '0.9.4 W-1: 重みを左ほど重い形に戻す（波が左に寄る: 持ち主「バランスよくできませんか」）' },
+  { id: 'wv-same-phase', file: 'src/mainlib.js', from: 'const LEVEL_BAR_SPEED = [7.1, 9.3, 5.7, 8.4, 6.6];', to: 'const LEVEL_BAR_SPEED = [7.1, 7.1, 7.1, 7.1, 7.1];',
+    tests: ['test/stage094.wave.test.js'], why: '0.9.4 W-1: 5本を同じ速さで揺らす（それぞれ揺れない）' },
+  { id: 'wv-silent', file: 'src/mainlib.js', from: "  if (!(typeof level === 'number' && level > 0.02)) return [4, 4, 4, 4, 4];\n  return LEVEL_BAR_W", to: "  if (!(typeof level === 'number')) return [4, 4, 4, 4, 4];\n  return LEVEL_BAR_W",
+    tests: ['test/stage094.wave.test.js'], why: '0.9.4 W-1: 無音（0.02 以下）でも揺らす（黙っていても声が入っているように見える）' },
+  { id: 'wv-bar-reduced', file: 'src/renderer/overlay.html', from: '    const d = paused ? [4, 4, 4, 4, 4] : levelBars(level, reduceMotion() ? null : Date.now());', to: '    const d = paused ? [4, 4, 4, 4, 4] : levelBars(level, Date.now());',
+    tests: ['test/stage094.wave.test.js'], why: '0.9.4 W-1: 動きを減らす設定でも録音バーの点を揺らす' },
+  { id: 'wv-page-dots', file: 'src/renderer/app.html', from: '<span id="liveWave" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></span>', to: '<span id="liveWave" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span>',
+    tests: ['test/stage094.wave.test.js', 'test/stage093.app.test.js'], why: '0.9.4 W-1: 録音中のページの点を録音バーと違う数にする（持ち主「音の波はパネルと同じように」）' },
+  { id: 'wv-page-blue', file: 'src/renderer/app.html', from: '  #liveWave i { display: block; width: 4px; height: 4px; border-radius: 2px; background: var(--text-2);', to: '  #liveWave i { display: block; width: 4px; height: 4px; border-radius: 2px; background: var(--level);',
+    tests: ['test/stage094.wave.test.js', 'test/stage1b.look.test.js', 'test/stage1b2.look.test.js'], why: '0.9.4 W-1: 録音中のページの点を青にする（持ち主「青を使わない」・文字の灰色）' },
 ];

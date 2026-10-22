@@ -53,7 +53,7 @@
   .logo { width: 20px; height: 20px; display: block; }
   .badge { position: absolute; right: -3px; bottom: -3px; width: 9px; height: 9px; border-radius: 50%; background: var(--warn); border: 2px solid var(--bg); }
 
-  /* 音の大きさ: ちょうど5つの点。無音は同じ 4px の点、声が入ると左から伸びる（縦の形は横へ）。長さは --l（renderLevel） */
+  /* 音の大きさ: ちょうど5つの点。無音は同じ 4px の点、声が入ると5本がそれぞれ揺れる（0.9.4 W-1。縦の形は横へ）。長さは --l（renderLevel） */
   .lv { display: flex; align-items: center; justify-content: center; gap: 3px; flex: none; width: 32px; height: 20px; }
   .pill[data-form="v"] .lv { flex-direction: column; width: 20px; height: 32px; }
   .lv i { --l: 4px; display: block; width: 4px; height: var(--l); border-radius: 2px; background: var(--fg); }
@@ -479,16 +479,24 @@
     }
     return Math.min(1, Math.sqrt(sum / data.length) * 3.4);
   }
-  // 5つの点の長さ（px）。無音（SILENT_LEVEL 以下）は5つとも 4px、声が入ると左ほど早く伸び、16px まで
-  const DOT_W = [1, 0.85, 0.7, 0.55, 0.4];
-  function levelDots(level) {
-    if (!(level > SILENT_LEVEL)) return [4, 4, 4, 4, 4];
-    return DOT_W.map((w) => Math.round(4 + 12 * Math.min(1, level * 1.6 * w)));
+  // 5つの点の長さ（px）。0.9.4 W-1（持ち主の答え「5本がそれぞれ揺れる」）: 無音（0.02 以下）は5つとも 4px、声が入ると5本がそれぞれ違う速さで
+  // 揺れて 16px まで（重みは左右対称で左に寄らない）。式は src/mainlib.js の levelBars と同じ（test/stage094.wave が同じ値になることを見る）
+  const LEVEL_BAR_W = [0.75, 0.9, 1, 0.9, 0.75];
+  const LEVEL_BAR_SPEED = [7.1, 9.3, 5.7, 8.4, 6.6];
+  const LEVEL_BAR_PHASE = [0.3, 1.9, 0.8, 2.6, 1.4];
+  function levelBars(level, tMs) {
+    if (!(typeof level === 'number' && level > 0.02)) return [4, 4, 4, 4, 4];
+    return LEVEL_BAR_W.map((w, i) => {
+      const g = typeof tMs === 'number' && Number.isFinite(tMs) ? 0.35 + 0.65 * Math.abs(Math.sin(LEVEL_BAR_PHASE[i] + (LEVEL_BAR_SPEED[i] * tMs) / 1000)) : 1;
+      return Math.round(4 + 12 * Math.min(1, level * 1.6 * w * g));
+    });
   }
+  // 動きを減らす設定では揺らさない（声の大きさで伸び縮みだけ）
+  const reduceMotion = () => { try { return Boolean(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches); } catch (_) { return false; } };
   let shownDots = '';
   // 点を描く（変わったときだけ書く）。一時停止中は平らな点
   function renderLevel(level) {
-    const d = paused ? [4, 4, 4, 4, 4] : levelDots(level);
+    const d = paused ? [4, 4, 4, 4, 4] : levelBars(level, reduceMotion() ? null : Date.now());
     const key = d.join(',');
     if (key === shownDots) return;
     shownDots = key;

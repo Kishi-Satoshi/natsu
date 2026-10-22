@@ -1894,6 +1894,19 @@ function nudgeBounds({ size, workArea }) {
   const height = Math.min(Math.ceil(s.h) + 2 * NUDGE_PAD, workArea.height - 2 * gap);
   return { x: workArea.x + workArea.width - gap - width, y: workArea.y + gap, width, height };
 }
+// 0.9.4 W-1（持ち主の答え「5本がそれぞれ揺れる」）: 録音バーと録音中のページの5本の高さ（px）。無音（0.02 以下・数でない）は同じ 4px の点が5つ。
+// 声は重み（左右対称: 左に寄らない）× 1本ずつ違う速さと位相の揺れ（0.35〜1 倍）で 4〜16px。tMs が数でない（null）は揺らさない止めた形（動きを減らす設定）。
+// overlay.html と app.html は main のファイルを読めないので同じ式を写す（test/stage094.wave が同じ値になることを見る）
+const LEVEL_BAR_W = [0.75, 0.9, 1, 0.9, 0.75];
+const LEVEL_BAR_SPEED = [7.1, 9.3, 5.7, 8.4, 6.6];
+const LEVEL_BAR_PHASE = [0.3, 1.9, 0.8, 2.6, 1.4];
+function levelBars(level, tMs) {
+  if (!(typeof level === 'number' && level > 0.02)) return [4, 4, 4, 4, 4];
+  return LEVEL_BAR_W.map((w, i) => {
+    const g = typeof tMs === 'number' && Number.isFinite(tMs) ? 0.35 + 0.65 * Math.abs(Math.sin(LEVEL_BAR_PHASE[i] + (LEVEL_BAR_SPEED[i] * tMs) / 1000)) : 1;
+    return Math.round(4 + 12 * Math.min(1, level * 1.6 * w * g));
+  });
+}
 // 録音バーが答えた音の大きさの照らし（決めたこと 14）。数は 0〜1 に収めて小数 2 けた、warn は決まった3つのほかは ''（画面は文を作らない）
 const LEVEL_ASK_MS = 100;
 const LEVEL_WARNS = Object.freeze(['', '音が入っていません', 'マイクの音が入っていません']);
@@ -2037,6 +2050,7 @@ module.exports = {
   // 0.9.3 M-1（会議の検出と音の波）
   MEET_APPS, MIC_ROOT, micWatchScript, parseMicLine, NUDGE_SHOW_MS, NUDGE_HOVER_GRACE_MS, NUDGE_REJOIN_MS, nudgeInit, nudgeStep,
   NUDGE_EDGE, NUDGE_PAD, NUDGE_FIRST, nudgeBounds, LEVEL_ASK_MS, LEVEL_WARNS, levelMsg,
+  LEVEL_BAR_W, LEVEL_BAR_SPEED, LEVEL_BAR_PHASE, levelBars,
   // 0.9.4 S-1（文字起こしの安定化）
   localFailKind, effRtf, PACE, paceStep, paceSaved, localTimeoutMs, LOCAL_SEGMENT_MS_CAP, afterEtaMin, RELAY_TRANSIENT, RELAY_HOLD_LADDER_MS, relayHoldStep,
 };
