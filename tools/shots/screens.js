@@ -123,7 +123,7 @@ const SCREENS = [
   { name: 'settings-info-search-light', page: 'app', theme: 'light',
     act: `${OPEN_SETTINGS}; const b = document.getElementById('setSearch'); b.value = 'イヤホン'; b.dispatchEvent(new Event('input', { bubbles: true }))` },
   // 0.9.3 M-7（計画 docs/plans/2026-10-22-093.md の「取り直す画面」）: 録音中のページの音の波（話している WAVE_SPEECH・無音・一時停止。live-light と同じ会議）と、
-  // 設定の「録音」の頭の「会議の検出」（出さないアプリ Zoom の札のある形）。足した画面（まだ基準が無い）
+  // 設定の「録音」の頭の「会議の検出」（出さないアプリ Zoom の札のある形）。足した画面（版を 0.9.3 に上げる commit で CI の画像を基準にした）
   // 話している波は「動きを減らす」でない形で撮る（Windows の CI の機械は prefers-reduced-motion が reduce で、CI run 39751610440 では
   // 真ん中の5本だけの形になった。main.js が DevTools の Emulation.setEmulatedMedia で motion を当てる）
   { name: 'live-wave-light', page: 'app', theme: 'light', answers: liveAnswers(), events: WAVE_EVENTS, motion: 'no-preference' },
@@ -134,7 +134,7 @@ const SCREENS = [
   { name: 'settings-detect-light', page: 'app', theme: 'light', get answers() { return detectAnswers(); }, act: `${OPEN_SETTINGS}; ${NAV('setNavRecord')}` },
   { name: 'settings-detect-dark', page: 'app', theme: 'dark', get answers() { return detectAnswers(); }, act: `${OPEN_SETTINGS}; ${NAV('setNavRecord')}` },
   // 0.9.3 持ち主の答え D55: オフラインモードの会議の録音中のページ（札「オフラインモード中」・記録の行「議事録を記録中（相手の声も・オフライン）」・灰色の説明の行）。
-  // live-light と同じ会議を、オフラインモードで PC の中の文字起こし（区切り 75 秒）にした形。足した画面（まだ基準が無い）
+  // live-light と同じ会議を、オフラインモードで PC の中の文字起こし（区切り 75 秒）にした形。足した画面（版を 0.9.3 に上げる commit で CI の画像を基準にした）
   { name: 'live-offline-light', page: 'app', theme: 'light', answers: liveAnswers(OFFLINE_STT, OFFLINE_EXTRA) },
   { name: 'live-offline-dark', page: 'app', theme: 'dark', answers: liveAnswers(OFFLINE_STT, OFFLINE_EXTRA) },
 ];
@@ -197,15 +197,9 @@ SCREENS.find((x) => x.name === 'notes-page-light').focus = { tabs: 3, want: 'mtT
 // 0.9.3（計画 docs/plans/2026-10-22-093.md の「取り直す画面」）: M-0（持ち主の答え D54）で設定の左の列の名前を「ローカル AI の設定」にして列を 196px に
 // 広げたので設定の 16 枚、録音中のページのボタンを［オフラインモード］にしたので録音中のページの 7 枚を入れた。M-4・M-6・M-7 で足す画面も入れる。
 // 利用者がまとめて OK と言ったら、版を上げる commit で基準にして空に戻す
-const RETAKE = new Set(['settings-light', 'settings-dark', 'live-light', 'live-dark', 'settings-zoom200-dark', 'live-banner-light', 'live-banner-dark',
-  'live-banner-zoom200-dark', 'settings-record-light', 'settings-search-light', 'settings-offline-light', 'live-quiet-light', 'live-quiet-dark',
-  'settings-quiet-search-light', 'settings-record-dark', 'settings-record-zoom200-light', 'settings-summary-light', 'settings-account-light',
-  'settings-info-loop-light', 'settings-info-stt-dark', 'settings-info-claude-light', 'settings-info-zoom200-light', 'settings-info-search-light',
-  // M-7 で足した画面（音の波の4枚・設定の「会議の検出」の2枚・パネルの5枚。まだ基準が無い）
-  'live-wave-light', 'live-wave-dark', 'live-silent-light', 'live-paused-dark', 'settings-detect-light', 'settings-detect-dark',
-  'nudge-light-100', 'nudge-dark-100', 'nudge-light-150', 'nudge-menu-light-100', 'nudge-menu-dark-100',
-  // 持ち主の答え D55 で足した画面（オフラインモードの録音中のページの明るい・暗い。まだ基準が無い）
-  'live-offline-light', 'live-offline-dark']);
+// 0.9.3（版を 0.9.3 に上げる commit）: 持ち主が 2026-10-22 に「CI の画像を基準にして 0.9.3 の版を上げてよい」と言ったので、オフラインモードの札の commit
+// （a6b8271）の CI run 39769254304 の取り直しの画像（.after.png。計画の「取り直す画面」の全部の 36 枚）をバイトのまま基準にし、空に戻した
+const RETAKE = new Set([]);
 const PERF = [{ name: 'open-2000-blocks', budgetMs: 500 }];   // 3回開いた中央値で見る
 const TIME_ZONE = 'Asia/Tokyo';
 const TOLERANCE = 2;   // 色の差（0〜255）がこれ以下の画素は同じとみなす。CI の機械の CPU ごとの描き方の1段の差を拾わないため（揺れの確かめ judgePair は 0 で見る）
