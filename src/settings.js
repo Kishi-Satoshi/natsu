@@ -145,6 +145,9 @@ function defaultSettings(cpuCount) {
     // 話し声が無いときに自動で止める（0.9.1 Q-3）。知らせるまでの分（止めるのはその 5 分後）
     autoStopQuiet: true,
     autoStopMin: 10,
+    // 会議の検出の通知（0.9.3 M-1）と、通知を出さないアプリ（MEET_APP_IDS の id の並び）
+    meetingDetect: true,
+    meetingDetectMute: [],
   };
 }
 
@@ -161,6 +164,7 @@ function defaultSettings(cpuCount) {
 //   exe:      文字列。.cmd・.bat・.ps1 で終われば ''（shell を通さないと起こせないので使わない。F12。大小を問わない）。
 //             string の kind は全部のパスの欄が共有するので、この決まりは claudeExe の exe にだけ入れる
 //   email:    '' か、メールアドレスの形（isEmailShape）の文字列。違えば ''（ログインしていない形）。文字でなければ why は type
+//   apps:     MEET_APP_IDS の id の並び（0.9.3 M-1）。配列でなければ []。一覧に無い id・重なり・文字でないものを落とす（落としたら why は type）
 //   pick:     values のどれかの数（数の文字も数として受け、直した印 type）。違えば既定（範囲の端に寄せない: 選ぶ欄に無い値を作らない）
 const SETTING_RULES = {
   localServerExe: { label: 'whisper-server.exe のパス', kind: 'string' },
@@ -199,8 +203,13 @@ const SETTING_RULES = {
   // 0.9.1 Q-3（D29）
   autoStopQuiet: { label: '話し声が無いときに自動で止める', kind: 'bool', notFalse: true },
   autoStopMin: { label: '知らせるまでの時間', kind: 'pick', values: AUTO_STOP_CHOICES },
+  // 0.9.3 M-1（会議の検出）
+  meetingDetect: { label: '会議の検出の通知', kind: 'bool', notFalse: true },
+  meetingDetectMute: { label: '通知を出さないアプリ', kind: 'apps' },
 };
 const SETTING_KEYS = Object.keys(SETTING_RULES);
+// 会議の検出の一覧の id（src/mainlib.js の MEET_APPS と同じ並び。settings.js は mainlib を読まないので写しを持つ: test/stage093.lib が照らす）
+const MEET_APP_IDS = Object.freeze(['teams', 'zoom', 'webex', 'slack', 'chrome', 'edge', 'firefox']);
 
 // 数の文字も数として受ける（'300' は 300）。数にならなければ NaN
 function toNumber(v) {
@@ -255,6 +264,12 @@ const FIX = {
   email(v) {
     if (typeof v !== 'string') return { value: '', why: 'type' };
     return v === '' || isEmailShape(v) ? { value: v, why: null } : { value: '', why: 'enum' };
+  },
+  apps(v) {
+    if (!Array.isArray(v)) return { value: [], why: 'type' };
+    const out = [];
+    for (const x of v) if (typeof x === 'string' && MEET_APP_IDS.includes(x) && !out.includes(x)) out.push(x);
+    return { value: out, why: out.length === v.length ? null : 'type' };
   },
   pick(v, { def, rule }) {
     if (typeof v !== 'number' && typeof v !== 'string') return { value: def, why: 'type' };
@@ -326,6 +341,6 @@ function pickSavable(next) {
 }
 
 module.exports = {
-  normalizeSettings, REMOVED_KEYS, PILL_POSITIONS, PILL_SLOTS, SLOT_FROM_POS, AUTO_STOP_CHOICES, defaultSettings, SETTING_RULES, SETTING_KEYS,
+  normalizeSettings, REMOVED_KEYS, PILL_POSITIONS, PILL_SLOTS, SLOT_FROM_POS, AUTO_STOP_CHOICES, MEET_APP_IDS, defaultSettings, SETTING_RULES, SETTING_KEYS,
   readSettings, pickSavable, isSettingsShape, isEmailShape,
 };

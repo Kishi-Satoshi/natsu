@@ -1634,6 +1634,236 @@ function helpPath(article) {
   return typeof article === 'string' && HELP_ARTICLES.includes(article) ? `${article}/` : '';
 }
 
+// ---------------------------------------------------------------- 会議の検出（0.9.3 M-1。計画 docs/plans/2026-10-22-093.md の決めたこと 1〜6・8）
+// 見るのは Windows の「マイクを使っているアプリ」の記録（Capability Access Manager。［設定］→［プライバシーとセキュリティ］→［マイク］の
+// 「最近のアクティビティ」と同じ記録）だけ。音は聞かない・窓の題名を読まない・何も外へ送らない。
+// 会議のアプリの一覧（凍らせる）。exe は実行ファイルの名前（パスの最後）の小文字、pkg はストアのアプリのパッケージファミリー名、
+// proc は古い値を除くときに見るプロセスの名前（.exe を外した形）。持ち主の実機の記録（2026-10-22。新しい Teams はパッケージ・Zoom は
+// 「Zoom Meetings」と出るが記録のキーはパスの最後が Zoom.exe）に合わせた。会議のアプリでないもの（ほかのメモ取りの道具）と NaTsu 自身は入れない
+const MEET_APPS = Object.freeze([
+  { id: 'teams', label: 'Teams', exe: ['ms-teams.exe', 'teams.exe'], pkg: ['MSTeams_8wekyb3d8bbwe'], proc: ['ms-teams', 'teams'] },
+  { id: 'zoom', label: 'Zoom', exe: ['zoom.exe'], pkg: [], proc: ['zoom'] },
+  { id: 'webex', label: 'Webex', exe: ['webex.exe', 'ciscocollabhost.exe', 'atmgr.exe'], pkg: [], proc: ['webex', 'ciscocollabhost', 'atmgr'] },
+  { id: 'slack', label: 'Slack', exe: ['slack.exe'], pkg: [], proc: ['slack'] },
+  { id: 'chrome', label: 'Chrome（ブラウザ）', exe: ['chrome.exe'], pkg: [], proc: ['chrome'] },
+  { id: 'edge', label: 'Edge（ブラウザ）', exe: ['msedge.exe'], pkg: [], proc: ['msedge'] },
+  { id: 'firefox', label: 'Firefox（ブラウザ）', exe: ['firefox.exe'], pkg: [], proc: ['firefox'] },
+].map((a) => Object.freeze({ ...a, exe: Object.freeze(a.exe), pkg: Object.freeze(a.pkg), proc: Object.freeze(a.proc) })));
+const MEET_BY_ID = new Map(MEET_APPS.map((a) => [a.id, a]));
+const MIC_ROOT = 'Software\\Microsoft\\Windows\\CurrentVersion\\CapabilityAccessManager\\ConsentStore\\microphone';
+const psq = (v) => `'${String(v).replace(/'/g, "''")}'`;
+/**
+ * 見張りの常駐の PowerShell（-NoProfile -NonInteractive で起こす）の中身。everyMs ごとに HKCU の root の下（パッケージのキーと NonPackaged の下の
+ * キー）を .NET の Registry で読み、LastUsedTimeStop が 0 で LastUsedTimeStart が 0 でない（どちらも QWORD）ものを「今使っている」とする。
+ * 一覧に当たるものだけを、self（NaTsu の実行ファイルのパス。キーの名前の形 \ → # にして小文字で比べる）を除き、proc のプロセスが今あるものだけ残す。
+ * 前と変わったときだけ「mic <id>:<start>,…」（無ければ「mic -」）を1行書く。読めない・例外は「err read」「err proc」。パス・一覧に無い名前・
+ * 題名は書かない。parent（NaTsu の main の pid）が居なくなったら自分で終わる。timing なら読みごとに「t <ミリ秒>」（Windows の CI のテストだけ）
+ */
+function micWatchScript({ root = MIC_ROOT, self = '', apps = MEET_APPS, everyMs = 2000, parent = 0, timing = false } = {}) {
+  const selfKey = String(self || '').replace(/\\/g, '#').toLowerCase();
+  const exeMap = apps.flatMap((a) => a.exe.map((e) => `${psq(e)} = ${psq(a.id)}`)).join('; ');
+  const pkgMap = apps.flatMap((a) => a.pkg.map((k) => `${psq(k.toLowerCase())} = ${psq(a.id)}`)).join('; ');
+  const procMap = apps.map((a) => `${psq(a.id)} = @(${a.proc.map(psq).join(', ')})`).join('; ');
+  const order = apps.map((a) => psq(a.id)).join(', ');
+  const every = Math.max(200, Math.floor(Number(everyMs)) || 2000);
+  const ppid = Math.max(0, Math.floor(Number(parent)) || 0);
+  return [
+    "$ErrorActionPreference = 'Stop'",
+    `$root = ${psq(root)}`,
+    `$self = ${psq(selfKey)}`,
+    `$exeMap = @{ ${exeMap} }`,
+    `$pkgMap = @{ ${pkgMap} }`,
+    `$procMap = @{ ${procMap} }`,
+    `$order = @(${order})`,
+    '$script:last = $null',
+    'function Say($t) { if ($t -ne $script:last) { $script:last = $t; [Console]::Out.WriteLine($t); [Console]::Out.Flush() } }',
+    'function Get-Use($k) {',
+    '  try {',
+    "    if ($k.GetValueKind('LastUsedTimeStart') -ne [Microsoft.Win32.RegistryValueKind]::QWord) { return $null }",
+    "    if ($k.GetValueKind('LastUsedTimeStop') -ne [Microsoft.Win32.RegistryValueKind]::QWord) { return $null }",
+    "    $a = [int64]$k.GetValue('LastUsedTimeStart'); $b = [int64]$k.GetValue('LastUsedTimeStop')",
+    '    if ($b -eq 0 -and $a -ne 0) { return $a }',
+    '  } catch { }',
+    '  return $null',
+    '}',
+    'function Add-Use($found, $id, $k) { $u = Get-Use $k; if ($u -ne $null) { if (-not $found.ContainsKey($id) -or $found[$id] -lt $u) { $found[$id] = $u } } }',
+    'while ($true) {',
+    ...(ppid ? [`  try { [void][System.Diagnostics.Process]::GetProcessById(${ppid}) } catch { exit 0 }`] : []),
+    ...(timing ? ['  $sw = [System.Diagnostics.Stopwatch]::StartNew()'] : []),
+    '  $found = @{}',
+    '  $bad = $false',
+    '  try {',
+    '    $k = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey($root)',
+    '    if ($k -ne $null) {',
+    '      foreach ($n in $k.GetSubKeyNames()) {',
+    "        if ($n -eq 'NonPackaged') {",
+    '          $np = $k.OpenSubKey($n)',
+    '          if ($np -eq $null) { continue }',
+    '          foreach ($m in $np.GetSubKeyNames()) {',
+    '            $low = $m.ToLowerInvariant()',
+    '            if ($low -eq $self) { continue }',
+    "            $leaf = $low.Substring($low.LastIndexOf('#') + 1)",
+    '            if (-not $exeMap.ContainsKey($leaf)) { continue }',
+    '            $sk = $np.OpenSubKey($m)',
+    '            if ($sk -eq $null) { continue }',
+    '            Add-Use $found $exeMap[$leaf] $sk',
+    '            $sk.Close()',
+    '          }',
+    '          $np.Close()',
+    '        } else {',
+    '          $low = $n.ToLowerInvariant()',
+    '          if (-not $pkgMap.ContainsKey($low)) { continue }',
+    '          $sk = $k.OpenSubKey($n)',
+    '          if ($sk -eq $null) { continue }',
+    '          Add-Use $found $pkgMap[$low] $sk',
+    '          $sk.Close()',
+    '        }',
+    '      }',
+    '      $k.Close()',
+    '    }',
+    "  } catch { $bad = $true; Say 'err read' }",
+    '  if (-not $bad) {',
+    '    try {',
+    '      $items = @()',
+    '      foreach ($id in $order) {',
+    '        if (-not $found.ContainsKey($id)) { continue }',
+    '        $alive = $false',
+    '        foreach ($p in $procMap[$id]) { if ([System.Diagnostics.Process]::GetProcessesByName($p).Length -gt 0) { $alive = $true; break } }',
+    "        if ($alive) { $items += ($id + ':' + $found[$id]) }",
+    '      }',
+    "      if ($items.Count -gt 0) { Say ('mic ' + ($items -join ',')) } else { Say 'mic -' }",
+    "    } catch { Say 'err proc' }",
+    '  }',
+    ...(timing ? ["  [Console]::Out.WriteLine('t ' + $sw.ElapsedMilliseconds); [Console]::Out.Flush()"] : []),
+    `  Start-Sleep -Milliseconds ${every}`,
+    '}',
+  ].join('\n');
+}
+// 見張りの1行を読む。一覧に無い id・数でない（0・負・小数・21 けた以上）start は落とす。同じ id は先のものだけ。形の悪い行・長すぎる行は null。
+// start は FILETIME（1.3e17 ほどで Number の安全な整数を越える）なので、数字の文字のまま持つ（比べるのは同じかどうかだけ）
+const MIC_LINE_MAX = 4096;
+function parseMicLine(line) {
+  if (typeof line !== 'string' || line.length > MIC_LINE_MAX) return null;
+  const t = line.trim();
+  const e = /^err (read|proc)$/.exec(t);
+  if (e) return { kind: 'err', code: e[1] };
+  if (t === 'mic -') return { kind: 'mic', items: [] };
+  const m = /^mic (\S+)$/.exec(t);
+  if (!m) return null;
+  const items = [];
+  for (const part of m[1].split(',')) {
+    const i = part.indexOf(':');
+    if (i < 0) continue;
+    const id = part.slice(0, i);
+    const start = part.slice(i + 1);
+    if (!MEET_BY_ID.has(id) || !/^[1-9]\d{0,19}$/.test(start) || items.some((x) => x.id === id)) continue;
+    items.push({ id, start });
+  }
+  return { kind: 'mic', items };
+}
+// 出す・引っ込める・2度出さないの判断（決めたこと 5・6）。時刻は出来事の now だけを使う。
+//  - 出すのは: idle・設定がオンでそのアプリを出さないにしていない・同じ (id, start) が2回続けて見えた・その (id, start) で出したことが無い・
+//    同じアプリの前の使い（出した・閉じたもの）が終わってから NUDGE_REJOIN_MS たった・今パネルが出ていない。同時なら一覧の順の先
+//  - 議事録の録音中（busy の meeting）に見えた使いは「録った会議」として、もう出さない。音声入力・作成中（busy の meeting でない）に始まった使いは
+//    覚えておき、idle に戻ったときにまだ使っていれば1回だけ出す
+//  - 引っ込めるのは: そのアプリがマイクを離した・出してから NUDGE_SHOW_MS（カーソルが乗っている間は数えず、離れてから NUDGE_HOVER_GRACE_MS）・
+//    閉じた・録音が始まった・設定を切った／そのアプリを出さないにした
+const NUDGE_SHOW_MS = 30000;
+const NUDGE_HOVER_GRACE_MS = 5000;
+const NUDGE_REJOIN_MS = 60000;
+function nudgeInit({ on = true, mute = [] } = {}) {
+  return { on: on !== false, mute: Array.isArray(mute) ? [...mute] : [], idle: true, meeting: false, active: {}, seen: {}, done: [], lastEnd: {}, shown: null };
+}
+function nudgeStep(st0, ev) {
+  const st = JSON.parse(JSON.stringify(st0 || nudgeInit()));
+  const out = { st, show: null, hide: false };
+  if (!ev || typeof ev !== 'object') return out;
+  const now = Number.isFinite(ev.now) ? ev.now : 0;
+  const key = (id, start) => `${id}:${start}`;
+  const done = (k) => st.done.includes(k);
+  const markDone = (k) => { if (!done(k)) st.done.push(k); };
+  const hideNow = () => { if (st.shown) { st.shown = null; out.hide = true; } };
+  const pick = () => {
+    if (!st.idle || !st.on || st.shown) return;
+    for (const a of MEET_APPS) {
+      const start = st.active[a.id];
+      if (start === undefined || st.mute.includes(a.id)) continue;
+      const k = key(a.id, start);
+      if ((st.seen[k] || 0) < 2 || done(k)) continue;
+      markDone(k);
+      st.shown = { id: a.id, start, at: now, hover: false, leftAt: null };
+      out.show = { id: a.id, label: a.label };
+      return;
+    }
+  };
+  if (ev.type === 'sample') {
+    const items = Array.isArray(ev.items) ? ev.items.filter((x) => x && MEET_BY_ID.has(x.id) && typeof x.start === 'string') : [];
+    const next = {};
+    for (const x of items) if (!(x.id in next)) next[x.id] = x.start;
+    for (const [id, start] of Object.entries(st.active)) {
+      if (next[id] === start) continue;
+      const k = key(id, start);
+      if (done(k)) st.lastEnd[id] = now;   // 出した・閉じた使いが終わった（つなぎ直しを数える始まり）
+      delete st.seen[k];
+      if (st.shown && st.shown.id === id && st.shown.start === start) hideNow();
+    }
+    for (const [id, start] of Object.entries(next)) {
+      const k = key(id, start);
+      const fresh = st.active[id] !== start;
+      st.seen[k] = fresh ? 1 : (st.seen[k] || 0) + 1;
+      if (fresh && st.lastEnd[id] !== undefined && now - st.lastEnd[id] < NUDGE_REJOIN_MS) markDone(k);
+      if (st.meeting) markDone(k);
+    }
+    st.active = next;
+    pick();
+  } else if (ev.type === 'busy') {
+    st.idle = !ev.busy;
+    st.meeting = Boolean(ev.busy && ev.meeting);
+    if (ev.busy) {
+      hideNow();
+      if (st.meeting) for (const [id, start] of Object.entries(st.active)) markDone(key(id, start));
+    } else pick();
+  } else if (ev.type === 'setting') {
+    st.on = ev.on !== false;
+    st.mute = Array.isArray(ev.mute) ? ev.mute.filter((x) => MEET_BY_ID.has(x)) : [];
+    if (st.shown && (!st.on || st.mute.includes(st.shown.id))) hideNow();
+  } else if (ev.type === 'closed') {
+    hideNow();
+  } else if (ev.type === 'hover') {
+    if (st.shown) {
+      if (ev.on) { st.shown.hover = true; st.shown.leftAt = null; } else if (st.shown.hover) { st.shown.hover = false; st.shown.leftAt = now; }
+    }
+  } else if (ev.type === 'tick') {
+    if (st.shown && !st.shown.hover) {
+      const until = Math.max(st.shown.at + NUDGE_SHOW_MS, st.shown.leftAt === null ? 0 : st.shown.leftAt + NUDGE_HOVER_GRACE_MS);
+      if (now >= until) hideNow();
+    }
+  }
+  return out;
+}
+// パネルの置き場所（決めたこと 8）。size はパネルの画面が測ったカードの大きさ（CSS の px。有限の正の数でなければ NUDGE_FIRST）。窓はカードの周りに
+// NUDGE_PAD の余白（明るいパネルの影の輪: K9）を足した大きさで、カードの右と上の端が作業領域の右と上の端から NUDGE_EDGE の所に来る。
+// 幅と高さは作業領域 − 2 ×（NUDGE_EDGE − NUDGE_PAD）まで
+const NUDGE_EDGE = 12;
+const NUDGE_PAD = 8;
+const NUDGE_FIRST = { w: 560, h: 60 };
+function nudgeBounds({ size, workArea }) {
+  const ok = size && typeof size.w === 'number' && typeof size.h === 'number' && Number.isFinite(size.w) && Number.isFinite(size.h) && size.w > 0 && size.h > 0;
+  const s = ok ? size : NUDGE_FIRST;
+  const gap = NUDGE_EDGE - NUDGE_PAD;
+  const width = Math.min(Math.ceil(s.w) + 2 * NUDGE_PAD, workArea.width - 2 * gap);
+  const height = Math.min(Math.ceil(s.h) + 2 * NUDGE_PAD, workArea.height - 2 * gap);
+  return { x: workArea.x + workArea.width - gap - width, y: workArea.y + gap, width, height };
+}
+// 録音バーが答えた音の大きさの照らし（決めたこと 14）。数は 0〜1 に収めて小数 2 けた、warn は決まった3つのほかは ''（画面は文を作らない）
+const LEVEL_ASK_MS = 100;
+const LEVEL_WARNS = Object.freeze(['', '音が入っていません', 'マイクの音が入っていません']);
+function levelMsg(p) {
+  const o = p && typeof p === 'object' && !Array.isArray(p) ? p : {};
+  const num = (v) => (typeof v === 'number' && Number.isFinite(v) ? Math.round(Math.min(1, Math.max(0, v)) * 100) / 100 : 0);
+  return { mic: num(o.mic), sys: num(o.sys), warn: typeof o.warn === 'string' && LEVEL_WARNS.includes(o.warn) ? o.warn : '' };
+}
+
 module.exports = {
   saveIfExists, meetingDurationSec, promptTail,
   registerHotkeys, hotkeyFailureMessage, hotkeyStatus, resolveStartupHotkeys, saveHotkeys,
@@ -1664,4 +1894,7 @@ module.exports = {
   QUIET_WIN_MS, QUIET_HOP_MS, SILENT_DBFS, SPEECH_DBFS, wavLoudestDbfs, HINT_TAIL_MIN, hintFold, hintEcho, QUIET_GRACE_MS, quietStep, quietTrimEnd, clockText,
   // 0.9.2 I-1（ヘルプセンターの記事）
   HELP_ARTICLES, helpPath,
+  // 0.9.3 M-1（会議の検出と音の波）
+  MEET_APPS, MIC_ROOT, micWatchScript, parseMicLine, NUDGE_SHOW_MS, NUDGE_HOVER_GRACE_MS, NUDGE_REJOIN_MS, nudgeInit, nudgeStep,
+  NUDGE_EDGE, NUDGE_PAD, NUDGE_FIRST, nudgeBounds, LEVEL_ASK_MS, LEVEL_WARNS, levelMsg,
 };

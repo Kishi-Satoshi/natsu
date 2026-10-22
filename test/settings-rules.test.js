@@ -35,15 +35,19 @@ Object.assign(TODAY, { accountEmail: '' });
 // （33 のキー）。画面は［設定］→［録音］のカード「話し声が無いとき」から送る（既定でない値で往復することを見る）
 Object.assign(TODAY, { autoStopQuiet: true, autoStopMin: 10 });
 Object.assign(UI, { autoStopQuiet: false, autoStopMin: 20 });
+// 0.9.3 M-1（計画 docs/plans/2026-10-22-093.md の決めたこと 11）で意図して変えた: 会議の検出の通知 meetingDetect（既定 true）と通知を出さないアプリ
+// meetingDetectMute（kind apps。既定 []）を足した（35 のキー）。画面は［設定］→［録音］のカード「会議の検出」から送る（既定でない値で往復することを見る）
+Object.assign(TODAY, { meetingDetect: true, meetingDetectMute: [] });
+Object.assign(UI, { meetingDetect: false, meetingDetectMute: ['zoom', 'chrome'] });
 // 第1c回 Task C-2: 画面のカード「オンライン」が送るキー（0.7.0 U-1 で claudeExe だけ。30 のキー）。既定でない値で往復することを見る
 Object.assign(UI, { claudeExe: 'C:\\c\\claude.exe' });
 const legacy = (raw) => S.normalizeSettings({ ...D, ...raw }, D);
 const ON = (key, v) => (key === 'useBuiltinTerms' ? v !== false : Boolean(v));
 const BOOLS = ['useVad', 'suppressNst', 'autoPaste', 'removeFillers', 'soundFeedback', 'autoLaunch', 'stayInTray', 'useBuiltinTerms', 'useSystemAudio'];
 
-test('JS6: 決まりの表のキーは既定の 33 のキーとちょうど同じ。どれにも画面の名前がある', { timeout: 5000 }, () => {
+test('JS6: 決まりの表のキーは既定の 35 のキーとちょうど同じ。どれにも画面の名前がある', { timeout: 5000 }, () => {
   assert.deepStrictEqual(D, TODAY);
-  assert.strictEqual(S.SETTING_KEYS.length, 33);
+  assert.strictEqual(S.SETTING_KEYS.length, 35);
   assert.deepStrictEqual([...S.SETTING_KEYS].sort(), Object.keys(TODAY).sort());
   for (const k of S.SETTING_KEYS) assert.ok(typeof S.SETTING_RULES[k].label === 'string' && S.SETTING_RULES[k].label.length > 1, k);
   assert.strictEqual(S.defaultSettings(2).localThreads, 4);
