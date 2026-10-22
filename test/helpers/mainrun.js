@@ -245,12 +245,6 @@
 //   0.9.4 S-2（PC への要求の待ち時間）: 場面を起こす側が NATSU_TEST_LOCAL_TIME_SCALE（0〜1。待ち時間に掛ける）を渡す。
 //     --seg-ms=<ミリ秒> … 議事録の区間の長さ（durationMs）をこの値にする（音声のバイトは今のまま）
 //     --pace=<JSON> … 起動の前に data/local-pace.json を置く（model: "same" は偽のモデルの名前と大きさ、at: "now-<日>" は日数の前）
-//   0.9.4 S-7（速さを測る・軽いモデル）: --idle と組む。起動の片付けの後に、画面と同じ IPC を呼んで out に写して終える
-//     --bench=ok|novoice … local:bench（out.bench）。読み上げの PowerShell は本当には起こさず、ok なら 30 秒の WAV を出力のパスに書いて ok の1行、
-//                     novoice なら novoice の1行（out.benchSpawns に { script }）。--bench-apply … 勧めがあれば local:bench-threads（out.benchApply）
-//     --alt-file … 取り込み先の models/ggml-medium-q5_0.bin に大きさの床を越える疎のファイルを置く。--alt-use=true|false … local:alt-use（out.altUse）
-//     --cpus=N … os.cpus() の数を N にする（既定のスレッドの数も N − 2 になる）
-//     出力に altStatus・settingsAfter（settings.json）・paceFile・files・spawns を足す
 //   0.9.4 S-3（音声を失わない）:
 //     --recover-again=<n> … 議事録を写した後（--after-retry の後）、設定の保存（settings:save。保留の復旧を引き直す）を n 回。そのたびに
 //                     復旧の記録の行（止めました・保留）か待ち行列が無くなるのを 3 秒まで待ち、out.again に { pages, queue（recovery.json の中身）, wavs, requests（増えた要求の数）, log } を写す
@@ -424,12 +418,6 @@ const restartDuring = flagVal('--restart-during');   // 第1d回 A-9
 const relaySeq = flagVal('--relay-seq');   // 第1d回 A-5
 // 0.9.4 S-2: 区間の長さ（会議の時計の durationMs。音声のバイトは今の 3 秒・2 秒のまま）と、この PC の速さの覚え（local-pace.json）
 const segMsFlag = Number(flagVal('--seg-ms')) || 0;
-// 0.9.4 S-7: 速さを測る（--bench=ok|novoice は偽の読み上げの答え方）・勧めた数にする・軽いモデルのファイルを置く・使う／戻す・論理 CPU の数
-const benchMode = flagVal('--bench');
-const benchApply = flags.includes('--bench-apply');
-const altFileFlag = flags.includes('--alt-file');
-const altUseFlag = flagVal('--alt-use');
-const cpusFlag = Number(flagVal('--cpus')) || 0;
 const paceFlag = flagVal('--pace');
 // 0.9.4 S-5: --clock-seq=<i>:<ミリ秒>,… … i 番目（0 から）の区間を送る前に main の時計（と中継の試しの時計）をその分だけ進める
 const clockSeq = new Map((flagVal('--clock-seq') || '').split(',').filter(Boolean).map((x) => x.split(':').map(Number)));
@@ -1484,7 +1472,6 @@ process.on('exit', () => {
   // エンジンの spawn だけを本物にする（.js なら node で起動）。それ以外（貼り付け用の PowerShell など）は起動しない
   const realSpawn = cp.spawn;
   const spawns = [];   // エンジンの起動（実行ファイル・引数・作業フォルダ）
-  const benchSpawns = [];   // 0.9.4 S-7: 速さを測る読み上げの PowerShell
   const fakeKids = [];   // エンジンを持たない場面で返した偽の子（{ cmd, kills }。第2a1回 M-1: 終了でエンジンを止めたかを見る）
   // 第1b回の続き Lane F-c・F-d: scene.claude の場面で main が起こす powershell.exe -EncodedCommand（見える窓を開く隠した PowerShell）は本当には起こさず、
   // launches に { cmd, args, exe（環境の NATSU_CLAUDE_EXE）, shell, windowsHide, ansiKeys（課金の変数の名前） } で覚え、
@@ -1495,23 +1482,6 @@ process.on('exit', () => {
   const childProcess = {
     ...cp,
     spawn(cmd, args, opts) {
-      // 0.9.4 S-7: 速さを測る読み上げ（本当には起こさない）
-      if (benchMode && /(^|[\\/])powershell\.exe$/i.test(String(cmd)) && Array.isArray(args) && String(args[args.length - 1]).includes('SpeechSynthesizer')) {
-        const EventEmitter = require('events');
-        const p = new EventEmitter();
-        const script = String(args[args.length - 1]);
-        benchSpawns.push({ script });
-        p.stdin = null; p.stdout = new EventEmitter(); p.stderr = null; p.kill = () => {};
-        setTimeout(() => {
-          if (benchMode === 'ok') {
-            const m = /SetOutputToWaveFile\('((?:[^']|'')*)'/.exec(script);
-            if (m) fs.writeFileSync(m[1].replace(/''/g, "'"), toneWav(30));
-          }
-          p.stdout.emit('data', Buffer.from(`${benchMode === 'ok' ? 'ok' : 'novoice'}\r\n`));
-          p.emit('exit', 0, null);
-        }, 20);
-        return p;
-      }
       // 0.9.3 M-2: 会議の検出の見張り（本当には起こさない。場面が stdout に行を書く）
       if (micSteps && /(^|[\\/])powershell\.exe$/i.test(String(cmd)) && Array.isArray(args) && String(args[args.length - 1]).includes('CapabilityAccessManager')) {
         const EventEmitter = require('events');
@@ -1735,7 +1705,6 @@ process.on('exit', () => {
       return realClearTimeout.call(this, h);
     };
   }
-  if (cpusFlag) { const realOs = require('os'); realOs.cpus = () => Array.from({ length: cpusFlag }, () => ({ model: 'test', speed: 1000, times: {} })); }   // 0.9.4 S-7
   require(path.join(ROOT, 'src', 'main.js'));
   // 議事録の読みは natsu.db を読み取り専用で見る（第2a1回 M-2b。main は議事録を DB のプロセスに書き、元の JSON の索引を読まない）。
   // 読むたびに開いて閉じる（DB のプロセスが閉じた後・戻した後でも今のファイルを見る。掴んだままにしない）。下書きなどは本物の store
@@ -2104,24 +2073,6 @@ process.on('exit', () => {
       for (let k = 0; k < keptTickN; k++) await keptTick();
       await waitFor(settledCloud, 5000);
       await sleep(200);
-    }
-    // 0.9.4 S-7: 速さを測る・軽いモデル
-    if (benchMode || altUseFlag || altFileFlag) {
-      if (altFileFlag) {
-        const f = path.join(managedRoot || path.join(localAppData, 'natsu', 'engine'), 'models', 'ggml-medium-q5_0.bin');
-        fs.mkdirSync(path.dirname(f), { recursive: true });
-        const fd = fs.openSync(f, 'w'); fs.writeSync(fd, Buffer.alloc(8192, 2)); fs.ftruncateSync(fd, 51 * 1024 * 1024); fs.closeSync(fd);
-      }
-      if (benchMode) out.bench = await handlers['local:bench']();
-      if (benchApply && out.bench && out.bench.recommend) out.benchApply = await handlers['local:bench-threads']({}, out.bench.recommend.threads);
-      if (altUseFlag) out.altUse = await handlers['local:alt-use']({}, altUseFlag === 'true');
-      out.altStatus = await handlers['local:alt-status']();
-      await sleep(400);   // 起こし直したエンジンの起動まで
-      out.benchSpawns = benchSpawns.slice();
-      out.spawns = spawns.slice();
-      out.settingsAfter = JSON.parse(fs.readFileSync(path.join(userData, 'settings.json'), 'utf8'));
-      { const t = readUser('data/local-pace.json'); out.paceFile = t ? t.toString('utf8') : null; }
-      out.files = listFiles(userData);
     }
     out.pages = await Promise.all(store.listPages().map(pageOut));
     out.notices = sent.filter(([ch]) => ch === 'app:notice').map(([, p]) => p);

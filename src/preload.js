@@ -137,12 +137,6 @@ contextBridge.exposeInMainWorld('koeApp', {
   testSum: () => ipcRenderer.invoke('app:test-sum'),
   engineStatus: () => ipcRenderer.invoke('engine:status'),
   engineFetchStatus: () => ipcRenderer.invoke('engine:fetch-status'),
-  // 0.9.4 S-7: ［ローカル AI の設定］の「この PC の速さ」と軽いモデル（引数は数か真偽だけ。文字起こしの文は返らない）
-  benchLocal: () => ipcRenderer.invoke('local:bench'),
-  applyBenchThreads: (n) => ipcRenderer.invoke('local:bench-threads', Number(n)),
-  altModelStatus: () => ipcRenderer.invoke('local:alt-status'),
-  fetchAltModel: () => ipcRenderer.invoke('local:alt-fetch'),
-  useAltModel: (on) => ipcRenderer.invoke('local:alt-use', on === true),
   engineFetchStart: (o) => ipcRenderer.invoke('engine:fetch-start', o),
   engineFetchPause: () => ipcRenderer.invoke('engine:fetch-pause'),
   openEngineDir: () => ipcRenderer.invoke('engine:open-dir'),

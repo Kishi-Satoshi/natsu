@@ -148,8 +148,6 @@ function defaultSettings(cpuCount) {
     // 会議の検出の通知（0.9.3 M-1）と、通知を出さないアプリ（MEET_APP_IDS の id の並び）
     meetingDetect: true,
     meetingDetectMute: [],
-    // 文字起こしのモデル（軽い）（0.9.4 S-7）。'' は取り込みの組のモデル、'medium' は ALT_MODELS の medium。main の local:alt-use だけが書く
-    localModelAlt: '',
   };
 }
 
@@ -208,8 +206,6 @@ const SETTING_RULES = {
   // 0.9.3 M-1（会議の検出）
   meetingDetect: { label: '会議の検出の通知', kind: 'bool', notFalse: true },
   meetingDetectMute: { label: '通知を出さないアプリ', kind: 'apps' },
-  // 0.9.4 S-7（軽いモデル）
-  localModelAlt: { label: '文字起こしのモデル（軽い）', kind: 'enum', values: ['', 'medium'] },
 };
 const SETTING_KEYS = Object.keys(SETTING_RULES);
 // 会議の検出の一覧の id（src/mainlib.js の MEET_APPS と同じ並び。settings.js は mainlib を読まないので写しを持つ: test/stage093.lib が照らす）

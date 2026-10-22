@@ -55,7 +55,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const crypto = require('crypto');
-const { hostOf, ALT_MODELS } = require('./engine-manifest');
+const { hostOf } = require('./engine-manifest');
 const { askIt, fetchErrorMessage, isTransient, fetchFile: fetchFileDefault } = require('./engine-fetch');
 const { listZip, readEntry } = require('./zipread');
 const J = require('./jsonfile');
@@ -1108,13 +1108,12 @@ async function cleanupOld(home, manifest, installed, { inUse = () => false, canD
   const root = home && home.supported && home.root;
   if (!root) return out;
   const items = installed && isObj(installed.items) ? installed.items : {};
-  // 0.9.4 S-7（決めたこと 21）: 軽いモデル（ALT_MODELS）は取り込みの組の外にあるが、記録もファイルも消さない
-  const keepShas = new Set([...manifest.items, ...ALT_MODELS].map((i) => lowSha(i.sha256)));
+  const keepShas = new Set(manifest.items.map((i) => lowSha(i.sha256)));
   for (const g of GROUPS) {
     const act = installed && isObj(installed.active) ? installed.active[g] : null;
     for (const s of Array.isArray(act) ? act : []) keepShas.add(lowSha(s));
   }
-  const guarded = [...SPECIAL_PLACES, ...[...manifest.items, ...ALT_MODELS].map(placeOf).filter((p) => typeof p === 'string')];
+  const guarded = [...SPECIAL_PLACES, ...manifest.items.map(placeOf).filter((p) => typeof p === 'string')];
   const byPlace = new Map();
   for (const [s, rec] of Object.entries(items)) {
     if (!isObj(rec)) continue;
@@ -1149,29 +1148,6 @@ async function cleanupOld(home, manifest, installed, { inUse = () => false, canD
     writeInstalled(file, inst);
   }
   return out;
-}
-
-// ---------------------------------------------------------------- 0.9.4 S-7（決めたこと 21）: 軽いモデル
-/** 軽いモデルの置き場所（id は ALT_MODELS の alt。'medium'）。取り込めない PC・知らない id は null */
-function altModelFile(home, id) {
-  const root = home && home.supported && home.root;
-  const it = ALT_MODELS.find((a) => a.alt === id);
-  const parts = it ? relParts(it.dest) : null;
-  return root && parts ? path.join(root, ...parts) : null;
-}
-/**
- * 軽いモデルを取り込む（今の部品: engine-fetch.fetchFile が取り、大きさと SHA-256 を照らしてから置く。違えば置かない）→ installed.json の記録。
- * opts は fetchFile へそのまま渡す（request・signal・onProgress など。試しは requireHttps: false）
- */
-async function installAlt(home, alt, opts = {}) {
-  const root = home && home.supported && home.root;
-  const parts = alt ? relParts(alt.dest) : null;
-  if (!root || !parts) throw installError('hash', '軽いモデルの置き場所が分からない');
-  const fetchFile = opts.fetchFile || fetchFileDefault;
-  const { fetchFile: _f, ...rest } = opts;
-  await fs.promises.mkdir(path.join(root, '.download'), { recursive: true });
-  await fetchFile(alt, { ...rest, dir: path.join(root, '.download'), dest: path.join(root, ...parts) });
-  return recordInstalled(home, alt);
 }
 
 const APACHE_TEXT_FILE = path.join(__dirname, 'licenses', 'Apache-2.0.txt');
@@ -1235,4 +1211,4 @@ function writeNotices(home, manifest) {
 }
 
 module.exports = { engineRoot, layout, readInstalled, writeInstalled, planInstall, managedCandidates, freeBytesOf, statusOf,
-  sha256File, installZip, recordInstalled, verifyCandidates, makeRunner, setActive, cleanupOld, writeNotices, altModelFile, installAlt, shownPathOf };
+  sha256File, installZip, recordInstalled, verifyCandidates, makeRunner, setActive, cleanupOld, writeNotices };

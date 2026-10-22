@@ -680,7 +680,8 @@ test('基準の画像（test/shots/win32）は今の app.html で撮ったもの
   // 閉じた details「軽いモデルと精度」（表・取り込む・使う・戻す・手の組のパスの案内）と CSS .alttable を足した。見える中身が変わるのは設定の
   // 「ローカル AI の設定」の画面と検索の画面で、どれも RETAKE にある（settings-offline-light・settings-search-light）。測った画面は S-8 で足す。値を今の app.html に合わせた
   // 0.9.4 M-0: 0.9.3（746ea67・6e79416）を merge した（0.9.3 の D55 と 0.9.4 の S-3・S-4・S-7 の app.html の直しが両方入った）。値を merge の後の app.html に合わせた
-  assert.strictEqual(sha, '2cf24d21f2b758ffbf00af76572caab5c894aebeccf3f68bfd7e7bf62af27a3e',
+  // 0.9.4 S-7R（持ち主の答え Q15・Q26）: S-7 を revert して「この PC の速さ」の行と「軽いモデルと精度」を外した（設定の画面は 0.9.3 の基準と同じに戻る）。値を今の app.html に合わせた
+  assert.strictEqual(sha, 'd18cbe92950cabb2f421412891749e92d80ecd9a98c26840fed4a70cb929f9fb',
     'app.html が基準の画像を撮った時と違う。Windows の CI の画面の比べ（捲り棒のつまみも）を見て、基準を取り直してからこの値を直す');
 });
 
