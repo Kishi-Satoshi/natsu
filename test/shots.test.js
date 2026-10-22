@@ -40,7 +40,7 @@ const I4_SCREENS_092 = ['settings-record-dark', 'settings-record-zoom200-light',
 const ADDED_092 = ['settings-light', 'settings-dark', 'settings-zoom200-dark', 'settings-record-light', 'settings-search-light', 'settings-offline-light',
   'settings-quiet-search-light', ...I4_SCREENS_092];
 // 0.9.3（計画 docs/plans/2026-10-22-093.md の「取り直す画面」）で意図して変えた: 取り直し待ちは計画の表の画面だけ（RETAKE_093）。M-0（持ち主の答え D54）で
-// 設定の左の列の名前を「ローカル AI の設定」にして列を 196px に広げたので設定の 16 枚、録音中のページのボタンを［オフラインモード］にしたので録音中のページの
+// 設定の左の列の名前を「ローカル AI」にして列を 196px に広げたので設定の 16 枚、録音中のページのボタンを［オフラインモード］にしたので録音中のページの
 // 7 枚を入れた。M-4・M-6・M-7 で足す画面（NEW_093）は、取り直し待ちの間は基準が無くてよい。利用者がまとめて OK と言ったら、版を上げる commit で基準にして空に戻す
 const SETTINGS_093 = ['settings-light', 'settings-dark', 'settings-zoom200-dark', 'settings-record-light', 'settings-search-light', 'settings-offline-light',
   'settings-quiet-search-light', ...I4_SCREENS_092];
@@ -64,7 +64,12 @@ const W1_094 = ['live-light', 'live-dark', 'live-banner-light', 'live-banner-dar
   ...OVL_094(['rec', 'dict', 'fallback', 'spk-ng']), 'overlay-vertical-dark-hover-150'];
 // P-1: 録音バーのスピーカーの印を外した（印のあった無音・一時停止。声の rec・spk-ng は W-1 で入れた）
 const P1_094 = OVL_094(['silent', 'paused']);
-const RETAKE_094 = [...W1_094, ...P1_094];
+// R-1: 設定の左の列の名前を「ローカル AI」に（設定の画面はどれも左の列を写す）
+const R1_094 = ['settings-light', 'settings-dark', 'settings-zoom200-dark', 'settings-record-light', 'settings-search-light', 'settings-offline-light',
+  'settings-quiet-search-light', 'settings-record-dark', 'settings-record-zoom200-light', 'settings-summary-light', 'settings-account-light',
+  'settings-info-loop-light', 'settings-info-stt-dark', 'settings-info-claude-light', 'settings-info-zoom200-light', 'settings-info-search-light',
+  'settings-detect-light', 'settings-detect-dark'];
+const RETAKE_094 = [...W1_094, ...P1_094, ...R1_094];
 const img = (w, h, fill = [255, 255, 255, 255]) => ({ width: w, height: h, data: Buffer.from(Array.from({ length: w * h }, () => fill).flat()) });
 // 一時フォルダ（日本語と 𠮷 の名前。RF1 と同じ形）。テストの終わりに消す
 const tmp = (t, name) => {
@@ -475,9 +480,10 @@ test('G2: 作業域より大きい窓が作るときに縮められても（Wind
 test('U-3・G-3: settings-offline-light は基準の PNG と比べる（取り直し待ちではない）。答えは chosen 偽・consent 偽の missing・空き 20GB・ログイン中で、項目「オフライン」を開く', { timeout: 5000 }, () => {
   // 0.9.2 I-1 で意図して変えた: 0.9.2 の計画の表（RETAKE_092）にあるときだけ取り直し待ちでよい（［ヘルプ］と I-3 のオフラインの頭の説明）
   // 0.9.2 で意図して変えた（版を 0.9.2 に上げる commit）: 利用者が OK と言った CI の画像を基準にしたので、また取り直し待ちではない
-  // 0.9.3 M-0 で意図して変えた: 0.9.3 の計画の表（RETAKE_093）にあるときだけ取り直し待ちでよい（項目の名前「ローカル AI の設定」）
+  // 0.9.3 M-0 で意図して変えた: 0.9.3 の計画の表（RETAKE_093）にあるときだけ取り直し待ちでよい（項目の名前「ローカル AI」）
   // 0.9.3 で意図して変えた（版を 0.9.3 に上げる commit）: 持ち主が OK と言った CI の画像を基準にしたので、また取り直し待ちではない
-  assert.ok(!SH.RETAKE.has('settings-offline-light'), '準備を選んでいない人のカードの画面が取り直し待ちに残っている');
+  // 0.9.4 R-1 で意図して変えた: 0.9.4 の表（RETAKE_094）にあるときだけ取り直し待ちでよい（左の列の名前「ローカル AI」）
+  assert.ok(!SH.RETAKE.has('settings-offline-light') || RETAKE_094.includes('settings-offline-light'), '準備を選んでいない人のカードの画面が取り直し待ちに残っている');
   assert.ok(fs.existsSync(path.join(ROOT, 'test', 'shots', 'win32', 'settings-offline-light.png')), '準備を選んでいない人のカードの画面の基準が無い');
   const s = SH.SCREENS.find((x) => x.name === 'settings-offline-light');
   assert.ok(s, '撮る画面に無い');
@@ -669,7 +675,7 @@ test('基準の画像（test/shots/win32）は今の app.html で撮ったもの
   // どれも RETAKE にある。値を今の app.html に合わせた
   // 0.9.2 I-4: 吹き出しを開いたときに上にも下にも収まらなければ ⓘ を右の列の上へ捲る・書体の読み込みの後に置き直す（<script> の中だけ）。撮る吹き出しの画面は
   // どれも RETAKE にある。値を今の app.html に合わせた
-  // 0.9.3 M-0（持ち主の答え D54）: 録音中のページのボタンを［オフラインモード］、設定の項目「オフライン」を「ローカル AI の設定」と呼び、左の列を 196px に
+  // 0.9.3 M-0（持ち主の答え D54）: 録音中のページのボタンを［オフラインモード］、設定の項目「オフライン」を「ローカル AI」と呼び、左の列を 196px に
   // 広げた（文と .setnav の幅だけ）。見える中身が変わるのは設定の 16 枚と録音中のページの 7 枚で、どれも RETAKE に入れた。議事録・音声入力・検索の窓は
   // 変わらない。値を今の app.html に合わせた
   // 0.9.3 M-3: main の app:open-settings（パネルの「会議の検出の通知の設定…」）を受けて設定の項目を開く受け口を <script> の中だけに足した（要素・文・CSS は
@@ -690,14 +696,16 @@ test('基準の画像（test/shots/win32）は今の app.html で撮ったもの
   // 画面は撮っていないので、撮る画面は変わらない）。値を今の app.html に合わせた
   // 0.9.4 S-4: 遅い会議の「聞き取り中」の行を「音声を残しています（会議の後で文字起こしします）」にする分かれ道を <script> に足した（遅くない会議の
   // 見た目は変わらない。遅い会議の画面は S-8 で足す）。値を今の app.html に合わせた
-  // 0.9.4 S-7（決めたこと 19〜21・持ち主の答え Q9）: 設定の「ローカル AI の設定」に行「この PC の速さ」（［速さを測る］・勧めるスレッド数と［この数にする］）と
+  // 0.9.4 S-7（決めたこと 19〜21・持ち主の答え Q9）: 設定の「ローカル AI」に行「この PC の速さ」（［速さを測る］・勧めるスレッド数と［この数にする］）と
   // 閉じた details「軽いモデルと精度」（表・取り込む・使う・戻す・手の組のパスの案内）と CSS .alttable を足した。見える中身が変わるのは設定の
-  // 「ローカル AI の設定」の画面と検索の画面で、どれも RETAKE にある（settings-offline-light・settings-search-light）。測った画面は S-8 で足す。値を今の app.html に合わせた
+  // 「ローカル AI」の画面と検索の画面で、どれも RETAKE にある（settings-offline-light・settings-search-light）。測った画面は S-8 で足す。値を今の app.html に合わせた
   // 0.9.4 M-0: 0.9.3（746ea67・6e79416）を merge した（0.9.3 の D55 と 0.9.4 の S-3・S-4・S-7 の app.html の直しが両方入った）。値を merge の後の app.html に合わせた
   // 0.9.4 S-7R（持ち主の答え Q15・Q26）: S-7 を revert して「この PC の速さ」の行と「軽いモデルと精度」を外した（設定の画面は 0.9.3 の基準と同じに戻る）。値を今の app.html に合わせた
   // 0.9.4 W-1: 録音中のページの波を録音バーと同じ5つの灰色の点（5本がそれぞれ揺れる）にした（CSS #liveWave・点の数・levelBars）。見える中身が変わるのは
   // 録音中のページの画面（RETAKE にある: W1_094）。値を今の app.html に合わせた
-  assert.strictEqual(sha, 'b8e77a0f5c8e98cdf777c569f5133150c1f6b5b1378c6353ca599c8d5c7e30f5',
+  // 0.9.4 R-1（持ち主の答え Q25）: 設定の項目の名前を「ローカル AI の設定」から「ローカル AI」にした（左の列・隠した見出し・項目の名前・文の中）。見える中身が
+  // 変わるのは設定の画面（RETAKE にある: R1_094）。値を今の app.html に合わせた
+  assert.strictEqual(sha, '40052bfc77711d4cda14094e495fa30d07322215032aeacbd44f35addd5d5315',
     'app.html が基準の画像を撮った時と違う。Windows の CI の画面の比べ（捲り棒のつまみも）を見て、基準を取り直してからこの値を直す');
 });
 

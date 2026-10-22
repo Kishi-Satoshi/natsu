@@ -226,7 +226,7 @@ test('SP1: 6つの項目の行がこの順（アカウント・一般・録音�
   const items = doc.querySelector('#setNav').querySelectorAll('.setnav-item');
   assert.deepStrictEqual(items.map((b) => [b.id, b.dataset.sec, b.textContent.trim(), b.getAttribute('role')]), [
     ['setNavAccount', 'account', 'アカウント', 'tab'], ['setNavGeneral', 'general', '一般', 'tab'], ['setNavRecord', 'record', '録音', 'tab'],
-    ['setNavSummary', 'summary', '要約', 'tab'], ['setNavOffline', 'offline', 'ローカル AI の設定', 'tab'], ['setNavUpdate', 'update', '更新', 'tab']]);
+    ['setNavSummary', 'summary', '要約', 'tab'], ['setNavOffline', 'offline', 'ローカル AI', 'tab'], ['setNavUpdate', 'update', '更新', 'tab']]);
   for (const b of items) {
     const svg = b.querySelector('svg');
     assert.ok(svg, `${b.id} にアイコンが無い`);
@@ -244,7 +244,7 @@ test('SP1: 6つの項目の行がこの順（アカウント・一般・録音�
   }
   const box = S.declsFor(rules, '.setbox', { at: '' });
   assert.strictEqual(box['border-radius'], '10px');
-  // 0.9.3 M-0（D54・決めたこと 26）で意図して変えた: 「ローカル AI の設定」が1行に収まるように 196px
+  // 0.9.3 M-0（D54・決めたこと 26）で意図して変えた: 「ローカル AI」が1行に収まるように 196px
   assert.strictEqual(S.declsFor(rules, '.setnav', { at: '' }).width, '196px', '左の列の幅が 196px でない');
   assert.strictEqual(S.declsFor(rules, '.setmodal[hidden]', { at: '' }).display, 'none', '本物の画面で hidden が .setmodal の display に負ける');
 });
@@ -398,8 +398,8 @@ const CARDS = [
   ['record', '文字起こし', ['認識言語', '文字起こし後、カーソル位置へ自動貼り付け', 'フィラー除去']],
   ['record', 'ユーザー辞書（認識ヒント）', ['ユーザー辞書', '業務でよく使う言葉のヒントも渡す']],
   ['summary', '要約（Claude Code）', ['Claude Code', 'Claude Code の場所']],
-  // 0.9.3 M-0（D54）で意図して変えた: カードの名前は「ローカル AI の設定」
-  ['offline', 'ローカル AI の設定', ['PC の中の文字起こし', 'PC の中の文字起こしを取り込む', '詳細設定']],
+  // 0.9.3 M-0（D54）で意図して変えた: カードの名前は「ローカル AI」
+  ['offline', 'ローカル AI', ['PC の中の文字起こし', 'PC の中の文字起こしを取り込む', '詳細設定']],
   ['update', 'アップデート', ['更新を確認']],
 ];
 // 行の名前 → その行にある入力の id（今の id のまま動かしたことを見る）
@@ -484,13 +484,13 @@ test('SP4: 『録音』を選ぶと、録音バー・マイクと相手の声・
   assert.deepStrictEqual(shownCards(l), ['会議の検出', '録音バー', 'マイクと相手の声', '話し声が無いとき', '文字起こし', 'ユーザー辞書（認識ヒント）']);   // 0.9.3 M-4 で意図して足した
   assert.strictEqual($(l, 'setTitle').textContent, '録音');
   assert.ok(visible($(l, 'openDataBtn')) && visible($(l, 'saveMsg')), '保存の文と［データ保存先を開く］が隠れた');
-  for (const [sec, want] of [['account', ['アカウント']], ['summary', ['要約（Claude Code）']], ['offline', ['ローカル AI の設定']], ['update', ['アップデート']]]) {
+  for (const [sec, want] of [['account', ['アカウント']], ['summary', ['要約（Claude Code）']], ['offline', ['ローカル AI']], ['update', ['アップデート']]]) {
     await pick(l, sec);
     assert.deepStrictEqual(shownCards(l), want, sec);
   }
   // showAccount・showEngineSettings で開いたときもその項目のカード
   l.fire('onNotice', '要約エンジンが未設定です（見本）'); await l.drain();
-  assert.deepStrictEqual(shownCards(l), ['ローカル AI の設定']);   // 0.9.3 M-0（D54）で意図して変えた
+  assert.deepStrictEqual(shownCards(l), ['ローカル AI']);   // 0.9.3 M-0（D54）で意図して変えた
   assert.deepStrictEqual(l.errors.map(fmt), []);
 });
 
@@ -524,7 +524,7 @@ test('SP5: 『マイク』で使用するマイクの行だけ、『ﾏｲｸ』
   assert.deepStrictEqual(groups(), ['一般', '録音']);
   // 0.9.2 I-3 で意図して変えた: アカウントのカードの頭（「…クラウドで文字起こしします。」）でも当たる
   await search(l, '文字起こし');
-  assert.deepStrictEqual(groups(), ['アカウント', '録音', 'ローカル AI の設定']);   // 0.9.3 M-0（D54）で意図して変えた
+  assert.deepStrictEqual(groups(), ['アカウント', '録音', 'ローカル AI']);   // 0.9.3 M-0（D54）で意図して変えた
   // 0.9.2 I-2 で意図して変えた: 吹き出しの中の言葉でも当たる（前は「説明の長い文の中までは探さない」）。文字起こしのカードの頭が出る（行は出ない）
   // 0.9.2 I-3 で意図して変えた: ログインの行の吹き出し（「…OpenAI で文字起こしします」）でも当たる
   await search(l, 'OpenAI');

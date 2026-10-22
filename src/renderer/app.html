@@ -269,7 +269,7 @@
   .setmodal[hidden] { display: none; }
   .setbox { position: relative; display: flex; width: min(1020px, calc(100vw - 48px)); height: min(700px, calc(100vh - 48px));
     overflow: hidden; background: var(--bg); border-radius: 10px; box-shadow: var(--shadow); }
-  /* 左の項目の列（幅 196px。0.9.3 M-0（D54・決めたこと 26）で「ローカル AI の設定」が1行に収まるように 180px から広げた）。選んだ行は灰色の丸い地（--hover・角丸 6px）で、青（--accent）は使わない（フォーカスの輪だけ） */
+  /* 左の項目の列（幅 196px。0.9.3 M-0（D54・決めたこと 26）で「ローカル AI」が1行に収まるように 180px から広げた）。選んだ行は灰色の丸い地（--hover・角丸 6px）で、青（--accent）は使わない（フォーカスの輪だけ） */
   .setnav { width: 196px; flex: none; display: flex; flex-direction: column; gap: 8px; padding: 12px 10px;
     background: var(--side); border-right: 1px solid var(--line); overflow-y: auto; }
   #setNav { display: flex; flex-direction: column; gap: 1px; }
@@ -869,7 +869,7 @@
           <button type="button" class="setnav-item" id="setNavGeneral" role="tab" data-sec="general" aria-selected="false" tabindex="-1"><svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 6h7.5M15.5 6h1M3.5 14h1M9 14h7.5"/><circle cx="13.2" cy="6" r="2"/><circle cx="6.8" cy="14" r="2"/></svg><span>一般</span></button>
           <button type="button" class="setnav-item" id="setNavRecord" role="tab" data-sec="record" aria-selected="false" tabindex="-1"><svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="7.5" y="2.8" width="5" height="9" rx="2.5"/><path d="M4.8 9.8a5.2 5.2 0 0 0 10.4 0M10 15v2.4"/></svg><span>録音</span></button>
           <button type="button" class="setnav-item" id="setNavSummary" role="tab" data-sec="summary" aria-selected="false" tabindex="-1"><svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 5h9M3.5 9h6.5M3.5 13h4.5"/><path d="M14.5 9.5l1 2.3 2.3 1-2.3 1-1 2.3-1-2.3-2.3-1 2.3-1z"/></svg><span>要約</span></button>
-          <button type="button" class="setnav-item" id="setNavOffline" role="tab" data-sec="offline" aria-selected="false" tabindex="-1"><svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="4" width="13" height="9" rx="1.5"/><path d="M1.8 15.8h16.4M8 8.5h4"/></svg><span>ローカル AI の設定</span></button>
+          <button type="button" class="setnav-item" id="setNavOffline" role="tab" data-sec="offline" aria-selected="false" tabindex="-1"><svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="4" width="13" height="9" rx="1.5"/><path d="M1.8 15.8h16.4M8 8.5h4"/></svg><span>ローカル AI</span></button>
           <button type="button" class="setnav-item" id="setNavUpdate" role="tab" data-sec="update" aria-selected="false" tabindex="-1"><svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M16 10a6 6 0 0 1-10.6 3.9M4 10a6 6 0 0 1 10.6-3.9M14.9 3v3.2h-3.2M5.1 17v-3.2h3.2"/></svg><span>更新</span></button>
         </div>
         <!-- 0.9.0 U-4（SP6・SP7・F15）: 下に［ヘルプ］（ヘルプのサイトが出るまで hidden: HELP_SITE_LIVE と koeApp.openHelp。0.9.2 I-1 で名前を「ヘルプ」にして出した）と版の文字 -->
@@ -1209,10 +1209,10 @@
           <div class="card" data-sec="offline">
             <!-- 第1d回 A-13（D19）: カード「エンジン」を「オフライン」に。カードの中の文字起こしの言葉は「PC の中の文字起こし」。要約の欄の言葉は変えない（問い Q15） -->
             <!-- 0.9.0 見た目の直し: 項目の見出し「オフライン」と同じ言葉なので、カードの見出しは出さない（カードの名前はそのまま） -->
-            <h2 hidden>ローカル AI の設定</h2>
+            <h2 hidden>ローカル AI</h2>
             <!-- 0.9.2 I-3: 見出しを隠したカードなので、ⓘ は頭の説明の行の終わり。長い文はカードの吹き出し（カードの直の子） -->
             <div class="field setlead">
-              <div class="desc">PC の中で文字起こしと要約をするための準備です（任意）。<button type="button" class="setinfo" aria-expanded="false" aria-controls="setPopOffline" aria-label="「ローカル AI の設定」の説明"><svg viewBox="0 0 20 20" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="10" cy="10" r="7"/><path d="M10 9v4.5M10 6.3h.01"/></svg></button></div>
+              <div class="desc">PC の中で文字起こしと要約をするための準備です（任意）。<button type="button" class="setinfo" aria-expanded="false" aria-controls="setPopOffline" aria-label="「ローカル AI」の説明"><svg viewBox="0 0 20 20" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="10" cy="10" r="7"/><path d="M10 9v4.5M10 6.3h.01"/></svg></button></div>
             </div>
             <div class="setpop" id="setPopOffline" hidden>
               <span class="setpop-arrow" aria-hidden="true"></span>
@@ -1469,7 +1469,7 @@
   // 0.9.2 I-1: ヘルプの計画の H-12 が入り（main の app:open-help・preload の openHelp）、利用者がログインしてサイトを開けた（2026-10-21）ので真にした
   const HELP_SITE_LIVE = true;
   const SETTINGS_SECS = [{ sec: 'account', name: 'アカウント' }, { sec: 'general', name: '一般' }, { sec: 'record', name: '録音' },
-    { sec: 'summary', name: '要約' }, { sec: 'offline', name: 'ローカル AI の設定' }, { sec: 'update', name: '更新' }];
+    { sec: 'summary', name: '要約' }, { sec: 'offline', name: 'ローカル AI' }, { sec: 'update', name: '更新' }];
   let setSec = 'general';     // 前に選んだ項目（アプリを閉じるまで覚える。window-state.json には書かない: K8）
   let setFrom = null;         // 開く前にフォーカスのあった要素（閉じたらそこへ戻す）
   let setDownOnScrim = false; // 外の暗い所で押した（.setbox の中で押して外で離したときは閉じない）
@@ -3335,7 +3335,7 @@
           // 第1d回 A-13（D20）: ［この会議は PC の中だけ］は1行目（説明の行より前）。後ろに置くと説明の行の数だけ下へ押し出される
           + '<button class="ghost" id="meetingLocalOnly" type="button" hidden>オフラインモード</button>'
           // 0.9.3 持ち主の答え D55: 押した後（とオフラインモードの会議）は、ボタンのあった所に押せない札（ボタンでない。role=status で読み上げ、説明の行を指す）。
-          // 印はローカル AI の設定と同じノート PC
+          // 印は設定の「ローカル AI」と同じノート PC
           + '<span class="offpill" id="meetingLocalOnlyState" role="status" aria-describedby="meetingLocalOnlyNote" hidden>'
           + '<svg viewBox="0 0 20 20" width="14" height="14" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="4" width="13" height="9" rx="1.5"/><path d="M1.8 15.8h16.4M8 8.5h4"/></svg>'
           + '<span id="meetingLocalOnlyStateText"></span></span>'

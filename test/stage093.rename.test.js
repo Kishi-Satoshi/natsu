@@ -1,6 +1,6 @@
 /*
  * stage093.rename.test.js — 0.9.3 Task M-0（計画 docs/plans/2026-10-22-093.md の持ち主の答え D54・決めたこと 23〜26）
- * 「PC の中だけ」の会議を「オフラインモード」、設定の項目「オフライン」を「ローカル AI の設定」と呼ぶ。利用者に見える文だけを変え、
+ * 「PC の中だけ」の会議を「オフラインモード」、設定の項目「オフライン」を「ローカル AI」と呼ぶ。利用者に見える文だけを変え、
  * 内部のキー（localOnly・meeting:set-local-only・項目のキー offline・記事の名前 record/pc-only・settings/offline）は変えない。
  * 「PC の中だけ」の言葉は、オフラインモードの意味を説明する所（「…PC の中だけで処理し、外へ送らない」）にだけ残してよい。
  */
@@ -46,15 +46,15 @@ test('D54: 利用者に見える文（app.html・main.js と mainlib.js の文�
   assert.deepStrictEqual(bad, []);
 });
 
-test('D54: 録音中のページのボタン #meetingLocalOnly は［オフラインモード］、設定の左の列 #setNavOffline と項目の名前は「ローカル AI の設定」、帯と知らせの行動 offline は［ローカル AI の準備］、取り込みのボタンは［ローカル AI を使う（数 GB を取り込む）］', T, () => {
+test('D54: 録音中のページのボタン #meetingLocalOnly は［オフラインモード］、設定の左の列 #setNavOffline と項目の名前は「ローカル AI」、帯と知らせの行動 offline は［ローカル AI の準備］、取り込みのボタンは［ローカル AI を使う（数 GB を取り込む）］', T, () => {
   const html = read('src/renderer/app.html');
   assert.ok(html.includes('<button class="ghost" id="meetingLocalOnly" type="button" hidden>オフラインモード</button>'), 'ボタンの文が［オフラインモード］でない');
   const doc = parseHTML(html).root;
   const nav = doc.querySelector('#setNavOffline');
-  assert.strictEqual(nav.textContent.trim(), 'ローカル AI の設定');
+  assert.strictEqual(nav.textContent.trim(), 'ローカル AI');
   assert.strictEqual(nav.getAttribute('data-sec'), 'offline');
-  assert.ok(html.includes("{ sec: 'offline', name: 'ローカル AI の設定' }"), '項目の名前（SETTINGS_SECS）が「ローカル AI の設定」でない');
-  assert.ok(/<h2 hidden>ローカル AI の設定<\/h2>/.test(html), '隠した見出しが「ローカル AI の設定」でない');
+  assert.ok(html.includes("{ sec: 'offline', name: 'ローカル AI' }"), '項目の名前（SETTINGS_SECS）が「ローカル AI」でない');
+  assert.ok(/<h2 hidden>ローカル AI<\/h2>/.test(html), '隠した見出しが「ローカル AI」でない');
   assert.ok(html.includes("offline: 'ローカル AI の準備' }"), '帯の行動 offline の名前（STT_ACT_LABEL）が［ローカル AI の準備］でない');
   assert.ok(html.includes("offline: { label: 'ローカル AI の準備', run: () => showEngineSettings() }"), '知らせの行動 offline の名前が［ローカル AI の準備］でない');
   assert.ok(html.includes("btn = 'ローカル AI を使う（数 GB を取り込む）';"), '取り込みのボタンが［ローカル AI を使う（数 GB を取り込む）］でない');
@@ -65,7 +65,7 @@ test('D54: 録音中のページのボタン #meetingLocalOnly は［オフラ�
   const main = read('src/main.js');
   assert.ok(main.includes("1on1・面談など外に出したくない会議は、議事録の画面の［オフラインモード］を押してください。'"), '会議の始めの知らせ（M1）が古い');
   assert.ok(main.includes("'kept-local': () => 'この会議はオフラインモードです。"), '帯 kept-local が古い');
-  assert.ok(main.includes('const LOCAL_SETUP_NOTICE = \'この会議をオフラインモードにしました。PC の中で文字起こしするには、設定の「ローカル AI の設定」の準備'), 'LOCAL_SETUP_NOTICE が古い');
+  assert.ok(main.includes('const LOCAL_SETUP_NOTICE = \'この会議をオフラインモードにしました。PC の中で文字起こしするには、設定の「ローカル AI」の準備'), 'LOCAL_SETUP_NOTICE が古い');
 });
 
 test('D54: 内部のキーと名前は変えない（localOnly・meeting:set-local-only・項目のキー offline・id・記事の名前・engine.log の行）', T, () => {
@@ -79,21 +79,21 @@ test('D54: 内部のキーと名前は変えない（localOnly・meeting:set-loc
   assert.ok(site.includes('"pc-only"') && site.includes('"offline"'), '記事の名前が変わった');
 });
 
-test('D54: 記事 settings/offline の題名は「ローカル AI の設定」、record/pc-only の題名は「外に出したくない会議（［オフラインモード］）」。どちらも2つは違うと書き、互いにリンクする', T, () => {
+test('D54: 記事 settings/offline の題名は「ローカル AI」、record/pc-only の題名は「外に出したくない会議（［オフラインモード］）」。どちらも2つは違うと書き、互いにリンクする', T, () => {
   const off = read('help/articles/settings/offline.md');
   const pc = read('help/articles/record/pc-only.md');
-  assert.strictEqual(parseFrontMatter(off, { file: 'offline.md' }).meta.title, 'ローカル AI の設定');
+  assert.strictEqual(parseFrontMatter(off, { file: 'offline.md' }).meta.title, 'ローカル AI');
   assert.strictEqual(parseFrontMatter(pc, { file: 'pc-only.md' }).meta.title, '外に出したくない会議（［オフラインモード］）');
   for (const [name, text, link] of [['settings/offline', off, '(record/pc-only.md)'], ['record/pc-only', pc, '(settings/offline.md)']]) {
     const body = text.slice(text.indexOf('\n---', 3) + 4);
-    assert.ok(body.includes('**ローカル AI の設定**は、PC の上で動く文字起こしと要約の準備'), `${name}: ローカル AI の設定の説明が無い`);
+    assert.ok(body.includes('**ローカル AI**は、PC の上で動く文字起こしと要約の準備'), `${name}: ローカル AIの説明が無い`);
     assert.ok(body.includes('**オフラインモード**は、1つの会議を外へ送らない印'), `${name}: オフラインモードの説明が無い`);
     assert.ok(body.includes('違うものです'), `${name}: 違うと書いていない`);
     assert.ok(body.includes(link), `${name}: もう1つの記事へのリンクが無い`);
   }
 });
 
-test('決めたこと 26: 設定の左の列は 196px（「ローカル AI の設定」が折り返さない名前の行に収まる）', T, () => {
+test('決めたこと 26: 設定の左の列は 196px（「ローカル AI」が折り返さない名前の行に収まる）', T, () => {
   const doc = parseHTML(read('src/renderer/app.html')).root;
   const rules = S.parse(doc.querySelectorAll('style').map((s) => s._raw).join('\n'));
   assert.strictEqual(S.declsFor(rules, '.setnav').width, '196px');

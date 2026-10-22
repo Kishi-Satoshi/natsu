@@ -47,7 +47,7 @@ test('表示名は NaTsu（画面・録音バー・ウィンドウ・トレイ�
 // 0.9.0 G-3 で意図して変えた: 版を 0.9.0 に（任意のオフラインの準備・設定のポップアップ・録音バーの作り直し・帯の文。Electron は 44.9.0 のまま）
 // 0.9.1 で意図して変えた: 版を 0.9.1 に（話し声の無い区間を書かない・話し声が無いときに自動で止める。Electron は 44.9.0 のまま）
 // 0.9.2 で意図して変えた: 版を 0.9.2 に（設定の説明を1行にして ⓘ の吹き出しへ・アプリからヘルプを開く。Electron は 44.9.0 のまま）
-// 0.9.3 で意図して変えた: 版を 0.9.3 に（会議の検出の通知・録音中のページの音の波・オフラインモードとローカル AI の設定の名前・オフラインモードの札。Electron は 44.9.0 のまま）
+// 0.9.3 で意図して変えた: 版を 0.9.3 に（会議の検出の通知・録音中のページの音の波・オフラインモードとローカル AIの名前・オフラインモードの札。Electron は 44.9.0 のまま）
 test('識別子: name は natsu・版は 0.9.3・productName は build の中だけ（userData は %APPDATA%\\natsu）', () => {
   assert.strictEqual(pkg.name, 'natsu');
   assert.strictEqual(pkg.version, '0.9.3');
@@ -334,7 +334,7 @@ test('0.9.0: README・INSTALL は手順3を任意と書き、ログインを先�
   assert.ok(readme.includes(`［${FETCH_BTN}］`) && readme.includes('任意'), 'README に任意の取り込みが無い');
   const ps = read('get-installer.ps1');
   assert.ok(ps.includes('インストールしたら NaTsu を起動し、［設定］→［アカウント］でログインしてください。'), 'get-installer.ps1 の終わりの案内がログインを先に言わない');
-  assert.ok(ps.includes(`ローカル AI を使うときは、［設定］→［ローカル AI の設定］の［${FETCH_BTN}］を押します（約 5.6GB。途中で切れても続きから取ります）。`));
+  assert.ok(ps.includes(`ローカル AI を使うときは、［設定］→［ローカル AI］の［${FETCH_BTN}］を押します（約 5.6GB。途中で切れても続きから取ります）。`));
 });
 
 const SECS = (() => {
@@ -342,7 +342,7 @@ const SECS = (() => {
   return m ? [...m[1].matchAll(/name: '([^']+)'/g)].map((x) => x[1]) : [];
 })();
 test('0.9.0: README・INSTALL に「設定タブ」「設定のタブ」の言葉が無く、設定の項目の名前は画面の SETTINGS_SECS の名前', () => {
-  assert.deepStrictEqual(SECS, ['アカウント', '一般', '録音', '要約', 'ローカル AI の設定', '更新']);   // 0.9.3 M-0（D54）で意図して変えた
+  assert.deepStrictEqual(SECS, ['アカウント', '一般', '録音', '要約', 'ローカル AI', '更新']);   // 0.9.3 M-0（D54）で意図して変えた
   for (const [f, t] of [['README.md', readme], ['INSTALL.md', install], ['get-installer.ps1', read('get-installer.ps1')]]) {
     assert.ok(!t.includes('設定タブ') && !t.includes('設定のタブ'), `${f} に「設定タブ」「設定のタブ」がある`);
     const named = [...t.matchAll(/［設定］→［([^］]+)］/g), ...t.matchAll(/［設定］の「([^」]+)」/g)].map((m) => m[1]);
@@ -457,7 +457,7 @@ test('0.9.3: CHANGELOG の 0.9.3 の節（計画の下書きから移した）�
   assert.ok(!plan.slice(d, plan.indexOf('\n## ', d + 2)).includes('［更新して再起動］'), '計画に下書きの本文が残っている（移したら「移した」の1行にする）');
   for (const w of ['［更新して再起動］', 'AI 議事録を始める', '［文字起こしを始める］', 'オフラインモードで始める', '30 秒で消え', '画面の共有にも写りません',
     '音を聞いて会議を見つけているのではありません', '会議の検出の通知', '音の波', '音が入っていません', '聞き取り中…（約 15 秒ごとに文字になります）',
-    '［オフラインモード］', 'ローカル AI の設定', 'オフラインモード中', '議事録を記録中（相手の声も・オフライン）', '戻すボタンは今までどおりありません']) assert.ok(sec.includes(w), `0.9.3 の節に「${w}」が無い`);
+    '［オフラインモード］', 'ローカル AI', 'オフラインモード中', '議事録を記録中（相手の声も・オフライン）', '戻すボタンは今までどおりありません']) assert.ok(sec.includes(w), `0.9.3 の節に「${w}」が無い`);
   const src = ['src/renderer/app.html', 'src/renderer/overlay.html', 'src/renderer/nudge.html', 'src/main.js', 'src/mainlib.js'].map(read).join('\n');
   const OLD_NAMES = ['この会議は PC の中だけ'];
   const names = [...new Set([...sec.matchAll(/［([^］]+)］/g)].map((m) => m[1]))].filter((n) => !OLD_NAMES.includes(n));

@@ -330,7 +330,7 @@ test('M10: 「聞き取り中」の行は区間の行（.seg）と同じ並び�
 
 // ---------------------------------------------------------------- 持ち主の答え D55（2026-10-22）: オフラインモードの会議であることが一目で分かる
 // ［オフラインモード］を押した後（とオフラインモードで始めた会議・ほかの道で localOnly になった会議）は、ボタンのあった所に押せない色の札「オフラインモード中」
-// （ローカル AI の設定と同じノート PC の印）と、記録の行の括弧の中に「・オフライン」。灰色の説明の行は今のまま。戻すボタンは今どおり置かない
+// （ローカル AIと同じノート PC の印）と、記録の行の括弧の中に「・オフライン」。灰色の説明の行は今のまま。戻すボタンは今どおり置かない
 const OFF_TITLE = (l) => norm($(l, 'liveTitle').textContent);
 const pillShown = (l) => !$(l, 'meetingLocalOnlyState').hidden;
 async function offOpen(st = {}, o = {}) {
@@ -343,7 +343,7 @@ async function offOpen(st = {}, o = {}) {
   return l;
 }
 
-test('D55: オフラインモードの札 #meetingLocalOnlyState はボタンでない span（role=status）で、#meetingLocalOnly のすぐ後ろ・説明の行より前。印はローカル AI の設定と同じノート PC（aria-hidden）。初めは隠れていて文が空', T, async () => {
+test('D55: オフラインモードの札 #meetingLocalOnlyState はボタンでない span（role=status）で、#meetingLocalOnly のすぐ後ろ・説明の行より前。印はローカル AIと同じノート PC（aria-hidden）。初めは隠れていて文が空', T, async () => {
   const l = await offOpen();
   const bar = $(l, 'liveBar');
   const pill = $(l, 'meetingLocalOnlyState');
@@ -359,7 +359,7 @@ test('D55: オフラインモードの札 #meetingLocalOnlyState はボタンで
   const icon = pill.querySelector('svg');
   assert.ok(icon && icon.getAttribute('aria-hidden') === 'true', '印が無いか、読み上げる');
   const laptop = (svg) => svg.children.map((c) => `${c.tagName}:${['x', 'y', 'width', 'height', 'rx', 'd'].map((a) => c.getAttribute(a) || '').join(',')}`).join(' ');
-  assert.strictEqual(laptop(icon), laptop(doc.querySelector('#setNavOffline svg')), '印がローカル AI の設定（ノート PC）と違う');
+  assert.strictEqual(laptop(icon), laptop(doc.querySelector('#setNavOffline svg')), '印がローカル AI（ノート PC）と違う');
   assert.strictEqual(pill.hidden, true, 'クラウドの会議なのに札が出ている');
   assert.strictEqual(norm($(l, 'meetingLocalOnlyStateText').textContent), '', '隠れている札に文がある（読み上げる）');
   assert.deepStrictEqual(l.errors, []);

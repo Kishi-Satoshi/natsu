@@ -207,7 +207,9 @@ const RETAKE = new Set(['live-light', 'live-dark', 'live-banner-light', 'live-ba
   'live-offline-light', 'live-offline-dark', 'live-wave-light', 'live-wave-dark', 'live-silent-light', 'live-paused-dark',
   ...OVL_094(['rec', 'dict', 'fallback', 'spk-ng']), 'overlay-vertical-dark-hover-150',
   // P-1: 録音バーのスピーカーの印を外した（印のあった無音・一時停止の 16 枚）。完了（done）の 8 枚は撮る画面から外した
-  ...OVL_094(['silent', 'paused'])]);
+  ...OVL_094(['silent', 'paused']),
+  // R-1: 設定の項目の名前「ローカル AI」（設定の画面はどれも左の列を写す: 18 枚）
+  ...SCREENS.filter((x) => x.name.startsWith('settings-')).map((x) => x.name)]);
 const PERF = [{ name: 'open-2000-blocks', budgetMs: 500 }];   // 3回開いた中央値で見る
 const TIME_ZONE = 'Asia/Tokyo';
 const TOLERANCE = 2;   // 色の差（0〜255）がこれ以下の画素は同じとみなす。CI の機械の CPU ごとの描き方の1段の差を拾わないため（揺れの確かめ judgePair は 0 で見る）

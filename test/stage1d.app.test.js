@@ -569,7 +569,7 @@ test('D19: 設定のカードの見出しが『オフライン』で、すぐ下
   const card = offlineCard(l);
   const h2 = card.children[0];
   assert.strictEqual(h2.tagName, 'h2');
-  assert.strictEqual(h2.textContent, 'ローカル AI の設定');   // 0.9.3 M-0（D54）で意図して変えた
+  assert.strictEqual(h2.textContent, 'ローカル AI');   // 0.9.3 M-0（D54）で意図して変えた
   const lead = card.children[1];
   assert.ok(lead.classList.contains('field') && !lead.classList.contains('lockNote'), '見出しのすぐ下が説明の欄でない');
   assert.strictEqual(lead.textContent.trim(), OFFLINE_LEAD);
