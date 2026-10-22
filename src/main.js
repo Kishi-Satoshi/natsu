@@ -82,6 +82,8 @@ const W = require('./winstate');
 // エンジンの取り込み（第0b回 R7）。置き場所・記録・照らし（通信しない）とピン（版・URL・大きさ・SHA-256）
 const engineInstall = require('./engine-install');
 const { MANIFEST } = require('./engine-manifest');
+// PC の中の文字起こしエンジンへの要求（0.9.4 S-2。Node の fetch の 300 秒の時間切れを通らない node:http の部品。127.0.0.1 だけ）
+const localhttp = require('./localhttp');
 const { localDateISO } = require('./dates');
 const {
   saveIfExists, meetingDurationSec, promptTail,
@@ -98,6 +100,7 @@ const {
   pickDefaultPath,
   cloudLikely, offlineChosen, startPlan, dictationPlan, KEPT_CODES, keptCodeFor, KEPT_SUMMARY_TEXT,
   SILENT_DBFS, SPEECH_DBFS, wavLoudestDbfs, hintFold, hintEcho,
+  localTimeoutMs,
 } = require('./mainlib');
 // クリップボードの読み書き（mainlib.copyPrivate・deliverText）は main.js の同じ名前の包みとぶつかるので、lib から呼ぶ
 const lib = require('./mainlib');
@@ -1008,6 +1011,8 @@ function startEngine(eng) {
   if (eng.proc) return Promise.resolve();
   if (eng.startPromise) return eng.startPromise;
   eng.startPromise = (async () => {
+    // 0.9.4 S-2: 時間切れで止めた前のプロセスが終わる（ポートを離す）のを待つ
+    if (eng.exitWait) { const w = eng.exitWait; eng.exitWait = null; await w; }
     const issue = engineCheck(eng);
     if (issue) { eng.lastError = issue; return; }
     // ランタイムの版を記録するだけ（RF4）。手で入れたエンジンは今動いているので止めない。無い・古いときは起動のたびに、
@@ -1412,6 +1417,50 @@ const localFailCode = (e) => {
   const code = (e && e.cause && e.cause.code) || (e && e.code);
   return typeof code === 'string' && /^[A-Z_]{2,40}$/.test(code) ? code : 'なし';
 };
+// 試験だけ: PC への要求の待ち時間を縮める（数で 0〜1 のときだけ効き、ほかは 1。STT_SLEEP_SCALE と同じ形。実機の確かめの環境には置かない）
+const LOCAL_TIME_SCALE = (() => {
+  const raw = String(process.env.NATSU_TEST_LOCAL_TIME_SCALE || '').trim();
+  const v = /^\d*\.?\d+$/.test(raw) ? Number(raw) : NaN;
+  return v > 0 && v <= 1 ? v : 1;
+})();
+// ---- この PC の文字起こしの速さの覚え（0.9.4。計画の決めたこと 10。<userData>/data/local-pace.json。モデルごと）
+// モデルはファイルの名前と大きさで見分ける（パスは覚えに書かない）。読めない・形の違う覚えは無いのと同じ
+const pacePath = () => path.join(app.getPath('userData'), 'data', 'local-pace.json');
+function paceModel() {
+  const f = engineModel(whisperEng);
+  if (!f) return null;
+  try { return { name: path.basename(f), size: fs.statSync(f).size }; } catch (_) { return null; }
+}
+const isPaceShape = (v) => Boolean(v && typeof v === 'object' && !Array.isArray(v) && v.schema === 1 && v.model && typeof v.model === 'object');
+function readLocalPace() {
+  try {
+    const r = J.loadJsonFile(pacePath(), { shape: isPaceShape, maxBytes: J.SMALL_MAX, keep: 3 });
+    return r.state === 'ok' ? r.value : null;
+  } catch (_) { return null; }
+}
+// 今のモデルの覚えの rtf（無ければ null。待ち時間は 1 として数える）
+function pacedRtf() {
+  const saved = readLocalPace();
+  const model = paceModel();
+  if (!saved || !model || !saved.model || saved.model.name !== model.name || saved.model.size !== model.size) return null;
+  return Number.isFinite(saved.rtf) ? saved.rtf : null;
+}
+// 0.9.4 S-2（決めたこと 16）: 時間切れの後は whisper-server を止める（切った要求はサーバーの中で走り続け、次の区間がその後ろで待つ）。
+// 次に使うとき ensureEngineReady が起こし直す（前のプロセスが終わってポートを離すのを待ってから: startEngine の exitWait）。
+// 記録は区間の番号・秒・符号だけ
+function restartWhisperAfterLate(seg, sec, planMs) {
+  const id = typeof seg === 'string' && /^s\d+$/.test(seg) ? seg : '音声入力';
+  engineLog(`手元の文字起こしの時間切れ: ${id}（音声 ${sec} 秒・待ち ${Math.round(planMs / 1000)} 秒）。エンジンを起こし直します`);
+  const p = whisperEng.proc;
+  stopEngine(whisperEng);
+  if (p) {
+    whisperEng.exitWait = new Promise((resolve) => {
+      if (p.exitCode !== null && p.exitCode !== undefined) { resolve(); return; }
+      const t = setTimeout(resolve, 5000);
+      try { p.once('exit', () => { clearTimeout(t); resolve(); }); } catch (_) { clearTimeout(t); resolve(); }
+    });
+  }
+}
 
 // opts.isStale: やり直しの前に聞く。true なら（議事録の破棄・打ち切りの後）送り直さない。
 // opts.learn: 議事録の区間のとき true。ヒントを止めるかの数え（promptEmptyStreak）に入れる
@@ -1419,11 +1468,11 @@ async function transcribeLocal(wavBuffer, extraPromptTail, durationMs, opts = {}
   const ok = await ensureEngineReady(whisperEng);
   if (!ok) throw new Error(whisperEng.lastError || '文字起こしエンジンが起動していません');
   // 処理時間は音声の長さにほぼ比例する。固定240秒だと、長くなった区間や
-  // 長い音声入力が時間切れで丸ごと失われる（実機で9分の区間が消えた）。
-  // 音声の5倍+60秒まで、上限30分で待つ。短い区間は今まで通り。下のやり直しも含めてこの時間の内。
-  // トレードオフ: エンジンが応答しないままハングした場合、この時間まで
-  // 待ち続ける（議事録は「破棄」で抜けられる）。喪失よりは待ちを選ぶ。
-  const waitMs = Math.min(1800000, Math.max(240000, Math.round(durationMs || 0) * 5 + 60000));
+  // 長い音声入力が時間切れで丸ごと失われる（実機で9分の区間が消えた）。下のやり直しも含めてこの時間の内。
+  // 0.9.4 S-2（決めたこと 16）: 待ち時間は音声の長さと、この PC のこのモデルで測った速さ（覚えの rtf）で決める（mainlib.localTimeoutMs）。
+  // 時間切れになった区間の音声は残し（kept）、エンジンを起こし直す（restartWhisperAfterLate）
+  const planMs = localTimeoutMs({ audioMs: Number(durationMs) || 0, rtf: pacedRtf() });
+  const waitMs = Math.max(1, Math.round(planMs * LOCAL_TIME_SCALE));
   const deadline = Date.now() + waitMs;
   // ヒントを止めるかは、ヒントを組んだときの設定で決める（送っている間に辞書が変わっても、新しい辞書は試してから）
   const sig = promptSig();
@@ -1473,26 +1522,27 @@ async function transcribeLocal(wavBuffer, extraPromptTail, durationMs, opts = {}
     let res;
     for (;;) {
       try {
-        res = await fetch(`http://127.0.0.1:${settings.localPort}/inference`,
-          { method: 'POST', body: makeForm(), signal: AbortSignal.timeout(Math.max(1000, deadline - Date.now())) });
+        res = await localhttp.postInference({ port: settings.localPort, form: makeForm(), timeoutMs: Math.max(1, deadline - Date.now()) });
         break;
       } catch (e) {
         // 区間の失敗の文になる（議事録・音声入力・復旧）。英語の "fetch failed" をそのまま見せない
         const code = droppedCode(e);
-        // 失敗の符号を cause に持たせる（engine.log の「手元の文字起こしの失敗」の行が読む: 第1d回 A-14。文は今のまま）
-        if (!code || resent) throw new Error(fetchErrorText(e), { cause: (e && e.cause) || e });
+        // 0.9.4 S-2（決めたこと 16）: 時間切れの要求は whisper-server の中で走り続け、次の区間がその後ろで待つ。エンジンを止め、次に使うときに起こし直す
+        if (lib.localFailKind(e) === 'late') restartWhisperAfterLate(opts.seg, sec, planMs);
+        // 失敗の符号を cause に持たせる（engine.log の「手元の文字起こしの失敗」の行が読む: 第1d回 A-14。文は 0.9.4 S-2 の localErrorText）
+        if (!code || resent) throw new Error(localErrorText(e, { resent }), { cause: (e && e.cause) || e });
         resent = true;
         // 記録の頭は「文字起こし:」にしない（認識ヒントのやり直しの行だけが使う。transcribe.e2e.test.js がその頭で見る）
         engineLog(`文字起こしの接続: エンジンとの接続が切れたため、同じ区間をもう一度送りました（${code}・音声 ${sec} 秒）`);
       }
     }
     touchEngine(whisperEng);
-    if (!res.ok) {
+    if (!(res.status >= 200 && res.status <= 299)) {
       let detail = '';
-      try { detail = (await res.json())?.error || ''; } catch (_) { /* noop */ }
+      try { detail = JSON.parse(res.body)?.error || ''; } catch (_) { /* noop */ }
       throw new Error(`文字起こしエンジンエラー (${res.status})${detail ? `: ${detail}` : ''}`);
     }
-    const data = await res.json();
+    const data = JSON.parse(res.body);
     // 古い whisper-server（1.7.6・1.8.0）は WAV を読めないとき 200 のまま {"error": …} を返す。
     // 空の文として扱うと区間ごと黙って消えるので、失敗として残す（後で文字起こしし直せる）
     if (data?.error) throw new Error(`文字起こしエンジンエラー: ${data.error}`);
@@ -1584,6 +1634,10 @@ const STT_BANNER = {
   'kept-relay': () => '文字起こしの中継が今は使えないため、音声を残しています。使えるようになると自動で文字起こしします。録音はそのまま続けてください。',
   'kept-login': () => 'ログインしていないため、音声を残しています。［ログイン］を押してログインすると、文字起こしします。',
   'kept-local': () => 'この会議はオフラインモードです。PC の中の文字起こしが入っていないので、音声だけを残しています（外には送りません）。［ローカル AI の準備］から取り込むと、文字起こしします。',
+  // 0.9.4 S-2（決めたこと 18）: PC の文字起こしが間に合わない（時間切れ）・遅い PC で音声を残している。ボタン無し。Windows の知らせにはしない
+  'kept-late': (d) => (d && d.offline
+    ? 'オフラインモードです。この PC の文字起こしが録音に追いつかないため、音声だけを残しています（外には送りません）。会議が終わったら PC の中で文字起こしします。'
+    : 'この PC の文字起こしが録音に追いつかないため、音声を残しています。会議が終わったら文字起こしします。録音はそのまま続けてください。'),
   // B15（0.9.0 B-2・BN2・D26。利用者の文のまま。ボタン無し）: クラウドで文字起こししていた会議の途中でネットワークから外れた
   'net-offline': () => 'ネットワークにつながっていません。この PC で文字起こしを続けていますが、精度が落ちます。録音はそのまま続けてください。',
 };
@@ -1641,6 +1695,9 @@ function watchOffline(now = Date.now()) {
 const STALL_SEG_TEXT = '（音はありましたが、文字になりませんでした）';
 // 第1d2回 M-2（D21）: 準備を選んでいない PC で、クラウドで文字起こしできなかった区間の文（音声は残し、戻ったら文字起こしする）
 const KEPT_SEG_TEXT = '（文字起こし待ち: 音声は残してあります）';
+// 0.9.4 S-2（決めたこと 2・18）: PC の時間切れ（late）・エンジンに届かない（down）区間の文（音声は残し、会議の後と見回りで文字起こしする）
+const LATE_SEG_TEXT = '（文字起こし待ち: PC の文字起こしが間に合わなかったので、後で文字起こしします）';
+const DOWN_SEG_TEXT = '（文字起こし待ち: PC の文字起こしエンジンにつながらなかったので、後で文字起こしします）';
 // その区間の Error の文（会議の区間は KEPT_SEG_TEXT にする。音声入力は M-5 が残す）
 const KEPT_ERROR_TEXT = 'クラウドで文字起こしできず、PC の中の文字起こしも準備していないため、文字起こしできませんでした';
 // ［この会議は PC の中だけ］を押したが PC の中の文字起こしが使えない（計画の P1。準備を選んでいない PC だけ。ボタン［オフラインの準備］: 第1d2回 M-4）
@@ -2262,11 +2319,12 @@ function noticeKept(m, why) {
   if (why === 'login' || (why === 'signed-out' && !keptTold)) noticeOnce(m, 'k4', { text: KEPT_NOTICE.k4, action: 'account' });
   else if (!login && !keptTold && why !== 'key-unreadable') noticeOnce(m, 'k3', KEPT_NOTICE.k3);
 }
-// fetch の失敗を、利用者に見せる一文にする（英語の "fetch failed" や時間切れの文をそのまま出さない）
-function fetchErrorText(e) {
-  if (e && (e.name === 'TimeoutError' || e.name === 'AbortError')) return '時間内に返事がありませんでした';
-  const code = e && e.cause && e.cause.code;
-  if (e && (/fetch failed/i.test(e.message || '') || /^E(CONNREFUSED|CONNRESET|PIPE)$/.test(code || ''))) return 'エンジンにつながりませんでした';
+// PC の文字起こしへの要求の失敗を、利用者に見せる一文にする（英語の "fetch failed" や時間切れの文をそのまま出さない）。
+// 0.9.4 S-2（決めたこと 18）: 時間切れ（late）を「エンジンにつながりませんでした」と出さない。届かない（down）と分ける
+function localErrorText(e, { resent = false } = {}) {
+  const kind = lib.localFailKind(e);
+  if (kind === 'late') return 'PC の文字起こしが時間内に終わりませんでした';
+  if (kind === 'down') return resent ? 'PC の文字起こしエンジンとの接続が切れました' : 'PC の文字起こしエンジンにつながりませんでした';
   return (e && e.message) || '不明なエラー';
 }
 // 起動テストの仕上げ。/health に応えても、文字起こしができるとは限らない（古いビルドは
@@ -2281,16 +2339,15 @@ async function probeInference() {
   if (settings.language && settings.language !== 'auto') form.append('language', settings.language);
   touchEngine(whisperEng);
   try {
-    const res = await fetch(`http://127.0.0.1:${settings.localPort}/inference`,
-      { method: 'POST', body: form, signal: AbortSignal.timeout(120000) });
+    const res = await localhttp.postInference({ port: settings.localPort, form, timeoutMs: 120000 });
     let data = null;
-    try { data = await res.json(); } catch (_) { /* 下で扱う */ }
-    if (!res.ok) return `文字起こしを試せませんでした（${res.status}${data?.error ? `: ${data.error}` : ''}）`;
+    try { data = JSON.parse(res.body); } catch (_) { /* 下で扱う */ }
+    if (!(res.status >= 200 && res.status <= 299)) return `文字起こしを試せませんでした（${res.status}${data?.error ? `: ${data.error}` : ''}）`;
     if (!data || typeof data !== 'object') return '文字起こしエンジンの返事を読めませんでした';
     if (data.error) return `文字起こしを試せませんでした: ${data.error}`;
     return '';
   } catch (e) {
-    return `文字起こしを試せませんでした: ${fetchErrorText(e)}`;
+    return `文字起こしを試せませんでした: ${localErrorText(e)}`;
   } finally {
     touchEngine(whisperEng);
   }
@@ -3251,7 +3308,8 @@ let dictWaitRunning = false;
 // 手元が使えなかった（選んだ人で壊れている・確かめ中）の engineMissing。中継が音声を見て断った（refused）は残さない（決めたこと 12）
 function keepsDictation(e) {
   if (!e || e.refused) return false;
-  return Boolean(e.kept || (e.keepForRetry && !isOfflineChosen()) || (e.engineMissing && !dictLocalAtStart));
+  // 0.9.4 S-2（決めたこと 17）: PC の文字起こしの時間切れも残す（履歴に「文字起こし待ち」）
+  return Boolean(e.kept || (e.keepForRetry && !isOfflineChosen()) || (e.engineMissing && !dictLocalAtStart) || lib.localFailKind(e) === 'late');
 }
 async function keepDictation(buffer, durationMs, e) {
   const id = store.newId('h');
@@ -3545,7 +3603,23 @@ function refreshSegFailed(m) {
   const n = m.segments.filter((s) => s.failed && s.wav && !s.kept).length;
   if (n > 0) setSttProblem(m, 'seg-failed', { n });
   else clearSttProblem(m, 'seg-failed');
-  if (!m.segments.some((s) => s.kept && s.wav)) clearSttProblem(m, ...KEPT_CODES);
+  if (!m.segments.some((s) => s.kept && s.wav)) clearSttProblem(m, ...KEPT_CODES, 'kept-late');
+}
+// 0.9.4 S-2（決めたこと 2）: 会議の区間の文字起こしの失敗の後始末 → 区間の文。PC の時間切れ（late）は音声を残して帯 kept-late（engine-down は
+// 立てない）、エンジンに届かない（down）は音声を残して今の engine-down、エンジンが答えた誤り（error）は今の失敗（seg-failed）。
+// 準備を選んでいない PC で残した区間（kept）・中継が断った区間（refused）は今のまま
+function noteSegFailure(m, seg, e) {
+  if (e && e.kept) { seg.kept = true; noteKept(m, e); return KEPT_SEG_TEXT; }
+  const kind = e && !e.refused && e.sttRoute && e.sttRoute.route === 'local' ? lib.localFailKind(e) : '';
+  if (kind === 'late') {
+    seg.kept = true;
+    noteSttRoute(m, e.sttRoute);
+    setSttProblem(m, 'kept-late', { offline: Boolean(m.localOnly) });
+    return LATE_SEG_TEXT;
+  }
+  if (kind === 'down') { seg.kept = true; noteSttFailure(m, e); return DOWN_SEG_TEXT; }
+  if (!(e && e.refused)) noteSttFailure(m, e);
+  return `（この区間の認識に失敗: ${e && e.message}）`;
 }
 // 区間の音声を残した（第1d2回 M-2）: その理由の帯（mainlib.keptCodeFor）を立て、ほかの kept の帯と中継の帯を消し、残し始めの知らせ（noticeKept）
 function noteKept(m, e) {
@@ -3738,8 +3812,8 @@ function retryFailedSegments({ only = '', max = 0 } = {}) {
           what: `区間 ${seg.id}（もう一度）`, seg: seg.id, onWait: (sec) => { if (!stale()) { setSttProblem(m, 'wait', { sec }); sendToMainWin('meeting:update', meetingStatus()); } } });
       } catch (e) {
         if (stale()) return;
-        // 第1d2回 M-2: 音声を残した（kept）は区間に印を付けて kept の帯、中継が断った（refused）はエンジンの帯を立てない
-        if (e && e.kept) { seg.kept = true; noteKept(m, e); } else if (!(e && e.refused)) noteSttFailure(m, e);
+        // 第1d2回 M-2: 音声を残した（kept）は区間に印を付けて kept の帯、中継が断った（refused）はエンジンの帯を立てない。0.9.4 S-2: PC の時間切れは kept-late
+        noteSegFailure(m, seg, e);
         return;
       }
       if (stale()) return;
@@ -4588,14 +4662,14 @@ function onMeetingSegment(buffer, durationMs, isFinal) {
       m.inFlightSince = 0;
       clearSttProblem(m, 'wait');
       // 第1d2回 M-2（D21）: 準備を選んでいない PC で音声を残した区間（kept）は、エンジンの帯でなく kept の帯と残し始めの知らせ。
-      // 中継が断った区間（refused）は今の失敗の区間で、帯は B4 だけ（B1・中継の帯を立てない）
-      if (e && e.kept) { seg.kept = true; noteKept(m, e); } else if (!(e && e.refused)) noteSttFailure(m, e);
+      // 中継が断った区間（refused）は今の失敗の区間で、帯は B4 だけ（B1・中継の帯を立てない）。0.9.4 S-2: PC の時間切れ・届かないも残す（noteSegFailure）
+      const failText = noteSegFailure(m, seg, e);
       // 失敗は手元の側に数える。手元に落ちた区間でエンジンも失敗したら、落ちた理由（login・daily-cap などはすぐ長い側。A-5 の点検）、
       // 中継の失敗の符号があればその符号（rate-long など）、どちらも無ければ手元のエンジンの失敗 engine
       const failWhy = (e && e.sttRoute && typeof e.sttRoute.why === 'string' && e.sttRoute.why) || (e && typeof e.cloudCode === 'string' && e.cloudCode) || 'engine';
       segmentRouted(m, 'local', failWhy);
       // 残した区間は「文字起こし待ち」の失敗の区間（WAV を残す: settleSegment。締めで待ち行列に載る）
-      settleSegment(m, seg, { text: e && e.kept ? KEPT_SEG_TEXT : `（この区間の認識に失敗: ${e.message}）`, failed: true });
+      settleSegment(m, seg, { text: failText, failed: true });
       // 0.9.1 Q-4（決めたこと 7）: 文字起こしできていない区間は、無音の判定を通った音声なので話し声ありに数える（分からないときは止めない側）
       noteHeard(m, seg, 'speech');
       return;

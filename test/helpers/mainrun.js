@@ -242,6 +242,9 @@
 //   ctx.relay に revoke()（A-11 から: 偽の Access で種の人を取り消す）・sttRequests()・seededMail・base（中継の口。場面から直に GET /auth/me を聞く）を、ctx に advanceClock(ms)（main の Date.now と
 //   中継の試しの時計を ms だけ進める）を足す
 //   ctx.setOnline(bool) … 偽の net.isOnline() の答えを場面の途中で変える（--offline の場面は false から始まる）
+//   0.9.4 S-2（PC への要求の待ち時間）: 場面を起こす側が NATSU_TEST_LOCAL_TIME_SCALE（0〜1。待ち時間に掛ける）を渡す。
+//     --seg-ms=<ミリ秒> … 議事録の区間の長さ（durationMs）をこの値にする（音声のバイトは今のまま）
+//     --pace=<JSON> … 起動の前に data/local-pace.json を置く（model: "same" は偽のモデルの名前と大きさ、at: "now-<日>" は日数の前）
 //   第1d回 A-5（D16）: 区切りの長さの場面
 //     --relay-seq=<並び> … 区間 i を送る前に、中継の答え方を並びの i 文字目にし（relay-local の setAnswer: c・n・5・l・u・a・e・L）、
 //                        その区間が文字になるか失敗するまで（meeting:status の pending が 0）待ってから次を送る（区間と並びが1対1）。
@@ -405,6 +408,9 @@ const killDbAtDiscard = flags.includes('--kill-db-at-discard');
 const idleMode = flags.includes('--idle');
 const restartDuring = flagVal('--restart-during');   // 第1d回 A-9
 const relaySeq = flagVal('--relay-seq');   // 第1d回 A-5
+// 0.9.4 S-2: 区間の長さ（会議の時計の durationMs。音声のバイトは今の 3 秒・2 秒のまま）と、この PC の速さの覚え（local-pace.json）
+const segMsFlag = Number(flagVal('--seg-ms')) || 0;
+const paceFlag = flagVal('--pace');
 // 0.9.0 B-2: オフラインの帯の場面（[秒, つながっているか] の並び・区間を送る秒）
 const netSeq = flagVal('--net-seq') ? flagVal('--net-seq').split(',').map((x) => { const [sec, v] = x.split(':'); return [Number(sec), v === 'on']; }) : null;
 const netSegAtFlag = flagVal('--net-seg-at') ? flagVal('--net-seg-at').split(',').map(Number) : null;
@@ -725,6 +731,15 @@ process.on('exit', () => {
     fs.closeSync(fd);
   }
   if (withVad) fs.writeFileSync(path.join(path.dirname(model), 'ggml-silero-v6.2.0.bin'), Buffer.alloc(1024, 1));
+  // 0.9.4 S-2: --pace=<JSON> … 起動の前に <userData>/data/local-pace.json を置く。model が "same" なら偽のモデルの名前と大きさにする
+  // （at が "now-<日>" なら今からその日数の前の時刻にする）
+  if (paceFlag) {
+    const pace = JSON.parse(paceFlag);
+    if (pace.model === 'same') pace.model = { name: path.basename(model), size: fs.statSync(model).size };
+    if (typeof pace.at === 'string' && /^now-\d+$/.test(pace.at)) pace.at = Date.now() - Number(pace.at.slice(4)) * 24 * 3600 * 1000;
+    fs.mkdirSync(path.join(userData, 'data'), { recursive: true });
+    fs.writeFileSync(path.join(userData, 'data', 'local-pace.json'), JSON.stringify(pace));
+  }
   const exe = process.env.NATSU_E2E_EXE || FAKE;
   // 偽の claude（--claude）。記録は1行ずつの JSON
   const claudeLog = path.join(tmp, 'claude.log');
@@ -2277,6 +2292,7 @@ process.on('exit', () => {
     out.pastes = clipWrites.slice();   // 第1d2回 M-1
     out.overlayPhases = sent.filter(([ch]) => ch === 'overlay:phase').map(([, p]) => p);   // 第1d2回 M-5
     out.files = listFiles(userData);
+    out.engineLog = elogLines();   // 0.9.4 S-2
     if (focusMainDuringDictation) { out.escape = escapeLog.slice(); out.escapeAt.end = registered.has('Escape'); }
     if (restartDuring) Object.assign(out, { relaunches, relaunchDb, applyCalls });
     await sttOut();
@@ -2502,7 +2518,7 @@ process.on('exit', () => {
 
   const wavs = process.env.NATSU_E2E_WAVS
     ? process.env.NATSU_E2E_WAVS.split(';').map((f) => ({ buf: fs.readFileSync(f), ms: Math.round((fs.statSync(f).size - 44) / 32) }))
-    : Array.from({ length: segCount }, (_, i) => (blip ? { buf: blipWav(blipSec), ms: blipSec * 1000 } : { buf: toneWav(i ? 2 : 3, silent ? 0 : 8000), ms: i ? 2000 : 3000 }));
+    : Array.from({ length: segCount }, (_, i) => (blip ? { buf: blipWav(blipSec), ms: blipSec * 1000 } : { buf: toneWav(i ? 2 : 3, silent ? 0 : 8000), ms: segMsFlag || (i ? 2000 : 3000) }));
   out.start = await handlers['meeting:toggle']();
   // 0.9.0 B-2（--no-whisper-after-start）: 始めた直後に偽のモデルを消す（engineValid(whisperEng) が偽になる）
   if (noWhisperAfterStart) {

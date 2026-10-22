@@ -537,6 +537,7 @@ test('G3: 0.9.3 の変異が一覧にそろい、IDS_093 は計画の「変異�
 // タスクごとに足す（S-8 で表とちょうど同じにする）。足した分は表の id で、表の頭の文字（ka・pc・lt・wd・sg・rx・bm）の変異は全部ここにある
 const IDS_094 = [
   'pc-floor', 'pc-two', 'pc-big', 'pc-backlog', 'pc-sticky', 'pc-model', 'pc-ttl', 'lt-timeout', 'lt-cap', 'sg-cloud-grow', 'sg-transient', 'sg-hold', 'sg-hold-reset',
+  'lt-fetch', 'lt-destroy', 'lt-restart', 'wd-late-text', 'wd-down-text', 'wd-late-banner', 'ka-live-late', 'ka-live-down',
 ];
 test('G3: 0.9.4 の変異が一覧にそろい、IDS_094 は計画の「変異確認」の表の id の中にある。どれも決まったテストのファイルを持ち、なぜ戻すと困るかを書く', { timeout: 5000 }, () => {
   const byId = new Map(MUTANTS.map((m) => [m.id, m]));
