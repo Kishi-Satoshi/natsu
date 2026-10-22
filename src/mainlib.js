@@ -1694,8 +1694,9 @@ function micWatchScript({ root = MIC_ROOT, self = '', apps = MEET_APPS, everyMs 
     `$pkgMap = @{ ${pkgMap} }`,
     `$procMap = @{ ${procMap} }`,
     `$order = @(${order})`,
-    '$script:last = $null',
-    'function Say($t) { if ($t -ne $script:last) { $script:last = $t; [Console]::Out.WriteLine($t); [Console]::Out.Flush() } }',
+    // 0.9.4 D-1: 読むたびに書く（前と同じ行も書く）。判断（nudgeStep）は同じ使いを2回読んでから出すので、変わったときだけ書くと会議のアプリだけが
+    // マイクを使い続けるときに2回目が来ず、パネルが出なかった（持ち主の engine.log で確かめた）
+    'function Say($t) { [Console]::Out.WriteLine($t); [Console]::Out.Flush() }',
     'function Get-Use($k) {',
     '  try {',
     "    if ($k.GetValueKind('LastUsedTimeStart') -ne [Microsoft.Win32.RegistryValueKind]::QWord) { return $null }",
@@ -1802,6 +1803,8 @@ function nudgeStep(st0, ev) {
   const done = (k) => st.done.includes(k);
   const markDone = (k) => { if (!done(k)) st.done.push(k); };
   const hideNow = () => { if (st.shown) { st.shown = null; out.hide = true; } };
+  // 0.9.4 D-1: つなぎ直し（60 秒の間の新しい使い）で出さなかった使い（診断の符号 rejoin。前の版の st には無い）
+  const markRejoin = (k) => { if (!Array.isArray(st.rejoin)) st.rejoin = []; if (!st.rejoin.includes(k)) st.rejoin.push(k); if (st.rejoin.length > 50) st.rejoin.shift(); };
   const pick = () => {
     if (!st.idle || !st.on || st.shown) return;
     for (const a of MEET_APPS) {
@@ -1830,7 +1833,7 @@ function nudgeStep(st0, ev) {
       const k = key(id, start);
       const fresh = st.active[id] !== start;
       st.seen[k] = fresh ? 1 : (st.seen[k] || 0) + 1;
-      if (fresh && st.lastEnd[id] !== undefined && now - st.lastEnd[id] < NUDGE_REJOIN_MS) markDone(k);
+      if (fresh && st.lastEnd[id] !== undefined && now - st.lastEnd[id] < NUDGE_REJOIN_MS) { markDone(k); markRejoin(k); }
       if (st.meeting) markDone(k);
     }
     st.active = next;
@@ -1858,7 +1861,24 @@ function nudgeStep(st0, ev) {
       if (now >= until) hideNow();
     }
   }
+  out.why = out.show ? '' : nudgeWhy(st);
   return out;
+}
+// 0.9.4 D-1（診断の記録）: マイクを使っている一覧のアプリがあるのにパネルを出していない理由の符号。出している・使っているアプリが無いときは ''。
+// off（設定が切れている）・busy（録音中）・mute（通知を出さないアプリ）・rejoin（60 秒のつなぎ直し）・done（出した・閉じた使い）・wait（まだ1回しか読んでいない）
+function nudgeWhy(st) {
+  const ids = MEET_APPS.map((a) => a.id).filter((id) => st.active && st.active[id] !== undefined);
+  if (!ids.length || st.shown) return '';
+  if (!st.on) return 'off';
+  if (!st.idle) return 'busy';
+  let why = '';
+  for (const id of ids) {
+    const k = `${id}:${st.active[id]}`;
+    if (st.mute.includes(id)) { why = why || 'mute'; continue; }
+    if (st.done.includes(k)) { why = why || (Array.isArray(st.rejoin) && st.rejoin.includes(k) ? 'rejoin' : 'done'); continue; }
+    if ((st.seen[k] || 0) < 2) return 'wait';
+  }
+  return why;
 }
 // パネルの置き場所（決めたこと 8）。size はパネルの画面が測ったカードの大きさ（CSS の px。有限の正の数でなければ NUDGE_FIRST）。窓はカードの周りに
 // NUDGE_PAD の余白（明るいパネルの影の輪: K9）を足した大きさで、カードの右と上の端が作業領域の右と上の端から NUDGE_EDGE の所に来る。

@@ -1613,7 +1613,7 @@ module.exports = [
   { id: "m-notion", file: "src/mainlib.js", from: "  { id: 'zoom', label: 'Zoom', exe: ['zoom.exe'], pkg: [], proc: ['zoom'] },", to: "  { id: 'zoom', label: 'Zoom', exe: ['zoom.exe', 'notion.exe'], pkg: [], proc: ['zoom', 'notion'] },", tests: ["test/stage093.lib.test.js"], why: "0.9.3 M-1 持ち主の実機の記録: 一覧に Notion（別のメモ取りの道具）を入れる" },
   { id: "m-twice", file: "src/mainlib.js", from: "      if ((st.seen[k] || 0) < 2 || done(k)) continue;", to: "      if ((st.seen[k] || 0) < 1 || done(k)) continue;", tests: ["test/stage093.lib.test.js"], why: "0.9.3 M-1 決めたこと 5 (c): 1回見えただけで出す（マイクの試しの一瞬で出る）" },
   { id: "m-once", file: "src/mainlib.js", from: "      if ((st.seen[k] || 0) < 2 || done(k)) continue;", to: "      if ((st.seen[k] || 0) < 2) continue;", tests: ["test/stage093.lib.test.js"], why: "0.9.3 M-1 M2: 同じ (id, start) でもう一度出す（閉じた・引っ込めた会議にまた出る）" },
-  { id: "m-rejoin", file: "src/mainlib.js", from: "      if (fresh && st.lastEnd[id] !== undefined && now - st.lastEnd[id] < NUDGE_REJOIN_MS) markDone(k);", to: "", tests: ["test/stage093.lib.test.js"], why: "0.9.3 M-1 M2: 60 秒以内のつなぎ直し・機器の切り替えでも出す" },
+  { id: "m-rejoin", file: "src/mainlib.js", from: "      if (fresh && st.lastEnd[id] !== undefined && now - st.lastEnd[id] < NUDGE_REJOIN_MS) { markDone(k); markRejoin(k); }", to: "", tests: ["test/stage093.lib.test.js"], why: "0.9.3 M-1 M2: 60 秒以内のつなぎ直し・機器の切り替えでも出す" },
   { id: "m-busy", file: "src/mainlib.js", from: "    if (!st.idle || !st.on || st.shown) return;", to: "    if (!st.on || st.shown) return;", tests: ["test/stage093.lib.test.js"], why: "0.9.3 M-1 M3: 録音中でも出す" },
   { id: "m-pending", file: "src/mainlib.js", from: "    } else pick();\n  } else if (ev.type === 'setting') {", to: "    }\n  } else if (ev.type === 'setting') {", tests: ["test/stage093.lib.test.js"], why: "0.9.3 M-1 決めたこと 5: idle に戻っても、音声入力の間に始まった会議を出さない" },
   { id: "m-mute", file: "src/mainlib.js", from: "      if (start === undefined || st.mute.includes(a.id)) continue;", to: "      if (start === undefined) continue;", tests: ["test/stage093.lib.test.js"], why: "0.9.3 M-1 決めたこと 11: 出さないにしたアプリでも出す" },
@@ -1776,4 +1776,15 @@ module.exports = [
   // S-4F: 遅い会議で残した音声は会議の後に PC で（持ち主の答え Q14「PC で文字起こし」）
   { id: 'pc-after-local', file: 'src/main.js', from: 'const recoveryPcOnly = (q) => Boolean(q && (q.localOnly || q.slow));', to: 'const recoveryPcOnly = (q) => Boolean(q && q.localOnly);',
     tests: ['test/stage094.main.test.js'], pattern: '^S-4F:', why: '0.9.4 S-4F Q14: 遅い会議の待ち行列をクラウドへ送る（持ち主は「PC で文字起こし」を選んだ）' },
+  // D-1: 会議の検出が出ない（見張りは読むたびに書く・診断の記録・会議の引き金）
+  { id: 'dt-say-dedupe', file: 'src/mainlib.js', from: "    'function Say($t) { [Console]::Out.WriteLine($t); [Console]::Out.Flush() }',", to: "    '$script:last = $null',\n    'function Say($t) { if ($t -ne $script:last) { $script:last = $t; [Console]::Out.WriteLine($t); [Console]::Out.Flush() } }',",
+    tests: ['test/stage094.detect.test.js', 'test/stage093.lib.test.js'], why: '0.9.4 D-1: 見張りが変わったときだけ書く形に戻す（会議のアプリだけがマイクを使い続けると2回目が来ず、パネルが出ない。Windows の CI ではつなげた試験も赤）' },
+  { id: 'dt-rejoin', file: 'src/mainlib.js', from: '{ markDone(k); markRejoin(k); }', to: '{ markRejoin(k); }',
+    tests: ['test/stage094.detect.test.js'], pattern: '^D-1: 参加のときにマイクを開き直しても', why: '0.9.4 D-1: 参加のときにマイクを開き直すと2つ目のパネルを出す（60 秒のつなぎ直しを数えない）' },
+  { id: 'dt-why', file: 'src/mainlib.js', from: "    if ((st.seen[k] || 0) < 2) return 'wait';", to: "    if ((st.seen[k] || 0) < 2) return '';",
+    tests: ['test/stage094.detect.test.js'], why: '0.9.4 D-1: まだ1回しか読んでいないことを記録に書かない（持ち主の engine.log で、検出がどこで止まったかが読めない）' },
+  { id: 'dt-count', file: 'src/main.js', from: "  if (r.items.length !== micCount) { micCount = r.items.length; engineLog(`会議の検出: マイクの記録 ${micCount} 件`); }", to: '',
+    tests: ['test/stage094.detect.test.js'], pattern: '^D-1（場面）: 本物と同じく', why: '0.9.4 D-1: マイクの記録の数を記録に書かない（記録が来たかが engine.log で分からない）' },
+  { id: 'dt-trigger', file: 'src/main.js', from: "  if (r && r.ok) engineLog(`会議: 始めた（${trigger}）`);", to: '',
+    tests: ['test/stage094.detect.test.js'], pattern: '引き金', why: '0.9.4 D-1: 会議の始まりの引き金を書かない（検出が出ずに何で始めたかが分からない）' },
 ];

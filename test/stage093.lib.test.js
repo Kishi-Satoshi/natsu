@@ -73,12 +73,13 @@ test('M1・M5: micWatchScript は一覧の exe と pkg と proc だけを持ち�
     for (const p of a.pkg) assert.ok(s.includes(`'${p.toLowerCase()}' = '${a.id}'`), p);
     assert.ok(s.includes(`'${a.id}' = @(${a.proc.map((p) => `'${p}'`).join(', ')})`), a.id);
   }
-  // 書くのは Say（前と変わったときだけ1行）を通した mic と err の行と、（timing のときだけ）t の行。ほかの Write-Host・Write-Output は無い
+  // 書くのは Say を通した mic と err の行と、（timing のときだけ）t の行。ほかの Write-Host・Write-Output は無い
+  // 0.9.4 D-1 で意図して直した: Say は読むたびに書く（前は変わったときだけ書いたので、判断の「2回読んだら出す」に2回目が来ずパネルが出なかった）
   const writes = [...s.matchAll(/WriteLine\(([^)]*)\)/g)].map((m) => m[1]);
   assert.deepStrictEqual(writes, ['$t']);
   const says = [...s.matchAll(/\bSay (\(?'[^']*')/g)].map((m) => m[1]);
   assert.deepStrictEqual(says.sort(), ["'err proc'", "'err read'", "'mic -'", "('mic '"].sort());
-  assert.ok(s.includes('function Say($t) { if ($t -ne $script:last)'), '変わったときだけ書く形でない');
+  assert.ok(s.includes('function Say($t) { [Console]::Out.WriteLine($t); [Console]::Out.Flush() }'), '読むたびに書く形でない');
   assert.ok(!/Write-(Host|Output)/.test(s));
   assert.ok(!s.includes("WriteLine('t '"), 'timing でないのに時間の行を書く');
   assert.ok(lib.micWatchScript({ self: SELF, parent: 1, timing: true }).includes("WriteLine('t '"));

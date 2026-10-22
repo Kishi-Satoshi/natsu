@@ -362,6 +362,7 @@
 //                        ["dictate"]（音声入力のホットキーで録音を始める）・["dictate-cancel"]（録音バーの取り消し）・["save", 足す設定]（settings:save）・
 //                        ["ipc", 名前, ...引数]（handle なら待って答えを out.ipc に、on なら送るだけ）・["theme", dark]（偽の nativeTheme を変えて updated）・
 //                        ["live", bool]（画面の meeting:live-shown）・["quit"]（before-quit と will-quit）・["snap", 名前]（その時の見張りの数などを out.snaps に）・
+//                        0.9.4 D-1: ["hotkey-meeting"]（会議のホットキー）・["tray-start"]（トレイの［議事録の記録を開始］）・["bar-stop"]（録音バーの［停止］）・["finish"]（止めた後の最後の空の区間を送り、idle に戻るのを待つ）。
 //                        ["wait-show", n]（パネルの窓の showInactive が n 回になるまで待つ）・["cursor", x, y]（偽のカーソル）・["minimize"]（本体の窓を最小化して minimize）。
 //                        snap には録音バーへ聞いた overlay:level-ask の数（asks）も入る（M-5）
 //                        出力: micSpawns（見張りの引数）・micKills・restartDelays（setTimeout の restartMicWatch の ms。5ms 後に本当に呼ぶ）・nudge（パネルの窓の
@@ -2485,6 +2486,11 @@ process.on('exit', () => {
         await waitFor(() => !isActive(), 15000);
         await sleep(50);
       } else if (k === 'dictate') { const st = await handlers['settings:get'](); shortcuts[st.hotkey](); await sleep(30); }
+      // 0.9.4 D-1: 会議のホットキー（始める・止める）・トレイの［議事録の記録を開始］・録音バーの［停止］（overlay:confirm）
+      else if (k === 'hotkey-meeting') { const st = await handlers['settings:get'](); await shortcuts[st.meetingHotkey](); await sleep(30); }
+      else if (k === 'tray-start') { const it = trayItems.find((i) => i && i.label === '議事録の記録を開始'); if (it) it.click(); await sleep(30); }
+      else if (k === 'bar-stop') { listeners['overlay:confirm']({}); await sleep(30); }
+      else if (k === 'finish') { listeners['audio:segment']({}, { buffer: new Uint8Array(0), durationMs: 0, final: true }); await waitFor(() => !isActive(), 15000); await sleep(50); }
       else if (k === 'dictate-cancel') { listeners['overlay:cancel-request']({}); await sleep(30); }
       else if (k === 'save') { const st = await handlers['settings:get'](); out.ipc.push(['save', await handlers['settings:save']({}, { ...st, ...a[0] })]); await sleep(30); }
       else if (k === 'ipc') {

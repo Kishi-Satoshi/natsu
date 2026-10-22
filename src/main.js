@@ -2758,6 +2758,7 @@ function startMicWatch() {
   }
   micProc = p;
   micBuf = '';
+  micCount = null;
   engineLog('会議の検出: 見張りを始めた');
   p.stdout.on('data', (d) => {
     micBuf += d.toString();
@@ -2803,13 +2804,19 @@ function onMicLine(line) {
   if (!r) return;
   if (r.kind === 'err') { engineLog(`会議の検出: マイクの記録を読めません（${r.code}）`); return; }
   micFails = 0;
+  // 0.9.4 D-1（診断の記録）: 一覧のアプリでマイクを使っている数が変わったときだけ1行（名前は書かない: 0.9.3 の K3）
+  if (r.items.length !== micCount) { micCount = r.items.length; engineLog(`会議の検出: マイクの記録 ${micCount} 件`); }
   nudgeEvent({ type: 'sample', items: r.items });
 }
 // 会議の検出の判断（mainlib.nudgeStep）。答えのとおりにパネルの窓を出し入れするだけ（判断は純粋な関数）
 let nudgeSt = lib.nudgeInit({ on: true, mute: [] });
+let micCount = null;     // 0.9.4 D-1: 最後に記録に書いたマイクの記録の数
+let nudgeWhyLast = '';   // 0.9.4 D-1: 最後に記録に書いた「出さない」の理由の符号（mainlib.nudgeWhy）
 function nudgeEvent(ev) {
   const o = lib.nudgeStep(nudgeSt, { ...ev, now: Date.now() });
   nudgeSt = o.st;
+  // 0.9.4 D-1（診断の記録）: 一覧のアプリがマイクを使っているのに出さない理由が変わったときだけ1行（wait・done・mute・busy・off・rejoin）
+  if ((o.why || '') !== nudgeWhyLast) { nudgeWhyLast = o.why || ''; if (nudgeWhyLast) engineLog(`会議の検出: 出さない（${nudgeWhyLast}）`); }
   if (o.hide) hideNudge(ev.type);
   if (o.show) showNudge(o.show);
   return o;
@@ -2879,7 +2886,7 @@ async function startFromNudge(o) {
   if (!nudgeShown || state !== 'idle') return { ok: false };
   const pcOnly = Boolean(o && typeof o === 'object' && o.pcOnly === true);
   nudgeEvent({ type: 'closed' });
-  const r = await startMeeting();
+  const r = await startMeetingBy(pcOnly ? 'panel-offline' : 'panel');
   if (!r.ok) {
     createMainWindow();
     sendToMainWin('app:notice', r.error || '議事録を開始できません');
@@ -3827,7 +3834,7 @@ function keepGoingQuiet() {
 function autoStopQuiet(m) {
   engineLog('話し声の見張り: 聞いてから 5 分たっても話し声が無いので、録音を止めた');
   m.autoStopped = true;
-  stopMeeting();
+  stopMeetingBy('auto-quiet');
 }
 // 自動で止めた会議の議事録を保存した後の知らせ（本体の窓が前にないときは Windows の知らせも。押すとそのページを開く）
 function quietDoneNotice(m, pageId) {
@@ -4576,6 +4583,18 @@ function cleanOrphanSegbuf(keepDir) {
   }
 }
 
+// 0.9.4 D-1（持ち主の試作の考え: 状態が変わるたびに、何が変えたかを残す）: 会議の始まりと終わりの引き金を engine.log に符号で1行
+// （page・panel・panel-offline・hotkey・tray／page・bar・hotkey・auto-quiet）。検出が出なかったときに、何で会議を始めたかが持ち主の記録で分かる
+async function startMeetingBy(trigger) {
+  const r = await startMeeting();
+  if (r && r.ok) engineLog(`会議: 始めた（${trigger}）`);
+  return r;
+}
+function stopMeetingBy(trigger) {
+  const r = stopMeeting();
+  if (r && r.ok) engineLog(`会議: 止めた（${trigger}）`);
+  return r;
+}
 async function startMeeting() {
   // 終了・再起動の途中（quitting。DB を閉じている間など）は始めない（始めると relaunch・終了で録音が切れる。第1d回 A-9 の点検）
   if (state !== 'idle' || quitting) return { ok: false, error: '他の処理を実行中です' };
@@ -4722,10 +4741,10 @@ function discardMeeting() {
 
 async function toggleMeetingByHotkey() {
   if (state === 'idle') {
-    const r = await startMeeting();
+    const r = await startMeetingBy('hotkey');
     createMainWindow();
     if (!r.ok) sendToMainWin('app:notice', r.error || '議事録を開始できません');
-  } else if (state === 'meeting') stopMeeting();
+  } else if (state === 'meeting') stopMeetingBy('hotkey');
 }
 
 function onMeetingSegment(buffer, durationMs, isFinal) {
@@ -5309,7 +5328,7 @@ function updateTray() {
       label: state === 'recording' ? '■ 停止して文字起こし' : state === 'processing' ? '文字起こし中…' : '● 音声入力を開始',
       enabled: state !== 'processing', click: toggleRecording,
     });
-    items.push({ label: '議事録の記録を開始', enabled: state === 'idle', click: () => { startMeeting().catch((e) => engineLog(`議事録を開始できません: ${errCode(e)}`)); createMainWindow(); } });
+    items.push({ label: '議事録の記録を開始', enabled: state === 'idle', click: () => { startMeetingBy('tray').catch((e) => engineLog(`議事録を開始できません: ${errCode(e)}`)); createMainWindow(); } });
   }
   // 0.9.0 O-4（RP8）: 録音中に録音バーを隠しているときだけ、出し直す口
   if (panelHidden && (state === 'recording' || state === 'meeting')) items.push({ label: '録音バーを表示', click: showPanel });
@@ -5470,8 +5489,8 @@ function setupIpc() {
   ipcMain.handle('page:summarize', (_e, id) => runSummary(id));
   ipcMain.handle('meta:types', () => mtype.listTypes());
   ipcMain.handle('meeting:toggle', () => {
-    if (state === 'idle') return startMeeting();
-    if (state === 'meeting') return stopMeeting();
+    if (state === 'idle') return startMeetingBy('page');
+    if (state === 'meeting') return stopMeetingBy('page');
     return { ok: false, error: '処理中です' };
   });
   ipcMain.handle('meeting:discard', () => discardMeeting());
@@ -5807,7 +5826,7 @@ function setupIpc() {
 
   ipcMain.on('overlay:confirm', () => {
     if (state === 'recording') stopRecording();
-    else if (state === 'meeting') stopMeeting();
+    else if (state === 'meeting') stopMeetingBy('bar');
   });
   ipcMain.on('overlay:cancel-request', () => { if (state === 'recording') cancelRecording(); });
   ipcMain.on('audio:done', (_e, { buffer, durationMs }) => handleDictationAudio(Buffer.from(buffer), durationMs));
