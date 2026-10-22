@@ -1657,4 +1657,11 @@ module.exports = [
   { id: "d-chip-class", file: "src/renderer/app.html", from: "  .mutechip { display: inline-flex; align-items: center; gap: 2px; height: 26px;", to: "  .chip { display: inline-flex; align-items: center; gap: 2px; height: 26px;", tests: ["test/stage093.app.test.js"], pattern: ".mutechip", why: "0.9.3 M-4 の CI の直し: 出さないアプリの札を検索の窓の札と同じ .chip の規則で描くと、検索の窓の絞り込みの札の形まで変わる（CI run 39745472232 の search-palette-light）" },
   // 0.9.3 M-6 の撮った画面の直し（CI run 39751610440）: 「聞き取り中」の行の並び
   { id: "w-tail-align", file: "src/renderer/app.html", from: "  .livetail .at { flex: none; min-width: 44px; }\n", to: "", tests: ["test/stage093.app.test.js"], pattern: "聞き取り中」の行は区間の行", why: "0.9.3 M-6 の撮った画面の直し: 「聞き取り中」の行に時刻の欄の幅が無いと、文が区間の文と揃わず左の線に寄る（CI run 39751610440 の live-wave-light）" },
+  // 0.9.3 持ち主の答え D55（2026-10-22）: オフラインモードの会議であることが一目で分かる札と記録の行の「オフライン」
+  { id: "r-pill", file: "src/renderer/app.html", from: "    $('meetingLocalOnlyState').hidden = !on;", to: "    $('meetingLocalOnlyState').hidden = true;", tests: ["test/stage093.app.test.js", "test/stage1c.app.test.js"], pattern: "D55|RF28", why: "0.9.3 D55: オフラインモードの会議に札「オフラインモード中」を出さない（ボタンが消えただけで、オフラインモードか一目で分からない）" },
+  { id: "r-pill-look", file: "src/renderer/app.html", from: "white-space: nowrap; cursor: default; user-select: none; }", to: "white-space: nowrap; cursor: pointer; }", tests: ["test/stage093.app.test.js"], pattern: "D55", why: "0.9.3 D55: 札を押せる形（指のカーソル・文字を選べる）にする（押しても戻せないのに、押せるように見える）" },
+  { id: "r-title-off", file: "src/renderer/app.html", from: "    const off = mtLocalOnly || Boolean(st.localOnly);", to: "    const off = mtLocalOnly;", tests: ["test/stage093.app.test.js"], pattern: "D55", why: "0.9.3 D55: 記録の行の「オフライン」を押した時だけにする（パネルの「オフラインモードで始める」やほかの道でオフラインモードになった会議に出ない）" },
+  { id: "r-local-update", file: "src/main.js", from: "  sendToMainWin('meeting:update', meetingStatus());\n  // needsSetup は真のときだけ入れる", to: "  // needsSetup は真のときだけ入れる",
+    also: [{ from: "      setSttProblem(meeting, 'kept-local', {});\n    }\n  }\n", to: "      setSttProblem(meeting, 'kept-local', {});\n    }\n    sendToMainWin('meeting:update', meetingStatus());\n  }\n" }],
+    tests: ["test/stage093.main.test.js"], pattern: "Q5: nudge:start", why: "0.9.3 D55: 印を付けた状態を準備の無い PC のときだけ画面へ送る（パネルの「オフラインモードで始める」で、録音中のページに札と「オフライン」が次の区間まで出ない）" },
 ];

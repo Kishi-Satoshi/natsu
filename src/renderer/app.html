@@ -590,6 +590,12 @@
   /* ［■ 終了して作成］は赤い文字の灰色のボタン（線なし） */
   #liveStopBtn { color: var(--danger); background: var(--hover); border-color: transparent; }
   #liveStopBtn:hover { background: var(--tint); }
+  /* 0.9.3 持ち主の答え D55: オフラインモードの札（［オフラインモード］のあった所）。安全の色 --ok の文字と枠で、地を持たない。
+     押せる形にしない（ボタンでない・高さはボタンの 28px より低い 24px・ホバーも押した形も無い・カーソルは矢印） */
+  .offpill { display: inline-flex; align-items: center; gap: 5px; height: 24px; padding: 0 9px 0 7px; border: 1px solid var(--ok); border-radius: 6px;
+    color: var(--ok); font-size: 12px; font-weight: 600; line-height: 22px; white-space: nowrap; cursor: default; user-select: none; }
+  .offpill svg { flex: none; }
+  .offpill[hidden] { display: none; }
   .live[hidden] { display: none; }
   /* 文字起こしの帯（第1d回 A-7・D17）: 録音中のページの頭（記録の行の上）に、理由と1つの行動。注意の色は .desc.ng と同じ組で、色だけで伝えない（文がある） */
   .stt-banner { display: flex; align-items: center; gap: 6px 10px; flex-wrap: wrap; padding: 6px 10px; margin-bottom: 8px;
@@ -3328,6 +3334,11 @@
           + '<button class="ghost" id="liveSkipBtn" type="button" hidden>文字起こしを打ち切って要約</button>'
           // 第1d回 A-13（D20）: ［この会議は PC の中だけ］は1行目（説明の行より前）。後ろに置くと説明の行の数だけ下へ押し出される
           + '<button class="ghost" id="meetingLocalOnly" type="button" hidden>オフラインモード</button>'
+          // 0.9.3 持ち主の答え D55: 押した後（とオフラインモードの会議）は、ボタンのあった所に押せない札（ボタンでない。role=status で読み上げ、説明の行を指す）。
+          // 印はローカル AI の設定と同じノート PC
+          + '<span class="offpill" id="meetingLocalOnlyState" role="status" aria-describedby="meetingLocalOnlyNote" hidden>'
+          + '<svg viewBox="0 0 20 20" width="14" height="14" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="4" width="13" height="9" rx="1.5"/><path d="M1.8 15.8h16.4M8 8.5h4"/></svg>'
+          + '<span id="meetingLocalOnlyStateText"></span></span>'
           // 0.9.0 O-4（RP8）: 録音バーを × で隠しているときだけ出す
           + '<button class="ghost" id="livePanelShow" type="button" hidden>録音バーを出す</button>'
           + '<span class="tm" id="liveTm">0:00</span>'
@@ -3361,10 +3372,8 @@
       }
       // 相手の声も録れているかは、会議が終わってから気づくと手遅れなので
       // 記録中のバーに出す。
-      const recLabel = st.systemAudio ? '議事録を記録中（相手の声も）' : '議事録を記録中';
-      $('liveTitle').textContent = st.finalizing ? '議事録を作成しています…'
-        : st.paused ? '一時停止中（録音していません）'
-        : st.pending > 0 ? `${recLabel}（${st.pending}区間を文字起こし中）` : recLabel;
+      // 0.9.3 持ち主の答え D55: オフラインモードの会議は括弧の中に「オフライン」（liveTitleText）
+      $('liveTitle').textContent = liveTitleText(st);
       // 作成中は一時停止と停止を出さない。一時停止の口が無い古い preload でも出さない（押しても何も起きない）
       const pb = $('livePauseBtn');
       pb.hidden = phase === 'finalizing' || typeof window.koeApp.meetingSetPaused !== 'function';
@@ -3520,15 +3529,30 @@
   }
   // ［この会議は PC の中だけ］（第1c回 RF28・OL4）。クラウドで文字起こしする設定（st.cloud）の会議にだけ出す。
   // 押した後はボタンを消して文だけ出す（元に戻すボタンは置かない。押し間違いで送る側に戻らないため）
+  // 0.9.3 持ち主の答え D55: オフラインモードの会議（押した後・パネルの「オフラインモードで始める」・ほかの道で localOnly）は、ボタンのあった所に札「オフラインモード中」
+  // （押せない。クラウドで処理しない PC でも、印があれば出す）。札の文は同じなら書き直さない（role=status の読み上げを繰り返さない）
   function renderLocalOnly(st) {
     if (!$('meetingLocalOnly')) return;   // 押した後の返事を待つ間に会議が終わり、記録中のバーが消えた
     const on = mtLocalOnly || Boolean(st.localOnly);
     $('meetingLocalOnly').hidden = on || !st.cloud;
+    $('meetingLocalOnlyState').hidden = !on;
+    const pt = $('meetingLocalOnlyStateText');
+    const pill = on ? 'オフラインモード中' : '';
+    if (pt.textContent !== pill) pt.textContent = pill;
     const note = $('meetingLocalOnlyNote');
     note.hidden = !on;
     // 0.9.0 U-3（OF4・D21）: PC の中の文字起こしが使えない（needsSetup）なら、音声だけを残していることと準備で文字起こしすることを書く
     note.textContent = !on ? '' : st.needsSetup ? 'オフラインモードです。音声だけを残しています（外には送りません）。ローカル AI の準備が済むと文字起こしします。'
       : 'オフラインモードです。この会議の音声は外へ送らず、PC の中で文字起こししています';
+  }
+  // 記録の行の文。括弧の中は「相手の声も」（相手の声も録っている）・「録音していません」（一時停止）と「オフライン」（D55）を「・」でつなぐ。区間の待ちは後ろの括弧のまま
+  function liveTitleText(st) {
+    const off = mtLocalOnly || Boolean(st.localOnly);
+    const paren = (...xs) => { const t = xs.filter(Boolean); return t.length ? `（${t.join('・')}）` : ''; };
+    if (st.finalizing) return `議事録を作成しています…${paren(off && 'オフライン')}`;
+    if (st.paused) return `一時停止中${paren('録音していません', off && 'オフライン')}`;
+    const rec = `議事録を記録中${paren(st.systemAudio && '相手の声も', off && 'オフライン')}`;
+    return st.pending > 0 ? `${rec}（${st.pending}区間を文字起こし中）` : rec;
   }
   async function setLocalOnly() {
     const b = $('meetingLocalOnly');
@@ -3541,6 +3565,7 @@
     // 押した直後だけ、答えの needsSetup も見る（ふだんは meetingStatus().needsSetup で決める）
     const st = await window.koeApp.meetingStatus();
     renderLocalOnly(r && r.needsSetup === true ? { ...st, needsSetup: true } : st);
+    if ($('liveTitle') && st && st.active) $('liveTitle').textContent = liveTitleText(st);   // D55: 記録の行にも「オフライン」
   }
   async function skipPending() {
     if (!confirm('残っている文字起こしを打ち切り、いまある分だけで議事録を作ります。\n打ち切った区間の発言は議事録に入りません。よろしいですか？')) return;

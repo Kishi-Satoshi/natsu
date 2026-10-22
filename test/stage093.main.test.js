@@ -134,6 +134,11 @@ test('Q5: nudge:start で始まり（会議中）、本体の窓を出して（s
   assert.ok(m.mainWinCalls.includes('restore'), JSON.stringify(m.mainWinCalls));
   assert.strictEqual(m.status.localOnly, true, 'オフラインモードで始めたのに localOnly でない');
   assert.strictEqual(sentMain(m, 'meeting:show-live').length, 1);
+  // 0.9.3 持ち主の答え D55 で足した: 録音中のページを見せる前に、localOnly の載った meeting:update を送る（札「オフラインモード中」と記録の行の「オフライン」を
+  // 次の区間（オフラインモードは長い区間）まで待たせない。始めた時の meeting:update は印を付ける前なので localOnly が偽）
+  const iShow = m.mainSentAll.findIndex(([c]) => c === 'meeting:show-live');
+  const ups = m.mainSentAll.slice(0, iShow).filter(([c]) => c === 'meeting:update').map(([, p]) => p);
+  assert.ok(ups.length && ups[ups.length - 1].localOnly === true, `録音中のページを見せる前の meeting:update に localOnly が無い: ${JSON.stringify(ups.map((u) => u && u.localOnly))}`);
 });
 
 test('D50: nudge:start は pcOnly のほかの引数（種類など）を読まず、［新しい議事録］と同じ既定で始める。パネルが出ていない／idle でないときの nudge:start は何もしない', S, async () => {

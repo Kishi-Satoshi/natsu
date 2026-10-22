@@ -155,6 +155,10 @@ test('RF28: 会議中の［この会議は PC の中だけ］を押すと main �
   assert.deepStrictEqual(calls, [true]);
   assert.strictEqual(l.byId.get('meetingLocalOnly').hidden, true);
   assert.match(l.byId.get('meetingLocalOnlyNote').textContent, /オフラインモードです。この会議の音声は外へ送らず、PC の中で文字起こししています/);
+  // 0.9.3 持ち主の答え D55 で足した: ボタンのあった所に押せない札「オフラインモード中」、記録の行の括弧に「オフライン」（戻すボタンは今どおり無い）
+  assert.strictEqual(l.byId.get('meetingLocalOnlyState').hidden, false, '押した後に札「オフラインモード中」が無い');
+  assert.strictEqual(l.byId.get('meetingLocalOnlyStateText').textContent, 'オフラインモード中');
+  assert.strictEqual(l.byId.get('liveTitle').textContent, '議事録を記録中（オフライン）');
 });
 
 test('RF28: ［PC の中だけ］は会議ごと。次の会議ではボタンが戻り、文は出ない。クラウドで処理しない設定ならボタンを出さない', async () => {
@@ -168,6 +172,8 @@ test('RF28: ［PC の中だけ］は会議ごと。次の会議ではボタン�
   await l.drain();
   assert.strictEqual(l.byId.get('meetingLocalOnly').hidden, false, '前の会議の［PC の中だけ］が次の会議に残り、ボタンが無い（main の新しい会議はクラウドへ送る）');
   assert.strictEqual(l.byId.get('meetingLocalOnlyNote').hidden, true, '次の会議なのに「PC の中だけで文字起こししています」と出ている（実際はクラウドへ送る）');
+  assert.strictEqual(l.byId.get('meetingLocalOnlyState').hidden, true, '次の会議なのに札「オフラインモード中」が出ている（0.9.3 D55）');
+  assert.strictEqual(l.byId.get('liveTitle').textContent, '議事録を記録中', '次の会議なのに記録の行に「オフライン」がある（0.9.3 D55）');
   l.fire('onMeetingUpdate', { active: true, segments: [], localOnly: false, cloud: false });
   await l.drain();
   assert.strictEqual(l.byId.get('meetingLocalOnly').hidden, true, 'クラウドで処理しない PC（OpenAI の鍵が無い）なのにボタンが出ている');

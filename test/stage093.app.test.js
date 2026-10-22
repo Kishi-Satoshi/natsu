@@ -336,3 +336,119 @@ test('M10: 「聞き取り中」の行は区間の行（.seg）と同じ並び�
   assert.match(rule('.seg .at'), /min-width: 44px/);
   assert.match(rule('.livetail .at'), /flex: none; min-width: 44px/);
 });
+
+// ---------------------------------------------------------------- 持ち主の答え D55（2026-10-22）: オフラインモードの会議であることが一目で分かる
+// ［オフラインモード］を押した後（とオフラインモードで始めた会議・ほかの道で localOnly になった会議）は、ボタンのあった所に押せない色の札「オフラインモード中」
+// （ローカル AI の設定と同じノート PC の印）と、記録の行の括弧の中に「・オフライン」。灰色の説明の行は今のまま。戻すボタンは今どおり置かない
+const OFF_TITLE = (l) => norm($(l, 'liveTitle').textContent);
+const pillShown = (l) => !$(l, 'meetingLocalOnlyState').hidden;
+async function offOpen(st = {}, o = {}) {
+  let cur = LIVE(st);
+  const l = await open({}, { meetingStatus: () => cur, meetingSetLocalOnly: () => { cur = { ...cur, localOnly: true }; return { ok: true, localOnly: true }; }, ...o });
+  await l.drain();
+  l.fire('onMeetingUpdate', cur);
+  await l.drain();
+  l.set = async (more) => { cur = { ...cur, ...more }; l.fire('onMeetingUpdate', cur); await l.drain(); };
+  return l;
+}
+
+test('D55: オフラインモードの札 #meetingLocalOnlyState はボタンでない span（role=status）で、#meetingLocalOnly のすぐ後ろ・説明の行より前。印はローカル AI の設定と同じノート PC（aria-hidden）。初めは隠れていて文が空', T, async () => {
+  const l = await offOpen();
+  const bar = $(l, 'liveBar');
+  const pill = $(l, 'meetingLocalOnlyState');
+  assert.ok(pill, '札が無い');
+  assert.strictEqual(pill.tagName, 'span', '札がボタンなど押せる要素');
+  assert.strictEqual(pill.getAttribute('role'), 'status');
+  assert.ok(!pill.hasAttribute('tabindex') && !pill.hasAttribute('onclick') && pill.onclick == null, '札に Tab で届く・押せる');
+  assert.ok(pill.classList.contains('offpill'));
+  assert.strictEqual(pill.getAttribute('aria-describedby'), 'meetingLocalOnlyNote', '札が説明の行を指していない');
+  const kids = bar.children;
+  assert.strictEqual(kids.indexOf(pill), kids.indexOf($(l, 'meetingLocalOnly')) + 1, '札がボタンのすぐ後ろに無い');
+  for (const d of kids.filter((k) => k.classList.contains('desc'))) assert.ok(kids.indexOf(d) > kids.indexOf(pill), `説明の行 #${d.id} が札より前にある`);
+  const icon = pill.querySelector('svg');
+  assert.ok(icon && icon.getAttribute('aria-hidden') === 'true', '印が無いか、読み上げる');
+  const laptop = (svg) => svg.children.map((c) => `${c.tagName}:${['x', 'y', 'width', 'height', 'rx', 'd'].map((a) => c.getAttribute(a) || '').join(',')}`).join(' ');
+  assert.strictEqual(laptop(icon), laptop(doc.querySelector('#setNavOffline svg')), '印がローカル AI の設定（ノート PC）と違う');
+  assert.strictEqual(pill.hidden, true, 'クラウドの会議なのに札が出ている');
+  assert.strictEqual(norm($(l, 'meetingLocalOnlyStateText').textContent), '', '隠れている札に文がある（読み上げる）');
+  assert.deepStrictEqual(l.errors, []);
+});
+
+test('D55: 札の見た目は安全の色（--ok の文字と枠・地なし・角丸 6px まで・高さ 24px）で、押せる形をしない（cursor default・:hover・:active・:focus の規則が無い・ボタンの規則に入らない）', T, () => {
+  const S = require('./helpers/simcss');
+  const rules = S.parse(doc.querySelectorAll('style').map((s) => s._raw).join('\n'));
+  const d = S.declsFor(rules, '.offpill', { at: '' });
+  assert.strictEqual(d.color, 'var(--ok)');
+  assert.match(d.border || '', /^1px solid var\(--ok\)$/);
+  assert.ok(!d.background || /^(transparent|none)$/.test(d.background), `札に地がある: ${d.background}`);
+  assert.strictEqual(d['border-radius'], '6px');
+  assert.strictEqual(d.height, '24px');
+  assert.strictEqual(d.cursor, 'default');
+  assert.strictEqual(d['user-select'], 'none');
+  assert.deepStrictEqual(rules.filter((r) => r.sel.split(',').some((s) => /\.offpill[^,]*:(hover|active|focus)/.test(s) || /#meetingLocalOnlyState[^,]*:(hover|active|focus)/.test(s))).map((r) => r.sel), [], '札に押せる見た目の規則がある');
+  assert.ok(!/\.offpill\s*(button|\.ghost)|button\.offpill|\.ghost\.offpill/.test(html), '札をボタンの規則で描いている');
+  assert.deepStrictEqual(S.declsFor(rules, '.offpill[hidden]', { at: '' }).display, 'none');
+});
+
+test('D55: ［オフラインモード］を押すと、ボタンは消え、同じ所に札「オフラインモード中」・記録の行は「議事録を記録中（オフライン）」（相手の声もなら「（相手の声も・オフライン）」）。灰色の説明の行は今のまま', T, async () => {
+  const l = await offOpen();
+  assert.strictEqual(OFF_TITLE(l), '議事録を記録中');
+  await click(l, 'meetingLocalOnly');
+  assert.strictEqual($(l, 'meetingLocalOnly').hidden, true, '押したのにボタンが残った（戻せる形）');
+  assert.ok(pillShown(l), '押したのに札が出ない');
+  assert.strictEqual(norm($(l, 'meetingLocalOnlyStateText').textContent), 'オフラインモード中');
+  assert.strictEqual(OFF_TITLE(l), '議事録を記録中（オフライン）');
+  assert.strictEqual($(l, 'meetingLocalOnlyNote').hidden, false);
+  assert.strictEqual($(l, 'meetingLocalOnlyNote').textContent, 'オフラインモードです。この会議の音声は外へ送らず、PC の中で文字起こししています');
+  const s = await offOpen({ systemAudio: true });
+  assert.strictEqual(OFF_TITLE(s), '議事録を記録中（相手の声も）');
+  await click(s, 'meetingLocalOnly');
+  assert.strictEqual(OFF_TITLE(s), '議事録を記録中（相手の声も・オフライン）');
+  assert.deepStrictEqual([...l.errors, ...s.errors], []);
+});
+
+test('D55: はじめからオフラインモードの会議（パネルの「オフラインモードで始める」・ほかの道で localOnly）は、押さなくても札と「・オフライン」。一時停止・区間の待ち・作成中もそろい、準備の無い PC の説明の行も出る', T, async () => {
+  const l = await offOpen({ localOnly: true, systemAudio: true });
+  assert.ok(pillShown(l), 'はじめからオフラインモードなのに札が無い（st.localOnly を見ていない）');
+  assert.strictEqual($(l, 'meetingLocalOnly').hidden, true);
+  assert.strictEqual(OFF_TITLE(l), '議事録を記録中（相手の声も・オフライン）');
+  await l.set({ pending: 2 });
+  assert.strictEqual(OFF_TITLE(l), '議事録を記録中（相手の声も・オフライン）（2区間を文字起こし中）');
+  await l.set({ pending: 0, paused: true });
+  assert.strictEqual(OFF_TITLE(l), '一時停止中（録音していません・オフライン）');
+  assert.ok(pillShown(l), '一時停止中に札が消えた');
+  await l.set({ paused: false, finalizing: true });
+  assert.strictEqual(OFF_TITLE(l), '議事録を作成しています…（オフライン）');
+  // クラウドで処理しない PC（ボタンを出さない PC）でも、オフラインモードの会議なら札を出す。準備の無い PC は説明の行が準備の文
+  const n = await offOpen({ localOnly: true, cloud: false, needsSetup: true });
+  assert.ok(pillShown(n), 'クラウドで処理しない PC のオフラインモードの会議に札が無い');
+  assert.strictEqual(OFF_TITLE(n), '議事録を記録中（オフライン）');
+  assert.strictEqual($(n, 'meetingLocalOnlyNote').textContent, 'オフラインモードです。音声だけを残しています（外には送りません）。ローカル AI の準備が済むと文字起こしします。');
+  assert.deepStrictEqual([...l.errors, ...n.errors], []);
+});
+
+test('D55: オフラインモードでない会議（と次の会議）は札も「オフライン」も出さない。一時停止・作成中の文は今のまま', T, async () => {
+  const l = await offOpen({ localOnly: true });
+  assert.ok(pillShown(l));
+  await l.set({ active: false });
+  await l.set({ active: true, localOnly: false });
+  assert.ok(!pillShown(l), '次の会議に前の会議の札が残った');
+  assert.strictEqual(norm($(l, 'meetingLocalOnlyStateText').textContent), '');
+  assert.strictEqual(OFF_TITLE(l), '議事録を記録中');
+  await l.set({ paused: true });
+  assert.strictEqual(OFF_TITLE(l), '一時停止中（録音していません）');
+  await l.set({ paused: false, finalizing: true });
+  assert.strictEqual(OFF_TITLE(l), '議事録を作成しています…');
+  assert.deepStrictEqual(l.errors, []);
+});
+
+test('D55: 札の文は同じなら書き直さない（role=status の読み上げを繰り返さない）', T, async () => {
+  const l = await offOpen({ localOnly: true });
+  const t = $(l, 'meetingLocalOnlyStateText');
+  let writes = 0;
+  const desc = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(t), 'textContent');
+  Object.defineProperty(t, 'textContent', { get() { return desc.get.call(this); }, set(v) { writes += 1; desc.set.call(this, v); }, configurable: true });
+  await l.set({ pending: 1 });
+  await l.set({ pending: 0 });
+  assert.strictEqual(writes, 0, '同じ札の文を書き直した');
+});
