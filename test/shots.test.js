@@ -644,7 +644,8 @@ test('基準の画像（test/shots/win32）は今の app.html で撮ったもの
   // 変えていないので見た目は変わらない）。値を今の app.html に合わせた
   // 0.9.3 M-4: ［設定］→［録音］の頭にカード「会議の検出」（トグルと、通知を出さないアプリの札。札の CSS .chip）を足し、パネルから開いたときにその行を見せる。
   // 見える中身が変わるのは設定の「録音」の画面と検索「マイク」の画面で、どれも RETAKE にある。値を今の app.html に合わせた
-  assert.strictEqual(sha, 'ccb6c331c7a03c174d6c3499ec51d9f94727be88abd14505d58b99a36929556b',
+  // 0.9.3 M-5: main が送る音の大きさ（meeting:level）を受ける受け口を <script> の中だけに足した（見た目は変わらない）。値を今の app.html に合わせた
+  assert.strictEqual(sha, '0449671db495f10953413ae4aabe40586f7876ec92c8a5038fae6efaa4c65fda',
     'app.html が基準の画像を撮った時と違う。Windows の CI の画面の比べ（捲り棒のつまみも）を見て、基準を取り直してからこの値を直す');
 });
 

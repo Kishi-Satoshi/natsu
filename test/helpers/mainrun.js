@@ -351,7 +351,8 @@
 //                        ["dictate"]（音声入力のホットキーで録音を始める）・["dictate-cancel"]（録音バーの取り消し）・["save", 足す設定]（settings:save）・
 //                        ["ipc", 名前, ...引数]（handle なら待って答えを out.ipc に、on なら送るだけ）・["theme", dark]（偽の nativeTheme を変えて updated）・
 //                        ["live", bool]（画面の meeting:live-shown）・["quit"]（before-quit と will-quit）・["snap", 名前]（その時の見張りの数などを out.snaps に）・
-//                        ["wait-show", n]（パネルの窓の showInactive が n 回になるまで待つ）・["cursor", x, y]（偽のカーソル）
+//                        ["wait-show", n]（パネルの窓の showInactive が n 回になるまで待つ）・["cursor", x, y]（偽のカーソル）・["minimize"]（本体の窓を最小化して minimize）。
+//                        snap には録音バーへ聞いた overlay:level-ask の数（asks）も入る（M-5）
 //                        出力: micSpawns（見張りの引数）・micKills・restartDelays（setTimeout の restartMicWatch の ms。5ms 後に本当に呼ぶ）・nudge（パネルの窓の
 //                        作ったときの opts・呼んだ関数の並び calls・送った sent）・mainWinCalls・mainSentAll（本体の窓へ送った [channel, 中身]）・engineLog・
 //                        notices・settingsText・state（meeting:status の active）
@@ -2400,6 +2401,7 @@ process.on('exit', () => {
     out.snaps = {};
     const lastKid = () => micKids[micKids.length - 1];
     const isActive = () => Boolean(handlers['meeting:status']().active);
+    const overlayAsks = () => sent.filter(([ch]) => ch === 'overlay:level-ask').length;   // 0.9.3 M-5: 録音バーへ聞いた数
     for (const step of micSteps) {
       const [k, ...a] = step;
       if (k === 'line') { const kid = lastKid(); if (kid) kid.stdout.emit('data', Buffer.from(`${a[0]}\n`)); await sleep(15); }
@@ -2426,7 +2428,8 @@ process.on('exit', () => {
       else if (k === 'cursor') cursorAt = { x: a[0], y: a[1] };
       else if (k === 'quit') { appEvents.emit('before-quit', { preventDefault() {} }); appEvents.emit('will-quit', {}); await sleep(30); }
       else if (k === 'wait-show') await waitFor(() => nudgeWins.length > 0 && nudgeWins[0].nudge.calls.filter((c) => c === 'showInactive').length >= a[0], 5000);
-      else if (k === 'snap') out.snaps[a[0]] = { spawns: micSpawns.length, kills: micKills, active: isActive(), nudgeCalls: nudgeWins.length ? nudgeWins[0].nudge.calls.length : 0 };
+      else if (k === 'minimize') { wins[1].minimized = true; wins[1].emit('minimize'); await sleep(15); }
+      else if (k === 'snap') out.snaps[a[0]] = { spawns: micSpawns.length, kills: micKills, active: isActive(), nudgeCalls: nudgeWins.length ? nudgeWins[0].nudge.calls.length : 0, asks: overlayAsks() };
       else throw new Error(`mainrun: --mic-feed の手順 ${k} が読めない`);
     }
     await sleep(30);
@@ -2434,7 +2437,7 @@ process.on('exit', () => {
       micSpawns, micKills, restartDelays, nudge: nudgeWins.length ? nudgeWins[0].nudge : null, nudgeWindows: nudgeWins.length,
       mainWinCalls: mainWinCalls.slice(), mainSentAll: mainSentAll.filter(([ch]) => !/^(db:|update:)/.test(ch)), engineLog: elogLines(),
       notices: sent.filter(([ch]) => ch === 'app:notice').map(([, p]) => p), settingsText: (readUser('settings.json') || '').toString('utf8'),
-      active: isActive(), status: handlers['meeting:status'](),
+      active: isActive(), status: handlers['meeting:status'](), overlayAsks: overlayAsks(),
     });
     process.stdout.write(`\n${JSON.stringify(out)}\n`);
     await exitClean(0);

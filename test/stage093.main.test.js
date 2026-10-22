@@ -190,3 +190,29 @@ test('M5: engine.log にアプリの名前と id が無い（パネルを出し�
   const n = await run([['line', 'mic notion:1'], ['line', 'mic notion:1'], ['line', 'mic natsu:2'], ['line', 'mic natsu:2'], ['sleep', 30]]);
   assert.strictEqual(n.nudgeWindows, 0, 'Notion・NaTsu のマイクでパネルを作った');
 });
+
+// ---------------------------------------------------------------- M-5: 音の大きさを録音中のページへ（決めたこと 14・15・22）
+const asks = (o) => o.overlayAsks;
+test('M9: 録音中のページが見えている 1 秒で overlay:level-ask が 5〜12 回（100ms ごと）。最小化・ページを開いていない・一時停止では 0 回。M8: 録音バーを × で隠しても聞き続ける', S, async () => {
+  const o = await run([['start'], ['live', true], ['snap', 'a'], ['sleep', 1000], ['snap', 'b']]);
+  const n = o.snaps.b.asks - o.snaps.a.asks;
+  assert.ok(n >= 5 && n <= 12, `1 秒に ${n} 回`);   // 100ms ごと（混んだ機械では時計が遅れるので下は 5）
+  const min = await run([['start'], ['live', true], ['minimize'], ['snap', 'a'], ['sleep', 600], ['snap', 'b']]);
+  assert.strictEqual(min.snaps.b.asks - min.snaps.a.asks, 0, '最小化しても聞いた');
+  const nolive = await run([['start'], ['live', false], ['snap', 'a'], ['sleep', 600], ['snap', 'b']]);
+  assert.strictEqual(nolive.snaps.b.asks - nolive.snaps.a.asks, 0, '録音中のページを開いていないのに聞いた');
+  const paused = await run([['start'], ['live', true], ['ipc', 'overlay:pause', { paused: true }], ['snap', 'a'], ['sleep', 600], ['snap', 'b'], ['ipc', 'overlay:pause', { paused: false }], ['sleep', 400], ['snap', 'c']]);
+  assert.strictEqual(paused.snaps.b.asks - paused.snaps.a.asks, 0, '一時停止中に聞いた');
+  assert.ok(paused.snaps.c.asks - paused.snaps.b.asks >= 2, '再開しても聞き直さない');
+  const hidden = await run([['start'], ['live', true], ['ipc', 'overlay:hide-panel'], ['snap', 'a'], ['sleep', 600], ['snap', 'b']]);
+  assert.ok(hidden.snaps.b.asks - hidden.snaps.a.asks >= 4, '録音バーを隠したら聞くのをやめた');
+  const idle = await run([['live', true], ['snap', 'a'], ['sleep', 400], ['snap', 'b'], ['start'], ['stop'], ['snap', 'c'], ['sleep', 400], ['snap', 'd']]);
+  assert.strictEqual(idle.snaps.b.asks - idle.snaps.a.asks, 0, '録音していないのに聞いた');
+  assert.strictEqual(idle.snaps.d.asks - idle.snaps.c.asks, 0, '録音を止めた後も聞いた');
+});
+
+test('M8: overlay:level の中身を levelMsg で照らして meeting:level で送る（warn に好きな文を入れても \'\'・数は 0〜1）。聞いていないときは送らない', S, async () => {
+  const o = await run([['start'], ['live', true], ['ipc', 'overlay:level', { mic: 0.5, sys: 3, warn: '<b>好きな文</b>' }], ['ipc', 'overlay:level', { mic: 0.123, sys: 0, warn: '音が入っていません' }],
+    ['live', false], ['ipc', 'overlay:level', { mic: 0.9, sys: 0, warn: '' }]]);
+  assert.deepStrictEqual(sentMain(o, 'meeting:level'), [{ mic: 0.5, sys: 1, warn: '' }, { mic: 0.12, sys: 0, warn: '音が入っていません' }]);
+});

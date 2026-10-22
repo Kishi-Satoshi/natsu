@@ -111,6 +111,9 @@ contextBridge.exposeInMainWorld('koeOverlay', {
   // 0.9.0 O-4（RP8）: 縦の形の × で録音バーを隠す（録音は続ける）。カーソルがピルに乗ったか（main が見る: Windows のドラッグの領域に :hover は来ない）
   hidePanel: () => ipcRenderer.send('overlay:hide-panel'),
   onHover: (cb) => ipcRenderer.on('overlay:hover', (_e, on) => cb(on)),
+  // 0.9.3 M-5: 録音中のページの音の波のために main が聞く・答える（{ mic, sys, warn }。main が levelMsg で照らす）
+  onLevelAsk: (cb) => ipcRenderer.on('overlay:level-ask', () => cb()),
+  reportLevel: (level) => ipcRenderer.send('overlay:level', level),
 });
 
 // 0.9.3 M-3: 会議の検出のパネル（右上の小さな窓。計画 docs/plans/2026-10-22-093.md の決めたこと 9・10）。画面は id も文も送らない:
@@ -220,6 +223,8 @@ contextBridge.exposeInMainWorld('koeApp', {
   onShowLive: (cb) => ipcRenderer.on('meeting:show-live', () => cb()),   // 第1d回 A-8: Windows の知らせを押した → 録音中のタブへ
   // 0.9.3 M-3・M-4: 会議の検出のパネルの「会議の検出の通知の設定…」→ 設定のその項目を開く（{ sec, row }）
   onOpenSettings: (cb) => ipcRenderer.on('app:open-settings', (_e, p) => cb(p)),
+  // 0.9.3 M-5・M-6: 録音中のページの音の波（main が録音バーに聞いて照らした { mic, sys, warn }。10 回／秒）
+  onMeetingLevel: (cb) => ipcRenderer.on('meeting:level', (_e, p) => cb(p)),
   onMeetingProgress: (cb) => ipcRenderer.on('meeting:progress', (_e, p) => cb(p)),
   onPagesUpdated: (cb) => ipcRenderer.on('pages:updated', (_e, p) => cb(p)),
   onPageOpen: (cb) => ipcRenderer.on('page:open', (_e, id) => cb(id)),

@@ -111,3 +111,60 @@ test('M-4: 検索「検出」「Zoom」で「会議の検出の通知」の行�
   await search(l, 'Zoom');
   assert.ok(shownRows(l).includes('会議の検出の通知'), JSON.stringify(shownRows(l)));
 });
+
+// ---------------------------------------------------------------- M-5: 録音バーが音の大きさを答える受け口（決めたこと 15。問い Q1）
+const OVL = path.join(ROOT, 'src', 'renderer', 'overlay.html');
+function 音を決める(l) {
+  const made = [];
+  l.window.AudioContext.prototype.createAnalyser = function createAnalyser() {
+    const a = { fftSize: 512, smoothingTimeConstant: 0, fill: 128, connect: (x) => x, disconnect() {}, getByteTimeDomainData(arr) { arr.fill(this.fill); } };
+    made.push(a);
+    return a;
+  };
+  l.window.navigator.mediaDevices.getDisplayMedia = () => {
+    const track = { stop() {}, kind: 'audio', enabled: true, addEventListener() {}, getSettings: () => ({ channelCount: 1 }) };
+    return Promise.resolve({ getTracks: () => [track], getAudioTracks: () => [track], getVideoTracks: () => [], removeTrack() {}, addTrack() {}, active: true });
+  };
+  return made;
+}
+const fillFor = (level) => 128 + Math.round((level * 128) / 3.4);
+async function 録音バー(start = {}, frames = 0) {
+  const l = await load(OVL, { frames });
+  const an = 音を決める(l);
+  l.fire('onStart', { mode: 'meeting', segmentSec: 75, sound: false, systemAudio: false, ...start });
+  await l.drain();
+  return { l, an };
+}
+const levels = (l) => l.called('reportLevel').map((c) => c.args[0]);
+
+test('M-5・M8: onLevelAsk を受けると reportLevel を1回（毎フレームの描きを回さなくても答える: 録音バーを隠しても止まらない）。mic・sys は rmsOf の値、warn は今の文', T, async () => {
+  const { l, an } = await 録音バー({ systemAudio: true });
+  an[0].fill = fillFor(0.5);
+  an[1].fill = fillFor(0.25);
+  assert.strictEqual(l.fire('onLevelAsk'), 1, '受け口が無い');
+  await l.drain();
+  const r = levels(l);
+  assert.strictEqual(r.length, 1);
+  assert.ok(Math.abs(r[0].mic - 0.5) < 0.03 && Math.abs(r[0].sys - 0.25) < 0.03, JSON.stringify(r[0]));
+  assert.strictEqual(r[0].warn, '');
+  assert.deepStrictEqual(l.errors, []);
+});
+
+test('M-5: analyser が無い（録音の前・一時停止で捨てた）なら 0・0。無音の警告が出ていれば warn はその文（shownLabel と同じ）', T, async () => {
+  const before = await load(OVL, { frames: 0 });
+  before.fire('onLevelAsk');
+  await before.drain();
+  assert.deepStrictEqual(levels(before), [{ mic: 0, sys: 0, warn: '' }]);
+  const { l } = await 録音バー({}, 400);
+  l.clock.jump(8001);
+  await l.drain();
+  l.fire('onLevelAsk');
+  await l.drain();
+  assert.strictEqual(levels(l).pop().warn, '音が入っていません');
+  l.byId.get('pauseBtn').click();
+  await l.drain();
+  l.fire('onLevelAsk');
+  await l.drain();
+  const p = levels(l).pop();
+  assert.deepStrictEqual([p.mic, p.sys], [0, 0], '一時停止中に音の大きさを答えた');
+});

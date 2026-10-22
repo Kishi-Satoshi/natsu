@@ -2810,6 +2810,29 @@ function applyDetectSettings(prev) {
   syncMicWatch();
 }
 
+// ---------------------------------------------------------------- 録音中のページの音の波（0.9.3 M-5。決めたこと 14・22）
+// 聞くのは、議事録の録音中（止めている途中でない）・一時停止でない・本体の窓が見えていて最小化していない・録音中のページを開いている（meeting:live-shown）
+// ときだけ（前にあることは求めない: 横に会議のアプリを並べて見ている人にも出す）。LEVEL_ASK_MS ごとに録音バーに聞き（隠した録音バーも IPC には答える）、
+// 答え（overlay:level）を levelMsg で照らして本体の画面へ送る。見ていないときは聞かない（M9）
+let levelTimer = null;
+function levelWanted() {
+  if (state !== 'meeting' || !meeting || meeting.stopping || meeting.paused) return false;
+  if (!mainWin || mainWin.isDestroyed() || !mainWin.isVisible() || mainWin.isMinimized()) return false;
+  return liveShownByUi;
+}
+function syncLevelAsk() {
+  if (levelWanted()) { if (!levelTimer) levelTimer = setInterval(askLevel, lib.LEVEL_ASK_MS); }
+  else if (levelTimer) { clearInterval(levelTimer); levelTimer = null; }
+}
+function askLevel() {
+  if (!levelWanted()) { syncLevelAsk(); return; }
+  sendToOverlay('overlay:level-ask', {});
+}
+function onOverlayLevel(p) {
+  if (!levelWanted()) return;
+  sendToMainWin('meeting:level', lib.levelMsg(p));
+}
+
 // ---------------------------------------------------------------- ウィンドウ
 function sendToMainWin(ch, p) {
   if (!mainWin || mainWin.isDestroyed()) return;
@@ -3080,6 +3103,8 @@ function createMainWindow() {
   for (const ev of ['resize', 'move', 'maximize', 'unmaximize']) mainWin.on(ev, rememberWinBounds);
   // 0.9.0 U-1（SP2・RF9）: 音声入力の録音中に本体の窓が前に来たら Esc の全体のホットキーを外し、離れたら付け直す
   mainWin.on('focus', syncEscapeHotkey);
+  // 0.9.3 M-5: 最小化・隠す・出すで、録音中のページの音の波のために聞くかを決め直す
+  for (const ev of ['minimize', 'restore', 'show', 'hide']) mainWin.on(ev, syncLevelAsk);
   mainWin.on('blur', syncEscapeHotkey);
   mainWin.webContents.on('before-input-event', (e, input) => {
     const dir = W.zoomDir(input);
@@ -5050,6 +5075,7 @@ async function checkUpdateFromTray() {
 function updateTray() {
   updatePowerBlock();
   noteDetectState();   // 0.9.3 M-2: 録音の状態が変わったら、会議の検出の見張りを起こす・止める
+  syncLevelAsk();      // 0.9.3 M-5: 録音中のページの音の波のために聞くか
   if (!tray) return;
   const recording = state === 'recording' || state === 'meeting';
   tray.setImage(recording ? trayIconRec : trayIconIdle);
@@ -5235,7 +5261,7 @@ function setupIpc() {
   ipcMain.handle('meeting:retry', () => retryFailedSegments());
   ipcMain.handle('meeting:keep-going', () => keepGoingQuiet());   // 0.9.1 Q-4: 帯の［続ける］
   // 第1d回 A-8（D17）: 画面が「録音中のページを開いていて、窓が隠れていない」かを知らせる（変わったときだけ送ってくる）
-  ipcMain.on('meeting:live-shown', (_e, on) => { liveShownByUi = on === true; });
+  ipcMain.on('meeting:live-shown', (_e, on) => { liveShownByUi = on === true; syncLevelAsk(); });
   ipcMain.handle('meeting:set-memo', (_e, memo) => { if (meeting) { meeting.memo = String(memo || ''); writeDraft(); } return true; });
   // 終了後の文字起こし待ちを打ち切る（#42）。記録中（終了前）は打ち切れない。待ちの区間は
   // 「（文字起こしを打ち切り）」の失敗扱いでページに残し、wav は消す（mainlib.skipPendingSegments）。
@@ -5586,6 +5612,7 @@ function setupIpc() {
       writeDraft();
       restartQuiet(meeting, 'resume');   // 0.9.1 Q-4（決めたこと 14）: 再開は人の答え。［続ける］と同じに数え直す
     }
+    syncLevelAsk();   // 0.9.3 M-5: 一時停止の間は聞かない
     if (paused && meeting.paused && meeting.hintOnPause) { meeting.hintOnPause = false; showResumeHint(meeting); return; }
     sendToMainWin('meeting:update', meetingStatus());
   });
@@ -5630,6 +5657,8 @@ function setupIpc() {
   ipcMain.on('overlay:hidden-request', () => hideOverlayIfIdle());
   // 0.9.0 O-2（RP4）: 録音バーの画面が測ったピルの大きさ
   ipcMain.on('overlay:size', (_e, p) => onPanelSize(p));
+  // 0.9.3 M-5: 録音バーが答えた音の大きさ（照らしてから録音中のページへ）
+  ipcMain.on('overlay:level', (_e, p) => onOverlayLevel(p));
   // 0.9.0 O-4（RP8）: 縦の形の × で隠す（録音中だけ。録音は止めない）と、録音中のページの［録音バーを出す］
   ipcMain.on('overlay:hide-panel', () => hidePanel());
   ipcMain.handle('panel:show', () => { showPanel(); return { ok: true }; });

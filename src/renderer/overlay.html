@@ -1144,6 +1144,12 @@
   if (typeof window.koeOverlay.onForm === 'function') window.koeOverlay.onForm((p) => applyForm(p && p.form));
   // 0.9.0 O-4（RP8）: カーソルがピルに乗ったか（main が縦の形の録音中だけ見て、変わったときだけ送る）と、× で隠す（録音は止めない）
   if (typeof window.koeOverlay.onHover === 'function') window.koeOverlay.onHover((on) => setHover(on));
+  // 0.9.3 M-5（問い Q1 の答えで、この受け口だけを足した）: main が録音中のページの音の波のために聞く（10 回／秒）。毎フレームの描き（隠した窓では止まる）
+  // でなく受け口で答える。mic・sys は点と同じ rmsOf の値（analyser が無い録音の前・一時停止は 0）、warn は今出している無音の警告の文
+  if (typeof window.koeOverlay.onLevelAsk === 'function') {
+    window.koeOverlay.onLevelAsk(() => window.koeOverlay.reportLevel({
+      mic: analyser ? rmsOf(analyser) : 0, sys: analyser && sysAnalyser ? rmsOf(sysAnalyser) : 0, warn: typeof shownLabel === 'string' ? shownLabel : '' }));
+  }
   hideBtn.addEventListener('click', () => { if (typeof window.koeOverlay.hidePanel === 'function') window.koeOverlay.hidePanel(); });
   if (typeof ResizeObserver === 'function') new ResizeObserver(() => reportSize()).observe(pill);
   window.koeOverlay.onPhase(({ phase, message, procSec }) => {

@@ -1881,6 +1881,9 @@
   // Windows の知らせを押した（main の meeting:show-live）: 録音中のタブへ移る（会議が終わってタブが無ければ何もしない）。
   // 0.9.0 U-1: 設定のポップアップが開いていれば閉じる（知らせは録音中のページの帯を見てもらうためのもの）
   if (typeof window.koeApp.onShowLive === 'function') window.koeApp.onShowLive(() => { if (hasTab('live')) { closeSettings(); activateTab('live', { fromBar: true }); } });
+  // 0.9.3 M-5: main が録音バーに聞いた音の大きさ（{ mic, sys, warn }。照らし済み）。M-6 で録音中のページの音の波に描く
+  let liveLevel = null;
+  if (typeof window.koeApp.onMeetingLevel === 'function') window.koeApp.onMeetingLevel((p) => { liveLevel = p && typeof p === 'object' ? p : null; });
   // 0.9.3 M-3: 会議の検出のパネルの「会議の検出の通知の設定…」→ 設定のその項目を開く（決まった項目の名前だけ。ほかは「一般」）
   if (typeof window.koeApp.onOpenSettings === 'function') window.koeApp.onOpenSettings((p) => {
     const sec = p && typeof p === 'object' && SETTINGS_SECS.some((x) => x.sec === p.sec) ? p.sec : 'general';
