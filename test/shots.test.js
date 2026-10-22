@@ -860,6 +860,11 @@ test('0.9.3 M-7: 音の波の画面は WAVE_SPEECH の 20 の出来事を送る�
   for (const v of SH.WAVE_SPEECH) assert.deepStrictEqual(lib.levelMsg(v), v);
   assert.ok(SH.WAVE_SPEECH.filter((v) => Math.max(v.mic, v.sys) > 0.02).length >= 16, '話している形でない');
   assert.ok(SH.WAVE_SPEECH.some((v) => v.sys > v.mic), '相手の声の方が大きい値が無い');
+  // 0.9.4 W-1 で意図して足した: 録音中のページは流さず今の大きさだけを5本で描くので、最後の値が話している大きさ（0.5 以上）でないと話している画面にならない
+  // （CI run 39826643828 の live-wave-light・live-wave-dark が、最後の 0.12 のためにほとんど平らな点で撮れた）
+  const lastV = SH.WAVE_SPEECH[SH.WAVE_SPEECH.length - 1];
+  assert.ok(Math.max(lastV.mic, lastV.sys) >= 0.5, `最後の値が小さい: ${JSON.stringify(lastV)}`);
+  assert.ok(lib.levelBars(Math.max(lastV.mic, lastV.sys), SH.FIXED_NOW).some((h) => h >= 10), '撮る時刻の5本が伸びていない');
   const live = SH.SCREENS.find((s) => s.name === 'live-light').answers['koeApp.meetingStatus'];
   const by = (n) => SH.SCREENS.find((x) => x.name === n);
   for (const [n, theme] of [['live-wave-light', 'light'], ['live-wave-dark', 'dark']]) {
