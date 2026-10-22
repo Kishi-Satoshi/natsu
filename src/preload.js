@@ -113,6 +113,18 @@ contextBridge.exposeInMainWorld('koeOverlay', {
   onHover: (cb) => ipcRenderer.on('overlay:hover', (_e, on) => cb(on)),
 });
 
+// 0.9.3 M-3: 会議の検出のパネル（右上の小さな窓。計画 docs/plans/2026-10-22-093.md の決めたこと 9・10）。画面は id も文も送らない:
+// 始めるは pcOnly（オフラインモードで始めるか）だけ、出さないは引数なし（main が今出しているアプリを使う）
+contextBridge.exposeInMainWorld('koeNudge', {
+  onShow: (cb) => ipcRenderer.on('nudge:show', (_e, p) => cb(p)),
+  start: (pcOnly) => ipcRenderer.invoke('nudge:start', { pcOnly: pcOnly === true }),
+  close: () => ipcRenderer.send('nudge:close'),
+  mute: () => ipcRenderer.send('nudge:mute'),
+  openSettings: () => ipcRenderer.send('nudge:settings'),
+  reportSize: (size) => ipcRenderer.send('nudge:size', size),
+  hover: (on) => ipcRenderer.send('nudge:hover', on === true),
+});
+
 // メインウィンドウ（ノート）
 contextBridge.exposeInMainWorld('koeApp', {
   // 設定
@@ -206,6 +218,8 @@ contextBridge.exposeInMainWorld('koeApp', {
   // 0.9.0 O-4（RP8）: 隠した録音バーを出し直す（録音中のページの［録音バーを出す］）
   showPanel: () => ipcRenderer.invoke('panel:show'),
   onShowLive: (cb) => ipcRenderer.on('meeting:show-live', () => cb()),   // 第1d回 A-8: Windows の知らせを押した → 録音中のタブへ
+  // 0.9.3 M-3・M-4: 会議の検出のパネルの「会議の検出の通知の設定…」→ 設定のその項目を開く（{ sec, row }）
+  onOpenSettings: (cb) => ipcRenderer.on('app:open-settings', (_e, p) => cb(p)),
   onMeetingProgress: (cb) => ipcRenderer.on('meeting:progress', (_e, p) => cb(p)),
   onPagesUpdated: (cb) => ipcRenderer.on('pages:updated', (_e, p) => cb(p)),
   onPageOpen: (cb) => ipcRenderer.on('page:open', (_e, id) => cb(id)),

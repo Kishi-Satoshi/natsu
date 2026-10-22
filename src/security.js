@@ -50,7 +50,7 @@ const { pathToFileURL } = require('node:url');
 /** 種類の無い file:// と、HTML を読めないときの一番きつい CSP */
 const STRICT_CSP = "default-src 'none'; base-uri 'none'; form-action 'none'";
 
-const PAGE_KINDS = ['app', 'overlay'];
+const PAGE_KINDS = ['app', 'overlay', 'nudge'];   // 0.9.3 M-3: 会議の検出のパネル（CSP のハッシュのため。マイクの許可は持たない: isPage）
 
 /**
  * file: の URL を比べる形にする（search と hash は落とす）。file: でない・読めないときは ''。
@@ -67,7 +67,7 @@ function fileKey(url, platform) {
   return platform === 'win32' ? key.toLowerCase() : key;
 }
 
-/** 窓の種類 → 'app' | 'overlay' | '' */
+/** 窓の種類 → 'app' | 'overlay' | 'nudge' | '' */
 function pageKind(url, pageUrls, platform = process.platform) {
   const key = fileKey(url, platform);
   if (!key || !pageUrls) return '';
@@ -195,13 +195,13 @@ function wcUrl(wc) {
 
 /**
  * 守りを1度に付ける（main は窓を作る前に呼ぶ）。
- * pages = { app: '<絶対パス>', overlay: '<絶対パス>' }。
+ * pages = { app: '<絶対パス>', overlay: '<絶対パス>', nudge: '<絶対パス>' }（無い種類は種類の無い画面として一番きつい CSP）。
  * CSP はその時のファイルから毎回計算する（自動更新で src/ が入れ替わってもハッシュがずれない）。
  * 読めなければゆるめずに STRICT_CSP を付け、log に理由の符号とファイルの名前だけを書く。
  */
 function install({ app, session, pages, readFile = (p) => fs.readFileSync(p, 'utf8'), log = () => {}, isLoginContents = () => false, loginGuard = null }) {
   const pageUrls = {};
-  for (const k of PAGE_KINDS) pageUrls[k] = pathToFileURL(pages[k]).href;
+  for (const k of PAGE_KINDS) if (pages[k]) pageUrls[k] = pathToFileURL(pages[k]).href;
   const kindOf = (url) => pageKind(url, pageUrls);
 
   session.setPermissionRequestHandler((wc, permission, cb, details) => {

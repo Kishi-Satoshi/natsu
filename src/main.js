@@ -66,7 +66,7 @@ const { makeSecrets } = require('./secrets');
 // 文字起こしの中継の住所とログインの口（第1d回 A-1・A-2。Electron を読まない。通信は net.request を渡す）
 const relay = require('./relay');
 const security = require('./security');
-const RENDERER_PAGES = { app: path.join(__dirname, 'renderer', 'app.html'), overlay: path.join(__dirname, 'renderer', 'overlay.html') };
+const RENDERER_PAGES = { app: path.join(__dirname, 'renderer', 'app.html'), overlay: path.join(__dirname, 'renderer', 'overlay.html'), nudge: path.join(__dirname, 'renderer', 'nudge.html') };
 const minutes = require('./minutes');
 // オンラインの要約（第1c回 OL5）: 利用者の Claude Code を子のプロセスで呼ぶ部品
 const claudeCli = require('./claude-cli');
@@ -2678,13 +2678,123 @@ function onMicLine(line) {
   micFails = 0;
   nudgeEvent({ type: 'sample', items: r.items });
 }
-// 会議の検出の判断（mainlib.nudgeStep）。M-3 でパネルの窓を出し入れする
+// 会議の検出の判断（mainlib.nudgeStep）。答えのとおりにパネルの窓を出し入れするだけ（判断は純粋な関数）
 let nudgeSt = lib.nudgeInit({ on: true, mute: [] });
 function nudgeEvent(ev) {
   const o = lib.nudgeStep(nudgeSt, { ...ev, now: Date.now() });
   nudgeSt = o.st;
+  if (o.hide) hideNudge(ev.type);
+  if (o.show) showNudge(o.show);
   return o;
 }
+
+// ---------------------------------------------------------------- 会議の検出のパネル（0.9.3 M-3。決めたこと 7〜10。持ち主の答え Q3・Q5）
+// 録音バーと同じ作りの小さな透過の窓（nudge.html）。初めて出すときに作り、使い回す。出すのは showInactive だけ（会議のアプリの入力を奪わない）・
+// 画面の共有と録画に写らない（setContentProtection: K4）・いつも前。置き場所は出す時のカーソルの画面の右上（mainlib.nudgeBounds）。
+// 明暗は Windows の明暗（nativeTheme.shouldUseDarkColors。NaTsu の外観で明るい・暗いを選んでいればそれ）で、出している間に変われば送り直す（Q3）
+let nudgeWin = null;
+let nudgeShown = null;       // 出しているアプリ { id, label }（パネルの押した口はこれだけを使う。画面から id を受けない: M7）
+let nudgeSize = null;        // パネルの画面が測った大きさ { w, h }
+let nudgeDisplayId = null;   // 出している画面（出している間はカーソルを動かしても飛ばない）
+let nudgeTicker = null;
+const NUDGE_TICK_MS = 1000;
+const nudgeTheme = () => { try { return nativeTheme.shouldUseDarkColors ? 'dark' : 'light'; } catch (_) { return 'dark'; } };
+function createNudge() {
+  const first = lib.nudgeBounds({ size: null, workArea: screen.getPrimaryDisplay().workArea });
+  nudgeWin = new BrowserWindow({
+    width: first.width, height: first.height,
+    frame: false, transparent: true, resizable: false, movable: false,
+    minimizable: false, maximizable: false, focusable: false,
+    alwaysOnTop: true, skipTaskbar: true, show: false, hasShadow: false,
+    // 録音バーと同じく backgroundThrottling: false を入れてはいけない（透過が壊れる: 地雷の台帳）
+    webPreferences: { preload: path.join(__dirname, 'preload.js'), sandbox: true, contextIsolation: true, nodeIntegration: false },
+  });
+  nudgeWin.setAlwaysOnTop(true, 'screen-saver');
+  nudgeWin.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+  nudgeWin.setContentProtection(true);
+  nudgeWin.loadFile(path.join(__dirname, 'renderer', 'nudge.html'));
+  nudgeWin.on('closed', () => { nudgeWin = null; nudgeShown = null; stopNudgeTicker(); });
+}
+function sendToNudge(ch, p) {
+  if (!nudgeWin || nudgeWin.isDestroyed()) return;
+  const wc = nudgeWin.webContents;
+  if (wc.isLoading()) wc.once('did-finish-load', () => { if (nudgeWin && !nudgeWin.isDestroyed()) nudgeWin.webContents.send(ch, p); });
+  else wc.send(ch, p);
+}
+function placeNudge() {
+  if (!nudgeWin || nudgeWin.isDestroyed()) return;
+  let d = nudgeDisplayId == null ? null : screen.getAllDisplays().find((x) => x.id === nudgeDisplayId);
+  if (!d) { d = screen.getDisplayNearestPoint(screen.getCursorScreenPoint()); nudgeDisplayId = d.id; }
+  nudgeWin.setBounds(lib.nudgeBounds({ size: nudgeSize, workArea: d.workArea }));
+}
+function showNudge(app) {
+  if (!nudgeWin || nudgeWin.isDestroyed()) createNudge();
+  nudgeShown = { id: app.id, label: app.label };
+  nudgeDisplayId = null;
+  sendToNudge('nudge:show', { label: app.label, theme: nudgeTheme() });
+  placeNudge();
+  nudgeWin.showInactive();
+  if (!nudgeTicker) nudgeTicker = setInterval(nudgeTick, NUDGE_TICK_MS);
+  engineLog('会議の検出: パネルを出した');   // アプリの名前は書かない（K3）
+}
+function hideNudge(why) {
+  if (!nudgeShown) return;
+  nudgeShown = null;
+  stopNudgeTicker();
+  if (nudgeWin && !nudgeWin.isDestroyed()) nudgeWin.hide();
+  engineLog(`会議の検出: パネルを引っ込めた（${why}）`);
+}
+function nudgeTick() { nudgeEvent({ type: 'tick' }); }
+function stopNudgeTicker() { if (nudgeTicker) { clearInterval(nudgeTicker); nudgeTicker = null; } }
+// パネルの［文字起こしを始める］・「オフラインモードで始める」（Q5）: 出していて idle のときだけ。引っ込めてから今の［新しい議事録］と同じに始め
+// （会議の種類は自動のまま: D50）、始められたら本体の窓を前に出して録音中のページを見せる（トレイに隠した窓も出す）。オフラインモードなら印を付ける
+async function startFromNudge(o) {
+  if (!nudgeShown || state !== 'idle') return { ok: false };
+  const pcOnly = Boolean(o && typeof o === 'object' && o.pcOnly === true);
+  nudgeEvent({ type: 'closed' });
+  const r = await startMeeting();
+  if (!r.ok) {
+    createMainWindow();
+    sendToMainWin('app:notice', r.error || '議事録を開始できません');
+    return { ok: false };
+  }
+  if (pcOnly) setMeetingLocalOnly(true);
+  showLiveFromNotice();
+  return { ok: true, localOnly: pcOnly };
+}
+// 「<アプリ> では出さない」: 画面の引数は読まず、今出しているアプリの id を通知を出さないアプリに足して保存し、本体の画面の欄にも知らせる（M7）
+function muteFromNudge() {
+  if (!nudgeShown) return;
+  const id = nudgeShown.id;
+  const mute = Array.isArray(settings.meetingDetectMute) ? settings.meetingDetectMute.filter((x) => x !== id) : [];
+  settings.meetingDetectMute = [...mute, id];
+  const w = settingsWriter.now(settings);
+  if (!w.ok) engineLog(`会議の検出: 通知を出さないアプリを保存できませんでした（${errCode(w.error)}）`);
+  sendToMainWin('settings:patched', { meetingDetectMute: settings.meetingDetectMute.slice() });
+  nudgeEvent({ type: 'setting', on: settings.meetingDetect !== false, mute: settings.meetingDetectMute });
+}
+// 「会議の検出の通知の設定…」: 引っ込めて本体の窓を出し、［設定］→［録音］の「会議の検出」のカードを開く
+function settingsFromNudge() {
+  if (!nudgeShown) return;
+  nudgeEvent({ type: 'closed' });
+  createMainWindow();
+  if (!mainWin || mainWin.isDestroyed()) return;
+  if (mainWin.isMinimized()) mainWin.restore();
+  const p = { sec: 'record', row: '会議の検出の通知' };
+  if (mainWin.webContents.isLoading()) mainWin.webContents.once('did-finish-load', () => sendToMainWin('app:open-settings', p));
+  else sendToMainWin('app:open-settings', p);
+}
+// パネルの画面が測った大きさ（CSS の px。有限の正の数でなければ捨てる）。出していれば置き直す
+function onNudgeSize(p) {
+  if (!p || typeof p !== 'object' || typeof p.w !== 'number' || typeof p.h !== 'number' || !Number.isFinite(p.w) || !Number.isFinite(p.h) || p.w <= 0 || p.h <= 0) return;
+  if (nudgeSize && nudgeSize.w === p.w && nudgeSize.h === p.h) return;
+  nudgeSize = { w: p.w, h: p.h };
+  if (nudgeShown) placeNudge();
+}
+// Windows の明暗が変わった（出していれば明暗を送り直す: Q3）・画面の配置が変わった（置き直す）・出している画面が外れた（引っ込める）
+function onNudgeTheme() { if (nudgeShown) sendToNudge('nudge:show', { label: nudgeShown.label, theme: nudgeTheme() }); }
+function onNudgeDisplayChanged() { if (nudgeShown) placeNudge(); }
+function onNudgeDisplayRemoved(_e, display) { if (nudgeShown && display && display.id === nudgeDisplayId) nudgeEvent({ type: 'closed' }); }
 // 録音の状態が変わった（updateTray から毎回呼ぶ。変わったときだけ判断に知らせ、見張りを起こす・止める）
 function noteDetectState() {
   if (!detectReady || state === detectBusy) return;
@@ -5523,6 +5633,13 @@ function setupIpc() {
   // 0.9.0 O-4（RP8）: 縦の形の × で隠す（録音中だけ。録音は止めない）と、録音中のページの［録音バーを出す］
   ipcMain.on('overlay:hide-panel', () => hidePanel());
   ipcMain.handle('panel:show', () => { showPanel(); return { ok: true }; });
+  // 0.9.3 M-3: 会議の検出のパネルの口（画面からは id も文も受けない）
+  ipcMain.handle('nudge:start', (_e, o) => startFromNudge(o));
+  ipcMain.on('nudge:close', () => { if (nudgeShown) nudgeEvent({ type: 'closed' }); });
+  ipcMain.on('nudge:mute', () => muteFromNudge());
+  ipcMain.on('nudge:settings', () => settingsFromNudge());
+  ipcMain.on('nudge:size', (_e, p) => onNudgeSize(p));
+  ipcMain.on('nudge:hover', (_e, on) => { if (nudgeShown) nudgeEvent({ type: 'hover', on: on === true }); });
 }
 
 // ---------------------------------------------------------------- 起動
@@ -5613,6 +5730,9 @@ if (!gotLock) {
     if (typeof screen.on === 'function') {
       screen.on('display-metrics-changed', onDisplayChanged);
       screen.on('display-removed', onDisplayRemoved);
+      // 0.9.3 M-3: 会議の検出のパネルも置き直す・出している画面が外れたら引っ込める
+      screen.on('display-metrics-changed', onNudgeDisplayChanged);
+      screen.on('display-removed', onNudgeDisplayRemoved);
     }
     // 登録できなかった側だけ既定に落として再試行する（成功した側はそのまま）。
     // 有効なキーは activeHotkeys にだけ持ち、settings には書かない。settings に書くと
@@ -5641,6 +5761,7 @@ if (!gotLock) {
     // 0.9.3 M-2: 会議の検出の見張り（Windows・設定がオン・録音していないとき）。窓とトレイの後に起こす
     detectReady = true;
     detectBusy = state;
+    try { nativeTheme.on('updated', onNudgeTheme); } catch (_) { /* 明暗の知らせが無くても出すときの明暗で描く */ }
     nudgeSt = lib.nudgeInit({ on: settings.meetingDetect !== false, mute: settings.meetingDetectMute });
     syncMicWatch();
     app.on('activate', () => createMainWindow());

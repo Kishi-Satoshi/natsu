@@ -1843,6 +1843,11 @@
   // Windows の知らせを押した（main の meeting:show-live）: 録音中のタブへ移る（会議が終わってタブが無ければ何もしない）。
   // 0.9.0 U-1: 設定のポップアップが開いていれば閉じる（知らせは録音中のページの帯を見てもらうためのもの）
   if (typeof window.koeApp.onShowLive === 'function') window.koeApp.onShowLive(() => { if (hasTab('live')) { closeSettings(); activateTab('live', { fromBar: true }); } });
+  // 0.9.3 M-3: 会議の検出のパネルの「会議の検出の通知の設定…」→ 設定のその項目を開く（決まった項目の名前だけ。ほかは「一般」）
+  if (typeof window.koeApp.onOpenSettings === 'function') window.koeApp.onOpenSettings((p) => {
+    const sec = p && typeof p === 'object' && SETTINGS_SECS.some((x) => x.sec === p.sec) ? p.sec : 'general';
+    openSettings(sec);
+  });
   // 上の帯（第1b2回 P-1）: パンくずは選んでいるタブを追う。ページの操作（#pActs）は、選んでいるタブがページで、
   // そのページを開いている（curPage がある）ときだけ出す（G6: 設定・音声入力・記録中・何も無いときに［削除］を押せない）
   function renderCrumb() {

@@ -39,7 +39,8 @@ let cache = null;
 function world() {
   if (cache) return cache;
   const screens = {};
-  for (const [name, rel] of [['app', 'src/renderer/app.html'], ['overlay', 'src/renderer/overlay.html']]) {
+  // 0.9.3 M-3 で意図して足した: 会議の検出のパネル（nudge.html。録音バーと同じ透過の窓）
+  for (const [name, rel] of [['app', 'src/renderer/app.html'], ['overlay', 'src/renderer/overlay.html'], ['nudge', 'src/renderer/nudge.html']]) {
     const src = rd(rel);
     const tree = H.parse(src);
     const styleText = tree.nodes.filter((n) => n.tag === 'style').map((n) => n.text || '').join('\n');

@@ -66,6 +66,9 @@ const BOOT_REACHED = [
     由来: 'v0.10.2 では例外で初期化が止まり、getSettings に到達しなかった（設定が消えたように見えた）' },
   { screen: 'overlay', apis: ['onStart', 'onStop', 'onCancel', 'onTick', 'onPhase'],
     由来: '要素が1つ欠けるだけで IIFE が丸ごと死に、録音が一度も始まらなくなる' },
+  // 0.9.3 M-3: 会議の検出のパネル。出す合図を受けられないと、会議が始まってもパネルが空のまま・大きさを送れないと窓がパネルに合わない
+  { screen: 'nudge', apis: ['onShow'],
+    由来: '0.9.3 M-3: 初期化が途中で止まると、出す合図（onShow）が届かず、右上に空の窓が出る（大きさ reportSize は測れる DOM でだけ送る: stage093.nudge が見る）' },
 ];
 
 // ----------------------------------------------------------------------------
@@ -94,6 +97,10 @@ const WIRED = [
   { screen: 'overlay', id: 'stopBtn', types: ['click'], 由来: '録音の停止。押せないと議事録が作れない' },
   { screen: 'overlay', id: 'pauseBtn', types: ['click'], 由来: '一時停止' },
   { screen: 'overlay', id: 'ngBtn', types: ['click'], 由来: 'キャンセル' },
+  // 0.9.3 M-3: 会議の検出のパネル。切れると押しても録音が始まらない・メニューが開かない・閉じられない（30 秒出たまま）
+  { screen: 'nudge', id: 'nzStart', types: ['click'], 由来: '0.9.3 M-3: パネルの［文字起こしを始める］' },
+  { screen: 'nudge', id: 'nzMore', types: ['click'], 由来: '0.9.3 M-3: パネルの ⌄（オフラインモードで始める・出さない・設定のメニュー）' },
+  { screen: 'nudge', id: 'nzClose', types: ['click'], 由来: '0.9.3 M-3: パネルの ×' },
 ];
 
 // 動的に作られるため HTML に静的な定義が無い id（理由を必ず書くこと）

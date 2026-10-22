@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8" />
+<title>NaTsu 会議の検出</title>
+<style>
+  /* 0.9.3 M-3（計画 docs/plans/2026-10-22-093.md の決めたこと 9。持ち主の答え Q3・Q4・D50・D54）: Web 会議が始まったら右上に出す小さなパネル。
+     ロゴ・「AI 議事録を始める」・「文字起こしで NaTsu を開く」・青い［文字起こしを始める］と ⌄・×。⌄ のメニューは「オフラインモードで始める」・
+     「<アプリ> では出さない」・「会議の検出の通知の設定…」。種類を選ぶ欄は置かない（D50）。
+     明暗は main が Windows の明暗から決めて送る（.nz の light。無ければ録音バーと同じ暗い地）。透過の窓なので外向きの影（box-shadow）は使わない
+     （地雷の台帳）。明るい形の影は、カードとメニューの外の半透明の輪（::before・::after の地。重なりの文脈を作らないので地の下に描かれる: K9）。
+     窓の大きさは main が #nz の大きさ（reportSize）に合わせ、周りに影の輪の余白（body の padding = main の NUDGE_PAD）を足す */
+  .nz {
+    --nz-bg: #262626;
+    --nz-fg: #f2f2f2;
+    --nz-dim: rgba(255, 255, 255, 0.62);
+    --nz-edge: rgba(255, 255, 255, 0.14);
+    --nz-hi: rgba(255, 255, 255, 0.07);
+    --nz-btn: rgba(255, 255, 255, 0.12);
+    --nz-hover: rgba(255, 255, 255, 0.08);
+    --nz-go: #2077ce;
+    --nz-go-on: rgba(0, 0, 0, 0.18);
+  }
+  .nz.light {
+    --nz-bg: #ffffff;
+    --nz-fg: #2c2c2b;
+    --nz-dim: #6d6a66;
+    --nz-edge: rgba(28, 19, 1, 0.16);
+    --nz-hi: rgba(255, 255, 255, 0);
+    --nz-btn: rgba(33, 27, 23, 0.06);
+    --nz-hover: rgba(33, 27, 23, 0.051);
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { background: transparent; overflow: hidden; }
+  body {
+    padding: 8px;
+    font-family: "Segoe UI Variable Text", "Segoe UI", "Yu Gothic UI", "Hiragino Sans", "Noto Sans JP", sans-serif;
+    -webkit-user-select: none; user-select: none;
+  }
+  .nz { width: max-content; display: flex; flex-direction: column; align-items: flex-end; color: var(--nz-fg); }
+  .card {
+    position: relative;
+    display: flex; align-items: center; gap: 12px; height: 60px; padding: 0 10px 0 14px; border-radius: 999px;
+    background: var(--nz-bg); border: 1px solid var(--nz-edge); box-shadow: inset 0 1px 0 var(--nz-hi);
+  }
+  .nz.light .card::before, .nz.light .menu::before { content: ""; position: absolute; inset: -5px; border-radius: inherit; z-index: -1; background: rgba(15, 15, 15, 0.035); }
+  .nz.light .card::after, .nz.light .menu::after { content: ""; position: absolute; inset: -2px; border-radius: inherit; z-index: -1; background: rgba(15, 15, 15, 0.06); }
+  .logo { width: 30px; height: 30px; flex: none; display: block; }
+  .tx { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+  .t1 { font-size: 14px; font-weight: 600; line-height: 19px; white-space: nowrap; }
+  .t2 { font-size: 12px; line-height: 16px; color: var(--nz-dim); white-space: nowrap; }
+  .go { display: flex; align-items: stretch; height: 34px; border-radius: 999px; background: var(--nz-go); flex: none; margin-left: 6px; overflow: hidden; }
+  button { font: inherit; color: inherit; background: none; border: none; cursor: default; }
+  .go button { color: #ffffff; }
+  .go .main { display: flex; align-items: center; padding: 0 12px 0 16px; font-size: 13px; font-weight: 600; white-space: nowrap; }
+  .go .sep { width: 1px; background: rgba(255, 255, 255, 0.38); margin: 7px 0; }
+  .go .more { width: 32px; display: flex; align-items: center; justify-content: center; }
+  .go .more.open { background: var(--nz-go-on); }
+  .go button:hover { background: var(--nz-go-on); }
+  .chev { width: 14px; height: 14px; fill: none; stroke: #ffffff; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+  .x { width: 28px; height: 28px; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: var(--nz-btn); flex: none; }
+  .x:hover { background: var(--nz-hover); }
+  .x svg { width: 12px; height: 12px; fill: none; stroke: var(--nz-dim); stroke-width: 1.8; stroke-linecap: round; }
+  .menu {
+    position: relative;
+    margin: 6px 44px 0 0; width: 300px; padding: 6px; border-radius: 10px;
+    background: var(--nz-bg); border: 1px solid var(--nz-edge); color: var(--nz-fg);
+  }
+  .menu[hidden] { display: none; }
+  .it { display: flex; align-items: center; gap: 10px; width: 100%; height: 34px; padding: 0 10px; border-radius: 6px; font-size: 13px; white-space: nowrap; text-align: left; }
+  .it:hover { background: var(--nz-hover); }
+  .it svg { width: 16px; height: 16px; flex: none; fill: none; stroke: var(--nz-dim); stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
+  .hr { height: 1px; background: var(--nz-edge); margin: 5px 4px; }
+</style>
+</head>
+<body>
+  <div class="nz" id="nz">
+    <div class="card" id="nzCard">
+      <svg class="logo" viewBox="0 0 64 64" aria-hidden="true">
+        <path d="M5 16 Q5 5 16 5 H27 L30 2.6 L33.5 9 L37 3.4 L40.5 8 L43 5 H48 Q59 5 59 16 V48 Q59 59 48 59 H16 Q5 59 5 48 Z" fill="#ffffff" stroke="#151515" stroke-width="4.5" stroke-linejoin="round"/>
+        <path d="M27 5 L30 2.6 L33.5 9 L37 3.4 L40.5 8 L43 5" fill="none" stroke="#0e8cae" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round"/>
+        <path d="M22 45V21 L42 45V21" fill="none" stroke="#151515" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+      <div class="tx">
+        <div class="t1" id="nzTitle">AI 議事録を始める</div>
+        <div class="t2" id="nzSub">文字起こしで NaTsu を開く</div>
+      </div>
+      <div class="go">
+        <button type="button" class="main" id="nzStart">文字起こしを始める</button>
+        <span class="sep" aria-hidden="true"></span>
+        <button type="button" class="more" id="nzMore" aria-label="ほかの始め方" aria-haspopup="menu" aria-expanded="false" aria-controls="nzMenu"><svg class="chev" viewBox="0 0 14 14" aria-hidden="true"><path d="M3.5 5.5L7 9l3.5-3.5"/></svg></button>
+      </div>
+      <button type="button" class="x" id="nzClose" aria-label="閉じる"><svg viewBox="0 0 12 12" aria-hidden="true"><path d="M3 3l6 6M9 3L3 9"/></svg></button>
+    </div>
+    <div class="menu" id="nzMenu" role="menu" hidden>
+      <button type="button" class="it" id="nzPcOnly" role="menuitem"><svg viewBox="0 0 16 16" aria-hidden="true"><rect x="2.5" y="3" width="11" height="7.5" rx="1.2"/><path d="M1.5 13h13"/></svg>オフラインモードで始める</button>
+      <button type="button" class="it" id="nzMute" role="menuitem"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8h10"/><circle cx="8" cy="8" r="6"/></svg><span id="nzMuteLabel">では出さない</span></button>
+      <div class="hr" role="separator"></div>
+      <button type="button" class="it" id="nzSettings" role="menuitem"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5 5h6M12.5 5h1M2.5 11h1M7.5 11h6"/><circle cx="10.5" cy="5" r="1.6"/><circle cx="5.5" cy="11" r="1.6"/></svg>会議の検出の通知の設定…</button>
+    </div>
+  </div>
+<script>
+(() => {
+  // 文は決まった文だけ（画面は文を作らない）。main から受けるのはアプリの名前（label）と明暗（theme）だけで、名前は textContent で入れる
+  const $ = (id) => document.getElementById(id);
+  const api = window.koeNudge;
+  const nz = $('nz');
+  const menu = $('nzMenu');
+  const more = $('nzMore');
+  let lastW = 0;
+  let lastH = 0;
+  // 測ったパネルの大きさ（CSS の px）を main へ。変わったときだけ送る（main が窓の大きさと置き場所を合わせる）
+  function report(force) {
+    const r = nz.getBoundingClientRect();
+    const w = Math.ceil(r.width);
+    const h = Math.ceil(r.height);
+    if (!(w > 0 && h > 0) || (!force && w === lastW && h === lastH)) return;
+    lastW = w;
+    lastH = h;
+    api.reportSize({ w, h });
+  }
+  function setMenu(open) {
+    menu.hidden = !open;
+    more.setAttribute('aria-expanded', open ? 'true' : 'false');
+    more.classList.toggle('open', open);
+    report();
+  }
+  api.onShow((p) => {
+    const o = p && typeof p === 'object' ? p : {};
+    $('nzMuteLabel').textContent = `${typeof o.label === 'string' ? o.label : ''} では出さない`;
+    nz.classList.toggle('light', o.theme === 'light');
+    menu.hidden = true;
+    more.setAttribute('aria-expanded', 'false');
+    more.classList.remove('open');
+    report(true);
+  });
+  $('nzStart').addEventListener('click', () => api.start(false));
+  more.addEventListener('click', () => setMenu(menu.hidden));
+  $('nzPcOnly').addEventListener('click', () => { setMenu(false); api.start(true); });
+  $('nzMute').addEventListener('click', () => { setMenu(false); api.mute(); });
+  $('nzSettings').addEventListener('click', () => { setMenu(false); api.openSettings(); });
+  $('nzClose').addEventListener('click', () => api.close());
+  // メニューの外を押したら閉じる（窓はフォーカスを取らないので Esc は届かない: K5）
+  document.addEventListener('pointerdown', (e) => {
+    const t = e && e.target;
+    if (menu.hidden || (t && typeof t.closest === 'function' && t.closest('#nzMenu, #nzMore'))) return;
+    setMenu(false);
+  });
+  // カーソルが乗っている間は引っ込めない（main が数えるのを止める）
+  nz.addEventListener('mouseenter', () => api.hover(true));
+  nz.addEventListener('mouseleave', () => api.hover(false));
+  report();
+  if (document.fonts && document.fonts.ready && typeof document.fonts.ready.then === 'function') document.fonts.ready.then(() => report());
+})();
+</script>
+</body>
+</html>

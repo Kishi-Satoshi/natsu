@@ -155,14 +155,15 @@ test('SEC1: install は許可の受け口2つ・file:// の画面への CSP の�
   assert.deepStrictEqual(opener({ url: 'https://example.invalid/' }), { action: 'deny' });
 });
 
+// 0.9.3 M-3 で意図して変えた: 窓は4つ（録音バー・本体・ログインの窓・会議の検出のパネル）。画面の種類に nudge（パネル）を足した
 // 第1d回 A-11 で意図して変えた: 窓は3つ（録音バー・本体・ログインの窓）。ログインの窓は preload を持たず、partition はログインの partition。
 // install にはログインの窓の守り（isLoginContents・loginGuard）を渡す
 test('SEC1: main はどの窓にも sandbox: true を明記し、窓を作る前に security.install を呼ぶ（第1d回 A-11: ログインの窓も）', { timeout: 5000 }, () => {
   const m = code(read('src/main.js'));
   assert.match(m, /const security = require\('\.\/security'\);/);
-  assert.match(m, /const RENDERER_PAGES = \{ app: path\.join\(__dirname, 'renderer', 'app\.html'\), overlay: path\.join\(__dirname, 'renderer', 'overlay\.html'\) \};/);
+  assert.match(m, /const RENDERER_PAGES = \{ app: path\.join\(__dirname, 'renderer', 'app\.html'\), overlay: path\.join\(__dirname, 'renderer', 'overlay\.html'\), nudge: path\.join\(__dirname, 'renderer', 'nudge\.html'\) \};/);
   const prefs = [...m.matchAll(/webPreferences: \{([^}]*)\}/g)].map((x) => x[1]);
-  assert.strictEqual(prefs.length, 3);
+  assert.strictEqual(prefs.length, 4);
   for (const p of prefs) for (const k of ['sandbox: true', 'contextIsolation: true', 'nodeIntegration: false']) assert.ok(p.includes(k), `${k}: ${p}`);
   const login = prefs.filter((p) => p.includes('partition: relay.ACCESS_PARTITION'));
   assert.strictEqual(login.length, 1, 'ログインの窓の webPreferences が無い');
@@ -282,4 +283,23 @@ test('F25（A-11 の点検）: ログインの窓の本体の枠の1つの移動
     ['http://proxy.example/c', 'will-frame-navigate', false],
     ['http://proxy.example/c', 'will-frame-navigate', false],
   ]);
+});
+
+// ---------------------------------------------------------------- 0.9.3 M-3（計画 docs/plans/2026-10-22-093.md の M6）: 会議の検出のパネル
+test('M6: PAGE_KINDS は app・overlay・nudge。nudge の CSP は自分のインラインの script のハッシュ。nudge は media（audio）・display-capture を許さない', { timeout: 5000 }, () => {
+  const L3 = { ...L, nudge: 'file:///opt/natsu/src/renderer/nudge.html' };
+  assert.strictEqual(S.pageKind(L3.nudge, L3, 'linux'), 'nudge');
+  assert.strictEqual(S.pageKind(L3.nudge, L, 'linux'), '', 'pages に nudge が無いのに nudge と読んだ');
+  for (const [perm, d] of [['media', { mediaTypes: ['audio'] }], ['media', { mediaTypes: [] }], ['display-capture', {}], ['media', { mediaTypes: ['video'] }]]) {
+    assert.strictEqual(S.allowRequest('nudge', perm, d), false, `${perm} ${JSON.stringify(d)}`);
+  }
+  assert.strictEqual(S.allowCheck('nudge', 'media', { mediaType: 'audio' }), false);
+  assert.strictEqual(S.allowCheck('nudge', 'display-capture', {}), false);
+  const html = read('src/renderer/nudge.html');
+  const hashes = S.inlineScriptHashes(html);
+  assert.strictEqual(hashes.length, 1, 'パネルのインラインの script が1つでない');
+  const csp = S.cspFor(html);
+  assert.ok(csp.includes(`script-src ${hashes[0]}`), csp);
+  assert.ok(!/unsafe-eval|unsafe-inline'?;?\s*$|script-src[^;]*unsafe-inline/.test(csp), csp);
+  assert.ok(read('src/security.js').includes("const PAGE_KINDS = ['app', 'overlay', 'nudge'];"), 'PAGE_KINDS に nudge が無い');
 });

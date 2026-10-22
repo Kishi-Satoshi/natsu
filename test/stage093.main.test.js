@@ -75,3 +75,118 @@ test('M5・M-2: engine.log の見張りの行にアプリの名前と id が無�
   assert.ok(!o.engineLog.some((l) => NAMES.test(l) && /会議|マイク|見張り/.test(l)), o.engineLog.join('\n'));
   assert.ok(o.micKills >= 1 && o.engineLog.includes('会議の検出: 見張りを止めた'), '終了で見張りを止めていない');
 });
+
+// ---------------------------------------------------------------- M-3: パネルの窓（決めたこと 7〜10。持ち主の答え Q3・Q5・D50）
+const Z2 = [['line', Z], ['line', Z]];
+const nudgeCalls = (o) => (o.nudge ? o.nudge.calls : []);
+const shows = (o) => (o.nudge ? o.nudge.sent.filter(([ch]) => ch === 'nudge:show').map(([, p]) => p) : []);
+const sentMain = (o, ch) => o.mainSentAll.filter(([c]) => c === ch).map(([, p]) => p);
+
+test('M3・M4: 2回続けて Zoom が見えたら、パネルの窓を作り、nudge:show に「Zoom」を送り、showInactive を1回（show・focus は0回）。窓は focusable: false・transparent・hasShadow: false・alwaysOnTop・skipTaskbar・setContentProtection(true)。1回だけでは出さない', S, async () => {
+  const once = await run([['line', Z], ['sleep', 50]]);
+  assert.strictEqual(once.nudgeWindows, 0, '1回見えただけで窓を作った');
+  const o = await run([...Z2, ['sleep', 50]]);
+  assert.strictEqual(o.nudgeWindows, 1);
+  const op = o.nudge.opts;
+  for (const [k, v] of [['focusable', false], ['transparent', true], ['hasShadow', false], ['alwaysOnTop', true], ['skipTaskbar', true], ['show', false], ['frame', false], ['resizable', false]]) assert.strictEqual(op[k], v, k);
+  assert.ok(!('backgroundThrottling' in op));
+  assert.strictEqual(op.webPreferences.sandbox, true);
+  assert.strictEqual(op.webPreferences.contextIsolation, true);
+  const calls = nudgeCalls(o);
+  assert.ok(calls.some((c) => Array.isArray(c) && c[0] === 'setContentProtection' && c[1] === true), JSON.stringify(calls));
+  assert.ok(calls.some((c) => Array.isArray(c) && c[0] === 'setAlwaysOnTop' && c[1][0] === true && c[1][1] === 'screen-saver'), JSON.stringify(calls));
+  assert.strictEqual(calls.filter((c) => c === 'showInactive').length, 1);
+  assert.strictEqual(calls.filter((c) => c === 'show' || c === 'focus').length, 0, 'パネルを show・focus で出した（会議のアプリの入力を奪う）');
+  assert.strictEqual(shows(o).length, 1);
+  assert.strictEqual(shows(o)[0].label, 'Zoom');
+  assert.deepStrictEqual(o.mainWinCalls, [], 'パネルを出しただけで本体の窓を前に出した');
+});
+
+test('M4: 置き場所はカーソルの画面の作業領域の右上（カードの端が 12px）。パネルが測った大きさで置き直す。出している間はカーソルを動かしても飛ばない', S, async () => {
+  const o = await run([['cursor', 2500, 300], ...Z2, ['ipc', 'nudge:size', { w: 520, h: 60 }], ['cursor', 10, 10], ['ipc', 'nudge:size', { w: 520, h: 200 }]],
+    '--displays=0,0,1920,1040;1920,0,1280,984');
+  const b = nudgeCalls(o).filter((c) => Array.isArray(c) && c[0] === 'setBounds').map((c) => c[1]);
+  assert.ok(b.length >= 3, JSON.stringify(b));
+  const P = 8, E = 12;
+  assert.deepStrictEqual(b[b.length - 2], { x: 1920 + 1280 - (E - P) - (520 + 2 * P), y: E - P, width: 520 + 2 * P, height: 60 + 2 * P });
+  assert.deepStrictEqual(b[b.length - 1], { x: 1920 + 1280 - (E - P) - (520 + 2 * P), y: E - P, width: 520 + 2 * P, height: 200 + 2 * P });
+});
+
+test('M3: 議事録を始めると引っ込め、録音中に Zoom が新しく見えても出さない。マイクを離すとすぐ引っ込める', S, async () => {
+  const o = await run([...Z2, ['start'], ['snap', 'started'], ['line', 'mic zoom:999,teams:5'], ['line', 'mic zoom:999,teams:5'], ['sleep', 30]]);
+  assert.strictEqual(nudgeCalls(o).filter((c) => c === 'showInactive').length, 1, '録音中に始まった会議にパネルを出した');
+  const hideAt = nudgeCalls(o).indexOf('hide');
+  assert.ok(hideAt >= 0 && hideAt < o.snaps.started.nudgeCalls, '録音を始めても引っ込めない');
+  const r = await run([...Z2, ['line', 'mic -']]);
+  assert.deepStrictEqual(nudgeCalls(r).filter((c) => c === 'showInactive' || c === 'hide'), ['showInactive', 'hide']);
+  assert.ok(r.engineLog.includes('会議の検出: パネルを引っ込めた（sample）'), r.engineLog.join('\n'));
+});
+
+test('Q5: nudge:start で始まり（会議中）、本体の窓を出して（show・focus）meeting:show-live を送る。トレイに隠した窓・最小化した窓でも。pcOnly なら localOnly', S, async () => {
+  const o = await run([...Z2, ['ipc', 'nudge:start', { pcOnly: false }], ['sleep', 50]], '--main-hidden');
+  assert.deepStrictEqual(o.ipc.find(([ch]) => ch === 'nudge:start')[1], { ok: true, localOnly: false });
+  assert.strictEqual(o.active, true);
+  assert.ok(o.mainWinCalls.includes('show') && o.mainWinCalls.includes('focus'), `トレイに隠した窓を出していない: ${JSON.stringify(o.mainWinCalls)}`);
+  assert.strictEqual(sentMain(o, 'meeting:show-live').length, 1);
+  assert.strictEqual(o.status.localOnly, false);
+  assert.ok(nudgeCalls(o).includes('hide'), '始めたのにパネルが出たまま');
+  const m = await run([...Z2, ['ipc', 'nudge:start', { pcOnly: true }], ['sleep', 50]], '--main-minimized');
+  assert.ok(m.mainWinCalls.includes('restore'), JSON.stringify(m.mainWinCalls));
+  assert.strictEqual(m.status.localOnly, true, 'オフラインモードで始めたのに localOnly でない');
+  assert.strictEqual(sentMain(m, 'meeting:show-live').length, 1);
+});
+
+test('D50: nudge:start は pcOnly のほかの引数（種類など）を読まず、［新しい議事録］と同じ既定で始める。パネルが出ていない／idle でないときの nudge:start は何もしない', S, async () => {
+  const o = await run([...Z2, ['ipc', 'nudge:start', { pcOnly: 'yes', meetingType: 'sales', type: 'sales' }], ['sleep', 50]]);
+  assert.strictEqual(o.status.localOnly, false, '"yes" を真とみなした');
+  assert.ok(!JSON.stringify(o.status).includes('sales'), JSON.stringify(o.status));
+  const none = await run([['ipc', 'nudge:start', { pcOnly: false }]]);
+  assert.deepStrictEqual(none.ipc[0][1], { ok: false });
+  assert.strictEqual(none.active, false);
+  const busy = await run([...Z2, ['dictate'], ['ipc', 'nudge:start', { pcOnly: false }]]);
+  assert.deepStrictEqual(busy.ipc.find(([ch]) => ch === 'nudge:start')[1], { ok: false });
+  assert.strictEqual(busy.active, false);
+  assert.deepStrictEqual(busy.notices, [], '音声入力の間に押した nudge:start が知らせを出した');
+});
+
+test('M7: nudge:mute は引数を読まず、出している id だけを meetingDetectMute に足し、settings:patched を送る（引数に別の id を渡しても保存されない）。出していなければ何もしない', S, async () => {
+  const o = await run([...Z2, ['ipc', 'nudge:mute', 'webex'], ['line', 'mic zoom:555'], ['line', 'mic zoom:555'], ['ipc', 'nudge:mute', 'slack']]);
+  assert.deepStrictEqual(JSON.parse(o.settingsText).meetingDetectMute, ['zoom']);
+  assert.deepStrictEqual(sentMain(o, 'settings:patched'), [{ meetingDetectMute: ['zoom'] }]);
+  assert.strictEqual(nudgeCalls(o).filter((c) => c === 'showInactive').length, 1, '出さないにした Zoom の新しい使いでまた出した');
+  assert.ok(nudgeCalls(o).includes('hide'));
+});
+
+test('nudge:settings は引っ込めて本体の窓を出し、app:open-settings（録音の「会議の検出の通知」）を送る。× は引っ込める', S, async () => {
+  const o = await run([...Z2, ['ipc', 'nudge:settings']], '--main-hidden');
+  assert.ok(o.mainWinCalls.includes('show'), JSON.stringify(o.mainWinCalls));
+  assert.deepStrictEqual(sentMain(o, 'app:open-settings'), [{ sec: 'record', row: '会議の検出の通知' }]);
+  assert.ok(nudgeCalls(o).includes('hide'));
+  const c = await run([...Z2, ['ipc', 'nudge:close'], ['line', Z]]);
+  assert.deepStrictEqual(nudgeCalls(c).filter((x) => x === 'showInactive' || x === 'hide'), ['showInactive', 'hide']);
+});
+
+test('Q2: 30 秒で引っ込める。nudge:hover の間は引っ込めない（離れて 5 秒で引っ込める）', S, async () => {
+  const o = await run([...Z2, ['clock', 31000], ['sleep', 1300]]);
+  assert.ok(nudgeCalls(o).includes('hide'), '30 秒たっても引っ込めない');
+  assert.ok(o.engineLog.includes('会議の検出: パネルを引っ込めた（tick）'), o.engineLog.join('\n'));
+  const h = await run([...Z2, ['ipc', 'nudge:hover', true], ['clock', 60000], ['sleep', 1300], ['snap', 'hover'], ['ipc', 'nudge:hover', false], ['clock', 6000], ['sleep', 1300]]);
+  assert.ok(nudgeCalls(h).indexOf('hide') >= h.snaps.hover.nudgeCalls, 'カーソルが乗っている間に引っ込めた');
+  assert.ok(nudgeCalls(h).includes('hide'), '離れて 5 秒たっても引っ込めない');
+});
+
+test('Q3: nudge:show の theme は nativeTheme.shouldUseDarkColors から。出している間に updated が来たら送り直す', S, async () => {
+  const l = await run([...Z2, ['theme', true], ['sleep', 20]]);
+  assert.deepStrictEqual(shows(l).map((p) => p.theme), ['light', 'dark']);
+  assert.deepStrictEqual(shows(l).map((p) => p.label), ['Zoom', 'Zoom']);
+  const d = await run([...Z2, ['ipc', 'nudge:close'], ['theme', false]], '--dark');
+  assert.deepStrictEqual(shows(d).map((p) => p.theme), ['dark'], '引っ込めた後の updated で送った');
+});
+
+test('M5: engine.log にアプリの名前と id が無い（パネルを出した・引っ込めた・押した道のどれでも）。Notion・NaTsu のマイクでは何も出さない', S, async () => {
+  const o = await run([...Z2, ['ipc', 'nudge:mute'], ['line', 'mic teams:7'], ['line', 'mic teams:7'], ['ipc', 'nudge:start', { pcOnly: true }], ['stop']]);
+  assert.ok(o.engineLog.includes('会議の検出: パネルを出した'), o.engineLog.join('\n'));
+  assert.ok(!o.engineLog.some((l) => /^会議の検出/.test(l) && NAMES.test(l)), o.engineLog.join('\n'));
+  const n = await run([['line', 'mic notion:1'], ['line', 'mic notion:1'], ['line', 'mic natsu:2'], ['line', 'mic natsu:2'], ['sleep', 30]]);
+  assert.strictEqual(n.nudgeWindows, 0, 'Notion・NaTsu のマイクでパネルを作った');
+});
