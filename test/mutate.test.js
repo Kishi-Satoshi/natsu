@@ -514,7 +514,7 @@ const IDS_093 = [
   'm-self', 'm-stop-zero', 'm-stale', 'm-catalog', 'm-twice', 'm-once', 'm-rejoin', 'm-busy', 'm-pending', 'm-mute', 'm-release', 'm-timeout',
   'm-hover', 'm-focus', 'm-protect', 'm-bounds', 'm-start-busy', 'm-start-show', 'm-start-tray', 'm-theme', 'm-theme-live', 'm-sub-label',
   'm-type-sel', 'm-pconly', 'm-notion', 'm-mute-arg', 'm-log-name', 'm-csp', 'm-media', 'm-watch-busy', 'm-backoff', 'm-giveup', 'm-watch-off',
-  'm-apps-kind', 'd-save', 'd-mute-patch', 'd-mute-known', 'w-ask-hidden', 'w-ask-raf', 'w-ask-pause', 'w-level-raw', 'w-clamp', 'w-warn',
+  'm-apps-kind', 'd-save', 'd-mute-patch', 'd-mute-known', 'd-chip-class', 'w-ask-hidden', 'w-ask-raf', 'w-ask-pause', 'w-level-raw', 'w-clamp', 'w-warn',
   'w-silent', 'w-stale', 'w-paused', 'w-reduced', 'w-tail-seg', 'w-tail-paused', 'r-button', 'r-notice', 'r-section', 'r-act', 'r-key', 'r-help',
   'r-nav-width',
 ];

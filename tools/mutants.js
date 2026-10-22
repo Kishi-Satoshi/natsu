@@ -1653,4 +1653,6 @@ module.exports = [
   { id: "w-reduced", file: "src/renderer/app.html", from: "    const h = reducedMotion() ? waveStill(lv.length ? lv[lv.length - 1] : 0) : waveHeights(lv);", to: "    const h = waveHeights(lv);", tests: ["test/stage093.app.test.js"], why: "0.9.3 M-6 決めたこと 19: 動きを減らす設定でも流す" },
   { id: "w-tail-seg", file: "src/renderer/app.html", from: "      t.className = 'livetail';", to: "      t.className = 'seg livetail';", tests: ["test/stage093.app.test.js", "test/stage1b.app.test.js"], why: "0.9.3 M-6 M10: 「聞き取り中」の行を .seg にする（区間の数・出典の飛び先・コピーがずれる）" },
   { id: "w-tail-paused", file: "src/renderer/app.html", from: "    if (st.active && !st.paused && !st.finalizing) {", to: "    if (st.active && !st.finalizing) {", tests: ["test/stage093.app.test.js"], why: "0.9.3 M-6 M10: 一時停止中も「聞き取り中」の行を出す（録っていないのに聞き取っているように読める）" },
+  // 0.9.3 M-4 の CI の直し（CI run 39745472232）: 札の規則の名前
+  { id: "d-chip-class", file: "src/renderer/app.html", from: "  .mutechip { display: inline-flex; align-items: center; gap: 2px; height: 26px;", to: "  .chip { display: inline-flex; align-items: center; gap: 2px; height: 26px;", tests: ["test/stage093.app.test.js"], pattern: ".mutechip", why: "0.9.3 M-4 の CI の直し: 出さないアプリの札を検索の窓の札と同じ .chip の規則で描くと、検索の窓の絞り込みの札の形まで変わる（CI run 39745472232 の search-palette-light）" },
 ];

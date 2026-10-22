@@ -655,7 +655,9 @@ test('基準の画像（test/shots/win32）は今の app.html で撮ったもの
   // 0.9.3 M-5: main が送る音の大きさ（meeting:level）を受ける受け口を <script> の中だけに足した（見た目は変わらない）。値を今の app.html に合わせた
   // 0.9.3 M-6: 録音中のページの「文字起こし」の右に音の波（#liveWaveBox・CSS .lwave・#liveWave）と、文字起こしの一番下の「聞き取り中…」（.livetail）を足した。
   // 見える中身が変わるのは録音中のページの 7 枚で、どれも RETAKE にある（保存したページ・設定・音声入力・検索の窓は波を出さないので変わらない）。値を今の app.html に合わせた
-  assert.strictEqual(sha, '6b5b716a9a8c58a58c1936b9063d9fa8dc7560f07dde23004936a449b33148ad',
+  // 0.9.3 M-4 の CI の直し（CI run 39745472232）: 出さないアプリの札を .chip でなく .mutechip で描く（.chip の規則を足すと検索の窓の絞り込みの札の形まで
+  // 変わり、search-palette-light が基準と違った）。検索の窓は 0.9.2 の基準と同じに戻る。値を今の app.html に合わせた
+  assert.strictEqual(sha, '88b3015ca406b31c2c687783556781e6a2576e62ad5361465d765f397de71da0',
     'app.html が基準の画像を撮った時と違う。Windows の CI の画面の比べ（捲り棒のつまみも）を見て、基準を取り直してからこの値を直す');
 });
 

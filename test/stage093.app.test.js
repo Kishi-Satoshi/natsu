@@ -30,7 +30,7 @@ const search = async (l, q) => { const b = $(l, 'setSearch'); b.value = q; b.dis
 const visible = (el) => { for (let n = el; n && n.tagName && !n.tagName.startsWith('#'); n = n.parentNode) { if (n.id === 'settingsModal') return true; if (n.hidden || n.classList.contains('set-miss')) return false; } return true; };
 const shownRows = (l) => l.byId.get('tabSettings').querySelectorAll('[data-row]').filter(visible).map((r) => r.dataset.row);
 const saves = (l) => l.called('saveSettings').map((c) => c.args[0]);
-const chips = (l) => $(l, 'meetingDetectMuteList').querySelectorAll('.chip').map((c) => norm(c.querySelector('span').textContent));
+const chips = (l) => $(l, 'meetingDetectMuteList').querySelectorAll('.mutechip').map((c) => norm(c.querySelector('span').textContent));
 
 // ---------------------------------------------------------------- M-4: 設定「会議の検出」
 test('M-4: ［設定］→［録音］の頭に「会議の検出」のカード（行は「会議の検出の通知」と「通知を出さないアプリ」）。見える説明は1行・ⓘ の吹き出しの芯', T, () => {
@@ -50,17 +50,30 @@ test('M-4: ［設定］→［録音］の頭に「会議の検出」のカード
   assert.deepStrictEqual(Function(`return ${m[1]}`)(), Object.fromEntries(lib.MEET_APPS.map((a) => [a.id, a.label])));
 });
 
+// CI run 39745472232 の electron-smoke で、出さないアプリの札を前は .chip の規則で描いていたので、検索の窓の絞り込みの札（.chip。#fltAll など）の形まで変わり、
+// search-palette-light が基準と 17306 画素違って赤になった。札は自分の名前（.mutechip）で描き、.chip を決める規則は 0.9.2 の1つ（と :hover・.on）のまま
+test('M-4: 出さないアプリの札は .mutechip で描き、検索の窓の札（.chip）の規則を足さない（search-palette-light を変えない）', T, async () => {
+  const style = html.slice(html.indexOf('<style>'), html.indexOf('</style>'));
+  assert.strictEqual((style.match(/^\s*\.chip\s*\{/gm) || []).length, 1, '.chip の規則がふえた');
+  assert.deepStrictEqual((style.match(/^\s*\.chip(?![-\w])[^\n{]*\{/gm) || []).map((x) => x.trim()), ['.chip {', '.chip:hover {', '.chip.on {']);
+  const l = await open({ meetingDetectMute: ['zoom'] });
+  await l.drain();
+  const box = $(l, 'meetingDetectMuteList');
+  assert.strictEqual(box.querySelectorAll('.chip').length, 0);
+  assert.strictEqual(box.querySelectorAll('.mutechip').length, 1);
+});
+
 test('M-4: トグルは自動保存の引数に meetingDetect を入れる（既定オン）。出さないアプリの札は meetingDetectMute の id を一覧の名前で出し、× で外して保存する。一覧に無い id は出さない。空なら「ありません」', T, async () => {
   const l = await open({ meetingDetectMute: ['zoom', 'evil', 'chrome'] });
   await l.drain();
   assert.strictEqual($(l, 'meetingDetect').checked, true, '既定（無い）でオンになっていない');
   assert.deepStrictEqual(chips(l), ['Zoom', 'Chrome（ブラウザ）']);
-  const xs = $(l, 'meetingDetectMuteList').querySelectorAll('.chip button');
+  const xs = $(l, 'meetingDetectMuteList').querySelectorAll('.mutechip button');
   assert.deepStrictEqual(xs.map((b) => b.getAttribute('aria-label')), ['「Zoom」でもまた通知を出す', '「Chrome（ブラウザ）」でもまた通知を出す']);
   await click(l, xs[0]);
   assert.deepStrictEqual(chips(l), ['Chrome（ブラウザ）']);
   assert.deepStrictEqual(saves(l).pop().meetingDetectMute, ['chrome']);
-  await click(l, $(l, 'meetingDetectMuteList').querySelectorAll('.chip button')[0]);
+  await click(l, $(l, 'meetingDetectMuteList').querySelectorAll('.mutechip button')[0]);
   assert.deepStrictEqual(chips(l), []);
   assert.strictEqual(norm($(l, 'meetingDetectMuteList').textContent), 'ありません');
   assert.deepStrictEqual(saves(l).pop().meetingDetectMute, []);

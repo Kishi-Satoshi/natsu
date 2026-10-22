@@ -321,9 +321,9 @@
   #tabSettings .field.frow > .flead > label { margin-bottom: 0; }
   /* 0.9.3 M-4: 通知を出さないアプリの札（名前と ×）。無ければ「ありません」 */
   #tabSettings .chips { gap: 6px; }
-  .chip { display: inline-flex; align-items: center; gap: 2px; height: 26px; padding: 0 2px 0 10px; border-radius: 6px; background: var(--tint); color: var(--text); font-size: 13px; white-space: nowrap; }
-  .chip button { width: 22px; height: 22px; padding: 0; border: none; border-radius: 4px; background: transparent; color: var(--muted); font-size: 14px; line-height: 22px; cursor: pointer; }
-  .chip button:hover { background: var(--hover); color: var(--text); }
+  .mutechip { display: inline-flex; align-items: center; gap: 2px; height: 26px; padding: 0 2px 0 10px; border-radius: 6px; background: var(--tint); color: var(--text); font-size: 13px; white-space: nowrap; }
+  .mutechip button { width: 22px; height: 22px; padding: 0; border: none; border-radius: 4px; background: transparent; color: var(--muted); font-size: 14px; line-height: 22px; cursor: pointer; }
+  .mutechip button:hover { background: var(--hover); color: var(--text); }
   .chips-none { font-size: 13px; color: var(--muted); }
   #tabSettings .field.frow > .flead > .desc { margin-top: 2px; line-height: 1.5; }
   .flab { font-size: 14px; color: var(--text); }
@@ -3718,7 +3718,7 @@
     }
     box.replaceChildren(...detectMute.map((id) => {
       const chip = document.createElement('span');
-      chip.className = 'chip';
+      chip.className = 'mutechip';
       const name = document.createElement('span');
       name.textContent = MEET_LABELS[id];
       const x = document.createElement('button');
