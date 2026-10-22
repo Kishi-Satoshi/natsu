@@ -70,14 +70,16 @@ test('D16・RF28: ［この会議は PC の中だけ］を押すと、その場�
   assert.ok(texts(o.pages[0].segments), JSON.stringify(o.pages[0].segments));
 });
 
-test('D16: 会議の途中で中継が止まると、2 区間続けて PC になってから 75 秒にし、戻ってクラウドで2区間続いたら 20 秒（録音バーの下限）に戻す', T, async () => {
+// 0.9.4 S-1（決めたこと 30・依頼7）で意図して直した: 中継に届かない（一時の失敗）区間は PC でやり直すが、区切りの側には数えないので、
+// 長い側（75 秒）へ替えず 15 秒のまま（前は 2 区間続いたら 75 秒にし、戻って 20 秒にした）。区間が全部文字になり、経路の数は同じ
+test('D16: 会議の途中で中継が止まっても（届かない区間が 4 つ続いても）、区切りは 15 秒のまま。その区間は PC で文字起こしする', T, async () => {
   const o = await run(['text', '--relay-seq=ccnnnncc', '--segs=8']);
   assert.deepStrictEqual(starts(o), [15]);
-  assert.deepStrictEqual(live(o), [75000, 20000], JSON.stringify(o.overlaySent));
+  assert.deepStrictEqual(live(o), [], JSON.stringify(o.overlaySent));
   assert.strictEqual(o.pages[0].segments.length, 8, JSON.stringify(o.pages[0].segments));
   assert.ok(texts(o.pages[0].segments), JSON.stringify(o.pages[0].segments));
   assert.deepStrictEqual(o.pages[0].route.stt, { cloud: 4, local: 4, provider: 'openai' });
-  assert.ok(o.engineLog.includes('文字起こしの状態: 区切り 20 秒（short・理由 ok）'), o.engineLog.join('\n'));
+  assert.ok(!o.engineLog.some((l) => /区切り 75 秒/.test(l)), o.engineLog.join('\n'));
 });
 
 test('D16: 1 区間だけ中継が 502 でも区切りは変えない（その区間は PC でやり直す）', T, async () => {

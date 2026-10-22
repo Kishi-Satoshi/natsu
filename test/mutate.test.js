@@ -532,3 +532,24 @@ test('G3: 0.9.3 の変異が一覧にそろい、IDS_093 は計画の「変異�
     assert.ok(typeof m.why === 'string' && m.why.startsWith('0.9.3 '), `${id}: why`);
   }
 });
+
+// 0.9.4（計画 docs/plans/2026-10-22-094.md の「変異確認」の表）: 文字起こしの安定化（音声を失わない・遅い PC・PC への要求・文・区切り・中継）の直しを1つずつ戻す変異。
+// タスクごとに足す（S-8 で表とちょうど同じにする）。足した分は表の id で、表の頭の文字（ka・pc・lt・wd・sg・rx・bm）の変異は全部ここにある
+const IDS_094 = [
+  'pc-floor', 'pc-two', 'pc-big', 'pc-backlog', 'pc-sticky', 'pc-model', 'pc-ttl', 'lt-timeout', 'lt-cap', 'sg-cloud-grow', 'sg-transient', 'sg-hold', 'sg-hold-reset',
+];
+test('G3: 0.9.4 の変異が一覧にそろい、IDS_094 は計画の「変異確認」の表の id の中にある。どれも決まったテストのファイルを持ち、なぜ戻すと困るかを書く', { timeout: 5000 }, () => {
+  const byId = new Map(MUTANTS.map((m) => [m.id, m]));
+  assert.deepStrictEqual(IDS_094.filter((id) => !byId.has(id)), [], '計画の表の変異が一覧に無い');
+  assert.deepStrictEqual(MUTANTS.filter((m) => /^(ka|pc|lt|wd|sg|rx|bm)-/.test(m.id) && !IDS_094.includes(m.id)).map((m) => m.id), [], 'IDS_094 に無い 0.9.4 の頭の変異がある');
+  const plan = fs.readFileSync(path.join(ROOT, 'docs', 'plans', '2026-10-22-094.md'), 'utf8');
+  const table = plan.slice(plan.indexOf('## 変異確認'), plan.indexOf('## ゲート'));
+  const rows = [...table.matchAll(/^\| ([a-z][a-z0-9-]*) \|/gm)].map((m) => m[1]).filter((id) => id !== 'id');
+  assert.deepStrictEqual(IDS_094.filter((id) => !rows.includes(id)), [], '計画の表に無い id');
+  assert.strictEqual(new Set(IDS_094).size, IDS_094.length);
+  for (const id of IDS_094) {
+    const m = byId.get(id);
+    assert.ok(Array.isArray(m.tests) && m.tests.length > 0 && m.tests.every((t) => /^test\/[^/]+\.test\.js$/.test(t)), `${id}: tests`);
+    assert.ok(typeof m.why === 'string' && m.why.startsWith('0.9.4 '), `${id}: why`);
+  }
+});
