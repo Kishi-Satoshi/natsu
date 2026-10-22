@@ -303,7 +303,8 @@ test('N4c・F6: 止めていた時間の印は区間の間に出て、区間の�
   l.fire('onMeetingUpdate', ST({ pauses: [{ atMs: 3000, ms: 130000, why: 'user' }] }));
   await l.drain();
   const kids = l.byId.get('pScript').children.map((e) => e.className.split(' ')[0]);
-  assert.deepStrictEqual(kids, ['seg', 'pausemark', 'seg']);
+  // 0.9.3 M-6 で意図して変えた: 録音中は一番下に「聞き取り中…」の行（.livetail。.seg でない）
+  assert.deepStrictEqual(kids, ['seg', 'pausemark', 'seg', 'livetail']);
   assert.match(l.byId.get('pScript').querySelector('.pausemark').textContent, /⏸ ここで 2分10秒 一時停止しました/);
   const saved = await openPa1({ pageGet: (id) => ({ page: { ...PAGE(id).page, pauses: [{ atMs: 5000, ms: 60000, why: 'suspend' }] }, segments: [{ id: 's1', atMs: 0, text: 'あ' }, { id: 's2', atMs: 5000, text: 'い' }] }) });
   assert.match(saved.byId.get('pScript').textContent, /💤 ここで 1分0秒 スリープで止まっていました/);

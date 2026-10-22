@@ -448,6 +448,19 @@
   .ptab:hover { background: var(--hover); }
   .ptab.on { background: var(--tint); color: var(--text); font-weight: 500; }
   .pbody { padding: 0; }
+  /* 0.9.3 M-6（計画 docs/plans/2026-10-22-093.md の決めたこと 16〜20）: 録音中のページの「文字起こし」の右の音の波（20 本・幅 3px・間 2px・高さ 3〜16px）と横の文。
+     音のある棒は --level、無音の点は --muted、一時停止中は --line の点。文は無音の警告なら --danger。棒は飾り（aria-hidden）で意味は文で出す */
+  .lwave { display: inline-flex; align-items: center; gap: 10px; height: 28px; margin-left: 8px; }
+  .lwave[hidden] { display: none; }
+  #liveWave { display: inline-flex; align-items: center; gap: 2px; height: 16px; }
+  #liveWave i { display: block; width: 3px; height: 3px; border-radius: 1.5px; background: var(--level); }
+  #liveWave.quiet i { background: var(--muted); }
+  #liveWave.paused i { background: var(--line); }
+  #liveWaveNote { font-size: 12px; color: var(--muted); white-space: nowrap; }
+  #liveWaveNote.warn { color: var(--danger); }
+  /* 文字起こしの一番下の「聞き取り中…」（.seg でない: 区間の数・出典・コピーに入らない。時刻の欄は空） */
+  .livetail { color: var(--muted); }
+  .livetail .sub { font-size: 12px; margin-left: 6px; }
   .pane { display: none; }
   .pane.active { display: block; }
   /* 要約の失敗の文は囲み（灰色の地・角丸 10px）。頭に ⚠ */
@@ -781,6 +794,7 @@
             <button class="ptab on" id="paneBtnNote" type="button" role="tab" aria-selected="true" aria-controls="pNote">AI 要約</button>
             <button class="ptab" id="paneBtnMemo" type="button" role="tab" aria-selected="false" aria-controls="pMemo" tabindex="-1">メモ</button>
             <button class="ptab" id="paneBtnScript" type="button" role="tab" aria-selected="false" aria-controls="pScript" tabindex="-1">文字起こし</button>
+            <span class="lwave" id="liveWaveBox" role="presentation" hidden><span id="liveWave" class="quiet" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span><span id="liveWaveNote" role="status"></span></span>
             </div>
           </div>
           <div class="pbody" id="pBody">
@@ -1881,9 +1895,8 @@
   // Windows の知らせを押した（main の meeting:show-live）: 録音中のタブへ移る（会議が終わってタブが無ければ何もしない）。
   // 0.9.0 U-1: 設定のポップアップが開いていれば閉じる（知らせは録音中のページの帯を見てもらうためのもの）
   if (typeof window.koeApp.onShowLive === 'function') window.koeApp.onShowLive(() => { if (hasTab('live')) { closeSettings(); activateTab('live', { fromBar: true }); } });
-  // 0.9.3 M-5: main が録音バーに聞いた音の大きさ（{ mic, sys, warn }。照らし済み）。M-6 で録音中のページの音の波に描く
-  let liveLevel = null;
-  if (typeof window.koeApp.onMeetingLevel === 'function') window.koeApp.onMeetingLevel((p) => { liveLevel = p && typeof p === 'object' ? p : null; });
+  // 0.9.3 M-5・M-6: main が録音バーに聞いた音の大きさ（{ mic, sys, warn }。照らし済み・10 回／秒）を録音中のページの音の波に描く
+  if (typeof window.koeApp.onMeetingLevel === 'function') window.koeApp.onMeetingLevel((p) => onWaveLevel(p));
   // 0.9.3 M-3: 会議の検出のパネルの「会議の検出の通知の設定…」→ 設定のその項目を開く（決まった項目の名前だけ。ほかは「一般」）
   if (typeof window.koeApp.onOpenSettings === 'function') window.koeApp.onOpenSettings((p) => {
     const sec = p && typeof p === 'object' && SETTINGS_SECS.some((x) => x.sec === p.sec) ? p.sec : 'general';
@@ -2541,6 +2554,7 @@
   function renderPage() {
     clearActs();
     $('pageWrap').classList.remove('live-on');   // 記録中のタブを描くときは showLive → drawLive が付け直す
+    renderWave();   // 0.9.3 M-6: 保存したページには波を出さない
     if (!curPage) {
       $('pTitle').textContent = '';
       $('pProps').textContent = '';
@@ -3160,6 +3174,60 @@
       if (ref) box.insertBefore(d, ref); else box.appendChild(d);
     }
   }
+  // ---------------- 録音中のページの音の波（0.9.3 M-6。決めたこと 16〜19）
+  // 高さ（純粋。外の名前を使わない: test/stage093.app が取り出して試す）: 値は右の 20 本。無音（0.02 以下）・数でないは 3px の点、ほかは 4〜16px
+  function waveHeights(levels) {
+    const vs = (Array.isArray(levels) ? levels : []).slice(-20);
+    const out = vs.map((l) => (typeof l === 'number' && l > 0.02 ? Math.max(4, Math.min(16, Math.round(3 + 13 * Math.min(1, l * 1.25)))) : 3));
+    while (out.length < 20) out.unshift(3);
+    return out;
+  }
+  // 動きを減らす設定: 流さず、真ん中の5本だけを今の大きさで（録音バーの点と同じ左右対称の重み）
+  const WAVE_MID = [0.55, 0.85, 1, 0.85, 0.55];
+  function waveStill(level) {
+    const out = Array(20).fill(3);
+    if (typeof level === 'number' && level > 0.02) WAVE_MID.forEach((w, i) => { out[7 + i] = Math.max(4, Math.min(16, Math.round(3 + 13 * Math.min(1, level * 1.25 * w)))); });
+    return out;
+  }
+  const reducedMotion = () => { try { return Boolean(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches); } catch (_) { return false; } };
+  const waveState = { levels: [], at: 0, shown: '', note: null };
+  const WAVE_STALE_MS = 1000;
+  const waveShown = () => Boolean(mtSt && mtSt.active && !mtSt.finalizing) && activeTab === 'live' && !curId;
+  function onWaveLevel(p) {
+    if (!p || typeof p !== 'object' || !mtSt || !mtSt.active || mtSt.paused || mtSt.finalizing) return;
+    const mic = typeof p.mic === 'number' ? p.mic : 0;
+    const sys = typeof p.sys === 'number' ? p.sys : 0;
+    waveState.levels.push(Math.max(mic, sys));
+    if (waveState.levels.length > 20) waveState.levels.splice(0, waveState.levels.length - 20);
+    waveState.at = Date.now();
+    waveState.warn = typeof p.warn === 'string' ? p.warn : '';
+    renderWave();
+  }
+  function renderWave() {
+    const box = $('liveWaveBox');
+    if (!box) return;
+    const on = waveShown();
+    box.hidden = !on;
+    if (!on) return;
+    const paused = Boolean(mtSt.paused);
+    if (paused) { waveState.levels = []; waveState.warn = ''; }
+    const fresh = !paused && Date.now() - waveState.at <= WAVE_STALE_MS;
+    const lv = fresh ? waveState.levels : [];
+    const h = reducedMotion() ? waveStill(lv.length ? lv[lv.length - 1] : 0) : waveHeights(lv);
+    const key = h.join(',');
+    const wave = $('liveWave');
+    if (key !== waveState.shown) {
+      waveState.shown = key;
+      wave.querySelectorAll('i').forEach((el, i) => { el.style.height = `${h[i]}px`; });
+    }
+    wave.classList.toggle('paused', paused);
+    wave.classList.toggle('quiet', !paused && h.every((x) => x === 3));
+    // 文は届いた文そのまま（画面は文を作らない）。一時停止中は「一時停止中」。変わったときだけ書く（読み上げを繰り返さない）
+    const note = paused ? '一時停止中' : fresh ? (waveState.warn || '') : '';
+    const n = $('liveWaveNote');
+    if (note !== waveState.note) { waveState.note = note; n.textContent = note; }
+    n.classList.toggle('warn', !paused && Boolean(note));
+  }
   // 記録中のページの中身（要約の区画の案内・メモ・流れる文字起こしと印）
   function drawLive(st) {
     lockLiveTitle();
@@ -3209,6 +3277,18 @@
       box.appendChild(d);
     }
     insertPauseMarks(box, curSegs, st.pauses);
+    // 0.9.3 M-6（決めたこと 20）: 録音中（一時停止・作成中でない）は一番下に灰色の「聞き取り中…（約 N 秒ごとに文字になります）」。N は今の区切りの秒
+    if (st.active && !st.paused && !st.finalizing) {
+      const t = document.createElement('div');
+      t.id = 'liveTail';
+      t.className = 'livetail';
+      const at = document.createElement('span'); at.className = 'at';
+      const tx = document.createElement('span'); tx.textContent = '聞き取り中…';
+      t.append(at, tx);
+      const sec = st.stt && Number.isFinite(st.stt.segSec) && st.stt.segSec > 0 ? Math.round(st.stt.segSec) : 0;
+      if (sec) { const sub = document.createElement('span'); sub.className = 'sub'; sub.textContent = `（約 ${sec} 秒ごとに文字になります）`; t.appendChild(sub); }
+      box.appendChild(t);
+    }
     box.scrollTop = box.scrollHeight;
   }
   function setMeetingUi(st) {
@@ -3293,7 +3373,7 @@
       rn.hidden = !st.resumeHint;
       rn.textContent = st.resumeHint ? 'スリープから戻りました。会議の録音は一時停止しています。続けるときは、録音中のページの［再開］を押してください。' : '';
       renderLiveNotes(st);
-      if (!mtTimer) mtTimer = setInterval(() => { const e = $('liveTm'); if (e) e.textContent = mtClock(); renderSttLine(); }, 500);
+      if (!mtTimer) mtTimer = setInterval(() => { const e = $('liveTm'); if (e) e.textContent = mtClock(); renderSttLine(); renderWave(); }, 500);
       if (started) {
         if (!hasTab('live')) openTabs.push({ key: 'live' });
         activateTab('live');   // 開いていたページを確定して閉じ、記録中の描き方で描く（activateTab → showLive）
@@ -3302,6 +3382,7 @@
         if (liveShown()) drawLive(st);
       }
       live.hidden = !liveShown();   // 記録中のバーは記録中のタブにだけ出す（ほかのページのタブでは、タブの名前が状態を出す）
+      renderWave();   // 0.9.3 M-6
       renderSttLine();
       renderSttBanner();
       renderQuietAsk();
@@ -3317,6 +3398,8 @@
       if (!curId) $('pMemo').textContent = '';
       liveMemoWrap = null;
       if (phaseChanged) renderTabs();
+      waveState.levels = []; waveState.at = 0;
+      renderWave();   // 0.9.3 M-6: 録音が終わったら波を隠す
     }
   }
   // 記録中のタブを選んだ: 開いていたページを確定して閉じ、記録中の描き方で描く
@@ -3333,6 +3416,7 @@
     if (mtSt.active) drawLive(mtSt);
     renderSttBanner();
     renderQuietAsk();
+    renderWave();   // 0.9.3 M-6
     reportLiveShown();   // タブを替えた時はまだページを開いていたことがある（activateTab の renderTabs の後で閉じた）
   }
   // 記録中のページの題名は「記録中の会議」で編集できない（打った文字は保存先が無く黙って消えるため。G10）。

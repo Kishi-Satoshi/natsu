@@ -168,3 +168,144 @@ test('M-5: analyser が無い（録音の前・一時停止で捨てた）なら
   const p = levels(l).pop();
   assert.deepStrictEqual([p.mic, p.sys], [0, 0], '一時停止中に音の大きさを答えた');
 });
+
+// ---------------------------------------------------------------- M-6: 音の波と「聞き取り中」の行（決めたこと 16〜21）
+const LIVE = (o = {}) => ({ active: true, startedAt: Date.now() - 60000, segments: [{ id: 's1', atMs: 0, text: '本日の議題です。' }], pauses: [], cloud: true,
+  stt: { route: 'cloud', lastTextAt: Date.now() - 5000, segSec: 15, problem: null }, ...o });
+async function liveOpen(o = {}, st = {}) {
+  const l = await open({}, o);
+  await l.drain();
+  l.fire('onMeetingUpdate', LIVE(st));
+  await l.drain();
+  return l;
+}
+const bars = (l) => $(l, 'liveWave').children.filter((e) => e.tagName === 'i').map((i) => parseFloat(i.style.height));
+// 「聞き取り中」の行（drawLive が描き直すたびに作り直すので、id の写しでなく今の #pScript の中を引く）
+const tail = (l) => $(l, 'pScript').querySelectorAll('.livetail')[0] || null;
+const level = async (l, mic, sys = 0, warn = '') => { l.fire('onMeetingLevel', { mic, sys, warn }); await l.drain(); };
+
+test('waveHeights の表（0・0.02 → 3・0.021 → 3 より大きい・0.8 以上 → 16・NaN → 3・20 本より多い値は右の 20 本）', T, async () => {
+  // 画面の waveHeights（純粋な関数。外の名前を使わない）を取り出して試す
+  const m = /\n  function waveHeights\(levels\) \{[\s\S]*?\n  \}\n/.exec(html);
+  assert.ok(m, 'app.html に waveHeights が無い');
+  const H = Function(`${m[0]}; return waveHeights;`)();
+  assert.deepStrictEqual(H([]), Array(20).fill(3));
+  assert.strictEqual(H([0]).pop(), 3);
+  assert.strictEqual(H([0.02]).pop(), 3);
+  assert.ok(H([0.021]).pop() > 3);
+  assert.strictEqual(H([0.8]).pop(), 16);
+  assert.strictEqual(H([5]).pop(), 16);
+  assert.strictEqual(H([NaN]).pop(), 3);
+  assert.strictEqual(H(['0.5']).pop(), 3);
+  const many = Array.from({ length: 25 }, (_, i) => (i < 5 ? 0.8 : 0));
+  assert.deepStrictEqual(H(many), Array(20).fill(3), '20 本より多い値で左の値を使った');
+  assert.strictEqual(H([0.5]).length, 20);
+});
+
+test('M8: onMeetingLevel を 20 回受けると 20 本が右から埋まる（大きい方の値）。1 秒届かなければ全部 3px。warn は届いた文をそのまま #liveWaveNote に（文が同じなら書き直さない）', T, async () => {
+  const l = await liveOpen();
+  assert.strictEqual($(l, 'liveWaveBox').hidden, false, '録音中のページに波が無い');
+  assert.deepStrictEqual(bars(l), Array(20).fill(3), '届く前から波が立っている');
+  await level(l, 0.1, 0.8);
+  assert.strictEqual(bars(l)[19], 16, '右の端に入らない・大きい方の値でない');
+  assert.strictEqual(bars(l)[18], 3);
+  for (let i = 0; i < 19; i++) await level(l, 0.8);
+  assert.deepStrictEqual(bars(l), Array(20).fill(16));
+  assert.ok(!$(l, 'liveWave').classList.contains('quiet'));
+  // 描き直しは 0.5 秒ごと（録音中のページの時計と同じ）なので、1 秒を越えた次の描き直しで平らになる
+  await l.clock.advance(1600);
+  await l.drain();
+  assert.deepStrictEqual(bars(l), Array(20).fill(3), '1 秒届かないのに波が残った');
+  assert.ok($(l, 'liveWave').classList.contains('quiet'), '平らなのに無音の点の色でない');
+  await level(l, 0, 0, '音が入っていません');
+  assert.strictEqual($(l, 'liveWaveNote').textContent, '音が入っていません');
+  assert.ok($(l, 'liveWaveNote').classList.contains('warn'));
+  const note = $(l, 'liveWaveNote');
+  let writes = 0;
+  const desc = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(note), 'textContent');
+  Object.defineProperty(note, 'textContent', { get() { return desc.get.call(this); }, set(v) { writes += 1; desc.set.call(this, v); }, configurable: true });
+  await level(l, 0, 0, '音が入っていません');
+  assert.strictEqual(writes, 0, '同じ文を書き直した（読み上げが繰り返す）');
+  await level(l, 0.5, 0, '');
+  assert.strictEqual(note.textContent, '');
+  assert.deepStrictEqual(l.errors, []);
+});
+
+test('M8: 一時停止（meeting:update の paused）で列を空にし「一時停止中」。再開で戻る', T, async () => {
+  const l = await liveOpen();
+  await level(l, 0.8);
+  l.fire('onMeetingUpdate', LIVE({ paused: true }));
+  await l.drain();
+  assert.deepStrictEqual(bars(l), Array(20).fill(3));
+  assert.ok($(l, 'liveWave').classList.contains('paused'));
+  assert.strictEqual($(l, 'liveWaveNote').textContent, '一時停止中');
+  assert.ok(!$(l, 'liveWaveNote').classList.contains('warn'));
+  await level(l, 0.8);
+  assert.deepStrictEqual(bars(l), Array(20).fill(3), '一時停止中に波が立った');
+  l.fire('onMeetingUpdate', LIVE({ paused: false }));
+  await l.drain();
+  assert.ok(!$(l, 'liveWave').classList.contains('paused'));
+  assert.strictEqual($(l, 'liveWaveNote').textContent, '');
+  await level(l, 0.8);
+  assert.strictEqual(bars(l)[19], 16);
+});
+
+test('#liveWave は #paneBtnScript のすぐ後ろ・aria-hidden・録音中のタブで会議の録音中だけ（保存したページ・作成中に無い）。文は role=status', T, async () => {
+  const box = doc.querySelector('#liveWaveBox');
+  assert.ok(box && box.hasAttribute('hidden'), '初めから出ている');
+  const tabs = doc.querySelector('#paneBtnScript').parentNode.children;
+  assert.strictEqual(tabs[tabs.indexOf(doc.querySelector('#paneBtnScript')) + 1], box, '#paneBtnScript のすぐ後ろに無い');
+  assert.strictEqual(doc.querySelector('#liveWave').getAttribute('aria-hidden'), 'true');
+  assert.strictEqual(doc.querySelector('#liveWave').querySelectorAll('i').length, 20);
+  assert.strictEqual(doc.querySelector('#liveWaveNote').getAttribute('role'), 'status');
+  const l = await liveOpen();
+  assert.strictEqual($(l, 'liveWaveBox').hidden, false);
+  l.fire('onMeetingUpdate', LIVE({ finalizing: true }));
+  await l.drain();
+  assert.strictEqual($(l, 'liveWaveBox').hidden, true, '作成中に波を出した');
+  const p = await open({});
+  await p.drain();
+  p.fire('onPageOpen', 'pa1');
+  await p.drain();
+  assert.strictEqual($(p, 'liveWaveBox').hidden, true, '保存したページに波を出した');
+});
+
+test('動きを減らす設定では流さず、真ん中の5本だけが今の大きさで動き、ほかは 3px', T, async () => {
+  const l = await liveOpen({}, {});
+  const r = await load(APP, { preloadSrc: PRELOAD, returns: { pagesSearch: () => LIST, pageGet: PAGE, uiState: UI, getSettings: () => ({ autoLaunch: false }) },
+    matchMedia: (q) => ({ matches: /prefers-reduced-motion: reduce/.test(q), addEventListener() {}, addListener() {} }) });
+  await r.drain();
+  r.fire('onMeetingUpdate', LIVE());
+  await r.drain();
+  await level(r, 0.8);
+  const b = bars(r);
+  assert.deepStrictEqual(b.filter((_, i) => i < 7 || i > 11), Array(15).fill(3), '真ん中の5本のほかが動いた');
+  assert.ok(b.slice(7, 12).every((h) => h > 3), JSON.stringify(b));
+  assert.deepStrictEqual(b.slice(7, 12), [...b.slice(7, 12)].reverse(), '左右対称でない');
+  await level(r, 0);
+  assert.deepStrictEqual(bars(r), Array(20).fill(3));
+  assert.ok(l);
+});
+
+test('M10: #liveTail は録音中（一時停止でない）の #pScript の一番下にあり、.seg でない。文は segSec から。segSec が無ければ「聞き取り中…」だけ。時刻の欄は空', T, async () => {
+  const l = await liveOpen();
+  const box = $(l, 'pScript');
+  const last = box.children[box.children.length - 1];
+  assert.strictEqual(last.id, 'liveTail');
+  assert.ok(!last.classList.contains('seg'), '「聞き取り中」の行を区間にした');
+  assert.strictEqual(norm(last.textContent), '聞き取り中…（約 15 秒ごとに文字になります）');
+  assert.strictEqual(last.querySelector('.at').textContent, '');
+  assert.strictEqual(box.querySelectorAll('.seg').length, 1, '区間の数がずれた');
+  l.fire('onMeetingUpdate', LIVE({ stt: { route: 'local', lastTextAt: null, segSec: 75, problem: null } }));
+  await l.drain();
+  assert.strictEqual(norm(tail(l).textContent), '聞き取り中…（約 75 秒ごとに文字になります）');
+  l.fire('onMeetingUpdate', LIVE({ stt: { route: 'cloud', lastTextAt: null, problem: null } }));
+  await l.drain();
+  assert.strictEqual(norm(tail(l).textContent), '聞き取り中…');
+  l.fire('onMeetingUpdate', LIVE({ paused: true }));
+  await l.drain();
+  assert.strictEqual(tail(l), null, '一時停止中も「聞き取り中」の行を出した');
+  l.fire('onMeetingUpdate', LIVE({ finalizing: true }));
+  await l.drain();
+  assert.strictEqual(tail(l), null, '作成中も「聞き取り中」の行を出した');
+});

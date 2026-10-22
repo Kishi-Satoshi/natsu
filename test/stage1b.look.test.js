@@ -107,9 +107,13 @@ test('F10: 規則の文字の色は文字のトークンだけ、地は地のト
   const TEXT = /^(var\(--(text|text-2|muted|accent-text|danger|ok|on-accent)\)|inherit|currentcolor|transparent)$/i;
   const GROUND = /^(var\(--(bg|side|hover|tint|accent|level|line|scrim)\)|transparent|none)$/i;
   const RAW = /#[0-9a-fA-F]{3,8}\b|rgba?\(/;
-  const decor = (sel) => sel.split(',').every((s) => /^\.check input/.test(s.trim()) || ['.rec-dot', '#updBadge .dot', '#palette'].includes(s.trim()));   // 文字を持たない飾り
+  // 0.9.3 M-6 で意図して足した: 録音中のページの音の波の棒（#liveWave i。文字を持たない飾り。音のある棒は --level、一時停止は --line）
+  const decor = (sel) => sel.split(',').every((s) => /^\.check input/.test(s.trim()) || ['.rec-dot', '#updBadge .dot', '#palette', '#liveWave i', '#liveWave.paused i'].includes(s.trim()));   // 文字を持たない飾り
+  // 0.9.3 M-6 で意図して足した: 無音の点（#liveWave.quiet i）だけは地に文字のトークン --muted を使う（点は文字を載せない飾りで、文字の色と同じ灰色に見せる）
+  const MUTED_DOT = '#liveWave.quiet i';
   for (const r of rules) {
     if (r.sel === ':root') continue;   // トークンの定義（明・暗）
+    if (r.sel === MUTED_DOT) { assert.strictEqual((r.decls.background || '').trim(), 'var(--muted)', MUTED_DOT); continue; }
     for (const [k, v] of Object.entries(r.decls)) if (!k.startsWith('--')) assert.ok(!RAW.test(v), `${r.sel} { ${k}: ${v} } に生の色`);
     if (r.decls.color) assert.match(r.decls.color.trim(), TEXT, `${r.sel} の文字の色（強調の面の色 --accent・--level を文字にしない）`);
     const bg = r.decls.background || r.decls['background-color'];
