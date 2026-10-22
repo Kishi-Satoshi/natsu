@@ -2241,8 +2241,10 @@ async function transcribeRouted(wav, tail, durationMs, opts, scope, what) {
   }
 }
 // 復旧の前: q.localOnly でなく、クラウドで処理できるなら true（エンジンを起こさない。知らせは出さない）
+// 0.9.4 S-4F（持ち主の答え Q14「PC で文字起こし」）: 遅い会議の待ち行列（slow）は、オフラインモードの会議と同じく PC だけで文字起こしする
+const recoveryPcOnly = (q) => Boolean(q && (q.localOnly || q.slow));
 async function recoveryCloudReady(q) {
-  if (!q || q.localOnly) return false;
+  if (!q || recoveryPcOnly(q)) return false;
   try {
     return (await sttRoute(false, { quiet: true })).route === 'cloud';
   } catch (e) {
@@ -4427,7 +4429,7 @@ async function transcribeRecoveredItems(q, { cloudOnly = false } = {}) {
     let route = 'local';
     if (!err) {
       try {
-        ({ text, route } = await transcribeAuto(fs.readFileSync(item.wav), '', item.durationMs, { localOnly: Boolean(q.localOnly), cloudOnly, what: `復旧 ${item.id}`, seg: item.id,
+        ({ text, route } = await transcribeAuto(fs.readFileSync(item.wav), '', item.durationMs, { localOnly: recoveryPcOnly(q), cloudOnly, what: `復旧 ${item.id}`, seg: item.id,
           busyStop: () => state !== 'idle' }));
         if (settings.removeFillers) text = removeFillersRule(text);
       } catch (e) {

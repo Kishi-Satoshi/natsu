@@ -181,7 +181,7 @@ module.exports = [
   { id: 'mn-input-same', file: 'src/mainlib.js', from: '見出しはこの通りに使い、本文だけを出力してください。\\n\\n${template}`;', to: '見出しはこの通りに使ってください。\\n\\n${template}`;', tests: ['test/stage1c.lib.test.js'], why: 'F9: Claude Code の頼みの文は手元の LLM と同じ' },
   { id: 'mn-warm-local', file: 'src/main.js', from: "  if (r.route !== 'local') return false;\n  ensureEngineReady(whisperEng)", to: '  ensureEngineReady(whisperEng)', tests: ['test/stage1c.main.test.js'], pattern: '^(?:OL2・RL11: オンラインでログインしていれば、区間は中継の先のクラウド（OpenAI）で文字起こしされ、手元の whisper は起動しない。ページに経路が残る|RF29: 429 は待ってからクラウドで取れる（手元へ落とさない）。待っていることを1回知らせる)$', why: 'F14・D1: クラウドのときは whisper を先読みしない' },
   { id: 'mn-localonly-summary', file: 'src/main.js', from: 'decideSummary({ localOnly, up:', to: 'decideSummary({ localOnly: false, up:', tests: ['test/stage1c.main.test.js'], pattern: '^(?:C10・F13: ［この会議は PC の中だけ］の会議は、オンラインでも Claude Code を呼ばず（auth status も無し）、手元の llama で要約する)$', why: 'C10・F13: PC の中だけの会議の文字起こしを Claude へ送らない' },
-  { id: 'mn-recovery-local-keep', file: 'src/main.js', from: '  if (!q || q.localOnly) return false;', to: '  if (!q) return false;', tests: ['test/stage1c.main.test.js'], pattern: '^(?:RF28: ［PC の中だけ］の会議が落ちて復旧しても、送り直しは手元で、中継に要求が無く、ページに印が残る)$', why: 'RF28: PC の中だけの会議の復旧は届くかも確かめない' },
+  { id: 'mn-recovery-local-keep', file: 'src/main.js', from: 'const recoveryPcOnly = (q) => Boolean(q && (q.localOnly || q.slow));', to: 'const recoveryPcOnly = (q) => Boolean(q && q.slow);', tests: ['test/stage1c.main.test.js'], pattern: '^(?:RF28: ［PC の中だけ］の会議が落ちて復旧しても、送り直しは手元で、中継に要求が無く、ページに印が残る)$', why: 'RF28: PC の中だけの会議の復旧は届くかも確かめない' },
   { id: 'mn-recovery-engine-keep', file: 'src/main.js', from: "        if (e && (e.keepForRetry || e.engineMissing || kind === 'late' || kind === 'down')) {", to: "        if (e && (e.keepForRetry || ((kind === 'late' || kind === 'down') && !e.engineMissing))) {", tests: ['test/stage1c.main.test.js'], pattern: '^(?:調べた結果の 10: 復旧をクラウドで先へ通した後、手元に落ちた区間で whisper が無ければ、音声と待ち行列を消さずに残す)$', why: '調べた結果の 10: 手元に落ちて whisper が無ければ音声を消さない' },
   { id: 'mn-key-decrypt', file: 'src/main.js', from: '  const signedIn = hasRelayLogin();', to: "  const signedIn = Boolean(secrets && secrets.has('relay'));", tests: ['test/stage1c.main.test.js'], pattern: '^(?:RF30・F26: しまったログインのファイルはあるが復号できない（safeStorage が一時的に使えない）ときは、空の partition で送らずに手元で取り、ログインは消さない。L2・L3 は出さない)$', why: 'RF30: 復号できた札があるときだけクラウドにする（空の札で送らない。第1d回 A-3 で鍵から札へ、A-11 で札から復号して戻した cookie（hasRelayLogin）へ from を直した）' },
   // 設定の決まり（src/settings.js）
@@ -1773,4 +1773,7 @@ module.exports = [
   // CI-1: 日付の変わり目に左右されない場面の時計
   { id: 'ci-noon', file: 'test/helpers/json-scenes.js', from: "  'relay-day': { relaySeed: true, noonJst: true,", to: "  'relay-day': { relaySeed: true,",
     tests: ['test/stage1d.main.test.js'], pattern: '^CI-1:', why: '0.9.4 CI-1: 時計を進める場面の始まりを正午にしない（日本の 23:49 より後に走ると RL11・D16 が赤になる）' },
+  // S-4F: 遅い会議で残した音声は会議の後に PC で（持ち主の答え Q14「PC で文字起こし」）
+  { id: 'pc-after-local', file: 'src/main.js', from: 'const recoveryPcOnly = (q) => Boolean(q && (q.localOnly || q.slow));', to: 'const recoveryPcOnly = (q) => Boolean(q && q.localOnly);',
+    tests: ['test/stage094.main.test.js'], pattern: '^S-4F:', why: '0.9.4 S-4F Q14: 遅い会議の待ち行列をクラウドへ送る（持ち主は「PC で文字起こし」を選んだ）' },
 ];
