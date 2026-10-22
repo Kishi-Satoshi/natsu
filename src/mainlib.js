@@ -1646,7 +1646,7 @@ const HELP_ARTICLES = Object.freeze([
   'dictation/dictation',
   'find/search', 'find/delete-and-backups',
   'settings/appearance', 'settings/account', 'settings/offline', 'settings/hotkeys',
-  'trouble/banners', 'trouble/login-trouble', 'trouble/transcription-stops', 'trouble/claude-summary-fails',
+  'trouble/banners', 'trouble/login-trouble', 'trouble/transcription-stops', 'trouble/slow-pc', 'trouble/claude-summary-fails',
   'admin/stop-person', 'admin/seats', 'admin/relay-limits',
 ]);
 function helpPath(article) {

@@ -69,7 +69,10 @@ const R1_094 = ['settings-light', 'settings-dark', 'settings-zoom200-dark', 'set
   'settings-quiet-search-light', 'settings-record-dark', 'settings-record-zoom200-light', 'settings-summary-light', 'settings-account-light',
   'settings-info-loop-light', 'settings-info-stt-dark', 'settings-info-claude-light', 'settings-info-zoom200-light', 'settings-info-search-light',
   'settings-detect-light', 'settings-detect-dark'];
-const RETAKE_094 = [...W1_094, ...P1_094, ...R1_094];
+// S-8: 遅い会議の帯と区間（足した画面。まだ基準が無い: NEW_094）
+const S8_APP_094 = ['live-late-light', 'live-late-dark', 'live-late-zoom200-light'];
+const NEW_094 = new Set(S8_APP_094);
+const RETAKE_094 = [...W1_094, ...P1_094, ...R1_094, ...S8_APP_094];
 const img = (w, h, fill = [255, 255, 255, 255]) => ({ width: w, height: h, data: Buffer.from(Array.from({ length: w * h }, () => fill).flat()) });
 // 一時フォルダ（日本語と 𠮷 の名前。RF1 と同じ形）。テストの終わりに消す
 const tmp = (t, name) => {
@@ -98,7 +101,9 @@ test('G2: 撮る画面は決まった並び（第1b回の 13 と第1b2回の検�
     // 0.9.3 M-7 で意図して変えた: 音の波（話している・無音・一時停止）と設定の「会議の検出」を足した（取り直し待ち・まだ基準が無い）
     ...M7_APP_093,
     // 0.9.3 持ち主の答え D55 で意図して変えた: オフラインモードの録音中のページの明るい・暗いを足した（取り直し待ち・まだ基準が無い）
-    ...D55_APP_093]);
+    ...D55_APP_093,
+    // 0.9.4 S-8 で意図して変えた: 遅い会議の帯と区間（明暗・200%）を足した（取り直し待ち・まだ基準が無い）
+    ...S8_APP_094]);
   assert.deepStrictEqual(SH.SCREENS.filter((s) => s.page === 'overlay').map((s) => s.name), PS.screenNames());
   // 0.9.3 M-7 で意図して変えた: 会議の検出のパネル（page nudge）の5枚を録音バーのあと（いちばん後ろ）に足した
   assert.deepStrictEqual(SH.SCREENS.filter((s) => s.page === 'nudge').map((s) => s.name), M7_NUDGE_093);
@@ -107,7 +112,7 @@ test('G2: 撮る画面は決まった並び（第1b回の 13 と第1b2回の検�
   assert.strictEqual(new Set(SH.SCREENS.map((s) => s.name)).size, SH.SCREENS.length, '名前が重なっている');
   for (const s of SH.SCREENS) assert.ok(['app', 'overlay', 'nudge'].includes(s.page) && ['light', 'dark'].includes(s.theme), s.name);
   assert.deepStrictEqual(SH.SCREENS.filter((s) => s.zoom).map((s) => [s.name, s.zoom]), [['notes-page-zoom200-light', 2], ['settings-zoom200-dark', 2], ['live-banner-zoom200-dark', 2],
-    ['settings-record-zoom200-light', 2], ['settings-info-zoom200-light', 2]]);   // 0.9.2 I-4 で意図して足した
+    ['settings-record-zoom200-light', 2], ['settings-info-zoom200-light', 2], ['live-late-zoom200-light', 2]]);   // 0.9.2 I-4・0.9.4 S-8 で意図して足した
   const live = SH.SCREENS.find((s) => s.name === 'live-light');
   const st = live.answers['koeApp.meetingStatus'];
   assert.ok(st.active && st.cloud && st.pauses.length === 1, '記録中の画面に一時停止の印か［PC の中だけ］が出ない');
@@ -130,6 +135,32 @@ test('D17: 録音中のページの画面の答えに stt。live-banner-light �
   const B8 = 'NaTsu のサーバーにつながりません。この PC で文字起こしを続けていますが、精度が落ちます。録音はそのまま続けてください。';
   assert.strictEqual(bs.stt.problem.text, B8);
   assert.ok(read('src/main.js').includes(`'relay-down': () => '${B8}'`), '帯の文が main の STT_BANNER の B8 と違う');
+});
+
+// 0.9.4 S-8（計画 docs/plans/2026-10-22-094.md の「取り直す画面（決めた形）」）: 遅い会議の録音中のページ（live-light と同じ会議で、中継に落ちて PC の側になった形。
+// 帯 kept-late・残した区間の「（文字起こし待ち: 会議の後で文字起こしします）」・一番下の「音声を残しています」）。文は main の文（画面は文を作らない）
+test('0.9.4 S-8: live-late の3枚は同じ会議で帯 kept-late（文は main の STT_BANNER）と残した区間の文（main の SLOW_SEG_TEXT）と slow', { timeout: 5000 }, () => {
+  const main = read('src/main.js');
+  const late = SH.SCREENS.find((s) => s.name === 'live-late-light');
+  assert.deepStrictEqual([late.page, late.theme, late.zoom, late.act], ['app', 'light', undefined, undefined]);
+  for (const [n, theme, zoom] of [['live-late-dark', 'dark', undefined], ['live-late-zoom200-light', 'light', 2]]) {
+    const s = SH.SCREENS.find((x) => x.name === n);
+    assert.deepStrictEqual([s.page, s.theme, s.zoom], ['app', theme, zoom], n);
+    assert.deepStrictEqual(s.answers, late.answers, `${n} の会議と帯が live-late-light と違う`);
+  }
+  const st = late.answers['koeApp.meetingStatus'];
+  assert.deepStrictEqual([st.stt.route, st.stt.slow, st.stt.problem.code, st.stt.problem.action], ['local', true, 'kept-late', '']);
+  const LATE = 'この PC の文字起こしが録音に追いつかないため、音声を残しています。会議が終わったら文字起こしします。録音はそのまま続けてください。';
+  assert.strictEqual(st.stt.problem.text, LATE);
+  assert.ok(main.includes(`: '${LATE}'),`), '帯の文が main の STT_BANNER の kept-late と違う');
+  const SLOW = '（文字起こし待ち: 会議の後で文字起こしします）';
+  assert.ok(main.includes(`const SLOW_SEG_TEXT = '${SLOW}';`));
+  const kept = st.segments.filter((x) => x.failed);
+  assert.ok(kept.length >= 1 && kept.every((x) => x.text === SLOW), JSON.stringify(st.segments));
+  assert.ok(st.segments.some((x) => !x.failed && x.text), '文字になった区間も並べる');
+  const live = SH.SCREENS.find((s) => s.name === 'live-light').answers['koeApp.meetingStatus'];
+  const strip = (x) => ({ ...x, stt: undefined, segments: undefined });
+  assert.deepStrictEqual(strip(st), strip(live), '会議が live-light と違う');
 });
 
 // 第1d回 Task A-13（あとの直し (b)）: 帯は注意の色（--danger）の枠と文字なので、暗い地と 200% の折り返しでも利用者に見てもらう。
@@ -523,6 +554,8 @@ test('G2・F14・G-4・0.9.0 G-3・0.9.1・0.9.2・0.9.3・0.9.4: 取り直し�
   }
   for (const s of SH.SCREENS) {
     const f = path.join(ROOT, 'test', 'shots', 'win32', `${s.name}.png`);
+    // 0.9.4 S-8 で意図して変えた: 足した画面（NEW_094）は取り直し待ちの間は基準が無い
+    if (NEW_094.has(s.name) && SH.RETAKE.has(s.name)) { assert.ok(!fs.existsSync(f), `${s.name} は新しい画面なのに基準がある`); continue; }
     assert.ok(fs.existsSync(f), `${s.name} の基準が無い`);
     if (s.page !== 'app') continue;   // 0.9.3 M-7 で意図して変えた: パネル（nudge）の画面も、録音バーと同じく窓の大きさが中身で決まる
     const im = P.decodePng(fs.readFileSync(f));

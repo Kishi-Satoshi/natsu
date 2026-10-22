@@ -1819,4 +1819,9 @@ module.exports = [
   // O-1: オフラインモードの言い方（0.9.4 が足した文だけ）
   { id: 'rn-offline-text', file: 'src/main.js', from: "この PC の文字起こしが録音に追いつかないため、音声を残しています。会議が終わったら PC の中で文字起こしします。'", to: "この PC の文字起こしが録音に追いつかないため、音声だけを残しています（外には送りません）。会議が終わったら PC の中で文字起こしします。'",
     tests: ['test/stage094.rename.test.js', 'test/stage094.main.test.js'], pattern: '^(O-1|S5: オフラインモードの会議でも)', why: '0.9.4 O-1 Q32: 0.9.4 が足した帯の文に「外には送りません」を戻す（オフラインモードは外へ送らない約束でなくなる）' },
+  // S-8: 撮る画面・ヘルプ
+  { id: 'pc-help-slow', file: 'src/mainlib.js', from: "'trouble/transcription-stops', 'trouble/slow-pc', ", to: "'trouble/transcription-stops', ",
+    tests: ['test/help-app.test.js', 'test/help-content.test.js'], why: '0.9.4 S-8: 遅い PC の記事をアプリのヘルプの一覧から外す（帯や知らせから開けない・site.json と食い違う）' },
+  { id: 'pc-late-screen', file: 'tools/shots/screens.js', from: "  { name: 'live-late-dark', page: 'app', theme: 'dark', answers: lateAnswers() },\n", to: '',
+    tests: ['test/shots.test.js'], why: '0.9.4 S-8: 遅い会議の暗い画面を撮らない（帯 kept-late の暗い地を持ち主に見てもらえない）' },
 ];

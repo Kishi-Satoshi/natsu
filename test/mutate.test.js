@@ -546,8 +546,9 @@ const IDS_094 = [
   'wv-weights', 'wv-same-phase', 'wv-silent', 'wv-bar-reduced', 'wv-page-dots', 'wv-page-blue',
   'pb-okm', 'pb-spk-flash', 'pb-fade', 'pb-done-sound', 'pb-db-notice',
   'rn-secs', 'rn-notice', 'rn-offline-text',
+  'pc-help-slow', 'pc-late-screen',
 ];
-test('G3: 0.9.4 の変異が一覧にそろい、IDS_094 は計画の「変異確認」の表の id の中にある。どれも決まったテストのファイルを持ち、なぜ戻すと困るかを書く', { timeout: 5000 }, () => {
+test('G3・0.9.4 S-8: 0.9.4 の変異が一覧にそろい、IDS_094 は計画の「変異確認」の表の id とちょうど同じ。どれも決まったテストのファイルを持ち、なぜ戻すと困るかを書く', { timeout: 5000 }, () => {
   const byId = new Map(MUTANTS.map((m) => [m.id, m]));
   assert.deepStrictEqual(IDS_094.filter((id) => !byId.has(id)), [], '計画の表の変異が一覧に無い');
   assert.deepStrictEqual(MUTANTS.filter((m) => /^(ka|pc|lt|wd|sg|rx|bm|ci|dt|wv|pb|rn)-/.test(m.id) && !IDS_094.includes(m.id)).map((m) => m.id), [], 'IDS_094 に無い 0.9.4 の頭の変異がある');
@@ -555,6 +556,9 @@ test('G3: 0.9.4 の変異が一覧にそろい、IDS_094 は計画の「変異�
   const table = plan.slice(plan.indexOf('## 変異確認'), plan.indexOf('## ゲート'));
   const rows = [...table.matchAll(/^\| ([a-z][a-z0-9-]*) \|/gm)].map((m) => m[1]).filter((id) => id !== 'id');
   assert.deepStrictEqual(IDS_094.filter((id) => !rows.includes(id)), [], '計画の表に無い id');
+  // 0.9.4 S-8 で意図して足した: IDS_094 は計画の「変異確認」の表とちょうど同じ（表の id は全部 IDS_094 にある）
+  assert.deepStrictEqual(rows.filter((id) => !IDS_094.includes(id)), [], 'IDS_094 に無い表の id');
+  assert.strictEqual(rows.length, IDS_094.length, '表の行の数が IDS_094 と違う');
   assert.strictEqual(new Set(IDS_094).size, IDS_094.length);
   for (const id of IDS_094) {
     const m = byId.get(id);

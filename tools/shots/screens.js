@@ -72,6 +72,11 @@ const WAVE_EVENTS = WAVE_SPEECH.map((v) => ['onMeetingLevel', v]);
 const SILENT_EVENTS = Array.from({ length: 20 }, () => ['onMeetingLevel', { mic: 0, sys: 0, warn: '音が入っていません' }]);
 // パネル（nudge.html）の地: 透過の窓なので、撮るときだけ体にデスクトップの色を塗る（録音バーの画面と同じ PS.DESKS）。⌄ を開いた形はボタンを押す
 const NUDGE_ACT = (theme, menu) => `document.body.style.background = '${PS.DESKS[theme]}';${menu ? " document.getElementById('nzMore').click();" : ''}`;
+// 0.9.4 S-8（計画 docs/plans/2026-10-22-094.md の「取り直す画面（決めた形）」）: 遅い会議の録音中のページ（中継に落ちて PC の側・帯 kept-late・残した区間）の stt。
+// 帯の文は main の STT_BANNER['kept-late']、区間の文は main の SLOW_SEG_TEXT と同じ（test/shots.test.js が照らす）
+const LATE_STT = { route: 'local', lastTextAt: FIXED_NOW - 95000, segSec: 75, slow: true,
+  problem: { code: 'kept-late', action: '', text: 'この PC の文字起こしが録音に追いつかないため、音声を残しています。会議が終わったら文字起こしします。録音はそのまま続けてください。' } };
+const SLOW_SEG = '（文字起こし待ち: 会議の後で文字起こしします）';
 const SIGNED_OUT = { ok: true, signedIn: false, email: '', method: 'access', until: null, canStore: true, online: { up: true, why: 'ok' } };
 const SCREENS = [
   { name: 'notes-empty-light', page: 'app', theme: 'light', act: "document.getElementById('tabBtnNotes').click()" },
@@ -137,6 +142,11 @@ const SCREENS = [
   // live-light と同じ会議を、オフラインモードで PC の中の文字起こし（区切り 75 秒）にした形。足した画面（版を 0.9.3 に上げる commit で CI の画像を基準にした）
   { name: 'live-offline-light', page: 'app', theme: 'light', answers: liveAnswers(OFFLINE_STT, OFFLINE_EXTRA) },
   { name: 'live-offline-dark', page: 'app', theme: 'dark', answers: liveAnswers(OFFLINE_STT, OFFLINE_EXTRA) },
+  // 0.9.4 S-8（計画 docs/plans/2026-10-22-094.md の「取り直す画面（決めた形）」）: 遅い会議の録音中のページ（帯 kept-late・残した区間・一番下の
+  // 「音声を残しています」。明暗と 200% の折り返し）。足した画面（まだ基準が無い）
+  { name: 'live-late-light', page: 'app', theme: 'light', answers: lateAnswers() },
+  { name: 'live-late-dark', page: 'app', theme: 'dark', answers: lateAnswers() },
+  { name: 'live-late-zoom200-light', page: 'app', theme: 'light', zoom: 2, answers: lateAnswers() },
 ];
 // 0.9.0 O-3（RP9）: 録音バーの画面（形 → 地 → 拡大率 → 状態の順。撮る道具は形・地・拡大率の組ごとに窓を1つ開いて状態を act で替える）。
 // 録音は始めずに見た目だけを撮る（act は pill-states の見本を録音バーの DOM に当てる。撮るときだけ体の地にデスクトップの色を塗る）。
@@ -209,7 +219,9 @@ const RETAKE = new Set(['live-light', 'live-dark', 'live-banner-light', 'live-ba
   // P-1: 録音バーのスピーカーの印を外した（印のあった無音・一時停止の 16 枚）。完了（done）の 8 枚は撮る画面から外した
   ...OVL_094(['silent', 'paused']),
   // R-1: 設定の項目の名前「ローカル AI」（設定の画面はどれも左の列を写す: 18 枚）
-  ...SCREENS.filter((x) => x.name.startsWith('settings-')).map((x) => x.name)]);
+  ...SCREENS.filter((x) => x.name.startsWith('settings-')).map((x) => x.name),
+  // S-8: 遅い会議の録音中のページ（足した画面。まだ基準が無い）
+  'live-late-light', 'live-late-dark', 'live-late-zoom200-light']);
 const PERF = [{ name: 'open-2000-blocks', budgetMs: 500 }];   // 3回開いた中央値で見る
 const TIME_ZONE = 'Asia/Tokyo';
 const TOLERANCE = 2;   // 色の差（0〜255）がこれ以下の画素は同じとみなす。CI の機械の CPU ごとの描き方の1段の差を拾わないため（揺れの確かめ judgePair は 0 で見る）
@@ -322,6 +334,17 @@ function liveAnswers(stt = LIVE_STT, extra = {}) {
       localOnly: false, cloud: true, stt, ...extra,
     },
   };
+}
+
+/** 0.9.4 S-8: 遅い会議（live-light と同じ会議。中継に落ちて PC の側になり、文字になった区間の後に残した区間が2つ） */
+function lateAnswers() {
+  const a = liveAnswers(LATE_STT);
+  a['koeApp.meetingStatus'].segments = [
+    { id: 's1', atMs: 0, durationMs: 75000, text: 'それでは週次の定例を始めます。まず進み具合から順にお願いします。' },
+    { id: 's2', atMs: 75000, durationMs: 75000, text: SLOW_SEG, failed: true },
+    { id: 's3', atMs: 150000, durationMs: 75000, text: SLOW_SEG, failed: true },
+  ];
+  return a;
 }
 
 /** 0.9.3 M-7: 設定の「会議の検出」の画面の答え（見本の設定に、通知オンと出さないアプリ Zoom を足した形） */
