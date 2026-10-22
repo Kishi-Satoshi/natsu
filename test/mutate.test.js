@@ -532,3 +532,26 @@ test('G3: 0.9.3 の変異が一覧にそろい、IDS_093 は計画の「変異�
     assert.ok(typeof m.why === 'string' && m.why.startsWith('0.9.3 '), `${id}: why`);
   }
 });
+
+// 0.10.0（計画 docs/plans/2026-10-20-100.md の2つの「変異確認」の表: 第1部と第2部）: MCP の読む道具・メモの型・打ち合わせの質・話者の直しを1つずつ戻す変異。
+// タスクを作るたびに足す（表の全部とちょうど同じにそろえるのは G-1。それまでは「どれも表にある」と「接頭の変異は IDS_100 にある」を見る）
+const IDS_100 = [
+  'mcp-ro-flag', 'mcp-query-only', 'mcp-lock-check', 'mcp-lock-recheck', 'mcp-lock-stale', 'mcp-close', 'mcp-version', 'mcp-read-code', 'mcp-data-dir-rel',
+];
+test('G3: 0.10.0 の変異が一覧にそろい、IDS_100 はどれも計画の2つの「変異確認」の表にある。mcp-・cfg-・spk-・mt-・qm-・v- の変異は IDS_100 にある。どれも決まったテストのファイルを持ち、なぜ戻すと困るかを書く', { timeout: 5000 }, () => {
+  const byId = new Map(MUTANTS.map((m) => [m.id, m]));
+  assert.deepStrictEqual(IDS_100.filter((id) => !byId.has(id)), [], 'IDS_100 の変異が一覧に無い');
+  assert.strictEqual(new Set(IDS_100).size, IDS_100.length, 'IDS_100 に重なり');
+  assert.deepStrictEqual(MUTANTS.filter((m) => /^(mcp|cfg|spk|mt|qm|v)-/.test(m.id) && !IDS_100.includes(m.id)).map((m) => m.id), [], 'IDS_100 に無い 0.10.0 の接頭の変異がある');
+  const plan = fs.readFileSync(path.join(ROOT, 'docs', 'plans', '2026-10-20-100.md'), 'utf8');
+  const part1 = plan.slice(plan.indexOf('## 変異確認（直しを1つ戻すと'), plan.indexOf('## ゲート'));
+  const part2 = plan.slice(plan.indexOf('## 変異確認（第2部）'), plan.indexOf('## 取り直す画面（第2部の RETAKE）'));
+  const rows = [...(part1 + part2).matchAll(/^\| ([a-z][a-z0-9-]*) \|/gm)].map((m) => m[1]).filter((id) => id !== 'id');
+  assert.ok(rows.length > 100, '計画の表が読めない');
+  assert.deepStrictEqual(IDS_100.filter((id) => !rows.includes(id)), [], '計画の「変異確認」の表に無い変異');
+  for (const id of IDS_100) {
+    const m = byId.get(id);
+    assert.ok(Array.isArray(m.tests) && m.tests.length > 0 && m.tests.every((t) => /^test\/[^/]+\.test\.js$/.test(t)), `${id}: tests`);
+    assert.ok(typeof m.why === 'string' && m.why.startsWith('0.10.0 '), `${id}: why`);
+  }
+});
