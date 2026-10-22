@@ -66,9 +66,11 @@ test('画面の使いやすさ・F10: 明と暗のすべての「文字 × 地�
 // だけを <script> に足した（見た目・点・文・区切り・無音の見張りは変えない）。その中身のハッシュで凍結をかけ直した（0.9.0 の値は 788dad76…）
 // 0.9.4 W-1 で意図して変えた: 持ち主の決定（2026-10-22「5本がそれぞれ揺れる」・録音中のページと同じ）で凍結を解き、5つの点の長さを mainlib.levelBars と
 // 同じ式（左右対称の重み・1本ずつ違う速さの揺れ・動きを減らす設定では揺らさない）にした。その中身のハッシュで凍結をかけ直した（0.9.3 の値は 8f6d2fac…）
+// 0.9.4 P-1 で意図して変えた: 持ち主の決定（2026-10-22「スピーカーのロゴはいらない」「✅マークはもういらない」「そのまますっと消える」・F1〜F4・Q24）で
+// 凍結を解き、相手の声の印と完了の印を外し、止めた・済んだときは薄く消え、録れない文を録音中ずっと（縦の形は角の点と説明の文）にした。その中身で凍結をかけ直した（W-1 の値は 35a9a04c…）
 test('録音バーは触らない（D25 で 0.9.0 の形にした。変えるのは利用者の決定のときだけ）: overlay.html は 0.9.4 の持ち主の決定で直した中身と1バイトも違わない', () => {
   const buf = fs.readFileSync(path.join(__dirname, '..', 'src', 'renderer', 'overlay.html'));
-  assert.strictEqual(require('node:crypto').createHash('sha256').update(buf).digest('hex'), '35a9a04c8275b0de28297517899a97d32328eaee584e86a08f1d2de473fe0d2a');
+  assert.strictEqual(require('node:crypto').createHash('sha256').update(buf).digest('hex'), 'c14a730996e5873e8c8d1252eba318c0b21aba34c69d5dab2bbca2caf808a9d8');
 });
 
 test('N1: ガラス風をやめた（backdrop-filter・グラデーション・ぼかし玉・filter: blur が無い）', () => {

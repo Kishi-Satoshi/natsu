@@ -580,7 +580,7 @@ module.exports = {
       const stopOne = async (n) => {
         c.shortcuts[hk]();   // 止める
         c.listeners['audio:segment']({}, { buffer: new Uint8Array(c.toneWav(3)), durationMs: 3000, final: true });
-        await c.waitFor(() => c.overlayDone().filter((m) => m === waitText).length >= n, 6000);
+        await c.waitFor(() => c.mainNotices().filter((m) => m === waitText).length >= n, 6000);   // 0.9.4 P-1: 本体の窓の知らせで出す
       };
       const states = [];
       c.out.statesBeforeReady = states;
@@ -662,7 +662,7 @@ module.exports = {
       c.out.started = await c.waitFor(() => c.mainState() === 'meeting', 5000);
       c.shortcuts[hk]();   // 止める
       c.listeners['audio:segment']({}, { buffer: new Uint8Array(c.toneWav(3)), durationMs: 3000, final: true });
-      c.out.waiting = await c.waitFor(() => c.overlayDone().includes('録音を保存しました。議事録は準備ができしだい作ります') && c.mainState() === 'idle', 6000);
+      c.out.waiting = await c.waitFor(() => c.mainNotices().includes('録音を保存しました。議事録は準備ができしだい作ります') && c.mainState() === 'idle', 6000);   // 0.9.4 P-1
       await c.sleep(50);
       c.out.dbWhileWaiting = c.dbState();
       c.out.powerHeldWhileWaiting = held();

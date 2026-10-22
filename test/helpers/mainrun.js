@@ -1871,6 +1871,8 @@ process.on('exit', () => {
         snapshotKinds: () => trace.filter((t) => t.kind === 'call' && t.cmd === 'snapshot.take').map((t) => t.snap),
         mainState: () => { const st = handlers['meeting:status'] ? handlers['meeting:status']() : null; return !st ? 'none' : !st.active ? 'idle' : st.finalizing ? 'meeting-finalizing' : 'meeting'; },
         overlayDone: () => sent.filter(([ch, p]) => ch === 'overlay:phase' && p && p.phase === 'done').map(([, p]) => p.message),
+        // 0.9.4 P-1: データベースを待つ文は録音バーでなく本体の窓の知らせ（app:notice）で出す
+        mainNotices: () => sent.filter(([ch]) => ch === 'app:notice').map(([, p]) => p),
         mainProgress: () => sent.filter(([ch]) => ch === 'meeting:progress').map(([, p]) => (p ? p.message : undefined)),
         setOnline: (on) => { netUp = Boolean(on); },
         relay: relayLocal ? { mail: require('./relay-run').mail, setFront: (m) => relayLocal.setFront(m), db: relayLocal.db,

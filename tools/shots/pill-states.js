@@ -15,20 +15,21 @@ const SCALES = [1, 1.5];
 // 見本の音の大きさ（rec・dict は声あり。点の長さは overlay.html の levelDots と同じ計算: dotsFor）
 const VOICE = 0.6;
 // state: 名前。mode: 議事録 meeting・音声入力 dictation。phase: 段階（data-phase）。level: 点の音の大きさ。paused・warn: #pill の印。
-// spk: 相手の声の印（'' は出さない）。badge: 代替のマイクの角の点。msg: 一時的な文（形ごと。縦は overlay.html の upright と同じ縦向きの字: 0.9.0 見た目の直し）と kind
+// badge: 代替のマイクの角の点（0.9.4 P-1: 縦の形で相手の声を録れないときも）。msg: 一時的な文（形ごと。縦は overlay.html の upright と同じ縦向きの字: 0.9.0 見た目の直し）と kind。
+// 0.9.4 P-1 で意図して変えた: 相手の声の印（spk）と完了の状態（done。✓ と「保存しました」を出さず薄く消える: 撮る形が無い）を外した
 const STATES = [
-  { state: 'rec', mode: 'meeting', phase: 'recording', level: VOICE, spk: 'on' },
-  { state: 'silent', mode: 'meeting', phase: 'recording', level: 0, spk: 'idle' },
-  { state: 'paused', mode: 'meeting', phase: 'recording', level: 0, spk: 'idle', paused: true },
-  { state: 'proc', mode: 'meeting', phase: 'processing', level: 0, spk: '', msg: { h: '議事録を作成中…', v: '作成中︙' }, kind: '' },
-  { state: 'done', mode: 'meeting', phase: 'done', level: 0, spk: '', msg: { h: '議事録を保存しました', v: '保存しました' }, kind: 'ok' },
-  { state: 'error', mode: 'meeting', phase: 'error', level: 0, spk: '', msg: { h: '議事録を保存できませんでした', v: 'エラ︱' }, kind: 'err', title: { v: '議事録を保存できませんでした' } },
-  { state: 'dict', mode: 'dictation', phase: 'recording', level: VOICE, spk: '' },
-  { state: 'warn', mode: 'meeting', phase: 'recording', level: 0, spk: '', warn: true, msg: { h: '音が入っていません', v: '音が入っていません' }, kind: 'warn' },
-  { state: 'fallback', mode: 'meeting', phase: 'recording', level: VOICE, spk: '', badge: true, msg: { h: '既定のマイクで録音中', v: '既定のマイクで録音中' }, kind: 'warn' },
-  { state: 'spk-ng', mode: 'meeting', phase: 'recording', level: VOICE, spk: 'ng', msg: { h: '相手の声を録れません', v: '相手の声を録れません' }, kind: 'warn' },
+  { state: 'rec', mode: 'meeting', phase: 'recording', level: VOICE },
+  { state: 'silent', mode: 'meeting', phase: 'recording', level: 0 },
+  { state: 'paused', mode: 'meeting', phase: 'recording', level: 0, paused: true },
+  { state: 'proc', mode: 'meeting', phase: 'processing', level: 0, msg: { h: '議事録を作成中…', v: '作成中︙' }, kind: '' },
+  { state: 'error', mode: 'meeting', phase: 'error', level: 0, msg: { h: '議事録を保存できませんでした', v: 'エラ︱' }, kind: 'err', title: { v: '議事録を保存できませんでした' } },
+  { state: 'dict', mode: 'dictation', phase: 'recording', level: VOICE },
+  { state: 'warn', mode: 'meeting', phase: 'recording', level: 0, warn: true, msg: { h: '音が入っていません', v: '音が入っていません' }, kind: 'warn' },
+  { state: 'fallback', mode: 'meeting', phase: 'recording', level: VOICE, badge: true, msg: { h: '既定のマイクで録音中', v: '既定のマイクで録音中' }, kind: 'warn' },
+  // 0.9.4 P-1（Q24・F4）: 相手の声を録れない文は録音中ずっと。縦の形は文の代わりに角の黄色い点と説明の文（title）
+  { state: 'spk-ng', mode: 'meeting', phase: 'recording', level: VOICE, badge: { v: true }, msg: { h: '相手の声を録れません', v: '相手の声を録れません' }, kind: 'warn', title: { v: '相手の声を録れません' } },
   // 0.9.1 Q-5（計画 docs/plans/2026-10-21-091.md の決めたこと 10）: 話し声が無いので main が overlay:phase の recording の文で聞いた形（無音の警告の黄色い点のまま、文は赤の短い文）
-  { state: 'quiet', mode: 'meeting', phase: 'recording', level: 0, spk: '', warn: true, msg: { h: '会議は終わりましたか？', v: '会議は終わりましたか？' }, kind: 'err' },
+  { state: 'quiet', mode: 'meeting', phase: 'recording', level: 0, warn: true, msg: { h: '会議は終わりましたか？', v: '会議は終わりましたか？' }, kind: 'err' },
 ];
 const byState = Object.fromEntries(STATES.map((s) => [s.state, s]));
 // 0.9.0 O-4（RP8）: 縦の形の × が出た形（カーソルが乗った記録中）を、暗い地・150% で1枚だけ撮る（モックの overlay-vertical-dark-hover-150）
@@ -60,7 +61,7 @@ function actFor(state, form, desk, hover = false) {
   if (!s) throw new Error(`pill-states: 状態 ${state} が無い`);
   const d = {
     form, phase: s.phase, meeting: s.mode === 'meeting', paused: Boolean(s.paused), warn: Boolean(s.warn),
-    dots: dotsFor(s.level, s.paused), spk: s.spk, badge: Boolean(s.badge),
+    dots: dotsFor(s.level, s.paused), badge: s.badge && typeof s.badge === 'object' ? Boolean(s.badge[form]) : Boolean(s.badge),
     msg: s.msg ? s.msg[form] : '', kind: s.msg ? s.kind : '', title: s.title && s.title[form] ? s.title[form] : '',
     desk: DESKS[desk] || '', hover: Boolean(hover),
   };
@@ -76,9 +77,6 @@ function actFor(state, form, desk, hover = false) {
   show($('hideBtn'), d.form === 'v');
   if (d.title) p.setAttribute('title', d.title); else p.removeAttribute('title');
   Array.from($('lv').children).forEach((el, i) => el.style.setProperty('--l', d.dots[i] + 'px'));
-  const spk = $('spk');
-  show(spk, Boolean(d.spk));
-  for (const c of ['on', 'idle', 'ng']) spk.classList.toggle(c, d.spk === c);
   show($('micBadge'), d.badge);
   $('timer').textContent = '12:34';
   const m = $('status');
@@ -94,7 +92,6 @@ function actFor(state, form, desk, hover = false) {
 function signature(doc) {
   const $ = (id) => doc.getElementById(id);
   const p = $('pill');
-  const spk = $('spk');
   const m = $('status');
   const hidden = (el) => el.hidden === true;
   return {
@@ -104,7 +101,6 @@ function signature(doc) {
     // 0.9.4 W-1 で意図して変えた: 声の点は時刻で揺れる（本物と見本で同じ瞬間にならない）ので、同じ 4px の点か揺れている（voice）かで比べる。
     // 高さの式は test/stage094.wave が mainlib・overlay.html・見本の3つで同じことを見る
     dots: ((d) => (d.every((x) => x === '4px') ? d : 'voice'))(Array.from($('lv').children).map((i) => i.style.getPropertyValue('--l'))),
-    spk: hidden(spk) ? '' : (['on', 'idle', 'ng'].find((c) => spk.classList.contains(c)) || ''),
     badge: !hidden($('micBadge')),
     msg: m.textContent, kind: ['warn', 'err', 'ok'].find((c) => m.classList.contains(c)) || '',
     pauseShown: !hidden($('pauseBtn')), ngShown: !hidden($('ngBtn')), hideShown: !hidden($('hideBtn')),

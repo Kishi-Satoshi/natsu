@@ -364,7 +364,9 @@ test('RF14・F9: 移行の間にホットキーで録音して止めると、待
   // 録音の状態の確かめを場面の前提より先に見る（状態が戻らないと場面はそこで結果を出し、dbStateBeforeAnswer を入れない。M-4 の点検）
   assert.deepStrictEqual(out.statesBeforeReady, ['idle', 'idle'], '締めが DB を待つ間、録音の状態が戻らなかった（次の録音を始められない）');
   assert.strictEqual(out.dbStateBeforeAnswer, 'migrating', '場面の前提: 窓の答えの前に DB が用意できた');
-  assert.ok(out.overlayDone.some((m) => m === '録音を保存しました。議事録は準備ができしだい作ります'));
+  // 0.9.4 P-1 で意図して変えた: 録音バーは止めたら薄く消えるので、データベースを待つ文は本体の窓の知らせで出す
+  assert.ok(out.notices.some((m) => m === '録音を保存しました。議事録は準備ができしだい作ります'), JSON.stringify(out.notices));
+  assert.ok(!out.overlayDone.some((m) => m === '録音を保存しました。議事録は準備ができしだい作ります'), '録音バーに出した');
   // 計画と違えたところ: 録音中の写しを片付けが一覧に出さないかを見るため、3回目の録音を［移す］の前に始めて後で止める（会議は 3 つ増える）
   assert.strictEqual(out.thirdStarted, true);
   assert.strictEqual(out.pages.length, out.migratedCount + 3);

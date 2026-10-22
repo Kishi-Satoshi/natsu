@@ -62,7 +62,9 @@ const OVL_094 = (states) => PS.FORMS.flatMap((form) => Object.keys(PS.DESKS).fla
 const W1_094 = ['live-light', 'live-dark', 'live-banner-light', 'live-banner-dark', 'live-banner-zoom200-dark', 'live-quiet-light', 'live-quiet-dark',
   'live-offline-light', 'live-offline-dark', 'live-wave-light', 'live-wave-dark', 'live-silent-light', 'live-paused-dark',
   ...OVL_094(['rec', 'dict', 'fallback', 'spk-ng']), 'overlay-vertical-dark-hover-150'];
-const RETAKE_094 = [...W1_094];
+// P-1: 録音バーのスピーカーの印を外した（印のあった無音・一時停止。声の rec・spk-ng は W-1 で入れた）
+const P1_094 = OVL_094(['silent', 'paused']);
+const RETAKE_094 = [...W1_094, ...P1_094];
 const img = (w, h, fill = [255, 255, 255, 255]) => ({ width: w, height: h, data: Buffer.from(Array.from({ length: w * h }, () => fill).flat()) });
 // 一時フォルダ（日本語と 𠮷 の名前。RF1 と同じ形）。テストの終わりに消す
 const tmp = (t, name) => {
@@ -529,19 +531,20 @@ test('G2・F14・G-4・0.9.0 G-3・0.9.1・0.9.2・0.9.3・0.9.4: 取り直し�
 // 窓の大きさは、撮るときに測ったピルの大きさから main と同じ panelBounds で決め、拡大率の画面は × 拡大率の大きさで撮れたかを見る
 // 0.9.0 O-4（RP8）で足した: 縦の形の × が出た1枚（overlay-vertical-dark-hover-150。モックの名前）を最後に
 // 0.9.1 Q-5 で意図して変えた: 状態 quiet（「会議は終わりましたか？」）を足して 88 枚と × の1枚
-test('RP9: 録音バーの画面は pill-states の表の状態 × 形 × 地 × 拡大率で 88 枚と、縦の形の × の1枚。名前は overlay-<形>-<地>-<状態>-<100|150>、act は表の見本', { timeout: 5000 }, () => {
+// 0.9.4 P-1 で意図して変えた: 完了（done）は薄く消えて撮る形が無いので外した（80 枚と × の1枚。done の基準の8枚も外した）
+test('RP9: 録音バーの画面は pill-states の表の状態 × 形 × 地 × 拡大率で 80 枚と、縦の形の × の1枚。名前は overlay-<形>-<地>-<状態>-<100|150>、act は表の見本', { timeout: 5000 }, () => {
   const all = SH.SCREENS.filter((s) => s.page === 'overlay');
-  assert.strictEqual(all.length, 89);
+  assert.strictEqual(all.length, 81);
   const hv = all.pop();
   assert.deepStrictEqual([hv.name, hv.scale, hv.slot, hv.theme], ['overlay-vertical-dark-hover-150', 1.5, 'middle-right', 'dark']);
   assert.strictEqual(hv.act, PS.actFor('rec', 'v', 'dark', true));
   assert.ok(hv.act.includes('"hover":true') && !PS.actFor('rec', 'v', 'dark').includes('"hover":true'));
   const ov = all;
-  assert.strictEqual(ov.length, 88);
+  assert.strictEqual(ov.length, 80);
   assert.deepStrictEqual(PS.FORMS, ['h', 'v']);
   assert.deepStrictEqual(Object.keys(PS.DESKS), ['light', 'dark']);
   assert.deepStrictEqual(PS.SCALES, [1, 1.5]);
-  assert.strictEqual(PS.STATES.length, 11);
+  assert.strictEqual(PS.STATES.length, 10);
   for (const s of ov) {
     const { state, form, desk, scale } = s.pill;
     assert.strictEqual(s.name, `overlay-${form}-${desk}-${state}-${Math.round(scale * 100)}`);
@@ -770,7 +773,8 @@ test('Q-5: live-quiet-light・live-quiet-dark は live-light と同じ会議に 
   assert.match(q.act, /自動で止める/);
   // 録音バーの quiet は状態の表にあり、短い文は main の QUIET_BAR_TEXT と同じ（赤の短い文 err。無音の警告の黄色い点のまま）
   const bar = (/const QUIET_BAR_TEXT = '([^']+)';/.exec(main) || [])[1];
-  assert.deepStrictEqual(PS.byState.quiet, { state: 'quiet', mode: 'meeting', phase: 'recording', level: 0, spk: '', warn: true, msg: { h: bar, v: bar }, kind: 'err' });
+  // 0.9.4 P-1 で意図して変えた: 相手の声の印（spk）を外した
+  assert.deepStrictEqual(PS.byState.quiet, { state: 'quiet', mode: 'meeting', phase: 'recording', level: 0, warn: true, msg: { h: bar, v: bar }, kind: 'err' });
   for (const n of QUIET_OVERLAY) assert.ok(SH.SCREENS.some((s) => s.name === n), `${n} が撮る画面に無い`);
 });
 

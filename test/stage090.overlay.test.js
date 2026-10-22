@@ -65,7 +65,9 @@ test('RP5: ピルの中に、ロゴの SVG（assets/icon.svg と同じ3本の pa
   assert.deepStrictEqual(logo.querySelectorAll('path').map((p) => p.getAttribute('d')), iconPaths, 'ロゴの path が assets/icon.svg と違う');
   assert.ok(!/<img\b/i.test(SRC), '画像のファイルを読んでいる（CSP の img-src を広げない）');
   assert.strictEqual(log.byId.get('lv').children.filter((e) => e.tagName === 'i').length, 5, '点がちょうど5つでない');
-  for (const id of ['lv', 'timer', 'status', 'pauseBtn', 'stopBtn', 'ngBtn', 'spk', 'micBadge']) assert.ok(log.byId.get(id) && inPill(log.byId.get(id)), `#${id} がピルの中に無い`);
+  // 0.9.4 P-1 で意図して変えた: 相手の声の印（#spk）は持ち主の答え「スピーカーのロゴはいらない」で外した
+  assert.ok(!log.byId.get('spk'), '相手の声の印が残っている');
+  for (const id of ['lv', 'timer', 'status', 'pauseBtn', 'stopBtn', 'ngBtn', 'micBadge']) assert.ok(log.byId.get(id) && inPill(log.byId.get(id)), `#${id} がピルの中に無い`);
   for (const id of ['pauseBtn', 'stopBtn', 'ngBtn']) assert.strictEqual(log.byId.get(id).tagName, 'button', `#${id} が本物の button でない`);
   assert.ok(!/<canvas/i.test(SRC), 'canvas が残っている');
   for (const t of ['記録中（相手の声も）', '議事録を記録中', '記録中（マイクのみ）']) assert.ok(!SRC.includes(t), `「${t}」の文が残っている`);
@@ -101,29 +103,19 @@ test('RP5・0.9.4 W-1: 無音（level 0）は5つとも 4px、声は今の時刻
   assert.deepStrictEqual(log.errors.map(fmt), []);
 });
 
-test('RP6: 相手の声を録る設定の議事録で、相手の音がある間だけ #spk が on、無ければ idle、取り込めなければ ng とはじめの 4 秒「相手の声を録れません」。録らない設定・音声入力では #spk が hidden', async () => {
-  const { log, an } = await 録音を始める({ systemAudio: true });
-  const spk = log.byId.get('spk');
-  assert.strictEqual(spk.hidden, false, '相手の声を録るのに印が無い');
-  assert.ok(spk.classList.contains('idle') && !spk.classList.contains('on'), `相手が無音なのに ${spk.className}`);
-  an[1].fill = fillFor(0.5);
-  await log.drain();
-  assert.ok(spk.classList.contains('on') && !spk.classList.contains('idle'), `相手の音で on にならない: ${spk.className}`);
-  an[1].fill = 128;
-  await log.drain();
-  assert.ok(spk.classList.contains('idle'), '相手が黙っても on のまま');
-  // 取り込めなかった
+// 0.9.4 P-1 で意図して直した: 相手の声の印（#spk）は持ち主の答え「スピーカーのロゴはいらない」で外し、録れないときの文は録音中ずっと（Q24。
+// 縦の形は角の黄色い点と説明の文: F4）。細かい形は test/stage094.bar が見る
+test('RP6・0.9.4 P-1: 相手の声を録れないときは印を出さず「相手の声を録れません」を録音中ずっと出す。録れるとき・録らない設定・音声入力では出さない', async () => {
+  const { log } = await 録音を始める({ systemAudio: true });
+  assert.ok(!log.byId.get('spk'));
+  assert.strictEqual(msgText(log), '');
   const ng = await 録音を始める({ systemAudio: true }, { setup: (l) => { l.window.navigator.mediaDevices.getDisplayMedia = () => Promise.reject(new Error('NotAllowedError')); } });
-  const s2 = ng.log.byId.get('spk');
-  assert.ok(!s2.hidden && s2.classList.contains('ng'), `取り込めないのに ng でない: ${s2.className}`);
   assert.strictEqual(msgText(ng.log), '相手の声を録れません');
   await ng.log.clock.advance(4000);
-  assert.strictEqual(msgText(ng.log), '', '4 秒で引っ込まない');
-  assert.ok(s2.classList.contains('ng'), '文が引っ込んだら印も消えた');
-  // 録らない設定・音声入力
+  assert.strictEqual(msgText(ng.log), '相手の声を録れません', '4 秒で引っ込んだ');
   for (const start of [{ systemAudio: false }, { mode: 'dictation', systemAudio: true }]) {
     const r = await 録音を始める(start);
-    assert.strictEqual(r.log.byId.get('spk').hidden, true, `${JSON.stringify(start)} で印が出た`);
+    assert.strictEqual(msgText(r.log), '', `${JSON.stringify(start)} で文が出た`);
   }
 });
 
@@ -244,18 +236,16 @@ test('RP5・RP6: 色の差 — 文は地 #262626 と 4.5 以上、点・印は 3
   assert.deepStrictEqual(bg.slice(0, 3), [0x26, 0x26, 0x26]);
   const on = (fg, ground) => C.contrast(C.over(fg, ground), ground);
   const TEXT = [['.timer', 'color'], ['.pill.paused .timer', 'color'], ['.msg', 'color'], ['.msg.warn', 'color'], ['.msg.err', 'color'], ['.msg.ok', 'color']];
+  // 0.9.4 P-1 で意図して変えた: 相手の声の印（.spk）と完了の緑の丸の印（.okm）を外した
   for (const [sel, p] of TEXT) { const r = on(val(sel, p), bg); assert.ok(r >= 4.5, `${sel} の文字が地と ${r.toFixed(2)}`); }
   const MARKS = [['.lv i', 'background'], ['.pill.paused .lv i', 'background'], ['.pill.warn .lv i', 'background'],
-    ['.spk .w', 'stroke'], ['.spk.idle .w', 'stroke'], ['.spk.ng', 'color'], ['.badge', 'background'], ['.spin', 'border-top-color'], ['.okm', 'background']];
+    ['.badge', 'background'], ['.spin', 'border-top-color']];
   for (const [sel, p] of MARKS) { const r = on(val(sel, p), bg); assert.ok(r >= 3, `${sel} の印が地と ${r.toFixed(2)}`); }
   const btn = C.over(val('.pbtn', 'background'), bg);
   for (const [sel, p] of [['.pbtn .bar', 'background'], ['.pbtn.ng', 'color']]) { const r = on(val(sel, p), btn); assert.ok(r >= 3, `${sel} がボタンの地と ${r.toFixed(2)}`); }
   const red = C.over(val('.pbtn.stop', 'background'), bg);
   assert.ok(C.contrast(red, bg) >= 3, `赤い［停止］が地と ${C.contrast(red, bg).toFixed(2)}`);
   assert.ok(on(val('.pbtn .sq', 'background'), red) >= 3, '停止の白い四角が赤い地と 3 より低い');
-  // 完了の緑の丸の上の ✓（O-3 で作るときに足した: 暗い ✓ はゲートのインクの向きに当たるので、白い ✓ と濃い緑にした）
-  const green = C.over(val('.okm', 'background'), bg);
-  assert.ok(on(val('.okm', 'color'), green) >= 3, `完了の ✓ が緑の丸と ${on(val('.okm', 'color'), green).toFixed(2)}`);
   const white = C.over(val('.pill.paused .pbtn.pause', 'background'), bg);
   assert.ok(on(val('.pbtn .tri', 'border-left-color'), white) >= 3, '再開の三角が白い丸と 3 より低い');
 });
@@ -303,22 +293,20 @@ test('RP5: 縦の形の時間は1時間までは分:秒、越えたら時:分。
   assert.strictEqual(v.log.byId.get('timer').textContent, '1:02');
 });
 
-test('RP6: 作成中・完了・エラーは形ごとの文（横は main の文、縦は短い文）。完了 1.6 秒・エラー 2.8 秒で隠すのは今のまま。音声入力の完了は「{秒} 秒・{文の頭}」', async () => {
+// 0.9.4 P-1（持ち主の答え F1・F2・F3・「✅マークはもういらない」）で意図して直した: 完了は ✓ も文も出さずに薄く消える（音は残す）。
+// 議事録は止めたらその場で薄く消える（main も録音バーも「議事録を作成中…」を出さない）。エラーは今のまま 2.8 秒で隠す
+test('RP6・0.9.4 P-1: 作成中・エラーは形ごとの文（横は main の文、縦は短い文）。完了は文を出さずに薄く消える。エラー 2.8 秒で隠すのは今のまま', async () => {
   const h = await 録音を始める();
   h.log.fire('onPhase', { phase: 'processing', message: '議事録を作成中…' });
   assert.strictEqual(pillOf(h.log).dataset.phase, 'processing');
   assert.strictEqual(msgText(h.log), '議事録を作成中…');
   h.log.fire('onPhase', { phase: 'done', message: '議事録を保存しました' });
-  assert.strictEqual(msgText(h.log), '議事録を保存しました');
-  assert.ok(log0(h.log, 'status').classList.contains('ok'));
-  await h.log.clock.advance(1600);
-  assert.ok(!pillOf(h.log).classList.contains('visible'), '完了で 1.6 秒で隠さない');
+  assert.strictEqual(msgText(h.log), '');
+  assert.ok(!pillOf(h.log).classList.contains('visible'), '完了で薄く消えない');
   const v = await 録音を始める({ form: 'v' });
   v.log.fire('onPhase', { phase: 'processing', message: '議事録を作成中…' });
   // 0.9.0 見た目の直し（統合の後の見直し）で意図して変えた: 縦の形の文は縦向きの字（「…」は「︙」、「ー」は「︱」。下のテスト）
   assert.strictEqual(msgText(v.log), '作成中︙');
-  v.log.fire('onPhase', { phase: 'done', message: '議事録を保存しました' });
-  assert.strictEqual(msgText(v.log), '保存しました');
   const e = await 録音を始める({ form: 'v' });
   e.log.fire('onPhase', { phase: 'error', message: '議事録を保存できませんでした' });
   assert.strictEqual(msgText(e.log), 'エラ︱');
@@ -331,7 +319,8 @@ test('RP6: 作成中・完了・エラーは形ごとの文（横は main の文
   d.log.fire('onPhase', { phase: 'processing', message: '文字起こし中…' });
   assert.strictEqual(msgText(d.log), '文字起こし中…');
   d.log.fire('onPhase', { phase: 'done', message: '明日の定例は10時から', procSec: '1.2' });
-  assert.strictEqual(msgText(d.log), '1.2 秒・明日の定例は10時から');
+  assert.strictEqual(msgText(d.log), '', '音声入力の完了で文を出した');
+  assert.ok(!pillOf(d.log).classList.contains('visible'));
 });
 const log0 = (log, id) => log.byId.get(id);
 
@@ -345,8 +334,8 @@ test('RP6: 縦の形の文は縦向きの字（「エラー」は「エラ︱」
     [{}, { phase: 'processing', message: '知らない文…' }, '作成中︙', '知らない文…'],
     [{}, { phase: 'error', message: '議事録を保存できませんでした' }, 'エラ︱', '議事録を保存できませんでした'],
     [{}, { phase: 'error', message: 'キャンセルしました' }, 'キャンセル', 'キャンセルしました'],
-    [{}, { phase: 'done', message: '議事録を保存しました' }, '保存しました', '議事録を保存しました'],
   ];
+  // 0.9.4 P-1 で意図して変えた: 完了（done）は文を出さない（持ち主「✅マークはもういらない」）
   for (const [start, ph, v, h] of cases) {
     const rv = await 録音を始める({ form: 'v', ...start });
     rv.log.fire('onPhase', ph);
@@ -378,7 +367,6 @@ test('RP9: 撮る画面の見本の act は、本物の録音バーを同じ状�
     silent: async (form) => (await 録音を始める({ systemAudio: true, form })).log,
     paused: async (form) => { const r = await 録音を始める({ systemAudio: true, form }); r.log.byId.get('pauseBtn').click(); await r.log.drain(); return r.log; },
     proc: async (form) => { const r = await 録音を始める({ form }); r.log.fire('onPhase', { phase: 'processing', message: '議事録を作成中…' }); return r.log; },
-    done: async (form) => { const r = await 録音を始める({ form }); r.log.fire('onPhase', { phase: 'done', message: '議事録を保存しました' }); return r.log; },
     error: async (form) => { const r = await 録音を始める({ form }); r.log.fire('onPhase', { phase: 'error', message: '議事録を保存できませんでした' }); return r.log; },
     dict: async (form) => { const r = await 録音を始める({ mode: 'dictation', form }); r.an[0].fill = fillFor(PS.byState.dict.level); await r.log.drain(); return r.log; },
     warn: async (form) => { const r = await 録音を始める({ form }); r.log.clock.jump(8001); await r.log.drain(); return r.log; },
@@ -397,7 +385,8 @@ test('RP9: 撮る画面の見本の act は、本物の録音バーを同じ状�
     },
   };
   // 0.9.1 Q-5 で意図して変えた: 状態 quiet（「会議は終わりましたか？」）を最後に足した
-  assert.deepStrictEqual(PS.STATES.map((s) => s.state), ['rec', 'silent', 'paused', 'proc', 'done', 'error', 'dict', 'warn', 'fallback', 'spk-ng', 'quiet']);
+  // 0.9.4 P-1 で意図して変えた: 完了（done）は薄く消えるので撮る形が無い（外した）
+  assert.deepStrictEqual(PS.STATES.map((s) => s.state), ['rec', 'silent', 'paused', 'proc', 'error', 'dict', 'warn', 'fallback', 'spk-ng', 'quiet']);
   for (const s of PS.STATES) for (const form of PS.FORMS) {
     const real = PS.signature((await drive[s.state](form)).document);
     const shot = await load(OVL);

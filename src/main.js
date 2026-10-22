@@ -4712,8 +4712,7 @@ function stopMeeting() {
     meeting.paused = false;
     meeting.pausedAt = 0;
   }
-  sendToOverlay('overlay:stop', {});
-  sendToOverlay('overlay:phase', { phase: 'processing', message: '議事録を作成中…' });
+  sendToOverlay('overlay:stop', {});   // 0.9.4 P-1（F2）: 録音バーはその場で薄く消える（「議事録を作成中…」を送らない）
   sendToMainWin('meeting:progress', { message: '録音を終了し、残りの文字起こしを処理しています…' });
   updateTray();
   // 開始・破棄と同じく状態を送る。これが無いと、ホットキーやトレイから
@@ -4926,7 +4925,8 @@ async function maybeFinalizeMeeting() {
   state = 'idle'; updateTray();
   setTimeout(hideOverlayIfIdle, 2000);
   sendToMainWin('meeting:update', meetingStatus());
-  if (['starting', 'migrating'].includes(db.state())) sendToOverlay('overlay:phase', { phase: 'done', message: DB_WAIT_TEXT });
+  // 0.9.4 P-1: 録音バーは止めたら薄く消えるので、データベースを待つ文は本体の窓の知らせで出す
+  if (['starting', 'migrating'].includes(db.state())) sendToMainWin('app:notice', DB_WAIT_TEXT);
   // 録音中に来た控えの復旧のやり直しを、ここで回す（第1a回 JS9。この会議の下書きは finalizingDrafts で飛ばす）
   runDraftRetryAfterMeeting();
   // 返事を待つ間に次の録音・音声入力が録音バーを使っていたら、締めの文で上書きしない
