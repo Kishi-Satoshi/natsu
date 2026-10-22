@@ -39,15 +39,18 @@ Object.assign(UI, { autoStopQuiet: false, autoStopMin: 20 });
 // meetingDetectMute（kind apps。既定 []）を足した（35 のキー）。画面は［設定］→［録音］のカード「会議の検出」から送る（既定でない値で往復することを見る）
 Object.assign(TODAY, { meetingDetect: true, meetingDetectMute: [] });
 Object.assign(UI, { meetingDetect: false, meetingDetectMute: ['zoom', 'chrome'] });
+// 0.9.4 S-7（計画 docs/plans/2026-10-22-094.md の決めたこと 21）で意図して変えた: 文字起こしのモデル（軽い）localModelAlt（kind enum。'' と 'medium'。既定 ''）を
+// 足した（36 のキー）。画面は送らない（［軽いモデルを使う］の local:alt-use で main が書く）
+Object.assign(TODAY, { localModelAlt: '' });
 // 第1c回 Task C-2: 画面のカード「オンライン」が送るキー（0.7.0 U-1 で claudeExe だけ。30 のキー）。既定でない値で往復することを見る
 Object.assign(UI, { claudeExe: 'C:\\c\\claude.exe' });
 const legacy = (raw) => S.normalizeSettings({ ...D, ...raw }, D);
 const ON = (key, v) => (key === 'useBuiltinTerms' ? v !== false : Boolean(v));
 const BOOLS = ['useVad', 'suppressNst', 'autoPaste', 'removeFillers', 'soundFeedback', 'autoLaunch', 'stayInTray', 'useBuiltinTerms', 'useSystemAudio'];
 
-test('JS6: 決まりの表のキーは既定の 35 のキーとちょうど同じ。どれにも画面の名前がある', { timeout: 5000 }, () => {
+test('JS6: 決まりの表のキーは既定の 36 のキーとちょうど同じ。どれにも画面の名前がある', { timeout: 5000 }, () => {
   assert.deepStrictEqual(D, TODAY);
-  assert.strictEqual(S.SETTING_KEYS.length, 35);
+  assert.strictEqual(S.SETTING_KEYS.length, 36);
   assert.deepStrictEqual([...S.SETTING_KEYS].sort(), Object.keys(TODAY).sort());
   for (const k of S.SETTING_KEYS) assert.ok(typeof S.SETTING_RULES[k].label === 'string' && S.SETTING_RULES[k].label.length > 1, k);
   assert.strictEqual(S.defaultSettings(2).localThreads, 4);
@@ -247,4 +250,10 @@ test('RP2: pillFrom は raw に正しい pillSlot が無いときだけ { point,
   assert.deepStrictEqual(S.pickSavable({ pillPos: 'top', pillCustom: { x: 1, y: 2 }, pillSlot: 'top-center' }), { pillSlot: 'top-center' });
   assert.deepStrictEqual(S.SLOT_FROM_POS, { bottom: 'bottom-center', top: 'top-center', left: 'middle-left', right: 'middle-right',
     'top-left': 'top-left', 'top-right': 'top-right', 'bottom-left': 'bottom-left', 'bottom-right': 'bottom-right' });
+});
+
+test('0.9.4 S-7: localModelAlt は \'\' と \'medium\' のほかは \'\'（kind enum）', { timeout: 5000 }, () => {
+  const r = (v) => S.readSettings({ ...D, localModelAlt: v }, D).settings.localModelAlt;
+  assert.deepStrictEqual(['', 'medium', 'small', 'MEDIUM', 1, null, 'large-v3'].map(r), ['', 'medium', '', '', '', '', '']);
+  assert.deepStrictEqual(S.SETTING_RULES.localModelAlt, { label: '文字起こしのモデル（軽い）', kind: 'enum', values: ['', 'medium'] });
 });

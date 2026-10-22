@@ -663,7 +663,10 @@ test('基準の画像（test/shots/win32）は今の app.html で撮ったもの
   // 画面は撮っていないので、撮る画面は変わらない）。値を今の app.html に合わせた
   // 0.9.4 S-4: 遅い会議の「聞き取り中」の行を「音声を残しています（会議の後で文字起こしします）」にする分かれ道を <script> に足した（遅くない会議の
   // 見た目は変わらない。遅い会議の画面は S-8 で足す）。値を今の app.html に合わせた
-  assert.strictEqual(sha, 'f84fb4b76065cb4721acb2a2db3835fec48b0f3b0798ee62df8220bfefcabd1f',
+  // 0.9.4 S-7（決めたこと 19〜21・持ち主の答え Q9）: 設定の「ローカル AI の設定」に行「この PC の速さ」（［速さを測る］・勧めるスレッド数と［この数にする］）と
+  // 閉じた details「軽いモデルと精度」（表・取り込む・使う・戻す・手の組のパスの案内）と CSS .alttable を足した。見える中身が変わるのは設定の
+  // 「ローカル AI の設定」の画面と検索の画面で、どれも RETAKE にある（settings-offline-light・settings-search-light）。測った画面は S-8 で足す。値を今の app.html に合わせた
+  assert.strictEqual(sha, 'ea415f0f1e16c3d634587459eaf2be610c7ddd68d5b239edfa537c94bca9d81b',
     'app.html が基準の画像を撮った時と違う。Windows の CI の画面の比べ（捲り棒のつまみも）を見て、基準を取り直してからこの値を直す');
 });
 

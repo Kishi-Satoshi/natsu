@@ -125,6 +125,20 @@ const MANIFEST = deepFreeze({
   ],
 });
 
+// 0.9.4 S-7（計画 docs/plans/2026-10-22-094.md の決めたこと 21・持ち主の答え Q7）: 追いつかない PC への軽い文字起こしのモデル。
+// 取り込みの組（items）の外に置く（取り込む順・合計・group の照らしを変えない）。［ローカル AI の設定］の［軽いモデルを取り込む］だけが取り込み、
+// 使うかは利用者が選ぶ（settings.localModelAlt）。URL は今のピンと同じ commit、大きさと SHA-256 はその commit の LFS の頭（2026-10-22 に読んだ）
+const ALT_MODELS = deepFreeze([
+  {
+    id: 'whisper-model-medium', group: 'whisper', kind: 'file', role: 'model', alt: 'medium',
+    label: '文字起こしの軽いモデル（medium）', version: 'medium q5_0',
+    url: 'https://huggingface.co/ggerganov/whisper.cpp/resolve/5359861c739e955e79d9a303bcbc70fb988958b1/ggml-medium-q5_0.bin',
+    size: 539212467, sha256: '19fea4b380c3a618ec4723c3eef2eb785ffba0d0538cf43f8f235e7b3b34220f',
+    dest: 'models/ggml-medium-q5_0.bin',
+    license: 'MIT（Copyright (c) 2022 OpenAI）',
+  },
+]);
+
 /** group（'whisper' か 'sum'）の項目を、取り込む順で返す。 */
 function itemsOf(group) {
   return MANIFEST.items.filter((i) => i.group === group);
@@ -140,4 +154,4 @@ function hostOf(url) {
   try { return new URL(url).hostname; } catch (_) { return ''; }
 }
 
-module.exports = { MANIFEST, itemsOf, totalBytes, hostOf };
+module.exports = { MANIFEST, ALT_MODELS, itemsOf, totalBytes, hostOf };

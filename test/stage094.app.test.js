@@ -64,3 +64,92 @@ test('遅い会議の #liveTail は『音声を残しています（会議の後
   await l.drain();
   assert.strictEqual(norm(tail().textContent), '聞き取り中…（約 75 秒ごとに文字になります）');
 });
+
+// ---------------------------------------------------------------- S-7（決めたこと 19〜22・Q9）: ［ローカル AI の設定］の「この PC の速さ」と軽いモデル
+const { parseHTML } = require('./helpers/simdom');
+const lib094 = require('../src/mainlib');
+const openSettings = (returns = {}) => load(APP, { preloadSrc: PRELOAD, returns: { pagesSearch: () => [], uiState: () => ({ sidebar: { width: 260, collapsed: false }, tabs: { open: [], active: '' } }), getSettings: () => ({ localThreads: 10 }), ...returns } });
+
+test('行『この PC の速さ』とボタン［速さを測る（約 3 分）］・結果の3つの文を出す（画面は文を作らない: main の文をそのまま）・勧めのスレッドの数とボタン・軽いモデルの折りたたみの表と［軽いモデルを取り込む（539 MB）］', T, async () => {
+  let answer = null;
+  const l = await openSettings({ benchLocal: () => answer, applyBenchThreads: () => ({ ok: true, threads: 6 }), altModelStatus: () => ({ supported: true, manual: false, fetched: false, using: false, path: '' }) });
+  await l.drain();
+  const $ = (id) => l.document.getElementById(id);
+  const row = $('benchRow');
+  assert.strictEqual(row.dataset.row, 'この PC の速さ');
+  assert.strictEqual($('benchBtn').textContent, '速さを測る（約 3 分）');
+  assert.match(String(row.querySelector('.desc').textContent).replace(/\s+/g, ' '), /^会議中に PC で文字起こしが追いつくかを測ります（音声は外へ送りません）。/);
+  for (const r of [0.4, 0.8]) {
+    answer = { ok: true, rtf: r, verdict: lib094.benchVerdict(r), text: lib094.benchResultText(r), threads: [{ threads: 10, rtf: r }], recommend: null };
+    $('benchBtn').dispatchEvent({ type: 'click' });
+    await l.drain();
+    assert.strictEqual($('benchMsg').textContent, lib094.benchResultText(r));
+    assert.ok($('benchThreadsRow').hidden);
+    assert.strictEqual($('altBox').open === true, false, '遅くないのに軽いモデルを開いた');
+  }
+  answer = { ok: true, rtf: 1.6, verdict: 'slow', text: lib094.benchResultText(1.6), threads: [{ threads: 4, rtf: 1.9 }, { threads: 6, rtf: 1.4 }, { threads: 10, rtf: 1.6 }],
+    recommend: { threads: 6, text: 'スレッドの数を 6 にすると速くなります（1.60 倍 → 1.40 倍）。', button: 'スレッドの数を 6 にする' } };
+  $('benchBtn').dispatchEvent({ type: 'click' });
+  await l.drain();
+  assert.strictEqual($('benchMsg').textContent, lib094.benchResultText(1.6));
+  assert.strictEqual($('altBox').open, true, '遅いのに軽いモデルの折りたたみを開かない');
+  assert.strictEqual($('benchThreadsRow').hidden, false);
+  assert.strictEqual($('benchThreadsText').textContent, 'スレッドの数を 6 にすると速くなります（1.60 倍 → 1.40 倍）。');
+  assert.strictEqual($('benchThreadsBtn').textContent, 'スレッドの数を 6 にする');
+  $('benchThreadsBtn').dispatchEvent({ type: 'click' });
+  await l.drain();
+  assert.deepStrictEqual(l.called('applyBenchThreads').map((c) => c.args[0]), [6]);
+  assert.ok($('benchThreadsRow').hidden);
+  answer = { ok: false, code: 'novoice', error: '日本語の読み上げの声が無いため、測れませんでした。会議で使ったときの速さで判断します。' };
+  $('benchBtn').dispatchEvent({ type: 'click' });
+  await l.drain();
+  assert.strictEqual($('benchMsg').textContent, answer.error);
+  // 軽いモデルと精度
+  const box = $('altBox');
+  assert.strictEqual(box.dataset.row, '軽いモデルと精度');
+  const t = box.querySelector('table').textContent.replace(/\s+/g, ' ');
+  for (const w of ['large-v3-turbo（574 MB）', 'medium（539 MB）', '計算は約半分', '約 1.3 倍', '約 2 倍', 'small（190 MB）', '約 2〜3 倍']) assert.ok(t.includes(w), w);
+  assert.strictEqual($('altFetchBtn').textContent, '軽いモデルを取り込む（539 MB）');
+  assert.ok(!$('altFetchBtn').hidden && $('altUseBtn').hidden && $('altResetBtn').hidden && $('altManual').hidden);
+});
+
+test('手の組の PC ではパスと［パスを写す］（手のパスは書き換えない）。取り込んだ組の PC は［軽いモデルを使う］［元のモデルに戻す］', T, async () => {
+  const PATH = '%LOCALAPPDATA%\\natsu\\engine\\models\\ggml-medium-q5_0.bin';
+  const manual = await openSettings({ altModelStatus: () => ({ supported: true, manual: true, fetched: true, using: false, path: PATH }) });
+  await manual.drain();
+  const m = (id) => manual.document.getElementById(id);
+  assert.strictEqual(m('altManual').hidden, false);
+  assert.strictEqual(m('altManualText').textContent, `詳細設定の『モデルファイル（ggml-*.bin）のパス』を次のファイルに替えてください: ${PATH}`);
+  assert.ok(m('altUseBtn').hidden, '手の組の PC で［軽いモデルを使う］を出した');
+  m('altCopyBtn').dispatchEvent({ type: 'click' });
+  await manual.drain();
+  assert.deepStrictEqual(manual.called('copy').map((c) => c.args[0]), [PATH]);
+  let using = false;
+  const managed = await openSettings({ altModelStatus: () => ({ supported: true, manual: false, fetched: true, using, path: PATH }), useAltModel: (on) => { using = on; return { ok: true }; } });
+  await managed.drain();
+  const g = (id) => managed.document.getElementById(id);
+  assert.ok(!g('altUseBtn').hidden && g('altResetBtn').hidden && g('altFetchBtn').hidden && g('altManual').hidden);
+  g('altUseBtn').dispatchEvent({ type: 'click' });
+  await managed.drain();
+  assert.deepStrictEqual(managed.called('useAltModel').map((c) => c.args[0]), [true]);
+  assert.ok(g('altUseBtn').hidden && !g('altResetBtn').hidden);
+});
+
+test('0.9.2 の決まり（見える説明は1行・ⓘ）と検索『速さ』『軽い』で行が出る', T, async () => {
+  const doc = parseHTML(fs.readFileSync(APP, 'utf8')).root;
+  const row = doc.querySelector('#benchRow');
+  const descs = row.querySelectorAll('.desc').filter((d) => !d.closest('.setpop') && !d.classList.contains('save-msg'));
+  assert.strictEqual(descs.length, 1);
+  assert.ok(row.querySelector('.setinfo') && doc.querySelector('#setPopBench'), 'ⓘ の吹き出しが無い');
+  const pop = doc.querySelector('#setPopBench').textContent.replace(/\s+/g, ' ');
+  assert.ok(pop.includes('Windows の読み上げで作った約 30 秒の日本語を、この PC の文字起こしで1回処理する時間を測ります。音声と結果の文字は残さず、外へ送りません。'), pop);
+  assert.ok(pop.includes('会議中は会議のアプリの分だけ遅くなります。'));
+  const l = await openSettings({ altModelStatus: () => ({ supported: true, manual: false, fetched: false, using: false, path: '' }) });
+  await l.drain();
+  const search = async (q) => { const b = l.document.getElementById('setSearch'); b.value = q; b.dispatchEvent({ type: 'input', target: b }); await l.drain(); };
+  const shown = () => l.byId.get('tabSettings').querySelectorAll('[data-row]').filter((r) => !r.classList.contains('set-miss') && !r.hidden).map((r) => r.dataset.row);
+  await search('速さ');
+  assert.ok(shown().includes('この PC の速さ'), JSON.stringify(shown()));
+  await search('軽い');
+  assert.ok(shown().includes('軽いモデルと精度'), JSON.stringify(shown()));
+});

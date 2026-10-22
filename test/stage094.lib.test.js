@@ -217,3 +217,44 @@ test('PROBLEM_ORDER の kept-late は engine-down の後・kept-local の前', T
   // Windows の知らせは増やさない
   assert.ok(!L.WIN_NOTIFY_CODES.includes('kept-late'));
 });
+
+// ---------------------------------------------------------------- S-7（決めたこと 19〜22・持ち主の答え Q9）: 速さを測る
+test('benchVerdict の表（0.5・0.51・1.0・1.01）と結果の文（画面は作らない）', T, () => {
+  assert.deepStrictEqual([0.4, 0.5, 0.51, 1.0, 1.01, 1.6].map(L.benchVerdict), ['ok', 'ok', 'maybe', 'maybe', 'slow', 'slow']);
+  assert.strictEqual(L.benchResultText(0.4), '30 秒の音声に 12 秒（0.40 倍）。会議中も PC で文字起こしできます。');
+  assert.strictEqual(L.benchResultText(0.8), '30 秒の音声に 24 秒（0.80 倍）。会議中は追いつけないことがあります。追いつけないときは音声を残し、会議の後で文字起こしします。');
+  assert.strictEqual(L.benchResultText(1.6), '30 秒の音声に 48 秒（1.60 倍）。この PC では会議中に追いつけません。会議中は音声を残し、会議の後で文字起こしします。会議中も文字にしたいときは、軽いモデルに替えられます（精度は下がります）。');
+});
+
+test('benchVoiceScript は System.Speech と 16000・Sixteen・Mono・ja の声の選びだけを持ち、Invoke-WebRequest・Start-Process・Remove-Item の外のパスの字面が無い。声が無ければ novoice の1行', T, () => {
+  const out = 'C:\\Users\\Example\\AppData\\Local\\Temp\\natsu-bench-1.wav';
+  const sc = L.benchVoiceScript({ out, text: L.BENCH_TEXT });
+  for (const must of ['Add-Type -AssemblyName System.Speech', 'SpeechSynthesizer', 'SpeechAudioFormatInfo(16000', 'AudioBitsPerSample]::Sixteen', 'AudioChannel]::Mono',
+    "Culture.Name -eq 'ja-JP'", "WriteLine('novoice')", "WriteLine('ok')", `SetOutputToWaveFile('${out}'`]) assert.ok(sc.includes(must), must);
+  for (const bad of ['Invoke-WebRequest', 'Invoke-RestMethod', 'Net.WebClient', 'Start-Process', 'Remove-Item', 'http://', 'https://', 'DownloadString']) assert.ok(!sc.includes(bad), bad);
+  // 外のパスは出力の1つだけ（' は二重にして PowerShell の文字に閉じ込める）
+  assert.ok(L.benchVoiceScript({ out: "C:\\a'b.wav", text: "x'y" }).includes("'C:\\a''b.wav'"));
+  assert.ok(L.BENCH_TEXT.length >= 200 && L.BENCH_TEXT.length <= 400, String(L.BENCH_TEXT.length));
+  assert.ok(!/[\r\n]/.test(L.BENCH_TEXT));
+  // switch・[ValidateSet] を使わない（PowerShell の決まり）
+  assert.ok(!/\bswitch\b|ValidateSet/.test(sc));
+});
+
+test('benchThreadCounts の表（4・6・10 と今の数。CPU の数を越える数は除く）', T, () => {
+  assert.deepStrictEqual(L.benchThreadCounts({ cpus: 12, current: 10 }), [4, 6, 10]);
+  assert.deepStrictEqual(L.benchThreadCounts({ cpus: 8, current: 6 }), [4, 6]);
+  assert.deepStrictEqual(L.benchThreadCounts({ cpus: 4, current: 4 }), [4]);
+  assert.deepStrictEqual(L.benchThreadCounts({ cpus: 16, current: 14 }), [4, 6, 10, 14]);
+  assert.deepStrictEqual(L.benchThreadCounts({ cpus: 2, current: 2 }), [2]);
+  assert.deepStrictEqual(L.benchThreadCounts({ cpus: 12, current: 'x' }), [4, 6, 10]);
+});
+
+test('benchPickThreads の表（一番速い数・同じなら今の数・次に少ない数）', T, () => {
+  const r = (a) => a.map(([threads, rtf]) => ({ threads, rtf }));
+  assert.strictEqual(L.benchPickThreads(r([[4, 0.9], [6, 0.7], [10, 0.95]]), 10), 6);
+  assert.strictEqual(L.benchPickThreads(r([[4, 0.9], [6, 0.9], [10, 0.95]]), 10), 4);
+  assert.strictEqual(L.benchPickThreads(r([[4, 0.9], [6, 0.8], [10, 0.8]]), 10), 10);
+  assert.strictEqual(L.benchPickThreads(r([[4, 1.2]]), 4), 4);
+  assert.strictEqual(L.benchPickThreads(r([[4, null], [6, 0.8]]), 4), 6, '測れなかった数は選ばない');
+  assert.strictEqual(L.benchPickThreads([], 10), 10);
+});

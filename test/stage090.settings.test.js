@@ -399,7 +399,8 @@ const CARDS = [
   ['record', 'ユーザー辞書（認識ヒント）', ['ユーザー辞書', '業務でよく使う言葉のヒントも渡す']],
   ['summary', '要約（Claude Code）', ['Claude Code', 'Claude Code の場所']],
   // 0.9.3 M-0（D54）で意図して変えた: カードの名前は「ローカル AI の設定」
-  ['offline', 'ローカル AI の設定', ['PC の中の文字起こし', 'PC の中の文字起こしを取り込む', '詳細設定']],
+  // 0.9.4 S-7（計画 docs/plans/2026-10-22-094.md の決めたこと 19〜21）で意図して変えた: 「この PC の速さ」と「軽いモデルと精度」の行
+  ['offline', 'ローカル AI の設定', ['PC の中の文字起こし', 'PC の中の文字起こしを取り込む', 'この PC の速さ', '軽いモデルと精度', '詳細設定']],
   ['update', 'アップデート', ['更新を確認']],
 ];
 // 行の名前 → その行にある入力の id（今の id のまま動かしたことを見る）
@@ -411,7 +412,7 @@ const ROW_IDS = {
   話し声が無いときに自動で止める: ['autoStopQuiet'], 知らせるまでの時間: ['autoStopMin'],
   '文字起こし後、カーソル位置へ自動貼り付け': ['autoPaste'], フィラー除去: ['removeFillers'], ユーザー辞書: ['dictionary', 'dictWarn'], 業務でよく使う言葉のヒントも渡す: ['useBuiltinTerms'],
   'Claude Code': ['claudeState', 'claudeTest', 'claudeLogin', 'claudeInstall', 'claudeHelp'], 'Claude Code の場所': ['claudeExe'], 'PC の中の文字起こし': ['engineState', 'testBtn'],
-  'PC の中の文字起こしを取り込む': ['engineFetchBtn', 'engineFetchSummary'], 詳細設定: ['localServerExe', 'sumCtx', 'engineIdleMin'], 更新を確認: ['verNow', 'chkUpdBtn', 'applyUpdBtn', 'updMsg'],
+  'PC の中の文字起こしを取り込む': ['engineFetchBtn', 'engineFetchSummary'], 'この PC の速さ': ['benchBtn', 'benchMsg', 'benchThreadsBtn'], 軽いモデルと精度: ['altFetchBtn', 'altUseBtn', 'altResetBtn', 'altCopyBtn'], 詳細設定: ['localServerExe', 'sumCtx', 'engineIdleMin'], 更新を確認: ['verNow', 'chkUpdBtn', 'applyUpdBtn', 'updMsg'],
 };
 const cardsOf = (root) => root.querySelector('#tabSettings').querySelector('.scroll').children.filter((c) => c.classList.contains('card'));
 const titleOf = (c) => c.querySelector('h2').textContent.trim();
@@ -449,7 +450,9 @@ test('SP4: カードの data-sec と見出しの並びが「設定の項目と�
 // 0.9.2 I-3 で意図して変えた: 「アカウント」「一般」「オフライン」「更新」の説明も1行にした（議事録ホットキーの「左右の Alt」は名前の下の1行へ・ログインの
 // 2つの説明は1行と吹き出しへ: 説明 20 → 18。I-2 の値は c1ab8733…・bbc9b31d…）
 // 0.9.3 M-4 で意図して変えた: カード「会議の検出」の label を3つ足した（名前の label for・トグルを包む label.check・通知を出さないアプリの名前。34 → 37。前の値は e1329af4…）
-const TEXTS_080 = { labels: [37, '38f5bece35ad38c1f2bb5a0ca76c871476d80df7112fe907f907cdb0fefd5002'], descs: [18, 'ce9122946c75b8ee9f4ab660dce671e2feadcab72746c71b75d90527b913ed46'] };
+// 0.9.4 S-7（決めたこと 19〜21）で意図して変えた: カード「オフライン」に行「この PC の速さ」の名前の label を足した（37 → 38。「軽いモデルと精度」は details の summary で label でない。前の値は 38f5bece…）。
+// 説明は「この PC の速さ」の1行・表の出典・手の組のパスの案内（ボタンの文が入る）の3つを足した（18 → 21。前の値は ce912294…）
+const TEXTS_080 = { labels: [38, 'aece3396b99692618dbf1f4db27a00b138239753f6b56ccf162caab8ccd71adc'], descs: [21, '714bfdc45b871b22de31f2a03344a813a56cd1d30315bba468f2ac3cb06eaca0'] };
 test('SP4: 動かした入力の id が全部あり、その行の中にある。文が 0.8.0 と同じ（label の文・.check の文・説明の文）', T, () => {
   const sec = doc.querySelector('#tabSettings');
   for (const [name, ids] of Object.entries(ROW_IDS)) {

@@ -869,3 +869,45 @@ test('組がそろうたびに THIRD-PARTY-NOTICES.txt を書き直す。書け�
     assert.ok(lines.some((s) => s.includes('ライセンスの写し')), lines.join('\n'));
   } finally { await set.close(); }
 });
+
+// ---------------------------------------------------------------- 0.9.4 S-7（決めたこと 21）: 軽いモデル（ALT_MODELS）の取り込みと片付けの除外
+test('S14: cleanupOld は ALT_MODELS の記録とファイルを消さない（前の版の記録は今どおり消す）', { timeout: 5000 }, async () => {
+  const { ALT_MODELS } = require('../src/engine-manifest');
+  const home = homeOf();
+  fs.mkdirSync(path.join(home.root, 'models'), { recursive: true });
+  const alt = ALT_MODELS[0];
+  fs.writeFileSync(path.join(home.root, 'models', 'ggml-medium-q5_0.bin'), 'x');
+  fs.writeFileSync(path.join(home.root, 'models', 'old-model.bin'), 'x');
+  const inst = { schema: 1, consent: true, userPaused: false, active: { whisper: null, sum: null }, items: {
+    [alt.sha256]: { id: alt.id, role: 'model', place: alt.dest, size: alt.size, mtimeMs: 0 },
+    ['a'.repeat(64)]: { id: 'whisper-model', role: 'model', place: 'models/old-model.bin', size: 1, mtimeMs: 0 },
+  } };
+  I.writeInstalled(path.join(home.root, 'installed.json'), inst);
+  const r = await I.cleanupOld(home, MANIFEST, I.readInstalled(path.join(home.root, 'installed.json')), { canDelete: () => true });
+  assert.deepStrictEqual(r.removed, ['models/old-model.bin']);
+  assert.ok(fs.existsSync(path.join(home.root, 'models', 'ggml-medium-q5_0.bin')), '軽いモデルを消した');
+  assert.ok(I.readInstalled(path.join(home.root, 'installed.json')).items[alt.sha256], '軽いモデルの記録を消した');
+  assert.strictEqual(I.altModelFile(home, 'medium'), path.join(home.root, 'models', 'ggml-medium-q5_0.bin'));
+  assert.strictEqual(I.altModelFile(home, 'large'), null);
+  assert.strictEqual(I.altModelFile({ supported: false, root: null }, 'medium'), null);
+});
+
+test('軽いモデルの取り込み（installAlt）は置き場所に置いて記録し、SHA-256 が違えば置かない', IO_WAIT, async () => {
+  const { startServers } = require('./helpers/range-server');
+  const { fakeRequest } = require('./helpers/fake-net');
+  const crypto = require('node:crypto');
+  const body = crypto.randomBytes(200000);
+  const s = await startServers({ body, script: [] });
+  try {
+    const pin = (sha) => ({ id: 'whisper-model-medium', group: 'whisper', kind: 'file', role: 'model', alt: 'medium', url: s.originUrl, size: body.length, sha256: sha, dest: 'models/ggml-medium-q5_0.bin' });
+    const home = homeOf();
+    const opts = { request: fakeRequest, sleep: async () => {}, requireHttps: false, headerTimeoutMs: 2000, stallMs: 300 };
+    await assert.rejects(I.installAlt(home, pin('b'.repeat(64)), opts), (e) => e.code === 'hash');
+    assert.ok(!fs.existsSync(path.join(home.root, 'models', 'ggml-medium-q5_0.bin')), 'SHA-256 の違うファイルを置いた');
+    const good = crypto.createHash('sha256').update(body).digest('hex');
+    const rec = await I.installAlt(home, pin(good), opts);
+    assert.deepStrictEqual([rec.id, rec.place, rec.size], ['whisper-model-medium', 'models/ggml-medium-q5_0.bin', body.length]);
+    assert.ok(fs.readFileSync(path.join(home.root, 'models', 'ggml-medium-q5_0.bin')).equals(body));
+    assert.ok(I.readInstalled(path.join(home.root, 'installed.json')).items[good]);
+  } finally { await s.close(); }
+});

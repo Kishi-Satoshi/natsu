@@ -69,3 +69,19 @@ test('ピン: hostOf は画面の「取得元」の欄のホスト名を返し�
   assert.deepStrictEqual(MANIFEST.items.map((i) => hostOf(i.url)), ['github.com', 'huggingface.co', 'huggingface.co', 'github.com', 'huggingface.co']);
   assert.strictEqual(hostOf('not a url'), '');
 });
+
+// 0.9.4 S-7（決めたこと 21・持ち主の答え Q7）: 軽いモデル（medium）は取り込みの組（items）の外の ALT_MODELS に1つ
+const { ALT_MODELS } = require('../src/engine-manifest');
+test('ALT_MODELS は凍っていて、版を固めた Hugging Face の URL・大きさ・SHA-256・models/ の置き場所。items の並びと合計は今のまま', () => {
+  assert.ok(Object.isFrozen(ALT_MODELS) && Object.isFrozen(ALT_MODELS[0]));
+  assert.deepStrictEqual(ALT_MODELS.map((a) => a.id), ['whisper-model-medium']);
+  const a = ALT_MODELS[0];
+  const turbo = MANIFEST.items.find((i) => i.id === 'whisper-model');
+  assert.strictEqual(a.url, turbo.url.replace('ggml-large-v3-turbo-q5_0.bin', 'ggml-medium-q5_0.bin'), '今のピンと同じ commit でない');
+  assert.match(a.url, /^https:\/\/huggingface\.co\/ggerganov\/whisper\.cpp\/resolve\/[0-9a-f]{40}\/ggml-medium-q5_0\.bin$/);
+  assert.deepStrictEqual([a.size, a.sha256, a.dest, a.group, a.kind, a.role, a.alt], [539212467, '19fea4b380c3a618ec4723c3eef2eb785ffba0d0538cf43f8f235e7b3b34220f', 'models/ggml-medium-q5_0.bin', 'whisper', 'file', 'model', 'medium']);
+  assert.ok(!MANIFEST.items.some((i) => i.id === a.id || i.sha256 === a.sha256 || i.dest === a.dest), '軽いモデルを取り込みの組に入れた');
+  assert.deepStrictEqual(MANIFEST.items.map((i) => i.id), ['whisper-engine', 'whisper-vad', 'whisper-model', 'sum-engine', 'sum-model']);
+  assert.strictEqual(totalBytes(), 5580564403);
+  assert.strictEqual(totalBytes(itemsOf('whisper')), 583854933);
+});

@@ -168,6 +168,10 @@
   .adv summary { cursor: pointer; font-size: 12px; color: var(--muted); margin-bottom: 4px; }
   .adv summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   .adv h3 { font-size: 12px; font-weight: 600; color: var(--muted); margin: 16px 0 10px; }
+  /* 0.9.4 S-7: 軽いモデルと精度の表 */
+  .alttable { border-collapse: collapse; font-size: 12px; margin: 6px 0; }
+  .alttable th, .alttable td { text-align: left; padding: 3px 8px 3px 0; vertical-align: top; }
+  .alttable th { font-weight: 600; white-space: nowrap; }
   /* 「PC の中の文字起こし：使えます／使えません」（第1d回 A-13・D19）。詳細設定を閉じたままでも見える */
   .eng-state { font-size: 12px; font-weight: 600; color: var(--muted); }
   .eng-state.ok { color: var(--ok); }
@@ -1241,6 +1245,46 @@
               <div class="desc save-msg" id="engineFetchMsg"></div>
               <details class="adv" id="engineFetchList"><summary>取り込むもの（取得元・版・SHA-256・置き場所）</summary><div id="engineFetchRows"></div></details>
             </div>
+            <!-- 0.9.4 S-7（決めたこと 19〜22・持ち主の答え Q6・Q9）: この PC の速さ（測った結果の文と勧めは main の文をそのまま出す）と軽いモデル -->
+            <div class="field" id="benchRow" data-row="この PC の速さ">
+              <label>この PC の速さ</label>
+              <div class="desc">会議中に PC で文字起こしが追いつくかを測ります（音声は外へ送りません）。<button type="button" class="setinfo" aria-expanded="false" aria-controls="setPopBench" aria-label="「この PC の速さ」の説明"><svg viewBox="0 0 20 20" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="10" cy="10" r="7"/><path d="M10 9v4.5M10 6.3h.01"/></svg></button></div>
+              <div class="setpop" id="setPopBench" hidden>
+                <span class="setpop-arrow" aria-hidden="true"></span>
+                <div class="setpop-body">
+                  <ul>
+                    <li>Windows の読み上げで作った約 30 秒の日本語を、この PC の文字起こしで1回処理する時間を測ります。音声と結果の文字は残さず、外へ送りません。</li>
+                    <li>スレッドの数（4・6・10）ごとに測り、一番速い数を勧めます（自動では替えません）。</li>
+                    <li>会議中は会議のアプリの分だけ遅くなります。</li>
+                  </ul>
+                </div>
+                <div class="setpop-foot"><button type="button" class="setpop-help" data-help="settings/offline">ヘルプで詳しく見る ↗</button><span class="setpop-esc">Esc で閉じる</span></div>
+              </div>
+              <div class="row" style="display:flex;gap:8px;flex-wrap:wrap;margin-top:6px">
+                <button class="ghost" id="benchBtn" type="button">速さを測る（約 3 分）</button>
+              </div>
+              <div class="desc save-msg" id="benchMsg"></div>
+              <div class="row" id="benchThreadsRow" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center" hidden>
+                <span class="desc save-msg" id="benchThreadsText"></span>
+                <button class="ghost" id="benchThreadsBtn" type="button"></button>
+              </div>
+            </div>
+            <details class="adv" id="altBox" data-row="軽いモデルと精度">
+              <summary>軽いモデルと精度</summary>
+              <table class="alttable">
+                <tr><th>今のモデル large-v3-turbo（574 MB）</th><td>取り込みの組のモデル</td></tr>
+                <tr><th>medium（539 MB）</th><td>計算は約半分。日本語の誤りは読み上げで約 1.3 倍、会議のような話し声で約 2 倍</td></tr>
+                <tr><th>small（190 MB）</th><td>計算は約 7 分の 1。誤りは約 2〜3 倍（勧めません）</td></tr>
+              </table>
+              <div class="desc">出典: kotoba-whisper のモデルカードの表</div>
+              <div class="row" style="display:flex;gap:8px;flex-wrap:wrap;margin-top:6px">
+                <button class="ghost" id="altFetchBtn" type="button">軽いモデルを取り込む（539 MB）</button>
+                <button class="ghost" id="altUseBtn" type="button" hidden>軽いモデルを使う</button>
+                <button class="ghost" id="altResetBtn" type="button" hidden>元のモデルに戻す</button>
+              </div>
+              <div class="desc save-msg" id="altManual" hidden><span id="altManualText"></span> <button class="ghost" id="altCopyBtn" type="button">パスを写す</button></div>
+              <div class="desc save-msg" id="altMsg"></div>
+            </details>
             <details class="adv" id="engineAdv" data-row="詳細設定">
               <summary>詳細設定</summary>
               <h3>文字起こし（whisper.cpp・オフライン）</h3>
@@ -4074,6 +4118,69 @@
     box.hidden = false;
   }
 
+  // 0.9.4 S-7: この PC の速さと軽いモデル（文は main が作る。画面は出すだけ）
+  let benchRecommend = null;
+  $('benchBtn').onclick = async () => {
+    if (typeof window.koeApp.benchLocal !== 'function') return;
+    $('benchBtn').disabled = true;
+    $('benchMsg').textContent = '測っています…'; $('benchMsg').className = 'desc save-msg';
+    $('benchThreadsRow').hidden = true;
+    let r;
+    try { r = await window.koeApp.benchLocal(); } catch (_) { r = null; }
+    $('benchBtn').disabled = false;
+    if (!r || r.ok !== true) { $('benchMsg').textContent = (r && r.error) || '速さを測れませんでした。'; $('benchMsg').className = 'desc save-msg ng'; return; }
+    $('benchMsg').textContent = r.text;
+    if (r.verdict === 'slow') $('altBox').open = true;
+    benchRecommend = r.recommend && Number.isInteger(r.recommend.threads) ? r.recommend : null;
+    if (benchRecommend) {
+      $('benchThreadsText').textContent = benchRecommend.text;
+      $('benchThreadsBtn').textContent = benchRecommend.button;
+      $('benchThreadsRow').hidden = false;
+    }
+  };
+  $('benchThreadsBtn').onclick = async () => {
+    if (!benchRecommend) return;
+    const n = benchRecommend.threads;
+    let r;
+    try { r = await window.koeApp.applyBenchThreads(n); } catch (_) { r = null; }
+    if (r && r.ok) {
+      $('benchThreadsRow').hidden = true;
+      $('benchMsg').textContent = `スレッドの数を ${n} にしました。`;
+      if (settings) settings.localThreads = n;
+      if ($('localThreads')) $('localThreads').value = String(n);
+    }
+  };
+  async function refreshAlt() {
+    if (typeof window.koeApp.altModelStatus !== 'function') return;
+    let s;
+    try { s = await window.koeApp.altModelStatus(); } catch (_) { return; }
+    if (!s) return;
+    $('altFetchBtn').hidden = !s.supported || s.fetched;
+    $('altUseBtn').hidden = !s.fetched || s.manual || s.using;
+    $('altResetBtn').hidden = !s.using;
+    $('altManual').hidden = !(s.manual && s.path);
+    $('altManualText').textContent = s.manual && s.path ? `詳細設定の『モデルファイル（ggml-*.bin）のパス』を次のファイルに替えてください: ${s.path}` : '';
+    $('altCopyBtn').dataset.path = s.path || '';
+  }
+  $('altFetchBtn').onclick = async () => {
+    $('altFetchBtn').disabled = true;
+    $('altMsg').textContent = '取り込んでいます…';
+    let r;
+    try { r = await window.koeApp.fetchAltModel(); } catch (_) { r = null; }
+    $('altFetchBtn').disabled = false;
+    $('altMsg').textContent = r && r.ok ? '軽いモデルを取り込みました。' : ((r && r.error) || '軽いモデルを取り込めませんでした。');
+    refreshAlt();
+  };
+  const altUse = async (on) => {
+    let r;
+    try { r = await window.koeApp.useAltModel(on); } catch (_) { r = null; }
+    $('altMsg').textContent = r && r.ok ? (on ? '軽いモデルを使います。' : '元のモデルに戻しました。') : ((r && r.error) || '');
+    refreshAlt();
+  };
+  $('altUseBtn').onclick = () => altUse(true);
+  $('altResetBtn').onclick = () => altUse(false);
+  $('altCopyBtn').onclick = async () => { const t = $('altCopyBtn').dataset.path; if (t) { await window.koeApp.copy(t); toast('パスを写しました'); } };
+
   async function refreshEngineFetch() {
     if (typeof window.koeApp.engineFetchStatus !== 'function') return;   // 古い preload
     let s;
@@ -4545,6 +4652,7 @@
     settingsLoaded = true;   // ここを通るまで save() は書き込まない
     refreshVad();
     await refreshEngineFetch();   // 取り込みの欄を先に描く（エンジンが要確認のとき、どちらの欄を見せるかがこれで決まる。第0b回）
+    refreshAlt();   // 0.9.4 S-7
     const engineStateP = refreshEngineState();   // 起動の連れて行きは、この答え（chosen）を待ってから決める
     refreshHotkeyState();
     refreshPromptInfo();

@@ -1984,6 +1984,62 @@ function relayHoldStep(st, { code, now } = {}) {
   return { st: { run: n, at: now }, holdMs: n >= 2 ? RELAY_HOLD_LADDER_MS[Math.min(n - 2, RELAY_HOLD_LADDER_MS.length - 1)] : 0 };
 }
 
+// ---------------------------------------------------------------- 0.9.4 S-7（決めたこと 19〜22・持ち主の答え Q6・Q9）: ［ローカル AI の設定］の「この PC の速さ」
+// 読み上げる決まった文（業務の会話の例。Windows の日本語の声で約 30 秒）。文字起こしの結果は捨てる（画面にも記録にも出さない）
+const BENCH_TEXT = 'それでは定例の打ち合わせを始めます。まず先週の進捗の確認です。新しい受付の画面は、予定どおり今週の水曜日に試験の環境へ出しました。'
+  + '利用者からの問い合わせは三件で、どれも操作の説明で解決しています。次に来月の展示会の準備です。資料の下書きは鈴木さんが金曜日までにまとめ、'
+  + '見積もりは山田さんが取引先に確認します。予算は前回の会議で決めた範囲の中に収まる見込みです。最後に、来週の打ち合わせは祝日のため木曜日の午後に移します。'
+  + 'ほかに確認しておきたいことがあれば、今のうちにお願いします。特になければ、今日はここまでにします。';
+/**
+ * Windows の読み上げで text を out（16kHz・モノラル・16 ビットの WAV）に書く PowerShell の1つの文字列（-NoProfile -NonInteractive -Command で渡す）。
+ * 日本語（ja-JP）の声が無ければ書かずに novoice の1行、書けたら ok の1行。通信しない・out のほかのファイルを触らない（消すのは main）
+ */
+function benchVoiceScript({ out, text } = {}) {
+  return [
+    "$ErrorActionPreference = 'Stop'",
+    'Add-Type -AssemblyName System.Speech',
+    '$s = New-Object System.Speech.Synthesis.SpeechSynthesizer',
+    "$v = $s.GetInstalledVoices() | Where-Object { $_.Enabled -and $_.VoiceInfo.Culture.Name -eq 'ja-JP' } | Select-Object -First 1",
+    "if ($null -eq $v) { $s.Dispose(); [Console]::Out.WriteLine('novoice'); exit 0 }",
+    '$s.SelectVoice($v.VoiceInfo.Name)',
+    '$fmt = New-Object System.Speech.AudioFormat.SpeechAudioFormatInfo(16000, [System.Speech.AudioFormat.AudioBitsPerSample]::Sixteen, [System.Speech.AudioFormat.AudioChannel]::Mono)',
+    `$s.SetOutputToWaveFile(${psq(out)}, $fmt)`,
+    `$s.Speak(${psq(text)})`,
+    '$s.SetOutputToNull()',
+    '$s.Dispose()',
+    "[Console]::Out.WriteLine('ok')",
+  ].join('\n');
+}
+/** 測った速さ（会議の外）→ 'ok'（0.5 以下）| 'maybe'（1.0 以下）| 'slow' */
+function benchVerdict(r) {
+  return r <= 0.5 ? 'ok' : r <= 1.0 ? 'maybe' : 'slow';
+}
+/** 結果の文（決めたこと 20）。30 秒の音声にかかる秒と倍 */
+function benchResultText(r) {
+  const head = `30 秒の音声に ${Math.round(30 * r)} 秒（${r.toFixed(2)} 倍）。`;
+  const v = benchVerdict(r);
+  if (v === 'ok') return `${head}会議中も PC で文字起こしできます。`;
+  if (v === 'maybe') return `${head}会議中は追いつけないことがあります。追いつけないときは音声を残し、会議の後で文字起こしします。`;
+  return `${head}この PC では会議中に追いつけません。会議中は音声を残し、会議の後で文字起こしします。会議中も文字にしたいときは、軽いモデルに替えられます（精度は下がります）。`;
+}
+// 比べるスレッドの数（Q9）。この PC の論理 CPU の数を越える数は除き、今の設定の数は必ず入れる
+const BENCH_THREADS = Object.freeze([4, 6, 10]);
+function benchThreadCounts({ cpus, current } = {}) {
+  const max = Number.isInteger(cpus) && cpus > 0 ? cpus : 4;
+  const set = new Set(BENCH_THREADS.filter((n) => n <= max));
+  if (Number.isInteger(current) && current > 0) set.add(current);
+  if (!set.size) set.add(Math.min(4, max));
+  return [...set].sort((a, b) => a - b);
+}
+/** results: [{ threads, rtf }] → 一番速い数（同じ速さなら今の数、次に少ない数）。測れた数が無ければ今の数 */
+function benchPickThreads(results, current) {
+  const ok = (Array.isArray(results) ? results : []).filter((x) => x && Number.isInteger(x.threads) && Number.isFinite(x.rtf));
+  if (!ok.length) return current;
+  const best = Math.min(...ok.map((x) => x.rtf));
+  const top = ok.filter((x) => x.rtf === best).map((x) => x.threads);
+  return top.includes(current) ? current : Math.min(...top);
+}
+
 module.exports = {
   saveIfExists, meetingDurationSec, promptTail,
   registerHotkeys, hotkeyFailureMessage, hotkeyStatus, resolveStartupHotkeys, saveHotkeys,
@@ -2019,4 +2075,6 @@ module.exports = {
   NUDGE_EDGE, NUDGE_PAD, NUDGE_FIRST, nudgeBounds, LEVEL_ASK_MS, LEVEL_WARNS, levelMsg,
   // 0.9.4 S-1（文字起こしの安定化）
   localFailKind, effRtf, PACE, paceStep, paceSaved, localTimeoutMs, LOCAL_SEGMENT_MS_CAP, afterEtaMin, RELAY_TRANSIENT, RELAY_HOLD_LADDER_MS, relayHoldStep,
+  // 0.9.4 S-7（速さを測る）
+  BENCH_TEXT, benchVoiceScript, benchVerdict, benchResultText, BENCH_THREADS, benchThreadCounts, benchPickThreads,
 };

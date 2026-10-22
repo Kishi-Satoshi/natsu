@@ -228,7 +228,8 @@ test('設計 B: 実行ファイルとモデルが両方空の側だけ、取り�
   const m = code(read('src/main.js'));
   assert.ok(m.includes('const manualGroup = (e) => (e === whisperEng ? Boolean(settings.localServerExe || settings.localModelPath) : Boolean(settings.sumServerExe || settings.sumModelPath));'));
   assert.ok(m.includes("const engineExe = (e) => (manualGroup(e) ? (e === whisperEng ? settings.localServerExe : settings.sumServerExe) : managedFile(e, 'exe'));"));
-  assert.ok(m.includes("const engineModel = (e) => (manualGroup(e) ? (e === whisperEng ? settings.localModelPath : settings.sumModelPath) : managedFile(e, 'model'));"));
+  // 0.9.4 S-7（決めたこと 21）で意図して直した: 取り込んだ組の PC で軽いモデルを選んだら、文字起こしのモデルだけを取り込んだ軽いモデルにする（手の組は今のまま）
+  assert.ok(m.includes("const engineModel = (e) => (manualGroup(e) ? (e === whisperEng ? settings.localModelPath : settings.sumModelPath)\n  : ((e === whisperEng && altModelPath()) || managedFile(e, 'model')));"));
 });
 test('設計 B: VAD の自動の発見・kotoba の判定・-m は engineModel から（取り込んだモデルでも効く）', () => {
   const m = code(read('src/main.js'));

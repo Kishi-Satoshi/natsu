@@ -10,6 +10,7 @@ const test = require('node:test');
 const assert = require('node:assert');
 const path = require('node:path');
 const { execScene, sceneTimeout } = require('./helpers/scene-slots');
+const lib = require('../src/mainlib');
 
 const RUN = path.join(__dirname, 'helpers', 'mainrun.js');
 const run = (args, { scale = '0.005', env = {} } = {}) => new Promise((resolve, reject) => {
@@ -295,4 +296,87 @@ test('S5: 遅い PC で中継の間が空いている間の区間は kept', T, a
   const o = await run(['text', '--relay-seq=55c', `--pace=${JSON.stringify({ schema: 1, model: 'same', rtf: 1.6, slow: true, at: 'now-1', from: 'live' })}`], { scale: '1' });
   assert.ok(o.engineLog.includes('文字起こしの経路: 区間 s3 → 遅い PC のため音声を残した（relay-hold）'), o.engineLog.join('\n'));
   assert.strictEqual(sttPosts(o), 2);
+});
+
+// ---------------------------------------------------------------- S-7（決めたこと 19〜22・持ち主の答え Q6・Q9）: 速さを測る・軽いモデル
+// 偽の読み上げ（mainrun の --bench）と、-t の数ごとに遅れの違う偽のエンジン（FAKE_DELAY_BY_T）。尺度 0.01 なら 300 ミリ秒が 30 秒（1.00 倍）
+const benchEnv = { FAKE_DELAY_BY_T: '4:360,6:240,10:300' };
+const tArgs = (o) => whisperSpawns(o).map((s) => s.args[s.args.indexOf('-t') + 1]);
+
+test('Q9: 速さを測るとスレッドの数ごとに同じ WAV を1回ずつ送り（偽の spawn の -t が 4・6・10）、数ごとの速さと勧める数を返す。設定は替えない。［スレッドの数を N にする］で localThreads を書き、エンジンを起こし直す', T, async () => {
+  const [o, noApply] = await Promise.all([
+    run(['delay', '--idle', '--cpus=12', '--bench=ok', '--bench-apply'], { scale: '0.01', env: benchEnv }),
+    run(['delay', '--idle', '--cpus=12', '--bench=ok'], { scale: '0.01', env: benchEnv }),
+  ]);
+  // 押さなければ設定は替えない（勧めるだけ）
+  assert.strictEqual(noApply.bench.recommend && noApply.bench.recommend.threads, 6, JSON.stringify(noApply.bench));
+  assert.strictEqual(noApply.settingsAfter.localThreads === undefined ? 10 : noApply.settingsAfter.localThreads, 10, '測っただけでスレッドの数を替えた');
+  assert.strictEqual(o.bench.ok, true, JSON.stringify(o.bench));
+  assert.deepStrictEqual(o.bench.threads.map((r) => r.threads), [4, 6, 10]);
+  assert.ok(o.bench.threads[1].rtf < o.bench.threads[2].rtf && o.bench.threads[2].rtf < o.bench.threads[0].rtf, JSON.stringify(o.bench.threads));
+  assert.deepStrictEqual(o.bench.recommend && [o.bench.recommend.threads, o.bench.recommend.button], [6, 'スレッドの数を 6 にする']);
+  assert.match(o.bench.recommend.text, /^スレッドの数を 6 にすると速くなります（\d\.\d\d 倍 → \d\.\d\d 倍）。$/);
+  assert.strictEqual(o.bench.text, lib.benchResultText(o.bench.rtf));
+  // 同じ WAV を数ごとに1回（2 秒の無音の温めは別）
+  assert.strictEqual(infer(o), 3, JSON.stringify(o.requests));
+  // 起動の先読み（今の設定の 10）の後に 4・6・10 の順で起こし直し、押した後に 6 で起こし直す
+  assert.ok(tArgs(o).join(',').includes('4,6,10,6'), JSON.stringify(tArgs(o)));
+  // 押した後に書いた: localThreads は 6、エンジンは 6 で起こし直した
+  assert.deepStrictEqual(o.benchApply, { ok: true, threads: 6 });
+  assert.strictEqual(o.settingsAfter.localThreads, 6);
+  assert.ok(o.engineLog.some((l) => /^速さを測った: 音声 30 秒・スレッド 4 は \d\.\d\d 倍・スレッド 6 は \d\.\d\d 倍・スレッド 10 は \d\.\d\d 倍（勧める数 6）$/.test(l)), o.engineLog.join('\n'));
+});
+
+test('S15: local:bench は偽の読み上げの WAV を数ごとに 1 回だけ偽のエンジンへ送り、effRtf と文を返し、一時ファイルを消し、結果の文字を返さない・engine.log に数だけ', T, async () => {
+  const o = await run(['delay', '--idle', '--bench=ok'], { scale: '0.01', env: { FAKE_DELAY_MS: '300' } });
+  assert.strictEqual(o.bench.ok, true, JSON.stringify(o.bench));
+  assert.deepStrictEqual(Object.keys(o.bench).sort(), ['ok', 'recommend', 'rtf', 'text', 'threads', 'verdict']);
+  assert.ok(!JSON.stringify(o.bench).includes('本日の議題'), '結果の文字を返した');
+  assert.strictEqual(o.benchSpawns.length, 1);
+  assert.ok(!o.files.some((f) => /natsu-bench/.test(f)), `一時ファイルが残った: ${o.files}`);
+  assert.ok(o.benchSpawns[0].script.includes('SetOutputToWaveFile('));
+  assert.ok(!o.engineLog.some((l) => /本日の議題|natsu-bench|それでは定例/.test(l)), o.engineLog.join('\n'));
+  // 覚えに from: bench で書く（1.0 倍の前後は前のまま。覚えが無ければ遅いでない）
+  const j = JSON.parse(o.paceFile);
+  assert.strictEqual(j.from, 'bench');
+});
+
+test('覚えに from: bench で書き、0.6 以下なら slow を外す', T, async () => {
+  const o = await run(['delay', '--idle', '--bench=ok', `--pace=${JSON.stringify({ schema: 1, model: 'same', rtf: 1.6, slow: true, at: 'now-1', from: 'live' })}`], { scale: '0.01', env: { FAKE_DELAY_MS: '120' } });
+  assert.strictEqual(o.bench.verdict, 'ok', JSON.stringify(o.bench));
+  const j = JSON.parse(o.paceFile);
+  assert.deepStrictEqual([j.from, j.slow], ['bench', false]);
+});
+
+test('録音中・会議の後の文字起こしの途中は断る。日本語の声が無ければ novoice の文', T, async () => {
+  const o = await run(['text', '--idle', '--bench=novoice']);
+  assert.deepStrictEqual(o.bench, { ok: false, code: 'novoice', error: '日本語の読み上げの声が無いため、測れませんでした。会議で使ったときの速さで判断します。' });
+  assert.strictEqual(infer(o), 0);
+  const src = require('node:fs').readFileSync(require('node:path').join(__dirname, '..', 'src', 'main.js'), 'utf8');
+  const body = src.slice(src.indexOf('async function runBench('), src.indexOf('\n}\n', src.indexOf('async function runBench(')));
+  assert.ok(body.includes("if (benchRunning || state !== 'idle' || recoveryRunning || isSummarizing() || pendingSegs > 0) return { ok: false, code: 'busy', error: BENCH_REFUSE_TEXT };"));
+  assert.ok(src.includes("const BENCH_REFUSE_TEXT = '録音と文字起こしが終わってから測ってください。';"));
+});
+
+test('S13: 測った結果が遅くても localModelAlt も手のパスも変わらない', T, async () => {
+  const o = await run(['delay', '--idle', '--bench=ok'], { scale: '0.01', env: { FAKE_DELAY_MS: '600' } });
+  assert.strictEqual(o.bench.verdict, 'slow', JSON.stringify(o.bench));
+  assert.strictEqual(o.settingsAfter.localModelAlt || '', '');
+  assert.ok(/ggml-fake\.bin$/.test(o.settingsAfter.localModelPath), o.settingsAfter.localModelPath);
+});
+
+test('local:alt-use(true) は取り込んだ組の PC で localModelAlt を medium にし、whisper を medium のファイルで起こし直す（偽の spawn の -m）。手の組の PC では断り、手のパスを書かない', T, async () => {
+  const [managed, manual] = await Promise.all([
+    run(['text', '--idle', '--managed', '--alt-file', '--alt-use=true']),
+    run(['text', '--idle', '--alt-file', '--alt-use=true']),
+  ]);
+  assert.strictEqual(managed.altUse.ok, true, JSON.stringify(managed.altUse));
+  assert.strictEqual(managed.settingsAfter.localModelAlt, 'medium');
+  const last = whisperSpawns(managed).pop();
+  assert.ok(last && /ggml-medium-q5_0\.bin$/.test(last.args[last.args.indexOf('-m') + 1]), JSON.stringify(managed.spawns));
+  assert.deepStrictEqual([managed.altStatus.using, managed.altStatus.fetched, managed.altStatus.manual], [true, true, false]);
+  assert.match(managed.altStatus.path, /^%LOCALAPPDATA%\\natsu\\engine\\models\\ggml-medium-q5_0\.bin$/);
+  assert.deepStrictEqual([manual.altUse.ok, manual.altUse.manual], [false, true]);
+  assert.strictEqual(manual.settingsAfter.localModelAlt || '', '');
+  assert.ok(/ggml-fake\.bin$/.test(manual.settingsAfter.localModelPath), '手のパスを書き換えた');
 });

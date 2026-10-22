@@ -283,8 +283,10 @@ test('設定: エンジンの細かい設定は閉じた「詳細設定」の中
   const outside = desc(card).filter((e) => e.id && !e.closest('#engineAdv')).map((e) => e.id);
   // engineNote はモデルの勧め（kotoba のとき。0.1.1）。注意の一つ。engineFetch… と engineDirBtn は取り込みの欄（第0b回 Task 15）
   // 0.9.2 I-3 で意図して変えた: カードの頭の説明の ⓘ の吹き出し（setPopOffline）も外にある（説明なので、閉じた詳細設定の中に入れない）
-  assert.deepStrictEqual(outside.sort(), ['engineDirBtn', 'engineFetch', 'engineFetchBar', 'engineFetchBtn', 'engineFetchCopy', 'engineFetchList',
-    'engineFetchMsg', 'engineFetchPause', 'engineFetchRows', 'engineFetchSummary', 'engineFetchSwitch', 'engineNote', 'engineState', 'setPopOffline', 'testBtn', 'testMsg', 'testSumMsg']);
+  // 0.9.4 S-7 で意図して変えた: 「この PC の速さ」（benchRow…）と「軽いモデルと精度」（altBox…）も外にある（測る・取り込むのボタンは詳細設定の外）
+  assert.deepStrictEqual(outside.sort(), ['altBox', 'altCopyBtn', 'altFetchBtn', 'altManual', 'altManualText', 'altMsg', 'altResetBtn', 'altUseBtn',
+    'benchBtn', 'benchMsg', 'benchRow', 'benchThreadsBtn', 'benchThreadsRow', 'benchThreadsText', 'engineDirBtn', 'engineFetch', 'engineFetchBar', 'engineFetchBtn', 'engineFetchCopy', 'engineFetchList',
+    'engineFetchMsg', 'engineFetchPause', 'engineFetchRows', 'engineFetchSummary', 'engineFetchSwitch', 'engineNote', 'engineState', 'setPopBench', 'setPopOffline', 'testBtn', 'testMsg', 'testSumMsg']);
   assert.ok(card.querySelectorAll('.lockNote').some((n) => !n.closest('#engineAdv')), '記録中の理由が閉じた中にしか無い');
 });
 

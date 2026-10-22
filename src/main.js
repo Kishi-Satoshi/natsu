@@ -836,7 +836,7 @@ function engineSpawnArgs(eng) {
       '-m', engineModel(eng),
       '--host', '127.0.0.1',
       '--port', String(settings.localPort),
-      '-t', String(settings.localThreads),
+      '-t', String(benchThreads || settings.localThreads),   // 0.9.4 S-7: 速さを測る間だけ比べる数
       '-l', settings.language === 'auto' ? 'auto' : settings.language,
     ];
     if (settings.suppressNst) args.push('-sns');
@@ -861,7 +861,15 @@ function engineSpawnArgs(eng) {
 const manualGroup = (e) => (e === whisperEng ? Boolean(settings.localServerExe || settings.localModelPath) : Boolean(settings.sumServerExe || settings.sumModelPath));
 const managedFile = (e, k) => { const g = managed[e === whisperEng ? 'whisper' : 'sum']; return (g && g[k]) || ''; };
 const engineExe = (e) => (manualGroup(e) ? (e === whisperEng ? settings.localServerExe : settings.sumServerExe) : managedFile(e, 'exe'));
-const engineModel = (e) => (manualGroup(e) ? (e === whisperEng ? settings.localModelPath : settings.sumModelPath) : managedFile(e, 'model'));
+// 0.9.4 S-7（決めたこと 21）: 取り込んだ組の PC で軽いモデルを選んだ（settings.localModelAlt）ら、文字起こしのモデルだけをそのファイルにする
+// （取り込んで SHA-256 を照らしたファイルがあるときだけ。手の組の PC は手のパスのまま: K7）
+const altModelPath = () => {
+  if (!settings.localModelAlt) return null;
+  const f = engineInstall.altModelFile(ENGINE_HOME, settings.localModelAlt);
+  return f && fs.existsSync(f) ? f : null;
+};
+const engineModel = (e) => (manualGroup(e) ? (e === whisperEng ? settings.localModelPath : settings.sumModelPath)
+  : ((e === whisperEng && altModelPath()) || managedFile(e, 'model')));
 const enginePort = (e) => (e === whisperEng ? settings.localPort : settings.sumPort);
 const engineConfigured = (e) => Boolean(engineExe(e) && engineModel(e));
 // 実行ファイルとモデルは「あるか」だけでなく中身まで見る（#32。判断は mainlib.engineFileIssue）。
@@ -980,7 +988,7 @@ function managedRuntimeIssue() {
 
 function engineSignature(eng) {
   return [engineExe(eng), engineModel(eng), enginePort(eng),
-    eng === whisperEng ? settings.localThreads : settings.sumThreads,
+    eng === whisperEng ? (benchThreads || settings.localThreads) : settings.sumThreads,
     eng === whisperEng ? settings.language : '',
     eng === whisperEng ? `${settings.useVad ? resolveVadModel() : ''}|${settings.suppressNst}` : '',
     eng === whisperEng ? '' : settings.sumCtx].join('|');   // 文脈長を変えたら要約エンジンを起動し直す（#41）
@@ -1445,6 +1453,108 @@ function pacedRtf() {
   if (!saved || !model || !saved.model || saved.model.name !== model.name || saved.model.size !== model.size) return null;
   return Number.isFinite(saved.rtf) ? saved.rtf : null;
 }
+// ---- 0.9.4 S-7（決めたこと 19〜22・持ち主の答え Q6・Q9）: ［ローカル AI の設定］の「この PC の速さ」と軽いモデル
+// 速さを測る: Windows の読み上げで決まった日本語（約 30 秒）を一時ファイルの WAV にし、スレッドの数（4・6・10 と今の数）ごとに whisper-server を
+// 起こし直して1回ずつ処理し、数ごとの速さを返す。音声も文字も外へ送らない・残さない（一時ファイルは消し、文字は捨てる）。設定は替えない（勧めるだけ）
+const BENCH_REFUSE_TEXT = '録音と文字起こしが終わってから測ってください。';
+const BENCH_NOVOICE_TEXT = '日本語の読み上げの声が無いため、測れませんでした。会議で使ったときの速さで判断します。';
+const BENCH_FAIL_TEXT = '速さを測れませんでした。［PC の中で試す］で PC の中の文字起こしが動くかを確かめてください。';
+let benchThreads = 0;   // 速さを測る間だけの whisper-server の -t（0 は設定の数）
+let benchRunning = false;
+let benchLast = null;   // 最後に測った勧め（［スレッドの数を N にする］が照らす）
+function speakBenchWav(out) {
+  return new Promise((resolve, reject) => {
+    let p;
+    try {
+      p = spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', lib.benchVoiceScript({ out, text: lib.BENCH_TEXT })],
+        { windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'] });
+    } catch (e) { reject(e); return; }
+    let buf = '';
+    const t = setTimeout(() => { try { p.kill(); } catch (_) { /* noop */ } reject(Object.assign(new Error('読み上げの時間切れ'), { code: 'TTS_TIMEOUT' })); }, 60000);
+    if (p.stdout) p.stdout.on('data', (d) => { buf += d.toString(); });
+    p.on('error', (e) => { clearTimeout(t); reject(e); });
+    p.on('exit', (code) => {
+      clearTimeout(t);
+      const last = buf.split(/\r?\n/).map((x) => x.trim()).filter(Boolean).pop() || '';
+      if (last === 'ok' || last === 'novoice') resolve(last);
+      else reject(Object.assign(new Error('読み上げに失敗'), { code: `TTS_${code}` }));
+    });
+  });
+}
+// 測る WAV を1回 PC の文字起こしへ送る → 要求の時間（ミリ秒）。答えの文字は読まない（捨てる）
+async function benchOnce(wav) {
+  const form = new FormData();
+  form.append('file', new Blob([wav], { type: 'audio/wav' }), 'bench.wav');
+  form.append('response_format', 'json');
+  form.append('temperature', '0.0');
+  form.append('no_context', 'true');
+  if (settings.language && settings.language !== 'auto') form.append('language', settings.language);
+  touchEngine(whisperEng);
+  const t0 = Date.now();
+  const res = await localhttp.postInference({ port: settings.localPort, form, timeoutMs: Math.round(lib.localTimeoutMs({ audioMs: 30000, rtf: 4 }) * LOCAL_TIME_SCALE) });
+  const ms = Date.now() - t0;
+  touchEngine(whisperEng);
+  if (!(res.status >= 200 && res.status <= 299)) throw Object.assign(new Error('文字起こしエンジンエラー'), { code: `HTTP_${res.status}` });
+  return ms;
+}
+async function useBenchThreads(n) {
+  const want = n === settings.localThreads ? 0 : n;
+  if (want !== benchThreads && whisperEng.proc) stopWhisperAndWait();
+  benchThreads = want;
+}
+async function runBench() {
+  if (benchRunning || state !== 'idle' || recoveryRunning || isSummarizing() || pendingSegs > 0) return { ok: false, code: 'busy', error: BENCH_REFUSE_TEXT };
+  if (!engineValid(whisperEng)) return { ok: false, code: 'engine', error: whisperProblem() || BENCH_FAIL_TEXT };
+  benchRunning = true;
+  const tmp = path.join(app.getPath('temp'), `natsu-bench-${process.pid}-${Date.now()}.wav`);
+  try {
+    const said = await speakBenchWav(tmp);
+    if (said === 'novoice') { engineLog('速さを測る: 日本語の読み上げの声が無い'); return { ok: false, code: 'novoice', error: BENCH_NOVOICE_TEXT }; }
+    const wav = fs.readFileSync(tmp);
+    const audioMs = Math.round((wav.length - 44) / 32);
+    const current = settings.localThreads;
+    const results = [];
+    for (const n of lib.benchThreadCounts({ cpus: os.cpus().length, current })) {
+      await useBenchThreads(n);
+      if (!(await ensureEngineReady(whisperEng))) throw Object.assign(new Error('engine'), { code: 'ENGINE' });
+      const warm = await probeInference();   // 2 秒の無音で温める（モデルの読み込みを数えない）
+      if (warm) throw Object.assign(new Error('probe'), { code: 'PROBE' });
+      const procMs = await benchOnce(wav);
+      results.push({ threads: n, rtf: lib.effRtf({ audioMs, procMs: procMs / LOCAL_TIME_SCALE }) });
+    }
+    const cur = results.find((r) => r.threads === current);
+    const pick = lib.benchPickThreads(results, current);
+    const best = results.find((r) => r.threads === pick);
+    const recommend = pick !== current && cur && best
+      ? { threads: pick, text: `スレッドの数を ${pick} にすると速くなります（${cur.rtf.toFixed(2)} 倍 → ${best.rtf.toFixed(2)} 倍）。`, button: `スレッドの数を ${pick} にする` } : null;
+    benchLast = { recommend };
+    const saved = lib.paceSaved({ rtf: cur.rtf }, readLocalPace(), { model: paceModel(), now: Date.now(), from: 'bench' });
+    if (saved) { try { J.writeJsonFile(pacePath(), saved, { onFsyncUnsupported: noteFsyncOnce }); } catch (e) { engineLog(`速さを測る: 覚えを書けませんでした（${errCode(e)}）`); } }
+    engineLog(`速さを測った: 音声 ${Math.round(audioMs / 1000)} 秒・${results.map((r) => `スレッド ${r.threads} は ${r.rtf.toFixed(2)} 倍`).join('・')}${recommend ? `（勧める数 ${pick}）` : ''}`);
+    return { ok: true, rtf: cur.rtf, verdict: lib.benchVerdict(cur.rtf), text: lib.benchResultText(cur.rtf), threads: results, recommend };
+  } catch (e) {
+    engineLog(`速さを測る: 測れませんでした（${errCode(e)}）`);
+    return { ok: false, code: 'fail', error: BENCH_FAIL_TEXT };
+  } finally {
+    unlinkQuiet(tmp);
+    if (benchThreads) { benchThreads = 0; stopWhisperAndWait(); }   // 次に使うときに設定の数で起こし直す
+    benchRunning = false;
+  }
+}
+// 軽いモデルの様子（画面の「軽いモデルと精度」が使う）
+function altStatus() {
+  const alt = engineInstall.altModelFile(ENGINE_HOME, 'medium');
+  return { supported: Boolean(ENGINE_HOME.supported), manual: manualGroup(whisperEng), fetched: Boolean(alt && fs.existsSync(alt)),
+    using: settings.localModelAlt === 'medium' && Boolean(altModelPath()), path: alt ? engineInstall.shownPathOf(ENGINE_HOME.root, alt) : '' };
+}
+// 設定を1つ書く（main だけが書くキー。書けなくても投げない）
+function setOneSetting(key, value) {
+  settings = readSettings({ ...settings, [key]: value }, DEFAULT_SETTINGS).settings;
+  const w = settingsWriter.now(settings);
+  if (!w.ok) engineLog(`設定: 保存できませんでした（${errCode(w.error)}）。次の変更のときにもう一度保存します`);
+}
+let altFetching = null;
+
 // 0.9.4 S-4（決めたこと 9・10・12）: 会議ごとの遅い PC の判断（mainlib.paceStep）。遅いになったときに記録を1行（数と符号だけ）
 function paceRtfText(rtf) { return (Number.isFinite(rtf) ? rtf : 0).toFixed(2); }
 function paceEvent(m, ev) {
@@ -1476,6 +1586,10 @@ function paceSave(m) {
 function restartWhisperAfterLate(seg, sec, planMs) {
   const id = typeof seg === 'string' && /^s\d+$/.test(seg) ? seg : '音声入力';
   engineLog(`手元の文字起こしの時間切れ: ${id}（音声 ${sec} 秒・待ち ${Math.round(planMs / 1000)} 秒）。エンジンを起こし直します`);
+  stopWhisperAndWait();
+}
+// whisper-server を止め、次に起こすときは前のプロセスが終わる（ポートを離す）のを待つ（startEngine の exitWait）
+function stopWhisperAndWait() {
   const p = whisperEng.proc;
   stopEngine(whisperEng);
   if (p) {
@@ -5549,6 +5663,38 @@ function setupIpc() {
   ipcMain.handle('engine:fetch-pause', () => (engineFetch ? engineFetch.pause('user') : { ok: true }));
   // ［取り込み先を開く］。まだ無ければ何もしない（フォルダは作らない）
   ipcMain.handle('engine:open-dir', () => { if (ENGINE_HOME.supported && fs.existsSync(ENGINE_HOME.root)) shell.openPath(ENGINE_HOME.root); return true; });
+  // 0.9.4 S-7: ［速さを測る］・［スレッドの数を N にする］・軽いモデルの様子と取り込みと使う／戻す。どれも自動では設定を替えない（押したときだけ）
+  ipcMain.handle('local:bench', () => runBench());
+  ipcMain.handle('local:bench-threads', (_e, n) => {
+    if (!benchLast || !benchLast.recommend || n !== benchLast.recommend.threads) return { ok: false };
+    setOneSetting('localThreads', n);
+    engineLog(`速さを測る: スレッドの数を ${n} にした`);
+    restartEnginesIfNeeded();
+    benchLast = null;
+    return { ok: true, threads: settings.localThreads };
+  });
+  ipcMain.handle('local:alt-status', () => altStatus());
+  ipcMain.handle('local:alt-fetch', async () => {
+    const alt = require('./engine-manifest').ALT_MODELS[0];
+    if (!ENGINE_HOME.supported) return { ok: false, error: 'この PC では取り込めません' };
+    if (altFetching) return altFetching;
+    altFetching = engineInstall.installAlt(ENGINE_HOME, alt, { request: (o) => electronNet.request(o), log: engineLog, userAgent: `NaTsu/${app.getVersion()}` })
+      .then(() => { engineLog('軽いモデルを取り込んだ'); return { ok: true, ...altStatus() }; })
+      .catch((e) => { engineLog(`軽いモデルを取り込めませんでした（${errCode(e)}）`); return { ok: false, error: '軽いモデルを取り込めませんでした。もう一度押してください。' }; })
+      .finally(() => { altFetching = null; });
+    return altFetching;
+  });
+  ipcMain.handle('local:alt-use', (_e, on) => {
+    // 手の組の PC（詳細設定のパス）は手のパスを書き換えない（K7）。パスを案内する
+    if (manualGroup(whisperEng)) return { ok: false, manual: true, ...altStatus() };
+    if (on === true && !engineInstall.altModelFile(ENGINE_HOME, 'medium')) return { ok: false, ...altStatus() };
+    if (on === true && !fs.existsSync(engineInstall.altModelFile(ENGINE_HOME, 'medium'))) return { ok: false, error: '軽いモデルがまだ取り込まれていません', ...altStatus() };
+    if (state !== 'idle') return { ok: false, error: BENCH_REFUSE_TEXT, ...altStatus() };
+    setOneSetting('localModelAlt', on === true ? 'medium' : '');
+    engineLog(`文字起こしのモデル: ${on === true ? '軽いモデル（medium）にした' : '元のモデルに戻した'}`);
+    restartEnginesIfNeeded();
+    return { ok: true, ...altStatus() };
+  });
   // 辞書が初期プロンプトの予算に収まっているか（#23）。kept: 収まった語数、total: 辞書の語数。
   // 尻尾（直前の発言）は付けずに数える（辞書そのものの収まり具合を見せるため）
   ipcMain.handle('prompt:info', () => {

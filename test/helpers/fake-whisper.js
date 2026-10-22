@@ -75,6 +75,12 @@ const json = (res, status, body) => {
 
 let n = 0;
 let dropped = false;
+// 0.9.4 S-7: FAKE_DELAY_BY_T（'4:600,6:300'）があれば、起動の -t の数ごとの遅れ（速さを測るときのスレッドの数の比べ）
+const delayMs = () => {
+  const t = args[args.indexOf('-t') + 1];
+  const by = new Map(String(process.env.FAKE_DELAY_BY_T || '').split(',').filter(Boolean).map((x) => x.split(':')));
+  return Number(by.has(t) ? by.get(t) : process.env.FAKE_DELAY_MS) || 0;
+};
 const server = http.createServer((req, res) => {
   if (req.url === '/health') { json(res, 200, { status: 'ok' }); return; }
   if (req.url !== '/inference') { res.writeHead(404); res.end(); return; }
@@ -110,7 +116,7 @@ const server = http.createServer((req, res) => {
     if (mode === 'slow-prompt-empty' && hasPrompt && !isProbe) { setTimeout(() => json(res, 200, { text: '' }), 1500); return; }
     const reply = () => json(res, 200, { text: process.env.FAKE_TEXT ? `${process.env.FAKE_TEXT}区間${n}` : ` 本日の議題は\n進捗の確認です。区間${n}\n` });
     if (mode === 'slow' && !isProbe) setTimeout(reply, 1500);
-    else if (mode === 'delay' && !isProbe) setTimeout(reply, Number(process.env.FAKE_DELAY_MS) || 0);
+    else if (mode === 'delay' && !isProbe) setTimeout(reply, delayMs());
     else reply();
   });
 }).on('error', (e) => {
