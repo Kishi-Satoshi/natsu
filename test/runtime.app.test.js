@@ -703,7 +703,7 @@ test('作成中は残りの区間数と見込み時間が出て、打ち切り�
   assert.ok(eta.closest('.live'), '記録中バーの中に無い');
   const btn = バー(l, 'liveSkipBtn');
   assert.ok(btn && !btn.hidden, '打ち切りボタンが出ない');
-  assert.strictEqual(btn.textContent, '文字起こしを打ち切って要約');
+  assert.strictEqual(btn.textContent, '文字起こしを後回しにして要約');   // 0.9.4 S-3 で意図して直した（決めたこと 4。音声を消さない）
   assert.ok(btn.closest('.live'), '記録中バーの中に無い');
   // 確認で「いいえ」なら何もしない
   l.window.confirm = () => false;
@@ -722,7 +722,7 @@ test('作成中は残りの区間数と見込み時間が出て、打ち切り�
   assert.ok(バー(l, 'liveEta').hidden, '残りが無いのに区間数が残る');
   const sk = バー(l, 'liveSkipped');
   assert.ok(sk && !sk.hidden, '打ち切った区間数が出ない');
-  assert.strictEqual(sk.textContent, '3 区間を打ち切りました');
+  assert.strictEqual(sk.textContent, '3 区間の文字起こしを後回しにしました（音声は残してあります）');   // 0.9.4 S-3 で意図して直した
   assert.deepStrictEqual(l.errors.map(fmt), []);
 });
 

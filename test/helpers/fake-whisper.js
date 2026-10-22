@@ -17,7 +17,7 @@
 //   drop-all      … 区間の要求は毎回、受け取った後で返事をせずに接続を切る
 //   0.9.4 S-2:
 //   hang          … 区間の要求には答えない（main の時間切れで切られるまで。接続が閉じられたら FAKE_LOG に closed を書く）
-//   hang-first    … 区間の最初の要求だけ答えない（FAKE_LOG の隣の印のファイルで数える: 起こし直した次のプロセスは答える）
+//   hang-first    … 区間の最初の要求だけ答えない（FAKE_HANG_N があればその数まで。FAKE_LOG の隣の印のファイルで数える: 起こし直した次のプロセスは答える）
 //   err500        … 区間の要求に 500 {"error":"boom"}（エンジンが答えた誤り）
 //   refuse        … 区間の要求を受けたら口を閉じ、その接続も切る（次からは ECONNREFUSED。エンジンが止まった）
 // どの場面でも、WAV の頭（RIFF/WAVE、16kHz・モノラル・16bit）が壊れていれば 200 のまま {"error"} を返す
@@ -92,8 +92,9 @@ const server = http.createServer((req, res) => {
     if (isProbe && mode === 'probe-drop') { req.socket.destroy(); return; }
     if (!isProbe && (mode === 'drop-all' || (mode === 'drop-first' && !dropped))) { dropped = true; req.socket.destroy(); return; }
     const hungMark = `${log || ''}.hung`;
-    if (!isProbe && (mode === 'hang' || (mode === 'hang-first' && log && !fs.existsSync(hungMark)))) {
-      if (mode === 'hang-first') fs.writeFileSync(hungMark, '1');
+    const hung = () => { try { return Number(fs.readFileSync(hungMark, 'utf8')) || 0; } catch (_) { return 0; } };
+    if (!isProbe && (mode === 'hang' || (mode === 'hang-first' && log && hung() < (Number(process.env.FAKE_HANG_N) || 1)))) {
+      if (mode === 'hang-first') fs.writeFileSync(hungMark, String(hung() + 1));
       req.socket.on('close', () => note(`closed #${n}`));
       return;
     }

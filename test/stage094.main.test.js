@@ -99,3 +99,76 @@ test('音声入力の時間切れは文字起こし待ちの履歴に残す', T,
   assert.match(o.history[0].wait || '', /^\d+-[A-Za-z0-9]+\.wav$/, JSON.stringify(o.history));
   assert.ok(o.engineLog.includes('手元の文字起こしの時間切れ: 音声入力（音声 3 秒・待ち 240 秒）。エンジンを起こし直します'), o.engineLog.join('\n'));
 });
+
+// ---------------------------------------------------------------- S-3（決めたこと 2〜6）: 音声を失わない
+// --recover-again=<n> は会議の後の文字起こしを設定の保存（settings:save）で n 回引き直し、そのたびの議事録・待ち行列・WAV・要求の数を out.again に写す
+const queueOf = (x) => x.queue.map((q) => q.items.map((it) => ({ id: it.id, tries: it.tries, held: it.held })));
+const SKIP_DONE = /^残しておいた音声を文字起こししました（2\/2 区間）。［要約を生成］で議事録を作り直せます。$/;
+
+test('S1: 時間切れの区間は、会議の後のやり直しでも時間切れなら WAV と待ち行列（recovery.json）を残し、エンジンを起こし直した次の引き金で文字になる', T, async () => {
+  const o = await run(['hang-first', '--segs=1', '--after-retry', '--recover-again=1'], { env: { FAKE_HANG_N: '2' } });
+  // 会議の後のやり直しも時間切れ: 区間は「文字起こし待ち」のまま、WAV と待ち行列が残る
+  assert.ok(o.afterRetry.engineLog.includes('復旧の文字起こしを止めました（理由: late）。残りの 1 区間の音声と待ち行列は残します'), o.afterRetry.engineLog.join('\n'));
+  assert.deepStrictEqual(o.afterRetry.segments, [{ text: LATE_SEG, failed: true }]);
+  assert.strictEqual(o.afterRetry.engineLog.filter((l) => lateLine.test(l)).length, 2, o.afterRetry.engineLog.join('\n'));
+  // 次の引き金（設定の保存）で、起こし直したエンジンが文字にする。WAV と待ち行列は消える
+  const a = o.again[0];
+  assert.ok(a.pages[0].segments.length === 1 && !a.pages[0].segments[0].failed && a.pages[0].segments[0].text.startsWith('本日の議題は進捗の確認です'), JSON.stringify(a.pages));
+  assert.deepStrictEqual([a.queue, a.wavs], [[], []]);
+});
+
+test('S1: エンジンが誤りを返す区間は 3 回までやり直し、3 回目の後は WAV を残したまま held。次の引き金ではやり直さない。ページを消すと WAV も消える。前の版の recovery.json（tries の無い item）を読める', T, async () => {
+  const o = await run(['err500', '--segs=1', '--after-retry', '--recover-again=3', '--delete-pages-then-recover']);
+  // 締めが書く待ち行列は前の版と同じ形（item に tries が無い）。1 回目の会議の後のやり直しで tries 1、引き直しで 2
+  assert.deepStrictEqual(o.queueAfterRetry.map((q) => q.items.map((it) => ({ id: it.id, tries: it.tries, held: it.held }))), [[{ id: 's1', tries: 1, held: undefined }]]);
+  const t1 = o.again[0];
+  assert.deepStrictEqual(queueOf(o.again[0]), [[{ id: 's1', tries: 2, held: undefined }]]);
+  assert.match(t1.pages[0].segments[0].text, /^（この区間の認識に失敗: 文字起こしエンジンエラー \(500\): boom）$/);
+  // 3 回目で held。文に「音声は残してあります」。WAV は残る
+  const t3 = o.again[1];
+  assert.deepStrictEqual(queueOf(t3), [[{ id: 's1', tries: 3, held: true }]]);
+  assert.strictEqual(t3.pages[0].segments[0].text, '（この区間の認識に失敗: 文字起こしエンジンエラー (500): boom。音声は残してあります）');
+  assert.strictEqual(t3.wavs.length, 1, JSON.stringify(t3));
+  // 次の引き金ではやり直さない（エンジンへ送らない）。WAV も待ち行列も残る
+  const t4 = o.again[2];
+  assert.strictEqual(t4.requests, 0, JSON.stringify(t4));
+  assert.deepStrictEqual([queueOf(t4), t4.wavs.length], [[[{ id: 's1', tries: 3, held: true }]], 1]);
+  // ページを消すと、次の引き金で WAV と待ち行列が消える
+  assert.deepStrictEqual([o.afterDelete.queue, o.afterDelete.wavs], [[], []], JSON.stringify(o.afterDelete));
+});
+
+test('S1: ［文字起こしを後回しにして要約］は待ちの区間を kept にし、WAV を消さない。要約は今ある分で作る。会議の後に残した区間が文字になったら『［要約を生成］で議事録を作り直せます』の知らせ（自動で作り直さない）', T, async () => {
+  const o = await run(['slow', '--segs=3', '--sum', '--skip-at-stop', '--wait-queue-empty'], { scale: '0.02' });
+  assert.deepStrictEqual(o.skip, { ok: true, skipped: 2 });
+  // 後回しにした区間は「文字起こし待ち」の文で WAV を残す（打ち切りの文にしない）
+  assert.deepStrictEqual(o.skippedSegs.map((s) => [s.text, s.wav]), [['（文字起こし待ち: 音声は残してあります）', true], ['（文字起こし待ち: 音声は残してあります）', true]], JSON.stringify(o.skippedSegs));
+  // 要約は待たずに、今ある分で 1 回作った
+  assert.ok(o.afterQueue.chats >= 1, JSON.stringify(o.afterQueue));
+  const chatsAtSummary = o.chatsAtFinalize;
+  // 残した区間は会議の後に文字になり、知らせは「［要約を生成］で作り直せます」。要約は作り直さない
+  assert.ok(o.afterQueue.pages[0].segments.every((s) => !s.failed), JSON.stringify(o.afterQueue.pages));
+  assert.ok(o.afterQueue.notices.some((n) => SKIP_DONE.test(n)), JSON.stringify(o.afterQueue.notices));
+  assert.strictEqual(o.afterQueue.chats, chatsAtSummary, '残した区間の後に要約を自動で作り直した');
+  assert.deepStrictEqual(o.afterQueue.wavs, []);
+});
+
+test('kept-late の区間がある会議は、締めで要約を待たせ（S3）、待ち行列が済んだら自動で要約する（0.9.0 の R1 と同じ）', T, async () => {
+  const o = await run(['hang-first', '--segs=1', '--sum', '--wait-queue-empty']);
+  assert.strictEqual(o.chatsAtFinalize, 0, '時間切れの区間を待たずに要約した');
+  assert.strictEqual(o.summaryAtFinalize, '文字起こし待ちの音声があります。文字起こしが済むと、自動で要約を作ります。');
+  assert.ok(o.afterQueue.notices.some((n) => /^残しておいた音声を文字起こししました（1\/1 区間）。続けて要約を作ります。$/.test(n)), JSON.stringify(o.afterQueue.notices));
+  assert.strictEqual(o.afterQueue.chats, 1, JSON.stringify(o.afterQueue));
+});
+
+test('S12: 録音中は会議の後の PC の文字起こしを止め（クラウドで送れる区間は続ける）、録音が終わったら続ける', T, async () => {
+  const o = await run(['slow', '--extra-queue=localonly3', '--segs=1', '--wait-queue-empty'], { scale: '0.02' });
+  assert.ok(o.afterQueue.log.some((l) => /^復旧の文字起こしを止めました（理由: busy）。残りの [1-3] 区間の音声と待ち行列は残します$/.test(l)), o.afterQueue.log.join('\n'));
+  // 録音を止めた後に続きを文字にした（前の会議のページの区間が全部文字になり、待ち行列は無い）
+  assert.ok(o.afterQueue.pages.every((p) => p.segments.every((s) => !s.failed)), JSON.stringify(o.afterQueue.pages));
+  assert.strictEqual(o.afterQueue.pages.length, 2);
+  // 止めた後に送った復旧の区間は、会議の区間より後（録音中は会議の後の PC の文字起こしを送らない）
+  const busy = o.afterQueue.log.findIndex((l) => /理由: busy/.test(l));
+  const meetingSeg = o.afterQueue.log.findIndex((l) => /^文字起こしの経路: 区間 s1 → local/.test(l));
+  const recoverAfter = o.afterQueue.log.findIndex((l, i) => i > busy && /^文字起こしの経路: 復旧 s\d → local/.test(l));
+  assert.ok(busy >= 0 && meetingSeg >= 0 && recoverAfter > meetingSeg, o.afterQueue.log.join('\n'));
+});

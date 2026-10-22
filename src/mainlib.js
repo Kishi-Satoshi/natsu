@@ -1126,23 +1126,30 @@ class EtaTracker {
   }
 }
 
-// ---------------------------------------------------------------- 打ち切り（#42）
-// 文字起こし待ちの区間を全部「打ち切り」にする（meeting:skipPending）。失敗扱いにして本文を
-// 「（文字起こしを打ち切り）」に置き、pending/wav を外す（id/atMs はそのまま）。黙って消さず
-// 失敗の行として残すのは、何が欠けたかが議事録から分かるようにするため。
-// 戻り値は { count: 打ち切った数, wavs: 消すべき wav のパス }。配列の要素は書き換える。
+// ---------------------------------------------------------------- 後回し（#42。0.9.4 S-3 で打ち切りから替えた）
+// 文字起こし待ちの区間を全部「文字起こし待ち」（音声を残す: kept）にする（meeting:skipPending ［文字起こしを後回しにして要約］）。
+// 0.9.4 S-3（決めたこと 4）: 前は「（文字起こしを打ち切り）」の失敗にして WAV を消していた（その区間の発言は二度と戻らない）。今は失敗の印と kept を付け、
+// WAV を残す（締めが待ち行列に載せ、会議の後に文字起こしする）。音声の無い待ちの区間（控えられなかった）だけ今の「打ち切り」の失敗の行。
+// pending を外す（id/atMs はそのまま）。戻り値は { count: 後回しにした数, kept: 音声を残した数 }。配列の要素は書き換える。
+const SKIP_KEPT_TEXT = '（文字起こし待ち: 音声は残してあります）';
 function skipPendingSegments(segments) {
-  const wavs = [];
   let count = 0;
+  let kept = 0;
   for (const s of (segments || [])) {
     if (!s || !s.pending) continue;
     count++;
-    if (s.wav) wavs.push(s.wav);
-    delete s.pending; delete s.wav;
-    s.text = '（文字起こしを打ち切り）';
+    delete s.pending;
     s.failed = true;
+    if (s.wav) {
+      kept++;
+      s.text = SKIP_KEPT_TEXT;
+      s.kept = true;
+    } else {
+      delete s.wav;
+      s.text = '（文字起こしを打ち切り）';
+    }
   }
-  return { count, wavs };
+  return { count, kept };
 }
 
 // ---------------------------------------------------------------- 使われないエンジンの停止（#58）
@@ -1990,7 +1997,7 @@ module.exports = {
   PICK_KEYS, pickDefaultPath,
   extractNotes, truncationMessage, buildPromptParts,
   publicSegments, settledSegments, pendingDurationMs, recoverSegments, staleSegbufDirs,
-  nextSegmentMs, EtaTracker, skipPendingSegments,
+  nextSegmentMs, EtaTracker, skipPendingSegments, SKIP_KEPT_TEXT,
   ONLINE_SEGMENT_SEC, OVERLAY_SEG_MIN_MS, SEG_SWITCH_AFTER, STICKY_LOCAL, startSegmentMode, segmentModeNext, segmentBaseMs, liveSegmentMs, nextLiveSegmentMs,
   cloudLikely, offlineChosen, DICTATION_REFUSE_TEXT, startPlan, dictationPlan, KEPT_CODES, keptCodeFor, KEPT_SUMMARY_TEXT,
   STALL_SPAN_MS, STALL_MIN_DBFS, stallAfter, stallStep, PROBLEM_ORDER, sttProblemOf, problemForRoute,

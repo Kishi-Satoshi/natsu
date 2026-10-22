@@ -3325,7 +3325,7 @@
         live.innerHTML = '<span class="rec-dot"></span><span id="liveTitle">議事録を記録中</span>'
           + '<button class="ghost" id="livePauseBtn" type="button">⏸ 一時停止（Ctrl+Shift+P）</button>'
           + '<button class="ghost" id="liveStopBtn" type="button">■ 終了して作成</button>'
-          + '<button class="ghost" id="liveSkipBtn" type="button" hidden>文字起こしを打ち切って要約</button>'
+          + '<button class="ghost" id="liveSkipBtn" type="button" hidden>文字起こしを後回しにして要約</button>'
           // 第1d回 A-13（D20）: ［この会議は PC の中だけ］は1行目（説明の行より前）。後ろに置くと説明の行の数だけ下へ押し出される
           + '<button class="ghost" id="meetingLocalOnly" type="button" hidden>オフラインモード</button>'
           // 0.9.0 O-4（RP8）: 録音バーを × で隠しているときだけ出す
@@ -3508,7 +3508,7 @@
     $('liveSkipBtn').hidden = !waiting;
     const skippedEl = $('liveSkipped');
     skippedEl.hidden = !(st.skipped > 0);
-    if (st.skipped > 0) skippedEl.textContent = `${st.skipped} 区間を打ち切りました`;
+    if (st.skipped > 0) skippedEl.textContent = `${st.skipped} 区間の文字起こしを後回しにしました（音声は残してあります）`;
     // 選んだマイクが外れていて、main が既定のマイクに切り替えて録っている。
     // 会議が終わってから気づくと手遅れなので、記録中に赤で出す。
     const micEl = $('liveMic');
@@ -3543,7 +3543,7 @@
     renderLocalOnly(r && r.needsSetup === true ? { ...st, needsSetup: true } : st);
   }
   async function skipPending() {
-    if (!confirm('残っている文字起こしを打ち切り、いまある分だけで議事録を作ります。\n打ち切った区間の発言は議事録に入りません。よろしいですか？')) return;
+    if (!confirm('残っている文字起こしを後回しにして、今ある分で議事録を作ります。残りの音声は消さずに残し、後で文字起こしします。よろしいですか？')) return;
     const r = await window.koeApp.meetingSkipPending();
     if (r && r.ok === false && r.error) toast(r.error);
     setMeetingUi(await window.koeApp.meetingStatus());

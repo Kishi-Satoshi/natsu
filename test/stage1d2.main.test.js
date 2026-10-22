@@ -187,7 +187,9 @@ test('F3・RF28: 始めは中継が使えそうに見えたが落ちていた会
   assert.deepStrictEqual(saysLocal(o), []);
 });
 
-test('F2・決めたこと 12: 中継が断った区間は残さず今の失敗の区間（帯は B4［もう一度］だけで、B1・B9・B12 は出ない）。会議の後の待ち行列は止まらずに済み（recovery.json が無い）、その区間は失敗の文', T, async () => {
+// 0.9.4 S-3（K1・決めたこと 3）で意図して直した: 音声を消すのは文字になった・無音だった・ページを消したときだけ。会議の後の送り直しで中継が断った区間は
+// エンジンが答えた誤り（error）と同じく、区間は失敗の文のまま音声と待ち行列を残し（tries 1。3 回まで次の引き金でやり直す）、待ち行列は止まらずに先へ進む
+test('F2・決めたこと 12: 中継が断った区間は残さず今の失敗の区間（帯は B4［もう一度］だけで、B1・B9・B12 は出ない）。会議の後の待ち行列は止まらずに進み（音声は残す）、その区間は失敗の文', T, async () => {
   const o = await run(['text', '--relay-seq=cb', '--no-engine=fetchable', '--after-retry']);
   assert.deepStrictEqual([...new Set(problems(o))], ['seg-failed'], dump(o));
   const s2 = o.sttAt['seg-failed'].find((x) => x.id === 's2');
@@ -195,8 +197,9 @@ test('F2・決めたこと 12: 中継が断った区間は残さず今の失敗�
   assert.match(s2.text, /^（この区間の認識に失敗: /);
   assert.strictEqual(o.afterRetry.segments[1].failed, true);
   assert.match(o.afterRetry.segments[1].text, /^（この区間の認識に失敗: /);
-  assert.strictEqual(o.recoveryKept, false);
-  assert.ok(!o.files.some((f) => f.endsWith('recovery.json')), JSON.stringify(o.files));
+  assert.strictEqual(o.recoveryKept, true);
+  assert.ok(o.files.some((f) => f.endsWith('recovery.json')), JSON.stringify(o.files));
+  assert.ok(o.engineLog.some((l) => /^復旧の文字起こしを保留: 失敗した区間の音声を残しました（1 区間・自動ではやり直さない 0 区間・やり直し 1 回）$/.test(l)), o.engineLog.join('\n'));
   assert.deepStrictEqual(saysLocal(o), []);
 });
 

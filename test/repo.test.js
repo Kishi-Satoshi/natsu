@@ -1126,7 +1126,9 @@ test('#42(5) 終了後の文字起こし待ちは打ち切れる（meeting:skipP
   assert.ok(h.includes('if (!meeting || !meeting.stopping) return { ok: false'), '記録中（終了前）に打ち切れてしまう');
   assert.ok(h.includes('m.gen++'), '進行中の結果を無効にしていない');
   assert.ok(h.includes('skipPendingSegments(m.segments)'), '区間の書き換えを mainlib.skipPendingSegments で行っていない');
-  assert.ok(h.includes('unlinkQuiet('), 'wav を消していない');
+  // 0.9.4 S-3（決めたこと 4）で意図して直した: 後回しにした区間の wav は消さない（kept にして会議の後に文字起こしする。stage094.main で場面を見る）
+  assert.ok(!h.includes('unlinkQuiet('), 'wav を消している');
+  assert.ok(h.includes('m.later = true;'), '後回しの会議の印が無い（要約を待たせてしまう）');
   assert.ok(h.includes('pendingSegs = 0;'), '待ち件数を 0 にしていない');
   assert.ok(h.includes('m.skipped += '), '打ち切った数を数えていない');
   assert.ok(h.includes('maybeFinalizeMeeting()'), '打ち切ったのに締めていない');

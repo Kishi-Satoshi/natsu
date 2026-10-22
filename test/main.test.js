@@ -921,20 +921,20 @@ test('EtaTracker: 経路（local・cloud）ごとに比を分けて持つ。ク�
 });
 
 // ---------------------------------------------------------------- #42 打ち切り
-test('skipPendingSegments: 待ちの区間を全部「打ち切り」の失敗扱いにし、消すべき wav と件数を返す', () => {
-  // 終了後の待ちが長すぎるとき、利用者は「ここまでで作る」を選べる。打ち切った区間は
-  // 黙って消さず、失敗扱いの行として残す（何が欠けたかが分かる）
+// 0.9.4 S-3（決めたこと 4）で意図して直した: ［文字起こしを後回しにして要約］は待ちの区間の音声を消さずに残し（kept・「文字起こし待ち」の文）、
+// 会議の後の待ち行列が文字起こしする。音声の無い待ちの区間（控えられなかった）だけ今の「打ち切り」の失敗の行。戻り値は { count, kept }
+test('skipPendingSegments: 待ちの区間を全部「文字起こし待ち」（音声を残す）にし、件数と残した数を返す', () => {
   const segs = [
     { id: 's1', atMs: 0, text: '発言' },
     { id: 's2', atMs: 75000, text: '', pending: true, wav: '/b/2.wav', durationMs: 75000 },
     { id: 's3', atMs: 150000, text: '', pending: true, wav: '', durationMs: 30000 },
   ];
   const r = skipPendingSegments(segs);
-  assert.deepStrictEqual(r, { count: 2, wavs: ['/b/2.wav'] });
+  assert.deepStrictEqual(r, { count: 2, kept: 1 });
   assert.deepStrictEqual(segs[0], { id: 's1', atMs: 0, text: '発言' }, '済んだ区間を触っている');
-  assert.deepStrictEqual(segs[1], { id: 's2', atMs: 75000, text: '（文字起こしを打ち切り）', failed: true, durationMs: 75000 });
+  assert.deepStrictEqual(segs[1], { id: 's2', atMs: 75000, text: '（文字起こし待ち: 音声は残してあります）', failed: true, kept: true, wav: '/b/2.wav', durationMs: 75000 });
   assert.deepStrictEqual(segs[2], { id: 's3', atMs: 150000, text: '（文字起こしを打ち切り）', failed: true, durationMs: 30000 });
-  assert.deepStrictEqual(skipPendingSegments([]), { count: 0, wavs: [] });
+  assert.deepStrictEqual(skipPendingSegments([]), { count: 0, kept: 0 });
 });
 
 test('restoreAfterPaste: 短い1行だけ戻す（空・同じ本文・改行入り・200 字超は戻さない）', () => {

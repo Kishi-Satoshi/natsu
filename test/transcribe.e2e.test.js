@@ -313,18 +313,18 @@ test('あとの直し (c): 場面の照らしが落ちたら、失敗の文の�
   });
 });
 
-// 0.9.4 S-2（決めたこと 2・18）で意図して直した: 送り直しても切れた（エンジンに届かない: down）区間は、会議の中では「文字起こし待ち」（音声を残す）の文、
-// 会議の後の送り直しの失敗の文は「PC の文字起こしエンジンとの接続が切れました」（前はどちらも「エンジンにつながりませんでした」）。送る回数は今のまま
+// 0.9.4 S-2・S-3（決めたこと 2・3・18）で意図して直した: 送り直しても切れた（エンジンに届かない: down）区間は「文字起こし待ち」（音声を残す）の文で、
+// 会議の後の送り直しでも届かなければ音声と待ち行列を残して止める（前はどちらも「エンジンにつながりませんでした」の失敗で、送り直しの後に音声を消した）。
+// 送る回数は今のまま
 sceneTest('送り直しても接続が切れるなら 2 回で止め、区間は失敗として日本語の理由で残す（"fetch failed" を見せない）', async (need) => {
   await need('dropAll');
   const r = results.dropAll;
   const a = r.afterRetry;
-  // 議事録を写す前に会議の後の送り直しが済むことがある（どちらの文も日本語の理由）
-  assert.strictEqual(r.pages[0].segments.length, 1, JSON.stringify(r.pages[0].segments));
-  assert.ok(['（文字起こし待ち: PC の文字起こしエンジンにつながらなかったので、後で文字起こしします）', '（この区間の認識に失敗: PC の文字起こしエンジンとの接続が切れました）']
-    .includes(r.pages[0].segments[0].text) && r.pages[0].segments[0].failed, JSON.stringify(r.pages[0].segments));
-  // 会議の後の送り直し（復旧の道）も日本語の理由で残す。どちらの道も 1 回 + 送り直し 1 回の 2 回ずつで、それより送らない
-  assert.deepStrictEqual(a.segments, [{ text: '（この区間の認識に失敗: PC の文字起こしエンジンとの接続が切れました）', failed: true }]);
+  const kept = { text: '（文字起こし待ち: PC の文字起こしエンジンにつながらなかったので、後で文字起こしします）', failed: true };
+  assert.deepStrictEqual(r.pages[0].segments, [kept]);
+  // 会議の後の送り直し（復旧の道）も届かない: 区間はそのまま、音声と待ち行列を残して止める。どちらの道も 1 回 + 送り直し 1 回の 2 回ずつで、それより送らない
+  assert.deepStrictEqual(a.segments, [kept]);
+  assert.ok(a.engineLog.includes('復旧の文字起こしを止めました（理由: down）。残りの 1 区間の音声と待ち行列は残します'), JSON.stringify(a.engineLog));
   assert.ok(a.engineLog.some((l) => /^文字起こしの経路: 復旧 s1 → local/.test(l)), JSON.stringify(a.engineLog));
   assert.strictEqual(a.requests.filter((l) => !/probe=true/.test(l)).length, 4, JSON.stringify(a.requests));
   assert.strictEqual(a.engineLog.filter((l) => DROP_LOG.test(l)).length, 2, JSON.stringify(a.engineLog));
