@@ -1797,5 +1797,7 @@ module.exports = [
   { id: 'bm-threads-auto', file: 'src/main.js', from: '    benchLast = { recommend };', to: "    benchLast = { recommend };\n    if (recommend) setOneSetting('localThreads', recommend.threads);",
     tests: ['test/stage094.main.test.js'], pattern: '^Q9:', why: '0.9.4 S-7 持ち主の答え Q9: 測っただけでスレッドの数を替える（勧めて、押したときだけ替える約束を破る）' },
   { id: 'bm-threads-apply', file: 'src/main.js', from: "    setOneSetting('localThreads', n);\n", to: '',
-    tests: ['test/stage094.main.test.js'], pattern: '^Q9:', why: '0.9.4 S-7 持ち主の答え Q9: ［スレッドの数を N にする］を押しても設定を書かない（勧めが効かない）' },
+    tests: ['test/stage094.main.test.js'], pattern: '^Q9:', why: '0.9.4 S-7 持ち主の答え Q9: ［スレッドの数を N にする］を押しても設定を書かない（勧めが効かない）' },  // CI-1: 日付の変わり目に左右されない場面の時計
+  { id: 'ci-noon', file: 'test/helpers/json-scenes.js', from: "  'relay-day': { relaySeed: true, noonJst: true,", to: "  'relay-day': { relaySeed: true,",
+    tests: ['test/stage1d.main.test.js'], pattern: '^CI-1:', why: '0.9.4 CI-1: 時計を進める場面の始まりを正午にしない（日本の 23:49 より後に走ると RL11・D16 が赤になる）' },
 ];

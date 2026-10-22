@@ -1374,6 +1374,14 @@ process.on('exit', () => {
     Date.now = () => realDateNow() + clockOffset;
     if (relayLocal) relayLocal.clock.advance(ms);
   };
+  // 0.9.4 CI-1: --real-now=<ミリ秒> … 本当の時刻をその時刻とみなす（main と中継の試しの時計をその分だけずらす。日付の変わり目の近くで走らせた形を試す）
+  const realNowFlag = Number(flagVal('--real-now'));
+  if (Number.isFinite(realNowFlag) && realNowFlag > 0) advanceClock(realNowFlag - realDateNow());
+  // 0.9.4 CI-1: 時計を進める場面（json-scenes の noonJst: true）は、時計の始まりをその日の日本時間の正午にする（11 分・1 日を進めても日付の変わり目の近くに来ない）
+  if (scene && scene.noonJst === true) {
+    const jst = new Date(Date.now() + 9 * 3600 * 1000);
+    advanceClock(Date.UTC(jst.getUTCFullYear(), jst.getUTCMonth(), jst.getUTCDate(), 3, 0, 0) - Date.now());
+  }
   let netUp = !offline;   // 偽の net.isOnline() の答え（場面の ctx.setOnline で変えられる）
   const netHosts = [];
   const rewrite = (u) => {

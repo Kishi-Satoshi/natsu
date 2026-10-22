@@ -237,6 +237,19 @@ test('RL11: daily-cap（user）→ その区間から今日の残りは手元（
   assert.strictEqual(posts(o.m3.calls), 1);
 });
 
+// 0.9.4 CI-1（計画 docs/plans/2026-10-22-094.md の「最後の問答の答えと承認」）: 場面 relay-day は main の時計を 11 分進めるので、日本の 23:49 より後に
+// 走ると2つ目の会議が「日が替わった後」になって赤だった（CI run 39799076822）。場面の時計の始まりを、走らせた日の日本時間の正午に決める。
+// 本当の時刻を 23:55 JST にした（--real-now）ときも、上と同じ結果になる
+test('CI-1: relay-day の場面は走らせる時刻に左右されない（本当の時刻が 23:55 JST でも、2つ目の会議は日が替わる前の hold のまま）', T, async () => {
+  const d = new Date(Date.now() + 9 * 3600 * 1000);
+  const late = Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), 23, 55) - 9 * 3600 * 1000;   // その日の 23:55 JST
+  const o = await run(['text', '--json-scene=relay-day', '--relay=daily-cap', `--real-now=${late}`]);
+  assert.deepStrictEqual(o.m1.route.stt, { cloud: 1, local: 2, provider: 'openai' });
+  assert.deepStrictEqual(o.m2.calls, [], `日が替わる前に中継へ送った: ${o.m2.calls}`);
+  assert.deepStrictEqual(o.m2.route.stt, { cloud: 0, local: 1, provider: 'openai' });
+  assert.deepStrictEqual(o.m3.route.stt, { cloud: 1, local: 0, provider: 'openai' });
+});
+
 for (const mode of ['quota', 'upstream-auth', 'daily-cap-all']) {
   test(`RL11: ${mode} → 手元・L7 を1回・その後の区間は中継に送らない（/health も聞かない）`, T, async () => {
     const o = await run(['text', `--relay=${mode}`, '--segs=3']);
