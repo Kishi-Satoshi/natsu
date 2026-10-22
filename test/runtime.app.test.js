@@ -869,7 +869,8 @@ test('記録中はエンジンの設定欄が触れなくなり理由が出る�
   assert.ok(notes.every((n) => !n.hidden), '理由の説明が出ない');
   // 第1d回 A-13（D19）で意図して変えた: カード「オフライン」（前の「エンジン」）の中の理由は「PC の中の文字起こし」の言葉。
   // カードの外（動作の「認識言語」）の理由は今のまま（D19 はカードの中の決定: 決めたこと K14）
-  const inOffline = (n) => n.closest('.card').querySelector('h2').textContent === 'オフライン';
+  // 0.9.3 M-0（D54）で意図して変えた: カードの名前は「ローカル AI の設定」
+  const inOffline = (n) => n.closest('.card').querySelector('h2').textContent === 'ローカル AI の設定';
   assert.ok(notes.filter(inOffline).length === 2 && notes.some((n) => !inOffline(n)), '前提: 理由の欄の置き場所が違う');
   assert.ok(notes.every((n) => n.textContent.trim() === (inOffline(n) ? '記録中は PC の中の文字起こしの設定を変更できません' : '記録中はエンジンの設定を変更できません')), '文言が違う');
   l.fire('onMeetingUpdate', { active: false });

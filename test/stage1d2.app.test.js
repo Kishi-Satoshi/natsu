@@ -17,11 +17,11 @@ const T = { timeout: 5000 };
 const fmt = (e) => `${e.constructor.name}: ${e.message}`;
 // 計画「画面と知らせの文」の設定のカード「オフライン」（OFF1〜OFF5）
 const OFF1_LEAD = 'PC の中で文字起こしと要約をするための準備です（任意）。';
-const OFF1 = 'インターネットにつながっていないときと、［この会議は PC の中だけ］の会議でも、この PC の中で文字起こしと要約ができるようにする準備です（任意）。準備しなくても、インターネットにつながっていてログインしていれば、会議と音声入力はそのまま使えます。';
+const OFF1 = 'インターネットにつながっていないときと、オフラインモードの会議でも、この PC の中で文字起こしと要約ができるようにする準備です（任意）。準備しなくても、インターネットにつながっていてログインしていれば、会議と音声入力はそのまま使えます。';
 const OFF2 = 'PC の中の文字起こし：準備していません（任意）';
-const OFF3 = '取り込むと: インターネットにつながっていないときや［この会議は PC の中だけ］の会議でも、PC の中で文字起こしと要約ができます。音声や議事録は外に送りません。';
+const OFF3 = '取り込むと: インターネットにつながっていないときやオフラインモードの会議でも、PC の中で文字起こしと要約ができます。音声や議事録は外に送りません。';
 const OFF4 = (need, free, min) => `かかるもの: ディスクの空き 約 ${need}（今の空き 約 ${free}）・取り込みの時間 10Mbps の回線で約 ${min} 分。議事録の記録中は、Web 会議の回線を守るため取り込みを止めます。`;
-const OFF5 = 'オフラインでも使う（数 GB を取り込む）';
+const OFF5 = 'ローカル AI を使う（数 GB を取り込む）';
 const NOT_FETCHED = '文字起こしエンジンがまだ取り込まれていません（見本）';
 // 取り込みの欄の写し（engine-app.test.js の ST と同じ形。main の engine:fetch-status の答え）
 const FETCH = (o = {}) => ({ ok: true, supported: true, mode: { whisper: 'managed', sum: 'managed' }, state: 'missing', totalBytes: 5580564403, doneBytes: 0,
@@ -69,7 +69,7 @@ test('F5: chosen が真か無いときの状態は 0.8.0 のまま（使えま�
   assert.strictEqual($(ok, 'engineState').className, 'eng-state ok');
 });
 
-test('OF7: 取り込みの欄（consent が偽・missing）の文は OFF3・OFF4（空きと分の数は今の計算）で、ボタンは［オフラインでも使う（数 GB を取り込む）］。押すと engine:fetch-start を1回', T, async () => {
+test('OF7: 取り込みの欄（consent が偽・missing）の文は OFF3・OFF4（空きと分の数は今の計算）で、ボタンは［ローカル AI を使う（数 GB を取り込む）］。押すと engine:fetch-start を1回', T, async () => {
   const l = await open();
   await l.drain();
   assert.strictEqual($(l, 'engineFetch').hidden, false);
@@ -78,7 +78,7 @@ test('OF7: 取り込みの欄（consent が偽・missing）の文は OFF3・OFF4
   const b = $(l, 'engineFetchBtn');
   assert.strictEqual(b.textContent, OFF5);
   assert.strictEqual(b.hidden, false);
-  assert.strictEqual($(l, 'engineFetch').dataset.row, 'オフラインでも使う', '検索の行の名前がボタンの文と違う');
+  assert.strictEqual($(l, 'engineFetch').dataset.row, 'ローカル AI を使う', '検索の行の名前がボタンの文と違う');
   const n = l.called('engineFetchStart').length;
   await click(l, 'engineFetchBtn');
   assert.strictEqual(l.called('engineFetchStart').length, n + 1);
@@ -146,7 +146,7 @@ test('F5: chosen が真か無く、パスが空で取り込んだ組も無けれ
 });
 
 test('OF2: 帯の action signin は［ログイン］で設定の『アカウント』、offline は［オフラインの準備］で取り込みの欄。知らせの action signin は［ログイン］、account は今どおり［ログインし直す］、offline は［オフラインの準備］', T, async () => {
-  for (const [action, label, sec] of [['signin', 'ログイン', 'account'], ['offline', 'オフラインの準備', 'offline'], ['account', 'ログインし直す', 'account']]) {
+  for (const [action, label, sec] of [['signin', 'ログイン', 'account'], ['offline', 'ローカル AI の準備', 'offline'], ['account', 'ログインし直す', 'account']]) {
     const l = await open({}, { now: T0 });
     await l.drain();
     l.fire('onMeetingUpdate', PROB('kept-x', action, '帯の文（見本）')); await l.drain();
@@ -159,7 +159,7 @@ test('OF2: 帯の action signin は［ログイン］で設定の『アカウン
     if (action === 'offline') assert.ok(!$(l, 'engineAdv').open, '［オフラインの準備］で詳細設定を開いた（取り込みの欄へ行く）');
     assert.deepStrictEqual(l.errors.map(fmt), []);
   }
-  for (const [action, label, sec] of [['signin', 'ログイン', 'account'], ['account', 'ログインし直す', 'account'], ['offline', 'オフラインの準備', 'offline']]) {
+  for (const [action, label, sec] of [['signin', 'ログイン', 'account'], ['account', 'ログインし直す', 'account'], ['offline', 'ローカル AI の準備', 'offline']]) {
     const l = await open();
     await l.drain();
     l.fire('onNotice', { text: '知らせの文（見本）', action }); await l.drain();
@@ -173,8 +173,8 @@ test('OF2: 帯の action signin は［ログイン］で設定の『アカウン
   }
 });
 
-const NEEDS = 'この会議は PC の中だけです。音声だけを残しています（外には送りません）。オフラインの準備が済むと文字起こしします。';
-const LOCAL = 'この会議は PC の中だけで文字起こししています';
+const NEEDS = 'オフラインモードです。音声だけを残しています（外には送りません）。ローカル AI の準備が済むと文字起こしします。';
+const LOCAL = 'オフラインモードです。この会議の音声は外へ送らず、PC の中で文字起こししています';
 test('OF4: needsSetup の答えのとき、PC の中だけの文が準備なしの文。画面を描き直しても（meeting:update の needsSetup が真）準備なしの文のまま。準備した PC は今の文', T, async () => {
   let st = LIVE();
   const l = await open({ meetingStatus: () => st, meetingSetLocalOnly: () => ({ ok: true, localOnly: true, needsSetup: true }) }, { now: T0 });
@@ -208,7 +208,7 @@ test('OFF1: カードの説明は D21 の文（選んだ人も選んでいない
     // 0.9.2 I-3（計画 docs/plans/2026-10-21-092.md）で意図して変えた: 頭の説明は1行（OFF1_LEAD）。D21 の文の芯は ⓘ の吹き出し（#setPopOffline）にある
     assert.strictEqual(card.children[1].textContent.trim(), OFF1_LEAD, String(chosen));
     const pop = $(l, 'setPopOffline').textContent;
-    for (const w of ['準備しなくても、インターネットにつながっていてログインしていれば、会議と音声入力はそのまま使えます。', '［この会議は PC の中だけ］の会議でも']) assert.ok(pop.includes(w), w);
+    for (const w of ['準備しなくても、インターネットにつながっていてログインしていれば、会議と音声入力はそのまま使えます。', 'オフラインモードの会議でも']) assert.ok(pop.includes(w), w);   // 0.9.3 M-0（D54）で意図して変えた
   }
-  for (const t of [OFF1_LEAD, OFF1, OFF2, OFF3, OFF4('1GB', '2GB', 3), OFF5, NEEDS, 'ログイン', 'オフラインの準備']) assert.ok(!t.includes('未設定'), t);
+  for (const t of [OFF1_LEAD, OFF1, OFF2, OFF3, OFF4('1GB', '2GB', 3), OFF5, NEEDS, 'ログイン', 'ローカル AI の準備']) assert.ok(!t.includes('未設定'), t);
 });

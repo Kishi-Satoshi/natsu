@@ -67,7 +67,8 @@ test('日付: updated は 2026-10-20 から今日（日本の日付）まで。�
   }
 });
 
-test('RF28: record/pc-only の記事に「1on1」「面談」「OpenAI」「［この会議は PC の中だけ］」「音声入力」がある。start/what-natsu-does から record/pc-only へのリンクがあり、featured に record/pc-only がある', { timeout: 5000 }, () => {
+// 0.9.3 M-0（D54）で意図して変えた: ボタンの名前は［オフラインモード］
+test('RF28: record/pc-only の記事に「1on1」「面談」「OpenAI」「［オフラインモード］」「音声入力」がある。start/what-natsu-does から record/pc-only へのリンクがあり、featured に record/pc-only がある', { timeout: 5000 }, () => {
   if (refs.length === 0) {
     // 記事がまだ無い間だけ通る。1件でもあれば下の照らしが効く（後で pc-only を消しても黙って通らない）
     assert.deepStrictEqual(site.featured, []);
@@ -75,7 +76,7 @@ test('RF28: record/pc-only の記事に「1on1」「面談」「OpenAI」「［�
   }
   assert.ok(refs.includes('record/pc-only'), 'record/pc-only の記事が無い（1on1・面談の注意）');
   const pc = read(fileOf('record/pc-only'));
-  for (const w of ['1on1', '面談', 'OpenAI', '［この会議は PC の中だけ］', '音声入力']) assert.ok(pc.includes(w), `record/pc-only に「${w}」が無い`);
+  for (const w of ['1on1', '面談', 'OpenAI', '［オフラインモード］', '音声入力']) assert.ok(pc.includes(w), `record/pc-only に「${w}」が無い`);
   assert.ok(refs.includes('start/what-natsu-does'), 'start/what-natsu-does の記事が無い');
   assert.ok(read(fileOf('start/what-natsu-does')).includes('](record/pc-only.md'), 'start/what-natsu-does から record/pc-only へのリンクが無い');
   assert.ok(site.featured.includes('record/pc-only'), 'featured に record/pc-only が無い');

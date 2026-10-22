@@ -108,7 +108,10 @@ test('BN1・G-3: 撮る画面の帯（BANNER_STT）の文は main の B8 と同�
     const s = SH.SCREENS.find((x) => x.name === n);
     assert.ok(s, `${n} が撮る画面に無い`);
     assert.strictEqual(s.answers['koeApp.meetingStatus'].stt.problem.text, banner('relay-down'), n);
-    assert.ok(!SH.RETAKE.has(n), `${n} が取り直し待ちに残っている`);
+    // 0.9.3 M-0（D54）で意図して変えた: 0.9.3 の計画の「取り直す画面」の表にあるときだけ取り直し待ちでよい（ボタン［オフラインモード］）
+    const plan = fs.readFileSync(path.join(__dirname, '..', 'docs', 'plans', '2026-10-22-093.md'), 'utf8');
+    const table = plan.slice(plan.indexOf('## 取り直す画面（RETAKE）'), plan.indexOf('## 実機で利用者に見てもらうこと'));
+    assert.ok(!SH.RETAKE.has(n) || table.includes(`\`${n}\``), `${n} が計画の表に無いのに取り直し待ちにある`);
     assert.ok(fs.existsSync(path.join(__dirname, 'shots', 'win32', `${n}.png`)), `${n} の基準が無い`);
   }
 });

@@ -159,7 +159,13 @@ SCREENS.find((x) => x.name === 'notes-page-light').focus = { tabs: 3, want: 'mtT
 // I-4 で足した画面（まだ基準が無い）も入れた
 // 0.9.2（版を 0.9.2 に上げる commit）: 利用者が 2026-10-21 に CI の取り直しの画像（run 39560229700（2649858）・artifact 12327173484 の .after.png。
 // 設定の 7 枚と I-4 で足した 9 枚の 16 枚）を見て OK と言ったので、その画像をバイトのまま基準にし、空に戻した
-const RETAKE = new Set([]);
+// 0.9.3（計画 docs/plans/2026-10-22-093.md の「取り直す画面」）: M-0（持ち主の答え D54）で設定の左の列の名前を「ローカル AI の設定」にして列を 196px に
+// 広げたので設定の 16 枚、録音中のページのボタンを［オフラインモード］にしたので録音中のページの 7 枚を入れた。M-4・M-6・M-7 で足す画面も入れる。
+// 利用者がまとめて OK と言ったら、版を上げる commit で基準にして空に戻す
+const RETAKE = new Set(['settings-light', 'settings-dark', 'live-light', 'live-dark', 'settings-zoom200-dark', 'live-banner-light', 'live-banner-dark',
+  'live-banner-zoom200-dark', 'settings-record-light', 'settings-search-light', 'settings-offline-light', 'live-quiet-light', 'live-quiet-dark',
+  'settings-quiet-search-light', 'settings-record-dark', 'settings-record-zoom200-light', 'settings-summary-light', 'settings-account-light',
+  'settings-info-loop-light', 'settings-info-stt-dark', 'settings-info-claude-light', 'settings-info-zoom200-light', 'settings-info-search-light']);
 const PERF = [{ name: 'open-2000-blocks', budgetMs: 500 }];   // 3回開いた中央値で見る
 const TIME_ZONE = 'Asia/Tokyo';
 const TOLERANCE = 2;   // 色の差（0〜255）がこれ以下の画素は同じとみなす。CI の機械の CPU ごとの描き方の1段の差を拾わないため（揺れの確かめ judgePair は 0 で見る）

@@ -244,7 +244,7 @@ test('設定: 要約の文脈長の欄がオフラインのカード（前の「
   const l = await load(APP);
   const el = l.byId.get('sumCtx');
   assert.ok(el, '#sumCtx が無い');
-  assert.strictEqual(カード見出し(el), 'オフライン');
+  assert.strictEqual(カード見出し(el), 'ローカル AI の設定');   // 0.9.3 M-0（D54）で意図して変えた
   assert.ok(el.closest('#engineAdv'), '詳細設定の中に無い');
   const field = el.closest('.field');
   assert.strictEqual(field.querySelector('label').textContent, '要約の文脈長');
@@ -257,7 +257,7 @@ test('設定: エンジンの自動停止の欄がオフラインのカード（
   const l = await load(APP);
   const el = l.byId.get('engineIdleMin');
   assert.ok(el, '#engineIdleMin が無い');
-  assert.strictEqual(カード見出し(el), 'オフライン');
+  assert.strictEqual(カード見出し(el), 'ローカル AI の設定');   // 0.9.3 M-0（D54）で意図して変えた
   assert.ok(el.closest('#engineAdv'), '詳細設定の中に無い');
   const field = el.closest('.field');
   assert.strictEqual(field.querySelector('label').textContent, '使わないエンジンを止めるまで（分）');

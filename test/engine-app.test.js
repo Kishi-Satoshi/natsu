@@ -235,7 +235,8 @@ test('INSTALL の手順3 と困ったときに引いた［ボタン］と、取�
   const html = fs.readFileSync(APP, 'utf8');
   const sec = (h) => { const i = md.indexOf(`\n${h}`); assert.ok(i >= 0, h); const rest = md.slice(i + 1); const j = rest.indexOf('\n## ', 1); return j < 0 ? rest : rest.slice(0, j); };
   // 0.9.0 G-2（OF8）で意図して変えた: 手順3 の見出しは「（任意）オフラインでも使う（約 5.6GB を取り込む）」
-  const text = sec('## 手順3.（任意）オフラインでも使う') + sec('## 困ったときは');
+  // 0.9.3 M-0（D54）で意図して変えた: 手順3 の見出しは「（任意）ローカル AI を使う（約 5.6GB を取り込む）」
+  const text = sec('## 手順3.（任意）ローカル AI を使う') + sec('## 困ったときは');
   const buttons = [...new Set([...text.matchAll(/［([^］]+)］/g)].map((m) => m[1]))];
   assert.ok(buttons.length >= 8, `引いたボタンが少ない: ${buttons.join('・')}`);
   for (const b of buttons) assert.ok(html.includes(b), `INSTALL の［${b}］が画面に無い`);

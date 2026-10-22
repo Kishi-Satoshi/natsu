@@ -39,6 +39,14 @@ const I4_SCREENS_092 = ['settings-record-dark', 'settings-record-zoom200-light',
 // 0.9.2 で基準にした画面（計画の「取り直す画面」の表の全部: 設定の 7 枚と I-4 で足した 9 枚）
 const ADDED_092 = ['settings-light', 'settings-dark', 'settings-zoom200-dark', 'settings-record-light', 'settings-search-light', 'settings-offline-light',
   'settings-quiet-search-light', ...I4_SCREENS_092];
+// 0.9.3（計画 docs/plans/2026-10-22-093.md の「取り直す画面」）で意図して変えた: 取り直し待ちは計画の表の画面だけ（RETAKE_093）。M-0（持ち主の答え D54）で
+// 設定の左の列の名前を「ローカル AI の設定」にして列を 196px に広げたので設定の 16 枚、録音中のページのボタンを［オフラインモード］にしたので録音中のページの
+// 7 枚を入れた。M-4・M-6・M-7 で足す画面（NEW_093）は、取り直し待ちの間は基準が無くてよい。利用者がまとめて OK と言ったら、版を上げる commit で基準にして空に戻す
+const SETTINGS_093 = ['settings-light', 'settings-dark', 'settings-zoom200-dark', 'settings-record-light', 'settings-search-light', 'settings-offline-light',
+  'settings-quiet-search-light', ...I4_SCREENS_092];
+const LIVE_093 = ['live-light', 'live-dark', 'live-banner-light', 'live-banner-dark', 'live-banner-zoom200-dark', 'live-quiet-light', 'live-quiet-dark'];
+const NEW_093 = new Set([]);
+const RETAKE_093 = [...SETTINGS_093, ...LIVE_093, ...NEW_093];
 const img = (w, h, fill = [255, 255, 255, 255]) => ({ width: w, height: h, data: Buffer.from(Array.from({ length: w * h }, () => fill).flat()) });
 // 一時フォルダ（日本語と 𠮷 の名前。RF1 と同じ形）。テストの終わりに消す
 const tmp = (t, name) => {
@@ -111,7 +119,8 @@ test('あとの直し (b)・0.9.0 B-1・G-3: 撮る画面に live-banner-dark・
     assert.ok(!s.act && !s.focus && !s.event, n);
     assert.deepStrictEqual(s.answers, light.answers, `${n} の会議と帯が live-banner-light と違う`);
     assert.strictEqual(s.answers['koeApp.meetingStatus'].stt.problem.text, B8, n);
-    assert.ok(!SH.RETAKE.has(n), `${n} が取り直し待ちに残っている`);
+    // 0.9.3 M-0 で意図して変えた: 0.9.3 の計画の表（RETAKE_093）にあるときだけ取り直し待ちでよい（ボタン［オフラインモード］）
+    assert.ok(!SH.RETAKE.has(n) || RETAKE_093.includes(n), `${n} が計画の表に無いのに取り直し待ちにある`);
     assert.ok(fs.existsSync(path.join(ROOT, 'test', 'shots', 'win32', `${n}.png`)), `${n} の基準が無い`);
   }
 });
@@ -437,7 +446,8 @@ test('G2: 作業域より大きい窓が作るときに縮められても（Wind
 test('U-3・G-3: settings-offline-light は基準の PNG と比べる（取り直し待ちではない）。答えは chosen 偽・consent 偽の missing・空き 20GB・ログイン中で、項目「オフライン」を開く', { timeout: 5000 }, () => {
   // 0.9.2 I-1 で意図して変えた: 0.9.2 の計画の表（RETAKE_092）にあるときだけ取り直し待ちでよい（［ヘルプ］と I-3 のオフラインの頭の説明）
   // 0.9.2 で意図して変えた（版を 0.9.2 に上げる commit）: 利用者が OK と言った CI の画像を基準にしたので、また取り直し待ちではない
-  assert.ok(!SH.RETAKE.has('settings-offline-light'), '準備を選んでいない人のカードの画面が取り直し待ちに残っている');
+  // 0.9.3 M-0 で意図して変えた: 0.9.3 の計画の表（RETAKE_093）にあるときだけ取り直し待ちでよい（項目の名前「ローカル AI の設定」）
+  assert.ok(!SH.RETAKE.has('settings-offline-light') || RETAKE_093.includes('settings-offline-light'), '準備を選んでいない人のカードの画面が、計画の表に無いのに取り直し待ちにある');
   assert.ok(fs.existsSync(path.join(ROOT, 'test', 'shots', 'win32', 'settings-offline-light.png')), '準備を選んでいない人のカードの画面の基準が無い');
   const s = SH.SCREENS.find((x) => x.name === 'settings-offline-light');
   assert.ok(s, '撮る画面に無い');
@@ -459,11 +469,15 @@ test('U-3・G-3: settings-offline-light は基準の PNG と比べる（取り�
 // 0.9.1 で意図して変えた（版を 0.9.1 に上げる commit）: 取り直し待ちを空に戻した（ファイルの頭の注）。計画の表の画面（ADDED_091）にはどれも基準がある
 // 0.9.2 で意図して変えた: 取り直し待ちは 0.9.2 の計画の表の画面（ファイルの頭の RETAKE_092）とちょうど同じ。取り直し待ちの新しい画面（NEW_092）のほかは基準がある
 // 0.9.2 で意図して変えた（版を 0.9.2 に上げる commit）: 取り直し待ちを空に戻した（ファイルの頭の注）。計画の表の画面（ADDED_092）にはどれも基準がある
-test('G2・F14・G-4・0.9.0 G-3・0.9.1・0.9.2: 取り直し待ちは無い。どの画面にも基準の PNG があり（0.9.1・0.9.2 で足した画面も）、本体の画面の大きさは窓の大きさと同じ', { timeout: 5000 }, () => {
-  assert.deepStrictEqual([...SH.RETAKE], []);
+// 0.9.3 で意図して変えた: 取り直し待ちは 0.9.3 の計画の表の画面（ファイルの頭の RETAKE_093）とちょうど同じ。取り直し待ちの新しい画面（NEW_093）のほかは基準がある
+test('G2・F14・G-4・0.9.0 G-3・0.9.1・0.9.2・0.9.3: 取り直し待ちは 0.9.3 の計画の表の画面とちょうど同じ。取り直し待ちの新しい画面のほかは、どの画面にも基準の PNG があり（0.9.1・0.9.2 で足した画面も）、本体の画面の大きさは窓の大きさと同じ', { timeout: 5000 }, () => {
+  assert.deepStrictEqual([...SH.RETAKE].sort(), [...RETAKE_093].sort());
   const plan = read('docs/plans/2026-10-21-092.md');
   const table = plan.slice(plan.indexOf('## 取り直す画面（RETAKE）'), plan.indexOf('## 実機で利用者に見てもらうこと'));
   for (const n of ADDED_092) assert.ok(table.includes(`\`${n}\``), `計画の「取り直す画面」の表に ${n} が無い`);
+  const plan093 = read('docs/plans/2026-10-22-093.md');
+  const table093 = plan093.slice(plan093.indexOf('## 取り直す画面（RETAKE）'), plan093.indexOf('## 実機で利用者に見てもらうこと'));
+  for (const n of RETAKE_093) assert.ok(table093.includes(`\`${n}\``), `0.9.3 の計画の「取り直す画面」の表に ${n} が無い`);
   assert.ok(!SH.RETAKE.has('overlay-processing'), '外した録音バーの画面を取り直し待ちに入れた');
   for (const n of [...ADDED_091, ...ADDED_092]) {
     assert.ok(SH.SCREENS.some((s) => s.name === n), `${n} が撮る画面に無い`);
@@ -471,6 +485,7 @@ test('G2・F14・G-4・0.9.0 G-3・0.9.1・0.9.2: 取り直し待ちは無い。
   }
   for (const s of SH.SCREENS) {
     const f = path.join(ROOT, 'test', 'shots', 'win32', `${s.name}.png`);
+    if (NEW_093.has(s.name) && SH.RETAKE.has(s.name)) { assert.ok(!fs.existsSync(f), `${s.name} は新しい画面なのに基準がある`); continue; }
     assert.ok(fs.existsSync(f), `${s.name} の基準が無い`);
     if (s.page === 'overlay') continue;
     const im = P.decodePng(fs.readFileSync(f));
@@ -622,7 +637,10 @@ test('基準の画像（test/shots/win32）は今の app.html で撮ったもの
   // どれも RETAKE にある。値を今の app.html に合わせた
   // 0.9.2 I-4: 吹き出しを開いたときに上にも下にも収まらなければ ⓘ を右の列の上へ捲る・書体の読み込みの後に置き直す（<script> の中だけ）。撮る吹き出しの画面は
   // どれも RETAKE にある。値を今の app.html に合わせた
-  assert.strictEqual(sha, '44d18d94035dd74eeec7a4b5fec6cf0101791bee70703a4e837ef0b8de4d0894',
+  // 0.9.3 M-0（持ち主の答え D54）: 録音中のページのボタンを［オフラインモード］、設定の項目「オフライン」を「ローカル AI の設定」と呼び、左の列を 196px に
+  // 広げた（文と .setnav の幅だけ）。見える中身が変わるのは設定の 16 枚と録音中のページの 7 枚で、どれも RETAKE に入れた。議事録・音声入力・検索の窓は
+  // 変わらない。値を今の app.html に合わせた
+  assert.strictEqual(sha, 'b60ca334a60e4c601610f1dc0211018d1ea930434e358b460094669152cca686',
     'app.html が基準の画像を撮った時と違う。Windows の CI の画面の比べ（捲り棒のつまみも）を見て、基準を取り直してからこの値を直す');
 });
 

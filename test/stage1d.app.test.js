@@ -85,7 +85,7 @@ const fmt = (e) => `${e.constructor.name}: ${e.message}`;
 const mail = (local) => local + String.fromCharCode(64) + 'example.com';
 const M = mail('kaigi');
 const R1 = '会社のメールアドレスでログインすると、インターネットにつながっているときに、会議と音声入力の音声を文字起こしの中継に送り、OpenAI で文字起こしします。ログインしていないときと、つながっていないときは、PC の中で文字起こしします。';
-const ONLINE = 'ログインしていて、インターネットにつながっているときは、会議と音声入力の音声を文字起こしの中継に送り、OpenAI（gpt-4o-transcribe）で文字起こしします。中継も OpenAI も、音声と文字を保存しません。つながっていないときは、いつも PC の中で文字起こしします。1on1・面談など外に出したくない会議は、議事録の画面の［この会議は PC の中だけ］を押してください。';
+const ONLINE = 'ログインしていて、インターネットにつながっているときは、会議と音声入力の音声を文字起こしの中継に送り、OpenAI（gpt-4o-transcribe）で文字起こしします。中継も OpenAI も、音声と文字を保存しません。つながっていないときは、いつも PC の中で文字起こしします。1on1・面談など外に出したくない会議は、議事録の画面の［オフラインモード］を押してください。';
 const L3 = 'ログインが切れたため、この PC で文字起こししています（精度が落ちます）。設定の「アカウント」でもう一度ログインしてください。';
 const CLAUDE = () => ({ ok: true, found: true, cmdOnly: false, method: 'claude.ai', message: '' });
 const status = (o = {}) => ({ ok: true, signedIn: false, email: '', method: 'access', until: null, canStore: true, online: { up: true, why: 'ok' }, ...o });
@@ -544,7 +544,7 @@ test('D17: 録音中のタブを開くと meetingLiveShown(true)、ほかのタ�
 // 0.9.0 U-3（OFF1・D21）で意図して変えた: 説明の文は「準備（任意）」の文（stage1d2.app の OFF1。選んだ人も選んでいない人も同じ）
 // 0.9.2 I-3（計画 docs/plans/2026-10-21-092.md）で意図して変えた: 頭の説明は1行。前の D21 の文（OFFLINE_D21）は頭の説明の ⓘ の吹き出し（#setPopOffline）にある
 const OFFLINE_LEAD = 'PC の中で文字起こしと要約をするための準備です（任意）。';
-const OFFLINE_D21 = 'インターネットにつながっていないときと、［この会議は PC の中だけ］の会議でも、この PC の中で文字起こしと要約ができるようにする準備です（任意）。準備しなくても、インターネットにつながっていてログインしていれば、会議と音声入力はそのまま使えます。';
+const OFFLINE_D21 = 'インターネットにつながっていないときと、オフラインモードの会議でも、この PC の中で文字起こしと要約ができるようにする準備です（任意）。準備しなくても、インターネットにつながっていてログインしていれば、会議と音声入力はそのまま使えます。';
 const LOCK_OFFLINE = '記録中は PC の中の文字起こしの設定を変更できません';
 const { MANIFEST } = require('../src/engine-manifest');
 // 取り込みの欄の写し（engine-app.test.js の ST と同じ形。main の engine:fetch-status の答え）
@@ -569,13 +569,13 @@ test('D19: 設定のカードの見出しが『オフライン』で、すぐ下
   const card = offlineCard(l);
   const h2 = card.children[0];
   assert.strictEqual(h2.tagName, 'h2');
-  assert.strictEqual(h2.textContent, 'オフライン');
+  assert.strictEqual(h2.textContent, 'ローカル AI の設定');   // 0.9.3 M-0（D54）で意図して変えた
   const lead = card.children[1];
   assert.ok(lead.classList.contains('field') && !lead.classList.contains('lockNote'), '見出しのすぐ下が説明の欄でない');
   assert.strictEqual(lead.textContent.trim(), OFFLINE_LEAD);
   const offPop = l.byId.get('setPopOffline');
   assert.ok(offPop && offPop.parentNode === card, 'オフラインのカードに頭の説明の吹き出しが無い');
-  for (const w of ['準備しなくても、インターネットにつながっていてログインしていれば、会議と音声入力はそのまま使えます。', 'インターネットにつながっていないときと、［この会議は PC の中だけ］の会議でも、この PC の中で文字起こしと要約が']) {
+  for (const w of ['準備しなくても、インターネットにつながっていてログインしていれば、会議と音声入力はそのまま使えます。', 'インターネットにつながっていないときと、オフラインモードの会議でも、この PC の中で文字起こしと要約が']) {
     assert.ok(offPop.textContent.includes(w), `吹き出しに「${w}」が無い（前の文 ${OFFLINE_D21.length} 字の芯）`);
   }
   assert.strictEqual(l.byId.get('engineState').textContent, 'PC の中の文字起こし：使えます');

@@ -44,7 +44,7 @@ test('OL4・U-1・RL11: カードに送り先（中継と OpenAI）・オフラ�
   const l = await load(APP, { returns: { claudeStatus: CLAUDE_OK } });
   await l.drain();
   const t = l.byId.get('language').closest('.card').textContent + l.byId.get('claudeTest').closest('.card').textContent;
-  for (const w of ['文字起こしの中継', 'OpenAI（gpt-4o-transcribe）', 'つながっていないときは、いつも PC の中で文字起こしします', '［この会議は PC の中だけ］']) assert.ok(t.includes(w), w);
+  for (const w of ['文字起こしの中継', 'OpenAI（gpt-4o-transcribe）', 'つながっていないときは、いつも PC の中で文字起こしします', '［オフラインモード］']) assert.ok(t.includes(w), w);
   for (const w of ['Groq', '「使う」', 'まだ決めていない', '管理者用の仮の欄']) assert.ok(!t.includes(w), `${w} が残っている`);
 });
 
@@ -154,7 +154,7 @@ test('RF28: 会議中の［この会議は PC の中だけ］を押すと main �
   await l.drain();
   assert.deepStrictEqual(calls, [true]);
   assert.strictEqual(l.byId.get('meetingLocalOnly').hidden, true);
-  assert.match(l.byId.get('meetingLocalOnlyNote').textContent, /この会議は PC の中だけで文字起こししています/);
+  assert.match(l.byId.get('meetingLocalOnlyNote').textContent, /オフラインモードです。この会議の音声は外へ送らず、PC の中で文字起こししています/);
 });
 
 test('RF28: ［PC の中だけ］は会議ごと。次の会議ではボタンが戻り、文は出ない。クラウドで処理しない設定ならボタンを出さない', async () => {

@@ -51,14 +51,14 @@ const POPS = {
   setPopLoop: { help: 'record/start-stop', must: ['パソコンから出ている音を、マイクと一緒に録ります。', '通知音や動画の音', 'イヤホン', 'マイクだけを使います', 'Windows でだけ動きます'] },
   setPopSpk: { help: 'record/start-stop', must: ['既定の再生デバイス', 'アプリの側からは選べない', '［Windowsの設定］', '追いかけません'] },
   setPopQuiet: { help: 'record/start-stop', must: ['5 分たっても答えが無ければ、録音を止めて議事録を作ります', '録音中のページ・録音バー・Windows の知らせ', '所要時間に入れません', '一時停止の間は数えません'] },
-  setPopStt: { help: 'record/pc-only', must: ['中継も OpenAI も、音声と文字を保存しません。', '文字起こしの中継', 'OpenAI（gpt-4o-transcribe）', 'つながっていないときは、いつも PC の中で文字起こしします', '1on1・面談', '［この会議は PC の中だけ］'] },
+  setPopStt: { help: 'record/pc-only', must: ['中継も OpenAI も、音声と文字を保存しません。', '文字起こしの中継', 'OpenAI（gpt-4o-transcribe）', 'つながっていないときは、いつも PC の中で文字起こしします', '1on1・面談', '［オフラインモード］'] },   // 0.9.3 M-0（D54）で意図して変えた
   setPopTerms: { help: 'settings/appearance', must: ['「不具合」「改修」「結合テスト」「今週」', '上の辞書が優先で、余った分だけ使われます'] },
   claudeHelp: { help: 'start/claude-code', must: ['irm https://claude.ai/install.ps1 | iex', 'Anthropic の公式の入れ方', 'そのまま実行します', 'Git for Windows は無くても動きます', 'NaTsu はログインの情報を読みません', '5 時間ごと・週ごと'] },
   // I-3: アカウント・オフライン（詳細設定も）・更新
   setPopLogin: { help: 'start/login', must: ['Cloudflare（中継を守る仕組み）', '英語', '［ログイン］を押すと、ログインの画面が別の窓で開きます。', '［Send login code］', '6 けたのコード', '［Sign in］', '窓は自動で閉じます',
     '迷惑メールのフォルダ', '「already been used」', '［Request new code］', '会社のメールの検査が、先にコードを使ってしまうことがあります', '文字起こしの中継に送り、OpenAI で文字起こしします',
     'ログインしていないときと、つながっていないときは、PC の中で文字起こしします。'] },
-  setPopOffline: { help: 'settings/offline', must: ['準備しなくても、インターネットにつながっていてログインしていれば、会議と音声入力はそのまま使えます。', '［この会議は PC の中だけ］', 'この PC の中で文字起こしと要約ができるようになります'] },
+  setPopOffline: { help: 'settings/offline', must: ['準備しなくても、インターネットにつながっていてログインしていれば、会議と音声入力はそのまま使えます。', 'オフラインモードの会議', 'この PC の中で文字起こしと要約ができるようになります'] },
   setPopWThreads: { help: 'settings/offline', must: ['文字起こしに使う CPU の数', 'コア数−2', '他の作業が重くなります', 'この PC の中だけで使う通信の番号', 'ぶつかって PC の中の文字起こしが起動できないときだけ変えてください'] },
   setPopSThreads: { help: 'settings/offline', must: ['意味は文字起こしエンジンの欄と同じです（こちらは要約に使われます）。', '2つのエンジンのポートは別の番号にしてください。'] },
   setPopCtx: { help: 'settings/offline', must: ['大きいほどメモリを使い、小さいと長い会議の統合で足りなくなります。'] },

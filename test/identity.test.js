@@ -134,14 +134,15 @@ test('.ps1 の BOM は1つだけ（4バイト目から EF BB BF が続かない�
 // メール）。NaTsu の自前の確認コードのメール（Resend）・MAIL_DAILY_MAX の話は書かない。中継の住所は src/relay.js の RELAY_BASE（本物の住所。
 // 第1d回 A-10）と同じ。INSTALL の接続先に Access のログインの画面（<チームの名前>.cloudflareaccess.com）を足す（チームの名前は書かない）
 const RELAY_HOST = new URL(require('../src/relay').RELAY_BASE).host;
-test('OL9・RL9・D18: README と INSTALL は、中継の住所・中継の先の OpenAI・Cloudflare Access のログイン（One-time PIN）・［この会議は PC の中だけ］・Claude Code の入れ方・上限を書き、Groq の送り先・「完全オフライン」・Resend・確認コードを書かない', () => {
+// 0.9.3 M-0（D54）で意図して変えた: ［この会議は PC の中だけ］は［オフラインモード］に呼び直した（README・INSTALL も「オフラインモード」を書く）
+test('OL9・RL9・D18: README と INSTALL は、中継の住所・中継の先の OpenAI・Cloudflare Access のログイン（One-time PIN）・［オフラインモード］・Claude Code の入れ方・上限を書き、Groq の送り先・「完全オフライン」・Resend・確認コードを書かない', () => {
   assert.match(RELAY_HOST, /^natsu-relay\.[a-z0-9-]+\.workers\.dev$/);
   for (const w of ['音声', '送り先', RELAY_HOST, 'Cloudflare Access', 'One-time PIN', 'OpenAI', 'ログイン', '［ログイン］', '［Send login code］', '［Sign in］', '英語',
-    'PC の中だけ', 'オフライン', 'irm https://claude.ai/install.ps1 | iex', '上限', 'claude auth status', '"authMethod": "claude.ai"', 'claude.ai', 'api.anthropic.com',
+    'オフラインモード', 'オフライン', 'irm https://claude.ai/install.ps1 | iex', '上限', 'claude auth status', '"authMethod": "claude.ai"', 'claude.ai', 'api.anthropic.com',
     'Zscaler', '情報システム', 'noreply＠notify.cloudflare.com']) {
     assert.ok(readme.includes(w), `README に「${w}」が無い`);
   }
-  for (const w of [RELAY_HOST, 'Cloudflare', 'One-time PIN', 'OpenAI', 'ログイン', '［ログイン］', '［Send login code］', '［Sign in］', '英語', 'PC の中だけ']) {
+  for (const w of [RELAY_HOST, 'Cloudflare', 'One-time PIN', 'OpenAI', 'ログイン', '［ログイン］', '［Send login code］', '［Sign in］', '英語', 'オフラインモード']) {
     assert.ok(install.includes(w), `INSTALL に「${w}」が無い`);
   }
   for (const [n, s] of [['README.md', readme], ['INSTALL.md', install], ['package.json', JSON.stringify(pkg)], ['src/main.js', main]]) {
@@ -312,10 +313,11 @@ const secOf = (md, heading) => {
   const j = rest.indexOf('\n## ', 1);
   return j < 0 ? rest : rest.slice(0, j);
 };
-const FETCH_BTN = 'オフラインでも使う（数 GB を取り込む）';
-test('0.9.0: README・INSTALL は手順3を任意と書き、ログインを先に書く。［オフラインでも使う（数 GB を取り込む）］は画面にある', () => {
-  assert.ok(app.includes(FETCH_BTN), '画面に［オフラインでも使う（数 GB を取り込む）］が無い');
-  const step3 = '## 手順3.（任意）オフラインでも使う（約 5.6GB を取り込む）';
+const FETCH_BTN = 'ローカル AI を使う（数 GB を取り込む）';
+test('0.9.0: README・INSTALL は手順3を任意と書き、ログインを先に書く。［ローカル AI を使う（数 GB を取り込む）］は画面にある', () => {
+  assert.ok(app.includes(FETCH_BTN), '画面に［ローカル AI を使う（数 GB を取り込む）］が無い');
+  // 0.9.3 M-0（D54）で意図して変えた: 手順3 の見出しと取り込みのボタンは「ローカル AI を使う」、PC の中だけの会議は「オフラインモード」
+  const step3 = '## 手順3.（任意）ローカル AI を使う（約 5.6GB を取り込む）';
   assert.ok(install.includes(`\n${step3}\n`), 'INSTALL の手順3 の見出しが任意の形でない');
   const login = install.indexOf('\n## ログインする');
   assert.ok(login > 0 && login < install.indexOf(`\n${step3}`), 'INSTALL のログインの手順が手順3 の前に無い');
@@ -323,14 +325,14 @@ test('0.9.0: README・INSTALL は手順3を任意と書き、ログインを先�
   assert.ok(install.includes('設定の「アカウント」でログインすると、インターネットにつながっているときは会議と音声入力が使えます。'));
   const s3 = secOf(install, step3);
   assert.ok(s3.includes(`［${FETCH_BTN}］`), 'INSTALL の手順3 に初めのボタンの名前が無い');
-  for (const w of ['オフラインの会議', '音声を残し', '音声入力はオフラインでは始めません', 'PC の中だけ']) assert.ok(s3.includes(w), `INSTALL の手順3 に「${w}」が無い`);
-  assert.ok(!/約\s*7\s*GB 必要です/.test(install.split('\n').slice(0, 20).join('\n')) || /オフラインでも使うときだけ/.test(install.split('\n').slice(0, 20).join('\n')),
-    'INSTALL の前提の空きが「オフラインでも使うときだけ」の書き方でない');
+  for (const w of ['オフラインの会議', '音声を残し', '音声入力はオフラインでは始めません', 'オフラインモード']) assert.ok(s3.includes(w), `INSTALL の手順3 に「${w}」が無い`);
+  assert.ok(!/約\s*7\s*GB 必要です/.test(install.split('\n').slice(0, 20).join('\n')) || /ローカル AI を使うときだけ/.test(install.split('\n').slice(0, 20).join('\n')),
+    'INSTALL の前提の空きが「ローカル AI を使うときだけ」の書き方でない');
   assert.ok(!install.includes('ふつうは手順3（［PC の中の文字起こしを取り込む］）で足ります。'), 'INSTALL の困ったときに手順3 が要る書き方が残っている');
   assert.ok(readme.includes(`［${FETCH_BTN}］`) && readme.includes('任意'), 'README に任意の取り込みが無い');
   const ps = read('get-installer.ps1');
   assert.ok(ps.includes('インストールしたら NaTsu を起動し、［設定］→［アカウント］でログインしてください。'), 'get-installer.ps1 の終わりの案内がログインを先に言わない');
-  assert.ok(ps.includes(`オフラインでも使うときは、［設定］→［オフライン］の［${FETCH_BTN}］を押します（約 5.6GB。途中で切れても続きから取ります）。`));
+  assert.ok(ps.includes(`ローカル AI を使うときは、［設定］→［ローカル AI の設定］の［${FETCH_BTN}］を押します（約 5.6GB。途中で切れても続きから取ります）。`));
 });
 
 const SECS = (() => {
@@ -338,7 +340,7 @@ const SECS = (() => {
   return m ? [...m[1].matchAll(/name: '([^']+)'/g)].map((x) => x[1]) : [];
 })();
 test('0.9.0: README・INSTALL に「設定タブ」「設定のタブ」の言葉が無く、設定の項目の名前は画面の SETTINGS_SECS の名前', () => {
-  assert.deepStrictEqual(SECS, ['アカウント', '一般', '録音', '要約', 'オフライン', '更新']);
+  assert.deepStrictEqual(SECS, ['アカウント', '一般', '録音', '要約', 'ローカル AI の設定', '更新']);   // 0.9.3 M-0（D54）で意図して変えた
   for (const [f, t] of [['README.md', readme], ['INSTALL.md', install], ['get-installer.ps1', read('get-installer.ps1')]]) {
     assert.ok(!t.includes('設定タブ') && !t.includes('設定のタブ'), `${f} に「設定タブ」「設定のタブ」がある`);
     const named = [...t.matchAll(/［設定］→［([^］]+)］/g), ...t.matchAll(/［設定］の「([^」]+)」/g)].map((m) => m[1]);
