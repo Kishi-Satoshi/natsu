@@ -48,8 +48,13 @@ const LIVE_093 = ['live-light', 'live-dark', 'live-banner-light', 'live-banner-d
 // M-7 で足した画面（計画の「取り直す画面」の表の（新）。撮る並びの順。本体の画面のあとに録音バー、そのあとにパネル）
 const M7_APP_093 = ['live-wave-light', 'live-wave-dark', 'live-silent-light', 'live-paused-dark', 'settings-detect-light', 'settings-detect-dark'];
 const M7_NUDGE_093 = ['nudge-light-100', 'nudge-dark-100', 'nudge-light-150', 'nudge-menu-light-100', 'nudge-menu-dark-100'];
-const NEW_093 = new Set([...M7_APP_093, ...M7_NUDGE_093]);
-const RETAKE_093 = [...SETTINGS_093, ...LIVE_093, ...NEW_093];
+// 持ち主の答え D55（オフラインモードの札と記録の行の「オフライン」）で足した画面（計画の「取り直す画面」の表の（新）。本体の画面の最後）
+const D55_APP_093 = ['live-offline-light', 'live-offline-dark'];
+// 0.9.3 で意図して変えた（版を 0.9.3 に上げる commit）: 持ち主が 2026-10-22 に「CI の画像を基準にして 0.9.3 の版を上げてよい」と言ったので、CI の取り直しの画像
+// （run 39769254304（a6b8271）の .after.png。計画の「取り直す画面」の全部の 36 枚）をバイトのまま基準にして取り直し待ちを空に戻した（0.9.2 と同じ手順）。
+// 計画の表の画面（前の RETAKE_093）と、足した画面の「取り直し待ちの間は基準が無くてよい」の例外（前の NEW_093）は外した
+// 0.9.3 で基準にした画面（計画の「取り直す画面」の表の全部: 設定の 16 枚・録音中のページの 7 枚・M-7 で足した 11 枚・D55 で足した 2 枚）
+const ADDED_093 = [...SETTINGS_093, ...LIVE_093, ...M7_APP_093, ...M7_NUDGE_093, ...D55_APP_093];
 const img = (w, h, fill = [255, 255, 255, 255]) => ({ width: w, height: h, data: Buffer.from(Array.from({ length: w * h }, () => fill).flat()) });
 // 一時フォルダ（日本語と 𠮷 の名前。RF1 と同じ形）。テストの終わりに消す
 const tmp = (t, name) => {
@@ -76,7 +81,9 @@ test('G2: 撮る画面は決まった並び（第1b回の 13 と第1b2回の検�
     // 0.9.2 I-4 で意図して変えた: 設定の「録音」の暗い・200%・要約・アカウント、ⓘ の吹き出しを開いた4枚、吹き出しの中の言葉で当たる検索を足した（取り直し待ち・まだ基準が無い）
     ...I4_SCREENS_092,
     // 0.9.3 M-7 で意図して変えた: 音の波（話している・無音・一時停止）と設定の「会議の検出」を足した（取り直し待ち・まだ基準が無い）
-    ...M7_APP_093]);
+    ...M7_APP_093,
+    // 0.9.3 持ち主の答え D55 で意図して変えた: オフラインモードの録音中のページの明るい・暗いを足した（取り直し待ち・まだ基準が無い）
+    ...D55_APP_093]);
   assert.deepStrictEqual(SH.SCREENS.filter((s) => s.page === 'overlay').map((s) => s.name), PS.screenNames());
   // 0.9.3 M-7 で意図して変えた: 会議の検出のパネル（page nudge）の5枚を録音バーのあと（いちばん後ろ）に足した
   assert.deepStrictEqual(SH.SCREENS.filter((s) => s.page === 'nudge').map((s) => s.name), M7_NUDGE_093);
@@ -128,7 +135,8 @@ test('あとの直し (b)・0.9.0 B-1・G-3: 撮る画面に live-banner-dark・
     assert.deepStrictEqual(s.answers, light.answers, `${n} の会議と帯が live-banner-light と違う`);
     assert.strictEqual(s.answers['koeApp.meetingStatus'].stt.problem.text, B8, n);
     // 0.9.3 M-0 で意図して変えた: 0.9.3 の計画の表（RETAKE_093）にあるときだけ取り直し待ちでよい（ボタン［オフラインモード］）
-    assert.ok(!SH.RETAKE.has(n) || RETAKE_093.includes(n), `${n} が計画の表に無いのに取り直し待ちにある`);
+    // 0.9.3 で意図して変えた（版を 0.9.3 に上げる commit）: 持ち主が OK と言った CI の画像を基準にしたので、また取り直し待ちではない
+    assert.ok(!SH.RETAKE.has(n), `${n} が取り直し待ちに残っている`);
     assert.ok(fs.existsSync(path.join(ROOT, 'test', 'shots', 'win32', `${n}.png`)), `${n} の基準が無い`);
   }
 });
@@ -250,8 +258,9 @@ test('G2・F14・RP9・G-3: 第1a回の録音バーの画面と基準は無い�
 // 0.9.0 G-3 で意図して変えた: 利用者が取り直しの画像を OK と言ったので取り直し待ちを空にし、版を 0.9.0 にした。次の版も、取り直し待ちが残る間は 0.9.0 のまま
 // 0.9.1 で意図して変えた: 利用者が取り直しの 12 枚を OK と言ったので取り直し待ちを空にし、版を 0.9.1 にした。次の版も、取り直し待ちが残る間は 0.9.1 のまま
 // 0.9.2 で意図して変えた: 利用者が取り直しの 16 枚を OK と言ったので取り直し待ちを空にし、版を 0.9.2 にした。次の版も、取り直し待ちが残る間は 0.9.2 のまま
+// 0.9.3 で意図して変えた: 持ち主が取り直しの 36 枚を OK と言ったので取り直し待ちを空にし、版を 0.9.3 にした。次の版も、取り直し待ちが残る間は 0.9.3 のまま
 test('F14: 取り直し待ちが残っている間は、版を上げられない（取り直し待ちのまま次の版を出さない）', { timeout: 5000 }, () => {
-  if (SH.RETAKE.size) assert.strictEqual(JSON.parse(read('package.json')).version, '0.9.2', `取り直し待ち ${[...SH.RETAKE].join(',')} を残したまま版を上げた`);
+  if (SH.RETAKE.size) assert.strictEqual(JSON.parse(read('package.json')).version, '0.9.3', `取り直し待ち ${[...SH.RETAKE].join(',')} を残したまま版を上げた`);
 });
 
 test('tools/shots/main.js は画面ごとの答え・拡大・はみ出し・Tab を使う', { timeout: 5000 }, () => {
@@ -455,7 +464,8 @@ test('U-3・G-3: settings-offline-light は基準の PNG と比べる（取り�
   // 0.9.2 I-1 で意図して変えた: 0.9.2 の計画の表（RETAKE_092）にあるときだけ取り直し待ちでよい（［ヘルプ］と I-3 のオフラインの頭の説明）
   // 0.9.2 で意図して変えた（版を 0.9.2 に上げる commit）: 利用者が OK と言った CI の画像を基準にしたので、また取り直し待ちではない
   // 0.9.3 M-0 で意図して変えた: 0.9.3 の計画の表（RETAKE_093）にあるときだけ取り直し待ちでよい（項目の名前「ローカル AI の設定」）
-  assert.ok(!SH.RETAKE.has('settings-offline-light') || RETAKE_093.includes('settings-offline-light'), '準備を選んでいない人のカードの画面が、計画の表に無いのに取り直し待ちにある');
+  // 0.9.3 で意図して変えた（版を 0.9.3 に上げる commit）: 持ち主が OK と言った CI の画像を基準にしたので、また取り直し待ちではない
+  assert.ok(!SH.RETAKE.has('settings-offline-light'), '準備を選んでいない人のカードの画面が取り直し待ちに残っている');
   assert.ok(fs.existsSync(path.join(ROOT, 'test', 'shots', 'win32', 'settings-offline-light.png')), '準備を選んでいない人のカードの画面の基準が無い');
   const s = SH.SCREENS.find((x) => x.name === 'settings-offline-light');
   assert.ok(s, '撮る画面に無い');
@@ -478,22 +488,22 @@ test('U-3・G-3: settings-offline-light は基準の PNG と比べる（取り�
 // 0.9.2 で意図して変えた: 取り直し待ちは 0.9.2 の計画の表の画面（ファイルの頭の RETAKE_092）とちょうど同じ。取り直し待ちの新しい画面（NEW_092）のほかは基準がある
 // 0.9.2 で意図して変えた（版を 0.9.2 に上げる commit）: 取り直し待ちを空に戻した（ファイルの頭の注）。計画の表の画面（ADDED_092）にはどれも基準がある
 // 0.9.3 で意図して変えた: 取り直し待ちは 0.9.3 の計画の表の画面（ファイルの頭の RETAKE_093）とちょうど同じ。取り直し待ちの新しい画面（NEW_093）のほかは基準がある
-test('G2・F14・G-4・0.9.0 G-3・0.9.1・0.9.2・0.9.3: 取り直し待ちは 0.9.3 の計画の表の画面とちょうど同じ。取り直し待ちの新しい画面のほかは、どの画面にも基準の PNG があり（0.9.1・0.9.2 で足した画面も）、本体の画面の大きさは窓の大きさと同じ', { timeout: 5000 }, () => {
-  assert.deepStrictEqual([...SH.RETAKE].sort(), [...RETAKE_093].sort());
+// 0.9.3 で意図して変えた（版を 0.9.3 に上げる commit）: 取り直し待ちを空に戻した（ファイルの頭の注）。計画の表の画面（ADDED_093）にはどれも基準がある
+test('G2・F14・G-4・0.9.0 G-3・0.9.1・0.9.2・0.9.3: 取り直し待ちは無い。どの画面にも基準の PNG があり（0.9.1・0.9.2・0.9.3 で足した画面も）、本体の画面の大きさは窓の大きさと同じ', { timeout: 5000 }, () => {
+  assert.deepStrictEqual([...SH.RETAKE], []);
   const plan = read('docs/plans/2026-10-21-092.md');
   const table = plan.slice(plan.indexOf('## 取り直す画面（RETAKE）'), plan.indexOf('## 実機で利用者に見てもらうこと'));
   for (const n of ADDED_092) assert.ok(table.includes(`\`${n}\``), `計画の「取り直す画面」の表に ${n} が無い`);
   const plan093 = read('docs/plans/2026-10-22-093.md');
   const table093 = plan093.slice(plan093.indexOf('## 取り直す画面（RETAKE）'), plan093.indexOf('## 実機で利用者に見てもらうこと'));
-  for (const n of RETAKE_093) assert.ok(table093.includes(`\`${n}\``), `0.9.3 の計画の「取り直す画面」の表に ${n} が無い`);
+  for (const n of ADDED_093) assert.ok(table093.includes(`\`${n}\``), `0.9.3 の計画の「取り直す画面」の表に ${n} が無い`);
   assert.ok(!SH.RETAKE.has('overlay-processing'), '外した録音バーの画面を取り直し待ちに入れた');
-  for (const n of [...ADDED_091, ...ADDED_092]) {
+  for (const n of [...ADDED_091, ...ADDED_092, ...ADDED_093]) {
     assert.ok(SH.SCREENS.some((s) => s.name === n), `${n} が撮る画面に無い`);
     assert.ok(fs.existsSync(path.join(ROOT, 'test', 'shots', 'win32', `${n}.png`)), `${n} の基準が無い`);
   }
   for (const s of SH.SCREENS) {
     const f = path.join(ROOT, 'test', 'shots', 'win32', `${s.name}.png`);
-    if (NEW_093.has(s.name) && SH.RETAKE.has(s.name)) { assert.ok(!fs.existsSync(f), `${s.name} は新しい画面なのに基準がある`); continue; }
     assert.ok(fs.existsSync(f), `${s.name} の基準が無い`);
     if (s.page !== 'app') continue;   // 0.9.3 M-7 で意図して変えた: パネル（nudge）の画面も、録音バーと同じく窓の大きさが中身で決まる
     const im = P.decodePng(fs.readFileSync(f));
@@ -659,6 +669,9 @@ test('基準の画像（test/shots/win32）は今の app.html で撮ったもの
   // 変わり、search-palette-light が基準と違った）。検索の窓は 0.9.2 の基準と同じに戻る。値を今の app.html に合わせた
   // 0.9.3 M-6 の撮った画面の直し（CI run 39751610440）: 「聞き取り中」の行を区間の行と同じ並びにした（CSS .livetail だけ）。変わるのは録音中のページの画面で、
   // どれも RETAKE にある。値を今の app.html に合わせた
+  // 0.9.3 持ち主の答え D55: 記録の行に押せない札「オフラインモード中」（#meetingLocalOnlyState・CSS .offpill。オフラインモードの会議のときだけ出る）と、
+  // 記録の行の括弧の中の「オフライン」（liveTitleText）を足した。今の録音中のページの画面はオフラインモードでないので見た目は変わらず、オフラインモードの
+  // 画面（live-offline-light・live-offline-dark）を足して RETAKE に入れた。値を今の app.html に合わせた
   // 0.9.4 S-3: 録音を止めた後の待ちのボタンを［文字起こしを後回しにして要約］にし、確かめの文と「後回しにしました」の行を替えた（止めた後の待ちの
   // 画面は撮っていないので、撮る画面は変わらない）。値を今の app.html に合わせた
   // 0.9.4 S-4: 遅い会議の「聞き取り中」の行を「音声を残しています（会議の後で文字起こしします）」にする分かれ道を <script> に足した（遅くない会議の
@@ -666,7 +679,8 @@ test('基準の画像（test/shots/win32）は今の app.html で撮ったもの
   // 0.9.4 S-7（決めたこと 19〜21・持ち主の答え Q9）: 設定の「ローカル AI の設定」に行「この PC の速さ」（［速さを測る］・勧めるスレッド数と［この数にする］）と
   // 閉じた details「軽いモデルと精度」（表・取り込む・使う・戻す・手の組のパスの案内）と CSS .alttable を足した。見える中身が変わるのは設定の
   // 「ローカル AI の設定」の画面と検索の画面で、どれも RETAKE にある（settings-offline-light・settings-search-light）。測った画面は S-8 で足す。値を今の app.html に合わせた
-  assert.strictEqual(sha, 'ea415f0f1e16c3d634587459eaf2be610c7ddd68d5b239edfa537c94bca9d81b',
+  // 0.9.4 M-0: 0.9.3（746ea67・6e79416）を merge した（0.9.3 の D55 と 0.9.4 の S-3・S-4・S-7 の app.html の直しが両方入った）。値を merge の後の app.html に合わせた
+  assert.strictEqual(sha, '2cf24d21f2b758ffbf00af76572caab5c894aebeccf3f68bfd7e7bf62af27a3e',
     'app.html が基準の画像を撮った時と違う。Windows の CI の画面の比べ（捲り棒のつまみも）を見て、基準を取り直してからこの値を直す');
 });
 
@@ -821,6 +835,25 @@ test('0.9.3 M-7: 音の波の画面は WAVE_SPEECH の 20 の出来事を送る�
   const m = read('tools/shots/main.js');
   assert.match(m, /if \(s\.motion\) await o\.wc\.debugger\.sendCommand\('Emulation\.setEmulatedMedia', \{ features: \[\{ name: 'prefers-reduced-motion', value: s\.motion \}\] \}\);\n\s*\/\/[^\n]*\n\s*for \(const \[name, payload\] of s\.events/, '出来事を送る前に motion を当てていない');
   assert.match(m, /for \(const \[name, payload\] of s\.events \|\| \[\]\) o\.wc\.send\(`shots:event:\$\{BRIDGE\[s\.page\]\}\.\$\{name\}`, payload\)/);
+});
+
+// 0.9.3 持ち主の答え D55: オフラインモードの会議の録音中のページ（札「オフラインモード中」・記録の行の「オフライン」）。live-light と同じ会議を、
+// オフラインモード（localOnly）・PC の中の文字起こし（区切り 75 秒）・相手の声も録っている形にした（記録の行が「議事録を記録中（相手の声も・オフライン）」になる）
+test('0.9.3 D55: オフラインモードの画面（live-offline-light・live-offline-dark）は live-light と同じ会議に localOnly・相手の声も・PC の中の文字起こし。準備のある PC（needsSetup なし）', { timeout: 5000 }, () => {
+  const live = SH.SCREENS.find((s) => s.name === 'live-light').answers['koeApp.meetingStatus'];
+  for (const [n, theme] of [['live-offline-light', 'light'], ['live-offline-dark', 'dark']]) {
+    const s = SH.SCREENS.find((x) => x.name === n);
+    assert.ok(s, `${n} が撮る画面に無い`);
+    assert.deepStrictEqual([s.page, s.theme, s.zoom, s.act, s.events], ['app', theme, undefined, undefined, undefined], n);
+    const st = s.answers['koeApp.meetingStatus'];
+    assert.deepStrictEqual([st.localOnly, st.systemAudio, st.cloud, st.needsSetup, st.paused, st.finalizing], [true, true, true, undefined, false, false], n);
+    assert.deepStrictEqual(st.stt, { route: 'local', lastTextAt: SH.FIXED_NOW - 12000, segSec: 75, problem: null }, n);
+    const { localOnly, systemAudio, stt, ...rest } = st;
+    const { localOnly: _l, systemAudio: _s, stt: _t, ...liveRest } = live;
+    assert.deepStrictEqual(rest, liveRest, `${n} の会議が live-light と違う`);
+    // 0.9.3 で意図して変えた（版を 0.9.3 に上げる commit）: 持ち主が OK と言った CI の画像を基準にした
+    assert.ok(!SH.RETAKE.has(n) && fs.existsSync(path.join(ROOT, 'test', 'shots', 'win32', `${n}.png`)), `${n} が取り直し待ちに残っているか、基準が無い`);
+  }
 });
 
 test('0.9.3 M-7: パネルの画面は透過の窓で撮る（明暗は onShow の theme・地はデスクトップの色・窓は main と同じ nudgeBounds・150% は窓 × 拡大率・⌄ を開いた形）', { timeout: 5000 }, () => {

@@ -2391,8 +2391,10 @@ function setMeetingLocalOnly(on) {
       clearSttProblem(meeting, ...KEPT_CODES.filter((c) => c !== 'kept-local'));
       setSttProblem(meeting, 'kept-local', {});
     }
-    sendToMainWin('meeting:update', meetingStatus());
   }
+  // 0.9.3 持ち主の答え D55: 印が付いたことをいつも画面へ送る（パネルの「オフラインモードで始める」では、録音中のページを見せる前に札「オフラインモード中」と
+  // 記録の行の「オフライン」が出る。前は準備の無い PC のときだけ送り、ほかは次の区間（オフラインモードは長い区間）まで画面が知らなかった）
+  sendToMainWin('meeting:update', meetingStatus());
   // needsSetup は真のときだけ入れる（無ければ偽。手元が使える PC の答えの形は 0.8.0 のまま: stage1c のテストが形を固定している）
   return needsSetup ? { ok: true, localOnly: meeting.localOnly, needsSetup } : { ok: true, localOnly: meeting.localOnly };
 }

@@ -171,3 +171,12 @@ test('0.9.3 M-7: record/status-line の「音の波と聞き取り中」に、�
   const s = sectionOf('record/status-line', 'wave');
   for (const w of ['「文字起こし」の右', '音が入っていません', '一時停止中', '聞き取り中…（約 15 秒ごとに文字になります）', '話している途中の文字は出ません', '録音バーを隠しても']) assert.ok(s.includes(w), `「${w}」が無い`);
 });
+// 0.9.3 持ち主の答え D55: オフラインモードの札「オフラインモード中」と、記録の行の括弧の中の「オフライン」
+test('0.9.3 D55: record/pc-only の「押し方」に札「オフラインモード中」と「議事録を記録中（…・オフライン）」、パネルで始めた会議も同じこと。record/status-line に記録の行の文の並び', { timeout: 5000 }, () => {
+  const how = sectionOf('record/pc-only', 'how');
+  for (const w of ['「オフラインモード中」', '押せません', '「議事録を記録中（相手の声も・オフライン）」', '「議事録を記録中（オフライン）」', 'オフラインモードで始める']) assert.ok(how.includes(w), `record/pc-only の押し方に「${w}」が無い`);
+  const rec = sectionOf('record/status-line', 'title');
+  for (const w of ['「議事録を記録中」', '「議事録を記録中（相手の声も）」', '「議事録を記録中（相手の声も・オフライン）」', '「一時停止中（録音していません・オフライン）」',
+    '「議事録を作成しています…（オフライン）」', '区間を文字起こし中', '「オフラインモード中」']) assert.ok(rec.includes(w), `record/status-line の記録の行に「${w}」が無い`);
+  assert.ok(rec.includes('](record/pc-only.md'), 'record/status-line の記録の行から record/pc-only へのリンクが無い');
+});
