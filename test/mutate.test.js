@@ -508,3 +508,27 @@ test('G3: 0.9.2 の変異が一覧にそろい、IDS_092 は計画の「変異�
     assert.ok(typeof m.why === 'string' && m.why.startsWith('0.9.2 '), `${id}: why`);
   }
 });
+
+// 0.9.3（計画 docs/plans/2026-10-22-093.md の「変異確認」の表）: 会議の検出（見張り・判断・パネル・設定）・音の波・名前の付け直し（D54）の直しを1つずつ戻す変異
+const IDS_093 = [
+  'm-self', 'm-stop-zero', 'm-stale', 'm-catalog', 'm-twice', 'm-once', 'm-rejoin', 'm-busy', 'm-pending', 'm-mute', 'm-release', 'm-timeout',
+  'm-hover', 'm-focus', 'm-protect', 'm-bounds', 'm-start-busy', 'm-start-show', 'm-start-tray', 'm-theme', 'm-theme-live', 'm-sub-label',
+  'm-type-sel', 'm-pconly', 'm-notion', 'm-mute-arg', 'm-log-name', 'm-csp', 'm-media', 'm-watch-busy', 'm-backoff', 'm-giveup', 'm-watch-off',
+  'm-apps-kind', 'd-save', 'd-mute-patch', 'd-mute-known', 'w-ask-hidden', 'w-ask-raf', 'w-ask-pause', 'w-level-raw', 'w-clamp', 'w-warn',
+  'w-silent', 'w-stale', 'w-paused', 'w-reduced', 'w-tail-seg', 'w-tail-paused', 'r-button', 'r-notice', 'r-section', 'r-act', 'r-key', 'r-help',
+  'r-nav-width',
+];
+test('G3: 0.9.3 の変異が一覧にそろい、IDS_093 は計画の「変異確認」の表の id とちょうど同じ。どれも決まったテストのファイルを持ち、なぜ戻すと困るかを書く', { timeout: 5000 }, () => {
+  const byId = new Map(MUTANTS.map((m) => [m.id, m]));
+  assert.deepStrictEqual(IDS_093.filter((id) => !byId.has(id)), [], '計画の表の変異が一覧に無い');
+  assert.deepStrictEqual(MUTANTS.filter((m) => /^[mwrd]-/.test(m.id) && !IDS_093.includes(m.id)).map((m) => m.id), [], 'IDS_093 に無い m-・w-・r-・d- の変異がある');
+  const plan = fs.readFileSync(path.join(ROOT, 'docs', 'plans', '2026-10-22-093.md'), 'utf8');
+  const table = plan.slice(plan.indexOf('## 変異確認'), plan.indexOf('## ゲート'));
+  const rows = [...table.matchAll(/^\| ([a-z][a-z0-9-]*) \|/gm)].map((m) => m[1]).filter((id) => id !== 'id');
+  assert.deepStrictEqual([...rows].sort(), [...IDS_093].sort());
+  for (const id of IDS_093) {
+    const m = byId.get(id);
+    assert.ok(Array.isArray(m.tests) && m.tests.length > 0 && m.tests.every((t) => /^test\/[^/]+\.test\.js$/.test(t)), `${id}: tests`);
+    assert.ok(typeof m.why === 'string' && m.why.startsWith('0.9.3 '), `${id}: why`);
+  }
+});

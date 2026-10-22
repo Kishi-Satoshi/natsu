@@ -37,8 +37,10 @@ const security = require('../../src/security');
 const SH = require('./screens');
 
 const SRC = path.join(__dirname, '..', '..', 'src');
-const PAGES = { app: path.join(SRC, 'renderer', 'app.html'), overlay: path.join(SRC, 'renderer', 'overlay.html') };
-const BRIDGE = { app: 'koeApp', overlay: 'koeOverlay' };
+// 0.9.3 M-7: 会議の検出のパネル（nudge.html）も撮る（守りの CSP のハッシュも本物と同じく PAGES から作る）
+const PAGES = { app: path.join(SRC, 'renderer', 'app.html'), overlay: path.join(SRC, 'renderer', 'overlay.html'), nudge: path.join(SRC, 'renderer', 'nudge.html') };
+const BRIDGE = { app: 'koeApp', overlay: 'koeOverlay', nudge: 'koeNudge' };
+const FIRST_SIZE = { overlay: SH.OVERLAY_SIZE, nudge: SH.NUDGE_SIZE };
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 const msgOf = (e) => (e && e.message) || String(e);
 
@@ -130,11 +132,12 @@ function boot() {
      * 拡大は開いた後に決める。倍率は同じ出どころ（file://）の窓どうしで引き継がれるので、拡大しない窓も 1 を決め直す。
      * 0.9.0 O-3: 拡大率（scale。録音バーの 150% などの画面）は、画面の外で描く窓そのものに持たせる（offscreen: { deviceScaleFactor }）
      */
-    const open = async (page, theme, answers, zoom = 1, size = page === 'overlay' ? SH.OVERLAY_SIZE : SH.SIZE, scale = 1) => {
+    const open = async (page, theme, answers, zoom = 1, size = FIRST_SIZE[page] || SH.SIZE, scale = 1) => {
       nativeTheme.themeSource = theme;
       const win = new BrowserWindow({
         ...size, useContentSize: true, show: false, frame: false, resizable: false,
-        ...(page === 'overlay' ? { transparent: true, backgroundColor: '#00000000' } : {}),
+        // 録音バーとパネル（0.9.3 M-7）は本物と同じ透過の窓
+        ...(page === 'app' ? {} : { transparent: true, backgroundColor: '#00000000' }),
         webPreferences: {
           offscreen: scale === 1 ? true : { deviceScaleFactor: scale }, sandbox: true, contextIsolation: true, nodeIntegration: false,
           preload: path.join(__dirname, 'preload.js'), session: ses,
@@ -285,14 +288,66 @@ function boot() {
       }
     };
 
+    /**
+     * 0.9.3 M-7: パネルの画面を1枚撮る（画面ごとに透過の窓を開く）。onShow で明暗とアプリの名前を渡し、act で地を塗る（⌄ を開く）。
+     * 測ったパネル（#nz）の大きさから main と同じ nudgeBounds で窓を決め直し、パネルが窓の内側に入るか（judgePanel）を見る。150% は窓 × 拡大率で撮れたか
+     */
+    const shootNudge = async (s) => {
+      closeOverlay();
+      const scale = s.scale || 1;
+      let o = null;
+      try {
+        o = await open('nudge', s.theme, SH.fixtures(), 1, SH.NUDGE_SIZE, scale);
+        for (const [name, payload] of s.events || []) o.wc.send(`shots:event:${BRIDGE[s.page]}.${name}`, payload);
+        await wait(150);
+        if (s.act) await within(o.wc.executeJavaScript(s.act, true), 10000, `${s.name} の操作`);
+        await settle(o.wc, o.t);
+        const r = await within(o.wc.executeJavaScript(SH.NUDGE_PROBE), 10000, 'パネルを測る');
+        if (!r || !r.pill) throw new Error('パネルを測れなかった');
+        const winSize = SH.nudgeWindowFor({ w: r.pill.right - r.pill.left, h: r.pill.bottom - r.pill.top });
+        o.win.setContentSize(winSize.width, winSize.height);
+        await settle(o.wc, o.t);
+        await wait(150);
+        const room = SH.judgePanel(await within(o.wc.executeJavaScript(SH.NUDGE_PROBE), 10000, 'パネルを測る'));
+        panel.push({ name: s.name, ok: room.ok, note: room.note });
+        if (!room.ok) console.log(`NG 余白 ${s.name} — ${room.note}`);
+        o.wc.invalidate();
+        await settle(o.wc, o.t);
+        await wait(300);
+        const a = await capture(o.wc);
+        o.wc.invalidate();
+        await settle(o.wc, o.t);
+        await wait(300);
+        const b = await capture(o.wc);
+        const want = SH.shotSizeFor(winSize, scale);
+        const j = SH.judgePair(a, b, png);
+        shots[s.name] = a;
+        if (!j.ok) {
+          flaky.push(s.name);
+          fs.mkdirSync(args.out, { recursive: true });
+          fs.writeFileSync(path.join(args.out, `${s.name}.flaky-2.png`), png.encodePng(b));
+        }
+        const sizeOk = a.width === want.width && a.height === want.height;
+        if (!sizeOk) errors.push(`${s.name}: 大きさが ${a.width}x${a.height}（窓 ${winSize.width}x${winSize.height} × 拡大率 ${scale} は ${want.width}x${want.height}）`);
+        console.log(`${j.ok && sizeOk ? 'OK' : 'NG'} ${s.name} — ${j.note}${sizeOk ? '' : `、${want.width}x${want.height} のはず`}`);
+      } catch (e) {
+        errors.push(`${s.name}: ${msgOf(e)}`);
+        console.log(`NG ${s.name} — 撮れなかった: ${msgOf(e)}`);
+      } finally {
+        if (o) { tables.delete(o.wc.id); try { o.win.destroy(); } catch (_) { /* もう無い */ } }
+      }
+    };
+
     for (const s of SH.SCREENS) {
       if (s.page === 'overlay') { await shootPanel(s); continue; }
+      if (s.page === 'nudge') { await shootNudge(s); continue; }
       closeOverlay();
       let win = null;
       try {
         const o = await open(s.page, s.theme, { ...SH.fixtures(), ...JSON.parse(JSON.stringify(s.answers || {})) }, s.zoom || 1);
         win = o.win;
-        if (s.event) o.wc.send(`shots:event:${BRIDGE[s.page]}.${s.event[0]}`, s.event[1]);
+        // 0.9.3 M-7: main から届く出来事の並び（音の波の WAVE_SPEECH など）を順に送る
+        for (const [name, payload] of s.events || []) o.wc.send(`shots:event:${BRIDGE[s.page]}.${name}`, payload);
         if (s.act) await within(o.wc.executeJavaScript(s.act, true), 10000, `${s.name} の操作`);
         await settle(o.wc, o.t);
         await wait(300);

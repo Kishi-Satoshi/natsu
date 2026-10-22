@@ -58,6 +58,17 @@ const OPEN_THREE_TABS = `(async () => {
 const OPEN_SETTINGS = "document.getElementById('tabBtnSettings').click()";
 const NAV = (id) => `document.getElementById('${id}').click()`;
 const INFO = (pop) => `const i = document.querySelector('[aria-controls="${pop}"]'); i.scrollIntoView({ block: 'center' }); i.click()`;
+// 0.9.3 M-7（計画 docs/plans/2026-10-22-093.md の「取り直す画面」）: 話しているときの音の波の決まった 20 の値（main の levelMsg を通った形。
+// 新しい値が右から入るので、いちばん後ろが右端）。マイクと相手の声の大きい方が棒の高さになる（相手の方が大きい値も入れる）
+const WAVE_SPEECH = [
+  [0.04, 0], [0.18, 0], [0.42, 0.05], [0.66, 0.05], [0.52, 0], [0.3, 0], [0.08, 0.02], [0.01, 0], [0.14, 0.03], [0.48, 0.1],
+  [0.78, 0.12], [0.6, 0.08], [0.1, 0.38], [0.05, 0.62], [0.04, 0.71], [0.02, 0.44], [0.22, 0.05], [0.5, 0], [0.36, 0], [0.12, 0],
+].map(([mic, sys]) => ({ mic, sys, warn: '' }));
+const WAVE_EVENTS = WAVE_SPEECH.map((v) => ['onMeetingLevel', v]);
+// 録音バーと同じ無音の文（main の LEVEL_WARNS の1つ）。8 秒の無音を表す数だけ送らなくても、届いた文のまま出る
+const SILENT_EVENTS = Array.from({ length: 20 }, () => ['onMeetingLevel', { mic: 0, sys: 0, warn: '音が入っていません' }]);
+// パネル（nudge.html）の地: 透過の窓なので、撮るときだけ体にデスクトップの色を塗る（録音バーの画面と同じ PS.DESKS）。⌄ を開いた形はボタンを押す
+const NUDGE_ACT = (theme, menu) => `document.body.style.background = '${PS.DESKS[theme]}';${menu ? " document.getElementById('nzMore').click();" : ''}`;
 const SIGNED_OUT = { ok: true, signedIn: false, email: '', method: 'access', until: null, canStore: true, online: { up: true, why: 'ok' } };
 const SCREENS = [
   { name: 'notes-empty-light', page: 'app', theme: 'light', act: "document.getElementById('tabBtnNotes').click()" },
@@ -108,6 +119,15 @@ const SCREENS = [
   { name: 'settings-info-zoom200-light', page: 'app', theme: 'light', zoom: 2, act: `${OPEN_SETTINGS}; ${NAV('setNavRecord')}; ${INFO('setPopLoop')}` },
   { name: 'settings-info-search-light', page: 'app', theme: 'light',
     act: `${OPEN_SETTINGS}; const b = document.getElementById('setSearch'); b.value = 'イヤホン'; b.dispatchEvent(new Event('input', { bubbles: true }))` },
+  // 0.9.3 M-7（計画 docs/plans/2026-10-22-093.md の「取り直す画面」）: 録音中のページの音の波（話している WAVE_SPEECH・無音・一時停止。live-light と同じ会議）と、
+  // 設定の「録音」の頭の「会議の検出」（出さないアプリ Zoom の札のある形）。足した画面（まだ基準が無い）
+  { name: 'live-wave-light', page: 'app', theme: 'light', answers: liveAnswers(), events: WAVE_EVENTS },
+  { name: 'live-wave-dark', page: 'app', theme: 'dark', answers: liveAnswers(), events: WAVE_EVENTS },
+  { name: 'live-silent-light', page: 'app', theme: 'light', answers: liveAnswers(), events: SILENT_EVENTS },
+  { name: 'live-paused-dark', page: 'app', theme: 'dark', answers: liveAnswers(LIVE_STT, { paused: true }) },
+  // 答えは見本の設定に2つのキーを足した形（見本の fixtures はこのファイルの後ろで決まるので、読むときに作る）
+  { name: 'settings-detect-light', page: 'app', theme: 'light', get answers() { return detectAnswers(); }, act: `${OPEN_SETTINGS}; ${NAV('setNavRecord')}` },
+  { name: 'settings-detect-dark', page: 'app', theme: 'dark', get answers() { return detectAnswers(); }, act: `${OPEN_SETTINGS}; ${NAV('setNavRecord')}` },
 ];
 // 0.9.0 O-3（RP9）: 録音バーの画面（形 → 地 → 拡大率 → 状態の順。撮る道具は形・地・拡大率の組ごとに窓を1つ開いて状態を act で替える）。
 // 録音は始めずに見た目だけを撮る（act は pill-states の見本を録音バーの DOM に当てる。撮るときだけ体の地にデスクトップの色を塗る）。
@@ -123,6 +143,12 @@ SCREENS.push({
   name: PS.HOVER.name, page: 'overlay', theme: PS.HOVER.desk, act: PS.actFor(PS.HOVER.state, PS.HOVER.form, PS.HOVER.desk, true),
   scale: PS.HOVER.scale, slot: 'middle-right', pill: { state: PS.HOVER.state, form: PS.HOVER.form, desk: PS.HOVER.desk, scale: PS.HOVER.scale, hover: true },
 });
+// 0.9.3 M-7: 会議の検出のパネル（page nudge。モック v4-light.png・v4-dark.png・v4-light-menu.png）。明暗は main と同じく onShow の theme で渡し、
+// 窓は録音バーと同じく透過で、測ったパネルの大きさから main と同じ nudgeBounds で決める（nudgeWindowFor）。いちばん後ろに撮る
+for (const [name, theme, scale, menu] of [['nudge-light-100', 'light', 1, false], ['nudge-dark-100', 'dark', 1, false], ['nudge-light-150', 'light', 1.5, false],
+  ['nudge-menu-light-100', 'light', 1, true], ['nudge-menu-dark-100', 'dark', 1, true]]) {
+  SCREENS.push({ name, page: 'nudge', theme, scale, events: [['onShow', { label: 'Zoom', theme }]], act: NUDGE_ACT(theme, menu) });
+}
 // Tab の輪を見る画面は1つだけ（何も選んでいない所から Tab を3回で［● 記録開始］。サイドバーの頭の［«］→ 検索 → ［● 記録開始］）
 SCREENS.find((x) => x.name === 'notes-page-light').focus = { tabs: 3, want: 'mtToggleBtn' };
 
@@ -165,7 +191,10 @@ SCREENS.find((x) => x.name === 'notes-page-light').focus = { tabs: 3, want: 'mtT
 const RETAKE = new Set(['settings-light', 'settings-dark', 'live-light', 'live-dark', 'settings-zoom200-dark', 'live-banner-light', 'live-banner-dark',
   'live-banner-zoom200-dark', 'settings-record-light', 'settings-search-light', 'settings-offline-light', 'live-quiet-light', 'live-quiet-dark',
   'settings-quiet-search-light', 'settings-record-dark', 'settings-record-zoom200-light', 'settings-summary-light', 'settings-account-light',
-  'settings-info-loop-light', 'settings-info-stt-dark', 'settings-info-claude-light', 'settings-info-zoom200-light', 'settings-info-search-light']);
+  'settings-info-loop-light', 'settings-info-stt-dark', 'settings-info-claude-light', 'settings-info-zoom200-light', 'settings-info-search-light',
+  // M-7 で足した画面（音の波の4枚・設定の「会議の検出」の2枚・パネルの5枚。まだ基準が無い）
+  'live-wave-light', 'live-wave-dark', 'live-silent-light', 'live-paused-dark', 'settings-detect-light', 'settings-detect-dark',
+  'nudge-light-100', 'nudge-dark-100', 'nudge-light-150', 'nudge-menu-light-100', 'nudge-menu-dark-100']);
 const PERF = [{ name: 'open-2000-blocks', budgetMs: 500 }];   // 3回開いた中央値で見る
 const TIME_ZONE = 'Asia/Tokyo';
 const TOLERANCE = 2;   // 色の差（0〜255）がこれ以下の画素は同じとみなす。CI の機械の CPU ごとの描き方の1段の差を拾わないため（揺れの確かめ judgePair は 0 で見る）
@@ -278,6 +307,11 @@ function liveAnswers(stt = LIVE_STT, extra = {}) {
       localOnly: false, cloud: true, stt, ...extra,
     },
   };
+}
+
+/** 0.9.3 M-7: 設定の「会議の検出」の画面の答え（見本の設定に、通知オンと出さないアプリ Zoom を足した形） */
+function detectAnswers() {
+  return { 'koeApp.getSettings': { ...fixtures()['koeApp.getSettings'], meetingDetect: true, meetingDetectMute: ['zoom'] } };
 }
 
 /**
@@ -484,6 +518,17 @@ const PANEL_PROBE = `(() => {
   const r = document.getElementById('pill').getBoundingClientRect();
   return { pill: { left: r.left, top: r.top, right: r.right, bottom: r.bottom }, iw: window.innerWidth, ih: window.innerHeight };
 })()`;
+// 0.9.3 M-7: パネルの窓の初めの大きさ（main.js の createNudge と同じ nudgeBounds の NUDGE_FIRST）と、測ったパネル（#nz）の大きさ → 窓の大きさ
+const NUDGE_SIZE = (({ width, height }) => ({ width, height }))(lib.nudgeBounds({ size: null, workArea: SHOT_AREA }));
+function nudgeWindowFor(size) {
+  const b = lib.nudgeBounds({ size, workArea: SHOT_AREA });
+  return { width: b.width, height: b.height };
+}
+/** パネルの四角と窓の内側の大きさを集める文（PANEL_PROBE と同じ形で返すので judgePanel で余白を決める） */
+const NUDGE_PROBE = `(() => {
+  const r = document.getElementById('nz').getBoundingClientRect();
+  return { pill: { left: r.left, top: r.top, right: r.right, bottom: r.bottom }, iw: window.innerWidth, ih: window.innerHeight };
+})()`;
 // 余白を確かめる拡大率と状態（横と縦の記録中と、文を伸ばした警告）。基準の画像は 100・150% だけ（pill-states の SCALES）
 const PANEL_PROBE_SCALES = [1, 1.25, 1.5, 2];
 const PANEL_PROBE_STATES = ['rec', 'warn'];
@@ -525,6 +570,7 @@ function ensureContentSize(win, size) {
 
 module.exports = {
   SIZE, OVERLAY_SIZE, SHOT_AREA, SCREENS, RETAKE, PERF, FIXED_NOW, TIME_ZONE, TOLERANCE, FREEZE_CSS, OVERFLOW_PROBE,
+  WAVE_SPEECH, NUDGE_SIZE, NUDGE_PROBE, nudgeWindowFor, detectAnswers,
   PANEL_PROBE, PANEL_PROBE_SCALES, PANEL_PROBE_STATES, judgePanel, panelWindowFor, shotSizeFor, watchdogMs,
   apiNamesOf, fixtures, liveAnswers, bigPage, bigListEntry, judgePair, compareAll, cspViolation, median, judgePerf, judgeOverflow, judgeFocus, judgeZoom,
   exitCodeOf, ensureContentSize,

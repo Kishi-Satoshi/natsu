@@ -45,7 +45,10 @@ const ADDED_092 = ['settings-light', 'settings-dark', 'settings-zoom200-dark', '
 const SETTINGS_093 = ['settings-light', 'settings-dark', 'settings-zoom200-dark', 'settings-record-light', 'settings-search-light', 'settings-offline-light',
   'settings-quiet-search-light', ...I4_SCREENS_092];
 const LIVE_093 = ['live-light', 'live-dark', 'live-banner-light', 'live-banner-dark', 'live-banner-zoom200-dark', 'live-quiet-light', 'live-quiet-dark'];
-const NEW_093 = new Set([]);
+// M-7 で足した画面（計画の「取り直す画面」の表の（新）。撮る並びの順。本体の画面のあとに録音バー、そのあとにパネル）
+const M7_APP_093 = ['live-wave-light', 'live-wave-dark', 'live-silent-light', 'live-paused-dark', 'settings-detect-light', 'settings-detect-dark'];
+const M7_NUDGE_093 = ['nudge-light-100', 'nudge-dark-100', 'nudge-light-150', 'nudge-menu-light-100', 'nudge-menu-dark-100'];
+const NEW_093 = new Set([...M7_APP_093, ...M7_NUDGE_093]);
 const RETAKE_093 = [...SETTINGS_093, ...LIVE_093, ...NEW_093];
 const img = (w, h, fill = [255, 255, 255, 255]) => ({ width: w, height: h, data: Buffer.from(Array.from({ length: w * h }, () => fill).flat()) });
 // 一時フォルダ（日本語と 𠮷 の名前。RF1 と同じ形）。テストの終わりに消す
@@ -71,11 +74,16 @@ test('G2: 撮る画面は決まった並び（第1b回の 13 と第1b2回の検�
     // 0.9.1 Q-5 で意図して変えた: 「会議は終わりましたか？」の帯の2枚と、設定の検索「自動で止める」を足した（取り直し待ち・まだ基準が無い）
     'live-quiet-light', 'live-quiet-dark', 'settings-quiet-search-light',
     // 0.9.2 I-4 で意図して変えた: 設定の「録音」の暗い・200%・要約・アカウント、ⓘ の吹き出しを開いた4枚、吹き出しの中の言葉で当たる検索を足した（取り直し待ち・まだ基準が無い）
-    ...I4_SCREENS_092]);
+    ...I4_SCREENS_092,
+    // 0.9.3 M-7 で意図して変えた: 音の波（話している・無音・一時停止）と設定の「会議の検出」を足した（取り直し待ち・まだ基準が無い）
+    ...M7_APP_093]);
   assert.deepStrictEqual(SH.SCREENS.filter((s) => s.page === 'overlay').map((s) => s.name), PS.screenNames());
+  // 0.9.3 M-7 で意図して変えた: 会議の検出のパネル（page nudge）の5枚を録音バーのあと（いちばん後ろ）に足した
+  assert.deepStrictEqual(SH.SCREENS.filter((s) => s.page === 'nudge').map((s) => s.name), M7_NUDGE_093);
+  assert.deepStrictEqual(SH.SCREENS.slice(-M7_NUDGE_093.length).map((s) => s.name), M7_NUDGE_093, 'パネルの画面がいちばん後ろに無い');
   assert.ok(SH.SCREENS.findIndex((s) => s.page === 'overlay') > SH.SCREENS.map((s) => s.page).lastIndexOf('app'), '録音バーの画面が本体の画面の間にある');
   assert.strictEqual(new Set(SH.SCREENS.map((s) => s.name)).size, SH.SCREENS.length, '名前が重なっている');
-  for (const s of SH.SCREENS) assert.ok(['app', 'overlay'].includes(s.page) && ['light', 'dark'].includes(s.theme), s.name);
+  for (const s of SH.SCREENS) assert.ok(['app', 'overlay', 'nudge'].includes(s.page) && ['light', 'dark'].includes(s.theme), s.name);
   assert.deepStrictEqual(SH.SCREENS.filter((s) => s.zoom).map((s) => [s.name, s.zoom]), [['notes-page-zoom200-light', 2], ['settings-zoom200-dark', 2], ['live-banner-zoom200-dark', 2],
     ['settings-record-zoom200-light', 2], ['settings-info-zoom200-light', 2]]);   // 0.9.2 I-4 で意図して足した
   const live = SH.SCREENS.find((s) => s.name === 'live-light');
@@ -487,7 +495,7 @@ test('G2・F14・G-4・0.9.0 G-3・0.9.1・0.9.2・0.9.3: 取り直し待ちは 
     const f = path.join(ROOT, 'test', 'shots', 'win32', `${s.name}.png`);
     if (NEW_093.has(s.name) && SH.RETAKE.has(s.name)) { assert.ok(!fs.existsSync(f), `${s.name} は新しい画面なのに基準がある`); continue; }
     assert.ok(fs.existsSync(f), `${s.name} の基準が無い`);
-    if (s.page === 'overlay') continue;
+    if (s.page !== 'app') continue;   // 0.9.3 M-7 で意図して変えた: パネル（nudge）の画面も、録音バーと同じく窓の大きさが中身で決まる
     const im = P.decodePng(fs.readFileSync(f));
     assert.deepStrictEqual([im.width, im.height], [SH.SIZE.width, SH.SIZE.height], s.name);
   }
@@ -755,4 +763,77 @@ test('I-4: 吹き出しの画面は項目を開いて ⓘ を押す act を持�
   assert.ok(doc.querySelector('#setPopLoop').textContent.includes(word), '吹き出しに検索の言葉が無い');
   assert.ok(!sec.querySelectorAll('[data-row]').some((r) => r.dataset.row.includes(word)), '行の名前に検索の言葉がある');
   assert.ok(!sec.querySelectorAll('.desc, .d, .lhint').some((d) => !d.closest('.setpop') && d.textContent.includes(word)), '見える説明に検索の言葉がある');
+});
+
+// 0.9.3 M-7（計画 docs/plans/2026-10-22-093.md の「取り直す画面」）: 音の波は決まった 20 の値（WAVE_SPEECH）を onMeetingLevel で送って撮る。
+// 撮るときの時計は止まっているので「1 秒届かなければ平ら」にならない
+test('0.9.3 M-7: 音の波の画面は WAVE_SPEECH の 20 の出来事を送る。無音は「音が入っていません」、一時停止は paused の会議（どれも live-light と同じ会議）', { timeout: 5000 }, () => {
+  assert.strictEqual(SH.WAVE_SPEECH.length, 20);
+  for (const v of SH.WAVE_SPEECH) assert.ok(typeof v.mic === 'number' && typeof v.sys === 'number' && v.mic >= 0 && v.mic <= 1 && v.sys >= 0 && v.sys <= 1 && v.warn === '', JSON.stringify(v));
+  // 照らしても変わらない（main の levelMsg を通った形）。話している形なので、点（0.02 以下）でない棒がほとんど
+  for (const v of SH.WAVE_SPEECH) assert.deepStrictEqual(lib.levelMsg(v), v);
+  assert.ok(SH.WAVE_SPEECH.filter((v) => Math.max(v.mic, v.sys) > 0.02).length >= 16, '話している形でない');
+  assert.ok(SH.WAVE_SPEECH.some((v) => v.sys > v.mic), '相手の声の方が大きい値が無い');
+  const live = SH.SCREENS.find((s) => s.name === 'live-light').answers['koeApp.meetingStatus'];
+  const by = (n) => SH.SCREENS.find((x) => x.name === n);
+  for (const [n, theme] of [['live-wave-light', 'light'], ['live-wave-dark', 'dark']]) {
+    const s = by(n);
+    assert.ok(s, `${n} が撮る画面に無い`);
+    assert.deepStrictEqual([s.page, s.theme, s.zoom, s.act], ['app', theme, undefined, undefined], n);
+    assert.deepStrictEqual(s.events, SH.WAVE_SPEECH.map((v) => ['onMeetingLevel', v]), n);
+    assert.deepStrictEqual(s.answers['koeApp.meetingStatus'], live, `${n} の会議が live-light と違う`);
+  }
+  const q = by('live-silent-light');
+  assert.ok(q && q.page === 'app' && q.theme === 'light', 'live-silent-light が無い');
+  assert.ok(q.events.length >= 1 && q.events.every(([name, v]) => name === 'onMeetingLevel' && v.mic === 0 && v.sys === 0 && v.warn === '音が入っていません'), '無音の出来事でない');
+  assert.ok(lib.LEVEL_WARNS.includes('音が入っていません'));
+  assert.deepStrictEqual(q.answers['koeApp.meetingStatus'], live);
+  const p = by('live-paused-dark');
+  assert.ok(p && p.page === 'app' && p.theme === 'dark', 'live-paused-dark が無い');
+  const { paused, ...rest } = p.answers['koeApp.meetingStatus'];
+  assert.strictEqual(paused, true);
+  const { paused: _p, ...liveRest } = live;
+  assert.deepStrictEqual(rest, liveRest, 'live-paused-dark の会議が live-light と違う');
+  // 設定の「会議の検出」: 出さないアプリ Zoom の札のある形で、項目「録音」を開く
+  for (const [n, theme] of [['settings-detect-light', 'light'], ['settings-detect-dark', 'dark']]) {
+    const s = by(n);
+    assert.ok(s && s.page === 'app' && s.theme === theme, `${n} が無い`);
+    assert.ok(s.act.includes('tabBtnSettings') && s.act.includes('setNavRecord'), `${n}: 項目「録音」を開いていない`);
+    const st = s.answers['koeApp.getSettings'];
+    assert.deepStrictEqual([st.meetingDetect, st.meetingDetectMute], [true, ['zoom']], n);
+    const { meetingDetect, meetingDetectMute, ...others } = st;
+    assert.deepStrictEqual(others, SH.fixtures()['koeApp.getSettings'], `${n}: ほかの設定が見本と違う`);
+  }
+  // 撮る道具は events を順に送る（本体の画面も、パネルも）
+  const m = read('tools/shots/main.js');
+  assert.match(m, /for \(const \[name, payload\] of s\.events \|\| \[\]\) o\.wc\.send\(`shots:event:\$\{BRIDGE\[s\.page\]\}\.\$\{name\}`, payload\)/);
+});
+
+test('0.9.3 M-7: パネルの画面は透過の窓で撮る（明暗は onShow の theme・地はデスクトップの色・窓は main と同じ nudgeBounds・150% は窓 × 拡大率・⌄ を開いた形）', { timeout: 5000 }, () => {
+  const all = SH.SCREENS.filter((s) => s.page === 'nudge');
+  const want = { 'nudge-light-100': ['light', 1, false], 'nudge-dark-100': ['dark', 1, false], 'nudge-light-150': ['light', 1.5, false],
+    'nudge-menu-light-100': ['light', 1, true], 'nudge-menu-dark-100': ['dark', 1, true] };
+  assert.deepStrictEqual(all.map((s) => s.name), Object.keys(want));
+  for (const s of all) {
+    const [theme, scale, menu] = want[s.name];
+    assert.deepStrictEqual([s.theme, s.scale], [theme, scale], s.name);
+    assert.deepStrictEqual(s.events, [['onShow', { label: 'Zoom', theme }]], s.name);
+    assert.ok(s.act.includes(`document.body.style.background = '${PS.DESKS[theme]}'`), `${s.name}: 地がデスクトップの色でない`);
+    assert.strictEqual(s.act.includes("getElementById('nzMore').click()"), menu, `${s.name}: ⌄ の開き方`);
+  }
+  // 窓の大きさは main と同じ nudgeBounds（周りに影の輪の余白 NUDGE_PAD）
+  assert.deepStrictEqual(SH.nudgeWindowFor({ w: 500.2, h: 60 }), (({ width, height }) => ({ width, height }))(lib.nudgeBounds({ size: { w: 500.2, h: 60 }, workArea: SH.SHOT_AREA })));
+  assert.deepStrictEqual(SH.nudgeWindowFor({ w: 500.2, h: 60 }), { width: 501 + 2 * lib.NUDGE_PAD, height: 60 + 2 * lib.NUDGE_PAD });
+  assert.deepStrictEqual(SH.NUDGE_SIZE, { width: lib.NUDGE_FIRST.w + 2 * lib.NUDGE_PAD, height: lib.NUDGE_FIRST.h + 2 * lib.NUDGE_PAD });
+  // パネルの四角を測る文は #nz を測り、judgePanel と同じ形で返す（窓の内側に余白で入らなければ NG）
+  assert.ok(SH.NUDGE_PROBE.includes("getElementById('nz')"));
+  assert.strictEqual(SH.judgePanel({ pill: { left: 8, top: 8, right: 508, bottom: 68 }, iw: 516, ih: 76 }).ok, true);
+  const m = read('tools/shots/main.js');
+  assert.match(m, /PAGES = \{[^}]*nudge: path\.join\(SRC, 'renderer', 'nudge\.html'\)/, '撮る道具の画面に nudge.html が無い（守りの CSP のハッシュも作られない）');
+  assert.match(m, /BRIDGE = \{[^}]*nudge: 'koeNudge'/);
+  assert.match(m, /\.\.\.\(page === 'app' \? \{\} : \{ transparent: true, backgroundColor: '#00000000' \}\)/, 'パネルを透過の窓で開いていない');
+  assert.ok(m.includes("if (s.page === 'nudge') { await shootNudge(s); continue; }"), 'パネルの画面を撮る道が無い');
+  assert.ok(m.includes('SH.nudgeWindowFor(') && m.includes('SH.NUDGE_PROBE') && m.includes('SH.shotSizeFor(winSize, scale)'));
+  // 本物の preload のパネルの橋（koeNudge）が偽の橋の名前にある
+  assert.ok(SH.apiNamesOf(read('src/preload.js')).koeNudge.includes('onShow'));
 });

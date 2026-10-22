@@ -160,3 +160,14 @@ test('0.9.2 C: settings/appearance の「設定の画面の使い方」に、1�
   for (const w of ['ⓘ', '1行', 'ヘルプで詳しく見る ↗', '［ヘルプ］', 'ⓘ の中の言葉', '[[Esc]]']) assert.ok(s.includes(w), `「${w}」が無い`);
   assert.ok(!s.includes('NaTsu 0.9.0'), '版の例が古い');
 });
+// 0.9.3 M-7（計画 docs/plans/2026-10-22-093.md）: 会議の検出の通知の記事と、状態の行の音の波・「聞き取り中」
+test('0.9.3 M-7: record/meeting-detect に「音を聞きません」「窓の題名」「Windows でだけ」、Notion と NaTsu では出ないこと・切り方がある', { timeout: 5000 }, () => {
+  const t = read(fileOf('record/meeting-detect'));
+  for (const w of ['音を聞きません', '窓の題名', 'Windows でだけ', '30 秒', '会議の検出の通知', 'オフラインモードで始める', '画面を共有していても']) assert.ok(t.includes(w), `「${w}」が無い`);
+  assert.ok(/Notion/.test(t) && /NaTsu 自身/.test(t), 'Notion と NaTsu では出ないことが無い');
+  assert.ok(JSON.stringify(site.categories).includes('"meeting-detect"'), 'site.json に記事が無い');
+});
+test('0.9.3 M-7: record/status-line の「音の波と聞き取り中」に、点の動き・「音が入っていません」・「一時停止中」・「聞き取り中…」・話している途中の文字は出ないことがある', { timeout: 5000 }, () => {
+  const s = sectionOf('record/status-line', 'wave');
+  for (const w of ['「文字起こし」の右', '音が入っていません', '一時停止中', '聞き取り中…（約 15 秒ごとに文字になります）', '話している途中の文字は出ません', '録音バーを隠しても']) assert.ok(s.includes(w), `「${w}」が無い`);
+});
