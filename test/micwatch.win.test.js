@@ -3,7 +3,7 @@
  * Windows でないときは、ファイルの頭で抜ける（test.skip にしない。ci.yml は飛ばしたテストを Linux で 0 件しか許さない）。
  * HKCU の下に一時のキー（Software\NaTsuTest-<乱数>\microphone。名前に本当の名前を書かない）を作り、Windows の「マイクを使っているアプリ」の
  * 記録と同じ形の値（LastUsedTimeStart・LastUsedTimeStop の QWORD）を置いて、mainlib.micWatchScript をその root で起こす。
- * 一覧の proc はテストのプロセス（node）にした写し（会議のアプリが動いていない機械でも「プロセスがある」になる）。済んだらキーを消す。
+ * 一覧の proc はテストを回しているプロセス（node か electron）にした写し（会議のアプリが動いていない機械でも「プロセスがある」になる）。済んだらキーを消す。
  */
 'use strict';
 if (process.platform !== 'win32') return;
@@ -11,6 +11,7 @@ if (process.platform !== 'win32') return;
 const test = require('node:test');
 const assert = require('node:assert');
 const crypto = require('node:crypto');
+const path = require('node:path');
 const { spawn } = require('node:child_process');
 const lib = require('../src/mainlib');
 
@@ -27,7 +28,10 @@ const ps = (cmd) => new Promise((resolve, reject) => {
 const setKey = (sub, values) => ps([`$k = [Microsoft.Win32.Registry]::CurrentUser.CreateSubKey('${ROOT}\\${sub.replace(/'/g, "''")}')`,
   ...values.map(([n, v, kind]) => `$k.SetValue('${n}', ${kind === 'String' ? `'${v}'` : `[int64]${v}`}, [Microsoft.Win32.RegistryValueKind]::${kind})`), '$k.Close()'].join('; '));
 const use = (start, stop) => [['LastUsedTimeStart', start, 'QWord'], ['LastUsedTimeStop', stop, 'QWord']];
-const APPS = lib.MEET_APPS.map((a) => ({ ...a, proc: ['node'] }));
+// テストを回しているプロセスの名前（npm test は node、CI の electron-smoke は Electron の Node の electron。CI run 39740296526 の electron-smoke で
+// 'node' と決め打ちにして赤になった）
+const SELF_PROC = path.basename(process.execPath).replace(/\.exe$/i, '').toLowerCase();
+const APPS = lib.MEET_APPS.map((a) => ({ ...a, proc: [SELF_PROC] }));
 const SELF = 'C:\\Test\\Chrome\\chrome.exe';   // 一覧にある名前を自分にして、自分を除くことを見る
 
 // 見張りを起こし、行を集める
@@ -80,7 +84,7 @@ test('M1・M5: 最初の行は一覧の「使っている」だけ（パス・�
 });
 
 test('決めたこと 3: proc のプロセスが無いアプリの古い値は出さない（落ちたアプリの Stop == 0 が残っても出しっぱなしにしない）。root が無ければ mic -', { timeout: 30000 }, async () => {
-  const apps = lib.MEET_APPS.map((a) => ({ ...a, proc: a.id === 'zoom' ? ['node'] : ['natsu-no-such-process'] }));
+  const apps = lib.MEET_APPS.map((a) => ({ ...a, proc: a.id === 'zoom' ? [SELF_PROC] : ['natsu-no-such-process'] }));
   const w = watch({ apps });
   try {
     assert.strictEqual((await w.waitLines(1))[0], 'mic zoom:133713371337133713');
