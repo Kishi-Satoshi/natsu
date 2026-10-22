@@ -14,6 +14,9 @@
 //         jwt は Cf-Access-Jwt-Assertion の見出し・cookie は Cookie の見出しの CF_Authorization（文字そのまま）・
 //         ctx はその1回の ctx に重ねる欄（偽の ctx.access など。第1d回 W-5）
 //         stream: true は本文を 64KB ずつの ReadableStream にして Content-Length を付けない（Node の Request は duplex: 'half' が要る）
+//         0.9.4 S-6: length は Content-Length の見出し（true なら本文のバイト数、数か文字ならその値。アプリは Content-Length を付けて送る）。
+//         hold（stream のときだけ）は最後の塊を出す前に待つ関数（中継が全部読む前に OpenAI へ流し始めるかを見る）。
+//         pulls（stream のときだけ）は読み手が塊を取りに来た回数を数える { n }（highWaterMark 0: 読まれるまで取りに来ない）
 //       clock: { now(), advance(ms), set(ms) }。start（既定 Date.now()）から始まり、advance でだけ進む
 //       logs: console.log に書かれた行（文字）の配列
 //   loopbackOnlyFetch(realFetch) → 127.0.0.1 のほかへの要求を TypeError('外への通信（試験）') で断る fetch
@@ -66,16 +69,18 @@ function wav(sec) {
   return new Uint8Array(b.buffer, b.byteOffset, b.length);
 }
 
-function streamOf(bytes) {
+function streamOf(bytes, { hold, pulls } = {}) {
   let i = 0;
   const CH = 64 * 1024;
   return new ReadableStream({
-    pull(c) {
+    async pull(c) {
+      if (pulls) pulls.n += 1;
       if (i >= bytes.length) { c.close(); return; }
+      if (hold && i + CH >= bytes.length) await hold();
       c.enqueue(bytes.slice(i, i + CH));
       i += CH;
     },
-  });
+  }, { highWaterMark: 0 });
 }
 
 async function withRelay(opts, fn) {
@@ -108,7 +113,7 @@ async function withRelay(opts, fn) {
     console.log = (...a) => { logs.push(a.map(String).join(' ')); };
     globalThis.fetch = loopbackOnlyFetch(realFetch);
 
-    async function call(method, p, { headers = {}, body, ip, stream = false, jwt, cookie, ctx: more } = {}) {
+    async function call(method, p, { headers = {}, body, ip, stream = false, jwt, cookie, ctx: more, length, hold, pulls } = {}) {
       const h = new Headers(headers);
       if (ip) h.set('cf-connecting-ip', ip);
       if (jwt !== undefined) h.set('cf-access-jwt-assertion', jwt);
@@ -119,9 +124,13 @@ async function withRelay(opts, fn) {
         if (!h.has('content-type')) h.set('content-type', 'application/json');
       }
       const init = { method, headers: h };
+      if (b !== undefined && length !== undefined && length !== false) {
+        const n = length === true ? (typeof b === 'string' ? new TextEncoder().encode(b).byteLength : new Uint8Array(b).byteLength) : length;
+        h.set('content-length', String(n));
+      }
       if (b !== undefined) {
         if (stream) {
-          init.body = streamOf(typeof b === 'string' ? new TextEncoder().encode(b) : new Uint8Array(b));
+          init.body = streamOf(typeof b === 'string' ? new TextEncoder().encode(b) : new Uint8Array(b), { hold, pulls });
           init.duplex = 'half';
         } else init.body = b;
       }

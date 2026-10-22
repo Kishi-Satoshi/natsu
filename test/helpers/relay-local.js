@@ -92,7 +92,8 @@ function toRequest(req, body, over = {}) {
   const drop = new Set(over.drop || []);
   for (let i = 0; i < req.rawHeaders.length; i += 2) {
     const k = req.rawHeaders[i];
-    if (/^(host|connection|content-length|transfer-encoding)$/i.test(k) || drop.has(k.toLowerCase())) continue;
+    // 0.9.4 S-6: Content-Length は中継へ渡す（Workers の要求も持つ。中継は流す道を通る）。本文は読み終えた Buffer なので長さは合う
+    if (/^(host|connection|transfer-encoding)$/i.test(k) || drop.has(k.toLowerCase())) continue;
     if (over.cookie !== undefined && k.toLowerCase() === 'cookie') continue;
     h.append(k, req.rawHeaders[i + 1]);
   }

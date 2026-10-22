@@ -67,6 +67,11 @@ function parseForm(buf, type) {
   return out;
 }
 
+// 0.9.4 S-6: multipart の欄の名前の並び（流す道でも今と同じ並びかを見る）
+function fieldOrder(buf) {
+  return [...buf.toString('latin1').matchAll(/Content-Disposition: form-data; name="([^"]*)"/g)].map((m) => m[1]);
+}
+
 function startFakeStt({ mode = 'text', key = 'gsk_test_0123', text = '本日の議題は進捗の確認です。', times = 1, retryAfter = '1', models = 'ok' } = {}) {
   const requests = [];
   const timers = new Set();
@@ -77,9 +82,10 @@ function startFakeStt({ mode = 'text', key = 'gsk_test_0123', text = '本日の�
   };
   const later = (ms, fn) => { const t = setTimeout(() => { timers.delete(t); fn(); }, ms); timers.add(t); };
 
+  let receivedBytes = 0;   // 0.9.4 S-6: 文字起こしの要求の本文を受けたバイト数（届いたそばから数える）
   const server = http.createServer((req, res) => {
     const chunks = [];
-    req.on('data', (d) => chunks.push(d));
+    req.on('data', (d) => { chunks.push(d); receivedBytes += d.length; });
     req.on('end', () => {
       const p = new URL(req.url, 'http://127.0.0.1').pathname;
       const auth = String(req.headers.authorization || '');
@@ -87,7 +93,8 @@ function startFakeStt({ mode = 'text', key = 'gsk_test_0123', text = '本日の�
       const authOk = auth === `Bearer ${key}` && !keyElsewhere;
       const isStt = req.method === 'POST' && p === '/openai/v1/audio/transcriptions';
       const form = isStt ? parseForm(Buffer.concat(chunks), req.headers['content-type']) : { fields: {}, file: null, fileName: '', fileType: '' };
-      requests.push({ method: req.method, path: p, authOk, fields: form.fields, fileName: form.fileName, fileType: form.fileType, wavOk: wavOk(form.file) });
+      requests.push({ method: req.method, path: p, authOk, fields: form.fields, fileName: form.fileName, fileType: form.fileType, wavOk: wavOk(form.file),
+        fileSha: form.file ? require('crypto').createHash('sha256').update(form.file).digest('hex') : '', fieldOrder: fieldOrder(Buffer.concat(chunks)) });
 
       if (req.method === 'GET' && p === '/openai/v1/models') {
         if (!authOk) json(res, 401, { error: { message: 'Invalid API Key', type: 'invalid_request_error', code: 'invalid_api_key' } });
@@ -141,6 +148,7 @@ function startFakeStt({ mode = 'text', key = 'gsk_test_0123', text = '本日の�
         url: (path) => `${origin}${path}`,
         requests,
         setMode: (m) => { mode = String(m); },
+        received: () => receivedBytes,   // 0.9.4 S-6
         close: () => new Promise((r) => {
           for (const t of timers) clearTimeout(t);
           timers.clear();
