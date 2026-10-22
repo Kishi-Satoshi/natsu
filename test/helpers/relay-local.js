@@ -262,6 +262,7 @@ async function startRelayLocal({ stt: sttOpts = {}, env: over = {}, start = Date
       if (ch === 'u') { env.DAILY_USER_SEC = '1'; return; }
       if (ch === 'b') { front = 'not-wav'; return; }   // 第1d2回 M-2
       if (ch === 'z') { closeAfterStt = true; return; }   // 第1d2回 M-3
+      if (ch === 'D') { front = 'delay-stt'; stt.setMode('500'); return; }   // 0.9.4 S-4: 800 ミリ秒止めてから 502 upstream（中継に時間をかけて断られる）
       const mode = { 5: '500', a: 'quota', e: 'empty', L: '429-long', p: 'parrot', A: 'fixA', B: 'fixB' }[ch];
       if (!mode) throw new Error(`relay-local: 並びの文字 ${JSON.stringify(ch)} を知らない`);
       stt.setMode(mode);

@@ -41,22 +41,25 @@ test('S3: 時間切れの区間は kept・文は『（文字起こし待ち: PC 
   assert.deepStrictEqual(problemOf(o, 'kept-late'), { code: 'kept-late', text: LATE_BANNER, action: '', offline: false });
   assert.ok(!codes(o).includes('engine-down'), `時間切れで engine-down を立てた: ${JSON.stringify(codes(o))}`);
   assert.ok(!o.engineLog.includes('文字起こしの状態: 帯 engine-down'), o.engineLog.join('\n'));
+  assert.ok(!o.engineLog.includes('文字起こしの状態: 帯 seg-failed'), `時間切れの区間を失敗に数えた: ${o.engineLog.join('\n')}`);
   // 会議の後のやり直し（起こし直したエンジン）で文字になる
   assert.ok(o.afterRetry.segments.length >= 2 && o.afterRetry.segments.every((s) => !s.failed && s.text.startsWith('本日の議題は進捗の確認です')), JSON.stringify(o.afterRetry.segments));
   assert.ok(!o.engineLog.some((l) => /エンジンにつながりませんでした/.test(l)));
 });
 
+// 0.9.4 S-4 の後: 時間切れは遅い PC の印でもある（決めたこと 9 の (c)）ので、その会議の 2 区間目は PC へ送らずに残し、起こし直したエンジンは会議の後に使う
 test('S11: 時間切れの後は whisper のプロセスを止め、次の区間で起こし直す（偽の spawn が2回）。engine.log の時間切れの行は区間の番号・秒・符号だけ', T, async () => {
-  const o = await run(['hang-first', '--segs=2']);
+  const o = await run(['hang-first', '--segs=2', '--after-retry']);
   assert.strictEqual(whisperSpawns(o).length, 2, dump(o));
   const lines = o.engineLog.filter((l) => l.startsWith('手元の文字起こしの時間切れ'));
   assert.deepStrictEqual(lines, ['手元の文字起こしの時間切れ: s1（音声 3 秒・待ち 240 秒）。エンジンを起こし直します'], o.engineLog.join('\n'));
-  // 時間切れの要求の接続は閉じた（whisper-server の中で走り続けない）。2 区間目は起こし直したエンジンが文字にした
+  // 時間切れの要求の接続は閉じた（whisper-server の中で走り続けない）。区間は起こし直したエンジンが文字にした
   assert.ok(o.engineLog.includes('手元の文字起こしの失敗: s1（LOCAL_TIMEOUT）'), o.engineLog.join('\n'));
-  assert.ok(o.pages[0].segments.some((s) => !s.failed && /区間/.test(s.text)), JSON.stringify(o.pages[0].segments));
-  const idx = o.engineLog.findIndex((l) => lateLine.test(l));
-  const spawnAfter = o.engineLog.slice(idx + 1).some((l) => /起動: /.test(l));
-  assert.ok(spawnAfter, `時間切れの後に起こし直していない: ${o.engineLog.join('\n')}`);
+  assert.ok(o.afterRetry.segments.length === 2 && o.afterRetry.segments.every((s) => !s.failed && /区間/.test(s.text)), JSON.stringify(o.afterRetry.segments));
+  const log = o.afterRetry.engineLog;
+  const idx = log.findIndex((l) => lateLine.test(l));
+  const spawnAfter = log.slice(idx + 1).some((l) => /起動: /.test(l));
+  assert.ok(spawnAfter, `時間切れの後に起こし直していない: ${log.join('\n')}`);
   // 時間切れの行に文字起こしの文・パスを書かない
   for (const l of lines) assert.ok(!/本日の議題|[\\/]|\.bin/.test(l), l);
 });
@@ -171,4 +174,80 @@ test('S12: 録音中は会議の後の PC の文字起こしを止め（クラ�
   const meetingSeg = o.afterQueue.log.findIndex((l) => /^文字起こしの経路: 区間 s1 → local/.test(l));
   const recoverAfter = o.afterQueue.log.findIndex((l, i) => i > busy && /^文字起こしの経路: 復旧 s\d → local/.test(l));
   assert.ok(busy >= 0 && meetingSeg >= 0 && recoverAfter > meetingSeg, o.afterQueue.log.join('\n'));
+});
+
+// ---------------------------------------------------------------- S-4（決めたこと 7〜13）: 遅い PC では会議中に PC で文字起こししない
+// 偽の whisper の delay は区間の答えを FAKE_DELAY_MS 遅らせる。速さの処理の時間は待ち時間と同じ尺度（NATSU_TEST_LOCAL_TIME_SCALE）で割って数える
+// （0.01 なら 400 ミリ秒が 40 秒。15 秒の区間は 30 秒の床で 1.33 倍）
+const SLOW_SEG = '（文字起こし待ち: 会議の後で文字起こしします）';
+const SLOW_NOTICE = 'この PC の文字起こしが録音に追いつかないため、会議中は音声を残し、会議が終わってから文字起こしします（クラウドで文字起こしできるときはクラウドで続けます）。';
+const LATE_BANNER_OFFLINE = 'オフラインモードです。この PC の文字起こしが録音に追いつかないため、音声だけを残しています（外には送りません）。会議が終わったら PC の中で文字起こしします。';
+const slowEnv = { FAKE_DELAY_MS: '400' };
+const infer = (o) => (o.requests || []).filter((l) => !/probe=true/.test(l)).length;
+const slowLine = /^文字起こしの速さ: この PC は録音に追いつかないため、会議中は音声を残します（\d+\.\d\d 倍・理由 (two|big|late|backlog|saved)）$/;
+const textOf = (n) => (typeof n === 'string' ? n : n && n.text);
+
+test('S4・S5: 偽のエンジンが 15 秒の区間に 40 秒（尺度で縮める）かかる会議で、2 区間目の後から PC に落ちる区間は送らずに kept（文『（文字起こし待ち: 会議の後で文字起こしします）』・帯 kept-late・知らせ1回・engine.log の1行）。中継が答える区間はクラウドで文字になる', T, async () => {
+  const o = await run(['delay', '--relay-seq=nncnn', '--seg-ms=15000'], { scale: '0.01', env: slowEnv });
+  // 会議の中で PC へ送ったのは 2 区間だけ（会議の後の文字起こしは議事録を写す前に進むことがあるので、記録の行で区切って数える）
+  const live = o.engineLog.slice(0, Math.max(0, o.engineLog.findIndex((l) => /^文字起こしの経路: 復旧 /.test(l))) || o.engineLog.length);
+  assert.strictEqual(live.filter((l) => l.startsWith('文字起こしの速さ: 音声 15 秒')).length, 2, `遅いと分かった後も PC へ送った: ${o.engineLog.join('\n')}`);
+  for (const id of ['s4', 's5']) assert.ok(o.engineLog.some((l) => l.startsWith(`文字起こしの経路: 区間 ${id} → 遅い PC のため音声を残した（`)), o.engineLog.join('\n'));
+  assert.ok(o.engineLog.includes('文字起こしの経路: 区間 s3 → cloud(relay) 0.0 秒') || o.engineLog.some((l) => /^文字起こしの経路: 区間 s3 → cloud\(relay\)/.test(l)), '中継が答える区間をクラウドで送っていない');
+  const at = o.sttAt['kept-late'];
+  assert.ok(at && at.some((x) => x.id === 's4' && x.text === SLOW_SEG && x.failed && x.wav), JSON.stringify(o.sttAt));
+  assert.ok(o.pages[0].route.stt.cloud >= 1, JSON.stringify(o.pages[0].route));
+  assert.strictEqual(o.notices.filter((n) => textOf(n) === SLOW_NOTICE).length, 1, JSON.stringify(o.notices));
+  const lines = o.engineLog.filter((l) => slowLine.test(l));
+  assert.deepStrictEqual(lines.map((l) => slowLine.exec(l)[1]), ['two'], o.engineLog.join('\n'));
+  // 会議の中では遅いのまま（クラウドで文字になった区間の後も、PC に落ちる区間は残す）。遅い区間で長い側へ替えた
+  assert.ok(o.engineLog.some((l) => /^文字起こしの状態: 区切り \d+ 秒（long・理由 slow）$/.test(l)), o.engineLog.join('\n'));
+});
+
+test('S4: 速さの数は PC への要求だけ（中継に 0.8 秒かけて断られ、エンジンの起動に 1 秒かかった区間でも、処理の時間は偽のエンジンの答えの時間）', T, async () => {
+  const o = await run(['delay', '--relay-seq=D', '--seg-ms=15000'], { scale: '0.01', env: { ...slowEnv, FAKE_START_MS: '1000' } });
+  const sp = o.engineLog.find((l) => l.startsWith('文字起こしの速さ: 音声 15 秒'));
+  assert.ok(sp, o.engineLog.join('\n'));
+  const proc = Number(/処理 (\d+) 秒/.exec(sp)[1]);
+  assert.ok(proc >= 35 && proc < 100, `処理の時間に中継の時間かエンジンの起動を入れた: ${sp}`);
+});
+
+test('S5: オフラインモードの会議でも遅ければ kept（帯の文はオフラインモードの形）。外へは送らない。会議の後は PC で文字起こしし、知らせに『この PC では約 N 分かかります』', T, async () => {
+  const o = await run(['delay', '--relay=text', '--local-only', '--segs=4', '--seg-ms=15000', '--wait-queue-empty'], { scale: '0.01', env: slowEnv });
+  assert.strictEqual(o.relayCalls.filter((p) => p !== '/health').length, 0, `外へ送った: ${o.relayCalls}`);
+  const p = o.sttSeen.map((x) => x.problem).find((x) => x && x.code === 'kept-late');
+  assert.ok(p, JSON.stringify(o.sttSeen));
+  assert.strictEqual(p.text, LATE_BANNER_OFFLINE);
+  assert.ok(o.sttAt['kept-late'].some((s) => s.text === SLOW_SEG && s.wav), JSON.stringify(o.sttAt));
+  assert.ok(o.afterQueue.notices.some((n) => /^残しておいた音声（約 1 分）を文字起こししています。この PC では約 \d+ 分かかります。済むと自動で要約を作ります。$/.test(textOf(n))), JSON.stringify(o.afterQueue.notices));
+  assert.ok(o.afterQueue.pages[0].segments.every((s) => !s.failed), JSON.stringify(o.afterQueue.pages));
+});
+
+test('S4: 覚え（local-pace.json）にモデルの名前と大きさで書き、次の会議は始めから遅い。モデルを替えると覚えは使わない。14 日を過ぎると会議中に試す', T, async () => {
+  const pace = (model, at) => `--pace=${JSON.stringify({ schema: 1, model, rtf: 1.6, slow: true, at, from: 'live' })}`;
+  const [first, saved, other, old] = await Promise.all([
+    run(['delay', '--local-only', '--segs=3', '--seg-ms=15000'], { scale: '0.01', env: slowEnv }),
+    // 尺度 1（縮めない）: 偽のエンジンはすぐ答えるので、混んだ機械でも遅いに数えない
+    run(['text', '--local-only', '--segs=2', '--seg-ms=15000', pace('same', 'now-1')], { scale: '1' }),
+    run(['text', '--local-only', '--segs=2', '--seg-ms=15000', pace({ name: 'ggml-medium-q5_0.bin', size: 539212467 }, 'now-1')], { scale: '1' }),
+    run(['text', '--local-only', '--segs=2', '--seg-ms=15000', pace('same', 'now-15')], { scale: '1' }),
+  ]);
+  const j = JSON.parse(first.paceFile);
+  assert.deepStrictEqual(Object.keys(j).sort(), ['at', 'from', 'model', 'rtf', 'schema', 'slow']);
+  assert.deepStrictEqual([j.schema, j.slow, j.from, j.model.name, typeof j.model.size, j.rtf > 1], [1, true, 'live', 'ggml-fake.bin', 'number', true]);
+  assert.ok(!first.paceFile.includes('/') && !first.paceFile.includes('\\\\'), '覚えにパスを書いた');
+  // 会議の後の文字起こし（残した区間を PC で）は議事録を写す前に進むことがあるので、要求の数でなく会議の中の記録の行で見る
+  const keptSlow = (o) => o.engineLog.filter((l) => /^文字起こしの経路: 区間 s\d+ → 遅い PC のため音声を残した/.test(l)).length;
+  assert.strictEqual(keptSlow(saved), 2, `覚えが遅いのに PC へ送った: ${saved.engineLog.join('\n')}`);
+  assert.ok(saved.engineLog.some((l) => /理由 saved）$/.test(l)), saved.engineLog.join('\n'));
+  assert.strictEqual(keptSlow(other), 0, '別のモデルの覚えを使った');
+  assert.strictEqual(keptSlow(old), 0, '14 日を過ぎた覚えを使った');
+  assert.strictEqual(infer(other), 2);
+  assert.strictEqual(infer(old), 2);
+});
+
+test('音声入力は遅い PC でも PC で文字起こしする', T, async () => {
+  const o = await run(['text', '--dictate', `--pace=${JSON.stringify({ schema: 1, model: 'same', rtf: 3, slow: true, at: 'now-1', from: 'live' })}`]);
+  assert.strictEqual(o.history.length, 1, JSON.stringify(o.history));
+  assert.ok(!o.history[0].wait && /本日の議題/.test(o.history[0].text), JSON.stringify(o.history));
 });

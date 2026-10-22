@@ -1445,6 +1445,31 @@ function pacedRtf() {
   if (!saved || !model || !saved.model || saved.model.name !== model.name || saved.model.size !== model.size) return null;
   return Number.isFinite(saved.rtf) ? saved.rtf : null;
 }
+// 0.9.4 S-4（決めたこと 9・10・12）: 会議ごとの遅い PC の判断（mainlib.paceStep）。遅いになったときに記録を1行（数と符号だけ）
+function paceRtfText(rtf) { return (Number.isFinite(rtf) ? rtf : 0).toFixed(2); }
+function paceEvent(m, ev) {
+  if (!m || !m.pace) return;
+  const was = m.pace.slow;
+  const r = lib.paceStep(m.pace, ev);
+  m.pace = r.st;
+  if (!was && r.slow) {
+    engineLog(`文字起こしの速さ: この PC は録音に追いつかないため、会議中は音声を残します（${paceRtfText(r.st.rtf)} 倍・理由 ${r.why}）`);
+    sendToMainWin('meeting:update', meetingStatus());
+  }
+}
+// 会議の始め: 覚えが同じモデルで遅い・14 日の内なら始めから遅い
+function paceStart(m) {
+  const saved = readLocalPace();
+  m.pace = lib.paceStep(undefined, { kind: 'start', saved, model: paceModel(), now: Date.now() }).st;
+  if (m.pace.slow) engineLog(`文字起こしの速さ: この PC は録音に追いつかないため、会議中は音声を残します（${paceRtfText(saved && saved.rtf)} 倍・理由 saved）`);
+}
+// 会議の終わり: 覚えを書く（mainlib.paceSaved。書かない会議もある）。書けなくても投げない
+function paceSave(m) {
+  try {
+    const saved = lib.paceSaved(m.pace, readLocalPace(), { model: paceModel(), now: Date.now(), from: 'live' });
+    if (saved) J.writeJsonFile(pacePath(), saved, { onFsyncUnsupported: noteFsyncOnce });
+  } catch (e) { engineLog(`文字起こしの速さ: 覚えを書けませんでした（${errCode(e)}）`); }
+}
 // 0.9.4 S-2（決めたこと 16）: 時間切れの後は whisper-server を止める（切った要求はサーバーの中で走り続け、次の区間がその後ろで待つ）。
 // 次に使うとき ensureEngineReady が起こし直す（前のプロセスが終わってポートを離すのを待ってから: startEngine の exitWait）。
 // 記録は区間の番号・秒・符号だけ
@@ -1485,6 +1510,9 @@ async function transcribeLocal(wavBuffer, extraPromptTail, durationMs, opts = {}
   let text = '';
   let retried = false;
   let resent = false;   // 接続が切れて送り直したか（区間につき 1 回まで）
+  // 0.9.4 S-4（決めたこと 7）: 速さの処理の時間は PC への要求の時間だけ（送ってから答えを読み終えるまで。ヒントなしのやり直しは合計）。
+  // 中継に断られた時間・エンジンの起動・待ち行列の待ちは入れない。試験は待ち時間と同じ尺度で割って数える
+  let procMs = 0;
   for (let i = 0; i < tries.length; i++) {
     const p = tries[i];
     if (i > 0) {
@@ -1522,7 +1550,10 @@ async function transcribeLocal(wavBuffer, extraPromptTail, durationMs, opts = {}
     let res;
     for (;;) {
       try {
-        res = await localhttp.postInference({ port: settings.localPort, form: makeForm(), timeoutMs: Math.max(1, deadline - Date.now()) });
+        const sent = Date.now();
+        try {
+          res = await localhttp.postInference({ port: settings.localPort, form: makeForm(), timeoutMs: Math.max(1, deadline - Date.now()) });
+        } finally { procMs += Date.now() - sent; }
         break;
       } catch (e) {
         // 区間の失敗の文になる（議事録・音声入力・復旧）。英語の "fetch failed" をそのまま見せない
@@ -1553,6 +1584,7 @@ async function transcribeLocal(wavBuffer, extraPromptTail, durationMs, opts = {}
   if (retried) {
     engineLog(`文字起こし: 認識ヒント（${Buffer.byteLength(prompt, 'utf8')} バイト）付きでは空 → ヒントなしで${text ? ` ${text.length} 文字` : 'も空'}（音声 ${sec} 秒）`);
   }
+  if (typeof opts.onTimed === 'function') opts.onTimed(Math.round(procMs / LOCAL_TIME_SCALE));
   if (prompt && opts.learn && text) {
     if (!retried) promptEmptyStreak = { sig, n: 0 };   // ヒント付きで取れた
     else {
@@ -1698,6 +1730,9 @@ const KEPT_SEG_TEXT = '（文字起こし待ち: 音声は残してあります�
 // 0.9.4 S-2（決めたこと 2・18）: PC の時間切れ（late）・エンジンに届かない（down）区間の文（音声は残し、会議の後と見回りで文字起こしする）
 const LATE_SEG_TEXT = '（文字起こし待ち: PC の文字起こしが間に合わなかったので、後で文字起こしします）';
 const DOWN_SEG_TEXT = '（文字起こし待ち: PC の文字起こしエンジンにつながらなかったので、後で文字起こしします）';
+// 0.9.4 S-4（決めたこと 11・12・18）: 遅い PC の会議で PC に落ちる区間の文と、遅くなったときの知らせ（会議ごとに1回）
+const SLOW_SEG_TEXT = '（文字起こし待ち: 会議の後で文字起こしします）';
+const SLOW_NOTICE = 'この PC の文字起こしが録音に追いつかないため、会議中は音声を残し、会議が終わってから文字起こしします（クラウドで文字起こしできるときはクラウドで続けます）。';
 // その区間の Error の文（会議の区間は KEPT_SEG_TEXT にする。音声入力は M-5 が残す）
 const KEPT_ERROR_TEXT = 'クラウドで文字起こしできず、PC の中の文字起こしも準備していないため、文字起こしできませんでした';
 // ［この会議は PC の中だけ］を押したが PC の中の文字起こしが使えない（計画の P1。準備を選んでいない PC だけ。ボタン［オフラインの準備］: 第1d2回 M-4）
@@ -2166,6 +2201,15 @@ async function transcribeRouted(wav, tail, durationMs, opts, scope, what) {
     const err = new Error('録音中のため、会議の後の文字起こしを止めました');
     err.keepForRetry = true;
     err.cloudCode = 'busy';
+    err.sttRoute = via;
+    throw err;
+  }
+  // 0.9.4 S-4（決めたこと 11）: この PC の文字起こしが録音に追いつかない会議（paceSlow）は、PC へ送らずに音声を残す（会議の後で文字起こしする）。
+  // クラウドで送れる区間は上で送った。音声入力・会議の後は paceSlow を渡さない（K5）
+  if (typeof opts.paceSlow === 'function' && opts.paceSlow()) {
+    engineLog(`文字起こしの経路: ${what} → 遅い PC のため音声を残した（${why}）`);
+    const err = new Error('この PC の文字起こしが録音に追いつかないため、音声を残しました');
+    err.slowKept = true;
     err.sttRoute = via;
     throw err;
   }
@@ -3619,6 +3663,15 @@ function refreshSegFailed(m) {
 // 立てない）、エンジンに届かない（down）は音声を残して今の engine-down、エンジンが答えた誤り（error）は今の失敗（seg-failed）。
 // 準備を選んでいない PC で残した区間（kept）・中継が断った区間（refused）は今のまま
 function noteSegFailure(m, seg, e) {
+  if (e && e.slowKept) {   // 0.9.4 S-4: 遅い PC の会議で PC に落ちる区間（PC へ送らずに音声を残した）
+    seg.kept = true;
+    noteSttRoute(m, e.sttRoute);
+    setSttProblem(m, 'kept-late', { offline: Boolean(m.localOnly) });
+    if (noticeOnce(m, 'slow', SLOW_NOTICE)) {
+      try { if (tray && typeof tray.displayBalloon === 'function') tray.displayBalloon({ title: APP_TITLE, content: SLOW_NOTICE }); } catch (_) { /* Windows の外には無い */ }
+    }
+    return SLOW_SEG_TEXT;
+  }
   if (e && e.kept) { seg.kept = true; noteKept(m, e); return KEPT_SEG_TEXT; }
   const kind = e && !e.refused && e.sttRoute && e.sttRoute.route === 'local' ? lib.localFailKind(e) : '';
   if (kind === 'late') {
@@ -3783,6 +3836,7 @@ function sttStatus(m) {
   return {
     route, lastTextAt: m.stt.lastTextAt, segSec: m.segmentMs / 1000,
     problem: p ? { ...p, text: STT_BANNER[p.code](p, sttProvider()), action: STT_BANNER_ACTION[p.code] || '' } : null,
+    ...(m.pace && m.pace.slow ? { slow: true } : {}),   // 0.9.4 S-4: 遅い会議（画面の「聞き取り中」の行が替わる）
   };
 }
 // 会議の区間の文字起こしの後始末で共通: 手元の失敗はその経路の帯とエンジンの帯（中継の失敗 rate・rate-long は区間の失敗だけ）
@@ -3819,7 +3873,8 @@ function retryFailedSegments({ only = '', max = 0 } = {}) {
       let r;
       try {
         r = await transcribeAuto(buffer, promptTail(m.segments), seg.durationMs, { isStale: stale, learn: true, localOnly: m.localOnly, notice: m,
-          what: `区間 ${seg.id}（もう一度）`, seg: seg.id, onWait: (sec) => { if (!stale()) { setSttProblem(m, 'wait', { sec }); sendToMainWin('meeting:update', meetingStatus()); } } });
+          what: `区間 ${seg.id}（もう一度）`, seg: seg.id, onWait: (sec) => { if (!stale()) { setSttProblem(m, 'wait', { sec }); sendToMainWin('meeting:update', meetingStatus()); } },
+          paceSlow: () => Boolean(m.pace && m.pace.slow) });
       } catch (e) {
         if (stale()) return;
         // 第1d2回 M-2: 音声を残した（kept）は区間に印を付けて kept の帯、中継が断った（refused）はエンジンの帯を立てない。0.9.4 S-2: PC の時間切れは kept-late
@@ -3941,7 +3996,7 @@ const RECOVERY_FILE = 'recovery.json';
 const unsavedRecoveryQueues = new Map();   // dir → 待ち行列
 function saveRecoveryQueue(q) {
   try {
-    J.writeJsonFile(path.join(q.dir, RECOVERY_FILE), { pageId: q.pageId, items: q.items, retry: Boolean(q.retry), localOnly: Boolean(q.localOnly), ...(q.later ? { later: true } : {}) }, { onFsyncUnsupported: noteFsyncOnce });
+    J.writeJsonFile(path.join(q.dir, RECOVERY_FILE), { pageId: q.pageId, items: q.items, retry: Boolean(q.retry), localOnly: Boolean(q.localOnly), ...(q.later ? { later: true } : {}), ...(q.slow ? { slow: true } : {}) }, { onFsyncUnsupported: noteFsyncOnce });
     if (unsavedRecoveryQueues.has(q.dir)) {
       unsavedRecoveryQueues.delete(q.dir);
       engineLog(`文字起こし待ちの記録を書き直しました（${path.basename(q.dir)}）`);
@@ -4003,7 +4058,7 @@ function loadSavedRecoveryQueue() {
     const items = j.items.filter((it) => it && it.wav && fs.existsSync(it.wav));
     // ページがあるかは、ここでは見ない（同期で読むため。第2a1回 ST1）。transcribeRecovered がエンジンを待つ前に保存の側へ
     // 聞いて確かめ、「無い」（null）と答えたときだけ WAV と recovery.json を片付ける（読めなかったら何も消さない: F12）
-    if (j.pageId && items.length) { found = { pageId: j.pageId, items, dir, retry: Boolean(j.retry), localOnly: Boolean(j.localOnly), ...(j.later === true ? { later: true } : {}) }; break; }
+    if (j.pageId && items.length) { found = { pageId: j.pageId, items, dir, retry: Boolean(j.retry), localOnly: Boolean(j.localOnly), ...(j.later === true ? { later: true } : {}), ...(j.slow === true ? { slow: true } : {}) }; break; }
     // 済んだ待ち行列（音声が無い）。今どおり片付ける
     unlinkQuiet(f);
     removeDirIfEmpty(dir);
@@ -4238,6 +4293,7 @@ async function recoverDraftsNow() {
 // 「ページが消された」と決めるのは、保存の側がページの読み（page.get）に null と答えたときだけ。読めなかった（投げた）ときは何も消さずに
 // 止め、待ち行列を残して次の機会（設定の保存・次の起動）に回す（エンジンが無いときと同じ扱い。第2a1回 F12）
 let recoveryRunning = false;
+const recoveryEtaTold = new Set();   // 0.9.4 S-4: 目安を知らせた待ち行列（フォルダ）
 // 「復旧の文字起こしを保留」を書いた (フォルダ → 理由)。同じ理由では書き直さない（見回りが毎分書かない。第1d2回 M-3）
 const recoveryHoldNoted = new Map();
 // 第1d2回 M-3: 見回りとログインの直後は、クラウドで送れる待ち行列だけを回す（手元のエンジンを起こさない: RF49）。transcribeRecovered は
@@ -4279,7 +4335,14 @@ async function transcribeRecovered() {
         continue;
       }
       // クラウドで処理できるなら手元のエンジンを起こさない（q.localOnly の待ち行列は今どおりエンジンを待つ。第1c回）。cloudOnly はエンジンを待たない
-      const ready = (await recoveryCloudReady(q)) || (!cloudOnly && await ensureEngineReady(whisperEng));
+      const cloudReady = await recoveryCloudReady(q);
+      const ready = cloudReady || (!cloudOnly && await ensureEngineReady(whisperEng));
+      // 0.9.4 S-4（決めたこと 13）: 遅い会議の残した音声を PC で文字起こしするときは、かかる時間の目安を知らせる（待ち行列ごとに1回）
+      if (ready && !cloudReady && q.slow && !recoveryEtaTold.has(q.dir)) {
+        recoveryEtaTold.add(q.dir);
+        const audioMs = q.items.filter((it) => it && it.held !== true).reduce((a, it) => a + (Number(it.durationMs) || 0), 0);
+        sendToMainWin('app:notice', `残しておいた音声（約 ${Math.max(1, Math.round(audioMs / 60000))} 分）を文字起こししています。この PC では約 ${Math.max(1, lib.afterEtaMin({ audioMs, rtf: pacedRtf() }))} 分かかります。済むと自動で要約を作ります。`);
+      }
       if (!ready) {
         // エンジンが未設定・未起動のときは何も消さない。wav と待ち行列（recovery.json）を残し、
         // 設定を直したとき（settings:save）や次の起動でもう一度ここへ来る。第1d2回 M-3: 飛ばして次の待ち行列へ進む
@@ -4553,6 +4616,7 @@ async function startMeeting() {
   meeting.segMode = { mode: segMode, localRun: 0, cloudRun: 0 };
   meeting.segmentMs = segmentBaseMs(segMode, settings.segmentSec);
   engineLog(`文字起こしの状態: 区切り ${meeting.segmentMs / 1000} 秒（${segMode}・理由 start）`);
+  paceStart(meeting);   // 0.9.4 S-4
   segChain = Promise.resolve(); pendingSegs = 0;
   state = 'meeting';
   writeDraft();
@@ -4687,6 +4751,8 @@ function onMeetingSegment(buffer, durationMs, isFinal) {
   const gen = m.gen;
   pendingSegs++;
   applySegmentLength(m, 1, 'backpressure');
+  // 0.9.4 S-4（決めたこと 9 の (d)）: PC で処理を待っている区間の音声の合計（PC の側の会議のとき）
+  if (m.localOnly || (m.segMode && m.segMode.mode === 'long')) paceEvent(m, { kind: 'backlog', audioMs: pendingDurationMs(m.segments) });
   sendToMainWin('meeting:update', meetingStatus());
   segChain = segChain.then(async () => {
     if (meeting !== m || m.gen !== gen || !seg) return;
@@ -4703,10 +4769,12 @@ function onMeetingSegment(buffer, durationMs, isFinal) {
     let echo = false;
     let echoFold = '';
     let loudDbfs = null;
+    let procMs = null;   // 0.9.4 S-4: PC への要求の時間（transcribeLocal の onTimed）
     // 第1d回 A-6: OpenAI の短い 429 を待つ間の帯 wait（区間が終わったら消す）
     const onWait = (sec) => { if (meeting === m && m.gen === gen) { setSttProblem(m, 'wait', { sec }); sendToMainWin('meeting:update', meetingStatus()); } };
     try {
-      ({ text, route, why, scope, silent, echo, echoFold, loudDbfs } = await transcribeAuto(buffer, tail, durationMs, { isStale: () => meeting !== m || m.gen !== gen, learn: true, localOnly: m.localOnly, notice: m, what: `区間 ${seg.id}`, seg: seg.id, onWait }));
+      ({ text, route, why, scope, silent, echo, echoFold, loudDbfs } = await transcribeAuto(buffer, tail, durationMs, { isStale: () => meeting !== m || m.gen !== gen, learn: true, localOnly: m.localOnly, notice: m, what: `区間 ${seg.id}`, seg: seg.id, onWait,
+        paceSlow: () => Boolean(m.pace && m.pace.slow), onTimed: (ms) => { procMs = ms; } }));
     } catch (e) {
       if (meeting !== m || m.gen !== gen) return;
       m.inFlightSince = 0;
@@ -4714,12 +4782,15 @@ function onMeetingSegment(buffer, durationMs, isFinal) {
       // 第1d2回 M-2（D21）: 準備を選んでいない PC で音声を残した区間（kept）は、エンジンの帯でなく kept の帯と残し始めの知らせ。
       // 中継が断った区間（refused）は今の失敗の区間で、帯は B4 だけ（B1・中継の帯を立てない）。0.9.4 S-2: PC の時間切れ・届かないも残す（noteSegFailure）
       const failText = noteSegFailure(m, seg, e);
+      const lateNow = Boolean(e && !e.slowKept && e.sttRoute && e.sttRoute.route === 'local' && lib.localFailKind(e) === 'late');   // 0.9.4 S-4
       // 失敗は手元の側に数える。手元に落ちた区間でエンジンも失敗したら、落ちた理由（login・daily-cap などはすぐ長い側。A-5 の点検）、
       // 中継の失敗の符号があればその符号（rate-long など）、どちらも無ければ手元のエンジンの失敗 engine
-      const failWhy = (e && e.sttRoute && typeof e.sttRoute.why === 'string' && e.sttRoute.why) || (e && typeof e.cloudCode === 'string' && e.cloudCode) || 'engine';
+      // 0.9.4 S-4: 遅い PC で音声を残した区間は slow（すぐ長い側。mainlib.segmentModeNext）
+      const failWhy = (e && e.slowKept && 'slow') || (e && e.sttRoute && typeof e.sttRoute.why === 'string' && e.sttRoute.why) || (e && typeof e.cloudCode === 'string' && e.cloudCode) || 'engine';
       segmentRouted(m, 'local', failWhy);
       // 残した区間は「文字起こし待ち」の失敗の区間（WAV を残す: settleSegment。締めで待ち行列に載る）
       settleSegment(m, seg, { text: failText, failed: true });
+      if (lateNow) paceEvent(m, { kind: 'late' });   // 0.9.4 S-4（決めたこと 9 の (c)）: 時間切れは遅い PC の印
       // 0.9.1 Q-4（決めたこと 7）: 文字起こしできていない区間は、無音の判定を通った音声なので話し声ありに数える（分からないときは止めない側）
       noteHeard(m, seg, 'speech');
       return;
@@ -4739,7 +4810,12 @@ function onMeetingSegment(buffer, durationMs, isFinal) {
     m.route[route] += 1;   // 経路ごとの、文字起こしできた区間の数（ページの route.stt。第1c回 OL6）
     eta.record(Date.now() - t0, durationMs, route);   // 成功した区間だけで、経路ごとに学習（失敗は時間の目安にならない。クラウドの速さを手元の見積もりに混ぜない）
     m.etaRoute = route;
-    if (route === 'local') { const sp = speedLine('whisper', { audioMs: durationMs, procMs: Date.now() - t0 }); if (sp) engineLog(sp); }   // 実際の速さを残す（第0b回 Task 16）
+    // 実際の速さを残す（第0b回 Task 16）。0.9.4 S-4（決めたこと 7・8）: 処理の時間は PC への要求の時間だけ。10 秒以上の区間を遅い PC の判断に数える
+    if (route === 'local') {
+      const pm = Number.isFinite(procMs) ? procMs : Date.now() - t0;
+      const sp = speedLine('whisper', { audioMs: durationMs, procMs: pm }); if (sp) engineLog(sp);
+      if (Number.isFinite(procMs) && durationMs >= 10000) paceEvent(m, { kind: 'sample', audioMs: durationMs, procMs });
+    }
     if (settings.removeFillers) text = removeFillersRule(text);
     // 空・直前と同じ（繰り返しハルシネーション）は区間ごと消す
     // 0.9.1 Q-2（決めたこと 4）: 話し声の大きさより小さな区間（一番大きい窓が SPEECH_DBFS より小さい）では、直前の2つの済んだ区間のどちらかと同じ文
@@ -4783,6 +4859,7 @@ async function maybeFinalizeMeeting() {
   const m = meeting;
   meeting = null;
   dropQuietKept(m);   // 止まりの見張りで控えたまま会議が終わった区間の WAV（ページには無い。第1d回 A-6）
+  paceSave(m);   // 0.9.4 S-4: この PC の速さの覚え（会議の後の文字起こしの目安と待ち時間が使う）
 
   // 一時停止していた時間は会議の長さに含めない。基準は停止時刻であって
   // 「今」ではない（今で計ると文字起こし待ちが混ざる。mainlib.meetingDurationSec）。
@@ -4843,7 +4920,7 @@ async function maybeFinalizeMeeting() {
     const retry = m.segments.filter((s) => s.failed && s.wav && fs.existsSync(s.wav))
       .map((s) => ({ id: s.id, wav: s.wav, durationMs: Number(s.durationMs) || 0 }));
     if (retry.length) {
-      const q = { pageId: page.id, items: retry, dir: segbufDir(m.startedAt), retry: true, localOnly: Boolean(m.localOnly), ...(m.later ? { later: true } : {}) };
+      const q = { pageId: page.id, items: retry, dir: segbufDir(m.startedAt), retry: true, localOnly: Boolean(m.localOnly), ...(m.later ? { later: true } : {}), ...(m.pace && m.pace.slow ? { slow: true } : {}) };
       saveRecoveryQueue(q);
       if (!recoveryQueue) recoveryQueue = q;   // 別の復旧が待っていれば、その後に拾う（transcribeRecovered）
     }

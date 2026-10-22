@@ -3285,10 +3285,13 @@
       t.id = 'liveTail';
       t.className = 'livetail';
       const at = document.createElement('span'); at.className = 'at';
-      const tx = document.createElement('span'); tx.textContent = '聞き取り中…';
+      // 0.9.4 S-4（決めたこと 11）: 遅い PC の会議で PC の側（クラウドで文字になっていない）は「音声を残しています（会議の後で文字起こしします）」
+      const slow = Boolean(st.stt && st.stt.slow === true && st.stt.route !== 'cloud');
+      const tx = document.createElement('span'); tx.textContent = slow ? '音声を残しています' : '聞き取り中…';
       t.append(at, tx);
       const sec = st.stt && Number.isFinite(st.stt.segSec) && st.stt.segSec > 0 ? Math.round(st.stt.segSec) : 0;
-      if (sec) { const sub = document.createElement('span'); sub.className = 'sub'; sub.textContent = `（約 ${sec} 秒ごとに文字になります）`; t.appendChild(sub); }
+      if (slow) { const sub = document.createElement('span'); sub.className = 'sub'; sub.textContent = '（会議の後で文字起こしします）'; t.appendChild(sub); }
+      else if (sec) { const sub = document.createElement('span'); sub.className = 'sub'; sub.textContent = `（約 ${sec} 秒ごとに文字になります）`; t.appendChild(sub); }
       box.appendChild(t);
     }
     box.scrollTop = box.scrollHeight;

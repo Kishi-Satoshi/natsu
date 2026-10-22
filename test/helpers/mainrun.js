@@ -2850,6 +2850,7 @@ process.on('exit', () => {
   out.engineLog = fs.existsSync(elog) ? fs.readFileSync(elog, 'utf8').split('\n').filter(Boolean).map((l) => l.replace(/^\[[^\]]+\] /, '')) : [];
   out.requests = fs.readFileSync(flog, 'utf8').split('\n').filter((l) => l.startsWith('inference'));
   out.spawnArgs = (fs.readFileSync(flog, 'utf8').split('\n').find((l) => l.startsWith('spawn ')) || '').slice(6);
+  { const t = readUser('data/local-pace.json'); out.paceFile = t ? t.toString('utf8') : null; }   // 0.9.4 S-4: この PC の速さの覚え
   out.promptInfo = await handlers['prompt:info']();
   out.engineStatus = await handlers['engine:status']();
   out.engineFetchStatus = handlers['engine:fetch-status'] ? await handlers['engine:fetch-status']() : null;   // 第0b回 Task 13

@@ -20,6 +20,8 @@
 //   hang-first    … 区間の最初の要求だけ答えない（FAKE_HANG_N があればその数まで。FAKE_LOG の隣の印のファイルで数える: 起こし直した次のプロセスは答える）
 //   err500        … 区間の要求に 500 {"error":"boom"}（エンジンが答えた誤り）
 //   refuse        … 区間の要求を受けたら口を閉じ、その接続も切る（次からは ECONNREFUSED。エンジンが止まった）
+//   delay         … 0.9.4 S-4: 区間の答えを FAKE_DELAY_MS ミリ秒遅らせる（遅い PC）
+// 0.9.4 S-4: FAKE_START_MS があれば、その分だけ口を開くのを遅らせる（エンジンの起動・モデルの読み込みに時間がかかる）
 // どの場面でも、WAV の頭（RIFF/WAVE、16kHz・モノラル・16bit）が壊れていれば 200 のまま {"error"} を返す
 // （本物の 1.7.6・1.8.0 と同じ）。受けた要求は FAKE_LOG に 1 行ずつ書く。
 
@@ -107,10 +109,13 @@ const server = http.createServer((req, res) => {
     if (mode === 'big-prompt-empty' && hasPrompt && form.file.length > 80000) { json(res, 200, { text: '' }); return; }
     if (mode === 'slow-prompt-empty' && hasPrompt && !isProbe) { setTimeout(() => json(res, 200, { text: '' }), 1500); return; }
     const reply = () => json(res, 200, { text: process.env.FAKE_TEXT ? `${process.env.FAKE_TEXT}区間${n}` : ` 本日の議題は\n進捗の確認です。区間${n}\n` });
-    if (mode === 'slow' && !isProbe) setTimeout(reply, 1500); else reply();
+    if (mode === 'slow' && !isProbe) setTimeout(reply, 1500);
+    else if (mode === 'delay' && !isProbe) setTimeout(reply, Number(process.env.FAKE_DELAY_MS) || 0);
+    else reply();
   });
 }).on('error', (e) => {
   // ポートが塞がっていたなど。黙って落ちると原因が分からないので、記録に残して終わる
   note(`listen error ${e.code || e.message}`);
   process.exit(3);
-}).listen(port, '127.0.0.1');
+});
+setTimeout(() => server.listen(port, '127.0.0.1'), Number(process.env.FAKE_START_MS) || 0);

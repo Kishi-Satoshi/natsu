@@ -45,3 +45,22 @@ test('Q3: ヘルプに PC の区切りは 90 秒まで（設定の画面は変�
   assert.ok(html.includes('<div class="desc">短いほど早く画面に出ますが、文の切れ目が増えます（既定75秒。最初の1回は20秒）。</div>'), '設定の画面の説明を変えた');
   assert.strictEqual(require('../src/mainlib').LOCAL_SEGMENT_MS_CAP, 90000);
 });
+
+// ---------------------------------------------------------------- S-4（決めたこと 11）: 遅い会議の「聞き取り中」の行
+test('遅い会議の #liveTail は『音声を残しています（会議の後で文字起こしします）』（meeting:update の stt.slow で。クラウドで文字になっている間は今の「聞き取り中」）', T, async () => {
+  const LIVE = (stt) => ({ active: true, startedAt: Date.now() - 60000, segments: [{ id: 's1', atMs: 0, text: '本日の議題です。' }], pauses: [], cloud: false, stt });
+  const l = await load(APP, { preloadSrc: PRELOAD, returns: { pagesSearch: () => [], uiState: () => ({ sidebar: { width: 260, collapsed: false }, tabs: { open: [], active: '' } }), getSettings: () => ({}) } });
+  await l.drain();
+  const tail = () => l.document.getElementById('pScript').querySelectorAll('.livetail')[0] || null;
+  const norm = (s) => String(s || '').replace(/\s+/g, ' ').trim();
+  l.fire('onMeetingUpdate', LIVE({ route: 'local', lastTextAt: null, segSec: 75, problem: null, slow: true }));
+  await l.drain();
+  assert.strictEqual(norm(tail().textContent), '音声を残しています（会議の後で文字起こしします）');
+  assert.ok(!tail().classList.contains('seg'));
+  l.fire('onMeetingUpdate', LIVE({ route: 'cloud', lastTextAt: Date.now(), segSec: 15, problem: null, slow: true }));
+  await l.drain();
+  assert.strictEqual(norm(tail().textContent), '聞き取り中…（約 15 秒ごとに文字になります）');
+  l.fire('onMeetingUpdate', LIVE({ route: 'local', lastTextAt: null, segSec: 75, problem: null }));
+  await l.drain();
+  assert.strictEqual(norm(tail().textContent), '聞き取り中…（約 75 秒ごとに文字になります）');
+});
