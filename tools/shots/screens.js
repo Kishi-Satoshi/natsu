@@ -214,17 +214,9 @@ SCREENS.find((x) => x.name === 'notes-page-light').focus = { tabs: 3, want: 'mtT
 // 揺れる形にしたので、録音中のページの 13 枚と録音バーの声のある状態（rec・dict・fallback・spk-ng）の 32 枚と縦の × の1枚を入れた。タスクごとに足し、
 // 持ち主が最後にまとめて OK と言ったら、版を上げる commit で基準にして空に戻す
 const OVL_094 = (states) => PS.FORMS.flatMap((form) => Object.keys(PS.DESKS).flatMap((desk) => PS.SCALES.flatMap((sc) => states.map((st) => `overlay-${form}-${desk}-${st}-${Math.round(sc * 100)}`))));
-const RETAKE = new Set(['live-light', 'live-dark', 'live-banner-light', 'live-banner-dark', 'live-banner-zoom200-dark', 'live-quiet-light', 'live-quiet-dark',
-  'live-offline-light', 'live-offline-dark', 'live-wave-light', 'live-wave-dark', 'live-silent-light', 'live-paused-dark',
-  ...OVL_094(['rec', 'dict', 'fallback', 'spk-ng']), 'overlay-vertical-dark-hover-150',
-  // P-1: 録音バーのスピーカーの印を外した（印のあった無音・一時停止の 16 枚）。完了（done）の 8 枚は撮る画面から外した
-  ...OVL_094(['silent', 'paused']),
-  // P-1 の CI の直し（CI run 39821563457）: 縦の形の quiet は、直前に撮る spk-ng に出るようになった角の点の後でロゴの縁の数画素が違って撮れる
-  'overlay-v-light-quiet-100', 'overlay-v-light-quiet-150', 'overlay-v-dark-quiet-100', 'overlay-v-dark-quiet-150',
-  // R-1: 設定の項目の名前「ローカル AI」（設定の画面はどれも左の列を写す: 18 枚）
-  ...SCREENS.filter((x) => x.name.startsWith('settings-')).map((x) => x.name),
-  // S-8: 遅い会議の録音中のページ（足した画面。まだ基準が無い）
-  'live-late-light', 'live-late-dark', 'live-late-zoom200-light']);
+// 0.9.4（版を 0.9.4 に上げる commit）: 持ち主が 2026-10-22 に取り直しの見比べ（CI run 39831111027（bd2320d）・artifact 12448422820 の .after.png）を見て
+// 「OK」と言ったので、その画像をバイトのまま基準にし（基準と同じだった live-banner-zoom200-dark は今の基準のまま）、空に戻した
+const RETAKE = new Set([]);
 const PERF = [{ name: 'open-2000-blocks', budgetMs: 500 }];   // 3回開いた中央値で見る
 const TIME_ZONE = 'Asia/Tokyo';
 const TOLERANCE = 2;   // 色の差（0〜255）がこれ以下の画素は同じとみなす。CI の機械の CPU ごとの描き方の1段の差を拾わないため（揺れの確かめ judgePair は 0 で見る）

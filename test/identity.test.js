@@ -48,9 +48,10 @@ test('表示名は NaTsu（画面・録音バー・ウィンドウ・トレイ�
 // 0.9.1 で意図して変えた: 版を 0.9.1 に（話し声の無い区間を書かない・話し声が無いときに自動で止める。Electron は 44.9.0 のまま）
 // 0.9.2 で意図して変えた: 版を 0.9.2 に（設定の説明を1行にして ⓘ の吹き出しへ・アプリからヘルプを開く。Electron は 44.9.0 のまま）
 // 0.9.3 で意図して変えた: 版を 0.9.3 に（会議の検出の通知・録音中のページの音の波・オフラインモードとローカル AIの名前・オフラインモードの札。Electron は 44.9.0 のまま）
-test('識別子: name は natsu・版は 0.9.3・productName は build の中だけ（userData は %APPDATA%\\natsu）', () => {
+// 0.9.4 で意図して変えた: 版を 0.9.4 に（会議の検出の直し・音声を消さない・遅い PC の扱い・音の波と録音バー・ローカル AI の名前・中継の安定。Electron は 44.9.0 のまま）
+test('識別子: name は natsu・版は 0.9.4・productName は build の中だけ（userData は %APPDATA%\\natsu）', () => {
   assert.strictEqual(pkg.name, 'natsu');
-  assert.strictEqual(pkg.version, '0.9.3');
+  assert.strictEqual(pkg.version, '0.9.4');
   assert.strictEqual(pkg.productName, undefined, 'top-level の productName は userData の名前を変える');
   assert.strictEqual(pkg.build.productName, 'NaTsu');
   assert.strictEqual(pkg.build.appId, 'local.natsu.app');
@@ -261,8 +262,9 @@ test('2a1: 試作の名前を持ち込んでいない（listener.db・Listener D
 // 0.9.1 で意図して変えた: 版は 0.9.1（README の保存の説明は 0.7.0 のまま）
 // 0.9.2 で意図して変えた: 版は 0.9.2（README の保存の説明は 0.7.0 のまま）
 // 0.9.3 で意図して変えた: 版は 0.9.3（README の保存の説明は 0.7.0 のまま）
-test('0.7.0・0.8.0・0.9.0・0.9.1・0.9.2・0.9.3: 版と、README の保存の説明（natsu.db・backup・元の JSON を残す・古い版に戻したとき・控えに残る期間）', () => {
-  assert.strictEqual(require('../package.json').version, '0.9.3');
+// 0.9.4 で意図して変えた: 版は 0.9.4（README の保存の説明は 0.7.0 のまま）
+test('0.7.0・0.8.0・0.9.0・0.9.1・0.9.2・0.9.3・0.9.4: 版と、README の保存の説明（natsu.db・backup・元の JSON を残す・古い版に戻したとき・控えに残る期間）', () => {
+  assert.strictEqual(require('../package.json').version, '0.9.4');
   const r = read('README.md');
   for (const w of ['natsu.db', 'data\\backup', '元の JSON', '古い版', '3 日', '2 週']) assert.ok(r.includes(w), w);
 });
@@ -466,4 +468,28 @@ test('0.9.3: CHANGELOG の 0.9.3 の節（計画の下書きから移した）�
   // 節が引く画面の文（「…」）も、画面にそのままある
   for (const q of ['AI 議事録を始める', 'オフラインモードで始める', '会議の検出の通知', '音が入っていません', 'オフラインモード中']) assert.ok(src.includes(q), `0.9.3 の節の「${q}」が画面に無い`);
   assert.ok(!/notion/i.test(sec) && !/(?<![\w-])[a-z0-9-]+\.cloudflareaccess\.com/i.test(sec), '0.9.3 の節に書いてはいけない字面がある');
+});
+
+// 0.9.4（計画 docs/plans/2026-10-22-094.md の「CHANGELOG の 0.9.4 の節（下書き）」）: 版を 0.9.4 に上げる commit で、持ち主の答えに合わせて書き直した下書きを
+// CHANGELOG.md の頭（0.9.3 の節の上）へ移した。計画には「移した」の1行だけを残す。外した「速さを測る」・軽いモデルは書かない。
+// 前の名前（［文字起こしを打ち切って要約］・ローカル AI の設定）は前の名前として引くので、src/ に無くてよい
+test('0.9.4: CHANGELOG の 0.9.4 の節（計画の下書きから移した）は 0.9.3 の節の上にあり、会議の検出の直し・音声を残す・遅い PC・音の波・録音バー・名前を書き、外したものは書かず、引いた［…］と画面の文はどれも src/ にある', () => {
+  const cl = read('CHANGELOG.md');
+  assert.ok(cl.includes('\n## natsu-v0.9.4\n'), 'CHANGELOG.md に 0.9.4 の節が無い');
+  const sec = secOf(cl, '## natsu-v0.9.4');
+  assert.ok(cl.indexOf('## natsu-v0.9.4') < cl.indexOf('## natsu-v0.9.3'), '0.9.4 の節が 0.9.3 の上に無い');
+  const plan = read('docs/plans/2026-10-22-094.md');
+  const d = plan.indexOf('\n### CHANGELOG の 0.9.4 の節（下書き）\n');
+  assert.ok(d >= 0, '計画に「CHANGELOG の 0.9.4 の節（下書き）」の見出しが無い');
+  assert.ok(!plan.slice(d, plan.indexOf('\n## ', d + 2)).includes('［更新して再起動］'), '計画に下書きの本文が残っている（移したら「移した」の1行にする）');
+  for (const w of ['［更新して再起動］', '参加の前の画面', 'AI 議事録を始める', '文字起こし待ち', '［文字起こしを後回しにして要約］', '会議の後に PC で文字起こし',
+    '90 秒', '5つの点', '相手の声を録れません', '保存の音', 'ローカル AI', '15 秒']) assert.ok(sec.includes(w), `0.9.4 の節に「${w}」が無い`);
+  for (const w of ['速さを測る', 'medium', '軽いモデル']) assert.ok(!sec.includes(w), `外したもの「${w}」が 0.9.4 の節にある`);
+  const src = ['src/renderer/app.html', 'src/renderer/overlay.html', 'src/renderer/nudge.html', 'src/main.js', 'src/mainlib.js'].map(read).join('\n');
+  const OLD_NAMES = ['文字起こしを打ち切って要約'];
+  const names = [...new Set([...sec.matchAll(/［([^］]+)］/g)].map((m) => m[1]))].filter((n) => !OLD_NAMES.includes(n));
+  assert.ok(names.length >= 2, `引いた［…］が少ない: ${names.join('・')}`);
+  for (const n of names) assert.ok(src.includes(n), `0.9.4 の節の［${n}］が src/ に無い`);
+  for (const q of ['AI 議事録を始める', '相手の声を録れません', 'ローカル AI']) assert.ok(src.includes(q), `0.9.4 の節の「${q}」が画面に無い`);
+  assert.ok(!/notion/i.test(sec) && !/(?<![\w-])[a-z0-9-]+\.cloudflareaccess\.com/i.test(sec), '0.9.4 の節に書いてはいけない字面がある');
 });
