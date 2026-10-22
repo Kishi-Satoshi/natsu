@@ -689,7 +689,7 @@ module.exports = [
     tests: ['test/db-commands.test.js'], why: 'D-3a の点検: block.insert は afterBlockId のすぐ後に足す' },
   { id: 'db-seg-norecite', file: 'src/db/commands.js', from: '  if (!olds.some((s) => s.id === segId)) return { ops: [], pageIds: [], result: null };\n', to: '  if (!olds.some((s) => s.id === segId)) return { ops: [], pageIds: [], result: null };\n  if (recite === false) return { ops: [], pageIds: [], result: null };\n',
     tests: ['test/db-commands.test.js'], why: 'D-3a の点検: segment.update の recite: false（復旧の文字起こしの道）も発言を書く' },
-  { id: 'db-hidden-live', file: 'src/db/commands.js', from: '    if (isLive(JSON.parse(r.attrs || \'{}\'))) continue;\n', to: '',
+  { id: 'db-hidden-live', file: 'src/db/commands.js', from: '    if (isLive(attrs)) continue;\n', to: '',
     tests: ['test/db-meeting.test.js'], why: 'D-3b ST6: 録音中の写しを一覧に出さない' },
   { id: 'db-finalize-overwrite', file: 'src/db/commands.js', from: '  const ops = putMeetingPage(db, meetingPage(pageId, page, ctx.now, { recovered: false }), segments, loadPage(db, pageId, { trashed: true }));\n  return { ops, pageIds: [pageId], result: readPage(db, pageId) };', to: '  const nid = `${pageId}x`;\n  const ops = putMeetingPage(db, meetingPage(nid, page, ctx.now, { recovered: false }), segments, null);\n  return { ops, pageIds: [nid], result: readPage(db, nid) };',
     tests: ['test/db-meeting.test.js', 'test/stage2a1.main.test.js'], pattern: '^ST6: (会議 — begin|下書きに pageId)', why: 'D-3b ST6: meeting.finalize は同じ ID の写しを上書きする（別のページを作らない）' },

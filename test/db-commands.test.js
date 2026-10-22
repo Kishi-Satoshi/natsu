@@ -143,3 +143,56 @@ test('ST3: 読む形は attrs を先に広げ、id・title・rev・ブロック�
     assert.deepStrictEqual([p.blocks[0].id, p.blocks[0].type, p.blocks[0].text, p.blocks[0].children], ['bv1', 'bullet', '列の文', []]);
   } finally { t.done(); }
 });
+
+// 0.10.0 Task R-2（MR3・MR6。計画 docs/plans/2026-10-20-100.md）: 一覧から外す行（listedRows）を MCP の読み手が外から渡せる形にする。画面の答えは変えない
+const C = require('../src/db/commands');
+function r2Seed(t, db) {
+  // ふつう2つ（ToDo あり）・ゴミ箱1つ・録音中の写し1つ
+  for (const id of ['pa1', 'pa2', 'pa3']) {
+    const p = samplePage(id).page;
+    t.seed({ ...p, id, createdAt: `2026-10-1${id.slice(-1)}T00:00:00.000Z`, blocks: p.blocks.map((b) => ({ ...b, id: `${id}${b.id}` })) }, []);
+  }
+  call(db, 'page.delete', { id: 'pa3' });
+  assert.strictEqual(call(db, 'meeting.begin', { pageId: 'pl1', startedAt: Date.parse('2026-10-19T00:00:00.000Z'), localOnly: false }, 'main').ok, true);
+}
+
+test('R-2: listedRows の行は id・key・attrs（読んだ物）を持ち、ゴミ箱と録音中の写しを含まない', { timeout: 5000 }, () => {
+  const t = tmpDb();
+  try {
+    const { db } = t.open();
+    r2Seed(t, db);
+    const rows = C.listedRows(db);
+    assert.deepStrictEqual(rows.map((r) => r.id).sort(), ['pa1', 'pa2']);
+    for (const r of rows) {
+      assert.strictEqual(typeof r.key, 'string');
+      assert.ok(r.attrs && typeof r.attrs === 'object' && !Array.isArray(r.attrs), `${r.id}: attrs が物でない`);
+      assert.deepStrictEqual(r.attrs.route, samplePage(r.id).page.route, `${r.id}: attrs に経路が無い`);
+    }
+  } finally { t.done(); }
+});
+
+test('R-2: actionView に行の一部を渡すと、その行のページだけが答えに出る（渡さなければ今の pages.actionView と同じ答え）', { timeout: 5000 }, () => {
+  const t = tmpDb();
+  try {
+    const { db } = t.open();
+    r2Seed(t, db);
+    const all = C.actionView(db, {});
+    assert.deepStrictEqual(all, call(db, 'pages.actionView', {}).result);
+    assert.deepStrictEqual([...new Set(all.actions.map((a) => a.pageId))].sort(), ['pa1', 'pa2']);
+    const only = C.actionView(db, {}, C.listedRows(db).filter((r) => r.id === 'pa2'));
+    assert.ok(only.actions.length > 0);
+    assert.deepStrictEqual([...new Set(only.actions.map((a) => a.pageId))], ['pa2']);
+    assert.deepStrictEqual(C.actionView(db, {}, []).actions, []);
+  } finally { t.done(); }
+});
+
+test('R-2: entryOf は pages.list の1行と同じ', { timeout: 5000 }, () => {
+  const t = tmpDb();
+  try {
+    const { db } = t.open();
+    r2Seed(t, db);
+    const list = call(db, 'pages.list', {}).result;
+    const mine = C.listedRows(db).map((r) => C.entryOf(db, r));
+    assert.deepStrictEqual(mine, list);
+  } finally { t.done(); }
+});

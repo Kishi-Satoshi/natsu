@@ -179,13 +179,15 @@ function cacheOf(db) {
   return m;
 }
 
-// 一覧に出すページの行（新しい順。ゴミ箱と録音中の写しを除く）→ [{ id, key }]
+// 一覧に出すページの行（新しい順。ゴミ箱と録音中の写しを除く）→ [{ id, key, attrs }]。attrs は読んだ物（0.10.0 R-2: MCP の読み手が
+// 出さない会議の判定と日付の絞りに使う。録音中の写しを外すためにもう読んでいるので、読み直さない）
 function listedRows(db) {
   const out = [];
   for (const r of db.prepare(HOT_QUERIES.list).all()) {
     if (r.trashed_at !== null && r.trashed_at !== undefined) continue;
-    if (isLive(JSON.parse(r.attrs || '{}'))) continue;
-    out.push({ id: r.id, key: keyOfRow(r) });
+    const attrs = JSON.parse(r.attrs || '{}');
+    if (isLive(attrs)) continue;
+    out.push({ id: r.id, key: keyOfRow(r), attrs });
   }
   return out;
 }
@@ -226,15 +228,21 @@ function searchView(db) {
   };
 }
 
-// アクションタブの1画面分（今の store.actionView と同じ答え。ToDo のあるページだけ読む）
-function actionView(db, { q, assignee } = {}) {
+// 一覧の1行（0.10.0 R-2: MCP の読み手が絞った行だけを1行にする。覚えは接続ごとなので、呼び出しごとに開く読み手では空から）
+function entryOf(db, row) {
+  return entryFor(db, cacheOf(db), row);
+}
+
+// アクションタブの1画面分（今の store.actionView と同じ答え。ToDo のあるページだけ読む）。rows は一覧に出す行（0.10.0 R-2: MCP の読み手は
+// 出さない会議を除いた行を渡す。省略は listedRows の全部。外す判定は listedRows の1か所のまま）
+function actionView(db, { q, assignee } = {}, rows = listedRows(db)) {
   const fq = searchFold(q);
   const who = String(assignee || '');
   const withTodo = new Set(db.prepare(HOT_QUERIES.todoPages).all().map((r) => r.page_id));
   const counts = new Map();
   const actions = [];
   let total = 0;
-  for (const { id } of listedRows(db)) {
+  for (const { id } of rows) {
     if (!withTodo.has(id)) continue;
     const page = readPage(db, id);
     if (!page) continue;
@@ -594,4 +602,4 @@ const DEFS = {
 const COMMANDS = Object.freeze(Object.assign(Object.create(null),
   Object.fromEntries(Object.entries(DEFS).map(([k, v]) => [k, Object.freeze(v)]))));
 
-module.exports = { COMMANDS, HOT_QUERIES, putPageRows, readPage, readRawPage, readSegments, listPages, isPurged };
+module.exports = { COMMANDS, HOT_QUERIES, putPageRows, readPage, readRawPage, readSegments, listPages, isPurged, listedRows, actionView, entryOf };
