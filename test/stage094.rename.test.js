@@ -39,3 +39,13 @@ test('R-1: 利用者に見える文（app.html・main.js・mainlib.js・ヘル�
   assert.ok(read('help/articles/settings/offline.md').includes('title: ローカル AI\n'));
   assert.ok(read('src/main.js').includes('設定の「ローカル AI」の準備'), 'LOCAL_SETUP_NOTICE が古い');
 });
+
+// 0.9.4 O-1（3回目の節 Q32・0.10.0 の持ち主の決定: オフラインモードは「ネットワークが不安定なとき・つながらないとき」に PC の文字起こしに固定する印で、
+// 外へ送らない約束ではない）: 0.9.4 が足した帯 kept-late のオフラインモードの文から「（外には送りません）」を外す。ほかの文は 0.10.0 で直す（計画の一覧）
+test('O-1: 帯 kept-late のオフラインモードの文に「外には送りません」が無く、決めた文になっている', T, () => {
+  const main = read('src/main.js');
+  const m = /'kept-late': \(d\) => \(d && d\.offline\n\s*\? '([^']+)'/.exec(main);
+  assert.ok(m, '帯 kept-late のオフラインモードの文が無い');
+  assert.strictEqual(m[1], 'オフラインモードです。この PC の文字起こしが録音に追いつかないため、音声を残しています。会議が終わったら PC の中で文字起こしします。');
+  assert.ok(!m[1].includes('外には送りません'));
+});

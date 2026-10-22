@@ -1816,4 +1816,7 @@ module.exports = [
     tests: ['test/stage094.rename.test.js'], why: '0.9.4 R-1 Q25: 項目の名前（題名・検索の小見出し）を前の「ローカル AI の設定」に戻す（左の列と食い違う）' },
   { id: 'rn-notice', file: 'src/main.js', from: '設定の「ローカル AI」の準備', to: '設定の「ローカル AI の設定」の準備',
     tests: ['test/stage094.rename.test.js'], why: '0.9.4 R-1 Q25: 知らせの文に前の名前を残す（画面に無い名前を案内する）' },
+  // O-1: オフラインモードの言い方（0.9.4 が足した文だけ）
+  { id: 'rn-offline-text', file: 'src/main.js', from: "この PC の文字起こしが録音に追いつかないため、音声を残しています。会議が終わったら PC の中で文字起こしします。'", to: "この PC の文字起こしが録音に追いつかないため、音声だけを残しています（外には送りません）。会議が終わったら PC の中で文字起こしします。'",
+    tests: ['test/stage094.rename.test.js', 'test/stage094.main.test.js'], pattern: '^(O-1|S5: オフラインモードの会議でも)', why: '0.9.4 O-1 Q32: 0.9.4 が足した帯の文に「外には送りません」を戻す（オフラインモードは外へ送らない約束でなくなる）' },
 ];
