@@ -2599,6 +2599,107 @@ function clipDeps() {
 const copyPrivate = (text) => lib.copyPrivate(text, clipDeps());
 const deliverText = (text) => lib.deliverText(text, clipDeps());
 
+// ---------------------------------------------------------------- 会議の検出の見張り（0.9.3 M-2。計画 docs/plans/2026-10-22-093.md の決めたこと 3・4・12・13）
+// Windows の「マイクを使っているアプリ」の記録を 2 秒ごとに読む常駐の PowerShell（mainlib.micWatchScript）。貼り付け係の PowerShell とは別のプロセス（K1）。
+// 起こすのは Windows・設定「会議の検出の通知」がオン・録音していない（state が idle）ときだけ。録音が始まったら・設定を切ったら・終了で止める。
+// 落ちたら MIC_RETRY_MS の後に起こし直し、それでも落ちたら次の起動か設定のオンオフまで起こさない。記録（engine.log）にはアプリの名前も id も
+// 書かない（始めた・止めた・読めない符号・起こし直しだけ: K3）。NATSU_TEST_MIC_WATCH は試し用（テストの台が偽の見張りを返す。Windows の外でも起こす）
+const MIC_RETRY_MS = [30000, 120000, 600000];
+let micProc = null;
+let micBuf = '';
+let micFails = 0;
+let micRetryTimer = null;
+let micGaveUp = false;
+let detectReady = false;   // 起動の窓とトレイができるまでは起こさない
+let detectBusy = null;     // 会議の検出に最後に知らせた忙しさ（state の写し）
+const micWatchSupported = () => process.platform === 'win32' || process.env.NATSU_TEST_MIC_WATCH === '1';
+const micWatchWanted = () => detectReady && micWatchSupported() && !quitting && settings.meetingDetect !== false && state === 'idle' && !micGaveUp;
+function syncMicWatch() {
+  if (micWatchWanted()) startMicWatch();
+  else stopMicWatch();
+}
+function startMicWatch() {
+  if (micProc || micRetryTimer) return;
+  const script = lib.micWatchScript({ self: process.execPath, parent: process.pid });
+  let p = null;
+  try {
+    p = spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script], { windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'] });
+  } catch (e) {
+    engineLog(`会議の検出: 見張りを起こせません（${errCode(e)}）`);
+    onMicWatchGone();
+    return;
+  }
+  micProc = p;
+  micBuf = '';
+  engineLog('会議の検出: 見張りを始めた');
+  p.stdout.on('data', (d) => {
+    micBuf += d.toString();
+    let i;
+    while ((i = micBuf.indexOf('\n')) >= 0) {
+      const line = micBuf.slice(0, i);
+      micBuf = micBuf.slice(i + 1);
+      onMicLine(line);
+    }
+    if (micBuf.length > 8192) micBuf = '';   // 改行の無い長い出力は読まない
+  });
+  const gone = () => { if (micProc !== p) return; micProc = null; onMicWatchGone(); };
+  p.on('exit', gone);
+  p.on('error', gone);
+}
+function stopMicWatch() {
+  if (micRetryTimer) { clearTimeout(micRetryTimer); micRetryTimer = null; }
+  if (!micProc) return;
+  const p = micProc;
+  micProc = null;   // 先に外す（止めた見張りの exit を「落ちた」と数えない）
+  try { p.kill(); } catch (_) { /* noop */ }
+  engineLog('会議の検出: 見張りを止めた');
+}
+// 見張りが思わず終わった（止めたのではない）
+function onMicWatchGone() {
+  micFails += 1;
+  if (micFails > MIC_RETRY_MS.length) {
+    micGaveUp = true;
+    engineLog('会議の検出: 見張りが続けて落ちたので、次の起動か設定のオンオフまで起こしません');
+    return;
+  }
+  const ms = MIC_RETRY_MS[micFails - 1];
+  engineLog(`会議の検出: 見張りが落ちたので ${ms / 1000} 秒後に起こし直します`);
+  micRetryTimer = setTimeout(restartMicWatch, ms);
+}
+function restartMicWatch() {
+  micRetryTimer = null;
+  syncMicWatch();
+}
+// 見張りの1行（mainlib.parseMicLine で読む。一覧に無いもの・形の悪い行は捨てる）
+function onMicLine(line) {
+  const r = lib.parseMicLine(line);
+  if (!r) return;
+  if (r.kind === 'err') { engineLog(`会議の検出: マイクの記録を読めません（${r.code}）`); return; }
+  micFails = 0;
+  nudgeEvent({ type: 'sample', items: r.items });
+}
+// 会議の検出の判断（mainlib.nudgeStep）。M-3 でパネルの窓を出し入れする
+let nudgeSt = lib.nudgeInit({ on: true, mute: [] });
+function nudgeEvent(ev) {
+  const o = lib.nudgeStep(nudgeSt, { ...ev, now: Date.now() });
+  nudgeSt = o.st;
+  return o;
+}
+// 録音の状態が変わった（updateTray から毎回呼ぶ。変わったときだけ判断に知らせ、見張りを起こす・止める）
+function noteDetectState() {
+  if (!detectReady || state === detectBusy) return;
+  detectBusy = state;
+  nudgeEvent({ type: 'busy', busy: state !== 'idle', meeting: state === 'meeting' || state === 'meeting-finalizing' });
+  syncMicWatch();
+}
+// 設定の「会議の検出の通知」「通知を出さないアプリ」が変わった。オンにし直したら、落ちて諦めた見張りも起こし直す
+function applyDetectSettings(prev) {
+  const on = settings.meetingDetect !== false;
+  if (prev && prev.meetingDetect === false && on) { micGaveUp = false; micFails = 0; }
+  nudgeEvent({ type: 'setting', on, mute: settings.meetingDetectMute });
+  syncMicWatch();
+}
+
 // ---------------------------------------------------------------- ウィンドウ
 function sendToMainWin(ch, p) {
   if (!mainWin || mainWin.isDestroyed()) return;
@@ -4838,6 +4939,7 @@ async function checkUpdateFromTray() {
 
 function updateTray() {
   updatePowerBlock();
+  noteDetectState();   // 0.9.3 M-2: 録音の状態が変わったら、会議の検出の見張りを起こす・止める
   if (!tray) return;
   const recording = state === 'recording' || state === 'meeting';
   tray.setImage(recording ? trayIconRec : trayIconIdle);
@@ -4967,7 +5069,10 @@ function setupIpc() {
       warning = hk.warning;
     }
     if (guard.warning) warning = warning ? `${warning}。${guard.warning}` : guard.warning;
+    const prevDetect = { meetingDetect: settings.meetingDetect, mute: JSON.stringify(settings.meetingDetectMute) };
     settings = merged;
+    // 0.9.3 M-2: 会議の検出の設定が変わったら、判断に知らせて見張りを起こす・止める
+    if (prevDetect.meetingDetect !== settings.meetingDetect || prevDetect.mute !== JSON.stringify(settings.meetingDetectMute)) applyDetectSettings(prevDetect);
     // 書けなくても投げず、当てる行（テーマ・エンジン・保留の復旧・ログイン時の起動・トレイ）は最後まで行い、warning で返す。
     // 書けなかった値は書き手に「まだ書いていない」として残り、次の保存と書き出しの合図でやり直す（JS1・JS5・P14・RF22）
     const w = settingsWriter.now(settings);
@@ -5533,6 +5638,11 @@ if (!gotLock) {
     startupWork.then(() => transcribeRecovered()).catch((e) => engineLog(`復旧の文字起こしに失敗: ${logReason(e)}`));
     ensurePaster();
     createMainWindow();
+    // 0.9.3 M-2: 会議の検出の見張り（Windows・設定がオン・録音していないとき）。窓とトレイの後に起こす
+    detectReady = true;
+    detectBusy = state;
+    nudgeSt = lib.nudgeInit({ on: settings.meetingDetect !== false, mute: settings.meetingDetectMute });
+    syncMicWatch();
     app.on('activate', () => createMainWindow());
     // 取り込みの続きを自動で始める（第0b回 Task 14）。係は同意済みで利用者が一時停止していないときだけ動き、
     // 大きな取り込み直しは始めない（押されるまで待つ。RF13）。窓とエンジンの起動を先に済ませてから
@@ -5571,15 +5681,16 @@ if (!gotLock) {
         .then(() => app.quit());
       return;
     }
-    stopEngine(whisperEng); stopEngine(sumEng); stopPaster();
+    stopEngine(whisperEng); stopEngine(sumEng); stopPaster(); stopMicWatch();
   });
-  app.on('will-quit', () => { flushAllWriters(); globalShortcut.unregisterAll(); stopEngine(whisperEng); stopEngine(sumEng); stopPaster(); });
+  app.on('will-quit', () => { flushAllWriters(); globalShortcut.unregisterAll(); stopEngine(whisperEng); stopEngine(sumEng); stopPaster(); stopMicWatch(); });
 }
 
 // 読み直し（retrySettingsRead）で本当の値に切り替えたときに当てる（第1a回 Task 2-3）。settings:save の当てる行と同じもの
 // （あちらはそのまま残す）。ファイルの最後に置くのは、repo.test.js の起動のホットキーの確かめが、最初の
 // resolveStartupHotkeys( の呼び出し（起動の所）から読むため（ここが先にあると、その確かめが起動の所を見なくなる）
 function applyReloadedSettings(prev, next) {
+  if (prev.meetingDetect !== next.meetingDetect || JSON.stringify(prev.meetingDetectMute) !== JSON.stringify(next.meetingDetectMute)) applyDetectSettings(prev);   // 0.9.3 M-2
   // ホットキーは起動のときと同じ決め方（登録できなければ既定に退避し、settings には書かない）
   if (prev.hotkey !== next.hotkey || prev.meetingHotkey !== next.meetingHotkey) {
     const r = resolveStartupHotkeys(next, DEFAULT_SETTINGS, applyHotkeys);

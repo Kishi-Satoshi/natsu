@@ -342,6 +342,21 @@
 //                        stopCalls（overlay:stop を送った数）・overlaySeq（送った overlay:phase と overlay:stop の順。stop は { stop: true }）・
 //                        notifyClosed（偽の Notification の close() の数）・pageDur（議事録の durationSec と pauses）を足す
 //     --auto-stop=off・--auto-stop-min=<n> … 置く settings.json の autoStopQuiet: false・autoStopMin: n
+//   0.9.3 M-2〜M-5（会議の検出と音の波。計画 docs/plans/2026-10-22-093.md）
+//     --mic-feed=<JSON> … 会議の検出の場面。NATSU_TEST_MIC_WATCH を立て（Windows の外でも main が見張りを起こす）、main が起こす見張りの PowerShell
+//                        （-Command の中身に CapabilityAccessManager がある powershell.exe）は本当には起こさず偽の子を返す（stdout に場面が行を書く）。
+//                        起動の後に JSON の手順を順に行い、出力して終える（記録の今の流れは回さない）。手順:
+//                        ["line", 文]（今の見張りの stdout に1行）・["sleep", ms]・["clock", ms]（偽の時計を進める）・["exit", code]（今の見張りが落ちる）・
+//                        ["start"]（画面と同じ meeting:toggle で議事録を始める）・["stop"]（止めて最後の空の区間を送り、idle に戻るのを待つ）・
+//                        ["dictate"]（音声入力のホットキーで録音を始める）・["dictate-cancel"]（録音バーの取り消し）・["save", 足す設定]（settings:save）・
+//                        ["ipc", 名前, ...引数]（handle なら待って答えを out.ipc に、on なら送るだけ）・["theme", dark]（偽の nativeTheme を変えて updated）・
+//                        ["live", bool]（画面の meeting:live-shown）・["quit"]（before-quit と will-quit）・["snap", 名前]（その時の見張りの数などを out.snaps に）・
+//                        ["wait-show", n]（パネルの窓の showInactive が n 回になるまで待つ）・["cursor", x, y]（偽のカーソル）
+//                        出力: micSpawns（見張りの引数）・micKills・restartDelays（setTimeout の restartMicWatch の ms。5ms 後に本当に呼ぶ）・nudge（パネルの窓の
+//                        作ったときの opts・呼んだ関数の並び calls・送った sent）・mainWinCalls・mainSentAll（本体の窓へ送った [channel, 中身]）・engineLog・
+//                        notices・settingsText・state（meeting:status の active）
+//     --detect=off・--detect-mute=<id,…> … 置く settings.json の meetingDetect: false・meetingDetectMute
+//     --dark … 偽の nativeTheme.shouldUseDarkColors を真で始める
 // 画面へ送った知らせと進み具合は、送った順に out.seq へ残す。進み具合が初めて「使える」（whisperReady・sumReady）と
 // 言ったときの engine:status を out.atReady に、壊れた知らせを送ったときの engine:status を out.atBroken に残す
 // （画面はその知らせでエンジンの状態を聞き直すので、そのとき main の答えがもう新しいこと: 第0b回 Task 14・15）
@@ -421,6 +436,12 @@ const FAKE_SUM = path.join(__dirname, 'fake-llama.js');
 const blipSec = Number(flagVal('--blip-sec')) || 15;   // 0.9.1 Q-2
 // 0.9.2 I-1: 起動の後に app:open-help を、この JSON の引数の並びの並びで順に呼び、答え（out.openHelp）と shell.openExternal の住所（out.external）を書いて終わる
 const openHelpCalls = flagVal('--open-help') ? JSON.parse(flagVal('--open-help')) : null;
+// 0.9.3 M-2〜M-5: 会議の検出の場面（頭の注釈）
+const micSteps = flagVal('--mic-feed') ? JSON.parse(flagVal('--mic-feed')) : null;
+if (micSteps) process.env.NATSU_TEST_MIC_WATCH = '1';
+const detectFlag = flagVal('--detect');
+const detectMuteFlag = flagVal('--detect-mute');
+const darkFlag = flags.includes('--dark');
 // 0.9.1 Q-4: 話し声が無いときに自動で止める場面（頭の注釈）
 const quietSeq = flagVal('--quiet-seq') ? flagVal('--quiet-seq').split(',').flatMap((t) => {
   const m = /^([stbkxXPdSR])(?::(.))?(?:\*(\d+))?$/.exec(t);
@@ -922,6 +943,8 @@ process.on('exit', () => {
       ...(maxHistoryFlag ? { maxHistory: Number(maxHistoryFlag) } : {}),   // 第1d2回 M-5
       ...(autoStopFlag === 'off' ? { autoStopQuiet: false } : {}),   // 0.9.1 Q-4
       ...(autoStopMinFlag ? { autoStopMin: autoStopMinFlag } : {}),
+      ...(detectFlag === 'off' ? { meetingDetect: false } : {}),   // 0.9.3 M-2
+      ...(detectMuteFlag ? { meetingDetectMute: detectMuteFlag.split(',') } : {}),
       claudeExe,
       ...(pillSettings || {}),
     }));
@@ -997,6 +1020,13 @@ process.on('exit', () => {
     ...(restartDuring === 'finalizing' ? { holdReply: 'meeting.finalize' } : {}),   // 第1d回 A-9: 締めの返事を場面が離すまで止める
   });   // 偽の utilityProcess.fork（場面が dbCrash で子を落とす）
   const mainWinCalls = [];   // 第1d回 A-8: 本体の窓の show・focus・restore の順
+  // 0.9.3 M-2〜M-5: 会議の検出の見張りの偽の子（起こした引数・止めた数）・パネルの窓・本体の窓へ送った [channel, 中身]・起こし直しの時計の ms
+  const micSpawns = [];
+  const micKids = [];
+  let micKills = 0;
+  const nudgeWins = [];
+  const mainSentAll = [];
+  const restartDelays = [];
   const notifications = [];   // 第1d回 A-8: 偽の Notification の show() の { title, body }
   let notifyClosed = 0;       // 0.9.1 Q-4: 偽の Notification の close() の数
   // 偽の Electron の Notification（第1d回 A-8）。on('click') の受け口を覚え、--click-notify なら show() の直後に押す
@@ -1166,6 +1196,8 @@ process.on('exit', () => {
           if (wins.indexOf(this) === 0 && ch === 'overlay:phase') panelCalls.push(`phase:${p && p.phase}`);
           if (wins.indexOf(this) === 0 && ch === 'overlay:hover') hoverSent.push(p);
           if (wins.indexOf(this) === 1 && ch === 'meeting:update') watchStt(p);
+          if (wins.indexOf(this) >= 2 && this.nudge) this.nudge.sent.push([ch, p]);   // 0.9.3 M-3: パネルの窓へ送ったもの
+          if (wins.indexOf(this) === 1) mainSentAll.push([ch, p]);
           if (wins.indexOf(this) === 1) mainSent.push(ch); if (loading) { lost.push([ch, p]); return; } sent.push([ch, p]); watch(ch, p); },
         isLoading: () => loading,
         setWindowOpenHandler(f) { wc.openHandler = f; }, executeJavaScript: (code) => overlayExec(this, code),
@@ -1187,11 +1219,16 @@ process.on('exit', () => {
     isFocused() { return !(this.isMain() && mainUnfocused && !this.focused); }
     isMinimized() { return this.minimized || (this.isMain() && mainMinimized && !this.restored); }
     isMain() { return wins.indexOf(this) === 1; }
-    show() { if (this.isMain()) { this.shown = true; mainWinCalls.push('show'); } else if (this.isOverlay()) panelCalls.push('show'); }
+    show() { this.rec('show'); if (this.isMain()) { this.shown = true; mainWinCalls.push('show'); } else if (this.isOverlay()) panelCalls.push('show'); }
     // 0.9.0 O-4: 録音バーの窓の出し隠しを順に覚える（本体の窓は今までどおり何もしない）
-    showInactive() { if (this.isOverlay()) panelCalls.push('showInactive'); }
-    hide() { if (this.isOverlay()) panelCalls.push('hide'); }
-    focus() { if (this.isMain()) { this.focused = true; mainWinCalls.push('focus'); } }
+    showInactive() { this.rec('showInactive'); if (this.isOverlay()) panelCalls.push('showInactive'); }
+    hide() { this.rec('hide'); if (this.isOverlay()) panelCalls.push('hide'); }
+    focus() { this.rec('focus'); if (this.isMain()) { this.focused = true; mainWinCalls.push('focus'); } }
+    // 0.9.3 M-3: 3つ目からの窓（パネル）の呼び出しを順に覚える（ログインの窓は数えない）
+    rec(name, arg) { if (this.nudge) this.nudge.calls.push(arg === undefined ? name : [name, arg]); }
+    setContentProtection(on) { this.rec('setContentProtection', on); }
+    setAlwaysOnTop(on, level) { this.rec('setAlwaysOnTop', [on, level || '']); }
+    isVisibleNudge() { return Boolean(this.nudgeVisible); }
     restore() { if (this.isMain()) { this.restored = true; mainWinCalls.push('restore'); } }
     isMaximized() { return this.maximized; }
     maximize() { maximizeCalls += 1; this.maximized = true; }
@@ -1207,6 +1244,7 @@ process.on('exit', () => {
     isOverlay() { return wins.indexOf(this) === 0; }
     panelSize() { return this.size ? this.size.slice() : [this.opts.width || 316, this.opts.height || 72]; }
     setBounds(b) {
+      if (this.nudge) { this.rec('setBounds', { x: b.x, y: b.y, width: b.width, height: b.height }); this.nb = { ...b }; }
       if (!this.isOverlay()) return;
       overlayBounds.push({ x: b.x, y: b.y, width: b.width, height: b.height });
       this.pos = [b.x, b.y];
@@ -1218,7 +1256,7 @@ process.on('exit', () => {
       return { x: Number.isFinite(o.x) ? o.x : 0, y: Number.isFinite(o.y) ? o.y : 0, width: o.width || 800, height: o.height || 600 };
     }
   }
-  for (const m of ['setAlwaysOnTop', 'setVisibleOnAllWorkspaces', 'loadFile',
+  for (const m of ['setVisibleOnAllWorkspaces', 'loadFile',
     'setIgnoreMouseEvents', 'setSkipTaskbar', 'close',
     'destroy', 'setMenuBarVisibility', 'removeMenu', 'moveTop', 'setBackgroundColor', 'setTitle', 'setIcon']) {
     Win.prototype[m] = function () {};
@@ -1229,6 +1267,7 @@ process.on('exit', () => {
       super(...a);
       wins.push(this);
       if (this.opts.webPreferences && this.opts.webPreferences.partition === ACCESS_PARTITION) makeLoginWin(this);
+      else if (wins.length >= 3) { this.nudge = { opts: JSON.parse(JSON.stringify(this.opts)), calls: [], sent: [] }; nudgeWins.push(this); }   // 0.9.3 M-3
       appEvents.emit('browser-window-created', {}, this);
       appEvents.emit('web-contents-created', {}, this.webContents);   // 第1d回 A-11: security.install の守りを付ける
     }
@@ -1338,6 +1377,8 @@ process.on('exit', () => {
     exit() {},
     getAppPath() { const d = path.join(tmp, 'アプリ𠮷'); fs.mkdirSync(d, { recursive: true }); return d; },
   } : {};
+  // 0.9.3 M-3: 偽の nativeTheme（--dark で暗い。場面の ["theme", dark] で変えて updated を出す）
+  const nativeTheme = makeEmitter({ shouldUseDarkColors: darkFlag, themeSource: 'system' });
   // 第1d2回 M-1: 偽のクリップボード。書いた文字を順に覚える（音声入力の文字を貼り付けに回したか。out.pastes）
   const clipWrites = [];
   let clipText = '';
@@ -1366,7 +1407,7 @@ process.on('exit', () => {
       unregisterAll: () => { if (registered.has('Escape')) escapeLog.push('unregister'); registered.clear(); },
       isRegistered: (acc) => registered.has(acc),
     },
-    nativeTheme: { shouldUseDarkColors: false, themeSource: 'system', on() {} },
+    nativeTheme,
     // 取り込みの通信は Electron の net.request（第0b回 RF2）。テストでは同じ振る舞いの偽物（127.0.0.1 の偽のサーバーへ）
     net: { request: require('./fake-net').makeFakeRequest({ before, rewrite }), isOnline: () => netUp },
     Tray: FakeTray,
@@ -1392,6 +1433,16 @@ process.on('exit', () => {
   const childProcess = {
     ...cp,
     spawn(cmd, args, opts) {
+      // 0.9.3 M-2: 会議の検出の見張り（本当には起こさない。場面が stdout に行を書く）
+      if (micSteps && /(^|[\\/])powershell\.exe$/i.test(String(cmd)) && Array.isArray(args) && String(args[args.length - 1]).includes('CapabilityAccessManager')) {
+        const EventEmitter = require('events');
+        const p = new EventEmitter();
+        p.stdin = null; p.stdout = new EventEmitter(); p.stderr = null;
+        p.kill = () => { micKills += 1; setTimeout(() => p.emit('exit', null, 'SIGTERM'), 1); };
+        micSpawns.push({ cmd: String(cmd), args: args.slice(), opts: { windowsHide: Boolean(opts && opts.windowsHide) } });
+        micKids.push(p);
+        return p;
+      }
       if (scene && scene.claude && cmd === FAKE_CLAUDE) {
         // 偽の claude を使う場面（scene.claude。設定の［Claude Code を確かめる］）: 偽の claude を node で起こす
         const k = realSpawn(process.execPath, [FAKE_CLAUDE, ...args], { ...opts, env: fakeClaudeEnv(opts && opts.env) });
@@ -1573,6 +1624,14 @@ process.on('exit', () => {
   };
   let keptTicksCalled = 0;
   const keptTick = async () => { keptTicksCalled += 1; for (const t of keptTicks) await t(); };
+  // 0.9.3 M-2: 会議の検出の見張りの起こし直し（restartMicWatch）は、ms を覚えて 5ms 後に本当に呼ぶ（30 秒・2 分・10 分を待たない）
+  if (micSteps) {
+    const st0 = global.setTimeout;
+    global.setTimeout = function (fn, ms, ...a) {
+      if (fn && fn.name === 'restartMicWatch') { restartDelays.push(ms); return st0.call(this, fn, 5, ...a); }
+      return st0.call(this, fn, ms, ...a);
+    };
+  }
   const jsonfile = require(path.join(ROOT, 'src', 'jsonfile.js'));
   const timers = {};
   const clearedTimers = {};   // 場面の時計のうち clearTimeout で止められた数（名前ごと）。待っている数 = timers[名前].length - clearedTimers[名前]
@@ -2334,6 +2393,52 @@ process.on('exit', () => {
     await exitClean(0);
   }
 
+  // 0.9.3 M-2〜M-5: 会議の検出の場面（--mic-feed。頭の注釈）。手順を順に行い、出力して終える
+  if (micSteps) {
+    await sleep(30);
+    out.ipc = [];
+    out.snaps = {};
+    const lastKid = () => micKids[micKids.length - 1];
+    const isActive = () => Boolean(handlers['meeting:status']().active);
+    for (const step of micSteps) {
+      const [k, ...a] = step;
+      if (k === 'line') { const kid = lastKid(); if (kid) kid.stdout.emit('data', Buffer.from(`${a[0]}\n`)); await sleep(15); }
+      else if (k === 'sleep') await sleep(a[0]);
+      else if (k === 'clock') advanceClock(a[0]);
+      else if (k === 'exit') { const kid = lastKid(); if (kid) kid.emit('exit', a[0] === undefined ? 1 : a[0], null); await sleep(30); }
+      else if (k === 'start') { out.ipc.push(['start', await handlers['meeting:toggle']()]); await sleep(30); }
+      else if (k === 'stop') {
+        out.ipc.push(['stop', await handlers['meeting:toggle']()]);
+        listeners['audio:segment']({}, { buffer: new Uint8Array(0), durationMs: 0, final: true });
+        await waitFor(() => !isActive(), 15000);
+        await sleep(50);
+      } else if (k === 'dictate') { const st = await handlers['settings:get'](); shortcuts[st.hotkey](); await sleep(30); }
+      else if (k === 'dictate-cancel') { listeners['overlay:cancel-request']({}); await sleep(30); }
+      else if (k === 'save') { const st = await handlers['settings:get'](); out.ipc.push(['save', await handlers['settings:save']({}, { ...st, ...a[0] })]); await sleep(30); }
+      else if (k === 'ipc') {
+        const [ch, ...args] = a;
+        if (handlers[ch]) out.ipc.push([ch, await handlers[ch]({}, ...args)]);
+        else if (listeners[ch]) { listeners[ch]({}, ...args); out.ipc.push([ch, 'sent']); }
+        else out.ipc.push([ch, 'no-such-channel']);
+        await sleep(30);
+      } else if (k === 'theme') { nativeTheme.shouldUseDarkColors = Boolean(a[0]); nativeTheme.emit('updated'); await sleep(15); }
+      else if (k === 'live') { listeners['meeting:live-shown']({}, Boolean(a[0])); await sleep(15); }
+      else if (k === 'cursor') cursorAt = { x: a[0], y: a[1] };
+      else if (k === 'quit') { appEvents.emit('before-quit', { preventDefault() {} }); appEvents.emit('will-quit', {}); await sleep(30); }
+      else if (k === 'wait-show') await waitFor(() => nudgeWins.length > 0 && nudgeWins[0].nudge.calls.filter((c) => c === 'showInactive').length >= a[0], 5000);
+      else if (k === 'snap') out.snaps[a[0]] = { spawns: micSpawns.length, kills: micKills, active: isActive(), nudgeCalls: nudgeWins.length ? nudgeWins[0].nudge.calls.length : 0 };
+      else throw new Error(`mainrun: --mic-feed の手順 ${k} が読めない`);
+    }
+    await sleep(30);
+    Object.assign(out, {
+      micSpawns, micKills, restartDelays, nudge: nudgeWins.length ? nudgeWins[0].nudge : null, nudgeWindows: nudgeWins.length,
+      mainWinCalls: mainWinCalls.slice(), mainSentAll: mainSentAll.filter(([ch]) => !/^(db:|update:)/.test(ch)), engineLog: elogLines(),
+      notices: sent.filter(([ch]) => ch === 'app:notice').map(([, p]) => p), settingsText: (readUser('settings.json') || '').toString('utf8'),
+      active: isActive(), status: handlers['meeting:status'](),
+    });
+    process.stdout.write(`\n${JSON.stringify(out)}\n`);
+    await exitClean(0);
+  }
   // 第1d回 A-9: 何もしていないときの取り込みと再起動（記録しない）
   if (restartDuring === 'idle') {
     await sleep(100);
