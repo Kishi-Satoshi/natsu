@@ -2029,4 +2029,7 @@ module.exports = [
   // help-dads 3回目の審査の指摘 1（狭い画面の目次の Tab の順）
   {"id": "hd-toc-move", "file": "help/assets/site.js", "from": "if (mq.matches) box.insertBefore(toc, btn.nextSibling);", "to": "if (false) box.insertBefore(toc, btn.nextSibling);", "tests": ["test/help-build.test.js"], "pattern": "3回目の指摘 1", "why": "help-dads HD-10 3回目の指摘 1: 狭い画面で開いた目次を Tab が飛ばし、本文のリンクを全部通ってから目次に着く（WCAG 2.4.3）"},
   {"id": "hd-toc-back", "file": "help/assets/site.js", "from": "    if (mq.addEventListener) mq.addEventListener('change', place);\n", "to": "", "tests": ["test/help-build.test.js"], "pattern": "3回目の指摘 1", "why": "help-dads HD-10 3回目の指摘 1: 窓を広げても目次が本文の前に残り、1280px の Tab の順（Q12）が変わる"},
+  // help-dads 3回目の審査の指摘 2・4（検索の一覧の focusout と tabindex）
+  {"id": "hd-search-focusout", "file": "help/assets/search.js", "from": "        if (n !== box) close();", "to": "        if (false) close();", "tests": ["test/help-search.test.js"], "pattern": "3回目の指摘 2", "why": "help-dads HD-10 3回目の指摘 2: 検索の結果を開いたまま Tab で出ると一覧が残り、次に輪の付いた分類のカードを隠す（WCAG 2.4.11）"},
+  {"id": "hd-results-tabindex", "file": "tools/lib/help-page.js", "from": "role=\"listbox\" aria-label=\"検索の結果\" tabindex=\"-1\" hidden></ul>", "to": "role=\"listbox\" aria-label=\"検索の結果\" hidden></ul>", "tests": ["test/help-search.test.js"], "pattern": "3回目の指摘 2", "why": "help-dads HD-10 3回目の指摘 4: 送れる一覧（ul）に Tab が止まり、選べない一覧に輪が付く"},
 ];

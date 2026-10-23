@@ -147,6 +147,13 @@ var HelpSearch = (function () {
           if (input.value === q) show([], '検索を読み込めませんでした。開き直してください');
         });
       }
+      // 箱からフォーカスが外へ出たら閉じる（開いたままの一覧が、次に輪の付いた部品を隠さない: 3回目の審査の指摘 2・WCAG 2.4.11）。
+      // 行き先が箱の中（マウスで結果を押したとき）なら閉じない
+      box.addEventListener('focusout', function (e) {
+        var n = e.relatedTarget;
+        while (n && n !== box) n = n.parentNode;
+        if (n !== box) close();
+      });
       input.addEventListener('input', update);
       input.addEventListener('keydown', function (e) {
         var open = list.hidden === false;

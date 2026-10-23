@@ -318,3 +318,30 @@ test('再審査の指摘 4: 上の帯の検索の箱は data-short="探す" を�
   // 見えないラベルは「記事を探す」のまま（置き換えの文だけを短くする）
   assert.strictEqual(p.root.querySelector('label[for="hc-q"]').textContent, '記事を探す');
 });
+
+// 3回目の審査の指摘 2（重要・WCAG 2.4.11）と 4: 結果を開いたまま Tab で箱の外へ出ると一覧が開いたまま残り、輪の付いた部品を覆い隠した。
+// 箱からフォーカスが外へ出たら閉じる。結果の一覧（ul）は tabindex="-1"（Tab で一覧そのものに止まらない）
+test('3回目の指摘 2: 検索の箱からフォーカスが外へ出たら（focusout の行き先が箱の外・無い）一覧を閉じ、aria-expanded="false"・status は空。行き先が箱の中（結果のリンク）なら閉じない。一覧の ul は tabindex="-1"', { timeout: 5000 }, async (t) => {
+  const p = runPage(t, 'index.html');
+  for (const id of ['hc-q', 'hc-q-home']) assert.strictEqual(p.root.querySelector(`#${id}-results`).getAttribute('tabindex'), '-1', `${id}: 一覧に Tab が止まる`);
+  const big = p.root.querySelector('#hc-q-home');
+  const box = big.closest('.search');
+  const list = p.root.querySelector('#hc-q-home-results');
+  const st = p.root.querySelector('#hc-q-home-status');
+  await p.type(big, '試し');
+  assert.strictEqual(list.hidden, false);
+  // 箱の中（結果のリンク）へ移るときは閉じない（マウスで結果を押したとき）
+  box.dispatchEvent({ type: 'focusout', relatedTarget: list.querySelector('[role="option"]') });
+  assert.strictEqual(list.hidden, false, '箱の中へ移ったのに閉じた');
+  // Tab で箱の外（分類のカード）へ出たら閉じる
+  box.dispatchEvent({ type: 'focusout', relatedTarget: p.root.querySelector('.cats a') });
+  assert.strictEqual(list.hidden, true, '箱の外へ出ても一覧が開いたまま（輪の付いた部品を隠す）');
+  assert.strictEqual(big.getAttribute('aria-expanded'), 'false');
+  assert.strictEqual(st.textContent, '');
+  assert.strictEqual(big.value, '試し', '打った文字は消さない');
+  // 行き先が無い（窓の外へ出た）ときも閉じる
+  await p.type(big, '一時停止');
+  assert.strictEqual(list.hidden, false);
+  box.dispatchEvent({ type: 'focusout', relatedTarget: null });
+  assert.strictEqual(list.hidden, true);
+});
