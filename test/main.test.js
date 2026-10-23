@@ -21,7 +21,7 @@ const {
   makeSummaryRunner, tickStep,
   pasterScript, copyCommand, restoreAfterPaste,
   engineFileIssue, engineIssueMessage, engineInAppDir, engineDirWarning, portInUseError, guardEngineSettings, keptDifferent, closeConfirm,
-  truncationMessage, extractNotes, buildPromptParts,
+  truncationMessage, buildPromptParts,
   publicSegments, settledSegments, pendingDurationMs, recoverSegments, staleSegbufDirs,
   nextSegmentMs, EtaTracker, skipPendingSegments,
 } = require('../src/mainlib');
@@ -440,14 +440,15 @@ test('tickStep: 議事録が無くなったときだけ見張りを消す', () =
 });
 
 // ---------------------------------------------------------------- #26 設定の正規化
-const DEF = { localPort: 8990, sumPort: 8991, localThreads: 8, sumThreads: 8, segmentSec: 75 };
+const DEF = { localPort: 8990, localThreads: 8, segmentSec: 75 };
 
+// 0.10.0 LS-3（D59・決めたこと 109）で意図して直した: 要約のポートとスレッドは決まりの表から外し、知らないキーとして値のまま残す
 test('normalizeSettings: ポート・スレッド・区間長を範囲に収め、壊れた値は既定に戻す', () => {
   const s = normalizeSettings({ localPort: 'abc', sumPort: 70000, localThreads: 0, sumThreads: '300', segmentSec: 5 }, DEF);
   assert.strictEqual(s.localPort, 8990);
-  assert.strictEqual(s.sumPort, 65535);
+  assert.strictEqual(s.sumPort, 70000, '外した要約のキーを直した');
   assert.strictEqual(s.localThreads, 8, '0 は打ち間違いなので既定に戻す');
-  assert.strictEqual(s.sumThreads, 64);
+  assert.strictEqual(s.sumThreads, '300', '外した要約のキーを直した');
   assert.strictEqual(s.segmentSec, 20);
   // 文字列の数字は数に直す（保存した JSON から '8990' で戻ることがある）
   assert.strictEqual(normalizeSettings({ ...DEF, localPort: '8080' }, DEF).localPort, 8080);
@@ -741,26 +742,7 @@ test('truncationMessage: 切れたパートを名指しし、最終統合だけ�
   assert.ok(both.includes('パート 2') && both.includes('末尾の議題'), '両方切れたときに片方しか伝えていない');
 });
 
-test('extractNotes: 切れたら半分に割って両方をやり直し、収まればその結果を使う', async () => {
-  // 上限で切れた要点メモは中盤の議題が黙って欠ける。長い塊は半分にすれば収まることが多い
-  const calls = [];
-  const extract = async (t) => { calls.push(t); return { text: `[${t}]`, truncated: t.length > 4 }; };
-  const r = await extractNotes(extract, 'abcdefgh');
-  assert.deepStrictEqual(calls, ['abcdefgh', 'abcd', 'efgh']);
-  assert.strictEqual(r.text, '[abcd]\n[efgh]');
-  assert.strictEqual(r.truncated, false);
-  assert.strictEqual(r.retried, true);
-});
-
-test('extractNotes: 収まっていればそのまま／半分でも切れたら本文は残して truncated を立てる（やり直しは一度だけ）', async () => {
-  const ok = await extractNotes(async (t) => ({ text: t, truncated: false }), 'short');
-  assert.deepStrictEqual(ok, { text: 'short', truncated: false, retried: false });
-  let n = 0;
-  const still = await extractNotes(async (t) => { n++; return { text: t, truncated: true }; }, 'abcdefgh');
-  assert.strictEqual(n, 3, '二度目以降も割り続けている');
-  assert.strictEqual(still.text, 'abcd\nefgh', '切れても本文を捨てている');
-  assert.strictEqual(still.truncated, true);
-});
+// extractNotes（分割要約の打ち切りのやり直し）の2つは 0.10.0 LS-3（D59）で外した（手元の llama の要約が無い）
 
 // ---------------------------------------------------------------- #23 初期プロンプトの予算
 const SAMPLE = 'お疲れさまです。よろしくお願いします。';

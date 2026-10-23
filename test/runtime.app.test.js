@@ -97,7 +97,8 @@ test('要となるボタンに、実際にハンドラが付く', () => {
   const w = new Set(待機.wired().map((x) => x.id).filter(Boolean));
   // 更新の2つは「壊れたときに直すための道」なので、特に落ちてはいけない
   // engineFetchBtn は初めての PC でエンジンを取り込む唯一の道（第0b回 Task 15）
-  for (const id of ['chkUpdBtn', 'applyUpdBtn', 'openDataBtn', 'testBtn', 'testSumBtn', 'engineFetchBtn',
+  // 0.10.0 LS-3（D59）で意図して直した: 要約のエンジンの［起動テスト］（testSumBtn）を外した
+  for (const id of ['chkUpdBtn', 'applyUpdBtn', 'openDataBtn', 'testBtn', 'engineFetchBtn',
                     'tabBtnNotes', 'tabBtnDictation', 'tabBtnSettings']) {
     assert.ok(w.has(id), `${id} にハンドラが付いていない（ボタンが効かない）`);
   }
@@ -854,8 +855,9 @@ test('promptInfo の無い古い preload と組んでも、設定画面は生き
 });
 
 // ================= 記録中の設定（#57） =================
+// 0.10.0 LS-3（D59）で意図して直した: 要約のエンジンの欄を外した
 const ENGINE_FIELDS = ['language', 'segmentSec', 'localServerExe', 'localModelPath', 'localThreads', 'localPort',
-  'vadModelPath', 'useVad', 'suppressNst', 'sumServerExe', 'sumModelPath', 'sumThreads', 'sumPort'];
+  'vadModelPath', 'useVad', 'suppressNst'];
 
 test('記録中はエンジンの設定欄が触れなくなり理由が出る。記録が終わると戻る', async () => {
   const l = await load(APP);
@@ -935,7 +937,8 @@ test('設定の保存では数値の項目を数で送る（文字列で送る�
   l.byId.get('tabSettings').dispatchEvent({ type: 'change' });
   await l.drain();
   const sent = l.called('saveSettings')[0].args[0];
-  for (const k of ['localThreads', 'localPort', 'sumThreads', 'sumPort', 'segmentSec']) {
+  for (const k of ['localThreads', 'localPort', 'segmentSec']) {   // 0.10.0 LS-3 で要約のスレッドとポートを外した
     assert.strictEqual(typeof sent[k], 'number', `${k} が数でなく ${typeof sent[k]} で送られている`);
   }
+  for (const k of ['sumThreads', 'sumPort', 'sumCtx', 'sumServerExe', 'sumModelPath']) assert.ok(!(k in sent), `${k} を送った`);
 });

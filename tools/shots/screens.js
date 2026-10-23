@@ -353,9 +353,10 @@ function offlineAnswers() {
   const total = MANIFEST.items.reduce((n, i) => n + i.size, 0);
   const whisperBytes = MANIFEST.items.filter((i) => i.group === 'whisper').reduce((n, i) => n + i.size, 0);
   return {
-    'koeApp.engineStatus': { ok: true, whisper: 'PC の中の文字起こしはまだ取り込んでいません。', sum: '', chosen: false },
-    'koeApp.engineFetchStatus': { ok: true, supported: true, mode: { whisper: 'managed', sum: 'managed' }, state: 'missing', totalBytes: total, doneBytes: 0,
-      needBytes: total, whisperBytes, freeBytes: 20e9, whisperReady: false, sumReady: false, runtime: null, askIt: false, report: '', consent: false, userPaused: false,
+    // 0.10.0 LS-3（D59）: 組は文字起こしだけ（要約のエンジンの欄 sum・sumReady を外した）
+    'koeApp.engineStatus': { ok: true, whisper: 'PC の中の文字起こしはまだ取り込んでいません。', chosen: false },
+    'koeApp.engineFetchStatus': { ok: true, supported: true, mode: { whisper: 'managed' }, state: 'missing', totalBytes: total, doneBytes: 0,
+      needBytes: total, whisperBytes, freeBytes: 20e9, whisperReady: false, runtime: null, askIt: false, report: '', consent: false, userPaused: false,
       items: MANIFEST.items.map((i) => ({ id: i.id, group: i.group, label: i.label, version: i.version, file: (i.dest || i.dir).split('/').pop(), url: i.url,
         host: new URL(i.url).hostname, sha256: i.sha256, size: i.size, done: 0, state: 'missing', license: i.license, place: '%LOCALAPPDATA%\\natsu\\engine\\…' })),
       error: null },
@@ -411,14 +412,13 @@ function fixtures() {
     'koeApp.getSettings': {
       localServerExe: `${ENGINE_DIR}\\whisper\\whisper-server.exe`, localModelPath: `${ENGINE_DIR}\\models\\ggml-model.bin`,
       localThreads: 4, localPort: 8990, vadModelPath: '', useVad: true, suppressNst: true,
-      sumServerExe: `${ENGINE_DIR}\\llama\\llama-server.exe`, sumModelPath: `${ENGINE_DIR}\\models\\summary.gguf`,
-      sumThreads: 4, sumPort: 8991, sumCtx: 16384, sumGpuLayers: 0, engineIdleMin: 10, autoSummarize: true,
+      engineIdleMin: 10, autoSummarize: true,   // 0.10.0 LS-3 で要約のエンジンのキーを外した
       hotkey: 'Control+Shift+Space', meetingHotkey: 'Alt+M', segmentSec: 75, pillPos: 'bottom', micId: '',
       language: 'ja', autoPaste: true, removeFillers: true, soundFeedback: true, autoLaunch: false,
       dictionary: ['議事録', '結合試験'], useBuiltinTerms: true, stayInTray: false, theme: 'system', useSystemAudio: false,
     },
     'koeApp.vadStatus': { path: `${ENGINE_DIR}\\models\\ggml-silero-vad.bin`, auto: true },
-    'koeApp.engineStatus': { ok: true, whisper: '', sum: '' },
+    'koeApp.engineStatus': { ok: true, whisper: '' },
     'koeApp.engineFetchStatus': null,   // 取り込みの欄は出さない（取り込みの状態で画面が変わらないように）
     'koeApp.hotkeyState': { ok: true, failed: [], fallback: {}, message: '' },
     // 第1d回 A-12: カード「アカウント」はログインしていない形（AR1・AR2 と［ログイン］）。main の account:status の形（cookie は入っていない）

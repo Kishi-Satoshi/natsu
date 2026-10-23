@@ -582,7 +582,8 @@ test('スレッド数とポートに説明がある', () => {
   // 0.9.2 I-3（計画 docs/plans/2026-10-21-092.md）で意図して変えた: 見える説明は「通常は変更不要です。」の1行、意味は ⓘ の吹き出し
   assert.ok(appHtml.includes('通常は変更不要です。<button type="button" class="setinfo"'));
   assert.ok(appHtml.includes('スレッド数は文字起こしに使う CPU の数です'));
-  assert.ok(appHtml.includes('2つのエンジンのポートは別の番号にしてください'));
+  // 0.10.0 LS-3（D59）で意図して直した: 要約のエンジンの欄（「2つのエンジンのポートは別の番号に」の吹き出し）を外した
+  assert.ok(!appHtml.includes('2つのエンジンのポートは別の番号にしてください'));
 });
 
 // ---------------------------------------------------------------- 検索の本文対応
@@ -959,7 +960,7 @@ test('#32 エンジンの実行ファイルとモデルは存在だけでなく�
   assert.strictEqual((chk.match(/engineFileIssue\(/g) || []).length, 2, '実行ファイルとモデルの両方を見ていない');
   assert.ok(chk.includes('engineIssueMessage('), '原因を名指しする文を mainlib から取っていない');
   // 床はモデルだけ（実行ファイルの大きさでは判断しない。上流が薄いランチャにした）
-  assert.match(m, /whisper: 50_000_000/); assert.match(m, /gguf: 300_000_000/);
+  assert.match(m, /whisper: 50_000_000/); assert.ok(!/gguf: 300_000_000/.test(m), '要約のモデルの床が残っている（0.10.0 LS-3 で外した）');
   // 設定画面の「テスト」も原因を名指しする
   assert.ok(!m.includes('またはモデルファイルのパスが正しくありません'), 'テストの失敗が原因を名指ししていない');
 });
@@ -1222,15 +1223,15 @@ test('エンジンの不具合は、どのファイルかを名指しして伝�
   const fn = fnBody(m, 'function engineCheck(eng)', '\n}');
   assert.ok(fn.includes("engineIssueMessage(exe, 'exe', fileSize(engineExe(eng)), engineExe(eng), ps)"), '実行ファイルのパスを文に渡していない');
   assert.ok(fn.includes("engineIssueMessage(model, 'model', fileSize(engineModel(eng)), engineModel(eng), ps)"), 'モデルのパスを文に渡していない');
-  // エンジンごとに実行し直すスクリプトを名指しする（setup-*.ps1 では利用者がどれか分からない）
-  assert.ok(fn.includes("eng === whisperEng ? 'setup-local-engine.ps1' : 'setup-summarizer.ps1'"), 'スクリプトを名指ししていない');
+  // 実行し直すスクリプトを名指しする（setup-*.ps1 では利用者がどれか分からない）。0.10.0 LS-3（D59）で要約のスクリプトを外した
+  assert.ok(fn.includes("const ps = 'setup-local-engine.ps1';"), 'スクリプトを名指ししていない');
 });
 
 test('起動テストは、エンジンがアプリのインストール先にあれば移動を促す（更新のたびに消える）', () => {
   const m = code(main);
   assert.ok(m.includes('const appInstallDir = () => path.dirname(process.execPath);'), 'インストール先を求めていない');
   assert.ok(m.includes('engineDirWarning([engineExe(eng), engineModel(eng)], appInstallDir())'), '判断を mainlib.engineDirWarning に任せていない');
-  for (const [ch, eng] of [["app:test'", 'whisperEng'], ["app:test-sum'", 'sumEng']]) {
+  for (const [ch, eng] of [["app:test'", 'whisperEng']]) {   // 0.10.0 LS-3 で app:test-sum を外した
     const i = m.indexOf(`ipcMain.handle('${ch}`);
     assert.ok(i > 0, `${ch} が無い`);
     const body = m.slice(i, m.indexOf('  });', i));
@@ -1275,8 +1276,8 @@ test('アプリのインストール先にエンジンを置かないことが�
 
 test('エンジンの実行ファイルは大きさの床で弾かない（上流が薄いランチャにした）', () => {
   const m = code(main);
-  // 床はモデルだけ。exe に床を置くと、9KB の llama-server.exe（正常）を「壊れている」と言ってしまう
-  assert.match(m, /const ENGINE_MIN_BYTES = \{ whisper: 50_000_000, gguf: 300_000_000 \};/, 'exe の床が残っている');
+  // 床はモデルだけ。exe に床を置くと、薄いランチャの exe（正常）を「壊れている」と言ってしまう（0.10.0 LS-3 で要約のモデルの床を外した）
+  assert.match(m, /const ENGINE_MIN_BYTES = \{ whisper: 50_000_000 \};/, 'exe の床が残っている');
   const fn = fnBody(m, 'function engineCheck(eng)', '\n}');
   assert.ok(fn.includes('engineFileIssue(engineExe(eng), 0, stat)'), 'exe に床を渡している');
   assert.ok(!/ENGINE_MIN_BYTES\.exe/.test(m), 'ENGINE_MIN_BYTES.exe をまだ参照している');

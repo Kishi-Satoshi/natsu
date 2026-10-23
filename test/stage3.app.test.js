@@ -240,18 +240,10 @@ async function 保存した(l) {
   return c[c.length - 1].args[0];
 }
 
-// 第1d回 A-13（D19）で意図して変えた: カードの見出しは「エンジン」から「オフライン」へ（要約の欄の言葉は変えない: 問い Q15）
-test('設定: 要約の文脈長の欄がオフラインのカード（前の「エンジン」）の詳細設定にあり、ラベルと説明が指定どおり', async () => {
+// 0.10.0 LS-3（D59）で意図して直した: 要約の文脈長の欄（sumCtx）を外した
+test('設定: 要約の文脈長の欄が無い（0.10.0 LS-3。要約は Claude Code）', async () => {
   const l = await load(APP);
-  const el = l.byId.get('sumCtx');
-  assert.ok(el, '#sumCtx が無い');
-  assert.strictEqual(カード見出し(el), 'ローカル AI');   // 0.9.3 M-0（D54）で意図して変えた
-  assert.ok(el.closest('#engineAdv'), '詳細設定の中に無い');
-  const field = el.closest('.field');
-  assert.strictEqual(field.querySelector('label').textContent, '要約の文脈長');
-  // 0.9.2 I-3（計画 docs/plans/2026-10-21-092.md）で意図して変えた: 見える説明は1行、続きは ⓘ の吹き出し
-  assert.strictEqual(field.querySelector('.desc').textContent.trim(), '要約エンジンに渡すトークン数（-c）。既定 16384。');
-  assert.strictEqual(field.querySelector('.setpop li').textContent.trim(), '大きいほどメモリを使い、小さいと長い会議の統合で足りなくなります。');
+  assert.ok(!l.byId.get('sumCtx'), '#sumCtx が残っている');
 });
 
 test('設定: エンジンの自動停止の欄がオフラインのカード（前の「エンジン」）の詳細設定にあり、単位「分」とラベル・説明が指定どおり', async () => {
@@ -275,8 +267,9 @@ test('設定: エンジンの細かい設定は閉じた「詳細設定」の中
   const adv = l.byId.get('engineAdv');
   assert.ok(adv && !adv.hasAttribute('open'), '詳細設定が開いた状態で始まる');
   assert.strictEqual(adv.querySelector('summary').textContent, '詳細設定');
+  // 0.10.0 LS-3（D59）で意図して直した: 詳細設定の要約の欄を外した
   for (const id of ['localServerExe', 'pickExeBtn', 'localModelPath', 'pickModelBtn', 'localThreads', 'localPort', 'useVad', 'vadModelPath', 'pickVadBtn', 'suppressNst',
-    'sumServerExe', 'pickSumExeBtn', 'sumModelPath', 'pickSumModelBtn', 'sumThreads', 'sumPort', 'sumCtx', 'testSumBtn', 'segmentSec', 'engineIdleMin']) {
+    'segmentSec', 'engineIdleMin']) {
     assert.ok(l.byId.get(id).closest('#engineAdv'), `${id} が詳細設定の外にある`);
   }
   const card = adv.closest('.card');
@@ -285,7 +278,7 @@ test('設定: エンジンの細かい設定は閉じた「詳細設定」の中
   // engineNote はモデルの勧め（kotoba のとき。0.1.1）。注意の一つ。engineFetch… と engineDirBtn は取り込みの欄（第0b回 Task 15）
   // 0.9.2 I-3 で意図して変えた: カードの頭の説明の ⓘ の吹き出し（setPopOffline）も外にある（説明なので、閉じた詳細設定の中に入れない）
   assert.deepStrictEqual(outside.sort(), ['engineDirBtn', 'engineFetch', 'engineFetchBar', 'engineFetchBtn', 'engineFetchCopy', 'engineFetchList',
-    'engineFetchMsg', 'engineFetchPause', 'engineFetchRows', 'engineFetchSummary', 'engineFetchSwitch', 'engineNote', 'engineState', 'setPopOffline', 'testBtn', 'testMsg', 'testSumMsg']);
+    'engineFetchMsg', 'engineFetchPause', 'engineFetchRows', 'engineFetchSummary', 'engineFetchSwitch', 'engineNote', 'engineState', 'setPopOffline', 'testBtn', 'testMsg']);
   assert.ok(card.querySelectorAll('.lockNote').some((n) => !n.closest('#engineAdv')), '記録中の理由が閉じた中にしか無い');
 });
 
@@ -351,50 +344,40 @@ test('engineStatus の無い古い preload でも、設定画面は落ちない'
   assert.deepStrictEqual(l.errors.map(fmt), []);
 });
 
-test('設定: sumCtx / engineIdleMin を読み込んで欄に出し、無ければ既定（16384 / 10）。0 分は 0 のまま（既定に化けない）', async () => {
-  const a = await load(APP, { returns: { getSettings: () => 設定({ sumCtx: 8192, engineIdleMin: 0 }) } });
-  assert.strictEqual(a.byId.get('sumCtx').value, '8192');
+// 0.10.0 LS-3（D59）で意図して直した: 要約の文脈長（sumCtx）の欄を外したので、自動停止の分（engineIdleMin）だけを見る
+test('設定: engineIdleMin を読み込んで欄に出し、無ければ既定（10）。0 分は 0 のまま（既定に化けない）', async () => {
+  const a = await load(APP, { returns: { getSettings: () => 設定({ engineIdleMin: 0 }) } });
   assert.strictEqual(a.byId.get('engineIdleMin').value, '0', '0（止めない）が既定に化けた');
   const b = await load(APP, { returns: { getSettings: () => 設定({}) } });
-  assert.strictEqual(b.byId.get('sumCtx').value, '16384');
   assert.strictEqual(b.byId.get('engineIdleMin').value, '10');
   assert.deepStrictEqual(a.errors.map(fmt).concat(b.errors.map(fmt)), []);
 });
 
-test('設定: sumCtx / engineIdleMin は自動保存で数として送る（0 分も 0 で送る）', async () => {
+test('設定: engineIdleMin は自動保存で数として送る（0 分も 0 で送る）。要約の文脈長は送らない', async () => {
   const l = await load(APP, { returns: { getSettings: () => 設定({ sumCtx: 32768, engineIdleMin: 10 }) } });
-  l.byId.get('sumCtx').value = '65536';
   l.byId.get('engineIdleMin').value = '0';
   const sent = await 保存した(l);
-  assert.strictEqual(sent.sumCtx, 65536);
   assert.strictEqual(sent.engineIdleMin, 0);
+  assert.ok(!('sumCtx' in sent), '外した要約の文脈長を送った');
   // 空欄・数でない入力は既定に落とす（main が丸める前に NaN を送らない）
-  l.byId.get('sumCtx').value = '';
   l.byId.get('engineIdleMin').value = 'abc';
   const sent2 = await 保存した(l);
-  assert.strictEqual(sent2.sumCtx, 16384);
   assert.strictEqual(sent2.engineIdleMin, 10);
   assert.deepStrictEqual(l.errors.map(fmt), []);
 });
 
-test('設定: main が丸めた値（applied）は sumCtx / engineIdleMin の欄にも戻る', async () => {
-  const l = await load(APP, { returns: { saveSettings: () => ({ ok: true, applied: { sumCtx: 131072, engineIdleMin: 120 } }) } });
-  l.byId.get('sumCtx').value = '999999';
+test('設定: main が丸めた値（applied）は engineIdleMin の欄にも戻る', async () => {
+  const l = await load(APP, { returns: { saveSettings: () => ({ ok: true, applied: { engineIdleMin: 120 } }) } });
   l.byId.get('engineIdleMin').value = '500';
   await 保存した(l);
-  assert.strictEqual(l.byId.get('sumCtx').value, '131072', '丸められた文脈長が欄に戻らない');
   assert.strictEqual(l.byId.get('engineIdleMin').value, '120', '丸められた分が欄に戻らない');
 });
 
-test('設定: 記録中は要約の文脈長（エンジン起動時の -c）は触れず、自動停止の分は触れる', async () => {
+test('設定: 記録中も自動停止の分は触れる（エンジンの設定ではない）', async () => {
   const l = await load(APP);
   l.fire('onMeetingUpdate', { active: true, startedAt: Date.now(), segments: [] });
   await l.drain();
-  assert.strictEqual(l.byId.get('sumCtx').disabled, true, '記録中に文脈長を変えられる（エンジンが再起動する）');
   assert.ok(!l.byId.get('engineIdleMin').disabled, '自動停止の分はエンジンの設定ではない');
-  l.fire('onMeetingUpdate', { active: false });
-  await l.drain();
-  assert.strictEqual(l.byId.get('sumCtx').disabled, false, '記録後も触れない');
 });
 
 // ================= 設定: データ保存先 =================

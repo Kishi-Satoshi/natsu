@@ -16,16 +16,18 @@ const APP = path.join(__dirname, '..', 'src', 'renderer', 'app.html');
 const T = { timeout: 5000 };
 const fmt = (e) => `${e.constructor.name}: ${e.message}`;
 // 計画「画面と知らせの文」の設定のカード「オフライン」（OFF1〜OFF5）
-const OFF1_LEAD = 'PC の中で文字起こしと要約をするための準備です（任意）。';
+// 0.10.0 LS-3（D59）で意図して変えた: 要約は PC の中で作らないので、頭の1行（OFF1_LEAD）と取り込みの欄の得るもの（OFF3）から「要約」を外し、
+// 取り込みの合計は文字起こしの組だけ（約 0.6GB・約 8 分）
+const OFF1_LEAD = 'PC の中で文字起こしをするための準備です（任意）。';
 const OFF1 = 'インターネットにつながっていないときと、オフラインモードの会議でも、この PC の中で文字起こしと要約ができるようにする準備です（任意）。準備しなくても、インターネットにつながっていてログインしていれば、会議と音声入力はそのまま使えます。';
 const OFF2 = 'PC の中の文字起こし：準備していません（任意）';
-const OFF3 = '取り込むと: インターネットにつながっていないときやオフラインモードの会議でも、PC の中で文字起こしと要約ができます。音声や議事録は外に送りません。';
+const OFF3 = '取り込むと: インターネットにつながっていないときやオフラインモードの会議でも、PC の中で文字起こしができます。要約は、インターネットにつながっているときに作ります。';
 const OFF4 = (need, free, min) => `かかるもの: ディスクの空き 約 ${need}（今の空き 約 ${free}）・取り込みの時間 10Mbps の回線で約 ${min} 分。議事録の記録中は、Web 会議の回線を守るため取り込みを止めます。`;
 const OFF5 = 'ローカル AI を使う（数 GB を取り込む）';
 const NOT_FETCHED = '文字起こしエンジンがまだ取り込まれていません（見本）';
 // 取り込みの欄の写し（engine-app.test.js の ST と同じ形。main の engine:fetch-status の答え）
-const FETCH = (o = {}) => ({ ok: true, supported: true, mode: { whisper: 'managed', sum: 'managed' }, state: 'missing', totalBytes: 5580564403, doneBytes: 0,
-  needBytes: 5580564403, whisperBytes: 583854933, freeBytes: 120e9, whisperReady: false, sumReady: false, runtime: null, askIt: false, report: '', consent: false,
+const FETCH = (o = {}) => ({ ok: true, supported: true, mode: { whisper: 'managed' }, state: 'missing', totalBytes: 583854933, doneBytes: 0,
+  needBytes: 583854933, whisperBytes: 583854933, freeBytes: 120e9, whisperReady: false, runtime: null, askIt: false, report: '', consent: false,
   items: MANIFEST.items.map((i) => ({ id: i.id, group: i.group, label: i.label, version: i.version, file: (i.dest || i.dir).split('/').pop(), url: i.url,
     host: new URL(i.url).hostname, sha256: i.sha256, size: i.size, done: 0, state: 'missing', license: i.license, place: '%LOCALAPPDATA%\\natsu\\engine\\…' })), error: null, ...o });
 const EMPTY = () => ({ ...RETURNS.getSettings(), localServerExe: '', localModelPath: '', sumServerExe: '', sumModelPath: '', vadModelPath: '' });
@@ -74,7 +76,7 @@ test('OF7: 取り込みの欄（consent が偽・missing）の文は OFF3・OFF4
   await l.drain();
   assert.strictEqual($(l, 'engineFetch').hidden, false);
   const lines = $(l, 'engineFetchSummary').children.map((d) => d.textContent);
-  assert.deepStrictEqual(lines, [OFF3, OFF4('5.6GB', '120.0GB', 74)]);
+  assert.deepStrictEqual(lines, [OFF3, OFF4('0.6GB', '120.0GB', 8)]);
   const b = $(l, 'engineFetchBtn');
   assert.strictEqual(b.textContent, OFF5);
   assert.strictEqual(b.hidden, false);
@@ -86,17 +88,17 @@ test('OF7: 取り込みの欄（consent が偽・missing）の文は OFF3・OFF4
   // 空きが分からない写しでは「（今の空き …）」を書かない
   const u = await open({ engineFetchStatus: () => FETCH({ freeBytes: null }) });
   await u.drain();
-  assert.strictEqual($(u, 'engineFetchSummary').children[1].textContent, 'かかるもの: ディスクの空き 約 5.6GB・取り込みの時間 10Mbps の回線で約 74 分。議事録の記録中は、Web 会議の回線を守るため取り込みを止めます。');
+  assert.strictEqual($(u, 'engineFetchSummary').children[1].textContent, 'かかるもの: ディスクの空き 約 0.6GB・取り込みの時間 10Mbps の回線で約 8 分。議事録の記録中は、Web 会議の回線を守るため取り込みを止めます。');
   assert.deepStrictEqual([...l.errors, ...u.errors].map(fmt), []);
 });
 
 test('F5: consent が真・手の組あり・取り込み済みの写しの文とボタンは 0.8.0 のまま', T, async () => {
   const cases = [
-    [FETCH({ consent: true }), 'PC の中の文字起こしを取り込む', /^PC の中の文字起こしと要約を、この PC に取り込みます（合計 約 5\.6GB/],
-    [FETCH({ consent: undefined }), 'PC の中の文字起こしを取り込む', /^PC の中の文字起こしと要約を、この PC に取り込みます/],
-    [FETCH({ mode: { whisper: 'manual', sum: 'managed' } }), 'PC の中の文字起こしを取り込む', /^文字起こしは手で設定したものを使っています。要約を、この PC に取り込みます/],
-    [FETCH({ state: 'partial', doneBytes: 1e9 }), '続きから取り込む', /^PC の中の文字起こしと要約を、この PC に取り込みます（残り/],
-    [FETCH({ state: 'ready', whisperReady: true, sumReady: true }), '', /^PC の中の文字起こしは取り込み済みです/],
+    // 0.10.0 LS-3（D59）で意図して直した: 組は文字起こしだけ（「要約を」の文と、片方だけ手の設定の形が無い）
+    [FETCH({ consent: true }), 'PC の中の文字起こしを取り込む', /^PC の中の文字起こしを、この PC に取り込みます（合計 約 0\.6GB/],
+    [FETCH({ consent: undefined }), 'PC の中の文字起こしを取り込む', /^PC の中の文字起こしを、この PC に取り込みます/],
+    [FETCH({ state: 'partial', doneBytes: 1e8 }), '続きから取り込む', /^PC の中の文字起こしを、この PC に取り込みます（残り/],
+    [FETCH({ state: 'ready', whisperReady: true }), '', /^PC の中の文字起こしは取り込み済みです/],
   ];
   for (const [st, btn, re] of cases) {
     const l = await open({ engineFetchStatus: () => st, engineStatus: ENG({ whisper: '', chosen: true }) });

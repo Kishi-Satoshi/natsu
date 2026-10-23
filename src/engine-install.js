@@ -38,7 +38,7 @@
  * installed.json の形:
  *   { schema: 1, consent, userPaused,
  *     items: { [sha256]: { id, role, place, size, mtimeMs, files?: [{ name, size, mtimeMs, sha256 }] } },
- *     active: { whisper: [sha256, …] | null, sum: [sha256, …] | null } }
+ *     active: { whisper: [sha256, …] | null } }（0.9.x の sum の組は読み捨てる。0.10.0 LS-3）
  *  - キーは id ではなくピンの SHA-256（ピンを上げた後も前の版の記録を残す。RF13）。
  *  - place は root からの `/` 区切りの相対パス。files は zip の中で使うファイルだけ（name は strip を外した名前）。
  *  - active は今使っている組（Task 14 が切り替えのときに書く）。
@@ -60,7 +60,9 @@ const { askIt, fetchErrorMessage, isTransient, fetchFile: fetchFileDefault } = r
 const { listZip, readEntry } = require('./zipread');
 const J = require('./jsonfile');
 
-const GROUPS = ['whisper', 'sum'];
+// 取り込む組。0.10.0 LS-3（D59）で要約の組（sum）を外した（要約は利用者の Claude Code）。0.9.x の要約の組を消す表は RETIRED（LS-4）
+const GROUPS = ['whisper'];
+const byGroup = (f) => Object.fromEntries(GROUPS.map((g) => [g, f(g)]));
 const SHOWN_ROOT = '%LOCALAPPDATA%\\natsu\\engine';
 const APP_VERSION = (() => { try { return String(require('../package.json').version || ''); } catch (_) { return ''; } })();
 
@@ -100,7 +102,7 @@ function engineRoot(env = {}, platform = process.platform, arch = process.arch) 
 
 /**
  * 置き場所の並び。p は path（テストでは path.win32）。root が無ければパスはすべて null。
- * → { whisper: { dir, exe, model, vad }, sum: { dir, exe, model }, installed, notices, download }
+ * → { whisper: { dir, exe, model, vad }, installed, notices, download }
  */
 function layout(root, manifest, p = path) {
   const at = (rel) => { const parts = root ? relParts(rel) : null; return parts ? p.join(root, ...parts) : null; };
@@ -123,7 +125,7 @@ function layout(root, manifest, p = path) {
 
 // ---------------------------------------------------------------- installed.json
 
-const emptyInstalled = () => ({ schema: 1, consent: false, userPaused: false, items: {}, active: { whisper: null, sum: null } });
+const emptyInstalled = () => ({ schema: 1, consent: false, userPaused: false, items: {}, active: byGroup(() => null) });
 
 /**
  * installed.json を読む（第1a回 JS5・JS2）。部品で読む（BOM 付き・UTF-16 も読む）。
@@ -143,7 +145,7 @@ function readInstalled(file) {
   const act = isObj(o.active) ? o.active : {};
   const shas = (a) => (Array.isArray(a) && a.length && a.every((s) => typeof s === 'string') ? a.slice() : null);
   return { ...o, schema: 1, consent: o.consent === true, userPaused: o.userPaused === true, items,
-    active: { whisper: shas(act.whisper), sum: shas(act.sum) } };
+    active: byGroup((g) => shas(act[g])) };
 }
 
 // THIRD-PARTY-NOTICES.txt の名前の変更を試し直す前の待ち（合わせて 0.3 秒まで。同期なので main を長く止めない）。
@@ -281,7 +283,7 @@ function candidateOf(root, manifest, shas, recs, current) {
  *   checkFiles は exe と DLL（SHA-256 で照らす）、models はモデルと VAD（大きさと更新時刻で照らす）。
  */
 function managedCandidates(home, manifest, installed, statFn = fs.statSync) {
-  const out = { whisper: null, sum: null };
+  const out = byGroup(() => null);
   if (!home || !home.supported || !home.root) return out;
   const root = home.root;
   const items = (installed && isObj(installed.items)) ? installed.items : {};
@@ -444,14 +446,14 @@ async function fileIssue(file, same) {
 }
 
 /**
- * 使う前の照らし（RF3）→ { whisper: Cand | null, sum: Cand | null, bad: [{ group, file, why: 'missing' | 'changed' }] }。
+ * 使う前の照らし（RF3）→ { whisper: Cand | null, bad: [{ group, file, why: 'missing' | 'changed' }] }。
  *  - checkFiles（exe と DLL）は大きさと SHA-256 で照らす。大きさと更新時刻が同じでも、中身の違う DLL は見つける。
  *  - models（モデルと VAD）は大きさと更新時刻で照らす（数 GB を毎回読まない。取り込んだときに SHA-256 を照らし済み）。
  *  1つでも違えば、その組は null（使わない）で、違ったファイルを全部 bad に足す。候補の無い組は null のまま。
  *  順に読む（同時に読んで記録中の書き込みと競らない）。
  */
 async function verifyCandidates(cands, { hash = sha256File } = {}) {
-  const out = { whisper: null, sum: null, bad: [] };
+  const out = { ...byGroup(() => null), bad: [] };
   for (const g of GROUPS) {
     const c = cands && cands[g];
     if (!c) continue;
@@ -517,7 +519,7 @@ function osVersionDefault() {
  *  runner は取り込みの係（Task 12b）の写し:
  *    { state: 'running' | 'waiting' | 'held' | 'paused' | 'error' | …, current: id | null,
  *      done: { [id]: 今の項目で持っているバイト数 }, bytesPerSec, etaSec, error: { code, message?, extra? } | null }
- *  manual は { whisper, sum }（詳細設定で手のパスを入れている組。取り込みの対象に数えない）。
+ *  manual は { whisper }（詳細設定で手のパスを入れている組。取り込みの対象に数えない）。
  *  runtime は Visual C++ ランタイムの写し { level, message } | null（Task 10）。
  *  appVersion・osVersion は［担当に渡す内容を写す］に入れる版（省けばこの NaTsu と、この PC の Windows）。
  */
@@ -526,8 +528,8 @@ function statusOf({ home, manifest, plan = null, candidates = null, runner = nul
   const supported = Boolean(home && home.supported);
   const root = (home && home.root) || null;
   const inst = installed || emptyInstalled();
-  const cands = candidates || { whisper: null, sum: null };
-  const man = manual || { whisper: false, sum: false };
+  const cands = candidates || byGroup(() => null);
+  const man = manual || byGroup(() => false);
   const r = isObj(runner) ? runner : null;
   const steps = plan || planInstall(manifest, inst, fs.statSync, root);
   const stepOf = new Map(steps.map((p) => [p.id, p]));
@@ -593,13 +595,13 @@ function statusOf({ home, manifest, plan = null, candidates = null, runner = nul
 
   return {
     ok: true, supported, root,
-    mode: { whisper: man.whisper ? 'manual' : 'managed', sum: man.sum ? 'manual' : 'managed' },
+    mode: byGroup((g) => (man[g] ? 'manual' : 'managed')),
     using, state, items,
     totalBytes, doneBytes, needBytes, whisperBytes, updateBytes, freeBytes: num(freeBytes),
     current: (r && r.current) || null, bytesPerSec, etaSec,
     error, askIt: Boolean(error && askIt(error.code)), report: lines.join('\n'),
     runtime: runtime && isObj(runtime) ? { level: runtime.level, message: runtime.message } : null,
-    whisperReady: Boolean(cands.whisper), sumReady: Boolean(cands.sum),
+    whisperReady: Boolean(cands.whisper),
     consent: inst.consent === true, userPaused: inst.userPaused === true,
   };
 }
@@ -684,7 +686,7 @@ function makeRunner(deps = {}) {
       bytesPerSec: job ? job.bytesPerSec : null, error: snap.error };
     const s = statusOf({ home, manifest, plan: planInstall(manifest, inst, fs.statSync, root),
       candidates: managedCandidates(home, manifest, inst, fs.statSync), runner,
-      manual: { whisper: !all && man('whisper'), sum: !all && man('sum') }, freeBytes: lastFree, installed: inst });
+      manual: byGroup((g) => !all && man(g)), freeBytes: lastFree, installed: inst });
     return { ...s, done: runner.done };
   }
 

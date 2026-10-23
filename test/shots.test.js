@@ -558,7 +558,8 @@ test('U-3・G-3: settings-offline-light は基準の PNG と比べる（取り�
   assert.strictEqual(a['koeApp.engineStatus'].chosen, false);
   assert.match(a['koeApp.engineStatus'].whisper, /まだ取り込んでいません/);
   const f = a['koeApp.engineFetchStatus'];
-  assert.deepStrictEqual([f.state, f.consent, f.freeBytes, f.whisperReady, f.sumReady, f.mode], ['missing', false, 20e9, false, false, { whisper: 'managed', sum: 'managed' }]);
+  // 0.10.0 LS-3（D59）で意図して直した: 組は文字起こしだけ（sumReady・mode.sum が無い）
+  assert.deepStrictEqual([f.state, f.consent, f.freeBytes, f.whisperReady, 'sumReady' in f, f.mode], ['missing', false, 20e9, false, false, { whisper: 'managed' }]);
   assert.ok(Array.isArray(f.items) && f.items.length > 0);
   assert.strictEqual(a['koeApp.accountStatus'].signedIn, true);
   assert.match(s.act, /setNavOffline/);
@@ -793,7 +794,9 @@ test('基準の画像（test/shots/win32）は今の app.html で撮ったもの
   // 値を今の app.html に合わせた（前の値は 2b0ba2e1…）
   // 0.10.0 LS-2 で意図して変えた: 要約の欄の鍵（欄の頭の一言・読むだけの形・summary:running。D63・D69）。変わるのは鍵のかかったページだけ
   // （page-summary-lock-light を足して RETAKE に）。値を今の app.html に合わせた（前の値は 61cb7146…）
-  assert.strictEqual(sha, '04d522ab46c4547b52b469067e6ebca1deabc3b12597f576747d3ccc8486efcf',
+  // 0.10.0 LS-3 で意図して変えた: 「ローカル AI」のカードから要約の欄（詳細設定の llama の行・起動テスト）を外し、頭の1行と取り込みの欄の文から「要約」を外した（D59）。
+  // 変わる画面は settings-offline-light（RETAKE にある）。値を今の app.html に合わせた（前の値は 04d522ab…）
+  assert.strictEqual(sha, '003e98d9202210f9f719d0001c23028d7cd93250f0edd1fc1f50945a68110fd0',
     'app.html が基準の画像を撮った時と違う。Windows の CI の画面の比べ（捲り棒のつまみも）を見て、基準を取り直してからこの値を直す');
 });
 

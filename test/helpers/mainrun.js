@@ -41,7 +41,7 @@ const { titleAt } = require('./titles');
 //     --verify-throws … --managed と組み合わせる。照らし（verifyCandidates）が例外を投げる。記録はしない
 //     --repair      … --managed-tamper と組み合わせる。installed.json を同意済みにし、engine-small の偽のサーバーを開いたままにして、
 //                     起動のときの照らしで壊れていた組を main が取り直し（fake-net の net.request で）、照らし直してから使うのを見る（Task 14）
-//     --sum-tamper  … --managed と組み合わせる。要約の組も置き、その llama.dll を大きさを変えずに書き換える（要約の組は壊れている）
+//     （--sum-tamper は 0.10.0 LS-3（D59）で外した: 要約の組を取り込まない）
 //     --no-engine=fetchable|unsupported … 詳細設定の文字起こしを空にし、何も取り込んでいない PC にする。fetchable は取り込める PC、
 //                     unsupported は取り込めない PC（engineRoot だけを差し替える）。記録はしない
 //                     （第1d2回 M-1: --relay・--offline・--signed-out・--dictate・--local-only と組んだときは記録しない早い分かれ道に入らず、
@@ -516,7 +516,6 @@ const slowAck = (() => { const m = /^([\w.]+):(\d+)$/.exec(flagVal('--slow-ack')
 const afterRetry = flags.includes('--after-retry');
 const noVcRuntime = flags.includes('--no-vc-runtime');
 const verifyThrows = flags.includes('--verify-throws');
-const sumTamper = flags.includes('--sum-tamper');
 const noEngine = (flags.find((f) => f.startsWith('--no-engine=')) || '').slice(12);
 const fetchConsent = flags.includes('--fetch-consent');   // 第1d2回 M-1
 const installedUnreadable = flags.includes('--installed-unreadable');   // 第1d2回 M-1 の点検
@@ -917,8 +916,8 @@ process.on('exit', () => {
     });
     managedRoot = path.join(localAppData, 'natsu', 'engine');
     const home = { supported: true, root: managedRoot, reason: '' };
-    // 要約の組は取り込んでいない（--sum-tamper のときだけ置く）
-    for (const it of items.filter((i) => i.group === 'whisper' || (sumTamper && i.group === 'sum'))) {
+    // 組は文字起こしだけ（0.10.0 LS-3 で要約の組を外した）
+    for (const it of items.filter((i) => i.group === 'whisper')) {
       if (it.kind === 'zip') {
         const zip = path.join(tmp, `${it.id}.zip`);
         fs.writeFileSync(zip, set.bodies[it.id]);
@@ -955,7 +954,6 @@ process.on('exit', () => {
       const instFile = path.join(managedRoot, 'installed.json');
       I.writeInstalled(instFile, { ...I.readInstalled(instFile), consent: true });
     }
-    if (sumTamper) tamper('llama-b1', 'llama.dll');
     // --managed --recover: 第2a1回 M-4 から、起動の復旧の文字起こしは起動の片付け（DB の用意）の後に回り、照らしは片付けを
     // STARTUP_DB_WAIT_MS（3 秒）まで待ってから始まる。DB の用意がそれより遅いと、照らしが先に終わって「確かめています」の保留を
     // 通らない（CI run 39240983508 の Windows）。照らしを、復旧が保留になったと engine.log に出るまで（15 秒まで）待たせ、場面を決まった順にする
@@ -1141,8 +1139,8 @@ process.on('exit', () => {
       if (atBroken === null && /ファイルが消えたか変わっていました/.test(p) && handlers['engine:status']) atBroken = handlers['engine:status']().whisper;
     }
     if (ch === 'engine:fetch-progress' && p && typeof p === 'object') {
-      seq.push({ state: p.state, w: Boolean(p.whisperReady), s: Boolean(p.sumReady), checking: p.checking });
-      for (const [g, k] of [['whisper', 'whisperReady'], ['sum', 'sumReady']]) {
+      seq.push({ state: p.state, w: Boolean(p.whisperReady), checking: p.checking });   // 0.10.0 LS-3 で要約の組（sumReady）を外した
+      for (const [g, k] of [['whisper', 'whisperReady']]) {
         if (p[k] && !(g in atReady) && handlers['engine:status']) atReady[g] = handlers['engine:status']()[g];
       }
     }
@@ -2062,19 +2060,16 @@ process.on('exit', () => {
   if (fetchMode) {
     await waitFor(() => handlers['engine:fetch-start']);
     out.managedRoot = managedRoot;
-    out.manifestShas = { whisper: fetchManifest.items.filter((i) => i.group === 'whisper').map((i) => i.sha256),
-      sum: fetchManifest.items.filter((i) => i.group === 'sum').map((i) => i.sha256) };
+    out.manifestShas = { whisper: fetchManifest.items.filter((i) => i.group === 'whisper').map((i) => i.sha256) };   // 0.10.0 LS-3 で要約の組を外した
     // 起動のときの照らし（何も取り込んでいないので候補は無い）が済み、画面へ今の写しを送るのを待ってから押す
     await waitFor(() => sent.some(([ch]) => ch === 'engine:fetch-progress'));
     out.statusBefore = handlers['engine:status']();
     out.fetchStart = await handlers['engine:fetch-start']({}, {});
     // 取り込みの途中で記録を始めようとする（文字起こしの組はまだ。未設定の文に「取り込み中」）
     out.startDuring = await handlers['meeting:toggle']();
-    // 2 つの組がそろって切り替わり、係が止まって（省電力の抑止を外して）、文字起こしエンジンが起動し、切り替えた後の写し
-    //（最後の組を「使える」と言う進み具合）が届くのを待つ。要約を手で設定しているとき（--sum）は、文字起こしの組だけを取る
-    //（最後の組は文字起こし）
-    const lastNotice = withSum ? /^文字起こしが使えるようになりました。/ : /^要約のエンジンが使えるようになりました。/;
-    await waitFor(() => switchedAfter(lastNotice, withSum ? 'w' : 's') && power.some(([k]) => k === 'stop') && spawns.length);
+    // 組（0.10.0 LS-3 から文字起こしだけ）がそろって切り替わり、係が止まって（省電力の抑止を外して）、文字起こしエンジンが起動し、
+    // 切り替えた後の写し（組を「使える」と言う進み具合）が届くのを待つ
+    await waitFor(() => switchedAfter(/^文字起こしが使えるようになりました。/, 'w') && power.some(([k]) => k === 'stop') && spawns.length);
     await sleep(100);
     out.seq = seq;
     out.atReady = atReady;
@@ -2126,8 +2121,8 @@ process.on('exit', () => {
     const elog = () => (fs.existsSync(elogFile) ? fs.readFileSync(elogFile, 'utf8').split('\n').filter(Boolean).map((l) => l.replace(/^\[[^\]]+\] /, '')) : []);
     const noticed = (re) => sent.some(([ch, p]) => ch === 'app:notice' && re.test(p));
     if (crashMode === 'broken') {
-      // 照らし直して使うのをやめ、取り直し、照らし直してから使い直す（要約の組も、同意済みなので続けて取る）。切り替えた後の写しまで待つ
-      await waitFor(() => noticed(/^文字起こしが使えるようになりました。/) && switchedAfter(/^要約のエンジンが使えるようになりました。/, 's') && spawns.length >= 2);
+      // 照らし直して使うのをやめ、取り直し、照らし直してから使い直す。切り替えた後の写しまで待つ（0.10.0 LS-3 で要約の組を外した）
+      await waitFor(() => noticed(/^文字起こしが使えるようになりました。/) && switchedAfter(/^文字起こしが使えるようになりました。/, 'w') && spawns.length >= 2);
       await sleep(100);
     } else {
       // 照らし直して合う: 組は使い続け、［起動テスト］で起動し直せる
@@ -2528,8 +2523,8 @@ process.on('exit', () => {
     await exitClean(0);
   }
   if (repairMode) {
-    // 壊れていた組の取り直しと、照らし直した後の切り替え（要約の組も続けて取る）と、切り替えた後の写しを待つ
-    await waitFor(() => switchedAfter(/^要約のエンジンが使えるようになりました。/, 's') && spawns.length);
+    // 壊れていた組の取り直しと、照らし直した後の切り替えと、切り替えた後の写しを待つ（0.10.0 LS-3 で要約の組を外した）
+    await waitFor(() => switchedAfter(/^文字起こしが使えるようになりました。/, 'w') && spawns.length);
     await sleep(100);
     out.seq = seq;
     out.atReady = atReady;

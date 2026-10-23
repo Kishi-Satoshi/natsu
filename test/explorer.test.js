@@ -213,15 +213,7 @@ test('ランタイムの案内は aka.ms/vc14（14.51 以上）。aka.ms/vs/17�
   }
 });
 
-test('setup-summarizer.ps1 の既定のモデルは、アプリの取り込みと同じファイル（全員同じモデル）。URL は commit で固定', () => {
-  const pin = require('../src/engine-manifest').MANIFEST.items.find((i) => i.id === 'sum-model');
-  const name = pin.dest.split('/').pop();
-  const s = read('setup-summarizer.ps1');
-  const def = (s.match(/\[string\]\$Model = "([^"]+)"/) || [])[1];
-  const block = s.slice(s.indexOf(`if ($Model -eq "${def}")`), s.indexOf('}', s.indexOf(`if ($Model -eq "${def}")`)));
-  assert.ok(block.includes(name), `既定 ${def} のファイルが ${name} でない`);
-  assert.ok(s.includes(pin.url), 'ピンと同じ commit の URL でない');
-});
+// 「setup-summarizer.ps1 の既定のモデルはアプリの取り込みと同じファイル」は 0.10.0 LS-3（D59）で外した（要約のモデルを取り込まない。スクリプトは LS-5 で消す）
 
 // INSTALL の「困ったときは」は、画面に出る取り込みの文（src/engine-fetch.js の fetchErrorMessage）と
 // ランタイムの文（src/mainlib.js の vcRuntimeIssue）の一部を「…」と出る の形でそのまま引く。文を直したのに

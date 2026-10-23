@@ -1271,19 +1271,19 @@
             <div class="desc save-msg" id="mcpMsg"></div>
           </div>
           <div class="card" data-sec="offline">
-            <!-- 第1d回 A-13（D19）: カード「エンジン」を「オフライン」に。カードの中の文字起こしの言葉は「PC の中の文字起こし」。要約の欄の言葉は変えない（問い Q15） -->
+            <!-- 第1d回 A-13（D19）: カード「エンジン」を「オフライン」に。カードの中の文字起こしの言葉は「PC の中の文字起こし」。0.10.0 LS-3（D59）で要約の欄を外した -->
             <!-- 0.9.0 見た目の直し: 項目の見出し「オフライン」と同じ言葉なので、カードの見出しは出さない（カードの名前はそのまま） -->
             <h2 hidden>ローカル AI</h2>
             <!-- 0.9.2 I-3: 見出しを隠したカードなので、ⓘ は頭の説明の行の終わり。長い文はカードの吹き出し（カードの直の子） -->
             <div class="field setlead">
-              <div class="desc">PC の中で文字起こしと要約をするための準備です（任意）。<button type="button" class="setinfo" aria-expanded="false" aria-controls="setPopOffline" aria-label="「ローカル AI」の説明"><svg viewBox="0 0 20 20" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="10" cy="10" r="7"/><path d="M10 9v4.5M10 6.3h.01"/></svg></button></div>
+              <div class="desc">PC の中で文字起こしをするための準備です（任意）。<button type="button" class="setinfo" aria-expanded="false" aria-controls="setPopOffline" aria-label="「ローカル AI」の説明"><svg viewBox="0 0 20 20" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="10" cy="10" r="7"/><path d="M10 9v4.5M10 6.3h.01"/></svg></button></div>
             </div>
             <div class="setpop" id="setPopOffline" hidden>
               <span class="setpop-arrow" aria-hidden="true"></span>
               <div class="setpop-body">
                 <p class="setpop-head">準備しなくても、インターネットにつながっていてログインしていれば、会議と音声入力はそのまま使えます。</p>
                 <ul>
-                  <li>インターネットにつながっていないときと、オフラインモードの会議でも、この PC の中で文字起こしと要約ができるようになります。</li>
+                  <li>インターネットにつながっていないときと、オフラインモードの会議でも、この PC の中で文字起こしができるようになります。要約は、インターネットにつながっているときに作ります。</li>
                 </ul>
               </div>
               <div class="setpop-foot"><button type="button" class="setpop-help" data-help="settings/offline">ヘルプで詳しく見る ↗</button><span class="setpop-esc">Esc で閉じる</span></div>
@@ -1296,7 +1296,6 @@
             </div>
             <div class="row eng-msgs">
               <span class="desc save-msg" id="testMsg"></span>
-              <span class="desc save-msg" id="testSumMsg"></span>
             </div>
             <div class="desc" id="engineNote" hidden></div>
             <div class="field" id="engineFetch" data-row="PC の中の文字起こしを取り込む" hidden>
@@ -1362,56 +1361,6 @@
                 <input type="checkbox" id="suppressNst" />
                 <span>非発話トークンを抑制する<br /><span class="d">咳・雑音が文字として出るのを抑えます。</span></span>
               </label>
-              <h3>要約（llama.cpp・オフライン）— 議事録の自動要約に使用</h3>
-              <div class="field">
-                <label for="sumServerExe">llama-server.exe のパス</label>
-                <div class="row">
-                  <input type="text" id="sumServerExe" placeholder="…\local-engine\llm\bin\llama-server.exe" />
-                  <button class="ghost" id="pickSumExeBtn" type="button">参照…</button>
-                </div>
-              </div>
-              <div class="field">
-                <label for="sumModelPath">モデルファイル（*.gguf）のパス</label>
-                <div class="row">
-                  <input type="text" id="sumModelPath" placeholder="…\local-engine\llm\Qwen2.5-3B-Instruct-Q4_K_M.gguf" />
-                  <button class="ghost" id="pickSumModelBtn" type="button">参照…</button>
-                </div>
-                <div class="desc">初回セットアップ: setup-summarizer.ps1 を実行。未設定でも文字起こしは使えます。</div>
-              </div>
-              <div class="field">
-                <div class="row">
-                  <div style="flex:1"><label for="sumThreads">スレッド数</label><input type="text" id="sumThreads" /></div>
-                  <div style="flex:1"><label for="sumPort">ポート</label><input type="text" id="sumPort" /></div>
-                </div>
-                <div class="desc">通常は変更不要です。<button type="button" class="setinfo" aria-expanded="false" aria-controls="setPopSThreads" aria-label="「スレッド数とポート（要約）」の説明"><svg viewBox="0 0 20 20" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="10" cy="10" r="7"/><path d="M10 9v4.5M10 6.3h.01"/></svg></button></div>
-                <div class="setpop" id="setPopSThreads" hidden>
-                  <span class="setpop-arrow" aria-hidden="true"></span>
-                  <div class="setpop-body">
-                    <ul>
-                      <li>意味は文字起こしエンジンの欄と同じです（こちらは要約に使われます）。</li>
-                      <li>2つのエンジンのポートは別の番号にしてください。</li>
-                    </ul>
-                  </div>
-                  <div class="setpop-foot"><button type="button" class="setpop-help" data-help="settings/offline">ヘルプで詳しく見る ↗</button><span class="setpop-esc">Esc で閉じる</span></div>
-                </div>
-              </div>
-              <div class="field">
-                <label for="sumCtx">要約の文脈長</label>
-                <input type="text" id="sumCtx" />
-                <div class="desc">要約エンジンに渡すトークン数（-c）。既定 16384。<button type="button" class="setinfo" aria-expanded="false" aria-controls="setPopCtx" aria-label="「要約の文脈長」の説明"><svg viewBox="0 0 20 20" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="10" cy="10" r="7"/><path d="M10 9v4.5M10 6.3h.01"/></svg></button></div>
-                <div class="setpop" id="setPopCtx" hidden>
-                  <span class="setpop-arrow" aria-hidden="true"></span>
-                  <div class="setpop-body">
-                    <ul>
-                      <li>大きいほどメモリを使い、小さいと長い会議の統合で足りなくなります。</li>
-                    </ul>
-                  </div>
-                  <div class="setpop-foot"><button type="button" class="setpop-help" data-help="settings/offline">ヘルプで詳しく見る ↗</button><span class="setpop-esc">Esc で閉じる</span></div>
-                </div>
-              </div>
-              <div class="row" style="display:flex;gap:8px">
-                <button class="ghost" id="testSumBtn" type="button">起動テスト</button>
-              </div>
               <h3>記録とメモリ</h3>
               <div class="field">
                 <label for="segmentSec">議事録の文字起こし間隔（秒）</label>
@@ -2148,7 +2097,7 @@
   // 取り込みの欄（第0b回 R7）が最後に描いた main の写し（engineFetchStatus と進み具合の知らせ）。無ければ null
   let lastFetch = null;
   // 取り込める PC で、取り込んだエンジンを使う側（詳細設定のパスが空）の組がまだそろっていない（文字起こしでも要約でも）
-  const fetchWantsPanel = () => Boolean(lastFetch && lastFetch.supported && lastFetch.mode && ['whisper', 'sum'].some((g) => lastFetch.mode[g] === 'managed' && !lastFetch[g === 'whisper' ? 'whisperReady' : 'sumReady']));
+  const fetchWantsPanel = () => Boolean(lastFetch && lastFetch.supported && lastFetch.mode && lastFetch.mode.whisper === 'managed' && !lastFetch.whisperReady);
   // エンジンが未設定のときに連れて行く先。取り込める PC でまだ取り込んでいなければ、取り込みの欄（押せば取り込む）。
   // それ以外は、パスを貼る欄が閉じた「詳細設定」の中にあるので開いて見せる。
   // 記録開始の失敗・要約の失敗・知らせ・初回の4つの道は、全部ここを通る
@@ -3392,10 +3341,9 @@
   // 再起動され、区間が失われる）。画面でも欄を止めて、理由を出す。
   // 止める欄は main が記録中に前の値を保つキーと同じ。「参照…」も一緒に止める
   //（押せてもパスを書けない）。
-  const ENGINE_KEYS = ['language', 'localThreads', 'sumThreads', 'useVad', 'suppressNst', 'localServerExe',
-    'localModelPath', 'vadModelPath', 'sumServerExe', 'sumModelPath', 'localPort', 'sumPort', 'segmentSec',
-    'sumCtx'];   // 要約の文脈長（-c）も起動時の引数。engineIdleMin は止める間合いなので止めない
-  const ENGINE_PICKERS = ['pickExeBtn', 'pickModelBtn', 'pickVadBtn', 'pickSumExeBtn', 'pickSumModelBtn'];
+  const ENGINE_KEYS = ['language', 'localThreads', 'useVad', 'suppressNst', 'localServerExe',
+    'localModelPath', 'vadModelPath', 'localPort', 'segmentSec'];   // engineIdleMin は止める間合いなので止めない（0.10.0 LS-3 で要約のエンジンのキーを外した）
+  const ENGINE_PICKERS = ['pickExeBtn', 'pickModelBtn', 'pickVadBtn'];
   function lockEngineFields(locked) {
     for (const id of [...ENGINE_KEYS, ...ENGINE_PICKERS]) $(id).disabled = locked;
     $('engineFetchSwitch').disabled = locked;   // 取り込んだエンジンへの切り替えは詳細設定のパスを空にして保存する。記録中は押せない
@@ -4090,11 +4038,6 @@
     $('vadModelPath').value = s.vadModelPath || '';
     $('useVad').checked = s.useVad !== false;
     $('suppressNst').checked = s.suppressNst !== false;
-    $('sumServerExe').value = s.sumServerExe || '';
-    $('sumModelPath').value = s.sumModelPath || '';
-    $('sumThreads').value = s.sumThreads || 4;
-    $('sumPort').value = s.sumPort || 8991;
-    $('sumCtx').value = intOr(s.sumCtx, 16384);
     $('engineIdleMin').value = intOr(s.engineIdleMin, 10);   // 0 は「止めない」。|| で既定に化けさせない
     $('hotkey').value = s.hotkey || '';
     $('meetingHotkey').value = s.meetingHotkey || '';
@@ -4130,8 +4073,6 @@
   $('pickExeBtn').onclick = pick('exe', 'localServerExe');
   $('pickModelBtn').onclick = pick('model', 'localModelPath');
   $('pickVadBtn').onclick = pick('model', 'vadModelPath');
-  $('pickSumExeBtn').onclick = pick('exe', 'sumServerExe');
-  $('pickSumModelBtn').onclick = pick('model', 'sumModelPath');
   $('openDataBtn').onclick = () => window.koeApp.openDataDir();
 
   // 整数の欄。数でなければ既定へ。0 も値として通す（`|| 既定` だと 0 が既定に化ける）
@@ -4256,7 +4197,6 @@
   // 「PC の中の文字起こし：使えます」（第1d回 A-13・D19。前の「エンジン：正常」）= 置き場所のファイルがそろっていて（engine:status）、
   // 最後の起動テスト（［PC の中で試す］）が失敗していないこと。理由の文は main の文のまま「（…）」に入れる。
   // 動いている最中の故障（ポートの衝突・落ちた）は今までどおり通知で知らせ、ここには映さない。
-  // 要約エンジンは任意なので数えない。
   let lastTestError = '';   // 最後にカードの［起動テスト］が失敗したときの理由。通れば ''
   function setEngineState(ok, why) {
     const el = $('engineState');
@@ -4288,14 +4228,12 @@
     const note = $('engineNote');
     if (note) { note.textContent = (s && s.whisperNote) || ''; note.hidden = !note.textContent; }
   }
-  // カードの起動テスト（［PC の中で試す］）。要約エンジンは起動しない（約 3GB が会議の間ずっと居座る: #58）。
-  // 要約エンジンを実際に起動して試すのは、詳細設定の中の［起動テスト］（testSumBtn）
+  // カードの起動テスト（［PC の中で試す］）
   $('testBtn').onclick = async () => {
     const r = await runTest(() => window.koeApp.testApi(), 'testMsg');
     if (r) lastTestError = r.ok ? '' : (r.error || '起動に失敗しました');
     await refreshEngineState();
   };
-  $('testSumBtn').onclick = () => runTest(() => window.koeApp.testSum(), 'testSumMsg');
 
   // ---------------- エンジンの取り込みの欄（第0b回 R7） ----------------
   // 取り込む前に、何を・どこから・どれだけ・どこへ・どれくらいの時間かを見せ、押してから取り込む（押したことが同意。
@@ -4304,8 +4242,10 @@
   // （古い preload・偽の IPC の { ok: true }・でたらめな値）ときは欄を隠したまま、今までの挙動を何も変えない
   // engine-fetch.js の fetchErrorMessage('waiting') と同じ文（待っている間は main が s.error を送らないので、画面に置く）
   const FETCH_WAITING = 'つながるのを待っています（ここまでの分は残っています）。つながれば自動で続きから取り込みます。すぐ試すときは［今すぐ試す］を押してください。';
-  const FETCH_PATHS = ['localServerExe', 'localModelPath', 'vadModelPath', 'sumServerExe', 'sumModelPath'];   // 詳細設定の5つのパス
-  const FETCH_GROUPS = { whisper: { name: '文字起こし', engine: 'whisper-engine', tool: 'whisper.cpp' }, sum: { name: '要約', engine: 'sum-engine', tool: 'llama.cpp' } };
+  const FETCH_PATHS = ['localServerExe', 'localModelPath', 'vadModelPath'];   // 詳細設定の3つのパス
+  // 取り込む組（0.10.0 LS-3・D59 で要約の組を外した。要約は Claude Code）
+  const FETCH_GROUPS = { whisper: { name: '文字起こし', engine: 'whisper-engine', tool: 'whisper.cpp' } };
+  const FETCH_GROUP_IDS = Object.keys(FETCH_GROUPS);
   const FETCH_RF3 = ['defender', 'hash'];   // 取り込んだファイルが消えた・違った（取り込み先を開いて見られるようにする）
   // 大きさ: GB は 10 億バイトで小数1桁、MB は 100 万バイトで整数。時間の目安は 10Mbps の回線で計算した分
   const fetchGB = (b) => `${(Math.max(0, Number(b) || 0) / 1e9).toFixed(1)}GB`;
@@ -4313,16 +4253,16 @@
   const fetchSize = (b) => (Number(b) >= 1e9 ? fetchGB(b) : fetchMB(b));
   const fetchMinutes = (b) => Math.max(1, Math.round((Number(b) || 0) * 8 / 10e6 / 60));
   const isFetchStatus = (s) => Boolean(s && typeof s === 'object' && Array.isArray(s.items) && s.mode && typeof s.mode === 'object');
-  const fetchReady = (s, g) => Boolean(s[g === 'whisper' ? 'whisperReady' : 'sumReady']);
+  const fetchReady = (s, g) => Boolean(s[`${g}Ready`]);
 
   function renderEngineFetch(s) {
     const box = $('engineFetch');
     if (!isFetchStatus(s)) { if (!lastFetch) box.hidden = true; return; }   // 出ている欄は、でたらめな値で壊さない
     lastFetch = s;
-    const manual = ['whisper', 'sum'].filter((g) => s.mode[g] === 'manual');
-    const fetching = ['whisper', 'sum'].filter((g) => s.mode[g] !== 'manual');
+    const manual = FETCH_GROUP_IDS.filter((g) => s.mode[g] === 'manual');
+    const fetching = FETCH_GROUP_IDS.filter((g) => s.mode[g] !== 'manual');
     const state = s.supported ? String(s.state || '') : 'unsupported';
-    if (state === 'unsupported' && !fetching.length) { box.hidden = true; return; }   // 取り込めない PC で、両方とも手の設定: 出すことが無い
+    if (state === 'unsupported' && !fetching.length) { box.hidden = true; return; }   // 取り込めない PC で、手の設定: 出すことが無い
     const total = Number(s.totalBytes) || 0;
     const done = Number(s.doneBytes) || 0;
     const need = Number(s.needBytes) || 0;
@@ -4330,8 +4270,8 @@
     const imported = manual.every((g) => fetchReady(s, g));   // 手の設定の組も、取り込んだものがそろっている
     const lines = [];                                          // [文, 薄い文か]
     let btn = '', pause = false, sw = false, dir = false, copyIt = false, bar = false, msg = '', ng = false, offer = false;
-    // 第1d回 A-13（D19）: カードの中の文字起こしの言葉は「PC の中の文字起こし」。手の設定の組が1つなら組の名前（文字起こし・要約）で言う
-    const handPrefix = manual.length === 1 ? `${FETCH_GROUPS[manual[0]].name}は手で設定したものを使っています。` : '';
+    // 第1d回 A-13（D19）: カードの中の文字起こしの言葉は「PC の中の文字起こし」。組の一部だけが手の設定なら組の名前で言う（0.10.0 LS-3 から組は1つ）
+    const handPrefix = manual.length && manual.length < FETCH_GROUP_IDS.length ? `${FETCH_GROUPS[manual[0]].name}は手で設定したものを使っています。` : '';
     const versions = (gs) => gs.map((g) => { const it = item(FETCH_GROUPS[g].engine); return `${FETCH_GROUPS[g].tool}${it ? ` ${it.version}` : ''}`; }).join('・');
     if (state === 'unsupported') {
       lines.push(['この PC では自動の取り込みに対応していません（Windows の 64 ビット版だけ）。詳細設定でパスを指定してください。']);
@@ -4356,7 +4296,7 @@
       btn = 'もう一度';
       copyIt = Boolean(s.askIt);
       dir = Boolean(s.error && FETCH_RF3.includes(s.error.code));
-    } else if (manual.length === 2) {
+    } else if (manual.length === FETCH_GROUP_IDS.length) {
       lines.push(['手で設定した PC の中の文字起こしを使っています（詳細設定のパス）。']);
       sw = true;
     } else if (state === 'update') {
@@ -4365,21 +4305,18 @@
     } else if (state === 'ready') {
       lines.push([`${handPrefix}${manual.length ? `${FETCH_GROUPS[fetching[0]].name}は取り込み済みです` : 'PC の中の文字起こしは取り込み済みです'}（${versions(fetching)}）。`]);
       dir = true; sw = manual.length > 0;
-    } else if (state === 'missing' && s.consent === false && !manual.length && !s.whisperReady && !s.sumReady) {
+    } else if (state === 'missing' && s.consent === false && !manual.length && !s.whisperReady) {
       // 0.9.0 U-3（OF7・D21・決めたこと 10）: まだ取り込んでいず、押したことも無い（consent が偽）・手の組も無い: 任意の選択として、
       // 得るもの（OFF3）とかかるもの（OFF4。数は下の今の計算と同じ）を書き、ボタンは［オフラインでも使う（数 GB を取り込む）］（OFF5）。押したことが同意
       const free = s.freeBytes !== null && s.freeBytes !== undefined && Number.isFinite(Number(s.freeBytes)) ? `（今の空き 約 ${fetchGB(s.freeBytes)}）` : '';
-      lines.push(['取り込むと: インターネットにつながっていないときやオフラインモードの会議でも、PC の中で文字起こしと要約ができます。音声や議事録は外に送りません。']);
+      lines.push(['取り込むと: インターネットにつながっていないときやオフラインモードの会議でも、PC の中で文字起こしができます。要約は、インターネットにつながっているときに作ります。']);
       lines.push([`かかるもの: ディスクの空き 約 ${fetchGB(need)}${free}・取り込みの時間 10Mbps の回線で約 ${fetchMinutes(need)} 分。議事録の記録中は、Web 会議の回線を守るため取り込みを止めます。`]);
       btn = 'ローカル AI を使う（数 GB を取り込む）';
       offer = true;
     } else {   // missing・partial
-      const what = manual.length ? `${handPrefix}${FETCH_GROUPS[fetching[0]].name}を` : 'PC の中の文字起こしと要約を';
+      const what = manual.length ? `${handPrefix}${FETCH_GROUPS[fetching[0]].name}を` : 'PC の中の文字起こしを';
       const free = s.freeBytes !== null && s.freeBytes !== undefined && Number.isFinite(Number(s.freeBytes)) ? `・空き 約 ${fetchGB(s.freeBytes)}` : '';
-      lines.push([`${what}、この PC に取り込みます（${done > 0 ? '残り' : '合計'} 約 ${fetchGB(need)}・10Mbps の回線で約 ${fetchMinutes(need)} 分${free}）。音声や議事録は外に送りません。`]);
-      if (fetching.length === 2 && !s.whisperReady && !s.sumReady) {
-        lines.push([`文字起こしの分（約 ${fetchGB(s.whisperBytes)}）が済めば、要約の分を取り込んでいる間も文字起こしが使えます。`, true]);
-      }
+      lines.push([`${what}、この PC に取り込みます（${done > 0 ? '残り' : '合計'} 約 ${fetchGB(need)}・10Mbps の回線で約 ${fetchMinutes(need)} 分${free}）。音声は外に送りません。`]);
       lines.push(['議事録の記録中は、Web 会議（Teams など）の回線を守るため取り込みを止めます。', true]);
       btn = state === 'partial' ? '続きから取り込む' : 'PC の中の文字起こしを取り込む';
       sw = manual.length > 0;
@@ -4438,12 +4375,12 @@
     try { s = await window.koeApp.engineFetchPause(); } catch (_) { return; }
     renderEngineFetch(s);
   };
-  // まだ取り込んでいなければ、手の設定の組も含めて全部取り込む。取り込み済みなら、詳細設定の5つのパスを空にして保存する
+  // まだ取り込んでいなければ、手の設定の組も含めて全部取り込む。取り込み済みなら、詳細設定の3つのパスを空にして保存する
   // （画面が自分で欄を空にして保存するので、自動保存との競り合いは起きない。記録中は lockEngineFields が押せなくする）
   $('engineFetchSwitch').onclick = async () => {
     const s = lastFetch;
     if (!s) return;
-    const manual = ['whisper', 'sum'].filter((g) => s.mode[g] === 'manual');
+    const manual = FETCH_GROUP_IDS.filter((g) => s.mode[g] === 'manual');
     if (!manual.length) return;
     if (!manual.every((g) => fetchReady(s, g))) { await engineFetchStart({ all: true }); return; }
     for (const id of FETCH_PATHS) $(id).value = '';
@@ -4455,7 +4392,7 @@
     await window.koeApp.copy(lastFetch.report);
     toast('担当に渡す内容を写しました');
   };
-  // 進み具合の知らせ。文字起こしか要約の組が使えるようになった・使えなくなった（落ちて照らし直したら合わない）とき、
+  // 進み具合の知らせ。文字起こしの組が使えるようになった・使えなくなった（落ちて照らし直したら合わない）とき、
   // 起動のときの確かめが済んだとき（checking が偽に変わる）に、エンジンの状態と VAD を聞き直す。
   // 取り込みの途中の知らせ（250ms ごと）では聞き直さない
   if (typeof window.koeApp.onEngineFetchProgress === 'function') {
@@ -4463,7 +4400,7 @@
       const before = lastFetch;
       renderEngineFetch(s);
       if (!isFetchStatus(s)) return;
-      const flipped = ['whisper', 'sum'].some((g) => fetchReady(s, g) !== Boolean(before && fetchReady(before, g)));
+      const flipped = FETCH_GROUP_IDS.some((g) => fetchReady(s, g) !== Boolean(before && fetchReady(before, g)));
       const checked = Boolean(before && before.checking && !s.checking);
       if (flipped || checked) { refreshEngineState(); refreshVad(); }
     });
@@ -4499,11 +4436,6 @@
       vadModelPath: $('vadModelPath').value.trim(),
       useVad: $('useVad').checked,
       suppressNst: $('suppressNst').checked,
-      sumServerExe: $('sumServerExe').value.trim(),
-      sumModelPath: $('sumModelPath').value.trim(),
-      sumThreads: parseInt($('sumThreads').value, 10) || 4,
-      sumPort: parseInt($('sumPort').value, 10) || 8991,
-      sumCtx: intOr($('sumCtx').value, 16384),
       engineIdleMin: intOr($('engineIdleMin').value, 10),
       hotkey: $('hotkey').value.trim() || 'Control+Shift+Space',
       meetingHotkey: $('meetingHotkey').value.trim() || 'Alt+M',

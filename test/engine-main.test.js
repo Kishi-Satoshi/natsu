@@ -187,10 +187,11 @@ test('engine-smoke.js --start は、頭で4つの DLL の版を vcRuntimeVersion
 // 取り込んだ llama にだけ、席を1つに・flash attention・考える手順を切る旗を渡す（手で設定した exe には渡さない。
 // 古い llama-server は知らない旗で止まる）。要約の文脈長の既定は 16384（保存済みの値は書き換えない）。
 const { speedLine } = require('../src/mainlib');
-test('速さの1行: 文字起こしは音声と処理の秒と倍率、要約は読みと書きのトークンと秒。数でなければ空', () => {
+// 0.10.0 LS-3（D59）で意図して直した: 要約の速さ（llama）の行を外した（ほかの kind は ''）
+test('速さの1行: 文字起こしは音声と処理の秒と倍率。数でなければ空。要約（llama）の行は無い', () => {
   assert.strictEqual(speedLine('whisper', { audioMs: 65000, procMs: 43700 }), '文字起こしの速さ: 音声 65 秒・処理 44 秒（0.67 倍）');
-  assert.match(speedLine('llama', { prompt_n: 5400, prompt_ms: 38200, predicted_n: 812, predicted_ms: 61000 }), /^要約の速さ: 読み 5400 トークン 38\.2 秒（141 トークン\/秒）・書き 812 トークン 61\.0 秒（13\.3 トークン\/秒）$/);
-  for (const t of [undefined, null, {}, { prompt_n: 'x' }]) assert.strictEqual(speedLine('llama', t), '');
+  assert.strictEqual(speedLine('llama', { prompt_n: 5400, prompt_ms: 38200, predicted_n: 812, predicted_ms: 61000 }), '');
+  for (const t of [undefined, null, {}, { audioMs: 'x' }]) assert.strictEqual(speedLine('whisper', t), '');
 });
 // 0.10.0 LS-2（D59）で意図して直した: 手元の llama の要約（llmChat）を外したので、要約の速さの行の確かめを外した（区間の速さは今のまま）
 test('main: 区間の後に速さを engine.log に残す', () => {
@@ -200,24 +201,12 @@ test('main: 区間の後に速さを engine.log に残す', () => {
   assert.ok(m.includes("const sp = speedLine('whisper', { audioMs: durationMs, procMs: pm });"));
   assert.ok(!m.includes("speedLine('llama'"), '手元の llama の要約の速さの行が残っている');
 });
-test('取り込んだ llama にだけ --cache-ram 0・-np 1・-fa on・--reasoning off を渡す（手で設定した exe には渡さない。mmproj は渡さない）', () => {
+// 「取り込んだ llama にだけ渡す旗」「要約の文脈長の既定」「engine-smoke の llama の旗」は 0.10.0 LS-3（D59）で外した（要約のエンジンが無い）。
+// 0.10.0 LS-3: 起動の引数は文字起こしの分だけ
+test('LS-3: engineSpawnArgs は文字起こしの引数だけ（-c・llama の旗・mmproj を渡さない）', () => {
   const args = fnBody(code(read('src/main.js')), 'function engineSpawnArgs(eng)', '\n}');
-  assert.ok(args.includes("...(manualGroup(eng) ? [] : ['--cache-ram', '0', '-np', '1', '-fa', 'on', '--reasoning', 'off'])"));
-  assert.ok(args.includes("'-c', String(settings.sumCtx),"));
-  assert.ok(!/mmproj/.test(args), '画像の部品を読ませている');
-});
-test('要約の文脈長の既定は 16384（main の既定と、壊れた値を戻す先）。保存済みの値は書き換えない', () => {
-  const { normalizeSettings } = require('../src/settings');
-  // 意図: main の既定の文脈長は 16384。既定は settings.js の defaultSettings から作る（第1a回 Task 2-2）
-  assert.ok(code(read('src/main.js')).includes('const DEFAULT_SETTINGS = defaultSettings(os.cpus().length);'), 'main が settings.js の既定を使っていない');
-  assert.strictEqual(require('../src/settings').defaultSettings(8).sumCtx, 16384, '既定の文脈長が 16384 でない');
-  assert.strictEqual(normalizeSettings({}, {}).sumCtx, 16384);
-  assert.strictEqual(normalizeSettings({ sumCtx: 'x' }, { sumCtx: 16384 }).sumCtx, 16384);
-  assert.strictEqual(normalizeSettings({ sumCtx: 32768 }, { sumCtx: 16384 }).sumCtx, 32768, '保存済みの値を書き換えた');
-});
-test('engine-smoke.js の llama も、取り込んだ llama と同じ旗で起動する', () => {
-  const s = read('tools/engine-smoke.js');
-  for (const f of ["'--cache-ram', '0'", "'-np', '1'", "'-fa', 'on'", "'--reasoning', 'off'"]) assert.ok(s.includes(f), f);
+  for (const w of ["'-c'", "'--cache-ram'", "'--reasoning'", 'mmproj', 'sumCtx']) assert.ok(!args.includes(w), w);
+  assert.ok(args.includes("'-l', settings.language === 'auto' ? 'auto' : settings.language,"));
 });
 
 // ---------------------------------------------------------------- Task 13（設計 B・RF3・RF7）
@@ -225,16 +214,17 @@ test('engine-smoke.js の llama も、取り込んだ llama と同じ旗で起�
 // 設定には書かない（画面の自動保存が空の欄の値で書き戻す競り合いを作らない）
 test('設計 B: 実行ファイルとモデルが両方空の側だけ、取り込んだエンジンを使う。片方でも入っていれば手の設定', () => {
   const m = code(read('src/main.js'));
-  assert.ok(m.includes('const manualGroup = (e) => (e === whisperEng ? Boolean(settings.localServerExe || settings.localModelPath) : Boolean(settings.sumServerExe || settings.sumModelPath));'));
-  assert.ok(m.includes("const engineExe = (e) => (manualGroup(e) ? (e === whisperEng ? settings.localServerExe : settings.sumServerExe) : managedFile(e, 'exe'));"));
-  assert.ok(m.includes("const engineModel = (e) => (manualGroup(e) ? (e === whisperEng ? settings.localModelPath : settings.sumModelPath) : managedFile(e, 'model'));"));
+  // 0.10.0 LS-3（D59）で意図して直した: エンジンは文字起こしだけ
+  assert.ok(m.includes('const manualGroup = (_e) => Boolean(settings.localServerExe || settings.localModelPath);'));
+  assert.ok(m.includes("const engineExe = (e) => (manualGroup(e) ? settings.localServerExe : managedFile(e, 'exe'));"));
+  assert.ok(m.includes("const engineModel = (e) => (manualGroup(e) ? settings.localModelPath : managedFile(e, 'model'));"));
 });
 test('設計 B: VAD の自動の発見・kotoba の判定・-m は engineModel から（取り込んだモデルでも効く）', () => {
   const m = code(read('src/main.js'));
   assert.ok(fnBody(m, 'function resolveVadModel()', '\n}').includes("path.dirname(engineModel(whisperEng) || '')"));
   assert.ok(m.includes("const isKotobaModel = () => /kotoba/i.test(path.basename(engineModel(whisperEng) || ''));"));
   const args = fnBody(m, 'function engineSpawnArgs(eng)', '\n}');
-  assert.strictEqual((args.match(/'-m', engineModel\(eng\),/g) || []).length, 2);
+  assert.strictEqual((args.match(/'-m', engineModel\(eng\),/g) || []).length, 1);   // 0.10.0 LS-3 で要約の引数を外した
   assert.ok(!/settings\.(localModelPath|sumModelPath)/.test(args));
 });
 test('RF7: 取り込んでも settings を書かない（画面の自動保存との競り合いを作らない）', () => {
@@ -245,7 +235,7 @@ test('RF7: 取り込んでも settings を書かない（画面の自動保存�
 });
 test('RF3: whenReady は 候補を読む → 今の起動の行（managed は空）→ 照らし の順。照らし終えてから managed に入れて起動し直す', () => {
   const m = code(read('src/main.js'));
-  assert.ok(m.includes('let managed = { whisper: null, sum: null };'));
+  assert.ok(m.includes('let managed = { whisper: null };'));   // 0.10.0 LS-3 で要約の組を外した
   const ready = fnBody(m, 'app.whenReady().then(', '\n  });');
   const a = ready.indexOf('engineInstall.managedCandidates('); const b = ready.indexOf('if (engineValid(whisperEng)) warmWhisper(');   // 第1c回 Task A-4 で先読みを warmWhisper に（意図して変えた）
   // 照らしは待たない。照らしの後の起動などで投げても unhandled にしないよう .catch を付ける（計画の 'verifyManagedAtStartup();' から、点検の指摘で変えた）
@@ -254,7 +244,7 @@ test('RF3: whenReady は 候補を読む → 今の起動の行（managed は空
   assert.ok(!/await\s+verifyManagedAtStartup/.test(ready), '照らしを待っている（窓やトレイが遅れる）');
   assert.ok(!/managed = /.test(ready.slice(0, b)), '照らす前に managed に入れている');
   const v = fnBody(m, 'async function verifyManagedAtStartup()', '\n}');
-  const i1 = v.indexOf('await engineInstall.verifyCandidates(managedCands)'); const i2 = v.indexOf('managed = { whisper: v.whisper, sum: v.sum };'); const i3 = v.indexOf('restartEnginesIfNeeded();');
+  const i1 = v.indexOf('await engineInstall.verifyCandidates(managedCands)'); const i2 = v.indexOf('managed = { whisper: v.whisper };'); const i3 = v.indexOf('restartEnginesIfNeeded();');
   assert.ok(i1 > 0 && i1 < i2 && i2 < i3, '照らす → 入れる → 起動し直す の順でない');
 });
 test('managedIssue: 確かめ中・壊れた・ランタイムで止める・まだ無い を返し、engineCheck の頭で見る', () => {
@@ -273,7 +263,7 @@ test('engine:fetch-status は読むだけ（通信しない・フォルダを作
 });
 test('RF4: 2 つの［起動テスト］は、engineCheck の前に覚えたランタイムの版を忘れて読み直す（担当が入れた後に起動し直さなくてよい。統合）', () => {
   const m = code(read('src/main.js'));
-  for (const ch of ['app:test', 'app:test-sum']) {
+  for (const ch of ['app:test']) {   // 0.10.0 LS-3 で app:test-sum を外した
     const h = fnBody(m, `ipcMain.handle('${ch}', async () => {`, '\n  });');
     const a = h.indexOf('forgetRuntimeIssues();'); const b = h.indexOf('engineCheck(');
     assert.ok(a > 0 && a < b, `${ch}: 読み直す前に engineCheck している（${a} ${b}）`);
@@ -312,16 +302,17 @@ test('切り替えは 安い比べ → 照らす → もう一度暇かを見る
   const m = code(read('src/main.js'));
   const f = fnBody(m, 'async function applyManagedWhenIdle()', '\n}');
   const at = ['if (isBusy() || meeting) return false;', 'sameShas(cands, managed)', 'await engineInstall.verifyCandidates(cands)',
-    'if (isBusy() || meeting) return false;', 'managed = { whisper: v.whisper, sum: v.sum };', 'engineInstall.setActive(', 'restartEnginesIfNeeded();', 'cleanupManaged();'];
+    'if (isBusy() || meeting) return false;', 'managed = { whisper: v.whisper };', 'engineInstall.setActive(', 'restartEnginesIfNeeded();', 'cleanupManaged();'];
   let pos = -1;
   for (const k of at) { const i = f.indexOf(k, pos + 1); assert.ok(i > pos, `順が違う: ${k}`); pos = i; }
   assert.ok(fnBody(m, 'function releaseIdleEngines()', '\n}').includes('applyManagedWhenIdle();'));
   // fnBody は始めの文字列も含めて返す（stage3.main.test.js:23-28）
   assert.strictEqual(fnBody(m, 'const isBusy = () => ', '\n'), "const isBusy = () => state !== 'idle' || isSummarizing() || recoveryRunning || pendingSegs > 0;");
 });
-test('RF8: 片付けは両方のエンジンが止まっていて、起動の途中でもなく、暇なときだけ', () => {
+// 0.10.0 LS-3（D59）で意図して直した: エンジンは文字起こしだけ
+test('RF8: 片付けはエンジンが止まっていて、起動の途中でもなく、暇なときだけ', () => {
   const f = fnBody(code(read('src/main.js')), 'function cleanupManaged()', '\n}');
-  assert.ok(f.includes('canDelete: () => !whisperEng.proc && !whisperEng.startPromise && !sumEng.proc && !sumEng.startPromise && !isBusy()'));
+  assert.ok(f.includes('canDelete: () => !whisperEng.proc && !whisperEng.startPromise && !isBusy()'));
 });
 test('RF3: 取り込んだエンジンが 0xC0000135 で落ちたら、自分のファイルを照らし直して取り直す', () => {
   const fn = fnBody(code(read('src/main.js')), 'function startEngine(eng)', '\nfunction stopEngine');
@@ -356,9 +347,11 @@ test('受け口と preload の名前がそろう（start・pause・open-dir・pr
   for (const s of ["engineFetchStart: (o) => ipcRenderer.invoke('engine:fetch-start', o),", "engineFetchPause: () => ipcRenderer.invoke('engine:fetch-pause'),",
     "openEngineDir: () => ipcRenderer.invoke('engine:open-dir'),", "onEngineFetchProgress: (cb) => ipcRenderer.on('engine:fetch-progress', (_e, s) => cb(s)),"]) assert.ok(p.includes(s), s);
 });
-test('知らせ: 要約が使えるようになったら［要約を生成］を案内。取り込み中の未設定の文は「未設定」を残す', () => {
+// 0.10.0 LS-3（D59）で意図して直した: 要約のエンジンを取り込まないので、要約の案内の知らせを外した
+test('知らせ: 文字起こしが使えるようになったら知らせ、要約のエンジンの文は無い。取り込み中の未設定の文は「未設定」を残す', () => {
   const m = code(read('src/main.js'));
-  assert.ok(fnBody(m, 'async function applyManagedWhenIdle()', '\n}').includes('［要約を生成］'));
+  const f = fnBody(m, 'async function applyManagedWhenIdle()', '\n}');
+  assert.ok(f.includes("sendToMainWin('app:notice', '文字起こしが使えるようになりました。');") && !f.includes('要約のエンジン'));
   const w = fnBody(m, 'function whisperProblem()', '\n}');
   assert.ok(w.includes('取り込み中') && (w.match(/未設定/g) || []).length >= 2);
 });
@@ -393,8 +386,9 @@ test('RF13: 新しい組が照らしで合わなければ、照らし済みの�
   const neu = candOf(ROOTJ, [SHA('a'), SHA('b'), SHA('c')]);
   const bad = [{ group: 'whisper', file: neu.model, why: 'changed' }];
   // 新しい組が合わない → 前の組（kept）
-  const r = keepPrevious({ whisper: neu, sum: null }, { whisper: old, sum: null }, { whisper: null, sum: null, bad });
-  assert.deepStrictEqual([r.whisper, r.sum, r.kept, r.bad], [old, null, ['whisper'], bad]);
+  const r = keepPrevious({ whisper: neu }, { whisper: old }, { whisper: null, bad });
+  assert.deepStrictEqual([r.whisper, r.kept, r.bad], [old, ['whisper'], bad]);
+  assert.deepStrictEqual(Object.keys(r).sort(), ['bad', 'kept', 'whisper'], '0.10.0 LS-3 で要約の組を外した');
   // 新しい組が合う → 新しい組
   const ok = keepPrevious({ whisper: neu, sum: null }, { whisper: old, sum: null }, { whisper: neu, sum: null, bad: [] });
   assert.deepStrictEqual([ok.whisper, ok.kept], [neu, []]);

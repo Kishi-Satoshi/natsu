@@ -594,24 +594,14 @@ function spawnErrorHint(errCode, file) {
 // ---------------------------------------------------------------- 速さの記録（第0b回 Task 16）
 // 利用者の「文字起こしと要約に時間がかかる」に対して、まず実際の速さを engine.log に1行で残す。
 //   whisper: t = { audioMs, procMs }（区間の音声の長さと、文字起こしにかかった時間）
-//   llama:   t = llama-server の応答の timings（prompt_n・prompt_ms・predicted_n・predicted_ms）
-// どれかが数でない（古い llama-server で timings が無いなど）・時間が 0 以下なら ''（何も残さない）。
-// トークン/秒は 100 以上なら整数、それ未満は小数1桁（141 トークン/秒・13.3 トークン/秒）。
+// どれかが数でない・時間が 0 以下なら ''（何も残さない）。要約の速さ（llama）は 0.10.0 LS-3（D59）で外した（ほかの kind は ''）
 function speedLine(kind, t) {
   const num = (v) => typeof v === 'number' && Number.isFinite(v);
-  const sec = (ms) => (ms / 1000).toFixed(1);
-  const rate = (n, ms) => { const r = n / (ms / 1000); return r >= 100 ? String(Math.round(r)) : r.toFixed(1); };
   if (!t || typeof t !== 'object') return '';
   if (kind === 'whisper') {
     const { audioMs, procMs } = t;
     if (!num(audioMs) || !num(procMs) || audioMs <= 0 || procMs < 0) return '';
     return `文字起こしの速さ: 音声 ${Math.round(audioMs / 1000)} 秒・処理 ${Math.round(procMs / 1000)} 秒（${(procMs / audioMs).toFixed(2)} 倍）`;
-  }
-  if (kind === 'llama') {
-    const { prompt_n: pn, prompt_ms: pm, predicted_n: gn, predicted_ms: gm } = t;
-    if (![pn, pm, gn, gm].every(num) || pn < 0 || gn < 0 || pm <= 0 || gm <= 0) return '';
-    return `要約の速さ: 読み ${pn} トークン ${sec(pm)} 秒（${rate(pn, pm)} トークン/秒）`
-      + `・書き ${gn} トークン ${sec(gm)} 秒（${rate(gn, gm)} トークン/秒）`;
   }
   return '';
 }
@@ -625,9 +615,9 @@ function portInUseError(port) {
 
 // ---------------------------------------------------------------- ファイルの選択で開く場所（第0c回 EL3）
 // Electron 43 から defaultPath が無いと「ダウンロード」で開き、OS が前のフォルダを覚えなくなる。
-// 画面の5つの［選ぶ］ボタンのキー（ENGINE_SETTING_KEYS とは別に持つ）。画面からはパスを受け取らず、
+// 画面の3つの［選ぶ］ボタンのキー（ENGINE_SETTING_KEYS とは別に持つ）。画面からはパスを受け取らず、
 // このキーの名前だけを受け取る。
-const PICK_KEYS = ['localServerExe', 'localModelPath', 'vadModelPath', 'sumServerExe', 'sumModelPath'];
+const PICK_KEYS = ['localServerExe', 'localModelPath', 'vadModelPath'];   // 0.10.0 LS-3（D59）で要約の2つを外した
 // 今のファイルのフォルダ → この起動で前に選んだフォルダ → エンジンの置き場所の順に、あるものを返す。
 // どれも無ければ undefined（Electron の既定に任せる）。知らないキーでは設定の値を読まない。
 // 相対パスやファイル名だけの値は、dirname が '.'（作業フォルダ＝入れた場所）になるので候補にしない。
@@ -646,13 +636,11 @@ function pickDefaultPath(key, settings, { lastDir = '', engineRoot = '', isDir =
 // これらを変えるとエンジンの再起動（engineSignature）や区間の切り方が変わる。記録中に
 // 再起動すると、文字起こし中の区間が失われる。記録中は前の値に留め、他の設定は保存する。
 const ENGINE_SETTING_LABELS = {
-  language: '言語', localThreads: '文字起こしのスレッド数', sumThreads: '要約のスレッド数',
+  language: '言語', localThreads: '文字起こしのスレッド数',
   useVad: 'VAD', suppressNst: '非発話トークンの抑制',
   localServerExe: '文字起こしエンジンの実行ファイル', localModelPath: '文字起こしのモデル', vadModelPath: 'VAD のモデル',
-  sumServerExe: '要約エンジンの実行ファイル', sumModelPath: '要約のモデル',
-  localPort: '文字起こしのポート', sumPort: '要約のポート', segmentSec: '区間の長さ',
-  sumCtx: '要約の文脈長',
-};
+  localPort: '文字起こしのポート', segmentSec: '区間の長さ',
+};   // 0.10.0 LS-3（D59）で要約のエンジンの5つを外した
 const ENGINE_SETTING_KEYS = Object.keys(ENGINE_SETTING_LABELS);
 const sameValue = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 
@@ -720,49 +708,7 @@ function closeConfirm(recording, summarizing, finalizing = false) {
   return { message: sumLine, detail: '「要約を生成」で後から作り直せます。' };
 }
 
-// ---------------------------------------------------------------- 分割要約の打ち切り（#16）
-// extract(text) は { text, truncated } を返す（要点の抽出）。長さの上限で切れたら、その塊を
-// 半分に割って両方をやり直す（一度だけ）。切れたままだと中盤の議題が黙って欠ける。
-// 半分でも切れたら本文は残して truncated を立てる（呼び出し側が注記し、パートを名指しする）。
-async function extractNotes(extract, text) {
-  const first = await extract(text);
-  if (!first.truncated) return { text: first.text, truncated: false, retried: false };
-  const half = Math.ceil(text.length / 2);
-  const a = await extract(text.slice(0, half));
-  const b = await extract(text.slice(half));
-  return { text: `${a.text}\n${b.text}`, truncated: Boolean(a.truncated || b.truncated), retried: true };
-}
-
-// ---------------------------------------------------------------- 要約の文脈長（#41）
-// 推定トークン数。UTF-8 のバイト数 ÷ 2.5 の切り上げ。多くの日本語対応モデルのトークナイザでは
-// 日本語 1 文字（3 バイト）が 1〜2 トークン、英数字は 4 文字（4 バイト）で 1 トークン程度で、
-// どちらも 1 トークン ≒ 2.5〜4 バイト。2.5 で割るのは実際より多めに見積もるためで、外すなら
-// 「収まると思ったら溢れた」側には外さない（溢れると llama-server がプロンプトを黙って切る）。
-function estimateTokens(text) {
-  return Math.ceil(Buffer.byteLength(String(text ?? ''), 'utf8') / 2.5);
-}
-
-// 要点メモ（分割要約の各パート）を、前から順に「推定トークンの合計が予算に収まる束」に分ける。
-// 統合プロンプトが文脈長に収まらないとき、各束をもう一段要約してから統合する（2 段）。
-// 順序は時系列のまま。1 件で予算を超える要点メモは単独の束（それ以上は割らない。もう一段の
-// 要約で NOTE_MAX_TOKENS 以下に縮む）。束の間の区切り（空行）は数えない（束あたり数トークンで、
-// 呼び出し側の余白の内）。estimate は省けば estimateTokens。入力は書き換えない。
-function foldNotes(notes, budgetTokens, estimate) {
-  const list = (Array.isArray(notes) ? notes : []).map((n) => String(n ?? ''));
-  const est = typeof estimate === 'function' ? estimate : estimateTokens;
-  const budget = Number(budgetTokens) > 0 ? Number(budgetTokens) : 1;
-  const out = [];
-  let cur = [];
-  let used = 0;
-  for (const n of list) {
-    const t = est(n);
-    if (cur.length && used + t > budget) { out.push(cur); cur = []; used = 0; }
-    cur.push(n);
-    used += t;
-  }
-  if (cur.length) out.push(cur);
-  return out;
-}
+// 分割要約の打ち切り（#16 の extractNotes）と文脈長の見積もり（#41 の estimateTokens・foldNotes）は、0.10.0 LS-3（D59）で外した（手元の llama の要約が無い）
 
 // summaryError に書く一文。parts: 半分にしても切れたパート番号（1 始まり）、
 // finalTruncated: 最終の統合が切れたか。どちらも無ければ ''。
@@ -1437,8 +1383,9 @@ function memoEvidence(memo, types) {
 
 // ---------------------------------------------------------------- 取り込んだエンジンの切り替え（第0b回 Task 14）
 // main は取り込みの係（engine-install.makeRunner）が組をそろえるたびに、候補（engine-install.managedCandidates の
-// { whisper, sum }。Cand は { current, shas, dir, exe, model, vad?, … }）を照らしてから切り替える。ここはその判断だけ
-const MANAGED_GROUPS = ['whisper', 'sum'];
+// { whisper }。Cand は { current, shas, dir, exe, model, vad?, … }）を照らしてから切り替える。ここはその判断だけ。
+// 0.10.0 LS-3（D59）で要約の組（sum）を外した
+const MANAGED_GROUPS = ['whisper'];
 const shasKey = (c) => (c && Array.isArray(c.shas) ? c.shas.map((s) => String(s).toLowerCase()).join(',') : '');
 const sameSha256 = (a, b) => String(a).toLowerCase() === String(b).toLowerCase();
 
@@ -1447,12 +1394,12 @@ function sameShas(a, b, groups = MANAGED_GROUPS) {
   return groups.every((g) => shasKey(a && a[g]) === shasKey(b && b[g]));
 }
 
-// 照らしの結果（engine-install.verifyCandidates の { whisper, sum, bad }）に、前の組を使い続ける組を足す（RF13）
-// → { whisper, sum, bad, kept: [組の名前] }。新しい候補（cands[g]）が照らしで合わず、照らし済みの前の組（prev[g]）が
+// 照らしの結果（engine-install.verifyCandidates の { whisper, bad }）に、前の組を使い続ける組を足す（RF13）
+// → { whisper, bad, kept: [組の名前] }。新しい候補（cands[g]）が照らしで合わず、照らし済みの前の組（prev[g]）が
 // 別の並びなら、前の組を使い続ける（新しい組は取り直す）。同じ並びの組（触られた・取り直した組）・前の組が無い組・
 // 候補が無くなった組は、照らしの結果のまま（合わなければ null。RF3）
 function keepPrevious(cands, prev, checked) {
-  const out = { whisper: null, sum: null, bad: (checked && Array.isArray(checked.bad)) ? checked.bad : [], kept: [] };
+  const out = { whisper: null, bad: (checked && Array.isArray(checked.bad)) ? checked.bad : [], kept: [] };
   for (const g of MANAGED_GROUPS) {
     if (checked && checked[g]) out[g] = checked[g];
     else if (cands && cands[g] && prev && prev[g] && !sameShas(cands, prev, [g])) { out[g] = prev[g]; out.kept.push(g); }
@@ -2115,7 +2062,7 @@ module.exports = {
   peFileVersion, vcRuntimeVersions, vcRuntimeIssue, runtimeGate, engineExitHint, spawnErrorHint, speedLine,
   ENGINE_SETTING_KEYS, guardEngineSettings, keptDifferent, closeConfirm, restartBlock, logReason,
   PICK_KEYS, pickDefaultPath,
-  extractNotes, truncationMessage, buildPromptParts,
+  truncationMessage, buildPromptParts,
   publicSegments, settledSegments, pendingDurationMs, recoverSegments, staleSegbufDirs,
   nextSegmentMs, EtaTracker, skipPendingSegments, SKIP_KEPT_TEXT,
   ONLINE_SEGMENT_SEC, OVERLAY_SEG_MIN_MS, SEG_SWITCH_AFTER, STICKY_LOCAL, startSegmentMode, segmentModeNext, segmentBaseMs, liveSegmentMs, nextLiveSegmentMs,
@@ -2124,7 +2071,7 @@ module.exports = {
   STALL_SPAN_MS, STALL_MIN_DBFS, stallAfter, stallStep, PROBLEM_ORDER, sttProblemOf, problemForRoute,
   WIN_NOTIFY_CODES, WIN_NOTIFY_GAP_MS, notifyGate,
   OFFLINE_SHOW_MS, OFFLINE_CLEAR_MS, offlineBannerStep,
-  estimateTokens, foldNotes, idleEnginesToStop, silentWav, wavLevelDbfs, mergeSummaryType, memoEvidence, buildClaudeInput, routeLabel,
+  idleEnginesToStop, silentWav, wavLevelDbfs, mergeSummaryType, memoEvidence, buildClaudeInput, routeLabel,
   isLoopbackUrl, loopbackOnlyFetch,
   sameShas, keepPrevious, candStamp, repairIdsOf, pathUsedBy, fetchMinutesLeft,
   recordDictation, mergeHistory, chooseDraftName,

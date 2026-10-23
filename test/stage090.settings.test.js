@@ -414,7 +414,8 @@ const ROW_IDS = {
   話し声が無いときに自動で止める: ['autoStopQuiet'], 知らせるまでの時間: ['autoStopMin'],
   '文字起こし後、カーソル位置へ自動貼り付け': ['autoPaste'], フィラー除去: ['removeFillers'], ユーザー辞書: ['dictionary', 'dictWarn'], 業務でよく使う言葉のヒントも渡す: ['useBuiltinTerms'],
   'Claude Code': ['claudeState', 'claudeTest', 'claudeLogin', 'claudeInstall', 'claudeHelp'], 'Claude Code の場所': ['claudeExe'], 'Claude デスクトップから読む': ['mcpDesktopState', 'mcpRegister', 'mcpUnregister'], 'PC の中の文字起こし': ['engineState', 'testBtn'],
-  'PC の中の文字起こしを取り込む': ['engineFetchBtn', 'engineFetchSummary'], 詳細設定: ['localServerExe', 'sumCtx', 'engineIdleMin'], 更新を確認: ['verNow', 'chkUpdBtn', 'applyUpdBtn', 'updMsg'],
+  'PC の中の文字起こしを取り込む': ['engineFetchBtn', 'engineFetchSummary'], 詳細設定: ['localServerExe', 'localThreads', 'engineIdleMin'],   // 0.10.0 LS-3 で要約の文脈長（sumCtx）の欄を外した
+  更新を確認: ['verNow', 'chkUpdBtn', 'applyUpdBtn', 'updMsg'],
 };
 const cardsOf = (root) => root.querySelector('#tabSettings').querySelector('.scroll').children.filter((c) => c.classList.contains('card'));
 const titleOf = (c) => c.querySelector('h2').textContent.trim();
@@ -454,7 +455,9 @@ test('SP4: カードの data-sec と見出しの並びが「設定の項目と�
 // 0.9.3 M-4 で意図して変えた: カード「会議の検出」の label を3つ足した（名前の label for・トグルを包む label.check・通知を出さないアプリの名前。34 → 37。前の値は e1329af4…）
 // 0.10.0 C-3 で意図して変えた: カード「Claude との連携（MCP）」の行の名前の label を1つ（37 → 38。前の値は 38f5bece…）と、説明を3つ（頭の1行・注意の1行・
 // 行の1行。18 → 21。前の値は ce912294…）足した
-const TEXTS_080 = { labels: [38, 'c8ceaee53cd6001b4ad97eb94ce3faad3568825cbaf7b6ade6803c1a941bb582'], descs: [21, 'aed31061d75d3c8f858ecd035d85e1f9bb20238aadbeec54c9e89fce71b6aeec'] };
+// 0.10.0 LS-3（D59）で意図して変えた: 詳細設定の要約の欄の label を5つ（パス・モデル・スレッド・ポート・文脈長）外した（38 → 33。前の値は c8ceaee5…）と、
+// 説明を直した（カードの頭の1行の「要約」を外し・要約の欄の説明の3つを外した）
+const TEXTS_080 = { labels: [33, 'df73640513aa5a2ee0126bbb437c801be6f1c2befefcd73c7805890f49f08d74'], descs: [18, '89206c389cddf880d21dc051cc735b79d5b181e2e8a4622b5852e7c24499938a'] };   // 説明 21 → 18（前の値は aed31061…）
 test('SP4: 動かした入力の id が全部あり、その行の中にある。文が 0.8.0 と同じ（label の文・.check の文・説明の文）', T, () => {
   const sec = doc.querySelector('#tabSettings');
   for (const [name, ids] of Object.entries(ROW_IDS)) {
@@ -646,7 +649,8 @@ test('SP5: data-row の名前はどれも、その行のラベル（label の文
 // 0.8.0 の自動保存の引数（simrun の既定の getSettings を読んで、何も変えずに #tabSettings の change を起こしたとき）
 // 0.9.0 O-4（RP1）で意図して変えた（統合で当てた）: 録音バーの置き場所は pillPos でなく pillSlot（置き場所の名前。既定は bottom-center）で保存する
 const SAVED_080 = { localServerExe: 'C:\\srv\\whisper.exe', localModelPath: 'C:\\m\\ggml.bin', localThreads: 4, localPort: 8990, vadModelPath: '', useVad: true, suppressNst: true,
-  sumServerExe: 'C:\\srv\\sum.exe', sumModelPath: 'C:\\m\\sum.gguf', sumThreads: 4, sumPort: 8991, sumCtx: 16384, engineIdleMin: 10, hotkey: 'Control+Shift+Space', meetingHotkey: 'Alt+M',
+  engineIdleMin: 10,   // 0.10.0 LS-3（D59）で意図して直した: 要約のエンジンの5つ（sumServerExe など）を送らない
+  hotkey: 'Control+Shift+Space', meetingHotkey: 'Alt+M',
   segmentSec: 75, pillSlot: 'bottom-center', micId: '', language: 'ja', autoPaste: true, removeFillers: true, soundFeedback: true, autoLaunch: false, dictionary: ['固有名詞'],
   useBuiltinTerms: true, stayInTray: false, theme: 'system', useSystemAudio: false, claudeExe: '',
   // 0.9.1 Q-3（D29）で意図して変えた: 話し声が無いときに自動で止める（読んだ設定に無ければ既定のオン・10 分で送る）

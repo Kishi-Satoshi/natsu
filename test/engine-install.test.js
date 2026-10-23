@@ -58,18 +58,17 @@ test('置き場所: %LOCALAPPDATA%\\natsu\\engine（Roaming には置かない�
   assert.strictEqual(I.engineRoot({}, 'win32', 'x64').supported, false);
   assert.strictEqual(I.engineRoot({ LOCALAPPDATA: L }, 'linux', 'x64').supported, false);
 });
-test('並び: エンジンは版ごとのフォルダ、モデルは models の下。whisper と llama を同じフォルダにしない', () => {
+// 0.10.0 LS-3（D59）で意図して直した: 取り込む組は文字起こし（whisper）だけ（要約の組 sum を外した）
+test('並び: エンジンは版ごとのフォルダ、モデルは models の下。組は whisper だけ', () => {
   const L = I.layout('C:\\e', MANIFEST, path.win32);
   assert.strictEqual(L.whisper.exe, 'C:\\e\\whisper-1.9.5\\whisper-server.exe');
   assert.strictEqual(L.whisper.model, 'C:\\e\\models\\ggml-large-v3-turbo-q5_0.bin');
   assert.strictEqual(L.whisper.vad, 'C:\\e\\models\\ggml-silero-v6.2.0.bin');
-  assert.strictEqual(L.sum.exe, 'C:\\e\\llama-b11669\\llama-server.exe');
-  assert.strictEqual(L.sum.model, 'C:\\e\\models\\gemma-4-E4B-it-Q4_K_M.gguf');
-  assert.notStrictEqual(L.whisper.dir, L.sum.dir);
+  assert.strictEqual(L.sum, undefined);
 });
 test('installed.json: 一時ファイル経由で書く。知らない schema は「入っていない」とし、ファイルは消さない', () => {
   const d = tmp(); const f = path.join(d, 'installed.json');
-  assert.deepStrictEqual(I.readInstalled(f), { schema: 1, consent: false, userPaused: false, items: {}, active: { whisper: null, sum: null } });
+  assert.deepStrictEqual(I.readInstalled(f), { schema: 1, consent: false, userPaused: false, items: {}, active: { whisper: null } });   // 0.10.0 LS-3 で sum を外した
   I.writeInstalled(f, { ...I.readInstalled(f), consent: true });
   assert.strictEqual(I.readInstalled(f).consent, true);
   assert.deepStrictEqual(fs.readdirSync(d), ['installed.json']);
@@ -82,8 +81,9 @@ test('planInstall: 記録と大きさ・更新時刻が合えば ready。ピン�
   try {
     const root = path.join(tmp(), 'engine'); const inst = await putByHand(root, s1);
     const st = (m) => Object.fromEntries(I.planInstall(m, inst, fs.statSync, root).map((p) => [p.id, p.state]));
-    assert.deepStrictEqual(st(s1.manifest), { 'whisper-engine': 'ready', 'whisper-vad': 'ready', 'whisper-model': 'ready', 'sum-engine': 'ready', 'sum-model': 'ready' });
-    assert.deepStrictEqual(st(s2.manifest), { 'whisper-engine': 'ready', 'whisper-vad': 'ready', 'whisper-model': 'update', 'sum-engine': 'update', 'sum-model': 'ready' });
+    // 0.10.0 LS-3（D59）で意図して直した: 小さな組も文字起こしの組だけ
+    assert.deepStrictEqual(st(s1.manifest), { 'whisper-engine': 'ready', 'whisper-vad': 'ready', 'whisper-model': 'ready' });
+    assert.deepStrictEqual(st(s2.manifest), { 'whisper-engine': 'ready', 'whisper-vad': 'ready', 'whisper-model': 'update' });
     fs.utimesSync(path.join(root, 'models/vad.bin'), new Date(), new Date(Date.now() + 60000));
     assert.strictEqual(st(s1.manifest)['whisper-vad'], 'changed');
     const none = I.planInstall(s1.manifest, I.readInstalled(path.join(tmp(), 'x.json')), fs.statSync, root);
@@ -99,35 +99,38 @@ test('managedCandidates: ピンを上げた後も、新しい組がそろうま�
     assert.strictEqual(now.whisper.current, true);
     assert.strictEqual(now.whisper.exe, path.join(root, 'whisper-1.0.0', 'whisper-server.exe'));
     assert.deepStrictEqual(now.whisper.checkFiles.map((f) => path.basename(f.file)), ['whisper-server.exe', 'whisper.dll', 'ggml.dll']);
-    assert.deepStrictEqual(I.managedCandidates(home, s2.manifest, inst, fs.statSync), { whisper: null, sum: null }, 'active が無いのに前の組を返した');
-    inst.active = { whisper: s1.manifest.items.slice(0, 3).map((i) => i.sha256), sum: s1.manifest.items.slice(3).map((i) => i.sha256) };
+    assert.deepStrictEqual(I.managedCandidates(home, s2.manifest, inst, fs.statSync), { whisper: null }, 'active が無いのに前の組を返した');
+    // 0.10.0 LS-3（D59）で意図して直した: 組は whisper だけ。0.9.x の active の sum は読み捨てる
+    inst.active = { whisper: s1.manifest.items.slice(0, 3).map((i) => i.sha256), sum: ['e'.repeat(64)] };
     const prev = I.managedCandidates(home, s2.manifest, inst, fs.statSync);
     assert.strictEqual(prev.whisper.current, false);
     assert.strictEqual(prev.whisper.model, path.join(root, 'models', 'w-model.bin'));
-    assert.strictEqual(prev.sum.exe, path.join(root, 'llama-b1', 'llama-server.exe'));
+    assert.deepStrictEqual(Object.keys(prev), ['whisper']);
   } finally { await s1.close(); await s2.close(); }
 });
 test('statusOf: 取り込み直しの途中（update）でも、前の組があれば whisperReady は真。updateBytes は変わった項目だけ', IO_WAIT, async () => {
   const s1 = await smallSet(); const s2 = await smallSet({ gen: 2 });
   try {
     const root = path.join(tmp(), 'engine'); const inst = await putByHand(root, s1);
-    inst.active = { whisper: s1.manifest.items.slice(0, 3).map((i) => i.sha256), sum: s1.manifest.items.slice(3).map((i) => i.sha256) };
+    inst.active = { whisper: s1.manifest.items.slice(0, 3).map((i) => i.sha256) };
     const home = { supported: true, root };
     const s = I.statusOf({ home, manifest: s2.manifest, plan: I.planInstall(s2.manifest, inst, fs.statSync, root),
-      candidates: I.managedCandidates(home, s2.manifest, inst, fs.statSync), manual: { whisper: false, sum: false }, installed: inst });
+      candidates: I.managedCandidates(home, s2.manifest, inst, fs.statSync), manual: { whisper: false }, installed: inst });
+    // 0.10.0 LS-3（D59）で意図して直した: 組は whisper だけ（sumReady・using.sum は無い）
     assert.strictEqual(s.state, 'update');
-    assert.ok(s.whisperReady && s.sumReady);
-    assert.deepStrictEqual(s.using, { whisper: 'previous', sum: 'previous' });
-    assert.strictEqual(s.updateBytes, s2.manifest.items[2].size + s2.manifest.items[3].size);
+    assert.ok(s.whisperReady && !('sumReady' in s));
+    assert.deepStrictEqual(s.using, { whisper: 'previous' });
+    assert.strictEqual(s.updateBytes, s2.manifest.items[2].size);
   } finally { await s1.close(); await s2.close(); }
 });
 test('managedCandidates と statusOf は、通信もフォルダ作りもしない（起動のときに安全）', () => {
   const d = tmp(); const root = path.join(d, 'まだ無い', 'engine'); const home = { supported: true, root };
   const inst = I.readInstalled(path.join(root, 'installed.json'));
-  assert.deepStrictEqual(I.managedCandidates(home, MANIFEST, inst, fs.statSync), { whisper: null, sum: null });
+  assert.deepStrictEqual(I.managedCandidates(home, MANIFEST, inst, fs.statSync), { whisper: null });
   const s = I.statusOf({ home, manifest: MANIFEST, plan: I.planInstall(MANIFEST, inst, fs.statSync, root),
-    candidates: { whisper: null, sum: null }, manual: { whisper: false, sum: false }, installed: inst });
-  assert.strictEqual(s.state, 'missing'); assert.strictEqual(s.totalBytes, 5580564403); assert.strictEqual(s.whisperBytes, 583854933);
+    candidates: { whisper: null }, manual: { whisper: false }, installed: inst });
+  // 0.10.0 LS-3（D59）で意図して直した: 合計は文字起こしの組だけ
+  assert.strictEqual(s.state, 'missing'); assert.strictEqual(s.totalBytes, 583854933); assert.strictEqual(s.whisperBytes, 583854933);
   assert.ok(!fs.existsSync(path.join(d, 'まだ無い')), 'フォルダを作った');
   for (const it of s.items) { assert.match(it.place, /^%LOCALAPPDATA%\\natsu\\engine\\/); assert.ok(it.sha256 && it.url && it.version && it.license, it.id); }
 });
@@ -140,10 +143,15 @@ test('freeBytesOf: まだ無い置き場所は、いちばん近い有る親の�
 test('statusOf: 手で設定している組は manual。その組の項目は取り込みの対象に数えない', () => {
   const root = path.join(tmp(), 'engine'); const home = { supported: true, root };
   const inst = I.readInstalled(path.join(root, 'installed.json'));
+  // 0.10.0 LS-3（D59）で意図して直した: 組は whisper だけ。手で設定していれば取り込むものは無い
   const s = I.statusOf({ home, manifest: MANIFEST, plan: I.planInstall(MANIFEST, inst, fs.statSync, root),
-    candidates: { whisper: null, sum: null }, manual: { whisper: true, sum: false }, installed: inst });
-  assert.deepStrictEqual(s.mode, { whisper: 'manual', sum: 'managed' });
-  assert.strictEqual(s.needBytes, MANIFEST.items.filter((i) => i.group === 'sum').reduce((a, i) => a + i.size, 0));
+    candidates: { whisper: null }, manual: { whisper: true }, installed: inst });
+  assert.deepStrictEqual(s.mode, { whisper: 'manual' });
+  assert.strictEqual(s.needBytes, 0);
+  const m = I.statusOf({ home, manifest: MANIFEST, plan: I.planInstall(MANIFEST, inst, fs.statSync, root),
+    candidates: { whisper: null }, manual: { whisper: false }, installed: inst });
+  assert.deepStrictEqual(m.mode, { whisper: 'managed' });
+  assert.strictEqual(m.needBytes, MANIFEST.items.reduce((a, i) => a + i.size, 0));
 });
 test('installed.json: 名前の変更で失敗しても前の記録はそのまま', () => {
   const d = tmp(); const f = path.join(d, 'installed.json');
@@ -170,12 +178,11 @@ test('managedCandidates: 新しいピンで exe の名前が変わっても、�
   const s1 = await smallSet();
   try {
     const root = path.join(tmp(), 'engine'); const inst = await putByHand(root, s1); const home = { supported: true, root };
-    inst.active = { whisper: s1.manifest.items.slice(0, 3).map((i) => i.sha256), sum: s1.manifest.items.slice(3).map((i) => i.sha256) };
+    inst.active = { whisper: s1.manifest.items.slice(0, 3).map((i) => i.sha256) };
     const m2 = { ...s1.manifest, items: s1.manifest.items.map((i) => (i.id === 'whisper-engine' ? { ...i, sha256: 'd'.repeat(64), dir: 'whisper-2.0.0', exe: 'whisper-srv.exe' } : i)) };
     const c = I.managedCandidates(home, m2, inst, fs.statSync);
     assert.ok(c.whisper, '前の組を返さない'); assert.strictEqual(c.whisper.current, false);
-    assert.strictEqual(c.whisper.exe, path.join(root, 'whisper-1.0.0', 'whisper-server.exe'));
-    assert.ok(c.sum && c.sum.current);
+    assert.strictEqual(c.whisper.exe, path.join(root, 'whisper-1.0.0', 'whisper-server.exe'));   // 0.10.0 LS-3 で要約の組の確かめを外した
     const rec = inst.items[s1.manifest.items[0].sha256];
     rec.files = rec.files.filter((f) => !/\.exe$/i.test(f.name));
     assert.strictEqual(I.managedCandidates(home, m2, inst, fs.statSync).whisper, null);
@@ -190,12 +197,13 @@ test('statusOf: updateBytes は update の項目の残りだけ（.part で持�
     fs.mkdirSync(path.join(root, '.download'), { recursive: true });
     fs.writeFileSync(path.join(root, '.download', `${m[2].sha256}.part`), Buffer.alloc(held));
     const plan = I.planInstall(s2.manifest, inst, fs.statSync, root);
+    // 0.10.0 LS-3（D59）で意図して直した: 小さな組も文字起こしの組だけ
     assert.deepStrictEqual(plan.map((p) => [p.id, p.state, p.held]), [['whisper-engine', 'ready', 0], ['whisper-vad', 'missing', 0],
-      ['whisper-model', 'update', held], ['sum-engine', 'update', 0], ['sum-model', 'ready', 0]]);
+      ['whisper-model', 'update', held]]);
     const s = I.statusOf({ home, manifest: s2.manifest, plan, candidates: I.managedCandidates(home, s2.manifest, inst, fs.statSync),
-      manual: { whisper: false, sum: false }, installed: inst });
-    assert.strictEqual(s.updateBytes, m[2].size - held + m[3].size);
-    assert.strictEqual(s.needBytes, m[1].size + m[2].size - held + m[3].size);
+      manual: { whisper: false }, installed: inst });
+    assert.strictEqual(s.updateBytes, m[2].size - held);
+    assert.strictEqual(s.needBytes, m[1].size + m[2].size - held);
   } finally { await s1.close(); await s2.close(); }
 });
 
@@ -248,11 +256,11 @@ test('RF3: verifyCandidates は exe と DLL を SHA-256 で照らす。大きさ
     const root = path.join(tmp(), 'engine'); const inst = await putByHand(root, set); const home = { supported: true, root };
     const c = I.managedCandidates(home, set.manifest, inst, fs.statSync);
     const ok = await I.verifyCandidates(c);
-    assert.ok(ok.whisper && ok.sum); assert.deepStrictEqual(ok.bad, []);
+    assert.ok(ok.whisper); assert.deepStrictEqual(ok.bad, []);
     const dll = path.join(root, 'whisper-1.0.0', 'whisper.dll'); const st = fs.statSync(dll);
     const b = fs.readFileSync(dll); b[0] ^= 0xff; fs.writeFileSync(dll, b); fs.utimesSync(dll, st.atime, st.mtime);   // 同じ大きさ・同じ更新時刻
     const ng = await I.verifyCandidates(c);
-    assert.strictEqual(ng.whisper, null); assert.ok(ng.sum);
+    assert.strictEqual(ng.whisper, null);
     assert.deepStrictEqual(ng.bad, [{ group: 'whisper', file: dll, why: 'changed' }]);
   } finally { await set.close(); }
 });
@@ -264,12 +272,13 @@ test('RF3: verifyCandidates はモデルを大きさと更新時刻で照らす�
     let hashed = [];
     await I.verifyCandidates(c, { hash: async (f) => { hashed.push(path.basename(f)); return I.sha256File(f); } });
     assert.ok(!hashed.some((f) => /\.(bin|gguf)$/.test(f)), `モデルを読んだ: ${hashed}`);
-    fs.utimesSync(path.join(root, 'models', 's-model.gguf'), new Date(), new Date(Date.now() + 60000));
+    // 0.10.0 LS-3（D59）で意図して直した: 小さな組は文字起こしの組だけなので、モデルの更新時刻は文字起こしのモデルで見る
+    fs.utimesSync(path.join(root, 'models', 'w-model.bin'), new Date(), new Date(Date.now() + 60000));
     fs.rmSync(path.join(root, 'whisper-1.0.0', 'whisper-server.exe'));
     const r = await I.verifyCandidates(c);
-    assert.deepStrictEqual([r.whisper, r.sum], [null, null]);
+    assert.deepStrictEqual([r.whisper], [null]);
     assert.deepStrictEqual(r.bad.map((b) => [b.group, path.basename(b.file), b.why]),
-      [['whisper', 'whisper-server.exe', 'missing'], ['sum', 's-model.gguf', 'changed']]);
+      [['whisper', 'whisper-server.exe', 'missing'], ['whisper', 'w-model.bin', 'changed']]);
   } finally { await set.close(); }
 });
 test('zip: <dir>.tmp から <dir> への名前の変更が EPERM で 2 回失敗、3 回目に通る。いつも EPERM なら locked で、何も置かず zip は残す', IO_WAIT, async () => {
@@ -307,7 +316,7 @@ test('recordInstalled: zip は展開したファイルごと、ファイルは�
     assert.deepStrictEqual(inst.items, inst0.items);
     assert.deepStrictEqual(fs.readdirSync(root).filter((f) => /\.tmp$/.test(f)), []);
     const c = I.managedCandidates(home, set.manifest, inst, fs.statSync);
-    assert.ok(c.whisper && c.whisper.current && c.sum && c.sum.current);
+    assert.ok(c.whisper && c.whisper.current);
   } finally { await set.close(); }
 });
 
@@ -341,16 +350,17 @@ test('start はすぐ返り、動いている仕事をもう一度始めない�
     const a = r.start({ user: true }); r.start({ user: true });
     assert.ok(a && a.ok && r.running());
     await r.done();
-    assert.deepStrictEqual(ids(set), ['whisper-engine', 'whisper-vad', 'whisper-model', 'sum-engine', 'sum-model']);
+    assert.deepStrictEqual(ids(set), ['whisper-engine', 'whisper-vad', 'whisper-model']);   // 0.10.0 LS-3 で要約の組を外した
     assert.strictEqual(r.status().state, 'ready');
   } finally { await set.close(); }
 });
-test('取り込む順: whisper のエンジン → VAD → モデル →（whisper が使える知らせ）→ llama → 要約のモデル', IO_WAIT, async () => {
+// 0.10.0 LS-3（D59）で意図して直した: 取り込むのは文字起こしの組だけ
+test('取り込む順: whisper のエンジン → VAD → モデル →（whisper が使える知らせ）', IO_WAIT, async () => {
   const seen = []; const set = await smallSet({ onHit: (id) => seen.push(id) });
   try {
     const r = I.makeRunner(depsOf(set, homeOf(), { onGroupReady: (g) => seen.push(`ready:${g}`) }));
     r.start({ user: true }); await r.done();
-    assert.deepStrictEqual(seen, ['whisper-engine', 'whisper-vad', 'whisper-model', 'ready:whisper', 'sum-engine', 'sum-model', 'ready:sum']);
+    assert.deepStrictEqual(seen, ['whisper-engine', 'whisper-vad', 'whisper-model', 'ready:whisper']);
   } finally { await set.close(); }
 });
 test('空きが足りなければ、1 つも要求せずに space（余裕は 1GB から、足りない GB つき）。statfs が投げても続ける', IO_WAIT, async () => {
@@ -369,12 +379,13 @@ test('空きが足りなければ、1 つも要求せずに space（余裕は 1G
 test('手で設定している組は飛ばす。all のときは全部取る（切り替えのため）', IO_WAIT, async () => {
   const set = await smallSet();
   try {
+    // 0.10.0 LS-3（D59）で意図して直した: 組は whisper だけ（手で設定していれば何も取らない）
     const r = I.makeRunner(depsOf(set, homeOf(), { isManual: (g) => g === 'whisper' }));
     r.start({ user: true }); await r.done();
-    assert.deepStrictEqual(ids(set), ['sum-engine', 'sum-model']);
+    assert.deepStrictEqual(ids(set), []);
     const r2 = I.makeRunner(depsOf(set, homeOf(), { isManual: () => true }));
     r2.start({ user: true, all: true }); await r2.done();
-    assert.strictEqual(ids(set).length, 2 + 5);
+    assert.strictEqual(ids(set).length, 3);
   } finally { await set.close(); }
 });
 test('記録中（hold が真）は要求を出さずに held で待ち、終われば続ける', IO_WAIT, async () => {
@@ -453,12 +464,12 @@ test('RF13: 起動のときの自動の開始は、大きな取り込み直し�
   try {
     const home = homeOf();
     const a = I.makeRunner(depsOf(s1, home)); a.start({ user: true }); await a.done();
-    I.setActive(home, s1.manifest, 'whisper'); I.setActive(home, s1.manifest, 'sum');
+    I.setActive(home, s1.manifest, 'whisper');   // 0.10.0 LS-3 で要約の組を外した
     const b = I.makeRunner(depsOf(s2, home, { autoUpdateMaxBytes: 1000 }));
     b.start({ auto: true }); await b.done();
     assert.deepStrictEqual(ids(s2), []); assert.strictEqual(b.status().state, 'update');
     b.start({ user: true }); await b.done();
-    assert.deepStrictEqual(ids(s2), ['whisper-model', 'sum-engine']);
+    assert.deepStrictEqual(ids(s2), ['whisper-model']);
   } finally { await s1.close(); await s2.close(); }
 });
 test('使っている組の置き場所に、違う SHA-256 のファイルを置かない（place-in-use）', IO_WAIT, async () => {
@@ -503,7 +514,7 @@ test('setActive は今のピンのその組の SHA-256 を active に書く', IO
     const home = homeOf(); const r = I.makeRunner(depsOf(set, home)); r.start({ user: true }); await r.done();
     I.setActive(home, set.manifest, 'whisper');
     assert.deepStrictEqual(I.readInstalled(path.join(home.root, 'installed.json')).active,
-      { whisper: set.manifest.items.slice(0, 3).map((i) => i.sha256), sum: null });
+      { whisper: set.manifest.items.slice(0, 3).map((i) => i.sha256) });   // 0.10.0 LS-3 で sum を外した
   } finally { await set.close(); }
 });
 // ここから下は計画に無い、実装した人が足したテスト（計画の Interfaces に書いてあるが、計画のテストが押さえていない振る舞い）
@@ -614,7 +625,7 @@ test('取り込みの途中の［一時停止］は今の要求を止め、ま�
     assert.deepStrictEqual(ids(set), ['whisper-engine', 'whisper-vad', 'whisper-model']);
     r.start({ user: true }); await r.done();
     assert.strictEqual(r.status().state, 'ready');
-    assert.deepStrictEqual(ids(set), ['whisper-engine', 'whisper-vad', 'whisper-model', 'whisper-model', 'sum-engine', 'sum-model'], '止めた要求を取り終えてから止まった');
+    assert.deepStrictEqual(ids(set), ['whisper-engine', 'whisper-vad', 'whisper-model', 'whisper-model'], '止めた要求を取り終えてから止まった');   // 0.10.0 LS-3 で要約の組を外した
     assert.strictEqual(I.readInstalled(path.join(home.root, 'installed.json')).userPaused, false);
     const set2 = await smallSet({ onHit: (id) => { if (id === 'whisper-model' && hook2) hook2(); } });
     let hook2 = null;
@@ -747,16 +758,17 @@ test('RF8: 切り替えた後だけ、記録にあって今のピンにも activ
   try {
     const home = homeOf(); const ins = () => I.readInstalled(path.join(home.root, 'installed.json'));
     const a = I.makeRunner(depsOf(s1, home)); a.start({ user: true }); await a.done();
-    I.setActive(home, s1.manifest, 'whisper'); I.setActive(home, s1.manifest, 'sum');
+    // 0.10.0 LS-3（D59）で意図して直した: 組は whisper だけ（前の版は文字起こしのモデルだけ）
+    I.setActive(home, s1.manifest, 'whisper');
     const b = I.makeRunner(depsOf(s2, home)); b.start({ user: true }); await b.done();
     fs.mkdirSync(path.join(home.root, 'my-own'));
     const before = await I.cleanupOld(home, s2.manifest, ins(), { canDelete: () => true });
     assert.deepStrictEqual(before.removed, [], 'まだ前の組を使っているのに消した');
-    I.setActive(home, s2.manifest, 'whisper'); I.setActive(home, s2.manifest, 'sum');
+    I.setActive(home, s2.manifest, 'whisper');
     const r = await I.cleanupOld(home, s2.manifest, ins(), { canDelete: () => true });
-    assert.deepStrictEqual(r.removed.sort(), ['llama-b1', 'models/w-model.bin']);
-    for (const p of ['whisper-1.0.0', 'llama-b2', 'models/vad.bin', 'models/w-model-2.bin', 'models/s-model.gguf', 'my-own']) assert.ok(fs.existsSync(path.join(home.root, p)), p);
-    assert.ok(!Object.values(ins().items).some((x) => x.place === 'llama-b1'), '記録から外していない');
+    assert.deepStrictEqual(r.removed.sort(), ['models/w-model.bin']);
+    for (const p of ['whisper-1.0.0', 'models/vad.bin', 'models/w-model-2.bin', 'my-own']) assert.ok(fs.existsSync(path.join(home.root, p)), p);
+    assert.ok(!Object.values(ins().items).some((x) => x.place === 'models/w-model.bin'), '記録から外していない');
   } finally { await s1.close(); await s2.close(); }
 });
 test('RF8: canDelete が偽なら何も消さない。inUse のパスは残す', IO_WAIT, async () => {
@@ -765,23 +777,31 @@ test('RF8: canDelete が偽なら何も消さない。inUse のパスは残す',
     const home = homeOf(); const ins = () => I.readInstalled(path.join(home.root, 'installed.json'));
     const a = I.makeRunner(depsOf(s1, home)); a.start({ user: true }); await a.done();
     const b = I.makeRunner(depsOf(s2, home)); b.start({ user: true }); await b.done();
-    I.setActive(home, s2.manifest, 'whisper'); I.setActive(home, s2.manifest, 'sum');
+    // 0.10.0 LS-3（D59）で意図して直した: 組は whisper だけ。使っている印の付いたパスは、前の版の文字起こしのモデルで見る
+    I.setActive(home, s2.manifest, 'whisper');
     assert.deepStrictEqual((await I.cleanupOld(home, s2.manifest, ins(), { canDelete: () => false })).removed, []);
-    const llama1 = path.join(home.root, 'llama-b1');
-    const r = await I.cleanupOld(home, s2.manifest, ins(), { canDelete: () => true, inUse: (p) => p === llama1 });
-    assert.deepStrictEqual(r.removed, ['models/w-model.bin']); assert.ok(fs.existsSync(llama1));
+    const old = path.join(home.root, 'models', 'w-model.bin');
+    const r = await I.cleanupOld(home, s2.manifest, ins(), { canDelete: () => true, inUse: (p) => p === old });
+    assert.deepStrictEqual(r.removed, []); assert.ok(fs.existsSync(old));
+    assert.deepStrictEqual((await I.cleanupOld(home, s2.manifest, ins(), { canDelete: () => true })).removed, ['models/w-model.bin']);
   } finally { await s1.close(); await s2.close(); }
 });
+// 0.10.0 LS-3（D59）で意図して直した: 本物の表から Apache-2.0 の項目（要約のモデル）と LICENSE の全文を持つ zip（要約のエンジン）が無くなったので、
+// Apache-2.0 の項目と LICENSE の全文のある zip を足した試しの表（WITH_APACHE）で見る
+const APACHE_ITEM = { id: 'x-model', group: 'x', kind: 'file', role: 'model', label: '試しのモデル', version: 'x1',
+  url: 'https://example.invalid/x-model.gguf', size: 1, sha256: 'f'.repeat(64), dest: 'models/x-model.gguf', license: 'Apache-2.0（試し）' };
+const LICENSE_ZIP = { id: 'x-engine', group: 'x', kind: 'zip', label: '試しのエンジン', version: 'x2', url: 'https://example.invalid/x.zip', size: 1, sha256: 'e'.repeat(64),
+  dir: 'x-engine-2', strip: '', exe: 'x.exe', files: [{ name: 'x.exe', size: 1, sha256: 'e'.repeat(64) }, { name: 'LICENSE-X', size: 1, sha256: 'e'.repeat(64) }], license: 'MIT（試し）' };
+const WITH_APACHE = { ...MANIFEST, items: [...MANIFEST.items, LICENSE_ZIP, APACHE_ITEM] };
 test('THIRD-PARTY-NOTICES.txt に各項目の名前・版・URL・ライセンスの行を書く。Apache-2.0 の全文は1回だけ。3B のときだけ Qwen の一文', { timeout: 5000 }, () => {
   const home = homeOf(); fs.mkdirSync(home.root, { recursive: true });
-  I.writeNotices(home, MANIFEST);
+  I.writeNotices(home, WITH_APACHE);
   const t = fs.readFileSync(path.join(home.root, 'THIRD-PARTY-NOTICES.txt'), 'utf8');
-  for (const it of MANIFEST.items) for (const k of [it.label, it.version, it.url, it.license]) assert.ok(t.includes(k), `${it.id}: ${k}`);
-  assert.ok(/^Apache-2\.0/.test(MANIFEST.items.find((i) => i.id === 'sum-model').license), '既定の要約のモデルが Apache-2.0 でない');
+  for (const it of WITH_APACHE.items) for (const k of [it.label, it.version, it.url, it.license]) assert.ok(t.includes(k), `${it.id}: ${k}`);
   assert.strictEqual(t.split('TERMS AND CONDITIONS FOR USE, REPRODUCTION, AND DISTRIBUTION').length - 1, 1, 'Apache License 2.0 の全文が1回でない');
   assert.ok(!/Gemma Terms of Use/.test(t), 'Gemma 4 に Gemma 3 までの条件を書いた');
   assert.ok(!t.includes('Qwen RESEARCH LICENSE'));
-  const m3 = { ...MANIFEST, items: MANIFEST.items.map((i) => (i.id === 'sum-model' ? { ...i, dest: 'models/Qwen2.5-3B-Instruct-Q4_K_M.gguf' } : i)) };
+  const m3 = { ...WITH_APACHE, items: WITH_APACHE.items.map((i) => (i.id === 'x-model' ? { ...i, dest: 'models/Qwen2.5-3B-Instruct-Q4_K_M.gguf' } : i)) };
   I.writeNotices(home, m3);
   assert.ok(fs.readFileSync(path.join(home.root, 'THIRD-PARTY-NOTICES.txt'), 'utf8').includes('Qwen is licensed under the Qwen RESEARCH LICENSE AGREEMENT'));
 });
@@ -791,16 +811,19 @@ test('src/licenses/Apache-2.0.txt は https://www.apache.org/licenses/LICENSE-2.
   assert.strictEqual(b.length, 11358);
   assert.strictEqual(crypto.createHash('sha256').update(b).digest('hex'), 'cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30');
   const home = homeOf(); const f = path.join(home.root, 'THIRD-PARTY-NOTICES.txt');
-  assert.strictEqual(I.writeNotices(home, MANIFEST), f);
+  assert.strictEqual(I.writeNotices(home, WITH_APACHE), f);
   const t = fs.readFileSync(f, 'utf8');
   assert.ok(t.endsWith(b.toString('utf8')), '全文をそのまま最後に足していない');
-  assert.ok(t.includes('llama-b11669\\LICENSE-LLVM-OpenMP'), 'libomp のライセンスの全文の置き場所の行が無い');
+  assert.ok(t.includes('x-engine-2\\LICENSE-X'), 'zip の中のライセンスの全文の置き場所の行が無い');
   assert.deepStrictEqual(fs.readdirSync(home.root), ['THIRD-PARTY-NOTICES.txt'], '一時ファイルが残った');
-  const mit = { ...MANIFEST, items: MANIFEST.items.filter((i) => !/^Apache-2\.0/.test(i.license)) };
+  const mit = { ...WITH_APACHE, items: WITH_APACHE.items.filter((i) => !/^Apache-2\.0/.test(i.license)) };
   I.writeNotices(home, mit);
   const t2 = fs.readFileSync(f, 'utf8');
   assert.ok(!t2.includes('TERMS AND CONDITIONS FOR USE, REPRODUCTION, AND DISTRIBUTION'), 'Apache-2.0 の項目が無いのに全文を足した');
-  assert.ok(t2.includes('LICENSE-LLVM-OpenMP'));
+  assert.ok(t2.includes('LICENSE-X'));
+  // 本物の表（0.10.0 から文字起こしの組だけ）には Apache-2.0 の項目が無い
+  I.writeNotices(home, MANIFEST);
+  assert.ok(!fs.readFileSync(f, 'utf8').includes('TERMS AND CONDITIONS FOR USE, REPRODUCTION, AND DISTRIBUTION'));
   assert.strictEqual(I.writeNotices({ supported: false, root: null }, MANIFEST), null);
 });
 test('MIT の項目があれば、MIT License の許諾の文（src/licenses/MIT.txt）を1回だけ足す。著作権の行は項目ごと。Apache-2.0 の全文は最後のまま。MIT の項目が無ければ足さない', { timeout: 5000 }, () => {
@@ -813,17 +836,17 @@ test('MIT の項目があれば、MIT License の許諾の文（src/licenses/MIT
   const words = (x) => x.replace(/\s+/g, ' ').trim();
   assert.strictEqual(words(mitText), words(MIT_STANDARD), 'MIT.txt が標準の MIT License の文でない');
   const home = homeOf(); const f = path.join(home.root, 'THIRD-PARTY-NOTICES.txt');
-  I.writeNotices(home, MANIFEST);
+  I.writeNotices(home, WITH_APACHE);
   const t = fs.readFileSync(f, 'utf8');
   assert.strictEqual(t.split('Permission is hereby granted, free of charge').length - 1, 1, 'MIT License の許諾の文が1回でない');
   assert.ok(t.includes(mitText), 'MIT.txt をそのまま足していない');
   const apache = fs.readFileSync(path.join(__dirname, '..', 'src', 'licenses', 'Apache-2.0.txt'), 'utf8');
   assert.ok(t.endsWith(apache) && t.indexOf(mitText) < t.indexOf(apache), 'Apache License 2.0 の全文が最後でない');
-  const mits = MANIFEST.items.filter((i) => /^MIT/.test(i.license));
+  const mits = WITH_APACHE.items.filter((i) => /^MIT/.test(i.license));
   assert.ok(mits.length >= 4);
   for (const it of mits) assert.ok(t.includes(`  ライセンス: ${it.license}`), `${it.id}: 著作権の行が無い`);
   assert.strictEqual(t.split('  ライセンスの全文: このファイルの後ろの MIT License').length - 1, mits.length, 'MIT の項目ごとの案内の行の数が違う');
-  const noMit = { ...MANIFEST, items: MANIFEST.items.filter((i) => !/^MIT/.test(i.license)) };
+  const noMit = { ...WITH_APACHE, items: WITH_APACHE.items.filter((i) => !/^MIT/.test(i.license)) };
   I.writeNotices(home, noMit);
   const t2 = fs.readFileSync(f, 'utf8');
   assert.ok(!t2.includes('Permission is hereby granted'), 'MIT の項目が無いのに許諾の文を足した');
@@ -835,22 +858,30 @@ test('RF8: 今のピン・残す記録・installed.json などと同じ置き場
     const home = homeOf(); const file = path.join(home.root, 'installed.json'); const ins = () => I.readInstalled(file);
     const a = I.makeRunner(depsOf(s1, home)); a.start({ user: true }); await a.done();
     const b = I.makeRunner(depsOf(s2, home)); b.start({ user: true }); await b.done();
-    I.setActive(home, s2.manifest, 'whisper'); I.setActive(home, s2.manifest, 'sum');
+    I.setActive(home, s2.manifest, 'whisper');   // 0.10.0 LS-3 で要約の組を外した
     const odd = { ['a'.repeat(64)]: 'models/W-MODEL-2.bin', ['b'.repeat(64)]: 'models', ['c'.repeat(64)]: '../外', ['d'.repeat(64)]: 'installed.json', ['e'.repeat(64)]: '.download' };
     const inst = ins();
     for (const [s, place] of Object.entries(odd)) inst.items[s] = { id: 'whisper-model', role: 'model', place, size: 1, mtimeMs: 0 };
     I.writeInstalled(file, inst);
     let asked = 0;
+    // 0.10.0 LS-3（D59）で意図して直した: 前の版は文字起こしのモデルだけなので、消せる前の版のフォルダ（whisper-0.9.0）を記録ごと1つ足し、
+    // canDelete を消す前に毎回見ること（2 回目が偽なら2つ目を消さない）を見る
+    fs.mkdirSync(path.join(home.root, 'whisper-0.9.0'));
+    const inst2 = ins(); inst2.items['9'.repeat(64)] = { id: 'whisper-engine', role: 'engine', place: 'whisper-0.9.0', size: 1, mtimeMs: 0, files: [] };
+    I.writeInstalled(file, inst2);
     const r = await I.cleanupOld(home, s2.manifest, ins(), { canDelete: () => ++asked === 1 });
-    assert.deepStrictEqual(r.removed, ['llama-b1'], '2 回目の canDelete が偽なのに消した');
-    for (const p of ['models/w-model.bin', ...Object.values(odd)]) assert.ok(r.kept.includes(p), `kept に ${p} が無い`);
-    for (const p of ['models/w-model.bin', 'models/w-model-2.bin', 'models/s-model.gguf', 'models/vad.bin', 'installed.json', 'whisper-1.0.0', 'llama-b2']) assert.ok(fs.existsSync(path.join(home.root, p)), p);
+    assert.strictEqual(r.removed.length, 1, '2 回目の canDelete が偽なのに消した');
+    const firstGone = r.removed[0];
+    const other = firstGone === 'models/w-model.bin' ? 'whisper-0.9.0' : 'models/w-model.bin';
+    assert.ok(r.kept.includes(other), `kept に ${other} が無い`);
+    for (const p of Object.values(odd)) assert.ok(r.kept.includes(p), `kept に ${p} が無い`);
+    for (const p of [other, 'models/w-model-2.bin', 'models/vad.bin', 'installed.json', 'whisper-1.0.0']) assert.ok(fs.existsSync(path.join(home.root, p)), p);
     const left = ins().items;
     for (const s of Object.keys(odd)) assert.ok(left[s], `消していない記録 ${odd[s]} を外した`);
-    assert.ok(Object.values(left).some((x) => x.place === 'models/w-model.bin'), '消していない記録を外した');
+    assert.ok(Object.values(left).some((x) => x.place === other), '消していない記録を外した');
     const r2 = await I.cleanupOld(home, s2.manifest, ins(), { canDelete: () => true });
-    assert.deepStrictEqual(r2.removed, ['models/w-model.bin']);
-    for (const p of ['models/w-model-2.bin', 'models/s-model.gguf', 'installed.json']) assert.ok(fs.existsSync(path.join(home.root, p)), p);
+    assert.deepStrictEqual(r2.removed, [other]);
+    for (const p of ['models/w-model-2.bin', 'installed.json']) assert.ok(fs.existsSync(path.join(home.root, p)), p);
     assert.deepStrictEqual(await I.cleanupOld({ supported: false, root: null }, s2.manifest, ins(), { canDelete: () => true }), { removed: [], kept: [] });
   } finally { await s1.close(); await s2.close(); }
 });

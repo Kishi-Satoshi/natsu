@@ -134,7 +134,6 @@ contextBridge.exposeInMainWorld('koeApp', {
   getSettings: () => ipcRenderer.invoke('settings:get'),
   saveSettings: (s) => ipcRenderer.invoke('settings:save', s),
   testApi: () => ipcRenderer.invoke('app:test'),
-  testSum: () => ipcRenderer.invoke('app:test-sum'),
   engineStatus: () => ipcRenderer.invoke('engine:status'),
   engineFetchStatus: () => ipcRenderer.invoke('engine:fetch-status'),
   engineFetchStart: (o) => ipcRenderer.invoke('engine:fetch-start', o),

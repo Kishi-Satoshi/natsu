@@ -59,10 +59,9 @@ const POPS = {
   setPopLogin: { help: 'start/login', must: ['Cloudflare（中継を守る仕組み）', '英語', '［ログイン］を押すと、ログインの画面が別の窓で開きます。', '［Send login code］', '6 けたのコード', '［Sign in］', '窓は自動で閉じます',
     '迷惑メールのフォルダ', '「already been used」', '［Request new code］', '会社のメールの検査が、先にコードを使ってしまうことがあります', '文字起こしの中継に送り、OpenAI で文字起こしします',
     'ログインしていないときと、つながっていないときは、PC の中で文字起こしします。'] },
-  setPopOffline: { help: 'settings/offline', must: ['準備しなくても、インターネットにつながっていてログインしていれば、会議と音声入力はそのまま使えます。', 'オフラインモードの会議', 'この PC の中で文字起こしと要約ができるようになります'] },
+  setPopOffline: { help: 'settings/offline', must: ['準備しなくても、インターネットにつながっていてログインしていれば、会議と音声入力はそのまま使えます。', 'オフラインモードの会議', 'この PC の中で文字起こしができるようになります'] },   // 0.10.0 LS-3（D59）で意図して直した: 要約は PC の中で作らない
   setPopWThreads: { help: 'settings/offline', must: ['文字起こしに使う CPU の数', 'コア数−2', '他の作業が重くなります', 'この PC の中だけで使う通信の番号', 'ぶつかって PC の中の文字起こしが起動できないときだけ変えてください'] },
-  setPopSThreads: { help: 'settings/offline', must: ['意味は文字起こしエンジンの欄と同じです（こちらは要約に使われます）。', '2つのエンジンのポートは別の番号にしてください。'] },
-  setPopCtx: { help: 'settings/offline', must: ['大きいほどメモリを使い、小さいと長い会議の統合で足りなくなります。'] },
+  // setPopSThreads（要約のスレッドとポート）と setPopCtx（要約の文脈長）は 0.10.0 LS-3（D59）で欄ごと外した
   setPopIdle: { help: 'settings/offline', must: ['記録も要約もしていない時間', 'メモリを空けます', '次に使うとき起動し直します'] },
   setPopUpdate: { help: 'start/install-update', must: ['アプリ本体（数百KB）', 'エンジンやモデル、保存済みの議事録はそのままです。', 'src.backup-*', '1世代だけ残ります'] },
 };

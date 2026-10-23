@@ -188,9 +188,11 @@ const IDS_1D_RETIRED = ['stt-auth-only', 'stt-https-only', 'stt-preset-fixed', '
 const GONE_LS1 = ['on-summary-localonly'];
 // LS-2（D59。手元の llama の要約の道を外した）で、直しそのものが無くなった変異（上の一覧からも外した）
 const GONE_LS2 = ['mn-no-fallback', 'mn-localonly-summary', 'op-sum-text'];
+// LS-3（D59。要約のエンジン・文脈長の見積もりを外した）で、直しそのものが無くなった変異
+const GONE_LS3 = ['lib-estimate-tokens', 'lib-fold-notes'];
 test('G3: 0.10.0 LS-1・LS-2 で外した変異（オフラインモードの会議の要約を手元へ回す・手元の llama の要約の道）は一覧に無い', { timeout: 5000 }, () => {
   const ids = new Set(MUTANTS.map((m) => m.id));
-  assert.deepStrictEqual([...GONE_LS1, ...GONE_LS2].filter((id) => ids.has(id)), []);
+  assert.deepStrictEqual([...GONE_LS1, ...GONE_LS2, ...GONE_LS3].filter((id) => ids.has(id)), []);
 });
 
 test('G3: 第1d回 A-4 で外した変異（PC から直に送る道・鍵の確かめ・鍵の欄と IPC）は一覧に無い', { timeout: 5000 }, () => {
@@ -606,6 +608,7 @@ const IDS_100 = [
   'mcp-probe-stdout',
   'ls-route-local', 'ls-lock-empty', 'ls-lock-none', 'ls-unlock-made',
   'ls-wait-mark', 'ls-auto-once', 'ls-lock-wait', 'ls-lock-live', 'ls-unlock-refused', 'ls-lock-save', 'ls-auto-refused', 'ls-ui-lock', 'ls-ui-same',
+  'ls-manifest-sum', 'ls-install-sum', 'ls-settings-sum',
 ];
 test('G3: 0.10.0 の変異が一覧にそろい、IDS_100 はどれも計画の「変異確認」の表にある。mcp-・cfg-・lk-・ls-・stl-・nl-・pt- の変異は IDS_100 にある。どれも決まったテストのファイルを持ち、なぜ戻すと困るかを書く', { timeout: 5000 }, () => {
   const byId = new Map(MUTANTS.map((m) => [m.id, m]));
