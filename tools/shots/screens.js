@@ -217,12 +217,13 @@ const OVL_094 = (states) => PS.FORMS.flatMap((form) => Object.keys(PS.DESKS).fla
 // 0.9.4（版を 0.9.4 に上げる commit）: 持ち主が 2026-10-22 に取り直しの見比べ（CI run 39831111027（bd2320d）・artifact 12448422820 の .after.png）を見て
 // 「OK」と言ったので、その画像をバイトのまま基準にし（基準と同じだった live-banner-zoom200-dark は今の基準のまま）、空に戻した
 // 0.10.0（計画 docs/plans/2026-10-20-100.md の「取り直す画面（RETAKE）」）。SH-1（D71）: 見本の題名を日付の形にしたので、題名の写る本体の画面
+// （CI run 39895432371 で撮って基準と違った画面だけ。一覧が空の画面も左の一覧に見本が出ていた。基準と同じだった拡大の設定の3枚は入れない）
 const RETAKE = new Set([
-  'notes-page-light', 'notes-page-dark', 'dictation-light', 'settings-light', 'settings-dark', 'notes-tabs-light', 'notes-collapsed-light',
-  'live-light', 'live-dark', 'notes-page-zoom200-light', 'settings-zoom200-dark', 'search-palette-light', 'live-banner-light', 'live-banner-dark',
+  'notes-empty-light', 'notes-page-light', 'notes-page-dark', 'dictation-light', 'settings-light', 'settings-dark', 'notes-tabs-light', 'notes-collapsed-light',
+  'live-light', 'live-dark', 'notes-page-zoom200-light', 'search-palette-light', 'live-banner-light', 'live-banner-dark',
   'live-banner-zoom200-dark', 'settings-record-light', 'settings-search-light', 'settings-offline-light', 'live-quiet-light', 'live-quiet-dark',
-  'settings-quiet-search-light', 'settings-record-dark', 'settings-record-zoom200-light', 'settings-summary-light', 'settings-account-light',
-  'settings-info-loop-light', 'settings-info-stt-dark', 'settings-info-claude-light', 'settings-info-zoom200-light', 'settings-info-search-light',
+  'settings-quiet-search-light', 'settings-record-dark', 'settings-summary-light', 'settings-account-light',
+  'settings-info-loop-light', 'settings-info-stt-dark', 'settings-info-claude-light', 'settings-info-search-light',
   'live-wave-light', 'live-wave-dark', 'live-silent-light', 'live-paused-dark', 'settings-detect-light', 'settings-detect-dark', 'live-offline-light',
   'live-offline-dark', 'live-late-light', 'live-late-dark', 'live-late-zoom200-light',
 ]);

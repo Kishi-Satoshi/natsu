@@ -79,12 +79,12 @@ const S8_APP_094 = ['live-late-light', 'live-late-dark', 'live-late-zoom200-ligh
 const ADDED_094 = [...W1_094, ...P1_094, ...R1_094, ...S8_APP_094];
 // 0.10.0（計画 docs/plans/2026-10-20-100.md の「取り直す画面（RETAKE）」）で意図して変えた: 取り直し待ちは 0.10.0 の表の画面だけ（RETAKE_100）。タスクごとに足し、
 // 最後に1回まとめて持ち主に見てもらい、版を上げる commit（G-2）で基準にして空に戻す
-// SH-1（D71）: 見本の議事録の題名を日付の形にしたので、左の一覧・タブ・道しるべ・大きな題名・検索の窓の結果が写る本体の画面（一覧が空の notes-empty-light のほか全部）
-const SH1_100 = ['notes-page-light', 'notes-page-dark', 'dictation-light', 'settings-light', 'settings-dark', 'notes-tabs-light', 'notes-collapsed-light',
-  'live-light', 'live-dark', 'notes-page-zoom200-light', 'settings-zoom200-dark', 'search-palette-light', 'live-banner-light', 'live-banner-dark',
+// SH-1（D71）: 見本の議事録の題名を日付の形にしたので、左の一覧・タブ・道しるべ・大きな題名・検索の窓の結果が写る本体の画面（CI run 39895432371 で撮って基準と違った画面だけ: notes-empty-light も左の一覧に見本が出る。拡大の設定の3枚は基準と同じ）
+const SH1_100 = ['notes-empty-light', 'notes-page-light', 'notes-page-dark', 'dictation-light', 'settings-light', 'settings-dark', 'notes-tabs-light', 'notes-collapsed-light',
+  'live-light', 'live-dark', 'notes-page-zoom200-light', 'search-palette-light', 'live-banner-light', 'live-banner-dark',
   'live-banner-zoom200-dark', 'settings-record-light', 'settings-search-light', 'settings-offline-light', 'live-quiet-light', 'live-quiet-dark',
-  'settings-quiet-search-light', 'settings-record-dark', 'settings-record-zoom200-light', 'settings-summary-light', 'settings-account-light',
-  'settings-info-loop-light', 'settings-info-stt-dark', 'settings-info-claude-light', 'settings-info-zoom200-light', 'settings-info-search-light',
+  'settings-quiet-search-light', 'settings-record-dark', 'settings-summary-light', 'settings-account-light',
+  'settings-info-loop-light', 'settings-info-stt-dark', 'settings-info-claude-light', 'settings-info-search-light',
   'live-wave-light', 'live-wave-dark', 'live-silent-light', 'live-paused-dark', 'settings-detect-light', 'settings-detect-dark', 'live-offline-light',
   'live-offline-dark', 'live-late-light', 'live-late-dark', 'live-late-zoom200-light'];
 const RETAKE_100 = [...SH1_100];
