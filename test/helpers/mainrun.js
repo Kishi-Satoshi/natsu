@@ -371,6 +371,17 @@ const { titleAt } = require('./titles');
 //                        notices・settingsText・state（meeting:status の active）
 //     --detect=off・--detect-mute=<id,…> … 置く settings.json の meetingDetect: false・meetingDetectMute
 //     --dark … 偽の nativeTheme.shouldUseDarkColors を真で始める
+//   0.10.0 C-2（Claude デスクトップへの MCP の登録。計画 docs/plans/2026-10-20-100.md）
+//     app.getPath('appData') は一時フォルダ（日本語と 𠮷）の AppData-Roaming。MCP の場面（--claude-config・--mcp-steps）だけ app.getAppPath() がリポジトリの根
+//     --claude-config=<場面> … 起動の前に Claude デスクトップの設定ファイルを置く（none: フォルダだけ・plain: 好みの設定だけ・others: 好みの設定と
+//                        ほかのサーバー2つと利用者の控え .bak・bom: others を BOM 付きで・broken: 途中で切れた JSON・array: []・other-natsu: 印の無い natsu・
+//                        readonly: others を読み取り専用で・msix: %APPDATA% はフォルダだけで、%LOCALAPPDATA%\Packages\Claude_…\LocalCache\Roaming\Claude に others・noclaude: どちらのフォルダも無い）
+//     --mcp-gone  … 置く settings.json に、前に登録した印 mcpRegisteredFor（ファイル 1・版 0.9.4）を書く
+//     --mcp-stale … 置く設定ファイルの mcpServers の頭に、場所の違う NaTsu の登録（印あり）を足す
+//     --tasklist=<running|stopped|fail> … 偽の execFile が tasklist.exe に答える（動いている・動いていない・失敗）。呼んだ引数を out.tasklistCalls に
+//     --mcp-steps=<JSON> … 起動の後に手順を順に行い、出力して終える: ["status"]・["register"]・["unregister"]（mcp: の IPC。答えは out.ipc に）・
+//                        ["files", 名前]（その時の設定ファイルを out.snaps に）・["sleep", ms]・["save", 足す設定]（画面と同じ settings:save）。出力: claudeConfigs（roaming・msix ごとに text（BOM も含む）・
+//                        backups（NaTsu の控えの名前）・backupTexts・others（ほかのファイルの名前）。フォルダが無ければ null）・notices・engineLog・settingsText・dataDir
 // 画面へ送った知らせと進み具合は、送った順に out.seq へ残す。進み具合が初めて「使える」（whisperReady・sumReady）と
 // 言ったときの engine:status を out.atReady に、壊れた知らせを送ったときの engine:status を out.atBroken に残す
 // （画面はその知らせでエンジンの状態を聞き直すので、そのとき main の答えがもう新しいこと: 第0b回 Task 14・15）
@@ -466,6 +477,13 @@ if (micSteps) process.env.NATSU_TEST_MIC_WATCH = '1';
 const detectFlag = flagVal('--detect');
 const detectMuteFlag = flagVal('--detect-mute');
 const darkFlag = flags.includes('--dark');
+// 0.10.0 C-2: Claude デスクトップへの MCP の登録の場面（頭の注釈）
+const claudeConfigFlag = flagVal('--claude-config');
+const mcpGoneFlag = flags.includes('--mcp-gone');
+const mcpStaleFlag = flags.includes('--mcp-stale');
+const tasklistFlag = flagVal('--tasklist');
+const mcpSteps = flagVal('--mcp-steps') ? JSON.parse(flagVal('--mcp-steps')) : null;
+const mcpScene = Boolean(claudeConfigFlag || mcpSteps);
 // 0.9.1 Q-4: 話し声が無いときに自動で止める場面（頭の注釈）
 const quietSeq = flagVal('--quiet-seq') ? flagVal('--quiet-seq').split(',').flatMap((t) => {
   const m = /^([stbkxXPdSR])(?::(.))?(?:\*(\d+))?$/.exec(t);
@@ -793,6 +811,55 @@ process.on('exit', () => {
   }
   // 取り込んだ組（--managed）。置き場所は main と同じ LOCALAPPDATA の下（日本語と 𠮷 の名前。RF1）
   const localAppData = path.join(tmp, 'LocalAppData-取込𠮷');
+  // 0.10.0 C-2: %APPDATA%（app.getPath('appData')）と Claude デスクトップの設定ファイル（--claude-config。頭の注釈）
+  const appDataDir = path.join(tmp, 'AppData-Roaming-設定𠮷');
+  fs.mkdirSync(appDataDir, { recursive: true });
+  const CLAUDE_CONFIG = 'claude_desktop_config.json';
+  const claudeDirs = { roaming: path.join(appDataDir, 'Claude'), msix: path.join(localAppData, 'Packages', 'Claude_pzs8sxrjxfjjc', 'LocalCache', 'Roaming', 'Claude') };
+  if (claudeConfigFlag) {
+    const OTHERS = {
+      globalShortcut: 'Ctrl+Space',
+      mcpServers: { filesystem: { command: 'npx', args: ['-y', '@modelcontextprotocol/server-filesystem', 'C:\\docs'] }, memory: { command: 'node', args: ['mem.js'], env: { K: 'v' } } },
+      theme: 'dark',
+    };
+    const withStale = (cfg) => (mcpStaleFlag
+      ? { ...cfg, mcpServers: { natsu: { command: 'D:\\old\\NaTsu.exe', args: ['D:\\old\\resources\\app\\src\\mcp\\server.js'], env: { ELECTRON_RUN_AS_NODE: '1', NATSU_MCP: '1', NATSU_DATA_DIR: 'D:\\old\\data' } }, ...cfg.mcpServers } }
+      : cfg);
+    const text = (v) => JSON.stringify(withStale(v), null, 2);
+    const BODIES = {
+      none: null,
+      plain: JSON.stringify({ theme: 'light' }, null, 2),
+      others: text(OTHERS),
+      bom: `\uFEFF${text(OTHERS)}`,
+      broken: '{\n  "mcpServers": {\n    "filesystem": {',
+      array: '[]',
+      'other-natsu': text({ ...OTHERS, mcpServers: { ...OTHERS.mcpServers, natsu: { command: 'other.exe', args: [] } } }),
+      readonly: text(OTHERS),
+      msix: null,
+    };
+    if (claudeConfigFlag !== 'noclaude') {
+      if (!Object.hasOwn(BODIES, claudeConfigFlag)) { process.stderr.write(`mainrun: --claude-config=${claudeConfigFlag} が読めない\n`); process.exit(1); }
+      fs.mkdirSync(claudeDirs.roaming, { recursive: true });
+      const body = BODIES[claudeConfigFlag];
+      const file = path.join(claudeDirs.roaming, CLAUDE_CONFIG);
+      if (body !== null) fs.writeFileSync(file, body);
+      if (claudeConfigFlag === 'others') fs.writeFileSync(`${file}.bak`, '{"利用者の控え": true}');
+      if (claudeConfigFlag === 'readonly') fs.chmodSync(file, 0o444);
+      if (claudeConfigFlag === 'msix') {
+        fs.mkdirSync(claudeDirs.msix, { recursive: true });
+        fs.writeFileSync(path.join(claudeDirs.msix, CLAUDE_CONFIG), text(OTHERS));
+      }
+    }
+  }
+  // その時の設定ファイル（場所ごと。フォルダが無ければ null）
+  const claudeConfigsNow = () => Object.fromEntries(Object.entries(claudeDirs).map(([k, dir]) => {
+    if (!fs.existsSync(dir)) return [k, null];
+    const names = fs.readdirSync(dir).sort();
+    const isBk = (n) => n.startsWith(`${CLAUDE_CONFIG}.natsu-`) && n.endsWith('.bak');
+    const backups = names.filter(isBk);
+    const read = (n) => { try { return fs.readFileSync(path.join(dir, n), 'utf8'); } catch (_) { return null; } };
+    return [k, { text: read(CLAUDE_CONFIG), backups, backupTexts: Object.fromEntries(backups.map((n) => [n, read(n)])), others: names.filter((n) => n !== CLAUDE_CONFIG && !isBk(n)) }];
+  }));
   let managedExe = '';
   let managedRoot = '';
   let managedMods = null;
@@ -988,6 +1055,7 @@ process.on('exit', () => {
       ...(autoStopMinFlag ? { autoStopMin: autoStopMinFlag } : {}),
       ...(detectFlag === 'off' ? { meetingDetect: false } : {}),   // 0.9.3 M-2
       ...(detectMuteFlag ? { meetingDetectMute: detectMuteFlag.split(',') } : {}),
+      ...(mcpGoneFlag ? { mcpRegisteredFor: { files: 1, version: '0.9.4' } } : {}),   // 0.10.0 C-2
       claudeExe,
       ...(pillSettings || {}),
     }));
@@ -1439,10 +1507,11 @@ process.on('exit', () => {
     dialog,
     clipboard,
     app: withFallback(Object.assign(appEvents, {
-      getPath: () => userData, whenReady: () => ready, requestSingleInstanceLock: () => true,
+      getPath: (name) => (name === 'appData' ? appDataDir : userData), whenReady: () => ready, requestSingleInstanceLock: () => true,   // 0.10.0 C-2: appData
       getVersion: () => require(path.join(ROOT, 'package.json')).version, isPackaged: false,
       quit() { quitCalls += 1; if (scene && scene.quitEmits) appEvents.emit('before-quit', { preventDefault() {} }); },
       setLoginItemSettings() {}, getLoginItemSettings: () => ({}), setAppUserModelId() {}, getName: () => 'natsu',
+      ...(mcpScene ? { getAppPath: () => ROOT } : {}),   // 0.10.0 C-2: MCP の場面だけ（src/mcp/server.js の場所）
       ...restartApp,
     })),
     BrowserWindow: TrackedWin,
@@ -1481,6 +1550,7 @@ process.on('exit', () => {
   const launches = [];
   const launchPlan = [];
   let crashed = false;  // --crash・--crash-ok: 最初の起動だけ 0xC0000135 で落とした
+  const tasklistCalls = [];   // 0.10.0 C-2: --tasklist で答えた tasklist.exe の呼び出し
   const childProcess = {
     ...cp,
     spawn(cmd, args, opts) {
@@ -1564,7 +1634,18 @@ process.on('exit', () => {
       p.stdin = null; p.stdout = new EventEmitter(); p.stderr = new EventEmitter(); p.kill = () => {};
       return p;
     },
-    execFile(_cmd, _args, _opts, cb) { const done = typeof _opts === 'function' ? _opts : cb; if (done) setImmediate(() => done(new Error('not in test'))); return anyProxy(); },
+    execFile(_cmd, _args, _opts, cb) {
+      const done = typeof _opts === 'function' ? _opts : cb;
+      // 0.10.0 C-2: --tasklist のときは tasklist.exe に答える（頭の注釈）
+      if (tasklistFlag && /(^|[\\/])tasklist\.exe$/i.test(String(_cmd))) {
+        tasklistCalls.push({ cmd: _cmd, args: _args, opts: typeof _opts === 'function' ? null : _opts });
+        const answer = tasklistFlag === 'running' ? '"claude.exe","1234","Console","1","123,456 K"\r\n' : 'INFO: No tasks are running which match the specified criteria.\r\n';
+        if (done) setImmediate(() => (tasklistFlag === 'fail' ? done(new Error('tasklist failed')) : done(null, answer, '')));
+        return anyProxy();
+      }
+      if (done) setImmediate(() => done(new Error('not in test')));
+      return anyProxy();
+    },
   };
   // 第1d回 A-9 の点検: main が起こした子（エンジン・貼り付けなど）の kill() の回数を数える（断った再起動が何も止めないことを見る）
   let killCalls = 0;
@@ -2458,6 +2539,29 @@ process.on('exit', () => {
     await exitClean(0);
   }
   if (runTest) out.test = await handlers['app:test']();
+  // 0.10.0 C-2: Claude デスクトップへの MCP の登録の場面（--mcp-steps。頭の注釈）。手順を順に行い、出力して終える
+  if (mcpSteps) {
+    await sleep(50);
+    out.ipc = [];
+    out.snaps = {};
+    const CH = { status: 'mcp:status', register: 'mcp:register', unregister: 'mcp:unregister' };
+    for (const step of mcpSteps) {
+      const [k, ...a] = step;
+      if (Object.hasOwn(CH, k)) out.ipc.push([CH[k], handlers[CH[k]] ? await handlers[CH[k]]({}) : 'no-such-channel']);
+      else if (k === 'files') out.snaps[a[0]] = claudeConfigsNow();
+      else if (k === 'save') { const st = await handlers['settings:get'](); out.ipc.push(['settings:save', await handlers['settings:save']({}, { ...st, ...a[0] })]); await sleep(WRITE_SETTLE_MS); }
+      else if (k === 'sleep') await sleep(a[0]);
+      else throw new Error(`mainrun: --mcp-steps の手順 ${k} が読めない`);
+    }
+    await sleep(30);
+    Object.assign(out, {
+      claudeConfigs: claudeConfigsNow(), notices: sent.filter(([ch]) => ch === 'app:notice').map(([, p]) => p), engineLog: elogLines(),
+      settingsText: (readUser('settings.json') || '').toString('utf8'), dataDir: path.join(userData, 'data'), tasklistCalls,
+    });
+    for (const dir of Object.values(claudeDirs)) { try { for (const n of fs.readdirSync(dir)) fs.chmodSync(path.join(dir, n), 0o644); } catch (_) { /* 無ければ飛ばす */ } }
+    process.stdout.write(`\n${JSON.stringify(out)}\n`);
+    await exitClean(0);
+  }
   // 0.9.2 I-1: 場面 open-help（ヘルプセンターを開く口。記録しない）
   if (openHelpCalls) {
     out.openHelp = [];

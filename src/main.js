@@ -79,6 +79,8 @@ const { defaultSettings, readSettings, pickSavable, isSettingsShape, isEmailShap
 const J = require('./jsonfile');
 // 画面の覚え書き（第1b回 N6）の照らし。純粋な関数だけ（Electron を読まない）。読み書きは上の J で行う
 const W = require('./winstate');
+// Claude デスクトップの設定に NaTsu の MCP の1項目を合わせる部品（0.10.0 C-1。純粋。読み書きはここで J を使う）
+const MC = require('./mcp-config');
 // エンジンの取り込み（第0b回 R7）。置き場所・記録・照らし（通信しない）とピン（版・URL・大きさ・SHA-256）
 const engineInstall = require('./engine-install');
 const { MANIFEST } = require('./engine-manifest');
@@ -254,6 +256,9 @@ const NOTICE = {
   dbNetwork: '保存先がネットワークの場所にあるため、少し遅いが安全な書き方に切り替えました。',
   // 画面の覚え書き（第1b回 W1。P16）
   winStateBroken: (name) => `画面の覚え書き（窓の大きさ・開いていたタブ）のファイルが壊れていたため、脇へ退けて最初の大きさで開きました（退けた先: ${name}）。`,
+  // Claude との連携（0.10.0 C-2。計画の「左下の知らせ（N）」と決めたこと 151。どちらも［設定を開く］で項目「要約」）
+  mcpStale: 'NaTsu の置き場所が変わったため、Claude から議事録を読めなくなっています。設定の「要約」で［登録し直す］を押してください。',
+  mcpGone: 'Claude デスクトップへの登録が消えています。［設定を開く］で［登録し直す］を押してください。',
 };
 // 起動の途中（本体の窓がまだ無い）なら startupNotices に貯め、窓ができた後なら画面へ（読み込み中なら読み終えてから）
 function laterNotice(msg) {
@@ -2009,6 +2014,150 @@ function setAccountEmail(email) {
   const w = settingsWriter.now(settings);
   if (!w.ok) engineLog(`アカウント: 設定に書けませんでした（${errCode(w.error)}）`);
 }
+// ---------------------------------------------------------------- Claude との連携（MCP。0.10.0 Task C-2。計画の「受け渡す名前と形」の main の分）
+// Claude デスクトップの設定ファイル（claude_desktop_config.json）に NaTsu の1項目を足す・外す。場所は main が決める（画面はパスを渡さない: 方針 7）。
+//  - 読みは J.readJsonFile（1MB まで・根は物）。壊れている（broken）・読めない（busy）・同じ名前の別の登録（other）・読み取り専用（readonly）の
+//    ファイルが1つでもあれば、どのファイルにも書かない（1バイトも変えない: F2）。
+//  - 変わるファイルだけ、書く前に同じフォルダへ控え（.natsu-<時刻>.bak。COPYFILE_EXCL）を写し、NaTsu の控えは新しい3つだけ残す（決めたこと 18）。
+//  - 書いた後に読み直して same を確かめる（違えば busy）。登録したら settings.mcpRegisteredFor（ファイルの数と版だけ。パスや中身は持たない:
+//    決めたこと 151）を書き、外したら消す。mcpRegisteredFor は SETTING_RULES に入れない（画面の settings:save では書けない。pickSavable が落とす）。
+//  - 記録は「MCP の登録: <足した|直した|外した|変えなかった|断った（符号）>（ファイル N・控え M）」だけ（パス・中身を書かない: 決めたこと 26）。
+const MCP_MAX_BYTES = 1024 * 1024;
+const MCP_WORSE = ['same', 'none', 'stale', 'other', 'readonly', 'busy', 'broken'];   // 後ろほど悪い（2つのファイルは悪い方を出す）
+const MCP_REFUSE = new Set(['broken', 'busy', 'other', 'readonly']);
+const isPlainObj = (v) => Boolean(v) && typeof v === 'object' && !Array.isArray(v);
+const worseOf = (a, b) => (MCP_WORSE.indexOf(b) > MCP_WORSE.indexOf(a) ? b : a);
+function mcpPaths() {
+  return { exe: process.execPath, script: path.join(app.getAppPath(), 'src', 'mcp', 'server.js'), dbDir: DB_INIT.dataDir };
+}
+function mcpFiles() {
+  let appData = '';
+  try { appData = app.getPath('appData'); } catch (_) { appData = ''; }
+  return MC.configFiles({ appData, localAppData: process.env.LOCALAPPDATA || '', readdir: (d) => fs.readdirSync(d), exists: (p) => fs.existsSync(p) });
+}
+// 前に登録した印（ファイルの数が 1 以上の整数のときだけ印とみなす）
+const mcpRegisteredMark = () => { const m = settings && settings.mcpRegisteredFor; return isPlainObj(m) && Number.isInteger(m.files) && m.files > 0; };
+// 1つのファイルを読んで、変えた後の形を決める（書かない）。fix は MC.mergeEntry か MC.removeEntry
+function mcpPlanFile(file, fix) {
+  const r = J.readJsonFile(file, { shape: isPlainObj, maxBytes: MCP_MAX_BYTES });
+  if (r.state === 'broken') return { file, refuse: 'broken' };
+  if (r.state === 'unreadable') return { file, refuse: 'busy' };
+  const had = r.state === 'ok';
+  const m = fix(had ? r.value : { mcpServers: {} });
+  if (!m.ok) return { file, refuse: m.code === 'shape' ? 'broken' : m.code };
+  const changed = had ? m.changed : m.changed && Object.keys(m.config.mcpServers || {}).length > 0;
+  if (changed && had && J.isReadOnly(file)) return { file, refuse: 'readonly' };
+  return { file, had, changed, config: m.config };
+}
+// 書く前の控え（同じ時刻の名前があれば 1 ミリ秒ずつずらす）と、NaTsu の控えを新しい BACKUP_KEEP 個だけ残す
+function mcpBackup(file) {
+  let t = Date.now();
+  for (let i = 0; i < 20; i++, t++) {
+    try { fs.copyFileSync(file, MC.backupName(file, new Date(t)), fs.constants.COPYFILE_EXCL); break; } catch (e) { if (!(e && e.code === 'EEXIST')) throw e; }
+  }
+  const dir = path.dirname(file);
+  const base = path.basename(file);
+  let names = [];
+  try { names = fs.readdirSync(dir).filter((n) => MC.isNatsuBackup(base, n)).sort(); } catch (_) { names = []; }
+  for (const n of names.slice(0, Math.max(0, names.length - MC.BACKUP_KEEP))) { try { fs.unlinkSync(path.join(dir, n)); } catch (_) { /* 消せなければ次に */ } }
+}
+// → { state, files }（読むだけ。書かない）
+function mcpDesktopState() {
+  const files = mcpFiles();
+  if (!files.length) return { state: 'noclaude', files: 0 };
+  let entry;
+  try { entry = MC.serverEntry(mcpPaths()); } catch (_) { return { state: 'busy', files: files.length }; }
+  let state = 'same';
+  for (const file of files) {
+    const p = mcpPlanFile(file, (cfg) => MC.mergeEntry(cfg, entry));
+    let st;
+    if (p.refuse) st = p.refuse;
+    else if (!p.changed) st = 'same';
+    else {
+      const r = J.readJsonFile(file, { shape: isPlainObj, maxBytes: MCP_MAX_BYTES });
+      st = r.state === 'ok' ? MC.entryState(r.value, entry) : 'none';
+    }
+    state = worseOf(state, st);
+  }
+  // 前に登録したのに、どのファイルにも NaTsu の項目が無い（決めたこと 151）
+  if (state === 'none' && mcpRegisteredMark()) state = 'gone';
+  return { state, files: files.length };
+}
+// Claude デスクトップ（claude.exe）が動いているか（決めたこと 149。tasklist.exe を決まった引数で1回。シェルを通さない）→ true・false・null
+function claudeDesktopRunning() {
+  return new Promise((resolve) => {
+    try {
+      execFile('tasklist.exe', [...MC.TASKLIST_ARGS], { windowsHide: true, timeout: 5000 },
+        (err, stdout) => resolve(err ? null : MC.claudeRunningOf(String(stdout == null ? '' : stdout))));
+    } catch (_) { resolve(null); }
+  });
+}
+async function mcpStatus() {
+  const desktop = mcpDesktopState();
+  return { desktop: { ...desktop, running: await claudeDesktopRunning() } };
+}
+function mcpLogLine(word, files, backups) {
+  engineLog(`MCP の登録: ${word}（ファイル ${files}・控え ${backups}）`);
+}
+function setMcpMark(mark) {
+  const next = { ...settings };
+  if (mark) next.mcpRegisteredFor = mark;
+  else delete next.mcpRegisteredFor;
+  settings = next;
+  const w = settingsWriter.now(settings);
+  if (!w.ok) engineLog(`MCP の登録: 設定に書けませんでした（${errCode(w.error)}）`);
+}
+// 足す（register）か外す（unregister）。→ { ok, state, code? }
+function mcpApply(register) {
+  const files = mcpFiles();
+  if (!files.length) { mcpLogLine('断った（noclaude）', 0, 0); return { ok: false, state: 'noclaude', code: 'noclaude' }; }
+  const entry = MC.serverEntry(mcpPaths());
+  const plans = files.map((f) => mcpPlanFile(f, (cfg) => (register ? MC.mergeEntry(cfg, entry) : MC.removeEntry(cfg))));
+  const refused = plans.filter((p) => p.refuse).reduce((a, p) => (a ? worseOf(a, p.refuse) : p.refuse), '');
+  if (refused) { mcpLogLine(`断った（${refused}）`, files.length, 0); return { ok: false, state: refused, code: refused }; }
+  const wasStale = register && plans.some((p) => p.had && p.changed && (() => {
+    const r = J.readJsonFile(p.file, { shape: isPlainObj, maxBytes: MCP_MAX_BYTES });
+    return r.state === 'ok' && MC.entryState(r.value, entry) === 'stale';
+  })());
+  let backups = 0;
+  let failed = '';
+  for (const p of plans.filter((x) => x.changed)) {
+    try {
+      if (p.had) { mcpBackup(p.file); backups += 1; }
+      J.writeJsonFile(p.file, p.config);
+    } catch (e) {
+      failed = worseOf(failed || 'same', e && e.readOnly ? 'readonly' : 'busy');
+    }
+  }
+  // 書いた後に読み直して確かめる（違えば busy）
+  if (!failed && register) {
+    for (const file of files) {
+      const r = J.readJsonFile(file, { shape: isPlainObj, maxBytes: MCP_MAX_BYTES });
+      if (r.state !== 'ok' || MC.entryState(r.value, entry) !== 'same') failed = 'busy';
+    }
+  }
+  if (failed) { mcpLogLine(`断った（${failed}）`, files.length, backups); return { ok: false, state: failed, code: failed }; }
+  const changed = plans.some((p) => p.changed);
+  mcpLogLine(!changed ? '変えなかった' : !register ? '外した' : wasStale ? '直した' : '足した', files.length, backups);
+  if (register) setMcpMark({ files: files.length, version: app.getVersion() });
+  else setMcpMark(null);
+  return { ok: true, state: register ? 'same' : 'none' };
+}
+async function mcpRegister() {
+  const r = mcpApply(true);
+  return { ...r, running: await claudeDesktopRunning() };
+}
+function mcpUnregister() {
+  return mcpApply(false);
+}
+// 起動の後（窓が出てから）に1回。読むだけ。場所が古い（stale）・登録が消えた（gone）ときだけ知らせる。読めなければ何もしない
+function checkMcpRegistration() {
+  let st;
+  try { st = mcpDesktopState().state; } catch (_) { return; }
+  if (st === 'stale') noticeMainWin({ text: NOTICE.mcpStale, action: 'settings-summary' });
+  else if (st === 'gone') noticeMainWin({ text: NOTICE.mcpGone, action: 'settings-summary' });
+}
+
 // 経路を決める（送るときのログイン（pack）も返す: transcribeAuto だけが使い、ほかへは渡さない）。
 // opts.scope: 知らせの係（会議。無ければ起動ごと）、opts.quiet: 知らせを出さない、
 // opts.probe: false なら中継へ届くかを確かめず net.isOnline() だけで見る（先読みの判断。通信を出さない）
@@ -5743,6 +5892,10 @@ function setupIpc() {
     return claudeTesting;
   };
   ipcMain.handle('claude:status', () => claudeStatus());
+  // Claude との連携（MCP。0.10.0 C-2。引数なし: 場所は main が決める）
+  ipcMain.handle('mcp:status', () => mcpStatus());
+  ipcMain.handle('mcp:register', () => mcpRegister());
+  ipcMain.handle('mcp:unregister', () => mcpUnregister());
   ipcMain.handle('claude:test', () => claudeTest());
   // ［Claude Code にログイン］［Claude Code を入れる］（第1b回の続き Lane F-c・F-d。利用者に PowerShell を打たせない）。
   // 見える窓は claudeCli.claudeOpenWindow が隠した PowerShell から開き、閉じるまで待つ。閉じたら確かめ直して、その答えを返す
@@ -6027,6 +6180,8 @@ if (!gotLock) {
     startupWork.then(() => transcribeRecovered()).catch((e) => engineLog(`復旧の文字起こしに失敗: ${logReason(e)}`));
     ensurePaster();
     createMainWindow();
+    // 0.10.0 C-2: Claude デスクトップへの登録を1回だけ確かめる（読むだけ。場所が古い・消えたときだけ知らせる）
+    checkMcpRegistration();
     // 0.9.3 M-2: 会議の検出の見張り（Windows・設定がオン・録音していないとき）。窓とトレイの後に起こす
     detectReady = true;
     detectBusy = state;

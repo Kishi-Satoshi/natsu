@@ -1899,4 +1899,9 @@ module.exports = [
   {"id":"cfg-msix","file":"src/mcp-config.js","from":"  if (localAppData) {","to":"  if (false) {","tests":["test/mcp-config.test.js"],"why":"0.10.0 C-1 決めたこと 19・D76: Microsoft Store 版の場所を探さない（Store 版の Claude を使う人は登録が効かない）"},
   {"id":"cfg-stale","file":"src/mcp-config.js","from":"  return same ? 'same' : 'stale';","to":"  return 'same';","tests":["test/mcp-config.test.js"],"why":"0.10.0 C-1 F4・決めたこと 21: 場所の違いを見ない（入れ直して場所が変わっても「登録済み」と言い、Claude から読めない）"},
   {"id":"cfg-claude-running","file":"src/mcp-config.js","from":"  return /(^|\\n)\\s*\"?claude\\.exe\"?\\s*,/i.test(stdout);","to":"  return false;","tests":["test/mcp-config.test.js"],"why":"0.10.0 C-1 決めたこと 149: Claude デスクトップが動いていても知らせない（動いたまま登録して、起動し直すまで読めない）"},
+  // 0.10.0 Task C-2（Claude デスクトップへの登録の IPC・控え・起動の確かめ）
+  {"id":"cfg-broken-write","file":"src/main.js","from":"  if (r.state === 'broken') return { file, refuse: 'broken' };","to":"","tests":["test/stage100.mcp.main.test.js"],"pattern":"F2: broken","why":"0.10.0 C-2 F2: 壊れた設定ファイルに書く（利用者の Claude デスクトップの設定を新しい中身で上書きする）"},
+  {"id":"cfg-backup","file":"src/main.js","from":"      if (p.had) { mcpBackup(p.file); backups += 1; }","to":"      if (p.had) backups += 1;","tests":["test/stage100.mcp.main.test.js"],"pattern":"RF61: others","why":"0.10.0 C-2 決めたこと 18: 書く前に控えを写さない（書き換えた設定を元に戻せない）"},
+  {"id":"cfg-backup-keep","file":"src/main.js","from":"  for (const n of names.slice(0, Math.max(0, names.length - MC.BACKUP_KEEP))) {","to":"  for (const n of []) {","tests":["test/stage100.mcp.main.test.js"],"pattern":"登録を外すと","why":"0.10.0 C-2 決めたこと 18: NaTsu の控えを消さない（登録し直すたびに Claude のフォルダに控えが溜まる）"},
+  {"id":"cfg-gone","file":"src/main.js","from":"  if (state === 'none' && mcpRegisteredMark()) state = 'gone';","to":"","tests":["test/stage100.mcp.main.test.js"],"pattern":"D76・決めたこと 151","why":"0.10.0 C-2 D76・決めたこと 151: 前に登録したのに項目が消えていても知らせない（Claude から読めなくなったことに気づけない）"},
 ];

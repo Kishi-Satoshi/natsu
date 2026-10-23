@@ -16,8 +16,9 @@ const isObj = (v) => Boolean(v) && typeof v === 'object' && !Array.isArray(v);
 const clone = (v) => JSON.parse(JSON.stringify(v));
 
 // 登録する1項目（決めたこと 17: Claude デスクトップの子では %APPDATA% が展開されないことがあるので、DB のフォルダを渡す）
-function serverEntry({ exe, script, dataDir }) {
-  return { command: exe, args: [script], env: { ELECTRON_RUN_AS_NODE: '1', [MARK]: '1', NATSU_DATA_DIR: dataDir } };
+// （引数の名前は dbDir: main に外した設定キー dataDir の名残を置かない。test/stage3.main の確かめ）
+function serverEntry({ exe, script, dbDir }) {
+  return { command: exe, args: [script], env: { ELECTRON_RUN_AS_NODE: '1', [MARK]: '1', NATSU_DATA_DIR: dbDir } };
 }
 
 const marked = (e) => isObj(e) && isObj(e.env) && e.env[MARK] === '1';
@@ -84,10 +85,12 @@ function isNatsuBackup(base, name) {
   return typeof name === 'string' && name.startsWith(`${base}.natsu-`) && /\.natsu-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z\.bak$/.test(name);
 }
 
+// tasklist.exe に渡す決まった引数（決めたこと 149。claude.exe の名前だけを見る）
+const TASKLIST_ARGS = Object.freeze(['/FI', 'IMAGENAME eq claude.exe', '/NH', '/FO', 'CSV']);
 // tasklist の答え → Claude デスクトップ（claude.exe）が動いているか: true・false・null（分からない）（決めたこと 149）
 function claudeRunningOf(stdout) {
   if (typeof stdout !== 'string' || !stdout.trim()) return null;
   return /(^|\n)\s*"?claude\.exe"?\s*,/i.test(stdout);
 }
 
-module.exports = { ENTRY_NAME, MARK, BACKUP_KEEP, CONFIG_NAME, serverEntry, entryState, mergeEntry, removeEntry, configFiles, backupName, isNatsuBackup, claudeRunningOf };
+module.exports = { ENTRY_NAME, MARK, BACKUP_KEEP, CONFIG_NAME, TASKLIST_ARGS, serverEntry, entryState, mergeEntry, removeEntry, configFiles, backupName, isNatsuBackup, claudeRunningOf };

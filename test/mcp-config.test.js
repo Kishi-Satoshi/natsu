@@ -6,7 +6,7 @@ const path = require('node:path');
 const C = require('../src/mcp-config');
 
 const T = { timeout: 5000 };
-const ENTRY = C.serverEntry({ exe: 'C:\\Users\\u\\AppData\\Local\\Programs\\NaTsu\\NaTsu.exe', script: 'C:\\Users\\u\\AppData\\Local\\Programs\\NaTsu\\resources\\app\\src\\mcp\\server.js', dataDir: 'C:\\Users\\u\\AppData\\Roaming\\natsu\\data' });
+const ENTRY = C.serverEntry({ exe: 'C:\\Users\\u\\AppData\\Local\\Programs\\NaTsu\\NaTsu.exe', script: 'C:\\Users\\u\\AppData\\Local\\Programs\\NaTsu\\resources\\app\\src\\mcp\\server.js', dbDir: 'C:\\Users\\u\\AppData\\Roaming\\natsu\\data' });
 const OTHERS = () => ({
   globalShortcut: 'Ctrl+Space',
   mcpServers: {
