@@ -787,7 +787,9 @@ test('基準の画像（test/shots/win32）は今の app.html で撮ったもの
   // RETAKE は足さない）。値を今の app.html に合わせた（前の値は e98ee8b8…）
   // 0.10.0 LN-4（D72・決めたこと 145・148）: リンクで開いたページの箇所を 3 秒だけ地の色で示す（.linkhit。リンクで開いたときだけ付く）・検索の窓に貼ったリンクの行
   // （貼ったときだけ出る）を足した。撮る画面には出ないので見た目は変わらない（RETAKE は足さない）。値を今の app.html に合わせた（前の値は 2776757e…）
-  assert.strictEqual(sha, '2b0ba2e152f3991e189a027a76824b8b37bf09eb82fcabfe499407724fc4ec6b',
+  // 0.10.0 H-1a（HC2）: カード「Claude との連携（MCP）」の吹き出しの「ヘルプで詳しく見る ↗」の記事を start/claude-mcp に（属性だけ。見た目は変わらない）。
+  // 値を今の app.html に合わせた（前の値は 2b0ba2e1…）
+  assert.strictEqual(sha, '61cb7146322e549928b30d1009c333f79eedb6a6063e76e3aae6574d5af3169c',
     'app.html が基準の画像を撮った時と違う。Windows の CI の画面の比べ（捲り棒のつまみも）を見て、基準を取り直してからこの値を直す');
 });
 

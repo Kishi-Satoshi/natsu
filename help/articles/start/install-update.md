@@ -1,7 +1,7 @@
 ---
 title: インストールと更新
 description: インストーラーで入れる・ローカル AI を使うときの取り込み（任意）・アプリの中で更新する・入れ直しが要る版のとき
-updated: 2026-10-21
+updated: 2026-10-23
 sources: INSTALL.md, README.md, src/updater.js, src/main.js, src/renderer/app.html
 related: start/tester-guide, start/login, start/claude-code
 ---
@@ -39,6 +39,8 @@ NaTsu は Windows 10 / 11（64bit）で動きます。管理者の権限は要�
 
 アプリの土台を入れ替える版では、［更新して再起動］ の代わりに「この版はアプリの土台を入れ替えるため、インストーラーで入れ直してください。…」と ［ダウンロード］ が出ます。
 ［ダウンロード］ で開くページから新しい `NaTsu-<版>-setup.exe` を落として実行してください。同じ場所に入り、設定・議事録・エンジンはそのまま残ります。
+
+Claude デスクトップに NaTsu を登録しているときは、入れ直す前に Claude デスクトップを終了してください（タスクトレイのアイコンからも）。動いたままだと、インストーラーが「NaTsu が動いています」と止まります（[Claude から議事録を読む](start/claude-mcp.md#reinstall)）。
 
 ## 会社の通信の検査で止まるとき {#proxy}
 

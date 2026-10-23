@@ -1,7 +1,7 @@
 ---
 title: 外に出したくない会議（［オフラインモード］）
 description: 1on1・面談など、音声や文字を PC の外へ出したくない会議で押すボタン。押すときと、効く範囲
-updated: 2026-10-22
+updated: 2026-10-23
 sources: README.md, INSTALL.md, src/renderer/app.html, src/main.js, src/mainlib.js
 related: start/what-natsu-does, record/start-stop, start/login
 ---
@@ -37,6 +37,7 @@ Web 会議の始めに出るパネルの ⌄ から「オフラインモード�
 - ローカル AI の準備をしていない PC では、押した後の音声を PC に残すだけで、外へは送りません（押す前に残していた音声も送りません）。［設定］→［ローカル AI］で取り込むと、残した音声を PC の中で文字起こしします。
 - 印は会議ごとです。戻すボタンはありません。次の会議では、送る側に戻ります。
 - 落ちて復旧した会議でも、印は残ります。
+- オフラインモードの会議も、Claude デスクトップに NaTsu を登録していれば、ほかの会議と同じに Claude から読めます。Claude に頼むと、Claude が読んだ議事録の文は Claude（Anthropic）へ送られます（[Claude から議事録を読む](start/claude-mcp.md)）。
 
 ## 効かないもの {#not-covered}
 

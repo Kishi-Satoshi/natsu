@@ -1,7 +1,7 @@
 ---
 title: 要約の作られ方
 description: 要約はオンラインならご自分の Claude Code、オフラインなら PC の中で作る。作り直すときと、上限のとき
-updated: 2026-10-20
+updated: 2026-10-23
 sources: README.md, CHANGELOG.md, src/renderer/app.html, src/main.js, src/claude-cli.js
 related: summary/summary-types, summary/citations, start/claude-code
 ---
@@ -21,6 +21,11 @@ related: summary/summary-types, summary/citations, start/claude-code
 
 - 要約の無いページでは、右上の ［要約を生成］ を押します。
 - 要約のあるページでは、上の帯の「···」の ［要約を再生成］ を押します。要約タイプを変えたときや、出典を付け直したいときに使います。
+
+## 要約に使うモデル {#model}
+
+要約のモデルは、Claude の Sonnet の最新版に固定しています。選べません。新しい Sonnet が出ると、自動で切り替わります。
+要約は、ご自分の Claude のプランの上限を使います（下の「上限」）。
 
 ## 上限 {#limits}
 
