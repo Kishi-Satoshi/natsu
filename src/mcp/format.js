@@ -5,6 +5,7 @@
 // DB から来た文字が行の頭に来ない（議事録の文で見出し・頭の注意・続きの行を偽れない: 決めたこと 60・RF77）。
 const { getLabel } = require('../meetingType');
 const { citeStatOf } = require('../pagerules');
+const natsulink = require('../natsulink');
 
 const WEEK = ['日', '月', '火', '水', '木', '金', '土'];
 const pad2 = (n) => String(n).padStart(2, '0');
@@ -92,14 +93,18 @@ function meetingLine(entry, attrs = {}) {
   return `- ${parts.join('｜')}`;
 }
 
-// 要約のブロック1つの行（get_meeting と箇所で同じ形。見出しは呼び手が扱うので null）。出典の印は s<数> の形だけを出す（DB の値をそのまま出さない）
+// 要約のブロック1つの行（get_meeting と箇所で同じ形。見出しは呼び手が扱うので null）。出典の印は s<数> の形だけを出す（DB の値をそのまま出さない）。
+// 0.10.0 LN-2（D72・D78・決めたこと 143）: pageId を渡すと（get_meeting・get_meetings）、出典の印を押すと NaTsu でその発言が開くリンクにする
+//   （「（出典: [s12](https の住所 #p=<ID>&a=t:s12-s12)・[s15](…)）」。リンクの [ ] の中は印だけ: 決めたこと 60）
 const CITE_RE = /^s\d{1,6}$/;
-function citeSuffix(b) {
+function citeSuffix(b, pageId) {
   if (!Array.isArray(b.cites) || b.citeState === 'stale') return '';
   const ids = b.cites.filter((c) => typeof c === 'string' && CITE_RE.test(c));
-  return ids.length ? `（出典: ${ids.join(', ')}）` : '';
+  if (!ids.length) return '';
+  if (!pageId) return `（出典: ${ids.join(', ')}）`;
+  return `（出典: ${ids.map((c) => { const u = natsulink.openUrl(pageId, `t:${c}-${c}`); return u ? `[${c}](${u})` : c; }).join('・')}）`;
 }
-function blockLine(b) {
+function blockLine(b, pageId = '') {
   if (!b || typeof b !== 'object' || b.type === 'heading') return null;
   const text = safeLine(b.text);
   if (!text.trim()) return null;
@@ -108,9 +113,9 @@ function blockLine(b) {
     if (typeof b.assignee === 'string' && b.assignee.trim()) parts.push(`担当: ${safeLine(b.assignee)}`);
     const due = typeof b.due === 'string' && b.due ? b.due : typeof b.dueRaw === 'string' ? b.dueRaw : '';
     if (due.trim()) parts.push(`期限: ${safeLine(due)}${b.dueApprox ? '（目安）' : ''}`);
-    return `- [${b.checked ? 'x' : ' '}] ${text}${parts.length ? `（${parts.join('／')}）` : ''}${citeSuffix(b)}`;
+    return `- [${b.checked ? 'x' : ' '}] ${text}${parts.length ? `（${parts.join('／')}）` : ''}${citeSuffix(b, pageId)}`;
   }
-  return `- ${text}${b.type === 'bullet' ? citeSuffix(b) : ''}`;
+  return `- ${text}${b.type === 'bullet' ? citeSuffix(b, pageId) : ''}`;
 }
 
 // 発言の1行「s12 [0:00] 文」（決めたこと 61: failed の区間は DB の文を出さず決まった文に。区間から出す欄は ID・時刻・文だけ）
@@ -141,6 +146,18 @@ function placeText(p) {
   }
   if (p.kind === 'b') return `要約「${p.heading}」`;
   return `メモ（段落 ${p.n}）`;
+}
+// 0.10.0 LN-2（D72・D78・決めたこと 143）: 箇所の場所の行のリンク。[ ] の中は NaTsu の決まった文字だけ（要約の見出しは DB の文字なのでリンクの外: 決めたこと 60）。
+// anchor は箇所の印の # の後ろ（t:s12-s18・b:<ブロック>・m:<段落>）。住所を作れなければリンクにしない
+function placeLink(p, pageId, anchor) {
+  const url = natsulink.openUrl(pageId, anchor);
+  if (p.kind === 'b') return url ? `[要約の節](${url})「${p.heading}」` : placeText(p);
+  return url ? `[${placeText(p)}](${url})` : placeText(p);
+}
+// 会議の頭のリンクの行（get_meeting・get_meetings）
+function linkLine(pageId) {
+  const url = natsulink.openUrl(pageId, '');
+  return url ? [`- リンク: ${url}`] : [];
 }
 
 // 発言を時刻の順に（同じ時刻は並びの順。atMs の無い発言は前の発言の後: 決めたこと 113）
@@ -173,7 +190,7 @@ function propLines(page) {
   if (by === 'claude-code' || by === 'local') lines.push(`- 要約: ${by === 'claude-code' ? 'Claude Code' : 'PC'}`);
   const cs = citeStatOf(Array.isArray(page.blocks) ? page.blocks : []);
   if (cs.total > 0) lines.push(`- 出典: ${cs.linked}/${cs.total}`);
-  lines.push(`- ID: ${page.id}`);
+  lines.push(`- ID: ${page.id}`, ...linkLine(page.id));
   return lines;
 }
 function summaryLines(page) {
@@ -181,7 +198,7 @@ function summaryLines(page) {
   const blocks = Array.isArray(page.blocks) ? page.blocks : [];
   for (const b of blocks) {
     if (b && b.type === 'heading') { const t = safeLine(b.text); if (t.trim()) out.push(`### ${t}`); continue; }
-    const l = blockLine(b);
+    const l = blockLine(b, page.id);
     if (l) out.push(l);
   }
   if (out.length === 1) out.push(`要約はまだありません。${typeof page.summaryError === 'string' && page.summaryError.trim() ? `（${safeLine(page.summaryError)}）` : ''}`);
@@ -207,7 +224,7 @@ function meetingMarkdown(page, segments, { includeTranscript = false, from = nul
   let left = budget;
   const take = (t) => { parts.push(t); left -= t.length + 1; };
   if (from) {
-    take([...head, `- ID: ${page.id}`].join('\n'));
+    take([...head, `- ID: ${page.id}`, ...linkLine(page.id)].join('\n'));
   } else {
     take([...head, ...propLines(page)].join('\n'));
     take(fitLines(summaryLines(page), left - SECTION_RESERVE * 2));
@@ -252,4 +269,4 @@ function cut(text, budget) {
   return { text: out.join('\n'), cut: true };
 }
 
-module.exports = { sortSegs, meetingMarkdown, CUT_NOTE, clock, today, weekdayOf, dateWithDay, header, safeLine, quoteLines, meetingLine, sttOf, blockLine, segmentText, segPrefix, segmentLine, timeOf, placeText, cut, NOTICE, KEPT_TEXT, FAILED_TEXT };
+module.exports = { sortSegs, meetingMarkdown, CUT_NOTE, clock, today, weekdayOf, dateWithDay, header, safeLine, quoteLines, meetingLine, sttOf, blockLine, segmentText, segPrefix, segmentLine, timeOf, placeText, placeLink, cut, NOTICE, KEPT_TEXT, FAILED_TEXT };

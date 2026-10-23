@@ -261,7 +261,7 @@ function passageLines(p, order, terms) {
   const time = F.timeOf(p.createdAt);
   const lines = [
     `## ${order}｜${F.dateWithDay(p.date) || F.safeLine(String(p.date || ''))}${time ? `${time}ごろ` : ''}｜${F.safeLine(p.title || '') || '(無題の議事録)'}｜${getLabel(p.meetingType)}`,
-    `- 場所: ${F.placeText(p)}`,
+    `- 場所: ${F.placeLink(p, p.pageId, anchorOf(p.pageId, p).split('#')[1])}`,
     `- 印: ${anchorOf(p.pageId, p)}`,
   ];
   const hit = terms.filter((t) => p.hits && p.hits[t.term]).map((t) => `${F.safeLine(t.raw)}（${p.hits[t.term]}）`);

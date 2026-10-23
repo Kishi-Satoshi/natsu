@@ -61,11 +61,11 @@ const TOOLS = Object.freeze([
   {
     name: 'search_passages',
     title: '議事録の箇所を探す',
-    description: '議事録（会議の記録）を検索し、問いに近い箇所（要約の節・メモの段落・文字起こしの区間）を、たくさんの会議にまたがって近い順に返します。過去の会議の内容に答えるときや、資料・レポートを作るときは、まずこれを使います。各箇所には会議の ID・日付・時刻・題名・会議の種類・場所（文字起こしは [m:ss]）・印があります。query には語を空白で区切って入れます（どれかに当たれば候補で、多く当たるほど上）。2文字の語（「見積」「契約」）でも探せます。言い換え・同じ意味の語・略語・人や会社や製品の名前で、何回か探し直してください。日付は from・to か dates（YYYY-MM-DD の並び）、会議の種類は meeting_types、決まった会議は meeting_ids（ID か、NaTsu の［リンクを写す］で写した natsu://page/… の形）で絞れます。文字起こしを除くときは include_transcript を false にします。箇所の前後は expand_passage に印を、会議の全体は get_meeting か get_meetings に ID を渡します。1on1・採用面接・事前面談は meeting_types か meeting_ids で頼んだときだけ探します。',
+    description: '議事録（会議の記録）を検索し、問いに近い箇所（要約の節・メモの段落・文字起こしの区間）を、たくさんの会議にまたがって近い順に返します。過去の会議の内容に答えるときや、資料・レポートを作るときは、まずこれを使います。各箇所には会議の ID・日付・時刻・題名・会議の種類・場所（文字起こしは [m:ss]）・印があります。query には語を空白で区切って入れます（どれかに当たれば候補で、多く当たるほど上）。2文字の語（「見積」「契約」）でも探せます。言い換え・同じ意味の語・略語・人や会社や製品の名前で、何回か探し直してください。日付は from・to か dates（YYYY-MM-DD の並び）、会議の種類は meeting_types、決まった会議は meeting_ids（ID か、NaTsu の［リンクを写す］で写した住所 …/open#p=…）で絞れます。文字起こしを除くときは include_transcript を false にします。箇所の前後は expand_passage に印を、会議の全体は get_meeting か get_meetings に ID を渡します。1on1・採用面接・事前面談は meeting_types か meeting_ids で頼んだときだけ探します。',
     inputSchema: schema({
       query: { type: 'string', minLength: 1, maxLength: 200, description: '探す語（空白で区切る）' },
       from: DATE_PROP('この日から'), to: DATE_PROP('この日まで'), dates: DATES_PROP, meeting_types: TYPES_PROP,
-      meeting_ids: { type: 'array', items: { type: 'string' }, minItems: 1, maxItems: 50, description: '会議の ID か natsu://page/… のリンクの並び' },
+      meeting_ids: { type: 'array', items: { type: 'string' }, minItems: 1, maxItems: 50, description: '会議の ID か、NaTsu の［リンクを写す］の住所の並び' },
       include_transcript: { type: 'boolean', description: '文字起こしも探す（既定 true）' },
       limit: INT(1, 20, 8, '箇所の数'), per_meeting: INT(1, 10, 3, '1つの会議の箇所の数の上限'), offset: INT(0, 200, 0, '飛ばす箇所の数'),
     }, ['query']),
@@ -74,9 +74,9 @@ const TOOLS = Object.freeze([
   {
     name: 'get_meeting',
     title: '議事録を読む',
-    description: '議事録1つの題名・日付・会議の種類・要約・メモを Markdown で返します。id には ID か、NaTsu で写した natsu://page/… の形を渡します。要点の「（出典: s12）」は文字起こしの発言の番号です。文字起こしも読むときは include_transcript を true にします。長い文字起こしは途中で切れるので、答えの最後の transcript_from で続きを読みます。',
+    description: '議事録1つの題名・日付・会議の種類・要約・メモを Markdown で返します。id には ID か、NaTsu の［リンクを写す］で写した住所（…/open#p=…）を渡します。要点の「（出典: s12）」は文字起こしの発言の番号です。文字起こしも読むときは include_transcript を true にします。長い文字起こしは途中で切れるので、答えの最後の transcript_from で続きを読みます。',
     inputSchema: schema({
-      id: { type: 'string', description: '議事録の ID か natsu://page/… のリンク' },
+      id: { type: 'string', description: '議事録の ID か、NaTsu の［リンクを写す］の住所' },
       include_transcript: { type: 'boolean', description: '文字起こしも返す（既定 false）' },
       transcript_from: { type: 'string', pattern: '^s\\d{1,6}$', description: '文字起こしをこの発言の番号から読む（例 s58）' },
     }, ['id']),
@@ -85,9 +85,9 @@ const TOOLS = Object.freeze([
   {
     name: 'get_meetings',
     title: 'いくつかの議事録を読む',
-    description: 'いくつかの議事録（会議の記録）を1回で読みます。ids（list_meetings や search_passages の会議の ID か、NaTsu で写した natsu://page/… の形）か、dates（YYYY-MM-DD の並び。例: ["2026-09-01","2026-09-15"]）か、from・to のどれか1つで指定します。会議ごとに題名・日付・会議の種類・要約・メモを Markdown で返し、文字起こしは include_transcript が true のときだけ返します。答えが長いと途中で切れるので、最後の cursor を同じ引数に足して続きを読みます。',
+    description: 'いくつかの議事録（会議の記録）を1回で読みます。ids（list_meetings や search_passages の会議の ID か、NaTsu の［リンクを写す］で写した住所）か、dates（YYYY-MM-DD の並び。例: ["2026-09-01","2026-09-15"]）か、from・to のどれか1つで指定します。会議ごとに題名・日付・会議の種類・要約・メモを Markdown で返し、文字起こしは include_transcript が true のときだけ返します。答えが長いと途中で切れるので、最後の cursor を同じ引数に足して続きを読みます。',
     inputSchema: schema({
-      ids: { type: 'array', items: { type: 'string' }, minItems: 1, maxItems: 20, description: '会議の ID か natsu://page/… のリンクの並び' },
+      ids: { type: 'array', items: { type: 'string' }, minItems: 1, maxItems: 20, description: '会議の ID か、NaTsu の［リンクを写す］の住所の並び' },
       dates: DATES_PROP, from: DATE_PROP('この日から'), to: DATE_PROP('この日まで'),
       include_transcript: { type: 'boolean', description: '文字起こしも返す（既定 false）' },
       cursor: { type: 'string', pattern: '^[A-Za-z0-9_-]{1,64}(:s\\d{1,6})?$', description: '前の答えの最後に書いた続きの印' },

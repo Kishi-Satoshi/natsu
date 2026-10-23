@@ -1928,4 +1928,7 @@ module.exports = [
   // 0.10.0 Task LN-5（ヘルプのサイトの /open のページ）
   {"id":"nl-open-js","file":"help/assets/open.js","from":"  var p = parseFrag(raw);","to":"  var p = { id: raw.replace(/^p=/, ''), anchor: '' };","tests":["test/stage100.open.test.js"],"why":"0.10.0 LN-5 D78: open.js が照らさずに # の後ろを natsu:// へ渡す（../x や javascript: を NaTsu に渡す）"},
   {"id":"nl-open-gate","file":"relay/help-gate.mjs","from":"  const a = await requireAccess(request, { DB: readOnlyDb(env.DB) }, cfg, { need: 'user', ctx });","to":"  if (/^\\/(open\\/|assets\\/open\\.js$)/.test(new URL(request.url).pathname)) return env.ASSETS.fetch(request);\n  const a = await requireAccess(request, { DB: readOnlyDb(env.DB) }, cfg, { need: 'user', ctx });","tests":["test/help-gate.test.js"],"pattern":"0\\.10\\.0 LN-5","why":"0.10.0 LN-5 決めたこと 156: /open を門の前（JWT を見ない道）に置く（ログインしていない人にもページを返す）"},
+  // 0.10.0 Task LN-2（MCP の答えに押せる出典）
+  {"id":"nl-mcp-link","file":"src/mcp/passages.js","from":"    `- 場所: ${F.placeLink(p, p.pageId, anchorOf(p.pageId, p).split('#')[1])}`,","to":"    `- 場所: ${F.placeText(p)}`,","tests":["test/mcp-tools.test.js"],"pattern":"D78","why":"0.10.0 LN-2 D72・決めたこと 143: 箇所の場所の行にリンクを付けない（Claude の答えの出典を押しても NaTsu で開けない）"},
+  {"id":"nl-mcp-raw","file":"src/mcp/format.js","from":"  if (p.kind === 'b') return url ? `[要約の節](${url})「${p.heading}」` : placeText(p);","to":"  if (p.kind === 'b') return url ? `[要約「${p.heading}」](${url})` : placeText(p);","tests":["test/mcp-tools.test.js"],"why":"0.10.0 LN-2 決めたこと 60・143: リンクの文字に要約の見出し（DB の文字）を入れる（見出しの ] や ( でリンクの形を偽れる）"},
 ];
