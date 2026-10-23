@@ -217,6 +217,10 @@ function checkToolArgs(name, args) {
     if (v === undefined) return badArg(k, example || COMMON_EXAMPLE[k]);
     out[k] = v;
   }
+  if (name === 'get_meetings') {
+    const ways = [out.ids, out.dates, out.from || out.to].filter(Boolean).length;
+    if (ways !== 1) return badArg('ids', 'get_meetings は ids・dates・from と to のどれか1つで指定します。');
+  }
   if (out.dates && (out.from || out.to)) return badArg('dates', COMMON_EXAMPLE.dates);
   return { ok: true, args: out };
 }
@@ -350,7 +354,138 @@ function getMeeting(db, args) {
   return { text: md.text, count: 1 };
 }
 
-const BODIES = { list_meetings: listMeetings, search_passages: searchPassages, get_meeting: getMeeting };
+// get_meetings（決めたこと 76）。ids は渡された順、日付で指したときは日付の古い順・createdAt の古い順。cursor は {ID} か {ID}:s58
+function getMeetings(db, args, { now }) {
+  const rows = commands.listedRows(db);
+  let order;
+  let missing = [];
+  if (args.ids) {
+    const listed = new Set(rows.map((r) => r.id));
+    const seen = new Set();
+    order = [];
+    for (const id of args.ids) {
+      if (seen.has(id)) continue;
+      seen.add(id);
+      if (listed.has(id)) order.push(id); else missing.push(id);
+    }
+    if (!order.length) return { error: 'not-found' };
+  } else {
+    // listedRows は作った時刻の新しい順なので、逆にしてから日付で並べる（同じ日は作った時刻の古い順: 並べ替えは安定）
+    order = filterRows(rows, { from: args.from, to: args.to, dates: args.dates }).reverse()
+      .sort((a, b) => String(a.attrs.date || '').localeCompare(String(b.attrs.date || '')))
+      .map((r) => r.id);
+  }
+  let startIdx = 0;
+  let startSeg = null;
+  if (args.cursor) {
+    const [cid, cseg] = args.cursor.split(':');
+    startIdx = order.indexOf(cid);
+    if (startIdx < 0) return { error: 'bad-cursor' };
+    startSeg = cseg || null;
+    missing = [];   // 無い ID の行は初めの答えだけ
+  }
+  const head = F.header(now);
+  const missLines = missing.map((id) => `- ${id}: その ID の議事録はありません`);
+  const parts = [head];
+  if (!order.length) parts.push(`${scopeLead(args)}議事録はありません。`);
+  let left = MAX_RESULT_CHARS - head.length - 1 - missLines.reduce((n, l) => n + l.length + 1, 0) - 80;
+  let next = null;
+  let count = 0;
+  for (let k = startIdx; k < order.length; k++) {
+    const id = order[k];
+    const page = commands.readPage(db, id);
+    if (!page) continue;
+    const segments = commands.readSegments(db, id);
+    const from = k === startIdx && startSeg && segments.some((s) => s.id === startSeg) ? startSeg : null;
+    const opts = { includeTranscript: Boolean(args.include_transcript), from, header: false };
+    const full = F.meetingMarkdown(page, segments, { ...opts, budget: 1e9 });
+    if (full.text.length <= left) {
+      parts.push(full.text);
+      left -= full.text.length + 1;
+      count++;
+      continue;
+    }
+    if (count > 0) { next = id; break; }   // 入らない会議は次の呼び出しへ
+    const md = F.meetingMarkdown(page, segments, { ...opts, budget: left });   // 1つの会議だけで越えるときは切って続ける
+    parts.push(md.text);
+    count++;
+    next = md.next ? `${id}:${md.next}` : (order[k + 1] || null);
+    break;
+  }
+  parts.push(...missLines);
+  if (next) parts.push(`続きは cursor: ${next} を同じ引数に足して読めます`);
+  return { text: parts.join('\n'), count };
+}
+
+// expand_passage（決めたこと 77）
+function expandPassage(db, args, { now }) {
+  const a = P.parseAnchor(args.anchor);
+  if (!a) return { error: 'bad-anchor' };
+  if (!commands.listedRows(db).some((r) => r.id === a.pageId)) return { error: 'not-found' };
+  const page = commands.readPage(db, a.pageId);
+  if (!page) return { error: 'not-found' };
+  const title = F.safeLine(page.title || '') || '(無題の議事録)';
+  const day = F.dateWithDay(page.date) || F.safeLine(String(page.date || ''));
+  const head = F.header(now);
+  if (a.kind === 't') {
+    const segs = F.sortSegs(commands.readSegments(db, a.pageId));
+    const ia = segs.findIndex((s) => s.id === a.from);
+    const ib = segs.findIndex((s) => s.id === a.to);
+    if (ia < 0 || ib < 0) return { error: 'no-anchor' };
+    const lo = Math.min(ia, ib), hi = Math.max(ia, ib);
+    const around = Number.isInteger(args.around) ? args.around : 90;
+    let s0 = lo, s1 = hi;
+    const A = segs[lo], Z = segs[hi];
+    if (Number.isFinite(A.atMs) && Number.isFinite(Z.atMs)) {
+      const start = A.atMs - around * 1000;
+      const end = Z.atMs + (Number.isFinite(Z.durationMs) ? Z.durationMs : 0) + around * 1000;
+      while (s0 > 0 && Number.isFinite(segs[s0 - 1].atMs) && segs[s0 - 1].atMs + (Number(segs[s0 - 1].durationMs) || 0) > start) s0--;
+      while (s1 < segs.length - 1 && Number.isFinite(segs[s1 + 1].atMs) && segs[s1 + 1].atMs < end) s1++;
+    } else {
+      const k = Math.ceil(around / 15);
+      s0 = Math.max(0, lo - k);
+      s1 = Math.min(segs.length - 1, hi + k);
+    }
+    const pick = segs.slice(s0, s1 + 1);
+    const lines = [];
+    let size = head.length + 200;
+    let shown = 0;
+    for (const sg of pick) {
+      const l = F.segmentLine(sg);
+      if (lines.length && size + l.length + 1 + 120 > MAX_RESULT_CHARS) break;
+      lines.push(l);
+      size += l.length + 1;
+      shown++;
+    }
+    const first = pick[0], last = pick[shown - 1];
+    const place = F.placeText({ kind: 't', from: first.id, to: last.id, atMs: first.atMs, endMs: Number.isFinite(last.atMs) ? last.atMs + (Number(last.durationMs) || 0) : null });
+    const tail = shown < pick.length ? [`続きは expand_passage の anchor: ${a.pageId}#t:${pick[shown].id}-${pick[pick.length - 1].id} で読めます`] : [];
+    return { text: [head, `## ${day}｜${title}｜${place}`, ...lines, ...tail].join('\n'), count: shown };
+  }
+  if (a.kind === 'b') {
+    const chunks = P.chunkSummary(page.blocks);
+    const hit = chunks.find((c) => c.blockId === a.blockId || (c.blocks || []).some((b) => b.id === a.blockId));
+    if (!hit) return { error: 'no-anchor' };
+    const sec = chunks.filter((c) => c.sec === hit.sec);
+    const lines = [...(hit.heading === '（見出しなし）' ? [] : [`### ${hit.heading}`]), ...sec.flatMap((c) => c.lines)];
+    const body = [head, `## ${day}｜${title}｜${F.placeText(hit)}`, ...lines].join('\n');
+    const fit = F.cut(body, MAX_RESULT_CHARS - F.CUT_NOTE.length - 1);
+    return { text: fit.cut ? `${fit.text}\n${F.CUT_NOTE}` : fit.text, count: 1 };
+  }
+  const memo = P.chunkMemo(page.memo);
+  const at = memo.findIndex((c) => c.n === a.n);
+  if (at < 0) return { error: 'no-anchor' };
+  const lines = [];
+  for (const c of memo.slice(Math.max(0, at - 1), at + 2)) {
+    if (lines.length) lines.push('>');
+    for (const l of c.lines) { const t = F.safeLine(l); lines.push(t.trim() ? `> ${t}` : '>'); }
+  }
+  const body = [head, `## ${day}｜${title}｜${F.placeText(memo[at])}`, ...lines].join('\n');
+  const fit = F.cut(body, MAX_RESULT_CHARS - F.CUT_NOTE.length - 1);
+  return { text: fit.cut ? `${fit.text}\n${F.CUT_NOTE}` : fit.text, count: 1 };
+}
+
+const BODIES = { list_meetings: listMeetings, search_passages: searchPassages, get_meeting: getMeeting, get_meetings: getMeetings, expand_passage: expandPassage };
 
 // callTool(name, args, { sqlite, dataDir, now, fs }) → { text, isError, code?, count? }。知らない名前は投げる
 function callTool(name, args, ctx = {}) {

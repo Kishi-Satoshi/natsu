@@ -92,12 +92,12 @@ function chunkSummary(blocks) {
     if (line) sec.items.push({ b, line, raw: F.safeLine(b.text) });
   }
   const out = [];
-  for (const s of sections) {
+  sections.forEach((s, sec) => {
     let part = null;
     const flush = () => { if (part && (part.lines.length || part.head)) out.push(part); part = null; };
-    const start = (first) => ({ kind: 'b', blockId: first.id, heading: s.heading, head: Boolean(s.head && first === s.head), blocks: [], lines: [], text: '' });
+    const start = (first) => ({ kind: 'b', sec, blockId: first.id, heading: s.heading, head: Boolean(s.head && first === s.head), blocks: [], lines: [], text: '' });
     part = start(s.head || (s.items[0] && s.items[0].b) || { id: '' });
-    if (!s.head && !s.items.length) continue;
+    if (!s.head && !s.items.length) return;
     part.text = s.heading;
     for (const { b, line, raw } of s.items) {
       if (part.lines.length && part.text.length + 1 + line.length > PASSAGE_MAX) {
@@ -110,7 +110,7 @@ function chunkSummary(blocks) {
       part.text += `\n${raw}`;
     }
     flush();
-  }
+  });
   return out.map(({ head, ...rest }) => rest);
 }
 
