@@ -422,6 +422,7 @@ test('G3: ヘルプセンターの変異が一覧にそろい、IDS_HELP は計�
 const IDS_HELP_DADS = [
   'hd-link-color', 'hd-link-underline', 'hd-link-visited', 'hd-link-dark', 'hd-hover-media', 'hd-search-border', 'hd-grey-muted',
   'hd-focus-ring', 'hd-focus-dark', 'hd-toc-pad',
+  'hd-rem-body', 'hd-crumbs-size', 'hd-tap-narrow',
 ];
 test('G3: help-dads の変異が一覧にそろい、IDS_HELP_DADS はどれも計画 docs/plans/2026-10-23-help-dads.md の「変異確認」の表にあり、当てるファイルと赤になるテストが表と同じ。hd- の変異は IDS_HELP_DADS にある', { timeout: 5000 }, () => {
   const byId = new Map(MUTANTS.map((m) => [m.id, m]));

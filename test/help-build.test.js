@@ -382,6 +382,38 @@ test('HD-2（HD2・HD5・DF1）: キーボードの輪は DADS の形（黒 4px�
   for (const r of rules) if (r.decls.outline !== undefined) assert.ok(r.sel.includes(':focus-visible'), `${r.sel} が outline を書く`);
 });
 
+test('HD-3（HD4・Q3）: 文字の大きさはどれも rem・em・inherit（px が無い。ブラウザの文字の設定に従う）。body は 1rem。説明・目次・パンくず・このページの内容・検索の箱・メモは 1rem（16px）、補足は .875rem（14px）以上', { timeout: 5000 }, () => {
+  const rules = C.parse(CSS());
+  for (const r of rules) {
+    const fs0 = r.decls['font-size'];
+    if (fs0 === undefined) continue;
+    assert.match(fs0, /^(?:\d*\.?\d+(?:rem|em)|inherit)$/, `${r.at ? `${r.at} ` : ''}${r.sel} の font-size: ${fs0}`);
+    if (/rem$/.test(fs0)) assert.ok(parseFloat(fs0) >= 0.875, `${r.sel} の文字が 14px より小さい: ${fs0}`);
+  }
+  const size = (sel, at = '') => C.declsFor(rules, sel, { at })['font-size'];
+  assert.strictEqual(size('body'), '1rem');
+  for (const sel of ['.crumbs', '.toc', '.onpage', '.rows .desc', '.cats .d', '.search-q', '.note']) assert.strictEqual(size(sel), '1rem', `${sel} は 16px`);
+  for (const sel of ['.toc-h', '.onpage-h', '.article-meta dt', '.cats .c', '.search-results .rc', '.step .k', '.foot-in']) {
+    const v = size(sel);
+    assert.ok(/rem$/.test(v || '') && parseFloat(v) >= 0.875, `${sel} は 14px 以上: ${v}`);
+  }
+});
+
+test('HD-3（HD4・DF5）: 48rem 未満（@media (max-width: 47.9375rem)）だけで、［目次］・検索の箱・左の目次の行・パンくずのリンク・/open の［NaTsu で開く］の押す場所が 44px（calc(44 / 16 * 1rem)）。広い画面には効かない', { timeout: 5000 }, () => {
+  const rules = C.parse(CSS());
+  const NARROW = '@media (max-width: 47.9375rem)';
+  const TAP = ['.toc-btn', '.search-q', '.toc li a', '.crumbs a', '.open-go'];
+  for (const sel of TAP) assert.strictEqual(C.declsFor(rules, sel, { at: NARROW })['min-height'], 'calc(44 / 16 * 1rem)', sel);
+  for (const sel of ['.toc li a', '.crumbs a', '.open-go']) {
+    const d = C.declsFor(rules, sel, { at: NARROW });
+    assert.ok(/flex$/.test(d.display || '') && d['align-items'] === 'center', `${sel} の文字が 44px の真ん中に来ない`);
+  }
+  for (const r of rules) {
+    if (r.decls['min-height'] === undefined || r.at === NARROW) continue;
+    for (const sel of TAP) assert.ok(!r.sel.split(',').map((x) => x.trim()).includes(sel), `${sel} の min-height が 48rem 未満の外にある（${r.at || '基底'}）`);
+  }
+});
+
 test('画面の使いやすさ: 広い画面の左の目次は止まる（sticky）が、窓より高くならずその中で縦に送れる（記事が 26・分類が 8 でも下の分類が切れない）。狭い画面では止めず、高さも切らない', { timeout: 5000 }, () => {
   const rules = C.parse(CSS());
   const wide = C.declsFor(rules, '.toc', { at: '' });
