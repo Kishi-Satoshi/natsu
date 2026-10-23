@@ -33,6 +33,14 @@
       "package.json"
     ],
     "asar": false,
+    "protocols": [
+      {
+        "name": "NaTsu の議事録",
+        "schemes": [
+          "natsu"
+        ]
+      }
+    ],
     "compression": "maximum",
     "win": {
       "target": [

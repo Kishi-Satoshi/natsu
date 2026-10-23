@@ -493,3 +493,9 @@ test('0.9.4: CHANGELOG の 0.9.4 の節（計画の下書きから移した）�
   for (const q of ['AI 議事録を始める', '相手の声を録れません', 'ローカル AI']) assert.ok(src.includes(q), `0.9.4 の節の「${q}」が画面に無い`);
   assert.ok(!/notion/i.test(sec) && !/(?<![\w-])[a-z0-9-]+\.cloudflareaccess\.com/i.test(sec), '0.9.4 の節に書いてはいけない字面がある');
 });
+
+// 0.10.0 LN-3（D72・決めたこと 144・設計書 L5）: インストーラーが natsu:// を利用者ごとに登録する（HKCU。管理者の権限は要らない。消すときに外れる）
+test('LN-3: build.protocols は natsu の1つ（名前「NaTsu の議事録」）', () => {
+  assert.deepStrictEqual(pkg.build.protocols, [{ name: 'NaTsu の議事録', schemes: ['natsu'] }]);
+  assert.strictEqual(pkg.build.nsis.perMachine, false, '利用者ごとの入れ方でないと HKCU に書けない');
+});

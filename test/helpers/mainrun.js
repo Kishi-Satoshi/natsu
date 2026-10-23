@@ -379,6 +379,7 @@ const { titleAt } = require('./titles');
 //     --mcp-gone  … 置く settings.json に、前に登録した印 mcpRegisteredFor（ファイル 1・版 0.9.4）を書く
 //     --mcp-stale … 置く設定ファイルの mcpServers の頭に、場所の違う NaTsu の登録（印あり）を足す
 //     --tasklist=<running|stopped|fail> … 偽の execFile が tasklist.exe に答える（動いている・動いていない・失敗）。呼んだ引数を out.tasklistCalls に
+//     --packaged・--protocol-default … app.isPackaged を真に・isDefaultProtocolClient を真に（LN-3。呼んだ口は out.protocolCalls）
 //     --mcp-steps=<JSON> … 起動の後に手順を順に行い、出力して終える: ["status"]・["register"]・["unregister"]（mcp: の IPC。答えは out.ipc に）・
 //                        ["files", 名前]（その時の設定ファイルを out.snaps に）・["sleep", ms]・["save", 足す設定]（画面と同じ settings:save）。出力: claudeConfigs（roaming・msix ごとに text（BOM も含む）・
 //                        backups（NaTsu の控えの名前）・backupTexts・others（ほかのファイルの名前）。フォルダが無ければ null）・notices・engineLog・settingsText・dataDir
@@ -484,6 +485,10 @@ const mcpStaleFlag = flags.includes('--mcp-stale');
 const tasklistFlag = flagVal('--tasklist');
 const mcpSteps = flagVal('--mcp-steps') ? JSON.parse(flagVal('--mcp-steps')) : null;
 const mcpScene = Boolean(claudeConfigFlag || mcpSteps);
+// 0.10.0 LN-3: --packaged（app.isPackaged が真）・--protocol-default（isDefaultProtocolClient が真）。呼んだ口を out.protocolCalls に
+const packagedFlag = flags.includes('--packaged');
+const protocolDefaultFlag = flags.includes('--protocol-default');
+const protocolCalls = [];
 // 0.9.1 Q-4: 話し声が無いときに自動で止める場面（頭の注釈）
 const quietSeq = flagVal('--quiet-seq') ? flagVal('--quiet-seq').split(',').flatMap((t) => {
   const m = /^([stbkxXPdSR])(?::(.))?(?:\*(\d+))?$/.exec(t);
@@ -1521,7 +1526,9 @@ process.on('exit', () => {
     clipboard,
     app: withFallback(Object.assign(appEvents, {
       getPath: (name) => (name === 'appData' ? appDataDir : userData), whenReady: () => ready, requestSingleInstanceLock: () => true,   // 0.10.0 C-2: appData
-      getVersion: () => require(path.join(ROOT, 'package.json')).version, isPackaged: false,
+      getVersion: () => require(path.join(ROOT, 'package.json')).version, isPackaged: packagedFlag,   // 0.10.0 LN-3: --packaged
+      isDefaultProtocolClient: (...a) => { protocolCalls.push(['isDefaultProtocolClient', ...a]); return protocolDefaultFlag; },
+      setAsDefaultProtocolClient: (...a) => { protocolCalls.push(['setAsDefaultProtocolClient', ...a]); return true; },
       quit() { quitCalls += 1; if (scene && scene.quitEmits) appEvents.emit('before-quit', { preventDefault() {} }); },
       setLoginItemSettings() {}, getLoginItemSettings: () => ({}), setAppUserModelId() {}, getName: () => 'natsu',
       ...(mcpScene ? { getAppPath: () => ROOT } : {}),   // 0.10.0 C-2: MCP の場面だけ（src/mcp/server.js の場所）
@@ -2569,7 +2576,7 @@ process.on('exit', () => {
     await sleep(30);
     Object.assign(out, {
       claudeConfigs: claudeConfigsNow(), notices: sent.filter(([ch]) => ch === 'app:notice').map(([, p]) => p), engineLog: elogLines(),
-      settingsText: (readUser('settings.json') || '').toString('utf8'), dataDir: path.join(userData, 'data'), tasklistCalls,
+      settingsText: (readUser('settings.json') || '').toString('utf8'), dataDir: path.join(userData, 'data'), tasklistCalls, protocolCalls,
     });
     for (const dir of Object.values(claudeDirs)) { try { for (const n of fs.readdirSync(dir)) fs.chmodSync(path.join(dir, n), 0o644); } catch (_) { /* 無ければ飛ばす */ } }
     process.stdout.write(`\n${JSON.stringify(out)}\n`);

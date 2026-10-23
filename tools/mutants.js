@@ -1931,4 +1931,6 @@ module.exports = [
   // 0.10.0 Task LN-2（MCP の答えに押せる出典）
   {"id":"nl-mcp-link","file":"src/mcp/passages.js","from":"    `- 場所: ${F.placeLink(p, p.pageId, anchorOf(p.pageId, p).split('#')[1])}`,","to":"    `- 場所: ${F.placeText(p)}`,","tests":["test/mcp-tools.test.js"],"pattern":"D78","why":"0.10.0 LN-2 D72・決めたこと 143: 箇所の場所の行にリンクを付けない（Claude の答えの出典を押しても NaTsu で開けない）"},
   {"id":"nl-mcp-raw","file":"src/mcp/format.js","from":"  if (p.kind === 'b') return url ? `[要約の節](${url})「${p.heading}」` : placeText(p);","to":"  if (p.kind === 'b') return url ? `[要約「${p.heading}」](${url})` : placeText(p);","tests":["test/mcp-tools.test.js"],"why":"0.10.0 LN-2 決めたこと 60・143: リンクの文字に要約の見出し（DB の文字）を入れる（見出しの ] や ( でリンクの形を偽れる）"},
+  // 0.10.0 Task LN-3（natsu:// の登録）
+  {"id":"nl-args","file":"src/mainlib.js","from":"const PROTOCOL_ARGS = Object.freeze(['--']);","to":"const PROTOCOL_ARGS = Object.freeze([]);","tests":["test/stage100.link.main.test.js"],"pattern":"protocolPlan","why":"0.10.0 LN-3 決めたこと 144: 登録の引数に -- を入れない（リンクに -- で始まる引数を混ぜて、起動の引数を差し込める）"},
 ];

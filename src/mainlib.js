@@ -2031,7 +2031,19 @@ function meetingTitleAt(date, offsetMin) {
   return `${y}/${mo}/${day} ${String(h).padStart(2, '0')}:${String(mi).padStart(2, '0')} の議事録`;
 }
 
+// ---------------------------------------------------------------- natsu:// の登録（0.10.0 LN-3・D72・決めたこと 144・設計書 L5）
+// 起動のたびに、パックした NaTsu（NSIS で入れたもの）だけが、今の場所の exe で natsu:// を利用者ごとに登録する（HKCU。入れ直して場所が
+// 変わったときに直す）。登録のコマンドは「"<exe>" -- "%1"」（-- の後ろは Chromium と Electron の引数として読まれない。リンクに -- で始まる
+// 引数を混ぜて起動の引数を差し込む手口を止める）。開発の起動（パックしていない）は登録しない。→ { register, args }
+const PROTOCOL = 'natsu';
+const PROTOCOL_ARGS = Object.freeze(['--']);
+function protocolPlan({ packaged, execPath, isDefault } = {}) {
+  const register = packaged === true && typeof execPath === 'string' && execPath.length > 0 && isDefault !== true;
+  return { register, args: [...PROTOCOL_ARGS] };
+}
+
 module.exports = {
+  PROTOCOL, protocolPlan,
   meetingTitleAt,
   saveIfExists, meetingDurationSec, promptTail,
   registerHotkeys, hotkeyFailureMessage, hotkeyStatus, resolveStartupHotkeys, saveHotkeys,

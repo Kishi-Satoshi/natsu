@@ -2152,6 +2152,19 @@ async function mcpRegister() {
 function mcpUnregister() {
   return mcpApply(false);
 }
+// natsu:// を利用者ごとに登録する（0.10.0 LN-3。起動のたび。パックした NaTsu で、今の場所の登録でないときだけ。判断は lib.protocolPlan）。投げない
+function registerNatsuProtocol() {
+  try {
+    if (!app.isPackaged) return;
+    const args = [...lib.protocolPlan({}).args];
+    const isDefault = app.isDefaultProtocolClient(lib.PROTOCOL, process.execPath, args);
+    const plan = lib.protocolPlan({ packaged: app.isPackaged, execPath: process.execPath, isDefault });
+    if (!plan.register) return;
+    const ok = app.setAsDefaultProtocolClient(lib.PROTOCOL, process.execPath, plan.args);
+    engineLog(`リンクの登録: ${ok ? '登録した' : '登録できなかった'}`);
+  } catch (e) { engineLog(`リンクの登録: できなかった（${errCode(e)}）`); }
+}
+
 // 起動の後（窓が出てから）に1回。読むだけ。場所が古い（stale）・登録が消えた（gone）ときだけ知らせる。読めなければ何もしない
 function checkMcpRegistration() {
   let st;
@@ -6186,6 +6199,8 @@ if (!gotLock) {
     createMainWindow();
     // 0.10.0 C-2: Claude デスクトップへの登録を1回だけ確かめる（読むだけ。場所が古い・消えたときだけ知らせる）
     checkMcpRegistration();
+    // 0.10.0 LN-3: natsu:// の登録（パックした NaTsu で場所が変わったときだけ書き直す）
+    registerNatsuProtocol();
     // 0.9.3 M-2: 会議の検出の見張り（Windows・設定がオン・録音していないとき）。窓とトレイの後に起こす
     detectReady = true;
     detectBusy = state;
