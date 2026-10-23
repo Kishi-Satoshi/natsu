@@ -106,9 +106,11 @@ const {
 } = require('./mainlib');
 // クリップボードの読み書き（mainlib.copyPrivate・deliverText）は main.js の同じ名前の包みとぶつかるので、lib から呼ぶ
 const lib = require('./mainlib');
-// 0.9.2 I-1（ヘルプの計画の H-12）: NaTsu ヘルプセンター（Access の後ろ。中継と同じ natsu-code の workers.dev）。住所はここにだけ置き、
-// 画面は記事の名前だけを渡す（app:open-help が lib.helpPath の決まった一覧で照らし、無ければホーム）
-const HELP_URL = 'https://natsu-help.natsu-code.workers.dev/';
+// 議事録のリンクの形と照らし（0.10.0 LN-1。純粋。住所の頭 LINK_ORIGIN の1か所: 決めたこと 154）
+const natsulink = require('./natsulink');
+// 0.9.2 I-1（ヘルプの計画の H-12）: NaTsu ヘルプセンター（Access の後ろ。中継と同じ natsu-code の workers.dev）。住所は main だけが持ち、
+// 画面は記事の名前だけを渡す（app:open-help が lib.helpPath の決まった一覧で照らし、無ければホーム）。0.10.0 LN-1: 住所の頭は src/natsulink.js から
+const HELP_URL = `${natsulink.LINK_ORIGIN}/`;
 
 // package.json の build.appId の写し。配る package.json から build は消えるので、ここに持つ
 // （identity.test.js が食い違いを見る）。インストーラーが付けるショートカットの AppUserModelID と同じ

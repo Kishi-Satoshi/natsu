@@ -2655,6 +2655,21 @@
     };
   }
 
+  // 0.10.0 LN-1（D72・決めたこと 142）: natsu:// のリンクの照らしの写し（src/natsulink.js の parseNatsuLink と同じ表を test/repo.test.js が当てる）。
+  // 画面は住所（https）を持たない（F15）ので、https の住所の照らしは main に任せる。→ { id, anchor } か null
+  function parseNatsuLinkView(str) {
+    if (typeof str !== 'string') return null;
+    let t = str.trim();
+    if (!t || t.length > 300) return null;
+    if (t.endsWith('/')) t = t.slice(0, -1);
+    if (!t.startsWith('natsu://page/')) return null;
+    const parts = t.slice('natsu://page/'.length).split('#');
+    if (parts.length > 2 || !/^[A-Za-z0-9_-]{1,64}$/.test(parts[0])) return null;
+    if (parts.length === 1) return { id: parts[0], anchor: '' };
+    if (/^(?:t:s\d{1,6}-s\d{1,6}|b:[A-Za-z0-9_-]{1,64}|m:\d{1,4})$/.test(parts[1])) return { id: parts[0], anchor: parts[1] };
+    if (/^[A-Za-z0-9_-]{1,64}$/.test(parts[1])) return { id: parts[0], anchor: '' };
+    return null;
+  }
   // 0.10.0 L-1（D58・D78・決めたこと 100）: 議事録のリンクの1行。住所はヘルプのサイトの /open のページ（# の後ろの ID はサーバーへ送られない）。
   // 住所の頭は main だけが持つ（F15・I1: 画面に住所を書かない）ので、写すときに koeApp.linkBase で聞く（答えは https の住所の「/open#p=」まで）。
   // Claude に貼ると押せるリンクになり、MCP の道具にもそのまま渡せる

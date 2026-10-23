@@ -12,6 +12,7 @@ const search = require('../db/search');
 const commands = require('../db/commands');
 const meetingType = require('../meetingType');
 const { ID_RE } = require('../db/validate');
+const natsulink = require('../natsulink');
 
 const MAX_RESULT_CHARS = 12000;
 // 箇所の検索の候補（決めたこと 71）: 語ごとに引く行の上限と、読んで箇所に切る会議の数。テストだけ callTool の第3引数で小さくできる（環境変数ではない: 決めたこと 33）
@@ -22,8 +23,6 @@ const LIMITS = Object.freeze({ list: [20, 100], passages: [8, 20], perMeeting: [
 const OFFSET_MAX = 10000;
 const DATE_RE = /^(\d{4})-(\d{2})-(\d{2})$/;
 const SEG_RE = /^s\d{1,6}$/;
-// 議事録のリンク（D58。決めたこと 97）: natsu://page/<ID> と、後の版のブロックへのリンク #<ブロック ID>（0.10.0 は # から後を読み捨てる）
-const REF_RE = /^natsu:\/\/page\/([A-Za-z0-9_-]{1,64})(?:#[A-Za-z0-9_-]{1,64})?$/;
 
 // 道具の誤りの文（E）。isError: true の答えの本文
 const ERROR_TEXT = Object.freeze({
@@ -125,13 +124,13 @@ function isDate(v) {
   return d.getUTCFullYear() === Number(m[1]) && d.getUTCMonth() === Number(m[2]) - 1 && d.getUTCDate() === Number(m[3]);
 }
 
-// ID か natsu://page/<ID> → ID（前後の空白は除く）。ほかは null
+// ID か natsu://page/<ID>（#<印>）か https の住所（…/open#p=<ID>。D78）→ ID（前後の空白は除く）。ほかは null。形は src/natsulink.js の1か所（LN-1）
 function meetingRef(s) {
   if (typeof s !== 'string') return null;
   const t = s.trim();
   if (ID_RE.test(t)) return t;
-  const m = REF_RE.exec(t);
-  return m ? m[1] : null;
+  const l = natsulink.parseAnyLink(t);
+  return l ? l.id : null;
 }
 
 const intIn = (v, min, max) => Number.isSafeInteger(v) && v >= min && v <= max;
@@ -530,4 +529,4 @@ function callTool(name, args, ctx = {}) {
   return { text: v.text, isError: false, code: 'ok', count: v.count };
 }
 
-module.exports = { TOOLS, callTool, checkToolArgs, filterRows, meetingRef, REF_RE, ERROR_TEXT, MAX_RESULT_CHARS, LIMITS, CAND_MAX, PAGE_CAND, isDate, scopeText };
+module.exports = { TOOLS, callTool, checkToolArgs, filterRows, meetingRef, ERROR_TEXT, MAX_RESULT_CHARS, LIMITS, CAND_MAX, PAGE_CAND, isDate, scopeText };

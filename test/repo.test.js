@@ -1475,3 +1475,15 @@ test('0.10.0 L-2 D74: app.html の画面の文に「Claude に渡す」が無く
   assert.match(appHtml, /<button class="action" id="selCopy" type="button">リンクを写す<\/button>/);
   assert.match(appHtml, /<button class="ghost" id="selCancel" type="button">やめる<\/button>/);
 });
+
+// 0.10.0 LN-1（D72・決めたこと 142）: 画面の写しの照らし parseNatsuLinkView（app.html。画面は Node の部品を読めない）と src/natsulink.js の parseNatsuLink に同じ表を当てる。
+// 画面は住所（https）を持たない（F15）ので、写しは natsu:// の形だけ。https の住所の照らしは main（koeApp の答え）に任せる
+test('0.10.0 LN-1: parseNatsuLinkView（app.html）と natsulink.parseNatsuLink は同じ表で同じ答え', () => {
+  const NL = require('../src/natsulink');
+  const view = new Function(`${fnFromApp('parseNatsuLinkView')}\nreturn parseNatsuLinkView;`)();   // eslint-disable-line no-new-func
+  const cases = ['natsu://page/pm1', 'natsu://page/pm1#t:s3-s5', 'natsu://page/pm1#b:b3', 'natsu://page/pm1#m:2', 'natsu://page/pm1#b3', 'natsu://page/pm1/', '  natsu://page/pm1#t:s1-s1 \n',
+    'NATSU://page/pm1', 'natsu:page/pm1', 'natsu://other/pm1', 'natsu://page/pm1?x=1', 'natsu://page/pm%201', 'natsu://page/p m1', 'natsu://page/pm1"', "natsu://page/pm1'",
+    'natsu://page/pm1\\', 'natsu://page/pm1\u0000', `natsu://page/pm1#${'b'.repeat(288)}`, `natsu://page/${'a'.repeat(65)}`, 'natsu://page/pm1#t:s3-', 'natsu://page/pm1#a#b',
+    'natsu://page/pm1//', 'natsu://page/', 'natsu://page/pm1#javascript:x', `${NL.LINK_ORIGIN}/open#p=pm1`, 'pm1', '', null, 5];
+  for (const s of cases) assert.deepStrictEqual(view(s), NL.parseNatsuLink(s), JSON.stringify(s));
+});

@@ -124,8 +124,11 @@ test('MR5: from が 2026-02-30・10/20・数、limit が 0・101・1.5、知ら�
 });
 
 test('D58: meetingRef の表', T, () => {
-  for (const s of ['pm1', 'natsu://page/pm1', 'natsu://page/pm1#b3', '  natsu://page/pm1  ', ' pm1 ']) assert.strictEqual(tools.meetingRef(s), 'pm1', s);
-  for (const s of ['natsu://page/../x', 'NATSU://page/pm1', 'natsu:page/pm1', 'natsu://page/pm1?x=1', 'natsu://page/', `natsu://page/${'a'.repeat(65)}`, 'a'.repeat(65), '', 'p m1', null, 5]) {
+  // LN-1（D72・D78）で意図して広げた: 箇所の印の付いた natsu:// と、［リンクを写す］の https の住所も同じ会議を指す（形は src/natsulink.js の1か所）
+  for (const s of ['pm1', 'natsu://page/pm1', 'natsu://page/pm1#b3', '  natsu://page/pm1  ', ' pm1 ', 'natsu://page/pm1#t:s3-s5', 'natsu://page/pm1/',
+    'https://natsu-help.natsu-code.workers.dev/open#p=pm1', 'https://natsu-help.natsu-code.workers.dev/open#p=pm1&a=m:2']) assert.strictEqual(tools.meetingRef(s), 'pm1', s);
+  for (const s of ['natsu://page/../x', 'NATSU://page/pm1', 'natsu:page/pm1', 'natsu://page/pm1?x=1', 'natsu://page/', `natsu://page/${'a'.repeat(65)}`, 'a'.repeat(65), '', 'p m1', null, 5,
+    'https://natsu-help.natsu-code.workers.dev/open?p=pm1', 'https://evil.example/open#p=pm1', 'natsu://page/pm1#t:s3-']) {
     assert.strictEqual(tools.meetingRef(s), null, String(s));
   }
 });

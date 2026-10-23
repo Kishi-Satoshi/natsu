@@ -783,7 +783,9 @@ test('基準の画像（test/shots/win32）は今の app.html で撮ったもの
   // （page-menu-link-light・page-menu-link-dark。足して RETAKE に）だけ（ほかの画面はメニューを閉じている）。値を今の app.html に合わせた（前の値は cf1634c0…）
   // 0.10.0 L-2（D58・D70）: 左の一覧の見出し「議事録」の行の右に［選ぶ］（見出しの行に重ね、一覧の位置は変えない）・選んでいる間の頭の枠・行のチェックボックス。
   // 見える中身が変わるのは左の一覧が写る本体の画面（SH-1 の表で RETAKE にある）と、足した list-select-light・list-select-dark。値を今の app.html に合わせた（前の値は c33e797e…）
-  assert.strictEqual(sha, 'e98ee8b8ac141d1a4a27363baccf5d56b8504adeb78f4994906fe6be794f1014',
+  // 0.10.0 LN-1（D72）: natsu:// のリンクの照らしの写し parseNatsuLinkView を <script> の中だけに足した（要素・文・CSS は変えていないので見た目は変わらない。
+  // RETAKE は足さない）。値を今の app.html に合わせた（前の値は e98ee8b8…）
+  assert.strictEqual(sha, '2776757e27aac4e5bf176a81fa15fdf14ef7dbbf1ee00e5bf51733db240793f7',
     'app.html が基準の画像を撮った時と違う。Windows の CI の画面の比べ（捲り棒のつまみも）を見て、基準を取り直してからこの値を直す');
 });
 
