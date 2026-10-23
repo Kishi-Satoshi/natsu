@@ -1994,4 +1994,10 @@ module.exports = [
   {"id": "hd-tap-narrow", "file": "help/assets/help.css", "from": "@media (max-width: 47.9375rem) {\n  .toc-btn, .search-q, .toc li a, .crumbs a, .open-go { min-height: calc(44 / 16 * 1rem); }\n", "to": ".toc-btn, .search-q, .toc li a, .crumbs a, .open-go { min-height: calc(44 / 16 * 1rem); }\n@media (max-width: 47.9375rem) {\n", "tests": ["test/help-build.test.js"], "pattern": "HD-3", "why": "help-dads HD-3 DF5: 44px の押す場所が広い画面にも効く（左の目次が1.5倍に長くなる）"},
   // help-dads Task HD-4（書体を Noto Sans JP・Noto Sans Mono に）
   {"id": "hd-font-sans", "file": "help/assets/help.css", "from": "--sans: \"Noto Sans JP\", ", "to": "--sans: \"IBM Plex Sans JP\", ", "tests": ["test/help-build.test.js"], "pattern": "HD-4", "why": "help-dads HD-4 HD3: 本文の書体の先頭が IBM Plex Sans JP に戻る（同梱していない書体を指し、OS の書体に落ちる）"},
+  // help-dads Task HD-5（検索の件数の知らせ）
+  {"id": "hd-status-count", "file": "help/assets/search.js", "from": ": items.length + ' 件見つかりました'));", "to": ": ''));", "tests": ["test/help-search.test.js"], "pattern": "HD-5", "why": "help-dads HD-5 HD6: 見つかった件数を status に書かない（画面を見ない人に結果が出たことが伝わらない）"},
+  {"id": "hd-status-cap", "file": "help/assets/search.js", "from": "items.length >= MAX ? '上から ' + MAX + ' 件を表示しています' : ", "to": "", "tests": ["test/help-search.test.js"], "pattern": "HD-5", "why": "help-dads HD-5 DF3: 上限の 8 件で「8 件見つかりました」と全体の数のように言う"},
+  {"id": "hd-status-error", "file": "help/assets/search.js", "from": "say(note || (", "to": "say(note ? '' : (", "tests": ["test/help-search.test.js"], "pattern": "HD-5", "why": "help-dads HD-5 DF3: 索引が読めないときに status が黙る"},
+  {"id": "hd-status-clear", "file": "help/assets/search.js", "from": "      function close() {\n        say('');", "to": "      function close() {", "tests": ["test/help-search.test.js"], "pattern": "HD-5", "why": "help-dads HD-5 DF3: 閉じても前の件数の文が残る"},
+  {"id": "hd-status-markup", "file": "tools/lib/help-page.js", "from": "<p id=\"${id}-status\" class=\"vh\" role=\"status\"></p>", "to": "", "tests": ["test/help-search.test.js"], "pattern": "HD-5", "why": "help-dads HD-5 HD6: 検索の箱の中に role=\"status\" を出さない（件数の知らせが届かない）"},
 ];

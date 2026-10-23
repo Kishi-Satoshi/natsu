@@ -3,6 +3,8 @@
  * PC の中（ブラウザの中）だけで探す。最初に打ったときに /search-index.json を1回だけ読み、
  * NFKC と小文字にそろえた部分一致で、題名 > 見出し・説明 > 本文の順に並べる。外へは通信しない。
  * 結果の文字は textContent で入れる（HTML の文字を差し込まない）。JS が動かないときは箱を出さない（hidden のまま）。
+ * help-dads HD-5（HD6）: 結果を出すたびに、箱の中の見えない role="status" に件数の文を入れる（決まった文だけ。閉じたら空。
+ * 同じ文なら書き直さない: 読み上げが積もらない）。上限の 8 件は全体の数と偽らず「上から 8 件を表示しています」と言う。
  */
 'use strict';
 var HelpSearch = (function () {
@@ -71,7 +73,12 @@ var HelpSearch = (function () {
     function one(box, input, list) {
       var results = [];
       var active = -1;
+      var status = box.querySelector('[role="status"]');
+      function say(text) {
+        if (status && status.textContent !== text) status.textContent = text;
+      }
       function close() {
+        say('');
         list.hidden = true;
         input.setAttribute('aria-expanded', 'false');
         input.removeAttribute('aria-activedescendant');
@@ -114,6 +121,7 @@ var HelpSearch = (function () {
           li.appendChild(a);
           list.appendChild(li);
         }
+        say(note || (!items.length ? '見つかりませんでした' : items.length >= MAX ? '上から ' + MAX + ' 件を表示しています' : items.length + ' 件見つかりました'));
         list.hidden = false;
         input.setAttribute('aria-expanded', 'true');
         input.removeAttribute('aria-activedescendant');

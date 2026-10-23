@@ -99,10 +99,10 @@ test('H-4: search.js は外へ通信しない（fetch は /search-index.json だ
 });
 
 /** 作ったページを simdom の木にして、search.js を vm の中で動かす */
-function runPage(t, file) {
+function runPage(t, file, opt = {}) {
   const out = buildFixture(t);
   const html = fs.readFileSync(path.join(out, file), 'utf8');
-  const index = JSON.parse(fs.readFileSync(path.join(out, 'search-index.json'), 'utf8'));
+  const index = opt.index || JSON.parse(fs.readFileSync(path.join(out, 'search-index.json'), 'utf8'));
   const { root } = parseHTML(html);
   const docListeners = {};
   const document = {
@@ -115,7 +115,7 @@ function runPage(t, file) {
   };
   const calls = [];
   const went = [];
-  const fetch = (u) => { calls.push(u); return Promise.resolve({ ok: true, json: () => Promise.resolve(index) }); };
+  const fetch = (u) => { calls.push(u); return Promise.resolve(opt.fail ? { ok: false, json: () => Promise.reject(new Error('x')) } : { ok: true, json: () => Promise.resolve(index) }); };
   const window = { location: { assign: (u) => went.push(u) } };
   const ctx = vm.createContext({ document, window, fetch, location: window.location });
   vm.runInContext(fs.readFileSync(SEARCH_JS, 'utf8'), ctx, { filename: 'search.js' });
@@ -203,4 +203,80 @@ test('H-4: どのページの上の帯にも検索の箱があり、ホームに
   for (const fn of p.docListeners.click || []) fn({ type: 'click', target: p.root.querySelector('main h1') });
   assert.strictEqual(list.hidden, true);
   assert.deepStrictEqual(p.calls, ['/search-index.json']);
+});
+
+// help-dads HD-5（HD6。計画 docs/plans/2026-10-23-help-dads.md の決めたこと H・DF3）: 検索の件数の知らせ（読み上げソフトへの対応の唯一の例外。
+// 0.10.0 の /open のページの知らせ（D78）と合わせて2つ）。決まった文だけを textContent で入れ、閉じたら空に、同じ文なら書き直さない
+test('HD-5（HD6・DF3）: 検索の箱ごとに見えない role="status" の p.vh が1つ（id は <箱の id>-status）。本物の help/ から作った全部のページで、role="status" は検索の箱の中と /open のページの #hc-open-msg にだけ', { timeout: 10000 }, (t) => {
+  const p = runPage(t, 'index.html');
+  for (const id of ['hc-q', 'hc-q-home']) {
+    const box = p.root.querySelector(`#${id}`).closest('.search');
+    const st = box.querySelectorAll('[role="status"]');
+    assert.strictEqual(st.length, 1, `${id}: status の数`);
+    assert.strictEqual(st[0].tagName, 'p');
+    assert.strictEqual(st[0].id, `${id}-status`);
+    assert.ok(st[0].classList.contains('vh'), `${id}: 見えない文でない`);
+    assert.strictEqual(st[0].textContent, '');
+  }
+  // 本物の記事の全部（/open のページも）で、role="status" は決まった所だけ（例外が知らないうちに広がらない）
+  const root = tmpDir(t, 'natsu-help-status-');
+  fs.cpSync(path.join(ROOT, 'help'), path.join(root, 'help'), { recursive: true, filter: (x) => !x.split(path.sep).includes('dist') });
+  const out = path.join(root, 'out');
+  const r = build({ root, out });
+  assert.ok(r.pages.includes('open/index.html'), '/open のページが無い');
+  let n = 0;
+  for (const f of r.pages) {
+    const html = fs.readFileSync(path.join(out, f), 'utf8');
+    const count = (html.match(/role="status"/g) || []).length;
+    const tree = parseHTML(html).root;
+    const st = tree.querySelectorAll('[role="status"]');
+    assert.strictEqual(st.length, count, `${f}: 木で数えた数と字面の数が違う`);
+    for (const el of st) {
+      n++;
+      if (f === 'open/index.html' && el.id === 'hc-open-msg') continue;
+      const box = el.closest('.search');
+      assert.ok(box, `${f}: 検索の箱の外に role="status"（${el.id}）`);
+      assert.strictEqual(el.id, `${box.querySelector('input').id}-status`, `${f}: status の id`);
+    }
+    if (f !== 'open/index.html') assert.strictEqual(st.length, tree.querySelectorAll('.search').length, `${f}: 箱ごとに1つでない`);
+  }
+  assert.ok(n > r.pages.length, '数えた status が少ない');
+});
+
+test('HD-5（HD6・DF3）: 件数の知らせの文（simdom）: 3 件は「3 件見つかりました」、8 件（上限）は「上から 8 件を表示しています」、0 件は「見つかりませんでした」。Esc で閉じると空、空にしても空。同じ文が続くときは書き直さない', { timeout: 5000 }, async (t) => {
+  const p = runPage(t, 'start/first/index.html');
+  const q = p.root.querySelector('#hc-q');
+  const st = p.root.querySelector('#hc-q-status');
+  assert.strictEqual(st.textContent, '');
+  await p.type(q, '試し');
+  assert.strictEqual(st.textContent, '3 件見つかりました');
+  const node = st.childNodes[0];
+  await p.type(q, '試しの');
+  assert.strictEqual(st.textContent, '3 件見つかりました');
+  assert.strictEqual(st.childNodes[0], node, '同じ文を書き直した（読み上げが積もる）');
+  await p.type(q, '一時停止');
+  assert.strictEqual(st.textContent, '2 件見つかりました');
+  await p.type(q, 'ありえない語');
+  assert.strictEqual(st.textContent, '見つかりませんでした');
+  p.key(q, 'Escape');
+  assert.strictEqual(st.textContent, '', 'Esc で閉じても前の文が残る');
+  await p.type(q, '試し');
+  assert.strictEqual(st.textContent, '3 件見つかりました');
+  await p.type(q, '  ');
+  assert.strictEqual(st.textContent, '', '空にしても前の文が残る');
+  await p.type(q, '試し');
+  for (const fn of p.docListeners.click || []) fn({ type: 'click', target: p.root.querySelector('main h1') });
+  assert.strictEqual(st.textContent, '', '外を押して閉じても前の文が残る');
+  // 上限の 8 件は全体の数と偽らない
+  const many = { v: 1, items: Array.from({ length: 12 }, (_, i) => ({ u: `/m${i}/`, t: `記事${i}`, d: '', c: 'x', h: [], x: '共通の語' })) };
+  const p8 = runPage(t, 'start/first/index.html', { index: many });
+  await p8.type(p8.root.querySelector('#hc-q'), '共通');
+  assert.strictEqual(p8.root.querySelector('#hc-q-results').querySelectorAll('[role="option"]').length, 8);
+  assert.strictEqual(p8.root.querySelector('#hc-q-status').textContent, '上から 8 件を表示しています');
+});
+
+test('HD-5（HD6・DF3）: 索引が読めないときは「検索を読み込めませんでした。開き直してください」を status にも入れる（黙らない）', { timeout: 5000 }, async (t) => {
+  const p = runPage(t, 'start/first/index.html', { fail: true });
+  await p.type(p.root.querySelector('#hc-q'), '試し');
+  assert.strictEqual(p.root.querySelector('#hc-q-status').textContent, '検索を読み込めませんでした。開き直してください');
 });
