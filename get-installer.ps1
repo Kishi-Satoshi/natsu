@@ -190,7 +190,7 @@ if ($digest -like "sha256:*") {
     Write-Host "SHA256 検証 OK" -ForegroundColor Green
 }
 
-# エンジン（whisper.cpp / llama.cpp とモデル）は、インストールした後にアプリが取り込む（第0b回）。
+# 文字起こしのエンジン（whisper.cpp とモデル）は、インストールした後にアプリが取り込む（第0b回。0.10.0 から要約のエンジンは無い）。
 # セットアップスクリプトは詳しい人向けに残すが、ここでは一緒に落とさない。
 
 Write-Host ""
@@ -202,6 +202,6 @@ Write-Host "インストール後の更新は数百KBの差分だけを取得す
 Write-Host "この大きなファイルを落とすのは初回だけです。"
 Write-Host ""
 Write-Host "インストールしたら NaTsu を起動し、［設定］→［アカウント］でログインしてください。" -ForegroundColor Cyan
-Write-Host "ローカル AI を使うときは、［設定］→［ローカル AI］の［ローカル AI を使う（数 GB を取り込む）］を押します（約 5.6GB。途中で切れても続きから取ります）。"
+Write-Host "ローカル AI を使うときは、［設定］→［ローカル AI］の［ローカル AI を使う（約 0.6GB を取り込む）］を押します（途中で切れても続きから取ります）。要約は、つながっているときに Claude Code で作ります。"
 
 Wait-BeforeClose "取得が終わりました。上の案内を控えてから閉じてください。"

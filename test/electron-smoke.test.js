@@ -4,6 +4,7 @@
  * 確かめ（偽物の clipboard で）・版の確かめを見る。
  */
 'use strict';
+const { titleAt } = require('./helpers/titles');
 
 const test = require('node:test');
 const assert = require('node:assert');
@@ -27,8 +28,9 @@ const clipOf = (promise, { dropAbc = false, drop = null } = {}) => {
 // 第2a1回 Task P-2 で直した（意図: 本物の src/db/server.js と本物の src/preload.js の往復（15）を足して 15）
 // 第1d回 A-10 で直した（意図: Access の cookie を本物の net.request が付けるか（16）を足して 16）
 // 0.9.0 O-2 で直した（意図: 録音バーの窓の setBounds が本物の Electron で getBounds にそのまま返るか（17）を足して 17）
-test('electron-smoke: 17 の確かめ。終了コードは 17 件そろって全部 OK のときだけ 0', { timeout: 5000 }, () => {
-  assert.deepStrictEqual(S.CHECKS.map(([n]) => n), [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17]);
+// 0.10.0 LN-3 で直した（意図: natsu:// の登録が Windows の HKCU に "<exe>" -- "%1" の形で書かれるか（18）を足して 18）
+test('electron-smoke: 18 の確かめ。終了コードは 18 件そろって全部 OK のときだけ 0', { timeout: 5000 }, () => {
+  assert.deepStrictEqual(S.CHECKS.map(([n]) => n), [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18]);
   const all = S.CHECKS.map(([n]) => ({ n, ok: true }));
   assert.strictEqual(S.exitCodeOf(all), 0);
   assert.strictEqual(S.exitCodeOf(all.map((r) => (r.n === 10 ? { ...r, ok: false } : r))), 1);
@@ -36,20 +38,21 @@ test('electron-smoke: 17 の確かめ。終了コードは 17 件そろって全
   assert.strictEqual(S.exitCodeOf(all.map((r) => (r.n === 15 ? { ...r, ok: false } : r))), 1);
   assert.strictEqual(S.exitCodeOf(all.map((r) => (r.n === 16 ? { ...r, ok: false } : r))), 1);
   assert.strictEqual(S.exitCodeOf(all.map((r) => (r.n === 17 ? { ...r, ok: false } : r))), 1);
-  assert.strictEqual(S.exitCodeOf(all.slice(0, 16)), 1);
+  assert.strictEqual(S.exitCodeOf(all.map((r) => (r.n === 18 ? { ...r, ok: false } : r))), 1);
+  assert.strictEqual(S.exitCodeOf(all.slice(0, 17)), 1);
   assert.strictEqual(S.exitCodeOf([]), 1);
   const lines = [];
   S.finish({ exit: () => {} }, all, { log: (l) => lines.push(l), flush: (cb) => cb() });
-  assert.strictEqual(lines[lines.length - 1], '結果: 17 件とも OK');
-  assert.match(read('tools/electron-smoke/main.js'), /次の 17 を確かめる/);
+  assert.strictEqual(lines[lines.length - 1], '結果: 18 件とも OK');
+  assert.match(read('tools/electron-smoke/main.js'), /次の 18 を確かめる/);
 });
 
 // 第2a1回 Task P-2（ST5・ST7）: 本物の Electron で、本物の server.js（utilityProcess）と本物の preload（sandbox の窓）を往復する
 test('P-2: 15 番目の確かめ（本物の server.js と本物の preload）が一覧にあり、判定は純粋な dbResults', () => {
   const S = require('../tools/electron-smoke/main.js');
-  assert.strictEqual(S.CHECKS.length, 17);   // 第1d回 A-10 で 16、0.9.0 O-2 で 17 を足した（15 の場所は変えない）
+  assert.strictEqual(S.CHECKS.length, 18);   // 第1d回 A-10 で 16、0.9.0 O-2 で 17、0.10.0 LN-3 で 18 を足した（15 の場所は変えない）
   assert.match(S.CHECKS[14][1], /src\/db\/server\.js.*src\/preload\.js/);
-  const good = { got: { title: '見本', routeText: [] }, portOnWindow: false, rejectedWhileDown: true, titleAfter: '直した', oplogRows: 1, killCode: 0, resendOk: true };
+  const good = { got: { title: S.SMOKE_DB.title, routeText: [] }, portOnWindow: false, rejectedWhileDown: true, titleAfter: '直した', oplogRows: 1, killCode: 0, resendOk: true };
   assert.strictEqual(S.dbResults(good)[0].ok, true);
   for (const k of ['portOnWindow', 'rejectedWhileDown', 'oplogRows']) {
     const bad = { ...good, [k]: k === 'oplogRows' ? 2 : !good[k] };
@@ -61,9 +64,9 @@ test('P-2: 15 番目の確かめ（本物の server.js と本物の preload）�
 
 // P-2 の続き（計画のテストに足した）: 判定のほかの崩れも NG。読めたページ・題名・routeText・書き込み・oplog の数・kill の番号
 test('P-2: dbResults は、ページが返らない・routeText が無い・題名が違う・書き込みが済まない・oplog が 0 行・kill の番号が 0 でない・同じ tx の送り直しが済みで返らない、でも NG', { timeout: 5000 }, () => {
-  const good = { got: { title: '見本', routeText: ['☁ 文字起こし: クラウド（OpenAI）1'] }, portOnWindow: false, rejectedWhileDown: true, titleAfter: '直した', oplogRows: 1, killCode: 0, resendOk: true };
+  const good = { got: { title: S.SMOKE_DB.title, routeText: ['☁ 文字起こし: クラウド（OpenAI）1'] }, portOnWindow: false, rejectedWhileDown: true, titleAfter: '直した', oplogRows: 1, killCode: 0, resendOk: true };
   assert.deepStrictEqual(S.dbResults(good).map((r) => [r.n, r.ok]), [[15, true]]);
-  const bad = [{ got: null }, { got: { title: '見本' } }, { got: { title: '見本', routeText: '' } }, { got: { title: '別', routeText: [] } },
+  const bad = [{ got: null }, { got: { title: S.SMOKE_DB.title } }, { got: { title: S.SMOKE_DB.title, routeText: '' } }, { got: { title: titleAt('2026-10-19T01:00:00.000Z'), routeText: [] } },
     { titleAfter: '' }, { titleAfter: undefined }, { oplogRows: 0 }, { oplogRows: undefined }, { killCode: 1 }, { killCode: null },
     { portOnWindow: undefined }, { rejectedWhileDown: 'rejected retry' }, { error: '子の ready が 15000ms で来ない' },
     // 済んだ締めを同じ (役 main, tx) でもう一度送ると「済み」で返る（変異 db-tx-dup は UNIQUE(role, tx) で internal になる）
@@ -415,9 +418,25 @@ test('electron-smoke: 17 は本物の録音バーと同じ作りの窓（transpa
   assert.ok(boot.indexOf('accessChecks(') < boot.lastIndexOf('panelCheck(') && boot.lastIndexOf('panelCheck(') < boot.indexOf('finish(app, results)'), '17 の場所');
   assert.ok(boot.indexOf('versionGate(') < boot.indexOf('panelCheck('), '--only=17 の起動で版を確かめていない');
   assert.ok(boot.indexOf("appendSwitch('force-device-scale-factor'") >= 0 && boot.indexOf("appendSwitch('force-device-scale-factor'") < boot.indexOf('app.whenReady()'), '拡大率のスイッチを ready の前に当てていない');
-  assert.match(m, /次の 17 を確かめる/);
+  assert.match(m, /次の 18 を確かめる/);   // 0.10.0 LN-3 で 18 を足した（17 の後に natsu:// の登録）
   // 統合（CI run 39474527787 の electron-smoke「NG 17 … 結果が無い」）で足した: panelCheck は panelResults の配列を返すので、ふだんの起動では
   // 広げて足し、--only=17 の起動ではそのまま finish に渡す（配列を配列で包むと 17 の結果が見つからず、Windows の CI で NG になる）
   assert.ok(boot.includes('results.push(...await panelCheck('), 'ふだんの起動で panelCheck の配列を広げずに足した');
   assert.ok(boot.includes('finish(app, await panelCheck('), '--only=17 の起動で panelCheck の配列をもう一度包んだ');
+});
+
+// 0.10.0 LN-3（D72・決めたこと 144）: natsu:// の登録の判定（protocolResults）。Windows の CI でだけ、本物の setAsDefaultProtocolClient の後に
+// reg query で HKCU\Software\Classes\natsu\shell\open\command の既定の値を読み、"<exe>" -- "%1" の形かを見て、確かめた後に外す
+test('LN-3: 18 の判定（protocolResults）は、登録できて、コマンドがちょうど "<exe>" -- "%1" で、外せたときだけ OK。Windows でなければ確かめずに OK', { timeout: 5000 }, () => {
+  assert.match(S.CHECKS[17][1], /natsu:\/\//);
+  const exe = 'D:\\a\\natsu\\node_modules\\electron\\dist\\electron.exe';
+  const good = { platform: 'win32', set: true, value: `"${exe}" -- "%1"`, exe, removed: true };
+  assert.deepStrictEqual(S.protocolResults(good).map((r) => [r.n, r.ok]), [[18, true]]);
+  for (const bad of [{ set: false }, { value: `"${exe}" "%1"` }, { value: `"${exe}" -- %1` }, { value: `"C:\\other.exe" -- "%1"` }, { value: '' }, { removed: false }]) {
+    assert.strictEqual(S.protocolResults({ ...good, ...bad })[0].ok, false, JSON.stringify(bad));
+  }
+  assert.strictEqual(S.protocolResults({ platform: 'linux' })[0].ok, true);
+  assert.strictEqual(S.regDefaultValue('\r\nHKEY_CURRENT_USER\\Software\\Classes\\natsu\\shell\\open\\command\r\n    (既定)    REG_SZ    "C:\\x.exe" -- "%1"\r\n\r\n'), '"C:\\x.exe" -- "%1"');
+  assert.strictEqual(S.regDefaultValue('    (Default)    REG_SZ    "C:\\x.exe" -- "%1"\r\n'), '"C:\\x.exe" -- "%1"');
+  assert.strictEqual(S.regDefaultValue('ERROR: The system was unable to find the specified registry key or value.'), '');
 });

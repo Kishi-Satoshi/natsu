@@ -52,6 +52,7 @@
  * フォルダの名前には日本語と 𠮷（サロゲートの対）を入れる（RF1）。
  */
 'use strict';
+const { titleAt } = require('./titles');
 
 const fs = require('node:fs');
 const os = require('node:os');
@@ -105,7 +106,7 @@ function tmpDb() {
 function samplePage(id = 'pa1') {
   const page = {
     id,
-    title: '定例会議（見本）',
+    title: titleAt(SEED_AT),
     date: '2026-10-19',
     durationSec: 60,
     memo: '',
@@ -205,7 +206,7 @@ function searchCorpus() {
   // 入れる順を createdAt の順（i の順）と違える（7 と 30 は互いに素なので全部を1回ずつ通る）
   for (let k = 0; k < CORPUS.length; k++) {
     const i = (k * 7) % CORPUS.length;
-    const [title, texts, memo, says] = CORPUS[i];
+    const [title, texts, memo, says] = CORPUS[i];   // 利用者が付け直した題名（D77。題名の語に頼るため）
     const id = `ps${String(i + 1).padStart(2, '0')}`;
     const at = new Date(Date.UTC(2026, 8, 1 + i, 9)).toISOString();
     const page = {
@@ -235,7 +236,7 @@ function oldBuildData({ pages = 3, bom = 0, broken = 0, badId = 0, unreadable = 
       { id: 's3', atMs: 40000, durationMs: 20000, text: '見積書は月末までに先方へ送る予定です', speaker: '話者1' },
     ];
     const page = store.createPage({
-      title: `第${i + 1}回の定例会議（𠮷）`,
+      title: `第${i + 1}回の定例会議（𠮷）`,   // 利用者が付け直した題名（D77。題名の語に頼るため）
       date: `2026-09-${String(i + 1).padStart(2, '0')}`,
       durationSec: 600 + i,
       memo: i % 2 ? '' : `メモの文 ${i + 1}`,
@@ -269,7 +270,7 @@ function oldBuildData({ pages = 3, bom = 0, broken = 0, badId = 0, unreadable = 
   }
   for (let i = 0; i < badId; i++) {
     const id = `pbadid${String(i + 1).padStart(4, '0')}`;
-    J.writeJsonFile(pageFile(id), { id: `pother${String(i + 1).padStart(4, '0')}`, title: 'ファイル名と違う ID', blocks: [] });
+    J.writeJsonFile(pageFile(id), { id: `pother${String(i + 1).padStart(4, '0')}`, title: titleAt(SEED_AT), blocks: [] });
     J.writeJsonFile(transcriptFile(id), { id, segments: [{ id: 's1', atMs: 0, text: '数えない' }] });
   }
   for (let i = 0; i < unreadable; i++) fs.mkdirSync(pageFile(`punread${String(i + 1).padStart(4, '0')}`));
@@ -377,7 +378,7 @@ function tmpData({ pages = 1, withJson = false } = {}) {
     runScript() {
       if (ids.length < 3) throw new Error('tmpData.runScript: ページを3つ以上');
       const [a, b, c] = ids;
-      run('app', 'page.setTitle', { id: a, title: '題を直した' });
+      run('app', 'page.setTitle', { id: a, title: '題を直した' });   // 利用者が付け直した題名（D77。題名の語に頼るため）
       run('app', 'page.setMemo', { id: a, memo: 'メモを足した' });
       run('app', 'page.setType', { id: a, type: 'oneonone' });
       const { blockId } = run('app', 'block.insert', { pageId: a, afterBlockId: `${a}b2`, type: 'bullet' });
@@ -392,7 +393,7 @@ function tmpData({ pages = 1, withJson = false } = {}) {
       run('main', 'page.put', { page: { ...got.page, summaryError: '要約の失敗の文' }, baseRev: got.page.rev });
       run('main', 'meeting.begin', { pageId: 'pm0001', startedAt: 1760000000000, localOnly: false });
       run('main', 'meeting.segment', { pageId: 'pm0001', seg: { id: 's1', atMs: 0, durationMs: 20000, text: '締める会議の発言' } });
-      run('main', 'meeting.finalize', { pageId: 'pm0001', page: { title: '締めた会議', blocks: [{ id: 'pm0001b1', type: 'bullet', text: '締めの要点の文' }] },
+      run('main', 'meeting.finalize', { pageId: 'pm0001', page: { title: titleAt(1760000000000), blocks: [{ id: 'pm0001b1', type: 'bullet', text: '締めの要点の文' }] },
         segments: [{ id: 's1', atMs: 0, durationMs: 20000, text: '締める会議の発言（確定）' }] });
       run('main', 'meeting.begin', { pageId: 'pm0002', startedAt: 1760000100000, localOnly: true });
       run('main', 'meeting.segment', { pageId: 'pm0002', seg: { id: 's1', atMs: 0, durationMs: 20000, text: '取り消す会議の発言' } });

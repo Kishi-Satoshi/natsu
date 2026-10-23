@@ -1,4 +1,5 @@
 'use strict';
+const { titleAt } = require('./titles');
 // main.js を偽の Electron の上で実際に動かし、記録 → 区間 → 文字起こし → 議事録の保存までを通す。
 // 1 回の実行で 1 つの場面だけを試す（main.js はモジュールの中に状態を持つので、場面ごとに
 // 別のプロセスにする）。結果は最後の行に JSON で出す。使い方:
@@ -40,7 +41,10 @@
 //     --verify-throws … --managed と組み合わせる。照らし（verifyCandidates）が例外を投げる。記録はしない
 //     --repair      … --managed-tamper と組み合わせる。installed.json を同意済みにし、engine-small の偽のサーバーを開いたままにして、
 //                     起動のときの照らしで壊れていた組を main が取り直し（fake-net の net.request で）、照らし直してから使うのを見る（Task 14）
-//     --sum-tamper  … --managed と組み合わせる。要約の組も置き、その llama.dll を大きさを変えずに書き換える（要約の組は壊れている）
+//     （--sum-tamper は 0.10.0 LS-3（D59）で外した: 要約の組を取り込まない）
+//     --retired-sum … 0.10.0 LS-4: 取り込みの置き場所（LOCALAPPDATA の下）に 0.9.x の形の要約の組（小さな表の llama-b11669 と gemma のモデル）を置き、
+//                     engine-install.retireSum をその小さな表で呼ぶ。--idle のときは「要約のエンジンを消す」の記録が出るまで待ち、out.savedSettings を足す。
+//                     --keep-user-data の2回目の起動では settings.json を置き直さない（retiredSumNotified を残す）
 //     --no-engine=fetchable|unsupported … 詳細設定の文字起こしを空にし、何も取り込んでいない PC にする。fetchable は取り込める PC、
 //                     unsupported は取り込めない PC（engineRoot だけを差し替える）。記録はしない
 //                     （第1d2回 M-1: --relay・--offline・--signed-out・--dictate・--local-only と組んだときは記録しない早い分かれ道に入らず、
@@ -139,6 +143,13 @@
 //     --no-key      … secrets.json を置かない
 //     --key-unreadable … 偽の safeStorage の decryptStringAsync が投げる（鍵のファイルはあるが復号できない）
 //     --offline     … net.isOnline() が false
+//   0.10.0 LS-2（D59・決めたこと 103〜105。要約は Claude Code だけ・要約待ち・つながったら自動で作る）
+//     --summary-offline … Claude Code に届かない（net.isOnline() が false から始まる。--offline と同じ形で、文字起こしは手元）。
+//                     届くかの覚え（online.js）は false の答えを覚えないので、戻したらすぐ届く
+//     --summary-online-after=<ms> … --summary-offline と組む。議事録を写した後 ms 待って net.isOnline() を true にし、見回り（retryKeptWhenBack）を
+//                     2回呼ぶ。それぞれの後の { pCalls（偽の claude の -p の数）, pages（議事録の場面のページの形） } を out.summaryBack に順に積む
+//     --summary-reconnect … --summary-online-after と組む。続けて net.isOnline() を false にして見回りを1回、true に戻して見回りを1回呼び、
+//                     その後の形を out.summaryBack に足す（つながり直し）
 //     --local-only  … 記録を始めた後、最初の区間の前に［この会議は PC の中だけ］を押す（画面と同じ IPC の meeting:set-local-only。
 //                     out.localOnly にその返事、out.statusLocalOnly に押した後の meeting:status の localOnly と cloud）。
 //                     --recover と組むと、置く下書きに localOnly: true を書く
@@ -154,6 +165,7 @@
 //                     mode を、FAKE_CLAUDE_LOG に記録のファイルを置く（spawn は偽の whisper と同じく node で台本を起こす）。
 //                     mode が missing か、--claude が無ければ claudeExe を無いファイルに向ける（Claude Code が入っていない PC。PATH を探さない）。--stt と組むと、Anthropic へ
 //                     届くかの確かめが偽の送り先に届いてオンラインになる（--stt が無ければ、確かめは fake-net の守りで死んで手元になる）
+//     --claude-delay=<ms> … 0.10.0 LS-2: --claude=slow の偽の claude が -p に答えるまでの待ち（FAKE_CLAUDE_DELAY）
 //     --claude-auth=<method> … 偽の claude の auth status が返す authMethod（FAKE_CLAUDE_AUTH。既定 claude.ai）
 //     --db-down     … 第2a1回 M-2b: 議事録の DB のプロセス（偽の utilityProcess の中の本物の server.js）の SQLite が trigram を持たない
 //                     （helpers/no-trigram.js を子の中で先に読む）。自分の確かめが通らず、DB は「使えない」で起きる。場面の dbDown でも同じ
@@ -370,6 +382,19 @@
 //                        notices・settingsText・state（meeting:status の active）
 //     --detect=off・--detect-mute=<id,…> … 置く settings.json の meetingDetect: false・meetingDetectMute
 //     --dark … 偽の nativeTheme.shouldUseDarkColors を真で始める
+//   0.10.0 C-2（Claude デスクトップへの MCP の登録。計画 docs/plans/2026-10-20-100.md）
+//     app.getPath('appData') は一時フォルダ（日本語と 𠮷）の AppData-Roaming。MCP の場面（--claude-config・--mcp-steps）だけ app.getAppPath() がリポジトリの根
+//     --claude-config=<場面> … 起動の前に Claude デスクトップの設定ファイルを置く（none: フォルダだけ・plain: 好みの設定だけ・others: 好みの設定と
+//                        ほかのサーバー2つと利用者の控え .bak・bom: others を BOM 付きで・broken: 途中で切れた JSON・array: []・other-natsu: 印の無い natsu・
+//                        readonly: others を読み取り専用で・msix: %APPDATA% はフォルダだけで、%LOCALAPPDATA%\Packages\Claude_…\LocalCache\Roaming\Claude に others・noclaude: どちらのフォルダも無い）
+//     --mcp-gone  … 置く settings.json に、前に登録した印 mcpRegisteredFor（ファイル 1・版 0.9.4）を書く
+//     --mcp-stale … 置く設定ファイルの mcpServers の頭に、場所の違う NaTsu の登録（印あり）を足す
+//     --tasklist=<running|stopped|fail> … 偽の execFile が tasklist.exe に答える（動いている・動いていない・失敗）。呼んだ引数を out.tasklistCalls に
+//     --packaged・--protocol-default … app.isPackaged を真に・isDefaultProtocolClient を真に（LN-3。呼んだ口は out.protocolCalls）
+//     --argv=<JSON> … main を読む前の process.argv（[execPath, ...JSON]。LN-4 のリンクで起こされた形）
+//     --mcp-steps=<JSON> … 起動の後に手順を順に行い、出力して終える: ["status"]・["register"]・["unregister"]（mcp: の IPC。答えは out.ipc に）・
+//                        ["files", 名前]（その時の設定ファイルを out.snaps に）・["sleep", ms]・["save", 足す設定]（画面と同じ settings:save）・["second-instance", argv]（2つ目の起動）・["ipc-raw", 名前, 引数]。出力: claudeConfigs（roaming・msix ごとに text（BOM も含む）・
+//                        backups（NaTsu の控えの名前）・backupTexts・others（ほかのファイルの名前）。フォルダが無ければ null）・notices・engineLog・settingsText・dataDir
 // 画面へ送った知らせと進み具合は、送った順に out.seq へ残す。進み具合が初めて「使える」（whisperReady・sumReady）と
 // 言ったときの engine:status を out.atReady に、壊れた知らせを送ったときの engine:status を out.atBroken に残す
 // （画面はその知らせでエンジンの状態を聞き直すので、そのとき main の答えがもう新しいこと: 第0b回 Task 14・15）
@@ -410,6 +435,8 @@ const killMainAtBegin = flags.includes('--kill-main-at-begin');
 const purgeSaveFailOnce = flags.includes('--purge-save-fail-once');
 const keepDraftAfterFinalize = flags.includes('--keep-draft-after-finalize');
 const keepUserData = flagVal('--keep-user-data');
+const retiredSumNone = flags.includes('--retired-sum=none');   // 0.10.0 LS-4 の CI の直し: 取り込める PC で、消すものが無い（0.9.x の要約の組を置かない）
+const retiredSum = flags.includes('--retired-sum') || retiredSumNone;
 const setTitleDuring = flagVal('--set-title-during');
 const setTitleAfterSum = flagVal('--set-title-after-sum');
 const secretText = flags.includes('--secret-text');
@@ -465,6 +492,19 @@ if (micSteps) process.env.NATSU_TEST_MIC_WATCH = '1';
 const detectFlag = flagVal('--detect');
 const detectMuteFlag = flagVal('--detect-mute');
 const darkFlag = flags.includes('--dark');
+// 0.10.0 C-2: Claude デスクトップへの MCP の登録の場面（頭の注釈）
+const claudeConfigFlag = flagVal('--claude-config');
+const mcpGoneFlag = flags.includes('--mcp-gone');
+const mcpStaleFlag = flags.includes('--mcp-stale');
+const tasklistFlag = flagVal('--tasklist');
+const mcpSteps = flagVal('--mcp-steps') ? JSON.parse(flagVal('--mcp-steps')) : null;
+const mcpScene = Boolean(claudeConfigFlag || mcpSteps);
+// 0.10.0 LN-3: --packaged（app.isPackaged が真）・--protocol-default（isDefaultProtocolClient が真）。呼んだ口を out.protocolCalls に
+const packagedFlag = flags.includes('--packaged');
+const protocolDefaultFlag = flags.includes('--protocol-default');
+const protocolCalls = [];
+// 0.10.0 LN-4: --argv=<JSON>（main を読む前の process.argv の後ろ。起動の引数にリンクを渡す形）
+const argvFlag = flagVal('--argv') ? JSON.parse(flagVal('--argv')) : null;
 // 0.9.1 Q-4: 話し声が無いときに自動で止める場面（頭の注釈）
 const quietSeq = flagVal('--quiet-seq') ? flagVal('--quiet-seq').split(',').flatMap((t) => {
   const m = /^([stbkxXPdSR])(?::(.))?(?:\*(\d+))?$/.exec(t);
@@ -481,7 +521,6 @@ const slowAck = (() => { const m = /^([\w.]+):(\d+)$/.exec(flagVal('--slow-ack')
 const afterRetry = flags.includes('--after-retry');
 const noVcRuntime = flags.includes('--no-vc-runtime');
 const verifyThrows = flags.includes('--verify-throws');
-const sumTamper = flags.includes('--sum-tamper');
 const noEngine = (flags.find((f) => f.startsWith('--no-engine=')) || '').slice(12);
 const fetchConsent = flags.includes('--fetch-consent');   // 第1d2回 M-1
 const installedUnreadable = flags.includes('--installed-unreadable');   // 第1d2回 M-1 の点検
@@ -519,7 +558,10 @@ const legacyProvider = flags.includes('--legacy-provider');
 const keyFor = (flags.find((f) => f.startsWith('--key-for=')) || '').slice(10) || 'openai';
 const OPENAI_BASE = 'https://api.openai.com/v1';   // src/stt-cloud.js の PRESETS.openai.base（0.7.0 U-1 で固定の送り先）
 const keyUnreadable = flags.includes('--key-unreadable');
-const offline = flags.includes('--offline');
+const summaryOffline = flags.includes('--summary-offline');
+const summaryOnlineAfter = flagVal('--summary-online-after') === undefined || flagVal('--summary-online-after') === '' ? -1 : Number(flagVal('--summary-online-after'));
+const summaryReconnect = flags.includes('--summary-reconnect');
+const offline = flags.includes('--offline') || summaryOffline;
 const localOnlyFlag = flags.includes('--local-only');
 const dictate = flags.includes('--dictate');
 // 第1d2回 M-1: 何も取り込んでいない PC（--no-engine）を、議事録・音声入力の場面として回す（早い分かれ道に入らない）
@@ -588,11 +630,24 @@ const childEnv = (env) => {
 // 偽の claude を Electron のアプリとして起こし、Windows では標準入力が届かない（D2 の stdinHasTranscript が false になる）
 const fakeClaudeEnv = (env) => (process.versions.electron ? { ...childEnv(env), ELECTRON_RUN_AS_NODE: '1' } : childEnv(env));
 
-const freePort = () => new Promise((resolve, reject) => {
+// 偽のエンジン（子のプロセス）に渡す空いたポート。前は listen(0) で OS の一時ポート（Linux は 32768〜60999・Windows は 49152〜65535）を借りて
+// すぐ返していたが、返した後・子が待ち受ける前に、同じ機械の外向きの接続（中継の偽物への要求など。並べて回すほかの場面も）が一時ポートとして
+// そのポートを使うことがあり、偽のエンジンが EADDRINUSE で落ちた（CI run 39904812869 の ubuntu・stage094.main の S4・S5。0.9.4 の freePort の
+// Ruling と同じ原因）。一時ポートの範囲の外（20000〜31999）から選び、待ち受けられることを確かめてから返す（Windows の予約された範囲は EACCES で飛ばす）
+const PORT_LO = 20000;
+const PORT_SPAN = 12000;
+const tryPort = (port) => new Promise((resolve) => {
   const srv = net.createServer();
-  srv.once('error', reject);
-  srv.listen(0, '127.0.0.1', () => { const { port } = srv.address(); srv.close(() => resolve(port)); });
+  srv.once('error', () => resolve(false));
+  srv.listen(port, '127.0.0.1', () => srv.close(() => resolve(true)));
 });
+const freePort = async () => {
+  for (let i = 0; i < 200; i++) {
+    const port = PORT_LO + Math.floor(Math.random() * PORT_SPAN);
+    if (await tryPort(port)) return port;
+  }
+  throw new Error('mainrun: 空いたポートが見つからない');
+};
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 // 場面が「終わった」と言える条件を待つ上限。条件が揃えばすぐ進むので、通る場面は速いまま。上限は、負荷のある遅い機械
 // （Windows の CI で、他の場面・他のテストのファイルと CPU を取り合う）でも届く長さにする。固定の短い上限（4 秒）では、
@@ -699,6 +754,9 @@ process.on('exit', () => {
   fs.mkdirSync(engDir);
   // 偽の文字起こしの送り先（--stt）。終わるときに閉じなくても、process.exit で消える
   const fakeStt = sttMode ? await require('./fake-stt').startFakeStt({ mode: sttMode === 'cert' ? 'text' : sttMode, key: STT_KEY }) : null;
+  // 0.10.0 LS-2: --claude があって --stt も --relay も無い場面（手元の文字起こしの場面）も、Anthropic へ届くかの確かめが届くように、
+  // 届くかの確かめだけに答える偽の送り先を置く（要約は Claude Code だけになったので、要約を作る場面は Claude Code に届く形が要る）
+  const claudeReach = claudeMode && !sttMode && !relayMode ? await require('./fake-stt').startFakeStt({ mode: 'text', key: STT_KEY }) : null;
   const fakeEnc = (s) => Buffer.from(`ENC1:${Buffer.from(s, 'utf8').toString('hex')}`);
   // 本物の中継のコードを 127.0.0.1 で（--relay。第1d回 A-2）。終わるときに閉じなくても、process.exit で消える
   const relayLocal = relayMode ? await require('./relay-local').startRelayLocal({ stt: { mode: relaySttMode }, env: RELAY_ENV[relayMode] || {}, access: true }) : null;
@@ -764,6 +822,7 @@ process.on('exit', () => {
   const claudeExe = claudeMode && claudeMode !== 'missing' ? FAKE_CLAUDE : path.join(tmp, 'no-such-claude.exe');
   if (claudeMode) {
     process.env.FAKE_CLAUDE_MODE = claudeMode;
+    if (flagVal('--claude-delay')) process.env.FAKE_CLAUDE_DELAY = flagVal('--claude-delay');   // 0.10.0 LS-2: --claude=slow の待ち（ミリ秒）
     process.env.FAKE_CLAUDE_LOG = claudeLog;
     process.env.FAKE_CLAUDE_EXPECT = fakeText || '本日の議題は進捗の確認です';
     // 手元の1回の要約と同じ指示文（mainlib.buildClaudeInput。F9）を標準入力で受けたか
@@ -792,6 +851,55 @@ process.on('exit', () => {
   }
   // 取り込んだ組（--managed）。置き場所は main と同じ LOCALAPPDATA の下（日本語と 𠮷 の名前。RF1）
   const localAppData = path.join(tmp, 'LocalAppData-取込𠮷');
+  // 0.10.0 C-2: %APPDATA%（app.getPath('appData')）と Claude デスクトップの設定ファイル（--claude-config。頭の注釈）
+  const appDataDir = path.join(tmp, 'AppData-Roaming-設定𠮷');
+  fs.mkdirSync(appDataDir, { recursive: true });
+  const CLAUDE_CONFIG = 'claude_desktop_config.json';
+  const claudeDirs = { roaming: path.join(appDataDir, 'Claude'), msix: path.join(localAppData, 'Packages', 'Claude_pzs8sxrjxfjjc', 'LocalCache', 'Roaming', 'Claude') };
+  if (claudeConfigFlag) {
+    const OTHERS = {
+      globalShortcut: 'Ctrl+Space',
+      mcpServers: { filesystem: { command: 'npx', args: ['-y', '@modelcontextprotocol/server-filesystem', 'C:\\docs'] }, memory: { command: 'node', args: ['mem.js'], env: { K: 'v' } } },
+      theme: 'dark',
+    };
+    const withStale = (cfg) => (mcpStaleFlag
+      ? { ...cfg, mcpServers: { natsu: { command: 'D:\\old\\NaTsu.exe', args: ['D:\\old\\resources\\app\\src\\mcp\\server.js'], env: { ELECTRON_RUN_AS_NODE: '1', NATSU_MCP: '1', NATSU_DATA_DIR: 'D:\\old\\data' } }, ...cfg.mcpServers } }
+      : cfg);
+    const text = (v) => JSON.stringify(withStale(v), null, 2);
+    const BODIES = {
+      none: null,
+      plain: JSON.stringify({ theme: 'light' }, null, 2),
+      others: text(OTHERS),
+      bom: `\uFEFF${text(OTHERS)}`,
+      broken: '{\n  "mcpServers": {\n    "filesystem": {',
+      array: '[]',
+      'other-natsu': text({ ...OTHERS, mcpServers: { ...OTHERS.mcpServers, natsu: { command: 'other.exe', args: [] } } }),
+      readonly: text(OTHERS),
+      msix: null,
+    };
+    if (claudeConfigFlag !== 'noclaude') {
+      if (!Object.hasOwn(BODIES, claudeConfigFlag)) { process.stderr.write(`mainrun: --claude-config=${claudeConfigFlag} が読めない\n`); process.exit(1); }
+      fs.mkdirSync(claudeDirs.roaming, { recursive: true });
+      const body = BODIES[claudeConfigFlag];
+      const file = path.join(claudeDirs.roaming, CLAUDE_CONFIG);
+      if (body !== null) fs.writeFileSync(file, body);
+      if (claudeConfigFlag === 'others') fs.writeFileSync(`${file}.bak`, '{"利用者の控え": true}');
+      if (claudeConfigFlag === 'readonly') fs.chmodSync(file, 0o444);
+      if (claudeConfigFlag === 'msix') {
+        fs.mkdirSync(claudeDirs.msix, { recursive: true });
+        fs.writeFileSync(path.join(claudeDirs.msix, CLAUDE_CONFIG), text(OTHERS));
+      }
+    }
+  }
+  // その時の設定ファイル（場所ごと。フォルダが無ければ null）
+  const claudeConfigsNow = () => Object.fromEntries(Object.entries(claudeDirs).map(([k, dir]) => {
+    if (!fs.existsSync(dir)) return [k, null];
+    const names = fs.readdirSync(dir).sort();
+    const isBk = (n) => n.startsWith(`${CLAUDE_CONFIG}.natsu-`) && n.endsWith('.bak');
+    const backups = names.filter(isBk);
+    const read = (n) => { try { return fs.readFileSync(path.join(dir, n), 'utf8'); } catch (_) { return null; } };
+    return [k, { text: read(CLAUDE_CONFIG), backups, backupTexts: Object.fromEntries(backups.map((n) => [n, read(n)])), others: names.filter((n) => n !== CLAUDE_CONFIG && !isBk(n)) }];
+  }));
   let managedExe = '';
   let managedRoot = '';
   let managedMods = null;
@@ -813,8 +921,8 @@ process.on('exit', () => {
     });
     managedRoot = path.join(localAppData, 'natsu', 'engine');
     const home = { supported: true, root: managedRoot, reason: '' };
-    // 要約の組は取り込んでいない（--sum-tamper のときだけ置く）
-    for (const it of items.filter((i) => i.group === 'whisper' || (sumTamper && i.group === 'sum'))) {
+    // 組は文字起こしだけ（0.10.0 LS-3 で要約の組を外した）
+    for (const it of items.filter((i) => i.group === 'whisper')) {
       if (it.kind === 'zip') {
         const zip = path.join(tmp, `${it.id}.zip`);
         fs.writeFileSync(zip, set.bodies[it.id]);
@@ -851,7 +959,6 @@ process.on('exit', () => {
       const instFile = path.join(managedRoot, 'installed.json');
       I.writeInstalled(instFile, { ...I.readInstalled(instFile), consent: true });
     }
-    if (sumTamper) tamper('llama-b1', 'llama.dll');
     // --managed --recover: 第2a1回 M-4 から、起動の復旧の文字起こしは起動の片付け（DB の用意）の後に回り、照らしは片付けを
     // STARTUP_DB_WAIT_MS（3 秒）まで待ってから始まる。DB の用意がそれより遅いと、照らしが先に終わって「確かめています」の保留を
     // 通らない（CI run 39240983508 の Windows）。照らしを、復旧が保留になったと engine.log に出るまで（15 秒まで）待たせ、場面を決まった順にする
@@ -867,6 +974,17 @@ process.on('exit', () => {
         ...(serveSet ? { makeRunner: (deps) => I.makeRunner({ ...deps, fetchOpts: { requireHttps: false }, statfs: async () => ({ bavail: 1e6, bsize: 1e6 }) }) } : {}) },
       manifest: { ...realManifest, MANIFEST: Object.freeze({ schema: 1, items }) },
     };
+  }
+  // 0.10.0 LS-4（--retired-sum）: 0.9.x の要約の組（小さな表）を置き、retireSum をその表で呼ぶ
+  if (retiredSum && !managedMods) {
+    const I = require(path.join(ROOT, 'src', 'engine-install.js'));
+    const home = { supported: true, root: path.join(localAppData, 'natsu', 'engine'), reason: '' };
+    const SMALL_RETIRED = { dir: 'llama-b11669', files: [['llama-server.exe', 900], ['llama.dll', 2500], ['LICENSE-LLVM-OpenMP', 70]],
+      model: { dest: 'models/gemma-4-E4B-it-Q4_K_M.gguf', size: 6000 }, ids: ['sum-engine', 'sum-model'] };
+    if (!retiredSumNone) for (const [n, size] of SMALL_RETIRED.files) { const f = path.join(home.root, SMALL_RETIRED.dir, n); fs.mkdirSync(path.dirname(f), { recursive: true }); fs.writeFileSync(f, Buffer.alloc(size, 7)); }
+    if (!retiredSumNone) { const mf = path.join(home.root, ...SMALL_RETIRED.model.dest.split('/')); fs.mkdirSync(path.dirname(mf), { recursive: true }); fs.writeFileSync(mf, Buffer.alloc(SMALL_RETIRED.model.size, 7)); }
+    managedMods = { install: { ...I, engineRoot: () => home, retireSum: (h, o) => I.retireSum(h, { ...o, table: SMALL_RETIRED }) },
+      manifest: require(path.join(ROOT, 'src', 'engine-manifest.js')) };
   }
   // 何も取り込んでいない PC（取り込める・取り込めない）。置き場所だけを決め、フォルダは作らない
   if (noEngine || (scene && !scene.engine)) {
@@ -954,7 +1072,7 @@ process.on('exit', () => {
   }
   if (scene) {
     // 場面のファイルを、ふだんの settings.json の代わりに置く
-    const base = { localServerExe: exe, localModelPath: model, localPort, sumPort };
+    const base = { localServerExe: exe, localModelPath: model, localPort, sumPort, claudeExe };   // claudeExe: 0.10.0 LS-2（--claude の偽の claude か無いファイル）
     for (const [rel, body] of Object.entries(scene.files || {})) {
       const file = path.join(userData, ...rel.split('/'));
       fs.mkdirSync(path.dirname(file), { recursive: true });
@@ -974,7 +1092,7 @@ process.on('exit', () => {
       const cur = fs.existsSync(f) ? JSON.parse(fs.readFileSync(f, 'utf8')) : {};
       fs.writeFileSync(f, JSON.stringify({ ...cur, accountEmail: seededMail }));
     }
-  } else if (!(pillSettings && keepUserData && fs.existsSync(path.join(userData, 'settings.json')))) {
+  } else if (!((pillSettings || retiredSum) && keepUserData && fs.existsSync(path.join(userData, 'settings.json')))) {
     fs.writeFileSync(path.join(userData, 'settings.json'), JSON.stringify({
       ...(managedMode || noEngine || fetchMode ? {} : { localServerExe: exe, localModelPath: model }), localPort, sumPort, autoLaunch: false,
       ...(withSum ? { sumServerExe: FAKE_SUM, sumModelPath: sumModel } : {}),
@@ -987,6 +1105,7 @@ process.on('exit', () => {
       ...(autoStopMinFlag ? { autoStopMin: autoStopMinFlag } : {}),
       ...(detectFlag === 'off' ? { meetingDetect: false } : {}),   // 0.9.3 M-2
       ...(detectMuteFlag ? { meetingDetectMute: detectMuteFlag.split(',') } : {}),
+      ...(mcpGoneFlag ? { mcpRegisteredFor: { files: 1, version: '0.9.4' } } : {}),   // 0.10.0 C-2
       claudeExe,
       ...(pillSettings || {}),
     }));
@@ -1036,8 +1155,8 @@ process.on('exit', () => {
       if (atBroken === null && /ファイルが消えたか変わっていました/.test(p) && handlers['engine:status']) atBroken = handlers['engine:status']().whisper;
     }
     if (ch === 'engine:fetch-progress' && p && typeof p === 'object') {
-      seq.push({ state: p.state, w: Boolean(p.whisperReady), s: Boolean(p.sumReady), checking: p.checking });
-      for (const [g, k] of [['whisper', 'whisperReady'], ['sum', 'sumReady']]) {
+      seq.push({ state: p.state, w: Boolean(p.whisperReady), checking: p.checking });   // 0.10.0 LS-3 で要約の組（sumReady）を外した
+      for (const [g, k] of [['whisper', 'whisperReady']]) {
         if (p[k] && !(g in atReady) && handlers['engine:status']) atReady[g] = handlers['engine:status']()[g];
       }
     }
@@ -1378,7 +1497,7 @@ process.on('exit', () => {
     try { netHosts.push(new URL(s).host); } catch (_) { netHosts.push(''); }
     if (relayLocal && s.startsWith(`${RELAY_BASE}/`)) { relayPaths.push(s.slice(RELAY_BASE.length)); order.push(`relay ${s.slice(RELAY_BASE.length)}`); return relayTarget + s.slice(RELAY_BASE.length); }
     if (openAiBase && s.startsWith(`${OPENAI_BASE}/`)) return `${openAiBase}${s.slice(OPENAI_BASE.length)}`;
-    const anth = fakeStt || (relayLocal && relayLocal.stt);   // 第1d回 A-3: --relay の場面は中継の後ろの偽の OpenAI の /anthropic
+    const anth = fakeStt || (relayLocal && relayLocal.stt) || claudeReach;   // 第1d回 A-3: --relay の場面は中継の後ろの偽の OpenAI の /anthropic
     return anth && claudeMode && s.startsWith('https://api.anthropic.com/') ? anth.url('/anthropic') : u;
   };
   // --stt=cert: OpenAI への要求は、証明書が差し替えられたときの失敗で死ぬ（会社の通信の検査。RF26）。
@@ -1438,10 +1557,13 @@ process.on('exit', () => {
     dialog,
     clipboard,
     app: withFallback(Object.assign(appEvents, {
-      getPath: () => userData, whenReady: () => ready, requestSingleInstanceLock: () => true,
-      getVersion: () => require(path.join(ROOT, 'package.json')).version, isPackaged: false,
+      getPath: (name) => (name === 'appData' ? appDataDir : userData), whenReady: () => ready, requestSingleInstanceLock: () => true,   // 0.10.0 C-2: appData
+      getVersion: () => require(path.join(ROOT, 'package.json')).version, isPackaged: packagedFlag,   // 0.10.0 LN-3: --packaged
+      isDefaultProtocolClient: (...a) => { protocolCalls.push(['isDefaultProtocolClient', ...a]); return protocolDefaultFlag; },
+      setAsDefaultProtocolClient: (...a) => { protocolCalls.push(['setAsDefaultProtocolClient', ...a]); return true; },
       quit() { quitCalls += 1; if (scene && scene.quitEmits) appEvents.emit('before-quit', { preventDefault() {} }); },
       setLoginItemSettings() {}, getLoginItemSettings: () => ({}), setAppUserModelId() {}, getName: () => 'natsu',
+      ...(mcpScene ? { getAppPath: () => ROOT } : {}),   // 0.10.0 C-2: MCP の場面だけ（src/mcp/server.js の場所）
       ...restartApp,
     })),
     BrowserWindow: TrackedWin,
@@ -1480,6 +1602,7 @@ process.on('exit', () => {
   const launches = [];
   const launchPlan = [];
   let crashed = false;  // --crash・--crash-ok: 最初の起動だけ 0xC0000135 で落とした
+  const tasklistCalls = [];   // 0.10.0 C-2: --tasklist で答えた tasklist.exe の呼び出し
   const childProcess = {
     ...cp,
     spawn(cmd, args, opts) {
@@ -1523,7 +1646,7 @@ process.on('exit', () => {
         kids.push(k);
         return k;
       }
-      if (scene && !scene.engine) {
+      if (scene && !scene.engine && !(claudeMode && cmd === FAKE_CLAUDE)) {   // 0.10.0 LS-2: --claude の偽の claude は下で起こす
         // エンジンを持たない場面: 手のパスが設定にあっても起こさない（偽の子を返す）。起こそうとした実行ファイルと止めた回数を fakeKids に残す
         const EventEmitter = require('events');
         const p = new EventEmitter();
@@ -1563,7 +1686,18 @@ process.on('exit', () => {
       p.stdin = null; p.stdout = new EventEmitter(); p.stderr = new EventEmitter(); p.kill = () => {};
       return p;
     },
-    execFile(_cmd, _args, _opts, cb) { const done = typeof _opts === 'function' ? _opts : cb; if (done) setImmediate(() => done(new Error('not in test'))); return anyProxy(); },
+    execFile(_cmd, _args, _opts, cb) {
+      const done = typeof _opts === 'function' ? _opts : cb;
+      // 0.10.0 C-2: --tasklist のときは tasklist.exe に答える（頭の注釈）
+      if (tasklistFlag && /(^|[\\/])tasklist\.exe$/i.test(String(_cmd))) {
+        tasklistCalls.push({ cmd: _cmd, args: _args, opts: typeof _opts === 'function' ? null : _opts });
+        const answer = tasklistFlag === 'running' ? '"claude.exe","1234","Console","1","123,456 K"\r\n' : 'INFO: No tasks are running which match the specified criteria.\r\n';
+        if (done) setImmediate(() => (tasklistFlag === 'fail' ? done(new Error('tasklist failed')) : done(null, answer, '')));
+        return anyProxy();
+      }
+      if (done) setImmediate(() => done(new Error('not in test')));
+      return anyProxy();
+    },
   };
   // 第1d回 A-9 の点検: main が起こした子（エンジン・貼り付けなど）の kill() の回数を数える（断った再起動が何も止めないことを見る）
   let killCalls = 0;
@@ -1706,6 +1840,7 @@ process.on('exit', () => {
       return realClearTimeout.call(this, h);
     };
   }
+  if (argvFlag) process.argv = [process.execPath, ...argvFlag];   // 0.10.0 LN-4: 起動の引数（フラグは読み終えている）
   require(path.join(ROOT, 'src', 'main.js'));
   // 議事録の読みは natsu.db を読み取り専用で見る（第2a1回 M-2b。main は議事録を DB のプロセスに書き、元の JSON の索引を読まない）。
   // 読むたびに開いて閉じる（DB のプロセスが閉じた後・戻した後でも今のファイルを見る。掴んだままにしない）。下書きなどは本物の store
@@ -1865,6 +2000,7 @@ process.on('exit', () => {
     if (typeof scene.act === 'function') {
       await scene.act({ handlers, listeners, app: electron.app, wins, mainWin: wins[1], power: powerMonitor, timers, clearedTimers, shortcuts, store, jsonfile, electron, userData,
         localAppData, read: readUser, readLocal, waitFor, sleep, toneWav, releasePause, out: actOut, launches, launchPlan, fakeKids, dbMeta, dbState,
+        claudeCalls: () => (fs.existsSync(claudeLog) ? fs.readFileSync(claudeLog, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l)) : []),   // 0.10.0 LS-2
         dbCrash: (code) => utilFork.crash(code), dbStarts: () => utilFork.starts(), mainSent: () => mainSent.slice(), appCall,
         dialogs: () => dialogs.slice(), answerDialog, quitCalls: () => quitCalls, trace: () => trace.slice(),
         syncDialogs: () => syncDialogs.slice(), powerBlocks: () => power.slice(),
@@ -1940,19 +2076,16 @@ process.on('exit', () => {
   if (fetchMode) {
     await waitFor(() => handlers['engine:fetch-start']);
     out.managedRoot = managedRoot;
-    out.manifestShas = { whisper: fetchManifest.items.filter((i) => i.group === 'whisper').map((i) => i.sha256),
-      sum: fetchManifest.items.filter((i) => i.group === 'sum').map((i) => i.sha256) };
+    out.manifestShas = { whisper: fetchManifest.items.filter((i) => i.group === 'whisper').map((i) => i.sha256) };   // 0.10.0 LS-3 で要約の組を外した
     // 起動のときの照らし（何も取り込んでいないので候補は無い）が済み、画面へ今の写しを送るのを待ってから押す
     await waitFor(() => sent.some(([ch]) => ch === 'engine:fetch-progress'));
     out.statusBefore = handlers['engine:status']();
     out.fetchStart = await handlers['engine:fetch-start']({}, {});
     // 取り込みの途中で記録を始めようとする（文字起こしの組はまだ。未設定の文に「取り込み中」）
     out.startDuring = await handlers['meeting:toggle']();
-    // 2 つの組がそろって切り替わり、係が止まって（省電力の抑止を外して）、文字起こしエンジンが起動し、切り替えた後の写し
-    //（最後の組を「使える」と言う進み具合）が届くのを待つ。要約を手で設定しているとき（--sum）は、文字起こしの組だけを取る
-    //（最後の組は文字起こし）
-    const lastNotice = withSum ? /^文字起こしが使えるようになりました。/ : /^要約のエンジンが使えるようになりました。/;
-    await waitFor(() => switchedAfter(lastNotice, withSum ? 'w' : 's') && power.some(([k]) => k === 'stop') && spawns.length);
+    // 組（0.10.0 LS-3 から文字起こしだけ）がそろって切り替わり、係が止まって（省電力の抑止を外して）、文字起こしエンジンが起動し、
+    // 切り替えた後の写し（組を「使える」と言う進み具合）が届くのを待つ
+    await waitFor(() => switchedAfter(/^文字起こしが使えるようになりました。/, 'w') && power.some(([k]) => k === 'stop') && spawns.length);
     await sleep(100);
     out.seq = seq;
     out.atReady = atReady;
@@ -2004,8 +2137,8 @@ process.on('exit', () => {
     const elog = () => (fs.existsSync(elogFile) ? fs.readFileSync(elogFile, 'utf8').split('\n').filter(Boolean).map((l) => l.replace(/^\[[^\]]+\] /, '')) : []);
     const noticed = (re) => sent.some(([ch, p]) => ch === 'app:notice' && re.test(p));
     if (crashMode === 'broken') {
-      // 照らし直して使うのをやめ、取り直し、照らし直してから使い直す（要約の組も、同意済みなので続けて取る）。切り替えた後の写しまで待つ
-      await waitFor(() => noticed(/^文字起こしが使えるようになりました。/) && switchedAfter(/^要約のエンジンが使えるようになりました。/, 's') && spawns.length >= 2);
+      // 照らし直して使うのをやめ、取り直し、照らし直してから使い直す。切り替えた後の写しまで待つ（0.10.0 LS-3 で要約の組を外した）
+      await waitFor(() => noticed(/^文字起こしが使えるようになりました。/) && switchedAfter(/^文字起こしが使えるようになりました。/, 'w') && spawns.length >= 2);
       await sleep(100);
     } else {
       // 照らし直して合う: 組は使い続け、［起動テスト］で起動し直せる
@@ -2039,7 +2172,7 @@ process.on('exit', () => {
     const page = store.getPage(p.id);
     return {
       id: p.id, title: page.title, recovered: Boolean(page.recovered),
-      summaryError: page.summaryError,
+      summaryError: page.summaryError, summaryWait: page.summaryWait === true,
       segments: store.getTranscript(p.id).map((s) => ({ text: s.text, failed: Boolean(s.failed) })),
       meetingType: page.meetingType, typeAuto: page.typeAuto, actionStat: page.actionStat,
       route: page.route, routeText: await pageRouteText(p.id), citeStat: page.citeStat || null,
@@ -2061,7 +2194,7 @@ process.on('exit', () => {
       fs.writeFileSync(wav, toneWav(3));
       const pageId = `plate${startedAt}`;
       await dbClient.call('meeting.recover', { pageId, segments: [{ id: 's1', atMs: 0, durationMs: 3000, text: '（復旧中: 文字起こし待ち）', failed: true }],
-        page: { title: '後から置いた議事録（復旧）', date: '2026-10-20', durationSec: 3, memo: '', blocks: [], createdAt: new Date(startedAt).toISOString(), recovered: true,
+        page: { title: `${titleAt(startedAt)}（復旧）`, date: '2026-10-20', durationSec: 3, memo: '', blocks: [], createdAt: new Date(startedAt).toISOString(), recovered: true,
           route: { stt: { cloud: 0, local: 0, provider: 'openai' }, localOnly: lateLocal }, summaryError: '' } });
       fs.writeFileSync(path.join(dir, 'recovery.json'), JSON.stringify({ pageId, items: [{ id: 's1', wav, durationMs: 3000 }], retry: false, localOnly: lateLocal }));
     }
@@ -2083,6 +2216,13 @@ process.on('exit', () => {
     out.requests = fs.readFileSync(flog, 'utf8').split('\n').filter((l) => l.startsWith('inference'));
     if (relayLocal) { out.stt = relayLocal.stt.requests.slice(); out.relayCalls = relayPaths.slice(); }
     out.history = handlers['history:get']();   // 第1d2回 M-5
+    if (retiredSum) {   // 0.10.0 LS-4
+      await waitFor(() => engineLogLines().some((l) => l.startsWith('要約のエンジンを消す')) || readUser('settings.json').toString('utf8').includes('"retiredSumNotified": true'), 10000).catch(() => {});
+      await sleep(WRITE_SETTLE_MS);
+      out.notices = sent.filter(([ch]) => ch === 'app:notice').map(([, p]) => p);
+      out.engineLog = engineLogLines();
+      out.savedSettings = JSON.parse(readUser('settings.json').toString('utf8'));
+    }
     if (pillSettings) {
       await sleep(WRITE_SETTLE_MS);   // まとめ書き（350ms）が済んでから写す
       const t = readUser('settings.json');
@@ -2115,7 +2255,10 @@ process.on('exit', () => {
   const queueNow = () => queueFilesNow().map((f) => { try { return JSON.parse(readUser(f).toString('utf8')); } catch (_) { return null; } });
   const segWavFiles = () => listFiles(userData).filter((f) => /^data\/segbuf\/.*\.wav$/i.test(f));
   const segRequests = () => fs.readFileSync(flog, 'utf8').split('\n').filter((l) => l.startsWith('inference') && !/probe=true/.test(l)).length;
-  const chatCount = () => fs.readFileSync(flog, 'utf8').split('\n').filter((l) => l.startsWith('chat #')).length;
+  // 作った要約の数（0.10.0 LS-2 で意図して直した: 要約は Claude Code だけなので、偽の llama の要求に偽の claude の -p を足して数える）
+  const chatCount = () => fs.readFileSync(flog, 'utf8').split('\n').filter((l) => l.startsWith('chat #')).length + claudeLines().filter((c) => c.kind === 'p').length;
+  // 0.10.0 LS-2: main が画面へ送る summary:running（走っている要約のページ）の最後が空 = 要約の走りが一度は始まって終わった
+  const summaryRunDone = () => { const r = sent.filter(([ch]) => ch === 'summary:running'); return r.length > 0 && Array.isArray(r[r.length - 1][1]) && r[r.length - 1][1].length === 0; };
   const snapPages = () => store.listPages().map((p) => ({ id: p.id, summaryError: store.getPage(p.id).summaryError,
     segments: store.getTranscript(p.id).map((x) => ({ text: x.text, failed: Boolean(x.failed) })) }));
   // 引き金を1回引き、復旧の記録の行（止めました・保留）か待ち行列が無くなるのを 3 秒まで待つ（何も起きない引き金は 3 秒で写す）
@@ -2403,8 +2546,8 @@ process.on('exit', () => {
     await exitClean(0);
   }
   if (repairMode) {
-    // 壊れていた組の取り直しと、照らし直した後の切り替え（要約の組も続けて取る）と、切り替えた後の写しを待つ
-    await waitFor(() => switchedAfter(/^要約のエンジンが使えるようになりました。/, 's') && spawns.length);
+    // 壊れていた組の取り直しと、照らし直した後の切り替えと、切り替えた後の写しを待つ（0.10.0 LS-3 で要約の組を外した）
+    await waitFor(() => switchedAfter(/^文字起こしが使えるようになりました。/, 'w') && spawns.length);
     await sleep(100);
     out.seq = seq;
     out.atReady = atReady;
@@ -2457,6 +2600,33 @@ process.on('exit', () => {
     await exitClean(0);
   }
   if (runTest) out.test = await handlers['app:test']();
+  // 0.10.0 C-2: Claude デスクトップへの MCP の登録の場面（--mcp-steps。頭の注釈）。手順を順に行い、出力して終える
+  if (mcpSteps) {
+    await sleep(50);
+    out.ipc = [];
+    out.snaps = {};
+    const CH = { status: 'mcp:status', register: 'mcp:register', unregister: 'mcp:unregister' };
+    for (const step of mcpSteps) {
+      const [k, ...a] = step;
+      if (Object.hasOwn(CH, k)) out.ipc.push([CH[k], handlers[CH[k]] ? await handlers[CH[k]]({}) : 'no-such-channel']);
+      else if (k === 'files') out.snaps[a[0]] = claudeConfigsNow();
+      else if (k === 'save') { const st = await handlers['settings:get'](); out.ipc.push(['settings:save', await handlers['settings:save']({}, { ...st, ...a[0] })]); await sleep(WRITE_SETTLE_MS); }
+      else if (k === 'sleep') await sleep(a[0]);
+      // 0.10.0 LN-4: 2つ目の起動（Windows がリンクで NaTsu を起こした）と、引数の付いた IPC
+      else if (k === 'second-instance') { appEvents.emit('second-instance', {}, a[0], ''); await sleep(20); }
+      else if (k === 'ipc-raw') out.ipc.push([a[0], handlers[a[0]] ? await handlers[a[0]]({}, a[1]) : 'no-such-channel']);
+      else throw new Error(`mainrun: --mcp-steps の手順 ${k} が読めない`);
+    }
+    await sleep(30);
+    Object.assign(out, {
+      claudeConfigs: claudeConfigsNow(), notices: sent.filter(([ch]) => ch === 'app:notice').map(([, p]) => p), engineLog: elogLines(),
+      settingsText: (readUser('settings.json') || '').toString('utf8'), dataDir: path.join(userData, 'data'), tasklistCalls, protocolCalls,
+      mainSent: sent.filter(([ch]) => ch === 'page:open-link'), mainWinCalls: mainWinCalls.slice(),
+    });
+    for (const dir of Object.values(claudeDirs)) { try { for (const n of fs.readdirSync(dir)) fs.chmodSync(path.join(dir, n), 0o644); } catch (_) { /* 無ければ飛ばす */ } }
+    process.stdout.write(`\n${JSON.stringify(out)}\n`);
+    await exitClean(0);
+  }
   // 0.9.2 I-1: 場面 open-help（ヘルプセンターを開く口。記録しない）
   if (openHelpCalls) {
     out.openHelp = [];
@@ -2515,6 +2685,8 @@ process.on('exit', () => {
       micSpawns, micKills, restartDelays, nudge: nudgeWins.length ? nudgeWins[0].nudge : null, nudgeWindows: nudgeWins.length,
       mainWinCalls: mainWinCalls.slice(), mainSentAll: mainSentAll.filter(([ch]) => !/^(db:|update:)/.test(ch)), engineLog: elogLines(),
       notices: sent.filter(([ch]) => ch === 'app:notice').map(([, p]) => p), settingsText: (readUser('settings.json') || '').toString('utf8'),
+      // 0.10.0 K-1: 議事録のページの経過（stateLog）
+      pageStateLogs: store.listPages().map((p) => ({ id: p.id, stateLog: (store.getPage(p.id) || {}).stateLog || null })),
       active: isActive(), status: handlers['meeting:status'](), overlayAsks: overlayAsks(),
     });
     process.stdout.write(`\n${JSON.stringify(out)}\n`);
@@ -2569,7 +2741,7 @@ process.on('exit', () => {
     // 締めの返事（DB を閉じてしまったなら断り）が来るまで待つ
     await waitFor(() => trace.some((t) => (t.kind === 'ack' || t.kind === 'fail') && t.cmd === 'meeting.finalize'), 15000);
     // 要約（エンジンの無いこの場面では、すぐ理由を書いて終わる）まで待つ。要約中は summary で断るため。締めが断られたら待たない
-    await waitFor(() => { const p = store.listPages()[0]; const page = p && store.getPage(p.id); return finalizeFailed() || Boolean(page && ((page.blocks && page.blocks.length) || page.summaryError)); }, 15000);
+    await waitFor(() => { const p = store.listPages()[0]; const page = p && store.getPage(p.id); return finalizeFailed() || Boolean(page && ((page.blocks && page.blocks.length) || page.summaryError || summaryRunDone())); }, 15000);
     await sleep(200);
     out.pages = (await Promise.all(store.listPages().map(pageOut))).map((p) => ({ id: p.id, segments: p.segments }));
     out.restartAfter = await handlers['app:restart']();
@@ -2827,6 +2999,7 @@ process.on('exit', () => {
     const p = store.listPages()[0];
     const page = p && store.getPage(p.id);
     if (page && ((page.blocks && page.blocks.length) || page.summaryError)) break;
+    if (page && summaryRunDone()) break;   // 0.10.0 LS-2: 文字起こしが空のページは要約の欄に理由を書かない（要約の走りが終わったかで見る）
     if (!p && finalizeFailed()) break;
     await sleep(50);
   }
@@ -2849,6 +3022,21 @@ process.on('exit', () => {
     const r = sg ? await appCall('segment.update', { pageId: pid, segId: sg.id, patch: { text: sg.text } }) : null;
     out.segUpdateRouteText = r && r.page ? r.page.routeText : null;
   }
+  // 0.10.0 LS-2: つながったら見回りで要約待ちのページを作る（--summary-online-after・--summary-reconnect）
+  if (summaryOffline && summaryOnlineAfter >= 0) {
+    const snapBack = async () => ({ pCalls: claudeLines().filter((c) => c.kind === 'p').length, pages: await Promise.all(store.listPages().map(pageOut)) });
+    await sleep(summaryOnlineAfter);
+    out.summaryBack = [];
+    netUp = true;
+    await keptTick(); await sleep(200); out.summaryBack.push(await snapBack());
+    await keptTick(); await sleep(200); out.summaryBack.push(await snapBack());
+    if (summaryReconnect) {
+      netUp = false;
+      await keptTick();
+      netUp = true;
+      await keptTick(); await sleep(200); out.summaryBack.push(await snapBack());
+    }
+  }
   out.claude = claudeLines();
   out.notices = sent.filter(([ch]) => ch === 'app:notice').map(([, p]) => p);
   out.overlaySent = overlaySent.slice();
@@ -2865,7 +3053,7 @@ process.on('exit', () => {
     out.overlaySeq = sent.filter(([ch]) => ch === 'overlay:phase' || ch === 'overlay:stop').map(([ch, p]) => (ch === 'overlay:stop' ? { stop: true } : p));
     const p0 = store.listPages()[0];
     const pg = p0 && store.getPage(p0.id);
-    out.pageDur = pg ? { durationSec: pg.durationSec, pauses: pg.pauses || [] } : null;
+    out.pageDur = pg ? { durationSec: pg.durationSec, pauses: pg.pauses || [], stateLog: pg.stateLog || null } : null;   // 0.10.0 K-1: 経過も
   }
   out.mainWinCalls = mainWinCalls.slice();
   out.showLive = mainSent.filter((ch) => ch === 'meeting:show-live').length;

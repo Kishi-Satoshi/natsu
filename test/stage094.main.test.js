@@ -141,7 +141,8 @@ test('S1: エンジンが誤りを返す区間は 3 回までやり直し、3 �
 });
 
 test('S1: ［文字起こしを後回しにして要約］は待ちの区間を kept にし、WAV を消さない。要約は今ある分で作る。会議の後に残した区間が文字になったら『［要約を生成］で議事録を作り直せます』の知らせ（自動で作り直さない）', T, async () => {
-  const o = await run(['slow', '--segs=3', '--sum', '--skip-at-stop', '--wait-queue-empty'], { scale: '0.02' });
+  // 0.10.0 LS-2（D59）で意図して直した: 要約は Claude Code だけなので、偽の claude で作る（chats は作った要約の数）
+  const o = await run(['slow', '--segs=3', '--sum', '--claude=ok', '--skip-at-stop', '--wait-queue-empty'], { scale: '0.02' });
   assert.deepStrictEqual(o.skip, { ok: true, skipped: 2 });
   // 後回しにした区間は「文字起こし待ち」の文で WAV を残す（打ち切りの文にしない）
   assert.deepStrictEqual(o.skippedSegs.map((s) => [s.text, s.wav]), [['（文字起こし待ち: 音声は残してあります）', true], ['（文字起こし待ち: 音声は残してあります）', true]], JSON.stringify(o.skippedSegs));
@@ -156,7 +157,8 @@ test('S1: ［文字起こしを後回しにして要約］は待ちの区間を 
 });
 
 test('kept-late の区間がある会議は、締めで要約を待たせ（S3）、待ち行列が済んだら自動で要約する（0.9.0 の R1 と同じ）', T, async () => {
-  const o = await run(['hang-first', '--segs=1', '--sum', '--wait-queue-empty']);
+  // 0.10.0 LS-2（D59）で意図して直した: 要約は Claude Code だけなので、偽の claude で作る（chats は作った要約の数）
+  const o = await run(['hang-first', '--segs=1', '--sum', '--claude=ok', '--wait-queue-empty']);
   assert.strictEqual(o.chatsAtFinalize, 0, '時間切れの区間を待たずに要約した');
   assert.strictEqual(o.summaryAtFinalize, '文字起こし待ちの音声があります。文字起こしが済むと、自動で要約を作ります。');
   assert.ok(o.afterQueue.notices.some((n) => /^残しておいた音声を文字起こししました（1\/1 区間）。続けて要約を作ります。$/.test(n)), JSON.stringify(o.afterQueue.notices));
@@ -184,12 +186,17 @@ const SLOW_NOTICE = 'この PC の文字起こしが録音に追いつかない�
 // 0.9.4 O-1 で意図して直した: 「（外には送りません）」を外した
 const LATE_BANNER_OFFLINE = 'オフラインモードです。この PC の文字起こしが録音に追いつかないため、音声を残しています。会議が終わったら PC の中で文字起こしします。';
 const slowEnv = { FAKE_DELAY_MS: '400' };
+// 0.10.0 の CI の直し（CI run 39893973701 の test (windows-latest)）: 「2 区間目の後から」（理由 two）を見るテストは、1 区間の速さが over（1.0）を越えて
+// big（1.5 = 30 秒の床で 45 秒）を越えない所に置く。400 ミリ秒（40 秒・1.33 倍）では big まで 50 ミリ秒しか無く、混んだ Windows の機械で要求の外の
+// 時間が 60 ミリ秒ほど足されて 46 秒（1.53 倍・理由 big）になり、1 区間目で遅いに倒れた（テストの台の時間の具合。製品のコードは変えない）。
+// 330 ミリ秒（33 秒・1.1 倍）なら over を越え、big まで 120 ミリ秒の余りがある
+const twoEnv = { FAKE_DELAY_MS: '330' };
 const infer = (o) => (o.requests || []).filter((l) => !/probe=true/.test(l)).length;
 const slowLine = /^文字起こしの速さ: この PC は録音に追いつかないため、会議中は音声を残します（\d+\.\d\d 倍・理由 (two|big|late|backlog|saved)）$/;
 const textOf = (n) => (typeof n === 'string' ? n : n && n.text);
 
 test('S4・S5: 偽のエンジンが 15 秒の区間に 40 秒（尺度で縮める）かかる会議で、2 区間目の後から PC に落ちる区間は送らずに kept（文『（文字起こし待ち: 会議の後で文字起こしします）』・帯 kept-late・知らせ1回・engine.log の1行）。中継が答える区間はクラウドで文字になる', T, async () => {
-  const o = await run(['delay', '--relay-seq=nncnn', '--seg-ms=15000'], { scale: '0.01', env: slowEnv });
+  const o = await run(['delay', '--relay-seq=nncnn', '--seg-ms=15000'], { scale: '0.01', env: twoEnv });
   // 会議の中で PC へ送ったのは 2 区間だけ（会議の後の文字起こしは議事録を写す前に進むことがあるので、記録の行で区切って数える）
   const live = o.engineLog.slice(0, Math.max(0, o.engineLog.findIndex((l) => /^文字起こしの経路: 復旧 /.test(l))) || o.engineLog.length);
   assert.strictEqual(live.filter((l) => l.startsWith('文字起こしの速さ: 音声 15 秒')).length, 2, `遅いと分かった後も PC へ送った: ${o.engineLog.join('\n')}`);

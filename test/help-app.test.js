@@ -22,7 +22,9 @@ const fmt = (e) => `${e.constructor.name}: ${e.message}`;
 const site = JSON.parse(read('help/site.json'));
 const REFS = site.categories.flatMap((c) => c.articles.map((a) => `${c.id}/${a}`));
 const mainSrc = read('src/main.js');
-const HELP_URL = (/^const HELP_URL = '([^']+)';$/m.exec(mainSrc) || [])[1];
+// 0.10.0 LN-1（D78・決めたこと 154）で意図して変えた: 住所の頭は src/natsulink.js の LINK_ORIGIN の1か所。main の HELP_URL はそこから作る
+const { LINK_ORIGIN } = require('../src/natsulink');
+const HELP_URL = /^const HELP_URL = `\$\{natsulink\.LINK_ORIGIN\}\/`;$/m.test(mainSrc) ? `${LINK_ORIGIN}/` : undefined;
 
 test('I1: HELP_ARTICLES は help/site.json の分類の articles と同じ並び。helpPath は一覧の記事だけ「<記事>/」、ほかは \'\'', T, () => {
   assert.deepStrictEqual([...lib.HELP_ARTICLES], REFS, 'アプリの記事の一覧が help/site.json と違う（記事を足したら HELP_ARTICLES も直す）');
@@ -35,8 +37,8 @@ test('I1: HELP_ARTICLES は help/site.json の分類の articles と同じ並び
   }
 });
 
-test('I1: HELP_URL は https で、ホストは natsu-help.<RELAY_BASE と同じサブドメイン>.workers.dev、道は /。住所は main.js にだけある', T, () => {
-  assert.ok(HELP_URL, 'src/main.js に const HELP_URL = \'…\'; の行が無い');
+test('I1: HELP_URL は https で、ホストは natsu-help.<RELAY_BASE と同じサブドメイン>.workers.dev、道は /。住所は src/natsulink.js にだけある（LN-1 で意図して変えた）', T, () => {
+  assert.ok(HELP_URL, 'src/main.js に const HELP_URL = `${natsulink.LINK_ORIGIN}/`; の行が無い');
   const u = new URL(HELP_URL);
   assert.strictEqual(u.protocol, 'https:');
   assert.strictEqual(u.pathname, '/');
@@ -44,10 +46,14 @@ test('I1: HELP_URL は https で、ホストは natsu-help.<RELAY_BASE と同じ
   const sub = new URL(RELAY_BASE).hostname.split('.')[1];
   assert.strictEqual(u.hostname, `natsu-help.${sub}.workers.dev`);
   assert.strictEqual(HELP_URL, `https://${u.hostname}/`);
-  for (const f of ['src/renderer/app.html', 'src/preload.js', 'src/mainlib.js', 'src/renderer/overlay.html']) {
-    assert.ok(!/natsu-help/i.test(read(f)), `${f} にヘルプのサイトの住所がある（住所は main.js だけ）`);
+  for (const f of ['src/renderer/app.html', 'src/preload.js', 'src/mainlib.js', 'src/renderer/overlay.html', 'src/main.js']) {
+    assert.ok(!/natsu-help/i.test(read(f)), `${f} にヘルプのサイトの住所がある（住所は src/natsulink.js だけ）`);
   }
-  assert.strictEqual(mainSrc.split('natsu-help').length, 2, 'main.js にヘルプの住所が2回以上ある');
+  // src/ の中で住所の字があるのは src/natsulink.js の LINK_ORIGIN の1行だけ
+  const walk = (d) => fs.readdirSync(path.join(ROOT, d), { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? walk(`${d}/${e.name}`) : [`${d}/${e.name}`]));
+  const hits = walk('src').filter((f) => /\.(js|html|mjs)$/.test(f)).flatMap((f) => read(f).split('\n').map((l, i) => [f, i, l]).filter(([, , l]) => /natsu-help/i.test(l)).map(([g, i]) => `${g}:${i + 1}`));
+  assert.strictEqual(hits.length, 1, hits.join(' '));
+  assert.ok(hits[0].startsWith('src/natsulink.js:'), hits[0]);
 });
 
 // 場面 open-help（helpers/mainrun.js の --open-help）: 起動の後に app:open-help を引数の並びで順に呼び、shell.openExternal の住所を集める

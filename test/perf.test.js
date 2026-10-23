@@ -15,6 +15,7 @@ const { jobsOf, stepsOf } = require('./helpers/yml');
 test('PERF: 目安は設計書の値（開く 0.5 秒・検索 0.3 秒）。第2a1回で DB の目安にした（全文検索も 0.3 秒）', { timeout: 5000 }, () => {
   assert.deepStrictEqual(PF.BUDGETS, { 'db-open': 500, 'list': 300, 'searchIndex-typical': 300, 'searchIndex-all': 600,
     'searchFull-trigram': 300, 'searchFull-short': 300, 'open-page': 500, 'write-commit': 50, 'migrate-500': 10000,
+    'mcp-list': 500, 'mcp-passages-trigram': 600, 'mcp-passages-short': 800,
     'write-256k-fsync': 50, 'write-1m-fsync': 150, 'write-10m-fsync': 1500 });
 });
 
@@ -207,7 +208,8 @@ test('PG1・F17: 目安の 2 倍の時間がかかる偽の計り（中で Atomi
 test('PG1: benchDb の again(\'write-commit\') は同じ見本で数を返し、close の後は見本のフォルダが無い。measureDb の答えの名前と順は今と同じ', { timeout: 5000 }, async () => {
   const dir = tmpDir();
   try {
-    const NAMES = ['db-open', 'list', 'searchIndex-typical', 'searchIndex-all', 'searchFull-trigram', 'searchFull-short', 'open-page', 'write-commit'];
+    // 0.10.0 T-5 で意図して足した: MCP の一覧と箇所の検索の3つ
+    const NAMES = ['db-open', 'list', 'searchIndex-typical', 'searchIndex-all', 'searchFull-trigram', 'searchFull-short', 'open-page', 'write-commit', 'mcp-list', 'mcp-passages-trigram', 'mcp-passages-short'];
     const b = await PF.benchDb({ pages: 10, segments: 5, bigBlocks: 20, bigSegments: 40, dir });
     try {
       assert.deepStrictEqual(b.results.map((x) => x.name), NAMES);

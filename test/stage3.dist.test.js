@@ -157,11 +157,12 @@ test('INSTALL の「データの保存先とバックアップ」は %APPDATA%\\
   assert.ok(/Roaming[^\n]*同期|同期[^\n]*Roaming/.test(sec), 'Roaming の同期の注意（1行）が無い');
 });
 
-test('#58 INSTALL に「常駐メモリの目安」がある（whisper 0.8〜1.2GB・要約時に約 3GB・既定 10 分でアイドル解放・設定名）', () => {
+// 0.10.0 LS-5（D59）で意図して変えた: 要約は Claude Code なので「要約時に約 3GB」を外し、要約の分は増えないと書く
+test('#58 INSTALL に「常駐メモリの目安」がある（whisper 0.8〜1.2GB・要約の分は増えない・既定 10 分でアイドル解放・設定名）', () => {
   const sec = section(read('INSTALL.md'), '## 常駐メモリの目安');
   assert.ok(sec, 'INSTALL に「## 常駐メモリの目安」が無い');
   assert.ok(/0\.8\s*[〜~～-]\s*1\.2\s*GB/.test(sec), 'whisper 常駐 0.8〜1.2GB が書いていない');
-  assert.ok(/約\s*3\s*GB/.test(sec) && /要約/.test(sec), '要約時に約 3GB が加わることが書いていない');
+  assert.ok(!/約\s*3\s*GB/.test(sec) && /要約の分は増えません/.test(sec), '要約の分のメモリの書き方が古い');
   assert.ok(/使わないエンジンを止めるまで/.test(sec), '設定「使わないエンジンを止めるまで」の名前が無い');
   assert.ok(/既定[^\n]*10\s*分/.test(sec), '既定 10 分でアイドル解放が書いていない');
   assert.ok(/0[^\n]*止めない/.test(sec), '0 で止めない、が書いていない');

@@ -15,14 +15,17 @@ test('RF17: 移した後に古い版が書いた JSON — 新しいページは�
     const core = require('../src/db/core');
     let k = 0;
     const c = (cmd, args, role = 'app') => core.call(db, { role, cmd, args, tx: `${role[0]}:${cmd}:${String(++k).padStart(4, '0')}` }, { now: () => new Date('2026-10-19T00:00:00Z') });
+    // 利用者が付け直した題名（D77。題名の語に頼るため）
     c('page.setTitle', { id: d.ids[1], title: '新しい版で直した' });
     c('page.delete', { id: d.ids[2] });
     db.prepare("insert into oplog(role,tx,at,actor,action,page_id,ops) values('main','m:x-00001','2026-10-19T00:00:00Z','system','meeting.discard','pgone1','[{\"op\":\"purge\",\"id\":\"pgone1\"}]')").run();
     d.oldBuild((store) => {   // 古い版の store.js で書く
+      // 利用者が付け直した題名（D77。題名の語に頼るため）
       store.createPage({ title: '古い版で録った会議', segments: [{ id: 's1', atMs: 0, text: '古い版の発言' }] });
       const p0 = store.getPage(d.ids[0]); p0.title = '古い版で直した0'; store.savePage(p0);
       const p1 = store.getPage(d.ids[1]); p1.title = '古い版で直した1'; store.savePage(p1);
       const p2 = store.getPage(d.ids[2]); p2.memo = '古い版のメモ'; store.savePage(p2);
+      // 利用者が付け直した題名（D77。題名の語に頼るため）
       d.writePage({ id: 'pgone1', title: '取り消した会議', blocks: [] }, []);
     });
     const r = M.reimport({ db, dataDir: d.dataDir });
@@ -43,6 +46,7 @@ test('F3: 取り込みが途中で落ちても、次の起動で同じページ�
   try {
     M.migrate({ sqlite, dataDir: d.dataDir });
     const db = new sqlite.DatabaseSync(path.join(d.dataDir, 'natsu.db'));
+    // 利用者が付け直した題名（D77。題名の語に頼るため）
     d.oldBuild((store) => { for (let i = 0; i < 3; i++) store.createPage({ title: `古い版の会議${i}`, segments: [] }); });
     let n = 0;
     assert.throws(() => M.reimport({ db, dataDir: d.dataDir, onPage: () => { if (++n === 2) throw new Error('落ちた'); } }));
@@ -81,6 +85,7 @@ test('RF17: 置き換えたページと足したページは元の JSON と深�
     d.oldBuild((store) => {
       const p0 = store.getPage(d.ids[0]); p0.title = '古い版で直した'; p0.blocks.pop(); p0.blocks.reverse(); store.savePage(p0);
       store.saveTranscript(d.ids[0], [{ id: 's1', atMs: 0, text: '古い版で直した発言' }]);
+      // 利用者が付け直した題名（D77。題名の語に頼るため）
       newId = store.createPage({ title: '古い版の新しいページ', blocks: [{ id: d.ids[1], type: 'bullet', text: 'ほかのページの ID と同じブロック', cites: [] }], segments: [{ id: 's1', atMs: 0, text: '一' }] }).id;
     });
     const r = M.reimport({ db, dataDir: d.dataDir });
@@ -109,6 +114,7 @@ test('RF17: 置き換えたページと足したページは元の JSON と深�
 test('RF17: 変わっていないファイルは読まない（大きさと時刻が同じ）。触っただけ（中身が同じ）なら数えずに指紋の時刻だけ直す（DB の側を直していても別のページにしない）。読んだ値が同じなら数えない', { timeout: 5000 }, () => {
   const { d, db, c, pf, done } = setup(3);
   try {
+    // 利用者が付け直した題名（D77。題名の語に頼るため）
     c('page.setTitle', { id: d.ids[1], title: '新しい版で直した' });
     const reads = [];
     const spy = { ...fs, readFileSync: (f, ...a) => { reads.push(path.basename(f)); return fs.readFileSync(f, ...a); } };
@@ -135,6 +141,7 @@ test('RF17: 変わっていないファイルは読まない（大きさと時�
 test('RF17: 両方で直した後も、古い版がまた直せば DB の側は上書きせず、もう1つ別のページとして足す（どちらも消さない）。別のページは文字起こしも写す', { timeout: 5000 }, () => {
   const { d, db, c, done } = setup(1);
   try {
+    // 利用者が付け直した題名（D77。題名の語に頼るため）
     c('page.setTitle', { id: d.ids[0], title: '新しい版で直した' });
     d.oldBuild((store) => { const p = store.getPage(d.ids[0]); p.title = '古い版1'; store.savePage(p); });
     assert.strictEqual(M.reimport({ db, dataDir: d.dataDir }).copied, 1);
@@ -171,6 +178,7 @@ test('RF17: 置き換えで文字起こしが無い・壊れているときは D
     const again = M.reimport({ db, dataDir: d.dataDir });
     assert.deepStrictEqual([again.replaced, again.broken, again.badShape, again.unreadable, again.skippedSig], [0, 2, 1, 1, r.skippedSig], '同じ組なのに数か skippedSig が変わった（読まずに飛ばした壊れた文字起こしも数える）');
     assert.ok(!db.prepare("select 1 from meta where key in ('json:pbroken0001', 'json:pshape0001', 'json:punread0001')").get(), '入れていないファイルの指紋を書いた');
+    // 利用者が付け直した題名（D77。題名の語に頼るため）
     d.writePage({ id: 'pshape0001', title: '直した', blocks: [] }, []);
     const fixed = M.reimport({ db, dataDir: d.dataDir });
     assert.deepStrictEqual([fixed.added, fixed.badShape], [1, 0]);
@@ -211,6 +219,7 @@ test('F3: 指紋が書けなければ、そのページの書き込みも戻す�
   const { d, db, done } = setup(1);
   try {
     let ids = [];
+    // 利用者が付け直した題名（D77。題名の語に頼るため）
     d.oldBuild((store) => { ids = [0, 1, 2].map((i) => store.createPage({ title: `古い版の会議${i}`, segments: [] }).id); });
     db.exec(`create temp trigger natsu_test_fp before insert on meta when new.key = 'json:${ids[1]}' begin select raise(abort, 'fp'); end`);
     try { M.reimport({ db, dataDir: d.dataDir }); } catch (_) { /* 落ちたのと同じ */ }
@@ -224,6 +233,7 @@ test('F3: 指紋が書けなければ、そのページの書き込みも戻す�
 test('RF17: 別のページとして足すときも、題名が文字でないページは表せないものとして数え、入れない', { timeout: 5000 }, () => {
   const { d, db, c, pf, done } = setup(1);
   try {
+    // 利用者が付け直した題名（D77。題名の語に頼るため）
     c('page.setTitle', { id: d.ids[0], title: '新しい版で直した' });
     const raw = JSON.parse(fs.readFileSync(pf(d.ids[0]), 'utf8'));
     d.writePage({ ...raw, title: 7 });

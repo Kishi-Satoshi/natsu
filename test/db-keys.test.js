@@ -1,5 +1,6 @@
 /* db-keys.test.js — 第2a1回 ST3: 並びの鍵（純粋）と、切り出した決まりが今と同じこと */
 'use strict';
+const { titleAt } = require('./helpers/titles');
 const test = require('node:test');
 const assert = require('node:assert');
 const K = require('../src/db/keys');
@@ -51,7 +52,7 @@ test('ST3: keyBetween は下へ続けて入れても末尾 0 を作らず、even
 });
 
 test('D-1: 切り出した決まりは store と同じ答え（listEntry は検索用の文字を持たない）', { timeout: 5000 }, () => {
-  const page = { id: 'pa1', title: '定例（見本）', date: '2026-10-01', memo: 'メモ', createdAt: '2026-10-01T00:00:00.000Z',
+  const page = { id: 'pa1', title: titleAt('2026-10-01T00:00:00.000Z'), date: '2026-10-01', memo: 'メモ', createdAt: '2026-10-01T00:00:00.000Z',
     blocks: [{ id: 'b1', type: 'heading', text: '要点' }, { id: 'b2', type: 'todo', text: '見積を出す', checked: false, assignee: '担当A', due: '2026-10-10' }] };
   const s = R.summarize(page);
   assert.strictEqual(s.searchText, '要点 見積を出す');
@@ -69,9 +70,9 @@ test('D-1: json-backend は今の store を命令の名前で呼ぶ（返す形�
   try {
     const store = require('../src/store'); store.init(dir);
     const jb = require('../src/db/json-backend').makeJsonBackend(store);
-    const p = await jb.call('meeting.finalize', { pageId: 'pignored', page: { title: '会議（見本）', blocks: [] }, segments: [{ id: 's1', atMs: 0, durationMs: 1000, text: '発言' }] });
+    const p = await jb.call('meeting.finalize', { pageId: 'pignored', page: { title: titleAt('2026-10-01T00:00:00.000Z'), blocks: [] }, segments: [{ id: 's1', atMs: 0, durationMs: 1000, text: '発言' }] });
     const got = await jb.call('page.get', { id: p.id });
-    assert.strictEqual(got.page.title, '会議（見本）');
+    assert.strictEqual(got.page.title, titleAt('2026-10-01T00:00:00.000Z'));
     assert.deepStrictEqual(got.segments.map((s) => s.text), ['発言']);
     const ins = await jb.call('block.insert', { pageId: p.id, afterBlockId: '', type: 'bullet' });
     assert.ok(ins.blockId && ins.page.blocks.length === 1);
@@ -88,7 +89,7 @@ test('D-1: json-backend の残りの命令（経路の行・page.put は DB が�
     const jb = require('../src/db/json-backend').makeJsonBackend(store, { labels: { groq: 'Groq（無料枠）' } });
     assert.strictEqual(jb.state(), 'ready');
     assert.strictEqual(jb.send('meeting.begin', { pageId: 'px', startedAt: 1, localOnly: false }), undefined);
-    const p = await jb.call('meeting.finalize', { pageId: 'pignored', page: { title: '定例（見本）', blocks: [{ id: 'b1', type: 'bullet', text: '十分に長い要点の文です', cites: ['s1'] }], route: { stt: { cloud: 2, local: 1, provider: 'groq' }, localOnly: false } },
+    const p = await jb.call('meeting.finalize', { pageId: 'pignored', page: { title: titleAt('2026-10-01T00:00:00.000Z'), blocks: [{ id: 'b1', type: 'bullet', text: '十分に長い要点の文です', cites: ['s1'] }], route: { stt: { cloud: 2, local: 1, provider: 'groq' }, localOnly: false } },
       segments: [{ id: 's1', atMs: 0, durationMs: 1000, text: '発言' }, { id: 's2', atMs: 1000, durationMs: 1000, text: '次の発言' }] }, { tx: 'meeting:1' });
     assert.notStrictEqual(p.id, 'pignored');
     const got = await jb.call('page.get', { id: p.id });
@@ -103,6 +104,7 @@ test('D-1: json-backend の残りの命令（経路の行・page.put は DB が�
     assert.strictEqual(await jb.call('page.put', { page: { ...got.page, id: 'pgone' }, baseRev: 1 }), null, '無いページを作った');
     assert.ok(!fs.existsSync(path.join(dir, 'data', 'pages', 'pgone.json')));
     // 書く命令は今の IPC と同じ答え
+    // 利用者が付け直した題名（D77。題名の語に頼るため）
     assert.strictEqual((await jb.call('page.setTitle', { id: p.id, title: '直した題' })).title, '直した題');
     assert.strictEqual((await jb.call('page.setMemo', { id: p.id, memo: 'メモ' })).memo, 'メモ');
     const typed = await jb.call('page.setType', { id: p.id, type: 'oneonone' });
@@ -122,13 +124,13 @@ test('D-1: json-backend の残りの命令（経路の行・page.put は DB が�
     await jb.call('segment.remove', { pageId: p.id, segId: 's2' });
     assert.deepStrictEqual(store.getTranscript(p.id).map((s) => s.id), ['s1']);
     // 復旧: 要約の欄の文も1回で入れ、already は false（JSON の保存は同じ ID の上書きを知らない）
-    const rec = await jb.call('meeting.recover', { pageId: 'pr1', page: { title: '（復旧）', blocks: [], recovered: true, summaryError: '録音が中断されたため要約は未生成です。' }, segments: [] });
+    const rec = await jb.call('meeting.recover', { pageId: 'pr1', page: { title: `${titleAt('2026-10-01T02:00:00.000Z')}（復旧）`, blocks: [], recovered: true, summaryError: '録音が中断されたため要約は未生成です。' }, segments: [] });
     assert.deepStrictEqual([rec.already, rec.page.recovered, rec.page.summaryError], [false, true, '録音が中断されたため要約は未生成です。']);
     // 手元の写しだけでなく、ページのファイルに要約の欄の文が書かれていること（保存し直しを消すと、復旧した議事録に要約が無い訳が消える）
     const recDisk = JSON.parse(fs.readFileSync(path.join(dir, 'data', 'pages', `${rec.page.id}.json`), 'utf8'));
     assert.deepStrictEqual([recDisk.recovered, recDisk.summaryError], [true, '録音が中断されたため要約は未生成です。'], '復旧の要約の欄の文がファイルに無い');
     // 会議の終わり（meeting.finalize）で要約の欄の文があるときも同じ
-    const fin = await jb.call('meeting.finalize', { pageId: 'pf1', page: { title: '要約失敗の会議（見本）', blocks: [], summaryError: '要約に失敗しました（見本）' }, segments: [] });
+    const fin = await jb.call('meeting.finalize', { pageId: 'pf1', page: { title: titleAt('2026-10-01T01:00:00.000Z'), blocks: [], summaryError: '要約に失敗しました（見本）' }, segments: [] });
     assert.strictEqual(fin.summaryError, '要約に失敗しました（見本）');
     assert.strictEqual(JSON.parse(fs.readFileSync(path.join(dir, 'data', 'pages', `${fin.id}.json`), 'utf8')).summaryError, '要約に失敗しました（見本）', '会議の終わりの要約の欄の文がファイルに無い');
     await jb.call('page.delete', { id: fin.id });

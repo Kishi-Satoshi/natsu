@@ -1,4 +1,5 @@
 'use strict';
+const { titleAt } = require('./titles');
 // json-scenes.js — 第1a回の保存の守りを、main.js を偽の Electron の上で動かして確かめる場面（helpers/mainrun.js の --json-scene=名前）
 //   files:   userData からの相対パス → 中身（文字列か Buffer。関数なら { base, userData } を受け取る。base は mainrun が決めたエンジンのパスとポート）
 //   faults:  helpers/faulty-fs.js の rules（main・store・jsonfile が読む fs にだけ効く）
@@ -44,7 +45,7 @@ const WS_FILE = 'natsu/window-state.json';
 // 第1a回の壊れたページ（p1）と、文字起こしだけ壊れたページ（p2）。page-files-broken が置き、元の中身のままかを見る
 const BROKEN_PAGE_FILES = {
   'data/pages/p1.json': '{"id":"p1","title":"壊れ', 'data/transcripts/p1.json': '{"id":"p1","segments":[]}',
-  'data/pages/p2.json': JSON.stringify({ id: 'p2', title: '文字起こしが壊れた会議', blocks: [], createdAt: '2026-10-01T00:00:00.000Z' }),
+  'data/pages/p2.json': JSON.stringify({ id: 'p2', title: titleAt('2026-10-01T00:00:00.000Z'), blocks: [], createdAt: '2026-10-01T00:00:00.000Z' }),
   'data/transcripts/p2.json': '{"id":"p2","segments":[{"text":"途中',
 };
 const wsText = (c) => { const b = c.readLocal(WS_FILE); return b ? b.toString('utf8') : null; };
@@ -63,6 +64,7 @@ function oldPages(ud, segs) {
   try { st = require(p); } finally { if (saved) require.cache[p] = saved; else delete require.cache[p]; }
   st.init(ud);
   return segs.map((n, i) => st.createPage({
+    // 利用者が付け直した題名（D77。題名の語に頼るため: 𠮷 の入った題名を移す守り）
     title: `第${i + 1}回の定例会議（𠮷）`, date: `2026-09-${String(i + 1).padStart(2, '0')}`, durationSec: 600, memo: i % 2 ? '' : `メモ ${i + 1}`,
     blocks: [{ id: st.newId('b'), type: 'bullet', text: `決めたこと ${i + 1}`, cites: [] }],
     segments: Array.from({ length: n }, (_, k) => ({ id: `s${k + 1}`, atMs: k * 20000, durationMs: 20000, text: `第${i + 1}回の発言 ${k + 1}` })),
@@ -308,6 +310,14 @@ module.exports = {
   // 書くので、main の fs の失敗（ページの一時ファイルを開けない）の代わりに、DB を使えない（--db-down）で保存できなくする
   'draft-page-fail': { dbDown: true, files: { 'settings.json': pretty(TYPICAL), 'data/draft.json': JSON.stringify(OLD_DRAFT) } },
   'draft-broken': { files: { 'settings.json': pretty(TYPICAL), 'data/draft.json': '{"startedAt":1760000000000,"segme' } },
+  // 0.10.0 K-1（決めたこと 116）: 経過を持った下書きから戻すと、ページの経過の最後に「戻した（アプリ）」が積まれる（表に無い項目は落とす）
+  'draft-statelog': { files: { 'settings.json': pretty(TYPICAL), 'data/draft.json': JSON.stringify({ ...OLD_DRAFT, stateLog: [
+    { s: 'start', by: 'hotkey', at: '2025-10-09T08:53:20.000Z' }, { s: '\n## 指示', by: 'hotkey', at: '2025-10-09T08:53:21.000Z' }, { s: 'pause', by: 'overlay', at: '2025-10-09T08:53:22.000Z' }] }) },
+    act: async (c) => {
+      await c.waitFor(() => c.store.listPages().length >= 1 && c.store.draftFiles().length === 0, 10000);
+      const p = c.store.listPages()[0];
+      c.out.stateLog = p ? c.store.getPage(p.id).stateLog || null : null;
+    } },
   'recovery-broken': { files: { 'settings.json': pretty(TYPICAL), 'data/segbuf/1700000000000/0001.wav': 'RIFF', 'data/segbuf/1700000000000/recovery.json': '{"pageId":"p1","items":[' } },
   // 前の起動で退けた recovery.json だけが残った、7日より古いフォルダ（名前が無いので掃除が避けない）
   'recovery-old-quarantined': { files: { 'settings.json': pretty(TYPICAL), 'data/segbuf/1700000000000/0001.wav': 'RIFF', 'data/segbuf/1700000000000/recovery.json.broken-2026-10-01T00-00-00-000Z': '{"pageId":' },
@@ -334,7 +344,7 @@ module.exports = {
     } },
   // 起動の1回の読み（1 + READ_WAITS の 6）だけ読めない recovery.json。少し後のやり直しで読める
   'recovery-busy-retry': { files: { 'settings.json': pretty(TYPICAL),
-      'data/pages/p1.json': JSON.stringify({ id: 'p1', title: '復旧の会議', blocks: [], createdAt: '2026-10-01T00:00:00.000Z' }),
+      'data/pages/p1.json': JSON.stringify({ id: 'p1', title: titleAt('2026-10-01T00:00:00.000Z'), blocks: [], createdAt: '2026-10-01T00:00:00.000Z' }),
       'data/segbuf/1700000000000/0001.wav': 'RIFF',
       'data/segbuf/1700000000000/recovery.json': ({ userData }) => JSON.stringify({ pageId: 'p1', items: [{ id: 's1', wav: require('node:path').join(userData, 'data', 'segbuf', '1700000000000', '0001.wav'), durationMs: 3000 }], retry: false }) },
     faults: [{ op: 'read', match: /recovery\.json$/, code: 'EBUSY', times: 7 }],
@@ -372,30 +382,17 @@ module.exports = {
   // before-quit は1回だけ止め、「要約が中断されました」をページに書いてから app.quit() を呼ぶ。2回目の before-quit は止めずにエンジンを止める
   // db.call の答えは 30ms 遅らせる（第2a1回 M-1 で、書き込みをほぼ同期で済ませる json-backend のために足した。DB のプロセスの返事の
   // 遅れに上乗せして、待たずに app.quit() を呼ぶと間に合わないようにする）
+  // 0.10.0 LS-2（D59）で意図して直した: 要約は Claude Code だけ。--claude=slow（FAKE_CLAUDE_DELAY の間、-p が答えない）の偽の claude で、要約の途中に終える
   'quit-during-summary': { dbDelayMs: 30, files: {
-      'settings.json': ({ base, userData }) => pretty({ ...TYPICAL, sumPort: base.sumPort,
-        sumServerExe: require('node:path').join(userData, 'engine-sum', 'llama-server.exe'), sumModelPath: require('node:path').join(userData, 'engine-sum', 'sum-model.gguf') }),
-      // 偽の実行ファイルは 8KB にする。NTFS は数百バイトまでの小さなファイルを MFT の中に置き（割り当て 0）、Windows の Node の
-      // stat の blocks が 0 になって engineFileIssue が「プレースホルダ」と見なし、要約エンジンを「未設定」にする（CI の Windows で落ちた）
-      'engine-sum/llama-server.exe': 'MZ-fake-llama-server'.padEnd(8192, '.'),
-      'data/pages/pq1.json': JSON.stringify({ id: 'pq1', title: '終了の前の会議', blocks: [], memo: '', createdAt: '2026-10-01T00:00:00.000Z', summaryError: '', route: { localOnly: true } }),
+      'settings.json': ({ base }) => pretty({ ...TYPICAL, claudeExe: base.claudeExe }),
+      'data/pages/pq1.json': JSON.stringify({ id: 'pq1', title: titleAt('2026-10-01T00:00:00.000Z'), blocks: [], memo: '', createdAt: '2026-10-01T00:00:00.000Z', summaryError: '', route: { localOnly: true } }),
       'data/transcripts/pq1.json': JSON.stringify({ id: 'pq1', segments: [{ id: 's1', atMs: 0, durationMs: 3000, text: '本日の議題は進捗の確認です' }] }) },
-    // 要約のモデルは大きさの床（300MB）を超える疎のファイル（先頭だけ書く。全部が疎だとプレースホルダと見なされる）
-    prepare: (ud) => {
-      const fs = require('node:fs');
-      const fd = fs.openSync(require('node:path').join(ud, 'engine-sum', 'sum-model.gguf'), 'w');
-      fs.writeSync(fd, Buffer.alloc(8192, 1));
-      fs.ftruncateSync(fd, 301 * 1024 * 1024);
-      fs.closeSync(fd);
-    },
     act: async (c) => {
-      const exe = require('node:path').join(c.userData, 'engine-sum', 'llama-server.exe');
-      const kills = () => c.fakeKids.filter((k) => k.cmd === exe).reduce((n, k) => n + k.kills, 0);
       const summarizing = c.handlers['page:summarize']({}, 'pq1');
-      c.out.sumStarted = await c.waitFor(() => c.fakeKids.some((k) => k.cmd === exe), 5000);
+      c.out.sumStarted = await c.waitFor(() => c.claudeCalls().some((k) => k.kind === 'p'), 5000);
       const quits = [];
-      // app.quit() を呼ばれた瞬間のページのファイル（書き込みを待ってから呼んだか）とエンジンを止めた回数
-      c.app.quit = () => { const p = c.store.getPage('pq1'); quits.push({ summaryError: p ? p.summaryError : null, kills: kills() }); };
+      // app.quit() を呼ばれた瞬間のページのファイル（書き込みを待ってから呼んだか）
+      c.app.quit = () => { const p = c.store.getPage('pq1'); quits.push({ summaryError: p ? p.summaryError : null }); };
       const ev1 = { n: 0, preventDefault() { this.n += 1; } };
       c.app.emit('before-quit', ev1);
       c.out.quitted = await c.waitFor(() => quits.length >= 1, 5000);
@@ -405,8 +402,7 @@ module.exports = {
       await c.sleep(50);
       c.out.prevented = [ev1.n, ev2.n];
       c.out.quits = quits;
-      c.out.killsAfter = kills();
-      c.out.summary = await Promise.race([summarizing, c.sleep(5000).then(() => 'timeout')]);
+      c.out.summary = await Promise.race([summarizing, c.sleep(2000).then(() => 'running')]);
       const p = c.store.getPage('pq1');
       c.out.summaryErrorAfter = p ? p.summaryError : null;
     } },
@@ -451,9 +447,9 @@ module.exports = {
   // 第2a1回 M-2b（F12）: 前の起動で DB に移した議事録（prec1・pother1）の復旧の待ち行列（WAV 2つ）と、開いたタブ2つ。DB を使えない
   // （--db-down）間は、「ページが無い」と取り違えて WAV と recovery.json を消さず、覚えたタブも外さない
   'recovery-db-down': { dbDown: true, files: { 'settings.json': pretty(TYPICAL),
-      'data/pages/prec1.json': JSON.stringify({ id: 'prec1', title: '復旧を待つ会議', blocks: [], createdAt: '2026-10-01T00:00:00.000Z' }),
+      'data/pages/prec1.json': JSON.stringify({ id: 'prec1', title: titleAt('2026-10-01T00:00:00.000Z'), blocks: [], createdAt: '2026-10-01T00:00:00.000Z' }),
       'data/transcripts/prec1.json': JSON.stringify({ id: 'prec1', segments: [{ id: 's1', atMs: 0, durationMs: 3000, text: '', failed: true }, { id: 's2', atMs: 3000, durationMs: 3000, text: '', failed: true }] }),
-      'data/pages/pother1.json': JSON.stringify({ id: 'pother1', title: '別の会議', blocks: [], createdAt: '2026-10-02T00:00:00.000Z' }),
+      'data/pages/pother1.json': JSON.stringify({ id: 'pother1', title: titleAt('2026-10-02T00:00:00.000Z'), blocks: [], createdAt: '2026-10-02T00:00:00.000Z' }),
       'data/segbuf/4102444800000/0001.wav': 'RIFF', 'data/segbuf/4102444800000/0002.wav': 'RIFF',
       'data/segbuf/4102444800000/recovery.json': ({ userData }) => {
         const wav = (n) => require('node:path').join(userData, 'data', 'segbuf', '4102444800000', n);
@@ -487,7 +483,7 @@ module.exports = {
   // 第2a1回 M-2b（F12）: DB の用意の前（移行の途中。移行のファイル1つごとに 1.5 秒止まる）の ui:get は、用意を待たずに覚えたタブを
   // そのまま返す（止まっているのを「無い」にしない）。用意ができた後は、無いページ（pgone）のタブを外す
   'ui-before-db-ready': { noDbWait: true, env: { NATSU_TEST_MIGRATE_DELAY_MS: '1500' }, files: { 'settings.json': pretty(TYPICAL),
-      'data/pages/pkeep1.json': JSON.stringify({ id: 'pkeep1', title: '残る会議', blocks: [], createdAt: '2026-10-01T00:00:00.000Z' }) },
+      'data/pages/pkeep1.json': JSON.stringify({ id: 'pkeep1', title: titleAt('2026-10-01T00:00:00.000Z'), blocks: [], createdAt: '2026-10-01T00:00:00.000Z' }) },
     local: { [WS_FILE]: WS({ tabs: { open: ['page:pkeep1', 'page:pgone'], active: 'page:pkeep1' } }) },
     act: async (c) => {
       c.out.stateBefore = c.dbState();
@@ -519,7 +515,7 @@ module.exports = {
   // 第2a1回 M-2b（ST7。点検で足した場面）: 最初の用意の前（移行の途中）に DB の子が落ちても同じ。読み込みで配った口は落ちた子のもの
   // なので、起こし直した子の（アプリで最初の）用意で配り直す。移行は起こし直した子がやり直し、元の JSON は1バイトも変えない
   'db-restart-before-ready': { noDbWait: true, env: { NATSU_TEST_MIGRATE_DELAY_MS: '1000' }, files: { 'settings.json': pretty(TYPICAL),
-      'data/pages/pmig1.json': JSON.stringify({ id: 'pmig1', title: '移行の途中で落ちた会議', blocks: [], createdAt: '2026-10-01T00:00:00.000Z' }) },
+      'data/pages/pmig1.json': JSON.stringify({ id: 'pmig1', title: titleAt('2026-10-01T00:00:00.000Z'), blocks: [], createdAt: '2026-10-01T00:00:00.000Z' }) },
     act: async (c) => {
       const [, main] = c.wins;
       c.out.migrating = await c.waitFor(() => c.dbState() === 'migrating', 10000);
@@ -530,7 +526,7 @@ module.exports = {
       c.out.mainSent = c.mainSent().filter((ch) => ch === 'db:lost');
       c.out.pages = c.store.listPages().map((p) => p.id);
       const raw = c.read('data/pages/pmig1.json');
-      c.out.jsonKept = raw !== null && raw.toString('utf8') === JSON.stringify({ id: 'pmig1', title: '移行の途中で落ちた会議', blocks: [], createdAt: '2026-10-01T00:00:00.000Z' });
+      c.out.jsonKept = raw !== null && raw.toString('utf8') === JSON.stringify({ id: 'pmig1', title: titleAt('2026-10-01T00:00:00.000Z'), blocks: [], createdAt: '2026-10-01T00:00:00.000Z' });
     } },
   // 第2a1回 M-4（ST10・Q1）: 初めての起動で、0.6.0 の store.js で置いた 6 ページ（1 つは BOM 付き。発言は 3・3・3・2・2・2 の 15）と
   // 壊れたページのファイル 1 つ。窓 D0 で［移す］（偽の dialog の既定）。元の JSON（pages・transcripts・index.json）の SHA-256 を前後で見る
@@ -773,7 +769,7 @@ module.exports = {
   // 第2a1回 M-4（点検の申し送り。データの守り）: DB に入った後で保存の決まり（ブロックは 2,000 個まで）を超えたページ（画面の［行を足す］は
   // 数を見ない）に、要約の書き戻し（page.put）が bad-args で断られても、黙って飲まずに平易な文で知らせる
   'summary-bad-args': { files: { 'settings.json': pretty(TYPICAL),
-      'data/pages/pbig000001.json': JSON.stringify({ id: 'pbig000001', title: '行の多い会議', blocks: Array.from({ length: 2000 }, (_, i) => ({ id: `b${i}`, type: 'bullet', text: `行 ${i}`, cites: [] })), memo: '', createdAt: '2026-10-01T00:00:00.000Z', summaryError: '' }),
+      'data/pages/pbig000001.json': JSON.stringify({ id: 'pbig000001', title: titleAt('2026-10-01T00:00:00.000Z'), blocks: Array.from({ length: 2000 }, (_, i) => ({ id: `b${i}`, type: 'bullet', text: `行 ${i}`, cites: [] })), memo: '', createdAt: '2026-10-01T00:00:00.000Z', summaryError: '' }),
       'data/transcripts/pbig000001.json': JSON.stringify({ id: 'pbig000001', segments: [] }) },
     act: async (c) => {
       c.out.inserted = Boolean(await c.appCall('block.insert', { pageId: 'pbig000001', afterBlockId: '', type: 'bullet' }));
@@ -1142,7 +1138,7 @@ module.exports = {
   'ws-none': { files: { 'settings.json': pretty(TYPICAL) },
     act: async (c) => { c.out.ui = await c.handlers['ui:get']({}); } },
   'ws-restore': { files: { 'settings.json': pretty(TYPICAL),
-      'data/pages/pkeep1.json': JSON.stringify({ id: 'pkeep1', title: '定例（見本）', blocks: [], createdAt: '2026-10-01T00:00:00.000Z' }) },
+      'data/pages/pkeep1.json': JSON.stringify({ id: 'pkeep1', title: titleAt('2026-10-01T00:00:00.000Z'), blocks: [], createdAt: '2026-10-01T00:00:00.000Z' }) },
     local: { [WS_FILE]: WS({ maximized: true, zoom: 1.5, sidebar: { width: 300, collapsed: true }, tabs: { open: ['page:pkeep1', 'page:pgone', 'live', 'dictation'], active: 'dictation' } }) },
     act: async (c) => {
       c.mainWin.webContents.emit('did-finish-load');

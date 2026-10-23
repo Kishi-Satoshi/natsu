@@ -4,6 +4,7 @@
  * 偽 DOM は hidden しか見ず、CSS の display・padding・content-visibility を描かないので、ここは CSS の規則を読んで確かめる。
  */
 'use strict';
+const { titleAt } = require('./helpers/titles');
 const test = require('node:test');
 const assert = require('node:assert');
 const fs = require('node:fs');
@@ -44,8 +45,8 @@ test('1b2 直し: 記録の行のボタン（.live button.ghost）は上下の�
   assert.strictEqual(S.declsFor(rules, '.live button.ghost', { at: '' }).padding, '0 10px');
 });
 
-const LIST = [{ id: 'pa1', title: '定例（見本）', date: '2026-10-16', durationSec: 1800, hasSummary: true },
-  { id: 'pc3', title: '振り返り（見本）', date: '2026-10-14', durationSec: 600, hasSummary: false, meetingType: 'standup' }];
+const LIST = [{ id: 'pa1', title: titleAt('2026-10-16T01:00:00.000Z'), date: '2026-10-16', durationSec: 1800, hasSummary: true },
+  { id: 'pc3', title: titleAt('2026-10-01T08:00:00.000Z'), date: '2026-10-14', durationSec: 600, hasSummary: false, meetingType: 'standup' }];
 const TYPES = [{ key: 'general', label: '一般・その他' }, { key: 'standup', label: '定例・進捗報告' }];
 const ST = (o = {}) => ({ active: true, finalizing: false, startedAt: Date.now() - 60000, segments: [{ atMs: 0, text: '始めます（見本）' }], pending: 0, pauses: [], cloud: true, ...o });
 const row = (el) => [el.querySelector('.ic') ? el.querySelector('.ic').textContent : null, el.childNodes.filter((n) => n.tagName === '#text').map((n) => n.textContent).join('')];
@@ -86,21 +87,21 @@ test('1b2 直し（開く速さ）: 出典の札を描くのに、ブロック�
   Object.defineProperty(segs, 'findIndex', { value(...a) { scans += 1; return Array.prototype.findIndex.apply(this, a); } });
   Object.defineProperty(segs, 'find', { value(...a) { scans += 1; return Array.prototype.find.apply(this, a); } });
   const blocks = Array.from({ length: 30 }, (_, i) => ({ id: `b${i + 1}`, type: 'bullet', text: `${i + 1} 番目の要点（見本）`, cites: [`s${50 - i}`, `s${i + 1}`] }));
-  const page = { id: 'pa1', title: '定例（見本）', createdAt: '2026-10-16T01:00:00.000Z', durationSec: 1800, blocks, memo: '', meetingType: 'general', citeStat: { linked: 30, total: 30 } };
+  const page = { id: 'pa1', title: titleAt('2026-10-16T01:00:00.000Z'), createdAt: '2026-10-16T01:00:00.000Z', durationSec: 1800, blocks, memo: '', meetingType: 'general', citeStat: { linked: 30, total: 30 } };
   // 2つ目のページ（pc3）は同じ id の区間が別の時刻にある（区間の並びの写しを、前のページのまま使い回さない）。s1 は2つあり、前の方を引く
   const segsB = [{ id: 's9', atMs: 600000, text: 'B の発言（見本）' }, { id: 's1', atMs: 300000, text: 'B の発言（見本）' }, { id: 's1', atMs: 900000, text: '同じ id（見本）' }];
-  const pageB = { ...page, id: 'pc3', title: '振り返り（見本）', blocks: [{ id: 'b1', type: 'bullet', text: 'B の要点（見本）', cites: ['s1', 's9', 's50'] }] };
+  const pageB = { ...page, id: 'pc3', title: titleAt('2026-10-01T08:00:00.000Z'), blocks: [{ id: 'b1', type: 'bullet', text: 'B の要点（見本）', cites: ['s1', 's9', 's50'] }] };
   const l = await load(APP, { preloadSrc: PRELOAD, returns: { pagesSearch: () => LIST, pageGet: (id) => (id === 'pc3' ? { page: pageB, segments: segsB } : { page, segments: segs }), meetingTypes: () => TYPES } });
   await l.drain();
   const open = async (title) => { l.byId.get('plist').querySelectorAll('.pitem').find((r) => r.querySelector('.t').textContent === title).dispatchEvent({ type: 'click' }); await l.drain(); };
-  await open('定例（見本）');
+  await open(titleAt('2026-10-16T01:00:00.000Z'));
   const els = l.byId.get('pNote').querySelectorAll('.blk');
   assert.strictEqual(els.length, 30);
   assert.ok(scans <= 2, `区間を ${scans} 回探した（ブロックの数だけ探している）`);
   // 札は今どおり発言の時系列で、時刻を出す（b1 は s50 と s1 → 0:00・0:49 の順）
   assert.deepStrictEqual(els[0].querySelectorAll('.cite').map((c) => c.textContent), ['0:00', '0:49']);
   assert.deepStrictEqual(els[29].querySelectorAll('.cite').map((c) => c.textContent), ['0:20', '0:29']);
-  await open('振り返り（見本）');
+  await open(titleAt('2026-10-01T08:00:00.000Z'));
   assert.deepStrictEqual(l.byId.get('pNote').querySelector('.blk').querySelectorAll('.cite').map((c) => c.textContent), ['?', '10:00', '5:00'],
     '別のページで前のページの区間の位置を使った（s50 は B に無いので ?、s9 → s1 の順）');
 });

@@ -57,13 +57,14 @@ test('D54: 録音中のページのボタン #meetingLocalOnly は［オフラ�
   assert.ok(/<h2 hidden>ローカル AI<\/h2>/.test(html), '隠した見出しが「ローカル AI」でない');
   assert.ok(html.includes("offline: 'ローカル AI の準備' }"), '帯の行動 offline の名前（STT_ACT_LABEL）が［ローカル AI の準備］でない');
   assert.ok(html.includes("offline: { label: 'ローカル AI の準備', run: () => showEngineSettings() }"), '知らせの行動 offline の名前が［ローカル AI の準備］でない');
-  assert.ok(html.includes("btn = 'ローカル AI を使う（数 GB を取り込む）';"), '取り込みのボタンが［ローカル AI を使う（数 GB を取り込む）］でない');
+  // 0.10.0 LS-5（D59）で意図して変えた: 数は今の計算。押した後の行は守秘の約束にしない（D62）
+  assert.ok(html.includes("btn = `ローカル AI を使う（約 ${fetchGB(need)} を取り込む）`;"), '取り込みのボタンが［ローカル AI を使う（約 …GB を取り込む）］でない');
   assert.ok(html.includes("box.dataset.row = offer ? 'ローカル AI を使う' :"), '検索の行の名前が「ローカル AI を使う」でない');
   assert.ok(html.includes("toast('オフラインモードにできませんでした（会議が終わっているか、記録していません）')"), 'できなかったときのトーストが古い');
-  assert.ok(html.includes("'オフラインモードです。この会議の音声は外へ送らず、PC の中で文字起こししています'"), '押した後の行が古い');
-  assert.ok(html.includes("'オフラインモードです。音声だけを残しています（外には送りません）。ローカル AI の準備が済むと文字起こしします。'"), '準備の無い PC の行が古い');
+  assert.ok(html.includes("'オフラインモードです。文字起こしを PC の中で行います（要約はつながっているときに Claude Code で作ります）'"), '押した後の行が古い');
+  assert.ok(html.includes("'オフラインモードです。音声だけを PC に残しています。ローカル AI の準備が済むと文字起こしします（要約はつながっているときに Claude Code で作ります）'"), '準備の無い PC の行が古い');
   const main = read('src/main.js');
-  assert.ok(main.includes("1on1・面談など外に出したくない会議は、議事録の画面の［オフラインモード］を押してください。'"), '会議の始めの知らせ（M1）が古い');
+  assert.ok(main.includes("ネットワークが不安定なときは、議事録の画面の［オフラインモード］を押すと、この会議の文字起こしを PC の中で行います。'"), '会議の始めの知らせ（M1）が古い');   // 0.10.0 LS-5（D62）で意図して変えた
   assert.ok(main.includes("'kept-local': () => 'この会議はオフラインモードです。"), '帯 kept-local が古い');
   assert.ok(main.includes('const LOCAL_SETUP_NOTICE = \'この会議をオフラインモードにしました。PC の中で文字起こしするには、設定の「ローカル AI」の準備'), 'LOCAL_SETUP_NOTICE が古い');
 });
@@ -79,15 +80,16 @@ test('D54: 内部のキーと名前は変えない（localOnly・meeting:set-loc
   assert.ok(site.includes('"pc-only"') && site.includes('"offline"'), '記事の名前が変わった');
 });
 
-test('D54: 記事 settings/offline の題名は「ローカル AI」、record/pc-only の題名は「外に出したくない会議（［オフラインモード］）」。どちらも2つは違うと書き、互いにリンクする', T, () => {
+// 0.10.0 LS-5（D59・D62・O11）で意図して変えた: pc-only の題は「ネットワークが不安定なときの会議（［オフラインモード］）」。ローカル AI は文字起こしの準備だけ・オフラインモードは文字起こしを PC に固定する印
+test('D54: 記事 settings/offline の題名は「ローカル AI」、record/pc-only の題名は「ネットワークが不安定なときの会議（［オフラインモード］）」。どちらも2つは違うと書き、互いにリンクする', T, () => {
   const off = read('help/articles/settings/offline.md');
   const pc = read('help/articles/record/pc-only.md');
   assert.strictEqual(parseFrontMatter(off, { file: 'offline.md' }).meta.title, 'ローカル AI');
-  assert.strictEqual(parseFrontMatter(pc, { file: 'pc-only.md' }).meta.title, '外に出したくない会議（［オフラインモード］）');
+  assert.strictEqual(parseFrontMatter(pc, { file: 'pc-only.md' }).meta.title, 'ネットワークが不安定なときの会議（［オフラインモード］）');
   for (const [name, text, link] of [['settings/offline', off, '(record/pc-only.md)'], ['record/pc-only', pc, '(settings/offline.md)']]) {
     const body = text.slice(text.indexOf('\n---', 3) + 4);
-    assert.ok(body.includes('**ローカル AI**は、PC の上で動く文字起こしと要約の準備'), `${name}: ローカル AIの説明が無い`);
-    assert.ok(body.includes('**オフラインモード**は、1つの会議を外へ送らない印'), `${name}: オフラインモードの説明が無い`);
+    assert.ok(body.includes('**ローカル AI**は、PC の上で動く文字起こしの準備'), `${name}: ローカル AIの説明が無い`);
+    assert.ok(body.includes('**オフラインモード**は、1つの会議の文字起こしを PC の中に固定する印'), `${name}: オフラインモードの説明が無い`);
     assert.ok(body.includes('違うものです'), `${name}: 違うと書いていない`);
     assert.ok(body.includes(link), `${name}: もう1つの記事へのリンクが無い`);
   }

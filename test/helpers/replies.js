@@ -1,4 +1,5 @@
 'use strict';
+const { titleAt } = require('./titles');
 // 画面を走らせるときに preload API が返す既定値。
 // 実データの形は test/fixtures.js から借りるので、描画経路（.blk/.seg など動的生成）も実際に走る。
 const F = require('../fixtures.js');
@@ -6,7 +7,7 @@ const F = require('../fixtures.js');
 const HISTORY = [{ id: 'h1', text: 'これはテスト', at: new Date().toISOString(), durationSec: 12 }];
 
 const PAGE = {
-  id: 'p1', title: 'デイリースタンドアップ', type: 'standup', createdAt: new Date().toISOString(),
+  id: 'p1', title: titleAt('2026-10-16T01:00:00.000Z'), type: 'standup', createdAt: new Date().toISOString(),
   updatedAt: new Date().toISOString(), memo: 'メモ', durationSec: 900,
   segments: F.STANDUP_SEGMENTS,
   summary: F.STANDUP_SUMMARY_MD,
@@ -37,8 +38,8 @@ module.exports = {
   updateCheck: { ok: true, available: false, version: '0.10.4', url: '' },
   updateApply: { ok: true },
   getHistory: HISTORY, deleteHistory: HISTORY, clearHistory: [],
-  pagesSearch: [{ id: 'p1', title: 'デイリースタンドアップ', type: 'standup', updatedAt: new Date().toISOString(), durationSec: 900, hasSummary: true }],
-  pagesSearchFull: [{ id: 'p1', title: 'デイリースタンドアップ', type: 'standup', updatedAt: new Date().toISOString(), durationSec: 900, hasSummary: true, hit: '本文' }],
+  pagesSearch: [{ id: 'p1', title: titleAt('2026-10-16T01:00:00.000Z'), type: 'standup', updatedAt: new Date().toISOString(), durationSec: 900, hasSummary: true }],
+  pagesSearchFull: [{ id: 'p1', title: titleAt('2026-10-16T01:00:00.000Z'), type: 'standup', updatedAt: new Date().toISOString(), durationSec: 900, hasSummary: true, hit: '本文' }],
   openActions: [{ pageId: 'p1', pageTitle: 'スタンドアップ', blockId: 'b2', text: 'やること', assignee: '佐藤', due: '2026-09-05' }],
   assigneeList: ['佐藤', '田中'],
   meetingTypes: [{ id: 'standup', label: 'スタンドアップ' }, { id: 'general', label: '一般' }],

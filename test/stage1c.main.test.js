@@ -15,7 +15,8 @@ const { execScene, sceneTimeout } = require('./helpers/scene-slots');
 
 const RUN = path.join(__dirname, 'helpers', 'mainrun.js');
 const HOST = new URL(require('../src/relay').RELAY_BASE).hostname;   // src/relay.js の RELAY_BASE のホスト（第1d回 A-10: 仮の値を書かずに RELAY_BASE から取る）
-const L1 = 'この会議の音声は OpenAI に送られます（文字起こしのため）。1on1・面談など外に出したくない会議は、議事録の画面の［オフラインモード］を押してください。';
+// 0.10.0 LS-5（D62・決めたこと 112）で意図して変えた: オフラインモードは守秘のボタンでない（「外に出したくない会議」「外には送りません」を外した）
+const L1 = 'この会議の音声は OpenAI に送られます（文字起こしのため）。ネットワークが不安定なときは、議事録の画面の［オフラインモード］を押すと、この会議の文字起こしを PC の中で行います。';
 const L2 = 'ログインしていないため、この PC で文字起こししています（精度が落ちます）。設定の「アカウント」でログインしてください。';
 const L3 = 'ログインが切れたため、この PC で文字起こししています（精度が落ちます）。設定の「アカウント」でもう一度ログインしてください。';
 const run = (args) => new Promise((resolve, reject) => {
@@ -307,28 +308,31 @@ test('RF24: Claude Code が無ければ入れ方を出す（手元の llama で�
   assert.strictEqual(llamaSpawned(o), false);
 });
 
-test('D1: オフラインなら今までどおり手元の llama で要約し、Claude Code は呼ばない。ページに「local」', { timeout: sceneTimeout(20000) }, async () => {
+// 0.10.0 LS-2（D59・決めたこと 103）で意図して変えた: オフラインなら手元の llama で作らず、要約待ち（つながったら作る）
+test('D1・D59: オフラインなら Claude Code も手元の llama も呼ばず、要約待ち。ページに要約の経路を書かない', { timeout: sceneTimeout(20000) }, async () => {
   const o = await run(['text', '--relay=text', '--offline', '--sum', '--claude=ok', '--segs=2']);
   assert.strictEqual(o.claude.length, 0);
-  assert.strictEqual(llamaSpawned(o), true);
-  assert.strictEqual(o.pages[0].route.summary.by, 'local');
+  assert.strictEqual(llamaSpawned(o), false);
+  assert.strictEqual(o.pages[0].summaryWait, true);
+  assert.strictEqual(o.pages[0].summaryError, '要約待ち（つながったら作ります）');
+  assert.strictEqual((o.pages[0].route || {}).summary, undefined);
 });
 
-test('C10・F13: ［この会議は PC の中だけ］の会議は、オンラインでも Claude Code を呼ばず（auth status も無し）、手元の llama で要約する', { timeout: sceneTimeout(20000) }, async () => {
+// 0.10.0 LS-2（D59。設計書の C10 を要約について取り消した）で意図して変えた: オフラインモードの会議も要約は Claude Code。
+// 文字起こしは今どおり PC の中（音声をクラウドの文字起こしへ送らない）
+test('C10・F13・D59: オフラインモードの会議は、音声をクラウドへ送らず PC で文字起こしし、要約は Claude Code で作る（手元の llama は起こさない）', { timeout: sceneTimeout(20000) }, async () => {
   const o = await run(['text', '--relay=text', '--local-only', '--sum', '--claude=ok', '--segs=2']);
-  assert.strictEqual(o.claude.length, 0, '［PC の中だけ］の文字起こしを Claude へ渡した');
-  // 中継への要求は、会議の始めの文字起こしの経路の確かめ（［PC の中だけ］を押す前。A-4）の /health だけ。
-  // 要約のための Anthropic へ届くかの確かめ（/anthropic。中継の後ろの偽物が受ける）も、音声の送信も無い
-  assert.deepStrictEqual(o.stt.filter((r) => r.path === '/anthropic' || r.path.endsWith('/audio/transcriptions')), []);
-  assert.strictEqual(llamaSpawned(o), true);
-  assert.strictEqual(o.pages[0].route.summary.by, 'local');
+  assert.strictEqual(pCalls(o).length, 1, 'オフラインモードの会議の要約を Claude Code で作っていない');
+  assert.deepStrictEqual(o.stt.filter((r) => r.path.endsWith('/audio/transcriptions')), [], 'オフラインモードの会議の音声をクラウドへ送った');
+  assert.strictEqual(llamaSpawned(o), false);
+  assert.strictEqual(o.pages[0].route.summary.by, 'claude-code');
 });
 
-test('今の場面を守る: --claude を付けない要約の場面は、届くかの確かめが試験の守りで止まり、今どおり手元の llama で作る（偽の claude も本物も起こさない）', { timeout: sceneTimeout(20000) }, async () => {
+// 0.10.0 LS-2（D59）で意図して変えた: --claude を付けない場面は届くかの確かめが試験の守りで止まり、要約待ち（手元の llama で作らない）
+test('今の場面を守る: --claude を付けない要約の場面は、届くかの確かめが試験の守りで止まり、要約待ちになる（偽の claude も本物も手元の llama も起こさない）', { timeout: sceneTimeout(20000) }, async () => {
   const o = await run(['text', '--sum', '--segs=2']);
   assert.deepStrictEqual(o.claude, []);
-  assert.strictEqual(llamaSpawned(o), true);
-  assert.strictEqual(o.pages[0].route.summary.by, 'local');
-  assert.strictEqual(o.pages[0].summaryError, '');
-  assert.deepStrictEqual(o.pages[0].routeText, ['🖥 文字起こし: PC', '🖥 要約: PC（オフライン）']);
+  assert.strictEqual(llamaSpawned(o), false);
+  assert.strictEqual(o.pages[0].summaryError, '要約待ち（つながったら作ります）');
+  assert.deepStrictEqual(o.pages[0].routeText, ['🖥 文字起こし: PC']);
 });

@@ -4,6 +4,7 @@
  * 最小 DOM（helpers/simrun.js）の上で app.html の <script> を本当に走らせる。main の答えは偽物（preload.js の名前から作る）。
  */
 'use strict';
+const { titleAt } = require('./helpers/titles');
 
 const test = require('node:test');
 const assert = require('node:assert');
@@ -20,8 +21,8 @@ const T = { timeout: 5000 };
 const html = fs.readFileSync(APP, 'utf8');
 const doc = parseHTML(html).root;
 const norm = (s) => String(s || '').replace(/\s+/g, ' ').trim();
-const LIST = [{ id: 'pa1', title: '定例（見本）', date: '10/16', durationSec: 1800, hasSummary: true }];
-const PAGE = (id) => ({ page: { id, title: '定例（見本）', createdAt: '2026-10-16T01:00:00.000Z', durationSec: 1800, blocks: [], memo: '', meetingType: 'general' }, segments: [] });
+const LIST = [{ id: 'pa1', title: titleAt('2026-10-16T01:00:00.000Z'), date: '10/16', durationSec: 1800, hasSummary: true }];
+const PAGE = (id) => ({ page: { id, title: titleAt('2026-10-16T01:00:00.000Z'), createdAt: '2026-10-16T01:00:00.000Z', durationSec: 1800, blocks: [], memo: '', meetingType: 'general' }, segments: [] });
 const UI = () => ({ sidebar: { width: 260, collapsed: false }, tabs: { open: [], active: '' } });
 const open = (settings = {}, o = {}) => load(APP, { preloadSrc: PRELOAD, returns: { pagesSearch: () => LIST, pageGet: PAGE, uiState: UI, getSettings: () => ({ autoLaunch: false, ...settings }), ...o } });
 const $ = (l, id) => l.document.getElementById(id);
@@ -390,7 +391,8 @@ test('D55: ［オフラインモード］を押すと、ボタンは消え、同
   assert.strictEqual(norm($(l, 'meetingLocalOnlyStateText').textContent), 'オフラインモード中');
   assert.strictEqual(OFF_TITLE(l), '議事録を記録中（オフライン）');
   assert.strictEqual($(l, 'meetingLocalOnlyNote').hidden, false);
-  assert.strictEqual($(l, 'meetingLocalOnlyNote').textContent, 'オフラインモードです。この会議の音声は外へ送らず、PC の中で文字起こししています');
+  // 0.10.0 LS-5（D59・D62）で意図して変えた: 守秘の約束にしない
+  assert.strictEqual($(l, 'meetingLocalOnlyNote').textContent, 'オフラインモードです。文字起こしを PC の中で行います（要約はつながっているときに Claude Code で作ります）');
   const s = await offOpen({ systemAudio: true });
   assert.strictEqual(OFF_TITLE(s), '議事録を記録中（相手の声も）');
   await click(s, 'meetingLocalOnly');
@@ -414,7 +416,7 @@ test('D55: はじめからオフラインモードの会議（パネルの「オ
   const n = await offOpen({ localOnly: true, cloud: false, needsSetup: true });
   assert.ok(pillShown(n), 'クラウドで処理しない PC のオフラインモードの会議に札が無い');
   assert.strictEqual(OFF_TITLE(n), '議事録を記録中（オフライン）');
-  assert.strictEqual($(n, 'meetingLocalOnlyNote').textContent, 'オフラインモードです。音声だけを残しています（外には送りません）。ローカル AI の準備が済むと文字起こしします。');
+  assert.strictEqual($(n, 'meetingLocalOnlyNote').textContent, 'オフラインモードです。音声だけを PC に残しています。ローカル AI の準備が済むと文字起こしします（要約はつながっているときに Claude Code で作ります）');   // 0.10.0 LS-5（D62）で意図して変えた
   assert.deepStrictEqual([...l.errors, ...n.errors], []);
 });
 

@@ -10,6 +10,7 @@
  * store.test.js と同じく、隔離した一時フォルダに本物のファイルを書いて読み戻す。
  */
 'use strict';
+const { titleAt } = require('./helpers/titles');
 
 const test = require('node:test');
 const assert = require('node:assert');
@@ -45,6 +46,7 @@ test('#44 searchIndex: 4000 字を超える要約の末尾ブロックとメモ�
   fresh();
   const blocks = LONG_BLOCKS(50);   // 約 5000 字
   blocks.push(blk('last', 'bullet', '来期の予算配分を再検討する'));
+  // 利用者が付け直した題名（D77。題名の語に頼るため）
   const p = store.createPage({ title: '長い定例', segments: [], blocks, memo: '展示会の出展判断は保留にする' });
   let hits = store.searchIndex('予算配分を再検討');
   assert.deepStrictEqual(hits.map((h) => h.id), [p.id], '要約の末尾ブロックが検索に出ない');
@@ -58,7 +60,7 @@ test('#44 summarize: searchText は要約ブロックの本文だけ（上限 20
   fresh();
   const blocks = LONG_BLOCKS(250);   // 約 25000 字
   const memo = 'メモ'.repeat(1500);     // 3000 字
-  const p = store.createPage({ title: 't', segments: [], blocks, memo });
+  const p = store.createPage({ title: titleAt('2026-10-01T00:00:00.000Z'), segments: [], blocks, memo });
   const r = row(p.id);
   assert.strictEqual(r.searchText.length, 20000);
   assert.strictEqual(r.searchText, blocks.map((b) => b.text).join(' ').slice(0, 20000), 'ブロックの本文を空白で連結した形でない');
@@ -66,7 +68,7 @@ test('#44 summarize: searchText は要約ブロックの本文だけ（上限 20
   assert.strictEqual(r.memoText, memo.slice(0, 2000));
   assert.ok(!r.searchText.includes('メモメモ'), 'searchText にメモが混ざっている');
   // 空の要約・メモでも文字列（古い世代との区別に使う）
-  const e = store.createPage({ title: 'e', segments: [] });
+  const e = store.createPage({ title: titleAt('2026-10-01T00:00:00.000Z'), segments: [] });
   assert.strictEqual(row(e.id).searchText, '');
   assert.strictEqual(row(e.id).memoText, '');
 });
@@ -74,20 +76,20 @@ test('#44 summarize: searchText は要約ブロックの本文だけ（上限 20
 test('#44 searchIndex: 抜粋は当たった方（メモ）の原文から作る（句読点が残る）', () => {
   fresh();
   const memo = '前置きが二十文字以上ある、長いメモです。ここから本題で、では、予算案の、作成を進めます。そのあとも本文が続き、四十文字を超える長さの締めの文章がここに置かれている。';
-  const p = store.createPage({ title: 't', segments: [], blocks: [blk('b1', 'bullet', '要約側には当たりが無い行')], memo });
+  const p = store.createPage({ title: titleAt('2026-10-01T00:00:00.000Z'), segments: [], blocks: [blk('b1', 'bullet', '要約側には当たりが無い行')], memo });
   const hits = store.searchIndex('予算案の作成');
   assert.deepStrictEqual(hits.map((h) => h.id), [p.id]);
   const at = memo.indexOf('予算案の、作成');
   assert.strictEqual(hits[0].snippet, `…${memo.slice(at - 20, at + '予算案の、作成'.length + 40)}`);
   // 要約とメモの両方に当たるときは要約側の抜粋
-  const p2 = store.createPage({ title: 't2', segments: [], blocks: [blk('b1', 'bullet', '要約側の、予算案の作成')], memo: 'メモ側の予算案の作成' });
+  const p2 = store.createPage({ title: titleAt('2026-10-01T00:00:00.000Z'), segments: [], blocks: [blk('b1', 'bullet', '要約側の、予算案の作成')], memo: 'メモ側の予算案の作成' });
   const h2 = store.searchIndex('予算案の作成').find((h) => h.id === p2.id);
   assert.ok(h2.snippet.includes('要約側の'), `要約側の抜粋でない: ${h2.snippet}`);
 });
 
 test('#44 init: 古い世代の索引（memoText が無い行）は page.json から作り直す', () => {
   const d = fresh();
-  const p = store.createPage({ title: 't', segments: [], blocks: [blk('b1', 'bullet', '要点')], memo: '出展判断は保留' });
+  const p = store.createPage({ title: titleAt('2026-10-01T00:00:00.000Z'), segments: [], blocks: [blk('b1', 'bullet', '要点')], memo: '出展判断は保留' });
   // 旧世代の形: searchText に本文+メモを連結し、memoText は無い
   const idx = readIndex(d);
   for (const r of idx.pages) { r.searchText = `${r.searchText} ${r.memoText}`.slice(0, 4000); delete r.memoText; }
@@ -111,6 +113,7 @@ const seg = (id, text) => ({ id, atMs: 0, text });
 const mkFull = (n, text) => {
   const ids = [];
   for (let i = 0; i < n; i++) {
+    // 利用者が付け直した題名（D77。題名の語に頼るため）
     ids.push(store.createPage({ title: `p${i}`, createdAt: `2026-01-01T00:00:${String(i).padStart(2, '0')}.000Z`, segments: [seg('s1', text), seg('s2', text)] }).id);
   }
   return ids.reverse();   // 索引の並び（新しい順）
@@ -119,7 +122,7 @@ const mkFull = (n, text) => {
 test('#43 searchFullText: limit を超える件数では hits を limit 件に切り、total と truncated で伝える', () => {
   fresh();
   const ids = mkFull(5, 'では、予算案の、作成を進めます。');
-  store.createPage({ title: 'x', segments: [seg('s1', '無関係な発言')] });
+  store.createPage({ title: titleAt('2026-10-01T00:00:00.000Z'), segments: [seg('s1', '無関係な発言')] });
   const r = store.searchFullText('予算案の作成', 3);
   assert.strictEqual(r.total, 5, '当たったページ数が total でない');
   assert.strictEqual(r.hits.length, 3, 'hits が limit 件でない');
@@ -159,6 +162,7 @@ test('#43 searchFullText: limit の既定は 60（61 件目から打ち切り）
 const todo = (id, text, more) => blk(id, 'todo', text, { checked: false, ...(more || {}) });
 // 4 ページ。A・B に未完了、C は完了のみ（actionCount 2 / openActionCount 0）、D は todo 無し
 function mkActions() {
+  // 利用者が付け直した題名（D77。題名の語に頼るため）
   const A = store.createPage({ title: '週次定例', date: '2026-09-08', createdAt: '2026-09-08T00:00:00.000Z', segments: [], blocks: [
     blk('h', 'heading', 'アクション'),
     todo('a1', 'ＡＩ資料を送る', { assignee: '山田', due: '2026-09-10', dueRaw: '9/10' }),
@@ -166,14 +170,17 @@ function mkActions() {
     todo('a3', '完了済みの作業', { checked: true, assignee: '佐藤' }),
     todo('a4', '', { assignee: '佐藤' }),   // 本文の無い todo は行にしない（openActions と同じ）
   ] });
+  // 利用者が付け直した題名（D77。題名の語に頼るため）
   const B = store.createPage({ title: 'キックオフ', date: '2026-09-01', createdAt: '2026-09-01T00:00:00.000Z', segments: [], blocks: [
     todo('b1', '会場を、予約する', { assignee: '山田', due: '2026-09-01', dueRaw: '来週', dueApprox: true }),
     todo('b2', '済んだ作業', { checked: true }),
   ] });
+  // 利用者が付け直した題名（D77。題名の語に頼るため）
   const C = store.createPage({ title: '振り返り', date: '2026-08-20', createdAt: '2026-08-20T00:00:00.000Z', segments: [], blocks: [
     todo('c1', '済んだ作業1', { checked: true, assignee: '田中' }),
     todo('c2', '済んだ作業2', { checked: true }),
   ] });
+  // 利用者が付け直した題名（D77。題名の語に頼るため）
   const D = store.createPage({ title: '雑談', date: '2026-08-10', createdAt: '2026-08-10T00:00:00.000Z', segments: [], blocks: [blk('d1', 'bullet', '要点')] });
   return { A, B, C, D };
 }
@@ -260,7 +267,7 @@ test('#45 actionView: assignee は完全一致で絞り、q と重ねられる',
 
 test('#45 actionView: 未完了が無ければ空（ページは1つも読まない）', () => {
   fresh();
-  store.createPage({ title: 't', segments: [], blocks: [todo('c1', '済んだ作業', { checked: true })] });
+  store.createPage({ title: titleAt('2026-10-01T00:00:00.000Z'), segments: [], blocks: [todo('c1', '済んだ作業', { checked: true })] });
   const { result, read } = readingPages(() => store.actionView({ q: 'x' }));
   assert.deepStrictEqual(result, { actions: [], people: [], total: 0 });
   assert.deepStrictEqual(read, []);
@@ -280,6 +287,7 @@ test('2つ目の引数を渡しても保存先は userData/data のまま（別�
   store.init(d, path.join(d, 'elsewhere'));
   assert.strictEqual(store.root(), path.join(d, 'data'));
   assert.ok(!fs.existsSync(path.join(d, 'elsewhere')));
+  // 利用者が付け直した題名（D77。題名の語に頼るため）
   const p = store.createPage({ title: '置き場所', segments: [seg('s1', '発言')] });
   assert.ok(fs.existsSync(path.join(d, 'data', 'pages', `${p.id}.json`)));
 });

@@ -20,6 +20,7 @@ test('ST4: 画面の 14 の命令は json-backend（今の保存）と同じ答�
     t.seed(page, segments);           // putPageRows で入れる（会議の印 meeting を足さない。比べを同じ JSON から始める）
     await j.seed(page, segments);
     const steps = [
+      // 利用者が付け直した題名（D77。題名の語に頼るため）
       ['page.get', { id: 'pa1' }], ['page.setTitle', { id: 'pa1', title: '直した題' }], ['page.setMemo', { id: 'pa1', memo: 'メモ' }],
       ['page.setType', { id: 'pa1', type: 'oneonone' }], ['block.update', { pageId: 'pa1', blockId: 'b2', patch: { text: '書き換えた要点の文' } }],
       ['block.update', { pageId: 'pa1', blockId: 'b4', patch: { checked: true } }], ['block.move', { pageId: 'pa1', blockId: 'b1', toIndex: 2 }],
@@ -47,6 +48,7 @@ test('F6: page.put は baseRev が今の rev と違えば conflict（画面の�
     t.seed(samplePage('pa1').page, []);
     const p = call(db, 'page.get', { id: 'pa1' }, 'main').result.page;
     assert.ok(Number.isInteger(p.rev) && Array.isArray(p.routeText));
+    // 利用者が付け直した題名（D77。題名の語に頼るため）
     call(db, 'page.setTitle', { id: 'pa1', title: '画面で直した' });
     const r = call(db, 'page.put', { page: { ...p, summaryError: '要約の文' }, baseRev: p.rev }, 'main');
     assert.deepStrictEqual([r.ok, r.code, r.retry], [false, 'conflict', true]);
@@ -58,6 +60,7 @@ test('F6: page.put は baseRev が今の rev と違えば conflict（画面の�
     assert.strictEqual(call(db, 'page.put', { page: { ...p3, summaryError: 'y' }, baseRev: p3.rev }, 'main').ok, true);
     // 点検で足した確かめ: ページの行（updatedAt・citeStat）が変わらないブロックだけの直しでも rev が上がる
     // （同じミリ秒の2つの書き込み。時刻を止めて、出典の数の変わらない checked だけを直す）
+    // 利用者が付け直した題名（D77。題名の語に頼るため）
     call(db, 'page.setTitle', { id: 'pa1', title: '時刻をそろえる' });
     const p4 = call(db, 'page.get', { id: 'pa1' }, 'main').result.page;
     assert.strictEqual(p4.updatedAt, NOW().toISOString());
@@ -141,5 +144,58 @@ test('ST3: 読む形は attrs を先に広げ、id・title・rev・ブロック�
     const p = call(db, 'page.get', { id: 'pv1' }).result.page;
     assert.deepStrictEqual([p.id, p.title, p.rev, p.memo], ['pv1', '列の題', 3, 'メモ']);
     assert.deepStrictEqual([p.blocks[0].id, p.blocks[0].type, p.blocks[0].text, p.blocks[0].children], ['bv1', 'bullet', '列の文', []]);
+  } finally { t.done(); }
+});
+
+// 0.10.0 Task R-2（MR3・MR6。計画 docs/plans/2026-10-20-100.md）: 一覧から外す行（listedRows）を MCP の読み手が外から渡せる形にする。画面の答えは変えない
+const C = require('../src/db/commands');
+function r2Seed(t, db) {
+  // ふつう2つ（ToDo あり）・ゴミ箱1つ・録音中の写し1つ
+  for (const id of ['pa1', 'pa2', 'pa3']) {
+    const p = samplePage(id).page;
+    t.seed({ ...p, id, createdAt: `2026-10-1${id.slice(-1)}T00:00:00.000Z`, blocks: p.blocks.map((b) => ({ ...b, id: `${id}${b.id}` })) }, []);
+  }
+  call(db, 'page.delete', { id: 'pa3' });
+  assert.strictEqual(call(db, 'meeting.begin', { pageId: 'pl1', startedAt: Date.parse('2026-10-19T00:00:00.000Z'), localOnly: false }, 'main').ok, true);
+}
+
+test('R-2: listedRows の行は id・key・attrs（読んだ物）を持ち、ゴミ箱と録音中の写しを含まない', { timeout: 5000 }, () => {
+  const t = tmpDb();
+  try {
+    const { db } = t.open();
+    r2Seed(t, db);
+    const rows = C.listedRows(db);
+    assert.deepStrictEqual(rows.map((r) => r.id).sort(), ['pa1', 'pa2']);
+    for (const r of rows) {
+      assert.strictEqual(typeof r.key, 'string');
+      assert.ok(r.attrs && typeof r.attrs === 'object' && !Array.isArray(r.attrs), `${r.id}: attrs が物でない`);
+      assert.deepStrictEqual(r.attrs.route, samplePage(r.id).page.route, `${r.id}: attrs に経路が無い`);
+    }
+  } finally { t.done(); }
+});
+
+test('R-2: actionView に行の一部を渡すと、その行のページだけが答えに出る（渡さなければ今の pages.actionView と同じ答え）', { timeout: 5000 }, () => {
+  const t = tmpDb();
+  try {
+    const { db } = t.open();
+    r2Seed(t, db);
+    const all = C.actionView(db, {});
+    assert.deepStrictEqual(all, call(db, 'pages.actionView', {}).result);
+    assert.deepStrictEqual([...new Set(all.actions.map((a) => a.pageId))].sort(), ['pa1', 'pa2']);
+    const only = C.actionView(db, {}, C.listedRows(db).filter((r) => r.id === 'pa2'));
+    assert.ok(only.actions.length > 0);
+    assert.deepStrictEqual([...new Set(only.actions.map((a) => a.pageId))], ['pa2']);
+    assert.deepStrictEqual(C.actionView(db, {}, []).actions, []);
+  } finally { t.done(); }
+});
+
+test('R-2: entryOf は pages.list の1行と同じ', { timeout: 5000 }, () => {
+  const t = tmpDb();
+  try {
+    const { db } = t.open();
+    r2Seed(t, db);
+    const list = call(db, 'pages.list', {}).result;
+    const mine = C.listedRows(db).map((r) => C.entryOf(db, r));
+    assert.deepStrictEqual(mine, list);
   } finally { t.done(); }
 });

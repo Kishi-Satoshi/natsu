@@ -21,6 +21,8 @@ const path = require('node:path');
 const sqlite = require('node:sqlite');
 const core = require('../src/db/core');
 const { STANDUP_SEGMENTS } = require('../test/fixtures');
+// 0.10.0 SH-2（D77）: 会議の題名は本物と同じ日付の形（作った時刻の日本の時刻）。v1.db はこの形で作り直した（版の印と表の形は同じ）
+const titleOf = (iso) => require('../src/mainlib').meetingTitleAt(iso, 540);
 
 const SIDECARS = ['-wal', '-shm', '-journal'];
 const NAMES = [['山田', '担当A'], ['佐藤', '担当B']];
@@ -44,7 +46,7 @@ function script() {
   const b = (p, n) => `${p}b${n}`;
   return [
     ['2026-10-15T01:15:00.000Z', 'main', 'meeting.finalize', { pageId: p1, segments: standupSegments(), page: {
-      title: '週次定例（見本）', date: '2026-10-15', durationSec: 780, memo: '', createdAt: '2026-10-15T01:00:00.000Z',
+      title: titleOf('2026-10-15T01:00:00.000Z'), date: '2026-10-15', durationSec: 780, memo: '', createdAt: '2026-10-15T01:00:00.000Z',
       route: { stt: { cloud: 9, local: 1, provider: 'groq' }, localOnly: false, summary: { by: 'claude-code' } },
       pauses: [{ atMs: 450000, ms: 3000, why: 'user' }],
       blocks: [
@@ -58,14 +60,14 @@ function script() {
     ['2026-10-15T01:21:00.000Z', 'app', 'page.setMemo', { id: p1, memo: 'リリース日の確認は次回も続ける' }],
     ['2026-10-15T01:22:00.000Z', 'app', 'block.setAction', { pageId: p1, blockId: b(p1, 4), assignee: '担当A', dueRaw: '来週金曜' }],
     ['2026-10-16T01:10:00.000Z', 'main', 'meeting.finalize', { pageId: p2, page: {
-      title: 'ふりかえり（見本）', date: '2026-10-16', durationSec: 60, memo: '', createdAt: '2026-10-16T01:00:00.000Z',
+      title: titleOf('2026-10-16T01:00:00.000Z'), date: '2026-10-16', durationSec: 60, memo: '', createdAt: '2026-10-16T01:00:00.000Z',
       blocks: [{ id: b(p2, 1), type: 'bullet', text: '検索が速くなった', cites: ['s1'] }] },
     segments: [
       { id: 's1', atMs: 0, durationMs: 30000, text: '今週よかったことは、検索が速くなったことです。' },
       { id: 's2', atMs: 30000, durationMs: 30000, text: '次は控えの取り方を見直したいと思います。' },
     ] }],
     ['2026-10-16T08:10:00.000Z', 'main', 'meeting.finalize', { pageId: p3, page: {
-      title: 'ゴミ箱の見本', date: '2026-10-16', durationSec: 30, memo: '', createdAt: '2026-10-16T08:00:00.000Z',
+      title: titleOf('2026-10-16T08:00:00.000Z'), date: '2026-10-16', durationSec: 30, memo: '', createdAt: '2026-10-16T08:00:00.000Z',
       blocks: [{ id: b(p3, 1), type: 'bullet', text: 'ゴミ箱に入れたページの見本', cites: [] }] },
     segments: [{ id: 's1', atMs: 0, durationMs: 30000, text: 'このページはゴミ箱に入れます。' }] }],
     ['2026-10-16T09:00:00.000Z', 'app', 'page.delete', { id: p3 }],

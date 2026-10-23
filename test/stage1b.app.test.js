@@ -2,6 +2,7 @@
  * stage1b.app.test.js — 第1b回の画面（サイドバー・上のタブ・ページ・録音中のページ・一時停止・キーボード）を、最小 DOM の上で本当に走らせて確かめる
  */
 'use strict';
+const { titleAt } = require('./helpers/titles');
 
 const test = require('node:test');
 const assert = require('node:assert');
@@ -15,8 +16,8 @@ const preloadWith = (...names) => names.reduce((src, n) => (new RegExp(`^\\s+${n
   : src.replace("exposeInMainWorld('koeApp', {", `exposeInMainWorld('koeApp', {\n  ${n}: (...a) => ipcRenderer.invoke('test:${n}', ...a),`)), PRELOAD);
 const P1B = preloadWith('uiState', 'uiSave', 'meetingSetPaused');
 const fmt = (e) => `${e.constructor.name}: ${e.message}`;
-const LIST = [{ id: 'pa1', title: '定例（見本）', date: '10/16', durationSec: 1800, hasSummary: true }, { id: 'pb2', title: '設計の打ち合わせ（見本）', date: '10/15', durationSec: 900, hasSummary: false },
-  { id: 'pc3', title: '週の振り返り（見本）', date: '10/14', durationSec: 600, hasSummary: false }];
+const LIST = [{ id: 'pa1', title: titleAt('2026-10-16T01:00:00.000Z'), date: '10/16', durationSec: 1800, hasSummary: true }, { id: 'pb2', title: titleAt('2026-10-09T05:00:00.000Z'), date: '10/15', durationSec: 900, hasSummary: false },
+  { id: 'pc3', title: titleAt('2026-10-02T08:00:00.000Z'), date: '10/14', durationSec: 600, hasSummary: false }];
 const PAGE = (id) => ({ page: { id, title: LIST.find((p) => p.id === id).title, createdAt: '2026-10-16T01:00:00.000Z', durationSec: 1800, blocks: [], memo: '', meetingType: 'general' }, segments: [] });
 const open = (o = {}) => load(APP, { preloadSrc: P1B, returns: { pagesSearch: () => LIST, pageGet: PAGE, uiState: () => ({ sidebar: { width: 260, collapsed: false }, tabs: { open: [], active: '' } }), ...o } });
 const saves = (l) => l.called('uiSave').map((c) => c.args[0]);
@@ -135,7 +136,7 @@ test('N3・N6・F7: 起動のときに覚えたタブを開いて選んでいた
   const l = await open({ uiState: () => ({ sidebar: { width: 260, collapsed: false }, tabs: { open: ['page:pa1', 'page:pb2'], active: 'page:pa1' } }) });
   await l.drain();
   assert.deepStrictEqual(keysOf(l), ['page:pa1', 'page:pb2']);
-  assert.strictEqual(tabs(l)[0].textContent.includes('定例（見本）'), true, 'タブの名前がページの題名でない');
+  assert.strictEqual(tabs(l)[0].textContent.includes(titleAt('2026-10-16T01:00:00.000Z')), true, 'タブの名前がページの題名でない');
   assert.deepStrictEqual(l.called('pageGet').map((c) => c.args[0]), ['pa1']);
   l.byId.get('tabBtnDictation').dispatchEvent({ type: 'click' });
   await l.drain();
@@ -184,13 +185,13 @@ test('N3・F7（足した守り）: 消したページのタブを残さず隣�
   await l.drain();
   assert.deepStrictEqual(keysOf(l), ['page:pa1', 'page:pb2'], '開けないページのタブが残った');
   assert.strictEqual(tabs(l)[1].getAttribute('aria-selected'), 'true');
-  assert.strictEqual(l.byId.get('pTitle').textContent, '設計の打ち合わせ（見本）', '開いていたページが消えた');
+  assert.strictEqual(l.byId.get('pTitle').textContent, titleAt('2026-10-09T05:00:00.000Z'), '開いていたページが消えた');
   l.window.confirm = () => true;
   l.byId.get('pActs').querySelectorAll('button').find((b) => b.textContent === '削除').dispatchEvent({ type: 'click' });
   await l.drain();
   assert.deepStrictEqual(l.called('pageDelete').map((c) => c.args[0]), ['pb2']);
   assert.deepStrictEqual(keysOf(l), ['page:pa1'], '消したページのタブが残った');
-  assert.strictEqual(l.byId.get('pTitle').textContent, '定例（見本）');
+  assert.strictEqual(l.byId.get('pTitle').textContent, titleAt('2026-10-16T01:00:00.000Z'));
   assert.deepStrictEqual(saves(l).pop(), { tabs: { open: ['page:pa1'], active: 'page:pa1' } });
   assert.deepStrictEqual(l.errors.map(fmt), []);
 });
@@ -219,7 +220,8 @@ test('N4: 要約・文字起こし・メモは細いタブ（role=tab・aria-sel
   assert.ok(acts.closest('.pagebar'), '操作が上の帯（.pagebar）の中に無い（第1b2回 P-1）');
   const visible = acts.querySelectorAll('button').filter((b) => !b.closest('#pMenu'));
   assert.deepStrictEqual(visible.map((b) => b.id || b.textContent), ['要約を生成', 'pMore']);
-  assert.deepStrictEqual(l.byId.get('pMenu').querySelectorAll('[role="menuitem"]').map((b) => b.textContent), ['コピー', '削除']);
+  // 0.10.0 L-1（D58）で意図して変えた: コピーと削除の間に［リンクを写す］
+  assert.deepStrictEqual(l.byId.get('pMenu').querySelectorAll('[role="menuitem"]').map((b) => b.textContent), ['コピー', 'リンクを写す', '削除']);
   assert.strictEqual(l.byId.get('pMenu').hidden, true);
 });
 
@@ -486,13 +488,13 @@ test('N3・N4b（足した守り）: ページを読み込んでいる間に記�
   await l.drain();
   assert.deepStrictEqual(keysOf(l), ['page:pa1', 'live']);
   assert.strictEqual(tabs(l)[1].getAttribute('aria-selected'), 'true');
-  assert.notStrictEqual(l.byId.get('pTitle').textContent, '定例（見本）', '記録中のタブの下に、読み終えたページを描いた');
+  assert.notStrictEqual(l.byId.get('pTitle').textContent, titleAt('2026-10-16T01:00:00.000Z'), '記録中のタブの下に、読み終えたページを描いた');
   l.fire('onMeetingUpdate', ST());
   await l.drain();
   assert.strictEqual(l.byId.get('pScript').querySelectorAll('.seg').length, 2, '記録中の文字起こしが流れない');
   assert.strictEqual(l.document.getElementById('liveBar').hidden, false);
   tabs(l)[0].dispatchEvent({ type: 'click' });
   await l.drain();
-  assert.strictEqual(l.byId.get('pTitle').textContent, '定例（見本）', 'ページのタブに戻っても開けない');
+  assert.strictEqual(l.byId.get('pTitle').textContent, titleAt('2026-10-16T01:00:00.000Z'), 'ページのタブに戻っても開けない');
   assert.deepStrictEqual(l.errors.map(fmt), []);
 });

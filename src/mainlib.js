@@ -8,6 +8,9 @@
 'use strict';
 
 const path = require('path');
+const natsulink = require('./natsulink');
+// 議事録の経過の表と積み方（0.10.0 K-1。DB のプロセスと MCP も同じ部品を読む）
+const SL = require('./statelog');
 
 // ---------------------------------------------------------------- 要約の書き戻し
 // 要約は数分かかる。その間に利用者がページを削除していることがある。
@@ -591,24 +594,14 @@ function spawnErrorHint(errCode, file) {
 // ---------------------------------------------------------------- 速さの記録（第0b回 Task 16）
 // 利用者の「文字起こしと要約に時間がかかる」に対して、まず実際の速さを engine.log に1行で残す。
 //   whisper: t = { audioMs, procMs }（区間の音声の長さと、文字起こしにかかった時間）
-//   llama:   t = llama-server の応答の timings（prompt_n・prompt_ms・predicted_n・predicted_ms）
-// どれかが数でない（古い llama-server で timings が無いなど）・時間が 0 以下なら ''（何も残さない）。
-// トークン/秒は 100 以上なら整数、それ未満は小数1桁（141 トークン/秒・13.3 トークン/秒）。
+// どれかが数でない・時間が 0 以下なら ''（何も残さない）。要約の速さ（llama）は 0.10.0 LS-3（D59）で外した（ほかの kind は ''）
 function speedLine(kind, t) {
   const num = (v) => typeof v === 'number' && Number.isFinite(v);
-  const sec = (ms) => (ms / 1000).toFixed(1);
-  const rate = (n, ms) => { const r = n / (ms / 1000); return r >= 100 ? String(Math.round(r)) : r.toFixed(1); };
   if (!t || typeof t !== 'object') return '';
   if (kind === 'whisper') {
     const { audioMs, procMs } = t;
     if (!num(audioMs) || !num(procMs) || audioMs <= 0 || procMs < 0) return '';
     return `文字起こしの速さ: 音声 ${Math.round(audioMs / 1000)} 秒・処理 ${Math.round(procMs / 1000)} 秒（${(procMs / audioMs).toFixed(2)} 倍）`;
-  }
-  if (kind === 'llama') {
-    const { prompt_n: pn, prompt_ms: pm, predicted_n: gn, predicted_ms: gm } = t;
-    if (![pn, pm, gn, gm].every(num) || pn < 0 || gn < 0 || pm <= 0 || gm <= 0) return '';
-    return `要約の速さ: 読み ${pn} トークン ${sec(pm)} 秒（${rate(pn, pm)} トークン/秒）`
-      + `・書き ${gn} トークン ${sec(gm)} 秒（${rate(gn, gm)} トークン/秒）`;
   }
   return '';
 }
@@ -622,9 +615,9 @@ function portInUseError(port) {
 
 // ---------------------------------------------------------------- ファイルの選択で開く場所（第0c回 EL3）
 // Electron 43 から defaultPath が無いと「ダウンロード」で開き、OS が前のフォルダを覚えなくなる。
-// 画面の5つの［選ぶ］ボタンのキー（ENGINE_SETTING_KEYS とは別に持つ）。画面からはパスを受け取らず、
+// 画面の3つの［選ぶ］ボタンのキー（ENGINE_SETTING_KEYS とは別に持つ）。画面からはパスを受け取らず、
 // このキーの名前だけを受け取る。
-const PICK_KEYS = ['localServerExe', 'localModelPath', 'vadModelPath', 'sumServerExe', 'sumModelPath'];
+const PICK_KEYS = ['localServerExe', 'localModelPath', 'vadModelPath'];   // 0.10.0 LS-3（D59）で要約の2つを外した
 // 今のファイルのフォルダ → この起動で前に選んだフォルダ → エンジンの置き場所の順に、あるものを返す。
 // どれも無ければ undefined（Electron の既定に任せる）。知らないキーでは設定の値を読まない。
 // 相対パスやファイル名だけの値は、dirname が '.'（作業フォルダ＝入れた場所）になるので候補にしない。
@@ -643,13 +636,11 @@ function pickDefaultPath(key, settings, { lastDir = '', engineRoot = '', isDir =
 // これらを変えるとエンジンの再起動（engineSignature）や区間の切り方が変わる。記録中に
 // 再起動すると、文字起こし中の区間が失われる。記録中は前の値に留め、他の設定は保存する。
 const ENGINE_SETTING_LABELS = {
-  language: '言語', localThreads: '文字起こしのスレッド数', sumThreads: '要約のスレッド数',
+  language: '言語', localThreads: '文字起こしのスレッド数',
   useVad: 'VAD', suppressNst: '非発話トークンの抑制',
   localServerExe: '文字起こしエンジンの実行ファイル', localModelPath: '文字起こしのモデル', vadModelPath: 'VAD のモデル',
-  sumServerExe: '要約エンジンの実行ファイル', sumModelPath: '要約のモデル',
-  localPort: '文字起こしのポート', sumPort: '要約のポート', segmentSec: '区間の長さ',
-  sumCtx: '要約の文脈長',
-};
+  localPort: '文字起こしのポート', segmentSec: '区間の長さ',
+};   // 0.10.0 LS-3（D59）で要約のエンジンの5つを外した
 const ENGINE_SETTING_KEYS = Object.keys(ENGINE_SETTING_LABELS);
 const sameValue = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 
@@ -717,49 +708,7 @@ function closeConfirm(recording, summarizing, finalizing = false) {
   return { message: sumLine, detail: '「要約を生成」で後から作り直せます。' };
 }
 
-// ---------------------------------------------------------------- 分割要約の打ち切り（#16）
-// extract(text) は { text, truncated } を返す（要点の抽出）。長さの上限で切れたら、その塊を
-// 半分に割って両方をやり直す（一度だけ）。切れたままだと中盤の議題が黙って欠ける。
-// 半分でも切れたら本文は残して truncated を立てる（呼び出し側が注記し、パートを名指しする）。
-async function extractNotes(extract, text) {
-  const first = await extract(text);
-  if (!first.truncated) return { text: first.text, truncated: false, retried: false };
-  const half = Math.ceil(text.length / 2);
-  const a = await extract(text.slice(0, half));
-  const b = await extract(text.slice(half));
-  return { text: `${a.text}\n${b.text}`, truncated: Boolean(a.truncated || b.truncated), retried: true };
-}
-
-// ---------------------------------------------------------------- 要約の文脈長（#41）
-// 推定トークン数。UTF-8 のバイト数 ÷ 2.5 の切り上げ。多くの日本語対応モデルのトークナイザでは
-// 日本語 1 文字（3 バイト）が 1〜2 トークン、英数字は 4 文字（4 バイト）で 1 トークン程度で、
-// どちらも 1 トークン ≒ 2.5〜4 バイト。2.5 で割るのは実際より多めに見積もるためで、外すなら
-// 「収まると思ったら溢れた」側には外さない（溢れると llama-server がプロンプトを黙って切る）。
-function estimateTokens(text) {
-  return Math.ceil(Buffer.byteLength(String(text ?? ''), 'utf8') / 2.5);
-}
-
-// 要点メモ（分割要約の各パート）を、前から順に「推定トークンの合計が予算に収まる束」に分ける。
-// 統合プロンプトが文脈長に収まらないとき、各束をもう一段要約してから統合する（2 段）。
-// 順序は時系列のまま。1 件で予算を超える要点メモは単独の束（それ以上は割らない。もう一段の
-// 要約で NOTE_MAX_TOKENS 以下に縮む）。束の間の区切り（空行）は数えない（束あたり数トークンで、
-// 呼び出し側の余白の内）。estimate は省けば estimateTokens。入力は書き換えない。
-function foldNotes(notes, budgetTokens, estimate) {
-  const list = (Array.isArray(notes) ? notes : []).map((n) => String(n ?? ''));
-  const est = typeof estimate === 'function' ? estimate : estimateTokens;
-  const budget = Number(budgetTokens) > 0 ? Number(budgetTokens) : 1;
-  const out = [];
-  let cur = [];
-  let used = 0;
-  for (const n of list) {
-    const t = est(n);
-    if (cur.length && used + t > budget) { out.push(cur); cur = []; used = 0; }
-    cur.push(n);
-    used += t;
-  }
-  if (cur.length) out.push(cur);
-  return out;
-}
+// 分割要約の打ち切り（#16 の extractNotes）と文脈長の見積もり（#41 の estimateTokens・foldNotes）は、0.10.0 LS-3（D59）で外した（手元の llama の要約が無い）
 
 // summaryError に書く一文。parts: 半分にしても切れたパート番号（1 始まり）、
 // finalTruncated: 最終の統合が切れたか。どちらも無ければ ''。
@@ -916,12 +865,48 @@ function startSegmentMode({ localOnly, signedIn, hold, netOnline, peekUp } = {})
 // ---------------------------------------------------------------- オフラインの準備を任意にする（第1d2回 M-1・D21・OF1）
 // 要約の欄の文（第1d2回 M-3。計画「画面と知らせの文」の S1〜S3'）。local・offline は準備を選んでいない PC で手元の LLM が無いとき
 // （PC の中だけの会議・Claude Code に届かない）。wait・waitLocal は締めたときに文字起こし待ちの区間がある会議（済んだら自動で要約する）
+// 0.10.0 LS-1（D59・決めたこと 103・110）: 要約は Claude Code だけ。届かなければ要約待ち（summaryWait と下の一文）。
+const SUMMARY_WAIT_TEXT = '要約待ち（つながったら作ります）';
+// 要約の欄の文（第1d2回 M-3 の S1〜S3'）。0.10.0 で「要約も PC の中」「ローカル AI の準備」を書かない形に直した（決めたこと 110）。
+// local と offline は要約待ちの一文（LS-2 で local の使い手を外す）。文字起こし待ちの wait はそのまま
 const KEPT_SUMMARY_TEXT = {
-  local: 'この会議はオフラインモードのため、要約も PC の中で作ります。ローカル AI の準備をしていないので、要約は作りませんでした。設定の「ローカル AI」で準備すると、［要約を生成］で作れます。',
-  offline: '要約の送り先（Claude Code）につながらないため、要約を作りませんでした。インターネットにつながってから［要約を生成］を押してください。',
+  local: SUMMARY_WAIT_TEXT,
+  offline: SUMMARY_WAIT_TEXT,
   wait: '文字起こし待ちの音声があります。文字起こしが済むと、自動で要約を作ります。',
-  waitLocal: 'この会議はオフラインモードです。文字起こし待ちの音声があります。ローカル AI の準備が済んで文字起こしが済むと、自動で要約を作ります。',
+  waitLocal: 'この会議はオフラインモードです。文字起こし待ちの音声があります。文字起こしが済んでつながると、自動で要約を作ります。',
 };
+// 要約待ちのページを1つ選ぶ（決めたこと 104。D63 で「直した要約」の見分けは無くした）: summaryWait が真で tried に無いページの、
+// 作った時刻の古い順の先頭の ID か null。ゴミ箱のページは呼び手が渡さない。受けた物を変えない
+function summaryRetryPick(pages, { tried } = {}) {
+  if (!Array.isArray(pages)) return null;
+  const skip = tried instanceof Set ? tried : new Set();
+  const cands = pages.filter((p) => p && typeof p === 'object' && p.summaryWait === true && typeof p.id === 'string' && !skip.has(p.id));
+  if (!cands.length) return null;
+  const at = (p) => { const t = Date.parse(p.createdAt); return Number.isFinite(t) ? t : Infinity; };
+  return cands.slice().sort((a, b) => at(a) - at(b))[0].id;
+}
+// 要約の欄の鍵（D63・D69・決めたこと 111）。上から順に見て、最初に当たった行の符号（鍵なしは ''）。
+// 画面の写しは app.html の summaryLockView（repo が同じ表を両方に当てる）。DB のプロセスは making を知らないので live と making を渡さない
+const SUMMARY_LOCK_TEXT = Object.freeze({
+  live: '録音中は要約を直せません。書きたいことはメモに書いてください。',
+  making: '要約を作っています。',
+  wait: `${SUMMARY_WAIT_TEXT}。要約ができるまでは直せません。書きたいことはメモに書いてください。`,
+  empty: '文字起こしが無いので、要約は作れません。書きたいことはメモに書いてください。',
+  none: '［要約を生成］で要約を作ると、直せるようになります。書きたいことはメモに書いてください。',
+});
+function summaryLock(page, { live = false, making = false, segments = [] } = {}) {
+  const p = page && typeof page === 'object' && !Array.isArray(page) ? page : {};
+  if (live) return 'live';
+  if (making) return 'making';
+  if (p.summaryWait === true) return 'wait';
+  // 要約ができた印は route.summary（成功したときだけ main が { by, at } を書く。at の無い古い形も by で読む）
+  const sum = p.route && typeof p.route === 'object' && p.route.summary && typeof p.route.summary === 'object' ? p.route.summary : null;
+  const made = Boolean(sum && (sum.at || sum.by));
+  if (made || (Array.isArray(p.blocks) && p.blocks.length > 0)) return '';
+  if (typeof p.summaryError === 'string' && p.summaryError) return '';
+  const said = Array.isArray(segments) && segments.some((x) => x && !x.failed && typeof x.text === 'string' && x.text.trim());
+  return said ? 'none' : 'empty';
+}
 const LOGIN_WHYS = ['signed-out', 'login'];   // ログインしていない・切れた
 // 準備を選んでいない PC で音声を残している帯の符号（第1d2回 M-2。B14・B13・B12・B11）。Windows の知らせにはしない（WIN_NOTIFY_CODES は変えない）
 const KEPT_CODES = ['kept-local', 'kept-login', 'kept-relay', 'kept-wait'];
@@ -1398,8 +1383,9 @@ function memoEvidence(memo, types) {
 
 // ---------------------------------------------------------------- 取り込んだエンジンの切り替え（第0b回 Task 14）
 // main は取り込みの係（engine-install.makeRunner）が組をそろえるたびに、候補（engine-install.managedCandidates の
-// { whisper, sum }。Cand は { current, shas, dir, exe, model, vad?, … }）を照らしてから切り替える。ここはその判断だけ
-const MANAGED_GROUPS = ['whisper', 'sum'];
+// { whisper }。Cand は { current, shas, dir, exe, model, vad?, … }）を照らしてから切り替える。ここはその判断だけ。
+// 0.10.0 LS-3（D59）で要約の組（sum）を外した
+const MANAGED_GROUPS = ['whisper'];
 const shasKey = (c) => (c && Array.isArray(c.shas) ? c.shas.map((s) => String(s).toLowerCase()).join(',') : '');
 const sameSha256 = (a, b) => String(a).toLowerCase() === String(b).toLowerCase();
 
@@ -1408,12 +1394,12 @@ function sameShas(a, b, groups = MANAGED_GROUPS) {
   return groups.every((g) => shasKey(a && a[g]) === shasKey(b && b[g]));
 }
 
-// 照らしの結果（engine-install.verifyCandidates の { whisper, sum, bad }）に、前の組を使い続ける組を足す（RF13）
-// → { whisper, sum, bad, kept: [組の名前] }。新しい候補（cands[g]）が照らしで合わず、照らし済みの前の組（prev[g]）が
+// 照らしの結果（engine-install.verifyCandidates の { whisper, bad }）に、前の組を使い続ける組を足す（RF13）
+// → { whisper, bad, kept: [組の名前] }。新しい候補（cands[g]）が照らしで合わず、照らし済みの前の組（prev[g]）が
 // 別の並びなら、前の組を使い続ける（新しい組は取り直す）。同じ並びの組（触られた・取り直した組）・前の組が無い組・
 // 候補が無くなった組は、照らしの結果のまま（合わなければ null。RF3）
 function keepPrevious(cands, prev, checked) {
-  const out = { whisper: null, sum: null, bad: (checked && Array.isArray(checked.bad)) ? checked.bad : [], kept: [] };
+  const out = { whisper: null, bad: (checked && Array.isArray(checked.bad)) ? checked.bad : [], kept: [] };
   for (const g of MANAGED_GROUPS) {
     if (checked && checked[g]) out[g] = checked[g];
     else if (cands && cands[g] && prev && prev[g] && !sameShas(cands, prev, [g])) { out[g] = prev[g]; out.kept.push(g); }
@@ -1640,7 +1626,7 @@ function keyLabel(accel) {
 // 一覧は help/site.json の分類の articles と同じ並び（test/help-app.test.js が照らす。記事を足したらここも直す）。
 // 一覧にちょうどある文字だけ「<記事>/」を返し、ほか（文字でない・空・住所・../・#・前後の空白・大文字）は ''（ヘルプのホーム）
 const HELP_ARTICLES = Object.freeze([
-  'start/what-natsu-does', 'start/install-update', 'start/login', 'start/claude-code', 'start/tester-guide',
+  'start/what-natsu-does', 'start/install-update', 'start/login', 'start/claude-code', 'start/claude-mcp', 'start/tester-guide',
   'record/start-stop', 'record/pause', 'record/pc-only', 'record/status-line', 'record/meeting-detect',
   'summary/how-summaries', 'summary/summary-types', 'summary/citations',
   'dictation/dictation',
@@ -2017,7 +2003,55 @@ function relayHoldStep(st, { code, now } = {}) {
   return { st: { run: n, at: now }, holdMs: n >= 2 ? RELAY_HOLD_LADDER_MS[Math.min(n - 2, RELAY_HOLD_LADDER_MS.length - 1)] : 0 };
 }
 
+// ---------------------------------------------------------------- 議事録の題名（0.10.0 SH-1・D71・決めたこと 140）
+// 新しい議事録の題名「2026/10/16 10:00 の議事録」（月と日は 0 を付けない・時と分は 2 けた）。形はここの1か所で決め、main の fallbackTitle と
+// 撮る道具の見本とテストの作り物が使う。offsetMin（分）を渡すとその時差の時刻（撮る道具は日本の時刻 540）、渡さなければ PC の時計の時刻。読めなければ ''
+function meetingTitleAt(date, offsetMin) {
+  const d = date instanceof Date ? date : new Date(date);
+  if (Number.isNaN(d.getTime())) return '';
+  const fixed = Number.isFinite(offsetMin);
+  const t = fixed ? new Date(d.getTime() + offsetMin * 60000) : d;
+  const [y, mo, day, h, mi] = fixed
+    ? [t.getUTCFullYear(), t.getUTCMonth() + 1, t.getUTCDate(), t.getUTCHours(), t.getUTCMinutes()]
+    : [t.getFullYear(), t.getMonth() + 1, t.getDate(), t.getHours(), t.getMinutes()];
+  return `${y}/${mo}/${day} ${String(h).padStart(2, '0')}:${String(mi).padStart(2, '0')} の議事録`;
+}
+
+// ---------------------------------------------------------------- natsu:// の登録（0.10.0 LN-3・D72・決めたこと 144・設計書 L5）
+// 起動のたびに、パックした NaTsu（NSIS で入れたもの）だけが、今の場所の exe で natsu:// を利用者ごとに登録する（HKCU。入れ直して場所が
+// 変わったときに直す）。登録のコマンドは「"<exe>" -- "%1"」（-- の後ろは Chromium と Electron の引数として読まれない。リンクに -- で始まる
+// 引数を混ぜて起動の引数を差し込む手口を止める）。開発の起動（パックしていない）は登録しない。→ { register, args }
+const PROTOCOL = 'natsu';
+const PROTOCOL_ARGS = Object.freeze(['--']);
+function protocolPlan({ packaged, execPath, isDefault } = {}) {
+  const register = packaged === true && typeof execPath === 'string' && execPath.length > 0 && isDefault !== true;
+  return { register, args: [...PROTOCOL_ARGS] };
+}
+
+// ---------------------------------------------------------------- リンクで起こされたとき（0.10.0 LN-4・D72・決めたこと 145・146）
+// 起動の引数の -- より後ろの、最初の natsu: で始まる引数だけを読む（ほかの引数は見ない。-- より前のリンクは Chromium の引数に混ぜられうる）。
+// → { id, anchor }（読めた）・'bad'（natsu: の引数はあるが読めない）・null（リンクが無い）
+function linkFromArgv(argv) {
+  if (!Array.isArray(argv)) return null;
+  const at = argv.indexOf('--');
+  if (at < 0) return null;
+  const s = argv.slice(at + 1).find((a) => typeof a === 'string' && /^natsu:/i.test(a.trim()));
+  if (s === undefined) return null;
+  return natsulink.parseNatsuLink(s) || 'bad';
+}
+// 2 秒に 5 回まで（越えたリンクは捨てる）。times は受けた時刻の並び（変えない）→ { ok, times }
+const LINK_RATE_MS = 2000;
+const LINK_RATE_MAX = 5;
+function linkRate(times, now) {
+  const recent = (Array.isArray(times) ? times : []).filter((t) => Number.isFinite(t) && now - t < LINK_RATE_MS && t <= now);
+  if (recent.length >= LINK_RATE_MAX) return { ok: false, times: recent };
+  return { ok: true, times: [...recent, now] };
+}
+
 module.exports = {
+  PROTOCOL, protocolPlan, linkFromArgv, linkRate,
+  STATE_NAMES: SL.STATE_NAMES, BY_NAMES: SL.BY_NAMES, stateLogAdd: SL.stateLogAdd, cleanStateLog: SL.cleanStateLog, stateLogLine: SL.stateLogLine,
+  meetingTitleAt,
   saveIfExists, meetingDurationSec, promptTail,
   registerHotkeys, hotkeyFailureMessage, hotkeyStatus, resolveStartupHotkeys, saveHotkeys,
   makeSummaryRunner, tickStep,
@@ -2028,15 +2062,16 @@ module.exports = {
   peFileVersion, vcRuntimeVersions, vcRuntimeIssue, runtimeGate, engineExitHint, spawnErrorHint, speedLine,
   ENGINE_SETTING_KEYS, guardEngineSettings, keptDifferent, closeConfirm, restartBlock, logReason,
   PICK_KEYS, pickDefaultPath,
-  extractNotes, truncationMessage, buildPromptParts,
+  truncationMessage, buildPromptParts,
   publicSegments, settledSegments, pendingDurationMs, recoverSegments, staleSegbufDirs,
   nextSegmentMs, EtaTracker, skipPendingSegments, SKIP_KEPT_TEXT,
   ONLINE_SEGMENT_SEC, OVERLAY_SEG_MIN_MS, SEG_SWITCH_AFTER, STICKY_LOCAL, startSegmentMode, segmentModeNext, segmentBaseMs, liveSegmentMs, nextLiveSegmentMs,
   cloudLikely, offlineChosen, DICTATION_REFUSE_TEXT, startPlan, dictationPlan, KEPT_CODES, keptCodeFor, KEPT_SUMMARY_TEXT,
+  SUMMARY_WAIT_TEXT, summaryRetryPick, SUMMARY_LOCK_TEXT, summaryLock,
   STALL_SPAN_MS, STALL_MIN_DBFS, stallAfter, stallStep, PROBLEM_ORDER, sttProblemOf, problemForRoute,
   WIN_NOTIFY_CODES, WIN_NOTIFY_GAP_MS, notifyGate,
   OFFLINE_SHOW_MS, OFFLINE_CLEAR_MS, offlineBannerStep,
-  estimateTokens, foldNotes, idleEnginesToStop, silentWav, wavLevelDbfs, mergeSummaryType, memoEvidence, buildClaudeInput, routeLabel,
+  idleEnginesToStop, silentWav, wavLevelDbfs, mergeSummaryType, memoEvidence, buildClaudeInput, routeLabel,
   isLoopbackUrl, loopbackOnlyFetch,
   sameShas, keepPrevious, candStamp, repairIdsOf, pathUsedBy, fetchMinutesLeft,
   recordDictation, mergeHistory, chooseDraftName,

@@ -62,12 +62,9 @@ function normalizeSettings(raw, defaults) {
   s.dictionary = Array.isArray(s.dictionary)
     ? s.dictionary.map((w) => String(w ?? '').trim()).filter(Boolean) : [];
   s.localPort = clampInt(s.localPort, 1024, 65535, d.localPort || 8990);
-  s.sumPort = clampInt(s.sumPort, 1024, 65535, d.sumPort || 8991);
   s.localThreads = clampInt(s.localThreads, 1, 64, d.localThreads || 4);
-  s.sumThreads = clampInt(s.sumThreads, 1, 64, d.sumThreads || 4);
   s.segmentSec = clampInt(s.segmentSec, 20, 300, d.segmentSec || 75);
   // 第3段（v0.11.0）で足した 2 つ。古い settings.json には無いので既定で埋める
-  s.sumCtx = clampInt(s.sumCtx, 4096, 131072, d.sumCtx || 16384);              // 要約の文脈長（#41。既定は第0b回で 16384）
   s.engineIdleMin = clampIntOrZero(s.engineIdleMin, 0, 120, d.engineIdleMin ?? 10);   // 使われないエンジンを止めるまでの分（#58）
   for (const k of REMOVED_KEYS) delete s[k];
   return s;
@@ -103,10 +100,6 @@ function defaultSettings(cpuCount) {
     vadModelPath: '',
     useVad: true,
     suppressNst: true,
-    sumServerExe: '',
-    sumModelPath: '',
-    sumPort: 8991,
-    sumThreads: threads,
     language: 'ja',
     hotkey: 'Control+Shift+Space',
     meetingHotkey: 'Alt+M',
@@ -130,12 +123,6 @@ function defaultSettings(cpuCount) {
     useSystemAudio: false,
     maxHistory: 500,
     segmentSec: 75,
-    // 要約エンジン（llama-server）の文脈長（-c）。統合プロンプトがこれに収まらないときは
-    // 要点メモを 2 段で畳む（#41。generateMinutes）
-    // 既定は 16384（第0b回 Task 16）。長い会議も分けて要約し（CHUNK 5500 字）、要点メモを畳む（foldNotes）ので、
-    // 実際の一番長いプロンプトは約 6,000〜12,000 トークン。16384 から出力の上限 3000 と余白 256 を引いた
-    // 13,128 トークンに収まる。保存済みの値（今までの PC の 32768 など）は書き換えない
-    sumCtx: 16384,
     // 使われないエンジンを止めるまでの分。0 = 止めない（#58。releaseIdleEngines）
     engineIdleMin: 10,
     // 空なら Claude Code を探す（第1c回 Task B-1 の findClaude）
@@ -148,6 +135,8 @@ function defaultSettings(cpuCount) {
     // 会議の検出の通知（0.9.3 M-1）と、通知を出さないアプリ（MEET_APP_IDS の id の並び）
     meetingDetect: true,
     meetingDetectMute: [],
+    // 0.10.0 LS-4（D59・決めたこと 107）: 0.9.x の要約の組を消したことを知らせたか（知らせは1回だけ。main だけが書く）
+    retiredSumNotified: false,
   };
 }
 
@@ -166,6 +155,8 @@ function defaultSettings(cpuCount) {
 //   email:    '' か、メールアドレスの形（isEmailShape）の文字列。違えば ''（ログインしていない形）。文字でなければ why は type
 //   apps:     MEET_APP_IDS の id の並び（0.9.3 M-1）。配列でなければ []。一覧に無い id・重なり・文字でないものを落とす（落としたら why は type）
 //   pick:     values のどれかの数（数の文字も数として受け、直した印 type）。違えば既定（範囲の端に寄せない: 選ぶ欄に無い値を作らない）
+// 0.10.0 LS-3（D59・決めたこと 109）: 要約のローカル AI のキー（sumServerExe・sumModelPath・sumPort・sumThreads・sumCtx）を表と既定から外した。
+// 保存に残っていれば、知らないキーとして値のまま読み書きで残す（JS6。前の版に戻したときに困らない）
 const SETTING_RULES = {
   localServerExe: { label: 'whisper-server.exe のパス', kind: 'string' },
   localModelPath: { label: '文字起こしのモデルファイルのパス', kind: 'string' },
@@ -174,10 +165,6 @@ const SETTING_RULES = {
   vadModelPath: { label: 'VADモデルのパス', kind: 'string' },
   useVad: { label: 'VAD（無音スキップ）を使う', kind: 'bool' },
   suppressNst: { label: '非発話トークンを抑制する', kind: 'bool' },
-  sumServerExe: { label: 'llama-server.exe のパス', kind: 'string' },
-  sumModelPath: { label: '要約のモデルファイルのパス', kind: 'string' },
-  sumPort: { label: '要約のポート', kind: 'int' },
-  sumThreads: { label: '要約のスレッド数', kind: 'int' },
   language: { label: '認識言語', kind: 'language' },
   hotkey: { label: '音声入力ホットキー', kind: 'hotkey' },
   meetingHotkey: { label: '議事録ホットキー', kind: 'hotkey' },
@@ -194,7 +181,6 @@ const SETTING_RULES = {
   useSystemAudio: { label: '議事録で相手の声も録る', kind: 'bool' },
   maxHistory: { label: '音声入力の履歴の件数', kind: 'history', max: 10000 },
   segmentSec: { label: '議事録の文字起こし間隔（秒）', kind: 'int' },
-  sumCtx: { label: '要約の文脈長', kind: 'int' },
   engineIdleMin: { label: '使わないエンジンを止めるまで（分）', kind: 'int' },
   // 第1c回（OL7）
   claudeExe: { label: 'Claude Code の場所', kind: 'exe' },
@@ -206,6 +192,8 @@ const SETTING_RULES = {
   // 0.9.3 M-1（会議の検出）
   meetingDetect: { label: '会議の検出の通知', kind: 'bool', notFalse: true },
   meetingDetectMute: { label: '通知を出さないアプリ', kind: 'apps' },
+  // 0.10.0 LS-4（決めたこと 107）
+  retiredSumNotified: { label: '要約用の AI を消した知らせ', kind: 'bool' },
 };
 const SETTING_KEYS = Object.keys(SETTING_RULES);
 // 会議の検出の一覧の id（src/mainlib.js の MEET_APPS と同じ並び。settings.js は mainlib を読まないので写しを持つ: test/stage093.lib が照らす）

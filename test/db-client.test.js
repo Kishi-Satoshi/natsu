@@ -55,6 +55,7 @@ test('ST7・RF10: 子が落ちたら 0.5 秒後に起こし直し、返事の無
   const rowsBefore = d.peek().oplogCount();
   const c = client(d, { fork, logs });
   try {
+    // 利用者が付け直した題名（D77。題名の語に頼るため）
     const p1 = c.call('page.setTitle', { id: d.ids[0], title: '落ちる前に送った' }, { tx: 'm:title:000001' });
     // 同じ欄への2つの書き込み: 送り直しの順が逆なら、後の値が前の値で上書きされる（送った順のまま）
     c.send('page.setMemo', { id: d.ids[0], memo: '先に送ったメモ' });
@@ -89,6 +90,7 @@ test('ST7: 自分で止めたときは起こし直さない（kill の番号は 
     assert.deepStrictEqual(timers.history(), [500, 1000, 2000, 4000], '起こし直しの待ちが RESTART_MS の順でない');
     await assert.rejects(waiting, (e) => e.code === 'db-down' && e.retry === false, '諦めた後も待たせたまま（締めが永遠に返らない）');
     await assert.rejects(c.call('page.get', { id: d.ids[0] }), (e) => e.code === 'db-down' && e.retry === false);
+    // 利用者が付け直した題名（D77。題名の語に頼るため）
     assert.doesNotThrow(() => c.send('page.setTitle', { id: d.ids[0], title: 'x' }), 'send が投げた');
   } finally { await c.close({ timeoutMs: 500 }); d.done(); }
   // 計画から変えたところ: 止めた後の起こし直しは 500ms 後に来るので、速いタイマーを全部進めてから数える（mc-intentional）

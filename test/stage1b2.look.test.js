@@ -2,6 +2,7 @@
  * stage1b2.look.test.js — 第1b2回の見た目（測った値のトークン・青と海の色の約束・書体・部品の形）とサイドバー・検索の窓（L-2）
  */
 'use strict';
+const { titleAt } = require('./helpers/titles');
 const test = require('node:test');
 const assert = require('node:assert');
 const fs = require('node:fs');
@@ -44,7 +45,8 @@ test('1b2 L-1・G8: 海の色（--level）はロゴの波と録音中の点だ�
 });
 
 test('1b2 L-1・G8: 青（--accent）は主ボタン・フォーカスの輪と入力中の枠・入った印・進み具合・落とし先の線・当たった区間・更新の点だけ', () => {
-  const OK = /^(button\.action|#updBadge (button\.go|\.dot))|:focus|\.check input:checked|\.blk\.dropmark|\.seg\.(hit|editing)|\.atag-edit|#engineFetchBar/;
+  // 0.10.0 L-2（D70）で意図して足した: 一覧のチェックボックスの入った印（.pchk[aria-checked="true"]。「入った印」の1つ）
+  const OK = /^(button\.action|#updBadge (button\.go|\.dot))|:focus|\.check input:checked|\.pchk\[aria-checked="true"\]|\.blk\.dropmark|\.seg\.(hit|editing)|\.atag-edit|#engineFetchBar/;
   for (const r of rules) {
     if (r.sel.startsWith(':root')) continue;
     for (const [k, v] of Object.entries(r.decls)) {
@@ -75,7 +77,8 @@ test('1b2 L-1: ボタンは高さ 28px・角丸 6px・500。入力欄は角丸 6
 // ---------------- L-2: サイドバーの行と検索の窓（画面を偽 DOM で本当に走らせる） ----------------
 const { load } = require('./helpers/simrun.js');
 const PRELOAD = fs.readFileSync(path.join(__dirname, '..', 'src', 'preload.js'), 'utf8');
-const LIST = [{ id: 'pa1', title: '定例（見本）', date: '2026-10-16', durationSec: 1800, hasSummary: true, meetingType: 'standup' },
+const LIST = [{ id: 'pa1', title: titleAt('2026-10-16T01:00:00.000Z'), date: '2026-10-16', durationSec: 1800, hasSummary: true, meetingType: 'standup' },
+  // 利用者が付け直した題名（D77。題名の語に頼るため）
   { id: 'pb2', title: '設計の打ち合わせ（見本）', date: '2026-10-15', durationSec: 900, hasSummary: false }];
 const PAGE = (id) => ({ page: { id, title: LIST.find((p) => p.id === id).title, createdAt: '2026-10-16T01:00:00.000Z', durationSec: 1800, blocks: [], memo: '', meetingType: 'general' }, segments: [] });
 const TYPES = [{ key: 'general', label: '一般・その他' }, { key: 'standup', label: '定例・進捗報告' }];
@@ -86,12 +89,12 @@ test('1b2 L-2・G5: サイドバーの議事録は「🎙️ 題名」の1行。
   const l = await boot();
   const rows = l.byId.get('plist').querySelectorAll('.pitem');
   assert.deepStrictEqual(rows.map((r) => [r.querySelector('.pi').textContent, r.querySelector('.t').textContent]),
-    [['🎙️', '定例（見本）'], ['🎙️', '設計の打ち合わせ（見本）']]);
+    [['🎙️', titleAt('2026-10-16T01:00:00.000Z')], ['🎙️', '設計の打ち合わせ（見本）']]);
   assert.ok(rows.every((r) => !r.querySelector('.m') && !r.querySelector('.snip') && !r.querySelector('.tbadge')), '2行目が残っている');
   assert.match(rows[0].getAttribute('title'), /^2026-10-16 ・ 30分0秒 ・ 定例・進捗報告$/);
   assert.match(rows[1].getAttribute('title'), /^2026-10-15 ・ 15分0秒 ・ 要約なし$/);
   // 要約が無くタイプもある行で、「要約なし」がタイプより先（上の2行では並びを確かめられない）
-  const l2 = await boot({ pagesSearch: () => [{ id: 'pc3', title: '振り返り（見本）', date: '2026-10-14', durationSec: 600, hasSummary: false, meetingType: 'standup' }] });
+  const l2 = await boot({ pagesSearch: () => [{ id: 'pc3', title: titleAt('2026-10-01T08:00:00.000Z'), date: '2026-10-14', durationSec: 600, hasSummary: false, meetingType: 'standup' }] });
   assert.strictEqual(l2.byId.get('plist').querySelector('.pitem').getAttribute('title'), '2026-10-14 ・ 10分0秒 ・ 要約なし ・ 定例・進捗報告');
 });
 

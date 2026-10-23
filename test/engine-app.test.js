@@ -30,23 +30,26 @@ const { fetchErrorMessage } = require('../src/engine-fetch');
 
 const APP = path.join(__dirname, '..', 'src', 'renderer', 'app.html');
 const fmt = (e) => `${e.constructor.name}: ${e.message}`;
-const EMPTY = { localServerExe: '', localModelPath: '', vadModelPath: '', sumServerExe: '', sumModelPath: '' };
-const ST = (o = {}) => ({ ok: true, supported: true, mode: { whisper: 'managed', sum: 'managed' }, state: 'missing', totalBytes: 5580564403, doneBytes: 0,
-  needBytes: 5580564403, whisperBytes: 583854933, freeBytes: 120e9, whisperReady: false, sumReady: false, runtime: null, askIt: false, report: '',
+// 0.10.0 LS-3（D59）で意図して直した: 取り込む組は文字起こしだけ（要約の組・パス・sumReady を外し、合計は文字起こしの組の 583,854,933 バイト）
+const EMPTY = { localServerExe: '', localModelPath: '', vadModelPath: '' };
+const ST = (o = {}) => ({ ok: true, supported: true, mode: { whisper: 'managed' }, state: 'missing', totalBytes: 583854933, doneBytes: 0,
+  needBytes: 583854933, whisperBytes: 583854933, freeBytes: 120e9, whisperReady: false, runtime: null, askIt: false, report: '',
   items: MANIFEST.items.map((i) => ({ id: i.id, group: i.group, label: i.label, version: i.version, file: (i.dest || i.dir).split('/').pop(), url: i.url,
     host: new URL(i.url).hostname, sha256: i.sha256, size: i.size, done: 0, state: 'missing', license: i.license, place: '%LOCALAPPDATA%\\natsu\\engine\\…' })), error: null, ...o });
 // パスが空の設定（simrun の既定の getSettings はパスが埋まっているので、初めての PC の形を自分で作る）
 const SET_EMPTY = () => ({ hotkey: 'Control+Shift+Space', meetingHotkey: 'Alt+M', language: 'ja', segmentSec: 75, pillPos: 'bottom',
-  theme: 'system', dictionary: [], useBuiltinTerms: true, localPort: 8990, sumPort: 8991, localThreads: 4, sumThreads: 4, useVad: true, ...EMPTY });
+  theme: 'system', dictionary: [], useBuiltinTerms: true, localPort: 8990, localThreads: 4, useVad: true, ...EMPTY });
 const NOTSET = '文字起こしエンジンが未設定です。設定タブの［PC の中の文字起こしを取り込む］から取り込んでください。';
 const base = (st, extra = {}) => load(APP, { returns: { engineFetchStatus: () => st,
   engineStatus: () => ({ ok: true, whisper: NOTSET, sum: '' }), ...extra } });
 
-test('取り込み前: 合計・10Mbps の時間・空き・0.6GB の知らせ・Teams の行・取得元の表と［PC の中の文字起こしを取り込む］。詳細設定は開かない', async () => {
+// 0.10.0 LS-3（D59）で意図して直した: 合計は文字起こしの組だけ（約 0.6GB・約 8 分）。「文字起こしの分が済めば…」の行は無い（組は1つ）
+test('取り込み前: 合計・10Mbps の時間・空き・Teams の行・取得元の表と［PC の中の文字起こしを取り込む］。詳細設定は開かない', async () => {
   const l = await base(ST(), { getSettings: SET_EMPTY });
   assert.ok(!l.byId.get('engineFetch').hidden);
   const t = l.byId.get('engineFetchSummary').textContent;
-  for (const k of [/約 5\.6GB/, /10Mbps の回線で約 74 分/, /空き 約 120\.0GB|空き 約 120GB/, /約 0\.6GB/, /Teams/]) assert.match(t, k);
+  for (const k of [/約 0\.6GB/, /10Mbps の回線で約 8 分/, /空き 約 120\.0GB|空き 約 120GB/, /Teams/]) assert.match(t, k);
+  assert.ok(!/要約/.test(t), '取り込みの欄に要約の文がある');
   const rows = l.byId.get('engineFetchRows').textContent;
   for (const it of MANIFEST.items) { assert.ok(rows.includes(it.sha256), it.id); assert.ok(rows.includes(it.version), it.id); }
   assert.strictEqual(l.byId.get('engineFetchBtn').textContent, 'PC の中の文字起こしを取り込む');
@@ -68,24 +71,15 @@ test('記録開始で「未設定」が返ったら（showEngineSettings）、�
   assert.ok(!l.byId.get('engineAdv').open, '詳細設定が開いた');
 });
 
-test('要約の組だけがまだ（文字起こしは手の設定）でも、取り込みの欄へ案内し、取り込む組の名前を出す', async () => {
-  const l = await base(ST({ mode: { whisper: 'manual', sum: 'managed' }, whisperReady: true, needBytes: 1005586654 }));
-  assert.match(l.byId.get('engineFetchSummary').textContent, /文字起こしは手で設定したものを使っています。要約を、この PC に取り込みます/);
-  // 足した確かめ: 要約の「未設定」の知らせ（showEngineSettings を通る）でも、取り込みの欄へ案内し、詳細設定は開かない
-  //（計画の変異確認「fetchWantsPanel を whisper だけにする」を、このテストで赤にするため）
-  assert.ok(!l.byId.get('engineAdv').open, '要約の組だけがまだなのに詳細設定が開いた');
-  l.fire('onNotice', '要約エンジンが未設定のため、文字起こしのみ保存しました。設定タブの［PC の中の文字起こしを取り込む］から取り込んでください。'); await l.drain();
-  assert.ok(l.byId.get('tabSettings').classList.contains('active'), '設定タブへ連れて行かない');
-  assert.ok(!l.byId.get('engineFetch').hidden);
-  assert.ok(!l.byId.get('engineAdv').open, '要約の組だけがまだなのに詳細設定が開いた');
-});
+// 「要約の組だけがまだでも取り込みの欄へ案内する」は 0.10.0 LS-3（D59）で外した（要約の組を取り込まない）
 
 test('進み具合の知らせで、全体の割合と今の項目と残りの時間を出し、［一時停止］を出す', async () => {
   const l = await base(ST());
   l.fire('onEngineFetchProgress', ST({ state: 'running', current: 'whisper-model', doneBytes: 286000000, etaSec: 180,
     items: ST().items.map((i) => (i.id === 'whisper-model' ? { ...i, done: 312000000, state: 'running' } : i)) }));
   await l.drain();
-  assert.match(l.byId.get('engineFetchSummary').textContent, /文字起こしのモデル.*312MB \/ 574MB.*5%.*残り約 3 分/);
+  // 0.10.0 LS-3 で意図して直した: 全体は文字起こしの組だけなので 286,000,000 / 583,854,933 = 48%
+  assert.match(l.byId.get('engineFetchSummary').textContent, /文字起こしのモデル.*312MB \/ 574MB.*48%.*残り約 3 分/);
   assert.ok(!l.byId.get('engineFetchPause').hidden);
 });
 
@@ -101,7 +95,7 @@ test('待っている（waiting）: 待ちの文と［今すぐ試す］。記�
 });
 
 test('新しい版（update）: 今のものはそのまま使えることと［新しい版を取り込む］', async () => {
-  const l = await base(ST({ state: 'update', updateBytes: 40e6, whisperReady: true, sumReady: true }));
+  const l = await base(ST({ state: 'update', updateBytes: 40e6, whisperReady: true }));
   assert.match(l.byId.get('engineFetchSummary').textContent, /^新しい版の PC の中の文字起こし（約 40MB）があります。今のものはそのまま使えます。$/);
   assert.strictEqual(l.byId.get('engineFetchBtn').textContent, '新しい版を取り込む');
 });
@@ -123,13 +117,14 @@ test('失敗の知らせ: 文をそのまま出し、［もう一度］にする
 });
 
 test('手で設定している: 「手で設定した PC の中の文字起こしを使っています」と［アプリの取り込みに切り替える］だけ', async () => {
-  const l = await base(ST({ mode: { whisper: 'manual', sum: 'manual' } }));
+  const l = await base(ST({ mode: { whisper: 'manual' } }));
   assert.match(l.byId.get('engineFetchSummary').textContent, /手で設定した PC の中の文字起こしを使っています/);
   assert.ok(!l.byId.get('engineFetchSwitch').hidden && l.byId.get('engineFetchBtn').hidden);
 });
 
-test('切り替え: 取り込み済みで押すと、詳細設定の 5 つのパスを空にして保存する。記録中は押せない', async () => {
-  const l = await base(ST({ mode: { whisper: 'manual', sum: 'manual' }, state: 'ready', whisperReady: true, sumReady: true }));
+// 0.10.0 LS-3（D59）で意図して直した: 詳細設定のパスは文字起こしの3つ
+test('切り替え: 取り込み済みで押すと、詳細設定の 3 つのパスを空にして保存する。記録中は押せない', async () => {
+  const l = await base(ST({ mode: { whisper: 'manual' }, state: 'ready', whisperReady: true }));
   assert.strictEqual(l.byId.get('engineFetchSwitch').textContent, '取り込んだ PC の中の文字起こしに切り替える');
   l.byId.get('engineFetchSwitch').dispatchEvent({ type: 'click' }); await l.drain();
   const saved = l.called('saveSettings').pop().args[0];
@@ -149,25 +144,22 @@ test('whisper が使えるようになったら engineStatus を聞き直し、�
   const l = await base(ST(), { engineStatus: () => (++n === 1 ? { ok: true, whisper: NOTSET, sum: '' } : { ok: true, whisper: '', sum: '' }) });
   l.fire('onEngineFetchProgress', ST({ state: 'running', whisperReady: true })); await l.drain();
   assert.ok(n >= 2); assert.strictEqual(l.byId.get('engineState').textContent, 'PC の中の文字起こし：使えます');
-  // 点検で足した確かめ: 要約の組が使えるようになったときも聞き直す（計画「whisperReady か sumReady が真に変わったら」）。
-  // 変わり目の無い進み具合（取り込みの途中は 250ms ごとに来る）では聞き直さない
+  // 変わり目の無い進み具合（取り込みの途中は 250ms ごとに来る）では聞き直さない（0.10.0 LS-3 で要約の組の確かめを外した）
   const m = n;
   l.fire('onEngineFetchProgress', ST({ state: 'running', whisperReady: true })); await l.drain();
   assert.strictEqual(n, m, '変わり目の無い進み具合で聞き直した');
-  l.fire('onEngineFetchProgress', ST({ state: 'ready', whisperReady: true, sumReady: true })); await l.drain();
-  assert.strictEqual(n, m + 1, '要約の組が使えるようになっても聞き直さない');
 });
 
 // 点検で足した確かめ（起動のときの「確かめています」が残る・使えなくなった組が「正常」のまま残る）
 test('起動のときに「確かめています」を聞いても詳細設定は開かず、確かめ終えた知らせ（checking が偽）で聞き直して「PC の中の文字起こし：使えます」になる（両方の組が前から使える PC）', async () => {
   let n = 0;
   const CHECKING = '文字起こしエンジンを確かめています（数秒で終わります）';
-  const ready = { state: 'ready', whisperReady: true, sumReady: true, needBytes: 0, doneBytes: 5580564403 };
+  const ready = { state: 'ready', whisperReady: true, needBytes: 0, doneBytes: 583854933 };
   const l = await base(ST({ ...ready, checking: true }),
     { getSettings: SET_EMPTY, engineStatus: () => (++n === 1 ? { ok: true, whisper: CHECKING, sum: '' } : { ok: true, whisper: '', sum: '' }) });
   assert.strictEqual(l.byId.get('engineState').textContent, `PC の中の文字起こし：使えません（${CHECKING}）`);
   assert.ok(!l.byId.get('engineAdv').open, '確かめている間に詳細設定を開いた');
-  // whisperReady・sumReady は前から真（変わり目が無い）。確かめ終えたことだけが変わる
+  // whisperReady は前から真（変わり目が無い）。確かめ終えたことだけが変わる
   l.fire('onEngineFetchProgress', ST({ ...ready, checking: false })); await l.drain();
   assert.strictEqual(n, 2, '確かめ終えた知らせで聞き直さない');
   assert.strictEqual(l.byId.get('engineState').textContent, 'PC の中の文字起こし：使えます');
@@ -178,10 +170,10 @@ test('起動のときに「確かめています」を聞いても詳細設定�
 test('取り込んだ組が使えなくなった知らせ（落ちて照らし直したら合わない）でも聞き直し、「使えません」にする。詳細設定ではなく取り込みの欄へ案内する', async () => {
   let n = 0;
   const BROKEN = '文字起こしエンジンのファイルが消えたか変わっています。ウイルス対策が消した可能性があります（Windows セキュリティ → ウイルスと脅威の防止 → 保護の履歴）。取り直しています';
-  const l = await base(ST({ state: 'ready', whisperReady: true, sumReady: true }),
+  const l = await base(ST({ state: 'ready', whisperReady: true }),
     { engineStatus: () => (++n === 1 ? { ok: true, whisper: '', sum: '' } : { ok: true, whisper: BROKEN, sum: '' }) });
   assert.strictEqual(l.byId.get('engineState').textContent, 'PC の中の文字起こし：使えます');
-  l.fire('onEngineFetchProgress', ST({ state: 'running', whisperReady: false, sumReady: true })); await l.drain();
+  l.fire('onEngineFetchProgress', ST({ state: 'running', whisperReady: false })); await l.drain();
   assert.strictEqual(n, 2, '使えなくなった知らせで聞き直さない');
   assert.strictEqual(l.byId.get('engineState').textContent, `PC の中の文字起こし：使えません（${BROKEN}）`);
   assert.ok(!l.byId.get('engineAdv').open, '取り直している組なのに詳細設定を開いた');
@@ -190,11 +182,11 @@ test('取り込んだ組が使えなくなった知らせ（落ちて照らし�
 // ---------------------------------------------------------------- 計画のテストに足したもの
 
 test('取り込み済み（詳細設定のパスは空・ready）で起動しても、設定タブへ連れて行かず、詳細設定も開かない', async () => {
-  const l = await base(ST({ state: 'ready', whisperReady: true, sumReady: true, needBytes: 0, doneBytes: 5580564403 }),
+  const l = await base(ST({ state: 'ready', whisperReady: true, needBytes: 0, doneBytes: 583854933 }),
     { getSettings: SET_EMPTY, engineStatus: () => ({ ok: true, whisper: '', sum: '' }) });
   assert.ok(!l.byId.get('tabSettings').classList.contains('active'), '起動のたびに設定タブへ連れて行く');
   assert.ok(!l.byId.get('engineAdv').open, '詳細設定が開いた');
-  assert.match(l.byId.get('engineFetchSummary').textContent, /^PC の中の文字起こしは取り込み済みです（whisper\.cpp 1\.9\.5・llama\.cpp b11669）。$/);
+  assert.match(l.byId.get('engineFetchSummary').textContent, /^PC の中の文字起こしは取り込み済みです（whisper\.cpp 1\.9\.5）。$/);   // 0.10.0 LS-3 で要約の組を外した
   assert.ok(!l.byId.get('engineDirBtn').hidden, '［取り込み先を開く］が無い');
   assert.deepStrictEqual(l.errors.map(fmt), []);
 });
@@ -239,7 +231,8 @@ test('INSTALL の手順3 と困ったときに引いた［ボタン］と、取�
   const text = sec('## 手順3.（任意）ローカル AI を使う') + sec('## 困ったときは');
   const buttons = [...new Set([...text.matchAll(/［([^］]+)］/g)].map((m) => m[1]))];
   assert.ok(buttons.length >= 8, `引いたボタンが少ない: ${buttons.join('・')}`);
-  for (const b of buttons) assert.ok(html.includes(b), `INSTALL の［${b}］が画面に無い`);
+  // 0.10.0 LS-5（D59）で意図して変えた: 取り込みのボタンの数は今の計算（画面の文は `約 ${fetchGB(need)}`）。INSTALL の「約 0.6GB」はその形で探す
+  for (const b of buttons) assert.ok(html.includes(b.replace(/約 \d+\.\dGB/, '約 ${fetchGB(need)}')), `INSTALL の［${b}］が画面に無い`);
   for (const s of ['取り込むもの（取得元・版・SHA-256・置き場所）', 'PC の中の文字起こしは取り込み済みです', 'つながるのを待っています']) {
     assert.ok(text.includes(`「${s}`), `INSTALL が「${s}」を引いていない`);
     assert.ok(html.includes(s), `INSTALL の「${s}」が画面に無い`);

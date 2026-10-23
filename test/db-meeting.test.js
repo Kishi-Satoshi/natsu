@@ -1,5 +1,6 @@
 /* db-meeting.test.js — 第2a1回 ST6・RF16・F11: 会議の命令 */
 'use strict';
+const { titleAt } = require('./helpers/titles');
 const test = require('node:test');
 const assert = require('node:assert');
 const fs = require('node:fs');
@@ -13,13 +14,15 @@ test('ST6: 会議 — begin の写しは一覧に出ない・segment は (page_i
   const t = tmpDb();
   try {
     const { db } = t.open();
-    t.seed({ id: 'pa0', title: '別のページ', blocks: [] }, []);
+    t.seed({ id: 'pa0', title: titleAt('2026-10-18T00:00:00.000Z'), blocks: [] }, []);
     // app の口が先に main の締めと同じ tx を名乗っても、後の main の meeting.finalize は効く（設計書「送り直し」のテスト）
+    // 利用者が付け直した題名（D77。題名の語に頼るため）
     assert.strictEqual(core.call(db, { role: 'app', cmd: 'page.setTitle', args: { id: 'pa0', title: 'x' }, tx: 'meeting:1760000000000' }, { now: NOW }).ok, true);
     call(db, 'meeting.begin', { pageId: 'pm1', startedAt: 1760000000000, localOnly: false });
     call(db, 'meeting.segment', { pageId: 'pm1', seg: { id: 's1', atMs: 0, durationMs: 3000, text: '一' } });
     call(db, 'meeting.segment', { pageId: 'pm1', seg: { id: 's1', atMs: 0, durationMs: 3000, text: '一（確定）' } });
     assert.deepStrictEqual(call(db, 'pages.list', {}).result.map((p) => p.id), ['pa0'], '録音中の写しが一覧に出た');
+    // 利用者が付け直した題名（D77。題名の語に頼るため）
     const fin = (tx) => core.call(db, { role: 'main', cmd: 'meeting.finalize', args: { pageId: 'pm1', page: { title: '会議', blocks: [] }, segments: [{ id: 's1', atMs: 0, durationMs: 3000, text: '一（確定）' }] }, tx }, { now: NOW });
     const f1 = fin('meeting:1760000000000');
     assert.deepStrictEqual([f1.ok, f1.dup], [true, undefined], 'app の同じ tx を main の送り直しとみなした');
@@ -39,9 +42,12 @@ test('F11: recover は締め済みのページを上書きせず、足りない�
   const t = tmpDb();
   try {
     const { db } = t.open();
+    // 利用者が付け直した題名（D77。題名の語に頼るため）
     call(db, 'meeting.finalize', { pageId: 'pm2', page: { title: '会議', blocks: [] }, segments: [{ id: 's1', atMs: 0, durationMs: 1, text: '一' }] });
+    // 利用者が付け直した題名（D77。題名の語に頼るため）
     call(db, 'page.put', { page: { ...call(db, 'page.get', { id: 'pm2' }).result.page, title: '直した題', blocks: [{ id: 'b1', type: 'bullet', text: '要約の行' }] }, baseRev: call(db, 'page.get', { id: 'pm2' }).result.page.rev });
     const draftSegs = [{ id: 's1', atMs: 0, durationMs: 1, text: '一' }, { id: 's2', atMs: 1, durationMs: 1, text: '二' }];
+    // 利用者が付け直した題名（D77。題名の語に頼るため）
     const r = call(db, 'meeting.recover', { pageId: 'pm2', page: { title: '（復旧）', blocks: [], recovered: true }, segments: draftSegs });
     assert.strictEqual(r.result.already, true);
     const g = call(db, 'page.get', { id: 'pm2' }).result;
@@ -49,6 +55,7 @@ test('F11: recover は締め済みのページを上書きせず、足りない�
     assert.deepStrictEqual(g.segments.map((s) => s.id), ['s1', 's2']);
     call(db, 'meeting.begin', { pageId: 'pm3', startedAt: 2, localOnly: false });
     call(db, 'meeting.segment', { pageId: 'pm3', seg: { id: 's1', atMs: 0, durationMs: 1, text: '一' } });
+    // 利用者が付け直した題名（D77。題名の語に頼るため）
     const r3 = call(db, 'meeting.recover', { pageId: 'pm3', page: { title: '（復旧）', blocks: [], recovered: true }, segments: draftSegs });
     assert.strictEqual(r3.result.already, false);
     assert.deepStrictEqual(call(db, 'page.get', { id: 'pm3' }).result.segments.map((s) => s.text), ['一', '二']);
@@ -108,12 +115,14 @@ test('RF16: 取り消した会議は、後から届いた begin・segment・reco
     call(db, 'meeting.begin', { pageId: 'pz3', startedAt: 1, localOnly: false });
     call(db, 'meeting.segment', { pageId: 'pz3', seg: { id: 's2', atMs: 1, durationMs: 1, text: '取り消す発言の続き' } });
     // 下書きを消せずに残った（ウイルス対策が掴んだ）まま次の起動の復旧が来た
+    // 利用者が付け直した題名（D77。題名の語に頼るため）
     const r = call(db, 'meeting.recover', { pageId: 'pz3', page: { title: '（復旧）', blocks: [], recovered: true }, segments: [{ id: 's1', atMs: 0, durationMs: 1, text: '取り消す発言' }] });
     assert.deepStrictEqual(r.result, { page: null, already: true });
     assert.strictEqual(db.prepare("select count(*) c from blocks where page_id='pz3'").get().c, 0, '取り消した会議の行が戻った');
     assert.strictEqual(db.prepare("select count(*) c from segments where page_id='pz3'").get().c, 0, '取り消した会議の発言が戻った');
     assert.strictEqual(require('../src/db/commands').isPurged(db, 'pz3'), true);
     // 締め済みの議事録は、古い取り消しの頼みが届いても消さない
+    // 利用者が付け直した題名（D77。題名の語に頼るため）
     call(db, 'meeting.finalize', { pageId: 'pm4', page: { title: '締めた会議', blocks: [] }, segments: [{ id: 's1', atMs: 0, durationMs: 1, text: '残す発言' }] });
     call(db, 'meeting.discard', { pageId: 'pm4' });
     assert.strictEqual(call(db, 'page.get', { id: 'pm4' }).result.segments[0].text, '残す発言', '締めた議事録を取り消しで消した');
@@ -137,6 +146,7 @@ test('ST6: ゴミ箱に入った録音中の写し — begin・segment は何も
     call(db, 'meeting.segment', { pageId: 'pg1', seg: { id: 's2', atMs: 1, durationMs: 1, text: 'ゴミ箱の写しへの発言' } });
     assert.deepStrictEqual(db.prepare("select id from segments where page_id='pg1' order by id").all().map((r) => r.id), ['s1'], 'ゴミ箱の写しに segment が書いた');
     // 復旧: 下書きが正本。題・長さ・経路・要約の失敗も残し、ゴミ箱から出して、知らせが出るように already: false
+    // 利用者が付け直した題名（D77。題名の語に頼るため）
     const draft = { title: '（復旧）予算の会議', durationSec: 95, route: { stt: { provider: 'local' } }, summaryError: '要約に失敗しました', blocks: [], recovered: true };
     const segs = [{ id: 's1', atMs: 0, durationMs: 1, text: '一' }, { id: 's2', atMs: 1, durationMs: 1, text: '二' }];
     const r = call(db, 'meeting.recover', { pageId: 'pg1', page: draft, segments: segs });
@@ -151,15 +161,18 @@ test('ST6: ゴミ箱に入った録音中の写し — begin・segment は何も
     // 締め: ゴミ箱の写しに締めが届いても、締めた議事録をゴミ箱に置かない
     call(db, 'meeting.begin', { pageId: 'pg2', startedAt: 2, localOnly: false });
     call(db, 'page.delete', { id: 'pg2' }, 'app');
+    // 利用者が付け直した題名（D77。題名の語に頼るため）
     const f = call(db, 'meeting.finalize', { pageId: 'pg2', page: { title: '締めた会議', blocks: [] }, segments: [{ id: 's1', atMs: 0, durationMs: 1, text: '残す' }] });
     assert.strictEqual(f.result && f.result.id, 'pg2', '締めの答えにページが無い');
     assert.strictEqual(trashed('pg2'), null, '締めた議事録がゴミ箱に残った');
     // 締め済みのページをゴミ箱に入れた後の復旧は、今までどおりゴミ箱から出さず上書きもしない
     call(db, 'page.delete', { id: 'pg2' }, 'app');
+    // 利用者が付け直した題名（D77。題名の語に頼るため）
     const r2 = call(db, 'meeting.recover', { pageId: 'pg2', page: { title: '（復旧）', blocks: [] }, segments: [] });
     assert.deepStrictEqual(r2.result, { page: null, already: true });
     assert.ok(trashed('pg2'), '締め済みのゴミ箱のページを復旧が出した');
     // 締め済みのページをゴミ箱に入れたのは持ち主の判断。遅れて届いた締め（別の tx）もゴミ箱から出さない
+    // 利用者が付け直した題名（D77。題名の語に頼るため）
     call(db, 'meeting.finalize', { pageId: 'pg2', page: { title: '締めた会議', blocks: [] }, segments: [{ id: 's1', atMs: 0, durationMs: 1, text: '残す' }] });
     assert.ok(trashed('pg2'), '持ち主がゴミ箱に入れた締め済みのページを、遅れた締めが出した');
   } finally { t.done(); }
@@ -176,6 +189,7 @@ test('ST6: begin が届かなくても segment が写しを作る（一覧には
     assert.deepStrictEqual(call(db, 'pages.list', {}).result, []);
     const last = JSON.parse(db.prepare("select ops from oplog where action='meeting.segment' order by seq desc limit 1").get().ops);
     assert.deepStrictEqual(last.map((o) => [o.op, o.id, o.value.text, o.old.text, o.n]), [['seg', 's1', '一（確定）', '一', 0]]);
+    // 利用者が付け直した題名（D77。題名の語に頼るため）
     call(db, 'meeting.finalize', { pageId: 'pm5', page: { title: '会議', blocks: [] }, segments: [{ id: 's1', atMs: 0, durationMs: 1, text: '一（確定）' }] });
     assert.deepStrictEqual(call(db, 'page.get', { id: 'pm5' }).result.segments.map((s) => s.id), ['s1']);
     assert.deepStrictEqual(JSON.parse(db.prepare("select attrs from blocks where id='pm5'").get().attrs).meeting, { phase: 'done', recovered: false });
@@ -189,7 +203,7 @@ test('ST6: 締め・復旧のページは今の保存（json-backend の createP
     const { db } = t.open();
     const plain = (v) => JSON.parse(JSON.stringify(v, (k, x) => (['id', 'updatedAt', 'rev', 'meeting'].includes(k) || (k === 'children' && Array.isArray(x) && x.length === 0) ? undefined : x)));
     const page = {
-      title: '定例（見本）', date: '2026-10-19', durationSec: 120, memo: '会議のメモ', createdAt: '2026-10-19T00:00:00.000Z',
+      title: titleAt('2026-10-19T00:00:00.000Z'), date: '2026-10-19', durationSec: 120, memo: '会議のメモ', createdAt: '2026-10-19T00:00:00.000Z',
       blocks: [{ id: 'b1', type: 'bullet', text: '十分に長い要点の文です', cites: ['s1'] }, { id: 'b2', type: 'bullet', text: '了解', cites: [] }],
       route: { stt: { cloud: 2, local: 0, provider: 'groq' }, localOnly: false }, pauses: [{ atMs: 1000, ms: 500, why: 'user' }, { bad: true }],
       meetingType: 'createPage が捨てる欄',
@@ -216,6 +230,7 @@ test('ST6: 送り直し（同じ tx）の答え — recover は作ったなら a
   try {
     const { db } = t.open();
     const send = (cmd, args, tx) => core.call(db, { role: 'main', cmd, args, tx }, { now: NOW });
+    // 利用者が付け直した題名（D77。題名の語に頼るため）
     const rec = { pageId: 'pr2', page: { title: '（復旧）', blocks: [], recovered: true }, segments: [{ id: 's1', atMs: 0, durationMs: 1, text: '一' }] };
     const a = send('meeting.recover', rec, 'm:recover-000001');
     const b = send('meeting.recover', rec, 'm:recover-000001');
@@ -270,15 +285,18 @@ test('T4b: 会議の命令の oplog を空の DB に当て直すと、今の表�
     call(db, 'meeting.segment', { pageId: 'pt1', seg: { id: 's1', atMs: 0, durationMs: 1, text: '一（確定）' } });
     call(db, 'meeting.begin', { pageId: 'pt3', startedAt: 3, localOnly: true });
     call(db, 'meeting.segment', { pageId: 'pt3', seg: { id: 's1', atMs: 0, durationMs: 1, text: '取り消す' } });
+    // 利用者が付け直した題名（D77。題名の語に頼るため）
     call(db, 'meeting.finalize', { pageId: 'pt1', page: { title: '会議', blocks: [{ id: 'b1', type: 'bullet', text: '要点の行の文です' }] }, segments: [{ id: 's1', atMs: 0, durationMs: 1, text: '一（確定）' }, { id: 's2', atMs: 1, durationMs: 1, text: '二' }] });
     call(db, 'meeting.discard', { pageId: 'pt3' });
     call(db, 'meeting.settle', { keep: [] });
+    // 利用者が付け直した題名（D77。題名の語に頼るため）
     call(db, 'meeting.recover', { pageId: 'pt1', page: { title: '（復旧）', blocks: [] }, segments: [{ id: 's3', atMs: 2, durationMs: 1, text: '三' }] });
     call(db, 'segment.fail', { pageId: 'pt1', segId: 's2', text: '（失敗）' });
     call(db, 'segment.remove', { pageId: 'pt1', segId: 's3' });
     call(db, 'meeting.begin', { pageId: 'pt4', startedAt: 4, localOnly: false });
     call(db, 'meeting.segment', { pageId: 'pt4', seg: { id: 's1', atMs: 0, durationMs: 1, text: 'ゴミ箱の写し' } });
     call(db, 'page.delete', { id: 'pt4' }, 'app');
+    // 利用者が付け直した題名（D77。題名の語に頼るため）
     call(db, 'meeting.recover', { pageId: 'pt4', page: { title: '（復旧）', blocks: [] }, segments: [{ id: 's1', atMs: 0, durationMs: 1, text: 'ゴミ箱の写し' }] });
     const { applyOps } = require('../src/db/ops');
     copy.exec('BEGIN IMMEDIATE');
@@ -292,3 +310,5 @@ test('T4b: 会議の命令の oplog を空の DB に当て直すと、今の表�
     assert.ok(dump(db)[0].some((r) => r.id === 'pt2'), '見本に写しが無い');
   } finally { t.done(); u.done(); }
 });
+
+// 0.10.0 Task P-1 の localOnlyOf の表は LS-2（D59）で外した（要約はオフラインモードの会議も Claude Code。使い手が無くなった）

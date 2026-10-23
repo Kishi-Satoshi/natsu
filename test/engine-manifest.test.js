@@ -36,7 +36,8 @@ test('ピン: SHA-256 は 64 桁、大きさは正の整数、置き場所は英
 });
 test('ピン: エンジンのフォルダの名前は版を含む（ピンを上げると置き場所も変わる）', () => {
   for (const z of MANIFEST.items.filter((i) => i.kind === 'zip')) assert.ok(z.dir.includes(z.version), `${z.id}: ${z.dir} に ${z.version} が無い`);
-  assert.strictEqual(itemsOf('sum')[0].version, 'b11669');
+  // 0.10.0 LS-3（D59）で意図して直した: 要約の組（llama b11669）を外した
+  assert.strictEqual(itemsOf('whisper')[0].version, '1.9.5');
 });
 test('ピン: zip は使うファイルを全部、大きさと SHA-256 つきで持ち、exe はその中。名前は strip で始まる', () => {
   for (const z of MANIFEST.items.filter((i) => i.kind === 'zip')) {
@@ -50,13 +51,14 @@ test('ピン: zip は使うファイルを全部、大きさと SHA-256 つき�
     assert.ok(z.files.some((f) => f.name === z.strip + z.exe), `${z.id}: exe が files に無い`);
   }
   assert.strictEqual(totalBytes(itemsOf('whisper')[0].files), 11850240);
-  assert.strictEqual(totalBytes(itemsOf('sum')[0].files), 44353821);
+  assert.deepStrictEqual(itemsOf('sum'), [], '要約の組が残っている（0.10.0 LS-3）');
 });
-test('ピン: 並びは whisper のエンジン → VAD → 文字起こしのモデル → llama のエンジン → 要約のモデル', () => {
-  assert.deepStrictEqual(MANIFEST.items.map((i) => i.id), ['whisper-engine', 'whisper-vad', 'whisper-model', 'sum-engine', 'sum-model']);
+// 0.10.0 LS-3（D59）で意図して直した: 要約の組（llama のエンジンと要約のモデル）を外した
+test('ピン: 並びは whisper のエンジン → VAD → 文字起こしのモデル', () => {
+  assert.deepStrictEqual(MANIFEST.items.map((i) => i.id), ['whisper-engine', 'whisper-vad', 'whisper-model']);
 });
-test('ピン: 既定の組の合計（Task 0 の答えでモデルを替えたら、ここも直す）', () => {
-  assert.strictEqual(totalBytes(), 5580564403);
+test('ピン: 既定の組の合計（モデルを替えたら、ここも直す）', () => {
+  assert.strictEqual(totalBytes(), 583854933);
   assert.strictEqual(totalBytes(itemsOf('whisper')), 583854933);
 });
 test('ピン: 凍結されていて、実行中に書き換えられない', () => {
@@ -66,6 +68,6 @@ test('ピン: 凍結されていて、実行中に書き換えられない', () 
 // 計画の7件の後に足した1件（点検の指摘: hostOf を呼ぶテストが無く、空を返す変異が生き残った）。
 const { hostOf } = require('../src/engine-manifest');
 test('ピン: hostOf は画面の「取得元」の欄のホスト名を返し、読めない URL は空の文字列', () => {
-  assert.deepStrictEqual(MANIFEST.items.map((i) => hostOf(i.url)), ['github.com', 'huggingface.co', 'huggingface.co', 'github.com', 'huggingface.co']);
+  assert.deepStrictEqual(MANIFEST.items.map((i) => hostOf(i.url)), ['github.com', 'huggingface.co', 'huggingface.co']);   // 0.10.0 LS-3 で要約の2つを外した
   assert.strictEqual(hostOf('not a url'), '');
 });

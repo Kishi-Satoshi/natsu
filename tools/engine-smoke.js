@@ -7,12 +7,11 @@
  *     最後の応答が 206 で、Content-Range の総量がピンの大きさと同じこと。
  *     Hugging Face の項目は、途中の転送の x-linked-etag がピンの SHA-256、x-repo-commit が URL の
  *     commit と同じこと。上流が資産を消したり替えたりしていないかを毎回見る（RF10）。
- *     要約のモデル（約 5GB）も、ここで届くかと記録が合うかだけを見る（--start では落とさない）。
  *
  *   node tools/engine-smoke.js --start
  *     1. Windows の ANSI と OEM のコードページを、レジストリから読んでログに出す（エンジンが引数を
  *        読むときに使うのは ANSI。コンソールのコードページではない）。Visual C++ ランタイムの4つの DLL の
- *        版も、アプリと同じ vcRuntimeVersions で System32 から読んでログに出す（RF4。どちらの zip にも無い）。
+ *        版も、アプリと同じ vcRuntimeVersions で System32 から読んでログに出す（RF4。zip には無い）。
  *     2. 本物の CDN で、取り消してから続きを取れるか（resumeCheck）。キャッシュがあっても毎回。
  *     3. é・日本語・𠮷 の名前のフォルダに、アプリと同じ道（fetchFile → listZip/readEntry で
  *        MANIFEST の files だけを出して SHA-256 を照らす）でエンジンと試験用の小さなモデルを置く。
@@ -21,9 +20,7 @@
  *        （VAD のモデルは最初の文字起こしで初めて読む）。
  *     5. 負の確かめ: 同じ whisper を、-m を英数字以外の絶対パスのままで起動し、落ちる（か /health が
  *        来ない）ことを見る。200 になったら、RF1 を試せていない。
- *     6. llama を英数字以外の絶対パスのモデルで起動し（llama は引数を UTF-16 から読み直す）、
- *        /health と /completion を見る。取り込んだ llama と同じ旗（--cache-ram 0・-np 1・-fa on・
- *        --reasoning off）を付けて、この版が受け付けることも見る。
+ *     0.10.0 LS-3（D59）: 要約のエンジンを外したので、確かめるのは文字起こしのエンジンと VAD だけ。
  *     落としたエンジンを起動するのは Windows だけ。ほかの OS では 1〜3 だけをして、NG で終わる。
  *
  * 結果は1行ずつ OK／NG で出し、1つでも NG なら終了コード 1。
@@ -62,15 +59,9 @@ const SMALL = Object.freeze({
     size: 32152673, sha256: '818710568da3ca15689e31a743197b520007872ff9576237bda97bd1b469c3d7',
     dest: 'models/ggml-tiny-q5_1.bin',
   }),
-  llama: Object.freeze({
-    id: 'llama-stories',
-    url: 'https://huggingface.co/ggml-org/models-moved/resolve/499bc8821c6b12b4e53c5bffcb21ec206f212d81/tinyllamas/stories260K.gguf',
-    size: 1185376, sha256: '270cba1bd5109f42d03350f60406024560464db173c0e387d91f0426d3bd256d',
-    dest: 'models/stories260K.gguf',
-  }),
 });
 
-const PORT = { whisper: 18990, llama: 18991, negative: 18992 };
+const PORT = { whisper: 18990, negative: 18992 };
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const log = (line) => console.log(line);
@@ -180,7 +171,7 @@ function runtimeVersions() {
   const read = (f) => { try { return fs.readFileSync(f); } catch (_) { return null; } };
   const v = vcRuntimeVersions('', sys, read);
   log(`Visual C++ ランタイム（${sys}）: ${Object.entries(v).map(([d, x]) => `${d} ${x || 'なし'}`).join('、')}`);
-  log(`Visual C++ ランタイムの判断: whisper ${vcRuntimeIssue(v, { whisper: true }).level}・llama ${vcRuntimeIssue(v, { whisper: false }).level}`);
+  log(`Visual C++ ランタイムの判断: whisper ${vcRuntimeIssue(v, { whisper: true }).level}`);
 }
 
 // ---------------------------------------------------------------- --start: 続きから（本物の CDN）
@@ -278,13 +269,10 @@ async function placeFile(pin) {
 async function placeAll() {
   fs.rmSync(USER_DIR, { recursive: true, force: true });   // 前の回の残りで通らないように
   const w = itemOf('whisper-engine');
-  const l = itemOf('sum-engine');
   return {
     whisperExe: await placeZip(w, await obtain(w)),
     vad: await placeFile(itemOf('whisper-vad')),
     tiny: await placeFile(SMALL.whisper),
-    llamaExe: await placeZip(l, await obtain(l)),
-    stories: await placeFile(SMALL.llama),
   };
 }
 
@@ -404,28 +392,6 @@ async function smokeWhisperAbsolute(p, relativeOk = true) {
   }
 }
 
-async function smokeLlama(p) {
-  const name = 'llama（英数字以外の絶対パス）';
-  // 取り込んだ llama と同じ旗（main.js の engineSpawnArgs。第0b回 Task 16）を受け付けるかも、ここで見る
-  const args = ['-m', p.stories, '--host', '127.0.0.1', '--port', String(PORT.llama), '-t', '2', '-c', '512',
-    '--cache-ram', '0', '-np', '1', '-fa', 'on', '--reasoning', 'off'];
-  const cwd = path.dirname(p.llamaExe);
-  log(`llama 起動: ${p.llamaExe} ${args.join(' ')}（作業フォルダ: ${cwd}）`);
-  const child = startChild(p.llamaExe, args, cwd);
-  try {
-    const h = await waitHealth(PORT.llama, child, 60000);
-    if (!h.ok) return ng(name, healthText(h));
-    const r = await httpCall(PORT.llama, 'POST', '/completion',
-      { body: Buffer.from(JSON.stringify({ prompt: 'Once', n_predict: 4 })), type: 'application/json', timeoutMs: 60000 });
-    if (r.status !== 200) return ng(name, `/completion が ${r.status}: ${r.text.slice(0, 200)}`);
-    return ok(name, '/health と /completion が 200');
-  } catch (e) {
-    return ng(name, errText(e));
-  } finally {
-    await stopChild('llama', child);
-  }
-}
-
 async function start() {
   const rs = [];
   codePages();
@@ -447,7 +413,6 @@ async function start() {
   const relative = report(await smokeWhisper(placed));
   rs.push(relative);
   rs.push(report(await smokeWhisperAbsolute(placed, relative.ok)));
-  rs.push(report(await smokeLlama(placed)));
   return rs;
 }
 
@@ -473,4 +438,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { checkPin, resumeCheck, watchRequests, placeZip, smokeWhisper, smokeWhisperAbsolute, smokeLlama, SMALL, PORT, main };
+module.exports = { checkPin, resumeCheck, watchRequests, placeZip, smokeWhisper, smokeWhisperAbsolute, SMALL, PORT, main };

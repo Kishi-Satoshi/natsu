@@ -57,10 +57,12 @@ test('EL3: pickDefaultPath は、今のファイルのフォルダ → 前に選
   const W = path.win32;
   const dirs = new Set(['C:\\tools\\whisper', 'D:\\前に選んだ', 'E:\\試験𠮷\\AppData\\Local\\natsu\\engine']);
   const o = { isDir: (d) => dirs.has(d), p: W, lastDir: 'D:\\前に選んだ', engineRoot: 'E:\\試験𠮷\\AppData\\Local\\natsu\\engine' };
-  assert.deepStrictEqual(PICK_KEYS, ['localServerExe', 'localModelPath', 'vadModelPath', 'sumServerExe', 'sumModelPath']);
+  assert.deepStrictEqual(PICK_KEYS, ['localServerExe', 'localModelPath', 'vadModelPath']);   // 0.10.0 LS-3（D59）で要約の2つを外した
   assert.strictEqual(pickDefaultPath('localServerExe', { localServerExe: 'C:\\tools\\whisper\\whisper-server.exe' }, o), 'C:\\tools\\whisper');
   // 今のファイルのフォルダが無い（消した・別の PC の設定）→ 前に選んだフォルダ
-  assert.strictEqual(pickDefaultPath('sumModelPath', { sumModelPath: 'Z:\\無い\\m.gguf' }, o), 'D:\\前に選んだ');
+  assert.strictEqual(pickDefaultPath('localModelPath', { localModelPath: 'Z:\\無い\\m.bin' }, o), 'D:\\前に選んだ');
+  // 外した要約のキーは知らないキー（設定の値を読まない。0.10.0 LS-3）
+  assert.strictEqual(pickDefaultPath('sumModelPath', { sumModelPath: 'C:\\tools\\whisper\\m.gguf' }, o), 'D:\\前に選んだ');
   // 空 → 前に選んだ → それも無ければエンジンの置き場所
   assert.strictEqual(pickDefaultPath('vadModelPath', { vadModelPath: '' }, o), 'D:\\前に選んだ');
   assert.strictEqual(pickDefaultPath('vadModelPath', {}, { ...o, lastDir: '' }), 'E:\\試験𠮷\\AppData\\Local\\natsu\\engine');
@@ -81,7 +83,7 @@ test('EL3: 設定の値が相対パスやファイル名だけなら、そのフ
   assert.strictEqual(pickDefaultPath('vadModelPath', { vadModelPath: 'x.bin' }, { ...o, lastDir: '.' }), 'E:\\試験𠮷\\engine');
   assert.strictEqual(pickDefaultPath('vadModelPath', { vadModelPath: 'x.bin' }, { ...o, lastDir: '', engineRoot: 'engine' }), undefined);
   // 絶対パスなら今までどおり、そのフォルダ
-  assert.strictEqual(pickDefaultPath('sumServerExe', { sumServerExe: 'C:\\tools\\llama\\llama-server.exe' }, o), 'C:\\tools\\llama');
+  assert.strictEqual(pickDefaultPath('localServerExe', { localServerExe: 'C:\\tools\\w\\whisper-server.exe' }, o), 'C:\\tools\\w');
 });
 
 test('EL3: 画面はキーの名前だけを送り、main は defaultPath を渡し、選んだフォルダを覚える', () => {
@@ -100,8 +102,8 @@ test('EL3: 画面はキーの名前だけを送り、main は defaultPath を渡
 test('EL3: 画面の［選ぶ］ボタンが、それぞれのキーの名前を送る（simrun）', async () => {
   const { load } = require('./helpers/simrun.js');
   const l = await load(path.join(ROOT, 'src', 'renderer', 'app.html'));
-  for (const [btn, kind, key] of [['pickExeBtn', 'exe', 'localServerExe'], ['pickModelBtn', 'model', 'localModelPath'], ['pickVadBtn', 'model', 'vadModelPath'],
-    ['pickSumExeBtn', 'exe', 'sumServerExe'], ['pickSumModelBtn', 'model', 'sumModelPath']]) {
+  // 0.10.0 LS-3（D59）で意図して直した: 要約の2つの［選ぶ］を外した
+  for (const [btn, kind, key] of [['pickExeBtn', 'exe', 'localServerExe'], ['pickModelBtn', 'model', 'localModelPath'], ['pickVadBtn', 'model', 'vadModelPath']]) {
     l.byId.get(btn).dispatchEvent({ type: 'click' });
     await l.drain();
     const c = l.called('pickFile').pop();
@@ -150,14 +152,17 @@ test('EL4: release.yml は natsu-update.json を作って添え、Run workflow �
 });
 
 // ---------------------------------------------------------------- EL6
-test('EL6: Electron は 44.9.0、electron-builder は 26.17.0 にきっちり固定し、engines.electron は >=44.9.0。asar は使わず、NSIS とポータブルを作る', () => {
+// 0.10.0 PB-1 で意図して変えた（D76）: ポータブル版を作らない（NSIS だけ）
+test('EL6: Electron は 44.9.0、electron-builder は 26.17.0 にきっちり固定し、engines.electron は >=44.9.0。asar は使わず、NSIS を作る', () => {
   const pkg = JSON.parse(read('package.json'));
   assert.strictEqual(pkg.devDependencies.electron, '44.9.0');
   assert.strictEqual(pkg.devDependencies['electron-builder'], '26.17.0');
   for (const [k, v] of Object.entries(pkg.devDependencies)) assert.match(v, /^\d+\.\d+\.\d+$/, `${k} が ${v}（package-lock.json が無いので、^ や ~ だと出す日で版が変わる）`);
   assert.strictEqual(pkg.engines.electron, '>=44.9.0');
   assert.strictEqual(pkg.build.asar, false);
-  assert.deepStrictEqual(pkg.build.win.target, ['portable', 'nsis']);
+  assert.deepStrictEqual(pkg.build.win.target, ['nsis']);
+  assert.strictEqual(pkg.build.portable, undefined, 'build.portable が残っている');
+  assert.strictEqual(pkg.scripts.dist, undefined, 'npm の dist（ポータブル版を作る）が残っている');
 });
 
 // ---------------------------------------------------------------- 案内（Task 9・16。0.3.0 で1つの版にまとめた）

@@ -38,6 +38,11 @@ Object.assign(UI, { autoStopQuiet: false, autoStopMin: 20 });
 // 0.9.3 M-1（計画 docs/plans/2026-10-22-093.md の決めたこと 11）で意図して変えた: 会議の検出の通知 meetingDetect（既定 true）と通知を出さないアプリ
 // meetingDetectMute（kind apps。既定 []）を足した（35 のキー）。画面は［設定］→［録音］のカード「会議の検出」から送る（既定でない値で往復することを見る）
 Object.assign(TODAY, { meetingDetect: true, meetingDetectMute: [] });
+// 0.10.0 LS-3（D59・決めたこと 109）で意図して変えた: 要約のローカル AI の5つ（sumServerExe・sumModelPath・sumPort・sumThreads・sumCtx）を表と既定から
+// 外した（30 のキー）。保存に残っていれば知らないキーとして値のまま残る（下の「知らないキーは消さずに残し」と stage100.summary.engine）。画面は送らない
+for (const k of ['sumServerExe', 'sumModelPath', 'sumPort', 'sumThreads', 'sumCtx']) { delete TODAY[k]; delete UI[k]; }
+// 0.10.0 LS-4（決めたこと 107）で意図して変えた: 要約の組を消した知らせの印 retiredSumNotified（既定 false。main だけが書く）を足した（31 のキー）
+Object.assign(TODAY, { retiredSumNotified: false });
 Object.assign(UI, { meetingDetect: false, meetingDetectMute: ['zoom', 'chrome'] });
 // 第1c回 Task C-2: 画面のカード「オンライン」が送るキー（0.7.0 U-1 で claudeExe だけ。30 のキー）。既定でない値で往復することを見る
 Object.assign(UI, { claudeExe: 'C:\\c\\claude.exe' });
@@ -45,9 +50,9 @@ const legacy = (raw) => S.normalizeSettings({ ...D, ...raw }, D);
 const ON = (key, v) => (key === 'useBuiltinTerms' ? v !== false : Boolean(v));
 const BOOLS = ['useVad', 'suppressNst', 'autoPaste', 'removeFillers', 'soundFeedback', 'autoLaunch', 'stayInTray', 'useBuiltinTerms', 'useSystemAudio'];
 
-test('JS6: 決まりの表のキーは既定の 35 のキーとちょうど同じ。どれにも画面の名前がある', { timeout: 5000 }, () => {
+test('JS6: 決まりの表のキーは既定の 31 のキーとちょうど同じ。どれにも画面の名前がある', { timeout: 5000 }, () => {
   assert.deepStrictEqual(D, TODAY);
-  assert.strictEqual(S.SETTING_KEYS.length, 35);
+  assert.strictEqual(S.SETTING_KEYS.length, 31);   // 0.10.0 LS-3 で要約の5つを外し（35 → 30）、LS-4 で retiredSumNotified を足した（31）
   assert.deepStrictEqual([...S.SETTING_KEYS].sort(), Object.keys(TODAY).sort());
   for (const k of S.SETTING_KEYS) assert.ok(typeof S.SETTING_RULES[k].label === 'string' && S.SETTING_RULES[k].label.length > 1, k);
   assert.strictEqual(S.defaultSettings(2).localThreads, 4);
@@ -67,8 +72,8 @@ test('JS6・RF23: 壊れた項目だけを直し、ほかは残す（キーご�
   const rows = [
     // [キー, 書かれていた値, 読んだ値, repaired の why（null は直していない）]
     ['localPort', '8080', 8080, null], ['localPort', 99999, 65535, 'range'], ['localPort', 'abc', 8990, 'type'],
-    ['localPort', 1023, 1024, 'range'], ['localPort', 1024, 1024, null], ['localPort', 65535, 65535, null], ['sumPort', 65536, 65535, 'range'],
-    ['localThreads', 0, T, 'range'], ['segmentSec', 5, 20, 'range'], ['sumCtx', 32768, 32768, null], ['engineIdleMin', 0, 0, null],
+    ['localPort', 1023, 1024, 'range'], ['localPort', 1024, 1024, null], ['localPort', 65535, 65535, null],
+    ['localThreads', 0, T, 'range'], ['segmentSec', 5, 20, 'range'], ['engineIdleMin', 0, 0, null],
     ['maxHistory', '300', 300, null], ['maxHistory', 0, 0, null], ['maxHistory', 20000, 10000, 'range'],
     ['maxHistory', -1, 500, 'range'], ['maxHistory', 1.5, 500, 'type'], ['maxHistory', 'abc', 500, 'type'],
     ['localModelPath', 5, '', 'type'], ['micId', 7, '', 'type'], ['vadModelPath', null, '', 'type'],
@@ -188,8 +193,8 @@ test('RF30: 鍵らしい欄は画面から来ても保存しない（設定の J
 // 第1d回 A-2（RL10・F1）: ログイン中のメールアドレス。形の悪い値は '' に戻し（ログインしていない形）、repaired にはキーの名前と理由だけ
 // （値は入れない: main は記録にキーの名前だけを書く）。テストの中にメールアドレスの形の文字を書かないため @ は文字の番号で作る
 const AT = String.fromCharCode(64);
-test('RL10: accountEmail は最後（31 番目。0.9.0 O-1 で pillPos・pillCustom を外して pillSlot を足した）のキー。形の良いメールアドレスはそのまま、形の悪い値は \'\' に戻し、キーの名前だけを記録する', { timeout: 5000 }, () => {
-  assert.strictEqual(S.SETTING_KEYS[30], 'accountEmail');
+test('RL10: accountEmail は 26 番目（0.9.0 O-1 で pillPos・pillCustom を外して pillSlot を足し、0.10.0 LS-3 で要約の5つを外した）のキー。形の良いメールアドレスはそのまま、形の悪い値は \'\' に戻し、キーの名前だけを記録する', { timeout: 5000 }, () => {
+  assert.strictEqual(S.SETTING_KEYS[25], 'accountEmail');
   assert.strictEqual(S.SETTING_RULES.accountEmail.kind, 'email');
   const good = `kaigi${AT}example.com`;
   assert.deepStrictEqual(S.readSettings({ accountEmail: good }, D).settings.accountEmail, good);

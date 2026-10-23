@@ -50,8 +50,10 @@ const { isDeepStrictEqual } = require('util');
 const { Worker, isMainThread, parentPort, workerData } = require('worker_threads');
 const J = require('../src/jsonfile');
 
+// 0.10.0 T-5: MCP の一覧と箇所の検索（読み取りの接続を開く分と、40 会議を読んで箇所に切る分を足した見込み。初めの計りで直す）
 const BUDGETS = { 'db-open': 500, 'list': 300, 'searchIndex-typical': 300, 'searchIndex-all': 600,
   'searchFull-trigram': 300, 'searchFull-short': 300, 'open-page': 500, 'write-commit': 50, 'migrate-500': 10000,
+  'mcp-list': 500, 'mcp-passages-trigram': 600, 'mcp-passages-short': 800,
   'write-256k-fsync': 50, 'write-1m-fsync': 150, 'write-10m-fsync': 1500 };
 // Windows だけの目安（越えた名前だけ。測った中央値の 2 倍）。DB にしたので、Windows の CI の値を見て決め直す
 const BUDGETS_WIN = {};
@@ -142,7 +144,7 @@ function sampleDbPage(i, { rare = false, segments = 60, blocks = 13 } = {}) {
     }
   }
   const page = {
-    id, title: `定例会議 ${i}`, date: isoAt(i).slice(0, 10), durationSec: 3600, memo: `メモ ${i}`,
+    id, title: require('../src/mainlib').meetingTitleAt(isoAt(i), 540), date: isoAt(i).slice(0, 10),   // 0.10.0 SH-2（D77）: 本物と同じ日付の形 durationSec: 3600, memo: `メモ ${i}`,
     blocks: list, createdAt: isoAt(i), updatedAt: isoAt(i), recovered: false, summaryError: '',
   };
   return { page, segments: sampleSegments(segments, { rare }) };
@@ -160,7 +162,7 @@ function sampleBigPage(id, nBlocks, nSegments) {
     blocks.push(b);
   }
   const page = {
-    id, title: '大きな会議', date: '2026-10-18', durationSec: 36000, memo: '', blocks,
+    id, title: require('../src/mainlib').meetingTitleAt('2026-10-18T01:00:00.000Z', 540), date: '2026-10-18', durationSec: 36000, memo: '', blocks,
     createdAt: '2026-10-18T01:00:00.000Z', updatedAt: '2026-10-18T01:00:00.000Z', recovered: false, summaryError: '',
   };
   return { page, segments: sampleSegments(nSegments) };
@@ -215,7 +217,7 @@ function checkSampleShape(C, db, { page, segments }) {
 // （ほかの計りの間に開いた接続を残さない）。close() で見本を消す（失敗しても消す）。
 // write-commit は tx の番号 n を続きから数える（同じ (role, tx) は core.call が書かずに dup で返すので、1 から数え直すと
 // 何も書かない速い道を計る）。答えが dup なら投げ、最後に書いた題名が読めるかを毎回確かめる（PG1・F17）
-const DB_NAMES = ['db-open', 'list', 'searchIndex-typical', 'searchIndex-all', 'searchFull-trigram', 'searchFull-short', 'open-page', 'write-commit'];
+const DB_NAMES = ['db-open', 'list', 'searchIndex-typical', 'searchIndex-all', 'searchFull-trigram', 'searchFull-short', 'open-page', 'write-commit', 'mcp-list', 'mcp-passages-trigram', 'mcp-passages-short'];
 
 async function benchDb({ pages = 5000, segments = 60, bigBlocks = 2000, bigSegments = 10000, dir } = {}) {
   const sqlite = require('node:sqlite');
@@ -252,16 +254,26 @@ async function benchDb({ pages = 5000, segments = 60, bigBlocks = 2000, bigSegme
     'open-page': () => { let opened = null; const r = med(ROUNDS, () => { opened = ask('page.get', { id: bigId }); });
       if (!opened || opened.page.blocks.length !== bigBlocks || opened.segments.length !== bigSegments) throw new Error('大きなページを開けない'); return r; },
     'write-commit': () => {
+      // 利用者が付け直した題名（D77。題名の語に頼るため: 書いた題名を読み戻して確かめる）
       const r = med(10, () => { n++; ask('page.setTitle', { id: target, title: `定例会議 0（${n}）` }, `m:perf:${n}`); });
       if (ask('page.get', { id: target }).page.title !== `定例会議 0（${n}）`) throw new Error('書いた題名が読めない');
       return r;
     },
+    // 0.10.0 T-5: MCP の道具（呼び出しごとに読み取りだけで開いて閉じる。書き手の接続は閉じた所から）
+    'mcp-list': () => { let out = null; const r = med(ROUNDS, () => { out = mcpCall('list_meetings', {}); });
+      if (out.isError || !out.text.includes(`議事録 ${pages + 1} 件`)) throw new Error('MCP の一覧の数が合わない'); return r; },
+    'mcp-passages-trigram': () => { let out = null; const r = med(ROUNDS, () => { out = mcpCall('search_passages', { query: RARE }); });
+      if (out.isError || !/近い箇所 \d+ 件/.test(out.text)) throw new Error('MCP の箇所の検索で珍しい語が当たらない'); return r; },
+    'mcp-passages-short': () => { let out = null; const r = med(ROUNDS, () => { out = mcpCall('search_passages', { query: SHORT }); });
+      if (out.isError || !/近い箇所 \d+ 件/.test(out.text)) throw new Error('MCP の箇所の検索で 2 文字の語が当たらない'); return r; },
   };
+  const mcpCall = (name, args) => require('../src/mcp/tools').callTool(name, args, { sqlite, dataDir: root });
   const measure = (name) => {
     try {
-      if (name !== 'db-open') openDb();   // db-open は閉じた所から開く時間を計る（今と同じ）
+      const mcp = name.startsWith('mcp-');
+      if (name !== 'db-open' && !mcp) openDb();   // db-open は閉じた所から開く時間を計る（今と同じ）。MCP の道具は自分で開いて閉じる
       const r = OPS[name]();
-      if (!db) throw new Error('見本の DB を開き直せない');
+      if (!db && !mcp) throw new Error('見本の DB を開き直せない');
       return r;
     } finally { close(); }
   };

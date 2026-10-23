@@ -77,6 +77,31 @@ const S8_APP_094 = ['live-late-light', 'live-late-dark', 'live-late-zoom200-ligh
 // .after.png）を見て「OK」と言ったので、その画像をバイトのまま基準にして取り直し待ちを空に戻した（0.9.3 と同じ手順）。表の画面（前の RETAKE_094）と、
 // 足した画面の「取り直し待ちの間は基準が無くてよい」の例外（前の NEW_094）は外した
 const ADDED_094 = [...W1_094, ...P1_094, ...R1_094, ...S8_APP_094];
+// 0.10.0（計画 docs/plans/2026-10-20-100.md の「取り直す画面（RETAKE）」）で意図して変えた: 取り直し待ちは 0.10.0 の表の画面だけ（RETAKE_100）。タスクごとに足し、
+// 最後に1回まとめて持ち主に見てもらい、版を上げる commit（G-2）で基準にして空に戻す
+// SH-1（D71）: 見本の議事録の題名を日付の形にしたので、左の一覧・タブ・道しるべ・大きな題名・検索の窓の結果が写る本体の画面（CI run 39895432371 で撮って基準と違った画面だけ: notes-empty-light も左の一覧に見本が出る。拡大の設定の3枚は基準と同じ）
+const SH1_100 = ['notes-empty-light', 'notes-page-light', 'notes-page-dark', 'dictation-light', 'settings-light', 'settings-dark', 'notes-tabs-light', 'notes-collapsed-light',
+  'live-light', 'live-dark', 'notes-page-zoom200-light', 'search-palette-light', 'live-banner-light', 'live-banner-dark',
+  'live-banner-zoom200-dark', 'settings-record-light', 'settings-search-light', 'settings-offline-light', 'live-quiet-light', 'live-quiet-dark',
+  'settings-quiet-search-light', 'settings-record-dark', 'settings-summary-light', 'settings-account-light',
+  'settings-info-loop-light', 'settings-info-stt-dark', 'settings-info-claude-light', 'settings-info-search-light',
+  'live-wave-light', 'live-wave-dark', 'live-silent-light', 'live-paused-dark', 'settings-detect-light', 'settings-detect-dark', 'live-offline-light',
+  'live-offline-dark', 'live-late-light', 'live-late-dark', 'live-late-zoom200-light'];
+// C-3（MR8）: 項目「要約」にカード「Claude との連携（MCP）」を足し、要約（Claude Code）の吹き出しに Sonnet の1行（D34）。変わる2枚（SH-1 の表にもある）と足した2枚
+const C3_100 = ['settings-summary-light', 'settings-info-claude-light', 'settings-mcp-light', 'settings-info-mcp-light'];
+// 0.10.0 で足した画面（取り直し待ちの間は基準が無くてよい。版を上げる commit で基準にして空に戻す）
+// L-1（D58）: ページの「···」のメニューを開いた形（［リンクを写す］）
+const L1_100 = ['page-menu-link-light', 'page-menu-link-dark'];
+// L-2（D58・D70）: 左の一覧の［選ぶ］で2件を選んだ形（ほかの本体の画面に出る見出しの行の［選ぶ］は、SH-1 の表の画面に入っている）
+const L2_100 = ['list-select-light', 'list-select-dark'];
+// LS-2（D63・D69・決めたこと 111 の 7）: まだ要約を作っていない会議のページ（要約の欄の鍵の一言）。足した画面
+const LS2_100 = ['page-summary-lock-light'];
+// 撮る画面の並びの確かめ（下）は、0.10.0 で足した画面の名前として NEW_100 を使う
+const NEW_100 = ['settings-mcp-light', 'settings-info-mcp-light', ...L1_100, ...L2_100, ...LS2_100];
+// 0.10.0 で意図して変えた（版を 0.10.0 に上げる commit）: 持ち主が 2026-10-23 に取り直しの見比べ（CI run 39931820118（7feee33）の 46 枚）を見て「OK」と言った。
+// 持ち主の答えで MCP のカードの頭の1行だけを直した後の CI run 39934849171（03d209d）・artifact 12493472101 の画像をバイトのまま基準にし、取り直し待ちを空に戻した（0.9.4 と同じ手順）。
+// 表の画面（前の RETAKE_100）と、足した画面の「取り直し待ちの間は基準が無くてよい」の例外（NEW_100 の使い道）は外した
+const ADDED_100 = [...SH1_100, ...C3_100, ...L1_100, ...L2_100, ...LS2_100];
 const img = (w, h, fill = [255, 255, 255, 255]) => ({ width: w, height: h, data: Buffer.from(Array.from({ length: w * h }, () => fill).flat()) });
 // 一時フォルダ（日本語と 𠮷 の名前。RF1 と同じ形）。テストの終わりに消す
 const tmp = (t, name) => {
@@ -107,7 +132,10 @@ test('G2: 撮る画面は決まった並び（第1b回の 13 と第1b2回の検�
     // 0.9.3 持ち主の答え D55 で意図して変えた: オフラインモードの録音中のページの明るい・暗いを足した（取り直し待ち・まだ基準が無い）
     ...D55_APP_093,
     // 0.9.4 S-8 で意図して変えた: 遅い会議の帯と区間（明暗・200%）を足した（取り直し待ち・まだ基準が無い）
-    ...S8_APP_094]);
+    ...S8_APP_094,
+    // 0.10.0 C-3 で意図して変えた: カード「Claude との連携（MCP）」まで捲った形と、その吹き出しを開いた形を足した（取り直し待ち・まだ基準が無い）。
+    // L-1 で意図して変えた: ページのメニューを開いた明暗の2枚を足した。L-2 で一覧で2件を選んだ明暗の2枚を足した
+    ...NEW_100]);
   assert.deepStrictEqual(SH.SCREENS.filter((s) => s.page === 'overlay').map((s) => s.name), PS.screenNames());
   // 0.9.3 M-7 で意図して変えた: 会議の検出のパネル（page nudge）の5枚を録音バーのあと（いちばん後ろ）に足した
   assert.deepStrictEqual(SH.SCREENS.filter((s) => s.page === 'nudge').map((s) => s.name), M7_NUDGE_093);
@@ -188,6 +216,8 @@ test('あとの直し (b)・0.9.0 B-1・G-3: 撮る画面に live-banner-dark・
     // 0.9.3 で意図して変えた（版を 0.9.3 に上げる commit）: 持ち主が OK と言った CI の画像を基準にしたので、また取り直し待ちではない
     // 0.9.4 W-1 で意図して変えた: 0.9.4 の表（RETAKE_094）にあるときだけ取り直し待ちでよい（録音中のページの5つの点）
     // 0.9.4 で意図して変えた（版を 0.9.4 に上げる commit）: 持ち主が OK と言った CI の画像を基準にしたので、また取り直し待ちではない
+    // 0.10.0 SH-1 で意図して変えた: 0.10.0 の表（RETAKE_100）にあるときだけ取り直し待ちでよい（左の一覧の見本の題名）
+    // 0.10.0 で意図して変えた（版を 0.10.0 に上げる commit）: 持ち主が OK と言った CI の画像を基準にしたので、また取り直し待ちではない
     assert.ok(!SH.RETAKE.has(n), `${n} が取り直し待ちに残っている`);
     assert.ok(fs.existsSync(path.join(ROOT, 'test', 'shots', 'win32', `${n}.png`)), `${n} の基準が無い`);
   }
@@ -200,6 +230,8 @@ test('1b2 R-3・G12: 検索の窓の画面は窓を開く act を持ち、取り
   assert.ok(s, '検索の窓の画面が撮る並びに無い');
   assert.match(s.act, /sideSearch/);
   // 0.7.0 U-2 で意図して変えた: 取り直し待ちは設定の3枚だけになった（下の U-2 のテスト。第1d回 A-4 でまた設定の3枚）。検索の窓は基準と比べる（取り直し待ちに戻さない）
+  // 0.10.0 SH-1 で意図して変えた: 0.10.0 の表（RETAKE_100）にあるときだけ取り直し待ちでよい（結果の行の見本の題名）
+  // 0.10.0 で意図して変えた（版を 0.10.0 に上げる commit）: 持ち主が OK と言った CI の画像を基準にしたので、また取り直し待ちではない
   assert.ok(!SH.RETAKE.has('search-palette-light'), '検索の窓の画面が取り直し待ちに戻った');
 });
 
@@ -314,8 +346,9 @@ test('G2・F14・RP9・G-3: 第1a回の録音バーの画面と基準は無い�
 // 0.9.2 で意図して変えた: 利用者が取り直しの 16 枚を OK と言ったので取り直し待ちを空にし、版を 0.9.2 にした。次の版も、取り直し待ちが残る間は 0.9.2 のまま
 // 0.9.3 で意図して変えた: 持ち主が取り直しの 36 枚を OK と言ったので取り直し待ちを空にし、版を 0.9.3 にした。次の版も、取り直し待ちが残る間は 0.9.3 のまま
 // 0.9.4 で意図して変えた: 持ち主が取り直しの見比べを OK と言ったので取り直し待ちを空にし、版を 0.9.4 にした。次の版も、取り直し待ちが残る間は 0.9.4 のまま
+// 0.10.0 で意図して変えた: 持ち主が取り直しの見比べ（46 枚）を「OK」と言ったので取り直し待ちを空にし、版を 0.10.0 にした。次の版も、取り直し待ちが残る間は 0.10.0 のまま
 test('F14: 取り直し待ちが残っている間は、版を上げられない（取り直し待ちのまま次の版を出さない）', { timeout: 5000 }, () => {
-  if (SH.RETAKE.size) assert.strictEqual(JSON.parse(read('package.json')).version, '0.9.4', `取り直し待ち ${[...SH.RETAKE].join(',')} を残したまま版を上げた`);
+  if (SH.RETAKE.size) assert.strictEqual(JSON.parse(read('package.json')).version, '0.10.0', `取り直し待ち ${[...SH.RETAKE].join(',')} を残したまま版を上げた`);
 });
 
 test('tools/shots/main.js は画面ごとの答え・拡大・はみ出し・Tab を使う', { timeout: 5000 }, () => {
@@ -522,6 +555,8 @@ test('U-3・G-3: settings-offline-light は基準の PNG と比べる（取り�
   // 0.9.3 で意図して変えた（版を 0.9.3 に上げる commit）: 持ち主が OK と言った CI の画像を基準にしたので、また取り直し待ちではない
   // 0.9.4 R-1 で意図して変えた: 0.9.4 の表（RETAKE_094）にあるときだけ取り直し待ちでよい（左の列の名前「ローカル AI」）
   // 0.9.4 で意図して変えた（版を 0.9.4 に上げる commit）: 持ち主が OK と言った CI の画像を基準にしたので、また取り直し待ちではない
+  // 0.10.0 SH-1 で意図して変えた: 0.10.0 の表（RETAKE_100）にあるときだけ取り直し待ちでよい
+  // 0.10.0 で意図して変えた（版を 0.10.0 に上げる commit）: 持ち主が OK と言った CI の画像を基準にしたので、また取り直し待ちではない
   assert.ok(!SH.RETAKE.has('settings-offline-light'), '準備を選んでいない人のカードの画面が取り直し待ちに残っている');
   assert.ok(fs.existsSync(path.join(ROOT, 'test', 'shots', 'win32', 'settings-offline-light.png')), '準備を選んでいない人のカードの画面の基準が無い');
   const s = SH.SCREENS.find((x) => x.name === 'settings-offline-light');
@@ -531,7 +566,8 @@ test('U-3・G-3: settings-offline-light は基準の PNG と比べる（取り�
   assert.strictEqual(a['koeApp.engineStatus'].chosen, false);
   assert.match(a['koeApp.engineStatus'].whisper, /まだ取り込んでいません/);
   const f = a['koeApp.engineFetchStatus'];
-  assert.deepStrictEqual([f.state, f.consent, f.freeBytes, f.whisperReady, f.sumReady, f.mode], ['missing', false, 20e9, false, false, { whisper: 'managed', sum: 'managed' }]);
+  // 0.10.0 LS-3（D59）で意図して直した: 組は文字起こしだけ（sumReady・mode.sum が無い）
+  assert.deepStrictEqual([f.state, f.consent, f.freeBytes, f.whisperReady, 'sumReady' in f, f.mode], ['missing', false, 20e9, false, false, { whisper: 'managed' }]);
   assert.ok(Array.isArray(f.items) && f.items.length > 0);
   assert.strictEqual(a['koeApp.accountStatus'].signedIn, true);
   assert.match(s.act, /setNavOffline/);
@@ -548,8 +584,12 @@ test('U-3・G-3: settings-offline-light は基準の PNG と比べる（取り�
 // 0.9.3 で意図して変えた（版を 0.9.3 に上げる commit）: 取り直し待ちを空に戻した（ファイルの頭の注）。計画の表の画面（ADDED_093）にはどれも基準がある
 // 0.9.4 で意図して変えた: 取り直し待ちは 0.9.4 の表の画面（ファイルの頭の RETAKE_094）とちょうど同じ
 // 0.9.4 で意図して変えた（版を 0.9.4 に上げる commit）: 取り直し待ちを空に戻した（ファイルの頭の注）。0.9.4 の表の画面（ADDED_094）にはどれも基準がある
-test('G2・F14・G-4・0.9.0 G-3・0.9.1・0.9.2・0.9.3・0.9.4: 取り直し待ちは無い。どの画面にも基準の PNG があり（0.9.1・0.9.2・0.9.3・0.9.4 で足した画面も）、本体の画面の大きさは窓の大きさと同じ', { timeout: 5000 }, () => {
+// 0.10.0 で意図して変えた（版を 0.10.0 に上げる commit）: 取り直し待ちを空に戻した（ファイルの頭の注）。0.10.0 の表の画面（ADDED_100）はどれも計画の表にあり、基準がある
+test('G2・F14・G-4・0.9.0 G-3・0.9.1・0.9.2・0.9.3・0.9.4・0.10.0: 取り直し待ちは無い。どの画面にも基準の PNG があり（0.9.1・0.9.2・0.9.3・0.9.4・0.10.0 で足した画面も）、本体の画面の大きさは窓の大きさと同じ', { timeout: 5000 }, () => {
   assert.deepStrictEqual([...SH.RETAKE], []);
+  const plan100 = read('docs/plans/2026-10-20-100.md');
+  const table100 = plan100.slice(plan100.indexOf('## 取り直す画面（RETAKE）'), plan100.indexOf('## 実機で利用者に見てもらうこと'));
+  for (const n of ADDED_100) assert.ok(table100.includes(`\`${n}\``), `0.10.0 の計画の「取り直す画面」の表に ${n} が無い`);
   const plan = read('docs/plans/2026-10-21-092.md');
   const table = plan.slice(plan.indexOf('## 取り直す画面（RETAKE）'), plan.indexOf('## 実機で利用者に見てもらうこと'));
   for (const n of ADDED_092) assert.ok(table.includes(`\`${n}\``), `計画の「取り直す画面」の表に ${n} が無い`);
@@ -557,7 +597,7 @@ test('G2・F14・G-4・0.9.0 G-3・0.9.1・0.9.2・0.9.3・0.9.4: 取り直し�
   const table093 = plan093.slice(plan093.indexOf('## 取り直す画面（RETAKE）'), plan093.indexOf('## 実機で利用者に見てもらうこと'));
   for (const n of ADDED_093) assert.ok(table093.includes(`\`${n}\``), `0.9.3 の計画の「取り直す画面」の表に ${n} が無い`);
   assert.ok(!SH.RETAKE.has('overlay-processing'), '外した録音バーの画面を取り直し待ちに入れた');
-  for (const n of [...ADDED_091, ...ADDED_092, ...ADDED_093, ...new Set(ADDED_094)]) {
+  for (const n of [...ADDED_091, ...ADDED_092, ...ADDED_093, ...new Set(ADDED_094), ...new Set(ADDED_100)]) {
     assert.ok(SH.SCREENS.some((s) => s.name === n), `${n} が撮る画面に無い`);
     assert.ok(fs.existsSync(path.join(ROOT, 'test', 'shots', 'win32', `${n}.png`)), `${n} の基準が無い`);
   }
@@ -745,7 +785,28 @@ test('基準の画像（test/shots/win32）は今の app.html で撮ったもの
   // 録音中のページの画面（RETAKE にある: W1_094）。値を今の app.html に合わせた
   // 0.9.4 R-1（持ち主の答え Q25）: 設定の項目の名前を「ローカル AI の設定」から「ローカル AI」にした（左の列・隠した見出し・項目の名前・文の中）。見える中身が
   // 変わるのは設定の画面（RETAKE にある: R1_094）。値を今の app.html に合わせた
-  assert.strictEqual(sha, '40052bfc77711d4cda14094e495fa30d07322215032aeacbd44f35addd5d5315',
+  // 0.10.0 C-3（MR8・D34）: 項目「要約」にカード「Claude との連携（MCP）」と、要約（Claude Code）の吹き出しに Sonnet の1行を足し、左下の知らせの
+  // action settings-summary を足した。見える中身が変わるのは項目「要約」を写す画面（settings-summary-light・settings-info-claude-light。RETAKE にある）と、
+  // 足した2枚（settings-mcp-light・settings-info-mcp-light）。値を今の app.html に合わせた（前の値は 40052bfc…）
+  // 0.10.0 L-1（D58）: ページの「···」のメニューに［リンクを写す］（押したときだけ作る項目と、その <script>）。見える中身が変わるのはメニューを開いた画面
+  // （page-menu-link-light・page-menu-link-dark。足して RETAKE に）だけ（ほかの画面はメニューを閉じている）。値を今の app.html に合わせた（前の値は cf1634c0…）
+  // 0.10.0 L-2（D58・D70）: 左の一覧の見出し「議事録」の行の右に［選ぶ］（見出しの行に重ね、一覧の位置は変えない）・選んでいる間の頭の枠・行のチェックボックス。
+  // 見える中身が変わるのは左の一覧が写る本体の画面（SH-1 の表で RETAKE にある）と、足した list-select-light・list-select-dark。値を今の app.html に合わせた（前の値は c33e797e…）
+  // 0.10.0 LN-1（D72）: natsu:// のリンクの照らしの写し parseNatsuLinkView を <script> の中だけに足した（要素・文・CSS は変えていないので見た目は変わらない。
+  // RETAKE は足さない）。値を今の app.html に合わせた（前の値は e98ee8b8…）
+  // 0.10.0 LN-4（D72・決めたこと 145・148）: リンクで開いたページの箇所を 3 秒だけ地の色で示す（.linkhit。リンクで開いたときだけ付く）・検索の窓に貼ったリンクの行
+  // （貼ったときだけ出る）を足した。撮る画面には出ないので見た目は変わらない（RETAKE は足さない）。値を今の app.html に合わせた（前の値は 2776757e…）
+  // 0.10.0 H-1a（HC2）: カード「Claude との連携（MCP）」の吹き出しの「ヘルプで詳しく見る ↗」の記事を start/claude-mcp に（属性だけ。見た目は変わらない）。
+  // 値を今の app.html に合わせた（前の値は 2b0ba2e1…）
+  // 0.10.0 LS-2 で意図して変えた: 要約の欄の鍵（欄の頭の一言・読むだけの形・summary:running。D63・D69）。変わるのは鍵のかかったページだけ
+  // （page-summary-lock-light を足して RETAKE に）。値を今の app.html に合わせた（前の値は 61cb7146…）
+  // 0.10.0 LS-3 で意図して変えた: 「ローカル AI」のカードから要約の欄（詳細設定の llama の行・起動テスト）を外し、頭の1行と取り込みの欄の文から「要約」を外した（D59）。
+  // 変わる画面は settings-offline-light（RETAKE にある）。値を今の app.html に合わせた（前の値は 04d522ab…）
+  // 0.10.0 LS-5 で意図して変えた: オフラインモードの押した後の行・準備の無い PC の行・文字起こしの吹き出しの1行を守秘の約束でない文に（D62）、取り込みのボタンの数を今の計算に（D59）。
+  // 変わる画面は live-offline-light・live-offline-dark・settings-info-stt-dark・settings-offline-light（どれも RETAKE にある）。値を今の app.html に合わせた（前の値は 003e98d9…）
+  // 持ち主の答え（2026-10-23）で意図して変えた: カード「Claude との連携（MCP）」の頭の1行から「Claude Code」を外した（D64）。変わる画面は settings-summary-light・
+  // settings-info-claude-light・settings-mcp-light・settings-info-mcp-light（どれも RETAKE にある）。値を今の app.html に合わせた（前の値は 9a700bc9…）
+  assert.strictEqual(sha, '13470282044e3669aaf3d3fff304a0941f1e0061d2da8bbe2ac93140c8f3cddb',
     'app.html が基準の画像を撮った時と違う。Windows の CI の画面の比べ（捲り棒のつまみも）を見て、基準を取り直してからこの値を直す');
 });
 
@@ -925,6 +986,8 @@ test('0.9.3 D55: オフラインモードの画面（live-offline-light・live-o
     // 0.9.3 で意図して変えた（版を 0.9.3 に上げる commit）: 持ち主が OK と言った CI の画像を基準にした
     // 0.9.4 W-1 で意図して変えた: 0.9.4 の表（RETAKE_094）にあるときだけ取り直し待ちでよい（録音中のページの5つの点）
     // 0.9.4 で意図して変えた（版を 0.9.4 に上げる commit）: 持ち主が OK と言った CI の画像を基準にした
+    // 0.10.0 SH-1 で意図して変えた: 0.10.0 の表（RETAKE_100）にあるときだけ取り直し待ちでよい（左の一覧の見本の題名）
+    // 0.10.0 で意図して変えた（版を 0.10.0 に上げる commit）: 持ち主が OK と言った CI の画像を基準にしたので、また取り直し待ちではない
     assert.ok(!SH.RETAKE.has(n) && fs.existsSync(path.join(ROOT, 'test', 'shots', 'win32', `${n}.png`)), `${n} が取り直し待ちに残っているか、基準が無い`);
   }
 });

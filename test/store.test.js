@@ -6,6 +6,7 @@
  * 一時ディレクトリに本物のファイルを書いて読み戻す形で固定する。
  */
 'use strict';
+const { titleAt } = require('./helpers/titles');
 
 const test = require('node:test');
 const assert = require('node:assert');
@@ -23,7 +24,7 @@ test.before(() => {
 test.after(() => { try { fs.rmSync(dir, { recursive: true, force: true }); } catch (_) { /* noop */ } });
 
 const clone = (x) => JSON.parse(JSON.stringify(x));
-const mkPage = () => store.createPage({ title: 'テスト', segments: clone(STANDUP_SEGMENTS) });
+const mkPage = () => store.createPage({ title: titleAt('2026-10-01T00:00:00.000Z'), segments: clone(STANDUP_SEGMENTS) });
 const tfile = (id) => path.join(dir, 'data', 'transcripts', `${id}.json`);
 
 test('updateSegment: 本文が変わり、getTranscript で読み戻せる', () => {
@@ -73,7 +74,7 @@ test('updateSegment: text が文字列でなければ何も変えない', () => 
 test('updateSegment: 「認識に失敗」の区間を書き直すと failed が外れる', () => {
   const segs = clone(STANDUP_SEGMENTS);
   segs[4] = { id: 's5', atMs: segs[4].atMs, text: '（この区間の認識に失敗: timeout）', failed: true };
-  const p = store.createPage({ title: 't', segments: segs });
+  const p = store.createPage({ title: titleAt('2026-10-01T00:00:00.000Z'), segments: segs });
   store.updateSegment(p.id, 's5', { text: '分かりました。実行計画を確認します。' });
   const s = store.getTranscript(p.id).find((x) => x.id === 's5');
   assert.strictEqual(s.failed, undefined, 'failed が残っている（要約から除外され続ける）');
@@ -113,6 +114,7 @@ const pfile = (d, id) => path.join(d, 'data', 'pages', `${id}.json`);
 const brokenFiles = (d) => fs.readdirSync(path.join(d, 'data')).filter((f) => f.startsWith('index.json.broken-'));
 const make3 = () => {
   const ids = [];
+  // 利用者が付け直した題名（D77。題名の語に頼るため）
   for (let i = 0; i < 3; i++) ids.push(store.createPage({ title: `p${i}`, segments: [], createdAt: `2026-01-0${i + 1}T00:00:00.000Z` }).id);
   return ids;
 };
@@ -215,7 +217,7 @@ const blk = (id, type, text, cites, more) => ({ id, type, text, cites: cites || 
 
 test('insertBlock: 新しいブロックは citeState=manual', () => {
   fresh();
-  const p = store.createPage({ title: 't', segments: [], blocks: [blk('b1', 'bullet', '既存', ['s1'])] });
+  const p = store.createPage({ title: titleAt('2026-10-01T00:00:00.000Z'), segments: [], blocks: [blk('b1', 'bullet', '既存', ['s1'])] });
   const { page, blockId } = store.insertBlock(p.id, 'b1', 'bullet');
   const b = page.blocks.find((x) => x.id === blockId);
   assert.strictEqual(b.citeState, 'manual');
@@ -225,7 +227,7 @@ test('insertBlock: 新しいブロックは citeState=manual', () => {
 
 test('updateBlock: text が変わると stale（cites は残す）、同じ text なら変わらない', () => {
   fresh();
-  const p = store.createPage({ title: 't', segments: [], blocks: [blk('b1', 'bullet', '既存の要点', ['s1', 's2'])] });
+  const p = store.createPage({ title: titleAt('2026-10-01T00:00:00.000Z'), segments: [], blocks: [blk('b1', 'bullet', '既存の要点', ['s1', 's2'])] });
   let page = store.updateBlock(p.id, 'b1', { text: '既存の要点' });
   assert.strictEqual(page.blocks[0].citeState, undefined, '同じ text で stale になった');
   page = store.updateBlock(p.id, 'b1', { checked: true });
@@ -237,7 +239,7 @@ test('updateBlock: text が変わると stale（cites は残す）、同じ text
 
 test('updateBlock: manual の行は text を変えても manual のまま', () => {
   fresh();
-  const p = store.createPage({ title: 't', segments: [], blocks: [blk('b1', 'bullet', '既存', ['s1'])] });
+  const p = store.createPage({ title: titleAt('2026-10-01T00:00:00.000Z'), segments: [], blocks: [blk('b1', 'bullet', '既存', ['s1'])] });
   const { blockId } = store.insertBlock(p.id, 'b1', 'todo');
   const page = store.updateBlock(p.id, blockId, { text: '人が書いた' });
   assert.strictEqual(page.blocks.find((x) => x.id === blockId).citeState, 'manual');
@@ -245,7 +247,7 @@ test('updateBlock: manual の行は text を変えても manual のまま', () =
 
 test('savePage: citeStat を再計算する（manual/citeSkip は分母から外し、stale は分子から外す）', () => {
   fresh();
-  const p = store.createPage({ title: 't', segments: [], blocks: [
+  const p = store.createPage({ title: titleAt('2026-10-01T00:00:00.000Z'), segments: [], blocks: [
     blk('h', 'heading', '議題', []),
     // 本文は照合対象になる長さ（正規化後6文字以上）にする。短い行は citeSkip と同じく対象外
     blk('b1', 'bullet', '出典がある要点を書いた行', ['s1']),                       // total, linked
@@ -264,7 +266,7 @@ test('savePage: citeStat を再計算する（manual/citeSkip は分母から外
 
 test('savePage: citeStat が無いページでも作られ、updateBlock 後に数が追随する', () => {
   fresh();
-  const p = store.createPage({ title: 't', segments: [], blocks: [blk('b1', 'bullet', '出典がある要点を書いた行', ['s1'])] });
+  const p = store.createPage({ title: titleAt('2026-10-01T00:00:00.000Z'), segments: [], blocks: [blk('b1', 'bullet', '出典がある要点を書いた行', ['s1'])] });
   const saved = store.savePage(store.getPage(p.id));
   assert.deepStrictEqual(saved.citeStat, { linked: 1, total: 1 });
   const after = store.updateBlock(p.id, 'b1', { text: '書き換えた要点を書いた行' });
@@ -314,6 +316,7 @@ test('searchIndex: 読点をまたいで当たり、抜粋は元の本文のま�
   // 畳んだ文字列の位置をそのまま使うと、落とした句読点の数だけ窓がずれる。
   const text = '前置きが二十文字以上ある、長い行です。ここから本題で、では、予算案の、作成を進めます。'
     + 'そのあとも本文が続き、四十文字を超える長さの締めの文章がここに置かれていて、抜粋の窓の後ろ側もここで切れる。';
+  // 利用者が付け直した題名（D77。題名の語に頼るため）
   const p = store.createPage({ title: '定例', segments: [], blocks: [blk('b1', 'bullet', text, [])] });
   const hits = store.searchIndex('予算案の作成');
   assert.strictEqual(hits.length, 1);
@@ -326,6 +329,7 @@ test('searchIndex: 読点をまたいで当たり、抜粋は元の本文のま�
 
 test('searchIndex: タイトルは全角・半角・大文字小文字の違いを越えて当たる', () => {
   fresh();
+  // 利用者が付け直した題名（D77。題名の語に頼るため）
   const p = store.createPage({ title: 'AI戦略ミーティング', segments: [] });
   for (const q of ['ai戦略', 'ＡＩ戦略', 'AI 戦略']) {
     const hits = store.searchIndex(q);
@@ -338,7 +342,7 @@ test('searchIndex: タイトルは全角・半角・大文字小文字の違い�
 
 test('searchFullText: 文字起こしも畳み込みで当て、抜粋は区間の原文そのもの', () => {
   fresh();
-  const p = store.createPage({ title: 't', segments: [
+  const p = store.createPage({ title: titleAt('2026-10-01T00:00:00.000Z'), segments: [
     { id: 's1', atMs: 0, text: 'では、予算案の、作成を進めます。' },
     { id: 's2', atMs: 1000, text: 'ＡＩ推進室の件は次回に回します。' },
     { id: 's3', atMs: 2000, text: 'ﾃﾞｰﾀ移行の手順を確認します。' },
@@ -361,7 +365,7 @@ test('searchFullText: 文字起こしも畳み込みで当て、抜粋は区間�
 
 test('searchIndex: 半角カナ（結合記号あり）の本文でも抜粋の位置が元の本文に対応する', () => {
   fresh();
-  store.createPage({ title: 't', segments: [], blocks: [
+  store.createPage({ title: titleAt('2026-10-01T00:00:00.000Z'), segments: [], blocks: [
     blk('b1', 'bullet', 'これは二十文字を超える長い前置きの文章であって、ﾃﾞｰﾀ移行の手順を確認する。', []),
   ] });
   const hits = store.searchIndex('データ移行');
@@ -381,7 +385,7 @@ test('createPage: date を渡さなければローカルの暦日（UTC の日�
   process.env.TZ = new Date().getUTCHours() >= 11 ? 'Pacific/Kiritimati' : 'Pacific/Pago_Pago';
   try {
     const before = new Date();
-    const p = store.createPage({ title: 't', segments: [] });
+    const p = store.createPage({ title: titleAt('2026-10-01T00:00:00.000Z'), segments: [] });
     const after = new Date();
     assert.ok([ymd(before), ymd(after)].includes(p.date), `${p.date} がローカルの暦日でない`);
     assert.notStrictEqual(p.date, before.toISOString().slice(0, 10), 'UTC の日付が入っている');
@@ -393,16 +397,16 @@ test('createPage: date を渡さなければローカルの暦日（UTC の日�
 
 test('createPage: date を渡せばそのまま使う', () => {
   fresh();
-  const p = store.createPage({ title: 't', segments: [], date: '2020-02-29' });
+  const p = store.createPage({ title: titleAt('2026-10-01T00:00:00.000Z'), segments: [], date: '2020-02-29' });
   assert.strictEqual(p.date, '2020-02-29');
 });
 
 test('第1c回 A-4: createPage は route（普通のオブジェクト）を渡すと残し、渡さない・配列・文字なら欄を作らない', () => {
   const route = { stt: { cloud: 2, local: 1, provider: 'groq' }, localOnly: false };
-  const a = store.createPage({ title: 'r', segments: [], route });
+  const a = store.createPage({ title: titleAt('2026-10-01T00:00:00.000Z'), segments: [], route });
   assert.deepStrictEqual(store.getPage(a.id).route, route);
   for (const bad of [undefined, null, ['x'], 'cloud']) {
-    const b = store.createPage({ title: 'n', segments: [], route: bad });
+    const b = store.createPage({ title: titleAt('2026-10-01T00:00:00.000Z'), segments: [], route: bad });
     assert.ok(!('route' in store.getPage(b.id)), `route: ${JSON.stringify(bad)} で欄ができた`);
   }
 });

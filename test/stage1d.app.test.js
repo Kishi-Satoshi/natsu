@@ -9,6 +9,7 @@
  * そのまま描く（帯の文は main の text）。ボタンは［もう一度］（meetingRetry を1回）・［ログインし直す］・［エンジンを確かめる］。
  */
 'use strict';
+const { titleAt } = require('./helpers/titles');
 
 const test = require('node:test');
 const assert = require('node:assert');
@@ -85,7 +86,8 @@ const fmt = (e) => `${e.constructor.name}: ${e.message}`;
 const mail = (local) => local + String.fromCharCode(64) + 'example.com';
 const M = mail('kaigi');
 const R1 = '会社のメールアドレスでログインすると、インターネットにつながっているときに、会議と音声入力の音声を文字起こしの中継に送り、OpenAI で文字起こしします。ログインしていないときと、つながっていないときは、PC の中で文字起こしします。';
-const ONLINE = 'ログインしていて、インターネットにつながっているときは、会議と音声入力の音声を文字起こしの中継に送り、OpenAI（gpt-4o-transcribe）で文字起こしします。中継も OpenAI も、音声と文字を保存しません。つながっていないときは、いつも PC の中で文字起こしします。1on1・面談など外に出したくない会議は、議事録の画面の［オフラインモード］を押してください。';
+// 0.10.0 LS-5（D62）で意図して変えた: オフラインモードは守秘のボタンでない
+const ONLINE = 'ログインしていて、インターネットにつながっているときは、会議と音声入力の音声を文字起こしの中継に送り、OpenAI（gpt-4o-transcribe）で文字起こしします。中継も OpenAI も、音声と文字を保存しません。つながっていないときは、いつも PC の中で文字起こしします。ネットワークが不安定なときは、議事録の画面の［オフラインモード］で、その会議の文字起こしを PC の中で行います。';
 const L3 = 'ログインが切れたため、この PC で文字起こししています（精度が落ちます）。設定の「アカウント」でもう一度ログインしてください。';
 const CLAUDE = () => ({ ok: true, found: true, cmdOnly: false, method: 'claude.ai', message: '' });
 const status = (o = {}) => ({ ok: true, signedIn: false, email: '', method: 'access', until: null, canStore: true, online: { up: true, why: 'ok' }, ...o });
@@ -465,8 +467,8 @@ test('D17: 会議が終わる（active: false）と帯も状態の行も消え�
 });
 
 test('D17: 帯は録音中のタブだけのもの。ほかのページのタブを開くと記録の行と一緒に隠れ、録音中のタブに戻ると出る', { timeout: 5000 }, async () => {
-  const PAGES = [{ id: 'pa1', title: '定例（見本）', date: '10/16', durationSec: 1800, hasSummary: true }];
-  const pageGet = (id) => ({ page: { id, title: '定例（見本）', createdAt: '2026-10-16T01:00:00.000Z', durationSec: 1800, blocks: [], memo: '', meetingType: 'general' }, segments: [] });
+  const PAGES = [{ id: 'pa1', title: titleAt('2026-10-16T01:00:00.000Z'), date: '10/16', durationSec: 1800, hasSummary: true }];
+  const pageGet = (id) => ({ page: { id, title: titleAt('2026-10-16T01:00:00.000Z'), createdAt: '2026-10-16T01:00:00.000Z', durationSec: 1800, blocks: [], memo: '', meetingType: 'general' }, segments: [] });
   const l = await load(APP, { now: T0, returns: { pagesSearch: () => PAGES, pageGet } });
   await l.drain();
   l.fire('onMeetingUpdate', PROB('relay-down', '', '文')); await l.drain();
@@ -488,8 +490,8 @@ test('D17: 帯は録音中のタブだけのもの。ほかのページのタブ
 
 // ---------------------------------------------------------------- A-8（RL15・D17・F15）: 録音中のページが見えているかを main へ知らせる
 test('D17: 録音中のタブを開くと meetingLiveShown(true)、ほかのタブ・ページへ移ると false、visibilitychange で隠れると false。onShowLive で録音中のタブが開く', { timeout: 5000 }, async () => {
-  const PAGES = [{ id: 'pa1', title: '定例（見本）', date: '10/16', durationSec: 1800, hasSummary: true }];
-  const pageGet = (id) => ({ page: { id, title: '定例（見本）', createdAt: '2026-10-16T01:00:00.000Z', durationSec: 1800, blocks: [], memo: '', meetingType: 'general' }, segments: [] });
+  const PAGES = [{ id: 'pa1', title: titleAt('2026-10-16T01:00:00.000Z'), date: '10/16', durationSec: 1800, hasSummary: true }];
+  const pageGet = (id) => ({ page: { id, title: titleAt('2026-10-16T01:00:00.000Z'), createdAt: '2026-10-16T01:00:00.000Z', durationSec: 1800, blocks: [], memo: '', meetingType: 'general' }, segments: [] });
   const l = await load(APP, { now: T0, returns: { pagesSearch: () => PAGES, pageGet } });
   await l.drain();
   const sent = () => l.called('meetingLiveShown').map((c) => c.args[0]);
@@ -543,27 +545,31 @@ test('D17: 録音中のタブを開くと meetingLiveShown(true)、ほかのタ�
 // 文を作るのは画面だけ（main の engine:status の理由の文は「（…）」の中にそのまま入る）
 // 0.9.0 U-3（OFF1・D21）で意図して変えた: 説明の文は「準備（任意）」の文（stage1d2.app の OFF1。選んだ人も選んでいない人も同じ）
 // 0.9.2 I-3（計画 docs/plans/2026-10-21-092.md）で意図して変えた: 頭の説明は1行。前の D21 の文（OFFLINE_D21）は頭の説明の ⓘ の吹き出し（#setPopOffline）にある
-const OFFLINE_LEAD = 'PC の中で文字起こしと要約をするための準備です（任意）。';
+// 0.10.0 LS-3（D59）で意図して変えた: 要約は PC の中で作らないので、頭の1行から「要約」を外した
+const OFFLINE_LEAD = 'PC の中で文字起こしをするための準備です（任意）。';
 const OFFLINE_D21 = 'インターネットにつながっていないときと、オフラインモードの会議でも、この PC の中で文字起こしと要約ができるようにする準備です（任意）。準備しなくても、インターネットにつながっていてログインしていれば、会議と音声入力はそのまま使えます。';
 const LOCK_OFFLINE = '記録中は PC の中の文字起こしの設定を変更できません';
 const { MANIFEST } = require('../src/engine-manifest');
 // 取り込みの欄の写し（engine-app.test.js の ST と同じ形。main の engine:fetch-status の答え）
-const FETCH = (o = {}) => ({ ok: true, supported: true, mode: { whisper: 'managed', sum: 'managed' }, state: 'missing', totalBytes: 5580564403, doneBytes: 0,
-  needBytes: 5580564403, whisperBytes: 583854933, freeBytes: 120e9, whisperReady: false, sumReady: false, runtime: null, askIt: false, report: '',
+// 0.10.0 LS-3（D59）で意図して直した: 取り込む組は文字起こしだけ
+const FETCH = (o = {}) => ({ ok: true, supported: true, mode: { whisper: 'managed' }, state: 'missing', totalBytes: 583854933, doneBytes: 0,
+  needBytes: 583854933, whisperBytes: 583854933, freeBytes: 120e9, whisperReady: false, runtime: null, askIt: false, report: '',
   items: MANIFEST.items.map((i) => ({ id: i.id, group: i.group, label: i.label, version: i.version, file: (i.dest || i.dir).split('/').pop(), url: i.url,
     host: new URL(i.url).hostname, sha256: i.sha256, size: i.size, done: 0, state: 'missing', license: i.license, place: '%LOCALAPPDATA%\\natsu\\engine\\…' })), error: null, ...o });
 const offlineCard = (l) => l.byId.get('engineState').closest('.card');
-// カードの文から、詳細設定の要約の欄（要約の小見出しから後ろ）を除いた分
+// カードの文から、詳細設定の「記録とメモリ」の小見出しから後ろ（前は要約の欄がその前にあり、要約の小見出しから後ろを除いていた。
+// 0.10.0 LS-3（D59）で要約の欄を外したので、同じ所＝「記録とメモリ」の小見出しで切る）を除いた分
 const outsideSummaryText = (l) => {
-  const h = l.byId.get('engineAdv').querySelectorAll('h3').find((x) => x.textContent.startsWith('要約'));
-  assert.ok(h, '詳細設定に要約の小見出しが無い');
+  assert.ok(!l.byId.get('engineAdv').querySelectorAll('h3').some((x) => x.textContent.startsWith('要約')), '詳細設定に要約の小見出しが残っている');
+  const h = l.byId.get('engineAdv').querySelectorAll('h3').find((x) => x.textContent === '記録とメモリ');
+  assert.ok(h, '詳細設定に「記録とメモリ」の小見出しが無い');
   const t = offlineCard(l).textContent;
   const k = t.indexOf(h.textContent);
-  assert.ok(k > 0 && t.indexOf(h.textContent, k + 1) < 0, '要約の小見出しの文がカードの中で1つでない');
+  assert.ok(k > 0 && t.indexOf(h.textContent, k + 1) < 0, '「記録とメモリ」の小見出しの文がカードの中で1つでない');
   return t.slice(0, k);
 };
 
-test('D19: 設定のカードの見出しが『オフライン』で、すぐ下に決めた説明の文。状態は『PC の中の文字起こし：使えます』、ボタンは［PC の中で試す］。カードの中に『エンジン』の語が残るのは、詳細設定の要約の欄だけ', { timeout: 5000 }, async () => {
+test('D19: 設定のカードの見出しが『オフライン』で、すぐ下に決めた説明の文。状態は『PC の中の文字起こし：使えます』、ボタンは［PC の中で試す］。カードの中に『エンジン』の語が残らない（0.10.0 LS-3 で詳細設定の要約の欄を外した）', { timeout: 5000 }, async () => {
   let fetch = FETCH();
   const l = await load(APP, { returns: { engineStatus: () => ({ ok: true, whisper: '', sum: '' }), engineFetchStatus: () => fetch } });
   const card = offlineCard(l);
@@ -575,13 +581,13 @@ test('D19: 設定のカードの見出しが『オフライン』で、すぐ下
   assert.strictEqual(lead.textContent.trim(), OFFLINE_LEAD);
   const offPop = l.byId.get('setPopOffline');
   assert.ok(offPop && offPop.parentNode === card, 'オフラインのカードに頭の説明の吹き出しが無い');
-  for (const w of ['準備しなくても、インターネットにつながっていてログインしていれば、会議と音声入力はそのまま使えます。', 'インターネットにつながっていないときと、オフラインモードの会議でも、この PC の中で文字起こしと要約が']) {
+  for (const w of ['準備しなくても、インターネットにつながっていてログインしていれば、会議と音声入力はそのまま使えます。', 'インターネットにつながっていないときと、オフラインモードの会議でも、この PC の中で文字起こしが']) {
     assert.ok(offPop.textContent.includes(w), `吹き出しに「${w}」が無い（前の文 ${OFFLINE_D21.length} 字の芯）`);
   }
   assert.strictEqual(l.byId.get('engineState').textContent, 'PC の中の文字起こし：使えます');
   assert.strictEqual(l.byId.get('testBtn').textContent, 'PC の中で試す');
   assert.strictEqual(l.byId.get('engineFetchBtn').textContent, 'PC の中の文字起こしを取り込む');
-  assert.ok(l.byId.get('engineFetchSummary').textContent.startsWith('PC の中の文字起こしと要約を、この PC に取り込みます（合計 約 5.6GB'), l.byId.get('engineFetchSummary').textContent);
+  assert.ok(l.byId.get('engineFetchSummary').textContent.startsWith('PC の中の文字起こしを、この PC に取り込みます（合計 約 0.6GB'), l.byId.get('engineFetchSummary').textContent);
   // 記録中の理由（カードの頭と詳細設定の中）。カードの外（動作の「認識言語」）は今のまま
   const notes = card.querySelectorAll('.lockNote');
   assert.strictEqual(notes.length, 2);
@@ -593,15 +599,13 @@ test('D19: 設定のカードの見出しが『オフライン』で、すぐ下
   noEngine('取り込む前');
   // 取り込みの欄のどの形でも、要約の欄の外に「エンジン」を出さない
   const scenes = [
-    ['途中', FETCH({ state: 'partial', doneBytes: 1200000000, needBytes: 4380564403 })],
+    ['途中', FETCH({ state: 'partial', doneBytes: 120000000, needBytes: 463854933 })],
     ['取り込み中', FETCH({ state: 'running', current: 'whisper-model', doneBytes: 286000000, etaSec: 180 })],
-    ['待ち', FETCH({ state: 'waiting' })], ['記録中', FETCH({ state: 'held' })], ['一時停止', FETCH({ state: 'paused', doneBytes: 1200000000 })],
-    ['新しい版', FETCH({ state: 'update', updateBytes: 40e6, whisperReady: true, sumReady: true })],
-    ['取り込み済み', FETCH({ state: 'ready', whisperReady: true, sumReady: true, needBytes: 0 })],
-    ['両方とも手の設定', FETCH({ mode: { whisper: 'manual', sum: 'manual' }, state: 'ready', whisperReady: true, sumReady: true })],
-    ['文字起こしだけ手の設定', FETCH({ mode: { whisper: 'manual', sum: 'managed' }, whisperReady: true, needBytes: 1005586654 })],
-    ['要約だけ手の設定・取り込み済み', FETCH({ mode: { whisper: 'managed', sum: 'manual' }, state: 'ready', whisperReady: true })],
-  ];
+    ['待ち', FETCH({ state: 'waiting' })], ['記録中', FETCH({ state: 'held' })], ['一時停止', FETCH({ state: 'paused', doneBytes: 120000000 })],
+    ['新しい版', FETCH({ state: 'update', updateBytes: 40e6, whisperReady: true })],
+    ['取り込み済み', FETCH({ state: 'ready', whisperReady: true, needBytes: 0 })],
+    ['両方とも手の設定', FETCH({ mode: { whisper: 'manual' }, state: 'ready', whisperReady: true })],
+  ];   // 0.10.0 LS-3 で「片方だけ手の設定」の形を外した（組は1つ）
   const seen = {};
   for (const [when, s] of scenes) {
     fetch = s;
@@ -611,18 +615,15 @@ test('D19: 設定のカードの見出しが『オフライン』で、すぐ下
     if (when === '両方とも手の設定') seen.switch = l.byId.get('engineFetchSwitch').textContent;
   }
   assert.strictEqual(seen['新しい版'], '新しい版の PC の中の文字起こし（約 40MB）があります。今のものはそのまま使えます。');
-  assert.strictEqual(seen['取り込み済み'], 'PC の中の文字起こしは取り込み済みです（whisper.cpp 1.9.5・llama.cpp b11669）。');
+  assert.strictEqual(seen['取り込み済み'], 'PC の中の文字起こしは取り込み済みです（whisper.cpp 1.9.5）。');
   assert.strictEqual(seen['両方とも手の設定'], '手で設定した PC の中の文字起こしを使っています（詳細設定のパス）。');
   assert.strictEqual(seen.switch, '取り込んだ PC の中の文字起こしに切り替える');
-  assert.ok(seen['文字起こしだけ手の設定'].startsWith('文字起こしは手で設定したものを使っています。要約を、この PC に取り込みます（'), seen['文字起こしだけ手の設定']);
-  assert.ok(seen['要約だけ手の設定・取り込み済み'].startsWith('要約は手で設定したものを使っています。文字起こしは取り込み済みです（whisper.cpp'), seen['要約だけ手の設定・取り込み済み']);
   // 記録中（理由が出る）も同じ
   l.fire('onMeetingUpdate', LIVE(undefined)); await l.drain();
   assert.ok(notes.every((n) => !n.hidden), '記録中の理由が出ない');
   noEngine('記録中の理由');
-  // 要約の欄の言葉は変えない（問い Q15）
-  assert.strictEqual(l.byId.get('testSumBtn').textContent, '起動テスト');
-  assert.ok(l.byId.get('sumCtx').closest('.field').textContent.includes('要約エンジンに渡すトークン数'));
+  // 0.10.0 LS-3（D59）で意図して直した: 詳細設定の要約の欄（［起動テスト］・文脈長）を外した
+  assert.ok(!l.byId.get('testSumBtn') && !l.byId.get('sumCtx'));
   assert.deepStrictEqual(l.errors.map(fmt), []);
 });
 

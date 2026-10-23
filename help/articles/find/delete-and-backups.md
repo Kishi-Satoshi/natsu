@@ -1,7 +1,7 @@
 ---
 title: 議事録を消す・毎日の控え
 description: 「···」の［削除］で議事録を一覧から消す。消した中身の行き先と、毎日の控え・保存が壊れたときの戻り方
-updated: 2026-10-20
+updated: 2026-10-23
 sources: CHANGELOG.md, README.md, src/renderer/app.html, src/main.js, src/db/snapshot.js
 related: find/search, record/start-stop
 ---
@@ -18,6 +18,8 @@ related: find/search, record/start-stop
 > ［削除］ は一覧から見えなくするだけで、中身は保存のファイルに残ります。今の版には、消した議事録を見る画面や戻す画面はありません。
 
 録音中にサイドバーの ［破棄］ で捨てた会議の文字は、保存のファイルに残しません（[録音を捨てる](record/start-stop.md#discard)）。
+
+Claude デスクトップに NaTsu を登録していると、議事録を消しても、Claude が一度読んだ内容は Claude の会話に残ります。Claude の側の会話も消してください（[Claude から議事録を読む](start/claude-mcp.md#delete)）。
 
 ## 毎日の控え {#backup}
 

@@ -198,8 +198,9 @@ jobs:
           # リリースページ上に置いておく。
           # setup-*.ps1 は、エンジンを手で入れる人（詳しい人向け）のために添付する。
           # 0.2.0 からはアプリの［エンジンを取り込む］でそろうので、ふつうは要らない。
+          # 0.10.0 から要約のエンジンは無い（要約は Claude Code だけ。D59）ので、要約のセットアップスクリプトは配らない。
           # 手で入れる人がリポジトリを触らずに済むよう、リリースページから直接落とせるようにしておく。
-          SETUP="get-installer.ps1 setup-local-engine.ps1 setup-summarizer.ps1"
+          SETUP="get-installer.ps1 setup-local-engine.ps1"
           # 入れ直しが要る版かをアプリが見分けるための情報（第0c回 EL4。上のステップで作った）
           INFO="release/natsu-update.json"
           # gh はタグ名で draft も見つける（公開済みでなくても view/edit/upload が効く）
@@ -281,6 +282,12 @@ jobs:
         shell: bash
         run: ELECTRON_RUN_AS_NODE=1 node_modules/electron/dist/electron.exe tools/sqlite-probe.js
 
+      # 0.10.0 E-1（MR9）: Claude デスクトップと同じ起こし方（exe に src/mcp/server.js を渡す）で MCP の両方の版の往復を通す（通らなければ出さない）
+      - name: node_modules の Electron で MCP の往復を確かめる（無ければ出さない）
+        if: steps.exists.outputs.skip == 'false'
+        shell: bash
+        run: node tools/mcp-probe.js --exe node_modules/electron/dist/electron.exe --script src/mcp/server.js
+
       # --publish never を渡す。CI では electron-builder が自分で
       # GitHub へ publish しようとして GH_TOKEN を要求し、失敗する。
       # 添付は下のステップで自分で行う（リリースの作り方を握っておきたい）。
@@ -288,15 +295,16 @@ jobs:
         if: steps.exists.outputs.skip == 'false'
         run: npm run dist:installer -- --publish never
 
-      - name: ポータブル版を作る
-        if: steps.exists.outputs.skip == 'false'
-        run: npm run dist -- --publish never
-
       # 詰めた exe で node:sqlite が動くことと、exe を Node として起動できる設定（RunAsNode）が切られていないこと
       - name: 詰めた NaTsu.exe で同じ煙テストを走らせる（配る exe。無ければ出さない）
         if: steps.exists.outputs.skip == 'false'
         shell: bash
         run: ELECTRON_RUN_AS_NODE=1 dist/win-unpacked/NaTsu.exe tools/sqlite-probe.js
+
+      - name: 詰めた NaTsu.exe で MCP の往復を確かめる（配る exe。無ければ出さない）
+        if: steps.exists.outputs.skip == 'false'
+        shell: bash
+        run: node tools/mcp-probe.js --exe dist/win-unpacked/NaTsu.exe --script dist/win-unpacked/resources/app/src/mcp/server.js
 
       - name: Release に添付する
         if: steps.exists.outputs.skip == 'false'
@@ -306,7 +314,7 @@ jobs:
         shell: bash
         run: |
           ls -l dist/*.exe
-          gh release upload "$TAG" --repo "$GITHUB_REPOSITORY" dist/*-setup.exe dist/*-portable.exe
+          gh release upload "$TAG" --repo "$GITHUB_REPOSITORY" dist/*-setup.exe
 
       # exe が揃ったので公開する。「既に添付されている」経路（作り直さない）でも
       # release ジョブが draft に戻しているので、ここで必ず解く。

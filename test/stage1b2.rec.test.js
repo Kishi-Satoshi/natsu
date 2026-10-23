@@ -2,6 +2,7 @@
  * stage1b2.rec.test.js — 第1b2回の設定と音声入力（題名のある平らなページ）と録音中のページ（会議のブロックの記録の行）
  */
 'use strict';
+const { titleAt } = require('./helpers/titles');
 const test = require('node:test');
 const assert = require('node:assert');
 const fs = require('node:fs');
@@ -36,8 +37,8 @@ test('1b2 R-1: トグルの行は文字が左・トグルが右。数の札は�
 const PRELOAD = fs.readFileSync(path.join(__dirname, '..', 'src', 'preload.js'), 'utf8');
 const preloadWith = (...names) => names.reduce((src, n) => (new RegExp(`^\\s+${n}\\s*:`, 'm').test(src) ? src
   : src.replace("exposeInMainWorld('koeApp', {", `exposeInMainWorld('koeApp', {\n  ${n}: (...a) => ipcRenderer.invoke('test:${n}', ...a),`)), PRELOAD);
-const LIST = [{ id: 'pb2', title: '設計の打ち合わせ（見本）', date: '2026-10-15', durationSec: 900, hasSummary: false }];
-const PAGE = (id) => ({ page: { id, title: '設計の打ち合わせ（見本）', createdAt: '2026-10-15T01:00:00.000Z', durationSec: 900, blocks: [], memo: '', meetingType: 'general' }, segments: [] });
+const LIST = [{ id: 'pb2', title: titleAt('2026-10-09T05:00:00.000Z'), date: '2026-10-15', durationSec: 900, hasSummary: false }];
+const PAGE = (id) => ({ page: { id, title: titleAt('2026-10-09T05:00:00.000Z'), createdAt: '2026-10-15T01:00:00.000Z', durationSec: 900, blocks: [], memo: '', meetingType: 'general' }, segments: [] });
 const ST = (o = {}) => ({ active: true, finalizing: false, startedAt: Date.now() - 60000, segments: [{ atMs: 0, text: '始めます（見本）' }], pending: 0, pauses: [], cloud: true, ...o });
 
 test('1b2 R-2・G9: 記録の行（#liveBar）は会議のブロックの頭（丸いタブの前）にあり、［この会議は PC の中だけ］が見える', async () => {
@@ -62,6 +63,6 @@ test('1b2 R-2・G10: 記録中の題名は「記録中の会議」で編集で�
   assert.ok(l.byId.get('pageWrap').classList.contains('live-on'));
   l.fire('onMeetingUpdate', { active: false, finalizing: false, segments: [], pending: 0 });
   l.fire('onPageOpen', 'pb2'); await l.drain();
-  assert.deepStrictEqual([t.textContent, t.getAttribute('contenteditable')], ['設計の打ち合わせ（見本）', 'true']);
+  assert.deepStrictEqual([t.textContent, t.getAttribute('contenteditable')], [titleAt('2026-10-09T05:00:00.000Z'), 'true']);
   assert.ok(!l.byId.get('pageWrap').classList.contains('live-on'));
 });

@@ -28,14 +28,13 @@ const fnBody = (src, from, to) => {
 };
 
 // ---------------------------------------------------------------- 設定キー（第3段で足した sumCtx / engineIdleMin）
-const DEF = { localPort: 8990, sumPort: 8991, localThreads: 8, sumThreads: 8, segmentSec: 75, sumCtx: 32768, engineIdleMin: 10 };
+const DEF = { localPort: 8990, localThreads: 8, segmentSec: 75, engineIdleMin: 10 };
 
-test('normalizeSettings: sumCtx は 4096〜131072 に丸め、壊れた値は既定 32768', () => {
-  assert.strictEqual(normalizeSettings({ ...DEF, sumCtx: 1000 }, DEF).sumCtx, 4096);
-  assert.strictEqual(normalizeSettings({ ...DEF, sumCtx: 999999 }, DEF).sumCtx, 131072);
-  assert.strictEqual(normalizeSettings({ ...DEF, sumCtx: 'abc' }, DEF).sumCtx, 32768);
-  assert.strictEqual(normalizeSettings({ ...DEF, sumCtx: '16384' }, DEF).sumCtx, 16384, '文字列の数字を数に直していない');
-  assert.strictEqual(normalizeSettings({ ...DEF, sumCtx: undefined }, DEF).sumCtx, 32768, '未設定（古い settings.json）で既定にならない');
+// 0.10.0 LS-3（D59・決めたこと 109）で意図して直した: 要約の文脈長（sumCtx）は決まりの表から外した。保存に残っていれば値のまま（知らないキー）、無ければ足さない
+test('normalizeSettings: sumCtx は直さず値のまま残し、無ければ足さない（0.10.0 LS-3）', () => {
+  assert.strictEqual(normalizeSettings({ ...DEF, sumCtx: 1000 }, DEF).sumCtx, 1000);
+  assert.strictEqual(normalizeSettings({ ...DEF, sumCtx: 'abc' }, DEF).sumCtx, 'abc');
+  assert.ok(!('sumCtx' in normalizeSettings({ ...DEF }, DEF)), '外した要約の文脈長を足した');
 });
 
 test('normalizeSettings: engineIdleMin は 0〜120 に丸め、0（止めない）は 0 のまま', () => {
@@ -56,11 +55,11 @@ test('normalizeSettings: 外した設定キー（dataDir）は読まず、書き
 });
 
 // 意図: 古い設定に無いキーが既定で埋まる。既定は settings.js の defaultSettings（第1a回 Task 2-2 で main から移した）
-test('DEFAULT_SETTINGS は settings.js の defaultSettings。sumCtx / engineIdleMin があり、dataDir は無い', () => {
+test('DEFAULT_SETTINGS は settings.js の defaultSettings。engineIdleMin があり、dataDir と sumCtx は無い', () => {
   assert.match(code(main), /const DEFAULT_SETTINGS = defaultSettings\(os\.cpus\(\)\.length\);/);
   const { defaultSettings } = require('../src/settings');
   const d = defaultSettings(8);
-  assert.strictEqual(d.sumCtx, 16384);   // 第0b回 Task 16 で既定を 16384 に下げた（保存済みの値は書き換えない）
+  assert.ok(!('sumCtx' in d), '外した要約の文脈長が既定に残っている（0.10.0 LS-3）');
   assert.strictEqual(d.engineIdleMin, 10);
   assert.ok(!('dataDir' in d), '外した設定キー dataDir が既定値に残っている');
 });
@@ -107,78 +106,15 @@ test('dialog:pick はファイルだけを選ばせ（フォルダの分岐は�
   assert.ok(preload.includes("  pagesSearchFull: (q) => dbCall('pages.searchFull', { q: q || '', limit: 60 }),"), 'pages.searchFull の上限 60（書式込み）');
 });
 
-// ---------------------------------------------------------------- #41 要約の文脈長（判断）
-const { estimateTokens, foldNotes, ENGINE_SETTING_KEYS, guardEngineSettings } = require('../src/mainlib');
-
-test('estimateTokens: UTF-8 のバイト数 ÷ 2.5 の切り上げ（多めに見積もって溢れる側に外さない）', () => {
-  assert.strictEqual(estimateTokens(''), 0);
-  assert.strictEqual(estimateTokens(null), 0);
-  assert.strictEqual(estimateTokens('abcde'), 2);          // 5 バイト → 2
-  assert.strictEqual(estimateTokens('あ'), 2);              // 3 バイト → 1.2 → 2
-  assert.strictEqual(estimateTokens('あいうえお'), 6);      // 15 バイト → 6
-  assert.strictEqual(estimateTokens('a'.repeat(250)), 100);
+// ---------------------------------------------------------------- #41 要約の文脈長
+// estimateTokens・foldNotes（要点メモを文脈長に収める）と、sumCtx の記録中の留め・llama-server の -c の結線は、0.10.0 LS-3（D59）で外した
+// （要約は Claude Code。要約のエンジンと設定のキーが無い）。記録中に留めるエンジン設定の表に sumCtx が無いことを見る
+const { ENGINE_SETTING_KEYS } = require('../src/mainlib');
+test('LS-3: 記録中に留めるエンジン設定に要約のキーが無い', () => {
+  for (const k of ['sumCtx', 'sumServerExe', 'sumModelPath', 'sumThreads', 'sumPort']) assert.ok(!ENGINE_SETTING_KEYS.includes(k), k);
 });
 
-test('foldNotes: 前から順に「合計が予算に収まる束」に分ける（1 件で超える要点メモは単独の束）', () => {
-  const len = (t) => t.length;
-  assert.deepStrictEqual(foldNotes(['a', 'bb', 'ccc', 'd'], 3, len), [['a', 'bb'], ['ccc'], ['d']]);
-  assert.deepStrictEqual(foldNotes(['aaaaa', 'b', 'c'], 3, len), [['aaaaa'], ['b', 'c']], '予算を超える 1 件を単独の束にしていない');
-  assert.deepStrictEqual(foldNotes(['a', 'b'], 100, len), [['a', 'b']], '収まるなら 1 束');
-  assert.deepStrictEqual(foldNotes([], 3, len), []);
-  // 順序を入れ替えない（時系列のまま）。入力は書き換えない
-  const notes = ['x', 'yy', 'z'];
-  const r = foldNotes(notes, 2, len);
-  assert.deepStrictEqual(r.flat(), notes);
-  assert.deepStrictEqual(notes, ['x', 'yy', 'z']);
-  // 予算が壊れていても止まらない（0 以下・NaN は 1 とみなす → 全部単独の束）
-  assert.deepStrictEqual(foldNotes(['a', 'b'], 0, len), [['a'], ['b']]);
-  assert.deepStrictEqual(foldNotes(['a', 'b'], NaN, len), [['a'], ['b']]);
-  // 推定関数を省けば estimateTokens で数える
-  assert.deepStrictEqual(foldNotes(['あいうえお', 'かきくけこ'], 6), [['あいうえお'], ['かきくけこ']]);
-});
-
-test('#41 sumCtx は記録中に変えられないエンジン設定で、名前は「要約の文脈長」', () => {
-  assert.ok(ENGINE_SETTING_KEYS.includes('sumCtx'));
-  const prev = { sumCtx: 32768, theme: 'dark' };
-  const r = guardEngineSettings(prev, { sumCtx: 8192, theme: 'light' }, true);
-  assert.strictEqual(r.settings.sumCtx, 32768);
-  assert.deepStrictEqual(r.kept, ['sumCtx']);
-  assert.ok(r.warning.includes('要約の文脈長'), '警告で名指ししていない');
-});
-
-// ---------------------------------------------------------------- #41 要約の文脈長（結線）
-test('#41 llama-server の -c は settings.sumCtx で、署名（再起動の判断）にも入る', () => {
-  const m = code(main);
-  const args = fnBody(m, 'function engineSpawnArgs(eng)', '\n}');
-  assert.ok(args.includes("'-c', String(settings.sumCtx),"), '-c が settings.sumCtx でない');
-  assert.ok(!args.includes("'16384'"), '固定の 16384 が残っている');
-  const sig = fnBody(m, 'function engineSignature(eng)', '\n}');
-  assert.ok(sig.includes("eng === whisperEng ? '' : settings.sumCtx"), '要約エンジンの署名に sumCtx が入っていない（変えても再起動されない）');
-});
-
-test('#41 統合プロンプトが文脈長に収まらないときは要点メモを 2 段で畳み、engineLog にだけ残す', () => {
-  const m = code(main);
-  assert.match(m, /const SUM_CTX_MARGIN = 256;/);
-  assert.match(m, /const sumCtxBudget = \(\) => settings\.sumCtx - SUM_MAX_TOKENS - SUM_CTX_MARGIN;/);
-  const gen = fnBody(m, 'async function generateMinutes', '\nfunction ensurePaster');
-  assert.ok(gen.includes('const budget = sumCtxBudget();'), '予算を sumCtxBudget から取っていない');
-  assert.ok(gen.includes('const fixed = estimateTokens(sys + memoBlock + minutesTemplate(type));'), '固定分（役割・メモ・書式）を推定していない');
-  // 1 回で収まるかの判断は、文字数だけでなく推定トークンでも見る（文脈長を小さくしたとき溢れない）
-  assert.ok(gen.includes('&& estimateTokens(plain) + fixed <= budget) {'), '1 回で収まるかの判断が推定トークンを見ていない');
-  // 畳む: 束の分け方は mainlib.foldNotes、各束は分割要約と同じ経路（extractNotes・NOTE_MAX_TOKENS）
-  const fold = fnBody(gen, 'if (need > budget) {', "if (onProgress) onProgress('議事録をまとめています…');");
-  assert.ok(gen.includes("const need = estimateTokens(notes.join('\\n\\n')) + fixed;"), '統合プロンプトの推定が無い');
-  assert.ok(fold.includes('foldNotes(notes, Math.max(1, budget - fixed), estimateTokens)'), '束の分け方を mainlib.foldNotes で決めていない');
-  assert.ok(fold.includes("extractNotes((t) => extract(t, k, bundles.length, '要点メモ'), bundles[k].join('\\n\\n'))"), '束を分割要約と同じ経路で要約していない');
-  assert.ok(gen.includes("extractNotes((t) => extract(t, i, chunks.length, '文字起こし'), chunks[i])"), '既存の分割要約が同じ extract を通っていない');
-  assert.ok(fold.includes('束に畳んだ'), 'engineLog に「n パートを m 束に畳んだ」を残していない');
-  assert.ok(fold.includes('engineLog('), 'engineLog に残していない');
-  assert.ok(!fold.includes('summaryError') && !fold.includes('page.notes') && !fold.includes('truncatedParts'), 'summaryError / page.notes / 切れたパートの一覧に畳んだことを書いている');
-  // 統合には畳んだ後の材料を渡す
-  assert.ok(gen.includes("【会議の要点メモ（時系列）】\\n${material.join('\\n\\n')}"), '統合に畳んだ材料を渡していない');
-  // llmChatP の呼び出しは 3 か所のまま（repo.test.js が数える）。畳みは extract を通る
-  assert.strictEqual((gen.match(/await llmChatP\(/g) || []).length, 3);
-});
+// 「#41 統合プロンプトを 2 段で畳む」の結線の確かめは 0.10.0 LS-2（D59）で外した（手元の llama の要約 generateMinutes が無い。畳み方の mainlib.foldNotes は上で実行して見る）
 
 // ---------------------------------------------------------------- #58 メモリ（判断）
 const { idleEnginesToStop } = require('../src/mainlib');
@@ -215,9 +151,9 @@ test('#58 記録開始で要約エンジンを先読みしない（要約直前�
   assert.ok(!start.includes('startEngine(sumEng)'), '記録開始で要約エンジンを起動している（約 3GB が上がったまま降りない）');
   // 第1c回 Task A-4（意図して変えた）: whisper の先読みは warmWhisper を通す（経路が手元のときだけ起こす。D1・F14）
   assert.ok(start.includes('warmWhisper('), '文字起こしエンジンの先読みまで消している');
-  assert.ok(fnBody(m, 'async function generateMinutes', '\nfunction ensurePaster').includes('await ensureEngineReady(sumEng)'), '要約直前に用意していない');
-  // 理由はコメントに残す
-  assert.ok(/3GB/.test(fnBody(main, 'function startMeeting()', '\nfunction stopMeeting')), '先読みをやめた理由（約 3GB）がコメントに無い');
+  // 0.10.0 LS-2・LS-3（D59）で意図して直した: 要約は Claude Code だけ。要約のエンジン（sumEng）そのものが無い
+  assert.ok(!m.includes('sumEng'), '要約のエンジンが残っている');
+  assert.ok(!m.includes('generateMinutes'), '手元の llama の要約が残っている');
   // 起動時の whisper 先読みは今まで通り
   assert.ok(fnBody(m, 'app.whenReady().then(', '\n  });').includes('if (engineValid(whisperEng)) warmWhisper('));
   assert.ok(fnBody(m, 'async function warmWhisper(', '\n}').includes('ensureEngineReady(whisperEng)'));
@@ -230,12 +166,12 @@ test('#58 lastUsed は起動時と推論のたびに更新し、60 秒ごとに�
   const start = fnBody(m, 'function startEngine(eng)', '\nfunction stopEngine');
   assert.ok(/eng\.proc = p;\s*\n\s*eng\.lastUsed = Date\.now\(\);/.test(start), '起動時に lastUsed を入れていない');
   assert.strictEqual((fnBody(m, 'async function transcribeLocal(', '\n}').match(/touchEngine\(whisperEng\)/g) || []).length, 2, '文字起こしの前後で lastUsed を更新していない');
-  assert.strictEqual((fnBody(m, 'async function llmChat(', '\n}').match(/touchEngine\(sumEng\)/g) || []).length, 2, '要約の前後で lastUsed を更新していない');
+  // 0.10.0 LS-2（D59）で意図して直した: 手元の llama の要約（llmChat）を外したので、要約の前後の lastUsed の確かめを外した
   // 判断は mainlib.idleEnginesToStop。busy は isBusy()（idle・要約中でない・復旧中でない・待ち 0）
   const busy = fnBody(m, 'const isBusy = () => ', '\n');
   for (const k of ["state !== 'idle'", 'isSummarizing()', 'recoveryRunning', 'pendingSegs > 0']) assert.ok(busy.includes(k), `isBusy が ${k} を見ていない`);
   const rel = fnBody(m, 'function releaseIdleEngines()', '\n}');
-  assert.ok(rel.includes('idleEnginesToStop([whisperEng, sumEng], Date.now(), settings.engineIdleMin, isBusy())'), '判断を mainlib.idleEnginesToStop で行っていない');
+  assert.ok(rel.includes('idleEnginesToStop([whisperEng], Date.now(), settings.engineIdleMin, isBusy())'), '判断を mainlib.idleEnginesToStop で行っていない');   // 0.10.0 LS-3 で要約のエンジンを外した
   assert.ok(rel.includes('stopEngine(eng)'), '止めていない');
   assert.ok(rel.includes('engineLog('), '止めたことをログに残していない');
   assert.match(m, /const ENGINE_IDLE_CHECK_MS = 60000;/);
@@ -245,9 +181,10 @@ test('#58 lastUsed は起動時と推論のたびに更新し、60 秒ごとに�
 test('#58 トレイに「エンジンを停止（メモリを解放）」があり、起動中かつ手が空いているときだけ押せる', () => {
   const m = code(main);
   const tray = fnBody(m, 'function updateTray()', '\nfunction createTray');
-  assert.ok(tray.includes("label: 'エンジンを停止（メモリを解放）', enabled: (Boolean(whisperEng.proc) || Boolean(sumEng.proc)) && !isBusy(), click: stopEnginesFromTray"), 'トレイの項目が無いか条件が違う');
+  // 0.10.0 LS-3（D59）で意図して直した: エンジンは文字起こしだけ
+  assert.ok(tray.includes("label: 'エンジンを停止（メモリを解放）', enabled: Boolean(whisperEng.proc) && !isBusy(), click: stopEnginesFromTray"), 'トレイの項目が無いか条件が違う');
   const fn = fnBody(m, 'function stopEnginesFromTray()', '\n}');
-  assert.ok(fn.includes('stopEngine(whisperEng)') && fn.includes('stopEngine(sumEng)'), '両方止めていない');
+  assert.ok(fn.includes('stopEngine(whisperEng)'), '止めていない');
   // 起動・終了・停止のたびにトレイの有効／無効を追随させる（終了中は触らない）
   assert.match(m, /function engineChanged\(\) \{ if \(!quitting\) updateTray\(\); \}/);
   assert.ok(fnBody(m, 'function stopEngine(eng)', '\n}').includes('engineChanged()'), '停止でトレイを更新していない');
@@ -258,7 +195,8 @@ test('#58 トレイに「エンジンを停止（メモリを解放）」があ�
 // 第1d2回 M-1（D21）で意図して変えた: 答えに準備を選んだか（chosen: isOfflineChosen()。設定のカード「オフライン」の形を決める: U-3）を足した。
 // 選んだかは覚えた値だけで決める（エンジンを起動しない・ファイルを読まない）
 test('engine:status は engineCheck の結果（とモデルの勧め・準備を選んだか）を返すだけで、エンジンを起動しない', () => {
-  assert.ok(code(main).includes("ipcMain.handle('engine:status', () => ({ ok: true, chosen: isOfflineChosen(), whisper: engineCheck(whisperEng), sum: engineCheck(sumEng),\n    whisperNote: isKotobaModel() ? KOTOBA_NOTE : '' }));"));
+  // 0.10.0 LS-3（D59）で意図して直した: 要約のエンジンの欄（sum）を外した
+  assert.ok(code(main).includes("ipcMain.handle('engine:status', () => ({ ok: true, chosen: isOfflineChosen(), whisper: engineCheck(whisperEng),\n    whisperNote: isKotobaModel() ? KOTOBA_NOTE : '' }));"));
   assert.ok(preload.includes("  engineStatus: () => ipcRenderer.invoke('engine:status'),"));
 });
 

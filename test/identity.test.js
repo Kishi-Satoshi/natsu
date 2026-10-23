@@ -39,7 +39,8 @@ test('表示名は NaTsu（画面・録音バー・ウィンドウ・トレイ�
     assert.ok(main.includes(s), s);
   }
   // 第1d回 G-4 で意図して変えた: オンラインの文字起こしは会社の中継を通した OpenAI（PC は OpenAI へ直に送らない）
-  assert.strictEqual(pkg.description, 'NaTsu — 音声入力・議事録ツール（オンラインは文字起こしの中継を通した OpenAI の文字起こしと各自の Claude Code の要約、オフラインは手元の whisper と llama。出典リンク付き）');
+  // 0.10.0 LS-5（D59）で意図して変えた: 要約は Claude Code だけ（llama を外した）
+  assert.strictEqual(pkg.description, 'NaTsu — 音声入力・議事録ツール（オンラインは文字起こしの中継を通した OpenAI の文字起こしと各自の Claude Code の要約、オフラインの文字起こしは手元の whisper。出典リンク付き）');
 });
 
 // 第1b回 Task C-3 で意図して変えた: 版を 0.6.0 に（第1b回と第1b2回の画面・窓の覚え書き・一時停止。Electron は 44.9.0 のままなので［更新して再起動］で当たる）
@@ -49,15 +50,16 @@ test('表示名は NaTsu（画面・録音バー・ウィンドウ・トレイ�
 // 0.9.2 で意図して変えた: 版を 0.9.2 に（設定の説明を1行にして ⓘ の吹き出しへ・アプリからヘルプを開く。Electron は 44.9.0 のまま）
 // 0.9.3 で意図して変えた: 版を 0.9.3 に（会議の検出の通知・録音中のページの音の波・オフラインモードとローカル AIの名前・オフラインモードの札。Electron は 44.9.0 のまま）
 // 0.9.4 で意図して変えた: 版を 0.9.4 に（会議の検出の直し・音声を消さない・遅い PC の扱い・音の波と録音バー・ローカル AI の名前・中継の安定。Electron は 44.9.0 のまま）
-test('識別子: name は natsu・版は 0.9.4・productName は build の中だけ（userData は %APPDATA%\\natsu）', () => {
+// 0.10.0 で意図して変えた: 版を 0.10.0 に（Claude から議事録を読む MCP・議事録のリンク・要約は Claude Code だけ・ポータブル版をやめる。Electron は 44.9.0 のまま）
+test('識別子: name は natsu・版は 0.10.0・productName は build の中だけ（userData は %APPDATA%\\natsu）', () => {
   assert.strictEqual(pkg.name, 'natsu');
-  assert.strictEqual(pkg.version, '0.9.4');
+  assert.strictEqual(pkg.version, '0.10.0');
   assert.strictEqual(pkg.productName, undefined, 'top-level の productName は userData の名前を変える');
   assert.strictEqual(pkg.build.productName, 'NaTsu');
   assert.strictEqual(pkg.build.appId, 'local.natsu.app');
   assert.strictEqual(pkg.build.nsis.shortcutName, 'NaTsu');
   assert.strictEqual(pkg.build.nsis.artifactName, 'NaTsu-${version}-setup.exe');
-  assert.strictEqual(pkg.build.portable.artifactName, 'NaTsu-${version}-portable.exe');
+  assert.strictEqual(pkg.build.portable, undefined, '0.10.0 PB-1（D76）: ポータブル版は作らない');
   for (const [n, s] of [['README.md', readme], ['INSTALL.md', install]]) {
     assert.ok(s.includes('%APPDATA%\\natsu\\'), `${n}: 保存先`);
     assert.ok(s.includes('%LOCALAPPDATA%\\Programs\\NaTsu'), `${n}: インストール先`);
@@ -263,8 +265,9 @@ test('2a1: 試作の名前を持ち込んでいない（listener.db・Listener D
 // 0.9.2 で意図して変えた: 版は 0.9.2（README の保存の説明は 0.7.0 のまま）
 // 0.9.3 で意図して変えた: 版は 0.9.3（README の保存の説明は 0.7.0 のまま）
 // 0.9.4 で意図して変えた: 版は 0.9.4（README の保存の説明は 0.7.0 のまま）
-test('0.7.0・0.8.0・0.9.0・0.9.1・0.9.2・0.9.3・0.9.4: 版と、README の保存の説明（natsu.db・backup・元の JSON を残す・古い版に戻したとき・控えに残る期間）', () => {
-  assert.strictEqual(require('../package.json').version, '0.9.4');
+// 0.10.0 で意図して変えた: 版は 0.10.0（README の保存の説明は 0.7.0 のまま）
+test('0.7.0・0.8.0・0.9.0・0.9.1・0.9.2・0.9.3・0.9.4・0.10.0: 版と、README の保存の説明（natsu.db・backup・元の JSON を残す・古い版に戻したとき・控えに残る期間）', () => {
+  assert.strictEqual(require('../package.json').version, '0.10.0');
   const r = read('README.md');
   for (const w of ['natsu.db', 'data\\backup', '元の JSON', '古い版', '3 日', '2 週']) assert.ok(r.includes(w), w);
 });
@@ -317,11 +320,12 @@ const secOf = (md, heading) => {
   const j = rest.indexOf('\n## ', 1);
   return j < 0 ? rest : rest.slice(0, j);
 };
-const FETCH_BTN = 'ローカル AI を使う（数 GB を取り込む）';
-test('0.9.0: README・INSTALL は手順3を任意と書き、ログインを先に書く。［ローカル AI を使う（数 GB を取り込む）］は画面にある', () => {
-  assert.ok(app.includes(FETCH_BTN), '画面に［ローカル AI を使う（数 GB を取り込む）］が無い');
+// 0.10.0 LS-5（D59）で意図して変えた: 要約の組を外して取り込みが約 0.6GB になり、ボタンの数は今の計算（画面の文は `約 ${fetchGB(need)}`）
+const FETCH_BTN = 'ローカル AI を使う（約 0.6GB を取り込む）';
+test('0.9.0: README・INSTALL は手順3を任意と書き、ログインを先に書く。［ローカル AI を使う（約 …GB を取り込む）］は画面にある', () => {
+  assert.ok(app.includes('ローカル AI を使う（約 ${fetchGB(need)} を取り込む）'), '画面に［ローカル AI を使う（約 …GB を取り込む）］が無い');
   // 0.9.3 M-0（D54）で意図して変えた: 手順3 の見出しと取り込みのボタンは「ローカル AI を使う」、PC の中だけの会議は「オフラインモード」
-  const step3 = '## 手順3.（任意）ローカル AI を使う（約 5.6GB を取り込む）';
+  const step3 = '## 手順3.（任意）ローカル AI を使う（約 0.6GB を取り込む）';
   assert.ok(install.includes(`\n${step3}\n`), 'INSTALL の手順3 の見出しが任意の形でない');
   const login = install.indexOf('\n## ログインする');
   assert.ok(login > 0 && login < install.indexOf(`\n${step3}`), 'INSTALL のログインの手順が手順3 の前に無い');
@@ -336,7 +340,7 @@ test('0.9.0: README・INSTALL は手順3を任意と書き、ログインを先�
   assert.ok(readme.includes(`［${FETCH_BTN}］`) && readme.includes('任意'), 'README に任意の取り込みが無い');
   const ps = read('get-installer.ps1');
   assert.ok(ps.includes('インストールしたら NaTsu を起動し、［設定］→［アカウント］でログインしてください。'), 'get-installer.ps1 の終わりの案内がログインを先に言わない');
-  assert.ok(ps.includes(`ローカル AI を使うときは、［設定］→［ローカル AI］の［${FETCH_BTN}］を押します（約 5.6GB。途中で切れても続きから取ります）。`));
+  assert.ok(ps.includes(`ローカル AI を使うときは、［設定］→［ローカル AI］の［${FETCH_BTN}］を押します（途中で切れても続きから取ります）。要約は、つながっているときに Claude Code で作ります。`));
 });
 
 const SECS = (() => {
@@ -492,4 +496,32 @@ test('0.9.4: CHANGELOG の 0.9.4 の節（計画の下書きから移した）�
   for (const n of names) assert.ok(src.includes(n), `0.9.4 の節の［${n}］が src/ に無い`);
   for (const q of ['AI 議事録を始める', '相手の声を録れません', 'ローカル AI']) assert.ok(src.includes(q), `0.9.4 の節の「${q}」が画面に無い`);
   assert.ok(!/notion/i.test(sec) && !/(?<![\w-])[a-z0-9-]+\.cloudflareaccess\.com/i.test(sec), '0.9.4 の節に書いてはいけない字面がある');
+});
+
+// 0.10.0 LN-3（D72・決めたこと 144・設計書 L5）: インストーラーが natsu:// を利用者ごとに登録する（HKCU。管理者の権限は要らない。消すときに外れる）
+test('LN-3: build.protocols は natsu の1つ（名前「NaTsu の議事録」）', () => {
+  assert.deepStrictEqual(pkg.build.protocols, [{ name: 'NaTsu の議事録', schemes: ['natsu'] }]);
+  assert.strictEqual(pkg.build.nsis.perMachine, false, '利用者ごとの入れ方でないと HKCU に書けない');
+});
+
+// 0.10.0（計画 docs/plans/2026-10-20-100.md の「CHANGELOG の 0.10.0 の節（下書き）」）: 版を 0.10.0 に上げる commit で、G-1 で画面の言葉に合わせた下書きを
+// CHANGELOG.md の頭（0.9.4 の節の上）へ移した。計画には「移した」の1行だけを残す
+test('0.10.0: CHANGELOG の 0.10.0 の節（計画の下書きから移した）は 0.9.4 の節の上にあり、Claude から読むこと・Anthropic へ送られること（オフラインモードの会議も）・リンク・ポータブル版をやめること・要約は Claude Code だけ・要約待ちを書き、引いた［…］と画面の文はどれも src/ にある', () => {
+  const cl = read('CHANGELOG.md');
+  assert.ok(cl.includes('\n## natsu-v0.10.0\n'), 'CHANGELOG.md に 0.10.0 の節が無い');
+  const sec = secOf(cl, '## natsu-v0.10.0');
+  assert.ok(cl.indexOf('## natsu-v0.10.0') < cl.indexOf('## natsu-v0.9.4'), '0.10.0 の節が 0.9.4 の節の上に無い');
+  const plan = read('docs/plans/2026-10-20-100.md');
+  const d = plan.indexOf('\n### CHANGELOG の 0.10.0 の節（下書き）\n');
+  assert.ok(d >= 0, '計画に「CHANGELOG の 0.10.0 の節（下書き）」の見出しが無い');
+  assert.ok(!plan.slice(d, plan.indexOf('\n## ', d + 2)).includes('［更新して再起動］'), '計画に下書きの本文が残っている（移したら「移した」の1行にする）');
+  for (const w of ['［更新して再起動］', 'Claude デスクトップ', 'Claude（Anthropic）へ送られます', '［オフラインモード］', '学習', '読むだけ', '［リンクを写す］', '［選ぶ］',
+    'ポータブル版', '0.9.4', '要約待ち（つながったら作ります）', '約 5 GB', '約 0.6 GB', '守秘', 'NaTsu が起動しています']) assert.ok(sec.includes(w), `0.10.0 の節に「${w}」が無い`);
+  for (const w of ['llama', 'Gemma', 'D62', 'D63', '外へ送りません']) assert.ok(!sec.includes(w), `0.10.0 の節に「${w}」がある`);
+  const src = ['src/renderer/app.html', 'src/renderer/overlay.html', 'src/renderer/nudge.html', 'src/main.js', 'src/mainlib.js'].map(read).join('\n');
+  const names = [...new Set([...sec.matchAll(/［([^］]+)］/g)].map((m) => m[1]))];
+  assert.ok(names.length >= 5, `引いた［…］が少ない: ${names.join('・')}`);
+  for (const n of names) assert.ok(src.includes(n), `0.10.0 の節の［${n}］が src/ に無い`);
+  for (const q of ['Claude との連携（MCP）', '要約待ち（つながったら作ります）']) assert.ok(src.includes(q), `0.10.0 の節の「${q}」が画面に無い`);
+  assert.ok(!/notion/i.test(sec) && !/(?<![\w-])[a-z0-9-]+\.cloudflareaccess\.com/i.test(sec), '0.10.0 の節に書いてはいけない字面がある');
 });

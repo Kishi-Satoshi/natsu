@@ -101,6 +101,7 @@ test('fmtClock が時:分:秒を組み立てる', () => {
 
 test('blocksToMarkdown が議事録と文字起こしを書き出す', () => {
   const page = {
+    // 利用者が付け直した題名（D77。題名の語に頼るため）
     title: '週次定例',
     createdAt: '2026-10-05T09:00:00.000Z',
     durationSec: 1830,
@@ -129,12 +130,14 @@ test('blocksToMarkdown が議事録と文字起こしを書き出す', () => {
 });
 
 test('メモが無ければメモ節を出さない', () => {
+  // 利用者が付け直した題名（D77。題名の語に頼るため）
   const page = { title: 'A', createdAt: '2026-10-05T09:00:00.000Z', durationSec: 0, memo: '   ', blocks: [] };
   assert.ok(!blocksToMarkdown(page, []).includes('メモ・アジェンダ'));
 });
 
 test('書き出し → 読み戻しで議事録の中身が保たれる', () => {
   const page = {
+    // 利用者が付け直した題名（D77。題名の語に頼るため）
     title: 'T', createdAt: '2026-10-05T09:00:00.000Z', durationSec: 0, memo: '',
     blocks: [
       { type: 'heading', text: 'アクションアイテム' },

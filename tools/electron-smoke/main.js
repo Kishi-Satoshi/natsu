@@ -3,7 +3,7 @@
  *
  * 走らせ方（Electron の main として。窓は見せない）:
  *   node_modules/electron/dist/electron.exe tools/electron-smoke
- * 次の 17 を確かめる（CHECKS）。
+ * 次の 18 を確かめる（CHECKS）。
  *   1〜4. utilityProcess と MessageChannelMain の口で、sandbox の隠れた窓（preload）と往復する。子を落として起こし直す。
  *         子の中で node:sqlite を開く。kill() の終わりの番号を見る
  *   5・6. mainlib の copyPrivate・deliverText を本物の clipboard で動かす（44 では Promise を返す。C1）
@@ -44,7 +44,11 @@
  *         resizable: false・focusable: false・hasShadow: false）に setBounds で 252×56 → 56×252 → 436×56 を当て、getBounds() の幅と高さが
  *         ちょうど同じ整数で返るか。CI では拡大率 1 の全部の起動と、--only=17 --scale=1.25（17 だけを拡大率 1.25 で。force-device-scale-factor
  *         を ready の前に当てる）の2回目の起動の両方で見る。resizable: false の窓で大きさが替わらない・拡大率で1点ずれる振る舞いはここで赤になる
- * 結果は 1 行ずつ OK／NG で出す。17 件（--only=17 なら 17 だけ）そろって全部 OK なら終了コード 0、そうでなければ 1（exitCodeOf）。
+ *   18.   0.10.0 LN-3（D72・決めたこと 144。protocolCheck。判定は純粋な protocolResults）: 本物の app.setAsDefaultProtocolClient('natsu', execPath, ['--'])
+ *         の後に、Windows の reg query で HKCU\Software\Classes\natsu\shell\open\command の既定の値を読み、ちょうど "<exe>" -- "%1" の形かを見る
+ *         （-- の後ろは Chromium と Electron の引数として読まれない）。確かめた後に removeAsDefaultProtocolClient で外す（CI の使い捨ての機械だけ。
+ *         利用者の登録には触らない）。Windows のほかは確かめない（OK）
+ * 結果は 1 行ずつ OK／NG で出す。18 件（--only=17 なら 17 だけ）そろって全部 OK なら終了コード 0、そうでなければ 1（exitCodeOf）。
  * どこかで止まっても、90 秒の見張りで 1 で終わる。
  *
  * Electron を読むのは、Electron の main として動いたときだけ（下の boot。tools/net-smoke.js と同じ形）。
@@ -89,6 +93,7 @@ const CHECKS = [
     + 'X-Requested-With が付き、redirect: manual の 302 についていかない。Partitions のフォルダを作らない（Secure は観測。置けなければ Windows で https の 16b）。'
     + 'ログインの窓の守り（16c）: security.install を付けたまま、ログインの partition の窓だけ許した行き先へのフォームの送りが通り、ほかは止まる'],
   [17, '録音バーの窓（透過・枠なし・resizable: false・focusable: false・影なし）に setBounds で当てた横・縦・伸ばした横の大きさが、getBounds にちょうど同じ整数で返る'],
+  [18, 'natsu:// の登録（0.10.0 LN-3）: setAsDefaultProtocolClient(natsu, execPath, [--]) の後、Windows の HKCU\\Software\\Classes\\natsu\\shell\\open\\command がちょうど "<exe>" -- "%1"。確かめた後に外す'],
 ];
 // 17 で当てる大きさ（横の記録中・縦の記録中・文を伸ばした横。どれも panelBounds の答えの形）
 const PANEL_SIZES = [[252, 56], [56, 252], [436, 56]];
@@ -123,8 +128,8 @@ const PRELOAD_REAL = path.join(ROOT, 'src', 'preload.js');
 // 15 の見本（人の名前は使わない）。送り先の表示の名前は main が init で渡すもの（routeText を DB のプロセスが添える）
 const SMOKE_DB = Object.freeze({
   pageId: 'psmoke2a1',
-  title: '見本',
-  newTitle: '直した',
+  title: require('../../src/mainlib').meetingTitleAt('2026-10-18T01:00:00.000Z', 540),   // 0.10.0 SH-2（D77）: 本物と同じ日付の形
+  newTitle: '直した',   // 利用者が付け直した題名（D77。題名の語に頼るため）
   labels: Object.freeze({ openai: 'OpenAI' }),
 });
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -456,6 +461,7 @@ function boot() {
     results.push(...await onlineChecks({ app, net, safeStorage }));
     results.push(...await accessChecks({ app, net, session, BrowserWindow }));
     results.push(...await panelCheck({ BrowserWindow, screen: require('electron').screen, want: scale || 1 }));
+    results.push(...await protocolCheck({ app }));
     finish(app, results);
   }, die('起動の失敗'));
 }
@@ -1050,6 +1056,34 @@ function panelResults(o) {
   return [{ n: 17, ok: same && scaled, note }];
 }
 
+// 18: natsu:// の登録（Windows だけ。確かめた後に外す）
+async function protocolCheck({ app }) {
+  if (process.platform !== 'win32') return protocolResults({ platform: process.platform });
+  const o = { platform: process.platform, exe: process.execPath, set: false, value: '', removed: false };
+  try {
+    o.set = app.setAsDefaultProtocolClient('natsu', process.execPath, ['--']) === true;
+    const out = await new Promise((resolve) => {
+      execFile('reg', ['query', 'HKCU\\Software\\Classes\\natsu\\shell\\open\\command', '/ve'], { windowsHide: true, timeout: 10000 },
+        (err, stdout) => resolve(err ? '' : String(stdout || '')));
+    });
+    o.value = regDefaultValue(out);
+  } catch (e) { o.error = msgOf(e); }
+  try { app.removeAsDefaultProtocolClient('natsu', process.execPath, ['--']); o.removed = !app.isDefaultProtocolClient('natsu', process.execPath, ['--']); } catch (e) { o.error = o.error || msgOf(e); }
+  return protocolResults(o);
+}
+// reg query の答えから既定の値（REG_SZ の後ろ）を取る。無ければ ''
+function regDefaultValue(stdout) {
+  const m = /REG_SZ[ \t]+(.*?)\s*$/m.exec(String(stdout || ''));
+  return m ? m[1] : '';
+}
+// 18 の判定（純粋）
+function protocolResults(o) {
+  if (!o || o.platform !== 'win32') return [{ n: 18, ok: true, note: 'Windows でだけ確かめる（このOSは確かめない）' }];
+  const want = `"${o.exe}" -- "%1"`;
+  const ok = o.set === true && o.value === want && o.removed === true;
+  return [{ n: 18, ok, note: `登録 ${o.set}・コマンド ${JSON.stringify(o.value)}（求めるのは ${JSON.stringify(want)}）・外した ${o.removed}${o.error ? `・失敗 ${o.error}` : ''}` }];
+}
+
 if (process.versions.electron && process.type === 'browser') boot();
 else if (require.main === module) {
   console.error('electron-smoke は Electron の main として動かす: <electron の実行ファイル> tools/electron-smoke');
@@ -1057,4 +1091,4 @@ else if (require.main === module) {
 }
 
 module.exports = { CHECKS, SMOKE_STT, SMOKE_DB, exitCodeOf, clipboardChecks, securityResults, onlineResults, dbResults, accessResults, reEncryptCheck, finish,
-  PANEL_SIZES, panelResults, checksFor, scaleFor };
+  PANEL_SIZES, panelResults, checksFor, scaleFor, protocolResults, regDefaultValue };

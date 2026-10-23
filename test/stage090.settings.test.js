@@ -5,6 +5,7 @@
  * 音声入力の録音中に本体の窓が前にあれば Esc を全体のホットキーにしない（場面 esc-focus。helpers/mainrun.js）。
  */
 'use strict';
+const { titleAt } = require('./helpers/titles');
 
 const test = require('node:test');
 const assert = require('node:assert');
@@ -22,8 +23,8 @@ const preloadWith = (...names) => names.reduce((src, n) => (new RegExp(`^\\s+${n
 const P1B = preloadWith('uiState', 'uiSave', 'meetingSetPaused');
 const T = { timeout: 5000 };
 const fmt = (e) => `${e.constructor.name}: ${e.message}`;
-const LIST = [{ id: 'pa1', title: '定例（見本）', date: '10/16', durationSec: 1800, hasSummary: true },
-  { id: 'pb2', title: '設計の打ち合わせ（見本）', date: '10/15', durationSec: 900, hasSummary: false }];
+const LIST = [{ id: 'pa1', title: titleAt('2026-10-16T01:00:00.000Z'), date: '10/16', durationSec: 1800, hasSummary: true },
+  { id: 'pb2', title: titleAt('2026-10-09T05:00:00.000Z'), date: '10/15', durationSec: 900, hasSummary: false }];
 const PAGE = (id) => ({ page: { id, title: LIST.find((p) => p.id === id).title, createdAt: '2026-10-16T01:00:00.000Z', durationSec: 1800, blocks: [], memo: '', meetingType: 'general' }, segments: [] });
 const UI = (tabs = { open: [], active: '' }) => () => ({ sidebar: { width: 260, collapsed: false }, tabs });
 const open = (o = {}) => load(APP, { preloadSrc: P1B, returns: { pagesSearch: () => LIST, pageGet: PAGE, uiState: UI(), ...o } });
@@ -290,7 +291,7 @@ test('SP1・F13: 開いている間に、記録が始まって録音中のタブ
   assert.ok($(p, 'tabSettings').classList.contains('active'));
   await click(p, 'setClose');
   assert.deepStrictEqual(keysOf(p), ['page:pb2']);
-  assert.strictEqual($(p, 'pTitle').textContent, '設計の打ち合わせ（見本）', '閉じた後ろがそのページでない');
+  assert.strictEqual($(p, 'pTitle').textContent, titleAt('2026-10-09T05:00:00.000Z'), '閉じた後ろがそのページでない');
   assert.deepStrictEqual([...l.errors, ...p.errors].map(fmt), []);
 });
 
@@ -398,6 +399,8 @@ const CARDS = [
   ['record', '文字起こし', ['認識言語', '文字起こし後、カーソル位置へ自動貼り付け', 'フィラー除去']],
   ['record', 'ユーザー辞書（認識ヒント）', ['ユーザー辞書', '業務でよく使う言葉のヒントも渡す']],
   ['summary', '要約（Claude Code）', ['Claude Code', 'Claude Code の場所']],
+  // 0.10.0 C-3（MR8）で意図して足した: 要約（Claude Code）の次にカード「Claude との連携（MCP）」（行は1つ。D64 で Claude Code の行は作らない）
+  ['summary', 'Claude との連携（MCP）', ['Claude デスクトップから読む']],
   // 0.9.3 M-0（D54）で意図して変えた: カードの名前は「ローカル AI」
   ['offline', 'ローカル AI', ['PC の中の文字起こし', 'PC の中の文字起こしを取り込む', '詳細設定']],
   ['update', 'アップデート', ['更新を確認']],
@@ -410,8 +413,9 @@ const ROW_IDS = {
   使用するマイク: ['micSelect', 'micReloadBtn'], 議事録で相手の声も録る: ['useSystemAudio'], 録音されるスピーカー: ['spkNow', 'spkReloadBtn', 'spkSettingsBtn'], 認識言語: ['language'],
   話し声が無いときに自動で止める: ['autoStopQuiet'], 知らせるまでの時間: ['autoStopMin'],
   '文字起こし後、カーソル位置へ自動貼り付け': ['autoPaste'], フィラー除去: ['removeFillers'], ユーザー辞書: ['dictionary', 'dictWarn'], 業務でよく使う言葉のヒントも渡す: ['useBuiltinTerms'],
-  'Claude Code': ['claudeState', 'claudeTest', 'claudeLogin', 'claudeInstall', 'claudeHelp'], 'Claude Code の場所': ['claudeExe'], 'PC の中の文字起こし': ['engineState', 'testBtn'],
-  'PC の中の文字起こしを取り込む': ['engineFetchBtn', 'engineFetchSummary'], 詳細設定: ['localServerExe', 'sumCtx', 'engineIdleMin'], 更新を確認: ['verNow', 'chkUpdBtn', 'applyUpdBtn', 'updMsg'],
+  'Claude Code': ['claudeState', 'claudeTest', 'claudeLogin', 'claudeInstall', 'claudeHelp'], 'Claude Code の場所': ['claudeExe'], 'Claude デスクトップから読む': ['mcpDesktopState', 'mcpRegister', 'mcpUnregister'], 'PC の中の文字起こし': ['engineState', 'testBtn'],
+  'PC の中の文字起こしを取り込む': ['engineFetchBtn', 'engineFetchSummary'], 詳細設定: ['localServerExe', 'localThreads', 'engineIdleMin'],   // 0.10.0 LS-3 で要約の文脈長（sumCtx）の欄を外した
+  更新を確認: ['verNow', 'chkUpdBtn', 'applyUpdBtn', 'updMsg'],
 };
 const cardsOf = (root) => root.querySelector('#tabSettings').querySelector('.scroll').children.filter((c) => c.classList.contains('card'));
 const titleOf = (c) => c.querySelector('h2').textContent.trim();
@@ -449,7 +453,12 @@ test('SP4: カードの data-sec と見出しの並びが「設定の項目と�
 // 0.9.2 I-3 で意図して変えた: 「アカウント」「一般」「オフライン」「更新」の説明も1行にした（議事録ホットキーの「左右の Alt」は名前の下の1行へ・ログインの
 // 2つの説明は1行と吹き出しへ: 説明 20 → 18。I-2 の値は c1ab8733…・bbc9b31d…）
 // 0.9.3 M-4 で意図して変えた: カード「会議の検出」の label を3つ足した（名前の label for・トグルを包む label.check・通知を出さないアプリの名前。34 → 37。前の値は e1329af4…）
-const TEXTS_080 = { labels: [37, '38f5bece35ad38c1f2bb5a0ca76c871476d80df7112fe907f907cdb0fefd5002'], descs: [18, 'ce9122946c75b8ee9f4ab660dce671e2feadcab72746c71b75d90527b913ed46'] };
+// 0.10.0 C-3 で意図して変えた: カード「Claude との連携（MCP）」の行の名前の label を1つ（37 → 38。前の値は 38f5bece…）と、説明を3つ（頭の1行・注意の1行・
+// 行の1行。18 → 21。前の値は ce912294…）足した
+// 0.10.0 LS-3（D59）で意図して変えた: 詳細設定の要約の欄の label を5つ（パス・モデル・スレッド・ポート・文脈長）外した（38 → 33。前の値は c8ceaee5…）と、
+// 説明を直した（カードの頭の1行の「要約」を外し・要約の欄の説明の3つを外した）
+// 持ち主の答え（2026-10-23）で意図して変えた: カード「Claude との連携（MCP）」の頭の1行から「Claude Code」を外した（説明の数は 18 のまま。前の値は 89206c38…）
+const TEXTS_080 = { labels: [33, 'df73640513aa5a2ee0126bbb437c801be6f1c2befefcd73c7805890f49f08d74'], descs: [18, '5bc6662f8d9f15cf2ba4f83f32ac15c082b86bc7c218da09b4ca5caf23a0735a'] };   // 説明 21 → 18（LS-3 の前の値は aed31061…）
 test('SP4: 動かした入力の id が全部あり、その行の中にある。文が 0.8.0 と同じ（label の文・.check の文・説明の文）', T, () => {
   const sec = doc.querySelector('#tabSettings');
   for (const [name, ids] of Object.entries(ROW_IDS)) {
@@ -484,7 +493,7 @@ test('SP4: 『録音』を選ぶと、録音バー・マイクと相手の声・
   assert.deepStrictEqual(shownCards(l), ['会議の検出', '録音バー', 'マイクと相手の声', '話し声が無いとき', '文字起こし', 'ユーザー辞書（認識ヒント）']);   // 0.9.3 M-4 で意図して足した
   assert.strictEqual($(l, 'setTitle').textContent, '録音');
   assert.ok(visible($(l, 'openDataBtn')) && visible($(l, 'saveMsg')), '保存の文と［データ保存先を開く］が隠れた');
-  for (const [sec, want] of [['account', ['アカウント']], ['summary', ['要約（Claude Code）']], ['offline', ['ローカル AI']], ['update', ['アップデート']]]) {
+  for (const [sec, want] of [['account', ['アカウント']], ['summary', ['要約（Claude Code）', 'Claude との連携（MCP）']], ['offline', ['ローカル AI']], ['update', ['アップデート']]]) {
     await pick(l, sec);
     assert.deepStrictEqual(shownCards(l), want, sec);
   }
@@ -515,7 +524,8 @@ test('SP5: 『マイク』で使用するマイクの行だけ、『ﾏｲｸ』
     assert.strictEqual(secOf(l), '(0 個)', '検索の間も左の列の項目を選んだまま');
   }
   await search(l, 'CLAUDE');
-  assert.deepStrictEqual(shownRows(l), ['Claude Code', 'Claude Code の場所']);
+  // 0.10.0 C-3 で意図して変えた: カード「Claude との連携（MCP）」の行「Claude デスクトップから読む」も当たる（小見出しは同じ「要約」）
+  assert.deepStrictEqual(shownRows(l), ['Claude Code', 'Claude Code の場所', 'Claude デスクトップから読む']);
   assert.deepStrictEqual(groups(), ['要約']);
   // 項目をまたぐ当たりは、項目ごとの小見出しの下に（左の列の順）
   // 0.9.2 I-2 で意図して変えた: 説明（トレイに残す）と吹き出し（相手の声の「音声入力（ホットキー）」）でも当たる
@@ -524,7 +534,8 @@ test('SP5: 『マイク』で使用するマイクの行だけ、『ﾏｲｸ』
   assert.deepStrictEqual(groups(), ['一般', '録音']);
   // 0.9.2 I-3 で意図して変えた: アカウントのカードの頭（「…クラウドで文字起こしします。」）でも当たる
   await search(l, '文字起こし');
-  assert.deepStrictEqual(groups(), ['アカウント', '録音', 'ローカル AI']);   // 0.9.3 M-0（D54）で意図して変えた
+  // 0.10.0 C-3 で意図して変えた: カード「Claude との連携（MCP）」の吹き出し（「…メモ・文字起こしは、Claude（Anthropic）へ送られます」）でも当たる
+  assert.deepStrictEqual(groups(), ['アカウント', '録音', '要約', 'ローカル AI']);   // 0.9.3 M-0（D54）で意図して変えた
   // 0.9.2 I-2 で意図して変えた: 吹き出しの中の言葉でも当たる（前は「説明の長い文の中までは探さない」）。文字起こしのカードの頭が出る（行は出ない）
   // 0.9.2 I-3 で意図して変えた: ログインの行の吹き出し（「…OpenAI で文字起こしします」）でも当たる
   await search(l, 'OpenAI');
@@ -595,7 +606,7 @@ test('SP5: 検索の欄で Esc を押すと文字が消えて、前の項目に�
   assert.ok(isOpen(l), '検索の欄の Esc で閉じた');
   assert.strictEqual(sb.value, '', '文字が消えない');
   assert.strictEqual(secOf(l), 'summary', '前の項目に戻らない');
-  assert.deepStrictEqual(shownCards(l), ['要約（Claude Code）']);
+  assert.deepStrictEqual(shownCards(l), ['要約（Claude Code）', 'Claude との連携（MCP）']);   // 0.10.0 C-3 で意図して足した
   await key(l, { key: 'Escape' }, sb);
   assert.ok(!isOpen(l), '空の検索の欄の Esc で閉じない');
   await click(l, 'tabBtnSettings');
@@ -639,7 +650,8 @@ test('SP5: data-row の名前はどれも、その行のラベル（label の文
 // 0.8.0 の自動保存の引数（simrun の既定の getSettings を読んで、何も変えずに #tabSettings の change を起こしたとき）
 // 0.9.0 O-4（RP1）で意図して変えた（統合で当てた）: 録音バーの置き場所は pillPos でなく pillSlot（置き場所の名前。既定は bottom-center）で保存する
 const SAVED_080 = { localServerExe: 'C:\\srv\\whisper.exe', localModelPath: 'C:\\m\\ggml.bin', localThreads: 4, localPort: 8990, vadModelPath: '', useVad: true, suppressNst: true,
-  sumServerExe: 'C:\\srv\\sum.exe', sumModelPath: 'C:\\m\\sum.gguf', sumThreads: 4, sumPort: 8991, sumCtx: 16384, engineIdleMin: 10, hotkey: 'Control+Shift+Space', meetingHotkey: 'Alt+M',
+  engineIdleMin: 10,   // 0.10.0 LS-3（D59）で意図して直した: 要約のエンジンの5つ（sumServerExe など）を送らない
+  hotkey: 'Control+Shift+Space', meetingHotkey: 'Alt+M',
   segmentSec: 75, pillSlot: 'bottom-center', micId: '', language: 'ja', autoPaste: true, removeFillers: true, soundFeedback: true, autoLaunch: false, dictionary: ['固有名詞'],
   useBuiltinTerms: true, stayInTray: false, theme: 'system', useSystemAudio: false, claudeExe: '',
   // 0.9.1 Q-3（D29）で意図して変えた: 話し声が無いときに自動で止める（読んだ設定に無ければ既定のオン・10 分で送る）
@@ -805,7 +817,7 @@ test('見た目の直し（モック 案C）: 設定の行は、名前（と説�
   // 0.9.2 I-3 で意図して変えた: ログインの行も名前（と ⓘ）が左・［ログイン］が右の2列
   // 0.9.3 M-4 で意図して変えた: 「通知を出さないアプリ」も名前が左・札が右の2列
   assert.deepStrictEqual(doc.querySelectorAll('.frow').map((f) => f.dataset.row), ['ログイン', '外観', '音声入力ホットキー', '議事録ホットキー', '通知を出さないアプリ', '録音バーの置き場所', '使用するマイク',
-    '録音されるスピーカー', '知らせるまでの時間', '認識言語', 'Claude Code', 'Claude Code の場所']);
+    '録音されるスピーカー', '知らせるまでの時間', '認識言語', 'Claude Code', 'Claude Code の場所', 'Claude デスクトップから読む']);   // 0.10.0 C-3 で意図して足した（.fstack で縦に積む行）
   for (const [id, name] of Object.entries(TWO_COL)) {
     const field = doc.querySelector(`#${id}`).closest('.field');
     assert.ok(field.classList.contains('frow'), `#${id} の欄が2列（.frow）でない`);

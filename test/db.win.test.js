@@ -70,6 +70,7 @@ test('RF18: 別のプロセスが natsu.db を読み取り専用で開いたま�
   try {
     await S.take({ sqlite, db: d.db, dataDir: d.dataDir, kind: 'daily', now: () => new Date('2026-10-18T03:00:00Z') });
     // 控えの後の直し（戻すと控えの時点になる。直した題は退けた natsu.db.broken-… に残っていなければならない）
+    // 利用者が付け直した題名（D77。題名の語に頼るため）
     assert.ok(core.call(d.db, { role: 'app', cmd: 'page.setTitle', args: { id: d.ids[0], title: '控えの後に直した題' }, tx: 'a:win-after-backup' }, {}).ok);
     d.close();
     const f = path.join(d.dataDir, 'natsu.db');
@@ -166,6 +167,7 @@ test('NTFS の上の WAL: 別のプロセスの読み取りの接続は、確定
     child.send('read');
     assert.strictEqual(await child.line(), 'T 確定する前の題', '確定した行が別のプロセスから見えない');
     // 命令の台（core.call）で書いたものも、次の読みで見える
+    // 利用者が付け直した題名（D77。題名の語に頼るため）
     assert.ok(core.call(d.db, { role: 'app', cmd: 'page.setTitle', args: { id, title: '命令で直した題' }, tx: 'a:win-wal-reader' }, {}).ok);
     child.send('read');
     assert.strictEqual(await child.line(), 'T 命令で直した題');

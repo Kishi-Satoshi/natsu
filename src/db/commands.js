@@ -41,8 +41,10 @@
 const crypto = require('node:crypto');
 const { isCitable, refreshCitations, searchFold } = require('../cite');
 const { parseDue } = require('../actions');
-const { routeLabel } = require('../mainlib');
+const { routeLabel, summaryLock } = require('../mainlib');
 const R = require('../pagerules');
+// 議事録の経過（0.10.0 K-1。決めたこと 116）: 締め・復旧のページの stateLog は表の鍵の項目だけを残す
+const SL = require('../statelog');
 const { diffPage, diffSegments, applyOps } = require('./ops');
 const S = require('./search');
 
@@ -144,9 +146,18 @@ function forWrite(db, id) {
 }
 
 // ページを1つ直す命令の形: fn(page) が直す（false を返したら何も書かずに null）。答えは書いた後のページ（今の savePage の答え）
-function editPage(db, id, ctx, fn) {
+// 0.10.0 LS-2（D63・D69・O8・決めたこと 111）: 要約の欄を直す命令（summary: true）は、ページの欄と発言から mainlib.summaryLock を見て、
+// 鍵なら locked で断る（画面の外の道からも直せない）。making（要約を作っている間）は DB からは分からないので見ない。
+// 要約を保存する命令（page.put）とメモ・題名・種類の命令は鍵を見ない
+function summaryLockedPage(db, page) {
+  const live = isObj(page.meeting) && LIVE_PHASES.includes(page.meeting.phase);
+  return summaryLock(page, { live, segments: readSegments(db, page.id) }) !== '';
+}
+
+function editPage(db, id, ctx, fn, { summary = false } = {}) {
   const w = forWrite(db, id);
   if (!w) return { ops: [], pageIds: [], result: null };
+  if (summary && summaryLockedPage(db, w.was.page)) throw refuse('locked');
   if (fn(w.page) === false) return { ops: [], pageIds: [], result: null };
   const ops = saveOps(w.was, w.page, ctx.now);
   applyOps(db, ops);
@@ -179,13 +190,15 @@ function cacheOf(db) {
   return m;
 }
 
-// 一覧に出すページの行（新しい順。ゴミ箱と録音中の写しを除く）→ [{ id, key }]
+// 一覧に出すページの行（新しい順。ゴミ箱と録音中の写しを除く）→ [{ id, key, attrs }]。attrs は読んだ物（0.10.0 R-2: MCP の読み手が
+// 出さない会議の判定と日付の絞りに使う。録音中の写しを外すためにもう読んでいるので、読み直さない）
 function listedRows(db) {
   const out = [];
   for (const r of db.prepare(HOT_QUERIES.list).all()) {
     if (r.trashed_at !== null && r.trashed_at !== undefined) continue;
-    if (isLive(JSON.parse(r.attrs || '{}'))) continue;
-    out.push({ id: r.id, key: keyOfRow(r) });
+    const attrs = JSON.parse(r.attrs || '{}');
+    if (isLive(attrs)) continue;
+    out.push({ id: r.id, key: keyOfRow(r), attrs, createdAt: r.created_at });
   }
   return out;
 }
@@ -226,15 +239,21 @@ function searchView(db) {
   };
 }
 
-// アクションタブの1画面分（今の store.actionView と同じ答え。ToDo のあるページだけ読む）
-function actionView(db, { q, assignee } = {}) {
+// 一覧の1行（0.10.0 R-2: MCP の読み手が絞った行だけを1行にする。覚えは接続ごとなので、呼び出しごとに開く読み手では空から）
+function entryOf(db, row) {
+  return entryFor(db, cacheOf(db), row);
+}
+
+// アクションタブの1画面分（今の store.actionView と同じ答え。ToDo のあるページだけ読む）。rows は一覧に出す行（0.10.0 R-2: MCP の読み手は
+// 出さない会議を除いた行を渡す。省略は listedRows の全部。外す判定は listedRows の1か所のまま）
+function actionView(db, { q, assignee } = {}, rows = listedRows(db)) {
   const fq = searchFold(q);
   const who = String(assignee || '');
   const withTodo = new Set(db.prepare(HOT_QUERIES.todoPages).all().map((r) => r.page_id));
   const counts = new Map();
   const actions = [];
   let total = 0;
-  for (const { id } of listedRows(db)) {
+  for (const { id } of rows) {
     if (!withTodo.has(id)) continue;
     const page = readPage(db, id);
     if (!page) continue;
@@ -318,6 +337,7 @@ function meetingPage(pageId, src, now, { recovered }) {
   };
   if (isObj(p.route)) page.route = clone(p.route);
   if (Array.isArray(p.pauses)) page.pauses = R.cleanPauses(p.pauses);
+  if (Array.isArray(p.stateLog)) page.stateLog = SL.cleanStateLog(p.stateLog);
   if (typeof p.summaryError === 'string' && p.summaryError) {
     // 今の復旧は createPage の後に summaryError を入れて savePage する（そのときだけ citeStat ができる）
     page.summaryError = p.summaryError;
@@ -462,6 +482,9 @@ const DEFS = {
     run: (db, a) => ({ result: S.searchFull(db, a.q || '', a.limit, searchView(db)) }) },
   'pages.actionView': { roles: ['app', 'main'], write: false, args: { q: 'text?', assignee: 'short?' },
     run: (db, a) => ({ result: actionView(db, a) }) },
+  // 0.10.0 LS-2（決めたこと 104）: 要約待ちのページ（一覧に出るページのうち summaryWait が真）。main の見回りが mainlib.summaryRetryPick に渡す
+  'pages.summaryWaits': { roles: ['main'], write: false, args: {},
+    run: (db) => ({ result: listedRows(db).filter((r) => r.attrs.summaryWait === true).map((r) => ({ id: r.id, createdAt: r.createdAt || '', summaryWait: true })) }) },
   'page.get': { roles: ['app', 'main'], write: false, args: { id: 'id' },
     run: (db, a, ctx) => {
       const page = readPage(db, a.id);
@@ -499,7 +522,7 @@ const DEFS = {
       if (typeof patch.checked === 'boolean') b.checked = patch.checked;
       if (typeof patch.type === 'string') b.type = patch.type;
       return true;
-    }),
+    }, { summary: true }),
     dupResult: reread },
   // afterBlockId が '' か見つからなければ末尾に足す（今の store.insertBlock と同じ）
   'block.insert': { roles: ['app', 'main'], write: true, args: { pageId: 'id', afterBlockId: 'idOrEmpty', type: 'name?' },
@@ -510,7 +533,7 @@ const DEFS = {
         const block = { id: blockId, type: a.type || 'bullet', text: '', cites: [], citeState: 'manual' };
         const i = p.blocks.findIndex((x) => x.id === a.afterBlockId);
         if (i >= 0) p.blocks.splice(i + 1, 0, block); else p.blocks.push(block);
-      });
+      }, { summary: true });
       return { ...out, result: out.result ? { page: out.result, blockId } : null };
     },
     dupResult: (db, a, row) => {
@@ -520,7 +543,7 @@ const DEFS = {
       return { page, blockId: add ? add.id : null };
     } },
   'block.remove': { roles: ['app', 'main'], write: true, args: { pageId: 'id', blockId: 'id' },
-    run: (db, a, ctx) => editPage(db, a.pageId, ctx, (p) => { p.blocks = p.blocks.filter((x) => x.id !== a.blockId); }),
+    run: (db, a, ctx) => editPage(db, a.pageId, ctx, (p) => { p.blocks = p.blocks.filter((x) => x.id !== a.blockId); }, { summary: true }),
     dupResult: reread },
   // toIndex は「動かす行を抜いたあとの」挿入位置（今の store.moveBlock）
   'block.move': { roles: ['app', 'main'], write: true, args: { pageId: 'id', blockId: 'id', toIndex: 'num' },
@@ -531,7 +554,7 @@ const DEFS = {
       const to = Math.max(0, Math.min(Math.trunc(Number(a.toIndex) || 0), p.blocks.length));
       p.blocks.splice(to, 0, b);
       return true;
-    }),
+    }, { summary: true }),
     dupResult: reread },
   'block.setAction': { roles: ['app', 'main'], write: true, args: { pageId: 'id', blockId: 'id', assignee: 'short?', dueRaw: 'short?' },
     run: (db, a, ctx) => editPage(db, a.pageId, ctx, (p) => {
@@ -544,7 +567,7 @@ const DEFS = {
         b.due = r.date; b.dueApprox = r.approx;
       }
       return true;
-    }),
+    }, { summary: true }),
     dupResult: reread },
   // 文字起こしの1区間を直す。recite（既定）なら出典を引き直してページも保存する。recite: false は区間だけ（復旧の文字起こしの道）
   'segment.update': { roles: ['app', 'main'], write: true, args: { pageId: 'id', segId: 'id', patch: 'segPatch', recite: 'bool?' },
@@ -594,4 +617,4 @@ const DEFS = {
 const COMMANDS = Object.freeze(Object.assign(Object.create(null),
   Object.fromEntries(Object.entries(DEFS).map(([k, v]) => [k, Object.freeze(v)]))));
 
-module.exports = { COMMANDS, HOT_QUERIES, putPageRows, readPage, readRawPage, readSegments, listPages, isPurged };
+module.exports = { COMMANDS, HOT_QUERIES, putPageRows, readPage, readRawPage, readSegments, listPages, isPurged, listedRows, actionView, entryOf };

@@ -134,7 +134,6 @@ contextBridge.exposeInMainWorld('koeApp', {
   getSettings: () => ipcRenderer.invoke('settings:get'),
   saveSettings: (s) => ipcRenderer.invoke('settings:save', s),
   testApi: () => ipcRenderer.invoke('app:test'),
-  testSum: () => ipcRenderer.invoke('app:test-sum'),
   engineStatus: () => ipcRenderer.invoke('engine:status'),
   engineFetchStatus: () => ipcRenderer.invoke('engine:fetch-status'),
   engineFetchStart: (o) => ipcRenderer.invoke('engine:fetch-start', o),
@@ -207,6 +206,17 @@ contextBridge.exposeInMainWorld('koeApp', {
   // 第1b回の続き Lane F-c・F-d: 見える窓を開き、閉じたら確かめ直した答え（{ ok, status } か { ok: false, code, message }）を返す
   claudeLogin: () => ipcRenderer.invoke('claude:login'),
   claudeInstall: () => ipcRenderer.invoke('claude:install'),
+  // 0.10.0 C-3: Claude デスクトップへの MCP の登録（引数なし。設定ファイルの場所は main が決める）。答えは { desktop: { state, files, running } } と { ok, state, code?, running? }
+  mcpStatus: () => ipcRenderer.invoke('mcp:status'),
+  mcpRegister: () => ipcRenderer.invoke('mcp:register'),
+  mcpUnregister: () => ipcRenderer.invoke('mcp:unregister'),
+  // 0.10.0 L-1: 議事録のリンクの住所の頭（https://…/open#p=。住所は main だけが持つ）
+  linkBase: () => ipcRenderer.invoke('app:link-base'),
+  // 0.10.0 LN-4: 検索の窓に貼ったリンクの照らし（main で。→ { id, anchor } か null）と、リンクで起こされたときに開くページ（{ id, anchor }）
+  parseLink: (s) => ipcRenderer.invoke('app:parse-link', s),
+  onOpenLink: (cb) => ipcRenderer.on('page:open-link', (_e, p) => cb(p)),
+  // 0.10.0 LS-2: main が今作っている要約のページの ID の並び（要約の欄の鍵の making）
+  onSummaryRunning: (cb) => ipcRenderer.on('summary:running', (_e, ids) => cb(ids)),
 
   // 画面の覚え書き（第1b回 N6）。サイドバーの幅と畳み・開いているタブ。main が照らしてから window-state.json に覚える
   uiState: () => ipcRenderer.invoke('ui:get'),

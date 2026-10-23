@@ -572,17 +572,7 @@ test('エンジンの起動確認は /health を見る', () => {
   assert.ok(!/`http:\/\/127\.0\.0\.1:\$\{enginePort\(eng\)\}\/`/.test(main), '「/」を見ている');
 });
 
-test('要約エンジンの 503 は「準備中」として扱う', () => {
-  const fn = main.slice(main.indexOf('async function llmChat'), main.indexOf('async function generateMinutes'));
-  assert.match(fn, /res\.status !== 503 \|\| Date\.now\(\) >= deadline/, '待って引き直していない');
-  // 待っている間は画面に「準備中」と出す。黙って待つと固まったように見える
-  assert.ok(fn.includes('要約エンジンを準備しています'), '待ちの表示が無い');
-  // 待ちきれなかったときも「エラー (503)」ではなく準備中だと分かる文で返す
-  assert.ok(fn.includes('要約エンジンがまだ準備中です'), '503 が生のエラー文のまま');
-  // 3か所の呼び出しすべてが表示付きで呼んでいる
-  assert.strictEqual((main.match(/await llmChatP\(/g) || []).length, 3);
-});
-
+// 「要約エンジンの 503 は準備中」は 0.10.0 LS-2（D59）で外した（手元の llama の要約 llmChat が無い）
 test('設定は自動保存（保存ボタンは無い）', () => {
   assert.ok(!appHtml.includes('saveBtn'), '保存ボタンが残っている');
   assert.ok(appHtml.includes("$('tabSettings').addEventListener('change'"), '自動保存の結線が無い');
@@ -592,7 +582,8 @@ test('スレッド数とポートに説明がある', () => {
   // 0.9.2 I-3（計画 docs/plans/2026-10-21-092.md）で意図して変えた: 見える説明は「通常は変更不要です。」の1行、意味は ⓘ の吹き出し
   assert.ok(appHtml.includes('通常は変更不要です。<button type="button" class="setinfo"'));
   assert.ok(appHtml.includes('スレッド数は文字起こしに使う CPU の数です'));
-  assert.ok(appHtml.includes('2つのエンジンのポートは別の番号にしてください'));
+  // 0.10.0 LS-3（D59）で意図して直した: 要約のエンジンの欄（「2つのエンジンのポートは別の番号に」の吹き出し）を外した
+  assert.ok(!appHtml.includes('2つのエンジンのポートは別の番号にしてください'));
 });
 
 // ---------------------------------------------------------------- 検索の本文対応
@@ -670,6 +661,7 @@ test('設定カードの並びは指定通り', () => {
     '文字起こし',
     'ユーザー辞書（認識ヒント）',
     '要約（Claude Code）',
+    'Claude との連携（MCP）',   // 0.10.0 C-3（MR8）で意図して変えた: 要約（Claude Code）の次に Claude との連携
     'ローカル AI',   // 第1d回 A-13（D19）で意図して変えた: カード「エンジン」を「オフライン」に。0.9.3 M-0（D54）で「ローカル AI」に
     'アップデート',
   ]);
@@ -719,7 +711,7 @@ test('設定の各カードが同じ深さにある（枠の外に出ていな�
   const sec = appHtml.slice(a, appHtml.indexOf('    </section>', a));
   const { heads, depth } = divDepthMap(sec);
   assert.strictEqual(depth, 0, '設定セクションの div が閉じ切れていない');
-  assert.strictEqual(heads.length, 11);   // 0.9.3 M-4 で「会議の検出」を足して 11（意図して変えた）。第1c回 Task C-2: カード「オンライン」を足して 5 つ。0.9.0 U-2 で項目ごとに分けて 9 つ（意図して変えた）。0.9.1 Q-3 で「話し声が無いとき」を足して 10
+  assert.strictEqual(heads.length, 12);   // 0.10.0 C-3 で「Claude との連携（MCP）」を足して 12（意図して変えた）。0.9.3 M-4 で「会議の検出」を足して 11（意図して変えた）。第1c回 Task C-2: カード「オンライン」を足して 5 つ。0.9.0 U-2 で項目ごとに分けて 9 つ（意図して変えた）。0.9.1 Q-3 で「話し声が無いとき」を足して 10
   for (const h of heads) {
     assert.strictEqual(h.depth, heads[0].depth, `「${h.title}」だけ深さが違う（枠の外に出ている）`);
   }
@@ -800,7 +792,8 @@ test('#46 要約完了時に手元の古い page で書き戻さない（削除�
 test('#10 同じページの要約は同時に一つだけ走る', () => {
   // 排他の判断は mainlib.makeSummaryRunner（実行して検査するのは main.test.js）。
   // ここは main.js がそれを通しているか（結線）だけを見る。
-  assert.match(main, /const runSummary = makeSummaryRunner\(doRunSummary(, \(\) => updateTray\(\))?\)/, '排他を mainlib.makeSummaryRunner で作っていない');
+  // 0.10.0 LS-2 で意図して直した: 件数が変わるたびに、走っているページの ID を画面へも渡す（要約の欄の鍵の making）
+  assert.match(main, /const runSummary = makeSummaryRunner\(doRunSummary(, \(\) => \{ updateTray\(\); sendToMainWin\('summary:running', runSummary\.running\(\)\); \})?\)/, '排他を mainlib.makeSummaryRunner で作っていない');
   assert.ok(!/new Map\(\)[^\n]*\n[^\n]*function runSummary/.test(code(main)) && !/const summarizing = new Map\(\)/.test(code(main)),
     '排他を main.js に手書きしている（mainlib を通していない）');
   assert.match(main, /ipcMain\.handle\('page:summarize', \(_e, id\) => runSummary\(id\)\)/);
@@ -886,9 +879,10 @@ test('#35/#49 ホットキーは片方ずつ登録し、失敗を画面とトレ
 test('#18 テンプレートの写しを落とす結線（minutes.dropTemplateEcho が無ければ素通し）', () => {
   assert.match(main, /const dropTemplateEcho = minutes\.dropTemplateEcho \|\| \(\(b\) => b\)/);
   assert.match(main, /dropTemplateEcho\(dropRedundantEmpty\(markdownToBlocks\(md\)\), minutesTemplate\(page\.meetingType\)\)/);
-  // プロンプトに入れている書式と同じ文字列を渡す（別々に組み立てるとずれる）
-  const gen = fnBody(code(main), 'async function generateMinutes', '\nfunction ensurePaster');
-  assert.strictEqual((gen.match(/\$\{minutesTemplate\(type\)\}/g) || []).length, 2, 'プロンプト側がテンプレート関数を使っていない');
+  // プロンプトに入れている書式と同じ文字列を渡す（別々に組み立てるとずれる）。0.10.0 LS-2 で意図して直した: 手元の generateMinutes を外したので、
+  // Claude Code に渡す文（summarizeWithClaude の buildClaudeInput）が同じ minutesTemplate(type) を使うことを見る
+  const sw = fnBody(code(main), 'async function summarizeWithClaude', '\n}');
+  assert.ok(sw.includes('template: minutesTemplate(type)'), 'Claude Code に渡す文がテンプレート関数を使っていない');
 });
 
 // ---------------------------------------------------------------- 第2段（D: 小さな直し）
@@ -966,7 +960,7 @@ test('#32 エンジンの実行ファイルとモデルは存在だけでなく�
   assert.strictEqual((chk.match(/engineFileIssue\(/g) || []).length, 2, '実行ファイルとモデルの両方を見ていない');
   assert.ok(chk.includes('engineIssueMessage('), '原因を名指しする文を mainlib から取っていない');
   // 床はモデルだけ（実行ファイルの大きさでは判断しない。上流が薄いランチャにした）
-  assert.match(m, /whisper: 50_000_000/); assert.match(m, /gguf: 300_000_000/);
+  assert.match(m, /whisper: 50_000_000/); assert.ok(!/gguf: 300_000_000/.test(m), '要約のモデルの床が残っている（0.10.0 LS-3 で外した）');
   // 設定画面の「テスト」も原因を名指しする
   assert.ok(!m.includes('またはモデルファイルのパスが正しくありません'), 'テストの失敗が原因を名指ししていない');
 });
@@ -983,7 +977,8 @@ test('#57(2) 記録中はエンジンに関わる設定を変えず、留めた�
 test('#52 要約中はアプリを「忙しい」として扱う', () => {
   const m = code(main);
   assert.match(m, /const isSummarizing = \(\) => runSummary\.running\(\)\.length > 0/);
-  assert.match(m, /const runSummary = makeSummaryRunner\(doRunSummary, \(\) => updateTray\(\)\)/, '件数の増減でトレイ・省電力を更新していない');
+  // 0.10.0 LS-2 で意図して直した（画面へ summary:running も渡す）
+  assert.match(m, /const runSummary = makeSummaryRunner\(doRunSummary, \(\) => \{ updateTray\(\); sendToMainWin\('summary:running', runSummary\.running\(\)\); \}\)/, '件数の増減でトレイ・省電力を更新していない');
   assert.ok(fnBody(m, 'function updatePowerBlock()', '\n}').includes("state !== 'idle' || isSummarizing()"), '省電力の抑止が要約中に外れる');
   const close = fnBody(m, "mainWin.on('close'", '\n  });');
   assert.ok(close.includes('closeConfirm(') && close.includes('isSummarizing()'), '閉じる確認が要約中を見ていない');
@@ -1001,20 +996,7 @@ test('#52 要約中はアプリを「忙しい」として扱う', () => {
 });
 
 // ---------------------------------------------------------------- 第2段（C: 要約とプロンプト）
-test('#16 分割要約が切れたら半分に割ってやり直し、それでも切れたパートを名指しする', () => {
-  // やり直しの判断は mainlib.extractNotes、文は mainlib.truncationMessage（main.test.js で実行）
-  const gen = fnBody(code(main), 'async function generateMinutes', '\nfunction ensurePaster');
-  assert.ok(gen.includes('await extractNotes('), 'やり直しを mainlib.extractNotes で行っていない');
-  assert.ok(gen.includes('truncatedParts.push(i + 1)'), '切れたパート番号を記録していない');
-  assert.ok(gen.includes('（※パート${i + 1}の抽出は途中で切れています）'), '要点メモに注記していない');
-  assert.match(gen, /return \{ md: one\.text, truncated: one\.truncated, truncatedParts: \[\], finalTruncated: one\.truncated \}/);
-  assert.match(gen, /truncatedParts, finalTruncated: final\.truncated \}/);
-  const run = fnBody(code(main), 'async function doRunSummary', '\nlet hotkeyState');
-  // 文は mainlib.truncationMessage から取り、途中で種類を選び直したときの添え書き（0.1.2）と並べる
-  assert.ok(run.includes('const notes = [truncationMessage(truncatedParts, finalTruncated)];')
-    && run.includes("saved.summaryError = notes.filter(Boolean).join('\\n');"), '文を mainlib.truncationMessage から取っていない');
-  assert.ok(!code(main).includes('要約が長さの上限で打ち切られた可能性があります'), '文が main.js に手書きのまま残っている');
-});
+// 「#16 分割要約が切れたら半分に割ってやり直す」の結線の確かめは 0.10.0 LS-2（D59）で外した（手元の generateMinutes が無い。Claude Code は1回で要約する）
 
 test('#23 初期プロンプトは予算（UTF-8 バイト）に収め、辞書の収まり具合を画面へ返せる', () => {
   // 予算の判断は mainlib.buildPromptParts（main.test.js で実行）。ここは結線だけ見る
@@ -1241,15 +1223,15 @@ test('エンジンの不具合は、どのファイルかを名指しして伝�
   const fn = fnBody(m, 'function engineCheck(eng)', '\n}');
   assert.ok(fn.includes("engineIssueMessage(exe, 'exe', fileSize(engineExe(eng)), engineExe(eng), ps)"), '実行ファイルのパスを文に渡していない');
   assert.ok(fn.includes("engineIssueMessage(model, 'model', fileSize(engineModel(eng)), engineModel(eng), ps)"), 'モデルのパスを文に渡していない');
-  // エンジンごとに実行し直すスクリプトを名指しする（setup-*.ps1 では利用者がどれか分からない）
-  assert.ok(fn.includes("eng === whisperEng ? 'setup-local-engine.ps1' : 'setup-summarizer.ps1'"), 'スクリプトを名指ししていない');
+  // 実行し直すスクリプトを名指しする（setup-*.ps1 では利用者がどれか分からない）。0.10.0 LS-3（D59）で要約のスクリプトを外した
+  assert.ok(fn.includes("const ps = 'setup-local-engine.ps1';"), 'スクリプトを名指ししていない');
 });
 
 test('起動テストは、エンジンがアプリのインストール先にあれば移動を促す（更新のたびに消える）', () => {
   const m = code(main);
   assert.ok(m.includes('const appInstallDir = () => path.dirname(process.execPath);'), 'インストール先を求めていない');
   assert.ok(m.includes('engineDirWarning([engineExe(eng), engineModel(eng)], appInstallDir())'), '判断を mainlib.engineDirWarning に任せていない');
-  for (const [ch, eng] of [["app:test'", 'whisperEng'], ["app:test-sum'", 'sumEng']]) {
+  for (const [ch, eng] of [["app:test'", 'whisperEng']]) {   // 0.10.0 LS-3 で app:test-sum を外した
     const i = m.indexOf(`ipcMain.handle('${ch}`);
     assert.ok(i > 0, `${ch} が無い`);
     const body = m.slice(i, m.indexOf('  });', i));
@@ -1268,8 +1250,9 @@ test('起動テストは、エンジンがアプリのインストール先に�
   assert.ok(run.includes('r.warning'), '画面が注意を出していない');
 });
 
+// 0.10.0 LS-5（D59）で意図して変えた: setup-summarizer.ps1 は消した
 test('セットアップは、展開が不完全でないかを確かめてから zip を消す', () => {
-  for (const name of ['setup-summarizer.ps1', 'setup-local-engine.ps1']) {
+  for (const name of ['setup-local-engine.ps1']) {
     const s = read(name);
     const i = s.indexOf('Expand-Archive');
     assert.ok(i > 0, `${name}: 展開していない`);
@@ -1294,15 +1277,16 @@ test('アプリのインストール先にエンジンを置かないことが�
 
 test('エンジンの実行ファイルは大きさの床で弾かない（上流が薄いランチャにした）', () => {
   const m = code(main);
-  // 床はモデルだけ。exe に床を置くと、9KB の llama-server.exe（正常）を「壊れている」と言ってしまう
-  assert.match(m, /const ENGINE_MIN_BYTES = \{ whisper: 50_000_000, gguf: 300_000_000 \};/, 'exe の床が残っている');
+  // 床はモデルだけ。exe に床を置くと、薄いランチャの exe（正常）を「壊れている」と言ってしまう（0.10.0 LS-3 で要約のモデルの床を外した）
+  assert.match(m, /const ENGINE_MIN_BYTES = \{ whisper: 50_000_000 \};/, 'exe の床が残っている');
   const fn = fnBody(m, 'function engineCheck(eng)', '\n}');
   assert.ok(fn.includes('engineFileIssue(engineExe(eng), 0, stat)'), 'exe に床を渡している');
   assert.ok(!/ENGINE_MIN_BYTES\.exe/.test(m), 'ENGINE_MIN_BYTES.exe をまだ参照している');
 });
 
+// 0.10.0 LS-5（D59）で意図して変えた: setup-summarizer.ps1 は消した
 test('セットアップは展開物ぜんたいの大きさで確かめる（exe の大きさでは判定しない）', () => {
-  for (const name of ['setup-summarizer.ps1', 'setup-local-engine.ps1']) {
+  for (const name of ['setup-local-engine.ps1']) {
     const s = read(name);
     assert.ok(!/\$server\.Length -lt 1MB/.test(s), `${name}: exe の大きさで判定している（薄いランチャを弾く）`);
     assert.match(s, /Measure-Object[^\n]*Length[^\n]*-Sum/, `${name}: 展開物の合計を数えていない`);
@@ -1328,3 +1312,261 @@ test('要約の担当・期限の裏付けは、文字起こしと、アジェ�
   assert.ok(run.indexOf('groundActionFields(blocks') < run.indexOf('attachAcross(blocks'), '出典の照合の後に照らしている（外した担当名で照合がぶれる）');
 });
 
+
+// ---------------------------------------------------------------- 0.10.0 S-2（MCP のサーバーの入口: 計画 docs/plans/2026-10-20-100.md）
+const mcpFiles = () => fs.readdirSync(path.join(ROOT, 'src', 'mcp')).filter((f) => f.endsWith('.js')).map((f) => `src/mcp/${f}`);
+
+test('0.10.0 F4・RF63: MCP の入口は src/mcp/server.js にあり、src/mcp/ のどのファイルも頭のほかに require( が無い（関数の中で後から読まない: 自動更新が src を入れ替える間に新旧を混ぜない）', () => {
+  assert.ok(fs.existsSync(path.join(ROOT, 'src', 'mcp', 'server.js')), 'src/mcp/server.js が無い（登録した場所は変えない約束: 決めたこと 22）');
+  for (const f of mcpFiles()) {
+    const lines = code(read(f)).split('\n');
+    const firstFn = lines.findIndex((l) => /^(async\s+)?function\b|^class\b|^module\.exports\b/.test(l));
+    lines.forEach((l, i) => {
+      if (!/\brequire\(/.test(l)) return;
+      assert.ok(/^const [^=]+= require\(['"][^'"]+['"]\)(\.\w+)?;\s*$/.test(l), `${f}:${i + 1}: 頭の const … = require(…) の形でない: ${l.trim()}`);
+      assert.ok(firstFn < 0 || i < firstFn, `${f}:${i + 1}: 関数より後に require がある`);
+    });
+  }
+});
+
+test('0.10.0 EL8: package.json の build に electronFuses が無いか、runAsNode を false にしていない（MCP のサーバーは NaTsu.exe を Node として起こす）', () => {
+  const pkg = JSON.parse(read('package.json'));
+  const fuses = pkg.build && pkg.build.electronFuses;
+  assert.ok(!fuses || fuses.runAsNode !== false, 'runAsNode を切ると Claude から MCP のサーバーを起こせない');
+});
+
+test('0.10.0 決めたこと 33: src/ に NATSU_MCP_TEST の字が無い（テストだけの道を環境変数で開けない）', () => {
+  const walk = (d) => fs.readdirSync(path.join(ROOT, d), { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? walk(`${d}/${e.name}`) : [`${d}/${e.name}`]));
+  for (const f of walk('src').filter((x) => /\.(js|html)$/.test(x))) assert.ok(!read(f).includes('NATSU_MCP_TEST'), f);
+});
+
+test('0.10.0 F16・RF75: src/mcp/ のどのファイルも、決めたこと 59 の部品を require しない・listen( と createServer( と fetch( の字が無い（口は標準入出力だけ）', () => {
+  const banned = ['net', 'http', 'https', 'http2', 'dgram', 'tls', 'child_process', 'worker_threads', 'electron', '../secrets', '../relay', '../settings', '../store', '../jsonfile', '../updater'];
+  for (const f of mcpFiles()) {
+    const src = code(read(f));
+    for (const m of src.matchAll(/require\(['"]([^'"]+)['"]\)/g)) {
+      const name = m[1].replace(/^node:/, '');
+      assert.ok(!banned.includes(name), `${f}: ${m[1]} を読む`);
+    }
+    for (const w of ['listen(', 'createServer(', 'fetch(']) assert.ok(!src.includes(w), `${f}: ${w} がある`);
+  }
+});
+
+test('0.10.0 D76: README・INSTALL に「0.10.0 からポータブル版はありません」と、インストーラーで入れ直す案内（議事録と設定はそのまま）がある', () => {
+  for (const n of ['README.md', 'INSTALL.md']) {
+    const s = read(n);
+    assert.ok(s.includes('0.10.0 からポータブル版はありません'), n);
+    assert.ok(s.includes('NaTsu-<版>-setup.exe'), n);
+    assert.ok(s.includes('議事録と設定はそのまま使えます'), n);
+    assert.ok(!s.includes('NaTsu-<版>-portable.exe に置き換え') && !s.includes('portable.exe` を落とし直して'), n);
+  }
+});
+
+// 0.10.0 SH-1（D71・決めたこと 140）: ページの頭（題名の所）の見た目を 0.10.0 で変えない。.phead・.picon・.ptitle・.pprops を含む CSS の規則の文と、
+// #pIcon・#pTitle・#pProps の DOM の行の sha256 が 0.9.3（746ea67）の値と同じ（題名の文字が変わるので、画素で比べる守りは置かない）
+test('0.10.0 D71: .phead・.picon・.ptitle・.pprops とその子の CSS の規則の文と、#pIcon・#pTitle・#pProps の DOM の写しが、0.9.3 の値（HEAD_HASH）と同じ', () => {
+  const HEAD_HASH = '57fe8d58d84819e19a719e56cbbcc811753ae9a0e7d0502fd958a34a8f8a856e';
+  const html = read('src/renderer/app.html');
+  const css = [...html.matchAll(/<style[^>]*>([\s\S]*?)<\/style>/g)].map((m) => m[1]).join('\n');
+  const rules = [...css.matchAll(/[^{}]*\{[^{}]*\}/g)].map((m) => m[0].trim()).filter((r) => /\.(phead|picon|ptitle|pprops)\b/.test(r.slice(0, r.indexOf('{'))));
+  const dom = html.split('\n').filter((l) => /id="(pIcon|pTitle|pProps)"/.test(l)).map((l) => l.trim());
+  assert.strictEqual(rules.length, 12);
+  assert.strictEqual(dom.length, 3);
+  const sha = require('node:crypto').createHash('sha256').update([...rules, ...dom].join('\n')).digest('hex');
+  assert.strictEqual(sha, HEAD_HASH, 'ページの頭の CSS か DOM が変わった（D71: 0.10.0 では変えない）');
+});
+
+// 0.10.0 SH-2（D77・決めたこと 152）: テストの作り物の会議の題名も本物と同じ日付の形（test/helpers/titles.js の titleAt）。題名の語に頼るテストは
+// 利用者が付け直した題名として決めた題名を残し、注を付ける。会議の題名でない題（ヘルプの記事・道具・窓と知らせの題）のファイルは外す
+test('0.10.0 D77: 会議の題名を持つテストの作り物の題名は、titleAt(…) で作るか、「利用者が付け直した題名（D77…）」の注のある行だけ', () => {
+  const NOT_MEETING = new Set(['help-build.test.js', 'help-deploy.test.js', 'help-md.test.js', 'help-content.test.js', 'help-app.test.js', 'mcp-rpc.test.js', 'identity.test.js', 'stage1d.status.test.js', 'repo.test.js']);
+  const files = [
+    ...fs.readdirSync(path.join(ROOT, 'test')).filter((f) => f.endsWith('.js') && !NOT_MEETING.has(f)).map((f) => `test/${f}`),
+    ...fs.readdirSync(path.join(ROOT, 'test', 'helpers')).filter((f) => f.endsWith('.js')).map((f) => `test/helpers/${f}`),
+    'tools/perf.js', 'tools/make-db-fixture.js', 'tools/electron-smoke/main.js',
+  ];
+  const bad = [];
+  for (const f of files) {
+    const lines = read(f).split('\n');
+    lines.forEach((l, i) => {
+      if (!/\btitle:\s*(['"`])(?!\1)/.test(l)) return;
+      if (/\b(titleAt|meetingTitleAt|titleOf)\(/.test(l) || l.includes('D77') || (i > 0 && lines[i - 1].includes('D77'))) return;
+      bad.push(`${f}:${i + 1}: ${l.trim().slice(0, 80)}`);
+    });
+  }
+  assert.deepStrictEqual(bad, [], '日付の形でない、注の無い会議の題名');
+});
+
+// 0.10.0 L-1（D58・D78・決めたこと 100）: 画面が写すリンクの頭は、ヘルプのサイトの /open のページ（決めたこと 153 の住所）。住所は main だけが持つ
+// （F15・I1）ので、画面は koeApp.linkBase（app:link-base）で聞く。LN-1 で住所の頭を src/natsulink.js の LINK_ORIGIN へ移す
+test('0.10.0 L-1: app:link-base は main.js の HELP_URL の open#p=（https の住所。# の後ろの ID はサーバーへ送られない）。画面は答えの形を照らしてから使う', () => {
+  assert.match(main, /ipcMain\.handle\('app:link-base', \(\) => `\$\{HELP_URL\}open#p=`\);/);
+  assert.match(appHtml, /const isLinkBase = \(b\) => typeof b === 'string' && \/\^https:/);
+  assert.ok(!/natsu-help/.test(appHtml), '画面に住所を書いた');
+});
+
+// 0.10.0 L-2（D70・決めたこと 101）: 一覧の選びの決まり（純粋。後のデータベースの表でも使う）を app.html から字面で取り出して当てる
+const fnFromApp = (name) => {
+  const plain = appHtml.indexOf(`  function ${name}(`);
+  const at = plain > 0 ? plain : appHtml.indexOf(`  async function ${name}(`);
+  assert.ok(at > 0, `app.html に ${name} が無い`);
+  return appHtml.slice(at, appHtml.indexOf('\n  }\n', at) + 4);
+};
+test('0.10.0 L-2 D70: selStep の表（toggleMode・click・shift の範囲・clear・keep・受けた物を変えない）と selLines（order の並び・50 件まで）', () => {
+  const { selStep, selLines } = new Function(`${fnFromApp('pageRefLine')}\n${fnFromApp('selStep')}\n${fnFromApp('selLines')}\nreturn { selStep, selLines };`)();   // eslint-disable-line no-new-func
+  const order = ['a', 'b', 'c', 'd'];
+  const off = { on: false, ids: [], anchor: '' };
+  const on = selStep(off, { type: 'toggleMode' }, order);
+  assert.deepStrictEqual(on, { on: true, ids: [], anchor: '' });
+  assert.deepStrictEqual(selStep({ on: true, ids: ['a'], anchor: 'a' }, { type: 'toggleMode' }, order), { on: false, ids: [], anchor: '' });
+  // on でない click は何もしない（ページを開く側）
+  assert.deepStrictEqual(selStep(off, { type: 'click', id: 'a' }, order), off);
+  const s1 = selStep(on, { type: 'click', id: 'c' }, order);
+  assert.deepStrictEqual(s1, { on: true, ids: ['c'], anchor: 'c' });
+  const s2 = selStep(s1, { type: 'click', id: 'a' }, order);
+  assert.deepStrictEqual(s2.ids, ['c', 'a'], '選んだ順のまま持つ（並べるのは selLines）');
+  assert.deepStrictEqual(selStep(s2, { type: 'click', id: 'c' }, order).ids, ['a']);
+  // shift: anchor（a）から今の行（d）までを、今の行の向き（付ける）にそろえる。anchor は動かさない
+  const s3 = selStep(s2, { type: 'click', id: 'd', shift: true }, order);
+  assert.deepStrictEqual([[...s3.ids].sort(), s3.anchor], [['a', 'b', 'c', 'd'], 'a']);
+  // 上向き・外す向き
+  const s4 = selStep({ on: true, ids: ['a', 'b', 'c', 'd'], anchor: 'd' }, { type: 'click', id: 'b', shift: true }, order);
+  assert.deepStrictEqual(s4.ids, ['a']);
+  // anchor が order に無ければ今の行だけ
+  assert.deepStrictEqual(selStep({ on: true, ids: [], anchor: 'zz' }, { type: 'click', id: 'c', shift: true }, order).ids, ['c']);
+  // order に無い行の click は何もしない
+  assert.deepStrictEqual(selStep(s1, { type: 'click', id: 'zz' }, order), s1);
+  assert.deepStrictEqual(selStep(s2, { type: 'clear' }, order), { on: true, ids: [], anchor: '' });
+  assert.deepStrictEqual(selStep({ on: true, ids: ['a', 'x', 'c'], anchor: 'x' }, { type: 'keep', ids: ['a', 'b', 'c'] }, order), { on: true, ids: ['a', 'c'], anchor: '' });
+  // 受けた物を変えない
+  const frozen = { on: true, ids: ['a'], anchor: 'a' };
+  const before = JSON.stringify(frozen);
+  for (const ev of [{ type: 'click', id: 'b' }, { type: 'click', id: 'd', shift: true }, { type: 'keep', ids: [] }, { type: 'clear' }, { type: 'toggleMode' }]) selStep(frozen, ev, order);
+  assert.strictEqual(JSON.stringify(frozen), before);
+  // selLines: order の並びで、選んだ ID だけ、50 件まで
+  const pages = order.map((id, i) => ({ id, title: `t${i}`, date: '2026-10-01' }));   // 利用者が付け直した題名（D77。行の並びだけを見る）
+  const base = 'https://example.invalid/open#p=';
+  assert.deepStrictEqual(selLines(order, { on: true, ids: ['d', 'a'], anchor: 'a' }, pages, base), {
+    lines: [`NaTsu の議事録「t0」（2026-10-01）${base}a`, `NaTsu の議事録「t3」（2026-10-01）${base}d`], truncated: false });
+  const big = Array.from({ length: 51 }, (_, i) => `p${i}`);
+  const r = selLines(big, { on: true, ids: [...big].reverse(), anchor: '' }, big.map((id) => ({ id, title: id, date: '2026-10-01' })), base);   // 利用者が付け直した題名（D77。数だけを見る）
+  assert.deepStrictEqual([r.lines.length, r.truncated, r.lines[0].endsWith('p0'), r.lines[49].endsWith('p49')], [50, true, true, true]);
+});
+
+// 0.10.0 L-2（D74）: 一覧の枠のボタンは［リンクを写す］（前の案の［Claude に渡す］の名前にしない。写した物は Claude だけでなく、後のチームの共有でも使う）
+test('0.10.0 L-2 D74: app.html の画面の文に「Claude に渡す」が無く、選んでいる間の枠のボタンは［リンクを写す］［やめる］', () => {
+  assert.ok(!appHtml.includes('Claude に渡す'));
+  assert.match(appHtml, /<button class="action" id="selCopy" type="button">リンクを写す<\/button>/);
+  assert.match(appHtml, /<button class="ghost" id="selCancel" type="button">やめる<\/button>/);
+});
+
+// 0.10.0 LN-1（D72・決めたこと 142）: 画面の写しの照らし parseNatsuLinkView（app.html。画面は Node の部品を読めない）と src/natsulink.js の parseNatsuLink に同じ表を当てる。
+// 画面は住所（https）を持たない（F15）ので、写しは natsu:// の形だけ。https の住所の照らしは main（koeApp の答え）に任せる
+test('0.10.0 LN-1: parseNatsuLinkView（app.html）と natsulink.parseNatsuLink は同じ表で同じ答え', () => {
+  const NL = require('../src/natsulink');
+  const view = new Function(`${fnFromApp('parseNatsuLinkView')}\nreturn parseNatsuLinkView;`)();   // eslint-disable-line no-new-func
+  const cases = ['natsu://page/pm1', 'natsu://page/pm1#t:s3-s5', 'natsu://page/pm1#b:b3', 'natsu://page/pm1#m:2', 'natsu://page/pm1#b3', 'natsu://page/pm1/', '  natsu://page/pm1#t:s1-s1 \n',
+    'NATSU://page/pm1', 'natsu:page/pm1', 'natsu://other/pm1', 'natsu://page/pm1?x=1', 'natsu://page/pm%201', 'natsu://page/p m1', 'natsu://page/pm1"', "natsu://page/pm1'",
+    'natsu://page/pm1\\', 'natsu://page/pm1\u0000', `natsu://page/pm1#${'b'.repeat(288)}`, `natsu://page/${'a'.repeat(65)}`, 'natsu://page/pm1#t:s3-', 'natsu://page/pm1#a#b',
+    'natsu://page/pm1//', 'natsu://page/', 'natsu://page/pm1#javascript:x', `${NL.LINK_ORIGIN}/open#p=pm1`, 'pm1', '', null, 5];
+  for (const s of cases) assert.deepStrictEqual(view(s), NL.parseNatsuLink(s), JSON.stringify(s));
+});
+
+// 0.10.0 LN-4（決めたこと 146）: リンクで起こされたときにできるのは「ページを開いて捲る」だけ。画面のリンクの受け手（openLink・showLinkSpot）と main の
+// openLinkFromArgv は、書く・消す・要約・設定・登録・外へ送る口を呼ばない（字面で見る）
+test('0.10.0 LN-4: リンクの受け手は読むだけの口しか持たない（画面の openLink・showLinkSpot と main の openLinkFromArgv）', () => {
+  const view = `${fnFromApp('openLink')}\n${fnFromApp('showLinkSpot')}`;
+  const apis = [...view.matchAll(/koeApp\.([A-Za-z]+)/g)].map((m) => m[1]);
+  assert.deepStrictEqual([...new Set(apis)], ['pageGet']);
+  for (const w of ['ipcRenderer', 'copy(', 'openExternal', 'location.', 'innerHTML']) assert.ok(!view.includes(w), `画面のリンクの受け手に ${w}`);
+  const at = main.indexOf('function openLinkFromArgv(');
+  const fn = main.slice(at, main.indexOf('\n}\n', at));
+  const sends = [...fn.matchAll(/sendToMainWin\('([^']+)'/g)].map((m) => m[1]);
+  assert.deepStrictEqual([...new Set(sends)], ['page:open-link']);
+  for (const w of ['db.call', 'dbCall', 'writeJsonFile', 'settingsWriter', 'shell.', 'runSummary', 'mcpRegister', 'fetch(']) assert.ok(!fn.includes(w), `main のリンクの受け手に ${w}`);
+});
+
+// 0.10.0 E-1（MR9・EL8 を広げる）: CI の electron-smoke とリリースの installer が、node_modules の Electron と詰めた NaTsu.exe で MCP の往復を通す
+test('0.10.0 E-1 EL8: ci.yml と release.yml が node_modules の Electron と詰めた NaTsu.exe で tools/mcp-probe.js を走らせる', () => {
+  const NODE_MOD = 'node tools/mcp-probe.js --exe node_modules/electron/dist/electron.exe --script src/mcp/server.js';
+  const PACKED = 'node tools/mcp-probe.js --exe dist/win-unpacked/NaTsu.exe --script dist/win-unpacked/resources/app/src/mcp/server.js';
+  for (const f of ['.github/workflows/ci.yml', '.github/workflows/release.yml']) {
+    const y = read(f);
+    assert.ok(y.includes(NODE_MOD), `${f}: node_modules の Electron で回していない`);
+    assert.ok(y.includes(PACKED), `${f}: 詰めた NaTsu.exe で回していない`);
+  }
+});
+
+// 0.10.0 LS-1・LS-2（D63・D69・決めたこと 111）: 要約の欄の鍵は main・DB（mainlib.summaryLock）と画面（app.html の summaryLockView）で同じ表。
+// 同じ並びのページを両方に当てて同じ答え、一言の表も同じ
+test('0.10.0 LS-2: summaryLockView（app.html）と mainlib.summaryLock に同じ表を当てて同じ答え。一言の表も同じ', () => {
+  const lib = require('../src/mainlib');
+  const view = new Function(`${fnFromApp('summaryLockView')}\nreturn summaryLockView;`)();
+  const m = /const SUMMARY_LOCK_VIEW_TEXT = (\{[\s\S]*?\n {2}\});/.exec(appHtml);
+  assert.ok(m, '画面の一言の表が無い');
+  assert.deepStrictEqual(new Function(`return ${m[1]};`)(), { ...lib.SUMMARY_LOCK_TEXT });
+  const said = [{ id: 's1', text: 'はい' }];
+  const none = [{ id: 's1', text: '', failed: true }];
+  const pages = [null, {}, { summaryWait: true }, { summaryWait: true, blocks: [{ id: 'b1' }] }, { blocks: [{ id: 'b1' }] }, { blocks: [], route: { summary: { at: 'x' } } },
+    { route: { summary: { by: 'claude-code' } } }, { summaryError: '断った' }, { summaryError: '' }, { route: { summary: 3 } }, { blocks: 'x' }, []];
+  const opts = [{}, { live: true }, { making: true }, { live: true, making: true }];
+  for (const p of pages) for (const o of opts) for (const segments of [said, none, [], undefined]) {
+    const a = { ...o, segments };
+    assert.strictEqual(view(p, a), lib.summaryLock(p, a), JSON.stringify([p, a]));
+  }
+});
+
+// 0.10.0 LS-5（D59・決めたこと 110）: 案内から要約のローカル AI を外し、要約待ちを書く。配るものから setup-summarizer.ps1 を外す
+test('0.10.0 LS-5: README・INSTALL・ヘルプの記事に要約のローカル AI（llama・Gemma・setup-summarizer・要約エンジン・5.6GB）の字が無く、要約待ちの文がある', () => {
+  const arts = [];
+  const walk = (d) => { for (const n of fs.readdirSync(d)) { const f = path.join(d, n); if (fs.statSync(f).isDirectory()) walk(f); else if (n.endsWith('.md')) arts.push(path.relative(ROOT, f)); } };
+  walk(path.join(ROOT, 'help', 'articles'));
+  const BAD = [/llama/i, /Gemma/, /setup-summarizer/, /要約エンジン/, /要約のエンジン/, /要約も PC の中/, /5\.6 ?GB/, /数 GB を取り込む/, /PC の中で文字起こしと要約/, /PC の中の文字起こしと要約/];
+  for (const f of ['README.md', 'INSTALL.md', ...arts]) {
+    const t = read(f);
+    for (const re of BAD) assert.ok(!re.test(t), `${f} に ${re}: ${(t.match(new RegExp(`.{0,30}${re.source}.{0,30}`)) || [''])[0]}`);
+  }
+  for (const f of ['README.md', 'help/articles/summary/how-summaries.md', 'help/articles/record/pc-only.md']) assert.ok(read(f).includes('要約待ち（つながったら作ります）'), `${f} に要約待ちの文が無い`);
+  assert.ok(!/llama/i.test(JSON.parse(read('package.json')).description), 'package.json の説明に llama');
+});
+
+test('0.10.0 LS-5: リリースの手順が setup-summarizer.ps1 を配らない。setup-summarizer.ps1 は無い', () => {
+  const rel = read('.github/workflows/release.yml');
+  assert.ok(!rel.includes('setup-summarizer'), 'release.yml が setup-summarizer.ps1 を配る');
+  assert.ok(!fs.existsSync(path.join(ROOT, 'setup-summarizer.ps1')), 'setup-summarizer.ps1 が残っている');
+  assert.ok(!read('get-installer.ps1').includes('llama'), 'get-installer.ps1 の注に llama');
+});
+
+// 0.10.0 G-1（MR9・D57・決めたこと 59）: README に「Claude から議事録を読む（MCP）」の節。INSTALL に任意の手順と、入れ直しの前に Claude を終了する1行
+const mdSection = (text, head) => {
+  const i = text.indexOf(`\n${head}\n`);
+  if (i < 0) return '';
+  const level = head.match(/^#+/)[0].length;
+  const rest = text.slice(i + head.length + 2);
+  const m = rest.match(new RegExp(`\\n#{1,${level}} `));
+  return m ? rest.slice(0, m.index) : rest;
+};
+test('0.10.0 G-1: README に「Claude から議事録を読む（MCP）」の節があり、Anthropic へ送られること（オフラインモードの会議も）・学習の設定・読むだけ・ポートを開かないこと・登録の仕方と登録し直し・消しても会話に残ること・つながらないとき・Store 版を書く', () => {
+  const r = read('README.md');
+  const sec = mdSection(r, '### Claude から議事録を読む（MCP）');
+  assert.ok(sec, 'README に「### Claude から議事録を読む（MCP）」の節が無い');
+  const online = r.indexOf('\n## オンラインの文字起こしと要約\n');
+  assert.ok(online > 0 && r.indexOf('\n### Claude から議事録を読む（MCP）\n') > online, 'MCP の節が「オンラインの文字起こしと要約」の下に無い');
+  for (const w of ['Claude（Anthropic）へ送られます', 'オフラインモード', '学習', '読むだけ', 'ポートを開きません', '標準入出力', '［Claude デスクトップに登録］', '［登録し直す］',
+    '終了', 'Claude の会話に残ります', 'mcp-server-natsu.log', 'Microsoft Store', 'start/claude-mcp']) {
+    assert.ok(sec.includes(w), `README の MCP の節に「${w}」が無い`);
+  }
+  assert.ok(!/1on1[^\n]*送られません|送りません[^\n]*Claude/.test(sec), 'MCP の節が送らないと約束している');
+});
+
+test('0.10.0 G-1: README と INSTALL に、入れ直し・アンインストールの前に Claude デスクトップを終了する文がある。INSTALL は「Claude Code を入れる」の後に Claude から読む任意の手順', () => {
+  const QUIT = '入れ直し・アンインストールの前に、Claude デスクトップを終了してください';
+  assert.ok(read('README.md').includes(QUIT), 'README に Claude を終了する文が無い');
+  const i = read('INSTALL.md');
+  assert.ok(mdSection(i, '## 入れ直し（0.3.0 から）').includes(QUIT), 'INSTALL の入れ直しに Claude を終了する文が無い');
+  const cc = i.indexOf('\n## Claude Code を入れる（オンラインの要約）\n');
+  const mcp = i.indexOf('\n## （任意）Claude から議事録を読む\n');
+  assert.ok(cc > 0 && mcp > cc, 'INSTALL の「Claude Code を入れる」の後に Claude から読む任意の手順が無い');
+  const s = mdSection(i, '## （任意）Claude から議事録を読む');
+  for (const w of ['［設定］→［要約］', '［Claude デスクトップに登録］', 'Claude（Anthropic）へ送られます', '終了']) assert.ok(s.includes(w), `INSTALL の任意の手順に「${w}」が無い`);
+});

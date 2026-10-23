@@ -5,16 +5,13 @@
 
 const test = require('node:test');
 const assert = require('node:assert');
-const fs = require('node:fs');
-const path = require('node:path');
 const L = require('../src/mainlib');
 
-test('F9: Claude Code に渡す文は、手元の LLM の1回で要約する頼みの文と同じ（main.js の文字から確かめる）', () => {
-  const main = fs.readFileSync(path.join(__dirname, '..', 'src', 'main.js'), 'utf8');
-  const m = /content: `\$\{memoBlock\}【会議の文字起こし】\\n\$\{plain\}\\n\\n(上記から、次の構成のMarkdown議事録を作成してください。見出しはこの通りに使い、本文だけを出力してください。)\\n\\n\$\{minutesTemplate\(type\)\}`/.exec(main);
-  assert.ok(m, 'generateMinutes の1回で要約する頼みの文が見つからない（文を変えたなら buildClaudeInput も同じに直す）');
+// 0.10.0 LS-2（D59）で意図して直した: 手元の llama の要約（generateMinutes）を外したので、main.js の頼みの文と比べずに、文そのものを見る
+test('F9: Claude Code に渡す文（メモ・文字起こし・構成の指示・型の見出し）', () => {
+  const ASK = '上記から、次の構成のMarkdown議事録を作成してください。見出しはこの通りに使い、本文だけを出力してください。';
   const out = L.buildClaudeInput({ memoText: '議題: 予算', plain: '本日の議題は進捗の確認です。', template: '## 概要\n（要約）' });
-  assert.strictEqual(out, `【会議メモ・アジェンダ（要約のヒント）】\n議題: 予算\n\n【会議の文字起こし】\n本日の議題は進捗の確認です。\n\n${m[1]}\n\n## 概要\n（要約）`);
+  assert.strictEqual(out, `【会議メモ・アジェンダ（要約のヒント）】\n議題: 予算\n\n【会議の文字起こし】\n本日の議題は進捗の確認です。\n\n${ASK}\n\n## 概要\n（要約）`);
   assert.ok(!L.buildClaudeInput({ memoText: '', plain: 'x', template: 't' }).includes('会議メモ'));
 });
 

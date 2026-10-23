@@ -57,6 +57,28 @@ const OPEN_THREE_TABS = `(async () => {
   document.getElementById('tabBtnNotes').click(); item().click(); await w();
   return 1;
 })()`;
+// 0.10.0 L-1: 1行目のページを開いて（非同期なので少し待つ）、「···」のメニュー（［コピー］［リンクを写す］［削除］）を開く
+const OPEN_PAGE_MENU = `(async () => {
+  document.getElementById('tabBtnNotes').click(); document.querySelector('#plist .pitem').click();
+  await new Promise((r) => setTimeout(r, 300));
+  document.getElementById('pMore').click();
+  return 1;
+})()`;
+// 0.10.0 LS-2 の見直し（取り直しの見比べで、要約の無いページは「文字起こし」の欄で開き、鍵の一言が写っていなかった）: ページを開いてから［AI 要約］の欄を押す
+const OPEN_PAGE_SUMMARY = `(async () => {
+  document.getElementById('tabBtnNotes').click(); document.querySelector('#plist .pitem').click();
+  await new Promise((r) => setTimeout(r, 300));
+  document.getElementById('paneBtnNote').click();
+  return 1;
+})()`;
+// 0.10.0 L-2: 左の一覧の［選ぶ］を押し、1行目と3行目を選ぶ（頭の枠「2 件を選んでいます」と［リンクを写す］［やめる］）
+const SELECT_TWO = `(() => {
+  document.getElementById('tabBtnNotes').click();
+  document.getElementById('listSelect').click();
+  const rows = () => document.querySelectorAll('#plist .pitem');
+  rows()[0].click(); rows()[2].click();
+  return 1;
+})()`;
 // 0.9.2 I-4: 設定を開いて項目を選ぶ・ⓘ を真ん中に見えるように捲って押す（押すと吹き出しが開く。最後に押す）
 const OPEN_SETTINGS = "document.getElementById('tabBtnSettings').click()";
 const NAV = (id) => `document.getElementById('${id}').click()`;
@@ -148,6 +170,19 @@ const SCREENS = [
   { name: 'live-late-light', page: 'app', theme: 'light', answers: lateAnswers() },
   { name: 'live-late-dark', page: 'app', theme: 'dark', answers: lateAnswers() },
   { name: 'live-late-zoom200-light', page: 'app', theme: 'light', zoom: 2, answers: lateAnswers() },
+  // 0.10.0 C-3（計画 docs/plans/2026-10-20-100.md の「取り直す画面（RETAKE）」）: 項目「要約」のカード「Claude との連携（MCP）」まで捲った形（状態 none）と、
+  // その ⓘ の吹き出しを開いた形。足した画面（まだ基準が無い）
+  { name: 'settings-mcp-light', page: 'app', theme: 'light', act: `${OPEN_SETTINGS}; ${NAV('setNavSummary')}; document.getElementById('mcpCard').scrollIntoView({ block: 'start' })` },
+  { name: 'settings-info-mcp-light', page: 'app', theme: 'light', act: `${OPEN_SETTINGS}; ${NAV('setNavSummary')}; ${INFO('setPopMcp')}` },
+  // 0.10.0 L-1（D58）: ページの「···」のメニューを開いた形（［リンクを写す］）。足した画面（まだ基準が無い）
+  { name: 'page-menu-link-light', page: 'app', theme: 'light', act: OPEN_PAGE_MENU },
+  { name: 'page-menu-link-dark', page: 'app', theme: 'dark', act: OPEN_PAGE_MENU },
+  // 0.10.0 L-2（D58・D70）: 左の一覧の［選ぶ］で3件のうち2件を選んだ形。足した画面（まだ基準が無い）
+  { name: 'list-select-light', page: 'app', theme: 'light', act: SELECT_TWO },
+  { name: 'list-select-dark', page: 'app', theme: 'dark', act: SELECT_TWO },
+  // 0.10.0 LS-2（D63・D69・決めたこと 111 の 7）: まだ要約を作っていない会議のページ（要約の欄の頭の灰色の一言と、右上の［要約を生成］）。
+  // 足した画面（まだ基準が無い）
+  { name: 'page-summary-lock-light', page: 'app', theme: 'light', get answers() { return summaryLockAnswers(); }, act: OPEN_PAGE_SUMMARY },
 ];
 // 0.9.0 O-3（RP9）: 録音バーの画面（形 → 地 → 拡大率 → 状態の順。撮る道具は形・地・拡大率の組ごとに窓を1つ開いて状態を act で替える）。
 // 録音は始めずに見た目だけを撮る（act は pill-states の見本を録音バーの DOM に当てる。撮るときだけ体の地にデスクトップの色を塗る）。
@@ -216,6 +251,10 @@ SCREENS.find((x) => x.name === 'notes-page-light').focus = { tabs: 3, want: 'mtT
 const OVL_094 = (states) => PS.FORMS.flatMap((form) => Object.keys(PS.DESKS).flatMap((desk) => PS.SCALES.flatMap((sc) => states.map((st) => `overlay-${form}-${desk}-${st}-${Math.round(sc * 100)}`))));
 // 0.9.4（版を 0.9.4 に上げる commit）: 持ち主が 2026-10-22 に取り直しの見比べ（CI run 39831111027（bd2320d）・artifact 12448422820 の .after.png）を見て
 // 「OK」と言ったので、その画像をバイトのまま基準にし（基準と同じだった live-banner-zoom200-dark は今の基準のまま）、空に戻した
+// 0.10.0（版を 0.10.0 に上げる commit）: 持ち主が 2026-10-23 に取り直しの見比べ（CI run 39931820118（7feee33）の 46 枚。tools の見比べの絵）を見て
+// 「OK」と言った。持ち主の答えで MCP のカードの頭の1行（「Claude デスクトップから議事録を読めるようにします。」）だけを直した後の CI run 39934849171
+// （03d209d）・artifact 12493472101 の .after.png（46 枚）をバイトのまま基準にし、空に戻した。OK の画像と比べて、直した1行の写る4枚（settings-summary-light・
+// settings-info-claude-light・settings-mcp-light・settings-info-mcp-light）のその行のほかに違いは無い（左の列の印の 1 段の色の揺れは、同じ app.html の2つの run の間にもある）
 const RETAKE = new Set([]);
 const PERF = [{ name: 'open-2000-blocks', budgetMs: 500 }];   // 3回開いた中央値で見る
 const TIME_ZONE = 'Asia/Tokyo';
@@ -262,8 +301,10 @@ const SEGMENTS = [
   { id: 's5', atMs: 300000, text: '求人票の見直しは、佐藤さんが今月末までに案を出します。' },
   { id: 's6', atMs: 375000, text: '出す日は11月15日で決まりです。以上で終わります。' },
 ];
+// 0.10.0 SH-1（D71・決めたこと 140）: 見本の題名は本物と同じ日付の形（作った時刻の日本の時刻。lib.meetingTitleAt の1か所で決める）
+const JST_MIN = 540;
 const PAGE = {
-  id: 'p1', title: '週次定例（見本）', date: '2026-10-16', durationSec: 1820,
+  id: 'p1', title: lib.meetingTitleAt('2026-10-16T01:00:00.000Z', JST_MIN), date: '2026-10-16', durationSec: 1820,
   memo: '議題: 進み具合 / 在庫の取り込み / 採用',
   meetingType: 'standup', typeAuto: true, autoType: 'standup',
   createdAt: '2026-10-16T01:00:00.000Z', updatedAt: '2026-10-16T01:40:00.000Z',
@@ -284,8 +325,8 @@ const PAGE = {
 };
 const LIST = [
   { id: 'p1', title: PAGE.title, date: '2026-10-16', durationSec: 1820, createdAt: PAGE.createdAt, updatedAt: PAGE.updatedAt, meetingType: 'standup', hasSummary: true },
-  { id: 'p2', title: '設計の打ち合わせ（見本）', date: '2026-10-09', durationSec: 2710, createdAt: '2026-10-09T05:00:00.000Z', updatedAt: '2026-10-09T05:50:00.000Z', meetingType: 'general', hasSummary: true },
-  { id: 'p3', title: '1on1（見本）', date: '2026-10-01', durationSec: 905, createdAt: '2026-10-01T08:00:00.000Z', updatedAt: '2026-10-01T08:20:00.000Z', meetingType: 'general', hasSummary: false },
+  { id: 'p2', title: lib.meetingTitleAt('2026-10-09T05:00:00.000Z', JST_MIN), date: '2026-10-09', durationSec: 2710, createdAt: '2026-10-09T05:00:00.000Z', updatedAt: '2026-10-09T05:50:00.000Z', meetingType: 'general', hasSummary: true },
+  { id: 'p3', title: lib.meetingTitleAt('2026-10-01T08:00:00.000Z', JST_MIN), date: '2026-10-01', durationSec: 905, createdAt: '2026-10-01T08:00:00.000Z', updatedAt: '2026-10-01T08:20:00.000Z', meetingType: 'general', hasSummary: false },
 ];
 const HISTORY = [
   // 止めた時計（10/18 09:00 日本時間）の 30 分前。「今日の入力」と「30分前」が出る
@@ -305,9 +346,10 @@ function offlineAnswers() {
   const total = MANIFEST.items.reduce((n, i) => n + i.size, 0);
   const whisperBytes = MANIFEST.items.filter((i) => i.group === 'whisper').reduce((n, i) => n + i.size, 0);
   return {
-    'koeApp.engineStatus': { ok: true, whisper: 'PC の中の文字起こしはまだ取り込んでいません。', sum: '', chosen: false },
-    'koeApp.engineFetchStatus': { ok: true, supported: true, mode: { whisper: 'managed', sum: 'managed' }, state: 'missing', totalBytes: total, doneBytes: 0,
-      needBytes: total, whisperBytes, freeBytes: 20e9, whisperReady: false, sumReady: false, runtime: null, askIt: false, report: '', consent: false, userPaused: false,
+    // 0.10.0 LS-3（D59）: 組は文字起こしだけ（要約のエンジンの欄 sum・sumReady を外した）
+    'koeApp.engineStatus': { ok: true, whisper: 'PC の中の文字起こしはまだ取り込んでいません。', chosen: false },
+    'koeApp.engineFetchStatus': { ok: true, supported: true, mode: { whisper: 'managed' }, state: 'missing', totalBytes: total, doneBytes: 0,
+      needBytes: total, whisperBytes, freeBytes: 20e9, whisperReady: false, runtime: null, askIt: false, report: '', consent: false, userPaused: false,
       items: MANIFEST.items.map((i) => ({ id: i.id, group: i.group, label: i.label, version: i.version, file: (i.dest || i.dir).split('/').pop(), url: i.url,
         host: new URL(i.url).hostname, sha256: i.sha256, size: i.size, done: 0, state: 'missing', license: i.license, place: '%LOCALAPPDATA%\\natsu\\engine\\…' })),
       error: null },
@@ -343,6 +385,13 @@ function lateAnswers() {
 }
 
 /** 0.9.3 M-7: 設定の「会議の検出」の画面の答え（見本の設定に、通知オンと出さないアプリ Zoom を足した形） */
+// 0.10.0 LS-2: 見本のページから要約（ブロック・出典とアクションの数・要約の経路）を外した形（決めたこと 111 の 7「まだ要約を作っていない」）
+function summaryLockAnswers() {
+  const page = fixtures()['koeApp.pageGet'].page;
+  const route = { ...(page.route || {}) };
+  delete route.summary;
+  return { 'koeApp.pageGet': { page: { ...page, blocks: [], citeStat: null, actionStat: null, summaryError: '', route }, segments: SEGMENTS } };
+}
 function detectAnswers() {
   return { 'koeApp.getSettings': { ...fixtures()['koeApp.getSettings'], meetingDetect: true, meetingDetectMute: ['zoom'] } };
 }
@@ -356,19 +405,20 @@ function fixtures() {
     'koeApp.getSettings': {
       localServerExe: `${ENGINE_DIR}\\whisper\\whisper-server.exe`, localModelPath: `${ENGINE_DIR}\\models\\ggml-model.bin`,
       localThreads: 4, localPort: 8990, vadModelPath: '', useVad: true, suppressNst: true,
-      sumServerExe: `${ENGINE_DIR}\\llama\\llama-server.exe`, sumModelPath: `${ENGINE_DIR}\\models\\summary.gguf`,
-      sumThreads: 4, sumPort: 8991, sumCtx: 16384, sumGpuLayers: 0, engineIdleMin: 10, autoSummarize: true,
+      engineIdleMin: 10, autoSummarize: true,   // 0.10.0 LS-3 で要約のエンジンのキーを外した
       hotkey: 'Control+Shift+Space', meetingHotkey: 'Alt+M', segmentSec: 75, pillPos: 'bottom', micId: '',
       language: 'ja', autoPaste: true, removeFillers: true, soundFeedback: true, autoLaunch: false,
       dictionary: ['議事録', '結合試験'], useBuiltinTerms: true, stayInTray: false, theme: 'system', useSystemAudio: false,
     },
     'koeApp.vadStatus': { path: `${ENGINE_DIR}\\models\\ggml-silero-vad.bin`, auto: true },
-    'koeApp.engineStatus': { ok: true, whisper: '', sum: '' },
+    'koeApp.engineStatus': { ok: true, whisper: '' },
     'koeApp.engineFetchStatus': null,   // 取り込みの欄は出さない（取り込みの状態で画面が変わらないように）
     'koeApp.hotkeyState': { ok: true, failed: [], fallback: {}, message: '' },
     // 第1d回 A-12: カード「アカウント」はログインしていない形（AR1・AR2 と［ログイン］）。main の account:status の形（cookie は入っていない）
     'koeApp.accountStatus': { ok: true, signedIn: false, email: '', method: 'access', until: null, canStore: true, online: { up: true, why: 'ok' } },
     'koeApp.promptInfo': { ok: true, kept: 2, total: 2, over: false },
+    // 0.10.0 C-3: カード「Claude との連携（MCP）」は登録していない形（Claude デスクトップは動いていない）
+    'koeApp.mcpStatus': { desktop: { state: 'none', files: 1, running: false } },
     'koeApp.meetingTypes': mtype.listTypes(),
     'koeApp.appVersion': { version: '0.4.0', repo: '' },   // 版を上げても画面が変わらないように決まった値
     'koeApp.getHistory': HISTORY,

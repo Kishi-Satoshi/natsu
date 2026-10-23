@@ -1,7 +1,7 @@
 ---
 title: 外観
 description: ［設定］の「一般」の「外観」で配色を「システム設定を使用」「ライト」「ダーク」から選ぶ。Ctrl+Shift+L で切り替える。設定の画面の使い方（ⓘ の説明・検索・［ヘルプ］）
-updated: 2026-10-21
+updated: 2026-10-23
 sources: CHANGELOG.md, README.md, src/renderer/app.html, src/main.js
 related: settings/account, settings/hotkeys
 ---
@@ -40,7 +40,7 @@ NaTsu の窓で [[Ctrl+Shift+L]] を押すと、ライトとダークを切り�
 | ［一般］ | 外観・ホットキー・起動と終了（自動起動・トレイに残す・効果音） |
 | ［録音］ | 録音バーの置き場所・マイクと相手の声・話し声が無いとき（自動で止める）・文字起こし・ユーザー辞書 |
 | ［要約］ | 要約（Claude Code） |
-| ［ローカル AI］ | PC の上で動く文字起こしと要約の準備（任意） |
+| ［ローカル AI］ | PC の上で動く文字起こしの準備（任意） |
 | ［更新］ | 更新の確認 |
 
 - 前に選んだ項目は、NaTsu を閉じるまで覚えています（初めは「一般」）。

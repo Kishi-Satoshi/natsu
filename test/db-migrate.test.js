@@ -40,6 +40,7 @@ test('ST10: 移した後、全部のページと文字起こしが元の JSON �
 test('F2: ブロックの ID の重なり・ID の無いブロック・発言の ID の重なり・形の悪いページがあっても、残りは移り、元のファイルはそのまま', { timeout: 5000 }, () => {
   const d = oldBuildData({ pages: 3 });
   try {
+    // 利用者が付け直した題名（D77。題名の語に頼るため）
     d.writePage({ id: 'pdup000001', title: '重なり', blocks: [{ id: 'bsame', type: 'bullet', text: '一' }, { id: 'bsame', type: 'bullet', text: '二' }, { type: 'bullet', text: 'ID なし' }] },
       [{ id: 's1', atMs: 0, text: '一' }, { id: 's1', atMs: 1, text: '二' }]);
     d.writePage({ id: 'pbad000001', title: 7, blocks: ['文字だけ'] }, []);
@@ -172,22 +173,34 @@ test('F2: 今の形で表せないページは移さず数える（題名・ブ�
   try {
     const bad = [
       { id: 'pshape0001', title: null, blocks: [] },
+      // 利用者が付け直した題名（D77。題名の語に頼るため）
       { id: 'pshape0002', title: '文が無い', blocks: [{ id: 'bx1', type: 'bullet' }] },
+      // 利用者が付け直した題名（D77。題名の語に頼るため）
       { id: 'pshape0003', title: '型が無い', blocks: [{ id: 'bx2', text: '型なし' }] },
+      // 利用者が付け直した題名（D77。題名の語に頼るため）
       { id: 'pshape0004', title: 'ページの型', blocks: [{ id: 'bx3', type: 'page', text: '一覧に出てしまう' }] },
+      // 利用者が付け直した題名（D77。題名の語に頼るため）
       { id: 'pshape0005', title: '空の時刻', createdAt: '', blocks: [] },
+      // 利用者が付け直した題名（D77。題名の語に頼るため）
       { id: 'pshape0006', title: '壊れた\ud800サロゲート', blocks: [] },
+      // 利用者が付け直した題名（D77。題名の語に頼るため）
       { id: 'pshape0007', title: '負のゼロ', durationSec: -0, blocks: [] },
+      // 利用者が付け直した題名（D77。題名の語に頼るため）
       { id: 'pshape0008', title: '決まった名前', rev: 3, blocks: [] },
+      // 利用者が付け直した題名（D77。題名の語に頼るため）
       { id: 'pshape0009', title: 'blocks が配列でない', blocks: '文字' },
+      // 利用者が付け直した題名（D77。題名の語に頼るため）
       { id: 'pshape0010', title: '子がある', blocks: [{ id: 'bx4', type: 'bullet', text: '親', children: [{ id: 'bx5' }] }] },
     ];
     for (const p of bad) d.writePage(p, []);
     // JSON.stringify は -0 を 0 と書くので、-0 のファイルは手で書く（JSON.parse は -0 に読む。表に入れると 0 になり比べが合わない）
     fs.writeFileSync(path.join(d.dataDir, 'pages', 'pshape0007.json'), '{"id":"pshape0007","title":"負のゼロ","durationSec":-0,"blocks":[]}');
+    // 利用者が付け直した題名（D77。題名の語に頼るため）
     d.writePage({ id: 'pshape0011', title: '発言の形が悪い', blocks: [] }, [{ id: 's1', atMs: 0 }]);
+    // 利用者が付け直した題名（D77。題名の語に頼るため）
     d.writePage({ id: 'pshape0012', title: '発言が物でない', blocks: [] }, ['文字だけ']);
     // 表せるもの: blocks の無いページ（今の getPage と同じく空の並び）・整数でない時刻・真偽でない failed・null の欄・入れ子の知らない欄
+    // 利用者が付け直した題名（D77。題名の語に頼るため）
     d.writePage({ id: 'pgood00001', title: '表せる', memo: 'メモ', nested: { a: [1, { b: null }] } },
       [{ id: 's1', atMs: 1.5, durationMs: null, text: '一', failed: 'yes' }, { id: 's2', text: '二', speaker: '話者2' }]);
     const r = M.migrate({ sqlite, dataDir: d.dataDir });
@@ -196,6 +209,7 @@ test('F2: 今の形で表せないページは移さず数える（題名・ブ�
     assert.deepStrictEqual(M.plan(d.dataDir, {}), r.counts);
     const peek = require('./helpers/dbpeek').open(d.dataDir);
     try {
+      // 利用者が付け直した題名（D77。題名の語に頼るため）
       assert.deepStrictEqual(peek.rawPage('pgood00001'), { id: 'pgood00001', title: '表せる', memo: 'メモ', nested: { a: [1, { b: null }] }, blocks: [] });
       assert.deepStrictEqual(peek.getTranscript('pgood00001'), [{ id: 's1', atMs: 1.5, durationMs: null, text: '一', failed: 'yes' }, { id: 's2', text: '二', speaker: '話者2' }]);
       for (const p of bad) assert.strictEqual(peek.rawPage(p.id), null, p.id);
@@ -207,8 +221,10 @@ test('F2: 今の形で表せないページは移さず数える（題名・ブ�
 test('F2: ブロックの ID がほかのページの ID・別のページのブロックと重なっても、後から振り直して両方移す。発言の ID の無い・形の悪いものも空いている s<n> に', { timeout: 5000 }, () => {
   const d = oldBuildData({ pages: 0 });
   try {
+    // 利用者が付け直した題名（D77。題名の語に頼るため）
     d.writePage({ id: 'pzz0000001', title: '前', blocks: [{ id: 'pzz0000002', type: 'bullet', text: '後のページと同じ ID' }, { id: 'bshared', type: 'bullet', text: '共有' }, { id: 'pzz0000001', type: 'bullet', text: '自分と同じ ID' }] },
       [{ id: 's5', text: '五' }, { text: 'ID なし' }, { id: 'こんにちは', text: '形の悪い ID' }, { id: 's5', text: '重なり' }]);
+    // 利用者が付け直した題名（D77。題名の語に頼るため）
     d.writePage({ id: 'pzz0000002', title: '後', blocks: [{ id: 'bshared', type: 'bullet', text: '別のページの共有' }, { id: 'b.bad', type: 'bullet', text: '形の悪い ID' }] }, []);
     const r = M.migrate({ sqlite, dataDir: d.dataDir });
     assert.strictEqual(r.ok, true, r.code);
@@ -270,6 +286,7 @@ test('RF14: natsu.db が無いのに残っている natsu.db-wal・-shm は新�
 });
 
 test('convertPage は純粋（元の形を変えない）。usedIds に使った ID を足す。ページが無い data は空の DB になる', { timeout: 5000 }, () => {
+  // 利用者が付け直した題名（D77。題名の語に頼るため）
   const page = { id: 'pc00000001', title: '題', blocks: [{ id: 'b1', type: 'bullet', text: '一' }, { id: 'b1', type: 'bullet', text: '二' }] };
   const segs = [{ id: 's1', text: '一' }, { id: 's1', text: '二' }];
   const copy = structuredClone([page, segs]);
@@ -332,6 +349,7 @@ test('ST10: 文字起こしが読めないページは発言 0 で移さず、�
 });
 
 test('convertPage: 発言の番号が大きすぎて数えられないときも、空いている s<n> を使う（使っている番号に重ねない）', { timeout: 5000 }, () => {
+  // 利用者が付け直した題名（D77。題名の語に頼るため）
   const c = M.convertPage({ id: 'pc3', title: '題', blocks: [] }, [{ id: 's1', text: '一' }, { id: 's99999999999999999999', text: '大' }, { id: 's1', text: '重なり' }], { usedIds: new Set() });
   assert.deepStrictEqual(c.segments.map((s) => s.id), ['s1', 's99999999999999999999', 's2']);
   assert.deepStrictEqual(c.fixedAt, { blocks: [], segments: [2] });
@@ -344,13 +362,18 @@ test('F2: 保存の決まりを超えるページ（題名 501 字・ブロッ�
   try {
     const V = require('../src/db/validate');
     const over = [
+      // 利用者が付け直した題名（D77。題名の語に頼るため）
       { id: 'plimit0001', title: 'あ'.repeat(V.LIMITS.title + 1), blocks: [] },
+      // 利用者が付け直した題名（D77。題名の語に頼るため）
       { id: 'plimit0002', title: 'ブロックが多い', blocks: Array.from({ length: V.LIMITS.blocks + 1 }, (_, i) => ({ id: `bl${i}`, type: 'bullet', text: `行${i}` })) },
+      // 利用者が付け直した題名（D77。題名の語に頼るため）
       { id: 'plimit0003', title: '型に空白', blocks: [{ id: 'bt1', type: 'to do', text: '型の名前に空白' }] },
+      // 利用者が付け直した題名（D77。題名の語に頼るため）
       { id: 'plimit0004', title: '大きすぎる', blocks: Array.from({ length: 4 }, (_, i) => ({ id: `bz${i}`, type: 'paragraph', text: 'あ'.repeat(V.LIMITS.text) })) },   // 1つずつは決まりの中、合わせて 1MB を超える
     ];
     for (const p of over) d.writePage(p, []);
     // 決まりちょうど（題名 500 字・ブロック 2,000 個）は移す
+    // 利用者が付け直した題名（D77。題名の語に頼るため）
     d.writePage({ id: 'pedge00001', title: 'い'.repeat(V.LIMITS.title), blocks: Array.from({ length: V.LIMITS.blocks }, (_, i) => ({ id: `be${i}`, type: 'bullet', text: `行${i}` })) }, []);
     const before = snapshotTree(d.dataDir);
     assert.deepStrictEqual([M.plan(d.dataDir, {}).pages, M.plan(d.dataDir, {}).badShape], [2, 4]);

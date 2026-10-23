@@ -40,8 +40,7 @@ function block(s, head) {
 const PROMPT = 'Read-Host "Enter キーを押すと閉じます"';
 const SCRIPTS = [
   { file: 'setup-local-engine.ps1', params: ['[string]$Model = "large-v3-turbo-q5"', '[switch]$ForceBinary'], done: 'セットアップ完了' },
-  // 要約のモデルの既定は、アプリの取り込みと同じ e4b（第0b回 Task 17。下の「既定のモデルはアプリの取り込みと同じファイル」）
-  { file: 'setup-summarizer.ps1', params: ['[string]$Model = "e4b"', '[string]$Tag = ""'], done: 'セットアップ完了' },
+  // setup-summarizer.ps1 は 0.10.0 LS-5（D59）で消した（要約は Claude Code だけ）
   { file: 'get-installer.ps1', params: ['[string]$Version = ""', '[string]$OutDir = "."'], done: '取得完了' },
 ];
 
@@ -176,29 +175,32 @@ function section(md, heading) {
 
 // 第1d回 A-13（D19）で意図して変えた: 設定のカード「エンジン」は「オフライン」、ボタンは［PC の中の文字起こしを取り込む］（前の［エンジンを取り込む］）。案内も画面の名前に合わせる
 // 0.9.3 M-0（D54）で意図して変えた: 項目「オフライン」は「ローカル AI」
-test('INSTALL: 手順は［設定］→［ローカル AI］の［PC の中の文字起こしを取り込む］（約 5.6GB）。置き場所は %LOCALAPPDATA%\\natsu\\engine。スクリプトは詳しい人向けの節に残す', () => {
+// 0.10.0 LS-5（D59）で意図して変えた: 取り込みは文字起こしの組だけ（約 0.6GB）。要約のスクリプトは消した
+test('INSTALL: 手順は［設定］→［ローカル AI］の［PC の中の文字起こしを取り込む］（約 0.6GB）。置き場所は %LOCALAPPDATA%\\natsu\\engine。スクリプトは詳しい人向けの節に残す', () => {
   const s = read('INSTALL.md');
-  assert.ok(s.includes('［設定］→［ローカル AI］の［PC の中の文字起こしを取り込む］') && s.includes('%LOCALAPPDATA%\\natsu\\engine') && s.includes('約 5.6GB'));
+  assert.ok(s.includes('［設定］→［ローカル AI］の［PC の中の文字起こしを取り込む］') && s.includes('%LOCALAPPDATA%\\natsu\\engine') && s.includes('約 0.6GB'));
   assert.ok(!s.includes('［エンジンを取り込む］') && !s.includes('［設定］→［エンジン］'), '前の名前（［エンジンを取り込む］・［設定］→［エンジン］）が残っている');
   const adv = section(s, '## 手で入れる（詳しい人向け）');
-  assert.ok(adv && adv.includes('setup-local-engine.ps1') && adv.includes('setup-summarizer.ps1'));
+  assert.ok(adv && adv.includes('setup-local-engine.ps1') && !adv.includes('setup-summarizer.ps1'));
   for (const h of ['github.com', 'huggingface.co', 'hf.co']) assert.ok(s.includes(h), h);
   const step1 = section(s, '## 手順1. インストーラーを取得する');
   assert.ok(step1 && !/setup-(local-engine|summarizer)\.ps1/.test(step1), '手順1 でスクリプトを取らせている');
 });
 
-test('INSTALL の常駐メモリの目安: 手で入れた 3B の「約 3GB」は残し、取り込んだモデルの行を足す', () => {
+// 0.10.0 LS-5（D59）で意図して変えた: 要約は Claude Code なので、要約のモデルのメモリの行（3B の約 3GB・取り込んだモデルの約 4GB）を外した
+test('INSTALL の常駐メモリの目安: whisper の行だけで、要約の分は増えないと書く', () => {
   const sec = section(read('INSTALL.md'), '## 常駐メモリの目安');
-  assert.ok(/約\s*3\s*GB/.test(sec));
-  assert.ok(/取り込んだ[^\n]*約\s*4\s*GB/.test(sec), '取り込んだ要約のモデルのメモリが書いていない');
+  assert.ok(sec.includes('| 文字起こしエンジン（whisper）が常駐 | 0.8〜1.2GB |'));
+  assert.ok(!/約\s*[34]\s*GB/.test(sec) && sec.includes('要約の分は増えません'), '要約のモデルのメモリの行が残っている');
 });
 
 // 0.9.0 G-2（OF8・D21）で意図して変えた: 取り込みは任意。終わりの案内は先に［設定］→［アカウント］でのログインを言い、取り込みは
 // 「オフラインでも使うときは」の［ローカル AI を使う（数 GB を取り込む）］（初めのボタンの名前）にした
 // 0.9.3 M-0（D54）で意図して変えた: 項目の名前とボタンを「ローカル AI」「ローカル AI を使う…」に（get-installer.ps1 の案内の文も直した）
-test('get-installer.ps1: セットアップスクリプトを落とさず、終わりの案内はログインを先に言い、取り込みは任意の［設定］→［ローカル AI］の［ローカル AI を使う（数 GB を取り込む）］', () => {
+// 0.10.0 LS-5（D59）で意図して変えた: 取り込みは文字起こしの組だけ（約 0.6GB）。ボタンの数は今の計算
+test('get-installer.ps1: セットアップスクリプトを落とさず、終わりの案内はログインを先に言い、取り込みは任意の［設定］→［ローカル AI］の［ローカル AI を使う（約 0.6GB を取り込む）］', () => {
   const s = read('get-installer.ps1');
-  assert.ok(s.includes('［設定］→［アカウント］でログインしてください。') && s.includes('［設定］→［ローカル AI］の［ローカル AI を使う（数 GB を取り込む）］'));
+  assert.ok(s.includes('［設定］→［アカウント］でログインしてください。') && s.includes('［設定］→［ローカル AI］の［ローカル AI を使う（約 0.6GB を取り込む）］'));
   assert.ok(!s.includes('［エンジンを取り込む］'));
   assert.ok(!s.includes('setup-local-engine.ps1') && !s.includes('貼り付け'));
   // 計画の2つの確かめは、名前を書かない `-like "setup-*.ps1"` の取得の繰り返しを見逃すので、注釈でない行に setup- が無いことも見る
@@ -213,15 +215,7 @@ test('ランタイムの案内は aka.ms/vc14（14.51 以上）。aka.ms/vs/17�
   }
 });
 
-test('setup-summarizer.ps1 の既定のモデルは、アプリの取り込みと同じファイル（全員同じモデル）。URL は commit で固定', () => {
-  const pin = require('../src/engine-manifest').MANIFEST.items.find((i) => i.id === 'sum-model');
-  const name = pin.dest.split('/').pop();
-  const s = read('setup-summarizer.ps1');
-  const def = (s.match(/\[string\]\$Model = "([^"]+)"/) || [])[1];
-  const block = s.slice(s.indexOf(`if ($Model -eq "${def}")`), s.indexOf('}', s.indexOf(`if ($Model -eq "${def}")`)));
-  assert.ok(block.includes(name), `既定 ${def} のファイルが ${name} でない`);
-  assert.ok(s.includes(pin.url), 'ピンと同じ commit の URL でない');
-});
+// 「setup-summarizer.ps1 の既定のモデルはアプリの取り込みと同じファイル」は 0.10.0 LS-3（D59）で外した（要約のモデルを取り込まない。スクリプトは LS-5 で消す）
 
 // INSTALL の「困ったときは」は、画面に出る取り込みの文（src/engine-fetch.js の fetchErrorMessage）と
 // ランタイムの文（src/mainlib.js の vcRuntimeIssue）の一部を「…」と出る の形でそのまま引く。文を直したのに

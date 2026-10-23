@@ -192,6 +192,10 @@ function build({ root = ROOT, out } = {}) {
   for (const c of site.categories) pages.set(`${c.id}/index.html`, P.pageCategory(site, c, ctx));
   for (const a of articles.values()) pages.set(`${a.ref}/index.html`, P.pageArticle(site, a, ctx));
   pages.set('404.html', P.page404(site, ctx));
+  // 0.10.0 LN-5（D78・決めたこと 155）: /open のページ（Claude の出典のリンクから NaTsu を開く静かなページ）。help/open/index.html をそのまま出す。
+  // 記事ではないので、検索の索引・記事の一覧・ホームと分類の一覧には入れない（ページの中の住所は checkPages が照らす）
+  const openPage = path.join(help, 'open', 'index.html');
+  if (fs.existsSync(openPage)) pages.set('open/index.html', fs.readFileSync(openPage, 'utf8'));
   const index = searchIndex(site, articles);
   const assets = listAssets(path.join(help, 'assets'));
   const all = new Map(pages);

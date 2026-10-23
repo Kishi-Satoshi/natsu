@@ -203,7 +203,6 @@ jobs:
   #  - --start: é・日本語・𠮷 の名前のフォルダに、アプリと同じ道（fetchFile → zipread → engineSpawnPlan）で
   #             エンジンを置いて起動し、VAD を読ませる。英数字以外の絶対パスでは落ちることも見る。
   #             本物の CDN で、取り消してから続きを取れるか（206）も、キャッシュがあっても毎回見る。
-  # 要約のモデル（約 5GB）は落とさない。届くかと記録が合うかだけを見る。
   # キャッシュは SHA-256 を照らしてから使う（合わなければ取り直す）。
   engine-smoke:
     runs-on: windows-latest
@@ -309,6 +308,11 @@ jobs:
         shell: bash
         run: ELECTRON_RUN_AS_NODE=1 node_modules/electron/dist/electron.exe tools/sqlite-probe.js
 
+      # 0.10.0 E-1（MR9）: Claude デスクトップと同じ起こし方（exe に src/mcp/server.js を渡す）で、MCP の両方の版の往復とゴミ箱の会議が出ないこと
+      - name: node_modules の Electron で MCP の往復を確かめる
+        shell: bash
+        run: node tools/mcp-probe.js --exe node_modules/electron/dist/electron.exe --script src/mcp/server.js
+
       - name: 小さなアプリで utilityProcess・sandbox の窓など（1〜7）、守り（8〜12）、net.request の POST・safeStorage（13・14）を確かめる
         shell: bash
         run: node_modules/electron/dist/electron.exe tools/electron-smoke
@@ -344,21 +348,27 @@ jobs:
           SKIPPED="$(grep -E '^# skipped [0-9]+' "$LOG" | tail -n 1 | sed -E 's/^# skipped ([0-9]+).*/\1/' || true)"
           if [ -z "$SKIPPED" ] || [ "$SKIPPED" -gt 1 ]; then echo "::error::飛ばしたテストが ${SKIPPED:-?} 件（許すのは 1 件まで）"; exit 1; fi
 
-      - name: NSIS とポータブルを作る
+      # 0.10.0 PB-1（D76）: ポータブル版は作らない（最後は 0.9.4）
+      - name: NSIS を作る
         shell: bash
-        run: node_modules/.bin/electron-builder --win nsis portable --publish never
+        run: node_modules/.bin/electron-builder --win nsis --publish never
 
       - name: 詰めた NaTsu.exe で node:sqlite・trigram・backup() を確かめる
         shell: bash
         run: |
-          ls -l dist/*-setup.exe dist/*-portable.exe
+          ls -l dist/*-setup.exe
           ELECTRON_RUN_AS_NODE=1 dist/win-unpacked/NaTsu.exe tools/sqlite-probe.js
+
+      - name: 詰めた NaTsu.exe で MCP の往復を確かめる
+        shell: bash
+        run: node tools/mcp-probe.js --exe dist/win-unpacked/NaTsu.exe --script dist/win-unpacked/resources/app/src/mcp/server.js
 
   # 変異確認（第1a回 G3）。tools/mutants.js の変異を1つずつ当て、決めたテストが赤になるか（殺せるか）を見る。
   # 生き残り・当たらない変異が1つでもあれば赤。release.yml は ci.yml を呼ぶので、リリースも止まる
-  mutate:
+  mutate-1:
     runs-on: ubuntu-latest
     # 0.9.0 G-1: 0.8.0 で 16 分 41 秒（650 の変異）。0.9.0 で約 99 足すと 20 分を越える見込みなので 40 分に（30 分を越えたら --jobs か pattern を見直す）
+    # 0.10.0 G-1（決めたこと 117）: 変異が約 1,100 になり 1つのジョブで 31 分（7ddf748 の CI）。id の順に交互に2つに分け、どちらも 40 分
     timeout-minutes: 40
     steps:
       - name: 改行の変換を止める
@@ -376,6 +386,31 @@ jobs:
           node-version: '24'
 
       # 写しは2つまで（非公開のリポジトリの ubuntu-latest は CPU が 2 つ。混むと場面のテストが見張りに当たる）
-      - name: 変異確認
+      - name: 変異確認（1/2）
         shell: bash
-        run: node tools/mutate.js --jobs 2
+        run: node tools/mutate.js --jobs 2 --part 1/2
+
+  mutate-2:
+    runs-on: ubuntu-latest
+    # 0.9.0 G-1: 0.8.0 で 16 分 41 秒（650 の変異）。0.9.0 で約 99 足すと 20 分を越える見込みなので 40 分に（30 分を越えたら --jobs か pattern を見直す）
+    # 0.10.0 G-1（決めたこと 117）: 変異が約 1,100 になり 1つのジョブで 31 分（7ddf748 の CI）。id の順に交互に2つに分け、どちらも 40 分
+    timeout-minutes: 40
+    steps:
+      - name: 改行の変換を止める
+        shell: bash
+        run: git config --global core.autocrlf false
+
+      - name: 取り出す（履歴ごと）
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Node を用意する
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      # 写しは2つまで（非公開のリポジトリの ubuntu-latest は CPU が 2 つ。混むと場面のテストが見張りに当たる）
+      - name: 変異確認（2/2）
+        shell: bash
+        run: node tools/mutate.js --jobs 2 --part 2/2

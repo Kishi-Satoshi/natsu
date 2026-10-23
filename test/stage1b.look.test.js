@@ -159,19 +159,21 @@ const IDS_1A_1C = ['tabBtnNotes', 'tabBtnDictation', 'tabBtnSettings', 'tabNotes
   'themeSel', 'hotkey', 'hotkeyWarn', 'meetingHotkey', 'meetingHotkeyWarn', 'pillPos', 'micSelect', 'micReloadBtn', 'useSystemAudio', 'spkField', 'spkNow', 'spkReloadBtn',
   'spkSettingsBtn', 'language', 'autoPaste', 'removeFillers', 'soundFeedback', 'autoLaunch', 'stayInTray', 'dictionary', 'dictWarn', 'useBuiltinTerms',
   'claudeState', 'claudeTest', 'claudeHelp',
-  'claudeExe', 'onlineMsg', 'engineState', 'testBtn', 'testMsg', 'testSumMsg', 'engineNote', 'engineFetch', 'engineFetchSummary', 'engineFetchBar', 'engineFetchBtn',
+  'claudeExe', 'onlineMsg', 'engineState', 'testBtn', 'testMsg', 'engineNote', 'engineFetch', 'engineFetchSummary', 'engineFetchBar', 'engineFetchBtn',
   'engineFetchPause', 'engineFetchSwitch', 'engineDirBtn', 'engineFetchCopy', 'engineFetchMsg', 'engineFetchList', 'engineFetchRows', 'engineAdv', 'localServerExe',
-  'pickExeBtn', 'localModelPath', 'pickModelBtn', 'localThreads', 'localPort', 'useVad', 'vadState', 'vadModelPath', 'pickVadBtn', 'suppressNst', 'sumServerExe',
-  'pickSumExeBtn', 'sumModelPath', 'pickSumModelBtn', 'sumThreads', 'sumPort', 'sumCtx', 'testSumBtn', 'segmentSec', 'engineIdleMin', 'saveMsg', 'openDataBtn', 'toast',
+  'pickExeBtn', 'localModelPath', 'pickModelBtn', 'localThreads', 'localPort', 'useVad', 'vadState', 'vadModelPath', 'pickVadBtn', 'suppressNst',
+  'segmentSec', 'engineIdleMin', 'saveMsg', 'openDataBtn', 'toast',
   'updBadge', 'liveTitle', 'liveSkipBtn', 'liveTm', 'liveEta', 'liveSkipped', 'liveMic', 'meetingLocalOnly', 'meetingLocalOnlyNote'];
 // 0.7.0 U-1（設計書 D5）で意図して消した5つ: 同意の案内の行・同意・送り先・URL・モデルの欄（一覧から外し、消えたことを見る）
 const IDS_D5_REMOVED = ['onlineAskNote', 'cloudTranscribe', 'sttProvider', 'sttBaseUrl', 'sttModel'];
 // 第1d回 A-4（RL10・F11）で意図して消した6つ: D5 の［詳細設定（管理者用）］の鍵の欄（文字起こしは中継へ送り、PC に会社の鍵を置かない）。
 // 一覧から外し、消えたことを見る
 const IDS_1D_REMOVED = ['onlineAdv', 'sttKey', 'sttKeySave', 'sttKeyTest', 'sttKeyClear', 'sttKeyState'];
-test('N2・F9: 第1b回の前からある id は1つも消えていない（作る id は setMeetingUi の中に残る。D5 で意図して消した5つと、1d で意図して消した6つを除く）', () => {
+// 0.10.0 LS-3（D59）で意図して消した10: 詳細設定の要約のエンジンの欄（要約は Claude Code。一覧から外し、消えたことを見る）
+const IDS_LS3_REMOVED = ['testSumMsg', 'sumServerExe', 'pickSumExeBtn', 'sumModelPath', 'pickSumModelBtn', 'sumThreads', 'sumPort', 'sumCtx', 'testSumBtn', 'setPopSThreads'];
+test('N2・F9: 第1b回の前からある id は1つも消えていない（作る id は setMeetingUi の中に残る。D5 で意図して消した5つと、1d で意図して消した6つと、0.10.0 LS-3 で意図して消した10を除く）', () => {
   for (const id of IDS_1A_1C) assert.ok(html.includes(`id="${id}"`), `id="${id}" が消えた`);
-  for (const id of [...IDS_D5_REMOVED, ...IDS_1D_REMOVED]) assert.ok(!html.includes(`id="${id}"`) && !html.includes(`$('${id}')`), `id="${id}" が残っている`);
+  for (const id of [...IDS_D5_REMOVED, ...IDS_1D_REMOVED, ...IDS_LS3_REMOVED]) assert.ok(!html.includes(`id="${id}"`) && !html.includes(`$('${id}')`), `id="${id}" が残っている`);
 });
 
 // 偽 DOM に配置が無いので、宣言で見る。見た目そのものは C-2 の画像。.pcol は本文の列

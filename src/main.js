@@ -1,7 +1,7 @@
 /*
- * NaTsu — 音声入力・議事録ツール（オンラインはクラウドの文字起こしと各自の Claude Code の要約、オフラインは手元の whisper と llama）
+ * NaTsu — 音声入力・議事録ツール（オンラインはクラウドの文字起こし、オフラインは手元の whisper。要約は各自の Claude Code）
  *
- * 文字起こし(whisper.cpp) も要約(llama.cpp) もすべてローカルで完結する。
+ * 0.10.0（D59）で要約のローカル AI（llama.cpp）を外した。つながらないときの要約は「要約待ち」にし、つながったら作る。
  * 議事録はページとブロックの構造で保存し、
  * 要約の各要点には根拠となった発言へのリンク（出典）を機械的に付与する。
  */
@@ -79,6 +79,8 @@ const { defaultSettings, readSettings, pickSavable, isSettingsShape, isEmailShap
 const J = require('./jsonfile');
 // 画面の覚え書き（第1b回 N6）の照らし。純粋な関数だけ（Electron を読まない）。読み書きは上の J で行う
 const W = require('./winstate');
+// Claude デスクトップの設定に NaTsu の MCP の1項目を合わせる部品（0.10.0 C-1。純粋。読み書きはここで J を使う）
+const MC = require('./mcp-config');
 // エンジンの取り込み（第0b回 R7）。置き場所・記録・照らし（通信しない）とピン（版・URL・大きさ・SHA-256）
 const engineInstall = require('./engine-install');
 const { MANIFEST } = require('./engine-manifest');
@@ -91,22 +93,24 @@ const {
   pasterScript, parsePasterLine,
   engineFileIssue, engineIssueMessage, engineInAppDir, engineDirWarning, portInUseError, guardEngineSettings, keptDifferent, closeConfirm, restartBlock, logReason,
   engineSpawnPlan, vcRuntimeVersions, vcRuntimeIssue, runtimeGate, engineExitHint, spawnErrorHint, speedLine,
-  extractNotes, truncationMessage, buildPromptParts,
+  truncationMessage, buildPromptParts,
   publicSegments, settledSegments, pendingDurationMs, recoverSegments, staleSegbufDirs, EtaTracker, chooseDraftName,
   skipPendingSegments, startSegmentMode, segmentModeNext, segmentBaseMs, nextLiveSegmentMs,
   stallAfter, stallStep, sttProblemOf, problemForRoute, notifyGate,
-  estimateTokens, foldNotes, idleEnginesToStop, silentWav, wavLevelDbfs, mergeSummaryType, memoEvidence,
+  idleEnginesToStop, silentWav, wavLevelDbfs, mergeSummaryType, memoEvidence,
   sameShas, keepPrevious, candStamp, repairIdsOf, pathUsedBy, fetchMinutesLeft,
   pickDefaultPath,
-  cloudLikely, offlineChosen, startPlan, dictationPlan, KEPT_CODES, keptCodeFor, KEPT_SUMMARY_TEXT,
+  cloudLikely, offlineChosen, startPlan, dictationPlan, KEPT_CODES, keptCodeFor, KEPT_SUMMARY_TEXT, SUMMARY_WAIT_TEXT, summaryRetryPick,
   SILENT_DBFS, SPEECH_DBFS, wavLoudestDbfs, hintFold, hintEcho,
   localTimeoutMs,
 } = require('./mainlib');
 // クリップボードの読み書き（mainlib.copyPrivate・deliverText）は main.js の同じ名前の包みとぶつかるので、lib から呼ぶ
 const lib = require('./mainlib');
-// 0.9.2 I-1（ヘルプの計画の H-12）: NaTsu ヘルプセンター（Access の後ろ。中継と同じ natsu-code の workers.dev）。住所はここにだけ置き、
-// 画面は記事の名前だけを渡す（app:open-help が lib.helpPath の決まった一覧で照らし、無ければホーム）
-const HELP_URL = 'https://natsu-help.natsu-code.workers.dev/';
+// 議事録のリンクの形と照らし（0.10.0 LN-1。純粋。住所の頭 LINK_ORIGIN の1か所: 決めたこと 154）
+const natsulink = require('./natsulink');
+// 0.9.2 I-1（ヘルプの計画の H-12）: NaTsu ヘルプセンター（Access の後ろ。中継と同じ natsu-code の workers.dev）。住所は main だけが持ち、
+// 画面は記事の名前だけを渡す（app:open-help が lib.helpPath の決まった一覧で照らし、無ければホーム）。0.10.0 LN-1: 住所の頭は src/natsulink.js から
+const HELP_URL = `${natsulink.LINK_ORIGIN}/`;
 
 // package.json の build.appId の写し。配る package.json から build は消えるので、ここに持つ
 // （identity.test.js が食い違いを見る）。インストーラーが付けるショートカットの AppUserModelID と同じ
@@ -119,10 +123,6 @@ const CPU_DEFAULT_THREADS = Math.max(4, os.cpus().length - 2);
 const MIN_RECORD_MS = 400;
 // メモはプロンプトにそのまま前置きされるので、文脈を食い潰さない範囲に収める
 const MEMO_MAX = 1500;
-const SUM_MAX_TOKENS = 3000;   // 最終的な議事録
-const NOTE_MAX_TOKENS = 900;   // 分割要約の各パート
-// 文脈長（settings.sumCtx）のうち、指示文・役割名・書式の余白として取っておく分（#41）
-const SUM_CTX_MARGIN = 256;
 const ENGINE_READY_TIMEOUT_MS = 90000;
 
 // 既定の設定（31 のキー。第1c回で5つ足し、0.7.0 U-1 で送り先と同意の4つを外した）は settings.js の defaultSettings。スレッド数は CPU の数から決まる（第1a回 Task 2-2 で移した）
@@ -254,6 +254,9 @@ const NOTICE = {
   dbNetwork: '保存先がネットワークの場所にあるため、少し遅いが安全な書き方に切り替えました。',
   // 画面の覚え書き（第1b回 W1。P16）
   winStateBroken: (name) => `画面の覚え書き（窓の大きさ・開いていたタブ）のファイルが壊れていたため、脇へ退けて最初の大きさで開きました（退けた先: ${name}）。`,
+  // Claude との連携（0.10.0 C-2。計画の「左下の知らせ（N）」と決めたこと 151。どちらも［設定を開く］で項目「要約」）
+  mcpStale: 'NaTsu の置き場所が変わったため、Claude から議事録を読めなくなっています。設定の「要約」で［登録し直す］を押してください。',
+  mcpGone: 'Claude デスクトップへの登録が消えています。［設定を開く］で［登録し直す］を押してください。',
 };
 // 起動の途中（本体の窓がまだ無い）なら startupNotices に貯め、窓ができた後なら画面へ（読み込み中なら読み終えてから）
 function laterNotice(msg) {
@@ -694,7 +697,6 @@ function saveHistoryOrNotice() {
 function migrateOldThreads(s) {
   if (CPU_DEFAULT_THREADS > CPU_OLD_DEFAULT_THREADS) {
     if (s.localThreads === CPU_OLD_DEFAULT_THREADS) s.localThreads = CPU_DEFAULT_THREADS;
-    if (s.sumThreads === CPU_OLD_DEFAULT_THREADS) s.sumThreads = CPU_DEFAULT_THREADS;
   }
 }
 
@@ -800,14 +802,15 @@ function makeEngine(name) {
   return { name, proc: null, ready: false, lastError: '', readyPromise: null, startPromise: null, sig: '', stderrTail: '', stopping: false, lastUsed: 0 };
 }
 const whisperEng = makeEngine('文字起こしエンジン');
-const sumEng = makeEngine('要約エンジン');
+// 要約のエンジン（llama）は 0.10.0 LS-3（D59）で外した。要約は利用者の Claude Code（summarizeWithClaude）
 // 取り込んだエンジン（第0b回 設計 B）。詳細設定の実行ファイルとモデルが両方空の側だけが使う。設定には書かない（RF7）。
 // 取り込み先は %LOCALAPPDATA%\natsu\engine（Windows の x64 だけ。それ以外の PC では supported が偽で、今までどおり）
 const ENGINE_HOME = engineInstall.engineRoot(process.env, process.platform, process.arch);
-let managed = { whisper: null, sum: null };            // この起動の中で照らし終えた組だけ（RF3）。暇なときだけ入れ替える（Task 14）
-let managedCands = { whisper: null, sum: null };       // 記録から見た候補（まだ照らしていない）
-let managedState = { whisper: 'none', sum: 'none' };   // 'none' | 'checking' | 'ok' | 'broken'
-let managedTried = { whisper: null, sum: null };       // 照らし終えた候補の印（mainlib.candStamp）。合わなかった組を、変わるまで照らし直さない（Task 14）
+// 組は文字起こし（whisper）だけ（0.10.0 LS-3 で要約の組を外した）
+let managed = { whisper: null };            // この起動の中で照らし終えた組だけ（RF3）。暇なときだけ入れ替える（Task 14）
+let managedCands = { whisper: null };       // 記録から見た候補（まだ照らしていない）
+let managedState = { whisper: 'none' };     // 'none' | 'checking' | 'ok' | 'broken'
+let managedTried = { whisper: null };       // 照らし終えた候補の印（mainlib.candStamp）。合わなかった組を、変わるまで照らし直さない（Task 14）
 let engineFetch = null;                                // 取り込みの係（初めて使うときに getEngineFetch が作る）
 const touchEngine = (eng) => { eng.lastUsed = Date.now(); };
 // 起動・終了・停止のたびにトレイ（「エンジンを停止」の有効／無効）を追随させる。終了中は触らない
@@ -830,51 +833,37 @@ function resolveVadModel() {
   } catch (_) { return ''; }
 }
 
+// エンジンは文字起こし（whisper）だけ（0.10.0 LS-3・D59 で要約の llama を外した）。eng を受ける形は今のまま
 function engineSpawnArgs(eng) {
-  if (eng === whisperEng) {
-    const args = [
-      '-m', engineModel(eng),
-      '--host', '127.0.0.1',
-      '--port', String(settings.localPort),
-      '-t', String(settings.localThreads),
-      '-l', settings.language === 'auto' ? 'auto' : settings.language,
-    ];
-    if (settings.suppressNst) args.push('-sns');
-    const vad = settings.useVad ? resolveVadModel() : '';
-    if (vad) args.push('--vad', '--vad-model', vad);
-    return args;
-  }
-  return [
+  const args = [
     '-m', engineModel(eng),
     '--host', '127.0.0.1',
-    '--port', String(settings.sumPort),
-    '-t', String(settings.sumThreads),
-    '-c', String(settings.sumCtx),   // 文脈長（#41）。統合プロンプトが収まらなければ要点メモを畳む
-    // 取り込んだ llama にだけ（第0b回 Task 16）: RAM のプロンプトの控えを使わない・席を1つ・flash attention・
-    // 考える手順を切る（b11669 の既定では Gemma 4 が考える文で時間と max_tokens を食う）。
-    // 手で設定した exe には渡さない（古い llama-server は知らない旗で止まる）。画像・音声の部品は取り込まないので渡さない
-    ...(manualGroup(eng) ? [] : ['--cache-ram', '0', '-np', '1', '-fa', 'on', '--reasoning', 'off']),
+    '--port', String(settings.localPort),
+    '-t', String(settings.localThreads),
+    '-l', settings.language === 'auto' ? 'auto' : settings.language,
   ];
+  if (settings.suppressNst) args.push('-sns');
+  const vad = settings.useVad ? resolveVadModel() : '';
+  if (vad) args.push('--vad', '--vad-model', vad);
+  return args;
 }
-// 詳細設定の実行ファイルとモデルが両方空の側は、取り込んだエンジン（第0b回）。片方でも入っていれば今までどおり手の設定
-// （第0b回 Task 16 の要約の旗もこれで分ける）。取り込んだ側は、照らし終えた組（managed）が無ければパスは空
-const manualGroup = (e) => (e === whisperEng ? Boolean(settings.localServerExe || settings.localModelPath) : Boolean(settings.sumServerExe || settings.sumModelPath));
-const managedFile = (e, k) => { const g = managed[e === whisperEng ? 'whisper' : 'sum']; return (g && g[k]) || ''; };
-const engineExe = (e) => (manualGroup(e) ? (e === whisperEng ? settings.localServerExe : settings.sumServerExe) : managedFile(e, 'exe'));
-const engineModel = (e) => (manualGroup(e) ? (e === whisperEng ? settings.localModelPath : settings.sumModelPath) : managedFile(e, 'model'));
-const enginePort = (e) => (e === whisperEng ? settings.localPort : settings.sumPort);
+// 詳細設定の実行ファイルとモデルが両方空なら、取り込んだエンジン（第0b回）。片方でも入っていれば今までどおり手の設定。
+// 取り込んだ側は、照らし終えた組（managed）が無ければパスは空
+const manualGroup = (_e) => Boolean(settings.localServerExe || settings.localModelPath);
+const managedFile = (_e, k) => { const g = managed.whisper; return (g && g[k]) || ''; };
+const engineExe = (e) => (manualGroup(e) ? settings.localServerExe : managedFile(e, 'exe'));
+const engineModel = (e) => (manualGroup(e) ? settings.localModelPath : managedFile(e, 'model'));
+const enginePort = (_e) => settings.localPort;
 const engineConfigured = (e) => Boolean(engineExe(e) && engineModel(e));
 // 実行ファイルとモデルは「あるか」だけでなく中身まで見る（#32。判断は mainlib.engineFileIssue）。
 // 存在だけを見ると、OneDrive のプレースホルダ（大きさはあるが実体がこの PC に無い）や
 // 途中で切れたダウンロードを「ある」と誤認し、起動して落ちるまで原因が分からない。
-// 下限はどの配布物でも下回らない大きさ（exe は数 MB、whisper は tiny でも 75MB、
-// 要約の gguf は最小のものでも数百 MB）。
+// 下限はどの配布物でも下回らない大きさ（exe は数 MB、whisper は tiny でも 75MB）。
 // 床を置くのはモデルだけ。実行ファイルの大きさでは壊れているか判断しない——上流の配布構成は
-// 変わる。llama.cpp は llama-server.exe を 9,216 バイトの薄いランチャにし、中身を
-// llama-server-impl.dll（約 8.9MB）へ移した。床を置くと、その正常な exe を「壊れている」と
-// 断じて製品を使えなくする（実機で起きた）。本当の判定は起動して /health が応えるかどうかで、
+// 変わる（前の要約のエンジンは exe を 9,216 バイトの薄いランチャにし、中身を DLL へ移した。床を置くと、その正常な exe を
+// 「壊れている」と断じて製品を使えなくした: 実機で起きた）。本当の判定は起動して /health が応えるかどうかで、
 // ここの検査は「より良い文を出すためのおまけ」に過ぎない。誤検知の害の方が桁違いに大きい。
-const ENGINE_MIN_BYTES = { whisper: 50_000_000, gguf: 300_000_000 };
+const ENGINE_MIN_BYTES = { whisper: 50_000_000 };
 const fileSize = (f) => { try { return fs.statSync(f).size; } catch (_) { return 0; } };
 // 問題があれば利用者向けの一文、無ければ ''
 function engineCheck(eng) {
@@ -882,18 +871,16 @@ function engineCheck(eng) {
   if (!manualGroup(eng) && ENGINE_HOME.supported) { const m = managedIssue(eng); if (m) return m; }
   if (!engineConfigured(eng)) return `${eng.name}の実行ファイルまたはモデルが見つかりません`;
   const stat = (f) => fs.statSync(f);
-  // 実行し直すスクリプトはエンジンごとに違う。名指ししないと利用者はどれか分からない
-  const ps = eng === whisperEng ? 'setup-local-engine.ps1' : 'setup-summarizer.ps1';
+  // 実行し直すスクリプトを名指しする（名指ししないと利用者はどれか分からない）
+  const ps = 'setup-local-engine.ps1';
   const exe = engineFileIssue(engineExe(eng), 0, stat);   // 大きさの床は置かない（0 バイトとプレースホルダだけ見る）
   if (exe !== 'ok') return `${eng.name}の${engineIssueMessage(exe, 'exe', fileSize(engineExe(eng)), engineExe(eng), ps)}`;
-  const model = engineFileIssue(engineModel(eng), eng === whisperEng ? ENGINE_MIN_BYTES.whisper : ENGINE_MIN_BYTES.gguf, stat);
+  const model = engineFileIssue(engineModel(eng), ENGINE_MIN_BYTES.whisper, stat);
   if (model !== 'ok') return `${eng.name}の${engineIssueMessage(model, 'model', fileSize(engineModel(eng)), engineModel(eng), ps)}`;
   // whisper は英数字以外のパスを読めずに落ちる（RF1）。相対にしても日本語が残るなら起動しない。
   // engine:status と起動テストにも同じ理由が出る（startEngine は先にここを見る）
-  if (eng === whisperEng) {
-    const plan = engineSpawnPlan(engineExe(eng), engineSpawnArgs(eng), { whisper: true });
-    if (plan.problem) return plan.problem;
-  }
+  const plan = engineSpawnPlan(engineExe(eng), engineSpawnArgs(eng), { whisper: true });
+  if (plan.problem) return plan.problem;
   return '';
 }
 // アプリのインストール先（NaTsu.exe のあるフォルダ）。開発中は Electron の実行ファイルの
@@ -922,7 +909,7 @@ function whisperProblem() {
 }
 // 取り込んだ側の、使えない理由（無ければ ''）。engineCheck の頭で見る（engine:status と起動テストにも同じ文が出る）
 function managedIssue(eng) {
-  const g = eng === whisperEng ? 'whisper' : 'sum';
+  const g = 'whisper';
   if (managedState[g] === 'checking') return `${eng.name}を確かめています（数秒で終わります）`;
   if (managedState[g] === 'broken') {
     return `${eng.name}のファイルが消えたか変わっています。ウイルス対策が消した可能性があります（Windows セキュリティ → ウイルスと脅威の防止 → 保護の履歴）。取り直しています`;
@@ -955,20 +942,20 @@ function readFileHead(file, max = 4 * 1048576) {
 }
 function engineRuntimeIssue(eng) {
   if (process.platform !== 'win32') return RUNTIME_OK;
-  const key = `${eng === whisperEng ? 'whisper' : 'sum'}|${engineExe(eng)}`;
+  const key = `whisper|${engineExe(eng)}`;
   if (!runtimeIssueCache.has(key)) {
-    runtimeIssueCache.set(key, vcRuntimeIssue(vcRuntimeVersions(path.dirname(engineExe(eng)), system32Dir(), readFileHead), { whisper: eng === whisperEng }));
+    runtimeIssueCache.set(key, vcRuntimeIssue(vcRuntimeVersions(path.dirname(engineExe(eng)), system32Dir(), readFileHead), { whisper: true }));
   }
   return runtimeIssueCache.get(key);
 }
-// 覚えた版を忘れる。［起動テスト］（app:test・app:test-sum）の最初に呼ぶ。担当がランタイムを入れた後、
+// 覚えた版を忘れる。［起動テスト］（app:test）の最初に呼ぶ。担当がランタイムを入れた後、
 // INSTALL の「入れてもらってから、もう一度お試しください」のとおり、NaTsu を起動し直さずに押せば読み直す（RF4）。
 // engine:status・記録の開始・エンジンの起動は、今までどおり覚えた版を使う（そのたびに DLL を読まない）
 function forgetRuntimeIssues() {
   runtimeIssueCache.clear();
 }
 // 取り込む組のランタイム。取り込む前の欄にも出す（数 GB を落としてから知らせない。RF4・Task 15）。
-// whisper の置き場所 → System32 の順に読む（whisper は vcomp140 も要るので、llama の分も含む）。覚え方は engineRuntimeIssue と同じ。
+// whisper の置き場所 → System32 の順に読む（whisper は vcomp140 も要る）。覚え方は engineRuntimeIssue と同じ。
 // Windows 以外・取り込めない PC は null
 function managedRuntimeIssue() {
   if (process.platform !== 'win32' || !ENGINE_HOME.supported) return null;
@@ -979,11 +966,8 @@ function managedRuntimeIssue() {
 }
 
 function engineSignature(eng) {
-  return [engineExe(eng), engineModel(eng), enginePort(eng),
-    eng === whisperEng ? settings.localThreads : settings.sumThreads,
-    eng === whisperEng ? settings.language : '',
-    eng === whisperEng ? `${settings.useVad ? resolveVadModel() : ''}|${settings.suppressNst}` : '',
-    eng === whisperEng ? '' : settings.sumCtx].join('|');   // 文脈長を変えたら要約エンジンを起動し直す（#41）
+  return [engineExe(eng), engineModel(eng), enginePort(eng), settings.localThreads, settings.language,
+    `${settings.useVad ? resolveVadModel() : ''}|${settings.suppressNst}`].join('|');
 }
 
 // 127.0.0.1:port を一瞬だけ listen して空きを見る（#28/#31）。EADDRINUSE だけを「使用中」
@@ -1098,7 +1082,7 @@ const ENGINE_IDLE_CHECK_MS = 60000;
 function releaseIdleEngines() {
   // 記録や要約の後まで待たせた切り替えと、エンジンが止まった後の前の版の片付けも、ここで拾う（第0b回 Task 14。どちらも投げない）
   applyManagedWhenIdle(); cleanupManaged();
-  for (const eng of idleEnginesToStop([whisperEng, sumEng], Date.now(), settings.engineIdleMin, isBusy())) {
+  for (const eng of idleEnginesToStop([whisperEng], Date.now(), settings.engineIdleMin, isBusy())) {
     engineLog(`${eng.name}: ${settings.engineIdleMin} 分使われていないため停止（メモリを解放）`);
     stopEngine(eng);
   }
@@ -1107,7 +1091,7 @@ function releaseIdleEngines() {
 function stopEnginesFromTray() {
   if (isBusy()) return;
   engineLog('トレイからエンジンを停止（メモリを解放）');
-  stopEngine(whisperEng); stopEngine(sumEng);
+  stopEngine(whisperEng);
 }
 
 function ensureEngineReady(eng) {
@@ -1117,8 +1101,8 @@ function ensureEngineReady(eng) {
     if (!eng.proc) await startEngine(eng);
     let p = eng.proc;
     if (!p) return false;
-    // 「/」は見ない。llama-server はモデル読み込み中でも「/」に 200 を
-    // 返すため、準備完了と誤認して直後の推論が 503 になる（実機で発生）。
+    // 「/」は見ない。エンジンはモデル読み込み中でも「/」に 200 を
+    // 返すことがあり、準備完了と誤認して直後の推論が 503 になる（実機で発生）。
     // /health は読み込み中 503・完了で 200 を返す。エンドポイントを持たない
     // 古いビルドは 404 を返すので、その場合だけ「応答した」ことで良しとする。
     const url = `http://127.0.0.1:${enginePort(eng)}/health`;
@@ -1155,14 +1139,14 @@ function ensureEngineReady(eng) {
 }
 
 function restartEnginesIfNeeded() {
-  for (const eng of [whisperEng, sumEng]) {
+  for (const eng of [whisperEng]) {
     if (eng.proc && eng.sig !== engineSignature(eng)) stopEngine(eng);
   }
   if (!whisperEng.proc && engineValid(whisperEng)) warmWhisper().catch((e) => engineLog(`文字起こしエンジンの先読みに失敗: ${logReason(e)}`));
 }
 
 // ---------------------------------------------------------------- 取り込んだエンジン（第0b回 設計 B・RF3）
-// 取り込んだ exe と DLL を、この起動の中で SHA-256 で照らし終えてから使う（RF3。whisper 約 11.9MB・llama 約 44.4MB）
+// 取り込んだ exe と DLL を、この起動の中で SHA-256 で照らし終えてから使う（RF3。whisper 約 11.9MB）
 async function verifyManagedAtStartup() {
   let v;
   try {
@@ -1171,10 +1155,10 @@ async function verifyManagedAtStartup() {
   } catch (e) {
     // 照らせなかった組は使わない（「確かめています」のまま残さない）
     engineLog(`取り込んだエンジンの照らしに失敗: ${e && e.message}`);
-    v = { whisper: null, sum: null, bad: [] };
+    v = { whisper: null, bad: [] };
   }
-  managed = { whisper: v.whisper, sum: v.sum };
-  for (const g of ['whisper', 'sum']) managedState[g] = !managedCands[g] ? 'none' : v[g] ? 'ok' : 'broken';
+  managed = { whisper: v.whisper };
+  for (const g of MANAGED_GROUPS) managedState[g] = !managedCands[g] ? 'none' : v[g] ? 'ok' : 'broken';
   if (v.bad.length) engineLog(`取り込んだエンジンの照らし: 合わない ${v.bad.map((b) => `${b.file}（${b.why}）`).join('、')}`);
   restartEnginesIfNeeded();
   // 起動のときの復旧の文字起こしは、照らし終わる前に「確かめています」で保留になる。使えるようになった今もう一度試す
@@ -1195,7 +1179,7 @@ function onManagedVerified(v) {
 // engine:fetch-status と、係の進み具合の知らせ（fetchView）が同じこの決まりを使う
 const usableCand = (g) => (managedState[g] === 'broken' ? null : managedCands[g]);
 // 取り込んだ側の組を、起動のときに照らしている途中か（画面は、これが偽に変わった知らせでエンジンの状態を聞き直す。Task 15）
-const managedChecking = () => ['whisper', 'sum'].some((g) => managedState[g] === 'checking' && !manualGroup(engOf(g)));
+const managedChecking = () => MANAGED_GROUPS.some((g) => managedState[g] === 'checking' && !manualGroup(engOf(g)));
 
 // 取り込みの欄の写し（設定タブの画面が読む。Task 15）。読むだけ: 通信もフォルダ作りもしない
 // 照らしで合わなかった組は候補から外す（using・whisperReady で「使える」と見せず、画面が取り込みの欄を隠さない。RF3）
@@ -1203,17 +1187,18 @@ async function engineFetchStatus() {
   const installed = engineInstall.readInstalled(engineInstall.layout(ENGINE_HOME.root, MANIFEST).installed);
   const plan = engineInstall.planInstall(MANIFEST, installed, fs.statSync, ENGINE_HOME.root);
   const checking = managedChecking();
-  const s = engineInstall.statusOf({ home: ENGINE_HOME, manifest: MANIFEST, plan, candidates: { whisper: usableCand('whisper'), sum: usableCand('sum') }, runner: engineFetch && engineFetch.status(),
-    manual: { whisper: manualGroup(whisperEng), sum: manualGroup(sumEng) }, freeBytes: await engineInstall.freeBytesOf(ENGINE_HOME.root),
+  const s = engineInstall.statusOf({ home: ENGINE_HOME, manifest: MANIFEST, plan, candidates: { whisper: usableCand('whisper') }, runner: engineFetch && engineFetch.status(),
+    manual: { whisper: manualGroup(whisperEng) }, freeBytes: await engineInstall.freeBytesOf(ENGINE_HOME.root),
     runtime: managedRuntimeIssue(), installed });
   return { ...s, checking };
 }
 
 // ---------------------------------------------------------------- 取り込みの係と切り替え（第0b回 Task 14・RF3・RF8・RF13）
 const ENGINE_FETCH_AUTO_MS = 10000;   // 起動から、取り込みの続きを自動で始めるまで（窓とエンジンの起動を先に済ませる）
-const MANAGED_NAMES = { whisper: '文字起こしエンジン', sum: '要約エンジン' };
-const engOf = (g) => (g === 'whisper' ? whisperEng : sumEng);
-const managedStamps = (cands) => ({ whisper: candStamp(cands.whisper, fs.statSync), sum: candStamp(cands.sum, fs.statSync) });
+const MANAGED_GROUPS = ['whisper'];   // 取り込む組（0.10.0 LS-3 で要約の組を外した）
+const MANAGED_NAMES = { whisper: '文字起こしエンジン' };
+const engOf = (_g) => whisperEng;
+const managedStamps = (cands) => ({ whisper: candStamp(cands.whisper, fs.statSync) });
 
 // 取り込みの係。初めて使うときに作る（Electron の net.request は app の ready の後でしか使えない）。
 // 通信は net.request（会社のプロキシ・PAC・証明書のストアを使う。RF2）。待ちは係の既定の本物の時計。
@@ -1243,15 +1228,15 @@ function isOfflineChosen() {
 // 実際に取っているか（係の state が running）。省電力の抑止が見る（待っている・止めている間は眠らせてよい。Q14）
 function engineFetchDownloading() { return Boolean(engineFetch && engineFetch.downloading()); }
 
-// 係の写しに、main だけが知っていることを入れる（engine:fetch-status と同じ見え方）: 使える組（using・whisperReady・sumReady）は
+// 係の写しに、main だけが知っていることを入れる（engine:fetch-status と同じ見え方）: 使える組（using・whisperReady）は
 // 係の記録ではなく main が切り替えた組で決め（usableCand。照らしで合わなかった組は「使える」と見せない: RF3）、
 // 確かめている途中か（checking）と、取り込む組の Visual C++ ランタイムの案内を入れる（係は Electron もランタイムも知らない。RF4）
 function fetchView(s) {
   if (!s || !Array.isArray(s.items)) return s;
-  const c = { whisper: usableCand('whisper'), sum: usableCand('sum') };
+  const c = { whisper: usableCand('whisper') };
   const usingOf = (x) => (x ? (x.current ? 'current' : 'previous') : null);   // statusOf の using と同じ形
   const rt = managedRuntimeIssue();
-  return { ...s, using: { whisper: usingOf(c.whisper), sum: usingOf(c.sum) }, whisperReady: Boolean(c.whisper), sumReady: Boolean(c.sum),
+  return { ...s, using: { whisper: usingOf(c.whisper) }, whisperReady: Boolean(c.whisper),
     checking: managedChecking(), runtime: rt ? { level: rt.level, message: rt.message } : null };
 }
 
@@ -1276,7 +1261,7 @@ function noticeMainWin(msg) {
 // 照らしで合わなかった組（cands にあって checked に無い組。手で設定した組は使わないので除く）を知らせ、同意済みなら
 // 合わなかった項目を取り直す（RF3。同じ起動の中で2回目は係が defender で止める）→ 取り直しを頼んだ項目の id
 function repairManaged(cands, checked) {
-  const groups = ['whisper', 'sum'].filter((g) => cands && cands[g] && !(checked && checked[g]) && !manualGroup(engOf(g)));
+  const groups = MANAGED_GROUPS.filter((g) => cands && cands[g] && !(checked && checked[g]) && !manualGroup(engOf(g)));
   if (!groups.length || !ENGINE_HOME.supported) return [];
   const repair = repairIdsOf(MANIFEST, cands, checked && checked.bad, groups);
   const consent = engineInstall.readInstalled(engineInstall.layout(ENGINE_HOME.root, MANIFEST).installed).consent === true;
@@ -1291,14 +1276,14 @@ function repairManaged(cands, checked) {
 
 // 片付け（cleanupOld）で消さないパス: 照らし終えた組と、記録から見た候補のフォルダ・ファイル（RF8）
 function usedByManaged(p) {
-  return pathUsedBy(p, [managed.whisper, managed.sum, managedCands.whisper, managedCands.sum]);
+  return pathUsedBy(p, [managed.whisper, managedCands.whisper]);
 }
-// 前の版の片付け（RF8）。両方のエンジンが止まっていて、起動の途中でもなく、暇なときだけ消す（Windows は動いている exe・DLL と、
-// llama がメモリに写した gguf を消せない）。動いていれば何もせず、次の機会（60 秒ごとの releaseIdleEngines）に回す。投げない
+// 前の版の片付け（RF8）。エンジンが止まっていて、起動の途中でもなく、暇なときだけ消す（Windows は動いている exe・DLL と、
+// メモリに写したモデルを消せない）。動いていれば何もせず、次の機会（60 秒ごとの releaseIdleEngines）に回す。投げない
 function cleanupManaged() {
   if (!ENGINE_HOME.supported) return;
   const installed = engineInstall.readInstalled(engineInstall.layout(ENGINE_HOME.root, MANIFEST).installed);
-  engineInstall.cleanupOld(ENGINE_HOME, MANIFEST, installed, { inUse: (p) => usedByManaged(p), canDelete: () => !whisperEng.proc && !whisperEng.startPromise && !sumEng.proc && !sumEng.startPromise && !isBusy() })
+  engineInstall.cleanupOld(ENGINE_HOME, MANIFEST, installed, { inUse: (p) => usedByManaged(p), canDelete: () => !whisperEng.proc && !whisperEng.startPromise && !isBusy() })
     .then((r) => { if (r.removed.length) engineLog(`取り込んだエンジンの前の版を片付けました: ${r.removed.join('、')}`); })
     .catch((e) => engineLog(`取り込んだエンジンの前の版を片付けられませんでした: ${e && e.message}`));
 }
@@ -1309,7 +1294,7 @@ let managedAgain = false;      // 照らしている間にまた呼ばれた（�
 // 新しい組が照らしで合わなければ、照らし済みの前の組を使い続け（RF13。mainlib.keepPrevious）、合わなかった項目を取り直す（RF3）。
 // 投げない（組がそろったときと、60 秒ごとの見回りから、待たずに呼ぶ）。起動のときの照らしの途中は、その結果を待つ（次の見回りで拾う）
 async function applyManagedWhenIdle() {
-  if (!ENGINE_HOME.supported || managedState.whisper === 'checking' || managedState.sum === 'checking') return false;
+  if (!ENGINE_HOME.supported || MANAGED_GROUPS.some((g) => managedState[g] === 'checking')) return false;
   if (managedApplying) { managedAgain = true; return false; }
   if (isBusy() || meeting) return false;
   managedApplying = true;
@@ -1319,28 +1304,26 @@ async function applyManagedWhenIdle() {
     // 照らして合わなかった組（壊れた組・前の組を使い続けている組）は、取り直されるか触られる（大きさか更新時刻が変わる）
     // まで照らし直さない（60 秒ごとに数十 MB を読まない・同じ知らせを繰り返さない）
     const stamps = managedStamps(cands);
-    if (['whisper', 'sum'].every((g) => sameShas(cands, managed, [g]) || stamps[g] === managedTried[g])) return false;
+    if (MANAGED_GROUPS.every((g) => sameShas(cands, managed, [g]) || stamps[g] === managedTried[g])) return false;
     const checked = await engineInstall.verifyCandidates(cands);      // 照らす（数十 MB。待つ間に記録が始まりうる）
     if (isBusy() || meeting) return false;                            // 照らしている間に忙しくなったら替えない（次の機会に）
     managedTried = stamps;
     const v = keepPrevious(cands, managed, checked);
-    const gotWhisper = !managed.whisper && v.whisper; const gotSum = !managed.sum && v.sum;
-    managedCands = { whisper: v.kept.includes('whisper') ? v.whisper : cands.whisper, sum: v.kept.includes('sum') ? v.sum : cands.sum };
-    managed = { whisper: v.whisper, sum: v.sum };
-    for (const g of ['whisper', 'sum']) managedState[g] = managed[g] ? 'ok' : managedCands[g] ? 'broken' : 'none';
+    const gotWhisper = !managed.whisper && v.whisper;
+    managedCands = { whisper: v.kept.includes('whisper') ? v.whisper : cands.whisper };
+    managed = { whisper: v.whisper };
+    for (const g of MANAGED_GROUPS) managedState[g] = managed[g] ? 'ok' : managedCands[g] ? 'broken' : 'none';
     if (checked.bad.length) engineLog(`取り込んだエンジンの照らし（切り替え）: 合わない ${checked.bad.map((b) => `${b.file}（${b.why}）`).join('、')}${v.kept.length ? `。前の組を使い続けます（${v.kept.join('・')}）` : ''}`);
     try {
-      for (const g of ['whisper', 'sum']) if (v[g] && v[g].current) engineInstall.setActive(ENGINE_HOME, MANIFEST, g);
+      for (const g of MANAGED_GROUPS) if (v[g] && v[g].current) engineInstall.setActive(ENGINE_HOME, MANIFEST, g);
     } catch (e) { engineLog(`使っている組を installed.json に書けませんでした: ${e && (e.code || e.message)}`); }
     restartEnginesIfNeeded();
     updateTray();
     if (gotWhisper && !manualGroup(whisperEng)) {
-      const more = !v.sum && !manualGroup(sumEng) && engineFetchRunning();
-      sendToMainWin('app:notice', `文字起こしが使えるようになりました。${more ? '要約のエンジンは続けて取り込みます。' : ''}`);
+      sendToMainWin('app:notice', '文字起こしが使えるようになりました。');
       // 前にエンジンが無くて残した文字起こし待ちの音声を、今のエンジンで片付ける
       if (recoveryQueue) transcribeRecovered().catch((e) => engineLog(`復旧の文字起こしに失敗: ${logReason(e)}`));
     }
-    if (gotSum && !manualGroup(sumEng)) sendToMainWin('app:notice', '要約のエンジンが使えるようになりました。記録済みの会議は［要約を生成］で要約できます。');
     repairManaged(cands, checked);
     sendToMainWin('engine:fetch-progress', await engineFetchStatus());
     cleanupManaged();
@@ -1357,7 +1340,7 @@ async function applyManagedWhenIdle() {
 // 取り込んだエンジンが 0xC0000135 で落ちた（RF3）: その組を照らし直す。合わなければ使うのをやめ（managed から外し、壊れた組に
 // する）、合わなかった項目を取り直す（同じ起動の中で2回目は係が defender で止める）。合えば Visual C++ ランタイムの案内のまま
 async function onManagedCrash(eng) {
-  const g = eng === whisperEng ? 'whisper' : 'sum';
+  const g = 'whisper';
   const c = managed[g];
   if (!c) return;
   const checked = await engineInstall.verifyCandidates({ [g]: c });
@@ -1623,7 +1606,8 @@ const STT_SLEEP_SCALE = (() => {
 // 知らせ（L1〜L10。計画「画面と知らせの文」）。{ホスト} は中継のホストの名前だけ（札・URL の道は入れない）。
 // L3（ログイン切れ）だけは { text, action: 'account' }（画面は［ログインし直す］のボタンを付ける）
 const STT_NOTICE = {
-  cloud: () => 'この会議の音声は OpenAI に送られます（文字起こしのため）。1on1・面談など外に出したくない会議は、議事録の画面の［オフラインモード］を押してください。',
+  // 0.10.0 LS-5（D62・決めたこと 112。0.9.4 から渡された一覧）: オフラインモードは守秘のボタンでない（要約は Claude Code）。ネットワークの向きで書く
+  cloud: () => 'この会議の音声は OpenAI に送られます（文字起こしのため）。ネットワークが不安定なときは、議事録の画面の［オフラインモード］を押すと、この会議の文字起こしを PC の中で行います。',
   'signed-out': () => 'ログインしていないため、この PC で文字起こししています（精度が落ちます）。設定の「アカウント」でログインしてください。',
   login: () => ({ text: 'ログインが切れたため、この PC で文字起こししています（精度が落ちます）。設定の「アカウント」でもう一度ログインしてください。', action: 'account' }),
   unreachable: () => 'NaTsu のサーバーにつながらないため、この PC で文字起こしを続けますが、精度が落ちます。録音はそのまま続けてください。',
@@ -1665,7 +1649,7 @@ const STT_BANNER = {
   'kept-wait': () => 'PC の中の文字起こしが入っていないので、音声を残しています。オンラインに戻ると文字起こしします。録音はそのまま続けてください。',
   'kept-relay': () => '文字起こしの中継が今は使えないため、音声を残しています。使えるようになると自動で文字起こしします。録音はそのまま続けてください。',
   'kept-login': () => 'ログインしていないため、音声を残しています。［ログイン］を押してログインすると、文字起こしします。',
-  'kept-local': () => 'この会議はオフラインモードです。PC の中の文字起こしが入っていないので、音声だけを残しています（外には送りません）。［ローカル AI の準備］から取り込むと、文字起こしします。',
+  'kept-local': () => 'この会議はオフラインモードです。PC の中の文字起こしが入っていないので、音声だけを PC に残しています。［ローカル AI の準備］から取り込むと、文字起こしします。',
   // 0.9.4 S-2（決めたこと 18）: PC の文字起こしが間に合わない（時間切れ）・遅い PC で音声を残している。ボタン無し。Windows の知らせにはしない
   'kept-late': (d) => (d && d.offline
     ? 'オフラインモードです。この PC の文字起こしが録音に追いつかないため、音声を残しています。会議が終わったら PC の中で文字起こしします。'   // 0.9.4 O-1: オフラインモードは外へ送らない約束でなくなる（0.10.0 の持ち主の決定）ので「（外には送りません）」を外した
@@ -1736,11 +1720,12 @@ const SLOW_NOTICE = 'この PC の文字起こしが録音に追いつかない�
 // その区間の Error の文（会議の区間は KEPT_SEG_TEXT にする。音声入力は M-5 が残す）
 const KEPT_ERROR_TEXT = 'クラウドで文字起こしできず、PC の中の文字起こしも準備していないため、文字起こしできませんでした';
 // ［この会議は PC の中だけ］を押したが PC の中の文字起こしが使えない（計画の P1。準備を選んでいない PC だけ。ボタン［オフラインの準備］: 第1d2回 M-4）
-const LOCAL_SETUP_NOTICE = 'この会議をオフラインモードにしました。PC の中で文字起こしするには、設定の「ローカル AI」の準備（数 GB の取り込み）が要ります。今は音声だけをこの PC に残し、外には送りません。準備が済むと文字起こしします。';
+const LOCAL_SETUP_NOTICE = 'この会議をオフラインモードにしました。PC の中で文字起こしするには、設定の「ローカル AI」の準備（文字起こしのエンジンの取り込み）が要ります。今は音声だけをこの PC に残します。準備が済むと文字起こしします。';
 // 会議の中の左下の知らせ（計画「画面と知らせの文」の K1〜K4。準備を選んでいない PC だけ。今の L2〜L8 の代わりに、残し始めたときの1回）
 const KEPT_NOTICE = {
-  k1: '今はクラウドで文字起こしできないため、音声だけを残します。つながると、この会議の音声を OpenAI に送って文字起こしします。1on1・面談など外に出したくない会議は、議事録の画面の［オフラインモード］を押してください。',
-  k2: 'ログインしていないため、音声だけを残します。設定の「アカウント」でログインすると、この会議の音声を OpenAI に送って文字起こしします。1on1・面談など外に出したくない会議は、議事録の画面の［オフラインモード］を押してください。',
+  // 0.10.0 LS-5（D62）: 「外に出したくない会議は［オフラインモード］」を外した（守秘のボタンでない）
+  k1: '今はクラウドで文字起こしできないため、音声だけを残します。つながると、この会議の音声を OpenAI に送って文字起こしします。',
+  k2: 'ログインしていないため、音声だけを残します。設定の「アカウント」でログインすると、この会議の音声を OpenAI に送って文字起こしします。',
   k3: '文字起こしの中継が使えないため、音声を残しています。使えるようになると自動で文字起こしします。録音はそのまま続けてください。',
   k4: 'ログインが切れたため、音声を残しています。設定の「アカウント」でもう一度ログインすると、文字起こしします。',
 };
@@ -2009,6 +1994,201 @@ function setAccountEmail(email) {
   const w = settingsWriter.now(settings);
   if (!w.ok) engineLog(`アカウント: 設定に書けませんでした（${errCode(w.error)}）`);
 }
+// ---------------------------------------------------------------- 0.9.x の要約の組を消す（0.10.0 Task LS-4。D59・決めたこと 107・108）
+// 管理しているフォルダの下の、表（engine-install.RETIRED）の名前と大きさのものだけ消す。手の設定のパス（前の版の settings.sumServerExe・
+// sumModelPath。0.10.0 から知らないキーとして残る）には触らない。使用中で残ったら印を書かず、次の起動でやり直す。全部消せたら印を書き、
+// 消したものがあれば1回だけ知らせる（消すものが無い PC には出さない）。記録は数と符号だけ（パス・名前を書かない）
+const RETIRED_SUM_TEXT = (gb) => `要約用の AI は使わなくなったので、PC から消しました（約 ${gb} GB 空きました）。文字起こし用はそのままです。`;
+async function retireSummaryEngine() {
+  if (!ENGINE_HOME.supported || settings.retiredSumNotified === true) return;
+  const manual = [settings.sumServerExe, settings.sumModelPath].filter((x) => typeof x === 'string' && x);
+  const r = await engineInstall.retireSum(ENGINE_HOME, { manual });
+  if (r.left) { engineLog(`要約のエンジンを消す: 残り ${r.left}（${[...new Set(r.codes)].join('・')}）`); return; }
+  // 消すものが無い PC は印を書かない（起動だけで settings.json を書き換えない: stage090 F12。次の起動も小さく探すだけ）
+  if (!r.removed.length) return;
+  engineLog(`要約のエンジンを消す: 消した ${r.removed.length}・残り 0`);
+  settings = { ...settings, retiredSumNotified: true };
+  const w = settingsWriter.now(settings);
+  if (!w.ok) engineLog(`要約のエンジンを消す: 設定に書けませんでした（${errCode(w.error)}）`);
+  noticeMainWin(RETIRED_SUM_TEXT((r.bytes / 1e9).toFixed(1)));
+}
+// ---------------------------------------------------------------- Claude との連携（MCP。0.10.0 Task C-2。計画の「受け渡す名前と形」の main の分）
+// Claude デスクトップの設定ファイル（claude_desktop_config.json）に NaTsu の1項目を足す・外す。場所は main が決める（画面はパスを渡さない: 方針 7）。
+//  - 読みは J.readJsonFile（1MB まで・根は物）。壊れている（broken）・読めない（busy）・同じ名前の別の登録（other）・読み取り専用（readonly）の
+//    ファイルが1つでもあれば、どのファイルにも書かない（1バイトも変えない: F2）。
+//  - 変わるファイルだけ、書く前に同じフォルダへ控え（.natsu-<時刻>.bak。COPYFILE_EXCL）を写し、NaTsu の控えは新しい3つだけ残す（決めたこと 18）。
+//  - 書いた後に読み直して same を確かめる（違えば busy）。登録したら settings.mcpRegisteredFor（ファイルの数と版だけ。パスや中身は持たない:
+//    決めたこと 151）を書き、外したら消す。mcpRegisteredFor は SETTING_RULES に入れない（画面の settings:save では書けない。pickSavable が落とす）。
+//  - 記録は「MCP の登録: <足した|直した|外した|変えなかった|断った（符号）>（ファイル N・控え M）」だけ（パス・中身を書かない: 決めたこと 26）。
+const MCP_MAX_BYTES = 1024 * 1024;
+const MCP_WORSE = ['same', 'none', 'stale', 'other', 'readonly', 'busy', 'broken'];   // 後ろほど悪い（2つのファイルは悪い方を出す）
+const MCP_REFUSE = new Set(['broken', 'busy', 'other', 'readonly']);
+const isPlainObj = (v) => Boolean(v) && typeof v === 'object' && !Array.isArray(v);
+const worseOf = (a, b) => (MCP_WORSE.indexOf(b) > MCP_WORSE.indexOf(a) ? b : a);
+function mcpPaths() {
+  return { exe: process.execPath, script: path.join(app.getAppPath(), 'src', 'mcp', 'server.js'), dbDir: DB_INIT.dataDir };
+}
+function mcpFiles() {
+  let appData = '';
+  try { appData = app.getPath('appData'); } catch (_) { appData = ''; }
+  return MC.configFiles({ appData, localAppData: process.env.LOCALAPPDATA || '', readdir: (d) => fs.readdirSync(d), exists: (p) => fs.existsSync(p) });
+}
+// 前に登録した印（ファイルの数が 1 以上の整数のときだけ印とみなす）
+const mcpRegisteredMark = () => { const m = settings && settings.mcpRegisteredFor; return isPlainObj(m) && Number.isInteger(m.files) && m.files > 0; };
+// 1つのファイルを読んで、変えた後の形を決める（書かない）。fix は MC.mergeEntry か MC.removeEntry
+function mcpPlanFile(file, fix) {
+  const r = J.readJsonFile(file, { shape: isPlainObj, maxBytes: MCP_MAX_BYTES });
+  if (r.state === 'broken') return { file, refuse: 'broken' };
+  if (r.state === 'unreadable') return { file, refuse: 'busy' };
+  const had = r.state === 'ok';
+  const m = fix(had ? r.value : { mcpServers: {} });
+  if (!m.ok) return { file, refuse: m.code === 'shape' ? 'broken' : m.code };
+  const changed = had ? m.changed : m.changed && Object.keys(m.config.mcpServers || {}).length > 0;
+  if (changed && had && J.isReadOnly(file)) return { file, refuse: 'readonly' };
+  return { file, had, changed, config: m.config };
+}
+// 書く前の控え（同じ時刻の名前があれば 1 ミリ秒ずつずらす）と、NaTsu の控えを新しい BACKUP_KEEP 個だけ残す
+function mcpBackup(file) {
+  let t = Date.now();
+  for (let i = 0; i < 20; i++, t++) {
+    try { fs.copyFileSync(file, MC.backupName(file, new Date(t)), fs.constants.COPYFILE_EXCL); break; } catch (e) { if (!(e && e.code === 'EEXIST')) throw e; }
+  }
+  const dir = path.dirname(file);
+  const base = path.basename(file);
+  let names = [];
+  try { names = fs.readdirSync(dir).filter((n) => MC.isNatsuBackup(base, n)).sort(); } catch (_) { names = []; }
+  for (const n of names.slice(0, Math.max(0, names.length - MC.BACKUP_KEEP))) { try { fs.unlinkSync(path.join(dir, n)); } catch (_) { /* 消せなければ次に */ } }
+}
+// → { state, files }（読むだけ。書かない）
+function mcpDesktopState() {
+  const files = mcpFiles();
+  if (!files.length) return { state: 'noclaude', files: 0 };
+  let entry;
+  try { entry = MC.serverEntry(mcpPaths()); } catch (_) { return { state: 'busy', files: files.length }; }
+  let state = 'same';
+  for (const file of files) {
+    const p = mcpPlanFile(file, (cfg) => MC.mergeEntry(cfg, entry));
+    let st;
+    if (p.refuse) st = p.refuse;
+    else if (!p.changed) st = 'same';
+    else {
+      const r = J.readJsonFile(file, { shape: isPlainObj, maxBytes: MCP_MAX_BYTES });
+      st = r.state === 'ok' ? MC.entryState(r.value, entry) : 'none';
+    }
+    state = worseOf(state, st);
+  }
+  // 前に登録したのに、どのファイルにも NaTsu の項目が無い（決めたこと 151）
+  if (state === 'none' && mcpRegisteredMark()) state = 'gone';
+  return { state, files: files.length };
+}
+// Claude デスクトップ（claude.exe）が動いているか（決めたこと 149。tasklist.exe を決まった引数で1回。シェルを通さない）→ true・false・null
+function claudeDesktopRunning() {
+  return new Promise((resolve) => {
+    try {
+      execFile('tasklist.exe', [...MC.TASKLIST_ARGS], { windowsHide: true, timeout: 5000 },
+        (err, stdout) => resolve(err ? null : MC.claudeRunningOf(String(stdout == null ? '' : stdout))));
+    } catch (_) { resolve(null); }
+  });
+}
+async function mcpStatus() {
+  const desktop = mcpDesktopState();
+  return { desktop: { ...desktop, running: await claudeDesktopRunning() } };
+}
+function mcpLogLine(word, files, backups) {
+  engineLog(`MCP の登録: ${word}（ファイル ${files}・控え ${backups}）`);
+}
+function setMcpMark(mark) {
+  const next = { ...settings };
+  if (mark) next.mcpRegisteredFor = mark;
+  else delete next.mcpRegisteredFor;
+  settings = next;
+  const w = settingsWriter.now(settings);
+  if (!w.ok) engineLog(`MCP の登録: 設定に書けませんでした（${errCode(w.error)}）`);
+}
+// 足す（register）か外す（unregister）。→ { ok, state, code? }
+function mcpApply(register) {
+  const files = mcpFiles();
+  if (!files.length) { mcpLogLine('断った（noclaude）', 0, 0); return { ok: false, state: 'noclaude', code: 'noclaude' }; }
+  const entry = MC.serverEntry(mcpPaths());
+  const plans = files.map((f) => mcpPlanFile(f, (cfg) => (register ? MC.mergeEntry(cfg, entry) : MC.removeEntry(cfg))));
+  const refused = plans.filter((p) => p.refuse).reduce((a, p) => (a ? worseOf(a, p.refuse) : p.refuse), '');
+  if (refused) { mcpLogLine(`断った（${refused}）`, files.length, 0); return { ok: false, state: refused, code: refused }; }
+  const wasStale = register && plans.some((p) => p.had && p.changed && (() => {
+    const r = J.readJsonFile(p.file, { shape: isPlainObj, maxBytes: MCP_MAX_BYTES });
+    return r.state === 'ok' && MC.entryState(r.value, entry) === 'stale';
+  })());
+  let backups = 0;
+  let failed = '';
+  for (const p of plans.filter((x) => x.changed)) {
+    try {
+      if (p.had) { mcpBackup(p.file); backups += 1; }
+      J.writeJsonFile(p.file, p.config);
+    } catch (e) {
+      failed = worseOf(failed || 'same', e && e.readOnly ? 'readonly' : 'busy');
+    }
+  }
+  // 書いた後に読み直して確かめる（違えば busy）
+  if (!failed && register) {
+    for (const file of files) {
+      const r = J.readJsonFile(file, { shape: isPlainObj, maxBytes: MCP_MAX_BYTES });
+      if (r.state !== 'ok' || MC.entryState(r.value, entry) !== 'same') failed = 'busy';
+    }
+  }
+  if (failed) { mcpLogLine(`断った（${failed}）`, files.length, backups); return { ok: false, state: failed, code: failed }; }
+  const changed = plans.some((p) => p.changed);
+  mcpLogLine(!changed ? '変えなかった' : !register ? '外した' : wasStale ? '直した' : '足した', files.length, backups);
+  if (register) setMcpMark({ files: files.length, version: app.getVersion() });
+  else setMcpMark(null);
+  return { ok: true, state: register ? 'same' : 'none' };
+}
+async function mcpRegister() {
+  const r = mcpApply(true);
+  return { ...r, running: await claudeDesktopRunning() };
+}
+function mcpUnregister() {
+  return mcpApply(false);
+}
+// natsu:// を利用者ごとに登録する（0.10.0 LN-3。起動のたび。パックした NaTsu で、今の場所の登録でないときだけ。判断は lib.protocolPlan）。投げない
+function registerNatsuProtocol() {
+  try {
+    if (!app.isPackaged) return;
+    const args = [...lib.protocolPlan({}).args];
+    const isDefault = app.isDefaultProtocolClient(lib.PROTOCOL, process.execPath, args);
+    const plan = lib.protocolPlan({ packaged: app.isPackaged, execPath: process.execPath, isDefault });
+    if (!plan.register) return;
+    const ok = app.setAsDefaultProtocolClient(lib.PROTOCOL, process.execPath, plan.args);
+    engineLog(`リンクの登録: ${ok ? '登録した' : '登録できなかった'}`);
+  } catch (e) { engineLog(`リンクの登録: できなかった（${errCode(e)}）`); }
+}
+
+// ---------------------------------------------------------------- リンクで開く（0.10.0 LN-4。D72・決めたこと 145・146）
+// 起動の引数と2つ目の起動の引数の -- より後ろの natsu:// だけを読み（lib.linkFromArgv）、窓を出して前に出し（最小化なら戻す）、
+// 画面へ page:open-link { id, anchor } を送る（読み込み中なら読み終えてから）。できるのはページを開いて捲ることだけ（書く・消す・要約・
+// 設定・登録・外へ送る道を持たない）。記録はリンクの文字も ID も書かない。2 秒に 5 回を越えたリンクは捨てる（lib.linkRate）
+let linkTimes = [];
+function openLinkFromArgv(argv) {
+  const l = lib.linkFromArgv(argv);
+  if (l === null) return;
+  if (l === 'bad') { engineLog('リンク: 読めないリンクを捨てました'); return; }
+  const r = lib.linkRate(linkTimes, Date.now());
+  linkTimes = r.times;
+  if (!r.ok) { engineLog('リンク: 2 秒に 5 回を越えたリンクを捨てました'); return; }
+  createMainWindow();
+  if (!mainWin || mainWin.isDestroyed()) return;
+  if (mainWin.isMinimized()) mainWin.restore();
+  const p = { id: l.id, anchor: l.anchor };
+  if (mainWin.webContents.isLoading()) mainWin.webContents.once('did-finish-load', () => sendToMainWin('page:open-link', p));
+  else sendToMainWin('page:open-link', p);
+}
+
+// 起動の後（窓が出てから）に1回。読むだけ。場所が古い（stale）・登録が消えた（gone）ときだけ知らせる。読めなければ何もしない
+function checkMcpRegistration() {
+  let st;
+  try { st = mcpDesktopState().state; } catch (_) { return; }
+  if (st === 'stale') noticeMainWin({ text: NOTICE.mcpStale, action: 'settings-summary' });
+  else if (st === 'gone') noticeMainWin({ text: NOTICE.mcpGone, action: 'settings-summary' });
+}
+
 // 経路を決める（送るときのログイン（pack）も返す: transcribeAuto だけが使い、ほかへは渡さない）。
 // opts.scope: 知らせの係（会議。無ければ起動ごと）、opts.quiet: 知らせを出さない、
 // opts.probe: false なら中継へ届くかを確かめず net.isOnline() だけで見る（先読みの判断。通信を出さない）
@@ -2311,6 +2491,7 @@ function requestOverlayPause(on, why, force) {
   if (on) m.pauseWhy = why;
   clearPauseAsk(m);
   m.pauseAsked = true;
+  m.pauseBy = why === 'suspend' ? 'app' : 'button';   // 0.10.0 K-1: 経過のきっかけ（頼んだ側。録音バーで押したら overlay）
   m.pauseAskTimer = setTimeout(() => { m.pauseAskTimer = null; m.pauseAsked = false; }, PAUSE_ASK_MS);
   if (m.pauseAskTimer && typeof m.pauseAskTimer.unref === 'function') m.pauseAskTimer.unref();
   return overlayWin.webContents.executeJavaScript(on ? PAUSE_ENSURE_ON : PAUSE_ENSURE_OFF, true)
@@ -2444,13 +2625,15 @@ function claudeRunDir() {
 // 利用者の Claude Code で要約する（探す → auth status で claude.ai を確かめる → -p。文字起こしは標準入力）。
 // 指示文は手元の1回で要約する頼みと同じ（mainlib.buildClaudeInput。F9）。失敗は平易な文（claudeMessage）を投げ、
 // doRunSummary の catch が要約の欄に書く（手元の llama へは行かない: D1）。engine.log には符号だけを書く（本文・利用者の環境は書かない）。
-// 進み具合の文（「Claude Code で議事録を作成中…」）は doRunSummary が出す。onProgress は手元の道（generateMinutes）と同じ形のために受ける
-// （claude -p は1回で返し、途中の段が無い）
-async function summarizeWithClaude(plain, memo, type, onProgress) {
+// 進み具合の文（「Claude Code で議事録を作成中…」）は doRunSummary が出す（claude -p は1回で返し、途中の段が無い）。
+// 投げる誤りには符号（claudeCode）を添える（doRunSummary が、待てば直る混み合いなら要約待ちに戻す: 0.10.0 LS-2・決めたこと 105）
+async function summarizeWithClaude(plain, memo, type) {
   const failWith = (r) => {
     // 符号と、-p の返事の副型・状態の番号だけ（claudeCli.runWhy。返事の文と本文は書かない: 第1b回の続き Lane F-a）
     engineLog(`要約: Claude Code → ${claudeCli.runWhy(r)}`);
-    throw new Error(claudeCli.claudeMessage(r));
+    const e = new Error(claudeCli.claudeMessage(r));
+    e.claudeCode = r && typeof r.code === 'string' ? r.code : '';
+    throw e;
   };
   const found = claudeCli.findClaude({ configured: settings.claudeExe });
   if (!found.ok) failWith(found);
@@ -2467,45 +2650,7 @@ async function summarizeWithClaude(plain, memo, type, onProgress) {
 }
 
 // ---------------------------------------------------------------- 要約
-async function llmChat(messages, maxTokens, onWait) {
-  // 503 は「壊れた」ではなく「まだ準備中・手が塞がっている」。
-  // すぐ諦めるとモデル読み込みの数十秒を待てずにエラーで返してしまう。
-  // 待っていることは画面に出す。黙って待つと固まったように見え、
-  // エラーで返すと壊れたように見える。どちらも実態と違う。
-  let res;
-  let waited = false;
-  const deadline = Date.now() + 120000;
-  touchEngine(sumEng);
-  for (;;) {
-    res = await fetch(`http://127.0.0.1:${settings.sumPort}/v1/chat/completions`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ messages, temperature: 0.2, max_tokens: maxTokens }),
-      signal: AbortSignal.timeout(900000),
-    });
-    touchEngine(sumEng);
-    if (res.status !== 503 || Date.now() >= deadline) break;
-    if (!waited && onWait) {
-      waited = true;
-      onWait('要約エンジンを準備しています（モデルの読み込み中）。そのままお待ちください…');
-    }
-    await new Promise((r) => setTimeout(r, 2000));
-  }
-  if (res.status === 503) {
-    throw new Error('要約エンジンがまだ準備中です。モデルの読み込みに時間がかかっています。'
-      + '1〜2分おいてから、もう一度「要約を生成」を押してください。');
-  }
-  if (!res.ok) throw new Error(`要約エンジンエラー (${res.status})`);
-  const data = await res.json();
-  { const sp = speedLine('llama', data && data.timings); if (sp) engineLog(sp); }   // 実際の速さを残す（第0b回 Task 16）
-  const text = data?.choices?.[0]?.message?.content?.trim();
-  if (!text) throw new Error('要約エンジンの応答が空でした');
-  // 長さ上限で打ち切られると末尾の議題が黙って欠ける。
-  // 黙って欠けるより、欠けたと分かる方がよい。
-  const truncated = data?.choices?.[0]?.finish_reason === 'length';
-  return { text, truncated };
-}
-
+// 0.10.0 LS-2（D59）: 要約は利用者の Claude Code だけ（summarizeWithClaude）。手元の llama の要約（llmChat・generateMinutes）は外した
 // 節ごとに「なければ特になし」と書くと、小型モデルが条件を守り切れず
 // 実項目と「特になし」を両方並べてくる。ルールは全体で1回だけ言う。
 // （それでも混ざるので minutes.js の dropRedundantEmpty で後始末する）
@@ -2526,99 +2671,6 @@ const OUTPUT_RULE = '書き方のきまり:\n'
 // 渡す。別々に組み立てると、片方を直したときにずれて落とし損ねる。
 function minutesTemplate(type) {
   return `${mtype.getFormat(type)}\n\n${OUTPUT_RULE}`;
-}
-
-// 文脈長のうち入力（プロンプト）に使える推定トークン（#41）: 文脈長 − 出力の上限 − 余白。
-// 推定は mainlib.estimateTokens（UTF-8 バイト ÷ 2.5。多めに見積もる）
-const sumCtxBudget = () => settings.sumCtx - SUM_MAX_TOKENS - SUM_CTX_MARGIN;
-
-async function generateMinutes(plain, memo, onProgress, type) {
-  const ok = await ensureEngineReady(sumEng);
-  if (!ok) throw new Error(sumEng.lastError || '要約エンジンが起動していません');
-  const llmChatP = (messages, maxTokens) => llmChat(messages, maxTokens, onProgress);
-  const sys = MINUTES_SYS;
-  // メモはユーザーが好きなだけ書けるうえ、そのままプロンプトに前置きされる。
-  // 長すぎると文脈を食い潰して文字起こし側が押し出されるので上限を設ける。
-  const memoText = String(memo || '').trim().slice(0, MEMO_MAX);
-  const memoBlock = memoText ? `【会議メモ・アジェンダ（要約のヒント）】\n${memoText}\n\n` : '';
-
-  const CHUNK = 5500;
-  // 文脈長の予算（#41）。固定分（役割・メモ・書式）は先に引いておく
-  const budget = sumCtxBudget();
-  const fixed = estimateTokens(sys + memoBlock + minutesTemplate(type));
-  // メモの分も含めて1回で収まるかを判断する。文字数のほか推定トークンでも見る
-  // （文脈長を小さくした設定で、1 回分のプロンプトが溢れないように）
-  if (plain.length + memoBlock.length <= CHUNK + 1500 && estimateTokens(plain) + fixed <= budget) {
-    const one = await llmChatP([
-      { role: 'system', content: sys },
-      { role: 'user', content: `${memoBlock}【会議の文字起こし】\n${plain}\n\n上記から、次の構成のMarkdown議事録を作成してください。見出しはこの通りに使い、本文だけを出力してください。\n\n${minutesTemplate(type)}` },
-    ], SUM_MAX_TOKENS);
-    return { md: one.text, truncated: one.truncated, truncatedParts: [], finalTruncated: one.truncated };
-  }
-
-  const chunks = [];
-  for (let i = 0; i < plain.length; i += CHUNK) {
-    // 残りが重なり幅以下なら、直前のチャンクに完全に含まれるので作らない
-    if (i > 0 && plain.length - i <= 200) break;
-    chunks.push(plain.slice(i, i + CHUNK + 200));
-  }
-  const notes = [];
-  const truncatedParts = [];   // 半分にしても上限で切れたパート番号（1 始まり）
-  // 要点の抽出。kind は材料の呼び名（'文字起こし' | '要点メモ'）。文字起こしの分割要約と、
-  // 文脈長に収まらないときの要点メモの畳み（下）が同じ経路を通る
-  const extract = async (text, i, n, kind) => {
-    const r = await llmChatP([
-      { role: 'system', content: sys },
-      { role: 'user', content: `以下は長い会議の${kind}の一部（${i + 1}/${n}）です。重要な発言・決定・依頼・課題・数字を漏らさず、簡潔な箇条書きで抽出してください。文体は常体（だ・である調、体言止め）。\n\n${text}` },
-    ], NOTE_MAX_TOKENS);
-    return r;
-  };
-  for (let i = 0; i < chunks.length; i++) {
-    if (onProgress) onProgress(`要約中… (${i + 1}/${chunks.length})`);
-    // 上限で切れたら半分に割って両方をやり直す（一度だけ。mainlib.extractNotes）。
-    // 切れたままだと中盤の議題が黙って欠ける（#16）。それでも切れたら本文は残し、
-    // 要点メモに注記を添え、パート番号を控える（summaryError で名指しする）。
-    const part = await extractNotes((t) => extract(t, i, chunks.length, '文字起こし'), chunks[i]);
-    let text = part.text;
-    if (part.truncated) {
-      truncatedParts.push(i + 1);
-      text += `\n（※パート${i + 1}の抽出は途中で切れています）`;
-    }
-    notes.push(`--- パート${i + 1} ---\n${text}`);
-  }
-  // 統合プロンプトが文脈長に収まらないなら、要点メモを 2 段で畳む（#41）。前から順に予算に
-  // 収まる束に分け（mainlib.foldNotes）、各束を分割要約と同じ経路（extractNotes・NOTE_MAX_TOKENS）
-  // でもう一段要約してから統合する。畳んだことは engineLog にだけ残す（page.notes や
-  // summaryError には書かない。要約の中身の問題ではなく容量の話で、利用者が直すものではない）。
-  // 束の予算は統合と同じ budget − fixed（束の要約は出力が短く指示文も短いので、余裕がある側）
-  let material = notes;
-  const need = estimateTokens(notes.join('\n\n')) + fixed;
-  if (need > budget) {
-    const bundles = foldNotes(notes, Math.max(1, budget - fixed), estimateTokens);
-    engineLog(`要約: 要点メモ ${notes.length} パート（推定 ${need} トークン）が文脈長 ${settings.sumCtx} の予算 ${budget} を超えるため、${bundles.length} 束に畳んだ`);
-    material = [];
-    let first = 1;
-    for (let k = 0; k < bundles.length; k++) {
-      const last = first + bundles[k].length - 1;
-      if (onProgress) onProgress(`要点メモをまとめ直しています… (${k + 1}/${bundles.length})`);
-      const part = await extractNotes((t) => extract(t, k, bundles.length, '要点メモ'), bundles[k].join('\n\n'));
-      let text = part.text;
-      if (part.truncated) {
-        engineLog(`要約: 束 ${k + 1}（パート${first}〜${last}）のまとめ直しが長さの上限で切れた`);
-        text += `\n（※パート${first}〜${last}のまとめは途中で切れています）`;
-      }
-      material.push(`--- パート${first}〜${last}（まとめ） ---\n${text}`);
-      first = last + 1;
-    }
-    const after = estimateTokens(material.join('\n\n')) + fixed;
-    if (after > budget) engineLog(`要約: 畳んでも推定 ${after} トークンで予算 ${budget} を超える（2 段まで。続行する）`);
-  }
-  if (onProgress) onProgress('議事録をまとめています…');
-  const final = await llmChatP([
-    { role: 'system', content: sys },
-    { role: 'user', content: `${memoBlock}【会議の要点メモ（時系列）】\n${material.join('\n\n')}\n\n上記の要点メモを統合し、次の構成のMarkdown議事録を作成してください。見出しはこの通りに使い、本文だけを出力してください。\n\n${minutesTemplate(type)}` },
-  ], SUM_MAX_TOKENS);
-  return { md: final.text, truncated: truncatedParts.length > 0 || final.truncated, truncatedParts, finalTruncated: final.truncated };
 }
 
 // ---------------------------------------------------------------- 貼り付け
@@ -3999,6 +4051,7 @@ function writeDraft() {
       segments: meeting.segments, offsetMs: meeting.offsetMs, savedAt: Date.now(),
       localOnly: Boolean(meeting.localOnly),   // ［この会議は PC の中だけ］（復旧した会議の送り直しも手元。第1c回 RF28）
       pauses: meeting.pauses || [],   // 止めていた時間の印（落ちて復旧したページにも残す。第1b回 N4c）
+      stateLog: meeting.stateLog || [],   // 議事録の経過（0.10.0 K-1。落ちて戻したページにも残す）
     }, meeting.draftName, { fsync: DRAFT_FSYNC });
   } catch (e) {
     if (!meeting.draftWriteFailed) {
@@ -4006,6 +4059,13 @@ function writeDraft() {
       engineLog(`下書き（${meeting.draftName}）を保存できませんでした（${errCode(e)}）。録音は続けます`);
     }
   }
+}
+
+// 落ちて戻した議事録の経過（0.10.0 K-1）: 下書きの経過の後に「戻した（アプリ）」を積み、記録に1行
+function recoveredStateLog(list) {
+  const item = { s: 'recover', by: 'app', at: new Date().toISOString() };
+  engineLog(lib.stateLogLine(item));
+  return lib.stateLogAdd(list, item);
 }
 
 // 復旧ページで文字起こし待ちのまま残った音声 { pageId, items: [{ id, wav, durationMs }], dir }。
@@ -4274,6 +4334,8 @@ async function recoverDraftsNow() {
         // 送り直しで数え直す（transcribeRecoveredItems）。会議の印は下書きから写す（第1c回 RF28）
         route: { stt: { cloud: 0, local: 0, provider: sttProvider().id }, localOnly: Boolean(d.localOnly) },
         pauses: d.pauses,   // 止めていた時間の印（形の悪い印は store が捨てる。第1b回 N4c・F6）
+        // 議事録の経過（0.10.0 K-1）: 下書きの経過（表に無い項目は落とす）の後に「戻した（アプリ）」
+        stateLog: recoveredStateLog(d.stateLog),
         summaryError: rec.todo.length
           ? '録音が中断されたため要約は未生成です。残っていた音声の文字起こしを続けています。終わったら「要約を生成」で作成できます。'
           : '録音が中断されたため要約は未生成です。「要約を生成」で作成できます。',
@@ -4483,18 +4545,10 @@ async function transcribeRecoveredItems(q, { cloudOnly = false } = {}) {
   const cur = await db.call('page.get', { id: q.pageId });
   if (!cur) return parked;
   // 第1d2回 M-3（決めたこと 7）: 締めで要約を待たせた会議（要約の欄が S3・S3'）は、文字になった区間があれば R1 を出して要約を作る（待たない。
-  // 経路は runSummary が決める）。PC の中だけのページで要約のエンジンがまだ使えなければ要約の欄を S1 にし、［要約を生成］を案内する
+  // 経路は runSummary が決める。0.10.0 LS-2: オフラインモードの会議も Claude Code。届かなければ要約待ち）
   const waitText = [KEPT_SUMMARY_TEXT.wait, KEPT_SUMMARY_TEXT.waitLocal];
   if (done > 0 && cur.page && waitText.includes(cur.page.summaryError)) {
-    const localOnlyPage = Boolean(cur.page.route && cur.page.route.localOnly);
     sendToMainWin('pages:updated', await db.call('pages.list', {}));
-    if (localOnlyPage && !engineValid(sumEng)) {
-      const saved = await saveIfExists(db, q.pageId, (p) => { if (waitText.includes(p.summaryError)) p.summaryError = KEPT_SUMMARY_TEXT.local; });
-      const now = await db.call('page.get', { id: q.pageId });
-      sendToMainWin('page:updated', { page: saved || cur.page, segments: now ? now.segments : cur.segments });
-      sendToMainWin('app:notice', `認識に失敗していた区間の文字起こしをやり直しました（${done}/${q.items.length} 区間）。「要約を生成」で議事録を作り直せます。`);
-      return parked;
-    }
     const now = await db.call('page.get', { id: q.pageId });
     sendToMainWin('page:updated', { page: (now && now.page) || cur.page, segments: now ? now.segments : cur.segments });
     sendToMainWin('app:notice', `残しておいた音声を文字起こししました（${done}/${q.items.length} 区間）。続けて要約を作ります。`);
@@ -4532,6 +4586,7 @@ const savedQueueCount = () => {
   return names.filter((n) => fs.existsSync(path.join(segbufRoot(), n, RECOVERY_FILE))).length;
 };
 async function retryKeptWhenBack() {
+  try { await retrySummaryWaits(); } catch (e) { engineLog(`要約待ちの見回りに失敗: ${logReason(e)}`); }
   try {
     let why = 'ok';
     if (quitting) why = 'quitting';
@@ -4585,14 +4640,33 @@ function cleanOrphanSegbuf(keepDir) {
 
 // 0.9.4 D-1（持ち主の試作の考え: 状態が変わるたびに、何が変えたかを残す）: 会議の始まりと終わりの引き金を engine.log に符号で1行
 // （page・panel・panel-offline・hotkey・tray／page・bar・hotkey・auto-quiet）。検出が出なかったときに、何で会議を始めたかが持ち主の記録で分かる
+// 0.10.0 K-1（決めたこと 116）: 議事録の経過。引き金の符号 → 経過のきっかけ（表 lib.BY_NAMES の鍵）
+const START_BY = Object.freeze({ page: 'button', panel: 'panel', 'panel-offline': 'panel', hotkey: 'hotkey', tray: 'tray' });
+const STOP_BY = Object.freeze({ page: 'button', bar: 'overlay', hotkey: 'hotkey', 'auto-quiet': 'quiet' });
+// 会議の経過に1つ積み、engine.log に「議事録: 開始（ホットキー）」の1行（題名・文は書かない）。下書きにも書く
+function noteMeetingState(m, s, by) {
+  if (!m) return;
+  const item = { s, by, at: new Date().toISOString() };
+  m.stateLog = lib.stateLogAdd(m.stateLog, item);
+  const line = lib.stateLogLine(item);
+  if (line) engineLog(line);
+  if (meeting === m) writeDraft();
+}
 async function startMeetingBy(trigger) {
   const r = await startMeeting();
-  if (r && r.ok) engineLog(`会議: 始めた（${trigger}）`);
+  if (r && r.ok) {
+    engineLog(`会議: 始めた（${trigger}）`);
+    noteMeetingState(meeting, 'start', START_BY[trigger] || 'app');
+  }
   return r;
 }
 function stopMeetingBy(trigger) {
+  const m = meeting;
   const r = stopMeeting();
-  if (r && r.ok) engineLog(`会議: 止めた（${trigger}）`);
+  if (r && r.ok) {
+    engineLog(`会議: 止めた（${trigger}）`);
+    noteMeetingState(m, trigger === 'auto-quiet' ? 'auto-stop' : 'stop', STOP_BY[trigger] || 'app');
+  }
   return r;
 }
 async function startMeeting() {
@@ -4661,9 +4735,7 @@ async function startMeeting() {
   warmWhisper().catch((e) => engineLog(`文字起こしエンジンの先読みに失敗: ${logReason(e)}`));
   // 経路を1回聞き、クラウドなら会議の始めの知らせ（M1）
   announceSttRoute(meeting);
-  // 要約エンジンはここで先読みしない（#58）。記録開始で起動すると約 2〜3GB が上がり、破棄しても
-  // 降りない（記録だけして要約しない会議でも掴んだまま）。要約直前の ensureEngineReady(sumEng)
-  // （generateMinutes）に任せる。その分、最初の要約はモデル読み込みの待ちを含む
+  // 要約は利用者の Claude Code で作る（0.10.0 LS-2・D59）。手元の要約のエンジンは起こさない
   placeOverlayForRecording();
   overlayWin.showInactive();
   // 音声入力の開始（上の 'dictation'）には systemAudio を渡さない。
@@ -4909,7 +4981,7 @@ async function maybeFinalizeMeeting() {
     pauses = (m.pauses || []).filter((x) => !(x && x.atMs >= trimEnd));
   }
   const dt = new Date(m.startedAt);
-  const fallbackTitle = `${dt.getFullYear()}/${dt.getMonth() + 1}/${dt.getDate()} ${String(dt.getHours()).padStart(2, '0')}:${String(dt.getMinutes()).padStart(2, '0')} の議事録`;
+  const fallbackTitle = lib.meetingTitleAt(dt);   // 形は mainlib の1か所（0.10.0 SH-1・D71）
 
   // 会議のページの ID は録音を始めたときに作って下書きに書いた（第2a1回 ST6。写し・復旧と同じ ID）
   const pageId = m.pageId || store.newId('p');
@@ -4947,6 +5019,7 @@ async function maybeFinalizeMeeting() {
         // 文字起こしの経路と、会議の印（要約の経路が見る: C10）
         route: { stt: { ...m.route, provider: sttProvider().id }, localOnly: Boolean(m.localOnly) },
         pauses,   // 止めていた時間の印（区間とは別の欄。第1b回 N4c・F6）
+        stateLog: m.stateLog || [],   // 議事録の経過（0.10.0 K-1。決めたこと 116）
         recovered: false, summaryError: keptWhy, meeting: { phase: 'done' },
       },
     }, { tx: `meeting:${m.startedAt}` });
@@ -4978,7 +5051,7 @@ async function maybeFinalizeMeeting() {
   sendToMainWin('page:open', page.id);
   if (m.autoStopped) quietDoneNotice(m, page.id);   // 0.9.1 Q-4
   // 音声は届いたのに、文字起こしが全部空だった。黙っていると「0 区間」の理由が分からない。
-  // 通知は数秒で消えるので、要約の欄（summaryError）にも同じ文を残す（下の runSummary の後）
+  // 知らせと engine.log に出す。要約の欄には書かない（0.10.0 LS-2・決めたこと 111 の 6: 文字起こしが空のページは欄の鍵のまま、頭の一言が伝える）
   // 止まりの見張りで音声ごと残した区間（第1d回 A-6。文字は無い）は「文字の残った区間」に数えない（全部が空なら、マイクの確かめ方も知らせる）
   const allEmpty = m.emptySegs > 0 && !settledSegments(m.segments).some((s) => s.text !== STALL_SEG_TEXT);
   const allEmptyText = `${m.emptySegs} 区間の音声を受け取りましたが、文字起こしの結果がすべて空でした。`
@@ -4993,11 +5066,6 @@ async function maybeFinalizeMeeting() {
   // 待ち行列が済んだら自動で要約する（transcribeRecoveredItems）
   if (keptWhy) engineLog('議事録を保存: 文字起こし待ちの区間があるので、要約は文字起こしが済んでから作ります');
   else await runSummary(page.id);
-  if (allEmpty) {
-    const saved = await saveIfExists(db, page.id, (p) => { p.summaryError = allEmptyText; });
-    const now = saved ? await db.call('page.get', { id: page.id }) : null;
-    if (saved) sendToMainWin('page:updated', { page: saved, segments: now ? now.segments : [] });
-  }
   if (recoveryQueue) transcribeRecovered().catch((e) => engineLog(`retry failed: ${logReason(e)}`));
 }
 
@@ -5005,7 +5073,8 @@ async function maybeFinalizeMeeting() {
 // 実行して固定）。走行中に「要約を生成」を連打されると、同じ文字起こしに対して
 // 要約が二重に走り、後から終わった方が前の結果（とその間の編集）を上書きしていた。
 // 走行中なら同じ Promise を返す。
-const runSummary = makeSummaryRunner(doRunSummary, () => updateTray());
+// 走っているページの ID は画面へも渡す（0.10.0 LS-2: 要約の欄の鍵の making。自動の要約の最中も直せない）
+const runSummary = makeSummaryRunner(doRunSummary, () => { updateTray(); sendToMainWin('summary:running', runSummary.running()); });
 // 要約の書き戻しが続けてぶつかったときの知らせ（第2a1回 F6。mainlib.saveIfExists が conflict を投げた）
 const SUMMARY_CONFLICT_TEXT = '要約を保存できませんでした。もう一度［要約を生成］を押してください。';
 // 要約の書き戻し（page.put）が引数の照らしで断られた（bad-args）ときの知らせ（第2a1回 M-4 の点検）。DB に入った後で保存の決まりを超えた
@@ -5065,49 +5134,32 @@ async function doRunSummary(pageId) {
   const plain = usable.map((s) => s.text).join('\n');
 
   if (!plain.trim()) {
+    // 0.10.0 LS-2（D69・決めたこと 111 の 6）: 文字起こしが空のページは要約の欄に理由を書かない（鍵のまま。欄の頭の一言が伝える）。
+    // 要約待ちの印だけ外す（作れる日は来ない）
     const err = '文字起こしが空のため要約できません';
     let saved;
-    try { saved = await saveIfExists(db, pageId, (p) => { p.summaryError = err; }); } catch (e) { if (unsaved(e)) return conflicted(unsaved(e)); throw e; }
+    try { saved = await saveIfExists(db, pageId, (p) => { if (p.summaryWait) { p.summaryWait = false; if (p.summaryError === SUMMARY_WAIT_TEXT) p.summaryError = ''; } }); } catch (e) { if (unsaved(e)) return conflicted(unsaved(e)); throw e; }
     if (!saved) return gone();
     clearUi();
     sendToMainWin('page:updated', { page: saved, segments });
     return { ok: false, error: err };
   }
-  // 要約の経路を1回決める（第1c回 OL5・D1）。［この会議は PC の中だけ］のページは届くかを確かめずに手元（C10。
-  // 文字起こしの文も PC の外へ出さない）。届けば利用者の Claude Code、届かなければ今までどおり手元の llama
-  const localOnly = Boolean(page.route && page.route.localOnly);
-  const route = (await decideSummary({ localOnly, up: () => online.isUp(ANTHROPIC_REACH) })).route;
-  if (route === 'local' && !engineValid(sumEng) && !isOfflineChosen()) {
-    // 第1d2回 M-3（D21）: 準備を選んでいない PC は、PC の中だけなら S1、そうでなければ S2（「未設定」の語を使わない: 画面が設定へ連れて行く）
-    const err = localOnly ? KEPT_SUMMARY_TEXT.local : KEPT_SUMMARY_TEXT.offline;
+  // 要約の経路を1回決める（0.10.0 LS-2・D59・決めたこと 103）。届けば利用者の Claude Code（オフラインモードの会議も）、届かなければ要約待ち:
+  // 要約を作らずに summaryWait と「要約待ち（つながったら作ります）」を書き、つながったら見回りが自動で作る（retrySummaryWaits）
+  const decided = await decideSummary({ up: () => online.isUp(ANTHROPIC_REACH) });
+  if (decided.route !== 'claude-code') {
+    summaryNet.up = false;
+    engineLog(`要約: 要約待ち（${decided.why}）`);
     let saved;
-    try { saved = await saveIfExists(db, pageId, (p) => { p.summaryError = err; }); } catch (e) { if (unsaved(e)) return conflicted(unsaved(e)); throw e; }
+    try { saved = await saveIfExists(db, pageId, (p) => { p.summaryWait = true; p.summaryError = SUMMARY_WAIT_TEXT; }); } catch (e) { if (unsaved(e)) return conflicted(unsaved(e)); throw e; }
     if (!saved) return gone();
     clearUi();
+    sendToMainWin('pages:updated', await db.call('pages.list', {}));
     sendToMainWin('page:updated', { page: saved, segments });
-    sendToMainWin('app:notice', err);
-    return { ok: false, error: err };
+    sendToMainWin('app:notice', SUMMARY_WAIT_TEXT);
+    return { ok: false, error: SUMMARY_WAIT_TEXT, wait: true };
   }
-  if (route === 'local' && !engineValid(sumEng)) {
-    // 取り込める PC で手の設定が無い側は［PC の中の文字起こしを取り込む］を指す（第0b回。第1d回 A-13 で名前を変えた）。まだ取り込んでいなければ「未設定」の語を残す
-    // （画面はこの語で設定タブへ連れて行く）。取り込んだ組を確かめ中・壊れた・ランタイムで止めたときは、その理由を伝える。
-    // 確かめ中・取り直し中は待てば使えるようになるので、終わってからすることを1つ書いて終える
-    const fetchable = ENGINE_HOME.supported && !manualGroup(sumEng);
-    const waitable = managedState.sum === 'checking' || managedState.sum === 'broken';
-    const err = !fetchable
-      ? '要約エンジンが未設定のため、文字起こしのみ保存しました。'
-        + 'setup-summarizer.ps1 を実行し、設定タブでパスを指定すると「要約を生成」で作成できます。'
-      : managedState.sum === 'none'
-        ? '要約エンジンが未設定のため、文字起こしのみ保存しました。設定タブの［PC の中の文字起こしを取り込む］で取り込むと「要約を生成」で作成できます。'
-        : `要約エンジンを使えないため、文字起こしのみ保存しました。${engineCheck(sumEng)}${waitable ? '。終わったら「要約を生成」で作成できます。' : ''}`;
-    let saved;
-    try { saved = await saveIfExists(db, pageId, (p) => { p.summaryError = err; }); } catch (e) { if (unsaved(e)) return conflicted(unsaved(e)); throw e; }
-    if (!saved) return gone();
-    clearUi();
-    sendToMainWin('page:updated', { page: saved, segments });
-    sendToMainWin('app:notice', err);
-    return { ok: false, error: err };
-  }
+  const route = 'claude-code';
 
   // 会議タイプ: 手動指定があればそれを尊重し、無ければタイトルと冒頭から推定。
   // 自動判定は手動指定があっても必ず走らせ、結果を別に残す。こうしないと
@@ -5129,14 +5181,10 @@ async function doRunSummary(pageId) {
     + ` 手動=${page.typeAuto === false} 区間数=${usable.length}`);
 
   const progress = (msg) => sendToMainWin('meeting:progress', { message: msg });
-  progress(route === 'claude-code'
-    ? `Claude Code で議事録を作成中…（${mtype.getLabel(page.meetingType)}として要約します）`
-    : `要約エンジンで議事録を作成中…（${mtype.getLabel(page.meetingType)}として要約します）`);
+  progress(`Claude Code で議事録を作成中…（${mtype.getLabel(page.meetingType)}として要約します）`);
   try {
-    // オンラインで Claude Code が失敗したら、理由を要約の欄に書いて終える（下の catch。手元の llama へは行かない: D1）
-    const { md, truncatedParts, finalTruncated } = route === 'claude-code'
-      ? await summarizeWithClaude(plain, page.memo, page.meetingType, progress)
-      : await generateMinutes(plain, page.memo, progress, page.meetingType);
+    // Claude Code が断った・失敗したら、理由を要約の欄に書いて終える（下の catch。手元の llama へは行かない: D1・D59）
+    const { md, truncatedParts, finalTruncated } = await summarizeWithClaude(plain, page.memo, page.meetingType);
     // 「特になし」の混入を先に落とす。ここで落とさないと
     // 「- [ ] 特になし」がアクション1件として数えられてしまう。
     // 続けて、テンプレートの見出し・雛形をそのまま写した行も落とす。
@@ -5181,6 +5229,7 @@ async function doRunSummary(pageId) {
         notes.push(`この要約は「${mtype.getLabel(page.meetingType)}」として作りました。途中で選んだ「${mtype.getLabel(t.meetingType)}」で作り直すには［要約を再生成］を押してください。`);
       }
       saved.summaryError = notes.filter(Boolean).join('\n');
+      saved.summaryWait = false;   // 要約待ちの印を消す（0.10.0 LS-2）
       // どちらで要約したか（第1c回 OL6。ページのプロパティの行に出す）。成功したときだけ書く
       saved.route = { ...(saved.route || {}), summary: { by: route, at: new Date().toISOString() } };
     });
@@ -5192,12 +5241,44 @@ async function doRunSummary(pageId) {
   } catch (e) {
     if (quitting) return { ok: false, error: e.message };   // 終了中: before-quit が書いた「中断」の文を上書きしない
     if (unsaved(e)) return conflicted(unsaved(e));   // 書き戻しが5回ぶつかった・決まりで断られた: 要約の欄にも書けないので知らせるだけ
+    // 0.10.0 LS-2（決めたこと 105）: 待てば直る混み合い（SUMMARY_RETRY_CODES）は要約待ちに戻し、次のつながり直しで作る。
+    // ログイン切れ・上限・Claude Code が無いなどは、待っても直らないので印を消し、平易な理由と［要約を生成］の案内を欄に書く（欄の鍵が外れる）
+    const again = Boolean(e && SUMMARY_RETRY_CODES.includes(e.claudeCode));
     let latest;
-    try { latest = await saveIfExists(db, pageId, (saved) => { saved.summaryError = e.message; }); } catch (e2) { if (unsaved(e2)) return conflicted(unsaved(e2)); throw e2; }
+    try {
+      latest = await saveIfExists(db, pageId, (saved) => {
+        saved.summaryWait = again;
+        saved.summaryError = again ? SUMMARY_WAIT_TEXT : e.message;
+      });
+    } catch (e2) { if (unsaved(e2)) return conflicted(unsaved(e2)); throw e2; }
     if (!latest) return gone();
     clearUi();
     sendToMainWin('page:updated', { page: latest, segments });
-    return { ok: false, error: e.message };
+    return { ok: false, error: again ? SUMMARY_WAIT_TEXT : e.message, wait: again };
+  }
+}
+
+// 0.10.0 LS-2（D59・決めたこと 104）: 要約待ちのページを、つながったら自動で作る。見回り（retryKeptWhenBack）から呼ぶ。
+// Claude Code（ANTHROPIC_REACH）へ届くかを見て、届かない → 届く に変わったら試したページの控え（tried）を空にする。
+// 届く間は、要約待ちのページを古い順に1つずつ（mainlib.summaryRetryPick）、つながり1回につき1ページ1回だけ作る。
+// 録音中・終了中・ほかの要約の最中は何もしない（次の見回りで）。ゴミ箱のページと録音中の写しは DB の pages.summaryWaits が渡さない
+const SUMMARY_RETRY_CODES = ['overloaded'];   // 待てば直る Claude Code の誤り（決めたこと 105 の「届かない」と同じ扱い）
+const summaryNet = { up: null, tried: new Set() };
+async function retrySummaryWaits() {
+  if (quitting || meeting || state !== 'idle' || isSummarizing()) return;
+  const r = await online.isUp(ANTHROPIC_REACH);
+  if (!r || r.up !== true) { summaryNet.up = false; return; }
+  if (summaryNet.up === false) summaryNet.tried.clear();
+  summaryNet.up = true;
+  for (;;) {
+    if (quitting || meeting || state !== 'idle') return;
+    const list = await db.call('pages.summaryWaits', {});
+    const id = summaryRetryPick(Array.isArray(list) ? list : [], { tried: summaryNet.tried });
+    if (!id) return;
+    summaryNet.tried.add(id);
+    engineLog('要約: 要約待ちのページを作ります（つながったので）');
+    await runSummary(id);
+    if (summaryNet.up === false) return;   // 作る途中で届かなくなった（要約待ちに戻った）
   }
 }
 
@@ -5304,7 +5385,7 @@ async function checkUpdateFromTray() {
     return;
   }
   quitting = true;
-  stopEngine(whisperEng); stopEngine(sumEng); stopPaster();
+  stopEngine(whisperEng); stopPaster();
   // 議事録の DB を閉じてから（cleanShutdown を書いてチェックポイント。第2a1回 ST7）
   await db.close({ timeoutMs: DB_CLOSE_MS });
   relaunchAndExit();
@@ -5340,7 +5421,7 @@ function updateTray() {
   // 復旧の手段が、壊れうるものに依存していてはいけない。
   items.push({ label: '更新を確認', enabled: state === 'idle' && !isSummarizing(), click: checkUpdateFromTray });
   // エンジンを手で止めてメモリを解放する（#58）。どちらかが起動していて、手が空いているときだけ
-  items.push({ label: 'エンジンを停止（メモリを解放）', enabled: (Boolean(whisperEng.proc) || Boolean(sumEng.proc)) && !isBusy(), click: stopEnginesFromTray });
+  items.push({ label: 'エンジンを停止（メモリを解放）', enabled: Boolean(whisperEng.proc) && !isBusy(), click: stopEnginesFromTray });
   items.push({ type: 'separator' });
   items.push({ label: '終了', click: quitFromTray });
   // 既定で代替している／登録できていないキーがあれば、その旨を添える
@@ -5551,17 +5632,9 @@ function setupIpc() {
     if (tried) { engineLog(`起動テスト: ${tried}`); return { ok: false, error: tried, warning }; }
     return { ok: true, info: `文字起こしエンジンは起動しています。短い無音を試しに文字起こしさせ、返事があることも確かめました（${notes.join(' / ')}）`, warning };
   });
-  ipcMain.handle('app:test-sum', async () => {
-    forgetRuntimeIssues();   // ランタイムを入れた後の押し直しで読み直す（RF4）
-    const warning = engineDirNote(sumEng);
-    const problem = engineCheck(sumEng);
-    if (problem) return { ok: false, error: problem, warning };
-    const ok = await ensureEngineReady(sumEng);
-    return ok ? { ok: true, info: '要約エンジンは起動済みです（オフライン動作可）', warning }
-      : { ok: false, error: sumEng.lastError || '起動に失敗しました', warning };
-  });
-  // 設定の「PC の中の文字起こし：使えます／使えません」（第1d回 A-13・D19。前の「エンジン：正常／要確認」）。置き場所のファイルを見るだけで、エンジンは起動しない（要約は約 2〜3GB: #58）
-  ipcMain.handle('engine:status', () => ({ ok: true, chosen: isOfflineChosen(), whisper: engineCheck(whisperEng), sum: engineCheck(sumEng),
+  // 設定の「PC の中の文字起こし：使えます／使えません」（第1d回 A-13・D19。前の「エンジン：正常／要確認」）。置き場所のファイルを見るだけで、エンジンは起動しない。
+  // 0.10.0 LS-3（D59）で要約のエンジンの欄（sum）を外した
+  ipcMain.handle('engine:status', () => ({ ok: true, chosen: isOfflineChosen(), whisper: engineCheck(whisperEng),
     whisperNote: isKotobaModel() ? KOTOBA_NOTE : '' }));
   // 取り込みの欄の写し（第0b回）。読むだけで、取り込みは始めない
   ipcMain.handle('engine:fetch-status', () => engineFetchStatus());
@@ -5627,7 +5700,7 @@ function setupIpc() {
     if (why === 'summary') return { ok: false, code: why, error: '要約を作成中です。終わってから再起動してください' };
     if (why) return { ok: false, code: why, error: RESTART_BLOCK_TEXT[why] };
     quitting = true;
-    stopEngine(whisperEng); stopEngine(sumEng); stopPaster();
+    stopEngine(whisperEng); stopPaster();
     // 議事録の DB を閉じてから（第2a1回 ST7）
     await db.close({ timeoutMs: DB_CLOSE_MS });
     relaunchAndExit();
@@ -5743,6 +5816,14 @@ function setupIpc() {
     return claudeTesting;
   };
   ipcMain.handle('claude:status', () => claudeStatus());
+  // Claude との連携（MCP。0.10.0 C-2。引数なし: 場所は main が決める）
+  ipcMain.handle('mcp:status', () => mcpStatus());
+  ipcMain.handle('mcp:register', () => mcpRegister());
+  ipcMain.handle('mcp:unregister', () => mcpUnregister());
+  // 議事録のリンクの住所の頭（0.10.0 L-1。D78・決めたこと 153: ヘルプのサイトの /open のページ。# の後ろの ID はサーバーへ送られない）
+  ipcMain.handle('app:link-base', () => `${HELP_URL}open#p=`);
+  // 画面の検索の窓に貼ったリンク（natsu:// か https の住所）の照らし（0.10.0 LN-4・決めたこと 148。画面は住所を持たないので main で照らす）。→ { id, anchor } か null
+  ipcMain.handle('app:parse-link', (_e, s) => (typeof s === 'string' && s.length <= 1000 ? natsulink.parseAnyLink(s) : null));
   ipcMain.handle('claude:test', () => claudeTest());
   // ［Claude Code にログイン］［Claude Code を入れる］（第1b回の続き Lane F-c・F-d。利用者に PowerShell を打たせない）。
   // 見える窓は claudeCli.claudeOpenWindow が隠した PowerShell から開き、閉じるまで待つ。閉じたら確かめ直して、その答えを返す
@@ -5840,9 +5921,13 @@ function setupIpc() {
   // 知らせる）と長さの印を1つ残す（録音バーの［一時停止］を直接押したときも why は user）
   ipcMain.on('overlay:pause', (_e, { paused }) => {
     if (!meeting) return;
+    // 0.10.0 K-1: main が頼んだ答えなら頼んだ側（画面のボタン・スリープ）、頼んでいなければ録音バーで押した
+    const by = meeting.pauseAsked && meeting.pauseBy ? meeting.pauseBy : 'overlay';
+    meeting.pauseBy = '';
     clearPauseAsk(meeting);
-    if (paused && !meeting.paused) { meeting.paused = true; meeting.pausedAt = Date.now(); }
+    if (paused && !meeting.paused) { meeting.paused = true; meeting.pausedAt = Date.now(); noteMeetingState(meeting, 'pause', by); }
     else if (!paused && meeting.paused) {
+      noteMeetingState(meeting, 'resume', by);
       meeting.paused = false;
       meeting.pauses.push({ atMs: meeting.offsetMs, ms: Math.max(0, Date.now() - meeting.pausedAt), why: meeting.pauseWhy || 'user' });
       meeting.pausedMs += Date.now() - meeting.pausedAt;
@@ -5919,7 +6004,8 @@ const gotLock = app.requestSingleInstanceLock();
 if (!gotLock) {
   app.quit();
 } else {
-  app.on('second-instance', () => createMainWindow());
+  // 0.10.0 LN-4: 2つ目の起動の引数にリンクがあれば、そのページを開く
+  app.on('second-instance', (_e, argv) => { createMainWindow(); openLinkFromArgv(argv); });
   // 書き出しの合図（第1a回 JS8・RF21）。窓ができたら、その窓の session-end と query-session-end に付ける（Windows の
   // シャットダウン・再起動・サインアウト。隠れた本体の窓と録音バーにも付く）。窓を作る whenReady より前に付ける
   app.on('browser-window-created', (_e, w) => { w.on('session-end', flushAllWriters); w.on('query-session-end', flushAllWriters); });
@@ -5951,7 +6037,7 @@ if (!gotLock) {
     // 取り込んだ側は下の起動の行では起動しない（RF3）。手で設定した側は今までどおり起動する
     const installedRec = engineInstall.readInstalled(engineInstall.layout(ENGINE_HOME.root, MANIFEST).installed);
     managedCands = engineInstall.managedCandidates(ENGINE_HOME, MANIFEST, installedRec, fs.statSync);
-    for (const g of ['whisper', 'sum']) if (managedCands[g]) managedState[g] = 'checking';
+    for (const g of MANAGED_GROUPS) if (managedCands[g]) managedState[g] = 'checking';
     // 取り込みのボタンを押したか（第1d2回 M-1）。読めなかった（掴まれている）ときは押したものとして扱う（0.8.0 の動きに倒す）。
     // 取り込めない PC（置き場所が無い）には記録が無い
     offlineConsent = Boolean(ENGINE_HOME.supported && (installedRec.consent || installedRec.unreadable));
@@ -6027,6 +6113,14 @@ if (!gotLock) {
     startupWork.then(() => transcribeRecovered()).catch((e) => engineLog(`復旧の文字起こしに失敗: ${logReason(e)}`));
     ensurePaster();
     createMainWindow();
+    // 0.10.0 C-2: Claude デスクトップへの登録を1回だけ確かめる（読むだけ。場所が古い・消えたときだけ知らせる）
+    checkMcpRegistration();
+    // 0.10.0 LS-4: 0.9.x で取り込んだ要約のエンジンとモデルを消す（全部消せるまで起動ごとに1回。知らせは1回）
+    retireSummaryEngine().catch((e) => engineLog(`要約のエンジンを消す: 失敗（${errCode(e)}）`));
+    // 0.10.0 LN-3: natsu:// の登録（パックした NaTsu で場所が変わったときだけ書き直す）
+    registerNatsuProtocol();
+    // 0.10.0 LN-4: リンクで起こされたとき（起動の引数の -- の後ろの natsu://）は、そのページを開く
+    openLinkFromArgv(process.argv);
     // 0.9.3 M-2: 会議の検出の見張り（Windows・設定がオン・録音していないとき）。窓とトレイの後に起こす
     detectReady = true;
     detectBusy = state;
@@ -6071,9 +6165,9 @@ if (!gotLock) {
         .then(() => app.quit());
       return;
     }
-    stopEngine(whisperEng); stopEngine(sumEng); stopPaster(); stopMicWatch();
+    stopEngine(whisperEng); stopPaster(); stopMicWatch();
   });
-  app.on('will-quit', () => { flushAllWriters(); globalShortcut.unregisterAll(); stopEngine(whisperEng); stopEngine(sumEng); stopPaster(); stopMicWatch(); });
+  app.on('will-quit', () => { flushAllWriters(); globalShortcut.unregisterAll(); stopEngine(whisperEng); stopPaster(); stopMicWatch(); });
 }
 
 // 読み直し（retrySettingsRead）で本当の値に切り替えたときに当てる（第1a回 Task 2-3）。settings:save の当てる行と同じもの

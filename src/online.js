@@ -4,7 +4,7 @@
  *  - reachWhy       届かなかった理由を「証明書・プロキシ・届かない」に分ける（第0b回の classifyNetError を借りる）
  *  - makeOnline     net.isOnline() と、送り先の URL に軽く届くかの確かめ（結果を覚える）。peek は覚えている答えだけを返す（第1d回 A-5）
  *  - decideStt      文字起こしを中継（クラウド）で行うか、手元の whisper で行うか（会議の印 → ログイン → しばらく手元の印 → 届くか。第1d回 RL11）
- *  - decideSummary  要約を利用者の Claude Code で行うか、手元の llama で行うか
+ *  - decideSummary  要約を利用者の Claude Code で行うか、つながるまで待つか（0.10.0 D59）
  *
  * 決まり:
  *  - Electron のモジュールは読み込まない。通信は呼ぶ側から request（本番は net.request）を、
@@ -20,8 +20,7 @@
  *    理由（証明書・プロキシ）を知らせられるように（RF26）。
  *  - 経路の決め方は、会議の印（［この会議は PC の中だけ］）・ログインの札・しばらく手元の印（hold）を、届くかの確かめより先に見る。
  *    PC の中だけの会議・ログインしていない PC・hold の間は、届くかの確かめ（中継の /health）の要求さえ出さない（RF28・RL11）。
- *  - 要約は、PC の中だけのページなら届くかを確かめずに手元（C10。文字起こしの文も PC の外へ出さない）。
- *    それ以外は、届けば Claude Code、届かなければ手元（D1）。
+ *  - 要約は、届けば Claude Code、届かなければ要約待ち（0.10.0 D59。オフラインモードの会議も同じ。設計書の C10 は要約について取り消した）。
  */
 'use strict';
 
@@ -147,12 +146,12 @@ async function decideStt({ localOnly, signedIn, hold, up }) {
   return { route: 'local', why: downWhy(r) };
 }
 
-/** 要約の経路。順: localOnly（届くかを確かめずに手元: C10）→ up()（真なら Claude Code） */
-async function decideSummary({ localOnly = false, up }) {
-  if (localOnly) return { route: 'local', why: 'local-only' };
+// 0.10.0 LS-1（D59・決めたこと 103）: 要約はいつも利用者の Claude Code。届かなければ要約待ち（wait）。手元の llama（local）は無い。
+// オフラインモードの会議の印（localOnly）は見ない（受けても捨てる。呼び手の古い形のため）
+async function decideSummary({ up } = {}) {
   const r = await up();
   if (r && r.up === true) return { route: 'claude-code', why: 'ok' };
-  return { route: 'local', why: downWhy(r) };
+  return { route: 'wait', why: downWhy(r) };
 }
 
 module.exports = { REACH_OK_MS, REACH_NG_MS, REACH_TIMEOUT_MS, reachWhy, makeOnline, decideStt, decideSummary };

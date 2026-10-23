@@ -1,6 +1,7 @@
 'use strict';
-// テスト用の小さな偽のピンの組。本物の MANIFEST と同じ形（whisper の zip・VAD・モデル、llama の zip・モデル）で、
-// 中身は数十 KB。gen: 2 は「更新でピンが変わった」組（文字起こしのモデルと llama の版が変わる）。
+// テスト用の小さな偽のピンの組。本物の MANIFEST と同じ形（whisper の zip・VAD・モデル）で、
+// 中身は数十 KB。gen: 2 は「更新でピンが変わった」組（文字起こしのモデルが変わる）。
+// 0.10.0 LS-3（D59）で意図して直した: 要約の組（llama の zip・モデル）を外した（本物の MANIFEST と同じく文字起こしの組だけ）。
 // sameDest: true は、gen 2 の文字起こしのモデルを gen 1 と同じ置き場所にする（place-in-use の試し）。
 const http = require('http');
 const crypto = require('crypto');
@@ -34,9 +35,6 @@ async function smallSet({ gen = 1, sameDest = false, missing = [], onHit = null 
       [['Release/whisper-server.exe', 3000], ['Release/whisper.dll', 2000], ['Release/ggml.dll', 1000]], [['Release/test-extra.exe', 500]], 'w1'),
     fileItem('whisper-vad', 'whisper', 'vad', 'models/vad.bin', 3000, 'vad1'),
     fileItem('whisper-model', 'whisper', 'model', gen === 2 && !sameDest ? 'models/w-model-2.bin' : 'models/w-model.bin', 40000, `wm${gen}`),
-    zipItem('sum-engine', 'sum', gen === 2 ? 'llama-b2' : 'llama-b1', '', 'llama-server.exe',
-      [['llama-server.exe', 900], ['llama.dll', 2500], ['ggml.dll', 1100]], [], `l${gen}`),
-    fileItem('sum-model', 'sum', 'model', 'models/s-model.gguf', 60000, 'sm1'),
   ];
   const hits = [];
   let down = false;

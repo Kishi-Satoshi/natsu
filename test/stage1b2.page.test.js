@@ -2,6 +2,7 @@
  * stage1b2.page.test.js — 第1b2回の上の帯（タブの帯・パンくず・「···」）とページ（アイコン・題名・プロパティ・会議のブロック・丸いタブ・札）
  */
 'use strict';
+const { titleAt } = require('./helpers/titles');
 const test = require('node:test');
 const assert = require('node:assert');
 const fs = require('node:fs');
@@ -14,7 +15,7 @@ const APP = path.join(__dirname, '..', 'src', 'renderer', 'app.html');
 const html = fs.readFileSync(APP, 'utf8');
 const rules = S.parse(parseHTML(html).root.querySelectorAll('style').map((s) => s._raw).join('\n'));
 const PRELOAD = fs.readFileSync(path.join(__dirname, '..', 'src', 'preload.js'), 'utf8');
-const LIST = [{ id: 'pa1', title: '定例（見本）', date: '2026-10-16', durationSec: 1800, hasSummary: true }, { id: 'pb2', title: '設計の打ち合わせ（見本）', date: '2026-10-15', durationSec: 900, hasSummary: false }];
+const LIST = [{ id: 'pa1', title: titleAt('2026-10-16T01:00:00.000Z'), date: '2026-10-16', durationSec: 1800, hasSummary: true }, { id: 'pb2', title: titleAt('2026-10-09T05:00:00.000Z'), date: '2026-10-15', durationSec: 900, hasSummary: false }];
 // 出典は区間の id（renderCiteBadge は curSegs の s.id で引き、jumpToSegment は #seg-<id> を探す）
 const BLOCKS = [{ id: 'b1', type: 'heading', text: '決まったこと' }, { id: 'b2', type: 'bullet', text: '出す日を決めた（見本）', cites: ['s1'] }];
 const SEGS = [{ id: 's1', atMs: 75000, text: '出す日はこの日にしましょう（見本）' }];
@@ -34,12 +35,12 @@ test('1b2 P-1・G6: 操作（#pActs）は上の帯（.pagebar）にあり、ペ�
   const acts = l.byId.get('pActs');
   assert.ok(acts.closest('.pagebar') && !acts.closest('#pageWrap'), '操作がページの中にある');
   assert.strictEqual(acts.hidden, false);
-  assert.deepStrictEqual(crumb(l), ['🎙️', '定例（見本）']);
+  assert.deepStrictEqual(crumb(l), ['🎙️', titleAt('2026-10-16T01:00:00.000Z')]);
   // 0.9.0 U-1（SP1・SP2・D24）で意図して変えた: 設定はタブでなくページの上のポップアップ。パンくずはページのまま、後ろ（.col）は inert で
   //［削除］は押せない（見えていないページを消さない）。閉じると戻る
   l.byId.get('tabBtnSettings').dispatchEvent({ type: 'click' }); await l.drain();
   assert.strictEqual(acts.closest('.col').inert, true, '設定のポップアップの後ろで［削除］が押せる（見えていないページを消す）');
-  assert.deepStrictEqual(crumb(l), ['🎙️', '定例（見本）']);
+  assert.deepStrictEqual(crumb(l), ['🎙️', titleAt('2026-10-16T01:00:00.000Z')]);
   l.key({ key: 'Escape' }); await l.drain();
   assert.ok(!acts.closest('.col').inert && acts.hidden === false);
   assert.strictEqual(S.declsFor(rules, '.pacts[hidden]', { at: '' }).display, 'none', '本物の画面で hidden が .pacts の display に負ける');
@@ -66,9 +67,10 @@ test('1b2 P-1: 要約のあるページは見えるボタンが「···」だ�
   const visible = (l) => l.byId.get('pActs').querySelectorAll('button').filter((b) => !b.closest('#pMenu')).map((b) => b.id || b.textContent);
   const menu = (l) => l.byId.get('pMenu').querySelectorAll('[role="menuitem"]').map((b) => b.textContent);
   const a = await openPage('pa1');
-  assert.deepStrictEqual([visible(a), menu(a)], [['pMore'], ['要約を再生成', 'コピー', '削除']]);
+  // 0.10.0 L-1（D58）で意図して変えた: コピーと削除の間に［リンクを写す］
+  assert.deepStrictEqual([visible(a), menu(a)], [['pMore'], ['要約を再生成', 'コピー', 'リンクを写す', '削除']]);
   const b = await openPage('pb2');
-  assert.deepStrictEqual([visible(b), menu(b)], [['要約を生成', 'pMore'], ['コピー', '削除']]);
+  assert.deepStrictEqual([visible(b), menu(b)], [['要約を生成', 'pMore'], ['コピー', 'リンクを写す', '削除']]);
 });
 
 test('1b2 P-1: タブの帯は 36px の灰色の帯で、選んでいるタブは白の地（灰色の強調ではない）。上の帯は 44px', () => {

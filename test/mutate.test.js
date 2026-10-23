@@ -112,12 +112,17 @@ test('G3・F10: 元のテストが赤なら、変異を試さずに止める（�
   assert.strictEqual(M.exitCodeOf(r), 1);
 });
 
-test('ci.yml: mutate のジョブ（Linux）が node tools/mutate.js を回す（release.yml は ci.yml を呼ぶので、生き残りがあればリリースも止まる）', { timeout: 5000 }, () => {
+// 0.10.0 G-1（決めたこと 117）で意図して変えた: mutate を mutate-1・mutate-2 の2つのジョブに分け、それぞれが --part 1/2・--part 2/2 を回す
+test('ci.yml: mutate-1・mutate-2 のジョブ（Linux）が node tools/mutate.js --part を回す（release.yml は ci.yml を呼ぶので、生き残りがあればリリースも止まる）', { timeout: 5000 }, () => {
   const ci = fs.readFileSync(path.join(ROOT, '.github', 'workflows', 'ci.yml'), 'utf8');
-  const j = jobsOf(ci).mutate;
-  assert.ok(j, 'mutate のジョブが無い');
-  assert.match(j, /^    runs-on: ubuntu-latest$/m);
-  assert.ok(stepsOf(j).some((s) => /^\s*run: node tools\/mutate\.js( --jobs \d+)?$/m.test(s)));
+  const jobs = jobsOf(ci);
+  assert.ok(!jobs.mutate, '1つの mutate のジョブが残っている');
+  for (const k of [1, 2]) {
+    const j = jobs[`mutate-${k}`];
+    assert.ok(j, `mutate-${k} のジョブが無い`);
+    assert.match(j, /^    runs-on: ubuntu-latest$/m);
+    assert.ok(stepsOf(j).some((s) => new RegExp(`^\\s*run: node tools/mutate\\.js --jobs 2 --part ${k}/2$`, 'm').test(s)), `mutate-${k} が --part ${k}/2 を回さない`);
+  }
   assert.match(fs.readFileSync(path.join(ROOT, '.github', 'workflows', 'release.yml'), 'utf8'), /^    uses: \.\/\.github\/workflows\/ci\.yml$/m);
 });
 
@@ -141,12 +146,12 @@ test('G3: 第1a回の変異が一覧にそろう（計画の「変異確認」�
 
 // 第1c回（Task D-1。計画 docs/plans/2026-10-18-1c.md の「変異確認」の表）
 const IDS_1C = [
-  'on-offline-noask', 'on-401-up', 'on-cache-ok', 'on-cache-ng', 'on-cert', 'on-order-localonly', 'on-order-key', 'on-summary-localonly',
+  'on-offline-noask', 'on-401-up', 'on-cache-ok', 'on-cache-ng', 'on-cert', 'on-order-localonly', 'on-order-key',   // on-summary-localonly は 0.10.0 LS-1（D59）で外した
   'stt-redirect', 'stt-429-wait', 'stt-429-long', 'stt-waitcap', 'stt-offline-class', 'stt-400-noprompt',
   'sec-unavailable', 'sec-basic-text', 'sec-reencrypt', 'sec-key-re',
   'cl-strip-prefix', 'cl-strip-case', 'cl-auth-gate', 'cl-no-bare', 'cl-no-persist', 'cl-safe-mode', 'cl-old-version', 'cl-tools-off', 'cl-stdin-cap', 'cl-limit-class', 'cl-reset-at', 'cl-timeout-kill', 'cl-cmd-only', 'cl-cwd',
-  'mn-no-fallback', 'mn-offline-local', 'mn-seg-fallback', 'mn-429-no-local', 'mn-route-count', 'mn-localonly-draft', 'mn-notice-once', 'mn-recovery-keep', 'mn-input-same',
-  'mn-warm-local', 'mn-localonly-summary', 'mn-recovery-local-keep', 'mn-recovery-engine-keep', 'mn-key-decrypt',
+  'mn-offline-local', 'mn-seg-fallback', 'mn-429-no-local', 'mn-route-count', 'mn-localonly-draft', 'mn-notice-once', 'mn-recovery-keep', 'mn-input-same',
+  'mn-warm-local', 'mn-recovery-local-keep', 'mn-recovery-engine-keep', 'mn-key-decrypt',
   'st-claude-cmd', 'ui-localonly-final', 'gate-online',
 ];
 // 0.7.0 U-1（設計書 D5）で、直しそのものが無くなったので外した変異（同意を見ない・同意と URL のキーが無い）
@@ -184,6 +189,17 @@ test('G3: 0.7.0 U-1・U-2 の変異が一覧にそろう（第1d回 A-3 で外�
 const IDS_1D_RETIRED = ['stt-auth-only', 'stt-https-only', 'stt-preset-fixed', 'stt-403-auth', 'ui-key-cleared',
   'lf-key-invalid', 'lf-key-scope-retry', 'lf-key-scope-only', 'lf-key-quota', 'lf-key-scope-msg', 'lf-key-silent', 'lf-key-no-hint', 'lf-key-waitcap',
   'lf-key-ratelong', 'lf-key-msg-main', 'lf-ui-key-msg', 'u1-key-openai-only', 'u1-ui-no-provider', 'u1-status-openai-only'];
+// 0.10.0 LS-1（D59。要約はオフラインモードの会議も Claude Code。設計書の C10 を要約について取り消した）で、直しそのものが無くなったので外した変異
+const GONE_LS1 = ['on-summary-localonly'];
+// LS-2（D59。手元の llama の要約の道を外した）で、直しそのものが無くなった変異（上の一覧からも外した）
+const GONE_LS2 = ['mn-no-fallback', 'mn-localonly-summary', 'op-sum-text'];
+// LS-3（D59。要約のエンジン・文脈長の見積もりを外した）で、直しそのものが無くなった変異
+const GONE_LS3 = ['lib-estimate-tokens', 'lib-fold-notes'];
+test('G3: 0.10.0 LS-1・LS-2 で外した変異（オフラインモードの会議の要約を手元へ回す・手元の llama の要約の道）は一覧に無い', { timeout: 5000 }, () => {
+  const ids = new Set(MUTANTS.map((m) => m.id));
+  assert.deepStrictEqual([...GONE_LS1, ...GONE_LS2, ...GONE_LS3].filter((id) => ids.has(id)), []);
+});
+
 test('G3: 第1d回 A-4 で外した変異（PC から直に送る道・鍵の確かめ・鍵の欄と IPC）は一覧に無い', { timeout: 5000 }, () => {
   const ids = new Set(MUTANTS.map((m) => m.id));
   assert.deepStrictEqual(IDS_1D_RETIRED.filter((id) => ids.has(id)), []);
@@ -409,7 +425,7 @@ const IDS_090 = [
   'op-start-cloud', 'op-dict-refuse', 'op-status-cloud', 'op-kept-wav', 'op-kept-text', 'op-kept-refused', 'op-k1-first', 'op-recover-kept',
   'op-kept-banner', 'op-kept-login', 'op-kept-segfailed', 'op-kept-notify', 'op-kept-notice-text', 'op-start-k1', 'op-public-kept', 'op-auto-retry',
   'op-auto-retry-cap', 'op-auto-retry-stopping', 'op-kept-empty', 'op-summary-wait', 'op-auto-summary', 'op-queue-skip', 'op-watcher',
-  'op-watcher-offline', 'op-log-once', 'op-hold-log-once', 'op-watch-engine', 'op-relogin-kick', 'op-sum-text', 'op-localonly-queue',
+  'op-watcher-offline', 'op-log-once', 'op-hold-log-once', 'op-watch-engine', 'op-relogin-kick', 'op-localonly-queue',
   'op-localonly-needs', 'op-status-needs', 'op-dict-keep', 'op-dict-nopaste', 'op-dict-readd', 'op-dict-dup', 'op-dict-broken', 'op-ui-neutral',
   'op-ui-startup-jump', 'op-ui-signin-account', 'op-ui-fetch-label', 'op-ui-test-hidden', 'op-ui-banner-signin', 'op-ui-notice-signin',
   'op-shots-retake', 'sp-tab-open', 'sp-open-sec', 'sp-esc-hotkey', 'sp-inert', 'sp-focus-back', 'sp-keys-behind', 'sp-restore-settings',
@@ -435,10 +451,40 @@ test('PG1: 変異 perf-recheck-any・perf-recheck-all・perf-recheck-skip・perf
   for (const id of IDS_090) assert.ok(table.includes(`| ${id} |`), `計画の「変異確認」の表に ${id} が無い`);
 });
 
-test('CI: mutate のジョブの timeout-minutes は 40（0.9.0 の約 99 の変異で 20 分を越える見込み。PG1・決めたこと 37）', { timeout: 5000 }, () => {
-  const j = jobsOf(fs.readFileSync(path.join(ROOT, '.github', 'workflows', 'ci.yml'), 'utf8')).mutate;
-  assert.match(j, /^    timeout-minutes: 40$/m);
-  assert.ok(stepsOf(j).some((s) => /^\s*run: node tools\/mutate\.js --jobs 2$/m.test(s)), '変異確認の写しの数を変えた');
+// 0.10.0 G-1（決めたこと 117）で意図して変えた: 2つのジョブのどちらも 40 分・写しは2つ
+test('CI: mutate-1・mutate-2 のジョブの timeout-minutes は 40（0.9.0 の約 99 の変異で 20 分を越える見込み。PG1・決めたこと 37・117）', { timeout: 5000 }, () => {
+  const jobs = jobsOf(fs.readFileSync(path.join(ROOT, '.github', 'workflows', 'ci.yml'), 'utf8'));
+  for (const k of [1, 2]) {
+    const j = jobs[`mutate-${k}`];
+    assert.match(j, /^    timeout-minutes: 40$/m);
+    assert.ok(stepsOf(j).some((s) => /^\s*run: node tools\/mutate\.js --jobs 2 --part [12]\/2$/m.test(s)), '変異確認の写しの数を変えた');
+  }
+});
+
+// 0.10.0 G-1（決めたこと 117）: 変異の一覧を id の順に並べて交互に分ける純粋な部品。--only と一緒には使わない
+test('G-1 決めたこと 117: partOf は全部の id をちょうど1回ずつ2つに分け、同じ一覧なら並びが違っても同じ分け方。形の違う part は投げる', { timeout: 5000 }, () => {
+  const ids = MUTANTS.map((m) => m.id);
+  const a = M.partOf(ids, '1/2');
+  const b = M.partOf(ids, '2/2');
+  assert.strictEqual(a.length + b.length, ids.length);
+  assert.deepStrictEqual([...a, ...b].sort(), [...ids].sort(), 'どちらにも無い・両方にある id がある');
+  assert.ok(Math.abs(a.length - b.length) <= 1, '半分ずつでない');
+  assert.deepStrictEqual(M.partOf([...ids].reverse(), '1/2'), a, '一覧の並びで分け方が変わった');
+  assert.deepStrictEqual(M.partOf(['c', 'a', 'd', 'b'], '1/2'), ['a', 'c']);
+  assert.deepStrictEqual(M.partOf(['c', 'a', 'd', 'b'], '2/2'), ['b', 'd']);
+  assert.deepStrictEqual(M.partOf(['b', 'a', 'c'], '1/1'), ['a', 'b', 'c']);
+  for (const bad of ['0/2', '3/2', '1/0', '1', 'x/2', '', null, '1/2/3']) assert.throws(() => M.partOf(ids, bad), /part/, String(bad));
+});
+
+test('G-1 決めたこと 117: mutate.js は --part と --only を一緒に受けない（1 で終わる）。知らない part も 1', { timeout: 20000 }, () => {
+  const { spawnSync } = require('node:child_process');
+  const run = (...a) => spawnSync(process.execPath, [path.join(ROOT, 'tools', 'mutate.js'), ...a], { encoding: 'utf8', timeout: 15000 });
+  const both = run('--part', '1/2', '--only', 'js-bom');
+  assert.strictEqual(both.status, 1);
+  assert.match(both.stderr, /--part と --only/);
+  const bad = run('--part', '3/2');
+  assert.strictEqual(bad.status, 1);
+  assert.match(bad.stderr, /part/);
 });
 
 // 0.9.0 の各レーンの点検で足した変異（計画の表の行の場面・lib の分け・点検する人が殺せなかった行に場面を足して殺したもの）
@@ -457,7 +503,8 @@ test('G3: 0.9.0 の変異が一覧にそろい、IDS_090 は計画の「変異�
   const plan = fs.readFileSync(path.join(ROOT, 'docs', 'plans', '2026-10-20-090.md'), 'utf8');
   const table = plan.slice(plan.indexOf('## 変異確認'), plan.indexOf('## ゲート'));
   const rows = new Set([...table.matchAll(/^\| ([a-z][a-z0-9-]*) \|/gm)].map((m) => m[1]).filter((id) => id !== 'id'));
-  assert.deepStrictEqual([...rows].sort(), [...IDS_090].sort());
+  // 0.10.0 LS-2 で外した変異（GONE_LS2。op-sum-text）は 0.9.0 の計画の表に残るが、一覧と IDS_090 からは外した
+  assert.deepStrictEqual([...rows].filter((id) => !GONE_LS2.includes(id)).sort(), [...IDS_090].sort());
   // 0.9.0 の変異は、どれも決まったテストのファイルを持ち、なぜ戻すと困るかを書く
   for (const m of MUTANTS.filter((x) => IDS_090.includes(x.id) || IDS_090_REVIEW.includes(x.id))) {
     assert.ok(Array.isArray(m.tests) && m.tests.length > 0 && m.tests.every((t) => /^test\/[^/]+\.test\.js$/.test(t)), `${m.id}: tests`);
@@ -564,5 +611,60 @@ test('G3・0.9.4 S-8: 0.9.4 の変異が一覧にそろい、IDS_094 は計画�
     const m = byId.get(id);
     assert.ok(Array.isArray(m.tests) && m.tests.length > 0 && m.tests.every((t) => /^test\/[^/]+\.test\.js$/.test(t)), `${id}: tests`);
     assert.ok(typeof m.why === 'string' && m.why.startsWith('0.9.4 '), `${id}: why`);
+  }
+});
+
+// 0.10.0（計画 docs/plans/2026-10-20-100.md の「変異確認」の表）: MCP の読む道具・議事録のリンク・要約のローカル AI をやめることの直しを1つずつ戻す変異。
+// タスクを作るたびに足す（表の全部とちょうど同じにそろえるのは G-1。それまでは「どれも表にある」と「接頭の変異は IDS_100 にある」を見る）
+const IDS_100 = [
+  'mcp-ro-flag', 'mcp-query-only', 'mcp-lock-check', 'mcp-lock-recheck', 'mcp-lock-stale', 'mcp-close', 'mcp-version', 'mcp-read-code', 'mcp-data-dir-rel',
+  'mcp-proto-unsupported', 'mcp-proto-legacy', 'mcp-proto-meta',
+  'mcp-stdout-guard', 'mcp-chdir', 'mcp-line-cap', 'mcp-stdin-utf8', 'mcp-eof-drain', 'mcp-log-message',
+  'mcp-cap-chars', 'mcp-cap-list', 'mcp-arg-date', 'mcp-ref-strict', 'mcp-oneline', 'mcp-invisible',
+  'mcp-pass-window-overlap', 'mcp-pass-window-size', 'mcp-pass-per-meeting', 'mcp-pass-rank', 'mcp-time-order', 'mcp-anchor-order', 'mcp-hit-forge', 'mcp-hit-mark',
+  'mcp-pass-short-term', 'mcp-pass-multi-term', 'mcp-pass-failed', 'mcp-pass-dates', 'mcp-pass-types', 'mcp-pass-personal', 'mcp-ref-personal', 'mcp-pass-oneline', 'mcp-pass-quote',
+  'mcp-get-listed', 'mcp-ref', 'mcp-transcript-page', 'mcp-failed-text', 'mcp-memo-quote', 'mcp-sections',
+  'mcp-multi-cursor', 'mcp-multi-listed', 'mcp-expand-listed', 'mcp-expand-cap', 'mcp-pass-anchor',
+  'mcp-pass-visible-sql', 'mcp-pass-df-hidden',
+  'pt-target', 'pt-upload',
+  'lk-head-css',
+  'cfg-keep-others', 'cfg-taken', 'cfg-msix', 'cfg-stale', 'cfg-claude-running',
+  'cfg-broken-write', 'cfg-backup', 'cfg-backup-keep', 'cfg-gone',
+  'cfg-ui-running', 'cfg-ui-noclaude', 'cfg-ui-unreg', 'cfg-ui-notice', 'cfg-ui-lead',
+  'lk-page-copy', 'lk-page-live', 'lk-ref-prefix',
+  'lk-multi-order', 'lk-multi-cap', 'lk-multi-clear', 'lk-sel-open', 'lk-sel-range', 'lk-label-claude',
+  'nl-parse-quote', 'nl-parse-host', 'nl-open-query', 'nl-open-origin',
+  'nl-open-js', 'nl-open-gate',
+  'nl-mcp-link', 'nl-mcp-raw',
+  'nl-args',
+  'nl-argv-dash', 'nl-open-only', 'nl-rate', 'nl-log-id',
+  'stl-by',
+  'stl-line',
+  'mcp-probe-stdout',
+  'ls-route-local', 'ls-lock-empty', 'ls-lock-none', 'ls-unlock-made',
+  'ls-wait-mark', 'ls-auto-once', 'ls-lock-wait', 'ls-lock-live', 'ls-unlock-refused', 'ls-lock-save', 'ls-auto-refused', 'ls-ui-lock', 'ls-ui-same',
+  'ls-manifest-sum', 'ls-install-sum', 'ls-settings-sum',
+  'ls-retire-manual', 'ls-retire-whisper', 'ls-retire-busy', 'ls-retire-notice', 'ls-retire-quiet',
+  'ls-ship-summarizer', 'ls-note-promise', 'ls-notice-secret',
+  'mut-part-sort', 'mut-part-same', 'mut-part-only',
+];
+test('G3: 0.10.0 の変異が一覧にそろい、IDS_100 はどれも計画の「変異確認」の表にある。mcp-・cfg-・lk-・ls-・stl-・nl-・pt- の変異は IDS_100 にある。どれも決まったテストのファイルを持ち、なぜ戻すと困るかを書く', { timeout: 5000 }, () => {
+  const byId = new Map(MUTANTS.map((m) => [m.id, m]));
+  assert.deepStrictEqual(IDS_100.filter((id) => !byId.has(id)), [], 'IDS_100 の変異が一覧に無い');
+  assert.strictEqual(new Set(IDS_100).size, IDS_100.length, 'IDS_100 に重なり');
+  assert.deepStrictEqual(MUTANTS.filter((m) => /^(mcp|cfg|lk|ls|stl|nl|pt)-/.test(m.id) && !IDS_100.includes(m.id)).map((m) => m.id), [], 'IDS_100 に無い 0.10.0 の接頭の変異がある');
+  const plan = fs.readFileSync(path.join(ROOT, 'docs', 'plans', '2026-10-20-100.md'), 'utf8');
+  // D60 で計画を分けた（メモの型と打ち合わせの質は 0.11.0・話者は 0.12.0 の計画）。0.10.0 の表は1つ
+  const table = plan.slice(plan.indexOf('## 変異確認（直しを1つ戻すと'), plan.indexOf('## ゲート'));
+  const rows = [...table.matchAll(/^\| ([a-z][a-z0-9-]*) \|/gm)].map((m) => m[1]).filter((id) => id !== 'id');
+  assert.ok(rows.length > 50, '計画の表が読めない');
+  assert.deepStrictEqual(IDS_100.filter((id) => !rows.includes(id)), [], '計画の「変異確認」の表に無い変異');
+  // 0.10.0 G-1: 表の id と IDS_100 はちょうど同じ（表にだけある行は、作っていない変異）
+  assert.deepStrictEqual(rows.filter((id) => !IDS_100.includes(id)), [], 'IDS_100 に無い計画の「変異確認」の表の行');
+  assert.strictEqual(new Set(rows).size, rows.length, '計画の表に重なり');
+  for (const id of IDS_100) {
+    const m = byId.get(id);
+    assert.ok(Array.isArray(m.tests) && m.tests.length > 0 && m.tests.every((t) => /^test\/[^/]+\.test\.js$/.test(t)), `${id}: tests`);
+    assert.ok(typeof m.why === 'string' && m.why.startsWith('0.10.0 '), `${id}: why`);
   }
 });

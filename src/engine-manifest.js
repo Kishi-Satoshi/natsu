@@ -15,9 +15,8 @@
  *  - 並びは取り込む順（文字起こしの組が先。済めば文字起こしが使える）。
  *  - ピンを変えるのはこのファイルだけ。変えた commit は、Windows の CI の engine-smoke が緑であること。
  *
- * 要約のモデルは、測る前の既定（Gemma 4 E4B-it Q4_K_M）。利用者の PC で3つを測って
- * 利用者が選ぶまで（計画の Q1）、リリースしない。替えるときは sum-model の行を差し替え、
- * test/engine-manifest.test.js の合計も直す。
+ * 0.10.0 LS-3（D59）: 要約は利用者の Claude Code で作るので、要約のエンジンとモデルの組を外した（表は文字起こしの組だけ）。
+ * 0.9.x で取り込んだ要約の組を消す表は src/engine-install.js の RETIRED（LS-4）。
  */
 'use strict';
 
@@ -45,34 +44,6 @@ const WHISPER_FILES = [
   { name: 'Release/ggml-cpu-skylakex.dll', size: 1049600, sha256: '1774714cf93621406ff35344b54715619a83242ae3e331e44d98a3b35ce801be' },
   { name: 'Release/ggml-cpu-sse42.dll', size: 862720, sha256: 'f060318772c4c2dbac312bbfff6ea700b85dbc502bb38585a7186d06d549301a' },
   { name: 'Release/ggml-cpu-x64.dll', size: 866816, sha256: '4b4b05caba40d4309b5d710ef74c59ba190516b8489f27bdb1ba11ae33c6e9d3' },
-];
-
-// llama.cpp b11669 = v0.7.0（commit 620d2225cc436ab0b001e3200e590e3b286ef9ab）。zip の根元の 23 個（合計 44,353,821 バイト）。
-// libomp.dll のライセンスの写し（LICENSE-LLVM-OpenMP）も一緒に置く。
-const LLAMA_FILES = [
-  { name: 'llama-server.exe', size: 9216, sha256: '6a4635aeb35656153d4bfeeddf761d24ed84aada9c9108d580737cbed465141b' },
-  { name: 'llama-server-impl.dll', size: 9259520, sha256: '24b1249ddd19e3ba3551804707dbe2f3c154c007542899ea8b16d69a94ab6597' },
-  { name: 'llama-common.dll', size: 8037376, sha256: '9adf40bc08e99005699d6397bcacb72c3aced68c9db01f13b5bd31c6abc7b2b5' },
-  { name: 'llama.dll', size: 3541504, sha256: 'aacb073c9c0d30090dd3e56f49772545452ccc4fd311efbfdb7d1bba7bbb0bda' },
-  { name: 'mtmd.dll', size: 1847808, sha256: 'bd4a9dac32ba8b14cf95da3361495380ac556b34f48434ebe477ffef23f40bd1' },
-  { name: 'ggml.dll', size: 78848, sha256: '2649a5d914934188cccbe2c58e4642d2d4408bcda0f7068d58390686bd7ea62f' },
-  { name: 'ggml-base.dll', size: 803840, sha256: '0a259689ea3c105a8122159eb97fb53733f2531fadd3e9739689961cdab27600' },
-  { name: 'libomp.dll', size: 768000, sha256: 'a12116ba72d1d6820407cf30be23da04ce79d6bb8a71a5ee71759c5a1faa6f1c' },
-  { name: 'ggml-cpu-alderlake.dll', size: 1420288, sha256: '98b3bd12a84e848f57686f6d5f0969654ec79cda0c7636498933ea1063d14aa6' },
-  { name: 'ggml-cpu-cannonlake.dll', size: 1598976, sha256: 'fef636daea23b26f935cf5983be9a29b79f0541cd148b9d64a32bc9ea0cec704' },
-  { name: 'ggml-cpu-cascadelake.dll', size: 1583616, sha256: 'b32ee94fa0a366886cd03be48f80f1d8c1bbb338d71fc734a263753ec46aa8fd' },
-  { name: 'ggml-cpu-cooperlake.dll', size: 1593344, sha256: 'e67357a558e71b834360b6f6d62abc6b9fe19930f6f7dd21ee0339e7b144306e' },
-  { name: 'ggml-cpu-haswell.dll', size: 1425408, sha256: 'd33deb9bf3dd25427404f0f94a13c6b3da92b9b57b794199a9f354c3a327efb6' },
-  { name: 'ggml-cpu-icelake.dll', size: 1590272, sha256: '41abb00a64bbf099c137cdb3b9547c7eb90bcd9c1d7b83238cbf10a74f97addd' },
-  { name: 'ggml-cpu-ivybridge.dll', size: 1301504, sha256: 'd674c12b3f40d657b0989801699560e68247dbe9509823651b055ac3816ba37c' },
-  { name: 'ggml-cpu-piledriver.dll', size: 1294336, sha256: 'bb5215c806397adf56e986f52aa0c75b04b3b5b33203a722f647254eae2b94b2' },
-  { name: 'ggml-cpu-sandybridge.dll', size: 1291264, sha256: '55d5659b45afcbe7a1d7611ab1914d2888476fc3024933e4b82122cdc58d6fd5' },
-  { name: 'ggml-cpu-sapphirerapids.dll', size: 1869824, sha256: '83af3cacf3bf32b98626791358f950da4b45a22af85bde63afe537fe51e60848' },
-  { name: 'ggml-cpu-skylakex.dll', size: 1592320, sha256: '20722299dc5e4703056ff95b7ef329c223390ab87469c822721c1e67e4cc2a24' },
-  { name: 'ggml-cpu-sse42.dll', size: 916992, sha256: '1c0fc615b6d97a79e58f33e8a7fb4e8de1834ad0f3f0e00e8943a4d416ddd242' },
-  { name: 'ggml-cpu-x64.dll', size: 909824, sha256: '7c9df996db7fe98510571524e3e62dd267a4034350185014814418dbad3c25ea' },
-  { name: 'ggml-cpu-zen4.dll', size: 1600000, sha256: '83ae254f6204670e9011e11db84786122567bde2fab07354e7c4827c18589ee1' },
-  { name: 'LICENSE-LLVM-OpenMP', size: 19741, sha256: 'fdad1758a9e1f9d5a81e18879b3406772115edc92c24bfa36b70c654f325e8e4' },
 ];
 
 const MANIFEST = deepFreeze({
@@ -103,29 +74,10 @@ const MANIFEST = deepFreeze({
       dest: 'models/ggml-large-v3-turbo-q5_0.bin',
       license: 'MIT（Copyright (c) 2022 OpenAI）',
     },
-    {
-      // 画面とフォルダの版は b11669（v0.7.0 ではなく、ファイル名に合わせる）。
-      id: 'sum-engine', group: 'sum', kind: 'zip',
-      label: '要約エンジン（llama.cpp）', version: 'b11669',
-      url: 'https://github.com/ggml-org/llama.cpp/releases/download/b11669/llama-b11669-bin-win-cpu-x64.zip',
-      size: 19537886, sha256: '37b3efcf962847ca869745fd4ccf7f5e7e8dacfeff9fa3523b4ca8cdc66d632b',
-      dir: 'llama-b11669', strip: '', exe: 'llama-server.exe',
-      files: LLAMA_FILES,
-      license: 'MIT（Copyright (c) 2023-2026 The ggml authors）。中の libomp.dll は Apache-2.0 WITH LLVM-exception（LICENSE-LLVM-OpenMP を見る）',
-    },
-    {
-      // 測る前の既定。unsloth の GGUF（元は google/gemma-4-E4B-it）、commit は 2026-07-17 の更新。
-      id: 'sum-model', group: 'sum', kind: 'file', role: 'model',
-      label: '要約のモデル（Gemma 4 E4B）', version: 'E4B-it Q4_K_M',
-      url: 'https://huggingface.co/unsloth/gemma-4-E4B-it-GGUF/resolve/bfc15c382204943c3a8fff0c750b94ae2364d7a3/gemma-4-E4B-it-Q4_K_M.gguf',
-      size: 4977171584, sha256: '85a896a047553e842f25297ee5b031d64ff30147d9c4af17b1e4b394cd1fab87',
-      dest: 'models/gemma-4-E4B-it-Q4_K_M.gguf',
-      license: 'Apache-2.0（Gemma 4 E4B-it、Google DeepMind）',
-    },
   ],
 });
 
-/** group（'whisper' か 'sum'）の項目を、取り込む順で返す。 */
+/** group（今は 'whisper' だけ）の項目を、取り込む順で返す。知らない組は []。 */
 function itemsOf(group) {
   return MANIFEST.items.filter((i) => i.group === group);
 }
