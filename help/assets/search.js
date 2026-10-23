@@ -96,7 +96,11 @@ var HelpSearch = (function () {
       function mark() {
         var opts2 = list.querySelectorAll('[role="option"]');
         for (var k = 0; k < opts2.length; k++) opts2[k].setAttribute('aria-selected', k === active ? 'true' : 'false');
-        if (active >= 0) input.setAttribute('aria-activedescendant', opts2[active].id);
+        if (active >= 0) {
+          input.setAttribute('aria-activedescendant', opts2[active].id);
+          // 選んだ行を一覧の見える所へ送る（一覧の高さが足りない 400% の拡大や横向きのスマホでも、選んだ行が見える: 4回目の審査の指摘 1）
+          if (opts2[active].scrollIntoView) opts2[active].scrollIntoView({ block: 'nearest' });
+        }
         else input.removeAttribute('aria-activedescendant');
       }
       function show(items, note) {

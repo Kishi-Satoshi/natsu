@@ -345,3 +345,24 @@ test('3回目の指摘 2: 検索の箱からフォーカスが外へ出たら（
   box.dispatchEvent({ type: 'focusout', relatedTarget: null });
   assert.strictEqual(list.hidden, true);
 });
+
+// 4回目の審査の指摘 1（致命的・WCAG 2.1.1・2.4.7）: 400% の拡大や横向きのスマホでは一覧の高さが足りず、↓ で選んだ行が一覧の外に隠れたままだった
+// （aria-activedescendant で選ぶので、ブラウザーは一覧を送らない）。mark() が選んだ行を一覧の見える所へ送る
+test('4回目の指摘 1: ↓↑ で選ぶたびに、選んだ行（a[role="option"]）を scrollIntoView({ block: "nearest" }) で一覧の見える所へ送る（上の帯とホームの大きな箱の両方）', { timeout: 5000 }, async (t) => {
+  const p = runPage(t, 'index.html');
+  for (const id of ['hc-q', 'hc-q-home']) {
+    const q = p.root.querySelector(`#${id}`);
+    await p.type(q, '試し');
+    const opts = p.root.querySelector(`#${id}-results`).querySelectorAll('[role="option"]');
+    assert.strictEqual(opts.length, 3);
+    const seen = [];
+    for (const o of opts) o.scrollIntoView = (arg) => seen.push([o.id, JSON.stringify(arg)]);
+    p.key(q, 'ArrowDown');
+    p.key(q, 'ArrowDown');
+    p.key(q, 'ArrowDown');
+    p.key(q, 'ArrowUp');
+    const nearest = JSON.stringify({ block: 'nearest' });
+    assert.deepStrictEqual(seen, [[opts[0].id, nearest], [opts[1].id, nearest], [opts[2].id, nearest], [opts[1].id, nearest]], `${id}: 選んだ行を一覧の見える所へ送らない`);
+    p.key(q, 'Escape');
+  }
+});

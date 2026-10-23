@@ -2039,4 +2039,6 @@ module.exports = [
   {"id": "hd-font-scale", "file": "help/assets/help.css", "from": ".body h2 { font-size: 1.25rem;", "to": ".body h2 { font-size: 1.3rem;", "tests": ["test/help-build.test.js"], "pattern": "3回目の指摘 5", "why": "help-dads HD-10 3回目の指摘 5: 記事の見出しの大きさが DADS の文字スタイルの段に無い（20.8px）"},
   // help-dads 3回目の審査の指摘 7（/open の形の違うリンクの文）
   {"id": "hd-open-bad", "file": "help/assets/open.js", "from": "var BAD = 'このリンクは開けません（形が違います）。NaTsu でもう一度［リンクを写す］を押してください。';", "to": "var BAD = 'このリンクは開けません（形が違います）';", "tests": ["test/stage100.open.test.js"], "pattern": "3回目の指摘 7", "why": "help-dads HD-10 3回目の指摘 7: /open の形の違うリンクの文が、次に何をすればよいかを言わない"},
+  // help-dads 4回目の審査の指摘 1（選んだ検索の結果を見える所へ送る）
+  {"id": "hd-search-scroll", "file": "help/assets/search.js", "from": "          if (opts2[active].scrollIntoView) opts2[active].scrollIntoView({ block: 'nearest' });\n", "to": "", "tests": ["test/help-search.test.js"], "pattern": "4回目の指摘 1", "why": "help-dads HD-11 4回目の指摘 1: 400% の拡大や横向きのスマホで、↓ で選んだ検索の結果が一覧の外に隠れたまま（WCAG 2.1.1・2.4.7）"},
 ];
