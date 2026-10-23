@@ -5896,6 +5896,8 @@ function setupIpc() {
   ipcMain.handle('mcp:status', () => mcpStatus());
   ipcMain.handle('mcp:register', () => mcpRegister());
   ipcMain.handle('mcp:unregister', () => mcpUnregister());
+  // 議事録のリンクの住所の頭（0.10.0 L-1。D78・決めたこと 153: ヘルプのサイトの /open のページ。# の後ろの ID はサーバーへ送られない）
+  ipcMain.handle('app:link-base', () => `${HELP_URL}open#p=`);
   ipcMain.handle('claude:test', () => claudeTest());
   // ［Claude Code にログイン］［Claude Code を入れる］（第1b回の続き Lane F-c・F-d。利用者に PowerShell を打たせない）。
   // 見える窓は claudeCli.claudeOpenWindow が隠した PowerShell から開き、閉じるまで待つ。閉じたら確かめ直して、その答えを返す

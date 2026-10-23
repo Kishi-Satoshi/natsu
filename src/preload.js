@@ -211,6 +211,8 @@ contextBridge.exposeInMainWorld('koeApp', {
   mcpStatus: () => ipcRenderer.invoke('mcp:status'),
   mcpRegister: () => ipcRenderer.invoke('mcp:register'),
   mcpUnregister: () => ipcRenderer.invoke('mcp:unregister'),
+  // 0.10.0 L-1: 議事録のリンクの住所の頭（https://…/open#p=。住所は main だけが持つ）
+  linkBase: () => ipcRenderer.invoke('app:link-base'),
 
   // 画面の覚え書き（第1b回 N6）。サイドバーの幅と畳み・開いているタブ。main が照らしてから window-state.json に覚える
   uiState: () => ipcRenderer.invoke('ui:get'),

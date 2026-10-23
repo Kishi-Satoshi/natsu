@@ -584,6 +584,7 @@ const IDS_100 = [
   'cfg-keep-others', 'cfg-taken', 'cfg-msix', 'cfg-stale', 'cfg-claude-running',
   'cfg-broken-write', 'cfg-backup', 'cfg-backup-keep', 'cfg-gone',
   'cfg-ui-running', 'cfg-ui-noclaude', 'cfg-ui-unreg', 'cfg-ui-notice',
+  'lk-page-copy', 'lk-page-live', 'lk-ref-prefix',
 ];
 test('G3: 0.10.0 の変異が一覧にそろい、IDS_100 はどれも計画の「変異確認」の表にある。mcp-・cfg-・lk-・ls-・stl-・nl-・pt- の変異は IDS_100 にある。どれも決まったテストのファイルを持ち、なぜ戻すと困るかを書く', { timeout: 5000 }, () => {
   const byId = new Map(MUTANTS.map((m) => [m.id, m]));

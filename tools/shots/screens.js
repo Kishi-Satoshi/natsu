@@ -57,6 +57,13 @@ const OPEN_THREE_TABS = `(async () => {
   document.getElementById('tabBtnNotes').click(); item().click(); await w();
   return 1;
 })()`;
+// 0.10.0 L-1: 1行目のページを開いて（非同期なので少し待つ）、「···」のメニュー（［コピー］［リンクを写す］［削除］）を開く
+const OPEN_PAGE_MENU = `(async () => {
+  document.getElementById('tabBtnNotes').click(); document.querySelector('#plist .pitem').click();
+  await new Promise((r) => setTimeout(r, 300));
+  document.getElementById('pMore').click();
+  return 1;
+})()`;
 // 0.9.2 I-4: 設定を開いて項目を選ぶ・ⓘ を真ん中に見えるように捲って押す（押すと吹き出しが開く。最後に押す）
 const OPEN_SETTINGS = "document.getElementById('tabBtnSettings').click()";
 const NAV = (id) => `document.getElementById('${id}').click()`;
@@ -152,6 +159,9 @@ const SCREENS = [
   // その ⓘ の吹き出しを開いた形。足した画面（まだ基準が無い）
   { name: 'settings-mcp-light', page: 'app', theme: 'light', act: `${OPEN_SETTINGS}; ${NAV('setNavSummary')}; document.getElementById('mcpCard').scrollIntoView({ block: 'start' })` },
   { name: 'settings-info-mcp-light', page: 'app', theme: 'light', act: `${OPEN_SETTINGS}; ${NAV('setNavSummary')}; ${INFO('setPopMcp')}` },
+  // 0.10.0 L-1（D58）: ページの「···」のメニューを開いた形（［リンクを写す］）。足した画面（まだ基準が無い）
+  { name: 'page-menu-link-light', page: 'app', theme: 'light', act: OPEN_PAGE_MENU },
+  { name: 'page-menu-link-dark', page: 'app', theme: 'dark', act: OPEN_PAGE_MENU },
 ];
 // 0.9.0 O-3（RP9）: 録音バーの画面（形 → 地 → 拡大率 → 状態の順。撮る道具は形・地・拡大率の組ごとに窓を1つ開いて状態を act で替える）。
 // 録音は始めずに見た目だけを撮る（act は pill-states の見本を録音バーの DOM に当てる。撮るときだけ体の地にデスクトップの色を塗る）。
@@ -232,6 +242,8 @@ const RETAKE = new Set([
   'live-offline-dark', 'live-late-light', 'live-late-dark', 'live-late-zoom200-light',
   // C-3（MR8）: 項目「要約」にカード「Claude との連携（MCP）」と Sonnet の1行を足した（settings-summary-light・settings-info-claude-light は上に）と、足した2枚
   'settings-mcp-light', 'settings-info-mcp-light',
+  // L-1（D58）: ページのメニューに［リンクを写す］を足した2枚
+  'page-menu-link-light', 'page-menu-link-dark',
 ]);
 const PERF = [{ name: 'open-2000-blocks', budgetMs: 500 }];   // 3回開いた中央値で見る
 const TIME_ZONE = 'Asia/Tokyo';

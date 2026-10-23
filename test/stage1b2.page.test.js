@@ -67,9 +67,10 @@ test('1b2 P-1: 要約のあるページは見えるボタンが「···」だ�
   const visible = (l) => l.byId.get('pActs').querySelectorAll('button').filter((b) => !b.closest('#pMenu')).map((b) => b.id || b.textContent);
   const menu = (l) => l.byId.get('pMenu').querySelectorAll('[role="menuitem"]').map((b) => b.textContent);
   const a = await openPage('pa1');
-  assert.deepStrictEqual([visible(a), menu(a)], [['pMore'], ['要約を再生成', 'コピー', '削除']]);
+  // 0.10.0 L-1（D58）で意図して変えた: コピーと削除の間に［リンクを写す］
+  assert.deepStrictEqual([visible(a), menu(a)], [['pMore'], ['要約を再生成', 'コピー', 'リンクを写す', '削除']]);
   const b = await openPage('pb2');
-  assert.deepStrictEqual([visible(b), menu(b)], [['要約を生成', 'pMore'], ['コピー', '削除']]);
+  assert.deepStrictEqual([visible(b), menu(b)], [['要約を生成', 'pMore'], ['コピー', 'リンクを写す', '削除']]);
 });
 
 test('1b2 P-1: タブの帯は 36px の灰色の帯で、選んでいるタブは白の地（灰色の強調ではない）。上の帯は 44px', () => {

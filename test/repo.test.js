@@ -1413,3 +1413,11 @@ test('0.10.0 D77: 会議の題名を持つテストの作り物の題名は、ti
   }
   assert.deepStrictEqual(bad, [], '日付の形でない、注の無い会議の題名');
 });
+
+// 0.10.0 L-1（D58・D78・決めたこと 100）: 画面が写すリンクの頭は、ヘルプのサイトの /open のページ（決めたこと 153 の住所）。住所は main だけが持つ
+// （F15・I1）ので、画面は koeApp.linkBase（app:link-base）で聞く。LN-1 で住所の頭を src/natsulink.js の LINK_ORIGIN へ移す
+test('0.10.0 L-1: app:link-base は main.js の HELP_URL の open#p=（https の住所。# の後ろの ID はサーバーへ送られない）。画面は答えの形を照らしてから使う', () => {
+  assert.match(main, /ipcMain\.handle\('app:link-base', \(\) => `\$\{HELP_URL\}open#p=`\);/);
+  assert.match(appHtml, /const isLinkBase = \(b\) => typeof b === 'string' && \/\^https:/);
+  assert.ok(!/natsu-help/.test(appHtml), '画面に住所を書いた');
+});

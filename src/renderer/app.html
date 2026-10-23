@@ -2554,7 +2554,21 @@
     };
   }
 
-  // 「…」（#pMore）とその中のメニュー（#pMenu の［コピー］［削除］）。
+  // 0.10.0 L-1（D58・D78・決めたこと 100）: 議事録のリンクの1行。住所はヘルプのサイトの /open のページ（# の後ろの ID はサーバーへ送られない）。
+  // 住所の頭は main だけが持つ（F15・I1: 画面に住所を書かない）ので、写すときに koeApp.linkBase で聞く（答えは https の住所の「/open#p=」まで）。
+  // Claude に貼ると押せるリンクになり、MCP の道具にもそのまま渡せる
+  const isLinkBase = (b) => typeof b === 'string' && /^https:\/\/[a-z0-9.-]+\/open#p=$/.test(b);
+  async function linkBaseNow() {
+    try { const b = await window.koeApp.linkBase(); return isLinkBase(b) ? b : ''; } catch (_) { return ''; }
+  }
+  const LIVE_COPY_PHASES = ['recording', 'paused', 'finalizing'];   // 録音中の写し（src/db/commands.js の LIVE_PHASES と同じ）
+  const isLiveCopy = (page) => Boolean(page && page.meeting && typeof page.meeting === 'object' && LIVE_COPY_PHASES.includes(page.meeting.phase));
+  function pageRefLine(page, base) {
+    const title = String((page && page.title) || '').replace(/[\r\n\t]+/g, ' ').replace(/ {2,}/g, ' ').trim() || '無題';
+    return `NaTsu の議事録「${title}」（${String((page && page.date) || '')}）${base}${page.id}`;
+  }
+
+  // 「…」（#pMore）とその中のメニュー（#pMenu の［コピー］［リンクを写す］［削除］）。
   // Enter／Space（変換確定の Enter は除く）・↓ で開いて最初の項目へ、↑／↓ で移り、Esc で閉じて「…」へ戻る
   function setMoreOpen(on, focusItem) {
     const menu = $('pMenu');
@@ -2714,6 +2728,16 @@
       if (!text.trim()) { toast(`${what}はまだ空です`); return; }
       await window.koeApp.copy(text.trim()); toast(`${what}をコピーしました`);
     }, false, true);
+    // 0.10.0 L-1: ［リンクを写す］（録音中の写しには出さない。ゴミ箱のページは開けない）
+    if (!isLiveCopy(curPage)) {
+      mk('リンクを写す', async () => {
+        const page = curPage;
+        if (!page) return;
+        const base = await linkBaseNow();
+        if (!base) { toast('リンクを写せませんでした。'); return; }
+        await window.koeApp.copy(pageRefLine(page, base)); toast('リンクを写しました。');
+      }, false, true);
+    }
     mk('削除', async () => {
       if (!confirm('この議事録を削除します。よろしいですか？')) return;
       const gone = curId;
