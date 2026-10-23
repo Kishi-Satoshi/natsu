@@ -1893,4 +1893,10 @@ module.exports = [
   {"id":"pt-upload","file":".github/workflows/release.yml","from":"          gh release upload \"$TAG\" --repo \"$GITHUB_REPOSITORY\" dist/*-setup.exe","to":"          gh release upload \"$TAG\" --repo \"$GITHUB_REPOSITORY\" dist/*-setup.exe dist/*-portable.exe","tests":["test/ci.test.js"],"pattern":"release.yml|D76","why":"0.10.0 PB-1 D76: release.yml の添付に *-portable.exe を戻す（作らない exe を添付しようとしてリリースが止まる）"},
   // SH-1: 見本の題名とページの頭の見た目
   {"id":"lk-head-css","file":"src/renderer/app.html","from":"  .ptitle { font-size: 40px; font-weight: 700;","to":"  .ptitle { font-size: 41px; font-weight: 700;","tests":["test/repo.test.js"],"pattern":"D71","why":"0.10.0 SH-1 決めたこと 140: ページの大きな題名の字の大きさを 1px 変える（持ち主が「以前のまま」と言ったページの頭の見た目が知らずに変わる）"},
+  // C-1: Claude デスクトップの設定の合わせ（純粋）
+  {"id":"cfg-keep-others","file":"src/mcp-config.js","from":"  const servers = isObj(out.mcpServers) ? out.mcpServers : {};","to":"  const servers = {};","tests":["test/mcp-config.test.js"],"why":"0.10.0 C-1 F2・RF61: mergeEntry が mcpServers を丸ごと替える（利用者のほかの MCP の登録が消える）"},
+  {"id":"cfg-taken","file":"src/mcp-config.js","from":"  if (!marked(e)) return 'other';","to":"  if (!marked(e)) return 'stale';","tests":["test/mcp-config.test.js"],"why":"0.10.0 C-1 決めたこと 16: 印の無い natsu を上書きする（同じ名前の別の登録を奪う）"},
+  {"id":"cfg-msix","file":"src/mcp-config.js","from":"  if (localAppData) {","to":"  if (false) {","tests":["test/mcp-config.test.js"],"why":"0.10.0 C-1 決めたこと 19・D76: Microsoft Store 版の場所を探さない（Store 版の Claude を使う人は登録が効かない）"},
+  {"id":"cfg-stale","file":"src/mcp-config.js","from":"  return same ? 'same' : 'stale';","to":"  return 'same';","tests":["test/mcp-config.test.js"],"why":"0.10.0 C-1 F4・決めたこと 21: 場所の違いを見ない（入れ直して場所が変わっても「登録済み」と言い、Claude から読めない）"},
+  {"id":"cfg-claude-running","file":"src/mcp-config.js","from":"  return /(^|\\n)\\s*\"?claude\\.exe\"?\\s*,/i.test(stdout);","to":"  return false;","tests":["test/mcp-config.test.js"],"why":"0.10.0 C-1 決めたこと 149: Claude デスクトップが動いていても知らせない（動いたまま登録して、起動し直すまで読めない）"},
 ];
