@@ -435,7 +435,8 @@ const killMainAtBegin = flags.includes('--kill-main-at-begin');
 const purgeSaveFailOnce = flags.includes('--purge-save-fail-once');
 const keepDraftAfterFinalize = flags.includes('--keep-draft-after-finalize');
 const keepUserData = flagVal('--keep-user-data');
-const retiredSum = flags.includes('--retired-sum');
+const retiredSumNone = flags.includes('--retired-sum=none');   // 0.10.0 LS-4 の CI の直し: 取り込める PC で、消すものが無い（0.9.x の要約の組を置かない）
+const retiredSum = flags.includes('--retired-sum') || retiredSumNone;
 const setTitleDuring = flagVal('--set-title-during');
 const setTitleAfterSum = flagVal('--set-title-after-sum');
 const secretText = flags.includes('--secret-text');
@@ -980,8 +981,8 @@ process.on('exit', () => {
     const home = { supported: true, root: path.join(localAppData, 'natsu', 'engine'), reason: '' };
     const SMALL_RETIRED = { dir: 'llama-b11669', files: [['llama-server.exe', 900], ['llama.dll', 2500], ['LICENSE-LLVM-OpenMP', 70]],
       model: { dest: 'models/gemma-4-E4B-it-Q4_K_M.gguf', size: 6000 }, ids: ['sum-engine', 'sum-model'] };
-    for (const [n, size] of SMALL_RETIRED.files) { const f = path.join(home.root, SMALL_RETIRED.dir, n); fs.mkdirSync(path.dirname(f), { recursive: true }); fs.writeFileSync(f, Buffer.alloc(size, 7)); }
-    const mf = path.join(home.root, ...SMALL_RETIRED.model.dest.split('/')); fs.mkdirSync(path.dirname(mf), { recursive: true }); fs.writeFileSync(mf, Buffer.alloc(SMALL_RETIRED.model.size, 7));
+    if (!retiredSumNone) for (const [n, size] of SMALL_RETIRED.files) { const f = path.join(home.root, SMALL_RETIRED.dir, n); fs.mkdirSync(path.dirname(f), { recursive: true }); fs.writeFileSync(f, Buffer.alloc(size, 7)); }
+    if (!retiredSumNone) { const mf = path.join(home.root, ...SMALL_RETIRED.model.dest.split('/')); fs.mkdirSync(path.dirname(mf), { recursive: true }); fs.writeFileSync(mf, Buffer.alloc(SMALL_RETIRED.model.size, 7)); }
     managedMods = { install: { ...I, engineRoot: () => home, retireSum: (h, o) => I.retireSum(h, { ...o, table: SMALL_RETIRED }) },
       manifest: require(path.join(ROOT, 'src', 'engine-manifest.js')) };
   }

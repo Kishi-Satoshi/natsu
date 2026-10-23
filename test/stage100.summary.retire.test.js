@@ -148,3 +148,12 @@ test('D59・決めたこと 108: 起動の後に1回消して知らせる（2回
     assert.ok(!c.notices.some((n) => /要約用の AI/.test(textOf(n))), '消すものが無いのに知らせた');
   } finally { fs.rmSync(ud, { recursive: true, force: true }); }
 });
+
+// CI run 39924135937（7fe04b4）の test (windows-latest)・electron-smoke: 取り込める PC で消すものが無いのに retiredSumNotified を書き、
+// 「起動だけで settings.json を書き換えない」（stage090 F12）が赤になった。消すものが無ければ何も書かない（毎回の起動で小さく探すだけ）
+test('D59・決めたこと 108: 取り込める PC で消すものが無ければ、settings.json に印を書かず、知らせも記録も出さない', { timeout: sceneTimeout(60000) }, () => {
+  const o = runMain(['--retired-sum=none']);
+  assert.notStrictEqual(o.savedSettings.retiredSumNotified, true, '消すものが無いのに印を書いた（起動だけで settings.json を書き換える）');
+  assert.ok(!o.notices.some((n) => /要約用の AI/.test(textOf(n))), JSON.stringify(o.notices));
+  assert.ok(!o.engineLog.some((l) => l.startsWith('要約のエンジンを消す')), o.engineLog.join('\n'));
+});

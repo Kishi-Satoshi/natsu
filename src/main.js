@@ -2004,11 +2004,13 @@ async function retireSummaryEngine() {
   const manual = [settings.sumServerExe, settings.sumModelPath].filter((x) => typeof x === 'string' && x);
   const r = await engineInstall.retireSum(ENGINE_HOME, { manual });
   if (r.left) { engineLog(`要約のエンジンを消す: 残り ${r.left}（${[...new Set(r.codes)].join('・')}）`); return; }
-  if (r.removed.length) engineLog(`要約のエンジンを消す: 消した ${r.removed.length}・残り 0`);
+  // 消すものが無い PC は印を書かない（起動だけで settings.json を書き換えない: stage090 F12。次の起動も小さく探すだけ）
+  if (!r.removed.length) return;
+  engineLog(`要約のエンジンを消す: 消した ${r.removed.length}・残り 0`);
   settings = { ...settings, retiredSumNotified: true };
   const w = settingsWriter.now(settings);
   if (!w.ok) engineLog(`要約のエンジンを消す: 設定に書けませんでした（${errCode(w.error)}）`);
-  if (r.removed.length) noticeMainWin(RETIRED_SUM_TEXT((r.bytes / 1e9).toFixed(1)));
+  noticeMainWin(RETIRED_SUM_TEXT((r.bytes / 1e9).toFixed(1)));
 }
 // ---------------------------------------------------------------- Claude との連携（MCP。0.10.0 Task C-2。計画の「受け渡す名前と形」の main の分）
 // Claude デスクトップの設定ファイル（claude_desktop_config.json）に NaTsu の1項目を足す・外す。場所は main が決める（画面はパスを渡さない: 方針 7）。

@@ -644,7 +644,7 @@ const IDS_100 = [
   'ls-route-local', 'ls-lock-empty', 'ls-lock-none', 'ls-unlock-made',
   'ls-wait-mark', 'ls-auto-once', 'ls-lock-wait', 'ls-lock-live', 'ls-unlock-refused', 'ls-lock-save', 'ls-auto-refused', 'ls-ui-lock', 'ls-ui-same',
   'ls-manifest-sum', 'ls-install-sum', 'ls-settings-sum',
-  'ls-retire-manual', 'ls-retire-whisper', 'ls-retire-busy', 'ls-retire-notice',
+  'ls-retire-manual', 'ls-retire-whisper', 'ls-retire-busy', 'ls-retire-notice', 'ls-retire-quiet',
   'ls-ship-summarizer', 'ls-note-promise', 'ls-notice-secret',
   'mut-part-sort', 'mut-part-same', 'mut-part-only',
 ];
