@@ -41,6 +41,9 @@ const ROUTES = {
   '/search-index.json': { status: 200, type: 'application/json', body: JSON.stringify({ v: 1, items: [{ u: '/start/login/', t: 'ログイン', x: ARTICLE }] }) },
   '/assets/help.css': { status: 200, type: 'text/css', body: `body{color:#000}/* ${ARTICLE} */` },
   '/assets/search.js': { status: 200, type: 'text/javascript', body: `// ${ARTICLE}` },
+  // 0.10.0 LN-5（D78・決めたこと 156）: /open のページと open.js も同じ門の後ろ
+  '/open/': { status: 200, type: HTML, body: html('NaTsu で開く') },
+  '/assets/open.js': { status: 200, type: 'text/javascript', body: `// ${ARTICLE}` },
   '/assets/icons/start.svg': { status: 200, type: 'image/svg+xml', body: '<svg xmlns="http://www.w3.org/2000/svg"></svg>' },
   '/assets/fonts/ibm-plex-sans-jp-400-000.woff2': { status: 200, type: 'font/woff2', body: 'wOF2' },
   '/assets/old.css': { status: 304, type: 'text/css', body: null },
@@ -536,4 +539,25 @@ test('R3: help-gate.mjs が読むのは ./access.mjs・./config.mjs・./log.mjs 
   assert.ok(!/\bprocess\./.test(code), 'process を使う');
   assert.match(code, /need:\s*'user'/, "requireAccess の need が 'user' でない");
   assert.ok(!/need:\s*'any'/.test(code), "need: 'any' がある（サービストークンで中身が見える）");
+});
+
+test('0.10.0 LN-5（D78・決めたこと 156）: /open/ と /assets/open.js も、正しい人の JWT のときだけ返す（HELP_CSP・no-referrer・noindex。/open/ は no-store）。JWT が無い・切れた・違う AUD・サービストークンには中身を1字も返さず ASSETS を読まない', { timeout: 5000 }, async () => {
+  await scene({}, async ({ call, sign, fa, assets }) => {
+    const t = Math.floor(Date.now() / 1000);
+    for (const [label, jwt, st] of [['JWT なし', undefined, 401], ['切れた', await sign({ exp: t - 1 }), 401], ['違う AUD', await sign({ aud: ['ab'.repeat(32)] }), 503], ['サービストークン', await fa.service(), 403]]) {
+      for (const p of ['/open/', '/open/index.html', '/assets/open.js']) assertGate(await call('GET', p, { jwt }), st, `${label} ${p}`);
+    }
+    assert.strictEqual(assets.hits, 0, assets.paths.join(' '));
+    const ok = await sign({});
+    const page = await call('GET', '/open/', { jwt: ok });
+    assert.strictEqual(page.status, 200);
+    assert.ok(page.text.includes(PAGE_MARK));
+    assert.strictEqual(page.headers.get('content-security-policy'), HELP_CSP);
+    assert.strictEqual(page.headers.get('referrer-policy'), 'no-referrer');
+    assert.strictEqual(page.headers.get('x-robots-tag'), 'noindex');
+    assert.strictEqual(page.headers.get('cache-control'), NO_STORE);
+    const js = await call('GET', '/assets/open.js', { jwt: ok });
+    assert.strictEqual(js.status, 200);
+    assert.strictEqual(js.headers.get('content-security-policy'), HELP_CSP);
+  });
 });

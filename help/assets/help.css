@@ -175,6 +175,11 @@ main > h2 { font-size: 1.05rem; margin: 2.6rem 0 .6rem; }
 .foot-in p { margin: 0; }
 
 .notfound { max-width: 720px; }
+/* 0.10.0 LN-5（D78）: /open のページ（Claude の出典のリンクから NaTsu を開く）。［NaTsu で開く］は白黒の枠のボタンの形 */
+.open { max-width: 720px; }
+.open-go { display: inline-block; padding: 6px 18px; color: var(--ink); background: var(--bg); border: 1px solid var(--ink); text-decoration: none; }
+.open-go[hidden] { display: none; }
+.open-note { color: var(--muted); }
 
 /* ===== 幅に合わせる ===== */
 @media (max-width: 1099px) {
