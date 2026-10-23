@@ -4909,7 +4909,7 @@ async function maybeFinalizeMeeting() {
     pauses = (m.pauses || []).filter((x) => !(x && x.atMs >= trimEnd));
   }
   const dt = new Date(m.startedAt);
-  const fallbackTitle = `${dt.getFullYear()}/${dt.getMonth() + 1}/${dt.getDate()} ${String(dt.getHours()).padStart(2, '0')}:${String(dt.getMinutes()).padStart(2, '0')} の議事録`;
+  const fallbackTitle = lib.meetingTitleAt(dt);   // 形は mainlib の1か所（0.10.0 SH-1・D71）
 
   // 会議のページの ID は録音を始めたときに作って下書きに書いた（第2a1回 ST6。写し・復旧と同じ ID）
   const pageId = m.pageId || store.newId('p');

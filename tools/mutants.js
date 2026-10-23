@@ -1891,4 +1891,6 @@ module.exports = [
   // PB-1: ポータブル版を作らない（D76。0.9.4 が pb- を使うので接頭は pt-）
   {"id":"pt-target","file":"package.json","from":"      \"target\": [\n        \"nsis\"\n      ],","to":"      \"target\": [\n        \"portable\",\n        \"nsis\"\n      ],","tests":["test/stage0c.test.js"],"pattern":"EL6","why":"0.10.0 PB-1 D76: build.win.target に portable を戻す（やめたポータブル版をまた作り、自動更新の残らない exe を配る）"},
   {"id":"pt-upload","file":".github/workflows/release.yml","from":"          gh release upload \"$TAG\" --repo \"$GITHUB_REPOSITORY\" dist/*-setup.exe","to":"          gh release upload \"$TAG\" --repo \"$GITHUB_REPOSITORY\" dist/*-setup.exe dist/*-portable.exe","tests":["test/ci.test.js"],"pattern":"release.yml|D76","why":"0.10.0 PB-1 D76: release.yml の添付に *-portable.exe を戻す（作らない exe を添付しようとしてリリースが止まる）"},
+  // SH-1: 見本の題名とページの頭の見た目
+  {"id":"lk-head-css","file":"src/renderer/app.html","from":"  .ptitle { font-size: 40px; font-weight: 700;","to":"  .ptitle { font-size: 41px; font-weight: 700;","tests":["test/repo.test.js"],"pattern":"D71","why":"0.10.0 SH-1 決めたこと 140: ページの大きな題名の字の大きさを 1px 変える（持ち主が「以前のまま」と言ったページの頭の見た目が知らずに変わる）"},
 ];

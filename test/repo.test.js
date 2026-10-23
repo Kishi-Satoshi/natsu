@@ -1377,3 +1377,17 @@ test('0.10.0 D76: README・INSTALL に「0.10.0 からポータブル版はあ�
     assert.ok(!s.includes('NaTsu-<版>-portable.exe に置き換え') && !s.includes('portable.exe` を落とし直して'), n);
   }
 });
+
+// 0.10.0 SH-1（D71・決めたこと 140）: ページの頭（題名の所）の見た目を 0.10.0 で変えない。.phead・.picon・.ptitle・.pprops を含む CSS の規則の文と、
+// #pIcon・#pTitle・#pProps の DOM の行の sha256 が 0.9.3（746ea67）の値と同じ（題名の文字が変わるので、画素で比べる守りは置かない）
+test('0.10.0 D71: .phead・.picon・.ptitle・.pprops とその子の CSS の規則の文と、#pIcon・#pTitle・#pProps の DOM の写しが、0.9.3 の値（HEAD_HASH）と同じ', () => {
+  const HEAD_HASH = '57fe8d58d84819e19a719e56cbbcc811753ae9a0e7d0502fd958a34a8f8a856e';
+  const html = read('src/renderer/app.html');
+  const css = [...html.matchAll(/<style[^>]*>([\s\S]*?)<\/style>/g)].map((m) => m[1]).join('\n');
+  const rules = [...css.matchAll(/[^{}]*\{[^{}]*\}/g)].map((m) => m[0].trim()).filter((r) => /\.(phead|picon|ptitle|pprops)\b/.test(r.slice(0, r.indexOf('{'))));
+  const dom = html.split('\n').filter((l) => /id="(pIcon|pTitle|pProps)"/.test(l)).map((l) => l.trim());
+  assert.strictEqual(rules.length, 12);
+  assert.strictEqual(dom.length, 3);
+  const sha = require('node:crypto').createHash('sha256').update([...rules, ...dom].join('\n')).digest('hex');
+  assert.strictEqual(sha, HEAD_HASH, 'ページの頭の CSS か DOM が変わった（D71: 0.10.0 では変えない）');
+});

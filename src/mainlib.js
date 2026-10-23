@@ -2017,7 +2017,22 @@ function relayHoldStep(st, { code, now } = {}) {
   return { st: { run: n, at: now }, holdMs: n >= 2 ? RELAY_HOLD_LADDER_MS[Math.min(n - 2, RELAY_HOLD_LADDER_MS.length - 1)] : 0 };
 }
 
+// ---------------------------------------------------------------- 議事録の題名（0.10.0 SH-1・D71・決めたこと 140）
+// 新しい議事録の題名「2026/10/16 10:00 の議事録」（月と日は 0 を付けない・時と分は 2 けた）。形はここの1か所で決め、main の fallbackTitle と
+// 撮る道具の見本とテストの作り物が使う。offsetMin（分）を渡すとその時差の時刻（撮る道具は日本の時刻 540）、渡さなければ PC の時計の時刻。読めなければ ''
+function meetingTitleAt(date, offsetMin) {
+  const d = date instanceof Date ? date : new Date(date);
+  if (Number.isNaN(d.getTime())) return '';
+  const fixed = Number.isFinite(offsetMin);
+  const t = fixed ? new Date(d.getTime() + offsetMin * 60000) : d;
+  const [y, mo, day, h, mi] = fixed
+    ? [t.getUTCFullYear(), t.getUTCMonth() + 1, t.getUTCDate(), t.getUTCHours(), t.getUTCMinutes()]
+    : [t.getFullYear(), t.getMonth() + 1, t.getDate(), t.getHours(), t.getMinutes()];
+  return `${y}/${mo}/${day} ${String(h).padStart(2, '0')}:${String(mi).padStart(2, '0')} の議事録`;
+}
+
 module.exports = {
+  meetingTitleAt,
   saveIfExists, meetingDurationSec, promptTail,
   registerHotkeys, hotkeyFailureMessage, hotkeyStatus, resolveStartupHotkeys, saveHotkeys,
   makeSummaryRunner, tickStep,

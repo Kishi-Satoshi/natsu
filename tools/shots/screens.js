@@ -216,7 +216,16 @@ SCREENS.find((x) => x.name === 'notes-page-light').focus = { tabs: 3, want: 'mtT
 const OVL_094 = (states) => PS.FORMS.flatMap((form) => Object.keys(PS.DESKS).flatMap((desk) => PS.SCALES.flatMap((sc) => states.map((st) => `overlay-${form}-${desk}-${st}-${Math.round(sc * 100)}`))));
 // 0.9.4（版を 0.9.4 に上げる commit）: 持ち主が 2026-10-22 に取り直しの見比べ（CI run 39831111027（bd2320d）・artifact 12448422820 の .after.png）を見て
 // 「OK」と言ったので、その画像をバイトのまま基準にし（基準と同じだった live-banner-zoom200-dark は今の基準のまま）、空に戻した
-const RETAKE = new Set([]);
+// 0.10.0（計画 docs/plans/2026-10-20-100.md の「取り直す画面（RETAKE）」）。SH-1（D71）: 見本の題名を日付の形にしたので、題名の写る本体の画面
+const RETAKE = new Set([
+  'notes-page-light', 'notes-page-dark', 'dictation-light', 'settings-light', 'settings-dark', 'notes-tabs-light', 'notes-collapsed-light',
+  'live-light', 'live-dark', 'notes-page-zoom200-light', 'settings-zoom200-dark', 'search-palette-light', 'live-banner-light', 'live-banner-dark',
+  'live-banner-zoom200-dark', 'settings-record-light', 'settings-search-light', 'settings-offline-light', 'live-quiet-light', 'live-quiet-dark',
+  'settings-quiet-search-light', 'settings-record-dark', 'settings-record-zoom200-light', 'settings-summary-light', 'settings-account-light',
+  'settings-info-loop-light', 'settings-info-stt-dark', 'settings-info-claude-light', 'settings-info-zoom200-light', 'settings-info-search-light',
+  'live-wave-light', 'live-wave-dark', 'live-silent-light', 'live-paused-dark', 'settings-detect-light', 'settings-detect-dark', 'live-offline-light',
+  'live-offline-dark', 'live-late-light', 'live-late-dark', 'live-late-zoom200-light',
+]);
 const PERF = [{ name: 'open-2000-blocks', budgetMs: 500 }];   // 3回開いた中央値で見る
 const TIME_ZONE = 'Asia/Tokyo';
 const TOLERANCE = 2;   // 色の差（0〜255）がこれ以下の画素は同じとみなす。CI の機械の CPU ごとの描き方の1段の差を拾わないため（揺れの確かめ judgePair は 0 で見る）
@@ -262,8 +271,10 @@ const SEGMENTS = [
   { id: 's5', atMs: 300000, text: '求人票の見直しは、佐藤さんが今月末までに案を出します。' },
   { id: 's6', atMs: 375000, text: '出す日は11月15日で決まりです。以上で終わります。' },
 ];
+// 0.10.0 SH-1（D71・決めたこと 140）: 見本の題名は本物と同じ日付の形（作った時刻の日本の時刻。lib.meetingTitleAt の1か所で決める）
+const JST_MIN = 540;
 const PAGE = {
-  id: 'p1', title: '週次定例（見本）', date: '2026-10-16', durationSec: 1820,
+  id: 'p1', title: lib.meetingTitleAt('2026-10-16T01:00:00.000Z', JST_MIN), date: '2026-10-16', durationSec: 1820,
   memo: '議題: 進み具合 / 在庫の取り込み / 採用',
   meetingType: 'standup', typeAuto: true, autoType: 'standup',
   createdAt: '2026-10-16T01:00:00.000Z', updatedAt: '2026-10-16T01:40:00.000Z',
@@ -284,8 +295,8 @@ const PAGE = {
 };
 const LIST = [
   { id: 'p1', title: PAGE.title, date: '2026-10-16', durationSec: 1820, createdAt: PAGE.createdAt, updatedAt: PAGE.updatedAt, meetingType: 'standup', hasSummary: true },
-  { id: 'p2', title: '設計の打ち合わせ（見本）', date: '2026-10-09', durationSec: 2710, createdAt: '2026-10-09T05:00:00.000Z', updatedAt: '2026-10-09T05:50:00.000Z', meetingType: 'general', hasSummary: true },
-  { id: 'p3', title: '1on1（見本）', date: '2026-10-01', durationSec: 905, createdAt: '2026-10-01T08:00:00.000Z', updatedAt: '2026-10-01T08:20:00.000Z', meetingType: 'general', hasSummary: false },
+  { id: 'p2', title: lib.meetingTitleAt('2026-10-09T05:00:00.000Z', JST_MIN), date: '2026-10-09', durationSec: 2710, createdAt: '2026-10-09T05:00:00.000Z', updatedAt: '2026-10-09T05:50:00.000Z', meetingType: 'general', hasSummary: true },
+  { id: 'p3', title: lib.meetingTitleAt('2026-10-01T08:00:00.000Z', JST_MIN), date: '2026-10-01', durationSec: 905, createdAt: '2026-10-01T08:00:00.000Z', updatedAt: '2026-10-01T08:20:00.000Z', meetingType: 'general', hasSummary: false },
 ];
 const HISTORY = [
   // 止めた時計（10/18 09:00 日本時間）の 30 分前。「今日の入力」と「30分前」が出る
