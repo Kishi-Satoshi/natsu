@@ -290,7 +290,7 @@ function renderBlocks(lines, ctx, inNote) {
       const cell = (c, k, tag) => { const r = inline(c, ctx, () => rows[k].n); text.push(r.text); return `<${tag}>${r.html}</${tag}>`; };
       const head = `<tr>${cells[0].map((c) => cell(c, 0, 'th')).join('')}</tr>`;
       const body = cells.slice(2).map((r, k) => `<tr>${r.map((c) => cell(c, k + 2, 'td')).join('')}</tr>`).join('\n');
-      out.push(`<div class="table" tabindex="0" role="region" aria-label="表"><table>\n<thead>${head}</thead>\n<tbody>\n${body}\n</tbody>\n</table></div>`);
+      out.push(`<div class="table" tabindex="0" role="region" aria-label="表 ${++ctx.tables}"><table>\n<thead>${head}</thead>\n<tbody>\n${body}\n</tbody>\n</table></div>`);
       i = j;
     } else if (t.startsWith('![')) {
       const m = /^!\[([^\]]*)\]\(([^)]*)\)$/.exec(t);
@@ -405,6 +405,7 @@ function renderMarkdown(body, opts = {}) {
     pendingAnchors: [],
     ids: new Set(),
     autoId: 0,
+    tables: 0,   // 表の領域の名前（表 1・表 2…。記事の中で重ねない: axe の landmark-unique）
   };
   const base = Number.isInteger(opts.bodyLine) ? opts.bodyLine : 1;
   const lines = normalize(body).split('\n').map((raw, k) => ({ raw, t: raw.replace(/\s+$/, ''), n: base + k }));

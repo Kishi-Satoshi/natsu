@@ -103,7 +103,7 @@ a:focus-visible { background-color: var(--focus-link-bg) !important; color: var(
 .layout > main { grid-column: 2; grid-row: 1; max-width: 720px; min-width: 0; }
 .toc { grid-column: 1; grid-row: 1; position: sticky; top: 24px; max-height: calc(100vh - 48px); overflow-y: auto; padding: calc(6 / 16 * 1rem); margin: calc(-6 / 16 * 1rem); font-size: 1rem; line-height: 1.6; }
 .onpage { grid-column: 3; grid-row: 1; position: sticky; top: 24px; font-size: 1rem; line-height: 1.6; border-top: 1px solid var(--ink); padding-top: .6rem; }
-.toc-btn { display: none; }
+.toc-btn { display: none; font: inherit; }
 
 h1 { color: var(--ink); font-weight: 700; font-size: 2rem; line-height: 1.4; letter-spacing: .01em; margin: 0 0 .8em; }
 h2 { color: var(--ink); font-weight: 700; }

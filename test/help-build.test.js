@@ -432,6 +432,8 @@ test('HD-3（HD4・DF5）: 48rem 未満（@media (max-width: 47.9375rem)）だ�
   const NARROW = '@media (max-width: 47.9375rem)';
   const TAP = ['.toc-btn', '.search-q', '.toc li a', '.crumbs a', '.open-go'];
   for (const sel of TAP) assert.strictEqual(C.declsFor(rules, sel, { at: NARROW })['min-height'], 'calc(44 / 16 * 1rem)', sel);
+  // 再審査: ［目次］のボタンは広い画面（隠れている）でもブラウザの既定の 13.33px でなく本文の書体を継ぐ
+  assert.strictEqual(C.declsFor(rules, '.toc-btn', { at: '' }).font, 'inherit');
   for (const sel of ['.toc li a', '.crumbs a', '.open-go']) {
     const d = C.declsFor(rules, sel, { at: NARROW });
     assert.ok(/flex$/.test(d.display || '') && d['align-items'] === 'center', `${sel} の文字が 44px の真ん中に来ない`);
