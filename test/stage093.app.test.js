@@ -391,7 +391,8 @@ test('D55: ［オフラインモード］を押すと、ボタンは消え、同
   assert.strictEqual(norm($(l, 'meetingLocalOnlyStateText').textContent), 'オフラインモード中');
   assert.strictEqual(OFF_TITLE(l), '議事録を記録中（オフライン）');
   assert.strictEqual($(l, 'meetingLocalOnlyNote').hidden, false);
-  assert.strictEqual($(l, 'meetingLocalOnlyNote').textContent, 'オフラインモードです。この会議の音声は外へ送らず、PC の中で文字起こししています');
+  // 0.10.0 LS-5（D59・D62）で意図して変えた: 守秘の約束にしない
+  assert.strictEqual($(l, 'meetingLocalOnlyNote').textContent, 'オフラインモードです。文字起こしを PC の中で行います（要約はつながっているときに Claude Code で作ります）');
   const s = await offOpen({ systemAudio: true });
   assert.strictEqual(OFF_TITLE(s), '議事録を記録中（相手の声も）');
   await click(s, 'meetingLocalOnly');
@@ -415,7 +416,7 @@ test('D55: はじめからオフラインモードの会議（パネルの「オ
   const n = await offOpen({ localOnly: true, cloud: false, needsSetup: true });
   assert.ok(pillShown(n), 'クラウドで処理しない PC のオフラインモードの会議に札が無い');
   assert.strictEqual(OFF_TITLE(n), '議事録を記録中（オフライン）');
-  assert.strictEqual($(n, 'meetingLocalOnlyNote').textContent, 'オフラインモードです。音声だけを残しています（外には送りません）。ローカル AI の準備が済むと文字起こしします。');
+  assert.strictEqual($(n, 'meetingLocalOnlyNote').textContent, 'オフラインモードです。音声だけを PC に残しています。ローカル AI の準備が済むと文字起こしします（要約はつながっているときに Claude Code で作ります）');   // 0.10.0 LS-5（D62）で意図して変えた
   assert.deepStrictEqual([...l.errors, ...n.errors], []);
 });
 

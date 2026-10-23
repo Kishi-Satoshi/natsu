@@ -23,7 +23,8 @@ const OFF1 = 'インターネットにつながっていないときと、オフ
 const OFF2 = 'PC の中の文字起こし：準備していません（任意）';
 const OFF3 = '取り込むと: インターネットにつながっていないときやオフラインモードの会議でも、PC の中で文字起こしができます。要約は、インターネットにつながっているときに作ります。';
 const OFF4 = (need, free, min) => `かかるもの: ディスクの空き 約 ${need}（今の空き 約 ${free}）・取り込みの時間 10Mbps の回線で約 ${min} 分。議事録の記録中は、Web 会議の回線を守るため取り込みを止めます。`;
-const OFF5 = 'ローカル AI を使う（数 GB を取り込む）';
+// 0.10.0 LS-5（D59）で意図して変えた: 取り込みが約 0.6GB になり、ボタンの数は今の計算
+const OFF5 = 'ローカル AI を使う（約 0.6GB を取り込む）';
 const NOT_FETCHED = '文字起こしエンジンがまだ取り込まれていません（見本）';
 // 取り込みの欄の写し（engine-app.test.js の ST と同じ形。main の engine:fetch-status の答え）
 const FETCH = (o = {}) => ({ ok: true, supported: true, mode: { whisper: 'managed' }, state: 'missing', totalBytes: 583854933, doneBytes: 0,
@@ -71,7 +72,7 @@ test('F5: chosen が真か無いときの状態は 0.8.0 のまま（使えま�
   assert.strictEqual($(ok, 'engineState').className, 'eng-state ok');
 });
 
-test('OF7: 取り込みの欄（consent が偽・missing）の文は OFF3・OFF4（空きと分の数は今の計算）で、ボタンは［ローカル AI を使う（数 GB を取り込む）］。押すと engine:fetch-start を1回', T, async () => {
+test('OF7: 取り込みの欄（consent が偽・missing）の文は OFF3・OFF4（空きと分の数は今の計算）で、ボタンは［ローカル AI を使う（約 0.6GB を取り込む）］（数は今の計算）。押すと engine:fetch-start を1回', T, async () => {
   const l = await open();
   await l.drain();
   assert.strictEqual($(l, 'engineFetch').hidden, false);
@@ -175,8 +176,9 @@ test('OF2: 帯の action signin は［ログイン］で設定の『アカウン
   }
 });
 
-const NEEDS = 'オフラインモードです。音声だけを残しています（外には送りません）。ローカル AI の準備が済むと文字起こしします。';
-const LOCAL = 'オフラインモードです。この会議の音声は外へ送らず、PC の中で文字起こししています';
+// 0.10.0 LS-5（D59・D62）で意図して変えた: 守秘の約束（外へ送らない）にしない。要約はつながっているときに Claude Code で作る
+const NEEDS = 'オフラインモードです。音声だけを PC に残しています。ローカル AI の準備が済むと文字起こしします（要約はつながっているときに Claude Code で作ります）';
+const LOCAL = 'オフラインモードです。文字起こしを PC の中で行います（要約はつながっているときに Claude Code で作ります）';
 test('OF4: needsSetup の答えのとき、PC の中だけの文が準備なしの文。画面を描き直しても（meeting:update の needsSetup が真）準備なしの文のまま。準備した PC は今の文', T, async () => {
   let st = LIVE();
   const l = await open({ meetingStatus: () => st, meetingSetLocalOnly: () => ({ ok: true, localOnly: true, needsSetup: true }) }, { now: T0 });

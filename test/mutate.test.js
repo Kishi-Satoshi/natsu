@@ -610,6 +610,7 @@ const IDS_100 = [
   'ls-wait-mark', 'ls-auto-once', 'ls-lock-wait', 'ls-lock-live', 'ls-unlock-refused', 'ls-lock-save', 'ls-auto-refused', 'ls-ui-lock', 'ls-ui-same',
   'ls-manifest-sum', 'ls-install-sum', 'ls-settings-sum',
   'ls-retire-manual', 'ls-retire-whisper', 'ls-retire-busy', 'ls-retire-notice',
+  'ls-ship-summarizer', 'ls-note-promise', 'ls-notice-secret',
 ];
 test('G3: 0.10.0 の変異が一覧にそろい、IDS_100 はどれも計画の「変異確認」の表にある。mcp-・cfg-・lk-・ls-・stl-・nl-・pt- の変異は IDS_100 にある。どれも決まったテストのファイルを持ち、なぜ戻すと困るかを書く', { timeout: 5000 }, () => {
   const byId = new Map(MUTANTS.map((m) => [m.id, m]));

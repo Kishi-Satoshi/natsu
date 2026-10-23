@@ -1250,8 +1250,9 @@ test('起動テストは、エンジンがアプリのインストール先に�
   assert.ok(run.includes('r.warning'), '画面が注意を出していない');
 });
 
+// 0.10.0 LS-5（D59）で意図して変えた: setup-summarizer.ps1 は消した
 test('セットアップは、展開が不完全でないかを確かめてから zip を消す', () => {
-  for (const name of ['setup-summarizer.ps1', 'setup-local-engine.ps1']) {
+  for (const name of ['setup-local-engine.ps1']) {
     const s = read(name);
     const i = s.indexOf('Expand-Archive');
     assert.ok(i > 0, `${name}: 展開していない`);
@@ -1283,8 +1284,9 @@ test('エンジンの実行ファイルは大きさの床で弾かない（上�
   assert.ok(!/ENGINE_MIN_BYTES\.exe/.test(m), 'ENGINE_MIN_BYTES.exe をまだ参照している');
 });
 
+// 0.10.0 LS-5（D59）で意図して変えた: setup-summarizer.ps1 は消した
 test('セットアップは展開物ぜんたいの大きさで確かめる（exe の大きさでは判定しない）', () => {
-  for (const name of ['setup-summarizer.ps1', 'setup-local-engine.ps1']) {
+  for (const name of ['setup-local-engine.ps1']) {
     const s = read(name);
     assert.ok(!/\$server\.Length -lt 1MB/.test(s), `${name}: exe の大きさで判定している（薄いランチャを弾く）`);
     assert.match(s, /Measure-Object[^\n]*Length[^\n]*-Sum/, `${name}: 展開物の合計を数えていない`);
@@ -1512,4 +1514,25 @@ test('0.10.0 LS-2: summaryLockView（app.html）と mainlib.summaryLock に同�
     const a = { ...o, segments };
     assert.strictEqual(view(p, a), lib.summaryLock(p, a), JSON.stringify([p, a]));
   }
+});
+
+// 0.10.0 LS-5（D59・決めたこと 110）: 案内から要約のローカル AI を外し、要約待ちを書く。配るものから setup-summarizer.ps1 を外す
+test('0.10.0 LS-5: README・INSTALL・ヘルプの記事に要約のローカル AI（llama・Gemma・setup-summarizer・要約エンジン・5.6GB）の字が無く、要約待ちの文がある', () => {
+  const arts = [];
+  const walk = (d) => { for (const n of fs.readdirSync(d)) { const f = path.join(d, n); if (fs.statSync(f).isDirectory()) walk(f); else if (n.endsWith('.md')) arts.push(path.relative(ROOT, f)); } };
+  walk(path.join(ROOT, 'help', 'articles'));
+  const BAD = [/llama/i, /Gemma/, /setup-summarizer/, /要約エンジン/, /要約のエンジン/, /要約も PC の中/, /5\.6 ?GB/, /数 GB を取り込む/, /PC の中で文字起こしと要約/, /PC の中の文字起こしと要約/];
+  for (const f of ['README.md', 'INSTALL.md', ...arts]) {
+    const t = read(f);
+    for (const re of BAD) assert.ok(!re.test(t), `${f} に ${re}: ${(t.match(new RegExp(`.{0,30}${re.source}.{0,30}`)) || [''])[0]}`);
+  }
+  for (const f of ['README.md', 'help/articles/summary/how-summaries.md', 'help/articles/record/pc-only.md']) assert.ok(read(f).includes('要約待ち（つながったら作ります）'), `${f} に要約待ちの文が無い`);
+  assert.ok(!/llama/i.test(JSON.parse(read('package.json')).description), 'package.json の説明に llama');
+});
+
+test('0.10.0 LS-5: リリースの手順が setup-summarizer.ps1 を配らない。setup-summarizer.ps1 は無い', () => {
+  const rel = read('.github/workflows/release.yml');
+  assert.ok(!rel.includes('setup-summarizer'), 'release.yml が setup-summarizer.ps1 を配る');
+  assert.ok(!fs.existsSync(path.join(ROOT, 'setup-summarizer.ps1')), 'setup-summarizer.ps1 が残っている');
+  assert.ok(!read('get-installer.ps1').includes('llama'), 'get-installer.ps1 の注に llama');
 });

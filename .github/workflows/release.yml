@@ -198,8 +198,9 @@ jobs:
           # リリースページ上に置いておく。
           # setup-*.ps1 は、エンジンを手で入れる人（詳しい人向け）のために添付する。
           # 0.2.0 からはアプリの［エンジンを取り込む］でそろうので、ふつうは要らない。
+          # 0.10.0 から要約のエンジンは無い（要約は Claude Code だけ。D59）ので、要約のセットアップスクリプトは配らない。
           # 手で入れる人がリポジトリを触らずに済むよう、リリースページから直接落とせるようにしておく。
-          SETUP="get-installer.ps1 setup-local-engine.ps1 setup-summarizer.ps1"
+          SETUP="get-installer.ps1 setup-local-engine.ps1"
           # 入れ直しが要る版かをアプリが見分けるための情報（第0c回 EL4。上のステップで作った）
           INFO="release/natsu-update.json"
           # gh はタグ名で draft も見つける（公開済みでなくても view/edit/upload が効く）

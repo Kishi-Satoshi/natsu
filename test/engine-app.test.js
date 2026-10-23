@@ -231,7 +231,8 @@ test('INSTALL の手順3 と困ったときに引いた［ボタン］と、取�
   const text = sec('## 手順3.（任意）ローカル AI を使う') + sec('## 困ったときは');
   const buttons = [...new Set([...text.matchAll(/［([^］]+)］/g)].map((m) => m[1]))];
   assert.ok(buttons.length >= 8, `引いたボタンが少ない: ${buttons.join('・')}`);
-  for (const b of buttons) assert.ok(html.includes(b), `INSTALL の［${b}］が画面に無い`);
+  // 0.10.0 LS-5（D59）で意図して変えた: 取り込みのボタンの数は今の計算（画面の文は `約 ${fetchGB(need)}`）。INSTALL の「約 0.6GB」はその形で探す
+  for (const b of buttons) assert.ok(html.includes(b.replace(/約 \d+\.\dGB/, '約 ${fetchGB(need)}')), `INSTALL の［${b}］が画面に無い`);
   for (const s of ['取り込むもの（取得元・版・SHA-256・置き場所）', 'PC の中の文字起こしは取り込み済みです', 'つながるのを待っています']) {
     assert.ok(text.includes(`「${s}`), `INSTALL が「${s}」を引いていない`);
     assert.ok(html.includes(s), `INSTALL の「${s}」が画面に無い`);

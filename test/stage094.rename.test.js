@@ -28,7 +28,7 @@ test('R-1: 設定の左の列・隠した見出し・項目の名前（SETTINGS_
   assert.strictEqual(nav.getAttribute('data-sec'), 'offline');
   assert.ok(html.includes("{ sec: 'offline', name: 'ローカル AI' }"));
   assert.ok(/<h2 hidden>ローカル AI<\/h2>/.test(html));
-  assert.ok(html.includes("offline: 'ローカル AI の準備' }") && html.includes("btn = 'ローカル AI を使う（数 GB を取り込む）';"), 'ボタンの名前まで替えた');
+  assert.ok(html.includes("offline: 'ローカル AI の準備' }") && html.includes("btn = `ローカル AI を使う（約 ${fetchGB(need)} を取り込む）`;"), 'ボタンの名前まで替えた');
 });
 
 test('R-1: 利用者に見える文（app.html・main.js・mainlib.js・ヘルプ・site.json・README・INSTALL）に「ローカル AI の設定」が無い', T, () => {

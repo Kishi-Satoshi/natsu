@@ -600,7 +600,7 @@ sceneTest('何も取り込んでいない・ログインしていない PC: 記�
     assert.deepStrictEqual(r.spawns, []);
     assert.ok(!JSON.stringify(r.notices).includes('未設定'), `「未設定」の語の知らせ（画面が設定のタブへ連れて行く）: ${JSON.stringify(r.notices)}`);
     // 第1d2回 M-2: 知らせは K2（［ログイン］のボタン付き。音声だけを残すこと・ログインすると OpenAI に送ること）
-    assert.deepStrictEqual(r.notices, [{ text: 'ログインしていないため、音声だけを残します。設定の「アカウント」でログインすると、この会議の音声を OpenAI に送って文字起こしします。1on1・面談など外に出したくない会議は、議事録の画面の［オフラインモード］を押してください。', action: 'signin' }]);
+    assert.deepStrictEqual(r.notices, [{ text: 'ログインしていないため、音声だけを残します。設定の「アカウント」でログインすると、この会議の音声を OpenAI に送って文字起こしします。', action: 'signin' }]);   // 0.10.0 LS-5（D62）で意図して変えた
   }
 });
 

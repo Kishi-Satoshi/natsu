@@ -52,7 +52,7 @@ const POPS = {
   setPopLoop: { help: 'record/start-stop', must: ['パソコンから出ている音を、マイクと一緒に録ります。', '通知音や動画の音', 'イヤホン', 'マイクだけを使います', 'Windows でだけ動きます'] },
   setPopSpk: { help: 'record/start-stop', must: ['既定の再生デバイス', 'アプリの側からは選べない', '［Windowsの設定］', '追いかけません'] },
   setPopQuiet: { help: 'record/start-stop', must: ['5 分たっても答えが無ければ、録音を止めて議事録を作ります', '録音中のページ・録音バー・Windows の知らせ', '所要時間に入れません', '一時停止の間は数えません'] },
-  setPopStt: { help: 'record/pc-only', must: ['中継も OpenAI も、音声と文字を保存しません。', '文字起こしの中継', 'OpenAI（gpt-4o-transcribe）', 'つながっていないときは、いつも PC の中で文字起こしします', '1on1・面談', '［オフラインモード］'] },   // 0.9.3 M-0（D54）で意図して変えた
+  setPopStt: { help: 'record/pc-only', must: ['中継も OpenAI も、音声と文字を保存しません。', '文字起こしの中継', 'OpenAI（gpt-4o-transcribe）', 'つながっていないときは、いつも PC の中で文字起こしします', 'ネットワークが不安定なとき', '［オフラインモード］'] },   // 0.9.3 M-0（D54）・0.10.0 LS-5（D62。守秘のボタンでない）で意図して変えた
   setPopTerms: { help: 'settings/appearance', must: ['「不具合」「改修」「結合テスト」「今週」', '上の辞書が優先で、余った分だけ使われます'] },
   claudeHelp: { help: 'start/claude-code', must: ['irm https://claude.ai/install.ps1 | iex', 'Anthropic の公式の入れ方', 'そのまま実行します', 'Git for Windows は無くても動きます', 'NaTsu はログインの情報を読みません', '5 時間ごと・週ごと'] },
   // I-3: アカウント・オフライン（詳細設定も）・更新

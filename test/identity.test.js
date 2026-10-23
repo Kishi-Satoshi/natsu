@@ -39,7 +39,8 @@ test('表示名は NaTsu（画面・録音バー・ウィンドウ・トレイ�
     assert.ok(main.includes(s), s);
   }
   // 第1d回 G-4 で意図して変えた: オンラインの文字起こしは会社の中継を通した OpenAI（PC は OpenAI へ直に送らない）
-  assert.strictEqual(pkg.description, 'NaTsu — 音声入力・議事録ツール（オンラインは文字起こしの中継を通した OpenAI の文字起こしと各自の Claude Code の要約、オフラインは手元の whisper と llama。出典リンク付き）');
+  // 0.10.0 LS-5（D59）で意図して変えた: 要約は Claude Code だけ（llama を外した）
+  assert.strictEqual(pkg.description, 'NaTsu — 音声入力・議事録ツール（オンラインは文字起こしの中継を通した OpenAI の文字起こしと各自の Claude Code の要約、オフラインの文字起こしは手元の whisper。出典リンク付き）');
 });
 
 // 第1b回 Task C-3 で意図して変えた: 版を 0.6.0 に（第1b回と第1b2回の画面・窓の覚え書き・一時停止。Electron は 44.9.0 のままなので［更新して再起動］で当たる）
@@ -317,11 +318,12 @@ const secOf = (md, heading) => {
   const j = rest.indexOf('\n## ', 1);
   return j < 0 ? rest : rest.slice(0, j);
 };
-const FETCH_BTN = 'ローカル AI を使う（数 GB を取り込む）';
-test('0.9.0: README・INSTALL は手順3を任意と書き、ログインを先に書く。［ローカル AI を使う（数 GB を取り込む）］は画面にある', () => {
-  assert.ok(app.includes(FETCH_BTN), '画面に［ローカル AI を使う（数 GB を取り込む）］が無い');
+// 0.10.0 LS-5（D59）で意図して変えた: 要約の組を外して取り込みが約 0.6GB になり、ボタンの数は今の計算（画面の文は `約 ${fetchGB(need)}`）
+const FETCH_BTN = 'ローカル AI を使う（約 0.6GB を取り込む）';
+test('0.9.0: README・INSTALL は手順3を任意と書き、ログインを先に書く。［ローカル AI を使う（約 …GB を取り込む）］は画面にある', () => {
+  assert.ok(app.includes('ローカル AI を使う（約 ${fetchGB(need)} を取り込む）'), '画面に［ローカル AI を使う（約 …GB を取り込む）］が無い');
   // 0.9.3 M-0（D54）で意図して変えた: 手順3 の見出しと取り込みのボタンは「ローカル AI を使う」、PC の中だけの会議は「オフラインモード」
-  const step3 = '## 手順3.（任意）ローカル AI を使う（約 5.6GB を取り込む）';
+  const step3 = '## 手順3.（任意）ローカル AI を使う（約 0.6GB を取り込む）';
   assert.ok(install.includes(`\n${step3}\n`), 'INSTALL の手順3 の見出しが任意の形でない');
   const login = install.indexOf('\n## ログインする');
   assert.ok(login > 0 && login < install.indexOf(`\n${step3}`), 'INSTALL のログインの手順が手順3 の前に無い');
@@ -336,7 +338,7 @@ test('0.9.0: README・INSTALL は手順3を任意と書き、ログインを先�
   assert.ok(readme.includes(`［${FETCH_BTN}］`) && readme.includes('任意'), 'README に任意の取り込みが無い');
   const ps = read('get-installer.ps1');
   assert.ok(ps.includes('インストールしたら NaTsu を起動し、［設定］→［アカウント］でログインしてください。'), 'get-installer.ps1 の終わりの案内がログインを先に言わない');
-  assert.ok(ps.includes(`ローカル AI を使うときは、［設定］→［ローカル AI］の［${FETCH_BTN}］を押します（約 5.6GB。途中で切れても続きから取ります）。`));
+  assert.ok(ps.includes(`ローカル AI を使うときは、［設定］→［ローカル AI］の［${FETCH_BTN}］を押します（途中で切れても続きから取ります）。要約は、つながっているときに Claude Code で作ります。`));
 });
 
 const SECS = (() => {

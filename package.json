@@ -1,7 +1,7 @@
 {
   "name": "natsu",
   "version": "0.9.4",
-  "description": "NaTsu — 音声入力・議事録ツール（オンラインは文字起こしの中継を通した OpenAI の文字起こしと各自の Claude Code の要約、オフラインは手元の whisper と llama。出典リンク付き）",
+  "description": "NaTsu — 音声入力・議事録ツール（オンラインは文字起こしの中継を通した OpenAI の文字起こしと各自の Claude Code の要約、オフラインの文字起こしは手元の whisper。出典リンク付き）",
   "main": "src/main.js",
   "author": "Kishi-Satoshi",
   "license": "MIT",

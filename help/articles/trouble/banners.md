@@ -1,7 +1,7 @@
 ---
 title: 帯ごとの対処
 description: 録音中のページの頭に出る帯の文ごとに、何が起きていて、何をすればよいか。どの帯でも録音は続く
-updated: 2026-10-22
+updated: 2026-10-23
 sources: src/main.js, src/mainlib.js, src/renderer/app.html, README.md
 related: record/status-line, trouble/transcription-stops, trouble/login-trouble
 ---
@@ -21,7 +21,7 @@ related: record/status-line, trouble/transcription-stops, trouble/login-trouble
 | … 区間の文字起こしに失敗しました（音声は残してあります）。 | ［もう一度］ を押します |
 | ログインが切れたため、この PC で文字起こしを続けていますが、精度が落ちます。 | ［ログインし直す］ を押します。［設定］の「アカウント」が開くので、［ログイン］ からもう一度ログインします |
 | ログインしていないため、音声を残しています。 | ［ログイン］ を押してログインします。残した音声は、ログインすると文字起こしします |
-| この会議はオフラインモードです。PC の中の文字起こしが入っていないので、音声だけを残しています（外には送りません）。 | 外へは送りません。PC の中で文字起こしするときは、［ローカル AI の準備］ を押して取り込みます（[ローカル AI](settings/offline.md)） |
+| この会議はオフラインモードです。PC の中の文字起こしが入っていないので、音声だけを PC に残しています。 | PC の中で文字起こしするときは、［ローカル AI の準備］ を押して取り込みます（[ローカル AI](settings/offline.md)） |
 | … 分ほど話し声がありません。会議は終わりましたか？ このままなら 5 分後に録音を止めて議事録を作ります。 | 会議が続いているなら ［続ける］、終わっていれば ［終了して作成］ を押します。押さずに 5 分たつと、録音を止めて議事録を作ります（[話し声が無いときに自動で止める](record/start-stop.md#auto-stop)） |
 
 ## ボタンの無い帯 {#no-button}

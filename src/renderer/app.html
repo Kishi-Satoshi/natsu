@@ -1155,7 +1155,7 @@
                 <ul>
                   <li>ログインしていて、インターネットにつながっているときは、会議と音声入力の音声を文字起こしの中継に送り、OpenAI（gpt-4o-transcribe）で文字起こしします。</li>
                   <li>つながっていないときは、いつも PC の中で文字起こしします。</li>
-                  <li>1on1・面談など外に出したくない会議は、議事録の画面の［オフラインモード］を押してください。</li>
+                  <li>ネットワークが不安定なときは、議事録の画面の［オフラインモード］で、その会議の文字起こしを PC の中で行います。</li>
                 </ul>
               </div>
               <div class="setpop-foot"><button type="button" class="setpop-help" data-help="record/pc-only">ヘルプで詳しく見る ↗</button><span class="setpop-esc">Esc で閉じる</span></div>
@@ -3757,8 +3757,9 @@
     const note = $('meetingLocalOnlyNote');
     note.hidden = !on;
     // 0.9.0 U-3（OF4・D21）: PC の中の文字起こしが使えない（needsSetup）なら、音声だけを残していることと準備で文字起こしすることを書く
-    note.textContent = !on ? '' : st.needsSetup ? 'オフラインモードです。音声だけを残しています（外には送りません）。ローカル AI の準備が済むと文字起こしします。'
-      : 'オフラインモードです。この会議の音声は外へ送らず、PC の中で文字起こししています';
+    // 0.10.0 LS-5（D59・D62・決めたこと 112）: 守秘の約束（外へ送らない）にしない。要約はつながっているときに Claude Code で作る
+    note.textContent = !on ? '' : st.needsSetup ? 'オフラインモードです。音声だけを PC に残しています。ローカル AI の準備が済むと文字起こしします（要約はつながっているときに Claude Code で作ります）'
+      : 'オフラインモードです。文字起こしを PC の中で行います（要約はつながっているときに Claude Code で作ります）';
   }
   // 記録の行の文。括弧の中は「相手の声も」（相手の声も録っている）・「録音していません」（一時停止）と「オフライン」（D55）を「・」でつなぐ。区間の待ちは後ろの括弧のまま
   function liveTitleText(st) {
@@ -4307,11 +4308,11 @@
       dir = true; sw = manual.length > 0;
     } else if (state === 'missing' && s.consent === false && !manual.length && !s.whisperReady) {
       // 0.9.0 U-3（OF7・D21・決めたこと 10）: まだ取り込んでいず、押したことも無い（consent が偽）・手の組も無い: 任意の選択として、
-      // 得るもの（OFF3）とかかるもの（OFF4。数は下の今の計算と同じ）を書き、ボタンは［オフラインでも使う（数 GB を取り込む）］（OFF5）。押したことが同意
+      // 得るもの（OFF3）とかかるもの（OFF4。数は下の今の計算と同じ）を書き、ボタンは［オフラインでも使う（数 GB を取り込む）］（OFF5。0.9.3 から［ローカル AI を使う…］、0.10.0 LS-5 から数は今の計算）。押したことが同意
       const free = s.freeBytes !== null && s.freeBytes !== undefined && Number.isFinite(Number(s.freeBytes)) ? `（今の空き 約 ${fetchGB(s.freeBytes)}）` : '';
       lines.push(['取り込むと: インターネットにつながっていないときやオフラインモードの会議でも、PC の中で文字起こしができます。要約は、インターネットにつながっているときに作ります。']);
       lines.push([`かかるもの: ディスクの空き 約 ${fetchGB(need)}${free}・取り込みの時間 10Mbps の回線で約 ${fetchMinutes(need)} 分。議事録の記録中は、Web 会議の回線を守るため取り込みを止めます。`]);
-      btn = 'ローカル AI を使う（数 GB を取り込む）';
+      btn = `ローカル AI を使う（約 ${fetchGB(need)} を取り込む）`;   // 0.10.0 LS-5: 要約の組を外して約 0.6GB になった。数は今の計算
       offer = true;
     } else {   // missing・partial
       const what = manual.length ? `${handPrefix}${FETCH_GROUPS[fetching[0]].name}を` : 'PC の中の文字起こしを';

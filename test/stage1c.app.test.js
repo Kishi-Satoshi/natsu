@@ -66,7 +66,8 @@ test('OL4: カード「文字起こし」（前の「オンライン」）の頭
   assert.strictEqual(desc.textContent, 'つながっているときはクラウド、つながっていないときは PC の中で文字起こしします。');
   const pop = l.byId.get('setPopStt');
   for (const el of [pop.querySelector('.setpop-head'), ...pop.querySelectorAll('li')]) assert.ok(!/\s{2,}|\n/.test(el.textContent), `吹き出しの文に改行の空白がある: ${el.textContent}`);
-  assert.ok(pop.querySelectorAll('li').some((li) => li.textContent.startsWith('1on1・面談')), '1on1 の注意の箇条が無い');
+  // 0.10.0 LS-5（D62）で意図して変えた: オフラインモードは守秘のボタンでない（「1on1・面談など外に出したくない会議は」をネットワークの向きに）
+  assert.ok(pop.querySelectorAll('li').some((li) => li.textContent.startsWith('ネットワークが不安定なときは、議事録の画面の［オフラインモード］')), 'オフラインモードの箇条が無い');
 });
 
 // ---- 計画の外で足した守り（Task C-2 の実装で決めたこと）----
@@ -155,7 +156,8 @@ test('RF28: 会議中の［この会議は PC の中だけ］を押すと main �
   await l.drain();
   assert.deepStrictEqual(calls, [true]);
   assert.strictEqual(l.byId.get('meetingLocalOnly').hidden, true);
-  assert.match(l.byId.get('meetingLocalOnlyNote').textContent, /オフラインモードです。この会議の音声は外へ送らず、PC の中で文字起こししています/);
+  // 0.10.0 LS-5（D59・D62）で意図して変えた: 守秘の約束にしない
+  assert.match(l.byId.get('meetingLocalOnlyNote').textContent, /オフラインモードです。文字起こしを PC の中で行います（要約はつながっているときに Claude Code で作ります）/);
   // 0.9.3 持ち主の答え D55 で足した: ボタンのあった所に押せない札「オフラインモード中」、記録の行の括弧に「オフライン」（戻すボタンは今どおり無い）
   assert.strictEqual(l.byId.get('meetingLocalOnlyState').hidden, false, '押した後に札「オフラインモード中」が無い');
   assert.strictEqual(l.byId.get('meetingLocalOnlyStateText').textContent, 'オフラインモード中');

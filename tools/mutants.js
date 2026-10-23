@@ -1461,7 +1461,7 @@ module.exports = [
   { id: "op-ui-neutral", file: "src/renderer/app.html", from: "$('engineState').className = 'eng-state';", to: "$('engineState').className = 'eng-state ng';", tests: ["test/stage1d2.app.test.js"], why: "0.9.0 U-3: カードの状態を選んでいない人でも ng にする" },
   { id: "op-ui-startup-jump", file: "src/renderer/app.html", from: "    if (!engineChosen) {\n      let a = null;", to: "    if (false) {\n      let a = null;", tests: ["test/stage1d2.app.test.js"], why: "0.9.0 U-3: 起動で選んでいない人も設定のタブへ連れて行く" },
   { id: "op-ui-signin-account", file: "src/renderer/app.html", from: "if (!(a && a.signedIn)) showAccount();", to: "", tests: ["test/stage1d2.app.test.js"], why: "0.9.0 U-3: 起動でログインしていない人に「アカウント」を開かない" },
-  { id: "op-ui-fetch-label", file: "src/renderer/app.html", from: "btn = 'ローカル AI を使う（数 GB を取り込む）';", to: "btn = 'PC の中の文字起こしを取り込む';", tests: ["test/stage1d2.app.test.js"], why: "0.9.0 U-3: 取り込みの欄の初めのボタンを今の名前に戻す" },
+  { id: "op-ui-fetch-label", file: "src/renderer/app.html", from: "btn = `ローカル AI を使う（約 ${fetchGB(need)} を取り込む）`;", to: "btn = 'PC の中の文字起こしを取り込む';", tests: ["test/stage1d2.app.test.js"], why: "0.9.0 U-3: 取り込みの欄の初めのボタンを今の名前に戻す" },
   { id: "op-ui-test-hidden", file: "src/renderer/app.html", from: "$('testBtn').hidden = !engineChosen;", to: "$('testBtn').hidden = false;", tests: ["test/stage1d2.app.test.js"], why: "0.9.0 U-3: ［PC の中で試す］を選んでいない人にも出す" },
   { id: "op-ui-banner-signin", file: "src/renderer/app.html", from: "engine: 'エンジンを確かめる', signin: 'ログイン', offline:", to: "engine: 'エンジンを確かめる', offline:", tests: ["test/stage1d2.app.test.js"], why: "0.9.0 U-3: 帯の signin のボタンを出さない" },
   { id: "op-ui-notice-signin", file: "src/renderer/app.html", from: "signin: { label: 'ログイン', run: () => showAccount() }", to: "signin: { label: 'ログインし直す', run: () => showAccount() }", tests: ["test/stage1d2.app.test.js"], why: "0.9.0 U-3: 知らせの signin のボタンを［ログインし直す］にする" },
@@ -1591,7 +1591,7 @@ module.exports = [
   // M-0（持ち主の答え D54）: 「オフラインモード」「ローカル AI の設定」への名前の付け直し
   { id: 'r-button', file: 'src/renderer/app.html', from: "type=\"button\" hidden>オフラインモード</button>'", to: "type=\"button\" hidden>この会議は PC の中だけ</button>'",
     tests: ['test/stage093.rename.test.js'], why: '0.9.3 M-0 D54: 録音中のページのボタンを［この会議は PC の中だけ］に戻す' },
-  { id: 'r-notice', file: 'src/main.js', from: '1on1・面談など外に出したくない会議は、議事録の画面の［オフラインモード］を押してください。\',\n  \'signed-out\'', to: '1on1・面談など外に出したくない会議は、議事録の画面の［この会議は PC の中だけ］を押してください。\',\n  \'signed-out\'',
+  { id: 'r-notice', file: 'src/main.js', from: 'ネットワークが不安定なときは、議事録の画面の［オフラインモード］を押すと、この会議の文字起こしを PC の中で行います。\',\n  \'signed-out\'', to: 'ネットワークが不安定なときは、議事録の画面の［この会議は PC の中だけ］を押すと、この会議の文字起こしを PC の中で行います。\',\n  \'signed-out\'',
     tests: ['test/stage093.rename.test.js'], why: '0.9.3 M-0 D54: 会議の始めの知らせ（M1）を「［この会議は PC の中だけ］を押してください」に戻す' },
   { id: 'r-section', file: 'src/renderer/app.html', from: '<span>ローカル AI</span></button>', to: '<span>オフライン</span></button>',
     tests: ['test/stage093.rename.test.js'], why: '0.9.3 M-0 D54: 設定の左の列の名前を「オフライン」に戻す' },
@@ -1966,4 +1966,8 @@ module.exports = [
   {"id":"ls-retire-whisper","file":"src/engine-install.js","from":"  try { await F.promises.rmdir(path.join(root, table.dir)); } catch (_) {","to":"  try { await F.promises.rm(root, { recursive: true, force: true }); } catch (_) {","tests":["test/stage100.summary.retire.test.js"],"pattern":"1バイトも変わらない","why":"0.10.0 LS-4 決めたこと 107: 管理しているフォルダの全部を消す（whisper と VAD も消え、文字起こしが使えなくなる）"},
   {"id":"ls-retire-busy","file":"src/engine-install.js","from":"  if (out.left) return out;\n  try { await F.promises.rmdir","to":"  try { await F.promises.rmdir","tests":["test/stage100.summary.retire.test.js"],"pattern":"使用中","why":"0.10.0 LS-4 決めたこと 107: 使用中のファイルが残っても記録を外す（次の起動で消し残しを見つけにくい）"},
   {"id":"ls-retire-notice","file":"src/main.js","from":"  if (!ENGINE_HOME.supported || settings.retiredSumNotified === true) return;","to":"  if (!ENGINE_HOME.supported) return;","tests":["test/stage100.summary.retire.test.js"],"pattern":"知らせは1回|知らせる（2回目","why":"0.10.0 LS-4 決めたこと 108: 知らせを起動ごとに出す"},
+  // 0.10.0 Task LS-5（案内・ヘルプ・配るもの・オフラインモードの文。D59・D62）
+  {"id": "ls-ship-summarizer", "file": ".github/workflows/release.yml", "from": "SETUP=\"get-installer.ps1 setup-local-engine.ps1\"", "to": "SETUP=\"get-installer.ps1 setup-local-engine.ps1 setup-summarizer.ps1\"", "tests": ["test/repo.test.js"], "pattern": "0\\.10\\.0 LS-5: リリースの手順", "why": "0.10.0 LS-5 D59: リリースに要約のセットアップスクリプトをまた添付する（消したファイルを配ろうとしてリリースが落ちる・要約のローカル AI の案内が残る）"},
+  {"id": "ls-note-promise", "file": "src/renderer/app.html", "from": "      : 'オフラインモードです。文字起こしを PC の中で行います（要約はつながっているときに Claude Code で作ります）';", "to": "      : 'オフラインモードです。この会議の音声は外へ送らず、PC の中で文字起こししています';", "tests": ["test/stage1d2.app.test.js"], "pattern": "^OF4", "why": "0.10.0 LS-5 D62: 押した後の行が「外へ送らない」を約束する（要約と Claude が読むときは文が Anthropic へ送られる）"},
+  {"id": "ls-notice-secret", "file": "src/main.js", "from": "ネットワークが不安定なときは、議事録の画面の［オフラインモード］を押すと、この会議の文字起こしを PC の中で行います。',\n  'signed-out'", "to": "1on1・面談など外に出したくない会議は、議事録の画面の［オフラインモード］を押してください。',\n  'signed-out'", "tests": ["test/stage093.rename.test.js"], "pattern": "^D54: 録音中のページのボタン", "why": "0.10.0 LS-5 D62: 会議の始めの知らせがオフラインモードを守秘のボタンとして勧める（要約の文は Claude へ送られる）"},
 ];

@@ -1,13 +1,14 @@
 ---
 title: Claude Code の要約ができない
 description: 要約の欄に出る文ごとの対処。Claude Code が入っていない・ログイン切れ・上限・API キー・古い版・時間切れ
-updated: 2026-10-21
+updated: 2026-10-23
 sources: src/claude-cli.js, src/main.js, src/renderer/app.html, README.md
 related: start/claude-code, summary/how-summaries, trouble/banners
 ---
 
-インターネットにつながっているとき、要約はご自分の Claude Code で作ります。
-作れないときは、PC の中の要約に黙って切り替えず、要約の欄に理由と直し方を出します。文字起こしとメモは残っています。
+要約は、いつもご自分の Claude Code で作ります（0.10.0 から。PC の中では要約しません）。
+作れないときは、要約の欄に理由と直し方を出します。文字起こしとメモは残っています。
+会議の終わりにつながっていないときは「要約待ち（つながったら作ります）」と出し、つながったら自動で作ります（[要約の作られ方](summary/how-summaries.md#wait)）。
 
 直した後は、議事録の右上の ［要約を生成］ を押すと作り直せます。
 
