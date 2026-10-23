@@ -8,7 +8,6 @@
   "scripts": {
     "start": "electron .",
     "test": "node --test --test-reporter=tap \"test/*.test.js\"",
-    "dist": "electron-builder --win portable",
     "dist:installer": "electron-builder --win nsis",
     "gate": "node tools/risk.js",
     "gate:staged": "node tools/risk.js --staged",
@@ -37,13 +36,9 @@
     "compression": "maximum",
     "win": {
       "target": [
-        "portable",
         "nsis"
       ],
       "icon": "assets/icon.ico"
-    },
-    "portable": {
-      "artifactName": "NaTsu-${version}-portable.exe"
     },
     "nsis": {
       "artifactName": "NaTsu-${version}-setup.exe",

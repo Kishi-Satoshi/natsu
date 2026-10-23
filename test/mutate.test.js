@@ -579,12 +579,13 @@ const IDS_100 = [
   'mcp-get-listed', 'mcp-ref', 'mcp-transcript-page', 'mcp-failed-text', 'mcp-memo-quote', 'mcp-sections',
   'mcp-multi-cursor', 'mcp-multi-listed', 'mcp-expand-listed', 'mcp-expand-cap', 'mcp-pass-anchor',
   'mcp-pass-visible-sql', 'mcp-pass-df-hidden',
+  'pt-target', 'pt-upload',
 ];
-test('G3: 0.10.0 の変異が一覧にそろい、IDS_100 はどれも計画の「変異確認」の表にある。mcp-・cfg-・lk-・ls- の変異は IDS_100 にある。どれも決まったテストのファイルを持ち、なぜ戻すと困るかを書く', { timeout: 5000 }, () => {
+test('G3: 0.10.0 の変異が一覧にそろい、IDS_100 はどれも計画の「変異確認」の表にある。mcp-・cfg-・lk-・ls-・stl-・nl-・pt- の変異は IDS_100 にある。どれも決まったテストのファイルを持ち、なぜ戻すと困るかを書く', { timeout: 5000 }, () => {
   const byId = new Map(MUTANTS.map((m) => [m.id, m]));
   assert.deepStrictEqual(IDS_100.filter((id) => !byId.has(id)), [], 'IDS_100 の変異が一覧に無い');
   assert.strictEqual(new Set(IDS_100).size, IDS_100.length, 'IDS_100 に重なり');
-  assert.deepStrictEqual(MUTANTS.filter((m) => /^(mcp|cfg|lk|ls)-/.test(m.id) && !IDS_100.includes(m.id)).map((m) => m.id), [], 'IDS_100 に無い 0.10.0 の接頭の変異がある');
+  assert.deepStrictEqual(MUTANTS.filter((m) => /^(mcp|cfg|lk|ls|stl|nl|pt)-/.test(m.id) && !IDS_100.includes(m.id)).map((m) => m.id), [], 'IDS_100 に無い 0.10.0 の接頭の変異がある');
   const plan = fs.readFileSync(path.join(ROOT, 'docs', 'plans', '2026-10-20-100.md'), 'utf8');
   // D60 で計画を分けた（メモの型と打ち合わせの質は 0.11.0・話者は 0.12.0 の計画）。0.10.0 の表は1つ
   const table = plan.slice(plan.indexOf('## 変異確認（直しを1つ戻すと'), plan.indexOf('## ゲート'));

@@ -344,14 +344,15 @@ jobs:
           SKIPPED="$(grep -E '^# skipped [0-9]+' "$LOG" | tail -n 1 | sed -E 's/^# skipped ([0-9]+).*/\1/' || true)"
           if [ -z "$SKIPPED" ] || [ "$SKIPPED" -gt 1 ]; then echo "::error::飛ばしたテストが ${SKIPPED:-?} 件（許すのは 1 件まで）"; exit 1; fi
 
-      - name: NSIS とポータブルを作る
+      # 0.10.0 PB-1（D76）: ポータブル版は作らない（最後は 0.9.4）
+      - name: NSIS を作る
         shell: bash
-        run: node_modules/.bin/electron-builder --win nsis portable --publish never
+        run: node_modules/.bin/electron-builder --win nsis --publish never
 
       - name: 詰めた NaTsu.exe で node:sqlite・trigram・backup() を確かめる
         shell: bash
         run: |
-          ls -l dist/*-setup.exe dist/*-portable.exe
+          ls -l dist/*-setup.exe
           ELECTRON_RUN_AS_NODE=1 dist/win-unpacked/NaTsu.exe tools/sqlite-probe.js
 
   # 変異確認（第1a回 G3）。tools/mutants.js の変異を1つずつ当て、決めたテストが赤になるか（殺せるか）を見る。

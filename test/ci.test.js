@@ -296,7 +296,8 @@ test('npm test は TAP で出す（Node 23 から既定が spec になり、ci.y
 
 // ---------------------------------------------------------------- electron-smoke・リリースの煙テスト（第0c回 EL6・EL8。C5）
 const idxOf = (st, re) => st.findIndex((s) => re.test(s));
-test('ci.yml の electron-smoke（Windows）: 本体を取り込み、node_modules の Electron で煙テスト → NSIS とポータブル → 詰めた NaTsu.exe で煙テスト', () => {
+// 0.10.0 PB-1 で意図して変えた（D76）: ポータブル版を作らない（NSIS だけ）
+test('ci.yml の electron-smoke（Windows）: 本体を取り込み、node_modules の Electron で煙テスト → NSIS → 詰めた NaTsu.exe で煙テスト', () => {
   const j = jobsOf(read('.github/workflows/ci.yml'))['electron-smoke'];
   assert.ok(j, 'electron-smoke のジョブが無い');
   assert.match(j, /^    runs-on: windows-latest$/m);
@@ -304,26 +305,27 @@ test('ci.yml の electron-smoke（Windows）: 本体を取り込み、node_modul
   assert.ok(st.some((s) => /uses: actions\/checkout@v4/.test(s) && /fetch-depth: 0/.test(s)), '履歴ごと取っていない（Task 14 のテスト全部で gate.test.js が読む）');
   const i = [/npm install --no-audit --no-fund/, /node node_modules\/electron\/install\.js/,
     /ELECTRON_RUN_AS_NODE=1 node_modules\/electron\/dist\/electron\.exe tools\/sqlite-probe\.js/,
-    /electron-builder --win nsis portable --publish never/,
+    /electron-builder --win nsis --publish never/,
     /ELECTRON_RUN_AS_NODE=1 dist\/win-unpacked\/NaTsu\.exe tools\/sqlite-probe\.js/].map((re) => idxOf(st, re));
   assert.ok(i[0] >= 0 && i.every((v, k) => k === 0 || v > i[k - 1]), `順が違う: ${i.join(',')}`);
 });
-test('release.yml の installer: 本体を取り込んで煙テストを通してから exe を作り、詰めた NaTsu.exe でも通してから、setup とポータブルを添付する', () => {
+// 0.10.0 PB-1 で意図して変えた（D76）: ポータブル版を作らず、setup だけを添付する
+test('release.yml の installer: 本体を取り込んで煙テストを通してから exe を作り、詰めた NaTsu.exe でも通してから、setup を添付する', () => {
   const st = stepsOf(jobsOf(read('.github/workflows/release.yml')).installer);
   const i = [/npm install --no-audit --no-fund/, /node node_modules\/electron\/install\.js/,
     /ELECTRON_RUN_AS_NODE=1 node_modules\/electron\/dist\/electron\.exe tools\/sqlite-probe\.js/,
-    /npm run dist:installer -- --publish never/, /npm run dist -- --publish never/,
+    /npm run dist:installer -- --publish never/,
     /ELECTRON_RUN_AS_NODE=1 dist\/win-unpacked\/NaTsu\.exe tools\/sqlite-probe\.js/,
-    /gh release upload "\$TAG" --repo "\$GITHUB_REPOSITORY" dist\/\*-setup\.exe dist\/\*-portable\.exe/].map((re) => idxOf(st, re));
+    /gh release upload "\$TAG" --repo "\$GITHUB_REPOSITORY" dist\/\*-setup\.exe$/m].map((re) => idxOf(st, re));
   assert.ok(i[0] >= 0 && i.every((v, k) => k === 0 || v > i[k - 1]), `順が違う: ${i.join(',')}`);
-  for (const k of [1, 2, 4, 5]) assert.match(st[i[k]], /^\s*if: steps\.exists\.outputs\.skip == 'false'$/m, `${k} 番目の段が、既に exe があるときも走る`);
+  for (const k of [1, 2, 3, 4]) assert.match(st[i[k]], /^\s*if: steps\.exists\.outputs\.skip == 'false'$/m, `${k} 番目の段が、既に exe があるときも走る`);
 });
 test('ci.yml の electron-smoke: 小さなアプリと、テスト全部を Electron の Node で回す段が、煙テストの後・exe を作る前にある', () => {
   const st = stepsOf(jobsOf(read('.github/workflows/ci.yml'))['electron-smoke']);
   const i = [/ELECTRON_RUN_AS_NODE=1 node_modules\/electron\/dist\/electron\.exe tools\/sqlite-probe\.js/,
     /node_modules\/electron\/dist\/electron\.exe tools\/electron-smoke$/m,
     /ELECTRON_RUN_AS_NODE=1 node_modules\/electron\/dist\/electron\.exe --test --test-reporter=tap "test\/\*\.test\.js"/,
-    /electron-builder --win nsis portable/].map((re) => idxOf(st, re));
+    /electron-builder --win nsis/].map((re) => idxOf(st, re));
   assert.ok(i[0] >= 0 && i.every((v, k) => k === 0 || v > i[k - 1]), `順が違う: ${i.join(',')}`);
   assert.ok(st[i[2]].includes('# skipped') && st[i[2]].includes('-gt 1'), '飛ばしたテストの数を見ていない');
 });
@@ -344,7 +346,7 @@ test('ワークフローは npx で道具を呼ばず、node_modules/.bin か np
     const runs = read(f).split('\n').filter((l) => /^\s*(- )?run: /.test(l) || /^\s{10,}\S/.test(l)).join('\n');
     assert.ok(!/(^|[\s'"|;&])npx\s/m.test(runs.replace(/#.*$/gm, '')), `${f} が npx を使っている`);
   }
-  assert.match(read('.github/workflows/ci.yml'), /^        run: node_modules\/\.bin\/electron-builder --win nsis portable --publish never$/m);
+  assert.match(read('.github/workflows/ci.yml'), /^        run: node_modules\/\.bin\/electron-builder --win nsis --publish never$/m);
 });
 
 test('ci.yml・release.yml: 引用符の無い1行の値に「: 」が無い（あると YAML として読めず、ワークフローが1つのジョブも動かずに赤になる）', { timeout: 5000 }, () => {
@@ -387,4 +389,16 @@ test('サーバーを立てる取り込みのテスト（engine-install・engine
       assert.strictEqual(head.includes(', IO_WAIT, '), io, `${f}: ${head.slice(0, 60)}`);
     }
   }
+});
+
+// ---------------------------------------------------------------- 0.10.0 PB-1（D76・決めたこと 150）: ポータブル版を作らず配らない
+test('D76: ci.yml は electron-builder --win nsis --publish never・release.yml の添付は *-setup.exe だけで *-portable.exe の字が無い', () => {
+  const ci = read('.github/workflows/ci.yml');
+  const rel = read('.github/workflows/release.yml');
+  assert.match(ci, /electron-builder --win nsis --publish never/);
+  assert.match(ci, /ls -l dist\/\*-setup\.exe$/m);
+  for (const [n, t] of [['ci.yml', ci], ['release.yml', rel]]) {
+    assert.ok(!/portable/i.test(t.replace(/^\s*#.*$/gm, '')), `${n} にポータブル版の字がある`);
+  }
+  assert.ok(!/npm run dist -- /.test(rel), 'release.yml がポータブル版を作る');
 });

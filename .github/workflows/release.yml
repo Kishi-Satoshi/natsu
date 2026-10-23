@@ -288,10 +288,6 @@ jobs:
         if: steps.exists.outputs.skip == 'false'
         run: npm run dist:installer -- --publish never
 
-      - name: ポータブル版を作る
-        if: steps.exists.outputs.skip == 'false'
-        run: npm run dist -- --publish never
-
       # 詰めた exe で node:sqlite が動くことと、exe を Node として起動できる設定（RunAsNode）が切られていないこと
       - name: 詰めた NaTsu.exe で同じ煙テストを走らせる（配る exe。無ければ出さない）
         if: steps.exists.outputs.skip == 'false'
@@ -306,7 +302,7 @@ jobs:
         shell: bash
         run: |
           ls -l dist/*.exe
-          gh release upload "$TAG" --repo "$GITHUB_REPOSITORY" dist/*-setup.exe dist/*-portable.exe
+          gh release upload "$TAG" --repo "$GITHUB_REPOSITORY" dist/*-setup.exe
 
       # exe が揃ったので公開する。「既に添付されている」経路（作り直さない）でも
       # release ジョブが draft に戻しているので、ここで必ず解く。

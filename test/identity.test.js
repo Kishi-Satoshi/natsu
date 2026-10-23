@@ -57,7 +57,7 @@ test('識別子: name は natsu・版は 0.9.4・productName は build の中だ
   assert.strictEqual(pkg.build.appId, 'local.natsu.app');
   assert.strictEqual(pkg.build.nsis.shortcutName, 'NaTsu');
   assert.strictEqual(pkg.build.nsis.artifactName, 'NaTsu-${version}-setup.exe');
-  assert.strictEqual(pkg.build.portable.artifactName, 'NaTsu-${version}-portable.exe');
+  assert.strictEqual(pkg.build.portable, undefined, '0.10.0 PB-1（D76）: ポータブル版は作らない');
   for (const [n, s] of [['README.md', readme], ['INSTALL.md', install]]) {
     assert.ok(s.includes('%APPDATA%\\natsu\\'), `${n}: 保存先`);
     assert.ok(s.includes('%LOCALAPPDATA%\\Programs\\NaTsu'), `${n}: インストール先`);

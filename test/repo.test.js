@@ -1367,3 +1367,13 @@ test('0.10.0 F16・RF75: src/mcp/ のどのファイルも、決めたこと 59 
     for (const w of ['listen(', 'createServer(', 'fetch(']) assert.ok(!src.includes(w), `${f}: ${w} がある`);
   }
 });
+
+test('0.10.0 D76: README・INSTALL に「0.10.0 からポータブル版はありません」と、インストーラーで入れ直す案内（議事録と設定はそのまま）がある', () => {
+  for (const n of ['README.md', 'INSTALL.md']) {
+    const s = read(n);
+    assert.ok(s.includes('0.10.0 からポータブル版はありません'), n);
+    assert.ok(s.includes('NaTsu-<版>-setup.exe'), n);
+    assert.ok(s.includes('議事録と設定はそのまま使えます'), n);
+    assert.ok(!s.includes('NaTsu-<版>-portable.exe に置き換え') && !s.includes('portable.exe` を落とし直して'), n);
+  }
+});
