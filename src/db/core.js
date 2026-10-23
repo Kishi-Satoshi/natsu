@@ -36,7 +36,7 @@ const SCHEMA_VERSION = 1;
 const BUSY_MS = 5000;
 const ROLES = ['app', 'main'];
 const MAIN_ACTORS = ['system', 'recovery', 'migration'];
-const CMD_CODES = ['not-found', 'conflict', 'bad-args'];
+const CMD_CODES = ['not-found', 'conflict', 'bad-args', 'locked'];   // locked: 要約の欄の鍵（0.10.0 LS-2・O8）
 
 const COMMANDS = Object.freeze(Object.assign(Object.create(null), commands.COMMANDS));
 const TEST_COMMANDS = Object.create(null);

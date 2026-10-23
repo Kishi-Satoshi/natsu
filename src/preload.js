@@ -216,6 +216,8 @@ contextBridge.exposeInMainWorld('koeApp', {
   // 0.10.0 LN-4: 検索の窓に貼ったリンクの照らし（main で。→ { id, anchor } か null）と、リンクで起こされたときに開くページ（{ id, anchor }）
   parseLink: (s) => ipcRenderer.invoke('app:parse-link', s),
   onOpenLink: (cb) => ipcRenderer.on('page:open-link', (_e, p) => cb(p)),
+  // 0.10.0 LS-2: main が今作っている要約のページの ID の並び（要約の欄の鍵の making）
+  onSummaryRunning: (cb) => ipcRenderer.on('summary:running', (_e, ids) => cb(ids)),
 
   // 画面の覚え書き（第1b回 N6）。サイドバーの幅と畳み・開いているタブ。main が照らしてから window-state.json に覚える
   uiState: () => ipcRenderer.invoke('ui:get'),

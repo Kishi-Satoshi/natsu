@@ -953,7 +953,9 @@ function summaryLock(page, { live = false, making = false, segments = [] } = {})
   if (live) return 'live';
   if (making) return 'making';
   if (p.summaryWait === true) return 'wait';
-  const made = p.route && typeof p.route === 'object' && p.route.summary && typeof p.route.summary === 'object' && p.route.summary.at;
+  // 要約ができた印は route.summary（成功したときだけ main が { by, at } を書く。at の無い古い形も by で読む）
+  const sum = p.route && typeof p.route === 'object' && p.route.summary && typeof p.route.summary === 'object' ? p.route.summary : null;
+  const made = Boolean(sum && (sum.at || sum.by));
   if (made || (Array.isArray(p.blocks) && p.blocks.length > 0)) return '';
   if (typeof p.summaryError === 'string' && p.summaryError) return '';
   const said = Array.isArray(segments) && segments.some((x) => x && !x.failed && typeof x.text === 'string' && x.text.trim());

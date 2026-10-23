@@ -141,7 +141,8 @@ test('S1: エンジンが誤りを返す区間は 3 回までやり直し、3 �
 });
 
 test('S1: ［文字起こしを後回しにして要約］は待ちの区間を kept にし、WAV を消さない。要約は今ある分で作る。会議の後に残した区間が文字になったら『［要約を生成］で議事録を作り直せます』の知らせ（自動で作り直さない）', T, async () => {
-  const o = await run(['slow', '--segs=3', '--sum', '--skip-at-stop', '--wait-queue-empty'], { scale: '0.02' });
+  // 0.10.0 LS-2（D59）で意図して直した: 要約は Claude Code だけなので、偽の claude で作る（chats は作った要約の数）
+  const o = await run(['slow', '--segs=3', '--sum', '--claude=ok', '--skip-at-stop', '--wait-queue-empty'], { scale: '0.02' });
   assert.deepStrictEqual(o.skip, { ok: true, skipped: 2 });
   // 後回しにした区間は「文字起こし待ち」の文で WAV を残す（打ち切りの文にしない）
   assert.deepStrictEqual(o.skippedSegs.map((s) => [s.text, s.wav]), [['（文字起こし待ち: 音声は残してあります）', true], ['（文字起こし待ち: 音声は残してあります）', true]], JSON.stringify(o.skippedSegs));
@@ -156,7 +157,8 @@ test('S1: ［文字起こしを後回しにして要約］は待ちの区間を 
 });
 
 test('kept-late の区間がある会議は、締めで要約を待たせ（S3）、待ち行列が済んだら自動で要約する（0.9.0 の R1 と同じ）', T, async () => {
-  const o = await run(['hang-first', '--segs=1', '--sum', '--wait-queue-empty']);
+  // 0.10.0 LS-2（D59）で意図して直した: 要約は Claude Code だけなので、偽の claude で作る（chats は作った要約の数）
+  const o = await run(['hang-first', '--segs=1', '--sum', '--claude=ok', '--wait-queue-empty']);
   assert.strictEqual(o.chatsAtFinalize, 0, '時間切れの区間を待たずに要約した');
   assert.strictEqual(o.summaryAtFinalize, '文字起こし待ちの音声があります。文字起こしが済むと、自動で要約を作ります。');
   assert.ok(o.afterQueue.notices.some((n) => /^残しておいた音声を文字起こししました（1\/1 区間）。続けて要約を作ります。$/.test(n)), JSON.stringify(o.afterQueue.notices));

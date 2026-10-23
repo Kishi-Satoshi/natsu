@@ -382,30 +382,17 @@ module.exports = {
   // before-quit は1回だけ止め、「要約が中断されました」をページに書いてから app.quit() を呼ぶ。2回目の before-quit は止めずにエンジンを止める
   // db.call の答えは 30ms 遅らせる（第2a1回 M-1 で、書き込みをほぼ同期で済ませる json-backend のために足した。DB のプロセスの返事の
   // 遅れに上乗せして、待たずに app.quit() を呼ぶと間に合わないようにする）
+  // 0.10.0 LS-2（D59）で意図して直した: 要約は Claude Code だけ。--claude=slow（FAKE_CLAUDE_DELAY の間、-p が答えない）の偽の claude で、要約の途中に終える
   'quit-during-summary': { dbDelayMs: 30, files: {
-      'settings.json': ({ base, userData }) => pretty({ ...TYPICAL, sumPort: base.sumPort,
-        sumServerExe: require('node:path').join(userData, 'engine-sum', 'llama-server.exe'), sumModelPath: require('node:path').join(userData, 'engine-sum', 'sum-model.gguf') }),
-      // 偽の実行ファイルは 8KB にする。NTFS は数百バイトまでの小さなファイルを MFT の中に置き（割り当て 0）、Windows の Node の
-      // stat の blocks が 0 になって engineFileIssue が「プレースホルダ」と見なし、要約エンジンを「未設定」にする（CI の Windows で落ちた）
-      'engine-sum/llama-server.exe': 'MZ-fake-llama-server'.padEnd(8192, '.'),
+      'settings.json': ({ base }) => pretty({ ...TYPICAL, claudeExe: base.claudeExe }),
       'data/pages/pq1.json': JSON.stringify({ id: 'pq1', title: titleAt('2026-10-01T00:00:00.000Z'), blocks: [], memo: '', createdAt: '2026-10-01T00:00:00.000Z', summaryError: '', route: { localOnly: true } }),
       'data/transcripts/pq1.json': JSON.stringify({ id: 'pq1', segments: [{ id: 's1', atMs: 0, durationMs: 3000, text: '本日の議題は進捗の確認です' }] }) },
-    // 要約のモデルは大きさの床（300MB）を超える疎のファイル（先頭だけ書く。全部が疎だとプレースホルダと見なされる）
-    prepare: (ud) => {
-      const fs = require('node:fs');
-      const fd = fs.openSync(require('node:path').join(ud, 'engine-sum', 'sum-model.gguf'), 'w');
-      fs.writeSync(fd, Buffer.alloc(8192, 1));
-      fs.ftruncateSync(fd, 301 * 1024 * 1024);
-      fs.closeSync(fd);
-    },
     act: async (c) => {
-      const exe = require('node:path').join(c.userData, 'engine-sum', 'llama-server.exe');
-      const kills = () => c.fakeKids.filter((k) => k.cmd === exe).reduce((n, k) => n + k.kills, 0);
       const summarizing = c.handlers['page:summarize']({}, 'pq1');
-      c.out.sumStarted = await c.waitFor(() => c.fakeKids.some((k) => k.cmd === exe), 5000);
+      c.out.sumStarted = await c.waitFor(() => c.claudeCalls().some((k) => k.kind === 'p'), 5000);
       const quits = [];
-      // app.quit() を呼ばれた瞬間のページのファイル（書き込みを待ってから呼んだか）とエンジンを止めた回数
-      c.app.quit = () => { const p = c.store.getPage('pq1'); quits.push({ summaryError: p ? p.summaryError : null, kills: kills() }); };
+      // app.quit() を呼ばれた瞬間のページのファイル（書き込みを待ってから呼んだか）
+      c.app.quit = () => { const p = c.store.getPage('pq1'); quits.push({ summaryError: p ? p.summaryError : null }); };
       const ev1 = { n: 0, preventDefault() { this.n += 1; } };
       c.app.emit('before-quit', ev1);
       c.out.quitted = await c.waitFor(() => quits.length >= 1, 5000);
@@ -415,8 +402,7 @@ module.exports = {
       await c.sleep(50);
       c.out.prevented = [ev1.n, ev2.n];
       c.out.quits = quits;
-      c.out.killsAfter = kills();
-      c.out.summary = await Promise.race([summarizing, c.sleep(5000).then(() => 'timeout')]);
+      c.out.summary = await Promise.race([summarizing, c.sleep(2000).then(() => 'running')]);
       const p = c.store.getPage('pq1');
       c.out.summaryErrorAfter = p ? p.summaryError : null;
     } },

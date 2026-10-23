@@ -94,8 +94,10 @@ const C3_100 = ['settings-summary-light', 'settings-info-claude-light', 'setting
 const L1_100 = ['page-menu-link-light', 'page-menu-link-dark'];
 // L-2（D58・D70）: 左の一覧の［選ぶ］で2件を選んだ形（ほかの本体の画面に出る見出しの行の［選ぶ］は、SH-1 の表の画面に入っている）
 const L2_100 = ['list-select-light', 'list-select-dark'];
-const NEW_100 = ['settings-mcp-light', 'settings-info-mcp-light', ...L1_100, ...L2_100];
-const RETAKE_100 = [...SH1_100, ...C3_100, ...L1_100, ...L2_100];
+// LS-2（D63・D69・決めたこと 111 の 7）: まだ要約を作っていない会議のページ（要約の欄の鍵の一言）。足した画面
+const LS2_100 = ['page-summary-lock-light'];
+const NEW_100 = ['settings-mcp-light', 'settings-info-mcp-light', ...L1_100, ...L2_100, ...LS2_100];
+const RETAKE_100 = [...SH1_100, ...C3_100, ...L1_100, ...L2_100, ...LS2_100];
 const img = (w, h, fill = [255, 255, 255, 255]) => ({ width: w, height: h, data: Buffer.from(Array.from({ length: w * h }, () => fill).flat()) });
 // 一時フォルダ（日本語と 𠮷 の名前。RF1 と同じ形）。テストの終わりに消す
 const tmp = (t, name) => {
@@ -789,7 +791,9 @@ test('基準の画像（test/shots/win32）は今の app.html で撮ったもの
   // （貼ったときだけ出る）を足した。撮る画面には出ないので見た目は変わらない（RETAKE は足さない）。値を今の app.html に合わせた（前の値は 2776757e…）
   // 0.10.0 H-1a（HC2）: カード「Claude との連携（MCP）」の吹き出しの「ヘルプで詳しく見る ↗」の記事を start/claude-mcp に（属性だけ。見た目は変わらない）。
   // 値を今の app.html に合わせた（前の値は 2b0ba2e1…）
-  assert.strictEqual(sha, '61cb7146322e549928b30d1009c333f79eedb6a6063e76e3aae6574d5af3169c',
+  // 0.10.0 LS-2 で意図して変えた: 要約の欄の鍵（欄の頭の一言・読むだけの形・summary:running。D63・D69）。変わるのは鍵のかかったページだけ
+  // （page-summary-lock-light を足して RETAKE に）。値を今の app.html に合わせた（前の値は 61cb7146…）
+  assert.strictEqual(sha, '04d522ab46c4547b52b469067e6ebca1deabc3b12597f576747d3ccc8486efcf',
     'app.html が基準の画像を撮った時と違う。Windows の CI の画面の比べ（捲り棒のつまみも）を見て、基準を取り直してからこの値を直す');
 });
 

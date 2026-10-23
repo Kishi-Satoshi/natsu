@@ -90,8 +90,9 @@ const SCENES = {
   probeDrop: ['probe-drop', '--test'],
   busy: ['slow', '--test-during'],
   kotoba: ['prompt-empty', '--kotoba'],
-  sumGround: ['text', '--sum', '--text=山田さんが来週金曜までに進捗の確認をまとめます。'],
-  sumType: ['text', '--sum', '--set-type-during=standup'],
+  // 0.10.0 LS-2（D59）で意図して直した: 要約は Claude Code だけなので、偽の claude（偽の llama と同じ「文字起こしに無い担当・期限」を混ぜた Markdown）で作る
+  sumGround: ['text', '--sum', '--claude=ok', '--text=山田さんが来週金曜までに進捗の確認をまとめます。'],
+  sumType: ['text', '--sum', '--claude=slow', '--claude-delay=1500', '--set-type-during=standup'],
 };
 // 取り込んだエンジン・取り込みの案内の場面（第0b回 Task 13）。1 つ 0.5〜0.7 秒と軽いが、上の場面と同時に走らせると
 // node のプロセスが CPU を取り合い、上の重い場面（busy は 1.5 秒の返事を 2 回待つ）が 5 秒を超える。上の場面が済んでから走らせる
@@ -201,8 +202,9 @@ sceneTest('本当に空なら、engine.log に区間ごとの理由を書き、�
   // 第1d回 A-6（D17）で意図して変えた: 音のある区間が 75 秒の会議で2つ続けて空なら「止まっているかもしれない」とし、2区間を
   // 音声ごと失敗の区間として残す（前は区間ごと消していた）。会議の後の送り直しでも空なら消えるので、どちらの形でも文字は残らない
   assert.ok(r.pages[0].segments.every((s) => s.failed && s.text === '（音はありましたが、文字になりませんでした）'), JSON.stringify(r.pages[0].segments));
-  // 通知は数秒で消えるので、議事録の要約の欄にも同じ理由と確かめ方を残す（理由の記録の場所は札を付けて最後に）
-  assert.match(r.pages[0].summaryError, /^2 区間の音声を受け取りましたが、文字起こしの結果がすべて空でした。.*使用するマイク.*理由の記録: %APPDATA%\\natsu\\engine\.log$/);
+  // 0.10.0 LS-2（D69・決めたこと 111 の 6）で意図して変えた: 文字起こしが空のページは要約の欄に理由を書かない（欄の鍵のまま、頭の一言
+  // 「文字起こしが無いので、要約は作れません。」が伝える）。理由と確かめ方は知らせで出す
+  assert.strictEqual(r.pages[0].summaryError, '');
   // [BLANK_AUDIO] だけの返事も空として扱う（数えるのは議事録を保存するまでの2区間。A-6 から、残した2区間は会議の後にもう一度送る）
   const live = r.engineLog.slice(0, r.engineLog.indexOf('議事録を保存: 文字起こしが空の区間が 2、文字の残った区間は 0'));
   assert.strictEqual(live.filter((l) => /^文字起こし: 認識ヒント（\d+ バイト）付きでは空 → ヒントなしでも空/.test(l)).length, 2, JSON.stringify(r.engineLog));
@@ -210,7 +212,6 @@ sceneTest('本当に空なら、engine.log に区間ごとの理由を書き、�
   assert.ok(r.engineLog.includes('議事録を保存: 文字起こしが空の区間が 2、文字の残った区間は 0'), JSON.stringify(r.engineLog));
   const notice = r.notices.find((n) => n.startsWith('2 区間の音声を受け取りましたが、文字起こしの結果がすべて空でした。'));
   assert.ok(notice, `利用者に知らせていない: ${JSON.stringify(r.notices)}`);
-  assert.strictEqual(notice, r.pages[0].summaryError, '通知と要約の欄の文が違う');
   assert.match(notice, /使用するマイク/);
   assert.match(notice, /engine\.log/);
   // 空が続いても、ヒントは止めない（ヒントのせいだと分かったわけではない）
@@ -486,7 +487,8 @@ sceneTest('設計 B・RF3: 詳細設定が空なら、照らし終えた取り�
   assert.strictEqual(r.engineStatus.whisper, '');
   // 要約の組はまだ取り込んでいない: ［PC の中の文字起こしを取り込む］を指す（第1d回 A-13 で前の［エンジンを取り込む］から名前を変えた）。議事録の欄の文は「未設定」の語を残す（画面が設定タブへ案内する）
   assert.strictEqual(r.engineStatus.sum, '要約エンジンはまだ取り込んでいません。設定タブの［PC の中の文字起こしを取り込む］を押してください');
-  assert.match(r.pages[0].summaryError, /^要約エンジンが未設定のため、文字起こしのみ保存しました。設定タブの［PC の中の文字起こしを取り込む］/);
+  // 0.10.0 LS-2（D59）で意図して変えた: 要約は Claude Code だけ（この場面は届かないので要約待ち。要約のエンジンの文は出さない）
+  assert.strictEqual(r.pages[0].summaryError, '要約待ち（つながったら作ります）');
   // 取り込みの欄の写し
   const s = r.engineFetchStatus;
   assert.deepStrictEqual([s.supported, s.root, s.mode, s.using, s.whisperReady, s.sumReady],
@@ -586,9 +588,8 @@ sceneTest('要約の組が壊れていたら、議事録の欄は理由と、終
   const r = results.managedSumBroken;
   assert.strictEqual(r.engineStatus.whisper, '');
   assert.ok(r.pages.length === 1 && r.pages[0].segments.length === 2 && r.pages[0].segments.every((x) => !x.failed), JSON.stringify(r.pages));
-  assert.strictEqual(r.pages[0].summaryError, '要約エンジンを使えないため、文字起こしのみ保存しました。'
-    + '要約エンジンのファイルが消えたか変わっています。ウイルス対策が消した可能性があります（Windows セキュリティ → ウイルスと脅威の防止 → 保護の履歴）。取り直しています。'
-    + '終わったら「要約を生成」で作成できます。');
+  // 0.10.0 LS-2（D59）で意図して変えた: 要約は要約のエンジンを使わない（この場面は Claude Code に届かないので要約待ち。要約の組は LS-3 で外す）
+  assert.strictEqual(r.pages[0].summaryError, '要約待ち（つながったら作ります）');
 });
 
 // 第1d2回 M-1（D21）で意図して変えた: 何も取り込んでいない・ログインしていない PC は「準備を選んでいない」人。記録は始まり（音声を残す）、

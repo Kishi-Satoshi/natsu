@@ -50,16 +50,17 @@ test('ST1: before-quit は要約中なら1回だけ止めて「中断」を書�
   assert.ok(q.includes('e.preventDefault()') && q.includes('app.quit()') && q.includes('saveIfExists(db, id'));
 });
 
-test('ST1: 要約の途中の終了は、1回だけ止め、「中断」がページに書けてから app.quit() を呼ぶ。2回目は止めずにエンジンを止める', { timeout: sceneTimeout(20000) }, () => {
-  const out = runScene('quit-during-summary');   // 要約エンジンは応えない（要約は終わらない）。app.quit は偽物で、呼ばれた瞬間のページを覚える
+// 0.10.0 LS-2（D59）で意図して直した: 要約は Claude Code だけなので、要約のエンジンを止める確かめを外し、答えない偽の claude（--claude=slow）で要約の途中に終える
+test('ST1: 要約の途中の終了は、1回だけ止め、「中断」がページに書けてから app.quit() を呼ぶ。2回目は止めない', { timeout: sceneTimeout(20000) }, () => {
+  const stdout = execSceneSync(process.execPath, [RUN, 'text', '--json-scene=quit-during-summary', '--claude=slow'],
+    { timeout: 19000, maxBuffer: 4 * 1024 * 1024, encoding: 'utf8', env: { ...process.env, FAKE_CLAUDE_DELAY: '6000' } });
+  const out = JSON.parse(stdout.trim().split('\n').pop());
   assert.ok(out.sumStarted && out.quitted, JSON.stringify(out));
   assert.deepStrictEqual(out.prevented, [1, 0], '1回目だけ止める（2回目も止めると終われない）');
   assert.strictEqual(out.quits.length, 1);
   assert.strictEqual(out.quits[0].summaryError, '要約が中断されました。「要約を生成」で作り直せます', 'app.quit() が「中断」の書き込みより先に呼ばれた');
-  assert.strictEqual(out.quits[0].kills, 0, '書き込みを待つ間にエンジンを止めた');
-  assert.ok(out.killsAfter >= 1, '2回目の before-quit で要約エンジンを止めていない');
-  assert.strictEqual(out.summary.ok, false, JSON.stringify(out.summary));
-  assert.strictEqual(out.summaryErrorAfter, '要約が中断されました。「要約を生成」で作り直せます', '終了の後に要約の失敗が「中断」を上書きした');
+  assert.strictEqual(out.summary, 'running', JSON.stringify(out.summary));
+  assert.strictEqual(out.summaryErrorAfter, '要約が中断されました。「要約を生成」で作り直せます', '終了の後に「中断」を上書きした');
 });
 
 test('ST1: 録音を始める前の復旧を待ってから下書きを選ぶ（今の会議の下書きを消さない・復旧のページは1つ）', { timeout: sceneTimeout(20000) }, () => {
@@ -309,7 +310,8 @@ test('RF16: 取り消しの控え（purge-pending.json）を1回書けず、DB �
 
 test('F11: 締めた後に下書きを消せず（ウイルス対策が掴んだ）、要約と直しをしてから起動し直しても、要約と直しが残り、ページは1つ', { timeout: sceneTimeout(30000) }, () => {
   const dir = tmpUserData();
-  const a = runMain('text', ['--segs=2', '--sum', '--keep-draft-after-finalize', '--set-title-after-sum=後で直した題', `--keep-user-data=${dir}`]);
+  // 0.10.0 LS-2（D59）で意図して直した: 要約は Claude Code だけなので、偽の claude で作る
+  const a = runMain('text', ['--segs=2', '--sum', '--claude=ok', '--keep-draft-after-finalize', '--set-title-after-sum=後で直した題', `--keep-user-data=${dir}`]);
   assert.ok(a.files.some((f) => /^data\/draft/.test(f)), '場面の前提: 下書きが残っていない');
   const b = runMain('text', ['--recover', `--keep-user-data=${dir}`]);
   const p = onePage(b);
@@ -319,7 +321,8 @@ test('F11: 締めた後に下書きを消せず（ウイルス対策が掴んだ
 });
 
 test('F6: 要約の途中に画面で直した題名を、要約の書き戻しが消さない', { timeout: sceneTimeout(30000) }, () => {
-  const out = runMain('text', ['--sum', '--set-title-during=画面で直した題']);   // 要約は 1.5 秒。その間に appCall('page.setTitle')
+  // 0.10.0 LS-2（D59）で意図して直した: 要約は Claude Code だけなので、1.5 秒かかる偽の claude で作る
+  const out = runMain('text', ['--sum', '--claude=slow', '--claude-delay=1500', '--set-title-during=画面で直した題']);   // 要約は 1.5 秒。その間に appCall('page.setTitle')
   const p = onePage(out);
   assert.strictEqual(p.title, '画面で直した題');
   assert.ok(p.blocks.length > 0, '要約が入らなかった');

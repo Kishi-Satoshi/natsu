@@ -93,14 +93,14 @@ const {
   pasterScript, parsePasterLine,
   engineFileIssue, engineIssueMessage, engineInAppDir, engineDirWarning, portInUseError, guardEngineSettings, keptDifferent, closeConfirm, restartBlock, logReason,
   engineSpawnPlan, vcRuntimeVersions, vcRuntimeIssue, runtimeGate, engineExitHint, spawnErrorHint, speedLine,
-  extractNotes, truncationMessage, buildPromptParts,
+  truncationMessage, buildPromptParts,
   publicSegments, settledSegments, pendingDurationMs, recoverSegments, staleSegbufDirs, EtaTracker, chooseDraftName,
   skipPendingSegments, startSegmentMode, segmentModeNext, segmentBaseMs, nextLiveSegmentMs,
   stallAfter, stallStep, sttProblemOf, problemForRoute, notifyGate,
-  estimateTokens, foldNotes, idleEnginesToStop, silentWav, wavLevelDbfs, mergeSummaryType, memoEvidence,
+  idleEnginesToStop, silentWav, wavLevelDbfs, mergeSummaryType, memoEvidence,
   sameShas, keepPrevious, candStamp, repairIdsOf, pathUsedBy, fetchMinutesLeft,
   pickDefaultPath,
-  cloudLikely, offlineChosen, startPlan, dictationPlan, KEPT_CODES, keptCodeFor, KEPT_SUMMARY_TEXT,
+  cloudLikely, offlineChosen, startPlan, dictationPlan, KEPT_CODES, keptCodeFor, KEPT_SUMMARY_TEXT, SUMMARY_WAIT_TEXT, summaryRetryPick,
   SILENT_DBFS, SPEECH_DBFS, wavLoudestDbfs, hintFold, hintEcho,
   localTimeoutMs,
 } = require('./mainlib');
@@ -123,10 +123,6 @@ const CPU_DEFAULT_THREADS = Math.max(4, os.cpus().length - 2);
 const MIN_RECORD_MS = 400;
 // メモはプロンプトにそのまま前置きされるので、文脈を食い潰さない範囲に収める
 const MEMO_MAX = 1500;
-const SUM_MAX_TOKENS = 3000;   // 最終的な議事録
-const NOTE_MAX_TOKENS = 900;   // 分割要約の各パート
-// 文脈長（settings.sumCtx）のうち、指示文・役割名・書式の余白として取っておく分（#41）
-const SUM_CTX_MARGIN = 256;
 const ENGINE_READY_TIMEOUT_MS = 90000;
 
 // 既定の設定（31 のキー。第1c回で5つ足し、0.7.0 U-1 で送り先と同意の4つを外した）は settings.js の defaultSettings。スレッド数は CPU の数から決まる（第1a回 Task 2-2 で移した）
@@ -2629,13 +2625,15 @@ function claudeRunDir() {
 // 利用者の Claude Code で要約する（探す → auth status で claude.ai を確かめる → -p。文字起こしは標準入力）。
 // 指示文は手元の1回で要約する頼みと同じ（mainlib.buildClaudeInput。F9）。失敗は平易な文（claudeMessage）を投げ、
 // doRunSummary の catch が要約の欄に書く（手元の llama へは行かない: D1）。engine.log には符号だけを書く（本文・利用者の環境は書かない）。
-// 進み具合の文（「Claude Code で議事録を作成中…」）は doRunSummary が出す。onProgress は手元の道（generateMinutes）と同じ形のために受ける
-// （claude -p は1回で返し、途中の段が無い）
-async function summarizeWithClaude(plain, memo, type, onProgress) {
+// 進み具合の文（「Claude Code で議事録を作成中…」）は doRunSummary が出す（claude -p は1回で返し、途中の段が無い）。
+// 投げる誤りには符号（claudeCode）を添える（doRunSummary が、待てば直る混み合いなら要約待ちに戻す: 0.10.0 LS-2・決めたこと 105）
+async function summarizeWithClaude(plain, memo, type) {
   const failWith = (r) => {
     // 符号と、-p の返事の副型・状態の番号だけ（claudeCli.runWhy。返事の文と本文は書かない: 第1b回の続き Lane F-a）
     engineLog(`要約: Claude Code → ${claudeCli.runWhy(r)}`);
-    throw new Error(claudeCli.claudeMessage(r));
+    const e = new Error(claudeCli.claudeMessage(r));
+    e.claudeCode = r && typeof r.code === 'string' ? r.code : '';
+    throw e;
   };
   const found = claudeCli.findClaude({ configured: settings.claudeExe });
   if (!found.ok) failWith(found);
@@ -2652,45 +2650,7 @@ async function summarizeWithClaude(plain, memo, type, onProgress) {
 }
 
 // ---------------------------------------------------------------- 要約
-async function llmChat(messages, maxTokens, onWait) {
-  // 503 は「壊れた」ではなく「まだ準備中・手が塞がっている」。
-  // すぐ諦めるとモデル読み込みの数十秒を待てずにエラーで返してしまう。
-  // 待っていることは画面に出す。黙って待つと固まったように見え、
-  // エラーで返すと壊れたように見える。どちらも実態と違う。
-  let res;
-  let waited = false;
-  const deadline = Date.now() + 120000;
-  touchEngine(sumEng);
-  for (;;) {
-    res = await fetch(`http://127.0.0.1:${settings.sumPort}/v1/chat/completions`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ messages, temperature: 0.2, max_tokens: maxTokens }),
-      signal: AbortSignal.timeout(900000),
-    });
-    touchEngine(sumEng);
-    if (res.status !== 503 || Date.now() >= deadline) break;
-    if (!waited && onWait) {
-      waited = true;
-      onWait('要約エンジンを準備しています（モデルの読み込み中）。そのままお待ちください…');
-    }
-    await new Promise((r) => setTimeout(r, 2000));
-  }
-  if (res.status === 503) {
-    throw new Error('要約エンジンがまだ準備中です。モデルの読み込みに時間がかかっています。'
-      + '1〜2分おいてから、もう一度「要約を生成」を押してください。');
-  }
-  if (!res.ok) throw new Error(`要約エンジンエラー (${res.status})`);
-  const data = await res.json();
-  { const sp = speedLine('llama', data && data.timings); if (sp) engineLog(sp); }   // 実際の速さを残す（第0b回 Task 16）
-  const text = data?.choices?.[0]?.message?.content?.trim();
-  if (!text) throw new Error('要約エンジンの応答が空でした');
-  // 長さ上限で打ち切られると末尾の議題が黙って欠ける。
-  // 黙って欠けるより、欠けたと分かる方がよい。
-  const truncated = data?.choices?.[0]?.finish_reason === 'length';
-  return { text, truncated };
-}
-
+// 0.10.0 LS-2（D59）: 要約は利用者の Claude Code だけ（summarizeWithClaude）。手元の llama の要約（llmChat・generateMinutes）は外した
 // 節ごとに「なければ特になし」と書くと、小型モデルが条件を守り切れず
 // 実項目と「特になし」を両方並べてくる。ルールは全体で1回だけ言う。
 // （それでも混ざるので minutes.js の dropRedundantEmpty で後始末する）
@@ -2711,99 +2671,6 @@ const OUTPUT_RULE = '書き方のきまり:\n'
 // 渡す。別々に組み立てると、片方を直したときにずれて落とし損ねる。
 function minutesTemplate(type) {
   return `${mtype.getFormat(type)}\n\n${OUTPUT_RULE}`;
-}
-
-// 文脈長のうち入力（プロンプト）に使える推定トークン（#41）: 文脈長 − 出力の上限 − 余白。
-// 推定は mainlib.estimateTokens（UTF-8 バイト ÷ 2.5。多めに見積もる）
-const sumCtxBudget = () => settings.sumCtx - SUM_MAX_TOKENS - SUM_CTX_MARGIN;
-
-async function generateMinutes(plain, memo, onProgress, type) {
-  const ok = await ensureEngineReady(sumEng);
-  if (!ok) throw new Error(sumEng.lastError || '要約エンジンが起動していません');
-  const llmChatP = (messages, maxTokens) => llmChat(messages, maxTokens, onProgress);
-  const sys = MINUTES_SYS;
-  // メモはユーザーが好きなだけ書けるうえ、そのままプロンプトに前置きされる。
-  // 長すぎると文脈を食い潰して文字起こし側が押し出されるので上限を設ける。
-  const memoText = String(memo || '').trim().slice(0, MEMO_MAX);
-  const memoBlock = memoText ? `【会議メモ・アジェンダ（要約のヒント）】\n${memoText}\n\n` : '';
-
-  const CHUNK = 5500;
-  // 文脈長の予算（#41）。固定分（役割・メモ・書式）は先に引いておく
-  const budget = sumCtxBudget();
-  const fixed = estimateTokens(sys + memoBlock + minutesTemplate(type));
-  // メモの分も含めて1回で収まるかを判断する。文字数のほか推定トークンでも見る
-  // （文脈長を小さくした設定で、1 回分のプロンプトが溢れないように）
-  if (plain.length + memoBlock.length <= CHUNK + 1500 && estimateTokens(plain) + fixed <= budget) {
-    const one = await llmChatP([
-      { role: 'system', content: sys },
-      { role: 'user', content: `${memoBlock}【会議の文字起こし】\n${plain}\n\n上記から、次の構成のMarkdown議事録を作成してください。見出しはこの通りに使い、本文だけを出力してください。\n\n${minutesTemplate(type)}` },
-    ], SUM_MAX_TOKENS);
-    return { md: one.text, truncated: one.truncated, truncatedParts: [], finalTruncated: one.truncated };
-  }
-
-  const chunks = [];
-  for (let i = 0; i < plain.length; i += CHUNK) {
-    // 残りが重なり幅以下なら、直前のチャンクに完全に含まれるので作らない
-    if (i > 0 && plain.length - i <= 200) break;
-    chunks.push(plain.slice(i, i + CHUNK + 200));
-  }
-  const notes = [];
-  const truncatedParts = [];   // 半分にしても上限で切れたパート番号（1 始まり）
-  // 要点の抽出。kind は材料の呼び名（'文字起こし' | '要点メモ'）。文字起こしの分割要約と、
-  // 文脈長に収まらないときの要点メモの畳み（下）が同じ経路を通る
-  const extract = async (text, i, n, kind) => {
-    const r = await llmChatP([
-      { role: 'system', content: sys },
-      { role: 'user', content: `以下は長い会議の${kind}の一部（${i + 1}/${n}）です。重要な発言・決定・依頼・課題・数字を漏らさず、簡潔な箇条書きで抽出してください。文体は常体（だ・である調、体言止め）。\n\n${text}` },
-    ], NOTE_MAX_TOKENS);
-    return r;
-  };
-  for (let i = 0; i < chunks.length; i++) {
-    if (onProgress) onProgress(`要約中… (${i + 1}/${chunks.length})`);
-    // 上限で切れたら半分に割って両方をやり直す（一度だけ。mainlib.extractNotes）。
-    // 切れたままだと中盤の議題が黙って欠ける（#16）。それでも切れたら本文は残し、
-    // 要点メモに注記を添え、パート番号を控える（summaryError で名指しする）。
-    const part = await extractNotes((t) => extract(t, i, chunks.length, '文字起こし'), chunks[i]);
-    let text = part.text;
-    if (part.truncated) {
-      truncatedParts.push(i + 1);
-      text += `\n（※パート${i + 1}の抽出は途中で切れています）`;
-    }
-    notes.push(`--- パート${i + 1} ---\n${text}`);
-  }
-  // 統合プロンプトが文脈長に収まらないなら、要点メモを 2 段で畳む（#41）。前から順に予算に
-  // 収まる束に分け（mainlib.foldNotes）、各束を分割要約と同じ経路（extractNotes・NOTE_MAX_TOKENS）
-  // でもう一段要約してから統合する。畳んだことは engineLog にだけ残す（page.notes や
-  // summaryError には書かない。要約の中身の問題ではなく容量の話で、利用者が直すものではない）。
-  // 束の予算は統合と同じ budget − fixed（束の要約は出力が短く指示文も短いので、余裕がある側）
-  let material = notes;
-  const need = estimateTokens(notes.join('\n\n')) + fixed;
-  if (need > budget) {
-    const bundles = foldNotes(notes, Math.max(1, budget - fixed), estimateTokens);
-    engineLog(`要約: 要点メモ ${notes.length} パート（推定 ${need} トークン）が文脈長 ${settings.sumCtx} の予算 ${budget} を超えるため、${bundles.length} 束に畳んだ`);
-    material = [];
-    let first = 1;
-    for (let k = 0; k < bundles.length; k++) {
-      const last = first + bundles[k].length - 1;
-      if (onProgress) onProgress(`要点メモをまとめ直しています… (${k + 1}/${bundles.length})`);
-      const part = await extractNotes((t) => extract(t, k, bundles.length, '要点メモ'), bundles[k].join('\n\n'));
-      let text = part.text;
-      if (part.truncated) {
-        engineLog(`要約: 束 ${k + 1}（パート${first}〜${last}）のまとめ直しが長さの上限で切れた`);
-        text += `\n（※パート${first}〜${last}のまとめは途中で切れています）`;
-      }
-      material.push(`--- パート${first}〜${last}（まとめ） ---\n${text}`);
-      first = last + 1;
-    }
-    const after = estimateTokens(material.join('\n\n')) + fixed;
-    if (after > budget) engineLog(`要約: 畳んでも推定 ${after} トークンで予算 ${budget} を超える（2 段まで。続行する）`);
-  }
-  if (onProgress) onProgress('議事録をまとめています…');
-  const final = await llmChatP([
-    { role: 'system', content: sys },
-    { role: 'user', content: `${memoBlock}【会議の要点メモ（時系列）】\n${material.join('\n\n')}\n\n上記の要点メモを統合し、次の構成のMarkdown議事録を作成してください。見出しはこの通りに使い、本文だけを出力してください。\n\n${minutesTemplate(type)}` },
-  ], SUM_MAX_TOKENS);
-  return { md: final.text, truncated: truncatedParts.length > 0 || final.truncated, truncatedParts, finalTruncated: final.truncated };
 }
 
 // ---------------------------------------------------------------- 貼り付け
@@ -4678,18 +4545,10 @@ async function transcribeRecoveredItems(q, { cloudOnly = false } = {}) {
   const cur = await db.call('page.get', { id: q.pageId });
   if (!cur) return parked;
   // 第1d2回 M-3（決めたこと 7）: 締めで要約を待たせた会議（要約の欄が S3・S3'）は、文字になった区間があれば R1 を出して要約を作る（待たない。
-  // 経路は runSummary が決める）。PC の中だけのページで要約のエンジンがまだ使えなければ要約の欄を S1 にし、［要約を生成］を案内する
+  // 経路は runSummary が決める。0.10.0 LS-2: オフラインモードの会議も Claude Code。届かなければ要約待ち）
   const waitText = [KEPT_SUMMARY_TEXT.wait, KEPT_SUMMARY_TEXT.waitLocal];
   if (done > 0 && cur.page && waitText.includes(cur.page.summaryError)) {
-    const localOnlyPage = Boolean(cur.page.route && cur.page.route.localOnly);
     sendToMainWin('pages:updated', await db.call('pages.list', {}));
-    if (localOnlyPage && !engineValid(sumEng)) {
-      const saved = await saveIfExists(db, q.pageId, (p) => { if (waitText.includes(p.summaryError)) p.summaryError = KEPT_SUMMARY_TEXT.local; });
-      const now = await db.call('page.get', { id: q.pageId });
-      sendToMainWin('page:updated', { page: saved || cur.page, segments: now ? now.segments : cur.segments });
-      sendToMainWin('app:notice', `認識に失敗していた区間の文字起こしをやり直しました（${done}/${q.items.length} 区間）。「要約を生成」で議事録を作り直せます。`);
-      return parked;
-    }
     const now = await db.call('page.get', { id: q.pageId });
     sendToMainWin('page:updated', { page: (now && now.page) || cur.page, segments: now ? now.segments : cur.segments });
     sendToMainWin('app:notice', `残しておいた音声を文字起こししました（${done}/${q.items.length} 区間）。続けて要約を作ります。`);
@@ -4727,6 +4586,7 @@ const savedQueueCount = () => {
   return names.filter((n) => fs.existsSync(path.join(segbufRoot(), n, RECOVERY_FILE))).length;
 };
 async function retryKeptWhenBack() {
+  try { await retrySummaryWaits(); } catch (e) { engineLog(`要約待ちの見回りに失敗: ${logReason(e)}`); }
   try {
     let why = 'ok';
     if (quitting) why = 'quitting';
@@ -4875,9 +4735,7 @@ async function startMeeting() {
   warmWhisper().catch((e) => engineLog(`文字起こしエンジンの先読みに失敗: ${logReason(e)}`));
   // 経路を1回聞き、クラウドなら会議の始めの知らせ（M1）
   announceSttRoute(meeting);
-  // 要約エンジンはここで先読みしない（#58）。記録開始で起動すると約 2〜3GB が上がり、破棄しても
-  // 降りない（記録だけして要約しない会議でも掴んだまま）。要約直前の ensureEngineReady(sumEng)
-  // （generateMinutes）に任せる。その分、最初の要約はモデル読み込みの待ちを含む
+  // 要約は利用者の Claude Code で作る（0.10.0 LS-2・D59）。手元の要約のエンジンは起こさない
   placeOverlayForRecording();
   overlayWin.showInactive();
   // 音声入力の開始（上の 'dictation'）には systemAudio を渡さない。
@@ -5193,7 +5051,7 @@ async function maybeFinalizeMeeting() {
   sendToMainWin('page:open', page.id);
   if (m.autoStopped) quietDoneNotice(m, page.id);   // 0.9.1 Q-4
   // 音声は届いたのに、文字起こしが全部空だった。黙っていると「0 区間」の理由が分からない。
-  // 通知は数秒で消えるので、要約の欄（summaryError）にも同じ文を残す（下の runSummary の後）
+  // 知らせと engine.log に出す。要約の欄には書かない（0.10.0 LS-2・決めたこと 111 の 6: 文字起こしが空のページは欄の鍵のまま、頭の一言が伝える）
   // 止まりの見張りで音声ごと残した区間（第1d回 A-6。文字は無い）は「文字の残った区間」に数えない（全部が空なら、マイクの確かめ方も知らせる）
   const allEmpty = m.emptySegs > 0 && !settledSegments(m.segments).some((s) => s.text !== STALL_SEG_TEXT);
   const allEmptyText = `${m.emptySegs} 区間の音声を受け取りましたが、文字起こしの結果がすべて空でした。`
@@ -5208,11 +5066,6 @@ async function maybeFinalizeMeeting() {
   // 待ち行列が済んだら自動で要約する（transcribeRecoveredItems）
   if (keptWhy) engineLog('議事録を保存: 文字起こし待ちの区間があるので、要約は文字起こしが済んでから作ります');
   else await runSummary(page.id);
-  if (allEmpty) {
-    const saved = await saveIfExists(db, page.id, (p) => { p.summaryError = allEmptyText; });
-    const now = saved ? await db.call('page.get', { id: page.id }) : null;
-    if (saved) sendToMainWin('page:updated', { page: saved, segments: now ? now.segments : [] });
-  }
   if (recoveryQueue) transcribeRecovered().catch((e) => engineLog(`retry failed: ${logReason(e)}`));
 }
 
@@ -5220,7 +5073,8 @@ async function maybeFinalizeMeeting() {
 // 実行して固定）。走行中に「要約を生成」を連打されると、同じ文字起こしに対して
 // 要約が二重に走り、後から終わった方が前の結果（とその間の編集）を上書きしていた。
 // 走行中なら同じ Promise を返す。
-const runSummary = makeSummaryRunner(doRunSummary, () => updateTray());
+// 走っているページの ID は画面へも渡す（0.10.0 LS-2: 要約の欄の鍵の making。自動の要約の最中も直せない）
+const runSummary = makeSummaryRunner(doRunSummary, () => { updateTray(); sendToMainWin('summary:running', runSummary.running()); });
 // 要約の書き戻しが続けてぶつかったときの知らせ（第2a1回 F6。mainlib.saveIfExists が conflict を投げた）
 const SUMMARY_CONFLICT_TEXT = '要約を保存できませんでした。もう一度［要約を生成］を押してください。';
 // 要約の書き戻し（page.put）が引数の照らしで断られた（bad-args）ときの知らせ（第2a1回 M-4 の点検）。DB に入った後で保存の決まりを超えた
@@ -5280,50 +5134,32 @@ async function doRunSummary(pageId) {
   const plain = usable.map((s) => s.text).join('\n');
 
   if (!plain.trim()) {
+    // 0.10.0 LS-2（D69・決めたこと 111 の 6）: 文字起こしが空のページは要約の欄に理由を書かない（鍵のまま。欄の頭の一言が伝える）。
+    // 要約待ちの印だけ外す（作れる日は来ない）
     const err = '文字起こしが空のため要約できません';
     let saved;
-    try { saved = await saveIfExists(db, pageId, (p) => { p.summaryError = err; }); } catch (e) { if (unsaved(e)) return conflicted(unsaved(e)); throw e; }
+    try { saved = await saveIfExists(db, pageId, (p) => { if (p.summaryWait) { p.summaryWait = false; if (p.summaryError === SUMMARY_WAIT_TEXT) p.summaryError = ''; } }); } catch (e) { if (unsaved(e)) return conflicted(unsaved(e)); throw e; }
     if (!saved) return gone();
     clearUi();
     sendToMainWin('page:updated', { page: saved, segments });
     return { ok: false, error: err };
   }
-  // 要約の経路を1回決める（第1c回 OL5・D1）。［この会議は PC の中だけ］のページは届くかを確かめずに手元（C10。
-  // 文字起こしの文も PC の外へ出さない）。届けば利用者の Claude Code、届かなければ今までどおり手元の llama
-  const localOnly = Boolean(page.route && page.route.localOnly);
-  // 0.10.0 LS-1: decideSummary は claude-code か wait だけになった。手元の分かれ道は LS-2 で外すまで今のまま（オフラインモードと wait は local）
-  const route = localOnly ? 'local' : ((await decideSummary({ up: () => online.isUp(ANTHROPIC_REACH) })).route === 'claude-code' ? 'claude-code' : 'local');
-  if (route === 'local' && !engineValid(sumEng) && !isOfflineChosen()) {
-    // 第1d2回 M-3（D21）: 準備を選んでいない PC は、PC の中だけなら S1、そうでなければ S2（「未設定」の語を使わない: 画面が設定へ連れて行く）
-    const err = localOnly ? KEPT_SUMMARY_TEXT.local : KEPT_SUMMARY_TEXT.offline;
+  // 要約の経路を1回決める（0.10.0 LS-2・D59・決めたこと 103）。届けば利用者の Claude Code（オフラインモードの会議も）、届かなければ要約待ち:
+  // 要約を作らずに summaryWait と「要約待ち（つながったら作ります）」を書き、つながったら見回りが自動で作る（retrySummaryWaits）
+  const decided = await decideSummary({ up: () => online.isUp(ANTHROPIC_REACH) });
+  if (decided.route !== 'claude-code') {
+    summaryNet.up = false;
+    engineLog(`要約: 要約待ち（${decided.why}）`);
     let saved;
-    try { saved = await saveIfExists(db, pageId, (p) => { p.summaryError = err; }); } catch (e) { if (unsaved(e)) return conflicted(unsaved(e)); throw e; }
+    try { saved = await saveIfExists(db, pageId, (p) => { p.summaryWait = true; p.summaryError = SUMMARY_WAIT_TEXT; }); } catch (e) { if (unsaved(e)) return conflicted(unsaved(e)); throw e; }
     if (!saved) return gone();
     clearUi();
+    sendToMainWin('pages:updated', await db.call('pages.list', {}));
     sendToMainWin('page:updated', { page: saved, segments });
-    sendToMainWin('app:notice', err);
-    return { ok: false, error: err };
+    sendToMainWin('app:notice', SUMMARY_WAIT_TEXT);
+    return { ok: false, error: SUMMARY_WAIT_TEXT, wait: true };
   }
-  if (route === 'local' && !engineValid(sumEng)) {
-    // 取り込める PC で手の設定が無い側は［PC の中の文字起こしを取り込む］を指す（第0b回。第1d回 A-13 で名前を変えた）。まだ取り込んでいなければ「未設定」の語を残す
-    // （画面はこの語で設定タブへ連れて行く）。取り込んだ組を確かめ中・壊れた・ランタイムで止めたときは、その理由を伝える。
-    // 確かめ中・取り直し中は待てば使えるようになるので、終わってからすることを1つ書いて終える
-    const fetchable = ENGINE_HOME.supported && !manualGroup(sumEng);
-    const waitable = managedState.sum === 'checking' || managedState.sum === 'broken';
-    const err = !fetchable
-      ? '要約エンジンが未設定のため、文字起こしのみ保存しました。'
-        + 'setup-summarizer.ps1 を実行し、設定タブでパスを指定すると「要約を生成」で作成できます。'
-      : managedState.sum === 'none'
-        ? '要約エンジンが未設定のため、文字起こしのみ保存しました。設定タブの［PC の中の文字起こしを取り込む］で取り込むと「要約を生成」で作成できます。'
-        : `要約エンジンを使えないため、文字起こしのみ保存しました。${engineCheck(sumEng)}${waitable ? '。終わったら「要約を生成」で作成できます。' : ''}`;
-    let saved;
-    try { saved = await saveIfExists(db, pageId, (p) => { p.summaryError = err; }); } catch (e) { if (unsaved(e)) return conflicted(unsaved(e)); throw e; }
-    if (!saved) return gone();
-    clearUi();
-    sendToMainWin('page:updated', { page: saved, segments });
-    sendToMainWin('app:notice', err);
-    return { ok: false, error: err };
-  }
+  const route = 'claude-code';
 
   // 会議タイプ: 手動指定があればそれを尊重し、無ければタイトルと冒頭から推定。
   // 自動判定は手動指定があっても必ず走らせ、結果を別に残す。こうしないと
@@ -5345,14 +5181,10 @@ async function doRunSummary(pageId) {
     + ` 手動=${page.typeAuto === false} 区間数=${usable.length}`);
 
   const progress = (msg) => sendToMainWin('meeting:progress', { message: msg });
-  progress(route === 'claude-code'
-    ? `Claude Code で議事録を作成中…（${mtype.getLabel(page.meetingType)}として要約します）`
-    : `要約エンジンで議事録を作成中…（${mtype.getLabel(page.meetingType)}として要約します）`);
+  progress(`Claude Code で議事録を作成中…（${mtype.getLabel(page.meetingType)}として要約します）`);
   try {
-    // オンラインで Claude Code が失敗したら、理由を要約の欄に書いて終える（下の catch。手元の llama へは行かない: D1）
-    const { md, truncatedParts, finalTruncated } = route === 'claude-code'
-      ? await summarizeWithClaude(plain, page.memo, page.meetingType, progress)
-      : await generateMinutes(plain, page.memo, progress, page.meetingType);
+    // Claude Code が断った・失敗したら、理由を要約の欄に書いて終える（下の catch。手元の llama へは行かない: D1・D59）
+    const { md, truncatedParts, finalTruncated } = await summarizeWithClaude(plain, page.memo, page.meetingType);
     // 「特になし」の混入を先に落とす。ここで落とさないと
     // 「- [ ] 特になし」がアクション1件として数えられてしまう。
     // 続けて、テンプレートの見出し・雛形をそのまま写した行も落とす。
@@ -5397,6 +5229,7 @@ async function doRunSummary(pageId) {
         notes.push(`この要約は「${mtype.getLabel(page.meetingType)}」として作りました。途中で選んだ「${mtype.getLabel(t.meetingType)}」で作り直すには［要約を再生成］を押してください。`);
       }
       saved.summaryError = notes.filter(Boolean).join('\n');
+      saved.summaryWait = false;   // 要約待ちの印を消す（0.10.0 LS-2）
       // どちらで要約したか（第1c回 OL6。ページのプロパティの行に出す）。成功したときだけ書く
       saved.route = { ...(saved.route || {}), summary: { by: route, at: new Date().toISOString() } };
     });
@@ -5408,12 +5241,44 @@ async function doRunSummary(pageId) {
   } catch (e) {
     if (quitting) return { ok: false, error: e.message };   // 終了中: before-quit が書いた「中断」の文を上書きしない
     if (unsaved(e)) return conflicted(unsaved(e));   // 書き戻しが5回ぶつかった・決まりで断られた: 要約の欄にも書けないので知らせるだけ
+    // 0.10.0 LS-2（決めたこと 105）: 待てば直る混み合い（SUMMARY_RETRY_CODES）は要約待ちに戻し、次のつながり直しで作る。
+    // ログイン切れ・上限・Claude Code が無いなどは、待っても直らないので印を消し、平易な理由と［要約を生成］の案内を欄に書く（欄の鍵が外れる）
+    const again = Boolean(e && SUMMARY_RETRY_CODES.includes(e.claudeCode));
     let latest;
-    try { latest = await saveIfExists(db, pageId, (saved) => { saved.summaryError = e.message; }); } catch (e2) { if (unsaved(e2)) return conflicted(unsaved(e2)); throw e2; }
+    try {
+      latest = await saveIfExists(db, pageId, (saved) => {
+        saved.summaryWait = again;
+        saved.summaryError = again ? SUMMARY_WAIT_TEXT : e.message;
+      });
+    } catch (e2) { if (unsaved(e2)) return conflicted(unsaved(e2)); throw e2; }
     if (!latest) return gone();
     clearUi();
     sendToMainWin('page:updated', { page: latest, segments });
-    return { ok: false, error: e.message };
+    return { ok: false, error: again ? SUMMARY_WAIT_TEXT : e.message, wait: again };
+  }
+}
+
+// 0.10.0 LS-2（D59・決めたこと 104）: 要約待ちのページを、つながったら自動で作る。見回り（retryKeptWhenBack）から呼ぶ。
+// Claude Code（ANTHROPIC_REACH）へ届くかを見て、届かない → 届く に変わったら試したページの控え（tried）を空にする。
+// 届く間は、要約待ちのページを古い順に1つずつ（mainlib.summaryRetryPick）、つながり1回につき1ページ1回だけ作る。
+// 録音中・終了中・ほかの要約の最中は何もしない（次の見回りで）。ゴミ箱のページと録音中の写しは DB の pages.summaryWaits が渡さない
+const SUMMARY_RETRY_CODES = ['overloaded'];   // 待てば直る Claude Code の誤り（決めたこと 105 の「届かない」と同じ扱い）
+const summaryNet = { up: null, tried: new Set() };
+async function retrySummaryWaits() {
+  if (quitting || meeting || state !== 'idle' || isSummarizing()) return;
+  const r = await online.isUp(ANTHROPIC_REACH);
+  if (!r || r.up !== true) { summaryNet.up = false; return; }
+  if (summaryNet.up === false) summaryNet.tried.clear();
+  summaryNet.up = true;
+  for (;;) {
+    if (quitting || meeting || state !== 'idle') return;
+    const list = await db.call('pages.summaryWaits', {});
+    const id = summaryRetryPick(Array.isArray(list) ? list : [], { tried: summaryNet.tried });
+    if (!id) return;
+    summaryNet.tried.add(id);
+    engineLog('要約: 要約待ちのページを作ります（つながったので）');
+    await runSummary(id);
+    if (summaryNet.up === false) return;   // 作る途中で届かなくなった（要約待ちに戻った）
   }
 }
 

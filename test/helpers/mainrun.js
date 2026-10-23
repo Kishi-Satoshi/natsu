@@ -140,6 +140,13 @@ const { titleAt } = require('./titles');
 //     --no-key      … secrets.json を置かない
 //     --key-unreadable … 偽の safeStorage の decryptStringAsync が投げる（鍵のファイルはあるが復号できない）
 //     --offline     … net.isOnline() が false
+//   0.10.0 LS-2（D59・決めたこと 103〜105。要約は Claude Code だけ・要約待ち・つながったら自動で作る）
+//     --summary-offline … Claude Code に届かない（net.isOnline() が false から始まる。--offline と同じ形で、文字起こしは手元）。
+//                     届くかの覚え（online.js）は false の答えを覚えないので、戻したらすぐ届く
+//     --summary-online-after=<ms> … --summary-offline と組む。議事録を写した後 ms 待って net.isOnline() を true にし、見回り（retryKeptWhenBack）を
+//                     2回呼ぶ。それぞれの後の { pCalls（偽の claude の -p の数）, pages（議事録の場面のページの形） } を out.summaryBack に順に積む
+//     --summary-reconnect … --summary-online-after と組む。続けて net.isOnline() を false にして見回りを1回、true に戻して見回りを1回呼び、
+//                     その後の形を out.summaryBack に足す（つながり直し）
 //     --local-only  … 記録を始めた後、最初の区間の前に［この会議は PC の中だけ］を押す（画面と同じ IPC の meeting:set-local-only。
 //                     out.localOnly にその返事、out.statusLocalOnly に押した後の meeting:status の localOnly と cloud）。
 //                     --recover と組むと、置く下書きに localOnly: true を書く
@@ -155,6 +162,7 @@ const { titleAt } = require('./titles');
 //                     mode を、FAKE_CLAUDE_LOG に記録のファイルを置く（spawn は偽の whisper と同じく node で台本を起こす）。
 //                     mode が missing か、--claude が無ければ claudeExe を無いファイルに向ける（Claude Code が入っていない PC。PATH を探さない）。--stt と組むと、Anthropic へ
 //                     届くかの確かめが偽の送り先に届いてオンラインになる（--stt が無ければ、確かめは fake-net の守りで死んで手元になる）
+//     --claude-delay=<ms> … 0.10.0 LS-2: --claude=slow の偽の claude が -p に答えるまでの待ち（FAKE_CLAUDE_DELAY）
 //     --claude-auth=<method> … 偽の claude の auth status が返す authMethod（FAKE_CLAUDE_AUTH。既定 claude.ai）
 //     --db-down     … 第2a1回 M-2b: 議事録の DB のプロセス（偽の utilityProcess の中の本物の server.js）の SQLite が trigram を持たない
 //                     （helpers/no-trigram.js を子の中で先に読む）。自分の確かめが通らず、DB は「使えない」で起きる。場面の dbDown でも同じ
@@ -546,7 +554,10 @@ const legacyProvider = flags.includes('--legacy-provider');
 const keyFor = (flags.find((f) => f.startsWith('--key-for=')) || '').slice(10) || 'openai';
 const OPENAI_BASE = 'https://api.openai.com/v1';   // src/stt-cloud.js の PRESETS.openai.base（0.7.0 U-1 で固定の送り先）
 const keyUnreadable = flags.includes('--key-unreadable');
-const offline = flags.includes('--offline');
+const summaryOffline = flags.includes('--summary-offline');
+const summaryOnlineAfter = flagVal('--summary-online-after') === undefined || flagVal('--summary-online-after') === '' ? -1 : Number(flagVal('--summary-online-after'));
+const summaryReconnect = flags.includes('--summary-reconnect');
+const offline = flags.includes('--offline') || summaryOffline;
 const localOnlyFlag = flags.includes('--local-only');
 const dictate = flags.includes('--dictate');
 // 第1d2回 M-1: 何も取り込んでいない PC（--no-engine）を、議事録・音声入力の場面として回す（早い分かれ道に入らない）
@@ -739,6 +750,9 @@ process.on('exit', () => {
   fs.mkdirSync(engDir);
   // 偽の文字起こしの送り先（--stt）。終わるときに閉じなくても、process.exit で消える
   const fakeStt = sttMode ? await require('./fake-stt').startFakeStt({ mode: sttMode === 'cert' ? 'text' : sttMode, key: STT_KEY }) : null;
+  // 0.10.0 LS-2: --claude があって --stt も --relay も無い場面（手元の文字起こしの場面）も、Anthropic へ届くかの確かめが届くように、
+  // 届くかの確かめだけに答える偽の送り先を置く（要約は Claude Code だけになったので、要約を作る場面は Claude Code に届く形が要る）
+  const claudeReach = claudeMode && !sttMode && !relayMode ? await require('./fake-stt').startFakeStt({ mode: 'text', key: STT_KEY }) : null;
   const fakeEnc = (s) => Buffer.from(`ENC1:${Buffer.from(s, 'utf8').toString('hex')}`);
   // 本物の中継のコードを 127.0.0.1 で（--relay。第1d回 A-2）。終わるときに閉じなくても、process.exit で消える
   const relayLocal = relayMode ? await require('./relay-local').startRelayLocal({ stt: { mode: relaySttMode }, env: RELAY_ENV[relayMode] || {}, access: true }) : null;
@@ -804,6 +818,7 @@ process.on('exit', () => {
   const claudeExe = claudeMode && claudeMode !== 'missing' ? FAKE_CLAUDE : path.join(tmp, 'no-such-claude.exe');
   if (claudeMode) {
     process.env.FAKE_CLAUDE_MODE = claudeMode;
+    if (flagVal('--claude-delay')) process.env.FAKE_CLAUDE_DELAY = flagVal('--claude-delay');   // 0.10.0 LS-2: --claude=slow の待ち（ミリ秒）
     process.env.FAKE_CLAUDE_LOG = claudeLog;
     process.env.FAKE_CLAUDE_EXPECT = fakeText || '本日の議題は進捗の確認です';
     // 手元の1回の要約と同じ指示文（mainlib.buildClaudeInput。F9）を標準入力で受けたか
@@ -1043,7 +1058,7 @@ process.on('exit', () => {
   }
   if (scene) {
     // 場面のファイルを、ふだんの settings.json の代わりに置く
-    const base = { localServerExe: exe, localModelPath: model, localPort, sumPort };
+    const base = { localServerExe: exe, localModelPath: model, localPort, sumPort, claudeExe };   // claudeExe: 0.10.0 LS-2（--claude の偽の claude か無いファイル）
     for (const [rel, body] of Object.entries(scene.files || {})) {
       const file = path.join(userData, ...rel.split('/'));
       fs.mkdirSync(path.dirname(file), { recursive: true });
@@ -1468,7 +1483,7 @@ process.on('exit', () => {
     try { netHosts.push(new URL(s).host); } catch (_) { netHosts.push(''); }
     if (relayLocal && s.startsWith(`${RELAY_BASE}/`)) { relayPaths.push(s.slice(RELAY_BASE.length)); order.push(`relay ${s.slice(RELAY_BASE.length)}`); return relayTarget + s.slice(RELAY_BASE.length); }
     if (openAiBase && s.startsWith(`${OPENAI_BASE}/`)) return `${openAiBase}${s.slice(OPENAI_BASE.length)}`;
-    const anth = fakeStt || (relayLocal && relayLocal.stt);   // 第1d回 A-3: --relay の場面は中継の後ろの偽の OpenAI の /anthropic
+    const anth = fakeStt || (relayLocal && relayLocal.stt) || claudeReach;   // 第1d回 A-3: --relay の場面は中継の後ろの偽の OpenAI の /anthropic
     return anth && claudeMode && s.startsWith('https://api.anthropic.com/') ? anth.url('/anthropic') : u;
   };
   // --stt=cert: OpenAI への要求は、証明書が差し替えられたときの失敗で死ぬ（会社の通信の検査。RF26）。
@@ -1617,7 +1632,7 @@ process.on('exit', () => {
         kids.push(k);
         return k;
       }
-      if (scene && !scene.engine) {
+      if (scene && !scene.engine && !(claudeMode && cmd === FAKE_CLAUDE)) {   // 0.10.0 LS-2: --claude の偽の claude は下で起こす
         // エンジンを持たない場面: 手のパスが設定にあっても起こさない（偽の子を返す）。起こそうとした実行ファイルと止めた回数を fakeKids に残す
         const EventEmitter = require('events');
         const p = new EventEmitter();
@@ -1971,6 +1986,7 @@ process.on('exit', () => {
     if (typeof scene.act === 'function') {
       await scene.act({ handlers, listeners, app: electron.app, wins, mainWin: wins[1], power: powerMonitor, timers, clearedTimers, shortcuts, store, jsonfile, electron, userData,
         localAppData, read: readUser, readLocal, waitFor, sleep, toneWav, releasePause, out: actOut, launches, launchPlan, fakeKids, dbMeta, dbState,
+        claudeCalls: () => (fs.existsSync(claudeLog) ? fs.readFileSync(claudeLog, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l)) : []),   // 0.10.0 LS-2
         dbCrash: (code) => utilFork.crash(code), dbStarts: () => utilFork.starts(), mainSent: () => mainSent.slice(), appCall,
         dialogs: () => dialogs.slice(), answerDialog, quitCalls: () => quitCalls, trace: () => trace.slice(),
         syncDialogs: () => syncDialogs.slice(), powerBlocks: () => power.slice(),
@@ -2145,7 +2161,7 @@ process.on('exit', () => {
     const page = store.getPage(p.id);
     return {
       id: p.id, title: page.title, recovered: Boolean(page.recovered),
-      summaryError: page.summaryError,
+      summaryError: page.summaryError, summaryWait: page.summaryWait === true,
       segments: store.getTranscript(p.id).map((s) => ({ text: s.text, failed: Boolean(s.failed) })),
       meetingType: page.meetingType, typeAuto: page.typeAuto, actionStat: page.actionStat,
       route: page.route, routeText: await pageRouteText(p.id), citeStat: page.citeStat || null,
@@ -2221,7 +2237,10 @@ process.on('exit', () => {
   const queueNow = () => queueFilesNow().map((f) => { try { return JSON.parse(readUser(f).toString('utf8')); } catch (_) { return null; } });
   const segWavFiles = () => listFiles(userData).filter((f) => /^data\/segbuf\/.*\.wav$/i.test(f));
   const segRequests = () => fs.readFileSync(flog, 'utf8').split('\n').filter((l) => l.startsWith('inference') && !/probe=true/.test(l)).length;
-  const chatCount = () => fs.readFileSync(flog, 'utf8').split('\n').filter((l) => l.startsWith('chat #')).length;
+  // 作った要約の数（0.10.0 LS-2 で意図して直した: 要約は Claude Code だけなので、偽の llama の要求に偽の claude の -p を足して数える）
+  const chatCount = () => fs.readFileSync(flog, 'utf8').split('\n').filter((l) => l.startsWith('chat #')).length + claudeLines().filter((c) => c.kind === 'p').length;
+  // 0.10.0 LS-2: main が画面へ送る summary:running（走っている要約のページ）の最後が空 = 要約の走りが一度は始まって終わった
+  const summaryRunDone = () => { const r = sent.filter(([ch]) => ch === 'summary:running'); return r.length > 0 && Array.isArray(r[r.length - 1][1]) && r[r.length - 1][1].length === 0; };
   const snapPages = () => store.listPages().map((p) => ({ id: p.id, summaryError: store.getPage(p.id).summaryError,
     segments: store.getTranscript(p.id).map((x) => ({ text: x.text, failed: Boolean(x.failed) })) }));
   // 引き金を1回引き、復旧の記録の行（止めました・保留）か待ち行列が無くなるのを 3 秒まで待つ（何も起きない引き金は 3 秒で写す）
@@ -2704,7 +2723,7 @@ process.on('exit', () => {
     // 締めの返事（DB を閉じてしまったなら断り）が来るまで待つ
     await waitFor(() => trace.some((t) => (t.kind === 'ack' || t.kind === 'fail') && t.cmd === 'meeting.finalize'), 15000);
     // 要約（エンジンの無いこの場面では、すぐ理由を書いて終わる）まで待つ。要約中は summary で断るため。締めが断られたら待たない
-    await waitFor(() => { const p = store.listPages()[0]; const page = p && store.getPage(p.id); return finalizeFailed() || Boolean(page && ((page.blocks && page.blocks.length) || page.summaryError)); }, 15000);
+    await waitFor(() => { const p = store.listPages()[0]; const page = p && store.getPage(p.id); return finalizeFailed() || Boolean(page && ((page.blocks && page.blocks.length) || page.summaryError || summaryRunDone())); }, 15000);
     await sleep(200);
     out.pages = (await Promise.all(store.listPages().map(pageOut))).map((p) => ({ id: p.id, segments: p.segments }));
     out.restartAfter = await handlers['app:restart']();
@@ -2962,6 +2981,7 @@ process.on('exit', () => {
     const p = store.listPages()[0];
     const page = p && store.getPage(p.id);
     if (page && ((page.blocks && page.blocks.length) || page.summaryError)) break;
+    if (page && summaryRunDone()) break;   // 0.10.0 LS-2: 文字起こしが空のページは要約の欄に理由を書かない（要約の走りが終わったかで見る）
     if (!p && finalizeFailed()) break;
     await sleep(50);
   }
@@ -2983,6 +3003,21 @@ process.on('exit', () => {
     const sg = store.getTranscript(pid)[0];
     const r = sg ? await appCall('segment.update', { pageId: pid, segId: sg.id, patch: { text: sg.text } }) : null;
     out.segUpdateRouteText = r && r.page ? r.page.routeText : null;
+  }
+  // 0.10.0 LS-2: つながったら見回りで要約待ちのページを作る（--summary-online-after・--summary-reconnect）
+  if (summaryOffline && summaryOnlineAfter >= 0) {
+    const snapBack = async () => ({ pCalls: claudeLines().filter((c) => c.kind === 'p').length, pages: await Promise.all(store.listPages().map(pageOut)) });
+    await sleep(summaryOnlineAfter);
+    out.summaryBack = [];
+    netUp = true;
+    await keptTick(); await sleep(200); out.summaryBack.push(await snapBack());
+    await keptTick(); await sleep(200); out.summaryBack.push(await snapBack());
+    if (summaryReconnect) {
+      netUp = false;
+      await keptTick();
+      netUp = true;
+      await keptTick(); await sleep(200); out.summaryBack.push(await snapBack());
+    }
   }
   out.claude = claudeLines();
   out.notices = sent.filter(([ch]) => ch === 'app:notice').map(([, p]) => p);

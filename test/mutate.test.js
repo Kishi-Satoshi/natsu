@@ -145,8 +145,8 @@ const IDS_1C = [
   'stt-redirect', 'stt-429-wait', 'stt-429-long', 'stt-waitcap', 'stt-offline-class', 'stt-400-noprompt',
   'sec-unavailable', 'sec-basic-text', 'sec-reencrypt', 'sec-key-re',
   'cl-strip-prefix', 'cl-strip-case', 'cl-auth-gate', 'cl-no-bare', 'cl-no-persist', 'cl-safe-mode', 'cl-old-version', 'cl-tools-off', 'cl-stdin-cap', 'cl-limit-class', 'cl-reset-at', 'cl-timeout-kill', 'cl-cmd-only', 'cl-cwd',
-  'mn-no-fallback', 'mn-offline-local', 'mn-seg-fallback', 'mn-429-no-local', 'mn-route-count', 'mn-localonly-draft', 'mn-notice-once', 'mn-recovery-keep', 'mn-input-same',
-  'mn-warm-local', 'mn-localonly-summary', 'mn-recovery-local-keep', 'mn-recovery-engine-keep', 'mn-key-decrypt',
+  'mn-offline-local', 'mn-seg-fallback', 'mn-429-no-local', 'mn-route-count', 'mn-localonly-draft', 'mn-notice-once', 'mn-recovery-keep', 'mn-input-same',
+  'mn-warm-local', 'mn-recovery-local-keep', 'mn-recovery-engine-keep', 'mn-key-decrypt',
   'st-claude-cmd', 'ui-localonly-final', 'gate-online',
 ];
 // 0.7.0 U-1（設計書 D5）で、直しそのものが無くなったので外した変異（同意を見ない・同意と URL のキーが無い）
@@ -186,9 +186,11 @@ const IDS_1D_RETIRED = ['stt-auth-only', 'stt-https-only', 'stt-preset-fixed', '
   'lf-key-ratelong', 'lf-key-msg-main', 'lf-ui-key-msg', 'u1-key-openai-only', 'u1-ui-no-provider', 'u1-status-openai-only'];
 // 0.10.0 LS-1（D59。要約はオフラインモードの会議も Claude Code。設計書の C10 を要約について取り消した）で、直しそのものが無くなったので外した変異
 const GONE_LS1 = ['on-summary-localonly'];
-test('G3: 0.10.0 LS-1 で外した変異（オフラインモードの会議の要約を手元へ回す）は一覧に無い', { timeout: 5000 }, () => {
+// LS-2（D59。手元の llama の要約の道を外した）で、直しそのものが無くなった変異（上の一覧からも外した）
+const GONE_LS2 = ['mn-no-fallback', 'mn-localonly-summary', 'op-sum-text'];
+test('G3: 0.10.0 LS-1・LS-2 で外した変異（オフラインモードの会議の要約を手元へ回す・手元の llama の要約の道）は一覧に無い', { timeout: 5000 }, () => {
   const ids = new Set(MUTANTS.map((m) => m.id));
-  assert.deepStrictEqual(GONE_LS1.filter((id) => ids.has(id)), []);
+  assert.deepStrictEqual([...GONE_LS1, ...GONE_LS2].filter((id) => ids.has(id)), []);
 });
 
 test('G3: 第1d回 A-4 で外した変異（PC から直に送る道・鍵の確かめ・鍵の欄と IPC）は一覧に無い', { timeout: 5000 }, () => {
@@ -416,7 +418,7 @@ const IDS_090 = [
   'op-start-cloud', 'op-dict-refuse', 'op-status-cloud', 'op-kept-wav', 'op-kept-text', 'op-kept-refused', 'op-k1-first', 'op-recover-kept',
   'op-kept-banner', 'op-kept-login', 'op-kept-segfailed', 'op-kept-notify', 'op-kept-notice-text', 'op-start-k1', 'op-public-kept', 'op-auto-retry',
   'op-auto-retry-cap', 'op-auto-retry-stopping', 'op-kept-empty', 'op-summary-wait', 'op-auto-summary', 'op-queue-skip', 'op-watcher',
-  'op-watcher-offline', 'op-log-once', 'op-hold-log-once', 'op-watch-engine', 'op-relogin-kick', 'op-sum-text', 'op-localonly-queue',
+  'op-watcher-offline', 'op-log-once', 'op-hold-log-once', 'op-watch-engine', 'op-relogin-kick', 'op-localonly-queue',
   'op-localonly-needs', 'op-status-needs', 'op-dict-keep', 'op-dict-nopaste', 'op-dict-readd', 'op-dict-dup', 'op-dict-broken', 'op-ui-neutral',
   'op-ui-startup-jump', 'op-ui-signin-account', 'op-ui-fetch-label', 'op-ui-test-hidden', 'op-ui-banner-signin', 'op-ui-notice-signin',
   'op-shots-retake', 'sp-tab-open', 'sp-open-sec', 'sp-esc-hotkey', 'sp-inert', 'sp-focus-back', 'sp-keys-behind', 'sp-restore-settings',
@@ -464,7 +466,8 @@ test('G3: 0.9.0 の変異が一覧にそろい、IDS_090 は計画の「変異�
   const plan = fs.readFileSync(path.join(ROOT, 'docs', 'plans', '2026-10-20-090.md'), 'utf8');
   const table = plan.slice(plan.indexOf('## 変異確認'), plan.indexOf('## ゲート'));
   const rows = new Set([...table.matchAll(/^\| ([a-z][a-z0-9-]*) \|/gm)].map((m) => m[1]).filter((id) => id !== 'id'));
-  assert.deepStrictEqual([...rows].sort(), [...IDS_090].sort());
+  // 0.10.0 LS-2 で外した変異（GONE_LS2。op-sum-text）は 0.9.0 の計画の表に残るが、一覧と IDS_090 からは外した
+  assert.deepStrictEqual([...rows].filter((id) => !GONE_LS2.includes(id)).sort(), [...IDS_090].sort());
   // 0.9.0 の変異は、どれも決まったテストのファイルを持ち、なぜ戻すと困るかを書く
   for (const m of MUTANTS.filter((x) => IDS_090.includes(x.id) || IDS_090_REVIEW.includes(x.id))) {
     assert.ok(Array.isArray(m.tests) && m.tests.length > 0 && m.tests.every((t) => /^test\/[^/]+\.test\.js$/.test(t)), `${m.id}: tests`);
@@ -602,6 +605,7 @@ const IDS_100 = [
   'stl-line',
   'mcp-probe-stdout',
   'ls-route-local', 'ls-lock-empty', 'ls-lock-none', 'ls-unlock-made',
+  'ls-wait-mark', 'ls-auto-once', 'ls-lock-wait', 'ls-lock-live', 'ls-unlock-refused', 'ls-lock-save', 'ls-auto-refused', 'ls-ui-lock', 'ls-ui-same',
 ];
 test('G3: 0.10.0 の変異が一覧にそろい、IDS_100 はどれも計画の「変異確認」の表にある。mcp-・cfg-・lk-・ls-・stl-・nl-・pt- の変異は IDS_100 にある。どれも決まったテストのファイルを持ち、なぜ戻すと困るかを書く', { timeout: 5000 }, () => {
   const byId = new Map(MUTANTS.map((m) => [m.id, m]));

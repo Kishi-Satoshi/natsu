@@ -173,6 +173,9 @@ const SCREENS = [
   // 0.10.0 L-2（D58・D70）: 左の一覧の［選ぶ］で3件のうち2件を選んだ形。足した画面（まだ基準が無い）
   { name: 'list-select-light', page: 'app', theme: 'light', act: SELECT_TWO },
   { name: 'list-select-dark', page: 'app', theme: 'dark', act: SELECT_TWO },
+  // 0.10.0 LS-2（D63・D69・決めたこと 111 の 7）: まだ要約を作っていない会議のページ（要約の欄の頭の灰色の一言と、右上の［要約を生成］）。
+  // 足した画面（まだ基準が無い）
+  { name: 'page-summary-lock-light', page: 'app', theme: 'light', get answers() { return summaryLockAnswers(); }, act: OPEN_PAGE },
 ];
 // 0.9.0 O-3（RP9）: 録音バーの画面（形 → 地 → 拡大率 → 状態の順。撮る道具は形・地・拡大率の組ごとに窓を1つ開いて状態を act で替える）。
 // 録音は始めずに見た目だけを撮る（act は pill-states の見本を録音バーの DOM に当てる。撮るときだけ体の地にデスクトップの色を塗る）。
@@ -257,6 +260,8 @@ const RETAKE = new Set([
   'page-menu-link-light', 'page-menu-link-dark',
   // L-2（D58・D70）: 左の一覧で2件を選んだ2枚（ほかの本体の画面の見出しの行の［選ぶ］は SH-1 の表の画面に入っている）
   'list-select-light', 'list-select-dark',
+  // LS-2（D63・D69）: まだ要約を作っていない会議のページ（要約の欄の鍵の一言）を足した1枚
+  'page-summary-lock-light',
 ]);
 const PERF = [{ name: 'open-2000-blocks', budgetMs: 500 }];   // 3回開いた中央値で見る
 const TIME_ZONE = 'Asia/Tokyo';
@@ -386,6 +391,13 @@ function lateAnswers() {
 }
 
 /** 0.9.3 M-7: 設定の「会議の検出」の画面の答え（見本の設定に、通知オンと出さないアプリ Zoom を足した形） */
+// 0.10.0 LS-2: 見本のページから要約（ブロック・出典とアクションの数・要約の経路）を外した形（決めたこと 111 の 7「まだ要約を作っていない」）
+function summaryLockAnswers() {
+  const page = fixtures()['koeApp.pageGet'].page;
+  const route = { ...(page.route || {}) };
+  delete route.summary;
+  return { 'koeApp.pageGet': { page: { ...page, blocks: [], citeStat: null, actionStat: null, summaryError: '', route }, segments: SEGMENTS } };
+}
 function detectAnswers() {
   return { 'koeApp.getSettings': { ...fixtures()['koeApp.getSettings'], meetingDetect: true, meetingDetectMute: ['zoom'] } };
 }

@@ -192,14 +192,13 @@ test('速さの1行: 文字起こしは音声と処理の秒と倍率、要約�
   assert.match(speedLine('llama', { prompt_n: 5400, prompt_ms: 38200, predicted_n: 812, predicted_ms: 61000 }), /^要約の速さ: 読み 5400 トークン 38\.2 秒（141 トークン\/秒）・書き 812 トークン 61\.0 秒（13\.3 トークン\/秒）$/);
   for (const t of [undefined, null, {}, { prompt_n: 'x' }]) assert.strictEqual(speedLine('llama', t), '');
 });
-test('main: 区間と要約の後に速さを engine.log に残す（touchEngine の数は変えない）', () => {
+// 0.10.0 LS-2（D59）で意図して直した: 手元の llama の要約（llmChat）を外したので、要約の速さの行の確かめを外した（区間の速さは今のまま）
+test('main: 区間の後に速さを engine.log に残す', () => {
   const m = code(read('src/main.js'));
   // 0.9.4 S-4（決めたこと 7）で意図して直した: 処理の時間は PC への要求の時間（transcribeLocal の onTimed）。無ければ今どおり t0 から
   assert.ok(m.includes("const pm = Number.isFinite(procMs) ? procMs : Date.now() - t0;"));
   assert.ok(m.includes("const sp = speedLine('whisper', { audioMs: durationMs, procMs: pm });"));
-  const chat = fnBody(m, 'async function llmChat(', '\n}');
-  assert.ok(chat.includes("const sp = speedLine('llama', data && data.timings);"));
-  assert.strictEqual((chat.match(/touchEngine\(sumEng\)/g) || []).length, 2);
+  assert.ok(!m.includes("speedLine('llama'"), '手元の llama の要約の速さの行が残っている');
 });
 test('取り込んだ llama にだけ --cache-ram 0・-np 1・-fa on・--reasoning off を渡す（手で設定した exe には渡さない。mmproj は渡さない）', () => {
   const args = fnBody(code(read('src/main.js')), 'function engineSpawnArgs(eng)', '\n}');

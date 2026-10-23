@@ -156,29 +156,7 @@ test('#41 llama-server の -c は settings.sumCtx で、署名（再起動の判
   assert.ok(sig.includes("eng === whisperEng ? '' : settings.sumCtx"), '要約エンジンの署名に sumCtx が入っていない（変えても再起動されない）');
 });
 
-test('#41 統合プロンプトが文脈長に収まらないときは要点メモを 2 段で畳み、engineLog にだけ残す', () => {
-  const m = code(main);
-  assert.match(m, /const SUM_CTX_MARGIN = 256;/);
-  assert.match(m, /const sumCtxBudget = \(\) => settings\.sumCtx - SUM_MAX_TOKENS - SUM_CTX_MARGIN;/);
-  const gen = fnBody(m, 'async function generateMinutes', '\nfunction ensurePaster');
-  assert.ok(gen.includes('const budget = sumCtxBudget();'), '予算を sumCtxBudget から取っていない');
-  assert.ok(gen.includes('const fixed = estimateTokens(sys + memoBlock + minutesTemplate(type));'), '固定分（役割・メモ・書式）を推定していない');
-  // 1 回で収まるかの判断は、文字数だけでなく推定トークンでも見る（文脈長を小さくしたとき溢れない）
-  assert.ok(gen.includes('&& estimateTokens(plain) + fixed <= budget) {'), '1 回で収まるかの判断が推定トークンを見ていない');
-  // 畳む: 束の分け方は mainlib.foldNotes、各束は分割要約と同じ経路（extractNotes・NOTE_MAX_TOKENS）
-  const fold = fnBody(gen, 'if (need > budget) {', "if (onProgress) onProgress('議事録をまとめています…');");
-  assert.ok(gen.includes("const need = estimateTokens(notes.join('\\n\\n')) + fixed;"), '統合プロンプトの推定が無い');
-  assert.ok(fold.includes('foldNotes(notes, Math.max(1, budget - fixed), estimateTokens)'), '束の分け方を mainlib.foldNotes で決めていない');
-  assert.ok(fold.includes("extractNotes((t) => extract(t, k, bundles.length, '要点メモ'), bundles[k].join('\\n\\n'))"), '束を分割要約と同じ経路で要約していない');
-  assert.ok(gen.includes("extractNotes((t) => extract(t, i, chunks.length, '文字起こし'), chunks[i])"), '既存の分割要約が同じ extract を通っていない');
-  assert.ok(fold.includes('束に畳んだ'), 'engineLog に「n パートを m 束に畳んだ」を残していない');
-  assert.ok(fold.includes('engineLog('), 'engineLog に残していない');
-  assert.ok(!fold.includes('summaryError') && !fold.includes('page.notes') && !fold.includes('truncatedParts'), 'summaryError / page.notes / 切れたパートの一覧に畳んだことを書いている');
-  // 統合には畳んだ後の材料を渡す
-  assert.ok(gen.includes("【会議の要点メモ（時系列）】\\n${material.join('\\n\\n')}"), '統合に畳んだ材料を渡していない');
-  // llmChatP の呼び出しは 3 か所のまま（repo.test.js が数える）。畳みは extract を通る
-  assert.strictEqual((gen.match(/await llmChatP\(/g) || []).length, 3);
-});
+// 「#41 統合プロンプトを 2 段で畳む」の結線の確かめは 0.10.0 LS-2（D59）で外した（手元の llama の要約 generateMinutes が無い。畳み方の mainlib.foldNotes は上で実行して見る）
 
 // ---------------------------------------------------------------- #58 メモリ（判断）
 const { idleEnginesToStop } = require('../src/mainlib');
@@ -215,9 +193,11 @@ test('#58 記録開始で要約エンジンを先読みしない（要約直前�
   assert.ok(!start.includes('startEngine(sumEng)'), '記録開始で要約エンジンを起動している（約 3GB が上がったまま降りない）');
   // 第1c回 Task A-4（意図して変えた）: whisper の先読みは warmWhisper を通す（経路が手元のときだけ起こす。D1・F14）
   assert.ok(start.includes('warmWhisper('), '文字起こしエンジンの先読みまで消している');
-  assert.ok(fnBody(m, 'async function generateMinutes', '\nfunction ensurePaster').includes('await ensureEngineReady(sumEng)'), '要約直前に用意していない');
-  // 理由はコメントに残す
-  assert.ok(/3GB/.test(fnBody(main, 'function startMeeting()', '\nfunction stopMeeting')), '先読みをやめた理由（約 3GB）がコメントに無い');
+  // 0.10.0 LS-2（D59）で意図して直した: 要約は Claude Code だけ（要約直前に手元のエンジンを用意する generateMinutes は外した）。どこからも要約のエンジンを起こさない
+  const sumUps = (m.match(/ensureEngineReady\(sumEng\)/g) || []).length;
+  const inTest = (fnBody(m, "ipcMain.handle('app:test-sum'", '\n  });').match(/ensureEngineReady\(sumEng\)/g) || []).length;
+  assert.strictEqual(sumUps, inTest, '要約のために要約のエンジンを起こしている（設定の［試す］のほか。LS-3 で外す）');
+  assert.ok(!m.includes('generateMinutes'), '手元の llama の要約が残っている');
   // 起動時の whisper 先読みは今まで通り
   assert.ok(fnBody(m, 'app.whenReady().then(', '\n  });').includes('if (engineValid(whisperEng)) warmWhisper('));
   assert.ok(fnBody(m, 'async function warmWhisper(', '\n}').includes('ensureEngineReady(whisperEng)'));
@@ -230,7 +210,7 @@ test('#58 lastUsed は起動時と推論のたびに更新し、60 秒ごとに�
   const start = fnBody(m, 'function startEngine(eng)', '\nfunction stopEngine');
   assert.ok(/eng\.proc = p;\s*\n\s*eng\.lastUsed = Date\.now\(\);/.test(start), '起動時に lastUsed を入れていない');
   assert.strictEqual((fnBody(m, 'async function transcribeLocal(', '\n}').match(/touchEngine\(whisperEng\)/g) || []).length, 2, '文字起こしの前後で lastUsed を更新していない');
-  assert.strictEqual((fnBody(m, 'async function llmChat(', '\n}').match(/touchEngine\(sumEng\)/g) || []).length, 2, '要約の前後で lastUsed を更新していない');
+  // 0.10.0 LS-2（D59）で意図して直した: 手元の llama の要約（llmChat）を外したので、要約の前後の lastUsed の確かめを外した
   // 判断は mainlib.idleEnginesToStop。busy は isBusy()（idle・要約中でない・復旧中でない・待ち 0）
   const busy = fnBody(m, 'const isBusy = () => ', '\n');
   for (const k of ["state !== 'idle'", 'isSummarizing()', 'recoveryRunning', 'pendingSegs > 0']) assert.ok(busy.includes(k), `isBusy が ${k} を見ていない`);

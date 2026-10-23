@@ -146,7 +146,6 @@ async function decideStt({ localOnly, signedIn, hold, up }) {
   return { route: 'local', why: downWhy(r) };
 }
 
-/** 要約の経路。順: localOnly（届くかを確かめずに手元: C10）→ up()（真なら Claude Code） */
 // 0.10.0 LS-1（D59・決めたこと 103）: 要約はいつも利用者の Claude Code。届かなければ要約待ち（wait）。手元の llama（local）は無い。
 // オフラインモードの会議の印（localOnly）は見ない（受けても捨てる。呼び手の古い形のため）
 async function decideSummary({ up } = {}) {

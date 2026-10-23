@@ -489,6 +489,8 @@
   .note { font-size: 14px; color: var(--danger); margin-bottom: 12px;
     background: var(--hover); border-radius: 10px; padding: 12px 16px; }
   .note::before { content: '⚠ '; }
+  /* 0.10.0 LS-2（D63・D69・決めたこと 111）: 要約の欄の鍵の一言（欄の頭の灰色の1行）。鍵の間は要約の欄が読むだけ */
+  .locknote { font-size: 14px; color: var(--muted); margin-bottom: 12px; }
   /* 何も開いていないとき（第1b2回 P-2）: アイコンと丸いタブを隠し、ブロックの線も消して空の文だけ */
   .nopage #pIcon, .nopage .ptabrow { display: none; }
   .nopage .mblock { border: none; }
@@ -2711,6 +2713,28 @@
   }
   const LIVE_COPY_PHASES = ['recording', 'paused', 'finalizing'];   // 録音中の写し（src/db/commands.js の LIVE_PHASES と同じ）
   const isLiveCopy = (page) => Boolean(page && page.meeting && typeof page.meeting === 'object' && LIVE_COPY_PHASES.includes(page.meeting.phase));
+  // 0.10.0 LS-2（D63・D69・決めたこと 111）: 要約の欄の鍵。src/mainlib.js の summaryLock の写し（repo が同じ表を両方に当てる）。
+  // 上から順に見て、最初に当たった行の符号（鍵なしは ''）。making は画面の［要約を生成］の最中と、main が知らせる自動の要約の最中
+  const SUMMARY_LOCK_VIEW_TEXT = {
+    live: '録音中は要約を直せません。書きたいことはメモに書いてください。',
+    making: '要約を作っています。',
+    wait: '要約待ち（つながったら作ります）。要約ができるまでは直せません。書きたいことはメモに書いてください。',
+    empty: '文字起こしが無いので、要約は作れません。書きたいことはメモに書いてください。',
+    none: '［要約を生成］で要約を作ると、直せるようになります。書きたいことはメモに書いてください。',
+  };
+  function summaryLockView(page, { live = false, making = false, segments = [] } = {}) {
+    const p = page && typeof page === 'object' && !Array.isArray(page) ? page : {};
+    if (live) return 'live';
+    if (making) return 'making';
+    if (p.summaryWait === true) return 'wait';
+    const sum = p.route && typeof p.route === 'object' && p.route.summary && typeof p.route.summary === 'object' ? p.route.summary : null;
+    const made = Boolean(sum && (sum.at || sum.by));
+    if (made || (Array.isArray(p.blocks) && p.blocks.length > 0)) return '';
+    if (typeof p.summaryError === 'string' && p.summaryError) return '';
+    const said = Array.isArray(segments) && segments.some((x) => x && !x.failed && typeof x.text === 'string' && x.text.trim());
+    return said ? 'none' : 'empty';
+  }
+  let mainMaking = new Set();   // main が今作っている要約のページ（summary:running）
   function pageRefLine(page, base) {
     const title = String((page && page.title) || '').replace(/[\r\n\t]+/g, ' ').replace(/ {2,}/g, ' ').trim() || '無題';
     return `NaTsu の議事録「${title}」（${String((page && page.date) || '')}）${base}${page.id}`;
@@ -2982,13 +3006,19 @@
       await window.koeApp.blockMove(curId, id, idx);
       await openPage(curId);
     };
-    if (curPage.summaryError) {
+    // 0.10.0 LS-2: 鍵の間は欄の頭に一言を出し、要約の欄を読むだけにする（つまみ・削除の × を出さず、文・チェック・担当と期限を直せない）。
+    // 鍵の一言が要約待ちの文を含むので、鍵の間は要約の欄の理由（summaryError）を重ねて出さない
+    const lock = summaryLockView(curPage, { live: isLiveCopy(curPage), making: summarizing.has(curId) || mainMaking.has(curId), segments: curSegs });
+    if (lock) {
+      const n = document.createElement('div'); n.className = 'locknote'; n.id = 'sumLock'; n.textContent = SUMMARY_LOCK_VIEW_TEXT[lock];
+      box.appendChild(n);
+    } else if (curPage.summaryError) {
       const n = document.createElement('div'); n.className = 'note'; n.textContent = curPage.summaryError;
       box.appendChild(n);
     }
     if (!curPage.blocks.length) {
       const d = document.createElement('div'); d.className = 'empty';
-      d.innerHTML = '<div class="big">要約はまだありません</div>右上の［要約を生成］で作成できます。';
+      d.innerHTML = lock ? '<div class="big">要約はまだありません</div>' : '<div class="big">要約はまだありません</div>右上の［要約を生成］で作成できます。';
       box.appendChild(d); return;
     }
     // 水色の案内の帯はやめた（第1b2回 P-2）。案内の文は出典の札の title の最後の行にある
@@ -2997,6 +3027,7 @@
       const el = document.createElement('div');
       el.className = `blk ${b.type}` + (b.type === 'todo' && b.checked ? ' done' : '');
       el.dataset.id = b.id;
+      if (lock) el.dataset.locked = '1';
 
       // 並べ替えハンドル。行全体を draggable にすると本文のテキスト選択と
       // 衝突するので、つまみを押している間だけドラッグできるようにする。
@@ -3013,11 +3044,12 @@
         el.draggable = false; el.classList.remove('dragging');
         dragBlockId = null; clearDropMarks(box);
       };
-      el.appendChild(grip);
+      if (!lock) el.appendChild(grip);
 
       if (b.type === 'todo') {
         const cb = document.createElement('input');
         cb.type = 'checkbox'; cb.checked = Boolean(b.checked);
+        cb.disabled = Boolean(lock);
         cb.onchange = async () => {
           await window.koeApp.blockUpdate(curId, b.id, { checked: cb.checked });
           b.checked = cb.checked;
@@ -3031,8 +3063,14 @@
       }
 
       const txt = document.createElement('div');
-      txt.className = 'txt'; txt.contentEditable = 'true'; txt.spellcheck = false;
+      txt.className = 'txt'; txt.contentEditable = lock ? 'false' : 'true'; txt.spellcheck = false;
       txt.textContent = b.text;
+      if (lock) {
+        el.appendChild(txt);
+        renderLockedMeta(el, b);
+        box.appendChild(el);
+        continue;
+      }
       // 保存は「編集を始めたページ」に対して行う。flushEdits（ページ切替・記録開始）
       // からも呼ばれるので、pid を引数で受け、別のページへ移った後は画面を触らない。
       txt._commit = (pid) => {
@@ -3092,6 +3130,26 @@
       el.appendChild(del);
 
       box.appendChild(el);
+    }
+  }
+
+  // 鍵の間の ToDo の担当・期限と出典（0.10.0 LS-2）。担当・期限は押せない札で見せる（直す口を持たない）
+  function renderLockedMeta(el, b) {
+    if (b.type === 'todo') {
+      const meta = document.createElement('span'); meta.className = 'ameta';
+      const di = dueInfo(b.due, b.dueApprox);
+      for (const [cls, text] of [[b.assignee ? 'who' : '', b.assignee || ''], [di ? `due ${di.cls}` : (b.dueRaw ? 'due' : ''), di ? `${di.label}・${di.note}` : (b.dueRaw || '')]]) {
+        if (!text) continue;
+        const t = document.createElement('button');
+        t.type = 'button'; t.className = `atag ${cls}`; t.textContent = text; t.disabled = true;
+        meta.appendChild(t);
+      }
+      el.appendChild(meta);
+    }
+    if (b.type === 'bullet' || b.type === 'todo') {
+      const wrap = document.createElement('span'); wrap.className = 'cites';
+      el.appendChild(wrap);
+      renderCiteBadge(el, b);
     }
   }
 
@@ -3866,6 +3924,12 @@
     linkHitT = setTimeout(() => { for (const e of els) e.classList.remove('linkhit'); }, LINK_SHOW_MS);
   }
   window.koeApp.onOpenLink((p) => { openLink(p); });
+  // 0.10.0 LS-2: main が今作っている要約のページ（自動の要約も）。開いているページが変われば要約の欄を描き直す（鍵の making）
+  window.koeApp.onSummaryRunning((ids) => {
+    const was = mainMaking.has(curId);
+    mainMaking = new Set(Array.isArray(ids) ? ids.filter((x) => typeof x === 'string') : []);
+    if (curPage && mainMaking.has(curId) !== was) renderBlocks();
+  });
   window.koeApp.onPageUpdated(({ page, segments }) => {
     refreshList();
     if (page.id !== curId) return;

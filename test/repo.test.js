@@ -572,17 +572,7 @@ test('エンジンの起動確認は /health を見る', () => {
   assert.ok(!/`http:\/\/127\.0\.0\.1:\$\{enginePort\(eng\)\}\/`/.test(main), '「/」を見ている');
 });
 
-test('要約エンジンの 503 は「準備中」として扱う', () => {
-  const fn = main.slice(main.indexOf('async function llmChat'), main.indexOf('async function generateMinutes'));
-  assert.match(fn, /res\.status !== 503 \|\| Date\.now\(\) >= deadline/, '待って引き直していない');
-  // 待っている間は画面に「準備中」と出す。黙って待つと固まったように見える
-  assert.ok(fn.includes('要約エンジンを準備しています'), '待ちの表示が無い');
-  // 待ちきれなかったときも「エラー (503)」ではなく準備中だと分かる文で返す
-  assert.ok(fn.includes('要約エンジンがまだ準備中です'), '503 が生のエラー文のまま');
-  // 3か所の呼び出しすべてが表示付きで呼んでいる
-  assert.strictEqual((main.match(/await llmChatP\(/g) || []).length, 3);
-});
-
+// 「要約エンジンの 503 は準備中」は 0.10.0 LS-2（D59）で外した（手元の llama の要約 llmChat が無い）
 test('設定は自動保存（保存ボタンは無い）', () => {
   assert.ok(!appHtml.includes('saveBtn'), '保存ボタンが残っている');
   assert.ok(appHtml.includes("$('tabSettings').addEventListener('change'"), '自動保存の結線が無い');
@@ -801,7 +791,8 @@ test('#46 要約完了時に手元の古い page で書き戻さない（削除�
 test('#10 同じページの要約は同時に一つだけ走る', () => {
   // 排他の判断は mainlib.makeSummaryRunner（実行して検査するのは main.test.js）。
   // ここは main.js がそれを通しているか（結線）だけを見る。
-  assert.match(main, /const runSummary = makeSummaryRunner\(doRunSummary(, \(\) => updateTray\(\))?\)/, '排他を mainlib.makeSummaryRunner で作っていない');
+  // 0.10.0 LS-2 で意図して直した: 件数が変わるたびに、走っているページの ID を画面へも渡す（要約の欄の鍵の making）
+  assert.match(main, /const runSummary = makeSummaryRunner\(doRunSummary(, \(\) => \{ updateTray\(\); sendToMainWin\('summary:running', runSummary\.running\(\)\); \})?\)/, '排他を mainlib.makeSummaryRunner で作っていない');
   assert.ok(!/new Map\(\)[^\n]*\n[^\n]*function runSummary/.test(code(main)) && !/const summarizing = new Map\(\)/.test(code(main)),
     '排他を main.js に手書きしている（mainlib を通していない）');
   assert.match(main, /ipcMain\.handle\('page:summarize', \(_e, id\) => runSummary\(id\)\)/);
@@ -887,9 +878,10 @@ test('#35/#49 ホットキーは片方ずつ登録し、失敗を画面とトレ
 test('#18 テンプレートの写しを落とす結線（minutes.dropTemplateEcho が無ければ素通し）', () => {
   assert.match(main, /const dropTemplateEcho = minutes\.dropTemplateEcho \|\| \(\(b\) => b\)/);
   assert.match(main, /dropTemplateEcho\(dropRedundantEmpty\(markdownToBlocks\(md\)\), minutesTemplate\(page\.meetingType\)\)/);
-  // プロンプトに入れている書式と同じ文字列を渡す（別々に組み立てるとずれる）
-  const gen = fnBody(code(main), 'async function generateMinutes', '\nfunction ensurePaster');
-  assert.strictEqual((gen.match(/\$\{minutesTemplate\(type\)\}/g) || []).length, 2, 'プロンプト側がテンプレート関数を使っていない');
+  // プロンプトに入れている書式と同じ文字列を渡す（別々に組み立てるとずれる）。0.10.0 LS-2 で意図して直した: 手元の generateMinutes を外したので、
+  // Claude Code に渡す文（summarizeWithClaude の buildClaudeInput）が同じ minutesTemplate(type) を使うことを見る
+  const sw = fnBody(code(main), 'async function summarizeWithClaude', '\n}');
+  assert.ok(sw.includes('template: minutesTemplate(type)'), 'Claude Code に渡す文がテンプレート関数を使っていない');
 });
 
 // ---------------------------------------------------------------- 第2段（D: 小さな直し）
@@ -984,7 +976,8 @@ test('#57(2) 記録中はエンジンに関わる設定を変えず、留めた�
 test('#52 要約中はアプリを「忙しい」として扱う', () => {
   const m = code(main);
   assert.match(m, /const isSummarizing = \(\) => runSummary\.running\(\)\.length > 0/);
-  assert.match(m, /const runSummary = makeSummaryRunner\(doRunSummary, \(\) => updateTray\(\)\)/, '件数の増減でトレイ・省電力を更新していない');
+  // 0.10.0 LS-2 で意図して直した（画面へ summary:running も渡す）
+  assert.match(m, /const runSummary = makeSummaryRunner\(doRunSummary, \(\) => \{ updateTray\(\); sendToMainWin\('summary:running', runSummary\.running\(\)\); \}\)/, '件数の増減でトレイ・省電力を更新していない');
   assert.ok(fnBody(m, 'function updatePowerBlock()', '\n}').includes("state !== 'idle' || isSummarizing()"), '省電力の抑止が要約中に外れる');
   const close = fnBody(m, "mainWin.on('close'", '\n  });');
   assert.ok(close.includes('closeConfirm(') && close.includes('isSummarizing()'), '閉じる確認が要約中を見ていない');
@@ -1002,20 +995,7 @@ test('#52 要約中はアプリを「忙しい」として扱う', () => {
 });
 
 // ---------------------------------------------------------------- 第2段（C: 要約とプロンプト）
-test('#16 分割要約が切れたら半分に割ってやり直し、それでも切れたパートを名指しする', () => {
-  // やり直しの判断は mainlib.extractNotes、文は mainlib.truncationMessage（main.test.js で実行）
-  const gen = fnBody(code(main), 'async function generateMinutes', '\nfunction ensurePaster');
-  assert.ok(gen.includes('await extractNotes('), 'やり直しを mainlib.extractNotes で行っていない');
-  assert.ok(gen.includes('truncatedParts.push(i + 1)'), '切れたパート番号を記録していない');
-  assert.ok(gen.includes('（※パート${i + 1}の抽出は途中で切れています）'), '要点メモに注記していない');
-  assert.match(gen, /return \{ md: one\.text, truncated: one\.truncated, truncatedParts: \[\], finalTruncated: one\.truncated \}/);
-  assert.match(gen, /truncatedParts, finalTruncated: final\.truncated \}/);
-  const run = fnBody(code(main), 'async function doRunSummary', '\nlet hotkeyState');
-  // 文は mainlib.truncationMessage から取り、途中で種類を選び直したときの添え書き（0.1.2）と並べる
-  assert.ok(run.includes('const notes = [truncationMessage(truncatedParts, finalTruncated)];')
-    && run.includes("saved.summaryError = notes.filter(Boolean).join('\\n');"), '文を mainlib.truncationMessage から取っていない');
-  assert.ok(!code(main).includes('要約が長さの上限で打ち切られた可能性があります'), '文が main.js に手書きのまま残っている');
-});
+// 「#16 分割要約が切れたら半分に割ってやり直す」の結線の確かめは 0.10.0 LS-2（D59）で外した（手元の generateMinutes が無い。Claude Code は1回で要約する）
 
 test('#23 初期プロンプトは予算（UTF-8 バイト）に収め、辞書の収まり具合を画面へ返せる', () => {
   // 予算の判断は mainlib.buildPromptParts（main.test.js で実行）。ここは結線だけ見る
@@ -1511,5 +1491,24 @@ test('0.10.0 E-1 EL8: ci.yml と release.yml が node_modules の Electron と�
     const y = read(f);
     assert.ok(y.includes(NODE_MOD), `${f}: node_modules の Electron で回していない`);
     assert.ok(y.includes(PACKED), `${f}: 詰めた NaTsu.exe で回していない`);
+  }
+});
+
+// 0.10.0 LS-1・LS-2（D63・D69・決めたこと 111）: 要約の欄の鍵は main・DB（mainlib.summaryLock）と画面（app.html の summaryLockView）で同じ表。
+// 同じ並びのページを両方に当てて同じ答え、一言の表も同じ
+test('0.10.0 LS-2: summaryLockView（app.html）と mainlib.summaryLock に同じ表を当てて同じ答え。一言の表も同じ', () => {
+  const lib = require('../src/mainlib');
+  const view = new Function(`${fnFromApp('summaryLockView')}\nreturn summaryLockView;`)();
+  const m = /const SUMMARY_LOCK_VIEW_TEXT = (\{[\s\S]*?\n {2}\});/.exec(appHtml);
+  assert.ok(m, '画面の一言の表が無い');
+  assert.deepStrictEqual(new Function(`return ${m[1]};`)(), { ...lib.SUMMARY_LOCK_TEXT });
+  const said = [{ id: 's1', text: 'はい' }];
+  const none = [{ id: 's1', text: '', failed: true }];
+  const pages = [null, {}, { summaryWait: true }, { summaryWait: true, blocks: [{ id: 'b1' }] }, { blocks: [{ id: 'b1' }] }, { blocks: [], route: { summary: { at: 'x' } } },
+    { route: { summary: { by: 'claude-code' } } }, { summaryError: '断った' }, { summaryError: '' }, { route: { summary: 3 } }, { blocks: 'x' }, []];
+  const opts = [{}, { live: true }, { making: true }, { live: true, making: true }];
+  for (const p of pages) for (const o of opts) for (const segments of [said, none, [], undefined]) {
+    const a = { ...o, segments };
+    assert.strictEqual(view(p, a), lib.summaryLock(p, a), JSON.stringify([p, a]));
   }
 });
