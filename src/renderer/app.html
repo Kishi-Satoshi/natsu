@@ -225,6 +225,8 @@
   .pchk { flex: none; width: 16px; height: 16px; margin: 0 2px; border: 1.5px solid var(--muted); border-radius: 4px; display: inline-flex; align-items: center; justify-content: center; }
   .pchk[aria-checked="true"] { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
   .pchk[aria-checked="true"]::after { content: ''; width: 8px; height: 4px; border: solid var(--on-accent); border-width: 0 0 2px 2px; transform: translate(0, -1px) rotate(-45deg); }
+  /* 0.10.0 LN-4: リンクで開いた箇所を 3 秒だけ地の色で示す */
+  .seg.linkhit, .blk.linkhit { background: var(--tint); }
   .plist { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 1px; min-height: 0; }
   /* 選んでいるページは灰色の地（第1b2回 L-1。左の線と青はやめた）。ホバーと地の差がほとんど無いので、文字の色と太さでも分ける */
   .pitem { background: transparent; border: none; border-radius: 6px;
@@ -2252,8 +2254,17 @@
   // ときは「全部でいくつあって、そのうちいくつ見せているか」を結果の先頭に出す。
   // 「すべて」の結果では null（件数の行を出さない）。
   let listCount = null;
+  // 0.10.0 LN-4（決めたこと 148）: 検索の窓に貼ったリンク（natsu:// は画面の写しで、https の住所は main で照らす）→ { id, anchor } か null
+  let palLink = null;
+  async function linkOfQuery(q) {
+    const v = parseNatsuLinkView(q);
+    if (v) return v;
+    if (!/^https:\/\//.test(q) || !window.koeApp.parseLink) return null;
+    try { const r = await window.koeApp.parseLink(q); return r && typeof r.id === 'string' ? parseNatsuLinkView(`natsu://page/${r.id}${r.anchor ? `#${r.anchor}` : ''}`) : null; } catch (_) { return null; }
+  }
   async function refreshResults() {
     const q = $('searchBox').value.trim();
+    palLink = await linkOfQuery(q);
     if (filter === 'actions') { await renderActionView(q); return; }
     listCount = null;
     if (filter === 'full' && q) {
@@ -2464,6 +2475,22 @@
   // 検索の窓の結果は2行（🎙️・題名、灰色の日付・長さ・要約なし・タイプ）と抜粋
   function renderResults() {
     const box = $('palList'); box.textContent = '';
+    // 0.10.0 LN-4（決めたこと 148）: 貼ったリンクの議事録を開く行（結果の頭。Enter・押すで開く）
+    if (palLink) {
+      const el = document.createElement('div');
+      el.className = 'pitem';
+      const ic = document.createElement('span'); ic.className = 'pi'; ic.textContent = '🔗';
+      const pb = document.createElement('div'); pb.className = 'pb';
+      const t = document.createElement('div'); t.className = 't'; t.textContent = 'このリンクの議事録を開く';
+      pb.appendChild(t);
+      el.append(ic, pb);
+      el.setAttribute('data-pid', palLink.id);
+      el.setAttribute('data-link', '1');
+      el.setAttribute('data-anchor', palLink.anchor);
+      const link = palLink;
+      asOption(el, false, () => openLinkRow(link.id, link.anchor));
+      box.appendChild(el);
+    }
     if (listCount) {
       const c = document.createElement('div'); c.className = 'count';
       c.textContent = listCount.truncated
@@ -2529,6 +2556,10 @@
     if (scroll && rows[palSel] && typeof rows[palSel].scrollIntoView === 'function') rows[palSel].scrollIntoView({ block: 'nearest' });
   }
   // 窓の結果の行から開く（Ctrl+クリック・Ctrl+Enter は新しいタブ）。開いたら窓を閉じる
+  function openLinkRow(id, anchor) {
+    closePalette();
+    return openLink({ id, anchor });
+  }
   function openResult(id, ev) {
     const r = openFromList(id, ev);
     closePalette();
@@ -2573,6 +2604,7 @@
       const row = palRows()[palSel];
       if (!row || !row.dataset || !row.dataset.pid) return;
       if (typeof ev.preventDefault === 'function') ev.preventDefault();
+      if (row.dataset.link === '1') { openLinkRow(row.dataset.pid, row.dataset.anchor || ''); return; }   // 0.10.0 LN-4: 貼ったリンクの行
       openResult(row.dataset.pid, { ctrlKey: Boolean(ev.ctrlKey), metaKey: Boolean(ev.metaKey) });
     }
   });
@@ -3785,6 +3817,55 @@
   window.koeApp.onPagesUpdated(() => refreshList());
   // main が開かせるページ（会議を終えた・知らせを押した）。記録中のタブがあればそれをページのタブに替え、無ければページのタブで開く
   window.koeApp.onPageOpen((id) => { openPageTab(id, { replaceLive: true }); });
+  // ---------------- 0.10.0 LN-4（D72・決めたこと 145・146）: リンクで開く ----------------
+  // できるのはページを開いて捲ることだけ（読む口 pageGet のほかを呼ばない: test/repo.test.js が字面で見る）。録音中は別のタブで開く
+  // （録音・要約・下書きには触らない）。無いページ（ゴミ箱・消した・録音中の写し）と印の発言が無いときは左下に知らせる
+  const LINK_GONE = 'その議事録は NaTsu にありません（ゴミ箱に入れたか、消しました）';
+  const LINK_NO_SPOT = 'その箇所は見つかりませんでした。会議の頭を開きました';
+  const LINK_SHOW_MS = 3000;
+  let linkHitT = null;
+  async function openLink(link) {
+    const l = link && typeof link === 'object' && typeof link.id === 'string' && typeof link.anchor === 'string'
+      ? parseNatsuLinkView(`natsu://page/${link.id}${link.anchor ? `#${link.anchor}` : ''}`) : null;
+    if (!l) return;
+    let r = null;
+    try { r = await window.koeApp.pageGet(l.id); } catch (_) { r = null; }
+    if (!r || !r.page || isLiveCopy(r.page)) { toast(LINK_GONE); return; }
+    if (settingsOpen()) closeSettings();
+    await openPageTab(l.id, { newTab: activeTab === 'live' });
+    if (curId !== l.id) return;
+    showLinkSpot(l.anchor);
+  }
+  function showLinkSpot(anchor) {
+    if (!anchor) return;
+    clearTimeout(linkHitT);
+    for (const e of document.querySelectorAll('.linkhit')) e.classList.remove('linkhit');
+    const kind = anchor[0];
+    const rest = anchor.slice(2);
+    let els = [];
+    if (kind === 't') {
+      const [from, to] = rest.split('-');
+      const ids = curSegs.map((sg) => sg.id);
+      const a = ids.indexOf(from);
+      const b = ids.indexOf(to);
+      if (a < 0) { toast(LINK_NO_SPOT); return; }
+      setPane('script');
+      els = ids.slice(a, (b >= a ? b : a) + 1).map((id) => document.getElementById(`seg-${id}`)).filter(Boolean);
+    } else if (kind === 'b') {
+      const el = [...$('pNote').querySelectorAll('.blk')].find((e) => e.dataset.id === rest);
+      if (!el) { toast(LINK_NO_SPOT); return; }
+      setPane('note');
+      els = [el];
+    } else if (kind === 'm') {
+      setPane('memo');
+      return;
+    }
+    if (!els.length) { toast(LINK_NO_SPOT); return; }
+    for (const e of els) e.classList.add('linkhit');
+    if (typeof els[0].scrollIntoView === 'function') els[0].scrollIntoView({ block: 'center' });
+    linkHitT = setTimeout(() => { for (const e of els) e.classList.remove('linkhit'); }, LINK_SHOW_MS);
+  }
+  window.koeApp.onOpenLink((p) => { openLink(p); });
   window.koeApp.onPageUpdated(({ page, segments }) => {
     refreshList();
     if (page.id !== curId) return;

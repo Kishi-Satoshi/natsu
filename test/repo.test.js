@@ -1424,7 +1424,8 @@ test('0.10.0 L-1: app:link-base は main.js の HELP_URL の open#p=（https の
 
 // 0.10.0 L-2（D70・決めたこと 101）: 一覧の選びの決まり（純粋。後のデータベースの表でも使う）を app.html から字面で取り出して当てる
 const fnFromApp = (name) => {
-  const at = appHtml.indexOf(`  function ${name}(`);
+  const plain = appHtml.indexOf(`  function ${name}(`);
+  const at = plain > 0 ? plain : appHtml.indexOf(`  async function ${name}(`);
   assert.ok(at > 0, `app.html に ${name} が無い`);
   return appHtml.slice(at, appHtml.indexOf('\n  }\n', at) + 4);
 };
@@ -1486,4 +1487,18 @@ test('0.10.0 LN-1: parseNatsuLinkView（app.html）と natsulink.parseNatsuLink 
     'natsu://page/pm1\\', 'natsu://page/pm1\u0000', `natsu://page/pm1#${'b'.repeat(288)}`, `natsu://page/${'a'.repeat(65)}`, 'natsu://page/pm1#t:s3-', 'natsu://page/pm1#a#b',
     'natsu://page/pm1//', 'natsu://page/', 'natsu://page/pm1#javascript:x', `${NL.LINK_ORIGIN}/open#p=pm1`, 'pm1', '', null, 5];
   for (const s of cases) assert.deepStrictEqual(view(s), NL.parseNatsuLink(s), JSON.stringify(s));
+});
+
+// 0.10.0 LN-4（決めたこと 146）: リンクで起こされたときにできるのは「ページを開いて捲る」だけ。画面のリンクの受け手（openLink・showLinkSpot）と main の
+// openLinkFromArgv は、書く・消す・要約・設定・登録・外へ送る口を呼ばない（字面で見る）
+test('0.10.0 LN-4: リンクの受け手は読むだけの口しか持たない（画面の openLink・showLinkSpot と main の openLinkFromArgv）', () => {
+  const view = `${fnFromApp('openLink')}\n${fnFromApp('showLinkSpot')}`;
+  const apis = [...view.matchAll(/koeApp\.([A-Za-z]+)/g)].map((m) => m[1]);
+  assert.deepStrictEqual([...new Set(apis)], ['pageGet']);
+  for (const w of ['ipcRenderer', 'copy(', 'openExternal', 'location.', 'innerHTML']) assert.ok(!view.includes(w), `画面のリンクの受け手に ${w}`);
+  const at = main.indexOf('function openLinkFromArgv(');
+  const fn = main.slice(at, main.indexOf('\n}\n', at));
+  const sends = [...fn.matchAll(/sendToMainWin\('([^']+)'/g)].map((m) => m[1]);
+  assert.deepStrictEqual([...new Set(sends)], ['page:open-link']);
+  for (const w of ['db.call', 'dbCall', 'writeJsonFile', 'settingsWriter', 'shell.', 'runSummary', 'mcpRegister', 'fetch(']) assert.ok(!fn.includes(w), `main のリンクの受け手に ${w}`);
 });

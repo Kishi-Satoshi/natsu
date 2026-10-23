@@ -785,7 +785,9 @@ test('基準の画像（test/shots/win32）は今の app.html で撮ったもの
   // 見える中身が変わるのは左の一覧が写る本体の画面（SH-1 の表で RETAKE にある）と、足した list-select-light・list-select-dark。値を今の app.html に合わせた（前の値は c33e797e…）
   // 0.10.0 LN-1（D72）: natsu:// のリンクの照らしの写し parseNatsuLinkView を <script> の中だけに足した（要素・文・CSS は変えていないので見た目は変わらない。
   // RETAKE は足さない）。値を今の app.html に合わせた（前の値は e98ee8b8…）
-  assert.strictEqual(sha, '2776757e27aac4e5bf176a81fa15fdf14ef7dbbf1ee00e5bf51733db240793f7',
+  // 0.10.0 LN-4（D72・決めたこと 145・148）: リンクで開いたページの箇所を 3 秒だけ地の色で示す（.linkhit。リンクで開いたときだけ付く）・検索の窓に貼ったリンクの行
+  // （貼ったときだけ出る）を足した。撮る画面には出ないので見た目は変わらない（RETAKE は足さない）。値を今の app.html に合わせた（前の値は 2776757e…）
+  assert.strictEqual(sha, '2b0ba2e152f3991e189a027a76824b8b37bf09eb82fcabfe499407724fc4ec6b',
     'app.html が基準の画像を撮った時と違う。Windows の CI の画面の比べ（捲り棒のつまみも）を見て、基準を取り直してからこの値を直す');
 });
 

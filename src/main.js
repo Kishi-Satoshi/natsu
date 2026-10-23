@@ -2165,6 +2165,26 @@ function registerNatsuProtocol() {
   } catch (e) { engineLog(`リンクの登録: できなかった（${errCode(e)}）`); }
 }
 
+// ---------------------------------------------------------------- リンクで開く（0.10.0 LN-4。D72・決めたこと 145・146）
+// 起動の引数と2つ目の起動の引数の -- より後ろの natsu:// だけを読み（lib.linkFromArgv）、窓を出して前に出し（最小化なら戻す）、
+// 画面へ page:open-link { id, anchor } を送る（読み込み中なら読み終えてから）。できるのはページを開いて捲ることだけ（書く・消す・要約・
+// 設定・登録・外へ送る道を持たない）。記録はリンクの文字も ID も書かない。2 秒に 5 回を越えたリンクは捨てる（lib.linkRate）
+let linkTimes = [];
+function openLinkFromArgv(argv) {
+  const l = lib.linkFromArgv(argv);
+  if (l === null) return;
+  if (l === 'bad') { engineLog('リンク: 読めないリンクを捨てました'); return; }
+  const r = lib.linkRate(linkTimes, Date.now());
+  linkTimes = r.times;
+  if (!r.ok) { engineLog('リンク: 2 秒に 5 回を越えたリンクを捨てました'); return; }
+  createMainWindow();
+  if (!mainWin || mainWin.isDestroyed()) return;
+  if (mainWin.isMinimized()) mainWin.restore();
+  const p = { id: l.id, anchor: l.anchor };
+  if (mainWin.webContents.isLoading()) mainWin.webContents.once('did-finish-load', () => sendToMainWin('page:open-link', p));
+  else sendToMainWin('page:open-link', p);
+}
+
 // 起動の後（窓が出てから）に1回。読むだけ。場所が古い（stale）・登録が消えた（gone）ときだけ知らせる。読めなければ何もしない
 function checkMcpRegistration() {
   let st;
@@ -5913,6 +5933,8 @@ function setupIpc() {
   ipcMain.handle('mcp:unregister', () => mcpUnregister());
   // 議事録のリンクの住所の頭（0.10.0 L-1。D78・決めたこと 153: ヘルプのサイトの /open のページ。# の後ろの ID はサーバーへ送られない）
   ipcMain.handle('app:link-base', () => `${HELP_URL}open#p=`);
+  // 画面の検索の窓に貼ったリンク（natsu:// か https の住所）の照らし（0.10.0 LN-4・決めたこと 148。画面は住所を持たないので main で照らす）。→ { id, anchor } か null
+  ipcMain.handle('app:parse-link', (_e, s) => (typeof s === 'string' && s.length <= 1000 ? natsulink.parseAnyLink(s) : null));
   ipcMain.handle('claude:test', () => claudeTest());
   // ［Claude Code にログイン］［Claude Code を入れる］（第1b回の続き Lane F-c・F-d。利用者に PowerShell を打たせない）。
   // 見える窓は claudeCli.claudeOpenWindow が隠した PowerShell から開き、閉じるまで待つ。閉じたら確かめ直して、その答えを返す
@@ -6089,7 +6111,8 @@ const gotLock = app.requestSingleInstanceLock();
 if (!gotLock) {
   app.quit();
 } else {
-  app.on('second-instance', () => createMainWindow());
+  // 0.10.0 LN-4: 2つ目の起動の引数にリンクがあれば、そのページを開く
+  app.on('second-instance', (_e, argv) => { createMainWindow(); openLinkFromArgv(argv); });
   // 書き出しの合図（第1a回 JS8・RF21）。窓ができたら、その窓の session-end と query-session-end に付ける（Windows の
   // シャットダウン・再起動・サインアウト。隠れた本体の窓と録音バーにも付く）。窓を作る whenReady より前に付ける
   app.on('browser-window-created', (_e, w) => { w.on('session-end', flushAllWriters); w.on('query-session-end', flushAllWriters); });
@@ -6201,6 +6224,8 @@ if (!gotLock) {
     checkMcpRegistration();
     // 0.10.0 LN-3: natsu:// の登録（パックした NaTsu で場所が変わったときだけ書き直す）
     registerNatsuProtocol();
+    // 0.10.0 LN-4: リンクで起こされたとき（起動の引数の -- の後ろの natsu://）は、そのページを開く
+    openLinkFromArgv(process.argv);
     // 0.9.3 M-2: 会議の検出の見張り（Windows・設定がオン・録音していないとき）。窓とトレイの後に起こす
     detectReady = true;
     detectBusy = state;

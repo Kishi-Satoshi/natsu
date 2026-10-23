@@ -213,6 +213,9 @@ contextBridge.exposeInMainWorld('koeApp', {
   mcpUnregister: () => ipcRenderer.invoke('mcp:unregister'),
   // 0.10.0 L-1: 議事録のリンクの住所の頭（https://…/open#p=。住所は main だけが持つ）
   linkBase: () => ipcRenderer.invoke('app:link-base'),
+  // 0.10.0 LN-4: 検索の窓に貼ったリンクの照らし（main で。→ { id, anchor } か null）と、リンクで起こされたときに開くページ（{ id, anchor }）
+  parseLink: (s) => ipcRenderer.invoke('app:parse-link', s),
+  onOpenLink: (cb) => ipcRenderer.on('page:open-link', (_e, p) => cb(p)),
 
   // 画面の覚え書き（第1b回 N6）。サイドバーの幅と畳み・開いているタブ。main が照らしてから window-state.json に覚える
   uiState: () => ipcRenderer.invoke('ui:get'),

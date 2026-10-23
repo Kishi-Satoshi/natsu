@@ -8,6 +8,7 @@
 'use strict';
 
 const path = require('path');
+const natsulink = require('./natsulink');
 
 // ---------------------------------------------------------------- 要約の書き戻し
 // 要約は数分かかる。その間に利用者がページを削除していることがある。
@@ -2042,8 +2043,28 @@ function protocolPlan({ packaged, execPath, isDefault } = {}) {
   return { register, args: [...PROTOCOL_ARGS] };
 }
 
+// ---------------------------------------------------------------- リンクで起こされたとき（0.10.0 LN-4・D72・決めたこと 145・146）
+// 起動の引数の -- より後ろの、最初の natsu: で始まる引数だけを読む（ほかの引数は見ない。-- より前のリンクは Chromium の引数に混ぜられうる）。
+// → { id, anchor }（読めた）・'bad'（natsu: の引数はあるが読めない）・null（リンクが無い）
+function linkFromArgv(argv) {
+  if (!Array.isArray(argv)) return null;
+  const at = argv.indexOf('--');
+  if (at < 0) return null;
+  const s = argv.slice(at + 1).find((a) => typeof a === 'string' && /^natsu:/i.test(a.trim()));
+  if (s === undefined) return null;
+  return natsulink.parseNatsuLink(s) || 'bad';
+}
+// 2 秒に 5 回まで（越えたリンクは捨てる）。times は受けた時刻の並び（変えない）→ { ok, times }
+const LINK_RATE_MS = 2000;
+const LINK_RATE_MAX = 5;
+function linkRate(times, now) {
+  const recent = (Array.isArray(times) ? times : []).filter((t) => Number.isFinite(t) && now - t < LINK_RATE_MS && t <= now);
+  if (recent.length >= LINK_RATE_MAX) return { ok: false, times: recent };
+  return { ok: true, times: [...recent, now] };
+}
+
 module.exports = {
-  PROTOCOL, protocolPlan,
+  PROTOCOL, protocolPlan, linkFromArgv, linkRate,
   meetingTitleAt,
   saveIfExists, meetingDurationSec, promptTail,
   registerHotkeys, hotkeyFailureMessage, hotkeyStatus, resolveStartupHotkeys, saveHotkeys,

@@ -180,3 +180,78 @@ test('D70: 51 件選んで写すと 50 行で「50 件まで写しました。�
   assert.ok(text.startsWith(lineOf('pm00', many[0].title, '2026-09-01')));
   assert.strictEqual(l.byId.get('toast').textContent, '50 件まで写しました。');
 });
+
+// ---------------------------------------------------------------- LN-4（D72・決めたこと 145・146・148）: リンクで NaTsu のその箇所を開く
+const LINK_GONE = 'その議事録は NaTsu にありません（ゴミ箱に入れたか、消しました）';
+const LINK_NO_SPOT = 'その箇所は見つかりませんでした。会議の頭を開きました';
+const SEGS4 = [{ id: 's1', atMs: 0, text: '一つ目' }, { id: 's2', atMs: 1000, text: '二つ目' }, { id: 's3', atMs: 2000, text: '三つ目' }, { id: 's4', atMs: 3000, text: '四つ目' }];
+const BLOCKS2 = [{ id: 'b1', type: 'heading', text: '決まったこと' }, { id: 'b2', type: 'bullet', text: '出す日を決めた' }];
+const openLinked = async (o = {}) => {
+  const l = await load(APP, { preloadSrc: PRELOAD, now: Date.parse('2026-10-21T03:00:00.000Z'), returns: { linkBase: () => `${ORIGIN}/open#p=`, pagesSearch: () => LIST,
+    pageGet: (pid) => (PAGES[pid] ? { page: { ...PAGES[pid], blocks: BLOCKS2 }, segments: SEGS4 } : null), ...o } });
+  await l.drain();
+  return l;
+};
+const hitIds = (l) => l.byId.get('pScript').querySelectorAll('.seg.linkhit').map((e) => e.id);
+
+test('D72・決めたこと 145: page:open-link の t:s2-s3 で、そのページのタブを開き、文字起こしのタブで s2〜s3 を地の色で示し（3 秒で消える）、s2 まで捲る', T, async () => {
+  const l = await openLinked();
+  l.fire('onOpenLink', { id: 'pa1', anchor: 't:s2-s3' }); await l.drain();
+  assert.deepStrictEqual(l.called('pageGet').map((c) => c.args[0]).slice(-1), ['pa1']);
+  assert.ok(l.byId.get('tabbar').querySelectorAll('[role="tab"]').some((t) => t.dataset.key === 'page:pa1' && t.getAttribute('aria-selected') === 'true'), 'ページのタブが開いていない');
+  assert.strictEqual(l.byId.get('paneBtnScript').getAttribute('aria-selected'), 'true', '文字起こしのタブに替わらない');
+  assert.deepStrictEqual(hitIds(l), ['seg-s2', 'seg-s3']);
+  l.clock.advance(3100); await l.drain();
+  assert.deepStrictEqual(hitIds(l), [], '3 秒で消えない');
+  assert.deepStrictEqual(l.errors.map(fmt), []);
+});
+
+test('決めたこと 145: b:<ブロック> は要約の節を示し、m:<段落> はメモのタブを開く。印の発言が無いときは「その箇所は見つかりませんでした。会議の頭を開きました」', T, async () => {
+  const l = await openLinked();
+  l.fire('onOpenLink', { id: 'pa1', anchor: 'b:b2' }); await l.drain();
+  assert.strictEqual(l.byId.get('paneBtnNote').getAttribute('aria-selected'), 'true');
+  assert.ok(l.byId.get('pNote').querySelectorAll('.blk').find((e) => e.dataset.id === 'b2').classList.contains('linkhit'));
+  l.fire('onOpenLink', { id: 'pa1', anchor: 'm:1' }); await l.drain();
+  assert.strictEqual(l.byId.get('paneBtnMemo').getAttribute('aria-selected'), 'true');
+  l.fire('onOpenLink', { id: 'pa1', anchor: 't:s8-s9' }); await l.drain();
+  assert.strictEqual(l.byId.get('toast').textContent, LINK_NO_SPOT);
+  assert.deepStrictEqual(hitIds(l), []);
+});
+
+test('決めたこと 145・146: 無いページ・録音中の写し・読めない形は開かず、無いページは「その議事録は NaTsu にありません…」。リンクの受け手は読むだけ（書く・消す・要約・設定・登録の口を呼ばない）', T, async () => {
+  const l = await openLinked({ pageGet: (pid) => (pid === 'pa1' ? { page: { ...PAGES.pa1, meeting: { phase: 'recording' } }, segments: [] } : null) });
+  const before = l.calls.length;
+  l.fire('onOpenLink', { id: 'pzz', anchor: '' }); await l.drain();
+  assert.strictEqual(l.byId.get('toast').textContent, LINK_GONE);
+  l.fire('onOpenLink', { id: 'pa1', anchor: '' }); await l.drain();
+  assert.strictEqual(l.byId.get('toast').textContent, LINK_GONE, '録音中の写しを開いた');
+  for (const bad of [{ id: '../x', anchor: '' }, { id: 'pa1', anchor: 'javascript:x' }, null, 'natsu://page/pa1', { id: 5 }]) { l.fire('onOpenLink', bad); await l.drain(); }
+  const methods = l.calls.slice(before).map((c) => c.method);
+  assert.deepStrictEqual([...new Set(methods)].sort(), ['pageGet']);
+  assert.ok(!l.byId.get('tabbar').querySelectorAll('[role="tab"]').some((t) => t.dataset.key === 'page:pa1'));
+});
+
+test('決めたこと 148: 検索の窓に natsu://page/… か https の住所を貼ると、結果の頭に「このリンクの議事録を開く」があり、Enter でそのページを開いて窓を閉じる（https は main に照らしてもらう）', T, async () => {
+  for (const [q, parsed] of [['natsu://page/pb2#t:s1-s1', null], [`${ORIGIN}/open#p=pb2&a=t:s1-s1`, { id: 'pb2', anchor: 't:s1-s1' }]]) {
+    const l = await openLinked({ parseLink: () => parsed });
+    const box = l.byId.get('searchBox');
+    l.key({ key: 'p', code: 'KeyP', ctrlKey: true }); await l.drain();
+    box.value = q;
+    l.byId.get('fltAll').dispatchEvent({ type: 'click' }); await l.drain();
+    const first = l.byId.get('palList').querySelectorAll('.pitem')[0];
+    assert.ok(first && first.textContent.includes('このリンクの議事録を開く'), q);
+    l.key({ key: 'Enter' }, box); await l.drain();
+    assert.strictEqual(l.byId.get('palette').hidden, true, q);
+    assert.deepStrictEqual(l.called('pageGet').map((c) => c.args[0]).slice(-1), ['pb2'], q);
+    assert.deepStrictEqual(hitIds(l), ['seg-s1'], q);
+    if (q.startsWith('https')) assert.deepStrictEqual(l.called('parseLink').map((c) => c.args[0]), [q]);
+    else assert.deepStrictEqual(l.called('parseLink'), [], 'natsu:// を main に聞いた');
+  }
+  // リンクでない語では出さない
+  const n = await openLinked({ parseLink: () => null });
+  n.key({ key: 'p', code: 'KeyP', ctrlKey: true }); await n.drain();
+  n.byId.get('searchBox').value = '週次';
+  n.byId.get('fltAll').dispatchEvent({ type: 'click' }); await n.drain();
+  assert.ok(!n.byId.get('palList').textContent.includes('このリンクの議事録を開く'));
+  assert.deepStrictEqual(n.called('parseLink'), []);
+});

@@ -380,8 +380,9 @@ const { titleAt } = require('./titles');
 //     --mcp-stale … 置く設定ファイルの mcpServers の頭に、場所の違う NaTsu の登録（印あり）を足す
 //     --tasklist=<running|stopped|fail> … 偽の execFile が tasklist.exe に答える（動いている・動いていない・失敗）。呼んだ引数を out.tasklistCalls に
 //     --packaged・--protocol-default … app.isPackaged を真に・isDefaultProtocolClient を真に（LN-3。呼んだ口は out.protocolCalls）
+//     --argv=<JSON> … main を読む前の process.argv（[execPath, ...JSON]。LN-4 のリンクで起こされた形）
 //     --mcp-steps=<JSON> … 起動の後に手順を順に行い、出力して終える: ["status"]・["register"]・["unregister"]（mcp: の IPC。答えは out.ipc に）・
-//                        ["files", 名前]（その時の設定ファイルを out.snaps に）・["sleep", ms]・["save", 足す設定]（画面と同じ settings:save）。出力: claudeConfigs（roaming・msix ごとに text（BOM も含む）・
+//                        ["files", 名前]（その時の設定ファイルを out.snaps に）・["sleep", ms]・["save", 足す設定]（画面と同じ settings:save）・["second-instance", argv]（2つ目の起動）・["ipc-raw", 名前, 引数]。出力: claudeConfigs（roaming・msix ごとに text（BOM も含む）・
 //                        backups（NaTsu の控えの名前）・backupTexts・others（ほかのファイルの名前）。フォルダが無ければ null）・notices・engineLog・settingsText・dataDir
 // 画面へ送った知らせと進み具合は、送った順に out.seq へ残す。進み具合が初めて「使える」（whisperReady・sumReady）と
 // 言ったときの engine:status を out.atReady に、壊れた知らせを送ったときの engine:status を out.atBroken に残す
@@ -489,6 +490,8 @@ const mcpScene = Boolean(claudeConfigFlag || mcpSteps);
 const packagedFlag = flags.includes('--packaged');
 const protocolDefaultFlag = flags.includes('--protocol-default');
 const protocolCalls = [];
+// 0.10.0 LN-4: --argv=<JSON>（main を読む前の process.argv の後ろ。起動の引数にリンクを渡す形）
+const argvFlag = flagVal('--argv') ? JSON.parse(flagVal('--argv')) : null;
 // 0.9.1 Q-4: 話し声が無いときに自動で止める場面（頭の注釈）
 const quietSeq = flagVal('--quiet-seq') ? flagVal('--quiet-seq').split(',').flatMap((t) => {
   const m = /^([stbkxXPdSR])(?::(.))?(?:\*(\d+))?$/.exec(t);
@@ -1808,6 +1811,7 @@ process.on('exit', () => {
       return realClearTimeout.call(this, h);
     };
   }
+  if (argvFlag) process.argv = [process.execPath, ...argvFlag];   // 0.10.0 LN-4: 起動の引数（フラグは読み終えている）
   require(path.join(ROOT, 'src', 'main.js'));
   // 議事録の読みは natsu.db を読み取り専用で見る（第2a1回 M-2b。main は議事録を DB のプロセスに書き、元の JSON の索引を読まない）。
   // 読むたびに開いて閉じる（DB のプロセスが閉じた後・戻した後でも今のファイルを見る。掴んだままにしない）。下書きなどは本物の store
@@ -2571,12 +2575,16 @@ process.on('exit', () => {
       else if (k === 'files') out.snaps[a[0]] = claudeConfigsNow();
       else if (k === 'save') { const st = await handlers['settings:get'](); out.ipc.push(['settings:save', await handlers['settings:save']({}, { ...st, ...a[0] })]); await sleep(WRITE_SETTLE_MS); }
       else if (k === 'sleep') await sleep(a[0]);
+      // 0.10.0 LN-4: 2つ目の起動（Windows がリンクで NaTsu を起こした）と、引数の付いた IPC
+      else if (k === 'second-instance') { appEvents.emit('second-instance', {}, a[0], ''); await sleep(20); }
+      else if (k === 'ipc-raw') out.ipc.push([a[0], handlers[a[0]] ? await handlers[a[0]]({}, a[1]) : 'no-such-channel']);
       else throw new Error(`mainrun: --mcp-steps の手順 ${k} が読めない`);
     }
     await sleep(30);
     Object.assign(out, {
       claudeConfigs: claudeConfigsNow(), notices: sent.filter(([ch]) => ch === 'app:notice').map(([, p]) => p), engineLog: elogLines(),
       settingsText: (readUser('settings.json') || '').toString('utf8'), dataDir: path.join(userData, 'data'), tasklistCalls, protocolCalls,
+      mainSent: sent.filter(([ch]) => ch === 'page:open-link'), mainWinCalls: mainWinCalls.slice(),
     });
     for (const dir of Object.values(claudeDirs)) { try { for (const n of fs.readdirSync(dir)) fs.chmodSync(path.join(dir, n), 0o644); } catch (_) { /* 無ければ飛ばす */ } }
     process.stdout.write(`\n${JSON.stringify(out)}\n`);
