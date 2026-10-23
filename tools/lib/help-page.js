@@ -94,7 +94,7 @@ function pageArticle(site, art, ctx) {
   const cat = site.categories.find((c) => c.id === art.cat);
   const h2 = art.headings.filter((h) => h.level === 2 && h.linkable);
   const onpage = h2.length >= 3
-    ? `\n<aside class="onpage" aria-labelledby="hc-onpage"><p class="onpage-h" id="hc-onpage">このページの内容</p>\n<ul>\n${h2.map((h) => `<li><a href="#${h.id}">${esc(h.text)}</a></li>`).join('\n')}\n</ul>\n</aside>`
+    ? `\n<aside class="onpage" aria-labelledby="hc-onpage"><h2 class="onpage-h" id="hc-onpage">このページの内容</h2>\n<ul>\n${h2.map((h) => `<li><a href="#${h.id}">${esc(h.text)}</a></li>`).join('\n')}\n</ul>\n</aside>`
     : '';
   const related = art.related.map((r) => ctx.articles.get(r));
   const main = `<main id="hc-main" class="article">

@@ -2008,4 +2008,6 @@ module.exports = [
   {"id": "hd-table-region", "file": "tools/lib/help-md.js", "from": "<div class=\"table\" tabindex=\"0\" role=\"region\" aria-label=\"表\"><table>", "to": "<div class=\"table\"><table>", "tests": ["test/help-md.test.js"], "pattern": "HD-6 Q6", "why": "help-dads HD-6 Q6: 表の領域に tabindex が無い（狭い画面で横に送れる表をキーボードで送れない）"},
   // help-dads Task HD-6 Q7（門のページの main・h1・色と輪）
   {"id": "hd-gate-main", "file": "relay/help-gate.mjs", "from": "<body><main><h1>NaTsu ヘルプセンター</h1>${GATE_TEXT[st]}${note}</main></body>", "to": "<body>${GATE_TEXT[st]}${note}</body>", "tests": ["test/help-gate.test.js"], "pattern": "HD-6 Q7", "why": "help-dads HD-6 Q7: 門のページに main と h1 が無い（ページの題が見出しで分からない）"},
+  // help-dads Task HD-6 Q11（このページの内容を見出しに）
+  {"id": "hd-onpage-h2", "file": "tools/lib/help-page.js", "from": "<h2 class=\"onpage-h\" id=\"hc-onpage\">このページの内容</h2>", "to": "<p class=\"onpage-h\" id=\"hc-onpage\">このページの内容</p>", "tests": ["test/help-build.test.js"], "pattern": "Q11", "why": "help-dads HD-6 Q11: 「このページの内容」が見出しでない（見出しで飛ぶ人に見つからない）"},
 ];

@@ -175,10 +175,13 @@ test('H-3: 記事のページにパンくず・題名・最終更新日（2026 �
   assert.ok(html('record/pause/index.html').includes('<a href="https://example.com/docs" rel="noreferrer">外の資料</a>'));
 });
 
-test('H-3: 「このページの内容」は linkable な ## が3つ以上の記事にだけ出る', { timeout: 5000 }, (t) => {
+test('H-3: 「このページの内容」は linkable な ## が3つ以上の記事にだけ出る（HD-6 Q11: 見出しの h2）', { timeout: 5000 }, (t) => {
   const { html } = buildFixture(t);
   const s = html('start/steps/index.html');
   assert.ok(s.includes('<aside class="onpage" aria-labelledby="hc-onpage">'));
+  // help-dads HD-6（Q11）: 「このページの内容」は見出し（h2。見た目は 14px のまま。aside の中なので本文の見出しの順は変わらない）
+  assert.ok(s.includes('<aside class="onpage" aria-labelledby="hc-onpage"><h2 class="onpage-h" id="hc-onpage">このページの内容</h2>'), 'HD-6 Q11: このページの内容が見出しでない');
+  assert.strictEqual(C.declsFor(C.parse(CSS()), '.onpage-h', { at: '' })['font-size'], '.875rem');
   const on = s.slice(s.indexOf('<aside class="onpage"'), s.indexOf('</aside>', s.indexOf('<aside class="onpage"')));
   assert.deepStrictEqual([...on.matchAll(/<a href="([^"]+)">([^<]+)<\/a>/g)].map((m) => [m[1], m[2]]), [['#prepare', '用意するもの'], ['#install', '手順1. インストールする'], ['#login', '手順2. ログインする']]);
   assert.ok(!html('start/first/index.html').includes('class="onpage"'), '## が2つの記事に出ている');

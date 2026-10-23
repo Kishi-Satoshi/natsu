@@ -429,6 +429,7 @@ const IDS_HELP_DADS = [
   'hd-rows-left',
   'hd-table-region',
   'hd-gate-main',
+  'hd-onpage-h2',
 ];
 test('G3: help-dads の変異が一覧にそろい、IDS_HELP_DADS はどれも計画 docs/plans/2026-10-23-help-dads.md の「変異確認」の表にあり、当てるファイルと赤になるテストが表と同じ。hd- の変異は IDS_HELP_DADS にある', { timeout: 5000 }, () => {
   const byId = new Map(MUTANTS.map((m) => [m.id, m]));
