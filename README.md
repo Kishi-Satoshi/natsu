@@ -327,7 +327,7 @@ Claude は頼みに関係のある箇所を NaTsu から受け取り、日付・
 
 NaTsu の使い方の記事を集めた、ログインの要るサイトです（`https://natsu-help.natsu-code.workers.dev/`）。会社のメールアドレスでログインした人だけが読めます（中継と同じ Cloudflare Access の One-time PIN）。アプリにも自動更新の zip にも入りません。
 
-- **記事の元:** `help/articles/<分類>/<名前>.md`。分類と並びは `help/site.json`、見た目（白黒・同梱の IBM Plex の書体）は `help/assets/`。リポジトリは公開なので、記事の元は誰でも読めます。会社の固有の情報（人・社名・会社のドメイン・チームの名前）は記事に書きません。
+- **記事の元:** `help/articles/<分類>/<名前>.md`。分類と並びは `help/site.json`、見た目（白黒・同梱の Noto Sans JP と Noto Sans Mono の書体。リンクと輪はデジタル庁デザインシステムに寄せた: `DADS-PROTECT.md`）は `help/assets/`。リポジトリは公開なので、記事の元は誰でも読めます。会社の固有の情報（人・社名・会社のドメイン・チームの名前）は記事に書きません。
 - **書き方:** 実装計画 `docs/plans/2026-10-20-help.md` の「記事の書き方」。記事の ［…］ は NaTsu の画面の言葉だけで、どれもアプリのコードにちょうどその文字があることを `npm test` が確かめます（ほかの画面のボタンは太字）。
 - **作り方:** `npm run help:build` で `help/dist` にサイトができます（git には入りません）。
 - **見た目を変えたら:** `node tools/help-shots.js` で写真を撮り直します（作業環境の Playwright と Chromium の場所を `HELP_SHOTS_PLAYWRIGHT`・`HELP_SHOTS_CHROMIUM` で渡す）。ホーム・分類・記事を明暗と幅 1280・390 で撮り、全部を目で見てから `help/shots.json` を commit します（CSS を変えたのに撮り直していなければ `npm test` が赤になります）。

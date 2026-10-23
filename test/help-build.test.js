@@ -1,7 +1,7 @@
 /* help-build.test.js — ヘルプセンター H-3（HF3・HF4）: ページの組み立てと見た目
  *
  * テスト用の小さな記事の組（test/fixtures/help/）と本物の help/assets を写したフォルダで作る（リポジトリの help/dist には書かない）。
- * 見た目は利用者の後の指定（白黒。docs/plans/2026-10-20-help.md「見た目」）: 色の札・IBM Plex の同梱・ロゴのアイコンなし・
+ * 見た目は利用者の後の指定（白黒。docs/plans/2026-10-20-help.md「見た目」）: 色の札・同梱の書体（HD-4 で Noto Sans JP・Noto Sans Mono に）・ロゴのアイコンなし・
  * 大きな数字は順番のある手順だけ・白黒を反転した暗い版。
  */
 'use strict';
@@ -432,7 +432,7 @@ test('画面の使いやすさ: 広い画面の左の目次は止まる（sticky
   assert.strictEqual(narrow.margin, '2.5rem 0 0');
 });
 
-test('白黒: 大きな数字は順番のある手順（.step .n）にだけ。書体は同梱の IBM Plex Sans JP（本文）と IBM Plex Mono（コード）', { timeout: 5000 }, () => {
+test('白黒: 大きな数字は順番のある手順（.step .n）にだけ。HD-4（HD3）: 書体は同梱の Noto Sans JP（本文）と Noto Sans Mono（コード。日本語の字は Noto Sans JP に落ちる）', { timeout: 5000 }, () => {
   const rules = C.parse(CSS());
   const big = rules.filter((r) => /^[\d.]+rem$/.test(r.decls['font-size'] || '') && parseFloat(r.decls['font-size']) >= 2.5).map((r) => r.sel);
   assert.deepStrictEqual(big, ['.step .n']);
@@ -440,37 +440,59 @@ test('白黒: 大きな数字は順番のある手順（.step .n）にだけ。�
   assert.strictEqual(n['font-weight'], '300');
   assert.strictEqual(n['font-size'], '3.2rem');
   const root = C.tokens(rules, '');
-  assert.match(root['--sans'], /^"IBM Plex Sans JP", /);
-  assert.match(root['--mono'], /^"IBM Plex Mono", /);
+  assert.match(root['--sans'], /^"Noto Sans JP", /, 'HD-4: 本文の書体が Noto Sans JP でない');
+  assert.match(root['--mono'], /^"Noto Sans Mono", "Noto Sans JP", /, 'HD-4: コードの書体が Noto Sans Mono でない');
+  assert.ok(!/IBM|Plex/.test(CSS().replace(/\/\*[\s\S]*?\*\//g, '')), 'HD-4: IBM Plex が残っている');
   assert.strictEqual(C.declsFor(rules, 'body')['font-family'], 'var(--sans)');
   assert.strictEqual(C.declsFor(rules, 'code')['font-family'], 'var(--mono)');
   assert.ok(/1\.8/.test(C.declsFor(rules, 'body')['line-height']), '本文の行間 1.85 前後');
 });
 
-test('白黒: fonts.css の書体は help/assets/fonts の中のファイルだけ（外の配信なし）。400 と 700 の IBM Plex Sans JP・Mono と、数字だけの 300。OFL のライセンス文がある', { timeout: 5000 }, () => {
+test('HD-4（HD3・DF2）: fonts.css の書体は help/assets/fonts の中のファイルだけ（外の配信なし）。Noto Sans JP の 300（数字だけ1つ）・400・700 と Noto Sans Mono の 400・700。使うファイルと置いたファイルがちょうど同じ・どれも woff2・一括の japanese と .woff が無い・合計 6.5 MB 以下・どの住所も門で private, max-age=3600。OFL.txt に Noto Sans JP と Noto Sans Mono の配布元の著作権の行', { timeout: 10000 }, async () => {
+  const { pathToFileURL } = require('node:url');
+  const { helpHeaders } = await import(pathToFileURL(path.join(ROOT, 'relay', 'help-gate.mjs')).href);
   const dir = path.join(ROOT, 'help', 'assets', 'fonts');
   const css = fs.readFileSync(path.join(ROOT, 'help', 'assets', 'fonts.css'), 'utf8');
   const faces = [...css.matchAll(/@font-face\{([^}]*)\}/g)].map((m) => C.decls(m[1]));
   assert.ok(faces.length > 200);
   const used = new Set();
-  const weights = { 'IBM Plex Sans JP': new Set(), 'IBM Plex Mono': new Set() };
+  const weights = { 'Noto Sans JP': new Set(), 'Noto Sans Mono': new Set() };
+  let light = 0;
   for (const f of faces) {
     const fam = f['font-family'].replace(/"/g, '');
     assert.ok(weights[fam], `知らない書体 ${fam}`);
     weights[fam].add(f['font-weight']);
+    assert.strictEqual(f['font-display'], 'swap');
     const m = /^url\("\/assets\/fonts\/([a-z0-9-]{1,40}\.woff2)"\) format\("woff2"\)$/.exec(f.src);
     assert.ok(m, `src の形: ${f.src}`);
+    assert.match(m[1], /^noto-sans-(jp|mono)-[a-z0-9-]+-(300|400|700)-normal\.woff2$/, m[1]);
+    assert.ok(!m[1].includes('japanese'), `一括のファイル: ${m[1]}`);
+    assert.strictEqual(m[1].startsWith('noto-sans-mono-'), fam === 'Noto Sans Mono', `書体と名前が合わない: ${m[1]}`);
+    assert.ok(m[1].endsWith(`-${f['font-weight']}-normal.woff2`), `太さと名前が合わない: ${m[1]}`);
     used.add(m[1]);
-    if (f['font-weight'] === '300') assert.strictEqual(f['unicode-range'], 'U+0030-0039', '300 は数字だけ');
+    assert.strictEqual(helpHeaders(`/assets/fonts/${m[1]}`, 200)['cache-control'], 'private, max-age=3600', `門がキャッシュさせない: ${m[1]}`);
+    if (f['font-weight'] === '300') { light++; assert.strictEqual(f['unicode-range'], 'U+0030-0039', '300 は数字だけ'); }
   }
-  assert.deepStrictEqual([...weights['IBM Plex Sans JP']].sort(), ['300', '400', '700']);
-  assert.deepStrictEqual([...weights['IBM Plex Mono']].sort(), ['400', '700']);
-  const onDisk = fs.readdirSync(dir).filter((f) => f.endsWith('.woff2')).sort();
+  assert.strictEqual(light, 1, '300 は1つだけ');
+  assert.deepStrictEqual([...weights['Noto Sans JP']].sort(), ['300', '400', '700']);
+  assert.deepStrictEqual([...weights['Noto Sans Mono']].sort(), ['400', '700']);
+  const all = fs.readdirSync(dir);
+  assert.deepStrictEqual(all.filter((f) => !f.endsWith('.woff2')), ['OFL.txt'], 'woff2 と OFL.txt のほかのファイル（.woff など）がある');
+  const onDisk = all.filter((f) => f.endsWith('.woff2')).sort();
   assert.deepStrictEqual([...used].sort(), onDisk, '使わない書体のファイルがある・無いファイルを指す');
-  for (const f of onDisk) assert.strictEqual(fs.readFileSync(path.join(dir, f)).subarray(0, 4).toString('latin1'), 'wOF2', f);
+  let bytes = 0;
+  for (const f of onDisk) {
+    const buf = fs.readFileSync(path.join(dir, f));
+    bytes += buf.length;
+    assert.strictEqual(buf.subarray(0, 4).toString('latin1'), 'wOF2', f);
+  }
+  assert.ok(bytes <= 6.5 * 1024 * 1024, `書体の合計が 6.5 MB を越える: ${bytes}`);
   assert.ok(!/https?:|\/\//.test(css.replace(/\/\*[\s\S]*?\*\//g, '').replace(/url\("\/assets\/fonts\//g, '')), '外の住所');
   const ofl = fs.readFileSync(path.join(dir, 'OFL.txt'), 'utf8');
   assert.ok(ofl.includes('SIL Open Font License') && ofl.includes('Version 1.1'));
+  assert.ok(ofl.includes("Copyright 2014-2021 Adobe (http://www.adobe.com/), with Reserved Font Name 'Source'"), 'Noto Sans JP の著作権の行');
+  assert.ok(ofl.includes('Copyright 2022 The Noto Project Authors (https://github.com/notofonts/latin-greek-cyrillic)'), 'Noto Sans Mono の著作権の行');
+  assert.ok(!/IBM|Plex/.test(ofl), 'OFL.txt に IBM Plex の行が残っている');
   assert.ok(!/https?:|@import/.test(CSS().replace(/\/\*[\s\S]*?\*\//g, '')), 'help.css が外を読む');
 });
 

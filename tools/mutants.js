@@ -1992,4 +1992,6 @@ module.exports = [
   {"id": "hd-rem-body", "file": "help/assets/help.css", "from": "  font-size: 1rem;   /* HD4", "to": "  font-size: 16px;   /* HD4", "tests": ["test/help-build.test.js"], "pattern": "HD-3", "why": "help-dads HD-3 HD4: 本文の文字が 16px の固定に戻る（ブラウザの文字の設定を大きくしても本文が大きくならない）"},
   {"id": "hd-crumbs-size", "file": "help/assets/help.css", "from": ".crumbs { font-size: 1rem;", "to": ".crumbs { font-size: .85rem;", "tests": ["test/help-build.test.js"], "pattern": "HD-3", "why": "help-dads HD-3 HD4: パンくずが 13.6px に戻る（小さすぎる）"},
   {"id": "hd-tap-narrow", "file": "help/assets/help.css", "from": "@media (max-width: 47.9375rem) {\n  .toc-btn, .search-q, .toc li a, .crumbs a, .open-go { min-height: calc(44 / 16 * 1rem); }\n", "to": ".toc-btn, .search-q, .toc li a, .crumbs a, .open-go { min-height: calc(44 / 16 * 1rem); }\n@media (max-width: 47.9375rem) {\n", "tests": ["test/help-build.test.js"], "pattern": "HD-3", "why": "help-dads HD-3 DF5: 44px の押す場所が広い画面にも効く（左の目次が1.5倍に長くなる）"},
+  // help-dads Task HD-4（書体を Noto Sans JP・Noto Sans Mono に）
+  {"id": "hd-font-sans", "file": "help/assets/help.css", "from": "--sans: \"Noto Sans JP\", ", "to": "--sans: \"IBM Plex Sans JP\", ", "tests": ["test/help-build.test.js"], "pattern": "HD-4", "why": "help-dads HD-4 HD3: 本文の書体の先頭が IBM Plex Sans JP に戻る（同梱していない書体を指し、OS の書体に落ちる）"},
 ];

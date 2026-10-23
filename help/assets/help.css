@@ -3,7 +3,7 @@
  * 利用者の指定（2026-10-20）: 白黒が基本。紺・グラデーション・色付きのバッジ・影・角丸は使わない。強調は線の太さで表す。
  * help-dads（2026-10-23。docs/plans/2026-10-23-help-dads.md の HD1〜HD8）: DADS に寄せた。色を使うのは文中のリンク（青と下線）と
  * キーボードの輪（黒＋黄色）だけ。色の値は DADS の札の値か DADS-PROTECT.md のブランド色（暗い版の灰色）だけ。
- * 書体は同梱の IBM Plex Sans JP（本文・見出し）と IBM Plex Mono（コード）。ロゴのアイコンは使わない。
+ * 書体は同梱の Noto Sans JP（本文・見出し）と Noto Sans Mono（コード。HD3）。ロゴのアイコンは使わない。
  * 大きな数字は順番のある手順（.step .n）にだけ使う。暗い版は白黒を反転した灰色だけ（色は使わない）。
  * 色は全部 :root の札を通す（暗い版は札だけを変える）。CSS の入れ子は使わない。
  */
@@ -23,8 +23,8 @@
   --focus-ring: #ffd43d;    /* 輪の内側の黄色の縁（DADS yellow-300） */
   --focus-link-bg: #ffd43d; /* 輪の付いたリンクの地（DADS yellow-300） */
   --focus-link-ink: #000000;/* 輪の付いたリンクの文字（黄色の上で 14.74:1） */
-  --sans: "IBM Plex Sans JP", "Hiragino Sans", "Yu Gothic UI", "Meiryo", system-ui, sans-serif;
-  --mono: "IBM Plex Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
+  --sans: "Noto Sans JP", "Hiragino Sans", "Yu Gothic UI", "Meiryo", system-ui, sans-serif;
+  --mono: "Noto Sans Mono", "Noto Sans JP", ui-monospace, "Cascadia Mono", Consolas, monospace;
   color-scheme: light dark;
 }
 
