@@ -1835,4 +1835,8 @@ module.exports = [
   { id: 'mcp-version', file: 'src/mcp/reader.js', from: "    if (r.state === 'newer') return { ok: false, code: 'newer' };\n", to: '', tests: ['test/mcp-reader.test.js'], pattern: 'user_version が 0 の DB は old', why: '0.10.0 R-1 決めたこと 24: core.open の state newer を見ずに読む（新しい版の DB を古い読み方で読む）' },
   { id: 'mcp-read-code', file: 'src/mcp/reader.js', from: "    try { value = fn(db); } catch (_) { return { ok: false, code: 'read' }; }", to: '    value = fn(db);', tests: ['test/mcp-reader.test.js'], pattern: 'F3・RF62', why: '0.10.0 R-1 決めたこと 32: 道具の本体が投げたらそのまま投げる（read の道具の誤りにならない・例外の文が外へ出うる）' },
   { id: 'mcp-data-dir-rel', file: 'src/mcp/reader.js', from: '  if (own && path.isAbsolute(own)) return own;', to: '  if (own) return own;', tests: ['test/mcp-reader.test.js'], pattern: 'dataDirOf', why: '0.10.0 R-1 F16・決めたこと 65: 相対の NATSU_DATA_DIR も使う（作業フォルダで読む場所が変わる）' },
+  // S-1: MCP の会話（両方の版）
+  {"id":"mcp-proto-unsupported","file":"src/mcp/rpc.js","from":"      if (!SUPPORTED.includes(v)) return { error: ['version', { supported: [...ALL_VERSIONS], requested: v }] };\n","to":"","tests":["test/mcp-rpc.test.js"],"why":"0.10.0 S-1 MR2: 知らない _meta の版でも答える（客が知らない版の決まりで読み、-32022 で版を選び直せない）"},
+  {"id":"mcp-proto-legacy","file":"src/mcp/rpc.js","from":"legacy = typeof asked === 'string' && LEGACY.includes(asked) ? asked : LEGACY[0];","to":"legacy = typeof asked === 'string' ? asked : LEGACY[0];","tests":["test/mcp-rpc.test.js"],"why":"0.10.0 S-1 MR2: 握手で知らない版をそのまま返す（話せない版で話していると客に思わせる）"},
+  {"id":"mcp-proto-meta","file":"src/mcp/rpc.js","from":"      if (!isObj(m[META_CAPS])) return { error: ['params'] };\n","to":"","tests":["test/mcp-rpc.test.js"],"why":"0.10.0 S-1 MR2: 要求ごとの _meta の clientCapabilities（必須）を見ない（仕様の -32602 を返さない）"},
 ];
