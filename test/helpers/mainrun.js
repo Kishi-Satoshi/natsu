@@ -2581,6 +2581,10 @@ process.on('exit', () => {
   const wavs = process.env.NATSU_E2E_WAVS
     ? process.env.NATSU_E2E_WAVS.split(';').map((f) => ({ buf: fs.readFileSync(f), ms: Math.round((fs.statSync(f).size - 44) / 32) }))
     : Array.from({ length: segCount }, (_, i) => (blip ? { buf: blipWav(blipSec), ms: blipSec * 1000 } : { buf: toneWav(i ? 2 : 3, silent ? 0 : 8000), ms: segMsFlag || (i ? 2000 : 3000) }));
+  // 0.9.4 の版を上げる commit で足した（CI run 39874347478 の test (ubuntu-latest) の D21）: 0.9.4 P-1 で「議事録は準備ができしだい作ります」（DB の用意を
+  // 待つ文）を録音バーでなく本体の窓の知らせにしたので、DB の用意の前に会議を始めて止めると知らせの数が時間の具合で変わる。場面（scene）と同じく、
+  // 始める前に DB の用意（ready・read-only か down）を待つ（--no-db-wait なら待たない。DB の用意の前の会議を試す場合）
+  if (!flags.includes('--no-db-wait')) await waitFor(() => !['none', 'starting', 'migrating'].includes(dbState()), 15000);
   out.start = await handlers['meeting:toggle']();
   // 0.9.0 B-2（--no-whisper-after-start）: 始めた直後に偽のモデルを消す（engineValid(whisperEng) が偽になる）
   if (noWhisperAfterStart) {
