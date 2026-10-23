@@ -703,7 +703,7 @@ test('作成中は残りの区間数と見込み時間が出て、打ち切り�
   assert.ok(eta.closest('.live'), '記録中バーの中に無い');
   const btn = バー(l, 'liveSkipBtn');
   assert.ok(btn && !btn.hidden, '打ち切りボタンが出ない');
-  assert.strictEqual(btn.textContent, '文字起こしを打ち切って要約');
+  assert.strictEqual(btn.textContent, '文字起こしを後回しにして要約');   // 0.9.4 S-3 で意図して直した（決めたこと 4。音声を消さない）
   assert.ok(btn.closest('.live'), '記録中バーの中に無い');
   // 確認で「いいえ」なら何もしない
   l.window.confirm = () => false;
@@ -722,7 +722,7 @@ test('作成中は残りの区間数と見込み時間が出て、打ち切り�
   assert.ok(バー(l, 'liveEta').hidden, '残りが無いのに区間数が残る');
   const sk = バー(l, 'liveSkipped');
   assert.ok(sk && !sk.hidden, '打ち切った区間数が出ない');
-  assert.strictEqual(sk.textContent, '3 区間を打ち切りました');
+  assert.strictEqual(sk.textContent, '3 区間の文字起こしを後回しにしました（音声は残してあります）');   // 0.9.4 S-3 で意図して直した
   assert.deepStrictEqual(l.errors.map(fmt), []);
 });
 
@@ -869,8 +869,8 @@ test('記録中はエンジンの設定欄が触れなくなり理由が出る�
   assert.ok(notes.every((n) => !n.hidden), '理由の説明が出ない');
   // 第1d回 A-13（D19）で意図して変えた: カード「オフライン」（前の「エンジン」）の中の理由は「PC の中の文字起こし」の言葉。
   // カードの外（動作の「認識言語」）の理由は今のまま（D19 はカードの中の決定: 決めたこと K14）
-  // 0.9.3 M-0（D54）で意図して変えた: カードの名前は「ローカル AI の設定」
-  const inOffline = (n) => n.closest('.card').querySelector('h2').textContent === 'ローカル AI の設定';
+  // 0.9.3 M-0（D54）で意図して変えた: カードの名前は「ローカル AI」
+  const inOffline = (n) => n.closest('.card').querySelector('h2').textContent === 'ローカル AI';
   assert.ok(notes.filter(inOffline).length === 2 && notes.some((n) => !inOffline(n)), '前提: 理由の欄の置き場所が違う');
   assert.ok(notes.every((n) => n.textContent.trim() === (inOffline(n) ? '記録中は PC の中の文字起こしの設定を変更できません' : '記録中はエンジンの設定を変更できません')), '文言が違う');
   l.fire('onMeetingUpdate', { active: false });

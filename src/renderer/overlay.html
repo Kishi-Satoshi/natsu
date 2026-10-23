@@ -14,7 +14,6 @@
     --btn: rgba(255, 255, 255, 0.12);
     --rec: #e5484d;
     --warn: #f5a524;
-    --ok: #2f9e63;
     --err: #ff8a80;
     --sea: #0e8cae;
   }
@@ -46,6 +45,8 @@
     transition: opacity .18s ease, transform .22s cubic-bezier(.2, .9, .3, 1.2);
   }
   .pill.visible { opacity: 1; transform: none; }
+  /* 0.9.4 P-1（持ち主の答え「そのまますっと消える」）: 止めた・済んだときは約 0.4 秒で薄くなって消える（完了の印も「保存しました」も出さない） */
+  .pill.leaving { transition: opacity .4s ease, transform .4s ease; }
   .pill[data-form="v"] { flex-direction: column; width: 40px; height: max-content; padding: 10px 0 5px; }
 
   /* ロゴ（assets/icon.svg と同じ3本の path）と、既定のマイクで代替しているときの角の黄色い点 */
@@ -53,24 +54,13 @@
   .logo { width: 20px; height: 20px; display: block; }
   .badge { position: absolute; right: -3px; bottom: -3px; width: 9px; height: 9px; border-radius: 50%; background: var(--warn); border: 2px solid var(--bg); }
 
-  /* 音の大きさ: ちょうど5つの点。無音は同じ 4px の点、声が入ると左から伸びる（縦の形は横へ）。長さは --l（renderLevel） */
+  /* 音の大きさ: ちょうど5つの点。無音は同じ 4px の点、声が入ると5本がそれぞれ揺れる（0.9.4 W-1。縦の形は横へ）。長さは --l（renderLevel） */
   .lv { display: flex; align-items: center; justify-content: center; gap: 3px; flex: none; width: 32px; height: 20px; }
   .pill[data-form="v"] .lv { flex-direction: column; width: 20px; height: 32px; }
   .lv i { --l: 4px; display: block; width: 4px; height: var(--l); border-radius: 2px; background: var(--fg); }
   .pill[data-form="v"] .lv i { width: var(--l); height: 4px; }
   .pill.paused .lv i { background: rgba(255, 255, 255, 0.45); }
   .pill.warn .lv i { background: var(--warn); }
-
-  /* 相手の声の印（相手の声を録る設定の議事録だけ）。相手の音がある間は波が海の色、無ければ灰色、取り込めなければ斜線の黄色 */
-  .spk { width: 14px; height: 14px; flex: none; color: var(--dim); fill: none; stroke: currentColor; stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; }
-  .spk[hidden] { display: none; }
-  .spk .w { stroke: var(--sea); }
-  .spk.idle .w { stroke: rgba(255, 255, 255, 0.35); }
-  .pill.paused .spk .w { stroke: rgba(255, 255, 255, 0.35); }
-  .spk .x { display: none; }
-  .spk.ng { color: var(--warn); }
-  .spk.ng .w { display: none; }
-  .spk.ng .x { display: inline; }
 
   .timer {
     flex: none; font-size: 13px; font-variant-numeric: tabular-nums;
@@ -98,13 +88,10 @@
     line-height: 1.25; max-height: 200px; padding: 0 0 6px;
   }
 
-  /* 作成中は回る輪、完了は緑の丸に ✓。録音中の部品（点・印・時間・ボタン）は録音中だけ */
+  /* 作成中は回る輪（0.9.4 P-1: 完了の緑の丸の印は無くした）。録音中の部品（点・時間・ボタン）は録音中だけ */
   .spin { display: none; width: 16px; height: 16px; border-radius: 50%; border: 2px solid rgba(255, 255, 255, 0.18); border-top-color: var(--sea); flex: none; }
   .pill[data-phase="processing"] .spin { display: block; animation: spin .8s linear infinite; }
-  .okm { display: none; width: 18px; height: 18px; border-radius: 50%; background: var(--ok); color: #fff; font-size: 11px; font-weight: 700; align-items: center; justify-content: center; flex: none; }
-  .pill[data-phase="done"] .okm { display: flex; }
   .pill:not([data-phase="recording"]) .lv,
-  .pill:not([data-phase="recording"]) .spk,
   .pill:not([data-phase="recording"]) .timer { display: none; }
   @keyframes spin { to { transform: rotate(360deg); } }
   @media (prefers-reduced-motion: reduce) {
@@ -179,13 +166,6 @@
     </span>
     <span class="lv" id="lv" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></span>
     <span class="spin" aria-hidden="true"></span>
-    <span class="okm" aria-hidden="true">✓</span>
-    <svg class="spk" id="spk" hidden viewBox="0 0 16 16" aria-hidden="true">
-      <path d="M2 6.2h2.4L7.6 3.4v9.2L4.4 9.8H2z"/>
-      <path class="w" d="M10 5.6a3.4 3.4 0 0 1 0 4.8"/>
-      <path class="w" d="M12 3.8a6 6 0 0 1 0 8.4"/>
-      <path class="x" d="M10.2 6.2l3.6 3.6M13.8 6.2l-3.6 3.6"/>
-    </svg>
     <div class="timer" id="timer">0:00</div>
     <div class="msg" id="status" role="status" aria-live="polite"></div>
     <div class="btns">
@@ -208,7 +188,6 @@
   const timerEl = document.getElementById('timer');
   // 0.9.0 O-3: 5つの点・相手の声の印・代替のマイクの角の点・ボタン
   const lvDots = Array.from(document.getElementById('lv').children);
-  const spkEl = document.getElementById('spk');
   const badgeEl = document.getElementById('micBadge');
   const pauseBtn = document.getElementById('pauseBtn');
   const stopBtn = document.getElementById('stopBtn');
@@ -346,7 +325,9 @@
   let keys = {};            // ボタンの名前に入れる近道のキー（main が録音の始めに渡す。実際に登録しているキー）
   let msgTimer = null;      // 一時的な文を引っ込める時限
   let stickyMsg = false;    // 出したままの文（無音の警告。音が戻るまで）
-  let spkState = null;      // 相手の声の印（'on'・'idle'・'ng'・''）
+  // 0.9.4 P-1（持ち主の答え: スピーカーの印はいらない・Q24 文を録音中ずっと・F4 縦の形は角の黄色い点と説明の文）: 相手の声を録れないか
+  let sysNg = false;
+  const SYS_NG_TEXT = '相手の声を録れません';
   let lastPhase = { phase: 'recording', message: null, procSec: null };
   // 要素を出す・隠す（SVG には hidden の IDL が無いので属性でも決める）
   function setShown(el, on) {
@@ -365,7 +346,9 @@
   // 一時的な短い文。kind は 'warn'・'err'・'ok'・''。ms で引っ込める（0 なら出したまま: 無音の警告・作成中・完了・エラー）
   function flashMsg(text, kind = '', ms = 4000) {
     if (msgTimer) { clearTimeout(msgTimer); msgTimer = null; }
-    const t = text ? String(text) : '';
+    let t = text ? String(text) : '';
+    // 0.9.4 P-1（Q24）: ほかの文が無いときは「相手の声を録れません」を出したままにする（録音中ずっと。ほかの短い文が消えたら戻る）
+    if (!t && sysNg && pill.dataset.phase === 'recording') { t = SYS_NG_TEXT; kind = 'warn'; ms = 0; }
     statusEl.textContent = t;
     for (const k of ['warn', 'err', 'ok']) statusEl.classList.toggle(k, Boolean(t) && kind === k);
     stickyMsg = Boolean(t) && !(ms > 0);
@@ -384,19 +367,20 @@
     const m = String(message);
     if (phase === 'recording') { flashMsg(m, 'err', 4000); return; }
     if (phase === 'processing') { flashMsg(form === 'v' ? upright(SHORT_V[m] || '作成中…') : m, '', 0); return; }
-    if (phase === 'done') {
-      flashMsg(form === 'v' ? upright('保存しました') : (procSec ? `${procSec} 秒・${m}` : m), 'ok', 0);
-      return;
-    }
+    // 0.9.4 P-1（F1・持ち主「✅マークはもういらない」）: 完了は印も文も出さない（薄くなって消える）
+    if (phase === 'done') { flashMsg(''); return; }
     if (phase === 'error') {
       if (form === 'v') pill.setAttribute('title', m);
       flashMsg(form === 'v' ? upright(m === 'キャンセルしました' ? 'キャンセル' : 'エラー') : m, 'err', 0);
     }
   }
+  // 0.9.4 P-1: 約 0.4 秒で薄くなって消える（.pill.leaving の移り変わり）
+  function fadeOut() { pill.classList.add('leaving'); pill.classList.remove('visible'); }
   function setPhase(phase, message, procSec) {
     pill.dataset.phase = phase;
     lastPhase = { phase, message: message == null ? null : message, procSec: procSec || null };
     showPhaseText(phase, message, procSec);
+    applySysNg();
     reportSize();
   }
   // 形（main が置き場所で決める）。段階の文は形ごとに書き直す
@@ -405,6 +389,7 @@
     pill.dataset.form = form;
     setShown(hideBtn, form === 'v');   // × は縦の形だけ（O-4・RP8）
     if (lastPhase.phase !== 'recording' && lastPhase.message != null) showPhaseText(lastPhase.phase, lastPhase.message, lastPhase.procSec);
+    applySysNg();   // 0.9.4 P-1（F4）: 縦の形の角の点と説明の文
     reportSize();
   }
   // 測ったピルの大きさ（CSS の px）を、変わったときだけ main に送る（main が窓の大きさを合わせる: RP4）。描いていない（0）なら送らない。
@@ -421,13 +406,11 @@
   }
   // カーソルがピルに乗っている印（縦の形の × を出す。0.9.0 O-4）
   function setHover(on) { pill.classList.toggle('hover', on === true); }
-  // 相手の声の印。'' は出さない（録らない設定・音声入力）
-  function setSpeaker(state) {
-    if (state === spkState) return;
-    spkState = state;
-    setShown(spkEl, Boolean(state));
-    for (const k of ['on', 'idle', 'ng']) spkEl.classList.toggle(k, state === k);
-    reportSize();
+  // 0.9.4 P-1: 相手の声を録れないときの印。縦の形は文を出さないので、ロゴの角の黄色い点（代替のマイクと同じ形）と説明の文（title）
+  function applySysNg() {
+    setShown(badgeEl, micFallback || (sysNg && form === 'v'));
+    if (form === 'v' && sysNg && pill.dataset.phase === 'recording') pill.setAttribute('title', SYS_NG_TEXT);
+    else if (pill.getAttribute('title') === SYS_NG_TEXT) pill.removeAttribute('title');
   }
   function fmt(ms) {
     const s = Math.floor(ms / 1000);
@@ -479,16 +462,24 @@
     }
     return Math.min(1, Math.sqrt(sum / data.length) * 3.4);
   }
-  // 5つの点の長さ（px）。無音（SILENT_LEVEL 以下）は5つとも 4px、声が入ると左ほど早く伸び、16px まで
-  const DOT_W = [1, 0.85, 0.7, 0.55, 0.4];
-  function levelDots(level) {
-    if (!(level > SILENT_LEVEL)) return [4, 4, 4, 4, 4];
-    return DOT_W.map((w) => Math.round(4 + 12 * Math.min(1, level * 1.6 * w)));
+  // 5つの点の長さ（px）。0.9.4 W-1（持ち主の答え「5本がそれぞれ揺れる」）: 無音（0.02 以下）は5つとも 4px、声が入ると5本がそれぞれ違う速さで
+  // 揺れて 16px まで（重みは左右対称で左に寄らない）。式は src/mainlib.js の levelBars と同じ（test/stage094.wave が同じ値になることを見る）
+  const LEVEL_BAR_W = [0.75, 0.9, 1, 0.9, 0.75];
+  const LEVEL_BAR_SPEED = [7.1, 9.3, 5.7, 8.4, 6.6];
+  const LEVEL_BAR_PHASE = [0.3, 1.9, 0.8, 2.6, 1.4];
+  function levelBars(level, tMs) {
+    if (!(typeof level === 'number' && level > 0.02)) return [4, 4, 4, 4, 4];
+    return LEVEL_BAR_W.map((w, i) => {
+      const g = typeof tMs === 'number' && Number.isFinite(tMs) ? 0.35 + 0.65 * Math.abs(Math.sin(LEVEL_BAR_PHASE[i] + (LEVEL_BAR_SPEED[i] * tMs) / 1000)) : 1;
+      return Math.round(4 + 12 * Math.min(1, level * 1.6 * w * g));
+    });
   }
+  // 動きを減らす設定では揺らさない（声の大きさで伸び縮みだけ）
+  const reduceMotion = () => { try { return Boolean(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches); } catch (_) { return false; } };
   let shownDots = '';
   // 点を描く（変わったときだけ書く）。一時停止中は平らな点
   function renderLevel(level) {
-    const d = paused ? [4, 4, 4, 4, 4] : levelDots(level);
+    const d = paused ? [4, 4, 4, 4, 4] : levelBars(level, reduceMotion() ? null : Date.now());
     const key = d.join(',');
     if (key === shownDots) return;
     shownDots = key;
@@ -502,7 +493,6 @@
     const sysLevel = sysAnalyser ? rmsOf(sysAnalyser) : 0;
     checkSilence(micLevel, sysLevel);
     renderLevel(Math.max(micLevel, sysLevel));
-    if (sysWanted) setSpeaker(!sysOn ? 'ng' : sysLevel > SILENT_LEVEL ? 'on' : 'idle');
     rafId = requestAnimationFrame(meterFrame);
   }
   function pickMime() {
@@ -624,8 +614,11 @@
         sysAnalyser = null; sysOn = false;
         sysGain = null;
         // 報告し直さないと、以後マイクしか録れていないのに
-        // アプリのバーが「相手の声も」と言い続ける。ピルの印は次のフレームで斜線の黄色になる
+        // アプリのバーが「相手の声も」と言い続ける。0.9.4 P-1: 録音バーは「相手の声を録れません」を出したままにする
         window.koeOverlay.reportSource(false, true);
+        sysNg = true;
+        applySysNg();
+        if (!statusEl.textContent) flashMsg('');
         // 次のフレームで checkSilence が出すべき文言を決め直す
         shownLabel = null;
       });
@@ -650,11 +643,11 @@
     if (cancelled || stopping) return;
     if (sysWanted) window.koeOverlay.reportSource(sysOn, true);
     showRecording('');
-    // 0.9.0 O-3（RP6）: 代替のマイクはロゴの角の点とはじめの 4 秒の文、相手の声を録れないときは斜線の印とはじめの 4 秒の文
-    setShown(badgeEl, micFallback);
-    if (sysWanted) setSpeaker(sysOn ? 'idle' : 'ng');
-    if (sysWanted && !sysOn) flashMsg('相手の声を録れません', 'warn', 4000);
-    else if (micFallback) flashMsg('既定のマイクで録音中', 'warn', 4000);
+    // 0.9.0 O-3（RP6）: 代替のマイクはロゴの角の点とはじめの 4 秒の文。0.9.4 P-1: 相手の声を録れないときは文を録音中ずっと（縦の形は角の点と説明の文）
+    sysNg = sysWanted && !sysOn;
+    applySysNg();
+    if (micFallback) flashMsg('既定のマイクで録音中', 'warn', 4000);
+    else if (sysNg) flashMsg('');
     meterFrame();
   }
 
@@ -703,10 +696,10 @@
     shownLabel = '';
     firstSegDone = false;
     // 0.9.0 O-3: 前の録音の文・印・点を消してから始める（取り込みの成否が決まったら openStream が印を貼り直す）
+    sysNg = false;
     flashMsg('');
     setShown(badgeEl, false);
-    spkState = null;
-    setSpeaker(sysWanted ? 'idle' : '');
+    applySysNg();
     renderLevel(0);
     showRecording('');
     timerEl.textContent = '0:00';
@@ -1012,7 +1005,8 @@
     }
     stopping = true;
     if (autoStopId) clearTimeout(autoStopId);
-    setPhase('processing', mode === 'meeting' ? '議事録を作成中…' : '文字起こし中…');
+    // 0.9.4 P-1（F2・持ち主「そのまますっと消える」）: 議事録はその場で薄くなって消える（「議事録を作成中…」を出さない）。音声入力は貼るまで待つので今のまま
+    if (mode === 'meeting') { sysNg = false; flashMsg(''); fadeOut(); } else setPhase('processing', '文字起こし中…');
     muteSystemForBeep();   // 終了のビープを最後の区間に録り込まない
     beep(SND.stop);
     if (recorder && recorder.state === 'recording') recorder.stop();
@@ -1122,6 +1116,7 @@
     for (const n of ['stop', 'cancel']) if (typeof k[n] === 'string' && k[n] && k[n].length <= 40) keys[n] = k[n];
     if (p && p.form) applyForm(p.form);
     setHover(false);   // 0.9.0 O-4: 前の録音でカーソルが乗っていた印を持ち越さない
+    pill.classList.remove('leaving');
     pill.classList.add('visible');
     start();
   };
@@ -1155,10 +1150,12 @@
   window.koeOverlay.onPhase(({ phase, message, procSec }) => {
     setPhase(phase, message, procSec);
     if (phase === 'done') {
-      beep(SND.done);
-      setTimeout(() => pill.classList.remove('visible'), 1600);
+      beep(SND.done);   // 0.9.4 P-1（F3）: 保存の音は残す
+      fadeOut();
     } else if (phase === 'error') {
       beep(SND.error);
+      pill.classList.remove('leaving');   // 0.9.4 P-1: 止めて薄く消えた後のエラーも見せる
+      pill.classList.add('visible');
       setTimeout(() => pill.classList.remove('visible'), 2800);
     }
   });

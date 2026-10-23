@@ -70,14 +70,16 @@ test('D16・RF28: ［この会議は PC の中だけ］を押すと、その場�
   assert.ok(texts(o.pages[0].segments), JSON.stringify(o.pages[0].segments));
 });
 
-test('D16: 会議の途中で中継が止まると、2 区間続けて PC になってから 75 秒にし、戻ってクラウドで2区間続いたら 20 秒（録音バーの下限）に戻す', T, async () => {
+// 0.9.4 S-1（決めたこと 30・依頼7）で意図して直した: 中継に届かない（一時の失敗）区間は PC でやり直すが、区切りの側には数えないので、
+// 長い側（75 秒）へ替えず 15 秒のまま（前は 2 区間続いたら 75 秒にし、戻って 20 秒にした）。区間が全部文字になり、経路の数は同じ
+test('D16: 会議の途中で中継が止まっても（届かない区間が 4 つ続いても）、区切りは 15 秒のまま。その区間は PC で文字起こしする', T, async () => {
   const o = await run(['text', '--relay-seq=ccnnnncc', '--segs=8']);
   assert.deepStrictEqual(starts(o), [15]);
-  assert.deepStrictEqual(live(o), [75000, 20000], JSON.stringify(o.overlaySent));
+  assert.deepStrictEqual(live(o), [], JSON.stringify(o.overlaySent));
   assert.strictEqual(o.pages[0].segments.length, 8, JSON.stringify(o.pages[0].segments));
   assert.ok(texts(o.pages[0].segments), JSON.stringify(o.pages[0].segments));
   assert.deepStrictEqual(o.pages[0].route.stt, { cloud: 4, local: 4, provider: 'openai' });
-  assert.ok(o.engineLog.includes('文字起こしの状態: 区切り 20 秒（short・理由 ok）'), o.engineLog.join('\n'));
+  assert.ok(!o.engineLog.some((l) => /区切り 75 秒/.test(l)), o.engineLog.join('\n'));
 });
 
 test('D16: 1 区間だけ中継が 502 でも区切りは変えない（その区間は PC でやり直す）', T, async () => {
@@ -104,15 +106,13 @@ test('D16: ログインが切れて PC で起こした区間がエンジンの�
   assert.ok(o.engineLog.includes('文字起こしの状態: 区切り 75 秒（long・理由 login）'), o.engineLog.join('\n'));
 });
 
-test('D16: 15 秒の会議でも背圧が効く（待ちが 3 を越えて増えたら倍、追いついたら 20 秒）', T, async () => {
-  // 計画は --relay=slow --segs=7（偽の OpenAI が 1.5 秒ずつ。合わせて 11 秒）。1つのテストを 5 秒の内にするため、中継の前で 300 ミリ秒ずつ止める
-  // --relay=lag で同じ形（区間を 50 ミリ秒ごとに送り、待ちが 4 になる）を作る
+// 0.9.4 S-5（決めたこと 29・依頼7）で意図して直した: クラウドで文字起こしする会議（15 秒の側）は、待ちが積もっても区切りを伸ばさない
+// （前は 30 秒に倍にし、追いついたら 20 秒に戻した。大きくなった WAV が中継の CPU をさらに使った）。背圧で伸ばすのは PC の側だけ（stage094.main）
+test('D16: 15 秒の会議は待ちが 3 を越えて増えても区切りを伸ばさない（背圧は PC の側だけ）', T, async () => {
+  // --relay=lag（中継の前で 300 ミリ秒ずつ止める。区間を 50 ミリ秒ごとに送り、待ちが 4 になる）で、今までと同じ詰まり方を作る
   const o = await run(['text', '--relay=lag', '--segs=5']);
   assert.deepStrictEqual(starts(o), [15]);
-  const l = live(o);
-  assert.ok(l.includes(30000), `背圧で倍にしていない: ${JSON.stringify(o.overlaySent)}`);
-  assert.strictEqual(l[l.length - 1], 20000, `追いついた後に 20 秒に戻していない: ${JSON.stringify(o.overlaySent)}`);
-  assert.ok(l.every((ms) => ms >= 20000 && ms <= 300000), JSON.stringify(l));
+  assert.deepStrictEqual(live(o), [], `クラウドの側を背圧で伸ばした: ${JSON.stringify(o.overlaySent)}`);
   assert.ok(texts(o.pages[0].segments), JSON.stringify(o.pages[0].segments));
 });
 

@@ -435,10 +435,12 @@ test('文字起こしが切れる問題への3段の対策が入っている', (
   assert.ok(preload.includes("onTick: (cb) => ipcRenderer.on('overlay:tick'"));
   assert.ok(overlayHtml.includes('window.koeOverlay.onTick(() => cutSegmentIfOverdue(recorder))'));
   // (2) 時間切れを音声の長さに比例させる（固定240秒で9分の区間が丸ごと消えた）
-  assert.match(main, /Math\.max\(240000, Math\.round\(durationMs \|\| 0\) \* 5/);
+  // 0.9.4 S-2（決めたこと 15・16）で意図して直した: 待ち時間は mainlib.localTimeoutMs（音声の長さと測った速さ。stage094.lib で実行）で決め、
+  // PC への要求は Node の fetch（AbortSignal の時計）でなく localhttp.postInference（自前の時計だけ）で送る
+  assert.match(main, /const planMs = localTimeoutMs\(\{ audioMs: Number\(durationMs\) \|\| 0, rtf: pacedRtf\(\) \}\);/);
   // やり直し（0.1.1）も含めて、計算した待ち時間の内に収める
   assert.match(main, /const deadline = Date\.now\(\) \+ waitMs;/, '計算した待ち時間が使われていない');
-  assert.match(main, /AbortSignal\.timeout\(Math\.max\(1000, deadline - Date\.now\(\)\)\)/, '計算した待ち時間が使われていない');
+  assert.match(main, /timeoutMs: Math\.max\(1, deadline - Date\.now\(\)\) \}\);/, '計算した待ち時間が使われていない');
   // 第1c回 Task A-4（意図して変えた）: 区間と音声入力は transcribeAuto を通り、手元の道で transcribeLocal に尻尾と長さをそのまま渡す
   // 0.9.1 Q-2（意図して変えた）: 音声入力は { dictation: true } を渡す。経路を決めて送る所は transcribeRouted（transcribeAuto は無音と作り話を見てから呼ぶ）
   assert.match(main, /transcribeAuto\(buffer, tail, durationMs[,)]/);
@@ -668,7 +670,7 @@ test('設定カードの並びは指定通り', () => {
     '文字起こし',
     'ユーザー辞書（認識ヒント）',
     '要約（Claude Code）',
-    'ローカル AI の設定',   // 第1d回 A-13（D19）で意図して変えた: カード「エンジン」を「オフライン」に。0.9.3 M-0（D54）で「ローカル AI の設定」に
+    'ローカル AI',   // 第1d回 A-13（D19）で意図して変えた: カード「エンジン」を「オフライン」に。0.9.3 M-0（D54）で「ローカル AI」に
     'アップデート',
   ]);
 });
@@ -1124,7 +1126,9 @@ test('#42(5) 終了後の文字起こし待ちは打ち切れる（meeting:skipP
   assert.ok(h.includes('if (!meeting || !meeting.stopping) return { ok: false'), '記録中（終了前）に打ち切れてしまう');
   assert.ok(h.includes('m.gen++'), '進行中の結果を無効にしていない');
   assert.ok(h.includes('skipPendingSegments(m.segments)'), '区間の書き換えを mainlib.skipPendingSegments で行っていない');
-  assert.ok(h.includes('unlinkQuiet('), 'wav を消していない');
+  // 0.9.4 S-3（決めたこと 4）で意図して直した: 後回しにした区間の wav は消さない（kept にして会議の後に文字起こしする。stage094.main で場面を見る）
+  assert.ok(!h.includes('unlinkQuiet('), 'wav を消している');
+  assert.ok(h.includes('m.later = true;'), '後回しの会議の印が無い（要約を待たせてしまう）');
   assert.ok(h.includes('pendingSegs = 0;'), '待ち件数を 0 にしていない');
   assert.ok(h.includes('m.skipped += '), '打ち切った数を数えていない');
   assert.ok(h.includes('maybeFinalizeMeeting()'), '打ち切ったのに締めていない');

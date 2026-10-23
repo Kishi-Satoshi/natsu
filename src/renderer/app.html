@@ -269,7 +269,7 @@
   .setmodal[hidden] { display: none; }
   .setbox { position: relative; display: flex; width: min(1020px, calc(100vw - 48px)); height: min(700px, calc(100vh - 48px));
     overflow: hidden; background: var(--bg); border-radius: 10px; box-shadow: var(--shadow); }
-  /* 左の項目の列（幅 196px。0.9.3 M-0（D54・決めたこと 26）で「ローカル AI の設定」が1行に収まるように 180px から広げた）。選んだ行は灰色の丸い地（--hover・角丸 6px）で、青（--accent）は使わない（フォーカスの輪だけ） */
+  /* 左の項目の列（幅 196px。0.9.3 M-0（D54・決めたこと 26）で「ローカル AI」が1行に収まるように 180px から広げた）。選んだ行は灰色の丸い地（--hover・角丸 6px）で、青（--accent）は使わない（フォーカスの輪だけ） */
   .setnav { width: 196px; flex: none; display: flex; flex-direction: column; gap: 8px; padding: 12px 10px;
     background: var(--side); border-right: 1px solid var(--line); overflow-y: auto; }
   #setNav { display: flex; flex-direction: column; gap: 1px; }
@@ -448,13 +448,14 @@
   .ptab:hover { background: var(--hover); }
   .ptab.on { background: var(--tint); color: var(--text); font-weight: 500; }
   .pbody { padding: 0; }
-  /* 0.9.3 M-6（計画 docs/plans/2026-10-22-093.md の決めたこと 16〜20）: 録音中のページの「文字起こし」の右の音の波（20 本・幅 3px・間 2px・高さ 3〜16px）と横の文。
-     音のある棒は --level、無音の点は --muted、一時停止中は --line の点。文は無音の警告なら --danger。棒は飾り（aria-hidden）で意味は文で出す */
+  /* 0.9.3 M-6（計画 docs/plans/2026-10-22-093.md の決めたこと 16〜20）: 録音中のページの「文字起こし」の右の音の波と横の文。
+     文は無音の警告なら --danger。点は飾り（aria-hidden）で意味は文で出す */
   .lwave { display: inline-flex; align-items: center; gap: 10px; height: 28px; margin-left: 8px; }
   .lwave[hidden] { display: none; }
-  #liveWave { display: inline-flex; align-items: center; gap: 2px; height: 16px; }
-  #liveWave i { display: block; width: 3px; height: 3px; border-radius: 1.5px; background: var(--level); }
-  #liveWave.quiet i { background: var(--muted); }
+  /* 0.9.4 W-1（持ち主の答え「音の波はパネル（録音バー）と同じように」「5本がそれぞれ揺れる」）: 録音バーと同じ5つの点（幅 4px・間 3px・箱 32 × 20px）。
+     無音は同じ 4px の点、声は5本がそれぞれ揺れる。色は文字の灰色（--text-2。青は使わない）、一時停止中は --line の点。高さは .1 秒で移る（動きを減らす設定では移らない） */
+  #liveWave { display: inline-flex; align-items: center; justify-content: center; gap: 3px; width: 32px; height: 20px; }
+  #liveWave i { display: block; width: 4px; height: 4px; border-radius: 2px; background: var(--text-2); transition: height .1s ease-out; }
   #liveWave.paused i { background: var(--line); }
   #liveWaveNote { font-size: 12px; color: var(--muted); white-space: nowrap; }
   #liveWaveNote.warn { color: var(--danger); }
@@ -802,7 +803,7 @@
             <button class="ptab on" id="paneBtnNote" type="button" role="tab" aria-selected="true" aria-controls="pNote">AI 要約</button>
             <button class="ptab" id="paneBtnMemo" type="button" role="tab" aria-selected="false" aria-controls="pMemo" tabindex="-1">メモ</button>
             <button class="ptab" id="paneBtnScript" type="button" role="tab" aria-selected="false" aria-controls="pScript" tabindex="-1">文字起こし</button>
-            <span class="lwave" id="liveWaveBox" role="presentation" hidden><span id="liveWave" class="quiet" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span><span id="liveWaveNote" role="status"></span></span>
+            <span class="lwave" id="liveWaveBox" role="presentation" hidden><span id="liveWave" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></span><span id="liveWaveNote" role="status"></span></span>
             </div>
           </div>
           <div class="pbody" id="pBody">
@@ -868,7 +869,7 @@
           <button type="button" class="setnav-item" id="setNavGeneral" role="tab" data-sec="general" aria-selected="false" tabindex="-1"><svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 6h7.5M15.5 6h1M3.5 14h1M9 14h7.5"/><circle cx="13.2" cy="6" r="2"/><circle cx="6.8" cy="14" r="2"/></svg><span>一般</span></button>
           <button type="button" class="setnav-item" id="setNavRecord" role="tab" data-sec="record" aria-selected="false" tabindex="-1"><svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="7.5" y="2.8" width="5" height="9" rx="2.5"/><path d="M4.8 9.8a5.2 5.2 0 0 0 10.4 0M10 15v2.4"/></svg><span>録音</span></button>
           <button type="button" class="setnav-item" id="setNavSummary" role="tab" data-sec="summary" aria-selected="false" tabindex="-1"><svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 5h9M3.5 9h6.5M3.5 13h4.5"/><path d="M14.5 9.5l1 2.3 2.3 1-2.3 1-1 2.3-1-2.3-2.3-1 2.3-1z"/></svg><span>要約</span></button>
-          <button type="button" class="setnav-item" id="setNavOffline" role="tab" data-sec="offline" aria-selected="false" tabindex="-1"><svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="4" width="13" height="9" rx="1.5"/><path d="M1.8 15.8h16.4M8 8.5h4"/></svg><span>ローカル AI の設定</span></button>
+          <button type="button" class="setnav-item" id="setNavOffline" role="tab" data-sec="offline" aria-selected="false" tabindex="-1"><svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="4" width="13" height="9" rx="1.5"/><path d="M1.8 15.8h16.4M8 8.5h4"/></svg><span>ローカル AI</span></button>
           <button type="button" class="setnav-item" id="setNavUpdate" role="tab" data-sec="update" aria-selected="false" tabindex="-1"><svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M16 10a6 6 0 0 1-10.6 3.9M4 10a6 6 0 0 1 10.6-3.9M14.9 3v3.2h-3.2M5.1 17v-3.2h3.2"/></svg><span>更新</span></button>
         </div>
         <!-- 0.9.0 U-4（SP6・SP7・F15）: 下に［ヘルプ］（ヘルプのサイトが出るまで hidden: HELP_SITE_LIVE と koeApp.openHelp。0.9.2 I-1 で名前を「ヘルプ」にして出した）と版の文字 -->
@@ -1208,10 +1209,10 @@
           <div class="card" data-sec="offline">
             <!-- 第1d回 A-13（D19）: カード「エンジン」を「オフライン」に。カードの中の文字起こしの言葉は「PC の中の文字起こし」。要約の欄の言葉は変えない（問い Q15） -->
             <!-- 0.9.0 見た目の直し: 項目の見出し「オフライン」と同じ言葉なので、カードの見出しは出さない（カードの名前はそのまま） -->
-            <h2 hidden>ローカル AI の設定</h2>
+            <h2 hidden>ローカル AI</h2>
             <!-- 0.9.2 I-3: 見出しを隠したカードなので、ⓘ は頭の説明の行の終わり。長い文はカードの吹き出し（カードの直の子） -->
             <div class="field setlead">
-              <div class="desc">PC の中で文字起こしと要約をするための準備です（任意）。<button type="button" class="setinfo" aria-expanded="false" aria-controls="setPopOffline" aria-label="「ローカル AI の設定」の説明"><svg viewBox="0 0 20 20" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="10" cy="10" r="7"/><path d="M10 9v4.5M10 6.3h.01"/></svg></button></div>
+              <div class="desc">PC の中で文字起こしと要約をするための準備です（任意）。<button type="button" class="setinfo" aria-expanded="false" aria-controls="setPopOffline" aria-label="「ローカル AI」の説明"><svg viewBox="0 0 20 20" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="10" cy="10" r="7"/><path d="M10 9v4.5M10 6.3h.01"/></svg></button></div>
             </div>
             <div class="setpop" id="setPopOffline" hidden>
               <span class="setpop-arrow" aria-hidden="true"></span>
@@ -1468,7 +1469,7 @@
   // 0.9.2 I-1: ヘルプの計画の H-12 が入り（main の app:open-help・preload の openHelp）、利用者がログインしてサイトを開けた（2026-10-21）ので真にした
   const HELP_SITE_LIVE = true;
   const SETTINGS_SECS = [{ sec: 'account', name: 'アカウント' }, { sec: 'general', name: '一般' }, { sec: 'record', name: '録音' },
-    { sec: 'summary', name: '要約' }, { sec: 'offline', name: 'ローカル AI の設定' }, { sec: 'update', name: '更新' }];
+    { sec: 'summary', name: '要約' }, { sec: 'offline', name: 'ローカル AI' }, { sec: 'update', name: '更新' }];
   let setSec = 'general';     // 前に選んだ項目（アプリを閉じるまで覚える。window-state.json には書かない: K8）
   let setFrom = null;         // 開く前にフォーカスのあった要素（閉じたらそこへ戻す）
   let setDownOnScrim = false; // 外の暗い所で押した（.setbox の中で押して外で離したときは閉じない）
@@ -3183,19 +3184,17 @@
     }
   }
   // ---------------- 録音中のページの音の波（0.9.3 M-6。決めたこと 16〜19）
-  // 高さ（純粋。外の名前を使わない: test/stage093.app が取り出して試す）: 値は右の 20 本。無音（0.02 以下）・数でないは 3px の点、ほかは 4〜16px
-  function waveHeights(levels) {
-    const vs = (Array.isArray(levels) ? levels : []).slice(-20);
-    const out = vs.map((l) => (typeof l === 'number' && l > 0.02 ? Math.max(4, Math.min(16, Math.round(3 + 13 * Math.min(1, l * 1.25)))) : 3));
-    while (out.length < 20) out.unshift(3);
-    return out;
-  }
-  // 動きを減らす設定: 流さず、真ん中の5本だけを今の大きさで（録音バーの点と同じ左右対称の重み）
-  const WAVE_MID = [0.55, 0.85, 1, 0.85, 0.55];
-  function waveStill(level) {
-    const out = Array(20).fill(3);
-    if (typeof level === 'number' && level > 0.02) WAVE_MID.forEach((w, i) => { out[7 + i] = Math.max(4, Math.min(16, Math.round(3 + 13 * Math.min(1, level * 1.25 * w)))); });
-    return out;
+  // 0.9.4 W-1: 5本の高さ（px）。録音バーと同じ式（src/mainlib.js の levelBars。test/stage094.wave が同じ値になることを見る）。
+  // 無音（0.02 以下・数でない）は同じ 4px の点が5つ、声は5本がそれぞれ揺れる。tMs が null なら揺らさない（動きを減らす設定）
+  const LEVEL_BAR_W = [0.75, 0.9, 1, 0.9, 0.75];
+  const LEVEL_BAR_SPEED = [7.1, 9.3, 5.7, 8.4, 6.6];
+  const LEVEL_BAR_PHASE = [0.3, 1.9, 0.8, 2.6, 1.4];
+  function levelBars(level, tMs) {
+    if (!(typeof level === 'number' && level > 0.02)) return [4, 4, 4, 4, 4];
+    return LEVEL_BAR_W.map((w, i) => {
+      const g = typeof tMs === 'number' && Number.isFinite(tMs) ? 0.35 + 0.65 * Math.abs(Math.sin(LEVEL_BAR_PHASE[i] + (LEVEL_BAR_SPEED[i] * tMs) / 1000)) : 1;
+      return Math.round(4 + 12 * Math.min(1, level * 1.6 * w * g));
+    });
   }
   const reducedMotion = () => { try { return Boolean(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches); } catch (_) { return false; } };
   const waveState = { levels: [], at: 0, shown: '', note: null };
@@ -3205,8 +3204,7 @@
     if (!p || typeof p !== 'object' || !mtSt || !mtSt.active || mtSt.paused || mtSt.finalizing) return;
     const mic = typeof p.mic === 'number' ? p.mic : 0;
     const sys = typeof p.sys === 'number' ? p.sys : 0;
-    waveState.levels.push(Math.max(mic, sys));
-    if (waveState.levels.length > 20) waveState.levels.splice(0, waveState.levels.length - 20);
+    waveState.levels = [Math.max(mic, sys)];   // 0.9.4 W-1: 流さないので今の大きさだけ
     waveState.at = Date.now();
     waveState.warn = typeof p.warn === 'string' ? p.warn : '';
     renderWave();
@@ -3221,7 +3219,7 @@
     if (paused) { waveState.levels = []; waveState.warn = ''; }
     const fresh = !paused && Date.now() - waveState.at <= WAVE_STALE_MS;
     const lv = fresh ? waveState.levels : [];
-    const h = reducedMotion() ? waveStill(lv.length ? lv[lv.length - 1] : 0) : waveHeights(lv);
+    const h = levelBars(lv.length ? lv[lv.length - 1] : 0, reducedMotion() ? null : Date.now());
     const key = h.join(',');
     const wave = $('liveWave');
     if (key !== waveState.shown) {
@@ -3229,7 +3227,6 @@
       wave.querySelectorAll('i').forEach((el, i) => { el.style.height = `${h[i]}px`; });
     }
     wave.classList.toggle('paused', paused);
-    wave.classList.toggle('quiet', !paused && h.every((x) => x === 3));
     // 文は届いた文そのまま（画面は文を作らない）。一時停止中は「一時停止中」。変わったときだけ書く（読み上げを繰り返さない）
     const note = paused ? '一時停止中' : fresh ? (waveState.warn || '') : '';
     const n = $('liveWaveNote');
@@ -3291,10 +3288,13 @@
       t.id = 'liveTail';
       t.className = 'livetail';
       const at = document.createElement('span'); at.className = 'at';
-      const tx = document.createElement('span'); tx.textContent = '聞き取り中…';
+      // 0.9.4 S-4（決めたこと 11）: 遅い PC の会議で PC の側（クラウドで文字になっていない）は「音声を残しています（会議の後で文字起こしします）」
+      const slow = Boolean(st.stt && st.stt.slow === true && st.stt.route !== 'cloud');
+      const tx = document.createElement('span'); tx.textContent = slow ? '音声を残しています' : '聞き取り中…';
       t.append(at, tx);
       const sec = st.stt && Number.isFinite(st.stt.segSec) && st.stt.segSec > 0 ? Math.round(st.stt.segSec) : 0;
-      if (sec) { const sub = document.createElement('span'); sub.className = 'sub'; sub.textContent = `（約 ${sec} 秒ごとに文字になります）`; t.appendChild(sub); }
+      if (slow) { const sub = document.createElement('span'); sub.className = 'sub'; sub.textContent = '（会議の後で文字起こしします）'; t.appendChild(sub); }
+      else if (sec) { const sub = document.createElement('span'); sub.className = 'sub'; sub.textContent = `（約 ${sec} 秒ごとに文字になります）`; t.appendChild(sub); }
       box.appendChild(t);
     }
     box.scrollTop = box.scrollHeight;
@@ -3331,11 +3331,11 @@
         live.innerHTML = '<span class="rec-dot"></span><span id="liveTitle">議事録を記録中</span>'
           + '<button class="ghost" id="livePauseBtn" type="button">⏸ 一時停止（Ctrl+Shift+P）</button>'
           + '<button class="ghost" id="liveStopBtn" type="button">■ 終了して作成</button>'
-          + '<button class="ghost" id="liveSkipBtn" type="button" hidden>文字起こしを打ち切って要約</button>'
+          + '<button class="ghost" id="liveSkipBtn" type="button" hidden>文字起こしを後回しにして要約</button>'
           // 第1d回 A-13（D20）: ［この会議は PC の中だけ］は1行目（説明の行より前）。後ろに置くと説明の行の数だけ下へ押し出される
           + '<button class="ghost" id="meetingLocalOnly" type="button" hidden>オフラインモード</button>'
           // 0.9.3 持ち主の答え D55: 押した後（とオフラインモードの会議）は、ボタンのあった所に押せない札（ボタンでない。role=status で読み上げ、説明の行を指す）。
-          // 印はローカル AI の設定と同じノート PC
+          // 印は設定の「ローカル AI」と同じノート PC
           + '<span class="offpill" id="meetingLocalOnlyState" role="status" aria-describedby="meetingLocalOnlyNote" hidden>'
           + '<svg viewBox="0 0 20 20" width="14" height="14" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="4" width="13" height="9" rx="1.5"/><path d="M1.8 15.8h16.4M8 8.5h4"/></svg>'
           + '<span id="meetingLocalOnlyStateText"></span></span>'
@@ -3517,7 +3517,7 @@
     $('liveSkipBtn').hidden = !waiting;
     const skippedEl = $('liveSkipped');
     skippedEl.hidden = !(st.skipped > 0);
-    if (st.skipped > 0) skippedEl.textContent = `${st.skipped} 区間を打ち切りました`;
+    if (st.skipped > 0) skippedEl.textContent = `${st.skipped} 区間の文字起こしを後回しにしました（音声は残してあります）`;
     // 選んだマイクが外れていて、main が既定のマイクに切り替えて録っている。
     // 会議が終わってから気づくと手遅れなので、記録中に赤で出す。
     const micEl = $('liveMic');
@@ -3568,7 +3568,7 @@
     if ($('liveTitle') && st && st.active) $('liveTitle').textContent = liveTitleText(st);   // D55: 記録の行にも「オフライン」
   }
   async function skipPending() {
-    if (!confirm('残っている文字起こしを打ち切り、いまある分だけで議事録を作ります。\n打ち切った区間の発言は議事録に入りません。よろしいですか？')) return;
+    if (!confirm('残っている文字起こしを後回しにして、今ある分で議事録を作ります。残りの音声は消さずに残し、後で文字起こしします。よろしいですか？')) return;
     const r = await window.koeApp.meetingSkipPending();
     if (r && r.ok === false && r.error) toast(r.error);
     setMeetingUi(await window.koeApp.meetingStatus());

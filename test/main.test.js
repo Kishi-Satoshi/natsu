@@ -873,20 +873,23 @@ test('staleSegbufDirs: 7 日より古い退避フォルダだけを選ぶ（名�
 });
 
 // ---------------------------------------------------------------- #42 背圧（区間の長さ）
-test('nextSegmentMs: 待ちが 3 を超えたら区間を倍に（上限 300 秒）、1 以下に戻ったら設定の長さへ', () => {
+// 0.9.4 S-1（決めたこと 14）で意図して直した: 背圧で伸ばすのは PC の側だけで、上限は 300 秒から 90 秒（LOCAL_SEGMENT_MS_CAP）にした
+// （300 秒の区間は PC で 300 秒を越えて時間切れになった。上限は持ち主の答え Q3 で 90 秒）。倍にする・2〜3 は変えない・減った側では倍にしない・1 以下で戻すはそのまま
+test('nextSegmentMs: 待ちが 3 を超えたら区間を倍に（上限 90 秒）、1 以下に戻ったら設定の長さへ', () => {
   // 短い区間を積み上げ続けると待ちがどこまでも伸び、終了後の待ち時間になる
-  assert.strictEqual(nextSegmentMs(4, 75000, 75000, 1), 150000);
-  assert.strictEqual(nextSegmentMs(5, 150000, 75000, 1), 300000);
-  assert.strictEqual(nextSegmentMs(6, 300000, 75000, 1), 300000, '上限を超えている');
+  assert.strictEqual(nextSegmentMs(4, 30000, 30000, 1), 60000);
+  assert.strictEqual(nextSegmentMs(4, 75000, 75000, 1), 90000);
+  assert.strictEqual(nextSegmentMs(5, 90000, 75000, 1), 90000);
+  assert.strictEqual(nextSegmentMs(6, 300000, 75000, 1), 90000, '上限を超えている');
   // 2〜3 のあいだは変えない（行ったり来たりでオーバーレイに何度も送らない）
-  assert.strictEqual(nextSegmentMs(3, 150000, 75000, 1), 150000);
-  assert.strictEqual(nextSegmentMs(2, 150000, 75000, -1), 150000);
+  assert.strictEqual(nextSegmentMs(3, 80000, 40000, 1), 80000);
+  assert.strictEqual(nextSegmentMs(2, 80000, 40000, -1), 80000);
   // 減った側では倍にしない（5→4 で倍にすると一気に上限へ張り付く）
-  assert.strictEqual(nextSegmentMs(4, 150000, 75000, -1), 150000);
-  assert.strictEqual(nextSegmentMs(1, 300000, 75000, -1), 75000);
-  assert.strictEqual(nextSegmentMs(0, 300000, 75000, -1), 75000);
+  assert.strictEqual(nextSegmentMs(4, 60000, 30000, -1), 60000);
+  assert.strictEqual(nextSegmentMs(1, 90000, 75000, -1), 75000);
+  assert.strictEqual(nextSegmentMs(0, 90000, 75000, -1), 75000);
   // 現在の長さが無ければ設定の長さから数える
-  assert.strictEqual(nextSegmentMs(4, 0, 75000, 1), 150000);
+  assert.strictEqual(nextSegmentMs(4, 0, 30000, 1), 60000);
 });
 
 // ---------------------------------------------------------------- #42 残り時間の見積もり
@@ -918,20 +921,20 @@ test('EtaTracker: 経路（local・cloud）ごとに比を分けて持つ。ク�
 });
 
 // ---------------------------------------------------------------- #42 打ち切り
-test('skipPendingSegments: 待ちの区間を全部「打ち切り」の失敗扱いにし、消すべき wav と件数を返す', () => {
-  // 終了後の待ちが長すぎるとき、利用者は「ここまでで作る」を選べる。打ち切った区間は
-  // 黙って消さず、失敗扱いの行として残す（何が欠けたかが分かる）
+// 0.9.4 S-3（決めたこと 4）で意図して直した: ［文字起こしを後回しにして要約］は待ちの区間の音声を消さずに残し（kept・「文字起こし待ち」の文）、
+// 会議の後の待ち行列が文字起こしする。音声の無い待ちの区間（控えられなかった）だけ今の「打ち切り」の失敗の行。戻り値は { count, kept }
+test('skipPendingSegments: 待ちの区間を全部「文字起こし待ち」（音声を残す）にし、件数と残した数を返す', () => {
   const segs = [
     { id: 's1', atMs: 0, text: '発言' },
     { id: 's2', atMs: 75000, text: '', pending: true, wav: '/b/2.wav', durationMs: 75000 },
     { id: 's3', atMs: 150000, text: '', pending: true, wav: '', durationMs: 30000 },
   ];
   const r = skipPendingSegments(segs);
-  assert.deepStrictEqual(r, { count: 2, wavs: ['/b/2.wav'] });
+  assert.deepStrictEqual(r, { count: 2, kept: 1 });
   assert.deepStrictEqual(segs[0], { id: 's1', atMs: 0, text: '発言' }, '済んだ区間を触っている');
-  assert.deepStrictEqual(segs[1], { id: 's2', atMs: 75000, text: '（文字起こしを打ち切り）', failed: true, durationMs: 75000 });
+  assert.deepStrictEqual(segs[1], { id: 's2', atMs: 75000, text: '（文字起こし待ち: 音声は残してあります）', failed: true, kept: true, wav: '/b/2.wav', durationMs: 75000 });
   assert.deepStrictEqual(segs[2], { id: 's3', atMs: 150000, text: '（文字起こしを打ち切り）', failed: true, durationMs: 30000 });
-  assert.deepStrictEqual(skipPendingSegments([]), { count: 0, wavs: [] });
+  assert.deepStrictEqual(skipPendingSegments([]), { count: 0, kept: 0 });
 });
 
 test('restoreAfterPaste: 短い1行だけ戻す（空・同じ本文・改行入り・200 字超は戻さない）', () => {

@@ -1,7 +1,7 @@
 ---
 title: 中継の1日の上限
 description: 管理者向け。文字起こしの中継の1日の上限（1人 4 時間・全体 100 時間）の数え方と、上限に達したときの動き、変え方
-updated: 2026-10-21
+updated: 2026-10-22
 sources: relay/config.mjs, relay/stt.mjs, README.md, src/main.js
 related: admin/stop-person, admin/seats, trouble/banners
 ---
@@ -35,3 +35,14 @@ related: admin/stop-person, admin/seats, trouble/banners
 
 正の整数でない値は使わず、既定のままになります。
 会社の OpenAI の画面で、月の使いすぎの知らせや上限も決めておくと、中継の上限とは別に効きます。
+
+## Workers Paid を見直す目安 {#workers-paid}
+
+中継は Cloudflare Workers の Free で動いています。Free は 1 回の要求の CPU 時間が 10 ms までで、続けて越えると中継が止まることがあります（帯は「…中継が混み合っている…」）。
+0.9.4 から、中継は音声を貯めずに OpenAI へ流すので、CPU 時間は前より短くなります。次のどれかが起きたら、Workers Paid（有料）に上げる案を出します。
+
+- Workers の Observability で、文字起こしの要求に「Exceeded CPU Time Limits」が 1 日に 1 回でも出た
+- CPU 時間の p99 が 8 ms を越えた日が 3 日あった
+- 使う人が 10 人を越えた
+
+料金は Cloudflare の料金のページで確かめてください。

@@ -180,3 +180,34 @@ test('0.9.3 D55: record/pc-only の「押し方」に札「オフラインモー
     '「議事録を作成しています…（オフライン）」', '区間を文字起こし中', '「オフラインモード中」']) assert.ok(rec.includes(w), `record/status-line の記録の行に「${w}」が無い`);
   assert.ok(rec.includes('](record/pc-only.md'), 'record/status-line の記録の行から record/pc-only へのリンクが無い');
 });
+// 0.9.4 S-8（計画 docs/plans/2026-10-22-094.md の「Task S-8（作り直し）」）: 遅い PC の記事（新）・遅い会議の帯と区間・Workers Paid の見直しの目安（D55）・
+// 会議の検出（参加の前の画面・診断の記録）。帯と区間の文は main の文をそのまま引く
+test('0.9.4 S-8: trouble/slow-pc に「音声を残しています」「会議の後」・帯 kept-late の文（ふだん・オフラインモード）・区間の文・後回し・PC で文字起こし。site.json の「困ったとき」と HELP_ARTICLES にある', { timeout: 5000 }, () => {
+  const t = read(fileOf('trouble/slow-pc'));
+  const main = read('src/main.js');
+  const LATE = 'この PC の文字起こしが録音に追いつかないため、音声を残しています。会議が終わったら文字起こしします。録音はそのまま続けてください。';
+  const OFF = 'オフラインモードです。この PC の文字起こしが録音に追いつかないため、音声を残しています。会議が終わったら PC の中で文字起こしします。';
+  const SLOW = '（文字起こし待ち: 会議の後で文字起こしします）';
+  assert.ok(main.includes(LATE) && main.includes(OFF) && main.includes(`const SLOW_SEG_TEXT = '${SLOW}';`), 'main の文が変わった');
+  for (const w of ['音声を残しています', '会議の後', LATE, OFF, SLOW, '音声を残しています（会議の後で文字起こしします）', '［文字起こしを後回しにして要約］', 'PC で文字起こし', '［要約を生成］']) {
+    assert.ok(t.includes(w), `「${w}」が無い`);
+  }
+  assert.ok(!/速さを測る|軽いモデル/.test(t), '外した機能の話がある');
+  assert.ok(site.categories.find((c) => c.id === 'trouble').articles.includes('slow-pc'), 'site.json の「困ったとき」に無い');
+  assert.ok(require('../src/mainlib').HELP_ARTICLES.includes('trouble/slow-pc'), 'HELP_ARTICLES に無い');
+});
+test('0.9.4 S-8: record/status-line・trouble/banners に遅い PC の帯（kept-late）の文と区間の文と slow-pc へのリンク、admin/relay-limits に Workers Paid の見直しの目安（D55）がある', { timeout: 5000 }, () => {
+  const LATE = 'この PC の文字起こしが録音に追いつかないため、音声を残しています。';
+  for (const ref of ['record/status-line', 'trouble/banners']) {
+    const t = read(fileOf(ref));
+    for (const w of [LATE, '（文字起こし待ち: 会議の後で文字起こしします）', 'trouble/slow-pc.md']) assert.ok(t.includes(w), `${ref} に「${w}」が無い`);
+  }
+  assert.ok(read(fileOf('trouble/banners')).includes('オフラインモードです。この PC の文字起こしが録音に追いつかないため、音声を残しています。'), 'banners にオフラインモードの kept-late の文が無い');
+  assert.ok(sectionOf('record/status-line', 'line').includes('音声を残しています（会議の後で文字起こしします）'), 'status-line に遅い会議の一番下の行が無い');
+  const r = sectionOf('admin/relay-limits', 'workers-paid');
+  for (const w of ['Workers Paid', 'Free', '10 ms', 'Exceeded CPU Time Limits', '8 ms', '3 日', '10 人', 'Observability']) assert.ok(r.includes(w), `relay-limits に「${w}」が無い`);
+});
+test('0.9.4 S-8: record/meeting-detect に参加の前の画面・マイクを使い始めた時点・記録に残す符号（名前は残さない）がある', { timeout: 5000 }, () => {
+  const t = read(fileOf('record/meeting-detect'));
+  for (const w of ['参加の前の画面', 'マイクを使い始めた時点', 'どのアプリを使ったかは', '始めたか']) assert.ok(t.includes(w), `「${w}」が無い`);
+});

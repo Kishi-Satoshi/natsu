@@ -533,6 +533,40 @@ test('G3: 0.9.3 の変異が一覧にそろい、IDS_093 は計画の「変異�
   }
 });
 
+// 0.9.4（計画 docs/plans/2026-10-22-094.md の「変異確認」の表）: 文字起こしの安定化（音声を失わない・遅い PC・PC への要求・文・区切り・中継）の直しを1つずつ戻す変異。
+// タスクごとに足す（S-8 で表とちょうど同じにする）。足した分は表の id で、表の頭の文字（ka・pc・lt・wd・sg・rx・bm・ci・dt・wv・pb・rn）の変異は全部ここにある
+const IDS_094 = [
+  'pc-floor', 'pc-two', 'pc-big', 'pc-backlog', 'pc-sticky', 'pc-model', 'pc-ttl', 'lt-timeout', 'lt-cap', 'sg-cloud-grow', 'sg-transient', 'sg-hold', 'sg-hold-reset',
+  'lt-fetch', 'lt-destroy', 'lt-restart', 'wd-late-text', 'wd-down-text', 'wd-late-banner', 'ka-live-late', 'ka-live-down',
+  'ka-recover-late', 'ka-recover-error', 'ka-held-retry', 'ka-old-queue', 'ka-skip-wav', 'ka-skip-auto', 'ka-rec-busy',
+  'rx-buffer', 'rx-cl-cap', 'rx-head', 'rx-count', 'rx-refund', 'rx-sec', 'rx-compat', 'rx-fixed', 'rx-fields', 'rx-keys',
+  'pc-proc', 'pc-relay-local', 'pc-local-only', 'pc-cloud', 'pc-dict', 'sg-hold-health',
+  'ci-noon', 'pc-after-local',
+  'dt-say-dedupe', 'dt-rejoin', 'dt-why', 'dt-count', 'dt-trigger',
+  'wv-weights', 'wv-same-phase', 'wv-silent', 'wv-bar-reduced', 'wv-page-dots', 'wv-page-blue',
+  'pb-okm', 'pb-spk-flash', 'pb-fade', 'pb-done-sound', 'pb-db-notice',
+  'rn-secs', 'rn-notice', 'rn-offline-text',
+  'pc-help-slow', 'pc-late-screen',
+];
+test('G3・0.9.4 S-8: 0.9.4 の変異が一覧にそろい、IDS_094 は計画の「変異確認」の表の id とちょうど同じ。どれも決まったテストのファイルを持ち、なぜ戻すと困るかを書く', { timeout: 5000 }, () => {
+  const byId = new Map(MUTANTS.map((m) => [m.id, m]));
+  assert.deepStrictEqual(IDS_094.filter((id) => !byId.has(id)), [], '計画の表の変異が一覧に無い');
+  assert.deepStrictEqual(MUTANTS.filter((m) => /^(ka|pc|lt|wd|sg|rx|bm|ci|dt|wv|pb|rn)-/.test(m.id) && !IDS_094.includes(m.id)).map((m) => m.id), [], 'IDS_094 に無い 0.9.4 の頭の変異がある');
+  const plan = fs.readFileSync(path.join(ROOT, 'docs', 'plans', '2026-10-22-094.md'), 'utf8');
+  const table = plan.slice(plan.indexOf('## 変異確認'), plan.indexOf('## ゲート'));
+  const rows = [...table.matchAll(/^\| ([a-z][a-z0-9-]*) \|/gm)].map((m) => m[1]).filter((id) => id !== 'id');
+  assert.deepStrictEqual(IDS_094.filter((id) => !rows.includes(id)), [], '計画の表に無い id');
+  // 0.9.4 S-8 で意図して足した: IDS_094 は計画の「変異確認」の表とちょうど同じ（表の id は全部 IDS_094 にある）
+  assert.deepStrictEqual(rows.filter((id) => !IDS_094.includes(id)), [], 'IDS_094 に無い表の id');
+  assert.strictEqual(rows.length, IDS_094.length, '表の行の数が IDS_094 と違う');
+  assert.strictEqual(new Set(IDS_094).size, IDS_094.length);
+  for (const id of IDS_094) {
+    const m = byId.get(id);
+    assert.ok(Array.isArray(m.tests) && m.tests.length > 0 && m.tests.every((t) => /^test\/[^/]+\.test\.js$/.test(t)), `${id}: tests`);
+    assert.ok(typeof m.why === 'string' && m.why.startsWith('0.9.4 '), `${id}: why`);
+  }
+});
+
 // 0.10.0（計画 docs/plans/2026-10-20-100.md の「変異確認」の表）: MCP の読む道具・議事録のリンク・要約のローカル AI をやめることの直しを1つずつ戻す変異。
 // タスクを作るたびに足す（表の全部とちょうど同じにそろえるのは G-1。それまでは「どれも表にある」と「接頭の変異は IDS_100 にある」を見る）
 const IDS_100 = [

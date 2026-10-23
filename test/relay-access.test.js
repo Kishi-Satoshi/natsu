@@ -295,6 +295,31 @@ test('F18: 鍵は1時間写しを使い（2回目から取りに行かない）�
   });
 });
 
+// 0.9.4 S-6（決めたこと 26・K8）: 1 要求ごとの CPU を見る。取り込んだ鍵は isolate ごとに 1 時間持つので、20 回の要求で鍵の口へは 1 回、
+// crypto.subtle.importKey は鍵の数（偽の Access は今と前の2つ）だけ。確かめた JWT の写しは作らない（毎回 RSA の確かめをする）
+test('鍵の写し: 20 回の要求で鍵の口へは 1 回、importKey は鍵の数だけ（文字起こしの口と /v1/me を合わせて）', { timeout: 5000 }, async () => {
+  await scene({}, async ({ sign, me, stt1, fa }) => {
+    const subtle = globalThis.crypto.subtle;
+    const realImport = subtle.importKey;
+    const realVerify = subtle.verify;
+    let imports = 0;
+    let verifies = 0;
+    Object.defineProperty(subtle, 'importKey', { configurable: true, writable: true, value: function (...a) { imports += 1; return realImport.apply(subtle, a); } });
+    Object.defineProperty(subtle, 'verify', { configurable: true, writable: true, value: function (...a) { verifies += 1; return realVerify.apply(subtle, a); } });
+    try {
+      const t = await sign();
+      for (let i = 0; i < 10; i++) assert.strictEqual((await me({ jwt: t })).status, 200);
+      for (let i = 0; i < 10; i++) assert.strictEqual((await stt1({ jwt: t })).status, 200);
+    } finally {
+      delete subtle.importKey;
+      delete subtle.verify;
+    }
+    assert.strictEqual(fa.certHits, 1, '鍵の口へ何度も取りに行った');
+    assert.strictEqual(imports, fa.kids().length, '鍵を要求ごとに取り込んだ');
+    assert.strictEqual(verifies, 20, '確かめた JWT の写しを作った（K8）か、確かめを省いた');
+  });
+});
+
 test('F18: 鍵の口が 500・答えない・転送する → 401 でなく 503 not-ready（r: certs）。5 秒で切る（AbortSignal.timeout に渡した長さを見る）', { timeout: 5000 }, async () => {
   const realTimeout = AbortSignal.timeout;
   const seen = [];

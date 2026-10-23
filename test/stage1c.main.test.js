@@ -163,6 +163,8 @@ test('RF29・OL2: 長い 429（OpenAI の 1日の上限）は区間を失敗と�
   assert.strictEqual(whisperSpawned(o), false);
   assert.strictEqual(o.notices.filter((n) => /OpenAI の利用の上限に達しました/.test(textOf(n))).length, 1, '会議と送り直しで二重に知らせた');
   assert.strictEqual(o.recoveryKept, true, '送り直しでも長い 429 だったのに、音声か待ち行列を消した');
+  // 0.9.4 S-3 で足した: エンジンが答えた誤りの区間も音声を残すようになったので、上限は「止めて残す」（失敗に数えない）道を通ったことも見る
+  assert.ok(o.engineLog.some((l) => /^復旧の文字起こしを止めました（理由: rate-long）/.test(l)), o.engineLog.join('\n'));
   noTokenAnywhere(o);
 });
 
@@ -217,6 +219,8 @@ test('RF26: 中継に届かない（証明書）ときは手元で続け、理�
 test('調べた結果の 10: 復旧をクラウドで先へ通した後、手元に落ちた区間で whisper が無ければ、音声と待ち行列を消さずに残す', { timeout: sceneTimeout(20000) }, async () => {
   const o = await run(['text', '--relay=drop', '--recover', '--no-whisper']);
   assert.strictEqual(o.recoveryKept, true, '手元のエンジンが無いのに、送り直しの音声か待ち行列を消した');
+  // 0.9.4 S-3 で足した: 失敗に数えず（tries を増やさず）止めて残す道を通った
+  assert.ok(o.engineLog.some((l) => /^復旧の文字起こしを止めました（理由: (engine|down)）/.test(l)), o.engineLog.join('\n'));
 });
 
 // 0.7.0 U-1 で意図して変えた: 手元の場面は「同意が既定の ask」でなく、第1d回 A-3 から「ログインしていない PC」

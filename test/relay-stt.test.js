@@ -19,7 +19,7 @@ const H = 3600 * S;
 const DAY = 24 * H;
 const TO_DAY_END = 14 * 3600;
 const KEYS = new Set(['ev', 'st', 'r', 'ms', 'sec', 'n', 'left', 'scope', 'v']);
-const STT_KEYS = new Set(['ev', 'st', 'r', 'ms', 'sec', 'scope']);
+const STT_KEYS = new Set(['ev', 'st', 'r', 'ms', 'sec', 'scope', 'v']);   // 0.9.4 S-6 で v（stream・buf）を足した
 const COUNTER_KEY = /^(?:a:u:[0-9a-f]{32}|a:all)$/;
 const TABLES = ['meta', 'blocked_emails', 'counters'];
 const PATH = '/v1/audio/transcriptions';
@@ -76,14 +76,15 @@ async function scene({ env = {}, mode = 'text', stt: sttOpts = {}, start = T0 } 
           return { token, email };
         },
         // language・prompt・type は null なら、その見出しを付けない。token は Cf-Access-Jwt-Assertion の見出しで送る
-        async send(token, wav, { language = 'ja', prompt = HINT, headers = {}, query = '', stream = false, type = 'audio/wav' } = {}) {
+        // 0.9.4 S-6: アプリは WAV を Content-Length 付きで送る（stream でないときは既定で付ける）。length: false で付けない（前の版の送り方）
+        async send(token, wav, { language = 'ja', prompt = HINT, headers = {}, query = '', stream = false, type = 'audio/wav', length = stream ? undefined : true, hold, pulls } = {}) {
           calls += 1;
           const h = { ...headers };
           if (token !== undefined) h['cf-access-jwt-assertion'] = token;
           if (type !== null) h['content-type'] = type;
           if (language !== null) h['x-natsu-language'] = language;
           if (prompt !== null) { h['x-natsu-prompt'] = enc(prompt); if (prompt.trim()) secrets.add(prompt); }
-          const res = await ctx.call('POST', PATH + query, { headers: h, body: wav, stream, ip: '192.0.2.20' });
+          const res = await ctx.call('POST', PATH + query, { headers: h, body: wav, stream, ip: '192.0.2.20', length, hold, pulls });
           const text = await res.text();
           let body = null;
           try { body = JSON.parse(text); } catch (_) { body = null; }
@@ -219,7 +220,8 @@ test('RL7: JWT が無い・違う・切れた → 401 login、止めたメール
   });
 });
 
-test('RF34: 大きさの上限は読みながら 413（Content-Length の無い本文でも）。WAV でない・アプリの録音の形でない WAV は 415。どれも OpenAI へ送らない', { timeout: 5000 }, async () => {
+// 0.9.4 S-6 で意図して分けた: Content-Length のある本文（アプリの送り方）は上限を越えれば読まずに 413（流す道）、無い本文（前の版の送り方）は今どおり読みながら 413（貯める道）
+test('RF34: 大きさの上限は Content-Length のある本文なら読まずに 413、無い本文なら読みながら 413。WAV でない・アプリの録音の形でない WAV は 415。どれも OpenAI へ送らない', { timeout: 5000 }, async () => {
   await scene({ env: { MAX_AUDIO_BYTES: String(44 + 3 * 32000) } }, async ({ login, send, stt, db }) => {
     const a = await login();
     assert.strictEqual((await send(a.token, R.wav(3))).status, 200, 'ちょうど上限は通る');
@@ -605,6 +607,150 @@ test('limits: 日の番号・日の替わりまでの秒は日本の日付（DAY
   assert.strictEqual(L.dayNumber(t + TO_DAY_END, 540), L.dayNumber(t, 540) + 1);
   assert.strictEqual(L.secondsToDayEnd(t + TO_DAY_END, 540), 86400);
   assert.strictEqual(L.secondsToDayEnd(t + TO_DAY_END - 1, 540), 1);
+});
+
+// ---------------------------------------------------------------- 0.9.4 S-6（決めたこと 23〜28）: 中継は本文を貯めずに流す
+const MB = 1024 * 1024;
+const sttLog = (logs) => logs.map((l) => JSON.parse(l)).filter((p) => p.ev === 'stt');
+
+test('S8: Content-Length のある本文は、全部読む前に OpenAI へ流し始める（アプリの側の流れは、偽の OpenAI が 1 MB を受けたと言うまで最後の塊を出さない。4 MB の WAV で 5 秒以内に 200）', { timeout: 5000 }, async () => {
+  await scene({}, async ({ login, send, stt, logs }) => {
+    const a = await login();
+    const w = R.wav(131);   // 約 4 MB
+    let late = false;
+    const hold = async () => {
+      const until = Date.now() + 3000;
+      while (stt.received() < MB && Date.now() < until) await new Promise((r) => setTimeout(r, 10));
+      if (stt.received() < MB) late = true;
+    };
+    const t0 = Date.now();
+    const r = await send(a.token, w, { stream: true, length: true, hold });
+    assert.strictEqual(late, false, '中継が本文を全部読むまで OpenAI へ送らなかった（貯めている）');
+    assert.strictEqual(r.status, 200, JSON.stringify(r.body));
+    assert.ok(Date.now() - t0 < 5000);
+    assert.strictEqual(stt.requests[0].fileSha, crypto.createHash('sha256').update(w).digest('hex'), '本文がバイトどおりでない');
+    assert.deepStrictEqual(sttLog(logs).map((l) => [l.st, l.v, l.sec]), [[200, 'stream', 131]]);
+  });
+});
+
+test('S8: 流す道の OpenAI の要求は今と同じ multipart（欄の並び・file の名前と型・model は中継の値・言語とヒント）で、本文はバイトどおり', { timeout: 5000 }, async () => {
+  await scene({ env: { STT_MODEL: 'whisper-1' } }, async ({ login, send, stt, logs }) => {
+    const a = await login();
+    const w = R.wav(2);
+    const viaStream = await send(a.token, w, { stream: true, length: true, headers: { 'x-natsu-model': 'gpt-4o', model: 'gpt-4o' } });
+    const viaBuf = await send(a.token, w, { length: false });
+    assert.deepStrictEqual([viaStream.status, viaBuf.status], [200, 200]);
+    const [q1, q2] = stt.requests;
+    assert.deepStrictEqual(q1.fields, { model: 'whisper-1', language: 'ja', prompt: HINT, response_format: 'json', temperature: '0' });
+    assert.deepStrictEqual(q1.fieldOrder, ['model', 'language', 'prompt', 'response_format', 'temperature', 'file']);
+    assert.deepStrictEqual([q1.fields, q1.fieldOrder, q1.fileName, q1.fileType, q1.fileSha, q1.authOk, q1.wavOk], [q2.fields, q2.fieldOrder, q2.fileName, q2.fileType, q2.fileSha, q2.authOk, q2.wavOk]);
+    assert.strictEqual(q1.fileSha, crypto.createHash('sha256').update(w).digest('hex'));
+    assert.deepStrictEqual(sttLog(logs).map((l) => l.v), ['stream', 'buf']);
+  });
+});
+
+test('S9: Content-Length が maxAudioBytes を越えれば本文を読まずに 413（読み手が 1 回も読まない）・OpenAI へ送らない・秒を数えない。数でない Content-Length は貯める道', { timeout: 5000 }, async () => {
+  await scene({ env: { MAX_AUDIO_BYTES: String(44 + 3 * 32000) } }, async ({ login, send, stt, db }) => {
+    const a = await login();
+    const pulls = { n: 0 };
+    const r = await send(a.token, R.wav(4), { stream: true, length: true, pulls });
+    assert.deepStrictEqual([r.status, r.body], [413, { error: 'too-large' }]);
+    assert.strictEqual(pulls.n, 0, '上限を越える本文を読んだ');
+    // 嘘の Content-Length（小さく書いた）でも、届いたバイトが言った長さを越えたら止める（下の S9 の長さの違い）
+    assert.strictEqual(stt.requests.length, 0);
+    assert.strictEqual(await used(db, 'a:all'), 0);
+  });
+});
+
+test('S9: 頭が違う（RIFF でない・16000Hz でない・mono でない）なら 415・OpenAI へ送らない・秒を数えない（流す道）', { timeout: 5000 }, async () => {
+  await scene({}, async ({ login, send, stt, db, logs }) => {
+    const a = await login();
+    for (const [w, why] of [[wavWith(2, { riff: 'RIFX' }), 'RIFF でない'], [wavWith(2, { rate: 8000 }), '8kHz'], [wavWith(2, { channels: 2 }), 'ステレオ'],
+      [R.wav(2).slice(0, 44), '頭だけ'], [R.wav(2).slice(0, 30), '頭が途中で切れた']]) {
+      for (const stream of [false, true]) {
+        const r = await send(a.token, w, { stream, length: true });
+        assert.deepStrictEqual([r.status, r.body], [415, { error: 'not-wav' }], `${why} stream ${stream}`);
+      }
+    }
+    assert.strictEqual(stt.requests.length, 0);
+    assert.strictEqual(await used(db, 'a:all'), 0);
+    assert.ok(sttLog(logs).every((l) => l.v === 'stream'), JSON.stringify(sttLog(logs)));
+  });
+});
+
+test('S9: 本文が Content-Length より短く終わった・長い（偽の要求の作り）→ 400 bad-request・取り置いた秒を戻す（D1 の数が 0）', { timeout: 5000 }, async () => {
+  await scene({}, async ({ login, send, db, logs }) => {
+    const a = await login();
+    const w = R.wav(3);
+    for (const [len, why] of [[w.byteLength + 32000, '短い（言った長さより 1 秒少ない）'], [w.byteLength - 32000, '長い（言った長さより 1 秒多い）'], [w.byteLength + 1, '1 バイト短い']]) {
+      const r = await send(a.token, w, { stream: true, length: len });
+      assert.deepStrictEqual([r.status, r.body], [400, { error: 'bad-request' }], why);
+    }
+    assert.strictEqual(await used(db, 'a:all'), 0, '取り置いた秒を戻していない');
+    assert.strictEqual(await used(db, await userKey(a.email)), 0);
+    assert.strictEqual((await send(a.token, w, { stream: true, length: true })).status, 200, '長さの合う本文が通らない');
+    assert.strictEqual(await used(db, 'a:all'), 3);
+    assert.deepStrictEqual(sttLog(logs).map((l) => [l.st, l.r, l.v]), [[400, 'bad-request', 'stream'], [400, 'bad-request', 'stream'], [400, 'bad-request', 'stream'], [200, 'ok', 'stream']]);
+  });
+});
+
+test('S9: 秒は Content-Length（＝届いたバイト数）から。WAV の頭の data の長さの嘘で減らせない（流す道）', { timeout: 5000 }, async () => {
+  await scene({}, async ({ login, send, db, logs }) => {
+    const a = await login();
+    assert.strictEqual((await send(a.token, wavWith(10, { dataLen: 32000 }), { stream: true, length: true })).status, 200);
+    assert.strictEqual((await send(a.token, wavWith(10, { dataLen: 0 }), { stream: true, length: true })).status, 200);
+    assert.strictEqual((await send(a.token, R.wav(10.5), { stream: true, length: true })).status, 200);
+    assert.strictEqual(await used(db, 'a:all'), 31);
+    assert.deepStrictEqual(sttLog(logs).map((l) => [l.sec, l.v]), [[10, 'stream'], [10, 'stream'], [11, 'stream']]);
+  });
+});
+
+test('S10: Content-Length の無い本文は今の貯める道（記録の v は buf）。流す道は stream', { timeout: 5000 }, async () => {
+  await scene({}, async ({ login, send, logs, stt }) => {
+    const a = await login();
+    assert.strictEqual((await send(a.token, R.wav(2), { stream: true })).status, 200);
+    assert.strictEqual((await send(a.token, R.wav(2), { length: false })).status, 200);
+    assert.strictEqual((await send(a.token, R.wav(2), { length: 'abc' })).status, 200, '数でない Content-Length');
+    assert.strictEqual((await send(a.token, R.wav(2))).status, 200);
+    assert.deepStrictEqual(sttLog(logs).map((l) => l.v), ['buf', 'buf', 'buf', 'stream']);
+    assert.strictEqual(stt.requests.length, 4);
+  });
+});
+
+test('FixedLengthStream があれば使う（globalThis に偽の FixedLengthStream を置いて、長さ total で作られる・duplex を付けない）', { timeout: 5000 }, async () => {
+  const { formParts } = await R.load('stt.mjs');
+  const made = [];
+  const inits = [];
+  globalThis.FixedLengthStream = class extends TransformStream { constructor(n) { super(); made.push(n); } };
+  try {
+    await scene({}, async ({ login, send }) => {
+      const a = await login();
+      const f = globalThis.fetch;
+      globalThis.fetch = (u, init) => { inits.push(init); return f(u, { ...init, duplex: 'half' }); };   // Node の fetch は流れの本文に duplex が要る（Workers は付けない）
+      try {
+        const w = R.wav(2);
+        assert.strictEqual((await send(a.token, w, { stream: true, length: true })).status, 200);
+        const { head, tail } = formParts({ model: 'gpt-4o-transcribe', language: 'ja', prompt: HINT, boundary: 'natsu-' + '0'.repeat(36) });
+        assert.deepStrictEqual(made, [head.byteLength + w.byteLength + tail.byteLength]);
+        assert.strictEqual(inits.length, 1);
+        assert.strictEqual('duplex' in inits[0], false, 'Workers の FixedLengthStream に duplex を付けた');
+        assert.strictEqual(inits[0].redirect, 'manual');
+      } finally { globalThis.fetch = f; }
+    });
+  } finally { delete globalThis.FixedLengthStream; }
+});
+
+test('字面: 流す道（streamUpstream）に readCapped(・buildForm(・arrayBuffer(・本文の長さの new Uint8Array( が無い。relay/ に node: と Buffer が無い。redirect は manual', { timeout: 5000 }, () => {
+  const src = require('node:fs').readFileSync(require('node:path').join(R.RELAY_DIR, 'stt.mjs'), 'utf8');
+  const i = src.indexOf('export async function streamUpstream(');
+  assert.ok(i >= 0, 'streamUpstream が無い');
+  const body = src.slice(i, src.indexOf('\n}\n', i));
+  for (const bad of ['readCapped(', 'buildForm(', 'arrayBuffer(', 'new Uint8Array(']) assert.ok(!body.includes(bad), `streamUpstream に ${bad}`);
+  assert.ok(body.includes("redirect: 'manual'"));
+  for (const f of require('node:fs').readdirSync(R.RELAY_DIR).filter((n) => n.endsWith('.mjs'))) {
+    const t = require('node:fs').readFileSync(require('node:path').join(R.RELAY_DIR, f), 'utf8');
+    assert.ok(!/from 'node:|require\(|\bBuffer\b/.test(t), f);
+  }
 });
 
 test('F9・RL7: 記録は { ev: stt, st, r, ms, sec } の形だけで、ヒント・文字・札・メール・鍵が無い。D1 のどの行にもヒントと文字が無い（上の全部の場面を合わせて）', { timeout: 5000 }, () => {

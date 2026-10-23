@@ -242,6 +242,17 @@
 //   ctx.relay に revoke()（A-11 から: 偽の Access で種の人を取り消す）・sttRequests()・seededMail・base（中継の口。場面から直に GET /auth/me を聞く）を、ctx に advanceClock(ms)（main の Date.now と
 //   中継の試しの時計を ms だけ進める）を足す
 //   ctx.setOnline(bool) … 偽の net.isOnline() の答えを場面の途中で変える（--offline の場面は false から始まる）
+//   0.9.4 S-2（PC への要求の待ち時間）: 場面を起こす側が NATSU_TEST_LOCAL_TIME_SCALE（0〜1。待ち時間に掛ける）を渡す。
+//     --seg-ms=<ミリ秒> … 議事録の区間の長さ（durationMs）をこの値にする（音声のバイトは今のまま）
+//     --pace=<JSON> … 起動の前に data/local-pace.json を置く（model: "same" は偽のモデルの名前と大きさ、at: "now-<日>" は日数の前）
+//   0.9.4 S-3（音声を失わない）:
+//     --recover-again=<n> … 議事録を写した後（--after-retry の後）、設定の保存（settings:save。保留の復旧を引き直す）を n 回。そのたびに
+//                     復旧の記録の行（止めました・保留）か待ち行列が無くなるのを 3 秒まで待ち、out.again に { pages, queue（recovery.json の中身）, wavs, requests（増えた要求の数）, log } を写す
+//     --delete-pages-then-recover … その後、議事録を全部消して（page.delete）設定を保存し、out.afterDelete に { queue, wavs }
+//     --skip-at-stop … 最後の区間を送った後、1 区間が文字になるのを待って meeting:skipPending（out.skip・out.skippedSegs）
+//     --wait-queue-empty … 議事録を写した後、待ち行列が無くなるまで待ち、out.afterQueue に { pages, notices, chats（偽の llama の要求の数）, wavs }
+//     --extra-queue=localonly3 … --extra-queue=localonly の形で、文字起こし待ちの区間 3 つ
+//     out.chatsAtFinalize・out.summaryAtFinalize … 議事録の要約の欄が埋まった（か要約ができた）ときの偽の llama の要求の数と要約の欄。out.queueAfterRetry … --after-retry の後の待ち行列
 //   第1d回 A-5（D16）: 区切りの長さの場面
 //     --relay-seq=<並び> … 区間 i を送る前に、中継の答え方を並びの i 文字目にし（relay-local の setAnswer: c・n・5・l・u・a・e・L）、
 //                        その区間が文字になるか失敗するまで（meeting:status の pending が 0）待ってから次を送る（区間と並びが1対1）。
@@ -351,6 +362,7 @@
 //                        ["dictate"]（音声入力のホットキーで録音を始める）・["dictate-cancel"]（録音バーの取り消し）・["save", 足す設定]（settings:save）・
 //                        ["ipc", 名前, ...引数]（handle なら待って答えを out.ipc に、on なら送るだけ）・["theme", dark]（偽の nativeTheme を変えて updated）・
 //                        ["live", bool]（画面の meeting:live-shown）・["quit"]（before-quit と will-quit）・["snap", 名前]（その時の見張りの数などを out.snaps に）・
+//                        0.9.4 D-1: ["hotkey-meeting"]（会議のホットキー）・["tray-start"]（トレイの［議事録の記録を開始］）・["bar-stop"]（録音バーの［停止］）・["finish"]（止めた後の最後の空の区間を送り、idle に戻るのを待つ）。
 //                        ["wait-show", n]（パネルの窓の showInactive が n 回になるまで待つ）・["cursor", x, y]（偽のカーソル）・["minimize"]（本体の窓を最小化して minimize）。
 //                        snap には録音バーへ聞いた overlay:level-ask の数（asks）も入る（M-5）
 //                        出力: micSpawns（見張りの引数）・micKills・restartDelays（setTimeout の restartMicWatch の ms。5ms 後に本当に呼ぶ）・nudge（パネルの窓の
@@ -405,6 +417,16 @@ const killDbAtDiscard = flags.includes('--kill-db-at-discard');
 const idleMode = flags.includes('--idle');
 const restartDuring = flagVal('--restart-during');   // 第1d回 A-9
 const relaySeq = flagVal('--relay-seq');   // 第1d回 A-5
+// 0.9.4 S-2: 区間の長さ（会議の時計の durationMs。音声のバイトは今の 3 秒・2 秒のまま）と、この PC の速さの覚え（local-pace.json）
+const segMsFlag = Number(flagVal('--seg-ms')) || 0;
+const paceFlag = flagVal('--pace');
+// 0.9.4 S-5: --clock-seq=<i>:<ミリ秒>,… … i 番目（0 から）の区間を送る前に main の時計（と中継の試しの時計）をその分だけ進める
+const clockSeq = new Map((flagVal('--clock-seq') || '').split(',').filter(Boolean).map((x) => x.split(':').map(Number)));
+// 0.9.4 S-3: 会議の後の文字起こしを引き直す・ページを消して引き直す・止めた後に後回しにする・待ち行列が無くなるまで待つ
+const recoverAgainN = Number(flagVal('--recover-again')) || 0;
+const deletePagesThenRecover = flags.includes('--delete-pages-then-recover');
+const skipAtStop = flags.includes('--skip-at-stop');
+const waitQueueEmpty = flags.includes('--wait-queue-empty');
 // 0.9.0 B-2: オフラインの帯の場面（[秒, つながっているか] の並び・区間を送る秒）
 const netSeq = flagVal('--net-seq') ? flagVal('--net-seq').split(',').map((x) => { const [sec, v] = x.split(':'); return [Number(sec), v === 'on']; }) : null;
 const netSegAtFlag = flagVal('--net-seg-at') ? flagVal('--net-seg-at').split(',').map(Number) : null;
@@ -725,6 +747,15 @@ process.on('exit', () => {
     fs.closeSync(fd);
   }
   if (withVad) fs.writeFileSync(path.join(path.dirname(model), 'ggml-silero-v6.2.0.bin'), Buffer.alloc(1024, 1));
+  // 0.9.4 S-2: --pace=<JSON> … 起動の前に <userData>/data/local-pace.json を置く。model が "same" なら偽のモデルの名前と大きさにする
+  // （at が "now-<日>" なら今からその日数の前の時刻にする）
+  if (paceFlag) {
+    const pace = JSON.parse(paceFlag);
+    if (pace.model === 'same') pace.model = { name: path.basename(model), size: fs.statSync(model).size };
+    if (typeof pace.at === 'string' && /^now-\d+$/.test(pace.at)) pace.at = Date.now() - Number(pace.at.slice(4)) * 24 * 3600 * 1000;
+    fs.mkdirSync(path.join(userData, 'data'), { recursive: true });
+    fs.writeFileSync(path.join(userData, 'data', 'local-pace.json'), JSON.stringify(pace));
+  }
   const exe = process.env.NATSU_E2E_EXE || FAKE;
   // 偽の claude（--claude）。記録は1行ずつの JSON
   const claudeLog = path.join(tmp, 'claude.log');
@@ -902,6 +933,16 @@ process.on('exit', () => {
     fs.writeFileSync(wav, toneWav(3));
     fs.writeFileSync(path.join(userData, 'data', `draft-${startedAt}.json`), JSON.stringify({ startedAt, memo: '', offsetMs: 3000, savedAt: startedAt + 3000,
       segments: [{ id: 's1', atMs: 0, durationMs: 3000, pending: true, wav, text: '' }], localOnly: true }));
+  }
+  if (extraQueue === 'localonly3') {   // 0.9.4 S-3
+    const startedAt = Date.now() - 900000;
+    const segs = [1, 2, 3].map((i) => {
+      const wav = path.join(userData, 'data', 'segbuf', String(startedAt), `000${i}.wav`);
+      fs.mkdirSync(path.dirname(wav), { recursive: true });
+      fs.writeFileSync(wav, toneWav(3));
+      return { id: `s${i}`, atMs: (i - 1) * 3000, durationMs: 3000, pending: true, wav, text: '' };
+    });
+    fs.writeFileSync(path.join(userData, 'data', `draft-${startedAt}.json`), JSON.stringify({ startedAt, memo: '', offsetMs: 9000, savedAt: startedAt + 9000, segments: segs, localOnly: true }));
   }
   if (recoverMode && !reuseData) {
     const startedAt = Date.now() - 600000;
@@ -1322,6 +1363,14 @@ process.on('exit', () => {
     Date.now = () => realDateNow() + clockOffset;
     if (relayLocal) relayLocal.clock.advance(ms);
   };
+  // 0.9.4 CI-1: --real-now=<ミリ秒> … 本当の時刻をその時刻とみなす（main と中継の試しの時計をその分だけずらす。日付の変わり目の近くで走らせた形を試す）
+  const realNowFlag = Number(flagVal('--real-now'));
+  if (Number.isFinite(realNowFlag) && realNowFlag > 0) advanceClock(realNowFlag - realDateNow());
+  // 0.9.4 CI-1: 時計を進める場面（json-scenes の noonJst: true）は、時計の始まりをその日の日本時間の正午にする（11 分・1 日を進めても日付の変わり目の近くに来ない）
+  if (scene && scene.noonJst === true) {
+    const jst = new Date(Date.now() + 9 * 3600 * 1000);
+    advanceClock(Date.UTC(jst.getUTCFullYear(), jst.getUTCMonth(), jst.getUTCDate(), 3, 0, 0) - Date.now());
+  }
   let netUp = !offline;   // 偽の net.isOnline() の答え（場面の ctx.setOnline で変えられる）
   const netHosts = [];
   const rewrite = (u) => {
@@ -1822,6 +1871,8 @@ process.on('exit', () => {
         snapshotKinds: () => trace.filter((t) => t.kind === 'call' && t.cmd === 'snapshot.take').map((t) => t.snap),
         mainState: () => { const st = handlers['meeting:status'] ? handlers['meeting:status']() : null; return !st ? 'none' : !st.active ? 'idle' : st.finalizing ? 'meeting-finalizing' : 'meeting'; },
         overlayDone: () => sent.filter(([ch, p]) => ch === 'overlay:phase' && p && p.phase === 'done').map(([, p]) => p.message),
+        // 0.9.4 P-1: データベースを待つ文は録音バーでなく本体の窓の知らせ（app:notice）で出す
+        mainNotices: () => sent.filter(([ch]) => ch === 'app:notice').map(([, p]) => p),
         mainProgress: () => sent.filter(([ch]) => ch === 'meeting:progress').map(([, p]) => (p ? p.message : undefined)),
         setOnline: (on) => { netUp = Boolean(on); },
         relay: relayLocal ? { mail: require('./relay-run').mail, setFront: (m) => relayLocal.setFront(m), db: relayLocal.db,
@@ -2059,6 +2110,27 @@ process.on('exit', () => {
     return t ? t.toString('utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l)) : [];
   };
   const elogLines = () => { const t = readUser('engine.log'); return t ? t.toString('utf8').split('\n').filter(Boolean).map((l) => l.replace(/^\[[^\]]+\] /, '')) : []; };
+  // 0.9.4 S-3: 待ち行列（recovery.json）・区間の WAV・偽の whisper の区間の要求・偽の llama の要求の数・議事録の写し
+  const queueFilesNow = () => listFiles(userData).filter((f) => /^data\/segbuf\/[^/]+\/recovery\.json$/.test(f));
+  const queueNow = () => queueFilesNow().map((f) => { try { return JSON.parse(readUser(f).toString('utf8')); } catch (_) { return null; } });
+  const segWavFiles = () => listFiles(userData).filter((f) => /^data\/segbuf\/.*\.wav$/i.test(f));
+  const segRequests = () => fs.readFileSync(flog, 'utf8').split('\n').filter((l) => l.startsWith('inference') && !/probe=true/.test(l)).length;
+  const chatCount = () => fs.readFileSync(flog, 'utf8').split('\n').filter((l) => l.startsWith('chat #')).length;
+  const snapPages = () => store.listPages().map((p) => ({ id: p.id, summaryError: store.getPage(p.id).summaryError,
+    segments: store.getTranscript(p.id).map((x) => ({ text: x.text, failed: Boolean(x.failed) })) }));
+  // 引き金を1回引き、復旧の記録の行（止めました・保留）か待ち行列が無くなるのを 3 秒まで待つ（何も起きない引き金は 3 秒で写す）
+  const recoverOnce = async (pull) => {
+    const log0 = elogLines().length;
+    const req0 = segRequests();
+    await pull();
+    const t0 = Date.now();
+    while (Date.now() - t0 < 3000) {
+      if (elogLines().slice(log0).some((l) => /^復旧の文字起こしを(止めました|保留)/.test(l)) || !queueFilesNow().length) break;
+      await sleep(50);
+    }
+    await sleep(200);
+    return { pages: snapPages(), queue: queueNow(), wavs: segWavFiles(), requests: segRequests() - req0, log: elogLines().slice(log0) };
+  };
   // 画面に渡る経路の行（page:get の返事の routeText）と、最後の page:updated で送った routeText（第1c回 C-3）
   // 第2a1回 M-1（ST1）: ページの口は async（中身は await db.call）。答えを待ってから見る
   const lastUpdatedRouteText = () => {
@@ -2277,6 +2349,7 @@ process.on('exit', () => {
     out.pastes = clipWrites.slice();   // 第1d2回 M-1
     out.overlayPhases = sent.filter(([ch]) => ch === 'overlay:phase').map(([, p]) => p);   // 第1d2回 M-5
     out.files = listFiles(userData);
+    out.engineLog = elogLines();   // 0.9.4 S-2
     if (focusMainDuringDictation) { out.escape = escapeLog.slice(); out.escapeAt.end = registered.has('Escape'); }
     if (restartDuring) Object.assign(out, { relaunches, relaunchDb, applyCalls });
     await sttOut();
@@ -2415,6 +2488,11 @@ process.on('exit', () => {
         await waitFor(() => !isActive(), 15000);
         await sleep(50);
       } else if (k === 'dictate') { const st = await handlers['settings:get'](); shortcuts[st.hotkey](); await sleep(30); }
+      // 0.9.4 D-1: 会議のホットキー（始める・止める）・トレイの［議事録の記録を開始］・録音バーの［停止］（overlay:confirm）
+      else if (k === 'hotkey-meeting') { const st = await handlers['settings:get'](); await shortcuts[st.meetingHotkey](); await sleep(30); }
+      else if (k === 'tray-start') { const it = trayItems.find((i) => i && i.label === '議事録の記録を開始'); if (it) it.click(); await sleep(30); }
+      else if (k === 'bar-stop') { listeners['overlay:confirm']({}); await sleep(30); }
+      else if (k === 'finish') { listeners['audio:segment']({}, { buffer: new Uint8Array(0), durationMs: 0, final: true }); await waitFor(() => !isActive(), 15000); await sleep(50); }
       else if (k === 'dictate-cancel') { listeners['overlay:cancel-request']({}); await sleep(30); }
       else if (k === 'save') { const st = await handlers['settings:get'](); out.ipc.push(['save', await handlers['settings:save']({}, { ...st, ...a[0] })]); await sleep(30); }
       else if (k === 'ipc') {
@@ -2502,7 +2580,11 @@ process.on('exit', () => {
 
   const wavs = process.env.NATSU_E2E_WAVS
     ? process.env.NATSU_E2E_WAVS.split(';').map((f) => ({ buf: fs.readFileSync(f), ms: Math.round((fs.statSync(f).size - 44) / 32) }))
-    : Array.from({ length: segCount }, (_, i) => (blip ? { buf: blipWav(blipSec), ms: blipSec * 1000 } : { buf: toneWav(i ? 2 : 3, silent ? 0 : 8000), ms: i ? 2000 : 3000 }));
+    : Array.from({ length: segCount }, (_, i) => (blip ? { buf: blipWav(blipSec), ms: blipSec * 1000 } : { buf: toneWav(i ? 2 : 3, silent ? 0 : 8000), ms: segMsFlag || (i ? 2000 : 3000) }));
+  // 0.9.4 の版を上げる commit で足した（CI run 39874347478 の test (ubuntu-latest) の D21）: 0.9.4 P-1 で「議事録は準備ができしだい作ります」（DB の用意を
+  // 待つ文）を録音バーでなく本体の窓の知らせにしたので、DB の用意の前に会議を始めて止めると知らせの数が時間の具合で変わる。場面（scene）と同じく、
+  // 始める前に DB の用意（ready・read-only か down）を待つ（--no-db-wait なら待たない。DB の用意の前の会議を試す場合）
+  if (!flags.includes('--no-db-wait')) await waitFor(() => !['none', 'starting', 'migrating'].includes(dbState()), 15000);
   out.start = await handlers['meeting:toggle']();
   // 0.9.0 B-2（--no-whisper-after-start）: 始めた直後に偽のモデルを消す（engineValid(whisperEng) が偽になる）
   if (noWhisperAfterStart) {
@@ -2651,6 +2733,7 @@ process.on('exit', () => {
       out.statusLocalOnly = { localOnly: st.localOnly, cloud: st.cloud };
       out.statusNeedsSetup = st.needsSetup;
     }
+    if (clockSeq.has(i)) advanceClock(clockSeq.get(i));   // 0.9.4 S-5
     if (relaySeq) await relayLocal.setAnswer(relaySeq[i] || 'c');   // 第1d回 A-5: この区間の中継の答え方
     // 第1d2回 M-3・M-4 の点検: この区間の答えを止め、文字になって並べ直した最初の要求を main が出したら［この会議は PC の中だけ］を押す
     const atRetry = localOnlyAtRetryN && i === localOnlyAtRetryN - 1;
@@ -2670,6 +2753,13 @@ process.on('exit', () => {
     }
     if (last) out.stop = await handlers['meeting:toggle']();
     listeners['audio:segment']({}, { buffer: new Uint8Array(wavs[i].buf), durationMs: wavs[i].ms, final: last });
+    if (last && skipAtStop) {   // 0.9.4 S-3: 1 区間が文字になったら、残りを後回しにする
+      await waitFor(() => (handlers['meeting:status']().segments || []).some((x) => !x.pending && !x.failed), 10000);
+      out.skip = await handlers['meeting:skipPending']();
+      // 締めは裏で進む（meeting は先に空になる）ので、後回しにした直後の下書きの区間を写す
+      const d = currentDraft();
+      out.skippedSegs = (d && Array.isArray(d.segments) ? d.segments : []).filter((x) => x && x.failed).map((x) => ({ id: x.id, text: x.text, failed: true, wav: Boolean(x.wav && fs.existsSync(x.wav)) }));
+    }
     if (last && retryAtStop) out.retryAtStop = await handlers['meeting:retry']();
     if (atRetry) {
       await waitFor(() => sttSentNow() >= sttSent0 + 2, 5000);   // この区間と、並べ直した1つ目
@@ -2740,6 +2830,11 @@ process.on('exit', () => {
     if (!p && finalizeFailed()) break;
     await sleep(50);
   }
+  {   // 0.9.4 S-3: 要約の欄が埋まったときの要約の数
+    const p0 = store.listPages()[0];
+    out.chatsAtFinalize = chatCount();
+    out.summaryAtFinalize = p0 ? store.getPage(p0.id).summaryError : null;
+  }
   await sleep(200);
   // 要約の後に画面で題名を直す（--set-title-after-sum）
   if (setTitleAfterSum && store.listPages().length) out.setTitleAfter = await appCall('page.setTitle', { id: store.listPages()[0].id, title: setTitleAfterSum });
@@ -2778,6 +2873,7 @@ process.on('exit', () => {
   out.engineLog = fs.existsSync(elog) ? fs.readFileSync(elog, 'utf8').split('\n').filter(Boolean).map((l) => l.replace(/^\[[^\]]+\] /, '')) : [];
   out.requests = fs.readFileSync(flog, 'utf8').split('\n').filter((l) => l.startsWith('inference'));
   out.spawnArgs = (fs.readFileSync(flog, 'utf8').split('\n').find((l) => l.startsWith('spawn ')) || '').slice(6);
+  { const t = readUser('data/local-pace.json'); out.paceFile = t ? t.toString('utf8') : null; }   // 0.9.4 S-4: この PC の速さの覚え
   out.promptInfo = await handlers['prompt:info']();
   out.engineStatus = await handlers['engine:status']();
   out.engineFetchStatus = handlers['engine:fetch-status'] ? await handlers['engine:fetch-status']() : null;   // 第0b回 Task 13
@@ -2798,6 +2894,26 @@ process.on('exit', () => {
       engineLog: elogLines(),
       requests: fs.readFileSync(flog, 'utf8').split('\n').filter((l) => l.startsWith('inference')),
     };
+    out.queueAfterRetry = queueNow();   // 0.9.4 S-3
+  }
+  // 0.9.4 S-3: 設定の保存で会議の後の文字起こしを引き直す
+  if (recoverAgainN) {
+    out.again = [];
+    for (let k = 0; k < recoverAgainN; k++) out.again.push(await recoverOnce(() => handlers['settings:save']({}, {})));
+  }
+  if (deletePagesThenRecover) {
+    for (const p of store.listPages()) await appCall('page.delete', { id: p.id });
+    const r = await recoverOnce(() => handlers['settings:save']({}, {}));
+    out.afterDelete = { queue: r.queue, wavs: r.wavs };
+  }
+  if (waitQueueEmpty) {
+    await waitFor(() => !queueFilesNow().length, 15000);
+    // 待ち行列の後の自動の要約（要約の欄が文字起こし待ちの文から替わり、ブロックか理由が入る）まで
+    const WAIT_RE = /文字起こし待ちの音声があります。/;
+    await waitFor(() => store.listPages().every((p) => { const pg = store.getPage(p.id); return !WAIT_RE.test(pg.summaryError || '') && ((pg.blocks || []).length > 0 || pg.summaryError); }), 10000).catch(() => {});
+    await waitFor(() => chatCount() > (out.chatsAtFinalize || 0), 1500);   // 待ち行列の後に要約を作ったか（作らない場面は 1.5 秒見る）
+    await sleep(300);
+    out.afterQueue = { pages: snapPages(), notices: sent.filter(([ch]) => ch === 'app:notice').map(([, p]) => p), chats: chatCount(), wavs: segWavFiles(), log: elogLines() };
   }
   if (fakeStt || relayLocal) {
     // 会議の後の送り直し（失敗した区間の待ち行列）が済むか、残して止まるまで待ってから写す

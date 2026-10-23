@@ -23,7 +23,7 @@ const run = (args) => new Promise((resolve, reject) => {
 const T = { timeout: sceneTimeout(20000) };
 
 const L1 = 'この会議の音声は OpenAI に送られます（文字起こしのため）。1on1・面談など外に出したくない会議は、議事録の画面の［オフラインモード］を押してください。';
-const D1 = 'インターネットにつながっていないため、音声入力を始めませんでした。オンラインに戻ってから、もう一度お試しください。つながっていなくても使うには、設定の「ローカル AI の設定」で準備します。';
+const D1 = 'インターネットにつながっていないため、音声入力を始めませんでした。オンラインに戻ってから、もう一度お試しください。つながっていなくても使うには、設定の「ローカル AI」で準備します。';
 const UNSET_FETCH = '文字起こしエンジンが未設定です。設定タブの［PC の中の文字起こしを取り込む］から取り込んでください。';
 
 // 帯（B11〜B14）と会議の中の知らせ（K1〜K4）。計画「画面と知らせの文」
@@ -187,7 +187,9 @@ test('F3・RF28: 始めは中継が使えそうに見えたが落ちていた会
   assert.deepStrictEqual(saysLocal(o), []);
 });
 
-test('F2・決めたこと 12: 中継が断った区間は残さず今の失敗の区間（帯は B4［もう一度］だけで、B1・B9・B12 は出ない）。会議の後の待ち行列は止まらずに済み（recovery.json が無い）、その区間は失敗の文', T, async () => {
+// 0.9.4 S-3（K1・決めたこと 3）で意図して直した: 音声を消すのは文字になった・無音だった・ページを消したときだけ。会議の後の送り直しで中継が断った区間は
+// エンジンが答えた誤り（error）と同じく、区間は失敗の文のまま音声と待ち行列を残し（tries 1。3 回まで次の引き金でやり直す）、待ち行列は止まらずに先へ進む
+test('F2・決めたこと 12: 中継が断った区間は残さず今の失敗の区間（帯は B4［もう一度］だけで、B1・B9・B12 は出ない）。会議の後の待ち行列は止まらずに進み（音声は残す）、その区間は失敗の文', T, async () => {
   const o = await run(['text', '--relay-seq=cb', '--no-engine=fetchable', '--after-retry']);
   assert.deepStrictEqual([...new Set(problems(o))], ['seg-failed'], dump(o));
   const s2 = o.sttAt['seg-failed'].find((x) => x.id === 's2');
@@ -195,8 +197,9 @@ test('F2・決めたこと 12: 中継が断った区間は残さず今の失敗�
   assert.match(s2.text, /^（この区間の認識に失敗: /);
   assert.strictEqual(o.afterRetry.segments[1].failed, true);
   assert.match(o.afterRetry.segments[1].text, /^（この区間の認識に失敗: /);
-  assert.strictEqual(o.recoveryKept, false);
-  assert.ok(!o.files.some((f) => f.endsWith('recovery.json')), JSON.stringify(o.files));
+  assert.strictEqual(o.recoveryKept, true);
+  assert.ok(o.files.some((f) => f.endsWith('recovery.json')), JSON.stringify(o.files));
+  assert.ok(o.engineLog.some((l) => /^復旧の文字起こしを保留: 失敗した区間の音声を残しました（1 区間・自動ではやり直さない 0 区間・やり直し 1 回）$/.test(l)), o.engineLog.join('\n'));
   assert.deepStrictEqual(saysLocal(o), []);
 });
 
@@ -335,7 +338,7 @@ test('OF3: ログインした直後に、待ち行列が中継で文字になる
 });
 
 // ---------------------------------------------------------------- M-4（OF4・F3）
-const P1 = 'この会議をオフラインモードにしました。PC の中で文字起こしするには、設定の「ローカル AI の設定」の準備（数 GB の取り込み）が要ります。今は音声だけをこの PC に残し、外には送りません。準備が済むと文字起こしします。';
+const P1 = 'この会議をオフラインモードにしました。PC の中で文字起こしするには、設定の「ローカル AI」の準備（数 GB の取り込み）が要ります。今は音声だけをこの PC に残し、外には送りません。準備が済むと文字起こしします。';
 const B14 = 'この会議はオフラインモードです。PC の中の文字起こしが入っていないので、音声だけを残しています（外には送りません）。［ローカル AI の準備］から取り込むと、文字起こしします。';
 
 test('F3: エンジンの無い PC で押すと受け（localOnly・needsSetup が真。meeting:status の needsSetup も真）、知らせ P1、帯 B14（action offline）。区間は「文字起こし待ち」で WAV が残る。押した後・会議の後・見回りのどれでも、中継の文字起こしの口への要求は 0、偽の claude の呼び出しも 0。recovery.json は localOnly: true で残る', T, async () => {

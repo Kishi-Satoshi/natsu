@@ -63,15 +63,21 @@ const NAV = (id) => `document.getElementById('${id}').click()`;
 const INFO = (pop) => `const i = document.querySelector('[aria-controls="${pop}"]'); i.scrollIntoView({ block: 'center' }); i.click()`;
 // 0.9.3 M-7（計画 docs/plans/2026-10-22-093.md の「取り直す画面」）: 話しているときの音の波の決まった 20 の値（main の levelMsg を通った形。
 // 新しい値が右から入るので、いちばん後ろが右端）。マイクと相手の声の大きい方が棒の高さになる（相手の方が大きい値も入れる）
+// 0.9.4 W-1 で意図して並べ替えた: 録音中のページは流さず今の大きさ（いちばん後ろの値）を5本で描くので、話している大きさ（0.78）が最後に来るようにした（同じ 20 の値）
 const WAVE_SPEECH = [
-  [0.04, 0], [0.18, 0], [0.42, 0.05], [0.66, 0.05], [0.52, 0], [0.3, 0], [0.08, 0.02], [0.01, 0], [0.14, 0.03], [0.48, 0.1],
-  [0.78, 0.12], [0.6, 0.08], [0.1, 0.38], [0.05, 0.62], [0.04, 0.71], [0.02, 0.44], [0.22, 0.05], [0.5, 0], [0.36, 0], [0.12, 0],
+  [0.6, 0.08], [0.1, 0.38], [0.05, 0.62], [0.04, 0.71], [0.02, 0.44], [0.22, 0.05], [0.5, 0], [0.36, 0], [0.12, 0],
+  [0.04, 0], [0.18, 0], [0.42, 0.05], [0.66, 0.05], [0.52, 0], [0.3, 0], [0.08, 0.02], [0.01, 0], [0.14, 0.03], [0.48, 0.1], [0.78, 0.12],
 ].map(([mic, sys]) => ({ mic, sys, warn: '' }));
 const WAVE_EVENTS = WAVE_SPEECH.map((v) => ['onMeetingLevel', v]);
 // 録音バーと同じ無音の文（main の LEVEL_WARNS の1つ）。8 秒の無音を表す数だけ送らなくても、届いた文のまま出る
 const SILENT_EVENTS = Array.from({ length: 20 }, () => ['onMeetingLevel', { mic: 0, sys: 0, warn: '音が入っていません' }]);
 // パネル（nudge.html）の地: 透過の窓なので、撮るときだけ体にデスクトップの色を塗る（録音バーの画面と同じ PS.DESKS）。⌄ を開いた形はボタンを押す
 const NUDGE_ACT = (theme, menu) => `document.body.style.background = '${PS.DESKS[theme]}';${menu ? " document.getElementById('nzMore').click();" : ''}`;
+// 0.9.4 S-8（計画 docs/plans/2026-10-22-094.md の「取り直す画面（決めた形）」）: 遅い会議の録音中のページ（中継に落ちて PC の側・帯 kept-late・残した区間）の stt。
+// 帯の文は main の STT_BANNER['kept-late']、区間の文は main の SLOW_SEG_TEXT と同じ（test/shots.test.js が照らす）
+const LATE_STT = { route: 'local', lastTextAt: FIXED_NOW - 95000, segSec: 75, slow: true,
+  problem: { code: 'kept-late', action: '', text: 'この PC の文字起こしが録音に追いつかないため、音声を残しています。会議が終わったら文字起こしします。録音はそのまま続けてください。' } };
+const SLOW_SEG = '（文字起こし待ち: 会議の後で文字起こしします）';
 const SIGNED_OUT = { ok: true, signedIn: false, email: '', method: 'access', until: null, canStore: true, online: { up: true, why: 'ok' } };
 const SCREENS = [
   { name: 'notes-empty-light', page: 'app', theme: 'light', act: "document.getElementById('tabBtnNotes').click()" },
@@ -137,6 +143,11 @@ const SCREENS = [
   // live-light と同じ会議を、オフラインモードで PC の中の文字起こし（区切り 75 秒）にした形。足した画面（版を 0.9.3 に上げる commit で CI の画像を基準にした）
   { name: 'live-offline-light', page: 'app', theme: 'light', answers: liveAnswers(OFFLINE_STT, OFFLINE_EXTRA) },
   { name: 'live-offline-dark', page: 'app', theme: 'dark', answers: liveAnswers(OFFLINE_STT, OFFLINE_EXTRA) },
+  // 0.9.4 S-8（計画 docs/plans/2026-10-22-094.md の「取り直す画面（決めた形）」）: 遅い会議の録音中のページ（帯 kept-late・残した区間・一番下の
+  // 「音声を残しています」。明暗と 200% の折り返し）。足した画面（まだ基準が無い）
+  { name: 'live-late-light', page: 'app', theme: 'light', answers: lateAnswers() },
+  { name: 'live-late-dark', page: 'app', theme: 'dark', answers: lateAnswers() },
+  { name: 'live-late-zoom200-light', page: 'app', theme: 'light', zoom: 2, answers: lateAnswers() },
 ];
 // 0.9.0 O-3（RP9）: 録音バーの画面（形 → 地 → 拡大率 → 状態の順。撮る道具は形・地・拡大率の組ごとに窓を1つ開いて状態を act で替える）。
 // 録音は始めずに見た目だけを撮る（act は pill-states の見本を録音バーの DOM に当てる。撮るときだけ体の地にデスクトップの色を塗る）。
@@ -199,6 +210,12 @@ SCREENS.find((x) => x.name === 'notes-page-light').focus = { tabs: 3, want: 'mtT
 // 利用者がまとめて OK と言ったら、版を上げる commit で基準にして空に戻す
 // 0.9.3（版を 0.9.3 に上げる commit）: 持ち主が 2026-10-22 に「CI の画像を基準にして 0.9.3 の版を上げてよい」と言ったので、オフラインモードの札の commit
 // （a6b8271）の CI run 39769254304 の取り直しの画像（.after.png。計画の「取り直す画面」の全部の 36 枚）をバイトのまま基準にし、空に戻した
+// 0.9.4（計画 docs/plans/2026-10-22-094.md の「取り直す画面（決めた形）」）: W-1 で録音中のページの波を5つの灰色の点に・録音バーの声の点を5本がそれぞれ
+// 揺れる形にしたので、録音中のページの 13 枚と録音バーの声のある状態（rec・dict・fallback・spk-ng）の 32 枚と縦の × の1枚を入れた。タスクごとに足し、
+// 持ち主が最後にまとめて OK と言ったら、版を上げる commit で基準にして空に戻す
+const OVL_094 = (states) => PS.FORMS.flatMap((form) => Object.keys(PS.DESKS).flatMap((desk) => PS.SCALES.flatMap((sc) => states.map((st) => `overlay-${form}-${desk}-${st}-${Math.round(sc * 100)}`))));
+// 0.9.4（版を 0.9.4 に上げる commit）: 持ち主が 2026-10-22 に取り直しの見比べ（CI run 39831111027（bd2320d）・artifact 12448422820 の .after.png）を見て
+// 「OK」と言ったので、その画像をバイトのまま基準にし（基準と同じだった live-banner-zoom200-dark は今の基準のまま）、空に戻した
 const RETAKE = new Set([]);
 const PERF = [{ name: 'open-2000-blocks', budgetMs: 500 }];   // 3回開いた中央値で見る
 const TIME_ZONE = 'Asia/Tokyo';
@@ -312,6 +329,17 @@ function liveAnswers(stt = LIVE_STT, extra = {}) {
       localOnly: false, cloud: true, stt, ...extra,
     },
   };
+}
+
+/** 0.9.4 S-8: 遅い会議（live-light と同じ会議。中継に落ちて PC の側になり、文字になった区間の後に残した区間が2つ） */
+function lateAnswers() {
+  const a = liveAnswers(LATE_STT);
+  a['koeApp.meetingStatus'].segments = [
+    { id: 's1', atMs: 0, durationMs: 75000, text: 'それでは週次の定例を始めます。まず進み具合から順にお願いします。' },
+    { id: 's2', atMs: 75000, durationMs: 75000, text: SLOW_SEG, failed: true },
+    { id: 's3', atMs: 150000, durationMs: 75000, text: SLOW_SEG, failed: true },
+  ];
+  return a;
 }
 
 /** 0.9.3 M-7: 設定の「会議の検出」の画面の答え（見本の設定に、通知オンと出さないアプリ Zoom を足した形） */

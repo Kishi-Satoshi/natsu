@@ -97,6 +97,25 @@ test('RL9: transcribeRelay は WAV を生のまま送り、言語とヒントは
   });
 });
 
+// 0.9.4 S-6（調べた結果の 12・決めたこと 28）: アプリは WAV を net.request の 1 回の write で送り、chunkedEncoding を付けない（Content-Length が付く）。
+// 中継はそれを見て流す道（記録の v が stream）を通る。前の版のアプリも同じ送り方
+test('アプリは WAV を Content-Length 付きで送る（relay-local の中継が受けた見出し）。中継は流す道（記録の v は stream）', { timeout: 5000 }, async () => {
+  await withAccess({ stt: { text: SAID } }, async (rl) => {
+    const session = await sessionFor(rl);
+    const w = wav(2);
+    const n0 = rl.received.length;
+    assert.strictEqual(await C.transcribeRelay(w, cookieCall(rl, session)), `${SAID}区間1`);
+    const seen = rl.received.slice(n0).filter((x) => x.path === '/v1/audio/transcriptions');
+    assert.strictEqual(seen.length, 1);
+    assert.strictEqual(seen[0].headers['content-length'], String(w.length));
+    assert.ok(!('transfer-encoding' in seen[0].headers), 'chunked で送った');
+    const logs = rl.logs.map((l) => JSON.parse(l)).filter((p) => p.ev === 'stt');
+    assert.deepStrictEqual(logs.map((l) => [l.st, l.v]), [[200, 'stream']]);
+  });
+  const src = require('node:fs').readFileSync(require('node:path').join(__dirname, '..', 'src', 'stt-cloud.js'), 'utf8');
+  assert.ok(!/chunkedEncoding/.test(src), 'stt-cloud.js が chunkedEncoding を付けている（Content-Length が付かない）');
+});
+
 test('F5: 符号の分け方 — 札が違えば login、中継の形でない 401 は server、OpenAI の 401 は upstream-auth、500 は server', { timeout: 5000 }, async () => {
   await withAccess({}, async (rl) => {
     const session = await sessionFor(rl);

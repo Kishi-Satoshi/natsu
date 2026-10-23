@@ -60,26 +60,58 @@ test.after(async () => {
   await ps(`[Microsoft.Win32.Registry]::CurrentUser.DeleteSubKeyTree('${KEY}', $false)`);
 });
 
-test('M1・M5: 最初の行は一覧の「使っている」だけ（パス・一覧に無い名前・自分・Notion・使い終わった・Stop が読めない・Start が 0 が無い）。キーを「使い終わった」に書き換えると次の行。変わらなければ書かない', { timeout: 30000 }, async () => {
+// 0.9.4 D-1 で意図して直した: 見張りは読むたびに行を書く（変わらなくても同じ行を書く）。前は変わったときだけ書いたので、判断の「2回読んだら出す」に
+// 2回目が来ず、会議のアプリだけがマイクを使い続けるとパネルが出なかった（持ち主の engine.log で確かめた）
+const waitFor = async (pred, ms = 15000) => { const until = Date.now() + ms; while (!pred() && Date.now() < until) await new Promise((r) => setTimeout(r, 50)); return pred(); };
+test('M1・M5・0.9.4 D-1: 最初の行は一覧の「使っている」だけ（パス・一覧に無い名前・自分・Notion・使い終わった・Stop が読めない・Start が 0 が無い）。変わらなくても読むたびに同じ行を書く。キーを「使い終わった」に書き換えると次の行が変わる', { timeout: 30000 }, async () => {
   const w = watch();
   try {
     const first = await w.waitLines(1);
     assert.deepStrictEqual(first[0], 'mic teams:133713371337133700,zoom:133713371337133713');
     assert.deepStrictEqual(lib.parseMicLine(first[0]).items.map((x) => x.id), ['teams', 'zoom']);
     for (const l of first) assert.ok(!/[\\#:]\w*\.exe|notepad|notion|chrome|slack|webex|edge/i.test(l), l);
-    // 変わらなければ書かない（300ms ごとに読んで 1.5 秒）
+    // 変わらなくても書く（300ms ごとに読んで 1.5 秒で 3 行以上、どれも同じ）
     await new Promise((r) => setTimeout(r, 1500));
-    assert.strictEqual(w.lines.length, 1, JSON.stringify(w.lines));
+    assert.ok(w.lines.length >= 3 && w.lines.every((l) => l === first[0]), JSON.stringify(w.lines));
     await setKey('NonPackaged\\C:#Test#Zoom#bin#Zoom.exe', use(NOW, '133713371337199999'));
-    const second = await w.waitLines(2);
-    assert.strictEqual(second[1], 'mic teams:133713371337133700');
+    assert.ok(await waitFor(() => w.lines[w.lines.length - 1] === 'mic teams:133713371337133700'), JSON.stringify(w.lines.slice(-3)));
     await setKey('MSTeams_8wekyb3d8bbwe', use('133713371337133700', '133713371337199999'));
-    const third = await w.waitLines(3);
-    assert.strictEqual(third[2], 'mic -');
+    assert.ok(await waitFor(() => w.lines[w.lines.length - 1] === 'mic -'), JSON.stringify(w.lines.slice(-3)));
   } finally {
     w.stop();
     await setKey('NonPackaged\\C:#Test#Zoom#bin#Zoom.exe', use(NOW, 0));
     await setKey('MSTeams_8wekyb3d8bbwe', use('133713371337133700', 0));
+  }
+});
+
+// 0.9.4 D-1（つなげた試験）: 本物の見張りの行を、main と同じ順に parseMicLine → nudgeStep に通す。使っているキーを2回の読みより長く置くと出す
+// （参加の前の画面を開いてマイクを使い始めた形）。使い終わりに書き換えると引っ込める。0.9.3 はこのつなぎを試していなかった
+test('0.9.4 D-1: 本物の見張りの行を parseMicLine → nudgeStep に通すと、使っているキーを2回の読みより長く置けばパネルを出す', { timeout: 30000 }, async () => {
+  const apps = lib.MEET_APPS.map((a) => ({ ...a, proc: a.id === 'zoom' ? [SELF_PROC] : ['natsu-no-such-process'] }));
+  const w = watch({ apps });
+  let st = lib.nudgeInit({ on: true, mute: [] });
+  const shows = [];
+  let hid = false;
+  let seen = 0;
+  const pump = () => {
+    for (; seen < w.lines.length; seen++) {
+      const r = lib.parseMicLine(w.lines[seen]);
+      if (!r || r.kind !== 'mic') continue;
+      const o = lib.nudgeStep(st, { type: 'sample', items: r.items, now: Date.now() });
+      st = o.st;
+      if (o.show) shows.push(o.show.id);
+      if (o.hide) hid = true;
+    }
+  };
+  try {
+    assert.ok(await waitFor(() => { pump(); return shows.length > 0; }), `出さない: ${JSON.stringify(w.lines.slice(0, 5))}`);
+    assert.deepStrictEqual(shows, ['zoom']);
+    await setKey('NonPackaged\\C:#Test#Zoom#bin#Zoom.exe', use(NOW, '133713371337199999'));
+    assert.ok(await waitFor(() => { pump(); return hid; }), '使い終わっても引っ込めない');
+    assert.deepStrictEqual(shows, ['zoom'], '2つ目を出した');
+  } finally {
+    w.stop();
+    await setKey('NonPackaged\\C:#Test#Zoom#bin#Zoom.exe', use(NOW, 0));
   }
 });
 
@@ -98,7 +130,8 @@ test('決めたこと 3: proc のプロセスが無いアプリの古い値は�
 test('決めたこと 13: 1 回の読みは 20ms まで（読みごとの時間の中央値。最初の読みは .NET の読み込みを含むので除く）。親が居なければ自分で終わる', { timeout: 30000 }, async () => {
   const w = watch({ timing: true });
   try {
-    const ls = await w.waitLines(8);
+    // 0.9.4 D-1 で意図して直した: 見張りは読むたびに mic の行も書くので、読み1回で2行（mic と t）。t の行を 5 つ以上集める（前は 8 行で t が 5 つ以上あった）
+    const ls = await w.waitLines(12);
     const ts = ls.filter((l) => l.startsWith('t ')).map((l) => Number(l.slice(2))).slice(1).sort((a, b) => a - b);
     assert.ok(ts.length >= 4, JSON.stringify(ls));
     assert.ok(ts[Math.floor(ts.length / 2)] <= 20, `読みが遅い: ${ts.join(',')}`);

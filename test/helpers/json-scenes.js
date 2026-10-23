@@ -580,7 +580,7 @@ module.exports = {
       const stopOne = async (n) => {
         c.shortcuts[hk]();   // 止める
         c.listeners['audio:segment']({}, { buffer: new Uint8Array(c.toneWav(3)), durationMs: 3000, final: true });
-        await c.waitFor(() => c.overlayDone().filter((m) => m === waitText).length >= n, 6000);
+        await c.waitFor(() => c.mainNotices().filter((m) => m === waitText).length >= n, 6000);   // 0.9.4 P-1: 本体の窓の知らせで出す
       };
       const states = [];
       c.out.statesBeforeReady = states;
@@ -662,7 +662,7 @@ module.exports = {
       c.out.started = await c.waitFor(() => c.mainState() === 'meeting', 5000);
       c.shortcuts[hk]();   // 止める
       c.listeners['audio:segment']({}, { buffer: new Uint8Array(c.toneWav(3)), durationMs: 3000, final: true });
-      c.out.waiting = await c.waitFor(() => c.overlayDone().includes('録音を保存しました。議事録は準備ができしだい作ります') && c.mainState() === 'idle', 6000);
+      c.out.waiting = await c.waitFor(() => c.mainNotices().includes('録音を保存しました。議事録は準備ができしだい作ります') && c.mainState() === 'idle', 6000);   // 0.9.4 P-1
       await c.sleep(50);
       c.out.dbWhileWaiting = c.dbState();
       c.out.powerHeldWhileWaiting = held();
@@ -854,7 +854,8 @@ module.exports = {
   // 第1d回 Task A-3（RL11）: --relay=daily-cap（1人の1日の上限 4 秒）。1回目の会議は 3 秒・2 秒・2 秒の区間で、2つ目が上限（scope user）。
   // 3つ目は hold の間なので中継へ何も送らない。11 分後の2回目の会議も、日が替わるまでの hold なので送らない（quota の 10 分とは違う）。
   // main と中継の時計を1日進めると、3回目の会議はクラウドに戻る
-  'relay-day': { relaySeed: true, engine: 'lazy', files: { 'settings.json': RELAY_BASE_SETTINGS },
+  // 0.9.4 CI-1: 時計の始まりは日本時間の正午（noonJst。走らせる時刻が 23:49 JST より後だと、11 分後が「日が替わった後」になって赤だった）
+  'relay-day': { relaySeed: true, noonJst: true, engine: 'lazy', files: { 'settings.json': RELAY_BASE_SETTINGS },
     act: async (c) => {
       const o = c.out;
       o.m1 = await relayMeeting(c, 3);

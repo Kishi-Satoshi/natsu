@@ -48,13 +48,15 @@ test('D16: 始めの区切りは、ログインしてオンラインで、覚え
   }
   assert.strictEqual(L.segmentBaseMs('short', 75), 15000);
   assert.strictEqual(L.segmentBaseMs('long', 75), 75000);
-  assert.strictEqual(L.segmentBaseMs('long', 120), 120000);
+  assert.strictEqual(L.segmentBaseMs('long', 120), 90000, '0.9.4 S-1（持ち主の答え Q3）で意図して直した: PC の側は 90 秒まで');
   assert.strictEqual(L.segmentBaseMs('short', 120), 15000, 'オンラインの 15 秒は設定の長さに引きずられない');
 });
 
+// 0.9.4 S-1（決めたこと 30）で意図して直した: 中継の一時の失敗（net・server など RELAY_TRANSIENT）で PC に落ちた区間は数えないので、
+// 2区間続いてから替えるのを、数える理由（offline: ネットワークから外れた）で見る。server の1区間で替えない行はそのまま
 test('D16: 経路の切り替えは同じ側が2区間続いてから（行ったり来たりしない）。ログイン切れ・上限・PC の中だけはすぐ長い側', { timeout: 5000 }, () => {
   let st = { mode: 'short', localRun: 0, cloudRun: 0 };
-  const step = (route, why = route === 'cloud' ? 'ok' : 'net') => (st = L.segmentModeNext(st, { route, why })).mode;
+  const step = (route, why = route === 'cloud' ? 'ok' : 'offline') => (st = L.segmentModeNext(st, { route, why })).mode;
   assert.deepStrictEqual(['local', 'cloud', 'local', 'cloud'].map((r) => step(r)), ['short', 'short', 'short', 'short']);
   assert.deepStrictEqual(['local', 'local'].map((r) => step(r)), ['short', 'long']);
   assert.deepStrictEqual(['cloud', 'local', 'cloud', 'cloud'].map((r) => step(r)), ['long', 'long', 'long', 'short']);
@@ -64,19 +66,21 @@ test('D16: 経路の切り替えは同じ側が2区間続いてから（行っ�
   assert.strictEqual(L.segmentModeNext({ mode: 'short', localRun: 0, cloudRun: 5 }, { route: 'local', why: 'server' }).mode, 'short', '1 区間の 502 で替えた');
 });
 
+// 0.9.4 S-1（決めたこと 14・29）で意図して直した: クラウドの側（short）は背圧で伸ばさない（倍にしない・上限の行は short では来ない）。
+// PC の側（long）の背圧は上限 90 秒（持ち主の答え Q3）のほかは今と同じ。丸め（20〜300 秒）・始めの 15 秒のままなら送らない・長い側へすぐ、はそのまま
 test('D16: 途中で送る長さは録音バーと同じく 20〜300 秒に丸める。始めの 15 秒のままなら送らない。75 秒の会議の背圧は今と同じ', { timeout: 5000 }, () => {
   const ov = fs.readFileSync(path.join(ROOT, 'src', 'renderer', 'overlay.html'), 'utf8');
   assert.match(ov, /const SEG_MIN_MS = 20000, SEG_MAX_MS = 300000;/, '録音バーの丸めが変わった（mainlib の写しを合わせる）');
   assert.strictEqual(L.OVERLAY_SEG_MIN_MS, 20000);
   const n = L.nextLiveSegmentMs;
-  assert.strictEqual(n(0, 15000, 15000, -1), 15000, '始めの 15 秒のまま');
-  assert.strictEqual(n(4, 15000, 15000, 1), 30000, '背圧で倍');
-  assert.strictEqual(n(1, 30000, 15000, -1), 20000, '戻すときは録音バーの下限の 20 秒');
-  assert.strictEqual(n(1, 20000, 15000, -1), 20000, '同じ値（送らない）');
-  assert.strictEqual(n(2, 20000, 75000, 0), 75000, '長い側へは待ちが残っていてもすぐ');
-  assert.strictEqual(n(6, 300000, 15000, 1), 300000, '上限');
-  for (const [p, c, d] of [[4, 75000, 1], [5, 150000, 1], [3, 150000, 1], [2, 150000, -1], [1, 300000, -1], [0, 75000, -1]]) {
-    assert.strictEqual(n(p, c, 75000, d), L.nextSegmentMs(p, c, 75000, d), `75 秒の会議の背圧が変わった ${[p, c, d]}`);
+  assert.strictEqual(n(0, 15000, 15000, -1, 'short'), 15000, '始めの 15 秒のまま');
+  assert.strictEqual(n(4, 15000, 15000, 1, 'short'), 15000, 'クラウドの側を背圧で倍にした');
+  assert.strictEqual(n(1, 30000, 15000, -1, 'short'), 20000, '戻すときは録音バーの下限の 20 秒');
+  assert.strictEqual(n(1, 20000, 15000, -1, 'short'), 20000, '同じ値（送らない）');
+  assert.strictEqual(n(2, 20000, 75000, 0, 'long'), 75000, '長い側へは待ちが残っていてもすぐ');
+  assert.strictEqual(n(6, 90000, 75000, 1, 'long'), 90000, '上限（Q3 で 90 秒）');
+  for (const [p, c, d] of [[4, 75000, 1], [5, 90000, 1], [3, 90000, 1], [2, 90000, -1], [1, 90000, -1], [0, 75000, -1]]) {
+    assert.strictEqual(n(p, c, 75000, d, 'long'), L.nextSegmentMs(p, c, 75000, d), `75 秒の会議の背圧が変わった ${[p, c, d]}`);
   }
 });
 
@@ -96,7 +100,8 @@ test('D17: 止まりの見張りは約 45 秒（15 秒なら3区間・75 秒な�
 // 第1d2回 M-2（D21）で意図して変えた: ログインの後・残した失敗の前に、準備を選んでいない PC で音声を残している帯（kept の4つ）を足した
 test('D17: 帯は1つだけで、エンジン → 止まり → ログイン → 音声を残している → 残した失敗 → 中継の順。手元に落ちた理由ごとの符号', { timeout: 5000 }, () => {
   // 0.9.0 B-2（BN2）で意図して変えた: ネットワークから外れた帯 net-offline を seg-failed の後・中継の帯の前に足した
-  assert.deepStrictEqual(L.PROBLEM_ORDER, ['engine-down', 'stall', 'login', 'kept-local', 'kept-login', 'kept-relay', 'kept-wait', 'seg-failed', 'net-offline', 'relay-off', 'daily-cap', 'relay-blocked', 'relay-down', 'relay-busy', 'wait']);
+  // 0.9.4 S-1（決めたこと 18）で意図して変えた: PC の文字起こしが間に合わない帯 kept-late を engine-down の後に足した
+  assert.deepStrictEqual(L.PROBLEM_ORDER, ['engine-down', 'kept-late', 'stall', 'login', 'kept-local', 'kept-login', 'kept-relay', 'kept-wait', 'seg-failed', 'net-offline', 'relay-off', 'daily-cap', 'relay-blocked', 'relay-down', 'relay-busy', 'wait']);
   const m = new Map([['relay-down', {}], ['seg-failed', { n: 2 }], ['wait', { sec: 7 }]]);
   assert.deepStrictEqual(L.sttProblemOf(m), { code: 'seg-failed', n: 2 });
   m.set('engine-down', {});

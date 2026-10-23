@@ -194,7 +194,9 @@ test('速さの1行: 文字起こしは音声と処理の秒と倍率、要約�
 });
 test('main: 区間と要約の後に速さを engine.log に残す（touchEngine の数は変えない）', () => {
   const m = code(read('src/main.js'));
-  assert.ok(m.includes("const sp = speedLine('whisper', { audioMs: durationMs, procMs: Date.now() - t0 });"));
+  // 0.9.4 S-4（決めたこと 7）で意図して直した: 処理の時間は PC への要求の時間（transcribeLocal の onTimed）。無ければ今どおり t0 から
+  assert.ok(m.includes("const pm = Number.isFinite(procMs) ? procMs : Date.now() - t0;"));
+  assert.ok(m.includes("const sp = speedLine('whisper', { audioMs: durationMs, procMs: pm });"));
   const chat = fnBody(m, 'async function llmChat(', '\n}');
   assert.ok(chat.includes("const sp = speedLine('llama', data && data.timings);"));
   assert.strictEqual((chat.match(/touchEngine\(sumEng\)/g) || []).length, 2);

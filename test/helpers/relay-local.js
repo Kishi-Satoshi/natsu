@@ -92,7 +92,8 @@ function toRequest(req, body, over = {}) {
   const drop = new Set(over.drop || []);
   for (let i = 0; i < req.rawHeaders.length; i += 2) {
     const k = req.rawHeaders[i];
-    if (/^(host|connection|content-length|transfer-encoding)$/i.test(k) || drop.has(k.toLowerCase())) continue;
+    // 0.9.4 S-6: Content-Length は中継へ渡す（Workers の要求も持つ。中継は流す道を通る）。本文は読み終えた Buffer なので長さは合う
+    if (/^(host|connection|transfer-encoding)$/i.test(k) || drop.has(k.toLowerCase())) continue;
     if (over.cookie !== undefined && k.toLowerCase() === 'cookie') continue;
     h.append(k, req.rawHeaders[i + 1]);
   }
@@ -261,6 +262,7 @@ async function startRelayLocal({ stt: sttOpts = {}, env: over = {}, start = Date
       if (ch === 'u') { env.DAILY_USER_SEC = '1'; return; }
       if (ch === 'b') { front = 'not-wav'; return; }   // 第1d2回 M-2
       if (ch === 'z') { closeAfterStt = true; return; }   // 第1d2回 M-3
+      if (ch === 'D') { front = 'delay-stt'; stt.setMode('500'); return; }   // 0.9.4 S-4: 800 ミリ秒止めてから 502 upstream（中継に時間をかけて断られる）
       const mode = { 5: '500', a: 'quota', e: 'empty', L: '429-long', p: 'parrot', A: 'fixA', B: 'fixB' }[ch];
       if (!mode) throw new Error(`relay-local: 並びの文字 ${JSON.stringify(ch)} を知らない`);
       stt.setMode(mode);

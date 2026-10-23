@@ -878,12 +878,16 @@ function recoverSegments(segments, exists) {
 //   pending: いまの待ち件数、currentMs: いまの区間の長さ、baseMs: 設定の長さ、
 //   delta: 待ちが増えた(+1)のか減った(-1)のか。減った側では倍にしない（5→4 で倍にすると
 //   一気に上限へ張り付く）。2〜3 のあいだは変えない（行ったり来たりで何度も送らない）。
+// 0.9.4 S-1（決めたこと 14）で意図して直した: 背圧で伸ばすのは PC の側だけで、上限は LOCAL_SEGMENT_MS_CAP（90 秒。持ち主の答え Q3）。300 秒の区間は
+// PC で 300 秒を越えて undici の時間切れに当たり、会議の後のやり直しでも同じ長さで失敗した（持ち主の engine.log 10-21・10-22）。
+// SEGMENT_MS_CAP（300 秒）は録音バー（overlay.html の SEG_MAX_MS。変えない）の丸めの写しとして liveSegmentMs だけが使う
 const SEGMENT_MS_CAP = 300000;
+const LOCAL_SEGMENT_MS_CAP = 90000;
 function nextSegmentMs(pending, currentMs, baseMs, delta) {
-  const base = Math.max(1000, Number(baseMs) || 75000);
-  const cur = Number(currentMs) > 0 ? Number(currentMs) : base;
+  const base = Math.min(LOCAL_SEGMENT_MS_CAP, Math.max(1000, Number(baseMs) || 75000));
+  const cur = Number(currentMs) > 0 ? Math.min(LOCAL_SEGMENT_MS_CAP, Number(currentMs)) : base;
   if (pending <= 1) return base;
-  if (pending > 3 && delta > 0) return Math.min(SEGMENT_MS_CAP, cur * 2);
+  if (pending > 3 && delta > 0) return Math.min(LOCAL_SEGMENT_MS_CAP, cur * 2);
   return cur;
 }
 
@@ -913,7 +917,7 @@ function startSegmentMode({ localOnly, signedIn, hold, netOnline, peekUp } = {})
 // 要約の欄の文（第1d2回 M-3。計画「画面と知らせの文」の S1〜S3'）。local・offline は準備を選んでいない PC で手元の LLM が無いとき
 // （PC の中だけの会議・Claude Code に届かない）。wait・waitLocal は締めたときに文字起こし待ちの区間がある会議（済んだら自動で要約する）
 const KEPT_SUMMARY_TEXT = {
-  local: 'この会議はオフラインモードのため、要約も PC の中で作ります。ローカル AI の準備をしていないので、要約は作りませんでした。設定の「ローカル AI の設定」で準備すると、［要約を生成］で作れます。',
+  local: 'この会議はオフラインモードのため、要約も PC の中で作ります。ローカル AI の準備をしていないので、要約は作りませんでした。設定の「ローカル AI」で準備すると、［要約を生成］で作れます。',
   offline: '要約の送り先（Claude Code）につながらないため、要約を作りませんでした。インターネットにつながってから［要約を生成］を押してください。',
   wait: '文字起こし待ちの音声があります。文字起こしが済むと、自動で要約を作ります。',
   waitLocal: 'この会議はオフラインモードです。文字起こし待ちの音声があります。ローカル AI の準備が済んで文字起こしが済むと、自動で要約を作ります。',
@@ -952,7 +956,7 @@ function offlineChosen({ manual, managedCand, consent, fetching } = {}) {
 }
 // 選んでいない PC で音声入力を始めない文（計画「画面と知らせの文」の D1〜D3。「未設定」の語を使わない: 画面が設定へ連れて行く）
 const DICTATION_REFUSE_TEXT = {
-  offline: 'インターネットにつながっていないため、音声入力を始めませんでした。オンラインに戻ってから、もう一度お試しください。つながっていなくても使うには、設定の「ローカル AI の設定」で準備します。',
+  offline: 'インターネットにつながっていないため、音声入力を始めませんでした。オンラインに戻ってから、もう一度お試しください。つながっていなくても使うには、設定の「ローカル AI」で準備します。',
   login: 'ログインしていないため、音声入力を始めませんでした。設定の「アカウント」でログインしてください。',
   relay: '文字起こしの中継が今は使えないため、音声入力を始めませんでした。少し待ってから、もう一度お試しください。',
 };
@@ -975,23 +979,28 @@ function dictationPlan({ localUsable, chosen, cloud, problem, why } = {}) {
   return { ok: false, error: DICTATION_REFUSE_TEXT.relay };
 }
 
+// 0.9.4 S-1（決めたこと 30）: 中継の一時の失敗（5xx・通信の切れ・時間切れ・届かない・読めない答え・中継の間を空けている）で PC に落ちた区間は、
+// 区切りの側の数えに入れない（その区間だけ PC でやり直し、次の区間はまた中継へ送る。長い側へ替えるとクラウドの区間まで 75 秒になる）。
+// オフライン・ログインしていない・上限・PC の中だけ・遅い PC（slow）は今どおり数える
+const RELAY_TRANSIENT = Object.freeze(['server', 'net', 'timeout', 'unreachable', 'bad-reply', 'relay-hold']);
 /** 区間の後の区切り。st = { mode, localRun, cloudRun }、route は 'cloud' | 'local'、why は手元にした理由 → 新しい st */
 function segmentModeNext(st, { route, why } = {}) {
   const cur = st && typeof st === 'object' ? st : {};
   const mode = cur.mode === 'short' ? 'short' : 'long';
   const localRun = Number.isInteger(cur.localRun) ? cur.localRun : 0;
   const cloudRun = Number.isInteger(cur.cloudRun) ? cur.cloudRun : 0;
+  if (route !== 'cloud' && RELAY_TRANSIENT.includes(why)) return { mode, localRun, cloudRun };
   if (route === 'cloud') {
     const n = cloudRun + 1;
     return { mode: n >= SEG_SWITCH_AFTER ? 'short' : mode, localRun: 0, cloudRun: n };
   }
   const n = localRun + 1;
-  return { mode: STICKY_LOCAL.includes(why) || n >= SEG_SWITCH_AFTER ? 'long' : mode, localRun: n, cloudRun: 0 };
+  return { mode: STICKY_LOCAL.includes(why) || why === 'slow' || n >= SEG_SWITCH_AFTER ? 'long' : mode, localRun: n, cloudRun: 0 };
 }
 
-/** 区切りの基準（ミリ秒）。short は設定に関わらず 15 秒、long は設定の長さ（無ければ 75 秒） */
+/** 区切りの基準（ミリ秒）。short は設定に関わらず 15 秒、long は設定の長さ（無ければ 75 秒。0.9.4 S-1: 90 秒まで） */
 function segmentBaseMs(mode, settingsSec) {
-  return mode === 'short' ? ONLINE_SEGMENT_SEC * 1000 : (Number(settingsSec) || 75) * 1000;
+  return mode === 'short' ? ONLINE_SEGMENT_SEC * 1000 : Math.min(LOCAL_SEGMENT_MS_CAP, (Number(settingsSec) || 75) * 1000);
 }
 
 /** 途中で録音バーへ送る値（録音バーが丸めるのと同じ 20〜300 秒） */
@@ -1003,8 +1012,10 @@ function liveSegmentMs(ms) {
  * 次の区切り（背圧と経路の両方）。長い側へは待ちが残っていてもすぐ替える（nextSegmentMs は待ちが 2〜3 なら今の値のまま）。
  * 答えが今の値と同じなら今の値（始めの 15 秒のまま。丸めない）、ほかは録音バーと同じ丸めの値
  */
-function nextLiveSegmentMs(pending, currentMs, baseMs, delta) {
-  const raw = Math.max(nextSegmentMs(pending, currentMs, baseMs, delta), baseMs);
+// 0.9.4 S-1（決めたこと 29）: mode が 'short'（クラウドの側）なら待ちの数を見ず基準（15 秒。途中で戻すときは録音バーの下限の 20 秒）のまま。
+// 背圧で伸ばすのは long（PC の側）だけで、90 秒まで
+function nextLiveSegmentMs(pending, currentMs, baseMs, delta, mode) {
+  const raw = mode === 'short' ? baseMs : Math.max(nextSegmentMs(pending, currentMs, baseMs, delta), Math.min(LOCAL_SEGMENT_MS_CAP, baseMs));
   return raw === currentMs ? currentMs : liveSegmentMs(raw);
 }
 
@@ -1028,7 +1039,8 @@ function stallStep(run, { text, levelDbfs } = {}) {
 // 帯（録音中のページの頭。計画「画面と知らせの文」の B1〜B10）の符号。同時に1つだけで、前ほど先に出す
 // 第1d2回 M-2: 準備を選んでいない PC で音声を残している帯（kept の4つ。B11〜B14）は、ログインの後・残した失敗の前
 // 0.9.0 B-2: net-offline（B15。ネットワークから外れた・この PC で続けている）は seg-failed の後・中継の帯の前
-const PROBLEM_ORDER = ['engine-down', 'stall', 'login', 'kept-local', 'kept-login', 'kept-relay', 'kept-wait', 'seg-failed', 'net-offline',
+// 0.9.4 S-1（決めたこと 18）: PC の文字起こしが間に合わない・遅い PC で音声を残している帯 kept-late を engine-down の後・kept-local の前に
+const PROBLEM_ORDER = ['engine-down', 'kept-late', 'stall', 'login', 'kept-local', 'kept-login', 'kept-relay', 'kept-wait', 'seg-failed', 'net-offline',
   'relay-off', 'daily-cap', 'relay-blocked', 'relay-down', 'relay-busy', 'wait'];
 /** problems: Map<符号, 詳しさ（{ n } や { sec }）> → 一番前の { code, ...詳しさ } か null（表に無い符号は見ない） */
 function sttProblemOf(problems) {
@@ -1114,23 +1126,30 @@ class EtaTracker {
   }
 }
 
-// ---------------------------------------------------------------- 打ち切り（#42）
-// 文字起こし待ちの区間を全部「打ち切り」にする（meeting:skipPending）。失敗扱いにして本文を
-// 「（文字起こしを打ち切り）」に置き、pending/wav を外す（id/atMs はそのまま）。黙って消さず
-// 失敗の行として残すのは、何が欠けたかが議事録から分かるようにするため。
-// 戻り値は { count: 打ち切った数, wavs: 消すべき wav のパス }。配列の要素は書き換える。
+// ---------------------------------------------------------------- 後回し（#42。0.9.4 S-3 で打ち切りから替えた）
+// 文字起こし待ちの区間を全部「文字起こし待ち」（音声を残す: kept）にする（meeting:skipPending ［文字起こしを後回しにして要約］）。
+// 0.9.4 S-3（決めたこと 4）: 前は「（文字起こしを打ち切り）」の失敗にして WAV を消していた（その区間の発言は二度と戻らない）。今は失敗の印と kept を付け、
+// WAV を残す（締めが待ち行列に載せ、会議の後に文字起こしする）。音声の無い待ちの区間（控えられなかった）だけ今の「打ち切り」の失敗の行。
+// pending を外す（id/atMs はそのまま）。戻り値は { count: 後回しにした数, kept: 音声を残した数 }。配列の要素は書き換える。
+const SKIP_KEPT_TEXT = '（文字起こし待ち: 音声は残してあります）';
 function skipPendingSegments(segments) {
-  const wavs = [];
   let count = 0;
+  let kept = 0;
   for (const s of (segments || [])) {
     if (!s || !s.pending) continue;
     count++;
-    if (s.wav) wavs.push(s.wav);
-    delete s.pending; delete s.wav;
-    s.text = '（文字起こしを打ち切り）';
+    delete s.pending;
     s.failed = true;
+    if (s.wav) {
+      kept++;
+      s.text = SKIP_KEPT_TEXT;
+      s.kept = true;
+    } else {
+      delete s.wav;
+      s.text = '（文字起こしを打ち切り）';
+    }
   }
-  return { count, wavs };
+  return { count, kept };
 }
 
 // ---------------------------------------------------------------- 使われないエンジンの停止（#58）
@@ -1627,7 +1646,7 @@ const HELP_ARTICLES = Object.freeze([
   'dictation/dictation',
   'find/search', 'find/delete-and-backups',
   'settings/appearance', 'settings/account', 'settings/offline', 'settings/hotkeys',
-  'trouble/banners', 'trouble/login-trouble', 'trouble/transcription-stops', 'trouble/claude-summary-fails',
+  'trouble/banners', 'trouble/login-trouble', 'trouble/transcription-stops', 'trouble/slow-pc', 'trouble/claude-summary-fails',
   'admin/stop-person', 'admin/seats', 'admin/relay-limits',
 ]);
 function helpPath(article) {
@@ -1675,8 +1694,9 @@ function micWatchScript({ root = MIC_ROOT, self = '', apps = MEET_APPS, everyMs 
     `$pkgMap = @{ ${pkgMap} }`,
     `$procMap = @{ ${procMap} }`,
     `$order = @(${order})`,
-    '$script:last = $null',
-    'function Say($t) { if ($t -ne $script:last) { $script:last = $t; [Console]::Out.WriteLine($t); [Console]::Out.Flush() } }',
+    // 0.9.4 D-1: 読むたびに書く（前と同じ行も書く）。判断（nudgeStep）は同じ使いを2回読んでから出すので、変わったときだけ書くと会議のアプリだけが
+    // マイクを使い続けるときに2回目が来ず、パネルが出なかった（持ち主の engine.log で確かめた）
+    'function Say($t) { [Console]::Out.WriteLine($t); [Console]::Out.Flush() }',
     'function Get-Use($k) {',
     '  try {',
     "    if ($k.GetValueKind('LastUsedTimeStart') -ne [Microsoft.Win32.RegistryValueKind]::QWord) { return $null }",
@@ -1783,6 +1803,8 @@ function nudgeStep(st0, ev) {
   const done = (k) => st.done.includes(k);
   const markDone = (k) => { if (!done(k)) st.done.push(k); };
   const hideNow = () => { if (st.shown) { st.shown = null; out.hide = true; } };
+  // 0.9.4 D-1: つなぎ直し（60 秒の間の新しい使い）で出さなかった使い（診断の符号 rejoin。前の版の st には無い）
+  const markRejoin = (k) => { if (!Array.isArray(st.rejoin)) st.rejoin = []; if (!st.rejoin.includes(k)) st.rejoin.push(k); if (st.rejoin.length > 50) st.rejoin.shift(); };
   const pick = () => {
     if (!st.idle || !st.on || st.shown) return;
     for (const a of MEET_APPS) {
@@ -1811,7 +1833,7 @@ function nudgeStep(st0, ev) {
       const k = key(id, start);
       const fresh = st.active[id] !== start;
       st.seen[k] = fresh ? 1 : (st.seen[k] || 0) + 1;
-      if (fresh && st.lastEnd[id] !== undefined && now - st.lastEnd[id] < NUDGE_REJOIN_MS) markDone(k);
+      if (fresh && st.lastEnd[id] !== undefined && now - st.lastEnd[id] < NUDGE_REJOIN_MS) { markDone(k); markRejoin(k); }
       if (st.meeting) markDone(k);
     }
     st.active = next;
@@ -1839,7 +1861,24 @@ function nudgeStep(st0, ev) {
       if (now >= until) hideNow();
     }
   }
+  out.why = out.show ? '' : nudgeWhy(st);
   return out;
+}
+// 0.9.4 D-1（診断の記録）: マイクを使っている一覧のアプリがあるのにパネルを出していない理由の符号。出している・使っているアプリが無いときは ''。
+// off（設定が切れている）・busy（録音中）・mute（通知を出さないアプリ）・rejoin（60 秒のつなぎ直し）・done（出した・閉じた使い）・wait（まだ1回しか読んでいない）
+function nudgeWhy(st) {
+  const ids = MEET_APPS.map((a) => a.id).filter((id) => st.active && st.active[id] !== undefined);
+  if (!ids.length || st.shown) return '';
+  if (!st.on) return 'off';
+  if (!st.idle) return 'busy';
+  let why = '';
+  for (const id of ids) {
+    const k = `${id}:${st.active[id]}`;
+    if (st.mute.includes(id)) { why = why || 'mute'; continue; }
+    if (st.done.includes(k)) { why = why || (Array.isArray(st.rejoin) && st.rejoin.includes(k) ? 'rejoin' : 'done'); continue; }
+    if ((st.seen[k] || 0) < 2) return 'wait';
+  }
+  return why;
 }
 // パネルの置き場所（決めたこと 8）。size はパネルの画面が測ったカードの大きさ（CSS の px。有限の正の数でなければ NUDGE_FIRST）。窓はカードの周りに
 // NUDGE_PAD の余白（明るいパネルの影の輪: K9）を足した大きさで、カードの右と上の端が作業領域の右と上の端から NUDGE_EDGE の所に来る。
@@ -1855,6 +1894,19 @@ function nudgeBounds({ size, workArea }) {
   const height = Math.min(Math.ceil(s.h) + 2 * NUDGE_PAD, workArea.height - 2 * gap);
   return { x: workArea.x + workArea.width - gap - width, y: workArea.y + gap, width, height };
 }
+// 0.9.4 W-1（持ち主の答え「5本がそれぞれ揺れる」）: 録音バーと録音中のページの5本の高さ（px）。無音（0.02 以下・数でない）は同じ 4px の点が5つ。
+// 声は重み（左右対称: 左に寄らない）× 1本ずつ違う速さと位相の揺れ（0.35〜1 倍）で 4〜16px。tMs が数でない（null）は揺らさない止めた形（動きを減らす設定）。
+// overlay.html と app.html は main のファイルを読めないので同じ式を写す（test/stage094.wave が同じ値になることを見る）
+const LEVEL_BAR_W = [0.75, 0.9, 1, 0.9, 0.75];
+const LEVEL_BAR_SPEED = [7.1, 9.3, 5.7, 8.4, 6.6];
+const LEVEL_BAR_PHASE = [0.3, 1.9, 0.8, 2.6, 1.4];
+function levelBars(level, tMs) {
+  if (!(typeof level === 'number' && level > 0.02)) return [4, 4, 4, 4, 4];
+  return LEVEL_BAR_W.map((w, i) => {
+    const g = typeof tMs === 'number' && Number.isFinite(tMs) ? 0.35 + 0.65 * Math.abs(Math.sin(LEVEL_BAR_PHASE[i] + (LEVEL_BAR_SPEED[i] * tMs) / 1000)) : 1;
+    return Math.round(4 + 12 * Math.min(1, level * 1.6 * w * g));
+  });
+}
 // 録音バーが答えた音の大きさの照らし（決めたこと 14）。数は 0〜1 に収めて小数 2 けた、warn は決まった3つのほかは ''（画面は文を作らない）
 const LEVEL_ASK_MS = 100;
 const LEVEL_WARNS = Object.freeze(['', '音が入っていません', 'マイクの音が入っていません']);
@@ -1862,6 +1914,107 @@ function levelMsg(p) {
   const o = p && typeof p === 'object' && !Array.isArray(p) ? p : {};
   const num = (v) => (typeof v === 'number' && Number.isFinite(v) ? Math.round(Math.min(1, Math.max(0, v)) * 100) / 100 : 0);
   return { mic: num(o.mic), sys: num(o.sys), warn: typeof o.warn === 'string' && LEVEL_WARNS.includes(o.warn) ? o.warn : '' };
+}
+
+// ---------------------------------------------------------------- 0.9.4 S-1（計画 docs/plans/2026-10-22-094.md の決めたこと 1・7〜10・16・31）
+// PC（手元の whisper）の失敗の種類。late = 自前の時間切れ（localhttp の印 late・TimeoutError・AbortError）と、古い道の undici の時間切れ
+// （UND_ERR_HEADERS_TIMEOUT・UND_ERR_BODY_TIMEOUT）。down = エンジンに届かない・切れた（ECONNREFUSED・ECONNRESET・EPIPE・UND_ERR_SOCKET・
+// engineMissing）。error = エンジンが答えた誤り（HTTP の誤り・{"error"}・読めない答え）と物でないもの
+const LATE_CODES = ['LOCAL_TIMEOUT', 'UND_ERR_HEADERS_TIMEOUT', 'UND_ERR_BODY_TIMEOUT'];
+const DOWN_CODES = ['ECONNREFUSED', 'ECONNRESET', 'EPIPE', 'UND_ERR_SOCKET'];
+/** → 'late' | 'down' | 'error' */
+function localFailKind(e) {
+  if (!e || typeof e !== 'object') return 'error';
+  const code = (e.cause && typeof e.cause === 'object' && e.cause.code) || e.code || '';
+  if (e.late === true || e.name === 'TimeoutError' || e.name === 'AbortError' || LATE_CODES.includes(code)) return 'late';
+  if (e.engineMissing === true || DOWN_CODES.includes(code)) return 'down';
+  return 'error';
+}
+// 遅い PC の判断のしきい値（問い Q1・Q2 の既定）。over: 1.0 を越える区間が2つ続く・big: 1つでも 1.5 を越える・backlogMs: PC の待ちの音声の合計・
+// exit: 測った数（bench）がこれ以下なら遅いを外す・ttlMs: 覚えの期限（14 日）・alpha: rtf の移動平均の重み
+const PACE = Object.freeze({ over: 1.0, big: 1.5, backlogMs: 240000, exit: 0.6, ttlMs: 14 * 24 * 3600 * 1000, alpha: 0.5 });
+const PACE_WINDOW_MS = 30000;   // whisper は 30 秒の窓で処理する（15 秒の区間も 30 秒分の計算をする）
+/** 速さ = 処理 ÷ max(音声, 30 秒)（小数2桁）。数でない・音声が 0 以下・処理が負なら null */
+function effRtf(t) {
+  if (!t || typeof t !== 'object') return null;
+  const { audioMs, procMs } = t;
+  if (typeof audioMs !== 'number' || typeof procMs !== 'number' || !Number.isFinite(audioMs) || !Number.isFinite(procMs) || audioMs <= 0 || procMs < 0) return null;
+  return Math.round((procMs / Math.max(audioMs, PACE_WINDOW_MS)) * 100) / 100;
+}
+const sameModel = (a, b) => Boolean(a && b && typeof a.name === 'string' && a.name && a.name === b.name && Number.isFinite(a.size) && a.size === b.size);
+const paceInit = () => ({ slow: false, why: '', run: 0, rtf: null, samples: 0 });
+/**
+ * 会議ごとの遅い PC の判断（純粋。時刻は ev.now だけ）。ev: { kind: 'sample', audioMs, procMs } | { kind: 'late' } | { kind: 'backlog', audioMs } |
+ * { kind: 'start', saved, model, now } → { st, slow, why }。一度遅いになったら会議の中は戻らない（start で数え直す）
+ */
+function paceStep(st, ev) {
+  const cur = st && typeof st === 'object' ? { ...paceInit(), ...st } : paceInit();
+  const out = (x) => ({ st: x, slow: x.slow, why: x.why });
+  if (!ev || typeof ev !== 'object') return out(cur);
+  if (ev.kind === 'start') {
+    const n = paceInit();
+    const sv = ev.saved;
+    if (sv && typeof sv === 'object' && sv.slow === true && sameModel(sv.model, ev.model) && Number.isFinite(sv.at) && Number.isFinite(ev.now)
+      && ev.now - sv.at <= PACE.ttlMs) {
+      n.slow = true; n.why = 'saved';
+    }
+    return out(n);
+  }
+  const slowNow = (why) => (cur.slow ? cur : { ...cur, slow: true, why });
+  if (ev.kind === 'late') return out(slowNow('late'));
+  if (ev.kind === 'backlog') return out(Number(ev.audioMs) > PACE.backlogMs ? slowNow('backlog') : cur);
+  if (ev.kind !== 'sample') return out(cur);
+  const r = effRtf(ev);
+  if (r === null) return out(cur);
+  const next = { ...cur, samples: cur.samples + 1, rtf: cur.rtf === null ? r : Math.round((cur.rtf + PACE.alpha * (r - cur.rtf)) * 100) / 100 };
+  next.run = r > PACE.over ? cur.run + 1 : 0;
+  if (cur.slow) return out(next);
+  if (r > PACE.big) return out({ ...next, slow: true, why: 'big' });
+  if (next.run >= 2) return out({ ...next, slow: true, why: 'two' });
+  return out(next);
+}
+/**
+ * 覚え（<userData>/data/local-pace.json）の中身。st は paceStep の st（live）か { rtf }（bench）。prev は前の覚え（別のモデルなら無いのと同じ）。
+ * → { schema: 1, model: { name, size }, rtf, slow, at, from } | null（書かない: モデルが分からない・会議で PC に送っていない・始めから覚えで遅かった）
+ */
+function paceSaved(st, prev, { model, now, from } = {}) {
+  if (!model || typeof model.name !== 'string' || !model.name || !Number.isFinite(model.size)) return null;
+  const p = prev && typeof prev === 'object' && sameModel(prev.model, model) ? prev : null;
+  const s = st && typeof st === 'object' ? st : {};
+  const r = typeof s.rtf === 'number' && Number.isFinite(s.rtf) ? s.rtf : null;
+  const mix = (x) => (p && typeof p.rtf === 'number' && Number.isFinite(p.rtf) ? Math.round((p.rtf + PACE.alpha * (x - p.rtf)) * 100) / 100 : x);
+  const base = { schema: 1, model: { name: model.name, size: model.size } };
+  if (from === 'bench') {
+    if (r === null) return null;
+    const slow = r > PACE.over ? true : r <= PACE.exit ? false : Boolean(p && p.slow);
+    return { ...base, rtf: p && typeof p.rtf === 'number' && Number.isFinite(p.rtf) ? p.rtf : r, slow, at: now, from: 'bench' };
+  }
+  if (s.why === 'saved') return null;
+  if (!s.slow && r === null) return null;
+  return { ...base, rtf: r === null ? (p && Number.isFinite(p.rtf) ? p.rtf : null) : mix(r), slow: Boolean(s.slow), at: now, from: 'live' };
+}
+/** PC への要求の待ち時間 = min(30 分, max(240 秒, max(音声, 30 秒) × max(rtf, 1) × 2 + 60 秒))（rtf が無ければ 1） */
+function localTimeoutMs({ audioMs, rtf } = {}) {
+  const a = Math.max(Number.isFinite(audioMs) ? audioMs : 0, PACE_WINDOW_MS);
+  const k = Math.max(Number.isFinite(rtf) ? rtf : 1, 1);
+  return Math.min(1800000, Math.max(240000, Math.round(a * k * 2 + 60000)));
+}
+/** 会議の後に PC で文字起こしする目安（分）= 音声 × max(rtf, 1) を分に切り上げ */
+function afterEtaMin({ audioMs, rtf } = {}) {
+  const a = Math.max(0, Number.isFinite(audioMs) ? audioMs : 0);
+  const k = Math.max(Number.isFinite(rtf) ? rtf : 1, 1);
+  return Math.ceil(Math.round(a * k) / 60000);
+}
+// 中継の 5xx（server）が続いたら間を空ける（問い Q8 の既定）。2回続いたら 60 秒、その後も続けば 120・300・600 秒（上限）。
+// クラウドで文字になった（code: 'ok'）ら 0 に戻す。server でない符号は数えない（続きも切らない）
+const RELAY_HOLD_LADDER_MS = Object.freeze([60000, 120000, 300000, 600000]);
+/** (st, { code, now }) → { st: { run, at }, holdMs } */
+function relayHoldStep(st, { code, now } = {}) {
+  const run = st && Number.isInteger(st.run) && st.run > 0 ? st.run : 0;
+  if (code === 'ok') return { st: { run: 0, at: now }, holdMs: 0 };
+  if (code !== 'server') return { st: { run, at: st && st.at }, holdMs: 0 };
+  const n = run + 1;
+  return { st: { run: n, at: now }, holdMs: n >= 2 ? RELAY_HOLD_LADDER_MS[Math.min(n - 2, RELAY_HOLD_LADDER_MS.length - 1)] : 0 };
 }
 
 module.exports = {
@@ -1877,7 +2030,7 @@ module.exports = {
   PICK_KEYS, pickDefaultPath,
   extractNotes, truncationMessage, buildPromptParts,
   publicSegments, settledSegments, pendingDurationMs, recoverSegments, staleSegbufDirs,
-  nextSegmentMs, EtaTracker, skipPendingSegments,
+  nextSegmentMs, EtaTracker, skipPendingSegments, SKIP_KEPT_TEXT,
   ONLINE_SEGMENT_SEC, OVERLAY_SEG_MIN_MS, SEG_SWITCH_AFTER, STICKY_LOCAL, startSegmentMode, segmentModeNext, segmentBaseMs, liveSegmentMs, nextLiveSegmentMs,
   cloudLikely, offlineChosen, DICTATION_REFUSE_TEXT, startPlan, dictationPlan, KEPT_CODES, keptCodeFor, KEPT_SUMMARY_TEXT,
   STALL_SPAN_MS, STALL_MIN_DBFS, stallAfter, stallStep, PROBLEM_ORDER, sttProblemOf, problemForRoute,
@@ -1897,4 +2050,7 @@ module.exports = {
   // 0.9.3 M-1（会議の検出と音の波）
   MEET_APPS, MIC_ROOT, micWatchScript, parseMicLine, NUDGE_SHOW_MS, NUDGE_HOVER_GRACE_MS, NUDGE_REJOIN_MS, nudgeInit, nudgeStep,
   NUDGE_EDGE, NUDGE_PAD, NUDGE_FIRST, nudgeBounds, LEVEL_ASK_MS, LEVEL_WARNS, levelMsg,
+  LEVEL_BAR_W, LEVEL_BAR_SPEED, LEVEL_BAR_PHASE, levelBars,
+  // 0.9.4 S-1（文字起こしの安定化）
+  localFailKind, effRtf, PACE, paceStep, paceSaved, localTimeoutMs, LOCAL_SEGMENT_MS_CAP, afterEtaMin, RELAY_TRANSIENT, RELAY_HOLD_LADDER_MS, relayHoldStep,
 };

@@ -569,7 +569,7 @@ test('D19: 設定のカードの見出しが『オフライン』で、すぐ下
   const card = offlineCard(l);
   const h2 = card.children[0];
   assert.strictEqual(h2.tagName, 'h2');
-  assert.strictEqual(h2.textContent, 'ローカル AI の設定');   // 0.9.3 M-0（D54）で意図して変えた
+  assert.strictEqual(h2.textContent, 'ローカル AI');   // 0.9.3 M-0（D54）で意図して変えた
   const lead = card.children[1];
   assert.ok(lead.classList.contains('field') && !lead.classList.contains('lockNote'), '見出しのすぐ下が説明の欄でない');
   assert.strictEqual(lead.textContent.trim(), OFFLINE_LEAD);
@@ -648,7 +648,7 @@ test('D20: 録音中のページの記録の行で、［この会議は PC の�
   const b = at('meetingLocalOnly');
   assert.ok(b > 0, '［この会議は PC の中だけ］が記録の行に無い');
   assert.strictEqual(l.document.getElementById('meetingLocalOnly').hidden, false, '前提: クラウドの会議でボタンが出ていない');
-  assert.strictEqual(b, at('liveSkipBtn') + 1, '［この会議は PC の中だけ］が［文字起こしを打ち切って要約］のすぐ後ろに無い');
+  assert.strictEqual(b, at('liveSkipBtn') + 1, '［この会議は PC の中だけ］が［文字起こしを後回しにして要約］のすぐ後ろに無い');
   const descs = kids.filter((k) => k.classList.contains('desc'));
   assert.ok(descs.length >= 6, `説明の行が足りない（${descs.length}）`);
   for (const d of descs) assert.ok(kids.indexOf(d) > b, `説明の行 #${d.id} が［この会議は PC の中だけ］より前にある`);
