@@ -5,6 +5,7 @@ const test = require('node:test');
 const assert = require('node:assert');
 const sqlite = require('node:sqlite');
 const tools = require('../src/mcp/tools');
+const { titleAt } = require('./helpers/titles');
 const { mcpDb } = require('./helpers/mcpdb');
 
 const T = { timeout: 10000 };
@@ -23,7 +24,7 @@ const pieces = (w) => {
 function seed() {
   const m = mcpDb({ only: ['plain1', 'plain2'] });
   const fin = (id, page, segs) => m.call('main', 'meeting.finalize', { pageId: id, page: { durationSec: 60, ...page }, segments: segs });
-  fin('pl9', { title: '2026/10/19 11:00 の議事録', date: '2026-10-19', createdAt: '2026-10-19T02:00:00.000Z', memo: `${OFFLINE}のメモ`,
+  fin('pl9', { title: titleAt('2026-10-19T02:00:00.000Z'), date: '2026-10-19', createdAt: '2026-10-19T02:00:00.000Z', memo: `${OFFLINE}のメモ`,
     blocks: [{ id: 'pl9h', type: 'heading', text: '決めたこと', level: 2 }, { id: 'pl9b', type: 'bullet', text: `${OFFLINE}の要点` }],
     route: { stt: { cloud: 0, local: 1 }, localOnly: true, summary: { by: 'local' } } }, [{ id: 's1', atMs: 0, durationMs: 15000, text: `${OFFLINE}の発言` }]);
   m.call('main', 'meeting.begin', { pageId: 'pu9', startedAt: Date.parse('2026-10-19T03:00:00.000Z'), localOnly: false });
@@ -36,13 +37,14 @@ function seed() {
   ] });
   const secretSegs = [{ id: 's1', atMs: 0, durationMs: 15000, text: `${SECRET}の発言` }, { id: 's2', atMs: 15000, durationMs: 15000, text: `二つ目の${SECRET}` }];
   // ゴミ箱の会議（ブロックの ID はページの ID を頭に付ける: 表全体で重ならない）
-  const tp = secretPage(`${SECRET}の会議`);
+  const tp = secretPage(`${SECRET}の会議`);   // 利用者が付け直した題名（D77。題名の語に頼るため: 題名の目印が出ないことを見る）
   tp.blocks = tp.blocks.map((b) => ({ ...b, id: `pt9${b.id}` }));
   fin('pt9', { ...tp, date: '2026-10-19', createdAt: '2026-10-19T04:00:00.000Z' }, secretSegs);
   m.call('app', 'page.delete', { id: 'pt9' });
   // 録音中の写し（題名・メモ・ブロックは録音中のページで書いたもの）
   m.call('main', 'meeting.begin', { pageId: 'pv9', startedAt: Date.parse('2026-10-19T05:00:00.000Z'), localOnly: false });
   for (const s of secretSegs) m.call('main', 'meeting.segment', { pageId: 'pv9', seg: s });
+  // 利用者が付け直した題名（D77。題名の語に頼るため: 題名の目印が出ないことを見る）
   m.call('app', 'page.setTitle', { id: 'pv9', title: `${SECRET}の録音中` });
   m.call('app', 'page.setMemo', { id: 'pv9', memo: `${SECRET}の録音中のメモ` });
   m.close();
@@ -113,9 +115,10 @@ function twinDb(trashText) {
   const m = mcpDb({ only: ['rag'] });
   const fin = (id, page, segs) => m.call('main', 'meeting.finalize', { pageId: id, page: { durationSec: 60, ...page }, segments: segs });
   // 2語の重みが同じになる見える会議（新しい方が先に並ぶ）
-  fin('pq1', { title: '2026/9/20 10:00 の議事録', date: '2026-09-20', createdAt: '2026-09-20T01:00:00.000Z', memo: '', blocks: [] }, [{ id: 's1', atMs: 0, durationMs: 15000, text: 'くじら座の観測' }]);
-  fin('pq2', { title: '2026/9/19 10:00 の議事録', date: '2026-09-19', createdAt: '2026-09-19T01:00:00.000Z', memo: '', blocks: [] }, [{ id: 's1', atMs: 0, durationMs: 15000, text: 'いるか座の観測' }]);
-  fin('pt8', { title: trashText.title, date: '2026-09-25', createdAt: '2026-09-25T01:00:00.000Z', memo: trashText.memo, blocks: [] },
+  fin('pq1', { title: titleAt('2026-09-20T01:00:00.000Z'), date: '2026-09-20', createdAt: '2026-09-20T01:00:00.000Z', memo: '', blocks: [] }, [{ id: 's1', atMs: 0, durationMs: 15000, text: 'くじら座の観測' }]);
+  fin('pq2', { title: titleAt('2026-09-19T01:00:00.000Z'), date: '2026-09-19', createdAt: '2026-09-19T01:00:00.000Z', memo: '', blocks: [] }, [{ id: 's1', atMs: 0, durationMs: 15000, text: 'いるか座の観測' }]);
+  fin('pt8', { title: trashText.title, date:   // 利用者が付け直した題名（D77。題名の語に頼るため: 題名の語の重みを見る）
+    '2026-09-25', createdAt: '2026-09-25T01:00:00.000Z', memo: trashText.memo, blocks: [] },
     Array.from({ length: 50 }, (_, k) => ({ id: `s${k + 1}`, atMs: k * 15000, durationMs: 15000, text: trashText.seg })));
   m.call('app', 'page.delete', { id: 'pt8' });
   m.close();
@@ -123,7 +126,9 @@ function twinDb(trashText) {
 }
 
 test('RF78・F19: ゴミ箱のページの中身を違えた2つの DB で search_passages の答えが1バイトも同じ（candMax 3・pageCand 2 でも）。meeting_ids にゴミ箱の ID を入れても答えは渡さなかったときと同じ', T, () => {
+  // 利用者が付け直した題名（D77。題名の語に頼るため: 題名の語の重みを見る）
   const a = twinDb({ title: 'くじら座の会議', memo: 'くじら座の会議のメモ', seg: 'くじら座の会議の話' });
+  // 利用者が付け直した題名（D77。題名の語に頼るため）
   const b = twinDb({ title: 'ぜんぜん無関係', memo: 'どこにも無い', seg: 'まったく別の語' });
   try {
     const qs = ['くじら座 いるか座', '会議', '見積', 'くじら座', '値引き 契約', '会議の話'];

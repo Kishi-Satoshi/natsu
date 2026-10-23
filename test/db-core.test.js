@@ -154,7 +154,9 @@ test('ST4・T4b: 書く命令は本体と oplog を1つのトランザクショ�
 
 test('T4b: diffPage は前の値を持ち、applyOps で前へも後ろへも当てられる', { timeout: 5000 }, () => {
   const O = require('../src/db/ops');
+  // 利用者が付け直した題名（D77。題名の語に頼るため）
   const a = { id: 'pa1', title: '題', memo: '', blocks: [{ id: 'b1', type: 'bullet', text: '一' }] };
+  // 利用者が付け直した題名（D77。題名の語に頼るため）
   const b = { id: 'pa1', title: '新しい題', memo: 'メモ', blocks: [{ id: 'b1', type: 'todo', text: '一つ', checked: true }, { id: 'b2', type: 'bullet', text: '二' }] };
   const ops = O.diffPage(a, b);
   assert.ok(ops.every((o) => o.op === 'add' || 'old' in o), '前の値の無い操作がある（元に戻せない）');
@@ -167,8 +169,10 @@ test('T4b: applyOps で前へ当てると新しいページ、後ろへ当てる
   const t = tmpDb();
   try {
     const { db } = t.open();
+    // 利用者が付け直した題名（D77。題名の語に頼るため）
     const a = { id: 'pa1', title: '題', memo: '', createdAt: '2026-10-19T00:00:00.000Z', blocks: [
       { id: 'b1', type: 'bullet', text: '一' }, { id: 'b2', type: 'bullet', text: '二', cites: ['s1'] }, { id: 'b3', type: 'todo', text: '三', checked: false }] };
+    // 利用者が付け直した題名（D77。題名の語に頼るため）
     const b = { id: 'pa1', title: '新しい題', memo: 'メモの語', createdAt: '2026-10-19T00:00:00.000Z', blocks: [
       { id: 'b3', type: 'todo', text: '三', checked: true }, { id: 'b1', type: 'heading', text: '一つ目' }, { id: 'b4', type: 'bullet', text: '四', rich: [{ t: '四', m: ['b'] }] }] };
     O.applyOps(db, O.diffPage(null, a));

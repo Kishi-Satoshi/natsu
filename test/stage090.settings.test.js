@@ -5,6 +5,7 @@
  * 音声入力の録音中に本体の窓が前にあれば Esc を全体のホットキーにしない（場面 esc-focus。helpers/mainrun.js）。
  */
 'use strict';
+const { titleAt } = require('./helpers/titles');
 
 const test = require('node:test');
 const assert = require('node:assert');
@@ -22,8 +23,8 @@ const preloadWith = (...names) => names.reduce((src, n) => (new RegExp(`^\\s+${n
 const P1B = preloadWith('uiState', 'uiSave', 'meetingSetPaused');
 const T = { timeout: 5000 };
 const fmt = (e) => `${e.constructor.name}: ${e.message}`;
-const LIST = [{ id: 'pa1', title: '定例（見本）', date: '10/16', durationSec: 1800, hasSummary: true },
-  { id: 'pb2', title: '設計の打ち合わせ（見本）', date: '10/15', durationSec: 900, hasSummary: false }];
+const LIST = [{ id: 'pa1', title: titleAt('2026-10-16T01:00:00.000Z'), date: '10/16', durationSec: 1800, hasSummary: true },
+  { id: 'pb2', title: titleAt('2026-10-09T05:00:00.000Z'), date: '10/15', durationSec: 900, hasSummary: false }];
 const PAGE = (id) => ({ page: { id, title: LIST.find((p) => p.id === id).title, createdAt: '2026-10-16T01:00:00.000Z', durationSec: 1800, blocks: [], memo: '', meetingType: 'general' }, segments: [] });
 const UI = (tabs = { open: [], active: '' }) => () => ({ sidebar: { width: 260, collapsed: false }, tabs });
 const open = (o = {}) => load(APP, { preloadSrc: P1B, returns: { pagesSearch: () => LIST, pageGet: PAGE, uiState: UI(), ...o } });
@@ -290,7 +291,7 @@ test('SP1・F13: 開いている間に、記録が始まって録音中のタブ
   assert.ok($(p, 'tabSettings').classList.contains('active'));
   await click(p, 'setClose');
   assert.deepStrictEqual(keysOf(p), ['page:pb2']);
-  assert.strictEqual($(p, 'pTitle').textContent, '設計の打ち合わせ（見本）', '閉じた後ろがそのページでない');
+  assert.strictEqual($(p, 'pTitle').textContent, titleAt('2026-10-09T05:00:00.000Z'), '閉じた後ろがそのページでない');
   assert.deepStrictEqual([...l.errors, ...p.errors].map(fmt), []);
 });
 

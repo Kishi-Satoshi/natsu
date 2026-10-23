@@ -1,5 +1,6 @@
 /* db-fixture.test.js — 第2a1回 RF11: 出した表の形の版ごとの固定の DB から開ける */
 'use strict';
+const { titleAt } = require('./helpers/titles');
 const test = require('node:test');
 const assert = require('node:assert');
 const fs = require('node:fs'); const os = require('node:os'); const path = require('node:path');
@@ -20,7 +21,7 @@ test('RF11: v1.db（0.7.0 で出した形）を今の版で開ける・中身が
     const r = t.open();
     assert.deepStrictEqual([r.state, r.version], ['ok', core.SCHEMA_VERSION]);
     const g = core.call(r.db, { role: 'app', cmd: 'page.get', args: { id: 'pfixture000001' } }, {});
-    assert.strictEqual(g.result.page.title, '週次定例（見本）');
+    assert.strictEqual(g.result.page.title, titleAt('2026-10-15T01:00:00.000Z'));   // 0.10.0 SH-2（D77）で v1.db の題名を日付の形にした
     assert.strictEqual(core.call(r.db, { role: 'app', cmd: 'pages.searchFull', args: { q: '結合テスト' } }, {}).result.total, 1);
     const raw = t.raw();
     assert.strictEqual(raw.prepare("select count(*) c from segments_fts where segments_fts match ?").get('"結合テスト"').c, 1);
@@ -34,7 +35,7 @@ function checkContents(t, file) {
   assert.deepStrictEqual([r.state, r.version], ['ok', 1], '版 1 の ok で開けない');
   const call = (cmd, args) => { const o = core.call(r.db, { role: 'app', cmd, args }, { labels: {} }); assert.ok(o.ok, `${cmd} が ${o.code}`); return o.result; };
   // 一覧は新しい順（今の画面と同じ）
-  assert.deepStrictEqual(call('pages.list', {}).map((p) => [p.id, p.title]), [['pfixture000002', 'ふりかえり（見本）'], ['pfixture000001', '週次定例（見本）']]);
+  assert.deepStrictEqual(call('pages.list', {}).map((p) => [p.id, p.title]), [['pfixture000002', titleAt('2026-10-16T01:00:00.000Z')], ['pfixture000001', titleAt('2026-10-15T01:00:00.000Z')]]);
   const { page, segments } = call('page.get', { id: 'pfixture000001' });
   assert.strictEqual(page.memo, 'リリース日の確認は次回も続ける');
   assert.strictEqual(page.meetingType, 'standup');

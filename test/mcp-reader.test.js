@@ -11,7 +11,7 @@ const core = require('../src/db/core');
 const commands = require('../src/db/commands');
 const snapshot = require('../src/db/snapshot');
 const reader = require('../src/mcp/reader');
-const { mcpDb } = require('./helpers/mcpdb');
+const { mcpDb, TITLES } = require('./helpers/mcpdb');
 
 const T = { timeout: 5000 };
 const sha = (file) => crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex');
@@ -28,7 +28,7 @@ test('MR3: 道具の呼び出しの前後で natsu.db のバイトが同じ（SH
   try {
     const before = sha(m.file);
     const r = reader.withReader({ sqlite, dataDir: m.dataDir }, (db) => commands.listPages(db).map((e) => commands.readPage(db, e.id).title));
-    assert.deepStrictEqual(r, { ok: true, value: ['先方との打ち合わせ', '週次の定例'] });
+    assert.deepStrictEqual(r, { ok: true, value: [TITLES.plain2, TITLES.plain1] });
     assert.strictEqual(sha(m.file), before);
   } finally { m.done(); }
 });
@@ -153,7 +153,7 @@ test('F3・RF62: fn が答えた・投げた・大きな答えを返した、の
 test('MR3: 別の接続（WAL の書き手）が開いたまま書いた行が読める（NaTsu が動いている間）。書き手が閉じた後でも読める（NaTsu を閉じた後）', T, () => {
   const m = mcpDb({ only: ['plain1'] });
   try {
-    m.call('app', 'page.setTitle', { id: 'pm1', title: '書き手が直した題' });   // 書き手は開いたまま
+    m.call('app', 'page.setTitle', { id: 'pm1', title: '書き手が直した題' });   // 書き手は開いたまま。利用者が付け直した題名（D77。題名の語に頼るため）
     const read = () => reader.withReader({ sqlite, dataDir: m.dataDir }, (db) => commands.readPage(db, 'pm1').title);
     assert.deepStrictEqual(read(), { ok: true, value: '書き手が直した題' });
     m.close();

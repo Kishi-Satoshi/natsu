@@ -5,6 +5,7 @@
  *      外を押すと閉じる・開くのは1つ・置き方（placeInfoPop）・検索は吹き出しの中の言葉でも当たる・下の「ヘルプで詳しく見る ↗」。
  */
 'use strict';
+const { titleAt } = require('./helpers/titles');
 
 const test = require('node:test');
 const assert = require('node:assert');
@@ -25,8 +26,8 @@ const doc = parseHTML(html).root;
 const rules = S.parse(doc.querySelectorAll('style').map((s) => s._raw).join('\n'));
 const decl = (sel, at = '') => S.declsFor(rules, sel, { at });
 const norm = (s) => String(s || '').replace(/\s+/g, ' ').trim();
-const LIST = [{ id: 'pa1', title: '定例（見本）', date: '10/16', durationSec: 1800, hasSummary: true }];
-const PAGE = (id) => ({ page: { id, title: '定例（見本）', createdAt: '2026-10-16T01:00:00.000Z', durationSec: 1800, blocks: [], memo: '', meetingType: 'general' }, segments: [] });
+const LIST = [{ id: 'pa1', title: titleAt('2026-10-16T01:00:00.000Z'), date: '10/16', durationSec: 1800, hasSummary: true }];
+const PAGE = (id) => ({ page: { id, title: titleAt('2026-10-16T01:00:00.000Z'), createdAt: '2026-10-16T01:00:00.000Z', durationSec: 1800, blocks: [], memo: '', meetingType: 'general' }, segments: [] });
 const UI = () => ({ sidebar: { width: 260, collapsed: false }, tabs: { open: [], active: '' } });
 const LIVE_LINE = 'const HELP_SITE_LIVE = true;';
 const open = (o = {}, h = html) => load(APP, { preloadSrc: PRELOAD, html: h, returns: { pagesSearch: () => LIST, pageGet: PAGE, uiState: UI, openHelp: () => true, ...o } });

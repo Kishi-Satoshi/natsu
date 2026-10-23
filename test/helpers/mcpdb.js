@@ -22,6 +22,7 @@
  *     personal  … 1on1 の会議（pp1。日付 2026-09-05。文字起こしに「見積」。0.10.0 T-2b）
  */
 'use strict';
+const { titleAt } = require('./titles');
 
 const fs = require('node:fs');
 const os = require('node:os');
@@ -72,18 +73,19 @@ function mcpDb({ only = SEED_NAMES } = {}) {
   const finalize = (pageId, page, segments) => call('main', 'meeting.finalize', { pageId, page, segments });
   const ids = {};
   const want = new Set(only);
-  const plain = (name, id, date, title, words) => {
+  const plain = (name, id, date, words) => {
+    const title = titleAt(`${date}T01:00:00.000Z`);
     if (!want.has(name)) return;
     finalize(id, { title, date, createdAt: `${date}T01:00:00.000Z`, durationSec: 60, memo: `${words}のメモ`, blocks: summaryBlocks(id),
       route: { stt: { cloud: 3, local: 0, provider: 'openai' }, localOnly: false, summary: { by: 'claude-code' } } }, threeSegs(words));
     ids[name] = id;
   };
   open();
-  plain('plain1', 'pm1', '2026-10-18', '週次の定例', '週次');
-  plain('plain2', 'pm2', '2026-10-19', '先方との打ち合わせ', '打ち合わせ');
-  plain('plain3', 'pm3', '2026-10-20', '部の報告会', '報告会');
+  plain('plain1', 'pm1', '2026-10-18', '週次');
+  plain('plain2', 'pm2', '2026-10-19', '打ち合わせ');
+  plain('plain3', 'pm3', '2026-10-20', '報告会');
   if (want.has('localOnly')) {
-    finalize('pl1', { title: '外に出さない会議', date: '2026-10-19', createdAt: '2026-10-19T02:00:00.000Z', durationSec: 60, memo: '出さないメモ', blocks: summaryBlocks('pl1'),
+    finalize('pl1', { title: titleAt('2026-10-19T02:00:00.000Z'), date: '2026-10-19', createdAt: '2026-10-19T02:00:00.000Z', durationSec: 60, memo: '出さないメモ', blocks: summaryBlocks('pl1'),
       route: { stt: { cloud: 0, local: 3, provider: 'local' }, localOnly: true, summary: { by: 'local' } } }, threeSegs('出さない'));
     ids.localOnly = 'pl1';
   }
@@ -94,7 +96,7 @@ function mcpDb({ only = SEED_NAMES } = {}) {
     ids.unknown = 'pu1';
   }
   if (want.has('trash')) {
-    finalize('pt1', { title: 'ゴミ箱の会議', date: '2026-10-19', createdAt: '2026-10-19T04:00:00.000Z', durationSec: 60, memo: '', blocks: summaryBlocks('pt1') }, threeSegs('ゴミ箱'));
+    finalize('pt1', { title: titleAt('2026-10-19T04:00:00.000Z'), date: '2026-10-19', createdAt: '2026-10-19T04:00:00.000Z', durationSec: 60, memo: '', blocks: summaryBlocks('pt1') }, threeSegs('ゴミ箱'));
     call('app', 'page.delete', { id: 'pt1' });
     ids.trash = 'pt1';
   }
@@ -104,7 +106,7 @@ function mcpDb({ only = SEED_NAMES } = {}) {
     ids.live = 'pv1';
   }
   if (want.has('long')) {
-    finalize('pg1', { title: '三時間の会議', date: '2026-10-17', createdAt: '2026-10-17T01:00:00.000Z', durationSec: 10800, memo: '', blocks: summaryBlocks('pg1') }, longSegs());
+    finalize('pg1', { title: titleAt('2026-10-17T01:00:00.000Z'), date: '2026-10-17', createdAt: '2026-10-17T01:00:00.000Z', durationSec: 10800, memo: '', blocks: summaryBlocks('pg1') }, longSegs());
     ids.long = 'pg1';
   }
   if (want.has('forge')) {
@@ -122,7 +124,7 @@ function mcpDb({ only = SEED_NAMES } = {}) {
   }
   if (want.has('rag')) {
     const day = (i) => `2026-09-${String(i).padStart(2, '0')}`;
-    const title = (i) => `2026/9/${i} 10:00 の議事録`;
+    const title = (i) => titleAt(`${day(i)}T01:00:00.000Z`);
     const segs = (texts, step = 15000) => texts.map((text, k) => ({ id: `s${k + 1}`, atMs: k * step, durationMs: step, text }));
     const filler = (n, word) => Array.from({ length: n }, (_, k) => `${word}の話の続きです ${k + 1}`);
     const RAG = [
@@ -151,7 +153,7 @@ function mcpDb({ only = SEED_NAMES } = {}) {
     });
   }
   if (want.has('personal')) {
-    finalize('pp1', { title: '2026/9/5 15:00 の議事録', date: '2026-09-05', createdAt: '2026-09-05T06:00:00.000Z', durationSec: 60, memo: '',
+    finalize('pp1', { title: titleAt('2026-09-05T06:00:00.000Z'), date: '2026-09-05', createdAt: '2026-09-05T06:00:00.000Z', durationSec: 60, memo: '',
       blocks: [{ id: 'pp1h1', type: 'heading', text: '話したこと', level: 2 }, { id: 'pp1b1', type: 'bullet', text: '目標を確認した' }] },
     [{ id: 's1', atMs: 0, durationMs: 15000, text: '個人の見積の相談です' }]);
     call('app', 'page.setType', { id: 'pp1', type: 'oneonone' });
@@ -164,4 +166,8 @@ function mcpDb({ only = SEED_NAMES } = {}) {
   };
 }
 
-module.exports = { mcpDb, SEED_NAMES, FORGE, FAILED_MARK };
+// 種の会議の題名（作った時刻から決まる日付の形: D77）
+const TITLES = Object.freeze({ plain1: titleAt('2026-10-18T01:00:00.000Z'), plain2: titleAt('2026-10-19T01:00:00.000Z'), plain3: titleAt('2026-10-20T01:00:00.000Z'),
+  localOnly: titleAt('2026-10-19T02:00:00.000Z'), trash: titleAt('2026-10-19T04:00:00.000Z'), long: titleAt('2026-10-17T01:00:00.000Z') });
+
+module.exports = { mcpDb, SEED_NAMES, FORGE, FAILED_MARK, TITLES };

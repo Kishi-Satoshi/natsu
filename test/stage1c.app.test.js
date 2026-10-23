@@ -2,6 +2,7 @@
  * stage1c.app.test.js — 第1c回の画面（設定のカード「オンライン」・ページの経路・会議の［PC の中だけ］）を、最小 DOM の上で本当に走らせて確かめる
  */
 'use strict';
+const { titleAt } = require('./helpers/titles');
 
 const test = require('node:test');
 const assert = require('node:assert');
@@ -133,9 +134,9 @@ test('Lane F-b: ［Claude Code を確かめる］で要求まで通れば「ロ�
 
 // ---- 第1c回 Task C-3（OL6・OL4・RF28）----
 test('OL6: ページのプロパティの行に経路が出る（古いページは何も足さない）', async () => {
-  const page = { id: 'p1', title: '定例', createdAt: '2026-10-18T01:00:00.000Z', durationSec: 60, blocks: [], memo: '', meetingType: 'general',
+  const page = { id: 'p1', title: titleAt('2026-10-18T01:00:00.000Z'), createdAt: '2026-10-18T01:00:00.000Z', durationSec: 60, blocks: [], memo: '', meetingType: 'general',
     routeText: ['☁ 文字起こし: クラウド（Groq（無料枠））2', '✨ 要約: Claude Code'] };
-  const l = await load(APP, { returns: { pagesSearch: () => [{ id: 'p1', title: '定例', date: '10/18', durationSec: 60, hasSummary: true }], pageGet: () => ({ page, segments: [] }) } });
+  const l = await load(APP, { returns: { pagesSearch: () => [{ id: 'p1', title: titleAt('2026-10-18T01:00:00.000Z'), date: '10/18', durationSec: 60, hasSummary: true }], pageGet: () => ({ page, segments: [] }) } });
   await l.drain();
   l.byId.get('plist').querySelector('.pitem').dispatchEvent({ type: 'click' });
   await l.drain();

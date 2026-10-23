@@ -9,6 +9,7 @@
  * その答えが、並びの一番前のブロックと発言から抜き出し、数は全部であることも見る（並びと足した順が違うページで）。
  */
 'use strict';
+const { titleAt } = require('./helpers/titles');
 const test = require('node:test');
 const assert = require('node:assert');
 const sqlite = require('node:sqlite');
@@ -27,7 +28,7 @@ const call = (db, cmd, args, role = 'app') => {
 // ブロックの ID は表全体で重ならない（blocks.id は UNIQUE）ので、ページの ID を頭に付ける
 function page(id, i, extra = {}) {
   return {
-    id, title: `定例会議 ${i}`, date: '2026-10-19', durationSec: 60, memo: `メモ ${i}`,
+    id, title: titleAt(`2026-10-${10 + i}T00:00:00.000Z`), date: '2026-10-19', durationSec: 60, memo: `メモ ${i}`,
     blocks: [
       { id: `${id}h`, type: 'heading', text: '決めたこと' },
       { id: `${id}a`, type: 'bullet', text: `第${i}回の予算案の作成を進める`, cites: [] },
@@ -74,11 +75,12 @@ test('G-1: pages.list の2回目は、変わっていないページのブロッ
     c.reads = 0;
     assert.deepStrictEqual(call(c.db, 'pages.list', {}), first);
     assert.strictEqual(c.reads, 0, '変わっていないページを読み直した');
+    // 利用者が付け直した題名（D77。題名の語に頼るため）
     call(c.db, 'page.setTitle', { id: 'pl2', title: '直した題' });
     c.reads = 0;
     const after = call(c.db, 'pages.list', {});
     assert.strictEqual(c.reads, 1, '直したページだけを読み直していない');
-    assert.deepStrictEqual(after.map((x) => x.title), ['定例会議 3', '直した題', '定例会議 1']);
+    assert.deepStrictEqual(after.map((x) => x.title), [titleAt('2026-10-13T00:00:00.000Z'), '直した題', titleAt('2026-10-11T00:00:00.000Z')]);
     c.reads = 0;
     assert.strictEqual(call(c.db, 'pages.list', { q: '予算案' }).length, 3);
     assert.strictEqual(call(c.db, 'pages.searchFull', { q: '資料' }).total, 3);
@@ -121,6 +123,7 @@ test('G-1: 覚えた一覧の行は、どの変え方の後も、覚えていな
     same('別の接続がブロックを直した');
     call(db, 'page.delete', { id: 'pc1' });
     same('ゴミ箱に入れた');
+    // 利用者が付け直した題名（D77。題名の語に頼るため）
     call(db, 'meeting.finalize', { pageId: 'pc2', page: page('pc2', 2, { title: '締めた題', blocks: [{ id: 'pc2z', type: 'bullet', text: '締めで書いた要点', cites: [] }] }), segments: segs(2) }, 'main');
     same('締めで上書きした');
     // 消して同じ ID で作り直した（ここでは後のページの行が残っているので rid は新しくなり、鍵も変わる。rid と rev が同じに戻る場面は
@@ -174,6 +177,7 @@ test('G-1: ページごとに集めた検索も、抜き出しは当たったう
   const t = tmpDb();
   try {
     const { db } = t.open();
+    // 利用者が付け直した題名（D77。題名の語に頼るため）
     t.seed(page('pq1', 1, { title: '題', memo: '', blocks: [
       { id: 'pq1h', type: 'heading', text: '決めたこと' },
       { id: 'pq1a', type: 'bullet', text: 'その1: 予算案の作成', cites: [] },
@@ -200,6 +204,7 @@ test('G-1: メモとブロックの両方に当たり題名に当たらないペ
   const t = tmpDb();
   try {
     const { db } = t.open();
+    // 利用者が付け直した題名（D77。題名の語に頼るため）
     t.seed(page('pg1', 1, { title: '題', memo: '予算案はメモにも書いた', blocks: [
       { id: 'pg1h', type: 'heading', text: '決めたこと' },
       { id: 'pg1a', type: 'bullet', text: 'その1: 予算案の作成', cites: [] },

@@ -20,6 +20,7 @@ test('ST4: 画面の 14 の命令は json-backend（今の保存）と同じ答�
     t.seed(page, segments);           // putPageRows で入れる（会議の印 meeting を足さない。比べを同じ JSON から始める）
     await j.seed(page, segments);
     const steps = [
+      // 利用者が付け直した題名（D77。題名の語に頼るため）
       ['page.get', { id: 'pa1' }], ['page.setTitle', { id: 'pa1', title: '直した題' }], ['page.setMemo', { id: 'pa1', memo: 'メモ' }],
       ['page.setType', { id: 'pa1', type: 'oneonone' }], ['block.update', { pageId: 'pa1', blockId: 'b2', patch: { text: '書き換えた要点の文' } }],
       ['block.update', { pageId: 'pa1', blockId: 'b4', patch: { checked: true } }], ['block.move', { pageId: 'pa1', blockId: 'b1', toIndex: 2 }],
@@ -47,6 +48,7 @@ test('F6: page.put は baseRev が今の rev と違えば conflict（画面の�
     t.seed(samplePage('pa1').page, []);
     const p = call(db, 'page.get', { id: 'pa1' }, 'main').result.page;
     assert.ok(Number.isInteger(p.rev) && Array.isArray(p.routeText));
+    // 利用者が付け直した題名（D77。題名の語に頼るため）
     call(db, 'page.setTitle', { id: 'pa1', title: '画面で直した' });
     const r = call(db, 'page.put', { page: { ...p, summaryError: '要約の文' }, baseRev: p.rev }, 'main');
     assert.deepStrictEqual([r.ok, r.code, r.retry], [false, 'conflict', true]);
@@ -58,6 +60,7 @@ test('F6: page.put は baseRev が今の rev と違えば conflict（画面の�
     assert.strictEqual(call(db, 'page.put', { page: { ...p3, summaryError: 'y' }, baseRev: p3.rev }, 'main').ok, true);
     // 点検で足した確かめ: ページの行（updatedAt・citeStat）が変わらないブロックだけの直しでも rev が上がる
     // （同じミリ秒の2つの書き込み。時刻を止めて、出典の数の変わらない checked だけを直す）
+    // 利用者が付け直した題名（D77。題名の語に頼るため）
     call(db, 'page.setTitle', { id: 'pa1', title: '時刻をそろえる' });
     const p4 = call(db, 'page.get', { id: 'pa1' }, 'main').result.page;
     assert.strictEqual(p4.updatedAt, NOW().toISOString());

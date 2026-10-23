@@ -4,6 +4,7 @@
  * 確かめ（偽物の clipboard で）・版の確かめを見る。
  */
 'use strict';
+const { titleAt } = require('./helpers/titles');
 
 const test = require('node:test');
 const assert = require('node:assert');
@@ -49,7 +50,7 @@ test('P-2: 15 番目の確かめ（本物の server.js と本物の preload）�
   const S = require('../tools/electron-smoke/main.js');
   assert.strictEqual(S.CHECKS.length, 17);   // 第1d回 A-10 で 16、0.9.0 O-2 で 17 を足した（15 の場所は変えない）
   assert.match(S.CHECKS[14][1], /src\/db\/server\.js.*src\/preload\.js/);
-  const good = { got: { title: '見本', routeText: [] }, portOnWindow: false, rejectedWhileDown: true, titleAfter: '直した', oplogRows: 1, killCode: 0, resendOk: true };
+  const good = { got: { title: S.SMOKE_DB.title, routeText: [] }, portOnWindow: false, rejectedWhileDown: true, titleAfter: '直した', oplogRows: 1, killCode: 0, resendOk: true };
   assert.strictEqual(S.dbResults(good)[0].ok, true);
   for (const k of ['portOnWindow', 'rejectedWhileDown', 'oplogRows']) {
     const bad = { ...good, [k]: k === 'oplogRows' ? 2 : !good[k] };
@@ -61,9 +62,9 @@ test('P-2: 15 番目の確かめ（本物の server.js と本物の preload）�
 
 // P-2 の続き（計画のテストに足した）: 判定のほかの崩れも NG。読めたページ・題名・routeText・書き込み・oplog の数・kill の番号
 test('P-2: dbResults は、ページが返らない・routeText が無い・題名が違う・書き込みが済まない・oplog が 0 行・kill の番号が 0 でない・同じ tx の送り直しが済みで返らない、でも NG', { timeout: 5000 }, () => {
-  const good = { got: { title: '見本', routeText: ['☁ 文字起こし: クラウド（OpenAI）1'] }, portOnWindow: false, rejectedWhileDown: true, titleAfter: '直した', oplogRows: 1, killCode: 0, resendOk: true };
+  const good = { got: { title: S.SMOKE_DB.title, routeText: ['☁ 文字起こし: クラウド（OpenAI）1'] }, portOnWindow: false, rejectedWhileDown: true, titleAfter: '直した', oplogRows: 1, killCode: 0, resendOk: true };
   assert.deepStrictEqual(S.dbResults(good).map((r) => [r.n, r.ok]), [[15, true]]);
-  const bad = [{ got: null }, { got: { title: '見本' } }, { got: { title: '見本', routeText: '' } }, { got: { title: '別', routeText: [] } },
+  const bad = [{ got: null }, { got: { title: S.SMOKE_DB.title } }, { got: { title: S.SMOKE_DB.title, routeText: '' } }, { got: { title: titleAt('2026-10-19T01:00:00.000Z'), routeText: [] } },
     { titleAfter: '' }, { titleAfter: undefined }, { oplogRows: 0 }, { oplogRows: undefined }, { killCode: 1 }, { killCode: null },
     { portOnWindow: undefined }, { rejectedWhileDown: 'rejected retry' }, { error: '子の ready が 15000ms で来ない' },
     // 済んだ締めを同じ (役 main, tx) でもう一度送ると「済み」で返る（変異 db-tx-dup は UNIQUE(role, tx) で internal になる）

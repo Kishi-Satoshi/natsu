@@ -207,6 +207,7 @@ test('RF11: 戻した後に、控えより後に古い版が書いた JSON の�
         assert.strictEqual(M.reimport({ db: opened.db, dataDir: o.dataDir }).added, 0);
       } finally { opened.db.close(); }
       step('古い版で書く');
+      // 利用者が付け直した題名（D77。題名の語に頼るため）
       const later = o.oldBuild((store) => store.createPage({ title: '控えの後に古い版で録った会議', blocks: [], segments: [] }));
       fs.writeFileSync(f, Buffer.alloc(8192, 0x55));
       step('戻す');

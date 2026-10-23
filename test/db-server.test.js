@@ -1,5 +1,6 @@
 /* db-server.test.js — 第2a1回 ST2・ST5・T4b: 口のつなぎと当て直し */
 'use strict';
+const { titleAt } = require('./helpers/titles');
 const test = require('node:test');
 const assert = require('node:assert');
 const fs = require('node:fs');
@@ -65,6 +66,7 @@ test('ST5: 口ごとの役は main が付け、頼みの中で役を名乗って
     const seen = []; main.onEvent((e) => seen.push(e));
     const r = await app.ask({ id: 1, cmd: 'meeting.discard', args: { pageId: d.ids[0], role: 'main' }, tx: 'a:t-000001' });
     assert.deepStrictEqual([r.ok, r.code], [false, 'forbidden']);
+    // 利用者が付け直した題名（D77。題名の語に頼るため）
     const w = await app.ask({ id: 2, cmd: 'page.setTitle', args: { id: d.ids[0], title: '新しい題' }, tx: 'a:t-000002' });
     assert.strictEqual(w.ok, true);
     assert.deepStrictEqual([d.peek().oplogCount('a:t-000002'), d.peek().getPage(d.ids[0]).title], [1, '新しい題']);
@@ -156,6 +158,7 @@ test('ST10: pages/ に JSON があり natsu.db が無ければ数を送って待
     assert.ok(!fs.existsSync(path.join(d.dataDir, 'natsu.db.lock')), '前の起動の残りの lock を消していない');
     // 窓の答えの前に届いた書き込みは、用意ができるまで待たせる（移行の控えには入らない）
     const app = s.port('app');
+    // 利用者が付け直した題名（D77。題名の語に頼るため）
     const w = app.ask({ id: 1, cmd: 'page.setTitle', args: { id: d.ids[0], title: '移した後に直した題' }, tx: 'a:t-000001' });
     await new Promise((res) => setTimeout(res, 30));
     assert.ok(!s.fromServer.some((m) => m.type === 'ready'));
@@ -173,7 +176,7 @@ test('ST10: pages/ に JSON があり natsu.db が無ければ数を送って待
     fs.writeFileSync(raw, zlib.gunzipSync(fs.readFileSync(path.join(d.dataDir, 'backup', backups[0]))));
     const c = new sqlite.DatabaseSync(raw);
     try {
-      assert.strictEqual(c.prepare('select text from blocks where id = ?').get(d.ids[0]).text, '定例会議（見本） 1', '移行の控えに移した後の書き込みが入った');
+      assert.strictEqual(c.prepare('select text from blocks where id = ?').get(d.ids[0]).text, `${titleAt(require('./helpers/dbtmp').SEED_AT)} 1`, '移行の控えに移した後の書き込みが入った');
     } finally { c.close(); }
     assert.deepStrictEqual(snapshotTree(path.join(d.dataDir, 'pages')), before, '元の JSON が変わった');
     assert.ok(s.fromServer.some((m) => m.type === 'log' && /^DB: 移行 ページ 2・発言 6・飛ばした 0（[\d.]+秒）$/.test(m.line)));
@@ -297,6 +300,7 @@ test('ST4: 形の違う頼み・1MB を超える頼みは bad-args。db.status�
     assert.deepStrictEqual(await app.ask({ id: 2, cmd: 'page.get', args: [] }), { id: 2, ok: false, code: 'bad-args', retry: false });
     // 1つ1つの欄は上限の内でも、頼み全体が 1MB を超える（UTF-8 で約 1.08MB）
     const blocks = Array.from({ length: 12 }, (_, i) => ({ id: `big${i}`, type: 'paragraph', text: 'あ'.repeat(30000) }));
+    // 利用者が付け直した題名（D77。題名の語に頼るため）
     const big = await main.ask({ id: 3, cmd: 'page.put', args: { page: { id: d.ids[0], title: '大きい', blocks }, baseRev: 1 }, tx: 'm:t-000003' });
     assert.deepStrictEqual(big, { id: 3, ok: false, code: 'bad-args', retry: false }, '1MB を超える頼みを通した');
     assert.deepStrictEqual(await app.ask({ id: 3, cmd: 'page.get', args: { id: 1n } }), { id: 3, ok: false, code: 'bad-args', retry: false }, 'JSON にできない頼み');
@@ -337,6 +341,7 @@ test('D7: 新しい版の NaTsu で作った DB は読むだけ（書く命令�
     assert.strictEqual(readyMsg(s).state, 'newer');
     const app = s.port('app');
     assert.strictEqual((await app.ask({ id: 1, cmd: 'page.get', args: { id: d.ids[0] } })).ok, true);
+    // 利用者が付け直した題名（D77。題名の語に頼るため）
     assert.strictEqual((await app.ask({ id: 2, cmd: 'page.setTitle', args: { id: d.ids[0], title: 'x' }, tx: 'a:t-000002' })).code, 'read-only');
     await s.stop(); s = null;
     const c = new sqlite.DatabaseSync(d.file);
@@ -379,6 +384,7 @@ test('ST5: changed は書いた app の口にも、ほかの app の口にも、
     const writer = s.port('app'); const other = s.port('app'); const main = s.port('main');
     const seen = { writer: [], other: [], main: [] };
     writer.onEvent((e) => seen.writer.push(e)); other.onEvent((e) => seen.other.push(e)); main.onEvent((e) => seen.main.push(e));
+    // 利用者が付け直した題名（D77。題名の語に頼るため）
     assert.strictEqual((await writer.ask({ id: 1, cmd: 'page.setTitle', args: { id: d.ids[0], title: '全部の口へ' }, tx: 'a:t-000001' })).ok, true);
     await waitFor(() => seen.writer.length && seen.other.length && seen.main.length, '全部の口の changed');
     const want = [{ event: 'changed', pageIds: [d.ids[0]], actor: 'me' }];

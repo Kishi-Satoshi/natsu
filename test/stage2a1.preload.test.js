@@ -82,6 +82,7 @@ test('ST7・F7: 口が閉じたら読む頼みはすぐ失敗で返し、書く�
   await assert.rejects(rd, (e) => /retry/.test(e.message));
   const p2 = l.givePort();
   assert.deepStrictEqual([p2.sent[0].cmd, p2.sent[0].tx], ['page.setTitle', tx], '送り直しで tx が変わった（2回効く）');
+  // 利用者が付け直した題名（D77。題名の語に頼るため）
   p2.reply(p2.sent[0].id, { ok: true, result: { id: 'pa1', title: '題' } });
   assert.strictEqual((await wr).title, '題');
 });

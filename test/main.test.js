@@ -6,6 +6,7 @@
  * それらを本当に呼んでいるか）は repo.test.js の文字列検査で固定する。
  */
 'use strict';
+const { titleAt } = require('./helpers/titles');
 
 const test = require('node:test');
 const assert = require('node:assert');
@@ -37,7 +38,7 @@ test.after(() => { try { fs.rmSync(dir, { recursive: true, force: true }); } cat
 // 第2a1回 M-1（ST1）: saveIfExists は非同期になり、db.call（page.get → page.put）を通る。中身は今の JSON の保存（json-backend）
 test('#46 saveIfExists は今ある最新のページに当てる。消されていれば何も書かず null（非同期）', async () => {
   const jb = makeJsonBackend(store);
-  const page = await jb.call('meeting.finalize', { pageId: 'x', page: { title: '削除される議事録', blocks: [] }, segments: [{ id: 's1', atMs: 0, text: '発言' }] });
+  const page = await jb.call('meeting.finalize', { pageId: 'x', page: { title: titleAt('2026-10-01T00:00:00.000Z'), blocks: [] }, segments: [{ id: 's1', atMs: 0, text: '発言' }] });
   await jb.call('page.delete', { id: page.id });
   assert.strictEqual(await saveIfExists(jb, page.id, (p) => { p.blocks = [{ id: 'b1', type: 'p', text: '要点' }]; }), null);
   assert.strictEqual(await jb.call('page.get', { id: page.id }), null, '削除した議事録が復活した');
@@ -46,7 +47,9 @@ test('#46 saveIfExists は今ある最新のページに当てる。消されて
 
 test('#46 ページが残っていれば、最新のページに生成物だけを載せて保存する（要約中に直した題名を消さない。json-backend）', async () => {
   const jb = makeJsonBackend(store);
+  // 利用者が付け直した題名（D77。題名の語に頼るため）
   const page = await jb.call('meeting.finalize', { pageId: 'y', page: { title: '元の題', blocks: [] }, segments: [] });
+  // 利用者が付け直した題名（D77。題名の語に頼るため）
   await jb.call('page.setTitle', { id: page.id, title: '要約中に変えた題' });   // 要約の途中で編集された想定
   const saved = await saveIfExists(jb, page.id, (p) => { p.summaryError = 'x'; });
   assert.ok(saved);
@@ -75,6 +78,7 @@ test('F6: saveIfExists は conflict なら読み直して当て直し、5回続�
 test('F6: saveIfExists は page.put に読んだときの版（baseRev）を渡す', async () => {
   const seen = [];
   const db = { call: async (cmd, a) => {
+    // 利用者が付け直した題名（D77。題名の語に頼るため）
     if (cmd === 'page.get') return { page: { id: 'pa1', title: '題', rev: 7 }, segments: [] };
     seen.push(a); return a.page;
   } };

@@ -144,7 +144,7 @@ function sampleDbPage(i, { rare = false, segments = 60, blocks = 13 } = {}) {
     }
   }
   const page = {
-    id, title: `定例会議 ${i}`, date: isoAt(i).slice(0, 10), durationSec: 3600, memo: `メモ ${i}`,
+    id, title: require('../src/mainlib').meetingTitleAt(isoAt(i), 540), date: isoAt(i).slice(0, 10),   // 0.10.0 SH-2（D77）: 本物と同じ日付の形 durationSec: 3600, memo: `メモ ${i}`,
     blocks: list, createdAt: isoAt(i), updatedAt: isoAt(i), recovered: false, summaryError: '',
   };
   return { page, segments: sampleSegments(segments, { rare }) };
@@ -162,7 +162,7 @@ function sampleBigPage(id, nBlocks, nSegments) {
     blocks.push(b);
   }
   const page = {
-    id, title: '大きな会議', date: '2026-10-18', durationSec: 36000, memo: '', blocks,
+    id, title: require('../src/mainlib').meetingTitleAt('2026-10-18T01:00:00.000Z', 540), date: '2026-10-18', durationSec: 36000, memo: '', blocks,
     createdAt: '2026-10-18T01:00:00.000Z', updatedAt: '2026-10-18T01:00:00.000Z', recovered: false, summaryError: '',
   };
   return { page, segments: sampleSegments(nSegments) };
@@ -254,6 +254,7 @@ async function benchDb({ pages = 5000, segments = 60, bigBlocks = 2000, bigSegme
     'open-page': () => { let opened = null; const r = med(ROUNDS, () => { opened = ask('page.get', { id: bigId }); });
       if (!opened || opened.page.blocks.length !== bigBlocks || opened.segments.length !== bigSegments) throw new Error('大きなページを開けない'); return r; },
     'write-commit': () => {
+      // 利用者が付け直した題名（D77。題名の語に頼るため: 書いた題名を読み戻して確かめる）
       const r = med(10, () => { n++; ask('page.setTitle', { id: target, title: `定例会議 0（${n}）` }, `m:perf:${n}`); });
       if (ask('page.get', { id: target }).page.title !== `定例会議 0（${n}）`) throw new Error('書いた題名が読めない');
       return r;

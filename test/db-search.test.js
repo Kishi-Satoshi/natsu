@@ -60,6 +60,7 @@ test('P8: ひらがなとカタカナは区別する（今と同じ）', { timeo
   const t = tmpDb();
   try {
     const { db } = t.open();
+    // 利用者が付け直した題名（D77。題名の語に頼るため）
     t.seed({ id: 'pa1', title: 'データベースの設計', blocks: [] }, []);
     assert.deepStrictEqual(core.call(db, { role: 'app', cmd: 'pages.list', args: { q: 'でーたべーす' } }, {}).result, []);
   } finally { t.done(); }
@@ -82,8 +83,10 @@ test('ST8: ゴミ箱のページと録音中の写しは、一覧の検索にも
     const { db } = t.open();
     let n = 0;
     const call = (cmd, args, role = 'main') => core.call(db, { role, cmd, args, tx: `${role[0]}:t-${String(++n).padStart(6, '0')}` }, { now: () => new Date('2026-10-19T01:00:00.000Z'), labels: {} });
+    // 利用者が付け直した題名（D77。題名の語に頼るため）
     t.seed({ id: 'pt1', title: '捨てる予算の会議', memo: '', blocks: [{ id: 'pt1b1', type: 'bullet', text: '捨てる予算の要点' }], createdAt: '2026-10-01T00:00:00.000Z' },
       [{ id: 's1', atMs: 0, durationMs: 1, text: '捨てる予算の発言' }]);
+    // 利用者が付け直した題名（D77。題名の語に頼るため）
     t.seed({ id: 'pt2', title: '残す予算の会議', memo: '', blocks: [], createdAt: '2026-10-02T00:00:00.000Z' },
       [{ id: 's1', atMs: 0, durationMs: 1, text: '残す予算の発言' }]);
     assert.strictEqual(call('page.delete', { id: 'pt1' }, 'app').ok, true);
@@ -94,6 +97,7 @@ test('ST8: ゴミ箱のページと録音中の写しは、一覧の検索にも
       const full = call('pages.searchFull', { q }).result;
       assert.deepStrictEqual([full.hits.map((h) => h.id), full.total, full.truncated], [['pt2'], 1, false], `全文「${q}」`);
     }
+    // 利用者が付け直した題名（D77。題名の語に頼るため）
     call('meeting.finalize', { pageId: 'pt3', page: { title: '締めた予算の会議', createdAt: '2026-10-03T00:00:00.000Z' }, segments: [{ id: 's1', atMs: 0, durationMs: 1, text: '録音中の予算の発言' }] });
     assert.deepStrictEqual(call('pages.searchFull', { q: '予算の発言' }).result.hits.map((h) => h.id), ['pt3', 'pt2']);
   } finally { t.done(); }
@@ -104,6 +108,7 @@ test('ST8: 要約の後半（今の 2 万字の打ち切りの外）とメモの
   try {
     const { db } = t.open();
     const filler = Array.from({ length: 30 }, (_, i) => ({ id: `pl1b${i + 1}`, type: 'bullet', text: 'あ'.repeat(800) }));
+    // 利用者が付け直した題名（D77。題名の語に頼るため）
     t.seed({ id: 'pl1', title: '長い会議', memo: 'い'.repeat(2100) + 'メモの後半の語', blocks: [...filler, { id: 'pl1b99', type: 'bullet', text: '最後の、要点（ＡＩ）です' }, { id: 'pl1b100', type: 'bullet', text: '二つ目の最後の要点AI' }], createdAt: '2026-10-01T00:00:00.000Z' }, []);
     const list = (q) => core.call(db, { role: 'app', cmd: 'pages.list', args: { q } }, {}).result;
     const [hit] = list('最後の要点ai');

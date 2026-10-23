@@ -35,6 +35,7 @@ const 全文検索 = async (l, q) => {
   await l.drain();
 };
 const 全部 = async (l) => { l.byId.get('fltAll').dispatchEvent({ type: 'click' }); await l.drain(); };
+// 利用者が付け直した題名（D77。題名の語に頼るため）
 const hit = (id) => ({ id, title: `議事録 ${id}`, date: '9/1', durationSec: 60, hasSummary: true, snippet: '当たった文' });
 
 // ================= #43 文字起こし検索の件数 =================

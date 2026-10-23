@@ -123,8 +123,8 @@ const PRELOAD_REAL = path.join(ROOT, 'src', 'preload.js');
 // 15 の見本（人の名前は使わない）。送り先の表示の名前は main が init で渡すもの（routeText を DB のプロセスが添える）
 const SMOKE_DB = Object.freeze({
   pageId: 'psmoke2a1',
-  title: '見本',
-  newTitle: '直した',
+  title: require('../../src/mainlib').meetingTitleAt('2026-10-18T01:00:00.000Z', 540),   // 0.10.0 SH-2（D77）: 本物と同じ日付の形
+  newTitle: '直した',   // 利用者が付け直した題名（D77。題名の語に頼るため）
   labels: Object.freeze({ openai: 'OpenAI' }),
 });
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));

@@ -564,7 +564,9 @@ test('保存で登録できなかったキーは、main が採った値に欄と
 // 一覧の行は div + onclick なので、そのままでは Tab で辿れず Enter でも開けない。
 const 二件 = () => ({
   pagesSearch: () => [
+    // 利用者が付け直した題名（D77。題名の語に頼るため）
     { id: 'p1', title: '一つ目', date: '9/1', durationSec: 60, hasSummary: true },
+    // 利用者が付け直した題名（D77。題名の語に頼るため）
     { id: 'p2', title: '二つ目', date: '9/2', durationSec: 60, hasSummary: true },
   ],
 });

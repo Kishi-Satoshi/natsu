@@ -1,4 +1,5 @@
 'use strict';
+const { titleAt } = require('./titles');
 // main.js を偽の Electron の上で実際に動かし、記録 → 区間 → 文字起こし → 議事録の保存までを通す。
 // 1 回の実行で 1 つの場面だけを試す（main.js はモジュールの中に状態を持つので、場面ごとに
 // 別のプロセスにする）。結果は最後の行に JSON で出す。使い方:
@@ -2061,7 +2062,7 @@ process.on('exit', () => {
       fs.writeFileSync(wav, toneWav(3));
       const pageId = `plate${startedAt}`;
       await dbClient.call('meeting.recover', { pageId, segments: [{ id: 's1', atMs: 0, durationMs: 3000, text: '（復旧中: 文字起こし待ち）', failed: true }],
-        page: { title: '後から置いた議事録（復旧）', date: '2026-10-20', durationSec: 3, memo: '', blocks: [], createdAt: new Date(startedAt).toISOString(), recovered: true,
+        page: { title: `${titleAt(startedAt)}（復旧）`, date: '2026-10-20', durationSec: 3, memo: '', blocks: [], createdAt: new Date(startedAt).toISOString(), recovered: true,
           route: { stt: { cloud: 0, local: 0, provider: 'openai' }, localOnly: lateLocal }, summaryError: '' } });
       fs.writeFileSync(path.join(dir, 'recovery.json'), JSON.stringify({ pageId, items: [{ id: 's1', wav, durationMs: 3000 }], retry: false, localOnly: lateLocal }));
     }

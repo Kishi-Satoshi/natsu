@@ -1391,3 +1391,24 @@ test('0.10.0 D71: .phead・.picon・.ptitle・.pprops とその子の CSS の規
   const sha = require('node:crypto').createHash('sha256').update([...rules, ...dom].join('\n')).digest('hex');
   assert.strictEqual(sha, HEAD_HASH, 'ページの頭の CSS か DOM が変わった（D71: 0.10.0 では変えない）');
 });
+
+// 0.10.0 SH-2（D77・決めたこと 152）: テストの作り物の会議の題名も本物と同じ日付の形（test/helpers/titles.js の titleAt）。題名の語に頼るテストは
+// 利用者が付け直した題名として決めた題名を残し、注を付ける。会議の題名でない題（ヘルプの記事・道具・窓と知らせの題）のファイルは外す
+test('0.10.0 D77: 会議の題名を持つテストの作り物の題名は、titleAt(…) で作るか、「利用者が付け直した題名（D77…）」の注のある行だけ', () => {
+  const NOT_MEETING = new Set(['help-build.test.js', 'help-deploy.test.js', 'help-md.test.js', 'help-content.test.js', 'help-app.test.js', 'mcp-rpc.test.js', 'identity.test.js', 'stage1d.status.test.js', 'repo.test.js']);
+  const files = [
+    ...fs.readdirSync(path.join(ROOT, 'test')).filter((f) => f.endsWith('.js') && !NOT_MEETING.has(f)).map((f) => `test/${f}`),
+    ...fs.readdirSync(path.join(ROOT, 'test', 'helpers')).filter((f) => f.endsWith('.js')).map((f) => `test/helpers/${f}`),
+    'tools/perf.js', 'tools/make-db-fixture.js', 'tools/electron-smoke/main.js',
+  ];
+  const bad = [];
+  for (const f of files) {
+    const lines = read(f).split('\n');
+    lines.forEach((l, i) => {
+      if (!/\btitle:\s*(['"`])(?!\1)/.test(l)) return;
+      if (/\b(titleAt|meetingTitleAt|titleOf)\(/.test(l) || l.includes('D77') || (i > 0 && lines[i - 1].includes('D77'))) return;
+      bad.push(`${f}:${i + 1}: ${l.trim().slice(0, 80)}`);
+    });
+  }
+  assert.deepStrictEqual(bad, [], '日付の形でない、注の無い会議の題名');
+});
