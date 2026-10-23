@@ -141,7 +141,7 @@ test('G3: 第1a回の変異が一覧にそろう（計画の「変異確認」�
 
 // 第1c回（Task D-1。計画 docs/plans/2026-10-18-1c.md の「変異確認」の表）
 const IDS_1C = [
-  'on-offline-noask', 'on-401-up', 'on-cache-ok', 'on-cache-ng', 'on-cert', 'on-order-localonly', 'on-order-key', 'on-summary-localonly',
+  'on-offline-noask', 'on-401-up', 'on-cache-ok', 'on-cache-ng', 'on-cert', 'on-order-localonly', 'on-order-key',   // on-summary-localonly は 0.10.0 LS-1（D59）で外した
   'stt-redirect', 'stt-429-wait', 'stt-429-long', 'stt-waitcap', 'stt-offline-class', 'stt-400-noprompt',
   'sec-unavailable', 'sec-basic-text', 'sec-reencrypt', 'sec-key-re',
   'cl-strip-prefix', 'cl-strip-case', 'cl-auth-gate', 'cl-no-bare', 'cl-no-persist', 'cl-safe-mode', 'cl-old-version', 'cl-tools-off', 'cl-stdin-cap', 'cl-limit-class', 'cl-reset-at', 'cl-timeout-kill', 'cl-cmd-only', 'cl-cwd',
@@ -184,6 +184,13 @@ test('G3: 0.7.0 U-1・U-2 の変異が一覧にそろう（第1d回 A-3 で外�
 const IDS_1D_RETIRED = ['stt-auth-only', 'stt-https-only', 'stt-preset-fixed', 'stt-403-auth', 'ui-key-cleared',
   'lf-key-invalid', 'lf-key-scope-retry', 'lf-key-scope-only', 'lf-key-quota', 'lf-key-scope-msg', 'lf-key-silent', 'lf-key-no-hint', 'lf-key-waitcap',
   'lf-key-ratelong', 'lf-key-msg-main', 'lf-ui-key-msg', 'u1-key-openai-only', 'u1-ui-no-provider', 'u1-status-openai-only'];
+// 0.10.0 LS-1（D59。要約はオフラインモードの会議も Claude Code。設計書の C10 を要約について取り消した）で、直しそのものが無くなったので外した変異
+const GONE_LS1 = ['on-summary-localonly'];
+test('G3: 0.10.0 LS-1 で外した変異（オフラインモードの会議の要約を手元へ回す）は一覧に無い', { timeout: 5000 }, () => {
+  const ids = new Set(MUTANTS.map((m) => m.id));
+  assert.deepStrictEqual(GONE_LS1.filter((id) => ids.has(id)), []);
+});
+
 test('G3: 第1d回 A-4 で外した変異（PC から直に送る道・鍵の確かめ・鍵の欄と IPC）は一覧に無い', { timeout: 5000 }, () => {
   const ids = new Set(MUTANTS.map((m) => m.id));
   assert.deepStrictEqual(IDS_1D_RETIRED.filter((id) => ids.has(id)), []);
@@ -594,6 +601,7 @@ const IDS_100 = [
   'stl-by',
   'stl-line',
   'mcp-probe-stdout',
+  'ls-route-local', 'ls-lock-empty', 'ls-lock-none', 'ls-unlock-made',
 ];
 test('G3: 0.10.0 の変異が一覧にそろい、IDS_100 はどれも計画の「変異確認」の表にある。mcp-・cfg-・lk-・ls-・stl-・nl-・pt- の変異は IDS_100 にある。どれも決まったテストのファイルを持ち、なぜ戻すと困るかを書く', { timeout: 5000 }, () => {
   const byId = new Map(MUTANTS.map((m) => [m.id, m]));

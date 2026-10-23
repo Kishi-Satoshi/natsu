@@ -5291,7 +5291,8 @@ async function doRunSummary(pageId) {
   // 要約の経路を1回決める（第1c回 OL5・D1）。［この会議は PC の中だけ］のページは届くかを確かめずに手元（C10。
   // 文字起こしの文も PC の外へ出さない）。届けば利用者の Claude Code、届かなければ今までどおり手元の llama
   const localOnly = Boolean(page.route && page.route.localOnly);
-  const route = (await decideSummary({ localOnly, up: () => online.isUp(ANTHROPIC_REACH) })).route;
+  // 0.10.0 LS-1: decideSummary は claude-code か wait だけになった。手元の分かれ道は LS-2 で外すまで今のまま（オフラインモードと wait は local）
+  const route = localOnly ? 'local' : ((await decideSummary({ up: () => online.isUp(ANTHROPIC_REACH) })).route === 'claude-code' ? 'claude-code' : 'local');
   if (route === 'local' && !engineValid(sumEng) && !isOfflineChosen()) {
     // 第1d2回 M-3（D21）: 準備を選んでいない PC は、PC の中だけなら S1、そうでなければ S2（「未設定」の語を使わない: 画面が設定へ連れて行く）
     const err = localOnly ? KEPT_SUMMARY_TEXT.local : KEPT_SUMMARY_TEXT.offline;

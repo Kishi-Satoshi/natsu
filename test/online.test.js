@@ -154,10 +154,10 @@ test('RL11: 経路は印 → ログイン → hold → 届くか。ログイン�
   assert.deepStrictEqual(await D({ hold: undefined, up: up(UP) }), { route: 'cloud', why: 'ok' });
 });
 
-test('D1・C10: 要約は、届けば Claude Code、届かなければ手元。［PC の中だけ］のページは届くかを確かめずに手元', T, async () => {
+// 0.10.0 LS-1（D59）で意図して変えた: 要約は、届けば Claude Code、届かなければ要約待ち（手元の llama へは行かない）。
+// オフラインモードの会議も同じ（印を見ずに届くかを確かめる）
+test('D1・D59: 要約は、届けば Claude Code、届かなければ要約待ち（wait）。オフラインモードのページも同じ', T, async () => {
   assert.deepStrictEqual(await O.decideSummary({ up: async () => ({ up: true, why: 'ok' }) }), { route: 'claude-code', why: 'ok' });
-  assert.deepStrictEqual(await O.decideSummary({ up: async () => ({ up: false, why: 'offline' }) }), { route: 'local', why: 'offline' });
-  let asked = 0;
-  assert.deepStrictEqual(await O.decideSummary({ localOnly: true, up: async () => { asked += 1; return { up: true, why: 'ok' }; } }), { route: 'local', why: 'local-only' });
-  assert.strictEqual(asked, 0, '［PC の中だけ］なのに届くかを確かめた');
+  assert.deepStrictEqual(await O.decideSummary({ up: async () => ({ up: false, why: 'offline' }) }), { route: 'wait', why: 'offline' });
+  assert.deepStrictEqual(await O.decideSummary({ localOnly: true, up: async () => ({ up: true, why: 'ok' }) }), { route: 'claude-code', why: 'ok' });
 });

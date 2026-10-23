@@ -919,12 +919,46 @@ function startSegmentMode({ localOnly, signedIn, hold, netOnline, peekUp } = {})
 // ---------------------------------------------------------------- オフラインの準備を任意にする（第1d2回 M-1・D21・OF1）
 // 要約の欄の文（第1d2回 M-3。計画「画面と知らせの文」の S1〜S3'）。local・offline は準備を選んでいない PC で手元の LLM が無いとき
 // （PC の中だけの会議・Claude Code に届かない）。wait・waitLocal は締めたときに文字起こし待ちの区間がある会議（済んだら自動で要約する）
+// 0.10.0 LS-1（D59・決めたこと 103・110）: 要約は Claude Code だけ。届かなければ要約待ち（summaryWait と下の一文）。
+const SUMMARY_WAIT_TEXT = '要約待ち（つながったら作ります）';
+// 要約の欄の文（第1d2回 M-3 の S1〜S3'）。0.10.0 で「要約も PC の中」「ローカル AI の準備」を書かない形に直した（決めたこと 110）。
+// local と offline は要約待ちの一文（LS-2 で local の使い手を外す）。文字起こし待ちの wait はそのまま
 const KEPT_SUMMARY_TEXT = {
-  local: 'この会議はオフラインモードのため、要約も PC の中で作ります。ローカル AI の準備をしていないので、要約は作りませんでした。設定の「ローカル AI」で準備すると、［要約を生成］で作れます。',
-  offline: '要約の送り先（Claude Code）につながらないため、要約を作りませんでした。インターネットにつながってから［要約を生成］を押してください。',
+  local: SUMMARY_WAIT_TEXT,
+  offline: SUMMARY_WAIT_TEXT,
   wait: '文字起こし待ちの音声があります。文字起こしが済むと、自動で要約を作ります。',
-  waitLocal: 'この会議はオフラインモードです。文字起こし待ちの音声があります。ローカル AI の準備が済んで文字起こしが済むと、自動で要約を作ります。',
+  waitLocal: 'この会議はオフラインモードです。文字起こし待ちの音声があります。文字起こしが済んでつながると、自動で要約を作ります。',
 };
+// 要約待ちのページを1つ選ぶ（決めたこと 104。D63 で「直した要約」の見分けは無くした）: summaryWait が真で tried に無いページの、
+// 作った時刻の古い順の先頭の ID か null。ゴミ箱のページは呼び手が渡さない。受けた物を変えない
+function summaryRetryPick(pages, { tried } = {}) {
+  if (!Array.isArray(pages)) return null;
+  const skip = tried instanceof Set ? tried : new Set();
+  const cands = pages.filter((p) => p && typeof p === 'object' && p.summaryWait === true && typeof p.id === 'string' && !skip.has(p.id));
+  if (!cands.length) return null;
+  const at = (p) => { const t = Date.parse(p.createdAt); return Number.isFinite(t) ? t : Infinity; };
+  return cands.slice().sort((a, b) => at(a) - at(b))[0].id;
+}
+// 要約の欄の鍵（D63・D69・決めたこと 111）。上から順に見て、最初に当たった行の符号（鍵なしは ''）。
+// 画面の写しは app.html の summaryLockView（repo が同じ表を両方に当てる）。DB のプロセスは making を知らないので live と making を渡さない
+const SUMMARY_LOCK_TEXT = Object.freeze({
+  live: '録音中は要約を直せません。書きたいことはメモに書いてください。',
+  making: '要約を作っています。',
+  wait: `${SUMMARY_WAIT_TEXT}。要約ができるまでは直せません。書きたいことはメモに書いてください。`,
+  empty: '文字起こしが無いので、要約は作れません。書きたいことはメモに書いてください。',
+  none: '［要約を生成］で要約を作ると、直せるようになります。書きたいことはメモに書いてください。',
+});
+function summaryLock(page, { live = false, making = false, segments = [] } = {}) {
+  const p = page && typeof page === 'object' && !Array.isArray(page) ? page : {};
+  if (live) return 'live';
+  if (making) return 'making';
+  if (p.summaryWait === true) return 'wait';
+  const made = p.route && typeof p.route === 'object' && p.route.summary && typeof p.route.summary === 'object' && p.route.summary.at;
+  if (made || (Array.isArray(p.blocks) && p.blocks.length > 0)) return '';
+  if (typeof p.summaryError === 'string' && p.summaryError) return '';
+  const said = Array.isArray(segments) && segments.some((x) => x && !x.failed && typeof x.text === 'string' && x.text.trim());
+  return said ? 'none' : 'empty';
+}
 const LOGIN_WHYS = ['signed-out', 'login'];   // ログインしていない・切れた
 // 準備を選んでいない PC で音声を残している帯の符号（第1d2回 M-2。B14・B13・B12・B11）。Windows の知らせにはしない（WIN_NOTIFY_CODES は変えない）
 const KEPT_CODES = ['kept-local', 'kept-login', 'kept-relay', 'kept-wait'];
@@ -2084,6 +2118,7 @@ module.exports = {
   nextSegmentMs, EtaTracker, skipPendingSegments, SKIP_KEPT_TEXT,
   ONLINE_SEGMENT_SEC, OVERLAY_SEG_MIN_MS, SEG_SWITCH_AFTER, STICKY_LOCAL, startSegmentMode, segmentModeNext, segmentBaseMs, liveSegmentMs, nextLiveSegmentMs,
   cloudLikely, offlineChosen, DICTATION_REFUSE_TEXT, startPlan, dictationPlan, KEPT_CODES, keptCodeFor, KEPT_SUMMARY_TEXT,
+  SUMMARY_WAIT_TEXT, summaryRetryPick, SUMMARY_LOCK_TEXT, summaryLock,
   STALL_SPAN_MS, STALL_MIN_DBFS, stallAfter, stallStep, PROBLEM_ORDER, sttProblemOf, problemForRoute,
   WIN_NOTIFY_CODES, WIN_NOTIFY_GAP_MS, notifyGate,
   OFFLINE_SHOW_MS, OFFLINE_CLEAR_MS, offlineBannerStep,
