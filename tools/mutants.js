@@ -2026,4 +2026,7 @@ module.exports = [
   {"id": "hd-relay-openai", "file": "help/articles/record/pc-only.md", "from": "音声を中継から OpenAI へ送りたくないときは", "to": "音声を中継（OpenAI）へ送りたくないときは", "tests": ["test/help-content.test.js"], "pattern": "指摘 7", "why": "help-dads HD-9 再審査の指摘 7: 中継の説明（OpenAI へ取り次ぐ NaTsu のサーバー）の後に「中継（OpenAI）」と書き、中継＝OpenAI と読める"},
   // help-dads 独立した再審査の指摘 8（/open の文）
   {"id": "hd-open-done", "file": "help/assets/open.js", "from": "var DONE = 'NaTsu で開いています。開かないときは［NaTsu で開く］を押してください。';", "to": "var DONE = 'NaTsu で開きました。このタブは閉じてかまいません。';", "tests": ["test/stage100.open.test.js"], "pattern": "指摘 8", "why": "help-dads HD-9 再審査の指摘 8: /open のページが、ブラウザーが natsu:// を止めたときも「開きました」と言い切る（同じ画面に［NaTsu で開く］も出て食い違う）"},
+  // help-dads 3回目の審査の指摘 1（狭い画面の目次の Tab の順）
+  {"id": "hd-toc-move", "file": "help/assets/site.js", "from": "if (mq.matches) box.insertBefore(toc, btn.nextSibling);", "to": "if (false) box.insertBefore(toc, btn.nextSibling);", "tests": ["test/help-build.test.js"], "pattern": "3回目の指摘 1", "why": "help-dads HD-10 3回目の指摘 1: 狭い画面で開いた目次を Tab が飛ばし、本文のリンクを全部通ってから目次に着く（WCAG 2.4.3）"},
+  {"id": "hd-toc-back", "file": "help/assets/site.js", "from": "    if (mq.addEventListener) mq.addEventListener('change', place);\n", "to": "", "tests": ["test/help-build.test.js"], "pattern": "3回目の指摘 1", "why": "help-dads HD-10 3回目の指摘 1: 窓を広げても目次が本文の前に残り、1280px の Tab の順（Q12）が変わる"},
 ];

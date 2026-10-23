@@ -568,6 +568,40 @@ test('再審査の指摘 5: site.js は横に送れる表の領域にだけ tabi
   assert.ok(!/\.style\b|setAttribute\(['"]style/.test(js), 'site.js が style を書く');
 });
 
+// 3回目の審査の指摘 1（WCAG 2.4.3。持ち主の答え B）: 狭い画面では目次が［目次］のすぐ下に開くのに、HTML では本文の後ろにあるので Tab が目次を飛ばした。
+// 狭い間（CSS の order と同じ (max-width: 639px)）だけ、site.js が目次の nav を DOM で［目次］の直後へ移し、広くなれば本文の後ろへ戻す（1280px の Tab の順は Q12 のまま）
+test('3回目の指摘 1: site.js は狭い画面（matchMedia の (max-width: 639px)）の間だけ目次を［目次］の直後へ移し、広くなれば本文の後ろ（元の場所）へ戻す。matchMedia が無ければ動かさない。CSS の order の切り替えも同じ幅', { timeout: 5000 }, (t) => {
+  const vm = require('node:vm');
+  const { parseHTML } = require('./helpers/simdom');
+  const { html } = buildFixture(t);
+  const run = (narrow) => {
+    const { root } = parseHTML(html('start/steps/index.html'));
+    const media = [];
+    const document = { documentElement: root.querySelector('html'), querySelector: (q) => root.querySelector(q), querySelectorAll: (q) => root.querySelectorAll(q), getElementById: (id) => root.querySelector(`#${id}`) };
+    const window = { addEventListener() {} };
+    if (narrow !== undefined) window.matchMedia = (q) => { const m = { media: q, matches: narrow, fns: [], addEventListener: (ty, fn) => { if (ty === 'change') m.fns.push(fn); } }; media.push(m); return m; };
+    vm.runInContext(fs.readFileSync(path.join(ROOT, 'help', 'assets', 'site.js'), 'utf8'), vm.createContext({ document, window }), { filename: 'site.js' });
+    const layout = root.querySelector('.layout');
+    const order = () => layout.children.map((e) => (e.id || e.className || e.tagName).split(' ')[0]);
+    const flip = (m) => { media[0].matches = m; for (const fn of media[0].fns) fn({ matches: m }); };
+    return { order, flip, media };
+  };
+  const WIDE = ['toc-btn', 'hc-main', 'hc-toc', 'onpage'];
+  const NARROW = ['toc-btn', 'hc-toc', 'hc-main', 'onpage'];
+  const n = run(true);
+  assert.deepStrictEqual(n.media.map((m) => m.media), ['(max-width: 639px)']);
+  assert.deepStrictEqual(n.order(), NARROW, '狭い画面で目次が［目次］の直後に無い');
+  n.flip(false);
+  assert.deepStrictEqual(n.order(), WIDE, '広くなっても目次が本文の後ろへ戻らない（1280px の Tab の順が変わる）');
+  n.flip(true);
+  assert.deepStrictEqual(n.order(), NARROW);
+  assert.deepStrictEqual(run(false).order(), WIDE, '広い画面で目次を動かした');
+  assert.deepStrictEqual(run(undefined).order(), WIDE, 'matchMedia が無いのに動かした');
+  // CSS の見た目の並び（order）を切り替える幅と同じ
+  const rules = C.parse(CSS());
+  assert.strictEqual(C.declsFor(rules, '.js .toc', { at: '@media (max-width: 639px)' }).order, '-1');
+});
+
 // H-11（R7）: 画面の写真は CI の基準にしないが、CSS を変えたら撮り直す。tools/help-shots.js が最後に撮った CSS の指紋を help/shots.json に書く。
 // 指紋はファイルごとの SHA-256 の base64url（改行を LF にそろえてから。Windows の取り出しの CRLF でも同じ。16進の 64 字はゲートが AUD の見かけとして止める）
 test('R7: help/shots.json の CSS の指紋が、今の help/assets/*.css の指紋と同じ（CSS を変えたら node tools/help-shots.js で撮り直す）', { timeout: 5000 }, () => {
