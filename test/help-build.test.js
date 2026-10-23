@@ -636,6 +636,47 @@ test('3回目の指摘 1: site.js は狭い画面（matchMedia の (max-width: 6
   assert.strictEqual(C.declsFor(rules, '.js .toc', { at: '@media (max-width: 639px)' }).order, '-1');
 });
 
+// 4回目の審査の指摘 2: 目次を DOM で動かすと、ブラウザーは中のフォーカスを外して body に戻す。目次の中にフォーカスがあったら、動かした後にそこへ戻す
+test('4回目の指摘 2: site.js が目次を動かすとき（640px の境をまたぐ）、目次の中にあったフォーカスを動かした後に戻す（preventScroll）。目次の外のフォーカスには触らない', { timeout: 5000 }, (t) => {
+  const vm = require('node:vm');
+  const { parseHTML, Element } = require('./helpers/simdom');
+  const { html } = buildFixture(t);
+  const { root } = parseHTML(html('start/steps/index.html'));
+  const media = [];
+  const focusCalls = [];
+  const document = { documentElement: root.querySelector('html'), querySelector: (q) => root.querySelector(q), querySelectorAll: (q) => root.querySelectorAll(q), getElementById: (id) => root.querySelector(`#${id}`), get activeElement() { return Element.focused || root.querySelector('body'); } };
+  const window = { addEventListener() {}, matchMedia: (q) => { const m = { media: q, matches: true, fns: [], addEventListener: (ty, fn) => { if (ty === 'change') m.fns.push(fn); } }; media.push(m); return m; } };
+  const layout = root.querySelector('.layout');
+  // 本物のブラウザーと同じく、動かした要素の中にフォーカスがあれば外す
+  const insert = layout.insertBefore.bind(layout);
+  layout.insertBefore = (n, ref) => {
+    let f = Element.focused;
+    while (f && f !== n) f = f.parentNode;
+    if (f === n) Element.focused = null;
+    return insert(n, ref);
+  };
+  vm.runInContext(fs.readFileSync(path.join(ROOT, 'help', 'assets', 'site.js'), 'utf8'), vm.createContext({ document, window }), { filename: 'site.js' });
+  const flip = (m) => { media[0].matches = m; for (const fn of media[0].fns) fn({ matches: m }); };
+  const link = root.querySelector('#hc-toc li a');
+  const orig = link.focus.bind(link);
+  link.focus = (opt) => { focusCalls.push(JSON.stringify(opt)); orig(); };
+  link.focus();
+  focusCalls.length = 0;
+  flip(false);
+  assert.strictEqual(Element.focused, link, '広くなって目次を動かしたら、目次の中のフォーカスが外れた');
+  assert.deepStrictEqual(focusCalls, [JSON.stringify({ preventScroll: true })]);
+  flip(true);
+  assert.strictEqual(Element.focused, link, '狭くなって目次を動かしたら、目次の中のフォーカスが外れた');
+  // 目次の外（本文のリンク）にあるフォーカスには触らない
+  const out = root.querySelector('main a');
+  out.focus();
+  focusCalls.length = 0;
+  flip(false);
+  assert.strictEqual(Element.focused, out);
+  assert.deepStrictEqual(focusCalls, []);
+  Element.focused = null;
+});
+
 // H-11（R7）: 画面の写真は CI の基準にしないが、CSS を変えたら撮り直す。tools/help-shots.js が最後に撮った CSS の指紋を help/shots.json に書く。
 // 指紋はファイルごとの SHA-256 の base64url（改行を LF にそろえてから。Windows の取り出しの CRLF でも同じ。16進の 64 字はゲートが AUD の見かけとして止める）
 test('R7: help/shots.json の CSS の指紋が、今の help/assets/*.css の指紋と同じ（CSS を変えたら node tools/help-shots.js で撮り直す）', { timeout: 5000 }, () => {
