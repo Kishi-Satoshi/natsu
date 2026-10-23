@@ -209,6 +209,22 @@
     font: inherit; font-size: 12px; padding: 0 8px; border-radius: 6px; cursor: pointer; }
   .chip:hover { background: var(--hover); color: var(--text); }
   .chip.on { background: var(--tint); color: var(--text); font-weight: 500; }
+  /* 0.10.0 L-2（D70）: 見出し「議事録」の行の右の［選ぶ］。見出しの行（高さ 30px）に重ね、下の一覧の位置は変えない
+     （上の余白 -26px・高さ 22px・下の余白 3px・間 1px で、前と同じ 30px + 1px） */
+  .list-sel { align-self: flex-end; flex: none; position: relative; height: 22px; margin: -26px 4px 3px 0; padding: 0 8px; border: none; border-radius: 6px;
+    background: transparent; color: var(--muted); font: inherit; font-size: 12px; cursor: pointer; }
+  .list-sel:hover { background: var(--hover); color: var(--text); }
+  .list-sel[aria-pressed="true"] { background: var(--tint); color: var(--text); font-weight: 500; }
+  .list-sel[hidden], .selbar[hidden] { display: none; }
+  /* 選んでいる間の頭の枠（「{数} 件を選んでいます」と［リンクを写す］［やめる］） */
+  .selbar { flex: none; display: flex; align-items: center; flex-wrap: wrap; gap: 6px; padding: 6px 8px; margin: 2px 0 4px;
+    border: 1px solid var(--line); border-radius: 6px; background: var(--bg); font-size: 12px; }
+  .selbar #selCount { flex: 1 0 100%; color: var(--text-2); }
+  .selbar button { height: 26px; font-size: 12px; padding: 0 10px; }
+  /* 行の頭のチェックボックス（16px。🎙️ の代わり。行の高さ 30px は変えない）。地は --accent、印は --on-accent */
+  .pchk { flex: none; width: 16px; height: 16px; margin: 0 2px; border: 1.5px solid var(--muted); border-radius: 4px; display: inline-flex; align-items: center; justify-content: center; }
+  .pchk[aria-checked="true"] { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+  .pchk[aria-checked="true"]::after { content: ''; width: 8px; height: 4px; border: solid var(--on-accent); border-width: 0 0 2px 2px; transform: translate(0, -1px) rotate(-45deg); }
   .plist { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 1px; min-height: 0; }
   /* 選んでいるページは灰色の地（第1b2回 L-1。左の線と青はやめた）。ホバーと地の差がほとんど無いので、文字の色と太さでも分ける */
   .pitem { background: transparent; border: none; border-radius: 6px;
@@ -761,6 +777,13 @@
       <button class="side-row" id="mtDiscardBtn" style="display:none"><span class="ic">🗑️</span>破棄</button>
     </div>
     <button id="tabBtnNotes" class="active">議事録</button>
+    <!-- 0.10.0 L-2（D58・D70・決めたこと 101）: 見出し「議事録」の行の右の小さな［選ぶ］（見出しの行に重ね、一覧の位置は変えない）と、1件以上選んでいる間の頭の枠 -->
+    <button id="listSelect" class="list-sel" type="button" aria-pressed="false" hidden>選ぶ</button>
+    <div class="selbar" id="selBar" hidden>
+      <span id="selCount" role="status"></span>
+      <button class="action" id="selCopy" type="button">リンクを写す</button>
+      <button class="ghost" id="selCancel" type="button">やめる</button>
+    </div>
     <div class="plist" id="plist" role="listbox" aria-label="議事録の一覧"></div>
     <button id="tabBtnDictation" class="side-row"><span class="ic">🎤</span>音声入力</button>
     <button id="tabBtnSettings" class="side-row"><span class="ic">⚙️</span>設定</button>
@@ -2217,6 +2240,11 @@
   let palOpen = false;  // 検索の窓が開いているか（hidden を読まない: 偽 DOM によっては hidden がいつも false）
   async function refreshList() {
     pages = await window.koeApp.pagesSearch('');
+    // 0.10.0 L-2: 一覧に無くなった行の選びを外す。一覧が空なら［選ぶ］を出さない（選ぶ形も終える）
+    $('listSelect').hidden = pages.length === 0;
+    if (!pages.length && listSel.on) listSel = selStep(listSel, { type: 'toggleMode' }, []);
+    listSel = selStep(listSel, { type: 'keep', ids: listOrder() }, listOrder());
+    syncListSel();
     renderList();
     if (palOpen) await refreshResults();
   }
@@ -2351,14 +2379,87 @@
     for (const p of pages) {
       const el = document.createElement('div');
       el.className = 'pitem' + (p.id === curId ? ' sel' : '');
-      const ic = document.createElement('span'); ic.className = 'pi'; ic.textContent = '🎙️';
+      el.dataset.pid = p.id;
+      let ic;
+      if (listSel.on) {
+        // 0.10.0 L-2: 選ぶ形の間は 🎙️ の代わりにチェックボックス。押すと付け外し（ページは開かない）
+        ic = document.createElement('span'); ic.className = 'pchk'; ic.setAttribute('role', 'checkbox');
+        ic.setAttribute('aria-checked', listSel.ids.includes(p.id) ? 'true' : 'false');
+      } else { ic = document.createElement('span'); ic.className = 'pi'; ic.textContent = '🎙️'; }
       const t = document.createElement('span'); t.className = 't'; t.textContent = p.title;
       el.append(ic, t);
       el.setAttribute('title', rowTitle(p));
-      asOption(el, p.id === curId, (ev) => openFromList(p.id, ev));
+      asOption(el, p.id === curId, (ev) => (listSel.on ? pickRow(p.id, ev) : openFromList(p.id, ev)));
       box.appendChild(el);
     }
   }
+  // ---------------- 0.10.0 L-2（D58・D70・決めたこと 101）: 一覧で選んでリンクを写す ----------------
+  // 選びの決まりは DOM に頼らない純粋な selStep・selLines（後のデータベースの表でも使う。test/repo.test.js が字面で取り出して当てる）。
+  // sel = { on, ids（選んだ順）, anchor }。ev は { type: 'toggleMode' }・{ type: 'click', id, shift }・{ type: 'clear' }・{ type: 'keep', ids }。
+  // order は今の表示の ID の並び。受けた物は変えない
+  function selStep(sel, ev, order) {
+    const cur = { on: Boolean(sel && sel.on), ids: Array.isArray(sel && sel.ids) ? [...sel.ids] : [], anchor: typeof (sel && sel.anchor) === 'string' ? sel.anchor : '' };
+    const ord = Array.isArray(order) ? order : [];
+    const type = ev && ev.type;
+    if (type === 'toggleMode') return { on: !cur.on, ids: [], anchor: '' };
+    if (type === 'clear') return { on: cur.on, ids: [], anchor: '' };
+    if (type === 'keep') {
+      const keep = new Set(Array.isArray(ev.ids) ? ev.ids : []);
+      return { on: cur.on, ids: cur.ids.filter((x) => keep.has(x)), anchor: keep.has(cur.anchor) ? cur.anchor : '' };
+    }
+    if (type !== 'click' || !cur.on || !ord.includes(ev.id)) return cur;
+    const want = !cur.ids.includes(ev.id);   // 押した行の向き（付けるか外すか）に範囲をそろえる
+    const ranged = Boolean(ev.shift) && ord.includes(cur.anchor);
+    let range = [ev.id];
+    if (ranged) {
+      const a = ord.indexOf(cur.anchor), b = ord.indexOf(ev.id);
+      range = ord.slice(Math.min(a, b), Math.max(a, b) + 1);
+    }
+    let ids = cur.ids.filter((x) => want || !range.includes(x));
+    if (want) for (const x of range) if (!ids.includes(x)) ids = [...ids, x];
+    return { on: true, ids, anchor: ranged ? cur.anchor : ev.id };
+  }
+  const SEL_MAX = 50;   // 一度に写す行の上限（越えたら 50 件まで写す）
+  // 写す行（並びは order。選んだ ID だけ。pages は一覧の行（id・title・date）、base は住所の頭、max 件まで）→ { lines, truncated }
+  function selLines(order, sel, pages, base, max = 50) {
+    const chosen = new Set(sel && Array.isArray(sel.ids) ? sel.ids : []);
+    const byId = new Map((pages || []).map((p) => [p.id, p]));
+    const all = (order || []).filter((id) => chosen.has(id) && byId.has(id));
+    return { lines: all.slice(0, max).map((id) => pageRefLine(byId.get(id), base)), truncated: all.length > max };
+  }
+  let listSel = { on: false, ids: [], anchor: '' };
+  const listOrder = () => pages.map((p) => p.id);
+  // 選びの見た目（［選ぶ］の押した形・頭の枠の数）。行は renderList が描く
+  function syncListSel() {
+    $('listSelect').setAttribute('aria-pressed', listSel.on ? 'true' : 'false');
+    const n = listSel.ids.length;
+    $('selBar').hidden = !(listSel.on && n > 0);
+    $('selCount').textContent = n > 0 ? `${n} 件を選んでいます` : '';
+  }
+  function setListSel(next) {
+    listSel = next;
+    syncListSel();
+    renderList();
+  }
+  function pickRow(id, ev) {
+    setListSel(selStep(listSel, { type: 'click', id, shift: Boolean(ev && ev.shiftKey) }, listOrder()));
+  }
+  $('listSelect').onclick = () => setListSel(selStep(listSel, { type: 'toggleMode' }, listOrder()));
+  $('selCancel').onclick = () => setListSel(selStep(listSel, { type: 'toggleMode' }, listOrder()));
+  $('selCopy').onclick = async () => {
+    const base = await linkBaseNow();
+    if (!base) { toast('リンクを写せませんでした。'); return; }
+    const r = selLines(listOrder(), listSel, pages, base, SEL_MAX);
+    if (!r.lines.length) return;
+    await window.koeApp.copy(r.lines.join('\n'));
+    toast(r.truncated ? `${SEL_MAX} 件まで写しました。` : `${r.lines.length} 件のリンクを写しました。`);
+  };
+  // Esc で選ぶ形を終える（検索の窓・設定・ほかの部品が先に使った Esc は除く）
+  document.addEventListener('keydown', (ev) => {
+    if (!listSel.on || ev.key !== 'Escape' || imeEnter(ev) || palOpen || settingsOpen() || ev.defaultPrevented) return;
+    ev.preventDefault();
+    setListSel(selStep(listSel, { type: 'toggleMode' }, listOrder()));
+  });
 
   // 検索の窓の結果は2行（🎙️・題名、灰色の日付・長さ・要約なし・タイプ）と抜粋
   function renderResults() {

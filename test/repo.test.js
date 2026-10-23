@@ -1421,3 +1421,57 @@ test('0.10.0 L-1: app:link-base は main.js の HELP_URL の open#p=（https の
   assert.match(appHtml, /const isLinkBase = \(b\) => typeof b === 'string' && \/\^https:/);
   assert.ok(!/natsu-help/.test(appHtml), '画面に住所を書いた');
 });
+
+// 0.10.0 L-2（D70・決めたこと 101）: 一覧の選びの決まり（純粋。後のデータベースの表でも使う）を app.html から字面で取り出して当てる
+const fnFromApp = (name) => {
+  const at = appHtml.indexOf(`  function ${name}(`);
+  assert.ok(at > 0, `app.html に ${name} が無い`);
+  return appHtml.slice(at, appHtml.indexOf('\n  }\n', at) + 4);
+};
+test('0.10.0 L-2 D70: selStep の表（toggleMode・click・shift の範囲・clear・keep・受けた物を変えない）と selLines（order の並び・50 件まで）', () => {
+  const { selStep, selLines } = new Function(`${fnFromApp('pageRefLine')}\n${fnFromApp('selStep')}\n${fnFromApp('selLines')}\nreturn { selStep, selLines };`)();   // eslint-disable-line no-new-func
+  const order = ['a', 'b', 'c', 'd'];
+  const off = { on: false, ids: [], anchor: '' };
+  const on = selStep(off, { type: 'toggleMode' }, order);
+  assert.deepStrictEqual(on, { on: true, ids: [], anchor: '' });
+  assert.deepStrictEqual(selStep({ on: true, ids: ['a'], anchor: 'a' }, { type: 'toggleMode' }, order), { on: false, ids: [], anchor: '' });
+  // on でない click は何もしない（ページを開く側）
+  assert.deepStrictEqual(selStep(off, { type: 'click', id: 'a' }, order), off);
+  const s1 = selStep(on, { type: 'click', id: 'c' }, order);
+  assert.deepStrictEqual(s1, { on: true, ids: ['c'], anchor: 'c' });
+  const s2 = selStep(s1, { type: 'click', id: 'a' }, order);
+  assert.deepStrictEqual(s2.ids, ['c', 'a'], '選んだ順のまま持つ（並べるのは selLines）');
+  assert.deepStrictEqual(selStep(s2, { type: 'click', id: 'c' }, order).ids, ['a']);
+  // shift: anchor（a）から今の行（d）までを、今の行の向き（付ける）にそろえる。anchor は動かさない
+  const s3 = selStep(s2, { type: 'click', id: 'd', shift: true }, order);
+  assert.deepStrictEqual([[...s3.ids].sort(), s3.anchor], [['a', 'b', 'c', 'd'], 'a']);
+  // 上向き・外す向き
+  const s4 = selStep({ on: true, ids: ['a', 'b', 'c', 'd'], anchor: 'd' }, { type: 'click', id: 'b', shift: true }, order);
+  assert.deepStrictEqual(s4.ids, ['a']);
+  // anchor が order に無ければ今の行だけ
+  assert.deepStrictEqual(selStep({ on: true, ids: [], anchor: 'zz' }, { type: 'click', id: 'c', shift: true }, order).ids, ['c']);
+  // order に無い行の click は何もしない
+  assert.deepStrictEqual(selStep(s1, { type: 'click', id: 'zz' }, order), s1);
+  assert.deepStrictEqual(selStep(s2, { type: 'clear' }, order), { on: true, ids: [], anchor: '' });
+  assert.deepStrictEqual(selStep({ on: true, ids: ['a', 'x', 'c'], anchor: 'x' }, { type: 'keep', ids: ['a', 'b', 'c'] }, order), { on: true, ids: ['a', 'c'], anchor: '' });
+  // 受けた物を変えない
+  const frozen = { on: true, ids: ['a'], anchor: 'a' };
+  const before = JSON.stringify(frozen);
+  for (const ev of [{ type: 'click', id: 'b' }, { type: 'click', id: 'd', shift: true }, { type: 'keep', ids: [] }, { type: 'clear' }, { type: 'toggleMode' }]) selStep(frozen, ev, order);
+  assert.strictEqual(JSON.stringify(frozen), before);
+  // selLines: order の並びで、選んだ ID だけ、50 件まで
+  const pages = order.map((id, i) => ({ id, title: `t${i}`, date: '2026-10-01' }));   // 利用者が付け直した題名（D77。行の並びだけを見る）
+  const base = 'https://example.invalid/open#p=';
+  assert.deepStrictEqual(selLines(order, { on: true, ids: ['d', 'a'], anchor: 'a' }, pages, base), {
+    lines: [`NaTsu の議事録「t0」（2026-10-01）${base}a`, `NaTsu の議事録「t3」（2026-10-01）${base}d`], truncated: false });
+  const big = Array.from({ length: 51 }, (_, i) => `p${i}`);
+  const r = selLines(big, { on: true, ids: [...big].reverse(), anchor: '' }, big.map((id) => ({ id, title: id, date: '2026-10-01' })), base);   // 利用者が付け直した題名（D77。数だけを見る）
+  assert.deepStrictEqual([r.lines.length, r.truncated, r.lines[0].endsWith('p0'), r.lines[49].endsWith('p49')], [50, true, true, true]);
+});
+
+// 0.10.0 L-2（D74）: 一覧の枠のボタンは［リンクを写す］（前の案の［Claude に渡す］の名前にしない。写した物は Claude だけでなく、後のチームの共有でも使う）
+test('0.10.0 L-2 D74: app.html の画面の文に「Claude に渡す」が無く、選んでいる間の枠のボタンは［リンクを写す］［やめる］', () => {
+  assert.ok(!appHtml.includes('Claude に渡す'));
+  assert.match(appHtml, /<button class="action" id="selCopy" type="button">リンクを写す<\/button>/);
+  assert.match(appHtml, /<button class="ghost" id="selCancel" type="button">やめる<\/button>/);
+});

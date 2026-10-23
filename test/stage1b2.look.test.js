@@ -45,7 +45,8 @@ test('1b2 L-1・G8: 海の色（--level）はロゴの波と録音中の点だ�
 });
 
 test('1b2 L-1・G8: 青（--accent）は主ボタン・フォーカスの輪と入力中の枠・入った印・進み具合・落とし先の線・当たった区間・更新の点だけ', () => {
-  const OK = /^(button\.action|#updBadge (button\.go|\.dot))|:focus|\.check input:checked|\.blk\.dropmark|\.seg\.(hit|editing)|\.atag-edit|#engineFetchBar/;
+  // 0.10.0 L-2（D70）で意図して足した: 一覧のチェックボックスの入った印（.pchk[aria-checked="true"]。「入った印」の1つ）
+  const OK = /^(button\.action|#updBadge (button\.go|\.dot))|:focus|\.check input:checked|\.pchk\[aria-checked="true"\]|\.blk\.dropmark|\.seg\.(hit|editing)|\.atag-edit|#engineFetchBar/;
   for (const r of rules) {
     if (r.sel.startsWith(':root')) continue;
     for (const [k, v] of Object.entries(r.decls)) {

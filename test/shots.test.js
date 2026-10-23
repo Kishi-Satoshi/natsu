@@ -92,8 +92,10 @@ const C3_100 = ['settings-summary-light', 'settings-info-claude-light', 'setting
 // 0.10.0 で足した画面（取り直し待ちの間は基準が無くてよい。版を上げる commit で基準にして空に戻す）
 // L-1（D58）: ページの「···」のメニューを開いた形（［リンクを写す］）
 const L1_100 = ['page-menu-link-light', 'page-menu-link-dark'];
-const NEW_100 = ['settings-mcp-light', 'settings-info-mcp-light', ...L1_100];
-const RETAKE_100 = [...SH1_100, ...C3_100, ...L1_100];
+// L-2（D58・D70）: 左の一覧の［選ぶ］で2件を選んだ形（ほかの本体の画面に出る見出しの行の［選ぶ］は、SH-1 の表の画面に入っている）
+const L2_100 = ['list-select-light', 'list-select-dark'];
+const NEW_100 = ['settings-mcp-light', 'settings-info-mcp-light', ...L1_100, ...L2_100];
+const RETAKE_100 = [...SH1_100, ...C3_100, ...L1_100, ...L2_100];
 const img = (w, h, fill = [255, 255, 255, 255]) => ({ width: w, height: h, data: Buffer.from(Array.from({ length: w * h }, () => fill).flat()) });
 // 一時フォルダ（日本語と 𠮷 の名前。RF1 と同じ形）。テストの終わりに消す
 const tmp = (t, name) => {
@@ -126,7 +128,7 @@ test('G2: 撮る画面は決まった並び（第1b回の 13 と第1b2回の検�
     // 0.9.4 S-8 で意図して変えた: 遅い会議の帯と区間（明暗・200%）を足した（取り直し待ち・まだ基準が無い）
     ...S8_APP_094,
     // 0.10.0 C-3 で意図して変えた: カード「Claude との連携（MCP）」まで捲った形と、その吹き出しを開いた形を足した（取り直し待ち・まだ基準が無い）。
-    // L-1 で意図して変えた: ページのメニューを開いた明暗の2枚を足した
+    // L-1 で意図して変えた: ページのメニューを開いた明暗の2枚を足した。L-2 で一覧で2件を選んだ明暗の2枚を足した
     ...NEW_100]);
   assert.deepStrictEqual(SH.SCREENS.filter((s) => s.page === 'overlay').map((s) => s.name), PS.screenNames());
   // 0.9.3 M-7 で意図して変えた: 会議の検出のパネル（page nudge）の5枚を録音バーのあと（いちばん後ろ）に足した
@@ -779,7 +781,9 @@ test('基準の画像（test/shots/win32）は今の app.html で撮ったもの
   // 足した2枚（settings-mcp-light・settings-info-mcp-light）。値を今の app.html に合わせた（前の値は 40052bfc…）
   // 0.10.0 L-1（D58）: ページの「···」のメニューに［リンクを写す］（押したときだけ作る項目と、その <script>）。見える中身が変わるのはメニューを開いた画面
   // （page-menu-link-light・page-menu-link-dark。足して RETAKE に）だけ（ほかの画面はメニューを閉じている）。値を今の app.html に合わせた（前の値は cf1634c0…）
-  assert.strictEqual(sha, 'c33e797eda3d78ff3a1e3fb449e0ec7d5e1fce9c1c71e45bed2a9c43a12fbf64',
+  // 0.10.0 L-2（D58・D70）: 左の一覧の見出し「議事録」の行の右に［選ぶ］（見出しの行に重ね、一覧の位置は変えない）・選んでいる間の頭の枠・行のチェックボックス。
+  // 見える中身が変わるのは左の一覧が写る本体の画面（SH-1 の表で RETAKE にある）と、足した list-select-light・list-select-dark。値を今の app.html に合わせた（前の値は c33e797e…）
+  assert.strictEqual(sha, 'e98ee8b8ac141d1a4a27363baccf5d56b8504adeb78f4994906fe6be794f1014',
     'app.html が基準の画像を撮った時と違う。Windows の CI の画面の比べ（捲り棒のつまみも）を見て、基準を取り直してからこの値を直す');
 });
 

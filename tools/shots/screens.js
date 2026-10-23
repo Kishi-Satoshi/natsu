@@ -64,6 +64,14 @@ const OPEN_PAGE_MENU = `(async () => {
   document.getElementById('pMore').click();
   return 1;
 })()`;
+// 0.10.0 L-2: 左の一覧の［選ぶ］を押し、1行目と3行目を選ぶ（頭の枠「2 件を選んでいます」と［リンクを写す］［やめる］）
+const SELECT_TWO = `(() => {
+  document.getElementById('tabBtnNotes').click();
+  document.getElementById('listSelect').click();
+  const rows = () => document.querySelectorAll('#plist .pitem');
+  rows()[0].click(); rows()[2].click();
+  return 1;
+})()`;
 // 0.9.2 I-4: 設定を開いて項目を選ぶ・ⓘ を真ん中に見えるように捲って押す（押すと吹き出しが開く。最後に押す）
 const OPEN_SETTINGS = "document.getElementById('tabBtnSettings').click()";
 const NAV = (id) => `document.getElementById('${id}').click()`;
@@ -162,6 +170,9 @@ const SCREENS = [
   // 0.10.0 L-1（D58）: ページの「···」のメニューを開いた形（［リンクを写す］）。足した画面（まだ基準が無い）
   { name: 'page-menu-link-light', page: 'app', theme: 'light', act: OPEN_PAGE_MENU },
   { name: 'page-menu-link-dark', page: 'app', theme: 'dark', act: OPEN_PAGE_MENU },
+  // 0.10.0 L-2（D58・D70）: 左の一覧の［選ぶ］で3件のうち2件を選んだ形。足した画面（まだ基準が無い）
+  { name: 'list-select-light', page: 'app', theme: 'light', act: SELECT_TWO },
+  { name: 'list-select-dark', page: 'app', theme: 'dark', act: SELECT_TWO },
 ];
 // 0.9.0 O-3（RP9）: 録音バーの画面（形 → 地 → 拡大率 → 状態の順。撮る道具は形・地・拡大率の組ごとに窓を1つ開いて状態を act で替える）。
 // 録音は始めずに見た目だけを撮る（act は pill-states の見本を録音バーの DOM に当てる。撮るときだけ体の地にデスクトップの色を塗る）。
@@ -244,6 +255,8 @@ const RETAKE = new Set([
   'settings-mcp-light', 'settings-info-mcp-light',
   // L-1（D58）: ページのメニューに［リンクを写す］を足した2枚
   'page-menu-link-light', 'page-menu-link-dark',
+  // L-2（D58・D70）: 左の一覧で2件を選んだ2枚（ほかの本体の画面の見出しの行の［選ぶ］は SH-1 の表の画面に入っている）
+  'list-select-light', 'list-select-dark',
 ]);
 const PERF = [{ name: 'open-2000-blocks', budgetMs: 500 }];   // 3回開いた中央値で見る
 const TIME_ZONE = 'Asia/Tokyo';
