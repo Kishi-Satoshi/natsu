@@ -2014,4 +2014,7 @@ module.exports = [
   {"id": "hd-term-note", "file": "help/articles/record/pc-only.md", "from": "音声は中継（音声を OpenAI へ取り次ぐ会社のサーバー）へ送らず", "to": "音声は中継へ送らず", "tests": ["test/help-content.test.js"], "pattern": "HD-8", "why": "help-dads HD-8 Q8: 記事で最初に出た「中継」に一言が無い（読んでいる場所で意味が分からない）"},
   // help-dads 独立した再審査の指摘 1（検索の結果の入れ子）
   {"id": "hd-search-option", "file": "help/assets/search.js", "from": "li.setAttribute('role', 'none');", "to": "li.setAttribute('role', 'option');", "tests": ["test/help-search.test.js"], "pattern": "再審査の指摘 1", "why": "help-dads HD-9 再審査の指摘 1: 検索の結果の選択肢の中に、選択肢のリンクが入れ子になる（WCAG 4.1.2。読み上げソフトが二重に読む）"},
+  // help-dads 独立した再審査の指摘 2・3（強制カラーの検索の選択・目次の scroll-padding）
+  {"id": "hd-forced-search", "file": "help/assets/help.css", "from": "  .search-results a[aria-selected=\"true\"] { border-left: calc(4 / 16 * 1rem) solid Highlight; outline: calc(2 / 16 * 1rem) solid Highlight; outline-offset: calc(-2 / 16 * 1rem); }\n", "to": "", "tests": ["test/help-build.test.js"], "pattern": "指摘 2", "why": "help-dads HD-9 再審査の指摘 2: 強制カラーで検索の選んだ行がほかの行と同じに見える（Enter でどこへ行くか分からない）"},
+  {"id": "hd-toc-scrollpad", "file": "help/assets/help.css", "from": " scroll-padding-block: calc(6 / 16 * 1rem);", "to": "", "tests": ["test/help-build.test.js"], "pattern": "指摘 2", "why": "help-dads HD-9 再審査の指摘 3: 左の目次を送った後の下の行で輪の下の辺が切れる"},
 ];

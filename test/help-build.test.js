@@ -407,7 +407,7 @@ test('HD-2（HD2・HD5・DF1）: キーボードの輪は DADS の形（黒 4px�
     assert.ok(C.contrast(v('--focus-link-ink'), v('--focus-link-bg')) >= 4.5, `${at || '明るい'}: 黄色の上の文字`);
   }
   // 輪を消す・弱める規則が無い（outline: none・0 と、:focus-visible の外の outline の上書き）
-  for (const r of rules) if (r.decls.outline !== undefined) assert.ok(r.sel.includes(':focus-visible'), `${r.sel} が outline を書く`);
+  for (const r of rules) if (r.decls.outline !== undefined) assert.ok(r.sel.includes(':focus-visible') || r.at === '@media (forced-colors: active)', `${r.sel} が outline を書く`);
 });
 
 test('HD-3（HD4・Q3）: 文字の大きさはどれも rem・em・inherit（px が無い。ブラウザの文字の設定に従う）。body は 1rem。説明・目次・パンくず・このページの内容・検索の箱・メモは 1rem（16px）、補足は .875rem（14px）以上', { timeout: 5000 }, () => {
@@ -442,6 +442,17 @@ test('HD-3（HD4・DF5）: 48rem 未満（@media (max-width: 47.9375rem)）だ�
     if (r.decls['min-height'] === undefined || r.at === NARROW) continue;
     for (const sel of TAP) assert.ok(!r.sel.split(',').map((x) => x.trim()).includes(sel), `${sel} の min-height が 48rem 未満の外にある（${r.at || '基底'}）`);
   }
+});
+
+test('再審査の指摘 2・3: 強制カラー（ハイコントラスト）でも検索の選んだ行が分かる（Highlight の左の線と輪。ほかの行の線は Canvas）。左の目次は送るときに上下 6px 余らせる（scroll-padding-block。送った後の行の輪が切れない: DF4）', { timeout: 5000 }, () => {
+  const rules = C.parse(CSS());
+  const FC = '@media (forced-colors: active)';
+  assert.strictEqual(C.declsFor(rules, '.search-results a', { at: FC })['border-left-color'], 'Canvas');
+  const sel = C.declsFor(rules, '.search-results a[aria-selected="true"]', { at: FC });
+  assert.strictEqual(sel['border-left'], 'calc(4 / 16 * 1rem) solid Highlight');
+  assert.strictEqual(sel.outline, 'calc(2 / 16 * 1rem) solid Highlight');
+  assert.strictEqual(sel['outline-offset'], 'calc(-2 / 16 * 1rem)');
+  assert.strictEqual(C.declsFor(rules, '.toc', { at: '' })['scroll-padding-block'], 'calc(6 / 16 * 1rem)');
 });
 
 test('画面の使いやすさ: 広い画面の左の目次は止まる（sticky）が、窓より高くならずその中で縦に送れる（記事が 26・分類が 8 でも下の分類が切れない）。狭い画面では止めず、高さも切らない', { timeout: 5000 }, () => {

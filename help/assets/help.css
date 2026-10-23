@@ -91,6 +91,11 @@ a:focus-visible { background-color: var(--focus-link-bg) !important; color: var(
   .search-results a:hover { background: var(--wash); color: var(--ink); }
 }
 .search-results a[aria-selected="true"] { background: var(--wash); color: var(--ink); border-left-color: var(--ink); }
+/* 強制カラー（ハイコントラスト）では面の色と透明の線が消えるので、選んだ行を Highlight の線と輪で示す（再審査の指摘 2） */
+@media (forced-colors: active) {
+  .search-results a { border-left-color: Canvas; }
+  .search-results a[aria-selected="true"] { border-left: calc(4 / 16 * 1rem) solid Highlight; outline: calc(2 / 16 * 1rem) solid Highlight; outline-offset: calc(-2 / 16 * 1rem); }
+}
 .search-results .rt { display: block; font-weight: 700; color: var(--ink); }
 .search-results .rc { display: block; font-size: .875rem; color: var(--muted); }
 .search-results .none { padding: 8px 12px; color: var(--muted); font-size: .9rem; }
@@ -101,7 +106,7 @@ a:focus-visible { background-color: var(--focus-link-bg) !important; color: var(
 .wrap { max-width: 1200px; margin: 0 auto; padding: 32px 24px 72px; }
 .layout { display: grid; grid-template-columns: 240px minmax(0, 1fr) 200px; column-gap: 48px; align-items: start; }
 .layout > main { grid-column: 2; grid-row: 1; max-width: 720px; min-width: 0; }
-.toc { grid-column: 1; grid-row: 1; position: sticky; top: 24px; max-height: calc(100vh - 48px); overflow-y: auto; padding: calc(6 / 16 * 1rem); margin: calc(-6 / 16 * 1rem); font-size: 1rem; line-height: 1.6; }
+.toc { grid-column: 1; grid-row: 1; position: sticky; top: 24px; max-height: calc(100vh - 48px); overflow-y: auto; padding: calc(6 / 16 * 1rem); margin: calc(-6 / 16 * 1rem); scroll-padding-block: calc(6 / 16 * 1rem); font-size: 1rem; line-height: 1.6; }
 .onpage { grid-column: 3; grid-row: 1; position: sticky; top: 24px; font-size: 1rem; line-height: 1.6; border-top: 1px solid var(--ink); padding-top: .6rem; }
 .toc-btn { display: none; font: inherit; }
 
