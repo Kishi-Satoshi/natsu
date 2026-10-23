@@ -211,3 +211,41 @@ test('0.9.4 S-8: record/meeting-detect に参加の前の画面・マイクを�
   const t = read(fileOf('record/meeting-detect'));
   for (const w of ['参加の前の画面', 'マイクを使い始めた時点', 'どのアプリを使ったかは', '始めたか']) assert.ok(t.includes(w), `「${w}」が無い`);
 });
+
+// help-dads HD-8（持ち主の答え Q8「最初に出た所に一言足す」。計画 docs/plans/2026-10-23-help-dads.md の決めたこと I-34）:
+// 「区間」「中継」が出る記事では、その記事の本文で最初に出た所（コード・「…」の画面の文・リンクの住所の外）の直後に決まった一言がある
+const TERM_NOTES = {
+  区間: '（文字起こしのために録音を区切ったひとまとまりの音声）',
+  中継: '（音声を OpenAI へ取り次ぐ会社のサーバー）',
+};
+/** 本文（前置きの後ろ）の、コードの塊・`…`・「…」・リンクの住所・表の左の列（帯の文などの画面の文）を同じ長さの空白で隠したもの（位置は元と同じ） */
+function plainBody(text) {
+  const end = text.indexOf('\n---', 4);
+  const head = text.slice(0, end + 4).replace(/[^\n]/g, ' ');
+  const body = text.slice(end + 4)
+    .replace(/```[\s\S]*?```/g, (m) => m.replace(/[^\n]/g, ' '))
+    .replace(/`[^`\n]*`/g, (m) => ' '.repeat(m.length))
+    .replace(/「[^「」]*」/g, (m) => ' '.repeat(m.length))
+    .replace(/\]\([^)\s]*\)/g, (m) => ' '.repeat(m.length))
+    .replace(/^\|[^|\n]*\|/gm, (m) => `|${' '.repeat(m.length - 2)}|`);
+  return head + body;
+}
+test('HD-8（Q8）: 「区間」「中継」が出る記事は、本文で最初に出た所（コード・「…」の画面の文・リンクの住所・表の左の列の外）の直後に決まった一言の括弧があり、見出しの中ではない。直した記事の updated は 2026-10-23 以降', { timeout: 5000 }, () => {
+  let n = 0;
+  for (const a of articles) {
+    const text = a.text.replace(/\r\n?/g, '\n');
+    const plain = plainBody(text);
+    for (const [w, note] of Object.entries(TERM_NOTES)) {
+      const i = plain.indexOf(w);
+      if (i < 0) continue;
+      n++;
+      assert.ok(text.startsWith(w + note, i), `${a.ref}: 最初の「${w}」（${JSON.stringify(text.slice(Math.max(0, i - 20), i + 30))}）の後に ${note} が無い`);
+      const line = text.slice(text.lastIndexOf('\n', i) + 1, i);
+      assert.ok(!/^#{1,6} /.test(line), `${a.ref}: 最初の「${w}」が見出しの中`);
+      assert.ok(metaOf(a).updated >= '2026-10-23', `${a.ref}: updated を直した日にしていない`);
+      // 一言は最初の1回だけ（2回目からは書かない）
+      assert.strictEqual(text.split(w + note).length - 1, 1, `${a.ref}: 「${w}」の一言が2回以上`);
+    }
+  }
+  assert.ok(n >= 20, `「区間」「中継」の出る所が少ない（${n}）`);
+});

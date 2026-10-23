@@ -418,7 +418,7 @@ test('G3: ヘルプセンターの変異が一覧にそろい、IDS_HELP は計�
 });
 
 // help-dads（計画 docs/plans/2026-10-23-help-dads.md の「変異確認」の表）: ヘルプセンターの DADS の直しを1つずつ戻す変異。
-// タスクを作るたびに足し、HD-7 で表の全部とちょうど同じにそろえた（HD-6 の答えの分 5 つを含む 24）
+// タスクを作るたびに足し、HD-7 で表の全部とちょうど同じにそろえた（HD-6 の答えの分 5 つを含む 24。HD-8 で 1 つ足して 25）
 const IDS_HELP_DADS = [
   'hd-link-color', 'hd-link-underline', 'hd-link-visited', 'hd-link-dark', 'hd-hover-media', 'hd-search-border', 'hd-grey-muted',
   'hd-focus-ring', 'hd-focus-dark', 'hd-toc-pad',
@@ -430,6 +430,7 @@ const IDS_HELP_DADS = [
   'hd-table-region',
   'hd-gate-main',
   'hd-onpage-h2',
+  'hd-term-note',
 ];
 test('G3: help-dads の変異が一覧にそろい、IDS_HELP_DADS は計画 docs/plans/2026-10-23-help-dads.md の「変異確認」の表の id とちょうど同じで、当てるファイルと赤になるテストが表と同じ。hd- の変異は IDS_HELP_DADS にある', { timeout: 5000 }, () => {
   const byId = new Map(MUTANTS.map((m) => [m.id, m]));
@@ -439,7 +440,7 @@ test('G3: help-dads の変異が一覧にそろい、IDS_HELP_DADS は計画 doc
   const plan = fs.readFileSync(path.join(ROOT, 'docs', 'plans', '2026-10-23-help-dads.md'), 'utf8');
   const table = plan.slice(plan.indexOf('## 変異確認'), plan.indexOf('## ゲート'));
   const rows = [...table.matchAll(/^\| (hd-[a-z0-9-]+) \| `([^`]+)` \| [^|]+ \| ([^\n]+) \|$/gm)];
-  assert.strictEqual(rows.length, 24, '計画の表の行の数（HD-1〜HD-6 の 24）');
+  assert.strictEqual(rows.length, 25, '計画の表の行の数（HD-1〜HD-6 の 24 と HD-8 の 1）');
   assert.strictEqual(new Set(rows.map((x) => x[1])).size, rows.length, '計画の表に重なり');
   const ids = rows.map((x) => x[1]);
   assert.deepStrictEqual(IDS_HELP_DADS.filter((id) => !ids.includes(id)), [], '計画の「変異確認」の表に無い変異');

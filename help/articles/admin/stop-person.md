@@ -1,7 +1,7 @@
 ---
 title: 人を止める・取り消す
 description: 管理者向け。ある人を今すぐログアウトさせる・使えなくする・戻す。Revoke と Exclude と中継の止めたメールの3つを使う
-updated: 2026-10-21
+updated: 2026-10-23
 sources: README.md, docs/plans/2026-10-20-help.md, relay/access.mjs, src/main.js, src/mainlib.js
 related: admin/seats, admin/relay-limits, trouble/login-trouble
 ---
@@ -13,9 +13,9 @@ related: admin/seats, admin/relay-limits, trouble/login-trouble
 
 **Zero Trust** → **Team & Resources** → **Users** → その人に印 → **Action** → **Revoke**。
 
-- その人の全部の app（文字起こしの中継とこのヘルプ）のログインが切れます。
+- その人の全部の app のログインが切れます。app は、文字起こしの中継（音声を OpenAI へ取り次ぐ会社のサーバー）とこのヘルプです。
 - **Revoke** だけでは、その人はまたログインできます。止めるには次の「使えなくする」をします。
-- 取り消された人の PC は、次の区間（または音声入力）で「ログインが切れたため…」と ［ログインし直す］ を出し、PC の中で文字起こしを続けます。ローカル AI の準備をしていない PC は、音声を残して ［ログイン］ の帯を出します（外へは送りません）。
+- 取り消された人の PC は、次の区間（文字起こしのために録音を区切ったひとまとまりの音声）か音声入力で「ログインが切れたため…」と ［ログインし直す］ を出し、PC の中で文字起こしを続けます。ローカル AI の準備をしていない PC は、音声を残して ［ログイン］ の帯を出します（外へは送りません）。
 
 ## 使えなくする {#block}
 

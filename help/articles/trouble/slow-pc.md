@@ -1,12 +1,12 @@
 ---
 title: 文字起こしが遅い・「文字起こし待ち」が出る
 description: PC の中の文字起こしが録音に追いつかないとき。会議中は音声を残し、会議が終わってから PC で文字起こしする仕組みと、帯・区間の文の意味
-updated: 2026-10-22
+updated: 2026-10-23
 sources: src/main.js, src/mainlib.js, src/renderer/app.html
 related: trouble/transcription-stops, record/status-line, settings/offline
 ---
 
-PC の中で文字起こしする会議（オフラインモードの会議や、中継に届かない区間）は、PC の速さによっては録音に追いつきません。
+オフラインモードの会議や、中継（音声を OpenAI へ取り次ぐ会社のサーバー）に届かない区間（文字起こしのために録音を区切ったひとまとまりの音声）は、PC の中で文字起こしします。PC の中で文字起こしする会議は、PC の速さによっては録音に追いつきません。
 追いつかない PC では、NaTsu は会議中の PC の文字起こしを止めて音声を残し、会議が終わってから PC で文字起こしします。録音はそのまま続き、音声は消えません。
 
 ## 何が起きているか {#what}

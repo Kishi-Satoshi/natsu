@@ -11,7 +11,7 @@ related: summary/summary-types, summary/citations, start/claude-code
 
 ## どこで作るか {#where}
 
-- **いつも:** ご自分の Claude Code に、文字起こしの文・メモ・要約タイプの指示を渡して作ります。Claude Code はそれを Claude（Anthropic）へ送ります。要約は中継を通りません。
+- **いつも:** ご自分の Claude Code に、文字起こしの文・メモ・要約タイプの指示を渡して作ります。Claude Code はそれを Claude（Anthropic）へ送ります。要約は中継（音声を OpenAI へ取り次ぐ会社のサーバー）を通りません。
 - **［オフラインモード］ を押した会議:** ほかの会議と同じく Claude Code で作ります（0.10.0 から。0.9.x までは PC の中で作っていました）。
 - PC の中では要約しません（0.10.0 から）。
 

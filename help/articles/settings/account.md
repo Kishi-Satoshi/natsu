@@ -1,13 +1,13 @@
 ---
 title: アカウントとログアウト
 description: ［設定］の「アカウント」で、ログインしているメールアドレスと期限を見る。ログアウトと、出る文ごとの対処
-updated: 2026-10-21
+updated: 2026-10-23
 sources: README.md, src/renderer/app.html, src/main.js, src/mainlib.js
 related: start/login, record/pc-only, settings/offline
 ---
 
 サイドバーの ［設定］ を押し、左の列のいちばん上の ［アカウント］ を押すと開きます。
-会社のメールアドレスでログインすると、インターネットにつながっているときに、会議と音声入力の音声を文字起こしの中継に送り、OpenAI で文字起こしします。
+会社のメールアドレスでログインすると、インターネットにつながっているときに、会議と音声入力の音声を文字起こしの中継（音声を OpenAI へ取り次ぐ会社のサーバー）に送り、OpenAI で文字起こしします。
 
 ## ログインしているかを見る {#status}
 
