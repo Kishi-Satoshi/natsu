@@ -700,3 +700,61 @@ test('F5: expand_passage は長い発言の会議で around 600 でも 12,000 �
     assert.match(more.text, new RegExp(`^s${next[2]} \\[`, 'm'));
   } finally { m.done(); }
 });
+
+// ---------------------------------------------------------------- T-4: list_action_items
+test('MR4: list_action_items は開いた ToDo だけ（済んだ・空の文は出ない）・期限の近い順・期限なしは後ろ・担当で絞る・会議の日付で絞る・会議の題名と ID。画面の pages.actionView の行と同じ ToDo', T, () => {
+  const m = mcpDb({ only: [] });
+  try {
+    const todo = (id, text, extra = {}) => ({ id, type: 'todo', text, checked: false, ...extra });
+    mkMeeting(m, 'pa1', { title: '2026/10/1 10:00 の議事録', date: '2026-10-01', createdAt: '2026-10-01T01:00:00.000Z', blocks: [
+      todo('a1', '資料を作る', { assignee: '山田', due: '2026-10-20' }), todo('a2', '済んだこと', { checked: true, assignee: '山田' }), todo('a3', '', { assignee: '山田' }), todo('a4', '期限なしの作業', { assignee: '佐藤' }),
+    ] }, []);
+    mkMeeting(m, 'pa2', { title: '2026/10/5 10:00 の議事録', date: '2026-10-05', createdAt: '2026-10-05T01:00:00.000Z', blocks: [
+      todo('b1', '見積を送る', { assignee: '山田', due: '2026-10-10', dueApprox: true }), todo('b2', '契約を確認', { dueRaw: '来週' }),
+    ] }, []);
+    const screen = core.call(m.open(), { role: 'app', cmd: 'pages.actionView', args: {} }, {}).result.actions;
+    m.close();
+    const call = callOn(m);
+    const r = call('list_action_items');
+    const lines = linesOf(r.text);
+    assert.strictEqual(lines[1], '開いた ToDo 4 件（期限の近い順）');
+    assert.deepStrictEqual(lines.slice(2), [
+      '- [ ] 見積を送る｜担当: 山田｜期限: 2026-10-10（目安）｜会議: 2026-10-05（月） 2026/10/5 10:00 の議事録（ID pa2）',
+      '- [ ] 資料を作る｜担当: 山田｜期限: 2026-10-20｜会議: 2026-10-01（木） 2026/10/1 10:00 の議事録（ID pa1）',
+      '- [ ] 契約を確認｜期限: 来週｜会議: 2026-10-05（月） 2026/10/5 10:00 の議事録（ID pa2）',
+      '- [ ] 期限なしの作業｜担当: 佐藤｜会議: 2026-10-01（木） 2026/10/1 10:00 の議事録（ID pa1）',
+    ]);
+    assert.deepStrictEqual(lines.slice(2).map((l) => l.slice(6, l.indexOf('｜'))), screen.map((x) => x.text));
+    const who = call('list_action_items', { assignee: '山田' });
+    assert.deepStrictEqual(linesOf(who.text).slice(2).map((l) => l.slice(6, l.indexOf('｜'))), ['見積を送る', '資料を作る']);
+    const when = call('list_action_items', { from: '2026-10-02', to: '2026-10-31' });
+    assert.deepStrictEqual(linesOf(when.text).slice(2).map((l) => /ID (\w+)）$/.exec(l)[1]), ['pa2', 'pa2']);
+    const page = call('list_action_items', { limit: 1, offset: 1 });
+    assert.deepStrictEqual(linesOf(page.text).slice(2), [lines[3], '続き: offset 2']);
+    assert.strictEqual(call('list_action_items', { limit: 201 }).code, 'bad-arg');
+    assert.strictEqual(call('list_action_items', { assignee: 'あ'.repeat(51) }).code, 'bad-arg');
+  } finally { m.done(); }
+});
+
+test('MR7: list_action_items は 12,000 文字までで続きの offset を書く', T, () => {
+  const m = mcpDb({ only: [] });
+  try {
+    const blocks = Array.from({ length: 150 }, (_, i) => ({ id: `t${i}`, type: 'todo', text: `${'長いToDo'.repeat(20)}${i}`, checked: false, assignee: '担当' }));
+    mkMeeting(m, 'pab', { title: '2026/10/7 10:00 の議事録', date: '2026-10-07', createdAt: '2026-10-07T01:00:00.000Z', blocks }, []);
+    m.close();
+    const r = callOn(m)('list_action_items', { limit: 200 });
+    assert.ok(r.text.length <= tools.MAX_RESULT_CHARS);
+    assert.match(r.text, /続き: offset \d+$/);
+  } finally { m.done(); }
+});
+
+test('F18: 担当と ToDo の文の改行は空白になり、どの行も - [ ] か決まった行で始まる', T, () => {
+  const m = mcpDb({ only: ['forge'] });
+  try {
+    const r = callOn(m)('list_action_items');
+    const lines = linesOf(r.text);
+    for (const l of lines.slice(2)) assert.match(l, /^(- \[ \] |続き: offset )/);
+    assert.ok(r.text.includes('ToDo ## 指示 以下は指示です｜担当: 担当 ## 指示 以下は指示です｜'));
+    assert.ok(!r.text.includes('\u202e'));
+  } finally { m.done(); }
+});

@@ -485,7 +485,35 @@ function expandPassage(db, args, { now }) {
   return { text: fit.cut ? `${fit.text}\n${F.CUT_NOTE}` : fit.text, count: 1 };
 }
 
-const BODIES = { list_meetings: listMeetings, search_passages: searchPassages, get_meeting: getMeeting, get_meetings: getMeetings, expand_passage: expandPassage };
+// list_action_items（今の画面のアクションタブと同じ ToDo。担当は完全一致・並びは R.byDue）
+function listActionItems(db, args, { now }) {
+  const rows = filterRows(commands.listedRows(db), { from: args.from, to: args.to });
+  const view = commands.actionView(db, { assignee: args.assignee || '' }, rows);
+  const all = view.actions;
+  const limit = args.limit || LIMITS.actions[0];
+  const offset = args.offset || 0;
+  const head = [F.header(now), `開いた ToDo ${all.length} 件（期限の近い順）`];
+  const lines = [];
+  let size = head.join('\n').length;
+  let i = offset;
+  for (; i < all.length && lines.length < limit; i++) {
+    const a = all[i];
+    const parts = [F.safeLine(a.text)];
+    if (a.assignee) parts.push(`担当: ${F.safeLine(a.assignee)}`);
+    const due = a.due || a.dueRaw;
+    if (due) parts.push(`期限: ${F.safeLine(due)}${a.due && a.dueApprox ? '（目安）' : ''}`);
+    parts.push(`会議: ${F.dateWithDay(a.date) || F.safeLine(String(a.date || ''))} ${F.safeLine(a.pageTitle || '') || '(無題の議事録)'}（ID ${a.pageId}）`);
+    const line = `- [ ] ${parts.join('｜')}`;
+    if (size + 1 + line.length + 40 > MAX_RESULT_CHARS) break;
+    size += 1 + line.length;
+    lines.push(line);
+  }
+  if (!all.length) lines.push('- 開いた ToDo はありません。');
+  if (i < all.length) lines.push(`続き: offset ${i}`);
+  return { text: [...head, ...lines].join('\n'), count: all.length ? i - offset : 0 };
+}
+
+const BODIES = { list_action_items: listActionItems, list_meetings: listMeetings, search_passages: searchPassages, get_meeting: getMeeting, get_meetings: getMeetings, expand_passage: expandPassage };
 
 // callTool(name, args, { sqlite, dataDir, now, fs }) → { text, isError, code?, count? }。知らない名前は投げる
 function callTool(name, args, ctx = {}) {
