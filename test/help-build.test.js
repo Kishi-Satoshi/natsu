@@ -222,11 +222,23 @@ test('H-1: 書き出す先が元のフォルダ・その中・それを含む所
   }
 });
 
-test('白黒: help.css の色の札は指定の値（地 #fff・ink #000・本文 #333・薄文字 #6e6e6e・罫線 #dadada・面 #f4f4f4）。暗い版は白黒を反転した灰色だけ。どの色も灰色（色を使わない）。CSS の入れ子を使わない（COLOR-05）', { timeout: 5000 }, () => {
+// help-dads HD-1（HD1・HD7・重要 1・重要 2。計画 docs/plans/2026-10-23-help-dads.md の決めたこと A〜C）: 白黒が基本のまま、色はリンクとキーボードの輪だけ。
+// 色の値は決まった一覧（DADS の札の値と、DADS-PROTECT.md のブランド色）だけを通し、外れた色は「どの規則の、どの値か」を出す（持ち主の試作の state-store.js の SCHEMA の考え）
+const DADS_COLORS = {
+  '#ffffff': 'white', '#000000': 'black', '#333333': 'solid-gray-800', '#666666': 'solid-gray-600', '#cccccc': 'solid-gray-200', '#f2f2f2': 'solid-gray-50',
+  '#00118f': 'blue-1000', '#0017c1': 'blue-900', '#8b008b': 'magenta-900', '#ac3e00': 'orange-900',
+  '#9db7f9': 'blue-300', '#7096f8': 'blue-400', '#ff8eff': 'magenta-300', '#ffa66d': 'orange-300', '#ffd43d': 'yellow-300',
+};
+const brandColors = () => [...fs.readFileSync(path.join(ROOT, 'DADS-PROTECT.md'), 'utf8').matchAll(/^- (#[0-9a-f]{6})（/gm)].map((m) => m[1]);
+// 文中のリンク（Q1「本文の中のリンクだけ」: 記事の本文・404・パンくず・一覧と関連記事の題名・/open のページの説明の文の中）
+const BODY_LINKS = ['.body a', '.notfound a', '.crumbs a', '.rows li > a', '.open-note a'];
+
+test('HD-1（HD7・HD5）: help.css の色の値は :root と暗い版の :root の札にだけ書き、値は DADS の札の値か DADS-PROTECT.md のブランド色だけ。明るい版の灰色は DADS の札（muted #666666・rule #cccccc・wash #f2f2f2）。グラデーション・text-shadow・filter・入れ子は無い。影と角丸は :focus-visible の決まった値だけ（COLOR-05）', { timeout: 5000 }, () => {
   const css = CSS();
   const rules = C.parse(css);
   const light = C.tokens(rules, '');
-  const want = { '--bg': '#ffffff', '--ink': '#000000', '--body': '#333333', '--muted': '#6e6e6e', '--rule': '#dadada', '--wash': '#f4f4f4' };
+  const want = { '--bg': '#ffffff', '--ink': '#000000', '--body': '#333333', '--muted': '#666666', '--rule': '#cccccc', '--wash': '#f2f2f2',
+    '--link': '#00118f', '--link-visited': '#8b008b', '--link-hover': '#0017c1', '--link-active': '#ac3e00' };
   for (const [k, v] of Object.entries(want)) assert.strictEqual((light[k] || '').toLowerCase(), v, k);
   const dark = C.tokens(rules, DARK);
   for (const k of Object.keys(want)) assert.ok(dark[k], `暗い版に ${k} が無い`);
@@ -234,38 +246,94 @@ test('白黒: help.css の色の札は指定の値（地 #fff・ink #000・本�
   assert.strictEqual(dark['--ink'].toLowerCase(), '#ffffff', '暗い版の ink は白');
   assert.ok(lum(dark['--bg']) < 0.02, '暗い版の地は黒に近い暗い灰');
   assert.ok(lum(dark['--rule']) < lum(dark['--muted']) && lum(dark['--wash']) < lum(dark['--rule']), '暗い版の並び（地 < 面 < 罫線 < 薄文字）');
-  // どの色も灰色（r = g = b）。紺・グラデーションを使わない
-  const plain = css.replace(/\/\*[\s\S]*?\*\//g, '');
-  const colors = plain.match(/#[0-9a-fA-F]{3,8}\b|rgba?\([^)]*\)|hsla?\([^)]*\)/g) || [];
-  assert.ok(colors.length >= 12);
-  for (const c of colors) {
-    const p = C.parseColor(c);
-    assert.ok(p && p[0] === p[1] && p[1] === p[2], `灰色でない色: ${c}`);
+  // 決まった一覧の色だけ（DADS の札・ブランド色）。色の値は :root の札にだけ書く
+  const allowed = new Map([...Object.entries(DADS_COLORS), ...brandColors().map((c) => [c, 'ブランド色'])]);
+  assert.ok(brandColors().length === 5, 'DADS-PROTECT.md のブランド色が読めない');
+  const COLOR = /#[0-9a-fA-F]{3,8}\b|rgba?\([^)]*\)|hsla?\([^)]*\)|\b(?:white|black)\b/g;
+  let seen = 0;
+  for (const r of rules) {
+    for (const [k, val] of Object.entries(r.decls)) {
+      for (const c of String(val).match(COLOR) || []) {
+        seen++;
+        const where = `${r.at ? `${r.at} ` : ''}${r.sel} の ${k}: ${c}`;
+        assert.ok(r.sel === ':root' && (r.at === '' || r.at === DARK) && k.startsWith('--'), `札の外に色の値: ${where}`);
+        assert.ok(allowed.has(c.toLowerCase()), `決まった一覧に無い色: ${where}`);
+      }
+    }
   }
-  assert.ok(!/gradient|box-shadow\s*:\s*(?!none)|text-shadow|filter\s*:|backdrop-filter/i.test(plain), '影・グラデーション・ぼかしを使わない');
-  for (const m of plain.matchAll(/border-radius\s*:\s*([^;}]+)/g)) assert.strictEqual(m[1].trim(), '0', '角丸を使わない');
+  assert.ok(seen >= 20);
+  const plain = css.replace(/\/\*[\s\S]*?\*\//g, '');
+  assert.ok(!/gradient|text-shadow|filter\s*:|backdrop-filter/i.test(plain), 'グラデーション・文字の影・ぼかしを使わない');
+  // 影と角丸: :focus-visible の輪（DADS の黄色の縁 2px と角 4px）だけ。ほかの規則は角 0 のまま・影なし
+  for (const r of rules) {
+    const fv = r.sel.includes(':focus-visible');
+    if (r.decls['box-shadow'] !== undefined) assert.ok(fv && r.decls['box-shadow'] === '0 0 0 calc(2 / 16 * 1rem) var(--focus-ring)', `${r.sel} に影: ${r.decls['box-shadow']}`);
+    if (r.decls['border-radius'] !== undefined) assert.ok(r.decls['border-radius'] === '0' || (fv && r.decls['border-radius'] === 'calc(4 / 16 * 1rem)'), `${r.sel} に角丸: ${r.decls['border-radius']}`);
+  }
   assert.ok(!rules.some((r) => r.nested), 'CSS の入れ子');
 });
 
-test('白黒: 文字と地の濃さの差が明暗の両方で 4.5:1 以上（本文・薄文字・見出し・リンク・注意の枠・コード・表の頭・選んでいる目次の行）', { timeout: 5000 }, () => {
+test('白黒: 文字と地の濃さの差が明暗の両方で 4.5:1 以上（本文・薄文字・見出し・注意の枠・コード・表の頭・選んでいる目次の行。HD-1: リンクの4つの色も地と面の両方で。DF1）。検索の箱の枠（--muted）は地と 3:1 以上', { timeout: 5000 }, () => {
   const rules = C.parse(CSS());
   for (const at of ['', DARK]) {
     const v = (name) => C.parseColor(C.resolveVar(rules, `var(${name})`, at));
     const pairs = [['--body', '--bg'], ['--muted', '--bg'], ['--ink', '--bg'], ['--body', '--wash'], ['--muted', '--wash'], ['--ink', '--wash']];
+    for (const k of ['--link', '--link-visited', '--link-hover', '--link-active']) pairs.push([k, '--bg'], [k, '--wash']);
     for (const [fg, bg] of pairs) {
       const r = C.contrast(v(fg), v(bg));
       assert.ok(r >= 4.5, `${at || '明るい'}: ${fg} と ${bg} が ${r.toFixed(2)}:1`);
     }
+    assert.ok(C.contrast(v('--muted'), v('--bg')) >= 3, `${at || '明るい'}: 検索の箱の枠と地が 3:1 に届かない`);
     // 部品に書いた色が札を通っている（直に色を書くと暗い版で反転しない）
     for (const r of rules) {
       if (r.sel === ':root' || r.at.startsWith('@font-face')) continue;
       for (const [k, val] of Object.entries(r.decls)) {
-        if (/^(color|background|background-color|border(-[a-z]+)*|outline(-color)?|text-decoration-color)$/.test(k)) {
+        if (/^(color|background|background-color|border(-[a-z]+)*|outline(-color)?|text-decoration-color|box-shadow)$/.test(k)) {
           assert.ok(!/#[0-9a-f]{3,8}\b|rgba?\(|\b(white|black)\b/i.test(val), `${r.sel} の ${k} に札を通らない色: ${val}`);
         }
       }
     }
   }
+});
+
+test('HD-1（HD1・Q1・Q2・Q10。重要 2）: 文中のリンク（本文・404・パンくず・一覧の題名・/open の説明）は :any-link で var(--link) と下線（文字と同じ色・1px・3px 空け）、:visited で var(--link-visited)、ホバーで var(--link-hover) と 3px、押している間 var(--link-active) と 1px。ホバーの規則はどれも @media (hover: hover) の中。左の目次・このページの内容・検索の結果・分類のカード・上の帯の名前は青にしない', { timeout: 5000 }, () => {
+  const rules = C.parse(CSS());
+  const HOVER = '@media (hover: hover)';
+  for (const sel of BODY_LINKS) {
+    const any = C.declsFor(rules, `${sel}:any-link`, { at: '' });
+    assert.strictEqual(any.color, 'var(--link)', `${sel}:any-link の色`);
+    assert.strictEqual(any['text-decoration-line'] || any['text-decoration'], 'underline', `${sel} の下線`);
+    assert.strictEqual(any['text-decoration-color'], 'currentColor', `${sel} の下線の色`);
+    assert.strictEqual(any['text-decoration-thickness'], 'calc(1 / 16 * 1rem)', `${sel} の下線の太さ`);
+    assert.strictEqual(any['text-underline-offset'], 'calc(3 / 16 * 1rem)', `${sel} の下線の空き`);
+    assert.strictEqual(C.declsFor(rules, `${sel}:visited`, { at: '' }).color, 'var(--link-visited)', `${sel}:visited`);
+    const hv = C.declsFor(rules, `${sel}:hover`, { at: HOVER });
+    assert.strictEqual(hv.color, 'var(--link-hover)', `${sel}:hover の色`);
+    assert.strictEqual(hv['text-decoration-thickness'], 'calc(3 / 16 * 1rem)', `${sel}:hover の下線`);
+    const ac = C.declsFor(rules, `${sel}:active`, { at: '' });
+    assert.strictEqual(ac.color, 'var(--link-active)', `${sel}:active の色`);
+    assert.strictEqual(ac['text-decoration-thickness'], 'calc(1 / 16 * 1rem)', `${sel}:active の下線`);
+  }
+  // 文中のリンクの色を後から上書きする規則（.crumbs a { color: var(--muted) } など）が無い
+  for (const r of rules) {
+    if (!/(^|,\s*)(\.body|\.notfound|\.crumbs|\.rows li >|\.open-note) a(?![\w-])/.test(r.sel) || r.sel.includes(':')) continue;
+    assert.strictEqual(r.decls.color, undefined, `${r.sel} がリンクの色を上書き: ${r.decls.color}`);
+  }
+  // ホバーの規則（:hover を含む）はどれも @media (hover: hover) の中（スマホで押した後に残らない）
+  for (const r of rules) if (r.sel.includes(':hover')) assert.strictEqual(r.at, HOVER, `${r.sel} が @media (hover: hover) の外`);
+  // ナビゲーションは黒のまま（DADS の目次の部品も地の文字の色を継ぐ）
+  for (const r of rules) {
+    if (/\.(toc|onpage|search-results|cats|brand)\b/.test(r.sel)) {
+      for (const k of ['color', 'text-decoration-color']) assert.ok(!/--link/.test(r.decls[k] || ''), `${r.sel} の ${k} が青`);
+    }
+  }
+});
+
+test('HD-1（重要 1）: 検索の箱は 1px の枠（var(--muted)）で、地は var(--bg)（面の地と枠なしでは箱と分からない）。角は 0 のまま', { timeout: 5000 }, () => {
+  const d = C.declsFor(C.parse(CSS()), '.search-q', { at: '' });
+  assert.strictEqual(d.border, '1px solid var(--muted)');
+  assert.strictEqual(d.background, 'var(--bg)');
+  assert.strictEqual(d['border-radius'], '0');
 });
 
 test('画面の使いやすさ: help.css に :focus-visible の輪があり、outline: none で消す規則が無い。640px より狭いときは左右 16px の余白で、min-width の固定が無い', { timeout: 5000 }, () => {

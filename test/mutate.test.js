@@ -417,6 +417,32 @@ test('G3: ヘルプセンターの変異が一覧にそろい、IDS_HELP は計�
   assert.deepStrictEqual(MUTANTS.filter((m) => /^hp-app-/.test(m.id)).map((m) => m.id), []);
 });
 
+// help-dads（計画 docs/plans/2026-10-23-help-dads.md の「変異確認」の表）: ヘルプセンターの DADS の直しを1つずつ戻す変異。
+// タスクを作るたびに足す（表の全部とちょうど同じにそろえるのは HD-7。それまでは「どれも表にある」と「hd- の変異は IDS_HELP_DADS にある」を見る）
+const IDS_HELP_DADS = [
+  'hd-link-color', 'hd-link-underline', 'hd-link-visited', 'hd-link-dark', 'hd-hover-media', 'hd-search-border', 'hd-grey-muted',
+];
+test('G3: help-dads の変異が一覧にそろい、IDS_HELP_DADS はどれも計画 docs/plans/2026-10-23-help-dads.md の「変異確認」の表にあり、当てるファイルと赤になるテストが表と同じ。hd- の変異は IDS_HELP_DADS にある', { timeout: 5000 }, () => {
+  const byId = new Map(MUTANTS.map((m) => [m.id, m]));
+  assert.deepStrictEqual(IDS_HELP_DADS.filter((id) => !byId.has(id)), [], 'IDS_HELP_DADS の変異が一覧に無い');
+  assert.strictEqual(new Set(IDS_HELP_DADS).size, IDS_HELP_DADS.length, 'IDS_HELP_DADS に重なり');
+  assert.deepStrictEqual(MUTANTS.filter((m) => /^hd-/.test(m.id) && !IDS_HELP_DADS.includes(m.id)).map((m) => m.id), [], 'IDS_HELP_DADS に無い hd- の変異がある');
+  const plan = fs.readFileSync(path.join(ROOT, 'docs', 'plans', '2026-10-23-help-dads.md'), 'utf8');
+  const table = plan.slice(plan.indexOf('## 変異確認'), plan.indexOf('## ゲート'));
+  const rows = [...table.matchAll(/^\| (hd-[a-z0-9-]+) \| `([^`]+)` \| [^|]+ \| ([^\n]+) \|$/gm)];
+  assert.ok(rows.length >= 19, '計画の表が読めない');
+  assert.strictEqual(new Set(rows.map((x) => x[1])).size, rows.length, '計画の表に重なり');
+  const ids = rows.map((x) => x[1]);
+  assert.deepStrictEqual(IDS_HELP_DADS.filter((id) => !ids.includes(id)), [], '計画の「変異確認」の表に無い変異');
+  for (const [, id, file, tests] of rows) {
+    const m = byId.get(id);
+    if (!m) continue;
+    assert.strictEqual(m.file, file, id);
+    assert.deepStrictEqual([...m.tests].sort(), [...tests.matchAll(/`([^`]+)`/g)].map((x) => x[1]).sort(), id);
+    assert.ok(m.why.startsWith('help-dads HD-'), `${id}: why`);
+  }
+});
+
 // 0.9.0（計画 docs/plans/2026-10-20-090.md の「変異確認」の表）。G-1 は速さの計り直しの4つを入れる。G-2 が残りの全部を足し、
 // この並びが計画の表の id とちょうど同じことを見るテストを足す
 // 0.9.0（G-1 で perf の6つ、G-2 で計画 docs/plans/2026-10-20-090.md の「変異確認」の表の全部）

@@ -1,6 +1,8 @@
 /* help.css — NaTsu ヘルプセンターの見た目（H-3）
  *
  * 利用者の指定（2026-10-20）: 白黒が基本。紺・グラデーション・色付きのバッジ・影・角丸は使わない。強調は線の太さで表す。
+ * help-dads（2026-10-23。docs/plans/2026-10-23-help-dads.md の HD1〜HD8）: DADS に寄せた。色を使うのは文中のリンク（青と下線）と
+ * キーボードの輪（黒＋黄色）だけ。色の値は DADS の札の値か DADS-PROTECT.md のブランド色（暗い版の灰色）だけ。
  * 書体は同梱の IBM Plex Sans JP（本文・見出し）と IBM Plex Mono（コード）。ロゴのアイコンは使わない。
  * 大きな数字は順番のある手順（.step .n）にだけ使う。暗い版は白黒を反転した灰色だけ（色は使わない）。
  * 色は全部 :root の札を通す（暗い版は札だけを変える）。CSS の入れ子は使わない。
@@ -10,9 +12,13 @@
   --bg: #ffffff;
   --ink: #000000;     /* 見出し・強調 */
   --body: #333333;    /* 本文 */
-  --muted: #6e6e6e;   /* 補足 */
-  --rule: #dadada;    /* 罫線 */
-  --wash: #f4f4f4;    /* 面 */
+  --muted: #666666;   /* 補足・検索の箱の枠（DADS solid-gray-600） */
+  --rule: #cccccc;    /* 罫線（DADS solid-gray-200） */
+  --wash: #f2f2f2;    /* 面（DADS solid-gray-50） */
+  --link: #00118f;          /* 文中のリンク（DADS blue-1000） */
+  --link-visited: #8b008b;  /* 訪問済み（DADS magenta-900） */
+  --link-hover: #0017c1;    /* ホバー（DADS blue-900） */
+  --link-active: #ac3e00;   /* 押している間（DADS orange-900） */
   --sans: "IBM Plex Sans JP", "Hiragino Sans", "Yu Gothic UI", "Meiryo", system-ui, sans-serif;
   --mono: "IBM Plex Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
   color-scheme: light dark;
@@ -26,6 +32,10 @@
     --muted: #a3a3a3;
     --rule: #3d3d3d;
     --wash: #1f1f1f;
+    --link: #9db7f9;          /* DADS blue-300（地で 9.51:1・面で 8.30:1） */
+    --link-visited: #ff8eff;  /* DADS magenta-300 */
+    --link-hover: #7096f8;    /* DADS blue-400 */
+    --link-active: #ffa66d;   /* DADS orange-300 */
   }
 }
 
@@ -41,8 +51,14 @@ body {
   font-size: 16px;
   line-height: 1.85;
 }
-a { color: var(--ink); text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: .2em; text-decoration-color: var(--rule); }
-a:hover { text-decoration-color: var(--ink); }
+a { color: var(--ink); text-decoration: underline; text-decoration-thickness: calc(1 / 16 * 1rem); text-underline-offset: calc(3 / 16 * 1rem); text-decoration-color: currentColor; }
+/* 文中のリンク（HD1・Q1）: DADS のリンクと同じ形。青と下線（文字と同じ色）。訪問済み・ホバー（太い下線）・押している間も色を変える */
+.body a:any-link, .notfound a:any-link, .crumbs a:any-link, .rows li > a:any-link, .open-note a:any-link { color: var(--link); text-decoration: underline; text-decoration-color: currentColor; text-decoration-thickness: calc(1 / 16 * 1rem); text-underline-offset: calc(3 / 16 * 1rem); }
+.body a:visited, .notfound a:visited, .crumbs a:visited, .rows li > a:visited, .open-note a:visited { color: var(--link-visited); }
+@media (hover: hover) {
+  .body a:hover, .notfound a:hover, .crumbs a:hover, .rows li > a:hover, .open-note a:hover { color: var(--link-hover); text-decoration-thickness: calc(3 / 16 * 1rem); }
+}
+.body a:active, .notfound a:active, .crumbs a:active, .rows li > a:active, .open-note a:active { color: var(--link-active); text-decoration-thickness: calc(1 / 16 * 1rem); }
 :focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
 .vh { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap; }
 .skip { position: absolute; left: -9999px; top: 8px; }
@@ -53,16 +69,18 @@ a:hover { text-decoration-color: var(--ink); }
 .top-in { max-width: 1200px; margin: 0 auto; padding: 0 24px; min-height: 56px; display: flex; align-items: center; gap: 24px; }
 .brand { font-weight: 700; color: var(--ink); text-decoration: none; letter-spacing: .01em; white-space: nowrap; }
 
-/* 検索の箱（H-4）: 面の地・影なし。結果は ink の 1px の枠の一覧 */
+/* 検索の箱（H-4）: 地の色に補足の色の 1px の枠（HD-1。重要 1）・影なし。結果は ink の 1px の枠の一覧 */
 .search { position: relative; flex: 1 1 auto; max-width: 360px; margin-left: auto; min-width: 0; }
-.search-q { display: block; width: 100%; font: inherit; font-size: .9rem; line-height: 1.5; padding: 6px 12px; color: var(--ink); background: var(--wash); border: 1px solid transparent; border-radius: 0; -webkit-appearance: none; appearance: none; }
+.search-q { display: block; width: 100%; font: inherit; font-size: .9rem; line-height: 1.5; padding: 6px 12px; color: var(--ink); background: var(--bg); border: 1px solid var(--muted); border-radius: 0; -webkit-appearance: none; appearance: none; }
 .search-q::placeholder { color: var(--muted); opacity: 1; }
 .search-q::-webkit-search-cancel-button { -webkit-appearance: none; appearance: none; }   /* 色の付いた × を出さない（Esc で空にできる） */
 .search-results { position: absolute; top: 100%; left: 0; right: 0; z-index: 20; list-style: none; margin: 4px 0 0; padding: 0; max-height: 70vh; overflow-y: auto; background: var(--bg); border: 1px solid var(--ink); }
 .search-results li { border-bottom: 1px solid var(--rule); }
 .search-results li:last-child { border-bottom: 0; }
 .search-results a { display: block; padding: 8px 12px 8px 10px; color: var(--body); text-decoration: none; line-height: 1.5; border-left: 2px solid transparent; }
-.search-results a:hover { background: var(--wash); color: var(--ink); }
+@media (hover: hover) {
+  .search-results a:hover { background: var(--wash); color: var(--ink); }
+}
 .search-results li[aria-selected="true"] a { background: var(--wash); color: var(--ink); border-left-color: var(--ink); }
 .search-results .rt { display: block; font-weight: 700; color: var(--ink); }
 .search-results .rc { display: block; font-size: .78rem; color: var(--muted); }
@@ -86,8 +104,6 @@ h3 { color: var(--ink); font-weight: 700; }
 
 /* パンくず */
 .crumbs { font-size: .85rem; color: var(--muted); margin: 0 0 .8rem; }
-.crumbs a { color: var(--muted); }
-.crumbs a:hover { color: var(--ink); }
 
 /* 記事の属性の帯: 上に ink の 1px、下に罫線、項目の間に罫線の縦線 */
 .article-meta { display: flex; flex-wrap: wrap; margin: 0 0 1.6rem; border-top: 1px solid var(--ink); border-bottom: 1px solid var(--rule); }
@@ -139,7 +155,9 @@ td { border-top: 1px solid var(--rule); padding: 8px 12px; vertical-align: top; 
 .toc-h a { color: var(--ink); text-decoration: none; }
 .toc ul { list-style: none; margin: 0; padding: 0; }
 .toc li a { display: block; padding: .2em 0 .2em 10px; color: var(--body); text-decoration: none; border-left: 1px solid var(--rule); }
-.toc a:hover { color: var(--ink); text-decoration: underline; text-decoration-color: var(--ink); }
+@media (hover: hover) {
+  .toc a:hover { color: var(--ink); text-decoration: underline; text-decoration-color: var(--ink); }
+}
 .toc li a[aria-current="page"] { color: var(--ink); font-weight: 700; border-left: 2px solid var(--ink); padding-left: 9px; }
 .toc-h a[aria-current="page"] { text-decoration: underline; text-decoration-color: var(--ink); }
 
@@ -148,7 +166,9 @@ td { border-top: 1px solid var(--rule); padding: 8px 12px; vertical-align: top; 
 .onpage ul { list-style: none; margin: 0; padding: 0; }
 .onpage li { margin: .25em 0; }
 .onpage a { color: var(--body); text-decoration: none; }
-.onpage a:hover { color: var(--ink); text-decoration: underline; }
+@media (hover: hover) {
+  .onpage a:hover { color: var(--ink); text-decoration: underline; }
+}
 
 /* ===== 一覧（rows）: 上に ink の 1px、各行の下に罫線。左に題名、右に薄い説明 ===== */
 .rows { list-style: none; padding: 0; margin: 0 0 2rem; border-top: 1px solid var(--ink); }
@@ -163,7 +183,9 @@ main > h2 { font-size: 1.05rem; margin: 2.6rem 0 .6rem; }
 .home { max-width: 960px; }
 .cats { list-style: none; padding: 0; margin: 0 0 2.6rem; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); column-gap: 1.6rem; border-top: 2px solid var(--ink); }
 .cats a { display: block; height: 100%; padding: 1.1rem .4rem 1.3rem 0; border-bottom: 1px solid var(--rule); text-decoration: none; color: var(--body); }
-.cats a:hover .t { text-decoration: underline; text-underline-offset: .2em; }
+@media (hover: hover) {
+  .cats a:hover .t { text-decoration: underline; text-underline-offset: .2em; }
+}
 .cats .ic { display: block; width: 20px; height: 20px; color: var(--ink); margin-bottom: .6rem; }
 .cats .t { display: block; font-weight: 700; color: var(--ink); font-size: 1.05rem; margin-bottom: .35rem; }
 .cats .d { display: block; font-size: .85rem; color: var(--muted); line-height: 1.6; }
