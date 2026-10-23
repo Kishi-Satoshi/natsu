@@ -798,7 +798,9 @@ test('基準の画像（test/shots/win32）は今の app.html で撮ったもの
   // 変わる画面は settings-offline-light（RETAKE にある）。値を今の app.html に合わせた（前の値は 04d522ab…）
   // 0.10.0 LS-5 で意図して変えた: オフラインモードの押した後の行・準備の無い PC の行・文字起こしの吹き出しの1行を守秘の約束でない文に（D62）、取り込みのボタンの数を今の計算に（D59）。
   // 変わる画面は live-offline-light・live-offline-dark・settings-info-stt-dark・settings-offline-light（どれも RETAKE にある）。値を今の app.html に合わせた（前の値は 003e98d9…）
-  assert.strictEqual(sha, '9a700bc9ef499e6ef4fcb10eb13117e84f13b6999e36ac5968199ce6459f83f4',
+  // 持ち主の答え（2026-10-23）で意図して変えた: カード「Claude との連携（MCP）」の頭の1行から「Claude Code」を外した（D64）。変わる画面は settings-summary-light・
+  // settings-info-claude-light・settings-mcp-light・settings-info-mcp-light（どれも RETAKE にある）。値を今の app.html に合わせた（前の値は 9a700bc9…）
+  assert.strictEqual(sha, '13470282044e3669aaf3d3fff304a0941f1e0061d2da8bbe2ac93140c8f3cddb',
     'app.html が基準の画像を撮った時と違う。Windows の CI の画面の比べ（捲り棒のつまみも）を見て、基準を取り直してからこの値を直す');
 });
 

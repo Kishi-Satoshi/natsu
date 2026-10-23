@@ -457,7 +457,8 @@ test('SP4: カードの data-sec と見出しの並びが「設定の項目と�
 // 行の1行。18 → 21。前の値は ce912294…）足した
 // 0.10.0 LS-3（D59）で意図して変えた: 詳細設定の要約の欄の label を5つ（パス・モデル・スレッド・ポート・文脈長）外した（38 → 33。前の値は c8ceaee5…）と、
 // 説明を直した（カードの頭の1行の「要約」を外し・要約の欄の説明の3つを外した）
-const TEXTS_080 = { labels: [33, 'df73640513aa5a2ee0126bbb437c801be6f1c2befefcd73c7805890f49f08d74'], descs: [18, '89206c389cddf880d21dc051cc735b79d5b181e2e8a4622b5852e7c24499938a'] };   // 説明 21 → 18（前の値は aed31061…）
+// 持ち主の答え（2026-10-23）で意図して変えた: カード「Claude との連携（MCP）」の頭の1行から「Claude Code」を外した（説明の数は 18 のまま。前の値は 89206c38…）
+const TEXTS_080 = { labels: [33, 'df73640513aa5a2ee0126bbb437c801be6f1c2befefcd73c7805890f49f08d74'], descs: [18, '5bc6662f8d9f15cf2ba4f83f32ac15c082b86bc7c218da09b4ca5caf23a0735a'] };   // 説明 21 → 18（LS-3 の前の値は aed31061…）
 test('SP4: 動かした入力の id が全部あり、その行の中にある。文が 0.8.0 と同じ（label の文・.check の文・説明の文）', T, () => {
   const sec = doc.querySelector('#tabSettings');
   for (const [name, ids] of Object.entries(ROW_IDS)) {

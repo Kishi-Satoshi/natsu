@@ -630,7 +630,7 @@ const IDS_100 = [
   'lk-head-css',
   'cfg-keep-others', 'cfg-taken', 'cfg-msix', 'cfg-stale', 'cfg-claude-running',
   'cfg-broken-write', 'cfg-backup', 'cfg-backup-keep', 'cfg-gone',
-  'cfg-ui-running', 'cfg-ui-noclaude', 'cfg-ui-unreg', 'cfg-ui-notice',
+  'cfg-ui-running', 'cfg-ui-noclaude', 'cfg-ui-unreg', 'cfg-ui-notice', 'cfg-ui-lead',
   'lk-page-copy', 'lk-page-live', 'lk-ref-prefix',
   'lk-multi-order', 'lk-multi-cap', 'lk-multi-clear', 'lk-sel-open', 'lk-sel-range', 'lk-label-claude',
   'nl-parse-quote', 'nl-parse-host', 'nl-open-query', 'nl-open-origin',

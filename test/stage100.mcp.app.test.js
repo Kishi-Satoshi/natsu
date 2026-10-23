@@ -37,7 +37,8 @@ const visible = (el) => { for (let n = el; n && n.tagName && !n.tagName.startsWi
 const shownRows = (l) => l.byId.get('tabSettings').querySelectorAll('[data-row]').filter(visible).map((r) => r.dataset.row);
 const openSummary = async (o) => { const l = await open(o); await l.drain(); await click(l, 'tabBtnSettings'); await pick(l, 'summary'); return l; };
 
-const C0 = 'Claude デスクトップや Claude Code から議事録を読めるようにします。';
+// 持ち主の答え（2026-10-23）で意図して変えた: Claude Code の登録は作らない（D64）ので、頭の1行から「Claude Code」を外す
+const C0 = 'Claude デスクトップから議事録を読めるようにします。';
 const C2 = '※ 読んだ議事録は Claude（Anthropic）へ送られます。';
 const C3 = 'Claude デスクトップの設定に NaTsu の MCP を足します。';
 const POP = ['Claude に「10/20 の議事録を読んでレポートして」のように頼めます。', 'Claude は議事録を読むだけで、書き換えません。',
