@@ -94,6 +94,8 @@ const WIRED = [
   { screen: 'app', id: 'tabbar', types: ['keydown'], 由来: '第1b回 N3: 上のタブの帯の ←／→（タブの中身は B-3）' },
   { screen: 'app', id: 'claudeLogin', types: ['click'], 由来: '第1b回の続き Lane F: ［Claude Code にログイン］。切れると利用者が PowerShell でログインし直すしかない' },
   { screen: 'app', id: 'claudeInstall', types: ['click'], 由来: '第1b回の続き Lane F: ［Claude Code を入れる］。切れると入れ方の案内が行き止まりになる' },
+  { screen: 'app', id: 'mcpRegister', types: ['click'], 由来: '0.10.0 C-3（MR8）: ［Claude デスクトップに登録］。切れると Claude から議事録を読めるようにする道が無い' },
+  { screen: 'app', id: 'mcpUnregister', types: ['click'], 由来: '0.10.0 C-3（MR8）: ［登録を外す］。切れると Claude デスクトップの設定から NaTsu を外せない' },
   { screen: 'overlay', id: 'stopBtn', types: ['click'], 由来: '録音の停止。押せないと議事録が作れない' },
   { screen: 'overlay', id: 'pauseBtn', types: ['click'], 由来: '一時停止' },
   { screen: 'overlay', id: 'ngBtn', types: ['click'], 由来: 'キャンセル' },

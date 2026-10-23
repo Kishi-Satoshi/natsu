@@ -207,6 +207,10 @@ contextBridge.exposeInMainWorld('koeApp', {
   // 第1b回の続き Lane F-c・F-d: 見える窓を開き、閉じたら確かめ直した答え（{ ok, status } か { ok: false, code, message }）を返す
   claudeLogin: () => ipcRenderer.invoke('claude:login'),
   claudeInstall: () => ipcRenderer.invoke('claude:install'),
+  // 0.10.0 C-3: Claude デスクトップへの MCP の登録（引数なし。設定ファイルの場所は main が決める）。答えは { desktop: { state, files, running } } と { ok, state, code?, running? }
+  mcpStatus: () => ipcRenderer.invoke('mcp:status'),
+  mcpRegister: () => ipcRenderer.invoke('mcp:register'),
+  mcpUnregister: () => ipcRenderer.invoke('mcp:unregister'),
 
   // 画面の覚え書き（第1b回 N6）。サイドバーの幅と畳み・開いているタブ。main が照らしてから window-state.json に覚える
   uiState: () => ipcRenderer.invoke('ui:get'),

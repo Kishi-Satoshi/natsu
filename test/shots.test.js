@@ -87,7 +87,11 @@ const SH1_100 = ['notes-empty-light', 'notes-page-light', 'notes-page-dark', 'di
   'settings-info-loop-light', 'settings-info-stt-dark', 'settings-info-claude-light', 'settings-info-search-light',
   'live-wave-light', 'live-wave-dark', 'live-silent-light', 'live-paused-dark', 'settings-detect-light', 'settings-detect-dark', 'live-offline-light',
   'live-offline-dark', 'live-late-light', 'live-late-dark', 'live-late-zoom200-light'];
-const RETAKE_100 = [...SH1_100];
+// C-3（MR8）: 項目「要約」にカード「Claude との連携（MCP）」を足し、要約（Claude Code）の吹き出しに Sonnet の1行（D34）。変わる2枚（SH-1 の表にもある）と足した2枚
+const C3_100 = ['settings-summary-light', 'settings-info-claude-light', 'settings-mcp-light', 'settings-info-mcp-light'];
+// 0.10.0 で足した画面（取り直し待ちの間は基準が無くてよい。版を上げる commit で基準にして空に戻す）
+const NEW_100 = ['settings-mcp-light', 'settings-info-mcp-light'];
+const RETAKE_100 = [...SH1_100, ...C3_100];
 const img = (w, h, fill = [255, 255, 255, 255]) => ({ width: w, height: h, data: Buffer.from(Array.from({ length: w * h }, () => fill).flat()) });
 // 一時フォルダ（日本語と 𠮷 の名前。RF1 と同じ形）。テストの終わりに消す
 const tmp = (t, name) => {
@@ -118,7 +122,9 @@ test('G2: 撮る画面は決まった並び（第1b回の 13 と第1b2回の検�
     // 0.9.3 持ち主の答え D55 で意図して変えた: オフラインモードの録音中のページの明るい・暗いを足した（取り直し待ち・まだ基準が無い）
     ...D55_APP_093,
     // 0.9.4 S-8 で意図して変えた: 遅い会議の帯と区間（明暗・200%）を足した（取り直し待ち・まだ基準が無い）
-    ...S8_APP_094]);
+    ...S8_APP_094,
+    // 0.10.0 C-3 で意図して変えた: カード「Claude との連携（MCP）」まで捲った形と、その吹き出しを開いた形を足した（取り直し待ち・まだ基準が無い）
+    ...NEW_100]);
   assert.deepStrictEqual(SH.SCREENS.filter((s) => s.page === 'overlay').map((s) => s.name), PS.screenNames());
   // 0.9.3 M-7 で意図して変えた: 会議の検出のパネル（page nudge）の5枚を録音バーのあと（いちばん後ろ）に足した
   assert.deepStrictEqual(SH.SCREENS.filter((s) => s.page === 'nudge').map((s) => s.name), M7_NUDGE_093);
@@ -581,6 +587,8 @@ test('G2・F14・G-4・0.9.0 G-3・0.9.1・0.9.2・0.9.3・0.9.4: 取り直し�
   }
   for (const s of SH.SCREENS) {
     const f = path.join(ROOT, 'test', 'shots', 'win32', `${s.name}.png`);
+    // 0.10.0 C-3 で意図して変えた: 0.10.0 で足した画面（NEW_100）は、取り直し待ちの間は基準が無くてよい
+    if (NEW_100.includes(s.name) && SH.RETAKE.has(s.name) && !fs.existsSync(f)) continue;
     assert.ok(fs.existsSync(f), `${s.name} の基準が無い`);
     if (s.page !== 'app') continue;   // 0.9.3 M-7 で意図して変えた: パネル（nudge）の画面も、録音バーと同じく窓の大きさが中身で決まる
     const im = P.decodePng(fs.readFileSync(f));
@@ -763,7 +771,10 @@ test('基準の画像（test/shots/win32）は今の app.html で撮ったもの
   // 録音中のページの画面（RETAKE にある: W1_094）。値を今の app.html に合わせた
   // 0.9.4 R-1（持ち主の答え Q25）: 設定の項目の名前を「ローカル AI の設定」から「ローカル AI」にした（左の列・隠した見出し・項目の名前・文の中）。見える中身が
   // 変わるのは設定の画面（RETAKE にある: R1_094）。値を今の app.html に合わせた
-  assert.strictEqual(sha, '40052bfc77711d4cda14094e495fa30d07322215032aeacbd44f35addd5d5315',
+  // 0.10.0 C-3（MR8・D34）: 項目「要約」にカード「Claude との連携（MCP）」と、要約（Claude Code）の吹き出しに Sonnet の1行を足し、左下の知らせの
+  // action settings-summary を足した。見える中身が変わるのは項目「要約」を写す画面（settings-summary-light・settings-info-claude-light。RETAKE にある）と、
+  // 足した2枚（settings-mcp-light・settings-info-mcp-light）。値を今の app.html に合わせた（前の値は 40052bfc…）
+  assert.strictEqual(sha, 'cf1634c0966032f0eb69e1e11069295f866282837633e8eeded2c66fe4427fc9',
     'app.html が基準の画像を撮った時と違う。Windows の CI の画面の比べ（捲り棒のつまみも）を見て、基準を取り直してからこの値を直す');
 });
 

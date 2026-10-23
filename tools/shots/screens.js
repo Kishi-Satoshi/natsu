@@ -148,6 +148,10 @@ const SCREENS = [
   { name: 'live-late-light', page: 'app', theme: 'light', answers: lateAnswers() },
   { name: 'live-late-dark', page: 'app', theme: 'dark', answers: lateAnswers() },
   { name: 'live-late-zoom200-light', page: 'app', theme: 'light', zoom: 2, answers: lateAnswers() },
+  // 0.10.0 C-3（計画 docs/plans/2026-10-20-100.md の「取り直す画面（RETAKE）」）: 項目「要約」のカード「Claude との連携（MCP）」まで捲った形（状態 none）と、
+  // その ⓘ の吹き出しを開いた形。足した画面（まだ基準が無い）
+  { name: 'settings-mcp-light', page: 'app', theme: 'light', act: `${OPEN_SETTINGS}; ${NAV('setNavSummary')}; document.getElementById('mcpCard').scrollIntoView({ block: 'start' })` },
+  { name: 'settings-info-mcp-light', page: 'app', theme: 'light', act: `${OPEN_SETTINGS}; ${NAV('setNavSummary')}; ${INFO('setPopMcp')}` },
 ];
 // 0.9.0 O-3（RP9）: 録音バーの画面（形 → 地 → 拡大率 → 状態の順。撮る道具は形・地・拡大率の組ごとに窓を1つ開いて状態を act で替える）。
 // 録音は始めずに見た目だけを撮る（act は pill-states の見本を録音バーの DOM に当てる。撮るときだけ体の地にデスクトップの色を塗る）。
@@ -226,6 +230,8 @@ const RETAKE = new Set([
   'settings-info-loop-light', 'settings-info-stt-dark', 'settings-info-claude-light', 'settings-info-search-light',
   'live-wave-light', 'live-wave-dark', 'live-silent-light', 'live-paused-dark', 'settings-detect-light', 'settings-detect-dark', 'live-offline-light',
   'live-offline-dark', 'live-late-light', 'live-late-dark', 'live-late-zoom200-light',
+  // C-3（MR8）: 項目「要約」にカード「Claude との連携（MCP）」と Sonnet の1行を足した（settings-summary-light・settings-info-claude-light は上に）と、足した2枚
+  'settings-mcp-light', 'settings-info-mcp-light',
 ]);
 const PERF = [{ name: 'open-2000-blocks', budgetMs: 500 }];   // 3回開いた中央値で見る
 const TIME_ZONE = 'Asia/Tokyo';
@@ -381,6 +387,8 @@ function fixtures() {
     // 第1d回 A-12: カード「アカウント」はログインしていない形（AR1・AR2 と［ログイン］）。main の account:status の形（cookie は入っていない）
     'koeApp.accountStatus': { ok: true, signedIn: false, email: '', method: 'access', until: null, canStore: true, online: { up: true, why: 'ok' } },
     'koeApp.promptInfo': { ok: true, kept: 2, total: 2, over: false },
+    // 0.10.0 C-3: カード「Claude との連携（MCP）」は登録していない形（Claude デスクトップは動いていない）
+    'koeApp.mcpStatus': { desktop: { state: 'none', files: 1, running: false } },
     'koeApp.meetingTypes': mtype.listTypes(),
     'koeApp.appVersion': { version: '0.4.0', repo: '' },   // 版を上げても画面が変わらないように決まった値
     'koeApp.getHistory': HISTORY,
