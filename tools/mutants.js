@@ -2000,4 +2000,6 @@ module.exports = [
   {"id": "hd-status-error", "file": "help/assets/search.js", "from": "say(note || (", "to": "say(note ? '' : (", "tests": ["test/help-search.test.js"], "pattern": "HD-5", "why": "help-dads HD-5 DF3: 索引が読めないときに status が黙る"},
   {"id": "hd-status-clear", "file": "help/assets/search.js", "from": "      function close() {\n        say('');", "to": "      function close() {", "tests": ["test/help-search.test.js"], "pattern": "HD-5", "why": "help-dads HD-5 DF3: 閉じても前の件数の文が残る"},
   {"id": "hd-status-markup", "file": "tools/lib/help-page.js", "from": "<p id=\"${id}-status\" class=\"vh\" role=\"status\"></p>", "to": "", "tests": ["test/help-search.test.js"], "pattern": "HD-5", "why": "help-dads HD-5 HD6: 検索の箱の中に role=\"status\" を出さない（件数の知らせが届かない）"},
+  // help-dads Task HD-6 Q4（パンくずに今のページ）
+  {"id": "hd-crumb-current", "file": "tools/lib/help-page.js", "from": " ${ARROW} <span aria-current=\"page\">${esc(art.meta.title)}</span></nav>", "to": "</nav>", "tests": ["test/help-build.test.js"], "pattern": "記事のページにパンくず", "why": "help-dads HD-6 Q4: 記事のパンくずに今のページが無い（どこにいるかがパンくずで分からない）"},
 ];

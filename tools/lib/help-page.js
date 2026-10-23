@@ -82,7 +82,7 @@ ${featured.length ? `<h2 id="hc-featured">はじめての方へ</h2>\n${rows(fea
 function pageCategory(site, cat, ctx) {
   const list = cat.articles.map((a) => ctx.articles.get(`${cat.id}/${a}`));
   const main = `<main id="hc-main" class="cat">
-<nav class="crumbs" aria-label="パンくず"><a href="/">ホーム</a> ${ARROW} <span>${esc(cat.title)}</span></nav>
+<nav class="crumbs" aria-label="パンくず"><a href="/">ホーム</a> ${ARROW} <span aria-current="page">${esc(cat.title)}</span></nav>
 <h1>${esc(cat.title)}</h1>
 <p class="lede">${esc(cat.description)}</p>
 ${list.length ? rows(list) : '<p class="empty">この分類の記事はまだありません。</p>'}
@@ -98,7 +98,7 @@ function pageArticle(site, art, ctx) {
     : '';
   const related = art.related.map((r) => ctx.articles.get(r));
   const main = `<main id="hc-main" class="article">
-<nav class="crumbs" aria-label="パンくず"><a href="/">ホーム</a> ${ARROW} <a href="/${cat.id}/">${esc(cat.title)}</a></nav>
+<nav class="crumbs" aria-label="パンくず"><a href="/">ホーム</a> ${ARROW} <a href="/${cat.id}/">${esc(cat.title)}</a> ${ARROW} <span aria-current="page">${esc(art.meta.title)}</span></nav>
 <h1>${esc(art.meta.title)}</h1>
 <dl class="article-meta"><div><dt>分類</dt><dd>${esc(cat.title)}</dd></div><div><dt>最終更新日</dt><dd><time datetime="${esc(art.meta.updated)}">${jaDate(art.meta.updated)}</time></dd></div></dl>
 <div class="body">

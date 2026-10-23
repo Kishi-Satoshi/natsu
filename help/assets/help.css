@@ -111,8 +111,9 @@ h3 { color: var(--ink); font-weight: 700; }
 .lede { font-size: 1.05rem; color: var(--body); max-width: 34em; margin: -.2rem 0 2.2rem; }
 .empty { color: var(--muted); }
 
-/* パンくず */
+/* パンくず（HD-6 Q4: 最後に今のページを本文の色の文字で。リンクにしない） */
 .crumbs { font-size: 1rem; color: var(--muted); margin: 0 0 .8rem; }
+.crumbs [aria-current="page"] { color: var(--body); }
 
 /* 記事の属性の帯: 上に ink の 1px、下に罫線、項目の間に罫線の縦線 */
 .article-meta { display: flex; flex-wrap: wrap; margin: 0 0 1.6rem; border-top: 1px solid var(--ink); border-bottom: 1px solid var(--rule); }

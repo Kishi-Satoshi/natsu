@@ -425,6 +425,7 @@ const IDS_HELP_DADS = [
   'hd-rem-body', 'hd-crumbs-size', 'hd-tap-narrow',
   'hd-font-sans',
   'hd-status-count', 'hd-status-cap', 'hd-status-error', 'hd-status-clear', 'hd-status-markup',
+  'hd-crumb-current',
 ];
 test('G3: help-dads の変異が一覧にそろい、IDS_HELP_DADS はどれも計画 docs/plans/2026-10-23-help-dads.md の「変異確認」の表にあり、当てるファイルと赤になるテストが表と同じ。hd- の変異は IDS_HELP_DADS にある', { timeout: 5000 }, () => {
   const byId = new Map(MUTANTS.map((m) => [m.id, m]));

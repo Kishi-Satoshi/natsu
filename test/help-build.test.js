@@ -110,6 +110,13 @@ test('HF3: 出力のどの HTML にも style=・on…=・src の無い <script>�
   }
 });
 
+test('HD-6（Q4）: 分類のページのパンくずの最後（分類名）も aria-current="page"。今のページの文字は 16px・本文の色（リンクの青にしない）', { timeout: 5000 }, (t) => {
+  const { html } = buildFixture(t);
+  assert.ok(html('start/index.html').includes('<nav class="crumbs" aria-label="パンくず"><a href="/">ホーム</a> <span aria-hidden="true">›</span> <span aria-current="page">はじめに</span></nav>'));
+  const d = C.declsFor(C.parse(CSS()), '.crumbs [aria-current="page"]', { at: '' });
+  assert.strictEqual(d.color, 'var(--body)');
+});
+
 test('H-3: 同じ元から2回作ると、全部のファイルが同じバイト（日付は記事の updated だけ）', { timeout: 5000 }, (t) => {
   const a = buildFixture(t);
   const b = buildFixture(t);
@@ -124,7 +131,8 @@ test('H-3: 記事のページにパンくず・題名・最終更新日（2026 �
   const { html } = buildFixture(t);
   const h = html('start/first/index.html');
   assert.ok(h.includes('<title>試しの最初の記事 — NaTsu ヘルプセンター</title>'));
-  assert.match(h, /<nav class="crumbs" aria-label="パンくず"><a href="\/">ホーム<\/a> <span aria-hidden="true">›<\/span> <a href="\/start\/">はじめに<\/a><\/nav>/);
+  // help-dads HD-6（Q4）: パンくずの最後に今のページ（記事の題名。リンクでない文字で aria-current="page"）
+  assert.match(h, /<nav class="crumbs" aria-label="パンくず"><a href="\/">ホーム<\/a> <span aria-hidden="true">›<\/span> <a href="\/start\/">はじめに<\/a> <span aria-hidden="true">›<\/span> <span aria-current="page">試しの最初の記事<\/span><\/nav>/);
   assert.ok(h.includes('<h1>試しの最初の記事</h1>'));
   assert.ok(h.includes('<dl class="article-meta"><div><dt>分類</dt><dd>はじめに</dd></div><div><dt>最終更新日</dt><dd><time datetime="2026-10-21">2026 年 10 月 21 日</time></dd></div></dl>'));
   // 左の目次: 全部の分類と記事。今の記事だけに aria-current
