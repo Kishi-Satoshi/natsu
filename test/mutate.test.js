@@ -431,6 +431,7 @@ const IDS_HELP_DADS = [
   'hd-gate-main',
   'hd-onpage-h2',
   'hd-term-note',
+  'hd-search-option',
 ];
 test('G3: help-dads の変異が一覧にそろい、IDS_HELP_DADS は計画 docs/plans/2026-10-23-help-dads.md の「変異確認」の表の id とちょうど同じで、当てるファイルと赤になるテストが表と同じ。hd- の変異は IDS_HELP_DADS にある', { timeout: 5000 }, () => {
   const byId = new Map(MUTANTS.map((m) => [m.id, m]));
@@ -440,7 +441,7 @@ test('G3: help-dads の変異が一覧にそろい、IDS_HELP_DADS は計画 doc
   const plan = fs.readFileSync(path.join(ROOT, 'docs', 'plans', '2026-10-23-help-dads.md'), 'utf8');
   const table = plan.slice(plan.indexOf('## 変異確認'), plan.indexOf('## ゲート'));
   const rows = [...table.matchAll(/^\| (hd-[a-z0-9-]+) \| `([^`]+)` \| [^|]+ \| ([^\n]+) \|$/gm)];
-  assert.strictEqual(rows.length, 25, '計画の表の行の数（HD-1〜HD-6 の 24 と HD-8 の 1）');
+  assert.strictEqual(rows.length, IDS_HELP_DADS.length, '計画の表の行の数と IDS_HELP_DADS の数');
   assert.strictEqual(new Set(rows.map((x) => x[1])).size, rows.length, '計画の表に重なり');
   const ids = rows.map((x) => x[1]);
   assert.deepStrictEqual(IDS_HELP_DADS.filter((id) => !ids.includes(id)), [], '計画の「変異確認」の表に無い変異');

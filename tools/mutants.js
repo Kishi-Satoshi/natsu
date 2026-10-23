@@ -2012,4 +2012,6 @@ module.exports = [
   {"id": "hd-onpage-h2", "file": "tools/lib/help-page.js", "from": "<h2 class=\"onpage-h\" id=\"hc-onpage\">このページの内容</h2>", "to": "<p class=\"onpage-h\" id=\"hc-onpage\">このページの内容</p>", "tests": ["test/help-build.test.js"], "pattern": "Q11", "why": "help-dads HD-6 Q11: 「このページの内容」が見出しでない（見出しで飛ぶ人に見つからない）"},
   // help-dads Task HD-8（「区間」「中継」の一言）
   {"id": "hd-term-note", "file": "help/articles/record/pc-only.md", "from": "音声は中継（音声を OpenAI へ取り次ぐ会社のサーバー）へ送らず", "to": "音声は中継へ送らず", "tests": ["test/help-content.test.js"], "pattern": "HD-8", "why": "help-dads HD-8 Q8: 記事で最初に出た「中継」に一言が無い（読んでいる場所で意味が分からない）"},
+  // help-dads 独立した再審査の指摘 1（検索の結果の入れ子）
+  {"id": "hd-search-option", "file": "help/assets/search.js", "from": "li.setAttribute('role', 'none');", "to": "li.setAttribute('role', 'option');", "tests": ["test/help-search.test.js"], "pattern": "再審査の指摘 1", "why": "help-dads HD-9 再審査の指摘 1: 検索の結果の選択肢の中に、選択肢のリンクが入れ子になる（WCAG 4.1.2。読み上げソフトが二重に読む）"},
 ];

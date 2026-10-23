@@ -125,7 +125,7 @@ function runPage(t, file, opt = {}) {
   return { root, html, calls, went, tick, key, type, docListeners };
 }
 
-test('H-4: 検索の箱の配線（simdom）: JS が動くと箱が出る・打つと結果が出る・↓↑で aria-activedescendant が動く・Enter で選んだ記事の URL へ・Esc で閉じ、もう一度 Esc で空に・index は1回だけ読む', { timeout: 5000 }, async (t) => {
+test('H-4: 検索の箱の配線（simdom。再審査の指摘 1: 選択肢は a[role="option"]・li は role="none"）: JS が動くと箱が出る・打つと結果が出る・↓↑で aria-activedescendant が動く・Enter で選んだ記事の URL へ・Esc で閉じ、もう一度 Esc で空に・index は1回だけ読む', { timeout: 5000 }, async (t) => {
   const p = runPage(t, 'start/first/index.html');
   // 初めの HTML では箱は hidden（JS が動かないときは出さない）
   assert.ok(/<div class="search" hidden>/.test(p.html));
@@ -144,12 +144,21 @@ test('H-4: 検索の箱の配線（simdom）: JS が動くと箱が出る・打�
   assert.strictEqual(q.getAttribute('aria-expanded'), 'true');
   const opts = () => list.querySelectorAll('[role="option"]');
   // 題名に語のある記事（3 点）が、本文のリンクの文にだけある記事（1 点）より上
-  assert.deepStrictEqual(opts().map((o) => o.querySelector('a').getAttribute('href')), ['/record/pause/', '/start/first/']);
+  assert.deepStrictEqual(opts().map((o) => o.getAttribute('href')), ['/record/pause/', '/start/first/']);
   assert.strictEqual(opts()[0].querySelector('.rt').textContent, '試しの一時停止');
   assert.strictEqual(opts()[0].querySelector('.rc').textContent, '会議を記録する');
+  // 再審査の指摘 1（WCAG 4.1.2・nested-interactive）: 選択肢はリンクそのもの（a[role="option"]）で、li は role="none"。選択肢の中にリンクを入れ子にしない
+  for (const o of opts()) {
+    assert.strictEqual(o.tagName, 'a', '選択肢が a でない');
+    assert.strictEqual(o.getAttribute('tabindex'), '-1');
+    assert.strictEqual(o.parentNode.tagName, 'li');
+    assert.strictEqual(o.parentNode.getAttribute('role'), 'none');
+    assert.strictEqual(o.querySelectorAll('a, button, input, [tabindex]').length, 0, '選択肢の中に操作できるもの');
+  }
+  assert.strictEqual(list.querySelectorAll('[role="option"] a').length, 0, '選択肢の中にリンクが入れ子');
 
   await p.type(q, '試し');
-  assert.deepStrictEqual(opts().map((o) => o.querySelector('a').getAttribute('href')), ['/start/first/', '/start/steps/', '/record/pause/']);
+  assert.deepStrictEqual(opts().map((o) => o.getAttribute('href')), ['/start/first/', '/start/steps/', '/record/pause/']);
   assert.strictEqual(q.getAttribute('aria-activedescendant'), null);
   p.key(q, 'ArrowDown');
   assert.strictEqual(q.getAttribute('aria-activedescendant'), opts()[0].id);
@@ -197,7 +206,7 @@ test('H-4: どのページの上の帯にも検索の箱があり、ホームに
   const big = p.root.querySelector('#hc-q-home');
   await p.type(big, 'ホットキー');
   const list = p.root.querySelector('#hc-q-home-results');
-  assert.deepStrictEqual(list.querySelectorAll('[role="option"]').map((o) => o.querySelector('a').getAttribute('href')), ['/record/pause/', '/start/first/']);
+  assert.deepStrictEqual(list.querySelectorAll('[role="option"]').map((o) => o.getAttribute('href')), ['/record/pause/', '/start/first/']);
   assert.strictEqual(p.root.querySelector('#hc-q-results').hidden, true, 'ほかの箱の結果まで開いた');
   // 外を押すと閉じる
   for (const fn of p.docListeners.click || []) fn({ type: 'click', target: p.root.querySelector('main h1') });

@@ -90,7 +90,7 @@ a:focus-visible { background-color: var(--focus-link-bg) !important; color: var(
 @media (hover: hover) {
   .search-results a:hover { background: var(--wash); color: var(--ink); }
 }
-.search-results li[aria-selected="true"] a { background: var(--wash); color: var(--ink); border-left-color: var(--ink); }
+.search-results a[aria-selected="true"] { background: var(--wash); color: var(--ink); border-left-color: var(--ink); }
 .search-results .rt { display: block; font-weight: 700; color: var(--ink); }
 .search-results .rc { display: block; font-size: .875rem; color: var(--muted); }
 .search-results .none { padding: 8px 12px; color: var(--muted); font-size: .9rem; }

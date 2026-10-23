@@ -103,11 +103,13 @@ var HelpSearch = (function () {
           list.appendChild(none);
         }
         for (var k = 0; k < items.length; k++) {
+          // 選択肢はリンクそのもの（a[role="option"]）。li は role="none"（選択肢の中にリンクを入れ子にしない: WCAG 4.1.2）
           var li = doc.createElement('li');
-          li.id = input.id + '-opt-' + k;
-          li.setAttribute('role', 'option');
-          li.setAttribute('aria-selected', 'false');
+          li.setAttribute('role', 'none');
           var a = doc.createElement('a');
+          a.id = input.id + '-opt-' + k;
+          a.setAttribute('role', 'option');
+          a.setAttribute('aria-selected', 'false');
           a.setAttribute('href', items[k].u);
           a.setAttribute('tabindex', '-1');
           var t = doc.createElement('span');
