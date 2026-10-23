@@ -18,7 +18,8 @@ const OPEN_JS = fs.readFileSync(path.join(ROOT, 'help', 'assets', 'open.js'), 'u
 const OPEN_HTML = () => fs.readFileSync(path.join(ROOT, 'help', 'open', 'index.html'), 'utf8');
 const LOST = 'ログインの後は、Claude のリンクをもう一度押してください。';
 const BAD = 'このリンクは開けません（形が違います）';
-const DONE = 'NaTsu で開きました。このタブは閉じてかまいません。';
+// help-dads 再審査の指摘 8（持ち主の答え 2026-10-23）: 開けたかが分からないうちに「開きました」と言い切らない
+const DONE = 'NaTsu で開いています。開かないときは［NaTsu で開く］を押してください。';
 const NOTE = 'NaTsu が入っていない PC では開けません。NaTsu を入れるには［インストールと更新］の記事を見てください。';
 
 // open.js を偽の document と location で回す → { href（location.href に入れた物。入れなければ null）, msg, go: { hidden, href } }
@@ -33,7 +34,7 @@ function runOpen(hash) {
   return { href, msg: els['hc-open-msg'].textContent, go: { hidden: els['hc-open-go'].hidden, href: els['hc-open-go'].getAttribute('href') } };
 }
 
-test('D78・決めたこと 155: open.js は #p=<ID>&a=<印> を照らし、location.href と［NaTsu で開く］の href に natsu://page/<ID>#<印> を入れ、「NaTsu で開きました…」', T, () => {
+test('D78・決めたこと 155: open.js は #p=<ID>&a=<印> を照らし、location.href と［NaTsu で開く］の href に natsu://page/<ID>#<印> を入れ、「NaTsu で開いています。開かないときは［NaTsu で開く］を押してください。」（再審査の指摘 8）', T, () => {
   for (const [hash, want] of [['#p=pm1&a=t:s1-s3', 'natsu://page/pm1#t:s1-s3'], ['#p=pm1', 'natsu://page/pm1'], ['#p=pm1&a=b:b3', 'natsu://page/pm1#b:b3'],
     ['#p=pm1&w=team1&a=m:2', 'natsu://page/pm1#m:2']]) {
     const r = runOpen(hash);

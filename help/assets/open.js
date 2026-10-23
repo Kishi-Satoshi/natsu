@@ -11,7 +11,7 @@
   var VALUE = /^[A-Za-z0-9_:.-]{0,64}$/;
   var LOST = 'ログインの後は、Claude のリンクをもう一度押してください。';
   var BAD = 'このリンクは開けません（形が違います）';
-  var DONE = 'NaTsu で開きました。このタブは閉じてかまいません。';
+  var DONE = 'NaTsu で開いています。開かないときは［NaTsu で開く］を押してください。';   // help-dads 再審査の指摘 8: 開けたかが分からないうちに言い切らない
 
   // # の後ろ（# を除いた文字）→ { id, anchor } か null
   function parseFrag(frag) {

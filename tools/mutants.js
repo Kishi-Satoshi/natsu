@@ -2024,4 +2024,6 @@ module.exports = [
   {"id": "hd-table-name", "file": "tools/lib/help-md.js", "from": "const base = lastH ? `${lastH.text}の表` : `表 ${++ctx.tables}`;", "to": "const base = `表 ${++ctx.tables}`;", "tests": ["test/help-md.test.js"], "pattern": "指摘 5・6", "why": "help-dads HD-9 再審査の指摘 6: 表の領域の名前が「表 1」だけで、何の表か分からない"},
   // help-dads 独立した再審査の指摘 7（中継の説明の言い方）
   {"id": "hd-relay-openai", "file": "help/articles/record/pc-only.md", "from": "音声を中継から OpenAI へ送りたくないときは", "to": "音声を中継（OpenAI）へ送りたくないときは", "tests": ["test/help-content.test.js"], "pattern": "指摘 7", "why": "help-dads HD-9 再審査の指摘 7: 中継の説明（OpenAI へ取り次ぐ NaTsu のサーバー）の後に「中継（OpenAI）」と書き、中継＝OpenAI と読める"},
+  // help-dads 独立した再審査の指摘 8（/open の文）
+  {"id": "hd-open-done", "file": "help/assets/open.js", "from": "var DONE = 'NaTsu で開いています。開かないときは［NaTsu で開く］を押してください。';", "to": "var DONE = 'NaTsu で開きました。このタブは閉じてかまいません。';", "tests": ["test/stage100.open.test.js"], "pattern": "指摘 8", "why": "help-dads HD-9 再審査の指摘 8: /open のページが、ブラウザーが natsu:// を止めたときも「開きました」と言い切る（同じ画面に［NaTsu で開く］も出て食い違う）"},
 ];
