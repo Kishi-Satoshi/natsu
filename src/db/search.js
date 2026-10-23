@@ -38,6 +38,12 @@ const SQL = Object.freeze({
   segmentsMatch: 'select s.page_id, count(*) as hits, min(s.n) as n, s.text from segments_fts f join segments s on s.rid = f.rowid where segments_fts match ? group by s.page_id',
   segmentsLike: "select page_id, count(*) as hits, min(n) as n, text from segments where fold like ? escape '\\' group by page_id",
   untitled: "select id from blocks where type = 'page' and text = ''",
+  // 0.10.0 T-2b（D51）: MCP の箇所の検索の候補。行ごとに、渡した会議の ID（一覧に出す行と絞りの交わり。json_each の並び）の中だけを、
+  // 新しい行の順に上限まで引く。失敗した発言は引かない。問いと ID の並びと上限は ? で渡す（語で文を組み立てない）
+  passSegMatch: 'select s.page_id, s.n, s.id from segments_fts f join segments s on s.rid = f.rowid where segments_fts match ? and coalesce(s.failed, 0) = 0 and s.page_id in (select value from json_each(?)) order by s.rid desc limit ?',
+  passSegLike: "select s.page_id, s.n, s.id from segments s where s.fold like ? escape '\\' and coalesce(s.failed, 0) = 0 and s.page_id in (select value from json_each(?)) order by s.rid desc limit ?",
+  passBlockMatch: "select b.page_id, b.id, b.type = 'page' as is_page from blocks_fts f join blocks b on b.rid = f.rowid where blocks_fts match ? and b.page_id in (select value from json_each(?)) order by b.rid desc limit ?",
+  passBlockLike: "select b.page_id, b.id, b.type = 'page' as is_page from blocks b where b.fold like ? escape '\\' and b.page_id in (select value from json_each(?)) order by b.rid desc limit ?",
 });
 
 function ftsQuote(s) {
@@ -110,4 +116,17 @@ function searchFull(db, q, limit, { ids, entryOf }) {
   return { hits, total, truncated: total > hits.length };
 }
 
-module.exports = { FULL_TEXT_LIMIT, SQL, plan, ftsQuote, searchList, searchFull };
+// 0.10.0 T-2b（D51）: 1つの語の候補の行 → { segs: [{ page_id, n, id }], blocks: [{ page_id, id, is_page }], overflow }。
+// ids は一覧に出す行と絞りの交わり（ゴミ箱と録音中の写しの行は SQL の段で外れる: 決めたこと 73）。max + 1 行を引いて overflow を決める
+function passageHits(db, term, ids, max) {
+  const p = plan(term);
+  if (!p) return { segs: [], blocks: [], overflow: false };
+  const arg = p.kind === 'match' ? p.query : p.pattern;
+  const list = JSON.stringify(ids);
+  const segs = db.prepare(p.kind === 'match' ? SQL.passSegMatch : SQL.passSegLike).all(arg, list, max + 1);
+  const blocks = db.prepare(p.kind === 'match' ? SQL.passBlockMatch : SQL.passBlockLike).all(arg, list, max + 1);
+  const overflow = segs.length > max || blocks.length > max;
+  return { segs: segs.slice(0, max), blocks: blocks.slice(0, max), overflow };
+}
+
+module.exports = { FULL_TEXT_LIMIT, SQL, plan, ftsQuote, searchList, searchFull, passageHits };

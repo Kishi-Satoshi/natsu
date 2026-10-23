@@ -112,6 +112,36 @@ function blockLine(b) {
   return `- ${text}${b.type === 'bullet' ? citeSuffix(b) : ''}`;
 }
 
+// 発言の1行「s12 [0:00] 文」（決めたこと 61: failed の区間は DB の文を出さず決まった文に。区間から出す欄は ID・時刻・文だけ）
+const KEPT_TEXT = '（文字起こし待ちの区間。音声は NaTsu の PC に残っています）';
+const FAILED_TEXT = '（文字起こしできなかった区間）';
+function segmentText(seg) {
+  if (seg && seg.failed) return seg.kept ? KEPT_TEXT : FAILED_TEXT;
+  return safeLine(seg && seg.text);
+}
+function segPrefix(seg) {
+  return `${seg.id}${Number.isFinite(seg.atMs) ? ` [${clock(seg.atMs)}]` : ''} `;
+}
+function segmentLine(seg) {
+  return `${segPrefix(seg)}${segmentText(seg)}`;
+}
+
+// 時刻 HH:MM（PC の時計の時刻。ISO の文字か Date）。読めなければ ''
+function timeOf(iso) {
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) || !iso ? '' : `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+}
+
+// 箇所の場所の文（決めたこと 74）
+function placeText(p) {
+  if (p.kind === 't') {
+    const t = Number.isFinite(p.atMs) && Number.isFinite(p.endMs) ? ` [${clock(p.atMs)}〜${clock(p.endMs)}]` : '';
+    return `文字起こし ${p.from}〜${p.to}${t}`;
+  }
+  if (p.kind === 'b') return `要約「${p.heading}」`;
+  return `メモ（段落 ${p.n}）`;
+}
+
 // 文字の数が budget を越えないように、行の切れ目で切る → { text, cut }
 function cut(text, budget) {
   if (text.length <= budget) return { text, cut: false };
@@ -126,4 +156,4 @@ function cut(text, budget) {
   return { text: out.join('\n'), cut: true };
 }
 
-module.exports = { clock, today, weekdayOf, dateWithDay, header, safeLine, quoteLines, meetingLine, sttOf, blockLine, cut, NOTICE };
+module.exports = { clock, today, weekdayOf, dateWithDay, header, safeLine, quoteLines, meetingLine, sttOf, blockLine, segmentText, segPrefix, segmentLine, timeOf, placeText, cut, NOTICE, KEPT_TEXT, FAILED_TEXT };

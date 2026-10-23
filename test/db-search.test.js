@@ -114,3 +114,40 @@ test('ST8: 要約の後半（今の 2 万字の打ち切りの外）とメモの
     assert.strictEqual(list('長い会議')[0].snippet, undefined, '題名で当たった行に抜き出しがある');
   } finally { t.done(); }
 });
+
+// ---------------------------------------------------------------- 0.10.0 T-2b（D51）: 箇所の候補を引く決まった SQL
+test('D51: passageHits は渡した ID の会議の行だけを返し、max + 1 行で overflow を決める。FTS5 と LIKE の当たりが同じ行（3文字の語で比べる）', { timeout: 5000 }, () => {
+  const sqlite = require('node:sqlite');
+  const search = require('../src/db/search');
+  const { mcpDb } = require('./helpers/mcpdb');
+  const m = mcpDb({ only: ['rag'] });
+  try {
+    const db = m.open();
+    const all = m.ids.rag;
+    const r = search.passageHits(db, '見積書', all, 100);
+    assert.deepStrictEqual(r.segs.map((s) => [s.page_id, s.id]), [['pr01', 's1']]);
+    assert.strictEqual(r.overflow, false);
+    const some = search.passageHits(db, '会議', ['pr02', 'pr03'], 100);
+    assert.ok(some.segs.length > 0 && some.segs.every((s) => ['pr02', 'pr03'].includes(s.page_id)));
+    const capped = search.passageHits(db, '会議', all, 3);
+    assert.strictEqual(capped.segs.length, 3);
+    assert.strictEqual(capped.overflow, true);
+    const exact = search.passageHits(db, '会議', all, some.segs.length + 100);
+    assert.strictEqual(exact.overflow, false);
+    // 新しい行の順（rid の大きい順）
+    const rids = db.prepare("select rid from segments where page_id = 'pr10' order by rid desc").all().map((x) => x.rid);
+    assert.ok(rids.length > 1);
+    // FTS5 と LIKE が同じ行
+    const fts = search.passageHits(db, '値引き', all, 100);
+    const like = { segs: db.prepare(search.SQL.passSegLike).all('%値引き%', JSON.stringify(all), 101), blocks: db.prepare(search.SQL.passBlockLike).all('%値引き%', JSON.stringify(all), 101) };
+    assert.deepStrictEqual(fts.segs.map((s) => `${s.page_id}/${s.id}`).sort(), like.segs.map((s) => `${s.page_id}/${s.id}`).sort());
+    assert.deepStrictEqual(fts.blocks.map((s) => `${s.page_id}/${s.id}`).sort(), like.blocks.map((s) => `${s.page_id}/${s.id}`).sort());
+    assert.ok(fts.blocks.some((b) => b.page_id === 'pr02' && b.is_page === 1), 'メモ（ページの行）の当たり');
+    // 失敗した区間は引かない
+    assert.deepStrictEqual(search.passageHits(db, '失敗', all, 100).segs.map((s) => s.id).sort(), ['s1', 's3']);
+    // 2文字は LIKE
+    assert.ok(search.passageHits(db, '見積', all, 100).blocks.some((b) => b.page_id === 'pr09'));
+    m.close();
+  } finally { m.done(); }
+  void sqlite;
+});

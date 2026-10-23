@@ -9,6 +9,7 @@ const { searchFold } = require('../cite');
 const { foldWithMap } = require('../pagerules');
 const search = require('../db/search');
 const F = require('./format');
+const { getLabel } = require('../meetingType');
 
 const PASSAGE_MAX = 600;
 const WINDOW_CHARS = 400;
@@ -176,7 +177,7 @@ function scorePassages(passages, terms, { idf = {}, titleHits = new Map() } = {}
       const w = Number.isFinite(idf[t]) ? idf[t] : 1;
       score += w * (tf * (K1 + 1)) / (tf + K1 * (1 - B + B * (len / AVG_LEN)));
     }
-    if (score > 0 && Object.keys(hits).length) out.push({ ...p, score, hits });
+    if (score > 0) out.push({ ...p, score, hits });
   }
   return out.sort(byRank);
 }
@@ -263,8 +264,42 @@ function markHits(text, terms) {
   return out + s.slice(last);
 }
 
+// 箇所1つの答えの行（決めたこと 74。order は 1 からの順）。terms は termsOf の答え（表示は Claude が渡した語）。
+// 本文の当たりは ⟦ ⟧ で囲む（決めたこと 115）。DB の文字は safeLine を通し、行の頭はいつも決まった印
+function passageLines(p, order, terms) {
+  const list = terms.map((t) => t.term);
+  const time = F.timeOf(p.createdAt);
+  const lines = [
+    `## ${order}｜${F.dateWithDay(p.date) || F.safeLine(String(p.date || ''))}${time ? `${time}ごろ` : ''}｜${F.safeLine(p.title || '') || '(無題の議事録)'}｜${getLabel(p.meetingType)}`,
+    `- 場所: ${F.placeText(p)}`,
+    `- 印: ${anchorOf(p.pageId, p)}`,
+  ];
+  const hit = terms.filter((t) => p.hits && p.hits[t.term]).map((t) => `${F.safeLine(t.raw)}（${p.hits[t.term]}）`);
+  if (hit.length) lines.push(`- 当たった語: ${hit.join('・')}`);
+  if (p.kind === 't') {
+    const first = terms.find((t) => p.hits && p.hits[t.term]);
+    for (const seg of p.segs) {
+      let text = F.segmentText(seg);
+      if (text.length > PASSAGE_MAX) text = cutAround(text, first ? first.term : '', PASSAGE_MAX);
+      lines.push(`${F.segPrefix(seg)}${markHits(text, list)}`);
+    }
+  } else if (p.kind === 'b') {
+    for (const l of p.lines) {
+      const m = /^(- \[[ x]\] |- )/.exec(l);
+      const pre = m ? m[1] : '- ';
+      lines.push(`${pre}${markHits(m ? l.slice(pre.length) : l, list)}`);
+    }
+  } else {
+    for (const l of p.lines) {
+      const t = F.safeLine(l);
+      lines.push(t.trim() ? `> ${markHits(t, list)}` : '>');
+    }
+  }
+  return lines;
+}
+
 module.exports = {
   PASSAGE_MAX, WINDOW_CHARS, WINDOW_MS, MEMO_MERGE, MAX_TERMS, K1, B, AVG_LEN, MARK_MAX, ANCHOR_RE,
   termsOf, splitTerms, termPlan, sortSegs, chunkSegments, chunkSummary, chunkMemo, idfOf, countIn, scorePassages, byRank, pick,
-  anchorOf, parseAnchor, cutAround, markHits,
+  anchorOf, parseAnchor, cutAround, markHits, passageLines,
 };

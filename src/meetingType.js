@@ -171,6 +171,8 @@ ${ACTION_RULE}
 };
 
 const ORDER = ['standup', 'review', 'oneonone', 'sales', 'interview', 'brainstorm', 'general'];
+// 人と話す会議（1on1・面談と採用面接・顔合わせ）。MCP の箇所の検索は、頼まれたときだけ探す（0.10.0 T-2b・D51・問い Q17）。後の打ち合わせの質も同じ1か所を使う
+const PERSONAL_TYPES = Object.freeze(['oneonone', 'interview']);
 
 /**
  * タイトルと本文の冒頭から会議タイプを推定する。
@@ -228,4 +230,4 @@ function listTypes() {
   return ORDER.map((k) => ({ key: k, label: TYPES[k].label, hint: TYPES[k].hint, agenda: TYPES[k].agenda || '' }));
 }
 
-module.exports = { TYPES, ORDER, detectType, getFormat, getLabel, getAgenda, listTypes };
+module.exports = { TYPES, ORDER, PERSONAL_TYPES, detectType, getFormat, getLabel, getAgenda, listTypes };

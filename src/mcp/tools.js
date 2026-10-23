@@ -6,11 +6,17 @@
 // 1つの答えは MAX_RESULT_CHARS まで（D58）。続きは offset・cursor・印で読む。
 const reader = require('./reader');
 const F = require('./format');
+const P = require('./passages');
+const { searchFold } = require('../cite');
+const search = require('../db/search');
 const commands = require('../db/commands');
 const meetingType = require('../meetingType');
 const { ID_RE } = require('../db/validate');
 
 const MAX_RESULT_CHARS = 12000;
+// 箇所の検索の候補（決めたこと 71）: 語ごとに引く行の上限と、読んで箇所に切る会議の数。テストだけ callTool の第3引数で小さくできる（環境変数ではない: 決めたこと 33）
+const CAND_MAX = 5000;
+const PAGE_CAND = 40;
 // [既定, 最大]
 const LIMITS = Object.freeze({ list: [20, 100], passages: [8, 20], perMeeting: [3, 10], actions: [50, 200] });
 const OFFSET_MAX = 10000;
@@ -239,12 +245,15 @@ function scopeText({ from, to, dates, meeting_types: types } = {}) {
   return s;
 }
 
+const scopeLead = (args) => { const s = scopeText(args); return s === 'すべて' ? 'すべての' : `${s} の`; };
+const H4 = '1on1・採用面接・事前面談の議事録は探していません（探すときは meeting_types か meeting_ids で指してください）。';
+
 // ---------------------------------------------------------------- 道具の本体（db は読み取りだけの接続）
 function listMeetings(db, args, { now }) {
   const rows = filterRows(commands.listedRows(db), { from: args.from, to: args.to, dates: args.dates, types: args.meeting_types });
   const limit = args.limit || LIMITS.list[0];
   const offset = args.offset || 0;
-  const head = [F.header(now), `${scopeText(args)} の議事録 ${rows.length} 件（新しい順）`];
+  const head = [F.header(now), `${scopeLead(args)}議事録 ${rows.length} 件（新しい順）`];
   const lines = [];
   let size = head.join('\n').length;
   const reserve = 40;   // 続きの行の分
@@ -262,7 +271,74 @@ function listMeetings(db, args, { now }) {
   return { text: [...head, ...lines, ...tail].join('\n'), count: rows.length ? lines.length : 0 };
 }
 
-const BODIES = { list_meetings: listMeetings };
+// search_passages（決めたこと 70〜74）。1on1・採用面接・事前面談は meeting_types にその鍵があるか meeting_ids で頼んだときだけ探す
+function searchPassages(db, args, { now, ctx }) {
+  const terms = P.termsOf(args.query);
+  const scopeRows = filterRows(commands.listedRows(db), { from: args.from, to: args.to, dates: args.dates, types: args.meeting_types, ids: args.meeting_ids });
+  const asked = new Set(args.meeting_types || []);
+  const isSkipped = (r) => !args.meeting_ids && meetingType.PERSONAL_TYPES.includes(r.attrs.meetingType) && !asked.has(r.attrs.meetingType);
+  const rows = scopeRows.filter((r) => !isSkipped(r));
+  const skipped = rows.length < scopeRows.length;
+  const N = rows.length;
+  const shown = F.safeLine(args.query);
+  const noHits = () => ({
+    text: [F.header(now), `「${shown}」に近い箇所は見つかりませんでした（探した範囲: ${scopeLead(args)}会議 ${N} 件）。同じ意味の語・略語・人や会社の名前でも探してください。`, ...(skipped ? [H4] : [])].join('\n'),
+    count: 0,
+  });
+  if (!terms.length || !N) return noHits();
+  const candMax = Number.isInteger(ctx.candMax) && ctx.candMax > 0 ? ctx.candMax : CAND_MAX;
+  const pageCand = Number.isInteger(ctx.pageCand) && ctx.pageCand > 0 ? ctx.pageCand : PAGE_CAND;
+  const withTr = args.include_transcript !== false;
+  const ids = rows.map((r) => r.id);
+  const byId = new Map(rows.map((r) => [r.id, r]));
+  // 下見: 語ごとに候補の行を引き、見える会議だけの数で語の重みを決め、会議ごとに点を付ける
+  const idf = {};
+  const pre = new Map();
+  for (const { term } of terms) {
+    const h = search.passageHits(db, term, ids, candMax);
+    const perPage = new Map();
+    const add = (pid) => perPage.set(pid, (perPage.get(pid) || 0) + 1);
+    for (const b of h.blocks) add(b.page_id);
+    if (withTr) for (const s of h.segs) add(s.page_id);
+    const df = h.overflow ? N : perPage.size;
+    idf[term] = P.idfOf(N, df);
+    for (const [pid, c] of perPage) pre.set(pid, (pre.get(pid) || 0) + idf[term] * Math.log(1 + c));
+  }
+  const dateOf = (pid) => String(byId.get(pid).attrs.date || '');
+  const cand = [...pre.keys()].sort((a, b) => (pre.get(b) - pre.get(a)) || dateOf(b).localeCompare(dateOf(a)) || (a < b ? -1 : a > b ? 1 : 0)).slice(0, pageCand);
+  const passages = [];
+  const titleHits = new Map();
+  for (const pid of cand) {
+    const page = commands.readPage(db, pid);
+    if (!page) continue;
+    const base = { pageId: pid, date: page.date, createdAt: page.createdAt, title: page.title, meetingType: page.meetingType || 'general' };
+    const list = [...P.chunkSummary(page.blocks), ...P.chunkMemo(page.memo), ...(withTr ? P.chunkSegments(commands.readSegments(db, pid)) : [])];
+    list.forEach((p, i) => passages.push({ ...p, ...base, pos: i }));
+    const ft = searchFold(page.title);
+    const th = new Set(terms.map((t) => t.term).filter((t) => ft.includes(t)));
+    if (th.size) titleHits.set(pid, th);
+  }
+  const scored = P.scorePassages(passages, terms.map((t) => t.term), { idf, titleHits });
+  const offset = args.offset || 0;
+  const { items, total } = P.pick(scored, { limit: args.limit || LIMITS.passages[0], offset, perMeeting: args.per_meeting || LIMITS.perMeeting[0] });
+  if (!total) return noHits();
+  const lines = [F.header(now), `「${shown}」に近い箇所 ${total} 件（近い順。探した会議 ${N} 件）`];
+  let size = lines.join('\n').length;
+  const reserve = (skipped ? H4.length + 1 : 0) + 40;
+  let n = 0;
+  for (const p of items) {
+    const block = P.passageLines(p, offset + n + 1, terms).join('\n');
+    if (size + 1 + block.length + reserve > MAX_RESULT_CHARS) break;   // 箇所の途中では切らない
+    lines.push(block);
+    size += 1 + block.length;
+    n++;
+  }
+  if (skipped) lines.push(H4);
+  if (offset + n < total) lines.push(`続き: offset ${offset + n}`);
+  return { text: lines.join('\n'), count: n };
+}
+
+const BODIES = { list_meetings: listMeetings, search_passages: searchPassages };
 
 // callTool(name, args, { sqlite, dataDir, now, fs }) → { text, isError, code?, count? }。知らない名前は投げる
 function callTool(name, args, ctx = {}) {
@@ -279,4 +355,4 @@ function callTool(name, args, ctx = {}) {
   return { text: v.text, isError: false, code: 'ok', count: v.count };
 }
 
-module.exports = { TOOLS, callTool, checkToolArgs, filterRows, meetingRef, REF_RE, ERROR_TEXT, MAX_RESULT_CHARS, LIMITS, isDate, scopeText };
+module.exports = { TOOLS, callTool, checkToolArgs, filterRows, meetingRef, REF_RE, ERROR_TEXT, MAX_RESULT_CHARS, LIMITS, CAND_MAX, PAGE_CAND, isDate, scopeText };
