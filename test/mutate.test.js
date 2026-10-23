@@ -578,6 +578,7 @@ const IDS_100 = [
   'mcp-pass-short-term', 'mcp-pass-multi-term', 'mcp-pass-failed', 'mcp-pass-dates', 'mcp-pass-types', 'mcp-pass-personal', 'mcp-ref-personal', 'mcp-pass-oneline', 'mcp-pass-quote',
   'mcp-get-listed', 'mcp-ref', 'mcp-transcript-page', 'mcp-failed-text', 'mcp-memo-quote', 'mcp-sections',
   'mcp-multi-cursor', 'mcp-multi-listed', 'mcp-expand-listed', 'mcp-expand-cap', 'mcp-pass-anchor',
+  'mcp-pass-visible-sql', 'mcp-pass-df-hidden',
 ];
 test('G3: 0.10.0 の変異が一覧にそろい、IDS_100 はどれも計画の「変異確認」の表にある。mcp-・cfg-・lk-・ls- の変異は IDS_100 にある。どれも決まったテストのファイルを持ち、なぜ戻すと困るかを書く', { timeout: 5000 }, () => {
   const byId = new Map(MUTANTS.map((m) => [m.id, m]));
