@@ -4,6 +4,7 @@
 // 答えのどの行も、ここが決めた頭（決まった文・「- 」・「- [ ] 」・「> 」・「s12 [0:00] 」・「# 」・「## 」）で始まり、
 // DB から来た文字が行の頭に来ない（議事録の文で見出し・頭の注意・続きの行を偽れない: 決めたこと 60・RF77）。
 const { getLabel } = require('../meetingType');
+const { citeStatOf } = require('../pagerules');
 
 const WEEK = ['日', '月', '火', '水', '木', '金', '土'];
 const pad2 = (n) => String(n).padStart(2, '0');
@@ -142,6 +143,101 @@ function placeText(p) {
   return `メモ（段落 ${p.n}）`;
 }
 
+// 発言を時刻の順に（同じ時刻は並びの順。atMs の無い発言は前の発言の後: 決めたこと 113）
+function sortSegs(segments) {
+  let prev = -Infinity;
+  const keyed = (segments || []).map((s, i) => {
+    const at = Number.isFinite(s && s.atMs) ? s.atMs : prev;
+    prev = at;
+    return { s, at, i };
+  });
+  keyed.sort((a, b) => (a.at - b.at) || (a.i - b.i));
+  return keyed.map((k) => k.s);
+}
+
+// 会議1つの Markdown（get_meeting と get_meetings で同じ形: 決めたこと 114）。いつも「## 要約」「## メモ」「## 文字起こし」をこの順で出す。
+//   page は commands.readPage の答え、segments は readSegments の答え。opts: { includeTranscript, from（時刻の順のこの発言から）, budget, header（頭の注意の行を付けるか） }
+//   → { text, next }（next は続きの発言の ID か null）。12,000 文字で切るときも、出し終えていない見出しは切った後に出す
+const CUT_NOTE = '（長いので、ここで切りました）';
+const SECTION_RESERVE = 160;   // 後ろの見出しと最初の1行の分
+function propLines(page) {
+  const lines = [];
+  const time = timeOf(page.createdAt);
+  const d = dateWithDay(page.date) || safeLine(String(page.date || ''));
+  if (d) lines.push(`- 日付: ${d}${time}`);
+  lines.push(`- 長さ: ${clock((Number(page.durationSec) || 0) * 1000)}`);
+  lines.push(`- 会議の種類: ${getLabel(page.meetingType)}`);
+  const stt = sttOf(page.route);
+  if (stt) lines.push(`- 文字起こし: ${stt}`);
+  const by = page.route && typeof page.route === 'object' && page.route.summary && typeof page.route.summary === 'object' ? page.route.summary.by : '';
+  if (by === 'claude-code' || by === 'local') lines.push(`- 要約: ${by === 'claude-code' ? 'Claude Code' : 'PC'}`);
+  const cs = citeStatOf(Array.isArray(page.blocks) ? page.blocks : []);
+  if (cs.total > 0) lines.push(`- 出典: ${cs.linked}/${cs.total}`);
+  lines.push(`- ID: ${page.id}`);
+  return lines;
+}
+function summaryLines(page) {
+  const out = ['## 要約'];
+  const blocks = Array.isArray(page.blocks) ? page.blocks : [];
+  for (const b of blocks) {
+    if (b && b.type === 'heading') { const t = safeLine(b.text); if (t.trim()) out.push(`### ${t}`); continue; }
+    const l = blockLine(b);
+    if (l) out.push(l);
+  }
+  if (out.length === 1) out.push(`要約はまだありません。${typeof page.summaryError === 'string' && page.summaryError.trim() ? `（${safeLine(page.summaryError)}）` : ''}`);
+  return out;
+}
+function memoLines(page) {
+  const q = quoteLines(typeof page.memo === 'string' ? page.memo.replace(/\s+$/, '') : '');
+  return ['## メモ', ...(q.some((l) => l !== '>') ? q : ['メモはありません。'])];
+}
+// 行の並びを budget 文字に入れる（入らなければ切って CUT_NOTE）
+function fitLines(lines, budget) {
+  const text = lines.join('\n');
+  if (text.length <= budget) return text;
+  return `${cut(text, Math.max(0, budget - CUT_NOTE.length - 1)).text}\n${CUT_NOTE}`;
+}
+function meetingMarkdown(page, segments, { includeTranscript = false, from = null, budget = 12000, header = true } = {}) {
+  const segs = sortSegs(Array.isArray(segments) ? segments : []);
+  const head = [...(header ? [NOTICE] : []), `# ${safeLine(page.title || '') || '(無題の議事録)'}`];
+  const wantTr = includeTranscript || Boolean(from);
+  let start = 0;
+  if (from) start = segs.findIndex((s) => s.id === from);
+  const parts = [];
+  let left = budget;
+  const take = (t) => { parts.push(t); left -= t.length + 1; };
+  if (from) {
+    take([...head, `- ID: ${page.id}`].join('\n'));
+  } else {
+    take([...head, ...propLines(page)].join('\n'));
+    take(fitLines(summaryLines(page), left - SECTION_RESERVE * 2));
+    take(fitLines(memoLines(page), left - SECTION_RESERVE));
+  }
+  let next = null;
+  if (!wantTr) {
+    take(['## 文字起こし', segs.length ? `include_transcript: true で読めます（全 ${segs.length} 発言）。` : '文字起こしはありません。'].join('\n'));
+  } else if (!segs.length) {
+    take(['## 文字起こし', '文字起こしはありません。'].join('\n'));
+  } else {
+    const lines = [];
+    let used = 0;
+    const reserve = 60 + 40;   // 見出しの行と続きの行
+    let i = Math.max(0, start);
+    for (; i < segs.length; i++) {
+      const l = segmentLine(segs[i]);
+      if (lines.length && used + l.length + 1 + reserve > left) break;
+      lines.push(l);
+      used += l.length + 1;
+    }
+    const first = segs[Math.max(0, start)];
+    const last = segs[i - 1];
+    const tail = i < segs.length ? [`続きは transcript_from: ${segs[i].id} で読めます`] : [];
+    if (i < segs.length) next = segs[i].id;
+    take([`## 文字起こし（${first.id}〜${last.id}／全 ${segs.length} 発言）`, ...lines, ...tail].join('\n'));
+  }
+  return { text: parts.join('\n'), next };
+}
+
 // 文字の数が budget を越えないように、行の切れ目で切る → { text, cut }
 function cut(text, budget) {
   if (text.length <= budget) return { text, cut: false };
@@ -156,4 +252,4 @@ function cut(text, budget) {
   return { text: out.join('\n'), cut: true };
 }
 
-module.exports = { clock, today, weekdayOf, dateWithDay, header, safeLine, quoteLines, meetingLine, sttOf, blockLine, segmentText, segPrefix, segmentLine, timeOf, placeText, cut, NOTICE, KEPT_TEXT, FAILED_TEXT };
+module.exports = { sortSegs, meetingMarkdown, CUT_NOTE, clock, today, weekdayOf, dateWithDay, header, safeLine, quoteLines, meetingLine, sttOf, blockLine, segmentText, segPrefix, segmentLine, timeOf, placeText, cut, NOTICE, KEPT_TEXT, FAILED_TEXT };

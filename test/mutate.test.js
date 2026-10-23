@@ -576,6 +576,7 @@ const IDS_100 = [
   'mcp-cap-chars', 'mcp-cap-list', 'mcp-arg-date', 'mcp-ref-strict', 'mcp-oneline', 'mcp-invisible',
   'mcp-pass-window-overlap', 'mcp-pass-window-size', 'mcp-pass-per-meeting', 'mcp-pass-rank', 'mcp-time-order', 'mcp-anchor-order', 'mcp-hit-forge', 'mcp-hit-mark',
   'mcp-pass-short-term', 'mcp-pass-multi-term', 'mcp-pass-failed', 'mcp-pass-dates', 'mcp-pass-types', 'mcp-pass-personal', 'mcp-ref-personal', 'mcp-pass-oneline', 'mcp-pass-quote',
+  'mcp-get-listed', 'mcp-ref', 'mcp-transcript-page', 'mcp-failed-text', 'mcp-memo-quote', 'mcp-sections',
 ];
 test('G3: 0.10.0 の変異が一覧にそろい、IDS_100 はどれも計画の「変異確認」の表にある。mcp-・cfg-・lk-・ls- の変異は IDS_100 にある。どれも決まったテストのファイルを持ち、なぜ戻すと困るかを書く', { timeout: 5000 }, () => {
   const byId = new Map(MUTANTS.map((m) => [m.id, m]));

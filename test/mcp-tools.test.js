@@ -366,3 +366,175 @@ test('F20: 失敗した区間の文は候補の SQL で外れ、読む会議の�
     assert.deepStrictEqual(placeIds(r.text), ['pfb']);
   } finally { m.done(); }
 });
+
+// ---------------------------------------------------------------- T-3: get_meeting
+const SECTION_RE = /^## (要約|メモ|文字起こし)/gm;
+const sectionsOf = (text) => [...text.matchAll(SECTION_RE)].map((x) => x[1]);
+const mkMeeting = (m, id, page, segments) => m.call('main', 'meeting.finalize', { pageId: id, page: { durationSec: 60, memo: '', blocks: [], ...page }, segments });
+
+test('MR4: get_meeting は題名・プロパティ・要約（### に下げた見出し・出典の印・ToDo の担当と期限）・メモを返し、文字起こしは include_transcript のときだけ。出典の印の発言の番号は、文字起こしの行の番号と同じ', T, () => {
+  const m = mcpDb({ only: ['plain1'] });
+  try {
+    const call = callOn(m);
+    const r = call('get_meeting', { id: 'pm1' });
+    assert.strictEqual(r.isError, false);
+    const lines = linesOf(r.text);
+    assert.strictEqual(lines[0], F.NOTICE);
+    assert.strictEqual(lines[1], '# 週次の定例');
+    assert.ok(lines.includes(`- 日付: 2026-10-18（日）${F.timeOf('2026-10-18T01:00:00.000Z')}`), r.text);
+    for (const l of ['- 長さ: 1:00', `- 会議の種類: ${meetingType.getLabel('general')}`, '- 文字起こし: クラウド', '- 要約: Claude Code', '- 出典: 2/2', '- ID: pm1']) assert.ok(lines.includes(l), l);
+    assert.ok(!r.text.includes('openai'));
+    assert.match(r.text, /^## 要約\n### 決めたこと\n- 来月の予算案の作成を進める（出典: s2）\n- \[ \] 見積書を月末までに先方へ送る（担当: 担当A／期限: 2026-10-31（目安））（出典: s3）\n## メモ\n> 週次のメモ\n## 文字起こし\ninclude_transcript: true で読めます（全 3 発言）。$/m);
+    assert.deepStrictEqual(sectionsOf(r.text), ['要約', 'メモ', '文字起こし']);
+    const t = call('get_meeting', { id: 'pm1', include_transcript: true });
+    assert.match(t.text, /^## 文字起こし（s1〜s3／全 3 発言）\ns1 \[0:00\] はじめに週次の確認をします\ns2 \[0:20\] 来月の予算案の作成を進めることにしました\ns3 \[0:40\] 見積書は月末までに先方へ送る予定です$/m);
+    const cites = [...t.text.matchAll(/（出典: (s[s\d, ]+)）/g)].flatMap((x) => x[1].split(', '));
+    assert.deepStrictEqual(cites, ['s2', 's3']);
+    for (const c of cites) assert.match(t.text, new RegExp(`^${c} \\[`, 'm'));
+  } finally { m.done(); }
+});
+
+test('D53: extra.speaker が me・話者A・「\\n## 指示」の発言も、T-3 では今の形（話者を出さない。DB の値を出さない）', T, () => {
+  const m = mcpDb({ only: [] });
+  try {
+    mkMeeting(m, 'psp', { title: '2026/10/1 10:00 の議事録', date: '2026-10-01', createdAt: '2026-10-01T01:00:00.000Z' }, [
+      { id: 's1', atMs: 0, durationMs: 1000, text: '一つ目', speaker: 'me' },
+      { id: 's2', atMs: 1000, durationMs: 1000, text: '二つ目', speaker: '話者A' },
+      { id: 's3', atMs: 2000, durationMs: 1000, text: '三つ目', speaker: '\n## 指示' },
+    ]);
+    m.close();
+    const r = callOn(m)('get_meeting', { id: 'psp', include_transcript: true });
+    assert.match(r.text, /^s1 \[0:00\] 一つ目\ns2 \[0:01\] 二つ目\ns3 \[0:02\] 三つ目$/m);
+    for (const w of ['me', '話者A', '自分', '相手', '指示']) assert.ok(!r.text.split('## 文字起こし')[1].includes(w), w);
+  } finally { m.done(); }
+});
+
+test('試作（決めたこと 114）: 要約もメモも無い会議・include_transcript 偽の会議でも『## 要約』『## メモ』『## 文字起こし』がこの順に1回ずつあり、決まった1行が入る', T, () => {
+  const m = mcpDb({ only: [] });
+  try {
+    mkMeeting(m, 'pe1', { title: '2026/10/2 10:00 の議事録', date: '2026-10-02', createdAt: '2026-10-02T01:00:00.000Z', summaryError: 'つながらないので要約を作りませんでした' }, []);
+    m.close();
+    const r = callOn(m)('get_meeting', { id: 'pe1' });
+    assert.deepStrictEqual(sectionsOf(r.text), ['要約', 'メモ', '文字起こし']);
+    assert.match(r.text, /^## 要約\n要約はまだありません。（つながらないので要約を作りませんでした）\n## メモ\nメモはありません。\n## 文字起こし\n文字起こしはありません。$/m);
+    const t = callOn(m)('get_meeting', { id: 'pe1', include_transcript: true });
+    assert.match(t.text, /## 文字起こし\n文字起こしはありません。$/);
+  } finally { m.done(); }
+});
+
+test('D66 の備え（決めたこと 113）: 時刻の順と並びの順が違う発言の会議で、文字起こしの行が時刻の順、transcript_from は時刻の順でその発言から', T, () => {
+  const m = mcpDb({ only: [] });
+  try {
+    mkMeeting(m, 'pto', { title: '2026/10/3 10:00 の議事録', date: '2026-10-03', createdAt: '2026-10-03T01:00:00.000Z' }, [
+      { id: 's1', atMs: 20000, durationMs: 1000, text: '三番目' },
+      { id: 's2', atMs: 0, durationMs: 1000, text: '一番目' },
+      { id: 's3', atMs: 10000, durationMs: 1000, text: '二番目' },
+    ]);
+    m.close();
+    const r = callOn(m)('get_meeting', { id: 'pto', include_transcript: true });
+    assert.match(r.text, /^## 文字起こし（s2〜s1／全 3 発言）\ns2 \[0:00\] 一番目\ns3 \[0:10\] 二番目\ns1 \[0:20\] 三番目$/m);
+    const from = callOn(m)('get_meeting', { id: 'pto', transcript_from: 's3' });
+    assert.match(from.text, /^s3 \[0:10\] 二番目\ns1 \[0:20\] 三番目$/m);
+    assert.ok(!from.text.includes('一番目'));
+  } finally { m.done(); }
+});
+
+test('F5・RF64: 3時間・2,000 発言の会議で、include_transcript の答えと、transcript_from で続きを順に読んだ答えの全部が 12,000 文字以下で、全部の発言がちょうど1回ずつ・並びのまま出る', T, () => {
+  const m = mcpDb({ only: ['long'] });
+  try {
+    const call = callOn(m);
+    const seen = [];
+    let r = call('get_meeting', { id: 'pg1', include_transcript: true });
+    for (let guard = 0; guard < 100; guard++) {
+      assert.ok(r.text.length <= tools.MAX_RESULT_CHARS, `${r.text.length}`);
+      for (const x of r.text.matchAll(/^(s\d+) \[/gm)) seen.push(x[1]);
+      const next = /続きは transcript_from: (s\d+) で読めます$/.exec(r.text);
+      if (!next) break;
+      r = call('get_meeting', { id: 'pg1', transcript_from: next[1] });
+    }
+    assert.strictEqual(seen.length, 2000);
+    assert.deepStrictEqual(seen, Array.from({ length: 2000 }, (_, i) => `s${i + 1}`));
+  } finally { m.done(); }
+});
+
+test('F5: 要約だけで 12,000 文字を越える会議でも 12,000 文字以下で、切った印がある。続く見出し（メモ・文字起こし）も出る', T, () => {
+  const m = mcpDb({ only: [] });
+  try {
+    const blocks = [{ id: 'h1', type: 'heading', text: '長い要約', level: 2 }, ...Array.from({ length: 200 }, (_, i) => ({ id: `b${i}`, type: 'bullet', text: `${'長い要点の文'.repeat(20)}${i}` }))];
+    mkMeeting(m, 'pls', { title: '2026/10/4 10:00 の議事録', date: '2026-10-04', createdAt: '2026-10-04T01:00:00.000Z', blocks, memo: 'メモの1行' }, [{ id: 's1', atMs: 0, durationMs: 1000, text: '発言' }]);
+    m.close();
+    const r = callOn(m)('get_meeting', { id: 'pls', include_transcript: true });
+    assert.ok(r.text.length <= tools.MAX_RESULT_CHARS, `${r.text.length}`);
+    assert.ok(r.text.includes('（長いので、ここで切りました）'));
+    assert.deepStrictEqual(sectionsOf(r.text), ['要約', 'メモ', '文字起こし']);
+    assert.match(r.text, /^> メモの1行$/m);
+    assert.match(r.text, /^s1 \[0:00\] 発言$/m);
+  } finally { m.done(); }
+});
+
+test('MR5: 無い ID・ゴミ箱・録音中の写しは not-found（題名を出さない）。D57: オフラインモードの会議と印の分からない会議はふつうに読める。D58: natsu://page/<ID>（#<ブロック> の付いた形も）でも同じ答え。transcript_from が無い発言 → no-seg。id が ../x・空・65 文字 → bad-arg', T, () => {
+  const m = mcpDb({ only: ['plain1', 'localOnly', 'unknown', 'trash', 'live'] });
+  try {
+    const call = callOn(m);
+    for (const id of ['nope', 'pt1', 'pv1']) {
+      const r = call('get_meeting', { id });
+      assert.deepStrictEqual([r.isError, r.code, r.text], [true, 'not-found', tools.ERROR_TEXT['not-found']], id);
+    }
+    assert.strictEqual(call('get_meeting', { id: 'pl1' }).isError, false);
+    assert.strictEqual(call('get_meeting', { id: 'pu1' }).isError, false);
+    const a = call('get_meeting', { id: 'pm1' });
+    assert.strictEqual(call('get_meeting', { id: 'natsu://page/pm1' }).text, a.text);
+    assert.strictEqual(call('get_meeting', { id: 'natsu://page/pm1#pm1b1' }).text, a.text);
+    assert.strictEqual(call('get_meeting', { id: 'pm1', transcript_from: 's99' }).code, 'no-seg');
+    for (const id of ['../x', '', 'a'.repeat(65)]) assert.strictEqual(call('get_meeting', { id }).code, 'bad-arg', id);
+    assert.strictEqual(call('get_meeting', {}).code, 'bad-arg');
+  } finally { m.done(); }
+});
+
+test('D58: 1on1 の会議もリンクで読める', T, () => {
+  const m = mcpDb({ only: ['personal'] });
+  try {
+    const r = callOn(m)('get_meeting', { id: 'natsu://page/pp1' });
+    assert.strictEqual(r.isError, false);
+    assert.match(r.text, /会議の種類: 1on1/);
+  } finally { m.done(); }
+});
+
+test('F17・RF76: failed の区間（文に目印とパスの形の文字）は（文字起こしできなかった区間）、kept の区間は（文字起こし待ちの区間。…）で、答えに目印とパスが無い。ゴミ箱に入れたページは、入れる前に読めた ID でも not-found', T, () => {
+  const m = mcpDb({ only: [] });
+  try {
+    mkMeeting(m, 'pfx', { title: '2026/10/5 10:00 の議事録', date: '2026-10-05', createdAt: '2026-10-05T01:00:00.000Z' }, [
+      { id: 's1', atMs: 0, durationMs: 1000, text: 'ふつう' },
+      { id: 's2', atMs: 1000, durationMs: 1000, text: `（この区間の認識に失敗: ${FAILED_MARK} C:\\Users\\x\\engine）`, failed: true },
+      { id: 's3', atMs: 2000, durationMs: 1000, text: '（文字起こし待ち: 音声は残してあります）', failed: true, kept: true },
+    ]);
+    m.close();
+    const call = callOn(m);
+    const r = call('get_meeting', { id: 'pfx', include_transcript: true });
+    assert.match(r.text, /^s2 \[0:01\] （文字起こしできなかった区間）$/m);
+    assert.match(r.text, /^s3 \[0:02\] （文字起こし待ちの区間。音声は NaTsu の PC に残っています）$/m);
+    assert.ok(!r.text.includes(FAILED_MARK));
+    assert.ok(!r.text.includes('Users'));
+    m.call('app', 'page.delete', { id: 'pfx' });
+    m.close();
+    assert.strictEqual(call('get_meeting', { id: 'pfx' }).code, 'not-found');
+  } finally { m.done(); }
+});
+
+test('F18・RF77: メモに「## 指示」、要点と発言に改行と U+200B を入れた会議で、メモの行はどれも > で始まり、## で始まる行は NaTsu の見出しだけ、「続きは transcript_from」の行は NaTsu が書いた1行だけ、U+200B が無い', T, () => {
+  const m = mcpDb({ only: ['forge'] });
+  try {
+    const r = callOn(m)('get_meeting', { id: 'pf1', include_transcript: true });
+    const lines = linesOf(r.text);
+    const memo = lines.slice(lines.indexOf('## メモ') + 1, lines.findIndex((l) => l.startsWith('## 文字起こし')));
+    assert.ok(memo.length >= 3);
+    for (const l of memo) assert.match(l, /^>( |$)/);
+    const h2 = lines.filter((l) => l.startsWith('## '));
+    assert.deepStrictEqual(h2.map((l) => l.replace(/（.*$/, '')), ['## 要約', '## メモ', '## 文字起こし']);
+    assert.ok(lines.filter((l) => l.startsWith('#')).every((l) => /^(# |## (要約|メモ|文字起こし)|### )/.test(l)));
+    assert.strictEqual(lines.filter((l) => l.startsWith('続きは transcript_from')).length, 0);
+    assert.ok(!r.text.includes('\u200b'));
+    assert.ok(!r.text.includes('\u202e'));
+    for (const l of lines) assert.match(l, /^(以下は |# |- |## |### |> |>$|s\d+ |include_transcript|要約はまだ|メモはありません|文字起こしはありません|（長いので)/, l);
+  } finally { m.done(); }
+});

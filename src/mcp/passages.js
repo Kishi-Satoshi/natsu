@@ -39,17 +39,7 @@ const splitTerms = (query) => termsOf(query).map((t) => t.term);
 // 画面の検索と同じ決まり（3 文字以上は FTS5 の引用の形・1〜2 文字は LIKE）
 const termPlan = (term) => search.plan(term);
 
-// 発言を時刻の順に（同じ時刻は並びの順。atMs の無い発言は前の発言の後: 決めたこと 113）
-function sortSegs(segments) {
-  let prev = -Infinity;
-  const keyed = (segments || []).map((s, i) => {
-    const at = Number.isFinite(s && s.atMs) ? s.atMs : prev;
-    prev = at;
-    return { s, at, i };
-  });
-  keyed.sort((a, b) => (a.at - b.at) || (a.i - b.i));
-  return keyed.map((k) => k.s);
-}
+const { sortSegs } = F;
 
 const lenOf = (segs) => segs.reduce((n, s) => n + s.text.length, 0);
 const spanOf = (segs) => {

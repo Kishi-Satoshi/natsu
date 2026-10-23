@@ -338,7 +338,19 @@ function searchPassages(db, args, { now, ctx }) {
   return { text: lines.join('\n'), count: n };
 }
 
-const BODIES = { list_meetings: listMeetings, search_passages: searchPassages };
+// get_meeting（決めたこと 114）。一覧に出す行に無い ID（無い・ゴミ箱・録音中の写し）は not-found
+function getMeeting(db, args) {
+  const row = commands.listedRows(db).find((r) => r.id === args.id);
+  if (!row) return { error: 'not-found' };
+  const page = commands.readPage(db, args.id);
+  if (!page) return { error: 'not-found' };
+  const segments = commands.readSegments(db, args.id);
+  if (args.transcript_from && !segments.some((s) => s.id === args.transcript_from)) return { error: 'no-seg' };
+  const md = F.meetingMarkdown(page, segments, { includeTranscript: Boolean(args.include_transcript), from: args.transcript_from || null, budget: MAX_RESULT_CHARS });
+  return { text: md.text, count: 1 };
+}
+
+const BODIES = { list_meetings: listMeetings, search_passages: searchPassages, get_meeting: getMeeting };
 
 // callTool(name, args, { sqlite, dataDir, now, fs }) → { text, isError, code?, count? }。知らない名前は投げる
 function callTool(name, args, ctx = {}) {
