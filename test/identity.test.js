@@ -50,9 +50,10 @@ test('表示名は NaTsu（画面・録音バー・ウィンドウ・トレイ�
 // 0.9.2 で意図して変えた: 版を 0.9.2 に（設定の説明を1行にして ⓘ の吹き出しへ・アプリからヘルプを開く。Electron は 44.9.0 のまま）
 // 0.9.3 で意図して変えた: 版を 0.9.3 に（会議の検出の通知・録音中のページの音の波・オフラインモードとローカル AIの名前・オフラインモードの札。Electron は 44.9.0 のまま）
 // 0.9.4 で意図して変えた: 版を 0.9.4 に（会議の検出の直し・音声を消さない・遅い PC の扱い・音の波と録音バー・ローカル AI の名前・中継の安定。Electron は 44.9.0 のまま）
-test('識別子: name は natsu・版は 0.9.4・productName は build の中だけ（userData は %APPDATA%\\natsu）', () => {
+// 0.10.0 で意図して変えた: 版を 0.10.0 に（Claude から議事録を読む MCP・議事録のリンク・要約は Claude Code だけ・ポータブル版をやめる。Electron は 44.9.0 のまま）
+test('識別子: name は natsu・版は 0.10.0・productName は build の中だけ（userData は %APPDATA%\\natsu）', () => {
   assert.strictEqual(pkg.name, 'natsu');
-  assert.strictEqual(pkg.version, '0.9.4');
+  assert.strictEqual(pkg.version, '0.10.0');
   assert.strictEqual(pkg.productName, undefined, 'top-level の productName は userData の名前を変える');
   assert.strictEqual(pkg.build.productName, 'NaTsu');
   assert.strictEqual(pkg.build.appId, 'local.natsu.app');
@@ -264,8 +265,9 @@ test('2a1: 試作の名前を持ち込んでいない（listener.db・Listener D
 // 0.9.2 で意図して変えた: 版は 0.9.2（README の保存の説明は 0.7.0 のまま）
 // 0.9.3 で意図して変えた: 版は 0.9.3（README の保存の説明は 0.7.0 のまま）
 // 0.9.4 で意図して変えた: 版は 0.9.4（README の保存の説明は 0.7.0 のまま）
-test('0.7.0・0.8.0・0.9.0・0.9.1・0.9.2・0.9.3・0.9.4: 版と、README の保存の説明（natsu.db・backup・元の JSON を残す・古い版に戻したとき・控えに残る期間）', () => {
-  assert.strictEqual(require('../package.json').version, '0.9.4');
+// 0.10.0 で意図して変えた: 版は 0.10.0（README の保存の説明は 0.7.0 のまま）
+test('0.7.0・0.8.0・0.9.0・0.9.1・0.9.2・0.9.3・0.9.4・0.10.0: 版と、README の保存の説明（natsu.db・backup・元の JSON を残す・古い版に戻したとき・控えに残る期間）', () => {
+  assert.strictEqual(require('../package.json').version, '0.10.0');
   const r = read('README.md');
   for (const w of ['natsu.db', 'data\\backup', '元の JSON', '古い版', '3 日', '2 週']) assert.ok(r.includes(w), w);
 });
@@ -500,4 +502,26 @@ test('0.9.4: CHANGELOG の 0.9.4 の節（計画の下書きから移した）�
 test('LN-3: build.protocols は natsu の1つ（名前「NaTsu の議事録」）', () => {
   assert.deepStrictEqual(pkg.build.protocols, [{ name: 'NaTsu の議事録', schemes: ['natsu'] }]);
   assert.strictEqual(pkg.build.nsis.perMachine, false, '利用者ごとの入れ方でないと HKCU に書けない');
+});
+
+// 0.10.0（計画 docs/plans/2026-10-20-100.md の「CHANGELOG の 0.10.0 の節（下書き）」）: 版を 0.10.0 に上げる commit で、G-1 で画面の言葉に合わせた下書きを
+// CHANGELOG.md の頭（0.9.4 の節の上）へ移した。計画には「移した」の1行だけを残す
+test('0.10.0: CHANGELOG の 0.10.0 の節（計画の下書きから移した）は 0.9.4 の節の上にあり、Claude から読むこと・Anthropic へ送られること（オフラインモードの会議も）・リンク・ポータブル版をやめること・要約は Claude Code だけ・要約待ちを書き、引いた［…］と画面の文はどれも src/ にある', () => {
+  const cl = read('CHANGELOG.md');
+  assert.ok(cl.includes('\n## natsu-v0.10.0\n'), 'CHANGELOG.md に 0.10.0 の節が無い');
+  const sec = secOf(cl, '## natsu-v0.10.0');
+  assert.ok(cl.indexOf('## natsu-v0.10.0') < cl.indexOf('## natsu-v0.9.4'), '0.10.0 の節が 0.9.4 の節の上に無い');
+  const plan = read('docs/plans/2026-10-20-100.md');
+  const d = plan.indexOf('\n### CHANGELOG の 0.10.0 の節（下書き）\n');
+  assert.ok(d >= 0, '計画に「CHANGELOG の 0.10.0 の節（下書き）」の見出しが無い');
+  assert.ok(!plan.slice(d, plan.indexOf('\n## ', d + 2)).includes('［更新して再起動］'), '計画に下書きの本文が残っている（移したら「移した」の1行にする）');
+  for (const w of ['［更新して再起動］', 'Claude デスクトップ', 'Claude（Anthropic）へ送られます', '［オフラインモード］', '学習', '読むだけ', '［リンクを写す］', '［選ぶ］',
+    'ポータブル版', '0.9.4', '要約待ち（つながったら作ります）', '約 5 GB', '約 0.6 GB', '守秘', 'NaTsu が起動しています']) assert.ok(sec.includes(w), `0.10.0 の節に「${w}」が無い`);
+  for (const w of ['llama', 'Gemma', 'D62', 'D63', '外へ送りません']) assert.ok(!sec.includes(w), `0.10.0 の節に「${w}」がある`);
+  const src = ['src/renderer/app.html', 'src/renderer/overlay.html', 'src/renderer/nudge.html', 'src/main.js', 'src/mainlib.js'].map(read).join('\n');
+  const names = [...new Set([...sec.matchAll(/［([^］]+)］/g)].map((m) => m[1]))];
+  assert.ok(names.length >= 5, `引いた［…］が少ない: ${names.join('・')}`);
+  for (const n of names) assert.ok(src.includes(n), `0.10.0 の節の［${n}］が src/ に無い`);
+  for (const q of ['Claude との連携（MCP）', '要約待ち（つながったら作ります）']) assert.ok(src.includes(q), `0.10.0 の節の「${q}」が画面に無い`);
+  assert.ok(!/notion/i.test(sec) && !/(?<![\w-])[a-z0-9-]+\.cloudflareaccess\.com/i.test(sec), '0.10.0 の節に書いてはいけない字面がある');
 });

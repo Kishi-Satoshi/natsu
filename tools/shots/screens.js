@@ -251,25 +251,11 @@ SCREENS.find((x) => x.name === 'notes-page-light').focus = { tabs: 3, want: 'mtT
 const OVL_094 = (states) => PS.FORMS.flatMap((form) => Object.keys(PS.DESKS).flatMap((desk) => PS.SCALES.flatMap((sc) => states.map((st) => `overlay-${form}-${desk}-${st}-${Math.round(sc * 100)}`))));
 // 0.9.4（版を 0.9.4 に上げる commit）: 持ち主が 2026-10-22 に取り直しの見比べ（CI run 39831111027（bd2320d）・artifact 12448422820 の .after.png）を見て
 // 「OK」と言ったので、その画像をバイトのまま基準にし（基準と同じだった live-banner-zoom200-dark は今の基準のまま）、空に戻した
-// 0.10.0（計画 docs/plans/2026-10-20-100.md の「取り直す画面（RETAKE）」）。SH-1（D71）: 見本の題名を日付の形にしたので、題名の写る本体の画面
-// （CI run 39895432371 で撮って基準と違った画面だけ。一覧が空の画面も左の一覧に見本が出ていた。基準と同じだった拡大の設定の3枚は入れない）
-const RETAKE = new Set([
-  'notes-empty-light', 'notes-page-light', 'notes-page-dark', 'dictation-light', 'settings-light', 'settings-dark', 'notes-tabs-light', 'notes-collapsed-light',
-  'live-light', 'live-dark', 'notes-page-zoom200-light', 'search-palette-light', 'live-banner-light', 'live-banner-dark',
-  'live-banner-zoom200-dark', 'settings-record-light', 'settings-search-light', 'settings-offline-light', 'live-quiet-light', 'live-quiet-dark',
-  'settings-quiet-search-light', 'settings-record-dark', 'settings-summary-light', 'settings-account-light',
-  'settings-info-loop-light', 'settings-info-stt-dark', 'settings-info-claude-light', 'settings-info-search-light',
-  'live-wave-light', 'live-wave-dark', 'live-silent-light', 'live-paused-dark', 'settings-detect-light', 'settings-detect-dark', 'live-offline-light',
-  'live-offline-dark', 'live-late-light', 'live-late-dark', 'live-late-zoom200-light',
-  // C-3（MR8）: 項目「要約」にカード「Claude との連携（MCP）」と Sonnet の1行を足した（settings-summary-light・settings-info-claude-light は上に）と、足した2枚
-  'settings-mcp-light', 'settings-info-mcp-light',
-  // L-1（D58）: ページのメニューに［リンクを写す］を足した2枚
-  'page-menu-link-light', 'page-menu-link-dark',
-  // L-2（D58・D70）: 左の一覧で2件を選んだ2枚（ほかの本体の画面の見出しの行の［選ぶ］は SH-1 の表の画面に入っている）
-  'list-select-light', 'list-select-dark',
-  // LS-2（D63・D69）: まだ要約を作っていない会議のページ（要約の欄の鍵の一言）を足した1枚
-  'page-summary-lock-light',
-]);
+// 0.10.0（版を 0.10.0 に上げる commit）: 持ち主が 2026-10-23 に取り直しの見比べ（CI run 39931820118（7feee33）の 46 枚。tools の見比べの絵）を見て
+// 「OK」と言った。持ち主の答えで MCP のカードの頭の1行（「Claude デスクトップから議事録を読めるようにします。」）だけを直した後の CI run 39934849171
+// （03d209d）・artifact 12493472101 の .after.png（46 枚）をバイトのまま基準にし、空に戻した。OK の画像と比べて、直した1行の写る4枚（settings-summary-light・
+// settings-info-claude-light・settings-mcp-light・settings-info-mcp-light）のその行のほかに違いは無い（左の列の印の 1 段の色の揺れは、同じ app.html の2つの run の間にもある）
+const RETAKE = new Set([]);
 const PERF = [{ name: 'open-2000-blocks', budgetMs: 500 }];   // 3回開いた中央値で見る
 const TIME_ZONE = 'Asia/Tokyo';
 const TOLERANCE = 2;   // 色の差（0〜255）がこれ以下の画素は同じとみなす。CI の機械の CPU ごとの描き方の1段の差を拾わないため（揺れの確かめ judgePair は 0 で見る）
