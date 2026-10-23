@@ -14,6 +14,8 @@ const sqlite = require('node:sqlite');
 const rpc = require('./rpc');
 const reader = require('./reader');
 const tools = require('./tools');
+const format = require('./format');
+const passages = require('./passages');
 const core = require('../db/core');
 const commands = require('../db/commands');
 const search = require('../db/search');
@@ -23,7 +25,7 @@ const pkg = require('../../package.json');
 
 const APP_ROOT = path.resolve(__dirname, '..', '..');
 // 頭で読んだ部品（使う所はそれぞれの部品の中。ここでは後から require しないために読むだけ）
-const LOADED = Object.freeze({ core, commands, search, pagerules, meetingType });
+const LOADED = Object.freeze({ format, passages, core, commands, search, pagerules, meetingType });
 
 function errLine(text) {
   try { process.stderr.write(`${text}\n`); } catch (_) { /* 標準エラーが閉じている */ }

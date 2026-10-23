@@ -91,6 +91,27 @@ function meetingLine(entry, attrs = {}) {
   return `- ${parts.join('｜')}`;
 }
 
+// 要約のブロック1つの行（get_meeting と箇所で同じ形。見出しは呼び手が扱うので null）。出典の印は s<数> の形だけを出す（DB の値をそのまま出さない）
+const CITE_RE = /^s\d{1,6}$/;
+function citeSuffix(b) {
+  if (!Array.isArray(b.cites) || b.citeState === 'stale') return '';
+  const ids = b.cites.filter((c) => typeof c === 'string' && CITE_RE.test(c));
+  return ids.length ? `（出典: ${ids.join(', ')}）` : '';
+}
+function blockLine(b) {
+  if (!b || typeof b !== 'object' || b.type === 'heading') return null;
+  const text = safeLine(b.text);
+  if (!text.trim()) return null;
+  if (b.type === 'todo') {
+    const parts = [];
+    if (typeof b.assignee === 'string' && b.assignee.trim()) parts.push(`担当: ${safeLine(b.assignee)}`);
+    const due = typeof b.due === 'string' && b.due ? b.due : typeof b.dueRaw === 'string' ? b.dueRaw : '';
+    if (due.trim()) parts.push(`期限: ${safeLine(due)}${b.dueApprox ? '（目安）' : ''}`);
+    return `- [${b.checked ? 'x' : ' '}] ${text}${parts.length ? `（${parts.join('／')}）` : ''}${citeSuffix(b)}`;
+  }
+  return `- ${text}${b.type === 'bullet' ? citeSuffix(b) : ''}`;
+}
+
 // 文字の数が budget を越えないように、行の切れ目で切る → { text, cut }
 function cut(text, budget) {
   if (text.length <= budget) return { text, cut: false };
@@ -105,4 +126,4 @@ function cut(text, budget) {
   return { text: out.join('\n'), cut: true };
 }
 
-module.exports = { clock, today, weekdayOf, dateWithDay, header, safeLine, quoteLines, meetingLine, sttOf, cut, NOTICE };
+module.exports = { clock, today, weekdayOf, dateWithDay, header, safeLine, quoteLines, meetingLine, sttOf, blockLine, cut, NOTICE };
