@@ -43,6 +43,8 @@ const { isCitable, refreshCitations, searchFold } = require('../cite');
 const { parseDue } = require('../actions');
 const { routeLabel } = require('../mainlib');
 const R = require('../pagerules');
+// 議事録の経過（0.10.0 K-1。決めたこと 116）: 締め・復旧のページの stateLog は表の鍵の項目だけを残す
+const SL = require('../statelog');
 const { diffPage, diffSegments, applyOps } = require('./ops');
 const S = require('./search');
 
@@ -326,6 +328,7 @@ function meetingPage(pageId, src, now, { recovered }) {
   };
   if (isObj(p.route)) page.route = clone(p.route);
   if (Array.isArray(p.pauses)) page.pauses = R.cleanPauses(p.pauses);
+  if (Array.isArray(p.stateLog)) page.stateLog = SL.cleanStateLog(p.stateLog);
   if (typeof p.summaryError === 'string' && p.summaryError) {
     // 今の復旧は createPage の後に summaryError を入れて savePage する（そのときだけ citeStat ができる）
     page.summaryError = p.summaryError;

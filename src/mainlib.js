@@ -9,6 +9,8 @@
 
 const path = require('path');
 const natsulink = require('./natsulink');
+// 議事録の経過の表と積み方（0.10.0 K-1。DB のプロセスと MCP も同じ部品を読む）
+const SL = require('./statelog');
 
 // ---------------------------------------------------------------- 要約の書き戻し
 // 要約は数分かかる。その間に利用者がページを削除していることがある。
@@ -2065,6 +2067,7 @@ function linkRate(times, now) {
 
 module.exports = {
   PROTOCOL, protocolPlan, linkFromArgv, linkRate,
+  STATE_NAMES: SL.STATE_NAMES, BY_NAMES: SL.BY_NAMES, stateLogAdd: SL.stateLogAdd, cleanStateLog: SL.cleanStateLog, stateLogLine: SL.stateLogLine,
   meetingTitleAt,
   saveIfExists, meetingDurationSec, promptTail,
   registerHotkeys, hotkeyFailureMessage, hotkeyStatus, resolveStartupHotkeys, saveHotkeys,

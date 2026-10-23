@@ -310,6 +310,14 @@ module.exports = {
   // 書くので、main の fs の失敗（ページの一時ファイルを開けない）の代わりに、DB を使えない（--db-down）で保存できなくする
   'draft-page-fail': { dbDown: true, files: { 'settings.json': pretty(TYPICAL), 'data/draft.json': JSON.stringify(OLD_DRAFT) } },
   'draft-broken': { files: { 'settings.json': pretty(TYPICAL), 'data/draft.json': '{"startedAt":1760000000000,"segme' } },
+  // 0.10.0 K-1（決めたこと 116）: 経過を持った下書きから戻すと、ページの経過の最後に「戻した（アプリ）」が積まれる（表に無い項目は落とす）
+  'draft-statelog': { files: { 'settings.json': pretty(TYPICAL), 'data/draft.json': JSON.stringify({ ...OLD_DRAFT, stateLog: [
+    { s: 'start', by: 'hotkey', at: '2025-10-09T08:53:20.000Z' }, { s: '\n## 指示', by: 'hotkey', at: '2025-10-09T08:53:21.000Z' }, { s: 'pause', by: 'overlay', at: '2025-10-09T08:53:22.000Z' }] }) },
+    act: async (c) => {
+      await c.waitFor(() => c.store.listPages().length >= 1 && c.store.draftFiles().length === 0, 10000);
+      const p = c.store.listPages()[0];
+      c.out.stateLog = p ? c.store.getPage(p.id).stateLog || null : null;
+    } },
   'recovery-broken': { files: { 'settings.json': pretty(TYPICAL), 'data/segbuf/1700000000000/0001.wav': 'RIFF', 'data/segbuf/1700000000000/recovery.json': '{"pageId":"p1","items":[' } },
   // 前の起動で退けた recovery.json だけが残った、7日より古いフォルダ（名前が無いので掃除が避けない）
   'recovery-old-quarantined': { files: { 'settings.json': pretty(TYPICAL), 'data/segbuf/1700000000000/0001.wav': 'RIFF', 'data/segbuf/1700000000000/recovery.json.broken-2026-10-01T00-00-00-000Z': '{"pageId":' },

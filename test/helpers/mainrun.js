@@ -2648,6 +2648,8 @@ process.on('exit', () => {
       micSpawns, micKills, restartDelays, nudge: nudgeWins.length ? nudgeWins[0].nudge : null, nudgeWindows: nudgeWins.length,
       mainWinCalls: mainWinCalls.slice(), mainSentAll: mainSentAll.filter(([ch]) => !/^(db:|update:)/.test(ch)), engineLog: elogLines(),
       notices: sent.filter(([ch]) => ch === 'app:notice').map(([, p]) => p), settingsText: (readUser('settings.json') || '').toString('utf8'),
+      // 0.10.0 K-1: 議事録のページの経過（stateLog）
+      pageStateLogs: store.listPages().map((p) => ({ id: p.id, stateLog: (store.getPage(p.id) || {}).stateLog || null })),
       active: isActive(), status: handlers['meeting:status'](), overlayAsks: overlayAsks(),
     });
     process.stdout.write(`\n${JSON.stringify(out)}\n`);
@@ -2998,7 +3000,7 @@ process.on('exit', () => {
     out.overlaySeq = sent.filter(([ch]) => ch === 'overlay:phase' || ch === 'overlay:stop').map(([ch, p]) => (ch === 'overlay:stop' ? { stop: true } : p));
     const p0 = store.listPages()[0];
     const pg = p0 && store.getPage(p0.id);
-    out.pageDur = pg ? { durationSec: pg.durationSec, pauses: pg.pauses || [] } : null;
+    out.pageDur = pg ? { durationSec: pg.durationSec, pauses: pg.pauses || [], stateLog: pg.stateLog || null } : null;   // 0.10.0 K-1: 経過も
   }
   out.mainWinCalls = mainWinCalls.slice();
   out.showLive = mainSent.filter((ch) => ch === 'meeting:show-live').length;

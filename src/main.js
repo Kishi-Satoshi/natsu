@@ -2495,6 +2495,7 @@ function requestOverlayPause(on, why, force) {
   if (on) m.pauseWhy = why;
   clearPauseAsk(m);
   m.pauseAsked = true;
+  m.pauseBy = why === 'suspend' ? 'app' : 'button';   // 0.10.0 K-1: 経過のきっかけ（頼んだ側。録音バーで押したら overlay）
   m.pauseAskTimer = setTimeout(() => { m.pauseAskTimer = null; m.pauseAsked = false; }, PAUSE_ASK_MS);
   if (m.pauseAskTimer && typeof m.pauseAskTimer.unref === 'function') m.pauseAskTimer.unref();
   return overlayWin.webContents.executeJavaScript(on ? PAUSE_ENSURE_ON : PAUSE_ENSURE_OFF, true)
@@ -4183,6 +4184,7 @@ function writeDraft() {
       segments: meeting.segments, offsetMs: meeting.offsetMs, savedAt: Date.now(),
       localOnly: Boolean(meeting.localOnly),   // ［この会議は PC の中だけ］（復旧した会議の送り直しも手元。第1c回 RF28）
       pauses: meeting.pauses || [],   // 止めていた時間の印（落ちて復旧したページにも残す。第1b回 N4c）
+      stateLog: meeting.stateLog || [],   // 議事録の経過（0.10.0 K-1。落ちて戻したページにも残す）
     }, meeting.draftName, { fsync: DRAFT_FSYNC });
   } catch (e) {
     if (!meeting.draftWriteFailed) {
@@ -4190,6 +4192,13 @@ function writeDraft() {
       engineLog(`下書き（${meeting.draftName}）を保存できませんでした（${errCode(e)}）。録音は続けます`);
     }
   }
+}
+
+// 落ちて戻した議事録の経過（0.10.0 K-1）: 下書きの経過の後に「戻した（アプリ）」を積み、記録に1行
+function recoveredStateLog(list) {
+  const item = { s: 'recover', by: 'app', at: new Date().toISOString() };
+  engineLog(lib.stateLogLine(item));
+  return lib.stateLogAdd(list, item);
 }
 
 // 復旧ページで文字起こし待ちのまま残った音声 { pageId, items: [{ id, wav, durationMs }], dir }。
@@ -4458,6 +4467,8 @@ async function recoverDraftsNow() {
         // 送り直しで数え直す（transcribeRecoveredItems）。会議の印は下書きから写す（第1c回 RF28）
         route: { stt: { cloud: 0, local: 0, provider: sttProvider().id }, localOnly: Boolean(d.localOnly) },
         pauses: d.pauses,   // 止めていた時間の印（形の悪い印は store が捨てる。第1b回 N4c・F6）
+        // 議事録の経過（0.10.0 K-1）: 下書きの経過（表に無い項目は落とす）の後に「戻した（アプリ）」
+        stateLog: recoveredStateLog(d.stateLog),
         summaryError: rec.todo.length
           ? '録音が中断されたため要約は未生成です。残っていた音声の文字起こしを続けています。終わったら「要約を生成」で作成できます。'
           : '録音が中断されたため要約は未生成です。「要約を生成」で作成できます。',
@@ -4769,14 +4780,33 @@ function cleanOrphanSegbuf(keepDir) {
 
 // 0.9.4 D-1（持ち主の試作の考え: 状態が変わるたびに、何が変えたかを残す）: 会議の始まりと終わりの引き金を engine.log に符号で1行
 // （page・panel・panel-offline・hotkey・tray／page・bar・hotkey・auto-quiet）。検出が出なかったときに、何で会議を始めたかが持ち主の記録で分かる
+// 0.10.0 K-1（決めたこと 116）: 議事録の経過。引き金の符号 → 経過のきっかけ（表 lib.BY_NAMES の鍵）
+const START_BY = Object.freeze({ page: 'button', panel: 'panel', 'panel-offline': 'panel', hotkey: 'hotkey', tray: 'tray' });
+const STOP_BY = Object.freeze({ page: 'button', bar: 'overlay', hotkey: 'hotkey', 'auto-quiet': 'quiet' });
+// 会議の経過に1つ積み、engine.log に「議事録: 開始（ホットキー）」の1行（題名・文は書かない）。下書きにも書く
+function noteMeetingState(m, s, by) {
+  if (!m) return;
+  const item = { s, by, at: new Date().toISOString() };
+  m.stateLog = lib.stateLogAdd(m.stateLog, item);
+  const line = lib.stateLogLine(item);
+  if (line) engineLog(line);
+  if (meeting === m) writeDraft();
+}
 async function startMeetingBy(trigger) {
   const r = await startMeeting();
-  if (r && r.ok) engineLog(`会議: 始めた（${trigger}）`);
+  if (r && r.ok) {
+    engineLog(`会議: 始めた（${trigger}）`);
+    noteMeetingState(meeting, 'start', START_BY[trigger] || 'app');
+  }
   return r;
 }
 function stopMeetingBy(trigger) {
+  const m = meeting;
   const r = stopMeeting();
-  if (r && r.ok) engineLog(`会議: 止めた（${trigger}）`);
+  if (r && r.ok) {
+    engineLog(`会議: 止めた（${trigger}）`);
+    noteMeetingState(m, trigger === 'auto-quiet' ? 'auto-stop' : 'stop', STOP_BY[trigger] || 'app');
+  }
   return r;
 }
 async function startMeeting() {
@@ -5131,6 +5161,7 @@ async function maybeFinalizeMeeting() {
         // 文字起こしの経路と、会議の印（要約の経路が見る: C10）
         route: { stt: { ...m.route, provider: sttProvider().id }, localOnly: Boolean(m.localOnly) },
         pauses,   // 止めていた時間の印（区間とは別の欄。第1b回 N4c・F6）
+        stateLog: m.stateLog || [],   // 議事録の経過（0.10.0 K-1。決めたこと 116）
         recovered: false, summaryError: keptWhy, meeting: { phase: 'done' },
       },
     }, { tx: `meeting:${m.startedAt}` });
@@ -6032,9 +6063,13 @@ function setupIpc() {
   // 知らせる）と長さの印を1つ残す（録音バーの［一時停止］を直接押したときも why は user）
   ipcMain.on('overlay:pause', (_e, { paused }) => {
     if (!meeting) return;
+    // 0.10.0 K-1: main が頼んだ答えなら頼んだ側（画面のボタン・スリープ）、頼んでいなければ録音バーで押した
+    const by = meeting.pauseAsked && meeting.pauseBy ? meeting.pauseBy : 'overlay';
+    meeting.pauseBy = '';
     clearPauseAsk(meeting);
-    if (paused && !meeting.paused) { meeting.paused = true; meeting.pausedAt = Date.now(); }
+    if (paused && !meeting.paused) { meeting.paused = true; meeting.pausedAt = Date.now(); noteMeetingState(meeting, 'pause', by); }
     else if (!paused && meeting.paused) {
+      noteMeetingState(meeting, 'resume', by);
       meeting.paused = false;
       meeting.pauses.push({ atMs: meeting.offsetMs, ms: Math.max(0, Date.now() - meeting.pausedAt), why: meeting.pauseWhy || 'user' });
       meeting.pausedMs += Date.now() - meeting.pausedAt;
