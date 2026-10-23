@@ -281,6 +281,12 @@ jobs:
         shell: bash
         run: ELECTRON_RUN_AS_NODE=1 node_modules/electron/dist/electron.exe tools/sqlite-probe.js
 
+      # 0.10.0 E-1（MR9）: Claude デスクトップと同じ起こし方（exe に src/mcp/server.js を渡す）で MCP の両方の版の往復を通す（通らなければ出さない）
+      - name: node_modules の Electron で MCP の往復を確かめる（無ければ出さない）
+        if: steps.exists.outputs.skip == 'false'
+        shell: bash
+        run: node tools/mcp-probe.js --exe node_modules/electron/dist/electron.exe --script src/mcp/server.js
+
       # --publish never を渡す。CI では electron-builder が自分で
       # GitHub へ publish しようとして GH_TOKEN を要求し、失敗する。
       # 添付は下のステップで自分で行う（リリースの作り方を握っておきたい）。
@@ -293,6 +299,11 @@ jobs:
         if: steps.exists.outputs.skip == 'false'
         shell: bash
         run: ELECTRON_RUN_AS_NODE=1 dist/win-unpacked/NaTsu.exe tools/sqlite-probe.js
+
+      - name: 詰めた NaTsu.exe で MCP の往復を確かめる（配る exe。無ければ出さない）
+        if: steps.exists.outputs.skip == 'false'
+        shell: bash
+        run: node tools/mcp-probe.js --exe dist/win-unpacked/NaTsu.exe --script dist/win-unpacked/resources/app/src/mcp/server.js
 
       - name: Release に添付する
         if: steps.exists.outputs.skip == 'false'

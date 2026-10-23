@@ -1502,3 +1502,14 @@ test('0.10.0 LN-4: リンクの受け手は読むだけの口しか持たない�
   assert.deepStrictEqual([...new Set(sends)], ['page:open-link']);
   for (const w of ['db.call', 'dbCall', 'writeJsonFile', 'settingsWriter', 'shell.', 'runSummary', 'mcpRegister', 'fetch(']) assert.ok(!fn.includes(w), `main のリンクの受け手に ${w}`);
 });
+
+// 0.10.0 E-1（MR9・EL8 を広げる）: CI の electron-smoke とリリースの installer が、node_modules の Electron と詰めた NaTsu.exe で MCP の往復を通す
+test('0.10.0 E-1 EL8: ci.yml と release.yml が node_modules の Electron と詰めた NaTsu.exe で tools/mcp-probe.js を走らせる', () => {
+  const NODE_MOD = 'node tools/mcp-probe.js --exe node_modules/electron/dist/electron.exe --script src/mcp/server.js';
+  const PACKED = 'node tools/mcp-probe.js --exe dist/win-unpacked/NaTsu.exe --script dist/win-unpacked/resources/app/src/mcp/server.js';
+  for (const f of ['.github/workflows/ci.yml', '.github/workflows/release.yml']) {
+    const y = read(f);
+    assert.ok(y.includes(NODE_MOD), `${f}: node_modules の Electron で回していない`);
+    assert.ok(y.includes(PACKED), `${f}: 詰めた NaTsu.exe で回していない`);
+  }
+});

@@ -1942,4 +1942,6 @@ module.exports = [
   {"id":"stl-by","file":"src/main.js","from":"    noteMeetingState(meeting, 'start', START_BY[trigger] || 'app');","to":"    noteMeetingState(meeting, 'start', 'button');","tests":["test/stage100.statelog.test.js"],"pattern":"ホットキーで始め","why":"0.10.0 K-1 決めたこと 116: 開始のきっかけを渡さず、どの開始も同じきっかけにする（どこから始めたかが経過に残らない）"},
   // 0.10.0 Task K-2（get_meeting の経過の1行）
   {"id":"stl-line","file":"src/mcp/format.js","from":"  const items = SL.cleanStateLog(log);","to":"  const items = Array.isArray(log) ? log.filter((x) => x && typeof x === 'object') : [];","tests":["test/mcp-tools.test.js"],"pattern":"K-2","why":"0.10.0 K-2 決めたこと 60・116: 経過の行に表に無い項目（DB の文字）も出す（\\n## 指示 のような文で答えの形を偽れる）"},
+  // 0.10.0 Task E-1（詰めた NaTsu.exe で MCP の往復を通す煙テスト）
+  {"id":"mcp-probe-stdout","file":"tools/mcp-probe.js","from":"  return lines.every((l) => { try { return JSON.parse(l).jsonrpc === '2.0'; } catch (_) { return false; } });","to":"  return lines.length >= 0;","tests":["test/mcp-probe.test.js"],"pattern":"F6","why":"0.10.0 E-1 F6・RF67: 煙テストが標準出力に混ざった文字を見ない（詰めた exe で Claude の読み手を壊す文字が出ても気づかない）"},
 ];

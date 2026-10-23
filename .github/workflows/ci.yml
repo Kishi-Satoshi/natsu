@@ -309,6 +309,11 @@ jobs:
         shell: bash
         run: ELECTRON_RUN_AS_NODE=1 node_modules/electron/dist/electron.exe tools/sqlite-probe.js
 
+      # 0.10.0 E-1（MR9）: Claude デスクトップと同じ起こし方（exe に src/mcp/server.js を渡す）で、MCP の両方の版の往復とゴミ箱の会議が出ないこと
+      - name: node_modules の Electron で MCP の往復を確かめる
+        shell: bash
+        run: node tools/mcp-probe.js --exe node_modules/electron/dist/electron.exe --script src/mcp/server.js
+
       - name: 小さなアプリで utilityProcess・sandbox の窓など（1〜7）、守り（8〜12）、net.request の POST・safeStorage（13・14）を確かめる
         shell: bash
         run: node_modules/electron/dist/electron.exe tools/electron-smoke
@@ -354,6 +359,10 @@ jobs:
         run: |
           ls -l dist/*-setup.exe
           ELECTRON_RUN_AS_NODE=1 dist/win-unpacked/NaTsu.exe tools/sqlite-probe.js
+
+      - name: 詰めた NaTsu.exe で MCP の往復を確かめる
+        shell: bash
+        run: node tools/mcp-probe.js --exe dist/win-unpacked/NaTsu.exe --script dist/win-unpacked/resources/app/src/mcp/server.js
 
   # 変異確認（第1a回 G3）。tools/mutants.js の変異を1つずつ当て、決めたテストが赤になるか（殺せるか）を見る。
   # 生き残り・当たらない変異が1つでもあれば赤。release.yml は ci.yml を呼ぶので、リリースも止まる
