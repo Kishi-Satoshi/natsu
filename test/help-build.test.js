@@ -127,6 +127,13 @@ test('HD-6（Q5）: 一覧の説明は、広い画面でも題名の下に左寄
   for (const r of rules) if (r.sel.includes('.rows')) assert.notStrictEqual(r.decls['text-align'], 'right', `${r.sel} が右寄せ`);
 });
 
+test('HD-6（Q6）: 48rem 未満では表の最小幅を 640px 相当（calc(640 / 16 * 1rem)）にし、表の領域の中だけ横に送る（ページ全体は送らない）。影（グラデーション）は付けない', { timeout: 5000 }, () => {
+  const rules = C.parse(CSS());
+  assert.strictEqual(C.declsFor(rules, '.table table', { at: '@media (max-width: 47.9375rem)' })['min-width'], 'calc(640 / 16 * 1rem)');
+  assert.strictEqual(C.declsFor(rules, '.table table', { at: '' })['min-width'], undefined, '広い画面に表の最小幅');
+  assert.strictEqual(C.declsFor(rules, '.table', { at: '' })['overflow-x'], 'auto');
+});
+
 test('H-3: 同じ元から2回作ると、全部のファイルが同じバイト（日付は記事の updated だけ）', { timeout: 5000 }, (t) => {
   const a = buildFixture(t);
   const b = buildFixture(t);

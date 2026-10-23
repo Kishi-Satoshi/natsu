@@ -2004,4 +2004,6 @@ module.exports = [
   {"id": "hd-crumb-current", "file": "tools/lib/help-page.js", "from": " ${ARROW} <span aria-current=\"page\">${esc(art.meta.title)}</span></nav>", "to": "</nav>", "tests": ["test/help-build.test.js"], "pattern": "記事のページにパンくず", "why": "help-dads HD-6 Q4: 記事のパンくずに今のページが無い（どこにいるかがパンくずで分からない）"},
   // help-dads Task HD-6 Q5（一覧の説明を左寄せで題名の下に）
   {"id": "hd-rows-left", "file": "help/assets/help.css", "from": "color: var(--muted); font-size: 1rem; text-align: left; }", "to": "color: var(--muted); font-size: 1rem; text-align: right; }", "tests": ["test/help-build.test.js"], "pattern": "Q5", "why": "help-dads HD-6 Q5: 一覧の説明が右寄せに戻る（2行になると行の頭がそろわない）"},
+  // help-dads Task HD-6 Q6（スマホの表は表の中だけ横に送る）
+  {"id": "hd-table-region", "file": "tools/lib/help-md.js", "from": "<div class=\"table\" tabindex=\"0\" role=\"region\" aria-label=\"表\"><table>", "to": "<div class=\"table\"><table>", "tests": ["test/help-md.test.js"], "pattern": "HD-6 Q6", "why": "help-dads HD-6 Q6: 表の領域に tabindex が無い（狭い画面で横に送れる表をキーボードで送れない）"},
 ];

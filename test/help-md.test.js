@@ -37,7 +37,7 @@ test('HF3: 文字は全部逃がす（& < > " \' が本文・見出し・表・�
   const rows = [
     [S, `<p>${E}</p>`],
     [`## ${S} {#h}`, `<h2 id="h">${E}</h2>`],
-    [`| ${S} | x |\n| --- | --- |\n| ${S} | \`${S}\` |`, `<div class="table"><table>\n<thead><tr><th>${E}</th><th>x</th></tr></thead>\n<tbody>\n<tr><td>${E}</td><td><code>${E}</code></td></tr>\n</tbody>\n</table></div>`],
+    [`| ${S} | x |\n| --- | --- |\n| ${S} | \`${S}\` |`, `<div class="table" tabindex="0" role="region" aria-label="表"><table>\n<thead><tr><th>${E}</th><th>x</th></tr></thead>\n<tbody>\n<tr><td>${E}</td><td><code>${E}</code></td></tr>\n</tbody>\n</table></div>`],
     [`[${S}](https://example.com/?a=1&b=2)`, `<p><a href="https://example.com/?a=1&amp;b=2" rel="noreferrer">${E}</a></p>`],
     [`![${S}](assets/img/example.png)`, `<figure><img src="/assets/img/example.png" alt="${E}"></figure>`],
     ['`<b> & "x"`', '<p><code>&lt;b&gt; &amp; &quot;x&quot;</code></p>'],
@@ -189,9 +189,9 @@ test('記事の書き方: > [!NOTE]・[!TIP]・[!WARNING] はメモ・ヒント�
   }
 });
 
-test('記事の書き方: 表の頭・本文・セルの中の飾り。列の数が合わない行は syntax', { timeout: 5000 }, () => {
+test('記事の書き方: 表の頭・本文・セルの中の飾り（HD-6 Q6: 表の領域はキーボードで送れる tabindex="0"・role="region"・aria-label="表"）。列の数が合わない行は syntax', { timeout: 5000 }, () => {
   assert.strictEqual(html('| キー | 動き |\n| --- | :---: |\n| [[Alt+M]] | **記録** と `x|y` |'),
-    '<div class="table"><table>\n<thead><tr><th>キー</th><th>動き</th></tr></thead>\n<tbody>\n<tr><td><kbd>Alt</kbd>+<kbd>M</kbd></td><td><strong>記録</strong> と <code>x|y</code></td></tr>\n</tbody>\n</table></div>');
+    '<div class="table" tabindex="0" role="region" aria-label="表"><table>\n<thead><tr><th>キー</th><th>動き</th></tr></thead>\n<tbody>\n<tr><td><kbd>Alt</kbd>+<kbd>M</kbd></td><td><strong>記録</strong> と <code>x|y</code></td></tr>\n</tbody>\n</table></div>');
   for (const src of ['| a | b |\n| --- | --- |\n| c |', '| a | b |\n| c | d |', '| a | b |\n| --- | --- |\n| c | d', '| a |']) {
     assert.strictEqual((errOf(src) || {}).code, 'syntax', JSON.stringify(src));
   }
