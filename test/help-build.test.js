@@ -544,6 +544,30 @@ test('H-3: site.js は［目次］の開け閉めだけ（外へ通信しない�
   assert.match(js, /classList\.add\('js'\)/);
 });
 
+// 再審査の指摘 5（持ち主の答え「全部直す」）: 表の領域の tabindex="0" は、横に送れるとき（scrollWidth > clientWidth）だけ site.js が付け、窓の大きさが変わったら付け外しする
+test('再審査の指摘 5: site.js は横に送れる表の領域にだけ tabindex="0" を付け、resize で付け外しする（style は書かない）', { timeout: 5000 }, () => {
+  const vm = require('node:vm');
+  const { parseHTML } = require('./helpers/simdom');
+  const { root } = parseHTML('<!doctype html><html><body><div class="table" role="region" aria-label="a"><table></table></div><div class="table" role="region" aria-label="b"><table></table></div></body></html>');
+  const [wide, fit] = root.querySelectorAll('.table');
+  wide.scrollWidth = 640; wide.clientWidth = 343;
+  fit.scrollWidth = 343; fit.clientWidth = 343;
+  const listeners = {};
+  const document = { documentElement: root.querySelector('html'), querySelector: (q) => root.querySelector(q), querySelectorAll: (q) => root.querySelectorAll(q), getElementById: () => null };
+  const window = { addEventListener: (t, fn) => { (listeners[t] = listeners[t] || []).push(fn); } };
+  const js = fs.readFileSync(path.join(ROOT, 'help', 'assets', 'site.js'), 'utf8');
+  vm.runInContext(js, vm.createContext({ document, window }), { filename: 'site.js' });
+  assert.strictEqual(wide.getAttribute('tabindex'), '0', '送れる表に tabindex が無い');
+  assert.strictEqual(fit.getAttribute('tabindex'), null, '送れない表に tabindex');
+  wide.scrollWidth = 343;
+  fit.scrollWidth = 700;
+  assert.ok((listeners.resize || []).length > 0, 'resize を見ていない');
+  for (const fn of listeners.resize) fn({ type: 'resize' });
+  assert.strictEqual(wide.getAttribute('tabindex'), null, '広くなっても tabindex が残る');
+  assert.strictEqual(fit.getAttribute('tabindex'), '0');
+  assert.ok(!/\.style\b|setAttribute\(['"]style/.test(js), 'site.js が style を書く');
+});
+
 // H-11（R7）: 画面の写真は CI の基準にしないが、CSS を変えたら撮り直す。tools/help-shots.js が最後に撮った CSS の指紋を help/shots.json に書く。
 // 指紋はファイルごとの SHA-256 の base64url（改行を LF にそろえてから。Windows の取り出しの CRLF でも同じ。16進の 64 字はゲートが AUD の見かけとして止める）
 test('R7: help/shots.json の CSS の指紋が、今の help/assets/*.css の指紋と同じ（CSS を変えたら node tools/help-shots.js で撮り直す）', { timeout: 5000 }, () => {

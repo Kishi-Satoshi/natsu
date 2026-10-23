@@ -2005,7 +2005,7 @@ module.exports = [
   // help-dads Task HD-6 Q5（一覧の説明を左寄せで題名の下に）
   {"id": "hd-rows-left", "file": "help/assets/help.css", "from": "color: var(--muted); font-size: 1rem; text-align: left; }", "to": "color: var(--muted); font-size: 1rem; text-align: right; }", "tests": ["test/help-build.test.js"], "pattern": "Q5", "why": "help-dads HD-6 Q5: 一覧の説明が右寄せに戻る（2行になると行の頭がそろわない）"},
   // help-dads Task HD-6 Q6（スマホの表は表の中だけ横に送る）
-  {"id": "hd-table-region", "file": "tools/lib/help-md.js", "from": "<div class=\"table\" tabindex=\"0\" role=\"region\" aria-label=\"表 ${++ctx.tables}\"><table>", "to": "<div class=\"table\"><table>", "tests": ["test/help-md.test.js"], "pattern": "HD-6 Q6", "why": "help-dads HD-6 Q6: 表の領域に tabindex が無い（狭い画面で横に送れる表をキーボードで送れない）"},
+  {"id": "hd-table-region", "file": "help/assets/site.js", "from": "if (tables[i].scrollWidth > tables[i].clientWidth) tables[i].setAttribute('tabindex', '0');", "to": "if (true) tables[i].setAttribute('tabindex', '0');", "tests": ["test/help-build.test.js"], "pattern": "指摘 5", "why": "help-dads HD-6 Q6・再審査の指摘 5: 横に送れない表の領域にも Tab が止まる（キーボードの人の手間が増える）"},
   // help-dads Task HD-6 Q7（門のページの main・h1・色と輪）
   {"id": "hd-gate-main", "file": "relay/help-gate.mjs", "from": "<body><main><h1>NaTsu ヘルプセンター</h1>${GATE_TEXT[st]}${note}</main></body>", "to": "<body>${GATE_TEXT[st]}${note}</body>", "tests": ["test/help-gate.test.js"], "pattern": "HD-6 Q7", "why": "help-dads HD-6 Q7: 門のページに main と h1 が無い（ページの題が見出しで分からない）"},
   // help-dads Task HD-6 Q11（このページの内容を見出しに）
@@ -2019,4 +2019,7 @@ module.exports = [
   {"id": "hd-toc-scrollpad", "file": "help/assets/help.css", "from": " scroll-padding-block: calc(6 / 16 * 1rem);", "to": "", "tests": ["test/help-build.test.js"], "pattern": "指摘 2", "why": "help-dads HD-9 再審査の指摘 3: 左の目次を送った後の下の行で輪の下の辺が切れる"},
   // help-dads 独立した再審査の指摘 4（狭い画面の検索の置き換えの文）
   {"id": "hd-search-short", "file": "help/assets/search.js", "from": "input.setAttribute('placeholder', mq.matches ? short : long);", "to": "input.setAttribute('placeholder', long);", "tests": ["test/help-search.test.js"], "pattern": "指摘 4", "why": "help-dads HD-9 再審査の指摘 4: 狭い画面で上の帯の検索の箱の置き換えの文が「記事を探」で切れる"},
+  // help-dads 独立した再審査の指摘 5・6（送れるときだけの表の tabindex・見出しからの表の名前）
+  {"id": "hd-table-resize", "file": "help/assets/site.js", "from": "    window.addEventListener('resize', fitTables);\n", "to": "", "tests": ["test/help-build.test.js"], "pattern": "指摘 5", "why": "help-dads HD-9 再審査の指摘 5: 窓を広げても狭めても、表の領域の tabindex が最初のまま"},
+  {"id": "hd-table-name", "file": "tools/lib/help-md.js", "from": "const base = lastH ? `${lastH.text}の表` : `表 ${++ctx.tables}`;", "to": "const base = `表 ${++ctx.tables}`;", "tests": ["test/help-md.test.js"], "pattern": "指摘 5・6", "why": "help-dads HD-9 再審査の指摘 6: 表の領域の名前が「表 1」だけで、何の表か分からない"},
 ];

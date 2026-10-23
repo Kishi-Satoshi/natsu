@@ -290,7 +290,14 @@ function renderBlocks(lines, ctx, inNote) {
       const cell = (c, k, tag) => { const r = inline(c, ctx, () => rows[k].n); text.push(r.text); return `<${tag}>${r.html}</${tag}>`; };
       const head = `<tr>${cells[0].map((c) => cell(c, 0, 'th')).join('')}</tr>`;
       const body = cells.slice(2).map((r, k) => `<tr>${r.map((c) => cell(c, k + 2, 'td')).join('')}</tr>`).join('\n');
-      out.push(`<div class="table" tabindex="0" role="region" aria-label="表 ${++ctx.tables}"><table>\n<thead>${head}</thead>\n<tbody>\n${body}\n</tbody>\n</table></div>`);
+      // 表の領域の名前は直前の見出しから「<見出し>の表」（再審査の指摘 6）。見出しが無ければ「表 N」。同じ名前は番号を足す。
+      // tabindex は付けない（横に送れるときだけ site.js が付ける: 再審査の指摘 5）
+      const lastH = ctx.headings[ctx.headings.length - 1];
+      const base = lastH ? `${lastH.text}の表` : `表 ${++ctx.tables}`;
+      const used = (ctx.tableNames.get(base) || 0) + 1;
+      ctx.tableNames.set(base, used);
+      const name = used > 1 ? `${base} ${used}` : base;
+      out.push(`<div class="table" role="region" aria-label="${escapeHtml(name)}"><table>\n<thead>${head}</thead>\n<tbody>\n${body}\n</tbody>\n</table></div>`);
       i = j;
     } else if (t.startsWith('![')) {
       const m = /^!\[([^\]]*)\]\(([^)]*)\)$/.exec(t);
@@ -405,7 +412,8 @@ function renderMarkdown(body, opts = {}) {
     pendingAnchors: [],
     ids: new Set(),
     autoId: 0,
-    tables: 0,   // 表の領域の名前（表 1・表 2…。記事の中で重ねない: axe の landmark-unique）
+    tables: 0,   // 見出しの無い表の番号（表 1・表 2…）
+    tableNames: new Map(),   // 表の領域の名前の使った数（記事の中で重ねない: axe の landmark-unique）
   };
   const base = Number.isInteger(opts.bodyLine) ? opts.bodyLine : 1;
   const lines = normalize(body).split('\n').map((raw, k) => ({ raw, t: raw.replace(/\s+$/, ''), n: base + k }));

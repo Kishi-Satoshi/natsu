@@ -37,7 +37,7 @@ test('HF3: 文字は全部逃がす（& < > " \' が本文・見出し・表・�
   const rows = [
     [S, `<p>${E}</p>`],
     [`## ${S} {#h}`, `<h2 id="h">${E}</h2>`],
-    [`| ${S} | x |\n| --- | --- |\n| ${S} | \`${S}\` |`, `<div class="table" tabindex="0" role="region" aria-label="表 1"><table>\n<thead><tr><th>${E}</th><th>x</th></tr></thead>\n<tbody>\n<tr><td>${E}</td><td><code>${E}</code></td></tr>\n</tbody>\n</table></div>`],
+    [`| ${S} | x |\n| --- | --- |\n| ${S} | \`${S}\` |`, `<div class="table" role="region" aria-label="表 1"><table>\n<thead><tr><th>${E}</th><th>x</th></tr></thead>\n<tbody>\n<tr><td>${E}</td><td><code>${E}</code></td></tr>\n</tbody>\n</table></div>`],
     [`[${S}](https://example.com/?a=1&b=2)`, `<p><a href="https://example.com/?a=1&amp;b=2" rel="noreferrer">${E}</a></p>`],
     [`![${S}](assets/img/example.png)`, `<figure><img src="/assets/img/example.png" alt="${E}"></figure>`],
     ['`<b> & "x"`', '<p><code>&lt;b&gt; &amp; &quot;x&quot;</code></p>'],
@@ -189,9 +189,13 @@ test('記事の書き方: > [!NOTE]・[!TIP]・[!WARNING] はメモ・ヒント�
   }
 });
 
-test('記事の書き方: 表の頭・本文・セルの中の飾り（HD-6 Q6: 表の領域はキーボードで送れる tabindex="0"・role="region"・aria-label="表 1"…）。列の数が合わない行は syntax', { timeout: 5000 }, () => {
+test('記事の書き方: 表の頭・本文・セルの中の飾り（HD-6 Q6・再審査の指摘 5・6: 表の領域は role="region" と見出しからの名前。tabindex は site.js が送れるときだけ）。列の数が合わない行は syntax', { timeout: 5000 }, () => {
   assert.strictEqual(html('| キー | 動き |\n| --- | :---: |\n| [[Alt+M]] | **記録** と `x|y` |'),
-    '<div class="table" tabindex="0" role="region" aria-label="表 1"><table>\n<thead><tr><th>キー</th><th>動き</th></tr></thead>\n<tbody>\n<tr><td><kbd>Alt</kbd>+<kbd>M</kbd></td><td><strong>記録</strong> と <code>x|y</code></td></tr>\n</tbody>\n</table></div>');
+    '<div class="table" role="region" aria-label="表 1"><table>\n<thead><tr><th>キー</th><th>動き</th></tr></thead>\n<tbody>\n<tr><td><kbd>Alt</kbd>+<kbd>M</kbd></td><td><strong>記録</strong> と <code>x|y</code></td></tr>\n</tbody>\n</table></div>');
+  // 再審査の指摘 6: 表の領域の名前は直前の見出しから「<見出し>の表」。同じ名前は番号を足して重ねない。見出しの無い表は「表 N」。
+  // 再審査の指摘 5: tabindex は出さない（横に送れるときだけ site.js が付ける）
+  assert.deepStrictEqual([...html('## ボタンのある帯 {#with}\n\n| a |\n| --- |\n| b |\n\n| c |\n| --- |\n| d |\n\n### A & "B"\n\n| e |\n| --- |\n| f |').matchAll(/<div class="table"([^>]*)>/g)].map((m) => m[1]),
+    [' role="region" aria-label="ボタンのある帯の表"', ' role="region" aria-label="ボタンのある帯の表 2"', ' role="region" aria-label="A &amp; &quot;B&quot;の表"']);
   // 再審査（axe の landmark-unique）: 表の領域の名前は記事の中で重ならない（表 1・表 2…）
   assert.deepStrictEqual([...html('| a |\n| --- |\n| b |\n\n段落\n\n| c |\n| --- |\n| d |').matchAll(/aria-label="([^"]+)"/g)].map((m) => m[1]), ['表 1', '表 2']);
   for (const src of ['| a | b |\n| --- | --- |\n| c |', '| a | b |\n| c | d |', '| a | b |\n| --- | --- |\n| c | d', '| a |']) {
