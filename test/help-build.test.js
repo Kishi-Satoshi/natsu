@@ -427,6 +427,25 @@ test('HD-3（HD4・Q3）: 文字の大きさはどれも rem・em・inherit（px
   }
 });
 
+// 3回目の審査の指摘 5（持ち主の答え「直す」）: 文字の大きさを DADS の文字スタイルの段（14・16・17・18・20・22・24・26・28・32・36…px）にそろえる。
+// kbd・code は rem の 14px（em だと表の中で 12.5px になった）。持ち主が残したもの（表の .92rem・狭い画面の h1・手順の大きな数字）はそのまま
+test('3回目の指摘 5: font-size の rem はどれも DADS の段の値（残した3つを除く）。em の font-size が無い。kbd・code は .875rem（表の中でも 14px）', { timeout: 5000 }, () => {
+  const rules = C.parse(CSS());
+  const SCALE = new Set([14, 16, 17, 18, 20, 22, 24, 26, 28, 32, 36, 45, 57, 64].map((px) => px / 16));
+  const KEPT = new Map([['table', '.92rem'], ['h1', '1.6rem'], ['.step .n', '3.2rem']]);
+  for (const r of rules) {
+    const v = r.decls['font-size'];
+    if (v === undefined || v === 'inherit') continue;
+    assert.ok(!/em$/.test(v) || /rem$/.test(v), `${r.sel} の font-size が em: ${v}`);
+    if (KEPT.get(r.sel) === v) continue;
+    assert.ok(SCALE.has(parseFloat(v)), `${r.at ? `${r.at} ` : ''}${r.sel} の font-size が DADS の段に無い: ${v}`);
+  }
+  assert.strictEqual(C.declsFor(rules, 'kbd', { at: '' })['font-size'], '.875rem');
+  assert.strictEqual(C.declsFor(rules, 'code', { at: '' })['font-size'], '.875rem');
+  assert.strictEqual(C.declsFor(rules, '.body h2', { at: '' })['font-size'], '1.25rem');
+  assert.strictEqual(C.declsFor(rules, '.lede', { at: '' })['font-size'], '1.0625rem');
+});
+
 test('HD-3（HD4・DF5）: 48rem 未満（@media (max-width: 47.9375rem)）だけで、［目次］・検索の箱・左の目次の行・パンくずのリンク・/open の［NaTsu で開く］の押す場所が 44px（calc(44 / 16 * 1rem)）。広い画面には効かない', { timeout: 5000 }, () => {
   const rules = C.parse(CSS());
   const NARROW = '@media (max-width: 47.9375rem)';

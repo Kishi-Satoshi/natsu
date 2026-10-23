@@ -2034,4 +2034,7 @@ module.exports = [
   {"id": "hd-results-tabindex", "file": "tools/lib/help-page.js", "from": "role=\"listbox\" aria-label=\"検索の結果\" tabindex=\"-1\" hidden></ul>", "to": "role=\"listbox\" aria-label=\"検索の結果\" hidden></ul>", "tests": ["test/help-search.test.js"], "pattern": "3回目の指摘 2", "why": "help-dads HD-10 3回目の指摘 4: 送れる一覧（ul）に Tab が止まり、選べない一覧に輪が付く"},
   // help-dads 3回目の審査の指摘 3（狭い画面の上の帯の検索の結果を幅いっぱいに）
   {"id": "hd-results-wide", "file": "help/assets/help.css", "from": "  .top-in .search-results { left: 24px; right: 24px; }\n", "to": "", "tests": ["test/help-build.test.js"], "pattern": "3回目の指摘 3", "why": "help-dads HD-10 3回目の指摘 3: 狭い画面で上の帯の検索の結果が箱の幅（320px で 98px）しかなく、題名が細切れに折り返す"},
+  // help-dads 3回目の審査の指摘 5（文字の大きさを DADS の段に）
+  {"id": "hd-kbd-size", "file": "help/assets/help.css", "from": "kbd { font-size: .875rem;", "to": "kbd { font-size: .85em;", "tests": ["test/help-build.test.js"], "pattern": "3回目の指摘 5", "why": "help-dads HD-10 3回目の指摘 5: 表の中のキーの名前が 12.5px になる（補足 14px 以上の決まりを下回る）"},
+  {"id": "hd-font-scale", "file": "help/assets/help.css", "from": ".body h2 { font-size: 1.25rem;", "to": ".body h2 { font-size: 1.3rem;", "tests": ["test/help-build.test.js"], "pattern": "3回目の指摘 5", "why": "help-dads HD-10 3回目の指摘 5: 記事の見出しの大きさが DADS の文字スタイルの段に無い（20.8px）"},
 ];
