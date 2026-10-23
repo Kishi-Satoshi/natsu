@@ -117,6 +117,16 @@ test('HD-6（Q4）: 分類のページのパンくずの最後（分類名）も
   assert.strictEqual(d.color, 'var(--body)');
 });
 
+test('HD-6（Q5）: 一覧の説明は、広い画面でも題名の下に左寄せ（縦の並び）。右寄せの規則が無い', { timeout: 5000 }, () => {
+  const rules = C.parse(CSS());
+  const li = C.declsFor(rules, '.rows li', { at: '' });
+  assert.strictEqual(li.display, 'flex');
+  assert.strictEqual(li['flex-direction'], 'column', '広い画面で一覧が横の並び');
+  assert.strictEqual(li['align-items'], 'flex-start');
+  assert.strictEqual(C.declsFor(rules, '.rows .desc', { at: '' })['text-align'], 'left');
+  for (const r of rules) if (r.sel.includes('.rows')) assert.notStrictEqual(r.decls['text-align'], 'right', `${r.sel} が右寄せ`);
+});
+
 test('H-3: 同じ元から2回作ると、全部のファイルが同じバイト（日付は記事の updated だけ）', { timeout: 5000 }, (t) => {
   const a = buildFixture(t);
   const b = buildFixture(t);

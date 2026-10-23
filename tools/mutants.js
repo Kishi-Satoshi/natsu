@@ -2002,4 +2002,6 @@ module.exports = [
   {"id": "hd-status-markup", "file": "tools/lib/help-page.js", "from": "<p id=\"${id}-status\" class=\"vh\" role=\"status\"></p>", "to": "", "tests": ["test/help-search.test.js"], "pattern": "HD-5", "why": "help-dads HD-5 HD6: 検索の箱の中に role=\"status\" を出さない（件数の知らせが届かない）"},
   // help-dads Task HD-6 Q4（パンくずに今のページ）
   {"id": "hd-crumb-current", "file": "tools/lib/help-page.js", "from": " ${ARROW} <span aria-current=\"page\">${esc(art.meta.title)}</span></nav>", "to": "</nav>", "tests": ["test/help-build.test.js"], "pattern": "記事のページにパンくず", "why": "help-dads HD-6 Q4: 記事のパンくずに今のページが無い（どこにいるかがパンくずで分からない）"},
+  // help-dads Task HD-6 Q5（一覧の説明を左寄せで題名の下に）
+  {"id": "hd-rows-left", "file": "help/assets/help.css", "from": "color: var(--muted); font-size: 1rem; text-align: left; }", "to": "color: var(--muted); font-size: 1rem; text-align: right; }", "tests": ["test/help-build.test.js"], "pattern": "Q5", "why": "help-dads HD-6 Q5: 一覧の説明が右寄せに戻る（2行になると行の頭がそろわない）"},
 ];
