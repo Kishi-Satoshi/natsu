@@ -64,6 +64,13 @@ const OPEN_PAGE_MENU = `(async () => {
   document.getElementById('pMore').click();
   return 1;
 })()`;
+// 0.10.0 LS-2 の見直し（取り直しの見比べで、要約の無いページは「文字起こし」の欄で開き、鍵の一言が写っていなかった）: ページを開いてから［AI 要約］の欄を押す
+const OPEN_PAGE_SUMMARY = `(async () => {
+  document.getElementById('tabBtnNotes').click(); document.querySelector('#plist .pitem').click();
+  await new Promise((r) => setTimeout(r, 300));
+  document.getElementById('paneBtnNote').click();
+  return 1;
+})()`;
 // 0.10.0 L-2: 左の一覧の［選ぶ］を押し、1行目と3行目を選ぶ（頭の枠「2 件を選んでいます」と［リンクを写す］［やめる］）
 const SELECT_TWO = `(() => {
   document.getElementById('tabBtnNotes').click();
@@ -175,7 +182,7 @@ const SCREENS = [
   { name: 'list-select-dark', page: 'app', theme: 'dark', act: SELECT_TWO },
   // 0.10.0 LS-2（D63・D69・決めたこと 111 の 7）: まだ要約を作っていない会議のページ（要約の欄の頭の灰色の一言と、右上の［要約を生成］）。
   // 足した画面（まだ基準が無い）
-  { name: 'page-summary-lock-light', page: 'app', theme: 'light', get answers() { return summaryLockAnswers(); }, act: OPEN_PAGE },
+  { name: 'page-summary-lock-light', page: 'app', theme: 'light', get answers() { return summaryLockAnswers(); }, act: OPEN_PAGE_SUMMARY },
 ];
 // 0.9.0 O-3（RP9）: 録音バーの画面（形 → 地 → 拡大率 → 状態の順。撮る道具は形・地・拡大率の組ごとに窓を1つ開いて状態を act で替える）。
 // 録音は始めずに見た目だけを撮る（act は pill-states の見本を録音バーの DOM に当てる。撮るときだけ体の地にデスクトップの色を塗る）。
