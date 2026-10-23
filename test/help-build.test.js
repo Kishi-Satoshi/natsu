@@ -455,6 +455,21 @@ test('再審査の指摘 2・3: 強制カラー（ハイコントラスト）で
   assert.strictEqual(C.declsFor(rules, '.toc', { at: '' })['scroll-padding-block'], 'calc(6 / 16 * 1rem)');
 });
 
+test('3回目の指摘 3: 48rem 未満では上の帯の検索の結果を上の帯の幅いっぱい（左右の余白の内側: 640px 以上は 24px、より狭いと 16px）に出す。広い画面とホームの大きな箱は今のまま', { timeout: 5000 }, () => {
+  const rules = C.parse(CSS());
+  const N48 = '@media (max-width: 47.9375rem)';
+  assert.strictEqual(C.declsFor(rules, '.top-in', { at: N48 }).position, 'relative');
+  assert.strictEqual(C.declsFor(rules, '.top-in .search', { at: N48 }).position, 'static');
+  const r48 = C.declsFor(rules, '.top-in .search-results', { at: N48 });
+  assert.deepStrictEqual([r48.left, r48.right], ['24px', '24px']);
+  const r639 = C.declsFor(rules, '.top-in .search-results', { at: '@media (max-width: 639px)' });
+  assert.deepStrictEqual([r639.left, r639.right], ['16px', '16px']);
+  // 16px の規則は 24px の規則より後ろ（狭い画面で勝つ）
+  const idx = (at) => rules.findIndex((r) => r.at === at && r.sel === '.top-in .search-results');
+  assert.ok(idx('@media (max-width: 639px)') > idx(N48));
+  assert.strictEqual(C.declsFor(rules, '.top-in .search-results', { at: '' }).left, undefined, '広い画面の上の帯の一覧を変えた');
+});
+
 test('画面の使いやすさ: 広い画面の左の目次は止まる（sticky）が、窓より高くならずその中で縦に送れる（記事が 26・分類が 8 でも下の分類が切れない）。狭い画面では止めず、高さも切らない', { timeout: 5000 }, () => {
   const rules = C.parse(CSS());
   const wide = C.declsFor(rules, '.toc', { at: '' });

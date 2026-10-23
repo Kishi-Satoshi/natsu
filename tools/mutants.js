@@ -2032,4 +2032,6 @@ module.exports = [
   // help-dads 3回目の審査の指摘 2・4（検索の一覧の focusout と tabindex）
   {"id": "hd-search-focusout", "file": "help/assets/search.js", "from": "        if (n !== box) close();", "to": "        if (false) close();", "tests": ["test/help-search.test.js"], "pattern": "3回目の指摘 2", "why": "help-dads HD-10 3回目の指摘 2: 検索の結果を開いたまま Tab で出ると一覧が残り、次に輪の付いた分類のカードを隠す（WCAG 2.4.11）"},
   {"id": "hd-results-tabindex", "file": "tools/lib/help-page.js", "from": "role=\"listbox\" aria-label=\"検索の結果\" tabindex=\"-1\" hidden></ul>", "to": "role=\"listbox\" aria-label=\"検索の結果\" hidden></ul>", "tests": ["test/help-search.test.js"], "pattern": "3回目の指摘 2", "why": "help-dads HD-10 3回目の指摘 4: 送れる一覧（ul）に Tab が止まり、選べない一覧に輪が付く"},
+  // help-dads 3回目の審査の指摘 3（狭い画面の上の帯の検索の結果を幅いっぱいに）
+  {"id": "hd-results-wide", "file": "help/assets/help.css", "from": "  .top-in .search-results { left: 24px; right: 24px; }\n", "to": "", "tests": ["test/help-build.test.js"], "pattern": "3回目の指摘 3", "why": "help-dads HD-10 3回目の指摘 3: 狭い画面で上の帯の検索の結果が箱の幅（320px で 98px）しかなく、題名が細切れに折り返す"},
 ];
