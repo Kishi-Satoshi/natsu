@@ -340,7 +340,7 @@ test('画面の使いやすさ: help.css に :focus-visible の輪があり、ou
   const css = CSS();
   const rules = C.parse(css);
   const fv = rules.filter((r) => r.sel.includes(':focus-visible'));
-  assert.ok(fv.some((r) => /2px solid var\(--ink\)/.test(r.decls.outline || '')), ':focus-visible に 2px の輪が無い');
+  assert.ok(fv.length > 0, ':focus-visible の規則が無い');
   for (const r of rules) assert.ok(!/^(none|0)$/.test((r.decls.outline || '').trim()), `${r.sel} が outline を消す`);
   const narrow = rules.filter((r) => r.at === '@media (max-width: 639px)');
   assert.ok(narrow.length > 0, '狭い画面の規則が無い');
@@ -355,6 +355,33 @@ test('画面の使いやすさ: help.css に :focus-visible の輪があり、ou
   assert.ok(/break-word|anywhere/.test(C.declsFor(rules, '.body')['overflow-wrap'] || ''));
 });
 
+test('HD-2（HD2・HD5・DF1）: キーボードの輪は DADS の形（黒 4px・2px 空け・角 4px・yellow-300 の 2px の縁）。暗い版は白＋黄色。リンクは地を黄色・文字を黒に（中の文字も黒）。輪と地は明暗で 3:1 以上・黄色の上の黒は 4.5:1 以上', { timeout: 5000 }, () => {
+  const rules = C.parse(CSS());
+  const fv = C.declsFor(rules, ':focus-visible', { at: '' });
+  assert.strictEqual(fv.outline, 'calc(4 / 16 * 1rem) solid var(--focus-outline)');
+  assert.strictEqual(fv['outline-offset'], 'calc(2 / 16 * 1rem)');
+  assert.strictEqual(fv['border-radius'], 'calc(4 / 16 * 1rem)');
+  assert.strictEqual(fv['box-shadow'], '0 0 0 calc(2 / 16 * 1rem) var(--focus-ring)');
+  // 文中のリンクの色（.body a:any-link など）より強く効かせる（暗い版の本文の色が黄色の上に残ると読めない）
+  const la = C.declsFor(rules, 'a:focus-visible', { at: '' });
+  assert.strictEqual(la['background-color'], 'var(--focus-link-bg) !important');
+  assert.strictEqual(la.color, 'var(--focus-link-ink) !important');
+  for (const sel of ['.cats a:focus-visible .t', '.cats a:focus-visible .d', '.cats a:focus-visible .c', '.cats a:focus-visible .ic']) assert.strictEqual(C.declsFor(rules, sel, { at: '' }).color, 'var(--focus-link-ink)', sel);
+  const light = C.tokens(rules, '');
+  const dark = C.tokens(rules, DARK);
+  assert.strictEqual((light['--focus-outline'] || '').toLowerCase(), '#000000');
+  assert.strictEqual((dark['--focus-outline'] || '').toLowerCase(), '#ffffff', '暗い版の輪が白でない');
+  for (const k of ['--focus-ring', '--focus-link-bg']) assert.strictEqual((light[k] || '').toLowerCase(), '#ffd43d', k);
+  assert.strictEqual((light['--focus-link-ink'] || '').toLowerCase(), '#000000');
+  for (const at of ['', DARK]) {
+    const v = (name) => C.parseColor(C.resolveVar(rules, `var(${name})`, at));
+    for (const bg of ['--bg', '--wash']) assert.ok(C.contrast(v('--focus-outline'), v(bg)) >= 3, `${at || '明るい'}: 輪と ${bg}`);
+    assert.ok(C.contrast(v('--focus-link-ink'), v('--focus-link-bg')) >= 4.5, `${at || '明るい'}: 黄色の上の文字`);
+  }
+  // 輪を消す・弱める規則が無い（outline: none・0 と、:focus-visible の外の outline の上書き）
+  for (const r of rules) if (r.decls.outline !== undefined) assert.ok(r.sel.includes(':focus-visible'), `${r.sel} が outline を書く`);
+});
+
 test('画面の使いやすさ: 広い画面の左の目次は止まる（sticky）が、窓より高くならずその中で縦に送れる（記事が 26・分類が 8 でも下の分類が切れない）。狭い画面では止めず、高さも切らない', { timeout: 5000 }, () => {
   const rules = C.parse(CSS());
   const wide = C.declsFor(rules, '.toc', { at: '' });
@@ -362,9 +389,9 @@ test('画面の使いやすさ: 広い画面の左の目次は止まる（sticky
   assert.strictEqual(wide.top, '24px');
   assert.strictEqual(wide['max-height'], 'calc(100vh - 48px)', '広い画面の目次に高さの上限が無い');
   assert.strictEqual(wide['overflow-y'], 'auto', '広い画面の目次がその中で縦に送れない');
-  // 送れる箱は中の輪（:focus-visible の 2px と間 2px）を切るので、内に 4px の余白を取り、外へ 4px 戻して位置を変えない
-  assert.strictEqual(wide.padding, '4px', '目次の中の輪が箱の端で切れる');
-  assert.strictEqual(wide.margin, '-4px');
+  // 送れる箱は中の輪を切るので、内に輪の太さ＋空け（HD-2: 4px＋2px）の余白を取り、外へ同じだけ戻して位置を変えない（DF4）
+  assert.strictEqual(wide.padding, 'calc(6 / 16 * 1rem)', 'HD-2: 目次の中の輪（4px＋空け 2px）が箱の端で切れる');
+  assert.strictEqual(wide.margin, 'calc(-6 / 16 * 1rem)');
   const narrow = C.declsFor(rules, '.toc', { at: '@media (max-width: 639px)' });
   assert.strictEqual(narrow.position, 'static');
   assert.strictEqual(narrow['max-height'], 'none', '狭い画面で目次の高さを切っている');

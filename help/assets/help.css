@@ -19,6 +19,10 @@
   --link-visited: #8b008b;  /* 訪問済み（DADS magenta-900） */
   --link-hover: #0017c1;    /* ホバー（DADS blue-900） */
   --link-active: #ac3e00;   /* 押している間（DADS orange-900） */
+  --focus-outline: #000000; /* キーボードの輪（HD2。DADS black） */
+  --focus-ring: #ffd43d;    /* 輪の内側の黄色の縁（DADS yellow-300） */
+  --focus-link-bg: #ffd43d; /* 輪の付いたリンクの地（DADS yellow-300） */
+  --focus-link-ink: #000000;/* 輪の付いたリンクの文字（黄色の上で 14.74:1） */
   --sans: "IBM Plex Sans JP", "Hiragino Sans", "Yu Gothic UI", "Meiryo", system-ui, sans-serif;
   --mono: "IBM Plex Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
   color-scheme: light dark;
@@ -36,6 +40,7 @@
     --link-visited: #ff8eff;  /* DADS magenta-300 */
     --link-hover: #7096f8;    /* DADS blue-400 */
     --link-active: #ffa66d;   /* DADS orange-300 */
+    --focus-outline: #ffffff; /* 暗い版の輪は白＋黄色（HD5。暗い地で 18.88:1） */
   }
 }
 
@@ -59,7 +64,11 @@ a { color: var(--ink); text-decoration: underline; text-decoration-thickness: ca
   .body a:hover, .notfound a:hover, .crumbs a:hover, .rows li > a:hover, .open-note a:hover { color: var(--link-hover); text-decoration-thickness: calc(3 / 16 * 1rem); }
 }
 .body a:active, .notfound a:active, .crumbs a:active, .rows li > a:active, .open-note a:active { color: var(--link-active); text-decoration-thickness: calc(1 / 16 * 1rem); }
-:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+/* キーボードの輪（HD2・HD5）: DADS と同じ形。黒（暗い版は白）の 4px・2px 空け・角 4px と、その内側に黄色の 2px の縁。
+ * リンクは地を黄色・文字を黒に（文中のリンクの色や暗い版の本文の色より強く効かせる。分類のカードの中の文字も黒に） */
+:focus-visible { outline: calc(4 / 16 * 1rem) solid var(--focus-outline); outline-offset: calc(2 / 16 * 1rem); border-radius: calc(4 / 16 * 1rem); box-shadow: 0 0 0 calc(2 / 16 * 1rem) var(--focus-ring); }
+a:focus-visible { background-color: var(--focus-link-bg) !important; color: var(--focus-link-ink) !important; }
+.cats a:focus-visible .t, .cats a:focus-visible .d, .cats a:focus-visible .c, .cats a:focus-visible .ic { color: var(--focus-link-ink); }
 .vh { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap; }
 .skip { position: absolute; left: -9999px; top: 8px; }
 .skip:focus { left: 16px; z-index: 10; padding: 4px 10px; background: var(--bg); color: var(--ink); border: 1px solid var(--ink); }
@@ -92,7 +101,7 @@ a { color: var(--ink); text-decoration: underline; text-decoration-thickness: ca
 .wrap { max-width: 1200px; margin: 0 auto; padding: 32px 24px 72px; }
 .layout { display: grid; grid-template-columns: 240px minmax(0, 1fr) 200px; column-gap: 48px; align-items: start; }
 .layout > main { grid-column: 2; grid-row: 1; max-width: 720px; min-width: 0; }
-.toc { grid-column: 1; grid-row: 1; position: sticky; top: 24px; max-height: calc(100vh - 48px); overflow-y: auto; padding: 4px; margin: -4px; font-size: .88rem; line-height: 1.6; }
+.toc { grid-column: 1; grid-row: 1; position: sticky; top: 24px; max-height: calc(100vh - 48px); overflow-y: auto; padding: calc(6 / 16 * 1rem); margin: calc(-6 / 16 * 1rem); font-size: .88rem; line-height: 1.6; }
 .onpage { grid-column: 3; grid-row: 1; position: sticky; top: 24px; font-size: .85rem; line-height: 1.6; border-top: 1px solid var(--ink); padding-top: .6rem; }
 .toc-btn { display: none; }
 
