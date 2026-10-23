@@ -1328,3 +1328,42 @@ test('要約の担当・期限の裏付けは、文字起こしと、アジェ�
   assert.ok(run.indexOf('groundActionFields(blocks') < run.indexOf('attachAcross(blocks'), '出典の照合の後に照らしている（外した担当名で照合がぶれる）');
 });
 
+
+// ---------------------------------------------------------------- 0.10.0 S-2（MCP のサーバーの入口: 計画 docs/plans/2026-10-20-100.md）
+const mcpFiles = () => fs.readdirSync(path.join(ROOT, 'src', 'mcp')).filter((f) => f.endsWith('.js')).map((f) => `src/mcp/${f}`);
+
+test('0.10.0 F4・RF63: MCP の入口は src/mcp/server.js にあり、src/mcp/ のどのファイルも頭のほかに require( が無い（関数の中で後から読まない: 自動更新が src を入れ替える間に新旧を混ぜない）', () => {
+  assert.ok(fs.existsSync(path.join(ROOT, 'src', 'mcp', 'server.js')), 'src/mcp/server.js が無い（登録した場所は変えない約束: 決めたこと 22）');
+  for (const f of mcpFiles()) {
+    const lines = code(read(f)).split('\n');
+    const firstFn = lines.findIndex((l) => /^(async\s+)?function\b|^class\b|^module\.exports\b/.test(l));
+    lines.forEach((l, i) => {
+      if (!/\brequire\(/.test(l)) return;
+      assert.ok(/^const [^=]+= require\(['"][^'"]+['"]\)(\.\w+)?;\s*$/.test(l), `${f}:${i + 1}: 頭の const … = require(…) の形でない: ${l.trim()}`);
+      assert.ok(firstFn < 0 || i < firstFn, `${f}:${i + 1}: 関数より後に require がある`);
+    });
+  }
+});
+
+test('0.10.0 EL8: package.json の build に electronFuses が無いか、runAsNode を false にしていない（MCP のサーバーは NaTsu.exe を Node として起こす）', () => {
+  const pkg = JSON.parse(read('package.json'));
+  const fuses = pkg.build && pkg.build.electronFuses;
+  assert.ok(!fuses || fuses.runAsNode !== false, 'runAsNode を切ると Claude から MCP のサーバーを起こせない');
+});
+
+test('0.10.0 決めたこと 33: src/ に NATSU_MCP_TEST の字が無い（テストだけの道を環境変数で開けない）', () => {
+  const walk = (d) => fs.readdirSync(path.join(ROOT, d), { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? walk(`${d}/${e.name}`) : [`${d}/${e.name}`]));
+  for (const f of walk('src').filter((x) => /\.(js|html)$/.test(x))) assert.ok(!read(f).includes('NATSU_MCP_TEST'), f);
+});
+
+test('0.10.0 F16・RF75: src/mcp/ のどのファイルも、決めたこと 59 の部品を require しない・listen( と createServer( と fetch( の字が無い（口は標準入出力だけ）', () => {
+  const banned = ['net', 'http', 'https', 'http2', 'dgram', 'tls', 'child_process', 'worker_threads', 'electron', '../secrets', '../relay', '../settings', '../store', '../jsonfile', '../updater'];
+  for (const f of mcpFiles()) {
+    const src = code(read(f));
+    for (const m of src.matchAll(/require\(['"]([^'"]+)['"]\)/g)) {
+      const name = m[1].replace(/^node:/, '');
+      assert.ok(!banned.includes(name), `${f}: ${m[1]} を読む`);
+    }
+    for (const w of ['listen(', 'createServer(', 'fetch(']) assert.ok(!src.includes(w), `${f}: ${w} がある`);
+  }
+});
