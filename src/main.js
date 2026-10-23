@@ -1992,6 +1992,22 @@ function setAccountEmail(email) {
   const w = settingsWriter.now(settings);
   if (!w.ok) engineLog(`アカウント: 設定に書けませんでした（${errCode(w.error)}）`);
 }
+// ---------------------------------------------------------------- 0.9.x の要約の組を消す（0.10.0 Task LS-4。D59・決めたこと 107・108）
+// 管理しているフォルダの下の、表（engine-install.RETIRED）の名前と大きさのものだけ消す。手の設定のパス（前の版の settings.sumServerExe・
+// sumModelPath。0.10.0 から知らないキーとして残る）には触らない。使用中で残ったら印を書かず、次の起動でやり直す。全部消せたら印を書き、
+// 消したものがあれば1回だけ知らせる（消すものが無い PC には出さない）。記録は数と符号だけ（パス・名前を書かない）
+const RETIRED_SUM_TEXT = (gb) => `要約用の AI は使わなくなったので、PC から消しました（約 ${gb} GB 空きました）。文字起こし用はそのままです。`;
+async function retireSummaryEngine() {
+  if (!ENGINE_HOME.supported || settings.retiredSumNotified === true) return;
+  const manual = [settings.sumServerExe, settings.sumModelPath].filter((x) => typeof x === 'string' && x);
+  const r = await engineInstall.retireSum(ENGINE_HOME, { manual });
+  if (r.left) { engineLog(`要約のエンジンを消す: 残り ${r.left}（${[...new Set(r.codes)].join('・')}）`); return; }
+  if (r.removed.length) engineLog(`要約のエンジンを消す: 消した ${r.removed.length}・残り 0`);
+  settings = { ...settings, retiredSumNotified: true };
+  const w = settingsWriter.now(settings);
+  if (!w.ok) engineLog(`要約のエンジンを消す: 設定に書けませんでした（${errCode(w.error)}）`);
+  if (r.removed.length) noticeMainWin(RETIRED_SUM_TEXT((r.bytes / 1e9).toFixed(1)));
+}
 // ---------------------------------------------------------------- Claude との連携（MCP。0.10.0 Task C-2。計画の「受け渡す名前と形」の main の分）
 // Claude デスクトップの設定ファイル（claude_desktop_config.json）に NaTsu の1項目を足す・外す。場所は main が決める（画面はパスを渡さない: 方針 7）。
 //  - 読みは J.readJsonFile（1MB まで・根は物）。壊れている（broken）・読めない（busy）・同じ名前の別の登録（other）・読み取り専用（readonly）の
@@ -6095,6 +6111,8 @@ if (!gotLock) {
     createMainWindow();
     // 0.10.0 C-2: Claude デスクトップへの登録を1回だけ確かめる（読むだけ。場所が古い・消えたときだけ知らせる）
     checkMcpRegistration();
+    // 0.10.0 LS-4: 0.9.x で取り込んだ要約のエンジンとモデルを消す（全部消せるまで起動ごとに1回。知らせは1回）
+    retireSummaryEngine().catch((e) => engineLog(`要約のエンジンを消す: 失敗（${errCode(e)}）`));
     // 0.10.0 LN-3: natsu:// の登録（パックした NaTsu で場所が変わったときだけ書き直す）
     registerNatsuProtocol();
     // 0.10.0 LN-4: リンクで起こされたとき（起動の引数の -- の後ろの natsu://）は、そのページを開く

@@ -1086,6 +1086,66 @@ function makeRunner(deps = {}) {
 
 // 記録が何と言っても消さない置き場所（root からの相対。記録・写し・取り込み途中のフォルダ）
 const SPECIAL_PLACES = ['installed.json', 'THIRD-PARTY-NOTICES.txt', '.download'];
+
+// ---------------------------------------------------------------- 0.10.0 LS-4: 0.9.x の要約の組を消す（D59・決めたこと 107）
+// 0.9.x の表にあった要約のエンジン（llama-b11669 の 23 個）とモデル（gemma）の、置き場所の名前と大きさ。消すのは管理しているフォルダの下の
+// ちょうどこの名前で、大きさもこの表と同じものだけ（installed.json の記録が無くても）。片付け（cleanupOld）はこの置き場所を消さない（retireSum だけ）
+const RETIRED = Object.freeze({
+  dir: 'llama-b11669',
+  files: Object.freeze([
+  ['llama-server.exe', 9216], ['llama-server-impl.dll', 9259520], ['llama-common.dll', 8037376], ['llama.dll', 3541504], ['mtmd.dll', 1847808],
+  ['ggml.dll', 78848], ['ggml-base.dll', 803840], ['libomp.dll', 768000], ['ggml-cpu-alderlake.dll', 1420288], ['ggml-cpu-cannonlake.dll', 1598976],
+  ['ggml-cpu-cascadelake.dll', 1583616], ['ggml-cpu-cooperlake.dll', 1593344], ['ggml-cpu-haswell.dll', 1425408], ['ggml-cpu-icelake.dll', 1590272],
+  ['ggml-cpu-ivybridge.dll', 1301504], ['ggml-cpu-piledriver.dll', 1294336], ['ggml-cpu-sandybridge.dll', 1291264], ['ggml-cpu-sapphirerapids.dll', 1869824],
+  ['ggml-cpu-skylakex.dll', 1592320], ['ggml-cpu-sse42.dll', 916992], ['ggml-cpu-x64.dll', 909824], ['ggml-cpu-zen4.dll', 1600000],
+  ['LICENSE-LLVM-OpenMP', 19741],
+  ].map((x) => Object.freeze(x))),
+  model: Object.freeze({ dest: 'models/gemma-4-E4B-it-Q4_K_M.gguf', size: 4977171584 }),
+  ids: Object.freeze(['sum-engine', 'sum-model']),
+});
+/**
+ * 0.9.x の要約の組を消す → { removed: [root からの相対パス], bytes: 消した大きさの合計, left: 使用中で残した数, codes: [残した理由の符号] }。
+ * 手の設定のパス（manual。大文字と小文字を区別しない）と、表に無い名前・大きさの違うファイルには触らない。whisper と VAD は表に無いので触らない。
+ * 全部消せたら、空になった dir を消し、installed.json から表の組（ids）の記録を外す。消せないもの（使用中の EBUSY・EPERM など）は残し、次の呼び出しで消す。
+ * fs と table は試しのために差し替えられる（本番は fs と RETIRED）。投げない（読めない・消せない理由は codes へ）
+ */
+async function retireSum(home, { fs: F = fs, manual = [], table = RETIRED } = {}) {
+  const out = { removed: [], bytes: 0, left: 0, codes: [] };
+  const root = home && home.supported && home.root;
+  if (!root) return out;
+  const skip = new Set((Array.isArray(manual) ? manual : []).filter((m) => typeof m === 'string' && m).map((m) => path.resolve(m).toLowerCase()));
+  const targets = [...table.files.map(([n, size]) => ({ rel: `${table.dir}/${n}`, size })), { rel: table.model.dest, size: table.model.size }];
+  for (const t of targets) {
+    const parts = relParts(t.rel);
+    if (!parts) continue;
+    const abs = path.join(root, ...parts);
+    if (skip.has(path.resolve(abs).toLowerCase())) continue;
+    let st;
+    try { st = await F.promises.stat(abs); } catch (_) { continue; }
+    if (!st.isFile() || st.size !== t.size) continue;
+    try {
+      await F.promises.unlink(abs);
+      out.removed.push(t.rel);
+      out.bytes += t.size;
+    } catch (e) {
+      const code = e && e.code ? String(e.code) : 'unknown';
+      if (code !== 'ENOENT') { out.left += 1; out.codes.push(code); }   // 使用中（EBUSY・EPERM など）は残して次の呼び出しで
+    }
+  }
+  if (out.left) return out;
+  try { await F.promises.rmdir(path.join(root, table.dir)); } catch (_) { /* 無い・空でない（利用者のファイル）は残す */ }
+  const file = path.join(root, 'installed.json');
+  try {
+    const inst = readInstalled(file);
+    const ids = new Set(table.ids);
+    const drop = Object.entries(inst.items).filter(([, rec]) => isObj(rec) && ids.has(rec.id)).map(([k]) => k);
+    if (drop.length && !inst.unreadable) {
+      for (const k of drop) delete inst.items[k];
+      writeInstalled(file, inst);
+    }
+  } catch (_) { /* 記録を直せなくても消したファイルはそのまま（次の片付けで残りの記録を見る） */ }
+  return out;
+}
 const lowSha = (s) => String(s).toLowerCase();
 // 同じ置き場所か、どちらかがもう一方の親（Windows は大文字と小文字を区別しないので、小文字で比べる）
 const placesOverlap = (a, b) => {
@@ -1115,7 +1175,8 @@ async function cleanupOld(home, manifest, installed, { inUse = () => false, canD
     const act = installed && isObj(installed.active) ? installed.active[g] : null;
     for (const s of Array.isArray(act) ? act : []) keepShas.add(lowSha(s));
   }
-  const guarded = [...SPECIAL_PLACES, ...manifest.items.map(placeOf).filter((p) => typeof p === 'string')];
+  // 0.10.0 LS-4: 0.9.x の要約の組の置き場所は retireSum だけが消す（知らせと使用中の扱いを1か所にする）
+  const guarded = [...SPECIAL_PLACES, RETIRED.dir, RETIRED.model.dest, ...manifest.items.map(placeOf).filter((p) => typeof p === 'string')];
   const byPlace = new Map();
   for (const [s, rec] of Object.entries(items)) {
     if (!isObj(rec)) continue;
@@ -1213,4 +1274,4 @@ function writeNotices(home, manifest) {
 }
 
 module.exports = { engineRoot, layout, readInstalled, writeInstalled, planInstall, managedCandidates, freeBytesOf, statusOf,
-  sha256File, installZip, recordInstalled, verifyCandidates, makeRunner, setActive, cleanupOld, writeNotices };
+  sha256File, installZip, recordInstalled, verifyCandidates, makeRunner, setActive, cleanupOld, writeNotices, RETIRED, retireSum };

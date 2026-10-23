@@ -135,6 +135,8 @@ function defaultSettings(cpuCount) {
     // 会議の検出の通知（0.9.3 M-1）と、通知を出さないアプリ（MEET_APP_IDS の id の並び）
     meetingDetect: true,
     meetingDetectMute: [],
+    // 0.10.0 LS-4（D59・決めたこと 107）: 0.9.x の要約の組を消したことを知らせたか（知らせは1回だけ。main だけが書く）
+    retiredSumNotified: false,
   };
 }
 
@@ -190,6 +192,8 @@ const SETTING_RULES = {
   // 0.9.3 M-1（会議の検出）
   meetingDetect: { label: '会議の検出の通知', kind: 'bool', notFalse: true },
   meetingDetectMute: { label: '通知を出さないアプリ', kind: 'apps' },
+  // 0.10.0 LS-4（決めたこと 107）
+  retiredSumNotified: { label: '要約用の AI を消した知らせ', kind: 'bool' },
 };
 const SETTING_KEYS = Object.keys(SETTING_RULES);
 // 会議の検出の一覧の id（src/mainlib.js の MEET_APPS と同じ並び。settings.js は mainlib を読まないので写しを持つ: test/stage093.lib が照らす）

@@ -56,7 +56,10 @@ test('D59: 「ローカル AI の設定」のカードに要約の行（llama �
 });
 
 test('D59: main は要約のエンジンを持たない（sumEng・起動テストの口・トレイ・起動の確かめ）', T, () => {
-  const main = read('src/main.js');
+  // LS-4 で意図して直した: 0.9.x の要約の組を消す retireSummaryEngine だけは、前の版の手の設定のパス（sumServerExe・sumModelPath）を読む（触らないため）
+  const all = read('src/main.js');
+  const at = all.indexOf('// ---------------------------------------------------------------- 0.9.x の要約の組を消す');
+  const main = at < 0 ? all : all.slice(0, at) + all.slice(all.indexOf('\n}\n', at));
   for (const w of ['sumEng', "'app:test-sum'", 'settings.sumPort', 'settings.sumCtx', 'settings.sumThreads', 'sumServerExe', 'sumModelPath']) assert.ok(!main.includes(w), `main.js に ${w}`);
 });
 

@@ -42,6 +42,9 @@ const { titleAt } = require('./titles');
 //     --repair      … --managed-tamper と組み合わせる。installed.json を同意済みにし、engine-small の偽のサーバーを開いたままにして、
 //                     起動のときの照らしで壊れていた組を main が取り直し（fake-net の net.request で）、照らし直してから使うのを見る（Task 14）
 //     （--sum-tamper は 0.10.0 LS-3（D59）で外した: 要約の組を取り込まない）
+//     --retired-sum … 0.10.0 LS-4: 取り込みの置き場所（LOCALAPPDATA の下）に 0.9.x の形の要約の組（小さな表の llama-b11669 と gemma のモデル）を置き、
+//                     engine-install.retireSum をその小さな表で呼ぶ。--idle のときは「要約のエンジンを消す」の記録が出るまで待ち、out.savedSettings を足す。
+//                     --keep-user-data の2回目の起動では settings.json を置き直さない（retiredSumNotified を残す）
 //     --no-engine=fetchable|unsupported … 詳細設定の文字起こしを空にし、何も取り込んでいない PC にする。fetchable は取り込める PC、
 //                     unsupported は取り込めない PC（engineRoot だけを差し替える）。記録はしない
 //                     （第1d2回 M-1: --relay・--offline・--signed-out・--dictate・--local-only と組んだときは記録しない早い分かれ道に入らず、
@@ -432,6 +435,7 @@ const killMainAtBegin = flags.includes('--kill-main-at-begin');
 const purgeSaveFailOnce = flags.includes('--purge-save-fail-once');
 const keepDraftAfterFinalize = flags.includes('--keep-draft-after-finalize');
 const keepUserData = flagVal('--keep-user-data');
+const retiredSum = flags.includes('--retired-sum');
 const setTitleDuring = flagVal('--set-title-during');
 const setTitleAfterSum = flagVal('--set-title-after-sum');
 const secretText = flags.includes('--secret-text');
@@ -970,6 +974,17 @@ process.on('exit', () => {
       manifest: { ...realManifest, MANIFEST: Object.freeze({ schema: 1, items }) },
     };
   }
+  // 0.10.0 LS-4（--retired-sum）: 0.9.x の要約の組（小さな表）を置き、retireSum をその表で呼ぶ
+  if (retiredSum && !managedMods) {
+    const I = require(path.join(ROOT, 'src', 'engine-install.js'));
+    const home = { supported: true, root: path.join(localAppData, 'natsu', 'engine'), reason: '' };
+    const SMALL_RETIRED = { dir: 'llama-b11669', files: [['llama-server.exe', 900], ['llama.dll', 2500], ['LICENSE-LLVM-OpenMP', 70]],
+      model: { dest: 'models/gemma-4-E4B-it-Q4_K_M.gguf', size: 6000 }, ids: ['sum-engine', 'sum-model'] };
+    for (const [n, size] of SMALL_RETIRED.files) { const f = path.join(home.root, SMALL_RETIRED.dir, n); fs.mkdirSync(path.dirname(f), { recursive: true }); fs.writeFileSync(f, Buffer.alloc(size, 7)); }
+    const mf = path.join(home.root, ...SMALL_RETIRED.model.dest.split('/')); fs.mkdirSync(path.dirname(mf), { recursive: true }); fs.writeFileSync(mf, Buffer.alloc(SMALL_RETIRED.model.size, 7));
+    managedMods = { install: { ...I, engineRoot: () => home, retireSum: (h, o) => I.retireSum(h, { ...o, table: SMALL_RETIRED }) },
+      manifest: require(path.join(ROOT, 'src', 'engine-manifest.js')) };
+  }
   // 何も取り込んでいない PC（取り込める・取り込めない）。置き場所だけを決め、フォルダは作らない
   if (noEngine || (scene && !scene.engine)) {
     const I = require(path.join(ROOT, 'src', 'engine-install.js'));
@@ -1076,7 +1091,7 @@ process.on('exit', () => {
       const cur = fs.existsSync(f) ? JSON.parse(fs.readFileSync(f, 'utf8')) : {};
       fs.writeFileSync(f, JSON.stringify({ ...cur, accountEmail: seededMail }));
     }
-  } else if (!(pillSettings && keepUserData && fs.existsSync(path.join(userData, 'settings.json')))) {
+  } else if (!((pillSettings || retiredSum) && keepUserData && fs.existsSync(path.join(userData, 'settings.json')))) {
     fs.writeFileSync(path.join(userData, 'settings.json'), JSON.stringify({
       ...(managedMode || noEngine || fetchMode ? {} : { localServerExe: exe, localModelPath: model }), localPort, sumPort, autoLaunch: false,
       ...(withSum ? { sumServerExe: FAKE_SUM, sumModelPath: sumModel } : {}),
@@ -2200,6 +2215,13 @@ process.on('exit', () => {
     out.requests = fs.readFileSync(flog, 'utf8').split('\n').filter((l) => l.startsWith('inference'));
     if (relayLocal) { out.stt = relayLocal.stt.requests.slice(); out.relayCalls = relayPaths.slice(); }
     out.history = handlers['history:get']();   // 第1d2回 M-5
+    if (retiredSum) {   // 0.10.0 LS-4
+      await waitFor(() => engineLogLines().some((l) => l.startsWith('要約のエンジンを消す')) || readUser('settings.json').toString('utf8').includes('"retiredSumNotified": true'), 10000).catch(() => {});
+      await sleep(WRITE_SETTLE_MS);
+      out.notices = sent.filter(([ch]) => ch === 'app:notice').map(([, p]) => p);
+      out.engineLog = engineLogLines();
+      out.savedSettings = JSON.parse(readUser('settings.json').toString('utf8'));
+    }
     if (pillSettings) {
       await sleep(WRITE_SETTLE_MS);   // まとめ書き（350ms）が済んでから写す
       const t = readUser('settings.json');

@@ -41,6 +41,8 @@ Object.assign(TODAY, { meetingDetect: true, meetingDetectMute: [] });
 // 0.10.0 LS-3（D59・決めたこと 109）で意図して変えた: 要約のローカル AI の5つ（sumServerExe・sumModelPath・sumPort・sumThreads・sumCtx）を表と既定から
 // 外した（30 のキー）。保存に残っていれば知らないキーとして値のまま残る（下の「知らないキーは消さずに残し」と stage100.summary.engine）。画面は送らない
 for (const k of ['sumServerExe', 'sumModelPath', 'sumPort', 'sumThreads', 'sumCtx']) { delete TODAY[k]; delete UI[k]; }
+// 0.10.0 LS-4（決めたこと 107）で意図して変えた: 要約の組を消した知らせの印 retiredSumNotified（既定 false。main だけが書く）を足した（31 のキー）
+Object.assign(TODAY, { retiredSumNotified: false });
 Object.assign(UI, { meetingDetect: false, meetingDetectMute: ['zoom', 'chrome'] });
 // 第1c回 Task C-2: 画面のカード「オンライン」が送るキー（0.7.0 U-1 で claudeExe だけ。30 のキー）。既定でない値で往復することを見る
 Object.assign(UI, { claudeExe: 'C:\\c\\claude.exe' });
@@ -48,9 +50,9 @@ const legacy = (raw) => S.normalizeSettings({ ...D, ...raw }, D);
 const ON = (key, v) => (key === 'useBuiltinTerms' ? v !== false : Boolean(v));
 const BOOLS = ['useVad', 'suppressNst', 'autoPaste', 'removeFillers', 'soundFeedback', 'autoLaunch', 'stayInTray', 'useBuiltinTerms', 'useSystemAudio'];
 
-test('JS6: 決まりの表のキーは既定の 30 のキーとちょうど同じ。どれにも画面の名前がある', { timeout: 5000 }, () => {
+test('JS6: 決まりの表のキーは既定の 31 のキーとちょうど同じ。どれにも画面の名前がある', { timeout: 5000 }, () => {
   assert.deepStrictEqual(D, TODAY);
-  assert.strictEqual(S.SETTING_KEYS.length, 30);   // 0.10.0 LS-3 で要約の5つを外した（35 → 30）
+  assert.strictEqual(S.SETTING_KEYS.length, 31);   // 0.10.0 LS-3 で要約の5つを外し（35 → 30）、LS-4 で retiredSumNotified を足した（31）
   assert.deepStrictEqual([...S.SETTING_KEYS].sort(), Object.keys(TODAY).sort());
   for (const k of S.SETTING_KEYS) assert.ok(typeof S.SETTING_RULES[k].label === 'string' && S.SETTING_RULES[k].label.length > 1, k);
   assert.strictEqual(S.defaultSettings(2).localThreads, 4);
