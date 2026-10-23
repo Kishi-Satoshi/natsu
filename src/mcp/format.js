@@ -6,6 +6,7 @@
 const { getLabel } = require('../meetingType');
 const { citeStatOf } = require('../pagerules');
 const natsulink = require('../natsulink');
+const SL = require('../statelog');
 
 const WEEK = ['日', '月', '火', '水', '木', '金', '土'];
 const pad2 = (n) => String(n).padStart(2, '0');
@@ -154,6 +155,19 @@ function placeLink(p, pageId, anchor) {
   if (p.kind === 'b') return url ? `[要約の節](${url})「${p.heading}」` : placeText(p);
   return url ? `[${placeText(p)}](${url})` : placeText(p);
 }
+// 0.10.0 K-2（決めたこと 116）: 議事録の経過の1行「- 経過: 10:02 開始（ホットキー）・10:31 一時停止（録音バー）・10:33 再開・…」。
+// 表（src/statelog.js）の名前だけを出し（DB の値をそのまま出さない: 決めたこと 60）、きっかけは前の項目と違うときだけ書く。無ければ ''
+function stateLine(log) {
+  const items = SL.cleanStateLog(log);
+  if (!items.length) return '';
+  let prev = '';
+  const parts = items.map((x) => {
+    const by = x.by === prev ? '' : `（${SL.BY_NAMES[x.by]}）`;
+    prev = x.by;
+    return `${timeOf(x.at)} ${SL.STATE_NAMES[x.s]}${by}`;
+  });
+  return `- 経過: ${parts.join('・')}`;
+}
 // 会議の頭のリンクの行（get_meeting・get_meetings）
 function linkLine(pageId) {
   const url = natsulink.openUrl(pageId, '');
@@ -190,6 +204,8 @@ function propLines(page) {
   if (by === 'claude-code' || by === 'local') lines.push(`- 要約: ${by === 'claude-code' ? 'Claude Code' : 'PC'}`);
   const cs = citeStatOf(Array.isArray(page.blocks) ? page.blocks : []);
   if (cs.total > 0) lines.push(`- 出典: ${cs.linked}/${cs.total}`);
+  const st = stateLine(page.stateLog);
+  if (st) lines.push(st);
   lines.push(`- ID: ${page.id}`, ...linkLine(page.id));
   return lines;
 }
@@ -269,4 +285,4 @@ function cut(text, budget) {
   return { text: out.join('\n'), cut: true };
 }
 
-module.exports = { sortSegs, meetingMarkdown, CUT_NOTE, clock, today, weekdayOf, dateWithDay, header, safeLine, quoteLines, meetingLine, sttOf, blockLine, segmentText, segPrefix, segmentLine, timeOf, placeText, placeLink, cut, NOTICE, KEPT_TEXT, FAILED_TEXT };
+module.exports = { sortSegs, meetingMarkdown, CUT_NOTE, clock, today, weekdayOf, dateWithDay, header, safeLine, quoteLines, meetingLine, sttOf, blockLine, segmentText, segPrefix, segmentLine, timeOf, placeText, placeLink, stateLine, cut, NOTICE, KEPT_TEXT, FAILED_TEXT };

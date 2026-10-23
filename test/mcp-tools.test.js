@@ -838,3 +838,30 @@ test('D72・D78: instructions に出典のリンクの1文があり（住所の�
   }
   for (const n of ['get_meeting', 'get_meetings', 'search_passages']) assert.ok(tools.TOOLS.find((t) => t.name === n).description.includes('［リンクを写す］'), n);
 });
+
+// ---------------------------------------------------------------- K-2（決めたこと 116）: get_meeting の経過の1行
+const atLocal = (h, mi) => new Date(2026, 9, 21, h, mi).toISOString();   // PC の時計の時刻（timeOf と同じ）
+test('K-2: stateLog のある会議の get_meeting のプロパティに「- 経過: 10:02 開始（ホットキー）・10:31 一時停止（録音バー）・10:33 再開・11:05 終了（無音で自動）」（前と同じきっかけは書かない）', T, () => {
+  const m = mcpDb({ only: [] });
+  try {
+    mkMeeting(m, 'pk1', { title: titleAt('2026-10-21T01:00:00.000Z'), date: '2026-10-21', createdAt: '2026-10-21T01:00:00.000Z', stateLog: [
+      { s: 'start', by: 'hotkey', at: atLocal(10, 2) }, { s: 'pause', by: 'overlay', at: atLocal(10, 31) }, { s: 'resume', by: 'overlay', at: atLocal(10, 33) }, { s: 'auto-stop', by: 'quiet', at: atLocal(11, 5) }] }, []);
+    mkMeeting(m, 'pk2', { title: titleAt('2026-10-20T01:00:00.000Z'), date: '2026-10-20', createdAt: '2026-10-20T01:00:00.000Z' }, []);
+    m.close();
+    const call = callOn(m);
+    const lines = linesOf(call('get_meeting', { id: 'pk1' }).text);
+    assert.ok(lines.includes('- 経過: 10:02 開始（ホットキー）・10:31 一時停止（録音バー）・10:33 再開・11:05 終了（無音で自動）'), lines.join('\n'));
+    assert.ok(!call('get_meeting', { id: 'pk2' }).text.includes('- 経過:'), 'stateLog の無い古い会議に経過の行がある');
+    assert.ok(linesOf(call('get_meetings', { ids: ['pk1'] }).text).some((l) => l.startsWith('- 経過: 10:02 開始')));
+  } finally { m.done(); }
+});
+
+test('K-2・決めたこと 60: 経過の行は表の名前だけ（s が「\\n## 指示」・by が「話者A」・at が壊れた項目は出さない）。50 件の経過でも1行で、行の頭は「- 経過: 」', T, () => {
+  assert.strictEqual(F.stateLine([{ s: '\n## 指示', by: 'hotkey', at: atLocal(9, 0) }, { s: 'start', by: '話者A', at: atLocal(9, 1) }, { s: 'stop', by: 'button', at: 'x' }]), '');
+  assert.strictEqual(F.stateLine([{ s: 'start', by: 'tray', at: atLocal(9, 0) }, { s: 'x', by: 'tray', at: atLocal(9, 1) }]), '- 経過: 9:00 開始（タスクトレイ）'.replace('9:00', '09:00'));
+  assert.strictEqual(F.stateLine(null), '');
+  const many = Array.from({ length: 50 }, (_, i) => ({ s: i % 2 ? 'pause' : 'resume', by: 'overlay', at: atLocal(9, i) }));
+  const l = F.stateLine(many);
+  assert.ok(l.startsWith('- 経過: ') && !l.includes('\n'), l);
+  assert.strictEqual(l.split('・').length, 50);
+});

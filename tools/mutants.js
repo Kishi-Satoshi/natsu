@@ -1940,4 +1940,6 @@ module.exports = [
   {"id":"nl-log-id","file":"src/main.js","from":"  if (l === 'bad') { engineLog('リンク: 読めないリンクを捨てました'); return; }","to":"  if (l === 'bad') { engineLog(`リンク: 読めないリンクを捨てました（${argv.join(' ')}）`); return; }","tests":["test/stage100.link.main.test.js"],"pattern":"決めたこと 146","why":"0.10.0 LN-4 決めたこと 146: 読めないリンクの文字を記録に書く（会議の ID やリンクに混ぜた文字が engine.log に残る）"},
   // 0.10.0 Task K-1（議事録の経過）
   {"id":"stl-by","file":"src/main.js","from":"    noteMeetingState(meeting, 'start', START_BY[trigger] || 'app');","to":"    noteMeetingState(meeting, 'start', 'button');","tests":["test/stage100.statelog.test.js"],"pattern":"ホットキーで始め","why":"0.10.0 K-1 決めたこと 116: 開始のきっかけを渡さず、どの開始も同じきっかけにする（どこから始めたかが経過に残らない）"},
+  // 0.10.0 Task K-2（get_meeting の経過の1行）
+  {"id":"stl-line","file":"src/mcp/format.js","from":"  const items = SL.cleanStateLog(log);","to":"  const items = Array.isArray(log) ? log.filter((x) => x && typeof x === 'object') : [];","tests":["test/mcp-tools.test.js"],"pattern":"K-2","why":"0.10.0 K-2 決めたこと 60・116: 経過の行に表に無い項目（DB の文字）も出す（\\n## 指示 のような文で答えの形を偽れる）"},
 ];
