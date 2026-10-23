@@ -153,3 +153,44 @@ test('D22: site.json の形が違えば build は HelpBuildError（code: bad-sit
     for (const c of site().categories) assert.ok(html.includes(c.title), c.title);
   } finally { fs.rmSync(ok, { recursive: true, force: true }); }
 });
+
+// help-dads HD-0（HD8・HD6。計画 docs/plans/2026-10-23-help-dads.md の決めたこと G・H と問答の Q15・Q18）:
+// 守るものの宣言（DADS のスキルの references/protect-file.md の書式）と、読み上げの例外を設計書に先に書く
+test('HD-0: リポジトリの直下に DADS-PROTECT.md がある（# 守るもの と決まった4つの見出しを決まった順で）。ブランド色の行は「- #xxxxxx（…）」で、その値は help.css の暗い版の灰色の札（地・面・罫線・補足・本文）とちょうど同じ', { timeout: 5000 }, () => {
+  const C = require('./helpers/simcss');
+  assert.ok(fs.existsSync(path.join(ROOT, 'DADS-PROTECT.md')), 'DADS-PROTECT.md が無い');
+  const md = read('DADS-PROTECT.md').replace(/\r\n?/g, '\n');
+  assert.ok(md.startsWith('# 守るもの\n'), '頭が # 守るもの でない');
+  const order = ['守るファイル・フォルダ', 'ブランド色', '顧客の基準', 'メモ'];
+  const heads = [...md.matchAll(/^## (.+)$/gm)].map((m) => m[1]);
+  assert.ok(heads.length > 0 && heads.every((h) => order.includes(h)), `知らない見出し: ${heads.join(' / ')}`);
+  assert.deepStrictEqual(heads, order.filter((h) => heads.includes(h)), '見出しの順が決まりと違う');
+  assert.strictEqual(new Set(heads).size, heads.length, '見出しが重なる');
+  const sec = (h) => { const i = md.indexOf(`## ${h}\n`); const j = md.indexOf('\n## ', i + 1); return md.slice(i, j < 0 ? md.length : j); };
+  const lines = sec('ブランド色').split('\n').filter((l) => l.startsWith('- '));
+  assert.ok(lines.length > 0);
+  for (const l of lines) assert.match(l, /^- #[0-9a-f]{6}（[^）]+）$/, `ブランド色の行の形: ${l}`);
+  const brand = lines.map((l) => l.slice(2, 9)).sort();
+  const dark = C.tokens(C.parse(read('help/assets/help.css')), '@media (prefers-color-scheme: dark)');
+  const greys = ['--bg', '--wash', '--rule', '--muted', '--body'].map((k) => (dark[k] || '').toLowerCase()).sort();
+  assert.deepStrictEqual(brand, greys, 'ブランド色と暗い版の灰色の札が違う');
+  // 守るファイル: アプリの画面・ロゴ・記事・門・出し方（ヘルプの DADS の直しの外）
+  for (const f of ['src/**', 'assets/**', 'help/articles/**', 'relay/**', '.github/**']) assert.ok(sec('守るファイル・フォルダ').includes(`- ${f}（`), f);
+  // メモ: 読み上げの例外（HD6 の検索の件数・0.10.0 の /open の知らせ）と暗い版を残すこと
+  const memo = sec('メモ');
+  assert.match(memo, /読み上げソフトへの対応は作らない/);
+  assert.match(memo, /検索の件数の知らせ（role="status"）/);
+  assert.match(memo, /\/open のページ/);
+  assert.match(memo, /暗い版（OS の設定に従う）は残す/);
+});
+
+test('HD-0（HD6・Q18）: 設計書の「画面の使いやすさ」の「作らないもの」と「やらないこと」に、読み上げの例外（ヘルプの検索の件数の知らせと /open のページの知らせの role="status"）が書いてある', { timeout: 5000 }, () => {
+  const d = read('docs/plans/natsu-design.md');
+  const part = (h) => { const i = d.indexOf(h); assert.ok(i >= 0, h); return d.slice(i, d.indexOf('\n### ', i + 1)); };
+  const ease = part('### 画面の使いやすさ');
+  const line = ease.split('\n').find((l) => l.includes('**作らないもの:**'));
+  assert.ok(line, '作らないもの の行が無い');
+  assert.match(line, /読み上げソフトへの対応（例外: .*検索の件数の知らせ `role="status"`.*HD6.*\/open.*`role="status"`.*D78/);
+  const never = part('### やらないこと').split('\n').find((l) => l.includes('**画面と端末:**'));
+  assert.match(never, /読み上げソフト（例外は「画面の使いやすさ」の2つ）/);
+});
