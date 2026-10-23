@@ -17,7 +17,8 @@ const T = { timeout: 10000 };
 const OPEN_JS = fs.readFileSync(path.join(ROOT, 'help', 'assets', 'open.js'), 'utf8');
 const OPEN_HTML = () => fs.readFileSync(path.join(ROOT, 'help', 'open', 'index.html'), 'utf8');
 const LOST = 'ログインの後は、Claude のリンクをもう一度押してください。';
-const BAD = 'このリンクは開けません（形が違います）';
+// help-dads 3回目の審査の指摘 7（持ち主の答え 2026-10-23）: 次に何をすればよいかも言う
+const BAD = 'このリンクは開けません（形が違います）。NaTsu でもう一度［リンクを写す］を押してください。';
 // help-dads 再審査の指摘 8（持ち主の答え 2026-10-23）: 開けたかが分からないうちに「開きました」と言い切らない
 const DONE = 'NaTsu で開いています。開かないときは［NaTsu で開く］を押してください。';
 const NOTE = 'NaTsu が入っていない PC では開けません。NaTsu を入れるには［インストールと更新］の記事を見てください。';
@@ -44,7 +45,7 @@ test('D78・決めたこと 155: open.js は #p=<ID>&a=<印> を照らし、loca
   }
 });
 
-test('D78: 読めない # の後ろ（../x・javascript:・順の違い・? の形・空白・長すぎる）は location を変えず「このリンクは開けません（形が違います）」。# の後ろが空（ログインで落ちた: R23）は「ログインの後は、Claude のリンクをもう一度押してください。」', T, () => {
+test('D78: 読めない # の後ろ（../x・javascript:・順の違い・? の形・空白・長すぎる）は location を変えず「このリンクは開けません（形が違います）。NaTsu でもう一度［リンクを写す］を押してください。」（3回目の指摘 7）。# の後ろが空（ログインで落ちた: R23）は「ログインの後は、Claude のリンクをもう一度押してください。」', T, () => {
   for (const hash of ['#p=../x', '#p=pm1&a=javascript:alert(1)', '#a=t:s1-s2&p=pm1', '#p=pm1&p=pm2', '#p=pm1 x', '#p=pm1%20', `#p=pm1&x=${'y'.repeat(300)}`, '#p=', '#x=1', '#p=pm1&a=t:s3-']) {
     const r = runOpen(hash);
     assert.strictEqual(r.href, null, hash);

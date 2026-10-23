@@ -2037,4 +2037,6 @@ module.exports = [
   // help-dads 3回目の審査の指摘 5（文字の大きさを DADS の段に）
   {"id": "hd-kbd-size", "file": "help/assets/help.css", "from": "kbd { font-size: .875rem;", "to": "kbd { font-size: .85em;", "tests": ["test/help-build.test.js"], "pattern": "3回目の指摘 5", "why": "help-dads HD-10 3回目の指摘 5: 表の中のキーの名前が 12.5px になる（補足 14px 以上の決まりを下回る）"},
   {"id": "hd-font-scale", "file": "help/assets/help.css", "from": ".body h2 { font-size: 1.25rem;", "to": ".body h2 { font-size: 1.3rem;", "tests": ["test/help-build.test.js"], "pattern": "3回目の指摘 5", "why": "help-dads HD-10 3回目の指摘 5: 記事の見出しの大きさが DADS の文字スタイルの段に無い（20.8px）"},
+  // help-dads 3回目の審査の指摘 7（/open の形の違うリンクの文）
+  {"id": "hd-open-bad", "file": "help/assets/open.js", "from": "var BAD = 'このリンクは開けません（形が違います）。NaTsu でもう一度［リンクを写す］を押してください。';", "to": "var BAD = 'このリンクは開けません（形が違います）';", "tests": ["test/stage100.open.test.js"], "pattern": "3回目の指摘 7", "why": "help-dads HD-10 3回目の指摘 7: /open の形の違うリンクの文が、次に何をすればよいかを言わない"},
 ];
