@@ -116,13 +116,17 @@ function runPage(t, file, opt = {}) {
   const calls = [];
   const went = [];
   const fetch = (u) => { calls.push(u); return Promise.resolve(opt.fail ? { ok: false, json: () => Promise.reject(new Error('x')) } : { ok: true, json: () => Promise.resolve(index) }); };
+  const media = [];   // matchMedia の問い合わせ（再審査の指摘 4）
   const window = { location: { assign: (u) => went.push(u) } };
+  if (opt.narrow !== undefined) {
+    window.matchMedia = (q) => { const m = { media: q, matches: opt.narrow, fns: [], addEventListener: (t, fn) => { if (t === 'change') m.fns.push(fn); } }; media.push(m); return m; };
+  }
   const ctx = vm.createContext({ document, window, fetch, location: window.location });
   vm.runInContext(fs.readFileSync(SEARCH_JS, 'utf8'), ctx, { filename: 'search.js' });
   const tick = () => new Promise((r) => setImmediate(r));
   const key = (el, k) => el.dispatchEvent({ type: 'keydown', key: k });
   const type = async (el, v) => { el.value = v; el.dispatchEvent({ type: 'input' }); await tick(); await tick(); };
-  return { root, html, calls, went, tick, key, type, docListeners };
+  return { root, html, calls, went, tick, key, type, docListeners, media };
 }
 
 test('H-4: 検索の箱の配線（simdom。再審査の指摘 1: 選択肢は a[role="option"]・li は role="none"）: JS が動くと箱が出る・打つと結果が出る・↓↑で aria-activedescendant が動く・Enter で選んだ記事の URL へ・Esc で閉じ、もう一度 Esc で空に・index は1回だけ読む', { timeout: 5000 }, async (t) => {
@@ -288,4 +292,29 @@ test('HD-5（HD6・DF3）: 索引が読めないときは「検索を読み込�
   const p = runPage(t, 'start/first/index.html', { fail: true });
   await p.type(p.root.querySelector('#hc-q'), '試し');
   assert.strictEqual(p.root.querySelector('#hc-q-status').textContent, '検索を読み込めませんでした。開き直してください');
+});
+
+// 再審査の指摘 4（持ち主の答え「全部直す」）: 320px と、375px で文字を 125% にしたとき、上の帯の検索の箱の「記事を探す」が「記事を探」で切れた。
+// 狭い画面（max-width: 29.9375rem。rem なので文字の設定を大きくしたときも当たる）では、上の帯の箱の置き換えの文だけを「探す」にする
+test('再審査の指摘 4: 上の帯の検索の箱は data-short="探す" を持ち、狭い画面（matchMedia の (max-width: 29.9375rem) が当たる）では置き換えの文が「探す」、広くなると「記事を探す」に戻る。ホームの大きな箱は変えない。matchMedia が無いブラウザでは今のまま', { timeout: 5000 }, async (t) => {
+  const p = runPage(t, 'index.html', { narrow: true });
+  const top = p.root.querySelector('#hc-q');
+  const big = p.root.querySelector('#hc-q-home');
+  assert.strictEqual(top.getAttribute('data-short'), '探す');
+  assert.strictEqual(big.getAttribute('data-short'), null);
+  assert.deepStrictEqual(p.media.map((m) => m.media), ['(max-width: 29.9375rem)']);
+  assert.strictEqual(top.getAttribute('placeholder'), '探す');
+  assert.strictEqual(big.getAttribute('placeholder'), '記事を探す（例: ログイン、一時停止）');
+  p.media[0].matches = false;
+  for (const fn of p.media[0].fns) fn({ matches: false });
+  assert.strictEqual(top.getAttribute('placeholder'), '記事を探す');
+  p.media[0].matches = true;
+  for (const fn of p.media[0].fns) fn({ matches: true });
+  assert.strictEqual(top.getAttribute('placeholder'), '探す');
+  const wide = runPage(t, 'index.html', { narrow: false });
+  assert.strictEqual(wide.root.querySelector('#hc-q').getAttribute('placeholder'), '記事を探す');
+  const old = runPage(t, 'index.html');
+  assert.strictEqual(old.root.querySelector('#hc-q').getAttribute('placeholder'), '記事を探す');
+  // 見えないラベルは「記事を探す」のまま（置き換えの文だけを短くする）
+  assert.strictEqual(p.root.querySelector('label[for="hc-q"]').textContent, '記事を探す');
 });

@@ -74,6 +74,15 @@ var HelpSearch = (function () {
       var results = [];
       var active = -1;
       var status = box.querySelector('[role="status"]');
+      // 狭い画面では置き換えの文を短くする（上の帯の箱の data-short。文字の設定を大きくしたときも rem の幅で当たる: 再審査の指摘 4）
+      var short = input.getAttribute('data-short');
+      var mq = short && opts.media ? opts.media('(max-width: 29.9375rem)') : null;
+      if (mq) {
+        var long = input.getAttribute('placeholder');
+        var fit = function () { input.setAttribute('placeholder', mq.matches ? short : long); };
+        fit();
+        if (mq.addEventListener) mq.addEventListener('change', fit);
+      }
       function say(text) {
         if (status && status.textContent !== text) status.textContent = text;
       }
@@ -170,6 +179,7 @@ if (typeof document !== 'undefined' && typeof window !== 'undefined') {
   HelpSearch.wire(document, {
     read: function () { return fetch('/search-index.json'); },
     go: function (u) { window.location.assign(u); },
+    media: function (q) { return window.matchMedia ? window.matchMedia(q) : null; },
   });
 }
 if (typeof module === 'object') module.exports = HelpSearch;

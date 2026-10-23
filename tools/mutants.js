@@ -2017,4 +2017,6 @@ module.exports = [
   // help-dads 独立した再審査の指摘 2・3（強制カラーの検索の選択・目次の scroll-padding）
   {"id": "hd-forced-search", "file": "help/assets/help.css", "from": "  .search-results a[aria-selected=\"true\"] { border-left: calc(4 / 16 * 1rem) solid Highlight; outline: calc(2 / 16 * 1rem) solid Highlight; outline-offset: calc(-2 / 16 * 1rem); }\n", "to": "", "tests": ["test/help-build.test.js"], "pattern": "指摘 2", "why": "help-dads HD-9 再審査の指摘 2: 強制カラーで検索の選んだ行がほかの行と同じに見える（Enter でどこへ行くか分からない）"},
   {"id": "hd-toc-scrollpad", "file": "help/assets/help.css", "from": " scroll-padding-block: calc(6 / 16 * 1rem);", "to": "", "tests": ["test/help-build.test.js"], "pattern": "指摘 2", "why": "help-dads HD-9 再審査の指摘 3: 左の目次を送った後の下の行で輪の下の辺が切れる"},
+  // help-dads 独立した再審査の指摘 4（狭い画面の検索の置き換えの文）
+  {"id": "hd-search-short", "file": "help/assets/search.js", "from": "input.setAttribute('placeholder', mq.matches ? short : long);", "to": "input.setAttribute('placeholder', long);", "tests": ["test/help-search.test.js"], "pattern": "指摘 4", "why": "help-dads HD-9 再審査の指摘 4: 狭い画面で上の帯の検索の箱の置き換えの文が「記事を探」で切れる"},
 ];

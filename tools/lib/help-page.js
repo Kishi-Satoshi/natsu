@@ -11,7 +11,7 @@ const ARROW = '<span aria-hidden="true">›</span>';
 
 /** 検索の箱（H-4）。JS が動かないときは出さない（hidden のまま。search.js が出す）。
  *  help-dads HD-5（HD6）: 結果の件数の見えない知らせ（role="status"）を箱ごとに1つ。読み上げソフトへの対応の例外（設計書「画面の使いやすさ」） */
-const searchBox = (id, big) => `<div class="search${big ? ' search-big' : ''}" hidden><label class="vh" for="${id}">記事を探す</label><input id="${id}" class="search-q" type="search" placeholder="${big ? '記事を探す（例: ログイン、一時停止）' : '記事を探す'}" autocomplete="off" spellcheck="false" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="${id}-results"><ul id="${id}-results" class="search-results" role="listbox" aria-label="検索の結果" hidden></ul><p id="${id}-status" class="vh" role="status"></p></div>`;
+const searchBox = (id, big) => `<div class="search${big ? ' search-big' : ''}" hidden><label class="vh" for="${id}">記事を探す</label><input id="${id}" class="search-q" type="search" placeholder="${big ? '記事を探す（例: ログイン、一時停止）' : '記事を探す'}"${big ? '' : ' data-short="探す"'} autocomplete="off" spellcheck="false" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="${id}-results"><ul id="${id}-results" class="search-results" role="listbox" aria-label="検索の結果" hidden></ul><p id="${id}-status" class="vh" role="status"></p></div>`;
 
 /** 2026-10-21 → 2026 年 10 月 21 日 */
 const jaDate = (ymd) => { const [y, m, d] = ymd.split('-').map(Number); return `${y} 年 ${m} 月 ${d} 日`; };
