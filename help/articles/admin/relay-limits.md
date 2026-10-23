@@ -6,7 +6,7 @@ sources: relay/config.mjs, relay/stt.mjs, README.md, src/main.js
 related: admin/stop-person, admin/seats, trouble/banners
 ---
 
-会社の OpenAI の使いすぎを防ぐため、文字起こしの中継（音声を OpenAI へ取り次ぐ会社のサーバー）には1日の上限があります。
+会社の OpenAI の使いすぎを防ぐため、文字起こしの中継（音声を OpenAI へ取り次ぐ NaTsu のサーバー）には1日の上限があります。
 
 ## 上限 {#limits}
 

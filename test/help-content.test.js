@@ -216,7 +216,7 @@ test('0.9.4 S-8: record/meeting-detect に参加の前の画面・マイクを�
 // 「区間」「中継」が出る記事では、その記事の本文で最初に出た所（コード・「…」の画面の文・リンクの住所の外）の直後に決まった一言がある
 const TERM_NOTES = {
   区間: '（文字起こしのために録音を区切ったひとまとまりの音声）',
-  中継: '（音声を OpenAI へ取り次ぐ会社のサーバー）',
+  中継: '（音声を OpenAI へ取り次ぐ NaTsu のサーバー）',   // 再審査の指摘 7・持ち主の答え「NaTsu のサーバー」
 };
 /** 本文（前置きの後ろ）の、コードの塊・`…`・「…」・リンクの住所・表の左の列（帯の文などの画面の文）を同じ長さの空白で隠したもの（位置は元と同じ） */
 function plainBody(text) {
@@ -248,4 +248,18 @@ test('HD-8（Q8）: 「区間」「中継」が出る記事は、本文で最初
     }
   }
   assert.ok(n >= 20, `「区間」「中継」の出る所が少ない（${n}）`);
+});
+
+// 再審査の指摘 7（持ち主の答え 2026-10-23）: 中継の説明と食い違う・重なる書き方をしない
+test('再審査の指摘 7: 「中継（OpenAI）」と書かない（中継＝OpenAI と読める）。説明の一言が2つ入った1文が無い。「会社の」が説明の一言の前後で重ならない', { timeout: 5000 }, () => {
+  const notes = Object.values(TERM_NOTES);
+  for (const a of articles) {
+    const text = a.text.replace(/\r\n?/g, '\n');
+    assert.ok(!text.includes('中継（OpenAI）'), `${a.ref}: 「中継（OpenAI）」`);
+    for (const sentence of text.split(/[。\n]/)) {
+      assert.ok(notes.filter((n) => sentence.includes(n)).length <= 1, `${a.ref}: 1文に説明の一言が2つ: ${sentence}`);
+      if (notes.some((n) => sentence.includes(n))) assert.ok((sentence.match(/会社の/g) || []).length <= 1, `${a.ref}: 「会社の」が重なる: ${sentence}`);
+    }
+  }
+  for (const n of notes) assert.ok(!n.includes('会社'), `説明の一言に「会社」: ${n}`);
 });
