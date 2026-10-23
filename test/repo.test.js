@@ -1536,3 +1536,37 @@ test('0.10.0 LS-5: リリースの手順が setup-summarizer.ps1 を配らない
   assert.ok(!fs.existsSync(path.join(ROOT, 'setup-summarizer.ps1')), 'setup-summarizer.ps1 が残っている');
   assert.ok(!read('get-installer.ps1').includes('llama'), 'get-installer.ps1 の注に llama');
 });
+
+// 0.10.0 G-1（MR9・D57・決めたこと 59）: README に「Claude から議事録を読む（MCP）」の節。INSTALL に任意の手順と、入れ直しの前に Claude を終了する1行
+const mdSection = (text, head) => {
+  const i = text.indexOf(`\n${head}\n`);
+  if (i < 0) return '';
+  const level = head.match(/^#+/)[0].length;
+  const rest = text.slice(i + head.length + 2);
+  const m = rest.match(new RegExp(`\\n#{1,${level}} `));
+  return m ? rest.slice(0, m.index) : rest;
+};
+test('0.10.0 G-1: README に「Claude から議事録を読む（MCP）」の節があり、Anthropic へ送られること（オフラインモードの会議も）・学習の設定・読むだけ・ポートを開かないこと・登録の仕方と登録し直し・消しても会話に残ること・つながらないとき・Store 版を書く', () => {
+  const r = read('README.md');
+  const sec = mdSection(r, '### Claude から議事録を読む（MCP）');
+  assert.ok(sec, 'README に「### Claude から議事録を読む（MCP）」の節が無い');
+  const online = r.indexOf('\n## オンラインの文字起こしと要約\n');
+  assert.ok(online > 0 && r.indexOf('\n### Claude から議事録を読む（MCP）\n') > online, 'MCP の節が「オンラインの文字起こしと要約」の下に無い');
+  for (const w of ['Claude（Anthropic）へ送られます', 'オフラインモード', '学習', '読むだけ', 'ポートを開きません', '標準入出力', '［Claude デスクトップに登録］', '［登録し直す］',
+    '終了', 'Claude の会話に残ります', 'mcp-server-natsu.log', 'Microsoft Store', 'start/claude-mcp']) {
+    assert.ok(sec.includes(w), `README の MCP の節に「${w}」が無い`);
+  }
+  assert.ok(!/1on1[^\n]*送られません|送りません[^\n]*Claude/.test(sec), 'MCP の節が送らないと約束している');
+});
+
+test('0.10.0 G-1: README と INSTALL に、入れ直し・アンインストールの前に Claude デスクトップを終了する文がある。INSTALL は「Claude Code を入れる」の後に Claude から読む任意の手順', () => {
+  const QUIT = '入れ直し・アンインストールの前に、Claude デスクトップを終了してください';
+  assert.ok(read('README.md').includes(QUIT), 'README に Claude を終了する文が無い');
+  const i = read('INSTALL.md');
+  assert.ok(mdSection(i, '## 入れ直し（0.3.0 から）').includes(QUIT), 'INSTALL の入れ直しに Claude を終了する文が無い');
+  const cc = i.indexOf('\n## Claude Code を入れる（オンラインの要約）\n');
+  const mcp = i.indexOf('\n## （任意）Claude から議事録を読む\n');
+  assert.ok(cc > 0 && mcp > cc, 'INSTALL の「Claude Code を入れる」の後に Claude から読む任意の手順が無い');
+  const s = mdSection(i, '## （任意）Claude から議事録を読む');
+  for (const w of ['［設定］→［要約］', '［Claude デスクトップに登録］', 'Claude（Anthropic）へ送られます', '終了']) assert.ok(s.includes(w), `INSTALL の任意の手順に「${w}」が無い`);
+});

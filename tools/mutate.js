@@ -19,7 +19,11 @@
 //  - 変異に pattern（文字の正規表現）があれば --test-name-pattern に渡し、その名前のテストだけを回す（第2a1回 G-3。場面を使う
 //    重いテストのファイルで、赤になるテストだけを回して CI の mutate を 20 分に収める）。元のままの確かめは名前で絞らない。
 //
-// node tools/mutate.js [--only id,id] [--jobs N]
+//   partOf(ids, part)          … 0.10.0 G-1（決めたこと 117）: id を文字の順に並べ、part 'k/n' の k 番目の組（交互に n 組に分けた）の id を返す。
+//                                同じ一覧なら並びが違っても同じ分け方。形の違う part は投げる
+//
+// node tools/mutate.js [--only id,id | --part k/n] [--jobs N]
+//   --part は CI の mutate-1・mutate-2 が使う（--only と一緒には使わない）。元のままの確かめは、その組のテストで見る。
 //   結果を 1 行ずつ（killed／SURVIVED／STALE／BASELINE-RED）出し、最後に数をまとめ、exitCodeOf で終わる。
 
 const fs = require('fs');
@@ -142,6 +146,14 @@ async function runAll({ root, mutants, jobs = 2, timeoutMs = 120000, baseTimeout
   }
 }
 
+function partOf(ids, part) {
+  const m = typeof part === 'string' ? part.match(/^(\d+)\/(\d+)$/) : null;
+  const k = m ? Number(m[1]) : 0;
+  const n = m ? Number(m[2]) : 0;
+  if (!m || n < 1 || k < 1 || k > n) throw new Error(`part は k/n（1 ≦ k ≦ n）の形: ${JSON.stringify(part)}`);
+  return [...ids].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0)).filter((_, i) => i % n === k - 1);
+}
+
 function exitCodeOf(results) {
   return results.every((r) => r.status === 'killed') ? 0 : 1;
 }
@@ -153,6 +165,13 @@ async function main(argv) {
   const all = require('./mutants');
   let mutants = all;
   const only = arg('--only');
+  const part = arg('--part');
+  if (only && part !== undefined) { console.error('--part と --only は一緒に使えません'); return 1; }
+  if (part !== undefined) {
+    let want;
+    try { want = new Set(partOf(all.map((m) => m.id), part)); } catch (e) { console.error(e.message); return 1; }
+    mutants = all.filter((m) => want.has(m.id));
+  }
   if (only) {
     const want = only.split(',').map((s) => s.trim()).filter(Boolean);
     const unknown = want.filter((id) => !all.some((m) => m.id === id));
@@ -175,4 +194,4 @@ if (require.main === module) {
   main(process.argv.slice(2)).then((code) => { process.exitCode = code; }, (e) => { console.error(e && e.stack || e); process.exitCode = 1; });
 }
 
-module.exports = { applyMutant, findStale, runAll, exitCodeOf, copyRepo, BASE_TIMEOUT_MS };
+module.exports = { applyMutant, findStale, runAll, exitCodeOf, copyRepo, partOf, BASE_TIMEOUT_MS };

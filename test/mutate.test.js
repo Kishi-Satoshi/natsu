@@ -112,12 +112,17 @@ test('G3・F10: 元のテストが赤なら、変異を試さずに止める（�
   assert.strictEqual(M.exitCodeOf(r), 1);
 });
 
-test('ci.yml: mutate のジョブ（Linux）が node tools/mutate.js を回す（release.yml は ci.yml を呼ぶので、生き残りがあればリリースも止まる）', { timeout: 5000 }, () => {
+// 0.10.0 G-1（決めたこと 117）で意図して変えた: mutate を mutate-1・mutate-2 の2つのジョブに分け、それぞれが --part 1/2・--part 2/2 を回す
+test('ci.yml: mutate-1・mutate-2 のジョブ（Linux）が node tools/mutate.js --part を回す（release.yml は ci.yml を呼ぶので、生き残りがあればリリースも止まる）', { timeout: 5000 }, () => {
   const ci = fs.readFileSync(path.join(ROOT, '.github', 'workflows', 'ci.yml'), 'utf8');
-  const j = jobsOf(ci).mutate;
-  assert.ok(j, 'mutate のジョブが無い');
-  assert.match(j, /^    runs-on: ubuntu-latest$/m);
-  assert.ok(stepsOf(j).some((s) => /^\s*run: node tools\/mutate\.js( --jobs \d+)?$/m.test(s)));
+  const jobs = jobsOf(ci);
+  assert.ok(!jobs.mutate, '1つの mutate のジョブが残っている');
+  for (const k of [1, 2]) {
+    const j = jobs[`mutate-${k}`];
+    assert.ok(j, `mutate-${k} のジョブが無い`);
+    assert.match(j, /^    runs-on: ubuntu-latest$/m);
+    assert.ok(stepsOf(j).some((s) => new RegExp(`^\\s*run: node tools/mutate\\.js --jobs 2 --part ${k}/2$`, 'm').test(s)), `mutate-${k} が --part ${k}/2 を回さない`);
+  }
   assert.match(fs.readFileSync(path.join(ROOT, '.github', 'workflows', 'release.yml'), 'utf8'), /^    uses: \.\/\.github\/workflows\/ci\.yml$/m);
 });
 
@@ -446,10 +451,40 @@ test('PG1: 変異 perf-recheck-any・perf-recheck-all・perf-recheck-skip・perf
   for (const id of IDS_090) assert.ok(table.includes(`| ${id} |`), `計画の「変異確認」の表に ${id} が無い`);
 });
 
-test('CI: mutate のジョブの timeout-minutes は 40（0.9.0 の約 99 の変異で 20 分を越える見込み。PG1・決めたこと 37）', { timeout: 5000 }, () => {
-  const j = jobsOf(fs.readFileSync(path.join(ROOT, '.github', 'workflows', 'ci.yml'), 'utf8')).mutate;
-  assert.match(j, /^    timeout-minutes: 40$/m);
-  assert.ok(stepsOf(j).some((s) => /^\s*run: node tools\/mutate\.js --jobs 2$/m.test(s)), '変異確認の写しの数を変えた');
+// 0.10.0 G-1（決めたこと 117）で意図して変えた: 2つのジョブのどちらも 40 分・写しは2つ
+test('CI: mutate-1・mutate-2 のジョブの timeout-minutes は 40（0.9.0 の約 99 の変異で 20 分を越える見込み。PG1・決めたこと 37・117）', { timeout: 5000 }, () => {
+  const jobs = jobsOf(fs.readFileSync(path.join(ROOT, '.github', 'workflows', 'ci.yml'), 'utf8'));
+  for (const k of [1, 2]) {
+    const j = jobs[`mutate-${k}`];
+    assert.match(j, /^    timeout-minutes: 40$/m);
+    assert.ok(stepsOf(j).some((s) => /^\s*run: node tools\/mutate\.js --jobs 2 --part [12]\/2$/m.test(s)), '変異確認の写しの数を変えた');
+  }
+});
+
+// 0.10.0 G-1（決めたこと 117）: 変異の一覧を id の順に並べて交互に分ける純粋な部品。--only と一緒には使わない
+test('G-1 決めたこと 117: partOf は全部の id をちょうど1回ずつ2つに分け、同じ一覧なら並びが違っても同じ分け方。形の違う part は投げる', { timeout: 5000 }, () => {
+  const ids = MUTANTS.map((m) => m.id);
+  const a = M.partOf(ids, '1/2');
+  const b = M.partOf(ids, '2/2');
+  assert.strictEqual(a.length + b.length, ids.length);
+  assert.deepStrictEqual([...a, ...b].sort(), [...ids].sort(), 'どちらにも無い・両方にある id がある');
+  assert.ok(Math.abs(a.length - b.length) <= 1, '半分ずつでない');
+  assert.deepStrictEqual(M.partOf([...ids].reverse(), '1/2'), a, '一覧の並びで分け方が変わった');
+  assert.deepStrictEqual(M.partOf(['c', 'a', 'd', 'b'], '1/2'), ['a', 'c']);
+  assert.deepStrictEqual(M.partOf(['c', 'a', 'd', 'b'], '2/2'), ['b', 'd']);
+  assert.deepStrictEqual(M.partOf(['b', 'a', 'c'], '1/1'), ['a', 'b', 'c']);
+  for (const bad of ['0/2', '3/2', '1/0', '1', 'x/2', '', null, '1/2/3']) assert.throws(() => M.partOf(ids, bad), /part/, String(bad));
+});
+
+test('G-1 決めたこと 117: mutate.js は --part と --only を一緒に受けない（1 で終わる）。知らない part も 1', { timeout: 20000 }, () => {
+  const { spawnSync } = require('node:child_process');
+  const run = (...a) => spawnSync(process.execPath, [path.join(ROOT, 'tools', 'mutate.js'), ...a], { encoding: 'utf8', timeout: 15000 });
+  const both = run('--part', '1/2', '--only', 'js-bom');
+  assert.strictEqual(both.status, 1);
+  assert.match(both.stderr, /--part と --only/);
+  const bad = run('--part', '3/2');
+  assert.strictEqual(bad.status, 1);
+  assert.match(bad.stderr, /part/);
 });
 
 // 0.9.0 の各レーンの点検で足した変異（計画の表の行の場面・lib の分け・点検する人が殺せなかった行に場面を足して殺したもの）
@@ -611,6 +646,7 @@ const IDS_100 = [
   'ls-manifest-sum', 'ls-install-sum', 'ls-settings-sum',
   'ls-retire-manual', 'ls-retire-whisper', 'ls-retire-busy', 'ls-retire-notice',
   'ls-ship-summarizer', 'ls-note-promise', 'ls-notice-secret',
+  'mut-part-sort', 'mut-part-same', 'mut-part-only',
 ];
 test('G3: 0.10.0 の変異が一覧にそろい、IDS_100 はどれも計画の「変異確認」の表にある。mcp-・cfg-・lk-・ls-・stl-・nl-・pt- の変異は IDS_100 にある。どれも決まったテストのファイルを持ち、なぜ戻すと困るかを書く', { timeout: 5000 }, () => {
   const byId = new Map(MUTANTS.map((m) => [m.id, m]));
@@ -623,6 +659,9 @@ test('G3: 0.10.0 の変異が一覧にそろい、IDS_100 はどれも計画の�
   const rows = [...table.matchAll(/^\| ([a-z][a-z0-9-]*) \|/gm)].map((m) => m[1]).filter((id) => id !== 'id');
   assert.ok(rows.length > 50, '計画の表が読めない');
   assert.deepStrictEqual(IDS_100.filter((id) => !rows.includes(id)), [], '計画の「変異確認」の表に無い変異');
+  // 0.10.0 G-1: 表の id と IDS_100 はちょうど同じ（表にだけある行は、作っていない変異）
+  assert.deepStrictEqual(rows.filter((id) => !IDS_100.includes(id)), [], 'IDS_100 に無い計画の「変異確認」の表の行');
+  assert.strictEqual(new Set(rows).size, rows.length, '計画の表に重なり');
   for (const id of IDS_100) {
     const m = byId.get(id);
     assert.ok(Array.isArray(m.tests) && m.tests.length > 0 && m.tests.every((t) => /^test\/[^/]+\.test\.js$/.test(t)), `${id}: tests`);

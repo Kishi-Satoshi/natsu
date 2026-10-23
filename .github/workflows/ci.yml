@@ -365,9 +365,10 @@ jobs:
 
   # 変異確認（第1a回 G3）。tools/mutants.js の変異を1つずつ当て、決めたテストが赤になるか（殺せるか）を見る。
   # 生き残り・当たらない変異が1つでもあれば赤。release.yml は ci.yml を呼ぶので、リリースも止まる
-  mutate:
+  mutate-1:
     runs-on: ubuntu-latest
     # 0.9.0 G-1: 0.8.0 で 16 分 41 秒（650 の変異）。0.9.0 で約 99 足すと 20 分を越える見込みなので 40 分に（30 分を越えたら --jobs か pattern を見直す）
+    # 0.10.0 G-1（決めたこと 117）: 変異が約 1,100 になり 1つのジョブで 31 分（7ddf748 の CI）。id の順に交互に2つに分け、どちらも 40 分
     timeout-minutes: 40
     steps:
       - name: 改行の変換を止める
@@ -385,6 +386,31 @@ jobs:
           node-version: '24'
 
       # 写しは2つまで（非公開のリポジトリの ubuntu-latest は CPU が 2 つ。混むと場面のテストが見張りに当たる）
-      - name: 変異確認
+      - name: 変異確認（1/2）
         shell: bash
-        run: node tools/mutate.js --jobs 2
+        run: node tools/mutate.js --jobs 2 --part 1/2
+
+  mutate-2:
+    runs-on: ubuntu-latest
+    # 0.9.0 G-1: 0.8.0 で 16 分 41 秒（650 の変異）。0.9.0 で約 99 足すと 20 分を越える見込みなので 40 分に（30 分を越えたら --jobs か pattern を見直す）
+    # 0.10.0 G-1（決めたこと 117）: 変異が約 1,100 になり 1つのジョブで 31 分（7ddf748 の CI）。id の順に交互に2つに分け、どちらも 40 分
+    timeout-minutes: 40
+    steps:
+      - name: 改行の変換を止める
+        shell: bash
+        run: git config --global core.autocrlf false
+
+      - name: 取り出す（履歴ごと）
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Node を用意する
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      # 写しは2つまで（非公開のリポジトリの ubuntu-latest は CPU が 2 つ。混むと場面のテストが見張りに当たる）
+      - name: 変異確認（2/2）
+        shell: bash
+        run: node tools/mutate.js --jobs 2 --part 2/2
