@@ -123,3 +123,81 @@ test('0.11.0 M-5: 同じ曜日・時刻に2回 1on1 を手で選んだ後、種�
     } finally { fs.rmSync(dir2, { recursive: true, force: true }); }
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
+
+// ---------------------------------------------------------------- Q-3（QM2〜QM6・QM8・F11〜F13。決めたこと 32〜34・39）
+const Q = require('../src/quality');
+const LONG = '見積の作成は済みました。結合テストは今週で完了します。遅れの原因は仕様の変更です。来週に人を足す案があります。冒頭で決めることを言いました。予算の話を2回やり直しました。人を足すと確かめました。人の手配は山田さんが来週金曜までにします。'.repeat(2);
+const scoreRun = (extra) => run(['text', '--sum', '--claude=ok', '--segs=2', `--text=${LONG}`, ...extra]);
+const QN1 = 'この要約には打ち合わせの質の点を付けていません（AI の答えの形を読み取れなかったため）。要約はそのまま使えます。［要約を再生成］でもう一度付けられます。';
+const QN2 = '文字起こしが短いため、打ち合わせの質の点は付けていません。';
+const noScoreLines = (p) => !p.sumBlocks.some((b) => /打ち合わせの質|目的と結論: |抜け・重なり: |決定事項: \d/.test(b.text));
+
+test('0.11.0 Q-3（QM3・F11）: 朝会の会議の要約に点が付く。total は軸の和、軸 1〜3 は答えのまま、軸 4・5 は数えた値、理由に出典、ブロックに採点の行が無い。画面の読む page.get と要約の直後の page:updated に qualityView、DB の行には書かない', { timeout: sceneTimeout(30000) }, async () => {
+  const o = await scoreRun(['--set-type-live=standup', '--sum-md=report-score']);
+  const p = o.pages[0];
+  const q = p.quality;
+  assert.ok(q, JSON.stringify(p.summaryError));
+  assert.deepStrictEqual(q.axes.map((a) => a.key), ['purpose', 'mece', 'decisions', 'todos', 'fill']);
+  assert.deepStrictEqual(q.axes.slice(0, 3).map((a) => [a.score, a.reason]), [[4, '冒頭で決めることを言いました'], [3, '予算の話を2回やり直しました'], [5, '人を足すと確かめました']]);
+  assert.strictEqual(q.axes[3].score, 5, 'ToDo 1 件に担当と期限がある');
+  assert.strictEqual(q.total, q.axes.reduce((s, a) => s + a.score, 0));
+  assert.ok(q.axes[0].cites.length > 0, '理由に出典が無い');
+  assert.deepStrictEqual([q.axes[3].cites, q.axes[4].cites], [[], []]);
+  assert.ok(noScoreLines(p), JSON.stringify(p.sumBlocks.map((b) => b.text)));
+  assert.ok(p.sumBlocks.some((b) => b.type === 'heading' && b.text === '次に気をつけること'));
+  assert.deepStrictEqual(pCalls(o)[0].stdinHeads.slice(-1), ['## 打ち合わせの質（採点）']);
+  assert.deepStrictEqual(p.viewQuality, Q.qualityView(q));
+  assert.deepStrictEqual(o.updatedQualityView, Q.qualityView(q), '要約の直後の page:updated に qualityView が無い');
+  assert.strictEqual(p.rawHasQualityView, false, 'DB の行に qualityView を書いた');
+  assert.ok(o.engineLog.includes(`打ち合わせの質: 付けた ${q.total}/25`), o.engineLog.filter((l) => /打ち合わせ/.test(l)).join('\n'));
+  assert.ok(!o.engineLog.some((l) => /冒頭で決めること|予算の話/.test(l)), '記録に理由の文が出た');
+});
+
+test('0.11.0 Q-3（F11・F13・RF72）: AI が合計 25 と書いても total は軸の和。崩れた点・途中で切れた・採点の節が2つの答えは、要約を保存して点を付けず、注 QN1', { timeout: sceneTimeout(60000) }, async () => {
+  const s = await scoreRun(['--set-type-live=standup', '--sum-md=report-score-sum25']);
+  assert.strictEqual(s.pages[0].quality.total, s.pages[0].quality.axes.reduce((x, a) => x + a.score, 0));
+  assert.notStrictEqual(s.pages[0].quality.total, 25);
+  for (const md of ['report-score-broken', 'report-score-cut', 'report-score-twice']) {
+    const o = await scoreRun(['--set-type-live=standup', `--sum-md=${md}`]);
+    const p = o.pages[0];
+    assert.strictEqual(p.quality, undefined, md);
+    assert.ok(p.sumBlocks.length > 5, `${md}: 要約が保存されていない`);
+    assert.ok(String(p.summaryError).includes(QN1), `${md}: ${p.summaryError}`);
+    assert.ok(noScoreLines(p), `${md}: 採点の行が本文に残った`);
+  }
+});
+
+test('0.11.0 Q-3（P11・F12・RF71）: 1on1 にも既定（all）で点が付く。「1on1 と採用面接・事前面談を除いて付ける」（on）なら付けず、頼まなかった採点の節は捨て、書式に採点の節を入れず、次に気をつけることは出す。off なら朝会にも付けない', { timeout: sceneTimeout(60000) }, async () => {
+  const a = await scoreRun(['--set-type-live=oneonone', '--sum-md=grow-score']);
+  assert.ok(a.pages[0].quality, '既定（all）の 1on1 に点が無い');
+  const b = await scoreRun(['--set-type-live=oneonone', '--sum-md=grow-score', '--quality=on']);
+  const p = b.pages[0];
+  assert.strictEqual(p.quality, undefined);
+  assert.ok(noScoreLines(p), JSON.stringify(p.sumBlocks.map((x) => x.text)));
+  assert.ok(!pCalls(b)[0].stdinHeads.includes('## 打ち合わせの質（採点）'), '頼まないのに採点の節を書式に入れた');
+  assert.ok(p.sumBlocks.some((x) => x.type === 'heading' && x.text === '次に気をつけること'), '点を付けない会議に助言が無い');
+  assert.ok(!String(p.summaryError || '').includes('打ち合わせの質'), '除いた種類で注を書いた');
+  const c = await scoreRun(['--set-type-live=standup', '--sum-md=report-score', '--quality=off']);
+  assert.strictEqual(c.pages[0].quality, undefined);
+});
+
+test('0.11.0 Q-3（QM5）: 文字起こしが 400 文字未満の会議は点を付けず、注 QN2', { timeout: sceneTimeout(30000) }, async () => {
+  const o = await run(['text', '--sum', '--claude=ok', '--segs=1', '--set-type-live=standup', '--sum-md=report-score']);
+  assert.strictEqual(o.pages[0].quality, undefined);
+  assert.ok(String(o.pages[0].summaryError).includes(QN2), o.pages[0].summaryError);
+  assert.ok(!pCalls(o)[0].stdinHeads.includes('## 打ち合わせの質（採点）'));
+});
+
+test('0.11.0 Q-3（QM8・D59・D62）: オフラインモードの会議も、要約待ちだった会議も、Claude Code の要約と一緒に点が付く', { timeout: sceneTimeout(60000) }, async () => {
+  const a = await scoreRun(['--relay=text', '--local-only', '--set-type-live=standup', '--sum-md=report-score']);
+  assert.ok(a.pages[0].quality, 'オフラインモードの会議に点が無い');
+  const b = await scoreRun(['--set-type-live=standup', '--sum-md=report-score', '--summary-offline', '--summary-online-after=100']);
+  assert.strictEqual(b.pages[0].quality, undefined, '要約待ちの間に点が付いた');
+  assert.ok(b.summaryBack[0].pages[0].quality, 'つながった後の要約に点が無い');
+});
+
+test('0.11.0 Q-3（決めたこと 33）: 点を付けた後に「付けない」にして［要約を再生成］すると、前の点が消える', { timeout: sceneTimeout(30000) }, async () => {
+  const o = await scoreRun(['--set-type-live=standup', '--sum-md=report-score', '--resum-quality=off']);
+  assert.ok(o.qualityBefore, '前提: 初めの要約に点がある');
+  assert.strictEqual(o.pages[0].quality, undefined, '前の点が残った');
+});

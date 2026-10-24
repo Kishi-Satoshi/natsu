@@ -267,7 +267,8 @@ test('D2: オンラインの自動の要約は Claude Code で作られ、出典
   assert.deepStrictEqual(o.segUpdateRouteText, p.routeText, '文字起こしの行を直した返事に経路の行が無い（直すとプロパティの行から消える）');
   assert.ok(p.citeStat && p.citeStat.total > 0, '出典の照合を通っていない');
   assert.ok(p.todos.every((t) => t.assignee === '' && t.due === ''), '文字起こしに無い担当・期限が残った（照らしを通っていない）');
-  assert.strictEqual(p.summaryError, '');
+  // 0.11.0 Q-3 で意図して変えた: 短い文字起こしの要約には QN2 の注が付く（決めたこと 32）
+  assert.strictEqual(p.summaryError, '文字起こしが短いため、打ち合わせの質の点は付けていません。');
   assert.ok(!o.engineLog.some((l) => l.includes('進捗の確認を行った')), '記録に要約の本文がある');
 });
 

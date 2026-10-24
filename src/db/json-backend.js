@@ -20,12 +20,13 @@ const { refreshCitations } = require('../cite');
 const { parseDue } = require('../actions');
 const { routeLabel } = require('../mainlib');
 const mtype = require('../meetingType');
+const quality = require('../quality');
 const { setTypePage } = require('./commands');   // 0.11.0 M-4: page.setType の中身は DB と同じ部品
 
 const isObj = (v) => Boolean(v) && typeof v === 'object' && !Array.isArray(v);
 
 // DB の側で作る欄。ページを書くときはファイルに残さない
-const DB_MADE = ['rev', 'routeText'];
+const DB_MADE = ['rev', 'routeText', 'qualityView'];   // 0.11.0 Q-3: qualityView も DB が作る欄
 
 function fail(code) {
   const e = new Error(code);
@@ -50,7 +51,7 @@ function makeJsonBackend(store, { labels = {} } = {}) {
     if (!isObj(page)) return page;
     const id = page.route && page.route.stt ? page.route.stt.provider : '';
     const label = typeof id === 'string' && isObj(labels) && Object.hasOwn(labels, id) && typeof labels[id] === 'string' ? labels[id] : '';
-    return { ...page, routeText: routeLabel(page.route, label) };
+    return { ...page, routeText: routeLabel(page.route, label), qualityView: quality.qualityView(page.quality) };   // 0.11.0 Q-3
   };
 
   const create = (page, segments) => {

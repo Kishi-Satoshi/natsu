@@ -276,7 +276,8 @@ test('OF3・F8: 戻った後の見回り1回で、待ち行列の2区間が中�
   assert.ok(b.pages[0].segments.every(isText), JSON.stringify(b.pages[0].segments));
   assert.ok(b.notices.map(textOf).includes(R1(2, 2)), JSON.stringify(b.notices));
   assert.strictEqual(b.claudeCalls, 1, '要約を Claude Code で作っていない');
-  assert.strictEqual(b.pages[0].summaryError, '');
+  // 0.11.0 Q-3 で意図して変えた: 短い文字起こしの要約には QN2 の注が付く（決めたこと 32）
+  assert.strictEqual(b.pages[0].summaryError, '文字起こしが短いため、打ち合わせの質の点は付けていません。');
   assert.ok(b.pages[0].blocks > 0, '要約が入っていない');
   assert.deepStrictEqual(b.files.filter((f) => /^data\/segbuf\//.test(f)), [], JSON.stringify(b.files));
 });

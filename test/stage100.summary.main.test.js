@@ -133,7 +133,8 @@ test('決めたこと 104: 届くようになると見回りで自動で偽の c
   assert.strictEqual(a.pCalls, 1, 'つながった後の見回りで要約しなかった');
   assert.ok(a.pages[0].blocks.length > 0);
   assert.strictEqual(a.pages[0].summaryWait, false);
-  assert.strictEqual(a.pages[0].summaryError, '');
+  // 0.11.0 Q-3 で意図して変えた: 短い文字起こしの要約には QN2 の注が付く（決めたこと 32）
+  assert.strictEqual(a.pages[0].summaryError, '文字起こしが短いため、打ち合わせの質の点は付けていません。');
   assert.strictEqual(a.pages[0].route.summary.by, 'claude-code');
   assert.strictEqual(b.pCalls, 1, '2回目の見回りでまた呼んだ');
   noLocalSummary(o);

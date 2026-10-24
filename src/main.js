@@ -35,6 +35,7 @@ const { attachCitations } = cite;
 const attachAcross = cite.attachCitationsAcross || ((b, f) => attachCitations(b, f.filter((s) => !s.failed)));
 const mtype = require('./meetingType');
 const memoTypes = require('./memoTypes');
+const quality = require('./quality');
 const { enrichActionBlocks, groundActionFields } = require('./actions');
 const updater = require('./updater');
 const { chooseDisplayMedia } = require('./loopback');
@@ -2802,6 +2803,9 @@ async function summarizeWithClaude(plain, memo, template) {
 }
 
 // ---------------------------------------------------------------- 要約
+// 0.11.0 Q-3: 打ち合わせの質の注（要約の欄の summaryError の行として足す）
+const QUALITY_NOTE_UNREAD = 'この要約には打ち合わせの質の点を付けていません（AI の答えの形を読み取れなかったため）。要約はそのまま使えます。［要約を再生成］でもう一度付けられます。';
+const QUALITY_NOTE_SHORT = '文字起こしが短いため、打ち合わせの質の点は付けていません。';
 // 0.10.0 LS-2（D59）: 要約は利用者の Claude Code だけ（summarizeWithClaude）。手元の llama の要約（llmChat・generateMinutes）は外した
 // 0.11.0 M-2（決めたこと 14）: 要約の書式（型の見出し・決まり・締め・次に気をつけること・OUTPUT_RULE）は memoTypes.buildTemplate の1か所。
 // doRunSummary が1回だけ作り、Claude Code に渡す文と、写しを落とす文（dropTemplateEcho）の両方に同じ文字列を渡す（別々に組み立てるとずれる）
@@ -3164,7 +3168,8 @@ function pageForView(page) {
   if (!page || typeof page !== 'object') return page;
   const id = page.route && page.route.stt ? page.route.stt.provider : '';
   const preset = typeof id === 'string' && Object.prototype.hasOwnProperty.call(sttCloud.PRESETS, id) ? sttCloud.PRESETS[id] : null;
-  return { ...page, routeText: lib.routeLabel(page.route, preset ? preset.label : '') };
+  // 0.11.0 Q-3（決めたこと 33）: 要約の直後の知らせにも、照らした点（qualityView）を添える（画面は qualityView だけを読む）
+  return { ...page, routeText: lib.routeLabel(page.route, preset ? preset.label : ''), qualityView: quality.qualityView(page.quality) };
 }
 function sendToOverlay(ch, p) {
   if (!overlayWin || overlayWin.isDestroyed()) return;
@@ -5328,13 +5333,19 @@ async function doRunSummary(pageId) {
   engineLog(`会議タイプ: 採用=${page.meetingType} 自動判定=${autoType}${slot ? '（前の同じ曜日・時刻の会議）' : ''}`
     + ` 手動=${page.typeAuto === false} 区間数=${usable.length}`);
 
+  // 0.11.0 Q-3（決めたこと 32）: 点を付けるか。設定（既定はすべての会議: P11）と、文字起こしが短くないか（400 文字）
+  const wantScore = quality.shouldScore(page.meetingType, settings.qualityScore);
+  const score = wantScore && plain.length >= quality.MIN_SCORE_CHARS;
   // 0.11.0 M-2（決めたこと 14）: 書式は1回だけ作る（Claude Code に渡す文と写しを落とす文に同じ文字列）
-  const template = memoTypes.buildTemplate({ meetingType: page.meetingType, score: false });
+  const template = memoTypes.buildTemplate({ meetingType: page.meetingType, score });
   const progress = (msg) => sendToMainWin('meeting:progress', { message: msg });
   progress(`Claude Code で議事録を作成中…（${mtype.getLabel(page.meetingType)}として要約します）`);
   try {
     // Claude Code が断った・失敗したら、理由を要約の欄に書いて終える（下の catch。手元の llama へは行かない: D1・D59）
-    const { md, truncatedParts, finalTruncated } = await summarizeWithClaude(plain, page.memo, template);
+    const { md: answer, truncatedParts, finalTruncated } = await summarizeWithClaude(plain, page.memo, template);
+    // 0.11.0 Q-3（決めたこと 30・32）: 採点の節はいつも本文から外す（頼まなかった採点の節も、2つ以上の節も、本文に残さない）
+    const split = quality.splitScore(answer);
+    const md = split.body;
     // 「特になし」の混入を先に落とす。ここで落とさないと
     // 「- [ ] 特になし」がアクション1件として数えられてしまう。
     // 続けて、テンプレートの見出し・雛形をそのまま写した行も落とす。
@@ -5364,6 +5375,30 @@ async function doRunSummary(pageId) {
     // 要約の材料にした配列（入口）と今の配列の両方を渡す（#4。cite.attachCitationsAcross）
     const stat = attachAcross(blocks, fresh, segmentsAtStart);
     segments = fresh;
+    // 0.11.0 Q-3（決めたこと 29〜34）: 点（付けるときだけ）。AI の3つの軸を厳しく読み、ToDo の具体さと型の埋まり具合は数え、合計は数え直す。
+    // AI の軸の理由は一時のブロックにして出典を付ける（ページのブロックと出典の数には入れない）。engine.log には点と符号だけ（理由の文は書かない）
+    let q = null; let scoreNote = '';
+    if (score) {
+      const parsed = quality.parseScore(split.lines, quality.AI_AXES, { found: split.found });
+      if (parsed.ok) {
+        const cites = {};
+        for (const a of quality.AI_AXES) {
+          const tmp = [{ id: `q-${a.key}`, type: 'bullet', text: parsed.ai[a.key].reason, cites: [] }];
+          attachAcross(tmp, fresh, segmentsAtStart);
+          cites[a.key] = Array.isArray(tmp[0].cites) ? tmp[0].cites.filter((c) => typeof c === 'string') : [];
+        }
+        q = quality.buildQuality({ ai: parsed.ai, todo: quality.todoAxis(blocks), fill: quality.fillAxis(blocks, { headings: memoTypes.sectionsOf(page.meetingType), key: memoTypes.headingKey }), cites, at: new Date().toISOString() });
+        engineLog(`打ち合わせの質: 付けた ${q.total}/25`);
+      } else {
+        scoreNote = QUALITY_NOTE_UNREAD;
+        engineLog(`打ち合わせの質: 付けない（読めない（${parsed.code}））`);
+      }
+    } else if (wantScore) {
+      scoreNote = QUALITY_NOTE_SHORT;
+      engineLog('打ち合わせの質: 付けない（短い）');
+    } else {
+      engineLog(`打ち合わせの質: 付けない（${settings.qualityScore === 'off' ? '設定' : '1on1・面接'}）`);
+    }
 
     // 同じ理由で、タイトルやメモも読み込み時のページを丸ごと書き戻さず、
     // 生成物だけを最新のページに載せる。ページが消えていれば生成物は捨てる。
@@ -5386,7 +5421,10 @@ async function doRunSummary(pageId) {
         // 0.11.0 M-4: どの型で作ったかも書く（書式の文と画面の文の「作っている間に種類を替えたときの注」）
         notes.push(`この要約は「${mtype.getLabel(page.meetingType)}」（メモの型: ${memoTypes.MEMO_TYPES[memoTypes.memoTypeOf(page.meetingType)].label}）として作りました。途中で選んだ「${mtype.getLabel(t.meetingType)}」で作り直すには［要約を再生成］を押してください。`);
       }
+      if (scoreNote) notes.push(scoreNote);   // 0.11.0 Q-3: QN1・QN2
       saved.summaryError = notes.filter(Boolean).join('\n');
+      // 0.11.0 Q-3（決めたこと 33）: 点はページの欄。点を付けない要約で作り直したら前の点を消す
+      if (q) saved.quality = q; else delete saved.quality;
       saved.summaryWait = false;   // 要約待ちの印を消す（0.10.0 LS-2）
       // どちらで要約したか（第1c回 OL6。ページのプロパティの行に出す）。成功したときだけ書く
       saved.route = { ...(saved.route || {}), summary: { by: route, at: new Date().toISOString() } };

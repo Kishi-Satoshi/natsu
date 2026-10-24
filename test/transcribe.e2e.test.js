@@ -780,8 +780,10 @@ sceneTest('要約の途中で会議タイプを手で選び直したら、その
   assert.deepStrictEqual([p.meetingType, p.typeAuto], ['standup', false]);
   // 0.11.0 M-1（D43）で意図して変えた: 定例・進捗報告の名前を「朝会・内部定例会」に（key は standup のまま）
   // 0.11.0 M-4 で意図して変えた: どのメモの型で作ったかも書く
-  assert.strictEqual(p.summaryError, 'この要約は「一般・その他」（メモの型: 会議の要点（論点整理））として作りました。途中で選んだ「朝会・内部定例会」で作り直すには［要約を再生成］を押してください。');
-  // 途中で何も選ばなければ、自動で決めた種類のまま（判定材料が無いので一般・その他）で、添え書きも無い
+  // 0.11.0 Q-3 で意図して変えた: 短い文字起こしの要約には QN2 の注が付く（決めたこと 32）
+  assert.strictEqual(p.summaryError, 'この要約は「一般・その他」（メモの型: 会議の要点（論点整理））として作りました。途中で選んだ「朝会・内部定例会」で作り直すには［要約を再生成］を押してください。\n' + '文字起こしが短いため、打ち合わせの質の点は付けていません。');
+  // 途中で何も選ばなければ、自動で決めた種類のまま（判定材料が無いので一般・その他）で、種類の添え書きは無い
+  // 0.11.0 Q-3 で意図して変えた: 短い文字起こしの要約には QN2 の注だけが付く（決めたこと 32）
   const q = results.sumGround.pages[0];
-  assert.deepStrictEqual([q.meetingType, q.typeAuto, q.summaryError], ['general', true, '']);
+  assert.deepStrictEqual([q.meetingType, q.typeAuto, q.summaryError], ['general', true, '文字起こしが短いため、打ち合わせの質の点は付けていません。']);
 });

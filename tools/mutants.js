@@ -681,7 +681,7 @@ module.exports = [
     tests: ['test/db-commands.test.js'], why: 'D-3a ST11: よく使う問い合わせに表全体の走査が無い（索引 blocks_type）' },
   { id: 'db-rev-blocks', file: 'src/db/ops.js', from: '  for (const pid of st.touched) if (!st.fresh.has(pid))', to: '  for (const pid of st.touched) if (!st.fresh.has(pid) && ops.some((o) => o && o.id === pid))',
     tests: ['test/db-commands.test.js'], why: 'D-3a F6: ブロックだけを変える命令でもページの rev を上げる（ページの行が変わったときだけ上げる形）' },
-  { id: 'db-strip-derived', file: 'src/db/ops.js', from: 'const DB_MADE = [\'rev\', \'routeText\'];', to: 'const DB_MADE = [];',
+  { id: 'db-strip-derived', file: 'src/db/ops.js', from: 'const DB_MADE = [\'rev\', \'routeText\', \'qualityView\'];', to: 'const DB_MADE = [];',
     tests: ['test/db-commands.test.js'], why: 'D-3a F6: rev・routeText を attrs に保存しない' },
   { id: 'db-insert-pos', file: 'src/db/commands.js', from: 'if (i >= 0) p.blocks.splice(i + 1, 0, block);', to: 'if (i >= 0) p.blocks.splice(i, 0, block);',
     tests: ['test/db-commands.test.js'], why: 'D-3a の点検: block.insert は afterBlockId のすぐ後に足す' },
@@ -2192,4 +2192,9 @@ module.exports = [
   {"id": "qm-split-all", "file": "src/quality.js", "from": "lines: sections.length === 1 ? sections[0] : [], found: sections.length };", "to": "lines: sections.length ? sections[sections.length - 1] : [], found: Math.min(1, sections.length) };", "tests": ["test/quality.test.js"], "why": "0.11.0 Q-1 F12・F13: 採点の節が2つ以上ある答え（文字起こしの採点の形を写した）から、片方の点を本物として出す"},
   {"id": "qm-head-strict", "file": "src/quality.js", "from": "  return h !== null && /^打ち合わせの質(?:\\([^()]*\\)|:\\d+\\/25)?$/.test(h);", "to": "  return h !== null && /^打ち合わせの質/.test(h);", "tests": ["test/quality.test.js"], "why": "0.11.0 Q-1: 「## 打ち合わせの質を上げる施策」のような本物の節が採点の節として要約から消える"},
   {"id": "qm-default-all", "file": "src/settings.js", "from": "    qualityScore: 'all',\n  };", "to": "    qualityScore: 'on',\n  };", "tests": ["test/settings-rules.test.js"], "why": "0.11.0 Q-2 P11: 既定が「1on1 と採用面接・事前面談を除いて付ける」に戻り、持ち主が選んだ「すべての会議に既定で付ける」にならない"},
+  {"id": "qm-unasked-strip", "file": "src/main.js", "from": "    const split = quality.splitScore(answer);", "to": "    const split = score ? quality.splitScore(answer) : { body: answer, lines: [], found: 0 };", "tests": ["test/stage110.memo.main.test.js"], "pattern": "Q-3", "why": "0.11.0 Q-3 F12・RF71: 点を頼まなかった要約に AI が書いてきた採点の節（点と理由）が本文に残る"},
+  {"id": "qm-unparsed-note", "file": "src/main.js", "from": "        scoreNote = QUALITY_NOTE_UNREAD;", "to": "        scoreNote = '';", "tests": ["test/stage110.memo.main.test.js"], "pattern": "Q-3", "why": "0.11.0 Q-3 F13・RF72: 答えが読めず点を付けなかったことが分からず、点が消えたように見える"},
+  {"id": "qm-short-skip", "file": "src/main.js", "from": "  const score = wantScore && plain.length >= quality.MIN_SCORE_CHARS;", "to": "  const score = wantScore;", "tests": ["test/stage110.memo.main.test.js"], "pattern": "Q-3", "why": "0.11.0 Q-3 QM5: 物差しの効かない短い会議にも点を付ける"},
+  {"id": "qm-regen-clear", "file": "src/main.js", "from": "      if (q) saved.quality = q; else delete saved.quality;", "to": "      if (q) saved.quality = q;", "tests": ["test/stage110.memo.main.test.js"], "pattern": "Q-3", "why": "0.11.0 Q-3 決めたこと 33: 点を付けない設定で作り直しても前の要約の点が残り、今の要約と合わない点が出る"},
+  {"id": "qm-view-dbmade", "file": "src/db/ops.js", "from": "const DB_MADE = ['rev', 'routeText', 'qualityView'];", "to": "const DB_MADE = ['rev', 'routeText'];", "tests": ["test/stage110.memo.main.test.js"], "pattern": "Q-3", "why": "0.11.0 Q-3 F11: 画面に渡す照らした点（qualityView）が要約のたびにページの行へ書かれ、古い値が残る"},
 ];

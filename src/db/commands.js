@@ -45,6 +45,7 @@ const { routeLabel, summaryLock } = require('../mainlib');
 const R = require('../pagerules');
 const mtype = require('../meetingType');
 const memoTypes = require('../memoTypes');
+const quality = require('../quality');
 // 議事録の経過（0.10.0 K-1。決めたこと 116）: 締め・復旧のページの stateLog は表の鍵の項目だけを残す
 const SL = require('../statelog');
 const { diffPage, diffSegments, applyOps } = require('./ops');
@@ -182,7 +183,8 @@ function forView(page, labels) {
   if (!isObj(page)) return page;
   const id = page.route && page.route.stt ? page.route.stt.provider : '';
   const label = typeof id === 'string' && isObj(labels) && Object.hasOwn(labels, id) && typeof labels[id] === 'string' ? labels[id] : '';
-  return { ...page, routeText: routeLabel(page.route, label) };
+  // 0.11.0 Q-3（決めたこと 33）: 照らした点（qualityView。DB が作る欄で保存しない）
+  return { ...page, routeText: routeLabel(page.route, label), qualityView: quality.qualityView(page.quality) };
 }
 
 // ---------------------------------------------------------------- 一覧

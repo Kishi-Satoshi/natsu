@@ -168,6 +168,7 @@ const { titleAt } = require('./titles');
 //     --claude-delay=<ms> … 0.10.0 LS-2: --claude=slow の偽の claude が -p に答えるまでの待ち（FAKE_CLAUDE_DELAY）
 //     --claude-auth=<method> … 偽の claude の auth status が返す authMethod（FAKE_CLAUDE_AUTH。既定 claude.ai）
 //     --set-type-live=<鍵|auto>[,…] … 0.11.0 M-4: 録音中（最初の区間の後）に meeting:set-type を呼ぶ（--live-memo=<文> があれば先に meeting:set-memo）
+//     --quality=<all|on|off> … 0.11.0 Q-3: 設定 qualityScore。--resum-quality=<…> … 要約の後にその設定にして［要約を再生成］（out.qualityBefore・out.resum）
 //     --sum-md=<名前> … 0.11.0 M-3: 偽の claude が返す要約の Markdown を test/fixtures/summaries/<名前>.md にする（--claude と一緒に使う）
 //     --db-down     … 第2a1回 M-2b: 議事録の DB のプロセス（偽の utilityProcess の中の本物の server.js）の SQLite が trigram を持たない
 //                     （helpers/no-trigram.js を子の中で先に読む）。自分の確かめが通らず、DB は「使えない」で起きる。場面の dbDown でも同じ
@@ -1217,6 +1218,7 @@ process.on('exit', () => {
       ...(noWhisper ? { localServerExe: path.join(tmp, 'no-such-whisper-server.exe') } : {}),
       ...(maxHistoryFlag ? { maxHistory: Number(maxHistoryFlag) } : {}),   // 第1d2回 M-5
       ...(autoStopFlag === 'off' ? { autoStopQuiet: false } : {}),   // 0.9.1 Q-4
+      ...(flagVal('--quality') ? { qualityScore: flagVal('--quality') } : {}),   // 0.11.0 Q-3
       ...(autoStopMinFlag ? { autoStopMin: autoStopMinFlag } : {}),
       ...(detectFlag === 'off' ? { meetingDetect: false } : {}),   // 0.9.3 M-2
       ...(detectMuteFlag ? { meetingDetectMute: detectMuteFlag.split(',') } : {}),
@@ -2078,6 +2080,7 @@ process.on('exit', () => {
     listPages: () => peekDb((h) => h.listPages(), []),
     getPage: (id) => peekDb((h) => h.getPage(id), null),
     getTranscript: (id) => peekDb((h) => h.getTranscript(id), []),
+    rawPage: (id) => peekDb((h) => h.rawPage(id), null),   // 0.11.0 Q-3: DB の行の attrs（DB が作る欄 qualityView が書かれていないか）
   };
   const store = new Proxy(realStore, { get: (t, k) => (Object.hasOwn(dbView, k) ? dbView[k] : t[k]) });
   const dbMeta = (key) => peekDb((h) => h.meta(key), undefined);
@@ -2398,6 +2401,9 @@ process.on('exit', () => {
       // 0.11.0 M-3: 要約のブロックの文と印（足すだけ。上の blocks の形は変えない）
       sumBlocks: (page.blocks || []).map((b) => ({ type: b.type, text: b.text, mark: b.mark, unconfirmed: b.unconfirmed, citeState: b.citeState, cites: Array.isArray(b.cites) ? b.cites.length : 0 })),
       autoType: page.autoType, autoSlot: page.autoSlot, quality: page.quality, stateLog: page.stateLog, memo: page.memo,
+      // 0.11.0 Q-3: 画面の役で読んだ qualityView（DB が作る欄）・DB の行に qualityView が書かれていないか
+      viewQuality: await (async () => { try { const g = await appCall('page.get', { id: p.id }); return g && g.page ? g.page.qualityView : undefined; } catch (_) { return undefined; } })(),
+      rawHasQualityView: (() => { const raw = store.rawPage(p.id); return Boolean(raw && Object.hasOwn(raw, 'qualityView')); })(),
     };
   };
   if (idleMode) {
@@ -3237,6 +3243,14 @@ process.on('exit', () => {
     out.summaryAtFinalize = p0 ? store.getPage(p0.id).summaryError : null;
   }
   await sleep(200);
+  // 0.11.0 Q-3: 要約の後に打ち合わせの質の設定を替えて［要約を再生成］（--resum-quality=<all|on|off>）
+  if (flagVal('--resum-quality') && store.listPages().length) {
+    out.qualityBefore = (store.getPage(store.listPages()[0].id) || {}).quality;
+    await handlers['settings:save']({}, { qualityScore: flagVal('--resum-quality') });
+    out.resum = await handlers['page:summarize']({}, store.listPages()[0].id);
+  }
+  // 要約の直後の page:updated の qualityView（0.11.0 Q-3）
+  { const u = sent.filter(([ch]) => ch === 'page:updated').pop(); out.updatedQualityView = u && u[1] && u[1].page ? u[1].page.qualityView : undefined; }
   // 要約の後に画面で題名を直す（--set-title-after-sum）
   if (setTitleAfterSum && store.listPages().length) out.setTitleAfter = await appCall('page.setTitle', { id: store.listPages()[0].id, title: setTitleAfterSum });
   const pages = await Promise.all(store.listPages().map(pageOut));
