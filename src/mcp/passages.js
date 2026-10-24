@@ -9,7 +9,6 @@ const { searchFold } = require('../cite');
 const { foldWithMap } = require('../pagerules');
 const search = require('../db/search');
 const F = require('./format');
-const { getLabel } = require('../meetingType');
 
 const PASSAGE_MAX = 600;
 const WINDOW_CHARS = 400;
@@ -260,7 +259,7 @@ function passageLines(p, order, terms) {
   const list = terms.map((t) => t.term);
   const time = F.timeOf(p.createdAt);
   const lines = [
-    `## ${order}｜${F.dateWithDay(p.date) || F.safeLine(String(p.date || ''))}${time ? `${time}ごろ` : ''}｜${F.safeLine(p.title || '') || '(無題の議事録)'}｜${getLabel(p.meetingType)}`,
+    `## ${order}｜${F.dateWithDay(p.date) || F.safeLine(String(p.date || ''))}${time ? `${time}ごろ` : ''}｜${F.safeLine(p.title || '') || '(無題の議事録)'}｜${F.typeLabel(p.meetingType)}`,
     `- 場所: ${F.placeLink(p, p.pageId, anchorOf(p.pageId, p).split('#')[1])}`,
     `- 印: ${anchorOf(p.pageId, p)}`,
   ];

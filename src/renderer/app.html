@@ -2756,25 +2756,38 @@
     $('pTitle').textContent = curPage.title;
     $('pTitle').setAttribute('contenteditable', 'true');
 
-    // 会議タイプ
+    // 会議の種類（0.11.0 P-12: 一般・その他は無い。頭に「自動」（値 ''）。自動のページと、種類が決まらなかったページ（前の版の一般・その他も）は
+    // 「自動」を選んだ形で、灰色の文に自動の判定を書く。決まらなかったときの文は meetingType.AUTO_UNDECIDED_TEXT の写し（runtime.app が照らす））
+    const AUTO_UNDECIDED_TEXT = '自動判定: 決まらなかったので会議の要点の型でまとめました';
     const sel = $('pType'); sel.textContent = '';
+    sel.add(new Option('自動（文字起こしから判定）', ''));
     for (const t of mtypes) sel.add(new Option(t.label, t.key));
-    sel.value = curPage.meetingType || 'general';   // 既定は「一般・その他」（0.1.2。それまでは定例・進捗報告）
-    const def = mtypes.find((t) => t.key === sel.value);
-    // 手で選んだ場合も、自動判定が何と言ったかを併記する。
-    // これが無いと自動判定の精度を実機で確かめる手段が無い。
-    let src = '自動判定';
-    // 判定材料が無かった（自動判定が「一般・その他」）。0.1.1 までの議事録は、そのとき定例・進捗報告にしていた
-    if (curPage.typeAuto !== false && curPage.autoType === 'general' && (sel.value === 'general' || sel.value === 'standup')) {
-      src = '既定（判定材料なし）';
+    const typeOf = (k) => mtypes.find((t) => t.key === k) || null;
+    const isAutoView = curPage.typeAuto !== false || !typeOf(curPage.meetingType);
+    sel.value = isAutoView ? '' : curPage.meetingType;
+    const autoHint = () => {
+      const d = typeOf(curPage.meetingType);
+      if (d) return `自動判定: ${d.label}${curPage.autoSlot ? '（前の同じ曜日・時刻の会議と同じ）' : ''} ・ ${d.hint}`;
+      return curPage.autoType === undefined || curPage.autoType === null ? '要約のときに決まります' : AUTO_UNDECIDED_TEXT;
+    };
+    if (isAutoView) {
+      $('pTypeHint').textContent = autoHint();
+    } else {
+      // 手で選んだ場合も、自動判定が何と言ったかを併記する（自動判定の精度を実機で確かめる手段）
+      const def = typeOf(sel.value);
+      const a = typeOf(curPage.autoType);
+      const src = a ? `手動指定（自動判定は「${a.label}」${curPage.autoType === sel.value ? '＝一致' : '＝不一致'}）` : '手動指定';
+      $('pTypeHint').textContent = src + (def ? ` ・ ${def.hint}` : '');
     }
-    if (curPage.typeAuto === false) {
-      const a = curPage.autoType ? mtypes.find((t) => t.key === curPage.autoType) : null;
-      src = a ? `手動指定（自動判定は「${a.label}」${curPage.autoType === sel.value ? '＝一致' : '＝不一致'}）`
-        : '手動指定';
-    }
-    $('pTypeHint').textContent = src + (def ? ` ・ ${def.hint}` : '');
     sel.onchange = async () => {
+      if (sel.value === '') {
+        // 「自動」に戻す（typeAuto 真。種類は次の要約で判定し直す。メモは変えない: 0.11.0 P-12）
+        await window.koeApp.pageSetType(curId, 'auto');
+        curPage.typeAuto = true;
+        $('pTypeHint').textContent = '要約のときに決まります';
+        refreshList();
+        return;
+      }
       await window.koeApp.pageSetType(curId, sel.value);
       curPage.meetingType = sel.value; curPage.typeAuto = false;
       const d2 = mtypes.find((t) => t.key === sel.value);

@@ -3,7 +3,10 @@
 // DB から来た文字は、どれも safeLine（1行）・quoteLines（メモの行）・segmentLine（発言）のどれかを通してから答えに入れる。
 // 答えのどの行も、ここが決めた頭（決まった文・「- 」・「- [ ] 」・「> 」・「s12 [0:00] 」・「# 」・「## 」）で始まり、
 // DB から来た文字が行の頭に来ない（議事録の文で見出し・頭の注意・続きの行を偽れない: 決めたこと 60・RF77）。
-const { getLabel } = require('../meetingType');
+const { getLabel, isSelectable } = require('../meetingType');
+// 会議の種類の名前。選べる鍵のほか（決まらなかった ''・前の版の一般・その他）は、判定済みの「自動」と見分けられる文（0.11.0 P-12・R2 (2)）
+const UNDECIDED_LABEL = '自動（決まらなかったので会議の要点の型）';
+const typeLabel = (v) => (isSelectable(v) ? getLabel(v) : UNDECIDED_LABEL);
 const { citeStatOf } = require('../pagerules');
 const natsulink = require('../natsulink');
 const SL = require('../statelog');
@@ -84,7 +87,7 @@ function meetingLine(entry, attrs = {}) {
     dateWithDay(entry.date) || safeLine(String(entry.date || '')),
     safeLine(entry.title || '(無題の議事録)'),
     `長さ ${clock((entry.durationSec || 0) * 1000)}`,
-    getLabel(entry.meetingType),
+    typeLabel(entry.meetingType),
     `要約: ${summaryOf(entry, route)}`,
   ];
   const stt = sttOf(route);
@@ -197,7 +200,7 @@ function propLines(page) {
   const d = dateWithDay(page.date) || safeLine(String(page.date || ''));
   if (d) lines.push(`- 日付: ${d}${time}`);
   lines.push(`- 長さ: ${clock((Number(page.durationSec) || 0) * 1000)}`);
-  lines.push(`- 会議の種類: ${getLabel(page.meetingType)}`);
+  lines.push(`- 会議の種類: ${typeLabel(page.meetingType)}`);
   const stt = sttOf(page.route);
   if (stt) lines.push(`- 文字起こし: ${stt}`);
   const by = page.route && typeof page.route === 'object' && page.route.summary && typeof page.route.summary === 'object' ? page.route.summary.by : '';
@@ -285,4 +288,4 @@ function cut(text, budget) {
   return { text: out.join('\n'), cut: true };
 }
 
-module.exports = { sortSegs, meetingMarkdown, CUT_NOTE, clock, today, weekdayOf, dateWithDay, header, safeLine, quoteLines, meetingLine, sttOf, blockLine, segmentText, segPrefix, segmentLine, timeOf, placeText, placeLink, stateLine, cut, NOTICE, KEPT_TEXT, FAILED_TEXT };
+module.exports = { UNDECIDED_LABEL, typeLabel, sortSegs, meetingMarkdown, CUT_NOTE, clock, today, weekdayOf, dateWithDay, header, safeLine, quoteLines, meetingLine, sttOf, blockLine, segmentText, segPrefix, segmentLine, timeOf, placeText, placeLink, stateLine, cut, NOTICE, KEPT_TEXT, FAILED_TEXT };

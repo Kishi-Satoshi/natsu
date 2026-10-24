@@ -5311,8 +5311,10 @@ async function doRunSummary(pageId) {
   // （手で選んだ議事録では detectType が一度も呼ばれていなかった）。
   const autoType = mtype.detectType(page.title, plain.slice(0, 1200));
   // 0.11.0 M-5（P14 (a)・決めたこと 13）: 自動のまま、題名と文字起こしで決まらないときだけ、前の同じ曜日・時刻の会議の人が選んだ種類（mtype.slotType）
+  // 0.11.0 P-12（R4・P19 (a)）: 選べない種類（前の版の一般・その他・知らない値）は、手で選んだ印があっても判定し直す
+  const redetect = !mtype.isSelectable(page.meetingType) || page.typeAuto !== false;
   let slot = '';
-  if ((!page.meetingType || page.typeAuto !== false) && !mtype.isSelectable(autoType)) {
+  if (redetect && !mtype.isSelectable(autoType)) {
     let rows = [];
     try { rows = await db.call('pages.typeSlots', { since: new Date(new Date(page.createdAt).getTime() - 36 * 86400000).toISOString() }); } catch (_) { rows = []; }
     slot = mtype.slotType(Array.isArray(rows) ? rows : [], page.createdAt);
@@ -5320,8 +5322,8 @@ async function doRunSummary(pageId) {
   page.autoSlot = Boolean(slot);
   page.autoType = slot || autoType;
   const typeBefore = page.meetingType;   // 0.11.0 M-4（P13）: 自動の判定で種類が変わったら経過に積む
-  if (!page.meetingType || page.typeAuto !== false) {
-    // 判定材料が無いときは「一般・その他」（自動判定の答えのまま）。0.1.1 までは「定例・進捗報告」に
+  if (redetect) {
+    // 判定材料が無いときは決まらない（''。メモの型は会議の要点: 0.11.0 P-12。0.1.2〜0.10.x は「一般・その他」）。0.1.1 までは「定例・進捗報告」に
     // していたが、定例の型（担当・案件ごとの報告、担当・期限つきのアクション）に合わせようとして、
     // 手元の小さいモデルが発言に無い担当と期限を作った（実機。一般・その他で作り直すと出なかった）。
     // タイトルに定例らしい言葉（朝会・定例・週次など）があれば（本文だけなら 5 語以上）、今までどおり自動で定例になる
@@ -5339,7 +5341,8 @@ async function doRunSummary(pageId) {
   // 0.11.0 M-2（決めたこと 14）: 書式は1回だけ作る（Claude Code に渡す文と写しを落とす文に同じ文字列）
   const template = memoTypes.buildTemplate({ meetingType: page.meetingType, score });
   const progress = (msg) => sendToMainWin('meeting:progress', { message: msg });
-  progress(`Claude Code で議事録を作成中…（${mtype.getLabel(page.meetingType)}として要約します）`);
+  // 決まらなかったときは「自動として」でなく型の名前で言う（0.11.0 P-12・R15）
+  progress(`Claude Code で議事録を作成中…（${mtype.isSelectable(page.meetingType) ? `${mtype.getLabel(page.meetingType)}として` : '決まらなかったので会議の要点の型で'}要約します）`);
   try {
     // Claude Code が断った・失敗したら、理由を要約の欄に書いて終える（下の catch。手元の llama へは行かない: D1・D59）
     const { md: answer, truncatedParts, finalTruncated } = await summarizeWithClaude(plain, page.memo, template);
@@ -5412,7 +5415,7 @@ async function doRunSummary(pageId) {
       saved.autoType = page.autoType;
       if (page.autoSlot && t.typeAuto !== false) saved.autoSlot = true; else delete saved.autoSlot;   // 0.11.0 M-5: 前の会議の種類を使った印（画面の灰色の文）
       // 0.11.0 M-4（P13・決めたこと 12）: 自動のまま、要約のときの判定で種類が前と変わったら、経過に「種類を選んだ（要約のときの自動の判定）」
-      if (t.typeAuto !== false && page.meetingType !== typeBefore) saved.stateLog = lib.stateLogAdd(saved.stateLog, { s: 'type', by: 'auto', at: new Date().toISOString() });
+      if (t.typeAuto !== false && mtype.normalizeType(page.meetingType) !== mtype.normalizeType(typeBefore)) saved.stateLog = lib.stateLogAdd(saved.stateLog, { s: 'type', by: 'auto', at: new Date().toISOString() });
       saved.citeStat = stat;
       saved.actionStat = actStat;
       // 切れたパートと最終統合の打ち切りを名指しする（mainlib.truncationMessage。無ければ ''）

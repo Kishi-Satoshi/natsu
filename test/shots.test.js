@@ -112,7 +112,9 @@ const ADDED_101 = [...NEW_101];
 // 0.11.0（計画 docs/plans/2026-10-22-110.md の「取り直す画面（RETAKE）」）で意図して変えた: 取り直し待ちは 0.11.0 の表の画面だけ（RETAKE_110）。タスクごとに足す。
 // M-1（R7）: 会議の種類の名前と説明の付け直しで、種類の行を写すページの画面（CI run 40079245997 で違いが出た 8 枚。検索の窓の後ろのページも）
 const RETAKE_110 = ['notes-page-light', 'notes-page-dark', 'notes-tabs-light', 'notes-collapsed-light',
-  'page-menu-link-light', 'page-menu-link-dark', 'page-summary-lock-light', 'search-palette-light'];
+  'page-menu-link-light', 'page-menu-link-dark', 'page-summary-lock-light', 'search-palette-light',
+  // P-12（R7・R15）: 種類の欄の「自動」と灰色の文で、種類の行を写す残りの画面も
+  'notes-page-zoom200-light', 'list-select-light', 'list-select-dark'];
 const img = (w, h, fill = [255, 255, 255, 255]) => ({ width: w, height: h, data: Buffer.from(Array.from({ length: w * h }, () => fill).flat()) });
 // 一時フォルダ（日本語と 𠮷 の名前。RF1 と同じ形）。テストの終わりに消す
 const tmp = (t, name) => {
@@ -834,7 +836,9 @@ test('基準の画像（test/shots/win32）は今の app.html で撮ったもの
   // 値を今の app.html に合わせた（前の値は 13470282…）
   // 0.10.1 点検の直し（Ruling R8）: どこかのファイルに natsu が残っていれば（main の答えの hasEntry）［登録を外す］を出す1行を足した。撮る画面の答えに hasEntry は
   // 無いので見た目は変わらない（RETAKE は足さない）。値を今の app.html に合わせた（前の値は 2c44162a…）
-  assert.strictEqual(sha, '4130627a783b8bedd12be05fbfc730aef4cc0c99bddf8c136c9de095dc1af821',
+  // 0.11.0 P-12（R15）: 種類の欄の頭に「自動（文字起こしから判定）」、自動と決まらなかったページの灰色の文。変わる画面は種類の行を写す画面（RETAKE_110）。
+  // 値を今の app.html に合わせた（前の値は 4130627a…）
+  assert.strictEqual(sha, '1b081c36d23d95b2ab69fc6db8193b631a2f30a6aea65d8f14f67b19b6814b21',
     'app.html が基準の画像を撮った時と違う。Windows の CI の画面の比べ（捲り棒のつまみも）を見て、基準を取り直してからこの値を直す');
 });
 

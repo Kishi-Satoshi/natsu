@@ -385,11 +385,14 @@ test('会議の所要時間は開始から停止までで計る', () => {
   assert.ok(appHtml.includes('(mtStoppedAt || Date.now()) - mtStartedAt'));
 });
 
-test('判定材料が無いときの会議タイプは「一般・その他」（0.1.2。定例の型に合わせて担当・期限を作らせない）', () => {
+// 0.11.0 P-12（P12・R5）で意図して変えた: 一般・その他は無い。判定材料が無ければ決まらない（''。画面は「自動」と決まらなかった文）
+test('判定材料が無いときの会議の種類は決まらない（\'\'。定例の型に合わせて担当・期限を作らせない: 0.1.2）', () => {
   // 0.11.0 M-5 で意図して変えた: 自動の答えは detectType の答えか、決まらないときの前の同じ曜日・時刻の会議の種類（page.autoType）
   assert.match(main, /page\.meetingType = page\.autoType;/);
   assert.ok(!/autoType === 'general' \? 'standup'/.test(main), '判定材料が無いときに定例へ寄せている');
-  assert.ok(appHtml.includes("curPage.meetingType || 'general'"));
+  assert.ok(!appHtml.includes("curPage.meetingType || 'general'"));
+  assert.ok(appHtml.includes("sel.add(new Option('自動（文字起こしから判定）', ''));"));
+  assert.ok(appHtml.includes(`const AUTO_UNDECIDED_TEXT = '${require('../src/meetingType').AUTO_UNDECIDED_TEXT}';`), '画面の決まらなかった文が meetingType と違う');
 });
 
 test('Markdown保存は IPC ごと撤去済み', () => {

@@ -54,7 +54,7 @@ function seed() {
 function calls() {
   const out = [];
   const q = [SECRET, 'ひみ', 'ひみつ', '合言葉', '会議', '発言', '要点', OFFLINE];
-  const ranges = [{}, { from: '2026-10-19', to: '2026-10-19' }, { dates: ['2026-10-19'] }, { meeting_types: ['general'] }];
+  const ranges = [{}, { from: '2026-10-19', to: '2026-10-19' }, { dates: ['2026-10-19'] }, { meeting_types: ['standup', 'sales'] }];   // 0.11.0 P-12（P12）で意図して変えた: general は断るので、絞りの比べには選べる鍵を使う
   for (const r of ranges) {
     out.push(['list_meetings', r], ['list_meetings', { ...r, limit: 1, offset: 1 }]);
     for (const query of q) {

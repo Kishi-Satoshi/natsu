@@ -276,6 +276,8 @@ const OVL_094 = (states) => PS.FORMS.flatMap((form) => Object.keys(PS.DESKS).fla
 const RETAKE = new Set([
   'notes-page-light', 'notes-page-dark', 'notes-tabs-light', 'notes-collapsed-light',
   'page-menu-link-light', 'page-menu-link-dark', 'page-summary-lock-light', 'search-palette-light',
+  // P-12（R7・R15）: 種類の欄が「自動（文字起こしから判定）」と灰色の「自動判定: {名前}」になるので、種類の行を写す残りの画面も
+  'notes-page-zoom200-light', 'list-select-light', 'list-select-dark',
 ]);
 const PERF = [{ name: 'open-2000-blocks', budgetMs: 500 }];   // 3回開いた中央値で見る
 const TIME_ZONE = 'Asia/Tokyo';

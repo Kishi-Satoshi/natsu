@@ -46,7 +46,7 @@ const ERROR_TEXT = Object.freeze({
 const ANNOTATIONS = Object.freeze({ readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false });
 const DATE_PROP = (what) => ({ type: 'string', pattern: '^\\d{4}-\\d{2}-\\d{2}$', description: `${what}（YYYY-MM-DD。両端を含む）` });
 const DATES_PROP = { type: 'array', items: { type: 'string', pattern: '^\\d{4}-\\d{2}-\\d{2}$' }, minItems: 1, maxItems: 31, description: '会議の日付の並び（YYYY-MM-DD。from・to と一緒には使えません）' };
-const TYPES_PROP = { type: 'array', items: { type: 'string', enum: [...meetingType.ORDER] }, minItems: 1, maxItems: 10, description: '会議の種類の鍵の並び' };
+const TYPES_PROP = { type: 'array', items: { type: 'string', enum: [...meetingType.SELECTABLE] }, minItems: 1, maxItems: 10, description: '会議の種類の鍵の並び' };
 const INT = (min, max, def, what) => ({ type: 'integer', minimum: min, maximum: max, description: `${what}（${min}〜${max}${def === undefined ? '' : `。既定 ${def}`}）` });
 const schema = (properties, required) => ({ type: 'object', properties, ...(required ? { required } : {}), additionalProperties: false });
 
@@ -138,7 +138,7 @@ const intIn = (v, min, max) => Number.isSafeInteger(v) && v >= min && v <= max;
 const ARG_TYPES = {
   date: (v) => (isDate(v) ? v : undefined),
   dates: (v) => (Array.isArray(v) && v.length >= 1 && v.length <= 31 && v.every(isDate) && new Set(v).size === v.length ? [...v] : undefined),
-  types: (v) => (Array.isArray(v) && v.length >= 1 && v.length <= 10 && v.every((x) => meetingType.ORDER.includes(x)) ? [...new Set(v)] : undefined),
+  types: (v) => (Array.isArray(v) && v.length >= 1 && v.length <= 10 && v.every((x) => meetingType.isSelectable(x)) ? [...new Set(v)] : undefined),
   query: (v) => (typeof v === 'string' && v.trim().length >= 1 && v.trim().length <= 200 ? v.trim() : undefined),
   segId: (v) => (typeof v === 'string' && SEG_RE.test(v) ? v : undefined),
   ref: (v) => meetingRef(v) || undefined,
@@ -190,9 +190,10 @@ const COMMON_EXAMPLE = {
   from: 'from は 2026-10-20 のような YYYY-MM-DD です。',
   to: 'to は 2026-10-20 のような YYYY-MM-DD です。',
   dates: 'dates は ["2026-10-20"] のような日付の並びです（from・to と一緒には使えません）。',
-  meeting_types: `meeting_types は ${meetingType.ORDER.join('・')} の並びです。`,
+  meeting_types: `meeting_types は ${meetingType.SELECTABLE.join('・')} の並びです。`,
   include_transcript: 'include_transcript は true か false です。',
 };
+const GENERAL_GONE = '一般・その他（general）は 0.11.0 でなくなりました。種類の決まらなかった会議は meeting_types を付けずに探してください。';
 
 // checkToolArgs(name, args) → { ok: true, args } か { ok: false, field, text }（text は bad-arg の文）
 function checkToolArgs(name, args) {
@@ -213,6 +214,8 @@ function checkToolArgs(name, args) {
       continue;
     }
     const v = check(a[k]);
+    // 0.11.0 P-12（R2 (1)・F29）: 一般・その他（general）を入れた古い呼び出しは、黙って外さずに断り、決まらなかった会議の探し方を書く
+    if (v === undefined && k === 'meeting_types' && Array.isArray(a[k]) && a[k].includes('general')) return badArg(k, `${COMMON_EXAMPLE[k]}${GENERAL_GONE}`);
     if (v === undefined) return badArg(k, example || COMMON_EXAMPLE[k]);
     out[k] = v;
   }
@@ -235,7 +238,7 @@ function filterRows(rows, { from, to, dates, types, ids } = {}) {
     if (from && !(d >= from)) return false;
     if (to && !(d <= to)) return false;
     if (dateSet && !dateSet.has(d)) return false;
-    if (typeSet && !typeSet.has(r.attrs.meetingType || 'general')) return false;
+    if (typeSet && !typeSet.has(meetingType.normalizeType(r.attrs.meetingType))) return false;
     if (idSet && !idSet.has(r.id)) return false;
     return true;
   });
@@ -314,7 +317,7 @@ function searchPassages(db, args, { now, ctx }) {
   for (const pid of cand) {
     const page = commands.readPage(db, pid);
     if (!page) continue;
-    const base = { pageId: pid, date: page.date, createdAt: page.createdAt, title: page.title, meetingType: page.meetingType || 'general' };
+    const base = { pageId: pid, date: page.date, createdAt: page.createdAt, title: page.title, meetingType: meetingType.normalizeType(page.meetingType) };
     const list = [...P.chunkSummary(page.blocks), ...P.chunkMemo(page.memo), ...(withTr ? P.chunkSegments(commands.readSegments(db, pid)) : [])];
     list.forEach((p, i) => passages.push({ ...p, ...base, pos: i }));
     const ft = searchFold(page.title);

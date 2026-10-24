@@ -12,6 +12,7 @@ const natsulink = require('./natsulink');
 // 議事録の経過の表と積み方（0.10.0 K-1。DB のプロセスと MCP も同じ部品を読む）
 const SL = require('./statelog');
 const memoTypes = require('./memoTypes');
+const mtype = require('./meetingType');
 
 // ---------------------------------------------------------------- 要約の書き戻し
 // 要約は数分かかる。その間に利用者がページを削除していることがある。
@@ -1338,9 +1339,10 @@ function clockText(ms) {
 
 // 要約を保存するときの会議タイプ。saved: いまディスクにあるページ、used: 要約を始めたときのページ
 // （meetingType は要約に使った種類）。要約の途中で利用者が種類を手で選んでいたら（saved.typeAuto === false）、
-// その選択を残す。changed: 残した種類が要約に使った種類と違う（作り直しを勧める）
+// その選択を残す。changed: 残した種類が要約に使った種類と違う（作り直しを勧める）。
+// 0.11.0 P-12（R4・P19 (a)）: 選べない種類（前の版で手で選んだ一般・その他）は手で選んだ印があっても残さない（判定し直した種類で保存する）
 function mergeSummaryType(saved, used) {
-  if (saved && saved.typeAuto === false && saved.meetingType) {
+  if (saved && saved.typeAuto === false && mtype.isSelectable(saved.meetingType)) {
     return { meetingType: saved.meetingType, typeAuto: false, changed: saved.meetingType !== used.meetingType };
   }
   return { meetingType: used.meetingType, typeAuto: used.typeAuto, changed: false };

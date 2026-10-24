@@ -55,23 +55,22 @@ const TYPES = {
     keywords: ['ブレスト', '意見交換', 'アイデア', '検討会', 'ディスカッション', '壁打ち', '構想'],
   },
 
-  // 0.11.0 M-1（D41・P4）: プレゼン形式。書式は M-2 で型の見出しに置き換える（それまでは一般・その他の書式）。アジェンダの雛形は作らない
+  // 0.11.0 M-1（D41・P4）: プレゼン形式。書式は種類から決まる型の見出し（memoTypes）。アジェンダの雛形は作らない
   present: {
     label: 'プレゼン形式',
     hint: '提案や説明会など、発表と質疑が中心の会議',
     keywords: ['プレゼン', '発表', '説明会', 'デモ', '登壇', '提案発表'],
   },
-
-  general: {
-    label: '一般・その他',
-    hint: '上記に当てはまらない会議',
-    keywords: [],
-  },
+  // 0.11.0 P-12（P12・R5）: 一般・その他（general）は無い。決まらない会議は ''（「自動」。メモの型は会議の要点）。
+  // 前の版のページの meetingType: 'general' は書き換えず、読むところで normalizeType を通す（R4）
 };
 
-const ORDER = ['standup', 'review', 'oneonone', 'sales', 'interview', 'brainstorm', 'present', 'general'];
 // 0.11.0 M-1（D43・D44）: 画面の「会議の種類」で選べる種類とプルダウンの群（<optgroup>）。並びはこの1か所
 const SELECTABLE = Object.freeze(['standup', 'review', 'brainstorm', 'oneonone', 'interview', 'sales', 'present']);
+// 判定で見る並びも選べる種類と同じ（0.11.0 P-12。点が同じときは長い語で当たった方: detectType）
+const ORDER = [...SELECTABLE];
+// 決まらなかったときの種類の横の灰色の文（画面は app.html に同じ文の写し。runtime.app が照らす）
+const AUTO_UNDECIDED_TEXT = '自動判定: 決まらなかったので会議の要点の型でまとめました';
 const GROUPS = Object.freeze([
   Object.freeze({ label: '社内の会議', keys: Object.freeze(['standup', 'review', 'brainstorm']) }),
   Object.freeze({ label: '人と話す', keys: Object.freeze(['oneonone', 'interview']) }),
@@ -95,7 +94,6 @@ function detectType(title, transcriptHead) {
   const scores = [];
 
   for (const key of ORDER) {
-    if (key === 'general') continue;
     let total = 0; let title_ = 0; let longest = 0;
     for (const kw of TYPES[key].keywords) {
       if (t.includes(kw)) {
@@ -107,7 +105,7 @@ function detectType(title, transcriptHead) {
     }
     if (total > 0) scores.push({ key, total, title: title_, longest });
   }
-  if (scores.length === 0) return 'general';
+  if (scores.length === 0) return '';   // 決まらない（0.11.0 P-12: 前は 'general'）
 
   scores.sort((a, b) => (b.total - a.total)
     // 同点なら、より長い（＝具体的な）語で当たった方を採る。
@@ -121,7 +119,7 @@ function detectType(title, transcriptHead) {
   // よほど数が揃わない限り型を決める根拠にはしない（誤った型を当てない）。
   if (best.title > 0) return best.key;
   if (best.total >= BODY_ONLY_MIN) return best.key;
-  return 'general';
+  return '';
 }
 
 // 0.11.0 M-5（P14 (a)・決めたこと 13）: 題名と文字起こしで決まらない会議に使う、前の同じ曜日・時刻の会議の種類。
@@ -143,11 +141,11 @@ function slotType(rows, createdAt) {
   return isSelectable(t) && hit.every((r) => r.meetingType === t) ? t : '';
 }
 
+// 選べる鍵ならその名前、ほか（決まらない ''・前の版の general・知らない値）は「自動」（0.11.0 P-12）
 function getLabel(type) {
-  return (TYPES[type] || TYPES.general).label;
+  return isSelectable(type) ? TYPES[type].label : '自動';
 }
-// タイプを選んだときにメモ欄へ入れるアジェンダの雛形。
-// 一般・その他には無い（何を話すか決まっていない会議に雛形を押し付けない）。
+// 前の版のページの手を付けていないメモを見分けるためのアジェンダの雛形（プレゼン形式には無い）。
 function getAgenda(type) {
   return (TYPES[type] && TYPES[type].agenda) || '';
 }
@@ -155,4 +153,4 @@ function listTypes() {
   return ORDER.map((k) => ({ key: k, label: TYPES[k].label, hint: TYPES[k].hint, agenda: TYPES[k].agenda || '' }));
 }
 
-module.exports = { TYPES, ORDER, SELECTABLE, GROUPS, PERSONAL_TYPES, ACTION_RULE, isSelectable, normalizeType, detectType, slotType, getLabel, getAgenda, listTypes };
+module.exports = { TYPES, ORDER, SELECTABLE, GROUPS, PERSONAL_TYPES, ACTION_RULE, AUTO_UNDECIDED_TEXT, isSelectable, normalizeType, detectType, slotType, getLabel, getAgenda, listTypes };

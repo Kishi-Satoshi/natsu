@@ -28,15 +28,16 @@ test('タイトルから会議タイプを判定する', () => {
   }
 });
 
-test('手がかりが無ければ general に落とす（誤った型を当てない）', () => {
+// 0.11.0 P-12（P12・R5）で意図して変えた: 一般・その他（general）を外し、決まらないときは ''
+test('手がかりが無ければ決まらない（\'\'。誤った型を当てない）', () => {
   for (const title of ['打ち合わせ', 'ミーティング', '', '10/05 の記録', null, undefined]) {
-    assert.strictEqual(mtype.detectType(title, ''), 'general', `「${title}」`);
+    assert.strictEqual(mtype.detectType(title, ''), '', `「${title}」`);
   }
 });
 
 test('本文だけの弱い一致では型を決めない', () => {
-  // 本文一致は1点。閾値3に届かないので general のまま
-  assert.strictEqual(mtype.detectType('打ち合わせ', '本日は商談の件で伺いました'), 'general');
+  // 本文一致は1点。閾値に届かないので決まらない（0.11.0 P-12 で意図して変えた: general → ''）
+  assert.strictEqual(mtype.detectType('打ち合わせ', '本日は商談の件で伺いました'), '');
 });
 
 test('より具体的な語で当たった型を採る', () => {
@@ -51,7 +52,7 @@ test('本文に一般語が並んだだけでは型を決めない', () => {
   // 「提案」「価格」「紹介」はどの会議にも出る語。これで商談と判定してはいけない
   assert.strictEqual(
     mtype.detectType('2026/10/5 10:00 の議事録', '自己紹介します。提案の価格について説明します'),
-    'general');
+    '');   // 0.11.0 P-12 で意図して変えた: general → ''
 });
 
 test('本文の手がかりが十分に多ければ型を決める', () => {
@@ -82,8 +83,18 @@ test('0.11.0 M-2: getFormat と format は無い。どの種類の書式も締�
   assert.strictEqual(typeof mtype.ACTION_RULE, 'string');
 });
 
-test('未知のタイプは general の名前にフォールバックする', () => {
-  assert.strictEqual(mtype.getLabel('nonexistent'), mtype.getLabel('general'));
+// 0.11.0 P-12（P12・R5）で意図して変えた: 一般・その他（general）を外し、決まらないときは ''
+test('0.11.0 P-12: getLabel は選べる鍵ならその名前、ほか（決まらない・前の版の general・知らない値）は「自動」', () => {
+  for (const k of mtype.SELECTABLE) assert.strictEqual(mtype.getLabel(k), mtype.TYPES[k].label, k);
+  for (const v of ['', 'general', 'nonexistent', '__proto__', 'constructor', null, undefined, 3]) assert.strictEqual(mtype.getLabel(v), '自動', String(v));
+});
+
+test('0.11.0 P-12（P12・R5）: TYPES と ORDER に general が無い。ORDER は SELECTABLE と同じ鍵。決まらなかったときの灰色の文', () => {
+  assert.strictEqual(Object.hasOwn(mtype.TYPES, 'general'), false);
+  assert.ok(!mtype.ORDER.includes('general'));
+  assert.deepStrictEqual([...mtype.ORDER], [...mtype.SELECTABLE]);
+  assert.ok(mtype.listTypes().every((t) => t.key !== 'general' && t.label !== '一般・その他'));
+  assert.strictEqual(mtype.AUTO_UNDECIDED_TEXT, '自動判定: 決まらなかったので会議の要点の型でまとめました');
 });
 
 test('listTypes が UI 用に全タイプを返す', () => {
@@ -104,10 +115,11 @@ test('キーワードに重複が無い（重複すると同じ語で二重加�
 
 // ---------------------------------------------------------------- アジェンダ雛形
 // 0.11.0 M-1 で意図して変えた: アジェンダの雛形は前のページの手を付けていないメモを見分けるためだけに残すので、新しいプレゼン形式には作らない
-test('一般とプレゼン形式のほかの全タイプにアジェンダの雛形がある', () => {
+// 0.11.0 P-12 で意図して変えた: 一般・その他は無い
+test('プレゼン形式のほかの全タイプにアジェンダの雛形がある', () => {
   for (const t of mtype.listTypes()) {
-    if (t.key === 'general' || t.key === 'present') {
-      assert.strictEqual(t.agenda, '', '「一般」に雛形を押し付けない');
+    if (t.key === 'present') {
+      assert.strictEqual(t.agenda, '', 'プレゼン形式には雛形を作らない');
       continue;
     }
     assert.ok(t.agenda && t.agenda.includes('・'), `${t.key} に雛形が無い`);

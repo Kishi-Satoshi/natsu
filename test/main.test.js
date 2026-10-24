@@ -973,10 +973,20 @@ test('wavLevelDbfs は 16bit PCM の RMS を dBFS で返す（無音・壊れた
 // ================= 要約の途中で会議タイプを選び直したとき（0.1.2） =================
 const { mergeSummaryType } = require('../src/mainlib');
 
+test('0.11.0 P-12（R4・P19 (a)）: 前の版で手で選んだ一般・その他（選べない種類）は、手で選んだ印があっても残さず、判定し直した種類で保存する', () => {
+  assert.deepStrictEqual(mergeSummaryType({ meetingType: 'general', typeAuto: false }, { meetingType: 'sales', typeAuto: true }),
+    { meetingType: 'sales', typeAuto: true, changed: false });
+  assert.deepStrictEqual(mergeSummaryType({ meetingType: 'general', typeAuto: false }, { meetingType: '', typeAuto: true }),
+    { meetingType: '', typeAuto: true, changed: false });
+  assert.deepStrictEqual(mergeSummaryType({ meetingType: 'nope', typeAuto: false }, { meetingType: 'review', typeAuto: true }),
+    { meetingType: 'review', typeAuto: true, changed: false });
+});
+
 test('mergeSummaryType: 要約の途中で手で選んだ種類は残し、要約に使った種類と違えば作り直しを勧める', () => {
-  // 実機: 生成中に「一般・その他」を選んだのに、終わると「定例・進捗報告（既定）」に戻った
-  assert.deepStrictEqual(mergeSummaryType({ meetingType: 'general', typeAuto: false }, { meetingType: 'standup', typeAuto: true }),
-    { meetingType: 'general', typeAuto: false, changed: true });
+  // 実機: 生成中に種類を選んだのに、終わると自動で決めた種類に戻った
+  // 0.11.0 P-12（P12）で意図して変えた: 一般・その他は無いので、選べる鍵（brainstorm）の例にした
+  assert.deepStrictEqual(mergeSummaryType({ meetingType: 'brainstorm', typeAuto: false }, { meetingType: 'standup', typeAuto: true }),
+    { meetingType: 'brainstorm', typeAuto: false, changed: true });
   // 始める前から手で選んでいた（途中で変えていない）
   assert.deepStrictEqual(mergeSummaryType({ meetingType: 'review', typeAuto: false }, { meetingType: 'review', typeAuto: false }),
     { meetingType: 'review', typeAuto: false, changed: false });

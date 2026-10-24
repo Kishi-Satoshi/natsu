@@ -70,9 +70,10 @@ test('0.11.0 M-4・F14: 録音中のメモに人の文があれば、種類を�
   const a = await run(['text', '--sum', '--claude=ok', '--segs=2', '--live-memo=予算の相談をする', '--set-type-live=sales']);
   assert.deepStrictEqual(a.setTypeLive.map((x) => [x.inserted, x.memo]), [[false, '予算の相談をする']]);
   assert.strictEqual(a.pages[0].memo, '予算の相談をする');
-  const b = await run(['text', '--sum', '--claude=ok', '--segs=2', '--set-type-live=sales,auto']);
+  // 0.11.0 P-12（R5）で意図して変えた: 決まらない会議（''）は種類を選んでいないので経過に積まない。自動の判定で決まる文字起こし（朝会の語）にした
+  const b = await run(['text', '--sum', '--claude=ok', '--segs=2', '--set-type-live=sales,auto', '--text=朝会です。定例の週次の進捗確認をデイリーで続けます。']);
   assert.strictEqual(b.liveStatusType, null);
-  assert.deepStrictEqual([b.pages[0].meetingType, b.pages[0].typeAuto], [b.pages[0].autoType, true]);
+  assert.deepStrictEqual([b.pages[0].meetingType, b.pages[0].autoType, b.pages[0].typeAuto], ['standup', 'standup', true]);
   assert.notDeepStrictEqual(pCalls(b)[0].stdinHeads.slice(0, 5), BANTC_HEADS);
   assert.ok(b.pages[0].stateLog.some((x) => x.s === 'type' && x.by === 'auto'), '自動の判定の項目が無い');
   assert.strictEqual(b.pages[0].stateLog.filter((x) => x.s === 'type' && x.by === 'live-page').length, 1, '続けて選んだ項目が1件にまとまっていない');
@@ -200,4 +201,26 @@ test('0.11.0 Q-3（決めたこと 33）: 点を付けた後に「付けない�
   const o = await scoreRun(['--set-type-live=standup', '--sum-md=report-score', '--resum-quality=off']);
   assert.ok(o.qualityBefore, '前提: 初めの要約に点がある');
   assert.strictEqual(o.pages[0].quality, undefined, '前の点が残った');
+});
+
+// ---------------------------------------------------------------- 0.11.0 P-12（P12・R4・R5）: 一般・その他を外す
+test('0.11.0 P-12（R5）: 種類を選ばず手がかりの語も無い会議は、決まらなかった（autoType と meetingType が \'\'）として会議の要点の見出しで作り、経過に種類の項目を積まない', { timeout: sceneTimeout(30000) }, async () => {
+  const o = await run(['text', '--sum', '--claude=ok', '--segs=2']);
+  const p = o.pages[0];
+  assert.deepStrictEqual([p.meetingType, p.autoType, p.typeAuto], ['', '', true]);
+  assert.deepStrictEqual(pCalls(o)[0].stdinHeads.slice(0, 2), ['## 目的', '## 論点ごとの要点']);
+  assert.ok(!(p.stateLog || []).some((x) => x.s === 'type'), JSON.stringify(p.stateLog));
+  assert.ok(o.engineLog.includes('会議タイプ: 採用= 自動判定= 手動=false 区間数=2'), o.engineLog.join('\n'));
+  assert.ok(!o.engineLog.some((l) => /general/.test(l)), o.engineLog.join('\n'));
+});
+
+test('0.11.0 P-12（R4・P19 (a)）: 前の版で手で一般・その他を選んだページを［要約を再生成］すると、手で選んだ印があっても判定し直し、自動（typeAuto 真）で保存する', { timeout: sceneTimeout(30000) }, async () => {
+  const o = await run(['text', '--sum', '--claude=ok', '--segs=2', '--text=本日は商談です。提案と見積と価格と契約の話をします。', '--legacy-general']);
+  assert.deepStrictEqual(o.legacyGeneral.before, { meetingType: 'general', typeAuto: false });
+  assert.strictEqual(o.legacyGeneral.resum.ok, true, JSON.stringify(o.legacyGeneral.resum));
+  const p = o.pages[0];
+  assert.deepStrictEqual([p.meetingType, p.autoType, p.typeAuto], ['sales', 'sales', true]);
+  assert.strictEqual(pCalls(o).length, 2);
+  assert.deepStrictEqual(pCalls(o)[1].stdinHeads.slice(0, 5), BANTC_HEADS);
+  assert.ok(!String(p.summaryError).includes('途中で選んだ'), p.summaryError);
 });

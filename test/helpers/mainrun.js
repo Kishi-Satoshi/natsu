@@ -169,6 +169,7 @@ const { titleAt } = require('./titles');
 //     --claude-auth=<method> … 偽の claude の auth status が返す authMethod（FAKE_CLAUDE_AUTH。既定 claude.ai）
 //     --set-type-live=<鍵|auto>[,…] … 0.11.0 M-4: 録音中（最初の区間の後）に meeting:set-type を呼ぶ（--live-memo=<文> があれば先に meeting:set-memo）
 //     --quality=<all|on|off> … 0.11.0 Q-3: 設定 qualityScore。--resum-quality=<…> … 要約の後にその設定にして［要約を再生成］（out.qualityBefore・out.resum）
+//     --legacy-general … 0.11.0 P-12: 要約の後、ページを前の版で手で一般・その他を選んだ形（meetingType 'general'・typeAuto 偽）にして［要約を再生成］（out.legacyGeneral）
 //     --sum-md=<名前> … 0.11.0 M-3: 偽の claude が返す要約の Markdown を test/fixtures/summaries/<名前>.md にする（--claude と一緒に使う）
 //     --db-down     … 第2a1回 M-2b: 議事録の DB のプロセス（偽の utilityProcess の中の本物の server.js）の SQLite が trigram を持たない
 //                     （helpers/no-trigram.js を子の中で先に読む）。自分の確かめが通らず、DB は「使えない」で起きる。場面の dbDown でも同じ
@@ -3248,6 +3249,17 @@ process.on('exit', () => {
     out.qualityBefore = (store.getPage(store.listPages()[0].id) || {}).quality;
     await handlers['settings:save']({}, { qualityScore: flagVal('--resum-quality') });
     out.resum = await handlers['page:summarize']({}, store.listPages()[0].id);
+  }
+  // 0.11.0 P-12（R4）: 前の版で手で一般・その他を選んだページにして（page.put で attrs を書く）、［要約を再生成］（--legacy-general）
+  if (flags.includes('--legacy-general') && store.listPages().length) {
+    const id = store.listPages()[0].id;
+    const cur = await dbClient.call('page.get', { id });
+    const pg = cur && cur.page ? cur.page : cur;
+    const { rev, ...rest } = pg;
+    await dbClient.call('page.put', { page: { ...rest, meetingType: 'general', typeAuto: false }, baseRev: rev });
+    const before = store.getPage(id) || {};
+    out.legacyGeneral = { before: { meetingType: before.meetingType, typeAuto: before.typeAuto } };
+    out.legacyGeneral.resum = await handlers['page:summarize']({}, id);
   }
   // 要約の直後の page:updated の qualityView（0.11.0 Q-3）
   { const u = sent.filter(([ch]) => ch === 'page:updated').pop(); out.updatedQualityView = u && u[1] && u[1].page ? u[1].page.qualityView : undefined; }
