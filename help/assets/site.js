@@ -26,8 +26,14 @@
     var box = toc.parentNode;
     var home = toc.nextSibling;
     var place = function () {
+      // 動かすとブラウザーは中のフォーカスを外すので、目次の中にあったら動かした後に戻す（4回目の審査の指摘 2）
+      var had = document.activeElement;
+      var n = had;
+      while (n && n !== toc) n = n.parentNode;
+      if (n !== toc) had = null;
       if (mq.matches) box.insertBefore(toc, btn.nextSibling);
       else box.insertBefore(toc, home);
+      if (had && had.focus) had.focus({ preventScroll: true });
     };
     place();
     if (mq.addEventListener) mq.addEventListener('change', place);

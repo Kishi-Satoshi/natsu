@@ -96,7 +96,11 @@ var HelpSearch = (function () {
       function mark() {
         var opts2 = list.querySelectorAll('[role="option"]');
         for (var k = 0; k < opts2.length; k++) opts2[k].setAttribute('aria-selected', k === active ? 'true' : 'false');
-        if (active >= 0) input.setAttribute('aria-activedescendant', opts2[active].id);
+        if (active >= 0) {
+          input.setAttribute('aria-activedescendant', opts2[active].id);
+          // 選んだ行を一覧の見える所へ送る（一覧の高さが足りない 400% の拡大や横向きのスマホでも、選んだ行が見える: 4回目の審査の指摘 1）
+          if (opts2[active].scrollIntoView) opts2[active].scrollIntoView({ block: 'nearest' });
+        }
         else input.removeAttribute('aria-activedescendant');
       }
       function show(items, note) {
@@ -154,11 +158,22 @@ var HelpSearch = (function () {
         while (n && n !== box) n = n.parentNode;
         if (n !== box) close();
       });
+      // 一覧のリンクでない所（余白・「見つかりませんでした」）を押しても、フォーカスを箱に残す（ul に移ると ↑↓・Esc が箱に届かない: 4回目の審査の指摘 3）
+      list.addEventListener('mousedown', function (e) {
+        var n = e.target;
+        while (n && n !== list && String(n.tagName).toLowerCase() !== 'a') n = n.parentNode;
+        if (!n || n === list) e.preventDefault();
+      });
       input.addEventListener('input', update);
       input.addEventListener('keydown', function (e) {
         var open = list.hidden === false;
         if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
-          if (!open || !results.length) return;
+          // 閉じていて箱に語があるときは ↓ で開き直す（Tab で出て戻ったとき・窓を切り替えたとき: 4回目の審査の指摘 3）
+          if (!open) {
+            if (e.key === 'ArrowDown' && fold(input.value)) { e.preventDefault(); update(); }
+            return;
+          }
+          if (!results.length) return;
           e.preventDefault();
           var n = results.length;
           active = e.key === 'ArrowDown' ? (active + 1) % n : (active <= 0 ? n - 1 : active - 1);
