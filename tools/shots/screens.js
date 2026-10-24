@@ -192,7 +192,7 @@ const SCREENS = [
   // 足した画面（まだ基準が無い）
   { name: 'page-summary-lock-light', page: 'app', theme: 'light', get answers() { return summaryLockAnswers(); }, act: OPEN_PAGE_SUMMARY },
   // 0.10.1 CD-3（D84・計画 docs/plans/2026-10-23-101.md の「取り直す画面（RETAKE）」）: Claude デスクトップが動いている間に［Claude デスクトップに登録］を押して
-  // 断った形（#mcpMsg に RN1）。足した画面（まだ基準が無い）
+  // 断った形（#mcpMsg に RN1）。足した画面（版を 0.10.1 に上げる commit で、持ち主が OK と言った CI の画像を基準にした）
   {
     name: 'settings-mcp-running-light', page: 'app', theme: 'light', act: MCP_RUNNING_ACT,
     answers: { 'koeApp.mcpStatus': { desktop: { state: 'none', files: 1, running: true } }, 'koeApp.mcpRegister': { ok: false, state: 'none', code: 'running', running: true } },
@@ -269,10 +269,9 @@ const OVL_094 = (states) => PS.FORMS.flatMap((form) => Object.keys(PS.DESKS).fla
 // 「OK」と言った。持ち主の答えで MCP のカードの頭の1行（「Claude デスクトップから議事録を読めるようにします。」）だけを直した後の CI run 39934849171
 // （03d209d）・artifact 12493472101 の .after.png（46 枚）をバイトのまま基準にし、空に戻した。OK の画像と比べて、直した1行の写る4枚（settings-summary-light・
 // settings-info-claude-light・settings-mcp-light・settings-info-mcp-light）のその行のほかに違いは無い（左の列の印の 1 段の色の揺れは、同じ app.html の2つの run の間にもある）
-// 0.10.1（計画 docs/plans/2026-10-23-101.md の「取り直す画面（RETAKE）」）。CD-3（D84）: 断った文 RN1 を持ち主に見てもらうために足した1枚（まだ基準が無い）
-const RETAKE = new Set([
-  'settings-mcp-running-light',
-]);
+// 0.10.1（版を 0.10.1 に上げる commit）: 持ち主が 2026-10-24 に settings-mcp-running-light（CD-3 の断った文 RN1）の画像を見て「OK」と言ったので、
+// CI run 40071461858（1dff338）・artifact 12552271208 の .after.png をバイトのまま基準にし、空に戻した
+const RETAKE = new Set([]);
 const PERF = [{ name: 'open-2000-blocks', budgetMs: 500 }];   // 3回開いた中央値で見る
 const TIME_ZONE = 'Asia/Tokyo';
 const TOLERANCE = 2;   // 色の差（0〜255）がこれ以下の画素は同じとみなす。CI の機械の CPU ごとの描き方の1段の差を拾わないため（揺れの確かめ judgePair は 0 で見る）
