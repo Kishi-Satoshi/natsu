@@ -118,7 +118,7 @@ const ADDED_101 = [...NEW_101];
 const RETAKE_110 = ['notes-page-light', 'notes-page-dark', 'notes-tabs-light', 'notes-collapsed-light',
   'page-menu-link-light', 'page-menu-link-dark', 'page-summary-lock-light', 'search-palette-light',
   // P-12（R7・R15）: 種類の欄の「自動」と灰色の文で、種類の行を写す残りの画面も
-  'notes-page-zoom200-light', 'list-select-light', 'list-select-dark',
+  'notes-page-zoom200-light',
   // V-1: 行の名前「会議の種類」と「メモの型」。足した画面と、録音中のページを写す画面（種類の行と一言: P10 (a)）
   'page-type-light', 'page-type-dark', 'page-type-undecided-light', 'live-type-light',
   'live-light', 'live-dark', 'live-banner-light', 'live-banner-dark', 'live-banner-zoom200-dark', 'live-quiet-light', 'live-quiet-dark',
@@ -127,7 +127,7 @@ const RETAKE_110 = ['notes-page-light', 'notes-page-dark', 'notes-tabs-light', '
   // V-2: 新しい形の要約の並びと打ち合わせの質のカード（足した画面）
   'page-quality-light', 'page-quality-dark',
   // V-3: 設定のカード「打ち合わせの質」（足した画面）と、項目「要約」を写す設定の画面（カードが1枚増える）
-  'settings-quality-light', 'settings-summary-light', 'settings-info-claude-light', 'settings-mcp-light', 'settings-info-mcp-light'];
+  'settings-quality-light', 'settings-summary-light', 'settings-info-claude-light', 'settings-mcp-light', 'settings-info-mcp-light', 'settings-mcp-running-light'];
 const img = (w, h, fill = [255, 255, 255, 255]) => ({ width: w, height: h, data: Buffer.from(Array.from({ length: w * h }, () => fill).flat()) });
 // 一時フォルダ（日本語と 𠮷 の名前。RF1 と同じ形）。テストの終わりに消す
 const tmp = (t, name) => {
