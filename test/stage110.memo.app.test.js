@@ -493,3 +493,14 @@ test('0.11.0 V-4: 判定が今の種類と同じ・決まらない・手で選�
   assert.strictEqual(titleHint(m), '');
   assert.deepStrictEqual(m.errors.map(fmt), []);
 });
+
+// ---------------------------------------------------------------- 0.11.0 点検の直し 4（R27）
+test('点検の直し 4（R27）: 前の版で手で一般・その他を選んだページでも、要約のときの自動の判定（autoType）が選べる種類なら「自動判定: {名前}」とその型（決まらなかった文にしない。再生成の答えと同じ）', T, async () => {
+  const l = await openPage({ meetingType: 'general', typeAuto: false, autoType: 'standup', blocks: [{ id: 'b1', type: 'bullet', text: '要点', cites: ['s1'] }] });
+  assert.strictEqual($(l, 'pType').value, '');
+  assert.ok($(l, 'pTypeHint').textContent.startsWith(`自動判定: ${mtype.getLabel('standup')}`), $(l, 'pTypeHint').textContent);
+  assert.ok(!$(l, 'pTypeHint').textContent.includes(mtype.AUTO_UNDECIDED_TEXT));
+  assert.strictEqual($(l, 'pMemoType').textContent, `メモの型: ${LABEL('report')}`);
+  assert.ok(!l.calls.some((c) => c.method === 'pageSetType'), '開いただけで種類を書いた');
+  assert.deepStrictEqual(l.errors.map(fmt), []);
+});
