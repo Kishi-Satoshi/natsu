@@ -249,6 +249,8 @@ main > h2 { font-size: 1.0625rem; margin: 2.6rem 0 .6rem; }
   .toc-btn, .search-q, .toc li a, .crumbs a, .open-go { min-height: calc(44 / 16 * 1rem); }
   .toc li a { display: flex; align-items: center; }
   .crumbs a, .open-go { display: inline-flex; align-items: center; }
+  /* help-relnotes 審査 B-1（R-RN7・HD4）: 分類の見出しの行と「リリースノート」の行も、記事の行と同じく押す場所 44px */
+  .toc-h a { display: inline-flex; align-items: center; min-height: calc(44 / 16 * 1rem); }
   /* 表（HD-6 Q6）: 狭い画面で列を細く折り返さず、表の領域の中だけ横に送る（領域は tabindex でキーボードでも送れる。影は付けない） */
   .table table { min-width: calc(640 / 16 * 1rem); }
   /* 上の帯の検索の結果は、上の帯の幅いっぱい（左右の余白の内側）に出す（箱の幅だけだと 320px で 1 行 4〜5 字になる: 3回目の指摘 3） */

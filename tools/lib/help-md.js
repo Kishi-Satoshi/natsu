@@ -158,8 +158,8 @@ function linkTarget(href, ctx, line, fail, i) {
     const id = href.slice(1);
     if (!ID.test(id)) fail('bad-link', `#id の形が違う: ${href}`, i);
     ctx.links.push({ kind: 'anchor', ref: null, anchor: id });
-    ctx.pendingAnchors.push({ id, line });
-    return href;
+    ctx.pendingAnchors.push({ id: ctx.idPrefix + id, line });
+    return `#${ctx.idPrefix}${id}`;
   }
   const m = ARTICLE_LINK.exec(href);
   if (m) {
@@ -240,6 +240,7 @@ function renderBlocks(lines, ctx, inNote) {
       const linkable = id !== null;
       if (!linkable) id = `s${++ctx.autoId}`;
       ctx.ids.add(id);
+      id = ctx.idPrefix + id;   // help-relnotes 審査 A-4: 1つのページに並べる版の節では、版の id を頭に付ける
       const step = level === 2 ? /^手順(\d{1,2})\. (.+)$/.exec(src) : null;
       let html;
       let plain;
@@ -296,7 +297,7 @@ function renderBlocks(lines, ctx, inNote) {
       const base = lastH ? `${lastH.text}の表` : `表 ${++ctx.tables}`;
       const used = (ctx.tableNames.get(base) || 0) + 1;
       ctx.tableNames.set(base, used);
-      const name = used > 1 ? `${base} ${used}` : base;
+      const name = `${ctx.tablePrefix}${used > 1 ? `${base} ${used}` : base}`;
       out.push(`<div class="table" role="region" aria-label="${escapeHtml(name)}"><table>\n<thead>${head}</thead>\n<tbody>\n${body}\n</tbody>\n</table></div>`);
       i = j;
     } else if (t.startsWith('![')) {
@@ -398,7 +399,8 @@ function renderList(lines, start, ctx, fail, inl) {
 
 /**
  * 記事の本文を HTML にする。
- * opts: { file, bodyLine（本文の1行目のファイルの行）, articleExists(ref), anchorExists(ref, id)（無ければほかの記事の #id を見ない）, assetExists(path) }
+ * opts: { file, bodyLine（本文の1行目のファイルの行）, articleExists(ref), anchorExists(ref, id)（無ければほかの記事の #id を見ない）, assetExists(path),
+ *         idPrefix（見出しの id とページの中の #id の頭に付ける字。既定は空）, tablePrefix（表の領域の名前の頭に付ける字。既定は空） }
  * → { html, headings: [{ level, id, text, linkable }], text（検索の本文）, links: [{ kind, ref, anchor }] }
  */
 function renderMarkdown(body, opts = {}) {
@@ -414,6 +416,8 @@ function renderMarkdown(body, opts = {}) {
     autoId: 0,
     tables: 0,   // 見出しの無い表の番号（表 1・表 2…）
     tableNames: new Map(),   // 表の領域の名前の使った数（記事の中で重ねない: axe の landmark-unique）
+    idPrefix: typeof opts.idPrefix === 'string' ? opts.idPrefix : '',
+    tablePrefix: typeof opts.tablePrefix === 'string' ? opts.tablePrefix : '',
   };
   const base = Number.isInteger(opts.bodyLine) ? opts.bodyLine : 1;
   const lines = normalize(body).split('\n').map((raw, k) => ({ raw, t: raw.replace(/\s+$/, ''), n: base + k }));

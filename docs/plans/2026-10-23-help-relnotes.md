@@ -24,6 +24,18 @@
 
 **Ruling R-RN1（言葉をアプリの名前に合わせた）:** 頭の注と計画の文の「アプリの［設定］→［アップデート］」を「アプリの［設定］→［更新］」に直した。アプリの設定の左の列の名前は「更新」（`src/renderer/app.html` の `setNavUpdate`）で、「アップデート」はその中のカードの見出し。リリースノートの文は RF51 の照らしの外だが、注はヘルプの側で書く文なので、画面の言葉に合わせる（調整役の指摘。持ち主には調整役から伝える）。
 
+### 審査の回（2026-10-24。別の審査役の `ca1b0f2` の審査: 中 1・低 4・軽微 1。持ち主の答えは調整役から）
+
+**Ruling R-RN3（A-1・A-2。持ち主の答え A: ヘルプの出し直しの失敗でリリースを赤にしない）:** help-deploy を起こす段を `installer` のジョブから出し、小さなジョブ `help-redeploy` にする。`needs: installer`、`if: success() && (github.event_name != 'workflow_dispatch' || inputs.publish)`（installer が通って公開したときだけ）、ジョブの `continue-on-error: true`、`permissions` は `actions: write` だけ（取り出しも npm も無し）。段は `gh workflow run help-deploy.yml --repo "$GITHUB_REPOSITORY" --ref main` で、失敗したら `::warning::` に「Actions → help-deploy → Run workflow（main）を押す」と出す。`installer` の `permissions` は `contents: write` だけに戻す。これで出し直しが失敗しても、installer の `failure()` の段（「draft のまま」）は走らず、一時ブランチの片付けも飛ばない。RN-6 のテストと変異をこの形に直す。
+
+**Ruling R-RN4（A-3。公開前の確認の形を1か所に）:** 公開前の確認の4つの形を `tools/lib/help-public.js` に1つだけ置き、リリースノート（`help-relnotes.js`）と記事のテスト（`test/help-content.test.js`）の両方から使う。メールは最後が英字の TLD（`electron@44.9.0`・`@anthropic-ai/claude-code@2.0.1` は当たらない）。Windows のパスは大文字小文字を問わず（ドライブ名と Users を小文字で書いた人のパスも止める）、伏せ字の `C:\Users\<名前>\…`・`%…%`・`＜…＞` は通す（`tools/risk.js` と同じ）。
+
+**Ruling R-RN5（A-4。ページの中で id を重ねない）:** 版の節の中の見出しの id には版の id を頭に付ける（`v0-10-0-s1`、`{#x}` は `v0-10-0-x`）。付けた後の id が版の id（`v…`）とぶつかれば作るのを止める。見出しの無い表の名前（表 1）も版ごとに「0.10.0 の表 1」にする。`checkPages` に「1つのページの中で id が重ならない」を足し、重なれば作るのを止める（記事にも効く）。
+
+**Ruling R-RN6（A-5。R-RN1 の続き）:** README（更新の配布の節の2か所）と `release.yml` の頭の注の「[設定] → [アップデート]」を「[設定] → [更新]」に直す。出した版の `CHANGELOG.md` の本文は変えない（RN1）。
+
+**Ruling R-RN7（B-1。持ち主の決定 HD4「48rem 未満で押す場所 44px」）:** 48rem 未満では、左の目次の分類の見出しの行と「リリースノート」の行（`.toc-h a`）も、記事の行と同じく押す場所を 44px にする（目次が少し長くなるのが失うもの）。3回目の指摘 1 の目次の並べ替えとフォーカスの決まりは変えない。写真を撮り直す。
+
 **回の名前:** help-relnotes（ヘルプセンターのリリースノート）— タスク RN-0〜RN-7
 **元にした枝:** `lane/help-dads` の `baadb2d`（ヘルプセンターの DADS の直し。別の審査役が審査している最中なので、その枝には commit しない）。作業の枝は `lane/help-relnotes`（worktree `/home/user/Listener-relnotes`）。main と `release/*` には push しない。
 **版:** ヘルプセンターはアプリの版とは別に出す（`help/` はアプリに入らない: 設計書 D22・HC0）。だから版は上げない。`CHANGELOG.md` は見出しに日付を足す（中身の文は変えない）。
@@ -247,6 +259,16 @@ NaTsu ヘルプセンターに「リリースノート」のページを1つ足�
 | hrn-deploy-after-release | `.github/workflows/release.yml` | 公開の後に help-deploy を起こす段を消す（ヘルプに新しい版が載らない） | `test/help-relnotes.test.js` |
 | hrn-deploy-paths | `.github/workflows/help-deploy.yml` | `paths` に `CHANGELOG.md` を足す（版を上げた時点で、公開の前にヘルプに載る） | `test/help-relnotes.test.js` |
 | hrn-toc-row | `tools/lib/help-page.js` | 左の目次の「リリースノート」の行を出さない（Q9 の A） | `test/help-relnotes.test.js` |
+| hrn-redeploy-continue | `.github/workflows/release.yml` | help-redeploy のジョブの continue-on-error を消す（出し直しの失敗でリリースが赤になる。R-RN3） | `test/help-relnotes.test.js` |
+| hrn-redeploy-if | `.github/workflows/release.yml` | help-redeploy の if を always() にする（公開しないときにも出し直す。R-RN3） | `test/help-relnotes.test.js` |
+| hrn-installer-actions | `.github/workflows/release.yml` | installer の権限に actions: write を戻す（A-2。R-RN3） | `test/help-relnotes.test.js` |
+| hrn-email-tld | `tools/lib/help-public.js` | メールの形の TLD を英字に限らない（electron@44.9.0 で止まる。R-RN4） | `test/help-relnotes.test.js` |
+| hrn-path-case | `tools/lib/help-public.js` | Windows のパスの形の大文字小文字を区別する（c:\users\… が通る。R-RN4） | `test/help-relnotes.test.js` |
+| hrn-path-placeholder | `tools/lib/help-public.js` | 伏せ字のパス（<名前>・%…%・＜…＞）も止める（R-RN4） | `test/help-relnotes.test.js` |
+| hrn-id-prefix | `tools/lib/help-relnotes.js` | 版の節の見出しの id に版の id を付けない（ページの中で s1 が重なる。R-RN5） | `test/help-relnotes.test.js` |
+| hrn-table-prefix | `tools/lib/help-relnotes.js` | 見出しの無い表の名前に版を付けない（「表 1」が重なる。R-RN5） | `test/help-relnotes.test.js` |
+| hrn-dup-id | `tools/help-build.js` | checkPages の「ページの中で id が重ならない」を外す（R-RN5） | `test/help-build.test.js` |
+| hrn-toc-h-44 | `help/assets/help.css` | 48rem 未満の .toc-h a の 44px を消す（R-RN7。CSS なので pattern B-1） | `test/help-build.test.js` |
 
 （表と `IDS_HELP_RELNOTES` はちょうど同じにし、`test/mutate.test.js` が照らす: help-dads の `IDS_HELP_DADS` と同じ形。）
 

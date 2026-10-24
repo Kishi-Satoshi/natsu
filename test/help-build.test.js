@@ -87,6 +87,9 @@ test('HF4: 作った全部のページの中の / で始まるリンクと #id �
   assert.throws(() => checkPages(new Map([['index.html', '<a href="#nowhere">x</a>']])), (e) => e.name === 'HelpBuildError' && e.code === 'missing-anchor');
   assert.throws(() => checkPages(new Map([['index.html', '<a href="/a/#x">x</a>'], ['a/index.html', '<p id="y">y</p>']])), (e) => e.code === 'missing-anchor');
   assert.doesNotThrow(() => checkPages(new Map([['index.html', '<a href="/a/#y">x</a><link rel="stylesheet" href="/assets/help.css">'], ['a/index.html', '<p id="y">y</p>'], ['assets/help.css', null]])));
+  // help-relnotes 審査 A-4（R-RN5）: 1つのページの中で id が重なれば止める（ほかのページと同じ id は構わない）
+  assert.throws(() => checkPages(new Map([['index.html', '<h2 id="s1">a</h2><h3 id="s1">b</h3>']])), (e) => e.name === 'HelpBuildError' && e.code === 'duplicate-id' && e.file === 'help/dist/index.html' && /s1/.test(e.message));
+  assert.doesNotThrow(() => checkPages(new Map([['index.html', '<p id="s1">a</p>'], ['a/index.html', '<p id="s1">b</p>']])));
 });
 
 test('HF3: 出力のどの HTML にも style=・on…=・src の無い <script>・http:// が無い。どのページにも <meta name="natsu-help" content="page"> と lang="ja"', { timeout: 5000 }, (t) => {
@@ -486,6 +489,19 @@ test('HD-3（HD4・DF5）: 48rem 未満（@media (max-width: 47.9375rem)）だ�
   for (const r of rules) {
     if (r.decls['min-height'] === undefined || r.at === NARROW) continue;
     for (const sel of TAP) assert.ok(!r.sel.split(',').map((x) => x.trim()).includes(sel), `${sel} の min-height が 48rem 未満の外にある（${r.at || '基底'}）`);
+  }
+});
+
+test('help-relnotes 審査 B-1（R-RN7・持ち主の決定 HD4）: 48rem 未満では、左の目次の分類の見出しの行と「リリースノート」の行（.toc-h a）も押す場所が 44px（calc(44 / 16 * 1rem)）で、文字は真ん中。広い画面には効かない', { timeout: 5000 }, () => {
+  const rules = C.parse(CSS());
+  const NARROW = '@media (max-width: 47.9375rem)';
+  const d = C.declsFor(rules, '.toc-h a', { at: NARROW });
+  assert.strictEqual(d['min-height'], 'calc(44 / 16 * 1rem)');
+  assert.ok(/flex$/.test(d.display || '') && d['align-items'] === 'center', '.toc-h a の文字が 44px の真ん中に来ない');
+  assert.strictEqual(C.declsFor(rules, '.toc-h a', { at: '' })['min-height'], undefined, '広い画面にも 44px が効く');
+  for (const r of rules) {
+    if (r.decls['min-height'] === undefined || r.at === NARROW) continue;
+    assert.ok(!r.sel.split(',').map((x) => x.trim()).includes('.toc-h a'), `.toc-h a の min-height が 48rem 未満の外にある（${r.at || '基底'}）`);
   }
 });
 

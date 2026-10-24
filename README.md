@@ -531,7 +531,7 @@ git push origin natsu-v0.1.0
 `.github/workflows/release.yml` がテストを回し、zipを作り、Releaseを公開します。
 その commit で Linux と Windows の CI（`.github/workflows/ci.yml`）が両方緑のときだけ出ます。
 `CHANGELOG.md` の該当節がそのままリリース本文になり、アプリの
-[設定] → [アップデート] に表示されます。
+[設定] → [更新] に表示されます。
 タグは `natsu-v<版>` の形にします（古い `v<版>` のタグでは動きません）。
 形が違うときと、`natsu-v` を外した版が `package.json` のバージョンと食い違うときは、ワークフローが止まります。
 
@@ -546,7 +546,7 @@ exe の添付に失敗すると draft のまま残り、Actions の要約に赤�
 Actions 画面の **Run workflow**、または `release/natsu-v0.1.0` という名前の
 ブランチを push しても同じ結果になります（そのブランチは公開後に自動で消えます）。
 
-各PCの NaTsu が起動時、または [設定] → [アップデート] → [更新を確認] で検出します。
+各PCの NaTsu が起動時、または [設定] → [更新] → [更新を確認] で検出します。
 
 手元でzipだけ作りたい場合（Releaseは手動で作る）:
 

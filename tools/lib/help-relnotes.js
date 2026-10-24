@@ -13,13 +13,8 @@ const { renderMarkdown, HelpBuildError } = require('./help-md');
 const FILE = 'CHANGELOG.md';
 const HEAD = /^## natsu-v(\d+)\.(\d+)\.(\d+)(?: （(\d{4})-(\d{2})-(\d{2})）)?$/;
 
-/** 公開前の確認（G-21）。リポジトリに置いてはいけない字面 */
-const PUBLIC = [
-  [/[a-z0-9-]+\.cloudflareaccess\.com/i, 'チームのドメイン'],
-  [/(?<![0-9a-f])[0-9a-f]{64}(?![0-9a-f])/i, '64 字の16進'],
-  [/[A-Za-z]:\\{1,2}Users\\{1,2}/, '個人の Windows のパス'],
-  [/[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+/, 'メールの住所'],
-];
+/** 公開前の確認（G-21）。形は記事のテストと同じ1か所（審査 A-3・Ruling R-RN4） */
+const { PUBLIC } = require('./help-public');
 
 const fail = (msg, line) => { throw new HelpBuildError(`${FILE}: ${msg}`, { file: FILE, line, code: 'bad-changelog' }); };
 const realDate = (y, m, d) => {
@@ -72,17 +67,29 @@ function parseChangelog(text) {
   return secs.map(({ v, ...s }) => s);
 }
 
-/** ページに出す版（日付のある節だけ。上から新しい順） → [{ version, date, id, html, text }] */
+/**
+ * ページに出す版（日付のある節だけ。上から新しい順） → [{ version, date, id, html, text }]
+ * 審査 A-4（R-RN5）: 版の節は1つのページに並ぶので、節の中の見出しの id には版の id を頭に付け（v0-10-0-s1）、
+ * 見出しの無い表の名前も版ごとにする（0.10.0 の表 1）。それでもページの中で id が重なれば止める。
+ */
 function renderRelnotes(secs) {
+  const used = new Set();
   return secs.filter((s) => s.date).map((s) => {
+    const id = `v${s.version.replace(/\./g, '-')}`;
     const r = renderMarkdown(s.body, {
       file: FILE,
       bodyLine: s.bodyLine,
       articleExists: () => false,
       anchorExists: () => false,
       assetExists: () => false,
+      idPrefix: `${id}-`,
+      tablePrefix: `${s.version} の`,
     });
-    return { version: s.version, date: s.date, id: `v${s.version.replace(/\./g, '-')}`, html: r.html, text: r.text };
+    for (const x of [id, ...r.headings.map((h) => h.id)]) {
+      if (used.has(x)) fail(`ページの中で id が重なります: ${x}`, s.line);
+      used.add(x);
+    }
+    return { version: s.version, date: s.date, id, html: r.html, text: r.text };
   });
 }
 

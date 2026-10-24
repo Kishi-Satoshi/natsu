@@ -56,6 +56,7 @@ test('RN-2（RN4・参考 1・2）: 見出しの形は2つだけ。版が新し�
   assert.deepStrictEqual(R.parseChangelog(mini(['## natsu-v0.1.1 （2026-10-17）'], ['## natsu-v0.1.0 （2026-10-17）'])).length, 2, '同じ日の2つの版は通す');
   const bad = [
     ['順の逆', mini(['## natsu-v0.1.0 （2026-10-17）'], ['## natsu-v0.1.1 （2026-10-18）']), 9],
+    ['順の逆（同じ日。日付の照らしでは止まらない）', mini(['## natsu-v0.1.0 （2026-10-17）'], ['## natsu-v0.1.1 （2026-10-17）']), 9],
     ['同じ版が2回', mini(['## natsu-v0.1.0 （2026-10-17）'], ['## natsu-v0.1.0 （2026-10-17）']), 9],
     ['実在しない日付', mini(['## natsu-v0.1.1 （2026-02-30）'], ['## natsu-v0.1.0 （2026-02-01）']), 5],
     ['上の版より新しい日付', mini(['## natsu-v0.1.1 （2026-10-17）'], ['## natsu-v0.1.0 （2026-10-18）']), 9],
@@ -229,23 +230,32 @@ test('RN-3（RN1）: releaseNotes があるのに CHANGELOG.md が無い・形�
 const { jobsOf, stepsOf } = require('./helpers/yml');
 const ifLine = (s) => (s.match(/^\s*if:\s*(.+)$/m) || [])[1] || '';
 
-test('RN-6（F・RNF2）: release.yml の installer で、公開の段（--draft=false --latest）のすぐ後ろに、同じ if で help-deploy を起こす段（gh workflow run help-deploy.yml --ref main・GH_TOKEN は github.token）。installer の権限は contents: write と actions: write だけ。ワークフロー全体の権限は今のまま', { timeout: 5000 }, () => {
+test('RN-6（F・RNF2）＋審査 A-1・A-2（R-RN3・持ち主の答え A）: help-deploy を起こすのは installer の後ろの小さなジョブ help-redeploy（needs: installer・公開したときだけの if と success()・ジョブの continue-on-error: true・権限は actions: write だけ・取り出しも npm も無し）。失敗は ::warning:: で知らせ、リリースを赤にしない。installer の権限は contents: write だけ', { timeout: 5000 }, () => {
   const y = read('.github/workflows/release.yml');
-  const job = jobsOf(y).installer;
-  const st = stepsOf(job);
-  const iPub = st.findIndex((s) => /gh release edit "\$TAG"[^\n]*--draft=false --latest/.test(s));
-  assert.ok(iPub >= 0, '公開の段が無い');
-  const iDep = st.findIndex((s) => /gh workflow run help-deploy\.yml/.test(s));
-  assert.strictEqual(iDep, iPub + 1, 'help-deploy を起こす段が公開の段のすぐ後ろに無い');
-  const dep = st[iDep];
-  assert.strictEqual(ifLine(dep), "github.event_name != 'workflow_dispatch' || inputs.publish");
-  assert.strictEqual(ifLine(dep), ifLine(st[iPub]), '公開の段と if が違う（公開しないときにも出し直す）');
-  assert.match(dep, /^\s*GH_TOKEN: \$\{\{ github\.token \}\}$/m);
-  assert.match(dep, /^\s*gh workflow run help-deploy\.yml --repo "\$GITHUB_REPOSITORY" --ref main$/m);
-  assert.strictEqual((y.match(/gh workflow run/g) || []).length, 1, 'ほかにもワークフローを起こしている');
+  const jobs = jobsOf(y);
+  assert.deepStrictEqual(Object.keys(jobs), ['ci', 'release', 'installer', 'help-redeploy']);
+  const job = jobs['help-redeploy'];
+  assert.match(job, /^    needs: installer$/m);
+  assert.match(job, /^    if: success\(\) && \(github\.event_name != 'workflow_dispatch' \|\| inputs\.publish\)$/m, '公開しないとき・installer が赤のときにも起こす');
+  assert.match(job, /^    continue-on-error: true$/m, '出し直しの失敗でリリースが赤になる');
   const perm = /^    permissions:\n((?:      [^\n]*\n)+)/m.exec(job);
-  assert.ok(perm, 'installer の permissions が無い');
-  assert.deepStrictEqual(perm[1].split('\n').filter(Boolean).map((l) => l.replace(/\s+#.*$/, '').trim()), ['contents: write', 'actions: write']);
+  assert.ok(perm, 'help-redeploy の permissions が無い');
+  assert.deepStrictEqual(perm[1].split('\n').filter(Boolean).map((l) => l.replace(/\s+#.*$/, '').trim()), ['actions: write']);
+  const st = stepsOf(job);
+  assert.strictEqual(st.length, 1, '取り出しや npm を足さない');
+  assert.ok(!/actions\/checkout|npm /.test(job));
+  assert.match(st[0], /^\s*GH_TOKEN: \$\{\{ github\.token \}\}$/m);
+  assert.match(st[0], /^\s*gh workflow run help-deploy\.yml --repo "\$GITHUB_REPOSITORY" --ref main \\$/m);
+  assert.match(st[0], /\|\| \{ echo "::warning::[^"]*Run workflow[^"]*"; exit 1; \}/, '失敗を ::warning:: で知らせない');
+  assert.strictEqual((y.match(/gh workflow run/g) || []).length, 1, 'ほかにもワークフローを起こしている');
+  // installer: 権限は contents: write だけに戻し、公開の段・失敗の要約・一時ブランチの片付けに help-deploy が混ざらない
+  const inst = jobs.installer;
+  const ip = /^    permissions:\n((?:      [^\n]*\n)+)/m.exec(inst);
+  assert.deepStrictEqual(ip[1].split('\n').filter(Boolean).map((l) => l.replace(/\s+#.*$/, '').trim()), ['contents: write']);
+  assert.ok(!/help-deploy|actions: write/.test(inst.replace(/^[ \t]*#[^\n]*\n/gm, '')), 'installer に help-deploy を起こす段・actions: write が残っている');
+  const ist = stepsOf(inst);
+  const iPub = ist.findIndex((s) => /gh release edit "\$TAG"[^\n]*--draft=false --latest/.test(s));
+  assert.ok(iPub >= 0 && ifLine(ist[iPub]) === "github.event_name != 'workflow_dispatch' || inputs.publish", '公開の段の if が変わった');
   assert.match(y, /\npermissions:\n  contents: write # リリースとタグの作成に必要\n\n/);
 });
 
@@ -258,4 +268,65 @@ test('RN-6（F・RNF2）: help-deploy.yml の paths に CHANGELOG.md が無い�
   const list = paths[1].split(',').map((x) => x.trim().replace(/^'|'$/g, ''));
   assert.ok(!list.some((p) => /CHANGELOG|^\*\*|^\*$/.test(p)), `paths に CHANGELOG.md（か全部に当たる形）がある: ${list.join(', ')}`);
   assert.ok(list.includes('tools/lib/help-*.js'), '作る道具（help-relnotes.js）の変化で出し直さない');
+});
+
+// ================= 審査の回（2026-10-24。scratchpad の review-relnotes.md の A-1〜A-5・B-1） =================
+
+test('審査 A-5（R-RN1）: README と release.yml の注の「アプリのどこに出るか」は、アプリの設定の左の列の名前（［設定］→［更新］）。［アップデート］（中のカードの見出し）と書かない。出した版の CHANGELOG の本文は変えない', { timeout: 5000 }, () => {
+  const ng = /\[設定\]\s*(?:→|->)\s*\[アップデート\]|［設定］\s*→\s*［アップデート］/;
+  for (const f of ['README.md', '.github/workflows/release.yml']) assert.ok(!ng.test(read(f)), `${f} に「[設定] → [アップデート]」が残っている`);
+  const readme = read('README.md');
+  assert.ok(readme.includes('[設定] → [更新] に表示されます。'), 'README の更新の配布の節');
+  assert.ok(readme.includes('[設定] → [更新] → [更新を確認] で検出します。'), 'README の各 PC の更新の確かめ方');
+  assert.match(read('.github/workflows/release.yml'), /^# リリース本文はアプリの \[設定\] -> \[更新\] にそのまま表示される。$/m);
+  assert.ok(read('src/renderer/app.html').includes('>更新<'), 'アプリの設定の左の列に「更新」が無い（前提が崩れた）');
+});
+
+test('審査 A-4（R-RN5）: 版の節の中の見出しの id は版の id を頭に付け（v0-1-0-s1・{#fix} は v0-1-0-fix、ページの中の #fix のリンクも同じ）、見出しの無い表の名前も版ごと（0.1.0 の表 1）。2つの版に同じ見出しがあっても、作ったページの中で id と表の名前が重ならない', { timeout: 10000 }, (t) => {
+  const cl = mini(
+    ['## natsu-v0.1.1 （2026-10-18）', '### 直したこと\n\n- 1つ。\n\n| a | b |\n| --- | --- |\n| 1 | 2 |\n\n### 別の見出し {#v0-1-0}\n\n- 版の id と同じ字の {#…}。'],
+    ['## natsu-v0.1.0 （2026-10-17）', '| x | y |\n| --- | --- |\n| 3 | 4 |\n\n### 直したこと {#fix}\n\n- [直したこと](#fix) を見る。\n\n| a | b |\n| --- | --- |\n| 1 | 2 |'],
+  );
+  const [v1, v0] = R.renderRelnotes(R.parseChangelog(cl));
+  assert.ok(v1.html.includes('<h3 id="v0-1-1-s1">直したこと</h3>'), v1.html);
+  assert.ok(v1.html.includes('<h3 id="v0-1-1-v0-1-0">別の見出し</h3>'), v1.html);
+  assert.ok(v0.html.includes('<h3 id="v0-1-0-fix">直したこと</h3>'), v0.html);
+  assert.ok(v0.html.includes('<a href="#v0-1-0-fix">直したこと</a>'), v0.html);
+  assert.ok(v0.html.includes('aria-label="0.1.0 の表 1"'), v0.html);
+  assert.ok(v1.html.includes('aria-label="0.1.1 の直したことの表"') && v0.html.includes('aria-label="0.1.0 の直したことの表"'));
+  // 作ったページ全体で id と表の名前が重ならない（作るときの照らしも通る）
+  const { html } = buildReal(t, (root) => fs.writeFileSync(path.join(root, 'CHANGELOG.md'), cl));
+  const h = html('release-notes/index.html');
+  const ids = [...h.matchAll(/\sid="([^"]+)"/g)].map((m) => m[1]);
+  assert.strictEqual(new Set(ids).size, ids.length, `id が重なる: ${ids.join(',')}`);
+  const names = [...h.matchAll(/role="region" aria-label="([^"]+)"/g)].map((m) => m[1]);
+  assert.strictEqual(names.length, 3);
+  assert.strictEqual(new Set(names).size, names.length, names.join(','));
+  assert.ok(h.includes('<section aria-labelledby="v0-1-0">\n<h2 id="v0-1-0">0.1.0</h2>'));
+});
+
+test('審査 A-3（R-RN4）: 公開前の確認の形は tools/lib/help-public.js に1つだけ置き、リリースノートと記事のテストの両方が使う。パッケージ@版（electron@44.9.0・@anthropic-ai/claude-code@2.0.1）と伏せ字のパス（C:\\Users\\<名前>\\…・%…%・＜…＞）は通し、小文字のパス・メールは止める', { timeout: 5000 }, () => {
+  const P = require('../tools/lib/help-public');
+  assert.ok(Array.isArray(P.PUBLIC) && P.PUBLIC.length === 4);
+  assert.match(fs.readFileSync(path.join(ROOT, 'tools', 'lib', 'help-relnotes.js'), 'utf8'), /require\('\.\/help-public'\)/, 'help-relnotes.js が help-public を使っていない');
+  assert.match(read('test/help-content.test.js'), /require\('\.\.\/tools\/lib\/help-public'\)/, '記事のテストが help-public を使っていない');
+  const sec = (line) => mini(['## natsu-v0.1.0 （2026-10-17）', `- ${line}`]);
+  const pass = [
+    'electron@44.9.0 にしました。',
+    '`npm i -g @anthropic-ai/claude-code@2.0.1` で入れます。',
+    `控えは ${['C:', 'Users', '<名前>', 'AppData'].join('\\')} にあります。`,
+    `控えは ${['C:', 'Users', '%USERNAME%', 'AppData'].join('\\')} にあります。`,
+    `控えは ${['C:', 'Users', '＜名前＞', 'AppData'].join('\\')} にあります。`,
+    '問い合わせは someone＠example.com（全角の＠）へ。',
+  ];
+  for (const l of pass) assert.strictEqual(errOf(sec(l)), null, `止めた: ${l}`);
+  const stop = [
+    `場所は ${['c:', 'users', 'someone', 'x'].join('\\')} です。`,
+    `場所は ${['C:', '', 'Users', '', 'someone'].join('\\')} です。`,
+    `連絡は ${['someone', 'example.co.jp'].join('@')} へ。`,
+  ];
+  for (const l of stop) {
+    const e = errOf(sec(l));
+    assert.ok(e && e.code === 'bad-changelog' && e.line === 7, `止めない: ${l}`);
+  }
 });

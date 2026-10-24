@@ -99,12 +99,8 @@ test('HF2: 照らしの元（appLabelText）は src/ の .html と .js だけを
 });
 
 test('公開前の確認: 記事と site.json に、チームのドメインの字面（<名前>.cloudflareaccess.com）・64 字の16進（AUD の見かけ）・C:\\Users\\・半角の @ のメールが無い', { timeout: 5000 }, () => {
-  const bad = [
-    [/(?<![\w-])[a-z0-9-]+\.cloudflareaccess\.com/i, 'チームのドメインの字面（<チームの名前> と書く）'],
-    [/(?<![0-9a-f])[0-9a-f]{64}(?![0-9a-f])/i, '64 字の16進（AUD の見かけ）'],
-    [/[A-Za-z]:\\{1,2}Users\\{1,2}/i, '個人の Windows のパス'],
-    [/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/, '半角の @ のメール（＠ は全角で書く）'],
-  ];
+  // help-relnotes 審査 A-3（R-RN4）: 形はリリースノートの元（CHANGELOG.md）に当てるものと同じ1か所
+  const bad = require('../tools/lib/help-public').PUBLIC;
   const files = ['help/site.json', ...articles.map((a) => a.file)];
   const hits = [];
   for (const f of files) {

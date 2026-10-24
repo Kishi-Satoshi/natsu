@@ -156,6 +156,15 @@ function checkPages(pages) {
   const idsOf = (h) => new Set([...h.matchAll(/\sid="([^"]+)"/g)].map((m) => m[1]));
   const ids = new Map();
   for (const [f, h] of pages) if (typeof h === 'string') ids.set(f, idsOf(h));
+  // help-relnotes 審査 A-4（R-RN5）: 1つのページの中で id が重ならない（重なると #id と aria-labelledby が別の要素を指す）
+  for (const [f, h] of pages) {
+    if (typeof h !== 'string') continue;
+    const seen = new Set();
+    for (const m of h.matchAll(/\sid="([^"]+)"/g)) {
+      if (seen.has(m[1])) throw new HelpBuildError(`ページの中で id が重なる: ${m[1]}`, { file: `help/dist/${f}`, code: 'duplicate-id' });
+      seen.add(m[1]);
+    }
+  }
   for (const [f, h] of pages) {
     if (typeof h !== 'string') continue;
     const file = `help/dist/${f}`;

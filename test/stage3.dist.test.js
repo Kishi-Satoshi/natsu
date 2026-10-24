@@ -30,10 +30,10 @@ function ghCommand(text, sub) {
   return joined.match(new RegExp(`gh release ${sub}[^\\n]*`, 'g')) || [];
 }
 
-test('release.yml が簡易に読める（タブ無し・ジョブは ci と release と installer・各ステップに名前）', () => {
+test('release.yml が簡易に読める（タブ無し・ジョブは ci と release と installer と help-redeploy・各ステップに名前）', () => {
   assert.ok(!/\t/.test(yml), 'YAML にタブがある');
   const j = jobs();
-  assert.deepStrictEqual(Object.keys(j), ['ci', 'release', 'installer']);
+  assert.deepStrictEqual(Object.keys(j), ['ci', 'release', 'installer', 'help-redeploy']);   // help-redeploy は help-relnotes の Ruling R-RN3
   for (const [name, body] of Object.entries(j)) {
     if (!body.includes('\n    steps:\n')) continue; // ci は ci.yml を呼ぶだけで、steps を持たない
     const names = stepsOf(body).map((s) => nameOf(s));
