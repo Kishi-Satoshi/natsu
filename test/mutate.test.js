@@ -475,6 +475,7 @@ const IDS_HELP_RELNOTES = [
   'hrn-order', 'hrn-date-real', 'hrn-undated', 'hrn-render', 'hrn-line', 'hrn-public-check',
   'hrn-page-date', 'hrn-home-card', 'hrn-no-search', 'hrn-toc-row',
   'hrn-onpage-scroll',
+  'hrn-no-labels',
 ];
 test('G3: help-relnotes の変異が一覧にそろい、IDS_HELP_RELNOTES はどれも計画 docs/plans/2026-10-23-help-relnotes.md の「変異確認」の表にあり、当てるファイルと赤になるテストが表と同じ。hrn- の変異は IDS_HELP_RELNOTES にある', { timeout: 5000 }, () => {
   const byId = new Map(MUTANTS.map((m) => [m.id, m]));

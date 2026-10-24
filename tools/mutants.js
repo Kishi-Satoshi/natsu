@@ -2065,4 +2065,6 @@ module.exports = [
   {"id": "hrn-toc-row", "file": "tools/lib/help-page.js", "from": "if (ctx.relnotes) cats.push(", "to": "if (false) cats.push(", "tests": ["test/help-relnotes.test.js"], "why": "help-relnotes RN-3 Q9: 左の目次にリリースノートの行が無く、記事のページからリリースノートへ行けない"},
   // help-relnotes RN-4（公開日の行・「このページの内容」の高さの上限）。CSS の変異は R7 の指紋でも死ぬので pattern で RN-4 のテストだけを走らせる（Ruling R-HD1）
   {"id": "hrn-onpage-scroll", "file": "help/assets/help.css", "from": "max-height: calc(100vh - 48px - 2.5rem); ", "to": "", "tests": ["test/help-build.test.js"], "pattern": "RN-4", "why": "help-relnotes RN-4 RNF5: 「このページの内容」に高さの上限が無く、版が増えると窓より高くなって下の版へ行けない"},
+  // help-relnotes RN-5（RF51 の照らしの元にリリースノートの元を混ぜない）
+  {"id": "hrn-no-labels", "file": "tools/lib/help-labels.js", "from": "  if (fs.existsSync(src)) walk(src);\n", "to": "  if (fs.existsSync(src)) walk(src);\n  if (fs.existsSync(path.join(root, 'CHANGELOG.md'))) out.push(fs.readFileSync(path.join(root, 'CHANGELOG.md'), 'utf8'));\n", "tests": ["test/help-content.test.js"], "why": "help-relnotes RN-5 RF51: CHANGELOG.md の古い画面の言葉が照らしの元に入り、記事の今は無い言葉が通ってしまう"},
 ];

@@ -125,6 +125,22 @@ test('HF2: 作るのが通る（build() が help/ の全部の記事で HelpBuil
   assert.ok(fs.existsSync(path.join(out, 'index.html')) && fs.existsSync(path.join(out, 'search-index.json')));
 });
 
+test('help-relnotes RN-5（RF51）: リリースノートの元（CHANGELOG.md）は照らしの元に入らない（古い版の文の［…］で記事の言葉が通ってしまわない）。リリースノートのページ自体も RF51 の照らしに掛けない（古い版の画面の言葉が残るため）', { timeout: 5000 }, (t) => {
+  const root = tmpDir(t, 'natsu-help-labels-rn-');
+  const put = (f, s) => { fs.mkdirSync(path.dirname(path.join(root, f)), { recursive: true }); fs.writeFileSync(path.join(root, f), s); };
+  put('src/main.js', "const t = '止める';");
+  put('CHANGELOG.md', '# 変更履歴\n\n## natsu-v0.1.0 （2026-10-17）\n\n- ［変更履歴だけの言葉］を足しました。\n');
+  const app = L.appLabelText(root);
+  assert.ok(app.includes('止める'));
+  assert.ok(!app.includes('変更履歴だけの言葉'), 'CHANGELOG.md を照らしの元に混ぜた');
+  assert.deepStrictEqual(L.missingLabels('［変更履歴だけの言葉］', app), [{ label: '変更履歴だけの言葉', line: 1 }]);
+  // 本物: CHANGELOG.md にしか無い古い画面の言葉（ポータブル版など）がアプリの文字に無くても、作るのは止まらない（RF51 は記事だけ）
+  const cl = read('CHANGELOG.md');
+  const real = L.appLabelText(ROOT);
+  const old = L.labelsIn(cl).filter((l) => !real.includes(l.label));
+  assert.ok(old.length > 0, '本物の CHANGELOG.md に、今のアプリに無い［…］が無い（このテストの前提が崩れた）');
+});
+
 // H-11: README の「ヘルプセンター」の節（置き場所・作り方・出し方・利用者の用意の Access の手順）。計画の「利用者の用意」と同じ中身
 test('H-11: README の「ヘルプセンター」の節に、住所・作り方（npm run help:build）・出し方（help-deploy）・利用者の用意の Access の手順がある', { timeout: 5000 }, () => {
   const readme = read('README.md');
