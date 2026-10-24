@@ -468,6 +468,32 @@ test('G3: help-dads の変異が一覧にそろい、IDS_HELP_DADS は計画 doc
   }
 });
 
+// help-relnotes（計画 docs/plans/2026-10-23-help-relnotes.md の「変異確認」の表）: ヘルプセンターのリリースノートの直しを1つずつ戻す変異。
+// タスクを作るたびに足す（表の全部とちょうど同じにそろえるのは RN-7。それまでは「どれも表にある」と「hrn- の変異は IDS_HELP_RELNOTES にある」を見る）
+const IDS_HELP_RELNOTES = [
+  'hrn-heading-space', 'hrn-body-same',
+];
+test('G3: help-relnotes の変異が一覧にそろい、IDS_HELP_RELNOTES はどれも計画 docs/plans/2026-10-23-help-relnotes.md の「変異確認」の表にあり、当てるファイルと赤になるテストが表と同じ。hrn- の変異は IDS_HELP_RELNOTES にある', { timeout: 5000 }, () => {
+  const byId = new Map(MUTANTS.map((m) => [m.id, m]));
+  assert.deepStrictEqual(IDS_HELP_RELNOTES.filter((id) => !byId.has(id)), [], 'IDS_HELP_RELNOTES の変異が一覧に無い');
+  assert.strictEqual(new Set(IDS_HELP_RELNOTES).size, IDS_HELP_RELNOTES.length, 'IDS_HELP_RELNOTES に重なり');
+  assert.deepStrictEqual(MUTANTS.filter((m) => /^hrn-/.test(m.id) && !IDS_HELP_RELNOTES.includes(m.id)).map((m) => m.id), [], 'IDS_HELP_RELNOTES に無い hrn- の変異がある');
+  const plan = fs.readFileSync(path.join(ROOT, 'docs', 'plans', '2026-10-23-help-relnotes.md'), 'utf8');
+  const table = plan.slice(plan.indexOf('## 変異確認'), plan.indexOf('## ゲート'));
+  const rows = [...table.matchAll(/^\| (hrn-[a-z0-9-]+) \| `([^`]+)` \| [^|]+ \| ([^\n]+) \|$/gm)];
+  assert.ok(rows.length >= 16, '計画の表が読めない');
+  const ids = rows.map((x) => x[1]);
+  assert.strictEqual(new Set(ids).size, ids.length, '計画の表に重なり');
+  assert.deepStrictEqual(IDS_HELP_RELNOTES.filter((id) => !ids.includes(id)), [], '計画の「変異確認」の表に無い変異');
+  for (const [, id, file, tests] of rows) {
+    const m = byId.get(id);
+    if (!m) continue;
+    assert.strictEqual(m.file, file, id);
+    assert.deepStrictEqual([...m.tests].sort(), [...tests.matchAll(/`([^`]+)`/g)].map((x) => x[1]).sort(), id);
+    assert.ok(m.why.startsWith('help-relnotes RN-'), `${id}: why`);
+  }
+});
+
 // 0.9.0（計画 docs/plans/2026-10-20-090.md の「変異確認」の表）。G-1 は速さの計り直しの4つを入れる。G-2 が残りの全部を足し、
 // この並びが計画の表の id とちょうど同じことを見るテストを足す
 // 0.9.0（G-1 で perf の6つ、G-2 で計画 docs/plans/2026-10-20-090.md の「変異確認」の表の全部）

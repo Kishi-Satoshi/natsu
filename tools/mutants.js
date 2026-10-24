@@ -2048,4 +2048,7 @@ module.exports = [
   {"id": "hd-list-mousedown", "file": "help/assets/search.js", "from": "        if (!n || n === list) e.preventDefault();\n", "to": "", "tests": ["test/help-search.test.js"], "pattern": "4回目の指摘 3", "why": "help-dads HD-11 4回目の指摘 3: 一覧の余白や「見つかりませんでした」の行を押すと ul にフォーカスが移り、↑↓・Esc が検索の箱に届かない"},
   // help-dads 4回目の審査の指摘 4（上の帯の結果の左右を rem に）
   {"id": "hd-results-rem", "file": "help/assets/help.css", "from": "  .top-in .search-results { left: calc(16 / 16 * 1rem); right: calc(16 / 16 * 1rem); }", "to": "  .top-in .search-results { left: 16px; right: 16px; }", "tests": ["test/help-build.test.js"], "pattern": "3回目の指摘 3", "why": "help-dads HD-11 4回目の指摘 4: 上の帯の検索の結果の左右が px（DADS は余白とサイズを rem で書く）"},
+  // help-relnotes Task RN-1（CHANGELOG の見出しの日付）
+  {"id": "hrn-heading-space", "file": "CHANGELOG.md", "from": "## natsu-v0.10.0 （2026-10-23）", "to": "## natsu-v0.10.0（2026-10-23）", "tests": ["test/identity.test.js"], "pattern": "RN-1", "why": "help-relnotes RN-1 RNF1: 見出しの全角の括弧の前に半角の空白が無いと、release.yml が本文を取れず、アプリの［設定］→［更新］に変更点が出ない"},
+  {"id": "hrn-body-same", "file": "CHANGELOG.md", "from": "- 要約（Claude Code）の設定のボタンを、説明の下に並べました。", "to": "- 要約（Claude Code）の設定のボタンを、説明の下に並べた。", "tests": ["test/identity.test.js"], "pattern": "RN-1", "why": "help-relnotes RN-1 RN1: 出した版の本文が変わる（アプリに出た文・GitHub のリリース本文と食い違う）"},
 ];

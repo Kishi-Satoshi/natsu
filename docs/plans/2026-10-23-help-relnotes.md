@@ -10,7 +10,7 @@
 
 | # | 持ち主の答え | 決めた形 |
 | --- | --- | --- |
-| Q1 | A | 見出しは `## natsu-v0.10.0 （2026-10-23）`（版の後ろに半角の空白、全角の括弧）。空白はテストで守る（RNF1・`rn-heading-space`） |
+| Q1 | A | 見出しは `## natsu-v0.10.0 （2026-10-23）`（版の後ろに半角の空白、全角の括弧）。空白はテストで守る（RNF1・`hrn-heading-space`） |
 | Q2 | A（`.github/**` の直しと、先に載る小さな窓を受け入れる） | 日付のある節だけを出す。ヘルプは GitHub のリリースが公開された後に出し直す。直すワークフローは下の決めたこと F-18 の形（`release.yml` の公開の段の後に、help-deploy を workflow_dispatch で起こす段を1つ足す）。この計画ではワークフローを動かさない |
 | Q3 | A | 記事と同じ枠（パンくず・左の目次・右の「このページの内容」に版の一覧） |
 | Q4 | A | 狭い画面で版へ飛ぶ一覧は足さない（見出しだけ） |
@@ -19,6 +19,8 @@
 | Q7 | A | カードは「リリースノート」／「NaTsu の版ごとの変更点（新しい版が上）」／「16 の版」 |
 | Q8 | A | 頭の注は下書きの文（ただし R-RN1 で［更新］に直した） |
 | Q9 | A | 左の目次の分類の後ろに「リリースノート」の行を1つ足す |
+
+**Ruling R-RN2（変異の記号）:** 変異の id の頭を `rn-` から `hrn-` に変えた（RN-1 を作るときに分かった: `rn-` は 0.9.4 の変異（`rn-secs` など。`IDS_094`）が使っていて、`test/mutate.test.js` の「頭の変異はその一覧にある」の照らしがぶつかる）。
 
 **Ruling R-RN1（言葉をアプリの名前に合わせた）:** 頭の注と計画の文の「アプリの［設定］→［アップデート］」を「アプリの［設定］→［更新］」に直した。アプリの設定の左の列の名前は「更新」（`src/renderer/app.html` の `setNavUpdate`）で、「アップデート」はその中のカードの見出し。リリースノートの文は RF51 の照らしの外だが、注はヘルプの側で書く文なので、画面の言葉に合わせる（調整役の指摘。持ち主には調整役から伝える）。
 
@@ -153,7 +155,7 @@ NaTsu ヘルプセンターに「リリースノート」のページを1つ足�
     - 左の目次には分類の後ろに「リリースノート」の行を1つ足す（このページでは `aria-current="page"`）。狭い画面の［目次］と、3回目の指摘 1 の並びの直し（site.js が目次を［目次］の直後へ動かす）はそのまま効く。
 12. 文字の大きさ・色・輪・下線・44px は DADS の直しのまま。新しい規則は「公開日の行」（`.relnote-date`: `.875rem`・`var(--muted)`）と「このページの内容」の高さの上限だけ。どちらも札を通す（色の一覧の照らしがそのまま効く）。
 13. 見出しの順: h1 が1つ、版は h2、節の中に `###` があれば h3（飛ばない）。「このページの内容」の h2 は aside の中（今のまま）。
-14. 検索（Q5 の A）: `search-index.json` に入れない。テストで「索引にリリースノートの版が1つも無い」ことを固める（`rn-no-search`）。
+14. 検索（Q5 の A）: `search-index.json` に入れない。テストで「索引にリリースノートの版が1つも無い」ことを固める（`hrn-no-search`）。
 
 ### E. ホームのカード（RN2。問い Q6・Q7）
 
@@ -209,7 +211,7 @@ NaTsu ヘルプセンターに「リリースノート」のページを1つ足�
 | `test/help-content.test.js` | RF51 の照らしにリリースノートが入らないこと | RN-5 |
 | `.github/workflows/help-deploy.yml`・`.github/workflows/release.yml`（Q2 が A のとき。守るもの） | リリースの後にヘルプを出し直す | RN-6 |
 | `tools/help-shots.js`・`help/shots.json` | 撮るページに `/release-notes/` | RN-7 |
-| `tools/mutants.js`・`test/mutate.test.js` | `rn-*` の変異と `IDS_HELP_RELNOTES`（この計画の「変異確認」の表とちょうど同じ） | 各タスク |
+| `tools/mutants.js`・`test/mutate.test.js` | `hrn-*` の変異と `IDS_HELP_RELNOTES`（この計画の「変異確認」の表とちょうど同じ） | 各タスク |
 | `docs/plans/natsu-design.md` | 「利用者が決めたこと（ヘルプセンターのリリースノート。2026-10-23）」の RN1〜RN4、HC0 に一言 | RN-0 |
 
 ## タスク（どれも落ちるテストから。各 commit の前に `npm test` が `# fail 0`・`# skipped 0`、`node tools/risk.js --staged` が `BLOCK 0`。push は `lane/help-relnotes` へ早送りで、CI が Linux と Windows で緑）
@@ -229,22 +231,22 @@ NaTsu ヘルプセンターに「リリースノート」のページを1つ足�
 
 | id | 当てるファイル | 戻す直し | 赤になるテスト |
 | --- | --- | --- | --- |
-| rn-heading-space | `CHANGELOG.md` | 0.10.0 の見出しの全角の括弧の前の空白を消す（`release.yml` が本文を取れない） | `test/identity.test.js` |
-| rn-body-same | `CHANGELOG.md` | 過去の版の本文の1字を変える（出た本文と食い違う） | `test/identity.test.js` |
-| rn-order | `tools/lib/help-relnotes.js` | 版の並びの照らしを外す | `test/help-relnotes.test.js` |
-| rn-date-real | `tools/lib/help-relnotes.js` | 実在の日の照らしを外す（`2026-02-30` を通す） | `test/help-relnotes.test.js` |
-| rn-undated | `tools/lib/help-relnotes.js` | 日付の無い節（まだ出していない版）も出す | `test/help-relnotes.test.js` |
-| rn-render | `tools/lib/help-relnotes.js` | 本文を help-md でなく逃がしだけで出す（Markdown の誤りで止まらない） | `test/help-relnotes.test.js` |
-| rn-line | `tools/lib/help-relnotes.js` | 止めたときの行を節の中の行のまま出す（`CHANGELOG.md` の行でない） | `test/help-relnotes.test.js` |
-| rn-page-date | `tools/lib/help-page.js` | 版の h2 の下の公開日を出さない | `test/help-relnotes.test.js` |
-| rn-home-card | `tools/lib/help-page.js` | ホームのリリースノートのカードを出さない | `test/help-build.test.js` |
-| rn-onpage-scroll | `help/assets/help.css` | 「このページの内容」の高さの上限を消す | `test/help-build.test.js` |
-| rn-no-labels | `tools/lib/help-labels.js` | 照らしの元に `CHANGELOG.md` を混ぜる | `test/help-content.test.js` |
-| rn-public-check | `tools/lib/help-relnotes.js` | 作るときの公開前の確認を外す（`CHANGELOG.md` に会社のドメインや 64 字の16進が入ってもヘルプに出る） | `test/help-relnotes.test.js` |
-| rn-no-search | `tools/help-build.js` | 索引にリリースノートの版を入れる（Q5 の A に反する） | `test/help-search.test.js` |
-| rn-deploy-after-release | `.github/workflows/release.yml` | 公開の後に help-deploy を起こす段を消す（ヘルプに新しい版が載らない） | `test/help-relnotes.test.js` |
-| rn-deploy-paths | `.github/workflows/help-deploy.yml` | `paths` に `CHANGELOG.md` を足す（版を上げた時点で、公開の前にヘルプに載る） | `test/help-relnotes.test.js` |
-| rn-toc-row | `tools/lib/help-page.js` | 左の目次の「リリースノート」の行を出さない（Q9 の A） | `test/help-relnotes.test.js` |
+| hrn-heading-space | `CHANGELOG.md` | 0.10.0 の見出しの全角の括弧の前の空白を消す（`release.yml` が本文を取れない） | `test/identity.test.js` |
+| hrn-body-same | `CHANGELOG.md` | 過去の版の本文の1字を変える（出た本文と食い違う） | `test/identity.test.js` |
+| hrn-order | `tools/lib/help-relnotes.js` | 版の並びの照らしを外す | `test/help-relnotes.test.js` |
+| hrn-date-real | `tools/lib/help-relnotes.js` | 実在の日の照らしを外す（`2026-02-30` を通す） | `test/help-relnotes.test.js` |
+| hrn-undated | `tools/lib/help-relnotes.js` | 日付の無い節（まだ出していない版）も出す | `test/help-relnotes.test.js` |
+| hrn-render | `tools/lib/help-relnotes.js` | 本文を help-md でなく逃がしだけで出す（Markdown の誤りで止まらない） | `test/help-relnotes.test.js` |
+| hrn-line | `tools/lib/help-relnotes.js` | 止めたときの行を節の中の行のまま出す（`CHANGELOG.md` の行でない） | `test/help-relnotes.test.js` |
+| hrn-page-date | `tools/lib/help-page.js` | 版の h2 の下の公開日を出さない | `test/help-relnotes.test.js` |
+| hrn-home-card | `tools/lib/help-page.js` | ホームのリリースノートのカードを出さない | `test/help-build.test.js` |
+| hrn-onpage-scroll | `help/assets/help.css` | 「このページの内容」の高さの上限を消す | `test/help-build.test.js` |
+| hrn-no-labels | `tools/lib/help-labels.js` | 照らしの元に `CHANGELOG.md` を混ぜる | `test/help-content.test.js` |
+| hrn-public-check | `tools/lib/help-relnotes.js` | 作るときの公開前の確認を外す（`CHANGELOG.md` に会社のドメインや 64 字の16進が入ってもヘルプに出る） | `test/help-relnotes.test.js` |
+| hrn-no-search | `tools/help-build.js` | 索引にリリースノートの版を入れる（Q5 の A に反する） | `test/help-search.test.js` |
+| hrn-deploy-after-release | `.github/workflows/release.yml` | 公開の後に help-deploy を起こす段を消す（ヘルプに新しい版が載らない） | `test/help-relnotes.test.js` |
+| hrn-deploy-paths | `.github/workflows/help-deploy.yml` | `paths` に `CHANGELOG.md` を足す（版を上げた時点で、公開の前にヘルプに載る） | `test/help-relnotes.test.js` |
+| hrn-toc-row | `tools/lib/help-page.js` | 左の目次の「リリースノート」の行を出さない（Q9 の A） | `test/help-relnotes.test.js` |
 
 （表と `IDS_HELP_RELNOTES` はちょうど同じにし、`test/mutate.test.js` が照らす: help-dads の `IDS_HELP_DADS` と同じ形。）
 
@@ -274,8 +276,8 @@ NaTsu ヘルプセンターに「リリースノート」のページを1つ足�
 
 1. **持ち主の決定を覆っているか:** RN1（決めたこと A・RN-2 の本文の照らし）・RN2（D・E・RN-3）・RN3（D の注・16 版）・RN4（B・調べた結果 7・RN-1）。
 2. **手順の抜け:** 見出しの形を変える前に `release.yml` の取り方を試した（調べた結果 1）。`identity.test.js` と `README.md` の直し。まだ出していない版（F）。アイコンは守るもの（Q6）。`.github/**` も守るもの（Q2）。写真の R7。help-dads と一緒に出す順（H-23）。
-3. **名前と形の食い違い:** 住所 `/release-notes/`・`site.json` の鍵 `releaseNotes`・版の id `v0-10-0`・クラス `.relnote-date`・変異 `rn-*`・`IDS_HELP_RELNOTES`・決定 RN1〜RN4・Review Focus RNF1〜RNF5（ほかの計画の D・HD・RF・DF と重ならない）。
-4. **Review Focus:** RNF1〜RNF5 のどれもテストを持つタスクと変異の行がある（RNF1: rn-heading-space・rn-body-same、RNF2: rn-undated、RNF3: rn-render・rn-line、RNF4: rn-order・rn-page-date、RNF5: rn-onpage-scroll）。
+3. **名前と形の食い違い:** 住所 `/release-notes/`・`site.json` の鍵 `releaseNotes`・版の id `v0-10-0`・クラス `.relnote-date`・変異 `hrn-*`・`IDS_HELP_RELNOTES`・決定 RN1〜RN4・Review Focus RNF1〜RNF5（ほかの計画の D・HD・RF・DF と重ならない）。
+4. **Review Focus:** RNF1〜RNF5 のどれもテストを持つタスクと変異の行がある（RNF1: hrn-heading-space・hrn-body-same、RNF2: hrn-undated、RNF3: hrn-render・hrn-line、RNF4: hrn-order・hrn-page-date、RNF5: hrn-onpage-scroll）。
 5. **大きさの釣り合い:** 新しいファイル2つ（`help-relnotes.js` とそのテスト）、`help-build.js`・`help-page.js` に数十行、CSS に数行、`CHANGELOG.md` は 16 行。ワークフローの直し（Q2）が一番の外への影響。
 
 **まだ確かめていないこと:** 版が 30 を越えたときのページの重さ（今は本文 約 2 万字。問題になる大きさではない見込み）。Safari・Mac は見られない（ほかと同じ）。

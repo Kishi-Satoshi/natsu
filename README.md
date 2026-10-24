@@ -520,7 +520,7 @@ Node.js 22.12 以上と、`npm install` の後の `node node_modules/electron/in
 ### リリース手順
 
 1. `package.json` の `version` を上げる
-2. `CHANGELOG.md` に `## natsu-v0.1.0` の節を足して変更点を書く
+2. `CHANGELOG.md` に `## natsu-v0.1.0 （2026-10-17）` の節（版の後ろに半角の空白、全角の括弧の中に公開する日。空白が無いとリリース本文が取れません）を足して変更点を書く
 3. コミットしてタグを push する
 
 ```bash
