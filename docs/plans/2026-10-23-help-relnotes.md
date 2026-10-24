@@ -1,7 +1,8 @@
 # ヘルプセンターのリリースノートのページ — 実装計画（2026-10-23）
 
 > **この計画は「計画だけ」。** CLAUDE.md の決まりどおり、持ち主とのソクラテス式の問答で承認をもらうまで、実装（落ちるテストを含む）に入らない。問答で計画が変わったら直して、また問う。
-> **2026-10-23:** 問い Q1〜Q9 に持ち主が答えた（どれも A。下の「問答の答え（2026-10-23）」）。この計画（答えを入れた形）と、アイコンの見本（Q6）の承認を待っている。承認まで、テストもコードも書かない。
+> **2026-10-23:** 問い Q1〜Q9 に持ち主が答えた（どれも A。下の「問答の答え（2026-10-23）」）。
+> **2026-10-24: 持ち主が承認した。** 計画に「作り始めてよい」、アイコンの見本（Q6。スクラッチパッドの `relnotes-icon/`）に「この見本でよい」。この計画のとおりに作る（タスク RN-0〜RN-7）。
 
 ## 問答の答え（2026-10-23）
 
@@ -240,7 +241,6 @@ NaTsu ヘルプセンターに「リリースノート」のページを1つ足�
 | rn-onpage-scroll | `help/assets/help.css` | 「このページの内容」の高さの上限を消す | `test/help-build.test.js` |
 | rn-no-labels | `tools/lib/help-labels.js` | 照らしの元に `CHANGELOG.md` を混ぜる | `test/help-content.test.js` |
 | rn-public-check | `tools/lib/help-relnotes.js` | 作るときの公開前の確認を外す（`CHANGELOG.md` に会社のドメインや 64 字の16進が入ってもヘルプに出る） | `test/help-relnotes.test.js` |
-
 | rn-no-search | `tools/help-build.js` | 索引にリリースノートの版を入れる（Q5 の A に反する） | `test/help-search.test.js` |
 | rn-deploy-after-release | `.github/workflows/release.yml` | 公開の後に help-deploy を起こす段を消す（ヘルプに新しい版が載らない） | `test/help-relnotes.test.js` |
 | rn-deploy-paths | `.github/workflows/help-deploy.yml` | `paths` に `CHANGELOG.md` を足す（版を上げた時点で、公開の前にヘルプに載る） | `test/help-relnotes.test.js` |
