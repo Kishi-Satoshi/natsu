@@ -2043,4 +2043,7 @@ module.exports = [
   {"id": "hd-search-scroll", "file": "help/assets/search.js", "from": "          if (opts2[active].scrollIntoView) opts2[active].scrollIntoView({ block: 'nearest' });\n", "to": "", "tests": ["test/help-search.test.js"], "pattern": "4回目の指摘 1", "why": "help-dads HD-11 4回目の指摘 1: 400% の拡大や横向きのスマホで、↓ で選んだ検索の結果が一覧の外に隠れたまま（WCAG 2.1.1・2.4.7）"},
   // help-dads 4回目の審査の指摘 2（目次を動かしてもフォーカスを保つ）
   {"id": "hd-toc-refocus", "file": "help/assets/site.js", "from": "      if (had && had.focus) had.focus({ preventScroll: true });\n", "to": "", "tests": ["test/help-build.test.js"], "pattern": "4回目の指摘 2", "why": "help-dads HD-11 4回目の指摘 2: 目次を開いたまま 640px の境をまたぐと、目次の中のフォーカスが外れて今いた場所を見失う"},
+  // help-dads 4回目の審査の指摘 3（閉じた後の ↓ と一覧の余白の mousedown）
+  {"id": "hd-search-reopen", "file": "help/assets/search.js", "from": "            if (e.key === 'ArrowDown' && fold(input.value)) { e.preventDefault(); update(); }\n", "to": "", "tests": ["test/help-search.test.js"], "pattern": "4回目の指摘 3", "why": "help-dads HD-11 4回目の指摘 3: Tab で出て戻った後や窓を切り替えた後、箱に語があっても ↓ で一覧が開かず、打ち直すしかない"},
+  {"id": "hd-list-mousedown", "file": "help/assets/search.js", "from": "        if (!n || n === list) e.preventDefault();\n", "to": "", "tests": ["test/help-search.test.js"], "pattern": "4回目の指摘 3", "why": "help-dads HD-11 4回目の指摘 3: 一覧の余白や「見つかりませんでした」の行を押すと ul にフォーカスが移り、↑↓・Esc が検索の箱に届かない"},
 ];

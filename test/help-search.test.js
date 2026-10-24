@@ -366,3 +366,43 @@ test('4回目の指摘 1: ↓↑ で選ぶたびに、選んだ行（a[role="opt
     p.key(q, 'Escape');
   }
 });
+
+// 4回目の審査の指摘 3: 一覧を閉じた後（Tab で出て Shift+Tab で戻った・窓を切り替えた）、箱に語があっても ↓ で開き直さなかった。
+// 一覧の余白や「見つかりませんでした」の行を押すと ul にフォーカスが移り、↑↓・Esc が箱に届かなかった
+test('4回目の指摘 3: 閉じていて箱に語があるときは ↓ で一覧を開き直す（語が空なら何もしない）。一覧のリンクでない所の mousedown は preventDefault（フォーカスを箱に残す）。結果のリンクの mousedown は止めない', { timeout: 5000 }, async (t) => {
+  const p = runPage(t, 'start/first/index.html');
+  const q = p.root.querySelector('#hc-q');
+  const box = q.closest('.search');
+  const list = p.root.querySelector('#hc-q-results');
+  await p.type(q, '試し');
+  box.dispatchEvent({ type: 'focusout', relatedTarget: null });
+  assert.strictEqual(list.hidden, true);
+  let prevented = false;
+  q.dispatchEvent({ type: 'keydown', key: 'ArrowDown', preventDefault() { prevented = true; } });
+  await p.tick(); await p.tick();
+  assert.strictEqual(list.hidden, false, '↓ で開き直さない');
+  assert.ok(prevented, '↓ の既定の動き（カーソルの移動）を止めていない');
+  assert.strictEqual(q.getAttribute('aria-expanded'), 'true');
+  assert.strictEqual(list.querySelectorAll('[role="option"]').length, 3);
+  // 語が空なら開かない
+  p.key(q, 'Escape');
+  p.key(q, 'Escape');
+  assert.strictEqual(q.value, '');
+  q.dispatchEvent({ type: 'keydown', key: 'ArrowDown' });
+  await p.tick(); await p.tick();
+  assert.strictEqual(list.hidden, true, '語が空なのに開いた');
+  // 一覧のリンクでない所（余白・「見つかりませんでした」）を押してもフォーカスを箱に残す
+  await p.type(q, 'ありえない語');
+  const none = list.querySelector('.none');
+  let stopped = false;
+  list.dispatchEvent({ type: 'mousedown', target: none, preventDefault() { stopped = true; } });
+  assert.ok(stopped, '「見つかりませんでした」の行を押すと ul にフォーカスが移る');
+  stopped = false;
+  list.dispatchEvent({ type: 'mousedown', target: list, preventDefault() { stopped = true; } });
+  assert.ok(stopped, '一覧の余白を押すと ul にフォーカスが移る');
+  await p.type(q, '試し');
+  const a = list.querySelector('[role="option"]');
+  stopped = false;
+  list.dispatchEvent({ type: 'mousedown', target: a.querySelector('.rt'), preventDefault() { stopped = true; } });
+  assert.ok(!stopped, '結果のリンクを押すのを止めた（押しても記事へ移れない）');
+});
