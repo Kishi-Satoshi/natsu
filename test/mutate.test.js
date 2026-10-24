@@ -113,16 +113,18 @@ test('G3・F10: 元のテストが赤なら、変異を試さずに止める（�
 });
 
 // 0.10.0 G-1（決めたこと 117）で意図して変えた: mutate を mutate-1・mutate-2 の2つのジョブに分け、それぞれが --part 1/2・--part 2/2 を回す
-test('ci.yml: mutate-1・mutate-2 のジョブ（Linux）が node tools/mutate.js --part を回す（release.yml は ci.yml を呼ぶので、生き残りがあればリリースも止まる）', { timeout: 5000 }, () => {
+// 0.11.0（計画 R22）で意図して変えた: 2/2 のジョブが runner の shutdown signal に当たり続けたので、3つのジョブ（--part k/3）に分けた
+test('ci.yml: mutate-1・mutate-2・mutate-3 のジョブ（Linux）が node tools/mutate.js --part k/3 を回す（release.yml は ci.yml を呼ぶので、生き残りがあればリリースも止まる）', { timeout: 5000 }, () => {
   const ci = fs.readFileSync(path.join(ROOT, '.github', 'workflows', 'ci.yml'), 'utf8');
   const jobs = jobsOf(ci);
   assert.ok(!jobs.mutate, '1つの mutate のジョブが残っている');
-  for (const k of [1, 2]) {
+  for (const k of [1, 2, 3]) {
     const j = jobs[`mutate-${k}`];
     assert.ok(j, `mutate-${k} のジョブが無い`);
     assert.match(j, /^    runs-on: ubuntu-latest$/m);
-    assert.ok(stepsOf(j).some((s) => new RegExp(`^\\s*run: node tools/mutate\\.js --jobs 2 --part ${k}/2$`, 'm').test(s)), `mutate-${k} が --part ${k}/2 を回さない`);
+    assert.ok(stepsOf(j).some((s) => new RegExp(`^\\s*run: node tools/mutate\\.js --jobs 2 --part ${k}/3$`, 'm').test(s)), `mutate-${k} が --part ${k}/3 を回さない`);
   }
+  assert.ok(!jobs['mutate-4'], '4つ目の mutate のジョブがある');
   assert.match(fs.readFileSync(path.join(ROOT, '.github', 'workflows', 'release.yml'), 'utf8'), /^    uses: \.\/\.github\/workflows\/ci\.yml$/m);
 });
 
@@ -536,13 +538,13 @@ test('PG1: 変異 perf-recheck-any・perf-recheck-all・perf-recheck-skip・perf
   for (const id of IDS_090) assert.ok(table.includes(`| ${id} |`), `計画の「変異確認」の表に ${id} が無い`);
 });
 
-// 0.10.0 G-1（決めたこと 117）で意図して変えた: 2つのジョブのどちらも 40 分・写しは2つ
-test('CI: mutate-1・mutate-2 のジョブの timeout-minutes は 40（0.9.0 の約 99 の変異で 20 分を越える見込み。PG1・決めたこと 37・117）', { timeout: 5000 }, () => {
+// 0.10.0 G-1（決めたこと 117）で意図して変えた: 2つのジョブのどちらも 40 分・写しは2つ。0.11.0（R22）で3つのジョブに（どれも 40 分・写しは2つ）
+test('CI: mutate-1・mutate-2・mutate-3 のジョブの timeout-minutes は 40（0.9.0 の約 99 の変異で 20 分を越える見込み。PG1・決めたこと 37・117）', { timeout: 5000 }, () => {
   const jobs = jobsOf(fs.readFileSync(path.join(ROOT, '.github', 'workflows', 'ci.yml'), 'utf8'));
-  for (const k of [1, 2]) {
+  for (const k of [1, 2, 3]) {
     const j = jobs[`mutate-${k}`];
     assert.match(j, /^    timeout-minutes: 40$/m);
-    assert.ok(stepsOf(j).some((s) => /^\s*run: node tools\/mutate\.js --jobs 2 --part [12]\/2$/m.test(s)), '変異確認の写しの数を変えた');
+    assert.ok(stepsOf(j).some((s) => /^\s*run: node tools\/mutate\.js --jobs 2 --part [123]\/3$/m.test(s)), '変異確認の写しの数を変えた');
   }
 });
 
@@ -559,6 +561,29 @@ test('G-1 決めたこと 117: partOf は全部の id をちょうど1回ずつ2
   assert.deepStrictEqual(M.partOf(['c', 'a', 'd', 'b'], '2/2'), ['b', 'd']);
   assert.deepStrictEqual(M.partOf(['b', 'a', 'c'], '1/1'), ['a', 'b', 'c']);
   for (const bad of ['0/2', '3/2', '1/0', '1', 'x/2', '', null, '1/2/3']) assert.throws(() => M.partOf(ids, bad), /part/, String(bad));
+  // 0.11.0（R22）: CI は3つに分ける。全部の id がちょうど1回ずつ・数の差は 1 まで
+  const three = ['1/3', '2/3', '3/3'].map((p) => M.partOf(ids, p));
+  assert.deepStrictEqual(three.flat().sort(), [...ids].sort(), '3つの組のどれにも無い・2つにある id がある');
+  assert.ok(Math.max(...three.map((x) => x.length)) - Math.min(...three.map((x) => x.length)) <= 1, '3つに等しく分けていない');
+});
+
+// 0.11.0（計画 R22）: 子の Node に記憶の上限（赤のときの報告が大きな木を書き出しても、CI の runner ごと落とさない）
+test('0.11.0 R22: mutate.js の子の環境は NODE_OPTIONS に --max-old-space-size（今の NODE_OPTIONS は残す）。NODE_TEST_CONTEXT を消し、場面は1つずつ', { timeout: 5000 }, () => {
+  const keep = { o: process.env.NODE_OPTIONS, c: process.env.NODE_TEST_CONTEXT };
+  try {
+    process.env.NODE_OPTIONS = '--trace-warnings';
+    process.env.NODE_TEST_CONTEXT = 'child';
+    const env = M.childEnv();
+    assert.strictEqual(env.NODE_OPTIONS, `--trace-warnings --max-old-space-size=${M.CHILD_HEAP_MB}`);
+    assert.ok(!('NODE_TEST_CONTEXT' in env));
+    assert.strictEqual(env.NATSU_SCENE_CONCURRENCY, '1');
+    delete process.env.NODE_OPTIONS;
+    assert.strictEqual(M.childEnv().NODE_OPTIONS, `--max-old-space-size=${M.CHILD_HEAP_MB}`);
+    assert.ok(M.CHILD_HEAP_MB >= 1024 && M.CHILD_HEAP_MB <= 2048, 'CI の runner（7 GB）に写し2つ分が収まる上限');
+  } finally {
+    if (keep.o === undefined) delete process.env.NODE_OPTIONS; else process.env.NODE_OPTIONS = keep.o;
+    if (keep.c === undefined) delete process.env.NODE_TEST_CONTEXT; else process.env.NODE_TEST_CONTEXT = keep.c;
+  }
 });
 
 test('G-1 決めたこと 117: mutate.js は --part と --only を一緒に受けない（1 で終わる）。知らない part も 1', { timeout: 20000 }, () => {

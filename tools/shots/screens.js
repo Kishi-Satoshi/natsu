@@ -77,7 +77,8 @@ const OPEN_TYPE_LIST = `(async () => {
   document.getElementById('tabBtnNotes').click(); document.querySelector('#plist .pitem').click();
   await new Promise((r) => setTimeout(r, 300));
   document.getElementById('paneBtnMemo').click();
-  const s = document.getElementById('pType'); s.size = s.querySelectorAll('option, optgroup').length;
+  // 欄の高さ（.typeSel の 22px）を外して、一覧の形で全部の項目を見せる（R22 (3)）
+  const s = document.getElementById('pType'); s.size = s.querySelectorAll('option, optgroup').length; s.style.height = 'auto';
   return 1;
 })()`;
 // 0.11.0 V-2: ページを開き、打ち合わせの質のカードまで捲る

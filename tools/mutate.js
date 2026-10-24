@@ -23,7 +23,7 @@
 //                                同じ一覧なら並びが違っても同じ分け方。形の違う part は投げる
 //
 // node tools/mutate.js [--only id,id | --part k/n] [--jobs N]
-//   --part は CI の mutate-1・mutate-2 が使う（--only と一緒には使わない）。元のままの確かめは、その組のテストで見る。
+//   --part は CI の mutate-1・mutate-2・mutate-3 が使う（0.11.0 から 3 つ: --part k/3。--only と一緒には使わない）。元のままの確かめは、その組のテストで見る。
 //   結果を 1 行ずつ（killed／SURVIVED／STALE／BASELINE-RED）出し、最後に数をまとめ、exitCodeOf で終わる。
 
 const fs = require('fs');
@@ -76,9 +76,14 @@ function copyRepo(root) {
   return dir;
 }
 
+// 0.11.0（計画 docs/plans/2026-10-22-110.md の R22）: 子の Node の記憶の上限。殺したテストが要素どうしを strictEqual で比べていると、赤のときの
+// 報告が最小 DOM の木を丸ごと書き出して数 GB を使い、CI の runner（7 GB）ごと落ちた。上限を越えた子は赤で終わる（変異は殺したと数える。
+// 元のままの確かめも同じ上限で回すので、ふだんのテストが上限に当たれば baseline-red で分かる）
+const CHILD_HEAP_MB = 1536;
 function childEnv() {
   const env = { ...process.env, NATSU_SCENE_CONCURRENCY: '1' };
   delete env.NODE_TEST_CONTEXT;
+  env.NODE_OPTIONS = `${env.NODE_OPTIONS ? `${env.NODE_OPTIONS} ` : ''}--max-old-space-size=${CHILD_HEAP_MB}`;
   return env;
 }
 
@@ -194,4 +199,4 @@ if (require.main === module) {
   main(process.argv.slice(2)).then((code) => { process.exitCode = code; }, (e) => { console.error(e && e.stack || e); process.exitCode = 1; });
 }
 
-module.exports = { applyMutant, findStale, runAll, exitCodeOf, copyRepo, partOf, BASE_TIMEOUT_MS };
+module.exports = { applyMutant, findStale, runAll, exitCodeOf, copyRepo, partOf, childEnv, BASE_TIMEOUT_MS, CHILD_HEAP_MB };

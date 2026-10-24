@@ -59,6 +59,7 @@ const opts = (l) => $(l, 'pType').children;
 const guide = (l) => { const g = $(l, 'pMemo').querySelector('.memoguide'); return g && !g.hidden ? g.children.map((c) => c.textContent) : []; };
 const memoTa = (l) => $(l, 'pMemo').querySelector('textarea');
 const toastText = (l) => $(l, 'toast').textContent;
+// 要素どうしは assert.ok(a === b) で比べる（strictEqual だと赤のときに報告が最小 DOM の木を丸ごと書き出し、写しで数 GB の記憶を使う: R22）
 
 test('0.11.0 V-1（D43・D44・P12）: プルダウンの頭は「自動（文字起こしから判定）」、群（社内の会議・人と話す・社外と話す）の中の種類はこの並び。「一般・その他」はどこにも無い', T, async () => {
   const l = await openPage({ meetingType: 'sales', typeAuto: false, autoType: 'sales' });
@@ -215,20 +216,20 @@ test('0.11.0 V-1（P17・R3）: 録音中に商談を選ぶと、待っていた
   const toastBefore = toastText(l);
   await choose(l, 'sales');
   assert.deepStrictEqual(l.calls110.map((c) => c[0]), ['meetingSetMemo', 'meetingSetType']);
-  assert.strictEqual(memoTa(l), ta, 'メモ欄を作り直した');
+  assert.ok(memoTa(l) === ta, 'メモ欄を作り直した');
   assert.strictEqual(ta.value, BANTC);
   assert.strictEqual($(l, 'paneBtnMemo').getAttribute('aria-selected'), 'true', 'メモのタブに替わらない');
   assert.ok($(l, 'pMemo').classList.contains('active'));
   assert.strictEqual(toastText(l), toastBefore, '見出しを入れたのに知らせを出した');
-  assert.strictEqual(l.document.activeElement, sel, '焦点が種類の欄から動いた');
+  assert.ok(l.document.activeElement === sel, '焦点が種類の欄から動いた');
   assert.strictEqual(liveHint(l), '');
   assert.deepStrictEqual(guide(l).length, 5);
   // 区間が届いて描き直しても、行と手引きとメモ欄は作り直さず、メモのタブのまま
   const g = $(l, 'pMemo').querySelector('.memoguide');
   l.fire('onMeetingUpdate', LIVE({ memo: BANTC, segments: [{ id: 's1', atMs: 0, text: '本日の議題です。' }, { id: 's2', atMs: 15000, text: '次です。' }] }));
   await l.drain();
-  assert.strictEqual(memoTa(l), ta);
-  assert.strictEqual($(l, 'pMemo').querySelector('.memoguide'), g);
+  assert.ok(memoTa(l) === ta, 'メモ欄を作り直した');
+  assert.ok($(l, 'pMemo').querySelector('.memoguide') === g, '手引きを作り直した');
   assert.strictEqual($(l, 'pType').value, 'sales');
   assert.strictEqual($(l, 'paneBtnMemo').getAttribute('aria-selected'), 'true', '区間が届いて文字起こしのタブへ戻った');
   assert.deepStrictEqual(l.errors.map(fmt), []);
@@ -356,7 +357,7 @@ test('0.11.0 V-2（QM4・QM7・決めたこと 28）: 点のカードは要約�
   const card = $(l, 'pNote').querySelector('.qcard');
   assert.ok(card, '点のカードが無い');
   const kids = $(l, 'pNote').children;
-  assert.strictEqual(kids[kids.length - 1], card, '点のカードが要約の欄の最後に無い');
+  assert.ok(kids[kids.length - 1] === card, '点のカードが要約の欄の最後に無い');
   assert.strictEqual(card.querySelector('.qhead').textContent, '打ち合わせの質：18 / 25');
   const rows = card.querySelectorAll('.qrow');
   assert.deepStrictEqual(rows.map((r) => r.querySelector('.qlabel').textContent), QV.axes.map((a) => a.label));
@@ -371,7 +372,7 @@ test('0.11.0 V-2（QM4・QM7・決めたこと 28）: 点のカードは要約�
 
 test('0.11.0 V-2（F11・P9）: qualityView が null ならカードも「/ 25」も無い。助言の欄（次に気をつけること）は点の無いページにもある', T, async () => {
   const l = await openPage({ meetingType: 'oneonone', typeAuto: false, blocks: SAVED, quality: { total: 25 }, qualityView: null });
-  assert.strictEqual($(l, 'pNote').querySelector('.qcard'), null);
+  assert.ok($(l, 'pNote').querySelector('.qcard') === null, '点が無いのにカードがある');
   assert.ok(!$(l, 'pNote').textContent.includes('/ 25'));
   assert.ok(viewIds(l).includes('h7') && viewIds(l).includes('a1'), '助言の欄が無い');
   assert.deepStrictEqual(l.errors.map(fmt), []);

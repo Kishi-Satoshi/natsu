@@ -162,7 +162,8 @@ test('N3・画面の使いやすさ: タブの帯は ←／→／Home／End で�
   assert.deepStrictEqual(tabs(l).map((t) => t.tabIndex), [0, -1, -1]);
   tabs(l)[0].dispatchEvent({ type: 'keydown', key: 'ArrowRight' });
   await l.drain();
-  assert.strictEqual(l.document.activeElement, tabs(l)[1]);
+  // 0.11.0（R22）: 要素どうしは assert.ok(a === b) で比べる（赤のときに報告が最小 DOM の木を丸ごと書き出し、変異確認の写しで数 GB の記憶を使った）
+  assert.ok(l.document.activeElement === tabs(l)[1]);
   assert.ok(l.byId.get('tabDictation').className.includes('active'));
   tabs(l)[1].dispatchEvent({ type: 'keydown', key: 'End' });
   await l.drain();
@@ -233,13 +234,13 @@ test('N4・画面の使いやすさ: 「…」は Enter で開いて最初の項
   await l.drain();
   const items = l.byId.get('pMenu').querySelectorAll('[role="menuitem"]');
   assert.strictEqual(more.getAttribute('aria-expanded'), 'true');
-  assert.strictEqual(l.document.activeElement, items[0]);
+  assert.ok(l.document.activeElement === items[0]);
   items[0].dispatchEvent({ type: 'keydown', key: 'ArrowDown' });
-  assert.strictEqual(l.document.activeElement, items[1]);
+  assert.ok(l.document.activeElement === items[1]);
   items[1].dispatchEvent({ type: 'keydown', key: 'Escape' });
   await l.drain();
   assert.strictEqual(l.byId.get('pMenu').hidden, true);
-  assert.strictEqual(l.document.activeElement, more);
+  assert.ok(l.document.activeElement === more);
   more.dispatchEvent({ type: 'keydown', key: 'Enter', isComposing: true });
   await l.drain();
   assert.strictEqual(l.byId.get('pMenu').hidden, true, '変換確定の Enter で開いた（imeEnter）');
@@ -460,7 +461,7 @@ test('画面の使いやすさ・F12（足した守り）: 選んでいるタブ
   x.dispatchEvent({ type: 'click' });
   await l.drain();
   assert.deepStrictEqual(keysOf(l), ['page:pa1', 'page:pb2']);
-  assert.strictEqual(l.document.activeElement, tabs(l)[1], '× で閉じた後、フォーカスがどこにも無い');
+  assert.ok(l.document.activeElement === tabs(l)[1], '× で閉じた後、フォーカスがどこにも無い');
   assert.deepStrictEqual(xs(), [-1, 0]);
 });
 
@@ -471,7 +472,7 @@ test('画面の使いやすさ・F12（足した守り）: タブの × にフ�
   l.fire('onPagesUpdated');
   await l.drain();
   assert.ok(l.called('pagesSearch').length >= 2, '前提: 一覧を読み直した');
-  assert.strictEqual(l.document.activeElement, tabs(l)[1].querySelector('.tx'), '帯を描き直したら × のフォーカスが消えた');
+  assert.ok(l.document.activeElement === tabs(l)[1].querySelector('.tx'), '帯を描き直したら × のフォーカスが消えた');
   assert.deepStrictEqual(l.errors.map(fmt), []);
 });
 
