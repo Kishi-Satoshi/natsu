@@ -668,6 +668,41 @@ test('再審査の指摘 5: site.js は横に送れる表の領域にだけ tabi
 
 // 3回目の審査の指摘 1（WCAG 2.4.3。持ち主の答え B）: 狭い画面では目次が［目次］のすぐ下に開くのに、HTML では本文の後ろにあるので Tab が目次を飛ばした。
 // 狭い間（CSS の order と同じ (max-width: 639px)）だけ、site.js が目次の nav を DOM で［目次］の直後へ移し、広くなれば本文の後ろへ戻す（1280px の Tab の順は Q12 のまま）
+test('6回目の指摘（WCAG 2.1.1。リリースノートの審査役が見つけた前からのもの）: site.js は本文のコードの塊（main pre）も、横に送れるときだけ tabindex="0" と名前（role="region"・aria-label。2つ以上あれば「コード 1」「コード 2」）を付け、resize で付け外しする。表と同じ扱い', { timeout: 5000 }, () => {
+  const vm = require('node:vm');
+  const { parseHTML } = require('./helpers/simdom');
+  const { root } = parseHTML('<!doctype html><html><body><header><pre id="out">外</pre></header><main><pre id="p1"><code>a</code></pre><pre id="p2"><code>b</code></pre></main></body></html>');
+  const p1 = root.querySelector('#p1');
+  const p2 = root.querySelector('#p2');
+  const out = root.querySelector('#out');
+  p1.scrollWidth = 917; p1.clientWidth = 614;
+  p2.scrollWidth = 300; p2.clientWidth = 614;
+  out.scrollWidth = 999; out.clientWidth = 10;
+  const listeners = {};
+  const document = { documentElement: root.querySelector('html'), querySelector: (q) => root.querySelector(q), querySelectorAll: (q) => root.querySelectorAll(q), getElementById: () => null };
+  const window = { addEventListener: (t, fn) => { (listeners[t] = listeners[t] || []).push(fn); } };
+  const js = fs.readFileSync(path.join(ROOT, 'help', 'assets', 'site.js'), 'utf8');
+  vm.runInContext(js, vm.createContext({ document, window }), { filename: 'site.js' });
+  const attrs = (el) => [el.getAttribute('tabindex'), el.getAttribute('role'), el.getAttribute('aria-label')];
+  assert.deepStrictEqual(attrs(p1), ['0', 'region', 'コード 1'], '送れるコードの塊に tabindex と名前が無い');
+  assert.deepStrictEqual(attrs(p2), [null, null, null], '送れないコードの塊に付けた');
+  assert.deepStrictEqual(attrs(out), [null, null, null], 'main の外の pre に付けた');
+  p1.scrollWidth = 614;
+  p2.scrollWidth = 900;
+  assert.ok((listeners.resize || []).length > 0, 'resize を見ていない');
+  for (const fn of listeners.resize) fn({ type: 'resize' });
+  assert.deepStrictEqual(attrs(p1), [null, null, null], '送れなくなっても残る');
+  assert.deepStrictEqual(attrs(p2), ['0', 'region', 'コード 2']);
+  // コードの塊が1つだけなら名前は「コード」
+  const one = parseHTML('<!doctype html><html><body><main><pre id="only"><code>c</code></pre></main></body></html>').root;
+  const only = one.querySelector('#only');
+  only.scrollWidth = 900; only.clientWidth = 300;
+  const d1 = { documentElement: one.querySelector('html'), querySelector: (q) => one.querySelector(q), querySelectorAll: (q) => one.querySelectorAll(q), getElementById: () => null };
+  vm.runInContext(js, vm.createContext({ document: d1, window: { addEventListener() {} } }), { filename: 'site.js' });
+  assert.deepStrictEqual(attrs(only), ['0', 'region', 'コード']);
+  assert.ok(!/\.style\b|setAttribute\(['"]style/.test(js), 'site.js が style を書く');
+});
+
 test('3回目の指摘 1: site.js は狭い画面（matchMedia の (max-width: 639px)）の間だけ目次を［目次］の直後へ移し、広くなれば本文の後ろ（元の場所）へ戻す。matchMedia が無ければ動かさない。CSS の order の切り替えも同じ幅', { timeout: 5000 }, (t) => {
   const vm = require('node:vm');
   const { parseHTML } = require('./helpers/simdom');

@@ -2054,6 +2054,8 @@ module.exports = [
   {"id": "hd-search-ime229", "file": "help/assets/search.js", "from": "        if (e.isComposing || e.keyCode === 229) return;\n", "to": "        if (e.isComposing) return;\n", "tests": ["test/help-search.test.js"], "pattern": "5回目の指摘 1", "why": "help-dads HD-12 5回目の指摘 1: Safari の変換中の keydown（isComposing が false で keyCode 229）の Enter でページを移る"},
   // help-dads 5回目の審査の指摘 3（閉じた一覧を開き直すのは修飾キーの無い ↓ だけ）
   {"id": "hd-search-reopen-plain", "file": "help/assets/search.js", "from": "            var plain = !e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey;\n", "to": "            var plain = true;\n", "tests": ["test/help-search.test.js"], "pattern": "5回目の指摘 3", "why": "help-dads HD-12 5回目の指摘 3: 閉じた一覧で Shift+↓ を押すと一覧が開き、文字の選択が伸びない"},
+  // help-dads 6回目（横に送れるコードの塊にも tabindex と名前。表と同じ扱い）
+  {"id": "hd-pre-tabindex", "file": "help/assets/site.js", "from": "      if (p.scrollWidth > p.clientWidth) {\n", "to": "      if (false) {\n", "tests": ["test/help-build.test.js"], "pattern": "6回目の指摘", "why": "help-dads HD-13 6回目（WCAG 2.1.1）: 横に送れるコードの塊（/admin/stop-person/ の SQL）にキーボードで届かず、名前も無い"},
   // help-relnotes Task RN-1（CHANGELOG の見出しの日付）
   {"id": "hrn-heading-space", "file": "CHANGELOG.md", "from": "## natsu-v0.10.0 （2026-10-23）", "to": "## natsu-v0.10.0（2026-10-23）", "tests": ["test/identity.test.js"], "pattern": "RN-1", "why": "help-relnotes RN-1 RNF1: 見出しの全角の括弧の前に半角の空白が無いと、release.yml が本文を取れず、アプリの［設定］→［更新］に変更点が出ない"},
   {"id": "hrn-body-same", "file": "CHANGELOG.md", "from": "- 要約（Claude Code）の設定のボタンを、説明の下に並べました。", "to": "- 要約（Claude Code）の設定のボタンを、説明の下に並べた。", "tests": ["test/identity.test.js"], "pattern": "RN-1", "why": "help-relnotes RN-1 RN1: 出した版の本文が変わる（アプリに出た文・GitHub のリリース本文と食い違う）"},
