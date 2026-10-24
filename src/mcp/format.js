@@ -8,6 +8,10 @@ const { getLabel, isSelectable } = require('../meetingType');
 const UNDECIDED_LABEL = '自動（決まらなかったので会議の要点の型）';
 const typeLabel = (v) => (isSelectable(v) ? getLabel(v) : UNDECIDED_LABEL);
 const { citeStatOf } = require('../pagerules');
+const memoTypes = require('../memoTypes');
+const quality = require('../quality');
+// 0.11.0 T-6（決めたこと 40）: 打ち合わせの質は照らした写し（quality.qualityView）だけを出す。壊れた・無い点は null（点の文を出さない）
+const qualityOf = (q) => quality.qualityView(q);
 const natsulink = require('../natsulink');
 const SL = require('../statelog');
 
@@ -90,6 +94,8 @@ function meetingLine(entry, attrs = {}) {
     typeLabel(entry.meetingType),
     `要約: ${summaryOf(entry, route)}`,
   ];
+  const qv = qualityOf(attrs && attrs.quality);
+  if (qv) parts.push(`質 ${qv.total}/${qv.max}`);   // 0.11.0 T-6: 打ち合わせの質
   const stt = sttOf(route);
   if (stt) parts.push(`文字起こし: ${stt}`);
   parts.push(`開いた ToDo ${Number(entry.openActionCount) || 0}`);
@@ -114,9 +120,10 @@ function blockLine(b, pageId = '') {
   if (!text.trim()) return null;
   if (b.type === 'todo') {
     const parts = [];
-    if (typeof b.assignee === 'string' && b.assignee.trim()) parts.push(`担当: ${safeLine(b.assignee)}`);
+    // 0.11.0 T-6（決めたこと 26 と同じ見せ方）: 担当・期限が無ければ「要確認」と書く（データには書かない）
+    parts.push(`担当: ${typeof b.assignee === 'string' && b.assignee.trim() ? safeLine(b.assignee) : '要確認'}`);
     const due = typeof b.due === 'string' && b.due ? b.due : typeof b.dueRaw === 'string' ? b.dueRaw : '';
-    if (due.trim()) parts.push(`期限: ${safeLine(due)}${b.dueApprox ? '（目安）' : ''}`);
+    parts.push(due.trim() ? `期限: ${safeLine(due)}${b.dueApprox ? '（目安）' : ''}` : '期限: 要確認');
     return `- [${b.checked ? 'x' : ' '}] ${text}${parts.length ? `（${parts.join('／')}）` : ''}${citeSuffix(b, pageId)}`;
   }
   return `- ${text}${b.type === 'bullet' ? citeSuffix(b, pageId) : ''}`;
@@ -149,7 +156,8 @@ function placeText(p) {
     return `文字起こし ${p.from}〜${p.to}${t}`;
   }
   if (p.kind === 'b') return `要約「${p.heading}」`;
-  return `メモ（段落 ${p.n}）`;
+  // 0.11.0 T-6（決めたこと 41）: 型の見出しの下の段落は見出しの名前（chunkMemo が型の表の名前だけを入れる）
+  return p.heading ? `メモ「${p.heading}」（段落 ${p.n}）` : `メモ（段落 ${p.n}）`;
 }
 // 0.10.0 LN-2（D72・D78・決めたこと 143）: 箇所の場所の行のリンク。[ ] の中は NaTsu の決まった文字だけ（要約の見出しは DB の文字なのでリンクの外: 決めたこと 60）。
 // anchor は箇所の印の # の後ろ（t:s12-s18・b:<ブロック>・m:<段落>）。住所を作れなければリンクにしない
@@ -201,6 +209,10 @@ function propLines(page) {
   if (d) lines.push(`- 日付: ${d}${time}`);
   lines.push(`- 長さ: ${clock((Number(page.durationSec) || 0) * 1000)}`);
   lines.push(`- 会議の種類: ${typeLabel(page.meetingType)}`);
+  // 0.11.0 T-6（決めたこと 40）: メモの型（種類から決まる。決まらなかった会議は会議の要点）と打ち合わせの質
+  lines.push(`- メモの型: ${memoTypes.MEMO_TYPES[memoTypes.memoTypeOf(page.meetingType)].label}`);
+  const qv = qualityOf(page.quality);
+  if (qv) lines.push(`- 打ち合わせの質: ${qv.total} / ${qv.max}`);
   const stt = sttOf(page.route);
   if (stt) lines.push(`- 文字起こし: ${stt}`);
   const by = page.route && typeof page.route === 'object' && page.route.summary && typeof page.route.summary === 'object' ? page.route.summary.by : '';
@@ -222,6 +234,12 @@ function summaryLines(page) {
   }
   if (out.length === 1) out.push(`要約はまだありません。${typeof page.summaryError === 'string' && page.summaryError.trim() ? `（${safeLine(page.summaryError)}）` : ''}`);
   return out;
+}
+// 0.11.0 T-6（決めたこと 40）: 要約の後の点の節（軸の名前・点・理由・出典の印）。点が無い・壊れていれば []
+function qualityLinesOf(page) {
+  const qv = qualityOf(page.quality);
+  if (!qv) return [];
+  return [`## 打ち合わせの質（${qv.total} / ${qv.max}）`, ...qv.axes.map((a) => `- ${a.label}: ${a.score} / 5 — ${safeLine(a.reason)}${citeSuffix({ cites: a.cites }, page.id)}`)];
 }
 function memoLines(page) {
   const q = quoteLines(typeof page.memo === 'string' ? page.memo.replace(/\s+$/, '') : '');
@@ -246,7 +264,7 @@ function meetingMarkdown(page, segments, { includeTranscript = false, from = nul
     take([...head, `- ID: ${page.id}`, ...linkLine(page.id)].join('\n'));
   } else {
     take([...head, ...propLines(page)].join('\n'));
-    take(fitLines(summaryLines(page), left - SECTION_RESERVE * 2));
+    take(fitLines([...summaryLines(page), ...qualityLinesOf(page)], left - SECTION_RESERVE * 2));
     take(fitLines(memoLines(page), left - SECTION_RESERVE));
   }
   let next = null;

@@ -21,11 +21,14 @@ const commands = require('../db/commands');
 const search = require('../db/search');
 const pagerules = require('../pagerules');
 const meetingType = require('../meetingType');
+// 0.11.0 T-6: 打ち合わせの質（format が照らす）とメモの型（format・passages が読む）
+const quality = require('../quality');
+const memoTypes = require('../memoTypes');
 const pkg = require('../../package.json');
 
 const APP_ROOT = path.resolve(__dirname, '..', '..');
 // 頭で読んだ部品（使う所はそれぞれの部品の中。ここでは後から require しないために読むだけ）
-const LOADED = Object.freeze({ format, passages, core, commands, search, pagerules, meetingType });
+const LOADED = Object.freeze({ format, passages, core, commands, search, pagerules, meetingType, quality, memoTypes });
 
 function errLine(text) {
   try { process.stderr.write(`${text}\n`); } catch (_) { /* 標準エラーが閉じている */ }

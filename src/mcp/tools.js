@@ -54,7 +54,7 @@ const TOOLS = Object.freeze([
   {
     name: 'list_meetings',
     title: '議事録の一覧',
-    description: 'NaTsu に保存された議事録（会議の記録）の一覧を、新しい順に返します。日付で絞るときは from・to に YYYY-MM-DD を入れるか、dates に日付の並びを入れます（例: 10/20 の会議は from と to の両方に 2026-10-20）。会議の種類は meeting_types で絞れます。今日の日付は答えの頭にあります。中身を読むときは get_meeting（1つ）か get_meetings（いくつか）に ID を渡します。',
+    description: 'NaTsu に保存された議事録（会議の記録）の一覧を、新しい順に返します。日付で絞るときは from・to に YYYY-MM-DD を入れるか、dates に日付の並びを入れます（例: 10/20 の会議は from と to の両方に 2026-10-20）。会議の種類は meeting_types で絞れます。今日の日付は答えの頭にあります。中身を読むときは get_meeting（1つ）か get_meetings（いくつか）に ID を渡します。各行の「質 N/25」は打ち合わせの質の点（会議の進め方の目安）で、「最近の自分の会議の打ち合わせの質の推移」のような頼みにも使えます。',
     inputSchema: schema({ from: DATE_PROP('この日から'), to: DATE_PROP('この日まで'), dates: DATES_PROP, meeting_types: TYPES_PROP, limit: INT(1, 100, 20, '件数'), offset: INT(0, OFFSET_MAX, 0, '飛ばす件数') }),
     annotations: ANNOTATIONS,
   },
@@ -501,9 +501,10 @@ function listActionItems(db, args, { now }) {
   for (; i < all.length && lines.length < limit; i++) {
     const a = all[i];
     const parts = [F.safeLine(a.text)];
-    if (a.assignee) parts.push(`担当: ${F.safeLine(a.assignee)}`);
+    // 0.11.0 T-6（決めたこと 26・40 と同じ見せ方）: 担当・期限が無ければ「要確認」と書く（データには書かない）
+    parts.push(`担当: ${a.assignee ? F.safeLine(a.assignee) : '要確認'}`);
     const due = a.due || a.dueRaw;
-    if (due) parts.push(`期限: ${F.safeLine(due)}${a.due && a.dueApprox ? '（目安）' : ''}`);
+    parts.push(due ? `期限: ${F.safeLine(due)}${a.due && a.dueApprox ? '（目安）' : ''}` : '期限: 要確認');
     parts.push(`会議: ${F.dateWithDay(a.date) || F.safeLine(String(a.date || ''))} ${F.safeLine(a.pageTitle || '') || '(無題の議事録)'}（ID ${a.pageId}）`);
     const line = `- [ ] ${parts.join('｜')}`;
     if (size + 1 + line.length + 40 > MAX_RESULT_CHARS) break;

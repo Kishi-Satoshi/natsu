@@ -9,6 +9,7 @@ const { searchFold } = require('../cite');
 const { foldWithMap } = require('../pagerules');
 const search = require('../db/search');
 const F = require('./format');
+const memoTypes = require('../memoTypes');
 
 const PASSAGE_MAX = 600;
 const WINDOW_CHARS = 400;
@@ -113,30 +114,48 @@ function chunkSummary(blocks) {
   return out.map(({ head, ...rest }) => rest);
 }
 
-// メモの段落 → [{ kind: 'm', n, lines, text }]
+// 0.11.0 T-6（決めたこと 41。持ち主の試作）: メモの型の見出しの行（「■ 見出し」。headingKey で型の表の名前と同じもの）→ 型の表の名前（違えば ''）
+const MEMO_HEADS = new Map(memoTypes.VIEW_HEADS.type.map((n) => [memoTypes.headingKey(n), n]));
+const memoHeadOf = (line) => {
+  const t = String(line || '').normalize('NFKC').trim();
+  return /^[*\s]*■/.test(t) ? MEMO_HEADS.get(memoTypes.headingKey(t)) || '' : '';
+};
+// メモの段落 → [{ kind: 'm', n, lines, text, heading? }]。型の見出しの行でも段落を区切り（見出しの段落どうしを続けない）、
+// その見出しの下の段落に見出しの名前（型の表の名前だけ）を持たせる。型の見出しの無いメモは今のまま
 function chunkMemo(memo) {
   const paras = String(memo || '').split(/\r?\n[ \t\u3000]*\r?\n/).map((p) => p.split(/\r?\n/).filter((l) => l.trim())).filter((ls) => ls.length);
-  // 長い段落は行の切れ目で分ける
-  const pieces = [];
+  const secs = [];
+  let head = '';
   for (const ls of paras) {
-    let cur = [];
+    let cur = []; let curHead = head; let lead = false;
     for (const l of ls) {
-      if (cur.length && cur.join('\n').length + 1 + l.length > PASSAGE_MAX) { pieces.push(cur); cur = []; }
+      const h = memoHeadOf(l);
+      if (h) { if (cur.length) secs.push({ ls: cur, head: curHead, lead }); cur = [l]; curHead = h; head = h; lead = true; continue; }
       cur.push(l);
     }
-    if (cur.length) pieces.push(cur);
+    if (cur.length) secs.push({ ls: cur, head: curHead, lead });
   }
-  // 短い段落は続けて 400 字まで1つにする
+  // 長い段落は行の切れ目で分ける
+  const pieces = [];
+  for (const sec of secs) {
+    let cur = []; let lead = sec.lead;
+    for (const l of sec.ls) {
+      if (cur.length && cur.join('\n').length + 1 + l.length > PASSAGE_MAX) { pieces.push({ ls: cur, head: sec.head, lead }); cur = []; lead = false; }
+      cur.push(l);
+    }
+    if (cur.length) pieces.push({ ls: cur, head: sec.head, lead });
+  }
+  // 短い段落は続けて 400 字まで1つにする（同じ見出しの下だけ。見出しの行から始まる段落は前に続けない）
   const merged = [];
   for (const p of pieces) {
     const last = merged[merged.length - 1];
-    const text = p.join('\n');
-    if (last && last.text.length < MEMO_MERGE && last.text.length + 2 + text.length <= WINDOW_CHARS) {
-      last.lines.push('', ...p);
+    const text = p.ls.join('\n');
+    if (last && !p.lead && last.head === p.head && last.text.length < MEMO_MERGE && last.text.length + 2 + text.length <= WINDOW_CHARS) {
+      last.lines.push('', ...p.ls);
       last.text += `\n\n${text}`;
-    } else merged.push({ lines: p.slice(), text });
+    } else merged.push({ lines: p.ls.slice(), text, head: p.head });
   }
-  return merged.map((m, i) => ({ kind: 'm', n: i + 1, lines: m.lines, text: m.text }));
+  return merged.map((m, i) => ({ kind: 'm', n: i + 1, lines: m.lines, text: m.text, ...(m.head ? { heading: m.head } : {}) }));
 }
 
 const idfOf = (N, df) => Math.log(1 + (N - df + 0.5) / (df + 0.5));
