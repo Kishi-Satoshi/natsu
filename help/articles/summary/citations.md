@@ -1,7 +1,7 @@
 ---
 title: 出典リンク
 description: 要約の要点から、もとの発言へ飛ぶ。「根拠なし」「手書き」「編集済み」の札の意味
-updated: 2026-10-20
+updated: 2026-10-23
 sources: README.md, src/renderer/app.html, src/cite.js
 related: summary/how-summaries, summary/summary-types
 ---
@@ -26,4 +26,4 @@ related: summary/how-summaries, summary/summary-types
 
 ## 文字起こしを直したとき {#edit}
 
-文字起こしはクリックして直せます。直した区間の出典は自動で引き直します。ほかの要点の出典は動きません。
+文字起こしはクリックして直せます。直した区間（文字起こしのために録音を区切ったひとまとまりの音声）の出典は自動で引き直します。ほかの要点の出典は動きません。

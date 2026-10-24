@@ -1,7 +1,7 @@
 ---
 title: ログインできない・コードが届かない
 description: コードのメールが届かない・「already been used」と出る・会社のネットワークでつながらないときに見るところと、管理者に知らせること
-updated: 2026-10-21
+updated: 2026-10-23
 sources: README.md, INSTALL.md, src/renderer/app.html, src/main.js, src/mainlib.js
 related: start/login, settings/account, admin/stop-person
 ---
@@ -21,7 +21,7 @@ related: start/login, settings/account, admin/stop-person
 
 ## 会社のネットワークでつながらない {#network}
 
-「文字起こしの中継につながりません（会社の通信の検査で止められている可能性があります）。」と出たときは、Zscaler などの会社の通信の検査が中継を止めています。
+「文字起こしの中継につながりません（会社の通信の検査で止められている可能性があります）。」と出たときは、Zscaler などの会社の通信の検査が中継（音声を OpenAI へ取り次ぐ NaTsu のサーバー）を止めています。
 情報システムに、文に出た接続先への通信の許可を頼んでください。ログインと文字起こしには、中継の住所（`natsu-relay.natsu-code.workers.dev`）と、Cloudflare のログインの画面（`<チームの名前>.cloudflareaccess.com`。`<チームの名前>` は管理者が知っています）を使います。
 
 ## ほかの文が出たとき {#other}

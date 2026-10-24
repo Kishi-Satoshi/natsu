@@ -1,7 +1,9 @@
 /* help.css — NaTsu ヘルプセンターの見た目（H-3）
  *
  * 利用者の指定（2026-10-20）: 白黒が基本。紺・グラデーション・色付きのバッジ・影・角丸は使わない。強調は線の太さで表す。
- * 書体は同梱の IBM Plex Sans JP（本文・見出し）と IBM Plex Mono（コード）。ロゴのアイコンは使わない。
+ * help-dads（2026-10-23。docs/plans/2026-10-23-help-dads.md の HD1〜HD8）: DADS に寄せた。色を使うのは文中のリンク（青と下線）と
+ * キーボードの輪（黒＋黄色）だけ。色の値は DADS の札の値か DADS-PROTECT.md のブランド色（暗い版の灰色）だけ。
+ * 書体は同梱の Noto Sans JP（本文・見出し）と Noto Sans Mono（コード。HD3）。ロゴのアイコンは使わない。
  * 大きな数字は順番のある手順（.step .n）にだけ使う。暗い版は白黒を反転した灰色だけ（色は使わない）。
  * 色は全部 :root の札を通す（暗い版は札だけを変える）。CSS の入れ子は使わない。
  */
@@ -10,11 +12,22 @@
   --bg: #ffffff;
   --ink: #000000;     /* 見出し・強調 */
   --body: #333333;    /* 本文 */
-  --muted: #6e6e6e;   /* 補足 */
-  --rule: #dadada;    /* 罫線 */
-  --wash: #f4f4f4;    /* 面 */
-  --sans: "IBM Plex Sans JP", "Hiragino Sans", "Yu Gothic UI", "Meiryo", system-ui, sans-serif;
-  --mono: "IBM Plex Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
+  --muted: #666666;   /* 補足・検索の箱の枠（DADS solid-gray-600） */
+  --rule: #cccccc;    /* 罫線（DADS solid-gray-200） */
+  --wash: #f2f2f2;    /* 面（DADS solid-gray-50） */
+  --link: #00118f;          /* 文中のリンク（DADS blue-1000） */
+  --link-visited: #8b008b;  /* 訪問済み（DADS magenta-900） */
+  --link-hover: #0017c1;    /* ホバー（DADS blue-900） */
+  --link-active: #ac3e00;   /* 押している間（DADS orange-900） */
+  --focus-outline: #000000; /* キーボードの輪（HD2。DADS black） */
+  --focus-ring: #ffd43d;    /* 輪の内側の黄色の縁（DADS yellow-300） */
+  --focus-link-bg: #ffd43d; /* 輪の付いたリンクの地（DADS yellow-300） */
+  --focus-link-ink: #000000;/* 輪の付いたリンクの文字（黄色の上で 14.74:1） */
+  --sans: "Noto Sans JP", "Hiragino Sans", "Yu Gothic UI", "Meiryo", system-ui, sans-serif;
+  --mono: "Noto Sans Mono", "Noto Sans JP", ui-monospace, "Cascadia Mono", Consolas, monospace;
+  /* 上の帯の左右の余白。48rem 未満の上の帯の検索の結果の左右も同じ値から取る（ずれない: 5回目の審査の指摘 2）。
+     単位は px（Q3 の答え: rem は文字の大きさ・押す場所の高さ・輪の太さだけ。DADS の rem の印はここでは受け入れる） */
+  --top-gutter: 24px;
   color-scheme: light dark;
 }
 
@@ -26,6 +39,11 @@
     --muted: #a3a3a3;
     --rule: #3d3d3d;
     --wash: #1f1f1f;
+    --link: #9db7f9;          /* DADS blue-300（地で 9.51:1・面で 8.30:1） */
+    --link-visited: #ff8eff;  /* DADS magenta-300 */
+    --link-hover: #7096f8;    /* DADS blue-400 */
+    --link-active: #ffa66d;   /* DADS orange-300 */
+    --focus-outline: #ffffff; /* 暗い版の輪は白＋黄色（HD5。暗い地で 18.88:1） */
   }
 }
 
@@ -38,86 +56,105 @@ body {
   background: var(--bg);
   color: var(--body);
   font-family: var(--sans);
-  font-size: 16px;
+  font-size: 1rem;   /* HD4: rem（ブラウザの文字の設定に従う） */
   line-height: 1.85;
 }
-a { color: var(--ink); text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: .2em; text-decoration-color: var(--rule); }
-a:hover { text-decoration-color: var(--ink); }
-:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+a { color: var(--ink); text-decoration: underline; text-decoration-thickness: calc(1 / 16 * 1rem); text-underline-offset: calc(3 / 16 * 1rem); text-decoration-color: currentColor; }
+/* 文中のリンク（HD1・Q1）: DADS のリンクと同じ形。青と下線（文字と同じ色）。訪問済み・ホバー（太い下線）・押している間も色を変える */
+.body a:any-link, .notfound a:any-link, .crumbs a:any-link, .rows li > a:any-link, .open-note a:any-link { color: var(--link); text-decoration: underline; text-decoration-color: currentColor; text-decoration-thickness: calc(1 / 16 * 1rem); text-underline-offset: calc(3 / 16 * 1rem); }
+.body a:visited, .notfound a:visited, .crumbs a:visited, .rows li > a:visited, .open-note a:visited { color: var(--link-visited); }
+@media (hover: hover) {
+  .body a:hover, .notfound a:hover, .crumbs a:hover, .rows li > a:hover, .open-note a:hover { color: var(--link-hover); text-decoration-thickness: calc(3 / 16 * 1rem); }
+}
+.body a:active, .notfound a:active, .crumbs a:active, .rows li > a:active, .open-note a:active { color: var(--link-active); text-decoration-thickness: calc(1 / 16 * 1rem); }
+/* キーボードの輪（HD2・HD5）: DADS と同じ形。黒（暗い版は白）の 4px・2px 空け・角 4px と、その内側に黄色の 2px の縁。
+ * リンクは地を黄色・文字を黒に（文中のリンクの色や暗い版の本文の色より強く効かせる。分類のカードの中の文字も黒に） */
+:focus-visible { outline: calc(4 / 16 * 1rem) solid var(--focus-outline); outline-offset: calc(2 / 16 * 1rem); border-radius: calc(4 / 16 * 1rem); box-shadow: 0 0 0 calc(2 / 16 * 1rem) var(--focus-ring); }
+a:focus-visible { background-color: var(--focus-link-bg) !important; color: var(--focus-link-ink) !important; }
+.cats a:focus-visible .t, .cats a:focus-visible .d, .cats a:focus-visible .c, .cats a:focus-visible .ic { color: var(--focus-link-ink); }
 .vh { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap; }
 .skip { position: absolute; left: -9999px; top: 8px; }
 .skip:focus { left: 16px; z-index: 10; padding: 4px 10px; background: var(--bg); color: var(--ink); border: 1px solid var(--ink); }
 
 /* ===== 上の帯: 白地に黒の文字、下に 1px の罫線。影なし・ロゴのアイコンなし ===== */
 .top { background: var(--bg); border-bottom: 1px solid var(--rule); }
-.top-in { max-width: 1200px; margin: 0 auto; padding: 0 24px; min-height: 56px; display: flex; align-items: center; gap: 24px; }
+.top-in { max-width: 1200px; margin: 0 auto; padding: 0 var(--top-gutter); min-height: 56px; display: flex; align-items: center; gap: 24px; }
 .brand { font-weight: 700; color: var(--ink); text-decoration: none; letter-spacing: .01em; white-space: nowrap; }
 
-/* 検索の箱（H-4）: 面の地・影なし。結果は ink の 1px の枠の一覧 */
+/* 検索の箱（H-4）: 地の色に補足の色の 1px の枠（HD-1。重要 1）・影なし。結果は ink の 1px の枠の一覧 */
 .search { position: relative; flex: 1 1 auto; max-width: 360px; margin-left: auto; min-width: 0; }
-.search-q { display: block; width: 100%; font: inherit; font-size: .9rem; line-height: 1.5; padding: 6px 12px; color: var(--ink); background: var(--wash); border: 1px solid transparent; border-radius: 0; -webkit-appearance: none; appearance: none; }
+.search-q { display: block; width: 100%; font: inherit; font-size: 1rem; line-height: 1.5; padding: 6px 12px; color: var(--ink); background: var(--bg); border: 1px solid var(--muted); border-radius: 0; -webkit-appearance: none; appearance: none; }
 .search-q::placeholder { color: var(--muted); opacity: 1; }
 .search-q::-webkit-search-cancel-button { -webkit-appearance: none; appearance: none; }   /* 色の付いた × を出さない（Esc で空にできる） */
 .search-results { position: absolute; top: 100%; left: 0; right: 0; z-index: 20; list-style: none; margin: 4px 0 0; padding: 0; max-height: 70vh; overflow-y: auto; background: var(--bg); border: 1px solid var(--ink); }
 .search-results li { border-bottom: 1px solid var(--rule); }
 .search-results li:last-child { border-bottom: 0; }
 .search-results a { display: block; padding: 8px 12px 8px 10px; color: var(--body); text-decoration: none; line-height: 1.5; border-left: 2px solid transparent; }
-.search-results a:hover { background: var(--wash); color: var(--ink); }
-.search-results li[aria-selected="true"] a { background: var(--wash); color: var(--ink); border-left-color: var(--ink); }
+@media (hover: hover) {
+  .search-results a:hover { background: var(--wash); color: var(--ink); }
+}
+.search-results a[aria-selected="true"] { background: var(--wash); color: var(--ink); border-left-color: var(--ink); }
+/* 強制カラー（ハイコントラスト）では面の色と透明の線が消えるので、選んだ行を Highlight の線と輪で示す（再審査の指摘 2） */
+@media (forced-colors: active) {
+  .search-results a { border-left-color: Canvas; }
+  .search-results a[aria-selected="true"] { border-left: calc(4 / 16 * 1rem) solid Highlight; outline: calc(2 / 16 * 1rem) solid Highlight; outline-offset: calc(-2 / 16 * 1rem); }
+}
 .search-results .rt { display: block; font-weight: 700; color: var(--ink); }
-.search-results .rc { display: block; font-size: .78rem; color: var(--muted); }
-.search-results .none { padding: 8px 12px; color: var(--muted); font-size: .9rem; }
+.search-results .rc { display: block; font-size: .875rem; color: var(--muted); }
+.search-results .none { padding: 8px 12px; color: var(--muted); font-size: .875rem; }
 .search-big { max-width: 560px; margin: 0 0 2.4rem; }
-.search-big .search-q { font-size: 1.05rem; padding: 12px 16px; }
+.search-big .search-q { font-size: 1.0625rem; padding: 12px 16px; }
 
 /* ===== 本文の枠 ===== */
 .wrap { max-width: 1200px; margin: 0 auto; padding: 32px 24px 72px; }
 .layout { display: grid; grid-template-columns: 240px minmax(0, 1fr) 200px; column-gap: 48px; align-items: start; }
 .layout > main { grid-column: 2; grid-row: 1; max-width: 720px; min-width: 0; }
-.toc { grid-column: 1; grid-row: 1; position: sticky; top: 24px; max-height: calc(100vh - 48px); overflow-y: auto; padding: 4px; margin: -4px; font-size: .88rem; line-height: 1.6; }
-.onpage { grid-column: 3; grid-row: 1; position: sticky; top: 24px; font-size: .85rem; line-height: 1.6; border-top: 1px solid var(--ink); padding-top: .6rem; }
-.toc-btn { display: none; }
+.toc { grid-column: 1; grid-row: 1; position: sticky; top: 24px; max-height: calc(100vh - 48px); overflow-y: auto; padding: calc(6 / 16 * 1rem); margin: calc(-6 / 16 * 1rem); scroll-padding-block: calc(6 / 16 * 1rem); font-size: 1rem; line-height: 1.6; }
+.onpage { grid-column: 3; grid-row: 1; position: sticky; top: 24px; font-size: 1rem; line-height: 1.6; border-top: 1px solid var(--ink); padding-top: .6rem; }
+.toc-btn { display: none; font: inherit; }
 
 h1 { color: var(--ink); font-weight: 700; font-size: 2rem; line-height: 1.4; letter-spacing: .01em; margin: 0 0 .8em; }
 h2 { color: var(--ink); font-weight: 700; }
 h3 { color: var(--ink); font-weight: 700; }
-.lede { font-size: 1.05rem; color: var(--body); max-width: 34em; margin: -.2rem 0 2.2rem; }
+.lede { font-size: 1.0625rem; color: var(--body); max-width: 34em; margin: -.2rem 0 2.2rem; }
 .empty { color: var(--muted); }
 
-/* パンくず */
-.crumbs { font-size: .85rem; color: var(--muted); margin: 0 0 .8rem; }
-.crumbs a { color: var(--muted); }
-.crumbs a:hover { color: var(--ink); }
+/* パンくず（HD-6 Q4: 最後に今のページを本文の色の文字で。リンクにしない） */
+.crumbs { font-size: 1rem; color: var(--muted); margin: 0 0 .8rem; }
+.crumbs [aria-current="page"] { color: var(--body); }
 
 /* 記事の属性の帯: 上に ink の 1px、下に罫線、項目の間に罫線の縦線 */
 .article-meta { display: flex; flex-wrap: wrap; margin: 0 0 1.6rem; border-top: 1px solid var(--ink); border-bottom: 1px solid var(--rule); }
 .article-meta div { padding: .5rem 1.6rem .55rem 0; margin-right: 1.2rem; border-right: 1px solid var(--rule); }
 .article-meta div:last-child { border-right: 0; margin-right: 0; }
-.article-meta dt { font-size: .75rem; color: var(--muted); }
-.article-meta dd { margin: 0; font-size: .95rem; font-weight: 700; color: var(--ink); }
+.article-meta dt { font-size: .875rem; color: var(--muted); }
+.article-meta dd { margin: 0; font-size: 1rem; font-weight: 700; color: var(--ink); }
 
 /* ===== 記事の本文 ===== */
 .body { overflow-wrap: break-word; }
-.body h2 { font-size: 1.3rem; line-height: 1.5; margin: 2.6em 0 .6em; }
-.body h3 { font-size: 1.05rem; line-height: 1.5; margin: 1.8em 0 .4em; }
+.body h2 { font-size: 1.25rem; line-height: 1.5; margin: 2.6em 0 .6em; }
+.body h3 { font-size: 1.0625rem; line-height: 1.5; margin: 1.8em 0 .4em; }
 .body p { margin: 0 0 1em; }
+/* help-relnotes RN-4: リリースノートの版の h2 の下の公開日（記事の最終更新日と同じ補足の大きさと色） */
+.relnote-date { font-size: .875rem; color: var(--muted); }
 .body ul, .body ol { margin: 0 0 1em; padding-left: 1.5em; }
 .body li { margin: .2em 0; }
 .body li > ul, .body li > ol { margin: .2em 0 .4em; }
 .body figure { margin: 1.4em 0; }
 .body img { max-width: 100%; height: auto; }
 
+/* 文字の大きさは DADS の文字スタイルの段（14・16・17・20px…）。kbd・code は rem の 14px（3回目の審査の指摘 5） */
 /* 順番のある手順だけ大きな数字（3.2rem・細い 300・ink） */
 .body h2.step { margin-top: 2.4em; padding-top: 1.2rem; border-top: 2px solid var(--ink); }
 .step .n { display: block; font-size: 3.2rem; line-height: 1; font-weight: 300; color: var(--ink); margin-bottom: .5rem; }
-.step .k { display: block; font-size: .8rem; font-weight: 400; color: var(--muted); }
+.step .k { display: block; font-size: .875rem; font-weight: 400; color: var(--muted); }
 .step .t { display: block; }
 
 code, kbd, pre { font-family: var(--mono); }
-code { font-size: .9em; color: var(--ink); background: var(--wash); padding: .1em .35em; }
-pre { overflow-x: auto; margin: 1.2em 0; padding: 12px 16px; background: var(--wash); border: 1px solid var(--rule); line-height: 1.6; font-size: .9rem; }
+code { font-size: .875rem; color: var(--ink); background: var(--wash); padding: .1em .35em; }
+pre { overflow-x: auto; margin: 1.2em 0; padding: 12px 16px; background: var(--wash); border: 1px solid var(--rule); line-height: 1.6; font-size: .875rem; }
 pre code { background: transparent; padding: 0; font-size: inherit; }
-kbd { font-size: .85em; color: var(--ink); background: var(--bg); border: 1px solid var(--rule); border-bottom-width: 2px; padding: 0 .4em; white-space: nowrap; }
+kbd { font-size: .875rem; color: var(--ink); background: var(--bg); border: 1px solid var(--rule); border-bottom-width: 2px; padding: 0 .4em; white-space: nowrap; }
 
 /* 表: 影なし・角丸なし・罫線の枠。見出しの行は地なしで下に ink の 1px */
 .table { overflow-x: auto; margin: 1.2em 0; }
@@ -126,7 +163,7 @@ th { text-align: left; color: var(--ink); font-weight: 700; background: transpar
 td { border-top: 1px solid var(--rule); padding: 8px 12px; vertical-align: top; }
 
 /* 注意の枠: 地は面、左に ink の 2px。注意（重要）は地の色に ink の 1px の枠と左 5px。ヒントは地なしで左の線を罫線に */
-.note { margin: 1.4em 0; padding: 12px 16px; background: var(--wash); border-left: 2px solid var(--ink); font-size: .95rem; }
+.note { margin: 1.4em 0; padding: 12px 16px; background: var(--wash); border-left: 2px solid var(--ink); font-size: 1rem; }
 .note p { margin: .3em 0; }
 .note ul, .note ol { margin: .3em 0; }
 .note-t { color: var(--ink); font-weight: 700; }
@@ -135,43 +172,48 @@ td { border-top: 1px solid var(--rule); padding: 8px 12px; vertical-align: top; 
 
 /* ===== 左の目次 ===== */
 .toc-cat { margin: 0 0 1rem; }
-.toc-h { margin: 0 0 .3em; font-weight: 700; font-size: .85rem; }
+.toc-h { margin: 0 0 .3em; font-weight: 700; font-size: .875rem; }
 .toc-h a { color: var(--ink); text-decoration: none; }
 .toc ul { list-style: none; margin: 0; padding: 0; }
 .toc li a { display: block; padding: .2em 0 .2em 10px; color: var(--body); text-decoration: none; border-left: 1px solid var(--rule); }
-.toc a:hover { color: var(--ink); text-decoration: underline; text-decoration-color: var(--ink); }
+@media (hover: hover) {
+  .toc a:hover { color: var(--ink); text-decoration: underline; text-decoration-color: var(--ink); }
+}
 .toc li a[aria-current="page"] { color: var(--ink); font-weight: 700; border-left: 2px solid var(--ink); padding-left: 9px; }
 .toc-h a[aria-current="page"] { text-decoration: underline; text-decoration-color: var(--ink); }
 
 /* このページの内容 */
-.onpage-h { margin: 0 0 .4em; font-weight: 700; font-size: .8rem; color: var(--ink); }
-.onpage ul { list-style: none; margin: 0; padding: 0; }
+.onpage-h { margin: 0 0 .4em; font-weight: 700; font-size: .875rem; color: var(--ink); }
+.onpage ul { list-style: none; max-height: calc(100vh - 48px - 2.5rem); overflow-y: auto; padding: calc(6 / 16 * 1rem); margin: calc(-6 / 16 * 1rem); scroll-padding-block: calc(6 / 16 * 1rem); }   /* help-relnotes RN-4（RNF5）: 版が増えても窓の中で送れる。余白の決まりは左の目次と同じ */
 .onpage li { margin: .25em 0; }
 .onpage a { color: var(--body); text-decoration: none; }
-.onpage a:hover { color: var(--ink); text-decoration: underline; }
+@media (hover: hover) {
+  .onpage a:hover { color: var(--ink); text-decoration: underline; }
+}
 
-/* ===== 一覧（rows）: 上に ink の 1px、各行の下に罫線。左に題名、右に薄い説明 ===== */
+/* ===== 一覧（rows）: 上に ink の 1px、各行の下に罫線。題名の下に左寄せの薄い説明（HD-6 Q5。広い画面もスマホと同じ縦の並び） ===== */
 .rows { list-style: none; padding: 0; margin: 0 0 2rem; border-top: 1px solid var(--ink); }
-.rows li { margin: 0; padding: .75rem 0; border-bottom: 1px solid var(--rule); display: flex; gap: 1.5rem; justify-content: space-between; align-items: baseline; }
-.rows li > a { flex: 0 0 auto; max-width: 55%; }
-.rows .desc { flex: 0 1 auto; min-width: 0; color: var(--muted); font-size: .85rem; text-align: right; }
+.rows li { margin: 0; padding: .75rem 0; border-bottom: 1px solid var(--rule); display: flex; flex-direction: column; gap: .2rem; align-items: flex-start; }
+.rows .desc { min-width: 0; color: var(--muted); font-size: 1rem; text-align: left; }
 .related { margin-top: 3rem; }
-.related h2 { font-size: 1.05rem; margin: 0 0 .6rem; }
-main > h2 { font-size: 1.05rem; margin: 2.6rem 0 .6rem; }
+.related h2 { font-size: 1.0625rem; margin: 0 0 .6rem; }
+main > h2 { font-size: 1.0625rem; margin: 2.6rem 0 .6rem; }
 
 /* ===== ホーム: 分類の格子（3 列。上に ink の 2px、各項目の下に罫線） ===== */
 .home { max-width: 960px; }
 .cats { list-style: none; padding: 0; margin: 0 0 2.6rem; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); column-gap: 1.6rem; border-top: 2px solid var(--ink); }
 .cats a { display: block; height: 100%; padding: 1.1rem .4rem 1.3rem 0; border-bottom: 1px solid var(--rule); text-decoration: none; color: var(--body); }
-.cats a:hover .t { text-decoration: underline; text-underline-offset: .2em; }
+@media (hover: hover) {
+  .cats a:hover .t { text-decoration: underline; text-underline-offset: .2em; }
+}
 .cats .ic { display: block; width: 20px; height: 20px; color: var(--ink); margin-bottom: .6rem; }
-.cats .t { display: block; font-weight: 700; color: var(--ink); font-size: 1.05rem; margin-bottom: .35rem; }
-.cats .d { display: block; font-size: .85rem; color: var(--muted); line-height: 1.6; }
-.cats .c { display: block; font-size: .78rem; color: var(--muted); margin-top: .6rem; }
+.cats .t { display: block; font-weight: 700; color: var(--ink); font-size: 1.0625rem; margin-bottom: .35rem; }
+.cats .d { display: block; font-size: 1rem; color: var(--muted); line-height: 1.6; }
+.cats .c { display: block; font-size: .875rem; color: var(--muted); margin-top: .6rem; }
 
 /* ===== いちばん下: 白地、上に罫線、飾りなし ===== */
 .foot { background: var(--bg); border-top: 1px solid var(--rule); }
-.foot-in { max-width: 1200px; margin: 0 auto; padding: 20px 24px 28px; color: var(--muted); font-size: .85rem; }
+.foot-in { max-width: 1200px; margin: 0 auto; padding: 20px 24px 28px; color: var(--muted); font-size: .875rem; }
 .foot-in p { margin: 0; }
 
 .notfound { max-width: 720px; }
@@ -190,7 +232,8 @@ main > h2 { font-size: 1.05rem; margin: 2.6rem 0 .6rem; }
   .cats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 @media (max-width: 639px) {
-  .top-in, .wrap, .foot-in { padding-left: 16px; padding-right: 16px; }
+  :root { --top-gutter: 16px; }
+  .wrap, .foot-in { padding-left: 16px; padding-right: 16px; }
   .wrap { padding-top: 20px; }
   h1 { font-size: 1.6rem; }
   .layout { display: flex; flex-direction: column; align-items: stretch; }
@@ -198,11 +241,22 @@ main > h2 { font-size: 1.05rem; margin: 2.6rem 0 .6rem; }
   .toc { order: 1; position: static; max-height: none; overflow-y: visible; margin: 2.5rem 0 0; padding: 1rem 0 0; border-top: 1px solid var(--ink); }
   .js .toc { display: none; order: -1; margin: 0 0 1.5rem; }
   .js .toc.open { display: block; }
-  .toc-btn { display: inline-block; order: -2; align-self: flex-start; margin: 0 0 1rem; padding: 4px 14px; font: inherit; font-size: .9rem; color: var(--ink); background: var(--bg); border: 1px solid var(--ink); cursor: pointer; }
-  .rows li { flex-direction: column; gap: .2rem; }
-  .rows li > a { max-width: none; }
-  .rows .desc { text-align: left; }
+  .toc-btn { display: inline-block; order: -2; align-self: flex-start; margin: 0 0 1rem; padding: 4px 14px; font: inherit; font-size: .875rem; color: var(--ink); background: var(--bg); border: 1px solid var(--ink); cursor: pointer; }
   .article-meta div { padding-right: 1rem; margin-right: .8rem; }
+}
+/* 48rem 未満（DADS の切り替えの幅）: 押す場所を 44px に（HD4。広い画面には効かせない: DF5） */
+@media (max-width: 47.9375rem) {
+  .toc-btn, .search-q, .toc li a, .crumbs a, .open-go { min-height: calc(44 / 16 * 1rem); }
+  .toc li a { display: flex; align-items: center; }
+  .crumbs a, .open-go { display: inline-flex; align-items: center; }
+  /* help-relnotes 審査 B-1（R-RN7・HD4）: 分類の見出しの行と「リリースノート」の行も、記事の行と同じく押す場所 44px */
+  .toc-h a { display: inline-flex; align-items: center; min-height: calc(44 / 16 * 1rem); }
+  /* 表（HD-6 Q6）: 狭い画面で列を細く折り返さず、表の領域の中だけ横に送る（領域は tabindex でキーボードでも送れる。影は付けない） */
+  .table table { min-width: calc(640 / 16 * 1rem); }
+  /* 上の帯の検索の結果は、上の帯の幅いっぱい（左右の余白の内側）に出す（箱の幅だけだと 320px で 1 行 4〜5 字になる: 3回目の指摘 3） */
+  .top-in { position: relative; }
+  .top-in .search { position: static; }
+  .top-in .search-results { left: var(--top-gutter); right: var(--top-gutter); }   /* 上の帯の余白と同じ値（5回目の審査の指摘 2） */
 }
 @media (max-width: 479px) {
   .cats { grid-template-columns: minmax(0, 1fr); }

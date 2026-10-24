@@ -3,6 +3,8 @@
  * PC の中（ブラウザの中）だけで探す。最初に打ったときに /search-index.json を1回だけ読み、
  * NFKC と小文字にそろえた部分一致で、題名 > 見出し・説明 > 本文の順に並べる。外へは通信しない。
  * 結果の文字は textContent で入れる（HTML の文字を差し込まない）。JS が動かないときは箱を出さない（hidden のまま）。
+ * help-dads HD-5（HD6）: 結果を出すたびに、箱の中の見えない role="status" に件数の文を入れる（決まった文だけ。閉じたら空。
+ * 同じ文なら書き直さない: 読み上げが積もらない）。上限の 8 件は全体の数と偽らず「上から 8 件を表示しています」と言う。
  */
 'use strict';
 var HelpSearch = (function () {
@@ -71,7 +73,21 @@ var HelpSearch = (function () {
     function one(box, input, list) {
       var results = [];
       var active = -1;
+      var status = box.querySelector('[role="status"]');
+      // 狭い画面では置き換えの文を短くする（上の帯の箱の data-short。文字の設定を大きくしたときも rem の幅で当たる: 再審査の指摘 4）
+      var short = input.getAttribute('data-short');
+      var mq = short && opts.media ? opts.media('(max-width: 29.9375rem)') : null;
+      if (mq) {
+        var long = input.getAttribute('placeholder');
+        var fit = function () { input.setAttribute('placeholder', mq.matches ? short : long); };
+        fit();
+        if (mq.addEventListener) mq.addEventListener('change', fit);
+      }
+      function say(text) {
+        if (status && status.textContent !== text) status.textContent = text;
+      }
       function close() {
+        say('');
         list.hidden = true;
         input.setAttribute('aria-expanded', 'false');
         input.removeAttribute('aria-activedescendant');
@@ -80,7 +96,11 @@ var HelpSearch = (function () {
       function mark() {
         var opts2 = list.querySelectorAll('[role="option"]');
         for (var k = 0; k < opts2.length; k++) opts2[k].setAttribute('aria-selected', k === active ? 'true' : 'false');
-        if (active >= 0) input.setAttribute('aria-activedescendant', opts2[active].id);
+        if (active >= 0) {
+          input.setAttribute('aria-activedescendant', opts2[active].id);
+          // 選んだ行を一覧の見える所へ送る（一覧の高さが足りない 400% の拡大や横向きのスマホでも、選んだ行が見える: 4回目の審査の指摘 1）
+          if (opts2[active].scrollIntoView) opts2[active].scrollIntoView({ block: 'nearest' });
+        }
         else input.removeAttribute('aria-activedescendant');
       }
       function show(items, note) {
@@ -96,11 +116,13 @@ var HelpSearch = (function () {
           list.appendChild(none);
         }
         for (var k = 0; k < items.length; k++) {
+          // 選択肢はリンクそのもの（a[role="option"]）。li は role="none"（選択肢の中にリンクを入れ子にしない: WCAG 4.1.2）
           var li = doc.createElement('li');
-          li.id = input.id + '-opt-' + k;
-          li.setAttribute('role', 'option');
-          li.setAttribute('aria-selected', 'false');
+          li.setAttribute('role', 'none');
           var a = doc.createElement('a');
+          a.id = input.id + '-opt-' + k;
+          a.setAttribute('role', 'option');
+          a.setAttribute('aria-selected', 'false');
           a.setAttribute('href', items[k].u);
           a.setAttribute('tabindex', '-1');
           var t = doc.createElement('span');
@@ -114,6 +136,7 @@ var HelpSearch = (function () {
           li.appendChild(a);
           list.appendChild(li);
         }
+        say(note || (!items.length ? '見つかりませんでした' : items.length >= MAX ? '上から ' + MAX + ' 件を表示しています' : items.length + ' 件見つかりました'));
         list.hidden = false;
         input.setAttribute('aria-expanded', 'true');
         input.removeAttribute('aria-activedescendant');
@@ -128,11 +151,34 @@ var HelpSearch = (function () {
           if (input.value === q) show([], '検索を読み込めませんでした。開き直してください');
         });
       }
+      // 箱からフォーカスが外へ出たら閉じる（開いたままの一覧が、次に輪の付いた部品を隠さない: 3回目の審査の指摘 2・WCAG 2.4.11）。
+      // 行き先が箱の中（マウスで結果を押したとき）なら閉じない
+      box.addEventListener('focusout', function (e) {
+        var n = e.relatedTarget;
+        while (n && n !== box) n = n.parentNode;
+        if (n !== box) close();
+      });
+      // 一覧のリンクでない所（余白・「見つかりませんでした」）を押しても、フォーカスを箱に残す（ul に移ると ↑↓・Esc が箱に届かない: 4回目の審査の指摘 3）
+      list.addEventListener('mousedown', function (e) {
+        var n = e.target;
+        while (n && n !== list && String(n.tagName).toLowerCase() !== 'a') n = n.parentNode;
+        if (!n || n === list) e.preventDefault();
+      });
       input.addEventListener('input', update);
       input.addEventListener('keydown', function (e) {
+        // 日本語入力の変換の途中のキー（確定の Enter・候補を選ぶ ↓↑・取り消しの Esc）は日本語入力に任せる。229 は Safari の変換中の keydown
+        // （設計書「全体を通して守ること」の IME。確定の Enter でページを移らない: 5回目の審査の指摘 1・WCAG 3.2.2）
+        if (e.isComposing || e.keyCode === 229) return;
         var open = list.hidden === false;
         if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
-          if (!open || !results.length) return;
+          // 閉じていて箱に語があるときは ↓ で開き直す（Tab で出て戻ったとき・窓を切り替えたとき: 4回目の審査の指摘 3）
+          if (!open) {
+            // 開き直すのは修飾キーの無い ↓ だけ（Shift+↓ の文字の選択や、Ctrl・Alt・⌘ の付いたキャレットの移動は止めない: 5回目の審査の指摘 3）
+            var plain = !e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey;
+            if (e.key === 'ArrowDown' && plain && fold(input.value)) { e.preventDefault(); update(); }
+            return;
+          }
+          if (!results.length) return;
           e.preventDefault();
           var n = results.length;
           active = e.key === 'ArrowDown' ? (active + 1) % n : (active <= 0 ? n - 1 : active - 1);
@@ -160,6 +206,7 @@ if (typeof document !== 'undefined' && typeof window !== 'undefined') {
   HelpSearch.wire(document, {
     read: function () { return fetch('/search-index.json'); },
     go: function (u) { window.location.assign(u); },
+    media: function (q) { return window.matchMedia ? window.matchMedia(q) : null; },
   });
 }
 if (typeof module === 'object') module.exports = HelpSearch;
