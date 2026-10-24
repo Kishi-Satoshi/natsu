@@ -194,3 +194,16 @@ test('HD-0（HD6・Q18）: 設計書の「画面の使いやすさ」の「作�
   const never = part('### やらないこと').split('\n').find((l) => l.includes('**画面と端末:**'));
   assert.match(never, /読み上げソフト（例外は「画面の使いやすさ」の2つ）/);
 });
+
+// help-relnotes RN-0（計画 docs/plans/2026-10-23-help-relnotes.md）: 持ち主の決定 RN1〜RN4 を設計書に先に書く
+test('RN-0: 設計書に「利用者が決めたこと（ヘルプセンターのリリースノート。2026-10-23）」の RN1〜RN4 があり、HC0 がリリースノートのページ（CHANGELOG.md から作る）を言う', { timeout: 5000 }, () => {
+  const d = read('docs/plans/natsu-design.md');
+  const i = d.indexOf('## 利用者が決めたこと（ヘルプセンターのリリースノート。2026-10-23）');
+  assert.ok(i >= 0, '節が無い');
+  const sec = d.slice(i, d.indexOf('\n## ', i + 1));
+  for (const k of ['RN1', 'RN2', 'RN3', 'RN4']) assert.match(sec, new RegExp(`^\\| ${k} \\|`, 'm'), k);
+  assert.match(sec, /docs\/plans\/2026-10-23-help-relnotes\.md/);
+  const hc0 = d.split('\n').find((l) => l.startsWith('- **HC0'));
+  assert.match(hc0, /リリースノート/);
+  assert.match(hc0, /CHANGELOG\.md/);
+});
