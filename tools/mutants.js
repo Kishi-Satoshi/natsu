@@ -2054,4 +2054,6 @@ module.exports = [
   {"id": "hd-search-ime229", "file": "help/assets/search.js", "from": "        if (e.isComposing || e.keyCode === 229) return;\n", "to": "        if (e.isComposing) return;\n", "tests": ["test/help-search.test.js"], "pattern": "5回目の指摘 1", "why": "help-dads HD-12 5回目の指摘 1: Safari の変換中の keydown（isComposing が false で keyCode 229）の Enter でページを移る"},
   // help-dads 5回目の審査の指摘 3（閉じた一覧を開き直すのは修飾キーの無い ↓ だけ）
   {"id": "hd-search-reopen-plain", "file": "help/assets/search.js", "from": "            var plain = !e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey;\n", "to": "            var plain = true;\n", "tests": ["test/help-search.test.js"], "pattern": "5回目の指摘 3", "why": "help-dads HD-12 5回目の指摘 3: 閉じた一覧で Shift+↓ を押すと一覧が開き、文字の選択が伸びない"},
+  // help-dads 6回目（横に送れるコードの塊にも tabindex と名前。表と同じ扱い）
+  {"id": "hd-pre-tabindex", "file": "help/assets/site.js", "from": "      if (p.scrollWidth > p.clientWidth) {\n", "to": "      if (false) {\n", "tests": ["test/help-build.test.js"], "pattern": "6回目の指摘", "why": "help-dads HD-13 6回目（WCAG 2.1.1）: 横に送れるコードの塊（/admin/stop-person/ の SQL）にキーボードで届かず、名前も無い"},
 ];
