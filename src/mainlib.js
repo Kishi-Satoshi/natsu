@@ -11,6 +11,7 @@ const path = require('path');
 const natsulink = require('./natsulink');
 // 議事録の経過の表と積み方（0.10.0 K-1。DB のプロセスと MCP も同じ部品を読む）
 const SL = require('./statelog');
+const memoTypes = require('./memoTypes');
 
 // ---------------------------------------------------------------- 要約の書き戻し
 // 要約は数分かかる。その間に利用者がページを削除していることがある。
@@ -1347,12 +1348,14 @@ function mergeSummaryType(saved, used) {
 
 // Claude Code（claude -p）の標準入力に渡す文（第1c回 OL5・F9）。手元の LLM の1回で要約する頼みの文（main.js の
 // generateMinutes）と1文字も違わない形にする（片方だけ直すと、要約タイプの見出しが道によって変わる）。
-// memoText は呼ぶ側が trim し MEMO_MAX で切ったもの、template は minutesTemplate(type)（dropTemplateEcho に渡すのと同じ文字）。
+// memoText は呼ぶ側が trim し MEMO_MAX で切ったもの、template は doRunSummary が memoTypes.buildTemplate で1回作った文字（dropTemplateEcho に渡すのと同じ文字）。
 // 同じことは stage1c.lib.test.js が main.js の文字から確かめる
+// 0.11.0 M-2（決めたこと 16。持ち主の試作の「メモ・文字起こし・要約の3つの入れ物」）: メモと文字起こしの行の頭の「【」の前に全角の空白を入れる
+// （memoTypes.fenceLines）。議事録の文に「【会議の文字起こし】」や構成の指示を書かれても、頼みの文の境を偽れない
 function buildClaudeInput({ memoText, plain, template }) {
-  const memo = String(memoText || '');
+  const memo = memoTypes.fenceLines(memoText);
   const memoBlock = memo ? `【会議メモ・アジェンダ（要約のヒント）】\n${memo}\n\n` : '';
-  return `${memoBlock}【会議の文字起こし】\n${plain}\n\n上記から、次の構成のMarkdown議事録を作成してください。見出しはこの通りに使い、本文だけを出力してください。\n\n${template}`;
+  return `${memoBlock}【会議の文字起こし】\n${memoTypes.fenceLines(plain)}\n\n上記から、次の構成のMarkdown議事録を作成してください。見出しはこの通りに使い、本文だけを出力してください。\n\n${template}`;
 }
 
 // ページのプロパティの行に出す経路（第1c回 OL6）。route はページの route（main の maybeFinalizeMeeting・doRunSummary が書く）、

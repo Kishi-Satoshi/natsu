@@ -65,29 +65,25 @@ test('タイトル一致は本文一致より優先される', () => {
   assert.strictEqual(mtype.detectType('一次面接', '定例 定例 定例'), 'interview');
 });
 
-test('すべてのタイプがテンプレートを持ち、アクション節を含む', () => {
-  for (const key of mtype.ORDER) {
-    const f = mtype.getFormat(key);
-    assert.ok(f && f.length > 0, `${key} のテンプレートが空`);
-    assert.ok(f.includes('## 概要'), `${key} に概要が無い`);
-    assert.ok(f.includes('- [ ]'), `${key} にアクション節が無い（チェックボックス化の起点）`);
-  }
-});
-
-test('テンプレートの見出しが markdownToBlocks で見出しとして解釈できる', () => {
+// 0.11.0 M-2（D42・P3）で意図して変えた: 種類ごとの書式（getFormat）を外した。要約の書式は memoTypes.buildTemplate（種類から決まる型の見出しと締め）
+test('0.11.0 M-2: getFormat と format は無い。どの種類の書式も締めの4つの見出し（持ち越しを含む）と ToDo のチェックボックスの形を持ち、見出しは markdownToBlocks で見出しになる', () => {
+  const { buildTemplate } = require('../src/memoTypes');
   const { markdownToBlocks } = require('../src/minutes');
+  assert.strictEqual(mtype.getFormat, undefined);
   for (const key of mtype.ORDER) {
-    const headings = mtype.getFormat(key).split('\n').filter((l) => l.startsWith('## '));
+    assert.strictEqual(mtype.TYPES[key].format, undefined, key);
+    const f = buildTemplate({ meetingType: key });
+    for (const h of ['## 決定事項', '## 持ち越し', '## ToDo（誰が・何を・いつまでに）', '## 抜け・重なりチェック']) assert.ok(f.includes(h), `${key} に ${h} が無い`);
+    assert.ok(f.includes('- [ ]'), `${key} にアクション節が無い（チェックボックス化の起点）`);
+    const headings = f.split('\n').filter((l) => /^#{2,3} /.test(l));
     const blocks = markdownToBlocks(headings.join('\n'));
-    assert.strictEqual(blocks.length, headings.length, `${key}`);
-    assert.ok(blocks.every((b) => b.type === 'heading'), `${key} の見出しが heading にならない`);
+    assert.ok(blocks.length === headings.length && blocks.every((b) => b.type === 'heading'), key);
   }
+  assert.strictEqual(typeof mtype.ACTION_RULE, 'string');
 });
 
-test('未知のタイプは general にフォールバックする', () => {
-  assert.strictEqual(mtype.getFormat('nonexistent'), mtype.getFormat('general'));
+test('未知のタイプは general の名前にフォールバックする', () => {
   assert.strictEqual(mtype.getLabel('nonexistent'), mtype.getLabel('general'));
-  assert.strictEqual(mtype.getFormat(undefined), mtype.getFormat('general'));
 });
 
 test('listTypes が UI 用に全タイプを返す', () => {

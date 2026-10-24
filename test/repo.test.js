@@ -501,11 +501,14 @@ test('並べ替えのつまみは6点の1文字', () => {
 });
 
 test('要約の文体は報告文書の常体（指示だけでなく例で見せる）', () => {
-  assert.ok(main.includes('「です」「ます」は使わない'));
+  // 0.11.0 M-2（決めたこと 14）で意図して変えた: 書き方のきまり（OUTPUT_RULE）は main.js から src/memoTypes.js へ1文字も変えずに移した
+  // （役割の文 MINUTES_SYS は main.js のまま）
+  const mt = fs.readFileSync(path.join(__dirname, '..', 'src', 'memoTypes.js'), 'utf8');
+  assert.ok(mt.includes('「です」「ます」は使わない'));
   assert.match(main, /文体は報告文書の常体/);
   // 3Bクラスは指示より例をまねる。実機で指示だけでは効かなかった
-  assert.ok(main.includes('良い例:'), '良い例が無い');
-  assert.ok(main.includes('悪い例:'), '悪い例が無い');
+  assert.ok(mt.includes('良い例:'), '良い例が無い');
+  assert.ok(mt.includes('悪い例:'), '悪い例が無い');
 });
 
 // ---------------------------------------------------------------- レビュー指摘の修正
@@ -878,11 +881,16 @@ test('#35/#49 ホットキーは片方ずつ登録し、失敗を画面とトレ
 
 test('#18 テンプレートの写しを落とす結線（minutes.dropTemplateEcho が無ければ素通し）', () => {
   assert.match(main, /const dropTemplateEcho = minutes\.dropTemplateEcho \|\| \(\(b\) => b\)/);
-  assert.match(main, /dropTemplateEcho\(dropRedundantEmpty\(markdownToBlocks\(md\)\), minutesTemplate\(page\.meetingType\)\)/);
-  // プロンプトに入れている書式と同じ文字列を渡す（別々に組み立てるとずれる）。0.10.0 LS-2 で意図して直した: 手元の generateMinutes を外したので、
-  // Claude Code に渡す文（summarizeWithClaude の buildClaudeInput）が同じ minutesTemplate(type) を使うことを見る
+  // 0.11.0 M-2（決めたこと 14）で意図して直した: 書式は doRunSummary が memoTypes.buildTemplate で1回だけ作り（template）、
+  // 写しを落とす文と Claude Code に渡す文（summarizeWithClaude の buildClaudeInput）に同じ文字列を渡す（別々に組み立てるとずれる）
+  assert.match(main, /dropTemplateEcho\(dropRedundantEmpty\(markdownToBlocks\(md\)\), template\)/);
+  const run = fnBody(code(main), 'async function doRunSummary', '\n}\n');
+  assert.strictEqual((run.match(/buildTemplate\(/g) || []).length, 1, 'doRunSummary の中で書式を1回だけ作っていない');
+  assert.strictEqual((code(main).match(/buildTemplate\(/g) || []).length, 1, 'doRunSummary のほかで書式を作っている');
+  assert.ok(run.includes('summarizeWithClaude(plain, page.memo, template)'), 'Claude Code に同じ書式を渡していない');
   const sw = fnBody(code(main), 'async function summarizeWithClaude', '\n}');
-  assert.ok(sw.includes('template: minutesTemplate(type)'), 'Claude Code に渡す文がテンプレート関数を使っていない');
+  assert.ok(sw.includes('lib.buildClaudeInput({ memoText, plain, template })'), 'Claude Code に渡す文が受けた書式を使っていない');
+  assert.ok(!/minutesTemplate|OUTPUT_RULE/.test(code(main)), 'main.js に前の書式の関数が残っている');
 });
 
 // ---------------------------------------------------------------- 第2段（D: 小さな直し）

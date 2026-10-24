@@ -34,6 +34,7 @@ const { attachCitations } = cite;
 // 両方を見て付ける（cite.attachCitationsAcross。#4）。まだ無い版では従来どおり今の配列だけ。
 const attachAcross = cite.attachCitationsAcross || ((b, f) => attachCitations(b, f.filter((s) => !s.failed)));
 const mtype = require('./meetingType');
+const memoTypes = require('./memoTypes');
 const { enrichActionBlocks, groundActionFields } = require('./actions');
 const updater = require('./updater');
 const { chooseDisplayMedia } = require('./loopback');
@@ -2778,7 +2779,7 @@ function claudeRunDir() {
 // doRunSummary の catch が要約の欄に書く（手元の llama へは行かない: D1）。engine.log には符号だけを書く（本文・利用者の環境は書かない）。
 // 進み具合の文（「Claude Code で議事録を作成中…」）は doRunSummary が出す（claude -p は1回で返し、途中の段が無い）。
 // 投げる誤りには符号（claudeCode）を添える（doRunSummary が、待てば直る混み合いなら要約待ちに戻す: 0.10.0 LS-2・決めたこと 105）
-async function summarizeWithClaude(plain, memo, type) {
+async function summarizeWithClaude(plain, memo, template) {
   const failWith = (r) => {
     // 符号と、-p の返事の副型・状態の番号だけ（claudeCli.runWhy。返事の文と本文は書かない: 第1b回の続き Lane F-a）
     engineLog(`要約: Claude Code → ${claudeCli.runWhy(r)}`);
@@ -2793,7 +2794,7 @@ async function summarizeWithClaude(plain, memo, type) {
   const auth = await claudeCli.claudeAuthStatus({ cmd: found.cmd, spawn, cwd });
   if (!auth.ok) failWith(auth);
   const memoText = String(memo || '').trim().slice(0, MEMO_MAX);
-  const input = lib.buildClaudeInput({ memoText, plain, template: minutesTemplate(type) });
+  const input = lib.buildClaudeInput({ memoText, plain, template });
   const r = await claudeCli.claudeSummarize({ cmd: found.cmd, spawn, cwd, input, systemPrompt: MINUTES_SYS });
   if (!r.ok) failWith(r);
   engineLog('要約: Claude Code → ok');
@@ -2802,27 +2803,8 @@ async function summarizeWithClaude(plain, memo, type) {
 
 // ---------------------------------------------------------------- 要約
 // 0.10.0 LS-2（D59）: 要約は利用者の Claude Code だけ（summarizeWithClaude）。手元の llama の要約（llmChat・generateMinutes）は外した
-// 節ごとに「なければ特になし」と書くと、小型モデルが条件を守り切れず
-// 実項目と「特になし」を両方並べてくる。ルールは全体で1回だけ言う。
-// （それでも混ざるので minutes.js の dropRedundantEmpty で後始末する）
-// 装飾を禁じるのは見た目のためではない。「**」が残ると出典の一致が
-// 薄まり、短い要点でリンクが消えるため。
-const OUTPUT_RULE = '書き方のきまり:\n'
-  + '- 該当する内容が本当に一つも無い見出しにだけ「特になし」と書く。'
-  + '一つでも書くことがあれば「特になし」は書かない。\n'
-  + '- 太字（**）や斜体などの装飾は使わない。素の文章で書く。\n'
-  + '- 文体は報告文書として使える常体で書く。「です」「ます」は使わない。\n'
-  // 3Bクラスは指示より例をまねる。会話体の文字起こしに引きずられて
-  // 「です・ます」で書いてくるので、良い例と悪い例を1組だけ見せる。
-  + '  良い例: 「結合テストは今週で完了。不具合22件のうち20件は修正済み。残り2件は来週対応。」\n'
-  + '  悪い例: 「完了しました」「修正されました」「お願いします」「持ち越します」';
-
-// プロンプトに入れる議事録の書式（見出しの雛形 + 書き方のきまり）。
-// 要約後にテンプレートの写しを落とす（dropTemplateEcho）ときも同じ文字列を
-// 渡す。別々に組み立てると、片方を直したときにずれて落とし損ねる。
-function minutesTemplate(type) {
-  return `${mtype.getFormat(type)}\n\n${OUTPUT_RULE}`;
-}
+// 0.11.0 M-2（決めたこと 14）: 要約の書式（型の見出し・決まり・締め・次に気をつけること・OUTPUT_RULE）は memoTypes.buildTemplate の1か所。
+// doRunSummary が1回だけ作り、Claude Code に渡す文と、写しを落とす文（dropTemplateEcho）の両方に同じ文字列を渡す（別々に組み立てるとずれる）
 
 // ---------------------------------------------------------------- 貼り付け
 function ensurePaster() {
@@ -5331,15 +5313,17 @@ async function doRunSummary(pageId) {
   engineLog(`会議タイプ: 採用=${page.meetingType} 自動判定=${autoType}`
     + ` 手動=${page.typeAuto === false} 区間数=${usable.length}`);
 
+  // 0.11.0 M-2（決めたこと 14）: 書式は1回だけ作る（Claude Code に渡す文と写しを落とす文に同じ文字列）
+  const template = memoTypes.buildTemplate({ meetingType: page.meetingType, score: false });
   const progress = (msg) => sendToMainWin('meeting:progress', { message: msg });
   progress(`Claude Code で議事録を作成中…（${mtype.getLabel(page.meetingType)}として要約します）`);
   try {
     // Claude Code が断った・失敗したら、理由を要約の欄に書いて終える（下の catch。手元の llama へは行かない: D1・D59）
-    const { md, truncatedParts, finalTruncated } = await summarizeWithClaude(plain, page.memo, page.meetingType);
+    const { md, truncatedParts, finalTruncated } = await summarizeWithClaude(plain, page.memo, template);
     // 「特になし」の混入を先に落とす。ここで落とさないと
     // 「- [ ] 特になし」がアクション1件として数えられてしまう。
     // 続けて、テンプレートの見出し・雛形をそのまま写した行も落とす。
-    const blocks = dropTemplateEcho(dropRedundantEmpty(markdownToBlocks(md)), minutesTemplate(page.meetingType));
+    const blocks = dropTemplateEcho(dropRedundantEmpty(markdownToBlocks(md)), template);
     // 担当・期限を先に抜く。出典の突き合わせは
     // 「（担当: ○○ / 期限: ○○）」を落とした本文に対して行いたい。
     // 書式が残ったままだと、その語がクエリに混ざって一致がぶれる。

@@ -1,7 +1,9 @@
 'use strict';
-// メモの型（0.11.0。計画 docs/plans/2026-10-22-110.md の「型の表（MT1 改）」。持ち主の答え D37〜D50・D80）。純粋（ほかの部品を読まない。M-2 から ./meetingType を読む）。
+// メモの型（0.11.0。計画 docs/plans/2026-10-22-110.md の「型の表（MT1 改）」。持ち主の答え D37〜D50・D80）。純粋（./meetingType だけを読む）。
 // 型は会議の種類から決まる（D42: memoTypeOf）。型を別に選ぶ欄は無い。見出しはメモが空か手を付けていないときだけ入れる（isUntouchedMemo）。
 // 見出しごとのヒントはメモの本文に入れず、画面がメモ欄の上の灰色の手引きに出す（listMemoTypes の headings）。
+
+const mtype = require('./meetingType');
 
 const deepFreeze = (o) => { Object.values(o).forEach((v) => { if (v && typeof v === 'object') deepFreeze(v); }); return Object.freeze(o); };
 
@@ -120,6 +122,94 @@ function listMemoTypes() {
   }));
 }
 
+// ---------------------------------------------------------------- 要約の書式（M-2。決めたこと 14〜16・19〜22）
+// AI に渡す文と、写しを落とす文（minutes.dropTemplateEcho）は、doRunSummary が buildTemplate で1回作った同じ1つの文字列を使う。
+// 決まりの文では語を「」で囲まず、行の終わりを（…）にしない（dropTemplateEcho の鍵になり、その語だけの本物の行が落ちる）。
+
+const CLOSING_HEADINGS = Object.freeze(['決定事項', '持ち越し', 'ToDo（誰が・何を・いつまでに）', '抜け・重なりチェック']);
+const ADVICE_HEAD = '次に気をつけること';
+const CHECK_MAX = 3;
+const UNCONFIRMED_HEAD = '未確認';
+const MEMO_SUFFIX = '（メモより）';
+const REPORT_HEAD = '報告の名前（議題ごとに1つ。報告が1本なら1つ）';
+
+const CLOSING_TEMPLATE = `## 決定事項
+（決まったこと・合意したこと。箇条書き）
+
+## 持ち越し
+（話したが決まらなかったこと。何が・なぜ決まらなかったか・次にいつ扱うか（言われた場合）。箇条書き。無ければこの見出しごと書かない。話されなかったことは書かない）
+
+## ToDo（誰が・何を・いつまでに）
+${mtype.ACTION_RULE}
+
+## 抜け・重なりチェック
+（1行目に、根拠が無く本文に出さなかった型の見出しを 未確認: の後に読点で並べる。その後に3件まで: 次の会議で聞くこと・同じ話が別の見出しに重なっていればその見出しの名前）`;
+
+const ADVICE_TEMPLATE = `## ${ADVICE_HEAD}
+（1〜2 行。次の会議で試せる進め方。会議を開いた人への助言として書く。人を評価しない・人の名前を挙げて責めない・個人的なことに触れない）`;
+
+const MEMO_RULES = [
+  '書き方の決まり（型の見出し）:',
+  '- 型の見出しの中身は、行頭に - を付けた箇条書きで書く。',
+  '- 文字起こしにもメモにも根拠の無い型の見出しは、推測で埋めずに見出しごと書かない。書かなかった見出しの名前は、抜け・重なりチェックの 未確認: の行に書く。',
+  '- メモにだけあって文字起こしに無い内容は、行の終わりに （メモより） と付ける。メモと文字起こしが食い違うときは、両方を書く。',
+  '- 時刻や発言の番号は書かない。',
+  '- 会議メモの ■ の見出しは、この型の見出しと同じ。',
+].join('\n');
+
+const STAR_RULE = [
+  '- 職務に関係しない個人的なこと（本籍・出生地・家族・健康・宗教・思想や信条など）は書かない。',
+  '- 採用面接では、厚生労働省が示す就職差別につながるおそれのある 14 事項（本籍・出生地・家族・住宅や生活の環境・宗教・支持政党・人生観や生活信条・尊敬する人物・思想・社会運動・購読新聞や愛読書など）も、会話に出ても書かない。',
+  '- 合否や総合評価は書かない。',
+].join('\n');
+
+// 0.10.x の main.js の OUTPUT_RULE を1文字も変えずに移した
+// 節ごとに「なければ特になし」と書くと、小型モデルが条件を守り切れず実項目と「特になし」を両方並べてくる。ルールは全体で1回だけ言う
+// （それでも混ざるので minutes.js の dropRedundantEmpty で後始末する）。装飾を禁じるのは、「**」が残ると出典の一致が薄まるため
+const OUTPUT_RULE = '書き方のきまり:\n'
+  + '- 該当する内容が本当に一つも無い見出しにだけ「特になし」と書く。'
+  + '一つでも書くことがあれば「特になし」は書かない。\n'
+  + '- 太字（**）や斜体などの装飾は使わない。素の文章で書く。\n'
+  + '- 文体は報告文書として使える常体で書く。「です」「ます」は使わない。\n'
+  // 3Bクラスは指示より例をまねる。会話体の文字起こしに引きずられて「です・ます」で書いてくるので、良い例と悪い例を1組だけ見せる。
+  + '  良い例: 「結合テストは今週で完了。不具合22件のうち20件は修正済み。残り2件は来週対応。」\n'
+  + '  悪い例: 「完了しました」「修正されました」「お願いします」「持ち越します」';
+
+// 頭（前の空白を除いた最初の字）が「【」の行の頭に全角の空白を1つ入れる（メモや文字起こしの文で、頼みの文の境を偽れなくする: 決めたこと 16）
+function fenceLines(text) {
+  return String(text || '').split('\n').map((l) => (/^\s*【/.test(l) ? `　${l}` : l)).join('\n');
+}
+
+// 型の見出しの書式（A）
+function typeSection(key) {
+  const t = MEMO_TYPES[key];
+  const out = [];
+  let inGroup = false;
+  for (const h of t.headings) {
+    if (h.group && !inGroup) { out.push(`## ${REPORT_HEAD}`); inGroup = true; }
+    out.push(`${h.group ? '###' : '##'} ${h.name}\n（${h.hint}）`);
+  }
+  return out.join('\n\n');
+}
+
+// 型の見出しの名前（軸 5 で数える。report は前回の宿題と報告ごとの3つ）
+function sectionsOf(meetingType) {
+  return MEMO_TYPES[memoTypeOf(meetingType)].headings.map((h) => h.name);
+}
+
+// 要約の書式: 型の見出しとヒント → 型と共通の決まり（star は STAR_RULE も）→ 締め → 次に気をつけること →（点を付けるときだけ採点の節: Q-1）→ OUTPUT_RULE
+function buildTemplate({ meetingType, score = false } = {}) {
+  const key = memoTypeOf(meetingType);
+  const rules = [MEMO_RULES, ...MEMO_TYPES[key].rules.map((r) => `- ${r}`)];
+  if (key === 'star') rules.push(STAR_RULE);
+  const parts = [typeSection(key), rules.join('\n'), CLOSING_TEMPLATE, ADVICE_TEMPLATE];
+  void score;
+  parts.push(OUTPUT_RULE);
+  return parts.join('\n\n');
+}
+
 module.exports = {
   MEMO_TYPES, MEMO_ORDER, DEFAULT_MEMO, memoTypeOf, memoPreset, isUntouchedMemo, headingKey, presetLines, listMemoTypes,
+  CLOSING_HEADINGS, CLOSING_TEMPLATE, ADVICE_HEAD, ADVICE_TEMPLATE, MEMO_RULES, STAR_RULE, OUTPUT_RULE, CHECK_MAX, UNCONFIRMED_HEAD, MEMO_SUFFIX, REPORT_HEAD,
+  fenceLines, sectionsOf, buildTemplate,
 };

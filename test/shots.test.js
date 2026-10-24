@@ -110,9 +110,9 @@ const NEW_101 = ['settings-mcp-running-light'];
 // 撮る画面の並びの確かめ（下）は、0.10.1 で足した画面の名前として NEW_101 を使う
 const ADDED_101 = [...NEW_101];
 // 0.11.0（計画 docs/plans/2026-10-22-110.md の「取り直す画面（RETAKE）」）で意図して変えた: 取り直し待ちは 0.11.0 の表の画面だけ（RETAKE_110）。タスクごとに足す。
-// M-1（R7）: 会議の種類の名前と説明の付け直しで、種類の行を写すページの画面 10 枚
-const RETAKE_110 = ['notes-page-light', 'notes-page-dark', 'notes-page-zoom200-light', 'notes-tabs-light', 'notes-collapsed-light',
-  'page-menu-link-light', 'page-menu-link-dark', 'page-summary-lock-light', 'list-select-light', 'list-select-dark'];
+// M-1（R7）: 会議の種類の名前と説明の付け直しで、種類の行を写すページの画面（CI run 40079245997 で違いが出た 8 枚。検索の窓の後ろのページも）
+const RETAKE_110 = ['notes-page-light', 'notes-page-dark', 'notes-tabs-light', 'notes-collapsed-light',
+  'page-menu-link-light', 'page-menu-link-dark', 'page-summary-lock-light', 'search-palette-light'];
 const img = (w, h, fill = [255, 255, 255, 255]) => ({ width: w, height: h, data: Buffer.from(Array.from({ length: w * h }, () => fill).flat()) });
 // 一時フォルダ（日本語と 𠮷 の名前。RF1 と同じ形）。テストの終わりに消す
 const tmp = (t, name) => {
@@ -245,7 +245,8 @@ test('1b2 R-3・G12: 検索の窓の画面は窓を開く act を持ち、取り
   // 0.7.0 U-2 で意図して変えた: 取り直し待ちは設定の3枚だけになった（下の U-2 のテスト。第1d回 A-4 でまた設定の3枚）。検索の窓は基準と比べる（取り直し待ちに戻さない）
   // 0.10.0 SH-1 で意図して変えた: 0.10.0 の表（RETAKE_100）にあるときだけ取り直し待ちでよい（結果の行の見本の題名）
   // 0.10.0 で意図して変えた（版を 0.10.0 に上げる commit）: 持ち主が OK と言った CI の画像を基準にしたので、また取り直し待ちではない
-  assert.ok(!SH.RETAKE.has('search-palette-light'), '検索の窓の画面が取り直し待ちに戻った');
+  // 0.11.0 M-1 で意図して変えた: 0.11.0 の表（RETAKE_110）にあるときだけ取り直し待ちでよい（窓の後ろのページの種類の名前）
+  assert.ok(!SH.RETAKE.has('search-palette-light') || RETAKE_110.includes('search-palette-light'), '検索の窓の画面が取り直し待ちに戻った');
 });
 
 // 0.9.0 O-3 で意図して変えた: 録音バーは作り直した（D25）ので、O-3〜O-4 の間は録音バーの画面を取り直し待ちに入れてよい（G-3 で空にする）。
