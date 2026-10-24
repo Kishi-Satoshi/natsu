@@ -1337,12 +1337,11 @@ function clockText(ms) {
   return h > 0 ? `${h}:${String(m).padStart(2, '0')}:${String(x).padStart(2, '0')}` : `${m}:${String(x).padStart(2, '0')}`;
 }
 
-// 0.11.0 V-1（決めたこと 2・6）: 画面の種類の欄の表（IPC meta:types）。並びと群は meetingType の1か所、各種類にメモの型の鍵 memo
+// 0.11.0 V-1（決めたこと 2・6）: 画面の種類の欄の表（IPC meta:types）。並びは meetingType の1か所（V-5 で群は外した）、各種類にメモの型の鍵 memo
 function typesForView() {
   return {
     types: mtype.listTypes().map((t) => ({ ...t, memo: memoTypes.memoTypeOf(t.key) })),
     selectable: [...mtype.SELECTABLE],
-    groups: mtype.GROUPS.map((g) => ({ label: g.label, keys: [...g.keys] })),
   };
 }
 

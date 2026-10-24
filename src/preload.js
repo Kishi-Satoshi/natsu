@@ -165,7 +165,7 @@ contextBridge.exposeInMainWorld('koeApp', {
   pagesSearch: (q) => dbCall('pages.list', { q: q || '' }),
   pagesSearchFull: (q) => dbCall('pages.searchFull', { q: q || '', limit: 60 }),
   pagesActionView: ({ q, assignee }) => dbCall('pages.actionView', { q, assignee }),
-  // 0.11.0 V-1: { types, selectable, groups }（types の各項目に memo＝種類から決まるメモの型の鍵）。memoTypes はメモの型の表（名前・見出しとヒント・雛形）
+  // 0.11.0 V-1・V-5: { types, selectable }（types の各項目に memo＝種類から決まるメモの型の鍵）。memoTypes はメモの型の表（名前・見出しとヒント・雛形）
   meetingTypes: () => ipcRenderer.invoke('meta:types'),
   memoTypes: () => ipcRenderer.invoke('meta:memo-types'),
   // 0.11.0 V-4: 題名を直した自動のページで、今の題名から判定した種類を聞く（答えは { type }。'' は決まらない）

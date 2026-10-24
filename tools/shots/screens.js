@@ -78,7 +78,7 @@ const OPEN_TYPE_LIST = `(async () => {
   await new Promise((r) => setTimeout(r, 300));
   document.getElementById('paneBtnMemo').click();
   // 欄の高さ（.typeSel の 22px）を外して、一覧の形で全部の項目を見せる（R22 (3)）
-  const s = document.getElementById('pType'); s.size = s.querySelectorAll('option, optgroup').length; s.style.height = 'auto';
+  const s = document.getElementById('pType'); s.size = s.querySelectorAll('option').length; s.style.height = 'auto';
   return 1;
 })()`;
 // 0.11.0 V-2: ページを開き、打ち合わせの質のカードまで捲る
@@ -530,7 +530,7 @@ function fixtures() {
     'koeApp.promptInfo': { ok: true, kept: 2, total: 2, over: false },
     // 0.10.0 C-3: カード「Claude との連携（MCP）」は登録していない形（Claude デスクトップは動いていない）
     'koeApp.mcpStatus': { desktop: { state: 'none', files: 1, running: false } },
-    'koeApp.meetingTypes': lib.typesForView(),   // 0.11.0 V-1: { types, selectable, groups }
+    'koeApp.meetingTypes': lib.typesForView(),   // 0.11.0 V-1・V-5: { types, selectable }
     'koeApp.memoTypes': memoTypes.listMemoTypes(),
     'koeApp.appVersion': { version: '0.4.0', repo: '' },   // 版を上げても画面が変わらないように決まった値
     'koeApp.getHistory': HISTORY,

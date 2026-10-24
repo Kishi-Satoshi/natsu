@@ -61,14 +61,15 @@ const memoTa = (l) => $(l, 'pMemo').querySelector('textarea');
 const toastText = (l) => $(l, 'toast').textContent;
 // 要素どうしは assert.ok(a === b) で比べる（strictEqual だと赤のときに報告が最小 DOM の木を丸ごと書き出し、写しで数 GB の記憶を使う: R22）
 
-test('0.11.0 V-1（D43・D44・P12）: プルダウンの頭は「自動（文字起こしから判定）」、群（社内の会議・人と話す・社外と話す）の中の種類はこの並び。「一般・その他」はどこにも無い', T, async () => {
+// 0.11.0 V-5（持ち主の画面の確かめ。決めたこと 2 を改める）で意図して変えた: 群の見出し（<optgroup>）は無い。並びはそのまま
+const SEL_VIEW = () => [['', '自動（文字起こしから判定）'], ...mtype.SELECTABLE.map((k) => [k, mtype.getLabel(k)])];
+const optView = (l) => opts(l).map((o) => [o.tagName, o.value, o.textContent]);
+test('0.11.0 V-1・V-5（D43・P12）: プルダウンは「自動（文字起こしから判定）」の後に選べる種類が SELECTABLE の順でちょうど7つ。群の見出し（社内の会議・人と話す・社外と話す）も「一般・その他」もどこにも無い', T, async () => {
   const l = await openPage({ meetingType: 'sales', typeAuto: false, autoType: 'sales' });
-  const o = opts(l);
-  assert.deepStrictEqual([o[0].tagName, o[0].value, o[0].textContent], ['option', '', '自動（文字起こしから判定）']);
-  const groups = o.slice(1);
-  assert.deepStrictEqual(groups.map((g) => [g.tagName, g.getAttribute('label')]), mtype.GROUPS.map((g) => ['optgroup', g.label]));
-  assert.deepStrictEqual(groups.map((g) => g.children.map((c) => c.value)), mtype.GROUPS.map((g) => [...g.keys]));
-  assert.deepStrictEqual(groups.map((g) => g.children.map((c) => c.textContent)), mtype.GROUPS.map((g) => g.keys.map((k) => mtype.getLabel(k))));
+  assert.deepStrictEqual(optView(l), SEL_VIEW().map(([v, t]) => ['option', v, t]));
+  assert.strictEqual(opts(l).length, 8);
+  assert.deepStrictEqual($(l, 'pType').querySelectorAll('optgroup').length, 0, '群の見出しがある');
+  for (const w of ['社内の会議', '人と話す', '社外と話す']) assert.ok(!$(l, 'pageWrap').textContent.includes(w), `群の名前「${w}」がある`);
   assert.strictEqual($(l, 'pType').value, 'sales');
   assert.ok(!$(l, 'pageWrap').textContent.includes('一般・その他'), '一般・その他がページにある');
   assert.ok(!$(l, 'plist').textContent.includes('一般・その他'));
@@ -165,6 +166,14 @@ test('0.11.0 V-1（P16）: 「自動」に戻すと pageSetType(id, auto)。メ�
   assert.deepStrictEqual(l.errors.map(fmt), []);
 });
 
+test('0.11.0 V-5: main が前の形（groups のある答え）を返しても、見出しを作らずに SELECTABLE の順で並べる。typesForView の答えに groups は無い', T, async () => {
+  assert.deepStrictEqual(Object.keys(lib.typesForView()), ['types', 'selectable']);
+  const old = { ...lib.typesForView(), groups: [{ label: '社内の会議', keys: ['brainstorm', 'standup', 'review'] }, { label: '人と話す', keys: ['oneonone', 'interview'] }, { label: '社外と話す', keys: ['sales', 'present'] }] };
+  const l = await openPage({ meetingType: 'sales', typeAuto: false, autoType: 'sales' }, { returns: { meetingTypes: () => old } });
+  assert.deepStrictEqual(optView(l), SEL_VIEW().map(([v, t]) => ['option', v, t]));
+  assert.deepStrictEqual(l.errors.map(fmt), []);
+});
+
 // ---------------------------------------------------------------- 録音中のページ（決めたこと 10・P10・P17・R3）
 const LIVE = (o = {}) => ({ active: true, startedAt: Date.now() - 60000, segments: [{ id: 's1', atMs: 0, text: '本日の議題です。' }], pauses: [], cloud: true, memo: '',
   stt: { route: 'cloud', lastTextAt: Date.now() - 5000, segSec: 15, problem: null }, ...o });
@@ -199,6 +208,8 @@ test('0.11.0 V-1（決めたこと 10・P10）: 録音中のページにも種�
   assert.strictEqual($(l, 'pType').value, '');
   assert.strictEqual(liveHint(l), LIVE_HINT);
   assert.strictEqual($(l, 'pMemoType').textContent, 'メモの型: 要約のときに決まります');
+  // 0.11.0 V-5: 録音中の欄も同じ項目（群の見出しは無い）
+  assert.deepStrictEqual(optView(l), SEL_VIEW().map(([v, t]) => ['option', v, t]));
   const kids = $(l, 'pTypeRow').parentNode.children;
   const row = kids.indexOf($(l, 'pTypeRow'));
   assert.ok(row > kids.indexOf($(l, 'pTitle')), '種類の行が題名より上');

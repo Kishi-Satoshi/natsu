@@ -1481,7 +1481,7 @@
   let curSegs = [];
   let filter = 'all';
   let mtypes = [];
-  let mgroups = [];     // 0.11.0 V-1: プルダウンの群 [{ label, keys }]（main の meetingType.GROUPS。並びはそこの1か所）
+  let mselectable = []; // 0.11.0 V-5: プルダウンの種類の並び（main の meetingType.SELECTABLE。群の見出しは作らない）
   let memoKinds = [];   // 0.11.0 V-1: メモの型の表 [{ key, label, headings, preset }]（main の memoTypes.listMemoTypes）
   let liveMemoTimer = null;   // 録音中のメモの送りの時限（種類を選ぶときに止めて今の文を送る: 決めたこと 10）
   let liveGuide = null;       // 録音中のメモ欄の上の手引き
@@ -3430,20 +3430,13 @@
   // 種類から決まるメモの型（決まらない・知らない種類は会議の要点）
   const memoKindOf = (k) => { const d = typeDef(k); const key = d && d.memo ? d.memo : 'points'; return memoKinds.find((m) => m.key === key) || null; };
   const memoTypeText = (kind) => (kind ? `メモの型: ${kind.label}` : '');
-  // プルダウンの項目: 頭に「自動（文字起こしから判定）」（値 ''）、群（<optgroup>）の中に選べる種類
+  // プルダウンの項目（ページと録音中の欄で同じ1つの部品）: 頭に「自動（文字起こしから判定）」（値 ''）、その後に選べる種類を SELECTABLE の順に直に並べる。
+  // 0.11.0 V-5（持ち主の画面の確かめ）: 群の見出し（<optgroup>）は作らない
   function fillTypeSelect(sel) {
     sel.textContent = '';
     sel.add(new Option('自動（文字起こしから判定）', ''));
-    const groups = mgroups.length ? mgroups : [{ label: '', keys: mtypes.map((t) => t.key) }];
-    for (const g of groups) {
-      const items = (Array.isArray(g.keys) ? g.keys : []).map(typeDef).filter(Boolean);
-      if (!items.length) continue;
-      if (!g.label) { for (const t of items) sel.add(new Option(t.label, t.key)); continue; }
-      const og = document.createElement('optgroup');
-      og.setAttribute('label', g.label);
-      for (const t of items) og.appendChild(new Option(t.label, t.key));
-      sel.appendChild(og);
-    }
+    const keys = mselectable.length ? mselectable : mtypes.map((t) => t.key);
+    for (const t of keys.map(typeDef).filter(Boolean)) sel.add(new Option(t.label, t.key));
   }
   // 手引きの中身: 手を付けていないメモのときだけ、メモの型の見出しごとに「■ 見出し ── ヒント」（決めたこと 9）。
   // 型は、メモがどれかの型の雛形ならその型、空なら種類（typeKey）から決まる型。どちらでもなければ出さない
@@ -5185,10 +5178,10 @@
     refreshAccount();
     refreshClaude();
     {
-      // 0.11.0 V-1: { types, selectable, groups }（前の形の並びでも読む）とメモの型の表
+      // 0.11.0 V-1・V-5: { types, selectable }（前の形の並びでも読む。groups があっても見出しは作らない）とメモの型の表
       const r = await window.koeApp.meetingTypes();
       mtypes = Array.isArray(r) ? r : (r && Array.isArray(r.types) ? r.types : []);
-      mgroups = r && !Array.isArray(r) && Array.isArray(r.groups) ? r.groups : [];
+      mselectable = r && !Array.isArray(r) && Array.isArray(r.selectable) ? r.selectable : [];
       let k = [];
       try { k = typeof window.koeApp.memoTypes === 'function' ? await window.koeApp.memoTypes() : []; } catch (_) { k = []; }
       memoKinds = Array.isArray(k) ? k : [];

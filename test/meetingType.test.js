@@ -146,14 +146,10 @@ test('0.11.0 M-1・F25: 名前の付け直しは label だけ（key は前と同
   assert.strictEqual(mtype.TYPES.present.hint, '提案や説明会など、発表と質疑が中心の会議');
 });
 
-test('0.11.0 M-1（D43・D44）: 選べる種類とプルダウンの群はこの並び（1か所）', () => {
+// 0.11.0 V-5（持ち主の画面の確かめ）で意図して変えた: プルダウンの群（GROUPS）は無い。並びは SELECTABLE の1か所
+test('0.11.0 M-1・V-5（D43）: 選べる種類はこの並び（1か所）。プルダウンの群（GROUPS）は無い', () => {
   assert.deepStrictEqual([...mtype.SELECTABLE], ['standup', 'review', 'brainstorm', 'oneonone', 'interview', 'sales', 'present']);
-  assert.deepStrictEqual(mtype.GROUPS.map((g) => [g.label, [...g.keys]]), [
-    ['社内の会議', ['standup', 'review', 'brainstorm']],
-    ['人と話す', ['oneonone', 'interview']],
-    ['社外と話す', ['sales', 'present']],
-  ]);
-  assert.deepStrictEqual(mtype.GROUPS.flatMap((g) => g.keys), [...mtype.SELECTABLE]);
+  assert.strictEqual(mtype.GROUPS, undefined);
 });
 
 test('0.11.0 M-1（P4）: プレゼン形式の語と「事前面談」で当てる', () => {

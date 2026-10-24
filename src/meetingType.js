@@ -65,17 +65,12 @@ const TYPES = {
   // 前の版のページの meetingType: 'general' は書き換えず、読むところで normalizeType を通す（R4）
 };
 
-// 0.11.0 M-1（D43・D44）: 画面の「会議の種類」で選べる種類とプルダウンの群（<optgroup>）。並びはこの1か所
+// 0.11.0 M-1（D43）: 画面の「会議の種類」で選べる種類。並びはこの1か所（0.11.0 V-5: プルダウンの群の見出しは持ち主の画面の確かめで外した）
 const SELECTABLE = Object.freeze(['standup', 'review', 'brainstorm', 'oneonone', 'interview', 'sales', 'present']);
 // 判定で見る並びも選べる種類と同じ（0.11.0 P-12。点が同じときは長い語で当たった方: detectType）
 const ORDER = [...SELECTABLE];
 // 決まらなかったときの種類の横の灰色の文（画面は app.html に同じ文の写し。runtime.app が照らす）
 const AUTO_UNDECIDED_TEXT = '自動判定: 決まらなかったので会議の要点の型でまとめました';
-const GROUPS = Object.freeze([
-  Object.freeze({ label: '社内の会議', keys: Object.freeze(['standup', 'review', 'brainstorm']) }),
-  Object.freeze({ label: '人と話す', keys: Object.freeze(['oneonone', 'interview']) }),
-  Object.freeze({ label: '社外と話す', keys: Object.freeze(['sales', 'present']) }),
-]);
 const isSelectable = (v) => typeof v === 'string' && SELECTABLE.includes(v);
 // 選べる鍵でなければ ''（「決まらなかった」。前の版の general もここで読み替える: P12）
 const normalizeType = (v) => (isSelectable(v) ? v : '');
@@ -153,4 +148,4 @@ function listTypes() {
   return ORDER.map((k) => ({ key: k, label: TYPES[k].label, hint: TYPES[k].hint, agenda: TYPES[k].agenda || '' }));
 }
 
-module.exports = { TYPES, ORDER, SELECTABLE, GROUPS, PERSONAL_TYPES, ACTION_RULE, AUTO_UNDECIDED_TEXT, isSelectable, normalizeType, detectType, slotType, getLabel, getAgenda, listTypes };
+module.exports = { TYPES, ORDER, SELECTABLE, PERSONAL_TYPES, ACTION_RULE, AUTO_UNDECIDED_TEXT, isSelectable, normalizeType, detectType, slotType, getLabel, getAgenda, listTypes };
