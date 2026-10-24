@@ -668,3 +668,26 @@ test('G3: 0.10.0 の変異が一覧にそろい、IDS_100 はどれも計画の�
     assert.ok(typeof m.why === 'string' && m.why.startsWith('0.10.0 '), `${id}: why`);
   }
 });
+
+// 0.10.1（計画 docs/plans/2026-10-23-101.md の「変異確認」の表）: Claude デスクトップの設定の場所・動いている間は書かない・起動のときの書き直しの直しを1つずつ戻す変異。
+// タスクを作るたびに足す（Ruling R3。表とちょうど同じにそろえるのは CD-6。それまでは「どれも表にある」と「cdl- の変異は IDS_101 にある」を見る）
+const IDS_101 = [
+  'cdl-data', 'cdl-data-case', 'cdl-data-name', 'cdl-data-dir', 'cdl-data-order', 'cdl-msix-case',
+];
+test('G3: 0.10.1 の変異が一覧にそろい、IDS_101 はどれも計画の「変異確認」の表にある。cdl- の変異は IDS_101 にある。どれも決まったテストのファイルを持ち、why が 0.10.1 で始まる', { timeout: 5000 }, () => {
+  const byId = new Map(MUTANTS.map((m) => [m.id, m]));
+  assert.deepStrictEqual(IDS_101.filter((id) => !byId.has(id)), [], 'IDS_101 の変異が一覧に無い');
+  assert.strictEqual(new Set(IDS_101).size, IDS_101.length, 'IDS_101 に重なり');
+  assert.deepStrictEqual(MUTANTS.filter((m) => /^cdl-/.test(m.id) && !IDS_101.includes(m.id)).map((m) => m.id), [], 'IDS_101 に無い cdl- の変異がある');
+  const plan = fs.readFileSync(path.join(ROOT, 'docs', 'plans', '2026-10-23-101.md'), 'utf8');
+  const table = plan.slice(plan.indexOf('## 変異確認（直しを1つ戻すと'), plan.indexOf('## ゲート'));
+  const rows = [...table.matchAll(/^\| ([a-z][a-z0-9-]*) \|/gm)].map((m) => m[1]).filter((id) => id !== 'id');
+  assert.ok(rows.length > 20, '計画の表が読めない');
+  assert.strictEqual(new Set(rows).size, rows.length, '計画の表に重なり');
+  assert.deepStrictEqual(IDS_101.filter((id) => !rows.includes(id)), [], '計画の「変異確認」の表に無い変異');
+  for (const id of IDS_101) {
+    const m = byId.get(id);
+    assert.ok(Array.isArray(m.tests) && m.tests.length > 0 && m.tests.every((t) => /^test\/[^/]+\.test\.js$/.test(t)), `${id}: tests`);
+    assert.ok(typeof m.why === 'string' && m.why.startsWith('0.10.1 '), `${id}: why`);
+  }
+});

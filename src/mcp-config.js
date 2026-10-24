@@ -10,7 +10,11 @@ const ENTRY_NAME = 'natsu';
 const MARK = 'NATSU_MCP';
 const BACKUP_KEEP = 3;
 const CONFIG_NAME = 'claude_desktop_config.json';
-const MSIX_PREFIXES = ['Claude_', 'Anthropic.Claude_'];
+// Microsoft Store 版の前の場所の名前の頭（小文字にした名前に当てる。0.10.1 CD-1 で大文字と小文字を区別しなくした）
+const MSIX_PREFIXES = ['claude_', 'anthropic.claude_'];
+// 新しい Store 版の場所（%LOCALAPPDATA%\Claude-Data\claude_<符号>。0.10.1 CD-1。計画 docs/plans/2026-10-23-101.md の決めたこと 1）
+const DATA_ROOT = 'Claude-Data';
+const DATA_NAME = /^(anthropic\.)?claude_[a-z0-9]+$/;   // 小文字にした名前に当てる
 
 const isObj = (v) => Boolean(v) && typeof v === 'object' && !Array.isArray(v);
 const clone = (v) => JSON.parse(JSON.stringify(v));
@@ -59,21 +63,47 @@ function removeEntry(config) {
   return { ok: true, config: out, changed: true };
 }
 
-// 設定ファイルの場所の配列。readdir・exists はテストで偽物（main は fs.readdirSync・fs.existsSync）
-function configFiles({ appData, localAppData, readdir, exists }) {
+// 設定ファイルの場所の配列 [{ file, kind }]（kind は 'roaming' | 'data' | 'packages'。0.10.1 CD-1）。readdir・exists・isDir はテストで偽物
+// （main は fs.readdirSync・fs.existsSync・statSync().isDirectory()）。並びは Roaming → Claude-Data → Packages（どれも名前の小文字の順: 決めたこと 7）。
+// 名前は小文字にしてから照らし（Windows は大文字と小文字を区別しない: 決めたこと 6）、書く先には readdir が返した名前をそのまま使う
+const byLower = (a, b) => {
+  const x = a.toLowerCase();
+  const y = b.toLowerCase();
+  return x < y ? -1 : x > y ? 1 : 0;
+};
+const namesIn = (dir, readdir) => {
+  let names = [];
+  try { names = readdir(dir); } catch (_) { names = []; }
+  if (!Array.isArray(names)) return [];
+  return names.filter((n) => typeof n === 'string').sort(byLower);
+};
+function configPlaces({ appData, localAppData, readdir, exists, isDir = exists }) {
   const out = [];
-  if (appData && exists(path.join(appData, 'Claude'))) out.push(path.join(appData, 'Claude', CONFIG_NAME));
+  if (appData && exists(path.join(appData, 'Claude'))) out.push({ file: path.join(appData, 'Claude', CONFIG_NAME), kind: 'roaming' });
   if (localAppData) {
+    const dr = path.join(localAppData, DATA_ROOT);
+    for (const n of namesIn(dr, readdir)) {
+      if (!DATA_NAME.test(n.toLowerCase())) continue;
+      if (isDir(path.join(dr, n))) out.push({ file: path.join(dr, n, CONFIG_NAME), kind: 'data' });
+    }
     const pk = path.join(localAppData, 'Packages');
-    let names = [];
-    try { names = readdir(pk); } catch (_) { names = []; }
-    for (const n of names) {
-      if (typeof n !== 'string' || !MSIX_PREFIXES.some((p) => n.startsWith(p))) continue;
+    for (const n of namesIn(pk, readdir)) {
+      if (!MSIX_PREFIXES.some((p) => n.toLowerCase().startsWith(p))) continue;
       const dir = path.join(pk, n, 'LocalCache', 'Roaming', 'Claude');
-      if (exists(dir)) out.push(path.join(dir, CONFIG_NAME));
+      if (exists(dir)) out.push({ file: path.join(dir, CONFIG_NAME), kind: 'packages' });
     }
   }
   return out;
+}
+// 0.10.0 の口（場所のファイルの配列）
+function configFiles(opts) {
+  return configPlaces(opts).map((p) => p.file);
+}
+// 場所の種類の数（記録の1行のため。パスは持たない: 決めたこと 13）
+function placeCounts(places) {
+  const c = { roaming: 0, data: 0, packages: 0 };
+  for (const p of places || []) if (p && Object.hasOwn(c, p.kind)) c[p.kind] += 1;
+  return c;
 }
 
 // 控えの名前（同じフォルダに写す: 決めたこと 18）。時刻の : と . は - に
@@ -93,4 +123,7 @@ function claudeRunningOf(stdout) {
   return /(^|\n)\s*"?claude\.exe"?\s*,/i.test(stdout);
 }
 
-module.exports = { ENTRY_NAME, MARK, BACKUP_KEEP, CONFIG_NAME, TASKLIST_ARGS, serverEntry, entryState, mergeEntry, removeEntry, configFiles, backupName, isNatsuBackup, claudeRunningOf };
+module.exports = {
+  ENTRY_NAME, MARK, BACKUP_KEEP, CONFIG_NAME, DATA_ROOT, TASKLIST_ARGS, serverEntry, entryState, mergeEntry, removeEntry,
+  configPlaces, configFiles, placeCounts, backupName, isNatsuBackup, claudeRunningOf,
+};
