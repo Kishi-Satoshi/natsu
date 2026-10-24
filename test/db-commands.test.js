@@ -4,12 +4,18 @@ const test = require('node:test');
 const assert = require('node:assert');
 const { tmpDb, jsonTwin, samplePage } = require('./helpers/dbtmp');   // jsonTwin: 一時フォルダの store.js と json-backend。seed は同じ JSON をそのまま書く
 const core = require('../src/db/core');
+const { titleAt } = require('./helpers/titles');
 
 const NOW = () => new Date('2026-10-19T01:02:03.000Z');
 let n = 0;
 const call = (db, cmd, args, role = 'app') => core.call(db, { role, cmd, args, tx: `${role[0]}:t-${String(++n).padStart(6, '0')}` }, { now: NOW, labels: { groq: 'Groq（無料枠）' } });
 // updatedAt・rev・id の作り方の違いと、DB だけが付ける空の children（2a1 は子のない木）だけを落として比べる
-const plain = (v) => JSON.parse(JSON.stringify(v, (k, x) => (['updatedAt', 'rev', 'blockId'].includes(k) || (k === 'children' && Array.isArray(x) && x.length === 0) ? undefined : x)));
+// 0.11.0 M-4 で意図して足した: 経過の項目（{ s, by, at }）の時刻も落とす（json-backend は時計を受けず、今の時刻で積む）
+const plain = (v) => JSON.parse(JSON.stringify(v, function (k, x) {
+  if (['updatedAt', 'rev', 'blockId'].includes(k) || (k === 'children' && Array.isArray(x) && x.length === 0)) return undefined;
+  if (k === 'at' && this && typeof this.s === 'string' && typeof this.by === 'string') return undefined;
+  return x;
+}));
 
 test('ST4: 画面の 14 の命令は json-backend（今の保存）と同じ答え', { timeout: 5000 }, async () => {
   const t = tmpDb(); const j = jsonTwin();
@@ -242,5 +248,70 @@ test('0.11.0 M-3: 一覧の最初の要点（preview）は印の無い最初の�
     const rows = call(db, 'pages.list', {}).result;
     assert.strictEqual(rows.find((x) => x.id === 'pv1').preview, '予算は据え置きにした');
     assert.strictEqual(rows.find((x) => x.id === 'pv2').preview, '来月の予算案の作成を担当Aが進める');
+  } finally { t.done(); }
+});
+
+// 0.11.0 M-4（MT3・F14・F27・F28・P13・P16。決めたこと 8・12。持ち主の試作の「命令ごとの照らし」「1つの命令＝1つのトランザクション」）
+test('0.11.0 M-4: page.setType は選べる種類の鍵と auto だけを通す（知らない名前・前の版の general・数・道の形は bad-args）', { timeout: 5000 }, async () => {
+  const t = tmpDb(); const j = jsonTwin();
+  try {
+    const { db } = t.open();
+    const { page, segments } = samplePage('pt1');
+    t.seed(page, segments); await j.seed(page, segments);
+    for (const type of ['nope', 'general', '../x', 3, '', 'Sales']) {
+      const r = call(db, 'page.setType', { id: 'pt1', type });
+      assert.deepStrictEqual([r.ok, r.code], [false, 'bad-args'], String(type));
+    }
+    for (const type of ['standup', 'review', 'brainstorm', 'oneonone', 'interview', 'sales', 'present']) {
+      const r = call(db, 'page.setType', { id: 'pt1', type });
+      assert.strictEqual(r.ok, true, type);
+      assert.deepStrictEqual([r.result.meetingType, r.result.typeAuto], [type, false], type);
+      assert.deepStrictEqual(plain(r.result), plain(await j.call('page.setType', { id: 'pt1', type })), type);
+    }
+    const a = call(db, 'page.setType', { id: 'pt1', type: 'auto' });
+    assert.deepStrictEqual([a.ok, a.result.typeAuto, a.result.meetingType], [true, true, 'present'], '自動に戻すと次の要約で判定し直す（種類は今のまま）');
+    assert.deepStrictEqual(plain(a.result), plain(await j.call('page.setType', { id: 'pt1', type: 'auto' })));
+  } finally { t.done(); j.done(); }
+});
+
+test('0.11.0 M-4・F14: page.setType の preset は、DB にある今のメモが手を付けていない（空・型の雛形・アジェンダの雛形）ときだけ新しい型の雛形に替え、人の文は1文字も変えない。同じ tx で経過に type/page を1件（続けて選んだら置き換え）', { timeout: 5000 }, async () => {
+  const M = require('../src/memoTypes');
+  const mtype = require('../src/meetingType');
+  const t = tmpDb(); const j = jsonTwin();
+  try {
+    const { db } = t.open();
+    const cases = [['pp1', ''], ['pp2', M.memoPreset('points')], ['pp3', mtype.getAgenda('standup')], ['pp4', '予算の相談をする'], ['pp5', `${M.memoPreset('grow')}あ`]];
+    for (const [id, memo] of cases) { const { page, segments } = samplePage(id); page.blocks = page.blocks.map((b) => ({ ...b, id: `${id}${b.id}` })); page.memo = memo; page.stateLog = [{ s: 'start', by: 'button', at: '2026-10-19T00:00:00.000Z' }]; t.seed(page, segments); await j.seed(page, segments); }
+    for (const [id, memo] of cases) {
+      const r = call(db, 'page.setType', { id, type: 'sales', preset: true });
+      assert.strictEqual(r.ok, true, id);
+      const want = M.isUntouchedMemo(memo, mtype.listTypes().map((x) => x.agenda)) ? M.memoPreset('bantc') : memo;
+      assert.strictEqual(r.result.memo, want, id);
+      assert.deepStrictEqual(r.result.stateLog.map((x) => `${x.s}/${x.by}`), ['start/button', 'type/page'], id);
+      assert.deepStrictEqual(plain(r.result), plain(await j.call('page.setType', { id, type: 'sales', preset: true })), id);
+    }
+    assert.strictEqual(call(db, 'page.get', { id: 'pp4' }).result.page.memo, '予算の相談をする');
+    // 続けて選び直しても種類の項目は1件。preset が無ければメモは替えない。auto ではメモを替えない
+    const r2 = call(db, 'page.setType', { id: 'pp1', type: 'oneonone' });
+    assert.strictEqual(r2.result.memo, M.memoPreset('bantc'));
+    assert.deepStrictEqual(r2.result.stateLog.map((x) => `${x.s}/${x.by}`), ['start/button', 'type/page']);
+    const r3 = call(db, 'page.setType', { id: 'pp1', type: 'auto', preset: true });
+    assert.strictEqual(r3.result.memo, M.memoPreset('bantc'));
+  } finally { t.done(); j.done(); }
+});
+
+test('0.11.0 M-4・F27: 締めと復旧のページは、録音中に選んだ種類（選べる鍵だけ）を typeAuto 偽で写す。知らない値と無い値は写さない', { timeout: 5000 }, () => {
+  const t = tmpDb();
+  try {
+    const { db } = t.open();
+    const fin = (pageId, extra) => call(db, 'meeting.finalize', { pageId, segments: [], page: { title: titleAt('2026-10-19T00:00:00.000Z'), memo: '', blocks: [], createdAt: '2026-10-19T00:00:00.000Z', meeting: { phase: 'done' }, ...extra } }, 'main');
+    let r = fin('pf1', { meetingType: 'sales', typeAuto: false });
+    assert.deepStrictEqual([r.result.meetingType, r.result.typeAuto], ['sales', false]);
+    r = fin('pf2', { meetingType: 'general', typeAuto: false });
+    assert.deepStrictEqual([r.result.meetingType, r.result.typeAuto], [undefined, undefined]);
+    r = fin('pf3', {});
+    assert.deepStrictEqual([r.result.meetingType, r.result.typeAuto], [undefined, undefined]);
+    const rec = call(db, 'meeting.recover', { pageId: 'pf4', segments: [], page: { title: titleAt('2026-10-19T00:00:00.000Z'), memo: '', blocks: [], createdAt: '2026-10-19T00:00:00.000Z', recovered: true, meetingType: 'present', typeAuto: false } }, 'main');
+    assert.deepStrictEqual([rec.result.page.meetingType, rec.result.page.typeAuto], ['present', false]);
   } finally { t.done(); }
 });

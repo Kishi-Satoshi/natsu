@@ -4136,6 +4136,7 @@ function meetingStatus() {
     finalizing: state === 'meeting-finalizing',
     startedAt: meeting ? meeting.startedAt : null,
     memo: meeting ? meeting.memo : '',
+    meetingType: meeting && mtype.isSelectable(meeting.meetingType) ? meeting.meetingType : null,   // 0.11.0 M-4: 録音中のページの種類の欄を戻す
     segments: meeting ? publicSegments(meeting.segments) : [],   // wav（パス）は外す。待ちは pending: true
     pending: pendingSegs,
     stoppedAt: meeting && meeting.stoppedAt ? meeting.stoppedAt : null,
@@ -4185,6 +4186,7 @@ function writeDraft() {
       localOnly: Boolean(meeting.localOnly),   // ［この会議は PC の中だけ］（復旧した会議の送り直しも手元。第1c回 RF28）
       pauses: meeting.pauses || [],   // 止めていた時間の印（落ちて復旧したページにも残す。第1b回 N4c）
       stateLog: meeting.stateLog || [],   // 議事録の経過（0.10.0 K-1。落ちて戻したページにも残す）
+      ...(mtype.isSelectable(meeting.meetingType) ? { meetingType: meeting.meetingType } : {}),   // 0.11.0 M-4: 録音中に選んだ種類（鍵のときだけ）
     }, meeting.draftName, { fsync: DRAFT_FSYNC });
   } catch (e) {
     if (!meeting.draftWriteFailed) {
@@ -4469,6 +4471,8 @@ async function recoverDraftsNow() {
         pauses: d.pauses,   // 止めていた時間の印（形の悪い印は store が捨てる。第1b回 N4c・F6）
         // 議事録の経過（0.10.0 K-1）: 下書きの経過（表に無い項目は落とす）の後に「戻した（アプリ）」
         stateLog: recoveredStateLog(d.stateLog),
+        // 0.11.0 M-4: 下書きの種類（照らして、選べる鍵のときだけ。知らない値は自動）
+        ...(mtype.isSelectable(d.meetingType) ? { meetingType: d.meetingType, typeAuto: false } : {}),
         summaryError: rec.todo.length
           ? '録音が中断されたため要約は未生成です。残っていた音声の文字起こしを続けています。終わったら「要約を生成」で作成できます。'
           : '録音が中断されたため要約は未生成です。「要約を生成」で作成できます。',
@@ -4826,7 +4830,8 @@ async function startMeeting() {
   // （復旧が読んだ draft.json を消せずに、次の復旧がもう一度ページにする）
   const draftName = chooseDraftName({ existing: store.draftFiles(), startedAt, park: () => (finalizingDrafts.has('draft.json') || draftRecoveryRuns > 0 ? { ok: false } : store.parkDraft()) });
   if (draftName !== 'draft.json') engineLog(`前の下書きを退けられないので、この会議の下書きは ${draftName} に書きます`);
-  meeting = { pageId, startedAt, draftName, memo: '', segments: [], offsetMs: 0, stopping: false, seq: 0,
+  // meetingType: 0.11.0 M-4（決めたこと 11）録音中のページで選んだ種類。null は自動（選んでいない）。新しい会議はいつも自動から（D50）
+  meeting = { pageId, startedAt, draftName, memo: '', meetingType: null, segments: [], offsetMs: 0, stopping: false, seq: 0,
     systemAudio: false, paused: false, pausedMs: 0, pausedAt: 0,
     // gen: 打ち切り（meeting:skipPending）で進める世代。進行中の結果を捨てる判断に使う
     // segmentMs: いま録音側に頼んでいる区間の長さ（経路と背圧で伸縮する。第1d回 A-5: 下の segMode と segmentBaseMs で決めて上書きする）
@@ -5153,6 +5158,7 @@ async function maybeFinalizeMeeting() {
         route: { stt: { ...m.route, provider: sttProvider().id }, localOnly: Boolean(m.localOnly) },
         pauses,   // 止めていた時間の印（区間とは別の欄。第1b回 N4c・F6）
         stateLog: m.stateLog || [],   // 議事録の経過（0.10.0 K-1。決めたこと 116）
+        ...(mtype.isSelectable(m.meetingType) ? { meetingType: m.meetingType, typeAuto: false } : {}),   // 0.11.0 M-4（決めたこと 11・F27）
         recovered: false, summaryError: keptWhy, meeting: { phase: 'done' },
       },
     }, { tx: `meeting:${m.startedAt}` });
@@ -5300,6 +5306,7 @@ async function doRunSummary(pageId) {
   // （手で選んだ議事録では detectType が一度も呼ばれていなかった）。
   const autoType = mtype.detectType(page.title, plain.slice(0, 1200));
   page.autoType = autoType;
+  const typeBefore = page.meetingType;   // 0.11.0 M-4（P13）: 自動の判定で種類が変わったら経過に積む
   if (!page.meetingType || page.typeAuto !== false) {
     // 判定材料が無いときは「一般・その他」（自動判定の答えのまま）。0.1.1 までは「定例・進捗報告」に
     // していたが、定例の型（担当・案件ごとの報告、担当・期限つきのアクション）に合わせようとして、
@@ -5360,12 +5367,15 @@ async function doRunSummary(pageId) {
       saved.meetingType = t.meetingType;
       saved.typeAuto = t.typeAuto;
       saved.autoType = page.autoType;
+      // 0.11.0 M-4（P13・決めたこと 12）: 自動のまま、要約のときの判定で種類が前と変わったら、経過に「種類を選んだ（要約のときの自動の判定）」
+      if (t.typeAuto !== false && page.meetingType !== typeBefore) saved.stateLog = lib.stateLogAdd(saved.stateLog, { s: 'type', by: 'auto', at: new Date().toISOString() });
       saved.citeStat = stat;
       saved.actionStat = actStat;
       // 切れたパートと最終統合の打ち切りを名指しする（mainlib.truncationMessage。無ければ ''）
       const notes = [truncationMessage(truncatedParts, finalTruncated)];
       if (t.changed) {
-        notes.push(`この要約は「${mtype.getLabel(page.meetingType)}」として作りました。途中で選んだ「${mtype.getLabel(t.meetingType)}」で作り直すには［要約を再生成］を押してください。`);
+        // 0.11.0 M-4: どの型で作ったかも書く（書式の文と画面の文の「作っている間に種類を替えたときの注」）
+        notes.push(`この要約は「${mtype.getLabel(page.meetingType)}」（メモの型: ${memoTypes.MEMO_TYPES[memoTypes.memoTypeOf(page.meetingType)].label}）として作りました。途中で選んだ「${mtype.getLabel(t.meetingType)}」で作り直すには［要約を再生成］を押してください。`);
       }
       saved.summaryError = notes.filter(Boolean).join('\n');
       saved.summaryWait = false;   // 要約待ちの印を消す（0.10.0 LS-2）
@@ -5721,6 +5731,20 @@ function setupIpc() {
   // 第1d回 A-8（D17）: 画面が「録音中のページを開いていて、窓が隠れていない」かを知らせる（変わったときだけ送ってくる）
   ipcMain.on('meeting:live-shown', (_e, on) => { liveShownByUi = on === true; syncLevelAsk(); });
   ipcMain.handle('meeting:set-memo', (_e, memo) => { if (meeting) { meeting.memo = String(memo || ''); writeDraft(); } return true; });
+  // 0.11.0 M-4（D50・決めたこと 10・11）: 録音中のページで種類を選ぶ（auto は自動に戻す）。メモが手を付けていなければ新しい型の雛形に替え、
+  // 下書きに書き、経過に1件積む。画面は先に待っているメモを meeting:set-memo で送ってから呼ぶ → { ok, memo, inserted, meetingType }
+  ipcMain.handle('meeting:set-type', (_e, key) => {
+    if (!meeting) return { ok: false };
+    if (key !== 'auto' && !mtype.isSelectable(key)) return { ok: false };
+    meeting.meetingType = key === 'auto' ? null : key;
+    let inserted = false;
+    if (key !== 'auto' && memoTypes.isUntouchedMemo(meeting.memo, mtype.listTypes().map((t) => t.agenda).filter(Boolean))) {
+      meeting.memo = memoTypes.memoPreset(memoTypes.memoTypeOf(key));
+      inserted = true;
+    }
+    noteMeetingState(meeting, 'type', 'live-page');   // 下書きにも書く
+    return { ok: true, memo: meeting.memo, inserted, meetingType: meeting.meetingType };
+  });
   // 終了後の文字起こし待ちを後回しにする（#42。0.9.4 S-3 で打ち切りから替えた: ［文字起こしを後回しにして要約］）。記録中（終了前）は押せない。
   // 待ちの区間は「文字起こし待ち」（kept）で WAV を残す（mainlib.skipPendingSegments。消さない）。締めは要約を待たせずに今ある分で作り（m.later）、
   // 残した区間は会議の後の待ち行列が文字起こしする（済んだら［要約を生成］で作り直せると知らせる。自動で作り直さない: 問い Q5）。

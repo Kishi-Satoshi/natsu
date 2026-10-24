@@ -8,6 +8,7 @@
  * field は引数の名前だけ（値やパスは入れない）。
  */
 'use strict';
+const mtype = require('../meetingType');
 
 const ID_RE = /^[A-Za-z0-9_-]{1,64}$/;      // 今の ID（p…・b…・s<n>・テストの p1）を全部通し、区切り・点・空白は通さない
 const TX_RE = /^[A-Za-z0-9:_.-]{8,120}$/;
@@ -143,6 +144,8 @@ const TYPES = Object.freeze(Object.assign(Object.create(null), {
   title: (v) => { if (!isStr(v, LIMITS.title)) throw bad('title'); return v; },
   short: (v) => { if (!isStr(v, SHORT)) throw bad('short'); return v; },
   name: (v) => { if (typeof v !== 'string' || !NAME_RE.test(v)) throw bad('name'); return v; },
+  // 0.11.0 M-4（持ち主の試作の命令ごとの照らし）: 会議の種類は選べる鍵（meetingType.SELECTABLE）と auto（自動に戻す）だけ
+  meetingTypeArg: (v) => { if (v !== 'auto' && !mtype.isSelectable(v)) throw bad('meetingType'); return v; },
   int: (v) => { if (!Number.isSafeInteger(v)) throw bad('int'); return v; },
   num: (v) => { if (typeof v !== 'number' || !Number.isFinite(v)) throw bad('num'); return v; },
   bool: (v) => { if (typeof v !== 'boolean') throw bad('bool'); return v; },

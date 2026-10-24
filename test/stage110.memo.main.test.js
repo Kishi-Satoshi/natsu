@@ -7,6 +7,8 @@
 const test = require('node:test');
 const assert = require('node:assert');
 const path = require('node:path');
+const fs = require('node:fs');
+const os = require('node:os');
 const { execScene, sceneTimeout } = require('./helpers/scene-slots');
 
 const RUN = path.join(__dirname, 'helpers', 'mainrun.js');
@@ -45,4 +47,47 @@ test('0.11.0 M-3（MT4・D39・F10）: 要約の保存で、根拠の無い見�
   const line = o.engineLog.find((l) => /抜け・重なりチェック/.test(l));
   assert.strictEqual(line, '要約: 抜け・重なりチェック 1 件を捨てた・未確認にまとめた見出し 2 個', JSON.stringify(o.engineLog.filter((l) => /要約/.test(l))));
   assert.ok(!o.engineLog.some((l) => /決裁|予算の枠|メモより/.test(l)), '記録に要約の文が出た');
+});
+
+// ---------------------------------------------------------------- M-4（MT3・F14・F27・P13。決めたこと 10〜12）
+const M = require('../src/memoTypes');
+const BANTC_HEADS = ['## 課題・要望（N）', '## 時期（T）', '## 決め方・決裁者（A）', '## 予算（B）', '## 競合・比較先（C）'];
+
+test('0.11.0 M-4（D50・F27）: 録音中のページで商談を選んだ会議は、締めのページの種類が商談（手で選んだ）で、要約の書式が BANTC。メモが空なら BANTC の雛形が入り、経過に種類の項目が積まれる', { timeout: sceneTimeout(30000) }, async () => {
+  const o = await run(['text', '--sum', '--claude=ok', '--segs=2', '--set-type-live=sales']);
+  assert.deepStrictEqual(o.setTypeLive.map((x) => [x.ok, x.inserted, x.meetingType]), [[true, true, 'sales']]);
+  assert.strictEqual(o.liveStatusType, 'sales');
+  const p = o.pages[0];
+  assert.deepStrictEqual([p.meetingType, p.typeAuto], ['sales', false]);
+  assert.strictEqual(p.memo, M.memoPreset('bantc'));
+  assert.ok(p.stateLog.some((x) => x.s === 'type' && x.by === 'live-page'), JSON.stringify(p.stateLog));
+  assert.ok(!p.stateLog.some((x) => x.s === 'type' && x.by === 'auto'), '手で選んだのに自動の判定の項目を積んだ');
+  assert.deepStrictEqual(pCalls(o)[0].stdinHeads.slice(0, 5), BANTC_HEADS);
+  assert.ok(o.engineLog.includes('議事録: 種類を選んだ（録音中のページ）'));
+});
+
+test('0.11.0 M-4・F14: 録音中のメモに人の文があれば、種類を選んでもメモは1文字も変わらない。商談を選んでから自動に戻すと、要約のときに判定する（選んでいない会議と同じ）', { timeout: sceneTimeout(30000) }, async () => {
+  const a = await run(['text', '--sum', '--claude=ok', '--segs=2', '--live-memo=予算の相談をする', '--set-type-live=sales']);
+  assert.deepStrictEqual(a.setTypeLive.map((x) => [x.inserted, x.memo]), [[false, '予算の相談をする']]);
+  assert.strictEqual(a.pages[0].memo, '予算の相談をする');
+  const b = await run(['text', '--sum', '--claude=ok', '--segs=2', '--set-type-live=sales,auto']);
+  assert.strictEqual(b.liveStatusType, null);
+  assert.deepStrictEqual([b.pages[0].meetingType, b.pages[0].typeAuto], [b.pages[0].autoType, true]);
+  assert.notDeepStrictEqual(pCalls(b)[0].stdinHeads.slice(0, 5), BANTC_HEADS);
+  assert.ok(b.pages[0].stateLog.some((x) => x.s === 'type' && x.by === 'auto'), '自動の判定の項目が無い');
+  assert.strictEqual(b.pages[0].stateLog.filter((x) => x.s === 'type' && x.by === 'live-page').length, 1, '続けて選んだ項目が1件にまとまっていない');
+});
+
+test('0.11.0 M-4・F27: 録音中に商談を選んでから main ごと落ちても、下書きから戻したページの種類は商談（手で選んだ）', { timeout: sceneTimeout(60000) }, async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'natsu-種類𠮷-'));
+  try {
+    const crashed = await new Promise((resolve) => {
+      execScene(process.execPath, [RUN, 'text', '--segs=3', '--set-type-live=sales', '--kill-main-during', `--keep-user-data=${dir}`], { env: { ...process.env, NATSU_TEST_STT_SLEEP_SCALE: '0.01' }, maxBuffer: 1 << 24, timeout: 30000 },
+        (err) => resolve(err));
+    });
+    assert.ok(crashed && crashed.code !== 0, '場面の前提: main ごと落ちていない');
+    const o = await run(['text', '--recover', `--keep-user-data=${dir}`]);
+    const p = o.pages[0];
+    assert.deepStrictEqual([p.meetingType, p.typeAuto, p.recovered], ['sales', false, true]);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });

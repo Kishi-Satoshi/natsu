@@ -43,6 +43,8 @@ const { isCitable, refreshCitations, searchFold } = require('../cite');
 const { parseDue } = require('../actions');
 const { routeLabel, summaryLock } = require('../mainlib');
 const R = require('../pagerules');
+const mtype = require('../meetingType');
+const memoTypes = require('../memoTypes');
 // 議事録の経過（0.10.0 K-1。決めたこと 116）: 締め・復旧のページの stateLog は表の鍵の項目だけを残す
 const SL = require('../statelog');
 const { diffPage, diffSegments, applyOps } = require('./ops');
@@ -143,6 +145,17 @@ function forWrite(db, id) {
   const page = clone(was.page);
   R.markShortBlocks(page.blocks);
   return { was, page };
+}
+
+// 0.11.0 M-4: page.setType の中身（json-backend も同じ部品を使う）。p を直す。preset は手を付けていないメモのときだけ雛形に替える
+const LEGACY_AGENDAS = mtype.listTypes().map((t) => t.agenda).filter(Boolean);
+function setTypePage(p, { type, preset }, at) {
+  if (type === 'auto') p.typeAuto = true;
+  else {
+    p.meetingType = type; p.typeAuto = false;
+    if (preset === true && memoTypes.isUntouchedMemo(p.memo, LEGACY_AGENDAS)) p.memo = memoTypes.memoPreset(memoTypes.memoTypeOf(type));
+  }
+  p.stateLog = SL.stateLogAdd(p.stateLog, { s: 'type', by: 'page', at: at.toISOString() });
 }
 
 // ページを1つ直す命令の形: fn(page) が直す（false を返したら何も書かずに null）。答えは書いた後のページ（今の savePage の答え）
@@ -338,6 +351,8 @@ function meetingPage(pageId, src, now, { recovered }) {
   if (isObj(p.route)) page.route = clone(p.route);
   if (Array.isArray(p.pauses)) page.pauses = R.cleanPauses(p.pauses);
   if (Array.isArray(p.stateLog)) page.stateLog = SL.cleanStateLog(p.stateLog);
+  // 0.11.0 M-4（決めたこと 11・F27）: 録音中に選んだ種類（選べる鍵だけ）を手で選んだ種類として写す
+  if (mtype.isSelectable(p.meetingType)) { page.meetingType = p.meetingType; page.typeAuto = false; }
   if (typeof p.summaryError === 'string' && p.summaryError) {
     // 今の復旧は createPage の後に summaryError を入れて savePage する（そのときだけ citeStat ができる）
     page.summaryError = p.summaryError;
@@ -496,8 +511,10 @@ const DEFS = {
     run: (db, a, ctx) => editPage(db, a.id, ctx, (p) => { p.title = a.title; }), dupResult: reread },
   'page.setMemo': { roles: ['app', 'main'], write: true, args: { id: 'id', memo: 'text?' },
     run: (db, a, ctx) => editPage(db, a.id, ctx, (p) => { p.memo = String(a.memo || ''); }), dupResult: reread },
-  'page.setType': { roles: ['app', 'main'], write: true, args: { id: 'id', type: 'name' },
-    run: (db, a, ctx) => editPage(db, a.id, ctx, (p) => { p.meetingType = a.type; p.typeAuto = false; }), dupResult: reread },
+  // 0.11.0 M-4（決めたこと 8・12。持ち主の試作の「1つの命令＝1つのトランザクション」）: 種類を書き（auto なら自動に戻す）、preset が真なら
+  // DB にある今のメモが手を付けていないときだけ新しい型の雛形に替え、経過に1件積む（setTypePage）
+  'page.setType': { roles: ['app', 'main'], write: true, args: { id: 'id', type: 'meetingTypeArg', preset: 'bool?' },
+    run: (db, a, ctx) => editPage(db, a.id, ctx, (p) => setTypePage(p, a, ctx.now())), dupResult: reread },
   // 削除はゴミ箱へ（Q2。元の JSON から取り込みで戻らないように、行は消さない）。答えは一覧
   'page.delete': { roles: ['app', 'main'], write: true, args: { id: 'id' },
     run: (db, a, ctx) => {
@@ -619,4 +636,4 @@ const DEFS = {
 const COMMANDS = Object.freeze(Object.assign(Object.create(null),
   Object.fromEntries(Object.entries(DEFS).map(([k, v]) => [k, Object.freeze(v)]))));
 
-module.exports = { COMMANDS, HOT_QUERIES, putPageRows, readPage, readRawPage, readSegments, listPages, isPurged, listedRows, actionView, entryOf };
+module.exports = { COMMANDS, HOT_QUERIES, putPageRows, readPage, readRawPage, readSegments, listPages, isPurged, listedRows, actionView, entryOf, setTypePage };

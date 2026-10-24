@@ -166,7 +166,8 @@ contextBridge.exposeInMainWorld('koeApp', {
   pagesSearchFull: (q) => dbCall('pages.searchFull', { q: q || '', limit: 60 }),
   pagesActionView: ({ q, assignee }) => dbCall('pages.actionView', { q, assignee }),
   meetingTypes: () => ipcRenderer.invoke('meta:types'),
-  pageSetType: (id, type) => dbCall('page.setType', { id, type }),
+  // 0.11.0 M-4: preset が真なら、DB にある今のメモが手を付けていないときだけ新しい型の雛形に替える（type は鍵か auto）
+  pageSetType: (id, type, preset) => dbCall('page.setType', preset === true ? { id, type, preset: true } : { id, type }),
   blockSetAction: (pageId, blockId, assignee, dueRaw) => dbCall('block.setAction', { pageId, blockId, assignee, dueRaw }),
   pageGet: (id) => dbCall('page.get', { id }),
   pageDelete: (id) => dbCall('page.delete', { id }),

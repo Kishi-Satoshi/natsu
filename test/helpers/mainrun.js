@@ -167,6 +167,7 @@ const { titleAt } = require('./titles');
 //                     届くかの確かめが偽の送り先に届いてオンラインになる（--stt が無ければ、確かめは fake-net の守りで死んで手元になる）
 //     --claude-delay=<ms> … 0.10.0 LS-2: --claude=slow の偽の claude が -p に答えるまでの待ち（FAKE_CLAUDE_DELAY）
 //     --claude-auth=<method> … 偽の claude の auth status が返す authMethod（FAKE_CLAUDE_AUTH。既定 claude.ai）
+//     --set-type-live=<鍵|auto>[,…] … 0.11.0 M-4: 録音中（最初の区間の後）に meeting:set-type を呼ぶ（--live-memo=<文> があれば先に meeting:set-memo）
 //     --sum-md=<名前> … 0.11.0 M-3: 偽の claude が返す要約の Markdown を test/fixtures/summaries/<名前>.md にする（--claude と一緒に使う）
 //     --db-down     … 第2a1回 M-2b: 議事録の DB のプロセス（偽の utilityProcess の中の本物の server.js）の SQLite が trigram を持たない
 //                     （helpers/no-trigram.js を子の中で先に読む）。自分の確かめが通らず、DB は「使えない」で起きる。場面の dbDown でも同じ
@@ -445,6 +446,9 @@ const setTypeDuring = (flags.find((f) => f.startsWith('--set-type-during=')) || 
 const WRITE_SETTLE_MS = 500;
 const xyFlag = (v) => { if (!v) return null; const [x, y] = v.split(',').map(Number); return { x, y }; };   // 0.9.0 O-1: 設定のまとめ書き（main の BATCH_MS 350ms）が済むのを待つ長さ
 const flagVal = (name) => { const f = flags.find((x) => x.startsWith(`${name}=`)); return f ? f.slice(name.length + 1) : ''; };
+// 0.11.0 M-4: 録音中（最初の区間の後）に meeting:set-memo と meeting:set-type を呼ぶ（--set-type-live は , で区切って続けて選べる）
+const setTypeLive = flagVal('--set-type-live') ? flagVal('--set-type-live').split(',') : [];
+const liveMemo = flags.some((x) => x.startsWith('--live-memo=')) ? flagVal('--live-memo') : null;
 // 第2a1回 M-3: 録音と DB のつなぎの場面
 const killDbDuring = flags.includes('--kill-db-during');
 const killMainDuring = flags.includes('--kill-main-during');
@@ -2393,7 +2397,7 @@ process.on('exit', () => {
       todos: (page.blocks || []).filter((b) => b.type === 'todo').map((b) => ({ text: b.text, assignee: b.assignee || '', due: b.due || '', dueRaw: b.dueRaw || '' })),
       // 0.11.0 M-3: 要約のブロックの文と印（足すだけ。上の blocks の形は変えない）
       sumBlocks: (page.blocks || []).map((b) => ({ type: b.type, text: b.text, mark: b.mark, unconfirmed: b.unconfirmed, citeState: b.citeState, cites: Array.isArray(b.cites) ? b.cites.length : 0 })),
-      autoType: page.autoType, quality: page.quality, stateLog: page.stateLog,
+      autoType: page.autoType, quality: page.quality, stateLog: page.stateLog, memo: page.memo,
     };
   };
   if (idleMode) {
@@ -3173,6 +3177,8 @@ process.on('exit', () => {
       await waitFor(() => handlers['meeting:status']().pending === 0, 15000);
       netSegs.push({ s: netSec - 1, problem: netNote(netSec - 1) });
     }
+    if (i === 0 && liveMemo !== null) out.liveMemo = await handlers['meeting:set-memo']({}, liveMemo);
+    if (i === 0 && setTypeLive.length) { out.setTypeLive = []; for (const k of setTypeLive) out.setTypeLive.push(await handlers['meeting:set-type']({}, k)); out.liveStatusType = handlers['meeting:status']().meetingType; }
     if (i === 0 && testDuring) out.testDuring = await handlers['app:test']();
     // 第1d回 A-9: 会議の録音中に再起動と取り込みを頼む（断られて、録音はそのまま続く）
     if (i === 0 && restartDuring === 'meeting') {

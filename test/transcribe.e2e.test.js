@@ -779,7 +779,8 @@ sceneTest('要約の途中で会議タイプを手で選び直したら、その
   // 0.1.1 までは、要約を始めたときの種類（自動）で上書きしていた
   assert.deepStrictEqual([p.meetingType, p.typeAuto], ['standup', false]);
   // 0.11.0 M-1（D43）で意図して変えた: 定例・進捗報告の名前を「朝会・内部定例会」に（key は standup のまま）
-  assert.strictEqual(p.summaryError, 'この要約は「一般・その他」として作りました。途中で選んだ「朝会・内部定例会」で作り直すには［要約を再生成］を押してください。');
+  // 0.11.0 M-4 で意図して変えた: どのメモの型で作ったかも書く
+  assert.strictEqual(p.summaryError, 'この要約は「一般・その他」（メモの型: 会議の要点（論点整理））として作りました。途中で選んだ「朝会・内部定例会」で作り直すには［要約を再生成］を押してください。');
   // 途中で何も選ばなければ、自動で決めた種類のまま（判定材料が無いので一般・その他）で、添え書きも無い
   const q = results.sumGround.pages[0];
   assert.deepStrictEqual([q.meetingType, q.typeAuto, q.summaryError], ['general', true, '']);

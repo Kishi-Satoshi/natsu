@@ -19,6 +19,8 @@
 const { refreshCitations } = require('../cite');
 const { parseDue } = require('../actions');
 const { routeLabel } = require('../mainlib');
+const mtype = require('../meetingType');
+const { setTypePage } = require('./commands');   // 0.11.0 M-4: page.setType の中身は DB と同じ部品
 
 const isObj = (v) => Boolean(v) && typeof v === 'object' && !Array.isArray(v);
 
@@ -57,6 +59,8 @@ function makeJsonBackend(store, { labels = {} } = {}) {
       p.summaryError = page.summaryError;
       store.savePage(p);
     }
+    // 0.11.0 M-4: 録音中に選んだ種類（DB の meetingPage と同じ）
+    if (isObj(page) && mtype.isSelectable(page.meetingType)) { p.meetingType = page.meetingType; p.typeAuto = false; store.savePage(p); }
     return p;
   };
 
@@ -76,9 +80,9 @@ function makeJsonBackend(store, { labels = {} } = {}) {
       const p = store.getPage(id); if (!p) return null;
       p.memo = String(memo || ''); return store.savePage(p);
     },
-    'page.setType': ({ id, type } = {}) => {
+    'page.setType': ({ id, type, preset } = {}) => {
       const p = store.getPage(id); if (!p) return null;
-      p.meetingType = type; p.typeAuto = false;   // 手動指定は以後の自動推定より優先
+      setTypePage(p, { type, preset }, new Date());   // 0.11.0 M-4: DB の page.setType と同じ部品（手動指定は以後の自動推定より優先）
       return store.savePage(p);
     },
     'page.delete': ({ id } = {}) => store.deletePage(id),
