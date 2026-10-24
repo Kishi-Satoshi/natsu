@@ -836,6 +836,7 @@ const IDS_110 = [
   'qm-mcp-view', 'mt-memo-chunk',
   'v5-optgroup',   // 0.11.0 V-5（持ち主の画面の確かめ）
   'rv-unconf-replace', 'rv-unconf-drop',   // 0.11.0 点検の直し 1
+  'rv-sub-fold', 'rv-fill-sub',   // 0.11.0 点検の直し 2
 ];
 test('G3・0.11.0: 0.11.0 の変異が一覧にそろい、IDS_110 はどれも計画の「変異確認」の表にある。mt-・qm-・v- の変異は IDS_110 にある。どれも決まったテストのファイルを持ち、why が 0.11.0 で始まる', { timeout: 5000 }, () => {
   const byId = new Map(MUTANTS.map((m) => [m.id, m]));

@@ -316,3 +316,23 @@ test('点検の直し 1: AI の「未確認: なし」（特になし・言及�
     assert.ok(!v.some((x) => /未確認: (?:なし|特になし|該当なし)、/.test(x)), `畳む語に足した: ${md}`);
   }
 });
+
+test('点検の直し 2: 行の無い型の見出しの次が小見出し（型・締め・助言の見出しでない見出し）なら畳まない（親の見出しが本文に残り、未確認に挙げない）。次が型か締めの見出しなら今どおり畳む', () => {
+  const rows = [
+    ['', '## 目的\n- 共有\n## 論点ごとの要点\n### 価格改定\n- 据え置きにした\n## 決定事項\n- 据え置き',
+      ['heading:目的', 'bullet:共有', 'heading:論点ごとの要点', 'heading:価格改定', 'bullet:据え置きにした', 'heading:決定事項', 'bullet:据え置き'], 0],
+    ['interview', '## 経歴・スキル\n- 5年\n## 行動の具体例\n### プロジェクトX\n- 遅れを立て直した\n## 本人からの質問・懸念\n- 未確認\n## 条件\n- 来月から',
+      ['heading:経歴・スキル', 'bullet:5年', 'heading:行動の具体例', 'heading:プロジェクトX', 'bullet:遅れを立て直した', 'heading:条件', 'bullet:来月から',
+        'heading:抜け・重なりチェック', 'bullet:未確認: 本人からの質問・懸念|check|u'], 1],
+    ['standup', '## 前回の宿題の状況\n### 案件A\n- 済んだ\n## 事実（進捗・課題）\n- 遅れ',
+      ['heading:前回の宿題の状況', 'heading:案件A', 'bullet:済んだ', 'heading:事実（進捗・課題）', 'bullet:遅れ'], 0],
+    ['', '## 目的\n## 決定事項\n- 据え置き', ['heading:決定事項', 'bullet:据え置き', 'heading:抜け・重なりチェック', 'bullet:未確認: 目的|check|u'], 1],
+    ['', '## 論点ごとの要点\n## 次に気をつけること\n- 目的を先に言う', ['heading:抜け・重なりチェック', 'bullet:未確認: 論点ごとの要点|check|u', 'heading:次に気をつけること', 'bullet:目的を先に言う|advice'], 1],
+    ['', '## 論点ごとの要点', ['heading:抜け・重なりチェック', 'bullet:未確認: 論点ごとの要点|check|u'], 1],
+  ];
+  for (const [type, md, want, n] of rows) {
+    const { blocks, folded } = M.markBlocks(blocksOf(md), { meetingType: type });
+    assert.deepStrictEqual(view(blocks), want, md);
+    assert.strictEqual(folded, n, md);
+  }
+});

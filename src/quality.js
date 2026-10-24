@@ -121,16 +121,21 @@ function todoAxis(blocks) {
 
 // 軸 5: 型の見出しのうち、出典の付いた行か（メモより）の行が1つ以上ある見出しの割合。報告ごとに同じ見出しが何回もあれば数を足す。
 // 本文に無い見出し（未確認へ畳んだもの）・出典の無い行だけ・人が直して出典の合わない行だけの見出しは埋まっていない
-function fillAxis(blocks, { headings = [], key = (t) => String(t || '').trim() } = {}) {
+// 0.11.0 点検の直し 2（R25）: 締めと助言の見出し（memoTypes の CLOSING_HEADINGS と ADVICE_HEAD と同じ。quality は memoTypes を読まないので写し。
+// quality.test が照らす）。型の見出しの下の小見出しは、これらの見出しで切れるまで親の型の見出しの中
+const END_HEADS = Object.freeze(['決定事項', '持ち越し', 'ToDo（誰が・何を・いつまでに）', '抜け・重なりチェック', '次に気をつけること']);
+function fillAxis(blocks, { headings = [], key = (t) => String(t || '').trim(), stops = END_HEADS } = {}) {
   const want = new Map(headings.map((h) => [key(h), 0]));
   const good = new Map(headings.map((h) => [key(h), 0]));
+  const stopSet = new Set(stops.map((h) => key(h)));
   let cur = null; let curGood = false;
   const close = () => { if (cur !== null && curGood) good.set(cur, good.get(cur) + 1); };
   for (const b of Array.isArray(blocks) ? blocks : []) {
     if (!b) continue;
     if (b.type === 'heading') {
-      close();
       const k = key(b.text);
+      if (!want.has(k) && !stopSet.has(k) && cur !== null) continue;   // 型の見出しの下の小見出し: 親の根拠に数え続ける
+      close();
       cur = want.has(k) ? k : null; curGood = false;
       if (cur !== null) want.set(cur, want.get(cur) + 1);
       continue;
@@ -174,6 +179,6 @@ function qualityLines(view) {
 }
 
 module.exports = {
-  AXES, AI_AXES, MAX, SCORE_HEAD, MIN_SCORE_CHARS, PERSONAL_TYPES, REASON_CHARS, SCORE_TEMPLATE,
+  AXES, AI_AXES, MAX, SCORE_HEAD, END_HEADS, MIN_SCORE_CHARS, PERSONAL_TYPES, REASON_CHARS, SCORE_TEMPLATE,
   scoreTemplate, shouldScore, splitScore, parseScore, ratioScore, todoAxis, fillAxis, buildQuality, qualityView, qualityLines,
 };

@@ -163,3 +163,19 @@ test('qualityLines: 写しと MCP の行（見出しと5つの軸。画面のカ
     '- 決定事項: 5 / 5 — 据え置きと確かめた', '- ToDo の具体さ: 2 / 5 — ToDo 2 件', '- 型の埋まり具合: 4 / 5 — 型の見出し']);
   assert.deepStrictEqual(Q.qualityLines(null), []);
 });
+
+test('点検の直し 2: fillAxis は型の見出しの下の小見出し（型・締め・助言でない見出し）の行も親の根拠に数える。締めと助言の見出しで切る。END_HEADS は memoTypes の締めと助言の見出しと同じ', () => {
+  const H = (text) => ({ type: 'heading', text });
+  const B = (cites = ['s1']) => ({ type: 'bullet', text: 'x', cites });
+  const pts = Q.fillAxis([H('目的'), B(), H('論点ごとの要点'), H('価格改定'), B(), H('決定事項'), B()], { headings: M.sectionsOf(''), key: M.headingKey });
+  assert.strictEqual(pts.score, 5, '小見出しの下の根拠を親に数えていない');
+  const cut = Q.fillAxis([H('目的'), B(), H('論点ごとの要点'), H('**決定事項**'), B()], { headings: M.sectionsOf(''), key: M.headingKey });
+  assert.strictEqual(cut.score, 3, '締めの見出しの下の行を型の見出しの根拠に数えた');
+  const star = Q.fillAxis([H('経歴・スキル'), B(), H('行動の具体例'), H('プロジェクトX'), B(), H('本人からの質問・懸念'), B([]), H('条件'), B(), H('次に気をつけること'), B()],
+    { headings: M.sectionsOf('interview'), key: M.headingKey });
+  assert.deepStrictEqual(star, { score: 4, reason: '型の見出し 4 つのうち、根拠のある見出し 3 つ' });
+  const rep = Q.fillAxis([H('前回の宿題の状況'), H('案件A'), B(), H('事実（進捗・課題）'), B(), H('見立て（原因・リスク）'), B(), H('打ち手の案'), B(), H('抜け・重なりチェック'), B()],
+    { headings: M.sectionsOf('standup'), key: M.headingKey });
+  assert.strictEqual(rep.score, 5, '報告の型の小見出しの下の根拠を数えていない');
+  assert.deepStrictEqual([...Q.END_HEADS], [...M.CLOSING_HEADINGS, M.ADVICE_HEAD]);
+});

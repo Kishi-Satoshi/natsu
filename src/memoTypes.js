@@ -257,15 +257,18 @@ function markBlocks(blocks, { meetingType } = {}) {
   sections.push(cur);
   const foldedNames = [];
   const kept = [];
-  for (const sec of sections) {
+  sections.forEach((sec, si) => {
     const k = sec.head ? key(sec.head.text) : '';
-    if (sec.head && typeKeys.has(k) && sec.items.every((b) => b.type !== 'todo' && emptyLine(b.text, sec.head.text))) {
+    // 0.11.0 点検の直し 2（R25）: 行の無い型の見出しの次が小見出し（型・締め・助言の見出しでない見出し）なら、中身は小見出しの下にあるので畳まない
+    const next = sections[si + 1];
+    const hasSub = !sec.items.length && Boolean(next && next.head) && !known.has(key(next.head.text));
+    if (sec.head && typeKeys.has(k) && !hasSub && sec.items.every((b) => b.type !== 'todo' && emptyLine(b.text, sec.head.text))) {
       foldedNames.push(typeKeys.get(k));
-      continue;
+      return;
     }
-    if (sec.head && k === CARRY && sec.items.every((b) => b.type !== 'todo' && emptyLine(b.text, sec.head.text))) continue;
+    if (sec.head && k === CARRY && sec.items.every((b) => b.type !== 'todo' && emptyLine(b.text, sec.head.text))) return;
     kept.push(sec);
-  }
+  });
   // 3. 畳んだ見出しを未確認の1行へ（無ければ抜け・重なりチェックの節を次に気をつけることの前に作る）
   // 0.11.0 点検の直し 1（R24）: AI の「未確認: なし」（畳む語だけの未確認の行）は、畳んだ見出しがあれば置き換え、無ければ行ごと落とす
   //（チェックの節がそれで空になれば節も落とす）。足すと「未確認: なし、予算（B）」になる
