@@ -120,3 +120,106 @@ test('RN-2（RN4）: 次の版（例 0.10.1）を本物の CHANGELOG.md の一�
   const e = errOf(add(`## natsu-v${next} （2026-01-01）`));
   assert.ok(e && e.code === 'bad-changelog' && e.line === cl.slice(0, at + 1).split('\n').length + 4, '上の版の日付が下の版より古いのに通した');
 });
+
+// ================= RN-3: ページ・左の目次の行（RN2・RN3。計画の決めたこと D） =================
+
+const { parseHTML } = require('./helpers/simdom');
+const { tmpDir } = require('./helpers/help-tmp');
+const { build } = require('../tools/help-build');
+const { jaDate } = require('../tools/lib/help-page');
+
+/** 本物の help/ と CHANGELOG.md を写したフォルダで作る（edit で写しを書き換えられる）。出力の HTML を返す */
+function buildReal(t, edit) {
+  const root = tmpDir(t, 'natsu-help-relnotes-');
+  fs.cpSync(path.join(ROOT, 'help'), path.join(root, 'help'), { recursive: true, filter: (x) => !x.split(path.sep).includes('dist') });
+  fs.copyFileSync(path.join(ROOT, 'CHANGELOG.md'), path.join(root, 'CHANGELOG.md'));
+  if (edit) edit(root);
+  const out = path.join(root, 'out');
+  const r = build({ root, out });
+  return { r, html: (f) => fs.readFileSync(path.join(out, f), 'utf8') };
+}
+const LEDE = 'NaTsu の版ごとの変更点です（新しい版が上）。アプリの［設定］→［更新］に出る文と同じです。古い版の文には、今は無い機能や名前（Groq・ポータブル版 など）が出てきます。今の使い方は各分類の記事を見てください。';
+
+test('RN-3（RN2・RN3）: /release-notes/ のページ。題名・パンくず・h1・頭の注（R-RN1）・版ごとの section（h2 の id は v0-10-0 の形）と公開日の time・並びは CHANGELOG.md の日付のある節の順・本文は help-md の出力', { timeout: 10000 }, (t) => {
+  const { r, html } = buildReal(t);
+  assert.ok(r.pages.includes('release-notes/index.html'), r.pages.join(','));
+  const h = html('release-notes/index.html');
+  assert.ok(h.includes('<title>リリースノート — NaTsu ヘルプセンター</title>'));
+  assert.ok(h.includes('<nav class="crumbs" aria-label="パンくず"><a href="/">ホーム</a> <span aria-hidden="true">›</span> <span aria-current="page">リリースノート</span></nav>'));
+  const doc = parseHTML(h).root;
+  const main = doc.querySelector('#hc-main');
+  assert.deepStrictEqual(main.querySelectorAll('h1').map((e) => e.textContent), ['リリースノート']);
+  assert.strictEqual(main.querySelector('p.lede').textContent, LEDE);
+  const want = R.renderRelnotes(R.parseChangelog(read('CHANGELOG.md')));
+  const secs = main.querySelectorAll('section').filter((s) => s.parentElement.classList.contains('body'));
+  assert.deepStrictEqual(secs.map((s) => s.getAttribute('aria-labelledby')), want.map((v) => v.id));
+  secs.forEach((s, k) => {
+    const v = want[k];
+    const [h2, date] = s.children;
+    assert.deepStrictEqual([h2.tagName, h2.id, h2.textContent], ['h2', v.id, v.version], v.version);
+    assert.ok(date.classList.contains('relnote-date'), `${v.version}: 公開日の行`);
+    const time = date.children[0];
+    assert.deepStrictEqual([date.children.length, time.tagName, time.getAttribute('datetime'), time.textContent], [1, 'time', v.date, jaDate(v.date)], v.version);
+  });
+  for (const v of want) assert.ok(h.includes(`<p class="relnote-date"><time datetime="${v.date}">${jaDate(v.date)}</time></p>\n${v.html}\n</section>`), `${v.version}: 本文が help-md の出力でない`);
+  assert.ok(h.includes('<h2 id="v0-10-0">0.10.0</h2>\n<p class="relnote-date"><time datetime="2026-10-23">2026 年 10 月 23 日</time></p>'));
+  // 見出しの順: h1 が1つ、版は h2（本文の中に h1 は無い）
+  assert.strictEqual(doc.querySelectorAll('h1').length, 1);
+});
+
+test('RN-3（D・RNF5）: 右の「このページの内容」に全部の版（新しい順。#v… へのリンク）。左の目次の最後に「リリースノート」の行（このページでは aria-current="page"、ほかのページでは付けない）', { timeout: 10000 }, (t) => {
+  const { html } = buildReal(t);
+  const h = html('release-notes/index.html');
+  const want = R.renderRelnotes(R.parseChangelog(read('CHANGELOG.md')));
+  const doc = parseHTML(h).root;
+  const on = doc.querySelector('aside.onpage');
+  assert.ok(on, '「このページの内容」が無い');
+  assert.strictEqual(on.getAttribute('aria-labelledby'), 'hc-onpage');
+  assert.strictEqual(on.querySelector('h2#hc-onpage').textContent, 'このページの内容');
+  assert.deepStrictEqual(on.querySelectorAll('a').map((a) => [a.getAttribute('href'), a.textContent]), want.map((v) => [`#${v.id}`, v.version]));
+  const tocRow = (page) => {
+    const toc = parseHTML(page).root.querySelector('nav#hc-toc');
+    const cats = toc.children.filter((c) => c.classList.contains('toc-cat'));
+    return { last: cats[cats.length - 1], n: cats.length, cur: toc.querySelectorAll('[aria-current="page"]').map((a) => a.getAttribute('href')) };
+  };
+  const site = JSON.parse(read('help/site.json'));
+  const here = tocRow(h);
+  assert.strictEqual(here.n, site.categories.length + 1);
+  const a = here.last.querySelector('p.toc-h a');
+  assert.deepStrictEqual([a.getAttribute('href'), a.textContent, a.getAttribute('aria-current')], ['/release-notes/', 'リリースノート', 'page']);
+  assert.strictEqual(here.last.querySelectorAll('ul').length, 0, '目次の行の下に版を並べない');
+  assert.deepStrictEqual(here.cur, ['/release-notes/']);
+  for (const f of ['start/index.html', 'start/login/index.html']) {
+    const o = tocRow(html(f));
+    const oa = o.last.querySelector('p.toc-h a');
+    assert.deepStrictEqual([oa.getAttribute('href'), oa.textContent, oa.getAttribute('aria-current')], ['/release-notes/', 'リリースノート', null], f);
+    assert.ok(!o.cur.includes('/release-notes/'), f);
+  }
+  // 狭い画面の［目次］（site.js が目次を動かす）も同じ枠
+  assert.ok(h.includes('<button type="button" class="toc-btn" aria-controls="hc-toc" aria-expanded="false" hidden>目次</button>'));
+});
+
+test('RN-3（F）: CHANGELOG.md の一番上に日付の無い節（まだ出していない版）があっても、ページ・目次・カードの数に出ない', { timeout: 10000 }, (t) => {
+  const { html } = buildReal(t, (root) => {
+    const f = path.join(root, 'CHANGELOG.md');
+    const cl = fs.readFileSync(f, 'utf8');
+    const at = cl.indexOf('\n## natsu-v') + 1;
+    fs.writeFileSync(f, `${cl.slice(0, at)}## natsu-v9.9.9\n\n- まだ出していない版の文。\n\n${cl.slice(at)}`);
+  });
+  const h = html('release-notes/index.html');
+  assert.ok(!h.includes('9.9.9') && !h.includes('まだ出していない版の文'));
+  const n = R.renderRelnotes(R.parseChangelog(read('CHANGELOG.md'))).length;
+  assert.ok(html('index.html').includes(`<span class="c">${n} の版</span>`));
+});
+
+test('RN-3（RN1）: releaseNotes があるのに CHANGELOG.md が無い・形が違うときは作るのを止め（bad-changelog）、出力に何も書かない', { timeout: 10000 }, (t) => {
+  for (const [why, edit] of [['無い', (root) => fs.rmSync(path.join(root, 'CHANGELOG.md'))], ['形が違う', (root) => fs.appendFileSync(path.join(root, 'CHANGELOG.md'), '\n## 0.0.1\n')]]) {
+    const root = tmpDir(t, 'natsu-help-relnotes-bad-');
+    fs.cpSync(path.join(ROOT, 'help'), path.join(root, 'help'), { recursive: true, filter: (x) => !x.split(path.sep).includes('dist') });
+    fs.copyFileSync(path.join(ROOT, 'CHANGELOG.md'), path.join(root, 'CHANGELOG.md'));
+    edit(root);
+    const out = path.join(root, 'out');
+    assert.throws(() => build({ root, out }), (e) => e.name === 'HelpBuildError' && e.code === 'bad-changelog' && e.file === 'CHANGELOG.md', why);
+    assert.ok(!fs.existsSync(out), `${why}: 出力に書いた`);
+  }
+});

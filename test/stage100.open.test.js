@@ -86,6 +86,7 @@ test('D78・決めたこと 155: help/open/index.html は静かなページ（�
 test('D78: help-build は /open/index.html を作り（help/open/index.html のまま）、検索の索引・記事の一覧・ホームと分類の一覧に入れない', T, (t) => {
   const root = tmpDir(t, 'natsu-help-open-');
   fs.cpSync(path.join(ROOT, 'help'), path.join(root, 'help'), { recursive: true, filter: (s) => !s.includes(`${path.sep}dist`) });
+  fs.copyFileSync(path.join(ROOT, 'CHANGELOG.md'), path.join(root, 'CHANGELOG.md'));   // help-relnotes RN-3: リリースノートの元
   const out = path.join(root, 'out');
   const r = build({ root, out });
   assert.ok(r.pages.includes('open/index.html'), r.pages.join(','));

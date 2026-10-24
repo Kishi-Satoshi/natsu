@@ -11,6 +11,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { HelpBuildError, parseFrontMatter, renderMarkdown } = require('./lib/help-md');
 const P = require('./lib/help-page');
+const { readRelnotes } = require('./lib/help-relnotes');
 
 const ROOT = path.resolve(__dirname, '..');
 const NAME = /^[a-z0-9-]{1,40}$/;
@@ -25,15 +26,23 @@ function loadSite(root) {
   const help = path.join(root, 'help');
   let site;
   try { site = JSON.parse(fs.readFileSync(path.join(help, 'site.json'), 'utf8').replace(/^﻿/, '')); } catch (e) { badSite(`site.json を読めない（${e.message}）`); }
-  if (!sameKeys(site, ['title', 'askNote', 'categories', 'featured'])) badSite('site.json の鍵は title・askNote・categories・featured だけ');
+  // help-relnotes RN-3（RN2）: releaseNotes（リリースノートのカードとページ）は分類ではないので、決まった鍵に足す。無ければページもカードも作らない
+  if (!sameKeys(site, ['title', 'askNote', 'categories', 'featured']) && !sameKeys(site, ['title', 'askNote', 'categories', 'featured', 'releaseNotes'])) badSite('site.json の鍵は title・askNote・categories・featured（と releaseNotes）だけ');
   if (!isText(site.title) || !isText(site.askNote)) badSite('title と askNote は1行の文字');
   if (!Array.isArray(site.categories) || site.categories.length === 0) badSite('categories は1つ以上の配列');
   if (!Array.isArray(site.featured)) badSite('featured は配列');
+  if ('releaseNotes' in site) {
+    const rn = site.releaseNotes;
+    if (!sameKeys(rn, ['title', 'description', 'icon'])) badSite('releaseNotes の鍵は title・description・icon だけ');
+    if (!isText(rn.title) || !isText(rn.description)) badSite('releaseNotes の title と description は1行の文字');
+    if (typeof rn.icon !== 'string' || !NAME.test(rn.icon) || !fs.existsSync(path.join(help, 'assets', 'icons', `${rn.icon}.svg`))) badSite(`releaseNotes のアイコン help/assets/icons/${rn.icon}.svg が無い`);
+  }
   const ids = new Set();
   const refs = [];
   for (const c of site.categories) {
     if (!sameKeys(c, ['id', 'title', 'description', 'icon', 'articles'])) badSite('分類の鍵は id・title・description・icon・articles だけ');
     if (typeof c.id !== 'string' || !NAME.test(c.id)) badSite(`分類の id の形が違う: ${c.id}`);
+    if (c.id === 'release-notes') badSite('分類の id に release-notes は使えない（リリースノートのページの住所）');
     if (ids.has(c.id)) badSite(`分類の id が重なる: ${c.id}`);
     ids.add(c.id);
     if (!isText(c.title) || !isText(c.description)) badSite(`分類 ${c.id} の title と description は1行の文字`);
@@ -186,11 +195,15 @@ function build({ root = ROOT, out } = {}) {
   const { site } = loadSite(root);
   const articles = readArticles(root, site);
   const icons = new Map(site.categories.map((c) => [c.icon, iconMarkup(help, c.icon)]));
-  const ctx = { articles, icons };
+  // help-relnotes RN-3: リリースノート（CHANGELOG.md の日付のある節。記事ではないので索引・記事の一覧には入れない: Q5 の A）
+  const relnotes = site.releaseNotes ? { ...site.releaseNotes, versions: readRelnotes(root) } : null;
+  if (relnotes) icons.set(relnotes.icon, iconMarkup(help, relnotes.icon));
+  const ctx = { articles, icons, relnotes };
   const pages = new Map();
   pages.set('index.html', P.pageHome(site, ctx));
   for (const c of site.categories) pages.set(`${c.id}/index.html`, P.pageCategory(site, c, ctx));
   for (const a of articles.values()) pages.set(`${a.ref}/index.html`, P.pageArticle(site, a, ctx));
+  if (relnotes) pages.set('release-notes/index.html', P.pageRelnotes(site, ctx));
   pages.set('404.html', P.page404(site, ctx));
   // 0.10.0 LN-5（D78・決めたこと 155）: /open のページ（Claude の出典のリンクから NaTsu を開く静かなページ）。help/open/index.html をそのまま出す。
   // 記事ではないので、検索の索引・記事の一覧・ホームと分類の一覧には入れない（ページの中の住所は checkPages が照らす）

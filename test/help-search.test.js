@@ -52,6 +52,22 @@ test('H-4: search-index.json は v: 1 と、site.json の順の記事ごとの u
   assert.strictEqual(fs.readFileSync(path.join(buildFixture(t, (h) => fs.appendFileSync(path.join(h, 'articles', 'record', 'pause.md'), `\n${'あ'.repeat(5000)}\n`)), 'search-index.json'), 'utf8'), raw);
 });
 
+test('help-relnotes RN-3（Q5 の A）: 本物の help/ と CHANGELOG.md から作った search-index.json に、リリースノートのページも版も入らない（記事だけ。数は site.json の記事の数）', { timeout: 10000 }, (t) => {
+  const root = tmpDir(t, 'natsu-help-search-rn-');
+  fs.cpSync(path.join(ROOT, 'help'), path.join(root, 'help'), { recursive: true, filter: (x) => !x.split(path.sep).includes('dist') });
+  fs.copyFileSync(path.join(ROOT, 'CHANGELOG.md'), path.join(root, 'CHANGELOG.md'));
+  const out = path.join(root, 'out');
+  const r = build({ root, out });
+  assert.ok(r.pages.includes('release-notes/index.html'));
+  const idx = JSON.parse(fs.readFileSync(path.join(out, 'search-index.json'), 'utf8'));
+  const site = JSON.parse(fs.readFileSync(path.join(ROOT, 'help', 'site.json'), 'utf8'));
+  assert.strictEqual(idx.items.length, site.categories.reduce((n, c) => n + c.articles.length, 0));
+  for (const it of idx.items) {
+    assert.ok(!it.u.startsWith('/release-notes/'), it.u);
+    assert.notStrictEqual(it.t, 'リリースノート');
+  }
+});
+
 const S = require('../help/assets/search.js');
 
 test('H-4: fold は NFKC と小文字（全角の英数字・半角のカナ・大文字が同じになる）。空白は詰める', { timeout: 5000 }, () => {
@@ -234,6 +250,7 @@ test('HD-5（HD6・DF3）: 検索の箱ごとに見えない role="status" の p
   // 本物の記事の全部（/open のページも）で、role="status" は決まった所だけ（例外が知らないうちに広がらない）
   const root = tmpDir(t, 'natsu-help-status-');
   fs.cpSync(path.join(ROOT, 'help'), path.join(root, 'help'), { recursive: true, filter: (x) => !x.split(path.sep).includes('dist') });
+  fs.copyFileSync(path.join(ROOT, 'CHANGELOG.md'), path.join(root, 'CHANGELOG.md'));   // help-relnotes RN-3: リリースノートの元
   const out = path.join(root, 'out');
   const r = build({ root, out });
   assert.ok(r.pages.includes('open/index.html'), '/open のページが無い');

@@ -219,6 +219,30 @@ test('H-3: ホームに分類の格子（題名・説明・記事の件数）と
   assert.ok(!nf.includes('試しの'), '404 に記事の文字がある');
 });
 
+test('help-relnotes RN-3（RN2・Q6・Q7）: site.json に releaseNotes があると、ホームの分類の格子の最後にリリースノートのカード（アイコン・題名・説明・「N の版」。N は CHANGELOG.md の日付のある節の数）。無ければカードもページも目次の行も作らない', { timeout: 5000 }, (t) => {
+  const add = (help) => {
+    const f = path.join(help, 'site.json');
+    const s = JSON.parse(fs.readFileSync(f, 'utf8'));
+    s.releaseNotes = { title: 'リリースノート', description: 'NaTsu の版ごとの変更点（新しい版が上）', icon: 'release' };
+    fs.writeFileSync(f, JSON.stringify(s));
+    fs.writeFileSync(path.join(help, '..', 'CHANGELOG.md'), '# 変更履歴\n\n## natsu-v0.3.0\n\n- まだ。\n\n## natsu-v0.2.0 （2026-10-18）\n\n- 2つめ。\n\n## natsu-v0.1.0 （2026-10-17）\n\n- 1つめ。\n');
+  };
+  const { html, r } = buildFixture(t, add);
+  assert.ok(r.pages.includes('release-notes/index.html'));
+  const h = html('index.html');
+  const cats = h.slice(h.indexOf('<ul class="cats">'), h.indexOf('</ul>', h.indexOf('<ul class="cats">')));
+  const items = [...cats.matchAll(/<li><a href="([^"]+)">(<svg[\s\S]*?<\/svg>)?<span class="t">([^<]+)<\/span><span class="d">([^<]+)<\/span><span class="c">([^<]+)<\/span><\/a><\/li>/g)];
+  assert.strictEqual(items.length, 4);
+  const last = items[3];
+  assert.deepStrictEqual([last[1], last[3], last[4], last[5]], ['/release-notes/', 'リリースノート', 'NaTsu の版ごとの変更点（新しい版が上）', '2 の版']);
+  assert.ok(last[2] && last[2].startsWith('<svg class="ic" viewBox="0 0 24 24"') && last[2].includes('<circle cx="7.5" cy="7.5" r="1.25"/>'), 'カードのアイコンが release.svg でない');
+  assert.ok(html('start/first/index.html').includes('<p class="toc-h"><a href="/release-notes/">リリースノート</a></p>'));
+  // releaseNotes が無ければ（テスト用の site.json のまま）作らない
+  const plain = buildFixture(t);
+  assert.ok(!plain.r.pages.includes('release-notes/index.html'));
+  for (const f of ['index.html', 'start/first/index.html', 'start/index.html']) assert.ok(!plain.html(f).includes('release-notes'), f);
+});
+
 test('H-3: 作るのを止める（記事の形の誤り・無い related・作る道具の id と重なる hc- の id）。止めたときは出力に何も書かない', { timeout: 5000 }, (t) => {
   const cases = [
     ['raw-html', (h) => fs.appendFileSync(path.join(h, 'articles', 'start', 'first.md'), '\n<b>x</b>\n'), 'help/articles/start/first.md'],
