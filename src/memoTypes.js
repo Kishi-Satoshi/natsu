@@ -208,8 +208,111 @@ function buildTemplate({ meetingType, score = false } = {}) {
   return parts.join('\n\n');
 }
 
+// ---------------------------------------------------------------- 印と畳み（M-3。決めたこと 17・18・22・23）
+// 根拠の無い見出しを AI が書いてきたときに畳む語（行頭の - と **・「見出しの名前:」・行末の（…）を外して完全一致）
+const EMPTY_LINE = /^(?:未確認|言及なし|会議内で言及なし|話されていない|特に(?:は)?なし|なし|該当なし)(?:\s*(?:──|—|–|-|:)\s*(?:会議内で)?言及なし)?$/;
+const MEMO_END = /[（(]メモより[）)]\s*$/;
+const key = (t) => headingKey(t);
+
+// 畳む語だけの行か（見出しの名前 head の「見出しの名前:」を外して見る）
+function emptyLine(text, head) {
+  let t = String(text || '').normalize('NFKC').trim().replace(/^\*+|\*+$/g, '').trim();
+  const m = t.match(/^(.{1,40}?)\s*[:：]\s*(.*)$/);
+  if (m && key(m[1]) === key(head)) t = m[2].trim();
+  for (let i = 0; i < 3; i++) t = t.replace(/\s*\([^()]*\)\s*$/, '').trim();
+  t = t.replace(/[。.]$/, '').trim();
+  return EMPTY_LINE.test(t);
+}
+
+// AI の答えのブロックに印を付ける（受けた配列を書き換えない写しを返す）→ { blocks, dropped（捨てたチェックの数）, folded（未確認にまとめた見出しの数） }
+//   見出しに直す（「■ 見出し」・型か締めか助言の見出しと同じ名前だけの段落）→ 根拠の無い型の見出しを畳む・話されなかった持ち越しを落とす
+//   → 抜け・重なりチェックの行に check（頭が未確認の1行は unconfirmed）・3 件まで → 次に気をつけることの行に advice → 終わりが（メモより）の行に memo
+//   → 印のある行は citeState manual・cites 空（cite.js が照合せず、出典の数の分母にも入らない）
+function markBlocks(blocks, { meetingType } = {}) {
+  const typeKeys = new Map(sectionsOf(meetingType).map((n) => [key(n), n]));
+  const known = new Map([...typeKeys, ...CLOSING_HEADINGS.map((n) => [key(n), n]), [key(ADVICE_HEAD), ADVICE_HEAD]]);
+  const CARRY = key('持ち越し');
+  const CHECK = key('抜け・重なりチェック');
+  const ADVICE = key(ADVICE_HEAD);
+  const REPORT = key(REPORT_HEAD);
+  // 1. 写しと見出しに直す
+  const list = [];
+  for (const src of Array.isArray(blocks) ? blocks : []) {
+    const b = { ...src, cites: Array.isArray(src.cites) ? [...src.cites] : [] };
+    const t = String(b.text || '').trim();
+    if (b.type !== 'heading' && b.type !== 'todo' && (/^■/.test(t) || b.type === 'paragraph') && known.has(key(t))) {
+      b.type = 'heading';
+      b.text = known.get(key(t));
+    }
+    if (b.type === 'heading' && key(b.text) === REPORT) continue;   // 報告の名前の説明の見出しの写し（R8）
+    list.push(b);
+  }
+  // 2. 節に分ける
+  const sections = [];
+  let cur = { head: null, items: [] };
+  for (const b of list) {
+    if (b.type === 'heading') { sections.push(cur); cur = { head: b, items: [] }; } else cur.items.push(b);
+  }
+  sections.push(cur);
+  const foldedNames = [];
+  const kept = [];
+  for (const sec of sections) {
+    const k = sec.head ? key(sec.head.text) : '';
+    if (sec.head && typeKeys.has(k) && sec.items.every((b) => b.type !== 'todo' && emptyLine(b.text, sec.head.text))) {
+      foldedNames.push(typeKeys.get(k));
+      continue;
+    }
+    if (sec.head && k === CARRY && sec.items.every((b) => b.type !== 'todo' && emptyLine(b.text, sec.head.text))) continue;
+    kept.push(sec);
+  }
+  // 3. 畳んだ見出しを未確認の1行へ（無ければ抜け・重なりチェックの節を次に気をつけることの前に作る）
+  if (foldedNames.length) {
+    let check = kept.find((x) => x.head && key(x.head.text) === CHECK);
+    if (!check) {
+      check = { head: { id: newBlockId(), type: 'heading', text: '抜け・重なりチェック', cites: [] }, items: [] };
+      const at = kept.findIndex((x) => x.head && key(x.head.text) === ADVICE);
+      if (at < 0) kept.push(check); else kept.splice(at, 0, check);
+    }
+    const u = check.items.find((b) => /^未確認/.test(String(b.text || '').trim()));
+    if (u) {
+      const have = String(u.text);
+      const add = foldedNames.filter((n) => !have.includes(n));
+      if (add.length) u.text = `${have.replace(/[、,\s]+$/, '')}、${add.join('、')}`;
+    } else {
+      check.items.unshift({ id: newBlockId(), type: 'bullet', text: `${UNCONFIRMED_HEAD}: ${foldedNames.join('、')}`, cites: [] });
+    }
+  }
+  // 4. 印
+  let dropped = 0;
+  const out = [];
+  for (const sec of kept) {
+    const k = sec.head ? key(sec.head.text) : '';
+    if (sec.head) out.push(sec.head);
+    let checks = 0;
+    for (const b of sec.items) {
+      if (k === CHECK && b.type !== 'heading') {
+        if (/^未確認/.test(String(b.text || '').trim())) b.unconfirmed = true;
+        else if (++checks > CHECK_MAX) { dropped++; continue; }
+        b.mark = 'check';
+      } else if (k === ADVICE && b.type !== 'heading') {
+        b.mark = 'advice';
+      } else if (MEMO_END.test(String(b.text || ''))) {
+        b.mark = 'memo';
+      }
+      if (b.mark) { b.citeState = 'manual'; b.cites = []; }
+      out.push(b);
+    }
+  }
+  return { blocks: out, dropped, folded: foldedNames.length };
+}
+
+// 作ったブロックの ID（store.newId と同じ形の b<数と英字>。純粋な部品なので乱数だけで作る）
+function newBlockId() {
+  return `b${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`;
+}
+
 module.exports = {
   MEMO_TYPES, MEMO_ORDER, DEFAULT_MEMO, memoTypeOf, memoPreset, isUntouchedMemo, headingKey, presetLines, listMemoTypes,
   CLOSING_HEADINGS, CLOSING_TEMPLATE, ADVICE_HEAD, ADVICE_TEMPLATE, MEMO_RULES, STAR_RULE, OUTPUT_RULE, CHECK_MAX, UNCONFIRMED_HEAD, MEMO_SUFFIX, REPORT_HEAD,
-  fenceLines, sectionsOf, buildTemplate,
+  fenceLines, sectionsOf, buildTemplate, markBlocks,
 };

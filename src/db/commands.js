@@ -517,6 +517,8 @@ const DEFS = {
         // 人が書き換えた要点は出典が元の文に合うか分からない（cites は残し、被覆率の分子から外す。今の store.updateBlock）
         if (b.citeState !== 'manual') b.citeState = 'stale';
         if (isCitable(patch.text)) delete b.citeSkip; else b.citeSkip = true;
+        // 0.11.0 M-3（決めたこと 23）: 人が直した印の行（未確認・チェック・助言・メモより）は印を外す（citeState は manual のまま＝手書き）
+        delete b.mark; delete b.unconfirmed;
         b.text = patch.text;
       }
       if (typeof patch.checked === 'boolean') b.checked = patch.checked;

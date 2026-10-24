@@ -891,6 +891,9 @@ test('#18 テンプレートの写しを落とす結線（minutes.dropTemplateEc
   const sw = fnBody(code(main), 'async function summarizeWithClaude', '\n}');
   assert.ok(sw.includes('lib.buildClaudeInput({ memoText, plain, template })'), 'Claude Code に渡す文が受けた書式を使っていない');
   assert.ok(!/minutesTemplate|OUTPUT_RULE/.test(code(main)), 'main.js に前の書式の関数が残っている');
+  // 0.11.0 M-3: 写しを落とした後に印を付け（markBlocks）、担当・期限の裏付けから型の雛形の行も外す（memoTypes.presetLines）
+  assert.ok(run.includes('memoTypes.markBlocks(dropTemplateEcho('), '写しを落とした後に印を付けていない');
+  assert.ok(run.includes('memoEvidence(page.memo, [...mtype.listTypes(), ...memoTypes.presetLines()])'), '型の雛形の行を裏付けから外していない');
 });
 
 // ---------------------------------------------------------------- 第2段（D: 小さな直し）
@@ -1314,7 +1317,8 @@ test('whisper のバイナリはリリース一覧から探す（固定URLは 40
 
 test('要約の担当・期限の裏付けは、文字起こしと、アジェンダの雛形を除いたメモで照らす（0.1.2）', () => {
   const run = fnBody(code(main), 'async function doRunSummary(', '\n}\n');
-  assert.ok(run.includes('groundActionFields(blocks, `${plain}\\n${memoEvidence(page.memo, mtype.listTypes())}`)'),
+  // 0.11.0 M-3（決めたこと 25）で意図して変えた: 型の雛形の行（memoTypes.presetLines）も裏付けから外す
+  assert.ok(run.includes('groundActionFields(blocks, `${plain}\\n${memoEvidence(page.memo, [...mtype.listTypes(), ...memoTypes.presetLines()])}`)'),
     '裏付けに雛形入りのメモをそのまま渡している');
   assert.ok(run.indexOf('enrichActionBlocks(blocks') < run.indexOf('groundActionFields(blocks'), '担当・期限を抜く前に照らしている');
   assert.ok(run.indexOf('groundActionFields(blocks') < run.indexOf('attachAcross(blocks'), '出典の照合の後に照らしている（外した担当名で照合がぶれる）');

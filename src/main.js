@@ -5323,7 +5323,11 @@ async function doRunSummary(pageId) {
     // 「特になし」の混入を先に落とす。ここで落とさないと
     // 「- [ ] 特になし」がアクション1件として数えられてしまう。
     // 続けて、テンプレートの見出し・雛形をそのまま写した行も落とす。
-    const blocks = dropTemplateEcho(dropRedundantEmpty(markdownToBlocks(md)), template);
+    // 0.11.0 M-3（決めたこと 17・18・22・23）: 写しを落とした後に印を付ける（見出しに直す・根拠の無い見出しを未確認へ畳む・チェックは 3 件まで・
+    // 印の行は出典の照合から外す）。engine.log には数だけ（要約の文は書かない）
+    const marked = memoTypes.markBlocks(dropTemplateEcho(dropRedundantEmpty(markdownToBlocks(md)), template), { meetingType: page.meetingType });
+    const blocks = marked.blocks;
+    if (marked.dropped || marked.folded) engineLog(`要約: 抜け・重なりチェック ${marked.dropped} 件を捨てた・未確認にまとめた見出し ${marked.folded} 個`);
     // 担当・期限を先に抜く。出典の突き合わせは
     // 「（担当: ○○ / 期限: ○○）」を落とした本文に対して行いたい。
     // 書式が残ったままだと、その語がクエリに混ざって一致がぶれる。
@@ -5332,7 +5336,7 @@ async function doRunSummary(pageId) {
     // engine.log には数だけを書く（名前は機微。engine.log は不具合報告に添付されうる）
     // メモのうち、要約タイプを選んだときに入るアジェンダの雛形の行は裏付けにしない（「次回までのアクション」で
     // 作り話の「期限: 次回」が通ってしまう）。mainlib.memoEvidence
-    const grounded = groundActionFields(blocks, `${plain}\n${memoEvidence(page.memo, mtype.listTypes())}`);
+    const grounded = groundActionFields(blocks, `${plain}\n${memoEvidence(page.memo, [...mtype.listTypes(), ...memoTypes.presetLines()])}`);
     const actStat = grounded.stat;
     if (grounded.droppedAssignee || grounded.droppedDue) {
       engineLog(`要約: 文字起こしに無い担当 ${grounded.droppedAssignee} 件・期限 ${grounded.droppedDue} 件を外しました`);

@@ -798,6 +798,7 @@ test('G3・0.10.1 CD-6: 0.10.1 の変異が一覧にそろい、IDS_101 は計�
 const IDS_110 = [
   'mt-default-map', 'mt-untouched', 'mt-label-key', 'mt-undecided-points',
   'mt-echo-same', 'mt-rule-quote', 'mt-closing', 'mt-carry', 'mt-star-rule', 'mt-advice-always', 'mt-fence',
+  'mt-memo-cite', 'mt-check-cap', 'mt-preview-mark', 'mt-evidence-preset', 'mt-advice-cite', 'mt-unconf-fold', 'mt-mark-edit',
 ];
 test('G3・0.11.0: 0.11.0 の変異が一覧にそろい、IDS_110 はどれも計画の「変異確認」の表にある。mt-・qm-・v- の変異は IDS_110 にある。どれも決まったテストのファイルを持ち、why が 0.11.0 で始まる', { timeout: 5000 }, () => {
   const byId = new Map(MUTANTS.map((m) => [m.id, m]));

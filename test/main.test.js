@@ -1006,3 +1006,14 @@ test('memoEvidence: 要約タイプのアジェンダの雛形の行は、担当
   assert.strictEqual(dueGrounded('次回まで', agenda), true, '除かないと通ってしまう（このテストの前提）');
 });
 
+
+// 0.11.0 M-3（決めたこと 25）: 型の雛形（「■ 見出し」）の行も、担当・期限の裏付けに使わない
+test('0.11.0 M-3: memoEvidence に型の雛形の行（presetLines）を渡すと、雛形の見出しの行は裏付けから外れ、書いた行は残る', () => {
+  const { memoEvidence } = require('../src/mainlib');
+  const mtype = require('../src/meetingType');
+  const M = require('../src/memoTypes');
+  const types = [...mtype.listTypes(), ...M.presetLines()];
+  assert.strictEqual(memoEvidence(M.memoPreset('bantc'), types).trim(), '');
+  assert.strictEqual(memoEvidence(`${M.memoPreset('report')}山田さんが来週までに確認`, types).trim(), '山田さんが来週までに確認');
+  assert.notStrictEqual(memoEvidence(M.memoPreset('bantc'), mtype.listTypes()).trim(), '', '前提: 雛形を渡さなければ見出しの行が残る');
+});

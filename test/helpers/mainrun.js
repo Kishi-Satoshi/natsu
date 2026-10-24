@@ -167,6 +167,7 @@ const { titleAt } = require('./titles');
 //                     届くかの確かめが偽の送り先に届いてオンラインになる（--stt が無ければ、確かめは fake-net の守りで死んで手元になる）
 //     --claude-delay=<ms> … 0.10.0 LS-2: --claude=slow の偽の claude が -p に答えるまでの待ち（FAKE_CLAUDE_DELAY）
 //     --claude-auth=<method> … 偽の claude の auth status が返す authMethod（FAKE_CLAUDE_AUTH。既定 claude.ai）
+//     --sum-md=<名前> … 0.11.0 M-3: 偽の claude が返す要約の Markdown を test/fixtures/summaries/<名前>.md にする（--claude と一緒に使う）
 //     --db-down     … 第2a1回 M-2b: 議事録の DB のプロセス（偽の utilityProcess の中の本物の server.js）の SQLite が trigram を持たない
 //                     （helpers/no-trigram.js を子の中で先に読む）。自分の確かめが通らず、DB は「使えない」で起きる。場面の dbDown でも同じ
 //   第2a1回 M-3（録音と DB のつなぎ）の旗。どの場面でも、main の客の頼み（call: 'call'・'ack'・'fail'、send: 'send'）と、下書きを書くたび
@@ -865,6 +866,8 @@ process.on('exit', () => {
     // 手元の1回の要約と同じ指示文（mainlib.buildClaudeInput。F9）を標準入力で受けたか
     process.env.FAKE_CLAUDE_EXPECT_ASK = '上記から、次の構成のMarkdown議事録を作成してください。';
     if (claudeAuth) process.env.FAKE_CLAUDE_AUTH = claudeAuth;
+    // 0.11.0 M-3: --sum-md=<名前> … 偽の claude が返す要約を test/fixtures/summaries/<名前>.md にする
+    if (flagVal('--sum-md')) process.env.FAKE_CLAUDE_MD = fs.readFileSync(path.join(__dirname, '..', 'fixtures', 'summaries', `${flagVal('--sum-md')}.md`), 'utf8');
   }
   // 課金の変数（子に渡らないことを偽の claude の記録の envKeys で見る。大小の混ざった名前は claude-cli.test.js が見る）
   process.env.ANTHROPIC_API_KEY = 'sk-ant-test';
@@ -2388,6 +2391,9 @@ process.on('exit', () => {
       route: page.route, routeText: await pageRouteText(p.id), citeStat: page.citeStat || null,
       blocks: (page.blocks || []).map((b) => ({ type: b.type, cites: Array.isArray(b.cites) ? b.cites.length : 0 })),
       todos: (page.blocks || []).filter((b) => b.type === 'todo').map((b) => ({ text: b.text, assignee: b.assignee || '', due: b.due || '', dueRaw: b.dueRaw || '' })),
+      // 0.11.0 M-3: 要約のブロックの文と印（足すだけ。上の blocks の形は変えない）
+      sumBlocks: (page.blocks || []).map((b) => ({ type: b.type, text: b.text, mark: b.mark, unconfirmed: b.unconfirmed, citeState: b.citeState, cites: Array.isArray(b.cites) ? b.cites.length : 0 })),
+      autoType: page.autoType, quality: page.quality, stateLog: page.stateLog,
     };
   };
   if (idleMode) {

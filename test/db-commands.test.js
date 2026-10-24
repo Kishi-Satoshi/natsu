@@ -199,3 +199,48 @@ test('R-2: entryOf は pages.list の1行と同じ', { timeout: 5000 }, () => {
     assert.deepStrictEqual(mine, list);
   } finally { t.done(); }
 });
+
+// 0.11.0 M-3（MT4・F10。計画 docs/plans/2026-10-22-110.md の決めたこと 23・24）: 印のある行を人が直したら印を外す・一覧の最初の要点は印の無い行から
+test('0.11.0 M-3: 印のある行の文を block.update で直すと mark と unconfirmed が消え、citeState は manual のまま（手書き）。チェックだけ・文を変えない直しでは消えない。json-backend も同じ', { timeout: 5000 }, async () => {
+  const t = tmpDb(); const j = jsonTwin();
+  try {
+    const { db } = t.open();
+    const { page, segments } = samplePage('pm1');
+    page.blocks = [
+      { id: 'b1', type: 'heading', text: '抜け・重なりチェック' },
+      { id: 'b2', type: 'bullet', text: '未確認: 予算（B）', cites: [], mark: 'check', unconfirmed: true, citeState: 'manual' },
+      { id: 'b3', type: 'bullet', text: '次の会議で決裁の流れを聞く', cites: [], mark: 'check', citeState: 'manual' },
+      { id: 'b4', type: 'heading', text: '論点ごとの要点' },
+      { id: 'b5', type: 'bullet', text: '予算は据え置きにした', cites: ['s2'] },
+    ];
+    t.seed(page, segments); await j.seed(page, segments);
+    for (const [cmd, args] of [['block.update', { pageId: 'pm1', blockId: 'b2', patch: { text: '未確認: 予算（B）と時期（T）' } }],
+      ['block.update', { pageId: 'pm1', blockId: 'b3', patch: { text: '次の会議で決裁の流れを聞く' } }]]) {
+      const r = call(db, cmd, args);
+      assert.strictEqual(r.ok, true, r.code);
+      assert.deepStrictEqual(plain(r.result), plain(await j.call(cmd, args)), cmd);
+    }
+    const bs = call(db, 'page.get', { id: 'pm1' }).result.page.blocks;
+    const b2 = bs.find((b) => b.id === 'b2'); const b3 = bs.find((b) => b.id === 'b3');
+    assert.deepStrictEqual([b2.mark, b2.unconfirmed, b2.citeState], [undefined, undefined, 'manual']);
+    assert.deepStrictEqual([b3.mark, b3.citeState], ['check', 'manual'], '文を変えない直しで印が消えた');
+    // 一覧の最初の要点は印の無い箇条書き（b3 は印あり・b2 は印が消えたので b2）
+    const row = call(db, 'pages.list', {}).result.find((x) => x.id === 'pm1');
+    assert.strictEqual(row.preview, '未確認: 予算（B）と時期（T）');
+  } finally { t.done(); j.done(); }
+});
+
+test('0.11.0 M-3: 一覧の最初の要点（preview）は印の無い最初の箇条書き。印の無い今のページは今と同じ', { timeout: 5000 }, () => {
+  const t = tmpDb();
+  try {
+    const { db } = t.open();
+    const a = samplePage('pv1');
+    a.page.blocks = [{ id: 'v1', type: 'heading', text: '抜け・重なりチェック' }, { id: 'v2', type: 'bullet', text: '未確認: 目的', cites: [], mark: 'check', unconfirmed: true, citeState: 'manual' },
+      { id: 'v3', type: 'bullet', text: '冒頭で目的を言う', cites: [], mark: 'advice', citeState: 'manual' }, { id: 'v4', type: 'bullet', text: '予算は据え置きにした', cites: [] }];
+    t.seed(a.page, a.segments);
+    const b = samplePage('pv2'); t.seed(b.page, b.segments);
+    const rows = call(db, 'pages.list', {}).result;
+    assert.strictEqual(rows.find((x) => x.id === 'pv1').preview, '予算は据え置きにした');
+    assert.strictEqual(rows.find((x) => x.id === 'pv2').preview, '来月の予算案の作成を担当Aが進める');
+  } finally { t.done(); }
+});

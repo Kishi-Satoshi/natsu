@@ -28,3 +28,21 @@ test('0.11.0 M-2（MT4・D42）: 商談の語の会議の要約は、Claude Code
     '## 決定事項', '## 持ち越し', '## ToDo（誰が・何を・いつまでに）', '## 抜け・重なりチェック', '## 次に気をつけること']);
   assert.strictEqual(calls[0].stdinHasTranscript, true);
 });
+
+test('0.11.0 M-3（MT4・D39・F10）: 要約の保存で、根拠の無い見出しは本文に無く未確認の1行にまとまり、チェックは 3 件、印の行に出典が無く、engine.log には数だけ', { timeout: sceneTimeout(30000) }, async () => {
+  const o = await run(['text', '--sum', '--claude=ok', '--segs=2', '--text=商談 提案 見積 価格 契約 再販 の件です。来月から使いたい。決裁の流れを聞く', '--sum-md=bantc-mixed']);
+  const p = o.pages[0];
+  const heads = p.sumBlocks.filter((b) => b.type === 'heading').map((b) => b.text);
+  assert.deepStrictEqual(heads, ['課題・要望（N）', '時期（T）', '競合・比較先（C）', '決定事項', 'ToDo（誰が・何を・いつまでに）', '抜け・重なりチェック', '次に気をつけること']);
+  const marked = p.sumBlocks.filter((b) => b.mark);
+  assert.deepStrictEqual(marked.map((b) => [b.mark, b.text]), [
+    ['memo', '見込み: 来月から使いたい（メモより）'],
+    ['check', '未確認: 決め方・決裁者（A）、予算（B）'], ['check', '次の会議で決裁の流れを聞く'], ['check', '予算の枠を聞く'], ['check', '導入の時期を確かめる'],
+    ['advice', '冒頭で会議の目的を言うと、論点がそろう'], ['advice', '決めることを先に挙げる'],
+  ]);
+  for (const b of marked) { assert.strictEqual(b.cites, 0, b.text); assert.strictEqual(b.citeState, 'manual', b.text); }
+  assert.strictEqual(p.sumBlocks.find((b) => b.mark === 'check').unconfirmed, true);
+  const line = o.engineLog.find((l) => /抜け・重なりチェック/.test(l));
+  assert.strictEqual(line, '要約: 抜け・重なりチェック 1 件を捨てた・未確認にまとめた見出し 2 個', JSON.stringify(o.engineLog.filter((l) => /要約/.test(l))));
+  assert.ok(!o.engineLog.some((l) => /決裁|予算の枠|メモより/.test(l)), '記録に要約の文が出た');
+});

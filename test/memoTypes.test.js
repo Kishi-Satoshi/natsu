@@ -172,3 +172,81 @@ test('sectionsOf: 型の埋まり具合（軸 5）で数える見出し', () => 
   assert.deepStrictEqual(M.sectionsOf(''), ['目的', '論点ごとの要点']);
   assert.deepStrictEqual(M.sectionsOf('review'), ['前回の宿題の状況', '事実（進捗・課題）', '見立て（原因・リスク）', '打ち手の案']);
 });
+
+// ---------------------------------------------------------------- 0.11.0 M-3（MT4・F10。決めたこと 17・18・22〜24）: 印・畳み・チェックの数
+const fs = require('node:fs');
+const path = require('node:path');
+const cite = require('../src/cite');
+const R = require('../src/pagerules');
+const MIXED = fs.readFileSync(path.join(__dirname, 'fixtures', 'summaries', 'bantc-mixed.md'), 'utf8');
+const blocksOf = (md) => dropRedundantEmpty(markdownToBlocks(md));
+const view = (bs) => bs.map((b) => `${b.type}:${b.text}${b.mark ? `|${b.mark}` : ''}${b.unconfirmed ? '|u' : ''}`);
+
+test('MT4・D39・決めたこと 18: markBlocks は「■」の見出しを直し、根拠の無い見出し（未確認・言及なし・特になしだけ）を畳んで未確認の1行にまとめ、話されなかった持ち越しを落とし、チェックは 3 件まで', () => {
+  const input = blocksOf(MIXED);
+  const before = JSON.stringify(input);
+  const { blocks, dropped, folded } = M.markBlocks(input, { meetingType: 'sales' });
+  assert.strictEqual(JSON.stringify(input), before, '受けた配列を書き換えた');
+  assert.deepStrictEqual(view(blocks), [
+    'heading:課題・要望（N）', 'bullet:先方は見積の作成に時間がかかっていると話した',
+    'heading:時期（T）', 'bullet:見込み: 来月から使いたい（メモより）|memo',
+    'heading:競合・比較先（C）', 'bullet:他社の製品と比べていると話した',
+    'heading:決定事項', 'bullet:次回に見積の案を出す',
+    'heading:ToDo（誰が・何を・いつまでに）', 'todo:見積の案を作る（担当: 山田 / 期限: 来週金曜）',
+    'heading:抜け・重なりチェック', 'bullet:未確認: 決め方・決裁者（A）、予算（B）|check|u',
+    'bullet:次の会議で決裁の流れを聞く|check', 'bullet:予算の枠を聞く|check', 'bullet:導入の時期を確かめる|check',
+    'heading:次に気をつけること', 'bullet:冒頭で会議の目的を言うと、論点がそろう|advice', 'bullet:決めることを先に挙げる|advice',
+  ]);
+  assert.strictEqual(dropped, 1);
+  assert.strictEqual(folded, 2);
+  for (const b of blocks.filter((x) => x.mark)) { assert.strictEqual(b.citeState, 'manual', b.text); assert.deepStrictEqual(b.cites, [], b.text); }
+  assert.ok(!blocks.filter((x) => !x.mark && x.type !== 'heading').some((b) => b.citeState === 'manual'));
+});
+
+test('決めたこと 18: 人の文らしい行が1行でもある見出しは畳まない。型の見出しの外（締め）の「未確認」で始まる行には印を付けない', () => {
+  const md = '## 予算（B）\n- 未確認の不具合が3件ある\n## 時期（T）\n- 未確認\n- 来月から\n## 決定事項\n- 未確認の項目は次回に決める\n## 抜け・重なりチェック\n- 次の会議で予算を聞く';
+  const { blocks, folded } = M.markBlocks(blocksOf(md), { meetingType: 'sales' });
+  assert.strictEqual(folded, 0);
+  assert.deepStrictEqual(view(blocks), ['heading:予算（B）', 'bullet:未確認の不具合が3件ある', 'heading:時期（T）', 'bullet:未確認', 'bullet:来月から',
+    'heading:決定事項', 'bullet:未確認の項目は次回に決める', 'heading:抜け・重なりチェック', 'bullet:次の会議で予算を聞く|check']);
+});
+
+test('決めたこと 18: 畳んだ見出しがあって抜け・重なりチェックが無ければ、次に気をつけることの前に節と未確認の1行を作る。行の無い型の見出しも畳む', () => {
+  const md = '## 目的\n## 論点ごとの要点\n- 予算の配分を話した\n## 決定事項\n- 据え置き\n## 次に気をつけること\n- 目的を先に言う';
+  const { blocks, folded } = M.markBlocks(blocksOf(md), { meetingType: '' });
+  assert.strictEqual(folded, 1);
+  assert.deepStrictEqual(view(blocks), ['heading:論点ごとの要点', 'bullet:予算の配分を話した', 'heading:決定事項', 'bullet:据え置き',
+    'heading:抜け・重なりチェック', 'bullet:未確認: 目的|check|u', 'heading:次に気をつけること', 'bullet:目的を先に言う|advice']);
+});
+
+test('決めたこと 22: 「■ 見出し」と、型か締めの見出しと同じ名前だけの段落は見出しに直す。違う名前の ■ の行は段落のまま。報告の名前の説明の見出しの写しは落とす', () => {
+  const md = '■ 目的\n- 共有\n論点ごとの要点\n- 予算\n■ 雑談\n## 報告の名前（議題ごとに1つ。報告が1本なら1つ）\n- x';
+  const { blocks } = M.markBlocks(blocksOf(md), { meetingType: '' });
+  assert.deepStrictEqual(view(blocks), ['heading:目的', 'bullet:共有', 'heading:論点ごとの要点', 'bullet:予算', 'paragraph:■ 雑談', 'bullet:x']);
+  const r = M.markBlocks(blocksOf('■ 前回の宿題の状況\n- 済んだ\n## A案件\n■ 事実（進捗・課題）\n- 遅れ'), { meetingType: 'standup' });
+  assert.deepStrictEqual(view(r.blocks), ['heading:前回の宿題の状況', 'bullet:済んだ', 'heading:A案件', 'heading:事実（進捗・課題）', 'bullet:遅れ']);
+});
+
+test('F10・RF69: 印を付けた後に attachCitationsAcross と refreshCitations をかけても、印の行（メモより・チェック・助言）は出典が空で、出典の数の分母に入らない', () => {
+  const { blocks } = M.markBlocks(blocksOf(MIXED), { meetingType: 'sales' });
+  const segs = [
+    { id: 's1', atMs: 0, text: '来月から使いたいと思っています。決裁の流れを聞く必要がありますね' },
+    { id: 's2', atMs: 5000, text: '冒頭で会議の目的を言うと論点がそろうと思います。予算の枠を聞くのも大事' },
+    { id: 's3', atMs: 9000, text: '他社の製品と比べています。見積の作成に時間がかかっています' },
+  ];
+  cite.attachCitationsAcross(blocks, segs, segs);
+  const marked = blocks.filter((b) => b.mark);
+  assert.ok(marked.length >= 6);
+  for (const b of marked) assert.deepStrictEqual(b.cites, [], `${b.text} に出典`);
+  assert.ok(blocks.some((b) => !b.mark && b.cites.length > 0), '前提: 印の無い行には出典が付く');
+  cite.refreshCitations(blocks, segs, 's2');
+  for (const b of marked) assert.deepStrictEqual(b.cites, [], `refresh の後に ${b.text} に出典`);
+  const st = R.citeStatOf(blocks);
+  assert.ok(st.total > 0);
+  assert.deepStrictEqual(st, R.citeStatOf(blocks.filter((b) => !b.mark)), '印の行が出典の数に入った');
+});
+
+test('MT4・決めたこと 24: 一覧の最初の要点（preview）は印の無い箇条書きから', () => {
+  const { blocks } = M.markBlocks(blocksOf('## 抜け・重なりチェック\n- 未確認: 目的\n## 論点ごとの要点\n- 予算を据え置く'), { meetingType: '' });
+  assert.strictEqual(R.summarize({ blocks, memo: '' }).preview, '予算を据え置く');
+});
