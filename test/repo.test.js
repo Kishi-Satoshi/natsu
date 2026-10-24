@@ -386,7 +386,8 @@ test('会議の所要時間は開始から停止までで計る', () => {
 });
 
 test('判定材料が無いときの会議タイプは「一般・その他」（0.1.2。定例の型に合わせて担当・期限を作らせない）', () => {
-  assert.match(main, /page\.meetingType = autoType;/);
+  // 0.11.0 M-5 で意図して変えた: 自動の答えは detectType の答えか、決まらないときの前の同じ曜日・時刻の会議の種類（page.autoType）
+  assert.match(main, /page\.meetingType = page\.autoType;/);
   assert.ok(!/autoType === 'general' \? 'standup'/.test(main), '判定材料が無いときに定例へ寄せている');
   assert.ok(appHtml.includes("curPage.meetingType || 'general'"));
 });

@@ -498,6 +498,11 @@ const DEFS = {
   'pages.actionView': { roles: ['app', 'main'], write: false, args: { q: 'text?', assignee: 'short?' },
     run: (db, a) => ({ result: actionView(db, a) }) },
   // 0.10.0 LS-2（決めたこと 104）: 要約待ちのページ（一覧に出るページのうち summaryWait が真）。main の見回りが mainlib.summaryRetryPick に渡す
+  // 0.11.0 M-5（P14 (a)）: 人が選んだ種類（typeAuto 偽・選べる鍵）の会議の作った時刻と種類だけ（since より後。ゴミ箱と録音中の写しは除く）
+  'pages.typeSlots': { roles: ['main'], write: false, args: { since: 'short' },
+    run: (db, a) => ({ ops: [], pageIds: [], result: listedRows(db)
+      .filter((r) => r.attrs.typeAuto === false && mtype.isSelectable(r.attrs.meetingType) && typeof r.createdAt === 'string' && r.createdAt >= a.since)
+      .map((r) => ({ createdAt: r.createdAt, meetingType: r.attrs.meetingType })) }) },
   'pages.summaryWaits': { roles: ['main'], write: false, args: {},
     run: (db) => ({ result: listedRows(db).filter((r) => r.attrs.summaryWait === true).map((r) => ({ id: r.id, createdAt: r.createdAt || '', summaryWait: true })) }) },
   'page.get': { roles: ['app', 'main'], write: false, args: { id: 'id' },

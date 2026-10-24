@@ -315,3 +315,20 @@ test('0.11.0 M-4・F27: 締めと復旧のページは、録音中に選んだ�
     assert.deepStrictEqual([rec.result.page.meetingType, rec.result.page.typeAuto], ['present', false]);
   } finally { t.done(); }
 });
+
+test('0.11.0 M-5: pages.typeSlots は main だけが読み、人が選んだ種類（typeAuto 偽・選べる鍵）の会議の作った時刻と種類だけを返す（ゴミ箱・録音中の写し・自動・前の版の general は返さない）', { timeout: 5000 }, () => {
+  const t = tmpDb();
+  try {
+    const { db } = t.open();
+    const seed = (id, patch, at) => { const { page, segments } = samplePage(id); page.blocks = page.blocks.map((b) => ({ ...b, id: `${id}${b.id}` })); t.seed({ ...page, createdAt: at, ...patch }, segments); };
+    seed('ps1', { meetingType: 'oneonone', typeAuto: false }, '2026-10-13T01:00:00.000Z');
+    seed('ps2', { meetingType: 'oneonone', typeAuto: true }, '2026-10-14T01:00:00.000Z');
+    seed('ps3', { meetingType: 'general', typeAuto: false }, '2026-10-15T01:00:00.000Z');
+    seed('ps4', { meetingType: 'sales', typeAuto: false, meeting: { phase: 'recording' } }, '2026-10-16T01:00:00.000Z');
+    seed('ps5', { meetingType: 'review', typeAuto: false }, '2026-09-01T01:00:00.000Z');
+    assert.strictEqual(call(db, 'pages.typeSlots', { since: '2026-09-20T00:00:00.000Z' }).code, 'forbidden');
+    const r = call(db, 'pages.typeSlots', { since: '2026-09-20T00:00:00.000Z' }, 'main');
+    assert.strictEqual(r.ok, true, r.code);
+    assert.deepStrictEqual(r.result, [{ createdAt: '2026-10-13T01:00:00.000Z', meetingType: 'oneonone' }]);
+  } finally { t.done(); }
+});

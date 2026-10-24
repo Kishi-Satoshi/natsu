@@ -159,3 +159,22 @@ test('0.11.0 M-1（P12）: normalizeType と isSelectable は選べる鍵だけ�
     assert.strictEqual(mtype.isSelectable(v), false, String(v));
   }
 });
+
+// ---------------------------------------------------------------- 0.11.0 M-5（P14 (a)。計画の決めたこと 13）: 題名と文字起こしで決まらないときだけ、前の同じ曜日・時刻の会議の種類
+test('0.11.0 M-5: slotType の表（過去 5 週・同じ曜日・開始 ±15 分・2回以上・どれも人が選んだ同じ種類のときだけ。ばらばらなら使わない）', () => {
+  const at = (d, h, m) => new Date(2026, 9, d, h, m).toISOString();   // 2026-10-?? の PC の時計の時刻
+  const now = at(27, 10, 0);   // 火曜 10:00
+  const row = (d, h, m, t = 'oneonone') => ({ createdAt: at(d, h, m), meetingType: t });
+  assert.strictEqual(mtype.slotType([row(20, 10, 5), row(13, 9, 50)], now), 'oneonone');
+  assert.strictEqual(mtype.slotType([row(20, 10, 15), row(13, 9, 45)], now), 'oneonone', '±15 分ちょうどは入る');
+  assert.strictEqual(mtype.slotType([row(20, 10, 0)], now), '', '1回だけ');
+  assert.strictEqual(mtype.slotType([row(20, 10, 16), row(13, 10, 0)], now), '', '16 分ずれた会議は数えない（残り1回）');
+  assert.strictEqual(mtype.slotType([row(21, 10, 0), row(22, 10, 0)], now), '', '別の曜日');
+  assert.strictEqual(mtype.slotType([row(20, 10, 0), row(13, 10, 0, 'sales')], now), '', 'ばらばら');
+  assert.strictEqual(mtype.slotType([row(20, 10, 0), row(13, 10, 0), row(6, 10, 0, 'sales')], now), '', '1回でも違えば使わない');
+  assert.strictEqual(mtype.slotType([row(20, 10, 0), { createdAt: at(20 - 35, 10, 0), meetingType: 'oneonone' }], now), '', '5 週より前は数えない');
+  assert.strictEqual(mtype.slotType([row(20, 10, 0, 'general'), row(13, 10, 0, 'general')], now), '', '選べない種類は使わない');
+  assert.strictEqual(mtype.slotType([row(27, 10, 0), row(20, 10, 0)], at(20, 10, 1)), '', 'これより後の会議は数えない');
+  assert.strictEqual(mtype.slotType('x', now), '');
+  assert.strictEqual(mtype.slotType([row(20, 10, 0), row(13, 10, 0)], 'きのう'), '');
+});

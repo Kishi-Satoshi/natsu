@@ -5305,19 +5305,27 @@ async function doRunSummary(pageId) {
   // 「自動判定が当たっていたか」を後から誰も確かめられない
   // （手で選んだ議事録では detectType が一度も呼ばれていなかった）。
   const autoType = mtype.detectType(page.title, plain.slice(0, 1200));
-  page.autoType = autoType;
+  // 0.11.0 M-5（P14 (a)・決めたこと 13）: 自動のまま、題名と文字起こしで決まらないときだけ、前の同じ曜日・時刻の会議の人が選んだ種類（mtype.slotType）
+  let slot = '';
+  if ((!page.meetingType || page.typeAuto !== false) && !mtype.isSelectable(autoType)) {
+    let rows = [];
+    try { rows = await db.call('pages.typeSlots', { since: new Date(new Date(page.createdAt).getTime() - 36 * 86400000).toISOString() }); } catch (_) { rows = []; }
+    slot = mtype.slotType(Array.isArray(rows) ? rows : [], page.createdAt);
+  }
+  page.autoSlot = Boolean(slot);
+  page.autoType = slot || autoType;
   const typeBefore = page.meetingType;   // 0.11.0 M-4（P13）: 自動の判定で種類が変わったら経過に積む
   if (!page.meetingType || page.typeAuto !== false) {
     // 判定材料が無いときは「一般・その他」（自動判定の答えのまま）。0.1.1 までは「定例・進捗報告」に
     // していたが、定例の型（担当・案件ごとの報告、担当・期限つきのアクション）に合わせようとして、
     // 手元の小さいモデルが発言に無い担当と期限を作った（実機。一般・その他で作り直すと出なかった）。
     // タイトルに定例らしい言葉（朝会・定例・週次など）があれば（本文だけなら 5 語以上）、今までどおり自動で定例になる
-    page.meetingType = autoType;
+    page.meetingType = page.autoType;
     page.typeAuto = true;
   }
   // タイトルは書かない。1on1・面談の議事録は機微で、engine.log は
   // 不具合報告に添付されうる。
-  engineLog(`会議タイプ: 採用=${page.meetingType} 自動判定=${autoType}`
+  engineLog(`会議タイプ: 採用=${page.meetingType} 自動判定=${autoType}${slot ? '（前の同じ曜日・時刻の会議）' : ''}`
     + ` 手動=${page.typeAuto === false} 区間数=${usable.length}`);
 
   // 0.11.0 M-2（決めたこと 14）: 書式は1回だけ作る（Claude Code に渡す文と写しを落とす文に同じ文字列）
@@ -5367,6 +5375,7 @@ async function doRunSummary(pageId) {
       saved.meetingType = t.meetingType;
       saved.typeAuto = t.typeAuto;
       saved.autoType = page.autoType;
+      if (page.autoSlot && t.typeAuto !== false) saved.autoSlot = true; else delete saved.autoSlot;   // 0.11.0 M-5: 前の会議の種類を使った印（画面の灰色の文）
       // 0.11.0 M-4（P13・決めたこと 12）: 自動のまま、要約のときの判定で種類が前と変わったら、経過に「種類を選んだ（要約のときの自動の判定）」
       if (t.typeAuto !== false && page.meetingType !== typeBefore) saved.stateLog = lib.stateLogAdd(saved.stateLog, { s: 'type', by: 'auto', at: new Date().toISOString() });
       saved.citeStat = stat;

@@ -91,3 +91,35 @@ test('0.11.0 M-4・F27: 録音中に商談を選んでから main ごと落ち�
     assert.deepStrictEqual([p.meetingType, p.typeAuto, p.recovered], ['sales', false, true]);
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
+
+// ---------------------------------------------------------------- M-5（P14 (a)。決めたこと 13）
+test('0.11.0 M-5: 同じ曜日・時刻に2回 1on1 を手で選んだ後、種類を選ばず手がかりの語も無い会議は、要約のときに 1on1 の型（GROW）で作り、印 autoSlot を付ける。題名か文字起こしで決まる会議には使わない', { timeout: sceneTimeout(120000) }, async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'natsu-枠𠮷-'));
+  try {
+    // 前の版の保存の形（data/pages/*.json）で、1週前と2週前の同じ時刻に手で 1on1 を選んだ会議を置く（起動のたびの取り込みで DB に入る）
+    const { titleAt } = require('./helpers/titles');
+    fs.mkdirSync(path.join(dir, 'data', 'pages'), { recursive: true });
+    fs.mkdirSync(path.join(dir, 'data', 'transcripts'), { recursive: true });
+    for (const w of [1, 2]) {
+      const at = new Date(Date.now() - w * 7 * 86400000).toISOString();
+      const id = `pslot${w}`;
+      fs.writeFileSync(path.join(dir, 'data', 'pages', `${id}.json`), JSON.stringify({ id, title: titleAt(at), date: at.slice(0, 10), durationSec: 60, memo: '', blocks: [],
+        createdAt: at, updatedAt: at, recovered: false, summaryError: '', meetingType: 'oneonone', typeAuto: false }));
+      fs.writeFileSync(path.join(dir, 'data', 'transcripts', `${id}.json`), JSON.stringify({ id, segments: [] }));
+    }
+    const o = await run(['text', '--sum', '--claude=ok', '--segs=2', `--keep-user-data=${dir}`]);
+    const p = o.pages.find((x) => x.typeAuto !== false);
+    assert.ok(p, JSON.stringify(o.pages.map((x) => [x.meetingType, x.typeAuto])));
+    assert.deepStrictEqual([p.meetingType, p.autoType, p.autoSlot], ['oneonone', 'oneonone', true]);
+    assert.deepStrictEqual(pCalls(o)[0].stdinHeads.slice(0, 3), ['## テーマ・目標（G）', '## 現状と困りごと（R）', '## 選択肢・上司の助言（O）']);
+    const dir2 = fs.mkdtempSync(path.join(os.tmpdir(), 'natsu-枠𠮷-'));
+    try {
+      fs.cpSync(path.join(dir, 'data', 'pages'), path.join(dir2, 'data', 'pages'), { recursive: true });
+      fs.cpSync(path.join(dir, 'data', 'transcripts'), path.join(dir2, 'data', 'transcripts'), { recursive: true });
+      for (const f of fs.readdirSync(path.join(dir2, 'data', 'pages'))) if (!/^pslot/.test(f)) fs.rmSync(path.join(dir2, 'data', 'pages', f));
+      const s = await run(['text', '--sum', '--claude=ok', '--segs=2', '--text=商談 提案 見積 価格 契約 再販 の件です', `--keep-user-data=${dir2}`]);
+      const q = s.pages.find((x) => x.typeAuto !== false);
+      assert.deepStrictEqual([q.meetingType, Boolean(q.autoSlot)], ['sales', false], '文字起こしで決まったのに前の会議の種類で上書きした');
+    } finally { fs.rmSync(dir2, { recursive: true, force: true }); }
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});

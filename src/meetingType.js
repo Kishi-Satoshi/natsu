@@ -124,6 +124,25 @@ function detectType(title, transcriptHead) {
   return 'general';
 }
 
+// 0.11.0 M-5（P14 (a)・決めたこと 13）: 題名と文字起こしで決まらない会議に使う、前の同じ曜日・時刻の会議の種類。
+// rows は人が選んだ種類の会議 [{ createdAt, meetingType }]。過去 5 週・同じ曜日・開始が ±15 分の会議が2回以上あり、どれも同じ選べる種類なら
+// その種類。ほかは ''（ばらばら・1回だけ・選べない種類）。曜日と時刻は PC の時計で見る
+const SLOT_DAYS = 35;
+const SLOT_MIN = 15;
+function slotType(rows, createdAt) {
+  const now = new Date(createdAt);
+  if (!Array.isArray(rows) || Number.isNaN(now.getTime())) return '';
+  const min = (d) => d.getHours() * 60 + d.getMinutes();
+  const hit = rows.filter((r) => {
+    const d = new Date(r && r.createdAt);
+    if (Number.isNaN(d.getTime()) || d >= now || now - d > SLOT_DAYS * 86400000) return false;
+    return d.getDay() === now.getDay() && Math.abs(min(d) - min(now)) <= SLOT_MIN;
+  });
+  if (hit.length < 2) return '';
+  const t = hit[0].meetingType;
+  return isSelectable(t) && hit.every((r) => r.meetingType === t) ? t : '';
+}
+
 function getLabel(type) {
   return (TYPES[type] || TYPES.general).label;
 }
@@ -136,4 +155,4 @@ function listTypes() {
   return ORDER.map((k) => ({ key: k, label: TYPES[k].label, hint: TYPES[k].hint, agenda: TYPES[k].agenda || '' }));
 }
 
-module.exports = { TYPES, ORDER, SELECTABLE, GROUPS, PERSONAL_TYPES, ACTION_RULE, isSelectable, normalizeType, detectType, getLabel, getAgenda, listTypes };
+module.exports = { TYPES, ORDER, SELECTABLE, GROUPS, PERSONAL_TYPES, ACTION_RULE, isSelectable, normalizeType, detectType, slotType, getLabel, getAgenda, listTypes };

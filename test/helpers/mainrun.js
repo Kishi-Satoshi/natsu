@@ -2397,7 +2397,7 @@ process.on('exit', () => {
       todos: (page.blocks || []).filter((b) => b.type === 'todo').map((b) => ({ text: b.text, assignee: b.assignee || '', due: b.due || '', dueRaw: b.dueRaw || '' })),
       // 0.11.0 M-3: 要約のブロックの文と印（足すだけ。上の blocks の形は変えない）
       sumBlocks: (page.blocks || []).map((b) => ({ type: b.type, text: b.text, mark: b.mark, unconfirmed: b.unconfirmed, citeState: b.citeState, cites: Array.isArray(b.cites) ? b.cites.length : 0 })),
-      autoType: page.autoType, quality: page.quality, stateLog: page.stateLog, memo: page.memo,
+      autoType: page.autoType, autoSlot: page.autoSlot, quality: page.quality, stateLog: page.stateLog, memo: page.memo,
     };
   };
   if (idleMode) {
