@@ -2037,7 +2037,11 @@ function mcpPlaces() {
   let appData = '';
   try { appData = app.getPath('appData'); } catch (_) { appData = ''; }
   const isDir = (p) => { try { return fs.statSync(p).isDirectory(); } catch (_) { return false; } };
-  return MC.configPlaces({ appData, localAppData: process.env.LOCALAPPDATA || '', readdir: (d) => fs.readdirSync(d), exists: (p) => fs.existsSync(p), isDir });
+  const places = MC.configPlaces({ appData, localAppData: process.env.LOCALAPPDATA || '', readdir: (d) => fs.readdirSync(d), exists: (p) => fs.existsSync(p), isDir });
+  // 0.10.1 2回目の点検の直し（Ruling R16）: 同じフォルダ（ジャンクション・シンボリックリンク）を指す場所は1つにまとめる（同じファイルに2回書いて R9 で断り続けない）。
+  // 記録の場所の数の1行も、まとめた後（NaTsu が本当に書く場所）を数える
+  const real = (dir) => { const r = fs.realpathSync.native(dir); return process.platform === 'win32' ? r.toLowerCase() : r; };
+  return MC.dedupePlaces(places, real);
 }
 function mcpFiles() {
   return mcpPlaces().map((p) => p.file);
@@ -2070,8 +2074,8 @@ function mcpUnchangedSincePlan(p) {
   if (!p.had) return !fs.existsSync(p.file);
   try { return Buffer.isBuffer(p.before) && fs.readFileSync(p.file).equals(p.before); } catch (_) { return false; }
 }
-// 0.10.1 点検の直し（Ruling R7）: 書く途中で失敗したら、この操作で書いたファイルを後ろから順に、書く直前に取った控えのバイトに戻す
-// （控えの無い、NaTsu が作ったファイルは消す）。今の中身が NaTsu の書いたとおりのときだけ戻す（その後にほかのプログラムが書いたなら、それを消さない）。
+// 0.10.1 点検の直し（Ruling R7。2回目の点検の直し R17 で、戻すバイトを計画のときのバイト（メモリ）にした）: 書く途中で失敗したら、この操作で書いたファイルを
+// 後ろから順に元のバイトに戻す（もとから無かった、NaTsu が作ったファイルは消す）。今の中身が NaTsu の書いたとおりのときだけ戻す（その後にほかのプログラムが書いたなら、それを消さない）。
 // 一時ファイル（<名前>.natsu-restore-<pid>.tmp）に写してから名前を変える。→ 戻せなかったファイルの数
 function mcpRollback(written) {
   let unrestored = 0;
@@ -2079,9 +2083,11 @@ function mcpRollback(written) {
     try {
       const mine = Buffer.from(JSON.stringify(w.p.config, null, 2), 'utf8');
       if (!fs.readFileSync(w.p.file).equals(mine)) { unrestored += 1; continue; }
-      if (w.bak) {
+      // 0.10.1 2回目の点検の直し（Ruling R17）: 戻すバイトは、計画のときに読み、書く直前にも同じと確かめた p.before（メモリ）。控えのファイルに頼らない。
+      // 消すのは、もとから無かった（!had）ファイルだけ
+      if (w.p.had) {
         const tmpFile = `${w.p.file}.natsu-restore-${process.pid}.tmp`;
-        fs.copyFileSync(w.bak, tmpFile);
+        fs.writeFileSync(tmpFile, w.p.before);
         try { fs.renameSync(tmpFile, w.p.file); } catch (e) { try { fs.unlinkSync(tmpFile); } catch (_) { /* 残っても次に */ } throw e; }
       } else {
         fs.unlinkSync(w.p.file);
@@ -2102,11 +2108,15 @@ function mcpBackup(file) {
     const name = MC.backupName(file, new Date(t));
     try { fs.copyFileSync(file, name, fs.constants.COPYFILE_EXCL); mcpLastBackup = name; break; } catch (e) { if (!(e && e.code === 'EEXIST')) throw e; }
   }
+  // 0.10.1 2回目の点検の直し（Ruling R17）: 20 回続けて名前があって写せなければ投げる（控えの無いまま書かない。呼び手は busy で断る）
+  if (!mcpLastBackup) { const e = new Error('控えを写せませんでした'); e.code = 'EEXIST'; throw e; }
   const dir = path.dirname(file);
   const base = path.basename(file);
+  const mine = path.basename(mcpLastBackup);
   let names = [];
-  try { names = fs.readdirSync(dir).filter((n) => MC.isNatsuBackup(base, n)).sort(); } catch (_) { names = []; }
-  for (const n of names.slice(0, Math.max(0, names.length - MC.BACKUP_KEEP))) { try { fs.unlinkSync(path.join(dir, n)); } catch (_) { /* 消せなければ次に */ } }
+  try { names = fs.readdirSync(dir).filter((n) => MC.isNatsuBackup(base, n) && n !== mine).sort(); } catch (_) { names = []; }
+  // 今写した控えは消さない（時計が戻った PC で、名前の順で一番古くても）。ほかの NaTsu の控えは新しい BACKUP_KEEP - 1 個を残す
+  for (const n of names.slice(0, Math.max(0, names.length - (MC.BACKUP_KEEP - 1)))) { try { fs.unlinkSync(path.join(dir, n)); } catch (_) { /* 消せなければ次に */ } }
 }
 // ファイルごとの状態（'same'・'none'・'stale'・'other'・'readonly'・'busy'・'broken'。読むだけ。0.10.1 CD-2 で mcpDesktopState から分けた）
 function mcpFileStates(files, entry) {
@@ -2149,16 +2159,19 @@ async function mcpStatus() {
 function mcpLogLine(word, files, backups) {
   engineLog(`MCP の登録: ${word}（ファイル ${files}・控え ${backups}）`);
 }
+// 0.10.1 2回目の点検の直し（Ruling R18）: 外したとき（一部だけ効いたときも）は「外した」印 mcpUnregistered を置き、次に登録が通ったら消す
+// （起動のときに、外したかった人へ「登録し直す」を勧めない。mcpRegisteredFor と同じく SETTING_RULES に入れない）
 function setMcpMark(mark) {
   const next = { ...settings };
-  if (mark) next.mcpRegisteredFor = mark;
-  else delete next.mcpRegisteredFor;
+  if (mark) { next.mcpRegisteredFor = mark; delete next.mcpUnregistered; }
+  else { delete next.mcpRegisteredFor; next.mcpUnregistered = true; }
   settings = next;
   const w = settingsWriter.now(settings);
   if (!w.ok) engineLog(`MCP の登録: 設定に書けませんでした（${errCode(w.error)}）`);
 }
 // 足す（register）か外す（unregister）。→ { ok, state, code? }。boot は起動のときの書き直し（0.10.1 CD-4。記録の頭だけが変わる）
-function mcpApply(register, { boot = false } = {}) {
+// noWrite（0.10.1 2回目の点検の直し R15）: 先に見た形で断る・何も変えないと決めた押し。計画し直して書くことになったら、書かずに busy で断る（tasklist を見ていないので）
+function mcpApply(register, { boot = false, noWrite = false } = {}) {
   const places = mcpPlaces();
   const files = places.map((p) => p.file);
   if (!files.length) { mcpLogLine('断った（noclaude）', 0, 0); return { ok: false, state: 'noclaude', code: 'noclaude' }; }
@@ -2167,6 +2180,7 @@ function mcpApply(register, { boot = false } = {}) {
   const plans = files.map((f) => mcpPlanFile(f, (cfg) => (register ? MC.mergeEntry(cfg, entry) : MC.removeEntry(cfg))));
   const refused = plans.filter((p) => p.refuse).reduce((a, p) => (a ? worseOf(a, p.refuse) : p.refuse), '');
   if (refused) { mcpLogLine(`断った（${refused}）`, files.length, 0); return { ok: false, state: refused, code: refused }; }
+  if (noWrite && plans.some((p) => p.changed)) { mcpLogLine('断った（busy）', files.length, 0); return { ok: false, state: 'busy', code: 'busy' }; }
   const wasStale = register && plans.some((p) => p.had && p.changed && (() => {
     const r = J.readJsonFile(p.file, { shape: isPlainObj, maxBytes: MCP_MAX_BYTES });
     return r.state === 'ok' && MC.entryState(r.value, entry) === 'stale';
@@ -2181,7 +2195,7 @@ function mcpApply(register, { boot = false } = {}) {
       if (p.had) { mcpBackup(p.file); backups += 1; }
       if (!mcpUnchangedSincePlan(p)) { failed = 'busy'; break; }
       J.writeJsonFile(p.file, p.config);
-      written.push({ p, bak: p.had ? mcpLastBackup : '' });
+      written.push({ p });
     } catch (e) {
       failed = e && e.readOnly ? 'readonly' : 'busy';
       break;
@@ -2239,7 +2253,7 @@ async function mcpGuarded(register) {
   // mcpApply がその理由で断る・「変えなかった」と答える（Claude の終了を頼まない）。押しとして1回目の印は消す。tasklist を見るのは書くときだけ
   const entry = MC.serverEntry(mcpPaths());
   const dry = files.map((f) => mcpPlanFile(f, (cfg) => (register ? MC.mergeEntry(cfg, entry) : MC.removeEntry(cfg))));
-  if (dry.some((p) => p.refuse) || !dry.some((p) => p.changed)) { mcpUnknownPending = null; return { ...mcpApply(register), running: null }; }
+  if (dry.some((p) => p.refuse) || !dry.some((p) => p.changed)) { mcpUnknownPending = null; return { ...mcpApply(register, { noWrite: true }), running: null }; }
   const running = await claudeDesktopRunning();
   if (running === true) {
     mcpUnknownPending = null;
@@ -2315,7 +2329,7 @@ async function checkMcpRegistration() {
   } catch (_) { return; }
   const notice = (text) => noticeMainWin({ text, action: 'settings-summary' });
   const fallback = () => notice(states.includes('stale') ? NOTICE.mcpStale : NOTICE.mcpGone);
-  const plan = MC.autoPlan({ states, marked: mcpRegisteredMark() });
+  const plan = MC.autoPlan({ states, marked: mcpRegisteredMark(), unregistered: Boolean(settings && settings.mcpUnregistered === true) });
   if (plan === 'notice-stale') { notice(NOTICE.mcpStale); return; }
   if (plan === 'notice-gone') { notice(NOTICE.mcpGone); return; }
   if (plan !== 'rewrite') return;

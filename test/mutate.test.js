@@ -682,6 +682,9 @@ const IDS_101 = [
   // 0.10.1 点検の直し（Ruling R7〜R12）
   'cdl-rollback', 'cdl-stop-first', 'cdl-restore-own', 'cdl-restore-log', 'cdl-restore-report', 'cdl-unreg-mark', 'cdl-has-entry', 'cdl-ui-unreg-entry',
   'cdl-lost-update', 'cdl-verify-untouched', 'cdl-auto-stale-pick', 'cdl-unk-noclaude', 'cdl-refuse-first',
+  // 0.10.1 2回目の点検の直し（Ruling R15〜R20）
+  'cdl-dry-nowrite', 'cdl-dedupe', 'cdl-bak-keep-new', 'cdl-bak-exist-throw', 'cdl-unreg-marker', 'cdl-unreg-marker-boot', 'cdl-unreg-marker-clear',
+  'cdl-rollback-unlink', 'cdl-created-after-plan', 'cdl-has-entry-stale', 'cdl-pre-backup',
 ];
 test('G3・0.10.1 CD-6: 0.10.1 の変異が一覧にそろい、IDS_101 は計画の「変異確認」の表の id とちょうど同じ。cdl- の変異は IDS_101 にある。どれも決まったテストのファイルを持ち、why が 0.10.1 で始まる', { timeout: 5000 }, () => {
   const byId = new Map(MUTANTS.map((m) => [m.id, m]));

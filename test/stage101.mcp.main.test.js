@@ -319,10 +319,15 @@ test('0.10.1 点検の直し R9: 書く直前に Claude が書いた（計画の
   assert.strictEqual(d.preferences.raceBeforeNaTsu, true, 'Claude が書いた中身を消した');
   assert.ok(!('natsu' in d.mcpServers));
   assert.strictEqual(o.claudeConfigs.msix.text, null, '後のファイル（前の場所）に書いた');
-  // 3つの場所: 2つ目で見つかれば、先に書いた1つ目を戻す
-  const t3 = await run([['files', 'before'], ['register']], '--claude-config=three', '--claude-race-before', STOP);
+  // 3つの場所: 2つ目（新しい場所）の控えの後に Claude が書いた → そこで止め、先に書いた1つ目（%APPDATA%\Claude）を元のバイトに戻し、3つ目には触れない
+  // （2回目の点検の直し R20 で意図して変えた: 旗を「2番目の控えの後だけ」にして、止まった後の戻しを本当に見る）
+  const t3 = await run([['files', 'before'], ['register']], '--claude-config=three', '--claude-race-before=2', STOP);
   assert.strictEqual(ipcOf(t3, 'mcp:register')[0].code, 'busy');
-  assert.ok(!('natsu' in parse(t3.claudeConfigs.msix.text).mcpServers));
+  assert.strictEqual(t3.claudeConfigs.roaming.text, t3.snaps.before.roaming.text, '先に書いた1つ目を戻さなかった');
+  assert.strictEqual(parse(t3.claudeConfigs.data.text).preferences.raceBeforeNaTsu, true);
+  assert.ok(!('natsu' in parse(t3.claudeConfigs.data.text).mcpServers));
+  assert.strictEqual(t3.claudeConfigs.msix.text, t3.snaps.before.msix.text);
+  assert.deepStrictEqual(bkCount(t3.claudeConfigs), { roaming: 1, data: 1, msix: 0 });
 });
 
 test('0.10.1 点検の直し R10: 書かなかったファイル（もう same）を、書く間にほかのプログラムが書き換えた → busy', S, async () => {
@@ -357,4 +362,81 @@ test('0.10.1 点検の直し R7: 戻すとき、書いた後にほかのプロ�
   const r = ipcOf(o, 'mcp:register')[0];
   assert.deepStrictEqual([r.code, r.unrestored], ['busy', 1], JSON.stringify(r));
   assert.strictEqual(parse(o.claudeConfigs.roaming.text).preferences.raceWrittenByClaude, true, 'ほかのプログラムが書いた中身を戻しで消した');
+});
+
+// ---------------------------------------------------------------- 0.10.1 2回目の点検の直し（2026-10-24。計画の Ruling R15〜R20）
+test('0.10.1 2回目の点検の直し R15: 先に見る読みだけが掴まれた（EBUSY）・Claude デスクトップが動いている → tasklist を見ずに書く道へ行かず、busy で断る（書かない）', S, async () => {
+  const o = await run([['files', 'before'], ['claude-busy-reads', 7], ['register']], '--claude-config=others', '--tasklist=running');
+  const r = ipcOf(o, 'mcp:register')[0];
+  assert.deepStrictEqual([r.ok, r.code], [false, 'busy'], JSON.stringify(r));
+  assert.strictEqual(o.claudeConfigs.roaming.text, o.snaps.before.roaming.text, '動いているかを見ずに書いた');
+  assert.deepStrictEqual(o.claudeConfigs.roaming.backups, []);
+  assert.deepStrictEqual(o.tasklistCalls, []);
+});
+
+test('0.10.1 2回目の点検の直し R16: 新しい場所の子が %APPDATA%\\Claude へのリンク（Windows はジャンクション）→ 同じ場所は1つにまとめ、登録も外すも通る。場所の1行はまとめた後の数', S, async () => {
+  const o = await run([['status'], ['register'], ['status'], ['unregister'], ['status']], '--claude-config=data-link', STOP);
+  assert.deepStrictEqual(ipcOf(o, 'mcp:status').map((s) => [s.desktop.state, s.desktop.files]), [['none', 1], ['same', 1], ['none', 1]]);
+  assert.deepStrictEqual([ipcOf(o, 'mcp:register')[0].ok, ipcOf(o, 'mcp:unregister')[0].ok], [true, true], JSON.stringify(o.ipc));
+  assert.deepStrictEqual(placeLog(o)[0], 'Claude デスクトップの設定ファイルの場所: Roaming 1・Claude-Data 0・Packages 0');
+});
+
+test('0.10.1 2回目の点検の直し R17: 今より後の時刻の名前の控えが3つあっても、書く途中の失敗の後は元のバイトに戻り、今写した控えは消さない', S, async () => {
+  const o = await run([['files', 'before'], ['register']], '--claude-config=three', '--claude-future-bak', '--claude-fail-write=2', STOP);
+  const r = ipcOf(o, 'mcp:register')[0];
+  assert.deepStrictEqual([r.ok, r.code, r.unrestored], [false, 'busy', undefined], JSON.stringify(r));
+  assert.strictEqual(o.claudeConfigs.roaming.text, o.snaps.before.roaming.text, '元のバイトに戻らなかった');
+  const bk = o.claudeConfigs.roaming.backups;
+  assert.strictEqual(bk.length, 3, JSON.stringify(bk));
+  assert.ok(bk.some((n) => !n.includes('2099-')), `今写した控えを消した: ${JSON.stringify(bk)}`);
+});
+
+test('0.10.1 2回目の点検の直し R17: 控えを写せない（名前が 20 回続けてある）→ 書かずに busy', S, async () => {
+  const o = await run([['files', 'before'], ['register']], '--claude-config=three', '--claude-bak-exist', STOP);
+  assert.deepStrictEqual([ipcOf(o, 'mcp:register')[0].ok, ipcOf(o, 'mcp:register')[0].code], [false, 'busy']);
+  assert.deepStrictEqual(texts(o.claudeConfigs), texts(o.snaps.before));
+});
+
+test('0.10.1 2回目の点検の直し R18: 古い（stale）登録を外すのが一部だけ効いた人の次の起動では、「登録し直す」を勧めない。次の登録が通れば外した印を消す', S, async (t) => {
+  const mk = (name) => { const d = fs.mkdtempSync(path.join(os.tmpdir(), `natsu-連携𠮷-${name}-`)); t.after(() => fs.rmSync(d, { recursive: true, force: true })); return d; };
+  const root = mk('stale');
+  const ud = path.join(mk('stale-ud'), 'userData-日本語𠮷');
+  const a = await run([['unregister'], ['status']], '--claude-config=stale-two', '--mcp-gone', `--claude-root=${root}`, `--keep-user-data=${ud}`,
+    '--tasklist=running,stopped', '--claude-fail-write=2', '--claude-fail-restore');
+  assert.deepStrictEqual([ipcOf(a, 'mcp:unregister')[0].code, ipcOf(a, 'mcp:unregister')[0].unrestored], ['busy', 1], JSON.stringify(a.ipc));
+  const sa = JSON.parse(a.settingsText);
+  assert.deepStrictEqual(['mcpRegisteredFor' in sa, sa.mcpUnregistered], [false, true]);
+  const b = await run([['register']], '--claude-config=stale-two', `--claude-root=${root}`, `--keep-user-data=${ud}`, STOP);
+  assert.deepStrictEqual(mcpNotices(b), [], '外したかった人に「登録し直す」を勧めた');
+  assert.strictEqual(ipcOf(b, 'mcp:register')[0].ok, true);
+  assert.ok(!('mcpUnregistered' in JSON.parse(b.settingsText)), '登録が通ったのに外した印が残った');
+});
+
+test('0.10.1 2回目の点検の直し R19: 戻しで、この操作で NaTsu が作ったファイルは消す（もとから無かった %APPDATA%\\Claude の設定ファイル）', S, async () => {
+  const o = await run([['files', 'before'], ['register']], '--claude-config=none-data', '--claude-fail-write=2', STOP);
+  assert.strictEqual(ipcOf(o, 'mcp:register')[0].code, 'busy');
+  assert.strictEqual(o.snaps.before.roaming.text, null);
+  assert.strictEqual(o.claudeConfigs.roaming.text, null, 'NaTsu が作ったファイルが残った');
+  assert.strictEqual(o.claudeConfigs.data.text, o.snaps.before.data.text);
+});
+
+test('0.10.1 2回目の点検の直し R19: 計画の後に Claude が無かったファイルを作った → busy で断り、その中身を上書きしない', S, async () => {
+  const o = await run([['register']], '--claude-config=none-data', '--claude-create-after-plan', STOP);
+  assert.strictEqual(ipcOf(o, 'mcp:register')[0].code, 'busy');
+  assert.deepStrictEqual(parse(o.claudeConfigs.roaming.text), { createdByClaude: true }, 'Claude が作ったファイルを上書きした');
+});
+
+test('0.10.1 2回目の点検の直し R19: 古い（stale）登録だけが残っていても hasEntry（悪い方が壊れたファイルでも）', S, async () => {
+  const o = await run([['status']], '--claude-config=stale-two', STOP);
+  assert.deepStrictEqual([ipcOf(o, 'mcp:status')[0].desktop.state, ipcOf(o, 'mcp:status')[0].desktop.hasEntry], ['stale', true]);
+  const b = await run([['status']], '--claude-config=msix', '--mcp-stale', STOP);
+  assert.strictEqual(ipcOf(b, 'mcp:status')[0].desktop.hasEntry, true, JSON.stringify(ipcOf(b, 'mcp:status')[0]));
+});
+
+// J.isReadOnly の呼び出しは、起動のときの確かめ（1）・先に見る形（2）・mcpApply の計画（3）の順。3回目の直後に Claude が書いた形
+test('0.10.1 2回目の点検の直し R19: 計画の後・控えの前に Claude が書いた → 控えも作らずに busy（書く前の比べ）', S, async () => {
+  const o = await run([['files', 'before'], ['register']], '--claude-config=data', '--claude-race-plan=3', STOP);
+  assert.strictEqual(ipcOf(o, 'mcp:register')[0].code, 'busy');
+  assert.strictEqual(parse(o.claudeConfigs.data.text).preferences.raceAfterPlan, true);
+  assert.deepStrictEqual(o.claudeConfigs.data.backups, [], '計画の後に変わったのに控えを写した');
 });

@@ -95,6 +95,20 @@ function configPlaces({ appData, localAppData, readdir, exists, isDir = exists }
   }
   return out;
 }
+// 0.10.1 2回目の点検の直し（Ruling R16）: フォルダの本当のパス（real(フォルダ)。main は fs.realpathSync.native。ジャンクション・シンボリックリンクを解く）が
+// 同じ場所を1つにまとめる（先の方を残す: Roaming → Claude-Data → Packages）。本当のパスが読めない場所は、そのまま残す
+function dedupePlaces(places, real) {
+  const seen = new Set();
+  const out = [];
+  for (const p of places || []) {
+    let key = null;
+    try { key = real(path.dirname(p.file)); } catch (_) { key = null; }
+    if (key !== null && seen.has(key)) continue;
+    if (key !== null) seen.add(key);
+    out.push(p);
+  }
+  return out;
+}
 // 0.10.0 の口（場所のファイルの配列）
 function configFiles(opts) {
   return configPlaces(opts).map((p) => p.file);
@@ -118,9 +132,11 @@ function isNatsuBackup(base, name) {
 // 起動のときに黙って書き直すか（0.10.1 CD-4。D83・D86・計画の決めたこと 4）。states はファイルごとの状態、marked は前に登録した印があるか
 //  → 'rewrite'（main が tasklist を見て、動いていなければ書く）| 'notice-stale' | 'notice-gone' | 'none'（何もしない）
 const AUTO_OK = new Set(['same', 'none', 'stale']);
-function autoPlan({ states, marked }) {
+// 0.10.1 2回目の点検の直し（Ruling R18）: unregistered は「利用者が外した（一部だけ効いたときも）」印。登録の印が無くこの印があれば、古い場所があっても知らせない
+function autoPlan({ states, marked, unregistered = false }) {
   const st = Array.isArray(states) ? states : [];
   if (!st.length) return 'none';
+  if (!marked && unregistered) return 'none';
   if (!marked) return st.includes('stale') && st.every((s) => AUTO_OK.has(s)) ? 'notice-stale' : 'none';
   if (!st.some((s) => s === 'none' || s === 'stale')) return 'none';
   if (st.every((s) => AUTO_OK.has(s))) return 'rewrite';
@@ -147,5 +163,5 @@ function claudeRunningOf(stdout) {
 
 module.exports = {
   ENTRY_NAME, MARK, BACKUP_KEEP, CONFIG_NAME, DATA_ROOT, TASKLIST_ARGS, serverEntry, entryState, mergeEntry, removeEntry,
-  configPlaces, configFiles, placeCounts, backupName, isNatsuBackup, claudeRunningOf, UNKNOWN_CONFIRM_MS, unknownStep, autoPlan,
+  configPlaces, dedupePlaces, configFiles, placeCounts, backupName, isNatsuBackup, claudeRunningOf, UNKNOWN_CONFIRM_MS, unknownStep, autoPlan,
 };

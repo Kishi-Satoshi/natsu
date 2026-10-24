@@ -246,3 +246,22 @@ test('0.10.1 CD-4・D83: autoPlan の表（印が無い・全部 same・欠け�
   assert.strictEqual(P([], true), 'none');
   assert.strictEqual(C.autoPlan({ states: undefined, marked: true }), 'none');
 });
+
+// ---------------------------------------------------------------- 0.10.1 2回目の点検の直し（計画の Ruling R16・R18）
+test('0.10.1 2回目の点検の直し R16: dedupePlaces は、フォルダの本当のパスが同じ場所を1つにまとめる（先の方を残す）。本当のパスが読めない場所はそのまま', T, () => {
+  const places = [
+    { file: path.join('/r', 'Claude', 'claude_desktop_config.json'), kind: 'roaming' },
+    { file: path.join('/l', 'Claude-Data', 'claude_a1', 'claude_desktop_config.json'), kind: 'data' },
+    { file: path.join('/l', 'Claude-Data', 'claude_b2', 'claude_desktop_config.json'), kind: 'data' },
+  ];
+  const real = (dir) => (dir.endsWith('claude_a1') ? path.join('/r', 'Claude') : dir.endsWith('claude_b2') ? (() => { throw new Error('ENOENT'); })() : dir);
+  assert.deepStrictEqual(C.dedupePlaces(places, real), [places[0], places[2]]);
+  assert.deepStrictEqual(C.dedupePlaces(places, (d) => d), places);
+  assert.deepStrictEqual(C.dedupePlaces([], real), []);
+});
+
+test('0.10.1 2回目の点検の直し R18: autoPlan は、外した印（unregistered）があり登録の印が無ければ、古い（stale）場所があっても知らせない', T, () => {
+  assert.strictEqual(C.autoPlan({ states: ['stale', 'none'], marked: false, unregistered: true }), 'none');
+  assert.strictEqual(C.autoPlan({ states: ['stale', 'none'], marked: false, unregistered: false }), 'notice-stale');
+  assert.strictEqual(C.autoPlan({ states: ['stale'], marked: true, unregistered: true }), 'rewrite');
+});
