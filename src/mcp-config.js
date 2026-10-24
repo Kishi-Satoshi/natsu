@@ -115,6 +115,16 @@ function isNatsuBackup(base, name) {
   return typeof name === 'string' && name.startsWith(`${base}.natsu-`) && /\.natsu-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z\.bak$/.test(name);
 }
 
+// Claude デスクトップが動いているか分からないときの「続けて2回目」（0.10.1 CD-3。D85・Ruling R1）。
+// pending は1回目（RN2 で断った押し）の { action: 'register' | 'unregister', at }。同じボタンを 60 秒以内（ちょうども含む）にもう一度押したら書く。
+// 違うボタン・60 秒を越えた・時計が戻った・形の違う pending は、今の押しを新しい1回目にして断る。→ { write, pending }（書いたら pending は null）
+const UNKNOWN_CONFIRM_MS = 60 * 1000;
+function unknownStep({ pending, action, now }) {
+  const ok = isObj(pending) && pending.action === action && Number.isFinite(pending.at);
+  if (ok && now >= pending.at && now - pending.at <= UNKNOWN_CONFIRM_MS) return { write: true, pending: null };
+  return { write: false, pending: { action, at: now } };
+}
+
 // tasklist.exe に渡す決まった引数（決めたこと 149。claude.exe の名前だけを見る）
 const TASKLIST_ARGS = Object.freeze(['/FI', 'IMAGENAME eq claude.exe', '/NH', '/FO', 'CSV']);
 // tasklist の答え → Claude デスクトップ（claude.exe）が動いているか: true・false・null（分からない）（決めたこと 149）
@@ -125,5 +135,5 @@ function claudeRunningOf(stdout) {
 
 module.exports = {
   ENTRY_NAME, MARK, BACKUP_KEEP, CONFIG_NAME, DATA_ROOT, TASKLIST_ARGS, serverEntry, entryState, mergeEntry, removeEntry,
-  configPlaces, configFiles, placeCounts, backupName, isNatsuBackup, claudeRunningOf,
+  configPlaces, configFiles, placeCounts, backupName, isNatsuBackup, claudeRunningOf, UNKNOWN_CONFIRM_MS, unknownStep,
 };

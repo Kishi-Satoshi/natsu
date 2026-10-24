@@ -397,6 +397,7 @@ const { titleAt } = require('./titles');
 //     --mcp-gone  … 置く settings.json に、前に登録した印 mcpRegisteredFor（ファイル 1・版 0.9.4）を書く
 //     --mcp-stale … 置く設定ファイルの mcpServers の頭に、場所の違う NaTsu の登録（印あり）を足す
 //     --tasklist=<running|stopped|fail> … 偽の execFile が tasklist.exe に答える（動いている・動いていない・失敗）。呼んだ引数を out.tasklistCalls に
+//                        （0.10.1 CD-3: 「fail,running,fail」のように並べると呼ばれるたびに順に答える。MCP の場面で旗が無ければ stopped）
 //     --packaged・--protocol-default … app.isPackaged を真に・isDefaultProtocolClient を真に（LN-3。呼んだ口は out.protocolCalls）
 //     --argv=<JSON> … main を読む前の process.argv（[execPath, ...JSON]。LN-4 のリンクで起こされた形）
 //     --mcp-steps=<JSON> … 起動の後に手順を順に行い、出力して終える: ["status"]・["register"]・["unregister"]（mcp: の IPC。答えは out.ipc に）・
@@ -509,6 +510,8 @@ const dataHasNatsuFlag = flags.includes('--data-has-natsu');
 const claudeRaceFlag = flags.includes('--claude-race');
 const mcpSteps = flagVal('--mcp-steps') ? JSON.parse(flagVal('--mcp-steps')) : null;
 const mcpScene = Boolean(claudeConfigFlag || mcpSteps);
+// 0.10.1 CD-3: tasklist.exe への答えの並び（--tasklist=running・stopped・fail か「a,b,c」。MCP の場面で旗が無ければ stopped）
+const tasklistPlan = String(tasklistFlag || (mcpScene ? 'stopped' : '')).split(',').filter(Boolean);
 // 0.10.0 LN-3: --packaged（app.isPackaged が真）・--protocol-default（isDefaultProtocolClient が真）。呼んだ口を out.protocolCalls に
 const packagedFlag = flags.includes('--packaged');
 const protocolDefaultFlag = flags.includes('--protocol-default');
@@ -1742,11 +1745,13 @@ process.on('exit', () => {
     },
     execFile(_cmd, _args, _opts, cb) {
       const done = typeof _opts === 'function' ? _opts : cb;
-      // 0.10.0 C-2: --tasklist のときは tasklist.exe に答える（頭の注釈）
-      if (tasklistFlag && /(^|[\\/])tasklist\.exe$/i.test(String(_cmd))) {
+      // 0.10.0 C-2: --tasklist のときは tasklist.exe に答える（頭の注釈）。0.10.1 CD-3 で意図して変えた: MCP の場面では旗が無ければ stopped。
+      // 「a,b,c」なら呼ばれるたびに順に答え、尽きたら最後の答えのまま
+      if (tasklistPlan.length && /(^|[\\/])tasklist\.exe$/i.test(String(_cmd))) {
         tasklistCalls.push({ cmd: _cmd, args: _args, opts: typeof _opts === 'function' ? null : _opts });
-        const answer = tasklistFlag === 'running' ? '"claude.exe","1234","Console","1","123,456 K"\r\n' : 'INFO: No tasks are running which match the specified criteria.\r\n';
-        if (done) setImmediate(() => (tasklistFlag === 'fail' ? done(new Error('tasklist failed')) : done(null, answer, '')));
+        const kind = tasklistPlan[Math.min(tasklistCalls.length - 1, tasklistPlan.length - 1)];
+        const answer = kind === 'running' ? '"claude.exe","1234","Console","1","123,456 K"\r\n' : 'INFO: No tasks are running which match the specified criteria.\r\n';
+        if (done) setImmediate(() => (kind === 'fail' ? done(new Error('tasklist failed')) : done(null, answer, '')));
         return anyProxy();
       }
       if (done) setImmediate(() => done(new Error('not in test')));

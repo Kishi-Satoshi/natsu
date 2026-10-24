@@ -4646,10 +4646,16 @@
     busy: 'Claude デスクトップの設定ファイルを今は読めませんでした（ほかのプログラムが使っています）。少し待ってから、もう一度押してください。',
     readonly: 'Claude デスクトップの設定ファイルが読み取り専用のため、登録しませんでした。',
     gone: 'Claude デスクトップへの登録が消えています（Claude デスクトップが設定を書き直したときなど）。［登録し直す］を押してください。',
+    // 0.10.1 CD-3（D84・D85）: 動いている（RN1）・動いているか確かめられない（RN2。続けてもう一度押すと main が書く）ので断った
+    running: 'Claude デスクトップが動いているため、登録を変えませんでした。Claude デスクトップを終了してから、もう一度押してください（タスクトレイのアイコンからも終了してください）。',
+    unknown: 'Claude デスクトップが動いているか確かめられませんでした。Claude デスクトップを終了してから、もう一度押してください（タスクトレイのアイコンからも終了してください）。',
   };
   const MCP_DONE = '登録しました。Claude デスクトップを起動してください（動いていたなら、タスクトレイのアイコンからも終了してから起動し直してください）。';
   const MCP_OFF = '登録を外しました。Claude デスクトップを起動し直すと、NaTsu の道具が消えます。';
-  const MCP_RUNNING = 'Claude デスクトップが動いています。タスクトレイのアイコンからも終了してから押してください（動いたまま登録すると、Claude デスクトップを起動し直すまで読めません）。';
+  // 0.10.1 CD-3（D84）で書き直した（RN3）: 動いている間は main が書かずに断るので「動いたまま登録すると…」を外した
+  const MCP_RUNNING = 'Claude デスクトップが動いています。登録や外すときは、タスクトレイのアイコンからも終了してから押してください。';
+  // 0.10.1 CD-3（D85・RN5）: 確かめられないまま、続けて2回目の押しで変えた（登録でも外すでも）
+  const MCP_UNVERIFIED = 'Claude デスクトップが動いているか確かめられないまま、登録を変えました。Claude デスクトップが動いていたら、タスクトレイのアイコンからも終了してから起動し直してください。';
   let mcpBusy = false;
   const mcpStateOf = (st) => { const s = st && st.desktop && st.desktop.state; return typeof s === 'string' && Object.hasOwn(MCP_SHORT, s) ? s : 'busy'; };
   // msg を省くと、状態の長い文（none・same は空）。running が真なら頭に「動いています」の文
@@ -4686,7 +4692,10 @@
     const st = await mcpStatusNow();
     mcpBusy = false;
     const code = r && typeof r.code === 'string' && Object.hasOwn(MCP_LONG, r.code) ? r.code : 'busy';
-    renderMcp(st, r && r.ok ? okText : MCP_LONG[code], r && typeof r.running === 'boolean' ? r.running : undefined);
+    // 0.10.1 CD-3: 動いている・確かめられないので断った文と、確かめないまま変えた文には、頭の「動いています」を重ねない
+    const quiet = Boolean(r && (r.unverified === true || (!r.ok && (code === 'running' || code === 'unknown'))));
+    const msg = r && r.ok ? (r.unverified === true ? MCP_UNVERIFIED : okText) : MCP_LONG[code];
+    renderMcp(st, msg, quiet ? false : (r && typeof r.running === 'boolean' ? r.running : undefined));
   }
   $('mcpRegister').onclick = () => mcpAct(() => window.koeApp.mcpRegister(), MCP_DONE);
   $('mcpUnregister').onclick = () => mcpAct(() => window.koeApp.mcpUnregister(), MCP_OFF);

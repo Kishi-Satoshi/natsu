@@ -130,3 +130,59 @@ test('0.10.1 CD-2・決めたこと 13: 場所の1行はちょうど決まった
   const q = await run([['status'], ['status']], '--claude-config=data-two', STOP);
   assert.deepStrictEqual(placeLog(q), []);
 });
+
+// ---------------------------------------------------------------- 0.10.1 Task CD-3（D84・D85・Ruling R1）: Claude デスクトップが動いている間は書かない
+const tlArgs = ['/FI', 'IMAGENAME eq claude.exe', '/NH', '/FO', 'CSV'];
+
+test('0.10.1 CD-3・D84: 動いている（--tasklist=running）→ 登録も外すも running で断り、ファイルは1バイトも変わらず、控えも場所の1行も無い。外すときも tasklist を決まった引数で1回見る', S, async () => {
+  const o = await run([['files', 'before'], ['register'], ['unregister']], '--claude-config=others', '--mcp-stale', '--tasklist=running');
+  const r = ipcOf(o, 'mcp:register')[0];
+  const u = ipcOf(o, 'mcp:unregister')[0];
+  assert.deepStrictEqual([r.ok, r.code, r.running], [false, 'running', true], JSON.stringify(r));
+  assert.deepStrictEqual([u.ok, u.code, u.running], [false, 'running', true], JSON.stringify(u));
+  assert.strictEqual(o.claudeConfigs.roaming.text, o.snaps.before.roaming.text, '動いているのに書いた');
+  assert.deepStrictEqual(o.claudeConfigs.roaming.backups, []);
+  assert.deepStrictEqual(placeLog(o), []);
+  assert.deepStrictEqual(mcpLog(o), ['MCP の登録: 断った（running）（ファイル 1・控え 0）', 'MCP の登録: 断った（running）（ファイル 1・控え 0）']);
+  assert.strictEqual(o.tasklistCalls.length, 2);
+  for (const c of o.tasklistCalls) assert.deepStrictEqual([c.cmd, c.args], ['tasklist.exe', tlArgs]);
+  // 動いていない → 今どおり書ける。見つけた場所が無い → tasklist を見ずに noclaude
+  const s = await run([['register']], '--claude-config=others', STOP);
+  assert.strictEqual(ipcOf(s, 'mcp:register')[0].ok, true);
+  const n = await run([['register'], ['unregister']], '--claude-config=noclaude', '--tasklist=running');
+  assert.deepStrictEqual(ipcOf(n, 'mcp:register')[0].code, 'noclaude');
+  assert.deepStrictEqual(ipcOf(n, 'mcp:unregister')[0].code, 'noclaude');
+  assert.deepStrictEqual(n.tasklistCalls, []);
+});
+
+test('0.10.1 CD-3・D85: 分からない（--tasklist=fail）→ 1回目は unknown で断り、続けて2回目（間に状態を聞いても）で書く（unverified）。記録に確かめの1行', S, async () => {
+  const o = await run([['files', 'before'], ['register'], ['files', 'first'], ['status'], ['register'], ['status']], '--claude-config=others', '--tasklist=fail');
+  const [r1, r2] = ipcOf(o, 'mcp:register');
+  assert.deepStrictEqual([r1.ok, r1.code, r1.running], [false, 'unknown', null], JSON.stringify(r1));
+  assert.strictEqual(o.snaps.first.roaming.text, o.snaps.before.roaming.text, '1回目で書いた');
+  assert.deepStrictEqual([r2.ok, r2.state, r2.running, r2.unverified], [true, 'same', null, true], JSON.stringify(r2));
+  assert.deepStrictEqual(parse(o.claudeConfigs.roaming.text).mcpServers.natsu, entryOf(o));
+  assert.strictEqual(o.claudeConfigs.roaming.backups.length, 1);
+  assert.strictEqual(ipcOf(o, 'mcp:status')[1].desktop.state, 'same');
+  const lines = o.engineLog.filter((l) => /^MCP|Claude デスクトップの/.test(l));
+  assert.deepStrictEqual(lines, ['MCP の登録: 断った（unknown）（ファイル 1・控え 0）', 'Claude デスクトップの確かめ: 動いているか分からないまま、2回目の押しで書きます',
+    'Claude デスクトップの設定ファイルの場所: Roaming 1・Claude-Data 0・Packages 0', 'MCP の登録: 足した（ファイル 1・控え 1）']);
+  // 外すも同じ（2回目で外し、unverified）
+  const u = await run([['register'], ['unregister'], ['unregister']], '--claude-config=others', '--tasklist=stopped,fail,fail');
+  const [u1, u2] = ipcOf(u, 'mcp:unregister');
+  assert.deepStrictEqual([u1.code, u2.ok, u2.unverified], ['unknown', true, true]);
+  assert.ok(!('natsu' in parse(u.claudeConfigs.roaming.text).mcpServers));
+});
+
+test('0.10.1 CD-3・R1: 続けてでないときは書かない（違うボタン・2回目に動いていると分かった・間に別の押しがあった）', S, async () => {
+  const a = await run([['files', 'before'], ['register'], ['unregister']], '--claude-config=others', '--tasklist=fail');
+  assert.deepStrictEqual(ipcOf(a, 'mcp:register')[0].code, 'unknown');
+  assert.deepStrictEqual(ipcOf(a, 'mcp:unregister')[0].code, 'unknown', '違うボタンを2回目とみなした');
+  assert.strictEqual(a.claudeConfigs.roaming.text, a.snaps.before.roaming.text);
+  const b = await run([['register'], ['register'], ['register']], '--claude-config=others', '--tasklist=fail,running,fail');
+  assert.deepStrictEqual(ipcOf(b, 'mcp:register').map((r) => r.code), ['unknown', 'running', 'unknown'], '動いていると分かった後の押しを2回目とみなした');
+  assert.ok(!('natsu' in parse(b.claudeConfigs.roaming.text).mcpServers));
+  const c = await run([['register'], ['unregister'], ['register']], '--claude-config=others', '--tasklist=fail,stopped,fail');
+  assert.deepStrictEqual(ipcOf(c, 'mcp:register').map((r) => r.code), ['unknown', 'unknown'], '間に押しがあったのに2回目とみなした');
+  assert.deepStrictEqual(ipcOf(c, 'mcp:unregister')[0], { ok: true, state: 'none', running: false });
+});

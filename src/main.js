@@ -2163,12 +2163,44 @@ function mcpVerify(plans, entry, register) {
   }
   return '';
 }
-async function mcpRegister() {
-  const r = mcpApply(true);
-  return { ...r, running: await claudeDesktopRunning() };
+// 0.10.1 CD-3（D84・D85・Ruling R1）: Claude デスクトップが動いている間は、登録・外す・登録し直すのどれも書かない（0.10.0 の決めたこと 149 を変えた）。
+// 書く前に tasklist を1回見て、動いている → running で断る。分からない → 1回目は unknown で断り、同じボタンを続けて（60 秒以内・間にほかの押しが無い）
+// 押したら書く（答えに unverified）。1回目の印は main のメモリだけ（mcp:status では変えない。起動し直すと消える）
+let mcpUnknownPending = null;
+function mcpStateNow() {
+  try { return mcpDesktopState().state; } catch (_) { return 'busy'; }
+}
+async function mcpGuarded(register) {
+  const action = register ? 'register' : 'unregister';
+  const n = mcpFiles().length;
+  if (!n) { mcpUnknownPending = null; return { ...mcpApply(register), running: null }; }
+  const running = await claudeDesktopRunning();
+  if (running === true) {
+    mcpUnknownPending = null;
+    mcpLogLine('断った（running）', n, 0);
+    return { ok: false, state: mcpStateNow(), code: 'running', running: true };
+  }
+  let unverified = false;
+  if (running === null) {
+    const step = MC.unknownStep({ pending: mcpUnknownPending, action, now: Date.now() });
+    mcpUnknownPending = step.pending;
+    if (!step.write) {
+      mcpLogLine('断った（unknown）', n, 0);
+      return { ok: false, state: mcpStateNow(), code: 'unknown', running: null };
+    }
+    engineLog('Claude デスクトップの確かめ: 動いているか分からないまま、2回目の押しで書きます');
+    unverified = true;
+  } else {
+    mcpUnknownPending = null;
+  }
+  const r = mcpApply(register);
+  return r.ok && unverified ? { ...r, running, unverified: true } : { ...r, running };
+}
+function mcpRegister() {
+  return mcpGuarded(true);
 }
 function mcpUnregister() {
-  return mcpApply(false);
+  return mcpGuarded(false);
 }
 // natsu:// を利用者ごとに登録する（0.10.0 LN-3。起動のたび。パックした NaTsu で、今の場所の登録でないときだけ。判断は lib.protocolPlan）。投げない
 function registerNatsuProtocol() {

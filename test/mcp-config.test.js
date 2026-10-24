@@ -209,3 +209,19 @@ test('0.10.1 CD-1: placeCounts の表・configFiles は configPlaces の file �
   assert.deepStrictEqual(C.configFiles(opts), C.configPlaces(opts).map((p) => p.file));
   assert.strictEqual(C.DATA_ROOT, 'Claude-Data');
 });
+
+// ---------------------------------------------------------------- 0.10.1 Task CD-3（D85・Ruling R1）: 動いているか分からないときの「続けて2回目」
+test('0.10.1 CD-3・D85・R1: unknownStep の表（1回目は断る・同じボタンを 60 秒以内にもう一度なら書く・違うボタン・60 秒を越えた・時計が戻ったら1回目から）', T, () => {
+  assert.strictEqual(C.UNKNOWN_CONFIRM_MS, 60000);
+  const t0 = 1_000_000;
+  assert.deepStrictEqual(C.unknownStep({ pending: null, action: 'register', now: t0 }), { write: false, pending: { action: 'register', at: t0 } });
+  const first = { action: 'register', at: t0 };
+  assert.deepStrictEqual(C.unknownStep({ pending: first, action: 'register', now: t0 + 1 }), { write: true, pending: null });
+  assert.deepStrictEqual(C.unknownStep({ pending: first, action: 'register', now: t0 + 60000 }), { write: true, pending: null }, '60 秒ちょうどは続けて');
+  assert.deepStrictEqual(C.unknownStep({ pending: first, action: 'register', now: t0 + 60001 }), { write: false, pending: { action: 'register', at: t0 + 60001 } });
+  assert.deepStrictEqual(C.unknownStep({ pending: first, action: 'unregister', now: t0 + 5 }), { write: false, pending: { action: 'unregister', at: t0 + 5 } });
+  assert.deepStrictEqual(C.unknownStep({ pending: first, action: 'register', now: t0 - 1 }), { write: false, pending: { action: 'register', at: t0 - 1 } }, '時計が戻った');
+  for (const bad of [undefined, 'x', { action: 'register' }, { action: 'register', at: 'x' }]) {
+    assert.deepStrictEqual(C.unknownStep({ pending: bad, action: 'register', now: t0 }), { write: false, pending: { action: 'register', at: t0 } }, JSON.stringify(bad));
+  }
+});

@@ -137,7 +137,8 @@ test('登録を外すと natsu だけが消え、控えが1つ増え、登録の
   const off = parse(o.snaps.off.roaming.text);
   assert.deepStrictEqual(Object.keys(off.mcpServers), ['filesystem', 'memory']);
   assert.strictEqual(o.snaps.off.roaming.backups.length, 2);
-  assert.deepStrictEqual(ipcOf(o, 'mcp:unregister')[0], { ok: true, state: 'none' });
+  // 0.10.1 CD-3 で意図して変えた: 外すときも tasklist を見て、答えに running を添える（D84）
+  assert.deepStrictEqual(ipcOf(o, 'mcp:unregister')[0], { ok: true, state: 'none', running: false });
   assert.deepStrictEqual(ipcOf(o, 'mcp:status').map((s) => s.desktop.state), ['none', 'same']);
   const bk = o.claudeConfigs.roaming.backups;
   assert.strictEqual(bk.length, 3, JSON.stringify(bk));
@@ -163,11 +164,14 @@ test('決めたこと 26・方針 7: engine.log の MCP の行と画面への答
   for (const bad of ['claude_desktop_config', 'mcpServers', 'filesystem', 'server.js', '日本語', 'natsu-', ':\\\\', '/']) assert.ok(!answers.includes(bad), `答えに ${bad}: ${answers}`);
 });
 
-test('D75・決めたこと 149: 状態と登録の答えに、Claude デスクトップが動いているか（tasklist.exe を決まった引数で・シェルを通さない）。見られなければ null', S, async () => {
-  const on = await run([['status'], ['register']], '--claude-config=none', '--tasklist=running');
+// 0.10.1 CD-3 で意図して変えた（持ち主の答え D84。0.10.0 の決めたこと 149 の「動いていても登録は止めない」を逆にした）: 動いていれば running で断り、ファイルを変えない
+test('D75・決めたこと 149（0.10.1 D84 で意図して変えた）: 状態と登録の答えに、Claude デスクトップが動いているか（tasklist.exe を決まった引数で・シェルを通さない）。動いていれば登録を断る。見られなければ null', S, async () => {
+  const on = await run([['files', 'before'], ['status'], ['register']], '--claude-config=none', '--tasklist=running');
   assert.strictEqual(ipcOf(on, 'mcp:status')[0].desktop.running, true);
   assert.strictEqual(ipcOf(on, 'mcp:register')[0].running, true);
-  assert.strictEqual(ipcOf(on, 'mcp:register')[0].ok, true, '動いていても登録は止めない');
+  assert.deepStrictEqual([ipcOf(on, 'mcp:register')[0].ok, ipcOf(on, 'mcp:register')[0].code], [false, 'running'], '動いているのに登録した');
+  assert.deepStrictEqual(on.claudeConfigs.roaming, on.snaps.before.roaming, '動いているのにファイルを変えた');
+  assert.deepStrictEqual(mcpLog(on), ['MCP の登録: 断った（running）（ファイル 1・控え 0）']);
   assert.ok(on.tasklistCalls.length >= 2);
   for (const c of on.tasklistCalls) {
     assert.deepStrictEqual([c.cmd, c.args], ['tasklist.exe', ['/FI', 'IMAGENAME eq claude.exe', '/NH', '/FO', 'CSV']]);
