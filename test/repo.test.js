@@ -690,6 +690,7 @@ test('設定カードの並びは指定通り', () => {
     'ユーザー辞書（認識ヒント）',
     '要約（Claude Code）',
     'Claude との連携（MCP）',   // 0.10.0 C-3（MR8）で意図して変えた: 要約（Claude Code）の次に Claude との連携
+    '打ち合わせの質',   // 0.11.0 V-3（QM6）で意図して変えた: Claude との連携（MCP）の次に打ち合わせの質
     'ローカル AI',   // 第1d回 A-13（D19）で意図して変えた: カード「エンジン」を「オフライン」に。0.9.3 M-0（D54）で「ローカル AI」に
     'アップデート',
   ]);
@@ -739,7 +740,7 @@ test('設定の各カードが同じ深さにある（枠の外に出ていな�
   const sec = appHtml.slice(a, appHtml.indexOf('    </section>', a));
   const { heads, depth } = divDepthMap(sec);
   assert.strictEqual(depth, 0, '設定セクションの div が閉じ切れていない');
-  assert.strictEqual(heads.length, 12);   // 0.10.0 C-3 で「Claude との連携（MCP）」を足して 12（意図して変えた）。0.9.3 M-4 で「会議の検出」を足して 11（意図して変えた）。第1c回 Task C-2: カード「オンライン」を足して 5 つ。0.9.0 U-2 で項目ごとに分けて 9 つ（意図して変えた）。0.9.1 Q-3 で「話し声が無いとき」を足して 10
+  assert.strictEqual(heads.length, 13);   // 0.11.0 V-3 で「打ち合わせの質」を足して 13（意図して変えた）。0.10.0 C-3 で「Claude との連携（MCP）」を足して 12（意図して変えた）。0.9.3 M-4 で「会議の検出」を足して 11（意図して変えた）。第1c回 Task C-2: カード「オンライン」を足して 5 つ。0.9.0 U-2 で項目ごとに分けて 9 つ（意図して変えた）。0.9.1 Q-3 で「話し声が無いとき」を足して 10
   for (const h of heads) {
     assert.strictEqual(h.depth, heads[0].depth, `「${h.title}」だけ深さが違う（枠の外に出ている）`);
   }

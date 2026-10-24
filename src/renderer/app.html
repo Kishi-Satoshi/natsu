@@ -1284,6 +1284,37 @@
             </div>
             <div class="desc save-msg" id="mcpMsg"></div>
           </div>
+          <div class="card" data-sec="summary" id="qualityCardSet">
+            <!-- 0.11.0 V-3（QM6・QC1。0.9.2 の形）: 見出しの ⓘ・頭の1行・長い文は吹き出し・行は1行の説明と3つの選び肢（既定は「すべての会議で付ける」: P11 (b)） -->
+            <h2>打ち合わせの質<button type="button" class="setinfo" aria-expanded="false" aria-controls="setPopQuality" aria-label="「打ち合わせの質」の説明"><svg viewBox="0 0 20 20" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="10" cy="10" r="7"/><path d="M10 9v4.5M10 6.3h.01"/></svg></button></h2>
+            <div class="field setlead">
+              <div class="desc">要約の最後に、会議の進め方の目安を 25 点で付けます。</div>
+            </div>
+            <div class="setpop" id="setPopQuality" hidden>
+              <span class="setpop-arrow" aria-hidden="true"></span>
+              <div class="setpop-body">
+                <p class="setpop-head">目的と結論・抜け・重なり・決定事項・ToDo の具体さ・型の埋まり具合を 5 点ずつ見ます。</p>
+                <ul>
+                  <li>人の評価ではありません。</li>
+                  <li>同じ会議でも作り直すと 1 点ほど動くので、何回かの会議の流れで見てください。</li>
+                  <li>1on1 と採用面接・事前面談にも付けます。外すときは「1on1 と採用面接・事前面談を除いて付ける」を選びます。</li>
+                  <li>点を付けない会議にも、要約の最後に「次に気をつけること」は付きます。</li>
+                </ul>
+              </div>
+              <div class="setpop-foot"><button type="button" class="setpop-help" data-help="summary/summary-types">ヘルプで詳しく見る ↗</button><span class="setpop-esc">Esc で閉じる</span></div>
+            </div>
+            <div class="field frow" data-row="打ち合わせの質の点数">
+              <div class="flead">
+                <label for="qualityScore">打ち合わせの質の点数</label>
+                <div class="desc">人の評価ではなく、会議の進め方の目安です。</div>
+              </div>
+              <select id="qualityScore">
+                <option value="all">すべての会議で付ける</option>
+                <option value="on">1on1 と採用面接・事前面談を除いて付ける</option>
+                <option value="off">付けない</option>
+              </select>
+            </div>
+          </div>
           <div class="card" data-sec="offline">
             <!-- 第1d回 A-13（D19）: カード「エンジン」を「オフライン」に。カードの中の文字起こしの言葉は「PC の中の文字起こし」。0.10.0 LS-3（D59）で要約の欄を外した -->
             <!-- 0.9.0 見た目の直し: 項目の見出し「オフライン」と同じ言葉なので、カードの見出しは出さない（カードの名前はそのまま） -->
@@ -4292,6 +4323,8 @@
     $('autoStopMin').value = [5, 10, 15, 20, 30, 60].includes(Number(s.autoStopMin)) ? String(Number(s.autoStopMin)) : '10';
     // オンライン（第1c回 C-2）。送り先と同意の欄は 0.7.0 U-1（設計書 D5）で外した
     $('claudeExe').value = s.claudeExe || '';
+    // 0.11.0 V-3（QM6）: 打ち合わせの質の点数（既定は「すべての会議で付ける」。知らない値も既定を出す）
+    $('qualityScore').value = ['all', 'on', 'off'].includes(s.qualityScore) ? s.qualityScore : 'all';
     loadSpeaker();
     loadMics(s.micId || '');
   }
@@ -4689,6 +4722,7 @@
       // オンライン（第1c回 C-2）。送り先と同意のキーは 0.7.0 U-1 で外した（送らない。前の版の値は main が settings.json に残す）。
       // ログイン（第1d回 A-12 から Cloudflare Access の窓）は account:* だけ。画面にメールと確認コードの欄は無い（main は画面のメールを保存しない）
       claudeExe: $('claudeExe').value.trim(),
+      qualityScore: $('qualityScore').value,   // 0.11.0 V-3（QM6）
     };
     const prevClaudeExe = settings.claudeExe || '';
     const r = await window.koeApp.saveSettings(next);

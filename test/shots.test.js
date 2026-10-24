@@ -107,7 +107,8 @@ const ADDED_100 = [...SH1_100, ...C3_100, ...L1_100, ...L2_100, ...LS2_100];
 const NEW_101 = ['settings-mcp-running-light'];
 // 0.11.0 V-1: 会議の種類のプルダウンを開いた明暗・前の版の一般・その他のページ・録音中に種類を選んだ形（取り直し待ち・まだ基準が無い）
 // V-2: 打ち合わせの質のカードの明暗
-const NEW_110 = ['page-type-light', 'page-type-dark', 'page-type-undecided-light', 'live-type-light', 'page-quality-light', 'page-quality-dark'];
+// V-3: 設定のカード「打ち合わせの質」
+const NEW_110 = ['page-type-light', 'page-type-dark', 'page-type-undecided-light', 'live-type-light', 'page-quality-light', 'page-quality-dark', 'settings-quality-light'];
 // 0.10.1 で意図して変えた（版を 0.10.1 に上げる commit）: 持ち主が 2026-10-24 に settings-mcp-running-light（断った文 RN1）の画像を見て「OK」と言った。
 // CI run 40071461858（1dff338）の2回目・artifact 12552271208 の .after.png をバイトのまま基準にし（持ち主が見た画像とバイトで同じ）、取り直し待ちを空に戻した。
 // 撮る画面の並びの確かめ（下）は、0.10.1 で足した画面の名前として NEW_101 を使う
@@ -124,7 +125,9 @@ const RETAKE_110 = ['notes-page-light', 'notes-page-dark', 'notes-tabs-light', '
   'live-wave-light', 'live-wave-dark', 'live-silent-light', 'live-paused-dark', 'live-offline-light', 'live-offline-dark',
   'live-late-light', 'live-late-dark', 'live-late-zoom200-light',
   // V-2: 新しい形の要約の並びと打ち合わせの質のカード（足した画面）
-  'page-quality-light', 'page-quality-dark'];
+  'page-quality-light', 'page-quality-dark',
+  // V-3: 設定のカード「打ち合わせの質」（足した画面）と、項目「要約」を写す設定の画面（カードが1枚増える）
+  'settings-quality-light', 'settings-summary-light', 'settings-info-claude-light', 'settings-mcp-light', 'settings-info-mcp-light'];
 const img = (w, h, fill = [255, 255, 255, 255]) => ({ width: w, height: h, data: Buffer.from(Array.from({ length: w * h }, () => fill).flat()) });
 // 一時フォルダ（日本語と 𠮷 の名前。RF1 と同じ形）。テストの終わりに消す
 const tmp = (t, name) => {
@@ -161,7 +164,7 @@ test('G2: 撮る画面は決まった並び（第1b回の 13 と第1b2回の検�
     ...NEW_100,
     // 0.10.1 CD-3 で意図して変えた: 動いていたので断った文（RN1）の画面を足した（取り直し待ち・まだ基準が無い）
     ...NEW_101,
-    // 0.11.0 V-1 で意図して変えた: 会議の種類の画面4枚を足した（取り直し待ち・まだ基準が無い）。V-2 で打ち合わせの質のカードの明暗2枚を足した
+    // 0.11.0 V-1 で意図して変えた: 会議の種類の画面4枚を足した（取り直し待ち・まだ基準が無い）。V-2 で打ち合わせの質のカードの明暗2枚を、V-3 で設定のカード「打ち合わせの質」の1枚を足した
     ...NEW_110]);
   assert.deepStrictEqual(SH.SCREENS.filter((s) => s.page === 'overlay').map((s) => s.name), PS.screenNames());
   // 0.9.3 M-7 で意図して変えた: 会議の検出のパネル（page nudge）の5枚を録音バーのあと（いちばん後ろ）に足した
@@ -855,7 +858,8 @@ test('基準の画像（test/shots/win32）は今の app.html で撮ったもの
   // 値を今の app.html に合わせた（前の値は 4130627a…）
   // 0.11.0 V-1: 行の名前「会議の種類」・「メモの型」・群・録音中の種類の行と一言・手引き・札。変わる画面は RETAKE_110。値を今の app.html に合わせた（前の値は 1b081c36…）
   // 0.11.0 V-2: 要約の画面の並び（orderForView）・つまみの番号・打ち合わせの質のカード・コピーの順。変わる画面は RETAKE_110。値を今の app.html に合わせた（前の値は c114b59f…）
-  assert.strictEqual(sha, '4ee8365f5d60afb22d513cb3fd1b066c89ad08f791e817920062048848342d7c',
+  // 0.11.0 V-3: 設定のカード「打ち合わせの質」。変わる画面は RETAKE_110。値を今の app.html に合わせた（前の値は 4ee8365f…）
+  assert.strictEqual(sha, 'fa63fba9bc9c61d094db79c4aec53a8d97f2fbe0e33b84263029f760dba23794',
     'app.html が基準の画像を撮った時と違う。Windows の CI の画面の比べ（捲り棒のつまみも）を見て、基準を取り直してからこの値を直す');
 });
 

@@ -376,3 +376,77 @@ test('0.11.0 V-2（F11・P9）: qualityView が null ならカードも「/ 25�
   assert.ok(viewIds(l).includes('h7') && viewIds(l).includes('a1'), '助言の欄が無い');
   assert.deepStrictEqual(l.errors.map(fmt), []);
 });
+
+// ---------------------------------------------------------------- 0.11.0 V-3（QM6・QC1）: 設定のカード「打ち合わせの質」（0.9.2 の形）
+const openSettings = async (settings = {}, o = {}) => {
+  const saved = [];
+  const l = await load(APP, {
+    preloadSrc: PRELOAD,
+    returns: {
+      meetingTypes: TYPES, memoTypes: MEMOS,
+      getSettings: () => ({ ...require('./helpers/simrun.js').RETURNS.getSettings(), ...settings }),
+      saveSettings: (next) => { saved.push(next); return { ok: true }; },
+      ...(o.returns || {}),
+    },
+  });
+  await l.drain();
+  l.saved110 = saved;
+  return l;
+};
+const norm = (t) => String(t || '').replace(/\s+/g, ' ').trim();
+
+test('0.11.0 V-3（QC1）: カード「打ち合わせの質」は「Claude との連携（MCP）」の次。頭の1行・ⓘ の吹き出しの文・行「打ち合わせの質の点数」と3つの選び肢（「すべての会議で付ける」が先頭）', T, async () => {
+  const l = await openSettings();
+  const cards = $(l, 'tabSettings').querySelector('.scroll').children.filter((c) => c.classList.contains('card'));
+  const titles = cards.map((c) => norm(c.querySelector('h2').textContent));
+  const i = titles.indexOf('Claude との連携（MCP）');
+  assert.strictEqual(titles[i + 1], '打ち合わせの質');
+  const card = cards[i + 1];
+  assert.strictEqual(card.dataset.sec, 'summary');
+  assert.strictEqual(card.id, 'qualityCardSet');
+  assert.strictEqual(card.querySelector('.setinfo').getAttribute('aria-controls'), 'setPopQuality');
+  assert.strictEqual(norm(card.querySelector('.setlead .desc').textContent), '要約の最後に、会議の進め方の目安を 25 点で付けます。');
+  const pop = $(l, 'setPopQuality');
+  assert.strictEqual(norm(pop.querySelector('.setpop-head').textContent), '目的と結論・抜け・重なり・決定事項・ToDo の具体さ・型の埋まり具合を 5 点ずつ見ます。');
+  assert.deepStrictEqual(pop.querySelectorAll('li').map((x) => norm(x.textContent)), [
+    '人の評価ではありません。',
+    '同じ会議でも作り直すと 1 点ほど動くので、何回かの会議の流れで見てください。',
+    '1on1 と採用面接・事前面談にも付けます。外すときは「1on1 と採用面接・事前面談を除いて付ける」を選びます。',
+    '点を付けない会議にも、要約の最後に「次に気をつけること」は付きます。',
+  ]);
+  assert.strictEqual(norm(pop.querySelector('.setpop-help').textContent), 'ヘルプで詳しく見る ↗');
+  assert.strictEqual(norm(pop.querySelector('.setpop-esc').textContent), 'Esc で閉じる');
+  const row = card.querySelectorAll('[data-row]');
+  assert.deepStrictEqual(row.map((r) => r.dataset.row), ['打ち合わせの質の点数']);
+  assert.strictEqual(norm(row[0].querySelector('.desc').textContent), '人の評価ではなく、会議の進め方の目安です。');
+  const sel = $(l, 'qualityScore');
+  assert.deepStrictEqual(sel.children.map((o) => [o.getAttribute('value'), norm(o.textContent)]), [
+    ['all', 'すべての会議で付ける'], ['on', '1on1 と採用面接・事前面談を除いて付ける'], ['off', '付けない'],
+  ]);
+  assert.deepStrictEqual(l.errors.map(fmt), []);
+});
+
+test('0.11.0 V-3（QM6・P11 (b)）: 既定（設定に無い・知らない値）は「すべての会議で付ける」。選ぶと settings:save に qualityScore', T, async () => {
+  for (const [v, want] of [[undefined, 'all'], ['nope', 'all'], ['on', 'on'], ['off', 'off'], ['all', 'all']]) {
+    const l = await openSettings(v === undefined ? {} : { qualityScore: v });
+    assert.strictEqual($(l, 'qualityScore').value, want, String(v));
+  }
+  const l = await openSettings();
+  const sel = $(l, 'qualityScore');
+  sel.value = 'on';
+  $(l, 'tabSettings').dispatchEvent({ type: 'change', target: sel });
+  await l.drain();
+  assert.strictEqual(l.saved110.pop().qualityScore, 'on');
+  assert.deepStrictEqual(l.errors.map(fmt), []);
+});
+
+test('0.11.0 V-3: 設定の検索で「点数」と打つと、行「打ち合わせの質の点数」だけが出る', T, async () => {
+  const l = await openSettings();
+  const b = $(l, 'setSearch');
+  b.value = '点数';
+  b.dispatchEvent({ type: 'input', target: b });
+  await l.drain();
+  const visible = (el) => { for (let n = el; n && n.tagName && !n.tagName.startsWith('#'); n = n.parentNode) { if (n.id === 'settingsModal') return true; if (n.hidden || n.classList.contains('set-miss')) return false; } return true; };
+  assert.deepStrictEqual($(l, 'tabSettings').querySelectorAll('[data-row]').filter(visible).map((r) => r.dataset.row), ['打ち合わせの質の点数']);
+  assert.deepStrictEqual(l.errors.map(fmt), []);
+});

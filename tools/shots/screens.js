@@ -230,6 +230,8 @@ const SCREENS = [
   // 0.11.0 V-2: 新しい形の要約（締め → 型の見出し → 抜け・重なりチェック → 次に気をつけること）と打ち合わせの質のカードまで捲った形。足した画面（まだ基準が無い）
   { name: 'page-quality-light', page: 'app', theme: 'light', get answers() { return qualityAnswers(); }, act: OPEN_QUALITY },
   { name: 'page-quality-dark', page: 'app', theme: 'dark', get answers() { return qualityAnswers(); }, act: OPEN_QUALITY },
+  // 0.11.0 V-3: 項目「要約」のカード「打ち合わせの質」まで捲った形。足した画面（まだ基準が無い）
+  { name: 'settings-quality-light', page: 'app', theme: 'light', act: `${OPEN_SETTINGS}; ${NAV('setNavSummary')}; document.getElementById('qualityCardSet').scrollIntoView({ block: 'start' })` },
 ];
 // 0.9.0 O-3（RP9）: 録音バーの画面（形 → 地 → 拡大率 → 状態の順。撮る道具は形・地・拡大率の組ごとに窓を1つ開いて状態を act で替える）。
 // 録音は始めずに見た目だけを撮る（act は pill-states の見本を録音バーの DOM に当てる。撮るときだけ体の地にデスクトップの色を塗る）。
@@ -318,6 +320,8 @@ const RETAKE = new Set([
   'live-late-light', 'live-late-dark', 'live-late-zoom200-light',
   // V-2: 新しい形の要約の並びと打ち合わせの質のカード（足した画面）
   'page-quality-light', 'page-quality-dark',
+  // V-3: 設定のカード「打ち合わせの質」（足した画面）と、項目「要約」を写す設定の画面（カードが1枚増える）
+  'settings-quality-light', 'settings-summary-light', 'settings-info-claude-light', 'settings-mcp-light', 'settings-info-mcp-light',
 ]);
 const PERF = [{ name: 'open-2000-blocks', budgetMs: 500 }];   // 3回開いた中央値で見る
 const TIME_ZONE = 'Asia/Tokyo';
