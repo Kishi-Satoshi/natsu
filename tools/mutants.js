@@ -2220,4 +2220,5 @@ module.exports = [
   {"id": "rv-unconf-drop", "file": "src/memoTypes.js", "from": "    if (ci >= 0 && !foldedNames.length) {", "to": "    if (false) {", "tests": ["test/memoTypes.test.js"], "why": "0.11.0 点検の直し 1: 何も畳まなかったときに「未確認: なし」の行が残り、未確認の項目があるように見える"},
   {"id": "rv-sub-fold", "file": "src/memoTypes.js", "from": "    const hasSub = !sec.items.length && Boolean(next && next.head) && !known.has(key(next.head.text));", "to": "    const hasSub = false;", "tests": ["test/memoTypes.test.js"], "why": "0.11.0 点検の直し 2: 行の無い型の見出しの次が小見出しでも畳み、本文から親の見出しが消えて未確認に挙がる"},
   {"id": "rv-fill-sub", "file": "src/quality.js", "from": "      if (!want.has(k) && !stopSet.has(k) && cur !== null) continue;   // 型の見出しの下の小見出し: 親の根拠に数え続ける\n", "to": "", "tests": ["test/quality.test.js"], "why": "0.11.0 点検の直し 2: fillAxis が小見出しで親の型の見出しを切り、小見出しの下の根拠を数えず軸 5 が下がる"},
+  {"id": "rv-score-end", "file": "src/quality.js", "from": "|| isScoreHead(line) || isEndHead(line);", "to": "|| isScoreHead(line);", "tests": ["test/quality.test.js"], "why": "0.11.0 点検の直し 3: 採点の節の後の「**次に気をつけること**」などを採点の節として呑み込み、本文から助言が消える"},
 ];

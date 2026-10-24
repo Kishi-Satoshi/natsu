@@ -58,7 +58,10 @@ const isScoreHead = (line) => {
   const h = headText(line);
   return h !== null && /^打ち合わせの質(?:\([^()]*\)|:\d+\/25)?$/.test(h);
 };
-const isAnyHead = (line) => /^\s*#{1,4}\s/.test(String(line || '').normalize('NFKC')) || isScoreHead(line);
+// 0.11.0 点検の直し 3（R26）: 締めか助言の見出し（#・■・**…** のどの形でも。名前は END_HEADS と同じで、末尾の（…）は見ない）でも採点の節を終える
+const endKey = (h) => String(h || '').normalize('NFKC').replace(/\*+/g, '').replace(/\s+/g, '').replace(/\([^()]*\)$/, '');
+const isEndHead = (line) => { const h = headText(line); return h !== null && END_HEADS.some((n) => endKey(n) === endKey(h)); };
+const isAnyHead = (line) => /^\s*#{1,4}\s/.test(String(line || '').normalize('NFKC')) || isScoreHead(line) || isEndHead(line);
 
 // 答えから採点の節を全部外す → { body, lines（節が1つのときだけその行）, found（節の数） }
 function splitScore(md) {

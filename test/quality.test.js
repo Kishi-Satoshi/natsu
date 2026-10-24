@@ -179,3 +179,16 @@ test('点検の直し 2: fillAxis は型の見出しの下の小見出し（型�
   assert.strictEqual(rep.score, 5, '報告の型の小見出しの下の根拠を数えていない');
   assert.deepStrictEqual([...Q.END_HEADS], [...M.CLOSING_HEADINGS, M.ADVICE_HEAD]);
 });
+
+test('点検の直し 3: splitScore は採点の節を、締めか助言の見出し（■・**…** の形も）で終える（採点の後の次に気をつけることを呑み込まない）', () => {
+  const score = '## 打ち合わせの質（採点）\n目的と結論: 4 | a\n抜け・重なり: 3 | b\n決定事項: 4 | c';
+  for (const head of ['**次に気をつけること**', '■ 次に気をつけること', '■ 持ち越し', '**ToDo（誰が・何を・いつまでに）**', '## 次に気をつけること']) {
+    const r = Q.splitScore(`## 決定事項\n- 据え置き\n${score}\n${head}\n- 時間を決めてから話す`);
+    assert.strictEqual(r.found, 1, head);
+    assert.deepStrictEqual(r.lines, ['目的と結論: 4 | a', '抜け・重なり: 3 | b', '決定事項: 4 | c'], head);
+    assert.ok(r.body.includes(head) && r.body.includes('- 時間を決めてから話す'), `${head}: 採点の後の節を呑み込んだ`);
+  }
+  // 締めの名前でない ** の行や ■ の行は今どおり採点の節の中（読まずに捨てる）
+  const r2 = Q.splitScore(`${score}\n**合計: 11**\n■ 人ごとの点`);
+  assert.ok(!r2.body.includes('合計') && !r2.body.includes('人ごと'), r2.body);
+});
