@@ -81,6 +81,8 @@ const J = require('./jsonfile');
 const W = require('./winstate');
 // Claude デスクトップの設定に NaTsu の MCP の1項目を合わせる部品（0.10.0 C-1。純粋。読み書きはここで J を使う）
 const MC = require('./mcp-config');
+// 0.10.1 CD-2: 書いた後に読み直した中身が、書いた中身とちょうど同じかを見る（決めたこと 9）
+const { isDeepStrictEqual } = require('util');
 // エンジンの取り込み（第0b回 R7）。置き場所・記録・照らし（通信しない）とピン（版・URL・大きさ・SHA-256）
 const engineInstall = require('./engine-install');
 const { MANIFEST } = require('./engine-manifest');
@@ -2028,10 +2030,20 @@ const worseOf = (a, b) => (MCP_WORSE.indexOf(b) > MCP_WORSE.indexOf(a) ? b : a);
 function mcpPaths() {
   return { exe: process.execPath, script: path.join(app.getAppPath(), 'src', 'mcp', 'server.js'), dbDir: DB_INIT.dataDir };
 }
-function mcpFiles() {
+// 設定ファイルの場所 [{ file, kind }]（0.10.1 CD-1・CD-2: 新しい Store 版の場所 %LOCALAPPDATA%\Claude-Data\claude_<符号> も。決めたこと 1）
+function mcpPlaces() {
   let appData = '';
   try { appData = app.getPath('appData'); } catch (_) { appData = ''; }
-  return MC.configFiles({ appData, localAppData: process.env.LOCALAPPDATA || '', readdir: (d) => fs.readdirSync(d), exists: (p) => fs.existsSync(p) });
+  const isDir = (p) => { try { return fs.statSync(p).isDirectory(); } catch (_) { return false; } };
+  return MC.configPlaces({ appData, localAppData: process.env.LOCALAPPDATA || '', readdir: (d) => fs.readdirSync(d), exists: (p) => fs.existsSync(p), isDir });
+}
+function mcpFiles() {
+  return mcpPlaces().map((p) => p.file);
+}
+// 場所の種類の数の1行（パス・フォルダの名前・符号を書かない: 決めたこと 13。頭を「MCP」にしない）
+function mcpPlaceLine(places, boot) {
+  const c = MC.placeCounts(places);
+  return `${boot ? '起動のとき: ' : ''}Claude デスクトップの設定ファイルの場所: Roaming ${c.roaming}・Claude-Data ${c.data}・Packages ${c.packages}`;
 }
 // 前に登録した印（ファイルの数が 1 以上の整数のときだけ印とみなす）
 const mcpRegisteredMark = () => { const m = settings && settings.mcpRegisteredFor; return isPlainObj(m) && Number.isInteger(m.files) && m.files > 0; };
@@ -2059,6 +2071,16 @@ function mcpBackup(file) {
   try { names = fs.readdirSync(dir).filter((n) => MC.isNatsuBackup(base, n)).sort(); } catch (_) { names = []; }
   for (const n of names.slice(0, Math.max(0, names.length - MC.BACKUP_KEEP))) { try { fs.unlinkSync(path.join(dir, n)); } catch (_) { /* 消せなければ次に */ } }
 }
+// ファイルごとの状態（'same'・'none'・'stale'・'other'・'readonly'・'busy'・'broken'。読むだけ。0.10.1 CD-2 で mcpDesktopState から分けた）
+function mcpFileStates(files, entry) {
+  return files.map((file) => {
+    const p = mcpPlanFile(file, (cfg) => MC.mergeEntry(cfg, entry));
+    if (p.refuse) return p.refuse;
+    if (!p.changed) return 'same';
+    const r = J.readJsonFile(file, { shape: isPlainObj, maxBytes: MCP_MAX_BYTES });
+    return r.state === 'ok' ? MC.entryState(r.value, entry) : 'none';
+  });
+}
 // → { state, files }（読むだけ。書かない）
 function mcpDesktopState() {
   const files = mcpFiles();
@@ -2066,17 +2088,7 @@ function mcpDesktopState() {
   let entry;
   try { entry = MC.serverEntry(mcpPaths()); } catch (_) { return { state: 'busy', files: files.length }; }
   let state = 'same';
-  for (const file of files) {
-    const p = mcpPlanFile(file, (cfg) => MC.mergeEntry(cfg, entry));
-    let st;
-    if (p.refuse) st = p.refuse;
-    else if (!p.changed) st = 'same';
-    else {
-      const r = J.readJsonFile(file, { shape: isPlainObj, maxBytes: MCP_MAX_BYTES });
-      st = r.state === 'ok' ? MC.entryState(r.value, entry) : 'none';
-    }
-    state = worseOf(state, st);
-  }
+  for (const st of mcpFileStates(files, entry)) state = worseOf(state, st);
   // 前に登録したのに、どのファイルにも NaTsu の項目が無い（決めたこと 151）
   if (state === 'none' && mcpRegisteredMark()) state = 'gone';
   return { state, files: files.length };
@@ -2105,10 +2117,12 @@ function setMcpMark(mark) {
   const w = settingsWriter.now(settings);
   if (!w.ok) engineLog(`MCP の登録: 設定に書けませんでした（${errCode(w.error)}）`);
 }
-// 足す（register）か外す（unregister）。→ { ok, state, code? }
-function mcpApply(register) {
-  const files = mcpFiles();
+// 足す（register）か外す（unregister）。→ { ok, state, code? }。boot は起動のときの書き直し（0.10.1 CD-4。記録の頭だけが変わる）
+function mcpApply(register, { boot = false } = {}) {
+  const places = mcpPlaces();
+  const files = places.map((p) => p.file);
   if (!files.length) { mcpLogLine('断った（noclaude）', 0, 0); return { ok: false, state: 'noclaude', code: 'noclaude' }; }
+  engineLog(mcpPlaceLine(places, boot));
   const entry = MC.serverEntry(mcpPaths());
   const plans = files.map((f) => mcpPlanFile(f, (cfg) => (register ? MC.mergeEntry(cfg, entry) : MC.removeEntry(cfg))));
   const refused = plans.filter((p) => p.refuse).reduce((a, p) => (a ? worseOf(a, p.refuse) : p.refuse), '');
@@ -2127,19 +2141,27 @@ function mcpApply(register) {
       failed = worseOf(failed || 'same', e && e.readOnly ? 'readonly' : 'busy');
     }
   }
-  // 書いた後に読み直して確かめる（違えば busy）
-  if (!failed && register) {
-    for (const file of files) {
-      const r = J.readJsonFile(file, { shape: isPlainObj, maxBytes: MCP_MAX_BYTES });
-      if (r.state !== 'ok' || MC.entryState(r.value, entry) !== 'same') failed = 'busy';
-    }
-  }
+  // 書いた後に読み直して確かめる（違えば busy）。0.10.1 CD-2（決めたこと 9）: 書いたファイルは中身がちょうど書いたとおりか（natsu の項目もほかの鍵も）、
+  // 書かなかったファイルは natsu の項目が登録なら same・外すなら none か。外すときも確かめる
+  if (!failed) failed = mcpVerify(plans, entry, register);
   if (failed) { mcpLogLine(`断った（${failed}）`, files.length, backups); return { ok: false, state: failed, code: failed }; }
   const changed = plans.some((p) => p.changed);
   mcpLogLine(!changed ? '変えなかった' : !register ? '外した' : wasStale ? '直した' : '足した', files.length, backups);
   if (register) setMcpMark({ files: files.length, version: app.getVersion() });
   else setMcpMark(null);
   return { ok: true, state: register ? 'same' : 'none' };
+}
+// 書いた後の確かめ → '' か 'busy'（ほかのプログラム（動いている Claude デスクトップなど）が書く間に書き換えた）
+function mcpVerify(plans, entry, register) {
+  for (const p of plans) {
+    const r = J.readJsonFile(p.file, { shape: isPlainObj, maxBytes: MCP_MAX_BYTES });
+    if (p.changed) {
+      if (r.state !== 'ok' || !isDeepStrictEqual(r.value, p.config)) return 'busy';
+    } else if (register ? (r.state !== 'ok' || MC.entryState(r.value, entry) !== 'same') : (r.state === 'ok' && MC.entryState(r.value, entry) !== 'none')) {
+      return 'busy';
+    }
+  }
+  return '';
 }
 async function mcpRegister() {
   const r = mcpApply(true);

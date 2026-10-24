@@ -387,13 +387,20 @@ const { titleAt } = require('./titles');
 //     --claude-config=<場面> … 起動の前に Claude デスクトップの設定ファイルを置く（none: フォルダだけ・plain: 好みの設定だけ・others: 好みの設定と
 //                        ほかのサーバー2つと利用者の控え .bak・bom: others を BOM 付きで・broken: 途中で切れた JSON・array: []・other-natsu: 印の無い natsu・
 //                        readonly: others を読み取り専用で・msix: %APPDATA% はフォルダだけで、%LOCALAPPDATA%\Packages\Claude_…\LocalCache\Roaming\Claude に others・noclaude: どちらのフォルダも無い）
+//                        0.10.1 CD-2 で足した場面（%LOCALAPPDATA%\Claude-Data\claude_pzs8sxrjxfjjc = data・…\claude_zz9test0000aa = data2。Claude-Data の直の下に README.txt）:
+//                        msix-only: 前の場所だけに others・data: 新しい場所に見本と、ほかの道具の控え .rea.backup。前の場所は印 .user-data-left.* だけ・
+//                        data-msix: 新しい場所に見本（natsu 無し）・前の場所に others と今の NaTsu の natsu と印・data-two: data と data2 に見本・
+//                        roaming-data: %APPDATA%\Claude に others と新しい場所に見本・data-broken: 新しい場所が壊れた JSON・前の場所に others・
+//                        msix-broken: 新しい場所に見本・前の場所が壊れた JSON（見本は作った値で、JSON.stringify(v, null, 2)・終わりの改行なし）
+//     --data-has-natsu … data-msix の新しい場所の見本にも今の NaTsu の natsu を置く（手で写した形）（0.10.1 CD-2）
+//     --claude-race … NaTsu が Claude の設定ファイルを書いた直後に、preferences に鍵を1つ足して書き戻す（Claude が書き戻した形）（0.10.1 CD-2）
 //     --mcp-gone  … 置く settings.json に、前に登録した印 mcpRegisteredFor（ファイル 1・版 0.9.4）を書く
 //     --mcp-stale … 置く設定ファイルの mcpServers の頭に、場所の違う NaTsu の登録（印あり）を足す
 //     --tasklist=<running|stopped|fail> … 偽の execFile が tasklist.exe に答える（動いている・動いていない・失敗）。呼んだ引数を out.tasklistCalls に
 //     --packaged・--protocol-default … app.isPackaged を真に・isDefaultProtocolClient を真に（LN-3。呼んだ口は out.protocolCalls）
 //     --argv=<JSON> … main を読む前の process.argv（[execPath, ...JSON]。LN-4 のリンクで起こされた形）
 //     --mcp-steps=<JSON> … 起動の後に手順を順に行い、出力して終える: ["status"]・["register"]・["unregister"]（mcp: の IPC。答えは out.ipc に）・
-//                        ["files", 名前]（その時の設定ファイルを out.snaps に）・["sleep", ms]・["save", 足す設定]（画面と同じ settings:save）・["second-instance", argv]（2つ目の起動）・["ipc-raw", 名前, 引数]。出力: claudeConfigs（roaming・msix ごとに text（BOM も含む）・
+//                        ["files", 名前]（その時の設定ファイルを out.snaps に）・["sleep", ms]・["save", 足す設定]（画面と同じ settings:save）・["second-instance", argv]（2つ目の起動）・["ipc-raw", 名前, 引数]。出力: bootConfigs（0.10.1 CD-4: 手順の前の claudeConfigs）・claudeConfigs（roaming・msix・data・data2 ごとに text（BOM も含む）・
 //                        backups（NaTsu の控えの名前）・backupTexts・others（ほかのファイルの名前）。フォルダが無ければ null）・notices・engineLog・settingsText・dataDir
 // 画面へ送った知らせと進み具合は、送った順に out.seq へ残す。進み具合が初めて「使える」（whisperReady・sumReady）と
 // 言ったときの engine:status を out.atReady に、壊れた知らせを送ったときの engine:status を out.atBroken に残す
@@ -497,6 +504,9 @@ const claudeConfigFlag = flagVal('--claude-config');
 const mcpGoneFlag = flags.includes('--mcp-gone');
 const mcpStaleFlag = flags.includes('--mcp-stale');
 const tasklistFlag = flagVal('--tasklist');
+// 0.10.1 CD-2: --data-has-natsu（data-msix の新しい場所にも今の NaTsu の natsu）・--claude-race（NaTsu が書いた直後に Claude が書き戻した形）
+const dataHasNatsuFlag = flags.includes('--data-has-natsu');
+const claudeRaceFlag = flags.includes('--claude-race');
 const mcpSteps = flagVal('--mcp-steps') ? JSON.parse(flagVal('--mcp-steps')) : null;
 const mcpScene = Boolean(claudeConfigFlag || mcpSteps);
 // 0.10.0 LN-3: --packaged（app.isPackaged が真）・--protocol-default（isDefaultProtocolClient が真）。呼んだ口を out.protocolCalls に
@@ -855,8 +865,52 @@ process.on('exit', () => {
   const appDataDir = path.join(tmp, 'AppData-Roaming-設定𠮷');
   fs.mkdirSync(appDataDir, { recursive: true });
   const CLAUDE_CONFIG = 'claude_desktop_config.json';
-  const claudeDirs = { roaming: path.join(appDataDir, 'Claude'), msix: path.join(localAppData, 'Packages', 'Claude_pzs8sxrjxfjjc', 'LocalCache', 'Roaming', 'Claude') };
-  if (claudeConfigFlag) {
+  // 0.10.1 CD-2: data・data2 は新しい Store 版の場所（%LOCALAPPDATA%\Claude-Data\claude_<符号>。data2 の符号は作ったもの）
+  const claudeDataRoot = path.join(localAppData, 'Claude-Data');
+  const claudeDirs = {
+    roaming: path.join(appDataDir, 'Claude'), msix: path.join(localAppData, 'Packages', 'Claude_pzs8sxrjxfjjc', 'LocalCache', 'Roaming', 'Claude'),
+    data: path.join(claudeDataRoot, 'claude_pzs8sxrjxfjjc'), data2: path.join(claudeDataRoot, 'claude_zz9test0000aa'),
+  };
+  // 0.10.1 CD-2 の場面（頭の注釈）。今の NaTsu の登録（main の mcpPaths と同じ形）・新しい場所の形の見本（作った値。JSON.stringify(v, null, 2)・終わりの改行なし）
+  const NEW_CLAUDE_SCENES = new Set(['msix-only', 'data', 'data-msix', 'data-two', 'roaming-data', 'data-broken', 'msix-broken']);
+  if (claudeConfigFlag && NEW_CLAUDE_SCENES.has(claudeConfigFlag)) {
+    const OTHERS = {
+      globalShortcut: 'Ctrl+Space',
+      mcpServers: { filesystem: { command: 'npx', args: ['-y', '@modelcontextprotocol/server-filesystem', 'C:\\docs'] }, memory: { command: 'node', args: ['mem.js'], env: { K: 'v' } } },
+      theme: 'dark',
+    };
+    const natsuNow = { command: process.execPath, args: [path.join(ROOT, 'src', 'mcp', 'server.js')], env: { ELECTRON_RUN_AS_NODE: '1', NATSU_MCP: '1', NATSU_DATA_DIR: path.join(userData, 'data') } };
+    const sample = (withNatsu) => ({
+      mcpServers: { 'sample-tool': { command: 'node', args: ['tool.js'] }, ...(withNatsu ? { natsu: natsuNow } : {}) },
+      sampleFolder: 'C:\\見本\\𠮷',
+      preferences: {
+        menuBarEnabled: true, sidebarMode: 'wide', allowedOrigins: [], trustedFolders: ['C:\\見本'],
+        folderGrants: { '00000000-0000-4000-8000-000000000001': { path: 'C:\\見本', ok: true }, '00000000-0000-4000-8000-000000000002': { path: 'D:\\作業', ok: false } },
+        paneWidth: 320, nudgeSeen: false, userDataOutsidePackageAnswer: true,
+        nested: { 'starred.sessions': {}, 'mode.00000000-0000-4000-8000-000000000003': 'auto', count: 3 },
+      },
+    });
+    const put = (dir, name, body) => { fs.mkdirSync(dir, { recursive: true }); fs.writeFileSync(path.join(dir, name), body); };
+    const js = (v) => JSON.stringify(v, null, 2);
+    const LEFT = '.user-data-left.claude_pzs8sxrjxfjjc';
+    const BROKEN = '{\n  "mcpServers": {\n    "filesystem": {';
+    const sc = claudeConfigFlag;
+    if (sc === 'data' || sc === 'data-two' || sc === 'data-msix' || sc === 'msix-broken' || sc === 'roaming-data') {
+      fs.mkdirSync(claudeDataRoot, { recursive: true });
+      fs.writeFileSync(path.join(claudeDataRoot, 'README.txt'), 'sample');
+      put(claudeDirs.data, CLAUDE_CONFIG, js(sample(sc === 'data-msix' && dataHasNatsuFlag)));
+    }
+    if (sc === 'data') {
+      fs.writeFileSync(path.join(claudeDirs.data, `${CLAUDE_CONFIG}.rea.backup`), '{"ほかの道具の控え": true}');
+      put(claudeDirs.msix, LEFT, '');
+    }
+    if (sc === 'data-two') put(claudeDirs.data2, CLAUDE_CONFIG, js(sample(false)));
+    if (sc === 'data-msix') { put(claudeDirs.msix, CLAUDE_CONFIG, js({ ...OTHERS, mcpServers: { ...OTHERS.mcpServers, natsu: natsuNow } })); put(claudeDirs.msix, LEFT, ''); }
+    if (sc === 'msix-only') put(claudeDirs.msix, CLAUDE_CONFIG, js(OTHERS));
+    if (sc === 'roaming-data') put(claudeDirs.roaming, CLAUDE_CONFIG, js(OTHERS));
+    if (sc === 'data-broken') { put(claudeDirs.data, CLAUDE_CONFIG, BROKEN); put(claudeDirs.msix, CLAUDE_CONFIG, js(OTHERS)); }
+    if (sc === 'msix-broken') put(claudeDirs.msix, CLAUDE_CONFIG, BROKEN);
+  } else if (claudeConfigFlag) {
     const OTHERS = {
       globalShortcut: 'Ctrl+Space',
       mcpServers: { filesystem: { command: 'npx', args: ['-y', '@modelcontextprotocol/server-filesystem', 'C:\\docs'] }, memory: { command: 'node', args: ['mem.js'], env: { K: 'v' } } },
@@ -1723,6 +1777,20 @@ process.on('exit', () => {
   const orig = Module._load;
   let dbClient = null;   // main の客（第2a1回 M-2b）
   const trace = [];   // 第2a1回 M-3: 客の頼みと下書きの書き消しの順（out.trace）
+  // 0.10.1 CD-2: --claude-race。NaTsu が Claude デスクトップの設定ファイルを書いた直後に、Claude が好みの設定を1つ足して書き戻した形にする
+  if (claudeRaceFlag) {
+    const Jm = require(path.join(ROOT, 'src', 'jsonfile.js'));
+    const origWrite = Jm.writeJsonFile;
+    Jm.writeJsonFile = function writeRaced(file, value, opts) {
+      const r = origWrite.call(this, file, value, opts);
+      if (path.basename(String(file)) === 'claude_desktop_config.json') {
+        const v = JSON.parse(fs.readFileSync(file, 'utf8'));
+        v.preferences = { ...(v.preferences || {}), raceWrittenByClaude: true };
+        fs.writeFileSync(file, JSON.stringify(v, null, 2));
+      }
+      return r;
+    };
+  }
   const MAIN = path.join(ROOT, 'src', 'main.js');
   const SRC = path.join(ROOT, 'src') + path.sep;
   // 場面の faults: src/ の中のファイル（main・store・jsonfile など）が読む fs にだけ効く
@@ -2603,6 +2671,7 @@ process.on('exit', () => {
   // 0.10.0 C-2: Claude デスクトップへの MCP の登録の場面（--mcp-steps。頭の注釈）。手順を順に行い、出力して終える
   if (mcpSteps) {
     await sleep(50);
+    out.bootConfigs = claudeConfigsNow();   // 0.10.1 CD-4: 起動の後（手順の前）の設定ファイル
     out.ipc = [];
     out.snaps = {};
     const CH = { status: 'mcp:status', register: 'mcp:register', unregister: 'mcp:unregister' };
