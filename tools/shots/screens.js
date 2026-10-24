@@ -223,15 +223,15 @@ const SCREENS = [
   },
   // 0.11.0 V-1（計画 docs/plans/2026-10-22-110.md の「取り直す画面（RETAKE）」）: 会議の種類のプルダウンを開いた形（群・自動。撮るときは欄を
   // 一覧の形（size）にして中身を見せる）と「メモの型」・メモのタブの手引き（商談を手で選び、メモが BANTC の雛形のページ）。前の版の一般・その他の
-  // ページが「自動」と決まらなかった文で出る形。録音中に商談を選び、メモのタブに切り替わって見出しと手引きが出た形（P17）。足した画面（まだ基準が無い）
+  // ページが「自動」と決まらなかった文で出る形。録音中に商談を選び、メモのタブに切り替わって見出しと手引きが出た形（P17）。足した画面（版を 0.11.0 に上げる commit で、持ち主が OK と言った CI の画像を基準にした）
   { name: 'page-type-light', page: 'app', theme: 'light', get answers() { return typeAnswers(); }, act: OPEN_TYPE_LIST },
   { name: 'page-type-dark', page: 'app', theme: 'dark', get answers() { return typeAnswers(); }, act: OPEN_TYPE_LIST },
   { name: 'page-type-undecided-light', page: 'app', theme: 'light', get answers() { return undecidedAnswers(); }, act: OPEN_PAGE },
   { name: 'live-type-light', page: 'app', theme: 'light', get answers() { return liveTypeAnswers(); }, act: LIVE_PICK_SALES },
-  // 0.11.0 V-2: 新しい形の要約（締め → 型の見出し → 抜け・重なりチェック → 次に気をつけること）と打ち合わせの質のカードまで捲った形。足した画面（まだ基準が無い）
+  // 0.11.0 V-2: 新しい形の要約（締め → 型の見出し → 抜け・重なりチェック → 次に気をつけること）と打ち合わせの質のカードまで捲った形。足した画面（版を 0.11.0 に上げる commit で基準にした）
   { name: 'page-quality-light', page: 'app', theme: 'light', get answers() { return qualityAnswers(); }, act: OPEN_QUALITY },
   { name: 'page-quality-dark', page: 'app', theme: 'dark', get answers() { return qualityAnswers(); }, act: OPEN_QUALITY },
-  // 0.11.0 V-3: 項目「要約」のカード「打ち合わせの質」まで捲った形。足した画面（まだ基準が無い）
+  // 0.11.0 V-3: 項目「要約」のカード「打ち合わせの質」まで捲った形。足した画面（版を 0.11.0 に上げる commit で基準にした）
   { name: 'settings-quality-light', page: 'app', theme: 'light', act: `${OPEN_SETTINGS}; ${NAV('setNavSummary')}; document.getElementById('qualityCardSet').scrollIntoView({ block: 'start' })` },
 ];
 // 0.9.0 O-3（RP9）: 録音バーの画面（形 → 地 → 拡大率 → 状態の順。撮る道具は形・地・拡大率の組ごとに窓を1つ開いて状態を act で替える）。
@@ -307,23 +307,10 @@ const OVL_094 = (states) => PS.FORMS.flatMap((form) => Object.keys(PS.DESKS).fla
 // settings-info-claude-light・settings-mcp-light・settings-info-mcp-light）のその行のほかに違いは無い（左の列の印の 1 段の色の揺れは、同じ app.html の2つの run の間にもある）
 // 0.10.1（版を 0.10.1 に上げる commit）: 持ち主が 2026-10-24 に settings-mcp-running-light（CD-3 の断った文 RN1）の画像を見て「OK」と言ったので、
 // CI run 40071461858（1dff338）・artifact 12552271208 の .after.png をバイトのまま基準にし、空に戻した
-// 0.11.0（計画 docs/plans/2026-10-22-110.md の「取り直す画面（RETAKE）」）: タスクごとに足す。持ち主が見比べで OK と言ったら、版の commit で基準にして空に戻す。
-// M-1（R7）: 会議の種類の名前と説明を付け直したので、種類の行を写すページの画面（CI run 40079245997 で違いが出た 8 枚。検索の窓の後ろのページも）
-const RETAKE = new Set([
-  'notes-page-light', 'notes-page-dark', 'notes-tabs-light', 'notes-collapsed-light',
-  'page-menu-link-light', 'page-menu-link-dark', 'page-summary-lock-light', 'search-palette-light',
-  // P-12（R7・R15）: 種類の欄が「自動（文字起こしから判定）」と灰色の「自動判定: {名前}」になるので、種類の行を写す残りの画面も
-  'notes-page-zoom200-light',
-  // V-1: 行の名前「会議の種類」と「メモの型」。足した画面と、録音中のページを写す画面（種類の行と一言: P10 (a)）
-  'page-type-light', 'page-type-dark', 'page-type-undecided-light', 'live-type-light',
-  'live-light', 'live-dark', 'live-banner-light', 'live-banner-dark', 'live-banner-zoom200-dark', 'live-quiet-light', 'live-quiet-dark',
-  'live-wave-light', 'live-wave-dark', 'live-silent-light', 'live-paused-dark', 'live-offline-light', 'live-offline-dark',
-  'live-late-light', 'live-late-dark', 'live-late-zoom200-light',
-  // V-2: 新しい形の要約の並びと打ち合わせの質のカード（足した画面）
-  'page-quality-light', 'page-quality-dark',
-  // V-3: 設定のカード「打ち合わせの質」（足した画面）と、項目「要約」を写す設定の画面（カードが1枚増える）
-  'settings-quality-light', 'settings-summary-light', 'settings-info-claude-light', 'settings-mcp-light', 'settings-info-mcp-light', 'settings-mcp-running-light',
-]);
+// 0.11.0（版を 0.11.0 に上げる commit）: 持ち主が 2026-10-24 に取り直しの見比べ（37 枚。V-5 の page-type-light・page-type-dark を含む）を見て
+// 「OK（版を 0.11.0 に上げてよい）」と言ったので、CI run 40142063730（1a46130）・artifact 12578889430 の .after.png（37 枚）をバイトのまま基準にし、空に戻した
+// （持ち主が見た 1e6a4c2 の画像との違いは、左の列の印の 1 段の色の揺れだけ）
+const RETAKE = new Set([]);
 const PERF = [{ name: 'open-2000-blocks', budgetMs: 500 }];   // 3回開いた中央値で見る
 const TIME_ZONE = 'Asia/Tokyo';
 const TOLERANCE = 2;   // 色の差（0〜255）がこれ以下の画素は同じとみなす。CI の機械の CPU ごとの描き方の1段の差を拾わないため（揺れの確かめ judgePair は 0 で見る）

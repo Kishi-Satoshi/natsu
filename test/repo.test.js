@@ -588,7 +588,9 @@ test('README が現行の機能名と一致している', () => {
   assert.ok(!readme.includes('会議タイプ'), '旧名「会議タイプ」が残っている');
   assert.ok(!readme.includes('全文検索'), '旧名「全文検索」が残っている');
   assert.ok(!readme.includes('Markdown書き出し'), '無くなった機能の記述が残っている');
-  assert.ok(readme.includes('要約タイプ'));
+  // 0.11.0 G で意図して変えた: 欄の名前は「会議の種類」（決めたこと 3）。一般・その他は無い（P12）
+  assert.ok(readme.includes('会議の種類') && readme.includes('メモの型') && readme.includes('打ち合わせの質'));
+  assert.ok(!readme.includes('要約タイプ'), '旧名「要約タイプ」が残っている');
   assert.ok(readme.includes('文字起こし検索'));
 });
 
