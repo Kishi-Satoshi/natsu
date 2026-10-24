@@ -186,3 +186,60 @@ test('0.10.1 CD-3・R1: 続けてでないときは書かない（違うボタ�
   assert.deepStrictEqual(ipcOf(c, 'mcp:register').map((r) => r.code), ['unknown', 'unknown'], '間に押しがあったのに2回目とみなした');
   assert.deepStrictEqual(ipcOf(c, 'mcp:unregister')[0], { ok: true, state: 'none', running: false });
 });
+
+// ---------------------------------------------------------------- 0.10.1 Task CD-4（D83・D86）: 起動のときに黙って登録し直す
+const GONE = 'Claude デスクトップへの登録が消えています。［設定を開く］で［登録し直す］を押してください。';
+const STALE = 'NaTsu の置き場所が変わったため、Claude から議事録を読めなくなっています。設定の「要約」で［登録し直す］を押してください。';
+const RN4 = 'Claude との連携の登録を直します。Claude デスクトップを終了してから［登録し直す］を押してください（タスクトレイのアイコンからも終了してください）。';
+const mcpNotices = (o) => o.notices.filter((n) => n && typeof n === 'object' && [GONE, STALE, RN4].includes(n.text));
+
+test('0.10.1 CD-4・D83: 前に登録した人の新しい場所に無い（data-msix --mcp-gone）・動いていない → 起動のときに黙って新しい場所に書き、知らせを出さない。前の場所は変わらない', S, async () => {
+  const o = await run([['files', 'boot'], ['status']], '--claude-config=data-msix', '--mcp-gone', STOP);
+  assert.deepStrictEqual(parse(o.snaps.boot.data.text).mcpServers.natsu, entryOf(o), '起動のときに書き直さなかった');
+  assert.deepStrictEqual(o.snaps.boot.data.backups.length, 1);
+  assert.deepStrictEqual(o.snaps.boot.msix.backups, [], '前の場所を書き換えた');
+  assert.deepStrictEqual(mcpNotices(o), [], '黙って書き直したのに知らせた');
+  assert.deepStrictEqual(ipcOf(o, 'mcp:status')[0].desktop.state, 'same');
+  assert.deepStrictEqual(placeLog(o), ['起動のとき: Claude デスクトップの設定ファイルの場所: Roaming 0・Claude-Data 1・Packages 1']);
+  assert.deepStrictEqual(mcpLog(o), ['MCP の登録: 足した（ファイル 2・控え 1）']);
+  assert.deepStrictEqual(JSON.parse(o.settingsText).mcpRegisteredFor, { files: 2, version: PKG.version });
+  assert.strictEqual(o.tasklistCalls.length, 2, '起動の確かめで tasklist を1回・状態で1回');
+  // 場所が古い（印のある古い natsu）も黙って直す
+  const st = await run([], '--claude-config=others', '--mcp-stale', '--mcp-gone', STOP);
+  assert.deepStrictEqual(parse(st.claudeConfigs.roaming.text).mcpServers.natsu, entryOf(st));
+  assert.deepStrictEqual(mcpNotices(st), []);
+  assert.deepStrictEqual(mcpLog(st), ['MCP の登録: 直した（ファイル 1・控え 1）']);
+});
+
+test('0.10.1 CD-4・D86: 動いている・分からないときは書かずに RN4 が1回（gone・stale の知らせは出ない）。起動ごとに tasklist は1回', S, async () => {
+  for (const tl of ['--tasklist=running', '--tasklist=fail']) {
+    const o = await run([['files', 'boot']], '--claude-config=data-msix', '--mcp-gone', tl);
+    assert.ok(!('natsu' in parse(o.snaps.boot.data.text).mcpServers), `${tl}: 動いているのに書いた`);
+    assert.deepStrictEqual(o.snaps.boot.data.backups, []);
+    assert.deepStrictEqual(mcpNotices(o), [{ text: RN4, action: 'settings-summary' }], tl);
+    assert.strictEqual(o.tasklistCalls.length, 1, tl);
+    assert.deepStrictEqual(placeLog(o), [], tl);
+  }
+  const s2 = await run([], '--claude-config=others', '--mcp-stale', '--mcp-gone', '--tasklist=running');
+  assert.deepStrictEqual(mcpNotices(s2), [{ text: RN4, action: 'settings-summary' }]);
+});
+
+test('0.10.1 CD-4: 登録したことの無い人・外した人には書かず、知らせず、tasklist も見ない', S, async () => {
+  const o = await run([['files', 'boot']], '--claude-config=data-msix', STOP);
+  assert.ok(!('natsu' in parse(o.snaps.boot.data.text).mcpServers), '登録していない人に書いた');
+  assert.deepStrictEqual([mcpNotices(o), o.tasklistCalls], [[], []]);
+});
+
+test('0.10.1 CD-4: 書けないファイルがある（msix-broken・other-natsu）・書いてみて確かめで違った（--claude-race）→ 書き直さず、今の知らせ（gone）。RN4 ではない', S, async () => {
+  const b = await run([['files', 'boot']], '--claude-config=msix-broken', '--mcp-gone', STOP);
+  assert.ok(!('natsu' in parse(b.snaps.boot.data.text).mcpServers));
+  assert.deepStrictEqual(b.snaps.boot.data.backups, []);
+  assert.deepStrictEqual(b.tasklistCalls, [], '書けないのに tasklist を見た');
+  assert.deepStrictEqual(mcpNotices(b), [{ text: GONE, action: 'settings-summary' }]);
+  const t = await run([['files', 'boot']], '--claude-config=other-natsu', '--mcp-gone', STOP);
+  assert.strictEqual(parse(t.snaps.boot.roaming.text).mcpServers.natsu.command, 'other.exe', '別の natsu を奪った');
+  assert.deepStrictEqual(t.tasklistCalls, []);
+  const r = await run([], '--claude-config=data-msix', '--mcp-gone', '--claude-race', STOP);
+  assert.deepStrictEqual(mcpNotices(r), [{ text: GONE, action: 'settings-summary' }]);
+  assert.deepStrictEqual(JSON.parse(r.settingsText).mcpRegisteredFor, { files: 1, version: '0.9.4' }, '確かめで違ったのに登録の印を書き換えた');
+});

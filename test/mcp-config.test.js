@@ -225,3 +225,24 @@ test('0.10.1 CD-3・D85・R1: unknownStep の表（1回目は断る・同じボ�
     assert.deepStrictEqual(C.unknownStep({ pending: bad, action: 'register', now: t0 }), { write: false, pending: { action: 'register', at: t0 } }, JSON.stringify(bad));
   }
 });
+
+// ---------------------------------------------------------------- 0.10.1 Task CD-4（D83・D86）: 起動のときに黙って書き直すか
+test('0.10.1 CD-4・D83: autoPlan の表（印が無い・全部 same・欠けた/古い場所があって全部書ける・書けないファイルが混ざる・書けないファイルだけ・空）', T, () => {
+  const P = (states, marked) => C.autoPlan({ states, marked });
+  assert.strictEqual(P(['stale'], false), 'notice-stale');
+  assert.strictEqual(P(['same', 'stale', 'none'], false), 'notice-stale');
+  assert.strictEqual(P(['none'], false), 'none');
+  assert.strictEqual(P(['stale', 'broken'], false), 'none');
+  assert.strictEqual(P(['same', 'same'], true), 'none');
+  assert.strictEqual(P(['none', 'same'], true), 'rewrite');
+  assert.strictEqual(P(['stale'], true), 'rewrite');
+  assert.strictEqual(P(['none', 'stale', 'same'], true), 'rewrite');
+  assert.strictEqual(P(['stale', 'broken'], true), 'notice-stale');
+  assert.strictEqual(P(['none', 'other'], true), 'notice-gone');
+  assert.strictEqual(P(['none', 'readonly', 'same'], true), 'notice-gone');
+  assert.strictEqual(P(['none', 'busy'], true), 'notice-gone');
+  assert.strictEqual(P(['broken'], true), 'none');
+  assert.strictEqual(P(['same', 'other'], true), 'none');
+  assert.strictEqual(P([], true), 'none');
+  assert.strictEqual(C.autoPlan({ states: undefined, marked: true }), 'none');
+});

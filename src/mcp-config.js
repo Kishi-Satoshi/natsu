@@ -115,6 +115,18 @@ function isNatsuBackup(base, name) {
   return typeof name === 'string' && name.startsWith(`${base}.natsu-`) && /\.natsu-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z\.bak$/.test(name);
 }
 
+// 起動のときに黙って書き直すか（0.10.1 CD-4。D83・D86・計画の決めたこと 4）。states はファイルごとの状態、marked は前に登録した印があるか
+//  → 'rewrite'（main が tasklist を見て、動いていなければ書く）| 'notice-stale' | 'notice-gone' | 'none'（何もしない）
+const AUTO_OK = new Set(['same', 'none', 'stale']);
+function autoPlan({ states, marked }) {
+  const st = Array.isArray(states) ? states : [];
+  if (!st.length) return 'none';
+  if (!marked) return st.includes('stale') && st.every((s) => AUTO_OK.has(s)) ? 'notice-stale' : 'none';
+  if (!st.some((s) => s === 'none' || s === 'stale')) return 'none';
+  if (st.every((s) => AUTO_OK.has(s))) return 'rewrite';
+  return st.includes('stale') ? 'notice-stale' : 'notice-gone';
+}
+
 // Claude デスクトップが動いているか分からないときの「続けて2回目」（0.10.1 CD-3。D85・Ruling R1）。
 // pending は1回目（RN2 で断った押し）の { action: 'register' | 'unregister', at }。同じボタンを 60 秒以内（ちょうども含む）にもう一度押したら書く。
 // 違うボタン・60 秒を越えた・時計が戻った・形の違う pending は、今の押しを新しい1回目にして断る。→ { write, pending }（書いたら pending は null）
@@ -135,5 +147,5 @@ function claudeRunningOf(stdout) {
 
 module.exports = {
   ENTRY_NAME, MARK, BACKUP_KEEP, CONFIG_NAME, DATA_ROOT, TASKLIST_ARGS, serverEntry, entryState, mergeEntry, removeEntry,
-  configPlaces, configFiles, placeCounts, backupName, isNatsuBackup, claudeRunningOf, UNKNOWN_CONFIRM_MS, unknownStep,
+  configPlaces, configFiles, placeCounts, backupName, isNatsuBackup, claudeRunningOf, UNKNOWN_CONFIRM_MS, unknownStep, autoPlan,
 };

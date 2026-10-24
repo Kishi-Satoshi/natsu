@@ -259,6 +259,8 @@ const NOTICE = {
   // Claude との連携（0.10.0 C-2。計画の「左下の知らせ（N）」と決めたこと 151。どちらも［設定を開く］で項目「要約」）
   mcpStale: 'NaTsu の置き場所が変わったため、Claude から議事録を読めなくなっています。設定の「要約」で［登録し直す］を押してください。',
   mcpGone: 'Claude デスクトップへの登録が消えています。［設定を開く］で［登録し直す］を押してください。',
+  // 0.10.1 CD-4（D86・RN4）: 起動のときの書き直しが、Claude デスクトップが動いている（か分からない）ためにできなかった
+  mcpFix: 'Claude との連携の登録を直します。Claude デスクトップを終了してから［登録し直す］を押してください（タスクトレイのアイコンからも終了してください）。',
 };
 // 起動の途中（本体の窓がまだ無い）なら startupNotices に貯め、窓ができた後なら画面へ（読み込み中なら読み終えてから）
 function laterNotice(msg) {
@@ -2235,12 +2237,29 @@ function openLinkFromArgv(argv) {
   else sendToMainWin('page:open-link', p);
 }
 
-// 起動の後（窓が出てから）に1回。読むだけ。場所が古い（stale）・登録が消えた（gone）ときだけ知らせる。読めなければ何もしない
-function checkMcpRegistration() {
-  let st;
-  try { st = mcpDesktopState().state; } catch (_) { return; }
-  if (st === 'stale') noticeMainWin({ text: NOTICE.mcpStale, action: 'settings-summary' });
-  else if (st === 'gone') noticeMainWin({ text: NOTICE.mcpGone, action: 'settings-summary' });
+// 起動の後（窓が出てから）に1回。読めなければ何もしない。投げない。
+// 0.10.1 CD-4（D83・D86。0.10.0 の決めたこと 151 の「黙って書き直さない」を持ち主の答えで変えた）: 前に登録した印があり、欠けた（none）か古い（stale）場所があって、
+// どのファイルも書ける形なら、Claude デスクトップが動いていない（tasklist が false）ときだけ、［登録］と同じ書き方で黙って書き直し、知らせない。
+// 動いている・分からない → RN4（mcpFix）。書けないファイルがある・書いてみて断った → 今の知らせ（stale があれば mcpStale、ほかは mcpGone）。
+// 印が無いときは 0.10.0 のまま（全部の悪い方が stale なら mcpStale）。tasklist を見るのは書き直しが要るときだけ（判断は MC.autoPlan）
+async function checkMcpRegistration() {
+  let states;
+  try {
+    const files = mcpFiles();
+    if (!files.length) return;
+    states = mcpFileStates(files, MC.serverEntry(mcpPaths()));
+  } catch (_) { return; }
+  const notice = (text) => noticeMainWin({ text, action: 'settings-summary' });
+  const fallback = () => notice(states.includes('stale') ? NOTICE.mcpStale : NOTICE.mcpGone);
+  const plan = MC.autoPlan({ states, marked: mcpRegisteredMark() });
+  if (plan === 'notice-stale') { notice(NOTICE.mcpStale); return; }
+  if (plan === 'notice-gone') { notice(NOTICE.mcpGone); return; }
+  if (plan !== 'rewrite') return;
+  const running = await claudeDesktopRunning();
+  if (running !== false) { notice(NOTICE.mcpFix); return; }
+  let r;
+  try { r = mcpApply(true, { boot: true }); } catch (_) { r = { ok: false }; }
+  if (!r.ok) fallback();
 }
 
 // 経路を決める（送るときのログイン（pack）も返す: transcribeAuto だけが使い、ほかへは渡さない）。
@@ -6168,7 +6187,7 @@ if (!gotLock) {
     ensurePaster();
     createMainWindow();
     // 0.10.0 C-2: Claude デスクトップへの登録を1回だけ確かめる（読むだけ。場所が古い・消えたときだけ知らせる）
-    checkMcpRegistration();
+    checkMcpRegistration().catch(() => {});   // 0.10.1 CD-4: 起動のときの書き直し（投げない）
     // 0.10.0 LS-4: 0.9.x で取り込んだ要約のエンジンとモデルを消す（全部消せるまで起動ごとに1回。知らせは1回）
     retireSummaryEngine().catch((e) => engineLog(`要約のエンジンを消す: 失敗（${errCode(e)}）`));
     // 0.10.0 LN-3: natsu:// の登録（パックした NaTsu で場所が変わったときだけ書き直す）

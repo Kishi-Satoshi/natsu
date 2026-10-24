@@ -111,9 +111,12 @@ test('MR8: msix（%APPDATA% と Microsoft Store 版の場所）→ 2つのファ
   assert.ok(!('mcpRegisteredFor' in JSON.parse(n.settingsText)));
 });
 
-test('D76・決めたこと 151: --mcp-gone（前に登録したのに項目が無い）→ 起動の後に知らせ mcpGone が1回（［設定を開く］で要約）・状態 gone・登録し直すと same。前に登録していない PC では知らせない', S, async () => {
-  const o = await run([['status'], ['register'], ['status']], '--claude-config=others', '--mcp-gone');
-  assert.deepStrictEqual(mcpNotices(o), [{ text: GONE_TEXT, action: 'settings-summary' }]);
+// 0.10.1 CD-4 で意図して変えた（持ち主の答え D83・D86。0.10.0 の決めたこと 151 を変えた）: Claude デスクトップが動いていなければ起動のときに黙って書き直す
+// （stage101.mcp.main の CD-4 のテスト）。動いていれば書かずに RN4（mcpFix）が1回。この確かめは「起動のときは動いていて、その後に終了した」形（tasklist の答えの並び）にした
+const FIX_TEXT = 'Claude との連携の登録を直します。Claude デスクトップを終了してから［登録し直す］を押してください（タスクトレイのアイコンからも終了してください）。';
+test('D76・決めたこと 151（0.10.1 D83・D86 で意図して変えた）: --mcp-gone（前に登録したのに項目が無い）・起動のときに Claude デスクトップが動いている → 書かずに知らせ RN4 が1回（［設定を開く］で要約）・状態 gone・終了した後に登録し直すと same。前に登録していない PC では知らせない', S, async () => {
+  const o = await run([['status'], ['register'], ['status']], '--claude-config=others', '--mcp-gone', '--tasklist=running,stopped');
+  assert.deepStrictEqual(o.notices.filter((n) => n && typeof n === 'object' && [GONE_TEXT, STALE_TEXT, FIX_TEXT].includes(n.text)), [{ text: FIX_TEXT, action: 'settings-summary' }]);
   assert.deepStrictEqual(ipcOf(o, 'mcp:status').map((s) => s.desktop.state), ['gone', 'same']);
   assert.strictEqual(ipcOf(o, 'mcp:register')[0].ok, true);
   const quiet = await run([['status']], '--claude-config=others');
