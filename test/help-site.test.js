@@ -18,10 +18,11 @@ const NAME = /^[a-z0-9-]{1,40}$/;
 
 function site() { return JSON.parse(read('help/site.json')); }
 
-/** 本物の help/ を写したフォルダ（root）を作る。edit(site) で site.json を書き換えられる。テスト t の終わりに消す（早く消してもよい） */
+/** 本物の help/ と CHANGELOG.md（リリースノートの元。help-relnotes RN-3）を写したフォルダ（root）を作る。edit(site) で site.json を書き換えられる。テスト t の終わりに消す（早く消してもよい） */
 function copyRoot(t, edit) {
   const root = tmpDir(t, 'natsu-help-site-');
   fs.cpSync(path.join(ROOT, 'help'), path.join(root, 'help'), { recursive: true, filter: (s) => !s.split(path.sep).includes('dist') });
+  fs.copyFileSync(path.join(ROOT, 'CHANGELOG.md'), path.join(root, 'CHANGELOG.md'));
   if (edit) {
     const s = JSON.parse(fs.readFileSync(path.join(root, 'help', 'site.json'), 'utf8'));
     edit(s);
@@ -32,7 +33,9 @@ function copyRoot(t, edit) {
 
 test('D22: help/site.json の形（title・askNote・categories の id・title・description・icon・articles・featured）。id と記事の名前は [a-z0-9-]{1,40}、重ならない', { timeout: 5000 }, () => {
   const s = site();
-  assert.deepStrictEqual(Object.keys(s).sort(), ['askNote', 'categories', 'featured', 'title']);
+  assert.deepStrictEqual(Object.keys(s).sort(), ['askNote', 'categories', 'featured', 'releaseNotes', 'title']);
+  // help-relnotes RN-3（RN2・Q6・Q7）: リリースノートのカードとページ（分類ではないので categories に入れない）
+  assert.deepStrictEqual(Object.entries(s.releaseNotes), [['title', 'リリースノート'], ['description', 'NaTsu の版ごとの変更点（新しい版が上）'], ['icon', 'release']]);
   assert.strictEqual(s.title, 'NaTsu ヘルプセンター');
   assert.ok(typeof s.askNote === 'string' && s.askNote.length > 0);
   assert.ok(Array.isArray(s.categories) && Array.isArray(s.featured));
@@ -58,8 +61,8 @@ test('D22: help/site.json の形（title・askNote・categories の id・title�
   assert.strictEqual(new Set(s.featured).size, s.featured.length);
 });
 
-test('D22: 分類の icon は help/assets/icons/<icon>.svg があり、その SVG に script・on…=・外の住所（http）・<image> が無い', { timeout: 5000 }, () => {
-  for (const c of site().categories) {
+test('D22: 分類の icon（と help-relnotes RN-3 のリリースノートの icon）は help/assets/icons/<icon>.svg があり、その SVG に script・on…=・外の住所（http）・<image> が無い', { timeout: 5000 }, () => {
+  for (const c of [...site().categories, site().releaseNotes]) {
     const f = `help/assets/icons/${c.icon}.svg`;
     assert.ok(fs.existsSync(path.join(ROOT, f)), `${f} が無い`);
     const svg = read(f);
@@ -70,6 +73,8 @@ test('D22: 分類の icon は help/assets/icons/<icon>.svg があり、その SV
     // http は名前空間の宣言だけ（外の住所を読まない）
     assert.deepStrictEqual(svg.match(/https?:\/\/[^"\s]*/g), ['http://www.w3.org/2000/svg'], f);
   }
+  // help-relnotes RN-3（Q6）: リリースノートのアイコンは、持ち主が「この見本でよい」と言った見本（2026-10-24）のまま（札に横線2本と札の穴の丸。線 1.5）
+  assert.strictEqual(read('help/assets/icons/release.svg').trim(), '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M3 4.5A1.5 1.5 0 0 1 4.5 3H12l9 9-9 9-9-9z"/><circle cx="7.5" cy="7.5" r="1.25"/><path d="M9.5 12.5h5"/><path d="M9.5 15.5h3"/></svg>');
 });
 
 test('D22: help/ と tools/help-* はアプリに入らない（build.files に help が無い・release.yml の配布 zip は src と package.json だけ・make-release.ps1 も同じ）', { timeout: 5000 }, () => {
@@ -127,12 +132,28 @@ test('D22: site.json の形が違えば build は HelpBuildError（code: bad-sit
     ['記事のファイルが無い', (s) => { s.categories[0].articles = ['no-such-article']; }],
     ['featured が分類の記事に無い', (s) => { s.featured = ['start/no-such-article']; }],
     ['分類が無い', (s) => { s.categories = []; }],
+    // help-relnotes RN-3: releaseNotes の鍵は title・description・icon だけ。release-notes は分類の id に使えない（ページの住所と重なる）
+    ['releaseNotes の知らない鍵', (s) => { s.releaseNotes.url = '/x/'; }],
+    ['releaseNotes の鍵が足りない', (s) => { delete s.releaseNotes.icon; }],
+    ['releaseNotes が配列', (s) => { s.releaseNotes = []; }],
+    ['releaseNotes の説明が空', (s) => { s.releaseNotes.description = ''; }],
+    ['releaseNotes の題名が2行', (s) => { s.releaseNotes.title = 'リリース\nノート'; }],
+    ['releaseNotes のアイコンが無い', (s) => { s.releaseNotes.icon = 'no-such-icon'; }],
   ];
   for (const [why, edit] of bad) {
     const root = copyRoot(t, edit);
     try {
       assert.throws(() => build({ root, out: path.join(root, 'help', 'dist') }), (e) => e.name === 'HelpBuildError' && e.code === 'bad-site', why);
       assert.ok(!fs.existsSync(path.join(root, 'help', 'dist')), `${why}: help/dist に書いた`);
+    } finally { fs.rmSync(root, { recursive: true, force: true }); }
+  }
+  // help-relnotes RN-3: 分類の id の release-notes は、記事のフォルダもそろえても止める（/release-notes/ のページと重なる）
+  {
+    const root = copyRoot(t, (s) => { s.categories[s.categories.length - 1].id = 'release-notes'; s.featured = s.featured.filter((f) => !f.startsWith('admin/')); });
+    try {
+      fs.renameSync(path.join(root, 'help', 'articles', 'admin'), path.join(root, 'help', 'articles', 'release-notes'));
+      assert.throws(() => build({ root, out: path.join(root, 'help', 'dist') }), (e) => e.code === 'bad-site' && /release-notes/.test(e.message), 'release-notes の分類');
+      assert.ok(!fs.existsSync(path.join(root, 'help', 'dist')));
     } finally { fs.rmSync(root, { recursive: true, force: true }); }
   }
   // site.json に無い記事のファイルも止める（分類の articles と help/articles/<id>/*.md はちょうど同じ）
@@ -152,4 +173,58 @@ test('D22: site.json の形が違えば build は HelpBuildError（code: bad-sit
     const html = fs.readFileSync(path.join(out, 'index.html'), 'utf8');
     for (const c of site().categories) assert.ok(html.includes(c.title), c.title);
   } finally { fs.rmSync(ok, { recursive: true, force: true }); }
+});
+
+// help-dads HD-0（HD8・HD6。計画 docs/plans/2026-10-23-help-dads.md の決めたこと G・H と問答の Q15・Q18）:
+// 守るものの宣言（DADS のスキルの references/protect-file.md の書式）と、読み上げの例外を設計書に先に書く
+test('HD-0: リポジトリの直下に DADS-PROTECT.md がある（# 守るもの と決まった4つの見出しを決まった順で）。ブランド色の行は「- #xxxxxx（…）」で、その値は help.css の暗い版の灰色の札（地・面・罫線・補足・本文）とちょうど同じ', { timeout: 5000 }, () => {
+  const C = require('./helpers/simcss');
+  assert.ok(fs.existsSync(path.join(ROOT, 'DADS-PROTECT.md')), 'DADS-PROTECT.md が無い');
+  const md = read('DADS-PROTECT.md').replace(/\r\n?/g, '\n');
+  assert.ok(md.startsWith('# 守るもの\n'), '頭が # 守るもの でない');
+  const order = ['守るファイル・フォルダ', 'ブランド色', '顧客の基準', 'メモ'];
+  const heads = [...md.matchAll(/^## (.+)$/gm)].map((m) => m[1]);
+  assert.ok(heads.length > 0 && heads.every((h) => order.includes(h)), `知らない見出し: ${heads.join(' / ')}`);
+  assert.deepStrictEqual(heads, order.filter((h) => heads.includes(h)), '見出しの順が決まりと違う');
+  assert.strictEqual(new Set(heads).size, heads.length, '見出しが重なる');
+  const sec = (h) => { const i = md.indexOf(`## ${h}\n`); const j = md.indexOf('\n## ', i + 1); return md.slice(i, j < 0 ? md.length : j); };
+  const lines = sec('ブランド色').split('\n').filter((l) => l.startsWith('- '));
+  assert.ok(lines.length > 0);
+  for (const l of lines) assert.match(l, /^- #[0-9a-f]{6}（[^）]+）$/, `ブランド色の行の形: ${l}`);
+  const brand = lines.map((l) => l.slice(2, 9)).sort();
+  const dark = C.tokens(C.parse(read('help/assets/help.css')), '@media (prefers-color-scheme: dark)');
+  const greys = ['--bg', '--wash', '--rule', '--muted', '--body'].map((k) => (dark[k] || '').toLowerCase()).sort();
+  assert.deepStrictEqual(brand, greys, 'ブランド色と暗い版の灰色の札が違う');
+  // 守るファイル: アプリの画面・ロゴ・記事・門・出し方（ヘルプの DADS の直しの外）
+  for (const f of ['src/**', 'assets/**', 'help/articles/**', 'relay/**', '.github/**']) assert.ok(sec('守るファイル・フォルダ').includes(`- ${f}（`), f);
+  // メモ: 読み上げの例外（HD6 の検索の件数・0.10.0 の /open の知らせ）と暗い版を残すこと
+  const memo = sec('メモ');
+  assert.match(memo, /読み上げソフトへの対応は作らない/);
+  assert.match(memo, /検索の件数の知らせ（role="status"）/);
+  assert.match(memo, /\/open のページ/);
+  assert.match(memo, /暗い版（OS の設定に従う）は残す/);
+});
+
+test('HD-0（HD6・Q18）: 設計書の「画面の使いやすさ」の「作らないもの」と「やらないこと」に、読み上げの例外（ヘルプの検索の件数の知らせと /open のページの知らせの role="status"）が書いてある', { timeout: 5000 }, () => {
+  const d = read('docs/plans/natsu-design.md');
+  const part = (h) => { const i = d.indexOf(h); assert.ok(i >= 0, h); return d.slice(i, d.indexOf('\n### ', i + 1)); };
+  const ease = part('### 画面の使いやすさ');
+  const line = ease.split('\n').find((l) => l.includes('**作らないもの:**'));
+  assert.ok(line, '作らないもの の行が無い');
+  assert.match(line, /読み上げソフトへの対応（例外: .*検索の件数の知らせ `role="status"`.*HD6.*\/open.*`role="status"`.*D78/);
+  const never = part('### やらないこと').split('\n').find((l) => l.includes('**画面と端末:**'));
+  assert.match(never, /読み上げソフト（例外は「画面の使いやすさ」の2つ）/);
+});
+
+// help-relnotes RN-0（計画 docs/plans/2026-10-23-help-relnotes.md）: 持ち主の決定 RN1〜RN4 を設計書に先に書く
+test('RN-0: 設計書に「利用者が決めたこと（ヘルプセンターのリリースノート。2026-10-23）」の RN1〜RN4 があり、HC0 がリリースノートのページ（CHANGELOG.md から作る）を言う', { timeout: 5000 }, () => {
+  const d = read('docs/plans/natsu-design.md');
+  const i = d.indexOf('## 利用者が決めたこと（ヘルプセンターのリリースノート。2026-10-23）');
+  assert.ok(i >= 0, '節が無い');
+  const sec = d.slice(i, d.indexOf('\n## ', i + 1));
+  for (const k of ['RN1', 'RN2', 'RN3', 'RN4']) assert.match(sec, new RegExp(`^\\| ${k} \\|`, 'm'), k);
+  assert.match(sec, /docs\/plans\/2026-10-23-help-relnotes\.md/);
+  const hc0 = d.split('\n').find((l) => l.startsWith('- **HC0'));
+  assert.match(hc0, /リリースノート/);
+  assert.match(hc0, /CHANGELOG\.md/);
 });

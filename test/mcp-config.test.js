@@ -94,6 +94,7 @@ test('entryState の表（none・same・stale（command・args・NATSU_DATA_DIR 
   assert.strictEqual(C.entryState({ mcpServers: { natsu: 'x' } }, ENTRY), 'other');
 });
 
+// 0.10.1 CD-1 で意図して変えた（Ruling R2）: Packages の子も名前の小文字の順に並べる（決めたこと 7）ので、Anthropic.Claude_x9 が Claude_abc123 の前
 test('configFiles: Claude のフォルダがあれば1つ目・Packages の下の Claude_ と Anthropic.Claude_ で LocalCache\\Roaming\\Claude があればそれも・どれも無ければ空', T, () => {
   const appData = path.join('/u', 'Roaming');
   const localAppData = path.join('/u', 'Local');
@@ -102,8 +103,8 @@ test('configFiles: Claude のフォルダがあれば1つ目・Packages の下�
   const fsx = { exists: (p) => have.has(p), readdir: (d) => (d === pk ? ['Microsoft.Foo_1', 'Claude_abc123', 'Anthropic.Claude_x9', 'Claude_nofolder', 'NotClaude_1'] : []) };
   assert.deepStrictEqual(C.configFiles({ appData, localAppData, ...fsx }), [
     path.join(appData, 'Claude', 'claude_desktop_config.json'),
-    path.join(pk, 'Claude_abc123', 'LocalCache', 'Roaming', 'Claude', 'claude_desktop_config.json'),
     path.join(pk, 'Anthropic.Claude_x9', 'LocalCache', 'Roaming', 'Claude', 'claude_desktop_config.json'),
+    path.join(pk, 'Claude_abc123', 'LocalCache', 'Roaming', 'Claude', 'claude_desktop_config.json'),
   ]);
   assert.deepStrictEqual(C.configFiles({ appData, localAppData, exists: () => false, readdir: () => { throw new Error('ENOENT'); } }), []);
   assert.deepStrictEqual(C.configFiles({ appData: '', localAppData: '', exists: () => true, readdir: () => ['Claude_1'] }), []);
@@ -124,4 +125,143 @@ test('D75・決めたこと 149: claudeRunningOf の表（tasklist の答え →
   assert.strictEqual(C.claudeRunningOf('情報: 指定された条件に一致するタスクは実行されていません。\r\n'), false);
   assert.strictEqual(C.claudeRunningOf('"claude-helper.exe","1","Console","1","1 K"'), false);
   for (const v of ['', '   ', null, undefined, 3]) assert.strictEqual(C.claudeRunningOf(v), null, String(v));
+});
+
+// ---------------------------------------------------------------- 0.10.1 Task CD-1（計画 docs/plans/2026-10-23-101.md の決めたこと 1・6・7・12）
+// 新しい Store 版の場所（%LOCALAPPDATA%\Claude-Data\claude_<符号>）も探す。偽の木: have はあるフォルダの集合、dirs は readdir の答え、files はファイル（フォルダでない）
+const tree = ({ have = [], dirs = {}, files = [] }) => {
+  const H = new Set(have);
+  const F = new Set(files);
+  return {
+    exists: (p) => H.has(p) || F.has(p),
+    isDir: (p) => H.has(p),
+    readdir: (d) => { if (!Object.hasOwn(dirs, d)) { const e = new Error('ENOENT'); e.code = 'ENOENT'; throw e; } return dirs[d].slice(); },
+  };
+};
+const RO = path.join('/u', 'Roaming');
+const LO = path.join('/u', 'Local');
+const PK = path.join(LO, 'Packages');
+const CD = path.join(LO, 'Claude-Data');
+const msixDir = (n) => path.join(PK, n, 'LocalCache', 'Roaming', 'Claude');
+const cfgIn = (dir) => path.join(dir, 'claude_desktop_config.json');
+const kinds = (r) => r.map((p) => p.kind);
+
+test('0.10.1 CD-1: configPlaces — 前の場所だけ・Claude-Data だけ（README.txt は場所にしない）・両方（持ち主の PC）', T, () => {
+  const only = tree({ have: [msixDir('Claude_pzs8sxrjxfjjc')], dirs: { [PK]: ['Claude_pzs8sxrjxfjjc'] } });
+  assert.deepStrictEqual(C.configPlaces({ appData: RO, localAppData: LO, ...only }), [{ file: cfgIn(msixDir('Claude_pzs8sxrjxfjjc')), kind: 'packages' }]);
+  const data = tree({ have: [path.join(CD, 'claude_pzs8sxrjxfjjc')], files: [path.join(CD, 'README.txt')], dirs: { [CD]: ['README.txt', 'claude_pzs8sxrjxfjjc'] } });
+  assert.deepStrictEqual(C.configPlaces({ appData: RO, localAppData: LO, ...data }), [{ file: cfgIn(path.join(CD, 'claude_pzs8sxrjxfjjc')), kind: 'data' }]);
+  const both = tree({ have: [path.join(CD, 'claude_pzs8sxrjxfjjc'), msixDir('Claude_pzs8sxrjxfjjc')], dirs: { [CD]: ['claude_pzs8sxrjxfjjc'], [PK]: ['Claude_pzs8sxrjxfjjc'] } });
+  assert.deepStrictEqual(C.configPlaces({ appData: RO, localAppData: LO, ...both }), [
+    { file: cfgIn(path.join(CD, 'claude_pzs8sxrjxfjjc')), kind: 'data' },
+    { file: cfgIn(msixDir('Claude_pzs8sxrjxfjjc')), kind: 'packages' },
+  ]);
+});
+
+test('0.10.1 CD-1: configPlaces — Claude-Data に2つは名前の小文字の順・Roaming と Claude-Data は roaming → data', T, () => {
+  const two = tree({ have: [path.join(CD, 'claude_zz9test0000aa'), path.join(CD, 'claude_pzs8sxrjxfjjc')], dirs: { [CD]: ['claude_zz9test0000aa', 'claude_pzs8sxrjxfjjc'] } });
+  assert.deepStrictEqual(C.configPlaces({ appData: RO, localAppData: LO, ...two }).map((p) => p.file), [
+    cfgIn(path.join(CD, 'claude_pzs8sxrjxfjjc')), cfgIn(path.join(CD, 'claude_zz9test0000aa')),
+  ]);
+  const rd = tree({ have: [path.join(RO, 'Claude'), path.join(CD, 'claude_pzs8sxrjxfjjc')], dirs: { [CD]: ['claude_pzs8sxrjxfjjc'] } });
+  const r = C.configPlaces({ appData: RO, localAppData: LO, ...rd });
+  assert.deepStrictEqual(kinds(r), ['roaming', 'data']);
+  assert.strictEqual(r[0].file, cfgIn(path.join(RO, 'Claude')));
+});
+
+test('0.10.1 CD-1: configPlaces — 大文字の混ざった名前も見つけ、書く先は readdir の名前のまま（Packages も小文字で見つける）', T, () => {
+  const mixed = tree({
+    have: [path.join(CD, 'Claude_Pzs8sxrjxfjjc'), path.join(CD, 'CLAUDE_X1'), msixDir('claude_abc')],
+    dirs: { [CD]: ['Claude_Pzs8sxrjxfjjc', 'CLAUDE_X1'], [PK]: ['claude_abc'] },
+  });
+  assert.deepStrictEqual(C.configPlaces({ appData: RO, localAppData: LO, ...mixed }), [
+    { file: cfgIn(path.join(CD, 'Claude_Pzs8sxrjxfjjc')), kind: 'data' },
+    { file: cfgIn(path.join(CD, 'CLAUDE_X1')), kind: 'data' },
+    { file: cfgIn(msixDir('claude_abc')), kind: 'packages' },
+  ]);
+});
+
+test('0.10.1 CD-1: configPlaces — 名前の形と種類（コピー・空の符号・拡張子・Claude・notclaude・ファイルは場所にしない。anthropic.claude_ は見つける）', T, () => {
+  const names = ['claude_pzs8sxrjxfjjc - コピー', 'claude_', 'claude_x.old', 'Claude', 'anthropic.claude_9', 'notclaude_1', 'claude_file1', 'README.txt'];
+  const t = tree({
+    have: ['claude_pzs8sxrjxfjjc - コピー', 'claude_', 'claude_x.old', 'Claude', 'anthropic.claude_9', 'notclaude_1'].map((n) => path.join(CD, n)),
+    files: ['claude_file1', 'README.txt'].map((n) => path.join(CD, n)),
+    dirs: { [CD]: names },
+  });
+  assert.deepStrictEqual(C.configPlaces({ appData: RO, localAppData: LO, ...t }), [{ file: cfgIn(path.join(CD, 'anthropic.claude_9')), kind: 'data' }]);
+});
+
+test('0.10.1 CD-1: configPlaces — Claude-Data の readdir が投げる・名前が文字でない・localAppData が空でも投げず、その種類は空。isDir を渡さなければ exists', T, () => {
+  const t = tree({ have: [msixDir('Claude_1')], dirs: { [PK]: ['Claude_1', 3, null] } });
+  assert.deepStrictEqual(kinds(C.configPlaces({ appData: RO, localAppData: LO, ...t })), ['packages']);
+  const odd = tree({ have: [path.join(CD, 'claude_a1')], dirs: { [CD]: [7, 'claude_a1'] } });
+  assert.deepStrictEqual(kinds(C.configPlaces({ appData: RO, localAppData: LO, ...odd })), ['data']);
+  assert.deepStrictEqual(C.configPlaces({ appData: '', localAppData: '', exists: () => true, isDir: () => true, readdir: () => ['claude_1'] }), []);
+  const noIsDir = tree({ have: [path.join(CD, 'claude_a1')], dirs: { [CD]: ['claude_a1'] } });
+  assert.deepStrictEqual(kinds(C.configPlaces({ appData: RO, localAppData: LO, exists: noIsDir.exists, readdir: noIsDir.readdir })), ['data']);
+});
+
+test('0.10.1 CD-1: placeCounts の表・configFiles は configPlaces の file の並びと同じ・DATA_ROOT', T, () => {
+  assert.deepStrictEqual(C.placeCounts([]), { roaming: 0, data: 0, packages: 0 });
+  assert.deepStrictEqual(C.placeCounts([{ kind: 'roaming' }, { kind: 'data' }, { kind: 'data' }, { kind: 'packages' }]), { roaming: 1, data: 2, packages: 1 });
+  const both = tree({ have: [path.join(RO, 'Claude'), path.join(CD, 'claude_pzs8sxrjxfjjc'), msixDir('Claude_pzs8sxrjxfjjc')], dirs: { [CD]: ['claude_pzs8sxrjxfjjc'], [PK]: ['Claude_pzs8sxrjxfjjc'] } });
+  const opts = { appData: RO, localAppData: LO, ...both };
+  assert.deepStrictEqual(C.configFiles(opts), C.configPlaces(opts).map((p) => p.file));
+  assert.strictEqual(C.DATA_ROOT, 'Claude-Data');
+});
+
+// ---------------------------------------------------------------- 0.10.1 Task CD-3（D85・Ruling R1）: 動いているか分からないときの「続けて2回目」
+test('0.10.1 CD-3・D85・R1: unknownStep の表（1回目は断る・同じボタンを 60 秒以内にもう一度なら書く・違うボタン・60 秒を越えた・時計が戻ったら1回目から）', T, () => {
+  assert.strictEqual(C.UNKNOWN_CONFIRM_MS, 60000);
+  const t0 = 1_000_000;
+  assert.deepStrictEqual(C.unknownStep({ pending: null, action: 'register', now: t0 }), { write: false, pending: { action: 'register', at: t0 } });
+  const first = { action: 'register', at: t0 };
+  assert.deepStrictEqual(C.unknownStep({ pending: first, action: 'register', now: t0 + 1 }), { write: true, pending: null });
+  assert.deepStrictEqual(C.unknownStep({ pending: first, action: 'register', now: t0 + 60000 }), { write: true, pending: null }, '60 秒ちょうどは続けて');
+  assert.deepStrictEqual(C.unknownStep({ pending: first, action: 'register', now: t0 + 60001 }), { write: false, pending: { action: 'register', at: t0 + 60001 } });
+  assert.deepStrictEqual(C.unknownStep({ pending: first, action: 'unregister', now: t0 + 5 }), { write: false, pending: { action: 'unregister', at: t0 + 5 } });
+  assert.deepStrictEqual(C.unknownStep({ pending: first, action: 'register', now: t0 - 1 }), { write: false, pending: { action: 'register', at: t0 - 1 } }, '時計が戻った');
+  for (const bad of [undefined, 'x', { action: 'register' }, { action: 'register', at: 'x' }]) {
+    assert.deepStrictEqual(C.unknownStep({ pending: bad, action: 'register', now: t0 }), { write: false, pending: { action: 'register', at: t0 } }, JSON.stringify(bad));
+  }
+});
+
+// ---------------------------------------------------------------- 0.10.1 Task CD-4（D83・D86）: 起動のときに黙って書き直すか
+test('0.10.1 CD-4・D83: autoPlan の表（印が無い・全部 same・欠けた/古い場所があって全部書ける・書けないファイルが混ざる・書けないファイルだけ・空）', T, () => {
+  const P = (states, marked) => C.autoPlan({ states, marked });
+  assert.strictEqual(P(['stale'], false), 'notice-stale');
+  assert.strictEqual(P(['same', 'stale', 'none'], false), 'notice-stale');
+  assert.strictEqual(P(['none'], false), 'none');
+  assert.strictEqual(P(['stale', 'broken'], false), 'none');
+  assert.strictEqual(P(['same', 'same'], true), 'none');
+  assert.strictEqual(P(['none', 'same'], true), 'rewrite');
+  assert.strictEqual(P(['stale'], true), 'rewrite');
+  assert.strictEqual(P(['none', 'stale', 'same'], true), 'rewrite');
+  assert.strictEqual(P(['stale', 'broken'], true), 'notice-stale');
+  assert.strictEqual(P(['none', 'other'], true), 'notice-gone');
+  assert.strictEqual(P(['none', 'readonly', 'same'], true), 'notice-gone');
+  assert.strictEqual(P(['none', 'busy'], true), 'notice-gone');
+  assert.strictEqual(P(['broken'], true), 'none');
+  assert.strictEqual(P(['same', 'other'], true), 'none');
+  assert.strictEqual(P([], true), 'none');
+  assert.strictEqual(C.autoPlan({ states: undefined, marked: true }), 'none');
+});
+
+// ---------------------------------------------------------------- 0.10.1 2回目の点検の直し（計画の Ruling R16・R18）
+test('0.10.1 2回目の点検の直し R16: dedupePlaces は、フォルダの本当のパスが同じ場所を1つにまとめる（先の方を残す）。本当のパスが読めない場所はそのまま', T, () => {
+  const places = [
+    { file: path.join('/r', 'Claude', 'claude_desktop_config.json'), kind: 'roaming' },
+    { file: path.join('/l', 'Claude-Data', 'claude_a1', 'claude_desktop_config.json'), kind: 'data' },
+    { file: path.join('/l', 'Claude-Data', 'claude_b2', 'claude_desktop_config.json'), kind: 'data' },
+  ];
+  const real = (dir) => (dir.endsWith('claude_a1') ? path.join('/r', 'Claude') : dir.endsWith('claude_b2') ? (() => { throw new Error('ENOENT'); })() : dir);
+  assert.deepStrictEqual(C.dedupePlaces(places, real), [places[0], places[2]]);
+  assert.deepStrictEqual(C.dedupePlaces(places, (d) => d), places);
+  assert.deepStrictEqual(C.dedupePlaces([], real), []);
+});
+
+test('0.10.1 2回目の点検の直し R18: autoPlan は、外した印（unregistered）があり登録の印が無ければ、古い（stale）場所があっても知らせない', T, () => {
+  assert.strictEqual(C.autoPlan({ states: ['stale', 'none'], marked: false, unregistered: true }), 'none');
+  assert.strictEqual(C.autoPlan({ states: ['stale', 'none'], marked: false, unregistered: false }), 'notice-stale');
+  assert.strictEqual(C.autoPlan({ states: ['stale'], marked: true, unregistered: true }), 'rewrite');
 });

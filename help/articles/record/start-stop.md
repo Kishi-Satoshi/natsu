@@ -1,7 +1,7 @@
 ---
 title: 録音を始める・止める
 description: ［新しい議事録］・ホットキー・トレイから録音を始め、［■ 終了して作成］で止めて議事録を作る。話し声が無いときに自動で止めること、録音バーの置き場所と隠し方、録音を捨てるとき
-updated: 2026-10-21
+updated: 2026-10-23
 sources: src/renderer/app.html, src/renderer/overlay.html, src/main.js, src/mainlib.js, src/settings.js, README.md, INSTALL.md
 related: record/pause, record/status-line, record/pc-only
 ---
@@ -53,7 +53,7 @@ related: record/pause, record/status-line, record/pc-only
 
 止めると、録音バーはその場で薄くなって消えます。議事録ができると短い音が鳴り、本体の窓が保存した議事録を開きます。
 
-止めた後に残りの区間が多いときは、「残り 3 区間（約 2 分）」のような見込みと ［文字起こしを後回しにして要約］ が出ます。
+止めた後に残りの区間（文字起こしのために録音を区切ったひとまとまりの音声）が多いときは、「残り 3 区間（約 2 分）」のような見込みと ［文字起こしを後回しにして要約］ が出ます。
 後回しにした区間の音声は消さずに残し、後で文字起こしします。文字になったら ［要約を生成］ で議事録を作り直せます。
 
 ## 話し声が無いときに自動で止める {#auto-stop}

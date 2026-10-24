@@ -17,8 +17,10 @@ const T = { timeout: 10000 };
 const OPEN_JS = fs.readFileSync(path.join(ROOT, 'help', 'assets', 'open.js'), 'utf8');
 const OPEN_HTML = () => fs.readFileSync(path.join(ROOT, 'help', 'open', 'index.html'), 'utf8');
 const LOST = 'ログインの後は、Claude のリンクをもう一度押してください。';
-const BAD = 'このリンクは開けません（形が違います）';
-const DONE = 'NaTsu で開きました。このタブは閉じてかまいません。';
+// help-dads 3回目の審査の指摘 7（持ち主の答え 2026-10-23）: 次に何をすればよいかも言う
+const BAD = 'このリンクは開けません（形が違います）。NaTsu でもう一度［リンクを写す］を押してください。';
+// help-dads 再審査の指摘 8（持ち主の答え 2026-10-23）: 開けたかが分からないうちに「開きました」と言い切らない
+const DONE = 'NaTsu で開いています。開かないときは［NaTsu で開く］を押してください。';
 const NOTE = 'NaTsu が入っていない PC では開けません。NaTsu を入れるには［インストールと更新］の記事を見てください。';
 
 // open.js を偽の document と location で回す → { href（location.href に入れた物。入れなければ null）, msg, go: { hidden, href } }
@@ -33,7 +35,7 @@ function runOpen(hash) {
   return { href, msg: els['hc-open-msg'].textContent, go: { hidden: els['hc-open-go'].hidden, href: els['hc-open-go'].getAttribute('href') } };
 }
 
-test('D78・決めたこと 155: open.js は #p=<ID>&a=<印> を照らし、location.href と［NaTsu で開く］の href に natsu://page/<ID>#<印> を入れ、「NaTsu で開きました…」', T, () => {
+test('D78・決めたこと 155: open.js は #p=<ID>&a=<印> を照らし、location.href と［NaTsu で開く］の href に natsu://page/<ID>#<印> を入れ、「NaTsu で開いています。開かないときは［NaTsu で開く］を押してください。」（再審査の指摘 8）', T, () => {
   for (const [hash, want] of [['#p=pm1&a=t:s1-s3', 'natsu://page/pm1#t:s1-s3'], ['#p=pm1', 'natsu://page/pm1'], ['#p=pm1&a=b:b3', 'natsu://page/pm1#b:b3'],
     ['#p=pm1&w=team1&a=m:2', 'natsu://page/pm1#m:2']]) {
     const r = runOpen(hash);
@@ -43,7 +45,7 @@ test('D78・決めたこと 155: open.js は #p=<ID>&a=<印> を照らし、loca
   }
 });
 
-test('D78: 読めない # の後ろ（../x・javascript:・順の違い・? の形・空白・長すぎる）は location を変えず「このリンクは開けません（形が違います）」。# の後ろが空（ログインで落ちた: R23）は「ログインの後は、Claude のリンクをもう一度押してください。」', T, () => {
+test('D78: 読めない # の後ろ（../x・javascript:・順の違い・? の形・空白・長すぎる）は location を変えず「このリンクは開けません（形が違います）。NaTsu でもう一度［リンクを写す］を押してください。」（3回目の指摘 7）。# の後ろが空（ログインで落ちた: R23）は「ログインの後は、Claude のリンクをもう一度押してください。」', T, () => {
   for (const hash of ['#p=../x', '#p=pm1&a=javascript:alert(1)', '#a=t:s1-s2&p=pm1', '#p=pm1&p=pm2', '#p=pm1 x', '#p=pm1%20', `#p=pm1&x=${'y'.repeat(300)}`, '#p=', '#x=1', '#p=pm1&a=t:s3-']) {
     const r = runOpen(hash);
     assert.strictEqual(r.href, null, hash);
@@ -84,6 +86,7 @@ test('D78・決めたこと 155: help/open/index.html は静かなページ（�
 test('D78: help-build は /open/index.html を作り（help/open/index.html のまま）、検索の索引・記事の一覧・ホームと分類の一覧に入れない', T, (t) => {
   const root = tmpDir(t, 'natsu-help-open-');
   fs.cpSync(path.join(ROOT, 'help'), path.join(root, 'help'), { recursive: true, filter: (s) => !s.includes(`${path.sep}dist`) });
+  fs.copyFileSync(path.join(ROOT, 'CHANGELOG.md'), path.join(root, 'CHANGELOG.md'));   // help-relnotes RN-3: リリースノートの元
   const out = path.join(root, 'out');
   const r = build({ root, out });
   assert.ok(r.pages.includes('open/index.html'), r.pages.join(','));

@@ -1570,3 +1570,25 @@ test('0.10.0 G-1: README と INSTALL に、入れ直し・アンインストー�
   const s = mdSection(i, '## （任意）Claude から議事録を読む');
   for (const w of ['［設定］→［要約］', '［Claude デスクトップに登録］', 'Claude（Anthropic）へ送られます', '終了']) assert.ok(s.includes(w), `INSTALL の任意の手順に「${w}」が無い`);
 });
+
+// 0.10.1 CD-5（計画 docs/plans/2026-10-23-101.md の決めたこと 14・D84・D83・D88）: README の MCP の節とヘルプの記事 start/claude-mcp に、
+// Claude デスクトップが動いている間は登録を変えないこと・起動のときに登録し直すこと・Microsoft Store 版の記録の場所を書く
+test('0.10.1 CD-5: README の MCP の節とヘルプの記事に、動いている間は登録を変えない・起動のときに登録し直す・Store 版の記録の場所（Claude-Data の claude_… の logs）', () => {
+  const STORE_LOG = '%LOCALAPPDATA%\\Claude-Data\\claude_…\\logs\\mcp-server-natsu.log';
+  const readme = mdSection(read('README.md'), '### Claude から議事録を読む（MCP）');
+  const art = read('help/articles/start/claude-mcp.md');
+  for (const [name, text] of [['README', readme], ['ヘルプの記事', art]]) {
+    assert.ok(text.includes('動いている間は、NaTsu は登録を変えません'), `${name} に動いている間の文が無い`);
+    assert.ok(/起動のときに確かめ、Claude デスクトップが終了していれば、?自動で登録し直します/.test(text), `${name} に起動のときの書き直しの文が無い`);
+    assert.ok(text.includes(STORE_LOG), `${name} に Store 版の記録の場所が無い`);
+    assert.ok(text.includes('%APPDATA%\\Claude\\logs\\mcp-server-natsu.log'), `${name} から今の記録の場所が消えた`);
+    assert.ok(!text.includes('消えていれば左下に知らせます。［登録し直す］ を押してください'), `${name} に古い文が残っている`);
+  }
+});
+
+// 0.10.1 点検の直し（Ruling R12）: ヘルプの記事の「NaTsu を別の場所に入れ直したとき」の1文を 0.10.1 のふるまい（起動のときに黙って直す・動いていれば知らせる）に合わせる
+test('0.10.1 点検の直し R12: ヘルプの記事の入れ直したときの文は、Claude が終了していれば起動のときに自動で直し、動いていれば知らせる', () => {
+  const art = read('help/articles/start/claude-mcp.md');
+  assert.ok(!art.includes('NaTsu を別の場所に入れ直したときも、知らせが出ます。'), '0.10.0 の文が残っている');
+  assert.ok(art.includes('NaTsu を別の場所に入れ直したときも同じです（Claude デスクトップが終了していれば起動のときに自動で直し、動いていれば知らせます）。'), '入れ直したときの文が無い');
+});

@@ -223,13 +223,13 @@ PowerShell を打たなくても、NaTsu の［設定］→［要約］のボタ
 Claude は頼みに関係のある箇所を NaTsu から受け取り、日付・題名・時刻の出典つきで答えます（資料を作るのは Claude です）。出典のリンクを押すと、NaTsu でその会議のその箇所が開きます。
 ページの「···」の［リンクを写す］や、左の一覧の［選ぶ］で選んだ会議の［リンクを写す］で写したリンクを Claude への頼みに貼ると、その会議を読ませられます。
 
-- **登録:** Claude デスクトップを終了してから（タスクトレイのアイコンからも）、［設定］→［要約］の「Claude との連携（MCP）」で［Claude デスクトップに登録］を押し、Claude デスクトップを起動します。Microsoft Store 版の Claude デスクトップも同じボタンで登録できます。外すときは［登録を外す］です。
-- **登録が消えたとき:** Claude デスクトップが設定を書き直して登録が消えることがあります。NaTsu は起動のときに確かめて知らせるので、［登録し直す］を押してください。NaTsu を別の場所に入れ直したときも同じです。
+- **登録:** Claude デスクトップを終了してから（タスクトレイのアイコンからも）、［設定］→［要約］の「Claude との連携（MCP）」で［Claude デスクトップに登録］を押し、Claude デスクトップを起動します。Microsoft Store 版の Claude デスクトップも同じボタンで登録できます。外すときは［登録を外す］です。Claude デスクトップが動いている間は、NaTsu は登録を変えません（終了してから押してください）。
+- **登録が消えたとき:** Claude デスクトップが設定を書き直して登録が消えることがあります。NaTsu は起動のときに確かめ、Claude デスクトップが終了していれば、自動で登録し直します。動いていれば知らせるので、Claude デスクトップを終了してから［登録し直す］を押してください。NaTsu を別の場所に入れ直したときも同じです。
 - **送られるもの:** Claude に頼むと、Claude が読んだ議事録の題名・要約・メモ・文字起こしは Claude（Anthropic）へ送られます。［オフラインモード］で録った会議も、ほかの会議と同じに読めて、送られます。1on1・面談の議事録を扱う前に、Claude の設定のプライバシーで、会話をモデルの学習に使わない設定にしてください。1on1・採用面接・事前面談の議事録は、頼んだとき（会議の種類や会議を指したとき）だけ探します。
 - **読むだけ:** Claude は議事録を読むだけで、書き換えません。NaTsu が閉じていても読めます。NaTsu はポートを開きません。Claude デスクトップが起こした NaTsu の読み手と、標準入出力だけで話します。
 - **消したとき:** 議事録を消しても、Claude が一度読んだ内容は Claude の会話に残ります。Claude の側の会話も消してください。
 - **入れ直し・アンインストールの前に、Claude デスクトップを終了してください**（タスクトレイのアイコンからも）。Claude デスクトップが NaTsu を動かしたままだと、インストーラーが「NaTsu が起動しています」「NaTsu が終了できません」と止まります。
-- **つながらないとき:** ［設定］→［要約］の「Claude との連携（MCP）」の状態の文を見ます。Claude デスクトップの記録 `%APPDATA%\Claude\logs\mcp-server-natsu.log` も見ます（NaTsu はここに議事録の文を書きません）。
+- **つながらないとき:** ［設定］→［要約］の「Claude との連携（MCP）」の状態の文を見ます。Claude デスクトップの記録 `%APPDATA%\Claude\logs\mcp-server-natsu.log`（Microsoft Store 版は `%LOCALAPPDATA%\Claude-Data\claude_…\logs\mcp-server-natsu.log`）も見ます（NaTsu はここに議事録の文を書きません）。
 
 詳しくはヘルプの記事「Claude から議事録を読む（MCP）」（`start/claude-mcp`）を見てください。
 
@@ -327,7 +327,7 @@ Claude は頼みに関係のある箇所を NaTsu から受け取り、日付・
 
 NaTsu の使い方の記事を集めた、ログインの要るサイトです（`https://natsu-help.natsu-code.workers.dev/`）。会社のメールアドレスでログインした人だけが読めます（中継と同じ Cloudflare Access の One-time PIN）。アプリにも自動更新の zip にも入りません。
 
-- **記事の元:** `help/articles/<分類>/<名前>.md`。分類と並びは `help/site.json`、見た目（白黒・同梱の IBM Plex の書体）は `help/assets/`。リポジトリは公開なので、記事の元は誰でも読めます。会社の固有の情報（人・社名・会社のドメイン・チームの名前）は記事に書きません。
+- **記事の元:** `help/articles/<分類>/<名前>.md`。分類と並びは `help/site.json`、見た目（白黒・同梱の Noto Sans JP と Noto Sans Mono の書体。リンクと輪はデジタル庁デザインシステムに寄せた: `DADS-PROTECT.md`）は `help/assets/`。リポジトリは公開なので、記事の元は誰でも読めます。会社の固有の情報（人・社名・会社のドメイン・チームの名前）は記事に書きません。
 - **書き方:** 実装計画 `docs/plans/2026-10-20-help.md` の「記事の書き方」。記事の ［…］ は NaTsu の画面の言葉だけで、どれもアプリのコードにちょうどその文字があることを `npm test` が確かめます（ほかの画面のボタンは太字）。
 - **作り方:** `npm run help:build` で `help/dist` にサイトができます（git には入りません）。
 - **見た目を変えたら:** `node tools/help-shots.js` で写真を撮り直します（作業環境の Playwright と Chromium の場所を `HELP_SHOTS_PLAYWRIGHT`・`HELP_SHOTS_CHROMIUM` で渡す）。ホーム・分類・記事を明暗と幅 1280・390 で撮り、全部を目で見てから `help/shots.json` を commit します（CSS を変えたのに撮り直していなければ `npm test` が赤になります）。
@@ -520,7 +520,7 @@ Node.js 22.12 以上と、`npm install` の後の `node node_modules/electron/in
 ### リリース手順
 
 1. `package.json` の `version` を上げる
-2. `CHANGELOG.md` に `## natsu-v0.1.0` の節を足して変更点を書く
+2. `CHANGELOG.md` に `## natsu-v0.1.0 （2026-10-17）` の節（版の後ろに半角の空白、全角の括弧の中に公開する日。空白が無いとリリース本文が取れません）を足して変更点を書く
 3. コミットしてタグを push する
 
 ```bash
@@ -531,7 +531,7 @@ git push origin natsu-v0.1.0
 `.github/workflows/release.yml` がテストを回し、zipを作り、Releaseを公開します。
 その commit で Linux と Windows の CI（`.github/workflows/ci.yml`）が両方緑のときだけ出ます。
 `CHANGELOG.md` の該当節がそのままリリース本文になり、アプリの
-[設定] → [アップデート] に表示されます。
+[設定] → [更新] に表示されます。
 タグは `natsu-v<版>` の形にします（古い `v<版>` のタグでは動きません）。
 形が違うときと、`natsu-v` を外した版が `package.json` のバージョンと食い違うときは、ワークフローが止まります。
 
@@ -546,7 +546,7 @@ exe の添付に失敗すると draft のまま残り、Actions の要約に赤�
 Actions 画面の **Run workflow**、または `release/natsu-v0.1.0` という名前の
 ブランチを push しても同じ結果になります（そのブランチは公開後に自動で消えます）。
 
-各PCの NaTsu が起動時、または [設定] → [アップデート] → [更新を確認] で検出します。
+各PCの NaTsu が起動時、または [設定] → [更新] → [更新を確認] で検出します。
 
 手元でzipだけ作りたい場合（Releaseは手動で作る）:
 

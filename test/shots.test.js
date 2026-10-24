@@ -102,6 +102,13 @@ const NEW_100 = ['settings-mcp-light', 'settings-info-mcp-light', ...L1_100, ...
 // 持ち主の答えで MCP のカードの頭の1行だけを直した後の CI run 39934849171（03d209d）・artifact 12493472101 の画像をバイトのまま基準にし、取り直し待ちを空に戻した（0.9.4 と同じ手順）。
 // 表の画面（前の RETAKE_100）と、足した画面の「取り直し待ちの間は基準が無くてよい」の例外（NEW_100 の使い道）は外した
 const ADDED_100 = [...SH1_100, ...C3_100, ...L1_100, ...L2_100, ...LS2_100];
+// 0.10.1（計画 docs/plans/2026-10-23-101.md の「取り直す画面（RETAKE）」）で意図して変えた: 取り直し待ちは 0.10.1 の表の画面だけ（RETAKE_101）。
+// CD-3（D84）: Claude デスクトップが動いていたので断った文（RN1）の画面を足した（まだ基準が無い。持ち主が OK と言ったら CD-7 で基準にして空に戻す）
+const NEW_101 = ['settings-mcp-running-light'];
+// 0.10.1 で意図して変えた（版を 0.10.1 に上げる commit）: 持ち主が 2026-10-24 に settings-mcp-running-light（断った文 RN1）の画像を見て「OK」と言った。
+// CI run 40071461858（1dff338）の2回目・artifact 12552271208 の .after.png をバイトのまま基準にし（持ち主が見た画像とバイトで同じ）、取り直し待ちを空に戻した。
+// 撮る画面の並びの確かめ（下）は、0.10.1 で足した画面の名前として NEW_101 を使う
+const ADDED_101 = [...NEW_101];
 const img = (w, h, fill = [255, 255, 255, 255]) => ({ width: w, height: h, data: Buffer.from(Array.from({ length: w * h }, () => fill).flat()) });
 // 一時フォルダ（日本語と 𠮷 の名前。RF1 と同じ形）。テストの終わりに消す
 const tmp = (t, name) => {
@@ -135,7 +142,9 @@ test('G2: 撮る画面は決まった並び（第1b回の 13 と第1b2回の検�
     ...S8_APP_094,
     // 0.10.0 C-3 で意図して変えた: カード「Claude との連携（MCP）」まで捲った形と、その吹き出しを開いた形を足した（取り直し待ち・まだ基準が無い）。
     // L-1 で意図して変えた: ページのメニューを開いた明暗の2枚を足した。L-2 で一覧で2件を選んだ明暗の2枚を足した
-    ...NEW_100]);
+    ...NEW_100,
+    // 0.10.1 CD-3 で意図して変えた: 動いていたので断った文（RN1）の画面を足した（取り直し待ち・まだ基準が無い）
+    ...NEW_101]);
   assert.deepStrictEqual(SH.SCREENS.filter((s) => s.page === 'overlay').map((s) => s.name), PS.screenNames());
   // 0.9.3 M-7 で意図して変えた: 会議の検出のパネル（page nudge）の5枚を録音バーのあと（いちばん後ろ）に足した
   assert.deepStrictEqual(SH.SCREENS.filter((s) => s.page === 'nudge').map((s) => s.name), M7_NUDGE_093);
@@ -347,8 +356,9 @@ test('G2・F14・RP9・G-3: 第1a回の録音バーの画面と基準は無い�
 // 0.9.3 で意図して変えた: 持ち主が取り直しの 36 枚を OK と言ったので取り直し待ちを空にし、版を 0.9.3 にした。次の版も、取り直し待ちが残る間は 0.9.3 のまま
 // 0.9.4 で意図して変えた: 持ち主が取り直しの見比べを OK と言ったので取り直し待ちを空にし、版を 0.9.4 にした。次の版も、取り直し待ちが残る間は 0.9.4 のまま
 // 0.10.0 で意図して変えた: 持ち主が取り直しの見比べ（46 枚）を「OK」と言ったので取り直し待ちを空にし、版を 0.10.0 にした。次の版も、取り直し待ちが残る間は 0.10.0 のまま
+// 0.10.1 で意図して変えた: 持ち主が取り直しの画像（1 枚）を「OK」と言ったので取り直し待ちを空にし、版を 0.10.1 にした。次の版も、取り直し待ちが残る間は 0.10.1 のまま
 test('F14: 取り直し待ちが残っている間は、版を上げられない（取り直し待ちのまま次の版を出さない）', { timeout: 5000 }, () => {
-  if (SH.RETAKE.size) assert.strictEqual(JSON.parse(read('package.json')).version, '0.10.0', `取り直し待ち ${[...SH.RETAKE].join(',')} を残したまま版を上げた`);
+  if (SH.RETAKE.size) assert.strictEqual(JSON.parse(read('package.json')).version, '0.10.1', `取り直し待ち ${[...SH.RETAKE].join(',')} を残したまま版を上げた`);
 });
 
 test('tools/shots/main.js は画面ごとの答え・拡大・はみ出し・Tab を使う', { timeout: 5000 }, () => {
@@ -585,8 +595,12 @@ test('U-3・G-3: settings-offline-light は基準の PNG と比べる（取り�
 // 0.9.4 で意図して変えた: 取り直し待ちは 0.9.4 の表の画面（ファイルの頭の RETAKE_094）とちょうど同じ
 // 0.9.4 で意図して変えた（版を 0.9.4 に上げる commit）: 取り直し待ちを空に戻した（ファイルの頭の注）。0.9.4 の表の画面（ADDED_094）にはどれも基準がある
 // 0.10.0 で意図して変えた（版を 0.10.0 に上げる commit）: 取り直し待ちを空に戻した（ファイルの頭の注）。0.10.0 の表の画面（ADDED_100）はどれも計画の表にあり、基準がある
-test('G2・F14・G-4・0.9.0 G-3・0.9.1・0.9.2・0.9.3・0.9.4・0.10.0: 取り直し待ちは無い。どの画面にも基準の PNG があり（0.9.1・0.9.2・0.9.3・0.9.4・0.10.0 で足した画面も）、本体の画面の大きさは窓の大きさと同じ', { timeout: 5000 }, () => {
+// 0.10.1 で意図して変えた（版を 0.10.1 に上げる commit）: 取り直し待ちを空に戻した（ファイルの頭の注）。0.10.1 の表の画面（ADDED_101）はどれも計画の表にあり、基準がある
+test('G2・F14・G-4・0.9.0 G-3・0.9.1・0.9.2・0.9.3・0.9.4・0.10.0・0.10.1: 取り直し待ちは無い。どの画面にも基準の PNG があり（0.9.1・0.9.2・0.9.3・0.9.4・0.10.0・0.10.1 で足した画面も）、本体の画面の大きさは窓の大きさと同じ', { timeout: 5000 }, () => {
   assert.deepStrictEqual([...SH.RETAKE], []);
+  const plan101 = read('docs/plans/2026-10-23-101.md');
+  const table101 = plan101.slice(plan101.indexOf('## 取り直す画面（RETAKE）'), plan101.indexOf('## 実機で利用者に見てもらうこと'));
+  for (const n of ADDED_101) assert.ok(table101.includes(`\`${n}\``), `0.10.1 の計画の「取り直す画面」の表に ${n} が無い`);
   const plan100 = read('docs/plans/2026-10-20-100.md');
   const table100 = plan100.slice(plan100.indexOf('## 取り直す画面（RETAKE）'), plan100.indexOf('## 実機で利用者に見てもらうこと'));
   for (const n of ADDED_100) assert.ok(table100.includes(`\`${n}\``), `0.10.0 の計画の「取り直す画面」の表に ${n} が無い`);
@@ -597,7 +611,7 @@ test('G2・F14・G-4・0.9.0 G-3・0.9.1・0.9.2・0.9.3・0.9.4・0.10.0: 取�
   const table093 = plan093.slice(plan093.indexOf('## 取り直す画面（RETAKE）'), plan093.indexOf('## 実機で利用者に見てもらうこと'));
   for (const n of ADDED_093) assert.ok(table093.includes(`\`${n}\``), `0.9.3 の計画の「取り直す画面」の表に ${n} が無い`);
   assert.ok(!SH.RETAKE.has('overlay-processing'), '外した録音バーの画面を取り直し待ちに入れた');
-  for (const n of [...ADDED_091, ...ADDED_092, ...ADDED_093, ...new Set(ADDED_094), ...new Set(ADDED_100)]) {
+  for (const n of [...ADDED_091, ...ADDED_092, ...ADDED_093, ...new Set(ADDED_094), ...new Set(ADDED_100), ...ADDED_101]) {
     assert.ok(SH.SCREENS.some((s) => s.name === n), `${n} が撮る画面に無い`);
     assert.ok(fs.existsSync(path.join(ROOT, 'test', 'shots', 'win32', `${n}.png`)), `${n} の基準が無い`);
   }
@@ -806,7 +820,12 @@ test('基準の画像（test/shots/win32）は今の app.html で撮ったもの
   // 変わる画面は live-offline-light・live-offline-dark・settings-info-stt-dark・settings-offline-light（どれも RETAKE にある）。値を今の app.html に合わせた（前の値は 003e98d9…）
   // 持ち主の答え（2026-10-23）で意図して変えた: カード「Claude との連携（MCP）」の頭の1行から「Claude Code」を外した（D64）。変わる画面は settings-summary-light・
   // settings-info-claude-light・settings-mcp-light・settings-info-mcp-light（どれも RETAKE にある）。値を今の app.html に合わせた（前の値は 9a700bc9…）
-  assert.strictEqual(sha, '13470282044e3669aaf3d3fff304a0941f1e0061d2da8bbe2ac93140c8f3cddb',
+  // 0.10.1 CD-3（D84・D85）: カード「Claude との連携（MCP）」の断った文（RN1・RN2）・確かめないまま変えた文（RN5）を足し、動いているときの頭の文（RN3）を書き直した。
+  // 撮る今の画面は「登録していない・動いていない」の形で #mcpMsg が空なので見た目は変わらない。新しい文は足した settings-mcp-running-light（RETAKE）に写る。
+  // 値を今の app.html に合わせた（前の値は 13470282…）
+  // 0.10.1 点検の直し（Ruling R8）: どこかのファイルに natsu が残っていれば（main の答えの hasEntry）［登録を外す］を出す1行を足した。撮る画面の答えに hasEntry は
+  // 無いので見た目は変わらない（RETAKE は足さない）。値を今の app.html に合わせた（前の値は 2c44162a…）
+  assert.strictEqual(sha, '4130627a783b8bedd12be05fbfc730aef4cc0c99bddf8c136c9de095dc1af821',
     'app.html が基準の画像を撮った時と違う。Windows の CI の画面の比べ（捲り棒のつまみも）を見て、基準を取り直してからこの値を直す');
 });
 

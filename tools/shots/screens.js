@@ -82,6 +82,14 @@ const SELECT_TWO = `(() => {
 // 0.9.2 I-4: 設定を開いて項目を選ぶ・ⓘ を真ん中に見えるように捲って押す（押すと吹き出しが開く。最後に押す）
 const OPEN_SETTINGS = "document.getElementById('tabBtnSettings').click()";
 const NAV = (id) => `document.getElementById('${id}').click()`;
+// 0.10.1 CD-3（D84）: 項目「要約」を開いて［Claude デスクトップに登録］を押し、Claude デスクトップが動いていたので断った文（RN1）が出てから、カードまで捲る
+const MCP_RUNNING_ACT = `(async () => {
+  document.getElementById('tabBtnSettings').click(); document.getElementById('setNavSummary').click();
+  await new Promise((r) => setTimeout(r, 200));
+  document.getElementById('mcpRegister').click();
+  await new Promise((r) => setTimeout(r, 300));
+  document.getElementById('mcpCard').scrollIntoView({ block: 'start' });
+})()`;
 const INFO = (pop) => `const i = document.querySelector('[aria-controls="${pop}"]'); i.scrollIntoView({ block: 'center' }); i.click()`;
 // 0.9.3 M-7（計画 docs/plans/2026-10-22-093.md の「取り直す画面」）: 話しているときの音の波の決まった 20 の値（main の levelMsg を通った形。
 // 新しい値が右から入るので、いちばん後ろが右端）。マイクと相手の声の大きい方が棒の高さになる（相手の方が大きい値も入れる）
@@ -183,6 +191,12 @@ const SCREENS = [
   // 0.10.0 LS-2（D63・D69・決めたこと 111 の 7）: まだ要約を作っていない会議のページ（要約の欄の頭の灰色の一言と、右上の［要約を生成］）。
   // 足した画面（まだ基準が無い）
   { name: 'page-summary-lock-light', page: 'app', theme: 'light', get answers() { return summaryLockAnswers(); }, act: OPEN_PAGE_SUMMARY },
+  // 0.10.1 CD-3（D84・計画 docs/plans/2026-10-23-101.md の「取り直す画面（RETAKE）」）: Claude デスクトップが動いている間に［Claude デスクトップに登録］を押して
+  // 断った形（#mcpMsg に RN1）。足した画面（版を 0.10.1 に上げる commit で、持ち主が OK と言った CI の画像を基準にした）
+  {
+    name: 'settings-mcp-running-light', page: 'app', theme: 'light', act: MCP_RUNNING_ACT,
+    answers: { 'koeApp.mcpStatus': { desktop: { state: 'none', files: 1, running: true } }, 'koeApp.mcpRegister': { ok: false, state: 'none', code: 'running', running: true } },
+  },
 ];
 // 0.9.0 O-3（RP9）: 録音バーの画面（形 → 地 → 拡大率 → 状態の順。撮る道具は形・地・拡大率の組ごとに窓を1つ開いて状態を act で替える）。
 // 録音は始めずに見た目だけを撮る（act は pill-states の見本を録音バーの DOM に当てる。撮るときだけ体の地にデスクトップの色を塗る）。
@@ -255,6 +269,8 @@ const OVL_094 = (states) => PS.FORMS.flatMap((form) => Object.keys(PS.DESKS).fla
 // 「OK」と言った。持ち主の答えで MCP のカードの頭の1行（「Claude デスクトップから議事録を読めるようにします。」）だけを直した後の CI run 39934849171
 // （03d209d）・artifact 12493472101 の .after.png（46 枚）をバイトのまま基準にし、空に戻した。OK の画像と比べて、直した1行の写る4枚（settings-summary-light・
 // settings-info-claude-light・settings-mcp-light・settings-info-mcp-light）のその行のほかに違いは無い（左の列の印の 1 段の色の揺れは、同じ app.html の2つの run の間にもある）
+// 0.10.1（版を 0.10.1 に上げる commit）: 持ち主が 2026-10-24 に settings-mcp-running-light（CD-3 の断った文 RN1）の画像を見て「OK」と言ったので、
+// CI run 40071461858（1dff338）・artifact 12552271208 の .after.png をバイトのまま基準にし、空に戻した
 const RETAKE = new Set([]);
 const PERF = [{ name: 'open-2000-blocks', budgetMs: 500 }];   // 3回開いた中央値で見る
 const TIME_ZONE = 'Asia/Tokyo';

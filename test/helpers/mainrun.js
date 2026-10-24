@@ -387,13 +387,29 @@ const { titleAt } = require('./titles');
 //     --claude-config=<場面> … 起動の前に Claude デスクトップの設定ファイルを置く（none: フォルダだけ・plain: 好みの設定だけ・others: 好みの設定と
 //                        ほかのサーバー2つと利用者の控え .bak・bom: others を BOM 付きで・broken: 途中で切れた JSON・array: []・other-natsu: 印の無い natsu・
 //                        readonly: others を読み取り専用で・msix: %APPDATA% はフォルダだけで、%LOCALAPPDATA%\Packages\Claude_…\LocalCache\Roaming\Claude に others・noclaude: どちらのフォルダも無い）
+//                        0.10.1 CD-2 で足した場面（%LOCALAPPDATA%\Claude-Data\claude_pzs8sxrjxfjjc = data・…\claude_zz9test0000aa = data2。Claude-Data の直の下に README.txt）:
+//                        msix-only: 前の場所だけに others・data: 新しい場所に見本と、ほかの道具の控え .rea.backup。前の場所は印 .user-data-left.* だけ・
+//                        data-msix: 新しい場所に見本（natsu 無し）・前の場所に others と今の NaTsu の natsu と印・data-two: data と data2 に見本・
+//                        roaming-data: %APPDATA%\Claude に others と新しい場所に見本・data-broken: 新しい場所が壊れた JSON・前の場所に others・
+//                        msix-broken: 新しい場所に見本・前の場所が壊れた JSON（見本は作った値で、JSON.stringify(v, null, 2)・終わりの改行なし）
+//     --data-has-natsu … data-msix の新しい場所の見本にも今の NaTsu の natsu を置く（手で写した形）（0.10.1 CD-2）
+//     --claude-race … NaTsu が Claude の設定ファイルを書いた直後に、preferences に鍵を1つ足して書き戻す（Claude が書き戻した形）（0.10.1 CD-2）
+//     0.10.1 点検の直し: 場面 three（%APPDATA%\Claude と前の場所に others・新しい場所に見本）・--claude-fail-write=N（Claude の設定ファイルへの N 回目の書き込みを EBUSY）・
+//                        --claude-fail-restore（NaTsu の戻しを EBUSY）・--claude-race-before（控えを写した直後・書く前に Claude が書く）・--claude-race-other（1つ目を書いた直後に
+//                        前の場所の natsu を消す）・--claude-root=<フォルダ>（%APPDATA% と %LOCALAPPDATA% をその下に。2回目の起動では場面と、--keep-user-data の settings.json を置き直さない）・
+//                        手順 ["claude-hide", 場所]・["claude-show", 場所]（Claude のフォルダを隠す・戻す）
+//     0.10.1 2回目の点検の直し: 場面 data-link（新しい場所の子が %APPDATA%\Claude へのリンク。Windows はジャンクション）・stale-two（2つの場所に印のある古い natsu）・
+//                        none-data（%APPDATA%\Claude はフォルダだけ）・--claude-race-before=N（N 番目の控えの後だけ）・--claude-future-bak・--claude-bak-exist・
+//                        --claude-create-after-plan・--claude-race-plan=N・手順 ["claude-busy-reads", N]
+//     0.10.1 3回目の点検の直し: 場面 stale-broken（古い natsu と壊れた JSON）・--claude-fail-restore-write（戻しの一時ファイルの書き込みを途中で EBUSY）
 //     --mcp-gone  … 置く settings.json に、前に登録した印 mcpRegisteredFor（ファイル 1・版 0.9.4）を書く
 //     --mcp-stale … 置く設定ファイルの mcpServers の頭に、場所の違う NaTsu の登録（印あり）を足す
 //     --tasklist=<running|stopped|fail> … 偽の execFile が tasklist.exe に答える（動いている・動いていない・失敗）。呼んだ引数を out.tasklistCalls に
+//                        （0.10.1 CD-3: 「fail,running,fail」のように並べると呼ばれるたびに順に答える。MCP の場面で旗が無ければ stopped）
 //     --packaged・--protocol-default … app.isPackaged を真に・isDefaultProtocolClient を真に（LN-3。呼んだ口は out.protocolCalls）
 //     --argv=<JSON> … main を読む前の process.argv（[execPath, ...JSON]。LN-4 のリンクで起こされた形）
 //     --mcp-steps=<JSON> … 起動の後に手順を順に行い、出力して終える: ["status"]・["register"]・["unregister"]（mcp: の IPC。答えは out.ipc に）・
-//                        ["files", 名前]（その時の設定ファイルを out.snaps に）・["sleep", ms]・["save", 足す設定]（画面と同じ settings:save）・["second-instance", argv]（2つ目の起動）・["ipc-raw", 名前, 引数]。出力: claudeConfigs（roaming・msix ごとに text（BOM も含む）・
+//                        ["files", 名前]（その時の設定ファイルを out.snaps に）・["sleep", ms]・["save", 足す設定]（画面と同じ settings:save）・["second-instance", argv]（2つ目の起動）・["ipc-raw", 名前, 引数]。出力: bootConfigs（0.10.1 CD-4: 手順の前の claudeConfigs）・claudeConfigs（roaming・msix・data・data2 ごとに text（BOM も含む）・
 //                        backups（NaTsu の控えの名前）・backupTexts・others（ほかのファイルの名前）。フォルダが無ければ null）・notices・engineLog・settingsText・dataDir
 // 画面へ送った知らせと進み具合は、送った順に out.seq へ残す。進み具合が初めて「使える」（whisperReady・sumReady）と
 // 言ったときの engine:status を out.atReady に、壊れた知らせを送ったときの engine:status を out.atBroken に残す
@@ -497,8 +513,29 @@ const claudeConfigFlag = flagVal('--claude-config');
 const mcpGoneFlag = flags.includes('--mcp-gone');
 const mcpStaleFlag = flags.includes('--mcp-stale');
 const tasklistFlag = flagVal('--tasklist');
+// 0.10.1 CD-2: --data-has-natsu（data-msix の新しい場所にも今の NaTsu の natsu）・--claude-race（NaTsu が書いた直後に Claude が書き戻した形）
+const dataHasNatsuFlag = flags.includes('--data-has-natsu');
+const claudeRaceFlag = flags.includes('--claude-race');
+// 0.10.1 点検の直し（計画の Ruling R7〜R12）: 書く途中の失敗・戻しの失敗・計画の後の書き込み・書かなかったファイルへの書き込み・2回の起動で同じ場所
+const claudeFailWrite = Number(flagVal('--claude-fail-write') || 0);   // Claude の設定ファイルへの N 回目の writeJsonFile を EBUSY にする（書かない）
+const claudeFailRestore = flags.includes('--claude-fail-restore');     // NaTsu の戻し（.natsu-restore の一時ファイルの名前の変更）を EBUSY にする
+// NaTsu の控えを写した直後（書く前）に、Claude が好みの設定を1つ足して書く。=N なら N 番目の控えの後だけ（2回目の点検の直し: 旗だけなら毎回）
+const claudeRaceBeforeVal = flags.find((f) => f === '--claude-race-before' || f.startsWith('--claude-race-before='));
+const claudeRaceBefore = Boolean(claudeRaceBeforeVal);
+const claudeRaceBeforeNth = claudeRaceBeforeVal && claudeRaceBeforeVal.includes('=') ? Number(claudeRaceBeforeVal.split('=')[1]) : 0;
+// 0.10.1 2回目の点検の直し（計画の Ruling R15〜R20）
+const claudeFutureBak = flags.includes('--claude-future-bak');          // %APPDATA%\Claude に、今より後の時刻の名前の NaTsu の控えを3つ置く
+const claudeBakExist = flags.includes('--claude-bak-exist');            // NaTsu の控えを写すたびに EEXIST（20 回続けて名前がある形）
+const claudeCreateAfterPlan = flags.includes('--claude-create-after-plan'); // NaTsu が計画した後（無かったファイルを書く直前の確かめ）に、Claude が %APPDATA%\Claude の設定ファイルを作る
+const claudeRacePlan = Number(flagVal('--claude-race-plan') || 0);
+// 0.10.1 3回目の点検の直し（計画の Ruling R21）: NaTsu の戻しの一時ファイル（.natsu-restore-）への書き込みを、ファイルを作って途中まで書いてから EBUSY にする
+const claudeFailRestoreWrite = flags.includes('--claude-fail-restore-write');     // J.isReadOnly の N 回目（計画の終わり）の直後に、Claude がそのファイルに好みの設定を1つ足して書く
+const claudeRaceOther = flags.includes('--claude-race-other');         // NaTsu が1つ目のファイルを書いた直後に、前の場所（msix）の natsu を消す（ほかのプログラム）
+const claudeRootFlag = flagVal('--claude-root');                       // %APPDATA% と %LOCALAPPDATA% をこのフォルダの下にし、2回目の起動では場面を置き直さない
 const mcpSteps = flagVal('--mcp-steps') ? JSON.parse(flagVal('--mcp-steps')) : null;
 const mcpScene = Boolean(claudeConfigFlag || mcpSteps);
+// 0.10.1 CD-3: tasklist.exe への答えの並び（--tasklist=running・stopped・fail か「a,b,c」。MCP の場面で旗が無ければ stopped）
+const tasklistPlan = String(tasklistFlag || (mcpScene ? 'stopped' : '')).split(',').filter(Boolean);
 // 0.10.0 LN-3: --packaged（app.isPackaged が真）・--protocol-default（isDefaultProtocolClient が真）。呼んだ口を out.protocolCalls に
 const packagedFlag = flags.includes('--packaged');
 const protocolDefaultFlag = flags.includes('--protocol-default');
@@ -850,13 +887,83 @@ process.on('exit', () => {
     if (setTypeDuring || setTitleDuring) process.env.FAKE_SUM_DELAY = '1500';
   }
   // 取り込んだ組（--managed）。置き場所は main と同じ LOCALAPPDATA の下（日本語と 𠮷 の名前。RF1）
-  const localAppData = path.join(tmp, 'LocalAppData-取込𠮷');
+  const localAppData = path.join(claudeRootFlag || tmp, 'LocalAppData-取込𠮷');
   // 0.10.0 C-2: %APPDATA%（app.getPath('appData')）と Claude デスクトップの設定ファイル（--claude-config。頭の注釈）
-  const appDataDir = path.join(tmp, 'AppData-Roaming-設定𠮷');
+  const appDataDir = path.join(claudeRootFlag || tmp, 'AppData-Roaming-設定𠮷');
+  // 0.10.1 点検の直し: --claude-root の2回目の起動では、置いた場面のファイルをそのまま使う（印 .scene-placed）
+  const claudeScenePlaced = Boolean(claudeRootFlag) && fs.existsSync(path.join(claudeRootFlag, '.scene-placed'));
   fs.mkdirSync(appDataDir, { recursive: true });
   const CLAUDE_CONFIG = 'claude_desktop_config.json';
-  const claudeDirs = { roaming: path.join(appDataDir, 'Claude'), msix: path.join(localAppData, 'Packages', 'Claude_pzs8sxrjxfjjc', 'LocalCache', 'Roaming', 'Claude') };
-  if (claudeConfigFlag) {
+  // 0.10.1 CD-2: data・data2 は新しい Store 版の場所（%LOCALAPPDATA%\Claude-Data\claude_<符号>。data2 の符号は作ったもの）
+  const claudeDataRoot = path.join(localAppData, 'Claude-Data');
+  const claudeDirs = {
+    roaming: path.join(appDataDir, 'Claude'), msix: path.join(localAppData, 'Packages', 'Claude_pzs8sxrjxfjjc', 'LocalCache', 'Roaming', 'Claude'),
+    data: path.join(claudeDataRoot, 'claude_pzs8sxrjxfjjc'), data2: path.join(claudeDataRoot, 'claude_zz9test0000aa'),
+  };
+  // 0.10.1 CD-2 の場面（頭の注釈）。今の NaTsu の登録（main の mcpPaths と同じ形）・新しい場所の形の見本（作った値。JSON.stringify(v, null, 2)・終わりの改行なし）
+  const NEW_CLAUDE_SCENES = new Set(['msix-only', 'data', 'data-msix', 'data-two', 'roaming-data', 'data-broken', 'msix-broken', 'three', 'data-link', 'stale-two', 'none-data', 'stale-broken']);
+  if (claudeScenePlaced) {
+    // 2回目の起動（--claude-root）: 何も置かない
+  } else if (claudeConfigFlag && NEW_CLAUDE_SCENES.has(claudeConfigFlag)) {
+    const OTHERS = {
+      globalShortcut: 'Ctrl+Space',
+      mcpServers: { filesystem: { command: 'npx', args: ['-y', '@modelcontextprotocol/server-filesystem', 'C:\\docs'] }, memory: { command: 'node', args: ['mem.js'], env: { K: 'v' } } },
+      theme: 'dark',
+    };
+    const natsuNow = { command: process.execPath, args: [path.join(ROOT, 'src', 'mcp', 'server.js')], env: { ELECTRON_RUN_AS_NODE: '1', NATSU_MCP: '1', NATSU_DATA_DIR: path.join(userData, 'data') } };
+    const sample = (withNatsu) => ({
+      mcpServers: { 'sample-tool': { command: 'node', args: ['tool.js'] }, ...(withNatsu ? { natsu: natsuNow } : {}) },
+      sampleFolder: 'C:\\見本\\𠮷',
+      preferences: {
+        menuBarEnabled: true, sidebarMode: 'wide', allowedOrigins: [], trustedFolders: ['C:\\見本'],
+        folderGrants: { '00000000-0000-4000-8000-000000000001': { path: 'C:\\見本', ok: true }, '00000000-0000-4000-8000-000000000002': { path: 'D:\\作業', ok: false } },
+        paneWidth: 320, nudgeSeen: false, userDataOutsidePackageAnswer: true,
+        nested: { 'starred.sessions': {}, 'mode.00000000-0000-4000-8000-000000000003': 'auto', count: 3 },
+      },
+    });
+    const put = (dir, name, body) => { fs.mkdirSync(dir, { recursive: true }); fs.writeFileSync(path.join(dir, name), body); };
+    const js = (v) => JSON.stringify(v, null, 2);
+    const LEFT = '.user-data-left.claude_pzs8sxrjxfjjc';
+    const BROKEN = '{\n  "mcpServers": {\n    "filesystem": {';
+    const sc = claudeConfigFlag;
+    if (sc === 'data' || sc === 'data-two' || sc === 'data-msix' || sc === 'msix-broken' || sc === 'roaming-data' || sc === 'three' || sc === 'none-data') {
+      fs.mkdirSync(claudeDataRoot, { recursive: true });
+      fs.writeFileSync(path.join(claudeDataRoot, 'README.txt'), 'sample');
+      put(claudeDirs.data, CLAUDE_CONFIG, js(sample(sc === 'data-msix' && dataHasNatsuFlag)));
+    }
+    if (sc === 'data') {
+      fs.writeFileSync(path.join(claudeDirs.data, `${CLAUDE_CONFIG}.rea.backup`), '{"ほかの道具の控え": true}');
+      put(claudeDirs.msix, LEFT, '');
+    }
+    if (sc === 'data-two') put(claudeDirs.data2, CLAUDE_CONFIG, js(sample(false)));
+    if (sc === 'data-msix') { put(claudeDirs.msix, CLAUDE_CONFIG, js({ ...OTHERS, mcpServers: { ...OTHERS.mcpServers, natsu: natsuNow } })); put(claudeDirs.msix, LEFT, ''); }
+    if (sc === 'msix-only') put(claudeDirs.msix, CLAUDE_CONFIG, js(OTHERS));
+    if (sc === 'roaming-data') put(claudeDirs.roaming, CLAUDE_CONFIG, js(OTHERS));
+    if (sc === 'data-broken') { put(claudeDirs.data, CLAUDE_CONFIG, BROKEN); put(claudeDirs.msix, CLAUDE_CONFIG, js(OTHERS)); }
+    if (sc === 'msix-broken') put(claudeDirs.msix, CLAUDE_CONFIG, BROKEN);
+    // 0.10.1 点検の直し: 3つの場所（%APPDATA%\Claude・新しい場所・前の場所）。書く順は roaming → data → msix
+    if (sc === 'three') { put(claudeDirs.roaming, CLAUDE_CONFIG, js(OTHERS)); put(claudeDirs.msix, CLAUDE_CONFIG, js(OTHERS)); }
+    // 0.10.1 2回目の点検の直し: data-link（新しい場所の子が %APPDATA%\Claude へのリンク。Windows はジャンクション）・stale-two（%APPDATA%\Claude と前の場所の両方に
+    // 印のある古い natsu）・none-data（%APPDATA%\Claude はフォルダだけ・新しい場所に見本）
+    if (sc === 'data-link') {
+      put(claudeDirs.roaming, CLAUDE_CONFIG, js(OTHERS));
+      fs.mkdirSync(claudeDataRoot, { recursive: true });
+      fs.symlinkSync(claudeDirs.roaming, claudeDirs.data, 'junction');
+    }
+    // 0.10.1 3回目の点検の直し: stale-broken（%APPDATA%\Claude に印のある古い natsu・前の場所が壊れた JSON。悪い方は broken）
+    if (sc === 'stale-broken') {
+      const oldNatsu = { command: 'D:\\old\\NaTsu.exe', args: ['D:\\old\\resources\\app\\src\\mcp\\server.js'], env: { ELECTRON_RUN_AS_NODE: '1', NATSU_MCP: '1', NATSU_DATA_DIR: 'D:\\old\\data' } };
+      put(claudeDirs.roaming, CLAUDE_CONFIG, js({ ...OTHERS, mcpServers: { natsu: oldNatsu, ...OTHERS.mcpServers } }));
+      put(claudeDirs.msix, CLAUDE_CONFIG, BROKEN);
+    }
+    if (sc === 'stale-two') {
+      const oldNatsu = { command: 'D:\\old\\NaTsu.exe', args: ['D:\\old\\resources\\app\\src\\mcp\\server.js'], env: { ELECTRON_RUN_AS_NODE: '1', NATSU_MCP: '1', NATSU_DATA_DIR: 'D:\\old\\data' } };
+      put(claudeDirs.roaming, CLAUDE_CONFIG, js({ ...OTHERS, mcpServers: { natsu: oldNatsu, ...OTHERS.mcpServers } }));
+      put(claudeDirs.msix, CLAUDE_CONFIG, js({ ...OTHERS, mcpServers: { natsu: oldNatsu, ...OTHERS.mcpServers } }));
+    }
+    if (sc === 'none-data') fs.mkdirSync(claudeDirs.roaming, { recursive: true });
+    if (claudeFutureBak) for (const d of ['01', '02', '03']) put(claudeDirs.roaming, `${CLAUDE_CONFIG}.natsu-2099-01-${d}T00-00-00-000Z.bak`, '{"未来の控え": true}');
+  } else if (claudeConfigFlag) {
     const OTHERS = {
       globalShortcut: 'Ctrl+Space',
       mcpServers: { filesystem: { command: 'npx', args: ['-y', '@modelcontextprotocol/server-filesystem', 'C:\\docs'] }, memory: { command: 'node', args: ['mem.js'], env: { K: 'v' } } },
@@ -891,6 +998,7 @@ process.on('exit', () => {
       }
     }
   }
+  if (claudeRootFlag && !claudeScenePlaced) { fs.mkdirSync(claudeRootFlag, { recursive: true }); fs.writeFileSync(path.join(claudeRootFlag, '.scene-placed'), ''); }
   // その時の設定ファイル（場所ごと。フォルダが無ければ null）
   const claudeConfigsNow = () => Object.fromEntries(Object.entries(claudeDirs).map(([k, dir]) => {
     if (!fs.existsSync(dir)) return [k, null];
@@ -1092,7 +1200,7 @@ process.on('exit', () => {
       const cur = fs.existsSync(f) ? JSON.parse(fs.readFileSync(f, 'utf8')) : {};
       fs.writeFileSync(f, JSON.stringify({ ...cur, accountEmail: seededMail }));
     }
-  } else if (!((pillSettings || retiredSum) && keepUserData && fs.existsSync(path.join(userData, 'settings.json')))) {
+  } else if (!((pillSettings || retiredSum || claudeScenePlaced) && keepUserData && fs.existsSync(path.join(userData, 'settings.json')))) {
     fs.writeFileSync(path.join(userData, 'settings.json'), JSON.stringify({
       ...(managedMode || noEngine || fetchMode ? {} : { localServerExe: exe, localModelPath: model }), localPort, sumPort, autoLaunch: false,
       ...(withSum ? { sumServerExe: FAKE_SUM, sumModelPath: sumModel } : {}),
@@ -1688,11 +1796,13 @@ process.on('exit', () => {
     },
     execFile(_cmd, _args, _opts, cb) {
       const done = typeof _opts === 'function' ? _opts : cb;
-      // 0.10.0 C-2: --tasklist のときは tasklist.exe に答える（頭の注釈）
-      if (tasklistFlag && /(^|[\\/])tasklist\.exe$/i.test(String(_cmd))) {
+      // 0.10.0 C-2: --tasklist のときは tasklist.exe に答える（頭の注釈）。0.10.1 CD-3 で意図して変えた: MCP の場面では旗が無ければ stopped。
+      // 「a,b,c」なら呼ばれるたびに順に答え、尽きたら最後の答えのまま
+      if (tasklistPlan.length && /(^|[\\/])tasklist\.exe$/i.test(String(_cmd))) {
         tasklistCalls.push({ cmd: _cmd, args: _args, opts: typeof _opts === 'function' ? null : _opts });
-        const answer = tasklistFlag === 'running' ? '"claude.exe","1234","Console","1","123,456 K"\r\n' : 'INFO: No tasks are running which match the specified criteria.\r\n';
-        if (done) setImmediate(() => (tasklistFlag === 'fail' ? done(new Error('tasklist failed')) : done(null, answer, '')));
+        const kind = tasklistPlan[Math.min(tasklistCalls.length - 1, tasklistPlan.length - 1)];
+        const answer = kind === 'running' ? '"claude.exe","1234","Console","1","123,456 K"\r\n' : 'INFO: No tasks are running which match the specified criteria.\r\n';
+        if (done) setImmediate(() => (kind === 'fail' ? done(new Error('tasklist failed')) : done(null, answer, '')));
         return anyProxy();
       }
       if (done) setImmediate(() => done(new Error('not in test')));
@@ -1723,6 +1833,106 @@ process.on('exit', () => {
   const orig = Module._load;
   let dbClient = null;   // main の客（第2a1回 M-2b）
   const trace = [];   // 第2a1回 M-3: 客の頼みと下書きの書き消しの順（out.trace）
+  // 0.10.1 CD-2: --claude-race。NaTsu が Claude デスクトップの設定ファイルを書いた直後に、Claude が好みの設定を1つ足して書き戻した形にする
+  // 0.10.1 2回目の点検の直し: 手順 claude-busy-reads で決めた回数だけ、Claude の設定ファイルの readFileSync を EBUSY にする
+  const claudeBusyReads = { left: 0 };
+  {
+    const origRead = fs.readFileSync;
+    fs.readFileSync = function readBusy(p, ...rest) {
+      if (claudeBusyReads.left > 0 && path.basename(String(p)) === 'claude_desktop_config.json') {
+        claudeBusyReads.left -= 1;
+        const e = new Error('EBUSY: 場面が読みを止めた'); e.code = 'EBUSY'; throw e;
+      }
+      return origRead.call(this, p, ...rest);
+    };
+  }
+  // 0.10.1 点検の直し: --claude-fail-write=N（N 回目を EBUSY）・--claude-race-other（1つ目を書いた直後に前の場所の natsu を消す）も同じ包みで
+  if (claudeRaceFlag || claudeFailWrite || claudeRaceOther) {
+    const Jm = require(path.join(ROOT, 'src', 'jsonfile.js'));
+    const origWrite = Jm.writeJsonFile;
+    let claudeWrites = 0;
+    let otherDone = false;
+    Jm.writeJsonFile = function writeRaced(file, value, opts) {
+      const isClaude = path.basename(String(file)) === 'claude_desktop_config.json';
+      if (isClaude) {
+        claudeWrites += 1;
+        if (claudeWrites === claudeFailWrite) { const e = new Error('EBUSY: 場面が書き込みを止めた'); e.code = 'EBUSY'; throw e; }
+      }
+      const r = origWrite.call(this, file, value, opts);
+      if (isClaude && claudeRaceFlag) {
+        const v = JSON.parse(fs.readFileSync(file, 'utf8'));
+        v.preferences = { ...(v.preferences || {}), raceWrittenByClaude: true };
+        fs.writeFileSync(file, JSON.stringify(v, null, 2));
+      }
+      if (isClaude && claudeRaceOther && !otherDone) {
+        otherDone = true;
+        const other = path.join(claudeDirs.msix, 'claude_desktop_config.json');
+        if (path.resolve(String(file)) !== path.resolve(other) && fs.existsSync(other)) {
+          const v = JSON.parse(fs.readFileSync(other, 'utf8'));
+          if (v.mcpServers) delete v.mcpServers.natsu;
+          fs.writeFileSync(other, JSON.stringify(v, null, 2));
+        }
+      }
+      return r;
+    };
+  }
+  // 0.10.1 点検の直し: --claude-race-before（控えを写した直後に Claude が書く）・--claude-fail-restore（NaTsu の戻しの名前の変更を EBUSY に）
+  if (claudeRaceBefore || claudeBakExist) {
+    const origCopy = fs.copyFileSync;
+    let bakCopies = 0;
+    fs.copyFileSync = function copyRaced(src, dest, ...rest) {
+      const isBak = /claude_desktop_config\.json\.natsu-.*\.bak$/.test(String(dest));
+      if (isBak && claudeBakExist) { const e = new Error('EEXIST: 場面が名前をふさいだ'); e.code = 'EEXIST'; throw e; }
+      const r = origCopy.call(this, src, dest, ...rest);
+      if (isBak) bakCopies += 1;
+      if (isBak && claudeRaceBefore && (!claudeRaceBeforeNth || bakCopies === claudeRaceBeforeNth)) {
+        const v = JSON.parse(fs.readFileSync(src, 'utf8'));
+        v.preferences = { ...(v.preferences || {}), raceBeforeNaTsu: true };
+        fs.writeFileSync(src, JSON.stringify(v, null, 2));
+      }
+      return r;
+    };
+  }
+  if (claudeCreateAfterPlan) {
+    const origExists = fs.existsSync;
+    let created = false;
+    const target = path.join(claudeDirs.roaming, 'claude_desktop_config.json');
+    fs.existsSync = function existsCreating(p) {
+      if (!created && path.resolve(String(p)) === path.resolve(target)) { created = true; fs.writeFileSync(target, '{\n  "createdByClaude": true\n}'); }
+      return origExists.call(this, p);
+    };
+  }
+  if (claudeRacePlan) {
+    const Jm = require(path.join(ROOT, 'src', 'jsonfile.js'));
+    const origRo = Jm.isReadOnly;
+    let roCalls = 0;
+    Jm.isReadOnly = function isReadOnlyRaced(file, ...rest) {
+      const r = origRo.call(this, file, ...rest);
+      if (path.basename(String(file)) === 'claude_desktop_config.json') {
+        roCalls += 1;
+        if (roCalls === claudeRacePlan) {
+          const v = JSON.parse(fs.readFileSync(file, 'utf8'));
+          v.preferences = { ...(v.preferences || {}), raceAfterPlan: true };
+          fs.writeFileSync(file, JSON.stringify(v, null, 2));
+        }
+      }
+      return r;
+    };
+  }
+  if (claudeFailRestoreWrite) {
+    const origWrite = fs.writeFileSync;
+    fs.writeFileSync = function writeFailing(p, data, ...rest) {
+      if (String(p).includes('.natsu-restore')) { origWrite.call(this, p, '{"途中'); const e = new Error('EBUSY: 場面が戻しの書き込みを止めた'); e.code = 'EBUSY'; throw e; }
+      return origWrite.call(this, p, data, ...rest);
+    };
+  }
+  if (claudeFailRestore) {
+    const origRename = fs.renameSync;
+    fs.renameSync = function renameFailing(src, dest) {
+      if (String(src).includes('.natsu-restore')) { const e = new Error('EBUSY: 場面が戻しを止めた'); e.code = 'EBUSY'; throw e; }
+      return origRename.call(this, src, dest);
+    };
+  }
   const MAIN = path.join(ROOT, 'src', 'main.js');
   const SRC = path.join(ROOT, 'src') + path.sep;
   // 場面の faults: src/ の中のファイル（main・store・jsonfile など）が読む fs にだけ効く
@@ -2603,6 +2813,7 @@ process.on('exit', () => {
   // 0.10.0 C-2: Claude デスクトップへの MCP の登録の場面（--mcp-steps。頭の注釈）。手順を順に行い、出力して終える
   if (mcpSteps) {
     await sleep(50);
+    out.bootConfigs = claudeConfigsNow();   // 0.10.1 CD-4: 起動の後（手順の前）の設定ファイル
     out.ipc = [];
     out.snaps = {};
     const CH = { status: 'mcp:status', register: 'mcp:register', unregister: 'mcp:unregister' };
@@ -2610,6 +2821,11 @@ process.on('exit', () => {
       const [k, ...a] = step;
       if (Object.hasOwn(CH, k)) out.ipc.push([CH[k], handlers[CH[k]] ? await handlers[CH[k]]({}) : 'no-such-channel']);
       else if (k === 'files') out.snaps[a[0]] = claudeConfigsNow();
+      // 0.10.1 点検の直し: Claude のフォルダを隠す・戻す（見つけた場所が無い noclaude の押しを作る）
+      else if (k === 'claude-hide') fs.renameSync(claudeDirs[a[0]], `${claudeDirs[a[0]]}.hidden`);
+      // 0.10.1 2回目の点検の直し: 次の N 回の Claude の設定ファイルの読み（readFileSync）を EBUSY にする（先に見る読みだけが掴まれた形）
+      else if (k === 'claude-busy-reads') claudeBusyReads.left = a[0];
+      else if (k === 'claude-show') fs.renameSync(`${claudeDirs[a[0]]}.hidden`, claudeDirs[a[0]]);
       else if (k === 'save') { const st = await handlers['settings:get'](); out.ipc.push(['settings:save', await handlers['settings:save']({}, { ...st, ...a[0] })]); await sleep(WRITE_SETTLE_MS); }
       else if (k === 'sleep') await sleep(a[0]);
       // 0.10.0 LN-4: 2つ目の起動（Windows がリンクで NaTsu を起こした）と、引数の付いた IPC

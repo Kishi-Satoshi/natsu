@@ -9,8 +9,9 @@ const { escapeHtml: esc } = require('./help-md');
 
 const ARROW = '<span aria-hidden="true">›</span>';
 
-/** 検索の箱（H-4）。JS が動かないときは出さない（hidden のまま。search.js が出す） */
-const searchBox = (id, big) => `<div class="search${big ? ' search-big' : ''}" hidden><label class="vh" for="${id}">記事を探す</label><input id="${id}" class="search-q" type="search" placeholder="${big ? '記事を探す（例: ログイン、一時停止）' : '記事を探す'}" autocomplete="off" spellcheck="false" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="${id}-results"><ul id="${id}-results" class="search-results" role="listbox" aria-label="検索の結果" hidden></ul></div>`;
+/** 検索の箱（H-4）。JS が動かないときは出さない（hidden のまま。search.js が出す）。
+ *  help-dads HD-5（HD6）: 結果の件数の見えない知らせ（role="status"）を箱ごとに1つ。読み上げソフトへの対応の例外（設計書「画面の使いやすさ」） */
+const searchBox = (id, big) => `<div class="search${big ? ' search-big' : ''}" hidden><label class="vh" for="${id}">記事を探す</label><input id="${id}" class="search-q" type="search" placeholder="${big ? '記事を探す（例: ログイン、一時停止）' : '記事を探す'}"${big ? '' : ' data-short="探す"'} autocomplete="off" spellcheck="false" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="${id}-results"><ul id="${id}-results" class="search-results" role="listbox" aria-label="検索の結果" tabindex="-1" hidden></ul><p id="${id}-status" class="vh" role="status"></p></div>`;
 
 /** 2026-10-21 → 2026 年 10 月 21 日 */
 const jaDate = (ymd) => { const [y, m, d] = ymd.split('-').map(Number); return `${y} 年 ${m} 月 ${d} 日`; };
@@ -54,8 +55,10 @@ function toc(site, ctx, current) {
       return `<li><a href="/${ref}/"${current === ref ? ' aria-current="page"' : ''}>${esc(art.meta.title)}</a></li>`;
     }).join('\n');
     return `<div class="toc-cat"><p class="toc-h"><a href="/${c.id}/"${here}>${esc(c.title)}</a></p>${items ? `\n<ul>\n${items}\n</ul>` : ''}</div>`;
-  }).join('\n');
-  return `<nav id="hc-toc" class="toc" aria-label="記事の一覧">\n${cats}\n</nav>`;
+  });
+  // help-relnotes RN-3（Q9 の A）: 分類の後ろにリリースノートの行を1つ（版は並べない）
+  if (ctx.relnotes) cats.push(`<div class="toc-cat"><p class="toc-h"><a href="/release-notes/"${current === 'release-notes' ? ' aria-current="page"' : ''}>${esc(ctx.relnotes.title)}</a></p></div>`);
+  return `<nav id="hc-toc" class="toc" aria-label="記事の一覧">\n${cats.join('\n')}\n</nav>`;
 }
 
 const TOC_BTN = '<button type="button" class="toc-btn" aria-controls="hc-toc" aria-expanded="false" hidden>目次</button>';
@@ -64,7 +67,12 @@ const TOC_BTN = '<button type="button" class="toc-btn" aria-controls="hc-toc" ar
 const rows = (list) => `<ul class="rows">\n${list.map((a) => `<li><a href="${a.url}">${esc(a.meta.title)}</a><span class="desc">${esc(a.meta.description)}</span></li>`).join('\n')}\n</ul>`;
 
 function pageHome(site, ctx) {
-  const cats = site.categories.map((c) => `<li><a href="/${c.id}/">${ctx.icons.get(c.icon) || ''}<span class="t">${esc(c.title)}</span><span class="d">${esc(c.description)}</span><span class="c">${c.articles.length} 件の記事</span></a></li>`).join('\n');
+  const card = (href, icon, t, d, c) => `<li><a href="${href}">${ctx.icons.get(icon) || ''}<span class="t">${esc(t)}</span><span class="d">${esc(d)}</span><span class="c">${c}</span></a></li>`;
+  const list = site.categories.map((c) => card(`/${c.id}/`, c.icon, c.title, c.description, `${c.articles.length} 件の記事`));
+  // help-relnotes RN-3（RN2・Q7）: 格子の最後にリリースノートのカード（版の数は作るときに数える）
+  const rn = ctx.relnotes;
+  if (rn) list.push(card('/release-notes/', rn.icon, rn.title, rn.description, `${rn.versions.length} の版`));
+  const cats = list.join('\n');
   const featured = site.featured.map((r) => ctx.articles.get(r));
   const main = `<main id="hc-main" class="home">
 <h1>${esc(site.title)}</h1>
@@ -81,7 +89,7 @@ ${featured.length ? `<h2 id="hc-featured">はじめての方へ</h2>\n${rows(fea
 function pageCategory(site, cat, ctx) {
   const list = cat.articles.map((a) => ctx.articles.get(`${cat.id}/${a}`));
   const main = `<main id="hc-main" class="cat">
-<nav class="crumbs" aria-label="パンくず"><a href="/">ホーム</a> ${ARROW} <span>${esc(cat.title)}</span></nav>
+<nav class="crumbs" aria-label="パンくず"><a href="/">ホーム</a> ${ARROW} <span aria-current="page">${esc(cat.title)}</span></nav>
 <h1>${esc(cat.title)}</h1>
 <p class="lede">${esc(cat.description)}</p>
 ${list.length ? rows(list) : '<p class="empty">この分類の記事はまだありません。</p>'}
@@ -89,15 +97,16 @@ ${list.length ? rows(list) : '<p class="empty">この分類の記事はまだあ
   return shell(site, { title: pageTitle(site, cat.title), main: `<div class="layout">\n${TOC_BTN}\n${main}\n${toc(site, ctx, cat.id)}\n</div>` });
 }
 
+/** 右の「このページの内容」（items: [[id, 文字]]）。help-relnotes RN-3 でリリースノートのページも使う */
+const onpageAside = (items) => `\n<aside class="onpage" aria-labelledby="hc-onpage"><h2 class="onpage-h" id="hc-onpage">このページの内容</h2>\n<ul>\n${items.map(([id, t]) => `<li><a href="#${id}">${esc(t)}</a></li>`).join('\n')}\n</ul>\n</aside>`;
+
 function pageArticle(site, art, ctx) {
   const cat = site.categories.find((c) => c.id === art.cat);
   const h2 = art.headings.filter((h) => h.level === 2 && h.linkable);
-  const onpage = h2.length >= 3
-    ? `\n<aside class="onpage" aria-labelledby="hc-onpage"><p class="onpage-h" id="hc-onpage">このページの内容</p>\n<ul>\n${h2.map((h) => `<li><a href="#${h.id}">${esc(h.text)}</a></li>`).join('\n')}\n</ul>\n</aside>`
-    : '';
+  const onpage = h2.length >= 3 ? onpageAside(h2.map((h) => [h.id, h.text])) : '';
   const related = art.related.map((r) => ctx.articles.get(r));
   const main = `<main id="hc-main" class="article">
-<nav class="crumbs" aria-label="パンくず"><a href="/">ホーム</a> ${ARROW} <a href="/${cat.id}/">${esc(cat.title)}</a></nav>
+<nav class="crumbs" aria-label="パンくず"><a href="/">ホーム</a> ${ARROW} <a href="/${cat.id}/">${esc(cat.title)}</a> ${ARROW} <span aria-current="page">${esc(art.meta.title)}</span></nav>
 <h1>${esc(art.meta.title)}</h1>
 <dl class="article-meta"><div><dt>分類</dt><dd>${esc(cat.title)}</dd></div><div><dt>最終更新日</dt><dd><time datetime="${esc(art.meta.updated)}">${jaDate(art.meta.updated)}</time></dd></div></dl>
 <div class="body">
@@ -105,6 +114,28 @@ ${art.html}
 </div>
 ${related.length ? `<section class="related" aria-labelledby="hc-related"><h2 id="hc-related">関連記事</h2>\n${rows(related)}\n</section>\n` : ''}</main>`;
   return shell(site, { title: pageTitle(site, art.meta.title), main: `<div class="layout">\n${TOC_BTN}\n${main}\n${toc(site, ctx, art.ref)}${onpage}\n</div>` });
+}
+
+/** help-relnotes RN-3（RN2・RN3。計画の決めたこと D）: リリースノートのページ。頭の注は R-RN1 の文 */
+const RELNOTES_LEDE = 'NaTsu の版ごとの変更点です（新しい版が上）。アプリの［設定］→［更新］に出る文と同じです。古い版の文には、今は無い機能や名前（Groq・ポータブル版 など）が出てきます。今の使い方は各分類の記事を見てください。';
+
+function pageRelnotes(site, ctx) {
+  const rn = ctx.relnotes;
+  const secs = rn.versions.map((v) => `<section aria-labelledby="${v.id}">
+<h2 id="${v.id}">${esc(v.version)}</h2>
+<p class="relnote-date"><time datetime="${v.date}">${jaDate(v.date)}</time></p>
+${v.html}
+</section>`).join('\n');
+  const onpage = rn.versions.length ? onpageAside(rn.versions.map((v) => [v.id, v.version])) : '';
+  const main = `<main id="hc-main" class="article relnotes">
+<nav class="crumbs" aria-label="パンくず"><a href="/">ホーム</a> ${ARROW} <span aria-current="page">${esc(rn.title)}</span></nav>
+<h1>${esc(rn.title)}</h1>
+<p class="lede">${esc(RELNOTES_LEDE)}</p>
+<div class="body">
+${secs}
+</div>
+</main>`;
+  return shell(site, { title: pageTitle(site, rn.title), main: `<div class="layout">\n${TOC_BTN}\n${main}\n${toc(site, ctx, 'release-notes')}${onpage}\n</div>` });
 }
 
 function page404(site, ctx) {
@@ -115,4 +146,4 @@ function page404(site, ctx) {
   return shell(site, { title: pageTitle(site, 'ページが見つかりません'), main });
 }
 
-module.exports = { pageHome, pageCategory, pageArticle, page404, jaDate };
+module.exports = { pageHome, pageCategory, pageArticle, pageRelnotes, page404, jaDate };

@@ -51,9 +51,10 @@ test('表示名は NaTsu（画面・録音バー・ウィンドウ・トレイ�
 // 0.9.3 で意図して変えた: 版を 0.9.3 に（会議の検出の通知・録音中のページの音の波・オフラインモードとローカル AIの名前・オフラインモードの札。Electron は 44.9.0 のまま）
 // 0.9.4 で意図して変えた: 版を 0.9.4 に（会議の検出の直し・音声を消さない・遅い PC の扱い・音の波と録音バー・ローカル AI の名前・中継の安定。Electron は 44.9.0 のまま）
 // 0.10.0 で意図して変えた: 版を 0.10.0 に（Claude から議事録を読む MCP・議事録のリンク・要約は Claude Code だけ・ポータブル版をやめる。Electron は 44.9.0 のまま）
-test('識別子: name は natsu・版は 0.10.0・productName は build の中だけ（userData は %APPDATA%\\natsu）', () => {
+// 0.10.1 で意図して変えた: 版を 0.10.1 に（Microsoft Store 版の Claude デスクトップの新しい設定の場所・動いている間は書かない・起動のときに登録し直す。Electron は 44.9.0 のまま）
+test('識別子: name は natsu・版は 0.10.1・productName は build の中だけ（userData は %APPDATA%\\natsu）', () => {
   assert.strictEqual(pkg.name, 'natsu');
-  assert.strictEqual(pkg.version, '0.10.0');
+  assert.strictEqual(pkg.version, '0.10.1');
   assert.strictEqual(pkg.productName, undefined, 'top-level の productName は userData の名前を変える');
   assert.strictEqual(pkg.build.productName, 'NaTsu');
   assert.strictEqual(pkg.build.appId, 'local.natsu.app');
@@ -89,10 +90,15 @@ test('メッセージの窓には見出し NaTsu を渡す（渡さないと Win
 
 test('CHANGELOG は natsu-v0.1.0 から始まり、Listener の古い節（## v…）を持たない', () => {
   const heads = read('CHANGELOG.md').split('\n').filter((l) => l.startsWith('## '));
-  assert.ok(heads.includes('## natsu-v0.1.0'), 'natsu-v0.1.0 の節が無い');
-  assert.deepStrictEqual(heads.filter((h) => !/^## natsu-v\d+\.\d+\.\d+$/.test(h)), []);
+  assert.ok(heads.some((h) => /^## natsu-v0\.1\.0( |$)/.test(h)), 'natsu-v0.1.0 の節が無い');
+  // help-relnotes RN-1（RN4・Q1）で意図して変えた: 見出しは「## natsu-v<版>」か「## natsu-v<版> （<日付>）」（半角の空白の後に全角の括弧）
+  assert.deepStrictEqual(heads.filter((h) => !HEAD.test(h)), []);
 });
 
+// help-relnotes RN-1: CHANGELOG の見出しの形（日付は任意。日付の無い節はまだ出していない版）
+/** CHANGELOG に「## natsu-v<版>」か「## natsu-v<版> （<日付>）」の節がある */
+const hasSec = (cl, v) => new RegExp(`\\n## natsu-v${v.replace(/\./g, '\\.')}(?: （\\d{4}-\\d{2}-\\d{2}）)?\\n`).test(cl);
+const HEAD = /^## natsu-v(\d+)\.(\d+)\.(\d+)(?: （(\d{4})-(\d{2})-(\d{2})）)?$/;
 const TEXT = /\.(js|html|json|md|ps1|bat|yml)$|(^|\/)[^./]+$/;
 test('Listener の名前がリポジトリに残っていない（CHANGELOG の履歴と計画書を除く）', () => {
   const hits = [];
@@ -113,12 +119,12 @@ test('get-installer.ps1 の取得元は updater.REPO と同じで、タグは na
 });
 
 test('CHANGELOG に今の版の節（## natsu-v<version>）がある（release.yml が本文に使う）', () => {
-  assert.match(read('CHANGELOG.md'), new RegExp(`^## natsu-v${pkg.version.replace(/\./g, '\\.')}$`, 'm'));
+  assert.match(read('CHANGELOG.md'), new RegExp(`^## natsu-v${pkg.version.replace(/\./g, '\\.')}(?: （\\d{4}-\\d{2}-\\d{2}）)?$`, 'm'));
 });
 
 test('CHANGELOG の先頭の節は今の版（新しい節は上に足す）', () => {
   const heads = read('CHANGELOG.md').split('\n').filter((l) => l.startsWith('## '));
-  assert.strictEqual(heads[0], `## natsu-v${pkg.version}`);
+  assert.match(heads[0], new RegExp(`^## natsu-v${pkg.version.replace(/\./g, '\\.')}(?: （|$)`));
 });
 
 // 守りのテスト（今は通る）。読んだ文字の U+FEFF を外さずに writePs1 へ渡すと BOM が2つになる（全体の決まり）
@@ -266,8 +272,9 @@ test('2a1: 試作の名前を持ち込んでいない（listener.db・Listener D
 // 0.9.3 で意図して変えた: 版は 0.9.3（README の保存の説明は 0.7.0 のまま）
 // 0.9.4 で意図して変えた: 版は 0.9.4（README の保存の説明は 0.7.0 のまま）
 // 0.10.0 で意図して変えた: 版は 0.10.0（README の保存の説明は 0.7.0 のまま）
-test('0.7.0・0.8.0・0.9.0・0.9.1・0.9.2・0.9.3・0.9.4・0.10.0: 版と、README の保存の説明（natsu.db・backup・元の JSON を残す・古い版に戻したとき・控えに残る期間）', () => {
-  assert.strictEqual(require('../package.json').version, '0.10.0');
+// 0.10.1 で意図して変えた: 版は 0.10.1（README の保存の説明は 0.7.0 のまま）
+test('0.7.0・0.8.0・0.9.0・0.9.1・0.9.2・0.9.3・0.9.4・0.10.0・0.10.1: 版と、README の保存の説明（natsu.db・backup・元の JSON を残す・古い版に戻したとき・控えに残る期間）', () => {
+  assert.strictEqual(require('../package.json').version, '0.10.1');
   const r = read('README.md');
   for (const w of ['natsu.db', 'data\\backup', '元の JSON', '古い版', '3 日', '2 週']) assert.ok(r.includes(w), w);
 });
@@ -384,7 +391,7 @@ test('D27: README の頭の「このリポジトリについて」に、公開�
 // （計画には「移した」の1行だけを残す）
 const changelog090 = () => {
   const cl = read('CHANGELOG.md');
-  if (!cl.includes('\n## natsu-v0.9.0\n')) return '';
+  if (!/\n## natsu-v0\.9\.0( （[^）]+）)?\n/.test(cl)) return '';
   return secOf(cl, '## natsu-v0.9.0');
 };
 test('0.9.0: CHANGELOG の 0.9.0 の節（G-3 で計画の下書きから移した）は 0.8.0 の節の上にあり、任意の取り込み・設定の画面・録音バー・帯の文を書き、引いた［…］はどれも src/ にある', () => {
@@ -408,7 +415,7 @@ test('0.9.0: CHANGELOG の 0.9.0 の節（G-3 で計画の下書きから移し�
 // （0.9.0 の節の上）へ移した（0.9.0 G-3 と同じ手順）。計画には「移した」の1行だけを残す。引いた［…］はどれも画面の名前（src/ にある）
 test('0.9.1: CHANGELOG の 0.9.1 の節（計画の下書きから移した）は 0.9.0 の節の上にあり、自動で止めること・無音の区間を送らないことを書き、引いた［…］はどれも src/ にある', () => {
   const cl = read('CHANGELOG.md');
-  assert.ok(cl.includes('\n## natsu-v0.9.1\n'), 'CHANGELOG.md に 0.9.1 の節が無い');
+  assert.ok(hasSec(cl, '0.9.1'), 'CHANGELOG.md に 0.9.1 の節が無い');
   const sec = secOf(cl, '## natsu-v0.9.1');
   assert.ok(cl.indexOf('## natsu-v0.9.1') < cl.indexOf('## natsu-v0.9.0'), '0.9.1 の節が 0.9.0 の上に無い');
   const plan = read('docs/plans/2026-10-21-091.md');
@@ -428,7 +435,7 @@ test('0.9.1: CHANGELOG の 0.9.1 の節（計画の下書きから移した）�
 // （0.9.1 の節の上）へ移した（0.9.1 と同じ手順）。計画には「移した」の1行だけを残す。引いた［…］はどれも画面の名前（src/ にある）
 test('0.9.2: CHANGELOG の 0.9.2 の節（計画の下書きから移した）は 0.9.1 の節の上にあり、説明の1行と ⓘ・注意は見えたまま・［ヘルプ］・検索の直しを書き、引いた［…］と画面の文はどれも src/ にある', () => {
   const cl = read('CHANGELOG.md');
-  assert.ok(cl.includes('\n## natsu-v0.9.2\n'), 'CHANGELOG.md に 0.9.2 の節が無い');
+  assert.ok(hasSec(cl, '0.9.2'), 'CHANGELOG.md に 0.9.2 の節が無い');
   const sec = secOf(cl, '## natsu-v0.9.2');
   assert.ok(cl.indexOf('## natsu-v0.9.2') < cl.indexOf('## natsu-v0.9.1'), '0.9.2 の節が 0.9.1 の上に無い');
   const plan = read('docs/plans/2026-10-21-092.md');
@@ -454,7 +461,7 @@ test('0.9.2: CHANGELOG の 0.9.2 の節（計画の下書きから移した）�
 // 前の名前（［この会議は PC の中だけ］）は「名前を変えました」の行で前の名前として引くので、src/ に無くてよい（D54 で画面から消した）
 test('0.9.3: CHANGELOG の 0.9.3 の節（計画の下書きから移した）は 0.9.2 の節の上にあり、会議の検出の通知・音の波・名前の付け直し・オフラインモードの札を書き、引いた［…］と画面の文はどれも src/ にある', () => {
   const cl = read('CHANGELOG.md');
-  assert.ok(cl.includes('\n## natsu-v0.9.3\n'), 'CHANGELOG.md に 0.9.3 の節が無い');
+  assert.ok(hasSec(cl, '0.9.3'), 'CHANGELOG.md に 0.9.3 の節が無い');
   const sec = secOf(cl, '## natsu-v0.9.3');
   assert.ok(cl.indexOf('## natsu-v0.9.3') < cl.indexOf('## natsu-v0.9.2'), '0.9.3 の節が 0.9.2 の上に無い');
   const plan = read('docs/plans/2026-10-22-093.md');
@@ -479,7 +486,7 @@ test('0.9.3: CHANGELOG の 0.9.3 の節（計画の下書きから移した）�
 // 前の名前（［文字起こしを打ち切って要約］・ローカル AI の設定）は前の名前として引くので、src/ に無くてよい
 test('0.9.4: CHANGELOG の 0.9.4 の節（計画の下書きから移した）は 0.9.3 の節の上にあり、会議の検出の直し・音声を残す・遅い PC・音の波・録音バー・名前を書き、外したものは書かず、引いた［…］と画面の文はどれも src/ にある', () => {
   const cl = read('CHANGELOG.md');
-  assert.ok(cl.includes('\n## natsu-v0.9.4\n'), 'CHANGELOG.md に 0.9.4 の節が無い');
+  assert.ok(hasSec(cl, '0.9.4'), 'CHANGELOG.md に 0.9.4 の節が無い');
   const sec = secOf(cl, '## natsu-v0.9.4');
   assert.ok(cl.indexOf('## natsu-v0.9.4') < cl.indexOf('## natsu-v0.9.3'), '0.9.4 の節が 0.9.3 の上に無い');
   const plan = read('docs/plans/2026-10-22-094.md');
@@ -508,7 +515,7 @@ test('LN-3: build.protocols は natsu の1つ（名前「NaTsu の議事録」�
 // CHANGELOG.md の頭（0.9.4 の節の上）へ移した。計画には「移した」の1行だけを残す
 test('0.10.0: CHANGELOG の 0.10.0 の節（計画の下書きから移した）は 0.9.4 の節の上にあり、Claude から読むこと・Anthropic へ送られること（オフラインモードの会議も）・リンク・ポータブル版をやめること・要約は Claude Code だけ・要約待ちを書き、引いた［…］と画面の文はどれも src/ にある', () => {
   const cl = read('CHANGELOG.md');
-  assert.ok(cl.includes('\n## natsu-v0.10.0\n'), 'CHANGELOG.md に 0.10.0 の節が無い');
+  assert.ok(hasSec(cl, '0.10.0'), 'CHANGELOG.md に 0.10.0 の節が無い');
   const sec = secOf(cl, '## natsu-v0.10.0');
   assert.ok(cl.indexOf('## natsu-v0.10.0') < cl.indexOf('## natsu-v0.9.4'), '0.10.0 の節が 0.9.4 の節の上に無い');
   const plan = read('docs/plans/2026-10-20-100.md');
@@ -524,4 +531,97 @@ test('0.10.0: CHANGELOG の 0.10.0 の節（計画の下書きから移した）
   for (const n of names) assert.ok(src.includes(n), `0.10.0 の節の［${n}］が src/ に無い`);
   for (const q of ['Claude との連携（MCP）', '要約待ち（つながったら作ります）']) assert.ok(src.includes(q), `0.10.0 の節の「${q}」が画面に無い`);
   assert.ok(!/notion/i.test(sec) && !/(?<![\w-])[a-z0-9-]+\.cloudflareaccess\.com/i.test(sec), '0.10.0 の節に書いてはいけない字面がある');
+});
+
+// 0.10.1（計画 docs/plans/2026-10-23-101.md の「CHANGELOG の 0.10.1 の節（下書き）」）: 版を 0.10.1 に上げる commit で、下書きを日付つきの見出し
+// （## natsu-v0.10.1 （2026-10-24））で CHANGELOG.md の頭（0.10.0 の節の上）へ移した。計画には「移した」の1行だけを残す
+test('0.10.1: CHANGELOG の 0.10.1 の節（計画の下書きから移した）は日付つきの見出しで 0.10.0 の節の上にあり、Store 版の新しい場所・0.10.0 で登録した人・動いている間は変えない・ほかの設定を残すを書き、引いた［…］はどれも src/ にある', () => {
+  const cl = read('CHANGELOG.md');
+  const lines = cl.replace(/\r\n?/g, '\n').split('\n');
+  assert.ok(lines.includes('## natsu-v0.10.1 （2026-10-24）'), 'CHANGELOG.md に「## natsu-v0.10.1 （2026-10-24）」の見出しが無い');
+  assert.ok(cl.indexOf('## natsu-v0.10.1') < cl.indexOf('## natsu-v0.10.0'), '0.10.1 の節が 0.10.0 の節の上に無い');
+  const sec = secOf(cl, '## natsu-v0.10.1');
+  const plan = read('docs/plans/2026-10-23-101.md');
+  const d = plan.indexOf('\n### CHANGELOG の 0.10.1 の節（下書き）\n');
+  assert.ok(d >= 0, '計画に「CHANGELOG の 0.10.1 の節（下書き）」の見出しが無い');
+  assert.ok(!plan.slice(d, plan.indexOf('\n## ', d + 2)).includes('［更新して再起動］'), '計画に下書きの本文が残っている（移したら「移した」の1行にする）');
+  for (const w of ['［更新して再起動］', 'Microsoft Store', 'Claude-Data', '0.10.0 で登録した人へ', '［登録し直す］', '動いている間は', 'もう一度押す', '控え']) assert.ok(sec.includes(w), `0.10.1 の節に「${w}」が無い`);
+  assert.ok(!/<[a-z]/i.test(sec), '0.10.1 の節に生の HTML がある');
+  const src = ['src/renderer/app.html', 'src/main.js'].map(read).join('\n');
+  const names = [...new Set([...sec.matchAll(/［([^］]+)］/g)].map((m) => m[1]))];
+  assert.ok(names.length >= 4, `引いた［…］が少ない: ${names.join('・')}`);
+  for (const n of names) assert.ok(src.includes(n), `0.10.1 の節の［${n}］が src/ に無い`);
+  assert.ok(src.includes('Claude との連携の登録を直します。'), '0.10.1 の節の知らせの文が main に無い');
+});
+
+// ---------------------------------------------------------------- help-relnotes RN-1（RN4・Q1・RNF1。計画 docs/plans/2026-10-23-help-relnotes.md）
+// 見出しに公開日を足しても、release.yml がリリース本文（アプリの［設定］→［更新］に出る文）を取れて、出した 16 版の本文が1字も変わらない
+const RELEASE_AWK = '$0 ~ "^## +" tag "([ \\t]|$)" { found = 1; next }';
+/** release.yml の「リリース本文を組み立てる」の awk と sed をそのまま写したもの（タグの直後が空白か行の終わりの見出しから、次の ## の前まで。前後の空行を落とす） */
+function releaseBody(cl, tag) {
+  const re = new RegExp(`^## +${tag}([ \\t]|$)`);
+  const out = [];
+  let on = false;
+  for (const l of cl.replace(/\r\n?/g, '\n').split('\n')) {
+    if (!on) { if (re.test(l)) on = true; continue; }
+    if (/^## /.test(l)) break;
+    out.push(l);
+  }
+  while (out.length && out[0] === '') out.shift();
+  while (out.length && out[out.length - 1] === '') out.pop();
+  return out.join('\n');
+}
+// 出した 16 版: 公開日（GitHub のリリースの published_at を日本の日付に）と、日付を足す前の本文の SHA-256（base64url。16進の 64 字はゲートが止める）
+const PUBLISHED = {
+  '0.10.0': ['2026-10-23', 'YP-RaMWisi_b7jdV0lzeuxLes1RbnCtlb0S9hEnerOs'],
+  '0.9.4': ['2026-10-23', 'JZyXvVcVcXW8VdObjVwjm1LPflz-ptWEVnEgC1YS3BQ'],
+  '0.9.3': ['2026-10-22', 'u22AhysDjEoRKSMM9yY9CvBDkOP0f2gt8lYDQVXOuow'],
+  '0.9.2': ['2026-10-21', 'eDPFujDszKilGWUjHhmhDroT1U9GJg9FPA8o-crOG6g'],
+  '0.9.1': ['2026-10-21', 'zu_iB2Gtslf17meCeEyEQ24fitnvuAiMtt3ynHZyKB4'],
+  '0.9.0': ['2026-10-21', 'IBQXkm7nvrp0tB5tJmfTUdH5r_xFTMK1jBfLZHzP9dg'],
+  '0.8.0': ['2026-10-20', 'qD67J9Cv_ij28STcGOu8R6NipLP3djo0IOl2VVy8NlE'],
+  '0.7.0': ['2026-10-19', 'LTxM1UpR10OHoPI-fo-3KYY8G7bmAAwFIMK96RUbow4'],
+  '0.6.0': ['2026-10-19', 'd_5GNhat8rSSYKBn8W-HkWNs1XtS11lym33II-tVRtg'],
+  '0.5.0': ['2026-10-18', 've25eZm-jh-Hlj1vFA5kzosGgj6rvQ-RZTqbQVHTeCQ'],
+  '0.4.0': ['2026-10-18', '1qpKNtqpjfo4rn5vKxgOXkEb9VF3w6nEDF1svYIMBy4'],
+  '0.3.0': ['2026-10-18', '3e2jpm98saDj3ASlI4Ht5UwNZf1iz2tAs9pqhgB-W84'],
+  '0.2.0': ['2026-10-18', '3neTjbEU7WfhJ-H1n4AKQJim_qX4Ce1RNTN4KtnsyG8'],
+  '0.1.2': ['2026-10-17', 'xL3rjGOyhG4e4Z7K3Nbjtq4lIDx8_XffSPrIqi3Kogo'],
+  '0.1.1': ['2026-10-17', 'YrlnPiu6box4xp36pC22cTwdncCh-FGUstUuZZwvsfI'],
+  '0.1.0': ['2026-10-17', '4f5W_0P6RvO7odUS3--Dyg-JcdbANjaXFbFBeL6fPXs'],
+};
+test('RN-1（RN4・RNF1）: 出した 16 版の見出しは「## natsu-v<版> （<公開日>）」（半角の空白の後に全角の括弧）。release.yml の本文の取り方で 16 版とも本文が取れ、日付を足す前の本文と1字も変わらない', () => {
+  const crypto = require('node:crypto');
+  const cl = read('CHANGELOG.md');
+  assert.ok(read('.github/workflows/release.yml').includes(RELEASE_AWK), 'release.yml の本文の取り方が変わった（このテストの写しを直す）');
+  const lines = cl.replace(/\r\n?/g, '\n').split('\n');
+  for (const [v, [date, hash]] of Object.entries(PUBLISHED)) {
+    assert.ok(lines.includes(`## natsu-v${v} （${date}）`), `${v} の見出しが「## natsu-v${v} （${date}）」でない（全角の括弧の前の半角の空白が無いと、release.yml が本文を取れない）`);
+    const body = releaseBody(cl, `natsu-v${v}`);
+    assert.ok(body.length > 0, `${v}: release.yml の取り方で本文が取れない`);
+    assert.strictEqual(crypto.createHash('sha256').update(body).digest('base64url'), hash, `${v}: 出した本文と変わった（アプリに出た文と食い違う）`);
+  }
+  // 本物の awk があれば、写しと同じ答えか（無い所では写しだけで見る）
+  const { spawnSync } = require('node:child_process');
+  const awk = spawnSync('awk', ['-v', 'tag=natsu-v0.10.0', `${RELEASE_AWK} found && /^## / { exit } found { print }`, path.join(ROOT, 'CHANGELOG.md')], { encoding: 'utf8' });
+  if (awk.status === 0) assert.strictEqual(awk.stdout.replace(/^\n+/, '').replace(/\n+$/, ''), releaseBody(cl, 'natsu-v0.10.0'), '本物の awk と写しの答えが違う');
+});
+
+test('RN-1（RN4）: CHANGELOG の版は上から新しい順で重ならない。日付は実在する日で、下の版より古くない。日付の無い節（まだ出していない版）は一番上だけ', () => {
+  const heads = read('CHANGELOG.md').split('\n').filter((l) => l.startsWith('## '));
+  let prev = null;
+  heads.forEach((h, k) => {
+    const m = HEAD.exec(h);
+    assert.ok(m, `見出しの形: ${h}`);
+    const v = [Number(m[1]), Number(m[2]), Number(m[3])];
+    if (prev) assert.ok(v[0] < prev.v[0] || (v[0] === prev.v[0] && (v[1] < prev.v[1] || (v[1] === prev.v[1] && v[2] < prev.v[2]))), `版の並びが新しい順でない: ${prev.h} の下に ${h}`);
+    if (m[4]) {
+      const d = new Date(Date.UTC(Number(m[4]), Number(m[5]) - 1, Number(m[6])));
+      assert.strictEqual(d.toISOString().slice(0, 10), `${m[4]}-${m[5]}-${m[6]}`, `実在しない日: ${h}`);
+      if (prev && prev.date) assert.ok(prev.date >= `${m[4]}-${m[5]}-${m[6]}`, `上の版より新しい日付: ${h}`);
+    } else {
+      assert.strictEqual(k, 0, `日付の無い節は一番上だけ: ${h}`);
+    }
+    prev = { h, v, date: m[4] ? `${m[4]}-${m[5]}-${m[6]}` : null };
+  });
 });
