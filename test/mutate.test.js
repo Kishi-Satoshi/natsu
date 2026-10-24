@@ -670,7 +670,7 @@ test('G3: 0.10.0 の変異が一覧にそろい、IDS_100 はどれも計画の�
 });
 
 // 0.10.1（計画 docs/plans/2026-10-23-101.md の「変異確認」の表）: Claude デスクトップの設定の場所・動いている間は書かない・起動のときの書き直しの直しを1つずつ戻す変異。
-// タスクを作るたびに足す（Ruling R3。表とちょうど同じにそろえるのは CD-6。それまでは「どれも表にある」と「cdl- の変異は IDS_101 にある」を見る）
+// タスクを作るたびに足した（Ruling R3）。CD-6 で意図して変えた: IDS_101 は計画の「変異確認」の表の id とちょうど同じ（表にだけある行は、作っていない変異）
 const IDS_101 = [
   'cdl-data', 'cdl-data-case', 'cdl-data-name', 'cdl-data-dir', 'cdl-data-order', 'cdl-msix-case',
   'cdl-worst', 'cdl-refuse-last', 'cdl-write-first', 'cdl-verify-all', 'cdl-log-place',
@@ -680,7 +680,7 @@ const IDS_101 = [
   'cdl-auto-fix-notice', 'cdl-auto-fix-wide',
   'cdl-help-logs',
 ];
-test('G3: 0.10.1 の変異が一覧にそろい、IDS_101 はどれも計画の「変異確認」の表にある。cdl- の変異は IDS_101 にある。どれも決まったテストのファイルを持ち、why が 0.10.1 で始まる', { timeout: 5000 }, () => {
+test('G3・0.10.1 CD-6: 0.10.1 の変異が一覧にそろい、IDS_101 は計画の「変異確認」の表の id とちょうど同じ。cdl- の変異は IDS_101 にある。どれも決まったテストのファイルを持ち、why が 0.10.1 で始まる', { timeout: 5000 }, () => {
   const byId = new Map(MUTANTS.map((m) => [m.id, m]));
   assert.deepStrictEqual(IDS_101.filter((id) => !byId.has(id)), [], 'IDS_101 の変異が一覧に無い');
   assert.strictEqual(new Set(IDS_101).size, IDS_101.length, 'IDS_101 に重なり');
@@ -691,6 +691,8 @@ test('G3: 0.10.1 の変異が一覧にそろい、IDS_101 はどれも計画の�
   assert.ok(rows.length > 20, '計画の表が読めない');
   assert.strictEqual(new Set(rows).size, rows.length, '計画の表に重なり');
   assert.deepStrictEqual(IDS_101.filter((id) => !rows.includes(id)), [], '計画の「変異確認」の表に無い変異');
+  assert.deepStrictEqual(rows.filter((id) => !IDS_101.includes(id)), [], 'IDS_101 に無い計画の「変異確認」の表の行');
+  assert.strictEqual(rows.length, IDS_101.length, '表の行の数が IDS_101 と違う');
   for (const id of IDS_101) {
     const m = byId.get(id);
     assert.ok(Array.isArray(m.tests) && m.tests.length > 0 && m.tests.every((t) => /^test\/[^/]+\.test\.js$/.test(t)), `${id}: tests`);
