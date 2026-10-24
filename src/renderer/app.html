@@ -4668,6 +4668,8 @@
     reg.textContent = s === 'stale' || s === 'gone' ? '登録し直す' : 'Claude デスクトップに登録';
     reg.disabled = mcpBusy || s === 'noclaude';
     $('mcpUnregister').hidden = !(s === 'same' || s === 'stale');
+    // 0.10.1 点検の直し（Ruling R8）: どこかのファイルに NaTsu の natsu が残っていれば（外すのが一部だけ効いた・一部の場所にだけある）、外し直せるように出す
+    if (st && st.desktop && st.desktop.hasEntry === true) $('mcpUnregister').hidden = false;
     $('mcpUnregister').disabled = mcpBusy;
     const body = msg === undefined ? (MCP_LONG[s] || '') : msg;
     const on = running === undefined ? Boolean(st && st.desktop && st.desktop.running === true) : running === true;

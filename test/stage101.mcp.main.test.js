@@ -175,16 +175,19 @@ test('0.10.1 CD-3・D85: 分からない（--tasklist=fail）→ 1回目は unkn
 });
 
 test('0.10.1 CD-3・R1: 続けてでないときは書かない（違うボタン・2回目に動いていると分かった・間に別の押しがあった）', S, async () => {
-  const a = await run([['files', 'before'], ['register'], ['unregister']], '--claude-config=others', '--tasklist=fail');
+  // 点検の直し（Ruling R11）で意図して変えた: 何も変えない押しは tasklist を見ないので、外すと書き換わる形（印のある古い natsu: --mcp-stale）で見る
+  const a = await run([['files', 'before'], ['register'], ['unregister']], '--claude-config=others', '--mcp-stale', '--tasklist=fail');
   assert.deepStrictEqual(ipcOf(a, 'mcp:register')[0].code, 'unknown');
   assert.deepStrictEqual(ipcOf(a, 'mcp:unregister')[0].code, 'unknown', '違うボタンを2回目とみなした');
   assert.strictEqual(a.claudeConfigs.roaming.text, a.snaps.before.roaming.text);
   const b = await run([['register'], ['register'], ['register']], '--claude-config=others', '--tasklist=fail,running,fail');
   assert.deepStrictEqual(ipcOf(b, 'mcp:register').map((r) => r.code), ['unknown', 'running', 'unknown'], '動いていると分かった後の押しを2回目とみなした');
   assert.ok(!('natsu' in parse(b.claudeConfigs.roaming.text).mcpServers));
-  const c = await run([['register'], ['unregister'], ['register']], '--claude-config=others', '--tasklist=fail,stopped,fail');
+  // 点検の直し（Ruling R11）で意図して変えた: 何も変えない押し（natsu の無い［登録を外す］）は tasklist を見ない（running は null）が、押しとして1回目の印を消す
+  const c = await run([['register'], ['unregister'], ['register']], '--claude-config=others', '--tasklist=fail');
   assert.deepStrictEqual(ipcOf(c, 'mcp:register').map((r) => r.code), ['unknown', 'unknown'], '間に押しがあったのに2回目とみなした');
-  assert.deepStrictEqual(ipcOf(c, 'mcp:unregister')[0], { ok: true, state: 'none', running: false });
+  assert.deepStrictEqual(ipcOf(c, 'mcp:unregister')[0], { ok: true, state: 'none', running: null });
+  assert.strictEqual(c.tasklistCalls.length, 2, '何も変えない押しで tasklist を見た');
 });
 
 // ---------------------------------------------------------------- 0.10.1 Task CD-4（D83・D86）: 起動のときに黙って登録し直す
@@ -242,4 +245,116 @@ test('0.10.1 CD-4: 書けないファイルがある（msix-broken・other-natsu
   const r = await run([], '--claude-config=data-msix', '--mcp-gone', '--claude-race', STOP);
   assert.deepStrictEqual(mcpNotices(r), [{ text: GONE, action: 'settings-summary' }]);
   assert.deepStrictEqual(JSON.parse(r.settingsText).mcpRegisteredFor, { files: 1, version: '0.9.4' }, '確かめで違ったのに登録の印を書き換えた');
+});
+
+// ---------------------------------------------------------------- 0.10.1 点検の直し（2026-10-24。計画の Ruling R7〜R12）
+const fs = require('node:fs');
+const os = require('node:os');
+const UNRESTORED = (n) => `Claude デスクトップの設定ファイルを元に戻せませんでした: ${n} 件`;
+const texts = (snap) => Object.fromEntries(['roaming', 'data', 'msix'].map((k) => [k, snap[k] && snap[k].text]));
+const bkCount = (snap) => Object.fromEntries(['roaming', 'data', 'msix'].map((k) => [k, snap[k] ? snap[k].backups.length : null]));
+
+test('0.10.1 点検の直し R7: 登録で1つ目のファイルが書けない → どのファイルも元のバイトのまま、後のファイルには触れない（控えも作らない）', S, async () => {
+  const o = await run([['files', 'before'], ['register']], '--claude-config=three', '--claude-fail-write=1', STOP);
+  const r = ipcOf(o, 'mcp:register')[0];
+  assert.deepStrictEqual([r.ok, r.code, r.unrestored], [false, 'busy', undefined], JSON.stringify(r));
+  assert.deepStrictEqual(texts(o.claudeConfigs), texts(o.snaps.before));
+  assert.deepStrictEqual(bkCount(o.claudeConfigs), { roaming: 1, data: 0, msix: 0 }, '失敗の後のファイルに触れた');
+  assert.ok(!('mcpRegisteredFor' in JSON.parse(o.settingsText)));
+  assert.ok(mcpLog(o).includes('MCP の登録: 断った（busy）（ファイル 3・控え 1）'), mcpLog(o).join('\n'));
+});
+
+test('0.10.1 点検の直し R7: 登録で真ん中のファイルが書けない → 先に書いたファイルを控えから元のバイトに戻し、後のファイルには触れない。外すときも同じ（印は残る）', S, async () => {
+  const o = await run([['files', 'before'], ['register']], '--claude-config=three', '--claude-fail-write=2', STOP);
+  assert.deepStrictEqual([ipcOf(o, 'mcp:register')[0].ok, ipcOf(o, 'mcp:register')[0].code], [false, 'busy']);
+  assert.deepStrictEqual(texts(o.claudeConfigs), texts(o.snaps.before), '先に書いたファイルを戻さなかった');
+  assert.deepStrictEqual(bkCount(o.claudeConfigs), { roaming: 1, data: 1, msix: 0 });
+  assert.deepStrictEqual(o.engineLog.filter((l) => l.startsWith('Claude デスクトップの設定ファイルを元に')), []);
+  // 外す: 登録（書き込み 3 回）の後の5回目（外すの2つ目）を失敗させる
+  const u = await run([['register'], ['files', 'on'], ['unregister'], ['status']], '--claude-config=three', '--claude-fail-write=5', STOP);
+  assert.deepStrictEqual([ipcOf(u, 'mcp:unregister')[0].ok, ipcOf(u, 'mcp:unregister')[0].code], [false, 'busy']);
+  assert.deepStrictEqual(texts(u.claudeConfigs), texts(u.snaps.on), '外すのが途中で失敗したのに、ファイルがばらばら');
+  assert.deepStrictEqual(JSON.parse(u.settingsText).mcpRegisteredFor, { files: 3, version: PKG.version }, '何も変わらなかったのに印を消した');
+  assert.strictEqual(ipcOf(u, 'mcp:status')[0].desktop.state, 'same');
+});
+
+test('0.10.1 点検の直し R7・R8: 戻しも失敗 → 答えに unrestored・数だけの記録。外すのが一部でも効いたら印を消し、［登録を外す］を出せる（hasEntry）', S, async () => {
+  const o = await run([['register']], '--claude-config=three', '--claude-fail-write=2', '--claude-fail-restore', STOP);
+  const r = ipcOf(o, 'mcp:register')[0];
+  assert.deepStrictEqual([r.ok, r.code, r.unrestored], [false, 'busy', 1], JSON.stringify(r));
+  assert.ok(o.engineLog.includes(UNRESTORED(1)), o.engineLog.filter((l) => /Claude|MCP/.test(l)).join('\n'));
+  assert.deepStrictEqual(parse(o.claudeConfigs.roaming.text).mcpServers.natsu, entryOf(o), '戻せなかったファイルの中身が違う');
+  const u = await run([['register'], ['unregister'], ['status']], '--claude-config=three', '--claude-fail-write=5', '--claude-fail-restore', STOP);
+  assert.deepStrictEqual([ipcOf(u, 'mcp:unregister')[0].code, ipcOf(u, 'mcp:unregister')[0].unrestored], ['busy', 1]);
+  assert.ok(!('natsu' in parse(u.claudeConfigs.roaming.text).mcpServers), '1つ目から外れていない');
+  assert.ok('natsu' in parse(u.claudeConfigs.data.text).mcpServers);
+  assert.ok(!('mcpRegisteredFor' in JSON.parse(u.settingsText)), '外すのが一部効いたのに登録の印が残った（次の起動で書き戻す）');
+  const st = ipcOf(u, 'mcp:status')[0].desktop;
+  assert.deepStrictEqual([st.state, st.hasEntry], ['none', true], JSON.stringify(st));
+  // 確かめで違った（書いた後に Claude が書いた）外すも、ファイルは変わったので印を消す
+  const k = await run([['unregister']], '--claude-config=data-msix', '--data-has-natsu', '--mcp-gone', '--claude-race', STOP);
+  assert.strictEqual(ipcOf(k, 'mcp:unregister')[0].code, 'busy');
+  assert.ok(!('mcpRegisteredFor' in JSON.parse(k.settingsText)), '確かめで違った外すの後に印が残った');
+});
+
+test('0.10.1 点検の直し R8: 外した人（登録して外した後）・外すのが一部だけ効いた人の次の起動では、黙って書き戻さない（2回の起動で同じ場所）', S, async (t) => {
+  const mk = (name) => { const d = fs.mkdtempSync(path.join(os.tmpdir(), `natsu-連携𠮷-${name}-`)); t.after(() => fs.rmSync(d, { recursive: true, force: true })); return d; };
+  for (const [scene, first] of [['others', [['register'], ['unregister']]], ['three', [['register'], ['unregister']]]]) {
+    const root = mk(scene);
+    const ud = path.join(mk(`${scene}-ud`), 'userData-日本語𠮷');
+    const extra = scene === 'three' ? ['--claude-fail-write=5', '--claude-fail-restore'] : [];
+    const a = await run(first, `--claude-config=${scene}`, `--claude-root=${root}`, `--keep-user-data=${ud}`, STOP, ...extra);
+    assert.ok(!('mcpRegisteredFor' in JSON.parse(a.settingsText)), `${scene}: 外した後に印が残った`);
+    const b = await run([], `--claude-config=${scene}`, `--claude-root=${root}`, `--keep-user-data=${ud}`, STOP);
+    assert.deepStrictEqual(texts(b.claudeConfigs), texts(a.claudeConfigs), `${scene}: 起動のときに書き戻した`);
+    assert.deepStrictEqual(b.tasklistCalls, [], `${scene}: 起動のときに書き直しを試した`);
+    assert.deepStrictEqual(mcpNotices(b), [], scene);
+  }
+});
+
+test('0.10.1 点検の直し R9: 書く直前に Claude が書いた（計画の後に中身が変わった）→ busy で断り、Claude の書いた中身を上書きしない', S, async () => {
+  const o = await run([['register']], '--claude-config=data', '--claude-race-before', STOP);
+  assert.deepStrictEqual([ipcOf(o, 'mcp:register')[0].ok, ipcOf(o, 'mcp:register')[0].code], [false, 'busy']);
+  const d = parse(o.claudeConfigs.data.text);
+  assert.strictEqual(d.preferences.raceBeforeNaTsu, true, 'Claude が書いた中身を消した');
+  assert.ok(!('natsu' in d.mcpServers));
+  assert.strictEqual(o.claudeConfigs.msix.text, null, '後のファイル（前の場所）に書いた');
+  // 3つの場所: 2つ目で見つかれば、先に書いた1つ目を戻す
+  const t3 = await run([['files', 'before'], ['register']], '--claude-config=three', '--claude-race-before', STOP);
+  assert.strictEqual(ipcOf(t3, 'mcp:register')[0].code, 'busy');
+  assert.ok(!('natsu' in parse(t3.claudeConfigs.msix.text).mcpServers));
+});
+
+test('0.10.1 点検の直し R10: 書かなかったファイル（もう same）を、書く間にほかのプログラムが書き換えた → busy', S, async () => {
+  const o = await run([['register']], '--claude-config=data-msix', '--claude-race-other', STOP);
+  assert.deepStrictEqual([ipcOf(o, 'mcp:register')[0].ok, ipcOf(o, 'mcp:register')[0].code], [false, 'busy'], JSON.stringify(ipcOf(o, 'mcp:register')[0]));
+});
+
+test('0.10.1 点検の直し R10: 起動のときの書き直しが確かめで断られ、古い（stale）場所があれば mcpStale の知らせ（gone ではない）', S, async () => {
+  const o = await run([], '--claude-config=others', '--mcp-stale', '--mcp-gone', '--claude-race', STOP);
+  assert.deepStrictEqual(mcpNotices(o), [{ text: STALE, action: 'settings-summary' }]);
+});
+
+test('0.10.1 点検の直し R10: 見つけた場所が無い（noclaude）の押しでも、1回目の印を消す', S, async () => {
+  const o = await run([['register'], ['claude-hide', 'roaming'], ['register'], ['claude-show', 'roaming'], ['register']], '--claude-config=others', '--tasklist=fail');
+  assert.deepStrictEqual(ipcOf(o, 'mcp:register').map((r) => r.code), ['unknown', 'noclaude', 'unknown'], 'noclaude の後の押しを2回目とみなした');
+  assert.ok(!('natsu' in parse(o.claudeConfigs.roaming.text).mcpServers));
+});
+
+test('0.10.1 点検の直し R11: 壊れた・別の natsu のファイルがあれば、tasklist を見ずにその理由で断る（Claude の終了を頼まない）。何も変えない押しも tasklist を見ない', S, async () => {
+  for (const [scene, code] of [['data-broken', 'broken'], ['other-natsu', 'other']]) {
+    const o = await run([['register']], `--claude-config=${scene}`, '--tasklist=running');
+    assert.strictEqual(ipcOf(o, 'mcp:register')[0].code, code, scene);
+    assert.deepStrictEqual(o.tasklistCalls, [], `${scene}: tasklist を見た`);
+  }
+  const n = await run([['register'], ['register']], '--claude-config=others', '--tasklist=stopped,running');
+  assert.deepStrictEqual(ipcOf(n, 'mcp:register').map((r) => r.ok), [true, true]);
+  assert.strictEqual(n.tasklistCalls.length, 1);
+});
+
+test('0.10.1 点検の直し R7: 戻すとき、書いた後にほかのプログラムが書き換えたファイルは戻さない（その中身を消さない）・戻せなかった数に数える', S, async () => {
+  const o = await run([['register']], '--claude-config=three', '--claude-fail-write=2', '--claude-race', STOP);
+  const r = ipcOf(o, 'mcp:register')[0];
+  assert.deepStrictEqual([r.code, r.unrestored], ['busy', 1], JSON.stringify(r));
+  assert.strictEqual(parse(o.claudeConfigs.roaming.text).preferences.raceWrittenByClaude, true, 'ほかのプログラムが書いた中身を戻しで消した');
 });

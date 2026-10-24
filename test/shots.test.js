@@ -821,7 +821,9 @@ test('基準の画像（test/shots/win32）は今の app.html で撮ったもの
   // 0.10.1 CD-3（D84・D85）: カード「Claude との連携（MCP）」の断った文（RN1・RN2）・確かめないまま変えた文（RN5）を足し、動いているときの頭の文（RN3）を書き直した。
   // 撮る今の画面は「登録していない・動いていない」の形で #mcpMsg が空なので見た目は変わらない。新しい文は足した settings-mcp-running-light（RETAKE）に写る。
   // 値を今の app.html に合わせた（前の値は 13470282…）
-  assert.strictEqual(sha, '2c44162af04803d6a4a1aef557b84c1eca68020db31e502334c8b94733ff32f8',
+  // 0.10.1 点検の直し（Ruling R8）: どこかのファイルに natsu が残っていれば（main の答えの hasEntry）［登録を外す］を出す1行を足した。撮る画面の答えに hasEntry は
+  // 無いので見た目は変わらない（RETAKE は足さない）。値を今の app.html に合わせた（前の値は 2c44162a…）
+  assert.strictEqual(sha, '4130627a783b8bedd12be05fbfc730aef4cc0c99bddf8c136c9de095dc1af821',
     'app.html が基準の画像を撮った時と違う。Windows の CI の画面の比べ（捲り棒のつまみも）を見て、基準を取り直してからこの値を直す');
 });
 

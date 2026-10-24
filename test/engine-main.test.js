@@ -277,7 +277,9 @@ test('未設定の文は、取り込める PC では［PC の中の文字起こ�
 });
 test('mainrun は main.js を読む前に LOCALAPPDATA を一時フォルダ（日本語と 𠮷 の名前）に向ける（Windows の CI で本当のプロファイルの natsu\\engine を見ない）', () => {
   const r = code(read('test/helpers/mainrun.js'));
-  const d = r.indexOf("const localAppData = path.join(tmp, '");
+  // 0.10.1 点検の直し（Ruling R8）で意図して変えた: 2回の起動で同じ Claude の場所を使う場面（--claude-root。呼び手が日本語と 𠮷 の名前の一時フォルダを渡す）のときだけ、
+  // その下に置く。ほかの場面は今どおり一時フォルダ
+  const d = r.indexOf("const localAppData = path.join(claudeRootFlag || tmp, '");
   const i = r.indexOf('process.env.LOCALAPPDATA = localAppData;');
   const j = r.indexOf("require(path.join(ROOT, 'src', 'main.js'));");
   assert.ok(d > 0 && d < i && i < j, `順が違う: ${d} ${i} ${j}`);

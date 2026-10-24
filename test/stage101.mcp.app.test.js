@@ -66,3 +66,12 @@ test('0.10.1 CD-3・D85: unknown で断られたら RN2 だけ。2回目で書�
   await click(u, 'mcpUnregister');
   assert.strictEqual($(u, 'mcpMsg').textContent, RN5);
 });
+
+test('0.10.1 点検の直し R8: どこかのファイルに NaTsu の natsu が残っていれば（hasEntry）、状態が none・gone でも［登録を外す］を出す（外し直せる）', T, async () => {
+  for (const state of ['none', 'gone']) {
+    const l = await openSummary({ mcpStatus: () => ({ desktop: { state, files: 2, running: false, hasEntry: true } }) });
+    assert.strictEqual($(l, 'mcpUnregister').hidden, false, state);
+    const n = await openSummary({ mcpStatus: () => ({ desktop: { state, files: 2, running: false, hasEntry: false } }) });
+    assert.strictEqual($(n, 'mcpUnregister').hidden, true, state);
+  }
+});
