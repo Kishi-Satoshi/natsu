@@ -1,9 +1,10 @@
 'use strict';
-// メモの型（0.11.0。計画 docs/plans/2026-10-22-110.md の「型の表（MT1 改）」。持ち主の答え D37〜D50・D80）。純粋（./meetingType だけを読む）。
+// メモの型（0.11.0。計画 docs/plans/2026-10-22-110.md の「型の表（MT1 改）」。持ち主の答え D37〜D50・D80）。純粋（./meetingType と ./quality の採点の節の文だけを読む）。
 // 型は会議の種類から決まる（D42: memoTypeOf）。型を別に選ぶ欄は無い。見出しはメモが空か手を付けていないときだけ入れる（isUntouchedMemo）。
 // 見出しごとのヒントはメモの本文に入れず、画面がメモ欄の上の灰色の手引きに出す（listMemoTypes の headings）。
 
 const mtype = require('./meetingType');
+const quality = require('./quality');
 
 const deepFreeze = (o) => { Object.values(o).forEach((v) => { if (v && typeof v === 'object') deepFreeze(v); }); return Object.freeze(o); };
 
@@ -203,7 +204,7 @@ function buildTemplate({ meetingType, score = false } = {}) {
   const rules = [MEMO_RULES, ...MEMO_TYPES[key].rules.map((r) => `- ${r}`)];
   if (key === 'star') rules.push(STAR_RULE);
   const parts = [typeSection(key), rules.join('\n'), CLOSING_TEMPLATE, ADVICE_TEMPLATE];
-  void score;
+  if (score) parts.push(quality.SCORE_TEMPLATE);   // 0.11.0 Q-1: 点を付けるときだけ採点の節
   parts.push(OUTPUT_RULE);
   return parts.join('\n\n');
 }
