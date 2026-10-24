@@ -1,7 +1,7 @@
 ---
 title: 録音を始める・止める
 description: ［新しい議事録］・ホットキー・トレイから録音を始め、［■ 終了して作成］で止めて議事録を作る。話し声が無いときに自動で止めること、録音バーの置き場所と隠し方、録音を捨てるとき
-updated: 2026-10-23
+updated: 2026-10-24
 sources: src/renderer/app.html, src/renderer/overlay.html, src/main.js, src/mainlib.js, src/settings.js, README.md, INSTALL.md
 related: record/pause, record/status-line, record/pc-only
 ---
@@ -25,6 +25,7 @@ related: record/pause, record/status-line, record/pc-only
 ## 録音中のページ {#live}
 
 記録中のタブには、経過時間・［⏸ 一時停止］・［■ 終了して作成］・流れる文字起こし・メモがあります。
+題名の下の「会議の種類」で、録音中に種類を選べます。選ぶとメモのタブに切り替わり、メモが空ならその種類の見出しが入ります（[会議の種類とメモの型](summary/summary-types.md)）。
 録音中にほかの議事録を開いても、録音は続きます（記録中のタブは、録音の間は閉じません）。
 
 ## 録音バー {#bar}

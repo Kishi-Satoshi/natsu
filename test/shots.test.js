@@ -860,7 +860,8 @@ test('基準の画像（test/shots/win32）は今の app.html で撮ったもの
   // 0.11.0 V-2: 要約の画面の並び（orderForView）・つまみの番号・打ち合わせの質のカード・コピーの順。変わる画面は RETAKE_110。値を今の app.html に合わせた（前の値は c114b59f…）
   // 0.11.0 V-3: 設定のカード「打ち合わせの質」。変わる画面は RETAKE_110。値を今の app.html に合わせた（前の値は 4ee8365f…）
   // 0.11.0 V-4: 種類の横の題名からの一言（初めは隠れている。見た目は変わらない）。値を今の app.html に合わせた（前の値は fa63fba9…）
-  assert.strictEqual(sha, '13c2c317a4b5d10bfe4ce26a5e182d02e7bfc559467b8d9baec9b34bf2262892',
+  // 0.11.0 H-1b: #setPopQuality の［ヘルプで詳しく見る ↗］を記事 summary/meeting-quality に付け替えた（見た目は変わらない）。値を今の app.html に合わせた（前の値は 13c2c317…）
+  assert.strictEqual(sha, 'e58d277848bb263ee30ddea10d02aab7dd08b43f6ce4b0da2a6fa7bbdbe63808',
     'app.html が基準の画像を撮った時と違う。Windows の CI の画面の比べ（捲り棒のつまみも）を見て、基準を取り直してからこの値を直す');
 });
 

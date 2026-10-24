@@ -1642,7 +1642,7 @@ function keyLabel(accel) {
 const HELP_ARTICLES = Object.freeze([
   'start/what-natsu-does', 'start/install-update', 'start/login', 'start/claude-code', 'start/claude-mcp', 'start/tester-guide',
   'record/start-stop', 'record/pause', 'record/pc-only', 'record/status-line', 'record/meeting-detect',
-  'summary/how-summaries', 'summary/summary-types', 'summary/citations',
+  'summary/how-summaries', 'summary/summary-types', 'summary/meeting-quality', 'summary/citations',
   'dictation/dictation',
   'find/search', 'find/delete-and-backups',
   'settings/appearance', 'settings/account', 'settings/offline', 'settings/hotkeys',

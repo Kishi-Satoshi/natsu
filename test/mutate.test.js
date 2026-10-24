@@ -794,7 +794,7 @@ test('G3・0.10.1 CD-6: 0.10.1 の変異が一覧にそろい、IDS_101 は計�
 });
 
 // 0.11.0（計画 docs/plans/2026-10-22-110.md の「変異確認」の表）: メモの型・会議の種類・打ち合わせの質の直しを1つずつ戻す変異。
-// タスクを作るたびに足す（表の全部とちょうど同じにそろえるのは最後のタスク。それまでは「どれも表にある」と「mt-・qm-・v- の変異は IDS_110 にある」を見る）
+// タスクを作るたびに足した。H-1b（G の前の最後のタスク）で表の全部とちょうど同じにそろえた（表の id の集まりと IDS_110 の集まりが同じ）
 const IDS_110 = [
   'mt-default-map', 'mt-untouched', 'mt-label-key', 'mt-undecided-points',
   'mt-echo-same', 'mt-rule-quote', 'mt-closing', 'mt-carry', 'mt-star-rule', 'mt-advice-always', 'mt-fence',
@@ -820,6 +820,7 @@ test('G3・0.11.0: 0.11.0 の変異が一覧にそろい、IDS_110 はどれも�
   const rows = [...table.matchAll(/^\| ([a-z][a-z0-9-]*) \|/gm)].map((m) => m[1]).filter((id) => id !== 'id');
   assert.ok(rows.length > 50, '計画の表が読めない');
   assert.deepStrictEqual(IDS_110.filter((id) => !rows.includes(id)), [], '計画の「変異確認」の表に無い変異');
+  assert.deepStrictEqual([...IDS_110].sort(), [...rows].sort(), 'IDS_110 が計画の「変異確認」の表とちょうど同じでない');
   assert.strictEqual(new Set(rows).size, rows.length, '計画の表に重なり');
   for (const id of IDS_110) {
     const m = byId.get(id);
