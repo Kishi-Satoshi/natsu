@@ -450,3 +450,34 @@ test('0.11.0 V-3: 設定の検索で「点数」と打つと、行「打ち合�
   assert.deepStrictEqual($(l, 'tabSettings').querySelectorAll('[data-row]').filter(visible).map((r) => r.dataset.row), ['打ち合わせの質の点数']);
   assert.deepStrictEqual(l.errors.map(fmt), []);
 });
+
+// ---------------------------------------------------------------- 0.11.0 V-4（P15 (a)・D79）: 題名を直した自動のページの一言
+const editTitle = async (l, t) => { const el = $(l, 'pTitle'); el.textContent = t; el.onblur(); await l.drain(); };
+const titleHint = (l) => { const n = $(l, 'pTitleTypeHint'); return n && !n.hidden ? n.textContent : ''; };
+
+test('0.11.0 V-4（P15 (a)）: 自動のページで題名を直すと main に判定を聞き、今の種類と違えば「題名からは「{名前}」です（［要約を再生成］で反映されます）」。種類も要約も変えない', T, async () => {
+  const asked = [];
+  const l = await openPage({ meetingType: 'standup', typeAuto: true, autoType: 'standup', blocks: [{ id: 'b1', type: 'bullet', text: '要点', cites: ['s1'] }] },
+    { returns: { metaDetectType: (id, title) => { asked.push([id, title]); return { type: 'sales' }; }, pageSetTitle: () => ({ ok: true }) } });
+  await editTitle(l, 'A社 商談');
+  assert.deepStrictEqual(asked, [['pa1', 'A社 商談']]);
+  assert.strictEqual(titleHint(l), `題名からは「${mtype.getLabel('sales')}」です（［要約を再生成］で反映されます）`);
+  assert.strictEqual($(l, 'pType').value, '', '種類を変えた');
+  assert.ok(!l.calls110.some((c) => c[0] === 'pageSetType'), '種類を書いた');
+  assert.ok($(l, 'pTypeHint').textContent.startsWith(`自動判定: ${mtype.getLabel('standup')}`));
+  assert.deepStrictEqual(l.errors.map(fmt), []);
+});
+
+test('0.11.0 V-4: 判定が今の種類と同じ・決まらない・手で選んだページでは一言を出さない（手で選んだページは聞かない）', T, async () => {
+  for (const [ans, want] of [[{ type: 'standup' }, ''], [{ type: '' }, ''], [null, '']]) {
+    const l = await openPage({ meetingType: 'standup', typeAuto: true, autoType: 'standup' }, { returns: { metaDetectType: () => ans, pageSetTitle: () => ({ ok: true }) } });
+    await editTitle(l, '定例');
+    assert.strictEqual(titleHint(l), want, JSON.stringify(ans));
+  }
+  const asked = [];
+  const m = await openPage({ meetingType: 'review', typeAuto: false, autoType: 'standup' }, { returns: { metaDetectType: (...a) => { asked.push(a); return { type: 'sales' }; }, pageSetTitle: () => ({ ok: true }) } });
+  await editTitle(m, 'A社 商談');
+  assert.deepStrictEqual(asked, [], '手で選んだページで判定を聞いた');
+  assert.strictEqual(titleHint(m), '');
+  assert.deepStrictEqual(m.errors.map(fmt), []);
+});

@@ -5770,6 +5770,14 @@ function setupIpc() {
   // 0.11.0 V-1: 画面は種類の並びと群を1か所（meetingType.SELECTABLE・GROUPS）から読む。メモの型の表も
   ipcMain.handle('meta:types', () => typesForView());
   ipcMain.handle('meta:memo-types', () => memoTypes.listMemoTypes());
+  // 0.11.0 V-4（P15 (a)・D79）: 題名を直した自動のページで、今の題名と文字起こしの頭から判定した種類（種類も要約も変えない。画面が一言を出すだけ）
+  ipcMain.handle('meta:detect-type', async (_e, id, title) => {
+    if (typeof id !== 'string' || typeof title !== 'string') return { type: '' };
+    let segs = [];
+    try { const r = await db.call('page.get', { id }); segs = r && Array.isArray(r.segments) ? r.segments : []; } catch (_) { segs = []; }
+    const plain = segs.filter((sg) => sg && !sg.failed && !sg.pending).map((sg) => String(sg.text || '')).join('\n');
+    return { type: mtype.detectType(title.slice(0, 200), plain.slice(0, 1200)) };
+  });
   ipcMain.handle('meeting:toggle', () => {
     if (state === 'idle') return startMeetingBy('page');
     if (state === 'meeting') return stopMeetingBy('page');

@@ -859,7 +859,8 @@ test('基準の画像（test/shots/win32）は今の app.html で撮ったもの
   // 0.11.0 V-1: 行の名前「会議の種類」・「メモの型」・群・録音中の種類の行と一言・手引き・札。変わる画面は RETAKE_110。値を今の app.html に合わせた（前の値は 1b081c36…）
   // 0.11.0 V-2: 要約の画面の並び（orderForView）・つまみの番号・打ち合わせの質のカード・コピーの順。変わる画面は RETAKE_110。値を今の app.html に合わせた（前の値は c114b59f…）
   // 0.11.0 V-3: 設定のカード「打ち合わせの質」。変わる画面は RETAKE_110。値を今の app.html に合わせた（前の値は 4ee8365f…）
-  assert.strictEqual(sha, 'fa63fba9bc9c61d094db79c4aec53a8d97f2fbe0e33b84263029f760dba23794',
+  // 0.11.0 V-4: 種類の横の題名からの一言（初めは隠れている。見た目は変わらない）。値を今の app.html に合わせた（前の値は fa63fba9…）
+  assert.strictEqual(sha, '13c2c317a4b5d10bfe4ce26a5e182d02e7bfc559467b8d9baec9b34bf2262892',
     'app.html が基準の画像を撮った時と違う。Windows の CI の画面の比べ（捲り棒のつまみも）を見て、基準を取り直してからこの値を直す');
 });
 

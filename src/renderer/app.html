@@ -834,6 +834,7 @@
               <select class="typeSel" id="pType" aria-label="会議の種類"></select>
               <span class="hint" id="pMemoType"></span>
               <span class="hint" id="pTypeHint"></span>
+              <span class="hint" id="pTitleTypeHint" hidden></span>
               </span>
             </div>
             <div class="typelivehint" id="pTypeLiveHint" hidden>会議の種類を選ぶと、メモに見出しが入ります</div>
@@ -3341,6 +3342,19 @@
     curPage.title = v;
     tabTitles.set(pid, v); renderTabs();
     window.koeApp.pageSetTitle(pid, v).then(() => refreshList());
+    askTitleType(pid, v);
+  }
+  // 0.11.0 V-4（P15 (a)・D79）: 自動のページで題名を直したら main に判定を聞き、今の種類と違えば種類の横に一言（種類も要約も変えない）
+  async function askTitleType(pid, title) {
+    if (!curPage || pid !== curId || pageTypeKey(curPage) || typeof window.koeApp.metaDetectType !== 'function') return;
+    let r = null;
+    try { r = await window.koeApp.metaDetectType(pid, title); } catch (_) { r = null; }
+    if (!curPage || pid !== curId || pageTypeKey(curPage)) return;
+    const d = typeDef(r && r.type);
+    const n = $('pTitleTypeHint');
+    if (!d || d.key === pageMemoTypeKey(curPage)) { n.hidden = true; n.textContent = ''; return; }
+    n.textContent = `題名からは「${d.label}」です（［要約を再生成］で反映されます）`;
+    n.hidden = false;
   }
 
   function renderScript() {
@@ -3479,6 +3493,7 @@
     }
     $('pTypeHint').textContent = hint;
     $('pMemoType').textContent = memoText;
+    $('pTitleTypeHint').hidden = true; $('pTitleTypeHint').textContent = '';   // 題名からの一言は描き直すと消える（V-4）
     sel.onchange = async () => {
       const pid = curId; const v = sel.value;
       // 待っているメモの保存を先に書き終えてから種類を書く（決めたこと 8。DB が今のメモで雛形に替えるかを決める）
@@ -3670,6 +3685,7 @@
   // 0.11.0 V-1（決めたこと 10・P10・P17）: 録音中のページの種類の行（初めは「自動」）。区間が届いて描き直すたびには作り直さない
   function liveTypeHints(key) {
     const def = typeDef(key);
+    $('pTitleTypeHint').hidden = true;
     $('pTypeHint').textContent = def ? def.hint : '';
     $('pMemoType').textContent = def ? memoTypeText(memoKindOf(key)) : 'メモの型: 要約のときに決まります';
     // 一言は、種類を選んでいなくてメモが手を付けていない間だけ

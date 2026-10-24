@@ -168,6 +168,8 @@ contextBridge.exposeInMainWorld('koeApp', {
   // 0.11.0 V-1: { types, selectable, groups }（types の各項目に memo＝種類から決まるメモの型の鍵）。memoTypes はメモの型の表（名前・見出しとヒント・雛形）
   meetingTypes: () => ipcRenderer.invoke('meta:types'),
   memoTypes: () => ipcRenderer.invoke('meta:memo-types'),
+  // 0.11.0 V-4: 題名を直した自動のページで、今の題名から判定した種類を聞く（答えは { type }。'' は決まらない）
+  metaDetectType: (id, title) => ipcRenderer.invoke('meta:detect-type', id, title),
   // 0.11.0 M-4: preset が真なら、DB にある今のメモが手を付けていないときだけ新しい型の雛形に替える（type は鍵か auto）
   pageSetType: (id, type, preset) => dbCall('page.setType', preset === true ? { id, type, preset: true } : { id, type }),
   blockSetAction: (pageId, blockId, assignee, dueRaw) => dbCall('block.setAction', { pageId, blockId, assignee, dueRaw }),
