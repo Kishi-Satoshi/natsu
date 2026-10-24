@@ -200,13 +200,14 @@ test('N3・F7（足した守り）: 消したページのタブを残さず隣�
 const openPa1 = async (o = {}) => { const l = await open(o); await l.drain(); row(l, 0).dispatchEvent({ type: 'click' }); await l.drain(); return l; };
 const propRows = (l) => l.byId.get('pageWrap').querySelectorAll('.prop').map((r) => [r.querySelector('.k').textContent, r.querySelector('.v').textContent]);
 
-test('N4: プロパティは「アイコン・名前・値」の行。要約タイプの選び方もこの行にあり、第1c回の経路の行は名前と値に分ける', async () => {
+// 0.11.0 V-1（決めたこと 3）で意図して変えた: 行の名前は「会議の種類」
+test('N4: プロパティは「アイコン・名前・値」の行。会議の種類の選び方もこの行にあり、第1c回の経路の行は名前と値に分ける', async () => {
   const l = await openPa1({ pageGet: (id) => ({ ...PAGE(id), page: { ...PAGE(id).page, citeStat: { linked: 2, total: 2 }, routeText: ['☁ 文字起こし: クラウド（Groq（無料枠））2', '✨ 要約: Claude Code'] } }) });
   const rows = propRows(l);
   assert.match(rows.find((r) => r[0] === '🔗 出典')[1], /✔ 2\/2/, '出典がそろったことを色だけで伝えている');
-  assert.ok(rows.map((r) => r[0]).filter((k) => /作成日時|長さ|区間|要約タイプ|文字起こし|要約$/.test(k)).length >= 6, JSON.stringify(rows));
+  assert.ok(rows.map((r) => r[0]).filter((k) => /作成日時|長さ|区間|会議の種類|文字起こし|要約$/.test(k)).length >= 6, JSON.stringify(rows));
   assert.deepStrictEqual(rows.find((r) => r[0] === '☁ 文字起こし'), ['☁ 文字起こし', 'クラウド（Groq（無料枠））2']);
-  assert.ok(l.byId.get('pType').closest('.prop'), '要約タイプがプロパティの行に無い');
+  assert.ok(l.byId.get('pType').closest('.prop'), '会議の種類がプロパティの行に無い');
   // 名前の欄のアイコンは灰色の .ic に包む（文字は今のまま。第1b2回 P-2）
   assert.ok(l.byId.get('pageWrap').querySelectorAll('.prop .k').every((k) => k.querySelector('.ic')), 'アイコンが .ic に包まれていない');
 });

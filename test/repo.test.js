@@ -416,9 +416,26 @@ test('記録を新しく始めたら、開いていた議事録を閉じる', ()
   assert.match(appHtml, /function showLive\(\) \{\s*if \(curId \|\| curPage\) \{\s*flushEdits\(\);\s*curId = null; curPage = null; curSegs = \[\];/);
 });
 
-test('タイプ変更のアジェンダ挿入は、人が書いたメモを上書きしない', () => {
-  // 空か、別タイプの雛形そのままのときだけ差し替える
-  assert.match(appHtml, /const isPreset = !cur \|\| mtypes\.some/);
+// 0.11.0 V-1（決めたこと 8・F14）で意図して変えた: 雛形に替えるかは、本当のメモを持つ DB が page.setType の preset で1回で決める（画面の古い写しで決めない）
+test('種類を替えて見出しを入れるのは、人が書いたメモを上書きしない（DB の page.setType の preset。画面は待っているメモの保存を先に書き終える）', () => {
+  assert.ok(!/const isPreset = !cur \|\| mtypes\.some/.test(appHtml), '画面の写しでメモを雛形に替えている');
+  assert.ok(appHtml.includes('const r = await window.koeApp.pageSetType(pid, v, true);'));
+  assert.ok(!/pageSetMemo\(curId, d2\.agenda\)/.test(appHtml));
+});
+
+// 0.11.0 V-1（決めたこと 7・当て直し 15）: 手を付けていないメモは memoTypes.isUntouchedMemo と画面の写し untouchedView で同じ表。決まらなかった文も同じ
+test('0.11.0 V-1: untouchedView（app.html）と memoTypes.isUntouchedMemo に同じ表を当てて同じ答え。AUTO_UNDECIDED_TEXT も同じ', () => {
+  const M = require('../src/memoTypes');
+  const mt = require('../src/meetingType');
+  const view = new Function(`${fnFromApp('untouchedView')}\nreturn untouchedView;`)();
+  const presets = M.listMemoTypes().map((k) => k.preset);
+  const legacy = mt.listTypes().map((t) => t.agenda).filter(Boolean);
+  const memos = ['', '   ', '\n\n', null, undefined, ...presets, ...legacy, ...presets.map((p) => `  ${p.replace(/\n\n/g, '\n')}  \n\n`), ...presets.map((p) => `${p}予算`),
+    ...legacy.map((a) => a.replace(/\n/g, '\r\n')), '予算の相談', '■ 目的', `${presets[0]}\n■ 足した見出し`, 3, '■ 課題・要望（N）\n■ 時期（T）'];
+  for (const m of memos) for (const lg of [legacy, [], undefined, ['', '  ']]) {
+    assert.strictEqual(view(m, presets, lg), M.isUntouchedMemo(m, lg), JSON.stringify([m, lg]));
+  }
+  assert.ok(appHtml.includes(`const AUTO_UNDECIDED_TEXT = '${mt.AUTO_UNDECIDED_TEXT}';`));
 });
 
 test('並べ替えはハンドルからだけ（本文のテキスト選択と衝突させない）', () => {
@@ -495,9 +512,12 @@ test('設定のオン・オフはトグルで表す（議事録のチェック�
   assert.ok(!/\.blk[^\n]*input[^\n]*\{[\s\S]{0,200}?appearance: none/.test(appHtml));
 });
 
-test('画面の名称は「要約タイプ」', () => {
-  assert.ok(appHtml.includes('>要約タイプ</span>'));
+// 0.11.0 V-1（決めたこと 3。D42 の言葉）で意図して変えた: 欄の名前は「会議の種類」
+test('画面の名称は「会議の種類」', () => {
+  assert.ok(appHtml.includes('>会議の種類</span>'));
+  assert.ok(!appHtml.includes('>要約タイプ</span>'));
   assert.ok(!appHtml.includes('>会議タイプ</span>'));
+  assert.ok(appHtml.includes('aria-label="会議の種類"'));
 });
 
 test('並べ替えのつまみは6点の1文字', () => {
@@ -557,7 +577,8 @@ test('一覧の「要約なし」はタイプ章より左にある（右端で�
   // 第1b2回の直し: 窓の結果の2行目もサイドバーの title と同じ rowTitle（灰色の1つの文。並びは stage1b2.look・stage1b2.fix が見る）
   const fn = (name) => appHtml.slice(appHtml.indexOf(`function ${name}(`), appHtml.indexOf('\n  }\n', appHtml.indexOf(`function ${name}(`)));
   const rt = fn('rowTitle');
-  assert.ok(rt.indexOf("parts.push('要約なし')") >= 0 && rt.indexOf("parts.push('要約なし')") < rt.indexOf('parts.push(def ? def.label'),
+  // 0.11.0 V-1 で意図して変えた: 種類は選べる鍵のときだけ（parts.push(def.label)）
+  assert.ok(rt.indexOf("parts.push('要約なし')") >= 0 && rt.indexOf("parts.push('要約なし')") < rt.indexOf('parts.push(def.label)'),
     '要約なしが右側にあり、狭い幅で見切れる');
   assert.ok(fn('renderResults').includes('rowTitle(p)'), '窓の結果の2行目が rowTitle を使っていない');
 });

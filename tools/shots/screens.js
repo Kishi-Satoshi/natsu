@@ -23,6 +23,7 @@ const path = require('path');
 const mtype = require('../../src/meetingType');
 const { MANIFEST } = require('../../src/engine-manifest');
 const lib = require('../../src/mainlib');
+const memoTypes = require('../../src/memoTypes');
 const PS = require('./pill-states');
 
 const SIZE = { width: 1120, height: 780 };         // 本体の窓の既定（main.js の createMainWindow）
@@ -69,6 +70,21 @@ const OPEN_PAGE_SUMMARY = `(async () => {
   document.getElementById('tabBtnNotes').click(); document.querySelector('#plist .pitem').click();
   await new Promise((r) => setTimeout(r, 300));
   document.getElementById('paneBtnNote').click();
+  return 1;
+})()`;
+// 0.11.0 V-1: ページを開いてメモのタブにし、会議の種類の欄を一覧の形にして中身（自動・群・種類）を見せる
+const OPEN_TYPE_LIST = `(async () => {
+  document.getElementById('tabBtnNotes').click(); document.querySelector('#plist .pitem').click();
+  await new Promise((r) => setTimeout(r, 300));
+  document.getElementById('paneBtnMemo').click();
+  const s = document.getElementById('pType'); s.size = s.querySelectorAll('option, optgroup').length;
+  return 1;
+})()`;
+// 0.11.0 V-1: 録音中のページで会議の種類に商談を選ぶ（main の答えは見本: 見出しを入れた）
+const LIVE_PICK_SALES = `(async () => {
+  await new Promise((r) => setTimeout(r, 300));
+  const s = document.getElementById('pType'); s.value = 'sales'; s.dispatchEvent(new Event('change'));
+  await new Promise((r) => setTimeout(r, 300));
   return 1;
 })()`;
 // 0.10.0 L-2: 左の一覧の［選ぶ］を押し、1行目と3行目を選ぶ（頭の枠「2 件を選んでいます」と［リンクを写す］［やめる］）
@@ -197,6 +213,13 @@ const SCREENS = [
     name: 'settings-mcp-running-light', page: 'app', theme: 'light', act: MCP_RUNNING_ACT,
     answers: { 'koeApp.mcpStatus': { desktop: { state: 'none', files: 1, running: true } }, 'koeApp.mcpRegister': { ok: false, state: 'none', code: 'running', running: true } },
   },
+  // 0.11.0 V-1（計画 docs/plans/2026-10-22-110.md の「取り直す画面（RETAKE）」）: 会議の種類のプルダウンを開いた形（群・自動。撮るときは欄を
+  // 一覧の形（size）にして中身を見せる）と「メモの型」・メモのタブの手引き（商談を手で選び、メモが BANTC の雛形のページ）。前の版の一般・その他の
+  // ページが「自動」と決まらなかった文で出る形。録音中に商談を選び、メモのタブに切り替わって見出しと手引きが出た形（P17）。足した画面（まだ基準が無い）
+  { name: 'page-type-light', page: 'app', theme: 'light', get answers() { return typeAnswers(); }, act: OPEN_TYPE_LIST },
+  { name: 'page-type-dark', page: 'app', theme: 'dark', get answers() { return typeAnswers(); }, act: OPEN_TYPE_LIST },
+  { name: 'page-type-undecided-light', page: 'app', theme: 'light', get answers() { return undecidedAnswers(); }, act: OPEN_PAGE },
+  { name: 'live-type-light', page: 'app', theme: 'light', get answers() { return liveTypeAnswers(); }, act: LIVE_PICK_SALES },
 ];
 // 0.9.0 O-3（RP9）: 録音バーの画面（形 → 地 → 拡大率 → 状態の順。撮る道具は形・地・拡大率の組ごとに窓を1つ開いて状態を act で替える）。
 // 録音は始めずに見た目だけを撮る（act は pill-states の見本を録音バーの DOM に当てる。撮るときだけ体の地にデスクトップの色を塗る）。
@@ -278,6 +301,11 @@ const RETAKE = new Set([
   'page-menu-link-light', 'page-menu-link-dark', 'page-summary-lock-light', 'search-palette-light',
   // P-12（R7・R15）: 種類の欄が「自動（文字起こしから判定）」と灰色の「自動判定: {名前}」になるので、種類の行を写す残りの画面も
   'notes-page-zoom200-light', 'list-select-light', 'list-select-dark',
+  // V-1: 行の名前「会議の種類」と「メモの型」。足した画面と、録音中のページを写す画面（種類の行と一言: P10 (a)）
+  'page-type-light', 'page-type-dark', 'page-type-undecided-light', 'live-type-light',
+  'live-light', 'live-dark', 'live-banner-light', 'live-banner-dark', 'live-banner-zoom200-dark', 'live-quiet-light', 'live-quiet-dark',
+  'live-wave-light', 'live-wave-dark', 'live-silent-light', 'live-paused-dark', 'live-offline-light', 'live-offline-dark',
+  'live-late-light', 'live-late-dark', 'live-late-zoom200-light',
 ]);
 const PERF = [{ name: 'open-2000-blocks', budgetMs: 500 }];   // 3回開いた中央値で見る
 const TIME_ZONE = 'Asia/Tokyo';
@@ -415,6 +443,22 @@ function summaryLockAnswers() {
   delete route.summary;
   return { 'koeApp.pageGet': { page: { ...page, blocks: [], citeStat: null, actionStat: null, summaryError: '', route }, segments: SEGMENTS } };
 }
+// 0.11.0 V-1: 商談を手で選び、メモが BANTC の雛形のページ
+function typeAnswers() {
+  const page = fixtures()['koeApp.pageGet'].page;
+  return { 'koeApp.pageGet': { page: { ...page, meetingType: 'sales', typeAuto: false, autoType: 'sales', memo: memoTypes.memoPreset('bantc') }, segments: SEGMENTS } };
+}
+// 0.11.0 V-1: 前の版の一般・その他のページ（一覧の2行目 p2 の会議。自動で一般・その他になった形）
+function undecidedAnswers() {
+  const page = fixtures()['koeApp.pageGet'].page;
+  const p2 = LIST[1];
+  return { 'koeApp.pageGet': { page: { ...page, id: p2.id, title: p2.title, date: p2.date, createdAt: p2.createdAt, durationSec: p2.durationSec, meetingType: 'general', typeAuto: true, autoType: 'general' }, segments: SEGMENTS } };
+}
+// 0.11.0 V-1: 録音中のページ（live-light と同じ会議）で種類を選んだときの main の答え（空のメモに BANTC の見出しを入れた）
+function liveTypeAnswers() {
+  return { ...liveAnswers(), 'koeApp.meetingSetMemo': { ok: true },
+    'koeApp.meetingSetType': { ok: true, memo: memoTypes.memoPreset('bantc'), inserted: true, meetingType: 'sales' } };
+}
 function detectAnswers() {
   return { 'koeApp.getSettings': { ...fixtures()['koeApp.getSettings'], meetingDetect: true, meetingDetectMute: ['zoom'] } };
 }
@@ -442,7 +486,8 @@ function fixtures() {
     'koeApp.promptInfo': { ok: true, kept: 2, total: 2, over: false },
     // 0.10.0 C-3: カード「Claude との連携（MCP）」は登録していない形（Claude デスクトップは動いていない）
     'koeApp.mcpStatus': { desktop: { state: 'none', files: 1, running: false } },
-    'koeApp.meetingTypes': mtype.listTypes(),
+    'koeApp.meetingTypes': lib.typesForView(),   // 0.11.0 V-1: { types, selectable, groups }
+    'koeApp.memoTypes': memoTypes.listMemoTypes(),
     'koeApp.appVersion': { version: '0.4.0', repo: '' },   // 版を上げても画面が変わらないように決まった値
     'koeApp.getHistory': HISTORY,
     'koeApp.meetingStatus': { active: false, paused: false, startedAt: null, segments: [] },

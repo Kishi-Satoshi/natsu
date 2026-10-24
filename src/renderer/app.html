@@ -436,6 +436,10 @@
   .prop .v { flex: 1; min-width: 0; color: var(--text); overflow-wrap: anywhere; }
   #pTypeRow .v { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
   #pTypeRow .hint { font-size: 12px; color: var(--muted); }
+  /* 0.11.0 V-1: 録音中の種類の行の下の灰色の一言（決めたこと 10）と、メモ欄の上の手引き（決めたこと 9。見出しごとに1行） */
+  .typelivehint { font-size: 12px; color: var(--muted); margin: 2px 0 0; }
+  .typelivehint[hidden], .memoguide[hidden] { display: none; }
+  .memoguide { font-size: 12px; color: var(--muted); margin: 0 0 6px; line-height: 1.6; }
   /* 上の帯（第1b2回 P-1）: タブの帯の下の高さ 44px の帯。左にパンくず（アイコンと題名）、右に操作（#pActs） */
   .pagebar { display: flex; align-items: center; gap: 8px; height: 44px; padding: 0 12px; flex: none; min-width: 0; }
   .crumb { display: flex; align-items: center; gap: 6px; min-width: 0; height: 24px; padding: 2px 5px 2px 3px; border-radius: 6px;
@@ -817,12 +821,14 @@
             <div class="ptitle" id="pTitle" contenteditable="true" spellcheck="false"></div>
             <div class="pprops" id="pProps"></div>
             <div class="prop" id="pTypeRow">
-              <span class="k"><span class="ic">🏷</span> <span>要約タイプ</span></span>
+              <span class="k"><span class="ic">🏷</span> <span>会議の種類</span></span>
               <span class="v">
-              <select class="typeSel" id="pType" aria-label="要約タイプ"></select>
+              <select class="typeSel" id="pType" aria-label="会議の種類"></select>
+              <span class="hint" id="pMemoType"></span>
               <span class="hint" id="pTypeHint"></span>
               </span>
             </div>
+            <div class="typelivehint" id="pTypeLiveHint" hidden>会議の種類を選ぶと、メモに見出しが入ります</div>
             </div>
           </div>
           <div class="mblock">
@@ -1435,6 +1441,10 @@
   let curSegs = [];
   let filter = 'all';
   let mtypes = [];
+  let mgroups = [];     // 0.11.0 V-1: プルダウンの群 [{ label, keys }]（main の meetingType.GROUPS。並びはそこの1か所）
+  let memoKinds = [];   // 0.11.0 V-1: メモの型の表 [{ key, label, headings, preset }]（main の memoTypes.listMemoTypes）
+  let liveMemoTimer = null;   // 録音中のメモの送りの時限（種類を選ぶときに止めて今の文を送る: 決めたこと 10）
+  let liveGuide = null;       // 録音中のメモ欄の上の手引き
   let assigneeFilter = '';
   let pane = 'note';
   let mtTimer = null;
@@ -2318,14 +2328,13 @@
     return el;
   }
 
-  // サイドバーの議事録は「🎙️ 題名」の1行。日付・長さ・要約なし・要約タイプ（一般・その他のほか）は行の title（この順。要約なしが先）
+  // サイドバーの議事録は「🎙️ 題名」の1行。日付・長さ・要約なし・会議の種類（選べる種類のときだけ）は行の title（この順。要約なしが先）
   function rowTitle(p) {
     const parts = [String(p.date || ''), fmtDur(Number(p.durationSec) || 0)];
     if (!p.hasSummary) parts.push('要約なし');
-    if (p.meetingType && p.meetingType !== 'general') {
-      const def = mtypes.find((t) => t.key === p.meetingType);
-      parts.push(def ? def.label : p.meetingType);
-    }
+    // 0.11.0 V-1（P12）: 種類は選べる鍵のときだけ（決まらなかった・前の版の一般・その他は出さない）
+    const def = typeDef(p.meetingType);
+    if (def) parts.push(def.label);
     return parts.join(' ・ ');
   }
   function renderList() {
@@ -2742,6 +2751,8 @@
       $('pMore').hidden = true;
       // 議事録を選ぶ前は中身の無いセレクタを出さない（選べない物を見せない）
       $('pTypeRow').style.display = 'none';
+      $('pType').dataset.for = '';          // 録音中のページに戻ったら drawLive が録音中の形で作り直す
+      $('pTypeLiveHint').hidden = true;
       $('pNote').innerHTML = '<div class="empty"><div class="big">左の一覧から議事録を選んでください</div>左の一覧から開くか、［＋ 新しい議事録］で記録を始めてください。</div>';
       $('pScript').textContent = '';
       // 記録中はメモを書けるようにするので、ここでは消さない
@@ -2752,58 +2763,12 @@
       return;
     }
     $('pTypeRow').style.display = '';
+    $('pTypeLiveHint').hidden = true;
     $('pMore').hidden = false;
     $('pTitle').textContent = curPage.title;
     $('pTitle').setAttribute('contenteditable', 'true');
 
-    // 会議の種類（0.11.0 P-12: 一般・その他は無い。頭に「自動」（値 ''）。自動のページと、種類が決まらなかったページ（前の版の一般・その他も）は
-    // 「自動」を選んだ形で、灰色の文に自動の判定を書く。決まらなかったときの文は meetingType.AUTO_UNDECIDED_TEXT の写し（runtime.app が照らす））
-    const AUTO_UNDECIDED_TEXT = '自動判定: 決まらなかったので会議の要点の型でまとめました';
-    const sel = $('pType'); sel.textContent = '';
-    sel.add(new Option('自動（文字起こしから判定）', ''));
-    for (const t of mtypes) sel.add(new Option(t.label, t.key));
-    const typeOf = (k) => mtypes.find((t) => t.key === k) || null;
-    const isAutoView = curPage.typeAuto !== false || !typeOf(curPage.meetingType);
-    sel.value = isAutoView ? '' : curPage.meetingType;
-    const autoHint = () => {
-      const d = typeOf(curPage.meetingType);
-      if (d) return `自動判定: ${d.label}${curPage.autoSlot ? '（前の同じ曜日・時刻の会議と同じ）' : ''} ・ ${d.hint}`;
-      return curPage.autoType === undefined || curPage.autoType === null ? '要約のときに決まります' : AUTO_UNDECIDED_TEXT;
-    };
-    if (isAutoView) {
-      $('pTypeHint').textContent = autoHint();
-    } else {
-      // 手で選んだ場合も、自動判定が何と言ったかを併記する（自動判定の精度を実機で確かめる手段）
-      const def = typeOf(sel.value);
-      const a = typeOf(curPage.autoType);
-      const src = a ? `手動指定（自動判定は「${a.label}」${curPage.autoType === sel.value ? '＝一致' : '＝不一致'}）` : '手動指定';
-      $('pTypeHint').textContent = src + (def ? ` ・ ${def.hint}` : '');
-    }
-    sel.onchange = async () => {
-      if (sel.value === '') {
-        // 「自動」に戻す（typeAuto 真。種類は次の要約で判定し直す。メモは変えない: 0.11.0 P-12）
-        await window.koeApp.pageSetType(curId, 'auto');
-        curPage.typeAuto = true;
-        $('pTypeHint').textContent = '要約のときに決まります';
-        refreshList();
-        return;
-      }
-      await window.koeApp.pageSetType(curId, sel.value);
-      curPage.meetingType = sel.value; curPage.typeAuto = false;
-      const d2 = mtypes.find((t) => t.key === sel.value);
-      // アジェンダの雛形をメモ欄に入れる。人が書いたメモは絶対に上書きしない。
-      // 空か、別タイプの雛形がそのまま残っているときだけ差し替える。
-      const cur = String(curPage.memo || '').trim();
-      const isPreset = !cur || mtypes.some((t) => (t.agenda || '').trim() === cur);
-      if (isPreset && d2 && d2.agenda) {
-        await window.koeApp.pageSetMemo(curId, d2.agenda);
-        curPage.memo = d2.agenda;
-        renderMemo();
-      }
-      $('pTypeHint').textContent = `手動指定 ・ ${d2 ? d2.hint : ''}`;
-      toast('要約タイプを変更しました。「要約を再生成」で反映されます');
-      refreshList();
-    };
+    renderTypeRow();   // 会議の種類の行（0.11.0 V-1）
 
     renderProps();
 
@@ -3064,14 +3029,14 @@
         const meta = document.createElement('span'); meta.className = 'ameta';
         const who = document.createElement('button');
         who.className = 'atag ' + (b.assignee ? 'who' : 'add');
-        who.textContent = b.assignee || '＋担当';
+        who.textContent = b.assignee || '担当: 要確認';   // 0.11.0 V-1（決めたこと 26）: 見せ方だけ。データに要確認と書かない
         who.title = '担当者を設定';
         who.onclick = () => editTag(who, b.assignee, '担当者（空欄で解除）', (v) =>
           window.koeApp.blockSetAction(curId, b.id, v, undefined));
         const di = dueInfo(b.due, b.dueApprox);
         const due = document.createElement('button');
         due.className = 'atag ' + (di ? `due ${di.cls}` : b.dueRaw ? 'due' : 'add');
-        due.textContent = di ? `${di.label}・${di.note}` : (b.dueRaw || '＋期限');
+        due.textContent = di ? `${di.label}・${di.note}` : (b.dueRaw || '期限: 要確認');
         due.title = b.dueRaw ? `元の表記: ${b.dueRaw}` : '期限を設定（「来週金曜」「8/30」などで入力できます）';
         due.onclick = () => editTag(due, b.dueRaw, '「来週金曜」「8/30」など（空欄で解除）', (v) =>
           window.koeApp.blockSetAction(curId, b.id, undefined, v));
@@ -3161,6 +3126,9 @@
     }
     let badge = null;
     if (b.citeSkip) badge = null;
+    // 0.11.0 V-1（決めたこと 23）: 印の札。メモよりの行は「メモより」、抜け・重なりチェックと次に気をつけることの行は札なし（「手書き」にしない）
+    else if (b.mark === 'memo') badge = ['manual', 'メモより', 'メモにだけ書かれていた内容（文字起こしとの照合はしません）'];
+    else if (b.mark === 'check' || b.mark === 'advice') badge = null;
     else if (b.citeState === 'manual') badge = ['manual', '手書き', '自分で追加した行（出典の照合対象外）'];
     else if (b.citeState === 'stale') badge = ['stale', '編集済み', '編集後に出典を照合し直していません。「要約を再生成」で付け直せます'];
     else if (!cites.length) badge = ['', '根拠なし', '文字起こしに対応する発言が見つかりませんでした'];
@@ -3311,6 +3279,121 @@
     insertPauseMarks(box, curSegs, curPage.pauses);   // 止めていた時間の印（第1b回 N4c。古いページには無い）
   }
 
+  // ---------------- 会議の種類とメモの型（0.11.0 V-1。決めたこと 2〜10）
+  // 決まらなかったときの文は meetingType.AUTO_UNDECIDED_TEXT の写し（runtime.app・repo が照らす）
+  const AUTO_UNDECIDED_TEXT = '自動判定: 決まらなかったので会議の要点の型でまとめました';
+  // 手を付けていないメモ（memoTypes.isUntouchedMemo の写し。repo が同じ表で照らす）。presets はメモの型の雛形、legacy は前のアジェンダの雛形。
+  // 画面は手引きと一言を出すかを決めるためだけに使う（雛形に替えるかは DB と main が決める: 決めたこと 8）
+  function untouchedView(memo, presets, legacy) {
+    const norm = (t) => String(t || '').split(/\r?\n/).map((l) => l.trim()).filter(Boolean).join('\n');
+    const m = norm(memo);
+    if (!m) return true;
+    for (const p of Array.isArray(presets) ? presets : []) if (m === norm(p)) return true;
+    for (const a of Array.isArray(legacy) ? legacy : []) { const l = norm(a); if (l && m === l) return true; }
+    return false;
+  }
+  const memoUntouched = (memo) => untouchedView(memo, memoKinds.map((k) => k.preset), mtypes.map((t) => t.agenda).filter(Boolean));
+  // 選べる種類の項目（一般・その他は表に無いので null）
+  const typeDef = (k) => (typeof k === 'string' && k ? mtypes.find((t) => t.key === k) || null : null);
+  // 種類から決まるメモの型（決まらない・知らない種類は会議の要点）
+  const memoKindOf = (k) => { const d = typeDef(k); const key = d && d.memo ? d.memo : 'points'; return memoKinds.find((m) => m.key === key) || null; };
+  const memoTypeText = (kind) => (kind ? `メモの型: ${kind.label}` : '');
+  // プルダウンの項目: 頭に「自動（文字起こしから判定）」（値 ''）、群（<optgroup>）の中に選べる種類
+  function fillTypeSelect(sel) {
+    sel.textContent = '';
+    sel.add(new Option('自動（文字起こしから判定）', ''));
+    const groups = mgroups.length ? mgroups : [{ label: '', keys: mtypes.map((t) => t.key) }];
+    for (const g of groups) {
+      const items = (Array.isArray(g.keys) ? g.keys : []).map(typeDef).filter(Boolean);
+      if (!items.length) continue;
+      if (!g.label) { for (const t of items) sel.add(new Option(t.label, t.key)); continue; }
+      const og = document.createElement('optgroup');
+      og.setAttribute('label', g.label);
+      for (const t of items) og.appendChild(new Option(t.label, t.key));
+      sel.appendChild(og);
+    }
+  }
+  // 手引きの中身: 手を付けていないメモのときだけ、メモの型の見出しごとに「■ 見出し ── ヒント」（決めたこと 9）。
+  // 型は、メモがどれかの型の雛形ならその型、空なら種類（typeKey）から決まる型。どちらでもなければ出さない
+  function fillGuide(box, memo, typeKey) {
+    if (!box) return;
+    box.textContent = '';
+    let kind = null;
+    if (memoUntouched(memo)) {
+      const norm = (t) => String(t || '').split(/\r?\n/).map((l) => l.trim()).filter(Boolean).join('\n');
+      const m = norm(memo);
+      kind = m ? memoKinds.find((k) => norm(k.preset) === m) || null : (typeDef(typeKey) ? memoKindOf(typeKey) : null);
+    }
+    for (const h of kind ? kind.headings : []) {
+      const d = document.createElement('div');
+      d.textContent = h.hint ? `■ ${h.name} ── ${h.hint}` : `■ ${h.name}`;
+      box.appendChild(d);
+    }
+    box.hidden = !kind;
+  }
+  function makeGuide() { const g = document.createElement('div'); g.className = 'memoguide'; g.hidden = true; return g; }
+  // 保存したページの種類（手で選んでいれば鍵、自動なら ''。自動の灰色の文は要約のときの判定 autoType から）
+  const pageTypeKey = (p) => (p && p.typeAuto === false && typeDef(p.meetingType) ? p.meetingType : '');
+  const pageMemoTypeKey = (p) => pageTypeKey(p) || (p && typeDef(p.autoType) ? p.autoType : '');
+  // 保存したページの種類の行（決めたこと 4・6）
+  function renderTypeRow() {
+    const sel = $('pType');
+    sel.dataset.for = curId || '';
+    fillTypeSelect(sel);
+    const manual = pageTypeKey(curPage);
+    sel.value = manual;
+    let hint = ''; let memoText = '';
+    if (manual) {
+      // 手で選んだ場合も、自動判定が何と言ったかを併記する（自動判定の精度を実機で確かめる手段）
+      const def = typeDef(manual);
+      const a = typeDef(curPage.autoType);
+      hint = `${a ? `手動指定（自動判定は「${a.label}」${curPage.autoType === manual ? '＝一致' : '＝不一致'}）` : '手動指定'} ・ ${def.hint}`;
+      memoText = memoTypeText(memoKindOf(manual));
+    } else if (typeDef(curPage.autoType)) {
+      const a = typeDef(curPage.autoType);
+      hint = `自動判定: ${a.label}${curPage.autoSlot ? '（前の同じ曜日・時刻の会議と同じ）' : ''} ・ ${a.hint}`;
+      memoText = memoTypeText(memoKindOf(curPage.autoType));
+    } else if (curPage.autoType === undefined || curPage.autoType === null) {
+      memoText = 'メモの型: 要約のときに決まります';   // 要約の前の自動
+    } else {
+      hint = AUTO_UNDECIDED_TEXT;                      // 決まらなかった（前の版の一般・その他も）
+      memoText = memoTypeText(memoKindOf(''));
+    }
+    $('pTypeHint').textContent = hint;
+    $('pMemoType').textContent = memoText;
+    sel.onchange = async () => {
+      const pid = curId; const v = sel.value;
+      // 待っているメモの保存を先に書き終えてから種類を書く（決めたこと 8。DB が今のメモで雛形に替えるかを決める）
+      clearTimeout(memoTimer); memoTimer = null;
+      const f = memoFlush; memoFlush = null;
+      if (f) await f();
+      if (v === '') {
+        // 「自動」に戻す（typeAuto 真。種類は次の要約で判定し直す。メモは変えない: P16）
+        await window.koeApp.pageSetType(pid, 'auto');
+        if (pid !== curId || !curPage) return;
+        curPage.typeAuto = true;
+        renderTypeRow();
+        refreshList();
+        return;
+      }
+      const r = await window.koeApp.pageSetType(pid, v, true);
+      if (pid !== curId || !curPage) return;
+      const got = r && r.page ? r.page : r;
+      if (got && typeof got === 'object' && got.id === pid) Object.assign(curPage, { meetingType: got.meetingType, typeAuto: got.typeAuto, memo: got.memo, stateLog: got.stateLog });
+      else Object.assign(curPage, { meetingType: v, typeAuto: false });
+      const kind = memoKindOf(v);
+      const name = kind ? kind.label : (typeDef(v) || {}).label || '';
+      const inserted = Boolean(kind) && String(curPage.memo || '') === kind.preset;
+      const hasSummary = Array.isArray(curPage.blocks) && curPage.blocks.length > 0;
+      // 替えたときの知らせは MQ2 か MQ3 の1つだけ（決めたこと 3。保存したページはタブを替えない: P18 (a)）
+      toast(inserted ? `メモに「${name}」の見出しを入れました${hasSummary ? '（［要約を再生成］で要約にも反映されます）' : ''}`
+        : `メモに書いた内容はそのまま残しました。要約は「${name}」の見出しで作ります${hasSummary ? '（［要約を再生成］で反映されます）' : '（［要約を生成］で使います）'}`);
+      renderTypeRow();
+      renderMemo();
+      refreshList();
+    };
+  }
+
   function renderMemo() {
     const box = $('pMemo'); box.textContent = '';
     const label = document.createElement('div');
@@ -3319,19 +3402,24 @@
     const ta = document.createElement('textarea');
     ta.rows = 10; ta.value = curPage.memo || '';
     ta.placeholder = '例: 週次定例。議題: 売上見込み / 案件進捗 / 採用状況';
+    const guide = makeGuide();   // 0.11.0 V-1: メモ欄の上の手引き（手を付けていないときだけ）
+    fillGuide(guide, ta.value, pageMemoTypeKey(curPage));
     ta.oninput = () => {
       // 保存先は「書いたときのページ」。500ms の間にページを切り替えると、
       // 発火時の curId は次のページになっていて、そちらのメモを上書きしてしまう。
       const pid = curId;
+      const typeKey = pageMemoTypeKey(curPage);
+      fillGuide(guide, ta.value, typeKey);   // 人の文が入ったら隠す（入力のたびに見直す）
       clearTimeout(memoTimer);
+      // 0.11.0 V-1（決めたこと 8）: 種類を替えるときは、これを走らせて保存を書き終えるのを待つ（答えの約束を返す）
       memoFlush = () => {
         const v = ta.value;
-        window.koeApp.pageSetMemo(pid, v);
         if (pid === curId && curPage) curPage.memo = v;
+        return window.koeApp.pageSetMemo(pid, v);
       };
       memoTimer = setTimeout(() => { memoTimer = null; const f = memoFlush; memoFlush = null; if (f) f(); }, 500);
     };
-    label.append(l, ta); box.appendChild(label);
+    label.append(l, guide, ta); box.appendChild(label);
   }
 
   function jumpToSegment(sid) {
@@ -3461,9 +3549,47 @@
     if (note !== waveState.note) { waveState.note = note; n.textContent = note; }
     n.classList.toggle('warn', !paused && Boolean(note));
   }
+  // 0.11.0 V-1（決めたこと 10・P10・P17）: 録音中のページの種類の行（初めは「自動」）。区間が届いて描き直すたびには作り直さない
+  function liveTypeHints(key) {
+    const def = typeDef(key);
+    $('pTypeHint').textContent = def ? def.hint : '';
+    $('pMemoType').textContent = def ? memoTypeText(memoKindOf(key)) : 'メモの型: 要約のときに決まります';
+    // 一言は、種類を選んでいなくてメモが手を付けていない間だけ
+    $('pTypeLiveHint').hidden = Boolean(def) || !memoUntouched(liveMemo);
+  }
+  function renderLiveTypeRow(st) {
+    const sel = $('pType');
+    $('pTypeRow').style.display = '';
+    sel.dataset.for = 'live';
+    fillTypeSelect(sel);
+    sel.value = typeDef(st.meetingType) ? st.meetingType : '';
+    liveTypeHints(sel.value);
+    sel.onchange = async () => {
+      const v = sel.value;
+      // 待っているメモの送りを止めて、今の文を先に送る（main が今のメモで雛形に替えるかを決める）
+      clearTimeout(liveMemoTimer); liveMemoTimer = null;
+      const ta = liveMemoWrap ? liveMemoWrap.querySelector('textarea') : null;
+      if (ta) liveMemo = ta.value;
+      await window.koeApp.meetingSetMemo(liveMemo);
+      let r = null;
+      try { r = await window.koeApp.meetingSetType(v === '' ? 'auto' : v); } catch (_) { r = null; }
+      if (!r || r.ok === false) return;
+      if (r.inserted && typeof r.memo === 'string') { liveMemo = r.memo; if (ta) ta.value = r.memo; }
+      liveTypeHints(v);
+      fillGuide(liveGuide, liveMemo, v);
+      if (v === '') return;   // 「自動」に戻したときはタブを替えない
+      // 種類を選んだらメモのタブへ（P17 (b)）。setPane は焦点を動かさないので、焦点は種類の欄に残る（R3）
+      setPane('memo');
+      if (!r.inserted) {
+        const kind = memoKindOf(v);
+        toast(`書いたメモはそのまま残しました（要約のときに「${kind ? kind.label : (typeDef(v) || {}).label || ''}」の見出しを使います）`);
+      }
+    };
+  }
   // 記録中のページの中身（要約の区画の案内・メモ・流れる文字起こしと印）
   function drawLive(st) {
     lockLiveTitle();
+    if ($('pType').dataset.for !== 'live') renderLiveTypeRow(st);
     $('pNote').innerHTML = '<div class="empty"><div class="big">会議を終えると、ここに要約が入ります。</div></div>';
     // 記録中もメモを書けるようにする。ここで書いた内容は
     // 「会議メモ・アジェンダ」として要約のヒントに使われる。
@@ -3478,13 +3604,16 @@
       ta.rows = 10;
       ta.value = liveMemo;
       ta.placeholder = '例: 週次定例。議題: 売上見込み / 案件進捗 / 採用状況';
-      let mt = null;
+      liveGuide = makeGuide();   // 0.11.0 V-1: メモ欄の上の手引き（手を付けていないときだけ）
+      fillGuide(liveGuide, liveMemo, $('pType').dataset.for === 'live' ? $('pType').value : (st.meetingType || ''));
       ta.oninput = () => {
         liveMemo = ta.value;
-        clearTimeout(mt);
-        mt = setTimeout(() => window.koeApp.meetingSetMemo(ta.value), 500);
+        fillGuide(liveGuide, liveMemo, $('pType').dataset.for === 'live' ? $('pType').value : '');
+        if (!memoUntouched(liveMemo)) $('pTypeLiveHint').hidden = true;   // 人の文が入ったら一言を消す
+        clearTimeout(liveMemoTimer);
+        liveMemoTimer = setTimeout(() => { liveMemoTimer = null; window.koeApp.meetingSetMemo(ta.value); }, 500);
       };
-      wrap.append(l, ta);
+      wrap.append(l, liveGuide, ta);
       memoBox.appendChild(wrap);
       liveMemoWrap = wrap;
       // 文字起こしタブへ切り替えるのは記録中のページを開いたこの1回だけ。
@@ -3540,7 +3669,7 @@
     // （記録中に一覧から過去の議事録を開くのは今までどおりできる。ページは別のタブで開く）
     if (st.active && !mtWasActive) mtLocalOnly = false;   // 新しい会議は送る側から（main の印も会議ごと）
     const started = Boolean(st.active && !mtWasActive);
-    if (started) liveMemo = st.memo || '';
+    if (started) { liveMemo = st.memo || ''; $('pType').dataset.for = ''; }   // 新しい会議は種類の行を「自動」から作り直す
     mtWasActive = Boolean(st.active);
     lockEngineFields(Boolean(st.active));
     // サイドバーの行はほかの行と同じ「アイコンの欄（.ic）＋文字」（文字がそろう）
@@ -4918,7 +5047,15 @@
     refreshPromptInfo();
     refreshAccount();
     refreshClaude();
-    mtypes = await window.koeApp.meetingTypes();
+    {
+      // 0.11.0 V-1: { types, selectable, groups }（前の形の並びでも読む）とメモの型の表
+      const r = await window.koeApp.meetingTypes();
+      mtypes = Array.isArray(r) ? r : (r && Array.isArray(r.types) ? r.types : []);
+      mgroups = r && !Array.isArray(r) && Array.isArray(r.groups) ? r.groups : [];
+      let k = [];
+      try { k = typeof window.koeApp.memoTypes === 'function' ? await window.koeApp.memoTypes() : []; } catch (_) { k = []; }
+      memoKinds = Array.isArray(k) ? k : [];
+    }
     try {
       const v = await window.koeApp.appVersion();
       $('verNow').textContent = `現在のバージョン: ${v.version}`;

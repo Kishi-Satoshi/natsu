@@ -1337,6 +1337,15 @@ function clockText(ms) {
   return h > 0 ? `${h}:${String(m).padStart(2, '0')}:${String(x).padStart(2, '0')}` : `${m}:${String(x).padStart(2, '0')}`;
 }
 
+// 0.11.0 V-1（決めたこと 2・6）: 画面の種類の欄の表（IPC meta:types）。並びと群は meetingType の1か所、各種類にメモの型の鍵 memo
+function typesForView() {
+  return {
+    types: mtype.listTypes().map((t) => ({ ...t, memo: memoTypes.memoTypeOf(t.key) })),
+    selectable: [...mtype.SELECTABLE],
+    groups: mtype.GROUPS.map((g) => ({ label: g.label, keys: [...g.keys] })),
+  };
+}
+
 // 要約を保存するときの会議タイプ。saved: いまディスクにあるページ、used: 要約を始めたときのページ
 // （meetingType は要約に使った種類）。要約の途中で利用者が種類を手で選んでいたら（saved.typeAuto === false）、
 // その選択を残す。changed: 残した種類が要約に使った種類と違う（作り直しを勧める）。
@@ -2076,7 +2085,7 @@ module.exports = {
   STALL_SPAN_MS, STALL_MIN_DBFS, stallAfter, stallStep, PROBLEM_ORDER, sttProblemOf, problemForRoute,
   WIN_NOTIFY_CODES, WIN_NOTIFY_GAP_MS, notifyGate,
   OFFLINE_SHOW_MS, OFFLINE_CLEAR_MS, offlineBannerStep,
-  idleEnginesToStop, silentWav, wavLevelDbfs, mergeSummaryType, memoEvidence, buildClaudeInput, routeLabel,
+  idleEnginesToStop, silentWav, wavLevelDbfs, mergeSummaryType, typesForView, memoEvidence, buildClaudeInput, routeLabel,
   isLoopbackUrl, loopbackOnlyFetch,
   sameShas, keepPrevious, candStamp, repairIdsOf, pathUsedBy, fetchMinutesLeft,
   recordDictation, mergeHistory, chooseDraftName,

@@ -849,10 +849,11 @@ test('会議の種類: 決まらなかった議事録と前の版の一般・そ
   l = await open({ meetingType: '', typeAuto: true, autoType: '' });
   assert.strictEqual(l.byId.get('pType').value, '');
   assert.ok(hint(l).startsWith(mt.AUTO_UNDECIDED_TEXT), hint(l));
-  // 要約の前（種類がまだ無い）
+  // 要約の前（種類がまだ無い）。0.11.0 V-1 で意図して変えた: 「要約のときに決まります」は「メモの型」の文に1回だけ（決めたこと 6）
   l = await open({ meetingType: undefined, typeAuto: undefined, autoType: undefined });
   assert.strictEqual(l.byId.get('pType').value, '');
-  assert.ok(hint(l).startsWith('要約のときに決まります'), hint(l));
+  assert.strictEqual(l.byId.get('pMemoType').textContent, 'メモの型: 要約のときに決まります');
+  assert.strictEqual(hint(l), '');
   // 自動判定で朝会・内部定例会になったもの（前の会議の種類を使ったときは添える: M-5）
   l = await open({ meetingType: 'standup', typeAuto: true, autoType: 'standup' });
   assert.strictEqual(l.byId.get('pType').value, '');
@@ -867,12 +868,13 @@ test('会議の種類: 決まらなかった議事録と前の版の一般・そ
   assert.deepStrictEqual(l.errors.map(fmt), []);
 });
 
-test('会議の種類: 「自動」を選ぶと page.setType の auto を呼び、メモは変えず、灰色の文は「要約のときに決まります」（0.11.0 P-12）', async () => {
+// 0.11.0 V-1 で意図して変えた: 「自動」に戻した後の灰色の文は、要約のときの自動の判定（autoType）。種類は次の要約で判定し直す
+test('会議の種類: 「自動」を選ぶと page.setType の auto を呼び、メモは変えず、灰色の文は要約のときの自動の判定（0.11.0 P-12・V-1）', async () => {
   const types = require('../src/meetingType').listTypes();
   const calls = [];
   const l = await 開いた({
     meetingTypes: () => types,
-    pageGet: (id) => ({ page: Object.assign(clone(PAGE), { id, meetingType: 'sales', typeAuto: false, autoType: 'sales', memo: '' }), segments: clone(STANDUP_SEGMENTS) }),
+    pageGet: (id) => ({ page: Object.assign(clone(PAGE), { id, meetingType: 'sales', typeAuto: false, autoType: 'standup', memo: '' }), segments: clone(STANDUP_SEGMENTS) }),
     pageSetType: (...a) => { calls.push(a); return { ok: true }; },
     pageSetMemo: (...a) => { calls.push(['memo', ...a]); return { ok: true }; },
   });
@@ -880,7 +882,8 @@ test('会議の種類: 「自動」を選ぶと page.setType の auto を呼び�
   sel.value = '';
   await sel.onchange();
   assert.deepStrictEqual(calls.map((c) => c.slice(1, 2)), [['auto']]);
-  assert.ok(l.byId.get('pTypeHint').textContent.startsWith('要約のときに決まります'), l.byId.get('pTypeHint').textContent);
+  assert.ok(l.byId.get('pTypeHint').textContent.startsWith('自動判定: 朝会・内部定例会'), l.byId.get('pTypeHint').textContent);
+  assert.strictEqual(sel.value, '');
   assert.deepStrictEqual(l.errors.map(fmt), []);
 });
 

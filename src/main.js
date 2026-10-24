@@ -101,7 +101,7 @@ const {
   publicSegments, settledSegments, pendingDurationMs, recoverSegments, staleSegbufDirs, EtaTracker, chooseDraftName,
   skipPendingSegments, startSegmentMode, segmentModeNext, segmentBaseMs, nextLiveSegmentMs,
   stallAfter, stallStep, sttProblemOf, problemForRoute, notifyGate,
-  idleEnginesToStop, silentWav, wavLevelDbfs, mergeSummaryType, memoEvidence,
+  idleEnginesToStop, silentWav, wavLevelDbfs, mergeSummaryType, memoEvidence, typesForView,
   sameShas, keepPrevious, candStamp, repairIdsOf, pathUsedBy, fetchMinutesLeft,
   pickDefaultPath,
   cloudLikely, offlineChosen, startPlan, dictationPlan, KEPT_CODES, keptCodeFor, KEPT_SUMMARY_TEXT, SUMMARY_WAIT_TEXT, summaryRetryPick,
@@ -5767,7 +5767,9 @@ function setupIpc() {
 
   // 議事録の画面の口は main を通らない（第2a1回 ST5。preload が DB の口（役 app）へ直に頼む）。要約だけは今どおり main の IPC
   ipcMain.handle('page:summarize', (_e, id) => runSummary(id));
-  ipcMain.handle('meta:types', () => mtype.listTypes());
+  // 0.11.0 V-1: 画面は種類の並びと群を1か所（meetingType.SELECTABLE・GROUPS）から読む。メモの型の表も
+  ipcMain.handle('meta:types', () => typesForView());
+  ipcMain.handle('meta:memo-types', () => memoTypes.listMemoTypes());
   ipcMain.handle('meeting:toggle', () => {
     if (state === 'idle') return startMeetingBy('page');
     if (state === 'meeting') return stopMeetingBy('page');
