@@ -372,6 +372,8 @@ test('0.10.1 2回目の点検の直し R15: 先に見る読みだけが掴まれ
   assert.strictEqual(o.claudeConfigs.roaming.text, o.snaps.before.roaming.text, '動いているかを見ずに書いた');
   assert.deepStrictEqual(o.claudeConfigs.roaming.backups, []);
   assert.deepStrictEqual(o.tasklistCalls, []);
+  // 3回目の点検の直し（Ruling R22）: 断りの記録の1行は今どおり
+  assert.ok(mcpLog(o).includes('MCP の登録: 断った（busy）（ファイル 1・控え 0）'), mcpLog(o).join('\n'));
 });
 
 test('0.10.1 2回目の点検の直し R16: 新しい場所の子が %APPDATA%\\Claude へのリンク（Windows はジャンクション）→ 同じ場所は1つにまとめ、登録も外すも通る。場所の1行はまとめた後の数', S, async () => {
@@ -431,6 +433,9 @@ test('0.10.1 2回目の点検の直し R19: 古い（stale）登録だけが残�
   assert.deepStrictEqual([ipcOf(o, 'mcp:status')[0].desktop.state, ipcOf(o, 'mcp:status')[0].desktop.hasEntry], ['stale', true]);
   const b = await run([['status']], '--claude-config=msix', '--mcp-stale', STOP);
   assert.strictEqual(ipcOf(b, 'mcp:status')[0].desktop.hasEntry, true, JSON.stringify(ipcOf(b, 'mcp:status')[0]));
+  // 3回目の点検の直し（Ruling R23）: 悪い方が壊れたファイル（broken）でも、古い登録が残っていれば hasEntry
+  const c = await run([['status']], '--claude-config=stale-broken', STOP);
+  assert.deepStrictEqual([ipcOf(c, 'mcp:status')[0].desktop.state, ipcOf(c, 'mcp:status')[0].desktop.hasEntry], ['broken', true]);
 });
 
 // J.isReadOnly の呼び出しは、起動のときの確かめ（1）・先に見る形（2）・mcpApply の計画（3）の順。3回目の直後に Claude が書いた形
@@ -439,4 +444,12 @@ test('0.10.1 2回目の点検の直し R19: 計画の後・控えの前に Claud
   assert.strictEqual(ipcOf(o, 'mcp:register')[0].code, 'busy');
   assert.strictEqual(parse(o.claudeConfigs.data.text).preferences.raceAfterPlan, true);
   assert.deepStrictEqual(o.claudeConfigs.data.backups, [], '計画の後に変わったのに控えを写した');
+});
+
+// ---------------------------------------------------------------- 0.10.1 3回目の点検の直し（2026-10-24。計画の Ruling R21〜R23）
+test('0.10.1 3回目の点検の直し R21: 戻しの一時ファイルへの書き込みが途中で失敗しても、一時ファイルを残さない（戻せなかった数に数える）', S, async () => {
+  const o = await run([['register']], '--claude-config=three', '--claude-fail-write=2', '--claude-fail-restore-write', STOP);
+  const r = ipcOf(o, 'mcp:register')[0];
+  assert.deepStrictEqual([r.code, r.unrestored], ['busy', 1], JSON.stringify(r));
+  assert.deepStrictEqual(o.claudeConfigs.roaming.others.filter((n) => n.includes('.natsu-restore')), [], '戻しの一時ファイルが残った');
 });

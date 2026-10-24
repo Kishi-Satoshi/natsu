@@ -401,6 +401,7 @@ const { titleAt } = require('./titles');
 //     0.10.1 2回目の点検の直し: 場面 data-link（新しい場所の子が %APPDATA%\Claude へのリンク。Windows はジャンクション）・stale-two（2つの場所に印のある古い natsu）・
 //                        none-data（%APPDATA%\Claude はフォルダだけ）・--claude-race-before=N（N 番目の控えの後だけ）・--claude-future-bak・--claude-bak-exist・
 //                        --claude-create-after-plan・--claude-race-plan=N・手順 ["claude-busy-reads", N]
+//     0.10.1 3回目の点検の直し: 場面 stale-broken（古い natsu と壊れた JSON）・--claude-fail-restore-write（戻しの一時ファイルの書き込みを途中で EBUSY）
 //     --mcp-gone  … 置く settings.json に、前に登録した印 mcpRegisteredFor（ファイル 1・版 0.9.4）を書く
 //     --mcp-stale … 置く設定ファイルの mcpServers の頭に、場所の違う NaTsu の登録（印あり）を足す
 //     --tasklist=<running|stopped|fail> … 偽の execFile が tasklist.exe に答える（動いている・動いていない・失敗）。呼んだ引数を out.tasklistCalls に
@@ -526,7 +527,9 @@ const claudeRaceBeforeNth = claudeRaceBeforeVal && claudeRaceBeforeVal.includes(
 const claudeFutureBak = flags.includes('--claude-future-bak');          // %APPDATA%\Claude に、今より後の時刻の名前の NaTsu の控えを3つ置く
 const claudeBakExist = flags.includes('--claude-bak-exist');            // NaTsu の控えを写すたびに EEXIST（20 回続けて名前がある形）
 const claudeCreateAfterPlan = flags.includes('--claude-create-after-plan'); // NaTsu が計画した後（無かったファイルを書く直前の確かめ）に、Claude が %APPDATA%\Claude の設定ファイルを作る
-const claudeRacePlan = Number(flagVal('--claude-race-plan') || 0);     // J.isReadOnly の N 回目（計画の終わり）の直後に、Claude がそのファイルに好みの設定を1つ足して書く
+const claudeRacePlan = Number(flagVal('--claude-race-plan') || 0);
+// 0.10.1 3回目の点検の直し（計画の Ruling R21）: NaTsu の戻しの一時ファイル（.natsu-restore-）への書き込みを、ファイルを作って途中まで書いてから EBUSY にする
+const claudeFailRestoreWrite = flags.includes('--claude-fail-restore-write');     // J.isReadOnly の N 回目（計画の終わり）の直後に、Claude がそのファイルに好みの設定を1つ足して書く
 const claudeRaceOther = flags.includes('--claude-race-other');         // NaTsu が1つ目のファイルを書いた直後に、前の場所（msix）の natsu を消す（ほかのプログラム）
 const claudeRootFlag = flagVal('--claude-root');                       // %APPDATA% と %LOCALAPPDATA% をこのフォルダの下にし、2回目の起動では場面を置き直さない
 const mcpSteps = flagVal('--mcp-steps') ? JSON.parse(flagVal('--mcp-steps')) : null;
@@ -898,7 +901,7 @@ process.on('exit', () => {
     data: path.join(claudeDataRoot, 'claude_pzs8sxrjxfjjc'), data2: path.join(claudeDataRoot, 'claude_zz9test0000aa'),
   };
   // 0.10.1 CD-2 の場面（頭の注釈）。今の NaTsu の登録（main の mcpPaths と同じ形）・新しい場所の形の見本（作った値。JSON.stringify(v, null, 2)・終わりの改行なし）
-  const NEW_CLAUDE_SCENES = new Set(['msix-only', 'data', 'data-msix', 'data-two', 'roaming-data', 'data-broken', 'msix-broken', 'three', 'data-link', 'stale-two', 'none-data']);
+  const NEW_CLAUDE_SCENES = new Set(['msix-only', 'data', 'data-msix', 'data-two', 'roaming-data', 'data-broken', 'msix-broken', 'three', 'data-link', 'stale-two', 'none-data', 'stale-broken']);
   if (claudeScenePlaced) {
     // 2回目の起動（--claude-root）: 何も置かない
   } else if (claudeConfigFlag && NEW_CLAUDE_SCENES.has(claudeConfigFlag)) {
@@ -946,6 +949,12 @@ process.on('exit', () => {
       put(claudeDirs.roaming, CLAUDE_CONFIG, js(OTHERS));
       fs.mkdirSync(claudeDataRoot, { recursive: true });
       fs.symlinkSync(claudeDirs.roaming, claudeDirs.data, 'junction');
+    }
+    // 0.10.1 3回目の点検の直し: stale-broken（%APPDATA%\Claude に印のある古い natsu・前の場所が壊れた JSON。悪い方は broken）
+    if (sc === 'stale-broken') {
+      const oldNatsu = { command: 'D:\\old\\NaTsu.exe', args: ['D:\\old\\resources\\app\\src\\mcp\\server.js'], env: { ELECTRON_RUN_AS_NODE: '1', NATSU_MCP: '1', NATSU_DATA_DIR: 'D:\\old\\data' } };
+      put(claudeDirs.roaming, CLAUDE_CONFIG, js({ ...OTHERS, mcpServers: { natsu: oldNatsu, ...OTHERS.mcpServers } }));
+      put(claudeDirs.msix, CLAUDE_CONFIG, BROKEN);
     }
     if (sc === 'stale-two') {
       const oldNatsu = { command: 'D:\\old\\NaTsu.exe', args: ['D:\\old\\resources\\app\\src\\mcp\\server.js'], env: { ELECTRON_RUN_AS_NODE: '1', NATSU_MCP: '1', NATSU_DATA_DIR: 'D:\\old\\data' } };
@@ -1908,6 +1917,13 @@ process.on('exit', () => {
         }
       }
       return r;
+    };
+  }
+  if (claudeFailRestoreWrite) {
+    const origWrite = fs.writeFileSync;
+    fs.writeFileSync = function writeFailing(p, data, ...rest) {
+      if (String(p).includes('.natsu-restore')) { origWrite.call(this, p, '{"途中'); const e = new Error('EBUSY: 場面が戻しの書き込みを止めた'); e.code = 'EBUSY'; throw e; }
+      return origWrite.call(this, p, data, ...rest);
     };
   }
   if (claudeFailRestore) {

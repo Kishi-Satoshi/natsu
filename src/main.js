@@ -2087,8 +2087,8 @@ function mcpRollback(written) {
       // 消すのは、もとから無かった（!had）ファイルだけ
       if (w.p.had) {
         const tmpFile = `${w.p.file}.natsu-restore-${process.pid}.tmp`;
-        fs.writeFileSync(tmpFile, w.p.before);
-        try { fs.renameSync(tmpFile, w.p.file); } catch (e) { try { fs.unlinkSync(tmpFile); } catch (_) { /* 残っても次に */ } throw e; }
+        // 0.10.1 3回目の点検の直し（Ruling R21）: 書くのと名前を変えるのを同じ try に入れ、どちらで失敗しても一時ファイルを消す
+        try { fs.writeFileSync(tmpFile, w.p.before); fs.renameSync(tmpFile, w.p.file); } catch (e) { try { fs.unlinkSync(tmpFile); } catch (_) { /* 残っても次に */ } throw e; }
       } else {
         fs.unlinkSync(w.p.file);
       }
