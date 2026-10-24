@@ -472,6 +472,7 @@ test('G3: help-dads の変異が一覧にそろい、IDS_HELP_DADS は計画 doc
 // タスクを作るたびに足す（表の全部とちょうど同じにそろえるのは RN-7。それまでは「どれも表にある」と「hrn- の変異は IDS_HELP_RELNOTES にある」を見る）
 const IDS_HELP_RELNOTES = [
   'hrn-heading-space', 'hrn-body-same',
+  'hrn-order', 'hrn-date-real', 'hrn-undated', 'hrn-render', 'hrn-line', 'hrn-public-check',
 ];
 test('G3: help-relnotes の変異が一覧にそろい、IDS_HELP_RELNOTES はどれも計画 docs/plans/2026-10-23-help-relnotes.md の「変異確認」の表にあり、当てるファイルと赤になるテストが表と同じ。hrn- の変異は IDS_HELP_RELNOTES にある', { timeout: 5000 }, () => {
   const byId = new Map(MUTANTS.map((m) => [m.id, m]));
