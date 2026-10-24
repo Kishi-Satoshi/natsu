@@ -291,3 +291,28 @@ test('0.11.0 V-2（F26）: savedIndexForDrop は落とした所の次の行の�
   assert.strictEqual(M.savedIndexForDrop([], 0), 0);
   assert.strictEqual(M.savedIndexForDrop(order, -1), 5);
 });
+
+// ---------------------------------------------------------------- 0.11.0 点検の直し（2026-10-24）
+test('点検の直し 1: AI の「未確認: なし」（特になし・言及なしなど畳む語だけ）は、畳んだ見出しがあれば置き換え（足さない）、無ければ行ごと落とす（チェックの節が空になれば節も）', () => {
+  const rows = [
+    // [AI の Markdown（BANTC）, 抜け・重なりチェックの節の形]
+    ['## 課題・要望（N）\n- 楽にしたい\n## 予算（B）\n- 未確認\n## 抜け・重なりチェック\n- 未確認: なし\n- 次は予算を聞く',
+      ['heading:抜け・重なりチェック', 'bullet:未確認: 予算（B）|check|u', 'bullet:次は予算を聞く|check']],
+    ['## 課題・要望（N）\n- 楽にしたい\n## 予算（B）\n- 言及なし\n## 時期（T）\n- 特になし\n## 抜け・重なりチェック\n- **未確認**: 特になし',
+      ['heading:抜け・重なりチェック', 'bullet:未確認: 予算（B）、時期（T）|check|u']],
+    ['## 課題・要望（N）\n- 楽にしたい\n## 抜け・重なりチェック\n- 未確認: なし\n- 次は予算を聞く',
+      ['heading:抜け・重なりチェック', 'bullet:次は予算を聞く|check']],
+    ['## 課題・要望（N）\n- 楽にしたい\n## 抜け・重なりチェック\n- 未確認: 該当なし\n## 次に気をつけること\n- 目的を先に言う',
+      []],
+    ['## 課題・要望（N）\n- 楽にしたい\n## 予算（B）\n- 未確認\n## 抜け・重なりチェック\n- 未確認: 決め方・決裁者（A）',
+      ['heading:抜け・重なりチェック', 'bullet:未確認: 決め方・決裁者（A）、予算（B）|check|u']],
+  ];
+  for (const [md, want] of rows) {
+    const { blocks } = M.markBlocks(blocksOf(md), { meetingType: 'sales' });
+    const v = view(blocks);
+    const at = v.indexOf('heading:抜け・重なりチェック');
+    const end = v.findIndex((x, i) => i > at && x.startsWith('heading:'));
+    assert.deepStrictEqual(at < 0 ? [] : v.slice(at, end < 0 ? v.length : end), want, md);
+    assert.ok(!v.some((x) => /未確認: (?:なし|特になし|該当なし)、/.test(x)), `畳む語に足した: ${md}`);
+  }
+});

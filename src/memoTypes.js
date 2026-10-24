@@ -267,6 +267,16 @@ function markBlocks(blocks, { meetingType } = {}) {
     kept.push(sec);
   }
   // 3. 畳んだ見出しを未確認の1行へ（無ければ抜け・重なりチェックの節を次に気をつけることの前に作る）
+  // 0.11.0 点検の直し 1（R24）: AI の「未確認: なし」（畳む語だけの未確認の行）は、畳んだ見出しがあれば置き換え、無ければ行ごと落とす
+  //（チェックの節がそれで空になれば節も落とす）。足すと「未確認: なし、予算（B）」になる
+  const isEmptyUnconf = (b) => b.type !== 'heading' && /^未確認/.test(String(b.text || '').normalize('NFKC').replace(/^\*+/, '').trim()) && emptyLine(b.text, UNCONFIRMED_HEAD);
+  {
+    const ci = kept.findIndex((x) => x.head && key(x.head.text) === CHECK);
+    if (ci >= 0 && !foldedNames.length) {
+      kept[ci].items = kept[ci].items.filter((b) => !isEmptyUnconf(b));
+      if (!kept[ci].items.length) kept.splice(ci, 1);
+    }
+  }
   if (foldedNames.length) {
     let check = kept.find((x) => x.head && key(x.head.text) === CHECK);
     if (!check) {
@@ -274,8 +284,10 @@ function markBlocks(blocks, { meetingType } = {}) {
       const at = kept.findIndex((x) => x.head && key(x.head.text) === ADVICE);
       if (at < 0) kept.push(check); else kept.splice(at, 0, check);
     }
-    const u = check.items.find((b) => /^未確認/.test(String(b.text || '').trim()));
-    if (u) {
+    const u = check.items.find((b) => /^未確認/.test(String(b.text || '').trim()) || isEmptyUnconf(b));
+    if (u && isEmptyUnconf(u)) {
+      u.text = `${UNCONFIRMED_HEAD}: ${foldedNames.join('、')}`;
+    } else if (u) {
       const have = String(u.text);
       const add = foldedNames.filter((n) => !have.includes(n));
       if (add.length) u.text = `${have.replace(/[、,\s]+$/, '')}、${add.join('、')}`;

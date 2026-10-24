@@ -835,12 +835,13 @@ const IDS_110 = [
   'v-quality-setting', 'v-title-hint',
   'qm-mcp-view', 'mt-memo-chunk',
   'v5-optgroup',   // 0.11.0 V-5（持ち主の画面の確かめ）
+  'rv-unconf-replace', 'rv-unconf-drop',   // 0.11.0 点検の直し 1
 ];
 test('G3・0.11.0: 0.11.0 の変異が一覧にそろい、IDS_110 はどれも計画の「変異確認」の表にある。mt-・qm-・v- の変異は IDS_110 にある。どれも決まったテストのファイルを持ち、why が 0.11.0 で始まる', { timeout: 5000 }, () => {
   const byId = new Map(MUTANTS.map((m) => [m.id, m]));
   assert.deepStrictEqual(IDS_110.filter((id) => !byId.has(id)), [], 'IDS_110 の変異が一覧に無い');
   assert.strictEqual(new Set(IDS_110).size, IDS_110.length, 'IDS_110 に重なり');
-  // 0.11.0 V-5 で意図して変えた: 接頭 v5- も 0.11.0 の変異
+  // 0.11.0 V-5 で意図して変えた: 接頭 v5- も 0.11.0 の変異（点検の直しの rv- は前の版にもある接頭なので、ここでは見ず、表とちょうど同じかで見る）
   assert.deepStrictEqual(MUTANTS.filter((m) => /^(mt|qm|v|v5)-/.test(m.id) && !IDS_110.includes(m.id)).map((m) => m.id), [], 'IDS_110 に無い 0.11.0 の接頭の変異がある');
   const plan = fs.readFileSync(path.join(ROOT, 'docs', 'plans', '2026-10-22-110.md'), 'utf8');
   const table = plan.slice(plan.indexOf('## 変異確認（直しを1つ戻すと'), plan.indexOf('## ゲート'));
