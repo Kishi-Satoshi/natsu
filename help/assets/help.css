@@ -25,6 +25,9 @@
   --focus-link-ink: #000000;/* 輪の付いたリンクの文字（黄色の上で 14.74:1） */
   --sans: "Noto Sans JP", "Hiragino Sans", "Yu Gothic UI", "Meiryo", system-ui, sans-serif;
   --mono: "Noto Sans Mono", "Noto Sans JP", ui-monospace, "Cascadia Mono", Consolas, monospace;
+  /* 上の帯の左右の余白。48rem 未満の上の帯の検索の結果の左右も同じ値から取る（ずれない: 5回目の審査の指摘 2）。
+     単位は px（Q3 の答え: rem は文字の大きさ・押す場所の高さ・輪の太さだけ。DADS の rem の印はここでは受け入れる） */
+  --top-gutter: 24px;
   color-scheme: light dark;
 }
 
@@ -75,7 +78,7 @@ a:focus-visible { background-color: var(--focus-link-bg) !important; color: var(
 
 /* ===== 上の帯: 白地に黒の文字、下に 1px の罫線。影なし・ロゴのアイコンなし ===== */
 .top { background: var(--bg); border-bottom: 1px solid var(--rule); }
-.top-in { max-width: 1200px; margin: 0 auto; padding: 0 24px; min-height: 56px; display: flex; align-items: center; gap: 24px; }
+.top-in { max-width: 1200px; margin: 0 auto; padding: 0 var(--top-gutter); min-height: 56px; display: flex; align-items: center; gap: 24px; }
 .brand { font-weight: 700; color: var(--ink); text-decoration: none; letter-spacing: .01em; white-space: nowrap; }
 
 /* 検索の箱（H-4）: 地の色に補足の色の 1px の枠（HD-1。重要 1）・影なし。結果は ink の 1px の枠の一覧 */
@@ -229,7 +232,8 @@ main > h2 { font-size: 1.0625rem; margin: 2.6rem 0 .6rem; }
   .cats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 @media (max-width: 639px) {
-  .top-in, .wrap, .foot-in { padding-left: 16px; padding-right: 16px; }
+  :root { --top-gutter: 16px; }
+  .wrap, .foot-in { padding-left: 16px; padding-right: 16px; }
   .wrap { padding-top: 20px; }
   h1 { font-size: 1.6rem; }
   .layout { display: flex; flex-direction: column; align-items: stretch; }
@@ -250,10 +254,7 @@ main > h2 { font-size: 1.0625rem; margin: 2.6rem 0 .6rem; }
   /* 上の帯の検索の結果は、上の帯の幅いっぱい（左右の余白の内側）に出す（箱の幅だけだと 320px で 1 行 4〜5 字になる: 3回目の指摘 3） */
   .top-in { position: relative; }
   .top-in .search { position: static; }
-  .top-in .search-results { left: calc(24 / 16 * 1rem); right: calc(24 / 16 * 1rem); }
-}
-@media (max-width: 639px) {
-  .top-in .search-results { left: calc(16 / 16 * 1rem); right: calc(16 / 16 * 1rem); }   /* 4回目の審査の指摘 4: rem（DADS） */
+  .top-in .search-results { left: var(--top-gutter); right: var(--top-gutter); }   /* 上の帯の余白と同じ値（5回目の審査の指摘 2） */
 }
 @media (max-width: 479px) {
   .cats { grid-template-columns: minmax(0, 1fr); }

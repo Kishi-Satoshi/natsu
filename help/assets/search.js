@@ -166,11 +166,16 @@ var HelpSearch = (function () {
       });
       input.addEventListener('input', update);
       input.addEventListener('keydown', function (e) {
+        // 日本語入力の変換の途中のキー（確定の Enter・候補を選ぶ ↓↑・取り消しの Esc）は日本語入力に任せる。229 は Safari の変換中の keydown
+        // （設計書「全体を通して守ること」の IME。確定の Enter でページを移らない: 5回目の審査の指摘 1・WCAG 3.2.2）
+        if (e.isComposing || e.keyCode === 229) return;
         var open = list.hidden === false;
         if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
           // 閉じていて箱に語があるときは ↓ で開き直す（Tab で出て戻ったとき・窓を切り替えたとき: 4回目の審査の指摘 3）
           if (!open) {
-            if (e.key === 'ArrowDown' && fold(input.value)) { e.preventDefault(); update(); }
+            // 開き直すのは修飾キーの無い ↓ だけ（Shift+↓ の文字の選択や、Ctrl・Alt・⌘ の付いたキャレットの移動は止めない: 5回目の審査の指摘 3）
+            var plain = !e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey;
+            if (e.key === 'ArrowDown' && plain && fold(input.value)) { e.preventDefault(); update(); }
             return;
           }
           if (!results.length) return;

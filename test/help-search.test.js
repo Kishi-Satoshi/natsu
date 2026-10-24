@@ -423,3 +423,85 @@ test('4回目の指摘 3: 閉じていて箱に語があるときは ↓ で一�
   list.dispatchEvent({ type: 'mousedown', target: a.querySelector('.rt'), preventDefault() { stopped = true; } });
   assert.ok(!stopped, '結果のリンクを押すのを止めた（押しても記事へ移れない）');
 });
+
+// 5回目の審査の指摘 1（致命的・WCAG 3.2.2）: 日本語入力の変換の途中の Enter で結果の先頭のページへ移り、↓↑ が一覧の選択を動かし（閉じていれば開き）、
+// Esc が一覧を閉じた（閉じていれば箱を空にした）。設計書の「全体を通して守ること」の IME: 確定のキーは、どの入力経路でも先に抜ける。
+// isComposing（Chrome・Firefox）と keyCode 229（Safari の変換中の keydown）の両方を見る。上の帯とホームの大きな箱の両方
+test('5回目の指摘 1: 変換の途中（isComposing または keyCode 229）の Enter・↓・↑・Esc は何もしない（ページを移らない・選択を動かさない・一覧を開け閉めしない・箱を空にしない・既定の動きを止めない）。上の帯とホームの大きな箱の両方', { timeout: 5000 }, async (t) => {
+  const p = runPage(t, 'index.html');
+  const ways = [{ isComposing: true, keyCode: 13 }, { isComposing: false, keyCode: 229 }];
+  for (const id of ['hc-q', 'hc-q-home']) {
+    const q = p.root.querySelector(`#${id}`);
+    const list = p.root.querySelector(`#${id}-results`);
+    for (const way of ways) {
+      const tag = `${id} ${JSON.stringify(way)}`;
+      const ime = async (k) => {
+        let prevented = false;
+        q.dispatchEvent({ type: 'keydown', key: k, ...way, preventDefault() { prevented = true; } });
+        await p.tick(); await p.tick();
+        return prevented;
+      };
+      // 一覧が開いているとき
+      await p.type(q, '試し');
+      assert.strictEqual(list.hidden, false, tag);
+      for (const k of ['ArrowDown', 'ArrowUp', 'Enter', 'Escape']) {
+        assert.strictEqual(await ime(k), false, `${tag}: 変換の途中の ${k} の既定の動きを止めた`);
+        assert.strictEqual(list.hidden, false, `${tag}: 変換の途中の ${k} で一覧が閉じた`);
+        assert.strictEqual(q.getAttribute('aria-activedescendant'), null, `${tag}: 変換の途中の ${k} で選択が動いた`);
+      }
+      assert.deepStrictEqual(p.went, [], `${tag}: 変換の途中の Enter でページを移った`);
+      // ↓ で選んだ後も、変換の途中の ↓↑ は選択を動かさない
+      p.key(q, 'ArrowDown');
+      const first = q.getAttribute('aria-activedescendant');
+      assert.strictEqual(first, `${id}-opt-0`);
+      await ime('ArrowDown');
+      await ime('ArrowUp');
+      assert.strictEqual(q.getAttribute('aria-activedescendant'), first, `${tag}: 変換の途中の ↓↑ で選択が動いた`);
+      await ime('Enter');
+      assert.deepStrictEqual(p.went, [], `${tag}: 変換の途中の Enter でページを移った`);
+      // 一覧が閉じているとき: ↓ で開かない・Esc で箱を空にしない
+      p.key(q, 'Escape');
+      assert.strictEqual(list.hidden, true);
+      assert.strictEqual(await ime('ArrowDown'), false, `${tag}: 変換の途中の ↓ の既定の動きを止めた（閉じた一覧）`);
+      assert.strictEqual(list.hidden, true, `${tag}: 変換の途中の ↓ で閉じた一覧が開いた`);
+      assert.strictEqual(await ime('Escape'), false, `${tag}: 変換の途中の Esc の既定の動きを止めた（閉じた一覧）`);
+      assert.strictEqual(q.value, '試し', `${tag}: 変換の途中の Esc で箱を空にした`);
+      p.key(q, 'Escape');
+      assert.strictEqual(q.value, '');
+    }
+  }
+  // 確定した後の Enter は今までどおり移る
+  const q = p.root.querySelector('#hc-q');
+  await p.type(q, '試し');
+  p.key(q, 'Enter');
+  assert.strictEqual(p.went.length, 1, '確定した後の Enter で移らない');
+});
+
+// 5回目の審査の指摘 3: 4回目に足した「閉じていれば ↓ で開き直す」が Shift+↓（キャレットから行末まで選ぶ）も横取りし、文字の選択が伸びなかった。
+// 開き直すのは修飾キーの無い ↓ だけ。Ctrl・Alt（macOS の Option+↓ は段落の終わりへ）・⌘ の付いた ↓ も文字の操作に任せる（計画の R-HD8）
+test('5回目の指摘 3: 閉じた一覧は修飾キーの無い ↓ でだけ開き直す。Shift・Ctrl・Alt・Meta の付いた ↓ は開かず、既定の動き（文字の選択・キャレットの移動）を止めない', { timeout: 5000 }, async (t) => {
+  const p = runPage(t, 'index.html');
+  for (const id of ['hc-q', 'hc-q-home']) {
+    const q = p.root.querySelector(`#${id}`);
+    const box = q.closest('.search');
+    const list = p.root.querySelector(`#${id}-results`);
+    await p.type(q, '試し');
+    box.dispatchEvent({ type: 'focusout', relatedTarget: null });
+    assert.strictEqual(list.hidden, true);
+    for (const mod of ['shiftKey', 'ctrlKey', 'altKey', 'metaKey']) {
+      let prevented = false;
+      q.dispatchEvent({ type: 'keydown', key: 'ArrowDown', [mod]: true, preventDefault() { prevented = true; } });
+      await p.tick(); await p.tick();
+      assert.strictEqual(prevented, false, `${id}: ${mod}+↓ の既定の動きを止めた（文字の選択が伸びない）`);
+      assert.strictEqual(list.hidden, true, `${id}: ${mod}+↓ で閉じた一覧が開いた`);
+    }
+    // 修飾キーの無い ↓ は今までどおり開く
+    let prevented = false;
+    q.dispatchEvent({ type: 'keydown', key: 'ArrowDown', shiftKey: false, ctrlKey: false, altKey: false, metaKey: false, preventDefault() { prevented = true; } });
+    await p.tick(); await p.tick();
+    assert.ok(prevented, `${id}: ↓ の既定の動きを止めていない`);
+    assert.strictEqual(list.hidden, false, `${id}: ↓ で開き直さない`);
+    p.key(q, 'Escape');
+    p.key(q, 'Escape');
+  }
+});
