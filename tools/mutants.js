@@ -2048,4 +2048,7 @@ module.exports = [
   {"id": "hd-list-mousedown", "file": "help/assets/search.js", "from": "        if (!n || n === list) e.preventDefault();\n", "to": "", "tests": ["test/help-search.test.js"], "pattern": "4回目の指摘 3", "why": "help-dads HD-11 4回目の指摘 3: 一覧の余白や「見つかりませんでした」の行を押すと ul にフォーカスが移り、↑↓・Esc が検索の箱に届かない"},
   // help-dads 4回目の審査の指摘 4（上の帯の結果の左右を rem に）
   {"id": "hd-results-rem", "file": "help/assets/help.css", "from": "  .top-in .search-results { left: calc(16 / 16 * 1rem); right: calc(16 / 16 * 1rem); }", "to": "  .top-in .search-results { left: 16px; right: 16px; }", "tests": ["test/help-build.test.js"], "pattern": "3回目の指摘 3", "why": "help-dads HD-11 4回目の指摘 4: 上の帯の検索の結果の左右が px（DADS は余白とサイズを rem で書く）"},
+  // help-dads 5回目の審査の指摘 1（日本語入力の変換の途中のキーは検索が横取りしない）
+  {"id": "hd-search-ime", "file": "help/assets/search.js", "from": "        if (e.isComposing || e.keyCode === 229) return;\n", "to": "", "tests": ["test/help-search.test.js"], "pattern": "5回目の指摘 1", "why": "help-dads HD-12 5回目の指摘 1: 日本語入力の変換の途中の Enter で検索の結果の先頭のページへ移り、↓↑・Esc が一覧を動かす（WCAG 3.2.2）"},
+  {"id": "hd-search-ime229", "file": "help/assets/search.js", "from": "        if (e.isComposing || e.keyCode === 229) return;\n", "to": "        if (e.isComposing) return;\n", "tests": ["test/help-search.test.js"], "pattern": "5回目の指摘 1", "why": "help-dads HD-12 5回目の指摘 1: Safari の変換中の keydown（isComposing が false で keyCode 229）の Enter でページを移る"},
 ];
