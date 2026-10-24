@@ -678,6 +678,7 @@ const IDS_101 = [
   'cdl-unk-twice', 'cdl-unk-action', 'cdl-unk-window', 'cdl-unk-clear', 'cdl-unk-log', 'cdl-ui-unk-done',
   'cdl-auto-off', 'cdl-auto-mark', 'cdl-auto-running', 'cdl-auto-unknown', 'cdl-auto-broken', 'cdl-auto-quiet', 'cdl-auto-fallback',
   'cdl-auto-fix-notice', 'cdl-auto-fix-wide',
+  'cdl-help-logs',
 ];
 test('G3: 0.10.1 の変異が一覧にそろい、IDS_101 はどれも計画の「変異確認」の表にある。cdl- の変異は IDS_101 にある。どれも決まったテストのファイルを持ち、why が 0.10.1 で始まる', { timeout: 5000 }, () => {
   const byId = new Map(MUTANTS.map((m) => [m.id, m]));

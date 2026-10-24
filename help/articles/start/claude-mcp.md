@@ -1,7 +1,7 @@
 ---
 title: Claude から議事録を読む（MCP）
 description: Claude デスクトップに NaTsu を登録すると、Claude に「10/20 の議事録を読んで」のように頼めるようになる。登録の仕方・送られるもの・つながらないとき
-updated: 2026-10-23
+updated: 2026-10-24
 sources: README.md, src/renderer/app.html, src/main.js, src/mcp-config.js, src/mcp/tools.js
 related: start/claude-code, record/pc-only, find/delete-and-backups
 ---
@@ -39,6 +39,7 @@ Claude は、頼みに関係のある箇所だけを、日付・題名・時刻�
 2. NaTsu の ［設定］→［要約］ の「Claude との連携（MCP）」で ［Claude デスクトップに登録］ を押します。
 3. Claude デスクトップを起動します。入力の欄の「＋」→ **Connectors**（コネクタ）に natsu が出ていれば使えます。
 
+Claude デスクトップが動いている間は、NaTsu は登録を変えません（終了してから押してください）。
 Claude デスクトップは、道具を使ってよいかを道具ごとに聞きます。確かめてから許してください。
 Microsoft Store 版の Claude デスクトップも、同じボタンで登録できます。
 
@@ -48,7 +49,7 @@ Microsoft Store 版の Claude デスクトップも、同じボタンで登録�
 ## 外す・登録が消えたとき {#unregister}
 
 - 外すときは、Claude デスクトップを終了してから ［登録を外す］ を押します。
-- Claude デスクトップが設定を書き直して、登録が消えることがあります。NaTsu は起動のときに確かめ、消えていれば左下に知らせます。［登録し直す］ を押してください。
+- Claude デスクトップが設定を書き直して、登録が消えることがあります。NaTsu は起動のときに確かめ、Claude デスクトップが終了していれば、自動で登録し直します。動いていれば左下に知らせるので、Claude デスクトップを終了してから ［登録し直す］ を押してください。
 - NaTsu を別の場所に入れ直したときも、知らせが出ます。［登録し直す］ を押してください。
 
 ## 入れ直す前に {#reinstall}
@@ -62,5 +63,5 @@ NaTsu を入れ直す・消す前は、Claude デスクトップを終了して�
 ## つながらないとき {#trouble}
 
 - ［設定］→［要約］ の「Claude との連携（MCP）」の状態の文を見ます。「登録の場所が古くなっています」「登録が消えています」なら ［登録し直す］ を押します。
-- Claude デスクトップの記録 `%APPDATA%\Claude\logs\mcp-server-natsu.log` を見ます（NaTsu はここに議事録の文を書きません）。
+- Claude デスクトップの記録 `%APPDATA%\Claude\logs\mcp-server-natsu.log`（Microsoft Store 版は `%LOCALAPPDATA%\Claude-Data\claude_…\logs\mcp-server-natsu.log`）を見ます（NaTsu はここに議事録の文を書きません）。
 - 会社の見張りの道具が「NaTsu.exe が Node として動いた」と警告することがあります。Claude デスクトップが NaTsu の読み手を起こしたもので、議事録を読むだけです。情報システムに確かめてください。
