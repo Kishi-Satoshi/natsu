@@ -372,10 +372,12 @@ test('画面の使いやすさ: help.css に :focus-visible の輪があり、ou
   for (const r of rules) assert.ok(!/^(none|0)$/.test((r.decls.outline || '').trim()), `${r.sel} が outline を消す`);
   const narrow = rules.filter((r) => r.at === '@media (max-width: 639px)');
   assert.ok(narrow.length > 0, '狭い画面の規則が無い');
-  for (const sel of ['.top-in', '.wrap', '.foot-in']) {
+  for (const sel of ['.wrap', '.foot-in']) {
     const d = C.declsFor(narrow, sel);
     assert.ok(d['padding-left'] === '16px' && d['padding-right'] === '16px', `${sel} の左右の余白`);
   }
+  // 上の帯の左右の余白は --top-gutter（5回目の指摘 2）。狭い画面では 16px
+  assert.strictEqual(C.resolveVar(rules, C.declsFor(rules, '.top-in', { at: '' }).padding, '@media (max-width: 639px)'), '0 16px', '.top-in の左右の余白');
   for (const r of rules) assert.ok(!/\d+px/.test(r.decls['min-width'] || ''), `${r.sel} に min-width の固定`);
   // 横のはみ出し: 表とコードの塊はその中で横に送る。本文の長い住所は折り返す
   assert.strictEqual(C.declsFor(rules, '.table')['overflow-x'], 'auto');
@@ -474,19 +476,26 @@ test('再審査の指摘 2・3: 強制カラー（ハイコントラスト）で
   assert.strictEqual(C.declsFor(rules, '.toc', { at: '' })['scroll-padding-block'], 'calc(6 / 16 * 1rem)');
 });
 
-test('3回目の指摘 3: 48rem 未満では上の帯の検索の結果を上の帯の幅いっぱい（左右の余白の内側: 640px 以上は 24px、より狭いと 16px）に出す。広い画面とホームの大きな箱は今のまま', { timeout: 5000 }, () => {
+test('3回目の指摘 3・5回目の指摘 2: 48rem 未満では上の帯の検索の結果を上の帯の幅いっぱい（左右の余白の内側: 640px 以上は 24px、より狭いと 16px）に出す。結果の左右と上の帯の余白は1つの値 --top-gutter から取る（文字の設定を大きくしてもずれない。単位は Q3 の答えで px）。広い画面とホームの大きな箱は今のまま', { timeout: 5000 }, () => {
   const rules = C.parse(CSS());
   const N48 = '@media (max-width: 47.9375rem)';
+  const N639 = '@media (max-width: 639px)';
   assert.strictEqual(C.declsFor(rules, '.top-in', { at: N48 }).position, 'relative');
   assert.strictEqual(C.declsFor(rules, '.top-in .search', { at: N48 }).position, 'static');
+  // 1つの値: 広い画面 24px・640px 未満 16px（Q3: 上の帯の余白は px のまま。DADS の rem の印はここでは受け入れる）
+  assert.strictEqual(C.tokens(rules, '')['--top-gutter'], '24px');
+  assert.strictEqual(C.tokens(rules, N639)['--top-gutter'], '16px');
+  // 上の帯の余白はその値から取り、狭い画面でも別の値で上書きしない
+  assert.strictEqual(C.declsFor(rules, '.top-in', { at: '' }).padding, '0 var(--top-gutter)');
+  for (const at of [N639, N48]) {
+    const d = C.declsFor(rules, '.top-in', { at });
+    for (const k of ['padding', 'padding-left', 'padding-right']) assert.strictEqual(d[k], undefined, `${at} で .top-in の ${k} を別の値にした（結果の左右とずれる）`);
+  }
+  // 結果の左右も同じ値から取る（5回目の指摘 2: rem と px でずれていた）
   const r48 = C.declsFor(rules, '.top-in .search-results', { at: N48 });
-  // 4回目の審査の指摘 4（DADS）: 余白は rem（calc(n / 16 * 1rem)）
-  assert.deepStrictEqual([r48.left, r48.right], ['calc(24 / 16 * 1rem)', 'calc(24 / 16 * 1rem)']);
-  const r639 = C.declsFor(rules, '.top-in .search-results', { at: '@media (max-width: 639px)' });
-  assert.deepStrictEqual([r639.left, r639.right], ['calc(16 / 16 * 1rem)', 'calc(16 / 16 * 1rem)']);
-  // 16px の規則は 24px の規則より後ろ（狭い画面で勝つ）
-  const idx = (at) => rules.findIndex((r) => r.at === at && r.sel === '.top-in .search-results');
-  assert.ok(idx('@media (max-width: 639px)') > idx(N48));
+  assert.deepStrictEqual([r48.left, r48.right], ['var(--top-gutter)', 'var(--top-gutter)'], '上の帯の結果の左右が上の帯の余白と同じ値でない');
+  assert.deepStrictEqual(rules.filter((r) => r.at !== N48 && r.sel === '.top-in .search-results').map((r) => r.at), [], '上の帯の結果の左右をほかの所で上書きした');
+  assert.deepStrictEqual([N48, N639].map((at) => C.resolveVar(rules, r48.left, at)), ['24px', '16px']);
   assert.strictEqual(C.declsFor(rules, '.top-in .search-results', { at: '' }).left, undefined, '広い画面の上の帯の一覧を変えた');
 });
 
