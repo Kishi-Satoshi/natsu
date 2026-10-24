@@ -109,6 +109,10 @@ const NEW_101 = ['settings-mcp-running-light'];
 // CI run 40071461858（1dff338）の2回目・artifact 12552271208 の .after.png をバイトのまま基準にし（持ち主が見た画像とバイトで同じ）、取り直し待ちを空に戻した。
 // 撮る画面の並びの確かめ（下）は、0.10.1 で足した画面の名前として NEW_101 を使う
 const ADDED_101 = [...NEW_101];
+// 0.11.0（計画 docs/plans/2026-10-22-110.md の「取り直す画面（RETAKE）」）で意図して変えた: 取り直し待ちは 0.11.0 の表の画面だけ（RETAKE_110）。タスクごとに足す。
+// M-1（R7）: 会議の種類の名前と説明の付け直しで、種類の行を写すページの画面 10 枚
+const RETAKE_110 = ['notes-page-light', 'notes-page-dark', 'notes-page-zoom200-light', 'notes-tabs-light', 'notes-collapsed-light',
+  'page-menu-link-light', 'page-menu-link-dark', 'page-summary-lock-light', 'list-select-light', 'list-select-dark'];
 const img = (w, h, fill = [255, 255, 255, 255]) => ({ width: w, height: h, data: Buffer.from(Array.from({ length: w * h }, () => fill).flat()) });
 // 一時フォルダ（日本語と 𠮷 の名前。RF1 と同じ形）。テストの終わりに消す
 const tmp = (t, name) => {
@@ -596,8 +600,12 @@ test('U-3・G-3: settings-offline-light は基準の PNG と比べる（取り�
 // 0.9.4 で意図して変えた（版を 0.9.4 に上げる commit）: 取り直し待ちを空に戻した（ファイルの頭の注）。0.9.4 の表の画面（ADDED_094）にはどれも基準がある
 // 0.10.0 で意図して変えた（版を 0.10.0 に上げる commit）: 取り直し待ちを空に戻した（ファイルの頭の注）。0.10.0 の表の画面（ADDED_100）はどれも計画の表にあり、基準がある
 // 0.10.1 で意図して変えた（版を 0.10.1 に上げる commit）: 取り直し待ちを空に戻した（ファイルの頭の注）。0.10.1 の表の画面（ADDED_101）はどれも計画の表にあり、基準がある
-test('G2・F14・G-4・0.9.0 G-3・0.9.1・0.9.2・0.9.3・0.9.4・0.10.0・0.10.1: 取り直し待ちは無い。どの画面にも基準の PNG があり（0.9.1・0.9.2・0.9.3・0.9.4・0.10.0・0.10.1 で足した画面も）、本体の画面の大きさは窓の大きさと同じ', { timeout: 5000 }, () => {
-  assert.deepStrictEqual([...SH.RETAKE], []);
+// 0.11.0 M-1 で意図して変えた: 取り直し待ちは 0.11.0 の計画の表の画面（ファイルの頭の RETAKE_110）とちょうど同じ。どれも計画の「取り直す画面」の表にある
+test('G2・F14・G-4・0.9.0 G-3・0.9.1・0.9.2・0.9.3・0.9.4・0.10.0・0.10.1・0.11.0: 取り直し待ちは 0.11.0 の表の画面だけ。どの画面にも基準の PNG があり（0.9.1・0.9.2・0.9.3・0.9.4・0.10.0・0.10.1 で足した画面も）、本体の画面の大きさは窓の大きさと同じ', { timeout: 5000 }, () => {
+  assert.deepStrictEqual([...SH.RETAKE], RETAKE_110);
+  const plan110 = read('docs/plans/2026-10-22-110.md');
+  const table110 = plan110.slice(plan110.indexOf('## 取り直す画面（RETAKE）'), plan110.indexOf('## CHANGELOG の 0.11.0 の節'));
+  for (const n of RETAKE_110) assert.ok(table110.includes(`\`${n}\``), `0.11.0 の計画の「取り直す画面」の表に ${n} が無い`);
   const plan101 = read('docs/plans/2026-10-23-101.md');
   const table101 = plan101.slice(plan101.indexOf('## 取り直す画面（RETAKE）'), plan101.indexOf('## 実機で利用者に見てもらうこと'));
   for (const n of ADDED_101) assert.ok(table101.includes(`\`${n}\``), `0.10.1 の計画の「取り直す画面」の表に ${n} が無い`);

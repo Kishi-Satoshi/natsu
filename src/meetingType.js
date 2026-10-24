@@ -16,8 +16,8 @@ const ACTION_RULE = '（「- [ ] 内容（担当: ○○ / 期限: ○○）」�
 
 const TYPES = {
   standup: {
-    label: '定例・進捗報告',
-    hint: '朝会・週次定例など、各担当の報告が中心の会議',
+    label: '朝会・内部定例会',
+    hint: '朝会・週次の定例など、各担当の報告が中心の社内の会議',
     agenda: '議題:\n・各担当の進捗報告\n・課題・相談ごと\n・決定事項の確認\n・次回までのアクション',
     keywords: ['朝会', '定例', '週次', 'デイリー', '日次', 'スタンドアップ', '進捗確認', '状況共有', 'レビュー会議'],
     format: `## 概要
@@ -61,8 +61,8 @@ ${ACTION_RULE}
   },
 
   oneonone: {
-    label: '1on1・面談',
-    hint: 'メンバーとの個別面談、キャリア相談、処遇の打診など',
+    label: '1on1',
+    hint: 'メンバーとの個別面談、キャリアの相談など',
     agenda: '話したいこと:\n・最近の調子・近況\n・困っていること\n・キャリア・今後のこと\n・会社・チームへの要望',
     // 同じ語を二度書くとその語だけ二重に加点され、他タイプの正当な一致に競り勝ってしまう。
     // 全角で入力されることがあるため「１ｏｎ１」も見る。
@@ -84,8 +84,8 @@ ${ACTION_RULE}`,
   },
 
   sales: {
-    label: '商談・協業検討',
-    hint: '顧客・パートナーとの商談、協業や契約の検討',
+    label: '商談',
+    hint: '顧客・パートナーとの商談（協業の検討も）',
     agenda: '議題:\n・先方の状況・課題のヒアリング\n・こちらからの提案\n・価格・条件\n・次のステップ',
     keywords: ['商談', '協業', '提案', '見積', '契約', '再販', '価格', 'ベンダー選定', '紹介', 'ビジネス'],
     format: `## 概要
@@ -108,10 +108,10 @@ ${ACTION_RULE}`,
   },
 
   interview: {
-    label: '採用面接・顔合わせ',
-    hint: '候補者の面接、入社前の顔合わせ、オンボーディング面談',
+    label: '採用面接・事前面談',
+    hint: '候補者の採用面接と、社内の人との事前面談（案件や異動の前）',
     agenda: '確認したいこと:\n・経歴・スキル\n・志望動機\n・条件面\n・候補者からの質問',
-    keywords: ['面接', '顔合わせ', 'オンボーディング', '候補者', '選考', '入社', '採用面談', 'スキル確認'],
+    keywords: ['面接', '顔合わせ', 'オンボーディング', '候補者', '選考', '入社', '採用面談', 'スキル確認', '事前面談'],
     format: `## 概要
 （面接の対象と全体の印象を3〜5行で要約）
 
@@ -149,6 +149,13 @@ ${ACTION_RULE}`,
 ${ACTION_RULE}`,
   },
 
+  // 0.11.0 M-1（D41・P4）: プレゼン形式。書式は M-2 で型の見出しに置き換える（それまでは一般・その他の書式）。アジェンダの雛形は作らない
+  present: {
+    label: 'プレゼン形式',
+    hint: '提案や説明会など、発表と質疑が中心の会議',
+    keywords: ['プレゼン', '発表', '説明会', 'デモ', '登壇', '提案発表'],
+  },
+
   general: {
     label: '一般・その他',
     hint: '上記に当てはまらない会議',
@@ -170,7 +177,17 @@ ${ACTION_RULE}
   },
 };
 
-const ORDER = ['standup', 'review', 'oneonone', 'sales', 'interview', 'brainstorm', 'general'];
+const ORDER = ['standup', 'review', 'oneonone', 'sales', 'interview', 'brainstorm', 'present', 'general'];
+// 0.11.0 M-1（D43・D44）: 画面の「会議の種類」で選べる種類とプルダウンの群（<optgroup>）。並びはこの1か所
+const SELECTABLE = Object.freeze(['standup', 'review', 'brainstorm', 'oneonone', 'interview', 'sales', 'present']);
+const GROUPS = Object.freeze([
+  Object.freeze({ label: '社内の会議', keys: Object.freeze(['standup', 'review', 'brainstorm']) }),
+  Object.freeze({ label: '人と話す', keys: Object.freeze(['oneonone', 'interview']) }),
+  Object.freeze({ label: '社外と話す', keys: Object.freeze(['sales', 'present']) }),
+]);
+const isSelectable = (v) => typeof v === 'string' && SELECTABLE.includes(v);
+// 選べる鍵でなければ ''（「決まらなかった」。前の版の general もここで読み替える: P12）
+const normalizeType = (v) => (isSelectable(v) ? v : '');
 // 人と話す会議（1on1・面談と採用面接・顔合わせ）。MCP の箇所の検索は、頼まれたときだけ探す（0.10.0 T-2b・D51・問い Q17）。後の打ち合わせの質も同じ1か所を使う
 const PERSONAL_TYPES = Object.freeze(['oneonone', 'interview']);
 
@@ -216,7 +233,7 @@ function detectType(title, transcriptHead) {
 }
 
 function getFormat(type) {
-  return (TYPES[type] || TYPES.general).format;
+  return (TYPES[type] && TYPES[type].format) || TYPES.general.format;
 }
 function getLabel(type) {
   return (TYPES[type] || TYPES.general).label;
@@ -230,4 +247,4 @@ function listTypes() {
   return ORDER.map((k) => ({ key: k, label: TYPES[k].label, hint: TYPES[k].hint, agenda: TYPES[k].agenda || '' }));
 }
 
-module.exports = { TYPES, ORDER, PERSONAL_TYPES, detectType, getFormat, getLabel, getAgenda, listTypes };
+module.exports = { TYPES, ORDER, SELECTABLE, GROUPS, PERSONAL_TYPES, isSelectable, normalizeType, detectType, getFormat, getLabel, getAgenda, listTypes };

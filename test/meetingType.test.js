@@ -107,9 +107,10 @@ test('キーワードに重複が無い（重複すると同じ語で二重加�
 });
 
 // ---------------------------------------------------------------- アジェンダ雛形
-test('一般以外の全タイプにアジェンダの雛形がある', () => {
+// 0.11.0 M-1 で意図して変えた: アジェンダの雛形は前のページの手を付けていないメモを見分けるためだけに残すので、新しいプレゼン形式には作らない
+test('一般とプレゼン形式のほかの全タイプにアジェンダの雛形がある', () => {
   for (const t of mtype.listTypes()) {
-    if (t.key === 'general') {
+    if (t.key === 'general' || t.key === 'present') {
       assert.strictEqual(t.agenda, '', '「一般」に雛形を押し付けない');
       continue;
     }
@@ -121,4 +122,44 @@ test('getAgenda は未知のタイプで空を返す', () => {
   assert.strictEqual(mtype.getAgenda('nope'), '');
   assert.strictEqual(mtype.getAgenda(''), '');
   assert.ok(mtype.getAgenda('standup').length > 0);
+});
+
+// ---------------------------------------------------------------- 0.11.0 M-1（D43・D44・D45・P4・F25。計画 docs/plans/2026-10-22-110.md の「会議の種類の表」）
+test('0.11.0 M-1・F25: 名前の付け直しは label だけ（key は前と同じ）。プレゼン形式を足した', () => {
+  const want = { standup: '朝会・内部定例会', review: '部会・報告会', brainstorm: 'ブレスト・意見交換', oneonone: '1on1',
+    interview: '採用面接・事前面談', sales: '商談', present: 'プレゼン形式' };
+  for (const [k, v] of Object.entries(want)) assert.strictEqual(mtype.TYPES[k].label, v, k);
+  for (const k of ['standup', 'review', 'oneonone', 'sales', 'interview', 'brainstorm']) assert.ok(mtype.ORDER.includes(k), `${k} の key が消えた`);
+  assert.ok(mtype.ORDER.includes('present'));
+  assert.strictEqual(mtype.TYPES.standup.hint, '朝会・週次の定例など、各担当の報告が中心の社内の会議');
+  assert.strictEqual(mtype.TYPES.oneonone.hint, 'メンバーとの個別面談、キャリアの相談など');
+  assert.strictEqual(mtype.TYPES.interview.hint, '候補者の採用面接と、社内の人との事前面談（案件や異動の前）');
+  assert.strictEqual(mtype.TYPES.sales.hint, '顧客・パートナーとの商談（協業の検討も）');
+  assert.strictEqual(mtype.TYPES.present.hint, '提案や説明会など、発表と質疑が中心の会議');
+});
+
+test('0.11.0 M-1（D43・D44）: 選べる種類とプルダウンの群はこの並び（1か所）', () => {
+  assert.deepStrictEqual([...mtype.SELECTABLE], ['standup', 'review', 'brainstorm', 'oneonone', 'interview', 'sales', 'present']);
+  assert.deepStrictEqual(mtype.GROUPS.map((g) => [g.label, [...g.keys]]), [
+    ['社内の会議', ['standup', 'review', 'brainstorm']],
+    ['人と話す', ['oneonone', 'interview']],
+    ['社外と話す', ['sales', 'present']],
+  ]);
+  assert.deepStrictEqual(mtype.GROUPS.flatMap((g) => g.keys), [...mtype.SELECTABLE]);
+});
+
+test('0.11.0 M-1（P4）: プレゼン形式の語と「事前面談」で当てる', () => {
+  for (const t of ['提案発表会', '新製品のプレゼン', '社外向け説明会', 'デモ', '展示会 登壇']) assert.strictEqual(mtype.detectType(t, ''), 'present', t);
+  assert.strictEqual(mtype.detectType('事前面談', ''), 'interview');
+  assert.strictEqual(mtype.detectType('案件の事前面談', ''), 'interview');
+  assert.deepStrictEqual(mtype.TYPES.present.keywords, ['プレゼン', '発表', '説明会', 'デモ', '登壇', '提案発表']);
+  assert.ok(mtype.TYPES.interview.keywords.includes('事前面談'));
+});
+
+test('0.11.0 M-1（P12）: normalizeType と isSelectable は選べる鍵だけを通す（前の版の general・空・知らない値は ""）', () => {
+  for (const k of mtype.SELECTABLE) { assert.strictEqual(mtype.normalizeType(k), k); assert.strictEqual(mtype.isSelectable(k), true); }
+  for (const v of ['general', '', 'nope', '__proto__', 'constructor', null, undefined, 3, {}]) {
+    assert.strictEqual(mtype.normalizeType(v), '', String(v));
+    assert.strictEqual(mtype.isSelectable(v), false, String(v));
+  }
 });

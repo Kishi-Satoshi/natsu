@@ -271,7 +271,12 @@ const OVL_094 = (states) => PS.FORMS.flatMap((form) => Object.keys(PS.DESKS).fla
 // settings-info-claude-light・settings-mcp-light・settings-info-mcp-light）のその行のほかに違いは無い（左の列の印の 1 段の色の揺れは、同じ app.html の2つの run の間にもある）
 // 0.10.1（版を 0.10.1 に上げる commit）: 持ち主が 2026-10-24 に settings-mcp-running-light（CD-3 の断った文 RN1）の画像を見て「OK」と言ったので、
 // CI run 40071461858（1dff338）・artifact 12552271208 の .after.png をバイトのまま基準にし、空に戻した
-const RETAKE = new Set([]);
+// 0.11.0（計画 docs/plans/2026-10-22-110.md の「取り直す画面（RETAKE）」）: タスクごとに足す。持ち主が見比べで OK と言ったら、版の commit で基準にして空に戻す。
+// M-1（R7）: 会議の種類の名前と説明を付け直したので、種類の行を写すページの画面
+const RETAKE = new Set([
+  'notes-page-light', 'notes-page-dark', 'notes-page-zoom200-light', 'notes-tabs-light', 'notes-collapsed-light',
+  'page-menu-link-light', 'page-menu-link-dark', 'page-summary-lock-light', 'list-select-light', 'list-select-dark',
+]);
 const PERF = [{ name: 'open-2000-blocks', budgetMs: 500 }];   // 3回開いた中央値で見る
 const TIME_ZONE = 'Asia/Tokyo';
 const TOLERANCE = 2;   // 色の差（0〜255）がこれ以下の画素は同じとみなす。CI の機械の CPU ごとの描き方の1段の差を拾わないため（揺れの確かめ judgePair は 0 で見る）
