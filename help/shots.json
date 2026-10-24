@@ -7,7 +7,8 @@
     "/",
     "/record/",
     "/record/pc-only/",
-    "/start/tester-guide/"
+    "/start/tester-guide/",
+    "/release-notes/"
   ],
   "schemes": [
     "light",

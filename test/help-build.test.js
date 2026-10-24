@@ -731,7 +731,8 @@ test('R7: help/shots.json の CSS の指紋が、今の help/assets/*.css の指
   assert.ok(Object.keys(now).length >= 2);
   assert.deepStrictEqual(shots.css, now, 'CSS が撮った後に変わった。node tools/help-shots.js で撮り直し、写真を見てから help/shots.json を commit する');
   // 撮った組: ホーム・分類（record）・記事（record/pc-only）と試験利用の手順 × 明暗 × 1280 と 390
-  assert.deepStrictEqual(shots.pages, ['/', '/record/', '/record/pc-only/', '/start/tester-guide/']);
+  // help-relnotes RN-7: リリースノートのページも撮る（5 ページ）
+  assert.deepStrictEqual(shots.pages, ['/', '/record/', '/record/pc-only/', '/start/tester-guide/', '/release-notes/']);
   assert.deepStrictEqual(shots.schemes, ['light', 'dark']);
   assert.deepStrictEqual(shots.widths, [1280, 390]);
 });

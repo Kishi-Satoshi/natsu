@@ -469,16 +469,14 @@ test('G3: help-dads の変異が一覧にそろい、IDS_HELP_DADS は計画 doc
 });
 
 // help-relnotes（計画 docs/plans/2026-10-23-help-relnotes.md の「変異確認」の表）: ヘルプセンターのリリースノートの直しを1つずつ戻す変異。
-// タスクを作るたびに足す（表の全部とちょうど同じにそろえるのは RN-7。それまでは「どれも表にある」と「hrn- の変異は IDS_HELP_RELNOTES にある」を見る）
+// RN-7 で表の全部（16）とちょうど同じにそろえた（多くも少なくもない）
 const IDS_HELP_RELNOTES = [
   'hrn-heading-space', 'hrn-body-same',
-  'hrn-order', 'hrn-date-real', 'hrn-undated', 'hrn-render', 'hrn-line', 'hrn-public-check',
-  'hrn-page-date', 'hrn-home-card', 'hrn-no-search', 'hrn-toc-row',
-  'hrn-onpage-scroll',
-  'hrn-no-labels',
-  'hrn-deploy-after-release', 'hrn-deploy-paths',
+  'hrn-order', 'hrn-date-real', 'hrn-undated', 'hrn-render', 'hrn-line',
+  'hrn-page-date', 'hrn-home-card', 'hrn-onpage-scroll', 'hrn-no-labels', 'hrn-public-check', 'hrn-no-search',
+  'hrn-deploy-after-release', 'hrn-deploy-paths', 'hrn-toc-row',
 ];
-test('G3: help-relnotes の変異が一覧にそろい、IDS_HELP_RELNOTES はどれも計画 docs/plans/2026-10-23-help-relnotes.md の「変異確認」の表にあり、当てるファイルと赤になるテストが表と同じ。hrn- の変異は IDS_HELP_RELNOTES にある', { timeout: 5000 }, () => {
+test('G3: help-relnotes の変異が一覧にそろい、IDS_HELP_RELNOTES は計画 docs/plans/2026-10-23-help-relnotes.md の「変異確認」の表とちょうど同じ（RN-7）で、当てるファイルと赤になるテストが表と同じ。hrn- の変異は IDS_HELP_RELNOTES にある', { timeout: 5000 }, () => {
   const byId = new Map(MUTANTS.map((m) => [m.id, m]));
   assert.deepStrictEqual(IDS_HELP_RELNOTES.filter((id) => !byId.has(id)), [], 'IDS_HELP_RELNOTES の変異が一覧に無い');
   assert.strictEqual(new Set(IDS_HELP_RELNOTES).size, IDS_HELP_RELNOTES.length, 'IDS_HELP_RELNOTES に重なり');
@@ -490,9 +488,9 @@ test('G3: help-relnotes の変異が一覧にそろい、IDS_HELP_RELNOTES は�
   const ids = rows.map((x) => x[1]);
   assert.strictEqual(new Set(ids).size, ids.length, '計画の表に重なり');
   assert.deepStrictEqual(IDS_HELP_RELNOTES.filter((id) => !ids.includes(id)), [], '計画の「変異確認」の表に無い変異');
+  assert.deepStrictEqual(IDS_HELP_RELNOTES, ids, 'IDS_HELP_RELNOTES が計画の表（行の順）とちょうど同じでない');
   for (const [, id, file, tests] of rows) {
     const m = byId.get(id);
-    if (!m) continue;
     assert.strictEqual(m.file, file, id);
     assert.deepStrictEqual([...m.tests].sort(), [...tests.matchAll(/`([^`]+)`/g)].map((x) => x[1]).sort(), id);
     assert.ok(m.why.startsWith('help-relnotes RN-'), `${id}: why`);
