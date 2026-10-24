@@ -307,6 +307,52 @@ function markBlocks(blocks, { meetingType } = {}) {
   return { blocks: out, dropped, folded: foldedNames.length };
 }
 
+// ---------------------------------------------------------------- 画面の並び（V-2。D48・F26・決めたこと 27）
+// 並べ替えは画面だけ（保存の順は変えない）。画面（app.html）に同じ VIEW_HEADS と orderForView・savedIndexForDrop の写しがあり、repo が同じ表で照らす
+const VIEW_HEADS = deepFreeze({
+  closing: CLOSING_HEADINGS.slice(0, 3),   // 決定事項・持ち越し・ToDo（この順で頭に）
+  check: CLOSING_HEADINGS[3],
+  advice: ADVICE_HEAD,
+  type: [...new Set(MEMO_ORDER.flatMap((k) => MEMO_TYPES[k].headings.map((h) => h.name)))],
+});
+// blocks（保存の順）→ 画面の順の保存の番号の並び。節は見出しから次の見出しの前まで（見出しの前の行は型の節）。
+// 締めの3つ → 型の見出しの節 → 抜け・重なりチェック → 次に気をつけること → それ以外の節（人が足した見出しなど）。節の中と同じ組の節の間は保存の順。
+// 知らない見出しは、保存の順で締め・チェック・助言のどれかより前にあれば型の節（報告の名前など）、後ろなら「それ以外」（R17）。
+// 型の見出しの無い前の版の要約は、締めの見出しが無ければ保存の順のまま
+function orderForView(blocks, heads = VIEW_HEADS) {
+  const k = (t) => String(t || '').normalize('NFKC').trim().replace(/^[■#*\s]+/, '').replace(/[*\s]+$/, '').replace(/\([^()]*\)$/, '').replace(/\s+/g, '');
+  const closing = heads.closing.map(k);
+  const types = new Set(heads.type.map(k));
+  const CHECK = k(heads.check); const ADVICE = k(heads.advice);
+  const list = Array.isArray(blocks) ? blocks : [];
+  const secs = [];
+  let cur = { rank: 3, idx: [] };
+  let pastClose = false;
+  list.forEach((b, i) => {
+    if (b && b.type === 'heading') {
+      secs.push(cur);
+      const key = k(b.text);
+      let rank;
+      if (closing.includes(key)) rank = closing.indexOf(key);
+      else if (key === CHECK) rank = 4;
+      else if (key === ADVICE) rank = 5;
+      else rank = !pastClose || types.has(key) ? 3 : 6;
+      if (rank !== 3 && rank !== 6) pastClose = true;
+      cur = { rank, idx: [i] };
+    } else cur.idx.push(i);
+  });
+  secs.push(cur);
+  return secs.map((x, n) => ({ ...x, n })).sort((a, b) => (a.rank - b.rank) || (a.n - b.n)).flatMap((x) => x.idx);
+}
+// つまみで落とした所 → block.move の toIndex。order は動かす行を除いた画面の順の保存の番号（動かす行を抜いた後の番号）、viewIdx は落とした所。
+// 落とした所の次の行の保存の番号。最後（か後ろ）なら最後の行の保存の番号＋1、行が無ければ 0
+function savedIndexForDrop(order, viewIdx) {
+  const o = Array.isArray(order) ? order : [];
+  if (!o.length) return 0;
+  const i = Math.max(0, Math.trunc(Number(viewIdx) || 0));
+  return i < o.length ? o[i] : o[o.length - 1] + 1;
+}
+
 // 作ったブロックの ID（store.newId と同じ形の b<数と英字>。純粋な部品なので乱数だけで作る）
 function newBlockId() {
   return `b${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`;
@@ -314,6 +360,7 @@ function newBlockId() {
 
 module.exports = {
   MEMO_TYPES, MEMO_ORDER, DEFAULT_MEMO, memoTypeOf, memoPreset, isUntouchedMemo, headingKey, presetLines, listMemoTypes,
+  VIEW_HEADS, orderForView, savedIndexForDrop,
   CLOSING_HEADINGS, CLOSING_TEMPLATE, ADVICE_HEAD, ADVICE_TEMPLATE, MEMO_RULES, STAR_RULE, OUTPUT_RULE, CHECK_MAX, UNCONFIRMED_HEAD, MEMO_SUFFIX, REPORT_HEAD,
   fenceLines, sectionsOf, buildTemplate, markBlocks,
 };

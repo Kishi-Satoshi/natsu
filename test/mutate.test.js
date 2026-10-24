@@ -806,6 +806,7 @@ const IDS_110 = [
   'qm-unasked-strip', 'qm-unparsed-note', 'qm-short-skip', 'qm-regen-clear', 'qm-view-dbmade',
   'mt-general-back', 'qm-mcp-general',
   'v-memo-flush', 'v-live-overwrite', 'v-mark-badge', 'v-hint-hide', 'v-legacy-general', 'v-auto-option', 'v-live-tab', 'v-live-focus',
+  'v-view-order', 'v-copy-order', 'v-drag-index', 'v-quality-view',
 ];
 test('G3・0.11.0: 0.11.0 の変異が一覧にそろい、IDS_110 はどれも計画の「変異確認」の表にある。mt-・qm-・v- の変異は IDS_110 にある。どれも決まったテストのファイルを持ち、why が 0.11.0 で始まる', { timeout: 5000 }, () => {
   const byId = new Map(MUTANTS.map((m) => [m.id, m]));

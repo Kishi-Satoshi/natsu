@@ -1629,3 +1629,29 @@ test('0.10.1 点検の直し R12: ヘルプの記事の入れ直したときの�
   assert.ok(!art.includes('NaTsu を別の場所に入れ直したときも、知らせが出ます。'), '0.10.0 の文が残っている');
   assert.ok(art.includes('NaTsu を別の場所に入れ直したときも同じです（Claude デスクトップが終了していれば起動のときに自動で直し、動いていれば知らせます）。'), '入れ直したときの文が無い');
 });
+
+// 0.11.0 V-2（D48・F24・F26・当て直し 15）: 画面の並びは memoTypes の VIEW_HEADS・orderForView・savedIndexForDrop と画面の写しで同じ表。写しの点の行も quality.qualityLines と同じ
+test('0.11.0 V-2: orderForView・savedIndexForDrop・qualityLinesView（app.html）と memoTypes・quality に同じ表を当てて同じ答え。VIEW_HEADS も同じ', () => {
+  const M = require('../src/memoTypes');
+  const Q = require('../src/quality');
+  const m = /\n {2}const VIEW_HEADS = (\{[\s\S]*?\n {2}\});/.exec(appHtml);
+  assert.ok(m, '画面の VIEW_HEADS が無い');
+  const heads = new Function(`return ${m[1]};`)();   // eslint-disable-line no-new-func
+  assert.deepStrictEqual(heads, JSON.parse(JSON.stringify(M.VIEW_HEADS)));
+  const app = new Function(`const VIEW_HEADS = ${m[1]};\n${fnFromApp('orderForView')}\n${fnFromApp('savedIndexForDrop')}\n${fnFromApp('qualityLinesView')}\nreturn { orderForView, savedIndexForDrop, qualityLinesView };`)();   // eslint-disable-line no-new-func
+  const H = (text) => ({ id: text, type: 'heading', text });
+  const B = (text) => ({ id: text, type: 'bullet', text });
+  const names = [...M.VIEW_HEADS.closing, M.VIEW_HEADS.check, M.VIEW_HEADS.advice, ...M.VIEW_HEADS.type, '概要', '人の見出し', '■ 目的', '**決定事項**', 'ToDo', '持ち越し（次回）', ' 予算(B) '];
+  const tables = [[], [B('a')], undefined, null, 'x'];
+  // 名前の並びを回して、見出しと行の色々な並びを作る
+  for (let r = 0; r < names.length; r++) {
+    const rot = [...names.slice(r), ...names.slice(0, r)];
+    tables.push(rot.flatMap((n, i) => (i % 3 === 0 ? [H(n), B(`${n}-1`)] : i % 3 === 1 ? [H(n)] : [B(`pre-${n}`), H(n), B(`${n}-1`), B(`${n}-2`)])));
+  }
+  for (const t of tables) assert.deepStrictEqual(app.orderForView(t), M.orderForView(t), JSON.stringify(t));
+  const orders = [[], [0], [3, 0, 1, 2], [5, 6, 7, 0, 1, 2, 3, 4], undefined];
+  for (const o of orders) for (const v of [-1, 0, 1, 3, 7, 8, 20, 'x', undefined, 2.7]) assert.strictEqual(app.savedIndexForDrop(o, v), M.savedIndexForDrop(o, v), JSON.stringify([o, v]));
+  const view = Q.qualityView({ v: 1, total: 15, max: 25, axes: Q.AXES.map((a) => ({ key: a.key, score: 3, reason: `${a.label}の理由`, cites: [] })), at: '' });
+  assert.ok(view);
+  for (const v of [view, null, undefined]) assert.deepStrictEqual(app.qualityLinesView(v), Q.qualityLines(v));
+});

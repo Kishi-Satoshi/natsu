@@ -80,6 +80,13 @@ const OPEN_TYPE_LIST = `(async () => {
   const s = document.getElementById('pType'); s.size = s.querySelectorAll('option, optgroup').length;
   return 1;
 })()`;
+// 0.11.0 V-2: ページを開き、打ち合わせの質のカードまで捲る
+const OPEN_QUALITY = `(async () => {
+  document.getElementById('tabBtnNotes').click(); document.querySelector('#plist .pitem').click();
+  await new Promise((r) => setTimeout(r, 300));
+  const c = document.getElementById('qualityCard'); if (c) c.scrollIntoView({ block: 'end' });
+  return 1;
+})()`;
 // 0.11.0 V-1: 録音中のページで会議の種類に商談を選ぶ（main の答えは見本: 見出しを入れた）
 const LIVE_PICK_SALES = `(async () => {
   await new Promise((r) => setTimeout(r, 300));
@@ -220,6 +227,9 @@ const SCREENS = [
   { name: 'page-type-dark', page: 'app', theme: 'dark', get answers() { return typeAnswers(); }, act: OPEN_TYPE_LIST },
   { name: 'page-type-undecided-light', page: 'app', theme: 'light', get answers() { return undecidedAnswers(); }, act: OPEN_PAGE },
   { name: 'live-type-light', page: 'app', theme: 'light', get answers() { return liveTypeAnswers(); }, act: LIVE_PICK_SALES },
+  // 0.11.0 V-2: 新しい形の要約（締め → 型の見出し → 抜け・重なりチェック → 次に気をつけること）と打ち合わせの質のカードまで捲った形。足した画面（まだ基準が無い）
+  { name: 'page-quality-light', page: 'app', theme: 'light', get answers() { return qualityAnswers(); }, act: OPEN_QUALITY },
+  { name: 'page-quality-dark', page: 'app', theme: 'dark', get answers() { return qualityAnswers(); }, act: OPEN_QUALITY },
 ];
 // 0.9.0 O-3（RP9）: 録音バーの画面（形 → 地 → 拡大率 → 状態の順。撮る道具は形・地・拡大率の組ごとに窓を1つ開いて状態を act で替える）。
 // 録音は始めずに見た目だけを撮る（act は pill-states の見本を録音バーの DOM に当てる。撮るときだけ体の地にデスクトップの色を塗る）。
@@ -306,6 +316,8 @@ const RETAKE = new Set([
   'live-light', 'live-dark', 'live-banner-light', 'live-banner-dark', 'live-banner-zoom200-dark', 'live-quiet-light', 'live-quiet-dark',
   'live-wave-light', 'live-wave-dark', 'live-silent-light', 'live-paused-dark', 'live-offline-light', 'live-offline-dark',
   'live-late-light', 'live-late-dark', 'live-late-zoom200-light',
+  // V-2: 新しい形の要約の並びと打ち合わせの質のカード（足した画面）
+  'page-quality-light', 'page-quality-dark',
 ]);
 const PERF = [{ name: 'open-2000-blocks', budgetMs: 500 }];   // 3回開いた中央値で見る
 const TIME_ZONE = 'Asia/Tokyo';
@@ -458,6 +470,33 @@ function undecidedAnswers() {
 function liveTypeAnswers() {
   return { ...liveAnswers(), 'koeApp.meetingSetMemo': { ok: true },
     'koeApp.meetingSetType': { ok: true, memo: memoTypes.memoPreset('bantc'), inserted: true, meetingType: 'sales' } };
+}
+// 0.11.0 V-2: 朝会の新しい形の要約（保存は AI の書いた順: 型の見出し → 締め → チェック → 助言）と、照らした点（qualityView）
+function qualityAnswers() {
+  const page = fixtures()['koeApp.pageGet'].page;
+  const blocks = [
+    { id: 'q1', type: 'heading', text: '前回の宿題の状況' },
+    { id: 'q2', type: 'bullet', text: '受注の画面の結合の試験は今週で終わった。', cites: ['s2'] },
+    { id: 'q3', type: 'heading', text: '事実（進捗・課題）' },
+    { id: 'q4', type: 'bullet', text: '残りの不具合は2件。在庫の取り込みが遅い。', cites: ['s2', 's3'] },
+    { id: 'q5', type: 'heading', text: '決定事項' },
+    { id: 'q6', type: 'bullet', text: '出す日を11月15日に決めた。', cites: ['s6'] },
+    { id: 'q7', type: 'heading', text: 'ToDo（誰が・何を・いつまでに）' },
+    { id: 'q8', type: 'todo', text: '在庫の取り込みの実行計画を確かめる', checked: false, assignee: '山田', due: '2026-10-14', dueRaw: '10月14日', cites: ['s3', 's4'] },
+    { id: 'q9', type: 'todo', text: '求人票の見直しの案を出す', checked: false, assignee: '', due: '', dueRaw: '', cites: ['s5'] },
+    { id: 'q10', type: 'heading', text: '抜け・重なりチェック' },
+    { id: 'q11', type: 'bullet', text: '未確認: 見立て（原因・リスク）', cites: [], citeState: 'manual', mark: 'check', unconfirmed: true },
+    { id: 'q12', type: 'heading', text: '次に気をつけること' },
+    { id: 'q13', type: 'bullet', text: '遅れの話は、原因と次の手を先に言ってもらう。', cites: [], citeState: 'manual', mark: 'advice' },
+  ];
+  const qualityView = { total: 17, max: 25, axes: [
+    { key: 'purpose', label: '目的と結論', by: 'ai', score: 4, reason: '冒頭で進み具合の確認と言い、出す日を決めた', cites: ['s1', 's6'] },
+    { key: 'mece', label: '抜け・重なり（MECE）', by: 'ai', score: 3, reason: '遅れの原因の見立てが話されなかった', cites: [] },
+    { key: 'decisions', label: '決定事項', by: 'ai', score: 4, reason: '出す日を11月15日で決まりと言った', cites: ['s6'] },
+    { key: 'todos', label: 'ToDo の具体さ', by: 'app', score: 3, reason: 'ToDo 2 件のうち担当と期限がそろったのは 1 件', cites: [] },
+    { key: 'fill', label: '型の埋まり具合', by: 'app', score: 3, reason: '型の見出し 4 つのうち根拠があるのは 2 つ', cites: [] },
+  ] };
+  return { 'koeApp.pageGet': { page: { ...page, blocks, citeStat: { linked: 5, total: 5 }, qualityView }, segments: SEGMENTS } };
 }
 function detectAnswers() {
   return { 'koeApp.getSettings': { ...fixtures()['koeApp.getSettings'], meetingDetect: true, meetingDetectMute: ['zoom'] } };

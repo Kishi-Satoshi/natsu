@@ -250,3 +250,44 @@ test('MT4・決めたこと 24: 一覧の最初の要点（preview）は印の�
   const { blocks } = M.markBlocks(blocksOf('## 抜け・重なりチェック\n- 未確認: 目的\n## 論点ごとの要点\n- 予算を据え置く'), { meetingType: '' });
   assert.strictEqual(R.summarize({ blocks, memo: '' }).preview, '予算を据え置く');
 });
+
+// ---------------------------------------------------------------- 0.11.0 V-2（D48・F26。決めたこと 27）: 画面の並びとつまみの番号
+const H = (id, text) => ({ id, type: 'heading', text });
+const B = (id, text = id) => ({ id, type: 'bullet', text });
+const ids = (blocks, order) => order.map((i) => blocks[i].id);
+
+test('0.11.0 V-2（D48）: orderForView は「決定事項・持ち越し・ToDo」→ 型の見出しの節（と見出しの前の行）→ 抜け・重なりチェック → 次に気をつけること → それ以外の節。節の中は保存の順', () => {
+  const blocks = [
+    B('pre'), H('h1', '課題・要望（N）'), B('n1'), H('h2', '予算（B）'), B('b1'),
+    H('h3', '決定事項'), B('d1'), H('h4', '持ち越し'), B('c1'), H('h5', 'ToDo（誰が・何を・いつまでに）'), { id: 't1', type: 'todo', text: 'やる' },
+    H('h6', '抜け・重なりチェック'), B('k1'), H('h7', '次に気をつけること'), B('a1'), H('h8', '人が足した見出し'), B('x1'),
+  ];
+  const o = M.orderForView(blocks);
+  assert.deepStrictEqual(ids(blocks, o), ['h3', 'd1', 'h4', 'c1', 'h5', 't1', 'pre', 'h1', 'n1', 'h2', 'b1', 'h6', 'k1', 'h7', 'a1', 'h8', 'x1']);
+  assert.deepStrictEqual([...o].sort((a, b) => a - b), blocks.map((_, i) => i), '出る行の集まりが保存と違う');
+  // AI が並びを崩しても（ToDo が先・持ち越しが後ろ・■ や ** の見出し・半角の括弧）、締めは決定事項 → 持ち越し → ToDo
+  const b2 = [H('a', 'ToDo'), B('t'), H('b', '■ 目的'), B('p'), H('c', '持ち越し'), B('q'), H('d', '**決定事項**'), B('r'), H('e', '次に気をつけること'), B('s'), H('f', '抜け・重なりチェック'), B('u')];
+  assert.deepStrictEqual(ids(b2, M.orderForView(b2)), ['d', 'r', 'c', 'q', 'a', 't', 'b', 'p', 'f', 'u', 'e', 's']);
+});
+
+test('0.11.0 V-2（D48）: 型の見出しの無い前の版の要約は保存の順のまま。締めより前の知らない見出し（報告の名前）は型の節、締めより後ろの知らない見出しは後ろ', () => {
+  const old = [H('a', '概要'), B('b'), H('c', '決まったこと'), B('d'), H('e', 'アクションアイテム'), { id: 'f', type: 'todo', text: 'x' }, B('g')];
+  assert.deepStrictEqual(M.orderForView(old), old.map((_, i) => i));
+  const rep = [H('a', '前回の宿題の状況'), B('b'), H('c', '案件A の受注画面'), H('d', '事実（進捗・課題）'), B('e'), H('f', '決定事項'), B('g'), H('h', '雑談メモ'), B('i'), H('j', '次に気をつけること'), B('k')];
+  assert.deepStrictEqual(ids(rep, M.orderForView(rep)), ['f', 'g', 'a', 'b', 'c', 'd', 'e', 'j', 'k', 'h', 'i']);
+  for (const v of [[], undefined, null, 'x']) assert.deepStrictEqual(M.orderForView(v), []);
+  const noHead = [B('a'), B('b')];
+  assert.deepStrictEqual(M.orderForView(noHead), [0, 1]);
+});
+
+test('0.11.0 V-2（F26）: savedIndexForDrop は落とした所の次の行の保存の番号。最後なら最後の行の保存の番号＋1', () => {
+  const order = [5, 6, 7, 0, 1, 2, 3, 4];
+  assert.strictEqual(M.savedIndexForDrop(order, 0), 5);
+  assert.strictEqual(M.savedIndexForDrop(order, 3), 0);
+  assert.strictEqual(M.savedIndexForDrop(order, 7), 4);
+  assert.strictEqual(M.savedIndexForDrop(order, 8), 5);
+  assert.strictEqual(M.savedIndexForDrop(order, 99), 5);
+  assert.strictEqual(M.savedIndexForDrop([2, 0, 1], 3), 2);
+  assert.strictEqual(M.savedIndexForDrop([], 0), 0);
+  assert.strictEqual(M.savedIndexForDrop(order, -1), 5);
+});

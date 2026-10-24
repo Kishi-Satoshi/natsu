@@ -292,3 +292,87 @@ test('0.11.0 V-1（P12）: サイドバーの行の title の種類は選べる�
   assert.ok(!/general|一般|自動/.test(titles[1]) && !/general|一般|自動/.test(titles[2]), JSON.stringify(titles));
   assert.deepStrictEqual(l.errors.map(fmt), []);
 });
+
+// ---------------------------------------------------------------- 0.11.0 V-2（D48・D49・F24・F26・QM4・QM7。決めたこと 27・28）
+const HB = (id, text) => ({ id, type: 'heading', text });
+const BB = (id, text, o = {}) => ({ id, type: 'bullet', text, cites: ['s1'], ...o });
+const SAVED = [
+  HB('h1', '課題・要望（N）'), BB('n1', '在庫の管理を楽にしたい'),
+  HB('h3', '決定事項'), BB('d1', '来月に試す'),
+  HB('h4', '持ち越し'), BB('c1', '価格は次回'),
+  HB('h6', '抜け・重なりチェック'), BB('k1', '未確認: 予算（B）', { cites: [], citeState: 'manual', mark: 'check', unconfirmed: true }),
+  HB('h7', '次に気をつけること'), BB('a1', '次は時間を決めてから話す', { cites: [], citeState: 'manual', mark: 'advice' }),
+];
+const viewIds = (l) => $(l, 'pNote').querySelectorAll('.blk').map((e) => e.dataset.id);
+const QV = {
+  total: 18, max: 25,
+  axes: [
+    { key: 'purpose', label: '目的と結論', by: 'ai', score: 4, reason: '冒頭で目的を言った', cites: ['s1'] },
+    { key: 'mece', label: '抜け・重なり（MECE）', by: 'ai', score: 3, reason: '予算が抜けた', cites: [] },
+    { key: 'decisions', label: '決定事項', by: 'ai', score: 4, reason: '来月に試すと決めた', cites: ['s1'] },
+    { key: 'todos', label: 'ToDo の具体さ', by: 'app', score: 3, reason: 'ToDo 2 件のうち担当と期限がそろったのは 1 件', cites: [] },
+    { key: 'fill', label: '型の埋まり具合', by: 'app', score: 4, reason: '型の見出し 5 つのうち根拠があるのは 4 つ', cites: [] },
+  ],
+};
+
+test('0.11.0 V-2（D48・F24）: 要約は「決定事項・持ち越し・ToDo」→ 型の見出し → 抜け・重なりチェック → 次に気をつけること の順で描く（保存の順は変えない）。行の集まりは保存と同じ', T, async () => {
+  const l = await openPage({ meetingType: 'sales', typeAuto: false, blocks: SAVED });
+  assert.deepStrictEqual(viewIds(l), M.orderForView(SAVED).map((i) => SAVED[i].id));
+  assert.deepStrictEqual(viewIds(l), ['h3', 'd1', 'h4', 'c1', 'h1', 'n1', 'h6', 'k1', 'h7', 'a1']);
+  assert.deepStrictEqual(l.errors.map(fmt), []);
+});
+
+test('0.11.0 V-2（F26）: つまみで「持ち越し」の行を型の見出しの節（n1 の前）へ落とすと、blockMove の toIndex は保存の番号', T, async () => {
+  const moves = [];
+  const l = await openPage({ meetingType: 'sales', typeAuto: false, blocks: SAVED }, { returns: { blockMove: (...a) => { moves.push(a); return { ok: true }; } } });
+  const box = $(l, 'pNote');
+  const els = box.querySelectorAll('.blk');
+  els.forEach((e, i) => { e.getBoundingClientRect = () => ({ top: i * 10, height: 10, bottom: i * 10 + 10, left: 0, right: 100, width: 100 }); });
+  const c1 = els.find((e) => e.dataset.id === 'c1');
+  c1.ondragstart({ dataTransfer: { setData() {}, effectAllowed: '' } });
+  // c1 を除いた画面の行: h3 d1 h4 h1 n1 h6 k1 h7 a1。n1 は 4 番目（els の中の位置 5 の上半分）
+  const n1 = els.findIndex((e) => e.dataset.id === 'n1');
+  await box.ondrop({ preventDefault() {}, clientY: n1 * 10 + 2 });
+  await l.drain();
+  // 保存の並びから c1 を抜くと n1 は 1 番目。その前に入れる
+  assert.deepStrictEqual(moves, [['pa1', 'c1', 1]]);
+  assert.deepStrictEqual(l.errors.map(fmt), []);
+});
+
+test('0.11.0 V-2（D48）: ［コピー］は画面と同じ順で、点があれば最後に打ち合わせの質の行', T, async () => {
+  const copied = [];
+  const l = await openPage({ meetingType: 'sales', typeAuto: false, blocks: SAVED, qualityView: QV }, { returns: { copy: (t) => { copied.push(t); return true; } } });
+  const btn = $(l, 'pMenu').querySelectorAll('button').find((b) => b.textContent === 'コピー');
+  await btn.onclick();
+  await l.drain();
+  const want = [...M.orderForView(SAVED).map((i) => SAVED[i]).map((b) => (b.type === 'heading' ? `\n## ${b.text}` : `- ${b.text}`)), '', ...require('../src/quality').qualityLines(QV)].join('\n').trim();
+  assert.deepStrictEqual(copied, [want]);
+  assert.deepStrictEqual(l.errors.map(fmt), []);
+});
+
+test('0.11.0 V-2（QM4・QM7・決めたこと 28）: 点のカードは要約の欄の最後で qualityView の数を出す（quality の total を 25 にした種でも）。軸 1〜3 に出典のチップか「根拠なし」、足の一言', T, async () => {
+  const broken = { v: 1, total: 25, max: 25, axes: QV.axes.map((a) => ({ key: a.key, score: a.score, reason: a.reason, cites: a.cites })) };
+  const l = await openPage({ meetingType: 'sales', typeAuto: false, blocks: SAVED, quality: broken, qualityView: QV });
+  const card = $(l, 'pNote').querySelector('.qcard');
+  assert.ok(card, '点のカードが無い');
+  const kids = $(l, 'pNote').children;
+  assert.strictEqual(kids[kids.length - 1], card, '点のカードが要約の欄の最後に無い');
+  assert.strictEqual(card.querySelector('.qhead').textContent, '打ち合わせの質：18 / 25');
+  const rows = card.querySelectorAll('.qrow');
+  assert.deepStrictEqual(rows.map((r) => r.querySelector('.qlabel').textContent), QV.axes.map((a) => a.label));
+  assert.deepStrictEqual(rows.map((r) => r.querySelector('.qscore').textContent), QV.axes.map((a) => `${a.score} / 5`));
+  assert.deepStrictEqual(rows.map((r) => r.querySelector('.qreason').textContent), QV.axes.map((a) => a.reason));
+  assert.deepStrictEqual(rows.map((r) => r.querySelectorAll('.cite').length), [1, 0, 1, 0, 0]);
+  assert.deepStrictEqual(rows.map((r) => { const n = r.querySelector('.nocite'); return n ? n.textContent : ''; }), ['', '根拠なし', '', '', '']);
+  assert.strictEqual(card.querySelector('.qfoot').textContent, '会議の進め方の目安です。人の評価ではありません。同じ会議でも作り直すと 1 点ほど動くので、何回かの会議の流れで見てください。');
+  assert.ok(!card.textContent.includes('25 / 25'));
+  assert.deepStrictEqual(l.errors.map(fmt), []);
+});
+
+test('0.11.0 V-2（F11・P9）: qualityView が null ならカードも「/ 25」も無い。助言の欄（次に気をつけること）は点の無いページにもある', T, async () => {
+  const l = await openPage({ meetingType: 'oneonone', typeAuto: false, blocks: SAVED, quality: { total: 25 }, qualityView: null });
+  assert.strictEqual($(l, 'pNote').querySelector('.qcard'), null);
+  assert.ok(!$(l, 'pNote').textContent.includes('/ 25'));
+  assert.ok(viewIds(l).includes('h7') && viewIds(l).includes('a1'), '助言の欄が無い');
+  assert.deepStrictEqual(l.errors.map(fmt), []);
+});
