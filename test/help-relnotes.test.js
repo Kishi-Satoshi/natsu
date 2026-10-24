@@ -223,3 +223,39 @@ test('RN-3（RN1）: releaseNotes があるのに CHANGELOG.md が無い・形�
     assert.ok(!fs.existsSync(out), `${why}: 出力に書いた`);
   }
 });
+
+// ================= RN-6: リリースの公開の後にヘルプを出し直す（決めたこと F・Q2 の A。ワークフローは動かさない） =================
+
+const { jobsOf, stepsOf } = require('./helpers/yml');
+const ifLine = (s) => (s.match(/^\s*if:\s*(.+)$/m) || [])[1] || '';
+
+test('RN-6（F・RNF2）: release.yml の installer で、公開の段（--draft=false --latest）のすぐ後ろに、同じ if で help-deploy を起こす段（gh workflow run help-deploy.yml --ref main・GH_TOKEN は github.token）。installer の権限は contents: write と actions: write だけ。ワークフロー全体の権限は今のまま', { timeout: 5000 }, () => {
+  const y = read('.github/workflows/release.yml');
+  const job = jobsOf(y).installer;
+  const st = stepsOf(job);
+  const iPub = st.findIndex((s) => /gh release edit "\$TAG"[^\n]*--draft=false --latest/.test(s));
+  assert.ok(iPub >= 0, '公開の段が無い');
+  const iDep = st.findIndex((s) => /gh workflow run help-deploy\.yml/.test(s));
+  assert.strictEqual(iDep, iPub + 1, 'help-deploy を起こす段が公開の段のすぐ後ろに無い');
+  const dep = st[iDep];
+  assert.strictEqual(ifLine(dep), "github.event_name != 'workflow_dispatch' || inputs.publish");
+  assert.strictEqual(ifLine(dep), ifLine(st[iPub]), '公開の段と if が違う（公開しないときにも出し直す）');
+  assert.match(dep, /^\s*GH_TOKEN: \$\{\{ github\.token \}\}$/m);
+  assert.match(dep, /^\s*gh workflow run help-deploy\.yml --repo "\$GITHUB_REPOSITORY" --ref main$/m);
+  assert.strictEqual((y.match(/gh workflow run/g) || []).length, 1, 'ほかにもワークフローを起こしている');
+  const perm = /^    permissions:\n((?:      [^\n]*\n)+)/m.exec(job);
+  assert.ok(perm, 'installer の permissions が無い');
+  assert.deepStrictEqual(perm[1].split('\n').filter(Boolean).map((l) => l.replace(/\s+#.*$/, '').trim()), ['contents: write', 'actions: write']);
+  assert.match(y, /\npermissions:\n  contents: write # リリースとタグの作成に必要\n\n/);
+});
+
+test('RN-6（F・RNF2）: help-deploy.yml の paths に CHANGELOG.md が無い（版を上げた commit が main に入っただけでは、公開の前のリリースノートを出さない）。workflow_dispatch は今のまま', { timeout: 5000 }, () => {
+  const y = read('.github/workflows/help-deploy.yml');
+  const on = y.slice(y.indexOf('\non:\n'), y.indexOf('\npermissions:\n'));
+  assert.match(on, /^  workflow_dispatch:/m);
+  const paths = /^    paths: \[(.+)\]$/m.exec(on);
+  assert.ok(paths, 'paths が無い');
+  const list = paths[1].split(',').map((x) => x.trim().replace(/^'|'$/g, ''));
+  assert.ok(!list.some((p) => /CHANGELOG|^\*\*|^\*$/.test(p)), `paths に CHANGELOG.md（か全部に当たる形）がある: ${list.join(', ')}`);
+  assert.ok(list.includes('tools/lib/help-*.js'), '作る道具（help-relnotes.js）の変化で出し直さない');
+});
