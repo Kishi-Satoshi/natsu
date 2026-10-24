@@ -2044,7 +2044,7 @@ module.exports = [
   // help-dads 4回目の審査の指摘 2（目次を動かしてもフォーカスを保つ）
   {"id": "hd-toc-refocus", "file": "help/assets/site.js", "from": "      if (had && had.focus) had.focus({ preventScroll: true });\n", "to": "", "tests": ["test/help-build.test.js"], "pattern": "4回目の指摘 2", "why": "help-dads HD-11 4回目の指摘 2: 目次を開いたまま 640px の境をまたぐと、目次の中のフォーカスが外れて今いた場所を見失う"},
   // help-dads 4回目の審査の指摘 3（閉じた後の ↓ と一覧の余白の mousedown）
-  {"id": "hd-search-reopen", "file": "help/assets/search.js", "from": "            if (e.key === 'ArrowDown' && fold(input.value)) { e.preventDefault(); update(); }\n", "to": "", "tests": ["test/help-search.test.js"], "pattern": "4回目の指摘 3", "why": "help-dads HD-11 4回目の指摘 3: Tab で出て戻った後や窓を切り替えた後、箱に語があっても ↓ で一覧が開かず、打ち直すしかない"},
+  {"id": "hd-search-reopen", "file": "help/assets/search.js", "from": "            if (e.key === 'ArrowDown' && plain && fold(input.value)) { e.preventDefault(); update(); }\n", "to": "", "tests": ["test/help-search.test.js"], "pattern": "4回目の指摘 3", "why": "help-dads HD-11 4回目の指摘 3: Tab で出て戻った後や窓を切り替えた後、箱に語があっても ↓ で一覧が開かず、打ち直すしかない"},
   {"id": "hd-list-mousedown", "file": "help/assets/search.js", "from": "        if (!n || n === list) e.preventDefault();\n", "to": "", "tests": ["test/help-search.test.js"], "pattern": "4回目の指摘 3", "why": "help-dads HD-11 4回目の指摘 3: 一覧の余白や「見つかりませんでした」の行を押すと ul にフォーカスが移り、↑↓・Esc が検索の箱に届かない"},
   // help-dads 4回目の審査の指摘 4・5回目の審査の指摘 2（上の帯の結果の左右と上の帯の余白を1つの値 --top-gutter から取る。4回目の hd-results-rem を名前を変えて置き換えた）
   {"id": "hd-results-gutter", "file": "help/assets/help.css", "from": "  .top-in .search-results { left: var(--top-gutter); right: var(--top-gutter); }", "to": "  .top-in .search-results { left: calc(24 / 16 * 1rem); right: calc(24 / 16 * 1rem); }", "tests": ["test/help-build.test.js"], "pattern": "5回目の指摘 2", "why": "help-dads HD-12 5回目の指摘 2: 上の帯の結果の左右（rem）が上の帯の余白（px）と別の値になり、文字の設定を大きくすると一覧の左の端が名前の左の端と揃わない"},
@@ -2052,4 +2052,6 @@ module.exports = [
   // help-dads 5回目の審査の指摘 1（日本語入力の変換の途中のキーは検索が横取りしない）
   {"id": "hd-search-ime", "file": "help/assets/search.js", "from": "        if (e.isComposing || e.keyCode === 229) return;\n", "to": "", "tests": ["test/help-search.test.js"], "pattern": "5回目の指摘 1", "why": "help-dads HD-12 5回目の指摘 1: 日本語入力の変換の途中の Enter で検索の結果の先頭のページへ移り、↓↑・Esc が一覧を動かす（WCAG 3.2.2）"},
   {"id": "hd-search-ime229", "file": "help/assets/search.js", "from": "        if (e.isComposing || e.keyCode === 229) return;\n", "to": "        if (e.isComposing) return;\n", "tests": ["test/help-search.test.js"], "pattern": "5回目の指摘 1", "why": "help-dads HD-12 5回目の指摘 1: Safari の変換中の keydown（isComposing が false で keyCode 229）の Enter でページを移る"},
+  // help-dads 5回目の審査の指摘 3（閉じた一覧を開き直すのは修飾キーの無い ↓ だけ）
+  {"id": "hd-search-reopen-plain", "file": "help/assets/search.js", "from": "            var plain = !e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey;\n", "to": "            var plain = true;\n", "tests": ["test/help-search.test.js"], "pattern": "5回目の指摘 3", "why": "help-dads HD-12 5回目の指摘 3: 閉じた一覧で Shift+↓ を押すと一覧が開き、文字の選択が伸びない"},
 ];

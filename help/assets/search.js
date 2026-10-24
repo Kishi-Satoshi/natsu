@@ -173,7 +173,9 @@ var HelpSearch = (function () {
         if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
           // 閉じていて箱に語があるときは ↓ で開き直す（Tab で出て戻ったとき・窓を切り替えたとき: 4回目の審査の指摘 3）
           if (!open) {
-            if (e.key === 'ArrowDown' && fold(input.value)) { e.preventDefault(); update(); }
+            // 開き直すのは修飾キーの無い ↓ だけ（Shift+↓ の文字の選択や、Ctrl・Alt・⌘ の付いたキャレットの移動は止めない: 5回目の審査の指摘 3）
+            var plain = !e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey;
+            if (e.key === 'ArrowDown' && plain && fold(input.value)) { e.preventDefault(); update(); }
             return;
           }
           if (!results.length) return;
