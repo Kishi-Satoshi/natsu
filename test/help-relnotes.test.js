@@ -330,3 +330,16 @@ test('審査 A-3（R-RN4）: 公開前の確認の形は tools/lib/help-public.j
     assert.ok(e && e.code === 'bad-changelog' && e.line === 7, `止めない: ${l}`);
   }
 });
+
+test('再審査 1（R-RN5 の続き）: 版の節の中の飛び先の無い #id は、書いた字（#v0-1-0）のままエラーに出し、ほかの版の節へはリンクできないことも言う。行は CHANGELOG.md の行。記事のエラーの文は今のまま', { timeout: 5000 }, () => {
+  const e = errOf(mini(['## natsu-v0.1.1 （2026-10-18）', '- [前の版](#v0-1-0) を見る。'], ['## natsu-v0.1.0 （2026-10-17）']));
+  assert.ok(e && e.name === 'HelpBuildError' && e.code === 'missing-anchor', String(e));
+  assert.strictEqual(e.file, 'CHANGELOG.md');
+  assert.strictEqual(e.line, 7);
+  assert.ok(e.message.includes('#v0-1-0'), e.message);
+  assert.ok(!e.message.includes('v0-1-1-'), `頭を付けた後の id が出ている: ${e.message}`);
+  assert.ok(e.message.includes('ほかの版の節へのリンクは書けません'), e.message);
+  // 記事（頭なし）は前と同じ文
+  const { renderMarkdown } = require('../tools/lib/help-md');
+  assert.throws(() => renderMarkdown('## 見出し {#a}\n\n[x](#nowhere)\n', { file: 'help/articles/x/y.md' }), (er) => er.code === 'missing-anchor' && er.message === '無い飛び先へのリンク: #nowhere');
+});

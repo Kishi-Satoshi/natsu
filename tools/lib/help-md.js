@@ -158,7 +158,7 @@ function linkTarget(href, ctx, line, fail, i) {
     const id = href.slice(1);
     if (!ID.test(id)) fail('bad-link', `#id の形が違う: ${href}`, i);
     ctx.links.push({ kind: 'anchor', ref: null, anchor: id });
-    ctx.pendingAnchors.push({ id: ctx.idPrefix + id, line });
+    ctx.pendingAnchors.push({ id: ctx.idPrefix + id, shown: id, line });   // shown: エラーには書いた字のまま出す（頭を付ける前）
     return `#${ctx.idPrefix}${id}`;
   }
   const m = ARTICLE_LINK.exec(href);
@@ -424,7 +424,11 @@ function renderMarkdown(body, opts = {}) {
   const r = renderBlocks(lines, ctx, false);
   const linkable = new Set(ctx.headings.filter((h) => h.linkable).map((h) => h.id));
   for (const p of ctx.pendingAnchors) {
-    if (!linkable.has(p.id)) throw new HelpBuildError(`無い飛び先へのリンク: #${p.id}`, { file: ctx.file, line: p.line, code: 'missing-anchor' });
+    if (!linkable.has(p.id)) {
+      // idPrefix がある（リリースノートの版の節）ときは、同じ節の見出しにしか飛べない
+      const note = ctx.idPrefix ? '（リリースノートでは、同じ版の節の見出しにだけリンクできます。ほかの版の節へのリンクは書けません）' : '';
+      throw new HelpBuildError(`無い飛び先へのリンク: #${p.shown}${note}`, { file: ctx.file, line: p.line, code: 'missing-anchor' });
+    }
   }
   return { html: r.html, headings: ctx.headings, text: r.text, links: ctx.links };
 }

@@ -1301,7 +1301,7 @@ module.exports = [
   { id: 'hp-link-scheme', file: 'tools/lib/help-md.js', from: "  if (href.includes(':') || /^[/\\\\\\s]/.test(href)) fail('bad-scheme'",
     to: "  return href;\n  if (href.includes(':') || /^[/\\\\\\s]/.test(href)) fail('bad-scheme'",
     tests: ['test/help-md.test.js'], why: 'H-2 HF3: リンクの住所は 分類/名前.md・#id・https:// だけ（javascript:・data:・http:・// を通さない）' },
-  { id: 'hp-anchor', file: 'tools/lib/help-md.js', from: '    if (!linkable.has(p.id)) throw new HelpBuildError(', to: '    if (false) throw new HelpBuildError(',
+  { id: 'hp-anchor', file: 'tools/lib/help-md.js', from: '    if (!linkable.has(p.id)) {\n', to: '    if (false) {\n',
     tests: ['test/help-md.test.js', 'test/help-build.test.js'], why: 'H-2 HF4: 無い #id へのリンクは missing-anchor で止める' },
   { id: 'hp-nest', file: 'tools/lib/help-md.js', from: '      if (ind < 2 || ind > 3) fail(', to: '      if (ind < 2) fail(',
     tests: ['test/help-md.test.js'], why: 'H-2: リストの入れ子は1段まで（2段目の下の入れ子は syntax）' },
@@ -2087,4 +2087,6 @@ module.exports = [
   {"id": "hrn-table-prefix", "file": "tools/lib/help-relnotes.js", "from": "      tablePrefix: `${s.version} の`,\n", "to": "", "tests": ["test/help-relnotes.test.js"], "why": "help-relnotes RN-2 R-RN5 A-4: 見出しの無い表の名前（表 1）が版ごとに数え直され、ページの中で領域の名前が重なる"},
   {"id": "hrn-dup-id", "file": "tools/help-build.js", "from": "      if (seen.has(m[1])) throw new HelpBuildError(", "to": "      if (false) throw new HelpBuildError(", "tests": ["test/help-build.test.js"], "why": "help-relnotes RN-3 R-RN5 A-4: 1つのページの中で id が重なっても作るのが止まらず、#id と aria-labelledby が別の要素を指す"},
   {"id": "hrn-toc-h-44", "file": "help/assets/help.css", "from": "  .toc-h a { display: inline-flex; align-items: center; min-height: calc(44 / 16 * 1rem); }\n", "to": "", "tests": ["test/help-build.test.js"], "pattern": "B-1", "why": "help-relnotes RN-4 R-RN7 B-1: 狭い画面の左の目次の分類の見出しの行と「リリースノート」の行が 20px のまま（HD4 の押す場所 44px に足りない）"},
+  // help-relnotes 再審査の回（R-RN8。飛び先の無い #id のエラーは書いた字のまま）
+  {"id": "hrn-anchor-shown", "file": "tools/lib/help-md.js", "from": "`無い飛び先へのリンク: #${p.shown}${note}`", "to": "`無い飛び先へのリンク: #${p.id}${note}`", "tests": ["test/help-relnotes.test.js"], "why": "help-relnotes RN-2 R-RN8: リリースノートで飛び先の無い #v0-1-0 を書くと、エラーに #v0-1-1-v0-1-0 と出て、書いた人に何が悪いのか分からない"},
 ];

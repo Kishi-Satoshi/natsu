@@ -36,6 +36,10 @@
 
 **Ruling R-RN7（B-1。持ち主の決定 HD4「48rem 未満で押す場所 44px」）:** 48rem 未満では、左の目次の分類の見出しの行と「リリースノート」の行（`.toc-h a`）も、記事の行と同じく押す場所を 44px にする（目次が少し長くなるのが失うもの）。3回目の指摘 1 の目次の並べ替えとフォーカスの決まりは変えない。写真を撮り直す。
 
+### 再審査の回（2026-10-24。`dd78157` の再審査: 高・中 0・低 1。A-1〜A-5・B-1 は直っている）
+
+**Ruling R-RN8（再審査 1。エラーの文を書いた字のままに）:** 版の節の中の飛び先の無い `#id` は、頭を付ける前の書いた字（`#v0-1-0`）でエラーに出し、「リリースノートでは、同じ版の節の見出しにだけリンクできます。ほかの版の節へのリンクは書けません」と添える（`help-md.js` の `pendingAnchors` に書いた字も持つ）。記事のエラーの文は変えない。
+
 **回の名前:** help-relnotes（ヘルプセンターのリリースノート）— タスク RN-0〜RN-7
 **元にした枝:** `lane/help-dads` の `baadb2d`（ヘルプセンターの DADS の直し。別の審査役が審査している最中なので、その枝には commit しない）。作業の枝は `lane/help-relnotes`（worktree `/home/user/Listener-relnotes`）。main と `release/*` には push しない。
 **版:** ヘルプセンターはアプリの版とは別に出す（`help/` はアプリに入らない: 設計書 D22・HC0）。だから版は上げない。`CHANGELOG.md` は見出しに日付を足す（中身の文は変えない）。
@@ -269,6 +273,7 @@ NaTsu ヘルプセンターに「リリースノート」のページを1つ足�
 | hrn-table-prefix | `tools/lib/help-relnotes.js` | 見出しの無い表の名前に版を付けない（「表 1」が重なる。R-RN5） | `test/help-relnotes.test.js` |
 | hrn-dup-id | `tools/help-build.js` | checkPages の「ページの中で id が重ならない」を外す（R-RN5） | `test/help-build.test.js` |
 | hrn-toc-h-44 | `help/assets/help.css` | 48rem 未満の .toc-h a の 44px を消す（R-RN7。CSS なので pattern B-1） | `test/help-build.test.js` |
+| hrn-anchor-shown | `tools/lib/help-md.js` | 飛び先の無い #id のエラーに頭を付けた後の id を出す（R-RN8） | `test/help-relnotes.test.js` |
 
 （表と `IDS_HELP_RELNOTES` はちょうど同じにし、`test/mutate.test.js` が照らす: help-dads の `IDS_HELP_DADS` と同じ形。）
 
