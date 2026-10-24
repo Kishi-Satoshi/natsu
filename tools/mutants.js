@@ -2033,7 +2033,7 @@ module.exports = [
   {"id": "hd-search-focusout", "file": "help/assets/search.js", "from": "        if (n !== box) close();", "to": "        if (false) close();", "tests": ["test/help-search.test.js"], "pattern": "3回目の指摘 2", "why": "help-dads HD-10 3回目の指摘 2: 検索の結果を開いたまま Tab で出ると一覧が残り、次に輪の付いた分類のカードを隠す（WCAG 2.4.11）"},
   {"id": "hd-results-tabindex", "file": "tools/lib/help-page.js", "from": "role=\"listbox\" aria-label=\"検索の結果\" tabindex=\"-1\" hidden></ul>", "to": "role=\"listbox\" aria-label=\"検索の結果\" hidden></ul>", "tests": ["test/help-search.test.js"], "pattern": "3回目の指摘 2", "why": "help-dads HD-10 3回目の指摘 4: 送れる一覧（ul）に Tab が止まり、選べない一覧に輪が付く"},
   // help-dads 3回目の審査の指摘 3（狭い画面の上の帯の検索の結果を幅いっぱいに）
-  {"id": "hd-results-wide", "file": "help/assets/help.css", "from": "  .top-in .search-results { left: 24px; right: 24px; }\n", "to": "", "tests": ["test/help-build.test.js"], "pattern": "3回目の指摘 3", "why": "help-dads HD-10 3回目の指摘 3: 狭い画面で上の帯の検索の結果が箱の幅（320px で 98px）しかなく、題名が細切れに折り返す"},
+  {"id": "hd-results-wide", "file": "help/assets/help.css", "from": "  .top-in .search-results { left: calc(24 / 16 * 1rem); right: calc(24 / 16 * 1rem); }\n", "to": "", "tests": ["test/help-build.test.js"], "pattern": "3回目の指摘 3", "why": "help-dads HD-10 3回目の指摘 3: 狭い画面で上の帯の検索の結果が箱の幅（320px で 98px）しかなく、題名が細切れに折り返す"},
   // help-dads 3回目の審査の指摘 5（文字の大きさを DADS の段に）
   {"id": "hd-kbd-size", "file": "help/assets/help.css", "from": "kbd { font-size: .875rem;", "to": "kbd { font-size: .85em;", "tests": ["test/help-build.test.js"], "pattern": "3回目の指摘 5", "why": "help-dads HD-10 3回目の指摘 5: 表の中のキーの名前が 12.5px になる（補足 14px 以上の決まりを下回る）"},
   {"id": "hd-font-scale", "file": "help/assets/help.css", "from": ".body h2 { font-size: 1.25rem;", "to": ".body h2 { font-size: 1.3rem;", "tests": ["test/help-build.test.js"], "pattern": "3回目の指摘 5", "why": "help-dads HD-10 3回目の指摘 5: 記事の見出しの大きさが DADS の文字スタイルの段に無い（20.8px）"},
@@ -2046,4 +2046,6 @@ module.exports = [
   // help-dads 4回目の審査の指摘 3（閉じた後の ↓ と一覧の余白の mousedown）
   {"id": "hd-search-reopen", "file": "help/assets/search.js", "from": "            if (e.key === 'ArrowDown' && fold(input.value)) { e.preventDefault(); update(); }\n", "to": "", "tests": ["test/help-search.test.js"], "pattern": "4回目の指摘 3", "why": "help-dads HD-11 4回目の指摘 3: Tab で出て戻った後や窓を切り替えた後、箱に語があっても ↓ で一覧が開かず、打ち直すしかない"},
   {"id": "hd-list-mousedown", "file": "help/assets/search.js", "from": "        if (!n || n === list) e.preventDefault();\n", "to": "", "tests": ["test/help-search.test.js"], "pattern": "4回目の指摘 3", "why": "help-dads HD-11 4回目の指摘 3: 一覧の余白や「見つかりませんでした」の行を押すと ul にフォーカスが移り、↑↓・Esc が検索の箱に届かない"},
+  // help-dads 4回目の審査の指摘 4（上の帯の結果の左右を rem に）
+  {"id": "hd-results-rem", "file": "help/assets/help.css", "from": "  .top-in .search-results { left: calc(16 / 16 * 1rem); right: calc(16 / 16 * 1rem); }", "to": "  .top-in .search-results { left: 16px; right: 16px; }", "tests": ["test/help-build.test.js"], "pattern": "3回目の指摘 3", "why": "help-dads HD-11 4回目の指摘 4: 上の帯の検索の結果の左右が px（DADS は余白とサイズを rem で書く）"},
 ];

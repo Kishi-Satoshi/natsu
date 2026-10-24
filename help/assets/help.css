@@ -248,10 +248,10 @@ main > h2 { font-size: 1.0625rem; margin: 2.6rem 0 .6rem; }
   /* 上の帯の検索の結果は、上の帯の幅いっぱい（左右の余白の内側）に出す（箱の幅だけだと 320px で 1 行 4〜5 字になる: 3回目の指摘 3） */
   .top-in { position: relative; }
   .top-in .search { position: static; }
-  .top-in .search-results { left: 24px; right: 24px; }
+  .top-in .search-results { left: calc(24 / 16 * 1rem); right: calc(24 / 16 * 1rem); }
 }
 @media (max-width: 639px) {
-  .top-in .search-results { left: 16px; right: 16px; }
+  .top-in .search-results { left: calc(16 / 16 * 1rem); right: calc(16 / 16 * 1rem); }   /* 4回目の審査の指摘 4: rem（DADS） */
 }
 @media (max-width: 479px) {
   .cats { grid-template-columns: minmax(0, 1fr); }

@@ -480,9 +480,10 @@ test('3回目の指摘 3: 48rem 未満では上の帯の検索の結果を上の
   assert.strictEqual(C.declsFor(rules, '.top-in', { at: N48 }).position, 'relative');
   assert.strictEqual(C.declsFor(rules, '.top-in .search', { at: N48 }).position, 'static');
   const r48 = C.declsFor(rules, '.top-in .search-results', { at: N48 });
-  assert.deepStrictEqual([r48.left, r48.right], ['24px', '24px']);
+  // 4回目の審査の指摘 4（DADS）: 余白は rem（calc(n / 16 * 1rem)）
+  assert.deepStrictEqual([r48.left, r48.right], ['calc(24 / 16 * 1rem)', 'calc(24 / 16 * 1rem)']);
   const r639 = C.declsFor(rules, '.top-in .search-results', { at: '@media (max-width: 639px)' });
-  assert.deepStrictEqual([r639.left, r639.right], ['16px', '16px']);
+  assert.deepStrictEqual([r639.left, r639.right], ['calc(16 / 16 * 1rem)', 'calc(16 / 16 * 1rem)']);
   // 16px の規則は 24px の規則より後ろ（狭い画面で勝つ）
   const idx = (at) => rules.findIndex((r) => r.at === at && r.sel === '.top-in .search-results');
   assert.ok(idx('@media (max-width: 639px)') > idx(N48));
