@@ -532,6 +532,20 @@ test('画面の使いやすさ: 広い画面の左の目次は止まる（sticky
   assert.strictEqual(narrow.margin, '2.5rem 0 0');
 });
 
+test('help-relnotes RN-4（RNF5・決めたこと D 12）: リリースノートの公開日の行（.relnote-date）は補足の大きさ .875rem と var(--muted)。「このページの内容」の一覧は窓より高くならず（max-height）その中で縦に送れ、内の余白 6px を外へ戻し、送った後の行の輪が切れない（scroll-padding-block）。広い画面の記事でも同じ', { timeout: 5000 }, () => {
+  const rules = C.parse(CSS());
+  const d = C.declsFor(rules, '.relnote-date', { at: '' });
+  assert.deepStrictEqual([d['font-size'], d.color], ['.875rem', 'var(--muted)']);
+  const u = C.declsFor(rules, '.onpage ul', { at: '' });
+  assert.match(u['max-height'] || '', /^calc\(100vh - /, '「このページの内容」の高さの上限が無い');
+  assert.strictEqual(u['overflow-y'], 'auto');
+  assert.strictEqual(u.padding, 'calc(6 / 16 * 1rem)');
+  assert.strictEqual(u.margin, 'calc(-6 / 16 * 1rem)');
+  assert.strictEqual(u['scroll-padding-block'], 'calc(6 / 16 * 1rem)');
+  // 右の列は sticky のまま（狭い画面では出さない: 今のまま）
+  assert.strictEqual(C.declsFor(rules, '.onpage', { at: '' }).position, 'sticky');
+});
+
 test('白黒: 大きな数字は順番のある手順（.step .n）にだけ。HD-4（HD3）: 書体は同梱の Noto Sans JP（本文）と Noto Sans Mono（コード。日本語の字は Noto Sans JP に落ちる）', { timeout: 5000 }, () => {
   const rules = C.parse(CSS());
   const big = rules.filter((r) => /^[\d.]+rem$/.test(r.decls['font-size'] || '') && parseFloat(r.decls['font-size']) >= 2.5).map((r) => r.sel);
