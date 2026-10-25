@@ -270,8 +270,11 @@ function mcpIconModule(png) {
 }
 
 // 全部を描いてから書く（0.11.1 LG-1・RF-LG4）。描くのに失敗したら、どのファイルも書かずに投げる。
-// 書くときは、先に全部を一時ファイルに書き、それから名前を変える。一時ファイルを書けなければ、書いた一時ファイルを消して投げる。
-function renderTargets(root = ROOT, targets = TARGETS) {
+// 書くとき（0.11.1 点検の直し 1）: 全部の一時ファイル（<出力>.rendering-<pid>）を書き → 今の出力を控え（<出力>.rendering-<pid>.bak）へ名前を変え →
+// 一時ファイルを出力の名前へ変える。どこかで失敗したら、置いた出力を控えから戻し（前に無かった出力は消し）、一時ファイルと控えを消して、
+// 失敗した出力の名前と段を言って投げる（全部が前のままか、全部が新しいか）。出力の名前にファイルでないもの（フォルダなど）があれば、何も書かずに投げる。
+// io はテストが名前の変更や書き込みを失敗させるための差し替え（既定は fs）
+function renderTargets(root = ROOT, targets = TARGETS, io = {}) {
   const outs = [];   // [{ file, buf, line }]
   for (const t of targets) {
     const text = fs.readFileSync(path.join(root, t.svg), 'utf8');
@@ -287,15 +290,42 @@ function renderTargets(root = ROOT, targets = TARGETS) {
       outs.push({ file: t.js.file, buf: Buffer.from(mcpIconModule(encodePng(t.js.size, t.js.size, draw(t.js.size))), 'utf8'), line: `${t.js.file}: ${t.js.size} px` });
     }
   }
-  const tmpOf = (f) => path.join(root, `${f}.rendering-${process.pid}`);
-  const made = [];
-  try {
-    for (const o of outs) { fs.writeFileSync(tmpOf(o.file), o.buf); made.push(o.file); }
-  } catch (e) {
-    for (const f of made) { try { fs.unlinkSync(tmpOf(f)); } catch { /* 消せなくても元の投げを返す */ } }
-    throw e;
+  const writeFileSync = io.writeFileSync || fs.writeFileSync;
+  const renameSync = io.renameSync || fs.renameSync;
+  const dest = (f) => path.join(root, f);
+  const tmpOf = (f) => `${dest(f)}.rendering-${process.pid}`;
+  const bakOf = (f) => `${tmpOf(f)}.bak`;
+  const had = new Map();   // 出力 → 前からファイルがあったか
+  for (const o of outs) {
+    let st = null;
+    try { st = fs.lstatSync(dest(o.file)); } catch (e) { if (e.code !== 'ENOENT') throw new Error(`icon-render: ${o.file} を調べられない（${e.message}）。何も書いていない`); }
+    if (st && !st.isFile()) throw new Error(`icon-render: ${o.file} がファイルでない（フォルダなど）。何も書いていない`);
+    had.set(o.file, Boolean(st));
   }
-  for (const o of outs) fs.renameSync(tmpOf(o.file), path.join(root, o.file));
+  const made = [];      // 一時ファイルを書いた出力
+  const backed = [];    // 控えへ名前を変えた出力
+  const placed = [];    // 一時ファイルを出力の名前へ変えた出力
+  let step = '一時ファイルを書く', at = '';
+  try {
+    for (const o of outs) { at = o.file; writeFileSync(tmpOf(o.file), o.buf); made.push(o.file); }
+    step = '控えへ名前を変える';
+    for (const o of outs) { at = o.file; if (had.get(o.file)) { renameSync(dest(o.file), bakOf(o.file)); backed.push(o.file); } }
+    step = '出力の名前へ変える';
+    for (const o of outs) { at = o.file; renameSync(tmpOf(o.file), dest(o.file)); placed.push(o.file); }
+  } catch (e) {
+    const undone = [];
+    for (const f of placed) {
+      try { if (!had.get(f)) fs.unlinkSync(dest(f)); } catch (u) { undone.push(`${f}（${u.message}）`); }
+    }
+    for (const f of backed) {
+      try { fs.renameSync(bakOf(f), dest(f)); } catch (u) { undone.push(`${f}（${u.message}）`); }
+    }
+    for (const f of made) { if (!placed.includes(f)) { try { fs.unlinkSync(tmpOf(f)); } catch { /* 無ければよい */ } } }
+    const err = new Error(`icon-render: ${at} の「${step}」で失敗した（${e.message}）。${undone.length ? `戻せなかった: ${undone.join('・')}` : '全部の出力を前のままに戻した'}`);
+    err.cause = e;
+    throw err;
+  }
+  for (const f of backed) { try { fs.unlinkSync(bakOf(f)); } catch { /* 控えが消せなくても出力は新しい（.gitignore の *.rendering-*） */ } }
   return outs.map((o) => o.line);
 }
 

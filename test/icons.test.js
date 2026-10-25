@@ -329,6 +329,72 @@ test('LG-1 RF-LG4: 描けない大きさが1つでもあれば、icon-render は
   }
 });
 
+// 0.11.1 点検の直し 1・2（2026-10-25）: 名前の変更の途中で落ちても、全部が前のまま（元に戻す）か全部が新しいかのどちらか。
+// 一時ファイル（*.rendering-<pid>）と控え（*.rendering-<pid>.bak）を残さない。書きかけの一時ファイルも消す
+function renderFixture() {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'icon-render-rb-'));
+  fs.mkdirSync(path.join(dir, 'a'));
+  fs.mkdirSync(path.join(dir, 'b'));
+  fs.writeFileSync(path.join(dir, 'a/one.svg'), svg64(`<path d="${circleD(24)}" fill="#111111"/>`));
+  const outs = ['a/one.png', 'a/one.ico', 'b/two.png', 'b/two.ico'];
+  for (const f of outs.slice(0, 3)) fs.writeFileSync(path.join(dir, f), `old ${f}`);   // b/two.ico はまだ無い（新しく作る）
+  const targets = [
+    { svg: 'a/one.svg', png: { file: 'a/one.png', size: 32 }, ico: { file: 'a/one.ico', sizes: [16, 32] } },
+    { svg: 'a/one.svg', png: { file: 'b/two.png', size: 32 }, ico: { file: 'b/two.ico', sizes: [16] } },
+  ];
+  const snap = () => Object.fromEntries(outs.map((f) => [f, fs.existsSync(path.join(dir, f)) && fs.statSync(path.join(dir, f)).isFile() ? fs.readFileSync(path.join(dir, f), 'utf8') : null]));
+  const leftovers = () => ['a', 'b'].flatMap((d) => fs.readdirSync(path.join(dir, d)).filter((n) => /\.rendering-/.test(n)).map((n) => `${d}/${n}`));
+  return { dir, outs, targets, snap, leftovers };
+}
+
+test('点検の直し 1: 名前の変更が途中で失敗したら、置いた分も控えから元に戻し、どの出力も1バイトも変えず、一時ファイルと控えを残さずに、失敗した所の名前を言って投げる', () => {
+  const { renderTargets } = require('../tools/icon-render.js');
+  // 3回目・5回目・7回目の名前の変更で落とす（控えを作る途中・一時ファイルを置く途中のどちらも）
+  for (const failAt of [2, 3, 5, 6, 7]) {
+    const fx = renderFixture();
+    try {
+      const before = fx.snap();
+      let n = 0;
+      const io = { renameSync: (a, b) => { if (++n === failAt) { const e = new Error('わざと落とした'); e.code = 'EPERM'; throw e; } return fs.renameSync(a, b); } };
+      assert.throws(() => renderTargets(fx.dir, fx.targets, io), (e) => /わざと落とした/.test(e.message) && /(a\/one|b\/two)\.(png|ico)/.test(e.message), `${failAt} 回目`);
+      assert.deepStrictEqual(fx.snap(), before, `${failAt} 回目で落としたのに、出力が前と違う`);
+      assert.deepStrictEqual(fx.leftovers(), [], `${failAt} 回目で落としたのに、一時ファイルか控えが残った`);
+    } finally {
+      fs.rmSync(fx.dir, { recursive: true, force: true });
+    }
+  }
+  // 点検で再現した形: 出力の1つがフォルダ。何も書き換えずに、その名前を言って投げる
+  const fx = renderFixture();
+  try {
+    fs.rmSync(path.join(fx.dir, 'b/two.png'));
+    fs.mkdirSync(path.join(fx.dir, 'b/two.png'));
+    fs.writeFileSync(path.join(fx.dir, 'b/two.png/keep'), 'x');
+    const before = fx.snap();
+    delete before['b/two.png'];
+    assert.throws(() => renderTargets(fx.dir, fx.targets), /b\/two\.png/);
+    const after = fx.snap();
+    delete after['b/two.png'];
+    assert.deepStrictEqual(after, before, 'フォルダのほかの出力が書き換わった');
+    assert.strictEqual(fs.readFileSync(path.join(fx.dir, 'b/two.png/keep'), 'utf8'), 'x');
+    assert.deepStrictEqual(fx.leftovers(), [], '一時ファイルか控えが残った');
+  } finally {
+    fs.rmSync(fx.dir, { recursive: true, force: true });
+  }
+  // 全部うまくいけば、全部が新しく、控えも残らない
+  const ok = renderFixture();
+  try {
+    renderTargets(ok.dir, ok.targets);
+    for (const [f, v] of Object.entries(ok.snap())) assert.ok(v !== null && !v.startsWith('old '), `${f} が新しくない`);
+    assert.deepStrictEqual(ok.leftovers(), []);
+  } finally {
+    fs.rmSync(ok.dir, { recursive: true, force: true });
+  }
+});
+
+test('点検の直し 1: 一時ファイルと控え（*.rendering-*）は git に入れない（.gitignore）', () => {
+  assert.match(fs.readFileSync(path.join(ROOT, '.gitignore'), 'utf8'), /^\*\.rendering-\*$/m);
+});
+
 // ---------------------------------------------------------------- トレイ（第0a回 R4-3。Q8 の答え。0.11.1 LG-2 で絵を替えた）
 // 待機は assets/icon.svg（新しいロゴ）そのもの。録音中は assets/tray-rec.svg（新しいロゴの尻尾の2本の線を赤く、少し太くしたもの。
 // LG4 の答え「しっぽの中の線を赤にして」と太さの「案 1」。絵は docs/plans/2026-10-24-logo-tray-rec.svg の座標をそのまま）。

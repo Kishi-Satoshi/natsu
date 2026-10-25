@@ -2236,4 +2236,7 @@ module.exports = [
   {"id":"lg-overlay-invert","file":"src/renderer/overlay.html","from":"  .logo .logo-box { fill: #ffffff; }\n  .logo .logo-sq { fill: var(--bg); }","to":"  .logo .logo-box { fill: #111111; }\n  .logo .logo-sq { fill: #ffffff; }","tests":["test/stage111.logo.test.js"],"why":"0.11.1 LG-4 LG6・LG2 (a): 録音バーのロゴが黒い箱に戻り、暗いピルの地に箱が溶けて「箱」の印象が消える"},
   {"id":"lg-inline-d","file":"src/renderer/app.html","from":"<path class=\"logo-box\" d=\"M38.31 63.82 ","to":"<path class=\"logo-box\" d=\"M38.32 63.82 ","tests":["test/stage111.logo.test.js"],"why":"0.11.1 LG-4 RF-LG2: サイドバーのロゴの d が assets/icon.svg と食い違い、片方だけ直した形が残る"},
   {"id":"lg-chromium-max","file":"tools/electron-smoke/main.js","from":"const ICON_MAX = 0.01;","to":"const ICON_MAX = 1.01;","tests":["test/electron-smoke.test.js"],"why":"0.11.1 LG-7 RF-LG1: Chromium の描いたロゴと icon.png がどれだけ違っても Windows の CI が通り、3次ベジェの折れ線の食い違いを見逃す"},
+  // 0.11.1 点検の直し（2026-10-25。計画の「点検の直し（2026-10-25）」）
+  {"id":"rv-render-rollback","file":"tools/icon-render.js","from":"      try { fs.renameSync(bakOf(f), dest(f)); } catch (u) { undone.push(`${f}（${u.message}）`); }\n","to":"","tests":["test/icons.test.js"],"why":"0.11.1 点検の直し 1: 名前の変更の途中で落ちたとき、控えへ動かした出力を戻さず、ICO と PNG の一部が消える・新旧が混ざる"},
+  {"id":"rv-render-notfile","file":"tools/icon-render.js","from":"    if (st && !st.isFile()) throw new Error(`icon-render: ${o.file} がファイルでない（フォルダなど）。何も書いていない`);\n","to":"","tests":["test/icons.test.js"],"why":"0.11.1 点検の直し 1: 出力の名前がフォルダのとき、フォルダを控えへ動かして書き、控えのフォルダが残る（点検で再現した形）"},
 ];
