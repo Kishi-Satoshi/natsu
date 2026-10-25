@@ -310,15 +310,10 @@ const OVL_094 = (states) => PS.FORMS.flatMap((form) => Object.keys(PS.DESKS).fla
 // 0.11.0（版を 0.11.0 に上げる commit）: 持ち主が 2026-10-24 に取り直しの見比べ（37 枚。V-5 の page-type-light・page-type-dark を含む）を見て
 // 「OK（版を 0.11.0 に上げてよい）」と言ったので、CI run 40142063730（1a46130）・artifact 12578889430 の .after.png（37 枚）をバイトのまま基準にし、空に戻した
 // （持ち主が見た 1e6a4c2 の画像との違いは、左の列の印の 1 段の色の揺れだけ）
-// 0.11.1（計画 docs/plans/2026-10-24-logo.md の「取り直す画面（RETAKE）」）: ロゴの差し替え。ロゴを替えたタスクごとに足し、持ち主が見比べを OK と言ったら
-// LG-8（版を上げる commit）で基準にして空に戻す
-const RETAKE = new Set([
-  // LG-2（Ruling R8・R14）: 録音バーのロゴの path を新しいロゴにした（録音バーの画面はどれもロゴを写す: 81 枚）
-  ...SCREENS.filter((s) => s.page === 'overlay').map((s) => s.name),
-  // LG-4（LG2・LG3）: サイドバーの頭のロゴ（明るい画面は黒い箱・暗い画面は白い箱）と、会議の知らせのパネルのロゴ（5 枚）。本体の窓の画面は、サイドバーを
-  // 畳んだ notes-collapsed-light と、200% で設定のポップアップがサイドバーを覆う3枚のほかは、どれもサイドバーの頭を写す（53 枚）
-  ...SCREENS.filter((s) => s.page === 'nudge' || (s.page === 'app' && !['notes-collapsed-light', 'settings-zoom200-dark', 'settings-record-zoom200-light', 'settings-info-zoom200-light'].includes(s.name))).map((s) => s.name),
-]);
+// 0.11.1（版を 0.11.1 に上げる commit。LG-8）: 持ち主が 2026-10-25 にロゴの見比べ（CI run 40158349532（1c87b3c）の撮影の見比べの絵）を見て
+// 「OK（版を 0.11.1 に上げてよい）」と言ったので、その run の artifact 12585288773 の .after.png（139 枚: 録音バー 81・本体の窓 53・パネル 5）を
+// バイトのまま基準にし、空に戻した
+const RETAKE = new Set([]);
 const PERF = [{ name: 'open-2000-blocks', budgetMs: 500 }];   // 3回開いた中央値で見る
 const TIME_ZONE = 'Asia/Tokyo';
 const TOLERANCE = 2;   // 色の差（0〜255）がこれ以下の画素は同じとみなす。CI の機械の CPU ごとの描き方の1段の差を拾わないため（揺れの確かめ judgePair は 0 で見る）
