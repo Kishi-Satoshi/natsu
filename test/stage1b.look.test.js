@@ -72,9 +72,18 @@ test('画面の使いやすさ・F10: 明と暗のすべての「文字 × 地�
 // 新しいロゴ（assets/icon.svg と同じ2本）にし、注の「3本」を「2本」にした（ほかは1バイトも変えない）。その中身で凍結をかけ直した（0.9.4 の値は c14a7309…）
 // 0.11.1 LG-4 で意図して変えた: 同じ持ち主の決定（LG6「ロゴの SVG とその色の CSS だけ」・LG2「暗い所は白い箱に黒いリス」）で、ロゴの2本の path に
 // 箱とリスの印（class）を付けて塗りの属性を外し、色の CSS（白い箱・ピルの地の色のリス）を2行と注を足した。その中身で凍結をかけ直した（LG-2 の値は eab70854…）
-test('録音バーは触らない（D25 で 0.9.0 の形にした。変えるのは利用者の決定のときだけ）: overlay.html は ロゴの差し替え（2026-10-24 の持ち主の決定 L-2・LG6）で直した中身と1バイトも違わない', () => {
+// 0.12.0 SP-2 で意図して変えた: 持ち主の D53・D66（文字起こしの「自分」「相手」・別々に文字起こし）で、<script> の中だけを変えた（マイクと相手の声を
+// 別々の MediaRecorder で録り、流れごとの区間の番号・始まりの時計・最後を送る。main に言われた流れの区間を切る）。見た目（<style>・DOM・点・印）は変えない。
+// その中身で凍結をかけ直した（0.11.1 の値は ac78ef07…）。<script> の外は 0.11.1（bbd8a51）と1バイトも違わないことを下のテストで見る
+test('録音バーは触らない（D25 で 0.9.0 の形にした。変えるのは利用者の決定のときだけ）: overlay.html は 2つの流れの録音（0.12.0 SP-2・D53・D66。<script> の中だけ）で直した中身と1バイトも違わない', () => {
   const buf = fs.readFileSync(path.join(__dirname, '..', 'src', 'renderer', 'overlay.html'));
-  assert.strictEqual(require('node:crypto').createHash('sha256').update(buf).digest('hex'), 'ac78ef07f597afd14a7febbfd37638e0543bfbca77ea251ebccde90de1f3d22d');
+  assert.strictEqual(require('node:crypto').createHash('sha256').update(buf).digest('hex'), 'a4d973884bbc53efaa047435b3fe94d8ac5b519258d4af4334c883e683a89fed');
+});
+test('0.12.0 SP-2: <script> の中身を除いた overlay.html は 0.11.1（bbd8a51）と1バイトも違わない（見た目を変えない）', () => {
+  const src = fs.readFileSync(path.join(__dirname, '..', 'src', 'renderer', 'overlay.html'), 'utf8');
+  assert.strictEqual((src.match(/<script>/g) || []).length, 1);
+  const outside = src.replace(/<script>[\s\S]*?<\/script>/, '<script></script>');
+  assert.strictEqual(require('node:crypto').createHash('sha256').update(outside).digest('hex'), '9da5c78766f7688687f4d9b1c3d306236de3d2ed4b8cfe46327f5f413b5c3938');
 });
 
 test('N1: ガラス風をやめた（backdrop-filter・グラデーション・ぼかし玉・filter: blur が無い）', () => {

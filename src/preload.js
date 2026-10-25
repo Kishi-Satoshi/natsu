@@ -97,7 +97,8 @@ contextBridge.exposeInMainWorld('koeOverlay', {
   onTick: (cb) => ipcRenderer.on('overlay:tick', () => cb()),
   onSegmentMs: (cb) => ipcRenderer.on('overlay:segment-ms', (_e, ms) => cb(ms)),
   sendAudio: (buffer, mimeType, durationMs) => ipcRenderer.send('audio:done', { buffer, mimeType, durationMs }),
-  sendSegment: (buffer, durationMs, final) => ipcRenderer.send('audio:segment', { buffer, durationMs, final }),
+  // 0.12.0 SP-2（決めたこと 134）: 2つの流れの議事録では4つ目 { src, seg, t0, last }（main が checkSegMeta で照らす）。1本の会議と音声入力は4つ目なし
+  sendSegment: (buffer, durationMs, final, meta) => ipcRenderer.send('audio:segment', meta === undefined ? { buffer, durationMs, final } : { buffer, durationMs, final, meta }),
   sendError: (message) => ipcRenderer.send('audio:error', { message }),
   reportSource: (systemAudio, wanted) => ipcRenderer.send('overlay:source', { systemAudio, wanted }),
   reportPause: (paused) => ipcRenderer.send('overlay:pause', { paused }),
@@ -114,6 +115,8 @@ contextBridge.exposeInMainWorld('koeOverlay', {
   // 0.9.3 M-5: 録音中のページの音の波のために main が聞く・答える（{ mic, sys, warn }。main が levelMsg で照らす）
   onLevelAsk: (cb) => ipcRenderer.on('overlay:level-ask', () => cb()),
   reportLevel: (level) => ipcRenderer.send('overlay:level', level),
+  // 0.12.0 SP-2（決めたこと 123）: main が声の切れ目で、この流れ（src）のこの番号（seg）の区間を切ると言う
+  onCut: (cb) => ipcRenderer.on('overlay:cut', (_e, v) => cb(v)),
 });
 
 // 0.9.3 M-3: 会議の検出のパネル（右上の小さな窓。計画 docs/plans/2026-10-22-093.md の決めたこと 9・10）。画面は id も文も送らない:

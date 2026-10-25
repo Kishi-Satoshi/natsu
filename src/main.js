@@ -3151,6 +3151,10 @@ function askLevel() {
   if (!levelWanted()) { syncLevelAsk(); return; }
   sendToOverlay('overlay:level-ask', {});
 }
+// 0.12.0 SP-2（決めたこと 123・134）: 録音バーに「この流れ（src）のこの番号（seg）の区間を声の切れ目で切る」と言う。呼ぶのは SP-3a の声の切れ目の見張り（Ruling R8）
+function sendCut(src, seg) {
+  sendToOverlay('overlay:cut', { src, seg });
+}
 function onOverlayLevel(p) {
   if (!levelWanted()) return;
   sendToMainWin('meeting:level', lib.levelMsg(p));

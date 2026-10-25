@@ -897,6 +897,7 @@ test('G3・0.11.1 LG-6: ロゴの差し替えの変異が一覧にそろい、ID
 const IDS_120 = [
   'spk-vad-pause', 'spk-vad-idle', 'spk-trim', 'spk-t0', 'spk-clock-sum', 'spk-timeline-order', 'spk-overlap-drop', 'spk-bleed', 'spk-quiet-union',
   'spk-stall-count', 'spk-parts-drift', 'spk-src-trust', 'spk-ipc-validate',   // SP-1
+  'spk-final-both', 'spk-cut-seq', 'spk-cut-paused', 'spk-sys-drop-rec', 'spk-vad-meter', 'spk-drop-src', 'spk-src-swap',   // SP-2
 ];
 test('G3・0.12.0: 0.12.0 の変異が一覧にそろい、IDS_120 はどれも計画の「変異確認」の表にある。spk- の変異は IDS_120 にある。どれも決まったテストのファイルを持ち、why が 0.12.0 で始まる', { timeout: 5000 }, () => {
   const byId = new Map(MUTANTS.map((m) => [m.id, m]));
