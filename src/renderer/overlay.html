@@ -49,9 +49,12 @@
   .pill.leaving { transition: opacity .4s ease, transform .4s ease; }
   .pill[data-form="v"] { flex-direction: column; width: 40px; height: max-content; padding: 10px 0 5px; }
 
-  /* ロゴ（assets/icon.svg と同じ3本の path）と、既定のマイクで代替しているときの角の黄色い点 */
+  /* ロゴ（assets/icon.svg と同じ2本の path。0.11.1 で箱の中のリスに替えた）と、既定のマイクで代替しているときの角の黄色い点 */
   .mark { position: relative; width: 20px; height: 20px; flex: none; }
   .logo { width: 20px; height: 20px; display: block; }
+  /* 暗いピルなので、いつも白い箱に黒いリス（リスはピルの地の色。持ち主の答え LG2・LG6） */
+  .logo .logo-box { fill: #ffffff; }
+  .logo .logo-sq { fill: var(--bg); }
   .badge { position: absolute; right: -3px; bottom: -3px; width: 9px; height: 9px; border-radius: 50%; background: var(--warn); border: 2px solid var(--bg); }
 
   /* 音の大きさ: ちょうど5つの点。無音は同じ 4px の点、声が入ると5本がそれぞれ揺れる（0.9.4 W-1。縦の形は横へ）。長さは --l（renderLevel） */
@@ -158,9 +161,8 @@
   <div class="pill" id="pill" data-phase="recording" data-form="h">
     <span class="mark">
       <svg class="logo" viewBox="0 0 64 64" aria-hidden="true">
-        <path d="M5 16 Q5 5 16 5 H27 L30 2.6 L33.5 9 L37 3.4 L40.5 8 L43 5 H48 Q59 5 59 16 V48 Q59 59 48 59 H16 Q5 59 5 48 Z" fill="#ffffff" stroke="#151515" stroke-width="4.5" stroke-linejoin="round"/>
-        <path d="M27 5 L30 2.6 L33.5 9 L37 3.4 L40.5 8 L43 5" fill="none" stroke="#0e8cae" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round"/>
-        <path d="M22 45V21 L42 45V21" fill="none" stroke="#151515" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+        <path class="logo-box" d="M38.31 63.82 C38.66 63.73 39.08 63.62 39.24 63.58 C39.41 63.54 39.60 63.48 39.67 63.44 C39.73 63.40 40.09 63.26 40.46 63.11 C41.89 62.56 43.73 61.56 45.64 60.30 C52.26 55.92 56.14 51.00 58.84 43.56 C61.42 36.44 62.10 28.24 60.61 22.16 C59.00 15.55 54.84 11.04 49.22 9.80 C47.10 9.34 44.37 9.43 41.92 10.05 C33.61 12.15 27.89 19.64 29.29 26.61 C29.99 30.07 32.00 32.53 35.33 33.98 C37.41 34.90 38.47 35.52 39.56 36.47 C42.47 39.02 44.12 43.54 43.69 47.83 C43.56 49.23 43.16 50.84 42.71 51.86 C42.51 52.31 42.50 52.32 42.53 52.04 C42.71 50.70 42.63 48.41 42.35 46.94 C41.69 43.43 40.43 40.82 38.34 38.67 C37.05 37.33 35.81 36.50 33.67 35.53 C32.04 34.79 31.18 34.35 30.43 33.88 C28.81 32.86 27.50 31.46 26.74 29.95 C26.34 29.16 26.18 28.66 25.87 27.24 C25.30 24.65 24.73 23.38 23.46 21.87 L22.97 21.29 L23.11 20.60 C23.79 17.23 23.17 14.56 21.55 13.97 C21.04 13.78 20.79 13.78 20.26 13.96 C18.58 14.53 16.81 16.42 15.56 18.97 L15.12 19.86 L14.63 20.06 C12.00 21.09 9.56 23.07 7.49 25.86 C6.47 27.23 5.93 27.83 4.94 28.66 C3.93 29.50 3.62 29.87 3.42 30.51 C3.14 31.38 3.45 32.71 4.20 33.81 C5.32 35.47 7.09 36.43 9.62 36.76 C10.09 36.82 10.67 36.92 10.91 36.97 C12.70 37.38 14.03 39.11 13.76 40.69 C13.66 41.25 13.54 41.51 12.64 43.01 C10.80 46.10 10.24 48.15 10.61 50.47 C10.88 52.15 11.81 54.07 13.11 55.62 L13.32 55.88 L12.77 55.96 C10.20 56.37 7.99 58.11 7.22 60.34 C6.99 61.00 6.93 61.86 7.07 62.33 C7.13 62.51 7.15 62.66 7.13 62.66 C7.10 62.66 6.79 62.49 6.43 62.29 C3.18 60.43 0.92 57.23 0.20 53.46 L0.04 52.62 L0.04 32.00 L0.04 11.38 L0.20 10.54 C1.22 5.22 5.22 1.22 10.54 0.20 L11.38 0.04 L32.00 0.04 L52.62 0.04 L53.46 0.20 C58.78 1.22 62.78 5.22 63.80 10.54 L63.96 11.38 L63.96 32.00 L63.96 52.62 L63.80 53.46 C62.78 58.77 58.82 62.75 53.49 63.80 C52.69 63.96 52.66 63.96 45.18 63.98 L37.67 64.00 L38.31 63.82 Z M48.10 48.43 C47.59 48.12 47.54 47.75 47.86 46.74 C48.71 44.08 48.75 40.77 47.97 37.89 C46.69 33.20 43.72 29.95 40.02 29.21 C39.03 29.01 38.77 28.79 38.77 28.15 C38.77 27.80 38.79 27.75 39.04 27.49 C39.39 27.14 39.67 27.09 40.46 27.20 C42.81 27.54 45.39 29.23 47.18 31.61 C49.81 35.10 50.97 40.27 50.21 45.15 C50.09 45.94 49.74 47.40 49.58 47.78 C49.30 48.46 48.63 48.75 48.10 48.43 Z M53.28 44.92 C52.89 44.55 52.86 44.27 53.13 43.52 C54.17 40.71 54.04 37.10 52.75 33.41 C50.98 28.30 47.15 24.84 42.43 24.07 C42.06 24.01 41.61 23.97 41.43 23.97 C40.21 23.96 39.78 22.63 40.82 22.09 C41.41 21.79 43.97 22.15 45.71 22.78 C50.04 24.36 53.13 27.76 54.80 32.79 C56.03 36.49 56.10 41.14 54.98 44.15 C54.61 45.13 53.87 45.46 53.28 44.92 Z"/>
+        <path class="logo-sq" d="M11.37 63.93 C10.47 63.81 9.47 63.58 8.59 63.28 L7.72 62.98 L7.55 62.64 C7.22 61.97 7.28 60.95 7.72 60.00 C8.61 58.05 10.85 56.49 13.05 56.28 C13.30 56.26 13.63 56.22 13.80 56.20 L14.10 56.17 L13.63 55.66 C12.26 54.18 11.24 52.20 10.96 50.47 C10.59 48.15 11.10 46.27 12.96 43.15 C14.16 41.14 14.31 40.65 14.04 39.57 C13.86 38.82 13.56 38.31 13.00 37.74 C12.23 36.98 11.35 36.63 9.64 36.41 C7.24 36.10 5.60 35.22 4.51 33.65 C4.00 32.91 3.73 32.19 3.68 31.46 C3.62 30.41 3.88 29.98 5.26 28.84 C6.21 28.05 6.67 27.55 7.69 26.18 C9.85 23.28 12.20 21.36 14.85 20.34 L15.36 20.14 L15.83 19.20 C16.96 16.92 18.42 15.24 19.92 14.48 C20.58 14.14 20.99 14.10 21.49 14.31 C22.93 14.93 23.45 17.71 22.70 20.89 L22.59 21.39 L23.07 21.96 C24.38 23.47 24.96 24.71 25.52 27.24 C26.06 29.68 26.67 30.95 28.01 32.34 C29.37 33.76 30.45 34.45 33.46 35.81 C34.91 36.47 35.76 36.96 36.71 37.67 C39.90 40.08 41.90 44.14 42.23 48.92 C42.35 50.57 42.14 53.14 41.80 54.15 C41.59 54.78 42.17 53.86 42.71 52.70 C44.60 48.69 44.56 43.92 42.60 39.97 C41.09 36.92 39.26 35.30 35.51 33.69 C32.33 32.32 30.31 29.89 29.65 26.61 C28.36 20.24 33.09 13.39 40.55 10.81 C43.35 9.84 46.66 9.59 49.21 10.16 C54.59 11.34 58.71 15.81 60.26 22.15 C61.79 28.43 61.01 37.04 58.25 44.18 C55.55 51.16 51.78 55.81 45.43 60.02 C43.52 61.28 41.69 62.27 40.25 62.83 C39.88 62.98 39.51 63.12 39.44 63.15 C39.19 63.26 37.98 63.57 37.36 63.69 C36.82 63.79 35.50 63.81 24.81 63.86 C18.24 63.89 12.64 63.93 12.37 63.95 C12.10 63.97 11.65 63.96 11.37 63.93 Z M49.04 48.81 C49.66 48.55 49.88 48.16 50.25 46.68 C51.43 41.96 50.66 36.54 48.24 32.55 C46.36 29.46 43.36 27.26 40.44 26.84 C39.20 26.67 38.41 27.19 38.41 28.18 C38.41 28.95 38.85 29.36 39.86 29.53 C43.75 30.19 47.04 34.18 47.94 39.35 C48.37 41.85 48.21 44.64 47.51 46.74 C47.39 47.09 47.30 47.50 47.30 47.66 C47.30 48.55 48.21 49.15 49.04 48.81 Z M54.22 45.46 C54.78 45.30 55.11 44.88 55.43 43.86 C56.84 39.36 56.08 33.48 53.49 28.99 C51.16 24.95 47.43 22.39 42.93 21.75 C41.12 21.49 40.27 21.71 39.97 22.51 C39.62 23.44 40.33 24.31 41.44 24.32 C41.62 24.32 42.06 24.37 42.41 24.42 C48.57 25.42 53.10 31.32 53.47 38.82 C53.54 40.33 53.28 42.14 52.79 43.48 C52.49 44.29 52.53 44.68 52.95 45.11 C53.34 45.51 53.70 45.60 54.22 45.46 Z"/>
       </svg>
       <span class="badge" id="micBadge" hidden></span>
     </span>
@@ -208,8 +210,20 @@
   let mediaStream = null;
   let micStream = null;    // getUserMedia の生ストリーム（マイクの解放責任）
   let sysStream = null;    // getDisplayMedia の生ストリーム（相手の声）
-  let mixDest = null;
   let sysAnalyser = null;
+  // 0.12.0 SP-2（D66・決めたこと 120〜122・130・134・146）: 相手の声を取り込む議事録は、マイクと相手の声を別々の MediaRecorder で録る（2つの流れ）。
+  // マイクの流れは今の区間の道（recorder・segSeq・sendQueue・segClosing）をそのまま使い、相手の声の流れは sys に持つ。区間ごとに
+  // 4つ目 { src, seg, t0, last } を付けて送る（src は 'mic'・'loopback'・''。seg は流れごとの番号・t0 は「録っている時間」の時計・last はその流れの最後）
+  let twoEver = false;     // この録音で2つの流れになったか（以後のマイクの区間は4つ目を付けて送る。取り込みが切れても続ける）
+  let sysDest = null;      // 相手の声の流れの出口（1ch）。MediaRecorder はここから録る
+  let micVoice = null;     // 声の切れ目を見る analyser（点と印の analyser とは別。main の vadStep が見る）
+  let sysVoice = null;
+  let micSegNo = 0;        // マイクの流れの区間の番号（4つ目の seg）
+  let micCur = -1;         // 今録っているマイクの区間の番号
+  let micLastSent = false; // マイクの流れの最後を送った
+  // 相手の声の流れ: rec（今の MediaRecorder）・no（次の番号）・cur（今の番号）・seq/next/queue（送る順）・closing（締めを送り終えるまでの印）・
+  // deadline/timer（区間の時計）・first（最初の区間を済ませた）・ending（トラックが終わって締める）・done（最後を並べた）・lastSent（最後を送った）
+  const sys = { rec: null, no: 0, cur: -1, seq: 0, next: 0, queue: new Map(), closing: null, deadline: 0, timer: null, first: false, ending: false, done: true, lastSent: true };
   let sysGain = null;      // 開始ビープを録らないよう、鳴らす瞬間だけ閉じる
   // 二重起動よけ。表示の状態（pill.dataset.phase）で判定してはいけない。
   // マークアップの初期値が data-phase="recording" なので、起動後の1回目が
@@ -571,24 +585,18 @@
     micSrc.connect(analyser);
 
     if (sysStream) {
-      // [マイク] ─┬→ analyser（マイクのレベル）
-      //           └→ micGain ─┐
-      // [相手の声] → sysGain ──┼→ mixBus(1ch) → mixDest → MediaRecorder
-      //                        └→ sysAnalyser（相手のレベル）
-      const micGain = audioCtx.createGain(); micGain.gain.value = 1.0;
+      // 0.12.0 SP-2（D66・決めたこと 120）: 混ぜずに別々に録る。マイクの流れはエコー消し・雑音消し・自動の音量のかかった micStream のまま
+      // [マイク] ─┬→ analyser（点）・micVoice（声の切れ目）
+      //           └→ MediaRecorder（micStream）
+      // [相手の声] → sysGain ─┬→ sysDest(1ch) → MediaRecorder
+      //                       ├→ sysAnalyser（点）
+      //                       └→ sysVoice（声の切れ目）
       sysGain = audioCtx.createGain(); sysGain.gain.value = 1.0;
-
-      // ここでモノラルに確定させる。explicit + 1ch にすると「足す前に」
-      // 各入力がモノラルへ落ちるので、相手の声が 2ch でも取りこぼさない。
-      const mixBus = audioCtx.createGain();
-      mixBus.channelCount = 1;
-      mixBus.channelCountMode = 'explicit';
-      mixBus.gain.value = 0.9;              // 2本足しのヘッドルーム
-
-      mixDest = audioCtx.createMediaStreamDestination();
+      // ここでモノラルに確定させる（相手の声が 2ch でも取りこぼさない）
+      sysDest = audioCtx.createMediaStreamDestination();
       try {
-        mixDest.channelCount = 1;
-        mixDest.channelCountMode = 'explicit';
+        sysDest.channelCount = 1;
+        sysDest.channelCountMode = 'explicit';
       } catch (_) { /* 実装差。下流の blobToWav16k が 1ch に落とすので致命ではない */ }
 
       const sysSrc = audioCtx.createMediaStreamSource(sysStream);
@@ -596,23 +604,29 @@
       sysAnalyser.fftSize = 512;
       sysAnalyser.smoothingTimeConstant = 0.6;
 
-      micSrc.connect(micGain).connect(mixBus);
-      sysSrc.connect(sysGain).connect(mixBus);
+      sysSrc.connect(sysGain).connect(sysDest);
       sysGain.connect(sysAnalyser);
+      // 声の切れ目を見る analyser（決めたこと 146: 約 85ms の窓。点と印の analyser の値は変えない）
+      micVoice = audioCtx.createAnalyser();
+      micVoice.fftSize = 4096;
+      micSrc.connect(micVoice);
+      sysVoice = audioCtx.createAnalyser();
+      sysVoice.fftSize = 4096;
+      sysGain.connect(sysVoice);
 
       // 開始のビープはスピーカーへ出る＝ループバックにも乗る。
       // 閉じるのはビープを鳴らす瞬間（start 側の muteSystemForBeep）。
       // ここで閉じてしまうと、下のチャンネル数待ちの分だけ先に明けてしまう。
 
-      mixBus.connect(mixDest);
-
       // 途中で取り込みが切れてもマイクだけで録り続ける。
-      // 録音対象は mixDest.stream で固定なので、MediaRecorder は影響を受けない。
+      // 0.12.0 SP-2（決めたこと 122）: 相手の声の流れはその時の区間を締めて送り（その流れの最後）、マイクの流れは続ける
       const st = sysStream.getAudioTracks()[0];
       st.addEventListener('ended', () => {
         if (!sysOn) return;                  // releaseStream の stop() では発火しないが念のため
         sysAnalyser = null; sysOn = false;
         sysGain = null;
+        sysVoice = null;
+        endSysLane();
         // 報告し直さないと、以後マイクしか録れていないのに
         // アプリのバーが「相手の声も」と言い続ける。0.9.4 P-1: 録音バーは「相手の声を録れません」を出したままにする
         window.koeOverlay.reportSource(false, true);
@@ -623,11 +637,12 @@
         shownLabel = null;
       });
 
-      mediaStream = mixDest.stream;
+      mediaStream = micStream;   // マイクの流れ（今の区間の道が録る）
+      twoEver = true;
       // Chromium は音が1量子流れるまで、この出力を 2ch と名乗り続けることがある。
       // その状態で MediaRecorder を作るとステレオで確定し、32kbps を左右で
       // 分け合ってしまう。最大 200ms だけ待つ（分からない実装では待たない）。
-      const track = mediaStream.getAudioTracks()[0];
+      const track = sysDest.stream.getAudioTracks()[0];
       for (let i = 0; i < 20; i++) {
         const ch = track.getSettings ? track.getSettings().channelCount : 1;
         if (typeof ch !== 'number' || ch === 1) break;
@@ -691,6 +706,7 @@
     // 番号が埋まらないまま終わった録音（マイクの切断で start() が投げた等）が残っていると、
     // この録音の区間が永久に届かない
     sendQueue.clear(); sendNext = segSeq; errorAfterFinal = '';
+    resetLanes();         // 0.12.0 SP-2: 2つの流れの番号と印（相手の声の流れの待ち行列も捨てる）
     micFallback = false;  // openStream が開いたトラックを見て決め直す
     pill.classList.remove('paused');
     shownLabel = '';
@@ -741,6 +757,7 @@
 
     if (mode === 'meeting') startMeetingSegment();
     else startDictation();
+    if (mode === 'meeting' && twoEver && sysOn) startSysSegment();   // 0.12.0 SP-2: 相手の声の流れ
     starting = false;
     active = true;      // ここから先は active が二重起動を止める
   }
@@ -777,6 +794,7 @@
   // ondataavailable、そして間引かれない main からの overlay:tick。
   function cutSegmentIfOverdue(rec) {
     if (paused) return;
+    cutSysIfOverdue();   // 0.12.0 SP-2: 相手の声の流れの区切りも同じ合図（overlay:tick・録音の刻み）で見張る
     if (!(mode === 'meeting' && segDeadline && Date.now() >= segDeadline + 2000
         && rec && rec === recorder && rec.state === 'recording' && !stopping && !cancelled)) return;
     // 遅延中の setTimeout を必ず消してから切る。消さないと、そのタイマーが
@@ -807,14 +825,18 @@
       sendQueue.delete(sendNext);
       sendNext++;
       if (!it) continue;
-      window.koeOverlay.sendSegment(it.wav, it.durationMs, it.isFinal);
+      const fin = finalOf('mic', it);
+      if (it.meta) window.koeOverlay.sendSegment(it.wav, it.durationMs, fin, it.meta);
+      else window.koeOverlay.sendSegment(it.wav, it.durationMs, it.isFinal);
       // マイクの切断は、最後の区間を送り「終えてから」伝える。先に伝えると main は
       // 締めに入り、変換中だった区間（最大75秒）を議事録の無いところへ届けて捨てる
-      if (it.isFinal && errorAfterFinal) { const msg = errorAfterFinal; errorAfterFinal = ''; window.koeOverlay.sendError(msg); }
+      if (fin && errorAfterFinal) { const msg = errorAfterFinal; errorAfterFinal = ''; window.koeOverlay.sendError(msg); }
     }
   }
   // 区間を持たない送り（空の最後）も番号を取り、それまでに始まった区間の後に届ける
+  // 0.12.0 SP-2: 2つの流れの録音では、空の最後にもマイクの流れの4つ目を付ける（その流れの最後）
   function sendSegmentQueued(wav, durationMs, isFinal) {
+    if (twoEver) { settleSeg(segSeq++, { wav, durationMs, isFinal, meta: { src: '', seg: micSegNo++, t0: recClock(), last: Boolean(isFinal) } }); return; }
     settleSeg(segSeq++, { wav, durationMs, isFinal });
   }
 
@@ -831,6 +853,10 @@
     firstSegDone = true;
     segDeadline = segStart + thisSegMs;
     const seq = segSeq++;          // 送る順を決める番号（#13）
+    // 0.12.0 SP-2（決めたこと 121・122・124）: 2つの流れの録音では、マイクの流れの番号と始まりの時計。区間を始めるときに相手の声を
+    // 取り込めていれば 'mic'、取り込みが切れた後に始めた区間は ''
+    const myMeta = twoEver ? { src: sysOn ? 'mic' : '', seg: micSegNo++, t0: recClock() } : null;
+    if (myMeta) micCur = myMeta.seg;
     const mySession = session;
     const rec = newRecorder(segChunks);
     recorder = rec;
@@ -872,8 +898,9 @@
         if (cancelled) { cleanup(); return; }
         // 最後の印は末尾の区間だけ。後の区間が録っていれば、終了の合図はそちらが受ける
         const isFinal = stopping && isLast();
-        if (wav) settle({ wav, durationMs, isFinal });
-        else if (isFinal) settle({ wav: new Uint8Array(0), durationMs, isFinal: true });
+        const meta = myMeta ? { ...myMeta, last: isFinal } : null;
+        if (wav) settle(meta ? { wav, durationMs, isFinal, meta } : { wav, durationMs, isFinal });
+        else if (isFinal) settle(meta ? { wav: new Uint8Array(0), durationMs, isFinal: true, meta } : { wav: new Uint8Array(0), durationMs, isFinal: true });
         if (!isLast()) return;               // 送るだけ。マイクと次の区間は末尾の区間が受け持つ
         if (!isFinal && paused) {
           // 一時停止で締めた区間（変換中に一時停止された区間も同じ）。区間を送り終えて
@@ -925,6 +952,133 @@
     return p;
   }
 
+  // ---- 0.12.0 SP-2: 相手の声の流れ（2つの流れの議事録。計画 docs/plans/2026-10-22-120.md の決めたこと 120〜122・124・130）----
+  // 「録っている時間」の時計（一時停止の時間を除く）。区間ごとの t0 に使う（2つの録音の長さを別々に積むとずれるため: 決めたこと 124）
+  function recClock() {
+    const now = Date.now();
+    return Math.max(0, now - startedAt - pausedMs - (paused ? now - pausedAt : 0));
+  }
+  function resetLanes() {
+    twoEver = false;
+    micSegNo = 0; micCur = -1; micLastSent = false;
+    if (sys.timer) clearTimeout(sys.timer);
+    sys.queue.clear();
+    Object.assign(sys, { rec: null, no: 0, cur: -1, next: sys.seq, closing: null, deadline: 0, timer: null, first: false, ending: false, done: true, lastSent: true });
+  }
+  const sysMeta = (seg, t0, last) => ({ src: 'loopback', seg, t0, last });
+  // isFinal（議事録の最後）は、2つの流れのどちらも最後を送った時の、後の方の区間だけ（決めたこと 130）。4つ目の無い区間は今のまま
+  function finalOf(src, it) {
+    if (!it.meta) return Boolean(it.isFinal);
+    if (it.meta.last) { if (src === 'loopback') sys.lastSent = true; else micLastSent = true; }
+    return Boolean(it.meta.last) && micLastSent && sys.lastSent;
+  }
+  // 番号順に main へ渡す（マイクの流れの settleSeg と同じ決まり。番号は必ず埋める）
+  function settleSys(seq, item) {
+    if (seq < sys.next) return;
+    sys.queue.set(seq, item);
+    while (sys.queue.has(sys.next)) {
+      const it = sys.queue.get(sys.next);
+      sys.queue.delete(sys.next);
+      sys.next++;
+      if (!it) continue;
+      window.koeOverlay.sendSegment(it.wav, it.durationMs, finalOf('loopback', it), it.meta);
+    }
+  }
+  // 相手の声の流れの区間を始める（マイクの流れの startMeetingSegment と同じ形。区間の時計は最初だけ 20 秒）
+  function startSysSegment() {
+    if (sys.timer) { clearTimeout(sys.timer); sys.timer = null; }
+    if (!sysDest) return;
+    const segChunks = [];
+    const startedSeg = Date.now();
+    const thisSegMs = sys.first ? segmentMs : FIRST_SEG_MS;
+    sys.first = true;
+    sys.deadline = startedSeg + thisSegMs;
+    const seq = sys.seq++;
+    const no = sys.no++;
+    const t0 = recClock();
+    sys.cur = no;
+    sys.ending = false; sys.done = false; sys.lastSent = false;
+    const mySession = session;
+    const mime = pickMime();
+    const srec = new MediaRecorder(sysDest.stream, mime ? { mimeType: mime, audioBitsPerSecond: 32000 } : { audioBitsPerSecond: 32000 });
+    srec.ondataavailable = (e) => {
+      if (e.data && e.data.size > 0) segChunks.push(e.data);
+      cutSysIfOverdue();
+    };
+    sys.rec = srec;
+    const isLast = () => seq === sys.seq - 1;
+    srec.onstop = async () => {
+      const durationMs = Date.now() - startedSeg;
+      let settled = false;
+      const settle = (item) => { if (!settled) { settled = true; settleSys(seq, item); } };
+      if (mySession !== session) { settle(null); return; }
+      let closing = null;
+      const done = () => { if (closing && sys.closing === closing) { sys.closing = null; closing.resolve(); } };
+      try {
+        rollSysSegment(srec);
+        if (isLast()) { if (!sys.closing) sys.closing = newClosing(); closing = sys.closing; }
+        if (cancelled) return;
+        const blob = new Blob(segChunks, { type: srec.mimeType || 'audio/webm' });
+        let wav = null;
+        try { wav = await blobToWav16k(blob); } catch (e) { wav = null; }
+        if (mySession !== session || cancelled) return;
+        // その流れの最後: 終了のとき・トラックが終わったとき（決めたこと 122・130）。後の区間が録っていれば、そちらが受ける
+        const last = isLast() && (stopping || sys.ending);
+        if (last) sys.done = true;
+        if (wav) settle({ wav, durationMs, meta: sysMeta(no, t0, last) });
+        else if (last) settle({ wav: new Uint8Array(0), durationMs, meta: sysMeta(no, t0, true) });
+      } finally {
+        settle(null);
+        done();
+      }
+    };
+    sys.timer = setTimeout(() => rollSysSegment(srec), thisSegMs);
+    try {
+      srec.start(250);
+    } catch (e) {
+      // 相手の声のトラックが終わった直後は start() が投げる。その流れを空の最後で閉じる（マイクの流れは続ける）
+      if (sys.timer) { clearTimeout(sys.timer); sys.timer = null; }
+      if (sys.rec === srec) sys.rec = null;
+      sys.cur = -1; sys.done = true;
+      settleSys(seq, { wav: new Uint8Array(0), durationMs: 0, meta: sysMeta(no, t0, true) });
+    }
+  }
+  function rollSysSegment(rec) {
+    if (!rec || rec !== sys.rec) return;
+    if (rec.state === 'recording') rec.stop();
+    if (sys.rec !== rec || stopping || cancelled || paused || sys.ending || !sysOn) return;
+    startSysSegment();
+  }
+  // 区切りの見張り（マイクの流れの cutSegmentIfOverdue と同じ。setTimeout が間引かれても main の overlay:tick と録音の刻みで切る）
+  function cutSysIfOverdue() {
+    if (paused) return;
+    const rec = sys.rec;
+    if (!(mode === 'meeting' && sys.deadline && Date.now() >= sys.deadline + 2000 && rec && rec.state === 'recording' && !stopping && !cancelled)) return;
+    if (sys.timer) { clearTimeout(sys.timer); sys.timer = null; }
+    rollSysSegment(rec);
+  }
+  // 相手の声のトラックが終わった: 今の区間を締めて送る（その流れの最後）
+  function endSysLane() {
+    if (sys.timer) { clearTimeout(sys.timer); sys.timer = null; }
+    sys.ending = true;
+    sys.cur = -1;
+    if (sys.rec && sys.rec.state === 'recording') sys.rec.stop();
+    else closeSysEmpty();
+  }
+  // 一時停止: 相手の声の流れの区間も締めて送る（その流れの最後ではない。再開で開き直す）
+  function closeSysForPause() {
+    if (sys.timer) { clearTimeout(sys.timer); sys.timer = null; }
+    sys.deadline = 0;
+    if (sys.rec && sys.rec.state === 'recording') { sys.closing = newClosing(); sys.rec.stop(); }
+  }
+  // 相手の声の流れがまだ最後を並べていなければ、空の最後で閉じる（締めの区間が無いとき: 一時停止の間の終了・取り込めなかった再開）
+  function closeSysEmpty() {
+    if (sys.done) return;
+    sys.done = true;
+    sys.cur = -1;
+    settleSys(sys.seq++, { wav: new Uint8Array(0), durationMs: 0, meta: sysMeta(sys.no++, recClock(), true) });
+  }
+
   // 一時停止。録音そのものを止め、それまでの区間はきちんと締めて送る。
   // 中途半端に持ったまま止めると、再開までの分が同じ区間に混ざり、
   // 一時停止した意味が無くなる。
@@ -941,6 +1095,7 @@
       // 区間を送った後に onstop 側で行う。ここで解放すると onstop が落ちて区間が消える。
       segClosing = newClosing();
       recorder.stop();
+      closeSysForPause();          // 0.12.0 SP-2: 相手の声の流れも締める
     } else if (!segClosing) {
       releaseStream();            // マイクを解放する。停止中に録っていないことを機器の表示でも示す
     }
@@ -961,6 +1116,10 @@
       await segClosing;
       if (!paused || stopping || cancelled) return;   // 待つ間に終了・破棄・二重押しされている
     }
+    if (sys.closing) {             // 0.12.0 SP-2: 相手の声の流れの締めも送り終えてから
+      await sys.closing;
+      if (!paused || stopping || cancelled) return;
+    }
     pausedMs += Date.now() - pausedAt;
     paused = false;
     pill.classList.remove('paused');
@@ -975,11 +1134,13 @@
       // 開き直している間に「終了」が押された。paused を倒した後なので stop() は
       // 何も送っていない。main は最後の区間を待っているので、空で閉じてやる。
       cleanup();
-      if (stopping) sendSegmentQueued(new Uint8Array(0), 0, true);
+      if (stopping) { closeSysEmpty(); sendSegmentQueued(new Uint8Array(0), 0, true); }
       return;
     }
     firstSegDone = true;          // 再開後は通常の区間長で刻む
     startMeetingSegment();
+    // 0.12.0 SP-2（決めたこと 122）: 取り込めれば相手の声の流れも始め、取り込めなければその流れを空の最後で閉じる（以後のマイクの区間は ''）
+    if (twoEver && sysOn) { sys.first = true; startSysSegment(); } else closeSysEmpty();
     setPhase('recording');
     window.koeOverlay.reportPause(false);
   }
@@ -997,6 +1158,8 @@
       // 送り終えていなければ、その onstop が（stopping を見て）この区間を最後として
       // 送り、マイクも解放する。ここでも空の最後を送ると最後の区間が二重に届き、
       // 後から届く本物の区間が main に捨てられる。
+      // 0.12.0 SP-2: 相手の声の流れも同じ（締め待ちの区間が無ければ空の最後で閉じる）
+      if (!sys.closing) closeSysEmpty();
       if (segClosing) return;
       // 切られて変換中の区間が残っていれば、その後に届くよう待ち行列を通す（#13）
       sendSegmentQueued(new Uint8Array(0), 0, true);
@@ -1010,6 +1173,9 @@
     muteSystemForBeep();   // 終了のビープを最後の区間に録り込まない
     beep(SND.stop);
     if (recorder && recorder.state === 'recording') recorder.stop();
+    // 0.12.0 SP-2: 相手の声の流れの最後（録っていなければ、締め待ちの区間が無いときだけ空の最後で閉じる）
+    if (sys.rec && sys.rec.state === 'recording') { if (sys.timer) { clearTimeout(sys.timer); sys.timer = null; } sys.rec.stop(); }
+    else if (!sys.closing) closeSysEmpty();
   }
 
   function cancel() {
@@ -1017,6 +1183,7 @@
     if (autoStopId) clearTimeout(autoStopId);
     setPhase('error', 'キャンセルしました');
     beep(SND.cancel);
+    if (sys.rec && sys.rec.state === 'recording') sys.rec.stop();   // 0.12.0 SP-2（cancelled を見て何も送らない）
     if (recorder && recorder.state === 'recording') recorder.stop();
     else cleanup();
     setTimeout(() => pill.classList.remove('visible'), 400);
@@ -1060,14 +1227,17 @@
     if (audioCtx) { audioCtx.close().catch(() => {}); audioCtx = null; }
     analyser = null;
     sysAnalyser = null;
-    mixDest = null;
+    sysDest = null;
+    micVoice = null;
+    sysVoice = null;
     sysGain = null;
+    if (sys.timer) { clearTimeout(sys.timer); sys.timer = null; }
     renderLevel(0);   // 点を平らに戻す（一時停止中・止めた後）
   }
   function releaseStream() {
     // 実デバイスを掴んでいるのは micStream と sysStream。mediaStream は
-    // 合成時は mixDest.stream（audioCtx.close で終わる）、非合成時は micStream と
-    // 同一なので、3本まとめて止めても二重 stop になるだけで無害。
+    // micStream と同一なので（0.12.0 SP-2: 相手の声の流れの出口 sysDest は audioCtx.close で終わる）、
+    // 3本まとめて止めても二重 stop になるだけで無害。
     // ここで micStream を落とし忘れると、録音が終わってもマイクが開いたままになり、
     // OS のマイク使用表示が点きっぱなしになる。
     for (const st of [micStream, sysStream, mediaStream]) {
@@ -1122,6 +1292,22 @@
   };
   window.koeOverlay.onStart((p) => window.__koeStart(p));
   window.koeOverlay.onTick(() => cutSegmentIfOverdue(recorder));
+  // 0.12.0 SP-2（決めたこと 123・134）: main が声の切れ目で「この流れのこの番号の区間を切る」と言う。議事録の2つの流れで録っていて、
+  // 一時停止・終了・取り消しの途中でなく、その流れの今の区間の番号が seg と同じときだけ、今の区切りの道（rollSegment）で切る
+  if (typeof window.koeOverlay.onCut === 'function') {
+    window.koeOverlay.onCut((p) => {
+      if (!p || typeof p !== 'object' || mode !== 'meeting' || !active || !twoEver || paused || stopping || cancelled) return;
+      if (p.src === 'mic') {
+        if (p.seg !== micCur || !recorder) return;
+        if (autoStopId) { clearTimeout(autoStopId); autoStopId = null; }
+        rollSegment(recorder);
+      } else if (p.src === 'loopback') {
+        if (p.seg !== sys.cur || !sys.rec) return;
+        if (sys.timer) { clearTimeout(sys.timer); sys.timer = null; }
+        rollSysSegment(sys.rec);
+      }
+    });
+  }
   // #8/#42 main が文字起こしの詰まり具合で区間長を上げ下げする（背圧）。効くのは次の区間から。
   // 今の区間は切らない（受けた瞬間に切ると短い区間ができ、文脈が細切れになる）。
   // 録音の開始時は onStart の segmentSec で戻るので、main は開始後に送る。
@@ -1143,7 +1329,15 @@
   // でなく受け口で答える。mic・sys は点と同じ rmsOf の値（analyser が無い録音の前・一時停止は 0）、warn は今出している無音の警告の文
   if (typeof window.koeOverlay.onLevelAsk === 'function') {
     window.koeOverlay.onLevelAsk(() => window.koeOverlay.reportLevel({
-      mic: analyser ? rmsOf(analyser) : 0, sys: analyser && sysAnalyser ? rmsOf(sysAnalyser) : 0, warn: typeof shownLabel === 'string' ? shownLabel : '' }));
+      mic: analyser ? rmsOf(analyser) : 0, sys: analyser && sysAnalyser ? rmsOf(sysAnalyser) : 0, warn: typeof shownLabel === 'string' ? shownLabel : '',
+      ...(twoEver ? voiceAnswer() : {}) }));
+  }
+  // 0.12.0 SP-2（決めたこと 134・146）: 2つの流れの録音だけ、声を見る analyser の大きさと、今録っている区間の番号（録っていなければ -1）と取り込みの有無
+  function voiceAnswer() {
+    const recMic = Boolean(recorder && recorder.state === 'recording' && !paused);
+    const recSys = Boolean(sys.rec && sys.rec.state === 'recording' && sysOn && !paused);
+    return { vMic: micVoice && recMic ? rmsOf(micVoice) : 0, vSys: sysVoice && recSys ? rmsOf(sysVoice) : 0,
+      segMic: recMic ? micCur : -1, segSys: recSys ? sys.cur : -1, sysOk: Boolean(sysAnalyser && sysOn) };
   }
   hideBtn.addEventListener('click', () => { if (typeof window.koeOverlay.hidePanel === 'function') window.koeOverlay.hidePanel(); });
   if (typeof ResizeObserver === 'function') new ResizeObserver(() => reportSize()).observe(pill);

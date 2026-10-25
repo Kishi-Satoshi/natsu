@@ -329,13 +329,17 @@ async function waitHealth(port, child, ms) {
 const healthText = (h) => (h.exited ? `起動して /health の前に終わった（終了コード ${h.exited.code}${h.exited.error ? ` ${errText(h.exited.error)}` : ''}）` : '/health が 200 にならない');
 
 /** 無音の WAV を /inference へ送る（アプリの起動テストと同じ欄）。200 の JSON で error が無いこと */
-async function inference(port) {
+// 0.12.0 SP-3b（計画 docs/plans/2026-10-22-120.md の決めたこと 128・確かでないこと 1）: rf に verbose_json を渡すと、答えに文ごとの segments（配列）が
+// 来るかを why に書く（来なければアプリは区間を1行に倒す: S5 (a)）。無音なので文の時刻が元の音の時刻か（--vad）は分からない（実機 31 で見る）
+async function inference(port, rf = 'json') {
   const b = `----natsu${crypto.randomBytes(8).toString('hex')}`;
   const field = (k, v) => Buffer.from(`--${b}\r\nContent-Disposition: form-data; name="${k}"\r\n\r\n${v}\r\n`);
   const body = Buffer.concat([
     Buffer.from(`--${b}\r\nContent-Disposition: form-data; name="file"; filename="probe.wav"\r\nContent-Type: audio/wav\r\n\r\n`),
     silentWav(2), Buffer.from('\r\n'),
-    field('response_format', 'json'), field('temperature', '0.0'), field('no_context', 'true'), field('language', 'ja'),
+    field('response_format', rf), field('temperature', '0.0'), field('no_context', 'true'), field('language', 'ja'),
+    // アプリと同じく verbose_json では言語の確率を頼まない（頼むと 1.9.5 は VAD で声の無い音声で落ちる: R25。CI run 40171656089）
+    ...(rf === 'verbose_json' ? [field('no_language_probabilities', 'true')] : []),
     Buffer.from(`--${b}--\r\n`),
   ]);
   const r = await httpCall(port, 'POST', '/inference', { body, type: `multipart/form-data; boundary=${b}`, timeoutMs: 120000 });
@@ -344,7 +348,8 @@ async function inference(port) {
   if (r.status !== 200) return { ok: false, why: `/inference が ${r.status}: ${r.text.slice(0, 200)}` };
   if (!data || typeof data !== 'object') return { ok: false, why: `/inference の返事が JSON でない: ${r.text.slice(0, 200)}` };
   if (data.error) return { ok: false, why: `/inference が error を返した: ${data.error}` };
-  return { ok: true, why: `/inference が 200（文 ${JSON.stringify(String(data.text || '').trim()).slice(0, 60)}）` };
+  const segs = rf === 'verbose_json' ? `・segments ${Array.isArray(data.segments) ? `${data.segments.length} 個（配列）` : 'が無い'}` : '';
+  return { ok: true, why: `/inference が 200（文 ${JSON.stringify(String(data.text || '').trim()).slice(0, 60)}${segs}）` };
 }
 
 const whisperArgs = (model, vad, port) => ['-m', model, '--host', '127.0.0.1', '--port', String(port), '-t', '2', '-l', 'ja', '-sns',
@@ -360,7 +365,9 @@ async function smokeWhisper(p) {
     const h = await waitHealth(PORT.whisper, child, 60000);
     if (!h.ok) return ng(name, healthText(h));
     const inf = await inference(PORT.whisper);   // ここで VAD のモデルが読まれる
-    return inf.ok ? ok(name, `/health が 200・${inf.why}`) : ng(name, inf.why);
+    if (!inf.ok) return ng(name, inf.why);
+    const vj = await inference(PORT.whisper, 'verbose_json');   // 0.12.0 SP-3b: 文ごとの時刻の答えの形
+    return vj.ok ? ok(name, `/health が 200・${inf.why}・verbose_json: ${vj.why}`) : ng(name, `verbose_json: ${vj.why}`);
   } catch (e) {
     return ng(name, errText(e));
   } finally {

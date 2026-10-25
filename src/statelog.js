@@ -6,7 +6,9 @@
 
 const STATE_LOG_MAX = 50;
 // 0.11.0 M-4（P13・決めたこと 12）: 会議の種類の移り変わり（type）と、そのきっかけ（録音中のページ・議事録のページ・要約のときの自動の判定）を足した
-const STATE_NAMES = Object.freeze({ start: '開始', pause: '一時停止', resume: '再開', stop: '終了', 'auto-stop': '終了', recover: '戻した', type: '種類を選んだ' });
+// 0.12.0 SP-3a（D66・決めたこと 137）: 相手の声の取り込みの移り変わり（きっかけは録音バー overlay）
+const STATE_NAMES = Object.freeze({ start: '開始', pause: '一時停止', resume: '再開', stop: '終了', 'auto-stop': '終了', recover: '戻した', type: '種類を選んだ',
+  'sys-lost': '相手の声を取り込めていない', 'sys-back': '相手の声を取り込めた' });
 const BY_NAMES = Object.freeze({ button: '画面のボタン', overlay: '録音バー', hotkey: 'ホットキー', tray: 'タスクトレイ', panel: '会議の知らせのパネル', quiet: '無音で自動', app: 'アプリ',
   'live-page': '録音中のページ', page: '議事録のページ', auto: '要約のときの自動の判定' });
 

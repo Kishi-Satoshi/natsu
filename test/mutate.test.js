@@ -859,3 +859,69 @@ test('G3・0.11.0: 0.11.0 の変異が一覧にそろい、IDS_110 はどれも�
     assert.ok(typeof m.why === 'string' && m.why.startsWith('0.11.0 '), `${id}: why`);
   }
 });
+
+// 0.11.1 ロゴの差し替え（計画 docs/plans/2026-10-24-logo.md の「変異確認」の表）: 描く道具・新しい絵・画面の中のロゴの直しを1つずつ戻す変異。
+// タスクを作るたびに足した（Ruling R3）。LG-6 で意図して変えた: IDS_LOGO は計画の「変異確認」の表の id とちょうど同じ（表の行の順。表にだけある行は、作っていない変異）
+const IDS_LOGO = [
+  'lg-cubic-order', 'lg-cubic-steps', 'lg-write-atomic',   // LG-1
+  'lg-small-back', 'lg-tray-red',   // LG-2
+  'lg-side-fill', 'lg-overlay-invert', 'lg-inline-d',   // LG-4
+  'lg-feet-line',   // LG-2
+  'lg-mcp-png',   // LG-3
+  'lg-chromium-max',   // LG-7（Ruling R19）
+  'rv-render-rollback', 'rv-render-notfile',   // 点検の直し 1
+  'rv-render-made-first',   // 点検の直し 2
+];
+test('G3・0.11.1 LG-6: ロゴの差し替えの変異が一覧にそろい、IDS_LOGO は計画の「変異確認」の表の id とちょうど同じ（行の順も）。lg- の変異は IDS_LOGO にある。どれも決まったテストのファイルを持ち、why が 0.11.1 で始まる', { timeout: 5000 }, () => {
+  const byId = new Map(MUTANTS.map((m) => [m.id, m]));
+  assert.deepStrictEqual(IDS_LOGO.filter((id) => !byId.has(id)), [], 'IDS_LOGO の変異が一覧に無い');
+  assert.strictEqual(new Set(IDS_LOGO).size, IDS_LOGO.length, 'IDS_LOGO に重なり');
+  assert.deepStrictEqual(MUTANTS.filter((m) => /^lg-/.test(m.id) && !IDS_LOGO.includes(m.id)).map((m) => m.id), [], 'IDS_LOGO に無い lg- の変異がある');
+  const plan = fs.readFileSync(path.join(ROOT, 'docs', 'plans', '2026-10-24-logo.md'), 'utf8');
+  const table = plan.slice(plan.indexOf('## 変異確認（直しを1つ戻すと'), plan.indexOf('## ゲート'));
+  const rows = [...table.matchAll(/^\| ([a-z][a-z0-9-]*) \|/gm)].map((m) => m[1]).filter((id) => id !== 'id');
+  assert.ok(rows.length >= 10, '計画の表が読めない');
+  assert.strictEqual(new Set(rows).size, rows.length, '計画の表に重なり');
+  assert.deepStrictEqual(IDS_LOGO.filter((id) => !rows.includes(id)), [], '計画の「変異確認」の表に無い変異');
+  assert.deepStrictEqual(rows.filter((id) => !IDS_LOGO.includes(id)), [], 'IDS_LOGO に無い計画の「変異確認」の表の行（作っていない変異）');
+  assert.deepStrictEqual(IDS_LOGO, rows, 'IDS_LOGO が計画の表（行の順）とちょうど同じでない');
+  for (const id of IDS_LOGO) {
+    const m = byId.get(id);
+    assert.ok(Array.isArray(m.tests) && m.tests.length > 0 && m.tests.every((t) => /^test\/[^/]+\.test\.js$/.test(t)), `${id}: tests`);
+    assert.ok(typeof m.why === 'string' && m.why.startsWith('0.11.1 '), `${id}: why`);
+  }
+});
+
+// 0.12.0（計画 docs/plans/2026-10-22-120.md の「変異確認」の表）: 2つの流れの文字起こしと「自分」「相手」の直しを1つずつ戻す変異。
+// タスクを作るたびに足した。最後のタスク（SP-4）で表の全部とちょうど同じにそろえた（「spk- の変異は IDS_120 にある」も見る）
+const IDS_120 = [
+  'spk-vad-pause', 'spk-vad-idle', 'spk-trim', 'spk-t0', 'spk-clock-sum', 'spk-timeline-order', 'spk-overlap-drop', 'spk-bleed', 'spk-quiet-union',
+  'spk-stall-count', 'spk-parts-drift', 'spk-src-trust', 'spk-ipc-validate',   // SP-1
+  'spk-final-both', 'spk-cut-seq', 'spk-cut-paused', 'spk-sys-drop-rec', 'spk-vad-meter', 'spk-drop-src', 'spk-src-swap',   // SP-2
+  'spk-mic-only-src', 'spk-src-race', 'spk-level-hidden', 'spk-silent-send', 'spk-quiet-drop', 'spk-trim-at', 'spk-backpressure', 'spk-local-gate',
+  'spk-tail-stream', 'spk-repeat-stream', 'spk-statelog', 'spk-bleed-loose',   // SP-3a
+  'spk-verbose', 'spk-parts-edit', 'spk-parts-after',   // SP-3b
+  'spk-mcp-raw', 'spk-app-raw', 'spk-parts-check', 'spk-summary-rule', 'spk-summary-label', 'spk-score-raw', 'spk-ground-raw',   // SP-4
+  'rv-final-both', 'rv-final-timeout', 'rv-parts-tail',   // 点検の直し（2026-10-25）
+];
+test('G3・0.12.0: 0.12.0 の変異が一覧にそろい、IDS_120 は計画の「変異確認」の表の id とちょうど同じ。spk- の変異は IDS_120 にある。どれも決まったテストのファイルを持ち、why が 0.12.0 で始まる', { timeout: 5000 }, () => {
+  const byId = new Map(MUTANTS.map((m) => [m.id, m]));
+  assert.deepStrictEqual(IDS_120.filter((id) => !byId.has(id)), [], 'IDS_120 の変異が一覧に無い');
+  assert.strictEqual(new Set(IDS_120).size, IDS_120.length, 'IDS_120 に重なり');
+  assert.deepStrictEqual(MUTANTS.filter((m) => /^spk-/.test(m.id) && !IDS_120.includes(m.id)).map((m) => m.id), [], 'IDS_120 に無い spk- の変異がある');
+  // 点検の直し（2026-10-25）の変異は rv- で始まり、why が「0.12.0 点検の直し」で始まる（rv- の名前は前の版の点検の変異にもある）
+  assert.deepStrictEqual(MUTANTS.filter((m) => /^0\.12\.0 点検の直し/.test(m.why || '') && !IDS_120.includes(m.id)).map((m) => m.id), [], 'IDS_120 に無い 0.12.0 の点検の直しの変異がある');
+  assert.ok(IDS_120.filter((id) => !/^spk-/.test(id)).every((id) => /^rv-/.test(id)), 'IDS_120 の点検の直しの変異が rv- で始まらない');
+  const plan = fs.readFileSync(path.join(ROOT, 'docs', 'plans', '2026-10-22-120.md'), 'utf8');
+  const table = plan.slice(plan.indexOf('## 変異確認（直しを1つ戻すと'), plan.indexOf('## 取り直す画面（RETAKE）'));
+  const rows = [...table.matchAll(/^\| ([a-z][a-z0-9-]*) \|/gm)].map((m) => m[1]).filter((id) => id !== 'id');
+  assert.ok(rows.length >= 40, '計画の表が読めない');
+  assert.strictEqual(new Set(rows).size, rows.length, '計画の表に重なり');
+  assert.deepStrictEqual(IDS_120.filter((id) => !rows.includes(id)), [], '計画の「変異確認」の表に無い変異');
+  assert.deepStrictEqual([...IDS_120].sort(), [...rows].sort(), 'IDS_120 が計画の「変異確認」の表とちょうど同じでない');
+  for (const id of IDS_120) {
+    const m = byId.get(id);
+    assert.ok(Array.isArray(m.tests) && m.tests.length > 0 && m.tests.every((t) => /^test\/[^/]+\.test\.js$/.test(t)), `${id}: tests`);
+    assert.ok(typeof m.why === 'string' && m.why.startsWith('0.12.0 '), `${id}: why`);
+  }
+});

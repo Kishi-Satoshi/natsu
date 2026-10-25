@@ -53,7 +53,7 @@ const pillOf = (log) => log.byId.get('pill');
 const dots = (log) => log.byId.get('lv').children.filter((e) => e.tagName === 'i').map((i) => parseFloat(i.style.getPropertyValue('--l')));
 const msgText = (log) => log.byId.get('status').textContent;
 
-test('RP5: ピルの中に、ロゴの SVG（assets/icon.svg と同じ3本の path）・ちょうど5つの点・時間・#pauseBtn・#stopBtn・#ngBtn があり、canvas と「記録中（相手の声も）」「議事録を記録中」の文が無い', async () => {
+test('RP5: ピルの中に、ロゴの SVG（assets/icon.svg と同じ path）・ちょうど5つの点・時間・#pauseBtn・#stopBtn・#ngBtn があり、canvas と「記録中（相手の声も）」「議事録を記録中」の文が無い', async () => {
   const log = await load(OVL);
   assert.deepStrictEqual(log.errors.map(fmt), []);
   const pill = pillOf(log);
@@ -61,7 +61,8 @@ test('RP5: ピルの中に、ロゴの SVG（assets/icon.svg と同じ3本の pa
   const logo = log.root.querySelector('svg.logo');
   assert.ok(logo && inPill(logo), 'ロゴの SVG がピルの中に無い');
   const iconPaths = [...fs.readFileSync(path.join(ROOT, 'assets', 'icon.svg'), 'utf8').matchAll(/<path d="([^"]+)"/g)].map((m) => m[1]);
-  assert.strictEqual(iconPaths.length, 3);
+  // 0.11.1 LG-2 で意図して変えた: 新しいロゴ（箱の中のリス）は2本（黒い箱・白いリス）。icon.svg と録音バーの写しは同じ commit で替える（Ruling R8）
+  assert.strictEqual(iconPaths.length, 2);
   assert.deepStrictEqual(logo.querySelectorAll('path').map((p) => p.getAttribute('d')), iconPaths, 'ロゴの path が assets/icon.svg と違う');
   assert.ok(!/<img\b/i.test(SRC), '画像のファイルを読んでいる（CSP の img-src を広げない）');
   assert.strictEqual(log.byId.get('lv').children.filter((e) => e.tagName === 'i').length, 5, '点がちょうど5つでない');

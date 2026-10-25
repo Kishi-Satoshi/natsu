@@ -216,6 +216,8 @@ const finalizingDrafts = new Set();
 const DB_WAIT_TEXT = '録音を保存しました。議事録は準備ができしだい作ります';
 let segChain = Promise.resolve();
 let pendingSegs = 0;
+// 0.12.0 SP-3a（D66・決めたこと 126〜133）: 2つの流れの会議で、区間がどちらの流れか（'mic'・'loopback'）。下書き・DB には書かない（メモリの中だけ）
+const segLane = new WeakMap();
 
 const settingsPath = () => path.join(app.getPath('userData'), 'settings.json');
 const historyPath = () => path.join(app.getPath('userData'), 'history.json');
@@ -1478,6 +1480,14 @@ function restartWhisperAfterLate(seg, sec, planMs) {
 
 // opts.isStale: やり直しの前に聞く。true なら（議事録の破棄・打ち切りの後）送り直さない。
 // opts.learn: 議事録の区間のとき true。ヒントを止めるかの数え（promptEmptyStreak）に入れる
+// 0.12.0 SP-3a（決めたこと 126）: PC のエンジンは1つずつしか処理しないので、2つの流れの会議の区間は1つの門を通して順に送る
+// （門で待った時間は待ち時間に数えない: 待ち時間は門を通ってから決める）
+let localGateTail = Promise.resolve();
+function viaLocalGate(fn) {
+  const run = localGateTail.then(fn, fn);
+  localGateTail = run.catch(() => {});
+  return run;
+}
 async function transcribeLocal(wavBuffer, extraPromptTail, durationMs, opts = {}) {
   const ok = await ensureEngineReady(whisperEng);
   if (!ok) throw new Error(whisperEng.lastError || '文字起こしエンジンが起動していません');
@@ -1519,7 +1529,11 @@ async function transcribeLocal(wavBuffer, extraPromptTail, durationMs, opts = {}
     const makeForm = () => {
       const form = new FormData();
       form.append('file', new Blob([wavBuffer], { type: 'audio/wav' }), 'audio.wav');
-      form.append('response_format', 'json');
+      // 0.12.0 SP-3b（決めたこと 128）: 2つの流れの会議の区間は、文ごとの時刻（segments）も返してもらう（文ごとの行に分ける: partsOf）
+      form.append('response_format', opts.verbose ? 'verbose_json' : 'json');
+      // 0.12.0 SP-3b（R25）: verbose_json の言語の確率は頼まない。whisper-server 1.9.5 は VAD で声が1つも無い音声で、その計算（言語の自動判定）の
+      // 答えの -2 を言語の名前に引いて落ちる（CI run 40171656089 の engine-smoke）。確率は使わず、計算もエンコーダを1回余分に回すだけ
+      if (opts.verbose) form.append('no_language_probabilities', 'true');
       form.append('temperature', '0.0');
       // 前の要求の続きとして文字起こしさせない。1.7.6・1.8.0 などの whisper-server は既定で前の要求の
       // ヒントと文を次の要求に持ち越す（別の議事録や音声入力にまで漏れ、上の「ヒントなし」の
@@ -1567,6 +1581,7 @@ async function transcribeLocal(wavBuffer, extraPromptTail, durationMs, opts = {}
     // 空の文として扱うと区間ごと黙って消えるので、失敗として残す（後で文字起こしし直せる）
     if (data?.error) throw new Error(`文字起こしエンジンエラー: ${data.error}`);
     text = cleanWhisperText(data?.text);
+    if (opts.verbose && typeof opts.onSentences === 'function') opts.onSentences(Array.isArray(data?.segments) ? data.segments : null);
     if (text || !p) break;
   }
   // 空になった理由を後から追えるように残す（以前は何も書かず、engine.log からは何も分からなかった）
@@ -2564,7 +2579,8 @@ async function transcribeRouted(wav, tail, durationMs, opts, scope, what) {
       err.engineMissing = true;
       throw err;
     }
-    const text = await transcribeLocal(wav, tail, durationMs, opts);
+    // 0.12.0 SP-3a（決めたこと 126）: 2つの流れの会議の区間は門を通して1つずつ（待ち時間は transcribeLocal の中で門を通ってから決める）
+    const text = opts.gate ? await viaLocalGate(() => transcribeLocal(wav, tail, durationMs, opts)) : await transcribeLocal(wav, tail, durationMs, opts);
     return { text, provider, ...via };
   } catch (e) {
     if (e && typeof e === 'object') e.sttRoute = via;
@@ -2757,6 +2773,11 @@ async function probeInference() {
   }
 }
 // whisper の文から、無音・音楽などの印を外して 1 行にする
+// 0.12.0 SP-3b: whisper の文1つに区間の文と同じ直し（cleanWhisperText と、設定がオンならつなぎ言葉の除き）をかける（partsOf が区間の文の中を探す）
+function cleanSentence(raw) {
+  const t = cleanWhisperText(raw);
+  return settings.removeFillers ? removeFillersRule(t) : t;
+}
 function cleanWhisperText(raw) {
   return String(raw || '')
     .replace(/\[[^\]]*\]|\([^)]*\)/g, (m) => (/BLANK|MUSIC|音楽|拍手/i.test(m) ? '' : m))
@@ -3143,15 +3164,46 @@ function levelWanted() {
   if (!mainWin || mainWin.isDestroyed() || !mainWin.isVisible() || mainWin.isMinimized()) return false;
   return liveShownByUi;
 }
+// 0.12.0 SP-3a（決めたこと 123）: 2つの流れの議事録の間は、録音中のページが見えていなくても聞く（声の切れ目で区間を切るため）。一時停止・止める途中は聞かない
+function vadWanted() {
+  const m = meeting;
+  return Boolean(m && state === 'meeting' && m.two && m.two.sysEver && !m.stopping && !m.paused);
+}
 function syncLevelAsk() {
-  if (levelWanted()) { if (!levelTimer) levelTimer = setInterval(askLevel, lib.LEVEL_ASK_MS); }
+  if (levelWanted() || vadWanted()) { if (!levelTimer) levelTimer = setInterval(askLevel, lib.LEVEL_ASK_MS); }
   else if (levelTimer) { clearInterval(levelTimer); levelTimer = null; }
 }
 function askLevel() {
-  if (!levelWanted()) { syncLevelAsk(); return; }
+  if (!levelWanted() && !vadWanted()) { syncLevelAsk(); return; }
   sendToOverlay('overlay:level-ask', {});
 }
+// 0.12.0 SP-2（決めたこと 123・134）: 録音バーに「この流れ（src）のこの番号（seg）の区間を声の切れ目で切る」と言う
+function sendCut(src, seg) {
+  sendToOverlay('overlay:cut', { src, seg });
+}
+// 0.12.0 SP-3a（決めたこと 123・134・135）: level-ask の答えを照らし（checkLevel。壊れていれば数えない）、流れごと・区間ごとに vadStep を回す。
+// 切れ目・無音なら、その区間に1回だけ overlay:cut（区切りの側が short で、オフラインモードでない間だけ。PC の側は切らない: 決めたこと 128）
+function noteVoice(p) {
+  if (!vadWanted()) return;
+  const m = meeting;
+  const v = lib.checkLevel(p);
+  if (!v) return;
+  const now = Date.now();
+  const cloud = !m.localOnly && m.segMode && m.segMode.mode === 'short';
+  for (const [key, seg, level] of [['mic', v.segMic, v.vMic], ['loopback', v.segSys, v.vSys]]) {
+    const L = m.two.streams[key];
+    if (seg < 0) { L.askAt = 0; continue; }
+    let rec = L.vad.get(seg);
+    if (!rec) { rec = { st: lib.vadStart(), cut: '' }; L.vad.set(seg, rec); }
+    const dtMs = L.askAt && L.askSeg === seg ? now - L.askAt : lib.LEVEL_ASK_MS;
+    L.askAt = now; L.askSeg = seg;
+    const r = lib.vadStep(rec.st, { voiced: level > lib.VOICE_LEVEL, dtMs });
+    rec.st = r.st;
+    if (r.cut && !rec.cut && cloud) { rec.cut = r.cut; sendCut(key, seg); }
+  }
+}
 function onOverlayLevel(p) {
+  noteVoice(p);   // 0.12.0 SP-3a: 声の切れ目（音の波とは別。見えていなくても数える）
   if (!levelWanted()) return;
   sendToMainWin('meeting:level', lib.levelMsg(p));
 }
@@ -3386,8 +3438,8 @@ function onPanelSize(p) {
 }
 
 // 窓（題名の帯・タスクバー）のアイコン。Windows では ICO を渡す。ICO なら OS が画面に合う大きさを選び、
-// 16px・24px では線を太くした小さい版（assets/icon-small.svg から描いたもの）が出る。
-// PNG（256px）を渡すと、それを縮めて使うので、16px で箱の上の波がほとんど見えなくなる。
+// 16px・24px では、その大きさで描いた絵（assets/icon.svg から描いたもの。0.11.1 で小さい版はやめた）が出る。
+// PNG（256px）を渡すと、それを縮めて使うので、16px で形がぼやける。
 // 置き場所は src/assets（中身は assets/icon.ico・icon.png と同じ）。アプリ内の更新は src/ だけを
 // 入れ替えるので、src の外に置くと、描き直したアイコンがインストーラーを入れ直すまで届かない
 const WINDOW_ICON = path.join(__dirname, 'assets', process.platform === 'win32' ? 'window.ico' : 'window.png');
@@ -3783,7 +3835,8 @@ function applySegmentLength(m, delta, why) {
   const mode = m.localOnly ? 'long' : m.segMode.mode;
   const base = segmentBaseMs(mode, settings.segmentSec);
   // 0.9.4 S-5（決めたこと 29）: 背圧で伸ばすのは PC の側（long）だけ。クラウドの側（short）は基準のまま（mainlib.nextLiveSegmentMs の5つ目）
-  const next = nextLiveSegmentMs(pendingSegs, m.segmentMs, base, delta, mode);
+  // 0.12.0 SP-3a（決めたこと 133）: 2つの流れの会議は、待ちの数を流れの数で割って見る（1つの流れあたり 3）
+  const next = m.two && m.two.on ? nextLiveSegmentMs(Math.ceil(pendingSegs / liveLanes(m)), m.segmentMs, base, delta, mode) : nextLiveSegmentMs(pendingSegs, m.segmentMs, base, delta, mode);
   if (next === m.segmentMs) return;
   m.segmentMs = next;
   sendToOverlay('overlay:segment-ms', next);
@@ -3859,6 +3912,7 @@ function noteSttRoute(m, { route, why, scope } = {}) {
 function noteSttText(m, route) {
   m.stt = { route, lastTextAt: Date.now() };
   m.stallRun = 0;
+  if (m.two) for (const L of Object.values(m.two.streams)) L.stall = null;   // 0.12.0 SP-3a: 控えた WAV を消すので、流れごとの数えも戻す
   dropQuietKept(m);
   clearSttProblem(m, 'engine-down', 'stall');
 }
@@ -3910,6 +3964,8 @@ function noteKept(m, e) {
 // 文字が空だった区間（直前と同じ文で除いた区間は呼ばない）。音のある空は WAV を消さずに控え、stallAfter 個続いたら止まりとみなし、
 // 控えた区間を失敗の区間として atMs の順にページへ戻す。音の無い空は今どおり消す（数えも戻しもしない）→ 控えたら true
 function noteEmptySegment(m, seg, buffer) {
+  const lane = segLane.get(seg);   // 0.12.0 SP-3a（決めたこと 141）: 2つの流れの会議は流れごと・声の時間で
+  if (lane) return noteEmptyTwo(m, lane, seg, buffer);
   const run = stallStep(m.stallRun, { text: '', levelDbfs: wavLevelDbfs(buffer) });
   if (run === m.stallRun) return false;
   m.stallRun = run;
@@ -3918,24 +3974,28 @@ function noteEmptySegment(m, seg, buffer) {
   delete seg.pending;
   m.quietKept.push(seg);
   if (run >= stallAfter(m.segmentMs)) {
-    const kept = m.quietKept.splice(0);
     m.stallRun = 0;
-    const sec = Math.round(kept.reduce((a, x) => a + (Number(x.durationMs) || 0), 0) / 1000);
-    for (const x of kept) {
-      x.text = STALL_SEG_TEXT;
-      x.failed = true;
-      let at = m.segments.findIndex((y) => y.atMs > x.atMs);
-      if (at < 0) at = m.segments.length;
-      m.segments.splice(at, 0, x);
-    }
-    engineLog(`文字起こしの状態: 止まっているかもしれない（音のある空の区間 ${kept.length}）`);
-    setSttProblem(m, 'stall', { sec });
-    if (m.pageId) for (const x of kept) db.send('meeting.segment', { pageId: m.pageId, seg: settledSegments([x])[0] });
+    stallReached(m);
   }
   refreshSegFailed(m);
   writeDraft();
   sendToMainWin('meeting:update', meetingStatus());
   return true;
+}
+// 止まりとみなした: 控えた区間を失敗の区間として atMs の順にページへ戻し、帯 stall を立てる（1本の会議と2つの流れの会議で同じ）
+function stallReached(m) {
+  const kept = m.quietKept.splice(0);
+  const sec = Math.round(kept.reduce((a, x) => a + (Number(x.durationMs) || 0), 0) / 1000);
+  for (const x of kept) {
+    x.text = STALL_SEG_TEXT;
+    x.failed = true;
+    let at = m.segments.findIndex((y) => y.atMs > x.atMs);
+    if (at < 0) at = m.segments.length;
+    m.segments.splice(at, 0, x);
+  }
+  engineLog(`文字起こしの状態: 止まっているかもしれない（音のある空の区間 ${kept.length}）`);
+  setSttProblem(m, 'stall', { sec });
+  if (m.pageId) for (const x of kept) db.send('meeting.segment', { pageId: m.pageId, seg: settledSegments([x])[0] });
 }
 // ---- 話し声が無いときに聞いて止める（0.9.1 Q-4。計画 docs/plans/2026-10-21-091.md の決めたこと 7〜11・14）
 // 区間の文字起こしが済むたびに「話し声あり（speech）」「なし（quiet）」を mainlib.quietStep に渡す。時計は会議の時計（区間の長さの和。一時停止の時間を
@@ -3950,6 +4010,8 @@ const quietCfg = () => ({ on: settings.autoStopQuiet !== false, askMin: Number(s
 // 区間を分けた（kind: 'speech' | 'quiet'）。区間の終わりは会議の時計（atMs + durationMs）
 function noteHeard(m, seg, kind) {
   if (meeting !== m || !seg) return;
+  const lane = segLane.get(seg);   // 0.12.0 SP-3a: 2つの流れの区間は合わせてから渡す
+  if (lane) { feedQuietTwo(m, lane, kind, seg); return; }
   const r = lib.quietStep(m.quiet, { kind, endMs: seg.atMs + seg.durationMs }, quietCfg());
   if (r.act === 'withdraw') { m.quiet = r.st; hideQuietAsk(m, kind === 'speech' ? 'speech' : 'off'); return; }
   // 聞く・止めるのは録音中で一時停止していないときだけ（止めた後・作成中・破棄の後・一時停止中は何もしない: Q4・Q5）。一時停止中に聞く長さに
@@ -4638,10 +4700,13 @@ async function transcribeRecoveredItems(q, { cloudOnly = false } = {}) {
     let text = null;
     let err = '';
     let route = 'local';
+    // 0.12.0 SP-3b（決めたこと 144）: 2つの流れの会議（入口のある発言がある）の区間は、会議の後と戻しでも文の頭（parts）を作る
+    const twoPage = Boolean(alive.segments && alive.segments.some((s) => s && s.src));
+    let sentences = null;
     if (!err) {
       try {
         ({ text, route } = await transcribeAuto(fs.readFileSync(item.wav), '', item.durationMs, { localOnly: recoveryPcOnly(q), cloudOnly, what: `復旧 ${item.id}`, seg: item.id,
-          busyStop: () => state !== 'idle' }));
+          busyStop: () => state !== 'idle', verbose: twoPage, onSentences: (x) => { sentences = x; } }));
         if (settings.removeFillers) text = removeFillersRule(text);
       } catch (e) {
         const kind = e && !e.refused && e.sttRoute && e.sttRoute.route === 'local' ? lib.localFailKind(e) : '';
@@ -4664,7 +4729,9 @@ async function transcribeRecoveredItems(q, { cloudOnly = false } = {}) {
       left.push(held ? { ...item, tries, held: true } : { ...item, tries });
       continue;
     } else if (text) {
-      await db.call('segment.update', { pageId: q.pageId, segId: item.id, patch: { text }, recite: false });
+      const parts = twoPage && route === 'local' && sentences ? lib.partsOf(sentences, { text, durationMs: item.durationMs, clean: cleanSentence }) : null;
+      if (parts) await db.call('segment.update', { pageId: q.pageId, segId: item.id, patch: { text, parts }, recite: false });
+      else await db.call('segment.update', { pageId: q.pageId, segId: item.id, patch: { text }, recite: false });
       done++;
     } else {
       await db.call('segment.remove', { pageId: q.pageId, segId: item.id });   // 無音: 区間ごと消す（記録中と同じ扱い）
@@ -4867,6 +4934,7 @@ async function startMeeting() {
   const h0 = holdNow();
   const segMode = startSegmentMode({ localOnly: false, signedIn: hasRelayLogin(), hold: h0 ? h0.why : '', netOnline: netOnline(), peekUp: online.peek(sttProvider().reachUrl) });
   meeting.segMode = { mode: segMode, localRun: 0, cloudRun: 0 };
+  meeting.two = twoInit();   // 0.12.0 SP-3a: 2つの流れ（相手の声を取り込めたら使う）
   meeting.segmentMs = segmentBaseMs(segMode, settings.segmentSec);
   engineLog(`文字起こしの状態: 区切り ${meeting.segmentMs / 1000} 秒（${segMode}・理由 start）`);
   paceStart(meeting);   // 0.9.4 S-4
@@ -4928,6 +4996,7 @@ function stopMeeting() {
     meeting.pausedAt = 0;
   }
   sendToOverlay('overlay:stop', {});   // 0.9.4 P-1（F2）: 録音バーはその場で薄く消える（「議事録を作成中…」を送らない）
+  if (twoMeeting(meeting) && !meeting.finalSeen) armTwoFinalWait(meeting);   // 点検の直し C1
   sendToMainWin('meeting:progress', { message: '録音を終了し、残りの文字起こしを処理しています…' });
   updateTray();
   // 開始・破棄と同じく状態を送る。これが無いと、ホットキーやトレイから
@@ -4961,15 +5030,26 @@ async function toggleMeetingByHotkey() {
   } else if (state === 'meeting') stopMeetingBy('hotkey');
 }
 
-function onMeetingSegment(buffer, durationMs, isFinal) {
+function onMeetingSegment(buffer, durationMs, isFinal, metaIn) {
   if (!meeting) return;
   // 文字起こしは録音より遅れて終わる。その間に議事録が破棄されて次の記録が
   // 始まっていることがあるので、この区間が属する議事録を捕まえておき、
   // 「今も同じ議事録か」で判断する。単なる null 判定だと、破棄した議事録の
   // 発言が次の議事録に紛れ込む。
   const m = meeting;
-  const segOffset = m.offsetMs;
-  m.offsetMs += durationMs;
+  // 0.12.0 SP-3a（D66・決めたこと 124・125・135・147）: 2つの流れの区間（録音バーの4つ目）。照らせなければ今の1本の道
+  const meta = metaIn === undefined || metaIn === null ? null : lib.checkSegMeta(metaIn, { sysEver: m.two.sysEver });
+  if (metaIn !== undefined && metaIn !== null && !meta) noteBadMeta(m);
+  const lane = meta ? (meta.src === 'loopback' ? 'loopback' : 'mic') : '';
+  let segOffset;
+  if (lane) {
+    // 無音の区間は区間にしない（空の音声に替える）・頭の無音を切る・始まりの時刻は流れの時計から・会議の時計は終わりの遅い方
+    const r = streamSegment(m, lane, meta, buffer, durationMs);
+    buffer = r.buffer; durationMs = r.durationMs; segOffset = r.atMs;
+  } else {
+    segOffset = m.offsetMs;
+    m.offsetMs += durationMs;
+  }
   if (isFinal) m.finalSeen = true;
   // 打ち切り（meeting:skipPending）の後に届いた区間（録音側で変換中だった最後の区間）は
   // 文字起こしせず「打ち切り」として残す。黙って捨てると残り件数にも出ず、痕跡が無くなる
@@ -4980,6 +5060,7 @@ function onMeetingSegment(buffer, durationMs, isFinal) {
       if (wav) m.segments.push({ id: `s${++m.seq}`, atMs: segOffset, durationMs, text: lib.SKIP_KEPT_TEXT, failed: true, kept: true, wav });
       else m.segments.push({ id: `s${++m.seq}`, atMs: segOffset, durationMs, text: '（文字起こしを打ち切り）', failed: true });
       m.skipped++;
+      if (lane) tagSeg(m.segments[m.segments.length - 1], lane, meta);   // 0.12.0 SP-3a: 打ち切りの後の区間も入口を持つ
       writeDraft();
     }
     sendToMainWin('meeting:update', meetingStatus());
@@ -4993,6 +5074,7 @@ function onMeetingSegment(buffer, durationMs, isFinal) {
     // 文字起こしは録音より遅れて終わる。その間にアプリが落ちても、wav が残っていれば
     // 次回起動時に文字起こしして復旧できる
     seg = { id: `s${++m.seq}`, atMs: segOffset, durationMs, pending: true, wav: '', text: '' };
+    if (lane) tagSeg(seg, lane, meta);   // 0.12.0 SP-3a（決めたこと 121）: 入口（src）は音の入口で決める。1本の会議には付けない
     seg.wav = spoolSegment(segbufDir(m.startedAt), m.seq, buffer);
     m.segments.push(seg);
     writeDraft();
@@ -5004,11 +5086,12 @@ function onMeetingSegment(buffer, durationMs, isFinal) {
   // 0.9.4 S-4（決めたこと 9 の (d)）: PC で処理を待っている区間の音声の合計（PC の側の会議のとき）
   if (m.localOnly || (m.segMode && m.segMode.mode === 'long')) paceEvent(m, { kind: 'backlog', audioMs: pendingDurationMs(m.segments) });
   sendToMainWin('meeting:update', meetingStatus());
-  segChain = segChain.then(async () => {
+  const work = async () => {
     if (meeting !== m || m.gen !== gen || !seg) return;
     // 直近の「成功した」区間の末尾。失敗区間のエラー文を渡すと、次の区間が
     // それを文例として真似る（mainlib.promptTail。待ちの区間は飛ばす）。
-    const tail = promptTail(m.segments);
+    // 0.12.0 SP-3a（決めたこと 126）: 2つの流れの会議の認識ヒントは同じ流れの直前の済んだ区間から
+    const tail = promptTail(lane ? laneSegs(m, lane) : m.segments);
     const t0 = Date.now();
     m.inFlightSince = t0;
     let text = '';
@@ -5020,10 +5103,11 @@ function onMeetingSegment(buffer, durationMs, isFinal) {
     let echoFold = '';
     let loudDbfs = null;
     let procMs = null;   // 0.9.4 S-4: PC への要求の時間（transcribeLocal の onTimed）
+    let sentences = null;   // 0.12.0 SP-3b: PC の whisper の文（verbose_json の segments）
     // 第1d回 A-6: OpenAI の短い 429 を待つ間の帯 wait（区間が終わったら消す）
     const onWait = (sec) => { if (meeting === m && m.gen === gen) { setSttProblem(m, 'wait', { sec }); sendToMainWin('meeting:update', meetingStatus()); } };
     try {
-      ({ text, route, why, scope, silent, echo, echoFold, loudDbfs } = await transcribeAuto(buffer, tail, durationMs, { isStale: () => meeting !== m || m.gen !== gen, learn: true, localOnly: m.localOnly, notice: m, what: `区間 ${seg.id}`, seg: seg.id, onWait,
+      ({ text, route, why, scope, silent, echo, echoFold, loudDbfs } = await transcribeAuto(buffer, tail, durationMs, { isStale: () => meeting !== m || m.gen !== gen, learn: true, localOnly: m.localOnly, notice: m, what: `区間 ${seg.id}`, seg: seg.id, onWait, gate: Boolean(lane), verbose: Boolean(lane), onSentences: (x) => { sentences = x; },
         paceSlow: () => Boolean(m.pace && m.pace.slow), onTimed: (ms) => { procMs = ms; } }));
     } catch (e) {
       if (meeting !== m || m.gen !== gen) return;
@@ -5071,7 +5155,8 @@ function onMeetingSegment(buffer, durationMs, isFinal) {
     // 0.9.1 Q-2（決めたこと 4）: 話し声の大きさより小さな区間（一番大きい窓が SPEECH_DBFS より小さい）では、直前の2つの済んだ区間のどちらかと同じ文
     // （交互の作り話 A・B・A・B）も消す。この会議で認識ヒントの繰り返しとして除いた答えと同じ文も消す
     if (echo && echoFold) { m.echoSeen.add(echoFold); if (m.echoSeen.size > 20) m.echoSeen.delete(m.echoSeen.values().next().value); }
-    const done = m.segments.filter((s) => !s.pending);
+    // 0.12.0 SP-3a（決めたこと 126）: 作り話の繰り返しの見張りも同じ流れの区間だけで見る（相手の行と同じ文のマイクの行は回り込みとして見る）
+    const done = (lane ? laneSegs(m, lane) : m.segments).filter((s) => !s.pending);
     const recent = done.slice(Number.isFinite(loudDbfs) && loudDbfs < SPEECH_DBFS ? -2 : -1).map((s) => s.text);
     const repeat = Boolean(text) && ((text.length > 6 && recent.includes(text)) || m.echoSeen.has(hintFold(text)));
     if (!text || repeat) {
@@ -5086,18 +5171,169 @@ function onMeetingSegment(buffer, durationMs, isFinal) {
       return;
     }
     noteSttText(m, route);
-    settleSegment(m, seg, { text });
+    // 0.12.0 SP-3b（決めたこと 128）: PC の側の長い区間は、whisper の文の時刻で文の頭（parts）を作る。作れなければ1行（S5 (a)）
+    const parts = lane && route === 'local' && sentences ? lib.partsOf(sentences, { text, durationMs, clean: cleanSentence }) : null;
+    settleSegment(m, seg, parts ? { text, parts } : { text });
+    // 0.12.0 SP-3a（決めたこと 129・S9 (a)）: 相手の声の回り込み（同じ言葉のマイクの行）を除く。後に文字起こしを終えた方の時に見る
+    if (lane && bleedCheck(m, lane, seg)) { noteHeard(m, seg, 'quiet'); return; }
     noteHeard(m, seg, 'speech');   // 0.9.1 Q-4
     // 第1d2回 M-3（OF3）: 中継が戻った（この区間がクラウドで文字になった）。録音中で PC の中だけでなければ、残した区間を古い順に2つまで並べ直す
     if (route === 'cloud' && !m.stopping && !m.localOnly && m.segments.some((s) => s.kept)) retryFailedSegments({ only: 'kept', max: KEPT_RETRY_MAX });
-  }).catch(() => {}).finally(() => {
+  };
+  const after = () => {
     // 破棄済みの議事録の区間は、破棄時に数え直した件数を減らさない
     if (meeting === m) { pendingSegs = Math.max(0, pendingSegs - 1); applySegmentLength(m, -1, 'backpressure'); clearSttProblem(m, 'wait'); }
     sendToMainWin('meeting:update', meetingStatus());
     if (meeting === m && (isFinal || (m.stopping && pendingSegs === 0))) {
       maybeFinalizeMeeting().catch((e) => engineLog(`finalize failed: ${e.message}`));
     }
-  });
+  };
+  // 0.12.0 SP-3a（決めたこと 126）: 2つの流れの会議は流れごとの鎖（クラウドへは2つが同時に出る。マイクの行が相手の行の後ろで待たない）
+  if (lane) m.two.streams[lane].chain = m.two.streams[lane].chain.then(work).catch(() => {}).finally(after);
+  else segChain = segChain.then(work).catch(() => {}).finally(after);
+}
+
+// ---- 0.12.0 SP-3a: 2つの流れの区間（計画 docs/plans/2026-10-22-120.md の決めたこと 122〜141・147）
+function twoStream() {
+  return { offsetMs: 0, endMs: 0, vad: new Map(), askAt: 0, askSeg: -1, chain: Promise.resolve(), stall: null };
+}
+function twoInit() {
+  // sysEver: この会議で一度でも相手の声を取り込めたか（決めたこと 147）・sysLog: 経過に積んだ取り込みの有無（'' | 'ok' | 'lost'）・
+  // on: 2つの流れの区間を受けたか・quiet: 無音で止める見張りの合わせ（quietUnion）・counts: engine.log の数（決めたこと 136）
+  return { sysEver: false, sysLog: '', on: false, streams: { mic: twoStream(), loopback: twoStream() }, quiet: null,
+    counts: { mic: 0, loopback: 0, idle: 0, bleed: 0 }, badMeta: 0 };
+}
+// 2つの流れの会議か（2つの流れの区間を受けた・一度でも相手の声を取り込めた: 録音バーは取り込めたら2つの録音で録る）
+const twoMeeting = (m) => Boolean(m && m.two && (m.two.on || m.two.sysEver));
+// 点検の直し C1: 締めの待ちの見張り（止めてから TWO_FINAL_WAIT_MS。後回し（skipPending）の見張りと同じ 60 秒）。最後の区間が届かなければ締める
+const TWO_FINAL_WAIT_MS = 60000;
+function armTwoFinalWait(m) {
+  setTimeout(function twoFinalWait() {
+    if (meeting !== m || m.finalSeen) return;
+    engineLog('締めの待ち: 録音バーの最後の区間が 60 秒届かなかったので締めました（2つの流れ）');
+    m.finalSeen = true;
+    if (pendingSegs === 0) maybeFinalizeMeeting().catch((e) => engineLog(`finalize failed: ${e.message}`));
+  }, TWO_FINAL_WAIT_MS);
+}
+// 相手の声の取り込みの移り変わりを経過に積む（決めたこと 137: 始めに取り込めなかったら sys-lost を1つ。取り込めたら積まない。変わったときだけ）
+function noteSysSource(m, ok) {
+  if (ok) {
+    m.two.sysEver = true;
+    if (m.two.sysLog === 'lost') noteMeetingState(m, 'sys-back', 'overlay');
+    m.two.sysLog = 'ok';
+  } else if (m.two.sysLog !== 'lost') {
+    noteMeetingState(m, 'sys-lost', 'overlay');
+    m.two.sysLog = 'lost';
+  }
+  syncLevelAsk();
+}
+function noteBadMeta(m) {
+  if (!m.two.badMeta) engineLog('録音バーの区間の4つ目を読めませんでした（1本の区間として扱います）');
+  m.two.badMeta += 1;
+}
+function tagSeg(seg, lane, meta) {
+  if (meta.src) seg.src = meta.src;
+  segLane.set(seg, lane);
+}
+// 今録っている流れの数（相手の声の流れが終わった後はマイクの流れだけ: 背圧の割り算。決めたこと 133）
+function liveLanes(m) {
+  return m.two.quiet && m.two.quiet.ended && m.two.quiet.ended.loopback ? 1 : 2;
+}
+function laneSegs(m, lane) {
+  return m.segments.filter((s) => segLane.get(s) === lane);
+}
+// 区間の時刻・無音・頭を決める → { buffer, durationMs, atMs }（無音で捨てる区間は空の音声。決めたこと 124・125・140）
+function streamSegment(m, lane, meta, buffer, durationMs) {
+  const L = m.two.streams[lane];
+  m.two.on = true;
+  const now = Date.now();
+  const activeMs = now - m.startedAt - (m.pausedMs || 0) - (m.paused && m.pausedAt ? now - m.pausedAt : 0);
+  const origMs = Math.max(0, Number(durationMs) || 0);
+  const baseAt = lib.segAtOf({ t0: meta.t0, prevEndMs: L.endMs, offsetMs: L.offsetMs, activeMs });
+  L.offsetMs = baseAt + origMs;
+  L.endMs = Math.max(L.endMs, baseAt + origMs);
+  m.offsetMs = lib.clockOf(m.two.streams);
+  if (lane === 'loopback' && m.two.quiet && m.two.quiet.ended && m.two.quiet.ended.loopback && !meta.last) {
+    m.two.quiet = { ...m.two.quiet, ended: { ...m.two.quiet.ended, loopback: false } };   // 再開で取り込めた（相手の声の流れが戻った）
+  }
+  const rec = L.vad.get(meta.seg);
+  for (const k of [...L.vad.keys()]) if (k <= meta.seg) L.vad.delete(k);
+  const big = Buffer.isBuffer(buffer) && buffer.byteLength >= 4000;
+  if (big) m.two.counts[lane] += 1;
+  let out = { buffer, durationMs: origMs, atMs: baseAt };
+  const cloud = !m.localOnly && m.segMode && m.segMode.mode === 'short';
+  if (rec && cloud && big) {
+    const v = lib.vadSummary(rec.st);
+    if (v.voicedMs === 0) {
+      // 声のフレームが1つも無く、WAV も話し声より小さい区間は送らず、音声も残さず、ページに出さない（小さな声を落とさないため両方のとき）
+      const loud = wavLoudestDbfs(buffer);
+      if (loud !== null && loud < SPEECH_DBFS) {
+        m.two.counts.idle += 1;
+        m.emptySegs++;
+        out = { buffer: Buffer.alloc(0), durationMs: origMs, atMs: baseAt };
+        const ghost = { atMs: baseAt, durationMs: origMs };
+        segLane.set(ghost, lane);
+        noteHeard(m, ghost, 'quiet');
+      }
+    } else if (v.firstVoiceMs > lib.PRE_ROLL_MS) {
+      // 最初の声の PRE_ROLL_MS 前より前を切る。切った分を atMs に足す（決めたこと 125 (b)）
+      const cut = v.firstVoiceMs - lib.PRE_ROLL_MS;
+      const trimmed = lib.wavFrom(buffer, cut);
+      if (trimmed !== buffer) out = { buffer: trimmed, durationMs: Math.max(0, origMs - cut), atMs: baseAt + cut };
+    }
+  }
+  // 相手の声の流れが終わった（取り込みが切れた）。無音で止める見張りは以後マイクの流れだけで見る（決めたこと 133）
+  if (lane === 'loopback' && meta.last && !m.stopping) {
+    const ghost = { atMs: L.endMs, durationMs: 0 };
+    segLane.set(ghost, lane);
+    noteHeard(m, ghost, 'end');
+  }
+  return out;
+}
+// 回り込み（決めたこと 129）: マイクの行の文が、時刻の重なる（前後 BLEED_NEAR_MS）相手の行の文に BLEED_SHARE 以上含まれていれば、そのマイクの行を除く。
+// 除いたら true（この区間がマイクの行のとき）。文は記録に書かない（数だけ）
+function bleedCheck(m, lane, seg) {
+  const near = (a, b) => a.atMs - lib.BLEED_NEAR_MS < b.atMs + (b.durationMs || 0) && b.atMs - lib.BLEED_NEAR_MS < a.atMs + (a.durationMs || 0);
+  const textOf = (k) => m.segments.filter((s) => segLane.get(s) === k && !s.pending && !s.failed && s.text);
+  const isBleed = (mic) => lib.bleedOf(mic.text, textOf('loopback').filter((l) => near(mic, l)).map((l) => l.text)) >= lib.BLEED_SHARE;
+  const drop = (s) => {
+    const i = m.segments.indexOf(s);
+    if (i < 0) return;
+    m.segments.splice(i, 1);
+    m.two.counts.bleed += 1;
+    writeDraft();
+    sendToMainWin('meeting:update', meetingStatus());
+  };
+  if (lane === 'mic') {
+    if (!isBleed(seg)) return false;
+    drop(seg);
+    return true;
+  }
+  for (const s of textOf('mic').filter((x) => near(x, seg))) if (isBleed(s)) drop(s);
+  return false;
+}
+// 2つの流れの止まりの見張り（決めたこと 141）: 音のある空の区間の長さの和で決める（区間の数で決めない）。控えたら true
+function noteEmptyTwo(m, lane, seg, buffer) {
+  const L = m.two.streams[lane];
+  const before = L.stall && L.stall.n ? L.stall.n : 0;
+  const r = lib.stallStepMs(L.stall, { text: '', levelDbfs: wavLevelDbfs(buffer), durationMs: seg.durationMs });
+  if (r.st.n === before) return false;
+  L.stall = r.st;
+  const i = m.segments.indexOf(seg);
+  if (i >= 0) m.segments.splice(i, 1);
+  delete seg.pending;
+  m.quietKept.push(seg);
+  if (r.stall) { L.stall = null; stallReached(m); }
+  refreshSegFailed(m);
+  writeDraft();
+  sendToMainWin('meeting:update', meetingStatus());
+  return true;
+}
+// 2つの流れの区間の話し声の有無を、どちらの流れにも話し声の無い時間だけにして quietStep に渡す（決めたこと 133）
+function feedQuietTwo(m, lane, kind, seg) {
+  const u = lib.quietUnion(m.two.quiet, { src: lane, kind, endMs: seg.atMs + seg.durationMs });
+  m.two.quiet = u.st;
+  for (const f of u.feed) noteHeard(m, { atMs: f.endMs, durationMs: 0 }, f.kind);
 }
 
 async function maybeFinalizeMeeting() {
@@ -5106,8 +5342,16 @@ async function maybeFinalizeMeeting() {
   // 打ち切りで待ち件数を 0 にしても、録音側が変換中の最後の区間はこれから届く。
   // 先に締めると、その区間は議事録の無いところへ届いて消える（打ち切りの数にも入らない）
   if (meeting.skipAll && !meeting.finalSeen) return;
+  // 点検の直し C1（決めたこと 130 の改め。持ち主 2026-10-25「両方の最後が届くまで待ってから締める（おすすめ）」）: 2つの流れの会議では、
+  // 録音バーは後に送った方の最後の区間に final を付ける。片方の最後だけで待ちが 0 になっても締めない（もう片方の最後の 15〜20 秒が消える）
+  if (twoMeeting(meeting) && !meeting.finalSeen) return;
   const m = meeting;
   meeting = null;
+  // 0.12.0 SP-3a（決めたこと 136）: 2つの流れの会議は数だけを記録に（札の字・文は書かない）
+  if (m.two && m.two.on) {
+    const c = m.two.counts;
+    engineLog(`2つの流れで録りました（マイク ${c.mic} 区間・相手の声 ${c.loopback} 区間・声の無い区間 ${c.idle}・回り込み ${c.bleed}）`);
+  }
   dropQuietKept(m);   // 止まりの見張りで控えたまま会議が終わった区間の WAV（ページには無い。第1d回 A-6）
   paceSave(m);   // 0.9.4 S-4: この PC の速さの覚え（会議の後の文字起こしの目安と待ち時間が使う）
 
@@ -5275,7 +5519,12 @@ async function doRunSummary(pageId) {
   let segments = opened.segments;   // 出典付与の直前に読み直して差し替える（下記）
   const segmentsAtStart = segments;   // 要約の材料にした配列。出典付けで今の配列と突き合わせる（#4）
   const usable = segments.filter((s) => !s.failed && !s.pending);
-  const plain = usable.map((s) => s.text).join('\n');
+  // 0.12.0 SP-4（決めたこと 143・R1）: 文字起こしはタイムラインの行の順。plain は札の無い文（種類の判定・点の長さ・担当と期限の照らし。
+  // 札の無い会議は今と同じ文）、labeled は行の頭に「自分: 」「相手: 」を付けた文（Claude Code へ渡す。札が1つも無ければ plain と同じ）
+  const rows = lib.timelineOf(usable);
+  const plain = rows.map((r) => r.text).join('\n');
+  const hasLabel = rows.some((r) => lib.srcLabel(r));
+  const labeled = hasLabel ? rows.map(lib.labeledLine).join('\n') : plain;
 
   if (!plain.trim()) {
     // 0.10.0 LS-2（D69・決めたこと 111 の 6）: 文字起こしが空のページは要約の欄に理由を書かない（鍵のまま。欄の頭の一言が伝える）。
@@ -5339,13 +5588,13 @@ async function doRunSummary(pageId) {
   const wantScore = quality.shouldScore(page.meetingType, settings.qualityScore);
   const score = wantScore && plain.length >= quality.MIN_SCORE_CHARS;
   // 0.11.0 M-2（決めたこと 14）: 書式は1回だけ作る（Claude Code に渡す文と写しを落とす文に同じ文字列）
-  const template = memoTypes.buildTemplate({ meetingType: page.meetingType, score });
+  const template = memoTypes.buildTemplate({ meetingType: page.meetingType, score, labeled: hasLabel });
   const progress = (msg) => sendToMainWin('meeting:progress', { message: msg });
   // 決まらなかったときは「自動として」でなく型の名前で言う（0.11.0 P-12・R15）
   progress(`Claude Code で議事録を作成中…（${mtype.isSelectable(page.meetingType) ? `${mtype.getLabel(page.meetingType)}として` : '決まらなかったので会議の要点の型で'}要約します）`);
   try {
     // Claude Code が断った・失敗したら、理由を要約の欄に書いて終える（下の catch。手元の llama へは行かない: D1・D59）
-    const { md: answer, truncatedParts, finalTruncated } = await summarizeWithClaude(plain, page.memo, template);
+    const { md: answer, truncatedParts, finalTruncated } = await summarizeWithClaude(labeled, page.memo, template);
     // 0.11.0 Q-3（決めたこと 30・32）: 採点の節はいつも本文から外す（頼まなかった採点の節も、2つ以上の節も、本文に残さない）
     const split = quality.splitScore(answer);
     const md = split.body;
@@ -6134,7 +6383,8 @@ function setupIpc() {
   });
   ipcMain.on('overlay:cancel-request', () => { if (state === 'recording') cancelRecording(); });
   ipcMain.on('audio:done', (_e, { buffer, durationMs }) => handleDictationAudio(Buffer.from(buffer), durationMs));
-  ipcMain.on('audio:segment', (_e, { buffer, durationMs, final }) => onMeetingSegment(Buffer.from(buffer), durationMs, Boolean(final)));
+  // 0.12.0 SP-3a: 2つの流れの議事録は4つ目 meta（main が checkSegMeta で照らす）
+  ipcMain.on('audio:segment', (_e, { buffer, durationMs, final, meta }) => onMeetingSegment(Buffer.from(buffer), durationMs, Boolean(final), meta));
   // 録音側が実際に何を録れているかを受け取る。設定がオンでも、再生デバイスが
   // 無い・他のアプリが排他で掴んでいる等で失敗しうる。黙ってマイクだけで進むと、
   // 会議が終わってから片側しか残っていないことに気づく——それが一番まずい。
@@ -6176,6 +6426,7 @@ function setupIpc() {
   ipcMain.on('overlay:source', (_e, { systemAudio, wanted }) => {
     if (!meeting) return;
     meeting.systemAudio = Boolean(systemAudio);
+    if (wanted) noteSysSource(meeting, Boolean(systemAudio));   // 0.12.0 SP-3a（決めたこと 137・147）
     sendToMainWin('meeting:update', meetingStatus());
     if (wanted && !systemAudio) {
       sendToMainWin('app:notice',

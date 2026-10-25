@@ -7,6 +7,7 @@
 //   --version   → 2.1.300 (Claude Code)
 //   -p          → 標準入力を全部読み、FAKE_CLAUDE_MODE で答える（下の ANSWERS）
 //                 標準入力に FAKE_CLAUDE_EXPECT（文字起こし）・FAKE_CLAUDE_EXPECT_ASK（指示文）があるかを記録に書く
+//                 FAKE_CLAUDE_STDIN=1 なら標準入力の全文も記録に書く（stdinText。0.12.0 SP-4）
 // 受けたものは FAKE_CLAUDE_LOG に1行の JSON で書く。envKeys は課金に関わる変数の名前だけ（大小を問わず
 // ANTHROPIC_・CLAUDE_CODE_USE_・CLAUDE_CODE_OAUTH_ で始まるものと CLAUDE_CODE_SIMPLE）。CLAUDE_CODE_ で始まる
 // ほかの変数は数えない（Claude Code の中でテストを回すと置かれていて、外さなくてよいため）。
@@ -89,7 +90,9 @@ if (args[0] === 'auth' && args[1] === 'status') {
     note({ kind: 'p', args, cwd: process.cwd(), envKeys, stdinBytes: stdin.length,
       stdinHasTranscript: !!expect && text.includes(expect), stdinHasAsk: !!expectAsk && text.includes(expectAsk),
       // 0.11.0 M-2: 書式の見出しの行だけ（## と ###。文字起こしとメモの中身は書かない）
-      stdinHeads: text.split('\n').filter((l) => /^#{2,3} /.test(l)) });
+      stdinHeads: text.split('\n').filter((l) => /^#{2,3} /.test(l)),
+      // 0.12.0 SP-4: FAKE_CLAUDE_STDIN=1 のときだけ標準入力の全文（札とタイムラインの順を見る場面）
+      ...(env.FAKE_CLAUDE_STDIN === '1' ? { stdinText: text } : {}) });
     if (mode === 'badflag') { finish({ errText: "error: unknown option '--safe-mode'\n", code: 1 }); return; }   // 古い版のまね
     if (mode === 'slow') { setTimeout(() => finish(ok()), Number(env.FAKE_CLAUDE_DELAY || 0)); return; }
     finish((ANSWERS[mode] || ok)());

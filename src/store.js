@@ -256,9 +256,12 @@ function updateSegment(pageId, segId, patch) {
   const s = segments.find((x) => x.id === segId);
   if (!s) return null;
   if (typeof patch.text === 'string') {
+    const changed = s.text !== patch.text;
     s.text = patch.text;
     delete s.failed;   // 「認識に失敗」の行を人が書き直したら、要約の材料に戻す
+    if (changed && !Array.isArray(patch.parts)) delete s.parts;   // 0.12.0 SP-3b: DB の segmentUpdate と同じ答え（文を直したら文の頭を消す）
   }
+  if (Array.isArray(patch.parts)) s.parts = patch.parts.map((x) => ({ ms: x.ms, at: x.at }));
   saveTranscript(pageId, segments);
   return segments;
 }

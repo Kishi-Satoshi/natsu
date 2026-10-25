@@ -21,6 +21,8 @@
 //   parrot     … 0.9.1 Q-2: 認識ヒントの繰り返し（作り話）。受けた prompt を「 」で切った部品の、1つ目（文例）→ 2つ目（言葉の並び）→ 2つ目の最初の語
 //                の順に、文字起こしの要求の通し番号でくり返す（利用者の 0.8.0 の記録の形）
 //   fixA・fixB … 0.9.1 Q-2: いつも同じ文（A・B。7 字以上の、ヒントに無い作り話）
+//   tagged     … 0.12.0 SP-3a: textOf(WAV) の答えの文（null なら text と同じ）。2つの流れの場面で区間ごとの文を決める（mainrun の --two-streams）
+// 0.12.0 SP-3a: 受けた文字起こしの要求に wavMs（WAV の中身の長さ）と leadMs（頭の無音の長さ。|標本| が 100 より小さい頭の長さ）を足した
 // setMode(mode) … 答え方を途中で替える（第1d回 A-5。区間ごとに中継の後ろの答えを替える場面: mainrun の --relay-seq）。今の答え方は変えない
 // models（第1b回の続き Lane F-e。GET …/models の答え方。鍵が合うときだけ効く。鍵が違えばいつも 401 invalid_api_key）:
 //   ok         … 200 の一覧（既定）
@@ -72,7 +74,14 @@ function fieldOrder(buf) {
   return [...buf.toString('latin1').matchAll(/Content-Disposition: form-data; name="([^"]*)"/g)].map((m) => m[1]);
 }
 
-function startFakeStt({ mode = 'text', key = 'gsk_test_0123', text = '本日の議題は進捗の確認です。', times = 1, retryAfter = '1', models = 'ok' } = {}) {
+const pcmInfo = (b) => {
+  if (!wavOk(b)) return { wavMs: 0, leadMs: 0 };
+  const n = Math.floor(Math.min(b.readUInt32LE(40), b.length - 44) / 2);
+  let lead = 0;
+  while (lead < n && Math.abs(b.readInt16LE(44 + lead * 2)) < 100) lead++;
+  return { wavMs: Math.round(n / 16), leadMs: Math.round(lead / 16) };
+};
+function startFakeStt({ mode = 'text', key = 'gsk_test_0123', text = '本日の議題は進捗の確認です。', times = 1, retryAfter = '1', models = 'ok', textOf = null } = {}) {
   const requests = [];
   const timers = new Set();
   let n = 0;
@@ -94,7 +103,8 @@ function startFakeStt({ mode = 'text', key = 'gsk_test_0123', text = '本日の�
       const isStt = req.method === 'POST' && p === '/openai/v1/audio/transcriptions';
       const form = isStt ? parseForm(Buffer.concat(chunks), req.headers['content-type']) : { fields: {}, file: null, fileName: '', fileType: '' };
       requests.push({ method: req.method, path: p, authOk, fields: form.fields, fileName: form.fileName, fileType: form.fileType, wavOk: wavOk(form.file),
-        fileSha: form.file ? require('crypto').createHash('sha256').update(form.file).digest('hex') : '', fieldOrder: fieldOrder(Buffer.concat(chunks)) });
+        fileSha: form.file ? require('crypto').createHash('sha256').update(form.file).digest('hex') : '', fieldOrder: fieldOrder(Buffer.concat(chunks)),
+        ...(isStt ? pcmInfo(form.file) : {}) });
 
       if (req.method === 'GET' && p === '/openai/v1/models') {
         if (!authOk) json(res, 401, { error: { message: 'Invalid API Key', type: 'invalid_request_error', code: 'invalid_api_key' } });
@@ -130,6 +140,13 @@ function startFakeStt({ mode = 'text', key = 'gsk_test_0123', text = '本日の�
         const terms = parts[1] || parts[0] || '';
         const k = (n - 1) % 3;
         json(res, 200, { text: k === 0 ? (parts[0] || '') : k === 1 ? terms : terms.split('、')[0].replace(/。$/, '') });
+        return;
+      }
+      if (mode === 'tagged') {
+        const own = typeof textOf === 'function' ? textOf(form.file) : null;
+        const answer = typeof own === 'string' ? own : `${text}区間${n}`;
+        requests[requests.length - 1].answer = answer;   // 0.12.0 SP-3a: どの区間の要求か（認識ヒントが同じ流れの文かを見る）
+        json(res, 200, { text: answer });
         return;
       }
       if (mode === 'fixA' || mode === 'fixB') { json(res, 200, { text: mode === 'fixA' ? 'ご視聴ありがとうございました。' : 'チャンネル登録をお願いします。' }); return; }

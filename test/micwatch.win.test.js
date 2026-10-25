@@ -70,8 +70,10 @@ test('M1・M5・0.9.4 D-1: 最初の行は一覧の「使っている」だけ�
     assert.deepStrictEqual(first[0], 'mic teams:133713371337133700,zoom:133713371337133713');
     assert.deepStrictEqual(lib.parseMicLine(first[0]).items.map((x) => x.id), ['teams', 'zoom']);
     for (const l of first) assert.ok(!/[\\#:]\w*\.exe|notepad|notion|chrome|slack|webex|edge/i.test(l), l);
-    // 変わらなくても書く（300ms ごとに読んで 1.5 秒で 3 行以上、どれも同じ）
-    await new Promise((r) => setTimeout(r, 1500));
+    // 変わらなくても書く（300ms ごとに読んで 3 行以上、どれも同じ）。0.12.0（R32）で意図して直した: 前は 1.5 秒だけ待ってから数えた。
+    // CI run 40175010698 の electron-smoke で、Windows の機械が遅れた間に見張りが 1.5 秒で 1 行しか書かず赤になった（同じ run の「1 回の読みは 20ms まで」も
+    // 前の run の約 1.4 倍の時間）。決まった時間で数えず、3 行を待つ（15 秒まで。変わったときだけ書く形なら 1 行のままで赤）
+    await w.waitLines(3);
     assert.ok(w.lines.length >= 3 && w.lines.every((l) => l === first[0]), JSON.stringify(w.lines));
     await setKey('NonPackaged\\C:#Test#Zoom#bin#Zoom.exe', use(NOW, '133713371337199999'));
     assert.ok(await waitFor(() => w.lines[w.lines.length - 1] === 'mic teams:133713371337133700'), JSON.stringify(w.lines.slice(-3)));

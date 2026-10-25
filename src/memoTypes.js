@@ -199,13 +199,18 @@ function sectionsOf(meetingType) {
 }
 
 // 要約の書式: 型の見出しとヒント → 型と共通の決まり（star は STAR_RULE も）→ 締め → 次に気をつけること →（点を付けるときだけ採点の節: Q-1）→ OUTPUT_RULE
-function buildTemplate({ meetingType, score = false } = {}) {
+// 0.12.0 SP-4（計画 docs/plans/2026-10-22-120.md の決めたこと 102・143。S16 (a)）: 札のある会議だけ、書式の最後（OUTPUT_RULE の後）に足す1行。
+// 「」は使わない（dropTemplateEcho の鍵が「」の中の語を取り出すため: 0.11.0 の決めたこと 17）
+const LABEL_RULE = '文字起こしの行の頭の 自分: はマイクから、相手: は PC から流れた声から文字起こしした行です。同じ部屋の人の発言も 自分: に入るので、ToDo の担当は行の頭の札で決めず、発言の中の名前で決めてください。';
+
+function buildTemplate({ meetingType, score = false, labeled = false } = {}) {
   const key = memoTypeOf(meetingType);
   const rules = [MEMO_RULES, ...MEMO_TYPES[key].rules.map((r) => `- ${r}`)];
   if (key === 'star') rules.push(STAR_RULE);
   const parts = [typeSection(key), rules.join('\n'), CLOSING_TEMPLATE, ADVICE_TEMPLATE];
   if (score) parts.push(quality.SCORE_TEMPLATE);   // 0.11.0 Q-1: 点を付けるときだけ採点の節
   parts.push(OUTPUT_RULE);
+  if (labeled) parts.push(LABEL_RULE);   // 0.12.0 SP-4: 札が1つも無い会議では足さない（書式は今と1文字も同じ）
   return parts.join('\n\n');
 }
 
@@ -376,6 +381,6 @@ function newBlockId() {
 module.exports = {
   MEMO_TYPES, MEMO_ORDER, DEFAULT_MEMO, memoTypeOf, memoPreset, isUntouchedMemo, headingKey, presetLines, listMemoTypes,
   VIEW_HEADS, orderForView, savedIndexForDrop,
-  CLOSING_HEADINGS, CLOSING_TEMPLATE, ADVICE_HEAD, ADVICE_TEMPLATE, MEMO_RULES, STAR_RULE, OUTPUT_RULE, CHECK_MAX, UNCONFIRMED_HEAD, MEMO_SUFFIX, REPORT_HEAD,
+  CLOSING_HEADINGS, CLOSING_TEMPLATE, ADVICE_HEAD, ADVICE_TEMPLATE, MEMO_RULES, STAR_RULE, OUTPUT_RULE, LABEL_RULE, CHECK_MAX, UNCONFIRMED_HEAD, MEMO_SUFFIX, REPORT_HEAD,
   fenceLines, sectionsOf, buildTemplate, markBlocks,
 };

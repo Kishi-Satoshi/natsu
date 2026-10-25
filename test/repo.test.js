@@ -850,7 +850,8 @@ test('#14 一時停止したまま停止したら、停止時刻で一時停止�
 });
 
 test('#15 次の区間の初期プロンプトは直近の成功区間から取る', () => {
-  assert.match(main, /const tail = promptTail\(m\.segments\);/);
+  // 0.12.0 SP-3a（計画 docs/plans/2026-10-22-120.md の決めたこと 126）で意図して直した: 2つの流れの会議は同じ流れの直前の済んだ区間から取る（1本の会議は今のまま m.segments）
+  assert.match(main, /const tail = promptTail\(lane \? laneSegs\(m, lane\) : m\.segments\);/);
   assert.match(main, /transcribeAuto\(buffer, tail, durationMs[,)]/);
 });
 
@@ -915,7 +916,8 @@ test('#18 テンプレートの写しを落とす結線（minutes.dropTemplateEc
   const run = fnBody(code(main), 'async function doRunSummary', '\n}\n');
   assert.strictEqual((run.match(/buildTemplate\(/g) || []).length, 1, 'doRunSummary の中で書式を1回だけ作っていない');
   assert.strictEqual((code(main).match(/buildTemplate\(/g) || []).length, 1, 'doRunSummary のほかで書式を作っている');
-  assert.ok(run.includes('summarizeWithClaude(plain, page.memo, template)'), 'Claude Code に同じ書式を渡していない');
+  // 0.12.0 SP-4（決めたこと 143・R27）で意図して直した: Claude Code へは札を付けた文（labeled。札が1つも無い会議は plain と同じ文）を同じ書式で渡す
+  assert.ok(run.includes('summarizeWithClaude(labeled, page.memo, template)'), 'Claude Code に同じ書式を渡していない');
   const sw = fnBody(code(main), 'async function summarizeWithClaude', '\n}');
   assert.ok(sw.includes('lib.buildClaudeInput({ memoText, plain, template })'), 'Claude Code に渡す文が受けた書式を使っていない');
   assert.ok(!/minutesTemplate|OUTPUT_RULE/.test(code(main)), 'main.js に前の書式の関数が残っている');
@@ -1657,4 +1659,58 @@ test('0.11.0 V-2: orderForView・savedIndexForDrop・qualityLinesView（app.html
   const view = Q.qualityView({ v: 1, total: 15, max: 25, axes: Q.AXES.map((a) => ({ key: a.key, score: 3, reason: `${a.label}の理由`, cites: [] })), at: '' });
   assert.ok(view);
   for (const v of [view, null, undefined]) assert.deepStrictEqual(app.qualityLinesView(v), Q.qualityLines(v));
+});
+
+// 0.12.0 SP-1（計画 docs/plans/2026-10-22-120.md の「受け渡す名前と形」）: 声あり・なしの境は録音バーの無音の警告と同じ値。タイムラインと札は1か所で決める
+test('0.12.0 SP-1: mainlib.VOICE_LEVEL は録音バーの SILENT_LEVEL と同じ字面。mainlib の timelineOf・札の表は src/mcp/timeline.js と同じ物', () => {
+  const L = require('../src/mainlib');
+  const TL = require('../src/mcp/timeline');
+  const m = read('src/renderer/overlay.html').match(/const SILENT_LEVEL = ([0-9.]+);/);
+  assert.ok(m, '録音バーの SILENT_LEVEL が無い');
+  assert.strictEqual(L.VOICE_LEVEL, Number(m[1]));
+  assert.match(read('src/mainlib.js'), new RegExp(`const VOICE_LEVEL = ${m[1].replace('.', '\\.')};`));
+  assert.strictEqual(L.timelineOf, TL.timelineOf);
+  assert.strictEqual(L.SOURCE_LABELS, TL.SOURCE_LABELS);
+  assert.strictEqual(L.srcLabel, TL.srcLabel);
+  assert.strictEqual(L.checkParts, TL.checkParts);
+});
+
+// 0.12.0 SP-4（決めたこと 85・127・139）: 画面の札の表と、画面の写しのタイムライン（timelineView・checkPartsView）は src/mcp/timeline.js と同じ
+test('0.12.0 SP-4: SOURCE_NAMES（app.html）と SOURCE_LABELS が同じ。timelineView・checkPartsView と timeline.js の timelineOf・checkParts に同じ表を当てて同じ答え', () => {
+  const TL = require('../src/mcp/timeline');
+  const m = appHtml.match(/const SOURCE_NAMES = (\{[^}]*\});/);
+  assert.ok(m, 'app.html に SOURCE_NAMES が無い');
+  assert.deepStrictEqual(new Function(`return ${m[1]};`)(), { ...TL.SOURCE_LABELS });   // eslint-disable-line no-new-func
+  const app = new Function(`${fnFromApp('checkPartsView')}\n${fnFromApp('timelineView')}\nreturn { checkPartsView, timelineView };`)();   // eslint-disable-line no-new-func
+  const text = '一つ目の文です。二つ目の文です。三つ目です。';
+  const partsCases = [
+    [[{ ms: 0, at: 0 }, { ms: 20000, at: 8 }, { ms: 40000, at: 16 }], text, 60000],
+    [[{ ms: 0, at: 0 }, { ms: 20000, at: 8 }], text, undefined],
+    [[{ ms: 0, at: 0 }, { ms: 70000, at: 8 }], text, 60000],
+    [[{ ms: 0, at: 0 }, { ms: 5000, at: 999 }], text, 60000],
+    [[{ ms: 0, at: 0 }, { ms: 5000, at: 0 }], text, 60000],
+    [[{ ms: 0, at: 0 }, { ms: 0, at: 8 }], text, 60000],
+    [[{ ms: 1, at: 0 }, { ms: 5000, at: 8 }], text, 60000],
+    [[{ ms: 0, at: 0 }, { ms: 5000, at: 8.5 }], text, 60000],
+    [[{ ms: 0, at: 0 }, { ms: -5, at: 8 }], text, 60000],
+    [[{ ms: 0, at: 0 }, { ms: 5000, at: 3 }], '一  　 二', 60000],
+    [[{ ms: 0, at: 0 }], text, 60000], [Array.from({ length: 201 }, (_, k) => ({ ms: k, at: k })), 'x'.repeat(300), undefined],
+    [null, text, 1], ['[]', text, 1], [[{ ms: 0, at: 0 }, null], text, 1], [[{ ms: 0, at: 0 }, [5, 8]], text, 1], [[{ ms: 0, at: 0 }, { ms: 5, at: 8 }], 5, 1],
+  ];
+  for (const [p, t, d] of partsCases) assert.deepStrictEqual(app.checkPartsView(p, t, d), TL.checkParts(p, t, d), JSON.stringify([p, t, d]).slice(0, 200));
+  const segs = [
+    { id: 's1', atMs: 2000, durationMs: 3000, text: '自分', src: 'mic' },
+    { id: 's2', atMs: 0, durationMs: 60000, text, src: 'loopback', parts: partsCases[0][0] },
+    { id: 's3', text: '時刻なし' },
+    { id: 's4', atMs: 2000, durationMs: 1000, text: '同じ時刻', src: '話者A', speaker: '話者A' },
+    { id: 's5', atMs: 30000, durationMs: 1000, text: '', src: 'mic', pending: true, parts: partsCases[0][0] },
+    { id: 's6', atMs: 31000, durationMs: 1000, text: 'x', failed: true, kept: true, src: 'loopback', parts: partsCases[0][0] },
+    { id: 's7', atMs: 50000, durationMs: 60000, text, src: 'loopback', parts: partsCases[3][0] },
+    null, 'x', [1], { id: 's8', atMs: 'a', text: 5 },
+  ];
+  for (const list of [segs, segs.slice().reverse(), [], null, undefined, 'x', [segs[2], segs[0]]]) {
+    assert.deepStrictEqual(app.timelineView(list), TL.timelineOf(list), String(JSON.stringify(list)).slice(0, 200));
+  }
+  // 札の title（決めたこと 139）
+  assert.ok(appHtml.includes("const SOURCE_TITLES = { mic: 'マイクから録った声です（同じ部屋の人の声も入ります）', loopback: 'PC から流れた相手の声です' };"));
 });

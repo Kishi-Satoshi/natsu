@@ -229,6 +229,10 @@ function oldBuildData({ pages = 3, bom = 0, broken = 0, badId = 0, unreadable = 
   const pageFile = (id) => path.join(dataDir, 'pages', `${id}.json`);
   const transcriptFile = (id) => path.join(dataDir, 'transcripts', `${id}.json`);
   const ids = [];
+  // ブロックの ID は今の newId と同じ形。同じミリ秒に作った ID は末尾の 5 文字の乱数だけが違い、45 個で約 1.3×10⁻⁵ の割合で重なる
+  //（重なると移行が正しく振り直して fixedIds が 1 になり、ST10 の「振り直しは 0」が赤になる。0.12.0 SP-4 の手元の npm test で起きた: R31）。重ならない ID だけを使う
+  const usedBlockIds = new Set();
+  const blockId = () => { let id; do { id = store.newId('b'); } while (usedBlockIds.has(id)); usedBlockIds.add(id); return id; };
   const make = (i) => {
     const segments = [
       { id: 's1', atMs: 0, durationMs: 20000, text: '（この区間の認識に失敗: 見本）', failed: true },
@@ -241,11 +245,11 @@ function oldBuildData({ pages = 3, bom = 0, broken = 0, badId = 0, unreadable = 
       durationSec: 600 + i,
       memo: i % 2 ? '' : `メモの文 ${i + 1}`,
       blocks: [
-        { id: store.newId('b'), type: 'heading', text: '決めたこと', cites: [] },
-        { id: store.newId('b'), type: 'bullet', text: '来月の予算案の作成を担当Aが進める', cites: ['s2'] },
-        { id: store.newId('b'), type: 'bullet', text: '了解', cites: [] },
-        { id: store.newId('b'), type: 'todo', text: '見積書を月末までに先方へ送る', checked: false, assignee: '担当A', dueRaw: '月末', due: '2026-10-31', dueApprox: true, cites: ['s3'] },
-        { id: store.newId('b'), type: 'bullet', text: '次回は来週の同じ時間に集まる', cites: [], extraField: 'ブロックの知らない欄' },
+        { id: blockId(), type: 'heading', text: '決めたこと', cites: [] },
+        { id: blockId(), type: 'bullet', text: '来月の予算案の作成を担当Aが進める', cites: ['s2'] },
+        { id: blockId(), type: 'bullet', text: '了解', cites: [] },
+        { id: blockId(), type: 'todo', text: '見積書を月末までに先方へ送る', checked: false, assignee: '担当A', dueRaw: '月末', due: '2026-10-31', dueApprox: true, cites: ['s3'] },
+        { id: blockId(), type: 'bullet', text: '次回は来週の同じ時間に集まる', cites: [], extraField: 'ブロックの知らない欄' },
       ],
       segments,
       createdAt: new Date(Date.UTC(2026, 8, 1 + i, 9)).toISOString(),

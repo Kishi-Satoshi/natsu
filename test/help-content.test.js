@@ -275,3 +275,15 @@ test('再審査の指摘 7: 「中継（OpenAI）」と書かない（中継＝O
   }
   for (const n of notes) assert.ok(!n.includes('会社'), `説明の一言に「会社」: ${n}`);
 });
+
+// 0.12.0 SP-4（計画 docs/plans/2026-10-22-120.md の「記事 record/start-stop の節」。D53・D66）。admin/relay-limits は変えない（S14 (b)）
+test('0.12.0 SP-4: record/start-stop の節「文字起こしの「自分」「相手」」に、ヘッドホン・同じ部屋・取り込みが途中で切れた・直せない・ToDo の担当・Claude。start/claude-mcp に札の1行と節へのリンク', { timeout: 5000 }, () => {
+  const t = read(fileOf('record/start-stop'));
+  const sec = t.slice(t.indexOf('## 文字起こしの「自分」「相手」 {#speakers}'), t.indexOf('## 録音バー {#bar}'));
+  assert.ok(sec.length > 100, '節が無い');
+  for (const w of ['「自分」', '「相手」', 'ヘッドホン', '同じ部屋', '取り込みが途中で切れた', '経過', '直せません', '［コピー］', 'ToDo の担当', 'Claude', '話した時刻の順', '両方の行', '議事録で相手の声も録る']) {
+    assert.ok(sec.includes(w), `「${w}」が無い`);
+  }
+  const mcp = read(fileOf('start/claude-mcp'));
+  assert.ok(mcp.includes('「自分」（マイク）か「相手」（PC から流れた声）') && mcp.includes('(record/start-stop.md#speakers)'));
+});

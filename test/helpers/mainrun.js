@@ -170,6 +170,7 @@ const { titleAt } = require('./titles');
 //     --set-type-live=<鍵|auto>[,…] … 0.11.0 M-4: 録音中（最初の区間の後）に meeting:set-type を呼ぶ（--live-memo=<文> があれば先に meeting:set-memo）
 //     --quality=<all|on|off> … 0.11.0 Q-3: 設定 qualityScore。--resum-quality=<…> … 要約の後にその設定にして［要約を再生成］（out.qualityBefore・out.resum）
 //     --legacy-general … 0.11.0 P-12: 要約の後、ページを前の版で手で一般・その他を選んだ形（meetingType 'general'・typeAuto 偽）にして［要約を再生成］（out.legacyGeneral）
+//     --claude-stdin … 0.12.0 SP-4: 偽の claude の記録に標準入力の全文（stdinText）を書かせる（--claude と一緒に使う）
 //     --sum-md=<名前> … 0.11.0 M-3: 偽の claude が返す要約の Markdown を test/fixtures/summaries/<名前>.md にする（--claude と一緒に使う）
 //     --db-down     … 第2a1回 M-2b: 議事録の DB のプロセス（偽の utilityProcess の中の本物の server.js）の SQLite が trigram を持たない
 //                     （helpers/no-trigram.js を子の中で先に読む）。自分の確かめが通らず、DB は「使えない」で起きる。場面の dbDown でも同じ
@@ -178,6 +179,25 @@ const { titleAt } = require('./titles');
 //     --kill-db-during … 最初の区間が文字起こしされて下書きに書かれ、写しとして DB に届いたら、DB の子を思わず落ちたことにする（fork.crash）。
 //                        録音は続ける（客が起こし直す）
 //     --kill-main-during … 同じ所で main ごと落ちる（process.exit(3)。結果は出さない。DB の子も一緒に止まる）
+//   0.12.0 SP-3a（計画 docs/plans/2026-10-22-120.md）: 2つの流れの議事録（偽の録音バーがマイクと相手の声の区間を4つ目つきで送る）
+//     --two-streams=<名前かパス> … test/fixtures/streams/<名前>.json（か JSON のパス）の並びで、偽の時計を1こま（既定 100ms）ずつ進め、
+//                     main が overlay:level-ask を送ったこま（main の askLevel の setInterval は拾って本物の時計では回さない）だけ
+//                     { mic, sys, warn, vMic, vSys, segMic, segSys, sysOk } を答え、overlay:cut（その流れの今の番号）か区間の時計（最初は 20 秒・
+//                     その後は main が言った長さ）で、その流れの区間を締めて { buffer, durationMs, final, meta: { src, seg, t0, last } } を送る。
+//                     区間の WAV は声ありのこまが 220Hz の音（振幅 amp）・声なしのこまが quietAmp（既定 0）で、末尾の3つの標本 [3, -3, 番号] に
+//                     文の番号を入れる（--relay=tagged の偽の OpenAI はその番号の文を返す）。最後に止め、両方の流れの最後を送る（後の方に final）。
+//                     並びの欄: tick・mic・sys（「v40 -10」のような声あり v・なし - のこまの数の並び）・amp・quietAmp・texts（{ mic: [...], loopback: [...] }。
+//                     流れごとの区間の順の文。無ければ区間ごとに違う文）・sysLostAt（ms。その時に相手の声の取り込みが切れる: 先に overlay:source
+//                     false、その後に相手の声の区間を last で送る）・drift（区間ごとに長さを短く言う ms）・noT0（t0 を送らない）・
+//                     pauseAt・pauseMs（一時停止）・sysBack（一時停止の再開で相手の声をまた取り込めた）・killAt（その時に最初の区間が DB に入るのを
+//                     待って main ごと落ちる）・badMeta（最初の区間の4つ目を壊す）・badLevel（奇数のこまの答えを壊す）・say（[{ src: 'mic'|'loopback', at, text }]。
+//                     その流れの区間のうち at を含む区間の文。texts より先）・silentText（{ mic: true } ならその流れの区間の文を全部空に）・
+//                     sourceSays（false なら、相手の声の区間を送るのに overlay:source は取り込めなかったと言う: main の照らしを見る）
+//                     lastOrder（'mic-first' なら止めた後にマイクの最後を先に送り、lastGapMs（既定 500）待ってから相手の声の最後を送る。点検の直し C1）・
+//                     dropLast（'loopback' なら相手の声の最後を送らない: main の締めの待ちの見張りを見る。main の twoFinalWait の時計は 2 秒で回し、
+//                     言った長さを out.two.finalWaitMs に書く）
+//                     出力に two（{ asks, asksPaused, cuts, meetingLevel, quietAsked, sent: [{ src, seg, t0, durationMs, bytes, last, final }] }）を足す
+//     --sys-lost-at=<ms> … 並びの sysLostAt と同じ（並びより先に効く）
 //     --kill-main-at-begin … 録音を始めて、始めたときの写し（meeting.begin）が DB に届いたら、区間を1つも送らずに main ごと落ちる
 //                        （process.exit(3)。発言の無い下書きと空の写しが残る。M-3 の点検で足した）
 //     --purge-save-fail-once … 取り消しの控え（purge-pending.json）の最初の書き込みを1回だけ EPERM にする（ウイルス対策が掴んだ。M-3 の点検で足した）
@@ -617,6 +637,33 @@ const noWhisperAfterStart = flags.includes('--no-whisper-after-start');   // 0.9
 const mainHidden = flags.includes('--main-hidden');
 const mainMinimized = flags.includes('--main-minimized');
 const liveNotShown = flags.includes('--live-not-shown');
+// 0.12.0 SP-3a: 2つの流れの議事録の並び（頭の注釈）
+const twoStreamsFlag = flagVal('--two-streams');
+const twoFx = twoStreamsFlag ? JSON.parse(fs.readFileSync(path.isAbsolute(twoStreamsFlag) ? twoStreamsFlag : path.join(__dirname, '..', 'fixtures', 'streams', `${twoStreamsFlag}.json`), 'utf8')) : null;
+if (twoFx && flagVal('--sys-lost-at')) twoFx.sysLostAt = Number(flagVal('--sys-lost-at'));
+const streamTexts = [];   // 偽の OpenAI（--relay=tagged）と偽の whisper（FAKE_TAG_FILE）が返す文（WAV の末尾の番号で引く）
+const twoFinalWaitMs = [];   // 点検の直し C1: main の twoFinalWait が言った長さ
+const tagFile = twoFx ? path.join(os.tmpdir(), `natsu-tags-${process.pid}.json`) : '';
+if (tagFile) { process.env.FAKE_TAG_FILE = tagFile; fs.writeFileSync(tagFile, '[]'); process.on('exit', () => { try { fs.rmSync(tagFile, { force: true }); } catch (_) { /* 消えている */ } }); }
+// 文の並びは別のファイルに書いてから名前を替える（その場で書き直すと、別のプロセスの偽の whisper が読んだときに空や途中のファイルを読み、
+// 番号の文でなく既定の文を返す: CI run 40173107746 の ubuntu の SP-3b の場面。R31）。Windows で読まれている間に替えられなければ少し待って替え直す
+let tagSeq = 0;
+function writeTags() {
+  const tmpTag = `${tagFile}.${++tagSeq}.tmp`;
+  fs.writeFileSync(tmpTag, JSON.stringify(streamTexts));
+  for (let i = 0; ; i++) {
+    try { fs.renameSync(tmpTag, tagFile); return; } catch (e) {
+      if (i >= 50 || !['EPERM', 'EACCES', 'EBUSY'].includes(e.code)) throw e;
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 10);
+    }
+  }
+}
+const streamTextOf = (wav) => {
+  if (!wav || wav.length < 50) return null;
+  const n = Math.floor((wav.length - 44) / 2);
+  const at = (k) => wav.readInt16LE(44 + (n - k) * 2);
+  return at(3) === 3 && at(2) === -3 && Object.hasOwn(streamTexts, at(1)) ? streamTexts[at(1)] : null;
+};
 const noNotify = flags.includes('--no-notify');
 const clickNotify = flags.includes('--click-notify');
 const reloadMain = flags.includes('--reload-main');
@@ -803,7 +850,7 @@ process.on('exit', () => {
   const claudeReach = claudeMode && !sttMode && !relayMode ? await require('./fake-stt').startFakeStt({ mode: 'text', key: STT_KEY }) : null;
   const fakeEnc = (s) => Buffer.from(`ENC1:${Buffer.from(s, 'utf8').toString('hex')}`);
   // 本物の中継のコードを 127.0.0.1 で（--relay。第1d回 A-2）。終わるときに閉じなくても、process.exit で消える
-  const relayLocal = relayMode ? await require('./relay-local').startRelayLocal({ stt: { mode: relaySttMode }, env: RELAY_ENV[relayMode] || {}, access: true }) : null;
+  const relayLocal = relayMode ? await require('./relay-local').startRelayLocal({ stt: { mode: relaySttMode, ...(relayMode === 'tagged' ? { textOf: streamTextOf } : {}) }, env: RELAY_ENV[relayMode] || {}, access: true }) : null;
   const { RELAY_BASE, ACCESS_PARTITION, LOGIN_URL, packCookies } = require(path.join(ROOT, 'src', 'relay.js'));
   const RELAY_HOST = new URL(RELAY_BASE).hostname;
   // rl.cookieFor の形（cookies.set に渡す形）→ cookies.get が返す形（packCookies が読む）
@@ -872,6 +919,7 @@ process.on('exit', () => {
     // 手元の1回の要約と同じ指示文（mainlib.buildClaudeInput。F9）を標準入力で受けたか
     process.env.FAKE_CLAUDE_EXPECT_ASK = '上記から、次の構成のMarkdown議事録を作成してください。';
     if (claudeAuth) process.env.FAKE_CLAUDE_AUTH = claudeAuth;
+    if (flags.includes('--claude-stdin')) process.env.FAKE_CLAUDE_STDIN = '1';   // 0.12.0 SP-4: 偽の claude の記録に標準入力の全文（stdinText）
     // 0.11.0 M-3: --sum-md=<名前> … 偽の claude が返す要約を test/fixtures/summaries/<名前>.md にする
     if (flagVal('--sum-md')) process.env.FAKE_CLAUDE_MD = fs.readFileSync(path.join(__dirname, '..', 'fixtures', 'summaries', `${flagVal('--sum-md')}.md`), 'utf8');
   }
@@ -2008,7 +2056,13 @@ process.on('exit', () => {
   const offHandles = new Set();
   let offCleared = 0;
   const realClearInterval = global.clearInterval;
+  const askLevels = new Map();   // 0.12.0 SP-3a: 2つの流れの場面では main の askLevel を本物の時計で回さず、場面がこまごとに呼ぶ
   global.setInterval = function (fn, ms, ...a) {
+    if (twoFx && fn && fn.name === 'askLevel') {
+      const h = realSetInterval.call(this, () => {}, ms);
+      askLevels.set(h, fn);
+      return h;
+    }
     if (fn && fn.name === 'watchOffline') {
       offTicks.push(fn);
       const h = realSetInterval.call(this, () => {}, ms);
@@ -2022,6 +2076,7 @@ process.on('exit', () => {
     return h;
   };
   global.clearInterval = function (h) {
+    askLevels.delete(h);
     if (offHandles.delete(h)) offCleared++;
     if (hoverHandles.delete(h)) hoverCleared += 1;
     return realClearInterval.call(this, h);
@@ -2058,6 +2113,14 @@ process.on('exit', () => {
         return undefined;
       }
       return realClearTimeout.call(this, h);
+    };
+  }
+  // 点検の直し C1: 2つの流れの会議の締めの待ちの見張り（main の twoFinalWait。60 秒）は、言った長さを覚えて 2 秒で回す（場面の最後の2つの間 lastGapMs より長く）
+  if (twoFx) {
+    const st1 = global.setTimeout;
+    global.setTimeout = function (fn, ms, ...a) {
+      if (fn && fn.name === 'twoFinalWait') { twoFinalWaitMs.push(ms); return st1.call(this, fn, 2000, ...a); }
+      return st1.call(this, fn, ms, ...a);
     };
   }
   if (argvFlag) process.argv = [process.execPath, ...argvFlag];   // 0.10.0 LN-4: 起動の引数（フラグは読み終えている）
@@ -2405,6 +2468,9 @@ process.on('exit', () => {
       // 0.11.0 Q-3: 画面の役で読んだ qualityView（DB が作る欄）・DB の行に qualityView が書かれていないか
       viewQuality: await (async () => { try { const g = await appCall('page.get', { id: p.id }); return g && g.page ? g.page.qualityView : undefined; } catch (_) { return undefined; } })(),
       rawHasQualityView: (() => { const raw = store.rawPage(p.id); return Boolean(raw && Object.hasOwn(raw, 'qualityView')); })(),
+      // 0.12.0 SP-3a: 発言の時刻・長さ・入口（DB の extra）と、ページの長さ・止めていた時間の印
+      segs: store.getTranscript(p.id).map((s) => ({ id: s.id, atMs: s.atMs, durationMs: s.durationMs, text: s.text, src: s.src, parts: s.parts, failed: Boolean(s.failed) })),
+      durationSec: page.durationSec, pauses: page.pauses || [],
     };
   };
   if (idleMode) {
@@ -2433,7 +2499,14 @@ process.on('exit', () => {
       await waitFor(settledCloud, 5000);
       await sleep(100);
       if (relaySeq) await relayLocal.setAnswer(relaySeq[0]);   // 第1d2回 M-3 の点検: 見回りの前の中継の答え方
-      for (let k = 0; k < keptTickN; k++) await keptTick();
+      // 点検の直し（2026-10-25。R35）: 見回りは起動の復旧が回っている間は何もしない（engine.log の「文字起こし待ち: 見回り（…・running）」）。
+      // 決まった時間（100ms）待つだけだと、CI の機械が混んだときに見回りが2回とも空振りし、F2 の「保留の行は1行」を見張る変異 op-hold-log-once が
+      // 生き残った（CI run 40184873051 の mutate-3）。空振りした見回りは数えず、少し待って呼び直す（見回りの「なぜ」は変わったときだけ書かれるので、
+      // 最後の見回りの行が running なら今も回っている）
+      const lastWatch = () => { const l = engineLogLines().filter((x) => x.startsWith('文字起こし待ち: 見回り（')); return l.length ? l[l.length - 1] : ''; };
+      for (let k = 0; k < keptTickN; k++) {
+        for (let t = 0; t < 50; t++) { await keptTick(); if (!/・running）$/.test(lastWatch())) break; await sleep(100); }
+      }
       await waitFor(settledCloud, 5000);
       await sleep(200);
     }
@@ -3122,6 +3195,151 @@ process.on('exit', () => {
     }
     wavs.length = 0;   // 今の区間の並びは回さない
   }
+  // 0.12.0 SP-3a（--two-streams）: 偽の録音バーが2つの流れの区間を送る（頭の注釈）
+  if (twoFx) {
+    await runTwoStreams();
+    wavs.length = 0;   // 今の区間の並びは回さない
+  }
+  async function runTwoStreams() {
+    const fx = twoFx;
+    const tick = Number(fx.tick) || 100;
+    const runs = (s) => String(s || '').trim().split(/\s+/).filter(Boolean).flatMap((tok) => {
+      const mm = /^([v-])(\d+)$/.exec(tok);
+      if (!mm) throw new Error(`mainrun: --two-streams の並び ${tok} が読めない`);
+      return Array(Number(mm[2])).fill(mm[1] === 'v');
+    });
+    const frames = { mic: runs(fx.mic), loopback: runs(fx.sys) };
+    const total = Math.max(frames.mic.length, frames.loopback.length);
+    const amp = Number.isFinite(fx.amp) ? fx.amp : 8000;
+    const quietAmp = Number(fx.quietAmp) || 0;
+    const drift = Number(fx.drift) || 0;
+    const lanes = { mic: { seg: 0, fr: [], t0: 0, first: true, src: 'mic', n: 0 }, loopback: { seg: 0, fr: [], t0: 0, first: true, src: 'loopback', n: 0 } };
+    let sysAlive = fx.sysOk !== false;
+    let sim = 0;
+    let finalSent = false;
+    let bad = Boolean(fx.badMeta);
+    const two = { asks: 0, asksPaused: 0, cuts: 0, meetingLevel: 0, quietAsked: false, sent: [], finalWaitMs: twoFinalWaitMs };
+    out.two = two;
+    const segMsNow = () => { for (let k = overlaySent.length - 1; k >= 0; k--) { const pv = overlaySent[k]; if (typeof pv === 'number') return pv; if (pv && pv.segmentSec) return pv.segmentSec * 1000; } return 15000; };
+    const wavOf = (fr, idx) => {
+      const per = Math.round(16 * tick);
+      const n = Math.max(fr.length * per, 3);
+      const b = Buffer.alloc(44 + n * 2);
+      b.write('RIFF', 0, 'ascii'); b.writeUInt32LE(36 + n * 2, 4); b.write('WAVE', 8, 'ascii');
+      b.write('fmt ', 12, 'ascii'); b.writeUInt32LE(16, 16); b.writeUInt16LE(1, 20); b.writeUInt16LE(1, 22);
+      b.writeUInt32LE(16000, 24); b.writeUInt32LE(32000, 28); b.writeUInt16LE(2, 32); b.writeUInt16LE(16, 34);
+      b.write('data', 36, 'ascii'); b.writeUInt32LE(n * 2, 40);
+      for (let k = 0; k < fr.length * per; k++) {
+        const a = fr[Math.floor(k / per)] ? amp : quietAmp;
+        if (a) b.writeInt16LE(Math.round(a * Math.sin((2 * Math.PI * 220 * k) / 16000)), 44 + k * 2);
+      }
+      b.writeInt16LE(3, 44 + (n - 3) * 2); b.writeInt16LE(-3, 44 + (n - 2) * 2); b.writeInt16LE(idx, 44 + (n - 1) * 2);
+      return b;
+    };
+    const textFor = (key, k, L) => {
+      if (fx.silentText && fx.silentText[key]) return '';
+      const said = (fx.say || []).find((x) => x.src === key && x.at >= L.t0 && x.at < L.t0 + L.fr.length * tick);
+      if (said) return said.text;
+      const list = fx.texts && Array.isArray(fx.texts[key]) ? fx.texts[key] : null;
+      if (list && typeof list[k] === 'string') return list[k];
+      if (fx.sentences) return key === 'mic' ? `わたしから一つ目の${k + 1}を話します。二つ目に予定を決めます。三つ目に担当を決めます。` : `そちら側の${k + 1}番を聞かせてください。工程も教えてください。`;
+      // 流れごとに違う言い回し（既定の文どうしが回り込みに見えない: 文字の3つ組がほとんど重ならない）
+      return key === 'mic' ? `わたしから${['見積', '在庫', '納期', '契約', '採用', '予算', '品質', '体制'][k % 8]}をご説明します${k + 1}`
+        : `そちら側で${['売上', '工程', '発注', '保守', '研修', '広報', '設計', '監査'][k % 8]}はどうお考えでしょう${k + 1}`;
+    };
+    const send = (key, { last = false } = {}) => {
+      const L = lanes[key];
+      const fr = L.fr;
+      const idx = streamTexts.push(textFor(key, L.n, L)) - 1;
+      writeTags();
+      L.n += 1;
+      const buf = fr.length ? wavOf(fr, idx) : Buffer.alloc(0);
+      const durationMs = Math.max(0, fr.length * tick - (fr.length ? drift : 0));
+      const other = lanes[key === 'mic' ? 'loopback' : 'mic'];
+      if (last) L.done = true;
+      const final = last && Boolean(other.done) && !finalSent;
+      if (final) finalSent = true;
+      const voiced = fr.some(Boolean);
+      const meta = bad && voiced ? { src: 'mic', seg: -5, t0: 'x', last: 'no' } : { src: key === 'loopback' ? 'loopback' : L.src, seg: L.seg, t0: fx.noT0 ? null : L.t0, last };
+      if (voiced) bad = false;   // 壊すのは声のある最初の区間（無音の区間は1本の道でも除かれて行にならない）
+      two.sent.push({ src: meta.src, seg: L.seg, t0: L.t0, durationMs, bytes: buf.length, last, final });
+      listeners['audio:segment']({}, { buffer: new Uint8Array(buf), durationMs, final, meta });
+      L.seg += 1; L.t0 = sim; L.fr = []; L.first = false;
+      if (key === 'mic') L.src = sysAlive ? 'mic' : '';
+    };
+    const answer = (k) => (fx.badLevel && k % 2 ? [{ mic: 'x', sys: -1, warn: '', vMic: 1e9, vSys: 0, segMic: 1.5, segSys: -7, sysOk: 'yes' }, null, 'x', { mic: 0.1 }][k % 4 === 1 ? 0 : (k % 8 === 3 ? 1 : 3)] : {
+      mic: 0.1, sys: sysAlive ? 0.1 : 0, warn: '',
+      vMic: frames.mic[k] ? 0.2 : 0, vSys: sysAlive && frames.loopback[k] ? 0.2 : 0,
+      segMic: lanes.mic.seg, segSys: sysAlive ? lanes.loopback.seg : -1, sysOk: sysAlive });
+    lanes.loopback.done = !sysAlive;
+    // PC の側の場面は、偽の whisper が口を開くまで待ってから録り始める（偽の時計は本物より速く進むので、起動の前に区間が届いてしまう）
+    if (!relayMode) {
+      const up = () => new Promise((r) => { const q = require('http').get({ host: '127.0.0.1', port: localPort, path: '/health', timeout: 500 }, (res) => { res.resume(); r(res.statusCode === 200); }); q.on('error', () => r(false)); q.on('timeout', () => { q.destroy(); r(false); }); });
+      for (let i = 0; i < 100 && !(await up()); i++) await sleep(50);
+      await sleep(1000);   // main の起動の見張り（/health を間を置いて聞く）が済むまで。偽の時計を進めると、その見張りの期限が先に切れる
+    }
+    listeners['overlay:source']({}, { systemAudio: fx.sourceSays === false ? false : sysAlive, wanted: true });
+    await sleep(10);
+    for (let k = 0; k < total; k++) {
+      if (fx.pauseAt && sim === fx.pauseAt) {
+        // 一時停止: 両方の流れの区間を締めて送り（最後ではない）、止めていた間は時計だけ進める。再開で両方の流れが新しい区間を始める
+        send('mic'); if (sysAlive) send('loopback');
+        listeners['overlay:pause']({}, { paused: true });
+        await sleep(30);
+        { const p0 = sent.length; for (const f of [...askLevels.values()]) f(); two.asksPaused += sent.slice(p0).filter(([ch]) => ch === 'overlay:level-ask').length; }
+        advanceClock(Number(fx.pauseMs) || 0);
+        listeners['overlay:pause']({}, { paused: false });
+        if (fx.sysBack && !sysAlive) { sysAlive = true; lanes.loopback.done = false; lanes.mic.src = 'mic'; }
+        listeners['overlay:source']({}, { systemAudio: sysAlive, wanted: true });   // 再開の openStream は取り込みの有無を言い直す
+        await sleep(30);
+        lanes.mic.t0 = sim; lanes.loopback.t0 = sim;
+      }
+      advanceClock(tick);
+      sim += tick;
+      lanes.mic.fr.push(Boolean(frames.mic[k]));
+      if (sysAlive) lanes.loopback.fr.push(Boolean(frames.loopback[k]));
+      const s0 = sent.length;
+      for (const f of [...askLevels.values()]) f();
+      const now = sent.slice(s0);
+      if (now.some(([ch]) => ch === 'overlay:level-ask')) { two.asks += 1; listeners['overlay:level']({}, answer(k)); }
+      const after = sent.slice(s0);
+      two.meetingLevel += after.filter(([ch]) => ch === 'meeting:level').length;
+      for (const [ch, pv] of after) {
+        if (ch !== 'overlay:cut' || !pv) continue;
+        const L = lanes[pv.src];
+        if (!L || L.seg !== pv.seg || (pv.src === 'loopback' && !sysAlive)) continue;
+        two.cuts += 1;
+        send(pv.src);
+      }
+      for (const key of ['mic', 'loopback']) {
+        if (key === 'loopback' && !sysAlive) continue;
+        if (lanes[key].fr.length * tick >= (lanes[key].first ? 20000 : segMsNow())) send(key);
+      }
+      if (fx.sysLostAt && sim === fx.sysLostAt && sysAlive) {
+        sysAlive = false;
+        listeners['overlay:source']({}, { systemAudio: false, wanted: true });   // 知らせが先に届き、相手の声の最後の区間は後から届く（A16）
+        send('loopback', { last: true });
+      }
+      if (fx.killAt && sim === fx.killAt) {
+        out.firstInDb = await waitFor(() => settledInDb(), 15000);
+        process.exit(3);
+      }
+      if (k % 50 === 0 && handlers['meeting:status']().quiet) two.quietAsked = true;
+      if (k % 4 === 0) await new Promise((r) => setImmediate(r));
+    }
+    if (handlers['meeting:status']().quiet) two.quietAsked = true;
+    await sleep(50);
+    out.stop = await handlers['meeting:toggle']();
+    // 点検の直し C1（決めたこと 130 の改め）: 最後の2つの届く順と間（録音バーの2つの録音は別々に止まる）。後に送った方に final
+    if (fx.lastOrder === 'mic-first') {
+      send('mic', { last: true });
+      await sleep(Number(fx.lastGapMs) || 500);
+      if (sysAlive && fx.dropLast !== 'loopback') send('loopback', { last: true });
+    } else {
+      if (sysAlive && fx.dropLast !== 'loopback') send('loopback', { last: true });
+      send('mic', { last: true });
+    }
+  }
   for (let i = 0; i < wavs.length; i++) {
     // 取り消す場面（--discard-during）は最初の区間の後で取り消すので、止めない（--segs=1 でも録音中のまま取り消す）
     const last = i === wavs.length - 1 && !discardDuring;
@@ -3294,6 +3512,7 @@ process.on('exit', () => {
   out.claude = claudeLines();
   out.notices = sent.filter(([ch]) => ch === 'app:notice').map(([, p]) => p);
   out.overlaySent = overlaySent.slice();
+  out.cutsSent = sent.filter(([ch]) => ch === 'overlay:cut').length;   // 0.12.0 SP-3a
   out.order = order.slice();
   out.sttSeen = sttSeen.slice();
   out.sttAt = sttAt;
@@ -3332,7 +3551,7 @@ process.on('exit', () => {
     await sleep(100);
     const p = store.listPages()[0];
     out.afterRetry = {
-      segments: p ? store.getTranscript(p.id).map((x) => ({ text: x.text, failed: Boolean(x.failed) })) : [],
+      segments: p ? store.getTranscript(p.id).map((x) => ({ text: x.text, failed: Boolean(x.failed), parts: x.parts, src: x.src })) : [],   // 0.12.0 SP-3b: parts・src
       engineLog: elogLines(),
       requests: fs.readFileSync(flog, 'utf8').split('\n').filter((l) => l.startsWith('inference')),
     };

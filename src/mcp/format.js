@@ -14,6 +14,7 @@ const quality = require('../quality');
 const qualityOf = (q) => quality.qualityView(q);
 const natsulink = require('../natsulink');
 const SL = require('../statelog');
+const TL = require('./timeline');
 
 const WEEK = ['日', '月', '火', '水', '木', '金', '土'];
 const pad2 = (n) => String(n).padStart(2, '0');
@@ -143,6 +144,47 @@ function segmentLine(seg) {
   return `${segPrefix(seg)}${segmentText(seg)}`;
 }
 
+// ---------------------------------------------------------------- 0.12.0 SP-4（D66。計画 docs/plans/2026-10-22-120.md の決めたこと 80・138）
+// 発言 → 答えの行の材料（タイムラインの行: timeline.timelineOf）。{ id, atMs?, durationMs?, text, src, part, failed?, kept?, speaker? }。
+// parts のある区間は文ごとの行（ID は区間のまま・時刻は行の時刻・長さは次の文の頭まで）。src も parts も無い発言は今の発言と同じ形
+function timelineItems(segments) {
+  const list = Array.isArray(segments) ? segments : [];
+  const byId = new Map();
+  for (const s of list) if (s && typeof s === 'object' && !byId.has(s.id)) byId.set(s.id, s);
+  return TL.timelineOf(list).map((r) => {
+    const s = byId.get(r.id) || {};
+    const item = { id: r.id };
+    if (r.ms !== null) item.atMs = r.ms;
+    let dur = Number.isFinite(s.durationMs) ? s.durationMs : null;
+    if (r.part >= 0) {
+      const parts = TL.checkParts(s.parts, s.text, s.durationMs) || [];
+      const next = r.part + 1 < parts.length ? parts[r.part + 1].ms : dur;
+      dur = Number.isFinite(next) && parts[r.part] ? next - parts[r.part].ms : null;
+    }
+    if (dur !== null) item.durationMs = dur;
+    item.text = r.text;
+    item.src = r.src;
+    item.part = r.part;
+    if (r.failed) item.failed = true;
+    if (r.kept) item.kept = true;
+    if (r.speaker !== undefined) item.speaker = r.speaker;
+    return item;
+  });
+}
+// 行の頭の札「自分: 」「相手: 」（表の名前だけ。DB の値をそのまま出さない: 決めたこと 80）。札の無い行は ''
+function labelPrefix(item) {
+  const l = TL.srcLabel(item);
+  return l ? `${l}: ` : '';
+}
+// 答えの1行「s12 [1:20] 自分: 文」（札の無い行は今の「s12 [1:20] 文」）
+function rowLine(item) {
+  return `${segPrefix(item)}${labelPrefix(item)}${segmentText(item)}`;
+}
+// 発言1つの行（parts のある区間は文ごとの行）
+function segmentLines(seg) {
+  return timelineItems([seg]).map(rowLine);
+}
+
 // 時刻 HH:MM（PC の時計の時刻。ISO の文字か Date）。読めなければ ''
 function timeOf(iso) {
   const d = new Date(iso);
@@ -253,6 +295,8 @@ function fitLines(lines, budget) {
 }
 function meetingMarkdown(page, segments, { includeTranscript = false, from = null, budget = 12000, header = true } = {}) {
   const segs = sortSegs(Array.isArray(segments) ? segments : []);
+  // 0.12.0 SP-4（決めたこと 138）: 文字起こしの行はタイムラインの行（parts のある区間は文ごとの行）。「全 N 発言」と transcript_from は発言のまま
+  const rows = timelineItems(segments);
   const head = [...(header ? [NOTICE] : []), `# ${safeLine(page.title || '') || '(無題の議事録)'}`];
   const wantTr = includeTranscript || Boolean(from);
   let start = 0;
@@ -276,17 +320,26 @@ function meetingMarkdown(page, segments, { includeTranscript = false, from = nul
     const lines = [];
     let used = 0;
     const reserve = 60 + 40;   // 見出しの行と続きの行
-    let i = Math.max(0, start);
-    for (; i < segs.length; i++) {
-      const l = segmentLine(segs[i]);
+    // transcript_from の発言の最初の行から（無ければ頭から）
+    const s0 = Math.max(0, start >= 0 && segs[start] ? rows.findIndex((r) => r.id === segs[start].id) : 0);
+    let i = s0;
+    for (; i < rows.length; i++) {
+      const l = rowLine(rows[i]);
       if (lines.length && used + l.length + 1 + reserve > left) break;
       lines.push(l);
       used += l.length + 1;
     }
-    const first = segs[Math.max(0, start)];
-    const last = segs[i - 1];
-    const tail = i < segs.length ? [`続きは transcript_from: ${segs[i].id} で読めます`] : [];
-    if (i < segs.length) next = segs[i].id;
+    // 続きは区間の境で切る（決めたこと 138）: 切れ目が文ごとの行の途中なら、その前で一番近い区間の最初の行まで戻す
+    //（続きは transcript_from のその区間の最初の行から読むので、どの行もちょうど1回ずつ出る）
+    if (i < rows.length && rows[i].part > 0) {
+      let b = i;
+      while (b > s0 + 1 && rows[b].part > 0) b--;
+      if (b > s0 && rows[b].part <= 0) { lines.length = b - s0; i = b; }
+    }
+    const first = rows[s0];
+    const last = rows[i - 1];
+    const tail = i < rows.length ? [`続きは transcript_from: ${rows[i].id} で読めます`] : [];
+    if (i < rows.length) next = rows[i].id;
     take([`## 文字起こし（${first.id}〜${last.id}／全 ${segs.length} 発言）`, ...lines, ...tail].join('\n'));
   }
   return { text: parts.join('\n'), next };
@@ -306,4 +359,4 @@ function cut(text, budget) {
   return { text: out.join('\n'), cut: true };
 }
 
-module.exports = { UNDECIDED_LABEL, typeLabel, sortSegs, meetingMarkdown, CUT_NOTE, clock, today, weekdayOf, dateWithDay, header, safeLine, quoteLines, meetingLine, sttOf, blockLine, segmentText, segPrefix, segmentLine, timeOf, placeText, placeLink, stateLine, cut, NOTICE, KEPT_TEXT, FAILED_TEXT };
+module.exports = { UNDECIDED_LABEL, typeLabel, sortSegs, meetingMarkdown, CUT_NOTE, clock, today, weekdayOf, dateWithDay, header, safeLine, quoteLines, meetingLine, sttOf, blockLine, segmentText, segPrefix, segmentLine, timelineItems, labelPrefix, rowLine, segmentLines, timeOf, placeText, placeLink, stateLine, cut, NOTICE, KEPT_TEXT, FAILED_TEXT };

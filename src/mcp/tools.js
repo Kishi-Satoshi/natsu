@@ -430,9 +430,10 @@ function expandPassage(db, args, { now }) {
   const day = F.dateWithDay(page.date) || F.safeLine(String(page.date || ''));
   const head = F.header(now);
   if (a.kind === 't') {
-    const segs = F.sortSegs(commands.readSegments(db, a.pageId));
+    // 0.12.0 SP-4（決めたこと 138）: タイムラインの行で読む（parts のある区間は文ごとの行）。印の区間の最初の行から最後の行まで（番号の大小は見ない）
+    const segs = F.timelineItems(commands.readSegments(db, a.pageId));
     const ia = segs.findIndex((s) => s.id === a.from);
-    const ib = segs.findIndex((s) => s.id === a.to);
+    const ib = segs.findLastIndex((s) => s.id === a.to);
     if (ia < 0 || ib < 0) return { error: 'no-anchor' };
     const lo = Math.min(ia, ib), hi = Math.max(ia, ib);
     const around = Number.isInteger(args.around) ? args.around : 90;
@@ -453,7 +454,7 @@ function expandPassage(db, args, { now }) {
     let size = head.length + 200;
     let shown = 0;
     for (const sg of pick) {
-      const l = F.segmentLine(sg);
+      const l = F.rowLine(sg);
       if (lines.length && size + l.length + 1 + 120 > MAX_RESULT_CHARS) break;
       lines.push(l);
       size += l.length + 1;

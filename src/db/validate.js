@@ -128,11 +128,30 @@ function checkPatch(p) {
   return normalizeBlock(p);
 }
 
-// 発言の直し（segment.update の patch。text だけ）
+// 発言の直し（segment.update の patch。text と、0.12.0 SP-3b の parts（PC の側の文の頭: 決めたこと 144））。
+// parts は形だけを照らす（2〜200 個・{ ms, at } の 0 以上の整数・最初は 0・0・どちらも増える）。文と合うかは読む側（timeline.checkParts）が見る
+const PARTS_MAX = 200;
+function checkPartsShape(list) {
+  if (!Array.isArray(list) || list.length < 2 || list.length > PARTS_MAX) return false;
+  let prev = null;
+  for (const x of list) {
+    if (!isObj(x) || Object.keys(x).some((k) => k !== 'ms' && k !== 'at')) return false;
+    if (!Number.isSafeInteger(x.ms) || !Number.isSafeInteger(x.at) || x.ms < 0 || x.at < 0) return false;
+    if (prev ? (x.ms <= prev.ms || x.at <= prev.at) : (x.ms !== 0 || x.at !== 0)) return false;
+    prev = x;
+  }
+  return true;
+}
 function checkSegPatch(p) {
   if (!isObj(p)) throw bad('patch');
-  for (const k of Object.keys(p)) if (k !== 'text' || !isStr(p.text, LIMITS.text)) throw bad('patch');
-  return { ...p };
+  for (const k of Object.keys(p)) {
+    if (k === 'text') { if (!isStr(p.text, LIMITS.text)) throw bad('patch'); }
+    else if (k === 'parts') { if (!checkPartsShape(p.parts)) throw bad('patch'); }
+    else throw bad('patch');
+  }
+  const out = { ...p };
+  if (out.parts) out.parts = out.parts.map((x) => ({ ms: x.ms, at: x.at }));
+  return out;
 }
 
 // 型の表: 値を照らして、保存してよい写しを返す（だめなら投げる）

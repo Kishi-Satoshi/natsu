@@ -1,0 +1,8 @@
+{
+ "note": "PC の側: 最初の区間（文が3つ）が DB に入ったら main ごと落ちる",
+ "tick": 1000,
+ "mic": "v60",
+ "sys": "v60",
+ "killAt": 40000,
+ "sentences": true
+}
