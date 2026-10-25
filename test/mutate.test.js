@@ -868,6 +868,7 @@ const IDS_LOGO = [
   'lg-side-fill', 'lg-overlay-invert', 'lg-inline-d',   // LG-4
   'lg-feet-line',   // LG-2
   'lg-mcp-png',   // LG-3
+  'lg-chromium-max',   // LG-7（Ruling R19）
 ];
 test('G3・0.11.1 LG-6: ロゴの差し替えの変異が一覧にそろい、IDS_LOGO は計画の「変異確認」の表の id とちょうど同じ（行の順も）。lg- の変異は IDS_LOGO にある。どれも決まったテストのファイルを持ち、why が 0.11.1 で始まる', { timeout: 5000 }, () => {
   const byId = new Map(MUTANTS.map((m) => [m.id, m]));

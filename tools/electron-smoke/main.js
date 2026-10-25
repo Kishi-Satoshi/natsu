@@ -3,7 +3,7 @@
  *
  * 走らせ方（Electron の main として。窓は見せない）:
  *   node_modules/electron/dist/electron.exe tools/electron-smoke
- * 次の 18 を確かめる（CHECKS）。
+ * 次の 19 を確かめる（CHECKS）。
  *   1〜4. utilityProcess と MessageChannelMain の口で、sandbox の隠れた窓（preload）と往復する。子を落として起こし直す。
  *         子の中で node:sqlite を開く。kill() の終わりの番号を見る
  *   5・6. mainlib の copyPrivate・deliverText を本物の clipboard で動かす（44 では Promise を返す。C1）
@@ -48,7 +48,10 @@
  *         の後に、Windows の reg query で HKCU\Software\Classes\natsu\shell\open\command の既定の値を読み、ちょうど "<exe>" -- "%1" の形かを見る
  *         （-- の後ろは Chromium と Electron の引数として読まれない）。確かめた後に removeAsDefaultProtocolClient で外す（CI の使い捨ての機械だけ。
  *         利用者の登録には触らない）。Windows のほかは確かめない（OK）
- * 結果は 1 行ずつ OK／NG で出す。18 件（--only=17 なら 17 だけ）そろって全部 OK なら終了コード 0、そうでなければ 1（exitCodeOf）。
+ *   19.   0.11.1 LG-7（RF-LG1。iconCheck。判定は純粋な iconResults、数え方は iconDiff）: 本物の Chromium が assets/icon.svg（新しいロゴ。3次ベジェ）を
+ *         256px の画面の外の窓（offscreen・白い地）に描いた画像と、tools/icon-render.js が書き出した assets/icon.png を白い地に置いた色を比べ、
+ *         違う画素（どれかの色が 32 より違う）が 1% 未満か。道具の折れ線（制御点の順・分け数）が Chromium の描く形と食い違えば赤になる
+ * 結果は 1 行ずつ OK／NG で出す。19 件（--only=17 なら 17 だけ）そろって全部 OK なら終了コード 0、そうでなければ 1（exitCodeOf）。
  * どこかで止まっても、90 秒の見張りで 1 で終わる。
  *
  * Electron を読むのは、Electron の main として動いたときだけ（下の boot。tools/net-smoke.js と同じ形）。
@@ -94,6 +97,7 @@ const CHECKS = [
     + 'ログインの窓の守り（16c）: security.install を付けたまま、ログインの partition の窓だけ許した行き先へのフォームの送りが通り、ほかは止まる'],
   [17, '録音バーの窓（透過・枠なし・resizable: false・focusable: false・影なし）に setBounds で当てた横・縦・伸ばした横の大きさが、getBounds にちょうど同じ整数で返る'],
   [18, 'natsu:// の登録（0.10.0 LN-3）: setAsDefaultProtocolClient(natsu, execPath, [--]) の後、Windows の HKCU\\Software\\Classes\\natsu\\shell\\open\\command がちょうど "<exe>" -- "%1"。確かめた後に外す'],
+  [19, 'ロゴの形（0.11.1 LG-7・RF-LG1）: Chromium が assets/icon.svg を 256px で描いた画像と、tools/icon-render.js の assets/icon.png（白い地に置いた色）の違う画素が 1% 未満'],
 ];
 // 17 で当てる大きさ（横の記録中・縦の記録中・文を伸ばした横。どれも panelBounds の答えの形）
 const PANEL_SIZES = [[252, 56], [56, 252], [436, 56]];
@@ -462,6 +466,7 @@ function boot() {
     results.push(...await accessChecks({ app, net, session, BrowserWindow }));
     results.push(...await panelCheck({ BrowserWindow, screen: require('electron').screen, want: scale || 1 }));
     results.push(...await protocolCheck({ app }));
+    results.push(...await iconCheck({ BrowserWindow }));
     finish(app, results);
   }, die('起動の失敗'));
 }
@@ -1084,6 +1089,67 @@ function protocolResults(o) {
   return [{ n: 18, ok, note: `登録 ${o.set}・コマンド ${JSON.stringify(o.value)}（求めるのは ${JSON.stringify(want)}）・外した ${o.removed}${o.error ? `・失敗 ${o.error}` : ''}` }];
 }
 
+// 19: 本物の Chromium で assets/icon.svg を 256px に描き、assets/icon.png と比べる（判定は iconResults）。投げない
+const ICON_SIZE = 256;
+const ICON_TOL = 32;        // どれかの色がこれより違う画素を「違う」と数える（縁のにじみの描き方の差は拾わない）
+const ICON_MAX = 0.01;      // 違う画素がこの割合より少なければ OK（RF-LG1）
+const ICON_SVG = path.join(ROOT, 'assets', 'icon.svg');
+const ICON_PNG = path.join(ROOT, 'assets', 'icon.png');
+async function iconCheck({ BrowserWindow }) {
+  const o = { width: 0, height: 0 };
+  let w = null;
+  try {
+    const svg = fs.readFileSync(ICON_SVG).toString('base64');
+    const html = '<!doctype html><html><head><meta charset="utf-8"><style>html,body{margin:0;padding:0;background:#ffffff;overflow:hidden}'
+      + `img{display:block;width:${ICON_SIZE}px;height:${ICON_SIZE}px}</style></head><body><img src="data:image/svg+xml;base64,${svg}"></body></html>`;
+    w = new BrowserWindow({
+      width: ICON_SIZE, height: ICON_SIZE, useContentSize: true, show: false, frame: false, resizable: false,
+      webPreferences: { offscreen: true, sandbox: true, contextIsolation: true, nodeIntegration: false },
+    });
+    w.setContentSize(ICON_SIZE, ICON_SIZE);
+    await within(w.loadURL(`data:text/html;base64,${Buffer.from(html).toString('base64')}`), 10000, 'ロゴのページ');
+    await within(w.webContents.executeJavaScript('document.images[0].decode().then(() => true)', true), 10000, 'ロゴの読み込み');
+    await wait(300);
+    let im;
+    try { im = await within(w.webContents.capturePage(), 10000, '撮影'); } catch (_) {
+      w.webContents.invalidate();
+      await wait(300);
+      im = await within(w.webContents.capturePage(), 10000, '撮影のやり直し');
+    }
+    const size = im.getSize();
+    o.width = size.width; o.height = size.height;
+    if (o.width === ICON_SIZE && o.height === ICON_SIZE) {
+      const { decodePng } = require('../ico.js');
+      o.diff = iconDiff(im.toBitmap(), decodePng(fs.readFileSync(ICON_PNG)).rgba, ICON_SIZE, ICON_SIZE);
+    }
+  } catch (e) {
+    o.error = msgOf(e);
+  } finally {
+    try { if (w) w.destroy(); } catch (_) { /* 消せなくても判定は出す */ }
+  }
+  return iconResults(o);
+}
+// 19 の数え方（純粋）: icon（RGBA・乗算済みでない）を白い地に置いた色と、Chromium の画像（toBitmap の BGRA）の、どれかの色が ICON_TOL より違う画素の数
+function iconDiff(bgra, rgba, width, height) {
+  let n = 0;
+  for (let i = 0; i < width * height; i++) {
+    const o = i * 4, a = rgba[o + 3] / 255;
+    for (let c = 0; c < 3; c++) {
+      const want = Math.round(rgba[o + c] * a + 255 * (1 - a));
+      if (Math.abs(bgra[o + 2 - c] - want) > ICON_TOL) { n++; break; }
+    }
+  }
+  return n;
+}
+// 19 の判定（純粋）
+function iconResults(o) {
+  const total = ICON_SIZE * ICON_SIZE;
+  const sized = o && o.width === ICON_SIZE && o.height === ICON_SIZE;
+  const ok = Boolean(o) && !o.error && sized && Number.isInteger(o.diff) && o.diff / total < ICON_MAX;
+  const share = Number.isInteger(o && o.diff) ? `${o.diff} 画素（${(100 * o.diff / total).toFixed(2)}%）` : '数えられない';
+  return [{ n: 19, ok, note: `撮った大きさ ${o ? o.width : 0}×${o ? o.height : 0}（求めるのは ${ICON_SIZE}×${ICON_SIZE}）・違う画素 ${share}（1% 未満で OK）${o && o.error ? `・失敗 ${o.error}` : ''}` }];
+}
+
 if (process.versions.electron && process.type === 'browser') boot();
 else if (require.main === module) {
   console.error('electron-smoke は Electron の main として動かす: <electron の実行ファイル> tools/electron-smoke');
@@ -1091,4 +1157,4 @@ else if (require.main === module) {
 }
 
 module.exports = { CHECKS, SMOKE_STT, SMOKE_DB, exitCodeOf, clipboardChecks, securityResults, onlineResults, dbResults, accessResults, reEncryptCheck, finish,
-  PANEL_SIZES, panelResults, checksFor, scaleFor, protocolResults, regDefaultValue };
+  PANEL_SIZES, panelResults, checksFor, scaleFor, protocolResults, regDefaultValue, iconDiff, iconResults };
