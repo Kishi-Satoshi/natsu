@@ -315,6 +315,9 @@ const OVL_094 = (states) => PS.FORMS.flatMap((form) => Object.keys(PS.DESKS).fla
 const RETAKE = new Set([
   // LG-2（Ruling R8・R14）: 録音バーのロゴの path を新しいロゴにした（録音バーの画面はどれもロゴを写す: 81 枚）
   ...SCREENS.filter((s) => s.page === 'overlay').map((s) => s.name),
+  // LG-4（LG2・LG3）: サイドバーの頭のロゴ（明るい画面は黒い箱・暗い画面は白い箱）と、会議の知らせのパネルのロゴ（5 枚）。本体の窓の画面は、サイドバーを
+  // 畳んだ notes-collapsed-light と、200% で設定のポップアップがサイドバーを覆う3枚のほかは、どれもサイドバーの頭を写す（53 枚）
+  ...SCREENS.filter((s) => s.page === 'nudge' || (s.page === 'app' && !['notes-collapsed-light', 'settings-zoom200-dark', 'settings-record-zoom200-light', 'settings-info-zoom200-light'].includes(s.name))).map((s) => s.name),
 ]);
 const PERF = [{ name: 'open-2000-blocks', budgetMs: 500 }];   // 3回開いた中央値で見る
 const TIME_ZONE = 'Asia/Tokyo';

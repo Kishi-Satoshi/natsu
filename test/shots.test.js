@@ -133,7 +133,20 @@ const ADDED_110 = ['notes-page-light', 'notes-page-dark', 'notes-tabs-light', 'n
 // ロゴを替えたタスクごとに足し、持ち主が見比べを OK と言ったら LG-8（版を上げる commit）で基準にして空に戻す
 // LG-2（Ruling R8・R14）: 録音バーのロゴの path（録音バーの画面はどれもロゴを写す。RP9 のテストが 81 枚を見る）
 const LG2_LOGO = SH.SCREENS.filter((s) => s.page === 'overlay').map((s) => s.name);
-const RETAKE_LOGO = [...LG2_LOGO];
+// LG-4（LG2・LG3）: サイドバーの頭のロゴを写す本体の窓の画面（サイドバーを畳んだ notes-collapsed-light と、200% で設定のポップアップがサイドバーを覆う
+// settings-zoom200-dark・settings-record-zoom200-light・settings-info-zoom200-light のほかの 53 枚）と、会議の知らせのパネルの 5 枚
+const LG4_LOGO = [
+  'notes-empty-light', 'notes-page-light', 'notes-page-dark', 'dictation-light', 'settings-light', 'settings-dark', 'notes-tabs-light', 'live-light', 'live-dark',
+  'notes-page-zoom200-light', 'search-palette-light', 'live-banner-light', 'live-banner-dark', 'live-banner-zoom200-dark', 'settings-record-light',
+  'settings-search-light', 'settings-offline-light', 'live-quiet-light', 'live-quiet-dark', 'settings-quiet-search-light', 'settings-record-dark',
+  'settings-summary-light', 'settings-account-light', 'settings-info-loop-light', 'settings-info-stt-dark', 'settings-info-claude-light', 'settings-info-search-light',
+  'live-wave-light', 'live-wave-dark', 'live-silent-light', 'live-paused-dark', 'settings-detect-light', 'settings-detect-dark', 'live-offline-light',
+  'live-offline-dark', 'live-late-light', 'live-late-dark', 'live-late-zoom200-light', 'settings-mcp-light', 'settings-info-mcp-light', 'page-menu-link-light',
+  'page-menu-link-dark', 'list-select-light', 'list-select-dark', 'page-summary-lock-light', 'settings-mcp-running-light', 'page-type-light', 'page-type-dark',
+  'page-type-undecided-light', 'live-type-light', 'page-quality-light', 'page-quality-dark', 'settings-quality-light', 'nudge-light-100', 'nudge-dark-100',
+  'nudge-light-150', 'nudge-menu-light-100', 'nudge-menu-dark-100',
+];
+const RETAKE_LOGO = [...LG2_LOGO, ...LG4_LOGO];
 const img = (w, h, fill = [255, 255, 255, 255]) => ({ width: w, height: h, data: Buffer.from(Array.from({ length: w * h }, () => fill).flat()) });
 // 一時フォルダ（日本語と 𠮷 の名前。RF1 と同じ形）。テストの終わりに消す
 const tmp = (t, name) => {
@@ -255,7 +268,9 @@ test('あとの直し (b)・0.9.0 B-1・G-3: 撮る画面に live-banner-dark・
     // 0.10.0 SH-1 で意図して変えた: 0.10.0 の表（RETAKE_100）にあるときだけ取り直し待ちでよい（左の一覧の見本の題名）
     // 0.10.0 で意図して変えた（版を 0.10.0 に上げる commit）: 持ち主が OK と言った CI の画像を基準にしたので、また取り直し待ちではない
     // 0.11.0 V-1 で意図して変えた: 0.11.0 の表（ADDED_110）にあるときだけ取り直し待ちでよい（録音中のページの種類の行と一言）
-    assert.ok(!SH.RETAKE.has(n) || ADDED_110.includes(n), `${n} が取り直し待ちに残っている`);
+    // 0.11.0 で意図して変えた（版を 0.11.0 に上げる commit）: 持ち主が OK と言った CI の画像を基準にしたので、また取り直し待ちではない
+    // 0.11.1 LG-4 で意図して変えた: 0.11.1 の表（RETAKE_LOGO）にあるときだけ取り直し待ちでよい（サイドバーの頭のロゴ）
+    assert.ok(!SH.RETAKE.has(n) || RETAKE_LOGO.includes(n), `${n} が取り直し待ちに残っている`);
     assert.ok(fs.existsSync(path.join(ROOT, 'test', 'shots', 'win32', `${n}.png`)), `${n} の基準が無い`);
   }
 });
@@ -270,7 +285,9 @@ test('1b2 R-3・G12: 検索の窓の画面は窓を開く act を持ち、取り
   // 0.10.0 SH-1 で意図して変えた: 0.10.0 の表（RETAKE_100）にあるときだけ取り直し待ちでよい（結果の行の見本の題名）
   // 0.10.0 で意図して変えた（版を 0.10.0 に上げる commit）: 持ち主が OK と言った CI の画像を基準にしたので、また取り直し待ちではない
   // 0.11.0 M-1 で意図して変えた: 0.11.0 の表（ADDED_110）にあるときだけ取り直し待ちでよい（窓の後ろのページの種類の名前）
-  assert.ok(!SH.RETAKE.has('search-palette-light') || ADDED_110.includes('search-palette-light'), '検索の窓の画面が取り直し待ちに戻った');
+  // 0.11.0 で意図して変えた（版を 0.11.0 に上げる commit）: 持ち主が OK と言った CI の画像を基準にしたので、また取り直し待ちではない
+  // 0.11.1 LG-4 で意図して変えた: 0.11.1 の表（RETAKE_LOGO）にあるときだけ取り直し待ちでよい（窓の後ろのサイドバーの頭のロゴ）
+  assert.ok(!SH.RETAKE.has('search-palette-light') || RETAKE_LOGO.includes('search-palette-light'), '検索の窓の画面が取り直し待ちに戻った');
 });
 
 // 0.9.0 O-3 で意図して変えた: 録音バーは作り直した（D25）ので、O-3〜O-4 の間は録音バーの画面を取り直し待ちに入れてよい（G-3 で空にする）。
@@ -598,7 +615,8 @@ test('U-3・G-3: settings-offline-light は基準の PNG と比べる（取り�
   // 0.9.4 で意図して変えた（版を 0.9.4 に上げる commit）: 持ち主が OK と言った CI の画像を基準にしたので、また取り直し待ちではない
   // 0.10.0 SH-1 で意図して変えた: 0.10.0 の表（RETAKE_100）にあるときだけ取り直し待ちでよい
   // 0.10.0 で意図して変えた（版を 0.10.0 に上げる commit）: 持ち主が OK と言った CI の画像を基準にしたので、また取り直し待ちではない
-  assert.ok(!SH.RETAKE.has('settings-offline-light'), '準備を選んでいない人のカードの画面が取り直し待ちに残っている');
+  // 0.11.1 LG-4 で意図して変えた: 0.11.1 の表（RETAKE_LOGO）にあるときだけ取り直し待ちでよい（ポップアップの後ろのサイドバーの頭のロゴ）
+  assert.ok(!SH.RETAKE.has('settings-offline-light') || RETAKE_LOGO.includes('settings-offline-light'), '準備を選んでいない人のカードの画面が取り直し待ちに残っている');
   assert.ok(fs.existsSync(path.join(ROOT, 'test', 'shots', 'win32', 'settings-offline-light.png')), '準備を選んでいない人のカードの画面の基準が無い');
   const s = SH.SCREENS.find((x) => x.name === 'settings-offline-light');
   assert.ok(s, '撮る画面に無い');
@@ -872,7 +890,9 @@ test('基準の画像（test/shots/win32）は今の app.html で撮ったもの
   // 0.11.0 V-4: 種類の横の題名からの一言（初めは隠れている。見た目は変わらない）。値を今の app.html に合わせた（前の値は fa63fba9…）
   // 0.11.0 H-1b: #setPopQuality の［ヘルプで詳しく見る ↗］を記事 summary/meeting-quality に付け替えた（見た目は変わらない）。値を今の app.html に合わせた（前の値は 13c2c317…）
   // 0.11.0 V-5: 会議の種類のプルダウンの群の見出し（<optgroup>）を外した（持ち主の画面の確かめ）。変わる画面は page-type-light・page-type-dark（ADDED_110）。値を今の app.html に合わせた（前の値は e58d2778…）
-  assert.strictEqual(sha, '8d23c411e4bd722d6c8dbf5b1b015ccecc1377a646c76bcdfc2e6b7c78cd6cba',
+  // 0.11.1 LG-4（LG2・LG3）: サイドバーの頭のロゴを箱の中のリスにした（path の d と印・色の CSS 2行・海の色の注）。変わる画面はサイドバーの頭を写す本体の窓の 53 枚
+  // （RETAKE_LOGO の LG4_LOGO）。値を今の app.html に合わせた（前の値は 8d23c411…）
+  assert.strictEqual(sha, 'd3620f204b3e71918caff56b7934d2ade903c00ee9eec9a3735810b577bad07a',
     'app.html が基準の画像を撮った時と違う。Windows の CI の画面の比べ（捲り棒のつまみも）を見て、基準を取り直してからこの値を直す');
 });
 
@@ -1055,7 +1075,9 @@ test('0.9.3 D55: オフラインモードの画面（live-offline-light・live-o
     // 0.10.0 SH-1 で意図して変えた: 0.10.0 の表（RETAKE_100）にあるときだけ取り直し待ちでよい（左の一覧の見本の題名）
     // 0.10.0 で意図して変えた（版を 0.10.0 に上げる commit）: 持ち主が OK と言った CI の画像を基準にしたので、また取り直し待ちではない
     // 0.11.0 V-1 で意図して変えた: 0.11.0 の表（ADDED_110）にあるときだけ取り直し待ちでよい（録音中のページの種類の行と一言）
-    assert.ok((!SH.RETAKE.has(n) || ADDED_110.includes(n)) && fs.existsSync(path.join(ROOT, 'test', 'shots', 'win32', `${n}.png`)), `${n} が取り直し待ちに残っているか、基準が無い`);
+    // 0.11.0 で意図して変えた（版を 0.11.0 に上げる commit）: 持ち主が OK と言った CI の画像を基準にしたので、また取り直し待ちではない
+    // 0.11.1 LG-4 で意図して変えた: 0.11.1 の表（RETAKE_LOGO）にあるときだけ取り直し待ちでよい（サイドバーの頭のロゴ）
+    assert.ok((!SH.RETAKE.has(n) || RETAKE_LOGO.includes(n)) && fs.existsSync(path.join(ROOT, 'test', 'shots', 'win32', `${n}.png`)), `${n} が取り直し待ちに残っているか、基準が無い`);
   }
 });
 
