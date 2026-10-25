@@ -259,3 +259,11 @@ test('点検の直し 3（L11）: 保存の後に議事録の一覧（pages.list
   assert.ok(typeof id === 'string' && id.length > 0);
   assert.deepStrictEqual(sentBetween(o, 'f', 'c').filter(([ch]) => ch === 'page:open'), [['page:open', id]], JSON.stringify(sentBetween(o, 'f', 'c')));
 });
+test('点検の直し 4（L16）: 録音中に見張りが続けて落ちて諦めた後でも、「会議を出たら自動で止める」を入れ直すと見張りを起こし直す（「会議の検出の通知」のオンオフと同じ）', S, async () => {
+  const o = await run([['start'], ['exit', 1], ['sleep', 40], ['exit', 1], ['sleep', 40], ['exit', 1], ['sleep', 40], ['exit', 1], ['sleep', 40], ['snap', 'gave'],
+    ['save', { autoStopLeave: false }], ['save', { autoStopLeave: true }], ['sleep', 30], ['snap', 'again']], '--detect=off');
+  assert.ok(o.engineLog.includes('会議の検出: 見張りが続けて落ちたので、次の起動か設定のオンオフまで起こしません'), o.engineLog.join('\n'));
+  assert.strictEqual(o.snaps.gave.spawns, 4, JSON.stringify(o.snaps));
+  assert.strictEqual(o.snaps.again.spawns, 5, '設定を入れ直しても起こさない');
+  assert.strictEqual(o.snaps.again.active, true);
+});

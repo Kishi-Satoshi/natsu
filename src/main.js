@@ -3256,7 +3256,10 @@ function applyDetectSettings(prev) {
 }
 // 0.12.1 LV-2（決めたこと L9・L16）: 設定「会議を出たら自動で止める」が変わった。録音中なら判断に知らせ（切ったら数えを戻す・入れ直したら次の読みから数える）、見張りを起こす・止める
 function applyLeaveSetting() {
-  leaveEvent({ type: 'setting', on: settings.autoStopLeave !== false });
+  const on = settings.autoStopLeave !== false;
+  // 点検の直し 4: 入れ直したら、落ちて諦めた見張りも起こし直す（applyDetectSettings と同じ）
+  if (on) { micGaveUp = false; micFails = 0; }
+  leaveEvent({ type: 'setting', on });
   syncMicWatch();
 }
 
