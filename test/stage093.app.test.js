@@ -37,7 +37,8 @@ const chips = (l) => $(l, 'meetingDetectMuteList').querySelectorAll('.mutechip')
 test('M-4: ［設定］→［録音］の頭に「会議の検出」のカード（行は「会議の検出の通知」と「通知を出さないアプリ」）。見える説明は1行・ⓘ の吹き出しの芯', T, () => {
   const cards = doc.querySelector('#tabSettings .scroll').children.filter((c) => c.classList.contains('card') && c.dataset.sec === 'record');
   assert.strictEqual(norm(cards[0].querySelector('h2').textContent), '会議の検出');
-  assert.deepStrictEqual(cards[0].querySelectorAll('[data-row]').map((r) => r.dataset.row), ['会議の検出の通知', '通知を出さないアプリ']);
+  // 0.12.1 LV-4（計画 docs/plans/2026-10-24-121.md の決めたこと L15）で意図して変えた: 2行目に「会議を出たら自動で止める」（stage121.app が見る）
+  assert.deepStrictEqual(cards[0].querySelectorAll('[data-row]').map((r) => r.dataset.row), ['会議の検出の通知', '会議を出たら自動で止める', '通知を出さないアプリ']);
   assert.strictEqual(norm(doc.querySelector('#meetingDetectDesc').textContent), '会議のアプリがマイクを使い始めたら、録音するか聞きます。');
   const pop = norm(doc.querySelector('#setPopDetect').textContent);
   for (const w of ['NaTsu は音を聞きません。', 'Windows の「マイクを使っているアプリ」の記録だけを見ます。', 'Teams・Zoom・Webex・Slack・ブラウザ（Chrome・Edge・Firefox。Google Meet など）',

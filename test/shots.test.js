@@ -154,6 +154,10 @@ const ADDED_LOGO = [...LG2_LOGO, ...LG4_LOGO];
 const NEW_120 = ['notes-script-spk-light'];
 const ADDED_120 = ['live-light', 'live-dark', 'live-banner-light', 'live-banner-dark', 'live-banner-zoom200-dark', 'live-quiet-light', 'live-quiet-dark',
   'live-wave-light', 'live-wave-dark', 'live-silent-light', 'live-paused-dark', 'live-offline-light', 'live-offline-dark', ...NEW_120];
+// 0.12.1（計画 docs/plans/2026-10-24-121.md の「取り直す画面（RETAKE）」）で意図して変えた: 取り直し待ちは 0.12.1 の表の画面だけ（RETAKE_121）。LV-4 で［設定］→［録音］の
+// カード「会議の検出」に行「会議を出たら自動で止める」を足したので、そのカードと［録音］の下を写す画面と、新しい行に当たる検索の画面
+const RETAKE_121 = ['settings-record-light', 'settings-record-dark', 'settings-record-zoom200-light', 'settings-detect-light', 'settings-detect-dark',
+  'settings-search-light', 'settings-quiet-search-light', 'settings-info-loop-light', 'settings-info-stt-dark', 'settings-info-zoom200-light'];
 const img = (w, h, fill = [255, 255, 255, 255]) => ({ width: w, height: h, data: Buffer.from(Array.from({ length: w * h }, () => fill).flat()) });
 // 一時フォルダ（日本語と 𠮷 の名前。RF1 と同じ形）。テストの終わりに消す
 const tmp = (t, name) => {
@@ -666,7 +670,11 @@ test('G2・F14・G-4・0.9.0 G-3・0.9.1・0.9.2・0.9.3・0.9.4・0.10.0・0.10
   // 0.11.1 で意図して変えた（版を 0.11.1 に上げる commit。LG-8）: 取り直し待ちを空に戻した（ファイルの頭の注）。0.11.1 の表の画面（ADDED_LOGO）はどれも計画の表にあり、基準がある
   // 0.12.0 SP-4 で意図して変えた: 取り直し待ちは 0.12.0 の表の画面（ファイルの頭の RETAKE_120）とちょうど同じで、どれも計画の「取り直す画面（RETAKE）」の表にある
   // 0.12.0 で意図して変えた（版を 0.12.0 に上げる commit。Task G）: 取り直し待ちを空に戻した（ファイルの頭の注）。0.12.0 の表の画面（ADDED_120）はどれも計画の表にあり、基準がある
-  assert.deepStrictEqual([...SH.RETAKE], []);
+  // 0.12.1 LV-4 で意図して変えた: 取り直し待ちは 0.12.1 の表の画面（ファイルの頭の RETAKE_121）とちょうど同じで、どれも計画の「取り直す画面（RETAKE）」の表にある
+  assert.deepStrictEqual([...SH.RETAKE].sort(), [...RETAKE_121].sort());
+  const plan121 = read('docs/plans/2026-10-24-121.md');
+  const table121 = plan121.slice(plan121.indexOf('## 取り直す画面（RETAKE'), plan121.indexOf('\n## ', plan121.indexOf('## 取り直す画面（RETAKE') + 5));
+  for (const n of RETAKE_121) assert.ok(table121.includes(`\`${n}\``), `0.12.1 の計画の「取り直す画面」の表に ${n} が無い`);
   const plan120 = read('docs/plans/2026-10-22-120.md');
   const table120 = plan120.slice(plan120.indexOf('## 取り直す画面（RETAKE）'), plan120.indexOf('## ', plan120.indexOf('## 取り直す画面（RETAKE）') + 5));
   for (const n of ADDED_120) assert.ok(table120.includes(`\`${n}\``), `0.12.0 の計画の「取り直す画面」の表に ${n} が無い`);
@@ -917,7 +925,9 @@ test('基準の画像（test/shots/win32）は今の app.html で撮ったもの
   // 文ごとの行の直し・［コピー］の札・リンクの印の行（R26）。変わる画面は録音中のページの文字起こしの 13 枚と足した notes-script-spk-light（RETAKE_120）。
   // 値を今の app.html に合わせた（前の値は d3620f20…）。SP-4 の撮った画像の確かめで、折り返した行の札が行の高さに伸びていたので .seg .spk に
   // align-self: flex-start を足した（変わる画面は同じ RETAKE_120）。値を今の app.html に合わせた（前の値は 15ff8c69…）
-  assert.strictEqual(sha, '2d669bc101a0bfcf07ec9261efe32e0843e0e3b7353cf6e275252afc2d7e804d',
+  // 0.12.1 LV-4（決めたこと L15）: カード「会議の検出」の2行目に「会議を出たら自動で止める」（行・ⓘ の吹き出し）と、読み込みと自動保存の1行ずつ。変わる画面は RETAKE_121。
+  // 値を今の app.html に合わせた（前の値は 2d669bc1…）
+  assert.strictEqual(sha, '6c70ba307939e526797292e564e4f71eb11bd058a7ad5e947781e642444785c8',
     'app.html が基準の画像を撮った時と違う。Windows の CI の画面の比べ（捲り棒のつまみも）を見て、基準を取り直してからこの値を直す');
 });
 
