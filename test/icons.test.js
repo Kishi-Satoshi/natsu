@@ -229,12 +229,86 @@ test('icon-render.js: 描けないものは黙って飛ばさずに投げる', (
   const svg = (body, vb = '0 0 4 4') => `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${vb}">${body}</svg>`;
   assert.throws(() => renderSvg(svg('<circle cx="2" cy="2" r="1"/>'), 4), /circle/);
   assert.throws(() => renderSvg(svg('<path d="M0 0 l2 2 Z" fill="#ff0000"/>'), 4), /命令 l /);
-  assert.throws(() => renderSvg(svg('<path d="M0 0 C1 1 2 2 3 3 Z" fill="#ff0000"/>'), 4), /命令 C /);
+  // 0.11.1 LG-1 で意図して変えた: 絶対座標の 3次ベジェ（C）は描ける（新しいロゴが使う。決めたこと 1）。相対の c・略した S は今までどおり投げる（Ruling R1）
+  assert.throws(() => renderSvg(svg('<path d="M0 0 c1 1 2 2 3 3 Z" fill="#ff0000"/>'), 4), /命令 c /);
+  assert.throws(() => renderSvg(svg('<path d="M0 0 C1 1 2 2 3 3 S3 1 2 0 Z" fill="#ff0000"/>'), 4), /命令 S /);
+  assert.throws(() => renderSvg(svg('<path d="M0 0 C1 1 2 2 Z" fill="#ff0000"/>'), 4), /C の後に数が足りない/);
   assert.throws(() => renderSvg(svg('<path d="M0 0 H2 V2 Z" fill="#ff0000" opacity="0.5"/>'), 4), /opacity/);
   assert.throws(() => renderSvg(svg('<path d="M0 0 H2 V2 Z" fill="red"/>'), 4), /red/);
   assert.throws(() => renderSvg(svg('<path d="M0 0 H2" stroke="#ff0000" fill="none" stroke-linejoin="round"/>'), 4), /stroke-linecap/);
   assert.throws(() => renderSvg(svg('<path d="M0 0 H2 V2 Z" stroke="#ff0000" fill="none"/>'), 4), /stroke-linejoin/);
   assert.throws(() => renderSvg(svg('<path d="M0 0 H2 V2 Z" fill="#ff0000"/>', '0 0 4 3'), 4), /viewBox/);
+});
+
+// ---------------------------------------------------------------- 3次ベジェ（0.11.1 LG-1。決めたこと 1・RF-LG1）
+// 新しいロゴ（箱の中のリス）は 3次ベジェ（C）でできている。折れ線の分け数は 2次ベジェと同じ。
+const alphaSum = (rgba) => { let s = 0; for (let o = 3; o < rgba.length; o += 4) s += rgba[o] / 255; return s; };
+// 中心 (32, 32)・半径 r の円を 3次ベジェ4つで描く（k は 4/3·(√2 − 1)。円との半径の差は 0.03% 未満）
+const circleD = (r, swap = false) => {
+  const k = 0.5522847498 * r, c = 32;
+  const arcs = [
+    [[c + r, c + k], [c + k, c + r], [c, c + r]],
+    [[c - k, c + r], [c - r, c + k], [c - r, c]],
+    [[c - r, c - k], [c - k, c - r], [c, c - r]],
+    [[c + k, c - r], [c + r, c - k], [c + r, c]],
+  ];
+  return `M${c + r} ${c} ` + arcs.map(([c1, c2, e]) => `C${(swap ? [c2, c1, e] : [c1, c2, e]).map((p) => p.join(' ')).join(' ')}`).join(' ') + ' Z';
+};
+const svg64 = (body) => `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">${body}</svg>`;
+
+test('LG-1 RF-LG1: 3次ベジェ4つで描いた円の面積は πr² の ±1% に入る（C を描ける）', () => {
+  const { renderSvg } = require('../tools/icon-render.js');
+  for (const [r, size] of [[24, 64], [24, 256], [10, 64]]) {
+    const scale = size / 64;
+    const got = alphaSum(renderSvg(svg64(`<path d="${circleD(r)}" fill="#111111"/>`), size));
+    const want = Math.PI * (r * scale) ** 2;
+    assert.ok(Math.abs(got - want) / want < 0.01, `半径 ${r}・${size}px の円の面積 ${got.toFixed(1)}（πr² は ${want.toFixed(1)}）`);
+  }
+});
+
+test('LG-1 RF-LG1: 3次ベジェの制御点の順（c1 → c2）を取り違えない（同じ曲線の2次ベジェと同じ画素・入れ替えた path とは別の画素）', () => {
+  const { renderSvg } = require('../tools/icon-render.js');
+  // 2次ベジェ (P0, Q, P3) は、c1 = P0 + 2/3(Q − P0)・c2 = P3 + 2/3(Q − P3) の 3次ベジェと同じ曲線（同じ t で同じ点）。
+  // Q を真ん中からずらし、c1 と c2 を入れ替えると別の曲線になるようにする
+  const p0 = [4, 60], q = [12, 2], p3 = [60, 56];
+  const c1 = p0.map((v, i) => v + (2 / 3) * (q[i] - v)), c2 = p3.map((v, i) => v + (2 / 3) * (q[i] - v));
+  const fmt = (p) => p.map((v) => +v.toFixed(6)).join(' ');
+  const quad = renderSvg(svg64(`<path d="M${fmt(p0)} Q${fmt(q)} ${fmt(p3)} Z" fill="#111111"/>`), 64);
+  const cubic = renderSvg(svg64(`<path d="M${fmt(p0)} C${fmt(c1)} ${fmt(c2)} ${fmt(p3)} Z" fill="#111111"/>`), 64);
+  const swapped = renderSvg(svg64(`<path d="M${fmt(p0)} C${fmt(c2)} ${fmt(c1)} ${fmt(p3)} Z" fill="#111111"/>`), 64);
+  const diff = (a, b, d) => { let n = 0; for (let o = 3; o < a.length; o += 4) if (Math.abs(a[o] - b[o]) > d) n++; return n; };
+  assert.strictEqual(diff(cubic, quad, 8), 0, '3次ベジェが同じ曲線の 2次ベジェと違う形になる');
+  assert.ok(diff(cubic, swapped, 8) > 50, `c1 と c2 を入れ替えた path と同じ形になる（違う画素 ${diff(cubic, swapped, 8)}）`);
+  // 円の4つの弧の c1 と c2 を入れ替えると、面積が大きく変わる
+  const area = alphaSum(renderSvg(svg64(`<path d="${circleD(24, true)}" fill="#111111"/>`), 64));
+  assert.ok(Math.abs(area - Math.PI * 576) / (Math.PI * 576) > 0.05, `入れ替えた円の面積 ${area.toFixed(1)}`);
+});
+
+test('LG-1 RF-LG4: 描けない大きさが1つでもあれば、icon-render は投げて、どのファイルも1バイトも変えない（一時ファイルも残さない）', () => {
+  const { renderTargets } = require('../tools/icon-render.js');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'icon-render-'));
+  try {
+    fs.mkdirSync(path.join(dir, 'a'));
+    fs.writeFileSync(path.join(dir, 'a/one.svg'), svg64(`<path d="${circleD(24)}" fill="#111111"/>`));
+    // 前の中身（描き直すと必ず変わる）
+    const outs = ['a/one.png', 'a/one.ico', 'a/two.png', 'a/two.ico'];
+    for (const f of outs) fs.writeFileSync(path.join(dir, f), `old ${f}`);
+    const targets = [
+      { svg: 'a/one.svg', png: { file: 'a/one.png', size: 32 }, ico: { file: 'a/one.ico', sizes: [16, 32] } },
+      { svg: 'a/one.svg', png: { file: 'a/two.png', size: 32 }, ico: { file: 'a/two.ico', sizes: [16, 2048] } },   // 2048 は描けない（1〜1024）
+    ];
+    assert.throws(() => renderTargets(dir, targets), /描く大きさ/);
+    for (const f of outs) assert.strictEqual(fs.readFileSync(path.join(dir, f), 'utf8'), `old ${f}`, `${f} が書き換わった`);
+    assert.deepStrictEqual(fs.readdirSync(path.join(dir, 'a')).sort(), ['one.ico', 'one.png', 'one.svg', 'two.ico', 'two.png'], '一時ファイルが残った');
+    // 全部描ければ、全部を書く
+    targets[1].ico.sizes = [16, 48];
+    renderTargets(dir, targets);
+    for (const f of outs) assert.notStrictEqual(fs.readFileSync(path.join(dir, f), 'utf8').slice(0, 4), 'old ', `${f} が書かれない`);
+    assert.deepStrictEqual(parseIco(fs.readFileSync(path.join(dir, 'a/two.ico'))).map((e) => e.width), [16, 48]);
+    assert.deepStrictEqual(fs.readdirSync(path.join(dir, 'a')).sort(), ['one.ico', 'one.png', 'one.svg', 'two.ico', 'two.png'], '一時ファイルが残った');
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 // ---------------------------------------------------------------- トレイ（第0a回 R4-3。Q8 の答え）

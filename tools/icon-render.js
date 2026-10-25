@@ -13,7 +13,7 @@
 //
 // 描けるのは、ロゴが使うものだけ:
 //   - 要素は <svg>（正方形の viewBox）と <path> だけ
-//   - path の命令は絶対座標の M / L / H / V / Q / Z だけ
+//   - path の命令は絶対座標の M / L / H / V / Q / C / Z だけ（C は 0.11.1 LG-1。新しいロゴが使う）
 //   - 色は #rrggbb か none。塗りは nonzero
 //   - 線は丸い角（stroke-linejoin="round"）だけ。閉じていない線は丸い端（stroke-linecap="round"）だけ
 // それ以外は、黙って飛ばすと絵が変わるので投げる。
@@ -21,6 +21,8 @@
 // 描き方: 1画素を 8×8 の小さな点に分け、点の中心が形の中にあるかを数えて、覆う割合を透明度にする。
 // 丸い角と丸い端の線は「各線分から太さの半分以内の点」と同じなので、線分ごとに距離で決める。
 // 計算は足し引き掛け割りと比べるだけなので、OS が違っても同じ結果になる。
+// 書き出しは、全部の大きさを先にメモリに描いてから、一時ファイル → 名前の変更で書く（0.11.1 LG-1・RF-LG4）。
+// 一つでも描けなければ、1つのファイルも書かずに投げる（ICO と PNG の片方だけが新しい絵になることが無い）。
 
 const fs = require('fs');
 const path = require('path');
@@ -32,6 +34,7 @@ const TRAY_SIZES = [16, 20, 24, 32, 48, 64];       // 今の tray*.ico と同じ
 const SMALL_BELOW = 32; // これより小さい大きさは、小さい版の SVG（TARGETS の small）から描く
 const SUB = 8;      // 1画素あたりの点の数（縦横それぞれ）
 const Q_STEPS = 32; // 2次ベジェを折れ線にするときの分け数
+const C_STEPS = Q_STEPS; // 3次ベジェも同じ分け数（0.11.1 LG-1。決めたこと 1）
 
 const PATH_ATTRS = new Set(['d', 'fill', 'stroke', 'stroke-width', 'stroke-linecap', 'stroke-linejoin']);
 const SVG_ATTRS = new Set(['xmlns', 'viewBox', 'width', 'height']);
@@ -108,7 +111,7 @@ function parseD(d) {
   while (i < toks.length) {
     if (typeof toks[i] === 'string') cmd = toks[i++];
     else if (!cmd) throw new Error('path の d が命令で始まっていない');
-    if (!'MLHVQZ'.includes(cmd)) throw new Error(`path の命令 ${cmd} は描けない（絶対座標の M L H V Q Z だけ）`);
+    if (!'MLHVQCZ'.includes(cmd)) throw new Error(`path の命令 ${cmd} は描けない（絶対座標の M L H V Q C Z だけ）`);
     if (cmd !== 'M' && !cur) throw new Error('path の d が M で始まっていない');
     if (cmd === 'M') {
       x = num(); y = num();
@@ -125,6 +128,14 @@ function parseD(d) {
       for (let k = 1; k <= Q_STEPS; k++) {
         const t = k / Q_STEPS, u = 1 - t;
         cur.pts.push([u * u * x + 2 * u * t * cx + t * t * ex, u * u * y + 2 * u * t * cy + t * t * ey]);
+      }
+      x = ex; y = ey;
+    } else if (cmd === 'C') { // 制御点は c1 → c2 の順（0.11.1 LG-1）
+      const ax = num(), ay = num(), bx = num(), by = num(), ex = num(), ey = num();
+      for (let k = 1; k <= C_STEPS; k++) {
+        const t = k / C_STEPS, u = 1 - t;
+        const w0 = u * u * u, w1 = 3 * u * u * t, w2 = 3 * u * t * t, w3 = t * t * t;
+        cur.pts.push([w0 * x + w1 * ax + w2 * bx + w3 * ex, w0 * y + w1 * ay + w2 * by + w3 * ey]);
       }
       x = ex; y = ey;
     } else { // Z
@@ -239,23 +250,32 @@ const TARGETS = [
   { svg: 'assets/tray-rec.svg', small: 'assets/tray-rec-small.svg', png: { file: 'src/assets/tray-rec.png', size: 32 }, ico: { file: 'src/assets/tray-rec.ico', sizes: TRAY_SIZES } },
 ];
 
-function renderTargets(root = ROOT) {
-  const written = [];
-  for (const t of TARGETS) {
+// 全部を描いてから書く（0.11.1 LG-1・RF-LG4）。描くのに失敗したら、どのファイルも書かずに投げる。
+// 書くときは、先に全部を一時ファイルに書き、それから名前を変える。一時ファイルを書けなければ、書いた一時ファイルを消して投げる。
+function renderTargets(root = ROOT, targets = TARGETS) {
+  const outs = [];   // [{ file, buf, line }]
+  for (const t of targets) {
     const big = fs.readFileSync(path.join(root, t.svg), 'utf8');
     const small = t.small ? fs.readFileSync(path.join(root, t.small), 'utf8') : big;
     const draw = (s) => renderSvg(s < SMALL_BELOW ? small : big, s);
     if (t.png) {
-      fs.writeFileSync(path.join(root, t.png.file), encodePng(t.png.size, t.png.size, draw(t.png.size)));
-      written.push(`${t.png.file}: ${t.png.size} px`);
+      outs.push({ file: t.png.file, buf: encodePng(t.png.size, t.png.size, draw(t.png.size)), line: `${t.png.file}: ${t.png.size} px` });
     }
     if (t.ico) {
       const ico = packIco(t.ico.sizes.map((s) => encodePng(s, s, draw(s))));
-      fs.writeFileSync(path.join(root, t.ico.file), ico);
-      written.push(`${t.ico.file}: ${parseIco(ico).map((e) => e.width).join(', ')} px`);
+      outs.push({ file: t.ico.file, buf: ico, line: `${t.ico.file}: ${parseIco(ico).map((e) => e.width).join(', ')} px` });
     }
   }
-  return written;
+  const tmpOf = (f) => path.join(root, `${f}.rendering-${process.pid}`);
+  const made = [];
+  try {
+    for (const o of outs) { fs.writeFileSync(tmpOf(o.file), o.buf); made.push(o.file); }
+  } catch (e) {
+    for (const f of made) { try { fs.unlinkSync(tmpOf(f)); } catch { /* 消せなくても元の投げを返す */ } }
+    throw e;
+  }
+  for (const o of outs) fs.renameSync(tmpOf(o.file), path.join(root, o.file));
+  return outs.map((o) => o.line);
 }
 
 module.exports = { ICON_SIZES, TRAY_SIZES, SMALL_BELOW, TARGETS, parseSvg, renderSvg, renderTargets };

@@ -859,3 +859,26 @@ test('G3・0.11.0: 0.11.0 の変異が一覧にそろい、IDS_110 はどれも�
     assert.ok(typeof m.why === 'string' && m.why.startsWith('0.11.0 '), `${id}: why`);
   }
 });
+
+// 0.11.1 ロゴの差し替え（計画 docs/plans/2026-10-24-logo.md の「変異確認」の表）: 描く道具・新しい絵・画面の中のロゴの直しを1つずつ戻す変異。
+// タスクを作るたびに足す（Ruling R3）。LG-6 で表の全部とちょうど同じにそろえる
+const IDS_LOGO = [
+  'lg-cubic-order', 'lg-cubic-steps', 'lg-write-atomic',
+];
+test('G3・0.11.1: ロゴの差し替えの変異が一覧にそろい、IDS_LOGO はどれも計画の「変異確認」の表にある。lg- の変異は IDS_LOGO にある。どれも決まったテストのファイルを持ち、why が 0.11.1 で始まる', { timeout: 5000 }, () => {
+  const byId = new Map(MUTANTS.map((m) => [m.id, m]));
+  assert.deepStrictEqual(IDS_LOGO.filter((id) => !byId.has(id)), [], 'IDS_LOGO の変異が一覧に無い');
+  assert.strictEqual(new Set(IDS_LOGO).size, IDS_LOGO.length, 'IDS_LOGO に重なり');
+  assert.deepStrictEqual(MUTANTS.filter((m) => /^lg-/.test(m.id) && !IDS_LOGO.includes(m.id)).map((m) => m.id), [], 'IDS_LOGO に無い lg- の変異がある');
+  const plan = fs.readFileSync(path.join(ROOT, 'docs', 'plans', '2026-10-24-logo.md'), 'utf8');
+  const table = plan.slice(plan.indexOf('## 変異確認（直しを1つ戻すと'), plan.indexOf('## ゲート'));
+  const rows = [...table.matchAll(/^\| ([a-z][a-z0-9-]*) \|/gm)].map((m) => m[1]).filter((id) => id !== 'id');
+  assert.ok(rows.length >= 10, '計画の表が読めない');
+  assert.strictEqual(new Set(rows).size, rows.length, '計画の表に重なり');
+  assert.deepStrictEqual(IDS_LOGO.filter((id) => !rows.includes(id)), [], '計画の「変異確認」の表に無い変異');
+  for (const id of IDS_LOGO) {
+    const m = byId.get(id);
+    assert.ok(Array.isArray(m.tests) && m.tests.length > 0 && m.tests.every((t) => /^test\/[^/]+\.test\.js$/.test(t)), `${id}: tests`);
+    assert.ok(typeof m.why === 'string' && m.why.startsWith('0.11.1 '), `${id}: why`);
+  }
+});
