@@ -110,8 +110,9 @@ test('BN1・G-3: 撮る画面の帯（BANNER_STT）の文は main の B8 と同�
     assert.strictEqual(s.answers['koeApp.meetingStatus'].stt.problem.text, banner('relay-down'), n);
     // 0.9.3 M-0（D54）で意図して変えた: 0.9.3 の計画の「取り直す画面」の表にあるときだけ取り直し待ちでよい（ボタン［オフラインモード］）
     // 0.10.0 SH-1 で意図して変えた: 今の版の計画（0.10.0）の表を読む（帯の3枚も見本の題名が変わり取り直し待ちになる）
-    const plan = fs.readFileSync(path.join(__dirname, '..', 'docs', 'plans', '2026-10-20-100.md'), 'utf8');
-    const table = plan.slice(plan.indexOf('## 取り直す画面（RETAKE）'), plan.indexOf('## 実機で利用者に見てもらうこと'));
+    // 0.11.1 LG-4 で意図して変えた: 今の版の計画（0.11.1 ロゴの差し替え）の表を読む（帯の3枚もサイドバーの頭のロゴが変わり取り直し待ちになる）
+    const plan = fs.readFileSync(path.join(__dirname, '..', 'docs', 'plans', '2026-10-24-logo.md'), 'utf8');
+    const table = plan.slice(plan.indexOf('## 取り直す画面（RETAKE）'), plan.indexOf('## 自己点検'));
     assert.ok(!SH.RETAKE.has(n) || table.includes(`\`${n}\``), `${n} が計画の表に無いのに取り直し待ちにある`);
     assert.ok(fs.existsSync(path.join(__dirname, 'shots', 'win32', `${n}.png`)), `${n} の基準が無い`);
   }

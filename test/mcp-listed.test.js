@@ -30,7 +30,10 @@ function seed() {
   m.call('main', 'meeting.begin', { pageId: 'pu9', startedAt: Date.parse('2026-10-19T03:00:00.000Z'), localOnly: false });
   m.call('main', 'meeting.segment', { pageId: 'pu9', seg: { id: 's1', atMs: 0, durationMs: 15000, text: `${OFFLINE}の片付けた発言` } });
   m.call('main', 'meeting.settle', { keep: [] });
-  const secretPage = (title) => ({ title, memo: `${SECRET}のメモ`, blocks: [
+  // 0.11.0 T-6: 打ち合わせの質の理由にも目印（ゴミ箱と録音中の写しの点の理由がどの答えにも出ない）
+  const secretQuality = { v: 1, total: 15, max: 25, at: '2026-10-19T04:00:00.000Z',
+    axes: ['purpose', 'mece', 'decisions', 'todos', 'fill'].map((key) => ({ key, score: 3, reason: `${SECRET}の理由`, cites: ['s1'] })) };
+  const secretPage = (title) => ({ title, memo: `${SECRET}のメモ`, quality: secretQuality, blocks: [
     { id: 'h1', type: 'heading', text: `${SECRET}の見出し`, level: 2 },
     { id: 'b1', type: 'bullet', text: `${SECRET}の要点`, cites: ['s1'] },
     { id: 't1', type: 'todo', text: `${SECRET}の ToDo`, checked: false, assignee: SECRET, due: '2026-10-30' },
@@ -40,6 +43,8 @@ function seed() {
   const tp = secretPage(`${SECRET}の会議`);   // 利用者が付け直した題名（D77。題名の語に頼るため: 題名の目印が出ないことを見る）
   tp.blocks = tp.blocks.map((b) => ({ ...b, id: `pt9${b.id}` }));
   fin('pt9', { ...tp, date: '2026-10-19', createdAt: '2026-10-19T04:00:00.000Z' }, secretSegs);
+  const putQ = (id) => { const cur = m.call('app', 'page.get', { id }).page; const { rev, ...rest } = cur; m.call('main', 'page.put', { page: { ...rest, quality: secretQuality }, baseRev: rev }); };
+  putQ('pt9');   // 0.11.0 T-6: 締めのページは点を持たないので、要約の書き戻しと同じ page.put で点を書く
   m.call('app', 'page.delete', { id: 'pt9' });
   // 録音中の写し（題名・メモ・ブロックは録音中のページで書いたもの）
   m.call('main', 'meeting.begin', { pageId: 'pv9', startedAt: Date.parse('2026-10-19T05:00:00.000Z'), localOnly: false });
@@ -47,6 +52,8 @@ function seed() {
   // 利用者が付け直した題名（D77。題名の語に頼るため: 題名の目印が出ないことを見る）
   m.call('app', 'page.setTitle', { id: 'pv9', title: `${SECRET}の録音中` });
   m.call('app', 'page.setMemo', { id: 'pv9', memo: `${SECRET}の録音中のメモ` });
+  putQ('pv9');   // 0.11.0 T-6
+  if (!(m.call('app', 'page.get', { id: 'pv9' }).page.quality)) throw new Error('録音中の写しに点を書けなかった');
   m.close();
   return m;
 }
@@ -54,7 +61,7 @@ function seed() {
 function calls() {
   const out = [];
   const q = [SECRET, 'ひみ', 'ひみつ', '合言葉', '会議', '発言', '要点', OFFLINE];
-  const ranges = [{}, { from: '2026-10-19', to: '2026-10-19' }, { dates: ['2026-10-19'] }, { meeting_types: ['general'] }];
+  const ranges = [{}, { from: '2026-10-19', to: '2026-10-19' }, { dates: ['2026-10-19'] }, { meeting_types: ['standup', 'sales'] }];   // 0.11.0 P-12（P12）で意図して変えた: general は断るので、絞りの比べには選べる鍵を使う
   for (const r of ranges) {
     out.push(['list_meetings', r], ['list_meetings', { ...r, limit: 1, offset: 1 }]);
     for (const query of q) {

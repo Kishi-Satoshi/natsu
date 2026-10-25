@@ -99,12 +99,8 @@ test('HF2: 照らしの元（appLabelText）は src/ の .html と .js だけを
 });
 
 test('公開前の確認: 記事と site.json に、チームのドメインの字面（<名前>.cloudflareaccess.com）・64 字の16進（AUD の見かけ）・C:\\Users\\・半角の @ のメールが無い', { timeout: 5000 }, () => {
-  const bad = [
-    [/(?<![\w-])[a-z0-9-]+\.cloudflareaccess\.com/i, 'チームのドメインの字面（<チームの名前> と書く）'],
-    [/(?<![0-9a-f])[0-9a-f]{64}(?![0-9a-f])/i, '64 字の16進（AUD の見かけ）'],
-    [/[A-Za-z]:\\{1,2}Users\\{1,2}/i, '個人の Windows のパス'],
-    [/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/, '半角の @ のメール（＠ は全角で書く）'],
-  ];
+  // help-relnotes 審査 A-3（R-RN4）: 形はリリースノートの元（CHANGELOG.md）に当てるものと同じ1か所
+  const bad = require('../tools/lib/help-public').PUBLIC;
   const files = ['help/site.json', ...articles.map((a) => a.file)];
   const hits = [];
   for (const f of files) {
@@ -123,6 +119,22 @@ test('HF2: 作るのが通る（build() が help/ の全部の記事で HelpBuil
   const r = build({ root: ROOT, out });
   assert.strictEqual(r.articles.length, refs.length);
   assert.ok(fs.existsSync(path.join(out, 'index.html')) && fs.existsSync(path.join(out, 'search-index.json')));
+});
+
+test('help-relnotes RN-5（RF51）: リリースノートの元（CHANGELOG.md）は照らしの元に入らない（古い版の文の［…］で記事の言葉が通ってしまわない）。リリースノートのページ自体も RF51 の照らしに掛けない（古い版の画面の言葉が残るため）', { timeout: 5000 }, (t) => {
+  const root = tmpDir(t, 'natsu-help-labels-rn-');
+  const put = (f, s) => { fs.mkdirSync(path.dirname(path.join(root, f)), { recursive: true }); fs.writeFileSync(path.join(root, f), s); };
+  put('src/main.js', "const t = '止める';");
+  put('CHANGELOG.md', '# 変更履歴\n\n## natsu-v0.1.0 （2026-10-17）\n\n- ［変更履歴だけの言葉］を足しました。\n');
+  const app = L.appLabelText(root);
+  assert.ok(app.includes('止める'));
+  assert.ok(!app.includes('変更履歴だけの言葉'), 'CHANGELOG.md を照らしの元に混ぜた');
+  assert.deepStrictEqual(L.missingLabels('［変更履歴だけの言葉］', app), [{ label: '変更履歴だけの言葉', line: 1 }]);
+  // 本物: CHANGELOG.md にしか無い古い画面の言葉（ポータブル版など）がアプリの文字に無くても、作るのは止まらない（RF51 は記事だけ）
+  const cl = read('CHANGELOG.md');
+  const real = L.appLabelText(ROOT);
+  const old = L.labelsIn(cl).filter((l) => !real.includes(l.label));
+  assert.ok(old.length > 0, '本物の CHANGELOG.md に、今のアプリに無い［…］が無い（このテストの前提が崩れた）');
 });
 
 // H-11: README の「ヘルプセンター」の節（置き場所・作り方・出し方・利用者の用意の Access の手順）。計画の「利用者の用意」と同じ中身
@@ -210,4 +222,56 @@ test('0.9.4 S-8: record/status-line・trouble/banners に遅い PC の帯（kept
 test('0.9.4 S-8: record/meeting-detect に参加の前の画面・マイクを使い始めた時点・記録に残す符号（名前は残さない）がある', { timeout: 5000 }, () => {
   const t = read(fileOf('record/meeting-detect'));
   for (const w of ['参加の前の画面', 'マイクを使い始めた時点', 'どのアプリを使ったかは', '始めたか']) assert.ok(t.includes(w), `「${w}」が無い`);
+});
+
+// help-dads HD-8（持ち主の答え Q8「最初に出た所に一言足す」。計画 docs/plans/2026-10-23-help-dads.md の決めたこと I-34）:
+// 「区間」「中継」が出る記事では、その記事の本文で最初に出た所（コード・「…」の画面の文・リンクの住所の外）の直後に決まった一言がある
+const TERM_NOTES = {
+  区間: '（文字起こしのために録音を区切ったひとまとまりの音声）',
+  中継: '（音声を OpenAI へ取り次ぐ NaTsu のサーバー）',   // 再審査の指摘 7・持ち主の答え「NaTsu のサーバー」
+};
+/** 本文（前置きの後ろ）の、コードの塊・`…`・「…」・リンクの住所・表の左の列（帯の文などの画面の文）を同じ長さの空白で隠したもの（位置は元と同じ） */
+function plainBody(text) {
+  const end = text.indexOf('\n---', 4);
+  const head = text.slice(0, end + 4).replace(/[^\n]/g, ' ');
+  const body = text.slice(end + 4)
+    .replace(/```[\s\S]*?```/g, (m) => m.replace(/[^\n]/g, ' '))
+    .replace(/`[^`\n]*`/g, (m) => ' '.repeat(m.length))
+    .replace(/「[^「」]*」/g, (m) => ' '.repeat(m.length))
+    .replace(/\]\([^)\s]*\)/g, (m) => ' '.repeat(m.length))
+    .replace(/^\|[^|\n]*\|/gm, (m) => `|${' '.repeat(m.length - 2)}|`);
+  return head + body;
+}
+test('HD-8（Q8）: 「区間」「中継」が出る記事は、本文で最初に出た所（コード・「…」の画面の文・リンクの住所・表の左の列の外）の直後に決まった一言の括弧があり、見出しの中ではない。直した記事の updated は 2026-10-23 以降', { timeout: 5000 }, () => {
+  let n = 0;
+  for (const a of articles) {
+    const text = a.text.replace(/\r\n?/g, '\n');
+    const plain = plainBody(text);
+    for (const [w, note] of Object.entries(TERM_NOTES)) {
+      const i = plain.indexOf(w);
+      if (i < 0) continue;
+      n++;
+      assert.ok(text.startsWith(w + note, i), `${a.ref}: 最初の「${w}」（${JSON.stringify(text.slice(Math.max(0, i - 20), i + 30))}）の後に ${note} が無い`);
+      const line = text.slice(text.lastIndexOf('\n', i) + 1, i);
+      assert.ok(!/^#{1,6} /.test(line), `${a.ref}: 最初の「${w}」が見出しの中`);
+      assert.ok(metaOf(a).updated >= '2026-10-23', `${a.ref}: updated を直した日にしていない`);
+      // 一言は最初の1回だけ（2回目からは書かない）
+      assert.strictEqual(text.split(w + note).length - 1, 1, `${a.ref}: 「${w}」の一言が2回以上`);
+    }
+  }
+  assert.ok(n >= 20, `「区間」「中継」の出る所が少ない（${n}）`);
+});
+
+// 再審査の指摘 7（持ち主の答え 2026-10-23）: 中継の説明と食い違う・重なる書き方をしない
+test('再審査の指摘 7: 「中継（OpenAI）」と書かない（中継＝OpenAI と読める）。説明の一言が2つ入った1文が無い。「会社の」が説明の一言の前後で重ならない', { timeout: 5000 }, () => {
+  const notes = Object.values(TERM_NOTES);
+  for (const a of articles) {
+    const text = a.text.replace(/\r\n?/g, '\n');
+    assert.ok(!text.includes('中継（OpenAI）'), `${a.ref}: 「中継（OpenAI）」`);
+    for (const sentence of text.split(/[。\n]/)) {
+      assert.ok(notes.filter((n) => sentence.includes(n)).length <= 1, `${a.ref}: 1文に説明の一言が2つ: ${sentence}`);
+      if (notes.some((n) => sentence.includes(n))) assert.ok((sentence.match(/会社の/g) || []).length <= 1, `${a.ref}: 「会社の」が重なる: ${sentence}`);
+    }
+  }
+  for (const n of notes) assert.ok(!n.includes('会社'), `説明の一言に「会社」: ${n}`);
 });

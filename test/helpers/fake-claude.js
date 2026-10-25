@@ -87,7 +87,9 @@ if (args[0] === 'auth' && args[1] === 'status') {
     const expect = env.FAKE_CLAUDE_EXPECT || '';
     const expectAsk = env.FAKE_CLAUDE_EXPECT_ASK || '';
     note({ kind: 'p', args, cwd: process.cwd(), envKeys, stdinBytes: stdin.length,
-      stdinHasTranscript: !!expect && text.includes(expect), stdinHasAsk: !!expectAsk && text.includes(expectAsk) });
+      stdinHasTranscript: !!expect && text.includes(expect), stdinHasAsk: !!expectAsk && text.includes(expectAsk),
+      // 0.11.0 M-2: 書式の見出しの行だけ（## と ###。文字起こしとメモの中身は書かない）
+      stdinHeads: text.split('\n').filter((l) => /^#{2,3} /.test(l)) });
     if (mode === 'badflag') { finish({ errText: "error: unknown option '--safe-mode'\n", code: 1 }); return; }   // 古い版のまね
     if (mode === 'slow') { setTimeout(() => finish(ok()), Number(env.FAKE_CLAUDE_DELAY || 0)); return; }
     finish((ANSWERS[mode] || ok)());

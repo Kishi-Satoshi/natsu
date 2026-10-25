@@ -52,6 +52,22 @@ test('H-4: search-index.json は v: 1 と、site.json の順の記事ごとの u
   assert.strictEqual(fs.readFileSync(path.join(buildFixture(t, (h) => fs.appendFileSync(path.join(h, 'articles', 'record', 'pause.md'), `\n${'あ'.repeat(5000)}\n`)), 'search-index.json'), 'utf8'), raw);
 });
 
+test('help-relnotes RN-3（Q5 の A）: 本物の help/ と CHANGELOG.md から作った search-index.json に、リリースノートのページも版も入らない（記事だけ。数は site.json の記事の数）', { timeout: 10000 }, (t) => {
+  const root = tmpDir(t, 'natsu-help-search-rn-');
+  fs.cpSync(path.join(ROOT, 'help'), path.join(root, 'help'), { recursive: true, filter: (x) => !x.split(path.sep).includes('dist') });
+  fs.copyFileSync(path.join(ROOT, 'CHANGELOG.md'), path.join(root, 'CHANGELOG.md'));
+  const out = path.join(root, 'out');
+  const r = build({ root, out });
+  assert.ok(r.pages.includes('release-notes/index.html'));
+  const idx = JSON.parse(fs.readFileSync(path.join(out, 'search-index.json'), 'utf8'));
+  const site = JSON.parse(fs.readFileSync(path.join(ROOT, 'help', 'site.json'), 'utf8'));
+  assert.strictEqual(idx.items.length, site.categories.reduce((n, c) => n + c.articles.length, 0));
+  for (const it of idx.items) {
+    assert.ok(!it.u.startsWith('/release-notes/'), it.u);
+    assert.notStrictEqual(it.t, 'リリースノート');
+  }
+});
+
 const S = require('../help/assets/search.js');
 
 test('H-4: fold は NFKC と小文字（全角の英数字・半角のカナ・大文字が同じになる）。空白は詰める', { timeout: 5000 }, () => {
@@ -99,10 +115,10 @@ test('H-4: search.js は外へ通信しない（fetch は /search-index.json だ
 });
 
 /** 作ったページを simdom の木にして、search.js を vm の中で動かす */
-function runPage(t, file) {
+function runPage(t, file, opt = {}) {
   const out = buildFixture(t);
   const html = fs.readFileSync(path.join(out, file), 'utf8');
-  const index = JSON.parse(fs.readFileSync(path.join(out, 'search-index.json'), 'utf8'));
+  const index = opt.index || JSON.parse(fs.readFileSync(path.join(out, 'search-index.json'), 'utf8'));
   const { root } = parseHTML(html);
   const docListeners = {};
   const document = {
@@ -115,17 +131,21 @@ function runPage(t, file) {
   };
   const calls = [];
   const went = [];
-  const fetch = (u) => { calls.push(u); return Promise.resolve({ ok: true, json: () => Promise.resolve(index) }); };
+  const fetch = (u) => { calls.push(u); return Promise.resolve(opt.fail ? { ok: false, json: () => Promise.reject(new Error('x')) } : { ok: true, json: () => Promise.resolve(index) }); };
+  const media = [];   // matchMedia の問い合わせ（再審査の指摘 4）
   const window = { location: { assign: (u) => went.push(u) } };
+  if (opt.narrow !== undefined) {
+    window.matchMedia = (q) => { const m = { media: q, matches: opt.narrow, fns: [], addEventListener: (t, fn) => { if (t === 'change') m.fns.push(fn); } }; media.push(m); return m; };
+  }
   const ctx = vm.createContext({ document, window, fetch, location: window.location });
   vm.runInContext(fs.readFileSync(SEARCH_JS, 'utf8'), ctx, { filename: 'search.js' });
   const tick = () => new Promise((r) => setImmediate(r));
   const key = (el, k) => el.dispatchEvent({ type: 'keydown', key: k });
   const type = async (el, v) => { el.value = v; el.dispatchEvent({ type: 'input' }); await tick(); await tick(); };
-  return { root, html, calls, went, tick, key, type, docListeners };
+  return { root, html, calls, went, tick, key, type, docListeners, media };
 }
 
-test('H-4: 検索の箱の配線（simdom）: JS が動くと箱が出る・打つと結果が出る・↓↑で aria-activedescendant が動く・Enter で選んだ記事の URL へ・Esc で閉じ、もう一度 Esc で空に・index は1回だけ読む', { timeout: 5000 }, async (t) => {
+test('H-4: 検索の箱の配線（simdom。再審査の指摘 1: 選択肢は a[role="option"]・li は role="none"）: JS が動くと箱が出る・打つと結果が出る・↓↑で aria-activedescendant が動く・Enter で選んだ記事の URL へ・Esc で閉じ、もう一度 Esc で空に・index は1回だけ読む', { timeout: 5000 }, async (t) => {
   const p = runPage(t, 'start/first/index.html');
   // 初めの HTML では箱は hidden（JS が動かないときは出さない）
   assert.ok(/<div class="search" hidden>/.test(p.html));
@@ -144,12 +164,21 @@ test('H-4: 検索の箱の配線（simdom）: JS が動くと箱が出る・打�
   assert.strictEqual(q.getAttribute('aria-expanded'), 'true');
   const opts = () => list.querySelectorAll('[role="option"]');
   // 題名に語のある記事（3 点）が、本文のリンクの文にだけある記事（1 点）より上
-  assert.deepStrictEqual(opts().map((o) => o.querySelector('a').getAttribute('href')), ['/record/pause/', '/start/first/']);
+  assert.deepStrictEqual(opts().map((o) => o.getAttribute('href')), ['/record/pause/', '/start/first/']);
   assert.strictEqual(opts()[0].querySelector('.rt').textContent, '試しの一時停止');
   assert.strictEqual(opts()[0].querySelector('.rc').textContent, '会議を記録する');
+  // 再審査の指摘 1（WCAG 4.1.2・nested-interactive）: 選択肢はリンクそのもの（a[role="option"]）で、li は role="none"。選択肢の中にリンクを入れ子にしない
+  for (const o of opts()) {
+    assert.strictEqual(o.tagName, 'a', '選択肢が a でない');
+    assert.strictEqual(o.getAttribute('tabindex'), '-1');
+    assert.strictEqual(o.parentNode.tagName, 'li');
+    assert.strictEqual(o.parentNode.getAttribute('role'), 'none');
+    assert.strictEqual(o.querySelectorAll('a, button, input, [tabindex]').length, 0, '選択肢の中に操作できるもの');
+  }
+  assert.strictEqual(list.querySelectorAll('[role="option"] a').length, 0, '選択肢の中にリンクが入れ子');
 
   await p.type(q, '試し');
-  assert.deepStrictEqual(opts().map((o) => o.querySelector('a').getAttribute('href')), ['/start/first/', '/start/steps/', '/record/pause/']);
+  assert.deepStrictEqual(opts().map((o) => o.getAttribute('href')), ['/start/first/', '/start/steps/', '/record/pause/']);
   assert.strictEqual(q.getAttribute('aria-activedescendant'), null);
   p.key(q, 'ArrowDown');
   assert.strictEqual(q.getAttribute('aria-activedescendant'), opts()[0].id);
@@ -197,10 +226,282 @@ test('H-4: どのページの上の帯にも検索の箱があり、ホームに
   const big = p.root.querySelector('#hc-q-home');
   await p.type(big, 'ホットキー');
   const list = p.root.querySelector('#hc-q-home-results');
-  assert.deepStrictEqual(list.querySelectorAll('[role="option"]').map((o) => o.querySelector('a').getAttribute('href')), ['/record/pause/', '/start/first/']);
+  assert.deepStrictEqual(list.querySelectorAll('[role="option"]').map((o) => o.getAttribute('href')), ['/record/pause/', '/start/first/']);
   assert.strictEqual(p.root.querySelector('#hc-q-results').hidden, true, 'ほかの箱の結果まで開いた');
   // 外を押すと閉じる
   for (const fn of p.docListeners.click || []) fn({ type: 'click', target: p.root.querySelector('main h1') });
   assert.strictEqual(list.hidden, true);
   assert.deepStrictEqual(p.calls, ['/search-index.json']);
+});
+
+// help-dads HD-5（HD6。計画 docs/plans/2026-10-23-help-dads.md の決めたこと H・DF3）: 検索の件数の知らせ（読み上げソフトへの対応の唯一の例外。
+// 0.10.0 の /open のページの知らせ（D78）と合わせて2つ）。決まった文だけを textContent で入れ、閉じたら空に、同じ文なら書き直さない
+test('HD-5（HD6・DF3）: 検索の箱ごとに見えない role="status" の p.vh が1つ（id は <箱の id>-status）。本物の help/ から作った全部のページで、role="status" は検索の箱の中と /open のページの #hc-open-msg にだけ', { timeout: 10000 }, (t) => {
+  const p = runPage(t, 'index.html');
+  for (const id of ['hc-q', 'hc-q-home']) {
+    const box = p.root.querySelector(`#${id}`).closest('.search');
+    const st = box.querySelectorAll('[role="status"]');
+    assert.strictEqual(st.length, 1, `${id}: status の数`);
+    assert.strictEqual(st[0].tagName, 'p');
+    assert.strictEqual(st[0].id, `${id}-status`);
+    assert.ok(st[0].classList.contains('vh'), `${id}: 見えない文でない`);
+    assert.strictEqual(st[0].textContent, '');
+  }
+  // 本物の記事の全部（/open のページも）で、role="status" は決まった所だけ（例外が知らないうちに広がらない）
+  const root = tmpDir(t, 'natsu-help-status-');
+  fs.cpSync(path.join(ROOT, 'help'), path.join(root, 'help'), { recursive: true, filter: (x) => !x.split(path.sep).includes('dist') });
+  fs.copyFileSync(path.join(ROOT, 'CHANGELOG.md'), path.join(root, 'CHANGELOG.md'));   // help-relnotes RN-3: リリースノートの元
+  const out = path.join(root, 'out');
+  const r = build({ root, out });
+  assert.ok(r.pages.includes('open/index.html'), '/open のページが無い');
+  let n = 0;
+  for (const f of r.pages) {
+    const html = fs.readFileSync(path.join(out, f), 'utf8');
+    const count = (html.match(/role="status"/g) || []).length;
+    const tree = parseHTML(html).root;
+    const st = tree.querySelectorAll('[role="status"]');
+    assert.strictEqual(st.length, count, `${f}: 木で数えた数と字面の数が違う`);
+    for (const el of st) {
+      n++;
+      if (f === 'open/index.html' && el.id === 'hc-open-msg') continue;
+      const box = el.closest('.search');
+      assert.ok(box, `${f}: 検索の箱の外に role="status"（${el.id}）`);
+      assert.strictEqual(el.id, `${box.querySelector('input').id}-status`, `${f}: status の id`);
+    }
+    if (f !== 'open/index.html') assert.strictEqual(st.length, tree.querySelectorAll('.search').length, `${f}: 箱ごとに1つでない`);
+  }
+  assert.ok(n > r.pages.length, '数えた status が少ない');
+});
+
+test('HD-5（HD6・DF3）: 件数の知らせの文（simdom）: 3 件は「3 件見つかりました」、8 件（上限）は「上から 8 件を表示しています」、0 件は「見つかりませんでした」。Esc で閉じると空、空にしても空。同じ文が続くときは書き直さない', { timeout: 5000 }, async (t) => {
+  const p = runPage(t, 'start/first/index.html');
+  const q = p.root.querySelector('#hc-q');
+  const st = p.root.querySelector('#hc-q-status');
+  assert.strictEqual(st.textContent, '');
+  await p.type(q, '試し');
+  assert.strictEqual(st.textContent, '3 件見つかりました');
+  const node = st.childNodes[0];
+  await p.type(q, '試しの');
+  assert.strictEqual(st.textContent, '3 件見つかりました');
+  assert.strictEqual(st.childNodes[0], node, '同じ文を書き直した（読み上げが積もる）');
+  await p.type(q, '一時停止');
+  assert.strictEqual(st.textContent, '2 件見つかりました');
+  await p.type(q, 'ありえない語');
+  assert.strictEqual(st.textContent, '見つかりませんでした');
+  p.key(q, 'Escape');
+  assert.strictEqual(st.textContent, '', 'Esc で閉じても前の文が残る');
+  await p.type(q, '試し');
+  assert.strictEqual(st.textContent, '3 件見つかりました');
+  await p.type(q, '  ');
+  assert.strictEqual(st.textContent, '', '空にしても前の文が残る');
+  await p.type(q, '試し');
+  for (const fn of p.docListeners.click || []) fn({ type: 'click', target: p.root.querySelector('main h1') });
+  assert.strictEqual(st.textContent, '', '外を押して閉じても前の文が残る');
+  // 上限の 8 件は全体の数と偽らない
+  const many = { v: 1, items: Array.from({ length: 12 }, (_, i) => ({ u: `/m${i}/`, t: `記事${i}`, d: '', c: 'x', h: [], x: '共通の語' })) };
+  const p8 = runPage(t, 'start/first/index.html', { index: many });
+  await p8.type(p8.root.querySelector('#hc-q'), '共通');
+  assert.strictEqual(p8.root.querySelector('#hc-q-results').querySelectorAll('[role="option"]').length, 8);
+  assert.strictEqual(p8.root.querySelector('#hc-q-status').textContent, '上から 8 件を表示しています');
+});
+
+test('HD-5（HD6・DF3）: 索引が読めないときは「検索を読み込めませんでした。開き直してください」を status にも入れる（黙らない）', { timeout: 5000 }, async (t) => {
+  const p = runPage(t, 'start/first/index.html', { fail: true });
+  await p.type(p.root.querySelector('#hc-q'), '試し');
+  assert.strictEqual(p.root.querySelector('#hc-q-status').textContent, '検索を読み込めませんでした。開き直してください');
+});
+
+// 再審査の指摘 4（持ち主の答え「全部直す」）: 320px と、375px で文字を 125% にしたとき、上の帯の検索の箱の「記事を探す」が「記事を探」で切れた。
+// 狭い画面（max-width: 29.9375rem。rem なので文字の設定を大きくしたときも当たる）では、上の帯の箱の置き換えの文だけを「探す」にする
+test('再審査の指摘 4: 上の帯の検索の箱は data-short="探す" を持ち、狭い画面（matchMedia の (max-width: 29.9375rem) が当たる）では置き換えの文が「探す」、広くなると「記事を探す」に戻る。ホームの大きな箱は変えない。matchMedia が無いブラウザでは今のまま', { timeout: 5000 }, async (t) => {
+  const p = runPage(t, 'index.html', { narrow: true });
+  const top = p.root.querySelector('#hc-q');
+  const big = p.root.querySelector('#hc-q-home');
+  assert.strictEqual(top.getAttribute('data-short'), '探す');
+  assert.strictEqual(big.getAttribute('data-short'), null);
+  assert.deepStrictEqual(p.media.map((m) => m.media), ['(max-width: 29.9375rem)']);
+  assert.strictEqual(top.getAttribute('placeholder'), '探す');
+  assert.strictEqual(big.getAttribute('placeholder'), '記事を探す（例: ログイン、一時停止）');
+  p.media[0].matches = false;
+  for (const fn of p.media[0].fns) fn({ matches: false });
+  assert.strictEqual(top.getAttribute('placeholder'), '記事を探す');
+  p.media[0].matches = true;
+  for (const fn of p.media[0].fns) fn({ matches: true });
+  assert.strictEqual(top.getAttribute('placeholder'), '探す');
+  const wide = runPage(t, 'index.html', { narrow: false });
+  assert.strictEqual(wide.root.querySelector('#hc-q').getAttribute('placeholder'), '記事を探す');
+  const old = runPage(t, 'index.html');
+  assert.strictEqual(old.root.querySelector('#hc-q').getAttribute('placeholder'), '記事を探す');
+  // 見えないラベルは「記事を探す」のまま（置き換えの文だけを短くする）
+  assert.strictEqual(p.root.querySelector('label[for="hc-q"]').textContent, '記事を探す');
+});
+
+// 3回目の審査の指摘 2（重要・WCAG 2.4.11）と 4: 結果を開いたまま Tab で箱の外へ出ると一覧が開いたまま残り、輪の付いた部品を覆い隠した。
+// 箱からフォーカスが外へ出たら閉じる。結果の一覧（ul）は tabindex="-1"（Tab で一覧そのものに止まらない）
+test('3回目の指摘 2: 検索の箱からフォーカスが外へ出たら（focusout の行き先が箱の外・無い）一覧を閉じ、aria-expanded="false"・status は空。行き先が箱の中（結果のリンク）なら閉じない。一覧の ul は tabindex="-1"', { timeout: 5000 }, async (t) => {
+  const p = runPage(t, 'index.html');
+  for (const id of ['hc-q', 'hc-q-home']) assert.strictEqual(p.root.querySelector(`#${id}-results`).getAttribute('tabindex'), '-1', `${id}: 一覧に Tab が止まる`);
+  const big = p.root.querySelector('#hc-q-home');
+  const box = big.closest('.search');
+  const list = p.root.querySelector('#hc-q-home-results');
+  const st = p.root.querySelector('#hc-q-home-status');
+  await p.type(big, '試し');
+  assert.strictEqual(list.hidden, false);
+  // 箱の中（結果のリンク）へ移るときは閉じない（マウスで結果を押したとき）
+  box.dispatchEvent({ type: 'focusout', relatedTarget: list.querySelector('[role="option"]') });
+  assert.strictEqual(list.hidden, false, '箱の中へ移ったのに閉じた');
+  // Tab で箱の外（分類のカード）へ出たら閉じる
+  box.dispatchEvent({ type: 'focusout', relatedTarget: p.root.querySelector('.cats a') });
+  assert.strictEqual(list.hidden, true, '箱の外へ出ても一覧が開いたまま（輪の付いた部品を隠す）');
+  assert.strictEqual(big.getAttribute('aria-expanded'), 'false');
+  assert.strictEqual(st.textContent, '');
+  assert.strictEqual(big.value, '試し', '打った文字は消さない');
+  // 行き先が無い（窓の外へ出た）ときも閉じる
+  await p.type(big, '一時停止');
+  assert.strictEqual(list.hidden, false);
+  box.dispatchEvent({ type: 'focusout', relatedTarget: null });
+  assert.strictEqual(list.hidden, true);
+});
+
+// 4回目の審査の指摘 1（致命的・WCAG 2.1.1・2.4.7）: 400% の拡大や横向きのスマホでは一覧の高さが足りず、↓ で選んだ行が一覧の外に隠れたままだった
+// （aria-activedescendant で選ぶので、ブラウザーは一覧を送らない）。mark() が選んだ行を一覧の見える所へ送る
+test('4回目の指摘 1: ↓↑ で選ぶたびに、選んだ行（a[role="option"]）を scrollIntoView({ block: "nearest" }) で一覧の見える所へ送る（上の帯とホームの大きな箱の両方）', { timeout: 5000 }, async (t) => {
+  const p = runPage(t, 'index.html');
+  for (const id of ['hc-q', 'hc-q-home']) {
+    const q = p.root.querySelector(`#${id}`);
+    await p.type(q, '試し');
+    const opts = p.root.querySelector(`#${id}-results`).querySelectorAll('[role="option"]');
+    assert.strictEqual(opts.length, 3);
+    const seen = [];
+    for (const o of opts) o.scrollIntoView = (arg) => seen.push([o.id, JSON.stringify(arg)]);
+    p.key(q, 'ArrowDown');
+    p.key(q, 'ArrowDown');
+    p.key(q, 'ArrowDown');
+    p.key(q, 'ArrowUp');
+    const nearest = JSON.stringify({ block: 'nearest' });
+    assert.deepStrictEqual(seen, [[opts[0].id, nearest], [opts[1].id, nearest], [opts[2].id, nearest], [opts[1].id, nearest]], `${id}: 選んだ行を一覧の見える所へ送らない`);
+    p.key(q, 'Escape');
+  }
+});
+
+// 4回目の審査の指摘 3: 一覧を閉じた後（Tab で出て Shift+Tab で戻った・窓を切り替えた）、箱に語があっても ↓ で開き直さなかった。
+// 一覧の余白や「見つかりませんでした」の行を押すと ul にフォーカスが移り、↑↓・Esc が箱に届かなかった
+test('4回目の指摘 3: 閉じていて箱に語があるときは ↓ で一覧を開き直す（語が空なら何もしない）。一覧のリンクでない所の mousedown は preventDefault（フォーカスを箱に残す）。結果のリンクの mousedown は止めない', { timeout: 5000 }, async (t) => {
+  const p = runPage(t, 'start/first/index.html');
+  const q = p.root.querySelector('#hc-q');
+  const box = q.closest('.search');
+  const list = p.root.querySelector('#hc-q-results');
+  await p.type(q, '試し');
+  box.dispatchEvent({ type: 'focusout', relatedTarget: null });
+  assert.strictEqual(list.hidden, true);
+  let prevented = false;
+  q.dispatchEvent({ type: 'keydown', key: 'ArrowDown', preventDefault() { prevented = true; } });
+  await p.tick(); await p.tick();
+  assert.strictEqual(list.hidden, false, '↓ で開き直さない');
+  assert.ok(prevented, '↓ の既定の動き（カーソルの移動）を止めていない');
+  assert.strictEqual(q.getAttribute('aria-expanded'), 'true');
+  assert.strictEqual(list.querySelectorAll('[role="option"]').length, 3);
+  // 語が空なら開かない
+  p.key(q, 'Escape');
+  p.key(q, 'Escape');
+  assert.strictEqual(q.value, '');
+  q.dispatchEvent({ type: 'keydown', key: 'ArrowDown' });
+  await p.tick(); await p.tick();
+  assert.strictEqual(list.hidden, true, '語が空なのに開いた');
+  // 一覧のリンクでない所（余白・「見つかりませんでした」）を押してもフォーカスを箱に残す
+  await p.type(q, 'ありえない語');
+  const none = list.querySelector('.none');
+  let stopped = false;
+  list.dispatchEvent({ type: 'mousedown', target: none, preventDefault() { stopped = true; } });
+  assert.ok(stopped, '「見つかりませんでした」の行を押すと ul にフォーカスが移る');
+  stopped = false;
+  list.dispatchEvent({ type: 'mousedown', target: list, preventDefault() { stopped = true; } });
+  assert.ok(stopped, '一覧の余白を押すと ul にフォーカスが移る');
+  await p.type(q, '試し');
+  const a = list.querySelector('[role="option"]');
+  stopped = false;
+  list.dispatchEvent({ type: 'mousedown', target: a.querySelector('.rt'), preventDefault() { stopped = true; } });
+  assert.ok(!stopped, '結果のリンクを押すのを止めた（押しても記事へ移れない）');
+});
+
+// 5回目の審査の指摘 1（致命的・WCAG 3.2.2）: 日本語入力の変換の途中の Enter で結果の先頭のページへ移り、↓↑ が一覧の選択を動かし（閉じていれば開き）、
+// Esc が一覧を閉じた（閉じていれば箱を空にした）。設計書の「全体を通して守ること」の IME: 確定のキーは、どの入力経路でも先に抜ける。
+// isComposing（Chrome・Firefox）と keyCode 229（Safari の変換中の keydown）の両方を見る。上の帯とホームの大きな箱の両方
+test('5回目の指摘 1: 変換の途中（isComposing または keyCode 229）の Enter・↓・↑・Esc は何もしない（ページを移らない・選択を動かさない・一覧を開け閉めしない・箱を空にしない・既定の動きを止めない）。上の帯とホームの大きな箱の両方', { timeout: 5000 }, async (t) => {
+  const p = runPage(t, 'index.html');
+  const ways = [{ isComposing: true, keyCode: 13 }, { isComposing: false, keyCode: 229 }];
+  for (const id of ['hc-q', 'hc-q-home']) {
+    const q = p.root.querySelector(`#${id}`);
+    const list = p.root.querySelector(`#${id}-results`);
+    for (const way of ways) {
+      const tag = `${id} ${JSON.stringify(way)}`;
+      const ime = async (k) => {
+        let prevented = false;
+        q.dispatchEvent({ type: 'keydown', key: k, ...way, preventDefault() { prevented = true; } });
+        await p.tick(); await p.tick();
+        return prevented;
+      };
+      // 一覧が開いているとき
+      await p.type(q, '試し');
+      assert.strictEqual(list.hidden, false, tag);
+      for (const k of ['ArrowDown', 'ArrowUp', 'Enter', 'Escape']) {
+        assert.strictEqual(await ime(k), false, `${tag}: 変換の途中の ${k} の既定の動きを止めた`);
+        assert.strictEqual(list.hidden, false, `${tag}: 変換の途中の ${k} で一覧が閉じた`);
+        assert.strictEqual(q.getAttribute('aria-activedescendant'), null, `${tag}: 変換の途中の ${k} で選択が動いた`);
+      }
+      assert.deepStrictEqual(p.went, [], `${tag}: 変換の途中の Enter でページを移った`);
+      // ↓ で選んだ後も、変換の途中の ↓↑ は選択を動かさない
+      p.key(q, 'ArrowDown');
+      const first = q.getAttribute('aria-activedescendant');
+      assert.strictEqual(first, `${id}-opt-0`);
+      await ime('ArrowDown');
+      await ime('ArrowUp');
+      assert.strictEqual(q.getAttribute('aria-activedescendant'), first, `${tag}: 変換の途中の ↓↑ で選択が動いた`);
+      await ime('Enter');
+      assert.deepStrictEqual(p.went, [], `${tag}: 変換の途中の Enter でページを移った`);
+      // 一覧が閉じているとき: ↓ で開かない・Esc で箱を空にしない
+      p.key(q, 'Escape');
+      assert.strictEqual(list.hidden, true);
+      assert.strictEqual(await ime('ArrowDown'), false, `${tag}: 変換の途中の ↓ の既定の動きを止めた（閉じた一覧）`);
+      assert.strictEqual(list.hidden, true, `${tag}: 変換の途中の ↓ で閉じた一覧が開いた`);
+      assert.strictEqual(await ime('Escape'), false, `${tag}: 変換の途中の Esc の既定の動きを止めた（閉じた一覧）`);
+      assert.strictEqual(q.value, '試し', `${tag}: 変換の途中の Esc で箱を空にした`);
+      p.key(q, 'Escape');
+      assert.strictEqual(q.value, '');
+    }
+  }
+  // 確定した後の Enter は今までどおり移る
+  const q = p.root.querySelector('#hc-q');
+  await p.type(q, '試し');
+  p.key(q, 'Enter');
+  assert.strictEqual(p.went.length, 1, '確定した後の Enter で移らない');
+});
+
+// 5回目の審査の指摘 3: 4回目に足した「閉じていれば ↓ で開き直す」が Shift+↓（キャレットから行末まで選ぶ）も横取りし、文字の選択が伸びなかった。
+// 開き直すのは修飾キーの無い ↓ だけ。Ctrl・Alt（macOS の Option+↓ は段落の終わりへ）・⌘ の付いた ↓ も文字の操作に任せる（計画の R-HD8）
+test('5回目の指摘 3: 閉じた一覧は修飾キーの無い ↓ でだけ開き直す。Shift・Ctrl・Alt・Meta の付いた ↓ は開かず、既定の動き（文字の選択・キャレットの移動）を止めない', { timeout: 5000 }, async (t) => {
+  const p = runPage(t, 'index.html');
+  for (const id of ['hc-q', 'hc-q-home']) {
+    const q = p.root.querySelector(`#${id}`);
+    const box = q.closest('.search');
+    const list = p.root.querySelector(`#${id}-results`);
+    await p.type(q, '試し');
+    box.dispatchEvent({ type: 'focusout', relatedTarget: null });
+    assert.strictEqual(list.hidden, true);
+    for (const mod of ['shiftKey', 'ctrlKey', 'altKey', 'metaKey']) {
+      let prevented = false;
+      q.dispatchEvent({ type: 'keydown', key: 'ArrowDown', [mod]: true, preventDefault() { prevented = true; } });
+      await p.tick(); await p.tick();
+      assert.strictEqual(prevented, false, `${id}: ${mod}+↓ の既定の動きを止めた（文字の選択が伸びない）`);
+      assert.strictEqual(list.hidden, true, `${id}: ${mod}+↓ で閉じた一覧が開いた`);
+    }
+    // 修飾キーの無い ↓ は今までどおり開く
+    let prevented = false;
+    q.dispatchEvent({ type: 'keydown', key: 'ArrowDown', shiftKey: false, ctrlKey: false, altKey: false, metaKey: false, preventDefault() { prevented = true; } });
+    await p.tick(); await p.tick();
+    assert.ok(prevented, `${id}: ↓ の既定の動きを止めていない`);
+    assert.strictEqual(list.hidden, false, `${id}: ↓ で開き直さない`);
+    p.key(q, 'Escape');
+    p.key(q, 'Escape');
+  }
 });

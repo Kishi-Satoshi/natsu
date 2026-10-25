@@ -43,6 +43,9 @@ const { isCitable, refreshCitations, searchFold } = require('../cite');
 const { parseDue } = require('../actions');
 const { routeLabel, summaryLock } = require('../mainlib');
 const R = require('../pagerules');
+const mtype = require('../meetingType');
+const memoTypes = require('../memoTypes');
+const quality = require('../quality');
 // 議事録の経過（0.10.0 K-1。決めたこと 116）: 締め・復旧のページの stateLog は表の鍵の項目だけを残す
 const SL = require('../statelog');
 const { diffPage, diffSegments, applyOps } = require('./ops');
@@ -145,6 +148,17 @@ function forWrite(db, id) {
   return { was, page };
 }
 
+// 0.11.0 M-4: page.setType の中身（json-backend も同じ部品を使う）。p を直す。preset は手を付けていないメモのときだけ雛形に替える
+const LEGACY_AGENDAS = mtype.listTypes().map((t) => t.agenda).filter(Boolean);
+function setTypePage(p, { type, preset }, at) {
+  if (type === 'auto') p.typeAuto = true;
+  else {
+    p.meetingType = type; p.typeAuto = false;
+    if (preset === true && memoTypes.isUntouchedMemo(p.memo, LEGACY_AGENDAS)) p.memo = memoTypes.memoPreset(memoTypes.memoTypeOf(type));
+  }
+  p.stateLog = SL.stateLogAdd(p.stateLog, { s: 'type', by: 'page', at: at.toISOString() });
+}
+
 // ページを1つ直す命令の形: fn(page) が直す（false を返したら何も書かずに null）。答えは書いた後のページ（今の savePage の答え）
 // 0.10.0 LS-2（D63・D69・O8・決めたこと 111）: 要約の欄を直す命令（summary: true）は、ページの欄と発言から mainlib.summaryLock を見て、
 // 鍵なら locked で断る（画面の外の道からも直せない）。making（要約を作っている間）は DB からは分からないので見ない。
@@ -169,7 +183,8 @@ function forView(page, labels) {
   if (!isObj(page)) return page;
   const id = page.route && page.route.stt ? page.route.stt.provider : '';
   const label = typeof id === 'string' && isObj(labels) && Object.hasOwn(labels, id) && typeof labels[id] === 'string' ? labels[id] : '';
-  return { ...page, routeText: routeLabel(page.route, label) };
+  // 0.11.0 Q-3（決めたこと 33）: 照らした点（qualityView。DB が作る欄で保存しない）
+  return { ...page, routeText: routeLabel(page.route, label), qualityView: quality.qualityView(page.quality) };
 }
 
 // ---------------------------------------------------------------- 一覧
@@ -338,6 +353,8 @@ function meetingPage(pageId, src, now, { recovered }) {
   if (isObj(p.route)) page.route = clone(p.route);
   if (Array.isArray(p.pauses)) page.pauses = R.cleanPauses(p.pauses);
   if (Array.isArray(p.stateLog)) page.stateLog = SL.cleanStateLog(p.stateLog);
+  // 0.11.0 M-4（決めたこと 11・F27）: 録音中に選んだ種類（選べる鍵だけ）を手で選んだ種類として写す
+  if (mtype.isSelectable(p.meetingType)) { page.meetingType = p.meetingType; page.typeAuto = false; }
   if (typeof p.summaryError === 'string' && p.summaryError) {
     // 今の復旧は createPage の後に summaryError を入れて savePage する（そのときだけ citeStat ができる）
     page.summaryError = p.summaryError;
@@ -483,6 +500,11 @@ const DEFS = {
   'pages.actionView': { roles: ['app', 'main'], write: false, args: { q: 'text?', assignee: 'short?' },
     run: (db, a) => ({ result: actionView(db, a) }) },
   // 0.10.0 LS-2（決めたこと 104）: 要約待ちのページ（一覧に出るページのうち summaryWait が真）。main の見回りが mainlib.summaryRetryPick に渡す
+  // 0.11.0 M-5（P14 (a)）: 人が選んだ種類（typeAuto 偽・選べる鍵）の会議の作った時刻と種類だけ（since より後。ゴミ箱と録音中の写しは除く）
+  'pages.typeSlots': { roles: ['main'], write: false, args: { since: 'short' },
+    run: (db, a) => ({ ops: [], pageIds: [], result: listedRows(db)
+      .filter((r) => r.attrs.typeAuto === false && mtype.isSelectable(r.attrs.meetingType) && typeof r.createdAt === 'string' && r.createdAt >= a.since)
+      .map((r) => ({ createdAt: r.createdAt, meetingType: r.attrs.meetingType })) }) },
   'pages.summaryWaits': { roles: ['main'], write: false, args: {},
     run: (db) => ({ result: listedRows(db).filter((r) => r.attrs.summaryWait === true).map((r) => ({ id: r.id, createdAt: r.createdAt || '', summaryWait: true })) }) },
   'page.get': { roles: ['app', 'main'], write: false, args: { id: 'id' },
@@ -496,8 +518,10 @@ const DEFS = {
     run: (db, a, ctx) => editPage(db, a.id, ctx, (p) => { p.title = a.title; }), dupResult: reread },
   'page.setMemo': { roles: ['app', 'main'], write: true, args: { id: 'id', memo: 'text?' },
     run: (db, a, ctx) => editPage(db, a.id, ctx, (p) => { p.memo = String(a.memo || ''); }), dupResult: reread },
-  'page.setType': { roles: ['app', 'main'], write: true, args: { id: 'id', type: 'name' },
-    run: (db, a, ctx) => editPage(db, a.id, ctx, (p) => { p.meetingType = a.type; p.typeAuto = false; }), dupResult: reread },
+  // 0.11.0 M-4（決めたこと 8・12。持ち主の試作の「1つの命令＝1つのトランザクション」）: 種類を書き（auto なら自動に戻す）、preset が真なら
+  // DB にある今のメモが手を付けていないときだけ新しい型の雛形に替え、経過に1件積む（setTypePage）
+  'page.setType': { roles: ['app', 'main'], write: true, args: { id: 'id', type: 'meetingTypeArg', preset: 'bool?' },
+    run: (db, a, ctx) => editPage(db, a.id, ctx, (p) => setTypePage(p, a, ctx.now())), dupResult: reread },
   // 削除はゴミ箱へ（Q2。元の JSON から取り込みで戻らないように、行は消さない）。答えは一覧
   'page.delete': { roles: ['app', 'main'], write: true, args: { id: 'id' },
     run: (db, a, ctx) => {
@@ -517,6 +541,8 @@ const DEFS = {
         // 人が書き換えた要点は出典が元の文に合うか分からない（cites は残し、被覆率の分子から外す。今の store.updateBlock）
         if (b.citeState !== 'manual') b.citeState = 'stale';
         if (isCitable(patch.text)) delete b.citeSkip; else b.citeSkip = true;
+        // 0.11.0 M-3（決めたこと 23）: 人が直した印の行（未確認・チェック・助言・メモより）は印を外す（citeState は manual のまま＝手書き）
+        delete b.mark; delete b.unconfirmed;
         b.text = patch.text;
       }
       if (typeof patch.checked === 'boolean') b.checked = patch.checked;
@@ -617,4 +643,4 @@ const DEFS = {
 const COMMANDS = Object.freeze(Object.assign(Object.create(null),
   Object.fromEntries(Object.entries(DEFS).map(([k, v]) => [k, Object.freeze(v)]))));
 
-module.exports = { COMMANDS, HOT_QUERIES, putPageRows, readPage, readRawPage, readSegments, listPages, isPurged, listedRows, actionView, entryOf };
+module.exports = { COMMANDS, HOT_QUERIES, putPageRows, readPage, readRawPage, readSegments, listPages, isPurged, listedRows, actionView, entryOf, setTypePage };

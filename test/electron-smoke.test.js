@@ -29,8 +29,9 @@ const clipOf = (promise, { dropAbc = false, drop = null } = {}) => {
 // 第1d回 A-10 で直した（意図: Access の cookie を本物の net.request が付けるか（16）を足して 16）
 // 0.9.0 O-2 で直した（意図: 録音バーの窓の setBounds が本物の Electron で getBounds にそのまま返るか（17）を足して 17）
 // 0.10.0 LN-3 で直した（意図: natsu:// の登録が Windows の HKCU に "<exe>" -- "%1" の形で書かれるか（18）を足して 18）
-test('electron-smoke: 18 の確かめ。終了コードは 18 件そろって全部 OK のときだけ 0', { timeout: 5000 }, () => {
-  assert.deepStrictEqual(S.CHECKS.map(([n]) => n), [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18]);
+// 0.11.1 LG-7 で直した（意図: assets/icon.png と Chromium が描いた assets/icon.svg の違う画素が 1% 未満か（19）を足して 19。RF-LG1）
+test('electron-smoke: 19 の確かめ。終了コードは 19 件そろって全部 OK のときだけ 0', { timeout: 5000 }, () => {
+  assert.deepStrictEqual(S.CHECKS.map(([n]) => n), [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19]);
   const all = S.CHECKS.map(([n]) => ({ n, ok: true }));
   assert.strictEqual(S.exitCodeOf(all), 0);
   assert.strictEqual(S.exitCodeOf(all.map((r) => (r.n === 10 ? { ...r, ok: false } : r))), 1);
@@ -39,18 +40,19 @@ test('electron-smoke: 18 の確かめ。終了コードは 18 件そろって全
   assert.strictEqual(S.exitCodeOf(all.map((r) => (r.n === 16 ? { ...r, ok: false } : r))), 1);
   assert.strictEqual(S.exitCodeOf(all.map((r) => (r.n === 17 ? { ...r, ok: false } : r))), 1);
   assert.strictEqual(S.exitCodeOf(all.map((r) => (r.n === 18 ? { ...r, ok: false } : r))), 1);
-  assert.strictEqual(S.exitCodeOf(all.slice(0, 17)), 1);
+  assert.strictEqual(S.exitCodeOf(all.map((r) => (r.n === 19 ? { ...r, ok: false } : r))), 1);
+  assert.strictEqual(S.exitCodeOf(all.slice(0, 18)), 1);
   assert.strictEqual(S.exitCodeOf([]), 1);
   const lines = [];
   S.finish({ exit: () => {} }, all, { log: (l) => lines.push(l), flush: (cb) => cb() });
-  assert.strictEqual(lines[lines.length - 1], '結果: 18 件とも OK');
-  assert.match(read('tools/electron-smoke/main.js'), /次の 18 を確かめる/);
+  assert.strictEqual(lines[lines.length - 1], '結果: 19 件とも OK');
+  assert.match(read('tools/electron-smoke/main.js'), /次の 19 を確かめる/);
 });
 
 // 第2a1回 Task P-2（ST5・ST7）: 本物の Electron で、本物の server.js（utilityProcess）と本物の preload（sandbox の窓）を往復する
 test('P-2: 15 番目の確かめ（本物の server.js と本物の preload）が一覧にあり、判定は純粋な dbResults', () => {
   const S = require('../tools/electron-smoke/main.js');
-  assert.strictEqual(S.CHECKS.length, 18);   // 第1d回 A-10 で 16、0.9.0 O-2 で 17、0.10.0 LN-3 で 18 を足した（15 の場所は変えない）
+  assert.strictEqual(S.CHECKS.length, 19);   // 第1d回 A-10 で 16、0.9.0 O-2 で 17、0.10.0 LN-3 で 18、0.11.1 LG-7 で 19 を足した（15 の場所は変えない）
   assert.match(S.CHECKS[14][1], /src\/db\/server\.js.*src\/preload\.js/);
   const good = { got: { title: S.SMOKE_DB.title, routeText: [] }, portOnWindow: false, rejectedWhileDown: true, titleAfter: '直した', oplogRows: 1, killCode: 0, resendOk: true };
   assert.strictEqual(S.dbResults(good)[0].ok, true);
@@ -418,7 +420,7 @@ test('electron-smoke: 17 は本物の録音バーと同じ作りの窓（transpa
   assert.ok(boot.indexOf('accessChecks(') < boot.lastIndexOf('panelCheck(') && boot.lastIndexOf('panelCheck(') < boot.indexOf('finish(app, results)'), '17 の場所');
   assert.ok(boot.indexOf('versionGate(') < boot.indexOf('panelCheck('), '--only=17 の起動で版を確かめていない');
   assert.ok(boot.indexOf("appendSwitch('force-device-scale-factor'") >= 0 && boot.indexOf("appendSwitch('force-device-scale-factor'") < boot.indexOf('app.whenReady()'), '拡大率のスイッチを ready の前に当てていない');
-  assert.match(m, /次の 18 を確かめる/);   // 0.10.0 LN-3 で 18 を足した（17 の後に natsu:// の登録）
+  assert.match(m, /次の 19 を確かめる/);   // 0.10.0 LN-3 で 18 を足した（17 の後に natsu:// の登録）。0.11.1 LG-7 で 19（ロゴの形）
   // 統合（CI run 39474527787 の electron-smoke「NG 17 … 結果が無い」）で足した: panelCheck は panelResults の配列を返すので、ふだんの起動では
   // 広げて足し、--only=17 の起動ではそのまま finish に渡す（配列を配列で包むと 17 の結果が見つからず、Windows の CI で NG になる）
   assert.ok(boot.includes('results.push(...await panelCheck('), 'ふだんの起動で panelCheck の配列を広げずに足した');
@@ -439,4 +441,35 @@ test('LN-3: 18 の判定（protocolResults）は、登録できて、コマン�
   assert.strictEqual(S.regDefaultValue('\r\nHKEY_CURRENT_USER\\Software\\Classes\\natsu\\shell\\open\\command\r\n    (既定)    REG_SZ    "C:\\x.exe" -- "%1"\r\n\r\n'), '"C:\\x.exe" -- "%1"');
   assert.strictEqual(S.regDefaultValue('    (Default)    REG_SZ    "C:\\x.exe" -- "%1"\r\n'), '"C:\\x.exe" -- "%1"');
   assert.strictEqual(S.regDefaultValue('ERROR: The system was unable to find the specified registry key or value.'), '');
+});
+
+// 0.11.1 LG-7（計画 docs/plans/2026-10-24-logo.md の RF-LG1）: tools/icon-render.js の 3次ベジェの折れ線が Chromium の描く SVG と違う形にならないか。
+// Windows の CI で、本物の Electron（Chromium）が assets/icon.svg を 256px の画面の外の窓（白い地）に描いた画像と、assets/icon.png を白い地に置いた色を
+// 比べ、違う画素（どれかの色が 32 より違う）が 1% 未満なら OK（iconCheck。判定は純粋な iconResults、数え方は iconDiff）
+test('LG-7 RF-LG1: 19 の判定（iconResults）は、256×256 で違う画素が 1% 未満のときだけ OK。iconDiff は icon.png を白い地に置いた色と Chromium の BGRA を比べる', { timeout: 5000 }, () => {
+  assert.match(S.CHECKS[18][1], /assets\/icon\.svg/);
+  assert.match(S.CHECKS[18][1], /Chromium/);
+  assert.match(S.CHECKS[18][1], /assets\/icon\.png/);
+  // 2×1 の icon: 1つ目は半分の透明度の黒（白い地で 136 の灰）、2つ目は透明（白い地で白）
+  const icon = Buffer.from([17, 17, 17, 128, 0, 0, 0, 0]);
+  const onWhite = (v) => Math.round(v * 128 / 255 + 255 * (1 - 128 / 255));
+  const bgra = (a, b) => Buffer.from([a, a, a, 255, b, b, b, 255]);
+  assert.strictEqual(S.iconDiff(bgra(onWhite(17), 255), icon, 2, 1), 0);
+  assert.strictEqual(S.iconDiff(bgra(onWhite(17) + 32, 255), icon, 2, 1), 0, '32 までの違いは同じとみなす');
+  assert.strictEqual(S.iconDiff(bgra(onWhite(17) + 33, 255), icon, 2, 1), 1);
+  assert.strictEqual(S.iconDiff(bgra(onWhite(17), 200), icon, 2, 1), 1, '透明な画素は白い地の色で比べる');
+  // B と R の並び（toBitmap は BGRA）: 赤い icon は BGRA の 3 つ目が赤
+  assert.strictEqual(S.iconDiff(Buffer.from([0, 0, 255, 255]), Buffer.from([255, 0, 0, 255]), 1, 1), 0);
+  assert.strictEqual(S.iconDiff(Buffer.from([255, 0, 0, 255]), Buffer.from([255, 0, 0, 255]), 1, 1), 1);
+  const ok = { width: 256, height: 256, diff: 655 };
+  assert.deepStrictEqual(S.iconResults(ok).map((r) => [r.n, r.ok]), [[19, true]]);
+  for (const bad of [{ diff: 656 }, { width: 512 }, { height: 320 }, { diff: undefined }, { error: '撮れなかった' }]) {
+    assert.strictEqual(S.iconResults({ ...ok, ...bad })[0].ok, false, JSON.stringify(bad));
+  }
+  const m = read('tools/electron-smoke/main.js');
+  const boot = m.slice(m.indexOf('function boot()'), m.indexOf('\n}\n', m.indexOf('function boot()')));
+  assert.ok(boot.includes('results.push(...await iconCheck(') && boot.indexOf('protocolCheck(') < boot.indexOf('iconCheck(') && boot.indexOf('iconCheck(') < boot.indexOf('finish(app, results)'), '19 の場所（18 の後・finish の前）');
+  const fn = m.slice(m.indexOf('async function iconCheck('), m.indexOf('\n}\n', m.indexOf('async function iconCheck(')));
+  assert.match(fn, /offscreen: true/, '画面の外の窓で描かない（拡大率や画面の色の設定で撮る画像が変わる）');
+  assert.match(fn, /assets', 'icon\.svg'|ICON_SVG/);
 });

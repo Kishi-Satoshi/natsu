@@ -973,10 +973,20 @@ test('wavLevelDbfs は 16bit PCM の RMS を dBFS で返す（無音・壊れた
 // ================= 要約の途中で会議タイプを選び直したとき（0.1.2） =================
 const { mergeSummaryType } = require('../src/mainlib');
 
+test('0.11.0 P-12（R4・P19 (a)）: 前の版で手で選んだ一般・その他（選べない種類）は、手で選んだ印があっても残さず、判定し直した種類で保存する', () => {
+  assert.deepStrictEqual(mergeSummaryType({ meetingType: 'general', typeAuto: false }, { meetingType: 'sales', typeAuto: true }),
+    { meetingType: 'sales', typeAuto: true, changed: false });
+  assert.deepStrictEqual(mergeSummaryType({ meetingType: 'general', typeAuto: false }, { meetingType: '', typeAuto: true }),
+    { meetingType: '', typeAuto: true, changed: false });
+  assert.deepStrictEqual(mergeSummaryType({ meetingType: 'nope', typeAuto: false }, { meetingType: 'review', typeAuto: true }),
+    { meetingType: 'review', typeAuto: true, changed: false });
+});
+
 test('mergeSummaryType: 要約の途中で手で選んだ種類は残し、要約に使った種類と違えば作り直しを勧める', () => {
-  // 実機: 生成中に「一般・その他」を選んだのに、終わると「定例・進捗報告（既定）」に戻った
-  assert.deepStrictEqual(mergeSummaryType({ meetingType: 'general', typeAuto: false }, { meetingType: 'standup', typeAuto: true }),
-    { meetingType: 'general', typeAuto: false, changed: true });
+  // 実機: 生成中に種類を選んだのに、終わると自動で決めた種類に戻った
+  // 0.11.0 P-12（P12）で意図して変えた: 一般・その他は無いので、選べる鍵（brainstorm）の例にした
+  assert.deepStrictEqual(mergeSummaryType({ meetingType: 'brainstorm', typeAuto: false }, { meetingType: 'standup', typeAuto: true }),
+    { meetingType: 'brainstorm', typeAuto: false, changed: true });
   // 始める前から手で選んでいた（途中で変えていない）
   assert.deepStrictEqual(mergeSummaryType({ meetingType: 'review', typeAuto: false }, { meetingType: 'review', typeAuto: false }),
     { meetingType: 'review', typeAuto: false, changed: false });
@@ -1006,3 +1016,14 @@ test('memoEvidence: 要約タイプのアジェンダの雛形の行は、担当
   assert.strictEqual(dueGrounded('次回まで', agenda), true, '除かないと通ってしまう（このテストの前提）');
 });
 
+
+// 0.11.0 M-3（決めたこと 25）: 型の雛形（「■ 見出し」）の行も、担当・期限の裏付けに使わない
+test('0.11.0 M-3: memoEvidence に型の雛形の行（presetLines）を渡すと、雛形の見出しの行は裏付けから外れ、書いた行は残る', () => {
+  const { memoEvidence } = require('../src/mainlib');
+  const mtype = require('../src/meetingType');
+  const M = require('../src/memoTypes');
+  const types = [...mtype.listTypes(), ...M.presetLines()];
+  assert.strictEqual(memoEvidence(M.memoPreset('bantc'), types).trim(), '');
+  assert.strictEqual(memoEvidence(`${M.memoPreset('report')}山田さんが来週までに確認`, types).trim(), '山田さんが来週までに確認');
+  assert.notStrictEqual(memoEvidence(M.memoPreset('bantc'), mtype.listTypes()).trim(), '', '前提: 雛形を渡さなければ見出しの行が残る');
+});

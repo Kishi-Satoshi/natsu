@@ -3,7 +3,7 @@
 # 添付するのは src/ と package.json だけを固めた軽量zip（make-release.ps1 と同じ構成）。
 # インストーラー丸ごと（80MB超）だと、大容量ダウンロードが切れる回線で
 # 更新のたびに失敗しかねないため、更新の配布はこのzipで行う。
-# リリース本文はアプリの [設定] -> [アップデート] にそのまま表示される。
+# リリース本文はアプリの [設定] -> [更新] にそのまま表示される。
 #
 # タグは natsu-v<x.y.z> の形にする（例: natsu-v0.1.0）。古い v* のタグでは動かない。
 # natsu-v を外した版が package.json の version と一致しないと止まる。
@@ -369,3 +369,24 @@ jobs:
           CLEANUP: ${{ needs.release.outputs.cleanup }}
         shell: bash
         run: git push origin --delete "$CLEANUP"
+
+  # help-relnotes（計画 docs/plans/2026-10-23-help-relnotes.md の決めたこと F・Q2 の A・Ruling R-RN3）:
+  # 公開できたら、ヘルプセンターのリリースノートに新しい版を載せるため help-deploy を起こす（main の最新から作る）。
+  # GITHUB_TOKEN で公開した事象では help-deploy は起きないので、workflow_dispatch で起こす（actions: write はこのジョブだけ）。
+  # installer の外に置くので、ここが失敗しても installer の「draft のまま」の要約や一時ブランチの片付けに響かない。
+  # continue-on-error: ヘルプの出し直しの失敗でリリースを赤にしない（持ち主の答え）。失敗は ::warning:: で知らせる。
+  help-redeploy:
+    needs: installer
+    if: success() && (github.event_name != 'workflow_dispatch' || inputs.publish)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    permissions:
+      actions: write # help-deploy を workflow_dispatch で起こすのに必要
+    steps:
+      - name: ヘルプセンターを出し直す（リリースノートに新しい版を載せる）
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          gh workflow run help-deploy.yml --repo "$GITHUB_REPOSITORY" --ref main \
+            || { echo "::warning::ヘルプセンターを出し直せませんでした（リリースは公開済み）。Actions → help-deploy → Run workflow（main）を押してください"; exit 1; }

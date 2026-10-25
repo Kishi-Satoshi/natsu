@@ -33,11 +33,12 @@ test('1b2 L-1: トークンは測った参考の値（4.5:1 に届かないも�
   }
 });
 
-test('1b2 L-1・G8: 海の色（--level）はロゴの波と録音中の点だけ。選んでいる行は灰色の地で、左の線も青も持たない', () => {
+test('1b2 L-1・G8: 海の色（--level）は録音中の点だけ。選んでいる行は灰色の地で、左の線も青も持たない', () => {
   const users = new Set(rules.filter((r) => !r.sel.startsWith(':root') && Object.values(r.decls).some((v) => /var\(--level\)/.test(v))).map((r) => r.sel));
   // 0.9.3 M-6 で意図して足した: 録音中のページの音の波の棒（録音中の点と同じ「音を拾っている」の印）
   // 0.9.4 W-1 で意図して外した: 波は文字の灰色の5つの点（持ち主の答え「青を使わない」）
-  assert.deepStrictEqual([...users].sort(), ['.logo .wave', '.rec-dot']);
+  // 0.11.1 LG-4 で意図して外した: ロゴの波（新しいロゴは白と黒だけ。LG3 の答え「海の色のまま残す」は録音中の点・処理中の輪・相手の声の印で、ロゴの波だけを外す）
+  assert.deepStrictEqual([...users].sort(), ['.rec-dot']);
   const sel = S.declsFor(rules, '.pitem.sel', { at: '' });
   assert.strictEqual(sel.background, 'var(--tint)');
   assert.ok(!/accent|level/.test(Object.values(sel).join(' ')), JSON.stringify(sel));
@@ -101,7 +102,8 @@ test('1b2 L-2・G5: サイドバーの議事録は「🎙️ 題名」の1行。
 test('1b2 L-2: サイドバーの頭はロゴと NaTsu と飾りの ▾。行は 🔍 検索・＋ 新しい議事録・見出し・議事録・音声入力・設定。« はフォーカスで見える', async () => {
   const l = await boot();
   const side = l.byId.get('side');
-  assert.ok(side.querySelector('.logo .wave') && side.querySelector('.ws-caret'));
+  // 0.11.1 LG-4 で意図して変えた: ロゴは箱とリスの2本（海の色の波は無い）
+  assert.ok(side.querySelector('.logo .logo-box') && side.querySelector('.logo .logo-sq') && side.querySelector('.ws-caret'));
   assert.strictEqual(l.byId.get('sideSearch').textContent, '🔍検索');
   assert.strictEqual(l.byId.get('mtToggleBtn').textContent, '＋新しい議事録');   // ＋ はアイコンの欄（.ic）。第1b2回の直し（stage1b2.fix.test.js）
   assert.ok(!side.querySelector('#searchBox') && !side.querySelector('#fltAll'), '検索の欄と絞り込みがサイドバーに残っている');

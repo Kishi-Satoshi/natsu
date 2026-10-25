@@ -11,6 +11,8 @@ const path = require('path');
 const natsulink = require('./natsulink');
 // 議事録の経過の表と積み方（0.10.0 K-1。DB のプロセスと MCP も同じ部品を読む）
 const SL = require('./statelog');
+const memoTypes = require('./memoTypes');
+const mtype = require('./meetingType');
 
 // ---------------------------------------------------------------- 要約の書き戻し
 // 要約は数分かかる。その間に利用者がページを削除していることがある。
@@ -1335,11 +1337,20 @@ function clockText(ms) {
   return h > 0 ? `${h}:${String(m).padStart(2, '0')}:${String(x).padStart(2, '0')}` : `${m}:${String(x).padStart(2, '0')}`;
 }
 
+// 0.11.0 V-1（決めたこと 2・6）: 画面の種類の欄の表（IPC meta:types）。並びは meetingType の1か所（V-5 で群は外した）、各種類にメモの型の鍵 memo
+function typesForView() {
+  return {
+    types: mtype.listTypes().map((t) => ({ ...t, memo: memoTypes.memoTypeOf(t.key) })),
+    selectable: [...mtype.SELECTABLE],
+  };
+}
+
 // 要約を保存するときの会議タイプ。saved: いまディスクにあるページ、used: 要約を始めたときのページ
 // （meetingType は要約に使った種類）。要約の途中で利用者が種類を手で選んでいたら（saved.typeAuto === false）、
-// その選択を残す。changed: 残した種類が要約に使った種類と違う（作り直しを勧める）
+// その選択を残す。changed: 残した種類が要約に使った種類と違う（作り直しを勧める）。
+// 0.11.0 P-12（R4・P19 (a)）: 選べない種類（前の版で手で選んだ一般・その他）は手で選んだ印があっても残さない（判定し直した種類で保存する）
 function mergeSummaryType(saved, used) {
-  if (saved && saved.typeAuto === false && saved.meetingType) {
+  if (saved && saved.typeAuto === false && mtype.isSelectable(saved.meetingType)) {
     return { meetingType: saved.meetingType, typeAuto: false, changed: saved.meetingType !== used.meetingType };
   }
   return { meetingType: used.meetingType, typeAuto: used.typeAuto, changed: false };
@@ -1347,12 +1358,14 @@ function mergeSummaryType(saved, used) {
 
 // Claude Code（claude -p）の標準入力に渡す文（第1c回 OL5・F9）。手元の LLM の1回で要約する頼みの文（main.js の
 // generateMinutes）と1文字も違わない形にする（片方だけ直すと、要約タイプの見出しが道によって変わる）。
-// memoText は呼ぶ側が trim し MEMO_MAX で切ったもの、template は minutesTemplate(type)（dropTemplateEcho に渡すのと同じ文字）。
+// memoText は呼ぶ側が trim し MEMO_MAX で切ったもの、template は doRunSummary が memoTypes.buildTemplate で1回作った文字（dropTemplateEcho に渡すのと同じ文字）。
 // 同じことは stage1c.lib.test.js が main.js の文字から確かめる
+// 0.11.0 M-2（決めたこと 16。持ち主の試作の「メモ・文字起こし・要約の3つの入れ物」）: メモと文字起こしの行の頭の「【」の前に全角の空白を入れる
+// （memoTypes.fenceLines）。議事録の文に「【会議の文字起こし】」や構成の指示を書かれても、頼みの文の境を偽れない
 function buildClaudeInput({ memoText, plain, template }) {
-  const memo = String(memoText || '');
+  const memo = memoTypes.fenceLines(memoText);
   const memoBlock = memo ? `【会議メモ・アジェンダ（要約のヒント）】\n${memo}\n\n` : '';
-  return `${memoBlock}【会議の文字起こし】\n${plain}\n\n上記から、次の構成のMarkdown議事録を作成してください。見出しはこの通りに使い、本文だけを出力してください。\n\n${template}`;
+  return `${memoBlock}【会議の文字起こし】\n${memoTypes.fenceLines(plain)}\n\n上記から、次の構成のMarkdown議事録を作成してください。見出しはこの通りに使い、本文だけを出力してください。\n\n${template}`;
 }
 
 // ページのプロパティの行に出す経路（第1c回 OL6）。route はページの route（main の maybeFinalizeMeeting・doRunSummary が書く）、
@@ -1628,7 +1641,7 @@ function keyLabel(accel) {
 const HELP_ARTICLES = Object.freeze([
   'start/what-natsu-does', 'start/install-update', 'start/login', 'start/claude-code', 'start/claude-mcp', 'start/tester-guide',
   'record/start-stop', 'record/pause', 'record/pc-only', 'record/status-line', 'record/meeting-detect',
-  'summary/how-summaries', 'summary/summary-types', 'summary/citations',
+  'summary/how-summaries', 'summary/summary-types', 'summary/meeting-quality', 'summary/citations',
   'dictation/dictation',
   'find/search', 'find/delete-and-backups',
   'settings/appearance', 'settings/account', 'settings/offline', 'settings/hotkeys',
@@ -2071,7 +2084,7 @@ module.exports = {
   STALL_SPAN_MS, STALL_MIN_DBFS, stallAfter, stallStep, PROBLEM_ORDER, sttProblemOf, problemForRoute,
   WIN_NOTIFY_CODES, WIN_NOTIFY_GAP_MS, notifyGate,
   OFFLINE_SHOW_MS, OFFLINE_CLEAR_MS, offlineBannerStep,
-  idleEnginesToStop, silentWav, wavLevelDbfs, mergeSummaryType, memoEvidence, buildClaudeInput, routeLabel,
+  idleEnginesToStop, silentWav, wavLevelDbfs, mergeSummaryType, typesForView, memoEvidence, buildClaudeInput, routeLabel,
   isLoopbackUrl, loopbackOnlyFetch,
   sameShas, keepPrevious, candStamp, repairIdsOf, pathUsedBy, fetchMinutesLeft,
   recordDictation, mergeHistory, chooseDraftName,

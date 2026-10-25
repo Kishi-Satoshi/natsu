@@ -240,6 +240,8 @@ function updateBlock(pageId, blockId, patch) {
     if (b.citeState !== 'manual') b.citeState = 'stale';
     // 書き換えで長さが変わりうる。短くなれば対象外、長くなれば対象に戻す
     if (isCitable(patch.text)) delete b.citeSkip; else b.citeSkip = true;
+    // 0.11.0 M-3: 人が直した印の行は印を外す（DB の block.update と同じ）
+    delete b.mark; delete b.unconfirmed;
     b.text = patch.text;
   }
   if (typeof patch.checked === 'boolean') b.checked = patch.checked;

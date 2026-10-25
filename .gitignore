@@ -10,3 +10,6 @@ src.backup-*/
 
 # 作り方の台帳・作り手への指示・点検用の差分（Superpowers の進め方。残す記録は commit だけ）
 .superpowers/
+
+# tools/icon-render.js の書き出しの一時ファイルと控え（0.11.1 点検の直し 1。落ちても消すが、念のため）
+*.rendering-*

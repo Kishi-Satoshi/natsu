@@ -69,3 +69,17 @@ test('K-1: 落ちて戻した議事録の経過は、下書きの経過（表に
   const o = await run(['text', '--json-scene=draft-statelog']);
   assert.deepStrictEqual(o.stateLog.map((x) => `${x.s}/${x.by}`), ['start/hotkey', 'pause/overlay', 'recover/app']);
 });
+
+// 0.11.0 M-4（P13・F28。計画 docs/plans/2026-10-22-110.md の決めたこと 12。持ち主の試作の state_history）: 会議の種類の移り変わりも積む
+test('0.11.0 M-4: 種類の項目（s: type。きっかけは録音中のページ・議事録のページ・要約のときの自動の判定）を積み、続けて選び直したら最後の1件を置き換える（開始が上限で押し出されない）', T, () => {
+  assert.strictEqual(SL.STATE_NAMES.type, '種類を選んだ');
+  assert.deepStrictEqual([SL.BY_NAMES['live-page'], SL.BY_NAMES.page, SL.BY_NAMES.auto], ['録音中のページ', '議事録のページ', '要約のときの自動の判定']);
+  let log = SL.stateLogAdd([], { s: 'start', by: 'button', at: AT(0) });
+  for (let i = 1; i <= 80; i++) log = SL.stateLogAdd(log, { s: 'type', by: i % 2 ? 'live-page' : 'page', at: AT(i) });
+  assert.deepStrictEqual(log.map((x) => `${x.s}/${x.by}`), ['start/button', 'type/page']);
+  assert.strictEqual(log[1].at, AT(80));
+  log = SL.stateLogAdd(log, { s: 'stop', by: 'button', at: AT(81) });
+  log = SL.stateLogAdd(log, { s: 'type', by: 'auto', at: AT(82) });
+  assert.deepStrictEqual(log.map((x) => `${x.s}/${x.by}`), ['start/button', 'type/page', 'stop/button', 'type/auto']);
+  assert.strictEqual(SL.stateLogLine({ s: 'type', by: 'live-page', at: AT(1) }), '議事録: 種類を選んだ（録音中のページ）');
+});

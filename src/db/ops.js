@@ -24,7 +24,7 @@ const { searchFold } = require('../cite');
 const { evenKeys, keyBetween } = require('./keys');
 
 const PAGE_FIXED = ['id', 'title', 'blocks', 'createdAt', 'updatedAt', 'children', 'type', 'text', 'rich'];
-const DB_MADE = ['rev', 'routeText'];     // DB が作る欄（書くときは黙って捨てる）
+const DB_MADE = ['rev', 'routeText', 'qualityView'];     // DB が作る欄（書くときは黙って捨てる）。0.11.0 Q-3 で qualityView を足した
 const BLOCK_FIXED = ['id', 'type', 'text', 'rich', 'children'];
 const SEG_FIXED = ['id', 'atMs', 'durationMs', 'text', 'failed'];
 const PAGE_ORD = 'i';                     // ページの行の並びの鍵（2a1 では使わない。第5回の子のページで使う）
