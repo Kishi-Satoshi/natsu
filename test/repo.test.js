@@ -850,7 +850,8 @@ test('#14 一時停止したまま停止したら、停止時刻で一時停止�
 });
 
 test('#15 次の区間の初期プロンプトは直近の成功区間から取る', () => {
-  assert.match(main, /const tail = promptTail\(m\.segments\);/);
+  // 0.12.0 SP-3a（計画 docs/plans/2026-10-22-120.md の決めたこと 126）で意図して直した: 2つの流れの会議は同じ流れの直前の済んだ区間から取る（1本の会議は今のまま m.segments）
+  assert.match(main, /const tail = promptTail\(lane \? laneSegs\(m, lane\) : m\.segments\);/);
   assert.match(main, /transcribeAuto\(buffer, tail, durationMs[,)]/);
 });
 
