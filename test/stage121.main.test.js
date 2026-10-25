@@ -240,3 +240,15 @@ test('LV-3（L12・F66）: 話し声の帯が出ている間に会議を出る�
   assert.ok(!o.notifications.some((n) => /話し声が無かったので/.test(n.body)), JSON.stringify(o.notifications));
   assert.ok(!JSON.stringify(o.notices).includes('話し声が無かったので'), JSON.stringify(o.notices));
 });
+
+// ---------------------------------------------------------------- 点検の直し（2026-10-25）
+test('点検の直し 1（L18・F64）: 止めた後の作成中に新しく始まった別のアプリの使い（Zoom）には、idle に戻った後の読みでパネルを出す（会議を出て止めた・手で止めたのどちらでも）。録音中に始まった使いは今どおり出さない', S, async () => {
+  const leave = await run([...PANEL('teams'), ...L('mic teams:1'), ...Ls('mic -', 3), ...Ls('mic zoom:5', 2), ['finish'], ...L('mic zoom:5'), ['wait-show', 2]]);
+  assert.strictEqual(count(leave, '会議: 止めた（auto-leave）'), 1, leave.engineLog.join('\n'));
+  assert.strictEqual(shows(leave), 2, JSON.stringify(leave.nudge && leave.nudge.calls));
+  const hand = await run([...PANEL('teams'), ...L('mic teams:1'), ['bar-stop'], ...Ls('mic teams:1,zoom:5', 2), ['finish'], ...L('mic teams:1,zoom:5'), ['wait-show', 2]]);
+  assert.strictEqual(count(hand, '会議: 止めた（bar）'), 1, hand.engineLog.join('\n'));
+  assert.strictEqual(shows(hand), 2, JSON.stringify(hand.nudge && hand.nudge.calls));
+  // 録音中から使っている Teams（作成中も続く）は出さない（パネルは Zoom の1回だけ増える）
+  noNames(hand);
+});

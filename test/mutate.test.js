@@ -939,6 +939,7 @@ const IDS_121 = [
   'lv-forget-all',   // LV-3
   'lv-ui-save',   // LV-4
   'lv-help-split',   // LV-5
+  'rv-forget-late',   // 点検の直し 1（2026-10-25）
 ];
 test('G3・0.12.1 LV-6: 0.12.1 の変異が一覧にそろい、IDS_121 は計画の「変異確認」の表の id とちょうど同じ（行の順・重なり無し・数も同じ）。lv- の変異は IDS_121 にある。どれも決まったテストのファイルを持ち、why が 0.12.1 で始まる', { timeout: 5000 }, () => {
   const byId = new Map(MUTANTS.map((m) => [m.id, m]));
@@ -951,7 +952,10 @@ test('G3・0.12.1 LV-6: 0.12.1 の変異が一覧にそろい、IDS_121 は計�
   assert.ok(at > 0, '計画の「変異確認」の節が無い');
   const table = plan.slice(at, plan.indexOf('\n## ', at + 5));
   const rows = [...table.matchAll(/^\| ([a-z][a-z0-9-]*) \|/gm)].map((m) => m[1]).filter((id) => id !== 'id');
-  assert.strictEqual(rows.length, 32, '計画の表が読めない');
+  assert.ok(rows.length >= 32, '計画の表が読めない');
+  // 点検の直し（2026-10-25）の変異は rv- で始まり、why が「0.12.1 点検の直し」で始まる（rv- の名前は前の版の点検の変異にもある）
+  assert.deepStrictEqual(MUTANTS.filter((m) => /^0\.12\.1 点検の直し/.test(m.why || '') && !IDS_121.includes(m.id)).map((m) => m.id), [], 'IDS_121 に無い 0.12.1 の点検の直しの変異がある');
+  assert.ok(IDS_121.filter((id) => !/^lv-/.test(id)).every((id) => /^rv-/.test(id)), 'IDS_121 の点検の直しの変異が rv- で始まらない');
   assert.strictEqual(new Set(rows).size, rows.length, '計画の表に重なり');
   assert.deepStrictEqual(IDS_121.filter((id) => !rows.includes(id)), [], '計画の「変異確認」の表に無い変異');
   assert.deepStrictEqual(rows.filter((id) => !IDS_121.includes(id)), [], 'IDS_121 に無い計画の「変異確認」の表の行（作っていない変異）');

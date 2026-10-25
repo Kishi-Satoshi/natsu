@@ -3023,6 +3023,7 @@ function onMicLine(line) {
   // 0.9.4 D-1（診断の記録）: 一覧のアプリでマイクを使っている数が変わったときだけ1行（名前は書かない: 0.9.3 の K3）
   if (r.items.length !== micCount) { micCount = r.items.length; engineLog(`会議の検出: マイクの記録 ${micCount} 件`); }
   nudgeEvent({ type: 'sample', items: r.items });
+  noteFinalizingUses();   // 0.12.1 点検の直し 1
   leaveEvent({ type: 'sample', items: r.items });   // 0.12.1 LV-2: 議事録の録音中だけ（leaveEvent が照らす）
 }
 // 会議の検出の判断（mainlib.nudgeStep）。答えのとおりにパネルの窓を出し入れするだけ（判断は純粋な関数）
@@ -3075,6 +3076,23 @@ function leaveEvent(ev) {
 // 会議を出たので止める（L10）: 録音中で止めていないときだけ、今の1つの道（stopMeetingBy）に auto-leave を渡す。本当に止めたときだけ LN4 を1回（L11）。
 // 0.9.1 の autoStopped は付けない（quietDoneNotice を出さない: L12）。所要時間の終わりは放した最初の読みの時刻（L13）
 let leaveForget = null;   // 会議を出て止めた会議の、放した読みで見えた別のアプリの使い（idle に戻ったらパネルの判断の印を外す: L18）
+// 0.12.1 点検の直し 1: 0.9.3 は録音中と作成中に見張りを止めていたので、作成中に始まった会議の使いは idle で初めて見えてパネルになった。見張りを動かしたままに
+// した 0.12.1 では、作成中の読みが「録った会議」の印を付けてしまうので、作成中に新しく見えた使い（finalNew）を覚えて idle で外す。作成中に入った時に使っていた
+// 使い（finalBase。録音中に始まった使い）は今どおり出さない。つなぎ直し（0.9.3 の 60 秒）の印が付いた使いは外さない（R3）
+let finalBase = null;
+let finalNew = new Set();
+const activeUseKeys = () => Object.entries(nudgeSt.active || {}).map(([id, start]) => `${id}:${start}`);
+function noteFinalizingUses() {
+  if (state !== 'meeting-finalizing' || !finalBase) return;
+  for (const k of activeUseKeys()) if (!finalBase.has(k)) finalNew.add(k);
+}
+function idleForget() {
+  const rejoin = Array.isArray(nudgeSt.rejoin) ? nudgeSt.rejoin : [];
+  const late = [...finalNew].filter((k) => !rejoin.includes(k));
+  const keys = [...new Set([...(leaveForget || []), ...late])];
+  leaveForget = null; finalBase = null; finalNew = new Set();
+  if (keys.length) nudgeEvent({ type: 'forget', keys });
+}
 let leaveNotice = null;   // 出した LN4（消えないように持つ）
 function stopByLeave(m, goneAt, others) {
   if (meeting !== m || state !== 'meeting') return;
@@ -3223,8 +3241,10 @@ function noteDetectState() {
   if (!detectReady || state === detectBusy) return;
   detectBusy = state;
   nudgeEvent({ type: 'busy', busy: state !== 'idle', meeting: state === 'meeting' || state === 'meeting-finalizing' });
-  // 0.12.1 LV-3（決めたこと L18）: 会議を出て止めた会議の後で idle に戻ったら、放した読みで見えた別のアプリの使いの印を外す（まだ使っていれば次の読みでパネル）
-  if (state === 'idle' && leaveForget) { const keys = leaveForget; leaveForget = null; nudgeEvent({ type: 'forget', keys }); }
+  // 0.12.1 点検の直し 1: 作成中（止めた後）に入ったら、その時に使っていたアプリの使いを覚える（作成中に新しく始まった使いだけを、idle でパネルに戻すため）
+  if (state === 'meeting-finalizing') { finalBase = new Set(activeUseKeys()); finalNew = new Set(); }
+  // 0.12.1 LV-3（決めたこと L18）: idle に戻ったら、会議を出て止めた会議の放した読みで見えた別のアプリの使いと、作成中に新しく始まった使いの印を外す
+  if (state === 'idle') idleForget();
   syncMicWatch();
 }
 // 設定の「会議の検出の通知」「通知を出さないアプリ」が変わった。オンにし直したら、落ちて諦めた見張りも起こし直す
