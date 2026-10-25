@@ -2184,7 +2184,9 @@ function partsOf(sentences, { text, durationMs, clean } = {}) {
   const fix = typeof clean === 'function' ? clean : (t) => String(t || '').trim();
   if (!sentences.every((s) => isPlain(s) && fin(s.start) && fin(s.end) && s.start >= 0 && s.end >= s.start)) return null;
   const lastEnd = sentences[sentences.length - 1].end * 1000;
-  if (!fin(durationMs) || Math.abs(lastEnd - durationMs) > 2000) return null;
+  // 点検の直し I1（決めたこと 128 の改め。持ち主 2026-10-25「最後が無音でも文の時刻を使う（おすすめ）」）: 倒すのは最後の文が音声より 2 秒より長くはみ出すときだけ。
+  // 最後の文が音声の終わりより前に終わる（最後が無音の区間。VAD が飛ばした・黙っていた）ときは、文の時刻を使う
+  if (!fin(durationMs) || lastEnd > durationMs + 2000) return null;
   const parts = [];
   let cursor = 0;
   for (const s of sentences) {

@@ -146,13 +146,14 @@ test('SP-1・F23: timelineOf の表（時刻の順・同じ時刻は並びの順
   for (const k of ['SOURCE_LABELS', 'SPEAKER_LABELS', 'srcLabel', 'checkParts', 'labeledLine']) assert.strictEqual(L[k], TL[k], k);
 });
 
-test('SP-1: partsOf の表（倒しの4つ: 時刻が無い・最後の end が 2 秒より大きくずれる・直した文の中に見つからない文がある・数が 2〜200 の外。つなぎ言葉を除いた文でも位置が合う）', T, () => {
+test('SP-1: partsOf の表（倒しの4つ: 時刻が無い・最後の end が長さより 2 秒より長い・直した文の中に見つからない文がある・数が 2〜200 の外。つなぎ言葉を除いた文でも位置が合う）', T, () => {
   const s3 = [{ start: 0, end: 4.2, text: ' はじめの文。' }, { start: 30, end: 33, text: 'つぎの文。' }, { start: 60, end: 89.5, text: 'おわりの文。' }];
   const text = 'はじめの文。つぎの文。おわりの文。';
   assert.deepStrictEqual(L.partsOf(s3, { text, durationMs: 90000 }), [{ ms: 0, at: 0 }, { ms: 30000, at: 6 }, { ms: 60000, at: 11 }]);
-  // 最後の end と長さが 2 秒ちょうどなら作る・2 秒より大きくずれたら作らない
+  // 最後の end が長さより 2 秒ちょうど長いなら作る・2 秒より長ければ作らない。点検の直し I1（決めたこと 128 の改め）で意図して変えた:
+  // 最後の end が長さより前（最後が無音の区間）は作る（前は 2 秒より前でも作らなかった）
   assert.ok(L.partsOf(s3, { text, durationMs: 91500 }));
-  assert.strictEqual(L.partsOf(s3, { text, durationMs: 92600 }), null);
+  assert.ok(L.partsOf(s3, { text, durationMs: 92600 }));
   assert.strictEqual(L.partsOf(s3, { text, durationMs: 86000 }), null);
   // 時刻が無い（古いエンジン）
   assert.strictEqual(L.partsOf([{ text: 'はじめの文。' }, { text: 'つぎの文。' }], { text: 'はじめの文。つぎの文。', durationMs: 10000 }), null);
@@ -300,4 +301,16 @@ test('SP-1・F32: stallStepMs の表（音のある空の長さの和が 45 秒�
   st = L.stallStepMs(null, { text: '', levelDbfs: -30, durationMs: 40000 }).st;
   const st2 = L.stallStepMs(st, { text: '', levelDbfs: -60, durationMs: 40000 }).st;
   assert.deepStrictEqual(st2, st);
+});
+
+// ---------------------------------------------------------------- 点検の直し（2026-10-25）I1（決めたこと 128 の改め。持ち主「最後が無音でも文の時刻を使う（おすすめ）」）
+test('点検の直し I1: 最後の文が音声の終わりの数秒〜数十秒前に終わる区間（最後が無音）でも文ごとの行に分ける。最後の end が音声より 2 秒より長い（はみ出す）ときだけ作らない', T, () => {
+  const s3 = [{ start: 0, end: 4.2, text: 'はじめの文。' }, { start: 30, end: 33, text: 'つぎの文。' }, { start: 60, end: 64, text: 'おわりの文。' }];
+  const text = 'はじめの文。つぎの文。おわりの文。';
+  const want = [{ ms: 0, at: 0 }, { ms: 30000, at: 6 }, { ms: 60000, at: 11 }];
+  for (const durationMs of [64000, 66500, 70000, 90000]) assert.deepStrictEqual(L.partsOf(s3, { text, durationMs }), want, String(durationMs));
+  assert.deepStrictEqual(L.partsOf(s3, { text, durationMs: 62000 }), want);   // はみ出しが 2 秒ちょうど
+  for (const durationMs of [61900, 50000]) assert.strictEqual(L.partsOf(s3, { text, durationMs }), null, String(durationMs));
+  // 文の頭が長さを越える（大きくはみ出す）形も作らない
+  assert.strictEqual(L.partsOf(s3, { text, durationMs: 55000 }), null);
 });

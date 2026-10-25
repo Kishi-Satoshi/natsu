@@ -354,3 +354,12 @@ test('点検の直し C1: 相手の声の最後が届かない（録音バーが
   const line = o.engineLog.filter((l) => /締めの待ち/.test(l));
   assert.deepStrictEqual(line, ['締めの待ち: 録音バーの最後の区間が 60 秒届かなかったので締めました（2つの流れ）'], o.engineLog.join('\n'));
 });
+
+// ---------------------------------------------------------------- 点検の直し（2026-10-25）I1（決めたこと 128 の改め）
+test('点検の直し I1: 偽の whisper の文が音声の終わりの 5 秒前に終わる（最後が無音の区間）ときも、PC の側の区間に parts が付く', T, async () => {
+  const o = await run(PC('pc-parts'), { env: { FAKE_SENTENCES: 'early' } });
+  const s = segsOf(o);
+  const mic0 = s.find((x) => x.src === 'mic' && x.atMs === 0);
+  assert.ok(mic0 && Array.isArray(mic0.parts) && mic0.parts.length === 3, dump(o));
+  assert.ok(mic0.parts[2].ms < mic0.durationMs - 5000, JSON.stringify(mic0));
+});

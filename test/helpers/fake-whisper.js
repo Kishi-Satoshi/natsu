@@ -26,7 +26,8 @@
 // （本物の 1.7.6・1.8.0 と同じ）。受けた要求は FAKE_LOG に 1 行ずつ書く。
 // 0.12.0 SP-3a: FAKE_TAG_FILE（JSON の文の並び）があり、WAV の末尾の3つの標本が [3, -3, 番号] なら、その番号の文を返す（mainrun の --two-streams）
 // 0.12.0 SP-3b: response_format が verbose_json なら、文（「。」で切る）ごとに区間の長さを等分した start・end（秒）の segments を付ける。
-//   FAKE_SENTENCES=none は segments を付けない（古いエンジン）・drift は最後の end を 3 秒ずらす。要求の行に rf=<response_format> を足した
+//   FAKE_SENTENCES=none は segments を付けない（古いエンジン）・drift は最後の end を 3 秒ずらす（音声より長い）・early は文の時刻を音声の終わりの
+//   5 秒前までに詰める（最後が無音の区間。点検の直し I1）。要求の行に rf=<response_format> を足した
 //   要求の行の nlp= は no_language_probabilities の欄（verbose_json で無いと、本物の 1.9.5 は VAD で声の無い音声で落ちる: R25）
 // 0.12.0 SP-3a: 要求の行の最後に busy=<そのとき答えていない区間の要求の数（この要求を含む）>（2つの流れの会議で PC へ同時に送らないかを見る）
 
@@ -131,7 +132,9 @@ const server = http.createServer((req, res) => {
     const answerText = tagged !== null ? tagged : process.env.FAKE_TEXT ? `${process.env.FAKE_TEXT}区間${n}` : ` 本日の議題は\n進捗の確認です。区間${n}\n`;
     const sentencesOf = (text) => {
       const pieces = String(text).split(/(?<=。)/).filter((x) => x.trim());
-      const sec = okWav ? Math.floor((form.file.length - 44) / 2) / 16000 : 0;
+      const all = okWav ? Math.floor((form.file.length - 44) / 2) / 16000 : 0;
+      // 点検の直し I1: early は最後の文が音声の終わりの 5 秒前に終わる（最後が無音の区間。音声が 10 秒より長いときだけ）
+      const sec = process.env.FAKE_SENTENCES === 'early' && all > 10 ? all - 5 : all;
       const segs = pieces.map((x, i) => ({ id: i, start: Math.round((i * sec / pieces.length) * 1000) / 1000, end: Math.round(((i + 1) * sec / pieces.length) * 1000) / 1000, text: x }));
       if (segs.length && process.env.FAKE_SENTENCES === 'drift') segs[segs.length - 1].end += 3;
       return segs;
