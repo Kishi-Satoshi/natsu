@@ -561,3 +561,37 @@ test('0.10.0 LN-5（D78・決めたこと 156）: /open/ と /assets/open.js も
     assert.strictEqual(js.headers.get('content-security-policy'), HELP_CSP);
   });
 });
+
+// help-dads HD-6（Q7。計画 docs/plans/2026-10-23-help-dads.md の決めたこと I-30）: 門のページ（ログインできないときだけ出る）も
+// main と h1 を持ち、色はヘルプと同じ値（DADS の札とブランド色）、ログアウトのリンクは青と下線、輪は DADS の形。CSP（GATE_CSP）は変えない
+test('HD-6 Q7: 門のページは <main> の中に <h1>NaTsu ヘルプセンター</h1> と文。<style> の色は DADS の札とブランド色だけ（明: 地 #ffffff・文字 #333333・見出し #000000・理由 #666666、暗はブランド色）。リンクは青と下線（訪問済み・ホバーは @media (hover: hover) の中・押している間）、:focus-visible は黒（暗い版は白）4px＋黄色の縁', { timeout: 5000 }, async () => {
+  const C = require('./helpers/simcss');
+  const { gatePage } = await R.load('help-gate.mjs');
+  const brand = [...fs.readFileSync(path.join(__dirname, '..', 'DADS-PROTECT.md'), 'utf8').matchAll(/^- (#[0-9a-f]{6})（/gm)].map((m) => m[1]);
+  const allowed = new Set(['#ffffff', '#000000', '#333333', '#666666', '#00118f', '#0017c1', '#8b008b', '#ac3e00', '#9db7f9', '#7096f8', '#ff8eff', '#ffa66d', '#ffd43d', ...brand]);
+  assert.strictEqual(brand.length, 5);
+  for (const st of [401, 403, 503]) {
+    const text = await gatePage(st, { why: 'cfg-aud' }).text();
+    assert.match(text, /<body><main><h1>NaTsu ヘルプセンター<\/h1><p>[\s\S]*<\/main><\/body>/, `${st}: main と h1`);
+    assert.strictEqual((text.match(/<h1>/g) || []).length, 1);
+    const css = /<style>([\s\S]*)<\/style>/.exec(text)[1];
+    for (const c of css.match(/#[0-9a-fA-F]{3,8}\b|rgba?\([^)]*\)|\b(?:white|black)\b/g) || []) assert.ok(allowed.has(c.toLowerCase()), `${st}: 決まった一覧に無い色 ${c}`);
+    const rules = C.parse(css);
+    const DARK = '@media (prefers-color-scheme:dark)';
+    const d = (sel, at = '') => C.declsFor(rules, sel, { at });
+    assert.deepStrictEqual([d('body').color, d('body').background, d('h1').color, d('.why').color], ['#333333', '#ffffff', '#000000', '#666666']);
+    assert.deepStrictEqual([d('body', DARK).color, d('body', DARK).background, d('h1', DARK).color, d('.why', DARK).color], ['#d6d6d6', '#111111', '#ffffff', '#a3a3a3']);
+    assert.strictEqual(d('a').color, '#00118f');
+    assert.strictEqual(d('a')['text-decoration'], 'underline');
+    assert.strictEqual(d('a:visited').color, '#8b008b');
+    assert.strictEqual(d('a:hover', '@media (hover:hover)').color, '#0017c1');
+    assert.strictEqual(d('a:active').color, '#ac3e00');
+    assert.strictEqual(d('a', DARK).color, '#9db7f9');
+    for (const r of rules) if (r.sel.includes(':hover')) assert.ok(r.at.includes('(hover:hover)'), `${r.sel} が @media (hover: hover) の外`);
+    assert.strictEqual(d('a:hover', '@media (prefers-color-scheme:dark) and (hover:hover)').color, '#7096f8', '暗い版のホバー');
+    assert.strictEqual(d(':focus-visible').outline, 'calc(4 / 16 * 1rem) solid #000000');
+    assert.strictEqual(d(':focus-visible')['box-shadow'], '0 0 0 calc(2 / 16 * 1rem) #ffd43d');
+    assert.strictEqual(d(':focus-visible', DARK).outline, 'calc(4 / 16 * 1rem) solid #ffffff');
+    assert.deepStrictEqual([d('a:focus-visible')['background-color'], d('a:focus-visible').color], ['#ffd43d', '#000000']);
+  }
+});

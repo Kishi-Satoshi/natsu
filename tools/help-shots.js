@@ -19,7 +19,7 @@ const crypto = require('node:crypto');
 const { pathToFileURL } = require('node:url');
 
 const ROOT = path.resolve(__dirname, '..');
-const PAGES = ['/', '/record/', '/record/pc-only/', '/start/tester-guide/'];
+const PAGES = ['/', '/record/', '/record/pc-only/', '/start/tester-guide/', '/release-notes/'];
 const SCHEMES = ['light', 'dark'];
 const WIDTHS = [1280, 390];
 const HEIGHT = 900;

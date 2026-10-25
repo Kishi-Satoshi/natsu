@@ -125,7 +125,7 @@ test('release.yml: natsu-v* だけで動き、古い v* では動かない', () 
 
 test('release.yml: ci を呼び、release は ci が緑のときだけ走る', () => {
   const j = jobsOf(rel());
-  assert.deepStrictEqual(Object.keys(j), ['ci', 'release', 'installer']);
+  assert.deepStrictEqual(Object.keys(j), ['ci', 'release', 'installer', 'help-redeploy']);   // help-redeploy は help-relnotes の Ruling R-RN3
   assert.match(j.ci, /^    uses: \.\/\.github\/workflows\/ci\.yml$/m);
   assert.match(j.release, /^    needs: ci$/m);
 });

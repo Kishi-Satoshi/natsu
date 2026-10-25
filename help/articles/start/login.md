@@ -1,12 +1,12 @@
 ---
 title: ログインする
 description: ［設定］の「アカウント」の［ログイン］から、会社のメールアドレスとメールで届く 6 けたのコードでログインする
-updated: 2026-10-21
+updated: 2026-10-23
 sources: README.md, INSTALL.md, src/renderer/app.html, src/main.js, src/mainlib.js
 related: start/tester-guide, start/claude-code, record/status-line
 ---
 
-ログインすると、インターネットにつながっているときに、会議と音声入力の音声を会社の文字起こしの中継に送り、OpenAI で文字起こしします。
+ログインすると、インターネットにつながっているときに、会議と音声入力の音声を会社の文字起こしの中継（音声を OpenAI へ取り次ぐ NaTsu のサーバー）に送り、OpenAI で文字起こしします。
 ログインしていないときは、音声を外へ送りません（ローカル AI の準備をした PC は PC の中で文字起こしし、準備をしていない PC は音声を残して、ログインすると文字起こしします）。
 
 ## ログインの手順 {#steps}

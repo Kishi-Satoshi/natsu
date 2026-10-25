@@ -59,7 +59,9 @@ const LONG = {
 };
 const DONE = '登録しました。Claude デスクトップを起動してください（動いていたなら、タスクトレイのアイコンからも終了してから起動し直してください）。';
 const OFF = '登録を外しました。Claude デスクトップを起動し直すと、NaTsu の道具が消えます。';
-const RUNNING = 'Claude デスクトップが動いています。タスクトレイのアイコンからも終了してから押してください（動いたまま登録すると、Claude デスクトップを起動し直すまで読めません）。';
+// 0.10.1 CD-3（D84）で意図して変えた: 動いている間は main が書かずに断るので、頭の文から「動いたまま登録すると…」を外した（RN3）
+const RUNNING = 'Claude デスクトップが動いています。登録や外すときは、タスクトレイのアイコンからも終了してから押してください。';
+const RN1 = 'Claude デスクトップが動いているため、登録を変えませんでした。Claude デスクトップを終了してから、もう一度押してください（タスクトレイのアイコンからも終了してください）。';
 const SONNET = '要約のモデルは Claude の Sonnet の最新版に固定しています（選べません。新しい Sonnet が出ると自動で切り替わります）。';
 
 // ---------------------------------------------------------------- 形（静的）
@@ -152,11 +154,11 @@ test('MR8・D75: ［Claude デスクトップに登録］で koeApp.mcpRegister 
   assert.strictEqual($(l, 'mcpDesktopState').textContent, SHORT.same);
   assert.ok(!$(l, 'mcpRegister').disabled);
   assert.strictEqual($(l, 'mcpUnregister').hidden, false);
-  // 動いている（開いたとき・押したとき）
-  const r = await openSummary({ mcpStatus: () => ST('none', true), mcpRegister: () => ({ ok: true, state: 'same', running: true }) });
+  // 動いている（開いたとき・押したとき）。0.10.1 CD-3（D84）で意図して変えた: 動いていると main は書かずに running で断り、断った文 RN1 だけを出す
+  const r = await openSummary({ mcpStatus: () => ST('none', true), mcpRegister: () => ({ ok: false, state: 'none', code: 'running', running: true }) });
   assert.strictEqual($(r, 'mcpMsg').textContent, RUNNING);
   await click(r, 'mcpRegister');
-  assert.strictEqual($(r, 'mcpMsg').textContent, `${RUNNING} ${DONE}`);
+  assert.strictEqual($(r, 'mcpMsg').textContent, RN1);
   // 断った
   for (const code of ['broken', 'other', 'readonly', 'busy', 'noclaude']) {
     const n = await openSummary({ mcpStatus: () => ST('none'), mcpRegister: () => ({ ok: false, state: code, code, running: null }) });

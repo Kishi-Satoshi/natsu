@@ -10,7 +10,11 @@ const ENTRY_NAME = 'natsu';
 const MARK = 'NATSU_MCP';
 const BACKUP_KEEP = 3;
 const CONFIG_NAME = 'claude_desktop_config.json';
-const MSIX_PREFIXES = ['Claude_', 'Anthropic.Claude_'];
+// Microsoft Store 版の前の場所の名前の頭（小文字にした名前に当てる。0.10.1 CD-1 で大文字と小文字を区別しなくした）
+const MSIX_PREFIXES = ['claude_', 'anthropic.claude_'];
+// 新しい Store 版の場所（%LOCALAPPDATA%\Claude-Data\claude_<符号>。0.10.1 CD-1。計画 docs/plans/2026-10-23-101.md の決めたこと 1）
+const DATA_ROOT = 'Claude-Data';
+const DATA_NAME = /^(anthropic\.)?claude_[a-z0-9]+$/;   // 小文字にした名前に当てる
 
 const isObj = (v) => Boolean(v) && typeof v === 'object' && !Array.isArray(v);
 const clone = (v) => JSON.parse(JSON.stringify(v));
@@ -59,21 +63,61 @@ function removeEntry(config) {
   return { ok: true, config: out, changed: true };
 }
 
-// 設定ファイルの場所の配列。readdir・exists はテストで偽物（main は fs.readdirSync・fs.existsSync）
-function configFiles({ appData, localAppData, readdir, exists }) {
+// 設定ファイルの場所の配列 [{ file, kind }]（kind は 'roaming' | 'data' | 'packages'。0.10.1 CD-1）。readdir・exists・isDir はテストで偽物
+// （main は fs.readdirSync・fs.existsSync・statSync().isDirectory()）。並びは Roaming → Claude-Data → Packages（どれも名前の小文字の順: 決めたこと 7）。
+// 名前は小文字にしてから照らし（Windows は大文字と小文字を区別しない: 決めたこと 6）、書く先には readdir が返した名前をそのまま使う
+const byLower = (a, b) => {
+  const x = a.toLowerCase();
+  const y = b.toLowerCase();
+  return x < y ? -1 : x > y ? 1 : 0;
+};
+const namesIn = (dir, readdir) => {
+  let names = [];
+  try { names = readdir(dir); } catch (_) { names = []; }
+  if (!Array.isArray(names)) return [];
+  return names.filter((n) => typeof n === 'string').sort(byLower);
+};
+function configPlaces({ appData, localAppData, readdir, exists, isDir = exists }) {
   const out = [];
-  if (appData && exists(path.join(appData, 'Claude'))) out.push(path.join(appData, 'Claude', CONFIG_NAME));
+  if (appData && exists(path.join(appData, 'Claude'))) out.push({ file: path.join(appData, 'Claude', CONFIG_NAME), kind: 'roaming' });
   if (localAppData) {
+    const dr = path.join(localAppData, DATA_ROOT);
+    for (const n of namesIn(dr, readdir)) {
+      if (!DATA_NAME.test(n.toLowerCase())) continue;
+      if (isDir(path.join(dr, n))) out.push({ file: path.join(dr, n, CONFIG_NAME), kind: 'data' });
+    }
     const pk = path.join(localAppData, 'Packages');
-    let names = [];
-    try { names = readdir(pk); } catch (_) { names = []; }
-    for (const n of names) {
-      if (typeof n !== 'string' || !MSIX_PREFIXES.some((p) => n.startsWith(p))) continue;
+    for (const n of namesIn(pk, readdir)) {
+      if (!MSIX_PREFIXES.some((p) => n.toLowerCase().startsWith(p))) continue;
       const dir = path.join(pk, n, 'LocalCache', 'Roaming', 'Claude');
-      if (exists(dir)) out.push(path.join(dir, CONFIG_NAME));
+      if (exists(dir)) out.push({ file: path.join(dir, CONFIG_NAME), kind: 'packages' });
     }
   }
   return out;
+}
+// 0.10.1 2回目の点検の直し（Ruling R16）: フォルダの本当のパス（real(フォルダ)。main は fs.realpathSync.native。ジャンクション・シンボリックリンクを解く）が
+// 同じ場所を1つにまとめる（先の方を残す: Roaming → Claude-Data → Packages）。本当のパスが読めない場所は、そのまま残す
+function dedupePlaces(places, real) {
+  const seen = new Set();
+  const out = [];
+  for (const p of places || []) {
+    let key = null;
+    try { key = real(path.dirname(p.file)); } catch (_) { key = null; }
+    if (key !== null && seen.has(key)) continue;
+    if (key !== null) seen.add(key);
+    out.push(p);
+  }
+  return out;
+}
+// 0.10.0 の口（場所のファイルの配列）
+function configFiles(opts) {
+  return configPlaces(opts).map((p) => p.file);
+}
+// 場所の種類の数（記録の1行のため。パスは持たない: 決めたこと 13）
+function placeCounts(places) {
+  const c = { roaming: 0, data: 0, packages: 0 };
+  for (const p of places || []) if (p && Object.hasOwn(c, p.kind)) c[p.kind] += 1;
+  return c;
 }
 
 // 控えの名前（同じフォルダに写す: 決めたこと 18）。時刻の : と . は - に
@@ -85,6 +129,30 @@ function isNatsuBackup(base, name) {
   return typeof name === 'string' && name.startsWith(`${base}.natsu-`) && /\.natsu-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z\.bak$/.test(name);
 }
 
+// 起動のときに黙って書き直すか（0.10.1 CD-4。D83・D86・計画の決めたこと 4）。states はファイルごとの状態、marked は前に登録した印があるか
+//  → 'rewrite'（main が tasklist を見て、動いていなければ書く）| 'notice-stale' | 'notice-gone' | 'none'（何もしない）
+const AUTO_OK = new Set(['same', 'none', 'stale']);
+// 0.10.1 2回目の点検の直し（Ruling R18）: unregistered は「利用者が外した（一部だけ効いたときも）」印。登録の印が無くこの印があれば、古い場所があっても知らせない
+function autoPlan({ states, marked, unregistered = false }) {
+  const st = Array.isArray(states) ? states : [];
+  if (!st.length) return 'none';
+  if (!marked && unregistered) return 'none';
+  if (!marked) return st.includes('stale') && st.every((s) => AUTO_OK.has(s)) ? 'notice-stale' : 'none';
+  if (!st.some((s) => s === 'none' || s === 'stale')) return 'none';
+  if (st.every((s) => AUTO_OK.has(s))) return 'rewrite';
+  return st.includes('stale') ? 'notice-stale' : 'notice-gone';
+}
+
+// Claude デスクトップが動いているか分からないときの「続けて2回目」（0.10.1 CD-3。D85・Ruling R1）。
+// pending は1回目（RN2 で断った押し）の { action: 'register' | 'unregister', at }。同じボタンを 60 秒以内（ちょうども含む）にもう一度押したら書く。
+// 違うボタン・60 秒を越えた・時計が戻った・形の違う pending は、今の押しを新しい1回目にして断る。→ { write, pending }（書いたら pending は null）
+const UNKNOWN_CONFIRM_MS = 60 * 1000;
+function unknownStep({ pending, action, now }) {
+  const ok = isObj(pending) && pending.action === action && Number.isFinite(pending.at);
+  if (ok && now >= pending.at && now - pending.at <= UNKNOWN_CONFIRM_MS) return { write: true, pending: null };
+  return { write: false, pending: { action, at: now } };
+}
+
 // tasklist.exe に渡す決まった引数（決めたこと 149。claude.exe の名前だけを見る）
 const TASKLIST_ARGS = Object.freeze(['/FI', 'IMAGENAME eq claude.exe', '/NH', '/FO', 'CSV']);
 // tasklist の答え → Claude デスクトップ（claude.exe）が動いているか: true・false・null（分からない）（決めたこと 149）
@@ -93,4 +161,7 @@ function claudeRunningOf(stdout) {
   return /(^|\n)\s*"?claude\.exe"?\s*,/i.test(stdout);
 }
 
-module.exports = { ENTRY_NAME, MARK, BACKUP_KEEP, CONFIG_NAME, TASKLIST_ARGS, serverEntry, entryState, mergeEntry, removeEntry, configFiles, backupName, isNatsuBackup, claudeRunningOf };
+module.exports = {
+  ENTRY_NAME, MARK, BACKUP_KEEP, CONFIG_NAME, DATA_ROOT, TASKLIST_ARGS, serverEntry, entryState, mergeEntry, removeEntry,
+  configPlaces, dedupePlaces, configFiles, placeCounts, backupName, isNatsuBackup, claudeRunningOf, UNKNOWN_CONFIRM_MS, unknownStep, autoPlan,
+};

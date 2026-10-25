@@ -1,13 +1,14 @@
 {
   "css": {
-    "fonts.css": "zRDtxfYzdGNweB6avsnY3fZ44t72JOPME-GHoLd_ZNk",
-    "help.css": "TLjU5Tc11fxZhsDgMoj0MBJ63uZaopuH9FOginJhIuE"
+    "fonts.css": "gogAOhXscfjIPMRCSDBUIKGP4RD9DnC8swiqJEdP3_Y",
+    "help.css": "xC1sCPkHTEKwjKS7Vy8gUEFgINeOA4EpCwhL8-Uviyk"
   },
   "pages": [
     "/",
     "/record/",
     "/record/pc-only/",
-    "/start/tester-guide/"
+    "/start/tester-guide/",
+    "/release-notes/"
   ],
   "schemes": [
     "light",

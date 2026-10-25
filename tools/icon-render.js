@@ -8,12 +8,12 @@
 //     - assets/icon.svg     → src/assets/window.png と src/assets/window.ico（上と同じ中身。窓のアイコン）
 //     - assets/icon.svg     → src/assets/tray.png（32）と src/assets/tray.ico（16〜64）       … トレイ（待機）
 //     - assets/tray-rec.svg → src/assets/tray-rec.png（32）と src/assets/tray-rec.ico（16〜64） … トレイ（録音中）
-//   32px 未満（ICO の 16・20・24）は、小さい版の SVG（assets/icon-small.svg・assets/tray-rec-small.svg）から描く。
-//   16px の題名の帯・タスクバーで箱の上の波が見えなかったため、小さい版は波を太く高く、枠と N も少し太くしてある。
+//     - assets/icon.svg     → src/mcp/icon.js（64 の PNG を base64 で持つ。MCP のサーバーの情報のロゴ。0.11.1 LG-3・D36）
+//   どの大きさも元の SVG から描く（0.11.1 L-3。小さい版の SVG はやめた。16px でもリスの形で見分ける）。
 //
 // 描けるのは、ロゴが使うものだけ:
 //   - 要素は <svg>（正方形の viewBox）と <path> だけ
-//   - path の命令は絶対座標の M / L / H / V / Q / Z だけ
+//   - path の命令は絶対座標の M / L / H / V / Q / C / Z だけ（C は 0.11.1 LG-1。新しいロゴが使う）
 //   - 色は #rrggbb か none。塗りは nonzero
 //   - 線は丸い角（stroke-linejoin="round"）だけ。閉じていない線は丸い端（stroke-linecap="round"）だけ
 // それ以外は、黙って飛ばすと絵が変わるので投げる。
@@ -21,6 +21,8 @@
 // 描き方: 1画素を 8×8 の小さな点に分け、点の中心が形の中にあるかを数えて、覆う割合を透明度にする。
 // 丸い角と丸い端の線は「各線分から太さの半分以内の点」と同じなので、線分ごとに距離で決める。
 // 計算は足し引き掛け割りと比べるだけなので、OS が違っても同じ結果になる。
+// 書き出しは、全部の大きさを先にメモリに描いてから、一時ファイル → 名前の変更で書く（0.11.1 LG-1・RF-LG4）。
+// 一つでも描けなければ、1つのファイルも書かずに投げる（ICO と PNG の片方だけが新しい絵になることが無い）。
 
 const fs = require('fs');
 const path = require('path');
@@ -29,9 +31,9 @@ const { encodePng, packIco, parseIco } = require('./ico.js');
 const ROOT = path.resolve(__dirname, '..');
 const ICON_SIZES = [16, 24, 32, 48, 64, 128, 256]; // 今の icon.ico と同じ並び（package.json の build.win.icon）
 const TRAY_SIZES = [16, 20, 24, 32, 48, 64];       // 今の tray*.ico と同じ並び（main.js の makeTrayIcon）
-const SMALL_BELOW = 32; // これより小さい大きさは、小さい版の SVG（TARGETS の small）から描く
 const SUB = 8;      // 1画素あたりの点の数（縦横それぞれ）
 const Q_STEPS = 32; // 2次ベジェを折れ線にするときの分け数
+const C_STEPS = Q_STEPS; // 3次ベジェも同じ分け数（0.11.1 LG-1。決めたこと 1）
 
 const PATH_ATTRS = new Set(['d', 'fill', 'stroke', 'stroke-width', 'stroke-linecap', 'stroke-linejoin']);
 const SVG_ATTRS = new Set(['xmlns', 'viewBox', 'width', 'height']);
@@ -108,7 +110,7 @@ function parseD(d) {
   while (i < toks.length) {
     if (typeof toks[i] === 'string') cmd = toks[i++];
     else if (!cmd) throw new Error('path の d が命令で始まっていない');
-    if (!'MLHVQZ'.includes(cmd)) throw new Error(`path の命令 ${cmd} は描けない（絶対座標の M L H V Q Z だけ）`);
+    if (!'MLHVQCZ'.includes(cmd)) throw new Error(`path の命令 ${cmd} は描けない（絶対座標の M L H V Q C Z だけ）`);
     if (cmd !== 'M' && !cur) throw new Error('path の d が M で始まっていない');
     if (cmd === 'M') {
       x = num(); y = num();
@@ -125,6 +127,14 @@ function parseD(d) {
       for (let k = 1; k <= Q_STEPS; k++) {
         const t = k / Q_STEPS, u = 1 - t;
         cur.pts.push([u * u * x + 2 * u * t * cx + t * t * ex, u * u * y + 2 * u * t * cy + t * t * ey]);
+      }
+      x = ex; y = ey;
+    } else if (cmd === 'C') { // 制御点は c1 → c2 の順（0.11.1 LG-1）
+      const ax = num(), ay = num(), bx = num(), by = num(), ex = num(), ey = num();
+      for (let k = 1; k <= C_STEPS; k++) {
+        const t = k / C_STEPS, u = 1 - t;
+        const w0 = u * u * u, w1 = 3 * u * u * t, w2 = 3 * u * t * t, w3 = t * t * t;
+        cur.pts.push([w0 * x + w1 * ax + w2 * bx + w3 * ex, w0 * y + w1 * ay + w2 * by + w3 * ey]);
       }
       x = ex; y = ey;
     } else { // Z
@@ -230,35 +240,96 @@ function renderSvg(text, size) {
 }
 
 // 書き出すもの。トレイ（第0a回 R4-3。Q8）は名前と大きさを今のまま、src の下に置く（アプリ内の更新で入れ替わるように）。
-// small は SMALL_BELOW より小さい大きさに使う SVG（形は svg と同じで、線を太くした小さい版）。
 const TARGETS = [
-  { svg: 'assets/icon.svg', small: 'assets/icon-small.svg', png: { file: 'assets/icon.png', size: 256 }, ico: { file: 'assets/icon.ico', sizes: ICON_SIZES } },
+  { svg: 'assets/icon.svg', png: { file: 'assets/icon.png', size: 256 }, ico: { file: 'assets/icon.ico', sizes: ICON_SIZES } },
   // 窓のアイコン。中身は上と同じで、src の下に置く（アプリ内の更新で入れ替わるように。0.1.1）
-  { svg: 'assets/icon.svg', small: 'assets/icon-small.svg', png: { file: 'src/assets/window.png', size: 256 }, ico: { file: 'src/assets/window.ico', sizes: ICON_SIZES } },
-  { svg: 'assets/icon.svg', small: 'assets/icon-small.svg', png: { file: 'src/assets/tray.png', size: 32 }, ico: { file: 'src/assets/tray.ico', sizes: TRAY_SIZES } },
-  { svg: 'assets/tray-rec.svg', small: 'assets/tray-rec-small.svg', png: { file: 'src/assets/tray-rec.png', size: 32 }, ico: { file: 'src/assets/tray-rec.ico', sizes: TRAY_SIZES } },
+  { svg: 'assets/icon.svg', png: { file: 'src/assets/window.png', size: 256 }, ico: { file: 'src/assets/window.ico', sizes: ICON_SIZES } },
+  { svg: 'assets/icon.svg', png: { file: 'src/assets/tray.png', size: 32 }, ico: { file: 'src/assets/tray.ico', sizes: TRAY_SIZES } },
+  { svg: 'assets/tray-rec.svg', png: { file: 'src/assets/tray-rec.png', size: 32 }, ico: { file: 'src/assets/tray-rec.ico', sizes: TRAY_SIZES } },
+  // MCP のサーバーの情報に載せるロゴ（0.10.0 S-1・D36「assets/icon.png を 64×64 にした PNG」。0.11.1 LG-3 から手で貼らずにここで書き出す）
+  { svg: 'assets/icon.svg', js: { file: 'src/mcp/icon.js', size: 64 } },
 ];
 
-function renderTargets(root = ROOT) {
-  const written = [];
-  for (const t of TARGETS) {
-    const big = fs.readFileSync(path.join(root, t.svg), 'utf8');
-    const small = t.small ? fs.readFileSync(path.join(root, t.small), 'utf8') : big;
-    const draw = (s) => renderSvg(s < SMALL_BELOW ? small : big, s);
+// src/mcp/icon.js の中身（PNG を base64 にして 120 字ずつの行に分ける）
+function mcpIconModule(png) {
+  const b64 = png.toString('base64');
+  const lines = [];
+  for (let i = 0; i < b64.length; i += 120) lines.push(`  '${b64.slice(i, i + 120)}',`);
+  return [
+    "'use strict';",
+    '// MCP のサーバーの情報に載せる NaTsu のロゴ（0.10.0 S-1。持ち主の答え D36: assets/icon.png を 64×64 にした PNG）。',
+    '// tools/icon-render.js が assets/icon.svg を 64 で描いて書き出す（0.11.1 LG-3。手で直さない。test/icons.test.js が描き直しと同じかを見る）。',
+    '// data: の形だけで渡す（外の URL を指さない: 読み込みに外へ出ない）。Claude の側に出るかは約束しない',
+    'const ICON_PNG_BASE64 = [',
+    ...lines,
+    "].join('');",
+    '',
+    'module.exports = { ICON_PNG_BASE64 };',
+    '',
+  ].join('\n');
+}
+
+// 全部を描いてから書く（0.11.1 LG-1・RF-LG4）。描くのに失敗したら、どのファイルも書かずに投げる。
+// 書くとき（0.11.1 点検の直し 1）: 全部の一時ファイル（<出力>.rendering-<pid>）を書き → 今の出力を控え（<出力>.rendering-<pid>.bak）へ名前を変え →
+// 一時ファイルを出力の名前へ変える。どこかで失敗したら、置いた出力を控えから戻し（前に無かった出力は消し）、一時ファイルと控えを消して、
+// 失敗した出力の名前と段を言って投げる（全部が前のままか、全部が新しいか）。出力の名前にファイルでないもの（フォルダなど）があれば、何も書かずに投げる。
+// io はテストが名前の変更や書き込みを失敗させるための差し替え（既定は fs）
+function renderTargets(root = ROOT, targets = TARGETS, io = {}) {
+  const outs = [];   // [{ file, buf, line }]
+  for (const t of targets) {
+    const text = fs.readFileSync(path.join(root, t.svg), 'utf8');
+    const draw = (s) => renderSvg(text, s);
     if (t.png) {
-      fs.writeFileSync(path.join(root, t.png.file), encodePng(t.png.size, t.png.size, draw(t.png.size)));
-      written.push(`${t.png.file}: ${t.png.size} px`);
+      outs.push({ file: t.png.file, buf: encodePng(t.png.size, t.png.size, draw(t.png.size)), line: `${t.png.file}: ${t.png.size} px` });
     }
     if (t.ico) {
       const ico = packIco(t.ico.sizes.map((s) => encodePng(s, s, draw(s))));
-      fs.writeFileSync(path.join(root, t.ico.file), ico);
-      written.push(`${t.ico.file}: ${parseIco(ico).map((e) => e.width).join(', ')} px`);
+      outs.push({ file: t.ico.file, buf: ico, line: `${t.ico.file}: ${parseIco(ico).map((e) => e.width).join(', ')} px` });
+    }
+    if (t.js) {
+      outs.push({ file: t.js.file, buf: Buffer.from(mcpIconModule(encodePng(t.js.size, t.js.size, draw(t.js.size))), 'utf8'), line: `${t.js.file}: ${t.js.size} px` });
     }
   }
-  return written;
+  const writeFileSync = io.writeFileSync || fs.writeFileSync;
+  const renameSync = io.renameSync || fs.renameSync;
+  const dest = (f) => path.join(root, f);
+  const tmpOf = (f) => `${dest(f)}.rendering-${process.pid}`;
+  const bakOf = (f) => `${tmpOf(f)}.bak`;
+  const had = new Map();   // 出力 → 前からファイルがあったか
+  for (const o of outs) {
+    let st = null;
+    try { st = fs.lstatSync(dest(o.file)); } catch (e) { if (e.code !== 'ENOENT') throw new Error(`icon-render: ${o.file} を調べられない（${e.message}）。何も書いていない`); }
+    if (st && !st.isFile()) throw new Error(`icon-render: ${o.file} がファイルでない（フォルダなど）。何も書いていない`);
+    had.set(o.file, Boolean(st));
+  }
+  const made = [];      // 一時ファイルを書いた出力
+  const backed = [];    // 控えへ名前を変えた出力
+  const placed = [];    // 一時ファイルを出力の名前へ変えた出力
+  let step = '一時ファイルを書く', at = '';
+  try {
+    for (const o of outs) { at = o.file; made.push(o.file); writeFileSync(tmpOf(o.file), o.buf); }   // 点検の直し 2: 書く前に数える（書きかけも消す）
+    step = '控えへ名前を変える';
+    for (const o of outs) { at = o.file; if (had.get(o.file)) { renameSync(dest(o.file), bakOf(o.file)); backed.push(o.file); } }
+    step = '出力の名前へ変える';
+    for (const o of outs) { at = o.file; renameSync(tmpOf(o.file), dest(o.file)); placed.push(o.file); }
+  } catch (e) {
+    const undone = [];
+    for (const f of placed) {
+      try { if (!had.get(f)) fs.unlinkSync(dest(f)); } catch (u) { undone.push(`${f}（${u.message}）`); }
+    }
+    for (const f of backed) {
+      try { fs.renameSync(bakOf(f), dest(f)); } catch (u) { undone.push(`${f}（${u.message}）`); }
+    }
+    for (const f of made) { if (!placed.includes(f)) { try { fs.unlinkSync(tmpOf(f)); } catch { /* 無ければよい */ } } }
+    const err = new Error(`icon-render: ${at} の「${step}」で失敗した（${e.message}）。${undone.length ? `戻せなかった: ${undone.join('・')}` : '全部の出力を前のままに戻した'}`);
+    err.cause = e;
+    throw err;
+  }
+  for (const f of backed) { try { fs.unlinkSync(bakOf(f)); } catch { /* 控えが消せなくても出力は新しい（.gitignore の *.rendering-*） */ } }
+  return outs.map((o) => o.line);
 }
 
-module.exports = { ICON_SIZES, TRAY_SIZES, SMALL_BELOW, TARGETS, parseSvg, renderSvg, renderTargets };
+module.exports = { ICON_SIZES, TRAY_SIZES, TARGETS, parseSvg, renderSvg, renderTargets };
 
 if (require.main === module) {
   for (const line of renderTargets()) console.log(line);
