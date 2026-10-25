@@ -409,7 +409,7 @@ const { titleAt } = require('./titles');
 //   0.12.1 LV-2〜LV-3（会議を出たら止める。計画 docs/plans/2026-10-24-121.md）
 //     --leave=off … 置く settings.json の autoStopLeave: false（設定「会議を出たら自動で止める」がオフ）
 //     --mic-feed の手順に足す: ["pause", bool]（画面と同じ meeting:set-paused。偽の録音バーが答える）・["click-notice", n]（n 番目に show() した偽の Notification を押す）・
-//                        ["discard"]（画面と同じ meeting:discard）。snap に sentN（本体の窓へ送った数）・notes（偽の Notification の数）。出力に notifications（{ title, body, closed }）・
+//                        ["discard"]（画面と同じ meeting:discard）・["db-fail", cmd]（main の客の次の1回のその命令を断る。点検の直し 3）。snap に sentN（本体の窓へ送った数）・notes（偽の Notification の数）。出力に notifications（{ title, body, closed }）・
 //                        notifyClosed・pageDur（ページごとの { id, durationSec, pauses }）を足す
 //     --quiet-mic … --quiet-seq の場面でも偽の見張りを起こし、字 T（見張りに mic teams:1）・L（mic -）を足す（どちらも偽の時計を 2 秒進める。Ruling R2）
 //   0.10.0 C-2（Claude デスクトップへの MCP の登録。計画 docs/plans/2026-10-20-100.md）
@@ -3000,6 +3000,8 @@ process.on('exit', () => {
       else if (k === 'pause') { out.ipc.push(['pause', await handlers['meeting:set-paused']({}, Boolean(a[0]))]); await sleep(40); }
       else if (k === 'click-notice') { const n = noticeObjs[a[0]]; if (n) n.emit('click', {}); await sleep(30); }
       else if (k === 'discard') { out.ipc.push(['discard', await handlers['meeting:discard']()]); await sleep(30); }
+      // 0.12.1 点検の直し 3: main の客の次の1回のその命令（cmd）を断る（締めの後の pages.list が投げた形）
+      else if (k === 'db-fail') { const c = dbClient; const call = c.call; c.call = function (cmd, ...rest) { if (cmd === a[0]) { c.call = call; return Promise.reject(Object.assign(new Error('偽の失敗'), { code: 'test' })); } return call.call(this, cmd, ...rest); }; }
       else throw new Error(`mainrun: --mic-feed の手順 ${k} が読めない`);
     }
     await sleep(30);

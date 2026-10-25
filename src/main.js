@@ -5543,11 +5543,12 @@ async function maybeFinalizeMeeting() {
     updateTray();   // 締めの返事を待つ間の省電力の抑止を外す（要約が続くなら要約の数で抑止が続く）
   }
   if (!page) return;
+  // 0.12.1 LV-3（L11）・点検の直し 3: 止めた後の知らせを押したときに開くページ（保存した直後に覚える。この後の一覧の読みが投げても開ける）
+  if (m.leaveStopped) m.leavePageId = page.id;
 
   if (overlayFree()) sendToOverlay('overlay:phase', { phase: 'done', message: '議事録を保存しました' });
   sendToMainWin('pages:updated', await db.call('pages.list', {}));
   sendToMainWin('page:open', page.id);
-  if (m.leaveStopped) m.leavePageId = page.id;   // 0.12.1 LV-3（L11）: 止めた後の知らせを押したときに開くページ
   if (m.autoStopped) quietDoneNotice(m, page.id);   // 0.9.1 Q-4
   // 音声は届いたのに、文字起こしが全部空だった。黙っていると「0 区間」の理由が分からない。
   // 知らせと engine.log に出す。要約の欄には書かない（0.10.0 LS-2・決めたこと 111 の 6: 文字起こしが空のページは欄の鍵のまま、頭の一言が伝える）

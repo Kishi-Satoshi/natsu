@@ -252,3 +252,10 @@ test('点検の直し 1（L18・F64）: 止めた後の作成中に新しく始�
   // 録音中から使っている Teams（作成中も続く）は出さない（パネルは Zoom の1回だけ増える）
   noNames(hand);
 });
+test('点検の直し 3（L11）: 保存の後に議事録の一覧（pages.list）を読めなくても、知らせを押すとそのページを開く（開くページは保存した直後に覚える）', S, async () => {
+  const o = await run([...PANEL('teams'), ...Ls('mic -', 3), ['db-fail', 'pages.list'], ['finish'], ['sleep', 50], ['snap', 'f'], ['click-notice', 0], ['snap', 'c']]);
+  assert.strictEqual(o.notifications.length, 1);
+  const id = o.pageDur[0].id;
+  assert.ok(typeof id === 'string' && id.length > 0);
+  assert.deepStrictEqual(sentBetween(o, 'f', 'c').filter(([ch]) => ch === 'page:open'), [['page:open', id]], JSON.stringify(sentBetween(o, 'f', 'c')));
+});
