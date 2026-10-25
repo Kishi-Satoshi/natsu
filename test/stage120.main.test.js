@@ -334,3 +334,23 @@ test('SP-4・F33（S16 (a)）: AI が「担当: 相手」「担当: 自分」と
   assert.ok(!p.sumBlocks.some((b) => b.text.includes('文字起こしの行の頭の')), JSON.stringify(p.sumBlocks));
   assert.ok(p.sumBlocks.some((b) => b.text === '見積と工程の件を確かめた'));
 });
+
+// ---------------------------------------------------------------- 点検の直し（2026-10-25）C1（決めたこと 130 の改め。持ち主「両方の最後が届くまで待ってから締める（おすすめ）」）
+test('点検の直し C1: 自分が黙って終わり（最後のマイクの区間は無音）マイクの最後が先に届き、相手が話し続けて終わり相手の最後が後に届いても、両方の行が残る（クラウド・PC）', T, async () => {
+  for (const args of [CLOUD('last-mic-first'), PC('last-mic-first', '--relay=tagged', '--local-only')]) {
+    const o = await run(args);
+    const s = segsOf(o);
+    assert.ok(s.some((x) => x.src === 'mic' && /わたしから見積/.test(x.text)), `${args.join(' ')}: ${dump(o)}`);
+    assert.ok(s.some((x) => x.src === 'loopback' && /そちらの工程は最後まで/.test(x.text) && !x.failed), `相手の最後の区間が消えた（${args.join(' ')}）: ${dump(o)}`);
+    assert.ok(!o.engineLog.some((l) => /締めの待ち/.test(l)), o.engineLog.join('\n'));
+  }
+});
+
+test('点検の直し C1: 相手の声の最後が届かない（録音バーが落ちた形）ときは、止めてから 60 秒の見張りで締め、engine.log に決まった1行（文は書かない）。届いた行は残る', T, async () => {
+  const o = await run(CLOUD('last-drop'));
+  assert.deepStrictEqual(o.two.finalWaitMs, [60000]);
+  assert.ok(o.pages.length === 1, dump(o));
+  assert.ok(segsOf(o).some((x) => x.src === 'mic' && /わたしから見積/.test(x.text)), dump(o));
+  const line = o.engineLog.filter((l) => /締めの待ち/.test(l));
+  assert.deepStrictEqual(line, ['締めの待ち: 録音バーの最後の区間が 60 秒届かなかったので締めました（2つの流れ）'], o.engineLog.join('\n'));
+});

@@ -193,6 +193,9 @@ const { titleAt } = require('./titles');
 //                     待って main ごと落ちる）・badMeta（最初の区間の4つ目を壊す）・badLevel（奇数のこまの答えを壊す）・say（[{ src: 'mic'|'loopback', at, text }]。
 //                     その流れの区間のうち at を含む区間の文。texts より先）・silentText（{ mic: true } ならその流れの区間の文を全部空に）・
 //                     sourceSays（false なら、相手の声の区間を送るのに overlay:source は取り込めなかったと言う: main の照らしを見る）
+//                     lastOrder（'mic-first' なら止めた後にマイクの最後を先に送り、lastGapMs（既定 500）待ってから相手の声の最後を送る。点検の直し C1）・
+//                     dropLast（'loopback' なら相手の声の最後を送らない: main の締めの待ちの見張りを見る。main の twoFinalWait の時計は 2 秒で回し、
+//                     言った長さを out.two.finalWaitMs に書く）
 //                     出力に two（{ asks, asksPaused, cuts, meetingLevel, quietAsked, sent: [{ src, seg, t0, durationMs, bytes, last, final }] }）を足す
 //     --sys-lost-at=<ms> … 並びの sysLostAt と同じ（並びより先に効く）
 //     --kill-main-at-begin … 録音を始めて、始めたときの写し（meeting.begin）が DB に届いたら、区間を1つも送らずに main ごと落ちる
@@ -639,6 +642,7 @@ const twoStreamsFlag = flagVal('--two-streams');
 const twoFx = twoStreamsFlag ? JSON.parse(fs.readFileSync(path.isAbsolute(twoStreamsFlag) ? twoStreamsFlag : path.join(__dirname, '..', 'fixtures', 'streams', `${twoStreamsFlag}.json`), 'utf8')) : null;
 if (twoFx && flagVal('--sys-lost-at')) twoFx.sysLostAt = Number(flagVal('--sys-lost-at'));
 const streamTexts = [];   // 偽の OpenAI（--relay=tagged）と偽の whisper（FAKE_TAG_FILE）が返す文（WAV の末尾の番号で引く）
+const twoFinalWaitMs = [];   // 点検の直し C1: main の twoFinalWait が言った長さ
 const tagFile = twoFx ? path.join(os.tmpdir(), `natsu-tags-${process.pid}.json`) : '';
 if (tagFile) { process.env.FAKE_TAG_FILE = tagFile; fs.writeFileSync(tagFile, '[]'); process.on('exit', () => { try { fs.rmSync(tagFile, { force: true }); } catch (_) { /* 消えている */ } }); }
 // 文の並びは別のファイルに書いてから名前を替える（その場で書き直すと、別のプロセスの偽の whisper が読んだときに空や途中のファイルを読み、
@@ -2111,6 +2115,14 @@ process.on('exit', () => {
       return realClearTimeout.call(this, h);
     };
   }
+  // 点検の直し C1: 2つの流れの会議の締めの待ちの見張り（main の twoFinalWait。60 秒）は、言った長さを覚えて 2 秒で回す（場面の最後の2つの間 lastGapMs より長く）
+  if (twoFx) {
+    const st1 = global.setTimeout;
+    global.setTimeout = function (fn, ms, ...a) {
+      if (fn && fn.name === 'twoFinalWait') { twoFinalWaitMs.push(ms); return st1.call(this, fn, 2000, ...a); }
+      return st1.call(this, fn, ms, ...a);
+    };
+  }
   if (argvFlag) process.argv = [process.execPath, ...argvFlag];   // 0.10.0 LN-4: 起動の引数（フラグは読み終えている）
   require(path.join(ROOT, 'src', 'main.js'));
   // 議事録の読みは natsu.db を読み取り専用で見る（第2a1回 M-2b。main は議事録を DB のプロセスに書き、元の JSON の索引を読まない）。
@@ -3199,7 +3211,7 @@ process.on('exit', () => {
     let sim = 0;
     let finalSent = false;
     let bad = Boolean(fx.badMeta);
-    const two = { asks: 0, asksPaused: 0, cuts: 0, meetingLevel: 0, quietAsked: false, sent: [] };
+    const two = { asks: 0, asksPaused: 0, cuts: 0, meetingLevel: 0, quietAsked: false, sent: [], finalWaitMs: twoFinalWaitMs };
     out.two = two;
     const segMsNow = () => { for (let k = overlaySent.length - 1; k >= 0; k--) { const pv = overlaySent[k]; if (typeof pv === 'number') return pv; if (pv && pv.segmentSec) return pv.segmentSec * 1000; } return 15000; };
     const wavOf = (fr, idx) => {
@@ -3311,8 +3323,15 @@ process.on('exit', () => {
     if (handlers['meeting:status']().quiet) two.quietAsked = true;
     await sleep(50);
     out.stop = await handlers['meeting:toggle']();
-    if (sysAlive) send('loopback', { last: true });
-    send('mic', { last: true });
+    // 点検の直し C1（決めたこと 130 の改め）: 最後の2つの届く順と間（録音バーの2つの録音は別々に止まる）。後に送った方に final
+    if (fx.lastOrder === 'mic-first') {
+      send('mic', { last: true });
+      await sleep(Number(fx.lastGapMs) || 500);
+      if (sysAlive && fx.dropLast !== 'loopback') send('loopback', { last: true });
+    } else {
+      if (sysAlive && fx.dropLast !== 'loopback') send('loopback', { last: true });
+      send('mic', { last: true });
+    }
   }
   for (let i = 0; i < wavs.length; i++) {
     // 取り消す場面（--discard-during）は最初の区間の後で取り消すので、止めない（--segs=1 でも録音中のまま取り消す）

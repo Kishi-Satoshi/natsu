@@ -902,12 +902,16 @@ const IDS_120 = [
   'spk-tail-stream', 'spk-repeat-stream', 'spk-statelog', 'spk-bleed-loose',   // SP-3a
   'spk-verbose', 'spk-parts-edit', 'spk-parts-after',   // SP-3b
   'spk-mcp-raw', 'spk-app-raw', 'spk-parts-check', 'spk-summary-rule', 'spk-summary-label', 'spk-score-raw', 'spk-ground-raw',   // SP-4
+  'rv-final-both', 'rv-final-timeout',   // 点検の直し（2026-10-25）
 ];
 test('G3・0.12.0: 0.12.0 の変異が一覧にそろい、IDS_120 は計画の「変異確認」の表の id とちょうど同じ。spk- の変異は IDS_120 にある。どれも決まったテストのファイルを持ち、why が 0.12.0 で始まる', { timeout: 5000 }, () => {
   const byId = new Map(MUTANTS.map((m) => [m.id, m]));
   assert.deepStrictEqual(IDS_120.filter((id) => !byId.has(id)), [], 'IDS_120 の変異が一覧に無い');
   assert.strictEqual(new Set(IDS_120).size, IDS_120.length, 'IDS_120 に重なり');
   assert.deepStrictEqual(MUTANTS.filter((m) => /^spk-/.test(m.id) && !IDS_120.includes(m.id)).map((m) => m.id), [], 'IDS_120 に無い spk- の変異がある');
+  // 点検の直し（2026-10-25）の変異は rv- で始まり、why が「0.12.0 点検の直し」で始まる（rv- の名前は前の版の点検の変異にもある）
+  assert.deepStrictEqual(MUTANTS.filter((m) => /^0\.12\.0 点検の直し/.test(m.why || '') && !IDS_120.includes(m.id)).map((m) => m.id), [], 'IDS_120 に無い 0.12.0 の点検の直しの変異がある');
+  assert.ok(IDS_120.filter((id) => !/^spk-/.test(id)).every((id) => /^rv-/.test(id)), 'IDS_120 の点検の直しの変異が rv- で始まらない');
   const plan = fs.readFileSync(path.join(ROOT, 'docs', 'plans', '2026-10-22-120.md'), 'utf8');
   const table = plan.slice(plan.indexOf('## 変異確認（直しを1つ戻すと'), plan.indexOf('## 取り直す画面（RETAKE）'));
   const rows = [...table.matchAll(/^\| ([a-z][a-z0-9-]*) \|/gm)].map((m) => m[1]).filter((id) => id !== 'id');

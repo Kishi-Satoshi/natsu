@@ -4996,6 +4996,7 @@ function stopMeeting() {
     meeting.pausedAt = 0;
   }
   sendToOverlay('overlay:stop', {});   // 0.9.4 P-1（F2）: 録音バーはその場で薄く消える（「議事録を作成中…」を送らない）
+  if (twoMeeting(meeting) && !meeting.finalSeen) armTwoFinalWait(meeting);   // 点検の直し C1
   sendToMainWin('meeting:progress', { message: '録音を終了し、残りの文字起こしを処理しています…' });
   updateTray();
   // 開始・破棄と同じく状態を送る。これが無いと、ホットキーやトレイから
@@ -5202,6 +5203,18 @@ function twoInit() {
   return { sysEver: false, sysLog: '', on: false, streams: { mic: twoStream(), loopback: twoStream() }, quiet: null,
     counts: { mic: 0, loopback: 0, idle: 0, bleed: 0 }, badMeta: 0 };
 }
+// 2つの流れの会議か（2つの流れの区間を受けた・一度でも相手の声を取り込めた: 録音バーは取り込めたら2つの録音で録る）
+const twoMeeting = (m) => Boolean(m && m.two && (m.two.on || m.two.sysEver));
+// 点検の直し C1: 締めの待ちの見張り（止めてから TWO_FINAL_WAIT_MS。後回し（skipPending）の見張りと同じ 60 秒）。最後の区間が届かなければ締める
+const TWO_FINAL_WAIT_MS = 60000;
+function armTwoFinalWait(m) {
+  setTimeout(function twoFinalWait() {
+    if (meeting !== m || m.finalSeen) return;
+    engineLog('締めの待ち: 録音バーの最後の区間が 60 秒届かなかったので締めました（2つの流れ）');
+    m.finalSeen = true;
+    if (pendingSegs === 0) maybeFinalizeMeeting().catch((e) => engineLog(`finalize failed: ${e.message}`));
+  }, TWO_FINAL_WAIT_MS);
+}
 // 相手の声の取り込みの移り変わりを経過に積む（決めたこと 137: 始めに取り込めなかったら sys-lost を1つ。取り込めたら積まない。変わったときだけ）
 function noteSysSource(m, ok) {
   if (ok) {
@@ -5329,6 +5342,9 @@ async function maybeFinalizeMeeting() {
   // 打ち切りで待ち件数を 0 にしても、録音側が変換中の最後の区間はこれから届く。
   // 先に締めると、その区間は議事録の無いところへ届いて消える（打ち切りの数にも入らない）
   if (meeting.skipAll && !meeting.finalSeen) return;
+  // 点検の直し C1（決めたこと 130 の改め。持ち主 2026-10-25「両方の最後が届くまで待ってから締める（おすすめ）」）: 2つの流れの会議では、
+  // 録音バーは後に送った方の最後の区間に final を付ける。片方の最後だけで待ちが 0 になっても締めない（もう片方の最後の 15〜20 秒が消える）
+  if (twoMeeting(meeting) && !meeting.finalSeen) return;
   const m = meeting;
   meeting = null;
   // 0.12.0 SP-3a（決めたこと 136）: 2つの流れの会議は数だけを記録に（札の字・文は書かない）
