@@ -600,6 +600,9 @@
   .seg.failed { color: var(--danger); }
   .seg.pending { color: var(--muted); }   /* 音声は届いたが文字起こし待ちの区間 */
   /* 行の本文はクリックで編集できる。地色は .blk .txt と同じトークン */
+  /* 0.12.0 SP-4（決めたこと 85）: 時刻の後の小さな札「自分」「相手」（読むだけ） */
+  .seg .spk { flex: none; color: var(--muted); font-size: 11px; line-height: 18px; margin-top: 3px; padding: 0 5px;
+    border: 1px solid var(--line); border-radius: 4px; }
   .seg .txt { flex: 1; min-width: 0; outline: none; border-radius: 4px; padding: 0 4px; word-break: break-word; cursor: text; }
   .seg .txt:hover { background: var(--hover); }
   .seg.editing { background: var(--hover); outline: 1px solid var(--accent); }
@@ -2852,7 +2855,8 @@
       let text = ''; let what = '';
       if (pane === 'script') {
         // 空にした行（実質の削除）は写さない
-        text = curSegs.filter((sg) => sg.text).map((sg) => `[${fmtClock(sg.atMs)}] ${sg.text}`).join('\n');
+        // 0.12.0 SP-4（決めたこと 148）: タイムラインの行ごとに「[0:12] 自分: 文」（札の無い行は今どおり「[0:12] 文」）
+        text = timelineView(curSegs).filter((r) => r.text).map((r) => `[${rowClock(r)}] ${spkName(r.src) ? `${spkName(r.src)}: ` : ''}${r.text}`).join('\n');
         what = '文字起こし';
       } else if (pane === 'memo') {
         // 保存は500ms遅れで走るので、書いた直後に押すと保存前の古い値を
@@ -3358,6 +3362,69 @@
     n.hidden = false;
   }
 
+  // ---------------- 文字起こしの「自分」「相手」とタイムライン（0.12.0 SP-4。決めたこと 85・127・139）
+  // 表と決まりは src/mcp/timeline.js の写し（repo が同じ表を両方に当てる）。札は表にある値だけ（DB の値をそのまま出さない: K27）
+  const SOURCE_NAMES = { mic: '自分', loopback: '相手' };
+  const SOURCE_TITLES = { mic: 'マイクから録った声です（同じ部屋の人の声も入ります）', loopback: 'PC から流れた相手の声です' };
+  const spkName = (src) => (typeof src === 'string' && Object.hasOwn(SOURCE_NAMES, src) ? SOURCE_NAMES[src] : '');
+  // 時刻の後の札（表に無ければ null）
+  function spkTag(src) {
+    const name = spkName(src);
+    if (!name) return null;
+    const t = document.createElement('span'); t.className = 'spk'; t.textContent = name; t.title = SOURCE_TITLES[src];
+    return t;
+  }
+  // PC の側の区間の文の頭の照らし（timeline.js の checkParts の写し）→ 写しか null
+  function checkPartsView(parts, text, durationMs) {
+    if (!Array.isArray(parts) || parts.length < 2 || parts.length > 200 || typeof text !== 'string') return null;
+    const out = [];
+    for (const p of parts) {
+      if (!p || typeof p !== 'object' || Array.isArray(p) || !Number.isSafeInteger(p.ms) || !Number.isSafeInteger(p.at) || p.ms < 0 || p.at < 0) return null;
+      const prev = out[out.length - 1];
+      if (prev ? (p.ms <= prev.ms || p.at <= prev.at) : (p.ms !== 0 || p.at !== 0)) return null;
+      if (p.at >= text.length) return null;
+      if (Number.isFinite(durationMs) && p.ms > durationMs) return null;
+      out.push({ ms: p.ms, at: p.at });
+    }
+    for (let k = 0; k < out.length; k++) if (!text.slice(out[k].at, k + 1 < out.length ? out[k + 1].at : text.length).trim()) return null;
+    return out;
+  }
+  // 発言 → 行の並び（timeline.js の timelineOf の写し）。行は { id, ms, text, src, failed, kept, pending, part }（part は文ごとの行の番号。区間のままの行は -1）
+  function timelineView(segments) {
+    const keyed = [];
+    let prev = -Infinity;
+    let i = 0;
+    for (const s of (Array.isArray(segments) ? segments : [])) {
+      if (!s || typeof s !== 'object' || Array.isArray(s)) continue;
+      const has = Number.isFinite(s.atMs);
+      const at = has ? s.atMs : prev;
+      prev = at;
+      const text = typeof s.text === 'string' ? s.text : '';
+      const base = { id: s.id, src: typeof s.src === 'string' ? s.src : '', failed: s.failed === true, kept: s.kept === true, pending: s.pending === true };
+      if (typeof s.speaker === 'string') base.speaker = s.speaker;
+      const parts = !base.failed && !base.pending ? checkPartsView(s.parts, text, s.durationMs) : null;
+      const end = at + (Number.isFinite(s.durationMs) ? s.durationMs : 0);
+      if (parts) {
+        parts.forEach((p, k) => {
+          const piece = text.slice(p.at, k + 1 < parts.length ? parts[k + 1].at : text.length).trim();
+          keyed.push({ row: { ...base, ms: has ? at + p.ms : null, text: piece, part: k }, at: at + p.ms, end, i, k });
+        });
+      } else {
+        keyed.push({ row: { ...base, ms: has ? at : null, text, part: -1 }, at, end, i, k: 0 });
+      }
+      i++;
+    }
+    keyed.sort((a, b) => (a.at - b.at) || (a.i - b.i) || (a.k - b.k));
+    return keyed.map((x) => {
+      const { id, ms, text, src, failed, kept, pending, part, speaker } = x.row;
+      const row = { id, ms, text, src, failed, kept, pending, part };
+      if (speaker !== undefined) row.speaker = speaker;
+      return row;
+    });
+  }
+  // 行の時刻（atMs の無い発言は今までどおり発言の値のまま）
+  const rowClock = (r) => fmtClock(r.ms === null ? undefined : r.ms);
+
   function renderScript() {
     const box = $('pScript');
     // 編集中は描き直さない。要約完了などで page:updated が来ても、入力中の行を失わない。
@@ -3368,15 +3435,27 @@
       const d = document.createElement('div'); d.className = 'empty'; d.textContent = '文字起こしがありません';
       box.appendChild(d); return;
     }
-    for (const s of curSegs) {
+    // 0.12.0 SP-4（決めたこと 127・145）: 行はタイムラインの順。PC の側の区間は文ごとの行（part ≥ 0）に分かれ、どの行も区間の ID を持つ
+    const segById = new Map(curSegs.map((s) => [s.id, s]));
+    const rowsOf = (id) => [...box.children].filter((e) => e.classList.contains('seg') && e.dataset.seg === id);
+    for (const row of timelineView(curSegs)) {
+      const s = segById.get(row.id);
+      if (!s) continue;
+      const piece = row.part >= 0;
       const el = document.createElement('div');
       el.className = 'seg' + (s.failed ? ' failed' : '');
-      el.id = `seg-${s.id}`;
-      const at = document.createElement('span'); at.className = 'at'; at.textContent = fmtClock(s.atMs);
+      el.dataset.seg = String(s.id);
+      if (row.part <= 0) el.id = `seg-${s.id}`;   // 検索の当たりへ飛ぶ印は区間の最初の行だけ
+      const at = document.createElement('span'); at.className = 'at'; at.textContent = rowClock(row);
       const tx = document.createElement('span');
       tx.className = 'txt'; tx.contentEditable = 'true'; tx.spellcheck = false; tx.title = 'クリックで編集';
-      tx.textContent = s.text;
-      tx.onfocus = () => el.classList.add('editing');
+      tx.textContent = piece ? row.text : s.text;
+      // 文ごとの行を押すと、その区間の文全体を1つの行で直す（ほかの文の行は直している間だけ隠す: 決めたこと 145）
+      const showPieces = (on) => { for (const o of rowsOf(row.id)) if (o !== el) o.hidden = !on; };
+      tx.onfocus = () => {
+        el.classList.add('editing');
+        if (piece) { tx.textContent = s.text; showPieces(false); }
+      };
       tx.onkeydown = (ev) => {
         // 日本語入力の変換確定 Enter を「保存して抜ける」にしない
         if (imeEnter(ev)) return;
@@ -3388,7 +3467,7 @@
         const pid = curId;
         const prev = String(s.text || '');
         const v = tx.textContent.trim();
-        if (v === prev.trim()) return;
+        if (v === prev.trim()) { if (piece) { tx.textContent = row.text; showPieces(true); } return; }
         try {
           const r = await window.koeApp.segmentUpdate(pid, s.id, { text: v });
           if (!r) throw new Error('segment not found');
@@ -3398,15 +3477,18 @@
           // onPageUpdated は curSegs を丸ごと差し替えるので、閉包の s ではなく id で当て直す
           const cur = curSegs.find((x) => x.id === s.id);
           if (cur && cur !== s) { cur.text = v; delete cur.failed; }
+          if (piece) { delete s.parts; if (cur) delete cur.parts; }   // 文を直すと文の頭は消える（決めたこと 144）
           curPage = r.page;
           renderBlocks(); renderProps();                 // 出典チップと「🔗 出典」だけ。文字起こし面は触らない
+          if (piece) renderScript();                     // 文ごとの行だった区間は1行に描き直す
           if (filter === 'full') refreshList();          // 文字起こし検索の一覧は本文の抜粋を出している
         } catch (e) {
           toast('変更を保存できませんでした');
-          if (pid === curId) tx.textContent = prev;
+          if (pid === curId) { tx.textContent = piece ? row.text : prev; if (piece) showPieces(true); }
         }
       };
-      el.append(at, tx);
+      const tag = spkTag(row.src);
+      if (tag) el.append(at, tag, tx); else el.append(at, tx);
       box.appendChild(el);
     }
     insertPauseMarks(box, curSegs, curPage.pauses);   // 止めていた時間の印（第1b回 N4c。古いページには無い）
@@ -3613,6 +3695,7 @@
   function insertPauseMarks(box, segs, pauses) {
     if (!Array.isArray(pauses) || !pauses.length) return;
     const rows = [...box.children].filter((e) => e.classList.contains('seg'));
+    const order = timelineView(segs);
     const ok = pauses.filter((p) => p && Number.isFinite(p.atMs) && p.atMs >= 0 && Number.isFinite(p.ms) && p.ms >= 0)
       .sort((a, b) => a.atMs - b.atMs);
     for (const p of ok) {
@@ -3621,7 +3704,7 @@
       d.setAttribute('role', 'note');
       const dur = fmtDur(Math.round(p.ms / 1000));
       d.textContent = p.why === 'suspend' ? `💤 ここで ${dur} スリープで止まっていました` : `⏸ ここで ${dur} 一時停止しました`;
-      const i = segs.findIndex((s) => Number(s.atMs) >= p.atMs);
+      const i = order.findIndex((r) => r.ms !== null && r.ms >= p.atMs);   // 0.12.0 SP-4（決めたこと 142）: 行はタイムラインの順
       const ref = i >= 0 && rows[i] ? rows[i] : null;
       if (ref) box.insertBefore(d, ref); else box.appendChild(d);
     }
@@ -3752,14 +3835,17 @@
 
     curSegs = st.segments || [];
     const box = $('pScript'); box.textContent = '';
-    for (const s of curSegs) {
+    // 0.12.0 SP-4（決めたこと 85・142）: 行はタイムラインの順で、文字起こし待ちの行にも札
+    for (const s of timelineView(curSegs)) {
       // 音声は届いたが文字起こしがまだの区間（pending）は本文が空。空行で出すと
       // 「その区間は無音だった」と読めてしまうので、待ち中だと分かる文言で埋める。
       const el = document.createElement('div');
       el.className = 'seg' + (s.pending ? ' pending' : s.failed ? ' failed' : '');
-      const at = document.createElement('span'); at.className = 'at'; at.textContent = fmtClock(s.atMs);
+      const at = document.createElement('span'); at.className = 'at'; at.textContent = rowClock(s);
       const tx = document.createElement('span'); tx.textContent = s.pending ? '（文字起こし中…）' : s.text;
-      el.append(at, tx); box.appendChild(el);
+      const tag = spkTag(s.src);
+      if (tag) el.append(at, tag, tx); else el.append(at, tx);
+      box.appendChild(el);
     }
     if (!curSegs.length) {
       const d = document.createElement('div'); d.className = 'empty';
@@ -4122,12 +4208,14 @@
     let els = [];
     if (kind === 't') {
       const [from, to] = rest.split('-');
-      const ids = curSegs.map((sg) => sg.id);
+      // 0.12.0 SP-4（R26）: 文字起こしの面の行（タイムラインの順・文ごとの行も区間の ID を持つ）で、from の最初の行から to の最後の行まで
+      const rows = [...$('pScript').children].filter((e) => e.classList.contains('seg'));
+      const ids = rows.map((e) => e.dataset.seg);
       const a = ids.indexOf(from);
-      const b = ids.indexOf(to);
+      const b = ids.lastIndexOf(to);
       if (a < 0) { toast(LINK_NO_SPOT); return; }
       setPane('script');
-      els = ids.slice(a, (b >= a ? b : a) + 1).map((id) => document.getElementById(`seg-${id}`)).filter(Boolean);
+      els = rows.slice(a, (b >= a ? b : ids.lastIndexOf(from)) + 1);
     } else if (kind === 'b') {
       const el = [...$('pNote').querySelectorAll('.blk')].find((e) => e.dataset.id === rest);
       if (!el) { toast(LINK_NO_SPOT); return; }

@@ -5503,7 +5503,12 @@ async function doRunSummary(pageId) {
   let segments = opened.segments;   // 出典付与の直前に読み直して差し替える（下記）
   const segmentsAtStart = segments;   // 要約の材料にした配列。出典付けで今の配列と突き合わせる（#4）
   const usable = segments.filter((s) => !s.failed && !s.pending);
-  const plain = usable.map((s) => s.text).join('\n');
+  // 0.12.0 SP-4（決めたこと 143・R1）: 文字起こしはタイムラインの行の順。plain は札の無い文（種類の判定・点の長さ・担当と期限の照らし。
+  // 札の無い会議は今と同じ文）、labeled は行の頭に「自分: 」「相手: 」を付けた文（Claude Code へ渡す。札が1つも無ければ plain と同じ）
+  const rows = lib.timelineOf(usable);
+  const plain = rows.map((r) => r.text).join('\n');
+  const hasLabel = rows.some((r) => lib.srcLabel(r));
+  const labeled = hasLabel ? rows.map(lib.labeledLine).join('\n') : plain;
 
   if (!plain.trim()) {
     // 0.10.0 LS-2（D69・決めたこと 111 の 6）: 文字起こしが空のページは要約の欄に理由を書かない（鍵のまま。欄の頭の一言が伝える）。
@@ -5567,13 +5572,13 @@ async function doRunSummary(pageId) {
   const wantScore = quality.shouldScore(page.meetingType, settings.qualityScore);
   const score = wantScore && plain.length >= quality.MIN_SCORE_CHARS;
   // 0.11.0 M-2（決めたこと 14）: 書式は1回だけ作る（Claude Code に渡す文と写しを落とす文に同じ文字列）
-  const template = memoTypes.buildTemplate({ meetingType: page.meetingType, score });
+  const template = memoTypes.buildTemplate({ meetingType: page.meetingType, score, labeled: hasLabel });
   const progress = (msg) => sendToMainWin('meeting:progress', { message: msg });
   // 決まらなかったときは「自動として」でなく型の名前で言う（0.11.0 P-12・R15）
   progress(`Claude Code で議事録を作成中…（${mtype.isSelectable(page.meetingType) ? `${mtype.getLabel(page.meetingType)}として` : '決まらなかったので会議の要点の型で'}要約します）`);
   try {
     // Claude Code が断った・失敗したら、理由を要約の欄に書いて終える（下の catch。手元の llama へは行かない: D1・D59）
-    const { md: answer, truncatedParts, finalTruncated } = await summarizeWithClaude(plain, page.memo, template);
+    const { md: answer, truncatedParts, finalTruncated } = await summarizeWithClaude(labeled, page.memo, template);
     // 0.11.0 Q-3（決めたこと 30・32）: 採点の節はいつも本文から外す（頼まなかった採点の節も、2つ以上の節も、本文に残さない）
     const split = quality.splitScore(answer);
     const md = split.body;

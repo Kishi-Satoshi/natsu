@@ -893,7 +893,7 @@ test('G3・0.11.1 LG-6: ロゴの差し替えの変異が一覧にそろい、ID
 });
 
 // 0.12.0（計画 docs/plans/2026-10-22-120.md の「変異確認」の表）: 2つの流れの文字起こしと「自分」「相手」の直しを1つずつ戻す変異。
-// タスクを作るたびに足す（表の全部とちょうど同じにそろえるのは最後のタスク。それまでは「どれも表にある」と「spk- の変異は IDS_120 にある」を見る）
+// タスクを作るたびに足した。最後のタスク（SP-4）で表の全部とちょうど同じにそろえた（「spk- の変異は IDS_120 にある」も見る）
 const IDS_120 = [
   'spk-vad-pause', 'spk-vad-idle', 'spk-trim', 'spk-t0', 'spk-clock-sum', 'spk-timeline-order', 'spk-overlap-drop', 'spk-bleed', 'spk-quiet-union',
   'spk-stall-count', 'spk-parts-drift', 'spk-src-trust', 'spk-ipc-validate',   // SP-1
@@ -901,8 +901,9 @@ const IDS_120 = [
   'spk-mic-only-src', 'spk-src-race', 'spk-level-hidden', 'spk-silent-send', 'spk-quiet-drop', 'spk-trim-at', 'spk-backpressure', 'spk-local-gate',
   'spk-tail-stream', 'spk-repeat-stream', 'spk-statelog', 'spk-bleed-loose',   // SP-3a
   'spk-verbose', 'spk-parts-edit', 'spk-parts-after',   // SP-3b
+  'spk-mcp-raw', 'spk-app-raw', 'spk-parts-check', 'spk-summary-rule', 'spk-summary-label', 'spk-score-raw', 'spk-ground-raw',   // SP-4
 ];
-test('G3・0.12.0: 0.12.0 の変異が一覧にそろい、IDS_120 はどれも計画の「変異確認」の表にある。spk- の変異は IDS_120 にある。どれも決まったテストのファイルを持ち、why が 0.12.0 で始まる', { timeout: 5000 }, () => {
+test('G3・0.12.0: 0.12.0 の変異が一覧にそろい、IDS_120 は計画の「変異確認」の表の id とちょうど同じ。spk- の変異は IDS_120 にある。どれも決まったテストのファイルを持ち、why が 0.12.0 で始まる', { timeout: 5000 }, () => {
   const byId = new Map(MUTANTS.map((m) => [m.id, m]));
   assert.deepStrictEqual(IDS_120.filter((id) => !byId.has(id)), [], 'IDS_120 の変異が一覧に無い');
   assert.strictEqual(new Set(IDS_120).size, IDS_120.length, 'IDS_120 に重なり');
@@ -913,6 +914,7 @@ test('G3・0.12.0: 0.12.0 の変異が一覧にそろい、IDS_120 はどれも�
   assert.ok(rows.length >= 40, '計画の表が読めない');
   assert.strictEqual(new Set(rows).size, rows.length, '計画の表に重なり');
   assert.deepStrictEqual(IDS_120.filter((id) => !rows.includes(id)), [], '計画の「変異確認」の表に無い変異');
+  assert.deepStrictEqual([...IDS_120].sort(), [...rows].sort(), 'IDS_120 が計画の「変異確認」の表とちょうど同じでない');
   for (const id of IDS_120) {
     const m = byId.get(id);
     assert.ok(Array.isArray(m.tests) && m.tests.length > 0 && m.tests.every((t) => /^test\/[^/]+\.test\.js$/.test(t)), `${id}: tests`);

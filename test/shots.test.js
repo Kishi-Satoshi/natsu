@@ -148,6 +148,12 @@ const LG4_LOGO = [
   'nudge-light-150', 'nudge-menu-light-100', 'nudge-menu-dark-100',
 ];
 const ADDED_LOGO = [...LG2_LOGO, ...LG4_LOGO];
+// 0.12.0（計画 docs/plans/2026-10-22-120.md の「取り直す画面（RETAKE）」）で意図して変えた: 取り直し待ちは 0.12.0 の表の画面だけ（RETAKE_120）。
+// SP-4（D53・D66）: 録音中のページの文字起こしの行の「自分」「相手」の札（録音中の種 liveAnswers の発言に src。文字起こしのタブを写す 13 枚）と、
+// 足した文字起こしのタブの画面 notes-script-spk-light（札・重なり・文ごとの行。NEW_120。まだ基準が無い）。持ち主が OK と言ったら、版を上げる commit で基準にして空に戻す
+const NEW_120 = ['notes-script-spk-light'];
+const RETAKE_120 = ['live-light', 'live-dark', 'live-banner-light', 'live-banner-dark', 'live-banner-zoom200-dark', 'live-quiet-light', 'live-quiet-dark',
+  'live-wave-light', 'live-wave-dark', 'live-silent-light', 'live-paused-dark', 'live-offline-light', 'live-offline-dark', ...NEW_120];
 const img = (w, h, fill = [255, 255, 255, 255]) => ({ width: w, height: h, data: Buffer.from(Array.from({ length: w * h }, () => fill).flat()) });
 // 一時フォルダ（日本語と 𠮷 の名前。RF1 と同じ形）。テストの終わりに消す
 const tmp = (t, name) => {
@@ -185,7 +191,9 @@ test('G2: 撮る画面は決まった並び（第1b回の 13 と第1b2回の検�
     // 0.10.1 CD-3 で意図して変えた: 動いていたので断った文（RN1）の画面を足した（取り直し待ち・まだ基準が無い）
     ...NEW_101,
     // 0.11.0 V-1 で意図して変えた: 会議の種類の画面4枚を足した（取り直し待ち・まだ基準が無い）。V-2 で打ち合わせの質のカードの明暗2枚を、V-3 で設定のカード「打ち合わせの質」の1枚を足した
-    ...NEW_110]);
+    ...NEW_110,
+    // 0.12.0 SP-4 で意図して変えた: 文字起こしのタブの「自分」「相手」の札・重なり・文ごとの行の1枚を足した（取り直し待ち・まだ基準が無い）
+    ...NEW_120]);
   assert.deepStrictEqual(SH.SCREENS.filter((s) => s.page === 'overlay').map((s) => s.name), PS.screenNames());
   // 0.9.3 M-7 で意図して変えた: 会議の検出のパネル（page nudge）の5枚を録音バーのあと（いちばん後ろ）に足した
   assert.deepStrictEqual(SH.SCREENS.filter((s) => s.page === 'nudge').map((s) => s.name), M7_NUDGE_093);
@@ -652,10 +660,15 @@ test('U-3・G-3: settings-offline-light は基準の PNG と比べる（取り�
 // 0.10.0 で意図して変えた（版を 0.10.0 に上げる commit）: 取り直し待ちを空に戻した（ファイルの頭の注）。0.10.0 の表の画面（ADDED_100）はどれも計画の表にあり、基準がある
 // 0.10.1 で意図して変えた（版を 0.10.1 に上げる commit）: 取り直し待ちを空に戻した（ファイルの頭の注）。0.10.1 の表の画面（ADDED_101）はどれも計画の表にあり、基準がある
 // 0.11.0 で意図して変えた（版を 0.11.0 に上げる commit）: 取り直し待ちを空に戻した（ファイルの頭の注）。0.11.0 の表の画面（ADDED_110）はどれも計画の表にあり、基準がある
-test('G2・F14・G-4・0.9.0 G-3・0.9.1・0.9.2・0.9.3・0.9.4・0.10.0・0.10.1・0.11.0・0.11.1: 取り直し待ちは無い（0.11.1 のロゴの差し替えの 139 枚は基準にした）。どの画面にも基準の PNG があり（0.9.1・0.9.2・0.9.3・0.9.4・0.10.0・0.10.1・0.11.0 で足した画面も）、本体の画面の大きさは窓の大きさと同じ', { timeout: 5000 }, () => {
+test('G2・F14・G-4・0.9.0 G-3・0.9.1・0.9.2・0.9.3・0.9.4・0.10.0・0.10.1・0.11.0・0.11.1・0.12.0: 取り直し待ちは 0.12.0 の表の画面だけ（0.11.1 のロゴの差し替えの 139 枚は基準にした）。0.12.0 で足した画面のほかはどの画面にも基準の PNG があり（0.9.1・0.9.2・0.9.3・0.9.4・0.10.0・0.10.1・0.11.0 で足した画面も）、本体の画面の大きさは窓の大きさと同じ', { timeout: 5000 }, () => {
   // 0.11.1 LG-2 で意図して変えた: 取り直し待ちは 0.11.1 の表の画面（ファイルの頭の ADDED_LOGO）とちょうど同じで、どれも計画の「取り直す画面（RETAKE）」の表にある
   // 0.11.1 で意図して変えた（版を 0.11.1 に上げる commit。LG-8）: 取り直し待ちを空に戻した（ファイルの頭の注）。0.11.1 の表の画面（ADDED_LOGO）はどれも計画の表にあり、基準がある
-  assert.deepStrictEqual([...SH.RETAKE], []);
+  // 0.12.0 SP-4 で意図して変えた: 取り直し待ちは 0.12.0 の表の画面（ファイルの頭の RETAKE_120）とちょうど同じで、どれも計画の「取り直す画面（RETAKE）」の表にある。
+  // 足した画面（NEW_120）のほかは基準がある
+  assert.deepStrictEqual([...SH.RETAKE].sort(), [...RETAKE_120].sort());
+  const plan120 = read('docs/plans/2026-10-22-120.md');
+  const table120 = plan120.slice(plan120.indexOf('## 取り直す画面（RETAKE）'), plan120.indexOf('## ', plan120.indexOf('## 取り直す画面（RETAKE）') + 5));
+  for (const n of RETAKE_120) assert.ok(table120.includes(`\`${n}\``), `0.12.0 の計画の「取り直す画面」の表に ${n} が無い`);
   const planLogo = read('docs/plans/2026-10-24-logo.md');
   const tableLogo = planLogo.slice(planLogo.indexOf('## 取り直す画面（RETAKE）'), planLogo.indexOf('## 自己点検'));
   for (const n of ADDED_LOGO) assert.ok(tableLogo.includes(`\`${n}\``), `0.11.1 の計画の「取り直す画面」の表に ${n} が無い`);
@@ -680,6 +693,7 @@ test('G2・F14・G-4・0.9.0 G-3・0.9.1・0.9.2・0.9.3・0.9.4・0.10.0・0.10
     assert.ok(fs.existsSync(path.join(ROOT, 'test', 'shots', 'win32', `${n}.png`)), `${n} の基準が無い`);
   }
   for (const s of SH.SCREENS) {
+    if (NEW_120.includes(s.name)) continue;   // 0.12.0 SP-4: 足した画面はまだ基準が無い（持ち主が OK と言ったら版を上げる commit で基準にする）
     const f = path.join(ROOT, 'test', 'shots', 'win32', `${s.name}.png`);
     assert.ok(fs.existsSync(f), `${s.name} の基準が無い`);
     if (s.page !== 'app') continue;   // 0.9.3 M-7 で意図して変えた: パネル（nudge）の画面も、録音バーと同じく窓の大きさが中身で決まる
@@ -899,7 +913,10 @@ test('基準の画像（test/shots/win32）は今の app.html で撮ったもの
   // 0.11.0 V-5: 会議の種類のプルダウンの群の見出し（<optgroup>）を外した（持ち主の画面の確かめ）。変わる画面は page-type-light・page-type-dark（ADDED_110）。値を今の app.html に合わせた（前の値は e58d2778…）
   // 0.11.1 LG-4（LG2・LG3）: サイドバーの頭のロゴを箱の中のリスにした（path の d と印・色の CSS 2行・海の色の注）。変わる画面はサイドバーの頭を写す本体の窓の 53 枚
   // （ADDED_LOGO の LG4_LOGO）。値を今の app.html に合わせた（前の値は 8d23c411…）
-  assert.strictEqual(sha, 'd3620f204b3e71918caff56b7934d2ade903c00ee9eec9a3735810b577bad07a',
+  // 0.12.0 SP-4（D53・D66）: 文字起こしの行をタイムラインの順にし、時刻の後に「自分」「相手」の札（span.spk と CSS の .seg .spk）・PC の側の文ごとの行・
+  // 文ごとの行の直し・［コピー］の札・リンクの印の行（R26）。変わる画面は録音中のページの文字起こしの 13 枚と足した notes-script-spk-light（RETAKE_120）。
+  // 値を今の app.html に合わせた（前の値は d3620f20…）
+  assert.strictEqual(sha, '15ff8c69ef1bb3d6a6827a4cd7f2ec73775ff16aa015cf0647e56a0051fd1dba',
     'app.html が基準の画像を撮った時と違う。Windows の CI の画面の比べ（捲り棒のつまみも）を見て、基準を取り直してからこの値を直す');
 });
 

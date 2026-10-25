@@ -286,3 +286,51 @@ test('SP-3b・F23: 落ちて下書きから戻しても parts が残る', T, asy
     assert.ok(withParts.length >= 1 && withParts.every((x) => x.parts.length >= 2), JSON.stringify(o.pages[0].segs));
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
+
+// ---------------------------------------------------------------- SP-4（D58・F33。決めたこと 102・143・R1）: 要約への入力の札
+const M = require('../src/memoTypes');
+const L = require('../src/mainlib');
+const pCalls = (o) => (o.claude || []).filter((l) => l.kind === 'p');
+const LABEL_RULE = '文字起こしの行の頭の 自分: はマイクから、相手: は PC から流れた声から文字起こしした行です。同じ部屋の人の発言も 自分: に入るので、ToDo の担当は行の頭の札で決めず、発言の中の名前で決めてください。';
+const SUM = ['--sum', '--claude=ok', '--claude-stdin'];
+
+test('SP-4・D58・F33: 偽の claude の標準入力の文字起こしがタイムラインの順（届いた順でない）で「自分: 」「相手: 」付き、書式の最後（OUTPUT_RULE の後）に札の1行。札の無い会議の標準入力は今と1文字も同じ', T, async () => {
+  const o = await run(CLOUD('sum-order', ...SUM));
+  const p = o.pages[0];
+  // 場面の前提: 自分の区間が先に届き（DB の並び）、相手の区間の方が時刻は前
+  assert.deepStrictEqual(p.segs.map((s) => s.src), ['mic', 'loopback'], dump(o));
+  assert.ok(p.segs[1].atMs < p.segs[0].atMs, dump(o));
+  const calls = pCalls(o);
+  assert.strictEqual(calls.length, 1);
+  const plain = '相手: そちらの見積を今週中に送ります\n自分: わたしは来週の工程を確認します';
+  const template = M.buildTemplate({ meetingType: p.meetingType, score: false, labeled: true });
+  assert.ok(template.endsWith(`${M.OUTPUT_RULE}\n\n${LABEL_RULE}`), template.slice(-300));
+  assert.strictEqual(calls[0].stdinText, L.buildClaudeInput({ memoText: '', plain, template }));
+  // 札の無い会議（1本の会議）は今の入力と1文字も同じ（DB の並びの文・札の1行なし）
+  const one = await run(['text', '--segs=2', ...SUM]);
+  const q = one.pages[0];
+  const want = L.buildClaudeInput({ memoText: '', plain: q.segs.map((s) => s.text).join('\n'), template: M.buildTemplate({ meetingType: q.meetingType, score: false }) });
+  assert.strictEqual(pCalls(one)[0].stdinText, want);
+  assert.ok(!want.includes('自分:') && !want.includes(LABEL_RULE));
+});
+
+test('SP-4・F33（決めたこと 143）: 札を足すと 400 文字を越えるが、札の無い文では 400 文字に満たない会議に点が付かない（注 QN2）', T, async () => {
+  const o = await run(CLOUD('sum-score', ...SUM));
+  const p = o.pages[0];
+  assert.strictEqual(p.segs.length, 10, dump(o));
+  const tr = pCalls(o)[0].stdinText.split('【会議の文字起こし】\n')[1].split('\n\n上記から')[0];
+  const raw = tr.split('\n').map((l) => l.replace(/^(自分|相手): /, '')).join('\n');
+  // 場面の前提: 札を付けた文は 400 文字以上・札の無い文は 400 文字未満
+  assert.ok(tr.length >= 400 && raw.length < 400, `${tr.length} / ${raw.length}`);
+  assert.strictEqual(p.quality, undefined);
+  assert.ok(String(p.summaryError).includes('文字起こしが短いため、打ち合わせの質の点は付けていません。'), p.summaryError);
+  assert.ok(!pCalls(o)[0].stdinHeads.includes('## 打ち合わせの質（採点）'));
+});
+
+test('SP-4・F33（S16 (a)）: AI が「担当: 相手」「担当: 自分」と書き、発言に「相手」「自分」が無い ToDo の担当は外れる（期限は発言にあれば残る）。書式の札の1行を写し返した行は要約に残らない', T, async () => {
+  const o = await run(CLOUD('sum-order', ...SUM, '--sum-md=spk-assignee'));
+  const p = o.pages[0];
+  assert.deepStrictEqual(p.todos.map((t) => [t.text, t.assignee, t.due ? 'due' : '']), [['見積を送る', '', 'due'], ['工程を確認する', '', '']], JSON.stringify(p.todos));
+  assert.ok(!p.sumBlocks.some((b) => b.text.includes('文字起こしの行の頭の')), JSON.stringify(p.sumBlocks));
+  assert.ok(p.sumBlocks.some((b) => b.text === '見積と工程の件を確かめた'));
+});

@@ -170,6 +170,7 @@ const { titleAt } = require('./titles');
 //     --set-type-live=<鍵|auto>[,…] … 0.11.0 M-4: 録音中（最初の区間の後）に meeting:set-type を呼ぶ（--live-memo=<文> があれば先に meeting:set-memo）
 //     --quality=<all|on|off> … 0.11.0 Q-3: 設定 qualityScore。--resum-quality=<…> … 要約の後にその設定にして［要約を再生成］（out.qualityBefore・out.resum）
 //     --legacy-general … 0.11.0 P-12: 要約の後、ページを前の版で手で一般・その他を選んだ形（meetingType 'general'・typeAuto 偽）にして［要約を再生成］（out.legacyGeneral）
+//     --claude-stdin … 0.12.0 SP-4: 偽の claude の記録に標準入力の全文（stdinText）を書かせる（--claude と一緒に使う）
 //     --sum-md=<名前> … 0.11.0 M-3: 偽の claude が返す要約の Markdown を test/fixtures/summaries/<名前>.md にする（--claude と一緒に使う）
 //     --db-down     … 第2a1回 M-2b: 議事録の DB のプロセス（偽の utilityProcess の中の本物の server.js）の SQLite が trigram を持たない
 //                     （helpers/no-trigram.js を子の中で先に読む）。自分の確かめが通らず、DB は「使えない」で起きる。場面の dbDown でも同じ
@@ -640,6 +641,19 @@ if (twoFx && flagVal('--sys-lost-at')) twoFx.sysLostAt = Number(flagVal('--sys-l
 const streamTexts = [];   // 偽の OpenAI（--relay=tagged）と偽の whisper（FAKE_TAG_FILE）が返す文（WAV の末尾の番号で引く）
 const tagFile = twoFx ? path.join(os.tmpdir(), `natsu-tags-${process.pid}.json`) : '';
 if (tagFile) { process.env.FAKE_TAG_FILE = tagFile; fs.writeFileSync(tagFile, '[]'); process.on('exit', () => { try { fs.rmSync(tagFile, { force: true }); } catch (_) { /* 消えている */ } }); }
+// 文の並びは別のファイルに書いてから名前を替える（その場で書き直すと、別のプロセスの偽の whisper が読んだときに空や途中のファイルを読み、
+// 番号の文でなく既定の文を返す: CI run 40173107746 の ubuntu の SP-3b の場面。R31）。Windows で読まれている間に替えられなければ少し待って替え直す
+let tagSeq = 0;
+function writeTags() {
+  const tmpTag = `${tagFile}.${++tagSeq}.tmp`;
+  fs.writeFileSync(tmpTag, JSON.stringify(streamTexts));
+  for (let i = 0; ; i++) {
+    try { fs.renameSync(tmpTag, tagFile); return; } catch (e) {
+      if (i >= 50 || !['EPERM', 'EACCES', 'EBUSY'].includes(e.code)) throw e;
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 10);
+    }
+  }
+}
 const streamTextOf = (wav) => {
   if (!wav || wav.length < 50) return null;
   const n = Math.floor((wav.length - 44) / 2);
@@ -901,6 +915,7 @@ process.on('exit', () => {
     // 手元の1回の要約と同じ指示文（mainlib.buildClaudeInput。F9）を標準入力で受けたか
     process.env.FAKE_CLAUDE_EXPECT_ASK = '上記から、次の構成のMarkdown議事録を作成してください。';
     if (claudeAuth) process.env.FAKE_CLAUDE_AUTH = claudeAuth;
+    if (flags.includes('--claude-stdin')) process.env.FAKE_CLAUDE_STDIN = '1';   // 0.12.0 SP-4: 偽の claude の記録に標準入力の全文（stdinText）
     // 0.11.0 M-3: --sum-md=<名前> … 偽の claude が返す要約を test/fixtures/summaries/<名前>.md にする
     if (flagVal('--sum-md')) process.env.FAKE_CLAUDE_MD = fs.readFileSync(path.join(__dirname, '..', 'fixtures', 'summaries', `${flagVal('--sum-md')}.md`), 'utf8');
   }
@@ -3217,7 +3232,7 @@ process.on('exit', () => {
       const L = lanes[key];
       const fr = L.fr;
       const idx = streamTexts.push(textFor(key, L.n, L)) - 1;
-      fs.writeFileSync(tagFile, JSON.stringify(streamTexts));
+      writeTags();
       L.n += 1;
       const buf = fr.length ? wavOf(fr, idx) : Buffer.alloc(0);
       const durationMs = Math.max(0, fr.length * tick - (fr.length ? drift : 0));

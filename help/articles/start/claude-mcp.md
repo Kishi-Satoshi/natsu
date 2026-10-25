@@ -1,7 +1,7 @@
 ---
 title: Claude から議事録を読む（MCP）
 description: Claude デスクトップに NaTsu を登録すると、Claude に「10/20 の議事録を読んで」のように頼めるようになる。登録の仕方・送られるもの・つながらないとき
-updated: 2026-10-24
+updated: 2026-10-25
 sources: README.md, src/renderer/app.html, src/main.js, src/mcp-config.js, src/mcp/tools.js
 related: start/claude-code, record/pc-only, find/delete-and-backups
 ---
@@ -19,6 +19,7 @@ Claude に、こんなふうに頼めます。
 - 「最近の自分の会議の打ち合わせの質の推移を見せて」（[打ち合わせの質](summary/meeting-quality.md)）
 
 Claude は、頼みに関係のある箇所だけを、日付・題名・時刻の出典つきで NaTsu から受け取ります。必要なときは会議の全体も読みます。資料やレポートを作るのは Claude です。
+相手の声も録った会議の文字起こしは、行の頭に「自分」（マイク）か「相手」（PC から流れた声）が付いたまま渡ります（[文字起こしの「自分」「相手」](record/start-stop.md#speakers)）。
 答えの出典はリンクになっていて、押すと NaTsu でその会議のその箇所が開きます（初めて押したときは、ブラウザーが「NaTsu を開きますか？」と聞きます）。
 
 ## 議事録のリンクを渡す {#link}

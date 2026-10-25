@@ -81,6 +81,13 @@ const OPEN_TYPE_LIST = `(async () => {
   const s = document.getElementById('pType'); s.size = s.querySelectorAll('option').length; s.style.height = 'auto';
   return 1;
 })()`;
+// 0.12.0 SP-4: ページを開いて文字起こしのタブにする（札・重なり・文ごとの行）
+const OPEN_PAGE_SCRIPT = `(async () => {
+  document.getElementById('tabBtnNotes').click(); document.querySelector('#plist .pitem').click();
+  await new Promise((r) => setTimeout(r, 300));
+  document.getElementById('paneBtnScript').click();
+  return 1;
+})()`;
 // 0.11.0 V-2: ページを開き、打ち合わせの質のカードまで捲る
 const OPEN_QUALITY = `(async () => {
   document.getElementById('tabBtnNotes').click(); document.querySelector('#plist .pitem').click();
@@ -233,6 +240,8 @@ const SCREENS = [
   { name: 'page-quality-dark', page: 'app', theme: 'dark', get answers() { return qualityAnswers(); }, act: OPEN_QUALITY },
   // 0.11.0 V-3: 項目「要約」のカード「打ち合わせの質」まで捲った形。足した画面（版を 0.11.0 に上げる commit で基準にした）
   { name: 'settings-quality-light', page: 'app', theme: 'light', act: `${OPEN_SETTINGS}; ${NAV('setNavSummary')}; document.getElementById('qualityCardSet').scrollIntoView({ block: 'start' })` },
+  // 0.12.0 SP-4（D53・D66）: 足した画面。文字起こしのタブの「自分」「相手」の札・重なり・PC の側の文ごとの行
+  { name: 'notes-script-spk-light', page: 'app', theme: 'light', act: OPEN_PAGE_SCRIPT },
 ];
 // 0.9.0 O-3（RP9）: 録音バーの画面（形 → 地 → 拡大率 → 状態の順。撮る道具は形・地・拡大率の組ごとに窓を1つ開いて状態を act で替える）。
 // 録音は始めずに見た目だけを撮る（act は pill-states の見本を録音バーの DOM に当てる。撮るときだけ体の地にデスクトップの色を塗る）。
@@ -313,7 +322,10 @@ const OVL_094 = (states) => PS.FORMS.flatMap((form) => Object.keys(PS.DESKS).fla
 // 0.11.1（版を 0.11.1 に上げる commit。LG-8）: 持ち主が 2026-10-25 にロゴの見比べ（CI run 40158349532（1c87b3c）の撮影の見比べの絵）を見て
 // 「OK（版を 0.11.1 に上げてよい）」と言ったので、その run の artifact 12585288773 の .after.png（139 枚: 録音バー 81・本体の窓 53・パネル 5）を
 // バイトのまま基準にし、空に戻した
-const RETAKE = new Set([]);
+// 0.12.0 SP-4（計画 docs/plans/2026-10-22-120.md の「取り直す画面（RETAKE）」。D53・D66）: 録音中のページの文字起こしの行の「自分」「相手」の札
+// （録音中の種 liveAnswers の発言に src を足した。文字起こしのタブを写す 13 枚）と、足した文字起こしのタブの画面（札・重なり・文ごとの行。まだ基準が無い）
+const RETAKE = new Set(['live-light', 'live-dark', 'live-banner-light', 'live-banner-dark', 'live-banner-zoom200-dark', 'live-quiet-light', 'live-quiet-dark',
+  'live-wave-light', 'live-wave-dark', 'live-silent-light', 'live-paused-dark', 'live-offline-light', 'live-offline-dark', 'notes-script-spk-light']);
 const PERF = [{ name: 'open-2000-blocks', budgetMs: 500 }];   // 3回開いた中央値で見る
 const TIME_ZONE = 'Asia/Tokyo';
 const TOLERANCE = 2;   // 色の差（0〜255）がこれ以下の画素は同じとみなす。CI の機械の CPU ごとの描き方の1段の差を拾わないため（揺れの確かめ judgePair は 0 で見る）
@@ -351,13 +363,16 @@ function apiNamesOf(preloadSrc) {
 // ---------------------------------------------------------------- 見本の答え（偽の橋が返す）
 // 人の名前は、テストの見本（test/fixtures.js）と同じ代表的な置き名だけを使う。パスは置き場所の形だけ（利用者名を出さない）
 const ENGINE_DIR = 'C:\\NaTsu\\engine';
+// 0.12.0 SP-4（決めたこと 85・127・128）: 相手の声も録った会議の形。入口（src）は自分（mic）と相手（loopback）で、相手の s2 は PC の側の長い区間で
+// 文ごとの行（parts）を持ち、2つ目の文（2:35）が自分の s3（2:30）と重なる（文字起こしのタブを写す notes-script-spk-light で見える）
 const SEGMENTS = [
-  { id: 's1', atMs: 0, text: 'それでは週次の定例を始めます。まず進み具合から順にお願いします。' },
-  { id: 's2', atMs: 75000, text: '受注の画面の直しは、結合の試験が今週で終わりました。残りの不具合は2件です。' },
-  { id: 's3', atMs: 150000, text: '在庫の取り込みが遅いので、山田さんに実行計画を見てもらえますか。期限は10月14日でお願いします。' },
-  { id: 's4', atMs: 225000, text: '分かりました。索引が効いているかを確かめます。' },
-  { id: 's5', atMs: 300000, text: '求人票の見直しは、佐藤さんが今月末までに案を出します。' },
-  { id: 's6', atMs: 375000, text: '出す日は11月15日で決まりです。以上で終わります。' },
+  { id: 's1', atMs: 0, text: 'それでは週次の定例を始めます。まず進み具合から順にお願いします。', src: 'mic' },
+  { id: 's2', atMs: 75000, durationMs: 90000, text: '受注の画面の直しは、結合の試験が今週で終わりました。残りの不具合は2件です。', src: 'loopback',
+    parts: [{ ms: 0, at: 0 }, { ms: 80000, at: 26 }] },
+  { id: 's3', atMs: 150000, text: '在庫の取り込みが遅いので、山田さんに実行計画を見てもらえますか。期限は10月14日でお願いします。', src: 'mic' },
+  { id: 's4', atMs: 225000, text: '分かりました。索引が効いているかを確かめます。', src: 'loopback' },
+  { id: 's5', atMs: 300000, text: '求人票の見直しは、佐藤さんが今月末までに案を出します。', src: 'mic' },
+  { id: 's6', atMs: 375000, text: '出す日は11月15日で決まりです。以上で終わります。', src: 'mic' },
 ];
 // 0.10.0 SH-1（D71・決めたこと 140）: 見本の題名は本物と同じ日付の形（作った時刻の日本の時刻。lib.meetingTitleAt の1か所で決める）
 const JST_MIN = 540;
@@ -415,10 +430,11 @@ function offlineAnswers() {
   };
 }
 function liveAnswers(stt = LIVE_STT, extra = {}) {
+  // 0.12.0 SP-4（決めたこと 85）: 発言に入口（src）。行の時刻の後に「自分」「相手」の札が出る
   const segs = [
-    { id: 's1', atMs: 0, durationMs: 75000, text: 'それでは週次の定例を始めます。まず進み具合から順にお願いします。' },
-    { id: 's2', atMs: 75000, durationMs: 75000, text: '受注の画面の直しは、結合の試験が今週で終わりました。残りの不具合は2件です。' },
-    { id: 's3', atMs: 150000, durationMs: 75000, text: '在庫の取り込みが遅いので、実行計画を見てもらえますか。' },
+    { id: 's1', atMs: 0, durationMs: 75000, text: 'それでは週次の定例を始めます。まず進み具合から順にお願いします。', src: 'mic' },
+    { id: 's2', atMs: 75000, durationMs: 75000, text: '受注の画面の直しは、結合の試験が今週で終わりました。残りの不具合は2件です。', src: 'loopback' },
+    { id: 's3', atMs: 150000, durationMs: 75000, text: '在庫の取り込みが遅いので、実行計画を見てもらえますか。', src: 'mic' },
   ];
   return {
     'koeApp.meetingStatus': {

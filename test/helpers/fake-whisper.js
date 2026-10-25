@@ -121,7 +121,12 @@ const server = http.createServer((req, res) => {
       const k = Math.floor((f.length - 44) / 2);
       const at = (i) => f.readInt16LE(44 + (k - i) * 2);
       if (at(3) !== 3 || at(2) !== -3) return null;
-      try { const list = JSON.parse(fs.readFileSync(process.env.FAKE_TAG_FILE, 'utf8')); return typeof list[at(1)] === 'string' ? list[at(1)] : null; } catch (_) { return null; }
+      // mainrun は書いてから名前を替える（R31）。それでも読めなければ（Windows の替えの途中など）少し待って読み直す
+      for (let i = 0; i < 20; i++) {
+        try { const list = JSON.parse(fs.readFileSync(process.env.FAKE_TAG_FILE, 'utf8')); if (typeof list[at(1)] === 'string') return list[at(1)]; } catch (_) { /* 読み直す */ }
+        Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 10);
+      }
+      return null;
     })();
     const answerText = tagged !== null ? tagged : process.env.FAKE_TEXT ? `${process.env.FAKE_TEXT}区間${n}` : ` 本日の議題は\n進捗の確認です。区間${n}\n`;
     const sentencesOf = (text) => {
