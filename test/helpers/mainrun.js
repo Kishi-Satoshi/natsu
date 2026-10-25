@@ -406,6 +406,8 @@ const { titleAt } = require('./titles');
 //                        notices・settingsText・state（meeting:status の active）
 //     --detect=off・--detect-mute=<id,…> … 置く settings.json の meetingDetect: false・meetingDetectMute
 //     --dark … 偽の nativeTheme.shouldUseDarkColors を真で始める
+//   0.12.1 LV-2〜LV-3（会議を出たら止める。計画 docs/plans/2026-10-24-121.md）
+//     --leave=off … 置く settings.json の autoStopLeave: false（設定「会議を出たら自動で止める」がオフ）
 //   0.10.0 C-2（Claude デスクトップへの MCP の登録。計画 docs/plans/2026-10-20-100.md）
 //     app.getPath('appData') は一時フォルダ（日本語と 𠮷）の AppData-Roaming。MCP の場面（--claude-config・--mcp-steps）だけ app.getAppPath() がリポジトリの根
 //     --claude-config=<場面> … 起動の前に Claude デスクトップの設定ファイルを置く（none: フォルダだけ・plain: 好みの設定だけ・others: 好みの設定と
@@ -534,6 +536,7 @@ const micSteps = flagVal('--mic-feed') ? JSON.parse(flagVal('--mic-feed')) : nul
 if (micSteps) process.env.NATSU_TEST_MIC_WATCH = '1';
 const detectFlag = flagVal('--detect');
 const detectMuteFlag = flagVal('--detect-mute');
+const leaveFlag = flagVal('--leave');   // 0.12.1 LV-2: --leave=off（置く settings.json の autoStopLeave: false）
 const darkFlag = flags.includes('--dark');
 // 0.10.0 C-2: Claude デスクトップへの MCP の登録の場面（頭の注釈）
 const claudeConfigFlag = flagVal('--claude-config');
@@ -1271,6 +1274,7 @@ process.on('exit', () => {
       ...(autoStopMinFlag ? { autoStopMin: autoStopMinFlag } : {}),
       ...(detectFlag === 'off' ? { meetingDetect: false } : {}),   // 0.9.3 M-2
       ...(detectMuteFlag ? { meetingDetectMute: detectMuteFlag.split(',') } : {}),
+      ...(leaveFlag === 'off' ? { autoStopLeave: false } : {}),   // 0.12.1 LV-2
       ...(mcpGoneFlag ? { mcpRegisteredFor: { files: 1, version: '0.9.4' } } : {}),   // 0.10.0 C-2
       claudeExe,
       ...(pillSettings || {}),

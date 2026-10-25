@@ -243,3 +243,25 @@ test('LV-1（L18）: nudgeStep の forget で「録った会議」の印（done�
   assert.deepStrictEqual([o.st.done, o.st.rejoin, o.show], [['teams:1'], [], null]);
   assert.deepStrictEqual(lib.nudgeStep(st, { type: 'forget', keys: 'zoom:5', now: 1 }).st.done, ['zoom:5', 'teams:1']);
 });
+
+// ---------------------------------------------------------------- LV-2（決めたこと L14・L15）: 経過のきっかけと設定の鍵
+test('LV-2（L14）: 経過の表にきっかけ leave「会議を出たので自動」。cleanStateLog が auto-stop/leave を通し、stateLogLine は「議事録: 終了（会議を出たので自動）」。2版目の app-left・app-back・detect は通さない', T, () => {
+  const SL = require('../src/statelog');
+  assert.strictEqual(SL.BY_NAMES.leave, '会議を出たので自動');
+  const at = '2026-10-25T01:43:00.000Z';
+  assert.deepStrictEqual(SL.cleanStateLog([{ s: 'auto-stop', by: 'leave', at }]), [{ s: 'auto-stop', by: 'leave', at }]);
+  assert.strictEqual(SL.stateLogLine({ s: 'auto-stop', by: 'leave', at }), '議事録: 終了（会議を出たので自動）');
+  assert.deepStrictEqual(SL.cleanStateLog([{ s: 'app-left', by: 'leave', at }, { s: 'app-back', by: 'leave', at }, { s: 'auto-stop', by: 'detect', at }]), []);
+  assert.strictEqual(SL.stateLogAdd([], { s: 'auto-stop', by: 'leave', at }).length, 1);
+});
+
+test('LV-2（L15・LQ3）: 設定 autoStopLeave は既定 true（false でなければオン）。壊れた値は既定のオンに戻す', T, () => {
+  const S = require('../src/settings');
+  const D = S.defaultSettings(8);
+  assert.strictEqual(D.autoStopLeave, true);
+  assert.deepStrictEqual(S.SETTING_RULES.autoStopLeave, { label: '会議を出たら自動で止める', kind: 'bool', notFalse: true });
+  assert.strictEqual(S.readSettings({ autoStopLeave: false }, D).settings.autoStopLeave, false);
+  for (const raw of [true, null, 'x', 0, 1]) assert.strictEqual(S.readSettings({ autoStopLeave: raw }, D).settings.autoStopLeave, true, JSON.stringify(raw));
+  assert.strictEqual(S.readSettings({}, D).settings.autoStopLeave, true);
+  assert.deepStrictEqual(S.pickSavable({ autoStopLeave: false, evil: 1 }), { autoStopLeave: false });
+});

@@ -112,6 +112,8 @@ const {
 const lib = require('./mainlib');
 // 議事録のリンクの形と照らし（0.10.0 LN-1。純粋。住所の頭 LINK_ORIGIN の1か所: 決めたこと 154）
 const natsulink = require('./natsulink');
+// 0.12.1 LV-2（計画 docs/plans/2026-10-24-121.md）: 会議を出たかの判断（純粋。leaveInit・leaveStep・LEAVE_IDS）
+const ML = require('./meetleave');
 // 0.9.2 I-1（ヘルプの計画の H-12）: NaTsu ヘルプセンター（Access の後ろ。中継と同じ natsu-code の workers.dev）。住所は main だけが持ち、
 // 画面は記事の名前だけを渡す（app:open-help が lib.helpPath の決まった一覧で照らし、無ければホーム）。0.10.0 LN-1: 住所の頭は src/natsulink.js から
 const HELP_URL = `${natsulink.LINK_ORIGIN}/`;
@@ -2951,8 +2953,11 @@ let detectReady = false;   // 起動の窓とトレイができるまでは起�
 let detectBusy = null;     // 会議の検出に最後に知らせた忙しさ（state の写し）
 const micWatchSupported = () => process.platform === 'win32' || process.env.NATSU_TEST_MIC_WATCH === '1';
 const micWatchWanted = () => detectReady && micWatchSupported() && !quitting && settings.meetingDetect !== false && state === 'idle' && !micGaveUp;
+// 0.12.1 LV-2（計画 docs/plans/2026-10-24-121.md の決めたこと L16）: 設定「会議を出たら自動で止める」がオンなら、議事録の録音中（作成中も。録音の終わりで
+// 起こし直さない）も読む。音声入力（recording・processing）の間は今どおり止める。上の micWatchWanted の行は変えない（0.9.3 の変異の from）
+const micLeaveWanted = () => detectReady && micWatchSupported() && !quitting && settings.autoStopLeave !== false && (state === 'meeting' || state === 'meeting-finalizing') && !micGaveUp;
 function syncMicWatch() {
-  if (micWatchWanted()) startMicWatch();
+  if (micWatchWanted() || micLeaveWanted()) startMicWatch();
   else stopMicWatch();
 }
 function startMicWatch() {
@@ -2994,6 +2999,7 @@ function stopMicWatch() {
 }
 // 見張りが思わず終わった（止めたのではない）
 function onMicWatchGone() {
+  leaveEvent({ type: 'lost' });   // 0.12.1 LV-2（決めたこと L7）: 見張りが落ちたら、会議を出たかの数えを戻す
   micFails += 1;
   if (micFails > MIC_RETRY_MS.length) {
     micGaveUp = true;
@@ -3012,11 +3018,12 @@ function restartMicWatch() {
 function onMicLine(line) {
   const r = lib.parseMicLine(line);
   if (!r) return;
-  if (r.kind === 'err') { engineLog(`会議の検出: マイクの記録を読めません（${r.code}）`); return; }
+  if (r.kind === 'err') { engineLog(`会議の検出: マイクの記録を読めません（${r.code}）`); leaveEvent({ type: 'lost' }); return; }
   micFails = 0;
   // 0.9.4 D-1（診断の記録）: 一覧のアプリでマイクを使っている数が変わったときだけ1行（名前は書かない: 0.9.3 の K3）
   if (r.items.length !== micCount) { micCount = r.items.length; engineLog(`会議の検出: マイクの記録 ${micCount} 件`); }
   nudgeEvent({ type: 'sample', items: r.items });
+  leaveEvent({ type: 'sample', items: r.items });   // 0.12.1 LV-2: 議事録の録音中だけ（leaveEvent が照らす）
 }
 // 会議の検出の判断（mainlib.nudgeStep）。答えのとおりにパネルの窓を出し入れするだけ（判断は純粋な関数）
 let nudgeSt = lib.nudgeInit({ on: true, mute: [] });
@@ -3030,6 +3037,34 @@ function nudgeEvent(ev) {
   if (o.hide) hideNudge(ev.type);
   if (o.show) showNudge(o.show);
   return o;
+}
+
+// ---------------------------------------------------------------- 会議を出たら止める（0.12.1 LV-2・LV-3。計画 docs/plans/2026-10-24-121.md の決めたこと L1〜L21）
+// 見張りの読み（2 秒ごとの行）を、議事録の録音中だけ meetleave.leaveStep に渡す（main に新しいタイマーを作らない: L6）。答えの act のとおりに、
+// 決まった1行を記録する（アプリの名前・id は書かない: K3）。止めるのは LV-3
+const LEAVE_LOG = Object.freeze({
+  found: '会議を出たかの見張り: 会議のアプリがマイクを使っているのを見た（この録音で見張る）',
+  stop: '会議を出たかの見張り: 会議のアプリがマイクを放したので、録音を止めた',
+  blip: '会議を出たかの見張り: 少しだけ放して見えたので止めない',
+  lost: '会議を出たかの見張り: 見張りの記録が読めないので数え直す',
+  gap: '会議を出たかの見張り: 見張りの読みが途切れたので数え直す',
+  notice: '会議を出たかの見張り: Windows の知らせ',
+  noNotice: '会議を出たかの見張り: Windows の知らせを出せない',
+});
+// 録音を始めた（startMeetingBy）: 会議を出たかの判断の状態（会議ごとのメモリだけ。下書き・ページに書かない: L17）。パネルから始めたなら、そのアプリを
+// 初めから見張る（L3）。leaveAt: 放した最初の読みの時刻（所要時間の終わり）・leaveStopped: 会議を出たので止めた・leaveOthers: 放した読みで見えた別のアプリの使い
+function leaveStart(m, app) {
+  m.leave = ML.leaveInit({ apps: ML.LEAVE_IDS, first: typeof app === 'string' ? app : null, off: settings.autoStopLeave === false });
+  m.leaveAt = null; m.leaveStopped = false; m.leaveOthers = [];
+  if (m.leave.phase === 'in') engineLog(LEAVE_LOG.found);
+}
+function leaveEvent(ev) {
+  const m = meeting;
+  if (!m || !m.leave || state !== 'meeting') return null;
+  const r = ML.leaveStep(m.leave, { ...ev, now: Date.now() });
+  m.leave = r.st;
+  if (r.act === 'found') engineLog(LEAVE_LOG.found);
+  return r;
 }
 
 // ---------------------------------------------------------------- 会議の検出のパネル（0.9.3 M-3。決めたこと 7〜10。持ち主の答え Q3・Q5）
@@ -3095,8 +3130,9 @@ function stopNudgeTicker() { if (nudgeTicker) { clearInterval(nudgeTicker); nudg
 async function startFromNudge(o) {
   if (!nudgeShown || state !== 'idle') return { ok: false };
   const pcOnly = Boolean(o && typeof o === 'object' && o.pcOnly === true);
+  const app = nudgeShown.id;   // 0.12.1 LV-2（決めたこと L3）: 引っ込める前に、出していたアプリを写す（画面から id を受けない）
   nudgeEvent({ type: 'closed' });
-  const r = await startMeetingBy(pcOnly ? 'panel-offline' : 'panel');
+  const r = await startMeetingBy(pcOnly ? 'panel-offline' : 'panel', { app });
   if (!r.ok) {
     createMainWindow();
     sendToMainWin('app:notice', r.error || '議事録を開始できません');
@@ -3151,6 +3187,11 @@ function applyDetectSettings(prev) {
   const on = settings.meetingDetect !== false;
   if (prev && prev.meetingDetect === false && on) { micGaveUp = false; micFails = 0; }
   nudgeEvent({ type: 'setting', on, mute: settings.meetingDetectMute });
+  syncMicWatch();
+}
+// 0.12.1 LV-2（決めたこと L9・L16）: 設定「会議を出たら自動で止める」が変わった。録音中なら判断に知らせ（切ったら数えを戻す・入れ直したら次の読みから数える）、見張りを起こす・止める
+function applyLeaveSetting() {
+  leaveEvent({ type: 'setting', on: settings.autoStopLeave !== false });
   syncMicWatch();
 }
 
@@ -4861,9 +4902,10 @@ function noteMeetingState(m, s, by) {
   if (line) engineLog(line);
   if (meeting === m) writeDraft();
 }
-async function startMeetingBy(trigger) {
+async function startMeetingBy(trigger, opts = {}) {
   const r = await startMeeting();
   if (r && r.ok) {
+    leaveStart(meeting, opts.app);   // 0.12.1 LV-2
     engineLog(`会議: 始めた（${trigger}）`);
     noteMeetingState(meeting, 'start', START_BY[trigger] || 'app');
   }
@@ -5973,9 +6015,11 @@ function setupIpc() {
     }
     if (guard.warning) warning = warning ? `${warning}。${guard.warning}` : guard.warning;
     const prevDetect = { meetingDetect: settings.meetingDetect, mute: JSON.stringify(settings.meetingDetectMute) };
+    const prevLeave = settings.autoStopLeave !== false;
     settings = merged;
     // 0.9.3 M-2: 会議の検出の設定が変わったら、判断に知らせて見張りを起こす・止める
     if (prevDetect.meetingDetect !== settings.meetingDetect || prevDetect.mute !== JSON.stringify(settings.meetingDetectMute)) applyDetectSettings(prevDetect);
+    if (prevLeave !== (settings.autoStopLeave !== false)) applyLeaveSetting();   // 0.12.1 LV-2（決めたこと L9・L16）
     // 書けなくても投げず、当てる行（テーマ・エンジン・保留の復旧・ログイン時の起動・トレイ）は最後まで行い、warning で返す。
     // 書けなかった値は書き手に「まだ書いていない」として残り、次の保存と書き出しの合図でやり直す（JS1・JS5・P14・RF22）
     const w = settingsWriter.now(settings);
@@ -6649,6 +6693,7 @@ if (!gotLock) {
 // resolveStartupHotkeys( の呼び出し（起動の所）から読むため（ここが先にあると、その確かめが起動の所を見なくなる）
 function applyReloadedSettings(prev, next) {
   if (prev.meetingDetect !== next.meetingDetect || JSON.stringify(prev.meetingDetectMute) !== JSON.stringify(next.meetingDetectMute)) applyDetectSettings(prev);   // 0.9.3 M-2
+  if ((prev.autoStopLeave !== false) !== (next.autoStopLeave !== false)) applyLeaveSetting();   // 0.12.1 LV-2
   // ホットキーは起動のときと同じ決め方（登録できなければ既定に退避し、settings には書かない）
   if (prev.hotkey !== next.hotkey || prev.meetingHotkey !== next.meetingHotkey) {
     const r = resolveStartupHotkeys(next, DEFAULT_SETTINGS, applyHotkeys);

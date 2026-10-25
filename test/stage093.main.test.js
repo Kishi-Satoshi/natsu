@@ -38,8 +38,10 @@ test('M-2: 起動の時に設定がオンなら見張りを1つ起こす（power
   assert.ok(!off.engineLog.some((l) => l.startsWith('会議の検出')), off.engineLog.join('\n'));
 });
 
+// 0.12.1 LV-2（計画 docs/plans/2026-10-24-121.md の決めたこと L16）で意図して変えた: 設定「会議を出たら自動で止める」がオンなら議事録の録音中も見張るので、
+// 0.9.3 の意味のまま（設定がオフなら議事録の録音中は止める）を --leave=off で見る。オンのときの形は stage121.main の LV-2
 test('M-2: 録音を始めると見張りを止め、idle に戻ると起こす（議事録・音声入力）', S, async () => {
-  const o = await run([['snap', 'boot'], ['start'], ['snap', 'meeting'], ['stop'], ['snap', 'idle'], ['dictate'], ['snap', 'dictate'], ['dictate-cancel'], ['snap', 'after']]);
+  const o = await run([['snap', 'boot'], ['start'], ['snap', 'meeting'], ['stop'], ['snap', 'idle'], ['dictate'], ['snap', 'dictate'], ['dictate-cancel'], ['snap', 'after']], '--leave=off');
   assert.deepStrictEqual([o.snaps.boot.spawns, o.snaps.boot.kills], [1, 0]);
   assert.strictEqual(o.snaps.meeting.active, true);
   assert.deepStrictEqual([o.snaps.meeting.spawns, o.snaps.meeting.kills], [1, 1], '議事録の録音中も見張りが動いている');
