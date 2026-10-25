@@ -2499,7 +2499,14 @@ process.on('exit', () => {
       await waitFor(settledCloud, 5000);
       await sleep(100);
       if (relaySeq) await relayLocal.setAnswer(relaySeq[0]);   // 第1d2回 M-3 の点検: 見回りの前の中継の答え方
-      for (let k = 0; k < keptTickN; k++) await keptTick();
+      // 点検の直し（2026-10-25。R35）: 見回りは起動の復旧が回っている間は何もしない（engine.log の「文字起こし待ち: 見回り（…・running）」）。
+      // 決まった時間（100ms）待つだけだと、CI の機械が混んだときに見回りが2回とも空振りし、F2 の「保留の行は1行」を見張る変異 op-hold-log-once が
+      // 生き残った（CI run 40184873051 の mutate-3）。空振りした見回りは数えず、少し待って呼び直す（見回りの「なぜ」は変わったときだけ書かれるので、
+      // 最後の見回りの行が running なら今も回っている）
+      const lastWatch = () => { const l = engineLogLines().filter((x) => x.startsWith('文字起こし待ち: 見回り（')); return l.length ? l[l.length - 1] : ''; };
+      for (let k = 0; k < keptTickN; k++) {
+        for (let t = 0; t < 50; t++) { await keptTick(); if (!/・running）$/.test(lastWatch())) break; await sleep(100); }
+      }
       await waitFor(settledCloud, 5000);
       await sleep(200);
     }
