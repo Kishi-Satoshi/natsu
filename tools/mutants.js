@@ -2239,4 +2239,5 @@ module.exports = [
   // 0.11.1 点検の直し（2026-10-25。計画の「点検の直し（2026-10-25）」）
   {"id":"rv-render-rollback","file":"tools/icon-render.js","from":"      try { fs.renameSync(bakOf(f), dest(f)); } catch (u) { undone.push(`${f}（${u.message}）`); }\n","to":"","tests":["test/icons.test.js"],"why":"0.11.1 点検の直し 1: 名前の変更の途中で落ちたとき、控えへ動かした出力を戻さず、ICO と PNG の一部が消える・新旧が混ざる"},
   {"id":"rv-render-notfile","file":"tools/icon-render.js","from":"    if (st && !st.isFile()) throw new Error(`icon-render: ${o.file} がファイルでない（フォルダなど）。何も書いていない`);\n","to":"","tests":["test/icons.test.js"],"why":"0.11.1 点検の直し 1: 出力の名前がフォルダのとき、フォルダを控えへ動かして書き、控えのフォルダが残る（点検で再現した形）"},
+  {"id":"rv-render-made-first","file":"tools/icon-render.js","from":"    for (const o of outs) { at = o.file; made.push(o.file); writeFileSync(tmpOf(o.file), o.buf); }","to":"    for (const o of outs) { at = o.file; writeFileSync(tmpOf(o.file), o.buf); made.push(o.file); }","tests":["test/icons.test.js"],"why":"0.11.1 点検の直し 2: 一時ファイルを書く途中で落ちると、書きかけの一時ファイルが残る"},
 ];

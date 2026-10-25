@@ -307,7 +307,7 @@ function renderTargets(root = ROOT, targets = TARGETS, io = {}) {
   const placed = [];    // 一時ファイルを出力の名前へ変えた出力
   let step = '一時ファイルを書く', at = '';
   try {
-    for (const o of outs) { at = o.file; writeFileSync(tmpOf(o.file), o.buf); made.push(o.file); }
+    for (const o of outs) { at = o.file; made.push(o.file); writeFileSync(tmpOf(o.file), o.buf); }   // 点検の直し 2: 書く前に数える（書きかけも消す）
     step = '控えへ名前を変える';
     for (const o of outs) { at = o.file; if (had.get(o.file)) { renameSync(dest(o.file), bakOf(o.file)); backed.push(o.file); } }
     step = '出力の名前へ変える';

@@ -391,6 +391,22 @@ test('点検の直し 1: 名前の変更が途中で失敗したら、置いた�
   }
 });
 
+test('点検の直し 2: 一時ファイルを書く途中で落ちても、書きかけの一時ファイルを消す（出力は前のまま）', () => {
+  const { renderTargets } = require('../tools/icon-render.js');
+  const fx = renderFixture();
+  try {
+    const before = fx.snap();
+    let n = 0;
+    // 2つ目の一時ファイルは、少しだけ書いてから落ちる
+    const io = { writeFileSync: (f, buf) => { if (++n === 2) { fs.writeFileSync(f, buf.subarray(0, 4)); throw new Error('書く途中で落とした'); } return fs.writeFileSync(f, buf); } };
+    assert.throws(() => renderTargets(fx.dir, fx.targets, io), /書く途中で落とした/);
+    assert.deepStrictEqual(fx.snap(), before);
+    assert.deepStrictEqual(fx.leftovers(), [], '書きかけの一時ファイルが残った');
+  } finally {
+    fs.rmSync(fx.dir, { recursive: true, force: true });
+  }
+});
+
 test('点検の直し 1: 一時ファイルと控え（*.rendering-*）は git に入れない（.gitignore）', () => {
   assert.match(fs.readFileSync(path.join(ROOT, '.gitignore'), 'utf8'), /^\*\.rendering-\*$/m);
 });
