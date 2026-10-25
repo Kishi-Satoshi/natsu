@@ -129,6 +129,11 @@ const ADDED_110 = ['notes-page-light', 'notes-page-dark', 'notes-tabs-light', 'n
   'page-quality-light', 'page-quality-dark',
   // V-3: 設定のカード「打ち合わせの質」（足した画面）と、項目「要約」を写す設定の画面（カードが1枚増える）
   'settings-quality-light', 'settings-summary-light', 'settings-info-claude-light', 'settings-mcp-light', 'settings-info-mcp-light', 'settings-mcp-running-light'];
+// 0.11.1（計画 docs/plans/2026-10-24-logo.md の「取り直す画面（RETAKE）」）で意図して変えた: 取り直し待ちは 0.11.1 の表の画面だけ（RETAKE_LOGO）。
+// ロゴを替えたタスクごとに足し、持ち主が見比べを OK と言ったら LG-8（版を上げる commit）で基準にして空に戻す
+// LG-2（Ruling R8・R14）: 録音バーのロゴの path（録音バーの画面はどれもロゴを写す。RP9 のテストが 81 枚を見る）
+const LG2_LOGO = SH.SCREENS.filter((s) => s.page === 'overlay').map((s) => s.name);
+const RETAKE_LOGO = [...LG2_LOGO];
 const img = (w, h, fill = [255, 255, 255, 255]) => ({ width: w, height: h, data: Buffer.from(Array.from({ length: w * h }, () => fill).flat()) });
 // 一時フォルダ（日本語と 𠮷 の名前。RF1 と同じ形）。テストの終わりに消す
 const tmp = (t, name) => {
@@ -354,7 +359,8 @@ test('G2・F14・RP9・G-3: 第1a回の録音バーの画面と基準は無い�
   for (const s of SH.SCREENS.filter((x) => x.page === 'overlay')) {
     // 0.9.4 W-1 で意図して変えた: 0.9.4 の表（RETAKE_094）にあるときだけ取り直し待ちでよい（録音バーの5本の揺れ）
     // 0.9.4 で意図して変えた（版を 0.9.4 に上げる commit）: 持ち主が OK と言った CI の画像を基準にしたので、また取り直し待ちではない
-    assert.ok(!SH.RETAKE.has(s.name), `${s.name} が取り直し待ちに残っている`);
+    // 0.11.1 LG-2 で意図して変えた: 0.11.1 の表（RETAKE_LOGO）にあるときだけ取り直し待ちでよい（録音バーのロゴ）
+    assert.ok(!SH.RETAKE.has(s.name) || RETAKE_LOGO.includes(s.name), `${s.name} が取り直し待ちに残っている`);
     const f = path.join(ROOT, 'test', 'shots', 'win32', `${s.name}.png`);
     assert.ok(fs.existsSync(f), `${s.name} の基準が無い`);
     const im = P.decodePng(fs.readFileSync(f));
@@ -622,8 +628,12 @@ test('U-3・G-3: settings-offline-light は基準の PNG と比べる（取り�
 // 0.10.0 で意図して変えた（版を 0.10.0 に上げる commit）: 取り直し待ちを空に戻した（ファイルの頭の注）。0.10.0 の表の画面（ADDED_100）はどれも計画の表にあり、基準がある
 // 0.10.1 で意図して変えた（版を 0.10.1 に上げる commit）: 取り直し待ちを空に戻した（ファイルの頭の注）。0.10.1 の表の画面（ADDED_101）はどれも計画の表にあり、基準がある
 // 0.11.0 で意図して変えた（版を 0.11.0 に上げる commit）: 取り直し待ちを空に戻した（ファイルの頭の注）。0.11.0 の表の画面（ADDED_110）はどれも計画の表にあり、基準がある
-test('G2・F14・G-4・0.9.0 G-3・0.9.1・0.9.2・0.9.3・0.9.4・0.10.0・0.10.1・0.11.0: 取り直し待ちは無い。どの画面にも基準の PNG があり（0.9.1・0.9.2・0.9.3・0.9.4・0.10.0・0.10.1・0.11.0 で足した画面も）、本体の画面の大きさは窓の大きさと同じ', { timeout: 5000 }, () => {
-  assert.deepStrictEqual([...SH.RETAKE], []);
+test('G2・F14・G-4・0.9.0 G-3・0.9.1・0.9.2・0.9.3・0.9.4・0.10.0・0.10.1・0.11.0・0.11.1: 取り直し待ちは 0.11.1 のロゴの差し替えの表の画面だけ。どの画面にも基準の PNG があり（0.9.1・0.9.2・0.9.3・0.9.4・0.10.0・0.10.1・0.11.0 で足した画面も）、本体の画面の大きさは窓の大きさと同じ', { timeout: 5000 }, () => {
+  // 0.11.1 LG-2 で意図して変えた: 取り直し待ちは 0.11.1 の表の画面（ファイルの頭の RETAKE_LOGO）とちょうど同じで、どれも計画の「取り直す画面（RETAKE）」の表にある
+  assert.deepStrictEqual([...SH.RETAKE].sort(), [...new Set(RETAKE_LOGO)].sort());
+  const planLogo = read('docs/plans/2026-10-24-logo.md');
+  const tableLogo = planLogo.slice(planLogo.indexOf('## 取り直す画面（RETAKE）'), planLogo.indexOf('## 自己点検'));
+  for (const n of RETAKE_LOGO) assert.ok(tableLogo.includes(`\`${n}\``), `0.11.1 の計画の「取り直す画面」の表に ${n} が無い`);
   const plan110 = read('docs/plans/2026-10-22-110.md');
   const table110 = plan110.slice(plan110.indexOf('## 取り直す画面（RETAKE）'), plan110.indexOf('## CHANGELOG の 0.11.0 の節'));
   for (const n of ADDED_110) assert.ok(table110.includes(`\`${n}\``), `0.11.0 の計画の「取り直す画面」の表に ${n} が無い`);

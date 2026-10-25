@@ -310,7 +310,12 @@ const OVL_094 = (states) => PS.FORMS.flatMap((form) => Object.keys(PS.DESKS).fla
 // 0.11.0（版を 0.11.0 に上げる commit）: 持ち主が 2026-10-24 に取り直しの見比べ（37 枚。V-5 の page-type-light・page-type-dark を含む）を見て
 // 「OK（版を 0.11.0 に上げてよい）」と言ったので、CI run 40142063730（1a46130）・artifact 12578889430 の .after.png（37 枚）をバイトのまま基準にし、空に戻した
 // （持ち主が見た 1e6a4c2 の画像との違いは、左の列の印の 1 段の色の揺れだけ）
-const RETAKE = new Set([]);
+// 0.11.1（計画 docs/plans/2026-10-24-logo.md の「取り直す画面（RETAKE）」）: ロゴの差し替え。ロゴを替えたタスクごとに足し、持ち主が見比べを OK と言ったら
+// LG-8（版を上げる commit）で基準にして空に戻す
+const RETAKE = new Set([
+  // LG-2（Ruling R8・R14）: 録音バーのロゴの path を新しいロゴにした（録音バーの画面はどれもロゴを写す: 81 枚）
+  ...SCREENS.filter((s) => s.page === 'overlay').map((s) => s.name),
+]);
 const PERF = [{ name: 'open-2000-blocks', budgetMs: 500 }];   // 3回開いた中央値で見る
 const TIME_ZONE = 'Asia/Tokyo';
 const TOLERANCE = 2;   // 色の差（0〜255）がこれ以下の画素は同じとみなす。CI の機械の CPU ごとの描き方の1段の差を拾わないため（揺れの確かめ judgePair は 0 で見る）
