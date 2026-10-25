@@ -405,7 +405,9 @@ module.exports = [
   // 0.9.2 で意図して直した: 版を 0.9.2 に上げる commit で取り直しの 16 枚を基準にして RETAKE を空に戻したので、RETAKE に当たる4つの変異をまた空に当たる形にした
   // 0.9.3 M-0 で意図して直した: 設定の 16 枚と録音中のページの 7 枚が計画どおり取り直し待ちに入ったので、RETAKE に当たる4つの変異を、空でない RETAKE の頭に表に無い画面を足す形にした（0.9.2 I-1 と同じ）
   // 0.9.3 で意図して直した: 版を 0.9.3 に上げる commit で取り直しの画像を基準にして RETAKE を空に戻したので、RETAKE に当たる4つの変異をまた空に当たる形にした
-  { id: 'shots-retake-overlay', file: 'tools/shots/screens.js', from: 'const RETAKE = new Set([', to: "const RETAKE = new Set(['overlay-h-light-error-100', ",
+  // 0.11.1 LG-2 の CI の直し 2（CI run 40151151490 の mutate-3 で生き残った）で意図して直した: ロゴの差し替えで録音バーの 81 枚が計画どおり取り直し待ちに入り、
+  // 足していた overlay-h-light-error-100 は元から RETAKE にあるので、変異が何も変えなかった。表に無い画面（サイドバーを畳んでロゴを写さない notes-collapsed-light）を足す形にした
+  { id: 'shots-retake-overlay', file: 'tools/shots/screens.js', from: 'const RETAKE = new Set([', to: "const RETAKE = new Set(['notes-collapsed-light', ",
     tests: ['test/shots.test.js'], why: 'O-3 RP9・F14・G-3: 基準にした録音バーの画面を、黙って取り直し待ちに戻さない（基準と違っても NG にしない形に戻さない）。0.9.1 の版を上げる commit で RETAKE を空に戻したので、また空に当たる形にした。0.9.2 I-1 で設定の 7 枚が計画どおり取り直し待ちに入ったので、頭に足す形にした。0.9.2 の版を上げる commit で RETAKE を空に戻したので、また空に当たる形にした' },
   { id: 'shots-overflow', file: 'tools/shots/screens.js', from: 'function judgeOverflow(r) {\n', to: 'function judgeOverflow(r) {\n  return { ok: true, note: \'\' };\n',
     tests: ['test/shots.test.js'], why: 'C-1 F11: 横のはみ出しを NG にする' },
