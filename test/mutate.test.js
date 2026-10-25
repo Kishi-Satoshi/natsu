@@ -861,14 +861,15 @@ test('G3・0.11.0: 0.11.0 の変異が一覧にそろい、IDS_110 はどれも�
 });
 
 // 0.11.1 ロゴの差し替え（計画 docs/plans/2026-10-24-logo.md の「変異確認」の表）: 描く道具・新しい絵・画面の中のロゴの直しを1つずつ戻す変異。
-// タスクを作るたびに足す（Ruling R3）。LG-6 で表の全部とちょうど同じにそろえる
+// タスクを作るたびに足した（Ruling R3）。LG-6 で意図して変えた: IDS_LOGO は計画の「変異確認」の表の id とちょうど同じ（表の行の順。表にだけある行は、作っていない変異）
 const IDS_LOGO = [
-  'lg-cubic-order', 'lg-cubic-steps', 'lg-write-atomic',
-  'lg-small-back', 'lg-tray-red', 'lg-feet-line',
-  'lg-mcp-png',
-  'lg-side-fill', 'lg-overlay-invert', 'lg-inline-d',
+  'lg-cubic-order', 'lg-cubic-steps', 'lg-write-atomic',   // LG-1
+  'lg-small-back', 'lg-tray-red',   // LG-2
+  'lg-side-fill', 'lg-overlay-invert', 'lg-inline-d',   // LG-4
+  'lg-feet-line',   // LG-2
+  'lg-mcp-png',   // LG-3
 ];
-test('G3・0.11.1: ロゴの差し替えの変異が一覧にそろい、IDS_LOGO はどれも計画の「変異確認」の表にある。lg- の変異は IDS_LOGO にある。どれも決まったテストのファイルを持ち、why が 0.11.1 で始まる', { timeout: 5000 }, () => {
+test('G3・0.11.1 LG-6: ロゴの差し替えの変異が一覧にそろい、IDS_LOGO は計画の「変異確認」の表の id とちょうど同じ（行の順も）。lg- の変異は IDS_LOGO にある。どれも決まったテストのファイルを持ち、why が 0.11.1 で始まる', { timeout: 5000 }, () => {
   const byId = new Map(MUTANTS.map((m) => [m.id, m]));
   assert.deepStrictEqual(IDS_LOGO.filter((id) => !byId.has(id)), [], 'IDS_LOGO の変異が一覧に無い');
   assert.strictEqual(new Set(IDS_LOGO).size, IDS_LOGO.length, 'IDS_LOGO に重なり');
@@ -879,6 +880,8 @@ test('G3・0.11.1: ロゴの差し替えの変異が一覧にそろい、IDS_LOG
   assert.ok(rows.length >= 10, '計画の表が読めない');
   assert.strictEqual(new Set(rows).size, rows.length, '計画の表に重なり');
   assert.deepStrictEqual(IDS_LOGO.filter((id) => !rows.includes(id)), [], '計画の「変異確認」の表に無い変異');
+  assert.deepStrictEqual(rows.filter((id) => !IDS_LOGO.includes(id)), [], 'IDS_LOGO に無い計画の「変異確認」の表の行（作っていない変異）');
+  assert.deepStrictEqual(IDS_LOGO, rows, 'IDS_LOGO が計画の表（行の順）とちょうど同じでない');
   for (const id of IDS_LOGO) {
     const m = byId.get(id);
     assert.ok(Array.isArray(m.tests) && m.tests.length > 0 && m.tests.every((t) => /^test\/[^/]+\.test\.js$/.test(t)), `${id}: tests`);
