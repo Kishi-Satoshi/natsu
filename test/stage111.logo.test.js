@@ -110,3 +110,17 @@ test('LG-4 LG3 (a): ロゴから海の色の波を外した（.logo .wave の規
   assert.match(S.declsFor(ovl, '.spin', { at: '' })['border-top-color'], /var\(--sea\)/);
   assert.strictEqual(S.tokens(ovl, '')['--sea'], '#0e8cae');
 });
+
+// 0.11.1 点検の直し 3（2026-10-25）: 設計書の D91・D95 の「#111111 と #ffffff だけ」に、画面の中の認めた例外（サイドバーは文字の色と地の色・
+// 録音バーのリスはピルの地の色。LG-4・Ruling R12）を書いておく（設計書と画面の色が食い違ったまま読まれない）
+test('点検の直し 3: 設計書の D91 と D95 の行は、画面の中の色の例外（サイドバーの currentColor・--side、録音バーのリスはピルの地の色）を書いている', () => {
+  const d = read('docs/plans/natsu-design.md');
+  for (const id of ['D91', 'D95']) {
+    const row = d.split('\n').find((l) => l.startsWith(`| ${id} |`));
+    assert.ok(row, `${id} の行が無い`);
+    assert.match(row, /currentColor/, `${id}: サイドバーの箱の色`);
+    assert.match(row, /--side/, `${id}: サイドバーのリスの色`);
+    assert.match(row, /ピルの地/, `${id}: 録音バーのリスの色`);
+    assert.match(row, /R12/, `${id}: どこで決めたか`);
+  }
+});
