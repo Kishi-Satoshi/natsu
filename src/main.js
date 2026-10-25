@@ -1529,7 +1529,8 @@ async function transcribeLocal(wavBuffer, extraPromptTail, durationMs, opts = {}
     const makeForm = () => {
       const form = new FormData();
       form.append('file', new Blob([wavBuffer], { type: 'audio/wav' }), 'audio.wav');
-      form.append('response_format', 'json');
+      // 0.12.0 SP-3b（決めたこと 128）: 2つの流れの会議の区間は、文ごとの時刻（segments）も返してもらう（文ごとの行に分ける: partsOf）
+      form.append('response_format', opts.verbose ? 'verbose_json' : 'json');
       form.append('temperature', '0.0');
       // 前の要求の続きとして文字起こしさせない。1.7.6・1.8.0 などの whisper-server は既定で前の要求の
       // ヒントと文を次の要求に持ち越す（別の議事録や音声入力にまで漏れ、上の「ヒントなし」の
@@ -1577,6 +1578,7 @@ async function transcribeLocal(wavBuffer, extraPromptTail, durationMs, opts = {}
     // 空の文として扱うと区間ごと黙って消えるので、失敗として残す（後で文字起こしし直せる）
     if (data?.error) throw new Error(`文字起こしエンジンエラー: ${data.error}`);
     text = cleanWhisperText(data?.text);
+    if (opts.verbose && typeof opts.onSentences === 'function') opts.onSentences(Array.isArray(data?.segments) ? data.segments : null);
     if (text || !p) break;
   }
   // 空になった理由を後から追えるように残す（以前は何も書かず、engine.log からは何も分からなかった）
@@ -2768,6 +2770,11 @@ async function probeInference() {
   }
 }
 // whisper の文から、無音・音楽などの印を外して 1 行にする
+// 0.12.0 SP-3b: whisper の文1つに区間の文と同じ直し（cleanWhisperText と、設定がオンならつなぎ言葉の除き）をかける（partsOf が区間の文の中を探す）
+function cleanSentence(raw) {
+  const t = cleanWhisperText(raw);
+  return settings.removeFillers ? removeFillersRule(t) : t;
+}
 function cleanWhisperText(raw) {
   return String(raw || '')
     .replace(/\[[^\]]*\]|\([^)]*\)/g, (m) => (/BLANK|MUSIC|音楽|拍手/i.test(m) ? '' : m))
@@ -4690,10 +4697,13 @@ async function transcribeRecoveredItems(q, { cloudOnly = false } = {}) {
     let text = null;
     let err = '';
     let route = 'local';
+    // 0.12.0 SP-3b（決めたこと 144）: 2つの流れの会議（入口のある発言がある）の区間は、会議の後と戻しでも文の頭（parts）を作る
+    const twoPage = Boolean(alive.segments && alive.segments.some((s) => s && s.src));
+    let sentences = null;
     if (!err) {
       try {
         ({ text, route } = await transcribeAuto(fs.readFileSync(item.wav), '', item.durationMs, { localOnly: recoveryPcOnly(q), cloudOnly, what: `復旧 ${item.id}`, seg: item.id,
-          busyStop: () => state !== 'idle' }));
+          busyStop: () => state !== 'idle', verbose: twoPage, onSentences: (x) => { sentences = x; } }));
         if (settings.removeFillers) text = removeFillersRule(text);
       } catch (e) {
         const kind = e && !e.refused && e.sttRoute && e.sttRoute.route === 'local' ? lib.localFailKind(e) : '';
@@ -4716,7 +4726,9 @@ async function transcribeRecoveredItems(q, { cloudOnly = false } = {}) {
       left.push(held ? { ...item, tries, held: true } : { ...item, tries });
       continue;
     } else if (text) {
-      await db.call('segment.update', { pageId: q.pageId, segId: item.id, patch: { text }, recite: false });
+      const parts = twoPage && route === 'local' && sentences ? lib.partsOf(sentences, { text, durationMs: item.durationMs, clean: cleanSentence }) : null;
+      if (parts) await db.call('segment.update', { pageId: q.pageId, segId: item.id, patch: { text, parts }, recite: false });
+      else await db.call('segment.update', { pageId: q.pageId, segId: item.id, patch: { text }, recite: false });
       done++;
     } else {
       await db.call('segment.remove', { pageId: q.pageId, segId: item.id });   // 無音: 区間ごと消す（記録中と同じ扱い）
@@ -5087,10 +5099,11 @@ function onMeetingSegment(buffer, durationMs, isFinal, metaIn) {
     let echoFold = '';
     let loudDbfs = null;
     let procMs = null;   // 0.9.4 S-4: PC への要求の時間（transcribeLocal の onTimed）
+    let sentences = null;   // 0.12.0 SP-3b: PC の whisper の文（verbose_json の segments）
     // 第1d回 A-6: OpenAI の短い 429 を待つ間の帯 wait（区間が終わったら消す）
     const onWait = (sec) => { if (meeting === m && m.gen === gen) { setSttProblem(m, 'wait', { sec }); sendToMainWin('meeting:update', meetingStatus()); } };
     try {
-      ({ text, route, why, scope, silent, echo, echoFold, loudDbfs } = await transcribeAuto(buffer, tail, durationMs, { isStale: () => meeting !== m || m.gen !== gen, learn: true, localOnly: m.localOnly, notice: m, what: `区間 ${seg.id}`, seg: seg.id, onWait, gate: Boolean(lane),
+      ({ text, route, why, scope, silent, echo, echoFold, loudDbfs } = await transcribeAuto(buffer, tail, durationMs, { isStale: () => meeting !== m || m.gen !== gen, learn: true, localOnly: m.localOnly, notice: m, what: `区間 ${seg.id}`, seg: seg.id, onWait, gate: Boolean(lane), verbose: Boolean(lane), onSentences: (x) => { sentences = x; },
         paceSlow: () => Boolean(m.pace && m.pace.slow), onTimed: (ms) => { procMs = ms; } }));
     } catch (e) {
       if (meeting !== m || m.gen !== gen) return;
@@ -5154,7 +5167,9 @@ function onMeetingSegment(buffer, durationMs, isFinal, metaIn) {
       return;
     }
     noteSttText(m, route);
-    settleSegment(m, seg, { text });
+    // 0.12.0 SP-3b（決めたこと 128）: PC の側の長い区間は、whisper の文の時刻で文の頭（parts）を作る。作れなければ1行（S5 (a)）
+    const parts = lane && route === 'local' && sentences ? lib.partsOf(sentences, { text, durationMs, clean: cleanSentence }) : null;
+    settleSegment(m, seg, parts ? { text, parts } : { text });
     // 0.12.0 SP-3a（決めたこと 129・S9 (a)）: 相手の声の回り込み（同じ言葉のマイクの行）を除く。後に文字起こしを終えた方の時に見る
     if (lane && bleedCheck(m, lane, seg)) { noteHeard(m, seg, 'quiet'); return; }
     noteHeard(m, seg, 'speech');   // 0.9.1 Q-4

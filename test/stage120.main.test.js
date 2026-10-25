@@ -227,3 +227,59 @@ test('SP-3a: 話者の無い古い DB（v1.db の写し）の会議が今どお�
     assert.ok(g.result.segments.every((s) => !Object.hasOwn(s, 'src') && !Object.hasOwn(s, 'parts')));
   } finally { try { if (r) r.db.close(); } catch (_) { /* 閉じ済み */ } fs.rmSync(dir, { recursive: true, force: true }); }
 });
+
+// ---------------------------------------------------------------- SP-3b（決めたこと 128・144。S5 (a)）: PC の側の文の頭（parts）
+const rfOf = (o) => o.requests.filter((l) => !/probe=true/.test(l)).map((l) => (/rf=(\S*)/.exec(l) || [])[1]);
+const MIC_PARTS = [{ ms: 0, at: 0 }, { ms: 6667, at: 13 }, { ms: 13333, at: 23 }];
+test('SP-3b・F23: オフラインモードの2つの流れの会議で、偽の whisper が文の時刻を返すと区間に parts（ms・at）が付く。偽の whisper が受けた response_format は verbose_json', T, async () => {
+  const o = await run(PC('pc-parts', '--relay=tagged', '--local-only'));
+  const s = segsOf(o);
+  const mic0 = s.find((x) => x.src === 'mic' && x.atMs === 0);
+  const loop0 = s.find((x) => x.src === 'loopback' && x.atMs === 0);
+  assert.ok(mic0 && loop0, dump(o));
+  assert.strictEqual(mic0.text, 'はじめに見積を確認します。次に納期を決めます。最後に担当を決めます。');
+  assert.deepStrictEqual(mic0.parts, MIC_PARTS);
+  assert.deepStrictEqual(loop0.parts, [{ ms: 0, at: 0 }, { ms: 10000, at: 13 }]);
+  // 文が1つの区間は1行のまま（parts なし）
+  assert.ok(s.filter((x) => x.atMs === 20000).every((x) => x.parts === undefined), dump(o));
+  assert.ok(rfOf(o).length >= 4 && rfOf(o).every((x) => x === 'verbose_json'), JSON.stringify(o.requests));
+  assert.strictEqual(sttReqs(o).length, 0);
+});
+
+test('SP-3b・F23: segments を返さない（古いエンジン）・最後の end と長さが 3 秒ずれる → parts が無く区間が1行（札は付く）', T, async () => {
+  for (const mode of ['none', 'drift']) {
+    const o = await run(PC('pc-parts'), { env: { FAKE_SENTENCES: mode } });
+    const s = segsOf(o);
+    assert.ok(s.length === 4 && s.every((x) => x.parts === undefined && (x.src === 'mic' || x.src === 'loopback')), `${mode}: ${dump(o)}`);
+  }
+});
+
+test('SP-3b: ヒントなしのやり直しも verbose_json。起動の試しと1本の会議（音声入力と同じく文だけを読む）は今のまま json', T, async () => {
+  // 待ち時間は本物の尺度（偽の時計を進める場面で、ヒントなしのやり直しの前の残り時間の確かめが先に切れない）
+  const o = await run(['prompt-empty', '--two-streams=pc-parts', '--test'], { env: { NATSU_TEST_LOCAL_TIME_SCALE: '1' } });
+  const rf = rfOf(o);
+  assert.ok(o.requests.some((l) => /prompt=false probe=false/.test(l)), '場面の前提: ヒントなしのやり直しが無い');
+  assert.ok(rf.length >= 6 && rf.every((x) => x === 'verbose_json'), JSON.stringify(o.requests));
+  assert.ok(o.requests.filter((l) => /probe=true/.test(l)).every((l) => /rf=json$/.test(l)), JSON.stringify(o.requests));
+  assert.deepStrictEqual(segsOf(o).find((x) => x.src === 'mic' && x.atMs === 0).parts, MIC_PARTS);
+  const one = await run(['text', '--segs=2']);
+  assert.ok(rfOf(one).length >= 2 && rfOf(one).every((x) => x === 'json'), JSON.stringify(one.requests));
+});
+
+test('SP-3b・F23: 遅い PC の会議で残した音声を、会議の後に文字起こしすると parts が付く', T, async () => {
+  const o = await run(PC('pc-slow-parts', '--after-retry'), { timeout: 110000 });
+  assert.ok(o.engineLog.some((l) => /遅い PC のため音声を残した/.test(l)), `場面の前提: 遅い PC の会議になっていない: ${o.engineLog.join('\n')}`);
+  const after = o.afterRetry.segments;
+  assert.ok(after.length >= 6 && after.every((x) => !x.failed), JSON.stringify(after));
+  assert.ok(after.every((x) => Array.isArray(x.parts) && x.parts.length >= 2), `会議の後に文字起こしした区間に parts が無い: ${JSON.stringify(after)}`);
+});
+
+test('SP-3b・F23: 落ちて下書きから戻しても parts が残る', T, async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'natsu-文頭𠮷-'));
+  try {
+    assert.strictEqual(await runExit(PC('kill-parts', `--keep-user-data=${dir}`)), 3, '場面の前提: main ごと落ちていない');
+    const o = await run(['text', '--recover', `--keep-user-data=${dir}`]);
+    const withParts = o.pages[0].segs.filter((x) => Array.isArray(x.parts));
+    assert.ok(withParts.length >= 1 && withParts.every((x) => x.parts.length >= 2), JSON.stringify(o.pages[0].segs));
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});

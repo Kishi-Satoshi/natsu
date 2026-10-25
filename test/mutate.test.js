@@ -900,6 +900,7 @@ const IDS_120 = [
   'spk-final-both', 'spk-cut-seq', 'spk-cut-paused', 'spk-sys-drop-rec', 'spk-vad-meter', 'spk-drop-src', 'spk-src-swap',   // SP-2
   'spk-mic-only-src', 'spk-src-race', 'spk-level-hidden', 'spk-silent-send', 'spk-quiet-drop', 'spk-trim-at', 'spk-backpressure', 'spk-local-gate',
   'spk-tail-stream', 'spk-repeat-stream', 'spk-statelog', 'spk-bleed-loose',   // SP-3a
+  'spk-verbose', 'spk-parts-edit', 'spk-parts-after',   // SP-3b
 ];
 test('G3・0.12.0: 0.12.0 の変異が一覧にそろい、IDS_120 はどれも計画の「変異確認」の表にある。spk- の変異は IDS_120 にある。どれも決まったテストのファイルを持ち、why が 0.12.0 で始まる', { timeout: 5000 }, () => {
   const byId = new Map(MUTANTS.map((m) => [m.id, m]));

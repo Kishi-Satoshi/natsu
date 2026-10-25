@@ -3208,6 +3208,7 @@ process.on('exit', () => {
       if (said) return said.text;
       const list = fx.texts && Array.isArray(fx.texts[key]) ? fx.texts[key] : null;
       if (list && typeof list[k] === 'string') return list[k];
+      if (fx.sentences) return key === 'mic' ? `わたしから一つ目の${k + 1}を話します。二つ目に予定を決めます。三つ目に担当を決めます。` : `そちら側の${k + 1}番を聞かせてください。工程も教えてください。`;
       // 流れごとに違う言い回し（既定の文どうしが回り込みに見えない: 文字の3つ組がほとんど重ならない）
       return key === 'mic' ? `わたしから${['見積', '在庫', '納期', '契約', '採用', '予算', '品質', '体制'][k % 8]}をご説明します${k + 1}`
         : `そちら側で${['売上', '工程', '発注', '保守', '研修', '広報', '設計', '監査'][k % 8]}はどうお考えでしょう${k + 1}`;
@@ -3509,7 +3510,7 @@ process.on('exit', () => {
     await sleep(100);
     const p = store.listPages()[0];
     out.afterRetry = {
-      segments: p ? store.getTranscript(p.id).map((x) => ({ text: x.text, failed: Boolean(x.failed) })) : [],
+      segments: p ? store.getTranscript(p.id).map((x) => ({ text: x.text, failed: Boolean(x.failed), parts: x.parts, src: x.src })) : [],   // 0.12.0 SP-3b: parts・src
       engineLog: elogLines(),
       requests: fs.readFileSync(flog, 'utf8').split('\n').filter((l) => l.startsWith('inference')),
     };

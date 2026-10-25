@@ -307,9 +307,13 @@ function segmentUpdate(db, { pageId, segId, patch, recite = true }, ctx) {
   const segments = clone(olds);
   const s = segments.find((x) => x.id === segId);
   if (typeof patch.text === 'string') {
+    const changed = s.text !== patch.text;
     s.text = patch.text;
     delete s.failed;   // 「認識に失敗」の行を人が書き直したら、要約の材料に戻す（今の store.updateSegment）
+    // 0.12.0 SP-3b（決めたこと 144・145）: 文が変わって parts の無い直しなら、古い文の頭を消す（文を直した区間は1行）
+    if (changed && !Array.isArray(patch.parts)) delete s.parts;
   }
+  if (Array.isArray(patch.parts)) s.parts = patch.parts;   // 会議の後と戻しの文字起こし（照らしは checkSegPatch）
   // 発言の直し・出典の付け直し・ページの保存を1つのトランザクションで（今の2回の保存の間の隙間を無くす: ST6）
   const ops = diffSegments(olds, segments, pageId);
   if (recite !== false) {

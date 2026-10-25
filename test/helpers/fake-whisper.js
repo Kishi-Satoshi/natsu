@@ -25,6 +25,8 @@
 // どの場面でも、WAV の頭（RIFF/WAVE、16kHz・モノラル・16bit）が壊れていれば 200 のまま {"error"} を返す
 // （本物の 1.7.6・1.8.0 と同じ）。受けた要求は FAKE_LOG に 1 行ずつ書く。
 // 0.12.0 SP-3a: FAKE_TAG_FILE（JSON の文の並び）があり、WAV の末尾の3つの標本が [3, -3, 番号] なら、その番号の文を返す（mainrun の --two-streams）
+// 0.12.0 SP-3b: response_format が verbose_json なら、文（「。」で切る）ごとに区間の長さを等分した start・end（秒）の segments を付ける。
+//   FAKE_SENTENCES=none は segments を付けない（古いエンジン）・drift は最後の end を 3 秒ずらす。要求の行に rf=<response_format> を足した
 // 0.12.0 SP-3a: 要求の行の最後に busy=<そのとき答えていない区間の要求の数（この要求を含む）>（2つの流れの会議で PC へ同時に送らないかを見る）
 
 const http = require('http');
@@ -91,7 +93,7 @@ const server = http.createServer((req, res) => {
     const isProbe = form.filename === 'probe.wav';
     const okWav = wavOk(form.file);
     if (!isProbe) { busy++; res.on('close', () => { busy--; }); }
-    note(`inference #${n} bytes=${body.length} prompt=${hasPrompt} probe=${isProbe} lang=${form.fields.language || ''} carry=${form.fields.carry_initial_prompt || ''} nc=${form.fields.no_context || ''} wav=${okWav} busy=${busy}`);
+    note(`inference #${n} bytes=${body.length} prompt=${hasPrompt} probe=${isProbe} lang=${form.fields.language || ''} carry=${form.fields.carry_initial_prompt || ''} nc=${form.fields.no_context || ''} wav=${okWav} busy=${busy} rf=${form.fields.response_format || ''}`);
     if (!okWav) { json(res, 200, { error: 'failed to read audio data' }); return; }
     if (isProbe && mode === 'probe500') { json(res, 500, { error: 'boom' }); return; }
     if (isProbe && mode === 'probe-badjson') { json(res, 200, 'not json'); return; }
@@ -120,7 +122,16 @@ const server = http.createServer((req, res) => {
       if (at(3) !== 3 || at(2) !== -3) return null;
       try { const list = JSON.parse(fs.readFileSync(process.env.FAKE_TAG_FILE, 'utf8')); return typeof list[at(1)] === 'string' ? list[at(1)] : null; } catch (_) { return null; }
     })();
-    const reply = () => json(res, 200, { text: tagged !== null ? tagged : process.env.FAKE_TEXT ? `${process.env.FAKE_TEXT}区間${n}` : ` 本日の議題は\n進捗の確認です。区間${n}\n` });
+    const answerText = tagged !== null ? tagged : process.env.FAKE_TEXT ? `${process.env.FAKE_TEXT}区間${n}` : ` 本日の議題は\n進捗の確認です。区間${n}\n`;
+    const sentencesOf = (text) => {
+      const pieces = String(text).split(/(?<=。)/).filter((x) => x.trim());
+      const sec = okWav ? Math.floor((form.file.length - 44) / 2) / 16000 : 0;
+      const segs = pieces.map((x, i) => ({ id: i, start: Math.round((i * sec / pieces.length) * 1000) / 1000, end: Math.round(((i + 1) * sec / pieces.length) * 1000) / 1000, text: x }));
+      if (segs.length && process.env.FAKE_SENTENCES === 'drift') segs[segs.length - 1].end += 3;
+      return segs;
+    };
+    const reply = () => json(res, 200, form.fields.response_format === 'verbose_json' && process.env.FAKE_SENTENCES !== 'none'
+      ? { text: answerText, segments: sentencesOf(answerText) } : { text: answerText });
     if (mode === 'slow' && !isProbe) setTimeout(reply, 1500);
     else if (mode === 'delay' && !isProbe) setTimeout(reply, Number(process.env.FAKE_DELAY_MS) || 0);
     else reply();
