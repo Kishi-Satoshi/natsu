@@ -3386,8 +3386,8 @@ function onPanelSize(p) {
 }
 
 // 窓（題名の帯・タスクバー）のアイコン。Windows では ICO を渡す。ICO なら OS が画面に合う大きさを選び、
-// 16px・24px では線を太くした小さい版（assets/icon-small.svg から描いたもの）が出る。
-// PNG（256px）を渡すと、それを縮めて使うので、16px で箱の上の波がほとんど見えなくなる。
+// 16px・24px では、その大きさで描いた絵（assets/icon.svg から描いたもの。0.11.1 で小さい版はやめた）が出る。
+// PNG（256px）を渡すと、それを縮めて使うので、16px で形がぼやける。
 // 置き場所は src/assets（中身は assets/icon.ico・icon.png と同じ）。アプリ内の更新は src/ だけを
 // 入れ替えるので、src の外に置くと、描き直したアイコンがインストーラーを入れ直すまで届かない
 const WINDOW_ICON = path.join(__dirname, 'assets', process.platform === 'win32' ? 'window.ico' : 'window.png');

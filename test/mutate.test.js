@@ -864,6 +864,7 @@ test('G3・0.11.0: 0.11.0 の変異が一覧にそろい、IDS_110 はどれも�
 // タスクを作るたびに足す（Ruling R3）。LG-6 で表の全部とちょうど同じにそろえる
 const IDS_LOGO = [
   'lg-cubic-order', 'lg-cubic-steps', 'lg-write-atomic',
+  'lg-small-back', 'lg-tray-red', 'lg-feet-line',
 ];
 test('G3・0.11.1: ロゴの差し替えの変異が一覧にそろい、IDS_LOGO はどれも計画の「変異確認」の表にある。lg- の変異は IDS_LOGO にある。どれも決まったテストのファイルを持ち、why が 0.11.1 で始まる', { timeout: 5000 }, () => {
   const byId = new Map(MUTANTS.map((m) => [m.id, m]));
