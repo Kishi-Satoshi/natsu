@@ -27,6 +27,7 @@
 // 0.12.0 SP-3a: FAKE_TAG_FILE（JSON の文の並び）があり、WAV の末尾の3つの標本が [3, -3, 番号] なら、その番号の文を返す（mainrun の --two-streams）
 // 0.12.0 SP-3b: response_format が verbose_json なら、文（「。」で切る）ごとに区間の長さを等分した start・end（秒）の segments を付ける。
 //   FAKE_SENTENCES=none は segments を付けない（古いエンジン）・drift は最後の end を 3 秒ずらす。要求の行に rf=<response_format> を足した
+//   要求の行の nlp= は no_language_probabilities の欄（verbose_json で無いと、本物の 1.9.5 は VAD で声の無い音声で落ちる: R25）
 // 0.12.0 SP-3a: 要求の行の最後に busy=<そのとき答えていない区間の要求の数（この要求を含む）>（2つの流れの会議で PC へ同時に送らないかを見る）
 
 const http = require('http');
@@ -93,7 +94,7 @@ const server = http.createServer((req, res) => {
     const isProbe = form.filename === 'probe.wav';
     const okWav = wavOk(form.file);
     if (!isProbe) { busy++; res.on('close', () => { busy--; }); }
-    note(`inference #${n} bytes=${body.length} prompt=${hasPrompt} probe=${isProbe} lang=${form.fields.language || ''} carry=${form.fields.carry_initial_prompt || ''} nc=${form.fields.no_context || ''} wav=${okWav} busy=${busy} rf=${form.fields.response_format || ''}`);
+    note(`inference #${n} bytes=${body.length} prompt=${hasPrompt} probe=${isProbe} lang=${form.fields.language || ''} carry=${form.fields.carry_initial_prompt || ''} nc=${form.fields.no_context || ''} wav=${okWav} busy=${busy} nlp=${form.fields.no_language_probabilities || ''} rf=${form.fields.response_format || ''}`);
     if (!okWav) { json(res, 200, { error: 'failed to read audio data' }); return; }
     if (isProbe && mode === 'probe500') { json(res, 500, { error: 'boom' }); return; }
     if (isProbe && mode === 'probe-badjson') { json(res, 200, 'not json'); return; }

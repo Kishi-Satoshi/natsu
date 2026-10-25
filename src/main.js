@@ -1531,6 +1531,9 @@ async function transcribeLocal(wavBuffer, extraPromptTail, durationMs, opts = {}
       form.append('file', new Blob([wavBuffer], { type: 'audio/wav' }), 'audio.wav');
       // 0.12.0 SP-3b（決めたこと 128）: 2つの流れの会議の区間は、文ごとの時刻（segments）も返してもらう（文ごとの行に分ける: partsOf）
       form.append('response_format', opts.verbose ? 'verbose_json' : 'json');
+      // 0.12.0 SP-3b（R25）: verbose_json の言語の確率は頼まない。whisper-server 1.9.5 は VAD で声が1つも無い音声で、その計算（言語の自動判定）の
+      // 答えの -2 を言語の名前に引いて落ちる（CI run 40171656089 の engine-smoke）。確率は使わず、計算もエンコーダを1回余分に回すだけ
+      if (opts.verbose) form.append('no_language_probabilities', 'true');
       form.append('temperature', '0.0');
       // 前の要求の続きとして文字起こしさせない。1.7.6・1.8.0 などの whisper-server は既定で前の要求の
       // ヒントと文を次の要求に持ち越す（別の議事録や音声入力にまで漏れ、上の「ヒントなし」の

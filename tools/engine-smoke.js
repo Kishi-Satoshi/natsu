@@ -338,6 +338,8 @@ async function inference(port, rf = 'json') {
     Buffer.from(`--${b}\r\nContent-Disposition: form-data; name="file"; filename="probe.wav"\r\nContent-Type: audio/wav\r\n\r\n`),
     silentWav(2), Buffer.from('\r\n'),
     field('response_format', rf), field('temperature', '0.0'), field('no_context', 'true'), field('language', 'ja'),
+    // アプリと同じく verbose_json では言語の確率を頼まない（頼むと 1.9.5 は VAD で声の無い音声で落ちる: R25。CI run 40171656089）
+    ...(rf === 'verbose_json' ? [field('no_language_probabilities', 'true')] : []),
     Buffer.from(`--${b}--\r\n`),
   ]);
   const r = await httpCall(port, 'POST', '/inference', { body, type: `multipart/form-data; boundary=${b}`, timeoutMs: 120000 });

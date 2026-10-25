@@ -243,6 +243,9 @@ test('SP-3b・F23: オフラインモードの2つの流れの会議で、偽の
   // 文が1つの区間は1行のまま（parts なし）
   assert.ok(s.filter((x) => x.atMs === 20000).every((x) => x.parts === undefined), dump(o));
   assert.ok(rfOf(o).length >= 4 && rfOf(o).every((x) => x === 'verbose_json'), JSON.stringify(o.requests));
+  // R25: verbose_json では言語の確率を頼まない（本物の 1.9.5 は VAD で声の無い音声で落ちる）。json の要求には付けない
+  assert.ok(o.requests.filter((l) => /rf=verbose_json/.test(l)).every((l) => /nlp=true /.test(l)), JSON.stringify(o.requests));
+  assert.ok(o.requests.filter((l) => /rf=json/.test(l)).every((l) => /nlp= /.test(l)), JSON.stringify(o.requests));
   assert.strictEqual(sttReqs(o).length, 0);
 });
 
