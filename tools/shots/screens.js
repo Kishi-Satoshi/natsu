@@ -241,7 +241,7 @@ const SCREENS = [
   { name: 'page-quality-dark', page: 'app', theme: 'dark', get answers() { return qualityAnswers(); }, act: OPEN_QUALITY },
   // 0.11.0 V-3: 項目「要約」のカード「打ち合わせの質」まで捲った形。足した画面（版を 0.11.0 に上げる commit で基準にした）
   { name: 'settings-quality-light', page: 'app', theme: 'light', act: `${OPEN_SETTINGS}; ${NAV('setNavSummary')}; document.getElementById('qualityCardSet').scrollIntoView({ block: 'start' })` },
-  // 0.12.0 SP-4（D53・D66）: 足した画面。文字起こしのタブの「自分」「相手」の札・重なり・PC の側の文ごとの行
+  // 0.12.0 SP-4（D53・D66）: 文字起こしのタブの「自分」「相手」の札・重なり・PC の側の文ごとの行。足した画面（版を 0.12.0 に上げる commit で基準にした）
   { name: 'notes-script-spk-light', page: 'app', theme: 'light', act: OPEN_PAGE_SCRIPT },
 ];
 // 0.9.0 O-3（RP9）: 録音バーの画面（形 → 地 → 拡大率 → 状態の順。撮る道具は形・地・拡大率の組ごとに窓を1つ開いて状態を act で替える）。
@@ -323,10 +323,10 @@ const OVL_094 = (states) => PS.FORMS.flatMap((form) => Object.keys(PS.DESKS).fla
 // 0.11.1（版を 0.11.1 に上げる commit。LG-8）: 持ち主が 2026-10-25 にロゴの見比べ（CI run 40158349532（1c87b3c）の撮影の見比べの絵）を見て
 // 「OK（版を 0.11.1 に上げてよい）」と言ったので、その run の artifact 12585288773 の .after.png（139 枚: 録音バー 81・本体の窓 53・パネル 5）を
 // バイトのまま基準にし、空に戻した
-// 0.12.0 SP-4（計画 docs/plans/2026-10-22-120.md の「取り直す画面（RETAKE）」。D53・D66）: 録音中のページの文字起こしの行の「自分」「相手」の札
-// （録音中の種 liveAnswers の発言に src を足した。文字起こしのタブを写す 13 枚）と、足した文字起こしのタブの画面（札・重なり・文ごとの行。まだ基準が無い）
-const RETAKE = new Set(['live-light', 'live-dark', 'live-banner-light', 'live-banner-dark', 'live-banner-zoom200-dark', 'live-quiet-light', 'live-quiet-dark',
-  'live-wave-light', 'live-wave-dark', 'live-silent-light', 'live-paused-dark', 'live-offline-light', 'live-offline-dark', 'notes-script-spk-light']);
+// 0.12.0（版を 0.12.0 に上げる commit。Task G）: 持ち主が 2026-10-25 に取り直しの見比べ（CI run 40187063736（e580fca）の 14 枚。録音中のページの文字起こしの
+// 「自分」「相手」の札の 13 枚と、足した notes-script-spk-light）を見て「OK（版を 0.12.0 に上げてよい）」と言ったので、その run の artifact 12596530760 の
+// .after.png をバイトのまま基準にし、空に戻した
+const RETAKE = new Set([]);
 const PERF = [{ name: 'open-2000-blocks', budgetMs: 500 }];   // 3回開いた中央値で見る
 const TIME_ZONE = 'Asia/Tokyo';
 const TOLERANCE = 2;   // 色の差（0〜255）がこれ以下の画素は同じとみなす。CI の機械の CPU ごとの描き方の1段の差を拾わないため（揺れの確かめ judgePair は 0 で見る）
