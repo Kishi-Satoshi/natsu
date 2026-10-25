@@ -1658,3 +1658,17 @@ test('0.11.0 V-2: orderForView・savedIndexForDrop・qualityLinesView（app.html
   assert.ok(view);
   for (const v of [view, null, undefined]) assert.deepStrictEqual(app.qualityLinesView(v), Q.qualityLines(v));
 });
+
+// 0.12.0 SP-1（計画 docs/plans/2026-10-22-120.md の「受け渡す名前と形」）: 声あり・なしの境は録音バーの無音の警告と同じ値。タイムラインと札は1か所で決める
+test('0.12.0 SP-1: mainlib.VOICE_LEVEL は録音バーの SILENT_LEVEL と同じ字面。mainlib の timelineOf・札の表は src/mcp/timeline.js と同じ物', () => {
+  const L = require('../src/mainlib');
+  const TL = require('../src/mcp/timeline');
+  const m = read('src/renderer/overlay.html').match(/const SILENT_LEVEL = ([0-9.]+);/);
+  assert.ok(m, '録音バーの SILENT_LEVEL が無い');
+  assert.strictEqual(L.VOICE_LEVEL, Number(m[1]));
+  assert.match(read('src/mainlib.js'), new RegExp(`const VOICE_LEVEL = ${m[1].replace('.', '\\.')};`));
+  assert.strictEqual(L.timelineOf, TL.timelineOf);
+  assert.strictEqual(L.SOURCE_LABELS, TL.SOURCE_LABELS);
+  assert.strictEqual(L.srcLabel, TL.srcLabel);
+  assert.strictEqual(L.checkParts, TL.checkParts);
+});
