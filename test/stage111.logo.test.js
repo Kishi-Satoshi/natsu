@@ -124,3 +124,13 @@ test('点検の直し 3: 設計書の D91 と D95 の行は、画面の中の色
     assert.match(row, /R12/, `${id}: どこで決めたか`);
   }
 });
+
+// 0.11.1 点検の直し 4（2026-10-25）: RF-LG3 をずっと守るのは CSS のトークンのテスト（このファイル）で、撮った画面の比の確かめは一度きりだったと、
+// 計画の Ruling R20 にはっきり書く（後の回が、撮る画面の確かめが毎回走っていると思い込まない）
+test('点検の直し 4: 計画の Ruling R20 は、RF-LG3 のずっと続く守りが test/stage111.logo.test.js の CSS のトークンのテストで、撮った画面の比は一度きりと書く', () => {
+  const plan = read('docs/plans/2026-10-24-logo.md');
+  const r20 = plan.split('\n').find((l) => l.startsWith('- **R20'));
+  assert.ok(r20, 'R20 が無い');
+  assert.match(r20, /RF-LG3 をずっと守るのは[^。]*test\/stage111\.logo\.test\.js/);
+  assert.match(r20, /一度きり/);
+});
