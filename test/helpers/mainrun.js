@@ -408,6 +408,10 @@ const { titleAt } = require('./titles');
 //     --dark … 偽の nativeTheme.shouldUseDarkColors を真で始める
 //   0.12.1 LV-2〜LV-3（会議を出たら止める。計画 docs/plans/2026-10-24-121.md）
 //     --leave=off … 置く settings.json の autoStopLeave: false（設定「会議を出たら自動で止める」がオフ）
+//     --mic-feed の手順に足す: ["pause", bool]（画面と同じ meeting:set-paused。偽の録音バーが答える）・["click-notice", n]（n 番目に show() した偽の Notification を押す）・
+//                        ["discard"]（画面と同じ meeting:discard）。snap に sentN（本体の窓へ送った数）・notes（偽の Notification の数）。出力に notifications（{ title, body, closed }）・
+//                        notifyClosed・pageDur（ページごとの { id, durationSec, pauses }）を足す
+//     --quiet-mic … --quiet-seq の場面でも偽の見張りを起こし、字 T（見張りに mic teams:1）・L（mic -）を足す（どちらも偽の時計を 2 秒進める。Ruling R2）
 //   0.10.0 C-2（Claude デスクトップへの MCP の登録。計画 docs/plans/2026-10-20-100.md）
 //     app.getPath('appData') は一時フォルダ（日本語と 𠮷）の AppData-Roaming。MCP の場面（--claude-config・--mcp-steps）だけ app.getAppPath() がリポジトリの根
 //     --claude-config=<場面> … 起動の前に Claude デスクトップの設定ファイルを置く（none: フォルダだけ・plain: 好みの設定だけ・others: 好みの設定と
@@ -537,6 +541,8 @@ if (micSteps) process.env.NATSU_TEST_MIC_WATCH = '1';
 const detectFlag = flagVal('--detect');
 const detectMuteFlag = flagVal('--detect-mute');
 const leaveFlag = flagVal('--leave');   // 0.12.1 LV-2: --leave=off（置く settings.json の autoStopLeave: false）
+const quietMic = flags.includes('--quiet-mic');   // 0.12.1 LV-3: --quiet-seq の場面でも偽の見張りを起こす（字 T・L）
+if (quietMic) process.env.NATSU_TEST_MIC_WATCH = '1';
 const darkFlag = flags.includes('--dark');
 // 0.10.0 C-2: Claude デスクトップへの MCP の登録の場面（頭の注釈）
 const claudeConfigFlag = flagVal('--claude-config');
@@ -574,7 +580,7 @@ const protocolCalls = [];
 const argvFlag = flagVal('--argv') ? JSON.parse(flagVal('--argv')) : null;
 // 0.9.1 Q-4: 話し声が無いときに自動で止める場面（頭の注釈）
 const quietSeq = flagVal('--quiet-seq') ? flagVal('--quiet-seq').split(',').flatMap((t) => {
-  const m = /^([stbkxXPdSR])(?::(.))?(?:\*(\d+))?$/.exec(t);
+  const m = /^([stbkxXPdSRTL])(?::(.))?(?:\*(\d+))?$/.exec(t);
   if (!m) { process.stderr.write(`mainrun: --quiet-seq の ${t} が読めない\n`); process.exit(1); }
   return Array.from({ length: Number(m[3] || 1) }, () => ({ k: m[1], ans: m[2] || 'c', tok: t }));
 }) : null;
@@ -1361,15 +1367,17 @@ process.on('exit', () => {
   const notifications = [];   // 第1d回 A-8: 偽の Notification の show() の { title, body }
   let notifyClosed = 0;       // 0.9.1 Q-4: 偽の Notification の close() の数
   // 偽の Electron の Notification（第1d回 A-8）。on('click') の受け口を覚え、--click-notify なら show() の直後に押す
+  const noticeObjs = [];   // 0.12.1 LV-3: show() した偽の Notification（["click-notice", n] で n 番目を押す）
   class FakeNotification {
     static isSupported() { return !noNotify; }
     constructor(o) { makeEmitter(this); this.o = o || {}; }
     show() {
       if (notifyThrows) throw new Error('偽の知らせが壊れている');
       notifications.push({ title: this.o.title, body: this.o.body });
+      noticeObjs.push(this);
       if (clickNotify) setTimeout(() => this.emit('click', {}), 0);
     }
-    close() { notifyClosed += 1; }
+    close() { notifyClosed += 1; this.closed = true; }
   }
   const mainSent = [];   // 本体の窓（wins[1]）の webContents.send の channel（読み込み中で届かなかったものも。第2a1回 M-2b の db:lost）
   // 第1b回 Task A-3: 録音バー（wins[0]）の［一時停止］の真似。main.js の2つの定数（PAUSE_ENSURE_ON・PAUSE_ENSURE_OFF）と同じ文だけを受け、
@@ -1777,7 +1785,7 @@ process.on('exit', () => {
     ...cp,
     spawn(cmd, args, opts) {
       // 0.9.3 M-2: 会議の検出の見張り（本当には起こさない。場面が stdout に行を書く）
-      if (micSteps && /(^|[\\/])powershell\.exe$/i.test(String(cmd)) && Array.isArray(args) && String(args[args.length - 1]).includes('CapabilityAccessManager')) {
+      if ((micSteps || quietMic) && /(^|[\\/])powershell\.exe$/i.test(String(cmd)) && Array.isArray(args) && String(args[args.length - 1]).includes('CapabilityAccessManager')) {
         const EventEmitter = require('events');
         const p = new EventEmitter();
         p.stdin = null; p.stdout = new EventEmitter(); p.stderr = null;
@@ -2987,7 +2995,11 @@ process.on('exit', () => {
       else if (k === 'quit') { appEvents.emit('before-quit', { preventDefault() {} }); appEvents.emit('will-quit', {}); await sleep(30); }
       else if (k === 'wait-show') await waitFor(() => nudgeWins.length > 0 && nudgeWins[0].nudge.calls.filter((c) => c === 'showInactive').length >= a[0], 5000);
       else if (k === 'minimize') { wins[1].minimized = true; wins[1].emit('minimize'); await sleep(15); }
-      else if (k === 'snap') out.snaps[a[0]] = { spawns: micSpawns.length, kills: micKills, active: isActive(), nudgeCalls: nudgeWins.length ? nudgeWins[0].nudge.calls.length : 0, asks: overlayAsks() };
+      else if (k === 'snap') out.snaps[a[0]] = { spawns: micSpawns.length, kills: micKills, active: isActive(), nudgeCalls: nudgeWins.length ? nudgeWins[0].nudge.calls.length : 0, asks: overlayAsks(), sentN: mainSentAll.length, notes: notifications.length };
+      // 0.12.1 LV-3: 一時停止（画面と同じ meeting:set-paused。偽の録音バーが答える）・n 番目の偽の Windows の知らせを押す
+      else if (k === 'pause') { out.ipc.push(['pause', await handlers['meeting:set-paused']({}, Boolean(a[0]))]); await sleep(40); }
+      else if (k === 'click-notice') { const n = noticeObjs[a[0]]; if (n) n.emit('click', {}); await sleep(30); }
+      else if (k === 'discard') { out.ipc.push(['discard', await handlers['meeting:discard']()]); await sleep(30); }
       else throw new Error(`mainrun: --mic-feed の手順 ${k} が読めない`);
     }
     await sleep(30);
@@ -2998,6 +3010,9 @@ process.on('exit', () => {
       // 0.10.0 K-1: 議事録のページの経過（stateLog）
       pageStateLogs: store.listPages().map((p) => ({ id: p.id, stateLog: (store.getPage(p.id) || {}).stateLog || null })),
       active: isActive(), status: handlers['meeting:status'](), overlayAsks: overlayAsks(),
+      // 0.12.1 LV-3: 偽の Windows の知らせ（閉じたか）・議事録の所要時間と一時停止の印
+      notifications: noticeObjs.map((n) => ({ title: n.o.title, body: n.o.body, closed: Boolean(n.closed) })), notifyClosed,
+      pageDur: store.listPages().map((p) => { const pg = store.getPage(p.id) || {}; return { id: p.id, durationSec: pg.durationSec, pauses: pg.pauses || [] }; }),
     });
     process.stdout.write(`\n${JSON.stringify(out)}\n`);
     await exitClean(0);
@@ -3153,6 +3168,21 @@ process.on('exit', () => {
           // main が自分で止めた: 録音バーの代わりに最後の空の区間を送る
           out.quietStopAt = i;
           stopped = true;
+          listeners['audio:segment']({}, { buffer: new Uint8Array(0), durationMs: 0, final: true });
+        }
+      } else if (k === 'T' || k === 'L') {
+        // 0.12.1 LV-3（--quiet-mic。R2）: 偽の見張りに1行（T は mic teams:1・L は mic -）を書いて偽の時計を 2 秒進める。main が自分で止めたら、
+        // 偽の時計を 10 分進めてから（0.9.1 がもう一度止めようとしないことを見る）最後の空の区間を送る
+        const s0 = stopsSent();
+        const kid = micKids[micKids.length - 1];
+        if (kid) kid.stdout.emit('data', Buffer.from(`${k === 'T' ? 'mic teams:1' : 'mic -'}\n`));
+        advanceClock(2000);
+        await sleep(20);
+        if (stopsSent() > s0) {
+          out.quietStopAt = i;
+          stopped = true;
+          advanceClock(600000);
+          await sleep(20);
           listeners['audio:segment']({}, { buffer: new Uint8Array(0), durationMs: 0, final: true });
         }
       } else if (k === 'S') {

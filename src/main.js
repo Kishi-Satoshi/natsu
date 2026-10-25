@@ -3058,13 +3058,56 @@ function leaveStart(m, app) {
   m.leaveAt = null; m.leaveStopped = false; m.leaveOthers = [];
   if (m.leave.phase === 'in') engineLog(LEAVE_LOG.found);
 }
+// 作成中（止めた後）も読みを渡し続け、止めるかは stopByLeave の1か所が決める（Ruling R6）。記録は録音中だけ
 function leaveEvent(ev) {
   const m = meeting;
-  if (!m || !m.leave || state !== 'meeting') return null;
+  if (!m || !m.leave) return null;
   const r = ML.leaveStep(m.leave, { ...ev, now: Date.now() });
   m.leave = r.st;
+  if (r.act === 'stop') { stopByLeave(m, r.goneAt, r.others); return r; }
+  if (state !== 'meeting') return r;
   if (r.act === 'found') engineLog(LEAVE_LOG.found);
+  else if (r.act === 'blip') engineLog(LEAVE_LOG.blip);
+  // 数え直し: 見張りの記録が読めない・見張りが落ちた（lost）・読みが途切れた（sample）。一時停止・設定で戻したときは書かない（R6）
+  else if (r.act === 'reset' && (ev.type === 'lost' || ev.type === 'sample')) engineLog(ev.type === 'lost' ? LEAVE_LOG.lost : LEAVE_LOG.gap);
   return r;
+}
+// 会議を出たので止める（L10）: 録音中で止めていないときだけ、今の1つの道（stopMeetingBy）に auto-leave を渡す。本当に止めたときだけ LN4 を1回（L11）。
+// 0.9.1 の autoStopped は付けない（quietDoneNotice を出さない: L12）。所要時間の終わりは放した最初の読みの時刻（L13）
+let leaveForget = null;   // 会議を出て止めた会議の、放した読みで見えた別のアプリの使い（idle に戻ったらパネルの判断の印を外す: L18）
+let leaveNotice = null;   // 出した LN4（消えないように持つ）
+function stopByLeave(m, goneAt, others) {
+  if (meeting !== m || state !== 'meeting') return;
+  engineLog(LEAVE_LOG.stop);
+  m.leaveStopped = true;
+  m.leaveAt = Number.isFinite(goneAt) ? goneAt : null;
+  m.leaveOthers = Array.isArray(others) ? others.slice() : [];
+  leaveForget = m.leaveOthers.length ? m.leaveOthers.slice() : null;
+  const r = stopMeetingBy('auto-leave');
+  if (r && r.ok) leaveStopNotice(m);
+}
+// 止めた直後の Windows の知らせ LN4（窓が前にあってもなくても1回: LQ13）。押すと、作成中なら録音中のページ、保存した後ならそのページ（main が覚えた会議から決める）
+const LEAVE_NOTICE_TEXT = '会議を出たので録音を止めました。議事録を作っています。';
+function leaveStopNotice(m) {
+  let shown = false;
+  try {
+    if (Notification.isSupported()) {
+      const n = new Notification({ title: APP_TITLE, body: LEAVE_NOTICE_TEXT });
+      n.on('click', () => leaveNoticeClick(m));
+      n.show();
+      leaveNotice = n;
+      shown = true;
+    }
+  } catch (_) { /* 知らせが壊れていても、止めたことは続ける（記録だけ） */ shown = false; }
+  engineLog(shown ? LEAVE_LOG.notice : LEAVE_LOG.noNotice);
+}
+function leaveNoticeClick(m) {
+  if (meeting === m) { showLiveFromNotice(); return; }
+  createMainWindow();
+  if (!mainWin || mainWin.isDestroyed()) return;
+  if (mainWin.isMinimized()) mainWin.restore();
+  mainWin.show();
+  if (m.leavePageId) sendToMainWin('page:open', m.leavePageId);
 }
 
 // ---------------------------------------------------------------- 会議の検出のパネル（0.9.3 M-3。決めたこと 7〜10。持ち主の答え Q3・Q5）
@@ -3180,6 +3223,8 @@ function noteDetectState() {
   if (!detectReady || state === detectBusy) return;
   detectBusy = state;
   nudgeEvent({ type: 'busy', busy: state !== 'idle', meeting: state === 'meeting' || state === 'meeting-finalizing' });
+  // 0.12.1 LV-3（決めたこと L18）: 会議を出て止めた会議の後で idle に戻ったら、放した読みで見えた別のアプリの使いの印を外す（まだ使っていれば次の読みでパネル）
+  if (state === 'idle' && leaveForget) { const keys = leaveForget; leaveForget = null; nudgeEvent({ type: 'forget', keys }); }
   syncMicWatch();
 }
 // 設定の「会議の検出の通知」「通知を出さないアプリ」が変わった。オンにし直したら、落ちて諦めた見張りも起こし直す
@@ -4892,7 +4937,7 @@ function cleanOrphanSegbuf(keepDir) {
 // （page・panel・panel-offline・hotkey・tray／page・bar・hotkey・auto-quiet）。検出が出なかったときに、何で会議を始めたかが持ち主の記録で分かる
 // 0.10.0 K-1（決めたこと 116）: 議事録の経過。引き金の符号 → 経過のきっかけ（表 lib.BY_NAMES の鍵）
 const START_BY = Object.freeze({ page: 'button', panel: 'panel', 'panel-offline': 'panel', hotkey: 'hotkey', tray: 'tray' });
-const STOP_BY = Object.freeze({ page: 'button', bar: 'overlay', hotkey: 'hotkey', 'auto-quiet': 'quiet' });
+const STOP_BY = Object.freeze({ page: 'button', bar: 'overlay', hotkey: 'hotkey', 'auto-quiet': 'quiet', 'auto-leave': 'leave' });   // 0.12.1 LV-3: auto-leave（会議を出たので自動）
 // 会議の経過に1つ積み、engine.log に「議事録: 開始（ホットキー）」の1行（題名・文は書かない）。下書きにも書く
 function noteMeetingState(m, s, by) {
   if (!m) return;
@@ -4916,7 +4961,7 @@ function stopMeetingBy(trigger) {
   const r = stopMeeting();
   if (r && r.ok) {
     engineLog(`会議: 止めた（${trigger}）`);
-    noteMeetingState(m, trigger === 'auto-quiet' ? 'auto-stop' : 'stop', STOP_BY[trigger] || 'app');
+    noteMeetingState(m, trigger === 'auto-quiet' || trigger === 'auto-leave' ? 'auto-stop' : 'stop', STOP_BY[trigger] || 'app');
   }
   return r;
 }
@@ -5409,6 +5454,9 @@ async function maybeFinalizeMeeting() {
     durationSec = Math.round(trimEnd / 1000);
     pauses = (m.pauses || []).filter((x) => !(x && x.atMs >= trimEnd));
   }
+  // 0.12.1 LV-3（決めたこと L13）: 会議を出たので止めた議事録は、所要時間を放した最初の読みの時刻（壁の時計）まで。0.9.1 の切り方と両方なら早い方。
+  // その後の数秒の区間と文字起こしは消さない
+  if (m.leaveStopped && Number.isFinite(m.leaveAt)) durationSec = Math.min(durationSec, meetingDurationSec(m, m.leaveAt));
   const dt = new Date(m.startedAt);
   const fallbackTitle = lib.meetingTitleAt(dt);   // 形は mainlib の1か所（0.10.0 SH-1・D71）
 
@@ -5479,6 +5527,7 @@ async function maybeFinalizeMeeting() {
   if (overlayFree()) sendToOverlay('overlay:phase', { phase: 'done', message: '議事録を保存しました' });
   sendToMainWin('pages:updated', await db.call('pages.list', {}));
   sendToMainWin('page:open', page.id);
+  if (m.leaveStopped) m.leavePageId = page.id;   // 0.12.1 LV-3（L11）: 止めた後の知らせを押したときに開くページ
   if (m.autoStopped) quietDoneNotice(m, page.id);   // 0.9.1 Q-4
   // 音声は届いたのに、文字起こしが全部空だった。黙っていると「0 区間」の理由が分からない。
   // 知らせと engine.log に出す。要約の欄には書かない（0.10.0 LS-2・決めたこと 111 の 6: 文字起こしが空のページは欄の鍵のまま、頭の一言が伝える）
@@ -6442,7 +6491,7 @@ function setupIpc() {
     const by = meeting.pauseAsked && meeting.pauseBy ? meeting.pauseBy : 'overlay';
     meeting.pauseBy = '';
     clearPauseAsk(meeting);
-    if (paused && !meeting.paused) { meeting.paused = true; meeting.pausedAt = Date.now(); noteMeetingState(meeting, 'pause', by); }
+    if (paused && !meeting.paused) { meeting.paused = true; meeting.pausedAt = Date.now(); noteMeetingState(meeting, 'pause', by); leaveEvent({ type: 'pause', on: true }); }
     else if (!paused && meeting.paused) {
       noteMeetingState(meeting, 'resume', by);
       meeting.paused = false;
@@ -6453,6 +6502,7 @@ function setupIpc() {
       meeting.hintOnPause = false;
       writeDraft();
       restartQuiet(meeting, 'resume');   // 0.9.1 Q-4（決めたこと 14）: 再開は人の答え。［続ける］と同じに数え直す
+      leaveEvent({ type: 'pause', on: false });   // 0.12.1 LV-3（決めたこと L8）: 再開の後の読みから数える
     }
     syncLevelAsk();   // 0.9.3 M-5: 一時停止の間は聞かない
     if (paused && meeting.paused && meeting.hintOnPause) { meeting.hintOnPause = false; showResumeHint(meeting); return; }
