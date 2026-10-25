@@ -23,6 +23,7 @@ const path = require('path');
 const mtype = require('../../src/meetingType');
 const { MANIFEST } = require('../../src/engine-manifest');
 const lib = require('../../src/mainlib');
+const memoTypes = require('../../src/memoTypes');
 const PS = require('./pill-states');
 
 const SIZE = { width: 1120, height: 780 };         // 本体の窓の既定（main.js の createMainWindow）
@@ -69,6 +70,29 @@ const OPEN_PAGE_SUMMARY = `(async () => {
   document.getElementById('tabBtnNotes').click(); document.querySelector('#plist .pitem').click();
   await new Promise((r) => setTimeout(r, 300));
   document.getElementById('paneBtnNote').click();
+  return 1;
+})()`;
+// 0.11.0 V-1: ページを開いてメモのタブにし、会議の種類の欄を一覧の形にして中身（自動・群・種類）を見せる
+const OPEN_TYPE_LIST = `(async () => {
+  document.getElementById('tabBtnNotes').click(); document.querySelector('#plist .pitem').click();
+  await new Promise((r) => setTimeout(r, 300));
+  document.getElementById('paneBtnMemo').click();
+  // 欄の高さ（.typeSel の 22px）を外して、一覧の形で全部の項目を見せる（R22 (3)）
+  const s = document.getElementById('pType'); s.size = s.querySelectorAll('option').length; s.style.height = 'auto';
+  return 1;
+})()`;
+// 0.11.0 V-2: ページを開き、打ち合わせの質のカードまで捲る
+const OPEN_QUALITY = `(async () => {
+  document.getElementById('tabBtnNotes').click(); document.querySelector('#plist .pitem').click();
+  await new Promise((r) => setTimeout(r, 300));
+  const c = document.getElementById('qualityCard'); if (c) c.scrollIntoView({ block: 'end' });
+  return 1;
+})()`;
+// 0.11.0 V-1: 録音中のページで会議の種類に商談を選ぶ（main の答えは見本: 見出しを入れた）
+const LIVE_PICK_SALES = `(async () => {
+  await new Promise((r) => setTimeout(r, 300));
+  const s = document.getElementById('pType'); s.value = 'sales'; s.dispatchEvent(new Event('change'));
+  await new Promise((r) => setTimeout(r, 300));
   return 1;
 })()`;
 // 0.10.0 L-2: 左の一覧の［選ぶ］を押し、1行目と3行目を選ぶ（頭の枠「2 件を選んでいます」と［リンクを写す］［やめる］）
@@ -197,6 +221,18 @@ const SCREENS = [
     name: 'settings-mcp-running-light', page: 'app', theme: 'light', act: MCP_RUNNING_ACT,
     answers: { 'koeApp.mcpStatus': { desktop: { state: 'none', files: 1, running: true } }, 'koeApp.mcpRegister': { ok: false, state: 'none', code: 'running', running: true } },
   },
+  // 0.11.0 V-1（計画 docs/plans/2026-10-22-110.md の「取り直す画面（RETAKE）」）: 会議の種類のプルダウンを開いた形（群・自動。撮るときは欄を
+  // 一覧の形（size）にして中身を見せる）と「メモの型」・メモのタブの手引き（商談を手で選び、メモが BANTC の雛形のページ）。前の版の一般・その他の
+  // ページが「自動」と決まらなかった文で出る形。録音中に商談を選び、メモのタブに切り替わって見出しと手引きが出た形（P17）。足した画面（版を 0.11.0 に上げる commit で、持ち主が OK と言った CI の画像を基準にした）
+  { name: 'page-type-light', page: 'app', theme: 'light', get answers() { return typeAnswers(); }, act: OPEN_TYPE_LIST },
+  { name: 'page-type-dark', page: 'app', theme: 'dark', get answers() { return typeAnswers(); }, act: OPEN_TYPE_LIST },
+  { name: 'page-type-undecided-light', page: 'app', theme: 'light', get answers() { return undecidedAnswers(); }, act: OPEN_PAGE },
+  { name: 'live-type-light', page: 'app', theme: 'light', get answers() { return liveTypeAnswers(); }, act: LIVE_PICK_SALES },
+  // 0.11.0 V-2: 新しい形の要約（締め → 型の見出し → 抜け・重なりチェック → 次に気をつけること）と打ち合わせの質のカードまで捲った形。足した画面（版を 0.11.0 に上げる commit で基準にした）
+  { name: 'page-quality-light', page: 'app', theme: 'light', get answers() { return qualityAnswers(); }, act: OPEN_QUALITY },
+  { name: 'page-quality-dark', page: 'app', theme: 'dark', get answers() { return qualityAnswers(); }, act: OPEN_QUALITY },
+  // 0.11.0 V-3: 項目「要約」のカード「打ち合わせの質」まで捲った形。足した画面（版を 0.11.0 に上げる commit で基準にした）
+  { name: 'settings-quality-light', page: 'app', theme: 'light', act: `${OPEN_SETTINGS}; ${NAV('setNavSummary')}; document.getElementById('qualityCardSet').scrollIntoView({ block: 'start' })` },
 ];
 // 0.9.0 O-3（RP9）: 録音バーの画面（形 → 地 → 拡大率 → 状態の順。撮る道具は形・地・拡大率の組ごとに窓を1つ開いて状態を act で替える）。
 // 録音は始めずに見た目だけを撮る（act は pill-states の見本を録音バーの DOM に当てる。撮るときだけ体の地にデスクトップの色を塗る）。
@@ -271,6 +307,9 @@ const OVL_094 = (states) => PS.FORMS.flatMap((form) => Object.keys(PS.DESKS).fla
 // settings-info-claude-light・settings-mcp-light・settings-info-mcp-light）のその行のほかに違いは無い（左の列の印の 1 段の色の揺れは、同じ app.html の2つの run の間にもある）
 // 0.10.1（版を 0.10.1 に上げる commit）: 持ち主が 2026-10-24 に settings-mcp-running-light（CD-3 の断った文 RN1）の画像を見て「OK」と言ったので、
 // CI run 40071461858（1dff338）・artifact 12552271208 の .after.png をバイトのまま基準にし、空に戻した
+// 0.11.0（版を 0.11.0 に上げる commit）: 持ち主が 2026-10-24 に取り直しの見比べ（37 枚。V-5 の page-type-light・page-type-dark を含む）を見て
+// 「OK（版を 0.11.0 に上げてよい）」と言ったので、CI run 40142063730（1a46130）・artifact 12578889430 の .after.png（37 枚）をバイトのまま基準にし、空に戻した
+// （持ち主が見た 1e6a4c2 の画像との違いは、左の列の印の 1 段の色の揺れだけ）
 const RETAKE = new Set([]);
 const PERF = [{ name: 'open-2000-blocks', budgetMs: 500 }];   // 3回開いた中央値で見る
 const TIME_ZONE = 'Asia/Tokyo';
@@ -408,6 +447,49 @@ function summaryLockAnswers() {
   delete route.summary;
   return { 'koeApp.pageGet': { page: { ...page, blocks: [], citeStat: null, actionStat: null, summaryError: '', route }, segments: SEGMENTS } };
 }
+// 0.11.0 V-1: 商談を手で選び、メモが BANTC の雛形のページ
+function typeAnswers() {
+  const page = fixtures()['koeApp.pageGet'].page;
+  return { 'koeApp.pageGet': { page: { ...page, meetingType: 'sales', typeAuto: false, autoType: 'sales', memo: memoTypes.memoPreset('bantc') }, segments: SEGMENTS } };
+}
+// 0.11.0 V-1: 前の版の一般・その他のページ（一覧の2行目 p2 の会議。自動で一般・その他になった形）
+function undecidedAnswers() {
+  const page = fixtures()['koeApp.pageGet'].page;
+  const p2 = LIST[1];
+  return { 'koeApp.pageGet': { page: { ...page, id: p2.id, title: p2.title, date: p2.date, createdAt: p2.createdAt, durationSec: p2.durationSec, meetingType: 'general', typeAuto: true, autoType: 'general' }, segments: SEGMENTS } };
+}
+// 0.11.0 V-1: 録音中のページ（live-light と同じ会議）で種類を選んだときの main の答え（空のメモに BANTC の見出しを入れた）
+function liveTypeAnswers() {
+  return { ...liveAnswers(), 'koeApp.meetingSetMemo': { ok: true },
+    'koeApp.meetingSetType': { ok: true, memo: memoTypes.memoPreset('bantc'), inserted: true, meetingType: 'sales' } };
+}
+// 0.11.0 V-2: 朝会の新しい形の要約（保存は AI の書いた順: 型の見出し → 締め → チェック → 助言）と、照らした点（qualityView）
+function qualityAnswers() {
+  const page = fixtures()['koeApp.pageGet'].page;
+  const blocks = [
+    { id: 'q1', type: 'heading', text: '前回の宿題の状況' },
+    { id: 'q2', type: 'bullet', text: '受注の画面の結合の試験は今週で終わった。', cites: ['s2'] },
+    { id: 'q3', type: 'heading', text: '事実（進捗・課題）' },
+    { id: 'q4', type: 'bullet', text: '残りの不具合は2件。在庫の取り込みが遅い。', cites: ['s2', 's3'] },
+    { id: 'q5', type: 'heading', text: '決定事項' },
+    { id: 'q6', type: 'bullet', text: '出す日を11月15日に決めた。', cites: ['s6'] },
+    { id: 'q7', type: 'heading', text: 'ToDo（誰が・何を・いつまでに）' },
+    { id: 'q8', type: 'todo', text: '在庫の取り込みの実行計画を確かめる', checked: false, assignee: '山田', due: '2026-10-14', dueRaw: '10月14日', cites: ['s3', 's4'] },
+    { id: 'q9', type: 'todo', text: '求人票の見直しの案を出す', checked: false, assignee: '', due: '', dueRaw: '', cites: ['s5'] },
+    { id: 'q10', type: 'heading', text: '抜け・重なりチェック' },
+    { id: 'q11', type: 'bullet', text: '未確認: 見立て（原因・リスク）', cites: [], citeState: 'manual', mark: 'check', unconfirmed: true },
+    { id: 'q12', type: 'heading', text: '次に気をつけること' },
+    { id: 'q13', type: 'bullet', text: '遅れの話は、原因と次の手を先に言ってもらう。', cites: [], citeState: 'manual', mark: 'advice' },
+  ];
+  const qualityView = { total: 17, max: 25, axes: [
+    { key: 'purpose', label: '目的と結論', by: 'ai', score: 4, reason: '冒頭で進み具合の確認と言い、出す日を決めた', cites: ['s1', 's6'] },
+    { key: 'mece', label: '抜け・重なり（MECE）', by: 'ai', score: 3, reason: '遅れの原因の見立てが話されなかった', cites: [] },
+    { key: 'decisions', label: '決定事項', by: 'ai', score: 4, reason: '出す日を11月15日で決まりと言った', cites: ['s6'] },
+    { key: 'todos', label: 'ToDo の具体さ', by: 'app', score: 3, reason: 'ToDo 2 件のうち担当と期限がそろったのは 1 件', cites: [] },
+    { key: 'fill', label: '型の埋まり具合', by: 'app', score: 3, reason: '型の見出し 4 つのうち根拠があるのは 2 つ', cites: [] },
+  ] };
+  return { 'koeApp.pageGet': { page: { ...page, blocks, citeStat: { linked: 5, total: 5 }, qualityView }, segments: SEGMENTS } };
+}
 function detectAnswers() {
   return { 'koeApp.getSettings': { ...fixtures()['koeApp.getSettings'], meetingDetect: true, meetingDetectMute: ['zoom'] } };
 }
@@ -435,7 +517,8 @@ function fixtures() {
     'koeApp.promptInfo': { ok: true, kept: 2, total: 2, over: false },
     // 0.10.0 C-3: カード「Claude との連携（MCP）」は登録していない形（Claude デスクトップは動いていない）
     'koeApp.mcpStatus': { desktop: { state: 'none', files: 1, running: false } },
-    'koeApp.meetingTypes': mtype.listTypes(),
+    'koeApp.meetingTypes': lib.typesForView(),   // 0.11.0 V-1・V-5: { types, selectable }
+    'koeApp.memoTypes': memoTypes.listMemoTypes(),
     'koeApp.appVersion': { version: '0.4.0', repo: '' },   // 版を上げても画面が変わらないように決まった値
     'koeApp.getHistory': HISTORY,
     'koeApp.meetingStatus': { active: false, paused: false, startedAt: null, segments: [] },

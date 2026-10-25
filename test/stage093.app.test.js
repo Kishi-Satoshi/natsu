@@ -309,10 +309,11 @@ test('M10: #liveTail は録音中（一時停止でない）の #pScript の一�
   assert.strictEqual(norm(tail(l).textContent), '聞き取り中…');
   l.fire('onMeetingUpdate', LIVE({ paused: true }));
   await l.drain();
-  assert.strictEqual(tail(l), null, '一時停止中も「聞き取り中」の行を出した');
+  // 0.11.0（R22）: 要素どうしは assert.ok(a === b) で比べる（赤のときに報告が最小 DOM の木を丸ごと書き出し、変異確認の写しで数 GB の記憶を使った）
+  assert.ok(tail(l) === null, '一時停止中も「聞き取り中」の行を出した');
   l.fire('onMeetingUpdate', LIVE({ finalizing: true }));
   await l.drain();
-  assert.strictEqual(tail(l), null, '作成中も「聞き取り中」の行を出した');
+  assert.ok(tail(l) === null, '作成中も「聞き取り中」の行を出した');
 });
 
 // CI run 39751610440 の撮った画面（live-wave-light など）で、「聞き取り中」の行が時刻の欄を持たず、文字起こしの左の線に寄って区間の文と揃わなかった

@@ -165,8 +165,13 @@ contextBridge.exposeInMainWorld('koeApp', {
   pagesSearch: (q) => dbCall('pages.list', { q: q || '' }),
   pagesSearchFull: (q) => dbCall('pages.searchFull', { q: q || '', limit: 60 }),
   pagesActionView: ({ q, assignee }) => dbCall('pages.actionView', { q, assignee }),
+  // 0.11.0 V-1・V-5: { types, selectable }（types の各項目に memo＝種類から決まるメモの型の鍵）。memoTypes はメモの型の表（名前・見出しとヒント・雛形）
   meetingTypes: () => ipcRenderer.invoke('meta:types'),
-  pageSetType: (id, type) => dbCall('page.setType', { id, type }),
+  memoTypes: () => ipcRenderer.invoke('meta:memo-types'),
+  // 0.11.0 V-4: 題名を直した自動のページで、今の題名から判定した種類を聞く（答えは { type }。'' は決まらない）
+  metaDetectType: (id, title) => ipcRenderer.invoke('meta:detect-type', id, title),
+  // 0.11.0 M-4: preset が真なら、DB にある今のメモが手を付けていないときだけ新しい型の雛形に替える（type は鍵か auto）
+  pageSetType: (id, type, preset) => dbCall('page.setType', preset === true ? { id, type, preset: true } : { id, type }),
   blockSetAction: (pageId, blockId, assignee, dueRaw) => dbCall('block.setAction', { pageId, blockId, assignee, dueRaw }),
   pageGet: (id) => dbCall('page.get', { id }),
   pageDelete: (id) => dbCall('page.delete', { id }),
@@ -185,6 +190,8 @@ contextBridge.exposeInMainWorld('koeApp', {
   meetingDiscard: () => ipcRenderer.invoke('meeting:discard'),
   meetingStatus: () => ipcRenderer.invoke('meeting:status'),
   meetingSetMemo: (memo) => ipcRenderer.invoke('meeting:set-memo', memo),
+  // 0.11.0 V-1（決めたこと 10）: 録音中のページで種類を選ぶ（key は選べる鍵か auto）。答えは { ok, memo, inserted, meetingType }
+  meetingSetType: (key) => ipcRenderer.invoke('meeting:set-type', key),
   meetingSkipPending: () => ipcRenderer.invoke('meeting:skipPending'),
   meetingSetLocalOnly: (on) => ipcRenderer.invoke('meeting:set-local-only', on),
   // 第1d回 A-6（D17）: 帯の［もう一度］（失敗して音声を残した区間を送り直す）

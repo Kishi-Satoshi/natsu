@@ -1,13 +1,9 @@
 /*
- * meetingType.js — 会議の種類ごとに要約の構成を変える
+ * meetingType.js — 会議の種類（名前・説明・自動の判定の手がかり・選べる種類とプルダウンの群）
  *
- * 同じテンプレートを全会議に当てるのは筋が悪い。
- * 採用面接に「決定事項」を求めても空振りするし、
- * 1on1 に「決定事項」という言葉を当てると硬すぎる（実態は「合意」）。
- * 会議の性質に沿った見出しを与えた方が、同じモデルでも要約の質が上がる。
- *
- * 各テンプレートは必ず1つ「- [ ]」形式のアクション節を含む。
- * これがチェックボックス化と担当・期限の抽出の起点になる。
+ * 0.11.0 M-2（D42・P3）: 種類ごとの要約の書式（format）を外した。要約の書式は種類から決まるメモの型で、src/memoTypes.js の
+ * buildTemplate の1か所で作る（締めの ToDo の節が ACTION_RULE を使い、そこがチェックボックス化と担当・期限の抽出の起点になる）。
+ * アジェンダの雛形（agenda）は、前のページの手を付けていないメモを見分けるためと、担当・期限の裏付けから外すために残す。
  */
 'use strict';
 
@@ -16,24 +12,10 @@ const ACTION_RULE = '（「- [ ] 内容（担当: ○○ / 期限: ○○）」�
 
 const TYPES = {
   standup: {
-    label: '定例・進捗報告',
-    hint: '朝会・週次定例など、各担当の報告が中心の会議',
+    label: '朝会・内部定例会',
+    hint: '朝会・週次の定例など、各担当の報告が中心の社内の会議',
     agenda: '議題:\n・各担当の進捗報告\n・課題・相談ごと\n・決定事項の確認\n・次回までのアクション',
     keywords: ['朝会', '定例', '週次', 'デイリー', '日次', 'スタンドアップ', '進捗確認', '状況共有', 'レビュー会議'],
-    format: `## 概要
-（会議全体を3〜5行で要約）
-
-## 報告事項
-（担当・案件ごとに整理。数値は必ず残す）
-
-## 決定事項
-（箇条書き）
-
-## アクションアイテム
-${ACTION_RULE}
-
-## 課題・持ち越し事項
-（箇条書き）`,
   },
 
   review: {
@@ -41,91 +23,29 @@ ${ACTION_RULE}
     hint: '月次部会や事業報告など、数値報告と方針決定を含む会議',
     agenda: '議題:\n・各チームの数値報告\n・全体への共有事項\n・審議・決定事項\n・アクションアイテム',
     keywords: ['部会', '報告会', '月次', '事業本部', '管理職会議', '経営', '本部報告'],
-    format: `## 概要
-（会議全体を3〜5行で要約）
-
-## 報告事項
-（売上・要員・採用などの数値を項目別に。数値は必ず残す）
-
-## 決定事項
-（箇条書き）
-
-## 課題・リスク
-（指摘された懸念や未達の要因）
-
-## アクションアイテム
-${ACTION_RULE}
-
-## 次回への持ち越し
-（箇条書き）`,
   },
 
   oneonone: {
-    label: '1on1・面談',
-    hint: 'メンバーとの個別面談、キャリア相談、処遇の打診など',
+    label: '1on1',
+    hint: 'メンバーとの個別面談、キャリアの相談など',
     agenda: '話したいこと:\n・最近の調子・近況\n・困っていること\n・キャリア・今後のこと\n・会社・チームへの要望',
     // 同じ語を二度書くとその語だけ二重に加点され、他タイプの正当な一致に競り勝ってしまう。
     // 全角で入力されることがあるため「１ｏｎ１」も見る。
     keywords: ['1on1', '１ｏｎ１', '面談', 'キャリア', '打診', '個別', 'メンタリング', '評価面談', '就業状況'],
-    format: `## 概要
-（面談の趣旨と流れを3〜5行で要約）
-
-## 本人の状況・所感
-（本人が語った現状、業務の手応え、コンディション）
-
-## 相談・課題
-（本人から出た困りごと、希望、懸念）
-
-## 合意した方針・支援
-（本人と合意した内容）
-
-## 次回までのアクション
-${ACTION_RULE}`,
   },
 
   sales: {
-    label: '商談・協業検討',
-    hint: '顧客・パートナーとの商談、協業や契約の検討',
+    label: '商談',
+    hint: '顧客・パートナーとの商談（協業の検討も）',
     agenda: '議題:\n・先方の状況・課題のヒアリング\n・こちらからの提案\n・価格・条件\n・次のステップ',
     keywords: ['商談', '協業', '提案', '見積', '契約', '再販', '価格', 'ベンダー選定', '紹介', 'ビジネス'],
-    format: `## 概要
-（商談の目的と結論を3〜5行で要約）
-
-## 先方の状況・ニーズ
-（相手の課題、体制、予算感、時期）
-
-## 提示・説明した内容
-（こちらから伝えた提案、条件、価格）
-
-## 先方の反応・懸念
-（好感触な点と、指摘された懸念やリスク）
-
-## 決定事項
-（合意した内容）
-
-## ネクストアクション
-${ACTION_RULE}`,
   },
 
   interview: {
-    label: '採用面接・顔合わせ',
-    hint: '候補者の面接、入社前の顔合わせ、オンボーディング面談',
+    label: '採用面接・事前面談',
+    hint: '候補者の採用面接と、社内の人との事前面談（案件や異動の前）',
     agenda: '確認したいこと:\n・経歴・スキル\n・志望動機\n・条件面\n・候補者からの質問',
-    keywords: ['面接', '顔合わせ', 'オンボーディング', '候補者', '選考', '入社', '採用面談', 'スキル確認'],
-    format: `## 概要
-（面接の対象と全体の印象を3〜5行で要約）
-
-## 経歴・スキル
-（本人が語った経験、技術、担当領域）
-
-## 志向・希望条件
-（キャリアの方向性、勤務条件、待遇の希望）
-
-## 確認された懸念点
-（スキルギャップ、条件面のズレなど）
-
-## 申し送り・次のステップ
-${ACTION_RULE}`,
+    keywords: ['面接', '顔合わせ', 'オンボーディング', '候補者', '選考', '入社', '採用面談', 'スキル確認', '事前面談'],
   },
 
   brainstorm: {
@@ -133,44 +53,27 @@ ${ACTION_RULE}`,
     hint: 'アイデア出し、方針の議論、結論を急がない会議',
     agenda: 'テーマ:\n・アイデア出し\n・観点の整理\n・次に試すこと',
     keywords: ['ブレスト', '意見交換', 'アイデア', '検討会', 'ディスカッション', '壁打ち', '構想'],
-    format: `## 概要
-（何について議論したかを3〜5行で要約）
-
-## 出たアイデア・意見
-（発言者の立場が分かる場合は添える。取捨せず幅広く残す）
-
-## 有望とされた方向性
-（前向きな評価が集まった案）
-
-## 論点・未整理の点
-（結論が出ていない対立軸や不明点）
-
-## 次に検討すること
-${ACTION_RULE}`,
   },
 
-  general: {
-    label: '一般・その他',
-    hint: '上記に当てはまらない会議',
-    keywords: [],
-    format: `## 概要
-（会議全体を3〜5行で要約）
-
-## 決定事項
-（箇条書き）
-
-## アクションアイテム
-${ACTION_RULE}
-
-## 主なトピックと論点
-（トピックごとに要点を整理）
-
-## 未解決・持ち越し事項
-（箇条書き）`,
+  // 0.11.0 M-1（D41・P4）: プレゼン形式。書式は種類から決まる型の見出し（memoTypes）。アジェンダの雛形は作らない
+  present: {
+    label: 'プレゼン形式',
+    hint: '提案や説明会など、発表と質疑が中心の会議',
+    keywords: ['プレゼン', '発表', '説明会', 'デモ', '登壇', '提案発表'],
   },
+  // 0.11.0 P-12（P12・R5）: 一般・その他（general）は無い。決まらない会議は ''（「自動」。メモの型は会議の要点）。
+  // 前の版のページの meetingType: 'general' は書き換えず、読むところで normalizeType を通す（R4）
 };
 
-const ORDER = ['standup', 'review', 'oneonone', 'sales', 'interview', 'brainstorm', 'general'];
+// 0.11.0 M-1（D43）: 画面の「会議の種類」で選べる種類。並びはこの1か所（0.11.0 V-5: プルダウンの群の見出しは持ち主の画面の確かめで外した）
+const SELECTABLE = Object.freeze(['standup', 'review', 'brainstorm', 'oneonone', 'interview', 'sales', 'present']);
+// 判定で見る並びも選べる種類と同じ（0.11.0 P-12。点が同じときは長い語で当たった方: detectType）
+const ORDER = [...SELECTABLE];
+// 決まらなかったときの種類の横の灰色の文（画面は app.html に同じ文の写し。runtime.app が照らす）
+const AUTO_UNDECIDED_TEXT = '自動判定: 決まらなかったので会議の要点の型でまとめました';
+const isSelectable = (v) => typeof v === 'string' && SELECTABLE.includes(v);
+// 選べる鍵でなければ ''（「決まらなかった」。前の版の general もここで読み替える: P12）
+const normalizeType = (v) => (isSelectable(v) ? v : '');
 // 人と話す会議（1on1・面談と採用面接・顔合わせ）。MCP の箇所の検索は、頼まれたときだけ探す（0.10.0 T-2b・D51・問い Q17）。後の打ち合わせの質も同じ1か所を使う
 const PERSONAL_TYPES = Object.freeze(['oneonone', 'interview']);
 
@@ -186,7 +89,6 @@ function detectType(title, transcriptHead) {
   const scores = [];
 
   for (const key of ORDER) {
-    if (key === 'general') continue;
     let total = 0; let title_ = 0; let longest = 0;
     for (const kw of TYPES[key].keywords) {
       if (t.includes(kw)) {
@@ -198,7 +100,7 @@ function detectType(title, transcriptHead) {
     }
     if (total > 0) scores.push({ key, total, title: title_, longest });
   }
-  if (scores.length === 0) return 'general';
+  if (scores.length === 0) return '';   // 決まらない（0.11.0 P-12: 前は 'general'）
 
   scores.sort((a, b) => (b.total - a.total)
     // 同点なら、より長い（＝具体的な）語で当たった方を採る。
@@ -212,17 +114,33 @@ function detectType(title, transcriptHead) {
   // よほど数が揃わない限り型を決める根拠にはしない（誤った型を当てない）。
   if (best.title > 0) return best.key;
   if (best.total >= BODY_ONLY_MIN) return best.key;
-  return 'general';
+  return '';
 }
 
-function getFormat(type) {
-  return (TYPES[type] || TYPES.general).format;
+// 0.11.0 M-5（P14 (a)・決めたこと 13）: 題名と文字起こしで決まらない会議に使う、前の同じ曜日・時刻の会議の種類。
+// rows は人が選んだ種類の会議 [{ createdAt, meetingType }]。過去 5 週・同じ曜日・開始が ±15 分の会議が2回以上あり、どれも同じ選べる種類なら
+// その種類。ほかは ''（ばらばら・1回だけ・選べない種類）。曜日と時刻は PC の時計で見る
+const SLOT_DAYS = 35;
+const SLOT_MIN = 15;
+function slotType(rows, createdAt) {
+  const now = new Date(createdAt);
+  if (!Array.isArray(rows) || Number.isNaN(now.getTime())) return '';
+  const min = (d) => d.getHours() * 60 + d.getMinutes();
+  const hit = rows.filter((r) => {
+    const d = new Date(r && r.createdAt);
+    if (Number.isNaN(d.getTime()) || d >= now || now - d > SLOT_DAYS * 86400000) return false;
+    return d.getDay() === now.getDay() && Math.abs(min(d) - min(now)) <= SLOT_MIN;
+  });
+  if (hit.length < 2) return '';
+  const t = hit[0].meetingType;
+  return isSelectable(t) && hit.every((r) => r.meetingType === t) ? t : '';
 }
+
+// 選べる鍵ならその名前、ほか（決まらない ''・前の版の general・知らない値）は「自動」（0.11.0 P-12）
 function getLabel(type) {
-  return (TYPES[type] || TYPES.general).label;
+  return isSelectable(type) ? TYPES[type].label : '自動';
 }
-// タイプを選んだときにメモ欄へ入れるアジェンダの雛形。
-// 一般・その他には無い（何を話すか決まっていない会議に雛形を押し付けない）。
+// 前の版のページの手を付けていないメモを見分けるためのアジェンダの雛形（プレゼン形式には無い）。
 function getAgenda(type) {
   return (TYPES[type] && TYPES[type].agenda) || '';
 }
@@ -230,4 +148,4 @@ function listTypes() {
   return ORDER.map((k) => ({ key: k, label: TYPES[k].label, hint: TYPES[k].hint, agenda: TYPES[k].agenda || '' }));
 }
 
-module.exports = { TYPES, ORDER, PERSONAL_TYPES, detectType, getFormat, getLabel, getAgenda, listTypes };
+module.exports = { TYPES, ORDER, SELECTABLE, PERSONAL_TYPES, ACTION_RULE, AUTO_UNDECIDED_TEXT, isSelectable, normalizeType, detectType, slotType, getLabel, getAgenda, listTypes };

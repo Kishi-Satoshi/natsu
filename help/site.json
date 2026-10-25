@@ -4,7 +4,7 @@
   "categories": [
     { "id": "start", "title": "はじめに", "description": "NaTsu でできることと、インストール・ログイン・Claude Code の用意・試験利用の手順", "icon": "start", "articles": ["what-natsu-does", "install-update", "login", "claude-code", "claude-mcp", "tester-guide"] },
     { "id": "record", "title": "会議を記録する", "description": "録音の始め方と止め方・一時停止・外に出したくない会議・文字起こしの状態・会議の検出の通知", "icon": "record", "articles": ["start-stop", "pause", "pc-only", "status-line", "meeting-detect"] },
-    { "id": "summary", "title": "要約と出典", "description": "要約の作られ方・要約タイプ・出典リンク", "icon": "summary", "articles": ["how-summaries", "summary-types", "citations"] },
+    { "id": "summary", "title": "要約と出典", "description": "要約の作られ方・会議の種類とメモの型・打ち合わせの質・出典リンク", "icon": "summary", "articles": ["how-summaries", "summary-types", "meeting-quality", "citations"] },
     { "id": "dictation", "title": "音声入力", "description": "ホットキーで話して、今開いている場所に入力する", "icon": "dictation", "articles": ["dictation"] },
     { "id": "find", "title": "議事録を探す・整理する", "description": "議事録の検索・削除と毎日の控え", "icon": "find", "articles": ["search", "delete-and-backups"] },
     { "id": "settings", "title": "設定", "description": "外観・アカウント・ローカル AI・ホットキー", "icon": "settings", "articles": ["appearance", "account", "offline", "hotkeys"] },

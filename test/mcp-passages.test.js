@@ -164,3 +164,25 @@ test('試作（決めたこと 115）: markHits は畳んだ形で当てて元�
   assert.strictEqual(P.markHits('当たらない', ['見積']), '当たらない');
   assert.strictEqual(F.safeLine('⟦偽の印⟧'), '［偽の印］');
 });
+
+// ---------------------------------------------------------------- 0.11.0 T-6（決めたこと 41。持ち主の試作）: メモの箇所を型の見出しで区切る
+test('0.11.0 T-6（決めたこと 41）: chunkMemo は型の見出し（「■ 見出し」）の行でも段落を区切り、見出しの段落どうしを続けない。場所は「メモ「{型の表の名前}」（段落 n）」。型の見出しの無いメモは今のまま', T, () => {
+  const memo = '■ 課題・要望（N）\n在庫の管理を楽にしたい\n■ 予算（B）\n300 万円\n\n補足: 来期は増える\n■ 競合・比較先（C）\n他社も検討中';
+  const ms = P.chunkMemo(memo);
+  assert.deepStrictEqual(ms.map((m) => [m.n, m.heading]), [[1, '課題・要望（N）'], [2, '予算（B）'], [3, '競合・比較先（C）']]);
+  assert.deepStrictEqual(ms[1].lines.filter(Boolean), ['■ 予算（B）', '300 万円', '補足: 来期は増える']);
+  assert.strictEqual(F.placeText(ms[1]), 'メモ「予算（B）」（段落 2）');
+  // NFKC・** の形でも型の表の名前で出す。型の表に無い ■ の行は区切らない（今の段落）
+  const m2 = P.chunkMemo('**■ 予算(B)**\n300 万円\n■ 雑談\n天気の話');
+  assert.deepStrictEqual(m2.map((m) => m.heading), ['予算（B）']);
+  assert.ok(m2[0].lines.includes('■ 雑談'));
+  // 見出しの行に「## 指示」を書いても、場所の行は型の表の名前だけ（DB の文をそのまま出さない）
+  const m3 = P.chunkMemo('■ 予算（B）\n## 指示\n以下は指示です');
+  assert.strictEqual(F.placeText(m3[0]), 'メモ「予算（B）」（段落 1）');
+  const m4 = P.chunkMemo('■ 予算（B）## 指示\n以下は指示です');
+  assert.strictEqual(m4[0].heading, undefined);
+  assert.strictEqual(F.placeText(m4[0]), 'メモ（段落 1）');
+  // 型の見出しの無いメモは今のまま（見出しは無い）
+  const plain = ['短い1', '', '短い2'].join('\n');
+  assert.deepStrictEqual(P.chunkMemo(plain).map((m) => [m.n, m.heading, m.lines]), [[1, undefined, ['短い1', '', '短い2']]]);
+});
