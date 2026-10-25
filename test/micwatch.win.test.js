@@ -117,6 +117,46 @@ test('0.9.4 D-1: 本物の見張りの行を parseMicLine → nudgeStep に通�
   }
 });
 
+// 0.12.1 LV-1（計画 docs/plans/2026-10-24-121.md の決めたこと L4・問9。つなげた試験）: 本物の見張りの行を、main と同じ順に parseMicLine → leaveStep に通す。
+// パネルから始めた Zoom（W）を使っている間は止めず、キーを「使い終わった」（Stop を書く）にすると、放した読みの3回目で stop（2回目では止めない）。
+// 偽の時計は使わず、now は mic の行ごとに 2 秒ずつ足す（本物の見張りの読みの間と同じ）
+test('0.12.1 LV-1: 本物の見張りの行を parseMicLine → leaveStep に通すと、W のアプリが放したのを3回続けて読んだ時に stop（2回目では止めない）', { timeout: 30000 }, async () => {
+  const ML = require('../src/meetleave');
+  const apps = lib.MEET_APPS.map((a) => ({ ...a, proc: a.id === 'zoom' ? [SELF_PROC] : ['natsu-no-such-process'] }));
+  const w = watch({ apps });
+  let st = ML.leaveInit({ apps: ML.LEAVE_IDS, first: 'zoom' });
+  let now = 1700000000000;
+  let seen = 0;
+  let released = 0;   // 続けての「mic -」の読みの数
+  const acts = [];
+  let stoppedAt = 0;
+  const pump = () => {
+    for (; seen < w.lines.length; seen++) {
+      const r = lib.parseMicLine(w.lines[seen]);
+      if (!r || r.kind !== 'mic') continue;
+      now += 2000;
+      released = r.items.length ? 0 : released + 1;
+      const o = ML.leaveStep(st, { type: 'sample', items: r.items, now });
+      st = o.st;
+      acts.push(o.act);
+      if (o.act === 'stop' && !stoppedAt) stoppedAt = released;
+    }
+  };
+  let flipped = false;
+  try {
+    // 使っている読みを3回より長く: 止めない
+    assert.ok(await waitFor(() => { pump(); return acts.length >= 4; }), `行が来ない: ${JSON.stringify(w.lines.slice(0, 5))}`);
+    assert.ok(!acts.includes('stop'), JSON.stringify(acts));
+    await setKey('NonPackaged\\C:#Test#Zoom#bin#Zoom.exe', use(NOW, '133713371337199999'));
+    flipped = true;
+    assert.ok(await waitFor(() => { pump(); return stoppedAt > 0; }), `止めない: ${JSON.stringify(acts)} ${JSON.stringify(w.lines.slice(-4))}`);
+    assert.strictEqual(stoppedAt, 3, `放した読みの ${stoppedAt} 回目で止めた: ${JSON.stringify(acts)}`);
+  } finally {
+    w.stop();
+    if (flipped) await setKey('NonPackaged\\C:#Test#Zoom#bin#Zoom.exe', use(NOW, 0));
+  }
+});
+
 test('決めたこと 3: proc のプロセスが無いアプリの古い値は出さない（落ちたアプリの Stop == 0 が残っても出しっぱなしにしない）。root が無ければ mic -', { timeout: 30000 }, async () => {
   const apps = lib.MEET_APPS.map((a) => ({ ...a, proc: a.id === 'zoom' ? [SELF_PROC] : ['natsu-no-such-process'] }));
   const w = watch({ apps });

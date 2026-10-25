@@ -1850,6 +1850,12 @@ function nudgeStep(st0, ev) {
     if (st.shown && (!st.on || st.mute.includes(st.shown.id))) hideNow();
   } else if (ev.type === 'closed') {
     hideNow();
+  } else if (ev.type === 'forget') {
+    // 0.12.1 LV-1（計画 docs/plans/2026-10-24-121.md の決めたこと L18）: 会議を出て止めた後に、放した読みで見えた別のアプリの使いの「録った会議」の印と
+    // つなぎ直しの印を外す（まだ使っていれば、次の読みでいつもの決まりのとおりに出す。seen は今の数のまま）
+    const keys = Array.isArray(ev.keys) ? ev.keys.filter((k) => typeof k === 'string') : [];
+    st.done = st.done.filter((k) => !keys.includes(k));
+    if (Array.isArray(st.rejoin)) st.rejoin = st.rejoin.filter((k) => !keys.includes(k));
   } else if (ev.type === 'hover') {
     if (st.shown) {
       if (ev.on) { st.shown.hover = true; st.shown.leftAt = null; } else if (st.shown.hover) { st.shown.hover = false; st.shown.leftAt = now; }
