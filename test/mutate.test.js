@@ -925,3 +925,40 @@ test('G3・0.12.0: 0.12.0 の変異が一覧にそろい、IDS_120 は計画の�
     assert.ok(typeof m.why === 'string' && m.why.startsWith('0.12.0 '), `${id}: why`);
   }
 });
+
+// 0.12.1（計画 docs/plans/2026-10-24-121.md の「変異確認」の表）: 会議を出たら止める直しを1つずつ戻す変異。タスクを作るたびに足し（0.10.1 の Ruling R3 と同じ）、
+// LV-6 で表の id とちょうど同じにそろえた（表の行の順）
+const IDS_121 = [
+  'lv-three', 'lv-blip-reset', 'lv-start', 'lv-other-app', 'lv-seen-twice', 'lv-ids', 'lv-ids-browser', 'lv-panel-first', 'lv-no-app', 'lv-lost', 'lv-gap', 'lv-bad-sample',
+  'lv-pause', 'lv-setting',   // LV-1
+  'lv-watch-meeting', 'lv-watch-dictate', 'lv-watch-leave-off',   // LV-2
+  'lv-log-name',   // LV-3
+  'lv-statelog',   // LV-2
+  'lv-stop-by', 'lv-stop-twice', 'lv-notice', 'lv-notice-once', 'lv-notice-hidden', 'lv-notice-wrong', 'lv-notice-click', 'lv-quiet-wins', 'lv-trim',   // LV-3
+  'lv-forget',   // LV-1
+  'lv-forget-all',   // LV-3
+  'lv-ui-save',   // LV-4
+  'lv-help-split',   // LV-5
+];
+test('G3・0.12.1 LV-6: 0.12.1 の変異が一覧にそろい、IDS_121 は計画の「変異確認」の表の id とちょうど同じ（行の順・重なり無し・数も同じ）。lv- の変異は IDS_121 にある。どれも決まったテストのファイルを持ち、why が 0.12.1 で始まる', { timeout: 5000 }, () => {
+  const byId = new Map(MUTANTS.map((m) => [m.id, m]));
+  assert.deepStrictEqual(IDS_121.filter((id) => !byId.has(id)), [], 'IDS_121 の変異が一覧に無い');
+  assert.strictEqual(new Set(IDS_121).size, IDS_121.length, 'IDS_121 に重なり');
+  assert.deepStrictEqual(MUTANTS.filter((m) => /^lv-/.test(m.id) && !IDS_121.includes(m.id)).map((m) => m.id), [], 'IDS_121 に無い lv- の変異がある');
+  const plan = fs.readFileSync(path.join(ROOT, 'docs', 'plans', '2026-10-24-121.md'), 'utf8');
+  // 行の頭の見出しだけを探す（LV-6 の手順の文にも同じ字が `…` の中にある）
+  const at = plan.search(/^## 変異確認（直しを1つ戻すと/m);
+  assert.ok(at > 0, '計画の「変異確認」の節が無い');
+  const table = plan.slice(at, plan.indexOf('\n## ', at + 5));
+  const rows = [...table.matchAll(/^\| ([a-z][a-z0-9-]*) \|/gm)].map((m) => m[1]).filter((id) => id !== 'id');
+  assert.strictEqual(rows.length, 32, '計画の表が読めない');
+  assert.strictEqual(new Set(rows).size, rows.length, '計画の表に重なり');
+  assert.deepStrictEqual(IDS_121.filter((id) => !rows.includes(id)), [], '計画の「変異確認」の表に無い変異');
+  assert.deepStrictEqual(rows.filter((id) => !IDS_121.includes(id)), [], 'IDS_121 に無い計画の「変異確認」の表の行（作っていない変異）');
+  assert.deepStrictEqual(IDS_121, rows, 'IDS_121 が計画の表（行の順）とちょうど同じでない');
+  for (const id of IDS_121) {
+    const m = byId.get(id);
+    assert.ok(Array.isArray(m.tests) && m.tests.length > 0 && m.tests.every((t) => /^test\/[^/]+\.test\.js$/.test(t)), `${id}: tests`);
+    assert.ok(typeof m.why === 'string' && m.why.startsWith('0.12.1 '), `${id}: why`);
+  }
+});
