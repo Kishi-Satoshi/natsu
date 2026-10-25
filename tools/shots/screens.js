@@ -326,10 +326,10 @@ const OVL_094 = (states) => PS.FORMS.flatMap((form) => Object.keys(PS.DESKS).fla
 // 0.12.0（版を 0.12.0 に上げる commit。Task G）: 持ち主が 2026-10-25 に取り直しの見比べ（CI run 40187063736（e580fca）の 14 枚。録音中のページの文字起こしの
 // 「自分」「相手」の札の 13 枚と、足した notes-script-spk-light）を見て「OK（版を 0.12.0 に上げてよい）」と言ったので、その run の artifact 12596530760 の
 // .after.png をバイトのまま基準にし、空に戻した
-// 0.12.1（計画 docs/plans/2026-10-24-121.md の「取り直す画面（RETAKE）」）: LV-4 で［設定］→［録音］のカード「会議の検出」に行「会議を出たら自動で止める」を
-// 足したので、そのカードと［録音］の下を写す画面と、新しい行の名前・説明に当たる検索の画面を入れた。持ち主が見比べを OK と言ったら、版を上げる commit で基準にして空に戻す
-const RETAKE = new Set(['settings-record-light', 'settings-record-dark', 'settings-record-zoom200-light', 'settings-detect-light', 'settings-detect-dark',
-  'settings-search-light', 'settings-quiet-search-light', 'settings-info-loop-light', 'settings-info-stt-dark', 'settings-info-zoom200-light']);
+// 0.12.1（版を 0.12.1 に上げる commit。LV-7）: 持ち主が 2026-10-25 に取り直しの見比べ（review-121.html。LV-4 で［設定］→［録音］のカード「会議の検出」に行
+// 「会議を出たら自動で止める」を足して変わった 10 枚）を見て「OK（版を 0.12.1 に上げてよい）」と言ったので、点検の直しの後の CI run 40207175980（ba3387f）の
+// artifact 12604106323 の .after.png をバイトのまま基準にし、空に戻した
+const RETAKE = new Set([]);
 const PERF = [{ name: 'open-2000-blocks', budgetMs: 500 }];   // 3回開いた中央値で見る
 const TIME_ZONE = 'Asia/Tokyo';
 const TOLERANCE = 2;   // 色の差（0〜255）がこれ以下の画素は同じとみなす。CI の機械の CPU ごとの描き方の1段の差を拾わないため（揺れの確かめ judgePair は 0 で見る）

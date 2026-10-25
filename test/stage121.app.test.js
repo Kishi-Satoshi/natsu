@@ -93,11 +93,16 @@ test('LV-4: 設定の検索「自動で止める」「マイク」「会議を�
   assert.deepStrictEqual(l.errors, []);
 });
 
-test('LV-4: 取り直し待ち（RETAKE）は計画の「取り直す画面（RETAKE）」の表の画面とちょうど同じ', T, () => {
+// 0.12.1 で意図して変えた（版を 0.12.1 に上げる commit。LV-7）: 持ち主が見比べを OK と言ったので、表の画面を基準にして取り直し待ちを空に戻した。表の画面にはどれも基準がある
+test('LV-4・LV-7: 計画の「取り直す画面（RETAKE）」の表の画面はどれも撮る画面にあって基準があり、取り直し待ちは空（版を 0.12.1 に上げる commit で基準にした）', T, () => {
   const plan = fs.readFileSync(path.join(ROOT, 'docs', 'plans', '2026-10-24-121.md'), 'utf8');
   const i = plan.indexOf('## 取り直す画面（RETAKE');
   const table = plan.slice(i, plan.indexOf('\n## ', i + 5));
   const rows = [...table.matchAll(/^\| (`[^|]+`(?:・`[^|]+`)*)/gm)].flatMap((m) => [...m[1].matchAll(/`([a-z0-9-]+)`/g)].map((x) => x[1]));
   assert.ok(rows.length >= 7, table);
-  assert.deepStrictEqual([...SH.RETAKE].sort(), [...rows].sort());
+  assert.deepStrictEqual([...SH.RETAKE], []);
+  for (const n of rows) {
+    assert.ok(SH.SCREENS.some((s) => s.name === n), `${n} が撮る画面に無い`);
+    assert.ok(fs.existsSync(path.join(ROOT, 'test', 'shots', 'win32', `${n}.png`)), `${n} の基準が無い`);
+  }
 });
