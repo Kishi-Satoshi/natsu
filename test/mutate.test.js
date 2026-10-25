@@ -940,6 +940,7 @@ const IDS_121 = [
   'lv-ui-save',   // LV-4
   'lv-help-split',   // LV-5
   'rv-forget-late',   // 点検の直し 1（2026-10-25）
+  'rv-help-panel',   // 点検の直し 2
 ];
 test('G3・0.12.1 LV-6: 0.12.1 の変異が一覧にそろい、IDS_121 は計画の「変異確認」の表の id とちょうど同じ（行の順・重なり無し・数も同じ）。lv- の変異は IDS_121 にある。どれも決まったテストのファイルを持ち、why が 0.12.1 で始まる', { timeout: 5000 }, () => {
   const byId = new Map(MUTANTS.map((m) => [m.id, m]));

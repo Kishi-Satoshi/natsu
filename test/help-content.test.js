@@ -316,3 +316,15 @@ test('0.12.1 LV-5: record/start-stop の自動で止める節から record/meeti
   const readme = read('README.md');
   assert.ok(readme.includes('**会議を出たとき（0.12.1 から）:**'), 'README に項目が無い');
 });
+test('0.12.1 点検の直し 2: 「誤って止まったとき」の録り直しは ［＋ 新しい議事録］ と [[Alt+M]] から言い、同じアプリの会議に入り直したときは右上のパネルが出ないことがあると書く（R3: 0.9.3 のつなぎ直し）', { timeout: 5000 }, () => {
+  const t = read(fileOf('record/meeting-detect'));
+  const at = t.indexOf('{#leave-split}');
+  const step1 = t.slice(at).split('\n').find((l) => l.startsWith('1. '));
+  assert.ok(step1, '手順の 1 が無い');
+  const iNew = step1.indexOf('［＋ 新しい議事録］');
+  const iKey = step1.indexOf('[[Alt+M]]');
+  const iPanel = step1.indexOf('パネル');
+  assert.ok(iNew >= 0 && iKey >= 0, step1);
+  assert.ok(iPanel > iNew && iPanel > iKey, `パネルを先に言っている: ${step1}`);
+  assert.ok(step1.includes('同じアプリ') && step1.includes('パネルが出ないことがあります'), step1);
+});
