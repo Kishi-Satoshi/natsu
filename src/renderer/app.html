@@ -601,7 +601,7 @@
   .seg.pending { color: var(--muted); }   /* 音声は届いたが文字起こし待ちの区間 */
   /* 行の本文はクリックで編集できる。地色は .blk .txt と同じトークン */
   /* 0.12.0 SP-4（決めたこと 85）: 時刻の後の小さな札「自分」「相手」（読むだけ） */
-  .seg .spk { flex: none; color: var(--muted); font-size: 11px; line-height: 18px; margin-top: 3px; padding: 0 5px;
+  .seg .spk { flex: none; align-self: flex-start; color: var(--muted); font-size: 11px; line-height: 18px; margin-top: 3px; padding: 0 5px;
     border: 1px solid var(--line); border-radius: 4px; }
   .seg .txt { flex: 1; min-width: 0; outline: none; border-radius: 4px; padding: 0 4px; word-break: break-word; cursor: text; }
   .seg .txt:hover { background: var(--hover); }

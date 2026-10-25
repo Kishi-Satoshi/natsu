@@ -915,8 +915,9 @@ test('基準の画像（test/shots/win32）は今の app.html で撮ったもの
   // （ADDED_LOGO の LG4_LOGO）。値を今の app.html に合わせた（前の値は 8d23c411…）
   // 0.12.0 SP-4（D53・D66）: 文字起こしの行をタイムラインの順にし、時刻の後に「自分」「相手」の札（span.spk と CSS の .seg .spk）・PC の側の文ごとの行・
   // 文ごとの行の直し・［コピー］の札・リンクの印の行（R26）。変わる画面は録音中のページの文字起こしの 13 枚と足した notes-script-spk-light（RETAKE_120）。
-  // 値を今の app.html に合わせた（前の値は d3620f20…）
-  assert.strictEqual(sha, '15ff8c69ef1bb3d6a6827a4cd7f2ec73775ff16aa015cf0647e56a0051fd1dba',
+  // 値を今の app.html に合わせた（前の値は d3620f20…）。SP-4 の撮った画像の確かめで、折り返した行の札が行の高さに伸びていたので .seg .spk に
+  // align-self: flex-start を足した（変わる画面は同じ RETAKE_120）。値を今の app.html に合わせた（前の値は 15ff8c69…）
+  assert.strictEqual(sha, '2d669bc101a0bfcf07ec9261efe32e0843e0e3b7353cf6e275252afc2d7e804d',
     'app.html が基準の画像を撮った時と違う。Windows の CI の画面の比べ（捲り棒のつまみも）を見て、基準を取り直してからこの値を直す');
 });
 

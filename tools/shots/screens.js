@@ -86,6 +86,7 @@ const OPEN_PAGE_SCRIPT = `(async () => {
   document.getElementById('tabBtnNotes').click(); document.querySelector('#plist .pitem').click();
   await new Promise((r) => setTimeout(r, 300));
   document.getElementById('paneBtnScript').click();
+  document.getElementById('pScript').scrollIntoView({ block: 'start' });   // 文字起こしの行（札・重なり・文ごとの行）が全部見えるように捲る
   return 1;
 })()`;
 // 0.11.0 V-2: ページを開き、打ち合わせの質のカードまで捲る
