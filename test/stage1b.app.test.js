@@ -162,7 +162,8 @@ test('N3・画面の使いやすさ: タブの帯は ←／→／Home／End で�
   assert.deepStrictEqual(tabs(l).map((t) => t.tabIndex), [0, -1, -1]);
   tabs(l)[0].dispatchEvent({ type: 'keydown', key: 'ArrowRight' });
   await l.drain();
-  assert.strictEqual(l.document.activeElement, tabs(l)[1]);
+  // 0.11.0（R22）: 要素どうしは assert.ok(a === b) で比べる（赤のときに報告が最小 DOM の木を丸ごと書き出し、変異確認の写しで数 GB の記憶を使った）
+  assert.ok(l.document.activeElement === tabs(l)[1]);
   assert.ok(l.byId.get('tabDictation').className.includes('active'));
   tabs(l)[1].dispatchEvent({ type: 'keydown', key: 'End' });
   await l.drain();
@@ -200,13 +201,14 @@ test('N3・F7（足した守り）: 消したページのタブを残さず隣�
 const openPa1 = async (o = {}) => { const l = await open(o); await l.drain(); row(l, 0).dispatchEvent({ type: 'click' }); await l.drain(); return l; };
 const propRows = (l) => l.byId.get('pageWrap').querySelectorAll('.prop').map((r) => [r.querySelector('.k').textContent, r.querySelector('.v').textContent]);
 
-test('N4: プロパティは「アイコン・名前・値」の行。要約タイプの選び方もこの行にあり、第1c回の経路の行は名前と値に分ける', async () => {
+// 0.11.0 V-1（決めたこと 3）で意図して変えた: 行の名前は「会議の種類」
+test('N4: プロパティは「アイコン・名前・値」の行。会議の種類の選び方もこの行にあり、第1c回の経路の行は名前と値に分ける', async () => {
   const l = await openPa1({ pageGet: (id) => ({ ...PAGE(id), page: { ...PAGE(id).page, citeStat: { linked: 2, total: 2 }, routeText: ['☁ 文字起こし: クラウド（Groq（無料枠））2', '✨ 要約: Claude Code'] } }) });
   const rows = propRows(l);
   assert.match(rows.find((r) => r[0] === '🔗 出典')[1], /✔ 2\/2/, '出典がそろったことを色だけで伝えている');
-  assert.ok(rows.map((r) => r[0]).filter((k) => /作成日時|長さ|区間|要約タイプ|文字起こし|要約$/.test(k)).length >= 6, JSON.stringify(rows));
+  assert.ok(rows.map((r) => r[0]).filter((k) => /作成日時|長さ|区間|会議の種類|文字起こし|要約$/.test(k)).length >= 6, JSON.stringify(rows));
   assert.deepStrictEqual(rows.find((r) => r[0] === '☁ 文字起こし'), ['☁ 文字起こし', 'クラウド（Groq（無料枠））2']);
-  assert.ok(l.byId.get('pType').closest('.prop'), '要約タイプがプロパティの行に無い');
+  assert.ok(l.byId.get('pType').closest('.prop'), '会議の種類がプロパティの行に無い');
   // 名前の欄のアイコンは灰色の .ic に包む（文字は今のまま。第1b2回 P-2）
   assert.ok(l.byId.get('pageWrap').querySelectorAll('.prop .k').every((k) => k.querySelector('.ic')), 'アイコンが .ic に包まれていない');
 });
@@ -232,13 +234,13 @@ test('N4・画面の使いやすさ: 「…」は Enter で開いて最初の項
   await l.drain();
   const items = l.byId.get('pMenu').querySelectorAll('[role="menuitem"]');
   assert.strictEqual(more.getAttribute('aria-expanded'), 'true');
-  assert.strictEqual(l.document.activeElement, items[0]);
+  assert.ok(l.document.activeElement === items[0]);
   items[0].dispatchEvent({ type: 'keydown', key: 'ArrowDown' });
-  assert.strictEqual(l.document.activeElement, items[1]);
+  assert.ok(l.document.activeElement === items[1]);
   items[1].dispatchEvent({ type: 'keydown', key: 'Escape' });
   await l.drain();
   assert.strictEqual(l.byId.get('pMenu').hidden, true);
-  assert.strictEqual(l.document.activeElement, more);
+  assert.ok(l.document.activeElement === more);
   more.dispatchEvent({ type: 'keydown', key: 'Enter', isComposing: true });
   await l.drain();
   assert.strictEqual(l.byId.get('pMenu').hidden, true, '変換確定の Enter で開いた（imeEnter）');
@@ -459,7 +461,7 @@ test('画面の使いやすさ・F12（足した守り）: 選んでいるタブ
   x.dispatchEvent({ type: 'click' });
   await l.drain();
   assert.deepStrictEqual(keysOf(l), ['page:pa1', 'page:pb2']);
-  assert.strictEqual(l.document.activeElement, tabs(l)[1], '× で閉じた後、フォーカスがどこにも無い');
+  assert.ok(l.document.activeElement === tabs(l)[1], '× で閉じた後、フォーカスがどこにも無い');
   assert.deepStrictEqual(xs(), [-1, 0]);
 });
 
@@ -470,7 +472,7 @@ test('画面の使いやすさ・F12（足した守り）: タブの × にフ�
   l.fire('onPagesUpdated');
   await l.drain();
   assert.ok(l.called('pagesSearch').length >= 2, '前提: 一覧を読み直した');
-  assert.strictEqual(l.document.activeElement, tabs(l)[1].querySelector('.tx'), '帯を描き直したら × のフォーカスが消えた');
+  assert.ok(l.document.activeElement === tabs(l)[1].querySelector('.tx'), '帯を描き直したら × のフォーカスが消えた');
   assert.deepStrictEqual(l.errors.map(fmt), []);
 });
 

@@ -9,6 +9,7 @@
 'use strict';
 
 const { isCitable, searchFold } = require('./cite');
+const { normalizeType } = require('./meetingType');
 
 const isObj = (v) => Boolean(v) && typeof v === 'object' && !Array.isArray(v);
 
@@ -22,7 +23,8 @@ const MEMO_TEXT_MAX = 2000;
 function summarize(page) {
   const todos = page.blocks.filter((b) => b.type === 'todo');
   const open = todos.filter((b) => !b.checked);
-  const firstBullet = page.blocks.find((b) => b.type === 'bullet' && b.text);
+  // 0.11.0 M-3（決めたこと 24）: 印のある行（未確認・チェック・助言・メモより）は最初の要点にしない
+  const firstBullet = page.blocks.find((b) => b.type === 'bullet' && b.text && !b.mark);
   const dues = open.map((b) => b.due).filter(Boolean).sort();
   return {
     id: page.id,
@@ -31,7 +33,7 @@ function summarize(page) {
     durationSec: page.durationSec || 0,
     createdAt: page.createdAt,
     updatedAt: page.updatedAt,
-    meetingType: page.meetingType || 'general',
+    meetingType: normalizeType(page.meetingType),   // 0.11.0 P-12（R4）: 選べる鍵のほか（前の版の general・まだ無い）は ''（決まらなかった）
     hasSummary: page.blocks.some((b) => b.type === 'heading'),
     actionCount: todos.length,
     openActionCount: open.length,

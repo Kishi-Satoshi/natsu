@@ -1,7 +1,7 @@
 ---
 title: NaTsu でできること
 description: 会議の録音・文字起こし・要約・出典リンクと音声入力。オンラインとオフラインで何が違うか
-updated: 2026-10-23
+updated: 2026-10-24
 sources: README.md, INSTALL.md, src/renderer/app.html, src/main.js
 related: start/tester-guide, start/install-update, start/login
 ---
@@ -14,6 +14,7 @@ NaTsu は、会議を録音して文字起こしし、要約まで作る Windows
 - サイドバーの ［新しい議事録］ か [[Alt+M]] で録音を始め、［■ 終了して作成］ か、もう一度 [[Alt+M]] で止めます。
 - 録音中は、文字起こしが少しずつページに流れます。止めると要約ができます。
 - 要約の要点には、もとの発言へのリンク（出典）が付きます。発言が見つからない要点には「根拠なし」と出ます。
+- 会議の種類（朝会・1on1・商談など）から、メモの見出しと要約の組み立てが決まります（[会議の種類とメモの型](summary/summary-types.md)）。要約の最後には、会議の進め方の目安（[打ち合わせの質](summary/meeting-quality.md)）が付きます。
 - 議事録は、この PC の中にだけ保存されます。
 
 ## 音声入力 {#dictation}

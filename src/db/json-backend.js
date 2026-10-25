@@ -19,11 +19,14 @@
 const { refreshCitations } = require('../cite');
 const { parseDue } = require('../actions');
 const { routeLabel } = require('../mainlib');
+const mtype = require('../meetingType');
+const quality = require('../quality');
+const { setTypePage } = require('./commands');   // 0.11.0 M-4: page.setType の中身は DB と同じ部品
 
 const isObj = (v) => Boolean(v) && typeof v === 'object' && !Array.isArray(v);
 
 // DB の側で作る欄。ページを書くときはファイルに残さない
-const DB_MADE = ['rev', 'routeText'];
+const DB_MADE = ['rev', 'routeText', 'qualityView'];   // 0.11.0 Q-3: qualityView も DB が作る欄
 
 function fail(code) {
   const e = new Error(code);
@@ -48,7 +51,7 @@ function makeJsonBackend(store, { labels = {} } = {}) {
     if (!isObj(page)) return page;
     const id = page.route && page.route.stt ? page.route.stt.provider : '';
     const label = typeof id === 'string' && isObj(labels) && Object.hasOwn(labels, id) && typeof labels[id] === 'string' ? labels[id] : '';
-    return { ...page, routeText: routeLabel(page.route, label) };
+    return { ...page, routeText: routeLabel(page.route, label), qualityView: quality.qualityView(page.quality) };   // 0.11.0 Q-3
   };
 
   const create = (page, segments) => {
@@ -57,6 +60,8 @@ function makeJsonBackend(store, { labels = {} } = {}) {
       p.summaryError = page.summaryError;
       store.savePage(p);
     }
+    // 0.11.0 M-4: 録音中に選んだ種類（DB の meetingPage と同じ）
+    if (isObj(page) && mtype.isSelectable(page.meetingType)) { p.meetingType = page.meetingType; p.typeAuto = false; store.savePage(p); }
     return p;
   };
 
@@ -76,9 +81,9 @@ function makeJsonBackend(store, { labels = {} } = {}) {
       const p = store.getPage(id); if (!p) return null;
       p.memo = String(memo || ''); return store.savePage(p);
     },
-    'page.setType': ({ id, type } = {}) => {
+    'page.setType': ({ id, type, preset } = {}) => {
       const p = store.getPage(id); if (!p) return null;
-      p.meetingType = type; p.typeAuto = false;   // 手動指定は以後の自動推定より優先
+      setTypePage(p, { type, preset }, new Date());   // 0.11.0 M-4: DB の page.setType と同じ部品（手動指定は以後の自動推定より優先）
       return store.savePage(p);
     },
     'page.delete': ({ id } = {}) => store.deletePage(id),

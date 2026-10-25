@@ -4,12 +4,18 @@ const test = require('node:test');
 const assert = require('node:assert');
 const { tmpDb, jsonTwin, samplePage } = require('./helpers/dbtmp');   // jsonTwin: 一時フォルダの store.js と json-backend。seed は同じ JSON をそのまま書く
 const core = require('../src/db/core');
+const { titleAt } = require('./helpers/titles');
 
 const NOW = () => new Date('2026-10-19T01:02:03.000Z');
 let n = 0;
 const call = (db, cmd, args, role = 'app') => core.call(db, { role, cmd, args, tx: `${role[0]}:t-${String(++n).padStart(6, '0')}` }, { now: NOW, labels: { groq: 'Groq（無料枠）' } });
 // updatedAt・rev・id の作り方の違いと、DB だけが付ける空の children（2a1 は子のない木）だけを落として比べる
-const plain = (v) => JSON.parse(JSON.stringify(v, (k, x) => (['updatedAt', 'rev', 'blockId'].includes(k) || (k === 'children' && Array.isArray(x) && x.length === 0) ? undefined : x)));
+// 0.11.0 M-4 で意図して足した: 経過の項目（{ s, by, at }）の時刻も落とす（json-backend は時計を受けず、今の時刻で積む）
+const plain = (v) => JSON.parse(JSON.stringify(v, function (k, x) {
+  if (['updatedAt', 'rev', 'blockId'].includes(k) || (k === 'children' && Array.isArray(x) && x.length === 0)) return undefined;
+  if (k === 'at' && this && typeof this.s === 'string' && typeof this.by === 'string') return undefined;
+  return x;
+}));
 
 test('ST4: 画面の 14 の命令は json-backend（今の保存）と同じ答え', { timeout: 5000 }, async () => {
   const t = tmpDb(); const j = jsonTwin();
@@ -197,5 +203,132 @@ test('R-2: entryOf は pages.list の1行と同じ', { timeout: 5000 }, () => {
     const list = call(db, 'pages.list', {}).result;
     const mine = C.listedRows(db).map((r) => C.entryOf(db, r));
     assert.deepStrictEqual(mine, list);
+  } finally { t.done(); }
+});
+
+// 0.11.0 M-3（MT4・F10。計画 docs/plans/2026-10-22-110.md の決めたこと 23・24）: 印のある行を人が直したら印を外す・一覧の最初の要点は印の無い行から
+test('0.11.0 M-3: 印のある行の文を block.update で直すと mark と unconfirmed が消え、citeState は manual のまま（手書き）。チェックだけ・文を変えない直しでは消えない。json-backend も同じ', { timeout: 5000 }, async () => {
+  const t = tmpDb(); const j = jsonTwin();
+  try {
+    const { db } = t.open();
+    const { page, segments } = samplePage('pm1');
+    page.blocks = [
+      { id: 'b1', type: 'heading', text: '抜け・重なりチェック' },
+      { id: 'b2', type: 'bullet', text: '未確認: 予算（B）', cites: [], mark: 'check', unconfirmed: true, citeState: 'manual' },
+      { id: 'b3', type: 'bullet', text: '次の会議で決裁の流れを聞く', cites: [], mark: 'check', citeState: 'manual' },
+      { id: 'b4', type: 'heading', text: '論点ごとの要点' },
+      { id: 'b5', type: 'bullet', text: '予算は据え置きにした', cites: ['s2'] },
+    ];
+    t.seed(page, segments); await j.seed(page, segments);
+    for (const [cmd, args] of [['block.update', { pageId: 'pm1', blockId: 'b2', patch: { text: '未確認: 予算（B）と時期（T）' } }],
+      ['block.update', { pageId: 'pm1', blockId: 'b3', patch: { text: '次の会議で決裁の流れを聞く' } }]]) {
+      const r = call(db, cmd, args);
+      assert.strictEqual(r.ok, true, r.code);
+      assert.deepStrictEqual(plain(r.result), plain(await j.call(cmd, args)), cmd);
+    }
+    const bs = call(db, 'page.get', { id: 'pm1' }).result.page.blocks;
+    const b2 = bs.find((b) => b.id === 'b2'); const b3 = bs.find((b) => b.id === 'b3');
+    assert.deepStrictEqual([b2.mark, b2.unconfirmed, b2.citeState], [undefined, undefined, 'manual']);
+    assert.deepStrictEqual([b3.mark, b3.citeState], ['check', 'manual'], '文を変えない直しで印が消えた');
+    // 一覧の最初の要点は印の無い箇条書き（b3 は印あり・b2 は印が消えたので b2）
+    const row = call(db, 'pages.list', {}).result.find((x) => x.id === 'pm1');
+    assert.strictEqual(row.preview, '未確認: 予算（B）と時期（T）');
+  } finally { t.done(); j.done(); }
+});
+
+test('0.11.0 M-3: 一覧の最初の要点（preview）は印の無い最初の箇条書き。印の無い今のページは今と同じ', { timeout: 5000 }, () => {
+  const t = tmpDb();
+  try {
+    const { db } = t.open();
+    const a = samplePage('pv1');
+    a.page.blocks = [{ id: 'v1', type: 'heading', text: '抜け・重なりチェック' }, { id: 'v2', type: 'bullet', text: '未確認: 目的', cites: [], mark: 'check', unconfirmed: true, citeState: 'manual' },
+      { id: 'v3', type: 'bullet', text: '冒頭で目的を言う', cites: [], mark: 'advice', citeState: 'manual' }, { id: 'v4', type: 'bullet', text: '予算は据え置きにした', cites: [] }];
+    t.seed(a.page, a.segments);
+    const b = samplePage('pv2'); t.seed(b.page, b.segments);
+    const rows = call(db, 'pages.list', {}).result;
+    assert.strictEqual(rows.find((x) => x.id === 'pv1').preview, '予算は据え置きにした');
+    assert.strictEqual(rows.find((x) => x.id === 'pv2').preview, '来月の予算案の作成を担当Aが進める');
+  } finally { t.done(); }
+});
+
+// 0.11.0 M-4（MT3・F14・F27・F28・P13・P16。決めたこと 8・12。持ち主の試作の「命令ごとの照らし」「1つの命令＝1つのトランザクション」）
+test('0.11.0 M-4: page.setType は選べる種類の鍵と auto だけを通す（知らない名前・前の版の general・数・道の形は bad-args）', { timeout: 5000 }, async () => {
+  const t = tmpDb(); const j = jsonTwin();
+  try {
+    const { db } = t.open();
+    const { page, segments } = samplePage('pt1');
+    t.seed(page, segments); await j.seed(page, segments);
+    for (const type of ['nope', 'general', '../x', 3, '', 'Sales']) {
+      const r = call(db, 'page.setType', { id: 'pt1', type });
+      assert.deepStrictEqual([r.ok, r.code], [false, 'bad-args'], String(type));
+    }
+    for (const type of ['standup', 'review', 'brainstorm', 'oneonone', 'interview', 'sales', 'present']) {
+      const r = call(db, 'page.setType', { id: 'pt1', type });
+      assert.strictEqual(r.ok, true, type);
+      assert.deepStrictEqual([r.result.meetingType, r.result.typeAuto], [type, false], type);
+      assert.deepStrictEqual(plain(r.result), plain(await j.call('page.setType', { id: 'pt1', type })), type);
+    }
+    const a = call(db, 'page.setType', { id: 'pt1', type: 'auto' });
+    assert.deepStrictEqual([a.ok, a.result.typeAuto, a.result.meetingType], [true, true, 'present'], '自動に戻すと次の要約で判定し直す（種類は今のまま）');
+    assert.deepStrictEqual(plain(a.result), plain(await j.call('page.setType', { id: 'pt1', type: 'auto' })));
+  } finally { t.done(); j.done(); }
+});
+
+test('0.11.0 M-4・F14: page.setType の preset は、DB にある今のメモが手を付けていない（空・型の雛形・アジェンダの雛形）ときだけ新しい型の雛形に替え、人の文は1文字も変えない。同じ tx で経過に type/page を1件（続けて選んだら置き換え）', { timeout: 5000 }, async () => {
+  const M = require('../src/memoTypes');
+  const mtype = require('../src/meetingType');
+  const t = tmpDb(); const j = jsonTwin();
+  try {
+    const { db } = t.open();
+    const cases = [['pp1', ''], ['pp2', M.memoPreset('points')], ['pp3', mtype.getAgenda('standup')], ['pp4', '予算の相談をする'], ['pp5', `${M.memoPreset('grow')}あ`]];
+    for (const [id, memo] of cases) { const { page, segments } = samplePage(id); page.blocks = page.blocks.map((b) => ({ ...b, id: `${id}${b.id}` })); page.memo = memo; page.stateLog = [{ s: 'start', by: 'button', at: '2026-10-19T00:00:00.000Z' }]; t.seed(page, segments); await j.seed(page, segments); }
+    for (const [id, memo] of cases) {
+      const r = call(db, 'page.setType', { id, type: 'sales', preset: true });
+      assert.strictEqual(r.ok, true, id);
+      const want = M.isUntouchedMemo(memo, mtype.listTypes().map((x) => x.agenda)) ? M.memoPreset('bantc') : memo;
+      assert.strictEqual(r.result.memo, want, id);
+      assert.deepStrictEqual(r.result.stateLog.map((x) => `${x.s}/${x.by}`), ['start/button', 'type/page'], id);
+      assert.deepStrictEqual(plain(r.result), plain(await j.call('page.setType', { id, type: 'sales', preset: true })), id);
+    }
+    assert.strictEqual(call(db, 'page.get', { id: 'pp4' }).result.page.memo, '予算の相談をする');
+    // 続けて選び直しても種類の項目は1件。preset が無ければメモは替えない。auto ではメモを替えない
+    const r2 = call(db, 'page.setType', { id: 'pp1', type: 'oneonone' });
+    assert.strictEqual(r2.result.memo, M.memoPreset('bantc'));
+    assert.deepStrictEqual(r2.result.stateLog.map((x) => `${x.s}/${x.by}`), ['start/button', 'type/page']);
+    const r3 = call(db, 'page.setType', { id: 'pp1', type: 'auto', preset: true });
+    assert.strictEqual(r3.result.memo, M.memoPreset('bantc'));
+  } finally { t.done(); j.done(); }
+});
+
+test('0.11.0 M-4・F27: 締めと復旧のページは、録音中に選んだ種類（選べる鍵だけ）を typeAuto 偽で写す。知らない値と無い値は写さない', { timeout: 5000 }, () => {
+  const t = tmpDb();
+  try {
+    const { db } = t.open();
+    const fin = (pageId, extra) => call(db, 'meeting.finalize', { pageId, segments: [], page: { title: titleAt('2026-10-19T00:00:00.000Z'), memo: '', blocks: [], createdAt: '2026-10-19T00:00:00.000Z', meeting: { phase: 'done' }, ...extra } }, 'main');
+    let r = fin('pf1', { meetingType: 'sales', typeAuto: false });
+    assert.deepStrictEqual([r.result.meetingType, r.result.typeAuto], ['sales', false]);
+    r = fin('pf2', { meetingType: 'general', typeAuto: false });
+    assert.deepStrictEqual([r.result.meetingType, r.result.typeAuto], [undefined, undefined]);
+    r = fin('pf3', {});
+    assert.deepStrictEqual([r.result.meetingType, r.result.typeAuto], [undefined, undefined]);
+    const rec = call(db, 'meeting.recover', { pageId: 'pf4', segments: [], page: { title: titleAt('2026-10-19T00:00:00.000Z'), memo: '', blocks: [], createdAt: '2026-10-19T00:00:00.000Z', recovered: true, meetingType: 'present', typeAuto: false } }, 'main');
+    assert.deepStrictEqual([rec.result.page.meetingType, rec.result.page.typeAuto], ['present', false]);
+  } finally { t.done(); }
+});
+
+test('0.11.0 M-5: pages.typeSlots は main だけが読み、人が選んだ種類（typeAuto 偽・選べる鍵）の会議の作った時刻と種類だけを返す（ゴミ箱・録音中の写し・自動・前の版の general は返さない）', { timeout: 5000 }, () => {
+  const t = tmpDb();
+  try {
+    const { db } = t.open();
+    const seed = (id, patch, at) => { const { page, segments } = samplePage(id); page.blocks = page.blocks.map((b) => ({ ...b, id: `${id}${b.id}` })); t.seed({ ...page, createdAt: at, ...patch }, segments); };
+    seed('ps1', { meetingType: 'oneonone', typeAuto: false }, '2026-10-13T01:00:00.000Z');
+    seed('ps2', { meetingType: 'oneonone', typeAuto: true }, '2026-10-14T01:00:00.000Z');
+    seed('ps3', { meetingType: 'general', typeAuto: false }, '2026-10-15T01:00:00.000Z');
+    seed('ps4', { meetingType: 'sales', typeAuto: false, meeting: { phase: 'recording' } }, '2026-10-16T01:00:00.000Z');
+    seed('ps5', { meetingType: 'review', typeAuto: false }, '2026-09-01T01:00:00.000Z');
+    assert.strictEqual(call(db, 'pages.typeSlots', { since: '2026-09-20T00:00:00.000Z' }).code, 'forbidden');
+    const r = call(db, 'pages.typeSlots', { since: '2026-09-20T00:00:00.000Z' }, 'main');
+    assert.strictEqual(r.ok, true, r.code);
+    assert.deepStrictEqual(r.result, [{ createdAt: '2026-10-13T01:00:00.000Z', meetingType: 'oneonone' }]);
   } finally { t.done(); }
 });

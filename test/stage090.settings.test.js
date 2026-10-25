@@ -401,6 +401,8 @@ const CARDS = [
   ['summary', '要約（Claude Code）', ['Claude Code', 'Claude Code の場所']],
   // 0.10.0 C-3（MR8）で意図して足した: 要約（Claude Code）の次にカード「Claude との連携（MCP）」（行は1つ。D64 で Claude Code の行は作らない）
   ['summary', 'Claude との連携（MCP）', ['Claude デスクトップから読む']],
+  // 0.11.0 V-3（QM6）で意図して足した: Claude との連携（MCP）の次にカード「打ち合わせの質」（行は1つ）
+  ['summary', '打ち合わせの質', ['打ち合わせの質の点数']],
   // 0.9.3 M-0（D54）で意図して変えた: カードの名前は「ローカル AI」
   ['offline', 'ローカル AI', ['PC の中の文字起こし', 'PC の中の文字起こしを取り込む', '詳細設定']],
   ['update', 'アップデート', ['更新を確認']],
@@ -416,6 +418,7 @@ const ROW_IDS = {
   'Claude Code': ['claudeState', 'claudeTest', 'claudeLogin', 'claudeInstall', 'claudeHelp'], 'Claude Code の場所': ['claudeExe'], 'Claude デスクトップから読む': ['mcpDesktopState', 'mcpRegister', 'mcpUnregister'], 'PC の中の文字起こし': ['engineState', 'testBtn'],
   'PC の中の文字起こしを取り込む': ['engineFetchBtn', 'engineFetchSummary'], 詳細設定: ['localServerExe', 'localThreads', 'engineIdleMin'],   // 0.10.0 LS-3 で要約の文脈長（sumCtx）の欄を外した
   更新を確認: ['verNow', 'chkUpdBtn', 'applyUpdBtn', 'updMsg'],
+  打ち合わせの質の点数: ['qualityScore'],   // 0.11.0 V-3 で意図して足した
 };
 const cardsOf = (root) => root.querySelector('#tabSettings').querySelector('.scroll').children.filter((c) => c.classList.contains('card'));
 const titleOf = (c) => c.querySelector('h2').textContent.trim();
@@ -458,7 +461,8 @@ test('SP4: カードの data-sec と見出しの並びが「設定の項目と�
 // 0.10.0 LS-3（D59）で意図して変えた: 詳細設定の要約の欄の label を5つ（パス・モデル・スレッド・ポート・文脈長）外した（38 → 33。前の値は c8ceaee5…）と、
 // 説明を直した（カードの頭の1行の「要約」を外し・要約の欄の説明の3つを外した）
 // 持ち主の答え（2026-10-23）で意図して変えた: カード「Claude との連携（MCP）」の頭の1行から「Claude Code」を外した（説明の数は 18 のまま。前の値は 89206c38…）
-const TEXTS_080 = { labels: [33, 'df73640513aa5a2ee0126bbb437c801be6f1c2befefcd73c7805890f49f08d74'], descs: [18, '5bc6662f8d9f15cf2ba4f83f32ac15c082b86bc7c218da09b4ca5caf23a0735a'] };   // 説明 21 → 18（LS-3 の前の値は aed31061…）
+// 0.11.0 V-3（QM6）で意図して変えた: カード「打ち合わせの質」の行の名前の label を1つ（33 → 34。前の値は df736405…）と、説明を2つ（頭の1行・行の1行。18 → 20）足した
+const TEXTS_080 = { labels: [34, '87f6c483d8d0a03749f10c7266512670506f46ad273f7df445d009205bcb7fd0'], descs: [20, '465336df080b0cffd78a1a5effa11c325cda3c37e989c1cd44d8317e639d25ca'] };   // 説明 21 → 18（LS-3 の前の値は aed31061…）。0.11.0 V-3 で 18 → 20（前の値は 5bc6662f…）
 test('SP4: 動かした入力の id が全部あり、その行の中にある。文が 0.8.0 と同じ（label の文・.check の文・説明の文）', T, () => {
   const sec = doc.querySelector('#tabSettings');
   for (const [name, ids] of Object.entries(ROW_IDS)) {
@@ -493,7 +497,7 @@ test('SP4: 『録音』を選ぶと、録音バー・マイクと相手の声・
   assert.deepStrictEqual(shownCards(l), ['会議の検出', '録音バー', 'マイクと相手の声', '話し声が無いとき', '文字起こし', 'ユーザー辞書（認識ヒント）']);   // 0.9.3 M-4 で意図して足した
   assert.strictEqual($(l, 'setTitle').textContent, '録音');
   assert.ok(visible($(l, 'openDataBtn')) && visible($(l, 'saveMsg')), '保存の文と［データ保存先を開く］が隠れた');
-  for (const [sec, want] of [['account', ['アカウント']], ['summary', ['要約（Claude Code）', 'Claude との連携（MCP）']], ['offline', ['ローカル AI']], ['update', ['アップデート']]]) {
+  for (const [sec, want] of [['account', ['アカウント']], ['summary', ['要約（Claude Code）', 'Claude との連携（MCP）', '打ち合わせの質']], ['offline', ['ローカル AI']], ['update', ['アップデート']]]) {
     await pick(l, sec);
     assert.deepStrictEqual(shownCards(l), want, sec);
   }
@@ -606,7 +610,7 @@ test('SP5: 検索の欄で Esc を押すと文字が消えて、前の項目に�
   assert.ok(isOpen(l), '検索の欄の Esc で閉じた');
   assert.strictEqual(sb.value, '', '文字が消えない');
   assert.strictEqual(secOf(l), 'summary', '前の項目に戻らない');
-  assert.deepStrictEqual(shownCards(l), ['要約（Claude Code）', 'Claude との連携（MCP）']);   // 0.10.0 C-3 で意図して足した
+  assert.deepStrictEqual(shownCards(l), ['要約（Claude Code）', 'Claude との連携（MCP）', '打ち合わせの質']);   // 0.10.0 C-3 で意図して足した。0.11.0 V-3 で「打ち合わせの質」を意図して足した
   await key(l, { key: 'Escape' }, sb);
   assert.ok(!isOpen(l), '空の検索の欄の Esc で閉じない');
   await click(l, 'tabBtnSettings');
@@ -657,7 +661,9 @@ const SAVED_080 = { localServerExe: 'C:\\srv\\whisper.exe', localModelPath: 'C:\
   // 0.9.1 Q-3（D29）で意図して変えた: 話し声が無いときに自動で止める（読んだ設定に無ければ既定のオン・10 分で送る）
   autoStopQuiet: true, autoStopMin: 10,
   // 0.9.3 M-4 で意図して変えた: 会議の検出の通知（読んだ設定に無ければ既定のオン）と、通知を出さないアプリ（無ければ []）
-  meetingDetect: true, meetingDetectMute: [] };
+  meetingDetect: true, meetingDetectMute: [],
+  // 0.11.0 V-3（QM6）で意図して変えた: 打ち合わせの質の点数（読んだ設定に無ければ既定の all で送る）
+  qualityScore: 'all' };
 test('SP4: 選んだ項目でない欄を変えても、自動保存が今と同じ値を保存する（#tabSettings の change → saveSettings の引数が 0.8.0 と同じキーと値）', T, async () => {
   const l = await open();
   await l.drain();
@@ -803,7 +809,8 @@ test('見た目の直し（モック 案C）: 検索の欄の左に虫めがね�
 // 2列の行（名前と説明が左、入力が右）。表のどの欄が2列になるか（左の名前の文）
 const TWO_COL = { themeSel: '外観', hotkey: '音声入力ホットキー', meetingHotkey: '議事録ホットキー', pillPos: '録音バーの置き場所', micSelect: '使用するマイク',
   spkNow: '録音されるスピーカー', language: '認識言語', claudeTest: '要約（Claude Code）', claudeExe: 'Claude Code の場所',
-  autoStopMin: '知らせるまでの時間' };   // 0.9.1 Q-3 で意図して足した
+  autoStopMin: '知らせるまでの時間',   // 0.9.1 Q-3 で意図して足した
+  qualityScore: '打ち合わせの質の点数' };   // 0.11.0 V-3 で意図して足した
 const TWO_SEL = '#tabSettings .field.frow';
 test('見た目の直し（モック 案C）: 設定の行は、名前（と説明）が左・入力が右の2列。狭い窓（拡大 200%）では縦に積む', T, () => {
   const g = decl(TWO_SEL);
@@ -817,7 +824,7 @@ test('見た目の直し（モック 案C）: 設定の行は、名前（と説�
   // 0.9.2 I-3 で意図して変えた: ログインの行も名前（と ⓘ）が左・［ログイン］が右の2列
   // 0.9.3 M-4 で意図して変えた: 「通知を出さないアプリ」も名前が左・札が右の2列
   assert.deepStrictEqual(doc.querySelectorAll('.frow').map((f) => f.dataset.row), ['ログイン', '外観', '音声入力ホットキー', '議事録ホットキー', '通知を出さないアプリ', '録音バーの置き場所', '使用するマイク',
-    '録音されるスピーカー', '知らせるまでの時間', '認識言語', 'Claude Code', 'Claude Code の場所', 'Claude デスクトップから読む']);   // 0.10.0 C-3 で意図して足した（.fstack で縦に積む行）
+    '録音されるスピーカー', '知らせるまでの時間', '認識言語', 'Claude Code', 'Claude Code の場所', 'Claude デスクトップから読む', '打ち合わせの質の点数']);   // 0.10.0 C-3 で意図して足した（.fstack で縦に積む行）。0.11.0 V-3 で打ち合わせの質の点数を意図して足した
   for (const [id, name] of Object.entries(TWO_COL)) {
     const field = doc.querySelector(`#${id}`).closest('.field');
     assert.ok(field.classList.contains('frow'), `#${id} の欄が2列（.frow）でない`);

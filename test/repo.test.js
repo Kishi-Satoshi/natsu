@@ -385,10 +385,14 @@ test('会議の所要時間は開始から停止までで計る', () => {
   assert.ok(appHtml.includes('(mtStoppedAt || Date.now()) - mtStartedAt'));
 });
 
-test('判定材料が無いときの会議タイプは「一般・その他」（0.1.2。定例の型に合わせて担当・期限を作らせない）', () => {
-  assert.match(main, /page\.meetingType = autoType;/);
+// 0.11.0 P-12（P12・R5）で意図して変えた: 一般・その他は無い。判定材料が無ければ決まらない（''。画面は「自動」と決まらなかった文）
+test('判定材料が無いときの会議の種類は決まらない（\'\'。定例の型に合わせて担当・期限を作らせない: 0.1.2）', () => {
+  // 0.11.0 M-5 で意図して変えた: 自動の答えは detectType の答えか、決まらないときの前の同じ曜日・時刻の会議の種類（page.autoType）
+  assert.match(main, /page\.meetingType = page\.autoType;/);
   assert.ok(!/autoType === 'general' \? 'standup'/.test(main), '判定材料が無いときに定例へ寄せている');
-  assert.ok(appHtml.includes("curPage.meetingType || 'general'"));
+  assert.ok(!appHtml.includes("curPage.meetingType || 'general'"));
+  assert.ok(appHtml.includes("sel.add(new Option('自動（文字起こしから判定）', ''));"));
+  assert.ok(appHtml.includes(`const AUTO_UNDECIDED_TEXT = '${require('../src/meetingType').AUTO_UNDECIDED_TEXT}';`), '画面の決まらなかった文が meetingType と違う');
 });
 
 test('Markdown保存は IPC ごと撤去済み', () => {
@@ -412,9 +416,26 @@ test('記録を新しく始めたら、開いていた議事録を閉じる', ()
   assert.match(appHtml, /function showLive\(\) \{\s*if \(curId \|\| curPage\) \{\s*flushEdits\(\);\s*curId = null; curPage = null; curSegs = \[\];/);
 });
 
-test('タイプ変更のアジェンダ挿入は、人が書いたメモを上書きしない', () => {
-  // 空か、別タイプの雛形そのままのときだけ差し替える
-  assert.match(appHtml, /const isPreset = !cur \|\| mtypes\.some/);
+// 0.11.0 V-1（決めたこと 8・F14）で意図して変えた: 雛形に替えるかは、本当のメモを持つ DB が page.setType の preset で1回で決める（画面の古い写しで決めない）
+test('種類を替えて見出しを入れるのは、人が書いたメモを上書きしない（DB の page.setType の preset。画面は待っているメモの保存を先に書き終える）', () => {
+  assert.ok(!/const isPreset = !cur \|\| mtypes\.some/.test(appHtml), '画面の写しでメモを雛形に替えている');
+  assert.ok(appHtml.includes('const r = await window.koeApp.pageSetType(pid, v, true);'));
+  assert.ok(!/pageSetMemo\(curId, d2\.agenda\)/.test(appHtml));
+});
+
+// 0.11.0 V-1（決めたこと 7・当て直し 15）: 手を付けていないメモは memoTypes.isUntouchedMemo と画面の写し untouchedView で同じ表。決まらなかった文も同じ
+test('0.11.0 V-1: untouchedView（app.html）と memoTypes.isUntouchedMemo に同じ表を当てて同じ答え。AUTO_UNDECIDED_TEXT も同じ', () => {
+  const M = require('../src/memoTypes');
+  const mt = require('../src/meetingType');
+  const view = new Function(`${fnFromApp('untouchedView')}\nreturn untouchedView;`)();
+  const presets = M.listMemoTypes().map((k) => k.preset);
+  const legacy = mt.listTypes().map((t) => t.agenda).filter(Boolean);
+  const memos = ['', '   ', '\n\n', null, undefined, ...presets, ...legacy, ...presets.map((p) => `  ${p.replace(/\n\n/g, '\n')}  \n\n`), ...presets.map((p) => `${p}予算`),
+    ...legacy.map((a) => a.replace(/\n/g, '\r\n')), '予算の相談', '■ 目的', `${presets[0]}\n■ 足した見出し`, 3, '■ 課題・要望（N）\n■ 時期（T）'];
+  for (const m of memos) for (const lg of [legacy, [], undefined, ['', '  ']]) {
+    assert.strictEqual(view(m, presets, lg), M.isUntouchedMemo(m, lg), JSON.stringify([m, lg]));
+  }
+  assert.ok(appHtml.includes(`const AUTO_UNDECIDED_TEXT = '${mt.AUTO_UNDECIDED_TEXT}';`));
 });
 
 test('並べ替えはハンドルからだけ（本文のテキスト選択と衝突させない）', () => {
@@ -491,9 +512,12 @@ test('設定のオン・オフはトグルで表す（議事録のチェック�
   assert.ok(!/\.blk[^\n]*input[^\n]*\{[\s\S]{0,200}?appearance: none/.test(appHtml));
 });
 
-test('画面の名称は「要約タイプ」', () => {
-  assert.ok(appHtml.includes('>要約タイプ</span>'));
+// 0.11.0 V-1（決めたこと 3。D42 の言葉）で意図して変えた: 欄の名前は「会議の種類」
+test('画面の名称は「会議の種類」', () => {
+  assert.ok(appHtml.includes('>会議の種類</span>'));
+  assert.ok(!appHtml.includes('>要約タイプ</span>'));
   assert.ok(!appHtml.includes('>会議タイプ</span>'));
+  assert.ok(appHtml.includes('aria-label="会議の種類"'));
 });
 
 test('並べ替えのつまみは6点の1文字', () => {
@@ -501,11 +525,14 @@ test('並べ替えのつまみは6点の1文字', () => {
 });
 
 test('要約の文体は報告文書の常体（指示だけでなく例で見せる）', () => {
-  assert.ok(main.includes('「です」「ます」は使わない'));
+  // 0.11.0 M-2（決めたこと 14）で意図して変えた: 書き方のきまり（OUTPUT_RULE）は main.js から src/memoTypes.js へ1文字も変えずに移した
+  // （役割の文 MINUTES_SYS は main.js のまま）
+  const mt = fs.readFileSync(path.join(__dirname, '..', 'src', 'memoTypes.js'), 'utf8');
+  assert.ok(mt.includes('「です」「ます」は使わない'));
   assert.match(main, /文体は報告文書の常体/);
   // 3Bクラスは指示より例をまねる。実機で指示だけでは効かなかった
-  assert.ok(main.includes('良い例:'), '良い例が無い');
-  assert.ok(main.includes('悪い例:'), '悪い例が無い');
+  assert.ok(mt.includes('良い例:'), '良い例が無い');
+  assert.ok(mt.includes('悪い例:'), '悪い例が無い');
 });
 
 // ---------------------------------------------------------------- レビュー指摘の修正
@@ -550,7 +577,8 @@ test('一覧の「要約なし」はタイプ章より左にある（右端で�
   // 第1b2回の直し: 窓の結果の2行目もサイドバーの title と同じ rowTitle（灰色の1つの文。並びは stage1b2.look・stage1b2.fix が見る）
   const fn = (name) => appHtml.slice(appHtml.indexOf(`function ${name}(`), appHtml.indexOf('\n  }\n', appHtml.indexOf(`function ${name}(`)));
   const rt = fn('rowTitle');
-  assert.ok(rt.indexOf("parts.push('要約なし')") >= 0 && rt.indexOf("parts.push('要約なし')") < rt.indexOf('parts.push(def ? def.label'),
+  // 0.11.0 V-1 で意図して変えた: 種類は選べる鍵のときだけ（parts.push(def.label)）
+  assert.ok(rt.indexOf("parts.push('要約なし')") >= 0 && rt.indexOf("parts.push('要約なし')") < rt.indexOf('parts.push(def.label)'),
     '要約なしが右側にあり、狭い幅で見切れる');
   assert.ok(fn('renderResults').includes('rowTitle(p)'), '窓の結果の2行目が rowTitle を使っていない');
 });
@@ -560,7 +588,9 @@ test('README が現行の機能名と一致している', () => {
   assert.ok(!readme.includes('会議タイプ'), '旧名「会議タイプ」が残っている');
   assert.ok(!readme.includes('全文検索'), '旧名「全文検索」が残っている');
   assert.ok(!readme.includes('Markdown書き出し'), '無くなった機能の記述が残っている');
-  assert.ok(readme.includes('要約タイプ'));
+  // 0.11.0 G で意図して変えた: 欄の名前は「会議の種類」（決めたこと 3）。一般・その他は無い（P12）
+  assert.ok(readme.includes('会議の種類') && readme.includes('メモの型') && readme.includes('打ち合わせの質'));
+  assert.ok(!readme.includes('要約タイプ'), '旧名「要約タイプ」が残っている');
   assert.ok(readme.includes('文字起こし検索'));
 });
 
@@ -662,6 +692,7 @@ test('設定カードの並びは指定通り', () => {
     'ユーザー辞書（認識ヒント）',
     '要約（Claude Code）',
     'Claude との連携（MCP）',   // 0.10.0 C-3（MR8）で意図して変えた: 要約（Claude Code）の次に Claude との連携
+    '打ち合わせの質',   // 0.11.0 V-3（QM6）で意図して変えた: Claude との連携（MCP）の次に打ち合わせの質
     'ローカル AI',   // 第1d回 A-13（D19）で意図して変えた: カード「エンジン」を「オフライン」に。0.9.3 M-0（D54）で「ローカル AI」に
     'アップデート',
   ]);
@@ -711,7 +742,7 @@ test('設定の各カードが同じ深さにある（枠の外に出ていな�
   const sec = appHtml.slice(a, appHtml.indexOf('    </section>', a));
   const { heads, depth } = divDepthMap(sec);
   assert.strictEqual(depth, 0, '設定セクションの div が閉じ切れていない');
-  assert.strictEqual(heads.length, 12);   // 0.10.0 C-3 で「Claude との連携（MCP）」を足して 12（意図して変えた）。0.9.3 M-4 で「会議の検出」を足して 11（意図して変えた）。第1c回 Task C-2: カード「オンライン」を足して 5 つ。0.9.0 U-2 で項目ごとに分けて 9 つ（意図して変えた）。0.9.1 Q-3 で「話し声が無いとき」を足して 10
+  assert.strictEqual(heads.length, 13);   // 0.11.0 V-3 で「打ち合わせの質」を足して 13（意図して変えた）。0.10.0 C-3 で「Claude との連携（MCP）」を足して 12（意図して変えた）。0.9.3 M-4 で「会議の検出」を足して 11（意図して変えた）。第1c回 Task C-2: カード「オンライン」を足して 5 つ。0.9.0 U-2 で項目ごとに分けて 9 つ（意図して変えた）。0.9.1 Q-3 で「話し声が無いとき」を足して 10
   for (const h of heads) {
     assert.strictEqual(h.depth, heads[0].depth, `「${h.title}」だけ深さが違う（枠の外に出ている）`);
   }
@@ -878,11 +909,19 @@ test('#35/#49 ホットキーは片方ずつ登録し、失敗を画面とトレ
 
 test('#18 テンプレートの写しを落とす結線（minutes.dropTemplateEcho が無ければ素通し）', () => {
   assert.match(main, /const dropTemplateEcho = minutes\.dropTemplateEcho \|\| \(\(b\) => b\)/);
-  assert.match(main, /dropTemplateEcho\(dropRedundantEmpty\(markdownToBlocks\(md\)\), minutesTemplate\(page\.meetingType\)\)/);
-  // プロンプトに入れている書式と同じ文字列を渡す（別々に組み立てるとずれる）。0.10.0 LS-2 で意図して直した: 手元の generateMinutes を外したので、
-  // Claude Code に渡す文（summarizeWithClaude の buildClaudeInput）が同じ minutesTemplate(type) を使うことを見る
+  // 0.11.0 M-2（決めたこと 14）で意図して直した: 書式は doRunSummary が memoTypes.buildTemplate で1回だけ作り（template）、
+  // 写しを落とす文と Claude Code に渡す文（summarizeWithClaude の buildClaudeInput）に同じ文字列を渡す（別々に組み立てるとずれる）
+  assert.match(main, /dropTemplateEcho\(dropRedundantEmpty\(markdownToBlocks\(md\)\), template\)/);
+  const run = fnBody(code(main), 'async function doRunSummary', '\n}\n');
+  assert.strictEqual((run.match(/buildTemplate\(/g) || []).length, 1, 'doRunSummary の中で書式を1回だけ作っていない');
+  assert.strictEqual((code(main).match(/buildTemplate\(/g) || []).length, 1, 'doRunSummary のほかで書式を作っている');
+  assert.ok(run.includes('summarizeWithClaude(plain, page.memo, template)'), 'Claude Code に同じ書式を渡していない');
   const sw = fnBody(code(main), 'async function summarizeWithClaude', '\n}');
-  assert.ok(sw.includes('template: minutesTemplate(type)'), 'Claude Code に渡す文がテンプレート関数を使っていない');
+  assert.ok(sw.includes('lib.buildClaudeInput({ memoText, plain, template })'), 'Claude Code に渡す文が受けた書式を使っていない');
+  assert.ok(!/minutesTemplate|OUTPUT_RULE/.test(code(main)), 'main.js に前の書式の関数が残っている');
+  // 0.11.0 M-3: 写しを落とした後に印を付け（markBlocks）、担当・期限の裏付けから型の雛形の行も外す（memoTypes.presetLines）
+  assert.ok(run.includes('memoTypes.markBlocks(dropTemplateEcho('), '写しを落とした後に印を付けていない');
+  assert.ok(run.includes('memoEvidence(page.memo, [...mtype.listTypes(), ...memoTypes.presetLines()])'), '型の雛形の行を裏付けから外していない');
 });
 
 // ---------------------------------------------------------------- 第2段（D: 小さな直し）
@@ -1306,7 +1345,8 @@ test('whisper のバイナリはリリース一覧から探す（固定URLは 40
 
 test('要約の担当・期限の裏付けは、文字起こしと、アジェンダの雛形を除いたメモで照らす（0.1.2）', () => {
   const run = fnBody(code(main), 'async function doRunSummary(', '\n}\n');
-  assert.ok(run.includes('groundActionFields(blocks, `${plain}\\n${memoEvidence(page.memo, mtype.listTypes())}`)'),
+  // 0.11.0 M-3（決めたこと 25）で意図して変えた: 型の雛形の行（memoTypes.presetLines）も裏付けから外す
+  assert.ok(run.includes('groundActionFields(blocks, `${plain}\\n${memoEvidence(page.memo, [...mtype.listTypes(), ...memoTypes.presetLines()])}`)'),
     '裏付けに雛形入りのメモをそのまま渡している');
   assert.ok(run.indexOf('enrichActionBlocks(blocks') < run.indexOf('groundActionFields(blocks'), '担当・期限を抜く前に照らしている');
   assert.ok(run.indexOf('groundActionFields(blocks') < run.indexOf('attachAcross(blocks'), '出典の照合の後に照らしている（外した担当名で照合がぶれる）');
@@ -1591,4 +1631,30 @@ test('0.10.1 点検の直し R12: ヘルプの記事の入れ直したときの�
   const art = read('help/articles/start/claude-mcp.md');
   assert.ok(!art.includes('NaTsu を別の場所に入れ直したときも、知らせが出ます。'), '0.10.0 の文が残っている');
   assert.ok(art.includes('NaTsu を別の場所に入れ直したときも同じです（Claude デスクトップが終了していれば起動のときに自動で直し、動いていれば知らせます）。'), '入れ直したときの文が無い');
+});
+
+// 0.11.0 V-2（D48・F24・F26・当て直し 15）: 画面の並びは memoTypes の VIEW_HEADS・orderForView・savedIndexForDrop と画面の写しで同じ表。写しの点の行も quality.qualityLines と同じ
+test('0.11.0 V-2: orderForView・savedIndexForDrop・qualityLinesView（app.html）と memoTypes・quality に同じ表を当てて同じ答え。VIEW_HEADS も同じ', () => {
+  const M = require('../src/memoTypes');
+  const Q = require('../src/quality');
+  const m = /\n {2}const VIEW_HEADS = (\{[\s\S]*?\n {2}\});/.exec(appHtml);
+  assert.ok(m, '画面の VIEW_HEADS が無い');
+  const heads = new Function(`return ${m[1]};`)();   // eslint-disable-line no-new-func
+  assert.deepStrictEqual(heads, JSON.parse(JSON.stringify(M.VIEW_HEADS)));
+  const app = new Function(`const VIEW_HEADS = ${m[1]};\n${fnFromApp('orderForView')}\n${fnFromApp('savedIndexForDrop')}\n${fnFromApp('qualityLinesView')}\nreturn { orderForView, savedIndexForDrop, qualityLinesView };`)();   // eslint-disable-line no-new-func
+  const H = (text) => ({ id: text, type: 'heading', text });
+  const B = (text) => ({ id: text, type: 'bullet', text });
+  const names = [...M.VIEW_HEADS.closing, M.VIEW_HEADS.check, M.VIEW_HEADS.advice, ...M.VIEW_HEADS.type, '概要', '人の見出し', '■ 目的', '**決定事項**', 'ToDo', '持ち越し（次回）', ' 予算(B) '];
+  const tables = [[], [B('a')], undefined, null, 'x'];
+  // 名前の並びを回して、見出しと行の色々な並びを作る
+  for (let r = 0; r < names.length; r++) {
+    const rot = [...names.slice(r), ...names.slice(0, r)];
+    tables.push(rot.flatMap((n, i) => (i % 3 === 0 ? [H(n), B(`${n}-1`)] : i % 3 === 1 ? [H(n)] : [B(`pre-${n}`), H(n), B(`${n}-1`), B(`${n}-2`)])));
+  }
+  for (const t of tables) assert.deepStrictEqual(app.orderForView(t), M.orderForView(t), JSON.stringify(t));
+  const orders = [[], [0], [3, 0, 1, 2], [5, 6, 7, 0, 1, 2, 3, 4], undefined];
+  for (const o of orders) for (const v of [-1, 0, 1, 3, 7, 8, 20, 'x', undefined, 2.7]) assert.strictEqual(app.savedIndexForDrop(o, v), M.savedIndexForDrop(o, v), JSON.stringify([o, v]));
+  const view = Q.qualityView({ v: 1, total: 15, max: 25, axes: Q.AXES.map((a) => ({ key: a.key, score: 3, reason: `${a.label}の理由`, cites: [] })), at: '' });
+  assert.ok(view);
+  for (const v of [view, null, undefined]) assert.deepStrictEqual(app.qualityLinesView(v), Q.qualityLines(v));
 });

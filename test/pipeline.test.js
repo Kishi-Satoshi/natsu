@@ -147,12 +147,15 @@ test('会議タイプが判定され、そのテンプレートの見出しが�
   const type = mtype.detectType('週次定例', plain.slice(0, 1200));
   assert.strictEqual(type, 'standup');
 
-  // テンプレートの見出しと、実際に生成された見出しが対応していること
-  const wanted = mtype.getFormat(type).split('\n')
-    .filter((l) => l.startsWith('## ')).map((l) => l.slice(3).trim());
-  const got = markdownToBlocks(STANDUP_SUMMARY_MD)
+  // 0.11.0 M-2（D42）で意図して変えた: 書式は種類から決まる型（朝会・内部定例会は進捗・報告の確認）の見出しと締め（memoTypes.buildTemplate）。
+  // 偽の要約の種（STANDUP_SUMMARY_MD）はほかのテストが同じ行を見るので変えず、判定した種類の書式に型の見出しがこの順で入ることを見る
+  const { buildTemplate, MEMO_TYPES, memoTypeOf } = require('../src/memoTypes');
+  assert.strictEqual(memoTypeOf(type), 'report');
+  const got = markdownToBlocks(buildTemplate({ meetingType: type }))
     .filter((b) => b.type === 'heading').map((b) => b.text);
-  assert.deepStrictEqual(got, wanted);
+  const wanted = MEMO_TYPES.report.headings.map((h) => h.name);
+  assert.deepStrictEqual(got.filter((h) => wanted.includes(h)), wanted);
+  assert.deepStrictEqual(got.slice(-5), ['決定事項', '持ち越し', 'ToDo（誰が・何を・いつまでに）', '抜け・重なりチェック', '次に気をつけること']);
 });
 
 test('空の要約でもパイプラインが落ちない', () => {

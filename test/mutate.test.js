@@ -113,16 +113,18 @@ test('G3・F10: 元のテストが赤なら、変異を試さずに止める（�
 });
 
 // 0.10.0 G-1（決めたこと 117）で意図して変えた: mutate を mutate-1・mutate-2 の2つのジョブに分け、それぞれが --part 1/2・--part 2/2 を回す
-test('ci.yml: mutate-1・mutate-2 のジョブ（Linux）が node tools/mutate.js --part を回す（release.yml は ci.yml を呼ぶので、生き残りがあればリリースも止まる）', { timeout: 5000 }, () => {
+// 0.11.0（計画 R22）で意図して変えた: 2/2 のジョブが runner の shutdown signal に当たり続けたので、3つのジョブ（--part k/3）に分けた
+test('ci.yml: mutate-1・mutate-2・mutate-3 のジョブ（Linux）が node tools/mutate.js --part k/3 を回す（release.yml は ci.yml を呼ぶので、生き残りがあればリリースも止まる）', { timeout: 5000 }, () => {
   const ci = fs.readFileSync(path.join(ROOT, '.github', 'workflows', 'ci.yml'), 'utf8');
   const jobs = jobsOf(ci);
   assert.ok(!jobs.mutate, '1つの mutate のジョブが残っている');
-  for (const k of [1, 2]) {
+  for (const k of [1, 2, 3]) {
     const j = jobs[`mutate-${k}`];
     assert.ok(j, `mutate-${k} のジョブが無い`);
     assert.match(j, /^    runs-on: ubuntu-latest$/m);
-    assert.ok(stepsOf(j).some((s) => new RegExp(`^\\s*run: node tools/mutate\\.js --jobs 2 --part ${k}/2$`, 'm').test(s)), `mutate-${k} が --part ${k}/2 を回さない`);
+    assert.ok(stepsOf(j).some((s) => new RegExp(`^\\s*run: node tools/mutate\\.js --jobs 2 --part ${k}/3$`, 'm').test(s)), `mutate-${k} が --part ${k}/3 を回さない`);
   }
+  assert.ok(!jobs['mutate-4'], '4つ目の mutate のジョブがある');
   assert.match(fs.readFileSync(path.join(ROOT, '.github', 'workflows', 'release.yml'), 'utf8'), /^    uses: \.\/\.github\/workflows\/ci\.yml$/m);
 });
 
@@ -536,13 +538,13 @@ test('PG1: 変異 perf-recheck-any・perf-recheck-all・perf-recheck-skip・perf
   for (const id of IDS_090) assert.ok(table.includes(`| ${id} |`), `計画の「変異確認」の表に ${id} が無い`);
 });
 
-// 0.10.0 G-1（決めたこと 117）で意図して変えた: 2つのジョブのどちらも 40 分・写しは2つ
-test('CI: mutate-1・mutate-2 のジョブの timeout-minutes は 40（0.9.0 の約 99 の変異で 20 分を越える見込み。PG1・決めたこと 37・117）', { timeout: 5000 }, () => {
+// 0.10.0 G-1（決めたこと 117）で意図して変えた: 2つのジョブのどちらも 40 分・写しは2つ。0.11.0（R22）で3つのジョブに（どれも 40 分・写しは2つ）
+test('CI: mutate-1・mutate-2・mutate-3 のジョブの timeout-minutes は 40（0.9.0 の約 99 の変異で 20 分を越える見込み。PG1・決めたこと 37・117）', { timeout: 5000 }, () => {
   const jobs = jobsOf(fs.readFileSync(path.join(ROOT, '.github', 'workflows', 'ci.yml'), 'utf8'));
-  for (const k of [1, 2]) {
+  for (const k of [1, 2, 3]) {
     const j = jobs[`mutate-${k}`];
     assert.match(j, /^    timeout-minutes: 40$/m);
-    assert.ok(stepsOf(j).some((s) => /^\s*run: node tools\/mutate\.js --jobs 2 --part [12]\/2$/m.test(s)), '変異確認の写しの数を変えた');
+    assert.ok(stepsOf(j).some((s) => /^\s*run: node tools\/mutate\.js --jobs 2 --part [123]\/3$/m.test(s)), '変異確認の写しの数を変えた');
   }
 });
 
@@ -559,6 +561,29 @@ test('G-1 決めたこと 117: partOf は全部の id をちょうど1回ずつ2
   assert.deepStrictEqual(M.partOf(['c', 'a', 'd', 'b'], '2/2'), ['b', 'd']);
   assert.deepStrictEqual(M.partOf(['b', 'a', 'c'], '1/1'), ['a', 'b', 'c']);
   for (const bad of ['0/2', '3/2', '1/0', '1', 'x/2', '', null, '1/2/3']) assert.throws(() => M.partOf(ids, bad), /part/, String(bad));
+  // 0.11.0（R22）: CI は3つに分ける。全部の id がちょうど1回ずつ・数の差は 1 まで
+  const three = ['1/3', '2/3', '3/3'].map((p) => M.partOf(ids, p));
+  assert.deepStrictEqual(three.flat().sort(), [...ids].sort(), '3つの組のどれにも無い・2つにある id がある');
+  assert.ok(Math.max(...three.map((x) => x.length)) - Math.min(...three.map((x) => x.length)) <= 1, '3つに等しく分けていない');
+});
+
+// 0.11.0（計画 R22）: 子の Node に記憶の上限（赤のときの報告が大きな木を書き出しても、CI の runner ごと落とさない）
+test('0.11.0 R22: mutate.js の子の環境は NODE_OPTIONS に --max-old-space-size（今の NODE_OPTIONS は残す）。NODE_TEST_CONTEXT を消し、場面は1つずつ', { timeout: 5000 }, () => {
+  const keep = { o: process.env.NODE_OPTIONS, c: process.env.NODE_TEST_CONTEXT };
+  try {
+    process.env.NODE_OPTIONS = '--trace-warnings';
+    process.env.NODE_TEST_CONTEXT = 'child';
+    const env = M.childEnv();
+    assert.strictEqual(env.NODE_OPTIONS, `--trace-warnings --max-old-space-size=${M.CHILD_HEAP_MB}`);
+    assert.ok(!('NODE_TEST_CONTEXT' in env));
+    assert.strictEqual(env.NATSU_SCENE_CONCURRENCY, '1');
+    delete process.env.NODE_OPTIONS;
+    assert.strictEqual(M.childEnv().NODE_OPTIONS, `--max-old-space-size=${M.CHILD_HEAP_MB}`);
+    assert.ok(M.CHILD_HEAP_MB >= 1024 && M.CHILD_HEAP_MB <= 2048, 'CI の runner（7 GB）に写し2つ分が収まる上限');
+  } finally {
+    if (keep.o === undefined) delete process.env.NODE_OPTIONS; else process.env.NODE_OPTIONS = keep.o;
+    if (keep.c === undefined) delete process.env.NODE_TEST_CONTEXT; else process.env.NODE_TEST_CONTEXT = keep.c;
+  }
 });
 
 test('G-1 決めたこと 117: mutate.js は --part と --only を一緒に受けない（1 で終わる）。知らない part も 1', { timeout: 20000 }, () => {
@@ -790,5 +815,47 @@ test('G3・0.10.1 CD-6: 0.10.1 の変異が一覧にそろい、IDS_101 は計�
     const m = byId.get(id);
     assert.ok(Array.isArray(m.tests) && m.tests.length > 0 && m.tests.every((t) => /^test\/[^/]+\.test\.js$/.test(t)), `${id}: tests`);
     assert.ok(typeof m.why === 'string' && m.why.startsWith('0.10.1 '), `${id}: why`);
+  }
+});
+
+// 0.11.0（計画 docs/plans/2026-10-22-110.md の「変異確認」の表）: メモの型・会議の種類・打ち合わせの質の直しを1つずつ戻す変異。
+// タスクを作るたびに足した。H-1b（G の前の最後のタスク）で表の全部とちょうど同じにそろえた（表の id の集まりと IDS_110 の集まりが同じ）
+const IDS_110 = [
+  'mt-default-map', 'mt-untouched', 'mt-label-key', 'mt-undecided-points',
+  'mt-echo-same', 'mt-rule-quote', 'mt-closing', 'mt-carry', 'mt-star-rule', 'mt-advice-always', 'mt-fence',
+  'mt-memo-cite', 'mt-check-cap', 'mt-preview-mark', 'mt-evidence-preset', 'mt-advice-cite', 'mt-unconf-fold', 'mt-mark-edit',
+  'mt-settype-any', 'mt-preset-db', 'mt-live-type', 'mt-finalize-type', 'mt-type-log', 'mt-type-log-cap', 'mt-auto-back',
+  'mt-slot-override',
+  'qm-sum-trust', 'qm-int-strict', 'qm-missing-fill', 'qm-dup-axis', 'qm-person-line', 'qm-fill-evidence', 'qm-todo-zero', 'qm-view-total', 'qm-personal-off', 'qm-split-all', 'qm-head-strict',
+  'qm-default-all',
+  'qm-unasked-strip', 'qm-unparsed-note', 'qm-short-skip', 'qm-regen-clear', 'qm-view-dbmade',
+  'mt-general-back', 'qm-mcp-general',
+  'v-memo-flush', 'v-live-overwrite', 'v-mark-badge', 'v-hint-hide', 'v-legacy-general', 'v-auto-option', 'v-live-tab', 'v-live-focus',
+  'v-view-order', 'v-copy-order', 'v-drag-index', 'v-quality-view',
+  'v-quality-setting', 'v-title-hint',
+  'qm-mcp-view', 'mt-memo-chunk',
+  'v5-optgroup',   // 0.11.0 V-5（持ち主の画面の確かめ）
+  'rv-unconf-replace', 'rv-unconf-drop',   // 0.11.0 点検の直し 1
+  'rv-sub-fold', 'rv-fill-sub',   // 0.11.0 点検の直し 2
+  'rv-score-end',   // 0.11.0 点検の直し 3
+  'rv-legacy-autotype',   // 0.11.0 点検の直し 4
+];
+test('G3・0.11.0: 0.11.0 の変異が一覧にそろい、IDS_110 はどれも計画の「変異確認」の表にある。mt-・qm-・v- の変異は IDS_110 にある。どれも決まったテストのファイルを持ち、why が 0.11.0 で始まる', { timeout: 5000 }, () => {
+  const byId = new Map(MUTANTS.map((m) => [m.id, m]));
+  assert.deepStrictEqual(IDS_110.filter((id) => !byId.has(id)), [], 'IDS_110 の変異が一覧に無い');
+  assert.strictEqual(new Set(IDS_110).size, IDS_110.length, 'IDS_110 に重なり');
+  // 0.11.0 V-5 で意図して変えた: 接頭 v5- も 0.11.0 の変異（点検の直しの rv- は前の版にもある接頭なので、ここでは見ず、表とちょうど同じかで見る）
+  assert.deepStrictEqual(MUTANTS.filter((m) => /^(mt|qm|v|v5)-/.test(m.id) && !IDS_110.includes(m.id)).map((m) => m.id), [], 'IDS_110 に無い 0.11.0 の接頭の変異がある');
+  const plan = fs.readFileSync(path.join(ROOT, 'docs', 'plans', '2026-10-22-110.md'), 'utf8');
+  const table = plan.slice(plan.indexOf('## 変異確認（直しを1つ戻すと'), plan.indexOf('## ゲート'));
+  const rows = [...table.matchAll(/^\| ([a-z][a-z0-9-]*) \|/gm)].map((m) => m[1]).filter((id) => id !== 'id');
+  assert.ok(rows.length > 50, '計画の表が読めない');
+  assert.deepStrictEqual(IDS_110.filter((id) => !rows.includes(id)), [], '計画の「変異確認」の表に無い変異');
+  assert.deepStrictEqual([...IDS_110].sort(), [...rows].sort(), 'IDS_110 が計画の「変異確認」の表とちょうど同じでない');
+  assert.strictEqual(new Set(rows).size, rows.length, '計画の表に重なり');
+  for (const id of IDS_110) {
+    const m = byId.get(id);
+    assert.ok(Array.isArray(m.tests) && m.tests.length > 0 && m.tests.every((t) => /^test\/[^/]+\.test\.js$/.test(t)), `${id}: tests`);
+    assert.ok(typeof m.why === 'string' && m.why.startsWith('0.11.0 '), `${id}: why`);
   }
 });

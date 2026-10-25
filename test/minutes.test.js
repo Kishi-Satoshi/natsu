@@ -394,48 +394,47 @@ test('行頭記号を広げても行数は変わらない（表とフェンス�
 // プロンプトの記入例「- [ ] 内容（担当: ○○ / 期限: ○○）」「（箇条書き）」を
 // 小型モデルがそのまま書いてくる。アクション件数が水増しされ、担当「○○」が
 // 横断一覧に並ぶ。記入例と完全一致する行だけ落とす（部分一致で本物を消さない）。
-const fmtAll = () => mtype.ORDER.map((k) => mtype.getFormat(k) + '\n' + mtype.ACTION_RULE);
+// 0.11.0 M-2 で意図して変えた: 書式は memoTypes.buildTemplate（種類ごとの getFormat を外した）。どの種類の書式も ToDo の節に ACTION_RULE を持つ
+const { buildTemplate } = require('../src/memoTypes');
+const fmtAll = () => [...mtype.ORDER, ''].map((k) => buildTemplate({ meetingType: k }));
 const T = (md, tpl) => dropTemplateEcho(dropRedundantEmpty(markdownToBlocks(md)), tpl).map((b) => `${b.type}:${b.text}`);
 
 test('記入例を丸写しした todo が消え、本物のアクションは残る（全テンプレート）', () => {
   for (const tpl of fmtAll()) {
-    const md = '## アクションアイテム\n- [ ] 内容（担当: ○○ / 期限: ○○）\n- [ ] 内容（担当: ○○）\n'
+    const md = '## ToDo（誰が・何を・いつまでに）\n- [ ] 内容（担当: ○○ / 期限: ○○）\n- [ ] 内容（担当: ○○）\n'
       + '- [ ] 内容（期限: ○○）\n- [ ] 内容\n- [ ] 求人票の改訂案を作成する（担当: 佐藤 / 期限: 今月末）';
     assert.deepStrictEqual(T(md, tpl), [
-      'heading:アクションアイテム', 'todo:求人票の改訂案を作成する（担当: 佐藤 / 期限: 今月末）'], tpl.slice(0, 20));
+      'heading:ToDo（誰が・何を・いつまでに）', 'todo:求人票の改訂案を作成する（担当: 佐藤 / 期限: 今月末）'], tpl.slice(0, 20));
   }
 });
 
-test('「（箇条書き）」の丸写しは、その記入例を持つテンプレートでだけ消える', () => {
+test('「（箇条書き）」の丸写しは、その記入例を持つ書式でだけ消える', () => {
   const md = '## 決定事項\n- （箇条書き）\n- 箇条書き\n- 価格は据え置き';
-  for (const k of mtype.ORDER) {
-    const tpl = mtype.getFormat(k) + '\n' + mtype.ACTION_RULE;
-    const has = tpl.includes('（箇条書き）');
-    assert.deepStrictEqual(T(md, tpl), has
-      ? ['heading:決定事項', 'bullet:価格は据え置き']
-      : ['heading:決定事項', 'bullet:（箇条書き）', 'bullet:箇条書き', 'bullet:価格は据え置き'], k);
+  // 0.11.0 M-2 で意図して変えた: どの種類の書式も同じ締め（決定事項の記入例は「（決まったこと・合意したこと。箇条書き）」）なので、「（箇条書き）」だけの記入例は無い
+  for (const tpl of fmtAll()) {
+    assert.deepStrictEqual(T(md, tpl), ['heading:決定事項', 'bullet:（箇条書き）', 'bullet:箇条書き', 'bullet:価格は据え置き']);
   }
-  assert.ok(mtype.ORDER.some((k) => mtype.getFormat(k).includes('（箇条書き）')), '前提: 記入例を持つ型がある');
+  const old = '## 決定事項\n（箇条書き）';
+  assert.deepStrictEqual(T(md, old), ['heading:決定事項', 'bullet:価格は据え置き'], '記入例を持つ書式では消える');
 });
 
-test('テンプレートの全文を丸写しした Markdown から、見出し以外が消える', () => {
-  for (const k of mtype.ORDER) {
-    const fmt = mtype.getFormat(k);
-    const out = dropTemplateEcho(markdownToBlocks(fmt), fmt + '\n' + mtype.ACTION_RULE);
-    assert.deepStrictEqual(out.map((b) => b.type), out.map(() => 'heading'), k);
-    assert.ok(out.length >= 4, k);
+test('書式の全文を丸写しした Markdown から、見出し以外が消える', () => {
+  for (const fmt of fmtAll()) {
+    const out = dropTemplateEcho(markdownToBlocks(fmt), fmt);
+    assert.deepStrictEqual(out.map((b) => b.type), out.map(() => 'heading'));
+    assert.ok(out.length >= 6);
   }
 });
 
 test('部分一致では消さない（「内容」を含む本物の要点）', () => {
-  const tpl = mtype.getFormat('standup') + '\n' + mtype.ACTION_RULE;
+  const tpl = buildTemplate({ meetingType: 'standup' });
   const md = '- [ ] 契約内容を確認する（担当: 山田）\n- 会議全体を3〜5行で要約した資料を配る\n- 数値は必ず残すこと';
   assert.deepStrictEqual(T(md, tpl), [
     'todo:契約内容を確認する（担当: 山田）', 'bullet:会議全体を3〜5行で要約した資料を配る', 'bullet:数値は必ず残すこと']);
 });
 
 test('見出しは記入例と同じ文言でも落とさない', () => {
-  const tpl = mtype.getFormat('general') + '\n' + mtype.ACTION_RULE;
+  const tpl = buildTemplate({ meetingType: '' });
   const md = '## 決定事項\n## 箇条書き\n- 本物';
   assert.deepStrictEqual(T(md, tpl), ['heading:決定事項', 'heading:箇条書き', 'bullet:本物']);
 });
@@ -445,5 +444,5 @@ test('templateText が空なら何もしない', () => {
   for (const tpl of ['', null, undefined]) {
     assert.strictEqual(dropTemplateEcho(blocks, tpl).length, 2, String(tpl));
   }
-  assert.deepStrictEqual(dropTemplateEcho([], mtype.getFormat('general')), []);
+  assert.deepStrictEqual(dropTemplateEcho([], buildTemplate({ meetingType: '' })), []);
 });

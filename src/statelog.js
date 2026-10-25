@@ -5,8 +5,10 @@
 // DB のプロセス（src/db/commands.js の締め・復旧のページ）と MCP（src/mcp/format.js の経過の1行）もこの表で照らす。0.12.0 は同じ表に足す。
 
 const STATE_LOG_MAX = 50;
-const STATE_NAMES = Object.freeze({ start: '開始', pause: '一時停止', resume: '再開', stop: '終了', 'auto-stop': '終了', recover: '戻した' });
-const BY_NAMES = Object.freeze({ button: '画面のボタン', overlay: '録音バー', hotkey: 'ホットキー', tray: 'タスクトレイ', panel: '会議の知らせのパネル', quiet: '無音で自動', app: 'アプリ' });
+// 0.11.0 M-4（P13・決めたこと 12）: 会議の種類の移り変わり（type）と、そのきっかけ（録音中のページ・議事録のページ・要約のときの自動の判定）を足した
+const STATE_NAMES = Object.freeze({ start: '開始', pause: '一時停止', resume: '再開', stop: '終了', 'auto-stop': '終了', recover: '戻した', type: '種類を選んだ' });
+const BY_NAMES = Object.freeze({ button: '画面のボタン', overlay: '録音バー', hotkey: 'ホットキー', tray: 'タスクトレイ', panel: '会議の知らせのパネル', quiet: '無音で自動', app: 'アプリ',
+  'live-page': '録音中のページ', page: '議事録のページ', auto: '要約のときの自動の判定' });
 
 const isObj = (v) => Boolean(v) && typeof v === 'object' && !Array.isArray(v);
 // 1項目の照らし → { s, by, at } か null（ほかの欄は落とす）
@@ -19,10 +21,12 @@ function entryOf(x) {
 }
 
 // 積む → 新しい配列（表に無い項目は積まない・STATE_LOG_MAX 件で古い方を捨てる・受けた物を変えない）
+// 0.11.0 M-4（F28）: 種類の項目は、最後の項目も種類なら置き換える（続けて選び直しても1件。開始や終了が上限で押し出されない）
 function stateLogAdd(log, item) {
   const base = cleanStateLog(log);
   const e = entryOf(item);
   if (!e) return base;
+  if (e.s === 'type' && base.length && base[base.length - 1].s === 'type') return [...base.slice(0, -1), e];
   return [...base, e].slice(-STATE_LOG_MAX);
 }
 

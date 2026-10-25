@@ -43,6 +43,8 @@ Object.assign(TODAY, { meetingDetect: true, meetingDetectMute: [] });
 for (const k of ['sumServerExe', 'sumModelPath', 'sumPort', 'sumThreads', 'sumCtx']) { delete TODAY[k]; delete UI[k]; }
 // 0.10.0 LS-4（決めたこと 107）で意図して変えた: 要約の組を消した知らせの印 retiredSumNotified（既定 false。main だけが書く）を足した（31 のキー）
 Object.assign(TODAY, { retiredSumNotified: false });
+// 0.11.0 Q-2（QM6・P11）: 打ち合わせの質の点数（既定はすべての会議で付ける）
+Object.assign(TODAY, { qualityScore: 'all' });
 Object.assign(UI, { meetingDetect: false, meetingDetectMute: ['zoom', 'chrome'] });
 // 第1c回 Task C-2: 画面のカード「オンライン」が送るキー（0.7.0 U-1 で claudeExe だけ。30 のキー）。既定でない値で往復することを見る
 Object.assign(UI, { claudeExe: 'C:\\c\\claude.exe' });
@@ -50,9 +52,9 @@ const legacy = (raw) => S.normalizeSettings({ ...D, ...raw }, D);
 const ON = (key, v) => (key === 'useBuiltinTerms' ? v !== false : Boolean(v));
 const BOOLS = ['useVad', 'suppressNst', 'autoPaste', 'removeFillers', 'soundFeedback', 'autoLaunch', 'stayInTray', 'useBuiltinTerms', 'useSystemAudio'];
 
-test('JS6: 決まりの表のキーは既定の 31 のキーとちょうど同じ。どれにも画面の名前がある', { timeout: 5000 }, () => {
+test('JS6: 決まりの表のキーは既定の 32 のキーとちょうど同じ。どれにも画面の名前がある', { timeout: 5000 }, () => {
   assert.deepStrictEqual(D, TODAY);
-  assert.strictEqual(S.SETTING_KEYS.length, 31);   // 0.10.0 LS-3 で要約の5つを外し（35 → 30）、LS-4 で retiredSumNotified を足した（31）
+  assert.strictEqual(S.SETTING_KEYS.length, 32);   // 0.10.0 LS-3 で要約の5つを外し（35 → 30）、LS-4 で retiredSumNotified を足した（31）。0.11.0 Q-2 で qualityScore を足した（32。意図して変えた）
   assert.deepStrictEqual([...S.SETTING_KEYS].sort(), Object.keys(TODAY).sort());
   for (const k of S.SETTING_KEYS) assert.ok(typeof S.SETTING_RULES[k].label === 'string' && S.SETTING_RULES[k].label.length > 1, k);
   assert.strictEqual(S.defaultSettings(2).localThreads, 4);
@@ -252,4 +254,17 @@ test('RP2: pillFrom は raw に正しい pillSlot が無いときだけ { point,
   assert.deepStrictEqual(S.pickSavable({ pillPos: 'top', pillCustom: { x: 1, y: 2 }, pillSlot: 'top-center' }), { pillSlot: 'top-center' });
   assert.deepStrictEqual(S.SLOT_FROM_POS, { bottom: 'bottom-center', top: 'top-center', left: 'middle-left', right: 'middle-right',
     'top-left': 'top-left', 'top-right': 'top-right', 'bottom-left': 'bottom-left', 'bottom-right': 'bottom-right' });
+});
+
+test('0.11.0 Q-2（QM6・P11）: qualityScore は all・on・off の enum で既定は all（すべての会議で付ける）。壊れた値はその項目だけ既定に戻し、記録にはキーの名前だけ', { timeout: 5000 }, () => {
+  assert.deepStrictEqual(S.SETTING_RULES.qualityScore, { label: '打ち合わせの質の点数', kind: 'enum', values: ['all', 'on', 'off'] });
+  assert.strictEqual(D.qualityScore, 'all');
+  for (const [raw, want, why] of [['all', 'all', null], ['on', 'on', null], ['off', 'off', null], ['ON', 'all', 'enum'], [5, 'all', 'type'], [null, 'all', 'type']]) {
+    const r = S.readSettings({ qualityScore: raw, theme: 'dark' }, D);
+    assert.strictEqual(r.settings.qualityScore, want, JSON.stringify(raw));
+    assert.deepStrictEqual(r.repaired.filter((x) => x.key === 'qualityScore').map((x) => x.why), why ? [why] : [], JSON.stringify(raw));
+    assert.strictEqual(r.settings.theme, 'dark');
+  }
+  assert.deepStrictEqual(S.readSettings({}, D).settings.qualityScore, 'all', '前の版の settings.json（キーが無い）は既定の all');
+  assert.strictEqual(S.pickSavable({ qualityScore: 'off' }).qualityScore, 'off');
 });

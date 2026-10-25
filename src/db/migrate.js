@@ -56,7 +56,7 @@ const FAILED_PREFIX = `${TMP_NAME}.failed-`;
 const KEEP_FAILED = 2;
 const SIDECARS = ['-wal', '-shm', '-journal'];
 // ページの欄のうち、行に入れると読むときに消える・作り直されるもの（DB が作る欄と、ページの行では使わない決まった名前）
-const PAGE_LOST = ['rev', 'routeText', 'children', 'type', 'text', 'rich'];
+const PAGE_LOST = ['rev', 'routeText', 'qualityView', 'children', 'type', 'text', 'rich'];   // 0.11.0 Q-3: qualityView を足した
 
 const isObj = (v) => Boolean(v) && typeof v === 'object' && !Array.isArray(v);
 const zero = () => ({ pages: 0, segments: 0, broken: 0, unreadable: 0, badId: 0, badShape: 0, fixedIds: 0 });

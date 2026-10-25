@@ -34,6 +34,8 @@ const { attachCitations } = cite;
 // 両方を見て付ける（cite.attachCitationsAcross。#4）。まだ無い版では従来どおり今の配列だけ。
 const attachAcross = cite.attachCitationsAcross || ((b, f) => attachCitations(b, f.filter((s) => !s.failed)));
 const mtype = require('./meetingType');
+const memoTypes = require('./memoTypes');
+const quality = require('./quality');
 const { enrichActionBlocks, groundActionFields } = require('./actions');
 const updater = require('./updater');
 const { chooseDisplayMedia } = require('./loopback');
@@ -99,7 +101,7 @@ const {
   publicSegments, settledSegments, pendingDurationMs, recoverSegments, staleSegbufDirs, EtaTracker, chooseDraftName,
   skipPendingSegments, startSegmentMode, segmentModeNext, segmentBaseMs, nextLiveSegmentMs,
   stallAfter, stallStep, sttProblemOf, problemForRoute, notifyGate,
-  idleEnginesToStop, silentWav, wavLevelDbfs, mergeSummaryType, memoEvidence,
+  idleEnginesToStop, silentWav, wavLevelDbfs, mergeSummaryType, memoEvidence, typesForView,
   sameShas, keepPrevious, candStamp, repairIdsOf, pathUsedBy, fetchMinutesLeft,
   pickDefaultPath,
   cloudLikely, offlineChosen, startPlan, dictationPlan, KEPT_CODES, keptCodeFor, KEPT_SUMMARY_TEXT, SUMMARY_WAIT_TEXT, summaryRetryPick,
@@ -2778,7 +2780,7 @@ function claudeRunDir() {
 // doRunSummary の catch が要約の欄に書く（手元の llama へは行かない: D1）。engine.log には符号だけを書く（本文・利用者の環境は書かない）。
 // 進み具合の文（「Claude Code で議事録を作成中…」）は doRunSummary が出す（claude -p は1回で返し、途中の段が無い）。
 // 投げる誤りには符号（claudeCode）を添える（doRunSummary が、待てば直る混み合いなら要約待ちに戻す: 0.10.0 LS-2・決めたこと 105）
-async function summarizeWithClaude(plain, memo, type) {
+async function summarizeWithClaude(plain, memo, template) {
   const failWith = (r) => {
     // 符号と、-p の返事の副型・状態の番号だけ（claudeCli.runWhy。返事の文と本文は書かない: 第1b回の続き Lane F-a）
     engineLog(`要約: Claude Code → ${claudeCli.runWhy(r)}`);
@@ -2793,7 +2795,7 @@ async function summarizeWithClaude(plain, memo, type) {
   const auth = await claudeCli.claudeAuthStatus({ cmd: found.cmd, spawn, cwd });
   if (!auth.ok) failWith(auth);
   const memoText = String(memo || '').trim().slice(0, MEMO_MAX);
-  const input = lib.buildClaudeInput({ memoText, plain, template: minutesTemplate(type) });
+  const input = lib.buildClaudeInput({ memoText, plain, template });
   const r = await claudeCli.claudeSummarize({ cmd: found.cmd, spawn, cwd, input, systemPrompt: MINUTES_SYS });
   if (!r.ok) failWith(r);
   engineLog('要約: Claude Code → ok');
@@ -2801,28 +2803,12 @@ async function summarizeWithClaude(plain, memo, type) {
 }
 
 // ---------------------------------------------------------------- 要約
+// 0.11.0 Q-3: 打ち合わせの質の注（要約の欄の summaryError の行として足す）
+const QUALITY_NOTE_UNREAD = 'この要約には打ち合わせの質の点を付けていません（AI の答えの形を読み取れなかったため）。要約はそのまま使えます。［要約を再生成］でもう一度付けられます。';
+const QUALITY_NOTE_SHORT = '文字起こしが短いため、打ち合わせの質の点は付けていません。';
 // 0.10.0 LS-2（D59）: 要約は利用者の Claude Code だけ（summarizeWithClaude）。手元の llama の要約（llmChat・generateMinutes）は外した
-// 節ごとに「なければ特になし」と書くと、小型モデルが条件を守り切れず
-// 実項目と「特になし」を両方並べてくる。ルールは全体で1回だけ言う。
-// （それでも混ざるので minutes.js の dropRedundantEmpty で後始末する）
-// 装飾を禁じるのは見た目のためではない。「**」が残ると出典の一致が
-// 薄まり、短い要点でリンクが消えるため。
-const OUTPUT_RULE = '書き方のきまり:\n'
-  + '- 該当する内容が本当に一つも無い見出しにだけ「特になし」と書く。'
-  + '一つでも書くことがあれば「特になし」は書かない。\n'
-  + '- 太字（**）や斜体などの装飾は使わない。素の文章で書く。\n'
-  + '- 文体は報告文書として使える常体で書く。「です」「ます」は使わない。\n'
-  // 3Bクラスは指示より例をまねる。会話体の文字起こしに引きずられて
-  // 「です・ます」で書いてくるので、良い例と悪い例を1組だけ見せる。
-  + '  良い例: 「結合テストは今週で完了。不具合22件のうち20件は修正済み。残り2件は来週対応。」\n'
-  + '  悪い例: 「完了しました」「修正されました」「お願いします」「持ち越します」';
-
-// プロンプトに入れる議事録の書式（見出しの雛形 + 書き方のきまり）。
-// 要約後にテンプレートの写しを落とす（dropTemplateEcho）ときも同じ文字列を
-// 渡す。別々に組み立てると、片方を直したときにずれて落とし損ねる。
-function minutesTemplate(type) {
-  return `${mtype.getFormat(type)}\n\n${OUTPUT_RULE}`;
-}
+// 0.11.0 M-2（決めたこと 14）: 要約の書式（型の見出し・決まり・締め・次に気をつけること・OUTPUT_RULE）は memoTypes.buildTemplate の1か所。
+// doRunSummary が1回だけ作り、Claude Code に渡す文と、写しを落とす文（dropTemplateEcho）の両方に同じ文字列を渡す（別々に組み立てるとずれる）
 
 // ---------------------------------------------------------------- 貼り付け
 function ensurePaster() {
@@ -3182,7 +3168,8 @@ function pageForView(page) {
   if (!page || typeof page !== 'object') return page;
   const id = page.route && page.route.stt ? page.route.stt.provider : '';
   const preset = typeof id === 'string' && Object.prototype.hasOwnProperty.call(sttCloud.PRESETS, id) ? sttCloud.PRESETS[id] : null;
-  return { ...page, routeText: lib.routeLabel(page.route, preset ? preset.label : '') };
+  // 0.11.0 Q-3（決めたこと 33）: 要約の直後の知らせにも、照らした点（qualityView）を添える（画面は qualityView だけを読む）
+  return { ...page, routeText: lib.routeLabel(page.route, preset ? preset.label : ''), qualityView: quality.qualityView(page.quality) };
 }
 function sendToOverlay(ch, p) {
   if (!overlayWin || overlayWin.isDestroyed()) return;
@@ -4154,6 +4141,7 @@ function meetingStatus() {
     finalizing: state === 'meeting-finalizing',
     startedAt: meeting ? meeting.startedAt : null,
     memo: meeting ? meeting.memo : '',
+    meetingType: meeting && mtype.isSelectable(meeting.meetingType) ? meeting.meetingType : null,   // 0.11.0 M-4: 録音中のページの種類の欄を戻す
     segments: meeting ? publicSegments(meeting.segments) : [],   // wav（パス）は外す。待ちは pending: true
     pending: pendingSegs,
     stoppedAt: meeting && meeting.stoppedAt ? meeting.stoppedAt : null,
@@ -4203,6 +4191,7 @@ function writeDraft() {
       localOnly: Boolean(meeting.localOnly),   // ［この会議は PC の中だけ］（復旧した会議の送り直しも手元。第1c回 RF28）
       pauses: meeting.pauses || [],   // 止めていた時間の印（落ちて復旧したページにも残す。第1b回 N4c）
       stateLog: meeting.stateLog || [],   // 議事録の経過（0.10.0 K-1。落ちて戻したページにも残す）
+      ...(mtype.isSelectable(meeting.meetingType) ? { meetingType: meeting.meetingType } : {}),   // 0.11.0 M-4: 録音中に選んだ種類（鍵のときだけ）
     }, meeting.draftName, { fsync: DRAFT_FSYNC });
   } catch (e) {
     if (!meeting.draftWriteFailed) {
@@ -4487,6 +4476,8 @@ async function recoverDraftsNow() {
         pauses: d.pauses,   // 止めていた時間の印（形の悪い印は store が捨てる。第1b回 N4c・F6）
         // 議事録の経過（0.10.0 K-1）: 下書きの経過（表に無い項目は落とす）の後に「戻した（アプリ）」
         stateLog: recoveredStateLog(d.stateLog),
+        // 0.11.0 M-4: 下書きの種類（照らして、選べる鍵のときだけ。知らない値は自動）
+        ...(mtype.isSelectable(d.meetingType) ? { meetingType: d.meetingType, typeAuto: false } : {}),
         summaryError: rec.todo.length
           ? '録音が中断されたため要約は未生成です。残っていた音声の文字起こしを続けています。終わったら「要約を生成」で作成できます。'
           : '録音が中断されたため要約は未生成です。「要約を生成」で作成できます。',
@@ -4844,7 +4835,8 @@ async function startMeeting() {
   // （復旧が読んだ draft.json を消せずに、次の復旧がもう一度ページにする）
   const draftName = chooseDraftName({ existing: store.draftFiles(), startedAt, park: () => (finalizingDrafts.has('draft.json') || draftRecoveryRuns > 0 ? { ok: false } : store.parkDraft()) });
   if (draftName !== 'draft.json') engineLog(`前の下書きを退けられないので、この会議の下書きは ${draftName} に書きます`);
-  meeting = { pageId, startedAt, draftName, memo: '', segments: [], offsetMs: 0, stopping: false, seq: 0,
+  // meetingType: 0.11.0 M-4（決めたこと 11）録音中のページで選んだ種類。null は自動（選んでいない）。新しい会議はいつも自動から（D50）
+  meeting = { pageId, startedAt, draftName, memo: '', meetingType: null, segments: [], offsetMs: 0, stopping: false, seq: 0,
     systemAudio: false, paused: false, pausedMs: 0, pausedAt: 0,
     // gen: 打ち切り（meeting:skipPending）で進める世代。進行中の結果を捨てる判断に使う
     // segmentMs: いま録音側に頼んでいる区間の長さ（経路と背圧で伸縮する。第1d回 A-5: 下の segMode と segmentBaseMs で決めて上書きする）
@@ -5171,6 +5163,7 @@ async function maybeFinalizeMeeting() {
         route: { stt: { ...m.route, provider: sttProvider().id }, localOnly: Boolean(m.localOnly) },
         pauses,   // 止めていた時間の印（区間とは別の欄。第1b回 N4c・F6）
         stateLog: m.stateLog || [],   // 議事録の経過（0.10.0 K-1。決めたこと 116）
+        ...(mtype.isSelectable(m.meetingType) ? { meetingType: m.meetingType, typeAuto: false } : {}),   // 0.11.0 M-4（決めたこと 11・F27）
         recovered: false, summaryError: keptWhy, meeting: { phase: 'done' },
       },
     }, { tx: `meeting:${m.startedAt}` });
@@ -5317,29 +5310,53 @@ async function doRunSummary(pageId) {
   // 「自動判定が当たっていたか」を後から誰も確かめられない
   // （手で選んだ議事録では detectType が一度も呼ばれていなかった）。
   const autoType = mtype.detectType(page.title, plain.slice(0, 1200));
-  page.autoType = autoType;
-  if (!page.meetingType || page.typeAuto !== false) {
-    // 判定材料が無いときは「一般・その他」（自動判定の答えのまま）。0.1.1 までは「定例・進捗報告」に
+  // 0.11.0 M-5（P14 (a)・決めたこと 13）: 自動のまま、題名と文字起こしで決まらないときだけ、前の同じ曜日・時刻の会議の人が選んだ種類（mtype.slotType）
+  // 0.11.0 P-12（R4・P19 (a)）: 選べない種類（前の版の一般・その他・知らない値）は、手で選んだ印があっても判定し直す
+  const redetect = !mtype.isSelectable(page.meetingType) || page.typeAuto !== false;
+  let slot = '';
+  if (redetect && !mtype.isSelectable(autoType)) {
+    let rows = [];
+    try { rows = await db.call('pages.typeSlots', { since: new Date(new Date(page.createdAt).getTime() - 36 * 86400000).toISOString() }); } catch (_) { rows = []; }
+    slot = mtype.slotType(Array.isArray(rows) ? rows : [], page.createdAt);
+  }
+  page.autoSlot = Boolean(slot);
+  page.autoType = slot || autoType;
+  const typeBefore = page.meetingType;   // 0.11.0 M-4（P13）: 自動の判定で種類が変わったら経過に積む
+  if (redetect) {
+    // 判定材料が無いときは決まらない（''。メモの型は会議の要点: 0.11.0 P-12。0.1.2〜0.10.x は「一般・その他」）。0.1.1 までは「定例・進捗報告」に
     // していたが、定例の型（担当・案件ごとの報告、担当・期限つきのアクション）に合わせようとして、
     // 手元の小さいモデルが発言に無い担当と期限を作った（実機。一般・その他で作り直すと出なかった）。
     // タイトルに定例らしい言葉（朝会・定例・週次など）があれば（本文だけなら 5 語以上）、今までどおり自動で定例になる
-    page.meetingType = autoType;
+    page.meetingType = page.autoType;
     page.typeAuto = true;
   }
   // タイトルは書かない。1on1・面談の議事録は機微で、engine.log は
   // 不具合報告に添付されうる。
-  engineLog(`会議タイプ: 採用=${page.meetingType} 自動判定=${autoType}`
+  engineLog(`会議タイプ: 採用=${page.meetingType} 自動判定=${autoType}${slot ? '（前の同じ曜日・時刻の会議）' : ''}`
     + ` 手動=${page.typeAuto === false} 区間数=${usable.length}`);
 
+  // 0.11.0 Q-3（決めたこと 32）: 点を付けるか。設定（既定はすべての会議: P11）と、文字起こしが短くないか（400 文字）
+  const wantScore = quality.shouldScore(page.meetingType, settings.qualityScore);
+  const score = wantScore && plain.length >= quality.MIN_SCORE_CHARS;
+  // 0.11.0 M-2（決めたこと 14）: 書式は1回だけ作る（Claude Code に渡す文と写しを落とす文に同じ文字列）
+  const template = memoTypes.buildTemplate({ meetingType: page.meetingType, score });
   const progress = (msg) => sendToMainWin('meeting:progress', { message: msg });
-  progress(`Claude Code で議事録を作成中…（${mtype.getLabel(page.meetingType)}として要約します）`);
+  // 決まらなかったときは「自動として」でなく型の名前で言う（0.11.0 P-12・R15）
+  progress(`Claude Code で議事録を作成中…（${mtype.isSelectable(page.meetingType) ? `${mtype.getLabel(page.meetingType)}として` : '決まらなかったので会議の要点の型で'}要約します）`);
   try {
     // Claude Code が断った・失敗したら、理由を要約の欄に書いて終える（下の catch。手元の llama へは行かない: D1・D59）
-    const { md, truncatedParts, finalTruncated } = await summarizeWithClaude(plain, page.memo, page.meetingType);
+    const { md: answer, truncatedParts, finalTruncated } = await summarizeWithClaude(plain, page.memo, template);
+    // 0.11.0 Q-3（決めたこと 30・32）: 採点の節はいつも本文から外す（頼まなかった採点の節も、2つ以上の節も、本文に残さない）
+    const split = quality.splitScore(answer);
+    const md = split.body;
     // 「特になし」の混入を先に落とす。ここで落とさないと
     // 「- [ ] 特になし」がアクション1件として数えられてしまう。
     // 続けて、テンプレートの見出し・雛形をそのまま写した行も落とす。
-    const blocks = dropTemplateEcho(dropRedundantEmpty(markdownToBlocks(md)), minutesTemplate(page.meetingType));
+    // 0.11.0 M-3（決めたこと 17・18・22・23）: 写しを落とした後に印を付ける（見出しに直す・根拠の無い見出しを未確認へ畳む・チェックは 3 件まで・
+    // 印の行は出典の照合から外す）。engine.log には数だけ（要約の文は書かない）
+    const marked = memoTypes.markBlocks(dropTemplateEcho(dropRedundantEmpty(markdownToBlocks(md)), template), { meetingType: page.meetingType });
+    const blocks = marked.blocks;
+    if (marked.dropped || marked.folded) engineLog(`要約: 抜け・重なりチェック ${marked.dropped} 件を捨てた・未確認にまとめた見出し ${marked.folded} 個`);
     // 担当・期限を先に抜く。出典の突き合わせは
     // 「（担当: ○○ / 期限: ○○）」を落とした本文に対して行いたい。
     // 書式が残ったままだと、その語がクエリに混ざって一致がぶれる。
@@ -5348,7 +5365,7 @@ async function doRunSummary(pageId) {
     // engine.log には数だけを書く（名前は機微。engine.log は不具合報告に添付されうる）
     // メモのうち、要約タイプを選んだときに入るアジェンダの雛形の行は裏付けにしない（「次回までのアクション」で
     // 作り話の「期限: 次回」が通ってしまう）。mainlib.memoEvidence
-    const grounded = groundActionFields(blocks, `${plain}\n${memoEvidence(page.memo, mtype.listTypes())}`);
+    const grounded = groundActionFields(blocks, `${plain}\n${memoEvidence(page.memo, [...mtype.listTypes(), ...memoTypes.presetLines()])}`);
     const actStat = grounded.stat;
     if (grounded.droppedAssignee || grounded.droppedDue) {
       engineLog(`要約: 文字起こしに無い担当 ${grounded.droppedAssignee} 件・期限 ${grounded.droppedDue} 件を外しました`);
@@ -5361,6 +5378,30 @@ async function doRunSummary(pageId) {
     // 要約の材料にした配列（入口）と今の配列の両方を渡す（#4。cite.attachCitationsAcross）
     const stat = attachAcross(blocks, fresh, segmentsAtStart);
     segments = fresh;
+    // 0.11.0 Q-3（決めたこと 29〜34）: 点（付けるときだけ）。AI の3つの軸を厳しく読み、ToDo の具体さと型の埋まり具合は数え、合計は数え直す。
+    // AI の軸の理由は一時のブロックにして出典を付ける（ページのブロックと出典の数には入れない）。engine.log には点と符号だけ（理由の文は書かない）
+    let q = null; let scoreNote = '';
+    if (score) {
+      const parsed = quality.parseScore(split.lines, quality.AI_AXES, { found: split.found });
+      if (parsed.ok) {
+        const cites = {};
+        for (const a of quality.AI_AXES) {
+          const tmp = [{ id: `q-${a.key}`, type: 'bullet', text: parsed.ai[a.key].reason, cites: [] }];
+          attachAcross(tmp, fresh, segmentsAtStart);
+          cites[a.key] = Array.isArray(tmp[0].cites) ? tmp[0].cites.filter((c) => typeof c === 'string') : [];
+        }
+        q = quality.buildQuality({ ai: parsed.ai, todo: quality.todoAxis(blocks), fill: quality.fillAxis(blocks, { headings: memoTypes.sectionsOf(page.meetingType), key: memoTypes.headingKey }), cites, at: new Date().toISOString() });
+        engineLog(`打ち合わせの質: 付けた ${q.total}/25`);
+      } else {
+        scoreNote = QUALITY_NOTE_UNREAD;
+        engineLog(`打ち合わせの質: 付けない（読めない（${parsed.code}））`);
+      }
+    } else if (wantScore) {
+      scoreNote = QUALITY_NOTE_SHORT;
+      engineLog('打ち合わせの質: 付けない（短い）');
+    } else {
+      engineLog(`打ち合わせの質: 付けない（${settings.qualityScore === 'off' ? '設定' : '1on1・面接'}）`);
+    }
 
     // 同じ理由で、タイトルやメモも読み込み時のページを丸ごと書き戻さず、
     // 生成物だけを最新のページに載せる。ページが消えていれば生成物は捨てる。
@@ -5372,14 +5413,21 @@ async function doRunSummary(pageId) {
       saved.meetingType = t.meetingType;
       saved.typeAuto = t.typeAuto;
       saved.autoType = page.autoType;
+      if (page.autoSlot && t.typeAuto !== false) saved.autoSlot = true; else delete saved.autoSlot;   // 0.11.0 M-5: 前の会議の種類を使った印（画面の灰色の文）
+      // 0.11.0 M-4（P13・決めたこと 12）: 自動のまま、要約のときの判定で種類が前と変わったら、経過に「種類を選んだ（要約のときの自動の判定）」
+      if (t.typeAuto !== false && mtype.normalizeType(page.meetingType) !== mtype.normalizeType(typeBefore)) saved.stateLog = lib.stateLogAdd(saved.stateLog, { s: 'type', by: 'auto', at: new Date().toISOString() });
       saved.citeStat = stat;
       saved.actionStat = actStat;
       // 切れたパートと最終統合の打ち切りを名指しする（mainlib.truncationMessage。無ければ ''）
       const notes = [truncationMessage(truncatedParts, finalTruncated)];
       if (t.changed) {
-        notes.push(`この要約は「${mtype.getLabel(page.meetingType)}」として作りました。途中で選んだ「${mtype.getLabel(t.meetingType)}」で作り直すには［要約を再生成］を押してください。`);
+        // 0.11.0 M-4: どの型で作ったかも書く（書式の文と画面の文の「作っている間に種類を替えたときの注」）
+        notes.push(`この要約は「${mtype.getLabel(page.meetingType)}」（メモの型: ${memoTypes.MEMO_TYPES[memoTypes.memoTypeOf(page.meetingType)].label}）として作りました。途中で選んだ「${mtype.getLabel(t.meetingType)}」で作り直すには［要約を再生成］を押してください。`);
       }
+      if (scoreNote) notes.push(scoreNote);   // 0.11.0 Q-3: QN1・QN2
       saved.summaryError = notes.filter(Boolean).join('\n');
+      // 0.11.0 Q-3（決めたこと 33）: 点はページの欄。点を付けない要約で作り直したら前の点を消す
+      if (q) saved.quality = q; else delete saved.quality;
       saved.summaryWait = false;   // 要約待ちの印を消す（0.10.0 LS-2）
       // どちらで要約したか（第1c回 OL6。ページのプロパティの行に出す）。成功したときだけ書く
       saved.route = { ...(saved.route || {}), summary: { by: route, at: new Date().toISOString() } };
@@ -5719,7 +5767,17 @@ function setupIpc() {
 
   // 議事録の画面の口は main を通らない（第2a1回 ST5。preload が DB の口（役 app）へ直に頼む）。要約だけは今どおり main の IPC
   ipcMain.handle('page:summarize', (_e, id) => runSummary(id));
-  ipcMain.handle('meta:types', () => mtype.listTypes());
+  // 0.11.0 V-1・V-5: 画面は種類の並びを1か所（meetingType.SELECTABLE）から読む（群の見出しは無い）。メモの型の表も
+  ipcMain.handle('meta:types', () => typesForView());
+  ipcMain.handle('meta:memo-types', () => memoTypes.listMemoTypes());
+  // 0.11.0 V-4（P15 (a)・D79）: 題名を直した自動のページで、今の題名と文字起こしの頭から判定した種類（種類も要約も変えない。画面が一言を出すだけ）
+  ipcMain.handle('meta:detect-type', async (_e, id, title) => {
+    if (typeof id !== 'string' || typeof title !== 'string') return { type: '' };
+    let segs = [];
+    try { const r = await db.call('page.get', { id }); segs = r && Array.isArray(r.segments) ? r.segments : []; } catch (_) { segs = []; }
+    const plain = segs.filter((sg) => sg && !sg.failed && !sg.pending).map((sg) => String(sg.text || '')).join('\n');
+    return { type: mtype.detectType(title.slice(0, 200), plain.slice(0, 1200)) };
+  });
   ipcMain.handle('meeting:toggle', () => {
     if (state === 'idle') return startMeetingBy('page');
     if (state === 'meeting') return stopMeetingBy('page');
@@ -5733,6 +5791,20 @@ function setupIpc() {
   // 第1d回 A-8（D17）: 画面が「録音中のページを開いていて、窓が隠れていない」かを知らせる（変わったときだけ送ってくる）
   ipcMain.on('meeting:live-shown', (_e, on) => { liveShownByUi = on === true; syncLevelAsk(); });
   ipcMain.handle('meeting:set-memo', (_e, memo) => { if (meeting) { meeting.memo = String(memo || ''); writeDraft(); } return true; });
+  // 0.11.0 M-4（D50・決めたこと 10・11）: 録音中のページで種類を選ぶ（auto は自動に戻す）。メモが手を付けていなければ新しい型の雛形に替え、
+  // 下書きに書き、経過に1件積む。画面は先に待っているメモを meeting:set-memo で送ってから呼ぶ → { ok, memo, inserted, meetingType }
+  ipcMain.handle('meeting:set-type', (_e, key) => {
+    if (!meeting) return { ok: false };
+    if (key !== 'auto' && !mtype.isSelectable(key)) return { ok: false };
+    meeting.meetingType = key === 'auto' ? null : key;
+    let inserted = false;
+    if (key !== 'auto' && memoTypes.isUntouchedMemo(meeting.memo, mtype.listTypes().map((t) => t.agenda).filter(Boolean))) {
+      meeting.memo = memoTypes.memoPreset(memoTypes.memoTypeOf(key));
+      inserted = true;
+    }
+    noteMeetingState(meeting, 'type', 'live-page');   // 下書きにも書く
+    return { ok: true, memo: meeting.memo, inserted, meetingType: meeting.meetingType };
+  });
   // 終了後の文字起こし待ちを後回しにする（#42。0.9.4 S-3 で打ち切りから替えた: ［文字起こしを後回しにして要約］）。記録中（終了前）は押せない。
   // 待ちの区間は「文字起こし待ち」（kept）で WAV を残す（mainlib.skipPendingSegments。消さない）。締めは要約を待たせずに今ある分で作り（m.later）、
   // 残した区間は会議の後の待ち行列が文字起こしする（済んだら［要約を生成］で作り直せると知らせる。自動で作り直さない: 問い Q5）。

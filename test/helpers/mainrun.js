@@ -167,6 +167,10 @@ const { titleAt } = require('./titles');
 //                     届くかの確かめが偽の送り先に届いてオンラインになる（--stt が無ければ、確かめは fake-net の守りで死んで手元になる）
 //     --claude-delay=<ms> … 0.10.0 LS-2: --claude=slow の偽の claude が -p に答えるまでの待ち（FAKE_CLAUDE_DELAY）
 //     --claude-auth=<method> … 偽の claude の auth status が返す authMethod（FAKE_CLAUDE_AUTH。既定 claude.ai）
+//     --set-type-live=<鍵|auto>[,…] … 0.11.0 M-4: 録音中（最初の区間の後）に meeting:set-type を呼ぶ（--live-memo=<文> があれば先に meeting:set-memo）
+//     --quality=<all|on|off> … 0.11.0 Q-3: 設定 qualityScore。--resum-quality=<…> … 要約の後にその設定にして［要約を再生成］（out.qualityBefore・out.resum）
+//     --legacy-general … 0.11.0 P-12: 要約の後、ページを前の版で手で一般・その他を選んだ形（meetingType 'general'・typeAuto 偽）にして［要約を再生成］（out.legacyGeneral）
+//     --sum-md=<名前> … 0.11.0 M-3: 偽の claude が返す要約の Markdown を test/fixtures/summaries/<名前>.md にする（--claude と一緒に使う）
 //     --db-down     … 第2a1回 M-2b: 議事録の DB のプロセス（偽の utilityProcess の中の本物の server.js）の SQLite が trigram を持たない
 //                     （helpers/no-trigram.js を子の中で先に読む）。自分の確かめが通らず、DB は「使えない」で起きる。場面の dbDown でも同じ
 //   第2a1回 M-3（録音と DB のつなぎ）の旗。どの場面でも、main の客の頼み（call: 'call'・'ack'・'fail'、send: 'send'）と、下書きを書くたび
@@ -444,6 +448,9 @@ const setTypeDuring = (flags.find((f) => f.startsWith('--set-type-during=')) || 
 const WRITE_SETTLE_MS = 500;
 const xyFlag = (v) => { if (!v) return null; const [x, y] = v.split(',').map(Number); return { x, y }; };   // 0.9.0 O-1: 設定のまとめ書き（main の BATCH_MS 350ms）が済むのを待つ長さ
 const flagVal = (name) => { const f = flags.find((x) => x.startsWith(`${name}=`)); return f ? f.slice(name.length + 1) : ''; };
+// 0.11.0 M-4: 録音中（最初の区間の後）に meeting:set-memo と meeting:set-type を呼ぶ（--set-type-live は , で区切って続けて選べる）
+const setTypeLive = flagVal('--set-type-live') ? flagVal('--set-type-live').split(',') : [];
+const liveMemo = flags.some((x) => x.startsWith('--live-memo=')) ? flagVal('--live-memo') : null;
 // 第2a1回 M-3: 録音と DB のつなぎの場面
 const killDbDuring = flags.includes('--kill-db-during');
 const killMainDuring = flags.includes('--kill-main-during');
@@ -865,6 +872,8 @@ process.on('exit', () => {
     // 手元の1回の要約と同じ指示文（mainlib.buildClaudeInput。F9）を標準入力で受けたか
     process.env.FAKE_CLAUDE_EXPECT_ASK = '上記から、次の構成のMarkdown議事録を作成してください。';
     if (claudeAuth) process.env.FAKE_CLAUDE_AUTH = claudeAuth;
+    // 0.11.0 M-3: --sum-md=<名前> … 偽の claude が返す要約を test/fixtures/summaries/<名前>.md にする
+    if (flagVal('--sum-md')) process.env.FAKE_CLAUDE_MD = fs.readFileSync(path.join(__dirname, '..', 'fixtures', 'summaries', `${flagVal('--sum-md')}.md`), 'utf8');
   }
   // 課金の変数（子に渡らないことを偽の claude の記録の envKeys で見る。大小の混ざった名前は claude-cli.test.js が見る）
   process.env.ANTHROPIC_API_KEY = 'sk-ant-test';
@@ -1210,6 +1219,7 @@ process.on('exit', () => {
       ...(noWhisper ? { localServerExe: path.join(tmp, 'no-such-whisper-server.exe') } : {}),
       ...(maxHistoryFlag ? { maxHistory: Number(maxHistoryFlag) } : {}),   // 第1d2回 M-5
       ...(autoStopFlag === 'off' ? { autoStopQuiet: false } : {}),   // 0.9.1 Q-4
+      ...(flagVal('--quality') ? { qualityScore: flagVal('--quality') } : {}),   // 0.11.0 Q-3
       ...(autoStopMinFlag ? { autoStopMin: autoStopMinFlag } : {}),
       ...(detectFlag === 'off' ? { meetingDetect: false } : {}),   // 0.9.3 M-2
       ...(detectMuteFlag ? { meetingDetectMute: detectMuteFlag.split(',') } : {}),
@@ -2071,6 +2081,7 @@ process.on('exit', () => {
     listPages: () => peekDb((h) => h.listPages(), []),
     getPage: (id) => peekDb((h) => h.getPage(id), null),
     getTranscript: (id) => peekDb((h) => h.getTranscript(id), []),
+    rawPage: (id) => peekDb((h) => h.rawPage(id), null),   // 0.11.0 Q-3: DB の行の attrs（DB が作る欄 qualityView が書かれていないか）
   };
   const store = new Proxy(realStore, { get: (t, k) => (Object.hasOwn(dbView, k) ? dbView[k] : t[k]) });
   const dbMeta = (key) => peekDb((h) => h.meta(key), undefined);
@@ -2388,6 +2399,12 @@ process.on('exit', () => {
       route: page.route, routeText: await pageRouteText(p.id), citeStat: page.citeStat || null,
       blocks: (page.blocks || []).map((b) => ({ type: b.type, cites: Array.isArray(b.cites) ? b.cites.length : 0 })),
       todos: (page.blocks || []).filter((b) => b.type === 'todo').map((b) => ({ text: b.text, assignee: b.assignee || '', due: b.due || '', dueRaw: b.dueRaw || '' })),
+      // 0.11.0 M-3: 要約のブロックの文と印（足すだけ。上の blocks の形は変えない）
+      sumBlocks: (page.blocks || []).map((b) => ({ type: b.type, text: b.text, mark: b.mark, unconfirmed: b.unconfirmed, citeState: b.citeState, cites: Array.isArray(b.cites) ? b.cites.length : 0 })),
+      autoType: page.autoType, autoSlot: page.autoSlot, quality: page.quality, stateLog: page.stateLog, memo: page.memo,
+      // 0.11.0 Q-3: 画面の役で読んだ qualityView（DB が作る欄）・DB の行に qualityView が書かれていないか
+      viewQuality: await (async () => { try { const g = await appCall('page.get', { id: p.id }); return g && g.page ? g.page.qualityView : undefined; } catch (_) { return undefined; } })(),
+      rawHasQualityView: (() => { const raw = store.rawPage(p.id); return Boolean(raw && Object.hasOwn(raw, 'qualityView')); })(),
     };
   };
   if (idleMode) {
@@ -3167,6 +3184,8 @@ process.on('exit', () => {
       await waitFor(() => handlers['meeting:status']().pending === 0, 15000);
       netSegs.push({ s: netSec - 1, problem: netNote(netSec - 1) });
     }
+    if (i === 0 && liveMemo !== null) out.liveMemo = await handlers['meeting:set-memo']({}, liveMemo);
+    if (i === 0 && setTypeLive.length) { out.setTypeLive = []; for (const k of setTypeLive) out.setTypeLive.push(await handlers['meeting:set-type']({}, k)); out.liveStatusType = handlers['meeting:status']().meetingType; }
     if (i === 0 && testDuring) out.testDuring = await handlers['app:test']();
     // 第1d回 A-9: 会議の録音中に再起動と取り込みを頼む（断られて、録音はそのまま続く）
     if (i === 0 && restartDuring === 'meeting') {
@@ -3225,6 +3244,25 @@ process.on('exit', () => {
     out.summaryAtFinalize = p0 ? store.getPage(p0.id).summaryError : null;
   }
   await sleep(200);
+  // 0.11.0 Q-3: 要約の後に打ち合わせの質の設定を替えて［要約を再生成］（--resum-quality=<all|on|off>）
+  if (flagVal('--resum-quality') && store.listPages().length) {
+    out.qualityBefore = (store.getPage(store.listPages()[0].id) || {}).quality;
+    await handlers['settings:save']({}, { qualityScore: flagVal('--resum-quality') });
+    out.resum = await handlers['page:summarize']({}, store.listPages()[0].id);
+  }
+  // 0.11.0 P-12（R4）: 前の版で手で一般・その他を選んだページにして（page.put で attrs を書く）、［要約を再生成］（--legacy-general）
+  if (flags.includes('--legacy-general') && store.listPages().length) {
+    const id = store.listPages()[0].id;
+    const cur = await dbClient.call('page.get', { id });
+    const pg = cur && cur.page ? cur.page : cur;
+    const { rev, ...rest } = pg;
+    await dbClient.call('page.put', { page: { ...rest, meetingType: 'general', typeAuto: false }, baseRev: rev });
+    const before = store.getPage(id) || {};
+    out.legacyGeneral = { before: { meetingType: before.meetingType, typeAuto: before.typeAuto } };
+    out.legacyGeneral.resum = await handlers['page:summarize']({}, id);
+  }
+  // 要約の直後の page:updated の qualityView（0.11.0 Q-3）
+  { const u = sent.filter(([ch]) => ch === 'page:updated').pop(); out.updatedQualityView = u && u[1] && u[1].page ? u[1].page.qualityView : undefined; }
   // 要約の後に画面で題名を直す（--set-title-after-sum）
   if (setTitleAfterSum && store.listPages().length) out.setTitleAfter = await appCall('page.setTitle', { id: store.listPages()[0].id, title: setTitleAfterSum });
   const pages = await Promise.all(store.listPages().map(pageOut));
