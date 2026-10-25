@@ -8,6 +8,7 @@
 //     - assets/icon.svg     → src/assets/window.png と src/assets/window.ico（上と同じ中身。窓のアイコン）
 //     - assets/icon.svg     → src/assets/tray.png（32）と src/assets/tray.ico（16〜64）       … トレイ（待機）
 //     - assets/tray-rec.svg → src/assets/tray-rec.png（32）と src/assets/tray-rec.ico（16〜64） … トレイ（録音中）
+//     - assets/icon.svg     → src/mcp/icon.js（64 の PNG を base64 で持つ。MCP のサーバーの情報のロゴ。0.11.1 LG-3・D36）
 //   どの大きさも元の SVG から描く（0.11.1 L-3。小さい版の SVG はやめた。16px でもリスの形で見分ける）。
 //
 // 描けるのは、ロゴが使うものだけ:
@@ -245,7 +246,28 @@ const TARGETS = [
   { svg: 'assets/icon.svg', png: { file: 'src/assets/window.png', size: 256 }, ico: { file: 'src/assets/window.ico', sizes: ICON_SIZES } },
   { svg: 'assets/icon.svg', png: { file: 'src/assets/tray.png', size: 32 }, ico: { file: 'src/assets/tray.ico', sizes: TRAY_SIZES } },
   { svg: 'assets/tray-rec.svg', png: { file: 'src/assets/tray-rec.png', size: 32 }, ico: { file: 'src/assets/tray-rec.ico', sizes: TRAY_SIZES } },
+  // MCP のサーバーの情報に載せるロゴ（0.10.0 S-1・D36「assets/icon.png を 64×64 にした PNG」。0.11.1 LG-3 から手で貼らずにここで書き出す）
+  { svg: 'assets/icon.svg', js: { file: 'src/mcp/icon.js', size: 64 } },
 ];
+
+// src/mcp/icon.js の中身（PNG を base64 にして 120 字ずつの行に分ける）
+function mcpIconModule(png) {
+  const b64 = png.toString('base64');
+  const lines = [];
+  for (let i = 0; i < b64.length; i += 120) lines.push(`  '${b64.slice(i, i + 120)}',`);
+  return [
+    "'use strict';",
+    '// MCP のサーバーの情報に載せる NaTsu のロゴ（0.10.0 S-1。持ち主の答え D36: assets/icon.png を 64×64 にした PNG）。',
+    '// tools/icon-render.js が assets/icon.svg を 64 で描いて書き出す（0.11.1 LG-3。手で直さない。test/icons.test.js が描き直しと同じかを見る）。',
+    '// data: の形だけで渡す（外の URL を指さない: 読み込みに外へ出ない）。Claude の側に出るかは約束しない',
+    'const ICON_PNG_BASE64 = [',
+    ...lines,
+    "].join('');",
+    '',
+    'module.exports = { ICON_PNG_BASE64 };',
+    '',
+  ].join('\n');
+}
 
 // 全部を描いてから書く（0.11.1 LG-1・RF-LG4）。描くのに失敗したら、どのファイルも書かずに投げる。
 // 書くときは、先に全部を一時ファイルに書き、それから名前を変える。一時ファイルを書けなければ、書いた一時ファイルを消して投げる。
@@ -260,6 +282,9 @@ function renderTargets(root = ROOT, targets = TARGETS) {
     if (t.ico) {
       const ico = packIco(t.ico.sizes.map((s) => encodePng(s, s, draw(s))));
       outs.push({ file: t.ico.file, buf: ico, line: `${t.ico.file}: ${parseIco(ico).map((e) => e.width).join(', ')} px` });
+    }
+    if (t.js) {
+      outs.push({ file: t.js.file, buf: Buffer.from(mcpIconModule(encodePng(t.js.size, t.js.size, draw(t.js.size))), 'utf8'), line: `${t.js.file}: ${t.js.size} px` });
     }
   }
   const tmpOf = (f) => path.join(root, `${f}.rendering-${process.pid}`);

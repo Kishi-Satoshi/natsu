@@ -411,20 +411,35 @@ test('LG-2 L-3: どの大きさも icon.svg（録音中は tray-rec.svg）から
   const R = require('../tools/icon-render.js');
   for (const f of ['assets/icon-small.svg', 'assets/tray-rec-small.svg']) assert.ok(!fs.existsSync(path.join(ROOT, f)), `${f} が残っている`);
   assert.ok(!('SMALL_BELOW' in R), 'SMALL_BELOW が残っている');
-  for (const t of R.TARGETS) assert.deepStrictEqual(Object.keys(t).filter((k) => !['svg', 'png', 'ico'].includes(k)), [], `${t.svg} に小さい版の欄`);
+  // 0.11.1 LG-3 で意図して足した: MCP のロゴの書き出し（js）
+  for (const t of R.TARGETS) assert.deepStrictEqual(Object.keys(t).filter((k) => !['svg', 'png', 'ico', 'js'].includes(k)), [], `${t.svg} に小さい版の欄`);
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'icon-targets-'));
   try {
     const outs = [];
     for (const t of R.TARGETS) {
-      for (const f of [t.svg, t.png && t.png.file, t.ico && t.ico.file].filter(Boolean)) fs.mkdirSync(path.dirname(path.join(dir, f)), { recursive: true });
+      for (const f of [t.svg, t.png && t.png.file, t.ico && t.ico.file, t.js && t.js.file].filter(Boolean)) fs.mkdirSync(path.dirname(path.join(dir, f)), { recursive: true });
       fs.copyFileSync(path.join(ROOT, t.svg), path.join(dir, t.svg));
-      for (const o of [t.png, t.ico].filter(Boolean)) outs.push(o.file);
+      for (const o of [t.png, t.ico, t.js].filter(Boolean)) outs.push(o.file);
     }
     R.renderTargets(dir);
     for (const f of outs) assert.ok(fs.readFileSync(path.join(dir, f)).equals(fs.readFileSync(path.join(ROOT, f))), `${f} が描き直しと違う（node tools/icon-render.js で描き直す）`);
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
+});
+
+// 決めたこと 5（D36 の答え「assets/icon.png を 64×64 にした PNG」）: 元が変われば MCP のロゴも一緒に変わる。
+// 手で貼らず、tools/icon-render.js が icon.svg を 64 で描いて src/mcp/icon.js に書き出す
+test('LG-3 決めたこと 5: MCP のロゴ（src/mcp/icon.js の PNG）は、icon.svg を 64 で描いたもので、tools/icon-render.js が書き出す', () => {
+  const R = require('../tools/icon-render.js');
+  const { ICON_PNG_BASE64 } = require('../src/mcp/icon.js');
+  const png = Buffer.from(ICON_PNG_BASE64, 'base64');
+  const img = decodePng(png);
+  assert.deepStrictEqual([img.width, img.height], [64, 64]);
+  const want = R.renderSvg(fs.readFileSync(path.join(ROOT, 'assets/icon.svg'), 'utf8'), 64);
+  assert.ok(img.rgba.equals(want), 'src/mcp/icon.js の PNG が icon.svg を 64 で描いたものと違う（node tools/icon-render.js で描き直す）');
+  assert.ok(png.equals(encodePng(64, 64, want)), 'src/mcp/icon.js の PNG のバイトが tools/icon-render.js の書き出しと違う');
+  assert.ok(R.TARGETS.some((t) => t.svg === 'assets/icon.svg' && t.js && t.js.file === 'src/mcp/icon.js' && t.js.size === 64), 'icon-render.js が src/mcp/icon.js を書き出さない');
 });
 
 test('窓のアイコンは、Windows では ICO を渡す（PNG の 256 を縮めると 16px で波が消える。ICO なら OS が小さい版を選ぶ）', () => {
