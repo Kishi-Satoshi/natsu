@@ -388,7 +388,9 @@ const RETAKE = new Set(['live-ready-light', 'live-ready-dark', 'live-ready-zoom2
   // 2026-10-26 の持ち主の答え（問2「⠿ の左に並べる（Notion と同じ並び）」。計画の Ruling R36）: 行の左の ＋ を行の並びに入れたので、鍵の無い要約の行が
   // 見える今の画面は要約の文が約 22px 右へずれる。版を上げる commit（Task G）で基準にする
   'notes-page-light', 'notes-page-dark', 'notes-tabs-light', 'notes-collapsed-light', 'search-palette-light', 'page-menu-link-light', 'page-menu-link-dark',
-  'page-type-undecided-light', 'page-quality-light', 'page-quality-dark']);
+  'page-type-undecided-light', 'page-quality-light', 'page-quality-dark',
+  // CI run 40403886281 で見つけた: 拡大 200% は要約の欄が窓に入らないが、要約の行の折り返しが増えてページが伸び、捲り棒のつまみが短くなる（42 画素）
+  'notes-page-zoom200-light']);
 const PERF = [{ name: 'open-2000-blocks', budgetMs: 500 }];   // 3回開いた中央値で見る
 const TIME_ZONE = 'Asia/Tokyo';
 const TOLERANCE = 2;   // 色の差（0〜255）がこれ以下の画素は同じとみなす。CI の機械の CPU ごとの描き方の1段の差を拾わないため（揺れの確かめ judgePair は 0 で見る）

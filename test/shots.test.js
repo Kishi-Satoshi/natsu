@@ -166,7 +166,8 @@ const NEW_130 = ['live-ready-light', 'live-ready-dark', 'live-ready-zoom200-ligh
 // 2026-10-26 の持ち主の答え（問2「⠿ の左に並べる（Notion と同じ並び）」。計画の Ruling R36）で意図して変えた: 鍵の無い要約の行が見える今の画面は、
 // 行の左の ＋ が行の並びに入って要約の文が約 22px 右へずれるので取り直す（RETAKEN_130。今の基準がある）
 const RETAKEN_130 = ['notes-page-light', 'notes-page-dark', 'notes-tabs-light', 'notes-collapsed-light', 'search-palette-light', 'page-menu-link-light', 'page-menu-link-dark',
-  'page-type-undecided-light', 'page-quality-light', 'page-quality-dark'];
+  'page-type-undecided-light', 'page-quality-light', 'page-quality-dark',
+  'notes-page-zoom200-light'];   // CI run 40403886281: 窓に入らない要約の行の折り返しが増え、捲り棒のつまみが短くなる
 const RETAKE_130 = [...NEW_130, ...RETAKEN_130];
 const img = (w, h, fill = [255, 255, 255, 255]) => ({ width: w, height: h, data: Buffer.from(Array.from({ length: w * h }, () => fill).flat()) });
 // 一時フォルダ（日本語と 𠮷 の名前。RF1 と同じ形）。テストの終わりに消す
