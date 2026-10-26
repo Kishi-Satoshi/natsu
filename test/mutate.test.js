@@ -973,12 +973,10 @@ test('G3・0.12.1 LV-6: 0.12.1 の変異が一覧にそろい、IDS_121 は計�
 // 0.13.0（計画 docs/plans/2026-10-24-130.md の「変異確認」の ed- と rdy- の表）: 録音の前のページ（第2部）と要約の編集（第1部）の直しを1つずつ戻す変異。
 // タスクを作るたびに足す（0.10.1 の Ruling R3 と同じ）。全部のタスクの後に、表の 0.13.0 の id（ed- 53・rdy- 24 の 77）とちょうど同じにそろえる
 const IDS_130 = [
-  'rdy-one-prep', 'rdy-start-toggle', 'rdy-prep-draft', 'rdy-prep-db', 'rdy-adopt-memo', 'rdy-adopt-type', 'rdy-adopt-late', 'rdy-adopt-clear', 'rdy-memo-prep', 'rdy-type-prep',
-  'rdy-offline', 'rdy-offline-by', 'rdy-statelog',   // RDY-1
-  'rdy-side-start', 'rdy-side-focus', 'rdy-start-busy', 'rdy-consent-route', 'rdy-close-confirm',   // RDY-2
-  'rdy-guard', 'rdy-race', 'rdy-pane', 'rdy-replace-ready',   // RDY-3
-  'rdy-prep-always',   // RDY-4
-  'rdy-help',   // RDY-5
+  // 第2部（rdy-。RDY-1〜RDY-5 で作りながら足し、RDY-6 で計画の rdy- の表の行の順にそろえた）
+  'rdy-side-start', 'rdy-side-focus', 'rdy-one-prep', 'rdy-start-toggle', 'rdy-start-busy', 'rdy-guard', 'rdy-prep-draft', 'rdy-prep-db', 'rdy-adopt-memo', 'rdy-adopt-type',
+  'rdy-adopt-late', 'rdy-adopt-clear', 'rdy-memo-prep', 'rdy-type-prep', 'rdy-race', 'rdy-pane', 'rdy-replace-ready', 'rdy-offline', 'rdy-offline-by', 'rdy-consent-route',
+  'rdy-close-confirm', 'rdy-statelog', 'rdy-prep-always', 'rdy-help',
 ];
 test('G3・0.13.0: 0.13.0 の変異が一覧にそろい、IDS_130 はどれも計画の「変異確認」の表にある。ed-・rdy- の変異は IDS_130 にある。どれも決まったテストのファイルを持ち、why が 0.13.0 で始まる', { timeout: 5000 }, () => {
   const byId = new Map(MUTANTS.map((m) => [m.id, m]));
@@ -998,4 +996,13 @@ test('G3・0.13.0: 0.13.0 の変異が一覧にそろい、IDS_130 はどれも�
     assert.ok(Array.isArray(m.tests) && m.tests.length > 0 && m.tests.every((t) => /^test\/[^/]+\.test\.js$/.test(t)), `${id}: tests`);
     assert.ok(typeof m.why === 'string' && m.why.startsWith('0.13.0 '), `${id}: why`);
   }
+});
+// 0.13.0 RDY-6: 第2部の変異（rdy-）は、計画の「変異確認」の rdy- の表とちょうど同じ（行の順・24）
+test('G3・0.13.0 RDY-6: IDS_130 の rdy- は計画の「変異確認」の rdy- の表とちょうど同じ（行の順・24）', { timeout: 5000 }, () => {
+  const plan = fs.readFileSync(path.join(ROOT, 'docs', 'plans', '2026-10-24-130.md'), 'utf8');
+  const at = plan.search(/^## 変異確認（直しを1つ戻すと/m);
+  const table = plan.slice(at, plan.indexOf('\n## ', at + 5));
+  const rows = [...table.matchAll(/^\| (rdy-[a-z0-9-]*) \|/gm)].map((m) => m[1]);
+  assert.strictEqual(rows.length, 24);
+  assert.deepStrictEqual(IDS_130.filter((id) => /^rdy-/.test(id)), rows);
 });
