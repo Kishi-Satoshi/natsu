@@ -95,6 +95,19 @@ const OPEN_READY = `(async () => {
   await new Promise((r) => setTimeout(r, 300));
   return 1;
 })()`;
+// 0.13.0 ED-5（計画 docs/plans/2026-10-24-130.md の「取り直す画面（RETAKE）」）: ページの要約の1つ目の箇条書き（b2）の終わりに「 /」と語を打ち、
+// / メニューを開いた形（本物の Chromium の getSelection でカーソルを行の終わりに置き、input を起こす）
+const OPEN_SLASH = (q) => `(async () => {
+  document.getElementById('tabBtnNotes').click(); document.querySelector('#plist .pitem').click();
+  await new Promise((r) => setTimeout(r, 300));
+  document.getElementById('paneBtnNote').click();
+  const t = [...document.querySelectorAll('#pNote .blk')].find((e) => e.dataset.id === 'b2').querySelector('.txt');
+  t.focus();
+  t.textContent = t.textContent + ' /' + ${JSON.stringify(q)};
+  const sel = getSelection(); const rg = document.createRange(); rg.selectNodeContents(t); rg.collapse(false); sel.removeAllRanges(); sel.addRange(rg);
+  t.dispatchEvent(new InputEvent('input', { bubbles: true }));
+  return 1;
+})()`;
 // 0.11.0 V-2: ページを開き、打ち合わせの質のカードまで捲る
 const OPEN_QUALITY = `(async () => {
   document.getElementById('tabBtnNotes').click(); document.querySelector('#plist .pitem').click();
@@ -254,6 +267,11 @@ const SCREENS = [
   { name: 'live-ready-light', page: 'app', theme: 'light', answers: readyAnswers(), act: OPEN_READY },
   { name: 'live-ready-dark', page: 'app', theme: 'dark', answers: readyAnswers(), act: OPEN_READY },
   { name: 'live-ready-zoom200-light', page: 'app', theme: 'light', zoom: 2, answers: readyAnswers(), act: OPEN_READY },
+  // 0.13.0 ED-5（E2・EQ8）: / メニュー（「みだし」で絞った形の明暗と、語を打つ前に頭に「最近使ったもの」が出た形）。足した画面（まだ基準が無い）。
+  // 撮る道具は koeApp.uiState に見本の答えを持たない（{ ok: true }）ので、ほかの画面は「最近使ったもの」が無いまま撮れる
+  { name: 'edit-slash-light', page: 'app', theme: 'light', act: OPEN_SLASH('みだし') },
+  { name: 'edit-slash-dark', page: 'app', theme: 'dark', act: OPEN_SLASH('みだし') },
+  { name: 'edit-slash-recent-light', page: 'app', theme: 'light', answers: { 'koeApp.uiState': { slashRecent: ['h2', 'todo'] } }, act: OPEN_SLASH('') },
 ];
 // 0.9.0 O-3（RP9）: 録音バーの画面（形 → 地 → 拡大率 → 状態の順。撮る道具は形・地・拡大率の組ごとに窓を1つ開いて状態を act で替える）。
 // 録音は始めずに見た目だけを撮る（act は pill-states の見本を録音バーの DOM に当てる。撮るときだけ体の地にデスクトップの色を塗る）。
@@ -342,7 +360,7 @@ const OVL_094 = (states) => PS.FORMS.flatMap((form) => Object.keys(PS.DESKS).fla
 // artifact 12604106323 の .after.png をバイトのまま基準にし、空に戻した
 // 0.13.0（計画 docs/plans/2026-10-24-130.md の「取り直す画面（RETAKE）」）: RDY-3 で足した録音の前のページの3枚。持ち主が見比べを OK と言ったら、
 // 版を上げる commit（Task G）で基準にして空に戻す
-const RETAKE = new Set(['live-ready-light', 'live-ready-dark', 'live-ready-zoom200-light']);
+const RETAKE = new Set(['live-ready-light', 'live-ready-dark', 'live-ready-zoom200-light', 'edit-slash-light', 'edit-slash-dark', 'edit-slash-recent-light']);
 const PERF = [{ name: 'open-2000-blocks', budgetMs: 500 }];   // 3回開いた中央値で見る
 const TIME_ZONE = 'Asia/Tokyo';
 const TOLERANCE = 2;   // 色の差（0〜255）がこれ以下の画素は同じとみなす。CI の機械の CPU ごとの描き方の1段の差を拾わないため（揺れの確かめ judgePair は 0 で見る）

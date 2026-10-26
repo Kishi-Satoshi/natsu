@@ -1198,6 +1198,26 @@ module.exports = {
   // 点検で足した場面: 前回の書きかけで残った覚え書きの一時ファイルは起動で消す（本体の覚え書きは残す）
   'ws-temps': { files: { 'settings.json': pretty(TYPICAL) },
     local: { [WS_FILE]: WS(), [`${WS_FILE}.4242-k3j9ab.tmp`]: 'x', [`${WS_FILE}.tmp`]: 'x' } },
+  // 0.13.0 ED-5（計画 docs/plans/2026-10-24-130.md の決めたこと 37〜40・F52）: / メニューの「最近使ったもの」（slashRecent）。
+  // 画面から来た値に会議の題名・ページの ID・行の文を混ぜても、ファイルには鍵の表の文字だけが書かれる
+  'ws-slash-set': { files: { 'settings.json': pretty(TYPICAL),
+      'data/pages/pslash1.json': JSON.stringify({ id: 'pslash1', title: titleAt('2026-10-02T00:00:00.000Z'), blocks: [{ id: 'bslash1', type: 'bullet', text: '行の文の見本です' }], createdAt: '2026-10-02T00:00:00.000Z' }) },
+    act: async (c) => {
+      c.out.set = await c.handlers['ui:set']({}, { slashRecent: ['h2', titleAt('2026-10-02T00:00:00.000Z'), 'pslash1', '行の文の見本です', 'h2', 'todo', 'quote', 'h1'] });
+      c.out.ui = await c.handlers['ui:get']({});
+      c.power.emit('suspend');
+    } },
+  'ws-slash-restore': { files: { 'settings.json': pretty(TYPICAL) },
+    local: { [WS_FILE]: WS({ slashRecent: ['quote', 'nope', 'h1'] }) },
+    act: async (c) => { c.out.ui = await c.handlers['ui:get']({}); } },
+  'ws-slash-unreadable': { files: { 'settings.json': pretty(TYPICAL) },
+    local: { [WS_FILE]: WS() },
+    faults: [{ op: 'read', match: /window-state\.json$/, code: 'EBUSY', times: Infinity }],
+    act: async (c) => {
+      c.out.localBefore = WS();
+      c.out.set = await c.handlers['ui:set']({}, { slashRecent: ['h2'] });
+      c.power.emit('suspend');
+    } },
   // 第1b回 Task A-3: ページからの一時停止・止めていた時間の印・スリープ（N4c・RF4・F5・F6）。録音バーは mainrun の偽物（overlayPause）
   'pause-page': { engine: true, files: { 'settings.json': ({ base }) => JSON.stringify(base) },
     act: async (c) => {

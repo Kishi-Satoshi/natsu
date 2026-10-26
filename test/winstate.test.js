@@ -11,7 +11,8 @@ const W = require('../src/winstate');
 const D1 = [{ id: 1, bounds: { x: 0, y: 0, width: 1920, height: 1080 }, workArea: { x: 0, y: 0, width: 1920, height: 1040 } }];
 const D2 = [...D1, { id: 2, bounds: { x: 1920, y: 0, width: 1280, height: 1024 }, workArea: { x: 1920, y: 0, width: 1280, height: 984 } }];
 // 0.9.0 U-1（SP3）で意図して変えた: 設定はタブで開かない（settings は読むときに落とす）ので、見本の固定のタブは dictation にした
-const good = (o = {}) => ({ v: 1, bounds: { x: 100, y: 80, width: 1200, height: 800 }, maximized: false, zoom: 1.25, sidebar: { width: 300, collapsed: false }, tabs: { open: ['page:pa1', 'dictation'], active: 'dictation' }, ...o });
+// 0.13.0 ED-5（計画 docs/plans/2026-10-24-130.md の決めたこと 39）で意図して変えた: 正しい覚え書きに / メニューの「最近使ったもの」（slashRecent）がある
+const good = (o = {}) => ({ v: 1, bounds: { x: 100, y: 80, width: 1200, height: 800 }, maximized: false, zoom: 1.25, sidebar: { width: 300, collapsed: false }, tabs: { open: ['page:pa1', 'dictation'], active: 'dictation' }, slashRecent: ['h2'], ...o });
 
 test('N6: 置き場所は %LOCALAPPDATA%\\natsu\\window-state.json（Roaming の userData ではない）。無ければ userData', () => {
   const local = path.join(path.parse(process.cwd()).root, 'Local');
@@ -92,4 +93,37 @@ test('SP3: TAB_FIXED は dictation だけ。settings は黙って落とす（dro
   assert.deepStrictEqual(W.keepTabs({ open: ['settings', 'page:pgone'], active: 'settings' }, () => false), { tabs: { open: [], active: '' }, dropped: 1 });
   assert.deepStrictEqual(W.normalize(good({ tabs: { open: ['page:pa1', 'settings'], active: 'settings' } }), D1).state.tabs, { open: ['page:pa1'], active: 'page:pa1' });
   assert.deepStrictEqual(W.applyUi(W.defaults(), { tabs: { open: ['settings', 'page:pa1'], active: 'settings' } }).tabs, { open: ['page:pa1'], active: 'page:pa1' });
+});
+
+// ---------------------------------------------------------------- 0.13.0 ED-5（決めたこと 37〜40・F52）
+test('ED-5・F52: normalize は slashRecent を照らす（無い → []・配列でない → [] で repaired に slashRecent・知らない鍵と重なりと4つ目を落とす・正しい値はそのまま）', () => {
+  assert.deepStrictEqual(W.defaults().slashRecent, []);
+  const { slashRecent: _drop, ...noRecent } = good();
+  void _drop;
+  assert.deepStrictEqual(W.normalize(noRecent, D1), { state: { ...good(), slashRecent: [] }, repaired: [] });
+  for (const [v, want, fixed] of [
+    [['h2'], ['h2'], false], [['h1', 'todo', 'callout'], ['h1', 'todo', 'callout'], false], [[], [], false],
+    ['h2', [], true], [null, [], true], [{ 0: 'h2' }, [], true], [3, [], true],
+    [['x', 1, 'h2', null], ['h2'], true], [['h2', 'h2', 'todo'], ['h2', 'todo'], true], [['h1', 'h2', 'h3', 'todo'], ['h1', 'h2', 'h3'], true],
+    [['toggle', 'th1', 'quote'], ['quote'], true], [['会議の題名', 'pa1', 'b2'], [], true],
+  ]) {
+    const r = W.normalize(good({ slashRecent: v }), D1);
+    assert.deepStrictEqual(r.state.slashRecent, want, JSON.stringify(v));
+    assert.strictEqual(r.repaired.includes('slashRecent'), fixed, JSON.stringify(v));
+    assert.deepStrictEqual(r.repaired.filter((k) => k !== 'slashRecent'), [], JSON.stringify(v));
+  }
+});
+
+test('ED-5・F52: applyUi も slashRecent を同じく照らす。ほかの項目は変えない。知らないトップの鍵は今どおり落ちる', () => {
+  assert.deepStrictEqual(W.applyUi(W.defaults(), { slashRecent: ['h2'] }).slashRecent, ['h2']);
+  assert.deepStrictEqual(W.applyUi(good(), { slashRecent: ['quote', 'quote', 'x', 'h1', 'h2', 'h3'] }).slashRecent, ['quote', 'h1', 'h2']);
+  assert.deepStrictEqual(W.applyUi(good(), { slashRecent: 'h1' }).slashRecent, []);
+  assert.deepStrictEqual(W.applyUi(good(), { sidebar: { width: 320 } }).slashRecent, ['h2'], '別の項目を送ると最近使ったものが消えた');
+  const { slashRecent: _r, ...rest } = W.applyUi(good(), { slashRecent: ['todo'] });
+  void _r;
+  const { slashRecent: _g, ...restGood } = good();
+  void _g;
+  assert.deepStrictEqual(rest, restGood);
+  assert.ok(!('extra' in W.normalize(good({ extra: 1 }), D1).state), '知らないトップの鍵が残った');
+  assert.ok(!('extra' in W.applyUi(good(), { extra: 1 })), '画面から来た知らない鍵が残った');
 });

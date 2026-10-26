@@ -514,8 +514,9 @@
   /* 本文（第1b2回 P-2）: 16px・行の高さ 24px・上下 3px（1行ごとに約 30px）。見出しは 20px・600・上 22px */
   .blk { display: flex; align-items: flex-start; gap: 8px; padding: 3px 0; position: relative; }
   /* 画面の外のブロックは描かない（2,000 ブロックのページを開く速さ。content-visibility の見積もりは本文1行の約 30px で、一度描いた行は
-     auto で本当の高さを覚える）。描くのを省く仕組みは中身を枠で切るので、ボタンの Tab の輪（線 2px＋離れ 2px）が切れないよう切る線を 8px 外へ出す */
-  .blk { content-visibility: auto; contain-intrinsic-size: auto 30px; overflow-clip-margin: 8px; }
+     auto で本当の高さを覚える）。描くのを省く仕組みは中身を枠で切るので、ボタンの Tab の輪（線 2px＋離れ 2px）が切れないよう切る線を 8px 外へ出す。
+     0.13.0 ED-5（E1）: 行の外の左に出す ＋（14px）も切れないよう 18px にした */
+  .blk { content-visibility: auto; contain-intrinsic-size: auto 30px; overflow-clip-margin: 18px; }
   /* 点字の6点(U+283F)を使う。「⋮⋮」を字間で詰める方法は環境によって
      3点に見えていた。 */
   .blk .grip { opacity: 0; flex: none; cursor: grab; color: var(--muted); user-select: none;
@@ -540,6 +541,21 @@
     font-size: 15px; line-height: 1; padding: 4px 6px; flex: none; }
   .blk:hover .del { opacity: 1; }
   .blk .del:hover { color: var(--danger); }
+  /* 0.13.0 ED-5（E1）: 行の左の ＋（乗せたときだけ）。行の外の左の余白（.mblock の内側の余白）に置き、行の並びと文の位置は変えない。
+     描くのを省く仕組み（content-visibility）の切る線は上の .blk で ＋ の分だけ外へ出した。狭い画面は余白が 8px なので細くする */
+  .blk .plus { position: absolute; right: 100%; top: 3px; width: 14px; text-align: center; line-height: 24px; font-size: 15px;
+    color: var(--muted); cursor: pointer; user-select: none; opacity: 0; }
+  .blk:hover .plus { opacity: .55; }
+  .blk .plus:hover { opacity: 1; }
+  /* 0.13.0 ED-5（E2・決めたこと 23）: / メニュー（行の下の浮いた箱。フォーカスは行に残す） */
+  #pNote { position: relative; }
+  .slashmenu { position: absolute; z-index: 5; min-width: 220px; max-height: 320px; overflow-y: auto; padding: 4px;
+    background: var(--bg); border: 1px solid var(--line); border-radius: 6px; box-shadow: var(--shadow); }
+  .slashmenu .shead { color: var(--muted); font-size: 12px; padding: 6px 10px 2px; }
+  .slashmenu .sopt { display: flex; align-items: center; gap: 12px; padding: 5px 10px; border-radius: 4px; font-size: 14px; cursor: pointer; }
+  .slashmenu .sopt[aria-selected="true"] { background: var(--hover); }
+  .slashmenu .sopt .smd { margin-left: auto; color: var(--muted); font-size: 12px; }
+  .slashmenu .snone { color: var(--muted); font-size: 13px; padding: 6px 10px; }
 
   /* 会議タイプ */
   /* 要約タイプは灰色の札の形（第1b2回 P-2。appearance は変えない） */
@@ -734,6 +750,7 @@
     .prop .k { width: 96px; }
     .mblock { padding: 6px 8px 12px; }
     .blk .txt { overflow-wrap: anywhere; }
+    .blk .plus { width: 8px; font-size: 13px; }
   }
 
   /* 狭い画面（第1b2回 R-1 の区画）: 設定と音声入力の題名と余白を詰め、トグルは左へ戻して折り返しを減らす */
@@ -2168,6 +2185,7 @@
       try { st = await window.koeApp.uiState(); } catch (_) { st = null; }
       const tb = st && st.tabs;
       if (tb && Array.isArray(tb.open) && !tabsTouched) restoreTabs(tb);
+      slashRecent = recentCheck(st && st.slashRecent);   // 0.13.0 ED-5（決めたこと 39）: 壊れていれば空（メニューは決まった並びだけ）
       const sb = st && st.sidebar;
       if (!sb || sideTouched) return;
       sideState.width = clampSide(sb.width);
@@ -3346,10 +3364,17 @@
       if ((b.type === 'bullet' || b.type === 'todo') && b.citeState !== 'manual') { b.citeState = 'stale'; renderCiteBadge(el, b); }
       return window.koeApp.blockUpdate(pid, b.id, { text: v }).then(() => { if (pid === curId) refreshList(); });
     };
-    txt.onblur = () => txt._commit(curId);
+    txt.onblur = () => { if (slash && slash.el === el) slashClose(); txt._commit(curId); };
     txt.onkeydown = (ev) => {
       if (imeEnter(ev)) return;   // 変換確定の Enter / 変換中の Backspace は編集操作にしない
       const mod = ev.ctrlKey || ev.altKey || ev.metaKey;
+      // / メニューが開いている間: ↑↓ で選び、Enter で決め、Esc で閉じる（/ と語は残す。録音中でもメニューだけ: RF9・決めたこと 30）
+      if (slash && slash.el === el) {
+        if ((ev.key === 'ArrowDown' || ev.key === 'ArrowUp') && !mod) { ev.preventDefault(); slashMove(ev.key === 'ArrowDown' ? 1 : -1); return; }
+        if (ev.key === 'Enter' && !mod && !ev.shiftKey && slash.items.length) { ev.preventDefault(); slashPick(slash.sel); return; }
+        if (ev.key === 'Escape') { ev.preventDefault(); slashClose(true); return; }
+        if (ev.key === 'Tab') slashClose(true);
+      }
       if (ev.key === 'Enter' && !mod && ev.shiftKey) { ev.preventDefault(); typeAtCaret(txt, '\n'); }   // 行の中の改行（命令は送らない）
       else if (ev.key === 'Enter' && !mod) { ev.preventDefault(); splitRow(el); }
       else if (ev.key === 'Backspace' && !mod && !ev.shiftKey && caretAtStart(txt)) { ev.preventDefault(); backRow(el); }
@@ -3359,10 +3384,11 @@
     txt.oninput = (ev) => {
       if ((ev && ev.isComposing) || txt._composing) return;   // 変換中の input では記法を決めない
       mdCheck(el);
+      slashCheck(el);
     };
     // 変換の事象は on〜 の受け口を持たない（GlobalEventHandlers に無い）ので addEventListener で付ける
     txt.addEventListener('compositionstart', () => { txt._composing = true; });
-    txt.addEventListener('compositionend', () => { txt._composing = false; mdCheck(el); });
+    txt.addEventListener('compositionend', () => { txt._composing = false; mdCheck(el); slashCheck(el); });
     // 貼り付けは素の文字だけ（決めたこと 21。HTML は入れない・改行は行の中の改行）
     txt.onpaste = (ev) => {
       ev.preventDefault();
@@ -3370,6 +3396,192 @@
       const t = cd ? String(cd.getData('text/plain') || '').replace(/\r\n?/g, '\n') : '';
       if (t) typeAtCaret(txt, t);
     };
+  }
+  // ---------------- 0.13.0 ED-5（計画の E1・E2・決めたこと 23・30・37〜40・42。EQ7・EQ8・EQ22 (a)）: / メニュー・＋・書き直している途中
+  // / メニューの項目（src/blockEdit.js の VERSION_ROWS の写し: 鍵・型・段・名前・当たる語・記法。test/stage130.edit.app.test.js が照らす）
+  const SLASH_ROWS = [
+    { id: 'text', key: 'paragraph', label: 'テキスト', words: ['てきすと', 'text', 'plain'], md: [] },
+    { id: 'h1', key: 'heading', level: 1, label: '見出し1', words: ['みだし1', '見出し1', 'h1', '#'], md: ['# '] },
+    { id: 'h2', key: 'heading', level: 2, label: '見出し2', words: ['みだし2', 'h2', '##'], md: ['## '] },
+    { id: 'h3', key: 'heading', level: 3, label: '見出し3', words: ['みだし3', 'h3', '###'], md: ['### '] },
+    { id: 'todo', key: 'todo', label: 'ToDo', words: ['とぅーどぅー', 'todo', 'やること', 'チェック'], md: ['[] '] },
+    { id: 'bullet', key: 'bullet', label: '箇条書き', words: ['かじょうがき', 'bullet', 'リスト'], md: ['- ', '* ', '+ '] },
+    { id: 'numbered', key: 'numbered', label: '番号付き', words: ['ばんごう', 'number', 'numbered'], md: ['1. '] },
+    { id: 'quote', key: 'quote', label: '引用', words: ['いんよう', 'quote'], md: ['" '] },
+    { id: 'divider', key: 'divider', label: '区切り線', words: ['くぎり', 'divider', '---'], md: ['---'] },
+    { id: 'callout', key: 'callout', label: 'コールアウト', words: ['こーるあうと', 'callout', 'メモ書き'], md: [] },
+  ];
+  const MENU_KEYS_VIEW = SLASH_ROWS.map((r) => r.id);
+  function slashQuery(before) {
+    const s = String(before ?? '');
+    const i = s.lastIndexOf('/');
+    if (i < 0) return { open: false, query: '' };
+    if (i > 0 && !/\s/.test(s[i - 1])) return { open: false, query: '' };
+    const query = s.slice(i + 1);
+    if (/\s/.test(query)) return { open: false, query: '' };
+    return { open: true, query };
+  }
+  function slashHit(r, q) {
+    const f = q.toLowerCase();
+    return [r.label, ...r.words].some((w) => w.toLowerCase().includes(f));
+  }
+  function slashFilter(query, recent) {
+    const q = String(query ?? '');
+    const rec = recentCheck(recent);
+    if (!q) return [...rec.map((id) => ({ id, group: 'recent' })), ...MENU_KEYS_VIEW.map((id) => ({ id, group: 'types' }))];
+    const found = SLASH_ROWS.filter((r) => slashHit(r, q)).map((r) => r.id);
+    if (!found.length) return q.length >= 3 ? null : [];
+    return [...rec.filter((id) => found.includes(id)), ...found.filter((id) => !rec.includes(id))].map((id) => ({ id, group: '' }));
+  }
+  function recentAdd(recent, key) {
+    const rec = recentCheck(recent);
+    if (!MENU_KEYS_VIEW.includes(key)) return rec;
+    return [key, ...rec.filter((k) => k !== key)].slice(0, 3);
+  }
+  function recentCheck(v) {
+    if (!Array.isArray(v)) return [];
+    const out = [];
+    for (const k of v) if (typeof k === 'string' && MENU_KEYS_VIEW.includes(k) && !out.includes(k)) out.push(k);
+    return out.slice(0, 3);
+  }
+  let slashRecent = [];   // 最近使ったもの（uiState の slashRecent を照らした写し。/ メニューで選んだ鍵だけ・新しい順に3つまで）
+  let slash = null;       // 開いているとき { el: 行, start: / の位置, query, items, sel: 選んでいる番号 }
+  let slashBox = null;    // 浮いた箱（一度だけ作り、閉じたら外す）
+  const SLASH_HEADS = { recent: '最近使ったもの', types: 'ブロックの型' };
+  // 打つたびに見る: カーソルの前が行頭か空白の後の半角の / なら開く（EQ7）。Esc で閉じた / ではもう開かない
+  function slashCheck(el) {
+    const txt = el._txt;
+    const r = caretRange(txt);
+    const q = r && r[0] === r[1] ? slashQuery(txt.textContent.slice(0, r[0])) : { open: false };
+    const start = q.open ? r[0] - q.query.length - 1 : -1;
+    if (!q.open || el._slashOff === start) { if (!q.open) el._slashOff = -1; if (slash && slash.el === el) slashClose(); return; }
+    slashOpen(el, start, q.query);
+  }
+  function slashOpen(el, start, query) {
+    const items = slashFilter(query, slashRecent);
+    if (items === null) { if (slash && slash.el === el) slashClose(); return; }   // 当たりが無いまま3文字（EQ8）
+    const keep = slash && slash.el === el && slash.start === start ? slash.items[slash.sel] : null;
+    const sel = Math.max(0, keep ? items.findIndex((x) => x.id === keep.id && x.group === keep.group) : 0);
+    if (slash && slash.el !== el) slashClose();
+    slash = { el, start, query, items, sel };
+    slashRender();
+  }
+  function slashRender() {
+    const s = slash;
+    if (!slashBox) {
+      slashBox = document.createElement('div');
+      slashBox.className = 'slashmenu'; slashBox.id = 'slashMenu';
+      slashBox.setAttribute('role', 'listbox'); slashBox.setAttribute('aria-label', 'ブロックの型');
+      slashBox.onmousedown = (ev) => ev.preventDefault();   // 押してもフォーカスは行に残す（blur で閉じない）
+    }
+    slashBox.textContent = '';
+    if (!s.items.length) {
+      const n = document.createElement('div'); n.className = 'snone'; n.textContent = '当てはまる型がありません';
+      slashBox.appendChild(n);
+    }
+    let group = '';
+    s.items.forEach((it, i) => {
+      if (it.group && it.group !== group) {
+        group = it.group;
+        const h = document.createElement('div'); h.className = 'shead'; h.setAttribute('role', 'presentation'); h.textContent = SLASH_HEADS[group];
+        slashBox.appendChild(h);
+      }
+      const row = SLASH_ROWS.find((x) => x.id === it.id);
+      const o = document.createElement('div');
+      o.className = 'sopt'; o.id = `slashOpt${i}`; o.setAttribute('role', 'option');
+      o.setAttribute('aria-selected', i === s.sel ? 'true' : 'false');
+      o.dataset.key = it.id;
+      const lb = document.createElement('span'); lb.className = 'slabel'; lb.textContent = row.label;
+      o.appendChild(lb);
+      if (row.md.length) { const md = document.createElement('span'); md.className = 'smd'; md.textContent = row.md[0].trim(); o.appendChild(md); }
+      o.onclick = () => slashPick(i);
+      slashBox.appendChild(o);
+    });
+    const txt = s.el._txt;
+    if (s.items.length) txt.setAttribute('aria-activedescendant', `slashOpt${s.sel}`); else txt.removeAttribute('aria-activedescendant');
+    txt.setAttribute('aria-expanded', 'true');
+    const box = $('pNote');
+    slashBox.style.top = `${(s.el.offsetTop || 0) + (s.el.offsetHeight || 0)}px`;
+    slashBox.style.left = `${(s.el.offsetLeft || 0) + (txt.offsetLeft || 0)}px`;
+    if (slashBox.parentNode !== box) box.appendChild(slashBox);
+    const on = slashBox.querySelector('.sopt[aria-selected="true"]');
+    if (on && typeof on.scrollIntoView === 'function') on.scrollIntoView({ block: 'nearest' });
+  }
+  function slashClose(dismiss) {
+    if (!slash) return;
+    const txt = slash.el._txt;
+    if (dismiss) slash.el._slashOff = slash.start;
+    txt.removeAttribute('aria-activedescendant'); txt.removeAttribute('aria-expanded');
+    slash = null;
+    if (slashBox && slashBox.parentNode) slashBox.parentNode.removeChild(slashBox);
+  }
+  function slashMove(d) {
+    const n = slash.items.length;
+    if (!n) return;
+    slash.sel = (slash.sel + d + n) % n;
+    slashRender();
+  }
+  // 選ぶと / と打った語を消し、空の行は型を変え（block.turnInto）、文のある行は下に足す（block.insert）。選んだ鍵だけを覚える（EQ8 (b)）
+  async function slashPick(i) {
+    const s = slash;
+    const it = s && s.items[i];
+    if (!it) { slashClose(true); return null; }
+    slashClose();
+    const row = SLASH_ROWS.find((x) => x.id === it.id);
+    const el = s.el; const txt = el._txt; const b = el._b;
+    const t = txt.textContent;
+    const rest = t.slice(0, s.start) + t.slice(s.start + 1 + s.query.length);
+    txt.textContent = rest;
+    setCaret(txt, s.start);
+    slashRecent = recentAdd(slashRecent, it.id); saveUi({ slashRecent });
+    const pid = curId;
+    const below = (after) => editAnswer(pid, () => (row.level === undefined ? window.koeApp.blockInsert(pid, after, row.key) : window.koeApp.blockInsert(pid, after, row.key, row.level)),
+      (x) => ({ focus: x.blockId, caret: 0 }));
+    let out;
+    if (rest.trim() === '') out = await turnRow(el, row.key, row.level, 0);
+    else {
+      try { await txt._commit(pid); } catch (_) { /* 保存の失敗は _commit の答えで知らせる */ }
+      out = await below(b.id);
+    }
+    // 区切り線は文を持たないので、下にテキストの行を足して続けて打てるようにする（決めたこと 17）
+    if (out && row.key === 'divider' && pid === curId) {
+      const at = out.blockId || b.id;
+      await editAnswer(pid, () => window.koeApp.blockInsert(pid, at, 'paragraph'), (x) => ({ focus: x.blockId, caret: 0 }));
+    }
+    return out;
+  }
+  // ＋: 下にテキストの行を足し、その行で / メニューを開く（E1）
+  async function plusRow(el) {
+    const pid = curId; const b = el._b;
+    try { await el._txt._commit(pid); } catch (_) { /* 保存の失敗は _commit の答えで知らせる */ }
+    const out = await editAnswer(pid, () => window.koeApp.blockInsert(pid, b.id, 'paragraph'), (x) => ({ focus: x.blockId, caret: 0 }));
+    if (!out || pid !== curId) return out;
+    const ne = editRows().find((e) => e.dataset.id === out.blockId);
+    if (!ne) return out;
+    ne._txt.textContent = '/'; setCaret(ne._txt, 1);
+    slashOpen(ne, 0, '');   // 足した行で / メニューを開く
+    return out;
+  }
+  // 要約を書き直している途中か（EQ22 (a)・決めたこと 42）: 要約の欄の行の文にフォーカスがある・メニューが開いている・命令の答えを待っている
+  function summaryBusy() {
+    if (!curPage) return false;
+    if (pendingEdits > 0 || slash) return true;
+    const a = document.activeElement;
+    if (!a || !a.classList || !a.classList.contains('txt')) return false;
+    const box = $('pNote');
+    for (let n = a.parentNode; n; n = n.parentNode) if (n === box) return true;
+    return false;
+  }
+  // 保存した議事録のタブを、前に出さずに足す（録音中のタブはそのページのタブに替え、録音の前のページは残して末尾に足す）
+  function tabBehind(id) {
+    const key = `page:${id}`;
+    tabsTouched = true;
+    if (!hasTab(key)) {
+      const live = openTabs.findIndex((t) => t.key === 'live');
+      if (live >= 0 && !readyNow() && activeTab !== 'live') openTabs[live] = { key };
+      else openTabs.push({ key });
+    }
+    renderTabs(); saveTabs();
   }
   const blockRows = {
     // 1つの行の要素を作る（文の欄と受け口は1回だけ）。lock は summaryLockView の符号（'' は鍵なし）
@@ -3409,6 +3621,13 @@
         dragBlockId = null; clearDropMarks($('pNote'));
       };
       if (!lock) el.insertBefore(grip, txt);
+      if (!lock) {
+        const plus = document.createElement('span');
+        plus.className = 'plus'; plus.textContent = '＋'; plus.title = '下に行を足す（/ で型を選べます）';
+        plus.onmousedown = (ev) => ev.preventDefault();
+        plus.onclick = () => plusRow(el);
+        el.insertBefore(plus, grip);
+      }
 
       if (b.type === 'todo') {
         const cb = document.createElement('input');
@@ -3465,6 +3684,7 @@
     },
   };
   function renderBlocks() {
+    slashClose();
     const box = $('pNote'); box.textContent = '';
     box.ondragover = (ev) => {
       if (!dragBlockId) return;
@@ -3652,6 +3872,7 @@
   // 混ざらないよう、各 commit は pid を閉じ込めて呼ぶ。
   function flushEdits() {
     const pid = curId;
+    slashClose();   // 0.13.0 ED-5（決めたこと 41）: ページを替える前にメニューを閉じる
     flushSegEdit();
     if (!pid || !curPage) return;
     flushMemo();
@@ -4658,7 +4879,8 @@
   // main が開かせるページ（会議を終えた・知らせを押した）。記録中のタブがあればそれをページのタブに替え、無ければページのタブで開く
   // 0.13.0 RDY-3（RD13）: 受けはこの1か所。記録中のタブが録音の前のページなら置き換えずに新しいタブで開く（次の会議の準備を消さない: F86）
   function pageOpenFromMain(id, o) {
-    void o;   // 2つ目の引数（保存した印）は第1部の ED-5 で使う
+    // 0.13.0 ED-5（EQ22 (a)・決めたこと 42）: 保存した印の page:open は、要約を書き直している途中なら前に出さない（タブだけを替える・足す）
+    if (o && o.saved === true && summaryBusy()) { tabBehind(id); return; }
     if (readyNow()) { openPageTab(id, { newTab: true }); return; }
     openPageTab(id, { replaceLive: true });
   }

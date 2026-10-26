@@ -5606,7 +5606,7 @@ async function maybeFinalizeMeeting() {
 
   if (overlayFree()) sendToOverlay('overlay:phase', { phase: 'done', message: '議事録を保存しました' });
   sendToMainWin('pages:updated', await db.call('pages.list', {}));
-  sendToMainWin('page:open', page.id);
+  sendToMainWin('page:open', { id: page.id, saved: true });   // 0.13.0 ED-5（EQ22 (a)）: 締めの保存の印。書き直している途中の画面は前に出さない
   if (m.autoStopped) quietDoneNotice(m, page.id);   // 0.9.1 Q-4
   // 音声は届いたのに、文字起こしが全部空だった。黙っていると「0 区間」の理由が分からない。
   // 知らせと engine.log に出す。要約の欄には書かない（0.10.0 LS-2・決めたこと 111 の 6: 文字起こしが空のページは欄の鍵のまま、頭の一言が伝える）
@@ -6535,7 +6535,8 @@ function setupIpc() {
     winTabsDropped = 0;
     if (dropped) engineLog(`画面の覚え書き: 無いページのタブを ${dropped} 個外した`);
     winState.tabs = k.tabs;
-    return { sidebar: { ...winState.sidebar }, tabs: { open: winState.tabs.open.slice(), active: winState.tabs.active } };
+    return { sidebar: { ...winState.sidebar }, tabs: { open: winState.tabs.open.slice(), active: winState.tabs.active },
+      slashRecent: Array.isArray(winState.slashRecent) ? winState.slashRecent.slice() : [] };   // 0.13.0 ED-5（決めたこと 39）
   });
   ipcMain.handle('ui:set', (_e, patch) => {
     winState = W.applyUi(winState, patch);

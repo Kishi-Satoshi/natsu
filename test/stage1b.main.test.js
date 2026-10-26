@@ -29,7 +29,8 @@ describe('第1b回 画面の覚え書き（main）', { concurrency: Number(proce
     assert.deepStrictEqual([r.windowOpts.width, r.windowOpts.height, r.windowOpts.x, r.windowOpts.y], [1120, 780, undefined, undefined]);
     assert.deepStrictEqual([r.windowOpts.minWidth, r.windowOpts.minHeight], [820, 560]);
     assert.ok(['#ffffff', '#191919'].includes(String(r.windowOpts.backgroundColor).toLowerCase()), r.windowOpts.backgroundColor);
-    assert.deepStrictEqual(r.ui, { sidebar: { width: 260, collapsed: false }, tabs: { open: [], active: '' } });
+    // 0.13.0 ED-5（計画 docs/plans/2026-10-24-130.md の決めたこと 39）で意図して変えた: ui:get は / メニューの「最近使ったもの」（slashRecent）も返す
+    assert.deepStrictEqual(r.ui, { sidebar: { width: 260, collapsed: false }, tabs: { open: [], active: '' }, slashRecent: [] });
     assert.strictEqual(r.winStateText, null, '起動しただけで書いた');
   });
 

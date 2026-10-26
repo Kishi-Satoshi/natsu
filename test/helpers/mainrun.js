@@ -398,6 +398,7 @@ const { titleAt } = require('./titles');
 //                        ["dictate"]（音声入力のホットキーで録音を始める）・["dictate-cancel"]（録音バーの取り消し）・["save", 足す設定]（settings:save）・
 //                        ["ipc", 名前, ...引数]（handle なら待って答えを out.ipc に、on なら送るだけ）・["theme", dark]（偽の nativeTheme を変えて updated）・
 //                        ["live", bool]（画面の meeting:live-shown）・["quit"]（before-quit と will-quit）・["snap", 名前]（その時の見張りの数などを out.snaps に）・
+//                        （0.13.0 ED-5: snap に escape（Escape が全体のホットキーか）・["focus-main"]・["blur-main"]（本体の窓の focus・blur））・
 //                        0.9.4 D-1: ["hotkey-meeting"]（会議のホットキー）・["tray-start"]（トレイの［議事録の記録を開始］）・["bar-stop"]（録音バーの［停止］）・["finish"]（止めた後の最後の空の区間を送り、idle に戻るのを待つ）。
 //                        ["wait-show", n]（パネルの窓の showInactive が n 回になるまで待つ）・["cursor", x, y]（偽のカーソル）・["minimize"]（本体の窓を最小化して minimize）。
 //                        snap には録音バーへ聞いた overlay:level-ask の数（asks）も入る（M-5）
@@ -3008,7 +3009,11 @@ process.on('exit', () => {
         const st = handlers['meeting:status']();
         Object.assign(out.snaps[a[0]], { drafts, draft: dv ? { memo: dv.memo, meetingType: dv.meetingType === undefined ? null : dv.meetingType } : null,
           dbSent: trace.filter((t) => t.kind === 'call' || t.kind === 'send').map((t) => t.cmd), status: { active: Boolean(st.active), prep: st.prep === undefined ? 'none' : st.prep } });
+        // 0.13.0 ED-5（RF9・決めたこと 32）: その時に Escape が全体のホットキーに付いているか
+        out.snaps[a[0]].escape = registered.has('Escape');
       }
+      // 0.13.0 ED-5（RF9）: 本体の窓へ focus・窓から blur（偽の窓の isFocused を合わせてから事象を出す。--main-unfocused と組む）
+      else if (k === 'focus-main' || k === 'blur-main') { const mw = wins[1]; mw.focused = k === 'focus-main'; mw.emit(k === 'focus-main' ? 'focus' : 'blur'); await sleep(15); }
       // 0.12.1 LV-3: 一時停止（画面と同じ meeting:set-paused。偽の録音バーが答える）・n 番目の偽の Windows の知らせを押す
       else if (k === 'pause') { out.ipc.push(['pause', await handlers['meeting:set-paused']({}, Boolean(a[0]))]); await sleep(40); }
       else if (k === 'click-notice') { const n = noticeObjs[a[0]]; if (n) n.emit('click', {}); await sleep(30); }

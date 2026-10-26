@@ -23,6 +23,7 @@
 'use strict';
 
 const path = require('path');
+const blockEdit = require('./blockEdit');   // 0.13.0 ED-5（EQ8 (b)）: / メニューの「最近使ったもの」の照らし（recentCheck）
 
 const DEFAULT_SIZE = { width: 1120, height: 780 };
 const MIN_SIZE = { width: 820, height: 560 };
@@ -58,6 +59,7 @@ function defaults() {
     zoom: 1,
     sidebar: { width: SIDEBAR.width, collapsed: false },
     tabs: { open: [], active: '' },
+    slashRecent: [],   // 0.13.0 ED-5（決めたこと 37〜40）: / メニューで選んだ鍵だけ（新しい順に3つまで。会議の題名・行の文・ID は持たない）
   };
 }
 
@@ -169,6 +171,10 @@ function normalize(raw, displays) {
     if (typeof raw.maximized === 'boolean') state.maximized = raw.maximized;
     else repaired.push('maximized');
   }
+  if (raw.slashRecent !== undefined) {
+    state.slashRecent = blockEdit.recentCheck(raw.slashRecent);
+    if (JSON.stringify(state.slashRecent) !== JSON.stringify(raw.slashRecent)) repaired.push('slashRecent');
+  }
   return { state, repaired };
 }
 
@@ -213,6 +219,7 @@ function applyUi(state, patch) {
   if (isObj(patch.tabs) && Array.isArray(patch.tabs.open)) {
     next.tabs = filterTabs(patch.tabs, null).tabs;
   }
+  if (patch.slashRecent !== undefined) next.slashRecent = blockEdit.recentCheck(patch.slashRecent);
   return next;
 }
 

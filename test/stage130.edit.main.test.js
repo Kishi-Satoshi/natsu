@@ -1,6 +1,7 @@
 /*
  * stage130.edit.main.test.js — 0.13.0 第1部の読み手と場面（計画 docs/plans/2026-10-24-130.md の Task ED-3・ED-5）
  * ED-3: 要約の見出しに段（1〜3。古い見出しは 2）・［コピー］と Claude から読む文（MCP）の新しい型・0.11.0 の並べ替えの人の見出し（EQ3 (a)）。
+ * ED-5: / メニューの「最近使ったもの」の覚え書き（window-state.json）・議事録の録音中の Esc（RF9）・締めの page:open の印（EQ22 (a)）。
  */
 'use strict';
 const test = require('node:test');
@@ -103,4 +104,50 @@ test('ED-3: 偽の Claude Code の要約で見出しの段が保存され（# �
   const o = await run(['text', '--sum', '--claude=ok', '--segs=2', '--sum-md=levels']);
   const heads = o.pages[0].sumBlocks.filter((b) => b.type === 'heading').map((b) => [b.text, b.level]);
   assert.deepStrictEqual(heads.slice(0, 3), [['全体の結論', 1], ['決定事項', 2], ['細かい決めごと', 3]], JSON.stringify(o.pages[0].sumBlocks));
+});
+
+// ---------------------------------------------------------------- ED-5（決めたこと 32・37〜40・42。F42・F52・EQ22 (a)）
+const wsOf = (r) => (r.winStateText == null ? null : JSON.parse(r.winStateText));
+test('ED-5・F52: 画面が ui:set で slashRecent を送ると window-state.json に鍵だけが書かれ（題名・ページの ID・行の文は書かない）、ui:get でも同じ', { timeout: sceneTimeout(20000) }, async () => {
+  const r = await run(['text', '--json-scene=ws-slash-set']);
+  assert.deepStrictEqual(r.set, { ok: true });
+  assert.deepStrictEqual(r.ui.slashRecent, ['h2', 'todo', 'quote']);
+  assert.deepStrictEqual(wsOf(r).slashRecent, ['h2', 'todo', 'quote']);
+  for (const bad of [titleAt('2026-10-02T00:00:00.000Z'), 'pslash1', 'bslash1', '行の文の見本です']) assert.ok(!r.winStateText.includes(bad), `覚え書きに ${bad} が書かれた`);
+});
+
+test('ED-5・F52: 起動し直すと覚え書きの slashRecent が ui:get で戻る（照らして知らない鍵は落とす）。window-state.json が読めないときは書かない', { timeout: sceneTimeout(20000) }, async () => {
+  const r = await run(['text', '--json-scene=ws-slash-restore']);
+  assert.deepStrictEqual(r.ui.slashRecent, ['quote', 'h1']);
+  const u = await run(['text', '--json-scene=ws-slash-unreadable']);
+  assert.deepStrictEqual(u.set, { ok: false });
+  assert.strictEqual(u.winStateText, u.localBefore, '読めなかったファイルを上書きした');
+});
+
+test('ED-5・RF9（決めたこと 32）: 議事録の録音中は、本体の窓にフォーカスが無くても Escape を全体のホットキーにしない。締めの page:open は { id, saved: true } の1つ（EQ22 (a)）', { timeout: sceneTimeout(30000) }, async () => {
+  const steps = [['start'], ['blur-main'], ['snap', 'rec'], ['focus-main'], ['blur-main'], ['snap', 'rec2'], ['stop']];
+  const o = await run(['text', '--main-unfocused', `--mic-feed=${JSON.stringify(steps)}`]);
+  assert.strictEqual(o.snaps.rec.active, true, '議事録が始まっていない');
+  assert.strictEqual(o.snaps.rec.escape, false, '議事録の録音中に Escape を全体のホットキーにした');
+  assert.strictEqual(o.snaps.rec2.escape, false);
+  const id = o.pageMemos[0].id;
+  assert.deepStrictEqual(o.mainSentAll.filter(([ch]) => ch === 'page:open'), [['page:open', { id, saved: true }]]);
+});
+
+test('ED-5・EQ22 (a): 会議を出て止めた議事録は、締めの page:open だけが { id, saved: true }。保存した後に Windows の知らせを押した page:open は ID の文字のまま（前に出す）', { timeout: sceneTimeout(30000) }, async () => {
+  const L = (x) => [['line', x], ['clock', 2000]];
+  const steps = [...L('mic teams:1'), ...L('mic teams:1'), ['wait-show', 1], ['ipc', 'nudge:start', {}], ...L('mic -'), ...L('mic -'), ...L('mic -'), ['finish'], ['snap', 'f'], ['click-notice', 0], ['snap', 'c']];
+  const o = await run(['text', `--mic-feed=${JSON.stringify(steps)}`]);
+  const id = o.pageDur[0].id;
+  assert.deepStrictEqual(o.mainSentAll.filter(([ch]) => ch === 'page:open'), [['page:open', { id, saved: true }], ['page:open', id]]);
+});
+
+test('ED-5・EQ22 (a): 前回の復旧のページの page:open（窓を作るときに送る）は ID の文字のまま。印を付けるのは締めの1行だけ', () => {
+  // --recover の場面は窓を作った後に復旧するので page:open を送らない（一覧の描き直しと知らせだけ）。窓を作るときの道は main.js の字面で見る
+  const src = fs.readFileSync(path.join(__dirname, '..', 'src', 'main.js'), 'utf8');
+  const at = src.indexOf('  if (recoveredPageId) {');
+  assert.ok(at > 0);
+  assert.ok(src.slice(at, src.indexOf('\n  }\n', at)).includes("sendToMainWin('page:open', id);"));
+  assert.deepStrictEqual(src.match(/sendToMainWin\('page:open', [^)]*\)/g), ["sendToMainWin('page:open', m.leavePageId)", "sendToMainWin('page:open', id)", "sendToMainWin('page:open', pageId)",
+    "sendToMainWin('page:open', { id: page.id, saved: true })"]);
 });

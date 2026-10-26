@@ -984,6 +984,7 @@ const IDS_130 = [
   'ed-split-mark', 'ed-turn-manual', 'ed-move-after',   // ED-2
   'ed-old-heading', 'ed-md-level', 'ed-mcp-types', 'ed-view-manual-head',   // ED-3
   'ed-split-client', 'ed-ime-enter', 'ed-ime-md', 'ed-shift-enter', 'ed-paste-html', 'ed-late-answer',   // ED-4
+  'ed-recent-check', 'ed-recent-save', 'ed-slash-esc', 'ed-esc-meeting', 'ed-plus-menu', 'ed-save-no-steal',   // ED-5
 ];
 test('G3・0.13.0: 0.13.0 の変異が一覧にそろい、IDS_130 はどれも計画の「変異確認」の表にある。ed-・rdy- の変異は IDS_130 にある。どれも決まったテストのファイルを持ち、why が 0.13.0 で始まる', { timeout: 5000 }, () => {
   const byId = new Map(MUTANTS.map((m) => [m.id, m]));

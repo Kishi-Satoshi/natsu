@@ -184,7 +184,7 @@ contextBridge.exposeInMainWorld('koeApp', {
   pageSetMemo: (id, memo) => dbCall('page.setMemo', { id, memo }),
   pageSummarize: (id) => ipcRenderer.invoke('page:summarize', id),
   blockUpdate: (pageId, blockId, patch) => dbCall('block.update', { pageId, blockId, patch }),
-  blockInsert: (pageId, afterBlockId, type) => dbCall('block.insert', { pageId, afterBlockId, type }),
+  blockInsert: (pageId, afterBlockId, type, level) => dbCall('block.insert', level === undefined ? { pageId, afterBlockId, type } : { pageId, afterBlockId, type, level }),
   blockRemove: (pageId, blockId) => dbCall('block.remove', { pageId, blockId }),
   // 0.13.0 ED-2: 3つ目が { afterId } なら「その行の後ろへ」（'' は頭）、数なら今の toIndex
   blockMove: (pageId, blockId, to) => dbCall('block.move', to && typeof to === 'object' ? { pageId, blockId, afterId: to.afterId } : { pageId, blockId, toIndex: to }),
@@ -260,7 +260,11 @@ contextBridge.exposeInMainWorld('koeApp', {
   onMeetingLevel: (cb) => ipcRenderer.on('meeting:level', (_e, p) => cb(p)),
   onMeetingProgress: (cb) => ipcRenderer.on('meeting:progress', (_e, p) => cb(p)),
   onPagesUpdated: (cb) => ipcRenderer.on('pages:updated', (_e, p) => cb(p)),
-  onPageOpen: (cb) => ipcRenderer.on('page:open', (_e, id) => cb(id)),
+  // 0.13.0 ED-5（EQ22 (a)）: ID の文字（前に出す）か { id, saved }（締めの保存の印）。2つ目は照らした真偽の1つだけ。形の違う値は渡さない
+  onPageOpen: (cb) => ipcRenderer.on('page:open', (_e, v) => {
+    if (typeof v === 'string') cb(v, { saved: false });
+    else if (v && typeof v === 'object' && typeof v.id === 'string') cb(v.id, { saved: v.saved === true });
+  }),
   onPageUpdated: (cb) => ipcRenderer.on('page:updated', (_e, p) => cb(p)),
   onEngineFetchProgress: (cb) => ipcRenderer.on('engine:fetch-progress', (_e, s) => cb(s)),
 });
