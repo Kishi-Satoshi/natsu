@@ -163,3 +163,28 @@ test('RDY-1（RD12・RD17）: 録音の前のページを開いていてもパ�
   assert.ok(o.engineLog.includes('会議: 始めた（panel）'));
   assert.strictEqual(count(o, FROM_PAGE), 1);
 });
+
+// ---------------------------------------------------------------- RDY-4（F92）: 録音の前のページが無いときの今の道は 0.12.1 と同じ
+for (const [name, startStep, by] of [['hotkey-meeting', [['hotkey-meeting']], 'hotkey'], ['tray-start', [['tray-start']], 'tray'],
+  ['nudge:start', [...L('mic teams:1'), ...L('mic teams:1'), ['wait-show', 1], ['ipc', 'nudge:start', {}]], 'panel'], ['meeting:toggle', [['start']], 'button']]) {
+  test(`RDY-4（F92）: 録音の前のページが無いときの ${name} は 0.12.1 と同じ（経過の頭は「開始」で prep が無い・「録音の前のページで始めた」が無い・下書きのメモは空）`, S, async () => {
+    const o = await run([...startStep, ['snap', 'm'], ['stop']]);
+    assert.strictEqual(o.snaps.m.active, true, o.engineLog.join('\n'));
+    assert.deepStrictEqual(o.snaps.m.draft, { memo: '', meetingType: null });
+    assert.deepStrictEqual(states(o).slice(0, 1), [`start/${by}`], JSON.stringify(o.pageStateLogs));
+    assert.ok(!states(o).some((s) => s.startsWith('prep/')), JSON.stringify(o.pageStateLogs));
+    assert.strictEqual(count(o, FROM_PAGE), 0);
+    assert.ok(!o.engineLog.some((l) => l.includes('ページを開いた')), o.engineLog.join('\n'));
+    assert.strictEqual(count(o, OPENED), 0);
+  });
+}
+
+test('RDY-4（RD1）: 録音中・作成中の meeting:prepare は { ok: false } で何も変えない（録音の前のページを作らない・会議はそのまま）', S, async () => {
+  const o = await run([['start'], ['ipc', 'meeting:prepare'], ['snap', 'r'], ['ipc', 'meeting:toggle'], ['ipc', 'meeting:prepare'], ['snap', 'f'], ['finish'], ['snap', 'i']]);
+  assert.deepStrictEqual(ipcOf(o, 'meeting:prepare'), [{ ok: false }, { ok: false }]);
+  assert.deepStrictEqual(o.snaps.r.status, { active: true, prep: null });
+  assert.deepStrictEqual(o.snaps.f.status, { active: true, prep: null });
+  assert.deepStrictEqual(o.snaps.i.status, { active: false, prep: null });
+  assert.strictEqual(count(o, OPENED), 0);
+  assert.strictEqual(o.pageMemos.length, 1);
+});
