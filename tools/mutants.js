@@ -2409,4 +2409,6 @@ module.exports = [
   {"id":"ed-unknown-type","file":"src/renderer/app.html","from":"    for (const b of orderForView(curPage.blocks).map((i) => curPage.blocks[i])) {","to":"    for (const b of orderForView(curPage.blocks).map((i) => curPage.blocks[i]).filter((x) => x.type === 'paragraph' || TYPED_VIEW.includes(x.type))) {","tests":["test/stage130.edit.app.test.js"],"pattern":"^ED-7・F51: 見出し1","why":"0.13.0 ED-7 決めたこと 6・F51: 知らない型の行を描かない（新しい版が書いた行が古い版の画面から消える）"},
   // 0.13.0 ED-8: ヘルプ
   {"id":"ed-help-article","file":"src/mainlib.js","from":"'summary/citations', 'summary/edit-summary',","to":"'summary/citations',","tests":["test/stage130.edit.app.test.js","test/help-app.test.js"],"pattern":"^(ED-8: HELP_ARTICLES|I1: HELP_ARTICLES)","why":"0.13.0 ED-8 決めたこと 36: HELP_ARTICLES に summary/edit-summary が無い（画面から記事「要約を書き直す」を開けない）"},
+  // 0.13.0 2026-10-26 の持ち主の答え 問1: ［要約を再生成］の確かめ（EQ4 (a)）
+  {"id":"ed-regen-ask","file":"src/renderer/app.html","from":"      if (curPage && humanEdited(curPage.blocks) && !(await askRegen())) return;\n","to":"","tests":["test/stage130.edit.app.test.js"],"pattern":"^ED-8（EQ4 \\(a\\)","why":"0.13.0 ED-8 EQ4 (a)・決めたこと 35: 人が直した行があっても［要約を再生成］の前に確かめない（書き直した行と型が黙って元に戻る）"},
 ];
