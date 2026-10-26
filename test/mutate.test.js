@@ -977,6 +977,9 @@ const IDS_130 = [
   'rdy-side-start', 'rdy-side-focus', 'rdy-one-prep', 'rdy-start-toggle', 'rdy-start-busy', 'rdy-guard', 'rdy-prep-draft', 'rdy-prep-db', 'rdy-adopt-memo', 'rdy-adopt-type',
   'rdy-adopt-late', 'rdy-adopt-clear', 'rdy-memo-prep', 'rdy-type-prep', 'rdy-race', 'rdy-pane', 'rdy-replace-ready', 'rdy-offline', 'rdy-offline-by', 'rdy-consent-route',
   'rdy-close-confirm', 'rdy-statelog', 'rdy-prep-always', 'rdy-help',
+  // 第1部（ed-。ED-1〜ED-8 で作りながら足す）
+  'ed-split-surrogate', 'ed-md-midline', 'ed-md-number-text', 'ed-md-zenkaku', 'ed-slash-midword', 'ed-slash-kana', 'ed-slash-zenkaku', 'ed-recent-order', 'ed-recent-cap',
+  'ed-enter-type', 'ed-empty-enter', 'ed-bs-revert', 'ed-number-restart', 'ed-key-code', 'ed-md-copy', 'ed-row-redraw',   // ED-1
 ];
 test('G3・0.13.0: 0.13.0 の変異が一覧にそろい、IDS_130 はどれも計画の「変異確認」の表にある。ed-・rdy- の変異は IDS_130 にある。どれも決まったテストのファイルを持ち、why が 0.13.0 で始まる', { timeout: 5000 }, () => {
   const byId = new Map(MUTANTS.map((m) => [m.id, m]));
