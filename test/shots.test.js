@@ -159,6 +159,10 @@ const ADDED_120 = ['live-light', 'live-dark', 'live-banner-light', 'live-banner-
 // 取り直し待ちを空に戻した。LV-4: ［設定］→［録音］のカード「会議の検出」に行「会議を出たら自動で止める」を足して変わった、そのカードと［録音］の下を写す画面と検索の画面
 const ADDED_121 = ['settings-record-light', 'settings-record-dark', 'settings-record-zoom200-light', 'settings-detect-light', 'settings-detect-dark',
   'settings-search-light', 'settings-quiet-search-light', 'settings-info-loop-light', 'settings-info-stt-dark', 'settings-info-zoom200-light'];
+// 0.13.0（計画 docs/plans/2026-10-24-130.md の「取り直す画面（RETAKE）」）で意図して変えた: 取り直し待ちは 0.13.0 の表の画面だけ（RETAKE_130）。RDY-3 で
+// 録音の前のページの3枚（NEW_130。足した画面で、まだ基準が無い）を足した
+const NEW_130 = ['live-ready-light', 'live-ready-dark', 'live-ready-zoom200-light'];
+const RETAKE_130 = [...NEW_130];
 const img = (w, h, fill = [255, 255, 255, 255]) => ({ width: w, height: h, data: Buffer.from(Array.from({ length: w * h }, () => fill).flat()) });
 // 一時フォルダ（日本語と 𠮷 の名前。RF1 と同じ形）。テストの終わりに消す
 const tmp = (t, name) => {
@@ -198,7 +202,9 @@ test('G2: 撮る画面は決まった並び（第1b回の 13 と第1b2回の検�
     // 0.11.0 V-1 で意図して変えた: 会議の種類の画面4枚を足した（取り直し待ち・まだ基準が無い）。V-2 で打ち合わせの質のカードの明暗2枚を、V-3 で設定のカード「打ち合わせの質」の1枚を足した
     ...NEW_110,
     // 0.12.0 SP-4 で意図して変えた: 文字起こしのタブの「自分」「相手」の札・重なり・文ごとの行の1枚を足した（版を 0.12.0 に上げる commit で基準にした）
-    ...NEW_120]);
+    ...NEW_120,
+    // 0.13.0 RDY-3 で意図して変えた: 録音の前のページの明暗と 200% の3枚を足した（取り直し待ち・まだ基準が無い）
+    ...NEW_130]);
   assert.deepStrictEqual(SH.SCREENS.filter((s) => s.page === 'overlay').map((s) => s.name), PS.screenNames());
   // 0.9.3 M-7 で意図して変えた: 会議の検出のパネル（page nudge）の5枚を録音バーのあと（いちばん後ろ）に足した
   assert.deepStrictEqual(SH.SCREENS.filter((s) => s.page === 'nudge').map((s) => s.name), M7_NUDGE_093);
@@ -207,7 +213,7 @@ test('G2: 撮る画面は決まった並び（第1b回の 13 と第1b2回の検�
   assert.strictEqual(new Set(SH.SCREENS.map((s) => s.name)).size, SH.SCREENS.length, '名前が重なっている');
   for (const s of SH.SCREENS) assert.ok(['app', 'overlay', 'nudge'].includes(s.page) && ['light', 'dark'].includes(s.theme), s.name);
   assert.deepStrictEqual(SH.SCREENS.filter((s) => s.zoom).map((s) => [s.name, s.zoom]), [['notes-page-zoom200-light', 2], ['settings-zoom200-dark', 2], ['live-banner-zoom200-dark', 2],
-    ['settings-record-zoom200-light', 2], ['settings-info-zoom200-light', 2], ['live-late-zoom200-light', 2]]);   // 0.9.2 I-4・0.9.4 S-8 で意図して足した
+    ['settings-record-zoom200-light', 2], ['settings-info-zoom200-light', 2], ['live-late-zoom200-light', 2], ['live-ready-zoom200-light', 2]]);   // 0.9.2 I-4・0.9.4 S-8・0.13.0 RDY-3 で意図して足した
   const live = SH.SCREENS.find((s) => s.name === 'live-light');
   const st = live.answers['koeApp.meetingStatus'];
   assert.ok(st.active && st.cloud && st.pauses.length === 1, '記録中の画面に一時停止の印か［PC の中だけ］が出ない');
@@ -674,7 +680,12 @@ test('G2・F14・G-4・0.9.0 G-3・0.9.1・0.9.2・0.9.3・0.9.4・0.10.0・0.10
   // 0.12.0 で意図して変えた（版を 0.12.0 に上げる commit。Task G）: 取り直し待ちを空に戻した（ファイルの頭の注）。0.12.0 の表の画面（ADDED_120）はどれも計画の表にあり、基準がある
   // 0.12.1 LV-4 で意図して変えた: 取り直し待ちは 0.12.1 の表の画面（ファイルの頭の RETAKE_121）とちょうど同じで、どれも計画の「取り直す画面（RETAKE）」の表にある
   // 0.12.1 で意図して変えた（版を 0.12.1 に上げる commit。LV-7）: 取り直し待ちを空に戻した（ファイルの頭の注）。0.12.1 の表の画面（ADDED_121）はどれも計画の表にあり、基準がある
-  assert.deepStrictEqual([...SH.RETAKE], []);
+  // 0.13.0 RDY-3 で意図して変えた: 取り直し待ちは 0.13.0 の表の画面（ファイルの頭の RETAKE_130）とちょうど同じで、どれも計画の「取り直す画面（RETAKE）」の表にある。
+  // 足した画面（NEW_130）はまだ基準が無い
+  assert.deepStrictEqual([...SH.RETAKE].sort(), [...RETAKE_130].sort());
+  const plan130 = read('docs/plans/2026-10-24-130.md');
+  const table130 = plan130.slice(plan130.indexOf('## 取り直す画面（RETAKE）'), plan130.indexOf('\n## ', plan130.indexOf('## 取り直す画面（RETAKE）') + 5));
+  for (const n of RETAKE_130) assert.ok(table130.includes(`\`${n}\``), `0.13.0 の計画の「取り直す画面」の表に ${n} が無い`);
   const plan121 = read('docs/plans/2026-10-24-121.md');
   const table121 = plan121.slice(plan121.indexOf('## 取り直す画面（RETAKE'), plan121.indexOf('\n## ', plan121.indexOf('## 取り直す画面（RETAKE') + 5));
   for (const n of ADDED_121) assert.ok(table121.includes(`\`${n}\``), `0.12.1 の計画の「取り直す画面」の表に ${n} が無い`);
@@ -706,6 +717,7 @@ test('G2・F14・G-4・0.9.0 G-3・0.9.1・0.9.2・0.9.3・0.9.4・0.10.0・0.10
   }
   for (const s of SH.SCREENS) {
     const f = path.join(ROOT, 'test', 'shots', 'win32', `${s.name}.png`);
+    if (NEW_130.includes(s.name) && SH.RETAKE.has(s.name)) continue;   // 0.13.0: 取り直し待ちの足した画面は基準がまだ無い
     assert.ok(fs.existsSync(f), `${s.name} の基準が無い`);
     if (s.page !== 'app') continue;   // 0.9.3 M-7 で意図して変えた: パネル（nudge）の画面も、録音バーと同じく窓の大きさが中身で決まる
     const im = P.decodePng(fs.readFileSync(f));
@@ -932,7 +944,8 @@ test('基準の画像（test/shots/win32）は今の app.html で撮ったもの
   // 値を今の app.html に合わせた（前の値は 2d669bc1…）
   // 0.13.0 RDY-2（第2部 RD1・RD20）: 録音の前のページ（#readyBar と CSS の #readyState・#readyBar button.action、<script> の中の録音の前の描き方）。録音の前のページは
   // ［＋ 新しい議事録］を押したときだけ出るので、今の撮る画面は変わらない見込み（RDY-3 で撮る画面を足す）。値を今の app.html に合わせた（前の値は 6c70ba30…）
-  assert.strictEqual(sha, 'dd181948cc97fcc7c1d55ba19369505a240feabd8324836ece24cd34afb2c0d4',
+  // 0.13.0 RDY-3（第2部 RD6・RD8・RD10・RD13・RD15）: 録音の前のページから録音に替わる時（メモ欄と種類の行をそのまま・始めた直後の守り）・page:open の受けを pageOpenFromMain の1か所に・読み直したときの録音の前のタブ（<script> の中だけ）。変わる画面は足した RETAKE_130 の3枚。値を今の app.html に合わせた（前の値は dd181948…）
+  assert.strictEqual(sha, 'b998366213bd9d6859d74e84a19677e35933b639a013e8b0ecc829bd886126d8',
     'app.html が基準の画像を撮った時と違う。Windows の CI の画面の比べ（捲り棒のつまみも）を見て、基準を取り直してからこの値を直す');
 });
 

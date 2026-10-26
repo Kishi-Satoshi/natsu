@@ -2157,6 +2157,7 @@
     if (!open.length) return;
     openTabs = open.map((key) => ({ key }));
     const active = open.includes(tb.active) ? tb.active : open[open.length - 1];
+    if (hasLive && readyNow() && activeTab === 'live') { openTabs.push({ key: 'live' }); activateTab(active, { save: false }); return; }   // 0.13.0 RDY-3（RD15）: 録音の前のページは覚えたタブを選ぶ
     if (hasLive) { openTabs.push({ key: 'live' }); beforeLiveTab = active; renderTabs(); return; }   // 先に記録が始まっていたら記録中のタブのまま
     activateTab(active, { save: false });
   }
@@ -3918,7 +3919,15 @@
     // （記録中に一覧から過去の議事録を開くのは今までどおりできる。ページは別のタブで開く）
     if (st.active && !mtWasActive) mtLocalOnly = false;   // 新しい会議は送る側から（main の印も会議ごと）
     const started = Boolean(st.active && !mtWasActive);
-    if (started) { liveMemo = st.memo || ''; $('pType').dataset.for = ''; }   // 新しい会議は種類の行を「自動」から作り直す
+    // 0.13.0 RDY-3（RD6・RD8）: 録音の前のページから録音に替わった。メモ欄と種類の行はそのまま使い、欄の今の文が main と違えば送り直す
+    // （0.5 秒の送りの間に main の側から始まっても、打った最後の数文字を落とさない: F85）
+    const fromReady = started && readyWas;
+    const liveTa = liveMemoWrap ? liveMemoWrap.querySelector('textarea') : null;
+    const memoFocused = Boolean(liveTa && document.activeElement === liveTa);
+    if (fromReady) {
+      if (liveTa) liveMemo = liveTa.value;
+      if (liveMemo !== (st.memo || '')) { clearTimeout(liveMemoTimer); liveMemoTimer = null; window.koeApp.meetingSetMemo(liveMemo); }
+    } else if (started) { liveMemo = st.memo || ''; $('pType').dataset.for = ''; }   // 新しい会議は種類の行を「自動」から作り直す
     mtWasActive = Boolean(st.active);
     lockEngineFields(Boolean(st.active));
     // サイドバーの行はほかの行と同じ「アイコンの欄（.ic）＋文字」（文字がそろう）
@@ -3960,8 +3969,8 @@
         $('liveSkipBtn').onclick = skipPending;
         $('meetingLocalOnly').onclick = setLocalOnly;
         $('livePanelShow').onclick = () => { if (typeof window.koeApp.showPanel === 'function') window.koeApp.showPanel(); };
-        $('livePauseBtn').onclick = askPause;
-        $('liveStopBtn').onclick = toggleMeeting;
+        $('livePauseBtn').onclick = () => { if (!readyGuarded()) askPause(); };   // 0.13.0 RDY-3（RD10）: 始めた直後の守りの間は押せない
+        $('liveStopBtn').onclick = () => { if (!readyGuarded()) toggleMeeting(); };
         // 文字起こしの帯（第1d回 A-7・D17）は記録の行と一緒に作り、そのすぐ上に置く（会議が終われば一緒に外す）
         const hold = document.createElement('div');
         hold.innerHTML = '<div class="stt-banner" id="liveSttBanner" role="alert" hidden><span id="liveSttBannerText"></span>'
@@ -3994,6 +4003,10 @@
       if (started) {
         if (!hasTab('live')) openTabs.push({ key: 'live' });
         activateTab('live');   // 開いていたページを確定して閉じ、記録中の描き方で描く（activateTab → showLive）
+        if (fromReady) {
+          if (!memoFocused) setPane('script');   // RD6: メモを書いている途中なら［メモ］のまま（書いていなければ今どおり［文字起こし］へ1回だけ）
+          readyGuard();   // RD10: ［文字起こしを始める］の二度押しの2回目が、替わった記録の行のボタンに当たらない
+        }
       } else {
         if (phaseChanged) renderTabs();   // タブの名前（● 記録中 ／ ⏸ 一時停止中）
         if (liveShown()) drawLive(st);
@@ -4054,7 +4067,16 @@
   }
 
   // ---------------- 0.13.0 RDY-2（計画 docs/plans/2026-10-24-130.md の第2部 RD1・RD2・RD5〜RD7・RD9〜RD11・RD14・RD18・RD20）: 録音の前のページ
-  const READY_GUARD_MS = 1000;   // RD10: 始めた直後に一時停止・停止を押せない間（RDY-3）
+  const READY_GUARD_MS = 1000;   // RD10: 始めた直後に一時停止・停止を押せない間（Windows の既定のダブルクリックの間合い 500 ms の倍）
+  let readyGuardUntil = 0;
+  const readyGuarded = () => Date.now() < readyGuardUntil;
+  // 0.13.0 RDY-3（RD10・F82）: 録音の前のページから始めた直後の 1 秒は［⏸ 一時停止］と［■ 終了して作成］を押せなくする
+  function readyGuard() {
+    readyGuardUntil = Date.now() + READY_GUARD_MS;
+    const set = (on) => { for (const id of ['livePauseBtn', 'liveStopBtn']) { const b = $(id); if (b) b.disabled = on; } };
+    set(true);
+    setTimeout(() => set(false), READY_GUARD_MS);
+  }
   // RT5・RT6（NQ4 と続きの答え）。案内の文で、法の同意の仕組みではない（RD9）
   const READY_NOTE = {
     cloud: '始めると、録音と文字起こしに参加者全員が同意したものとみなされます。音声は文字起こしのため OpenAI に送られます。',
@@ -4333,7 +4355,13 @@
   });
   window.koeApp.onPagesUpdated(() => refreshList());
   // main が開かせるページ（会議を終えた・知らせを押した）。記録中のタブがあればそれをページのタブに替え、無ければページのタブで開く
-  window.koeApp.onPageOpen((id) => { openPageTab(id, { replaceLive: true }); });
+  // 0.13.0 RDY-3（RD13）: 受けはこの1か所。記録中のタブが録音の前のページなら置き換えずに新しいタブで開く（次の会議の準備を消さない: F86）
+  function pageOpenFromMain(id, o) {
+    void o;   // 2つ目の引数（保存した印）は第1部の ED-5 で使う
+    if (readyNow()) { openPageTab(id, { newTab: true }); return; }
+    openPageTab(id, { replaceLive: true });
+  }
+  window.koeApp.onPageOpen((id, o) => pageOpenFromMain(id, o));
   // ---------------- 0.10.0 LN-4（D72・決めたこと 145・146）: リンクで開く ----------------
   // できるのはページを開いて捲ることだけ（読む口 pageGet のほかを呼ばない: test/repo.test.js が字面で見る）。録音中は別のタブで開く
   // （録音・要約・下書きには触らない）。無いページ（ゴミ箱・消した・録音中の写し）と印の発言が無いときは左下に知らせる
@@ -5441,6 +5469,11 @@
     await refreshList();
     renderPage();
     setMeetingUi(await window.koeApp.meetingStatus());
+    // 0.13.0 RDY-3（RD15）: 画面を読み直したとき main に録音の前のページがあれば、記録中のタブを録音の前の形で戻す（選ぶのはほかに選んでいるタブが無いときだけ）
+    if (readyNow() && !hasTab('live')) {
+      openTabs.push({ key: 'live' });
+      if (!activeTab) activateTab('live', { save: false }); else renderTabs();
+    }
     // 詳細設定のパスが空でも、取り込んだ文字起こしの組がそろっていれば連れて行かない（そのエンジンを使う。第0b回）。
     // 0.9.0 U-3（F4・D21・決めたこと 9）: オフラインの準備を選んでいない人は連れて行かない。ただしログインしていなければ設定の「アカウント」を開く
     //（中継でしか文字起こしできないので、ログインが唯一の行動。エンジンの文は出さない）。選んだ人（chosen が真か無い）は 0.8.0 のまま

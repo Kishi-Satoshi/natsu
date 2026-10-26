@@ -14,6 +14,7 @@ const M = require('../src/memoTypes');
 const mtype = require('../src/meetingType');
 const MUTANTS = require('../tools/mutants.js');
 const { applyMutant } = require('../tools/mutate.js');
+const { titleAt } = require('./helpers/titles');
 
 const APP = path.join(__dirname, '..', 'src', 'renderer', 'app.html');
 const T = { timeout: 8000 };
@@ -240,5 +241,127 @@ test('RDY-2（RD20）: 録音中のページの部品を写さない（前の版
     const m = MUTANTS.find((x) => x.id === id);
     assert.ok(m, id);
     assert.doesNotThrow(() => applyMutant(html, m), id);
+  }
+});
+
+// ---------------------------------------------------------------- RDY-3（RD6・RD8・RD10。F82・F85）
+const RECORDING = (s, o = {}) => { s.active = true; s.memo = o.memo === undefined ? (s.prep ? s.prep.memo : '') : o.memo; s.meetingType = s.prep ? s.prep.meetingType : null; s.prep = null; };
+test('RDY-3（RD8・F85）: 録音の前に打って 500 ms 待たずに main の側から録音が始まっても（main のメモは古い）、欄の今の文が残り meetingSetMemo で送り直す。欄を作り直さない。録音の前の行は隠れ、記録の行・「● 記録中」', T, async () => {
+  const l = await boot();
+  await clickNew(l);
+  const ta = memoTa(l);
+  ta.value = '議題: 予算と採用'; ta.oninput();   // 送りは 0.5 秒後（まだ送っていない）
+  await l.drain();
+  const sent0 = l.called('meetingSetMemo').length;
+  RECORDING(l.s, { memo: '' });   // 例: Alt+M で始まった（main は空のメモを持っている）
+  l.fire('onMeetingUpdate', l.s.status()); await l.drain();
+  assert.strictEqual(memoTa(l), ta, 'メモ欄を作り直した');
+  assert.strictEqual(ta.value, '議題: 予算と採用');
+  assert.deepStrictEqual(l.called('meetingSetMemo').slice(sent0).map((c) => c.args[0]), ['議題: 予算と採用']);
+  assert.strictEqual($(l, 'readyBar').hidden, true);
+  assert.ok($(l, 'liveBar') && !$(l, 'liveBar').hidden);
+  assert.deepStrictEqual(tabs(l), [['live', '● 記録中']]);
+  assert.strictEqual($(l, 'pTitle').textContent, '記録中の会議');
+  assert.deepStrictEqual(l.errors.map(fmt), []);
+});
+
+test('RDY-3（RD6）: 録音が始まったとき、メモ欄にフォーカスがあれば［メモ］のまま、無ければ［文字起こし］へ1回だけ切り替える。種類の行は選んだまま', T, async () => {
+  const a = await boot();
+  await clickNew(a);
+  const sel = $(a, 'pType'); sel.value = 'sales'; await sel.onchange(); await a.drain();
+  memoTa(a).focus();
+  RECORDING(a.s);
+  a.fire('onMeetingUpdate', a.s.status()); await a.drain();
+  assert.strictEqual($(a, 'paneBtnMemo').getAttribute('aria-selected'), 'true', 'メモを書いている途中で文字起こしのタブへ引き戻した');
+  assert.strictEqual($(a, 'pType').value, 'sales');
+  const b = await boot();
+  await clickNew(b);
+  $(b, 'mtToggleBtn').focus();
+  RECORDING(b.s);
+  b.fire('onMeetingUpdate', b.s.status()); await b.drain();
+  assert.strictEqual($(b, 'paneBtnScript').getAttribute('aria-selected'), 'true');
+  // 区間が届いて描き直しても切り替え直さない
+  $(b, 'paneBtnMemo').click();
+  b.fire('onMeetingUpdate', { ...b.s.status(), segments: [{ id: 's1', atMs: 0, text: '始めます。' }] }); await b.drain();
+  assert.strictEqual($(b, 'paneBtnMemo').getAttribute('aria-selected'), 'true');
+});
+
+test('RDY-3（RD10・F82）: ［文字起こしを始める］で始めた直後の 1 秒は［⏸ 一時停止］と［■ 終了して作成］を押しても何も起きない（disabled）。1 秒後は押せる。ホットキーで始めたときは守らない', T, async () => {
+  const l = await boot();
+  await clickNew(l);
+  $(l, 'readyStartBtn').dispatchEvent({ type: 'click' }); await l.drain();
+  const stop = $(l, 'liveStopBtn'), pause = $(l, 'livePauseBtn');
+  assert.deepStrictEqual([stop.disabled, pause.disabled], [true, true]);
+  stop.dispatchEvent({ type: 'click' }); pause.dispatchEvent({ type: 'click' }); await l.drain();
+  assert.strictEqual(l.called('meetingToggle').length, 0, '始めた直後の2回目のクリックで止めた');
+  assert.strictEqual(l.called('meetingSetPaused').length, 0, '始めた直後の2回目のクリックで一時停止した');
+  await l.clock.advance(1000); await l.drain();
+  assert.deepStrictEqual([stop.disabled, pause.disabled], [false, false]);
+  stop.dispatchEvent({ type: 'click' }); await l.drain();
+  assert.strictEqual(l.called('meetingToggle').length, 1);
+  // 録音の前のページを通らずに始まった（ホットキー・パネル）
+  const h = await boot();
+  RECORDING(h.s);
+  h.fire('onMeetingUpdate', h.s.status()); await h.drain();
+  assert.deepStrictEqual([Boolean($(h, 'liveStopBtn').disabled), Boolean($(h, 'livePauseBtn').disabled)], [false, false]);
+  $(h, 'liveStopBtn').dispatchEvent({ type: 'click' }); await h.drain();
+  assert.strictEqual(h.called('meetingToggle').length, 1);
+});
+
+// ---------------------------------------------------------------- RDY-3（RD13。F86）
+test('RDY-3（RD13・F86）: 締め・知らせのページ（onPageOpen）は、録音の前のページがあれば新しいタブで開き、録音の前のタブは残る。録音中のタブなら今どおり置き換える', T, async () => {
+  const PAGE = (id) => ({ page: { id, title: titleAt('2026-10-26T01:00:00.000Z'), createdAt: '2026-10-26T01:00:00.000Z', durationSec: 60, blocks: [], memo: '', meetingType: 'general' }, segments: [] });
+  const r = await boot({ returns: { pageGet: PAGE } });
+  await clickNew(r);
+  await typeIn(r, '次の会議の議題');
+  r.fire('onPageOpen', 'pa1'); await r.drain();
+  assert.deepStrictEqual(tabs(r).map((t) => t[0]), ['live', 'page:pa1']);
+  assert.strictEqual(tabs(r)[0][1], RT1);
+  // 録音の前のタブへ戻ると書いた文がそのまま
+  $(r, 'tabbar').querySelector('.tabitem').dispatchEvent({ type: 'click' }); await r.drain();
+  assert.strictEqual(memoTa(r).value, '次の会議の議題');
+  const c = await boot({ returns: { pageGet: PAGE } });
+  RECORDING(c.s);
+  c.fire('onMeetingUpdate', c.s.status()); await c.drain();
+  c.s.active = false;
+  c.fire('onMeetingUpdate', c.s.status()); await c.drain();
+  c.fire('onPageOpen', 'pa1'); await c.drain();
+  assert.deepStrictEqual(tabs(c).map((t) => t[0]), ['page:pa1']);
+  assert.deepStrictEqual(r.errors.map(fmt), []);
+});
+
+test('RDY-3（RD13）: page:open の受けは pageOpenFromMain の1か所（onPageOpen はそれを呼ぶだけ）', () => {
+  const html = fs.readFileSync(APP, 'utf8');
+  assert.strictEqual(html.split('window.koeApp.onPageOpen(').length - 1, 1);
+  assert.ok(html.includes('window.koeApp.onPageOpen((id, o) => pageOpenFromMain(id, o));'));
+});
+
+// ---------------------------------------------------------------- RDY-3（RD15）
+test('RDY-3（RD15）: 画面を読み直したとき main に録音の前のページがあれば、記録中のタブを録音の前の形で戻す（メモと種類も）。覚えたタブがあればそれを選ぶ', T, async () => {
+  const prep = { memo: '議題: 読み直し', meetingType: 'sales' };
+  const a = await boot({ returns: { meetingStatus: () => ({ active: false, finalizing: false, segments: [], pending: 0, cloud: true, prep }) } });
+  assert.deepStrictEqual(tabs(a), [['live', RT1]]);
+  assert.strictEqual(memoTa(a).value, '議題: 読み直し');
+  assert.strictEqual($(a, 'pType').value, 'sales');
+  assert.ok(!$(a, 'readyBar').hidden);
+  const PAGE = (id) => ({ page: { id, title: titleAt('2026-10-26T02:00:00.000Z'), createdAt: '2026-10-26T01:00:00.000Z', durationSec: 60, blocks: [], memo: '', meetingType: 'general' }, segments: [] });
+  const b = await boot({ returns: { meetingStatus: () => ({ active: false, finalizing: false, segments: [], pending: 0, cloud: true, prep }), pageGet: PAGE,
+    uiState: () => ({ tabs: { open: ['page:pb1'], active: 'page:pb1' } }) } });
+  assert.deepStrictEqual(tabs(b).map((t) => t[0]).sort(), ['live', 'page:pb1']);
+  assert.strictEqual($(b, 'tabbar').querySelector('.tabitem.active').dataset.key, 'page:pb1');
+  assert.deepStrictEqual(b.errors.map(fmt), []);
+});
+
+// ---------------------------------------------------------------- RDY-3（撮る画面）
+test('RDY-3: 撮る画面 live-ready-light・live-ready-dark・live-ready-zoom200-light（録音の前のページ。［＋ 新しい議事録］を押す）があり、取り直し待ち', () => {
+  const SH = require('../tools/shots/screens.js');
+  for (const [n, theme, zoom] of [['live-ready-light', 'light', undefined], ['live-ready-dark', 'dark', undefined], ['live-ready-zoom200-light', 'light', 2]]) {
+    const s = SH.SCREENS.find((x) => x.name === n);
+    assert.ok(s, n);
+    assert.deepStrictEqual([s.page, s.theme, s.zoom], ['app', theme, zoom], n);
+    const st = s.answers['koeApp.meetingStatus'];
+    assert.deepStrictEqual([st.active, st.prep, st.cloud], [false, { memo: '', meetingType: null }, true], n);
+    assert.match(s.act, /mtToggleBtn/);
+    assert.ok(SH.RETAKE.has(n), `${n} が取り直し待ちに無い`);
   }
 });

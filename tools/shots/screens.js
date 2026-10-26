@@ -89,6 +89,12 @@ const OPEN_PAGE_SCRIPT = `(async () => {
   document.getElementById('pScript').scrollIntoView({ block: 'start' });   // 文字起こしの行（札・重なり・文ごとの行）が全部見えるように捲る
   return 1;
 })()`;
+// 0.13.0 RDY-3: サイドバーの［＋ 新しい議事録］を押して録音の前のページを開く（main の答えは見本: 録音の前のページがある）
+const OPEN_READY = `(async () => {
+  document.getElementById('mtToggleBtn').click();
+  await new Promise((r) => setTimeout(r, 300));
+  return 1;
+})()`;
 // 0.11.0 V-2: ページを開き、打ち合わせの質のカードまで捲る
 const OPEN_QUALITY = `(async () => {
   document.getElementById('tabBtnNotes').click(); document.querySelector('#plist .pitem').click();
@@ -243,6 +249,11 @@ const SCREENS = [
   { name: 'settings-quality-light', page: 'app', theme: 'light', act: `${OPEN_SETTINGS}; ${NAV('setNavSummary')}; document.getElementById('qualityCardSet').scrollIntoView({ block: 'start' })` },
   // 0.12.0 SP-4（D53・D66）: 文字起こしのタブの「自分」「相手」の札・重なり・PC の側の文ごとの行。足した画面（版を 0.12.0 に上げる commit で基準にした）
   { name: 'notes-script-spk-light', page: 'app', theme: 'light', act: OPEN_PAGE_SCRIPT },
+  // 0.13.0 RDY-3（計画 docs/plans/2026-10-24-130.md の第2部「取り直す画面（第2部の分）」）: 録音の前のページ（題名・種類の行・一言・メモのタブ・録音の前の行の
+  // 2つのボタン・同意と送り先の文）。明暗と、拡大 200% で録音の前の行が折り返す形。足した画面（まだ基準が無い）
+  { name: 'live-ready-light', page: 'app', theme: 'light', answers: readyAnswers(), act: OPEN_READY },
+  { name: 'live-ready-dark', page: 'app', theme: 'dark', answers: readyAnswers(), act: OPEN_READY },
+  { name: 'live-ready-zoom200-light', page: 'app', theme: 'light', zoom: 2, answers: readyAnswers(), act: OPEN_READY },
 ];
 // 0.9.0 O-3（RP9）: 録音バーの画面（形 → 地 → 拡大率 → 状態の順。撮る道具は形・地・拡大率の組ごとに窓を1つ開いて状態を act で替える）。
 // 録音は始めずに見た目だけを撮る（act は pill-states の見本を録音バーの DOM に当てる。撮るときだけ体の地にデスクトップの色を塗る）。
@@ -329,7 +340,9 @@ const OVL_094 = (states) => PS.FORMS.flatMap((form) => Object.keys(PS.DESKS).fla
 // 0.12.1（版を 0.12.1 に上げる commit。LV-7）: 持ち主が 2026-10-25 に取り直しの見比べ（review-121.html。LV-4 で［設定］→［録音］のカード「会議の検出」に行
 // 「会議を出たら自動で止める」を足して変わった 10 枚）を見て「OK（版を 0.12.1 に上げてよい）」と言ったので、点検の直しの後の CI run 40207175980（ba3387f）の
 // artifact 12604106323 の .after.png をバイトのまま基準にし、空に戻した
-const RETAKE = new Set([]);
+// 0.13.0（計画 docs/plans/2026-10-24-130.md の「取り直す画面（RETAKE）」）: RDY-3 で足した録音の前のページの3枚。持ち主が見比べを OK と言ったら、
+// 版を上げる commit（Task G）で基準にして空に戻す
+const RETAKE = new Set(['live-ready-light', 'live-ready-dark', 'live-ready-zoom200-light']);
 const PERF = [{ name: 'open-2000-blocks', budgetMs: 500 }];   // 3回開いた中央値で見る
 const TIME_ZONE = 'Asia/Tokyo';
 const TOLERANCE = 2;   // 色の差（0〜255）がこれ以下の画素は同じとみなす。CI の機械の CPU ごとの描き方の1段の差を拾わないため（揺れの確かめ judgePair は 0 で見る）
@@ -448,6 +461,15 @@ function liveAnswers(stt = LIVE_STT, extra = {}) {
       pauses: [{ atMs: 150000, ms: 45000, why: 'user' }], pausing: false, resumeHint: false,
       localOnly: false, cloud: true, stt, ...extra,
     },
+  };
+}
+
+/** 0.13.0 RDY-3: 録音の前のページ（main の meetingStatus() の形。録音していない・prep は空のメモと「自動」・クラウドで文字起こしする PC） */
+function readyAnswers() {
+  return {
+    'koeApp.meetingStatus': { active: false, finalizing: false, startedAt: null, memo: '', meetingType: null, segments: [], pending: 0, stoppedAt: null,
+      stopping: false, paused: false, pausedMs: 0, pauses: [], localOnly: false, cloud: true, stt: null, prep: { memo: '', meetingType: null } },
+    'koeApp.meetingPrepare': { ok: true },
   };
 }
 
