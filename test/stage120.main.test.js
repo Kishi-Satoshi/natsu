@@ -259,11 +259,15 @@ test('SP-3b・F23: segments を返さない（古いエンジン）・最後の 
 
 test('SP-3b: ヒントなしのやり直しも verbose_json。起動の試しと1本の会議（音声入力と同じく文だけを読む）は今のまま json', T, async () => {
   // 待ち時間は本物の尺度（偽の時計を進める場面で、ヒントなしのやり直しの前の残り時間の確かめが先に切れない）
-  const o = await run(['prompt-empty', '--two-streams=pc-parts', '--test'], { env: { NATSU_TEST_LOCAL_TIME_SCALE: '1' } });
-  const rf = rfOf(o);
-  assert.ok(o.requests.some((l) => /prompt=false probe=false/.test(l)), '場面の前提: ヒントなしのやり直しが無い');
-  assert.ok(rf.length >= 6 && rf.every((x) => x === 'verbose_json'), JSON.stringify(o.requests));
-  assert.ok(o.requests.filter((l) => /probe=true/.test(l)).every((l) => /rf=json$/.test(l)), JSON.stringify(o.requests));
+  // 0.13.0 の CI（run 40310219948）の直し: この場面は 2 つ目の区間の後に「遅い PC」になり（偽の時計で測った速さ）、残りの 75 秒の2区間は会議の後の
+  // 待ち行列で文字起こしする。議事録を写した時にはまだ済んでいないことがある（混んだ機械では要求が 5〜6 個）ので、待ち行列が済むまで待った
+  // 要求（--after-retry の afterRetry.requests）で数える（意図は同じ: どの文字起こしの要求も verbose_json）
+  const o = await run(['prompt-empty', '--two-streams=pc-parts', '--test', '--after-retry'], { env: { NATSU_TEST_LOCAL_TIME_SCALE: '1' } });
+  const reqs = o.afterRetry.requests;
+  const rf = rfOf({ requests: reqs });
+  assert.ok(reqs.some((l) => /prompt=false probe=false/.test(l)), '場面の前提: ヒントなしのやり直しが無い');
+  assert.ok(rf.length >= 6 && rf.every((x) => x === 'verbose_json'), JSON.stringify(reqs));
+  assert.ok(reqs.filter((l) => /probe=true/.test(l)).every((l) => /rf=json$/.test(l)), JSON.stringify(reqs));
   assert.deepStrictEqual(segsOf(o).find((x) => x.src === 'mic' && x.atMs === 0).parts, MIC_PARTS);
   const one = await run(['text', '--segs=2']);
   assert.ok(rfOf(one).length >= 2 && rfOf(one).every((x) => x === 'json'), JSON.stringify(one.requests));
