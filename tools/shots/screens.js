@@ -283,6 +283,10 @@ const SCREENS = [
   { name: 'edit-slash-recent-light', page: 'app', theme: 'light', answers: { 'koeApp.uiState': { slashRecent: ['h2', 'todo'] } }, act: OPEN_SLASH('') },
   // 0.13.0 ED-6（E1）: ⠿ のメニューと［変換 ▸］の中（文のある行なので区切り線は灰色）。足した画面（まだ基準が無い）
   { name: 'edit-block-menu-light', page: 'app', theme: 'light', act: OPEN_BLOCK_MENU },
+  // 0.13.0 ED-7（E5）: 見出し1〜3・番号付き・引用・区切り線・コールアウトを1枚に（明暗と拡大 150%）。足した画面（まだ基準が無い）
+  { name: 'edit-types-light', page: 'app', theme: 'light', get answers() { return typesAnswers(); }, act: OPEN_PAGE_SUMMARY },
+  { name: 'edit-types-dark', page: 'app', theme: 'dark', get answers() { return typesAnswers(); }, act: OPEN_PAGE_SUMMARY },
+  { name: 'edit-types-zoom150-light', page: 'app', theme: 'light', zoom: 1.5, get answers() { return typesAnswers(); }, act: OPEN_PAGE_SUMMARY },
 ];
 // 0.9.0 O-3（RP9）: 録音バーの画面（形 → 地 → 拡大率 → 状態の順。撮る道具は形・地・拡大率の組ごとに窓を1つ開いて状態を act で替える）。
 // 録音は始めずに見た目だけを撮る（act は pill-states の見本を録音バーの DOM に当てる。撮るときだけ体の地にデスクトップの色を塗る）。
@@ -372,7 +376,7 @@ const OVL_094 = (states) => PS.FORMS.flatMap((form) => Object.keys(PS.DESKS).fla
 // 0.13.0（計画 docs/plans/2026-10-24-130.md の「取り直す画面（RETAKE）」）: RDY-3 で足した録音の前のページの3枚。持ち主が見比べを OK と言ったら、
 // 版を上げる commit（Task G）で基準にして空に戻す
 const RETAKE = new Set(['live-ready-light', 'live-ready-dark', 'live-ready-zoom200-light', 'edit-slash-light', 'edit-slash-dark', 'edit-slash-recent-light',
-  'edit-block-menu-light']);
+  'edit-block-menu-light', 'edit-types-light', 'edit-types-dark', 'edit-types-zoom150-light']);
 const PERF = [{ name: 'open-2000-blocks', budgetMs: 500 }];   // 3回開いた中央値で見る
 const TIME_ZONE = 'Asia/Tokyo';
 const TOLERANCE = 2;   // 色の差（0〜255）がこれ以下の画素は同じとみなす。CI の機械の CPU ごとの描き方の1段の差を拾わないため（揺れの確かめ judgePair は 0 で見る）
@@ -537,6 +541,23 @@ function undecidedAnswers() {
 function liveTypeAnswers() {
   return { ...liveAnswers(), 'koeApp.meetingSetMemo': { ok: true },
     'koeApp.meetingSetType': { ok: true, memo: memoTypes.memoPreset('bantc'), inserted: true, meetingType: 'sales' } };
+}
+// 0.13.0 ED-7（E5）: 人が書き直した要約（新しい型の全部。一覧の1行目 p1 の会議の要約だけを替える: 0.11.0 の qualityAnswers と同じ形）
+function typesAnswers() {
+  const page = fixtures()['koeApp.pageGet'].page;
+  const blocks = [
+    { id: 'e1', type: 'heading', level: 1, text: '週次の定例のまとめ', citeState: 'manual', cites: [] },
+    { id: 'e2', type: 'callout', icon: '💡', text: '出す日は11月15日で決まりです。', citeState: 'manual', cites: [] },
+    { id: 'e3', type: 'heading', text: '進み具合' },
+    { id: 'e4', type: 'numbered', text: '結合の試験が今週で終わった。', citeState: 'manual', cites: [] },
+    { id: 'e5', type: 'numbered', text: '残りの不具合は2件。', citeState: 'manual', cites: [] },
+    { id: 'e6', type: 'heading', level: 3, text: '在庫の取り込み', citeState: 'manual', cites: [] },
+    { id: 'e7', type: 'quote', text: '索引が効いているかを確かめます。', citeState: 'manual', cites: [] },
+    { id: 'e8', type: 'divider', text: '', citeState: 'manual', cites: [] },
+    { id: 'e9', type: 'bullet', text: '次回は会議室を替える。', citeState: 'manual', cites: [] },
+    { id: 'e10', type: 'paragraph', text: '以上で終わります。', citeState: 'manual', cites: [] },
+  ];
+  return { 'koeApp.pageGet': { page: { ...page, blocks, citeStat: { linked: 0, total: 0 }, actionStat: null }, segments: SEGMENTS } };
 }
 // 0.11.0 V-2: 朝会の新しい形の要約（保存は AI の書いた順: 型の見出し → 締め → チェック → 助言）と、照らした点（qualityView）
 function qualityAnswers() {

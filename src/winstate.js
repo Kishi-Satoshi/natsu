@@ -190,7 +190,7 @@ function zoomDir(input) {
   const code = input.code;
   if (key === '=' || key === '+' || key === ';' || code === 'NumpadAdd') return 'in';
   if (key === '-' || code === 'NumpadSubtract') return 'out';
-  if (key === '0' || code === 'Numpad0') return 'reset';
+  if ((key === '0' && !input.shift) || code === 'Numpad0') return 'reset';   // 0.13.0 ED-7（決めたこと 27）: Ctrl+Shift+0 は要約の行の「テキスト」の近道（拡大を戻さない）
   return null;
 }
 

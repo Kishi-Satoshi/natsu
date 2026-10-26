@@ -111,7 +111,7 @@ async function openReal(pages, o = {}) {
   };
   const returns = {
     meetingTypes: () => lib.typesForView(), memoTypes: () => M.listMemoTypes(),
-    pagesSearch: () => call('pages.list', { q: '' }), pageGet: (id) => call('page.get', { id }),
+    pagesSearch: wrap('pagesSearch', () => call('pages.list', { q: '' })), pageGet: wrap('pageGet', (id) => call('page.get', { id })),
     ...(o.returns || {}),
   };
   for (const [name, f] of Object.entries(ED4_CMDS)) returns[name] = wrap(name, (...a) => call(...f(...a)));
@@ -926,4 +926,156 @@ test('ED-6・EQ22 (a): ⠿ のメニューを開いている間に onPageOpen(\'
     assert.strictEqual(l.document.querySelectorAll('.blockmenu').length, 0, 'ページを替えてもメニューが残った');
     assert.deepStrictEqual(l.errors.map(fmt), []);
   } finally { l.done(); }
+});
+
+// ---------------------------------------------------------------- ED-7（E5・E11・決めたこと 5・6・26〜29。F44・F45・F51）
+test('ED-7: 近道の写し（app.html の keyAction）は src/blockEdit.js と同じ答え（数字は ev.code・JIS の Shift+数字・変換中は null）', () => {
+  const src = HTML.slice(HTML.indexOf('  const DIGIT_TURN_VIEW = '), HTML.indexOf('\n', HTML.indexOf('  const DIGIT_TURN_VIEW = ')) + 1) + fnFromApp('keyAction');
+  const app = new Function(`${src}\nreturn { keyAction };`)();   // eslint-disable-line no-new-func
+  const evs = [];
+  for (const code of ['Digit0', 'Digit1', 'Digit2', 'Digit3', 'Digit4', 'Digit5', 'Digit6', 'Digit7', 'Digit8', 'KeyD', 'KeyP', 'KeyL', 'KeyW', 'KeyN', 'KeyV', 'Slash', 'Enter', 'NumpadEnter', 'ArrowUp', 'ArrowDown', '']) {
+    for (const [ctrlKey, shiftKey, altKey] of [[true, false, false], [true, true, false], [false, true, false], [true, false, true], [true, true, true]]) {
+      evs.push({ code, key: code === 'Digit1' && shiftKey ? '!' : code.replace(/^(Digit|Key)/, '').toLowerCase(), ctrlKey, shiftKey, altKey, metaKey: false });
+    }
+  }
+  evs.push({ code: 'KeyD', key: 'd', ctrlKey: true, isComposing: true }, { code: 'KeyD', key: 'd', ctrlKey: true, keyCode: 229 }, { code: '', key: '/', ctrlKey: true }, { code: '', key: 'Enter', ctrlKey: true }, null);
+  for (const ev of evs) assert.strictEqual(app.keyAction(ev), E.keyAction(ev), JSON.stringify(ev));
+});
+
+const TYPES = () => [{ id: 't1', type: 'heading', level: 1, text: '全体の結論' }, { id: 't3', type: 'heading', level: 3, text: '細かい決めごと' }, { id: 't2', type: 'heading', text: '前の版の見出し' },
+  { id: 'n1', type: 'numbered', text: '一つ目' }, { id: 'n2', type: 'numbered', text: '二つ目' }, { id: 'x1', type: 'bullet', text: '間の箇条書き' }, { id: 'n3', type: 'numbered', text: '数え直す' },
+  { id: 'q1', type: 'quote', text: '引いた言葉' }, { id: 'v1', type: 'divider', text: '' }, { id: 'c1', type: 'callout', text: '目立たせたい一言', icon: '💡' },
+  { id: 'z1', type: 'video', text: '知らない型の行' }];
+
+test('ED-7・F51: 見出し1〜3（段の無い見出しは段 2）・番号付き（数えた番号）・引用・区切り線（文の欄が無い）・コールアウト（💡）が描かれ、知らない型はテキストの見た目で文が出て直せる', T, async () => {
+  const l = await openReal({ pa1: TYPES() });
+  try {
+    assert.deepStrictEqual(rowsOf(l).map((e) => e.dataset.id), TYPES().map((b) => b.id));
+    assert.ok(rowOf(l, 't1').classList.contains('heading') && rowOf(l, 't1').classList.contains('h1'));
+    assert.ok(rowOf(l, 't3').classList.contains('h3'));
+    assert.ok(rowOf(l, 't2').classList.contains('h2'), '段の無い見出しが段 2 でない');
+    assert.deepStrictEqual(['n1', 'n2', 'n3'].map((id) => rowOf(l, id).querySelector('.num').textContent), ['1.', '2.', '1.']);
+    assert.ok(rowOf(l, 'q1').classList.contains('quote'));
+    const v = txtOf(l, 'v1');
+    assert.strictEqual(v.contentEditable, 'false');
+    assert.strictEqual(v.textContent, '');
+    assert.strictEqual(v.getAttribute('role'), 'separator');
+    assert.strictEqual(v.tabIndex, 0, '区切り線にフォーカスできない');
+    assert.strictEqual(rowOf(l, 'c1').querySelector('.icon').textContent, '💡');
+    const z = rowOf(l, 'z1');
+    assert.ok(z.classList.contains('paragraph'), '知らない型がテキストの見た目でない');
+    assert.strictEqual(z.querySelector('.txt').textContent, '知らない型の行');
+    assert.strictEqual(z.querySelector('.txt').contentEditable, 'true');
+    const t = typeIn(l, 'z1', '知らない型の行を直した', 3);
+    t.dispatchEvent({ type: 'blur' });
+    await l.drain();
+    assert.deepStrictEqual(sent(l), [['blockUpdate', 'pa1', 'z1', { text: '知らない型の行を直した' }]]);
+    assert.strictEqual(l.page().blocks[10].type, 'video', '知らない型が変わった');
+    // 区切り線で Enter → 下にテキストの行
+    l.calls.length = 0;
+    v.focus();
+    l.key({ key: 'Enter' }, v);
+    await l.drain();
+    assert.deepStrictEqual(sent(l), [['blockInsert', 'pa1', 'v1', 'paragraph']]);
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+test('ED-7: Ctrl+Shift+1（code Digit1・key \'!\'）で見出し1、Ctrl+Shift+0 でテキスト（EQ12）、Ctrl+Shift+4 で ToDo。どれも blockTurnInto の1回', T, async () => {
+  const l = await openReal({ pa1: BASE() });
+  try {
+    for (const [id, code, key, want] of [['p1', 'Digit1', '!', ['heading', 1]], ['b1', 'Digit0', '', ['paragraph']], ['e1', 'Digit4', '$', ['todo']]]) {
+      l.calls.length = 0;
+      const t = typeIn(l, id, txtOf(l, id).textContent, 0);
+      const ev = l.key({ key, code, ctrlKey: true, shiftKey: true }, t);
+      await l.drain();
+      assert.strictEqual(ev.defaultPrevented, true, code);
+      assert.deepStrictEqual(sent(l), [['blockTurnInto', 'pa1', id, ...want]], code);
+    }
+    assert.deepStrictEqual(l.page().blocks.map((b) => b.type), ['heading', 'paragraph', 'heading', 'todo']);
+    assert.deepStrictEqual(recentSaves(l), [], '近道で最近使ったものを覚えた');
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+test('ED-7: Ctrl+D → blockDuplicate、Ctrl+Shift+↑ → blockMove（afterId は2つ上の行）、Ctrl+Shift+↓ → 1つ下の行の後ろ、Ctrl+Enter（ToDo）→ blockUpdate の checked の1回（ToDo でなければ何もしない）', T, async () => {
+  const blocks = [...BASE(), { id: 'd1', type: 'todo', text: '見積を送る', checked: false, cites: [] }];
+  const l = await openReal({ pa1: blocks });
+  try {
+    // 画面の並びは h1 b1 p1 e1 d1（保存と同じ）
+    let t = typeIn(l, 'p1', 'あいうえお', 1);
+    l.key({ key: 'd', code: 'KeyD', ctrlKey: true }, t);
+    await l.drain();
+    assert.deepStrictEqual(sent(l), [['blockDuplicate', 'pa1', 'p1']]);
+    const dup = rowsOf(l).map((e) => e.dataset.id)[3];
+    assert.deepStrictEqual(rowsOf(l).map((e) => e.dataset.id), ['h1', 'b1', 'p1', dup, 'e1', 'd1']);
+    l.calls.length = 0;
+    // e1 の Ctrl+Shift+↑: 1つ上（写し）の前＝2つ上（p1）の後ろ
+    t = typeIn(l, 'e1', '', 0);
+    l.key({ key: 'ArrowUp', code: 'ArrowUp', ctrlKey: true, shiftKey: true }, t);
+    await l.drain();
+    assert.deepStrictEqual(sent(l), [['blockMove', 'pa1', 'e1', { afterId: 'p1' }]]);
+    assert.deepStrictEqual(rowsOf(l).map((e) => e.dataset.id), ['h1', 'b1', 'p1', 'e1', dup, 'd1']);
+    assert.strictEqual(l.document.activeElement, txtOf(l, 'e1'));
+    l.calls.length = 0;
+    // b1 の Ctrl+Shift+↓: 1つ下（p1）の後ろ
+    t = typeIn(l, 'b1', '来週に出す', 2);
+    l.key({ key: 'ArrowDown', code: 'ArrowDown', ctrlKey: true, shiftKey: true }, t);
+    await l.drain();
+    assert.deepStrictEqual(sent(l), [['blockMove', 'pa1', 'b1', { afterId: 'p1' }]]);
+    assert.deepStrictEqual(rowsOf(l).map((e) => e.dataset.id), ['h1', 'p1', 'b1', 'e1', dup, 'd1']);
+    assert.strictEqual(l.document.activeElement, txtOf(l, 'b1'));
+    l.calls.length = 0;
+    t = typeIn(l, 'd1', '見積を送る', 2);
+    l.key({ key: 'Enter', code: 'Enter', ctrlKey: true }, t);
+    await l.drain();
+    assert.deepStrictEqual(sent(l), [['blockUpdate', 'pa1', 'd1', { checked: true }]]);
+    assert.ok(rowOf(l, 'd1').classList.contains('done'));
+    assert.strictEqual(rowOf(l, 'd1').querySelector('input').checked, true);
+    l.calls.length = 0;
+    l.key({ key: 'Enter', code: 'Enter', ctrlKey: true }, typeIn(l, 'p1', txtOf(l, 'p1').textContent, 0));
+    await l.drain();
+    assert.deepStrictEqual(sent(l), []);
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+test('ED-7・F45: 文字起こしの行・メモの欄・題名・会議の種類の行・録音の前のページの種類の行とメモ欄で Ctrl+D・Ctrl+Shift+1・Ctrl+/ を押しても何も呼ばれない', T, async () => {
+  let status = { active: false };
+  const l = await openReal({ pa1: BASE() }, {
+    returns: { meetingStatus: () => status, meetingPrepare: () => { status = { active: false, prep: { memo: '', meetingType: null } }; return { ok: true }; } },
+  });
+  try {
+    const keys = [{ key: 'd', code: 'KeyD', ctrlKey: true }, { key: '!', code: 'Digit1', ctrlKey: true, shiftKey: true }, { key: '/', code: 'Slash', ctrlKey: true }];
+    const where = () => [$(l, 'pTitle'), $(l, 'pType'), $(l, 'pMemo').querySelector('textarea'), ...$(l, 'pScript').querySelectorAll('.seg .txt')].filter(Boolean);
+    const page = where();
+    assert.ok(page.length >= 4, `場所が足りない: ${page.length}`);
+    for (const el of page) for (const k of keys) l.key(k, el);
+    await $(l, 'mtToggleBtn').onclick();
+    await l.drain();
+    const ready = [$(l, 'pType'), $(l, 'pMemo').querySelector('textarea')].filter(Boolean);
+    assert.strictEqual(ready.length, 2);
+    for (const el of ready) for (const k of keys) l.key(k, el);
+    await l.drain();
+    assert.deepStrictEqual(sent(l).filter((c) => c[0] !== 'blockUpdate'), []);
+    assert.deepStrictEqual(l.document.querySelectorAll('.blockmenu').length, 0);
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+test('ED-7・F51（R14）: 段 2 の見出しの CSS は前の版の .blk.heading のまま（.h2 の規則は無い）。新しい型の色はトークン（明暗の両方）だけ', () => {
+  const S = require('./helpers/simcss');
+  const { parseHTML } = require('./helpers/simdom');
+  const rules = S.parse(parseHTML(HTML).root.querySelectorAll('style').map((s) => s._raw).join('\n'));
+  assert.deepStrictEqual(S.declsFor(rules, '.blk.heading .txt', { at: '' }), { 'font-size': '20px', 'font-weight': '600', 'line-height': '26px' });
+  assert.deepStrictEqual(S.declsFor(rules, '.blk.heading', { at: '' }), { 'margin-top': '22px' });
+  assert.ok(!rules.some((r) => /\.h2\b/.test(r.sel)), '段 2 の見出しに規則がある（前の版の見出しの見た目が変わる）');
+  const sels = ['.blk.heading.h1 .txt', '.blk.heading.h3 .txt', '.blk .num', '.blk.quote .txt', '.blk.divider .txt', '.blk.divider .txt:focus', '.blk.callout', '.blk .plus', '.slashmenu', '.blockmenu', '.blockmenu .mitem.off'];
+  for (const sel of sels) {
+    const d = rules.filter((r) => r.sel.split(',').map((x) => x.trim()).includes(sel));
+    assert.ok(d.length, `${sel} の規則が無い`);
+    for (const r of d) for (const [k, v] of Object.entries(r.decls)) {
+      if (/color|background|border|outline|shadow/.test(k)) assert.ok(!/#[0-9a-f]{3,8}\b|rgba?\(/i.test(v), `${sel} の ${k} が固定の色: ${v}`);
+    }
+  }
 });

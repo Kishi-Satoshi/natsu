@@ -536,6 +536,19 @@
   .blk.heading .txt { font-size: 20px; font-weight: 600; line-height: 26px; }
   .blk.heading .txt::before { content: ''; }
   .blk.todo input[type=checkbox] { width: 16px; height: 16px; margin-top: 4px; accent-color: var(--accent); flex: none; }
+  /* 0.13.0 ED-7（E5・決めたこと 5）: 見出しの段。段 2（段の無い古い見出しも）は上の .blk.heading のまま1画素も変えない。段 1 は大きく、段 3 は小さく */
+  .blk.heading.h1 { margin-top: 28px; }
+  .blk.heading.h1 .txt { font-size: 26px; font-weight: 700; line-height: 34px; }
+  .blk.heading.h3 { margin-top: 14px; }
+  .blk.heading.h3 .txt { font-size: 17px; font-weight: 600; line-height: 24px; }
+  .blk.heading.h1:first-child, .blk.heading.h3:first-child { margin-top: 6px; }
+  /* 番号付き（数えた番号）・引用（左の線）・区切り線（線だけ。フォーカスで地色）・コールアウト（地色と 💡） */
+  .blk .num { flex: none; min-width: 24px; text-align: right; line-height: 24px; color: var(--text); user-select: none; font-variant-numeric: tabular-nums; }
+  .blk.quote .txt { border-left: 3px solid var(--text); border-radius: 0; padding-left: 12px; }
+  .blk.divider .txt { height: 0; min-height: 0; margin: 11px 0 12px; padding: 0; border-top: 1px solid var(--line); border-radius: 0; background: transparent; }
+  .blk.divider .txt:focus { outline: 2px solid var(--accent); outline-offset: 4px; }
+  .blk.callout { background: var(--hover); border-radius: 6px; padding: 8px 10px; margin: 2px 0; }
+  .blk.callout .icon { flex: none; line-height: 24px; user-select: none; }
   .blk.todo.done .txt { color: var(--muted); text-decoration: line-through; }
   .blk .del { opacity: 0; background: none; border: none; color: var(--muted); cursor: pointer;
     font-size: 15px; line-height: 1; padding: 4px 6px; flex: none; }
@@ -3173,6 +3186,23 @@
     if (!hit) return null;
     return hit[2] ? { type: hit[1], level: hit[2], strip: raw.length } : { type: hit[1], strip: raw.length };
   }
+  // 0.13.0 ED-7（E11・EQ12・決めたこと 27〜29）: 近道（src/blockEdit.js の keyAction の写し。数字は ev.code で見る: JIS の Shift+数字は key が記号）
+  const DIGIT_TURN_VIEW = { Digit0: 'text', Digit1: 'h1', Digit2: 'h2', Digit3: 'h3', Digit4: 'todo', Digit5: 'bullet', Digit6: 'numbered' };
+  function keyAction(ev) {
+    if (!ev || ev.isComposing || ev.keyCode === 229) return null;
+    if (!ev.ctrlKey || ev.altKey || ev.metaKey) return null;
+    const code = String(ev.code || '');
+    if (ev.shiftKey) {
+      if (Object.hasOwn(DIGIT_TURN_VIEW, code)) return `turn:${DIGIT_TURN_VIEW[code]}`;
+      if (code === 'ArrowUp' || ev.key === 'ArrowUp') return 'moveUp';
+      if (code === 'ArrowDown' || ev.key === 'ArrowDown') return 'moveDown';
+      return null;
+    }
+    if (code === 'KeyD') return 'duplicate';
+    if (code === 'Enter' || code === 'NumpadEnter' || ev.key === 'Enter') return 'ctrlEnter';
+    if (code === 'Slash' || ev.key === '/') return 'menu';
+    return null;
+  }
   // テキストでない型か（知らない型はテキストの見た目なので偽）
   const TYPED_VIEW = ['heading', 'todo', 'bullet', 'numbered', 'quote', 'divider', 'callout'];
   function isTypedView(b) {
@@ -3209,7 +3239,7 @@
     return out;
   }
   let pendingEdits = 0;   // 分割・結合・変換・足すの答えを待っている数（ED-5 の summaryBusy が読む）
-  const editRows = () => [...$('pNote').querySelectorAll('.blk')].filter((e) => e._txt && e._txt.contentEditable === 'true');
+  const editRows = () => [...$('pNote').querySelectorAll('.blk')].filter((e) => e._txt && e.dataset.locked !== '1');   // 鍵の無い行（区切り線も）
   // 命令を送り、答えのページを今のページに当てる（where(答え) → { focus: 行の ID, caret }）。断られたら知らせ、何も描かない
   async function editAnswer(pid, send, where) {
     pendingEdits += 1;
@@ -3225,7 +3255,7 @@
   }
   // 命令の答えは DB の素のページ（出典の数などは添えていない）。「🔗 出典」の行だけを読み直す
   function refreshEditMeta(pid) {
-    Promise.resolve(window.koeApp.pageGet(pid)).then((g) => {
+    Promise.resolve().then(() => window.koeApp.pageGet(pid)).then((g) => {
       if (!g || !g.page || pid !== curId || !curPage || pendingEdits) return;
       curPage.citeStat = g.page.citeStat; curPage.actionStat = g.page.actionStat;
       renderProps();
@@ -3272,6 +3302,7 @@
       }
     }
     for (const e of [...box.querySelectorAll('.blk')]) if (byId.has(e.dataset.id)) e._b = byId.get(e.dataset.id);
+    renumberRows();
     if (where) focusRow(where.focus, where.caret);
   }
   function focusRow(id, caret) {
@@ -3345,7 +3376,8 @@
   function stepRow(el, dir) {
     const txt = el._txt;
     const r = caretRange(txt);
-    if (!r || r[0] !== r[1] || r[0] !== (dir < 0 ? 0 : txt.textContent.length)) return false;
+    const line = el._b && el._b.type === 'divider';   // 区切り線は文を持たないので、いつも隣へ
+    if (!line && (!r || r[0] !== r[1] || r[0] !== (dir < 0 ? 0 : txt.textContent.length))) return false;
     const rows = editRows();
     const to = rows[rows.indexOf(el) + dir];
     if (!to) return false;
@@ -3371,8 +3403,9 @@
     txt.onkeydown = (ev) => {
       if (imeEnter(ev)) return;   // 変換確定の Enter / 変換中の Backspace は編集操作にしない
       const mod = ev.ctrlKey || ev.altKey || ev.metaKey;
-      // 0.13.0 ED-6（決めたこと 24）: Ctrl+/ は今の行の ⠿ のメニュー
-      if (ev.ctrlKey && !ev.shiftKey && !ev.altKey && !ev.metaKey && (ev.code === 'Slash' || ev.key === '/')) { ev.preventDefault(); slashClose(); blockMenuOpen(el); return; }
+      // 0.13.0 ED-6・ED-7（決めたこと 24・26〜29）: 近道は要約の欄の行の中だけ（Ctrl+/ は今の行の ⠿ のメニュー）
+      const act = keyAction(ev);
+      if (act) { ev.preventDefault(); slashClose(); rowShortcut(el, act); return; }
       // / メニューが開いている間: ↑↓ で選び、Enter で決め、Esc で閉じる（/ と語は残す。録音中でもメニューだけ: RF9・決めたこと 30）
       if (slash && slash.el === el) {
         if ((ev.key === 'ArrowDown' || ev.key === 'ArrowUp') && !mod) { ev.preventDefault(); slashMove(ev.key === 'ArrowDown' ? 1 : -1); return; }
@@ -3691,6 +3724,36 @@
     const where = near ? { focus: near.dataset.id, caret: near === rows[i - 1] ? near._txt.textContent.length : 0 } : null;
     return editAnswer(pid, () => window.koeApp.blockRemove(pid, b.id), () => where);
   }
+  // 行の近道（決めたこと 27〜29）: 型の変換・複製・上下へ動かす（ID で: 決めたこと 18）・ToDo のチェック・⠿ のメニュー
+  async function rowShortcut(el, act) {
+    const pid = curId; const b = el._b; const txt = el._txt;
+    const caret = (caretRange(txt) || [txt.textContent.length])[0];
+    if (act === 'menu') { blockMenuOpen(el); return null; }
+    if (act.startsWith('turn:')) {
+      const row = SLASH_ROWS.find((x) => x.id === act.slice(5));
+      if (!row || (b.type === row.key && (row.key !== 'heading' || headingLevel(b) === row.level))) return null;
+      return turnRow(el, row.key, row.level, caret);
+    }
+    if (act === 'ctrlEnter') {
+      if (b.type !== 'todo') return null;   // トグルの開閉は 0.13.1
+      return editAnswer(pid, () => window.koeApp.blockUpdate(pid, b.id, { checked: !b.checked }), () => ({ focus: b.id, caret }));
+    }
+    try { await txt._commit(pid); } catch (_) { /* 保存の失敗は _commit の答えで知らせる */ }
+    if (act === 'duplicate') return editAnswer(pid, () => window.koeApp.blockDuplicate(pid, b.id), (x) => ({ focus: x.blockId, caret }));
+    const rows = editRows();
+    const i = rows.indexOf(el);
+    let afterId = null;
+    if (act === 'moveUp' && i > 0) afterId = i >= 2 ? rows[i - 2].dataset.id : '';   // 1つ上の行の前（＝2つ上の行の後ろ）
+    if (act === 'moveDown' && i >= 0 && i < rows.length - 1) afterId = rows[i + 1].dataset.id;   // 1つ下の行の後ろ
+    if (afterId === null) return null;
+    return editAnswer(pid, () => window.koeApp.blockMove(pid, b.id, { afterId }), () => ({ focus: b.id, caret }));
+  }
+  // 番号付きの番号（描くときに数える: 画面の並びで続いた番号付き。間に別の型が入れば 1 から）。行を足し引きした後も数え直す
+  function renumberRows() {
+    const rows = [...$('pNote').querySelectorAll('.blk')];
+    const nums = numberLabels(rows.map((e) => e._b).filter(Boolean));
+    for (const e of rows) { const n = e.querySelector('.num'); if (n && e._b) n.textContent = nums.get(e._b.id) || '1.'; }
+  }
   const blockRows = {
     // 1つの行の要素を作る（文の欄と受け口は1回だけ）。lock は summaryLockView の符号（'' は鍵なし）
     make(b, lock) {
@@ -3708,7 +3771,14 @@
     dress(el, b, lock) {
       const txt = el._txt;
       el._b = b;
-      el.className = `blk ${b.type}` + (b.type === 'todo' && b.checked ? ' done' : '');
+      // 0.13.0 ED-7（E5・決めたこと 5・6）: 見出しは段の class（段 2 は今の見た目のまま）。知らない型はテキストの見た目（文は出して直せる）
+      const vt = b.type === 'paragraph' || TYPED_VIEW.includes(b.type) ? b.type : 'paragraph';
+      el.className = `blk ${vt}` + (vt === 'heading' ? ` h${headingLevel(b)}` : '') + (b.type === 'todo' && b.checked ? ' done' : '');
+      if (!lock) {   // 区切り線は文の欄を持たない（フォーカスはできる）
+        txt.contentEditable = vt === 'divider' ? 'false' : 'true';
+        if (vt === 'divider') { txt.tabIndex = 0; txt.setAttribute('role', 'separator'); txt.setAttribute('aria-label', '区切り線'); txt.textContent = ''; }
+        else { txt.removeAttribute('tabindex'); txt.removeAttribute('role'); txt.removeAttribute('aria-label'); }
+      }
       el.dataset.id = b.id;
       if (lock) el.dataset.locked = '1';
       for (const c of [...el.children]) if (c !== txt) el.removeChild(c);
@@ -3755,6 +3825,12 @@
       } else if (b.type === 'bullet') {
         const d = document.createElement('span'); d.className = 'bullet'; d.textContent = '•';
         el.insertBefore(d, txt);
+      } else if (b.type === 'numbered') {
+        const n = document.createElement('span'); n.className = 'num'; n.textContent = '1.';   // 数えた番号は renumberRows が入れる
+        el.insertBefore(n, txt);
+      } else if (b.type === 'callout') {
+        const ic = document.createElement('span'); ic.className = 'icon'; ic.textContent = CALLOUT_ICON;   // EQ15 (a): 絵文字は 💡 だけ
+        el.insertBefore(ic, txt);
       }
 
       if (lock) {
@@ -3847,6 +3923,7 @@
     for (const b of orderForView(curPage.blocks).map((i) => curPage.blocks[i])) {
       box.appendChild(blockRows.make(b, lock));
     }
+    renumberRows();
     renderQualityCard(box);   // 0.11.0 V-2: 点のカードは要約の欄の最後（決めたこと 28）
   }
 

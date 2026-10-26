@@ -127,3 +127,12 @@ test('ED-5・F52: applyUi も slashRecent を同じく照らす。ほかの項�
   assert.ok(!('extra' in W.normalize(good({ extra: 1 }), D1).state), '知らないトップの鍵が残った');
   assert.ok(!('extra' in W.applyUi(good(), { extra: 1 })), '画面から来た知らない鍵が残った');
 });
+
+test('ED-7・F45（決めたこと 27）: zoomDir は Ctrl+Shift+0 で null（要約の行の「テキスト」の近道）。Ctrl+0 とテンキーの 0 は reset、JIS の Ctrl+Shift+;（key \'+\'）は in のまま', () => {
+  const k = (key, o = {}) => W.zoomDir({ type: 'keyDown', key, code: o.code || '', control: true, meta: false, alt: false, shift: Boolean(o.shift), ...o });
+  assert.strictEqual(k('0', { shift: true, code: 'Digit0' }), null, 'Ctrl+Shift+0 で拡大を戻した');
+  assert.strictEqual(k('0', { code: 'Digit0' }), 'reset');
+  assert.strictEqual(k('0', { code: 'Numpad0' }), 'reset');
+  assert.strictEqual(k('+', { shift: true, code: 'Semicolon' }), 'in');
+  assert.strictEqual(k('=', { shift: true }), 'in');
+});
