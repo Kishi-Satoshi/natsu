@@ -2169,6 +2169,9 @@ process.on('exit', () => {
   // 終わるときは DB の客を閉じてから（子の close でチェックポイントして natsu.db を離す）。結果はもう書いてある
   const exitClean = async (code) => {
     try { if (dbClient) await dbClient.close({ timeoutMs: 2000 }); } catch (_) { /* 閉じられなくても終える */ }
+    // 0.13.0（ED-7 の全体のテストの赤で見つけた: 0.12.0 の SP-3a・F25 の出力の JSON が 120155 文字目で切れた）: 管（pipe）の標準出力は書き切れない分を
+    // 後で書くので、書き終わる前に process.exit すると、親が混んで読むのが遅いときに出力が切れる。先に書いた分が出たのを待ってから終える
+    await new Promise((r) => process.stdout.write('', () => r()));
     process.exit(code);
   };
   // 第2a1回 M-3: 下書きを書くたび・消すたびを trace に残す（main は store.writeDraft・store.clearDraft を呼ぶたびに引く）。
