@@ -556,6 +556,14 @@
   .slashmenu .sopt[aria-selected="true"] { background: var(--hover); }
   .slashmenu .sopt .smd { margin-left: auto; color: var(--muted); font-size: 12px; }
   .slashmenu .snone { color: var(--muted); font-size: 13px; padding: 6px 10px; }
+  /* 0.13.0 ED-6（E1・決めたこと 24）: ⠿ のメニュー（「···」のメニューと同じ見た目）。変換の中は右に並べる */
+  .blockmenu { position: absolute; z-index: 6; min-width: 140px; padding: 4px; display: flex; flex-direction: column;
+    background: var(--bg); border: 1px solid var(--line); border-radius: 6px; box-shadow: var(--shadow); }
+  .blockmenu.sub { left: 100%; top: 0; margin-left: 4px; }
+  .blockmenu .mitem { background: transparent; border: none; color: var(--text); font: inherit; font-size: 13px; text-align: left;
+    padding: 6px 10px; border-radius: 4px; cursor: pointer; }
+  .blockmenu .mitem:hover, .blockmenu .mitem:focus { background: var(--hover); outline: none; }
+  .blockmenu .mitem.off { color: var(--muted); cursor: default; }
 
   /* 会議タイプ */
   /* 要約タイプは灰色の札の形（第1b2回 P-2。appearance は変えない） */
@@ -3004,7 +3012,8 @@
     }
   }
 
-  // ---------------- 画面の並び（0.11.0 V-2。D48・F26・決めたこと 27）。memoTypes の VIEW_HEADS・orderForView・savedIndexForDrop の写し（repo が同じ表で照らす）。
+  // ---------------- 画面の並び（0.11.0 V-2。D48・F26・決めたこと 27）。memoTypes の VIEW_HEADS・orderForView の写し（repo が同じ表で照らす）。
+  // 0.13.0 ED-6: 落とした所は「画面で上に見えている行の後ろ」（afterId）で送るので、savedIndexForDrop の写しは外した
   // 並べ替えは画面だけ（保存の順は変えない）。描き（renderBlocks）と［コピー］はこの並び
   const VIEW_HEADS = {
     closing: ['決定事項', '持ち越し', 'ToDo（誰が・何を・いつまでに）'],
@@ -3069,12 +3078,6 @@
       if (b.type === 'callout') return `> ${CALLOUT_ICON} ${t}`;
       return t;
     }).join('\n');
-  }
-  function savedIndexForDrop(order, viewIdx) {
-    const o = Array.isArray(order) ? order : [];
-    if (!o.length) return 0;
-    const i = Math.max(0, Math.trunc(Number(viewIdx) || 0));
-    return i < o.length ? o[i] : o[o.length - 1] + 1;
   }
   // 打ち合わせの質の写しの行（quality.qualityLines の写し。repo が照らす）。view は main の qualityView（照らした写し）だけ
   function qualityLinesView(view) {
@@ -3368,6 +3371,8 @@
     txt.onkeydown = (ev) => {
       if (imeEnter(ev)) return;   // 変換確定の Enter / 変換中の Backspace は編集操作にしない
       const mod = ev.ctrlKey || ev.altKey || ev.metaKey;
+      // 0.13.0 ED-6（決めたこと 24）: Ctrl+/ は今の行の ⠿ のメニュー
+      if (ev.ctrlKey && !ev.shiftKey && !ev.altKey && !ev.metaKey && (ev.code === 'Slash' || ev.key === '/')) { ev.preventDefault(); slashClose(); blockMenuOpen(el); return; }
       // / メニューが開いている間: ↑↓ で選び、Enter で決め、Esc で閉じる（/ と語は残す。録音中でもメニューだけ: RF9・決めたこと 30）
       if (slash && slash.el === el) {
         if ((ev.key === 'ArrowDown' || ev.key === 'ArrowUp') && !mod) { ev.preventDefault(); slashMove(ev.key === 'ArrowDown' ? 1 : -1); return; }
@@ -3565,7 +3570,7 @@
   // 要約を書き直している途中か（EQ22 (a)・決めたこと 42）: 要約の欄の行の文にフォーカスがある・メニューが開いている・命令の答えを待っている
   function summaryBusy() {
     if (!curPage) return false;
-    if (pendingEdits > 0 || slash) return true;
+    if (pendingEdits > 0 || slash || blockMenu) return true;
     const a = document.activeElement;
     if (!a || !a.classList || !a.classList.contains('txt')) return false;
     const box = $('pNote');
@@ -3582,6 +3587,109 @@
       else openTabs.push({ key });
     }
     renderTabs(); saveTabs();
+  }
+  // ---------------- 0.13.0 ED-6（E1・決めたこと 24・EQ16 (a)）: ⠿ のメニュー（［削除］［複製］［変換 ▸］）。キーは「···」のメニュー（#pMenu）と同じ
+  // （↑↓・Home・End・Enter・Esc で ⠿ へ戻る・Tab で閉じる）。変換の中は型の表の名前で、文のある行では区切り線を選べない
+  let blockMenu = null;   // 開いているとき { el: 行, box: 浮いた箱, sub: 変換の箱か null }
+  function menuItems(list) { return [...list.querySelectorAll('.mitem')].filter((x) => x.parentNode === list); }
+  const isIn = (n, root) => { for (let x = n; x; x = x.parentNode) if (x === root) return true; return false; };
+  function menuStep(list, ev) {
+    const items = menuItems(list);
+    const i = items.indexOf(document.activeElement);
+    const j = ev.key === 'ArrowDown' ? (i + 1) % items.length : ev.key === 'ArrowUp' ? (i + items.length - 1) % items.length
+      : ev.key === 'Home' ? 0 : ev.key === 'End' ? items.length - 1 : -1;
+    if (j < 0) return false;
+    ev.preventDefault();
+    items[j].focus();
+    return true;
+  }
+  function menuItem(list, label, run, o = {}) {
+    const b = document.createElement('button');
+    b.type = 'button'; b.className = 'mitem'; b.setAttribute('role', 'menuitem'); b.textContent = label;
+    b.tabIndex = -1;
+    if (o.key) b.dataset.key = o.key;
+    if (o.sub) b.setAttribute('aria-haspopup', 'menu');
+    if (o.off) { b.setAttribute('aria-disabled', 'true'); b.classList.add('off'); b.title = o.off; }
+    b.onclick = () => { if (!o.off) run(); };
+    list.appendChild(b);
+    return b;
+  }
+  function blockMenuOpen(el) {
+    blockMenuClose();
+    if (!el || !el._b || !el._txt || el._txt.contentEditable !== 'true') return;
+    const box = document.createElement('div');
+    box.className = 'blockmenu'; box.setAttribute('role', 'menu'); box.setAttribute('aria-label', 'ブロックのメニュー');
+    blockMenu = { el, box, sub: null };
+    menuItem(box, '削除', () => blockMenuDo('remove'));
+    menuItem(box, '複製', () => blockMenuDo('duplicate'));
+    menuItem(box, '変換 ▸', () => blockMenuSub(true), { sub: true });
+    box.onkeydown = (ev) => {
+      if (imeEnter(ev)) return;
+      const m = blockMenu;
+      if (!m) return;
+      const list = m.sub && isIn(document.activeElement, m.sub) ? m.sub : box;
+      if (menuStep(list, ev)) return;
+      if (ev.key === 'Escape') {
+        ev.preventDefault();
+        if (list === m.sub) { blockMenuSub(false); return; }
+        blockMenuClose(true);
+      } else if (ev.key === 'Tab') blockMenuClose();
+      else if (ev.key === 'ArrowRight' && list === box && document.activeElement === menuItems(box)[2]) { ev.preventDefault(); blockMenuSub(true); }
+      else if (ev.key === 'ArrowLeft' && list === m.sub) { ev.preventDefault(); blockMenuSub(false); }
+      else if ((ev.key === 'Enter' || ev.key === ' ') && document.activeElement && document.activeElement.classList.contains('mitem')) { ev.preventDefault(); document.activeElement.onclick(); }
+    };
+    // 外を押したら閉じる（メニューの中へ移るフォーカスは残す）
+    box.addEventListener('focusout', () => setTimeout(() => { if (blockMenu && blockMenu.box === box && !isIn(document.activeElement, box)) blockMenuClose(); }, 0));
+    const grip = el.querySelector('.grip');
+    if (grip) grip.setAttribute('aria-expanded', 'true');
+    box.style.top = `${(el.offsetTop || 0) + (el.offsetHeight || 0)}px`;
+    box.style.left = `${el.offsetLeft || 0}px`;
+    $('pNote').appendChild(box);
+    menuItems(box)[0].focus();
+  }
+  // 変換の中（型の表の名前）を開く・閉じる
+  function blockMenuSub(on) {
+    const m = blockMenu;
+    if (!m) return;
+    if (!on) { if (m.sub) { m.sub.remove(); m.sub = null; } menuItems(m.box)[2].setAttribute('aria-expanded', 'false'); menuItems(m.box)[2].focus(); return; }
+    if (!m.sub) {
+      const sub = document.createElement('div');
+      sub.className = 'blockmenu sub'; sub.setAttribute('role', 'menu'); sub.setAttribute('aria-label', '変換');
+      const hasText = m.el._txt.textContent.trim() !== '';
+      for (const r of SLASH_ROWS) {
+        menuItem(sub, r.label, () => blockMenuDo('turn', r), { key: r.id, off: r.key === 'divider' && hasText ? '文のある行は区切り線にできません' : '' });
+      }
+      m.box.appendChild(sub);
+      m.sub = sub;
+    }
+    menuItems(m.box)[2].setAttribute('aria-expanded', 'true');
+    menuItems(m.sub)[0].focus();
+  }
+  function blockMenuClose(back) {
+    const m = blockMenu;
+    if (!m) return;
+    blockMenu = null;
+    if (m.box.parentNode) m.box.parentNode.removeChild(m.box);
+    const grip = m.el.querySelector('.grip');
+    if (grip) { grip.setAttribute('aria-expanded', 'false'); if (back) grip.focus(); }
+  }
+  async function blockMenuDo(what, row) {
+    const m = blockMenu;
+    if (!m) return null;
+    const el = m.el; const b = el._b; const txt = el._txt;
+    blockMenuClose();
+    const pid = curId;
+    if (what === 'turn') return turnRow(el, row.key, row.level, txt.textContent.length);
+    if (what === 'duplicate') {
+      try { await txt._commit(pid); } catch (_) { /* 保存の失敗は _commit の答えで知らせる */ }
+      return editAnswer(pid, () => window.koeApp.blockDuplicate(pid, b.id), (x) => ({ focus: x.blockId, caret: txt.textContent.length }));
+    }
+    // 削除: フォーカスは上の行の終わり（無ければ下の行の頭）へ
+    const rows = editRows();
+    const i = rows.indexOf(el);
+    const near = rows[i - 1] || rows[i + 1] || null;
+    const where = near ? { focus: near.dataset.id, caret: near === rows[i - 1] ? near._txt.textContent.length : 0 } : null;
+    return editAnswer(pid, () => window.koeApp.blockRemove(pid, b.id), () => where);
   }
   const blockRows = {
     // 1つの行の要素を作る（文の欄と受け口は1回だけ）。lock は summaryLockView の符号（'' は鍵なし）
@@ -3608,7 +3716,10 @@
       // 並べ替えハンドル。行全体を draggable にすると本文のテキスト選択と
       // 衝突するので、つまみを押している間だけドラッグできるようにする。
       const grip = document.createElement('span');
-      grip.className = 'grip'; grip.textContent = '⠿'; grip.title = 'ドラッグで並べ替え';
+      grip.className = 'grip'; grip.textContent = '⠿'; grip.title = 'ドラッグで並べ替え・押すとメニュー';
+      // 0.13.0 ED-6（決めたこと 24・25）: 押すと ⠿ のメニュー。メニューの Esc で戻れるようにフォーカスはできる（Tab の並びには入れない）
+      grip.tabIndex = -1; grip.setAttribute('role', 'button'); grip.setAttribute('aria-haspopup', 'menu');
+      if (!lock) grip.onclick = () => blockMenuOpen(el);
       grip.onmousedown = () => { el.draggable = true; };
       grip.onmouseup = () => { el.draggable = false; };
       el.ondragstart = (ev) => {
@@ -3621,6 +3732,7 @@
         dragBlockId = null; clearDropMarks($('pNote'));
       };
       if (!lock) el.insertBefore(grip, txt);
+      el.oncontextmenu = lock ? null : (ev) => { ev.preventDefault(); blockMenuOpen(el); };   // 右クリックでも同じメニュー
       if (!lock) {
         const plus = document.createElement('span');
         plus.className = 'plus'; plus.textContent = '＋'; plus.title = '下に行を足す（/ で型を選べます）';
@@ -3684,7 +3796,7 @@
     },
   };
   function renderBlocks() {
-    slashClose();
+    slashClose(); blockMenuClose();
     const box = $('pNote'); box.textContent = '';
     box.ondragover = (ev) => {
       if (!dragBlockId) return;
@@ -3699,14 +3811,20 @@
     box.ondrop = async (ev) => {
       if (!dragBlockId) return;
       ev.preventDefault();
-      const { idx } = dropIndexAt(box, ev.clientY);
+      const { idx, els } = dropIndexAt(box, ev.clientY);
       const id = dragBlockId; dragBlockId = null;
       clearDropMarks(box);
-      // 0.11.0 V-2（F26）: 落とした所は画面の番号。動かす行を抜いた保存の番号に直して送る（savedIndexForDrop）
-      const from = curPage.blocks.findIndex((x) => x.id === id);
-      const order = orderForView(curPage.blocks).filter((i) => i !== from).map((i) => (i > from ? i - 1 : i));
-      await window.koeApp.blockMove(curId, id, savedIndexForDrop(order, idx));
-      await openPage(curId);
+      // 0.13.0 ED-6（決めたこと 18・F26・F46）: 落とした所の画面で上に見えている行の後ろへ（いちばん上なら頭: ''）。番号でなく行で頼むので、
+      // 0.11.0 の並べ替えて見せる要約でも上の行の節に入る。動かす前に、その行の打った文を保存する（決めたこと 11）
+      const afterId = idx > 0 ? els[idx - 1].dataset.id : '';
+      const pid = curId;
+      const row = [...box.querySelectorAll('.blk')].find((e) => e.dataset.id === id);
+      if (row && row._txt && typeof row._txt._commit === 'function') { try { await row._txt._commit(pid); } catch (_) { /* 保存の失敗は _commit の答えで知らせる */ } }
+      if (ev.altKey) {   // K-21: Alt を押しながら落とすと、その所へ複製（1つの命令）
+        await editAnswer(pid, () => window.koeApp.blockDuplicate(pid, id, afterId), (x) => ({ focus: x.blockId, caret: 0 }));
+        return;
+      }
+      await editAnswer(pid, () => window.koeApp.blockMove(pid, id, { afterId }), null);
     };
     // 0.10.0 LS-2: 鍵の間は欄の頭に一言を出し、要約の欄を読むだけにする（つまみ・削除の × を出さず、文・チェック・担当と期限を直せない）。
     // 鍵の一言が要約待ちの文を含むので、鍵の間は要約の欄の理由（summaryError）を重ねて出さない
@@ -3872,7 +3990,7 @@
   // 混ざらないよう、各 commit は pid を閉じ込めて呼ぶ。
   function flushEdits() {
     const pid = curId;
-    slashClose();   // 0.13.0 ED-5（決めたこと 41）: ページを替える前にメニューを閉じる
+    slashClose(); blockMenuClose();   // 0.13.0 ED-5・ED-6（決めたこと 41）: ページを替える前にメニューを閉じる
     flushSegEdit();
     if (!pid || !curPage) return;
     flushMemo();

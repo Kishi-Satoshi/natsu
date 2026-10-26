@@ -334,7 +334,8 @@ test('0.11.0 V-2（D48・F24）: 要約は「決定事項・持ち越し・ToDo�
   assert.deepStrictEqual(l.errors.map(fmt), []);
 });
 
-test('0.11.0 V-2（F26）: つまみで「持ち越し」の行を型の見出しの節（n1 の前）へ落とすと、blockMove の toIndex は保存の番号', T, async () => {
+// 0.13.0 ED-6（計画 docs/plans/2026-10-24-130.md の「意図して変えるテスト」）で意図して変えた: blockMove は画面の番号でなく { afterId: 画面でその上に見えている行 }
+test('0.11.0 V-2（F26）: つまみで「持ち越し」の行を型の見出しの節（n1 の前）へ落とすと、blockMove の引数は { afterId: 画面でその上に見えている行 }', T, async () => {
   const moves = [];
   const l = await openPage({ meetingType: 'sales', typeAuto: false, blocks: SAVED }, { returns: { blockMove: (...a) => { moves.push(a); return { ok: true }; } } });
   const box = $(l, 'pNote');
@@ -346,8 +347,8 @@ test('0.11.0 V-2（F26）: つまみで「持ち越し」の行を型の見出�
   const n1 = els.findIndex((e) => e.dataset.id === 'n1');
   await box.ondrop({ preventDefault() {}, clientY: n1 * 10 + 2 });
   await l.drain();
-  // 保存の並びから c1 を抜くと n1 は 1 番目。その前に入れる
-  assert.deepStrictEqual(moves, [['pa1', 'c1', 1]]);
+  // 画面で n1 の上に見えている行は h1（型の見出し）。その後ろに入れる
+  assert.deepStrictEqual(moves, [['pa1', 'c1', { afterId: 'h1' }]]);
   assert.deepStrictEqual(l.errors.map(fmt), []);
 });
 

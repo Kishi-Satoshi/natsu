@@ -87,6 +87,8 @@ const ED4_CMDS = {
   blockMerge: (pageId, blockId, text) => ['block.merge', { pageId, blockId, text }],
   blockTurnInto: (pageId, blockId, type, level) => ['block.turnInto', level === undefined ? { pageId, blockId, type } : { pageId, blockId, type, level }],
   blockSetAction: (pageId, blockId, assignee, dueRaw) => ['block.setAction', { pageId, blockId, assignee, dueRaw }],
+  blockDuplicate: (pageId, blockId, afterId) => ['block.duplicate', afterId === undefined ? { pageId, blockId } : { pageId, blockId, afterId }],
+  blockMove: (pageId, blockId, to) => ['block.move', to && typeof to === 'object' ? { pageId, blockId, afterId: to.afterId } : { pageId, blockId, toIndex: to }],
 };
 async function openReal(pages, o = {}) {
   const t = tmpDb();
@@ -126,7 +128,7 @@ async function openReal(pages, o = {}) {
 const rowsOf = (l) => $(l, 'pNote').querySelectorAll('.blk');
 const rowOf = (l, id) => rowsOf(l).find((e) => e.dataset.id === id);
 const txtOf = (l, id) => rowOf(l, id).querySelector('.txt');
-const ED4_CALLS = ['blockSplit', 'blockMerge', 'blockTurnInto', 'blockInsert', 'blockRemove', 'blockUpdate', 'blockMove'];
+const ED4_CALLS = ['blockSplit', 'blockMerge', 'blockTurnInto', 'blockInsert', 'blockRemove', 'blockUpdate', 'blockMove', 'blockDuplicate'];
 const sent = (l) => l.calls.filter((c) => ED4_CALLS.includes(c.method)).map((c) => [c.method, ...c.args]);
 const BASE = (x = '') => [{ id: `h1${x}`, type: 'heading', level: 2, text: '決定事項' }, { id: `b1${x}`, type: 'bullet', text: '来週に出す', cites: ['s2'], citeState: 'linked' },
   { id: `p1${x}`, type: 'paragraph', text: 'あいうえお' }, { id: `e1${x}`, type: 'paragraph', text: '' }];
@@ -739,4 +741,189 @@ test('ED-5（決めたこと 41・R19）: / メニューはページを替える
       assert.deepStrictEqual(l.errors.map(fmt), []);
     } finally { l.done(); }
   }
+});
+
+// ---------------------------------------------------------------- ED-6（E1・決めたこと 18・24・EQ16 (a)。F46）
+const menuOf = (l) => l.document.querySelector('#pNote .blockmenu:not(.sub)') || $(l, 'pNote').querySelectorAll('.blockmenu').find((m) => !m.classList.contains('sub')) || null;
+const subOf = (l) => $(l, 'pNote').querySelectorAll('.blockmenu').find((m) => m.classList.contains('sub')) || null;
+const itemsOf = (m) => (m ? m.querySelectorAll('.mitem').filter((x) => x.parentNode === m) : []);
+const labelsOf = (m) => itemsOf(m).map((x) => x.textContent);
+const press = (l, el, key, o = {}) => l.key({ key, ...o }, el);
+// メニューの中のキー（本物は項目から箱へ泡立つ。偽の DOM は泡立たないので、箱の受け口へ送る。どの項目かは document.activeElement）
+const menuKey = (l, key) => l.key({ key }, menuOf(l));
+
+test('ED-6: ⠿ を押すとメニュー（削除・複製・変換 ▸）で最初の項目にフォーカス。削除 → blockRemove の1回で行が消え、フォーカスは上の行の終わり', T, async () => {
+  const l = await openReal({ pa1: BASE() });
+  try {
+    const grip = rowOf(l, 'p1').querySelector('.grip');
+    assert.strictEqual(grip.title, 'ドラッグで並べ替え・押すとメニュー');
+    grip.dispatchEvent({ type: 'click' });
+    const m = menuOf(l);
+    assert.ok(m, '⠿ でメニューが出ない');
+    assert.strictEqual(m.getAttribute('role'), 'menu');
+    assert.deepStrictEqual(labelsOf(m), ['削除', '複製', '変換 ▸']);
+    assert.ok(itemsOf(m).every((x) => x.getAttribute('role') === 'menuitem'));
+    assert.strictEqual(l.document.activeElement, itemsOf(m)[0]);
+    assert.strictEqual(grip.getAttribute('aria-expanded'), 'true');
+    itemsOf(m)[0].dispatchEvent({ type: 'click' });
+    await l.drain();
+    assert.deepStrictEqual(sent(l), [['blockRemove', 'pa1', 'p1']]);
+    assert.deepStrictEqual(rowsOf(l).map((e) => e.dataset.id), ['h1', 'b1', 'e1']);
+    assert.strictEqual(menuOf(l), null);
+    assert.strictEqual(l.document.activeElement, txtOf(l, 'b1'));
+    assert.deepStrictEqual(l.caret.get(txtOf(l, 'b1')), [5, 5]);
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+test('ED-6: 複製 → 打った文を保存してから blockDuplicate の1回（すぐ下に写し）。右クリックでも同じメニュー（既定のメニューは出さない）', T, async () => {
+  const l = await openReal({ pa1: BASE() });
+  try {
+    typeIn(l, 'b1', '来週の月曜に出す', 2);
+    let prevented = false;
+    rowOf(l, 'b1').dispatchEvent({ type: 'contextmenu', preventDefault() { prevented = true; } });
+    assert.strictEqual(prevented, true);
+    const m = menuOf(l);
+    assert.deepStrictEqual(labelsOf(m), ['削除', '複製', '変換 ▸']);
+    itemsOf(m)[1].dispatchEvent({ type: 'click' });
+    await l.drain();
+    const blocks = l.page().blocks;
+    assert.deepStrictEqual(sent(l), [['blockUpdate', 'pa1', 'b1', { text: '来週の月曜に出す' }], ['blockDuplicate', 'pa1', 'b1']]);
+    assert.deepStrictEqual(blocks.slice(1, 3).map((b) => [b.type, b.text]), [['bullet', '来週の月曜に出す'], ['bullet', '来週の月曜に出す']]);
+    assert.strictEqual(l.document.activeElement, txtOf(l, blocks[2].id));
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+test('ED-6: Ctrl+/ で今の行のメニュー。↓↓ Enter で「変換」の中（型の表の名前）が開き、↓↓ Enter（見出し2）で blockTurnInto の1回。文のある行では区切り線を選べない', T, async () => {
+  const l = await openReal({ pa1: BASE() });
+  try {
+    const t = typeIn(l, 'b1', '来週に出す', 1);
+    const ev = press(l, t, '/', { code: 'Slash', ctrlKey: true });
+    assert.strictEqual(ev.defaultPrevented, true);
+    const m = menuOf(l);
+    assert.ok(m, 'Ctrl+/ でメニューが出ない');
+    menuKey(l, 'ArrowDown'); menuKey(l, 'ArrowDown');
+    assert.strictEqual(l.document.activeElement.textContent, '変換 ▸');
+    menuKey(l, 'Enter');
+    const sub = subOf(l);
+    assert.ok(sub, '変換の中が開かない');
+    assert.deepStrictEqual(labelsOf(sub), E.VERSION_ROWS.map((r) => r.label));
+    const div = itemsOf(sub).find((x) => x.dataset.key === 'divider');
+    assert.strictEqual(div.getAttribute('aria-disabled'), 'true');
+    assert.strictEqual(div.title, '文のある行は区切り線にできません');
+    assert.strictEqual(l.document.activeElement, itemsOf(sub)[0]);
+    menuKey(l, 'ArrowDown'); menuKey(l, 'ArrowDown');
+    assert.strictEqual(l.document.activeElement.dataset.key, 'h2');
+    menuKey(l, 'Enter');
+    await l.drain();
+    assert.deepStrictEqual(sent(l), [['blockTurnInto', 'pa1', 'b1', 'heading', 2]]);
+    assert.strictEqual(menuOf(l), null);
+    assert.ok(rowOf(l, 'b1').classList.contains('heading'));
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+test('ED-6: メニューは ↑↓（回る）・Home・End・Esc（変換の中から戻る・⠿ へ戻る）・Tab（閉じる）。空の行なら区切り線を選べる', T, async () => {
+  const l = await openReal({ pa1: BASE() });
+  try {
+    const grip = rowOf(l, 'e1').querySelector('.grip');
+    grip.dispatchEvent({ type: 'click' });
+    const m = menuOf(l);
+    const it = itemsOf(m);
+    const at = () => it.indexOf(l.document.activeElement);
+    menuKey(l, 'ArrowUp'); assert.strictEqual(at(), 2);
+    menuKey(l, 'ArrowDown'); assert.strictEqual(at(), 0);
+    menuKey(l, 'End'); assert.strictEqual(at(), 2);
+    menuKey(l, 'Home'); assert.strictEqual(at(), 0);
+    menuKey(l, 'End');
+    menuKey(l, 'ArrowRight');
+    const sub = subOf(l);
+    assert.ok(sub);
+    assert.strictEqual(itemsOf(sub).find((x) => x.dataset.key === 'divider').getAttribute('aria-disabled'), null);
+    menuKey(l, 'Escape');
+    assert.strictEqual(subOf(l), null);
+    assert.strictEqual(l.document.activeElement, it[2]);
+    const ev = menuKey(l, 'Escape');
+    assert.strictEqual(ev.defaultPrevented, true);
+    assert.strictEqual(menuOf(l), null);
+    assert.strictEqual(l.document.activeElement, grip, 'Esc で ⠿ へ戻らない');
+    grip.dispatchEvent({ type: 'click' });
+    menuKey(l, 'Tab');
+    assert.strictEqual(menuOf(l), null);
+    await l.drain();
+    assert.deepStrictEqual(sent(l), []);
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+// 0.11.0 の並べ替えて見せる要約（保存の順と画面の順が違う）
+const HB = (id, text) => ({ id, type: 'heading', text });
+const BB = (id, text) => ({ id, type: 'bullet', text, cites: [], citeState: 'manual' });
+const VIEWED = [HB('h1', '課題・要望（N）'), BB('n1', '在庫の管理を楽にしたい'), BB('n2', '発注を早めたい'), HB('h3', '決定事項'), BB('d1', '来月に試す'), HB('h4', '持ち越し'), BB('c1', '価格は次回')];
+function dragTo(l, id, clientY, o = {}) {
+  const box = $(l, 'pNote');
+  const els = box.querySelectorAll('.blk');
+  els.forEach((e, i) => { e.getBoundingClientRect = () => ({ top: i * 10, height: 10, bottom: i * 10 + 10, left: 0, right: 100, width: 100 }); });
+  els.find((e) => e.dataset.id === id).ondragstart({ dataTransfer: { setData() {}, effectAllowed: '' } });
+  return box.ondrop({ preventDefault() {}, clientY, ...o });
+}
+
+test('ED-6・F46: 並べ替えて見せる要約で、持ち越しの行を型の見出しの節の2行目の下へ落とすと、blockMove の引数は { afterId: 画面でその上に見えている行 }。描き直した後も同じ所に出る', T, async () => {
+  const l = await openReal({ pa1: VIEWED });
+  try {
+    const view = () => rowsOf(l).map((e) => e.dataset.id);
+    assert.deepStrictEqual(view(), ['h3', 'd1', 'h4', 'c1', 'h1', 'n1', 'n2']);
+    // c1 を除いた画面の行: h3 d1 h4 h1 n1 n2。n2 の下半分（els の位置 6 の下の方）へ落とす → n2 の後ろ
+    await dragTo(l, 'c1', 6 * 10 + 8);
+    await l.drain();
+    assert.deepStrictEqual(sent(l), [['blockMove', 'pa1', 'c1', { afterId: 'n2' }]]);
+    assert.deepStrictEqual(view(), ['h3', 'd1', 'h4', 'h1', 'n1', 'n2', 'c1'], '描き直した後に別の所へ跳んだ');
+    assert.deepStrictEqual(l.page().blocks.map((b) => b.id), ['h1', 'n1', 'n2', 'c1', 'h3', 'd1', 'h4']);
+    // 型の見出しの節の1行目と2行目の間（n2 の上半分）へ d1 を落とす → n1 の後ろ
+    l.calls.length = 0;
+    await dragTo(l, 'd1', 5 * 10 + 2);
+    await l.drain();
+    assert.deepStrictEqual(sent(l), [['blockMove', 'pa1', 'd1', { afterId: 'n1' }]]);
+    assert.deepStrictEqual(view(), ['h3', 'h4', 'h1', 'n1', 'd1', 'n2', 'c1']);
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+test('ED-6: いちばん上へ落とすと afterId は \'\'。Alt を押しながら落とすと複製の命令1回（afterId つき。動かさない）', T, async () => {
+  const l = await openReal({ pa1: BASE() });
+  try {
+    await dragTo(l, 'p1', 1);
+    await l.drain();
+    assert.deepStrictEqual(sent(l), [['blockMove', 'pa1', 'p1', { afterId: '' }]]);
+    assert.deepStrictEqual(l.page().blocks.map((b) => b.id), ['p1', 'h1', 'b1', 'e1']);
+    // 保存の頭の行（見出しの前）は、0.11.0 の並べ替えでは締めの節（決定事項）の後に見える（Ruling R28）
+    assert.deepStrictEqual(rowsOf(l).map((e) => e.dataset.id), ['h1', 'b1', 'e1', 'p1']);
+    l.calls.length = 0;
+    // 画面の e1（3 行目）の下半分へ Alt で落とす（b1 を除いた行: h1 e1 p1）→ e1 の後ろに写し
+    await dragTo(l, 'b1', 2 * 10 + 8, { altKey: true });
+    await l.drain();
+    const blocks = l.page().blocks;
+    assert.deepStrictEqual(sent(l), [['blockDuplicate', 'pa1', 'b1', 'e1']]);
+    assert.deepStrictEqual(blocks.map((b) => (['p1', 'h1', 'b1', 'e1'].includes(b.id) ? b.id : `copy:${b.text}`)), ['p1', 'h1', 'b1', 'e1', 'copy:来週に出す']);
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+test('ED-6・EQ22 (a): ⠿ のメニューを開いている間に onPageOpen(\'pb2\', { saved: true }) → 前に出さず、録音中のタブだけが替わる（summaryBusy に ⠿ のメニュー）。ページを替える前にメニューは閉じる', T, async () => {
+  const l = await liveThenPage();
+  try {
+    rowOf(l, 'p1').querySelector('.grip').dispatchEvent({ type: 'click' });
+    assert.ok(menuOf(l));
+    l.fire('onPageOpen', 'pb2', { saved: true });
+    await l.drain();
+    assert.deepStrictEqual(tabKeys(l), ['page:pa1', 'page:pb2']);
+    assert.strictEqual(activeKey(l), 'page:pa1');
+    assert.ok(menuOf(l), 'メニューが閉じた');
+    l.fire('onPageOpen', 'pb2');
+    await l.drain();
+    assert.strictEqual(activeKey(l), 'page:pb2');
+    assert.strictEqual(l.document.querySelectorAll('.blockmenu').length, 0, 'ページを替えてもメニューが残った');
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
 });

@@ -197,9 +197,12 @@ const GONE_LS1 = ['on-summary-localonly'];
 const GONE_LS2 = ['mn-no-fallback', 'mn-localonly-summary', 'op-sum-text'];
 // LS-3（D59。要約のエンジン・文脈長の見積もりを外した）で、直しそのものが無くなった変異
 const GONE_LS3 = ['lib-estimate-tokens', 'lib-fold-notes'];
+// 0.13.0 ED-6（計画 docs/plans/2026-10-24-130.md の「意図して変えるテスト」。計画は Task G で外すとしたが、ED-6 で直しの行そのものが無くなるので
+// 同じ commit で外した: Ruling R27）: 0.11.0 の v-drag-index（落とした所を画面の番号で送る）。落とした所は afterId で送り、ed-drop-index が同じ失敗を見る
+const GONE_130 = ['v-drag-index'];
 test('G3: 0.10.0 LS-1・LS-2 で外した変異（オフラインモードの会議の要約を手元へ回す・手元の llama の要約の道）は一覧に無い', { timeout: 5000 }, () => {
   const ids = new Set(MUTANTS.map((m) => m.id));
-  assert.deepStrictEqual([...GONE_LS1, ...GONE_LS2, ...GONE_LS3].filter((id) => ids.has(id)), []);
+  assert.deepStrictEqual([...GONE_LS1, ...GONE_LS2, ...GONE_LS3, ...GONE_130].filter((id) => ids.has(id)), []);
 });
 
 test('G3: 第1d回 A-4 で外した変異（PC から直に送る道・鍵の確かめ・鍵の欄と IPC）は一覧に無い', { timeout: 5000 }, () => {
@@ -842,7 +845,7 @@ const IDS_110 = [
 ];
 test('G3・0.11.0: 0.11.0 の変異が一覧にそろい、IDS_110 はどれも計画の「変異確認」の表にある。mt-・qm-・v- の変異は IDS_110 にある。どれも決まったテストのファイルを持ち、why が 0.11.0 で始まる', { timeout: 5000 }, () => {
   const byId = new Map(MUTANTS.map((m) => [m.id, m]));
-  assert.deepStrictEqual(IDS_110.filter((id) => !byId.has(id)), [], 'IDS_110 の変異が一覧に無い');
+  assert.deepStrictEqual(IDS_110.filter((id) => !byId.has(id) && !GONE_130.includes(id)), [], 'IDS_110 の変異が一覧に無い');   // 0.13.0 ED-6: 外した v-drag-index は飛ばす
   assert.strictEqual(new Set(IDS_110).size, IDS_110.length, 'IDS_110 に重なり');
   // 0.11.0 V-5 で意図して変えた: 接頭 v5- も 0.11.0 の変異（点検の直しの rv- は前の版にもある接頭なので、ここでは見ず、表とちょうど同じかで見る）
   assert.deepStrictEqual(MUTANTS.filter((m) => /^(mt|qm|v|v5)-/.test(m.id) && !IDS_110.includes(m.id)).map((m) => m.id), [], 'IDS_110 に無い 0.11.0 の接頭の変異がある');
@@ -853,7 +856,7 @@ test('G3・0.11.0: 0.11.0 の変異が一覧にそろい、IDS_110 はどれも�
   assert.deepStrictEqual(IDS_110.filter((id) => !rows.includes(id)), [], '計画の「変異確認」の表に無い変異');
   assert.deepStrictEqual([...IDS_110].sort(), [...rows].sort(), 'IDS_110 が計画の「変異確認」の表とちょうど同じでない');
   assert.strictEqual(new Set(rows).size, rows.length, '計画の表に重なり');
-  for (const id of IDS_110) {
+  for (const id of IDS_110.filter((x) => !GONE_130.includes(x))) {
     const m = byId.get(id);
     assert.ok(Array.isArray(m.tests) && m.tests.length > 0 && m.tests.every((t) => /^test\/[^/]+\.test\.js$/.test(t)), `${id}: tests`);
     assert.ok(typeof m.why === 'string' && m.why.startsWith('0.11.0 '), `${id}: why`);
@@ -985,6 +988,7 @@ const IDS_130 = [
   'ed-old-heading', 'ed-md-level', 'ed-mcp-types', 'ed-view-manual-head',   // ED-3
   'ed-split-client', 'ed-ime-enter', 'ed-ime-md', 'ed-shift-enter', 'ed-paste-html', 'ed-late-answer',   // ED-4
   'ed-recent-check', 'ed-recent-save', 'ed-slash-esc', 'ed-esc-meeting', 'ed-plus-menu', 'ed-save-no-steal',   // ED-5
+  'ed-drop-index', 'ed-alt-dup', 'ed-grip-menu',   // ED-6
 ];
 test('G3・0.13.0: 0.13.0 の変異が一覧にそろい、IDS_130 はどれも計画の「変異確認」の表にある。ed-・rdy- の変異は IDS_130 にある。どれも決まったテストのファイルを持ち、why が 0.13.0 で始まる', { timeout: 5000 }, () => {
   const byId = new Map(MUTANTS.map((m) => [m.id, m]));

@@ -264,8 +264,8 @@ test('公開したのに画面から呼ばれない API がない', () => {
   // 第1d回 Task A-11 で足した accountLogin（Cloudflare Access のログインの窓）は、設定のカード「アカウント」（Task A-12）が呼び始めたので外して空に戻した
   // 0.9.0 O-2 で足した koeOverlay.reportSize・onForm（録音バーの窓の大きさと形）は、録音バーの画面（O-3）が呼び始めたので外して空に戻した
   // 0.13.0 ED-2（計画 docs/plans/2026-10-24-130.md）で足した要約の編集の4つ（blockSplit・blockMerge・blockTurnInto・blockDuplicate）は、
-  // 画面の行の編集（ED-4・ED-6）が呼び始めたら外す。blockSplit・blockMerge・blockTurnInto は ED-4 が呼び始めたので外した
-  const PENDING_APP = new Set(['blockDuplicate']);
+  // 画面の行の編集（ED-4・ED-6）が呼び始めたら外す。blockSplit・blockMerge・blockTurnInto は ED-4 が、blockDuplicate は ED-6 が呼び始めたので外して空に戻した
+  const PENDING_APP = new Set([]);
   for (const [ns, html] of [['koeApp', appHtml], ['koeOverlay', overlayHtml]]) {
     const names = all(/^\s{2}([A-Za-z][\w$]*):/gm, block(ns));
     const used = new Set(all(new RegExp(`${ns}\\.(\\w+)`, 'g'), html));
@@ -1637,15 +1637,17 @@ test('0.10.1 点検の直し R12: ヘルプの記事の入れ直したときの�
   assert.ok(art.includes('NaTsu を別の場所に入れ直したときも同じです（Claude デスクトップが終了していれば起動のときに自動で直し、動いていれば知らせます）。'), '入れ直したときの文が無い');
 });
 
-// 0.11.0 V-2（D48・F24・F26・当て直し 15）: 画面の並びは memoTypes の VIEW_HEADS・orderForView・savedIndexForDrop と画面の写しで同じ表。写しの点の行も quality.qualityLines と同じ
-test('0.11.0 V-2: orderForView・savedIndexForDrop・qualityLinesView（app.html）と memoTypes・quality に同じ表を当てて同じ答え。VIEW_HEADS も同じ', () => {
+// 0.11.0 V-2（D48・F24・F26・当て直し 15）: 画面の並びは memoTypes の VIEW_HEADS・orderForView と画面の写しで同じ表。写しの点の行も quality.qualityLines と同じ
+// 0.13.0 ED-6（計画 docs/plans/2026-10-24-130.md の「意図して変えるテスト」）で意図して変えた: 落とした所は afterId で送るので savedIndexForDrop は両方から外した
+// （F26 の同じ失敗は test/stage130.edit.app.test.js の ED-6・F46 の場面が見る）
+test('0.11.0 V-2: orderForView・qualityLinesView（app.html）と memoTypes・quality に同じ表を当てて同じ答え。VIEW_HEADS も同じ', () => {
   const M = require('../src/memoTypes');
   const Q = require('../src/quality');
   const m = /\n {2}const VIEW_HEADS = (\{[\s\S]*?\n {2}\});/.exec(appHtml);
   assert.ok(m, '画面の VIEW_HEADS が無い');
   const heads = new Function(`return ${m[1]};`)();   // eslint-disable-line no-new-func
   assert.deepStrictEqual(heads, JSON.parse(JSON.stringify(M.VIEW_HEADS)));
-  const app = new Function(`const VIEW_HEADS = ${m[1]};\n${fnFromApp('orderForView')}\n${fnFromApp('savedIndexForDrop')}\n${fnFromApp('qualityLinesView')}\nreturn { orderForView, savedIndexForDrop, qualityLinesView };`)();   // eslint-disable-line no-new-func
+  const app = new Function(`const VIEW_HEADS = ${m[1]};\n${fnFromApp('orderForView')}\n${fnFromApp('qualityLinesView')}\nreturn { orderForView, qualityLinesView };`)();   // eslint-disable-line no-new-func
   const H = (text) => ({ id: text, type: 'heading', text });
   const B = (text) => ({ id: text, type: 'bullet', text });
   const names = [...M.VIEW_HEADS.closing, M.VIEW_HEADS.check, M.VIEW_HEADS.advice, ...M.VIEW_HEADS.type, '概要', '人の見出し', '■ 目的', '**決定事項**', 'ToDo', '持ち越し（次回）', ' 予算(B) '];
@@ -1656,8 +1658,8 @@ test('0.11.0 V-2: orderForView・savedIndexForDrop・qualityLinesView（app.html
     tables.push(rot.flatMap((n, i) => (i % 3 === 0 ? [H(n), B(`${n}-1`)] : i % 3 === 1 ? [H(n)] : [B(`pre-${n}`), H(n), B(`${n}-1`), B(`${n}-2`)])));
   }
   for (const t of tables) assert.deepStrictEqual(app.orderForView(t), M.orderForView(t), JSON.stringify(t));
-  const orders = [[], [0], [3, 0, 1, 2], [5, 6, 7, 0, 1, 2, 3, 4], undefined];
-  for (const o of orders) for (const v of [-1, 0, 1, 3, 7, 8, 20, 'x', undefined, 2.7]) assert.strictEqual(app.savedIndexForDrop(o, v), M.savedIndexForDrop(o, v), JSON.stringify([o, v]));
+  assert.strictEqual(M.savedIndexForDrop, undefined, 'memoTypes に savedIndexForDrop が残っている');
+  assert.ok(!/\bfunction savedIndexForDrop\(/.test(appHtml), '画面に savedIndexForDrop の写しが残っている');
   const view = Q.qualityView({ v: 1, total: 15, max: 25, axes: Q.AXES.map((a) => ({ key: a.key, score: 3, reason: `${a.label}の理由`, cites: [] })), at: '' });
   assert.ok(view);
   for (const v of [view, null, undefined]) assert.deepStrictEqual(app.qualityLinesView(v), Q.qualityLines(v));

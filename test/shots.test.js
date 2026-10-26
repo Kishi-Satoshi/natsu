@@ -160,8 +160,8 @@ const ADDED_120 = ['live-light', 'live-dark', 'live-banner-light', 'live-banner-
 const ADDED_121 = ['settings-record-light', 'settings-record-dark', 'settings-record-zoom200-light', 'settings-detect-light', 'settings-detect-dark',
   'settings-search-light', 'settings-quiet-search-light', 'settings-info-loop-light', 'settings-info-stt-dark', 'settings-info-zoom200-light'];
 // 0.13.0（計画 docs/plans/2026-10-24-130.md の「取り直す画面（RETAKE）」）で意図して変えた: 取り直し待ちは 0.13.0 の表の画面だけ（RETAKE_130）。RDY-3 で
-// 録音の前のページの3枚（NEW_130。足した画面で、まだ基準が無い）を足した。ED-5 で / メニューの3枚を足した
-const NEW_130 = ['live-ready-light', 'live-ready-dark', 'live-ready-zoom200-light', 'edit-slash-light', 'edit-slash-dark', 'edit-slash-recent-light'];
+// 録音の前のページの3枚（NEW_130。足した画面で、まだ基準が無い）を足した。ED-5 で / メニューの3枚を、ED-6 で ⠿ のメニューの1枚を足した
+const NEW_130 = ['live-ready-light', 'live-ready-dark', 'live-ready-zoom200-light', 'edit-slash-light', 'edit-slash-dark', 'edit-slash-recent-light', 'edit-block-menu-light'];
 const RETAKE_130 = [...NEW_130];
 const img = (w, h, fill = [255, 255, 255, 255]) => ({ width: w, height: h, data: Buffer.from(Array.from({ length: w * h }, () => fill).flat()) });
 // 一時フォルダ（日本語と 𠮷 の名前。RF1 と同じ形）。テストの終わりに消す
@@ -203,7 +203,7 @@ test('G2: 撮る画面は決まった並び（第1b回の 13 と第1b2回の検�
     ...NEW_110,
     // 0.12.0 SP-4 で意図して変えた: 文字起こしのタブの「自分」「相手」の札・重なり・文ごとの行の1枚を足した（版を 0.12.0 に上げる commit で基準にした）
     ...NEW_120,
-    // 0.13.0 RDY-3 で意図して変えた: 録音の前のページの明暗と 200% の3枚を足した（取り直し待ち・まだ基準が無い）。ED-5 で / メニューの明暗と「最近使ったもの」の3枚を足した
+    // 0.13.0 RDY-3 で意図して変えた: 録音の前のページの明暗と 200% の3枚を足した（取り直し待ち・まだ基準が無い）。ED-5 で / メニューの明暗と「最近使ったもの」の3枚を、ED-6 で ⠿ のメニューの1枚を足した
     ...NEW_130]);
   assert.deepStrictEqual(SH.SCREENS.filter((s) => s.page === 'overlay').map((s) => s.name), PS.screenNames());
   // 0.9.3 M-7 で意図して変えた: 会議の検出のパネル（page nudge）の5枚を録音バーのあと（いちばん後ろ）に足した
@@ -948,7 +948,8 @@ test('基準の画像（test/shots/win32）は今の app.html で撮ったもの
   // 0.13.0 ED-3（決めたこと 20・22）: 要約の［コピー］を blocksMarkdown の写しにし、orderForView の写しに人の見出し（EQ3 (a)）を足した（<script> の中だけ。前の版の要約の見た目は変わらない）。値を今の app.html に合わせた（前の値は b9983662…）
   // 0.13.0 ED-4（決めたこと 15〜19・21・41）: 要約の行の部品を blockRows の1か所にし、Enter の分割・行頭の Backspace・記法・貼り付け・↑↓ と、答えを変わった行だけに当てる描き方（<script> の中と .blk .txt の white-space: pre-wrap。前の版の要約の文は改行も続いた空白も持たないので見た目は変わらない見込み）。値を今の app.html に合わせた（前の値は 3c41e7bd…）
   // 0.13.0 ED-5（E1・E2・決めたこと 23・30・37〜42）: / メニュー（.slashmenu の CSS と描き方）・行の左の ＋（乗せたときだけ。行の外の左の余白に置き、行の並びは変えない。.blk の切る線を 18px に）・Esc・書き直している途中の page:open（<script> の中）。今の撮る画面は変わらない見込みで、変わる画面は足した RETAKE_130 の / メニューの3枚。値を今の app.html に合わせた（前の値は 5fec108a…）
-  assert.strictEqual(sha, '718a24618c41f31c9e560e3d8e815baeb398e3f669a1140fd04ae0557a924b8d',
+  // 0.13.0 ED-6（E1・決めたこと 18・24）: ⠿ のメニュー（.blockmenu の CSS と描き方・⠿ の title）と、落とした所の上の行の後ろへ入れるドラッグ・savedIndexForDrop の写しを外した（<script> の中）。今の撮る画面は変わらない見込みで、変わる画面は足した RETAKE_130 の edit-block-menu-light。値を今の app.html に合わせた（前の値は 718a2461…）
+  assert.strictEqual(sha, '59b1531e69cd201f147bb5f4490d992ec3ac3c3e0912c05e6dbcb2fe08f9993a',
     'app.html が基準の画像を撮った時と違う。Windows の CI の画面の比べ（捲り棒のつまみも）を見て、基準を取り直してからこの値を直す');
 });
 
