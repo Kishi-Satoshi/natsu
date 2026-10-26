@@ -1,9 +1,9 @@
 ---
 title: 要約の作られ方
 description: 要約はいつもご自分の Claude Code で作る。つながっていないときは要約待ちにして、つながったら自動で作る。作り直すときと、上限のとき
-updated: 2026-10-24
+updated: 2026-10-26
 sources: README.md, CHANGELOG.md, src/renderer/app.html, src/main.js, src/claude-cli.js
-related: summary/summary-types, summary/meeting-quality, summary/citations
+related: summary/summary-types, summary/edit-summary, summary/citations
 ---
 
 録音を止めると、文字起こしとメモから要約を作ります。
@@ -38,6 +38,8 @@ Claude が混み合っていて断ったときは要約待ちのまま、次に�
 
 - 要約の無いページでは、右上の ［要約を生成］ を押します。
 - 要約のあるページでは、上の帯の「···」の ［要約を再生成］ を押します。会議の種類を変えたときや、出典を付け直したいときに使います。
+
+要約の行は1行ずつ書き直せます（[要約を書き直す](summary/edit-summary.md)）。作り直すと、書き直した所は元に戻ります。
 
 ## 要約に使うモデル {#model}
 

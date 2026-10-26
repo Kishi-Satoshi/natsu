@@ -1079,3 +1079,70 @@ test('ED-7・F51（R14）: 段 2 の見出しの CSS は前の版の .blk.headin
     }
   }
 });
+
+// ---------------------------------------------------------------- ED-8（HC2・EQ4 (a)・決めたこと 35・36）
+test('ED-8: HELP_ARTICLES と site.json の分類 summary の並びが同じで、summary/citations の後に summary/edit-summary。how-summaries から1行のリンク', () => {
+  const site = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'help', 'site.json'), 'utf8'));
+  const sum = site.categories.find((c) => c.id === 'summary');
+  assert.deepStrictEqual(sum.articles, ['how-summaries', 'summary-types', 'meeting-quality', 'citations', 'edit-summary']);
+  assert.deepStrictEqual(lib.HELP_ARTICLES.filter((a) => a.startsWith('summary/')), sum.articles.map((a) => `summary/${a}`));
+  const how = fs.readFileSync(path.join(__dirname, '..', 'help', 'articles', 'summary', 'how-summaries.md'), 'utf8');
+  assert.strictEqual(how.split('(summary/edit-summary.md)').length - 1, 1);
+});
+
+test('ED-8: 記事「要約を書き直す」の近道の表の数字の行は、型の表（BLOCK_TYPES の近道）と同じ。/ メニュー・記法・Enter と Backspace・⠿ と ＋・［要約を再生成］の節がある', () => {
+  const art = fs.readFileSync(path.join(__dirname, '..', 'help', 'articles', 'summary', 'edit-summary.md'), 'utf8');
+  assert.match(art, /^title: 要約を書き直す$/m);
+  const rows = [...art.matchAll(/^\| \[\[Ctrl\+Shift\+(\d)\]\] \| ([^|]+) \|$/gm)].map((m) => [`Digit${m[1]}`, m[2].trim()]);
+  assert.deepStrictEqual(rows, E.VERSION_ROWS.filter((r) => r.code).map((r) => [r.code, r.label]));
+  for (const id of ['rows', 'slash', 'markdown', 'handles', 'keys', 'regenerate']) assert.ok(art.includes(`{#${id}}`), id);
+  for (const w of ['［要約を再生成］', '［削除］', '［複製］', '［変換 ▸］', '［作り直す］', '［やめる］', '最近使ったもの', '[[Shift+Enter]]', '[[Ctrl+/]]']) assert.ok(art.includes(w), w);
+  assert.ok(!/<pre|```/.test(art), 'pre の要素を使った（引き継いだ (c)）');
+});
+
+test('ED-8（EQ4 (a)・決めたこと 35）: 人が直した行があるときだけ［要約を再生成］の前に確かめる（［作り直す］［やめる］）。0.11.0 の印の行は AI の行', T, async () => {
+  const human = [{ id: 'a1', type: 'heading', text: '決定事項' }, { id: 'a2', type: 'bullet', text: '来月に試す', cites: ['s2'], citeState: 'linked' },
+    { id: 'a3', type: 'bullet', text: '人が足した行', cites: [], citeState: 'manual' }];
+  const ai = [{ id: 'k0', type: 'heading', level: 2, text: '抜け・重なりチェック' }, { id: 'k1', type: 'bullet', text: '未確認: 予算', cites: [], citeState: 'manual', mark: 'check', unconfirmed: true },
+    { id: 'k2', type: 'paragraph', text: '本文' }];
+  for (const [blocks, ask] of [[human, true], [ai, false], [[{ id: 'q1', type: 'quote', text: '型を変えた行' }], true], [[{ id: 's1', type: 'todo', text: '直した', citeState: 'stale' }], true]]) {
+    const l = await openReal({ pa1: blocks }, { returns: { pageSummarize: () => ({ ok: true, stat: { linked: 1, total: 1 } }) } });
+    try {
+      const btn = () => $(l, 'pMenu').querySelectorAll('button').find((b) => b.textContent === '要約を再生成');
+      const dlg = () => l.document.querySelector('.askbox');
+      const p = btn().onclick();
+      await l.drain();
+      if (!ask) {
+        await p;
+        assert.strictEqual(dlg(), null, JSON.stringify(blocks));
+        assert.strictEqual(l.called('pageSummarize').length, 1);
+        continue;
+      }
+      assert.ok(dlg(), `確かめが出ない: ${JSON.stringify(blocks)}`);
+      assert.strictEqual(dlg().getAttribute('role'), 'alertdialog');
+      assert.strictEqual(dlg().querySelector('.askmsg').textContent, '書き直した要約を作り直しますか？ 足した行や変えた型は元に戻ります。');
+      const bs = dlg().querySelectorAll('button');
+      assert.deepStrictEqual(bs.map((b) => b.textContent), ['作り直す', 'やめる']);
+      assert.strictEqual(l.document.activeElement, bs[1], '初めのフォーカスが［やめる］でない');
+      bs[1].dispatchEvent({ type: 'click' });
+      await p;
+      await l.drain();
+      assert.strictEqual(dlg(), null);
+      assert.strictEqual(l.called('pageSummarize').length, 0, '［やめる］で作り直した');
+      const p2 = btn().onclick();
+      await l.drain();
+      dlg().querySelectorAll('button')[0].dispatchEvent({ type: 'click' });
+      await p2;
+      await l.drain();
+      assert.strictEqual(l.called('pageSummarize').length, 1);
+      // Esc は［やめる］
+      const p3 = btn().onclick();
+      await l.drain();
+      const ev = l.key({ key: 'Escape' }, dlg());
+      await p3;
+      assert.strictEqual(ev.defaultPrevented, true);
+      assert.strictEqual(l.called('pageSummarize').length, 1);
+      assert.deepStrictEqual(l.errors.map(fmt), []);
+    } finally { l.done(); }
+  }
+});

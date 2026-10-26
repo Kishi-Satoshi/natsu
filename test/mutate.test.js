@@ -980,16 +980,14 @@ const IDS_130 = [
   'rdy-side-start', 'rdy-side-focus', 'rdy-one-prep', 'rdy-start-toggle', 'rdy-start-busy', 'rdy-guard', 'rdy-prep-draft', 'rdy-prep-db', 'rdy-adopt-memo', 'rdy-adopt-type',
   'rdy-adopt-late', 'rdy-adopt-clear', 'rdy-memo-prep', 'rdy-type-prep', 'rdy-race', 'rdy-pane', 'rdy-replace-ready', 'rdy-offline', 'rdy-offline-by', 'rdy-consent-route',
   'rdy-close-confirm', 'rdy-statelog', 'rdy-prep-always', 'rdy-help',
-  // 第1部（ed-。ED-1〜ED-8 で作りながら足す）
-  'ed-split-surrogate', 'ed-md-midline', 'ed-md-number-text', 'ed-md-zenkaku', 'ed-slash-midword', 'ed-slash-kana', 'ed-slash-zenkaku', 'ed-recent-order', 'ed-recent-cap',
-  'ed-enter-type', 'ed-empty-enter', 'ed-bs-revert', 'ed-number-restart', 'ed-key-code', 'ed-md-copy', 'ed-row-redraw',   // ED-1
-  'ed-type-any', 'ed-level-range', 'ed-bad-offset', 'ed-split-text', 'ed-split-dup', 'ed-merge-caret', 'ed-merge-divider', 'ed-turn-drop', 'ed-divider-text', 'ed-lock-new',
-  'ed-split-mark', 'ed-turn-manual', 'ed-move-after',   // ED-2
-  'ed-old-heading', 'ed-md-level', 'ed-mcp-types', 'ed-view-manual-head',   // ED-3
-  'ed-split-client', 'ed-ime-enter', 'ed-ime-md', 'ed-shift-enter', 'ed-paste-html', 'ed-late-answer',   // ED-4
-  'ed-recent-check', 'ed-recent-save', 'ed-slash-esc', 'ed-esc-meeting', 'ed-plus-menu', 'ed-save-no-steal',   // ED-5
-  'ed-drop-index', 'ed-alt-dup', 'ed-grip-menu',   // ED-6
-  'ed-zoom-shift0', 'ed-key-scope', 'ed-ctrl-enter', 'ed-unknown-type',   // ED-7
+  // 第1部（ed-。ED-1〜ED-8 で作りながら足し、ED-8 で計画の ed- の表の行の順にそろえた）
+  'ed-split-surrogate', 'ed-md-midline', 'ed-md-number-text', 'ed-md-zenkaku', 'ed-slash-midword', 'ed-slash-kana', 'ed-slash-zenkaku', 'ed-recent-order',
+  'ed-recent-cap', 'ed-recent-check', 'ed-recent-save', 'ed-enter-type', 'ed-empty-enter', 'ed-bs-revert', 'ed-number-restart', 'ed-key-code',
+  'ed-md-copy', 'ed-row-redraw', 'ed-type-any', 'ed-level-range', 'ed-bad-offset', 'ed-split-text', 'ed-split-dup', 'ed-merge-caret',
+  'ed-merge-divider', 'ed-turn-drop', 'ed-divider-text', 'ed-lock-new', 'ed-split-mark', 'ed-turn-manual', 'ed-move-after', 'ed-old-heading',
+  'ed-unknown-type', 'ed-md-level', 'ed-mcp-types', 'ed-view-manual-head', 'ed-split-client', 'ed-ime-enter', 'ed-ime-md', 'ed-shift-enter',
+  'ed-paste-html', 'ed-slash-esc', 'ed-esc-meeting', 'ed-plus-menu', 'ed-save-no-steal', 'ed-drop-index', 'ed-alt-dup', 'ed-grip-menu',
+  'ed-zoom-shift0', 'ed-key-scope', 'ed-ctrl-enter', 'ed-help-article', 'ed-late-answer',
 ];
 test('G3・0.13.0: 0.13.0 の変異が一覧にそろい、IDS_130 はどれも計画の「変異確認」の表にある。ed-・rdy- の変異は IDS_130 にある。どれも決まったテストのファイルを持ち、why が 0.13.0 で始まる', { timeout: 5000 }, () => {
   const byId = new Map(MUTANTS.map((m) => [m.id, m]));
@@ -1011,6 +1009,15 @@ test('G3・0.13.0: 0.13.0 の変異が一覧にそろい、IDS_130 はどれも�
   }
 });
 // 0.13.0 RDY-6: 第2部の変異（rdy-）は、計画の「変異確認」の rdy- の表とちょうど同じ（行の順・24）
+test('G3・0.13.0 ED-8: IDS_130 は計画の「変異確認」の 0.13.0 の表（ed- 53・rdy- 24）とちょうど同じ（ed- も rdy- も行の順・77）', { timeout: 5000 }, () => {
+  const plan = fs.readFileSync(path.join(ROOT, 'docs', 'plans', '2026-10-24-130.md'), 'utf8');
+  const at = plan.search(/^## 変異確認（直しを1つ戻すと/m);
+  const table = plan.slice(at, plan.indexOf('\n## ', at + 5));
+  const ed = [...table.matchAll(/^\| (ed-[a-z0-9-]*) \|/gm)].map((m) => m[1]);
+  assert.strictEqual(ed.length, 53);
+  assert.deepStrictEqual(IDS_130.filter((id) => /^ed-/.test(id)), ed);
+  assert.strictEqual(IDS_130.length, 77);
+});
 test('G3・0.13.0 RDY-6: IDS_130 の rdy- は計画の「変異確認」の rdy- の表とちょうど同じ（行の順・24）', { timeout: 5000 }, () => {
   const plan = fs.readFileSync(path.join(ROOT, 'docs', 'plans', '2026-10-24-130.md'), 'utf8');
   const at = plan.search(/^## 変異確認（直しを1つ戻すと/m);

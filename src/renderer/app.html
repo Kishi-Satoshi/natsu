@@ -549,6 +549,10 @@
   .blk.divider .txt:focus { outline: 2px solid var(--accent); outline-offset: 4px; }
   .blk.callout { background: var(--hover); border-radius: 6px; padding: 8px 10px; margin: 2px 0; }
   .blk.callout .icon { flex: none; line-height: 24px; user-select: none; }
+  /* 0.13.0 ED-8（EQ4 (a)）: ［要約を再生成］の確かめの小さな窓（後ろは設定のポップアップと同じ .setmodal の暗い地） */
+  .askbox { max-width: min(420px, calc(100vw - 48px)); padding: 18px 20px 16px; background: var(--bg); border: 1px solid var(--line); border-radius: 6px; box-shadow: var(--shadow); }
+  .askbox .askmsg { margin: 0 0 14px; font-size: 14px; line-height: 22px; color: var(--text); }
+  .askbox .askrow { display: flex; justify-content: flex-end; gap: 8px; }
   .blk.todo.done .txt { color: var(--muted); text-decoration: line-through; }
   .blk .del { opacity: 0; background: none; border: none; color: var(--muted); cursor: pointer;
     font-size: 15px; line-height: 1; padding: 4px 6px; flex: none; }
@@ -2808,6 +2812,47 @@
     return `NaTsu の議事録「${title}」（${String((page && page.date) || '')}）${base}${page.id}`;
   }
 
+  // 0.13.0 ED-8（EQ4 (a)・決めたこと 35・画面の文）: 人が直した行 = 人が足した・直した行（citeState が manual・stale）と、AI の4つの型でない行。
+  // 0.11.0 の印の行（mark。manual だが AI が書いた）は人の行にしない
+  const AI_TYPES = ['heading', 'bullet', 'todo', 'paragraph'];
+  function humanEdited(blocks) {
+    return (Array.isArray(blocks) ? blocks : []).some((b) => b && typeof b === 'object' && !b.mark
+      && (b.citeState === 'manual' || b.citeState === 'stale' || !AI_TYPES.includes(b.type)));
+  }
+  const REGEN_ASK = '書き直した要約を作り直しますか？ 足した行や変えた型は元に戻ります。';
+  // 確かめの小さな窓（［作り直す］［やめる］。初めのフォーカスは［やめる］・Esc は［やめる］・Tab は2つの間を回る）。答えは真偽
+  function askRegen() {
+    return new Promise((resolve) => {
+      const back = document.activeElement;
+      const wrap = document.createElement('div'); wrap.className = 'setmodal askwrap';
+      const box = document.createElement('div'); box.className = 'askbox';
+      box.setAttribute('role', 'alertdialog'); box.setAttribute('aria-modal', 'true'); box.setAttribute('aria-label', '要約を作り直す');
+      const msg = document.createElement('p'); msg.className = 'askmsg'; msg.textContent = REGEN_ASK;
+      const row = document.createElement('div'); row.className = 'askrow';
+      const go = document.createElement('button'); go.type = 'button'; go.className = 'action'; go.textContent = '作り直す';
+      const no = document.createElement('button'); no.type = 'button'; no.textContent = 'やめる';
+      let done = false;
+      const end = (v) => {
+        if (done) return;
+        done = true;
+        if (wrap.parentNode) wrap.parentNode.removeChild(wrap);
+        if (back && typeof back.focus === 'function') back.focus();
+        resolve(v);
+      };
+      go.onclick = () => end(true);
+      no.onclick = () => end(false);
+      box.onkeydown = (ev) => {
+        if (ev.key === 'Escape') { ev.preventDefault(); end(false); }
+        else if (ev.key === 'Tab') { ev.preventDefault(); (document.activeElement === go ? no : go).focus(); }
+      };
+      row.append(go, no);
+      box.append(msg, row);
+      wrap.appendChild(box);
+      document.body.appendChild(wrap);
+      no.focus();
+    });
+  }
+
   // 「…」（#pMore）とその中のメニュー（#pMenu の［コピー］［リンクを写す］［削除］）。
   // Enter／Space（変換確定の Enter は除く）・↓ で開いて最初の項目へ、↑／↓ で移り、Esc で閉じて「…」へ戻る
   function setMoreOpen(on, focusItem) {
@@ -2904,6 +2949,9 @@
     const sumBtn = mk(curPage.blocks.length ? '要約を再生成' : '要約を生成', async () => {
       const pid = curId;
       if (summarizing.has(pid)) return;
+      // 0.13.0 ED-8（EQ4 (a)・決めたこと 35）: 人が直した行があるときだけ、作り直す前に確かめる（作り直すと書き直した所は元に戻る）
+      if (curPage && humanEdited(curPage.blocks) && !(await askRegen())) return;
+      if (pid !== curId || summarizing.has(pid)) return;
       summarizing.add(pid);
       sumBtn.disabled = true; sumBtn.textContent = '生成中…';
       let r;

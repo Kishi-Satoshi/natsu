@@ -391,6 +391,12 @@ test('要約の生成中は、page:updated で描き直されてもボタンが�
   const btn = () => l.byId.get('pActs').querySelectorAll('button').find((b) => /要約/.test(b.textContent) || /生成中/.test(b.textContent));
   btn().dispatchEvent({ type: 'click' });
   await l.drain();
+  // 0.13.0 ED-8（計画 docs/plans/2026-10-24-130.md の EQ4 (a)・Ruling R33）で意図して変えた: 見本のページの行の型（h2・li・p）は AI の4つの型でないので
+  // 「人が直した行がある要約」として作り直す前に確かめが出る。［作り直す］を押してから二重押しを見る（見たいことは同じ）
+  const ask = l.document.querySelector('.askbox');
+  assert.ok(ask, '書き直した要約なのに確かめが出ない');
+  ask.querySelectorAll('button').find((b) => b.textContent === '作り直す').dispatchEvent({ type: 'click' });
+  await l.drain();
   assert.strictEqual(l.called('pageSummarize').length, 1);
   l.fire('onPageUpdated', { page: clone(PAGE), segments: clone(STANDUP_SEGMENTS) });
   await l.drain();

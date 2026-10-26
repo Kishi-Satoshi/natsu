@@ -952,7 +952,8 @@ test('基準の画像（test/shots/win32）は今の app.html で撮ったもの
   // 0.13.0 ED-5（E1・E2・決めたこと 23・30・37〜42）: / メニュー（.slashmenu の CSS と描き方）・行の左の ＋（乗せたときだけ。行の外の左の余白に置き、行の並びは変えない。.blk の切る線を 18px に）・Esc・書き直している途中の page:open（<script> の中）。今の撮る画面は変わらない見込みで、変わる画面は足した RETAKE_130 の / メニューの3枚。値を今の app.html に合わせた（前の値は 5fec108a…）
   // 0.13.0 ED-6（E1・決めたこと 18・24）: ⠿ のメニュー（.blockmenu の CSS と描き方・⠿ の title）と、落とした所の上の行の後ろへ入れるドラッグ・savedIndexForDrop の写しを外した（<script> の中）。今の撮る画面は変わらない見込みで、変わる画面は足した RETAKE_130 の edit-block-menu-light。値を今の app.html に合わせた（前の値は 718a2461…）
   // 0.13.0 ED-7（E5・E11・決めたこと 5・6・26〜29）: 見出し1・3（段 2 は前の .blk.heading のまま）・番号付き・引用・区切り線・コールアウトの CSS と描き方・近道（keyAction の写し）。前の版の要約（段の無い見出し・ToDo・箇条書き・テキスト）の見た目は変わらない見込みで、変わる画面は足した RETAKE_130 の edit-types-* の3枚。値を今の app.html に合わせた（前の値は 59b1531e…）
-  assert.strictEqual(sha, '7ece40ddd710bef4a958fcb86476aa04b32e09d60fd6b962bd6c7c0520cefff1',
+  // 0.13.0 ED-8（EQ4 (a)・決めたこと 35）: ［要約を再生成］の前の確かめ（人が直した行があるときだけ。.askbox の CSS と描き方）。押したときだけ出るので今の撮る画面は変わらない見込み。値を今の app.html に合わせた（前の値は 7ece40dd…）
+  assert.strictEqual(sha, '32854479ef5eb51533e764a7d89a016975e1a24d8be3f74329ce88853066cc36',
     'app.html が基準の画像を撮った時と違う。Windows の CI の画面の比べ（捲り棒のつまみも）を見て、基準を取り直してからこの値を直す');
 });
 
