@@ -391,7 +391,8 @@ const CARDS = [
   ['general', 'ホットキー', ['音声入力ホットキー', '議事録ホットキー']],
   ['general', '起動と終了', ['Windowsサインイン時に自動起動', 'ウィンドウを閉じてもタスクトレイに残す', '効果音']],
   // 0.9.3 M-4（計画 docs/plans/2026-10-22-093.md の決めたこと 11）で意図して変えた: 「録音」の頭に「会議の検出」のカード
-  ['record', '会議の検出', ['会議の検出の通知', '通知を出さないアプリ']],
+  // 0.12.1 LV-4（計画 docs/plans/2026-10-24-121.md の決めたこと L15）で意図して変えた: カード「会議の検出」の2行目に「会議を出たら自動で止める」
+  ['record', '会議の検出', ['会議の検出の通知', '会議を出たら自動で止める', '通知を出さないアプリ']],
   ['record', '録音バー', ['録音バーの置き場所']],
   ['record', 'マイクと相手の声', ['使用するマイク', '議事録で相手の声も録る', '録音されるスピーカー']],
   // 0.9.1 Q-3（D29）で意図して変えた: 「話し声が無いとき」のカード
@@ -411,6 +412,7 @@ const CARDS = [
 const ROW_IDS = {
   ログイン: ['accountSignIn'], ログアウト: ['accountLogout', 'accountWho'], 外観: ['themeSel'], 音声入力ホットキー: ['hotkey', 'hotkeyWarn'], 議事録ホットキー: ['meetingHotkey', 'meetingHotkeyWarn'],
   会議の検出の通知: ['meetingDetect'], 通知を出さないアプリ: ['meetingDetectMuteList'],   // 0.9.3 M-4 で意図して足した
+  会議を出たら自動で止める: ['autoStopLeave'],   // 0.12.1 LV-4 で意図して足した
   Windowsサインイン時に自動起動: ['autoLaunch'], ウィンドウを閉じてもタスクトレイに残す: ['stayInTray'], 効果音: ['soundFeedback'], 録音バーの置き場所: ['pillPos'],
   使用するマイク: ['micSelect', 'micReloadBtn'], 議事録で相手の声も録る: ['useSystemAudio'], 録音されるスピーカー: ['spkNow', 'spkReloadBtn', 'spkSettingsBtn'], 認識言語: ['language'],
   話し声が無いときに自動で止める: ['autoStopQuiet'], 知らせるまでの時間: ['autoStopMin'],
@@ -462,7 +464,8 @@ test('SP4: カードの data-sec と見出しの並びが「設定の項目と�
 // 説明を直した（カードの頭の1行の「要約」を外し・要約の欄の説明の3つを外した）
 // 持ち主の答え（2026-10-23）で意図して変えた: カード「Claude との連携（MCP）」の頭の1行から「Claude Code」を外した（説明の数は 18 のまま。前の値は 89206c38…）
 // 0.11.0 V-3（QM6）で意図して変えた: カード「打ち合わせの質」の行の名前の label を1つ（33 → 34。前の値は df736405…）と、説明を2つ（頭の1行・行の1行。18 → 20）足した
-const TEXTS_080 = { labels: [34, '87f6c483d8d0a03749f10c7266512670506f46ad273f7df445d009205bcb7fd0'], descs: [20, '465336df080b0cffd78a1a5effa11c325cda3c37e989c1cd44d8317e639d25ca'] };   // 説明 21 → 18（LS-3 の前の値は aed31061…）。0.11.0 V-3 で 18 → 20（前の値は 5bc6662f…）
+// 0.12.1 LV-4（決めたこと L15）で意図して変えた: カード「会議の検出」に行「会議を出たら自動で止める」の label を2つ（名前の label for・トグルを包む label.check）足した（34 → 36。前の値は 87f6c483…）
+const TEXTS_080 = { labels: [36, '47951f58308848977c43d438db17a27efcd5cb2a76a8a66e417c879d2ec301fd'], descs: [20, '465336df080b0cffd78a1a5effa11c325cda3c37e989c1cd44d8317e639d25ca'] };   // 説明 21 → 18（LS-3 の前の値は aed31061…）。0.11.0 V-3 で 18 → 20（前の値は 5bc6662f…）
 test('SP4: 動かした入力の id が全部あり、その行の中にある。文が 0.8.0 と同じ（label の文・.check の文・説明の文）', T, () => {
   const sec = doc.querySelector('#tabSettings');
   for (const [name, ids] of Object.entries(ROW_IDS)) {
@@ -520,7 +523,8 @@ test('SP5: 『マイク』で使用するマイクの行だけ、『ﾏｲｸ』
   for (const q of ['マイク', 'ﾏｲｸ']) {
     await search(l, q);
     // 0.9.3 M-4 で意図して変えた: 「会議の検出の通知」の行も説明（「会議のアプリがマイクを使い始めたら…」）で当たる
-    assert.deepStrictEqual(shownRows(l), ['会議の検出の通知', '使用するマイク', '議事録で相手の声も録る'], q);
+    // 0.12.1 LV-4 で意図して変えた: 「会議を出たら自動で止める」の行も説明（「会議のアプリがマイクを使わなくなったら…」）で当たる
+    assert.deepStrictEqual(shownRows(l), ['会議の検出の通知', '会議を出たら自動で止める', '使用するマイク', '議事録で相手の声も録る'], q);
     assert.deepStrictEqual(shownCards(l), ['会議の検出', 'マイクと相手の声'], q);
     assert.deepStrictEqual(groups(), ['録音'], q);
     assert.strictEqual($(l, 'setTitle').textContent, '検索の結果');
@@ -662,6 +666,8 @@ const SAVED_080 = { localServerExe: 'C:\\srv\\whisper.exe', localModelPath: 'C:\
   autoStopQuiet: true, autoStopMin: 10,
   // 0.9.3 M-4 で意図して変えた: 会議の検出の通知（読んだ設定に無ければ既定のオン）と、通知を出さないアプリ（無ければ []）
   meetingDetect: true, meetingDetectMute: [],
+  // 0.12.1 LV-4 で意図して変えた: 会議を出たら自動で止める（読んだ設定に無ければ既定のオン）
+  autoStopLeave: true,
   // 0.11.0 V-3（QM6）で意図して変えた: 打ち合わせの質の点数（読んだ設定に無ければ既定の all で送る）
   qualityScore: 'all' };
 test('SP4: 選んだ項目でない欄を変えても、自動保存が今と同じ値を保存する（#tabSettings の change → saveSettings の引数が 0.8.0 と同じキーと値）', T, async () => {

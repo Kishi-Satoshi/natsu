@@ -332,3 +332,43 @@ test('0.11.0 M-5: pages.typeSlots は main だけが読み、人が選んだ種�
     assert.deepStrictEqual(r.result, [{ createdAt: '2026-10-13T01:00:00.000Z', meetingType: 'oneonone' }]);
   } finally { t.done(); }
 });
+
+// 0.12.0 SP-3b（計画 docs/plans/2026-10-22-120.md の決めたこと 128・144。D66・F23）: 会議の後と戻しの文字起こしは segment.update の patch に PC の文の頭（parts）を足して書く。
+// 文を直したら（text だけの patch で文が変わったら）parts を消す（古い parts で行が分かれない）。json-backend も同じ答え
+test('0.12.0 SP-3b: segment.update の patch に正しい parts → 書く・壊れた parts → bad-args・text だけの patch で文が変わると parts が消える（同じ文なら残る）。json-backend も同じ答え', { timeout: 5000 }, async () => {
+  const t = tmpDb(); const j = jsonTwin();
+  try {
+    const { db } = t.open();
+    const { page, segments } = samplePage('pa1');
+    t.seed(page, segments);
+    await j.seed(page, segments);
+    const parts = [{ ms: 0, at: 0 }, { ms: 30000, at: 6 }, { ms: 60000, at: 11 }];
+    const text = 'はじめの文。つぎの文。おわりの文。';
+    const steps = [
+      ['segment.update', { pageId: 'pa1', segId: 's1', patch: { text, parts }, recite: false }],
+      ['segment.update', { pageId: 'pa1', segId: 's1', patch: { text }, recite: false }],
+    ];
+    for (const [cmd, args] of steps) {
+      const r = call(db, cmd, args, 'main');
+      assert.strictEqual(r.ok, true, `${cmd} ${r.code}`);
+      assert.deepStrictEqual(plain(r.result), plain(await j.call(cmd, args)), cmd);
+      assert.deepStrictEqual(r.result.segments.find((s) => s.id === 's1').parts, parts, '同じ文の直しで parts が消えた・書かれていない');
+    }
+    // 文が変わると parts が消える（DB と json-backend の両方）
+    const edit = ['segment.update', { pageId: 'pa1', segId: 's1', patch: { text: '人が直した文。' } }];
+    const r = call(db, edit[0], edit[1]);
+    assert.strictEqual(r.ok, true, r.code);
+    assert.ok(!Object.hasOwn(r.result.segments.find((s) => s.id === 's1'), 'parts'), '文を直しても parts が残った');
+    assert.deepStrictEqual(plain(r.result), plain(await j.call(edit[0], edit[1])));
+    assert.ok(!Object.hasOwn(call(db, 'page.get', { id: 'pa1' }).result.segments.find((s) => s.id === 's1'), 'parts'));
+    // 壊れた parts は bad-args（命令の数は同じ・形だけを照らす）
+    const bad = [[{ ms: 0, at: 0 }], 'x', [{ ms: 0, at: 0 }, { ms: '1', at: 2 }], [{ ms: 0, at: 0 }, { ms: 5, at: 3 }, { ms: 4, at: 6 }],
+      [{ ms: 0, at: 0 }, { ms: 5, at: 3, x: 1 }], [{ ms: 1, at: 0 }, { ms: 5, at: 3 }], Array.from({ length: 201 }, (_, i) => ({ ms: i, at: i }))];
+    for (const p of bad) {
+      const b = call(db, 'segment.update', { pageId: 'pa1', segId: 's1', patch: { text, parts: p }, recite: false }, 'main');
+      assert.deepStrictEqual([b.ok, b.code], [false, 'bad-args'], JSON.stringify(p).slice(0, 80));
+    }
+    const other = call(db, 'segment.update', { pageId: 'pa1', segId: 's1', patch: { text, speaker: 'x' } }, 'main');
+    assert.deepStrictEqual([other.ok, other.code], [false, 'bad-args'], 'text・parts のほかの欄を通した');
+  } finally { t.done(); j.done(); }
+});

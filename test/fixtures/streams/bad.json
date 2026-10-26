@@ -1,0 +1,7 @@
+{
+ "note": "壊れた答えと4つ目",
+ "mic": "v40 -40 v40 -40 v40",
+ "sys": "-40 v40 -40 v40 -40",
+ "badLevel": true,
+ "badMeta": true
+}

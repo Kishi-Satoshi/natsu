@@ -6,6 +6,7 @@ const assert = require('node:assert');
 const P = require('../src/mcp/passages');
 const F = require('../src/mcp/format');
 const search = require('../src/db/search');
+const { titleAt } = require('./helpers/titles');
 
 const T = { timeout: 5000 };
 const seg = (i, text, atMs = i * 5000, durationMs = 5000, extra = {}) => ({ id: `s${i}`, atMs, durationMs, text, ...extra });
@@ -185,4 +186,23 @@ test('0.11.0 T-6（決めたこと 41）: chunkMemo は型の見出し（「■ 
   // 型の見出しの無いメモは今のまま（見出しは無い）
   const plain = ['短い1', '', '短い2'].join('\n');
   assert.deepStrictEqual(P.chunkMemo(plain).map((m) => [m.n, m.heading, m.lines]), [[1, undefined, ['短い1', '', '短い2']]]);
+});
+
+// ---------------------------------------------------------------- 0.12.0 SP-4（D66。計画 docs/plans/2026-10-22-120.md の決めたこと 138）
+test('0.12.0 SP-4（決めたこと 138）: 2つの流れの会議の窓はタイムラインの行（parts のある区間は文ごとの行・同じ ID・行の時刻）で作り、印は窓の最初と最後の行の区間の ID（t:s14-s13 の逆の番号も）。窓の文に札は入らず、当たりの印 ⟦ ⟧ は札に付かない（「自分」で探しても札は囲まない）', T, () => {
+  const LONG3 = '一つ目の文です。二つ目の文です。三つ目です。';
+  const ws = P.chunkSegments([
+    seg(13, 'あとから届いた自分の行', 50000, 2000, { src: 'mic' }),
+    seg(14, LONG3, 0, 60000, { src: 'loopback', parts: [{ ms: 0, at: 0 }, { ms: 20000, at: 8 }, { ms: 40000, at: 16 }] }),
+  ]);
+  assert.strictEqual(ws.length, 1);
+  assert.deepStrictEqual(ws[0].segs.map((s) => [s.id, s.atMs, s.text]), [['s14', 0, '一つ目の文です。'], ['s14', 20000, '二つ目の文です。'], ['s14', 40000, '三つ目です。'], ['s13', 50000, 'あとから届いた自分の行']]);
+  assert.strictEqual(P.anchorOf('p1', ws[0]), 'p1#t:s14-s13');
+  assert.strictEqual([ws[0].atMs, ws[0].endMs].join(), '0,52000');
+  assert.ok(!ws[0].text.includes('相手') && !ws[0].text.includes('自分:'), ws[0].text);
+  const lines = P.passageLines({ ...ws[0], pageId: 'p1', date: '2026-10-25', title: titleAt('2026-10-25T01:00:00.000Z'), meetingType: '' }, 1, P.termsOf('自分 相手')).filter((l) => /^s\d+ /.test(l));
+  assert.deepStrictEqual(lines, ['s14 [0:00] 相手: 一つ目の文です。', 's14 [0:20] 相手: 二つ目の文です。', 's14 [0:40] 相手: 三つ目です。', 's13 [0:50] 自分: あとから届いた⟦自分⟧の行']);
+  // src の無い会議の窓は今と同じ（札も文ごとの行も無い）
+  const plain = P.chunkSegments([seg(1, '一つ目', 0), seg(2, '二つ目', 5000)]);
+  assert.deepStrictEqual(plain[0].segs.map((s) => [s.id, s.atMs, s.durationMs, s.text]), [['s1', 0, 5000, '一つ目'], ['s2', 5000, 5000, '二つ目']]);
 });

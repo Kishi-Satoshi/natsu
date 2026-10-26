@@ -1850,6 +1850,12 @@ function nudgeStep(st0, ev) {
     if (st.shown && (!st.on || st.mute.includes(st.shown.id))) hideNow();
   } else if (ev.type === 'closed') {
     hideNow();
+  } else if (ev.type === 'forget') {
+    // 0.12.1 LV-1（計画 docs/plans/2026-10-24-121.md の決めたこと L18）: 会議を出て止めた後に、放した読みで見えた別のアプリの使いの「録った会議」の印と
+    // つなぎ直しの印を外す（まだ使っていれば、次の読みでいつもの決まりのとおりに出す。seen は今の数のまま）
+    const keys = Array.isArray(ev.keys) ? ev.keys.filter((k) => typeof k === 'string') : [];
+    st.done = st.done.filter((k) => !keys.includes(k));
+    if (Array.isArray(st.rejoin)) st.rejoin = st.rejoin.filter((k) => !keys.includes(k));
   } else if (ev.type === 'hover') {
     if (st.shown) {
       if (ev.on) { st.shown.hover = true; st.shown.leftAt = null; } else if (st.shown.hover) { st.shown.hover = false; st.shown.leftAt = now; }
@@ -2061,6 +2067,201 @@ function linkRate(times, now) {
   return { ok: true, times: [...recent, now] };
 }
 
+// ---------------------------------------------------------------- 2つの流れの文字起こし（0.12.0 SP-1。計画 docs/plans/2026-10-22-120.md の決めたこと 121〜141・146・147。D66）
+// 相手の声を取り込む議事録では、録音バーがマイクと相手の声を別々に録り、main は流れごとに声の切れ目で区間を切らせ、無音を中継へ送らない。
+// ここは Electron に頼らない判断だけ（区間の受けと鎖は main.js）。タイムラインと札は src/mcp/timeline.js（ここから出し直す）
+const timeline = require('./mcp/timeline');
+const VOICE_LEVEL = 0.02;      // 声あり・なしの境（録音バーの SILENT_LEVEL と同じ。repo が字面で照らす）
+const FRAME_MAX_MS = 250;      // 1つの答えで数える長さの上限（答えが遅れても、まとめて数えない）
+const PAUSE_CUT_MS = 700;      // 切れ目: 声の無い時間
+const LONG_PAUSE_MS = 1500;    // 長い切れ目: 区間が短くても切る
+const MIN_SEG_MS = 2000;       // 切れ目で切るときの区間の長さの下限
+const IDLE_CUT_MS = 3000;      // 声の無いままの区間を切る長さ（捨てる: 決めたこと 125）
+const PRE_ROLL_MS = 300;       // 最初の声の前に残す長さ
+const BLEED_SHARE = 0.6;       // 回り込みとみなす文字の3つ組の割合（S9 (a)）
+const BLEED_NEAR_MS = 3000;    // 回り込みを見る時刻の窓（前後）
+const fin = (v) => typeof v === 'number' && Number.isFinite(v);
+const unit = (v) => fin(v) && v >= 0 && v <= 1;
+const isPlain = (v) => Boolean(v) && typeof v === 'object' && !Array.isArray(v);
+
+/**
+ * 録音バーの level-ask の答えの照らし（決めたこと 134・135）→ { mic, sys, vMic, vSys, segMic, segSys, sysOk } か null（投げない）。
+ * 数でない・0〜1 でない・区間の番号が -1 以上の整数でない・sysOk が真偽でない → null（その答えは数えない）
+ */
+function checkLevel(p) {
+  if (!isPlain(p)) return null;
+  const { mic, sys, vMic, vSys, segMic, segSys, sysOk } = p;
+  if (![mic, sys, vMic, vSys].every(unit)) return null;
+  if (![segMic, segSys].every((n) => Number.isSafeInteger(n) && n >= -1)) return null;
+  if (typeof sysOk !== 'boolean') return null;
+  return { mic, sys, vMic, vSys, segMic, segSys, sysOk };
+}
+
+/**
+ * audio:segment の4つ目 { src, seg, t0, last } の照らし（決めたこと 135・147）→ 写しか null（null は「4つ目が無い」として今の1本の道）。
+ * src は 'mic'・'loopback'・''（取り込みが切れた後のマイク）のどれか・seg は 0 以上の整数・last は真偽。t0 が数でない・負なら t0 だけ null
+ * （その流れの長さの積みに倒す: segAtOf）。その会議で一度も相手の声を取り込めていなければ（sysEver が偽）mic・loopback を '' にする
+ */
+function checkSegMeta(meta, { sysEver } = {}) {
+  if (!isPlain(meta)) return null;
+  const { src, seg, t0, last } = meta;
+  if (src !== 'mic' && src !== 'loopback' && src !== '') return null;
+  if (!Number.isSafeInteger(seg) || seg < 0) return null;
+  if (typeof last !== 'boolean') return null;
+  return { src: sysEver === true ? src : '', seg, t0: fin(t0) && t0 >= 0 ? t0 : null, last };
+}
+
+/** 流れごと・区間ごとの声の数え（決めたこと 123）。voicedMs: 声のあった長さ・firstVoiceMs: 最初の声の位置（-1 は無い）・silentRunMs: 今の声の無い長さ・elapsedMs: 数えた長さ */
+function vadStart() {
+  return { voicedMs: 0, firstVoiceMs: -1, silentRunMs: 0, elapsedMs: 0 };
+}
+/**
+ * 1つの答え（{ voiced, dtMs }。dtMs は 0〜FRAME_MAX_MS に丸める）→ { st, cut }。cut は '' | 'pause' | 'idle'（受けた物を書き換えない）:
+ * pause は声のあった区間で、声の無い時間が LONG_PAUSE_MS 以上か、PAUSE_CUT_MS 以上で区間が MIN_SEG_MS 以上。idle は声の無いまま IDLE_CUT_MS
+ */
+function vadStep(st, ev) {
+  const s0 = isPlain(st) ? st : {};
+  const num = (v, d) => (fin(v) ? v : d);
+  const next = { voicedMs: num(s0.voicedMs, 0), firstVoiceMs: num(s0.firstVoiceMs, -1), silentRunMs: num(s0.silentRunMs, 0), elapsedMs: num(s0.elapsedMs, 0) };
+  const e = isPlain(ev) ? ev : {};
+  const dt = fin(e.dtMs) ? Math.min(FRAME_MAX_MS, Math.max(0, e.dtMs)) : 0;
+  if (e.voiced === true) {
+    if (next.firstVoiceMs < 0 && dt > 0) next.firstVoiceMs = next.elapsedMs;
+    next.voicedMs += dt;
+    next.silentRunMs = 0;
+  } else {
+    next.silentRunMs += dt;
+  }
+  next.elapsedMs += dt;
+  let cut = '';
+  if (next.voicedMs > 0) {
+    if (next.silentRunMs >= LONG_PAUSE_MS || (next.silentRunMs >= PAUSE_CUT_MS && next.elapsedMs >= MIN_SEG_MS)) cut = 'pause';
+  } else if (next.elapsedMs >= IDLE_CUT_MS) {
+    cut = 'idle';
+  }
+  return { st: next, cut };
+}
+function vadSummary(st) {
+  const s = isPlain(st) ? st : {};
+  return { voicedMs: fin(s.voicedMs) ? s.voicedMs : 0, firstVoiceMs: fin(s.firstVoiceMs) ? s.firstVoiceMs : -1 };
+}
+
+/** 頭の ms を除いた 16bit PCM の WAV（頭の 44 バイトを書き直す）。読めない WAV・ms が 0 以下か長さ以上はそのまま返す（決めたこと 125 (b)） */
+function wavFrom(buffer, ms) {
+  const p = pcmOf(buffer);
+  if (!p || !fin(ms) || ms <= 0) return buffer;
+  const cut = Math.round((p.rate * ms) / 1000);
+  if (cut >= p.n) return buffer;
+  const n = p.n - cut;
+  const b = Buffer.alloc(44 + n * 2);
+  b.write('RIFF', 0, 'ascii'); b.writeUInt32LE(36 + n * 2, 4); b.write('WAVE', 8, 'ascii');
+  b.write('fmt ', 12, 'ascii'); b.writeUInt32LE(16, 16); b.writeUInt16LE(1, 20); b.writeUInt16LE(1, 22);
+  b.writeUInt32LE(p.rate, 24); b.writeUInt32LE(p.rate * 2, 28); b.writeUInt16LE(2, 32); b.writeUInt16LE(16, 34);
+  b.write('data', 36, 'ascii'); b.writeUInt32LE(n * 2, 40);
+  buffer.copy(b, 44, p.body + cut * 2, p.body + p.n * 2);
+  return b;
+}
+
+/**
+ * 区間の始まりの時刻（決めたこと 124）: 録音バーの t0（「録っている時間」の時計）が数で、0 以上・その流れの前の区間の終わり −1 秒以上・
+ * 会議の録った時間＋5 秒以下なら t0。違えばその流れの長さの積み（offsetMs）
+ */
+function segAtOf({ t0, prevEndMs, offsetMs, activeMs } = {}) {
+  const fallback = fin(offsetMs) ? offsetMs : 0;
+  if (!fin(t0) || t0 < 0) return fallback;
+  if (fin(prevEndMs) && t0 < prevEndMs - 1000) return fallback;
+  if (fin(activeMs) && t0 > activeMs + 5000) return fallback;
+  return t0;
+}
+/** 2つの流れの会議の時計（決めたこと 140）: どちらかの流れの区間の終わりの一番遅い値（和でない）。streams = { mic: { endMs }, loopback: { endMs } } */
+function clockOf(streams) {
+  let best = 0;
+  for (const s of Object.values(isPlain(streams) ? streams : {})) if (isPlain(s) && fin(s.endMs) && s.endMs > best) best = s.endMs;
+  return best;
+}
+
+/**
+ * PC の whisper の文（verbose_json の segments: [{ start, end, text }]。秒）→ parts（[{ ms, at }]）か null（決めたこと 128・S5 (a)）。
+ * 文ごとに区間の文と同じ直し（clean）をかけ、区間の文（text。直した後）の中を前から順に探して位置を決める（直して空になった文は行にしない）。
+ * 時刻が無い・最後の end と区間の長さが 2 秒より大きくずれる・見つからない文がある・数が 2〜PARTS_MAX の外・ms か at が増えない → null
+ */
+function partsOf(sentences, { text, durationMs, clean } = {}) {
+  if (!Array.isArray(sentences) || sentences.length < 2 || typeof text !== 'string') return null;
+  const fix = typeof clean === 'function' ? clean : (t) => String(t || '').trim();
+  if (!sentences.every((s) => isPlain(s) && fin(s.start) && fin(s.end) && s.start >= 0 && s.end >= s.start)) return null;
+  const lastEnd = sentences[sentences.length - 1].end * 1000;
+  // 点検の直し I1（決めたこと 128 の改め。持ち主 2026-10-25「最後が無音でも文の時刻を使う（おすすめ）」）: 倒すのは最後の文が音声より 2 秒より長くはみ出すときだけ。
+  // 最後の文が音声の終わりより前に終わる（最後が無音の区間。VAD が飛ばした・黙っていた）ときは、文の時刻を使う
+  if (!fin(durationMs) || lastEnd > durationMs + 2000) return null;
+  const parts = [];
+  let cursor = 0;
+  for (const s of sentences) {
+    const c = String(fix(String(s.text || '')) || '').trim();
+    if (!c) continue;
+    const idx = text.indexOf(c, cursor);
+    if (idx < 0) return null;
+    const p = parts.length ? { ms: Math.round(s.start * 1000), at: idx } : { ms: 0, at: 0 };
+    const prev = parts[parts.length - 1];
+    if (prev && (p.ms <= prev.ms || p.at <= prev.at)) return null;
+    parts.push(p);
+    cursor = idx + c.length;
+  }
+  if (parts.length < 2 || parts.length > timeline.PARTS_MAX) return null;
+  return timeline.checkParts(parts, text, durationMs);
+}
+
+/**
+ * 回り込みの割合（決めたこと 129）: マイクの行の文（畳んだ形）の文字の3つ組のうち、相手の行のどれかの文に含まれるものの割合（0〜1）。
+ * 畳んだ文が3字より短い・空・相手の行が無い → 0（短い相づちは自分の声として残す）
+ */
+function bleedOf(micText, loopTexts) {
+  const grams = (s) => { const out = []; for (let i = 0; i + 3 <= s.length; i++) out.push(s.slice(i, i + 3)); return out; };
+  const mic = hintFold(micText);
+  if (mic.length < 3 || !Array.isArray(loopTexts)) return 0;
+  const have = new Set();
+  for (const t of loopTexts) for (const g of grams(hintFold(t))) have.add(g);
+  if (!have.size) return 0;
+  const g = grams(mic);
+  return g.filter((x) => have.has(x)).length / g.length;
+}
+
+/**
+ * 無音で止める見張りの合わせ（決めたこと 133）: 流れごとの区間の出来事 { src, kind: 'speech' | 'quiet' | 'end', endMs } → { st, feed }。
+ * feed は quietStep に渡す出来事の並び。話し声はすぐ渡し（どちらの流れでも止めない側へ）、無音は「終わっていない流れの済んだ区間の終わりの小さい方」
+ * （決まった時間）が最後の話し声より後のときだけ、そこまでを渡す。end はその流れが終わった（相手の声の取り込みが切れた）印で、以後は残りの流れだけで見る
+ */
+function quietUnion(st, ev) {
+  const s0 = isPlain(st) ? st : {};
+  const ends = { mic: 0, loopback: 0, ...(isPlain(s0.ends) ? s0.ends : {}) };
+  const ended = { ...(isPlain(s0.ended) ? s0.ended : {}) };
+  const next = { ends, ended, speech: fin(s0.speech) ? s0.speech : 0, fedSpeech: fin(s0.fedSpeech) ? s0.fedSpeech : 0, fed: fin(s0.fed) ? s0.fed : 0 };
+  const e = isPlain(ev) ? ev : {};
+  if (e.src !== 'mic' && e.src !== 'loopback') return { st: next, feed: [] };
+  const end = fin(e.endMs) ? e.endMs : 0;
+  next.ends[e.src] = Math.max(next.ends[e.src], end);
+  if (e.kind === 'speech') next.speech = Math.max(next.speech, end);
+  if (e.kind === 'end') next.ended[e.src] = true;
+  const live = ['mic', 'loopback'].filter((k) => !next.ended[k]);
+  const decided = live.length ? Math.min(...live.map((k) => next.ends[k])) : Math.max(next.ends.mic, next.ends.loopback);
+  const feed = [];
+  if (next.speech > next.fedSpeech) { feed.push({ kind: 'speech', endMs: next.speech }); next.fedSpeech = next.speech; }
+  if (decided > next.fed && decided > next.speech) { feed.push({ kind: 'quiet', endMs: decided }); next.fed = decided; }
+  return { st: next, feed };
+}
+
+/**
+ * 2つの流れの会議の止まりの見張り（決めたこと 141）: { spanMs, n }（音のある空の区間の長さの和と数）。文のある区間 → 0 に戻る・
+ * 音のある空 → 足す・音の無い空 → そのまま。和が STALL_SPAN_MS 以上で区間が 2 つ以上なら stall（区間の数では決めない）
+ */
+function stallStepMs(st, { text, levelDbfs, durationMs } = {}) {
+  const s0 = isPlain(st) ? st : {};
+  const cur = { spanMs: fin(s0.spanMs) && s0.spanMs > 0 ? s0.spanMs : 0, n: Number.isSafeInteger(s0.n) && s0.n > 0 ? s0.n : 0 };
+  if (text) return { st: { spanMs: 0, n: 0 }, stall: false };
+  if (!(Number(levelDbfs) > STALL_MIN_DBFS)) return { st: cur, stall: false };
+  const next = { spanMs: cur.spanMs + (fin(durationMs) && durationMs > 0 ? durationMs : 0), n: cur.n + 1 };
+  return { st: next, stall: next.spanMs >= STALL_SPAN_MS && next.n >= 2 };
+}
+
 module.exports = {
   PROTOCOL, protocolPlan, linkFromArgv, linkRate,
   STATE_NAMES: SL.STATE_NAMES, BY_NAMES: SL.BY_NAMES, stateLogAdd: SL.stateLogAdd, cleanStateLog: SL.cleanStateLog, stateLogLine: SL.stateLogLine,
@@ -2101,4 +2302,9 @@ module.exports = {
   LEVEL_BAR_W, LEVEL_BAR_SPEED, LEVEL_BAR_PHASE, levelBars,
   // 0.9.4 S-1（文字起こしの安定化）
   localFailKind, effRtf, PACE, paceStep, paceSaved, localTimeoutMs, LOCAL_SEGMENT_MS_CAP, afterEtaMin, RELAY_TRANSIENT, RELAY_HOLD_LADDER_MS, relayHoldStep,
+  // 0.12.0 SP-1（2つの流れの文字起こし。timeline.js の表と部品を出し直す）
+  VOICE_LEVEL, FRAME_MAX_MS, PAUSE_CUT_MS, LONG_PAUSE_MS, MIN_SEG_MS, IDLE_CUT_MS, PRE_ROLL_MS, BLEED_SHARE, BLEED_NEAR_MS,
+  checkLevel, checkSegMeta, vadStart, vadStep, vadSummary, wavFrom, segAtOf, clockOf, partsOf, bleedOf, quietUnion, stallStepMs,
+  SOURCE_LABELS: timeline.SOURCE_LABELS, SPEAKER_LABELS: timeline.SPEAKER_LABELS, srcLabel: timeline.srcLabel, checkParts: timeline.checkParts,
+  timelineOf: timeline.timelineOf, labeledLine: timeline.labeledLine,
 };

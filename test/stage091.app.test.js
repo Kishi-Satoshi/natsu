@@ -102,7 +102,8 @@ test('Q-3: 設定の検索「自動で止める」「話し声」でチェック
   await l.drain();
   await click(l, 'tabBtnSettings');
   await search(l, '自動で止める');
-  assert.deepStrictEqual(shownRows(l), ['話し声が無いときに自動で止める']);
+  // 0.12.1 LV-4（計画 docs/plans/2026-10-24-121.md）で意図して変えた: カード「会議の検出」の「会議を出たら自動で止める」の行も当たる
+  assert.deepStrictEqual(shownRows(l), ['会議を出たら自動で止める', '話し声が無いときに自動で止める']);
   await search(l, '話し声');
   assert.deepStrictEqual(shownRows(l), ['話し声が無いときに自動で止める']);
   await search(l, '知らせるまで');

@@ -57,8 +57,9 @@ function windowOf(segs) {
   };
 }
 
+// 0.12.0 SP-4（決めたこと 138）: 窓はタイムラインの行で作る（parts のある区間は文ごとの行。ID は区間のまま）。src も parts も無い会議は今と同じ
 function chunkSegments(segments) {
-  const segs = sortSegs((segments || []).filter((s) => s && !s.failed && typeof s.text === 'string' && s.text));
+  const segs = F.timelineItems((segments || []).filter((s) => s && !s.failed && typeof s.text === 'string' && s.text));
   const out = [];
   let cur = [];
   let fresh = false;   // cur に、まだどの窓にも入っていない発言がある
@@ -289,7 +290,7 @@ function passageLines(p, order, terms) {
     for (const seg of p.segs) {
       let text = F.segmentText(seg);
       if (text.length > PASSAGE_MAX) text = cutAround(text, first ? first.term : '', PASSAGE_MAX);
-      lines.push(`${F.segPrefix(seg)}${markHits(text, list)}`);
+      lines.push(`${F.segPrefix(seg)}${F.labelPrefix(seg)}${markHits(text, list)}`);   // 0.12.0 SP-4: 当たりの印は札の後の文だけ
     }
   } else if (p.kind === 'b') {
     for (const l of p.lines) {

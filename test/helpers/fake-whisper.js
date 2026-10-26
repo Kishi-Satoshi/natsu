@@ -24,6 +24,12 @@
 // 0.9.4 S-4: FAKE_START_MS があれば、その分だけ口を開くのを遅らせる（エンジンの起動・モデルの読み込みに時間がかかる）
 // どの場面でも、WAV の頭（RIFF/WAVE、16kHz・モノラル・16bit）が壊れていれば 200 のまま {"error"} を返す
 // （本物の 1.7.6・1.8.0 と同じ）。受けた要求は FAKE_LOG に 1 行ずつ書く。
+// 0.12.0 SP-3a: FAKE_TAG_FILE（JSON の文の並び）があり、WAV の末尾の3つの標本が [3, -3, 番号] なら、その番号の文を返す（mainrun の --two-streams）
+// 0.12.0 SP-3b: response_format が verbose_json なら、文（「。」で切る）ごとに区間の長さを等分した start・end（秒）の segments を付ける。
+//   FAKE_SENTENCES=none は segments を付けない（古いエンジン）・drift は最後の end を 3 秒ずらす（音声より長い）・early は文の時刻を音声の終わりの
+//   5 秒前までに詰める（最後が無音の区間。点検の直し I1）。要求の行に rf=<response_format> を足した
+//   要求の行の nlp= は no_language_probabilities の欄（verbose_json で無いと、本物の 1.9.5 は VAD で声の無い音声で落ちる: R25）
+// 0.12.0 SP-3a: 要求の行の最後に busy=<そのとき答えていない区間の要求の数（この要求を含む）>（2つの流れの会議で PC へ同時に送らないかを見る）
 
 const http = require('http');
 const fs = require('fs');
@@ -75,6 +81,7 @@ const json = (res, status, body) => {
 
 let n = 0;
 let dropped = false;
+let busy = 0;   // 0.12.0 SP-3a: 答えていない区間の要求の数
 const server = http.createServer((req, res) => {
   if (req.url === '/health') { json(res, 200, { status: 'ok' }); return; }
   if (req.url !== '/inference') { res.writeHead(404); res.end(); return; }
@@ -87,7 +94,8 @@ const server = http.createServer((req, res) => {
     const hasPrompt = 'prompt' in form.fields;
     const isProbe = form.filename === 'probe.wav';
     const okWav = wavOk(form.file);
-    note(`inference #${n} bytes=${body.length} prompt=${hasPrompt} probe=${isProbe} lang=${form.fields.language || ''} carry=${form.fields.carry_initial_prompt || ''} nc=${form.fields.no_context || ''} wav=${okWav}`);
+    if (!isProbe) { busy++; res.on('close', () => { busy--; }); }
+    note(`inference #${n} bytes=${body.length} prompt=${hasPrompt} probe=${isProbe} lang=${form.fields.language || ''} carry=${form.fields.carry_initial_prompt || ''} nc=${form.fields.no_context || ''} wav=${okWav} busy=${busy} nlp=${form.fields.no_language_probabilities || ''} rf=${form.fields.response_format || ''}`);
     if (!okWav) { json(res, 200, { error: 'failed to read audio data' }); return; }
     if (isProbe && mode === 'probe500') { json(res, 500, { error: 'boom' }); return; }
     if (isProbe && mode === 'probe-badjson') { json(res, 200, 'not json'); return; }
@@ -108,7 +116,31 @@ const server = http.createServer((req, res) => {
     if (mode === 'mixed' && !isProbe && form.file.length > 80000) { json(res, 200, { text: '' }); return; }
     if (mode === 'big-prompt-empty' && hasPrompt && form.file.length > 80000) { json(res, 200, { text: '' }); return; }
     if (mode === 'slow-prompt-empty' && hasPrompt && !isProbe) { setTimeout(() => json(res, 200, { text: '' }), 1500); return; }
-    const reply = () => json(res, 200, { text: process.env.FAKE_TEXT ? `${process.env.FAKE_TEXT}区間${n}` : ` 本日の議題は\n進捗の確認です。区間${n}\n` });
+    const tagged = (() => {
+      const f = form.file;
+      if (!process.env.FAKE_TAG_FILE || !f || f.length < 50) return null;
+      const k = Math.floor((f.length - 44) / 2);
+      const at = (i) => f.readInt16LE(44 + (k - i) * 2);
+      if (at(3) !== 3 || at(2) !== -3) return null;
+      // mainrun は書いてから名前を替える（R31）。それでも読めなければ（Windows の替えの途中など）少し待って読み直す
+      for (let i = 0; i < 20; i++) {
+        try { const list = JSON.parse(fs.readFileSync(process.env.FAKE_TAG_FILE, 'utf8')); if (typeof list[at(1)] === 'string') return list[at(1)]; } catch (_) { /* 読み直す */ }
+        Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 10);
+      }
+      return null;
+    })();
+    const answerText = tagged !== null ? tagged : process.env.FAKE_TEXT ? `${process.env.FAKE_TEXT}区間${n}` : ` 本日の議題は\n進捗の確認です。区間${n}\n`;
+    const sentencesOf = (text) => {
+      const pieces = String(text).split(/(?<=。)/).filter((x) => x.trim());
+      const all = okWav ? Math.floor((form.file.length - 44) / 2) / 16000 : 0;
+      // 点検の直し I1: early は最後の文が音声の終わりの 5 秒前に終わる（最後が無音の区間。音声が 10 秒より長いときだけ）
+      const sec = process.env.FAKE_SENTENCES === 'early' && all > 10 ? all - 5 : all;
+      const segs = pieces.map((x, i) => ({ id: i, start: Math.round((i * sec / pieces.length) * 1000) / 1000, end: Math.round(((i + 1) * sec / pieces.length) * 1000) / 1000, text: x }));
+      if (segs.length && process.env.FAKE_SENTENCES === 'drift') segs[segs.length - 1].end += 3;
+      return segs;
+    };
+    const reply = () => json(res, 200, form.fields.response_format === 'verbose_json' && process.env.FAKE_SENTENCES !== 'none'
+      ? { text: answerText, segments: sentencesOf(answerText) } : { text: answerText });
     if (mode === 'slow' && !isProbe) setTimeout(reply, 1500);
     else if (mode === 'delay' && !isProbe) setTimeout(reply, Number(process.env.FAKE_DELAY_MS) || 0);
     else reply();

@@ -135,6 +135,8 @@ function defaultSettings(cpuCount) {
     // 会議の検出の通知（0.9.3 M-1）と、通知を出さないアプリ（MEET_APP_IDS の id の並び）
     meetingDetect: true,
     meetingDetectMute: [],
+    // 0.12.1 LV-2（計画 docs/plans/2026-10-24-121.md の決めたこと L15・LQ3）: 会議を出たら自動で止める（会議のアプリがマイクを放したのを3回続けて見たら止める）
+    autoStopLeave: true,
     // 0.10.0 LS-4（D59・決めたこと 107）: 0.9.x の要約の組を消したことを知らせたか（知らせは1回だけ。main だけが書く）
     retiredSumNotified: false,
     // 0.11.0 Q-2（QM6・P11）: 打ち合わせの質の点数。all（すべての会議で付ける。既定）・on（1on1 と採用面接・事前面談を除いて付ける）・off（付けない）
@@ -194,6 +196,8 @@ const SETTING_RULES = {
   // 0.9.3 M-1（会議の検出）
   meetingDetect: { label: '会議の検出の通知', kind: 'bool', notFalse: true },
   meetingDetectMute: { label: '通知を出さないアプリ', kind: 'apps' },
+  // 0.12.1 LV-2（決めたこと L15）
+  autoStopLeave: { label: '会議を出たら自動で止める', kind: 'bool', notFalse: true },
   // 0.10.0 LS-4（決めたこと 107）
   retiredSumNotified: { label: '要約用の AI を消した知らせ', kind: 'bool' },
   // 0.11.0 Q-2（QM6・P11）

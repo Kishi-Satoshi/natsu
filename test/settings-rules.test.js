@@ -45,6 +45,9 @@ for (const k of ['sumServerExe', 'sumModelPath', 'sumPort', 'sumThreads', 'sumCt
 Object.assign(TODAY, { retiredSumNotified: false });
 // 0.11.0 Q-2（QM6・P11）: 打ち合わせの質の点数（既定はすべての会議で付ける）
 Object.assign(TODAY, { qualityScore: 'all' });
+// 0.12.1 LV-2（計画 docs/plans/2026-10-24-121.md の決めたこと L15）で意図して変えた: 会議を出たら自動で止める autoStopLeave（既定 true）を足した（33 のキー）。
+// 画面は LV-4 で［設定］→［録音］のカード「会議の検出」から送る
+Object.assign(TODAY, { autoStopLeave: true });
 Object.assign(UI, { meetingDetect: false, meetingDetectMute: ['zoom', 'chrome'] });
 // 第1c回 Task C-2: 画面のカード「オンライン」が送るキー（0.7.0 U-1 で claudeExe だけ。30 のキー）。既定でない値で往復することを見る
 Object.assign(UI, { claudeExe: 'C:\\c\\claude.exe' });
@@ -52,9 +55,9 @@ const legacy = (raw) => S.normalizeSettings({ ...D, ...raw }, D);
 const ON = (key, v) => (key === 'useBuiltinTerms' ? v !== false : Boolean(v));
 const BOOLS = ['useVad', 'suppressNst', 'autoPaste', 'removeFillers', 'soundFeedback', 'autoLaunch', 'stayInTray', 'useBuiltinTerms', 'useSystemAudio'];
 
-test('JS6: 決まりの表のキーは既定の 32 のキーとちょうど同じ。どれにも画面の名前がある', { timeout: 5000 }, () => {
+test('JS6: 決まりの表のキーは既定の 33 のキーとちょうど同じ。どれにも画面の名前がある', { timeout: 5000 }, () => {
   assert.deepStrictEqual(D, TODAY);
-  assert.strictEqual(S.SETTING_KEYS.length, 32);   // 0.10.0 LS-3 で要約の5つを外し（35 → 30）、LS-4 で retiredSumNotified を足した（31）。0.11.0 Q-2 で qualityScore を足した（32。意図して変えた）
+  assert.strictEqual(S.SETTING_KEYS.length, 33);   // 0.10.0 LS-3 で要約の5つを外し（35 → 30）、LS-4 で retiredSumNotified を足した（31）。0.11.0 Q-2 で qualityScore を足した（32。意図して変えた）。0.12.1 LV-2 で autoStopLeave を足した（33。意図して変えた）
   assert.deepStrictEqual([...S.SETTING_KEYS].sort(), Object.keys(TODAY).sort());
   for (const k of S.SETTING_KEYS) assert.ok(typeof S.SETTING_RULES[k].label === 'string' && S.SETTING_RULES[k].label.length > 1, k);
   assert.strictEqual(S.defaultSettings(2).localThreads, 4);

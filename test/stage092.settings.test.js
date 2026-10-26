@@ -388,9 +388,11 @@ test('I7: 吹き出しの中にだけある言葉で検索すると、その行�
   // 名前で当たった行（使用するマイク）と、吹き出しで当たった行（相手の声）
   await search(l, 'マイク');
   // 0.9.3 M-4 で意図して変えた: 「会議の検出の通知」の行も見える説明（「会議のアプリがマイクを使い始めたら…」）で当たる（吹き出しでないので印は無い）
-  assert.deepStrictEqual(shownRows(l), ['会議の検出の通知', '使用するマイク', '議事録で相手の声も録る']);
+  // 0.12.1 LV-4（計画 docs/plans/2026-10-24-121.md の決めたこと L15）で意図して変えた: 「会議を出たら自動で止める」の行も見える説明で当たる（印は無い）
+  assert.deepStrictEqual(shownRows(l), ['会議の検出の通知', '会議を出たら自動で止める', '使用するマイク', '議事録で相手の声も録る']);
   assert.ok(hit('setPopLoop'));
   assert.ok(!hit('setPopDetect'), '見える説明で当たった行の ⓘ に印を付けた');
+  assert.ok(!hit('setPopLeave'), '見える説明で当たった行の ⓘ に印を付けた');
   await search(l, 'スピーカー');
   assert.deepStrictEqual(shownRows(l), ['録音されるスピーカー']);
   assert.ok(!hit('setPopSpk'), '名前で当たった行の ⓘ に印を付けた');

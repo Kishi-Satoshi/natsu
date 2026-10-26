@@ -275,3 +275,56 @@ test('再審査の指摘 7: 「中継（OpenAI）」と書かない（中継＝O
   }
   for (const n of notes) assert.ok(!n.includes('会社'), `説明の一言に「会社」: ${n}`);
 });
+
+// 0.12.0 SP-4（計画 docs/plans/2026-10-22-120.md の「記事 record/start-stop の節」。D53・D66）。admin/relay-limits は変えない（S14 (b)）
+test('0.12.0 SP-4: record/start-stop の節「文字起こしの「自分」「相手」」に、ヘッドホン・同じ部屋・取り込みが途中で切れた・直せない・ToDo の担当・Claude。start/claude-mcp に札の1行と節へのリンク', { timeout: 5000 }, () => {
+  const t = read(fileOf('record/start-stop'));
+  const sec = t.slice(t.indexOf('## 文字起こしの「自分」「相手」 {#speakers}'), t.indexOf('## 録音バー {#bar}'));
+  assert.ok(sec.length > 100, '節が無い');
+  for (const w of ['「自分」', '「相手」', 'ヘッドホン', '同じ部屋', '取り込みが途中で切れた', '経過', '直せません', '［コピー］', 'ToDo の担当', 'Claude', '話した時刻の順', '両方の行', '議事録で相手の声も録る']) {
+    assert.ok(sec.includes(w), `「${w}」が無い`);
+  }
+  const mcp = read(fileOf('start/claude-mcp'));
+  assert.ok(mcp.includes('「自分」（マイク）か「相手」（PC から流れた声）') && mcp.includes('(record/start-stop.md#speakers)'));
+});
+
+// 0.12.1 LV-5（計画 docs/plans/2026-10-24-121.md の「画面と知らせの文」の下の案。LN4・LN6・決めたこと L22）: 会議を出たら止めることと、誤って止まったときの手順
+test('0.12.1 LV-5: record/meeting-detect に「会議を出たとき」（6 秒・聞かずに・Chrome・Edge・一時停止・ミュート・LN4・両方を切っている間）と「誤って止まったとき」の手順（新しい議事録 → ［文字起こし］ → ··· → ［コピー］ → ［メモ］ → ［要約を再生成］の順）がある。前の版の案の字は無い', { timeout: 5000 }, () => {
+  const t = read(fileOf('record/meeting-detect'));
+  const leave = sectionOf('record/meeting-detect', 'leave');
+  for (const w of ['6 秒', '聞かずに', 'Chrome', 'Edge', '一時停止', 'ミュート', '会議を出たので録音を止めました。議事録を作っています。', '通知を出さないアプリ', '所要時間']) assert.ok(leave.includes(w), `「会議を出たとき」に「${w}」が無い`);
+  assert.ok(t.includes('「会議の検出の通知」と「会議を出たら自動で止める」の両方を切っている間は、Windows の記録を読みません。「会議を出たら自動で止める」だけがオンなら、録音している間だけ読みます。'), '切っている間の文が新しくない');
+  assert.ok(!t.includes('切っている間は、Windows の記録も読みません。'), '前の「切っている間は」の文が残っている');
+  const at = t.indexOf('{#leave-split}');
+  assert.ok(at > t.indexOf('{#leave}'), '「誤って止まったとき」の小見出しが無い（「会議を出たとき」の中に）');
+  const split = t.slice(at, t.indexOf('\n## ', at) < 0 ? t.length : t.indexOf('\n## ', at));
+  let pos = 0;
+  for (const w of ['新しい議事録', '［文字起こし］', '···', '［コピー］', '［メモ］', '［要約を再生成］']) {
+    const i = split.indexOf(w, pos);
+    assert.ok(i >= 0, `「誤って止まったとき」に「${w}」が無いか、順が違う`);
+    pos = i + w.length;
+  }
+  // 記事の頭の「2〜4 秒で画面の右上に」（パネルの話）は前からある字なので、前の版の案の字は「会議を出たとき」の節（小見出しを含む）だけで見る（R7）
+  for (const w of ['会議を出ましたか？', '60 秒', '相手の声が 30 秒', '4 秒']) assert.ok(!leave.includes(w), `前の版の案の「${w}」が残っている`);
+  assert.ok(/updated: 2026-10-2[5-9]/.test(t), 'updated を直していない');
+  for (const s of ['src/meetleave.js', 'docs/plans/2026-10-24-121.md']) assert.ok(t.includes(s), `sources に ${s} が無い`);
+});
+test('0.12.1 LV-5: record/start-stop の自動で止める節から record/meeting-detect.md#leave への道、README に「会議を出たとき（0.12.1 から）」', { timeout: 5000 }, () => {
+  const s = sectionOf('record/start-stop', 'auto-stop');
+  assert.ok(s.includes('Teams・Zoom・Chrome・Edge の会議を出ると、6 秒ほどで録音を止めて議事録を作ります'), s);
+  assert.ok(s.includes('](record/meeting-detect.md#leave)'), 'record/meeting-detect.md#leave への道が無い');
+  const readme = read('README.md');
+  assert.ok(readme.includes('**会議を出たとき（0.12.1 から）:**'), 'README に項目が無い');
+});
+test('0.12.1 点検の直し 2: 「誤って止まったとき」の録り直しは ［＋ 新しい議事録］ と [[Alt+M]] から言い、同じアプリの会議に入り直したときは右上のパネルが出ないことがあると書く（R3: 0.9.3 のつなぎ直し）', { timeout: 5000 }, () => {
+  const t = read(fileOf('record/meeting-detect'));
+  const at = t.indexOf('{#leave-split}');
+  const step1 = t.slice(at).split('\n').find((l) => l.startsWith('1. '));
+  assert.ok(step1, '手順の 1 が無い');
+  const iNew = step1.indexOf('［＋ 新しい議事録］');
+  const iKey = step1.indexOf('[[Alt+M]]');
+  const iPanel = step1.indexOf('パネル');
+  assert.ok(iNew >= 0 && iKey >= 0, step1);
+  assert.ok(iPanel > iNew && iPanel > iKey, `パネルを先に言っている: ${step1}`);
+  assert.ok(step1.includes('同じアプリ') && step1.includes('パネルが出ないことがあります'), step1);
+});
