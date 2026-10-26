@@ -706,22 +706,32 @@ test('ED-5・EQ22 (a)（preload）: page:open の値 → onPageOpen の cb の�
   assert.deepStrictEqual(got, [['p2', { saved: false }], ['p2', { saved: true }], ['p2', { saved: false }], ['p2', { saved: false }]]);
 });
 
-test('ED-5（E1）: 行の左の ＋ は行の外の左の余白に置き（行の並びを変えない: 位置は absolute）、乗せたときだけ見え、描くのを省く切る線（overflow-clip-margin）の内側に収まる。狭い画面は .mblock の余白に収まる幅', () => {
+// 2026-10-26 の持ち主の答え（問2「⠿ の左に並べる（Notion と同じ並び）」）で意図して変えた: ＋ は行の外の余白でなく、行の並びの中で ⠿ の左（Ruling R36。R21 を替えた）
+test('ED-5（E1・問2）: 行の左の ＋ は行の並びの中で ⠿ の左（＋ → ⠿ → 文）。乗せたときだけ見え、押す所は拡大 150%・200% の狭い画面でも細くしない。文は約 22px 右へずれる', T, async () => {
   const S = require('./helpers/simcss');
   const { parseHTML } = require('./helpers/simdom');
-  const rules = S.parse(parseHTML(HTML).root.querySelectorAll('style').map((s) => s._raw).join('\n'));
+  const rules = S.parse(parseHTML(HTML).root.querySelectorAll('style').map((x) => x._raw).join('\n'));
   const px = (v) => Number(/^(-?\d+(?:\.\d+)?)px$/.exec(String(v || '').trim())?.[1]);
   const plus = S.declsFor(rules, '.blk .plus', { at: '' });
-  assert.strictEqual(plus.position, 'absolute');
-  assert.strictEqual(plus.right, '100%');
+  assert.notStrictEqual(plus.position, 'absolute', '＋ が行の並びの外にある');
+  assert.strictEqual(plus.flex, 'none');
   assert.strictEqual(plus.opacity, '0');
   assert.strictEqual(S.declsFor(rules, '.blk:hover .plus', { at: '' }).opacity, '.55');
-  assert.ok(px(S.declsFor(rules, '.blk', { at: '' })['overflow-clip-margin']) >= px(plus.width), '＋ が描くのを省く切る線で切れる');
-  const narrowAt = rules.map((r) => r.at).find((a) => /max-width: 760px/.test(a));
+  assert.ok(px(plus.width) >= 18 && px(plus['line-height']) >= 24, `＋ の押す所が小さい（${plus.width}×${plus['line-height']}）`);
+  const narrowAt = rules.map((r) => r.at).find((x) => /max-width: 760px/.test(x));
   const narrow = S.declsFor(rules, '.blk .plus', { at: narrowAt });
-  const mpad = S.declsFor(rules, '.mblock', { at: narrowAt }).padding.split(/\s+/)[1];
-  assert.ok(px(narrow.width) <= px(mpad), `狭い画面の ＋（${narrow.width}）が .mblock の左の余白（${mpad}）からはみ出す`);
-  assert.ok(px(plus.width) <= px(S.declsFor(rules, '.mblock', { at: '' }).padding.split(/\s+/)[1]));
+  assert.ok(narrow.width === undefined || px(narrow.width) >= 18, `狭い画面（拡大 150%・200%）で ＋ を細くした: ${narrow.width}`);
+  const shift = px(plus.width) + px(S.declsFor(rules, '.blk', { at: '' }).gap) + (px(plus['margin-right']) || 0);
+  assert.ok(shift >= 18 && shift <= 26, `文のずれ ${shift}px が約 22px でない`);
+  const l = await openReal({ pa1: BASE() });
+  try {
+    for (const id of ['b1', 'p1']) {
+      const kids = rowOf(l, id).children.map((e) => e.className.split(' ')[0]);
+      assert.deepStrictEqual(kids.slice(0, 2), ['plus', 'grip'], `${id}: ${kids.join(',')}`);
+      assert.ok(kids.indexOf('txt') > 1);
+    }
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
 });
 
 test('ED-5（決めたこと 41・R19）: / メニューはページを替える前に閉じる（印の無い page:open・［＋ 新しい議事録］）。打っていた文は保存される', T, async () => {

@@ -246,9 +246,8 @@ module.exports = [
   { id: 'fx-seg-index', file: 'src/renderer/app.html', from: 'i: idx.has(sid) ? idx.get(sid) : -1', to: 'i: curSegs.findIndex((s) => s.id === sid)', tests: ['test/stage1b2.fix.test.js'], why: '開く速さ: 出典の札ごとに区間を頭から探さない' },
   { id: 'fx-seg-index-stale', file: 'src/renderer/app.html', from: '    if (segIdxOf !== curSegs) {', to: '    if (segIdxOf === null) {', tests: ['test/stage1b2.fix.test.js'], why: '開く速さ: 別のページでは区間の位置を作り直す' },
   { id: 'fx-seg-index-first', file: 'src/renderer/app.html', from: 'curSegs.forEach((s, i) => { if (!segIdx.has(s.id)) segIdx.set(s.id, i); });', to: 'curSegs.forEach((s, i) => { segIdx.set(s.id, i); });', tests: ['test/stage1b2.fix.test.js'], why: '同じ id の区間は前の方（今までの findIndex と同じ）' },
-  // 0.13.0 ED-5（計画 docs/plans/2026-10-24-130.md の Ruling R21）: 行の外の左に出す ＋ も切れないよう切る線を 18px にしたので、fx-cv・fx-cv-clip の from を今の行に直した（意図は同じ）
-  { id: 'fx-cv', file: 'src/renderer/app.html', from: '  .blk { content-visibility: auto; contain-intrinsic-size: auto 30px; overflow-clip-margin: 18px; }\n', to: '', tests: ['test/stage1b2.fix.test.js'], why: '開く速さ: 画面の外のブロックは描かない' },
-  { id: 'fx-cv-clip', file: 'src/renderer/app.html', from: 'contain-intrinsic-size: auto 30px; overflow-clip-margin: 18px; }', to: 'contain-intrinsic-size: auto 30px; }', tests: ['test/stage1b2.fix.test.js'], why: '描くのを省くブロックでもボタンの Tab の輪を切らない' },
+  { id: 'fx-cv', file: 'src/renderer/app.html', from: '  .blk { content-visibility: auto; contain-intrinsic-size: auto 30px; overflow-clip-margin: 8px; }\n', to: '', tests: ['test/stage1b2.fix.test.js'], why: '開く速さ: 画面の外のブロックは描かない' },
+  { id: 'fx-cv-clip', file: 'src/renderer/app.html', from: 'contain-intrinsic-size: auto 30px; overflow-clip-margin: 8px; }', to: 'contain-intrinsic-size: auto 30px; }', tests: ['test/stage1b2.fix.test.js'], why: '描くのを省くブロックでもボタンの Tab の輪を切らない' },
   // ---------------------------------------------------------------- 第1b回（Task C-3。計画 docs/plans/2026-10-19-1b.md の「変異確認」の表）
   // from は第1b2回の後の文字（第1b2回の計画「第1b回とのつなぎ」）。look-sel-line は第1b2回で左の線をやめたので消し、tok-sel-line に置き換えた
   { id: 'ws-path-local', file: 'src/winstate.js', from: '  if (local && path.isAbsolute(local)) {', to: '  if (false) {',

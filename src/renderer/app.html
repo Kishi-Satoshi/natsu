@@ -514,9 +514,8 @@
   /* 本文（第1b2回 P-2）: 16px・行の高さ 24px・上下 3px（1行ごとに約 30px）。見出しは 20px・600・上 22px */
   .blk { display: flex; align-items: flex-start; gap: 8px; padding: 3px 0; position: relative; }
   /* 画面の外のブロックは描かない（2,000 ブロックのページを開く速さ。content-visibility の見積もりは本文1行の約 30px で、一度描いた行は
-     auto で本当の高さを覚える）。描くのを省く仕組みは中身を枠で切るので、ボタンの Tab の輪（線 2px＋離れ 2px）が切れないよう切る線を 8px 外へ出す。
-     0.13.0 ED-5（E1）: 行の外の左に出す ＋（14px）も切れないよう 18px にした */
-  .blk { content-visibility: auto; contain-intrinsic-size: auto 30px; overflow-clip-margin: 18px; }
+     auto で本当の高さを覚える）。描くのを省く仕組みは中身を枠で切るので、ボタンの Tab の輪（線 2px＋離れ 2px）が切れないよう切る線を 8px 外へ出す */
+  .blk { content-visibility: auto; contain-intrinsic-size: auto 30px; overflow-clip-margin: 8px; }
   /* 点字の6点(U+283F)を使う。「⋮⋮」を字間で詰める方法は環境によって
      3点に見えていた。 */
   .blk .grip { opacity: 0; flex: none; cursor: grab; color: var(--muted); user-select: none;
@@ -558,9 +557,9 @@
     font-size: 15px; line-height: 1; padding: 4px 6px; flex: none; }
   .blk:hover .del { opacity: 1; }
   .blk .del:hover { color: var(--danger); }
-  /* 0.13.0 ED-5（E1）: 行の左の ＋（乗せたときだけ）。行の外の左の余白（.mblock の内側の余白）に置き、行の並びと文の位置は変えない。
-     描くのを省く仕組み（content-visibility）の切る線は上の .blk で ＋ の分だけ外へ出した。狭い画面は余白が 8px なので細くする */
-  .blk .plus { position: absolute; right: 100%; top: 3px; width: 14px; text-align: center; line-height: 24px; font-size: 15px;
+  /* 0.13.0 ED-5（E1）・2026-10-26 の持ち主の答え（問2。計画の Ruling R36）: 行の左の ＋ は行の並びの中で ⠿ の左
+     （乗せたときだけ見える）。⠿ との間は詰め（margin-right）、文は約 22px 右へずれる。押す所は 18×24px で、拡大 150%・200% の狭い画面でも細くしない */
+  .blk .plus { flex: none; width: 18px; margin-right: -4px; text-align: center; line-height: 24px; font-size: 15px;
     color: var(--muted); cursor: pointer; user-select: none; opacity: 0; }
   .blk:hover .plus { opacity: .55; }
   .blk .plus:hover { opacity: 1; }
@@ -775,7 +774,6 @@
     .prop .k { width: 96px; }
     .mblock { padding: 6px 8px 12px; }
     .blk .txt { overflow-wrap: anywhere; }
-    .blk .plus { width: 8px; font-size: 13px; }
   }
 
   /* 狭い画面（第1b2回 R-1 の区画）: 設定と音声入力の題名と余白を詰め、トグルは左へ戻して折り返しを減らす */

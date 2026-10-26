@@ -163,7 +163,11 @@ const ADDED_121 = ['settings-record-light', 'settings-record-dark', 'settings-re
 // 録音の前のページの3枚（NEW_130。足した画面で、まだ基準が無い）を足した。ED-5 で / メニューの3枚を、ED-6 で ⠿ のメニューの1枚を、ED-7 で新しい型の3枚を足した
 const NEW_130 = ['live-ready-light', 'live-ready-dark', 'live-ready-zoom200-light', 'edit-slash-light', 'edit-slash-dark', 'edit-slash-recent-light', 'edit-block-menu-light',
   'edit-types-light', 'edit-types-dark', 'edit-types-zoom150-light'];
-const RETAKE_130 = [...NEW_130];
+// 2026-10-26 の持ち主の答え（問2「⠿ の左に並べる（Notion と同じ並び）」。計画の Ruling R36）で意図して変えた: 鍵の無い要約の行が見える今の画面は、
+// 行の左の ＋ が行の並びに入って要約の文が約 22px 右へずれるので取り直す（RETAKEN_130。今の基準がある）
+const RETAKEN_130 = ['notes-page-light', 'notes-page-dark', 'notes-tabs-light', 'notes-collapsed-light', 'search-palette-light', 'page-menu-link-light', 'page-menu-link-dark',
+  'page-type-undecided-light', 'page-quality-light', 'page-quality-dark'];
+const RETAKE_130 = [...NEW_130, ...RETAKEN_130];
 const img = (w, h, fill = [255, 255, 255, 255]) => ({ width: w, height: h, data: Buffer.from(Array.from({ length: w * h }, () => fill).flat()) });
 // 一時フォルダ（日本語と 𠮷 の名前。RF1 と同じ形）。テストの終わりに消す
 const tmp = (t, name) => {
@@ -954,7 +958,8 @@ test('基準の画像（test/shots/win32）は今の app.html で撮ったもの
   // 0.13.0 ED-7（E5・E11・決めたこと 5・6・26〜29）: 見出し1・3（段 2 は前の .blk.heading のまま）・番号付き・引用・区切り線・コールアウトの CSS と描き方・近道（keyAction の写し）。前の版の要約（段の無い見出し・ToDo・箇条書き・テキスト）の見た目は変わらない見込みで、変わる画面は足した RETAKE_130 の edit-types-* の3枚。値を今の app.html に合わせた（前の値は 59b1531e…）
   // 0.13.0 ED-8（EQ4 (a)・決めたこと 35）: ［要約を再生成］の前の確かめ（人が直した行があるときだけ。.askbox の CSS と描き方）。押したときだけ出るので今の撮る画面は変わらない見込み。値を今の app.html に合わせた（前の値は 7ece40dd…）
   // 0.13.0 ED-5〜ED-7 の撮った画像の確かめ: / メニューと ⠿ のメニューは開いたときに箱の全部が見える所まで捲る（scrollIntoView。行が窓の下の端に近いと項目が窓の外に出ていた）。値を今の app.html に合わせた（前の値は 32854479…）
-  assert.strictEqual(sha, 'ce75391c61bf38d23f5c5d6dbec0d6b7a60bc701a89bf18975e40e7218a194a8',
+  // 2026-10-26 の持ち主の答え 問2（「⠿ の左に並べる（Notion と同じ並び）」。計画の Ruling R36）: 行の左の ＋ を行の並びの中で ⠿ の左に置いた（.blk .plus の CSS。.blk の切る線は 8px に戻した）。変わる画面は RETAKE_130 の RETAKEN_130 の 10 枚と足した 10 枚。値を今の app.html に合わせた（前の値は ce75391c…）
+  assert.strictEqual(sha, 'c2964b139a579b3d510b530bb22af97e2922c7f2e76483ea5ed18572c7fbf0de',
     'app.html が基準の画像を撮った時と違う。Windows の CI の画面の比べ（捲り棒のつまみも）を見て、基準を取り直してからこの値を直す');
 });
 
