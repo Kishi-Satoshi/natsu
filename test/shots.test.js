@@ -930,7 +930,9 @@ test('基準の画像（test/shots/win32）は今の app.html で撮ったもの
   // align-self: flex-start を足した（変わる画面は同じ RETAKE_120）。値を今の app.html に合わせた（前の値は 15ff8c69…）
   // 0.12.1 LV-4（決めたこと L15）: カード「会議の検出」の2行目に「会議を出たら自動で止める」（行・ⓘ の吹き出し）と、読み込みと自動保存の1行ずつ。変わる画面は RETAKE_121。
   // 値を今の app.html に合わせた（前の値は 2d669bc1…）
-  assert.strictEqual(sha, '6c70ba307939e526797292e564e4f71eb11bd058a7ad5e947781e642444785c8',
+  // 0.13.0 RDY-2（第2部 RD1・RD20）: 録音の前のページ（#readyBar と CSS の #readyState・#readyBar button.action、<script> の中の録音の前の描き方）。録音の前のページは
+  // ［＋ 新しい議事録］を押したときだけ出るので、今の撮る画面は変わらない見込み（RDY-3 で撮る画面を足す）。値を今の app.html に合わせた（前の値は 6c70ba30…）
+  assert.strictEqual(sha, 'dd181948cc97fcc7c1d55ba19369505a240feabd8324836ece24cd34afb2c0d4',
     'app.html が基準の画像を撮った時と違う。Windows の CI の画面の比べ（捲り棒のつまみも）を見て、基準を取り直してからこの値を直す');
 });
 

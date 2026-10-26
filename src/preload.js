@@ -190,6 +190,11 @@ contextBridge.exposeInMainWorld('koeApp', {
 
   // 議事録セッション
   meetingToggle: () => ipcRenderer.invoke('meeting:toggle'),
+  // 0.13.0 RDY-2（計画 docs/plans/2026-10-24-130.md の第2部 RD1・RD2・RD14）: 録音の前のページを開く・閉じる・始めるだけ（DB の命令でないので APP_COMMANDS に入れない）。
+  // 始める口は { pcOnly: true } のほかを渡さない（きっかけの符号は main が決める）
+  meetingPrepare: () => ipcRenderer.invoke('meeting:prepare'),
+  meetingUnprepare: () => ipcRenderer.invoke('meeting:unprepare'),
+  meetingStart: (o) => ipcRenderer.invoke('meeting:start', o && o.pcOnly === true ? { pcOnly: true } : {}),
   meetingDiscard: () => ipcRenderer.invoke('meeting:discard'),
   meetingStatus: () => ipcRenderer.invoke('meeting:status'),
   meetingSetMemo: (memo) => ipcRenderer.invoke('meeting:set-memo', memo),

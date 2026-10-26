@@ -626,6 +626,9 @@
   .live .rec-dot { order: -2; }
   .live .tm { color: var(--muted); font-variant-numeric: tabular-nums; order: -1; }
   #liveTitle { font-size: 14px; color: var(--text-2); }
+  /* 0.13.0 RDY-2（RD10）: 録音の前の行。状態の文は左、2つのボタンは右の端（.live と同じ形） */
+  #readyState { font-size: 14px; color: var(--text-2); margin-right: auto; }
+  #readyBar button.action { font-size: 12px; padding: 0 10px; }
   /* ［■ 終了して作成］は赤い文字の灰色のボタン（線なし） */
   #liveStopBtn { color: var(--danger); background: var(--hover); border-color: transparent; }
   #liveStopBtn:hover { background: var(--tint); }
@@ -1923,7 +1926,7 @@
   const hasTab = (k) => openTabs.some((t) => t.key === k);
   function tabLabel(k) {
     if (isPageKey(k)) return tabTitles.get(k.slice(5)) || '議事録';
-    if (k === 'live') return mtPhase === 'paused' ? '⏸ 一時停止中' : '● 記録中';
+    if (k === 'live') return readyNow() ? '新しい議事録' : mtPhase === 'paused' ? '⏸ 一時停止中' : '● 記録中';   // 0.13.0 RDY-2（RT1）: 録音の前のページ
     return { dictation: '音声入力' }[k] || k;
   }
   // 記録中のタブ（live）は覚えない（N6）。選んでいる間は、その前に選んでいたタブを覚える
@@ -2012,7 +2015,7 @@
       const id = k.slice(5);
       title = tabTitles.get(id) || (curPage && curId === id && typeof curPage.title === 'string' ? curPage.title : '') || '議事録';
     } else if (k === 'dictation') { icon = '🎤'; title = '音声入力'; }
-    else if (k === 'live') { icon = '🎙️'; title = '記録中の会議'; }
+    else if (k === 'live') { icon = '🎙️'; title = readyNow() ? '新しい議事録' : '記録中の会議'; }
     const c = $('crumb');
     c.querySelector('.ci').textContent = icon;
     c.querySelector('.ct').textContent = title;
@@ -2065,6 +2068,7 @@
       }
       const lb = $('liveBar');
       if (lb) lb.hidden = true;   // 記録中のバーは記録中のタブだけのもの
+      if (readyEls) readyEls.bar.hidden = true;   // 0.13.0 RDY-2: 録音の前の行も同じ
       renderSttBanner();          // 帯も記録中のタブだけのもの
       showSection('notes');
     } else if (key === 'live') {
@@ -2105,6 +2109,7 @@
   function closeTab(key) {
     const i = openTabs.findIndex((t) => t.key === key);
     if (i < 0 || (key === 'live' && mtWasActive)) return;
+    if (key === 'live' && readyNow() && !closeReady()) return;   // 0.13.0 RDY-2（RD14）: 録音の前のページは何も残さない（メモを書いていたら確かめる）
     tabsTouched = true;
     openTabs.splice(i, 1);
     if (lastPageTab === key) lastPageTab = '';
@@ -3696,6 +3701,11 @@
     return st.paused ? 'paused' : 'recording';
   }
   let mtSt = { active: false };   // 最後に受け取った会議の状態（記録中のタブを開き直すときに描く）
+  // 0.13.0 RDY-2（計画 docs/plans/2026-10-24-130.md の第2部）: 録音の前のページ（main の prep があって録音していない）。記録中のタブ（鍵 live）を使い回す
+  function readyNow() { return Boolean(mtSt && !mtSt.active && mtSt.prep); }
+  let readyWas = false;        // 最後に描いたとき録音の前のページだった
+  let readyEls = null;         // 録音の前の行の部品 { bar, start, local, note }（一度だけ作る。HTML には無い）
+  let readyStarting = false;   // ［文字起こしを始める］の答えを待っている（答えまで押せない: F81）
   let mtPhase = 'idle';
   let liveMemoWrap = null;        // 記録中のメモ欄（ページのメモ欄と取り違えない）
   let liveMemo = '';              // 記録中のメモの今の文字（タブを行き来して欄を作り直すときに戻す）
@@ -3818,6 +3828,30 @@
       }
     };
   }
+  // 記録中のメモ欄を作る（0.13.0 RDY-2 で drawLive から切り出した。録音の前のページ（drawReady）も同じ欄を使う: RD20）
+  function makeLiveMemo(st) {
+    const memoBox = $('pMemo');
+    memoBox.textContent = '';
+    const wrap = document.createElement('div'); wrap.className = 'field';
+    const l = document.createElement('label');
+    l.textContent = 'メモ・アジェンダ（要約のヒントとして使われます）';
+    const ta = document.createElement('textarea');
+    ta.rows = 10;
+    ta.value = liveMemo;
+    ta.placeholder = '例: 週次定例。議題: 売上見込み / 案件進捗 / 採用状況';
+    liveGuide = makeGuide();   // 0.11.0 V-1: メモ欄の上の手引き（手を付けていないときだけ）
+    fillGuide(liveGuide, liveMemo, $('pType').dataset.for === 'live' ? $('pType').value : (st.meetingType || ''));
+    ta.oninput = () => {
+      liveMemo = ta.value;
+      fillGuide(liveGuide, liveMemo, $('pType').dataset.for === 'live' ? $('pType').value : '');
+      if (!memoUntouched(liveMemo)) $('pTypeLiveHint').hidden = true;   // 人の文が入ったら一言を消す
+      clearTimeout(liveMemoTimer);
+      liveMemoTimer = setTimeout(() => { liveMemoTimer = null; window.koeApp.meetingSetMemo(ta.value); }, 500);
+    };
+    wrap.append(l, liveGuide, ta);
+    memoBox.appendChild(wrap);
+    liveMemoWrap = wrap;
+  }
   // 記録中のページの中身（要約の区画の案内・メモ・流れる文字起こしと印）
   function drawLive(st) {
     lockLiveTitle();
@@ -3826,28 +3860,8 @@
     // 記録中もメモを書けるようにする。ここで書いた内容は
     // 「会議メモ・アジェンダ」として要約のヒントに使われる。
     // 区間ごとに setMeetingUi が呼ばれるので、入力中を壊さないよう一度だけ作る。
-    const memoBox = $('pMemo');
     if (!liveMemoShown()) {
-      memoBox.textContent = '';
-      const wrap = document.createElement('div'); wrap.className = 'field';
-      const l = document.createElement('label');
-      l.textContent = 'メモ・アジェンダ（要約のヒントとして使われます）';
-      const ta = document.createElement('textarea');
-      ta.rows = 10;
-      ta.value = liveMemo;
-      ta.placeholder = '例: 週次定例。議題: 売上見込み / 案件進捗 / 採用状況';
-      liveGuide = makeGuide();   // 0.11.0 V-1: メモ欄の上の手引き（手を付けていないときだけ）
-      fillGuide(liveGuide, liveMemo, $('pType').dataset.for === 'live' ? $('pType').value : (st.meetingType || ''));
-      ta.oninput = () => {
-        liveMemo = ta.value;
-        fillGuide(liveGuide, liveMemo, $('pType').dataset.for === 'live' ? $('pType').value : '');
-        if (!memoUntouched(liveMemo)) $('pTypeLiveHint').hidden = true;   // 人の文が入ったら一言を消す
-        clearTimeout(liveMemoTimer);
-        liveMemoTimer = setTimeout(() => { liveMemoTimer = null; window.koeApp.meetingSetMemo(ta.value); }, 500);
-      };
-      wrap.append(l, liveGuide, ta);
-      memoBox.appendChild(wrap);
-      liveMemoWrap = wrap;
+      makeLiveMemo(st);
       // 文字起こしタブへ切り替えるのは記録中のページを開いたこの1回だけ。
       // 区間が届くたび（meeting:update）に切り替えると、メモを書いている
       // 最中に文字起こしタブへ引き戻されて書けない。
@@ -3998,12 +4012,16 @@
       if (mtTimer) { clearInterval(mtTimer); mtTimer = null; }
       if (!st.finalizing) $('pProgress').style.display = 'none';
       // 記録中のメモ欄は片付ける。この後、作られたページ側の表示に切り替わる（page:open で記録中のタブをそのページのタブに替える）
-      if (!curId) $('pMemo').textContent = '';
-      liveMemoWrap = null;
+      // 0.13.0 RDY-2: 録音の前のページのメモ欄は残す（［＋ 新しい議事録］を2回押しても・種類を選んでも書いた文が消えない）
+      if (!st.prep) {
+        if (!curId) $('pMemo').textContent = '';
+        liveMemoWrap = null;
+      }
       if (phaseChanged) renderTabs();
       waveState.levels = []; waveState.at = 0;
       renderWave();   // 0.9.3 M-6: 録音が終わったら波を隠す
     }
+    renderReady(st);   // 0.13.0 RDY-2
   }
   // 記録中のタブを選んだ: 開いていたページを確定して閉じ、記録中の描き方で描く
   function showLive() {
@@ -4013,10 +4031,12 @@
       renderList(); renderPage();
     }
     showSection('notes');
-    lockLiveTitle();
+    lockLiveTitle(readyNow() ? '新しい議事録' : undefined);
     const live = $('liveBar');
     if (live) live.hidden = false;
+    if (readyEls) readyEls.bar.hidden = !readyNow();
     if (mtSt.active) drawLive(mtSt);
+    else if (readyNow()) drawReady(mtSt);   // 0.13.0 RDY-2
     renderSttBanner();
     renderQuietAsk();
     renderWave();   // 0.9.3 M-6
@@ -4024,12 +4044,124 @@
   }
   // 記録中のページの題名は「記録中の会議」で編集できない（打った文字は保存先が無く黙って消えるため。G10）。
   // ページに替わると renderPage が live-on を外し、題名を編集できる形に戻す
-  function lockLiveTitle() {
+  // 0.13.0 RDY-2（RD5）: 録音の前のページは同じ関数で「新しい議事録」（直せない）
+  function lockLiveTitle(text = '記録中の会議') {
     const t = $('pTitle');
-    t.textContent = '記録中の会議';
+    t.textContent = text;
     t.setAttribute('contenteditable', 'false');
     $('pIcon').hidden = false;
     $('pageWrap').classList.add('live-on');
+  }
+
+  // ---------------- 0.13.0 RDY-2（計画 docs/plans/2026-10-24-130.md の第2部 RD1・RD2・RD5〜RD7・RD9〜RD11・RD14・RD18・RD20）: 録音の前のページ
+  const READY_GUARD_MS = 1000;   // RD10: 始めた直後に一時停止・停止を押せない間（RDY-3）
+  // RT5・RT6（NQ4 と続きの答え）。案内の文で、法の同意の仕組みではない（RD9）
+  const READY_NOTE = {
+    cloud: '始めると、録音と文字起こしに参加者全員が同意したものとみなされます。音声は文字起こしのため OpenAI に送られます。',
+    local: '始めると、録音と文字起こしに参加者全員が同意したものとみなされます。文字起こしはこの PC の中で行います。',
+  };
+  const READY_SCRIPT_TEXT = '［文字起こしを始める］を押すと、ここに文字起こしが流れます。';   // RT9
+  const READY_CLOSE_ASK = 'この議事録はまだ録音していません。書いたメモは残りません。閉じますか？';   // RT10
+  // 会議のブロックの頭（丸いタブの前）に行を置く（録音の前の行が使う。#liveBar の2行は変えない: RD20）
+  function blockHead(el) {
+    const box = document.querySelector('.mblock');
+    box.insertBefore(el, box.querySelector('.ptabs'));
+  }
+  // サイドバーの［＋ 新しい議事録］: 録音の前のページを開くだけ（録音しない: RD1）。もうあればそのタブへ移るだけ
+  async function openReady() {
+    let r = null;
+    try { r = await window.koeApp.meetingPrepare(); } catch (_) { r = null; }
+    if (!r || r.ok === false) { setMeetingUi(await window.koeApp.meetingStatus()); return; }
+    setMeetingUi(await window.koeApp.meetingStatus());
+    if (!readyNow()) return;
+    tabsTouched = true;
+    if (!hasTab('live')) openTabs.push({ key: 'live' });
+    await activateTab('live');   // 開いていたページを確定して閉じる（showLive の flushEdits）。フォーカスはサイドバーのボタンに残す（F83）
+  }
+  // 録音の前の行（#readyBar。.live と同じ形）: 左に状態の文、右の端に［オフラインモードで始める］（クラウドの PC だけ）と青い［文字起こしを始める］、下に同意と送り先の文
+  // 行は一度だけ作り、録音の前のページでないときは隠す（作り直すと押そうとしたボタンが消える。#liveBar と同じ考え）
+  function renderReady(st) {
+    if (st.active || !st.prep) {
+      if (readyEls) readyEls.bar.hidden = true;
+      readyWas = false;
+      return;
+    }
+    if (!readyWas) { liveMemo = st.prep.memo || ''; $('pType').dataset.for = ''; liveMemoWrap = null; }   // 新しい録音の前のページは空のメモと「自動」から
+    if (!readyEls) {
+      const bar = document.createElement('div'); bar.className = 'live'; bar.id = 'readyBar';
+      bar.innerHTML = '<span id="readyState">録音していません</span>'
+        + '<button class="ghost" id="readyLocalBtn" type="button" hidden>オフラインモードで始める</button>'
+        + '<button class="action" id="readyStartBtn" type="button">文字起こしを始める</button>'
+        + '<div class="desc" id="readyNote"></div>';
+      blockHead(bar);
+      readyEls = { bar, start: bar.querySelector('#readyStartBtn'), local: bar.querySelector('#readyLocalBtn'), note: bar.querySelector('#readyNote') };
+      readyEls.start.onclick = () => startFromPage(false);
+      readyEls.local.onclick = () => startFromPage(true);
+    }
+    readyEls.local.hidden = !st.cloud;
+    readyEls.note.textContent = st.cloud ? READY_NOTE.cloud : READY_NOTE.local;
+    setReadyBusy(readyStarting);
+    readyEls.bar.hidden = !liveShown();
+    const first = !readyWas;
+    readyWas = true;
+    if (first) renderTabs();   // 記録中のタブの名前（新しい議事録）
+    if (liveShown()) drawReady(st);
+  }
+  function setReadyBusy(on) {
+    if (!readyEls) return;
+    readyEls.start.disabled = on;
+    readyEls.local.disabled = on;
+  }
+  // 録音の前のページの中身（記録中のページと同じ部品: 題名・種類の行・メモ欄。RD7・RD20）。［メモ］のタブで開く（RD6）
+  function drawReady(st) {
+    lockLiveTitle('新しい議事録');
+    const p = { meetingType: st.prep ? st.prep.meetingType : null };
+    if ($('pType').dataset.for !== 'live') renderLiveTypeRow(p);
+    $('pNote').innerHTML = '<div class="empty"><div class="big">会議を終えると、ここに要約が入ります。</div></div>';
+    if (!liveMemoShown()) {
+      makeLiveMemo(p);
+      setPane('memo');
+    }
+    curSegs = [];
+    const box = $('pScript'); box.textContent = '';
+    const d = document.createElement('div'); d.className = 'empty'; d.textContent = READY_SCRIPT_TEXT;
+    box.appendChild(d);
+  }
+  // ［文字起こしを始める］・［オフラインモードで始める］: 待っているメモの送りを止めて今の文を先に送り、始めるだけの口を呼ぶ（RD2・RD11）。
+  // 答えまで2つのボタンを押せない（F81）。断られたら左下に出してボタンを戻し、ページはそのまま（RD18）
+  async function startFromPage(pcOnly) {
+    if (readyStarting) return;
+    readyStarting = true;
+    setReadyBusy(true);
+    clearTimeout(liveMemoTimer); liveMemoTimer = null;
+    const ta = liveMemoWrap ? liveMemoWrap.querySelector('textarea') : null;
+    if (ta) liveMemo = ta.value;
+    let r = null;
+    try {
+      await window.koeApp.meetingSetMemo(liveMemo);
+      r = await window.koeApp.meetingStart({ pcOnly: pcOnly === true });
+    } catch (_) { r = null; }
+    readyStarting = false;
+    if (!r || r.ok === false) {
+      setReadyBusy(false);
+      const err = (r && r.error) || '議事録を開始できません';
+      toast(err);
+      if (/未設定/.test(err)) showEngineSettings();
+      return;
+    }
+    setMeetingUi(await window.koeApp.meetingStatus());
+  }
+  // 録音の前のタブを閉じる（RD14・NQ5 (a)）: 手を付けていないメモなら黙って、人の文があれば確かめてから。閉じないなら false
+  function closeReady() {
+    const ta = liveMemoWrap ? liveMemoWrap.querySelector('textarea') : null;
+    if (ta) liveMemo = ta.value;
+    if (!memoUntouched(liveMemo) && !confirm(READY_CLOSE_ASK)) return false;
+    clearTimeout(liveMemoTimer); liveMemoTimer = null;
+    window.koeApp.meetingUnprepare();
+    mtSt = { ...mtSt, prep: null };
+    renderReady(mtSt);
+    liveMemo = ''; liveMemoWrap = null;
+    return true;
   }
 
   // 録音中のページの文字起こしの状態の行と帯（第1d回 A-7・D17）。main の meetingStatus().stt（A-6）をそのまま描く。
@@ -4173,7 +4305,8 @@
     if (r && r.ok === false && r.error) { toast(r.error); if (/未設定/.test(r.error)) showEngineSettings(); }
     setMeetingUi(await window.koeApp.meetingStatus());
   }
-  $('mtToggleBtn').onclick = toggleMeeting;
+  // 0.13.0 RDY-2（RD1）: 録音していないときは録音の前のページを開くだけ（録音中は今どおり［■ 終了して作成］）
+  $('mtToggleBtn').onclick = () => (mtSt && mtSt.active ? toggleMeeting() : openReady());
   $('mtDiscardBtn').onclick = async () => {
     if (!confirm('この議事録の録音を破棄します。よろしいですか？')) return;
     await window.koeApp.meetingDiscard();

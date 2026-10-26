@@ -64,9 +64,16 @@ test('［PC の中の文字起こしを取り込む］で engineFetchStart を�
   assert.strictEqual(l.called('engineFetchStart').length, 1);
 });
 
+// 0.13.0 RDY-2（計画 docs/plans/2026-10-24-130.md の第2部 RD1・RD2）で意図して直した: ［＋ 新しい議事録］は録音の前のページを開くだけで、録音は
+// ページの［文字起こしを始める］（始めるだけの口 meetingStart）で始める。「未設定」はその答えで返る（連れて行く先の意味は同じ）
 test('記録開始で「未設定」が返ったら（showEngineSettings）、取り込みの欄を出し、詳細設定は閉じたまま', async () => {
-  const l = await base(ST(), { getSettings: SET_EMPTY, meetingToggle: () => ({ ok: false, error: NOTSET }) });
+  let prep = null;
+  const l = await base(ST(), { getSettings: SET_EMPTY, meetingStart: () => ({ ok: false, error: NOTSET }),
+    meetingPrepare: () => { prep = { memo: '', meetingType: null }; return { ok: true }; },
+    meetingStatus: () => ({ active: false, finalizing: false, segments: [], pending: 0, cloud: true, prep }) });
   l.byId.get('mtToggleBtn').dispatchEvent({ type: 'click' }); await l.drain();
+  l.document.getElementById('readyStartBtn').dispatchEvent({ type: 'click' }); await l.drain();
+  assert.strictEqual(l.called('meetingStart').length, 1);
   assert.ok(!l.byId.get('engineFetch').hidden);
   assert.ok(!l.byId.get('engineAdv').open, '詳細設定が開いた');
 });
