@@ -117,6 +117,14 @@ const OPEN_BLOCK_MENU = `(async () => {
   [...document.querySelectorAll('#pNote .blockmenu .mitem')].find((b) => b.textContent === '変換 ▸').click();
   return 1;
 })()`;
+// 0.13.0 ED-7（E5）: ページを開いて［AI 要約］の欄の頭まで捲る（新しい型の行が全部見えるように。撮った画像の確かめで、欄が窓の下に切れていた）
+const OPEN_TYPES = `(async () => {
+  document.getElementById('tabBtnNotes').click(); document.querySelector('#plist .pitem').click();
+  await new Promise((r) => setTimeout(r, 300));
+  document.getElementById('paneBtnNote').click();
+  document.querySelector('#pNote .blk').scrollIntoView({ block: 'start' });
+  return 1;
+})()`;
 // 0.11.0 V-2: ページを開き、打ち合わせの質のカードまで捲る
 const OPEN_QUALITY = `(async () => {
   document.getElementById('tabBtnNotes').click(); document.querySelector('#plist .pitem').click();
@@ -284,9 +292,9 @@ const SCREENS = [
   // 0.13.0 ED-6（E1）: ⠿ のメニューと［変換 ▸］の中（文のある行なので区切り線は灰色）。足した画面（まだ基準が無い）
   { name: 'edit-block-menu-light', page: 'app', theme: 'light', act: OPEN_BLOCK_MENU },
   // 0.13.0 ED-7（E5）: 見出し1〜3・番号付き・引用・区切り線・コールアウトを1枚に（明暗と拡大 150%）。足した画面（まだ基準が無い）
-  { name: 'edit-types-light', page: 'app', theme: 'light', get answers() { return typesAnswers(); }, act: OPEN_PAGE_SUMMARY },
-  { name: 'edit-types-dark', page: 'app', theme: 'dark', get answers() { return typesAnswers(); }, act: OPEN_PAGE_SUMMARY },
-  { name: 'edit-types-zoom150-light', page: 'app', theme: 'light', zoom: 1.5, get answers() { return typesAnswers(); }, act: OPEN_PAGE_SUMMARY },
+  { name: 'edit-types-light', page: 'app', theme: 'light', get answers() { return typesAnswers(); }, act: OPEN_TYPES },
+  { name: 'edit-types-dark', page: 'app', theme: 'dark', get answers() { return typesAnswers(); }, act: OPEN_TYPES },
+  { name: 'edit-types-zoom150-light', page: 'app', theme: 'light', zoom: 1.5, get answers() { return typesAnswers(); }, act: OPEN_TYPES },
 ];
 // 0.9.0 O-3（RP9）: 録音バーの画面（形 → 地 → 拡大率 → 状態の順。撮る道具は形・地・拡大率の組ごとに窓を1つ開いて状態を act で替える）。
 // 録音は始めずに見た目だけを撮る（act は pill-states の見本を録音バーの DOM に当てる。撮るときだけ体の地にデスクトップの色を塗る）。

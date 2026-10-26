@@ -3589,7 +3589,11 @@
     const box = $('pNote');
     slashBox.style.top = `${(s.el.offsetTop || 0) + (s.el.offsetHeight || 0)}px`;
     slashBox.style.left = `${(s.el.offsetLeft || 0) + (txt.offsetLeft || 0)}px`;
-    if (slashBox.parentNode !== box) box.appendChild(slashBox);
+    if (slashBox.parentNode !== box) {
+      box.appendChild(slashBox);
+      // 開いたときに箱の全部が見える所まで捲る（行が窓の下の端に近いと、項目が窓の外に出る: ED-5 の撮った画像の確かめ）
+      if (typeof slashBox.scrollIntoView === 'function') slashBox.scrollIntoView({ block: 'nearest' });
+    }
     const on = slashBox.querySelector('.sopt[aria-selected="true"]');
     if (on && typeof on.scrollIntoView === 'function') on.scrollIntoView({ block: 'nearest' });
   }
@@ -3726,6 +3730,7 @@
     box.style.top = `${(el.offsetTop || 0) + (el.offsetHeight || 0)}px`;
     box.style.left = `${el.offsetLeft || 0}px`;
     $('pNote').appendChild(box);
+    if (typeof box.scrollIntoView === 'function') box.scrollIntoView({ block: 'nearest' });   // 箱の全部が見える所まで捲る（slashRender と同じ）
     menuItems(box)[0].focus();
   }
   // 変換の中（型の表の名前）を開く・閉じる
@@ -3741,6 +3746,7 @@
         menuItem(sub, r.label, () => blockMenuDo('turn', r), { key: r.id, off: r.key === 'divider' && hasText ? '文のある行は区切り線にできません' : '' });
       }
       m.box.appendChild(sub);
+      if (typeof sub.scrollIntoView === 'function') sub.scrollIntoView({ block: 'nearest' });
       m.sub = sub;
     }
     menuItems(m.box)[2].setAttribute('aria-expanded', 'true');
