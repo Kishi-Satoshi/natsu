@@ -23,7 +23,8 @@ function load(timers = { setTimeout, clearTimeout }) {
   return { exposed, givePort, lost: () => on['db:lost'] && on['db:lost']({}), sandbox };
 }
 
-test('ST5: ページの 14 の名前は口に頼み、返事をそのまま返す（今の IPC と同じ引数の形）', { timeout: 5000 }, async () => {
+// 0.13.0 ED-2 で意図して直した: 名前は 0.11.0 の page.setType を含む 14 に、要約の編集の4つを足して 18（照らしは同じ）
+test('ST5: ページの 18 の名前は口に頼み、返事をそのまま返す（今の IPC と同じ引数の形）', { timeout: 5000 }, async () => {
   const l = load(); const p = l.givePort();
   const pr = l.exposed.koeApp.blockInsert('pa1', 'b2', 'todo');
   const m = p.sent[0];

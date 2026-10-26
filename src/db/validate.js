@@ -9,6 +9,7 @@
  */
 'use strict';
 const mtype = require('../meetingType');
+const blockEdit = require('../blockEdit');
 
 const ID_RE = /^[A-Za-z0-9_-]{1,64}$/;      // 今の ID（p…・b…・s<n>・テストの p1）を全部通し、区切り・点・空白は通さない
 const TX_RE = /^[A-Za-z0-9:_.-]{8,120}$/;
@@ -22,6 +23,9 @@ const RICH_MARKS = ['b', 'i', 'u', 's', 'code', 'color', 'bg', 'link'];   // 2b 
 const LINK_RE = /^(https?:\/\/|mailto:|natsu:\/\/)/i;
 const NAME_RE = /^[A-Za-z0-9_-]{1,64}$/;   // ブロックの型・会議の種類の名前（知らない型も通す。2a2 で増える）
 const SHORT = 500;                          // 担当・期限の文字・検索の語などの短い文字
+// 0.13.0 ED-2（計画 docs/plans/2026-10-24-130.md の決めたこと 9。持ち主の試作の命令ごとの照らし）: 画面の書く命令（block.*）の型は決まった表
+// （blockEdit.TYPE_KEYS）だけ。main の page.put・meeting.* は今の NAME_RE のまま（新しい版の型を古い版で壊さない）
+const isBlockType = (v) => typeof v === 'string' && blockEdit.TYPE_KEYS.includes(v);
 
 const isObj = (v) => Boolean(v) && typeof v === 'object' && !Array.isArray(v) &&
   (Object.getPrototypeOf(v) === Object.prototype || Object.getPrototypeOf(v) === null);
@@ -121,7 +125,7 @@ function checkPatch(p) {
   for (const k of Object.keys(p)) {
     if (k === 'text') { if (!isStr(p.text, LIMITS.text)) throw bad('patch.text'); }
     else if (k === 'checked') { if (typeof p.checked !== 'boolean') throw bad('patch.checked'); }
-    else if (k === 'type') { if (typeof p.type !== 'string' || !NAME_RE.test(p.type)) throw bad('patch.type'); }
+    else if (k === 'type') { if (!isBlockType(p.type)) throw bad('patch.type'); }
     else if (k === 'rich') { richText(p.rich); }
     else throw bad('patch');
   }
@@ -165,6 +169,11 @@ const TYPES = Object.freeze(Object.assign(Object.create(null), {
   name: (v) => { if (typeof v !== 'string' || !NAME_RE.test(v)) throw bad('name'); return v; },
   // 0.11.0 M-4（持ち主の試作の命令ごとの照らし）: 会議の種類は選べる鍵（meetingType.SELECTABLE）と auto（自動に戻す）だけ
   meetingTypeArg: (v) => { if (v !== 'auto' && !mtype.isSelectable(v)) throw bad('meetingType'); return v; },
+  // 0.13.0 ED-2: ブロックの型（決まった表）・見出しの段（1〜3）・分ける位置（0 以上の整数。文の長さとサロゲートは命令の中で見る）・コールアウトの絵文字（EQ15 (a): 💡 だけ）
+  blockType: (v) => { if (!isBlockType(v)) throw bad('type'); return v; },
+  level: (v) => { if (v !== 1 && v !== 2 && v !== 3) throw bad('level'); return v; },
+  offset: (v) => { if (!Number.isSafeInteger(v) || v < 0 || v > LIMITS.text) throw bad('offset'); return v; },
+  icon: (v) => { if (v !== blockEdit.CALLOUT_ICON) throw bad('icon'); return v; },
   int: (v) => { if (!Number.isSafeInteger(v)) throw bad('int'); return v; },
   num: (v) => { if (typeof v !== 'number' || !Number.isFinite(v)) throw bad('num'); return v; },
   bool: (v) => { if (typeof v !== 'boolean') throw bad('bool'); return v; },

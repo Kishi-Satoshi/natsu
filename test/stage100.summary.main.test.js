@@ -26,6 +26,12 @@ function tryEdits(db, pageId, blockId) {
     ['block.move', { pageId, blockId, toIndex: 0 }],
     ['block.setAction', { pageId, blockId, assignee: '担当Z', dueRaw: '' }],
     ['block.remove', { pageId, blockId }],
+    // 0.13.0 ED-2（計画 docs/plans/2026-10-24-130.md の決めたこと 12）で意図して足した: 要約の編集の新しい命令も鍵で断る
+    ['block.split', { pageId, blockId, text: '分ける文', at: 1 }],
+    ['block.merge', { pageId, blockId, text: 'つなぐ文' }],
+    ['block.turnInto', { pageId, blockId, type: 'numbered' }],
+    ['block.duplicate', { pageId, blockId }],
+    ['block.move', { pageId, blockId, afterId: '' }],
   ];
   return cmds.map(([cmd, args]) => { const r = call(db, cmd, args); return [cmd, r.ok ? 'ok' : r.code]; });
 }
