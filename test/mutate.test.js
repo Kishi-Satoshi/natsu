@@ -969,3 +969,29 @@ test('G3・0.12.1 LV-6: 0.12.1 の変異が一覧にそろい、IDS_121 は計�
     assert.ok(typeof m.why === 'string' && m.why.startsWith('0.12.1 '), `${id}: why`);
   }
 });
+
+// 0.13.0（計画 docs/plans/2026-10-24-130.md の「変異確認」の ed- と rdy- の表）: 録音の前のページ（第2部）と要約の編集（第1部）の直しを1つずつ戻す変異。
+// タスクを作るたびに足す（0.10.1 の Ruling R3 と同じ）。全部のタスクの後に、表の 0.13.0 の id（ed- 53・rdy- 24 の 77）とちょうど同じにそろえる
+const IDS_130 = [
+  'rdy-one-prep', 'rdy-start-toggle', 'rdy-prep-draft', 'rdy-prep-db', 'rdy-adopt-memo', 'rdy-adopt-type', 'rdy-adopt-late', 'rdy-adopt-clear', 'rdy-memo-prep', 'rdy-type-prep',
+  'rdy-offline', 'rdy-offline-by', 'rdy-statelog',   // RDY-1
+];
+test('G3・0.13.0: 0.13.0 の変異が一覧にそろい、IDS_130 はどれも計画の「変異確認」の表にある。ed-・rdy- の変異は IDS_130 にある。どれも決まったテストのファイルを持ち、why が 0.13.0 で始まる', { timeout: 5000 }, () => {
+  const byId = new Map(MUTANTS.map((m) => [m.id, m]));
+  assert.deepStrictEqual(IDS_130.filter((id) => !byId.has(id)), [], 'IDS_130 の変異が一覧に無い');
+  assert.strictEqual(new Set(IDS_130).size, IDS_130.length, 'IDS_130 に重なり');
+  assert.deepStrictEqual(MUTANTS.filter((m) => /^(ed|rdy)-/.test(m.id) && !IDS_130.includes(m.id)).map((m) => m.id), [], 'IDS_130 に無い ed-・rdy- の変異がある');
+  const plan = fs.readFileSync(path.join(ROOT, 'docs', 'plans', '2026-10-24-130.md'), 'utf8');
+  const at = plan.search(/^## 変異確認（直しを1つ戻すと/m);
+  assert.ok(at > 0, '計画の「変異確認」の節が無い');
+  const table = plan.slice(at, plan.indexOf('\n## ', at + 5));
+  const rows = [...table.matchAll(/^\| ((?:ed|rdy)-[a-z0-9-]*) \|/gm)].map((m) => m[1]);
+  assert.strictEqual(rows.length, 77, '計画の 0.13.0 の表（ed- 53・rdy- 24）が読めない');
+  assert.strictEqual(new Set(rows).size, rows.length, '計画の表に重なり');
+  assert.deepStrictEqual(IDS_130.filter((id) => !rows.includes(id)), [], '計画の「変異確認」の表に無い変異');
+  for (const id of IDS_130) {
+    const m = byId.get(id);
+    assert.ok(Array.isArray(m.tests) && m.tests.length > 0 && m.tests.every((t) => /^test\/[^/]+\.test\.js$/.test(t)), `${id}: tests`);
+    assert.ok(typeof m.why === 'string' && m.why.startsWith('0.13.0 '), `${id}: why`);
+  }
+});

@@ -411,6 +411,10 @@ const { titleAt } = require('./titles');
 //     --mic-feed の手順に足す: ["pause", bool]（画面と同じ meeting:set-paused。偽の録音バーが答える）・["click-notice", n]（n 番目に show() した偽の Notification を押す）・
 //                        ["discard"]（画面と同じ meeting:discard）・["db-fail", cmd]（main の客の次の1回のその命令を断る。点検の直し 3）。snap に sentN（本体の窓へ送った数）・notes（偽の Notification の数）。出力に notifications（{ title, body, closed }）・
 //                        notifyClosed・pageDur（ページごとの { id, durationSec, pauses }）を足す
+//   0.13.0 RDY-1（録音の前のページ。計画 docs/plans/2026-10-24-130.md の第2部）
+//     --mic-feed の snap に足す: drafts（下書きのファイルの名前）・draft（最初の下書きの { memo, meetingType }。無ければ null）・dbSent（main の客が
+//                        送った・呼んだ DB の命令の名前。中身は入れない）・status（meeting:status の { active, prep }。prep の欄が無ければ 'none'）。
+//                        出力に pageMemos（ページごとの { id, memo, meetingType }）を足す
 //     --quiet-mic … --quiet-seq の場面でも偽の見張りを起こし、字 T（見張りに mic teams:1）・L（mic -）を足す（どちらも偽の時計を 2 秒進める。Ruling R2）
 //   0.10.0 C-2（Claude デスクトップへの MCP の登録。計画 docs/plans/2026-10-20-100.md）
 //     app.getPath('appData') は一時フォルダ（日本語と 𠮷）の AppData-Roaming。MCP の場面（--claude-config・--mcp-steps）だけ app.getAppPath() がリポジトリの根
@@ -2995,7 +2999,16 @@ process.on('exit', () => {
       else if (k === 'quit') { appEvents.emit('before-quit', { preventDefault() {} }); appEvents.emit('will-quit', {}); await sleep(30); }
       else if (k === 'wait-show') await waitFor(() => nudgeWins.length > 0 && nudgeWins[0].nudge.calls.filter((c) => c === 'showInactive').length >= a[0], 5000);
       else if (k === 'minimize') { wins[1].minimized = true; wins[1].emit('minimize'); await sleep(15); }
-      else if (k === 'snap') out.snaps[a[0]] = { spawns: micSpawns.length, kills: micKills, active: isActive(), nudgeCalls: nudgeWins.length ? nudgeWins[0].nudge.calls.length : 0, asks: overlayAsks(), sentN: mainSentAll.length, notes: notifications.length };
+      else if (k === 'snap') {
+        out.snaps[a[0]] = { spawns: micSpawns.length, kills: micKills, active: isActive(), nudgeCalls: nudgeWins.length ? nudgeWins[0].nudge.calls.length : 0, asks: overlayAsks(), sentN: mainSentAll.length, notes: notifications.length };
+        // 0.13.0 RDY-1: 下書きのファイルの名前と最初の下書きのメモと種類・DB へ送った命令の名前（中身は入れない）・meeting:status の active と prep
+        const drafts = store.draftFiles();
+        const d0 = drafts.length ? store.readDraftFile(drafts[0]) : null;
+        const dv = d0 && d0.state === 'ok' && d0.value ? d0.value : null;
+        const st = handlers['meeting:status']();
+        Object.assign(out.snaps[a[0]], { drafts, draft: dv ? { memo: dv.memo, meetingType: dv.meetingType === undefined ? null : dv.meetingType } : null,
+          dbSent: trace.filter((t) => t.kind === 'call' || t.kind === 'send').map((t) => t.cmd), status: { active: Boolean(st.active), prep: st.prep === undefined ? 'none' : st.prep } });
+      }
       // 0.12.1 LV-3: 一時停止（画面と同じ meeting:set-paused。偽の録音バーが答える）・n 番目の偽の Windows の知らせを押す
       else if (k === 'pause') { out.ipc.push(['pause', await handlers['meeting:set-paused']({}, Boolean(a[0]))]); await sleep(40); }
       else if (k === 'click-notice') { const n = noticeObjs[a[0]]; if (n) n.emit('click', {}); await sleep(30); }
@@ -3015,6 +3028,8 @@ process.on('exit', () => {
       // 0.12.1 LV-3: 偽の Windows の知らせ（閉じたか）・議事録の所要時間と一時停止の印
       notifications: noticeObjs.map((n) => ({ title: n.o.title, body: n.o.body, closed: Boolean(n.closed) })), notifyClosed,
       pageDur: store.listPages().map((p) => { const pg = store.getPage(p.id) || {}; return { id: p.id, durationSec: pg.durationSec, pauses: pg.pauses || [] }; }),
+      // 0.13.0 RDY-1: 議事録のページのメモと種類
+      pageMemos: store.listPages().map((p) => { const pg = store.getPage(p.id) || {}; return { id: p.id, memo: pg.memo, meetingType: pg.meetingType === undefined ? null : pg.meetingType }; }),
     });
     process.stdout.write(`\n${JSON.stringify(out)}\n`);
     await exitClean(0);

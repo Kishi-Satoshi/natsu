@@ -210,6 +210,9 @@ let recoveredPageId = null;
 let storeError = '';
 
 let meeting = null;
+// 0.13.0 RDY-1（計画 docs/plans/2026-10-24-130.md の第2部 RD3）: 録音の前のページ（［＋ 新しい議事録］で開いた、まだ録音していないページ）。
+// { memo, meetingType, openedAt }。メモリだけ（下書き・DB・画面の覚え書きに書かない）。同時に1つ。録音を始めたら takePrep が会議へ移して null にする
+let prep = null;
 // 締めの返事を裏で待っている会議のページの ID と下書きの名前（第2a1回 ST6・F9）。録音の状態は待たせない。復旧はこの下書きを飛ばし
 // （同じ会議を2つ目の道から書かない）、新しい会議はこの下書きを脇へ退けない（返事の後に消すのは、この会議の下書き）
 const finalizingPageIds = new Set();
@@ -4313,6 +4316,8 @@ function meetingStatus() {
     startedAt: meeting ? meeting.startedAt : null,
     memo: meeting ? meeting.memo : '',
     meetingType: meeting && mtype.isSelectable(meeting.meetingType) ? meeting.meetingType : null,   // 0.11.0 M-4: 録音中のページの種類の欄を戻す
+    // 0.13.0 RDY-1（RD15）: 録音の前のページ（会議が無いときだけ。画面を読み直したら戻す）
+    prep: !meeting && prep ? { memo: prep.memo, meetingType: mtype.isSelectable(prep.meetingType) ? prep.meetingType : null } : null,
     segments: meeting ? publicSegments(meeting.segments) : [],   // wav（パス）は外す。待ちは pending: true
     pending: pendingSegs,
     stoppedAt: meeting && meeting.stoppedAt ? meeting.stoppedAt : null,
@@ -4957,9 +4962,10 @@ function cleanOrphanSegbuf(keepDir) {
 }
 
 // 0.9.4 D-1（持ち主の試作の考え: 状態が変わるたびに、何が変えたかを残す）: 会議の始まりと終わりの引き金を engine.log に符号で1行
-// （page・panel・panel-offline・hotkey・tray／page・bar・hotkey・auto-quiet）。検出が出なかったときに、何で会議を始めたかが持ち主の記録で分かる
+// （page・page-offline・panel・panel-offline・hotkey・tray／page・bar・hotkey・auto-quiet・auto-leave）。検出が出なかったときに、何で会議を始めたかが持ち主の記録で分かる
 // 0.10.0 K-1（決めたこと 116）: 議事録の経過。引き金の符号 → 経過のきっかけ（表 lib.BY_NAMES の鍵）
-const START_BY = Object.freeze({ page: 'button', panel: 'panel', 'panel-offline': 'panel', hotkey: 'hotkey', tray: 'tray' });
+// 0.13.0 RDY-1（RD11）: page-offline は録音の前のページの［オフラインモードで始める］
+const START_BY = Object.freeze({ page: 'button', 'page-offline': 'button', panel: 'panel', 'panel-offline': 'panel', hotkey: 'hotkey', tray: 'tray' });
 const STOP_BY = Object.freeze({ page: 'button', bar: 'overlay', hotkey: 'hotkey', 'auto-quiet': 'quiet', 'auto-leave': 'leave' });   // 0.12.1 LV-3: auto-leave（会議を出たので自動）
 // 会議の経過に1つ積み、engine.log に「議事録: 開始（ホットキー）」の1行（題名・文は書かない）。下書きにも書く
 function noteMeetingState(m, s, by) {
@@ -4975,9 +4981,57 @@ async function startMeetingBy(trigger, opts = {}) {
   if (r && r.ok) {
     leaveStart(meeting, opts.app);   // 0.12.1 LV-2
     engineLog(`会議: 始めた（${trigger}）`);
+    if (meeting.prepAt) notePrep(meeting);   // 0.13.0 RDY-1（RD4）: 録音の前のページから始めた会議だけ、「開始」の前に「ページを開いた」
     noteMeetingState(meeting, 'start', START_BY[trigger] || 'app');
+    if (meeting.prepType) noteMeetingState(meeting, 'type', 'live-page');   // 録音の前のページで種類を選んでいた
   }
   return r;
+}
+// 0.13.0 RDY-1（RD4・持ち主の試作の「履歴の頭は作った」）: 経過に「ページを開いた（画面のボタン）」を開いた時刻で積み、記録に2行（メモの文は書かない）
+function notePrep(m) {
+  const item = { s: 'prep', by: 'button', at: new Date(m.prepAt || Date.now()).toISOString() };
+  m.stateLog = lib.stateLogAdd(m.stateLog, item);
+  const line = lib.stateLogLine(item);
+  if (line) engineLog(line);
+  engineLog('会議: 録音の前のページで始めた');
+}
+// 0.13.0 RDY-1（RD8）: 録音の前のページのメモと種類を、始めた会議のものにする（startMeeting の中で、最初の下書きと最初の meeting:update より前）
+function takePrep(m) {
+  if (!prep) return;
+  m.memo = prep.memo;
+  if (mtype.isSelectable(prep.meetingType)) { m.meetingType = prep.meetingType; m.prepType = true; }
+  m.prepAt = prep.openedAt;
+  prep = null;
+}
+// 0.13.0 RDY-1（RD1・RD19）: ［＋ 新しい議事録］ → 録音の前のページを1つ作る（あればそのまま）。録音・下書き・DB の写し・録音バーは始めない。
+// 録音中・作成中（会議がある）は断る
+function prepareMeeting() {
+  if (meeting) return { ok: false };
+  if (!prep) {
+    prep = { memo: '', meetingType: null, openedAt: Date.now() };
+    engineLog('会議: 録音の前のページを開いた');
+  }
+  sendToMainWin('meeting:update', meetingStatus());
+  return { ok: true };
+}
+// 0.13.0 RDY-1（RD14）: 録音の前のタブを閉じた → 何も残さない
+function unprepareMeeting() {
+  if (prep) {
+    prep = null;
+    engineLog('会議: 録音の前のページを閉じた');
+  }
+  sendToMainWin('meeting:update', meetingStatus());
+  return { ok: true };
+}
+// 0.13.0 RDY-1（RD2・RD11・RD18）: 録音の前のページの［文字起こしを始める］・［オフラインモードで始める］。始めるだけ（録音中・作成中・音声入力の間は
+// 止めずに断る: F81）。画面からは { pcOnly: true } だけを読み、きっかけの符号は main が決める
+async function startMeetingFromPage(o) {
+  const pcOnly = Boolean(o && typeof o === 'object' && o.pcOnly === true);
+  if (state !== 'idle' || quitting) return { ok: false, error: '他の処理を実行中です' };
+  const r = await startMeetingBy(pcOnly ? 'page-offline' : 'page');
+  if (!r || !r.ok) return { ok: false, error: (r && r.error) || '議事録を開始できません' };
+  if (pcOnly) setMeetingLocalOnly(true);   // パネルの「オフラインモードで始める」と同じ順（経路の確かめより前なので、クラウドの知らせは出ない）
+  return { ok: true, localOnly: pcOnly };
 }
 function stopMeetingBy(trigger) {
   const m = meeting;
@@ -5045,6 +5099,7 @@ async function startMeeting() {
   const segMode = startSegmentMode({ localOnly: false, signedIn: hasRelayLogin(), hold: h0 ? h0.why : '', netOnline: netOnline(), peekUp: online.peek(sttProvider().reachUrl) });
   meeting.segMode = { mode: segMode, localRun: 0, cloudRun: 0 };
   meeting.two = twoInit();   // 0.12.0 SP-3a: 2つの流れ（相手の声を取り込めたら使う）
+  takePrep(meeting);   // 0.13.0 RDY-1（RD8）: 録音の前のページのメモと種類（最初の下書きより前）
   meeting.segmentMs = segmentBaseMs(segMode, settings.segmentSec);
   engineLog(`文字起こしの状態: 区切り ${meeting.segmentMs / 1000} 秒（${segMode}・理由 start）`);
   paceStart(meeting);   // 0.9.4 S-4
@@ -6150,26 +6205,32 @@ function setupIpc() {
     return { ok: false, error: '処理中です' };
   });
   ipcMain.handle('meeting:discard', () => discardMeeting());
+  // 0.13.0 RDY-1（RD1・RD2・RD14）: 録音の前のページを開く・閉じる・始めるだけ
+  ipcMain.handle('meeting:prepare', () => prepareMeeting());
+  ipcMain.handle('meeting:unprepare', () => unprepareMeeting());
+  ipcMain.handle('meeting:start', (_e, o) => startMeetingFromPage(o));
   ipcMain.handle('meeting:status', () => meetingStatus());
   // 第1d回 A-6（D17）: 帯の［もう一度］。失敗して音声を残した区間を今の経路で並べ直す → { ok: true, n } | { ok: false }
   ipcMain.handle('meeting:retry', () => retryFailedSegments());
   ipcMain.handle('meeting:keep-going', () => keepGoingQuiet());   // 0.9.1 Q-4: 帯の［続ける］
   // 第1d回 A-8（D17）: 画面が「録音中のページを開いていて、窓が隠れていない」かを知らせる（変わったときだけ送ってくる）
   ipcMain.on('meeting:live-shown', (_e, on) => { liveShownByUi = on === true; syncLevelAsk(); });
-  ipcMain.handle('meeting:set-memo', (_e, memo) => { if (meeting) { meeting.memo = String(memo || ''); writeDraft(); } return true; });
+  ipcMain.handle('meeting:set-memo', (_e, memo) => { if (meeting) { meeting.memo = String(memo || ''); writeDraft(); } else if (prep) prep.memo = String(memo || ''); return true; });   // 0.13.0 RDY-1（RD7）: 録音の前は prep に
   // 0.11.0 M-4（D50・決めたこと 10・11）: 録音中のページで種類を選ぶ（auto は自動に戻す）。メモが手を付けていなければ新しい型の雛形に替え、
   // 下書きに書き、経過に1件積む。画面は先に待っているメモを meeting:set-memo で送ってから呼ぶ → { ok, memo, inserted, meetingType }
+  // 0.13.0 RDY-1（RD7）: 会議が無くて録音の前のページがあれば、同じ決まりで prep に書く（下書きには書かず、経過は始めたときに積む: RD4）
   ipcMain.handle('meeting:set-type', (_e, key) => {
-    if (!meeting) return { ok: false };
+    const t = meeting || prep;
+    if (!t) return { ok: false };
     if (key !== 'auto' && !mtype.isSelectable(key)) return { ok: false };
-    meeting.meetingType = key === 'auto' ? null : key;
+    t.meetingType = key === 'auto' ? null : key;
     let inserted = false;
-    if (key !== 'auto' && memoTypes.isUntouchedMemo(meeting.memo, mtype.listTypes().map((t) => t.agenda).filter(Boolean))) {
-      meeting.memo = memoTypes.memoPreset(memoTypes.memoTypeOf(key));
+    if (key !== 'auto' && memoTypes.isUntouchedMemo(t.memo, mtype.listTypes().map((x) => x.agenda).filter(Boolean))) {
+      t.memo = memoTypes.memoPreset(memoTypes.memoTypeOf(key));
       inserted = true;
     }
-    noteMeetingState(meeting, 'type', 'live-page');   // 下書きにも書く
-    return { ok: true, memo: meeting.memo, inserted, meetingType: meeting.meetingType };
+    if (t === meeting) noteMeetingState(meeting, 'type', 'live-page');   // 下書きにも書く
+    return { ok: true, memo: t.memo, inserted, meetingType: t.meetingType };
   });
   // 終了後の文字起こし待ちを後回しにする（#42。0.9.4 S-3 で打ち切りから替えた: ［文字起こしを後回しにして要約］）。記録中（終了前）は押せない。
   // 待ちの区間は「文字起こし待ち」（kept）で WAV を残す（mainlib.skipPendingSegments。消さない）。締めは要約を待たせずに今ある分で作り（m.later）、
