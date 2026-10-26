@@ -945,7 +945,8 @@ test('基準の画像（test/shots/win32）は今の app.html で撮ったもの
   // 0.13.0 RDY-2（第2部 RD1・RD20）: 録音の前のページ（#readyBar と CSS の #readyState・#readyBar button.action、<script> の中の録音の前の描き方）。録音の前のページは
   // ［＋ 新しい議事録］を押したときだけ出るので、今の撮る画面は変わらない見込み（RDY-3 で撮る画面を足す）。値を今の app.html に合わせた（前の値は 6c70ba30…）
   // 0.13.0 RDY-3（第2部 RD6・RD8・RD10・RD13・RD15）: 録音の前のページから録音に替わる時（メモ欄と種類の行をそのまま・始めた直後の守り）・page:open の受けを pageOpenFromMain の1か所に・読み直したときの録音の前のタブ（<script> の中だけ）。変わる画面は足した RETAKE_130 の3枚。値を今の app.html に合わせた（前の値は dd181948…）
-  assert.strictEqual(sha, 'b998366213bd9d6859d74e84a19677e35933b639a013e8b0ecc829bd886126d8',
+  // 0.13.0 ED-3（決めたこと 20・22）: 要約の［コピー］を blocksMarkdown の写しにし、orderForView の写しに人の見出し（EQ3 (a)）を足した（<script> の中だけ。前の版の要約の見た目は変わらない）。値を今の app.html に合わせた（前の値は b9983662…）
+  assert.strictEqual(sha, '3c41e7bdc65020021404e2014e4d807ccee007f6f6572d99f376285fb8c9e1d8',
     'app.html が基準の画像を撮った時と違う。Windows の CI の画面の比べ（捲り棒のつまみも）を見て、基準を取り直してからこの値を直す');
 });
 

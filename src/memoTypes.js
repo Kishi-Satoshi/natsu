@@ -339,6 +339,8 @@ const VIEW_HEADS = deepFreeze({
 // 締めの3つ → 型の見出しの節 → 抜け・重なりチェック → 次に気をつけること → それ以外の節（人が足した見出しなど）。節の中と同じ組の節の間は保存の順。
 // 知らない見出しは、保存の順で締め・チェック・助言のどれかより前にあれば型の節（報告の名前など）、後ろなら「それ以外」（R17）。
 // 型の見出しの無い前の版の要約は、締めの見出しが無ければ保存の順のまま
+// 0.13.0 ED-3（EQ3 (a)・決めたこと 20）: 人が作った見出し（citeState を持つ。AI の見出しは持たない）と、型の表に無い段 3 の見出しは、新しい節を
+// 始めずに前の節の中に残る（締めの節の中に足した見出しが最後へ跳ばない）
 function orderForView(blocks, heads = VIEW_HEADS) {
   const k = (t) => String(t || '').normalize('NFKC').trim().replace(/^[■#*\s]+/, '').replace(/[*\s]+$/, '').replace(/\([^()]*\)$/, '').replace(/\s+/g, '');
   const closing = heads.closing.map(k);
@@ -350,8 +352,10 @@ function orderForView(blocks, heads = VIEW_HEADS) {
   let pastClose = false;
   list.forEach((b, i) => {
     if (b && b.type === 'heading') {
-      secs.push(cur);
       const key = k(b.text);
+      const known = closing.includes(key) || key === CHECK || key === ADVICE || types.has(key);
+      if (b.citeState !== undefined || (b.level === 3 && !known)) { cur.idx.push(i); return; }
+      secs.push(cur);
       let rank;
       if (closing.includes(key)) rank = closing.indexOf(key);
       else if (key === CHECK) rank = 4;

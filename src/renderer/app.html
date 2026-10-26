@@ -2893,9 +2893,9 @@
         what = 'メモ';
       } else {
         // 0.11.0 V-2（D48）: 画面と同じ順。点があれば最後に打ち合わせの質の行
+        // 0.13.0 ED-3（決めたこと 22）: 新しい型も写す blocksMarkdown（今の4つの型は前の式と1文字も同じ）
         const q = qualityLinesView(curPage.qualityView);
-        text = [...orderForView(curPage.blocks).map((i) => curPage.blocks[i]).map((b) => b.type === 'heading' ? `\n## ${b.text}`
-          : b.type === 'todo' ? `- [${b.checked?'x':' '}] ${b.text}` : b.type === 'bullet' ? `- ${b.text}` : b.text), ...(q.length ? ['', ...q] : [])].join('\n');
+        text = [blocksMarkdown(orderForView(curPage.blocks).map((i) => curPage.blocks[i])), ...(q.length ? ['', ...q] : [])].join('\n');
         what = '議事録';
       }
       if (!text.trim()) { toast(`${what}はまだ空です`); return; }
@@ -3007,8 +3007,10 @@
     let pastClose = false;
     list.forEach((b, i) => {
       if (b && b.type === 'heading') {
-        secs.push(cur);
         const key = k(b.text);
+        const known = closing.includes(key) || key === CHECK || key === ADVICE || types.has(key);
+        if (b.citeState !== undefined || (b.level === 3 && !known)) { cur.idx.push(i); return; }   // 0.13.0 ED-3（EQ3 (a)）
+        secs.push(cur);
         let rank;
         if (closing.includes(key)) rank = closing.indexOf(key);
         else if (key === CHECK) rank = 4;
@@ -3020,6 +3022,35 @@
     });
     secs.push(cur);
     return secs.map((x, n) => ({ ...x, n })).sort((a, b) => (a.rank - b.rank) || (a.n - b.n)).flatMap((x) => x.idx);
+  }
+  // 0.13.0 ED-3（決めたこと 22）: ［コピー］の Markdown（src/blockEdit.js の headingLevel・numberLabels・blocksMarkdown の写し。test/stage130.edit.app.test.js が同じ表で照らす）
+  const CALLOUT_ICON = '💡';
+  function headingLevel(b) {
+    return b && (b.level === 1 || b.level === 2 || b.level === 3) ? b.level : 2;
+  }
+  function numberLabels(blocks) {
+    const out = new Map();
+    let n = 0;
+    for (const b of Array.isArray(blocks) ? blocks : []) {
+      if (b && b.type === 'numbered') { n += 1; out.set(b.id, `${n}.`); } else n = 0;
+    }
+    return out;
+  }
+  function blocksMarkdown(blocks) {
+    const list = Array.isArray(blocks) ? blocks.filter((b) => b && typeof b === 'object') : [];
+    const nums = numberLabels(list);
+    const indent = (t) => String(t ?? '').replace(/\n/g, '\n  ');
+    return list.map((b) => {
+      const t = indent(b.text);
+      if (b.type === 'heading') return `\n${'#'.repeat(headingLevel(b))} ${t}`;
+      if (b.type === 'todo') return `- [${b.checked ? 'x' : ' '}] ${t}`;
+      if (b.type === 'bullet') return `- ${t}`;
+      if (b.type === 'numbered') return `${nums.get(b.id) || '1.'} ${t}`;
+      if (b.type === 'quote') return `> ${t}`;
+      if (b.type === 'divider') return '---';
+      if (b.type === 'callout') return `> ${CALLOUT_ICON} ${t}`;
+      return t;
+    }).join('\n');
   }
   function savedIndexForDrop(order, viewIdx) {
     const o = Array.isArray(order) ? order : [];

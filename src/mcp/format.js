@@ -13,6 +13,7 @@ const quality = require('../quality');
 // 0.11.0 T-6（決めたこと 40）: 打ち合わせの質は照らした写し（quality.qualityView）だけを出す。壊れた・無い点は null（点の文を出さない）
 const qualityOf = (q) => quality.qualityView(q);
 const natsulink = require('../natsulink');
+const blockEdit = require('../blockEdit');
 const SL = require('../statelog');
 const TL = require('./timeline');
 
@@ -115,10 +116,15 @@ function citeSuffix(b, pageId) {
   if (!pageId) return `（出典: ${ids.join(', ')}）`;
   return `（出典: ${ids.map((c) => { const u = natsulink.openUrl(pageId, `t:${c}-${c}`); return u ? `[${c}](${u})` : c; }).join('・')}）`;
 }
-function blockLine(b, pageId = '') {
+// 0.13.0 ED-3（計画 docs/plans/2026-10-24-130.md の決めたこと 22）: 番号付き（num は数えた番号。無ければ 1.）・引用・区切り線・コールアウト。今の型は前と同じ
+function blockLine(b, pageId = '', num = '') {
   if (!b || typeof b !== 'object' || b.type === 'heading') return null;
+  if (b.type === 'divider') return '---';
   const text = safeLine(b.text);
   if (!text.trim()) return null;
+  if (b.type === 'numbered') return `${num || '1.'} ${text}`;
+  if (b.type === 'quote') return `> ${text}`;
+  if (b.type === 'callout') return `> ${blockEdit.CALLOUT_ICON} ${text}`;
   if (b.type === 'todo') {
     const parts = [];
     // 0.11.0 T-6（決めたこと 26 と同じ見せ方）: 担当・期限が無ければ「要確認」と書く（データには書かない）
@@ -269,9 +275,11 @@ function propLines(page) {
 function summaryLines(page) {
   const out = ['## 要約'];
   const blocks = Array.isArray(page.blocks) ? page.blocks : [];
+  const nums = blockEdit.numberLabels(blocks);
   for (const b of blocks) {
-    if (b && b.type === 'heading') { const t = safeLine(b.text); if (t.trim()) out.push(`### ${t}`); continue; }
-    const l = blockLine(b, page.id);
+    // 0.13.0 ED-3: 段 1・2 は ###、段 3 は ####（段の無い前の版の見出しは段 2）
+    if (b && b.type === 'heading') { const t = safeLine(b.text); if (t.trim()) out.push(`${blockEdit.headingLevel(b) === 3 ? '####' : '###'} ${t}`); continue; }
+    const l = blockLine(b, page.id, b && nums.get(b.id));
     if (l) out.push(l);
   }
   if (out.length === 1) out.push(`要約はまだありません。${typeof page.summaryError === 'string' && page.summaryError.trim() ? `（${safeLine(page.summaryError)}）` : ''}`);

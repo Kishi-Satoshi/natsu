@@ -2479,7 +2479,7 @@ process.on('exit', () => {
       blocks: (page.blocks || []).map((b) => ({ type: b.type, cites: Array.isArray(b.cites) ? b.cites.length : 0 })),
       todos: (page.blocks || []).filter((b) => b.type === 'todo').map((b) => ({ text: b.text, assignee: b.assignee || '', due: b.due || '', dueRaw: b.dueRaw || '' })),
       // 0.11.0 M-3: 要約のブロックの文と印（足すだけ。上の blocks の形は変えない）
-      sumBlocks: (page.blocks || []).map((b) => ({ type: b.type, text: b.text, mark: b.mark, unconfirmed: b.unconfirmed, citeState: b.citeState, cites: Array.isArray(b.cites) ? b.cites.length : 0 })),
+      sumBlocks: (page.blocks || []).map((b) => ({ type: b.type, text: b.text, mark: b.mark, unconfirmed: b.unconfirmed, citeState: b.citeState, cites: Array.isArray(b.cites) ? b.cites.length : 0, ...(b.level !== undefined ? { level: b.level } : {}) })),   // 0.13.0 ED-3: 見出しの段
       autoType: page.autoType, autoSlot: page.autoSlot, quality: page.quality, stateLog: page.stateLog, memo: page.memo,
       // 0.11.0 Q-3: 画面の役で読んだ qualityView（DB が作る欄）・DB の行に qualityView が書かれていないか
       viewQuality: await (async () => { try { const g = await appCall('page.get', { id: p.id }); return g && g.page ? g.page.qualityView : undefined; } catch (_) { return undefined; } })(),
