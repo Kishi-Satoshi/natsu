@@ -527,7 +527,7 @@
   .blk.dropmark-after { border-bottom: 2px solid var(--accent); padding-bottom: 1px; }
   .blk .bullet { color: var(--muted); flex: none; width: 24px; text-align: center; line-height: 24px; user-select: none; }
   .blk .txt { flex: 1; font-size: 16px; line-height: 24px; outline: none; border-radius: 4px; padding: 0 2px; min-width: 0;
-    word-break: break-word; }
+    word-break: break-word; white-space: pre-wrap; }   /* 0.13.0 ED-4（決めたこと 16）: Shift+Enter の行の中の改行を見せる */
   .blk .txt:hover { background: var(--hover); }
   .blk .txt:focus { background: var(--hover); }
   .blk.heading { margin-top: 22px; }
@@ -3089,6 +3089,381 @@
     card.appendChild(foot);
     box.appendChild(card);
   }
+  // ---------------- 0.13.0 ED-4（計画 docs/plans/2026-10-24-130.md の決めたこと 15〜19・21・41）: 要約の行の編集
+  // 行の部品は blockRows の1か所で作り（make）・着せ替え（dress）、命令の答えは applyEditAnswer が patchPlan で変わった行だけに当てる。
+  // 写し（graphemeEnds・safeOffset・shortcutFor・isTypedView・patchPlan・lisIndexes）は src/blockEdit.js と同じ表で test/stage130.edit.app.test.js が照らす
+  // カーソルの位置の継ぎ目（1か所。位置は文の UTF-16 の位置）。本物は getSelection・Range。偽の DOM（test/helpers/simrun.js の caret）は
+  // getSelection を持たないので、台が window.__natsuCaret でここを差し替える（本物の動きを偽らない）
+  const caretSeam = window.__natsuCaret || {
+    range(el) {
+      const sel = typeof window.getSelection === 'function' ? window.getSelection() : null;
+      if (!sel || !sel.rangeCount) return null;
+      const r = sel.getRangeAt(0);
+      if (!el.contains(r.startContainer) || !el.contains(r.endContainer)) return null;
+      const pos = (node, off) => { const x = document.createRange(); x.selectNodeContents(el); x.setEnd(node, off); return x.toString().length; };
+      return [pos(r.startContainer, r.startOffset), pos(r.endContainer, r.endOffset)];
+    },
+    set(el, n) {
+      const sel = typeof window.getSelection === 'function' ? window.getSelection() : null;
+      if (!sel) return;
+      const x = document.createRange();
+      let left = Math.max(0, n);
+      let placed = false;
+      const walk = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+      for (let t = walk.nextNode(); t; t = walk.nextNode()) {
+        if (left <= t.length) { x.setStart(t, left); placed = true; break; }
+        left -= t.length;
+      }
+      if (placed) x.collapse(true); else { x.selectNodeContents(el); x.collapse(false); }
+      sel.removeAllRanges(); sel.addRange(x);
+    },
+  };
+  // → [始め, 終わり]（選んでいなければ同じ）か null（その要素にカーソルが無い・読めない）
+  const caretRange = (el) => { try { return caretSeam.range(el); } catch (_) { return null; } };
+  const setCaret = (el, n) => { try { caretSeam.set(el, n); } catch (_) { /* 置けなくても文は残る */ } };
+  function graphemeEnds(text) {
+    const s = String(text);
+    const out = [0];
+    if (typeof Intl === 'object' && typeof Intl.Segmenter === 'function') {
+      const seg = new Intl.Segmenter('ja', { granularity: 'grapheme' });
+      for (const g of seg.segment(s)) out.push(g.index + g.segment.length);
+    } else {
+      for (let i = 0; i < s.length;) { const c = s.codePointAt(i); i += c > 0xffff ? 2 : 1; out.push(i); }
+    }
+    return out;
+  }
+  function safeOffset(text, at) {
+    const s = String(text ?? '');
+    const n = Number.isFinite(at) ? Math.trunc(at) : 0;
+    if (n <= 0) return 0;
+    if (n >= s.length) return s.length;
+    for (const e of graphemeEnds(s)) if (e >= n) return e;
+    return s.length;
+  }
+  // 行頭の記法（EQ9〜EQ13。全角の記号と全角の空白も。「ー」と「・」は入れない）。0.13.1 のトグル（> ）はまだ無い
+  const MD_ZEN = { '－': '-', '＊': '*', '＋': '+', '［': '[', '］': ']', '１': '1', '．': '.', '＃': '#', '”': '"', '“': '"', '＂': '"', '＞': '>', '　': ' ' };
+  const MD_ROWS = [['# ', 'heading', 1], ['## ', 'heading', 2], ['### ', 'heading', 3], ['[] ', 'todo'], ['- ', 'bullet'], ['* ', 'bullet'], ['+ ', 'bullet'], ['1. ', 'numbered'], ['" ', 'quote']];
+  function shortcutFor(before, { full } = {}) {
+    const raw = String(before ?? '');
+    if (!raw || raw.length > 4) return null;
+    const s = [...raw].map((c) => MD_ZEN[c] || c).join('');
+    if (s === '---') return String(full ?? raw) === raw ? { type: 'divider', strip: raw.length } : null;
+    const hit = MD_ROWS.find((m) => m[0] === s);
+    if (!hit) return null;
+    return hit[2] ? { type: hit[1], level: hit[2], strip: raw.length } : { type: hit[1], strip: raw.length };
+  }
+  // テキストでない型か（知らない型はテキストの見た目なので偽）
+  const TYPED_VIEW = ['heading', 'todo', 'bullet', 'numbered', 'quote', 'divider', 'callout'];
+  function isTypedView(b) {
+    return Boolean(b && typeof b === 'object' && TYPED_VIEW.includes(b.type));
+  }
+  function patchPlan(oldBlocks, newBlocks) {
+    const olds = (Array.isArray(oldBlocks) ? oldBlocks : []).filter((b) => b && typeof b.id === 'string');
+    const news = (Array.isArray(newBlocks) ? newBlocks : []).filter((b) => b && typeof b.id === 'string');
+    const oldById = new Map(olds.map((b) => [b.id, b]));
+    const newIds = new Set(news.map((b) => b.id));
+    const ops = [];
+    for (const b of olds) if (!newIds.has(b.id)) ops.push({ op: 'remove', id: b.id });
+    const kept = news.filter((b) => oldById.has(b.id));
+    const oldIdx = new Map(olds.map((b, i) => [b.id, i]));
+    const seq = kept.map((b) => oldIdx.get(b.id));
+    const stay = new Set(lisIndexes(seq).map((i) => kept[i].id));
+    news.forEach((b, at) => {
+      if (!oldById.has(b.id)) { ops.push({ op: 'add', id: b.id, at }); return; }
+      if (!stay.has(b.id)) ops.push({ op: 'move', id: b.id, at });
+      if (JSON.stringify(oldById.get(b.id)) !== JSON.stringify(b)) ops.push({ op: 'update', id: b.id });
+    });
+    return ops;
+  }
+  function lisIndexes(seq) {
+    const tails = [], prev = new Array(seq.length).fill(-1), tailIdx = [];
+    seq.forEach((v, i) => {
+      let lo = 0, hi = tails.length;
+      while (lo < hi) { const mid = (lo + hi) >> 1; if (tails[mid] < v) lo = mid + 1; else hi = mid; }
+      tails[lo] = v; tailIdx[lo] = i;
+      prev[i] = lo > 0 ? tailIdx[lo - 1] : -1;
+    });
+    const out = [];
+    for (let i = tailIdx[tails.length - 1]; i !== undefined && i >= 0; i = prev[i]) out.unshift(i);
+    return out;
+  }
+  let pendingEdits = 0;   // 分割・結合・変換・足すの答えを待っている数（ED-5 の summaryBusy が読む）
+  const editRows = () => [...$('pNote').querySelectorAll('.blk')].filter((e) => e._txt && e._txt.contentEditable === 'true');
+  // 命令を送り、答えのページを今のページに当てる（where(答え) → { focus: 行の ID, caret }）。断られたら知らせ、何も描かない
+  async function editAnswer(pid, send, where) {
+    pendingEdits += 1;
+    let r = null;
+    try { r = await send(); } catch (e) {
+      toast(`変更を保存できませんでした: ${e && e.message ? e.message : e}`);
+      r = null;
+    } finally { pendingEdits -= 1; }
+    if (!r) return null;
+    applyEditAnswer(pid, Array.isArray(r.blocks) ? r : r.page, where ? where(r) : null);
+    if (pid === curId) { refreshList(); refreshEditMeta(pid); }
+    return r;
+  }
+  // 命令の答えは DB の素のページ（出典の数などは添えていない）。「🔗 出典」の行だけを読み直す
+  function refreshEditMeta(pid) {
+    Promise.resolve(window.koeApp.pageGet(pid)).then((g) => {
+      if (!g || !g.page || pid !== curId || !curPage || pendingEdits) return;
+      curPage.citeStat = g.page.citeStat; curPage.actionStat = g.page.actionStat;
+      renderProps();
+    }).catch(() => {});
+  }
+  // 答えのページを描く。描き直すのは変わった行だけ（E4）。フォーカス中の行は要素を替えずに中身を直す（blur が来ない問題を作らない）
+  function applyEditAnswer(pid, page, where) {
+    if (pid !== curId || !curPage || !page || page.id !== curId) return;   // 決めたこと 41: 送ったページがもう開いていなければ描かない
+    const box = $('pNote');
+    const view = (list) => orderForView(list).map((i) => list[i]);
+    const blocks = Array.isArray(page.blocks) ? page.blocks : [];
+    const oldView = view(curPage.blocks);
+    const newView = view(blocks);
+    curPage.blocks = blocks;
+    if (page.rev !== undefined) curPage.rev = page.rev;
+    const plan = patchPlan(oldView, newView);
+    const rows = new Map([...box.querySelectorAll('.blk')].map((e) => [e.dataset.id, e]));
+    const lock = summaryLockView(curPage, { live: isLiveCopy(curPage), making: summarizing.has(curId) || mainMaking.has(curId), segments: curSegs });
+    const focused = [...rows.values()].find((e) => e._txt && e._txt === document.activeElement);
+    // 鍵・空の欄・節が変わる操作（並びが動く）は欄全体を描き直す（0.11.0 の並べ替えて見せる要約）
+    if (lock || !oldView.length || !newView.length || rows.size !== oldView.length || plan.some((o) => o.op === 'move')) {
+      const keep = where || (focused ? { focus: focused.dataset.id, caret: (caretRange(focused._txt) || [0])[0] } : null);
+      renderBlocks();
+      if (keep) focusRow(keep.focus, keep.caret);
+      return;
+    }
+    const byId = new Map(blocks.map((b) => [b.id, b]));
+    for (const o of plan) {
+      const el = rows.get(o.id);
+      if (o.op === 'remove') { if (el) el.remove(); rows.delete(o.id); }
+      else if (o.op === 'add') {
+        const ne = blockRows.make(byId.get(o.id), '');
+        box.insertBefore(ne, box.querySelectorAll('.blk')[o.at] || box.querySelector('.qcard'));
+        rows.set(o.id, ne);
+      } else if (o.op === 'update' && el) {
+        const nb = byId.get(o.id);
+        if (el === focused) {
+          blockRows.dress(el, nb, '');
+          if (el._txt.textContent !== String(nb.text ?? '')) el._txt.textContent = String(nb.text ?? '');
+        } else {
+          const ne = blockRows.make(nb, '');
+          box.insertBefore(ne, el); el.remove(); rows.set(o.id, ne);
+        }
+      }
+    }
+    for (const e of [...box.querySelectorAll('.blk')]) if (byId.has(e.dataset.id)) e._b = byId.get(e.dataset.id);
+    if (where) focusRow(where.focus, where.caret);
+  }
+  function focusRow(id, caret) {
+    const el = editRows().find((e) => e.dataset.id === id);
+    if (!el) return;
+    el._txt.focus();
+    setCaret(el._txt, Math.max(0, Math.min(Number(caret) || 0, el._txt.textContent.length)));
+  }
+  // カーソルの所に文を入れる（Shift+Enter の改行・貼り付け）。選んでいる所は置き換える
+  function typeAtCaret(txt, s) {
+    const t = txt.textContent;
+    const r = caretRange(txt) || [t.length, t.length];
+    txt.textContent = t.slice(0, r[0]) + s + t.slice(r[1]);
+    setCaret(txt, r[0] + s.length);
+  }
+  // 行頭か（カーソルが読めないときは空の行だけ行頭とみなす: 前の版の「空の行の Backspace」と同じ）
+  function caretAtStart(txt) {
+    const r = caretRange(txt);
+    return r ? r[0] === 0 && r[1] === 0 : txt.textContent === '';
+  }
+  // Enter（決めたこと 16・17）: 今の文とカーソルの位置を block.split の1つの命令で送る（EQ5 (a): 空の箇条書き・ToDo・番号付きはテキストに戻す）
+  async function splitRow(el) {
+    const pid = curId; const b = el._b; const txt = el._txt;
+    if (b.type === 'divider') return editAnswer(pid, () => window.koeApp.blockInsert(pid, b.id, 'paragraph'), (x) => ({ focus: x.blockId, caret: 0 }));
+    let text = txt.textContent;
+    const r = caretRange(txt);
+    if (r && r[1] > r[0]) text = text.slice(0, r[0]) + text.slice(r[1]);
+    const at = safeOffset(text, r ? r[0] : text.length);
+    if (['bullet', 'todo', 'numbered'].includes(b.type) && text.trim() === '') return turnRow(el, 'paragraph', undefined, 0);
+    // 答えを待つ間に blur の保存（_commit）が同じ文を重ねて送らないよう、画面は先に分けた前の文にする（断られたら戻す）
+    const was = b.text;
+    txt.textContent = text.slice(0, at); b.text = text.slice(0, at).trim();
+    const out = await editAnswer(pid, () => window.koeApp.blockSplit(pid, b.id, text, at), (x) => ({ focus: x.blockId, caret: 0 }));
+    if (!out && el._b === b) { b.text = was; if (pid === curId) txt.textContent = text; }
+    return out;
+  }
+  // 行頭の Backspace（EQ6 (a)）: 型の付いた行はテキストに戻す。テキストの行は今の文ごと前の行につなぐ（block.merge の1つの命令）
+  async function backRow(el) {
+    const pid = curId; const b = el._b; const txt = el._txt;
+    if (isTypedView(b)) return turnRow(el, 'paragraph', undefined, 0);
+    if (curPage.blocks.findIndex((x) => x.id === b.id) <= 0) return null;   // 頭の行はつなぐ先が無い
+    const text = txt.textContent;
+    const was = b.text;
+    b.text = text.trim();
+    const out = await editAnswer(pid, () => window.koeApp.blockMerge(pid, b.id, text), (x) => ({ focus: x.blockId, caret: x.at }));
+    if (!out && el._b === b) b.text = was;
+    return out;
+  }
+  // 型を変える（決めたこと 11: 編集中の文を先に保存してから）。カーソルは caret へ
+  async function turnRow(el, type, level, caret) {
+    const pid = curId; const b = el._b;
+    try { await el._txt._commit(pid); } catch (_) { /* 保存の失敗は _commit の答えで知らせる */ }
+    return editAnswer(pid, () => (level === undefined ? window.koeApp.blockTurnInto(pid, b.id, type) : window.koeApp.blockTurnInto(pid, b.id, type, level)),
+      () => ({ focus: b.id, caret }));
+  }
+  // 行頭の記法（E3）。打った記法の文字を消して型を変える。区切り線は変えた後に下にテキストの行を足す（決めたこと 17）
+  async function mdCheck(el) {
+    const txt = el._txt; const b = el._b;
+    const r = caretRange(txt);
+    if (!r || r[0] !== r[1] || b.type === 'divider') return;
+    const full = txt.textContent.replace(/ /g, ' ');
+    const sc = shortcutFor(full.slice(0, r[0]), { full });
+    if (!sc || (b.type === sc.type && (sc.type !== 'heading' || headingLevel(b) === sc.level))) return;
+    txt.textContent = full.slice(sc.strip);
+    setCaret(txt, 0);
+    const pid = curId;
+    const out = await turnRow(el, sc.type, sc.level, 0);
+    if (out && sc.type === 'divider' && pid === curId) await editAnswer(pid, () => window.koeApp.blockInsert(pid, b.id, 'paragraph'), (x) => ({ focus: x.blockId, caret: 0 }));
+  }
+  // ↑ を行の頭で・↓ を行の終わりで押すと隣の行へ（EQ14 (a)）。動いたら真
+  function stepRow(el, dir) {
+    const txt = el._txt;
+    const r = caretRange(txt);
+    if (!r || r[0] !== r[1] || r[0] !== (dir < 0 ? 0 : txt.textContent.length)) return false;
+    const rows = editRows();
+    const to = rows[rows.indexOf(el) + dir];
+    if (!to) return false;
+    to._txt.focus();
+    setCaret(to._txt, dir < 0 ? to._txt.textContent.length : 0);
+    return true;
+  }
+  // 文の欄の受け口（行を作るときに1回だけ付ける。行の今のブロックは el._b を読む: 着せ替えても受け口は同じ）
+  function wireRowText(el, txt) {
+    // 保存は「編集を始めたページ」に対して行う。flushEdits（ページ切替・記録開始）
+    // からも呼ばれるので、pid を引数で受け、別のページへ移った後は画面を触らない。
+    txt._commit = (pid) => {
+      const b = el._b;
+      const v = txt.textContent.trim();
+      if (v === b.text) return undefined;
+      b.text = v;
+      // 本文を変えたら出典との対応は古くなる。store も stale を付けるが、
+      // 次に pageGet するまでの間も札で示す。
+      if ((b.type === 'bullet' || b.type === 'todo') && b.citeState !== 'manual') { b.citeState = 'stale'; renderCiteBadge(el, b); }
+      return window.koeApp.blockUpdate(pid, b.id, { text: v }).then(() => { if (pid === curId) refreshList(); });
+    };
+    txt.onblur = () => txt._commit(curId);
+    txt.onkeydown = (ev) => {
+      if (imeEnter(ev)) return;   // 変換確定の Enter / 変換中の Backspace は編集操作にしない
+      const mod = ev.ctrlKey || ev.altKey || ev.metaKey;
+      if (ev.key === 'Enter' && !mod && ev.shiftKey) { ev.preventDefault(); typeAtCaret(txt, '\n'); }   // 行の中の改行（命令は送らない）
+      else if (ev.key === 'Enter' && !mod) { ev.preventDefault(); splitRow(el); }
+      else if (ev.key === 'Backspace' && !mod && !ev.shiftKey && caretAtStart(txt)) { ev.preventDefault(); backRow(el); }
+      else if ((ev.key === 'ArrowUp' || ev.key === 'ArrowDown') && !mod && !ev.shiftKey) { if (stepRow(el, ev.key === 'ArrowUp' ? -1 : 1)) ev.preventDefault(); }
+    };
+    // 行頭の記法は打ったときだけ（貼り付け・変換中は決めない。変換が終わったら決める: F43）
+    txt.oninput = (ev) => {
+      if ((ev && ev.isComposing) || txt._composing) return;   // 変換中の input では記法を決めない
+      mdCheck(el);
+    };
+    // 変換の事象は on〜 の受け口を持たない（GlobalEventHandlers に無い）ので addEventListener で付ける
+    txt.addEventListener('compositionstart', () => { txt._composing = true; });
+    txt.addEventListener('compositionend', () => { txt._composing = false; mdCheck(el); });
+    // 貼り付けは素の文字だけ（決めたこと 21。HTML は入れない・改行は行の中の改行）
+    txt.onpaste = (ev) => {
+      ev.preventDefault();
+      const cd = ev.clipboardData;
+      const t = cd ? String(cd.getData('text/plain') || '').replace(/\r\n?/g, '\n') : '';
+      if (t) typeAtCaret(txt, t);
+    };
+  }
+  const blockRows = {
+    // 1つの行の要素を作る（文の欄と受け口は1回だけ）。lock は summaryLockView の符号（'' は鍵なし）
+    make(b, lock) {
+      const el = document.createElement('div');
+      const txt = document.createElement('div');
+      txt.className = 'txt'; txt.contentEditable = lock ? 'false' : 'true'; txt.spellcheck = false;
+      txt.textContent = b.text;
+      el._txt = txt;
+      el.appendChild(txt);
+      if (!lock) wireRowText(el, txt);
+      blockRows.dress(el, b, lock);
+      return el;
+    },
+    // 型の見た目・つまみ・チェック・担当と期限・出典・削除を着せる（文の欄は替えない）
+    dress(el, b, lock) {
+      const txt = el._txt;
+      el._b = b;
+      el.className = `blk ${b.type}` + (b.type === 'todo' && b.checked ? ' done' : '');
+      el.dataset.id = b.id;
+      if (lock) el.dataset.locked = '1';
+      for (const c of [...el.children]) if (c !== txt) el.removeChild(c);
+
+      // 並べ替えハンドル。行全体を draggable にすると本文のテキスト選択と
+      // 衝突するので、つまみを押している間だけドラッグできるようにする。
+      const grip = document.createElement('span');
+      grip.className = 'grip'; grip.textContent = '⠿'; grip.title = 'ドラッグで並べ替え';
+      grip.onmousedown = () => { el.draggable = true; };
+      grip.onmouseup = () => { el.draggable = false; };
+      el.ondragstart = (ev) => {
+        dragBlockId = b.id; el.classList.add('dragging');
+        ev.dataTransfer.effectAllowed = 'move';
+        try { ev.dataTransfer.setData('text/plain', b.id); } catch (_) { /* noop */ }
+      };
+      el.ondragend = () => {
+        el.draggable = false; el.classList.remove('dragging');
+        dragBlockId = null; clearDropMarks($('pNote'));
+      };
+      if (!lock) el.insertBefore(grip, txt);
+
+      if (b.type === 'todo') {
+        const cb = document.createElement('input');
+        cb.type = 'checkbox'; cb.checked = Boolean(b.checked);
+        cb.disabled = Boolean(lock);
+        cb.onchange = async () => {
+          await window.koeApp.blockUpdate(curId, b.id, { checked: cb.checked });
+          b.checked = cb.checked;
+          el.classList.toggle('done', cb.checked);
+          refreshList();
+        };
+        el.insertBefore(cb, txt);
+      } else if (b.type === 'bullet') {
+        const d = document.createElement('span'); d.className = 'bullet'; d.textContent = '•';
+        el.insertBefore(d, txt);
+      }
+
+      if (lock) {
+        renderLockedMeta(el, b);
+        return;
+      }
+
+      // 担当・期限（クリックで編集）
+      if (b.type === 'todo') {
+        const meta = document.createElement('span'); meta.className = 'ameta';
+        const who = document.createElement('button');
+        who.className = 'atag ' + (b.assignee ? 'who' : 'add');
+        who.textContent = b.assignee || '担当: 要確認';   // 0.11.0 V-1（決めたこと 26）: 見せ方だけ。データに要確認と書かない
+        who.title = '担当者を設定';
+        who.onclick = () => editTag(who, b.assignee, '担当者（空欄で解除）', (v) =>
+          window.koeApp.blockSetAction(curId, b.id, v, undefined));
+        const di = dueInfo(b.due, b.dueApprox);
+        const due = document.createElement('button');
+        due.className = 'atag ' + (di ? `due ${di.cls}` : b.dueRaw ? 'due' : 'add');
+        due.textContent = di ? `${di.label}・${di.note}` : (b.dueRaw || '期限: 要確認');
+        due.title = b.dueRaw ? `元の表記: ${b.dueRaw}` : '期限を設定（「来週金曜」「8/30」などで入力できます）';
+        due.onclick = () => editTag(due, b.dueRaw, '「来週金曜」「8/30」など（空欄で解除）', (v) =>
+          window.koeApp.blockSetAction(curId, b.id, undefined, v));
+        meta.append(who, due);
+        el.appendChild(meta);
+      }
+
+      // 出典チップ
+      if (b.type === 'bullet' || b.type === 'todo') {
+        const wrap = document.createElement('span'); wrap.className = 'cites';
+        el.appendChild(wrap);
+        renderCiteBadge(el, b);
+      }
+
+      const del = document.createElement('button');
+      del.className = 'del'; del.textContent = '×'; del.title = 'この行を削除';
+      del.onclick = async () => { await window.koeApp.blockRemove(curId, b.id); await openPage(curId); };
+      el.appendChild(del);
+    },
+  };
   function renderBlocks() {
     const box = $('pNote'); box.textContent = '';
     box.ondragover = (ev) => {
@@ -3132,112 +3507,7 @@
 
     // 0.11.0 V-2（D48）: 画面の並び（保存の順は変えない）。点のカードは最後（決めたこと 28）
     for (const b of orderForView(curPage.blocks).map((i) => curPage.blocks[i])) {
-      const el = document.createElement('div');
-      el.className = `blk ${b.type}` + (b.type === 'todo' && b.checked ? ' done' : '');
-      el.dataset.id = b.id;
-      if (lock) el.dataset.locked = '1';
-
-      // 並べ替えハンドル。行全体を draggable にすると本文のテキスト選択と
-      // 衝突するので、つまみを押している間だけドラッグできるようにする。
-      const grip = document.createElement('span');
-      grip.className = 'grip'; grip.textContent = '⠿'; grip.title = 'ドラッグで並べ替え';
-      grip.onmousedown = () => { el.draggable = true; };
-      grip.onmouseup = () => { el.draggable = false; };
-      el.ondragstart = (ev) => {
-        dragBlockId = b.id; el.classList.add('dragging');
-        ev.dataTransfer.effectAllowed = 'move';
-        try { ev.dataTransfer.setData('text/plain', b.id); } catch (_) { /* noop */ }
-      };
-      el.ondragend = () => {
-        el.draggable = false; el.classList.remove('dragging');
-        dragBlockId = null; clearDropMarks(box);
-      };
-      if (!lock) el.appendChild(grip);
-
-      if (b.type === 'todo') {
-        const cb = document.createElement('input');
-        cb.type = 'checkbox'; cb.checked = Boolean(b.checked);
-        cb.disabled = Boolean(lock);
-        cb.onchange = async () => {
-          await window.koeApp.blockUpdate(curId, b.id, { checked: cb.checked });
-          b.checked = cb.checked;
-          el.classList.toggle('done', cb.checked);
-          refreshList();
-        };
-        el.appendChild(cb);
-      } else if (b.type === 'bullet') {
-        const d = document.createElement('span'); d.className = 'bullet'; d.textContent = '•';
-        el.appendChild(d);
-      }
-
-      const txt = document.createElement('div');
-      txt.className = 'txt'; txt.contentEditable = lock ? 'false' : 'true'; txt.spellcheck = false;
-      txt.textContent = b.text;
-      if (lock) {
-        el.appendChild(txt);
-        renderLockedMeta(el, b);
-        box.appendChild(el);
-        continue;
-      }
-      // 保存は「編集を始めたページ」に対して行う。flushEdits（ページ切替・記録開始）
-      // からも呼ばれるので、pid を引数で受け、別のページへ移った後は画面を触らない。
-      txt._commit = (pid) => {
-        const v = txt.textContent.trim();
-        if (v === b.text) return;
-        b.text = v;
-        // 本文を変えたら出典との対応は古くなる。store も stale を付けるが、
-        // 次に pageGet するまでの間も札で示す。
-        if ((b.type === 'bullet' || b.type === 'todo') && b.citeState !== 'manual') { b.citeState = 'stale'; renderCiteBadge(el, b); }
-        window.koeApp.blockUpdate(pid, b.id, { text: v }).then(() => { if (pid === curId) refreshList(); });
-      };
-      txt.onblur = () => txt._commit(curId);
-      txt.onkeydown = async (ev) => {
-        if (imeEnter(ev)) return;   // 変換確定の Enter / 変換中の Backspace は編集操作にしない
-        if (ev.key === 'Enter') {
-          ev.preventDefault(); txt.blur();
-          const r = await window.koeApp.blockInsert(curId, b.id, b.type === 'heading' ? 'bullet' : b.type);
-          if (r) { await openPage(curId); focusBlock(r.blockId); }
-        } else if (ev.key === 'Backspace' && txt.textContent.trim() === '') {
-          ev.preventDefault();
-          await window.koeApp.blockRemove(curId, b.id);
-          await openPage(curId);
-        }
-      };
-      el.appendChild(txt);
-
-      // 担当・期限（クリックで編集）
-      if (b.type === 'todo') {
-        const meta = document.createElement('span'); meta.className = 'ameta';
-        const who = document.createElement('button');
-        who.className = 'atag ' + (b.assignee ? 'who' : 'add');
-        who.textContent = b.assignee || '担当: 要確認';   // 0.11.0 V-1（決めたこと 26）: 見せ方だけ。データに要確認と書かない
-        who.title = '担当者を設定';
-        who.onclick = () => editTag(who, b.assignee, '担当者（空欄で解除）', (v) =>
-          window.koeApp.blockSetAction(curId, b.id, v, undefined));
-        const di = dueInfo(b.due, b.dueApprox);
-        const due = document.createElement('button');
-        due.className = 'atag ' + (di ? `due ${di.cls}` : b.dueRaw ? 'due' : 'add');
-        due.textContent = di ? `${di.label}・${di.note}` : (b.dueRaw || '期限: 要確認');
-        due.title = b.dueRaw ? `元の表記: ${b.dueRaw}` : '期限を設定（「来週金曜」「8/30」などで入力できます）';
-        due.onclick = () => editTag(due, b.dueRaw, '「来週金曜」「8/30」など（空欄で解除）', (v) =>
-          window.koeApp.blockSetAction(curId, b.id, undefined, v));
-        meta.append(who, due);
-        el.appendChild(meta);
-      }
-
-      // 出典チップ
-      if (b.type === 'bullet' || b.type === 'todo') {
-        const wrap = document.createElement('span'); wrap.className = 'cites';
-        el.appendChild(wrap);
-        renderCiteBadge(el, b);
-      }
-
-      const del = document.createElement('button');
-      del.className = 'del'; del.textContent = '×'; del.title = 'この行を削除';
-      del.onclick = async () => { await window.koeApp.blockRemove(curId, b.id); await openPage(curId); };
-      el.appendChild(del);
-
-      box.appendChild(el);
+      box.appendChild(blockRows.make(b, lock));
     }
     renderQualityCard(box);   // 0.11.0 V-2: 点のカードは要約の欄の最後（決めたこと 28）
   }

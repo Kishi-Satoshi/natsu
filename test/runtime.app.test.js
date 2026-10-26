@@ -326,8 +326,9 @@ test('日本語入力の変換確定 Enter は、要点・担当チップ・タ�
   txt.textContent = '';
   txt.dispatchEvent({ type: 'keydown', key: 'Backspace', keyCode: 229 });
   await l.drain();
-  assert.deepStrictEqual(l.called('blockInsert'), [], '変換確定の Enter で行が追加される');
-  assert.deepStrictEqual(l.called('blockRemove'), [], '変換中の Backspace で行が消える');
+  // 0.13.0 ED-4（意図して変えた）: Enter は blockSplit、行頭の Backspace は blockMerge か blockTurnInto になった。変換中はどれも走らない
+  for (const m of ['blockSplit', 'blockInsert']) assert.deepStrictEqual(l.called(m), [], `変換確定の Enter で行が分かれる（${m}）`);
+  for (const m of ['blockMerge', 'blockTurnInto', 'blockRemove']) assert.deepStrictEqual(l.called(m), [], `変換中の Backspace で行がつながる・消える（${m}）`);
   // 担当チップ: Enter で確定して入力欄がボタンに戻る。変換中は戻らない
   const who = ブロック(l, 't1').querySelector('.atag');
   // 最小DOMに replaceWith が無いので、ここだけ本物と同じ動きを補う
