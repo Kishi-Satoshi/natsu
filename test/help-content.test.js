@@ -406,7 +406,7 @@ test('HO-1（Review Focus 1・2）: 元の基準の写真が変わると（切�
   const gi = decodePng(fs.readFileSync(g));
   gi.data[gi.data.length - 4] ^= 0xff;
   fs.writeFileSync(g, encodePng(gi));
-  assert.deepStrictEqual(codes(d.root), ['pixels-differ'], '作った写真を直しても気づかない');
+  assert.ok(codes(d.root).includes('pixels-differ'), '作った写真を直しても気づかない');   // 写真を埋め込んだ図も figure-differs になる
   // 暗い版の基準
   const c = shotsCopy(t);
   const tab = JSON.parse(fs.readFileSync(path.join(c.root, 'help', 'shots-from-app.json'), 'utf8'));
@@ -428,4 +428,51 @@ test('HO-1（Review Focus 3）: 記事の画像は全部 help/assets/ にあり�
       if (m[1].startsWith('shots/')) assert.ok(listed.has(m[1]), `${a.file}:${i + 1} ${m[1]} が help/shots-from-app.json に無い`);
     });
   }
+});
+
+// HO-2（HO3）: 「ここを押す」は、写真に番号の丸と細い枠を重ねた1枚の SVG で示す。<img> で出す SVG は外の写真を読まない（Chromium で確かめた）ので、
+// 写真の PNG を data: でそのまま埋め込む。SVG は help-appshots の figureSvg が表（figures）から作り、手で直さない
+const SVG_COLORS = new Set(['#000000', '#ffffff', '#ffd43d', '#cccccc']);   // 黒・白・DADS の yellow-300・罫線の灰色（solid-gray-200）だけ
+function svgProblems(svg) {
+  const out = [];
+  if (/<text|<tspan|<foreignObject|<script|<style|\son[a-z]+\s*=/i.test(svg)) out.push('文字・script・style・on…= がある');
+  for (const m of svg.matchAll(/\shref="([^"]*)"/g)) if (!m[1].startsWith('data:image/png;base64,')) out.push(`外の参照 ${m[1].slice(0, 40)}`);
+  for (const m of svg.matchAll(/#[0-9a-fA-F]{3,8}\b/g)) if (!SVG_COLORS.has(m[0].toLowerCase())) out.push(`使えない色 ${m[0]}`);
+  if (/rgb\(|hsl\(|url\(/i.test(svg)) out.push('rgb()・hsl()・url() がある');
+  return out;
+}
+
+test('HO-2（HO3）: 写真の図（help/assets/shots/<名前>.svg）は表の写真の PNG をそのまま data: で埋め込み、番号の丸（黄色の地・黒の線の数字）と細い枠だけを重ねる。中身は figureSvg と同じ。文字（<text>）・script・外の住所が無く、色は黒・白・黄色・罫線の灰色だけ', { timeout: 10000 }, () => {
+  const { checkShots, figureSvg } = AS();
+  const table = JSON.parse(read('help/shots-from-app.json'));
+  assert.ok(Array.isArray(table.figures) && table.figures.length >= 8, '写真の図が少ない');
+  const shotNames = new Set(table.shots.map((s) => s.name));
+  for (const g of table.figures) {
+    assert.ok(shotNames.has(g.shot), `${g.name}: 写真 ${g.shot} が表に無い`);
+    assert.ok(g.marks.length >= 1 && g.marks.length <= 9, `${g.name}: 印は 1〜9 個`);
+    const png = fs.readFileSync(path.join(ROOT, 'help', 'assets', 'shots', `${g.shot}.png`));
+    const svg = read(`help/assets/shots/${g.name}.svg`).replace(/\r\n?/g, '\n');
+    assert.strictEqual(svg, figureSvg(g, png), `${g.name}: node tools/help-appshots.js で作り直す（手で直さない）`);
+    assert.ok(svg.includes(`href="data:image/png;base64,${png.toString('base64')}"`), `${g.name}: 写真をそのまま埋め込んでいない`);
+    assert.strictEqual((svg.match(/<g class="mark">/g) || []).length, g.marks.length, `${g.name}: 印の数`);
+    assert.deepStrictEqual(svgProblems(svg), [], g.name);
+  }
+  assert.deepStrictEqual(checkShots(ROOT), []);
+});
+
+test('HO-2: 写真の図を手で直すと figure-differs、表に無い SVG を置くと not-in-table', { timeout: 10000 }, (t) => {
+  const { checkShots } = AS();
+  const a = shotsCopy(t);
+  const f = path.join(a.root, 'help', 'assets', 'shots', `${a.table.figures[0].name}.svg`);
+  fs.writeFileSync(f, fs.readFileSync(f, 'utf8').replace('fill="#ffd43d"', 'fill="#ffffff"'));
+  assert.deepStrictEqual(checkShots(a.root).map((p) => p.code), ['figure-differs']);
+  const b = shotsCopy(t);
+  fs.writeFileSync(path.join(b.root, 'help', 'assets', 'shots', 'stray.svg'), '<svg xmlns="http://www.w3.org/2000/svg"></svg>');
+  assert.deepStrictEqual(checkShots(b.root).map((p) => p.code), ['not-in-table']);
+});
+
+test('HO-2（Review Focus 3）: 記事の画像（.body img）は幅 100%・高さ自動（スマホの幅でも横にはみ出さず、図は本文の幅いっぱい）', { timeout: 5000 }, () => {
+  const css = read('help/assets/help.css');
+  assert.match(css, /^\.body img \{ width: 100%; height: auto; \}$/m);
+  assert.doesNotMatch(css, /\.body img \{[^}]*max-width/, '幅の決まりが max-width のまま');
 });
