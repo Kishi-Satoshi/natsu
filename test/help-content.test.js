@@ -568,3 +568,61 @@ test('HO-5（HO1）: はじめに・会議を記録する の 7 本に、その�
   // 全体像の記事へのリンク（画面の全体はそちらで見る）
   assert.ok(read(fileOf('start/what-natsu-does')).includes('](start/overview.md)'), 'start/what-natsu-does から全体像へのリンクが無い');
 });
+
+// HO-7（HO8。計画の「HO-7」の節）: 古い「試験利用の手順（0.9.0）」を新しい記事「NaTsu のはじめかた」（start/getting-started）に置き換える。
+// 古い住所 start/tester-guide は Teams のリンクのために残し、新しい記事へ導く短い移動の知らせにする（分類に載らない記事は置けないので、はじめに のいちばん下: R-HO1）
+test('HO-7（HO8）: start/getting-started は「はじめに」の2番目（全体像の次）で、featured の2番目。featured に start/tester-guide は無く、start/tester-guide は「はじめに」のいちばん下（R-HO1）。題名は「NaTsu のはじめかた」。related は移動の知らせを指さない（R-HO3）', { timeout: 5000 }, () => {
+  const start = site.categories.find((c) => c.id === 'start');
+  assert.strictEqual(start.articles[1], 'getting-started', 'はじめに の2番目でない');
+  assert.strictEqual(site.featured[1], 'start/getting-started', 'featured の2番目でない');
+  assert.ok(!site.featured.includes('start/tester-guide'), 'featured に古い試験利用の手順が残っている');
+  assert.strictEqual(start.articles[start.articles.length - 1], 'tester-guide', '移動の知らせが はじめに のいちばん下でない（R-HO1）');
+  assert.strictEqual(metaOf(articles.find((a) => a.ref === 'start/getting-started')).title, 'NaTsu のはじめかた');
+  for (const a of articles) assert.ok(!metaOf(a).related.includes('start/tester-guide'), `${a.ref}: related に移動の知らせ start/tester-guide`);
+});
+
+test('HO-7: start/getting-started に、用意するもの → 手順1〜4（インストール・ログイン・要約の準備・相手の声）→ 会議を記録する → 音声入力 → 知っておいてほしいこと → 困ったとき が順にあり、図は HO-1 の写真の図だけ。0.13.0 の動き（［＋ 新しい議事録］は録音の前のページを開く）で書き、参加者に了承を取る1文がある', { timeout: 5000 }, () => {
+  const t = read(fileOf('start/getting-started'));
+  const srcs = figuresIn({ file: 'start/getting-started', text: t }).map((f) => f.src);
+  assert.deepStrictEqual(srcs, ['shots/login.svg', 'shots/claude.svg', 'shots/loop.svg', 'shots/start.svg', 'shots/live.svg', 'shots/bar.svg', 'shots/minutes.svg']);
+  let at = -1;
+  for (const h of ['{#prepare}', '## 手順1. ', '## 手順2. ', '## 手順3. ', '## 手順4. ', '{#record}', '{#dictation}', '{#notes}', '{#help}']) {
+    const i = t.indexOf(h);
+    assert.ok(i > at, `見出し ${h} が無いか、順が違う`);
+    at = i;
+  }
+  for (const w of ['［設定］', '［アカウント］', '［ログイン］', '［要約］', '［Claude Code を入れる］', '［Claude Code にログイン］', '［Claude Code を確かめる］', '［録音］', '「議事録で相手の声も録る」',
+    '［＋ 新しい議事録］', '録音の前のページ', 'まだ録音しません', '［文字起こしを始める］', '参加者に録音と文字起こしの了承を取ってください', '[[Alt+M]]', '［⏸ 一時停止］', '［■ 終了して作成］',
+    '［AI 要約］', '［メモ］', '［文字起こし］', '[[Ctrl+Shift+Space]]', '音声も文字も保存しません', 'この PC の中にだけ保存', '［ローカル AI］', '［更新して再起動］', '守秘のためのボタンではありません', '［ヘルプ］',
+    'Teams の NaTsu のチャンネル', 'だいたいの時刻']) assert.ok(t.includes(w), `「${w}」が無い`);
+  assert.ok(!/［(?:＋ )?新しい議事録］ ?(?:を押す|で)[^。]*(?:録音|記録)が始ま/.test(t), '［新しい議事録］で録音が始まると読める（0.12.1 までの動き）');
+  assert.ok(!/NaTsu-\d+\.\d+\.\d+-setup\.exe/.test(t), 'インストーラーの名前に版の数がある（古くなる）');
+  for (const r of ['start/overview', 'start/install-update', 'start/login', 'start/claude-code', 'record/start-stop', 'record/pc-only', 'dictation/dictation', 'trouble/banners']) assert.ok(t.includes(`](${r}.md`), `${r} へのリンクが無い`);
+  assert.ok(read(fileOf('start/overview')).includes('](start/getting-started.md)'), '全体像の記事から はじめかた へのリンクが無い');
+});
+
+test('HO-7（HO8）: start/tester-guide は短い移動の知らせ。題名は「NaTsu のはじめかた（移動しました）」で、本文は start/getting-started へのリンクのある短い文だけ（見出し・図・手順・古い版の数が無い）', { timeout: 5000 }, () => {
+  const file = fileOf('start/tester-guide');
+  const t = read(file);
+  const fm = parseFrontMatter(t, { file });
+  assert.strictEqual(fm.meta.title, 'NaTsu のはじめかた（移動しました）');
+  const body = fm.body.trim();
+  assert.ok(body.includes('](start/getting-started.md)'), '新しい記事へのリンクが無い');
+  const lines = body.split('\n').filter((l) => l.trim());
+  assert.ok(lines.length >= 1 && lines.length <= 3, `移動の知らせが長い（${lines.length} 行）`);
+  assert.ok(!/^(?:#|!\[|\d+\. |- |>)/m.test(body), '見出し・図・手順・箇条書き・囲みがある');
+  assert.ok(!/0\.9\.0/.test(t), '古い版の数が残っている');
+});
+
+test('HO-7（R-HO5）: 設定の基準（settings-…）から作る写真は切り抜きがあり、左の列の下の版の字の所（1120×780 の [60, 705, 120, 30]）に掛からない', { timeout: 5000 }, () => {
+  const VERSION_AT = [60, 705, 120, 30];
+  const table = JSON.parse(read('help/shots-from-app.json'));
+  const settings = table.shots.filter((s) => /\/settings-[a-z0-9-]+\.png$/.test(s.from));
+  assert.ok(settings.length >= 4, `設定の写真が少ない（${settings.length}）`);
+  const [vx, vy, vw, vh] = VERSION_AT;
+  for (const s of settings) {
+    assert.ok(Array.isArray(s.crop), `${s.name}: 切り抜きが無い（版の字が写る）`);
+    const [x, y, w, h] = s.crop;
+    assert.ok(!(x < vx + vw && vx < x + w && y < vy + vh && vy < y + h), `${s.name}: 切り抜き [${s.crop.join(', ')}] が版の字の所に掛かる`);
+  }
+});

@@ -6,6 +6,7 @@
   "pages": [
     "/",
     "/start/overview/",
+    "/start/getting-started/",
     "/record/",
     "/record/pc-only/",
     "/start/tester-guide/",

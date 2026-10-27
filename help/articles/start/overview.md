@@ -9,6 +9,7 @@ related: start/what-natsu-does, record/start-stop, record/pc-only
 NaTsu は、会議を録音して文字起こしし、要約まで作る Windows のアプリです。
 このページでは、画面のどこに何があるか、1回の会議で何が起きるか、音声と文字がどこへ行き、どこに保存されるかを、画面の写真と図で説明します。
 写真は、作り物の会議のデータで撮った NaTsu の画面です。
+初めて使うときの準備（インストール・ログイン・要約の準備）は [NaTsu のはじめかた](start/getting-started.md) を見てください。
 
 ## 画面の地図 {#map}
 
@@ -103,6 +104,7 @@ NaTsu は、会議を録音して文字起こしし、要約まで作る Windows
 
 ## くわしい記事 {#more}
 
+- [NaTsu のはじめかた](start/getting-started.md)
 - [NaTsu でできること](start/what-natsu-does.md)
 - [ログインする](start/login.md)
 - [録音を始める・止める](record/start-stop.md)

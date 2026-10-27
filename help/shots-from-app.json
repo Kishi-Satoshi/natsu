@@ -59,6 +59,24 @@
       "from": "test/shots/win32/settings-mcp-light.png",
       "fromSha256": "l7XOWbASHob31Cl4QqF9cMQztl-sPT7ISDpXG6oHrP8",
       "crop": [50, 40, 1020, 480]
+    },
+    {
+      "name": "settings-summary",
+      "from": "test/shots/win32/settings-summary-light.png",
+      "fromSha256": "eK3aC3uOVTKkW-M64xrO7mndNQ0HwBJGQhpYZY7zx6o",
+      "crop": [50, 40, 1020, 280]
+    },
+    {
+      "name": "settings-record",
+      "from": "test/shots/win32/settings-record-light.png",
+      "fromSha256": "0rm3vmDUmOops0DNYhLd-zKeabctxe9sLf7d-nHwBKg",
+      "crop": [50, 118, 1020, 512]
+    },
+    {
+      "name": "ready-page",
+      "from": "test/shots/win32/live-ready-light.png",
+      "fromSha256": "JdHnX5f9ucivkMYjeMwEN5hOqWW70jH9HOV0KtUTGO8",
+      "crop": [0, 0, 1060, 480]
     }
   ],
   "figures": [
@@ -284,6 +302,67 @@
         }
       ],
       "pad": [0, 0, 0, 44]
+    },
+    {
+      "name": "claude",
+      "shot": "settings-summary",
+      "r": 16,
+      "marks": [
+        {
+          "at": [-22, 158],
+          "box": [10, 141, 176, 34],
+          "to": [10, 158]
+        },
+        {
+          "at": [214, 195],
+          "box": [234, 183, 200, 24]
+        },
+        {
+          "at": [640, 194],
+          "box": [440, 180, 178, 30]
+        }
+      ],
+      "pad": [0, 0, 0, 44]
+    },
+    {
+      "name": "loop",
+      "shot": "settings-record",
+      "r": 16,
+      "marks": [
+        {
+          "at": [-22, 49],
+          "box": [10, 32, 176, 34],
+          "to": [10, 49]
+        },
+        {
+          "at": [892, 475],
+          "box": [922, 462, 42, 26]
+        },
+        {
+          "at": [582, 493],
+          "box": [234, 482, 326, 22]
+        }
+      ],
+      "pad": [0, 0, 0, 44]
+    },
+    {
+      "name": "start",
+      "shot": "ready-page",
+      "r": 18,
+      "marks": [
+        {
+          "at": [282, 92],
+          "box": [6, 76, 248, 32]
+        },
+        {
+          "at": [968, 380],
+          "box": [907, 415, 122, 34]
+        },
+        {
+          "at": [300, 462],
+          "box": [336, 452, 534, 20]
+        }
+      ]
     }
   ]
 }

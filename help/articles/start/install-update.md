@@ -1,9 +1,9 @@
 ---
 title: インストールと更新
 description: インストーラーで入れる・ローカル AI を使うときの取り込み（任意）・アプリの中で更新する・入れ直しが要る版のとき
-updated: 2026-10-23
+updated: 2026-10-27
 sources: INSTALL.md, README.md, src/updater.js, src/main.js, src/renderer/app.html
-related: start/tester-guide, start/login, start/claude-code
+related: start/getting-started, start/login, start/claude-code
 ---
 
 NaTsu は Windows 10 / 11（64bit）で動きます。管理者の権限は要りません。

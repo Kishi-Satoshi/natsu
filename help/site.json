@@ -2,7 +2,7 @@
   "title": "NaTsu ヘルプセンター",
   "askNote": "解決しないときは Teams の NaTsu のチャンネルで聞いてください",
   "categories": [
-    { "id": "start", "title": "はじめに", "description": "NaTsu の全体像・できることと、インストール・ログイン・Claude Code の用意・試験利用の手順", "icon": "start", "articles": ["overview", "what-natsu-does", "install-update", "login", "claude-code", "claude-mcp", "tester-guide"] },
+    { "id": "start", "title": "はじめに", "description": "NaTsu の全体像・はじめかた・できることと、インストール・ログイン・Claude Code の用意", "icon": "start", "articles": ["overview", "getting-started", "what-natsu-does", "install-update", "login", "claude-code", "claude-mcp", "tester-guide"] },
     { "id": "record", "title": "会議を記録する", "description": "録音の始め方と止め方・一時停止・外に出したくない会議・文字起こしの状態・会議の検出の通知", "icon": "record", "articles": ["start-stop", "pause", "pc-only", "status-line", "meeting-detect"] },
     { "id": "summary", "title": "要約と出典", "description": "要約の作られ方・会議の種類とメモの型・打ち合わせの質・出典リンク・要約の書き直し", "icon": "summary", "articles": ["how-summaries", "summary-types", "meeting-quality", "citations", "edit-summary"] },
     { "id": "dictation", "title": "音声入力", "description": "ホットキーで話して、今開いている場所に入力する", "icon": "dictation", "articles": ["dictation"] },
@@ -12,5 +12,5 @@
     { "id": "admin", "title": "管理者向け", "description": "人を止める・席の数・中継の1日の上限", "icon": "admin", "articles": ["stop-person", "seats", "relay-limits"] }
   ],
   "releaseNotes": { "title": "リリースノート", "description": "NaTsu の版ごとの変更点（新しい版が上）", "icon": "release" },
-  "featured": ["start/overview", "start/tester-guide", "start/what-natsu-does", "start/login", "record/start-stop", "record/pc-only", "trouble/banners"]
+  "featured": ["start/overview", "start/getting-started", "start/what-natsu-does", "start/login", "record/start-stop", "record/pc-only", "trouble/banners"]
 }

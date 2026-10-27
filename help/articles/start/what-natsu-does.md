@@ -3,7 +3,7 @@ title: NaTsu でできること
 description: 会議の録音・文字起こし・要約・出典リンクと音声入力。オンラインとオフラインで何が違うか
 updated: 2026-10-27
 sources: README.md, INSTALL.md, src/renderer/app.html, src/main.js, docs/plans/2026-10-24-130.md
-related: start/tester-guide, start/install-update, start/login
+related: start/getting-started, start/install-update, start/login
 ---
 
 NaTsu は、会議を録音して文字起こしし、要約まで作る Windows のアプリです。

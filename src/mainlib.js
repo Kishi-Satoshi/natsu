@@ -1639,7 +1639,7 @@ function keyLabel(accel) {
 // 一覧は help/site.json の分類の articles と同じ並び（test/help-app.test.js が照らす。記事を足したらここも直す）。
 // 一覧にちょうどある文字だけ「<記事>/」を返し、ほか（文字でない・空・住所・../・#・前後の空白・大文字）は ''（ヘルプのホーム）
 const HELP_ARTICLES = Object.freeze([
-  'start/overview', 'start/what-natsu-does', 'start/install-update', 'start/login', 'start/claude-code', 'start/claude-mcp', 'start/tester-guide',
+  'start/overview', 'start/getting-started', 'start/what-natsu-does', 'start/install-update', 'start/login', 'start/claude-code', 'start/claude-mcp', 'start/tester-guide',
   'record/start-stop', 'record/pause', 'record/pc-only', 'record/status-line', 'record/meeting-detect',
   'summary/how-summaries', 'summary/summary-types', 'summary/meeting-quality', 'summary/citations', 'summary/edit-summary',
   'dictation/dictation',
