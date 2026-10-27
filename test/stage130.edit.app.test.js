@@ -523,7 +523,8 @@ test('ED-5: / メニューの写し（app.html の SLASH_ROWS・slashQuery・sla
   const rowsSrc = HTML.slice(at, HTML.indexOf('\n  ];\n', at) + 6) + HTML.slice(HTML.indexOf('  const MENU_KEYS_VIEW = '), HTML.indexOf('\n', HTML.indexOf('  const MENU_KEYS_VIEW = ')) + 1);
   const src = ['slashQuery', 'slashHit', 'slashFilter', 'recentAdd', 'recentCheck'].map(fnFromApp).join('\n');
   const app = new Function(`${rowsSrc}${src}\nreturn { SLASH_ROWS, MENU_KEYS_VIEW, slashQuery, slashFilter, recentAdd, recentCheck };`)();   // eslint-disable-line no-new-func
-  assert.deepStrictEqual(app.SLASH_ROWS, E.VERSION_ROWS.map((r) => ({ id: r.id, key: r.key, ...(r.level ? { level: r.level } : {}), label: r.label, words: [...r.words], md: [...r.md] })));
+  // （0.13.1 NE-1 で意図して変えた: 写しは MENU_ROWS。トグル見出し1〜3 は型の表の1行 th から作る: 計画 docs/plans/2026-10-27-131.md の NR5）
+  assert.deepStrictEqual(app.SLASH_ROWS, E.MENU_ROWS.map((r) => ({ id: r.id, key: r.key, ...(r.level ? { level: r.level } : {}), ...(r.toggle ? { toggle: true } : {}), label: r.label, words: [...r.words], md: [...r.md] })));
   assert.deepStrictEqual(app.MENU_KEYS_VIEW, [...E.MENU_KEYS]);
   for (const b of ['/', 'a /', 'a/b', '/みだし', '／', '・', 'x /h a', '/to', '', ' /', 'a  /x']) assert.deepStrictEqual(app.slashQuery(b), E.slashQuery(b), b);
   for (const q of ['', 'みだし', 'h', 'todo', 'とぐる', 'zz', 'zzz', 'リスト', '#', 'TEXT']) {
@@ -544,7 +545,7 @@ test('ED-5: 行頭で / を打つと listbox が出て項目は型の表の順�
     assert.deepStrictEqual(headsOf(l), ['ブロックの型']);
     assert.strictEqual(l.document.activeElement, t, 'フォーカスが行から離れた');
     t = typeInput(l, 'e1', '/みだし');
-    assert.deepStrictEqual(keysOf(l), ['h1', 'h2', 'h3']);
+    assert.deepStrictEqual(keysOf(l), ['h1', 'h2', 'h3', 'th1', 'th2', 'th3']);   // 0.13.1 NE-1 で意図して変えた:「みだし」は「とぐるみだし」にも当たる（NR5）
     assert.deepStrictEqual(headsOf(l), []);
     for (const k of ['ArrowDown', 'ArrowDown']) assert.strictEqual(l.key({ key: k }, t).defaultPrevented, true);
     const ev = l.key({ key: 'Enter' }, t);
@@ -928,7 +929,7 @@ test('ED-6: Ctrl+/ で今の行のメニュー。↓↓ Enter で「変換」の
     menuKey(l, 'Enter');
     const sub = subOf(l);
     assert.ok(sub, '変換の中が開かない');
-    assert.deepStrictEqual(labelsOf(sub), E.VERSION_ROWS.map((r) => r.label));
+    assert.deepStrictEqual(labelsOf(sub), E.MENU_ROWS.map((r) => r.label));   // （0.13.1 NE-1 で意図して変えた: 写しは MENU_ROWS。トグル見出し1〜3 は型の表の1行 th から作る: 計画 docs/plans/2026-10-27-131.md の NR5）
     const div = itemsOf(sub).find((x) => x.dataset.key === 'divider');
     assert.strictEqual(div.getAttribute('aria-disabled'), 'true');
     assert.strictEqual(div.title, '文のある行は区切り線にできません');

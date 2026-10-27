@@ -384,7 +384,9 @@ const OVL_094 = (states) => PS.FORMS.flatMap((form) => Object.keys(PS.DESKS).fla
 // 0.13.0（版を 0.13.0 に上げる commit。Task G・RDY-7）: 持ち主が 2026-10-27 に取り直しの見比べ（足した 10 枚: 録音の前のページの3枚・/ メニューの3枚・
 // ⠿ のメニューの1枚・新しい型の3枚に「この見た目でよい」、行の左の ＋ で要約の文がずれた今の画面の 11 枚に「この見た目でよい（おすすめ）」）と答えたので、
 // CI run 40466764263（20ceb94）の artifact 12717370368 の .after.png（21 枚）をバイトのまま基準にし、空に戻した
-const RETAKE = new Set([]);
+// 0.13.1（計画 docs/plans/2026-10-27-131.md の「取り直す画面（RETAKE）」）: NE-1 で / メニューと ⠿ の［変換 ▸］にトグルとトグル見出し1〜3 が増えた
+// （型の表の写しを NE-1 で替えたので、計画の NE-4b でなく NE-1 で入れた: Ruling NR26）。持ち主が見比べを OK と言ったら、版を上げる commit（Task G）で基準にして空に戻す
+const RETAKE = new Set(['edit-slash-light', 'edit-slash-dark', 'edit-slash-recent-light', 'edit-block-menu-light']);
 const PERF = [{ name: 'open-2000-blocks', budgetMs: 500 }];   // 3回開いた中央値で見る
 const TIME_ZONE = 'Asia/Tokyo';
 const TOLERANCE = 2;   // 色の差（0〜255）がこれ以下の画素は同じとみなす。CI の機械の CPU ごとの描き方の1段の差を拾わないため（揺れの確かめ judgePair は 0 で見る）

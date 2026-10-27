@@ -306,7 +306,10 @@ test('ED-2・点検4: 行を何も変えない要約の欄の命令（同じ所�
 test('ED-2: 画面の役の block.insert・turnInto・update の型は BLOCK_TYPES だけ（numbered は通る・video・../x は bad-args）。main の役の page.put は知らない型も今どおり通す', T, () => withDb((db) => {
   assert.strictEqual(call(db, 'block.insert', { pageId: 'pa1', afterBlockId: 'b1', type: 'numbered' }).ok, true);
   assert.strictEqual(call(db, 'block.insert', { pageId: 'pa1', afterBlockId: 'b1', type: 'heading', level: 1 }).result.page.blocks[1].level, 1);
-  for (const type of ['video', '../x', 'toggle', 'page']) {
+  // 0.13.1 で意図して変えた（計画 docs/plans/2026-10-27-131.md の「意図して変えるテスト」。計画は NE-2 と書くが、型の表 TYPE_KEYS を NE-1 で変えるので NE-1 で: Ruling NR26）:
+  // toggle は 0.13.1 の型なので通す。video・../x・page は今どおり断る
+  assert.strictEqual(call(db, 'block.insert', { pageId: 'pa1', afterBlockId: 'b1', type: 'toggle' }).ok, true);
+  for (const type of ['video', '../x', 'page']) {
     assert.strictEqual(call(db, 'block.insert', { pageId: 'pa1', afterBlockId: 'b1', type }).code, 'bad-args', `insert ${type}`);
     assert.strictEqual(call(db, 'block.turnInto', { pageId: 'pa1', blockId: 'b2', type }).code, 'bad-args', `turnInto ${type}`);
     assert.strictEqual(call(db, 'block.update', { pageId: 'pa1', blockId: 'b2', patch: { type } }).code, 'bad-args', `update ${type}`);

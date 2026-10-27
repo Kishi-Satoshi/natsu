@@ -172,6 +172,10 @@ const RETAKEN_130 = ['notes-page-light', 'notes-page-dark', 'notes-tabs-light', 
 // 見比べを「この見た目でよい」（足した 10 枚）・「この見た目でよい（おすすめ）」（取り直した 11 枚）と言ったので、CI run 40466764263（20ceb94）・
 // artifact 12717370368 の .after.png（21 枚）をバイトのまま基準にし、取り直し待ちを空に戻した
 const ADDED_130 = [...NEW_130, ...RETAKEN_130];
+// 0.13.1（計画 docs/plans/2026-10-27-131.md の「取り直す画面（RETAKE）」）で意図して変えた: 取り直し待ちは 0.13.1 の表の画面だけ（RETAKE_131）。
+// NE-1 で / メニューと ⠿ の［変換 ▸］にトグルとトグル見出し1〜3 が増えるので、今の基準がある4枚を取り直す（RETAKEN_131）
+const RETAKEN_131 = ['edit-slash-light', 'edit-slash-dark', 'edit-slash-recent-light', 'edit-block-menu-light'];
+const RETAKE_131 = [...RETAKEN_131];
 const img = (w, h, fill = [255, 255, 255, 255]) => ({ width: w, height: h, data: Buffer.from(Array.from({ length: w * h }, () => fill).flat()) });
 // 一時フォルダ（日本語と 𠮷 の名前。RF1 と同じ形）。テストの終わりに消す
 const tmp = (t, name) => {
@@ -694,7 +698,11 @@ test('G2・F14・G-4・0.9.0 G-3・0.9.1・0.9.2・0.9.3・0.9.4・0.10.0・0.10
   // 0.13.0 RDY-3 で意図して変えた: 取り直し待ちは 0.13.0 の表の画面（ファイルの頭の RETAKE_130）とちょうど同じで、どれも計画の「取り直す画面（RETAKE）」の表にある。
   // 足した画面（NEW_130）はまだ基準が無い
   // 0.13.0 で意図して変えた（版を 0.13.0 に上げる commit。Task G・RDY-7）: 取り直し待ちを空に戻した（ファイルの頭の注）。0.13.0 の表の画面（ADDED_130）はどれも計画の表にあり、基準がある
-  assert.deepStrictEqual([...SH.RETAKE], []);
+  // 0.13.1 NE-1 で意図して変えた: 取り直し待ちは 0.13.1 の表の画面（ファイルの頭の RETAKE_131）とちょうど同じで、どれも計画の「取り直す画面（RETAKE）」の表にある
+  assert.deepStrictEqual([...SH.RETAKE], RETAKE_131);
+  const plan131 = read('docs/plans/2026-10-27-131.md');
+  const table131 = plan131.slice(plan131.indexOf('## 取り直す画面（RETAKE）'), plan131.indexOf('\n## ', plan131.indexOf('## 取り直す画面（RETAKE）') + 5));
+  for (const n of RETAKE_131) assert.ok(table131.includes(`\`${n}\``), `0.13.1 の計画の「取り直す画面」の表に ${n} が無い`);
   const plan130 = read('docs/plans/2026-10-24-130.md');
   const table130 = plan130.slice(plan130.indexOf('## 取り直す画面（RETAKE）'), plan130.indexOf('\n## ', plan130.indexOf('## 取り直す画面（RETAKE）') + 5));
   for (const n of ADDED_130) assert.ok(table130.includes(`\`${n}\``), `0.13.0 の計画の「取り直す画面」の表に ${n} が無い`);
@@ -970,7 +978,8 @@ test('基準の画像（test/shots/win32）は今の app.html で撮ったもの
   // 点検5（作り手が決めた。計画の Ruling R41）: Enter の1回は oplog の1行（splitRow で分けた前の文を削らない・_commit は画面の文が行の文と同じなら送らない。<script> の中だけ。撮る画面は変わらない）。値を今の app.html に合わせた（前の値は d09354eb…）
   // 2026-10-27 の持ち主の答え 点検8（「見えている上の行の後ろに足す（おすすめ）」。計画の Ruling R44）: 文のある行の頭の Enter で、画面で上に見えている行を afterId で送る（<script> の中だけ。撮る画面は変わらない）。値を今の app.html に合わせた（前の値は 8a74feb1…）
   // 2026-10-27 の持ち主の答え【時計のずれ】（「録音バーとページの両方を直す（おすすめ）」。計画の Task CLK-3・Ruling R48）: 録音中のページの時計を一時停止の間は止める（mtPausedAt。<script> の中だけ。撮る画面は時計を FIXED_NOW に止めているので変わらない）。値を今の app.html に合わせた（前の値は fe39dd83…）
-  assert.strictEqual(sha, '4b2c72a2f23a8373b9eb26026af5e837716950e24f1ee0a47aa9962acbb61027',
+  // 0.13.1 NE-1（NR5・NR21・EQ10 (a)）: 型の表の写し（SLASH_ROWS にトグルとトグル見出し1〜3・MD_ROWS に「> 」・近道の Ctrl+Shift+7 と Ctrl+Alt+T・TYPED_VIEW にトグル）。変わる画面は / メニューと ⠿ の［変換 ▸］の4枚（RETAKE_131）。値を今の app.html に合わせた（前の値は 4b2c72a2…）
+  assert.strictEqual(sha, 'f820e1d1c6e4f826c45bccf264493573d94a55960e0be098f39abe2e14e212d8',
     'app.html が基準の画像を撮った時と違う。Windows の CI の画面の比べ（捲り棒のつまみも）を見て、基準を取り直してからこの値を直す');
 });
 

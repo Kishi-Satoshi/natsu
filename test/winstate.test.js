@@ -105,7 +105,8 @@ test('ED-5・F52: normalize は slashRecent を照らす（無い → []・配�
     [['h2'], ['h2'], false], [['h1', 'todo', 'callout'], ['h1', 'todo', 'callout'], false], [[], [], false],
     ['h2', [], true], [null, [], true], [{ 0: 'h2' }, [], true], [3, [], true],
     [['x', 1, 'h2', null], ['h2'], true], [['h2', 'h2', 'todo'], ['h2', 'todo'], true], [['h1', 'h2', 'h3', 'todo'], ['h1', 'h2', 'h3'], true],
-    [['toggle', 'th1', 'quote'], ['quote'], true], [['会議の題名', 'pa1', 'b2'], [], true],
+    // 0.13.1 NE-1 で意図して変えた: toggle・th1 は 0.13.1 の鍵なので残る（直したことにならない。計画 docs/plans/2026-10-27-131.md の「意図して変えるテスト」）
+    [['toggle', 'th1', 'quote'], ['toggle', 'th1', 'quote'], false], [['th', 'quote'], ['quote'], true], [['会議の題名', 'pa1', 'b2'], [], true],
   ]) {
     const r = W.normalize(good({ slashRecent: v }), D1);
     assert.deepStrictEqual(r.state.slashRecent, want, JSON.stringify(v));

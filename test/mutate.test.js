@@ -1102,3 +1102,30 @@ test('G3・0.13.0 RDY-6: IDS_130 の rdy- は計画の「変異確認」の rdy-
   assert.strictEqual(rows.length, 25);
   assert.deepStrictEqual(IDS_130.filter((id) => /^rdy-/.test(id)), rows);
 });
+
+// 0.13.1（計画 docs/plans/2026-10-27-131.md の「変異確認」の edn- の表）: 入れ子とトグルの直しを1つずつ戻す変異。タスクを作るたびに足し（0.13.0 の R9・R34 と同じ）、
+// NE-5 で表の行の順にそろえる。edn- は 0.13.0 の照らし ^(ed|rdy|clk)- に当たらない（ed の後が - でない）
+const IDS_131 = [
+  // NE-1: 木と型の表の純粋な部品
+  'edn-indent-first', 'edn-indent-type', 'edn-cite-flat', 'edn-copy-kids', 'edn-number-level', 'edn-merge-kids', 'edn-turn-kids', 'edn-kids-out',
+  'edn-visible-skip', 'edn-drop-into', 'edn-drop-depth', 'edn-orphan-keep', 'edn-menu-keys', 'edn-enter-outdent', 'edn-ai-head-top', 'edn-toggle-default',
+];
+test('G3・0.13.1: 0.13.1 の変異が一覧にそろい、IDS_131 はどれも計画の「変異確認」の表にある。edn- の変異は IDS_131 にある。どれも決まったテストのファイルを持ち、why が 0.13.1 で始まる', { timeout: 5000 }, () => {
+  const byId = new Map(MUTANTS.map((m) => [m.id, m]));
+  assert.deepStrictEqual(IDS_131.filter((id) => !byId.has(id)), [], 'IDS_131 の変異が一覧に無い');
+  assert.strictEqual(new Set(IDS_131).size, IDS_131.length, 'IDS_131 に重なり');
+  assert.deepStrictEqual(MUTANTS.filter((m) => /^edn-/.test(m.id) && !IDS_131.includes(m.id)).map((m) => m.id), [], 'IDS_131 に無い edn- の変異がある');
+  const plan = fs.readFileSync(path.join(ROOT, 'docs', 'plans', '2026-10-27-131.md'), 'utf8');
+  const at = plan.search(/^## 変異確認（直しを1つ戻すと/m);
+  assert.ok(at > 0, '計画の「変異確認」の節が無い');
+  const table = plan.slice(at, plan.indexOf('\n## ', at + 5));
+  const rows = [...table.matchAll(/^\| (edn-[a-z0-9-]*) \|/gm)].map((m) => m[1]);
+  assert.strictEqual(rows.length, 37, '計画の 0.13.1 の表（edn- 37）が読めない');
+  assert.strictEqual(new Set(rows).size, rows.length, '計画の表に重なり');
+  assert.deepStrictEqual(IDS_131.filter((id) => !rows.includes(id)), [], '計画の「変異確認」の表に無い変異');
+  for (const id of IDS_131) {
+    const m = byId.get(id);
+    assert.ok(Array.isArray(m.tests) && m.tests.length > 0 && m.tests.every((t) => /^test\/[^/]+\.test\.js$/.test(t)), `${id}: tests`);
+    assert.ok(typeof m.why === 'string' && m.why.startsWith('0.13.1 '), `${id}: why`);
+  }
+});

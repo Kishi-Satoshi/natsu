@@ -66,6 +66,7 @@ related: summary/how-summaries, summary/citations, settings/hotkeys
 | [[Ctrl+Shift+4]] | ToDo |
 | [[Ctrl+Shift+5]] | 箇条書き |
 | [[Ctrl+Shift+6]] | 番号付き |
+| [[Ctrl+Shift+7]] | トグル |
 | [[Ctrl+D]] | 行を複製する |
 | [[Ctrl+Shift+↑]]・[[Ctrl+Shift+↓]] | 行を上・下へ動かす |
 | [[Ctrl+Enter]] | ToDo のチェックを付ける・外す |

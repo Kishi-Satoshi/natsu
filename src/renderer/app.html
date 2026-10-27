@@ -3222,9 +3222,9 @@
     for (const e of graphemeEnds(s)) if (e >= n) return e;
     return s.length;
   }
-  // 行頭の記法（EQ9〜EQ13。全角の記号と全角の空白も。「ー」と「・」は入れない）。0.13.1 のトグル（> ）はまだ無い
+  // 行頭の記法（EQ9〜EQ13。全角の記号と全角の空白も。「ー」と「・」は入れない）。0.13.1 からトグル（> 。EQ10 (a)）
   const MD_ZEN = { '－': '-', '＊': '*', '＋': '+', '［': '[', '］': ']', '１': '1', '．': '.', '＃': '#', '”': '"', '“': '"', '＂': '"', '＞': '>', '　': ' ' };
-  const MD_ROWS = [['# ', 'heading', 1], ['## ', 'heading', 2], ['### ', 'heading', 3], ['[] ', 'todo'], ['- ', 'bullet'], ['* ', 'bullet'], ['+ ', 'bullet'], ['1. ', 'numbered'], ['" ', 'quote']];
+  const MD_ROWS = [['# ', 'heading', 1], ['## ', 'heading', 2], ['### ', 'heading', 3], ['[] ', 'todo'], ['- ', 'bullet'], ['* ', 'bullet'], ['+ ', 'bullet'], ['1. ', 'numbered'], ['> ', 'toggle'], ['" ', 'quote']];
   function shortcutFor(before, { full } = {}) {
     const raw = String(before ?? '');
     if (!raw || raw.length > 4) return null;
@@ -3235,11 +3235,12 @@
     return hit[2] ? { type: hit[1], level: hit[2], strip: raw.length } : { type: hit[1], strip: raw.length };
   }
   // 0.13.0 ED-7（E11・EQ12・決めたこと 27〜29）: 近道（src/blockEdit.js の keyAction の写し。数字は ev.code で見る: JIS の Shift+数字は key が記号）
-  const DIGIT_TURN_VIEW = { Digit0: 'text', Digit1: 'h1', Digit2: 'h2', Digit3: 'h3', Digit4: 'todo', Digit5: 'bullet', Digit6: 'numbered' };
+  const DIGIT_TURN_VIEW = { Digit0: 'text', Digit1: 'h1', Digit2: 'h2', Digit3: 'h3', Digit4: 'todo', Digit5: 'bullet', Digit6: 'numbered', Digit7: 'toggle' };
   function keyAction(ev) {
     if (!ev || ev.isComposing || ev.keyCode === 229) return null;
-    if (!ev.ctrlKey || ev.altKey || ev.metaKey) return null;
+    if (!ev.ctrlKey || ev.metaKey) return null;
     const code = String(ev.code || '');
+    if (ev.altKey) return !ev.shiftKey && code === 'KeyT' ? 'openAll' : null;   // 0.13.1 NR21: Alt つきは Ctrl+Alt+T だけ
     if (ev.shiftKey) {
       if (Object.hasOwn(DIGIT_TURN_VIEW, code)) return `turn:${DIGIT_TURN_VIEW[code]}`;
       if (code === 'ArrowUp' || ev.key === 'ArrowUp') return 'moveUp';
@@ -3252,7 +3253,7 @@
     return null;
   }
   // テキストでない型か（知らない型はテキストの見た目なので偽）
-  const TYPED_VIEW = ['heading', 'todo', 'bullet', 'numbered', 'quote', 'divider', 'callout'];
+  const TYPED_VIEW = ['heading', 'todo', 'bullet', 'numbered', 'toggle', 'quote', 'divider', 'callout'];
   function isTypedView(b) {
     return Boolean(b && typeof b === 'object' && TYPED_VIEW.includes(b.type));
   }
@@ -3494,7 +3495,8 @@
     };
   }
   // ---------------- 0.13.0 ED-5（計画の E1・E2・決めたこと 23・30・37〜40・42。EQ7・EQ8・EQ22 (a)）: / メニュー・＋・書き直している途中
-  // / メニューの項目（src/blockEdit.js の VERSION_ROWS の写し: 鍵・型・段・名前・当たる語・記法。test/stage130.edit.app.test.js が照らす）
+  // / メニューの項目（src/blockEdit.js の MENU_ROWS の写し: 鍵・型・段・トグル・名前・当たる語・記法。test/stage130.edit.app.test.js が照らす）。
+  // 0.13.1（NR5）: トグルとトグル見出し1〜3（型の表の1行 th から3つの項目）を足した
   const SLASH_ROWS = [
     { id: 'text', key: 'paragraph', label: 'テキスト', words: ['てきすと', 'text', 'plain'], md: [] },
     { id: 'h1', key: 'heading', level: 1, label: '見出し1', words: ['みだし1', '見出し1', 'h1', '#'], md: ['# '] },
@@ -3503,6 +3505,10 @@
     { id: 'todo', key: 'todo', label: 'ToDo', words: ['とぅーどぅー', 'todo', 'やること', 'チェック'], md: ['[] '] },
     { id: 'bullet', key: 'bullet', label: '箇条書き', words: ['かじょうがき', 'bullet', 'リスト'], md: ['- ', '* ', '+ '] },
     { id: 'numbered', key: 'numbered', label: '番号付き', words: ['ばんごう', 'number', 'numbered'], md: ['1. '] },
+    { id: 'toggle', key: 'toggle', label: 'トグル', words: ['とぐる', 'toggle'], md: ['> '] },
+    { id: 'th1', key: 'heading', level: 1, toggle: true, label: 'トグル見出し1', words: ['とぐるみだし', 'toggle heading'], md: [] },
+    { id: 'th2', key: 'heading', level: 2, toggle: true, label: 'トグル見出し2', words: ['とぐるみだし', 'toggle heading'], md: [] },
+    { id: 'th3', key: 'heading', level: 3, toggle: true, label: 'トグル見出し3', words: ['とぐるみだし', 'toggle heading'], md: [] },
     { id: 'quote', key: 'quote', label: '引用', words: ['いんよう', 'quote'], md: ['" '] },
     { id: 'divider', key: 'divider', label: '区切り線', words: ['くぎり', 'divider', '---'], md: ['---'] },
     { id: 'callout', key: 'callout', label: 'コールアウト', words: ['こーるあうと', 'callout', 'メモ書き'], md: [] },

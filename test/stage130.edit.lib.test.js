@@ -34,9 +34,9 @@ test('ED-1: BLOCK_TYPES はこの計画の型の表と1行ずつ同じ（名前�
     assert.strictEqual(r.cite, cite === '付く', `${i}: cite`);
     assert.strictEqual(r.since, since.startsWith('今ある') ? 'now' : since, `${i}: since`);
   });
-  // 0.13.0 の / メニューの鍵（トグルとトグル見出しは 0.13.1）
-  assert.deepStrictEqual([...E.MENU_KEYS], ['text', 'h1', 'h2', 'h3', 'todo', 'bullet', 'numbered', 'quote', 'divider', 'callout']);
-  assert.deepStrictEqual([...E.TYPE_KEYS], ['paragraph', 'heading', 'todo', 'bullet', 'numbered', 'quote', 'divider', 'callout']);
+  // / メニューの鍵（0.13.1 からトグルとトグル見出し1〜3 も）（0.13.1 NE-1 で意図して変えた: 計画 docs/plans/2026-10-27-131.md の「意図して変えるテスト」。版の型の表に従う意図は同じ）
+  assert.deepStrictEqual([...E.MENU_KEYS], ['text', 'h1', 'h2', 'h3', 'todo', 'bullet', 'numbered', 'toggle', 'th1', 'th2', 'th3', 'quote', 'divider', 'callout']);
+  assert.deepStrictEqual([...E.TYPE_KEYS], ['paragraph', 'heading', 'todo', 'bullet', 'numbered', 'toggle', 'quote', 'divider', 'callout']);
 });
 
 test('ED-1・F51: typeOf は段の無い見出しを段 2、知らない型をテキストの見た目にする。isTyped はテキストでない型だけ', () => {
@@ -45,7 +45,7 @@ test('ED-1・F51: typeOf は段の無い見出しを段 2、知らない型を�
   assert.strictEqual(E.typeOf({ type: 'heading', level: 3 }).id, 'h3');
   assert.strictEqual(E.typeOf({ type: 'heading', level: 7 }).id, 'h2');
   assert.strictEqual(E.typeOf({ type: 'video', text: 'x' }).id, 'text');
-  assert.strictEqual(E.typeOf({ type: 'toggle' }).id, 'text', '0.13.0 ではトグルはテキストの見た目');
+  assert.strictEqual(E.typeOf({ type: 'toggle' }).id, 'toggle', '0.13.1 からトグル（0.13.1 NE-1 で意図して変えた: 計画 docs/plans/2026-10-27-131.md の「意図して変えるテスト」。版の型の表に従う意図は同じ）');
   assert.strictEqual(E.typeOf(null).id, 'text');
   for (const [t, v] of [['paragraph', false], ['video', false], ['bullet', true], ['todo', true], ['numbered', true], ['quote', true], ['divider', true], ['callout', true], ['heading', true]]) assert.strictEqual(E.isTyped({ type: t }), v, t);
 });
@@ -85,7 +85,7 @@ test('ED-1・F43: shortcutFor の表（行頭だけ・1.5倍や空白なしは�
   assert.deepStrictEqual(T('" '), { type: 'quote', strip: 2 });
   assert.deepStrictEqual(T('---', '---'), { type: 'divider', strip: 3 });
   assert.strictEqual(T('---', '---あと'), null, '区切り線は空の行だけ（EQ13）');
-  assert.strictEqual(T('> '), null, '> は 0.13.1 のトグル（EQ10）');
+  assert.deepStrictEqual(T('> '), { type: 'toggle', strip: 2 }, '> は 0.13.1 のトグル（EQ10）（0.13.1 NE-1 で意図して変えた: 計画 docs/plans/2026-10-27-131.md の「意図して変えるテスト」。版の型の表に従う意図は同じ）');
   for (const s of ['あ- ', '1.5倍', '1.', '#見出し', '[]', '-', '--', '#### ', '2. ', 'a. ', '- あ', '']) assert.strictEqual(T(s), null, JSON.stringify(s));
   // EQ9 (a): 全角の記号と全角の空白でも変える。「ー」と「・」では変えない
   assert.deepStrictEqual(T('－　'), { type: 'bullet', strip: 2 });
@@ -97,7 +97,7 @@ test('ED-1・F43: shortcutFor の表（行頭だけ・1.5倍や空白なしは�
   assert.deepStrictEqual(T('”　'), { type: 'quote', strip: 2 });
   assert.deepStrictEqual(T('- 　'.slice(0, 1) + '　'), { type: 'bullet', strip: 2 });
   assert.deepStrictEqual(T('－－－', '－－－'), { type: 'divider', strip: 3 });
-  for (const s of ['ー　', '・　', 'ー ', '・ ', '＞　']) assert.strictEqual(T(s), null, s);
+  for (const s of ['ー　', '・　', 'ー ', '・ ']) assert.strictEqual(T(s), null, s);   // 全角の「＞　」は 0.13.1 からトグル（0.13.1 NE-1 で意図して変えた: 計画 docs/plans/2026-10-27-131.md の「意図して変えるテスト」。版の型の表に従う意図は同じ）
 });
 
 // ---------------------------------------------------------------- / メニュー（EQ7・EQ8）
@@ -108,21 +108,21 @@ test('ED-1: slashQuery・slashFilter の表（半角の / だけ・日本語の�
   assert.deepStrictEqual(E.slashQuery('予算　/h2'), { open: true, query: 'h2' });
   for (const s of ['a/b', 'a/', '／', '／みだし', '・', '・みだし', '/a b', '', '予算']) assert.strictEqual(E.slashQuery(s).open, false, s);
   const ids = (q, r) => { const x = E.slashFilter(q, r); return x === null ? null : x.map((i) => i.id); };
-  assert.deepStrictEqual(ids('みだし'), ['h1', 'h2', 'h3']);
+  assert.deepStrictEqual(ids('みだし'), ['h1', 'h2', 'h3', 'th1', 'th2', 'th3']);   // 「とぐるみだし」にも当たる（0.13.1 NE-1 で意図して変えた: 計画 docs/plans/2026-10-27-131.md の「意図して変えるテスト」。版の型の表に従う意図は同じ）
   assert.deepStrictEqual(ids('todo'), ['todo']);
   assert.deepStrictEqual(ids('TODO'), ['todo']);
   assert.deepStrictEqual(ids('h2'), ['h2']);
-  assert.deepStrictEqual(ids('見出し'), ['h1', 'h2', 'h3']);
-  assert.deepStrictEqual(ids('だし'), ['h1', 'h2', 'h3'], '途中からでも当たる');
-  assert.strictEqual(ids('とぐる'), null, '0.13.0 ではトグルは出さない（当たりなしの3文字で閉じる）');
+  assert.deepStrictEqual(ids('見出し'), ['h1', 'h2', 'h3', 'th1', 'th2', 'th3']);
+  assert.deepStrictEqual(ids('だし'), ['h1', 'h2', 'h3', 'th1', 'th2', 'th3'], '途中からでも当たる');
+  assert.deepStrictEqual(ids('とぐる'), ['toggle', 'th1', 'th2', 'th3'], '0.13.1 からトグルを出す（0.13.1 NE-1 で意図して変えた: 計画 docs/plans/2026-10-27-131.md の「意図して変えるテスト」。版の型の表に従う意図は同じ）');
   assert.deepStrictEqual(ids('zz'), [], '当たりなし（2文字はまだ開いている）');
   assert.strictEqual(ids('zzz'), null, '当たりなしで3文字なら閉じる');
   assert.deepStrictEqual(ids(''), [...E.MENU_KEYS]);
   assert.deepStrictEqual(E.slashFilter('', []).map((i) => i.group), E.MENU_KEYS.map(() => 'types'));
   const all = E.slashFilter('', ['h2', 'todo']);
   assert.deepStrictEqual(all.map((i) => `${i.group}:${i.id}`), ['recent:h2', 'recent:todo', ...E.MENU_KEYS.map((k) => `types:${k}`)]);
-  assert.deepStrictEqual(ids('み', ['h3']), ['h3', 'h1', 'h2'], '語を打った後は当たったうちの最近使ったものを先に');
-  assert.deepStrictEqual(E.slashFilter('み', ['h3']).map((i) => i.group), ['', '', ''], '語を打った後は見出しを出さない');
+  assert.deepStrictEqual(ids('み', ['h3']), ['h3', 'h1', 'h2', 'th1', 'th2', 'th3'], '語を打った後は当たったうちの最近使ったものを先に');
+  assert.deepStrictEqual(E.slashFilter('み', ['h3']).map((i) => i.group), ['', '', '', '', '', ''], '語を打った後は見出しを出さない');
   assert.deepStrictEqual(ids('', ['x', 1]), [...E.MENU_KEYS], '壊れた最近使ったものでも開く');
 });
 
@@ -130,14 +130,15 @@ test('ED-1・F52: recentAdd・recentCheck の表（新しい順・3つまで・�
   assert.deepStrictEqual(E.recentAdd([], 'h2'), ['h2']);
   assert.deepStrictEqual(E.recentAdd(['h2', 'todo', 'bullet'], 'quote'), ['quote', 'h2', 'todo']);
   assert.deepStrictEqual(E.recentAdd(['h2', 'todo'], 'todo'), ['todo', 'h2']);
-  assert.deepStrictEqual(E.recentAdd(['h2'], 'toggle'), ['h2'], '0.13.0 の鍵でない');
+  assert.deepStrictEqual(E.recentAdd(['h2'], 'toggle'), ['toggle', 'h2'], '0.13.1 の鍵（0.13.1 NE-1 で意図して変えた: 計画 docs/plans/2026-10-27-131.md の「意図して変えるテスト」。版の型の表に従う意図は同じ）');
+  assert.deepStrictEqual(E.recentAdd(['h2'], 'th'), ['h2'], '型の表の行 th は項目の鍵でない');
   assert.deepStrictEqual(E.recentAdd('x', 'h1'), ['h1']);
   const input = ['h2', 'todo'];
   E.recentAdd(input, 'h1');
   assert.deepStrictEqual(input, ['h2', 'todo'], '受けた物を変えた');
   for (const [v, want] of [[undefined, []], [null, []], ['h2', []], [{ 0: 'h2' }, []], [['x'], []], [[1], []], [['h2', 'h2'], ['h2']],
     [['h1', 'h2', 'h3', 'todo', 'bullet'], ['h1', 'h2', 'h3']], [['__proto__', 'h1'], ['h1']], [['予算の相談（山田さん）を来週までに', 'todo'], ['todo']],
-    [['toggle', 'th1', 'quote'], ['quote']]]) assert.deepStrictEqual(E.recentCheck(v), want, JSON.stringify(v));
+    [['toggle', 'th1', 'quote'], ['toggle', 'th1', 'quote']]]) assert.deepStrictEqual(E.recentCheck(v), want, JSON.stringify(v));   // 0.13.1 の鍵は残る（0.13.1 NE-1 で意図して変えた: 計画 docs/plans/2026-10-27-131.md の「意図して変えるテスト」。版の型の表に従う意図は同じ）
 });
 
 // ---------------------------------------------------------------- Enter と Backspace（EQ5 (a)・EQ6 (a)）
@@ -178,7 +179,7 @@ test('ED-1・F45: keyAction の表（数字は ev.code・変換中は null・今
   assert.strictEqual(K({ ctrlKey: true, shiftKey: true, code: 'Digit5', key: '%' }), 'turn:bullet');
   assert.strictEqual(K({ ctrlKey: true, shiftKey: true, code: 'Digit6', key: '&' }), 'turn:numbered');
   assert.strictEqual(K({ ctrlKey: true, shiftKey: true, code: 'Digit0', key: '' }), 'turn:text', 'EQ12');
-  assert.strictEqual(K({ ctrlKey: true, shiftKey: true, code: 'Digit7', key: "'" }), null, 'トグルは 0.13.1');
+  assert.strictEqual(K({ ctrlKey: true, shiftKey: true, code: 'Digit7', key: "'" }), 'turn:toggle', 'トグル（0.13.1（0.13.1 NE-1 で意図して変えた: 計画 docs/plans/2026-10-27-131.md の「意図して変えるテスト」。版の型の表に従う意図は同じ））');
   assert.strictEqual(K({ ctrlKey: true, shiftKey: true, code: 'Digit8' }), null);
   assert.strictEqual(K({ ctrlKey: true, shiftKey: true, code: 'Digit9' }), null);
   assert.strictEqual(K({ ctrlKey: true, shiftKey: true, code: 'Digit1', key: '!', isComposing: true }), null);
