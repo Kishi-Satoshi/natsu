@@ -75,8 +75,8 @@ $Pins = @{
     # 「先行版（prerelease）」として置く（latest にはしない。NaTsu の自動更新は latest と natsu-v の札しか読まない）。
     # Size と Sha は、その CI が出した数を写す。0 と空のあいだは D・Dn を測らない（取得先がまだ無い）。
     whisperVkZip = @{ Label = "whisper.cpp v1.9.5 の Vulkan 版（NaTsu の CI で作ったもの）"
-        Url = "https://github.com/Kishi-Satoshi/natsu/releases/download/stt-engine-whisper-vk-1.9.5-n1/whisper-vk-bin-x64-1.9.5-n1.zip"
-        File = "whisper-vk-bin-x64-1.9.5-n1.zip"; Size = [long]0
+        Url = "https://github.com/Kishi-Satoshi/natsu/releases/download/whisper-vulkan-d1be6fd/whisper-vulkan-bin-x64-d1be6fd.zip"
+        File = "whisper-vulkan-bin-x64-d1be6fd.zip"; Size = [long]0
         Sha = "" }
     turbo = @{ Label = "large-v3-turbo q5_0（今のモデル）"
         Url = "https://huggingface.co/ggerganov/whisper.cpp/resolve/5359861c739e955e79d9a303bcbc70fb988958b1/ggml-large-v3-turbo-q5_0.bin"
