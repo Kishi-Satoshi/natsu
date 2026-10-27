@@ -83,7 +83,7 @@ const ED4_CMDS = {
   blockUpdate: (pageId, blockId, patch) => ['block.update', { pageId, blockId, patch }],
   blockInsert: (pageId, afterBlockId, type, level) => ['block.insert', level === undefined ? { pageId, afterBlockId, type } : { pageId, afterBlockId, type, level }],
   blockRemove: (pageId, blockId) => ['block.remove', { pageId, blockId }],
-  blockSplit: (pageId, blockId, text, at) => ['block.split', { pageId, blockId, text, at }],
+  blockSplit: (pageId, blockId, text, at, afterId) => ['block.split', afterId === undefined ? { pageId, blockId, text, at } : { pageId, blockId, text, at, afterId }],
   blockMerge: (pageId, blockId, text) => ['block.merge', { pageId, blockId, text }],
   blockTurnInto: (pageId, blockId, type, level) => ['block.turnInto', level === undefined ? { pageId, blockId, type } : { pageId, blockId, type, level }],
   blockSetAction: (pageId, blockId, assignee, dueRaw) => ['block.setAction', { pageId, blockId, assignee, dueRaw }],
@@ -191,7 +191,7 @@ test('ED-4・点検1: 文のある行の頭で Enter → blockSplit（at 0）の
     const t = typeIn(l, 'b1', '来週に出す', 0);
     l.key({ key: 'Enter' }, t);
     await l.drain();
-    assert.deepStrictEqual(sent(l), [['blockSplit', 'pa1', 'b1', '来週に出す', 0]]);
+    assert.deepStrictEqual(sent(l), [['blockSplit', 'pa1', 'b1', '来週に出す', 0, 'h1']]);   // 点検8（意図して変えた）: 画面で上に見えている行も送る
     const blocks = l.page().blocks;
     assert.deepStrictEqual(blocks.slice(0, 3).map((b) => [b.id === 'h1' || b.id === 'b1' ? b.id : 'new', b.type, b.text]),
       [['h1', 'heading', '決定事項'], ['new', 'bullet', ''], ['b1', 'bullet', '来週に出す']]);
@@ -204,7 +204,49 @@ test('ED-4・点検1: 文のある行の頭で Enter → blockSplit（at 0）の
     // blur しても今の行の文を書き直さない（命令は分割の1つだけ）
     txtOf(l, 'b1').dispatchEvent({ type: 'blur' });
     await l.drain();
-    assert.deepStrictEqual(sent(l), [['blockSplit', 'pa1', 'b1', '来週に出す', 0]]);
+    assert.deepStrictEqual(sent(l), [['blockSplit', 'pa1', 'b1', '来週に出す', 0, 'h1']]);
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+// 2026-10-27 の持ち主の答え（点検8「見えている上の行の後ろに足す（おすすめ）」）
+test('ED-4・点検8: 並べ替えて見せる要約で、文のある行の頭で Enter → 上の空の行は画面で今の行のすぐ上に出る（afterId は画面で上に見えている行）。今の行は ID・文・出典がそのまま、カーソルは今の行の頭', T, async () => {
+  const blocks = [{ id: 'h1', type: 'heading', level: 2, text: '議題' }, { id: 'b2', type: 'bullet', text: '予算の話', cites: ['s2'], citeState: 'linked' },
+    { id: 'h2', type: 'heading', level: 2, text: '決定事項' }, { id: 'b4', type: 'bullet', text: '来月に出す', cites: ['s2'], citeState: 'linked' },
+    { id: 'h3', type: 'heading', level: 2, text: '持ち越し' }, { id: 'b6', type: 'bullet', text: '見積もりを取る', cites: [], citeState: 'linked' }];
+  const cases = [
+    ['h3', 'b4', ['h2', 'b4', 'new', 'h3', 'b6', 'h1', 'b2']],   // 前に出した締めの見出し
+    ['h1', 'b6', ['h2', 'b4', 'h3', 'b6', 'new', 'h1', 'b2']],   // 後ろへ回った見出し
+    ['b2', 'h1', ['h2', 'b4', 'h3', 'b6', 'h1', 'new', 'b2']],   // ふつうの行
+  ];
+  for (const [id, above, want] of cases) {
+    const l = await openReal({ pa1: blocks });
+    try {
+      assert.deepStrictEqual(rowsOf(l).map((e) => e.dataset.id), ['h2', 'b4', 'h3', 'b6', 'h1', 'b2'], '締めの節が前に出ていない（見本の作りの誤り）');
+      const was = l.page().blocks.find((b) => b.id === id);
+      const t = typeIn(l, id, was.text, 0);
+      l.key({ key: 'Enter' }, t);
+      await l.drain();
+      assert.deepStrictEqual(sent(l), [['blockSplit', 'pa1', id, was.text, 0, above]], id);
+      const nb = l.page().blocks.find((b) => !blocks.some((x) => x.id === b.id));
+      assert.deepStrictEqual(rowsOf(l).map((e) => (e.dataset.id === nb.id ? 'new' : e.dataset.id)), want, id);
+      assert.deepStrictEqual(l.page().blocks.find((b) => b.id === id), was, `${id}: 今の行が変わった`);
+      assert.deepStrictEqual([txtOf(l, id).textContent, txtOf(l, nb.id).textContent], [was.text, '']);
+      assert.strictEqual(l.document.activeElement, txtOf(l, id));
+      assert.deepStrictEqual(l.caret.get(txtOf(l, id)), [0, 0]);
+      assert.deepStrictEqual(l.errors.map(fmt), []);
+    } finally { l.done(); }
+  }
+  // 締めの見出しの無い（並べ替えの無い）要約の頭の行: 上に見えている行が無いので ''（いちばん上に出る）
+  const l = await openReal({ pa1: [blocks[0], blocks[1], { id: 'p1', type: 'paragraph', text: 'あいうえお' }] });
+  try {
+    const t = typeIn(l, 'h1', '議題', 0);
+    l.key({ key: 'Enter' }, t);
+    await l.drain();
+    assert.deepStrictEqual(sent(l), [['blockSplit', 'pa1', 'h1', '議題', 0, '']]);
+    const ids = rowsOf(l).map((e) => e.dataset.id);
+    assert.deepStrictEqual(ids.slice(1), ['h1', 'b2', 'p1']);
+    assert.strictEqual(l.page().blocks[0].id, ids[0]);
     assert.deepStrictEqual(l.errors.map(fmt), []);
   } finally { l.done(); }
 });

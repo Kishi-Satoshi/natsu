@@ -659,13 +659,15 @@ const DEFS = {
   // 命令と一緒に送る」）: 分割・結合・型の変換・複製。どれも要約の欄の鍵を見る（summary: true）。oplog の1行が第2b回の「元に戻す」の1歩になる
   // 今の行の文を text（画面の今の文）にしてから at で分け、前を今の行・後ろを新しい行（すぐ下。型は EQ5 (a)）にする → { page, blockId: 新しい行 }
   // （点検1）文のある行の頭（at 0）では、上に空の行（型は EQ5 (a)）を足し、今の行はそのまま残す（空の行の at 0 は今どおり下に足す）
-  'block.split': { roles: ['app', 'main'], write: true, args: { pageId: 'id', blockId: 'id', text: 'text', at: 'offset' },
+  // （点検8）そのとき afterId（画面で上に見えている行。'' は頭）があれば、上の空の行はその行のすぐ後ろに入る（block.move と同じ。途中の分割では使わない）
+  'block.split': { roles: ['app', 'main'], write: true, args: { pageId: 'id', blockId: 'id', text: 'text', at: 'offset', afterId: 'idOrEmpty?' },
     run: (db, a, ctx) => {
       const blockId = newBlockId(db, ctx.now);
       const out = editPage(db, a.pageId, ctx, (p) => {
         const i = p.blocks.findIndex((x) => x.id === a.blockId);
         if (i < 0) return false;
         if (!splitAtOk(a.text, a.at)) throw refuse('bad-args');
+        if (a.afterId !== undefined && a.afterId !== '' && (a.afterId === a.blockId || !p.blocks.some((x) => x.id === a.afterId))) throw refuse('bad-args');
         const b = p.blocks[i];
         const [head, tail] = [a.text.slice(0, a.at), a.text.slice(a.at)];
         const next = blockEdit.nextTypeOnEnter(b);
@@ -677,7 +679,9 @@ const DEFS = {
           nb.text = '';
           if (Array.isArray(b.rich) && b.rich.map((r) => r.t).join('') !== a.text) delete b.rich;
           retext(b, a.text);
-          p.blocks.splice(i, 0, nb);
+          // 2026-10-27 の持ち主の答え（点検8）: 画面で上に見えている行の後ろに足す（0.11.0 の並べ替えて見せる要約でも今の行のすぐ上に見える）
+          if (a.afterId === undefined) p.blocks.splice(i, 0, nb);
+          else p.blocks.splice(a.afterId === '' ? 0 : p.blocks.findIndex((x) => x.id === a.afterId) + 1, 0, nb);
           return true;
         }
         if (Array.isArray(b.rich)) {

@@ -189,7 +189,8 @@ contextBridge.exposeInMainWorld('koeApp', {
   // 0.13.0 ED-2: 3つ目が { afterId } なら「その行の後ろへ」（'' は頭）、数なら今の toIndex
   blockMove: (pageId, blockId, to) => dbCall('block.move', to && typeof to === 'object' ? { pageId, blockId, afterId: to.afterId } : { pageId, blockId, toIndex: to }),
   // 0.13.0 ED-2: 分割（text は画面の今の文・at は分ける位置）・結合（text は今の行の文）・型の変換（level は見出しの段）・複製（afterId は Alt で落とした所）
-  blockSplit: (pageId, blockId, text, at) => dbCall('block.split', { pageId, blockId, text, at }),
+  // （点検8）5つ目の afterId は文のある行の頭で上に足す行の置き場（画面で上に見えている行。'' は頭）
+  blockSplit: (pageId, blockId, text, at, afterId) => dbCall('block.split', afterId === undefined ? { pageId, blockId, text, at } : { pageId, blockId, text, at, afterId }),
   blockMerge: (pageId, blockId, text) => dbCall('block.merge', { pageId, blockId, text }),
   blockTurnInto: (pageId, blockId, type, level) => dbCall('block.turnInto', level === undefined ? { pageId, blockId, type } : { pageId, blockId, type, level }),
   blockDuplicate: (pageId, blockId, afterId) => dbCall('block.duplicate', afterId === undefined ? { pageId, blockId } : { pageId, blockId, afterId }),

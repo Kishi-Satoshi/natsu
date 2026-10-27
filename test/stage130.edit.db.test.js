@@ -113,6 +113,47 @@ test('ED-2・点検1: 文のある行の頭（at 0）で block.split → 上に�
   assert.strictEqual(eb.indexOf(e.result.blockId), eb.indexOf(h.result.blockId) + 1);
 }, { blocks: samplePage('pa1').page.blocks.map((b) => (b.id === 'b4' ? { ...b, citeState: 'linked', checked: true } : b)) }));
 
+// 2026-10-27 の持ち主の答え（点検8「見えている上の行の後ろに足す（おすすめ）」）: 0.11.0 の並べ替えて見せる要約（締めの節が頭）でも、上の空の行は
+// 画面で今の行のすぐ上に見える。画面は上に見えている行を afterId で送る（'' は頭。block.move と同じ）。今の行は ID・文・印がそのまま
+const VIEW8 = [{ id: 'h1', type: 'heading', level: 2, text: '議題' }, { id: 'b2', type: 'bullet', text: '予算の話', cites: ['s2'], citeState: 'linked' },
+  { id: 'h2', type: 'heading', level: 2, text: '決定事項' }, { id: 'b4', type: 'bullet', text: '来月に出す', cites: ['s3'], citeState: 'linked' },
+  { id: 'h3', type: 'heading', level: 2, text: '持ち越し' }, { id: 'b6', type: 'bullet', text: '見積もりを取る', cites: [], citeState: 'linked' }];
+test('ED-2・点検8: 文のある行の頭の block.split に afterId があれば、上の空の行はその行のすぐ後ろに入り、並べ替えて見せる要約でも今の行のすぐ上に見える。無い afterId・今の行の afterId は bad-args', T, () => {
+  const M = require('../src/memoTypes');
+  const view = (blocks, nb) => M.orderForView(blocks).map((i) => (blocks[i].id === nb ? 'new' : blocks[i].id));
+  assert.deepStrictEqual(view(VIEW8), ['h2', 'b4', 'h3', 'b6', 'h1', 'b2'], '締めの節が前に出ていない（見本の作りの誤り）');
+  const cases = [
+    ['h3', 'b4', ['h2', 'b4', 'new', 'h3', 'b6', 'h1', 'b2']],   // 前に出した締めの見出し（2つ目）
+    ['h1', 'b6', ['h2', 'b4', 'h3', 'b6', 'new', 'h1', 'b2']],   // 後ろへ回った型の見出し（afterId が無いと保存の順の頭に入り、画面のいちばん下の節の前に出ない）
+    ['b2', 'h1', ['h2', 'b4', 'h3', 'b6', 'h1', 'new', 'b2']],   // ふつうの行
+    // 画面の頭の行（''）: 保存の頭に入る。並べ替えて見せる要約では、保存の頭の行は締めの節の後に見える（R28 と同じ。afterId で表せる所が無い）
+    ['h2', '', ['h2', 'b4', 'h3', 'b6', 'new', 'h1', 'b2']],
+  ];
+  for (const [id, afterId, want] of cases) {
+    withDb((db) => {
+      const was = get(db).blocks.find((b) => b.id === id);
+      const r = call(db, 'block.split', { pageId: 'pa1', blockId: id, text: was.text, at: 0, afterId });
+      assert.strictEqual(r.ok, true, `${id} ${r.code}`);
+      assert.deepStrictEqual(view(r.result.page.blocks, r.result.blockId), want, id);
+      if (afterId === '') assert.strictEqual(r.result.page.blocks[0].id, r.result.blockId);
+      assert.deepStrictEqual(r.result.page.blocks.find((b) => b.id === id), was, `${id}: 今の行が変わった`);
+      assert.strictEqual(r.result.page.blocks.find((b) => b.id === r.result.blockId).text, '');
+    }, { blocks: VIEW8 });
+  }
+  // afterId は at 0 で文のある行のときだけ使う（途中の分割は今どおり今の行のすぐ下）。無い行・今の行の afterId は断る
+  withDb((db) => {
+    const n0 = oplogN(db);
+    for (const afterId of ['zz', 'h3']) {
+      const bad = call(db, 'block.split', { pageId: 'pa1', blockId: 'h3', text: '持ち越し', at: 0, afterId });
+      assert.deepStrictEqual([bad.ok, bad.code], [false, 'bad-args'], afterId);
+    }
+    assert.strictEqual(oplogN(db), n0, '断った命令が oplog に残った');
+    const mid = call(db, 'block.split', { pageId: 'pa1', blockId: 'b2', text: '予算の話', at: 2, afterId: 'b6' });
+    const ids = mid.result.page.blocks.map((b) => b.id);
+    assert.strictEqual(ids.indexOf(mid.result.blockId), ids.indexOf('b2') + 1);
+  }, { blocks: VIEW8 });
+});
+
 // ---------------------------------------------------------------- 結合
 test('ED-2: merge は今の行の文を前の文のある行の後ろにつなぎ、答えの at がつないだ所。前が区切り線なら区切り線だけを消す。頭の行では何もしない', T, () => withDb((db) => {
   const r = call(db, 'block.merge', { pageId: 'pa1', blockId: 'b3', text: '画面の文' });
@@ -322,13 +363,14 @@ test('ED-2: preload の APP_COMMANDS は役 app の命令と同じ集まり・ko
   const port = new EventTarget(); port.postMessage = (msg) => sent.push(structuredClone(msg)); port.start = () => {}; port.close = () => {};
   on['db:port']({ ports: [port] });
   exposed.koeApp.blockSplit('pa1', 'b2', '打った文', 2);
+  exposed.koeApp.blockSplit('pa1', 'b2', '打った文', 0, '');   // 点検8: 上に足す行の置き場（画面で上に見えている行。'' は頭）
   exposed.koeApp.blockMerge('pa1', 'b3', '了解');
   exposed.koeApp.blockTurnInto('pa1', 'b2', 'heading', 3);
   exposed.koeApp.blockDuplicate('pa1', 'b2');
   exposed.koeApp.blockMove('pa1', 'b2', { afterId: 'b4' });
   exposed.koeApp.blockMove('pa1', 'b2', 3);
   assert.deepStrictEqual(sent.map((x) => [x.cmd, x.args]), [
-    ['block.split', { pageId: 'pa1', blockId: 'b2', text: '打った文', at: 2 }], ['block.merge', { pageId: 'pa1', blockId: 'b3', text: '了解' }],
+    ['block.split', { pageId: 'pa1', blockId: 'b2', text: '打った文', at: 2 }], ['block.split', { pageId: 'pa1', blockId: 'b2', text: '打った文', at: 0, afterId: '' }], ['block.merge', { pageId: 'pa1', blockId: 'b3', text: '了解' }],
     ['block.turnInto', { pageId: 'pa1', blockId: 'b2', type: 'heading', level: 3 }], ['block.duplicate', { pageId: 'pa1', blockId: 'b2' }],
     ['block.move', { pageId: 'pa1', blockId: 'b2', afterId: 'b4' }], ['block.move', { pageId: 'pa1', blockId: 'b2', toIndex: 3 }]]);
   assert.ok(sent.every((x) => /^a:/.test(x.tx)), '書く命令に tx が無い');

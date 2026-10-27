@@ -3386,7 +3386,11 @@
     const was = b.text;
     if (!top) txt.textContent = text.slice(0, at);
     b.text = top ? text : text.slice(0, at);   // 点検5: DB と同じく分けた前の文を削らない（削ると、答えの後の blur が削った文を送り直して oplog が2行になる）
-    const out = await editAnswer(pid, () => window.koeApp.blockSplit(pid, b.id, text, at), (x) => ({ focus: top ? b.id : x.blockId, caret: 0 }));
+    // 2026-10-27 の持ち主の答え（点検8）: 上の空の行は画面で上に見えている行の後ろへ（いちばん上なら頭: ''。block.move の afterId と同じ）
+    const rows = top ? editRows() : [];
+    const i = rows.findIndex((e) => e.dataset.id === b.id);
+    const args = top ? [pid, b.id, text, at, i > 0 ? rows[i - 1].dataset.id : ''] : [pid, b.id, text, at];
+    const out = await editAnswer(pid, () => window.koeApp.blockSplit(...args), (x) => ({ focus: top ? b.id : x.blockId, caret: 0 }));
     if (!out && el._b === b) { b.text = was; if (pid === curId) txt.textContent = text; }
     return out;
   }
