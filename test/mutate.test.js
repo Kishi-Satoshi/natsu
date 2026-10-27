@@ -544,6 +544,9 @@ const IDS_HELP_OVERVIEW = {
   'ho-figure-check': ['tools/help-appshots.js', 'test/help-content.test.js'],
   'ho-img-width': ['help/assets/help.css', 'test/help-content.test.js'],
   'ho-diagram-text': ['help/assets/diagrams/overview-flow.svg', 'test/help-content.test.js'],
+  'ho-overview-first': ['help/site.json', 'test/help-content.test.js'],
+  'ho-featured-first': ['help/site.json', 'test/help-content.test.js'],
+  'ho-explain-count': ['help/articles/start/overview.md', 'test/help-content.test.js'],
 };
 test('G3: help-overview の変異が一覧にそろい、IDS_HELP_OVERVIEW とちょうど同じ（当てるファイルと赤になるテストも同じ）。ho- の変異は IDS_HELP_OVERVIEW にある', { timeout: 5000 }, () => {
   const byId = new Map(MUTANTS.map((m) => [m.id, m]));

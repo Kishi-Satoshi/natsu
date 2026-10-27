@@ -497,3 +497,54 @@ test('HO-3（HO4）: 仕組みの図（help/assets/diagrams/*.svg）は手で描
     assert.deepStrictEqual(ds, Array.from({ length: marks }, (_, i) => DIGITS[i + 1]), `${f}: 番号が 1 から順でない`);
   }
 });
+
+// HO-3（図の下の説明）: 写真の図と仕組みの図には、図の中に文字を書かない代わりに、図のすぐ下に印の数と同じ数の番号の説明（1. …）を置く
+/** 記事の中の図（.svg の画像の行）ごとに { file, line, src, marks（図の番号の丸の数）, items（直後の番号のリストの項目の数） } */
+function figuresIn(a) {
+  const lines = a.text.replace(/\r\n?/g, '\n').split('\n');
+  const out = [];
+  lines.forEach((l, i) => {
+    const m = /^!\[([^\]]+)\]\(assets\/((?:shots|diagrams)\/[a-z0-9-]+\.svg)\)$/.exec(l);
+    if (!m) return;
+    const svg = read(`help/assets/${m[2]}`);
+    let j = i + 1;
+    while (j < lines.length && lines[j] === '') j++;
+    // 図と番号のリストの間に、1段落（「太い枠の中が…」のような読み方の一言）までは置いてよい
+    if (j < lines.length && !/^\d+\. /.test(lines[j]) && !/^[-#>|!`]/.test(lines[j])) { while (j < lines.length && lines[j] !== '') j++; while (j < lines.length && lines[j] === '') j++; }
+    let items = 0;
+    for (let k = j, n = 1; k < lines.length && lines[k].startsWith(`${n}. `); k++, n++) items++;
+    out.push({ file: a.file, line: i + 1, src: m[2], alt: m[1], marks: (svg.match(/<g class="mark">/g) || []).length, items });
+  });
+  return out;
+}
+
+test('HO-3（HO3・Review Focus 4）: 記事の図（写真の図と仕組みの図）のすぐ下に、図の番号の丸と同じ数の番号の説明（1. から）がある。代わりの文（alt）は空でない', { timeout: 5000 }, () => {
+  let n = 0;
+  for (const a of articles) {
+    for (const f of figuresIn(a)) {
+      n++;
+      assert.ok(f.alt.trim().length >= 10, `${f.file}:${f.line} 代わりの文が短い`);
+      assert.strictEqual(f.items, f.marks, `${f.file}:${f.line} ${f.src} の番号の丸は ${f.marks} 個、下の番号の説明は ${f.items} 個`);
+    }
+  }
+  assert.ok(n >= 6, `図が少ない（${n}）`);
+});
+
+// HO-4（HO5・HO6）: 新しい記事「NaTsu の全体像」（start/overview）。はじめに のいちばん上と、ホームの「はじめての方へ」の先頭
+test('HO-4（HO5）: start/overview は「はじめに」のいちばん上で、featured の先頭。題名は「NaTsu の全体像」', { timeout: 5000 }, () => {
+  const start = site.categories.find((c) => c.id === 'start');
+  assert.strictEqual(start.articles[0], 'overview', 'はじめに のいちばん上でない');
+  assert.strictEqual(site.featured[0], 'start/overview', 'featured の先頭でない');
+  assert.strictEqual(metaOf(articles.find((a) => a.ref === 'start/overview')).title, 'NaTsu の全体像');
+});
+
+test('HO-4: start/overview に、画面の地図と録音バー・1回の会議の流れ（録音の前のページ → 録音中 → 議事録）・仕組みの図・音声の行き先の表・保存の場所・Claude とのつながり・くわしい記事へのリンクがある（0.13.0 の画面: ［新しい議事録］は録音の前のページを開き、［文字起こしを始める］で始まる）', { timeout: 5000 }, () => {
+  const t = read(fileOf('start/overview'));
+  const srcs = figuresIn({ file: 'start/overview', text: t }).map((f) => f.src);
+  assert.deepStrictEqual(srcs, ['shots/overview-map.svg', 'shots/bar.svg', 'shots/ready.svg', 'shots/live.svg', 'shots/minutes.svg', 'diagrams/overview-flow.svg']);
+  for (const h of ['{#map}', '## 手順1. ', '## 手順2. ', '## 手順3. ', '{#data}', '{#storage}', '{#claude}', '{#more}']) assert.ok(t.includes(h), `見出し ${h} が無い`);
+  for (const w of ['録音の前のページ', 'まだ録音しません', '［文字起こしを始める］', '［オフラインモードで始める］', '［■ 終了して作成］', '［オフラインモード］', '［AI 要約］',
+    '太い矢印は音声', '細い矢印は文字', '音声も文字も保存しません', 'この PC の中にだけ保存', '守秘のためのボタンではありません', '［ヘルプ］']) assert.ok(t.includes(w), `「${w}」が無い`);
+  for (const r of ['start/what-natsu-does', 'start/login', 'record/start-stop', 'record/pause', 'record/status-line', 'record/pc-only', 'start/claude-mcp']) assert.ok(t.includes(`](${r}.md`), `${r} へのリンクが無い`);
+  assert.ok(!/［新しい議事録］ を押すと(?:録音|記録)が始ま/.test(t), '［新しい議事録］で録音が始まると読める（0.12.1 までの動き）');
+});
