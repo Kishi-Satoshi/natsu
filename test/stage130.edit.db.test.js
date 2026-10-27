@@ -167,6 +167,40 @@ test('ED-2・F46: citeState の無い行（AI のテキストの行・見出し�
 }, { blocks: [...samplePage('pa1').page.blocks, { id: 'bp', type: 'paragraph', text: 'AI の書いた段落' }] }));
 
 // ---------------------------------------------------------------- 型の照らし（決めたこと 9）
+// 2026-10-26 の持ち主の答え（点検2「見出しに戻したら AI の見出しに戻す（おすすめ）」）: AI の見出し（citeState を持たない）を別の型に変えると
+// manual にし、AI の見出しだった印 aiHeading を付ける。文を変えずに見出しへ戻すと AI の見出しに戻る（citeState も印も無い）。文を変えたら人の行のまま
+test('ED-2・点検2: AI の見出しをテキストにして見出しに戻すと、citeState の無い AI の見出しに戻り、orderForView の並びが同じ。間に文を直したら manual のまま', T, () => withDb((db) => {
+  const M = require('../src/memoTypes');
+  const order0 = M.orderForView(get(db).blocks).map((i) => get(db).blocks[i].id);
+  const t = call(db, 'block.turnInto', { pageId: 'pa1', blockId: 'h2', type: 'paragraph' });
+  const p = t.result.blocks.find((b) => b.id === 'h2');
+  assert.deepStrictEqual([p.type, p.citeState, p.aiHeading], ['paragraph', 'manual', true]);
+  // 見出しへ戻す道はどれも block.turnInto（Ctrl+Shift+1〜3・# ・/ メニュー・⠿ の変換）。段 2 で戻す
+  const back = call(db, 'block.turnInto', { pageId: 'pa1', blockId: 'h2', type: 'heading', level: 2 });
+  const h = back.result.blocks.find((b) => b.id === 'h2');
+  assert.deepStrictEqual([h.type, h.level, h.citeState, h.aiHeading], ['heading', 2, undefined, undefined]);
+  assert.deepStrictEqual(M.orderForView(back.result.blocks).map((i) => back.result.blocks[i].id), order0);
+  // 箇条書き → 番号付きと2回変えてから戻しても同じ
+  call(db, 'block.turnInto', { pageId: 'pa1', blockId: 'h2', type: 'bullet' });
+  call(db, 'block.turnInto', { pageId: 'pa1', blockId: 'h2', type: 'numbered' });
+  const back2 = call(db, 'block.turnInto', { pageId: 'pa1', blockId: 'h2', type: 'heading', level: 2 });
+  assert.strictEqual(back2.result.blocks.find((b) => b.id === 'h2').citeState, undefined);
+  // 間に文を直したら、見出しに戻しても人の行（manual。印は消える）
+  call(db, 'block.turnInto', { pageId: 'pa1', blockId: 'h2', type: 'paragraph' });
+  call(db, 'block.update', { pageId: 'pa1', blockId: 'h2', patch: { text: '決定事項（直した）' } });
+  assert.strictEqual(get(db).blocks.find((b) => b.id === 'h2').aiHeading, undefined);
+  const back3 = call(db, 'block.turnInto', { pageId: 'pa1', blockId: 'h2', type: 'heading', level: 2 });
+  assert.strictEqual(back3.result.blocks.find((b) => b.id === 'h2').citeState, 'manual');
+  // 人の行（manual の見出し）は印を持たない: テキストにして戻しても manual のまま
+  const hm = call(db, 'block.insert', { pageId: 'pa1', afterBlockId: 'b2', type: 'heading', level: 2 });
+  call(db, 'block.turnInto', { pageId: 'pa1', blockId: hm.result.blockId, type: 'paragraph' });
+  const hm2 = call(db, 'block.turnInto', { pageId: 'pa1', blockId: hm.result.blockId, type: 'heading', level: 2 });
+  const row = hm2.result.blocks.find((b) => b.id === hm.result.blockId);
+  assert.deepStrictEqual([row.citeState, row.aiHeading], ['manual', undefined]);
+}, { blocks: [{ id: 'h1', type: 'heading', level: 2, text: '議題' }, { id: 'b2', type: 'bullet', text: '予算の話', cites: ['s2'], citeState: 'linked' },
+  { id: 'h2', type: 'heading', level: 2, text: '決定事項' }, { id: 'b4', type: 'bullet', text: '来月に出す', cites: ['s3'], citeState: 'linked' },
+  { id: 'h3', type: 'heading', level: 2, text: '次の一歩' }, { id: 'b6', type: 'bullet', text: '見積もりを取る', cites: [], citeState: 'linked' }] }));
+
 test('ED-2: 画面の役の block.insert・turnInto・update の型は BLOCK_TYPES だけ（numbered は通る・video・../x は bad-args）。main の役の page.put は知らない型も今どおり通す', T, () => withDb((db) => {
   assert.strictEqual(call(db, 'block.insert', { pageId: 'pa1', afterBlockId: 'b1', type: 'numbered' }).ok, true);
   assert.strictEqual(call(db, 'block.insert', { pageId: 'pa1', afterBlockId: 'b1', type: 'heading', level: 1 }).result.page.blocks[1].level, 1);

@@ -209,6 +209,49 @@ test('ED-4・点検1: 文のある行の頭で Enter → blockSplit（at 0）の
   } finally { l.done(); }
 });
 
+// 2026-10-26 の持ち主の答え（点検2「見出しに戻したら AI の見出しに戻す（おすすめ）」）
+test('ED-4・点検2: AI の見出しの頭で Backspace（テキストに戻る）→ Ctrl+Shift+2 か「## 」で見出しに戻すと、画面の並びと［コピー］が前と同じ', T, async () => {
+  const blocks = [{ id: 'h1', type: 'heading', level: 2, text: '議題' }, { id: 'b2', type: 'bullet', text: '予算の話', cites: ['s2'], citeState: 'linked' },
+    { id: 'h2', type: 'heading', level: 2, text: '決定事項' }, { id: 'b4', type: 'bullet', text: '来月に出す', cites: ['s2'], citeState: 'linked' }];
+  for (const how of ['ctrl', 'md']) {
+    const l = await openReal({ pa1: blocks }, { returns: { copy: (t) => { l.copied = t; return true; } } });
+    try {
+      const copy = async () => {
+        const btn = $(l, 'pMenu').querySelectorAll('button').find((b) => b.textContent === 'コピー');
+        await btn.onclick();
+        await l.drain();
+        return l.copied;
+      };
+      const order0 = rowsOf(l).map((e) => e.dataset.id);
+      assert.deepStrictEqual(order0, ['h2', 'b4', 'h1', 'b2'], '締めの節が前に出ていない（見本の作りの誤り）');
+      const copy0 = await copy();
+      let t = txtOf(l, 'h2');
+      t.focus();
+      l.caret.set(t, 0);
+      l.key({ key: 'Backspace' }, t);
+      await l.drain();
+      assert.deepStrictEqual([l.page().blocks[2].type, l.page().blocks[2].citeState], ['paragraph', 'manual']);
+      assert.notDeepStrictEqual(rowsOf(l).map((e) => e.dataset.id), order0, 'テキストにしたのに並びが同じ（見本の作りの誤り）');
+      t = txtOf(l, 'h2');
+      t.focus();
+      if (how === 'ctrl') {
+        l.caret.set(t, 0);
+        l.key({ key: '"', code: 'Digit2', ctrlKey: true, shiftKey: true }, t);
+      } else {
+        t.textContent = '## 決定事項';
+        l.caret.set(t, 3);
+        t.dispatchEvent({ type: 'input' });
+      }
+      await l.drain();
+      const h2 = l.page().blocks[2];
+      assert.deepStrictEqual([h2.id, h2.type, h2.text, h2.citeState], ['h2', 'heading', '決定事項', undefined], how);
+      assert.deepStrictEqual(rowsOf(l).map((e) => e.dataset.id), order0, how);
+      assert.strictEqual(await copy(), copy0, how);
+      assert.deepStrictEqual(l.errors.map(fmt), []);
+    } finally { l.done(); }
+  }
+});
+
 test('ED-4・F40: カーソルが「𠮷」の途中なら書記素の境に寄せて分ける（文字化けしない）', T, async () => {
   const l = await openReal({ pa1: BASE() });
   try {

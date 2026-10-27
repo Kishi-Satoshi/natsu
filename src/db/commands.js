@@ -304,6 +304,7 @@ function retext(blk, text) {
   if (isCitable(text)) delete blk.citeSkip; else blk.citeSkip = true;
   delete blk.mark;
   delete blk.unconfirmed;
+  delete blk.aiHeading;   // 2026-10-26 の点検2: 文を変えた元の AI の見出しは、見出しへ戻しても人の行
   blk.text = text;
 }
 // 分ける位置: 文の長さの中で、サロゲートペアの間でない（画面は書記素の境に寄せて送る: blockEdit.safeOffset）
@@ -587,6 +588,7 @@ const DEFS = {
         if (isCitable(patch.text)) delete b.citeSkip; else b.citeSkip = true;
         // 0.11.0 M-3（決めたこと 23）: 人が直した印の行（未確認・チェック・助言・メモより）は印を外す（citeState は manual のまま＝手書き）
         delete b.mark; delete b.unconfirmed;
+        delete b.aiHeading;   // 2026-10-26 の点検2: 文を変えた元の AI の見出しは、見出しへ戻しても人の行
         b.text = patch.text;
       }
       if (typeof patch.checked === 'boolean') b.checked = patch.checked;
@@ -717,7 +719,11 @@ const DEFS = {
       if (a.type === 'divider' && String(b.text || '') !== '') throw refuse('bad-args');
       const level = a.type === 'heading' ? (a.level || 2) : 0;
       if (b.type === a.type && (a.type !== 'heading' || blockEdit.headingLevel(b) === level)) return false;
+      // 2026-10-26 の持ち主の答え（点検2）: AI の見出しを別の型にしたら印 aiHeading を付け、文を変えずに見出しへ戻したら AI の見出しに戻す
+      // （orderForView の節と［コピー］の順が行って戻って同じ）。文を変えると印は消え（retext・block.update）、人の行のまま
+      if (b.type === 'heading' && b.citeState === undefined && a.type !== 'heading') b.aiHeading = true;
       if (b.citeState === undefined && !(b.type === 'heading' && a.type === 'heading')) b.citeState = 'manual';
+      if (a.type === 'heading' && b.aiHeading === true) { delete b.citeState; delete b.aiHeading; }
       b.type = a.type;
       if (level) b.level = level; else delete b.level;
       if (a.type === 'callout' && !b.icon) b.icon = blockEdit.CALLOUT_ICON;
