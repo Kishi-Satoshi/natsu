@@ -1266,3 +1266,25 @@ test('ED-8・点検4: AI の型だけの要約でも、行を消す・動かす�
     } finally { l.done(); }
   }
 });
+
+// 点検5（作り手が決めた。独立した点検の後）: 分けた前の文の終わりに空白があっても、Enter の1回は oplog の1行（blur が同じ文を送り直さない）
+test('ED-4・点検5: 空白の後ろで Enter（前の文が「来週の 」）→ 両方の行の blur の後も送るのは blockSplit の1回だけで oplog は1行。前の行は DB の文のまま', T, async () => {
+  for (const [text, at] of [['来週の 月曜に出す', 4], ['来週に出す ', 6], [' 来週に出す', 1]]) {
+    const l = await openReal({ pa1: BASE() });
+    try {
+      const n0 = l.db.prepare('select count(*) as c from oplog').get().c;
+      const t = typeIn(l, 'b1', text, at);
+      l.key({ key: 'Enter' }, t);
+      await l.drain();
+      const nb = l.page().blocks[2];
+      // 本物ではフォーカスが新しい行へ移ると前の行に blur が来る（偽 DOM は起こさないので受け口を呼ぶ）。新しい行からも離れる
+      txtOf(l, 'b1').onblur();
+      txtOf(l, nb.id).onblur();
+      await l.drain();
+      assert.deepStrictEqual(sent(l), [['blockSplit', 'pa1', 'b1', text, at]], text);
+      assert.strictEqual(l.db.prepare('select count(*) as c from oplog').get().c - n0, 1, `${text}: oplog`);
+      assert.strictEqual(l.page().blocks[1].text, text.slice(0, at), text);
+      assert.deepStrictEqual(l.errors.map(fmt), []);
+    } finally { l.done(); }
+  }
+});

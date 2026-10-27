@@ -3385,7 +3385,7 @@
     const top = at === 0 && text !== '';
     const was = b.text;
     if (!top) txt.textContent = text.slice(0, at);
-    b.text = top ? text : text.slice(0, at).trim();
+    b.text = top ? text : text.slice(0, at);   // 点検5: DB と同じく分けた前の文を削らない（削ると、答えの後の blur が削った文を送り直して oplog が2行になる）
     const out = await editAnswer(pid, () => window.koeApp.blockSplit(pid, b.id, text, at), (x) => ({ focus: top ? b.id : x.blockId, caret: 0 }));
     if (!out && el._b === b) { b.text = was; if (pid === curId) txt.textContent = text; }
     return out;
@@ -3444,6 +3444,7 @@
       const b = el._b;
       const v = txt.textContent.trim();
       if (v === b.text) return undefined;
+      if (txt.textContent === b.text) return undefined;   // 点検5: 画面の文が行の文と同じなら直していない（分けた前の文の終わりの空白を削って送り直さない）
       b.text = v;
       if (pid === curId && curPage) curPage.summaryEdited = true;   // 点検4: 要約の欄を直した印（DB も同じ命令で付ける）
       // 本文を変えたら出典との対応は古くなる。store も stale を付けるが、
