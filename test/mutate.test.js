@@ -547,6 +547,7 @@ const IDS_HELP_OVERVIEW = {
   'ho-overview-first': ['help/site.json', 'test/help-content.test.js'],
   'ho-featured-first': ['help/site.json', 'test/help-content.test.js'],
   'ho-explain-count': ['help/articles/start/overview.md', 'test/help-content.test.js'],
+  'ho-article-figure': ['help/articles/start/login.md', 'test/help-content.test.js'],
 };
 test('G3: help-overview の変異が一覧にそろい、IDS_HELP_OVERVIEW とちょうど同じ（当てるファイルと赤になるテストも同じ）。ho- の変異は IDS_HELP_OVERVIEW にある', { timeout: 5000 }, () => {
   const byId = new Map(MUTANTS.map((m) => [m.id, m]));

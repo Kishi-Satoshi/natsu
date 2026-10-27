@@ -46,7 +46,7 @@
       "name": "offline",
       "from": "test/shots/win32/live-offline-light.png",
       "fromSha256": "1nX1WE_iRLSk6bOINcW0UzhCSE7rDYlu_7mXk-PeaZI",
-      "crop": [310, 388, 760, 125]
+      "crop": [310, 388, 515, 125]
     },
     {
       "name": "login",

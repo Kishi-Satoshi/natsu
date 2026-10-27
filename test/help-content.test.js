@@ -548,3 +548,23 @@ test('HO-4: start/overview に、画面の地図と録音バー・1回の会議�
   for (const r of ['start/what-natsu-does', 'start/login', 'record/start-stop', 'record/pause', 'record/status-line', 'record/pc-only', 'start/claude-mcp']) assert.ok(t.includes(`](${r}.md`), `${r} へのリンクが無い`);
   assert.ok(!/［新しい議事録］ を押すと(?:録音|記録)が始ま/.test(t), '［新しい議事録］で録音が始まると読める（0.12.1 までの動き）');
 });
+
+// HO-5（HO1）: はじめに・会議を記録する の 7 本に画面の写真の図を足す（ほかの記事は、次にその記事を直すときに足す）
+test('HO-5（HO1）: はじめに・会議を記録する の 7 本に、その記事の画面の写真の図がある（図の下の番号の説明は HO3 のテスト）。直した記事の updated は 2026-10-27 以降', { timeout: 5000 }, () => {
+  const want = {
+    'start/what-natsu-does': ['shots/minutes.svg'],
+    'start/login': ['shots/login.svg'],
+    'start/claude-mcp': ['shots/mcp.svg'],
+    'record/start-stop': ['shots/ready.svg', 'shots/live.svg', 'shots/bar.svg'],
+    'record/pause': ['shots/bar-paused.svg'],
+    'record/status-line': ['shots/status.svg'],
+    'record/pc-only': ['shots/offline.svg'],
+  };
+  for (const [ref, srcs] of Object.entries(want)) {
+    const a = articles.find((x) => x.ref === ref);
+    assert.deepStrictEqual(figuresIn(a).map((f) => f.src), srcs, `${ref} の図`);
+    assert.ok(metaOf(a).updated >= '2026-10-27', `${ref}: updated を直していない`);
+  }
+  // 全体像の記事へのリンク（画面の全体はそちらで見る）
+  assert.ok(read(fileOf('start/what-natsu-does')).includes('](start/overview.md)'), 'start/what-natsu-does から全体像へのリンクが無い');
+});

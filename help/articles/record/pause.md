@@ -1,7 +1,7 @@
 ---
 title: 一時停止と再開
 description: 会議の途中で録音を止めて、また始める。Ctrl+Shift+P と、PC がスリープしたときの動き
-updated: 2026-10-21
+updated: 2026-10-27
 sources: CHANGELOG.md, README.md, src/renderer/app.html, src/renderer/overlay.html, src/main.js
 related: record/start-stop, record/status-line
 ---
@@ -17,6 +17,12 @@ related: record/start-stop, record/status-line
 
 一時停止の間は、タブの名前が「⏸ 一時停止中」になり、録音中のページに「一時停止中（録音していません）」と出ます。
 録音バーは、5つの点と経過時間が薄くなり、一時停止のボタンが再開の印（▶）に替わります。
+
+![一時停止中の録音バーの画面。薄くなった点と経過時間・再開のボタン・停止のボタンに 1 から 3 の番号が付いている](assets/shots/bar-paused.svg)
+
+1. 薄くなった5つの点と経過時間
+2. 再開のボタン（▶）
+3. 停止のボタン
 
 ## 再開する {#resume}
 

@@ -1,7 +1,7 @@
 ---
 title: Claude から議事録を読む（MCP）
 description: Claude デスクトップに NaTsu を登録すると、Claude に「10/20 の議事録を読んで」のように頼めるようになる。登録の仕方・送られるもの・つながらないとき
-updated: 2026-10-25
+updated: 2026-10-27
 sources: README.md, src/renderer/app.html, src/main.js, src/mcp-config.js, src/mcp/tools.js
 related: start/claude-code, record/pc-only, find/delete-and-backups
 ---
@@ -40,6 +40,12 @@ Claude は、頼みに関係のある箇所だけを、日付・題名・時刻�
 1. Claude デスクトップを終了します（タスクトレイのアイコンからも終了してください）。
 2. NaTsu の ［設定］→［要約］ の「Claude との連携（MCP）」で ［Claude デスクトップに登録］ を押します。
 3. Claude デスクトップを起動します。入力の欄の「＋」→ **Connectors**（コネクタ）に natsu が出ていれば使えます。
+
+![［設定］の「要約」の画面。左の列の［要約］・「Claude との連携（MCP）」の欄・［Claude デスクトップに登録］に 1 から 3 の番号が付いている](assets/shots/mcp.svg)
+
+1. 左の列の ［要約］
+2. 「Claude との連携（MCP）」の欄
+3. ［Claude デスクトップに登録］。左の「登録していません」は今の登録の状態で、登録すると変わります。
 
 Claude デスクトップが動いている間は、NaTsu は登録を変えません（終了してから押してください）。
 Claude デスクトップは、道具を使ってよいかを道具ごとに聞きます。確かめてから許してください。
