@@ -353,7 +353,8 @@ test('RDY-3（RD15）: 画面を読み直したとき main に録音の前のペ
 });
 
 // ---------------------------------------------------------------- RDY-3（撮る画面）
-test('RDY-3: 撮る画面 live-ready-light・live-ready-dark・live-ready-zoom200-light（録音の前のページ。［＋ 新しい議事録］を押す）があり、取り直し待ち', () => {
+// 0.13.0 で意図して変えた（版を 0.13.0 に上げる commit。Task G・RDY-7）: 持ち主が見比べを「この見た目でよい」と言ったので、3枚を基準にして取り直し待ちを空に戻した
+test('RDY-3・RDY-7: 撮る画面 live-ready-light・live-ready-dark・live-ready-zoom200-light（録音の前のページ。［＋ 新しい議事録］を押す）があり、基準がある（取り直し待ちではない）', () => {
   const SH = require('../tools/shots/screens.js');
   for (const [n, theme, zoom] of [['live-ready-light', 'light', undefined], ['live-ready-dark', 'dark', undefined], ['live-ready-zoom200-light', 'light', 2]]) {
     const s = SH.SCREENS.find((x) => x.name === n);
@@ -362,7 +363,8 @@ test('RDY-3: 撮る画面 live-ready-light・live-ready-dark・live-ready-zoom20
     const st = s.answers['koeApp.meetingStatus'];
     assert.deepStrictEqual([st.active, st.prep, st.cloud], [false, { memo: '', meetingType: null }, true], n);
     assert.match(s.act, /mtToggleBtn/);
-    assert.ok(SH.RETAKE.has(n), `${n} が取り直し待ちに無い`);
+    assert.ok(!SH.RETAKE.has(n), `${n} が取り直し待ちに残っている`);
+    assert.ok(fs.existsSync(path.join(__dirname, 'shots', 'win32', `${n}.png`)), `${n} の基準が無い`);
   }
 });
 

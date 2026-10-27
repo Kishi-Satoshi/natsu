@@ -381,16 +381,10 @@ const OVL_094 = (states) => PS.FORMS.flatMap((form) => Object.keys(PS.DESKS).fla
 // 0.12.1（版を 0.12.1 に上げる commit。LV-7）: 持ち主が 2026-10-25 に取り直しの見比べ（review-121.html。LV-4 で［設定］→［録音］のカード「会議の検出」に行
 // 「会議を出たら自動で止める」を足して変わった 10 枚）を見て「OK（版を 0.12.1 に上げてよい）」と言ったので、点検の直しの後の CI run 40207175980（ba3387f）の
 // artifact 12604106323 の .after.png をバイトのまま基準にし、空に戻した
-// 0.13.0（計画 docs/plans/2026-10-24-130.md の「取り直す画面（RETAKE）」）: RDY-3 で足した録音の前のページの3枚。持ち主が見比べを OK と言ったら、
-// 版を上げる commit（Task G）で基準にして空に戻す
-const RETAKE = new Set(['live-ready-light', 'live-ready-dark', 'live-ready-zoom200-light', 'edit-slash-light', 'edit-slash-dark', 'edit-slash-recent-light',
-  'edit-block-menu-light', 'edit-types-light', 'edit-types-dark', 'edit-types-zoom150-light',
-  // 2026-10-26 の持ち主の答え（問2「⠿ の左に並べる（Notion と同じ並び）」。計画の Ruling R36）: 行の左の ＋ を行の並びに入れたので、鍵の無い要約の行が
-  // 見える今の画面は要約の文が約 22px 右へずれる。版を上げる commit（Task G）で基準にする
-  'notes-page-light', 'notes-page-dark', 'notes-tabs-light', 'notes-collapsed-light', 'search-palette-light', 'page-menu-link-light', 'page-menu-link-dark',
-  'page-type-undecided-light', 'page-quality-light', 'page-quality-dark',
-  // CI run 40403886281 で見つけた: 拡大 200% は要約の欄が窓に入らないが、要約の行の折り返しが増えてページが伸び、捲り棒のつまみが短くなる（42 画素）
-  'notes-page-zoom200-light']);
+// 0.13.0（版を 0.13.0 に上げる commit。Task G・RDY-7）: 持ち主が 2026-10-27 に取り直しの見比べ（足した 10 枚: 録音の前のページの3枚・/ メニューの3枚・
+// ⠿ のメニューの1枚・新しい型の3枚に「この見た目でよい」、行の左の ＋ で要約の文がずれた今の画面の 11 枚に「この見た目でよい（おすすめ）」）と答えたので、
+// CI run 40466764263（20ceb94）の artifact 12717370368 の .after.png（21 枚）をバイトのまま基準にし、空に戻した
+const RETAKE = new Set([]);
 const PERF = [{ name: 'open-2000-blocks', budgetMs: 500 }];   // 3回開いた中央値で見る
 const TIME_ZONE = 'Asia/Tokyo';
 const TOLERANCE = 2;   // 色の差（0〜255）がこれ以下の画素は同じとみなす。CI の機械の CPU ごとの描き方の1段の差を拾わないため（揺れの確かめ judgePair は 0 で見る）
