@@ -7,8 +7,13 @@
 #   1. 候補のエンジンとモデルを落とし、大きさと SHA-256 を照らす（続きから取り直せる）
 #   2. あなたの会議の WAV（2〜3本）を、16kHz・モノラルの形と 75 秒ずつの区切りに直す（頭から 10 分。-MaxMinutes で変えられる）
 #   3. 同じ会議の NaTsu の文字起こし（クラウド）を、比べの元（参照）としてメモ帳で保存してもらう
-#   4. 候補ごとに文字起こしをして、時間・CPU・メモリ・ほかのアプリのもたつきの目安・文字誤り率（CER）を測る
+#   4. 候補ごとに文字起こしをして、時間・CPU・GPU・メモリ・ほかのアプリのもたつきの目安・文字誤り率（CER）を測る
 #   5. 数だけの表（summary.md・summary.csv）を作る。会議の文はどこにも入らない
+#
+# 2026-10-27 の答え（GPU から先に）で、測りを2段にした:
+#   段1（既定）: A0（今の形・CPU）と D・Dn（同じモデルを Iris Xe の GPU〔Vulkan〕で）だけを比べる
+#   段2（-Step 2）: 段1 で GPU が線に届かない・動かないときだけ、CPU の候補（A1・A6・A4・B・C）を同じ音声で測る
+# D が GPU を使えなかった回（Vulkan を読めない・初期化に失敗・途中で落ちた）は、表にそのまま書く。CPU に戻って出た数を GPU の数として扱わない。
 #
 # 置き場所: %LOCALAPPDATA%\natsu-bench\stt（C ドライブ直下には作れないため。OneDrive で同期される所も使わない）
 # 結果:     %LOCALAPPDATA%\natsu-bench\stt\results\summary.md（数だけ。そのまま貼って送れる）
@@ -16,8 +21,9 @@
 #
 # 実行方法（PowerShell。このファイルと同じフォルダに wavprep.js・cer.js・probe.js を置く）:
 #   powershell -ExecutionPolicy Bypass -File .\bench-stt.ps1
-#   -Only A0,C   … 測る候補をしぼる（A0 A1 A6 A4 B C G）
-#   -Extra       … 任意の候補 G（parakeet-tdt_ctc-0.6b-ja）も測る（約 0.66GB 多く落とす）
+#   -Step 2      … 段2（CPU の候補 A1 A6 A4 B C）を測る。既定は段1（A0 D Dn）
+#   -Only A0,C   … 測る候補をしぼる（A0 D Dn A1 A6 A4 B C G。段に関係なく、書いたものだけ）
+#   -Extra       … 段2 で任意の候補 G（parakeet-tdt_ctc-0.6b-ja）も測る（約 0.66GB 多く落とす）
 #   -MaxMinutes 10 … 音声の頭から何分を使うか（0 で全部）
 #   -CerOnly     … 測り直さず、参照を足し直した後の CER と表だけを作り直す
 #   -Clean       … 音声・参照・候補の文字起こしを消す（表の数は残す）
@@ -25,6 +31,7 @@
 # Windows PowerShell 5.1 / PowerShell 7 の両方で動作します。
 # =====================================================================
 param(
+    [int]$Step = 1,
     [string]$Only = "",
     [switch]$Extra,
     [int]$MaxMinutes = 10,
@@ -42,6 +49,7 @@ $Stt = Join-Path $Root "stt"
 $Dirs = @{
     dl      = Join-Path $Stt "dl"
     whisper = Join-Path $Stt "whisper"
+    whisperVk = Join-Path $Stt "whisper-vk"
     sherpa  = Join-Path $Stt "sherpa"
     models  = Join-Path $Stt "models"
     wav     = Join-Path $Stt "wav"
@@ -62,6 +70,14 @@ $Pins = @{
         Url = "https://github.com/ggml-org/whisper.cpp/releases/download/b5454/whisper-bin-x64.zip"
         File = "whisper-bin-x64-b5454.zip"; Size = [long]8928640
         Sha = "6ba69e3482d7826214f90a6a9c84ca07782aec1e1d0c6a7c30c994fd5d816ccb" }
+    # D・Dn の whisper.cpp（同じ v1.9.5 = commit d1be6fde を、Vulkan 付きで NaTsu の CI が作ったもの）。
+    # 上流には Windows の Vulkan 版が無いので、計画の「段1」の作り方（手で起こす CI）で作り、NaTsu の配布のリポジトリに
+    # 「先行版（prerelease）」として置く（latest にはしない。NaTsu の自動更新は latest と natsu-v の札しか読まない）。
+    # Size と Sha は、その CI が出した数を写す。0 と空のあいだは D・Dn を測らない（取得先がまだ無い）。
+    whisperVkZip = @{ Label = "whisper.cpp v1.9.5 の Vulkan 版（NaTsu の CI で作ったもの）"
+        Url = "https://github.com/Kishi-Satoshi/natsu/releases/download/stt-engine-whisper-vk-1.9.5-n1/whisper-vk-bin-x64-1.9.5-n1.zip"
+        File = "whisper-vk-bin-x64-1.9.5-n1.zip"; Size = [long]0
+        Sha = "" }
     turbo = @{ Label = "large-v3-turbo q5_0（今のモデル）"
         Url = "https://huggingface.co/ggerganov/whisper.cpp/resolve/5359861c739e955e79d9a303bcbc70fb988958b1/ggml-large-v3-turbo-q5_0.bin"
         File = "ggml-large-v3-turbo-q5_0.bin"; Size = [long]574041195
@@ -121,22 +137,39 @@ try {
 } catch { }
 
 # 候補。Files: all = 全部の音声 / first = 1本目だけ（スレッドと優先度の違いは速さと重さだけが変わるので、1本で足りる）
+# Step: 0 = どちらの段でも測る（A0 は比べの元。測り済みなら測り直さない）/ 1 = 段1（GPU）/ 2 = 段2（CPU の候補）
+# Gpu: 真なら、Vulkan 付きの whisper（whisper-vk）で動かし、GPU を本当に使ったかを記録から確かめる
 $Cands = @(
-    @{ Key = "A0"; Name = ("今の形（large-v3-turbo q5_0・スレッド " + $CurThreads + "・ふつうの優先度）"); Engine = "whisper"; Model = "turbo"; Threads = $CurThreads; Prio = "Normal"; Files = "all" },
-    @{ Key = "A1"; Name = ("今のモデル・スレッド " + $CurThreads + "・低い優先度"); Engine = "whisper"; Model = "turbo"; Threads = $CurThreads; Prio = "BelowNormal"; Files = "first" },
-    @{ Key = "A6"; Name = "今のモデル・スレッド 6・低い優先度"; Engine = "whisper"; Model = "turbo"; Threads = 6; Prio = "BelowNormal"; Files = "first" },
-    @{ Key = "A4"; Name = "今のモデル・スレッド 4・低い優先度"; Engine = "whisper"; Model = "turbo"; Threads = 4; Prio = "BelowNormal"; Files = "first" },
-    @{ Key = "B"; Name = "whisper small q8_0・スレッド 4・低い優先度"; Engine = "whisper"; Model = "small"; Threads = 4; Prio = "BelowNormal"; Files = "all" },
-    @{ Key = "C"; Name = "ReazonSpeech k2 v2（sherpa-onnx・int8）・スレッド 4・低い優先度"; Engine = "sherpa"; Model = "reazon"; Threads = 4; Prio = "BelowNormal"; Files = "all" },
-    @{ Key = "G"; Name = "parakeet-tdt_ctc-0.6b-ja（sherpa-onnx・int8）・スレッド 4・低い優先度（任意）"; Engine = "sherpa"; Model = "parakeet"; Threads = 4; Prio = "BelowNormal"; Files = "all"; Extra = $true }
+    @{ Key = "A0"; Name = ("今の形（large-v3-turbo q5_0・スレッド " + $CurThreads + "・ふつうの優先度）"); Engine = "whisper"; Model = "turbo"; Threads = $CurThreads; Prio = "Normal"; Files = "all"; Step = 0 },
+    @{ Key = "D"; Name = "今のモデルを Iris Xe の GPU（Vulkan）で・スレッド 4・低い優先度"; Engine = "whisper-vk"; Model = "turbo"; Threads = 4; Prio = "BelowNormal"; Files = "all"; Step = 1; Gpu = $true },
+    @{ Key = "Dn"; Name = "D と同じで、flash attention を切る（-nfa）"; Engine = "whisper-vk"; Model = "turbo"; Threads = 4; Prio = "BelowNormal"; Files = "first"; Step = 1; Gpu = $true; NoFa = $true },
+    @{ Key = "A1"; Name = ("今のモデル・スレッド " + $CurThreads + "・低い優先度"); Engine = "whisper"; Model = "turbo"; Threads = $CurThreads; Prio = "BelowNormal"; Files = "first"; Step = 2 },
+    @{ Key = "A6"; Name = "今のモデル・スレッド 6・低い優先度"; Engine = "whisper"; Model = "turbo"; Threads = 6; Prio = "BelowNormal"; Files = "first"; Step = 2 },
+    @{ Key = "A4"; Name = "今のモデル・スレッド 4・低い優先度"; Engine = "whisper"; Model = "turbo"; Threads = 4; Prio = "BelowNormal"; Files = "first"; Step = 2 },
+    @{ Key = "B"; Name = "whisper small q8_0・スレッド 4・低い優先度"; Engine = "whisper"; Model = "small"; Threads = 4; Prio = "BelowNormal"; Files = "all"; Step = 2 },
+    @{ Key = "C"; Name = "ReazonSpeech k2 v2（sherpa-onnx・int8）・スレッド 4・低い優先度"; Engine = "sherpa"; Model = "reazon"; Threads = 4; Prio = "BelowNormal"; Files = "all"; Step = 2 },
+    @{ Key = "G"; Name = "parakeet-tdt_ctc-0.6b-ja（sherpa-onnx・int8）・スレッド 4・低い優先度（任意）"; Engine = "sherpa"; Model = "parakeet"; Threads = 4; Prio = "BelowNormal"; Files = "all"; Step = 2; Extra = $true }
 )
+$AllKeys = @($Cands | ForEach-Object { $_.Key })
 $Cands = @($Cands | Where-Object { $Extra -or -not $_.Extra })
 # 今のスレッド数が 6 か 4 なら、A6・A4 は A1 と同じなので外す
 $Cands = @($Cands | Where-Object { -not (($_.Key -eq "A6" -or $_.Key -eq "A4") -and $_.Threads -eq $CurThreads) })
 if ($Only) {
     $want = @($Only.Split(",") | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+    $bad = @($want | Where-Object { $AllKeys -notcontains $_ })
     $Cands = @($Cands | Where-Object { $want -contains $_.Key })
-    if ($Cands.Count -eq 0) { Write-Host "-Only には A0・A1・A6・A4・B・C（-Extra のときは G も）を , で区切って書いてください。" -ForegroundColor Red; exit 2 }
+    if ($bad.Count -gt 0 -or $Cands.Count -eq 0) { Write-Host "-Only には A0・D・Dn・A1・A6・A4・B・C（-Extra のときは G も）を , で区切って書いてください。" -ForegroundColor Red; exit 2 }
+}
+else {
+    if ($Step -ne 1 -and $Step -ne 2) { Write-Host "-Step は 1（GPU）か 2（CPU の候補）です。" -ForegroundColor Red; exit 2 }
+    $Cands = @($Cands | Where-Object { $_.Step -eq 0 -or $_.Step -eq $Step })
+}
+# D・Dn の取得先（NaTsu の CI が作った zip）がまだ書かれていなければ、D・Dn は測らない
+$VkReady = ($Pins.whisperVkZip.Size -gt 0 -and $Pins.whisperVkZip.Sha.Length -eq 64)
+if (-not $VkReady -and @($Cands | Where-Object { $_.Gpu }).Count -gt 0) {
+    Write-Host "D・Dn（GPU）の取得先がまだこの道具に書かれていません（計画の段1の CI で作ってから、作り手が書き足します）。D・Dn は飛ばします。" -ForegroundColor Yellow
+    $Cands = @($Cands | Where-Object { -not $_.Gpu })
+    if (-not $Only -and $Step -eq 1) { Write-Host "段1 は D が無いと比べになりません。終わります。" -ForegroundColor Red; exit 2 }
 }
 
 # ---------------------------------------------------------------------
@@ -201,7 +234,7 @@ function Get-Pin {
     param([string]$Key)
     $p = $Pins[$Key]
     $out = Join-Path $Dirs.models $p.File
-    if ($Key -eq "whisperZip" -or $Key -eq "sherpaTar") { $out = Join-Path $Dirs.dl $p.File }
+    if ($Key -eq "whisperZip" -or $Key -eq "whisperVkZip" -or $Key -eq "sherpaTar") { $out = Join-Path $Dirs.dl $p.File }
     Get-Verified $p.Url $out $p.Size $p.Sha $p.Label
     return $out
 }
@@ -262,6 +295,29 @@ function Start-Probe {
 
 function Get-SysCpu {
     try { return [int](Get-CimInstance -ClassName Win32_PerfFormattedData_PerfOS_Processor -Filter "Name='_Total'").PercentProcessorTime } catch { return $null }
+}
+
+# この候補のプロセスの GPU の使用率（%）。Windows の GPU エンジンのカウンター（WMI）を読み、エンジンの種類（3D・Compute など）ごとに足して、
+# いちばん忙しい種類の数を取る。カウンターが読めない PC では $null（表は空になる）。名前は訳されない WMI のクラスなので、日本語の Windows でも同じ
+function Get-GpuPct {
+    param([int]$ProcId)
+    try {
+        $rows = @(Get-CimInstance -ClassName Win32_PerfFormattedData_GPUPerformanceCounters_GPUEngine -ErrorAction Stop | Where-Object { $_.Name -like ("pid_" + $ProcId + "_*") })
+        if ($rows.Count -eq 0) { return 0 }
+        $by = @{}
+        foreach ($r in $rows) {
+            $t = ($r.Name -replace '^.*engtype_', '')
+            if (-not $by.ContainsKey($t)) { $by[$t] = 0 }
+            $by[$t] += [int]$r.UtilizationPercentage
+        }
+        return [int](($by.Values | Measure-Object -Maximum).Maximum)
+    } catch { return $null }
+}
+
+# 記録に残す誤りの文から、パス（利用者名が入る）を外す
+function Hide-Paths {
+    param([string]$Text)
+    return ($Text -replace '[A-Za-z]:\\[^\s"]*', '<path>')
 }
 
 function Get-OnAc {
@@ -325,20 +381,27 @@ $need = @{}
 foreach ($c in $Cands) { $need[$c.Engine] = $true; $need[$c.Model] = $true }
 $Rel = @{}
 if (-not $CerOnly) {
-    if ($need["whisper"]) {
-        $zip = Get-Pin "whisperZip"
-        if (-not (Test-Path (Join-Path $Dirs.whisper "whisper-cli.exe"))) {
-            Write-Log "展開中: whisper.cpp"
-            $x = Join-Path $Dirs.tmp "whisper-x"
-            if (Test-Path $x) { Remove-Item -Recurse -Force $x }
-            Expand-Archive -Path $zip -DestinationPath $x -Force
-            $found = Get-ChildItem -Path $x -Recurse -Filter "whisper-cli.exe" | Select-Object -First 1
-            if (-not $found) { Write-Host "zip の中に whisper-cli.exe がありません。この画面を写して送ってください。" -ForegroundColor Red; exit 1 }
-            Get-ChildItem -Path $found.DirectoryName | Move-Item -Destination $Dirs.whisper -Force
-            Remove-Item -Recurse -Force $x
-        }
-        $Rel["vadGgml"] = Get-ModelRel "vadGgml"
+    # whisper.cpp の zip を開き、whisper-cli.exe のあるフォルダの中身を置く（CPU 版と Vulkan 版は別のフォルダ。混ぜると CPU 版も GPU を使ってしまう）
+    function Expand-Whisper {
+        param([string]$PinKey, [string]$Dest, [string]$Label)
+        $zip = Get-Pin $PinKey
+        if (Test-Path (Join-Path $Dest "whisper-cli.exe")) { return }
+        Write-Log ("展開中: " + $Label)
+        $x = Join-Path $Dirs.tmp "whisper-x"
+        if (Test-Path $x) { Remove-Item -Recurse -Force $x }
+        Expand-Archive -Path $zip -DestinationPath $x -Force
+        $found = Get-ChildItem -Path $x -Recurse -Filter "whisper-cli.exe" | Select-Object -First 1
+        if (-not $found) { Write-Host "zip の中に whisper-cli.exe がありません。この画面を写して送ってください。" -ForegroundColor Red; exit 1 }
+        if (-not (Test-Path $Dest)) { New-Item -ItemType Directory -Path $Dest | Out-Null }
+        Get-ChildItem -Path $found.DirectoryName | Move-Item -Destination $Dest -Force
+        Remove-Item -Recurse -Force $x
     }
+    if ($need["whisper"]) { Expand-Whisper "whisperZip" $Dirs.whisper "whisper.cpp（CPU 版）" }
+    if ($need["whisper-vk"]) {
+        Expand-Whisper "whisperVkZip" $Dirs.whisperVk "whisper.cpp（Vulkan 版）"
+        if (-not (Test-Path (Join-Path $Dirs.whisperVk "ggml-vulkan.dll"))) { Write-Host "Vulkan 版の zip に ggml-vulkan.dll がありません。この画面を写して送ってください。" -ForegroundColor Red; exit 1 }
+    }
+    if ($need["whisper"] -or $need["whisper-vk"]) { $Rel["vadGgml"] = Get-ModelRel "vadGgml" }
     if ($need["turbo"]) { $Rel["turbo"] = Get-ModelRel "turbo" }
     if ($need["small"]) { [void](Get-Pin "small"); $Rel["small"] = "..\models\" + $Pins.small.File }
     if ($need["sherpa"]) {
@@ -436,6 +499,16 @@ function Get-Cer {
     catch { Write-Host ("  CER: " + $_.Exception.Message) -ForegroundColor Yellow; return $null }
 }
 
+# A0（今の形）の文と比べたずれ（%）。D・Dn の GPU が CPU と違う文を出していないかの目安（参照が無くても出せる）
+function Get-VsA0 {
+    param([string]$Key, [string]$Label, [string]$RawFile)
+    if ($Key -eq "A0") { return $null }
+    $a0 = Join-Path $Dirs.raw ("A0-" + $Label + ".txt")
+    if (-not (Test-Path $a0) -or -not (Test-Path $RawFile)) { return $null }
+    try { return (((Invoke-NodeJs "cer.js" @($a0, $RawFile)) | ConvertFrom-Json).cer) }
+    catch { return $null }
+}
+
 # ---------------------------------------------------------------------
 # 4. 測り
 function Invoke-Candidate {
@@ -444,10 +517,14 @@ function Invoke-Candidate {
     $wavDir = Join-Path $Dirs.wav $Label
     $rawFile = Join-Path $Dirs.raw ($Cand.Key + "-" + $Label + ".txt")
     $t = [string]$Cand.Threads
-    if ($Cand.Engine -eq "whisper") {
-        $cwd = $Dirs.whisper; $exe = Join-Path $cwd "whisper-cli.exe"
-        # NaTsu の whisper-server と同じ解き方（-l ja・-sns・VAD・温度 0 から・best_of 2・ビーム探索なし）。区切りは NaTsu と同じ 75 秒
-        $a = @("-m", $Rel[$Cand.Model], "-t", $t, "-l", "ja", "-sns", "--vad", "-vm", $Rel["vadGgml"], "-bs", "1", "-bo", "2", "-otxt", "-np")
+    if ($Cand.Engine -eq "whisper" -or $Cand.Engine -eq "whisper-vk") {
+        $cwd = $Dirs.whisper
+        if ($Cand.Engine -eq "whisper-vk") { $cwd = $Dirs.whisperVk }
+        $exe = Join-Path $cwd "whisper-cli.exe"
+        # NaTsu の whisper-server と同じ解き方（-l ja・-sns・VAD・温度 0 から・best_of 2・ビーム探索なし・flash attention は既定の入）。区切りは NaTsu と同じ 75 秒
+        # -np（記録を出さない）は付けない: GPU を本当に使ったか（load_backend・whisper_backend_init_gpu の行）を記録から読むため。記録は tmp に置き、表には入れない
+        $a = @("-m", $Rel[$Cand.Model], "-t", $t, "-l", "ja", "-sns", "--vad", "-vm", $Rel["vadGgml"], "-bs", "1", "-bo", "2", "-otxt")
+        if ($Cand.NoFa) { $a += @("-nfa") }
         $chunks = @(Get-ChildItem -Path $wavDir -Filter "c*.wav" | Sort-Object Name)
         foreach ($ch in $chunks) { $a += @("-f", ("..\wav\" + $Label + "\" + $ch.Name)); Remove-Item ($ch.FullName + ".txt") -ErrorAction SilentlyContinue }
     }
@@ -478,7 +555,7 @@ function Invoke-Candidate {
     $null = $p.Handle   # 終わった後に終了コードを読むため（Windows PowerShell 5.1 の決まり）
     try { $p.PriorityClass = [System.Diagnostics.ProcessPriorityClass]$Cand.Prio } catch { Write-Host "  優先度を変えられませんでした" -ForegroundColor Yellow }
     $cpuPrev = [TimeSpan]::Zero; $tPrev = 0.0
-    $cpuPeak = 0.0; $wsPeak = [long]0; $sys = @(); $tick = 0
+    $cpuPeak = 0.0; $wsPeak = [long]0; $sys = @(); $gpuS = @(); $tick = 0
     while (-not $p.HasExited) {
         Start-Sleep -Milliseconds 1000
         $tick++
@@ -492,7 +569,10 @@ function Invoke-Candidate {
             $cpuPrev = $cpu; $tPrev = $now
             if ($p.PeakWorkingSet64 -gt $wsPeak) { $wsPeak = $p.PeakWorkingSet64 }
         } catch { }
-        if (($tick % 2) -eq 0) { $v = Get-SysCpu; if ($v -ne $null) { $sys += $v } }
+        if (($tick % 2) -eq 0) {
+            $v = Get-SysCpu; if ($v -ne $null) { $sys += $v }
+            $g = Get-GpuPct $p.Id; if ($g -ne $null) { $gpuS += $g }
+        }
         if (($tick % 60) -eq 0) { Write-Host ("  " + [math]::Round($sw.Elapsed.TotalMinutes) + " 分たちました…") -ForegroundColor DarkGray }
     }
     $p.WaitForExit()
@@ -507,8 +587,27 @@ function Invoke-Candidate {
     $pr = $null
     if (Test-Path $probeJson) { $pr = Get-Content -Path $probeJson -Raw -Encoding UTF8 | ConvertFrom-Json }
 
+    # GPU を本当に使ったか（D・Dn）。whisper.cpp の記録の行で見分ける。CPU に戻って出た数を GPU の数として扱わないため
+    $errText = ""
+    if (Test-Path $errF) { $errText = [string](Get-Content -Path $errF -Raw -Encoding UTF8) }
+    $gpuState = "CPU"; $gpuName = $null
+    if ($Cand.Gpu) {
+        # whisper.cpp は「using Vulkan0 backend」を出してから初期化し、失敗すると「failed to initialize Vulkan0 backend」を出して CPU で続ける。だから失敗の行を先に見る
+        if ($errText -match 'DeviceLost|getFenceStatus') { $gpuState = "GPU で落ちた" }
+        elseif ($errText -match 'failed to initialize Vulkan') { $gpuState = "CPU に戻った（GPU の初期化に失敗）" }
+        elseif ($errText -match 'whisper_backend_init_gpu: using Vulkan') {
+            $gpuState = "GPU"
+            if ($code -ne 0) { $gpuState = "GPU で落ちた" }
+        }
+        elseif ($errText -match 'load_backend: loaded Vulkan backend') { $gpuState = "CPU に戻った（GPU が見つからない）" }
+        else { $gpuState = "CPU に戻った（Vulkan を読めない）" }
+        $mm = [regex]::Match($errText, 'ggml_vulkan: 0 = ([^|(\r\n]+)')
+        if ($mm.Success) { $gpuName = $mm.Groups[1].Value.Trim() }
+        if ($gpuState -ne "GPU") { Write-Host ("  " + $Cand.Key + ": " + $gpuState + "。この回の数は GPU の数ではありません。") -ForegroundColor Yellow }
+    }
+
     # 候補の文字起こしは、この PC の中（raw）にだけ置く
-    if ($Cand.Engine -eq "whisper") {
+    if ($Cand.Engine -eq "whisper" -or $Cand.Engine -eq "whisper-vk") {
         $parts = @()
         foreach ($ch in @(Get-ChildItem -Path $wavDir -Filter "c*.wav" | Sort-Object Name)) {
             $tf = $ch.FullName + ".txt"
@@ -522,10 +621,14 @@ function Invoke-Candidate {
     if ($code -ne 0 -and (Test-Path $errF)) {
         # 誤りの終わりの数行だけを記録に残す（音声の文は stderr に出ない）
         $tail = @(Get-Content -Path $errF -Encoding UTF8 | Select-Object -Last 5)
-        Write-Log ("  終了コード " + $code + ": " + ($tail -join " / "))
+        Write-Log ("  終了コード " + $code + ": " + (Hide-Paths ($tail -join " / ")))
     }
 
+    Remove-Item $outF, $errF -ErrorAction SilentlyContinue   # whisper-cli の画面の出力（文が入る）は残さない
     $cer = Get-Cer $Label $rawFile
+    $vs = Get-VsA0 $Cand.Key $Label $rawFile
+    $gpuAvg = $null; $gpuPeak = $null
+    if ($gpuS.Count -gt 0) { $gpuAvg = [math]::Round((($gpuS | Measure-Object -Average).Average), 1); $gpuPeak = ($gpuS | Measure-Object -Maximum).Maximum }
     $sysAvg = $null; $sysPeak = $null
     if ($sys.Count -gt 0) { $sysAvg = [math]::Round((($sys | Measure-Object -Average).Average), 1); $sysPeak = ($sys | Measure-Object -Maximum).Maximum }
     $workX = $null
@@ -539,14 +642,16 @@ function Invoke-Candidate {
         sysCpuAvgPct = $sysAvg; sysCpuPeakPct = $sysPeak
         peakMemMB = [math]::Round($wsPeak / 1MB)
         lagP95IdleMs = $null; lagP95LoadMs = $null; lagMaxLoadMs = $null; workX = $workX
-        cer = $null; lenRatio = $null; refChars = $null; hypPeriods = $null
+        cer = $null; lenRatio = $null; refChars = $null; hypPeriods = $null; vsA0 = $vs
+        gpu = $gpuState; gpuName = $gpuName; gpuAvgPct = $gpuAvg; gpuPeakPct = $gpuPeak
         exit = $code; power = (Get-OnAc); threads = $Cand.Threads; prio = $Cand.Prio
         at = (Get-Date).ToString("yyyy-MM-dd HH:mm")
     }
     if ($pr) { $rec.lagP95IdleMs = $pr.idle.lag.p95; $rec.lagP95LoadMs = $pr.load.lag.p95; $rec.lagMaxLoadMs = $pr.load.lag.max }
     if ($cer) { $rec.cer = $cer.cer; $rec.lenRatio = $cer.lenRatio; $rec.refChars = $cer.refChars; $rec.hypPeriods = $cer.hypPeriods }
     Save-Run $rec (Join-Path $Dirs.runs ($Cand.Key + "-" + $Label + ".json"))
-    Write-Log ("  " + $Cand.Key + " " + $Label + ": 処理 " + $rec.wallSec + " 秒（RTF " + $rec.rtf + "）・CPU 平均 " + $rec.cpuAvgPct + "%・最大メモリ " + $rec.peakMemMB + " MB・CER " + $rec.cer)
+    Write-Log ("  " + $Cand.Key + " " + $Label + ": 処理 " + $rec.wallSec + " 秒（RTF " + $rec.rtf + "）・CPU 平均 " + $rec.cpuAvgPct + "%・GPU 平均 " + $rec.gpuAvgPct + "%（" + $rec.gpu + "）・最大メモリ " + $rec.peakMemMB + " MB・CER " + $rec.cer + "・A0 とのずれ " + $rec.vsA0)
+    return $rec
 }
 
 if (-not $CerOnly) {
@@ -563,7 +668,7 @@ if (-not $CerOnly) {
         $est = 0.0
         foreach ($x in $plan) {
             $r = 0.3
-            if ($x[0].Model -eq "turbo") { $r = 2.0 } elseif ($x[0].Model -eq "small") { $r = 0.6 }
+            if ($x[0].Gpu) { $r = 0.8 } elseif ($x[0].Model -eq "turbo") { $r = 2.0 } elseif ($x[0].Model -eq "small") { $r = 0.6 }
             $est += (Get-Meta $x[1]).sec * $r + 40
         }
         Write-Host ""
@@ -575,10 +680,17 @@ if (-not $CerOnly) {
             [void](Read-Host "NaTsu の文字起こしのエンジン（whisper-server）がまだ動いています。NaTsu を終了してから Enter")
         }
         if ((Get-OnAc) -eq "電池") { Write-Host "電池で動いています。電源につなぐと、数が安定します。" -ForegroundColor Yellow }
+        $gpuBroken = $false
         foreach ($x in $plan) {
             Write-Host ""
+            if ($x[0].Gpu -and $gpuBroken) {
+                # 一度 GPU を使えなかったら、残りの D・Dn は飛ばす（CPU に戻った D を何時間も回さない）。次に実行すると、もう一度試す
+                Write-Log ("--- " + $x[0].Key + " × " + $x[1] + " は飛ばします（前の回で GPU を使えませんでした） ---")
+                continue
+            }
             Write-Log ("--- " + $x[0].Key + "（" + $x[0].Name + "）× " + $x[1] + " ---")
-            Invoke-Candidate $x[0] $x[1]
+            $r = @(Invoke-Candidate $x[0] $x[1]) | Select-Object -Last 1
+            if ($x[0].Gpu -and $r -and $r.gpu -ne "GPU") { $gpuBroken = $true }
         }
     }
 }
@@ -588,10 +700,10 @@ else {
         $r = Read-Run $f.FullName
         if (-not $r) { continue }
         $cer = Get-Cer $r.file (Join-Path $Dirs.raw ($r.cand + "-" + $r.file + ".txt"))
-        if ($cer) {
-            $r.cer = $cer.cer; $r.lenRatio = $cer.lenRatio; $r.refChars = $cer.refChars; $r.hypPeriods = $cer.hypPeriods
-            Save-Run $r $f.FullName
-        }
+        if ($cer) { $r.cer = $cer.cer; $r.lenRatio = $cer.lenRatio; $r.refChars = $cer.refChars; $r.hypPeriods = $cer.hypPeriods }
+        $vs = Get-VsA0 $r.cand $r.file (Join-Path $Dirs.raw ($r.cand + "-" + $r.file + ".txt"))
+        if ($vs -ne $null) { $r | Add-Member -NotePropertyName vsA0 -NotePropertyValue $vs -Force }
+        if ($cer -or $vs -ne $null) { Save-Run $r $f.FullName }
     }
 }
 
@@ -599,7 +711,7 @@ else {
 # 5. 表（数だけ）
 $runs = @(Get-ChildItem -Path $Dirs.runs -Filter "*.json" -ErrorAction SilentlyContinue | ForEach-Object { Read-Run $_.FullName } | Where-Object { $_ })
 if ($runs.Count -eq 0) { Write-Host "測りの結果がまだありません。" -ForegroundColor Yellow; exit 0 }
-$order = @("A0", "A1", "A6", "A4", "B", "C", "G")
+$order = @("A0", "D", "Dn", "A1", "A6", "A4", "B", "C", "G")
 $runs = @($runs | Sort-Object @{ Expression = { [array]::IndexOf($order, $_.cand) } }, file)
 
 $rows = foreach ($r in $runs) {
@@ -608,7 +720,8 @@ $rows = foreach ($r in $runs) {
         "候補CPU平均%" = $r.cpuAvgPct; "候補CPU最大%" = $r.cpuPeakPct; "使ったコア数" = $r.coresAvg
         "PC全体CPU平均%" = $r.sysCpuAvgPct; "PC全体CPU最大%" = $r.sysCpuPeakPct; "最大メモリMB" = $r.peakMemMB
         "時計の遅れp95ms静か" = $r.lagP95IdleMs; "時計の遅れp95ms測り中" = $r.lagP95LoadMs; "時計の遅れ最大ms測り中" = $r.lagMaxLoadMs
-        "仕事の時間の倍率" = $r.workX; "CER%" = $r.cer; "長さの比" = $r.lenRatio; "句点の数" = $r.hypPeriods
+        "仕事の時間の倍率" = $r.workX; "CER%" = $r.cer; "A0とのずれ%" = $r.vsA0; "長さの比" = $r.lenRatio; "句点の数" = $r.hypPeriods
+        "GPU" = $r.gpu; "GPU平均%" = $r.gpuAvgPct; "GPU最大%" = $r.gpuPeakPct
         "スレッド" = $r.threads; "優先度" = $r.prio; "終了コード" = $r.exit; "電源" = $r.power
     }
 }
@@ -621,20 +734,33 @@ $ramGB = ""
 try { $ramGB = [math]::Round((Get-CimInstance -ClassName Win32_ComputerSystem).TotalPhysicalMemory / 1GB) } catch { }
 $osBuild = ""
 try { $osBuild = (Get-CimInstance -ClassName Win32_OperatingSystem).Version } catch { }
+# GPU の名前とドライバの版（会社の IT が入れたもの。ドライバが変わると GPU の数も変わりうるので、表に残す）
+$gpuInfo = ""
+try {
+    $vc = Get-CimInstance -ClassName Win32_VideoController | Where-Object { $_.Name -match 'Intel' } | Select-Object -First 1
+    if ($vc) {
+        $gpuInfo = $vc.Name + "・ドライバ " + $vc.DriverVersion
+        try { $gpuInfo += "（" + ([datetime]$vc.DriverDate).ToString("yyyy-MM-dd") + "）" } catch { }
+    }
+} catch { }
 
 $md = @()
 $md += "# 文字起こしの候補の比べ（数だけ）"
 $md += ""
 $md += ("- PC: " + $cpuName + "・論理コア " + $Logical + "・メモリ " + $ramGB + " GB・Windows " + $osBuild)
+$md += ("- GPU: " + $gpuInfo)
 $md += ("- 音声: " + (($Labels | ForEach-Object { $_ + " " + (Get-Meta $_).sec + " 秒" }) -join "・") + "（頭から " + $MaxMinutes + " 分まで）")
 $md += "- RTF = 処理の秒 ÷ 音声の秒（1 より小さければ録音に追いつく）。CPU% は PC 全体（論理コア全部）を 100 とした割合"
 $md += "- 時計の遅れ = ふつうの優先度の小さな見張りが 25 ミリ秒ごとに起きるときの遅れ。仕事の時間の倍率 = 同じ計算の時間（測り中 ÷ 静か）"
-$md += "- CER = 参照（同じ会議の NaTsu の文字起こし）と比べた文字誤り率。長さの比 = 候補 ÷ 参照"
+$md += "- CER = 参照（同じ会議の NaTsu の文字起こし）と比べた文字誤り率。長さの比 = 候補 ÷ 参照。A0とのずれ = 今の形（A0）の文と比べた文字の違い（GPU が CPU と違う文を出していないかの目安）"
+$md += "- GPU = その回で GPU を本当に使ったか（whisper.cpp の記録で見分けた）。「CPU に戻った」「GPU で落ちた」の回の数は GPU の数ではない"
+$bad = @($runs | Where-Object { $_.cand -eq "D" -or $_.cand -eq "Dn" } | Where-Object { $_.gpu -ne "GPU" })
+if ($bad.Count -gt 0) { $md += ("- **注意: D・Dn のうち " + $bad.Count + " 回は GPU を使えなかった**（" + (($bad | ForEach-Object { $_.cand + " " + $_.file + ": " + $_.gpu }) -join "・") + "）。その後の D・Dn は飛ばした") }
 $md += ""
 $md += "## 候補ごと（全部の音声を合わせて）"
 $md += ""
-$md += "| 候補 | 音声秒 | 処理秒 | RTF | CPU平均% | 最大メモリMB | 時計の遅れp95ms（静か→測り中） | 仕事の時間の倍率 | CER% |"
-$md += "| --- | ---: | ---: | ---: | ---: | ---: | --- | ---: | ---: |"
+$md += "| 候補 | 音声秒 | 処理秒 | RTF | CPU平均% | GPU平均% | GPU を使えた回 | 最大メモリMB | 時計の遅れp95ms（静か→測り中） | 仕事の時間の倍率 | CER% | A0とのずれ%（最大） |"
+$md += "| --- | ---: | ---: | ---: | ---: | ---: | --- | ---: | --- | ---: | ---: | ---: |"
 foreach ($k in $order) {
     $g = @($runs | Where-Object { $_.cand -eq $k })
     if ($g.Count -eq 0) { continue }
@@ -652,21 +778,27 @@ foreach ($k in $order) {
         foreach ($r in $withRef) { $e += $r.cer * $r.refChars; $n += $r.refChars }
         $cerTxt = [string][math]::Round($e / $n, 1)
     }
-    $md += ("| " + $k + " | " + $a + " | " + [math]::Round($w) + " | " + [math]::Round($w / [math]::Max(1, $a), 2) + " | " + [math]::Round($cpuW / [math]::Max(1, $w), 1) + " | " + $mem + " | " + $li + " → " + $ll + " | " + $wx + " | " + $cerTxt + " |")
+    $gw = 0.0; $gn = 0.0
+    foreach ($r in $g) { if ($r.gpuAvgPct -ne $null) { $gw += $r.gpuAvgPct * $r.wallSec; $gn += $r.wallSec } }
+    $gpuTxt = ""; if ($gn -gt 0) { $gpuTxt = [string][math]::Round($gw / $gn, 1) }
+    $okN = @($g | Where-Object { $_.gpu -eq "GPU" }).Count
+    $useTxt = "—"; if ($k -eq "D" -or $k -eq "Dn") { $useTxt = [string]$okN + "/" + $g.Count }
+    $vsMax = ($g | Where-Object { $_.vsA0 -ne $null } | Measure-Object -Property vsA0 -Maximum).Maximum
+    $md += ("| " + $k + " | " + $a + " | " + [math]::Round($w) + " | " + [math]::Round($w / [math]::Max(1, $a), 2) + " | " + [math]::Round($cpuW / [math]::Max(1, $w), 1) + " | " + $gpuTxt + " | " + $useTxt + " | " + $mem + " | " + $li + " → " + $ll + " | " + $wx + " | " + $cerTxt + " | " + $vsMax + " |")
 }
 $md += ""
 $md += "## 1回ずつ"
 $md += ""
-$md += "| 候補 | 音声 | 音声秒 | 処理秒 | RTF | 候補CPU 平均/最大% | 使ったコア数 | PC全体CPU 平均/最大% | 最大メモリMB | 時計の遅れp95ms 静か/測り中（最大） | 仕事の倍率 | CER% | 長さの比 | 句点 | スレッド・優先度 | 終了 | 電源 |"
-$md += "| --- | --- | ---: | ---: | ---: | --- | ---: | --- | ---: | --- | ---: | ---: | ---: | ---: | --- | ---: | --- |"
+$md += "| 候補 | 音声 | 音声秒 | 処理秒 | RTF | 候補CPU 平均/最大% | 使ったコア数 | PC全体CPU 平均/最大% | GPU 平均/最大% | GPU | 最大メモリMB | 時計の遅れp95ms 静か/測り中（最大） | 仕事の倍率 | CER% | A0とのずれ% | 長さの比 | 句点 | スレッド・優先度 | 終了 | 電源 |"
+$md += "| --- | --- | ---: | ---: | ---: | --- | ---: | --- | --- | --- | ---: | --- | ---: | ---: | ---: | ---: | ---: | --- | ---: | --- |"
 foreach ($r in $runs) {
-    $md += ("| " + $r.cand + " | " + $r.file + " | " + $r.audioSec + " | " + $r.wallSec + " | " + $r.rtf + " | " + $r.cpuAvgPct + "/" + $r.cpuPeakPct + " | " + $r.coresAvg + " | " + $r.sysCpuAvgPct + "/" + $r.sysCpuPeakPct + " | " + $r.peakMemMB + " | " + $r.lagP95IdleMs + "/" + $r.lagP95LoadMs + "（" + $r.lagMaxLoadMs + "） | " + $r.workX + " | " + $r.cer + " | " + $r.lenRatio + " | " + $r.hypPeriods + " | " + $r.threads + "・" + $r.prio + " | " + $r.exit + " | " + $r.power + " |")
+    $md += ("| " + $r.cand + " | " + $r.file + " | " + $r.audioSec + " | " + $r.wallSec + " | " + $r.rtf + " | " + $r.cpuAvgPct + "/" + $r.cpuPeakPct + " | " + $r.coresAvg + " | " + $r.sysCpuAvgPct + "/" + $r.sysCpuPeakPct + " | " + $r.gpuAvgPct + "/" + $r.gpuPeakPct + " | " + $r.gpu + " | " + $r.peakMemMB + " | " + $r.lagP95IdleMs + "/" + $r.lagP95LoadMs + "（" + $r.lagMaxLoadMs + "） | " + $r.workX + " | " + $r.cer + " | " + $r.vsA0 + " | " + $r.lenRatio + " | " + $r.hypPeriods + " | " + $r.threads + "・" + $r.prio + " | " + $r.exit + " | " + $r.power + " |")
 }
 $md += ""
 $md += "## 候補の中身（版の固定）"
 $md += ""
 foreach ($c in $Cands) { $md += ("- " + $c.Key + ": " + $c.Name) }
-$md += "- whisper.cpp b5454（v1.9.5）の whisper-cli。sherpa-onnx v1.13.8 の sherpa-onnx-vad-with-offline-asr（Silero VAD・20 秒まで）"
+$md += "- whisper.cpp b5454（v1.9.5）の whisper-cli。D・Dn は同じ v1.9.5 を Vulkan 付きで NaTsu の CI が作ったもの（" + $Pins.whisperVkZip.File + "）。sherpa-onnx v1.13.8 の sherpa-onnx-vad-with-offline-asr（Silero VAD・20 秒まで）"
 $mdFile = Join-Path $Dirs.results "summary.md"
 $md | Set-Content -Path $mdFile -Encoding UTF8
 
