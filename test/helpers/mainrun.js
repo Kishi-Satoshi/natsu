@@ -3002,6 +3002,8 @@ process.on('exit', () => {
       else if (k === 'live') { listeners['meeting:live-shown']({}, Boolean(a[0])); await sleep(15); }
       else if (k === 'cursor') cursorAt = { x: a[0], y: a[1] };
       else if (k === 'quit') { appEvents.emit('before-quit', { preventDefault() {} }); appEvents.emit('will-quit', {}); await sleep(30); }
+      // 0.13.0（RDY-4 の確かめが負荷の下で揺れた直し）: 議事録のページが n 件 DB に入るまで待つ（締めの書き込みは DB の側で後から終わる。stop の後すぐ読むと 0 件のことがある）
+      else if (k === 'wait-pages') await waitFor(() => store.listPages().length >= a[0], 15000);
       else if (k === 'wait-show') await waitFor(() => nudgeWins.length > 0 && nudgeWins[0].nudge.calls.filter((c) => c === 'showInactive').length >= a[0], 5000);
       else if (k === 'minimize') { wins[1].minimized = true; wins[1].emit('minimize'); await sleep(15); }
       else if (k === 'snap') {
