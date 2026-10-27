@@ -1,0 +1,264 @@
+# 文字起こしの比べ（docs/plans/2026-10-27-stt-bench.md の段1）のために、whisper.cpp を Vulkan（GPU）付きで作り、
+# このリポジトリのリリースに「先行版（prerelease）・latest にしない」で置く（持ち主の答え GQ1〜GQ3。2026-10-27）。
+#
+#  - 手で押すときだけ動く（Actions → whisper-vulkan → Run workflow）。push・pull_request・schedule では動かない。
+#  - アプリ・ci.yml・release.yml には触らない。NaTsu の自動更新は releases/latest と natsu-v<版> の札だけを読むので、
+#    ここで置く whisper-vulkan-<commit の頭7桁> の先行版は利用者の更新に混ざらない（最後に latest が変わっていないことも確かめる）。
+#  - 作り方は llama.cpp の Windows の Vulkan 版のリリース（windows-2025・Vulkan SDK 1.4.357.0）と、
+#    whisper.cpp v1.9.5 の Windows のリリースの旗（BUILD_SHARED_LIBS・GGML_BACKEND_DL・GGML_CPU_ALL_VARIANTS）を合わせたもの。
+#    違いは3つ: Vulkan SDK の入れ物を SHA-256 で照らしてから入れる・C/C++ の実行の部品を静的につなぐ
+#    （Visual C++ の再頒布の包みを入れなくても動くように。OpenMP の vcomp140.dll だけは静的にできないので zip に同梱する）・
+#    whisper.cpp の commit を照らす。
+#  - 作業機には GPU が無いので、煙テストは exe と DLL が読めること（--help）だけ。文字起こし（推論）は試さない。
+#    GPU で本当に動くかは、持ち主の PC で bench-stt.ps1 が確かめる。
+#  - 権限: 作る仕事は何も持たない。リリースに置く仕事（main のときだけ）だけが contents: write を持つ。
+#  - 他人の action は commit の SHA で固定する（右の注は、その SHA の版）。
+name: whisper-vulkan
+on:
+  workflow_dispatch:
+    inputs:
+      whisper_ref:
+        description: 'whisper.cpp のタグか commit（既定は NaTsu の今のピン v1.9.5）'
+        required: true
+        type: string
+        default: 'v1.9.5'
+      whisper_commit:
+        description: 'そのタグが指すはずの commit（40 桁）。違えば止める（既定は v1.9.5 = b5454 の commit）'
+        required: true
+        type: string
+        default: 'd1be6fde11ac6e0407606b4e42fe72d34add8037'
+permissions: {}
+concurrency:
+  group: whisper-vulkan
+  cancel-in-progress: false
+jobs:
+  build:
+    runs-on: windows-2025   # llama.cpp の Windows の Vulkan 版と同じ
+    timeout-minutes: 120
+    permissions: {}
+    env:
+      WHISPER_REF: ${{ inputs.whisper_ref }}
+      WHISPER_COMMIT: ${{ inputs.whisper_commit }}
+      WHISPER_REPO: https://github.com/ggml-org/whisper.cpp
+      VULKAN_VERSION: 1.4.357.0
+      VULKAN_SHA256: 81f474711e9042f4cd22b31b2f7a8870db2e428b21586fb43dd80150be97310d   # 287,971,024 バイト
+    outputs:
+      short: ${{ steps.check.outputs.short }}
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - name: 入力を確かめる
+        id: check
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $true
+          if ($env:WHISPER_REF -cnotmatch '^[A-Za-z0-9][A-Za-z0-9._/-]{0,99}$') { throw "whisper_ref の形が違います（英数字と . _ / - だけ。先頭は英数字）" }
+          if ($env:WHISPER_COMMIT -cnotmatch '^[0-9a-f]{40}$') { throw "whisper_commit は小文字の 40 桁の commit にしてください" }
+          $short = $env:WHISPER_COMMIT.Substring(0, 7)
+          Add-Content $env:GITHUB_OUTPUT "short=$short"
+          Add-Content $env:GITHUB_ENV "SHORT=$short"
+          Add-Content $env:GITHUB_ENV "ZIP=whisper-vulkan-bin-x64-$short.zip"
+
+      - name: whisper.cpp を取り、commit を照らす
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $true
+          git init -q src
+          git -C src remote add origin $env:WHISPER_REPO
+          git -C src fetch -q --depth 1 --no-tags origin $env:WHISPER_REF
+          git -C src checkout -q --detach FETCH_HEAD
+          $head = (git -C src rev-parse HEAD).Trim()
+          if ($head -cne $env:WHISPER_COMMIT) { throw "whisper.cpp の commit が違います（$($env:WHISPER_REF) は $head。求めたのは $($env:WHISPER_COMMIT)）" }
+          Write-Host "whisper.cpp $($env:WHISPER_REF) = $head"
+
+      - name: Vulkan SDK を落とし、SHA-256 を照らしてから入れる
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $true
+          $f = Join-Path $env:RUNNER_TEMP 'VulkanSDK-Installer.exe'
+          curl.exe -fsSL --retry 3 -o $f "https://sdk.lunarg.com/sdk/download/$($env:VULKAN_VERSION)/windows/vulkansdk-windows-X64-$($env:VULKAN_VERSION).exe"
+          $got = (Get-FileHash -Algorithm SHA256 $f).Hash.ToLowerInvariant()
+          if ($got -cne $env:VULKAN_SHA256) { throw "Vulkan SDK の SHA-256 が違います（$got）" }
+          $p = Start-Process -FilePath $f -ArgumentList '--accept-licenses', '--default-answer', '--confirm-command', 'install' -Wait -PassThru
+          if ($p.ExitCode -ne 0) { throw "Vulkan SDK を入れられませんでした（終了コード $($p.ExitCode)）" }
+          $sdk = "C:\VulkanSDK\$($env:VULKAN_VERSION)"
+          if (-not (Test-Path (Join-Path $sdk 'Bin\glslc.exe'))) { throw "Vulkan SDK の glslc.exe が見つかりません（$sdk）" }
+          Add-Content $env:GITHUB_ENV "VULKAN_SDK=$sdk"
+          Add-Content $env:GITHUB_PATH "$sdk\Bin"
+
+      - name: 作る（whisper.cpp の Windows のリリースの旗に GGML_VULKAN と静的な実行の部品を足す）
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $true
+          cmake -S src -B build -A x64 `
+            -DCMAKE_BUILD_TYPE=Release `
+            -DBUILD_SHARED_LIBS=ON `
+            -DGGML_NATIVE=OFF `
+            -DGGML_BACKEND_DL=ON `
+            -DGGML_CPU_ALL_VARIANTS=ON `
+            -DGGML_VULKAN=ON `
+            -DWHISPER_SDL2=OFF `
+            -DWHISPER_BUILD_TESTS=OFF `
+            -DCMAKE_POLICY_DEFAULT_CMP0091=NEW `
+            -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded
+          cmake --build build --config Release --parallel --target whisper-cli whisper-server
+
+      - name: 詰めるファイルを集め、読む DLL を照らす（再頒布の包みが要らないこと）
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $true
+          $bin = 'build\bin\Release'
+          $pkg = Join-Path $env:RUNNER_TEMP 'pkg'
+          New-Item -ItemType Directory -Force -Path $pkg | Out-Null
+          Copy-Item (Join-Path $bin 'whisper-cli.exe'), (Join-Path $bin 'whisper-server.exe') $pkg
+          Copy-Item (Join-Path $bin '*.dll') $pkg
+          # NaTsu の CPU 版（b5454 の zip）と同じ DLL ＋ ggml-vulkan.dll がそろっていること
+          $want = @('whisper.dll', 'ggml.dll', 'ggml-base.dll', 'ggml-vulkan.dll',
+            'ggml-cpu-alderlake.dll', 'ggml-cpu-cannonlake.dll', 'ggml-cpu-cascadelake.dll', 'ggml-cpu-haswell.dll', 'ggml-cpu-icelake.dll',
+            'ggml-cpu-sandybridge.dll', 'ggml-cpu-skylakex.dll', 'ggml-cpu-sse42.dll', 'ggml-cpu-x64.dll')
+          foreach ($w in $want) { if (-not (Test-Path (Join-Path $pkg $w))) { throw "$w ができていません" } }
+          # Visual Studio の dumpbin と再頒布の部品（vcomp140.dll）の置き場所
+          $vs = (& "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath).Trim()
+          $tools = (Get-Content (Join-Path $vs 'VC\Auxiliary\Build\Microsoft.VCToolsVersion.default.txt')).Trim()
+          $redistVer = (Get-Content (Join-Path $vs 'VC\Auxiliary\Build\Microsoft.VCRedistVersion.default.txt')).Trim()
+          $dumpbin = Join-Path $vs "VC\Tools\MSVC\$tools\bin\Hostx64\x64\dumpbin.exe"
+          $omp = Get-ChildItem (Join-Path $vs "VC\Redist\MSVC\$redistVer\x64") -Directory | Where-Object { $_.Name -cmatch '^Microsoft\.VC\d+\.OpenMP$' } | Select-Object -First 1
+          # 読む DLL をたどる。同梱のもの・Windows のもの・GPU のドライバの vulkan-1.dll のほかがあれば止める
+          $sys = Join-Path $env:SystemRoot 'System32'
+          $queue = [System.Collections.Generic.Queue[string]]::new()
+          Get-ChildItem $pkg -File | Where-Object { $_.Extension -in '.exe', '.dll' } | ForEach-Object { $queue.Enqueue($_.Name) }
+          $seen = @{}
+          $rows = @()
+          while ($queue.Count -gt 0) {
+            $name = $queue.Dequeue()
+            if ($seen.ContainsKey($name.ToLowerInvariant())) { continue }
+            $seen[$name.ToLowerInvariant()] = $true
+            $deps = & $dumpbin /nologo /dependents (Join-Path $pkg $name) | ForEach-Object { $_.Trim() } | Where-Object { $_ -match '^[\w.-]+\.dll$' }
+            foreach ($d in $deps) {
+              $k = $d.ToLowerInvariant()
+              $how = ''
+              if ($k -match '^(msvcp|vcruntime|concrt|ucrtbased)') { throw "$name が $d を読みます（実行の部品を静的につなげていません）" }
+              elseif (Test-Path (Join-Path $pkg $d)) { $how = '同梱'; $queue.Enqueue($d) }
+              elseif ($k -eq 'vcomp140.dll') {
+                if (-not $omp) { throw "vcomp140.dll の再頒布の部品が見つかりません" }
+                Copy-Item (Join-Path $omp.FullName 'vcomp140.dll') $pkg
+                $how = '同梱（Visual C++ の OpenMP。再頒布の部品から）'; $queue.Enqueue('vcomp140.dll')
+              }
+              elseif ($k -eq 'vulkan-1.dll') { $how = 'GPU のドライバのもの（同梱しない）' }
+              elseif ($k -like 'api-ms-win-*' -or $k -like 'ext-ms-*' -or (Test-Path (Join-Path $sys $d))) { $how = 'Windows のもの' }
+              else { throw "$name が読む $d が、同梱にも Windows にもありません" }
+              $rows += "| $name | $d | $how |"
+            }
+          }
+          if (-not (Test-Path (Join-Path $pkg 'vcomp140.dll'))) { Write-Host 'vcomp140.dll は読まれていないので同梱しない' }
+          Add-Content $env:GITHUB_STEP_SUMMARY "## 読む DLL（whisper-vulkan $($env:SHORT)）`n`n| ファイル | 読む DLL | どこから |`n| --- | --- | --- |"
+          Add-Content $env:GITHUB_STEP_SUMMARY ($rows -join "`n")
+          Add-Content $env:GITHUB_ENV "PKG=$pkg"
+
+      - name: 煙テスト（GPU の無い作業機で exe と DLL が読めることだけ。文字起こしは試さない）
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $false
+          Push-Location $env:PKG
+          # whisper-cli は --help を、DLL を読む前に返す（exe と whisper・ggml の DLL が読めることを見る）
+          $cli = (& .\whisper-cli.exe --help 2>&1 | ForEach-Object { "$_" }) -join "`n"
+          if ($LASTEXITCODE -ne 0 -or $cli -notmatch 'usage:') { throw "whisper-cli --help が動きません（終了コード $LASTEXITCODE）`n$cli" }
+          # whisper-server は --help の前に ggml-*.dll を全部読む（ggml_backend_load_all）。Vulkan はドライバが無いので飛ばされる
+          $srv = (& .\whisper-server.exe --help 2>&1 | ForEach-Object { "$_" }) -join "`n"
+          if ($LASTEXITCODE -ne 0 -or $srv -notmatch 'usage:') { throw "whisper-server --help が動きません（終了コード $LASTEXITCODE）`n$srv" }
+          Pop-Location
+          $loaded = ($srv -split "`r?`n") | Where-Object { $_ -match 'load_backend' } | ForEach-Object { '- `' + ($_ -replace '[A-Za-z]:\\[^ ]*\\', '') + '`' }
+          Add-Content $env:GITHUB_STEP_SUMMARY "`n## 煙テスト`n`nwhisper-cli --help と whisper-server --help が終了コード 0。作業機に GPU は無いので、文字起こし（推論）と Vulkan の初期化は試していない。whisper-server が読んだ土台:`n"
+          Add-Content $env:GITHUB_STEP_SUMMARY ($loaded -join "`n")
+
+      - name: 使用許諾の文と作りの記録を入れ、zip にして SHA-256 を出す
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $true
+          Copy-Item 'src\LICENSE' (Join-Path $env:PKG 'LICENSE-whisper.cpp.txt')
+          $notice = @(
+            'whisper.cpp と ggml: MIT（LICENSE-whisper.cpp.txt）。',
+            'exe に入っている部品: cpp-httplib（MIT。src の examples/server/httplib.h）・nlohmann/json（MIT。examples/json.hpp）・miniaudio（パブリック ドメインか MIT-0 を選べる。examples/miniaudio.h）。',
+            'vcomp140.dll（同梱しているとき）: Microsoft Visual C++ の OpenMP の実行の部品。Visual Studio の再頒布できる部品。',
+            'vulkan-1.dll は同梱しない（GPU のドライバのものを使う）。'
+          )
+          Set-Content -Path (Join-Path $env:PKG 'THIRD-PARTY-NOTICES.txt') -Value $notice -Encoding utf8
+          $info = @(
+            "whisper.cpp: $($env:WHISPER_REPO) $($env:WHISPER_REF) = $($env:WHISPER_COMMIT)",
+            "Vulkan SDK: $($env:VULKAN_VERSION)（SHA-256 $($env:VULKAN_SHA256)）",
+            'CMake: -A x64 -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=ON -DGGML_NATIVE=OFF -DGGML_BACKEND_DL=ON -DGGML_CPU_ALL_VARIANTS=ON -DGGML_VULKAN=ON -DWHISPER_SDL2=OFF -DWHISPER_BUILD_TESTS=OFF -DCMAKE_POLICY_DEFAULT_CMP0091=NEW -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded',
+            "作った所: $($env:GITHUB_SERVER_URL)/$($env:GITHUB_REPOSITORY)/actions/runs/$($env:GITHUB_RUN_ID)（$($env:ImageOS) $($env:ImageVersion)）"
+          )
+          Set-Content -Path (Join-Path $env:PKG 'BUILD-INFO.txt') -Value $info -Encoding utf8
+          $out = Join-Path $env:RUNNER_TEMP 'out'
+          New-Item -ItemType Directory -Force -Path $out | Out-Null
+          $zip = Join-Path $out $env:ZIP
+          Compress-Archive -Path (Join-Path $env:PKG '*') -DestinationPath $zip
+          $hash = (Get-FileHash -Algorithm SHA256 $zip).Hash.ToLowerInvariant()
+          $size = (Get-Item $zip).Length
+          [IO.File]::WriteAllText("$zip.sha256", "$hash  $($env:ZIP)`n")
+          $files = Get-ChildItem $env:PKG -File | Sort-Object Name | ForEach-Object { "| $($_.Name) | $($_.Length) | $((Get-FileHash -Algorithm SHA256 $_.FullName).Hash.ToLowerInvariant()) |" }
+          $notes = @(
+            "文字起こしの比べ（測り）用の whisper.cpp（Vulkan 版・Windows x64）。NaTsu の版ではありません。NaTsu の自動更新とインストーラーはこの資産を読みません。",
+            '',
+            "- zip: $($env:ZIP)（$size バイト）",
+            "- SHA-256: $hash",
+            "- whisper.cpp: $($env:WHISPER_REF) = $($env:WHISPER_COMMIT)",
+            "- Vulkan SDK: $($env:VULKAN_VERSION)",
+            '- C/C++ の実行の部品は静的につないだ（Visual C++ の再頒布の包みは要らない）。vulkan-1.dll は GPU のドライバのものを使う。',
+            '- 作業機に GPU が無いので、確かめたのは exe と DLL が読めること（--help）だけ。',
+            '',
+            '| ファイル | バイト | SHA-256 |',
+            '| --- | --- | --- |'
+          ) + $files
+          Set-Content -Path (Join-Path $out 'notes.md') -Value $notes -Encoding utf8
+          Add-Content $env:GITHUB_STEP_SUMMARY "`n## zip`n`n- $($env:ZIP)（$size バイト）`n- SHA-256: ``$hash```n`n| ファイル | バイト | SHA-256 |`n| --- | --- | --- |"
+          Add-Content $env:GITHUB_STEP_SUMMARY ($files -join "`n")
+          Add-Content $env:GITHUB_ENV "OUT=$out"
+
+      - name: 作ったものを次の仕事へ渡す
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: whisper-vulkan
+          path: ${{ env.OUT }}
+          if-no-files-found: error
+          retention-days: 14
+
+  publish:
+    needs: build
+    if: github.ref == 'refs/heads/main'   # 先行版は main の commit にだけ札を付ける
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write   # 先行版のリリースを作る・資産を置き換える（この仕事だけ）
+    env:
+      SHORT: ${{ needs.build.outputs.short }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: 作ったものを受け取る
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: whisper-vulkan
+          path: out
+
+      - name: 受け取った zip の SHA-256 を照らし直す
+        working-directory: out
+        run: |
+          set -euo pipefail
+          [[ "$SHORT" =~ ^[0-9a-f]{7}$ ]] || { echo "::error::commit の頭7桁の形が違う"; exit 1; }
+          ZIP="whisper-vulkan-bin-x64-${SHORT}.zip"
+          sha256sum -c "${ZIP}.sha256"
+          echo "ZIP=$ZIP" >> "$GITHUB_ENV"
+          echo "TAG=whisper-vulkan-$SHORT" >> "$GITHUB_ENV"
+
+      - name: 先行版（prerelease・latest にしない）として作るか、資産を置き換える
+        working-directory: out
+        run: |
+          set -euo pipefail
+          BEFORE="$(gh api "repos/$GITHUB_REPOSITORY/releases/latest" --jq .tag_name 2>/dev/null || true)"
+          TITLE="$TAG（文字起こしの測り用。NaTsu の版ではない）"
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$TAG" "$ZIP" "$ZIP.sha256" --repo "$GITHUB_REPOSITORY" --clobber
+            gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --prerelease --latest=false --title "$TITLE" --notes-file notes.md
+          else
+            gh release create "$TAG" "$ZIP" "$ZIP.sha256" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --prerelease --latest=false --title "$TITLE" --notes-file notes.md
+          fi
+          [ "$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json isPrerelease --jq .isPrerelease)" = "true" ] || { echo "::error::$TAG が先行版になっていない"; exit 1; }
+          AFTER="$(gh api "repos/$GITHUB_REPOSITORY/releases/latest" --jq .tag_name 2>/dev/null || true)"
+          [ "$AFTER" = "$BEFORE" ] || { echo "::error::latest が $BEFORE から $AFTER に変わった"; exit 1; }
+          URL="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/releases/download/$TAG/$ZIP"
+          { echo "## 置いた先行版"; echo; echo "- $URL"; echo "- SHA-256: \`$(cut -d' ' -f1 "$ZIP.sha256")\`"; echo "- latest は $BEFORE のまま"; } >> "$GITHUB_STEP_SUMMARY"
