@@ -2814,8 +2814,9 @@
   // 0.13.0 ED-8（EQ4 (a)・決めたこと 35・画面の文）: 人が直した行 = 人が足した・直した行（citeState が manual・stale）と、AI の4つの型でない行。
   // 0.11.0 の印の行（mark。manual だが AI が書いた）は人の行にしない
   const AI_TYPES = ['heading', 'bullet', 'todo', 'paragraph'];
+  // 0.13.1（決めたこと 33）: 子の行も見る（木を平らにしてから）
   function humanEdited(blocks) {
-    return (Array.isArray(blocks) ? blocks : []).some((b) => b && typeof b === 'object' && !b.mark
+    return flattenBlocks(blocks).some((b) => b && typeof b === 'object' && !b.mark
       && (b.citeState === 'manual' || b.citeState === 'stale' || !AI_TYPES.includes(b.type)));
   }
   const REGEN_ASK = '書き直した要約を作り直しますか？ 足した行や変えた型は元に戻ります。';
@@ -3124,11 +3125,13 @@
     }
     return out;
   }
-  function blocksMarkdown(blocks) {
+  // 0.13.1（決めたこと 22・NR20）: 子は段ごとに2つの空白で下げる（閉じたトグルの子も）。トグルは「- 」。番号は親ごと
+  function blocksMarkdown(blocks, depth = 0) {
     const list = Array.isArray(blocks) ? blocks.filter((b) => b && typeof b === 'object') : [];
     const nums = numberLabels(list);
-    const indent = (t) => String(t ?? '').replace(/\n/g, '\n  ');
-    return list.map((b) => {
+    const pad = '  '.repeat(depth);
+    const indent = (t) => String(t ?? '').replace(/\n/g, `\n${pad}  `);
+    const line = (b) => {
       const t = indent(b.text);
       if (b.type === 'heading') return `\n${'#'.repeat(headingLevel(b))} ${t}`;
       if (b.type === 'todo') return `- [${b.checked ? 'x' : ' '}] ${t}`;
@@ -3137,8 +3140,21 @@
       if (b.type === 'quote') return `> ${t}`;
       if (b.type === 'divider') return '---';
       if (b.type === 'callout') return `> ${CALLOUT_ICON} ${t}`;
+      if (b.type === 'toggle') return `- ${t}`;
       return t;
+    };
+    return list.map((b) => {
+      const own = pad ? line(b).replace(/^(\n?)/, `$1${pad}`) : line(b);
+      const kids = Array.isArray(b.children) && b.children.length ? blocksMarkdown(b.children, depth + 1) : '';
+      return kids ? `${own}\n${kids}` : own;
     }).join('\n');
+  }
+  // 0.13.1（決めたこと 23・F48）: 木を深さ優先（親の後に子）に平らにした同じ物の並び（src/blockTree.js の flattenBlocks の写し。テストが同じ表で照らす）
+  function flattenBlocks(blocks) {
+    const out = [];
+    const go = (list) => { for (const b of Array.isArray(list) ? list : []) { if (!b || typeof b !== 'object') continue; out.push(b); go(b.children); } };
+    go(blocks);
+    return out;
   }
   // 打ち合わせの質の写しの行（quality.qualityLines の写し。repo が照らす）。view は main の qualityView（照らした写し）だけ
   function qualityLinesView(view) {

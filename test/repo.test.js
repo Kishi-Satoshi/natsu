@@ -625,7 +625,8 @@ test('「すべて」の検索が要約の本文とメモに当たる', () => {
   // タイトルと最初の1行しか見ていなかったため、実機で
   // 「検索が全部壊れている」と報告された
   const st = read('src/store.js');
-  assert.match(read('src/pagerules.js'), /searchText: page\.blocks\.map/);   // 一覧のまとめ summarize は第2a1回 D-1 で pagerules.js へ切り出した
+  // 一覧のまとめ summarize は第2a1回 D-1 で pagerules.js へ切り出した。0.13.1 NE-3 で意図して変えた: 木を平らにした並び（blocks）の本文を見る（子の行も）
+  assert.match(read('src/pagerules.js'), /const blocks = flattenBlocks\(page\.blocks\);[\s\S]*searchText: blocks\.map/);
   const fn = st.slice(st.indexOf('function searchIndex'), st.indexOf('function searchFullText'));
   assert.ok(fn.includes('p.searchText'), '検索が本文を見ていない');
   assert.ok(fn.includes('snippet'), '当たった箇所を見せていない');

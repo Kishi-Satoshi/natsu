@@ -979,7 +979,8 @@ test('基準の画像（test/shots/win32）は今の app.html で撮ったもの
   // 2026-10-27 の持ち主の答え 点検8（「見えている上の行の後ろに足す（おすすめ）」。計画の Ruling R44）: 文のある行の頭の Enter で、画面で上に見えている行を afterId で送る（<script> の中だけ。撮る画面は変わらない）。値を今の app.html に合わせた（前の値は 8a74feb1…）
   // 2026-10-27 の持ち主の答え【時計のずれ】（「録音バーとページの両方を直す（おすすめ）」。計画の Task CLK-3・Ruling R48）: 録音中のページの時計を一時停止の間は止める（mtPausedAt。<script> の中だけ。撮る画面は時計を FIXED_NOW に止めているので変わらない）。値を今の app.html に合わせた（前の値は fe39dd83…）
   // 0.13.1 NE-1（NR5・NR21・EQ10 (a)）: 型の表の写し（SLASH_ROWS にトグルとトグル見出し1〜3・MD_ROWS に「> 」・近道の Ctrl+Shift+7 と Ctrl+Alt+T・TYPED_VIEW にトグル）。変わる画面は / メニューと ⠿ の［変換 ▸］の4枚（RETAKE_131）。値を今の app.html に合わせた（前の値は 4b2c72a2…）
-  assert.strictEqual(sha, 'f820e1d1c6e4f826c45bccf264493573d94a55960e0be098f39abe2e14e212d8',
+  // 0.13.1 NE-3（決めたこと 22・33）: ［コピー］の blocksMarkdown の写しが子を下げて写し、flattenBlocks の写しを足し、humanEdited が子も見る（<script> の中だけ。子の無い要約の見た目は変わらない）。値を今の app.html に合わせた（前の値は f820e1d1…）
+  assert.strictEqual(sha, 'b69d6b3bf6c317bff2702426230d8d3289cd49149a7d77de72a5369092d66023',
     'app.html が基準の画像を撮った時と違う。Windows の CI の画面の比べ（捲り棒のつまみも）を見て、基準を取り直してからこの値を直す');
 });
 

@@ -285,7 +285,7 @@ function actionView(db, { q, assignee } = {}, rows = listedRows(db)) {
     if (!withTodo.has(id)) continue;
     const page = readPage(db, id);
     if (!page) continue;
-    for (const b of page.blocks) {
+    for (const b of BT.flattenBlocks(page.blocks)) {   // 0.13.1（F48）: 子の ToDo も（閉じたトグルの中も。開け閉めは見た目だけ）
       if (b.type !== 'todo' || b.checked || !b.text) continue;
       const row = R.actionRow(page, b);
       total++;
@@ -372,7 +372,8 @@ function segmentUpdate(db, { pageId, segId, patch, recite = true }, ctx) {
   // 発言の直し・出典の付け直し・ページの保存を1つのトランザクションで（今の2回の保存の間の隙間を無くす: ST6）
   const ops = diffSegments(olds, segments, pageId);
   if (recite !== false) {
-    if (w.page.blocks.length) w.page.citeStat = refreshCitations(w.page.blocks, segments.filter((x) => !x.failed), segId);
+    // 0.13.1（F48）: 木を平らにした同じ物の並びを渡す（付け直した出典が子の行にも届く。cite.js は変えない）
+    if (w.page.blocks.length) w.page.citeStat = refreshCitations(BT.flattenBlocks(w.page.blocks), segments.filter((x) => !x.failed), segId);
     ops.push(...saveOps(w.was, w.page, ctx.now));
   }
   applyOps(db, ops);

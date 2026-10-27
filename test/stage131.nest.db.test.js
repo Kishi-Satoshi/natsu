@@ -12,6 +12,7 @@ const { tmpDb, samplePage } = require('./helpers/dbtmp');
 const core = require('../src/db/core');
 const { applyOps } = require('../src/db/ops');
 const BT = require('../src/blockTree');
+const { titleAt } = require('./helpers/titles');
 
 const NOW = () => new Date('2026-10-27T01:02:03.000Z');
 let n = 0;
@@ -461,4 +462,106 @@ test('NE-2: preload の APP_COMMANDS（21）は役 app の命令と同じ集ま�
   try {
     await assert.rejects(j.call('block.indent', { pageId: 'pa1', blockId: 'b2', dir: 'in' }), (e) => e.code === 'unknown-cmd');
   } finally { j.done(); }
+});
+
+// ---------------------------------------------------------------- NE-3: 読み手は木を平らにしてから（F48・決めたこと 22〜25・33・34）
+const R = require('../src/pagerules');
+const F = require('../src/mcp/format');
+const P = require('../src/mcp/passages');
+const M = require('../src/memoTypes');
+// 子の箇条書き（出典の付く文）と、閉じたトグルの中の ToDo
+const READ = () => [
+  { id: 'h1', type: 'heading', level: 2, text: '決定事項' },
+  { id: 'a', type: 'bullet', text: '来月の予算案の作成を担当Aが進める', cites: ['s2'], children: [
+    { id: 'c1', type: 'bullet', text: '見積書は月末までに先方へ送る予定', cites: [] },
+    { id: 'n1', type: 'numbered', text: '一つ目の手順', citeState: 'manual', children: [{ id: 'g1', type: 'bullet', text: '孫の行の文', citeState: 'manual' }] },
+    { id: 'n2', type: 'numbered', text: '二つ目の手順', citeState: 'manual' }] },
+  { id: 't', type: 'toggle', text: 'たたんだ話', citeState: 'manual', open: false, children: [
+    { id: 't1', type: 'todo', text: '閉じた中の ToDo を片付ける', checked: false, assignee: '担当B', citeState: 'manual' },
+    { id: 'th', type: 'heading', level: 2, toggle: true, text: '中の見出し', citeState: 'manual' }] },
+];
+
+test('NE-3・F48: 文字起こしを直した後（segment.update）、子の箇条書きにも出典が付き、出典の数の分母に入る', T, () => withDb((db) => {
+  const r = call(db, 'segment.update', { pageId: 'pa1', segId: 's3', patch: { text: '見積書は月末までに先方へ送る予定です' } });
+  assert.strictEqual(r.ok, true, r.code);
+  const c1 = find(r.result.page, 'c1').b;
+  assert.ok(Array.isArray(c1.cites) && c1.cites.includes('s3'), `子の箇条書きに出典が付かない: ${JSON.stringify(c1)}`);
+  assert.deepStrictEqual(r.result.page.citeStat, { ...r.result.page.citeStat, linked: 2, total: 2 });
+  assert.deepStrictEqual(R.citeStatOf(r.result.page.blocks), { linked: 2, total: 2 });
+}, READ()));
+
+test('NE-3・F48: 閉じたトグルの中の ToDo が actionView と MCP の list_action_items に出る', T, () => withDb((db, t) => {
+  const v = call(db, 'pages.actionView', {}).result;
+  assert.deepStrictEqual(v.actions.map((x) => x.blockId), ['t1']);
+  assert.strictEqual(v.total, 1);
+  assert.deepStrictEqual(v.people, [{ name: '担当B', count: 1 }]);
+  const tools = require('../src/mcp/tools');
+  const r = tools.callTool('list_action_items', {}, { sqlite: require('node:sqlite'), dataDir: t.dir, now: NOW });
+  assert.strictEqual(r.isError, false, r.text);
+  assert.ok(r.text.split('\n').some((l) => l.startsWith('- [ ] 閉じた中の ToDo を片付ける｜担当: 担当B')), r.text);
+}, READ()));
+
+test('NE-3: 子の箇条書きが search_passages の要約の箇所と expand_passage に出る（箇所は下げない: NR20）', () => {
+  const parts = P.chunkSummary(READ());
+  const lines = parts.flatMap((p) => p.lines);
+  for (const l of ['- 見積書は月末までに先方へ送る予定', '- 孫の行の文', '- たたんだ話']) assert.ok(lines.includes(l), `${l}\n${JSON.stringify(lines)}`);
+  assert.ok(lines.some((l) => l.startsWith('- [ ] 閉じた中の ToDo を片付ける')), JSON.stringify(lines));
+  assert.ok(!lines.some((l) => /^ /.test(l)), '箇所の行を下げた');
+  assert.deepStrictEqual(parts.map((p) => p.heading), ['決定事項'], '子の中の見出しが節を始めた');
+  assert.ok(parts[0].blocks.some((b) => b.id === 'g1'));
+});
+
+test('NE-3・決めたこと 22: get_meeting に子が2つの空白で下げて出る（閉じたトグルの子も・トグルは『- 』）。子の無い要約は 0.13.0 と1文字も同じ', () => {
+  const md = F.meetingMarkdown({ id: 'pa1', title: titleAt('2026-10-27T01:00:00.000Z'), blocks: READ() }, [], { header: false }).text;
+  const sum = md.slice(md.indexOf('## 要約'), md.indexOf('\n## ', md.indexOf('## 要約') + 3)).split('\n');
+  assert.deepStrictEqual(sum.slice(1), [
+    '### 決定事項',
+    '- 来月の予算案の作成を担当Aが進める（出典: [s2](' + sum[2].split('[s2](')[1],
+    '  - 見積書は月末までに先方へ送る予定',
+    '  1. 一つ目の手順',
+    '    - 孫の行の文',
+    '  2. 二つ目の手順',
+    '- たたんだ話',
+    sum[8],
+    '  ### 中の見出し',
+  ]);
+  assert.match(sum[8], /^ {2}- \[ \] 閉じた中の ToDo を片付ける（担当: 担当B／期限: 要確認）$/);
+  // 子の無い要約は前と同じ（children が空でも無くても）
+  const flat = samplePage('pa1').page.blocks;
+  const a = F.meetingMarkdown({ id: 'pa1', title: titleAt('2026-10-27T01:00:00.000Z'), blocks: flat }, [], { header: false }).text;
+  const b = F.meetingMarkdown({ id: 'pa1', title: titleAt('2026-10-27T01:00:00.000Z'), blocks: flat.map((x) => ({ ...x, children: [] })) }, [], { header: false }).text;
+  assert.strictEqual(a, b);
+});
+
+test('NE-3: 一覧のまとめの最初の要点・ToDo の数・『要約がある』・会議の頭の『出典: x/y』が子も数える', () => {
+  const kidsOnly = [{ id: 'p', type: 'paragraph', text: '前置き', children: [{ id: 'k', type: 'bullet', text: '子の要点です', cites: ['s1'] },
+    { id: 'kt', type: 'todo', text: '子の ToDo', checked: false, due: '2026-11-01', assignee: '担当C', citeState: 'manual' }, { id: 'kh', type: 'heading', toggle: true, text: '子の見出し' }] }];
+  const s = R.summarize({ id: 'p1', blocks: kidsOnly });
+  assert.deepStrictEqual([s.preview, s.actionCount, s.openActionCount, s.nextDue, s.assignees, s.hasSummary], ['子の要点です', 1, 1, '2026-11-01', ['担当C'], true]);
+  assert.ok(s.searchText.includes('子の要点です') && s.searchText.includes('子の ToDo'));
+  assert.deepStrictEqual(R.citeStatOf(kidsOnly), { linked: 1, total: 1 });
+  const head = F.meetingMarkdown({ id: 'pa1', title: titleAt('2026-10-27T01:00:00.000Z'), blocks: kidsOnly }, []).text;
+  assert.ok(head.includes('- 出典: 1/1'), head.slice(0, 400));
+  const short = [{ id: 'q', type: 'paragraph', text: '親', children: [{ id: 'qs', type: 'bullet', text: '短い' }] }];
+  R.markShortBlocks(short);
+  assert.strictEqual(short[0].children[0].citeSkip, true, '子の短い行に印が付かない');
+});
+
+test('NE-3・決めたこと 34: orderForView は最上位の行だけを並べ替え、子は親と一緒（memoTypes と画面の写しが同じ答え: repo）。子の中の見出しは節を始めない', () => {
+  const H = (id, text, o = {}) => ({ id, type: 'heading', text, ...o });
+  const tree = [H('t1', '前回の宿題の状況'), { id: 'x', type: 'bullet', text: 'x', children: [H('in', '決定事項', { toggle: true }), { id: 'xk', type: 'bullet', text: 'xk' }] },
+    H('c1', '決定事項'), { id: 'y', type: 'bullet', text: 'y', children: [{ id: 'yk', type: 'bullet', text: 'yk' }] }];
+  assert.deepStrictEqual(M.orderForView(tree), [2, 3, 0, 1], '子が親から離れた・子の中の見出しが節を始めた');
+  const view = M.orderForView(tree).map((i) => tree[i]);
+  assert.deepStrictEqual(BT.flattenBlocks(view).map((b) => b.id), ['c1', 'y', 'yk', 't1', 'x', 'in', 'xk']);
+  const html = fs.readFileSync(require.resolve('../src/renderer/app.html'), 'utf8');
+  const m = /\n {2}const VIEW_HEADS = (\{[\s\S]*?\n {2}\});/.exec(html);
+  const at = html.indexOf('  function orderForView(');
+  const app = new Function(`const VIEW_HEADS = ${m[1]};\n${html.slice(at, html.indexOf('\n  }\n', at) + 4)}\nreturn orderForView;`)();   // eslint-disable-line no-new-func
+  assert.deepStrictEqual(app(tree), M.orderForView(tree));
+});
+
+test('NE-3: cite.js の中身は前と同じ（sha256）', () => {
+  const sha = require('node:crypto').createHash('sha256').update(fs.readFileSync(require.resolve('../src/cite.js'))).digest('hex');
+  assert.strictEqual(sha, '356ad5939c88c9dc129ebfb9ef66cff2f6ebcecb549ee22947cfe7d68556e89e');
 });

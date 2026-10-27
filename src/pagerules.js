@@ -10,6 +10,8 @@
 
 const { isCitable, searchFold } = require('./cite');
 const { normalizeType } = require('./meetingType');
+// 0.13.1（計画 docs/plans/2026-10-27-131.md の決めたこと 23・F48）: ブロックは木。読む関数の中で平らにしてから読む（同じ物の並び: 付けた印が木に届く）
+const { flattenBlocks } = require('./blockTree');
 
 const isObj = (v) => Boolean(v) && typeof v === 'object' && !Array.isArray(v);
 
@@ -21,10 +23,11 @@ const SEARCH_TEXT_MAX = 20000;
 const MEMO_TEXT_MAX = 2000;
 
 function summarize(page) {
-  const todos = page.blocks.filter((b) => b.type === 'todo');
+  const blocks = flattenBlocks(page.blocks);   // 0.13.1: 子の ToDo・要点・見出しも数える（閉じたトグルの中も）
+  const todos = blocks.filter((b) => b.type === 'todo');
   const open = todos.filter((b) => !b.checked);
   // 0.11.0 M-3（決めたこと 24）: 印のある行（未確認・チェック・助言・メモより）は最初の要点にしない
-  const firstBullet = page.blocks.find((b) => b.type === 'bullet' && b.text && !b.mark);
+  const firstBullet = blocks.find((b) => b.type === 'bullet' && b.text && !b.mark);
   const dues = open.map((b) => b.due).filter(Boolean).sort();
   return {
     id: page.id,
@@ -34,7 +37,7 @@ function summarize(page) {
     createdAt: page.createdAt,
     updatedAt: page.updatedAt,
     meetingType: normalizeType(page.meetingType),   // 0.11.0 P-12（R4）: 選べる鍵のほか（前の版の general・まだ無い）は ''（決まらなかった）
-    hasSummary: page.blocks.some((b) => b.type === 'heading'),
+    hasSummary: blocks.some((b) => b.type === 'heading'),
     actionCount: todos.length,
     openActionCount: open.length,
     nextDue: dues[0] || '',
@@ -45,7 +48,7 @@ function summarize(page) {
     // いる」と報告された）。文字起こしは searchFullText が受け持つ。
     // メモは別のキーに持つ（#44）。要約に連結して切ると、長い会議ではメモが
     // 上限の外へ押し出され、メモには他の検索経路が無いので二度と探せない。
-    searchText: page.blocks.map((b) => b.text).filter(Boolean).join(' ').slice(0, SEARCH_TEXT_MAX),
+    searchText: blocks.map((b) => b.text).filter(Boolean).join(' ').slice(0, SEARCH_TEXT_MAX),
     memoText: String(page.memo || '').slice(0, MEMO_TEXT_MAX),
     recovered: Boolean(page.recovered),
   };
@@ -66,7 +69,7 @@ function listEntry(page) {
 // 「根拠なし」の札を出し、保存のたびに分母へ数えてしまう（「出典 1/1」が「1/2」になる）。
 // 読むたびに補うので、古いページも次の保存で正しい形になる。
 function markShortBlocks(blocks) {
-  for (const b of blocks) {
+  for (const b of flattenBlocks(blocks)) {   // 0.13.1: 子の行も
     if (b.type !== 'bullet' && b.type !== 'todo') continue;
     if (b.citeState === 'manual') continue;
     if (!b.citeSkip && !isCitable(b.text)) b.citeSkip = true;
@@ -82,7 +85,7 @@ function markShortBlocks(blocks) {
 function citeStatOf(blocks) {
   let total = 0;
   let linked = 0;
-  for (const b of blocks) {
+  for (const b of flattenBlocks(blocks)) {   // 0.13.1: 子の行も分母と分子に
     if (b.type !== 'bullet' && b.type !== 'todo') continue;
     if (b.citeSkip || b.citeState === 'manual' || !isCitable(b.text)) continue;
     total++;

@@ -3539,6 +3539,32 @@ process.on('exit', () => {
     out.resumEdit = await handlers['page:summarize']({}, id);
     out.editedAfter = (await appCall('page.get', { id })).page.summaryEdited;
   }
+  // 0.13.1 NE-3（計画 docs/plans/2026-10-27-131.md の F54・NR3・決めたこと 35）: 要約の後に画面の役で入れ子とトグルを作り（最後の行の下に子を足し、
+  // 子のあるトグルを足して閉じる）、main の小さな書き戻し（mainlib.saveIfExists。要約待ちの印を付けて外す）の後も子が残るかと、
+  // ［要約を再生成］で子もトグルも消え、summaryEdited も消えるかを見る（--nest-after-sum）。形は [id, [子…]] の木
+  if (flags.includes('--nest-after-sum') && store.listPages().length) {
+    const id = store.listPages()[0].id;
+    const shapeOf = (bs) => (Array.isArray(bs) ? bs : []).map((b) => (b.children && b.children.length ? [b.id, shapeOf(b.children)] : b.id));
+    const pg = (await appCall('page.get', { id })).page;
+    const last = pg.blocks.filter((b) => b.type !== 'heading' && b.type !== 'divider').pop().id;   // 子を持てる最後の行
+    const kidIns = await appCall('block.insert', { pageId: id, afterBlockId: '', type: 'bullet', parentId: last });
+    const tg = await appCall('block.insert', { pageId: id, afterBlockId: last, type: 'toggle' });
+    await appCall('block.insert', { pageId: id, afterBlockId: '', type: 'todo', parentId: tg.blockId });
+    await appCall('block.setOpen', { pageId: id, blockId: tg.blockId, open: false });
+    out.nest = { kid: kidIns.blockId, toggle: tg.blockId, last };
+    out.nest.before = shapeOf((await appCall('page.get', { id })).page.blocks);
+    const { saveIfExists } = require('../../src/mainlib');
+    await saveIfExists(dbClient, id, (p) => { p.summaryWait = true; p.summaryError = '要約待ち（見本）'; });
+    await saveIfExists(dbClient, id, (p) => { p.summaryWait = false; p.summaryError = ''; });
+    const mid = (await appCall('page.get', { id })).page;
+    out.nest.afterWait = shapeOf(mid.blocks);
+    out.nest.editedBefore = mid.summaryEdited;
+    out.nest.resum = await handlers['page:summarize']({}, id);
+    const after = (await appCall('page.get', { id })).page;
+    out.nest.afterResum = shapeOf(after.blocks);
+    out.nest.toggles = JSON.stringify(after.blocks).includes('"toggle"');
+    out.nest.editedAfter = after.summaryEdited;
+  }
   // 0.11.0 P-12（R4）: 前の版で手で一般・その他を選んだページにして（page.put で attrs を書く）、［要約を再生成］（--legacy-general）
   if (flags.includes('--legacy-general') && store.listPages().length) {
     const id = store.listPages()[0].id;
