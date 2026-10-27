@@ -104,8 +104,9 @@ function markdownToBlocks(md) {
       continue;
     }
     lastRow = null;
-    if ((m = line.match(/^#{1,4}\s+(.*)$/))) {
-      blocks.push({ id: store.newId('b'), type: 'heading', text: stripInlineMarkdown(m[1]), cites: [] });
+    if ((m = line.match(/^(#{1,4})\s+(.*)$/))) {
+      // 0.13.0 ED-3（計画 docs/plans/2026-10-24-130.md の決めたこと 5）: 見出しの段（# → 1・## → 2・### と #### → 3）
+      blocks.push({ id: store.newId('b'), type: 'heading', level: Math.min(m[1].length, 3), text: stripInlineMarkdown(m[2]), cites: [] });
     // 「]」「・」の直後に空白が無い書き方をモデルがよくする。
     // ここで拾い損ねるとその行は paragraph になり、出典リンクも
     // 担当・期限の抽出も対象外になって、静かに機能が欠ける。

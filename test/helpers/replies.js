@@ -51,6 +51,8 @@ module.exports = {
   segmentUpdate: { page: PAGE, segments: F.STANDUP_SEGMENTS },
   blockSetAction: { ok: true },
   copy: { ok: true }, toggleRecording: { ok: true }, meetingToggle: { ok: true }, meetingDiscard: { ok: true },
+  // 0.13.0 RDY-2: 録音の前のページを開く・閉じる・始めるだけ（main 側の契約: { ok }）
+  meetingPrepare: { ok: true }, meetingUnprepare: { ok: true }, meetingStart: { ok: true },
   // 作成中の文字起こしを打ち切って要約へ進む（main 側の契約: 戻り値は { ok }）
   meetingSkipPending: { ok: true },
   // 辞書のうち認識ヒント（whisper のプロンプト）に収まった語数（main 側の契約）

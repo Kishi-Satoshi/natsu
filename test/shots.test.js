@@ -159,6 +159,19 @@ const ADDED_120 = ['live-light', 'live-dark', 'live-banner-light', 'live-banner-
 // 取り直し待ちを空に戻した。LV-4: ［設定］→［録音］のカード「会議の検出」に行「会議を出たら自動で止める」を足して変わった、そのカードと［録音］の下を写す画面と検索の画面
 const ADDED_121 = ['settings-record-light', 'settings-record-dark', 'settings-record-zoom200-light', 'settings-detect-light', 'settings-detect-dark',
   'settings-search-light', 'settings-quiet-search-light', 'settings-info-loop-light', 'settings-info-stt-dark', 'settings-info-zoom200-light'];
+// 0.13.0（計画 docs/plans/2026-10-24-130.md の「取り直す画面（RETAKE）」）で意図して変えた: 取り直し待ちは 0.13.0 の表の画面だけ（RETAKE_130）。RDY-3 で
+// 録音の前のページの3枚（NEW_130。足した画面で、まだ基準が無い）を足した。ED-5 で / メニューの3枚を、ED-6 で ⠿ のメニューの1枚を、ED-7 で新しい型の3枚を足した
+const NEW_130 = ['live-ready-light', 'live-ready-dark', 'live-ready-zoom200-light', 'edit-slash-light', 'edit-slash-dark', 'edit-slash-recent-light', 'edit-block-menu-light',
+  'edit-types-light', 'edit-types-dark', 'edit-types-zoom150-light'];
+// 2026-10-26 の持ち主の答え（問2「⠿ の左に並べる（Notion と同じ並び）」。計画の Ruling R36）で意図して変えた: 鍵の無い要約の行が見える今の画面は、
+// 行の左の ＋ が行の並びに入って要約の文が約 22px 右へずれるので取り直す（RETAKEN_130。今の基準がある）
+const RETAKEN_130 = ['notes-page-light', 'notes-page-dark', 'notes-tabs-light', 'notes-collapsed-light', 'search-palette-light', 'page-menu-link-light', 'page-menu-link-dark',
+  'page-type-undecided-light', 'page-quality-light', 'page-quality-dark',
+  'notes-page-zoom200-light'];   // CI run 40403886281: 窓に入らない要約の行の折り返しが増え、捲り棒のつまみが短くなる
+// 0.13.0 で意図して変えた（版を 0.13.0 に上げる commit。Task G・RDY-7）: 0.13.0 で足した画面と取り直した画面（ADDED_130。前の RETAKE_130）。持ち主が 2026-10-27 に
+// 見比べを「この見た目でよい」（足した 10 枚）・「この見た目でよい（おすすめ）」（取り直した 11 枚）と言ったので、CI run 40466764263（20ceb94）・
+// artifact 12717370368 の .after.png（21 枚）をバイトのまま基準にし、取り直し待ちを空に戻した
+const ADDED_130 = [...NEW_130, ...RETAKEN_130];
 const img = (w, h, fill = [255, 255, 255, 255]) => ({ width: w, height: h, data: Buffer.from(Array.from({ length: w * h }, () => fill).flat()) });
 // 一時フォルダ（日本語と 𠮷 の名前。RF1 と同じ形）。テストの終わりに消す
 const tmp = (t, name) => {
@@ -198,7 +211,9 @@ test('G2: 撮る画面は決まった並び（第1b回の 13 と第1b2回の検�
     // 0.11.0 V-1 で意図して変えた: 会議の種類の画面4枚を足した（取り直し待ち・まだ基準が無い）。V-2 で打ち合わせの質のカードの明暗2枚を、V-3 で設定のカード「打ち合わせの質」の1枚を足した
     ...NEW_110,
     // 0.12.0 SP-4 で意図して変えた: 文字起こしのタブの「自分」「相手」の札・重なり・文ごとの行の1枚を足した（版を 0.12.0 に上げる commit で基準にした）
-    ...NEW_120]);
+    ...NEW_120,
+    // 0.13.0 RDY-3 で意図して変えた: 録音の前のページの明暗と 200% の3枚を足した。ED-5 で / メニューの明暗と「最近使ったもの」の3枚を、ED-6 で ⠿ のメニューの1枚を、ED-7 で新しい型の明暗と 150% の3枚を足した（版を 0.13.0 に上げる commit で基準にした）
+    ...NEW_130]);
   assert.deepStrictEqual(SH.SCREENS.filter((s) => s.page === 'overlay').map((s) => s.name), PS.screenNames());
   // 0.9.3 M-7 で意図して変えた: 会議の検出のパネル（page nudge）の5枚を録音バーのあと（いちばん後ろ）に足した
   assert.deepStrictEqual(SH.SCREENS.filter((s) => s.page === 'nudge').map((s) => s.name), M7_NUDGE_093);
@@ -207,7 +222,8 @@ test('G2: 撮る画面は決まった並び（第1b回の 13 と第1b2回の検�
   assert.strictEqual(new Set(SH.SCREENS.map((s) => s.name)).size, SH.SCREENS.length, '名前が重なっている');
   for (const s of SH.SCREENS) assert.ok(['app', 'overlay', 'nudge'].includes(s.page) && ['light', 'dark'].includes(s.theme), s.name);
   assert.deepStrictEqual(SH.SCREENS.filter((s) => s.zoom).map((s) => [s.name, s.zoom]), [['notes-page-zoom200-light', 2], ['settings-zoom200-dark', 2], ['live-banner-zoom200-dark', 2],
-    ['settings-record-zoom200-light', 2], ['settings-info-zoom200-light', 2], ['live-late-zoom200-light', 2]]);   // 0.9.2 I-4・0.9.4 S-8 で意図して足した
+    ['settings-record-zoom200-light', 2], ['settings-info-zoom200-light', 2], ['live-late-zoom200-light', 2], ['live-ready-zoom200-light', 2],
+    ['edit-types-zoom150-light', 1.5]]);   // 0.9.2 I-4・0.9.4 S-8・0.13.0 RDY-3・ED-7 で意図して足した
   const live = SH.SCREENS.find((s) => s.name === 'live-light');
   const st = live.answers['koeApp.meetingStatus'];
   assert.ok(st.active && st.cloud && st.pauses.length === 1, '記録中の画面に一時停止の印か［PC の中だけ］が出ない');
@@ -425,8 +441,9 @@ test('G2・F14・RP9・G-3: 第1a回の録音バーの画面と基準は無い�
 // 0.11.1 で意図して変えた: 持ち主がロゴの見比べ（139 枚）を「OK」と言ったので取り直し待ちを空にし、版を 0.11.1 にした。次の版も、取り直し待ちが残る間は 0.11.1 のまま
 // 0.12.0 で意図して変えた: 持ち主が取り直しの見比べ（14 枚）を「OK」と言ったので取り直し待ちを空にし、版を 0.12.0 にした。次の版も、取り直し待ちが残る間は 0.12.0 のまま
 // 0.12.1 で意図して変えた: 持ち主が取り直しの見比べ（10 枚）を「OK」と言ったので取り直し待ちを空にし、版を 0.12.1 にした。次の版も、取り直し待ちが残る間は 0.12.1 のまま
+// 0.13.0 で意図して変えた: 持ち主が取り直しの見比べ（21 枚）を「この見た目でよい」と言ったので取り直し待ちを空にし、版を 0.13.0 にした。次の版も、取り直し待ちが残る間は 0.13.0 のまま
 test('F14: 取り直し待ちが残っている間は、版を上げられない（取り直し待ちのまま次の版を出さない）', { timeout: 5000 }, () => {
-  if (SH.RETAKE.size) assert.strictEqual(JSON.parse(read('package.json')).version, '0.12.1', `取り直し待ち ${[...SH.RETAKE].join(',')} を残したまま版を上げた`);
+  if (SH.RETAKE.size) assert.strictEqual(JSON.parse(read('package.json')).version, '0.13.0', `取り直し待ち ${[...SH.RETAKE].join(',')} を残したまま版を上げた`);
 });
 
 test('tools/shots/main.js は画面ごとの答え・拡大・はみ出し・Tab を使う', { timeout: 5000 }, () => {
@@ -667,14 +684,20 @@ test('U-3・G-3: settings-offline-light は基準の PNG と比べる（取り�
 // 0.10.0 で意図して変えた（版を 0.10.0 に上げる commit）: 取り直し待ちを空に戻した（ファイルの頭の注）。0.10.0 の表の画面（ADDED_100）はどれも計画の表にあり、基準がある
 // 0.10.1 で意図して変えた（版を 0.10.1 に上げる commit）: 取り直し待ちを空に戻した（ファイルの頭の注）。0.10.1 の表の画面（ADDED_101）はどれも計画の表にあり、基準がある
 // 0.11.0 で意図して変えた（版を 0.11.0 に上げる commit）: 取り直し待ちを空に戻した（ファイルの頭の注）。0.11.0 の表の画面（ADDED_110）はどれも計画の表にあり、基準がある
-test('G2・F14・G-4・0.9.0 G-3・0.9.1・0.9.2・0.9.3・0.9.4・0.10.0・0.10.1・0.11.0・0.11.1・0.12.0・0.12.1: 取り直し待ちは無い（0.11.1 のロゴの差し替えの 139 枚と 0.12.0 の 14 枚と 0.12.1 の 10 枚は基準にした）。どの画面にも基準の PNG があり（0.9.1・0.9.2・0.9.3・0.9.4・0.10.0・0.10.1・0.11.0・0.12.0 で足した画面も）、本体の画面の大きさは窓の大きさと同じ', { timeout: 5000 }, () => {
+test('G2・F14・G-4・0.9.0 G-3・0.9.1・0.9.2・0.9.3・0.9.4・0.10.0・0.10.1・0.11.0・0.11.1・0.12.0・0.12.1・0.13.0: 取り直し待ちは無い（0.11.1 のロゴの差し替えの 139 枚と 0.12.0 の 14 枚と 0.12.1 の 10 枚と 0.13.0 の 21 枚は基準にした）。どの画面にも基準の PNG があり（0.9.1・0.9.2・0.9.3・0.9.4・0.10.0・0.10.1・0.11.0・0.12.0・0.13.0 で足した画面も）、本体の画面の大きさは窓の大きさと同じ', { timeout: 5000 }, () => {
   // 0.11.1 LG-2 で意図して変えた: 取り直し待ちは 0.11.1 の表の画面（ファイルの頭の ADDED_LOGO）とちょうど同じで、どれも計画の「取り直す画面（RETAKE）」の表にある
   // 0.11.1 で意図して変えた（版を 0.11.1 に上げる commit。LG-8）: 取り直し待ちを空に戻した（ファイルの頭の注）。0.11.1 の表の画面（ADDED_LOGO）はどれも計画の表にあり、基準がある
   // 0.12.0 SP-4 で意図して変えた: 取り直し待ちは 0.12.0 の表の画面（ファイルの頭の RETAKE_120）とちょうど同じで、どれも計画の「取り直す画面（RETAKE）」の表にある
   // 0.12.0 で意図して変えた（版を 0.12.0 に上げる commit。Task G）: 取り直し待ちを空に戻した（ファイルの頭の注）。0.12.0 の表の画面（ADDED_120）はどれも計画の表にあり、基準がある
   // 0.12.1 LV-4 で意図して変えた: 取り直し待ちは 0.12.1 の表の画面（ファイルの頭の RETAKE_121）とちょうど同じで、どれも計画の「取り直す画面（RETAKE）」の表にある
   // 0.12.1 で意図して変えた（版を 0.12.1 に上げる commit。LV-7）: 取り直し待ちを空に戻した（ファイルの頭の注）。0.12.1 の表の画面（ADDED_121）はどれも計画の表にあり、基準がある
+  // 0.13.0 RDY-3 で意図して変えた: 取り直し待ちは 0.13.0 の表の画面（ファイルの頭の RETAKE_130）とちょうど同じで、どれも計画の「取り直す画面（RETAKE）」の表にある。
+  // 足した画面（NEW_130）はまだ基準が無い
+  // 0.13.0 で意図して変えた（版を 0.13.0 に上げる commit。Task G・RDY-7）: 取り直し待ちを空に戻した（ファイルの頭の注）。0.13.0 の表の画面（ADDED_130）はどれも計画の表にあり、基準がある
   assert.deepStrictEqual([...SH.RETAKE], []);
+  const plan130 = read('docs/plans/2026-10-24-130.md');
+  const table130 = plan130.slice(plan130.indexOf('## 取り直す画面（RETAKE）'), plan130.indexOf('\n## ', plan130.indexOf('## 取り直す画面（RETAKE）') + 5));
+  for (const n of ADDED_130) assert.ok(table130.includes(`\`${n}\``), `0.13.0 の計画の「取り直す画面」の表に ${n} が無い`);
   const plan121 = read('docs/plans/2026-10-24-121.md');
   const table121 = plan121.slice(plan121.indexOf('## 取り直す画面（RETAKE'), plan121.indexOf('\n## ', plan121.indexOf('## 取り直す画面（RETAKE') + 5));
   for (const n of ADDED_121) assert.ok(table121.includes(`\`${n}\``), `0.12.1 の計画の「取り直す画面」の表に ${n} が無い`);
@@ -700,7 +723,7 @@ test('G2・F14・G-4・0.9.0 G-3・0.9.1・0.9.2・0.9.3・0.9.4・0.10.0・0.10
   const table093 = plan093.slice(plan093.indexOf('## 取り直す画面（RETAKE）'), plan093.indexOf('## 実機で利用者に見てもらうこと'));
   for (const n of ADDED_093) assert.ok(table093.includes(`\`${n}\``), `0.9.3 の計画の「取り直す画面」の表に ${n} が無い`);
   assert.ok(!SH.RETAKE.has('overlay-processing'), '外した録音バーの画面を取り直し待ちに入れた');
-  for (const n of [...ADDED_091, ...ADDED_092, ...ADDED_093, ...new Set(ADDED_094), ...new Set(ADDED_100), ...ADDED_101, ...ADDED_110, ...ADDED_LOGO, ...ADDED_120, ...ADDED_121]) {
+  for (const n of [...ADDED_091, ...ADDED_092, ...ADDED_093, ...new Set(ADDED_094), ...new Set(ADDED_100), ...ADDED_101, ...ADDED_110, ...ADDED_LOGO, ...ADDED_120, ...ADDED_121, ...ADDED_130]) {
     assert.ok(SH.SCREENS.some((s) => s.name === n), `${n} が撮る画面に無い`);
     assert.ok(fs.existsSync(path.join(ROOT, 'test', 'shots', 'win32', `${n}.png`)), `${n} の基準が無い`);
   }
@@ -930,7 +953,23 @@ test('基準の画像（test/shots/win32）は今の app.html で撮ったもの
   // align-self: flex-start を足した（変わる画面は同じ RETAKE_120）。値を今の app.html に合わせた（前の値は 15ff8c69…）
   // 0.12.1 LV-4（決めたこと L15）: カード「会議の検出」の2行目に「会議を出たら自動で止める」（行・ⓘ の吹き出し）と、読み込みと自動保存の1行ずつ。変わる画面は RETAKE_121。
   // 値を今の app.html に合わせた（前の値は 2d669bc1…）
-  assert.strictEqual(sha, '6c70ba307939e526797292e564e4f71eb11bd058a7ad5e947781e642444785c8',
+  // 0.13.0 RDY-2（第2部 RD1・RD20）: 録音の前のページ（#readyBar と CSS の #readyState・#readyBar button.action、<script> の中の録音の前の描き方）。録音の前のページは
+  // ［＋ 新しい議事録］を押したときだけ出るので、今の撮る画面は変わらない見込み（RDY-3 で撮る画面を足す）。値を今の app.html に合わせた（前の値は 6c70ba30…）
+  // 0.13.0 RDY-3（第2部 RD6・RD8・RD10・RD13・RD15）: 録音の前のページから録音に替わる時（メモ欄と種類の行をそのまま・始めた直後の守り）・page:open の受けを pageOpenFromMain の1か所に・読み直したときの録音の前のタブ（<script> の中だけ）。変わる画面は足した RETAKE_130 の3枚。値を今の app.html に合わせた（前の値は dd181948…）
+  // 0.13.0 ED-3（決めたこと 20・22）: 要約の［コピー］を blocksMarkdown の写しにし、orderForView の写しに人の見出し（EQ3 (a)）を足した（<script> の中だけ。前の版の要約の見た目は変わらない）。値を今の app.html に合わせた（前の値は b9983662…）
+  // 0.13.0 ED-4（決めたこと 15〜19・21・41）: 要約の行の部品を blockRows の1か所にし、Enter の分割・行頭の Backspace・記法・貼り付け・↑↓ と、答えを変わった行だけに当てる描き方（<script> の中と .blk .txt の white-space: pre-wrap。前の版の要約の文は改行も続いた空白も持たないので見た目は変わらない見込み）。値を今の app.html に合わせた（前の値は 3c41e7bd…）
+  // 0.13.0 ED-5（E1・E2・決めたこと 23・30・37〜42）: / メニュー（.slashmenu の CSS と描き方）・行の左の ＋（乗せたときだけ。行の外の左の余白に置き、行の並びは変えない。.blk の切る線を 18px に）・Esc・書き直している途中の page:open（<script> の中）。今の撮る画面は変わらない見込みで、変わる画面は足した RETAKE_130 の / メニューの3枚。値を今の app.html に合わせた（前の値は 5fec108a…）
+  // 0.13.0 ED-6（E1・決めたこと 18・24）: ⠿ のメニュー（.blockmenu の CSS と描き方・⠿ の title）と、落とした所の上の行の後ろへ入れるドラッグ・savedIndexForDrop の写しを外した（<script> の中）。今の撮る画面は変わらない見込みで、変わる画面は足した RETAKE_130 の edit-block-menu-light。値を今の app.html に合わせた（前の値は 718a2461…）
+  // 0.13.0 ED-7（E5・E11・決めたこと 5・6・26〜29）: 見出し1・3（段 2 は前の .blk.heading のまま）・番号付き・引用・区切り線・コールアウトの CSS と描き方・近道（keyAction の写し）。前の版の要約（段の無い見出し・ToDo・箇条書き・テキスト）の見た目は変わらない見込みで、変わる画面は足した RETAKE_130 の edit-types-* の3枚。値を今の app.html に合わせた（前の値は 59b1531e…）
+  // 0.13.0 ED-8（EQ4 (a)・決めたこと 35）: ［要約を再生成］の前の確かめ（人が直した行があるときだけ。.askbox の CSS と描き方）。押したときだけ出るので今の撮る画面は変わらない見込み。値を今の app.html に合わせた（前の値は 7ece40dd…）
+  // 0.13.0 ED-5〜ED-7 の撮った画像の確かめ: / メニューと ⠿ のメニューは開いたときに箱の全部が見える所まで捲る（scrollIntoView。行が窓の下の端に近いと項目が窓の外に出ていた）。値を今の app.html に合わせた（前の値は 32854479…）
+  // 2026-10-26 の持ち主の答え 問2（「⠿ の左に並べる（Notion と同じ並び）」。計画の Ruling R36）: 行の左の ＋ を行の並びの中で ⠿ の左に置いた（.blk .plus の CSS。.blk の切る線は 8px に戻した）。変わる画面は RETAKE_130 の RETAKEN_130 の 10 枚と足した 10 枚。値を今の app.html に合わせた（前の値は ce75391c…）
+  // 2026-10-26 の持ち主の答え 点検1（「上に空の行を足す（おすすめ）」。計画の Ruling R37）: 文のある行の頭の Enter で今の行の文を消さず、カーソルを今の行の頭に残す（<script> の中だけ。撮る画面は変わらない）。値を今の app.html に合わせた（前の値は c2964b13…）
+  // 2026-10-26 の持ち主の答え 点検4（「どんな手直しでも確かめる（おすすめ）」。計画の Ruling R39）: ［要約を再生成］の確かめをページの印 summaryEdited でも出す（<script> の中だけ。撮る画面は変わらない）。値を今の app.html に合わせた（前の値は e205126e…）
+  // 2026-10-26 の持ち主の答え 点検6（「書いている間は切り替えない（おすすめ）」。計画の Ruling R40）: 録音の前のページのメモ・種類の欄に書いている間の保存した page:open は後ろのタブに足す（<script> の中だけ。撮る画面は変わらない）。値を今の app.html に合わせた（前の値は 1674e122…）
+  // 点検5（作り手が決めた。計画の Ruling R41）: Enter の1回は oplog の1行（splitRow で分けた前の文を削らない・_commit は画面の文が行の文と同じなら送らない。<script> の中だけ。撮る画面は変わらない）。値を今の app.html に合わせた（前の値は d09354eb…）
+  // 2026-10-27 の持ち主の答え 点検8（「見えている上の行の後ろに足す（おすすめ）」。計画の Ruling R44）: 文のある行の頭の Enter で、画面で上に見えている行を afterId で送る（<script> の中だけ。撮る画面は変わらない）。値を今の app.html に合わせた（前の値は 8a74feb1…）
+  assert.strictEqual(sha, 'fe39dd83497466a1c3498aa75627d41cc8d26447adde493828f89df9fd071e83',
     'app.html が基準の画像を撮った時と違う。Windows の CI の画面の比べ（捲り棒のつまみも）を見て、基準を取り直してからこの値を直す');
 });
 

@@ -328,3 +328,27 @@ test('0.12.1 点検の直し 2: 「誤って止まったとき」の録り直し
   assert.ok(iPanel > iNew && iPanel > iKey, `パネルを先に言っている: ${step1}`);
   assert.ok(step1.includes('同じアプリ') && step1.includes('パネルが出ないことがあります'), step1);
 });
+
+// 0.13.0 RDY-5（計画 docs/plans/2026-10-24-130.md の第2部「画面の文（第2部）」の下の案・RD9・EQ23 (a)）: ［新しい議事録］はページを開くだけで、［文字起こしを始める］で録音が始まる
+test('0.13.0 RDY-5: record/start-stop の頭の NOTE は録音の前のページの文（「同意したものとみなされます」・送り先）と「始める前に参加者へ伝えてください」の1文（EQ23 (a)）。「始める」は録音の前のページ・［文字起こしを始める］・［オフラインモードで始める］・何も残らないこと、ホットキー・パネル・トレイはすぐ始まること', { timeout: 5000 }, () => {
+  const t = read(fileOf('record/start-stop'));
+  const head = t.slice(0, t.indexOf('\n## '));
+  for (const w of ['［文字起こしを始める］', '『始めると、録音と文字起こしに参加者全員が同意したものとみなされます。』', '音声の送り先', '録音することは、始める前に参加者へ伝えてください。']) assert.ok(head.includes(w), `頭の NOTE に「${w}」が無い`);
+  assert.ok(!head.includes('録音していることは、会議の参加者へ伝えてください。'), '前の NOTE の文が残っている');
+  const s = sectionOf('record/start-stop', 'start');
+  for (const w of ['録音の前のページ', 'まだ録音しません', '［メモ］', '［文字起こしを始める］', '［オフラインモードで始める］', '何も残りません', '確かめます', '[[Alt+M]]', '会議の知らせのパネル', '［議事録の記録を開始］', 'すぐ録音を始めます', 'そのページのメモと種類のまま']) assert.ok(s.includes(w), `「始める」に「${w}」が無い`);
+  // ［新しい議事録］を押すだけで録音が始まると読める文が無い
+  assert.ok(!t.includes('- サイドバーの ［新しい議事録］ を押す\n'), '［新しい議事録］で始まる前の箇条が残っている');
+  assert.ok(!/description: ［新しい議事録］・ホットキー・トレイから録音を始め/.test(t), 'description が前の形');
+  assert.ok(/updated: 2026-10-2[6-9]/.test(t), 'updated を直していない');
+  assert.ok(t.includes('docs/plans/2026-10-24-130.md'), 'sources に計画が無い');
+  // ほかの記事と README も同じ中身
+  assert.ok(read(fileOf('start/what-natsu-does')).includes('録音の前のページ'), 'start/what-natsu-does が前の形');
+  const md = read(fileOf('record/meeting-detect'));
+  const step1 = md.slice(md.indexOf('{#leave-split}')).split('\n').find((l) => l.startsWith('1. '));
+  assert.ok(step1.includes('［＋ 新しい議事録］ → ［文字起こしを始める］ か [[Alt+M]]'), step1);
+  assert.ok(read(fileOf('record/pc-only')).includes('録音の前のページの ［オフラインモードで始める］'), 'record/pc-only に録音の前のページの［オフラインモードで始める］が無い');
+  const readme = read('README.md');
+  assert.ok(readme.includes('［＋ 新しい議事録］を押すと録音の前のページが開きます'), 'README の記録中のページが前の形');
+  assert.ok(!readme.includes('［＋ 新しい議事録］を押すと記録が始まり'), 'README に前の文が残っている');
+});

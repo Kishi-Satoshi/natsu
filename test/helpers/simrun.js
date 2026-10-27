@@ -327,6 +327,19 @@ async function load(htmlPath, opt = {}) {
   });
   window.window = window;
   window.self = window;
+  /*
+   * 0.13.0 ED-4（計画 docs/plans/2026-10-24-130.md の決めたこと 15）: カーソルの位置の継ぎ目。偽の DOM に getSelection は足さない
+   * （本物の動きを偽ると嘘の緑になる）。opt.caret なら、画面の継ぎ目 window.__natsuCaret を台の表に差し替える。
+   * 位置はフォーカスのある要素でだけ読める（本物と同じ）。l.caret.set(el, start, end = start) で置き、l.caret.get(el) で読む
+   */
+  if (opt.caret) {
+    const at = new Map();
+    window.__natsuCaret = {
+      range: (el) => (Element.focused === el && at.has(el) ? at.get(el).slice() : null),
+      set: (el, n) => { at.set(el, [n, n]); },
+    };
+    log.caret = { set: (el, s, e = s) => { at.set(el, [s, e]); }, get: (el) => (at.has(el) ? at.get(el).slice() : null) };
+  }
   const console2 = { log: noop, warn: noop, info: noop, debug: noop, error: (...a) => log.consoleErrors.push(a.map((x) => (x && x.message) || String(x)).join(' ')) };
 
   /* ---- 実行 ---- */

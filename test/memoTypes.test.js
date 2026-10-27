@@ -280,17 +280,9 @@ test('0.11.0 V-2（D48）: 型の見出しの無い前の版の要約は保存�
   assert.deepStrictEqual(M.orderForView(noHead), [0, 1]);
 });
 
-test('0.11.0 V-2（F26）: savedIndexForDrop は落とした所の次の行の保存の番号。最後なら最後の行の保存の番号＋1', () => {
-  const order = [5, 6, 7, 0, 1, 2, 3, 4];
-  assert.strictEqual(M.savedIndexForDrop(order, 0), 5);
-  assert.strictEqual(M.savedIndexForDrop(order, 3), 0);
-  assert.strictEqual(M.savedIndexForDrop(order, 7), 4);
-  assert.strictEqual(M.savedIndexForDrop(order, 8), 5);
-  assert.strictEqual(M.savedIndexForDrop(order, 99), 5);
-  assert.strictEqual(M.savedIndexForDrop([2, 0, 1], 3), 2);
-  assert.strictEqual(M.savedIndexForDrop([], 0), 0);
-  assert.strictEqual(M.savedIndexForDrop(order, -1), 5);
-});
+// 0.13.0 ED-6（計画 docs/plans/2026-10-24-130.md の「意図して変えるテスト」）で意図して外した: 0.11.0 V-2（F26）の savedIndexForDrop の表。
+// つまみで落とした所は「画面で上に見えている行の後ろ」（block.move の afterId）で送るので、画面の番号を保存の番号に直す部品は無くなった
+// （同じ失敗＝落とした行が別の節へ跳ぶ、は test/stage130.edit.app.test.js の ED-6・F46 の場面が見る）
 
 // ---------------------------------------------------------------- 0.11.0 点検の直し（2026-10-24）
 test('点検の直し 1: AI の「未確認: なし」（特になし・言及なしなど畳む語だけ）は、畳んだ見出しがあれば置き換え（足さない）、無ければ行ごと落とす（チェックの節が空になれば節も）', () => {

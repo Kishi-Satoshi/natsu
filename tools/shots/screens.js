@@ -89,6 +89,42 @@ const OPEN_PAGE_SCRIPT = `(async () => {
   document.getElementById('pScript').scrollIntoView({ block: 'start' });   // 文字起こしの行（札・重なり・文ごとの行）が全部見えるように捲る
   return 1;
 })()`;
+// 0.13.0 RDY-3: サイドバーの［＋ 新しい議事録］を押して録音の前のページを開く（main の答えは見本: 録音の前のページがある）
+const OPEN_READY = `(async () => {
+  document.getElementById('mtToggleBtn').click();
+  await new Promise((r) => setTimeout(r, 300));
+  return 1;
+})()`;
+// 0.13.0 ED-5（計画 docs/plans/2026-10-24-130.md の「取り直す画面（RETAKE）」）: ページの要約の1つ目の箇条書き（b2）の終わりに「 /」と語を打ち、
+// / メニューを開いた形（本物の Chromium の getSelection でカーソルを行の終わりに置き、input を起こす）
+const OPEN_SLASH = (q) => `(async () => {
+  document.getElementById('tabBtnNotes').click(); document.querySelector('#plist .pitem').click();
+  await new Promise((r) => setTimeout(r, 300));
+  document.getElementById('paneBtnNote').click();
+  const t = [...document.querySelectorAll('#pNote .blk')].find((e) => e.dataset.id === 'b2').querySelector('.txt');
+  t.focus();
+  t.textContent = t.textContent + ' /' + ${JSON.stringify(q)};
+  const sel = getSelection(); const rg = document.createRange(); rg.selectNodeContents(t); rg.collapse(false); sel.removeAllRanges(); sel.addRange(rg);
+  t.dispatchEvent(new InputEvent('input', { bubbles: true }));
+  return 1;
+})()`;
+// 0.13.0 ED-6（E1・決めたこと 24）: ページの要約の1つ目の箇条書き（b2）の ⠿ を押してメニューを開き、［変換 ▸］の中を開いた形
+const OPEN_BLOCK_MENU = `(async () => {
+  document.getElementById('tabBtnNotes').click(); document.querySelector('#plist .pitem').click();
+  await new Promise((r) => setTimeout(r, 300));
+  document.getElementById('paneBtnNote').click();
+  [...document.querySelectorAll('#pNote .blk')].find((e) => e.dataset.id === 'b2').querySelector('.grip').click();
+  [...document.querySelectorAll('#pNote .blockmenu .mitem')].find((b) => b.textContent === '変換 ▸').click();
+  return 1;
+})()`;
+// 0.13.0 ED-7（E5）: ページを開いて［AI 要約］の欄の頭まで捲る（新しい型の行が全部見えるように。撮った画像の確かめで、欄が窓の下に切れていた）
+const OPEN_TYPES = `(async () => {
+  document.getElementById('tabBtnNotes').click(); document.querySelector('#plist .pitem').click();
+  await new Promise((r) => setTimeout(r, 300));
+  document.getElementById('paneBtnNote').click();
+  document.querySelector('#pNote .blk').scrollIntoView({ block: 'start' });
+  return 1;
+})()`;
 // 0.11.0 V-2: ページを開き、打ち合わせの質のカードまで捲る
 const OPEN_QUALITY = `(async () => {
   document.getElementById('tabBtnNotes').click(); document.querySelector('#plist .pitem').click();
@@ -243,6 +279,22 @@ const SCREENS = [
   { name: 'settings-quality-light', page: 'app', theme: 'light', act: `${OPEN_SETTINGS}; ${NAV('setNavSummary')}; document.getElementById('qualityCardSet').scrollIntoView({ block: 'start' })` },
   // 0.12.0 SP-4（D53・D66）: 文字起こしのタブの「自分」「相手」の札・重なり・PC の側の文ごとの行。足した画面（版を 0.12.0 に上げる commit で基準にした）
   { name: 'notes-script-spk-light', page: 'app', theme: 'light', act: OPEN_PAGE_SCRIPT },
+  // 0.13.0 RDY-3（計画 docs/plans/2026-10-24-130.md の第2部「取り直す画面（第2部の分）」）: 録音の前のページ（題名・種類の行・一言・メモのタブ・録音の前の行の
+  // 2つのボタン・同意と送り先の文）。明暗と、拡大 200% で録音の前の行が折り返す形。足した画面（まだ基準が無い）
+  { name: 'live-ready-light', page: 'app', theme: 'light', answers: readyAnswers(), act: OPEN_READY },
+  { name: 'live-ready-dark', page: 'app', theme: 'dark', answers: readyAnswers(), act: OPEN_READY },
+  { name: 'live-ready-zoom200-light', page: 'app', theme: 'light', zoom: 2, answers: readyAnswers(), act: OPEN_READY },
+  // 0.13.0 ED-5（E2・EQ8）: / メニュー（「みだし」で絞った形の明暗と、語を打つ前に頭に「最近使ったもの」が出た形）。足した画面（まだ基準が無い）。
+  // 撮る道具は koeApp.uiState に見本の答えを持たない（{ ok: true }）ので、ほかの画面は「最近使ったもの」が無いまま撮れる
+  { name: 'edit-slash-light', page: 'app', theme: 'light', act: OPEN_SLASH('みだし') },
+  { name: 'edit-slash-dark', page: 'app', theme: 'dark', act: OPEN_SLASH('みだし') },
+  { name: 'edit-slash-recent-light', page: 'app', theme: 'light', answers: { 'koeApp.uiState': { slashRecent: ['h2', 'todo'] } }, act: OPEN_SLASH('') },
+  // 0.13.0 ED-6（E1）: ⠿ のメニューと［変換 ▸］の中（文のある行なので区切り線は灰色）。足した画面（まだ基準が無い）
+  { name: 'edit-block-menu-light', page: 'app', theme: 'light', act: OPEN_BLOCK_MENU },
+  // 0.13.0 ED-7（E5）: 見出し1〜3・番号付き・引用・区切り線・コールアウトを1枚に（明暗と拡大 150%）。足した画面（まだ基準が無い）
+  { name: 'edit-types-light', page: 'app', theme: 'light', get answers() { return typesAnswers(); }, act: OPEN_TYPES },
+  { name: 'edit-types-dark', page: 'app', theme: 'dark', get answers() { return typesAnswers(); }, act: OPEN_TYPES },
+  { name: 'edit-types-zoom150-light', page: 'app', theme: 'light', zoom: 1.5, get answers() { return typesAnswers(); }, act: OPEN_TYPES },
 ];
 // 0.9.0 O-3（RP9）: 録音バーの画面（形 → 地 → 拡大率 → 状態の順。撮る道具は形・地・拡大率の組ごとに窓を1つ開いて状態を act で替える）。
 // 録音は始めずに見た目だけを撮る（act は pill-states の見本を録音バーの DOM に当てる。撮るときだけ体の地にデスクトップの色を塗る）。
@@ -329,6 +381,9 @@ const OVL_094 = (states) => PS.FORMS.flatMap((form) => Object.keys(PS.DESKS).fla
 // 0.12.1（版を 0.12.1 に上げる commit。LV-7）: 持ち主が 2026-10-25 に取り直しの見比べ（review-121.html。LV-4 で［設定］→［録音］のカード「会議の検出」に行
 // 「会議を出たら自動で止める」を足して変わった 10 枚）を見て「OK（版を 0.12.1 に上げてよい）」と言ったので、点検の直しの後の CI run 40207175980（ba3387f）の
 // artifact 12604106323 の .after.png をバイトのまま基準にし、空に戻した
+// 0.13.0（版を 0.13.0 に上げる commit。Task G・RDY-7）: 持ち主が 2026-10-27 に取り直しの見比べ（足した 10 枚: 録音の前のページの3枚・/ メニューの3枚・
+// ⠿ のメニューの1枚・新しい型の3枚に「この見た目でよい」、行の左の ＋ で要約の文がずれた今の画面の 11 枚に「この見た目でよい（おすすめ）」）と答えたので、
+// CI run 40466764263（20ceb94）の artifact 12717370368 の .after.png（21 枚）をバイトのまま基準にし、空に戻した
 const RETAKE = new Set([]);
 const PERF = [{ name: 'open-2000-blocks', budgetMs: 500 }];   // 3回開いた中央値で見る
 const TIME_ZONE = 'Asia/Tokyo';
@@ -451,6 +506,15 @@ function liveAnswers(stt = LIVE_STT, extra = {}) {
   };
 }
 
+/** 0.13.0 RDY-3: 録音の前のページ（main の meetingStatus() の形。録音していない・prep は空のメモと「自動」・クラウドで文字起こしする PC） */
+function readyAnswers() {
+  return {
+    'koeApp.meetingStatus': { active: false, finalizing: false, startedAt: null, memo: '', meetingType: null, segments: [], pending: 0, stoppedAt: null,
+      stopping: false, paused: false, pausedMs: 0, pauses: [], localOnly: false, cloud: true, stt: null, prep: { memo: '', meetingType: null } },
+    'koeApp.meetingPrepare': { ok: true },
+  };
+}
+
 /** 0.9.4 S-8: 遅い会議（live-light と同じ会議。中継に落ちて PC の側になり、文字になった区間の後に残した区間が2つ） */
 function lateAnswers() {
   const a = liveAnswers(LATE_STT);
@@ -485,6 +549,23 @@ function undecidedAnswers() {
 function liveTypeAnswers() {
   return { ...liveAnswers(), 'koeApp.meetingSetMemo': { ok: true },
     'koeApp.meetingSetType': { ok: true, memo: memoTypes.memoPreset('bantc'), inserted: true, meetingType: 'sales' } };
+}
+// 0.13.0 ED-7（E5）: 人が書き直した要約（新しい型の全部。一覧の1行目 p1 の会議の要約だけを替える: 0.11.0 の qualityAnswers と同じ形）
+function typesAnswers() {
+  const page = fixtures()['koeApp.pageGet'].page;
+  const blocks = [
+    { id: 'e1', type: 'heading', level: 1, text: '週次の定例のまとめ', citeState: 'manual', cites: [] },
+    { id: 'e2', type: 'callout', icon: '💡', text: '出す日は11月15日で決まりです。', citeState: 'manual', cites: [] },
+    { id: 'e3', type: 'heading', text: '進み具合' },
+    { id: 'e4', type: 'numbered', text: '結合の試験が今週で終わった。', citeState: 'manual', cites: [] },
+    { id: 'e5', type: 'numbered', text: '残りの不具合は2件。', citeState: 'manual', cites: [] },
+    { id: 'e6', type: 'heading', level: 3, text: '在庫の取り込み', citeState: 'manual', cites: [] },
+    { id: 'e7', type: 'quote', text: '索引が効いているかを確かめます。', citeState: 'manual', cites: [] },
+    { id: 'e8', type: 'divider', text: '', citeState: 'manual', cites: [] },
+    { id: 'e9', type: 'bullet', text: '次回は会議室を替える。', citeState: 'manual', cites: [] },
+    { id: 'e10', type: 'paragraph', text: '以上で終わります。', citeState: 'manual', cites: [] },
+  ];
+  return { 'koeApp.pageGet': { page: { ...page, blocks, citeStat: { linked: 0, total: 0 }, actionStat: null }, segments: SEGMENTS } };
 }
 // 0.11.0 V-2: 朝会の新しい形の要約（保存は AI の書いた順: 型の見出し → 締め → チェック → 助言）と、照らした点（qualityView）
 function qualityAnswers() {

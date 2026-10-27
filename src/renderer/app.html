@@ -527,7 +527,7 @@
   .blk.dropmark-after { border-bottom: 2px solid var(--accent); padding-bottom: 1px; }
   .blk .bullet { color: var(--muted); flex: none; width: 24px; text-align: center; line-height: 24px; user-select: none; }
   .blk .txt { flex: 1; font-size: 16px; line-height: 24px; outline: none; border-radius: 4px; padding: 0 2px; min-width: 0;
-    word-break: break-word; }
+    word-break: break-word; white-space: pre-wrap; }   /* 0.13.0 ED-4（決めたこと 16）: Shift+Enter の行の中の改行を見せる */
   .blk .txt:hover { background: var(--hover); }
   .blk .txt:focus { background: var(--hover); }
   .blk.heading { margin-top: 22px; }
@@ -535,11 +535,51 @@
   .blk.heading .txt { font-size: 20px; font-weight: 600; line-height: 26px; }
   .blk.heading .txt::before { content: ''; }
   .blk.todo input[type=checkbox] { width: 16px; height: 16px; margin-top: 4px; accent-color: var(--accent); flex: none; }
+  /* 0.13.0 ED-7（E5・決めたこと 5）: 見出しの段。段 2（段の無い古い見出しも）は上の .blk.heading のまま1画素も変えない。段 1 は大きく、段 3 は小さく */
+  .blk.heading.h1 { margin-top: 28px; }
+  .blk.heading.h1 .txt { font-size: 26px; font-weight: 700; line-height: 34px; }
+  .blk.heading.h3 { margin-top: 14px; }
+  .blk.heading.h3 .txt { font-size: 17px; font-weight: 600; line-height: 24px; }
+  .blk.heading.h1:first-child, .blk.heading.h3:first-child { margin-top: 6px; }
+  /* 番号付き（数えた番号）・引用（左の線）・区切り線（線だけ。フォーカスで地色）・コールアウト（地色と 💡） */
+  .blk .num { flex: none; min-width: 24px; text-align: right; line-height: 24px; color: var(--text); user-select: none; font-variant-numeric: tabular-nums; }
+  .blk.quote .txt { border-left: 3px solid var(--text); border-radius: 0; padding-left: 12px; }
+  .blk.divider .txt { height: 0; min-height: 0; margin: 11px 0 12px; padding: 0; border-top: 1px solid var(--line); border-radius: 0; background: transparent; }
+  .blk.divider .txt:focus { outline: 2px solid var(--accent); outline-offset: 4px; }
+  .blk.callout { background: var(--hover); border-radius: 6px; padding: 8px 10px; margin: 2px 0; }
+  .blk.callout .icon { flex: none; line-height: 24px; user-select: none; }
+  /* 0.13.0 ED-8（EQ4 (a)）: ［要約を再生成］の確かめの小さな窓（後ろは設定のポップアップと同じ .setmodal の暗い地） */
+  .askbox { max-width: min(420px, calc(100vw - 48px)); padding: 18px 20px 16px; background: var(--bg); border: 1px solid var(--line); border-radius: 6px; box-shadow: var(--shadow); }
+  .askbox .askmsg { margin: 0 0 14px; font-size: 14px; line-height: 22px; color: var(--text); }
+  .askbox .askrow { display: flex; justify-content: flex-end; gap: 8px; }
   .blk.todo.done .txt { color: var(--muted); text-decoration: line-through; }
   .blk .del { opacity: 0; background: none; border: none; color: var(--muted); cursor: pointer;
     font-size: 15px; line-height: 1; padding: 4px 6px; flex: none; }
   .blk:hover .del { opacity: 1; }
   .blk .del:hover { color: var(--danger); }
+  /* 0.13.0 ED-5（E1）・2026-10-26 の持ち主の答え（問2。計画の Ruling R36）: 行の左の ＋ は行の並びの中で ⠿ の左
+     （乗せたときだけ見える）。⠿ との間は詰め（margin-right）、文は約 22px 右へずれる。押す所は 18×24px で、拡大 150%・200% の狭い画面でも細くしない */
+  .blk .plus { flex: none; width: 18px; margin-right: -4px; text-align: center; line-height: 24px; font-size: 15px;
+    color: var(--muted); cursor: pointer; user-select: none; opacity: 0; }
+  .blk:hover .plus { opacity: .55; }
+  .blk .plus:hover { opacity: 1; }
+  /* 0.13.0 ED-5（E2・決めたこと 23）: / メニュー（行の下の浮いた箱。フォーカスは行に残す） */
+  #pNote { position: relative; }
+  .slashmenu { position: absolute; z-index: 5; min-width: 220px; max-height: 320px; overflow-y: auto; padding: 4px;
+    background: var(--bg); border: 1px solid var(--line); border-radius: 6px; box-shadow: var(--shadow); }
+  .slashmenu .shead { color: var(--muted); font-size: 12px; padding: 6px 10px 2px; }
+  .slashmenu .sopt { display: flex; align-items: center; gap: 12px; padding: 5px 10px; border-radius: 4px; font-size: 14px; cursor: pointer; }
+  .slashmenu .sopt[aria-selected="true"] { background: var(--hover); }
+  .slashmenu .sopt .smd { margin-left: auto; color: var(--muted); font-size: 12px; }
+  .slashmenu .snone { color: var(--muted); font-size: 13px; padding: 6px 10px; }
+  /* 0.13.0 ED-6（E1・決めたこと 24）: ⠿ のメニュー（「···」のメニューと同じ見た目）。変換の中は右に並べる */
+  .blockmenu { position: absolute; z-index: 6; min-width: 140px; padding: 4px; display: flex; flex-direction: column;
+    background: var(--bg); border: 1px solid var(--line); border-radius: 6px; box-shadow: var(--shadow); }
+  .blockmenu.sub { left: 100%; top: 0; margin-left: 4px; }
+  .blockmenu .mitem { background: transparent; border: none; color: var(--text); font: inherit; font-size: 13px; text-align: left;
+    padding: 6px 10px; border-radius: 4px; cursor: pointer; }
+  .blockmenu .mitem:hover, .blockmenu .mitem:focus { background: var(--hover); outline: none; }
+  .blockmenu .mitem.off { color: var(--muted); cursor: default; }
 
   /* 会議タイプ */
   /* 要約タイプは灰色の札の形（第1b2回 P-2。appearance は変えない） */
@@ -626,6 +666,9 @@
   .live .rec-dot { order: -2; }
   .live .tm { color: var(--muted); font-variant-numeric: tabular-nums; order: -1; }
   #liveTitle { font-size: 14px; color: var(--text-2); }
+  /* 0.13.0 RDY-2（RD10）: 録音の前の行。状態の文は左、2つのボタンは右の端（.live と同じ形） */
+  #readyState { font-size: 14px; color: var(--text-2); margin-right: auto; }
+  #readyBar button.action { font-size: 12px; padding: 0 10px; }
   /* ［■ 終了して作成］は赤い文字の灰色のボタン（線なし） */
   #liveStopBtn { color: var(--danger); background: var(--hover); border-color: transparent; }
   #liveStopBtn:hover { background: var(--tint); }
@@ -1923,7 +1966,7 @@
   const hasTab = (k) => openTabs.some((t) => t.key === k);
   function tabLabel(k) {
     if (isPageKey(k)) return tabTitles.get(k.slice(5)) || '議事録';
-    if (k === 'live') return mtPhase === 'paused' ? '⏸ 一時停止中' : '● 記録中';
+    if (k === 'live') return readyNow() ? '新しい議事録' : mtPhase === 'paused' ? '⏸ 一時停止中' : '● 記録中';   // 0.13.0 RDY-2（RT1）: 録音の前のページ
     return { dictation: '音声入力' }[k] || k;
   }
   // 記録中のタブ（live）は覚えない（N6）。選んでいる間は、その前に選んでいたタブを覚える
@@ -2012,7 +2055,7 @@
       const id = k.slice(5);
       title = tabTitles.get(id) || (curPage && curId === id && typeof curPage.title === 'string' ? curPage.title : '') || '議事録';
     } else if (k === 'dictation') { icon = '🎤'; title = '音声入力'; }
-    else if (k === 'live') { icon = '🎙️'; title = '記録中の会議'; }
+    else if (k === 'live') { icon = '🎙️'; title = readyNow() ? '新しい議事録' : '記録中の会議'; }
     const c = $('crumb');
     c.querySelector('.ci').textContent = icon;
     c.querySelector('.ct').textContent = title;
@@ -2065,6 +2108,7 @@
       }
       const lb = $('liveBar');
       if (lb) lb.hidden = true;   // 記録中のバーは記録中のタブだけのもの
+      if (readyEls) readyEls.bar.hidden = true;   // 0.13.0 RDY-2: 録音の前の行も同じ
       renderSttBanner();          // 帯も記録中のタブだけのもの
       showSection('notes');
     } else if (key === 'live') {
@@ -2105,6 +2149,7 @@
   function closeTab(key) {
     const i = openTabs.findIndex((t) => t.key === key);
     if (i < 0 || (key === 'live' && mtWasActive)) return;
+    if (key === 'live' && readyNow() && !closeReady()) return;   // 0.13.0 RDY-2（RD14）: 録音の前のページは何も残さない（メモを書いていたら確かめる）
     tabsTouched = true;
     openTabs.splice(i, 1);
     if (lastPageTab === key) lastPageTab = '';
@@ -2152,6 +2197,7 @@
     if (!open.length) return;
     openTabs = open.map((key) => ({ key }));
     const active = open.includes(tb.active) ? tb.active : open[open.length - 1];
+    if (hasLive && readyNow() && activeTab === 'live') { openTabs.push({ key: 'live' }); activateTab(active, { save: false }); return; }   // 0.13.0 RDY-3（RD15）: 録音の前のページは覚えたタブを選ぶ
     if (hasLive) { openTabs.push({ key: 'live' }); beforeLiveTab = active; renderTabs(); return; }   // 先に記録が始まっていたら記録中のタブのまま
     activateTab(active, { save: false });
   }
@@ -2162,6 +2208,7 @@
       try { st = await window.koeApp.uiState(); } catch (_) { st = null; }
       const tb = st && st.tabs;
       if (tb && Array.isArray(tb.open) && !tabsTouched) restoreTabs(tb);
+      slashRecent = recentCheck(st && st.slashRecent);   // 0.13.0 ED-5（決めたこと 39）: 壊れていれば空（メニューは決まった並びだけ）
       const sb = st && st.sidebar;
       if (!sb || sideTouched) return;
       sideState.width = clampSide(sb.width);
@@ -2763,6 +2810,47 @@
     return `NaTsu の議事録「${title}」（${String((page && page.date) || '')}）${base}${page.id}`;
   }
 
+  // 0.13.0 ED-8（EQ4 (a)・決めたこと 35・画面の文）: 人が直した行 = 人が足した・直した行（citeState が manual・stale）と、AI の4つの型でない行。
+  // 0.11.0 の印の行（mark。manual だが AI が書いた）は人の行にしない
+  const AI_TYPES = ['heading', 'bullet', 'todo', 'paragraph'];
+  function humanEdited(blocks) {
+    return (Array.isArray(blocks) ? blocks : []).some((b) => b && typeof b === 'object' && !b.mark
+      && (b.citeState === 'manual' || b.citeState === 'stale' || !AI_TYPES.includes(b.type)));
+  }
+  const REGEN_ASK = '書き直した要約を作り直しますか？ 足した行や変えた型は元に戻ります。';
+  // 確かめの小さな窓（［作り直す］［やめる］。初めのフォーカスは［やめる］・Esc は［やめる］・Tab は2つの間を回る）。答えは真偽
+  function askRegen() {
+    return new Promise((resolve) => {
+      const back = document.activeElement;
+      const wrap = document.createElement('div'); wrap.className = 'setmodal askwrap';
+      const box = document.createElement('div'); box.className = 'askbox';
+      box.setAttribute('role', 'alertdialog'); box.setAttribute('aria-modal', 'true'); box.setAttribute('aria-label', '要約を作り直す');
+      const msg = document.createElement('p'); msg.className = 'askmsg'; msg.textContent = REGEN_ASK;
+      const row = document.createElement('div'); row.className = 'askrow';
+      const go = document.createElement('button'); go.type = 'button'; go.className = 'action'; go.textContent = '作り直す';
+      const no = document.createElement('button'); no.type = 'button'; no.textContent = 'やめる';
+      let done = false;
+      const end = (v) => {
+        if (done) return;
+        done = true;
+        if (wrap.parentNode) wrap.parentNode.removeChild(wrap);
+        if (back && typeof back.focus === 'function') back.focus();
+        resolve(v);
+      };
+      go.onclick = () => end(true);
+      no.onclick = () => end(false);
+      box.onkeydown = (ev) => {
+        if (ev.key === 'Escape') { ev.preventDefault(); end(false); }
+        else if (ev.key === 'Tab') { ev.preventDefault(); (document.activeElement === go ? no : go).focus(); }
+      };
+      row.append(go, no);
+      box.append(msg, row);
+      wrap.appendChild(box);
+      document.body.appendChild(wrap);
+      no.focus();
+    });
+  }
+
   // 「…」（#pMore）とその中のメニュー（#pMenu の［コピー］［リンクを写す］［削除］）。
   // Enter／Space（変換確定の Enter は除く）・↓ で開いて最初の項目へ、↑／↓ で移り、Esc で閉じて「…」へ戻る
   function setMoreOpen(on, focusItem) {
@@ -2859,6 +2947,10 @@
     const sumBtn = mk(curPage.blocks.length ? '要約を再生成' : '要約を生成', async () => {
       const pid = curId;
       if (summarizing.has(pid)) return;
+      // 0.13.0 ED-8（EQ4 (a)・決めたこと 35）: 人が直した行があるときだけ、作り直す前に確かめる（作り直すと書き直した所は元に戻る）
+      // 2026-10-26 の持ち主の答え（点検4「どんな手直しでも確かめる」）: 行を消す・動かす・複製・段・変換・分割・結合などの後も（DB のページの印 summaryEdited）
+      if (curPage && (curPage.summaryEdited === true || humanEdited(curPage.blocks)) && !(await askRegen())) return;
+      if (pid !== curId || summarizing.has(pid)) return;
       summarizing.add(pid);
       sumBtn.disabled = true; sumBtn.textContent = '生成中…';
       let r;
@@ -2887,9 +2979,9 @@
         what = 'メモ';
       } else {
         // 0.11.0 V-2（D48）: 画面と同じ順。点があれば最後に打ち合わせの質の行
+        // 0.13.0 ED-3（決めたこと 22）: 新しい型も写す blocksMarkdown（今の4つの型は前の式と1文字も同じ）
         const q = qualityLinesView(curPage.qualityView);
-        text = [...orderForView(curPage.blocks).map((i) => curPage.blocks[i]).map((b) => b.type === 'heading' ? `\n## ${b.text}`
-          : b.type === 'todo' ? `- [${b.checked?'x':' '}] ${b.text}` : b.type === 'bullet' ? `- ${b.text}` : b.text), ...(q.length ? ['', ...q] : [])].join('\n');
+        text = [blocksMarkdown(orderForView(curPage.blocks).map((i) => curPage.blocks[i])), ...(q.length ? ['', ...q] : [])].join('\n');
         what = '議事録';
       }
       if (!text.trim()) { toast(`${what}はまだ空です`); return; }
@@ -2980,7 +3072,8 @@
     }
   }
 
-  // ---------------- 画面の並び（0.11.0 V-2。D48・F26・決めたこと 27）。memoTypes の VIEW_HEADS・orderForView・savedIndexForDrop の写し（repo が同じ表で照らす）。
+  // ---------------- 画面の並び（0.11.0 V-2。D48・F26・決めたこと 27）。memoTypes の VIEW_HEADS・orderForView の写し（repo が同じ表で照らす）。
+  // 0.13.0 ED-6: 落とした所は「画面で上に見えている行の後ろ」（afterId）で送るので、savedIndexForDrop の写しは外した
   // 並べ替えは画面だけ（保存の順は変えない）。描き（renderBlocks）と［コピー］はこの並び
   const VIEW_HEADS = {
     closing: ['決定事項', '持ち越し', 'ToDo（誰が・何を・いつまでに）'],
@@ -3001,8 +3094,10 @@
     let pastClose = false;
     list.forEach((b, i) => {
       if (b && b.type === 'heading') {
-        secs.push(cur);
         const key = k(b.text);
+        const known = closing.includes(key) || key === CHECK || key === ADVICE || types.has(key);
+        if (b.citeState !== undefined || (b.level === 3 && !known)) { cur.idx.push(i); return; }   // 0.13.0 ED-3（EQ3 (a)）
+        secs.push(cur);
         let rank;
         if (closing.includes(key)) rank = closing.indexOf(key);
         else if (key === CHECK) rank = 4;
@@ -3015,11 +3110,34 @@
     secs.push(cur);
     return secs.map((x, n) => ({ ...x, n })).sort((a, b) => (a.rank - b.rank) || (a.n - b.n)).flatMap((x) => x.idx);
   }
-  function savedIndexForDrop(order, viewIdx) {
-    const o = Array.isArray(order) ? order : [];
-    if (!o.length) return 0;
-    const i = Math.max(0, Math.trunc(Number(viewIdx) || 0));
-    return i < o.length ? o[i] : o[o.length - 1] + 1;
+  // 0.13.0 ED-3（決めたこと 22）: ［コピー］の Markdown（src/blockEdit.js の headingLevel・numberLabels・blocksMarkdown の写し。test/stage130.edit.app.test.js が同じ表で照らす）
+  const CALLOUT_ICON = '💡';
+  function headingLevel(b) {
+    return b && (b.level === 1 || b.level === 2 || b.level === 3) ? b.level : 2;
+  }
+  function numberLabels(blocks) {
+    const out = new Map();
+    let n = 0;
+    for (const b of Array.isArray(blocks) ? blocks : []) {
+      if (b && b.type === 'numbered') { n += 1; out.set(b.id, `${n}.`); } else n = 0;
+    }
+    return out;
+  }
+  function blocksMarkdown(blocks) {
+    const list = Array.isArray(blocks) ? blocks.filter((b) => b && typeof b === 'object') : [];
+    const nums = numberLabels(list);
+    const indent = (t) => String(t ?? '').replace(/\n/g, '\n  ');
+    return list.map((b) => {
+      const t = indent(b.text);
+      if (b.type === 'heading') return `\n${'#'.repeat(headingLevel(b))} ${t}`;
+      if (b.type === 'todo') return `- [${b.checked ? 'x' : ' '}] ${t}`;
+      if (b.type === 'bullet') return `- ${t}`;
+      if (b.type === 'numbered') return `${nums.get(b.id) || '1.'} ${t}`;
+      if (b.type === 'quote') return `> ${t}`;
+      if (b.type === 'divider') return '---';
+      if (b.type === 'callout') return `> ${CALLOUT_ICON} ${t}`;
+      return t;
+    }).join('\n');
   }
   // 打ち合わせの質の写しの行（quality.qualityLines の写し。repo が照らす）。view は main の qualityView（照らした写し）だけ
   function qualityLinesView(view) {
@@ -3052,58 +3170,696 @@
     card.appendChild(foot);
     box.appendChild(card);
   }
-  function renderBlocks() {
-    const box = $('pNote'); box.textContent = '';
-    box.ondragover = (ev) => {
-      if (!dragBlockId) return;
-      ev.preventDefault();
-      ev.dataTransfer.dropEffect = 'move';
-      clearDropMarks(box);
-      const { idx, els } = dropIndexAt(box, ev.clientY);
-      if (!els.length) return;
-      if (idx < els.length) els[idx].classList.add('dropmark');
-      else els[els.length - 1].classList.add('dropmark-after');
-    };
-    box.ondrop = async (ev) => {
-      if (!dragBlockId) return;
-      ev.preventDefault();
-      const { idx } = dropIndexAt(box, ev.clientY);
-      const id = dragBlockId; dragBlockId = null;
-      clearDropMarks(box);
-      // 0.11.0 V-2（F26）: 落とした所は画面の番号。動かす行を抜いた保存の番号に直して送る（savedIndexForDrop）
-      const from = curPage.blocks.findIndex((x) => x.id === id);
-      const order = orderForView(curPage.blocks).filter((i) => i !== from).map((i) => (i > from ? i - 1 : i));
-      await window.koeApp.blockMove(curId, id, savedIndexForDrop(order, idx));
-      await openPage(curId);
-    };
-    // 0.10.0 LS-2: 鍵の間は欄の頭に一言を出し、要約の欄を読むだけにする（つまみ・削除の × を出さず、文・チェック・担当と期限を直せない）。
-    // 鍵の一言が要約待ちの文を含むので、鍵の間は要約の欄の理由（summaryError）を重ねて出さない
+  // ---------------- 0.13.0 ED-4（計画 docs/plans/2026-10-24-130.md の決めたこと 15〜19・21・41）: 要約の行の編集
+  // 行の部品は blockRows の1か所で作り（make）・着せ替え（dress）、命令の答えは applyEditAnswer が patchPlan で変わった行だけに当てる。
+  // 写し（graphemeEnds・safeOffset・shortcutFor・isTypedView・patchPlan・lisIndexes）は src/blockEdit.js と同じ表で test/stage130.edit.app.test.js が照らす
+  // カーソルの位置の継ぎ目（1か所。位置は文の UTF-16 の位置）。本物は getSelection・Range。偽の DOM（test/helpers/simrun.js の caret）は
+  // getSelection を持たないので、台が window.__natsuCaret でここを差し替える（本物の動きを偽らない）
+  const caretSeam = window.__natsuCaret || {
+    range(el) {
+      const sel = typeof window.getSelection === 'function' ? window.getSelection() : null;
+      if (!sel || !sel.rangeCount) return null;
+      const r = sel.getRangeAt(0);
+      if (!el.contains(r.startContainer) || !el.contains(r.endContainer)) return null;
+      const pos = (node, off) => { const x = document.createRange(); x.selectNodeContents(el); x.setEnd(node, off); return x.toString().length; };
+      return [pos(r.startContainer, r.startOffset), pos(r.endContainer, r.endOffset)];
+    },
+    set(el, n) {
+      const sel = typeof window.getSelection === 'function' ? window.getSelection() : null;
+      if (!sel) return;
+      const x = document.createRange();
+      let left = Math.max(0, n);
+      let placed = false;
+      const walk = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+      for (let t = walk.nextNode(); t; t = walk.nextNode()) {
+        if (left <= t.length) { x.setStart(t, left); placed = true; break; }
+        left -= t.length;
+      }
+      if (placed) x.collapse(true); else { x.selectNodeContents(el); x.collapse(false); }
+      sel.removeAllRanges(); sel.addRange(x);
+    },
+  };
+  // → [始め, 終わり]（選んでいなければ同じ）か null（その要素にカーソルが無い・読めない）
+  const caretRange = (el) => { try { return caretSeam.range(el); } catch (_) { return null; } };
+  const setCaret = (el, n) => { try { caretSeam.set(el, n); } catch (_) { /* 置けなくても文は残る */ } };
+  function graphemeEnds(text) {
+    const s = String(text);
+    const out = [0];
+    if (typeof Intl === 'object' && typeof Intl.Segmenter === 'function') {
+      const seg = new Intl.Segmenter('ja', { granularity: 'grapheme' });
+      for (const g of seg.segment(s)) out.push(g.index + g.segment.length);
+    } else {
+      for (let i = 0; i < s.length;) { const c = s.codePointAt(i); i += c > 0xffff ? 2 : 1; out.push(i); }
+    }
+    return out;
+  }
+  function safeOffset(text, at) {
+    const s = String(text ?? '');
+    const n = Number.isFinite(at) ? Math.trunc(at) : 0;
+    if (n <= 0) return 0;
+    if (n >= s.length) return s.length;
+    for (const e of graphemeEnds(s)) if (e >= n) return e;
+    return s.length;
+  }
+  // 行頭の記法（EQ9〜EQ13。全角の記号と全角の空白も。「ー」と「・」は入れない）。0.13.1 のトグル（> ）はまだ無い
+  const MD_ZEN = { '－': '-', '＊': '*', '＋': '+', '［': '[', '］': ']', '１': '1', '．': '.', '＃': '#', '”': '"', '“': '"', '＂': '"', '＞': '>', '　': ' ' };
+  const MD_ROWS = [['# ', 'heading', 1], ['## ', 'heading', 2], ['### ', 'heading', 3], ['[] ', 'todo'], ['- ', 'bullet'], ['* ', 'bullet'], ['+ ', 'bullet'], ['1. ', 'numbered'], ['" ', 'quote']];
+  function shortcutFor(before, { full } = {}) {
+    const raw = String(before ?? '');
+    if (!raw || raw.length > 4) return null;
+    const s = [...raw].map((c) => MD_ZEN[c] || c).join('');
+    if (s === '---') return String(full ?? raw) === raw ? { type: 'divider', strip: raw.length } : null;
+    const hit = MD_ROWS.find((m) => m[0] === s);
+    if (!hit) return null;
+    return hit[2] ? { type: hit[1], level: hit[2], strip: raw.length } : { type: hit[1], strip: raw.length };
+  }
+  // 0.13.0 ED-7（E11・EQ12・決めたこと 27〜29）: 近道（src/blockEdit.js の keyAction の写し。数字は ev.code で見る: JIS の Shift+数字は key が記号）
+  const DIGIT_TURN_VIEW = { Digit0: 'text', Digit1: 'h1', Digit2: 'h2', Digit3: 'h3', Digit4: 'todo', Digit5: 'bullet', Digit6: 'numbered' };
+  function keyAction(ev) {
+    if (!ev || ev.isComposing || ev.keyCode === 229) return null;
+    if (!ev.ctrlKey || ev.altKey || ev.metaKey) return null;
+    const code = String(ev.code || '');
+    if (ev.shiftKey) {
+      if (Object.hasOwn(DIGIT_TURN_VIEW, code)) return `turn:${DIGIT_TURN_VIEW[code]}`;
+      if (code === 'ArrowUp' || ev.key === 'ArrowUp') return 'moveUp';
+      if (code === 'ArrowDown' || ev.key === 'ArrowDown') return 'moveDown';
+      return null;
+    }
+    if (code === 'KeyD') return 'duplicate';
+    if (code === 'Enter' || code === 'NumpadEnter' || ev.key === 'Enter') return 'ctrlEnter';
+    if (code === 'Slash' || ev.key === '/') return 'menu';
+    return null;
+  }
+  // テキストでない型か（知らない型はテキストの見た目なので偽）
+  const TYPED_VIEW = ['heading', 'todo', 'bullet', 'numbered', 'quote', 'divider', 'callout'];
+  function isTypedView(b) {
+    return Boolean(b && typeof b === 'object' && TYPED_VIEW.includes(b.type));
+  }
+  function patchPlan(oldBlocks, newBlocks) {
+    const olds = (Array.isArray(oldBlocks) ? oldBlocks : []).filter((b) => b && typeof b.id === 'string');
+    const news = (Array.isArray(newBlocks) ? newBlocks : []).filter((b) => b && typeof b.id === 'string');
+    const oldById = new Map(olds.map((b) => [b.id, b]));
+    const newIds = new Set(news.map((b) => b.id));
+    const ops = [];
+    for (const b of olds) if (!newIds.has(b.id)) ops.push({ op: 'remove', id: b.id });
+    const kept = news.filter((b) => oldById.has(b.id));
+    const oldIdx = new Map(olds.map((b, i) => [b.id, i]));
+    const seq = kept.map((b) => oldIdx.get(b.id));
+    const stay = new Set(lisIndexes(seq).map((i) => kept[i].id));
+    news.forEach((b, at) => {
+      if (!oldById.has(b.id)) { ops.push({ op: 'add', id: b.id, at }); return; }
+      if (!stay.has(b.id)) ops.push({ op: 'move', id: b.id, at });
+      if (JSON.stringify(oldById.get(b.id)) !== JSON.stringify(b)) ops.push({ op: 'update', id: b.id });
+    });
+    return ops;
+  }
+  function lisIndexes(seq) {
+    const tails = [], prev = new Array(seq.length).fill(-1), tailIdx = [];
+    seq.forEach((v, i) => {
+      let lo = 0, hi = tails.length;
+      while (lo < hi) { const mid = (lo + hi) >> 1; if (tails[mid] < v) lo = mid + 1; else hi = mid; }
+      tails[lo] = v; tailIdx[lo] = i;
+      prev[i] = lo > 0 ? tailIdx[lo - 1] : -1;
+    });
+    const out = [];
+    for (let i = tailIdx[tails.length - 1]; i !== undefined && i >= 0; i = prev[i]) out.unshift(i);
+    return out;
+  }
+  let pendingEdits = 0;   // 分割・結合・変換・足すの答えを待っている数（ED-5 の summaryBusy が読む）
+  const editRows = () => [...$('pNote').querySelectorAll('.blk')].filter((e) => e._txt && e.dataset.locked !== '1');   // 鍵の無い行（区切り線も）
+  // 命令を送り、答えのページを今のページに当てる（where(答え) → { focus: 行の ID, caret }）。断られたら知らせ、何も描かない
+  async function editAnswer(pid, send, where) {
+    pendingEdits += 1;
+    let r = null;
+    try { r = await send(); } catch (e) {
+      toast(`変更を保存できませんでした: ${e && e.message ? e.message : e}`);
+      r = null;
+    } finally { pendingEdits -= 1; }
+    if (!r) return null;
+    applyEditAnswer(pid, Array.isArray(r.blocks) ? r : r.page, where ? where(r) : null);
+    if (pid === curId) { refreshList(); refreshEditMeta(pid); }
+    return r;
+  }
+  // 命令の答えは DB の素のページ（出典の数などは添えていない）。「🔗 出典」の行だけを読み直す
+  function refreshEditMeta(pid) {
+    Promise.resolve().then(() => window.koeApp.pageGet(pid)).then((g) => {
+      if (!g || !g.page || pid !== curId || !curPage || pendingEdits) return;
+      curPage.citeStat = g.page.citeStat; curPage.actionStat = g.page.actionStat;
+      renderProps();
+    }).catch(() => {});
+  }
+  // 答えのページを描く。描き直すのは変わった行だけ（E4）。フォーカス中の行は要素を替えずに中身を直す（blur が来ない問題を作らない）
+  function applyEditAnswer(pid, page, where) {
+    if (pid !== curId || !curPage || !page || page.id !== curId) return;   // 決めたこと 41: 送ったページがもう開いていなければ描かない
+    const box = $('pNote');
+    const view = (list) => orderForView(list).map((i) => list[i]);
+    const blocks = Array.isArray(page.blocks) ? page.blocks : [];
+    const oldView = view(curPage.blocks);
+    const newView = view(blocks);
+    curPage.blocks = blocks;
+    if (page.summaryEdited === true) curPage.summaryEdited = true;   // 点検4: 要約の欄を直した印（［要約を再生成］の前に確かめる）
+    if (page.rev !== undefined) curPage.rev = page.rev;
+    const plan = patchPlan(oldView, newView);
+    const rows = new Map([...box.querySelectorAll('.blk')].map((e) => [e.dataset.id, e]));
     const lock = summaryLockView(curPage, { live: isLiveCopy(curPage), making: summarizing.has(curId) || mainMaking.has(curId), segments: curSegs });
-    if (lock) {
-      const n = document.createElement('div'); n.className = 'locknote'; n.id = 'sumLock'; n.textContent = SUMMARY_LOCK_VIEW_TEXT[lock];
-      box.appendChild(n);
-    } else if (curPage.summaryError) {
-      const n = document.createElement('div'); n.className = 'note'; n.textContent = curPage.summaryError;
-      box.appendChild(n);
+    const focused = [...rows.values()].find((e) => e._txt && e._txt === document.activeElement);
+    // 鍵・空の欄・節が変わる操作（並びが動く）は欄全体を描き直す（0.11.0 の並べ替えて見せる要約）
+    if (lock || !oldView.length || !newView.length || rows.size !== oldView.length || plan.some((o) => o.op === 'move')) {
+      const keep = where || (focused ? { focus: focused.dataset.id, caret: (caretRange(focused._txt) || [0])[0] } : null);
+      renderBlocks();
+      if (keep) focusRow(keep.focus, keep.caret);
+      return;
     }
-    if (!curPage.blocks.length) {
-      const d = document.createElement('div'); d.className = 'empty';
-      d.innerHTML = lock ? '<div class="big">要約はまだありません</div>' : '<div class="big">要約はまだありません</div>右上の［要約を生成］で作成できます。';
-      box.appendChild(d); return;
+    const byId = new Map(blocks.map((b) => [b.id, b]));
+    for (const o of plan) {
+      const el = rows.get(o.id);
+      if (o.op === 'remove') { if (el) el.remove(); rows.delete(o.id); }
+      else if (o.op === 'add') {
+        const ne = blockRows.make(byId.get(o.id), '');
+        box.insertBefore(ne, box.querySelectorAll('.blk')[o.at] || box.querySelector('.qcard'));
+        rows.set(o.id, ne);
+      } else if (o.op === 'update' && el) {
+        const nb = byId.get(o.id);
+        if (el === focused) {
+          blockRows.dress(el, nb, '');
+          if (el._txt.textContent !== String(nb.text ?? '')) el._txt.textContent = String(nb.text ?? '');
+        } else {
+          const ne = blockRows.make(nb, '');
+          box.insertBefore(ne, el); el.remove(); rows.set(o.id, ne);
+        }
+      }
     }
-    // 水色の案内の帯はやめた（第1b2回 P-2）。案内の文は出典の札の title の最後の行にある
-
-    // 0.11.0 V-2（D48）: 画面の並び（保存の順は変えない）。点のカードは最後（決めたこと 28）
-    for (const b of orderForView(curPage.blocks).map((i) => curPage.blocks[i])) {
+    for (const e of [...box.querySelectorAll('.blk')]) if (byId.has(e.dataset.id)) e._b = byId.get(e.dataset.id);
+    renumberRows();
+    if (where) focusRow(where.focus, where.caret);
+  }
+  function focusRow(id, caret) {
+    const el = editRows().find((e) => e.dataset.id === id);
+    if (!el) return;
+    el._txt.focus();
+    setCaret(el._txt, Math.max(0, Math.min(Number(caret) || 0, el._txt.textContent.length)));
+  }
+  // カーソルの所に文を入れる（Shift+Enter の改行・貼り付け）。選んでいる所は置き換える
+  function typeAtCaret(txt, s) {
+    const t = txt.textContent;
+    const r = caretRange(txt) || [t.length, t.length];
+    txt.textContent = t.slice(0, r[0]) + s + t.slice(r[1]);
+    setCaret(txt, r[0] + s.length);
+  }
+  // 行頭か（カーソルが読めないときは空の行だけ行頭とみなす: 前の版の「空の行の Backspace」と同じ）
+  function caretAtStart(txt) {
+    const r = caretRange(txt);
+    return r ? r[0] === 0 && r[1] === 0 : txt.textContent === '';
+  }
+  // Enter（決めたこと 16・17）: 今の文とカーソルの位置を block.split の1つの命令で送る（EQ5 (a): 空の箇条書き・ToDo・番号付きはテキストに戻す）
+  async function splitRow(el) {
+    const pid = curId; const b = el._b; const txt = el._txt;
+    if (b.type === 'divider') return editAnswer(pid, () => window.koeApp.blockInsert(pid, b.id, 'paragraph'), (x) => ({ focus: x.blockId, caret: 0 }));
+    let text = txt.textContent;
+    const r = caretRange(txt);
+    if (r && r[1] > r[0]) text = text.slice(0, r[0]) + text.slice(r[1]);
+    const at = safeOffset(text, r ? r[0] : text.length);
+    if (['bullet', 'todo', 'numbered'].includes(b.type) && text.trim() === '') return turnRow(el, 'paragraph', undefined, 0);
+    // 答えを待つ間に blur の保存（_commit）が同じ文を重ねて送らないよう、画面は先に分けた前の文にする（断られたら戻す）
+    // 2026-10-26 の持ち主の答え（点検1）: 文のある行の頭では DB が上に空の行を足す。今の行の文はそのままで、カーソルも今の行の頭に残す
+    const top = at === 0 && text !== '';
+    const was = b.text;
+    if (!top) txt.textContent = text.slice(0, at);
+    b.text = top ? text : text.slice(0, at);   // 点検5: DB と同じく分けた前の文を削らない（削ると、答えの後の blur が削った文を送り直して oplog が2行になる）
+    // 2026-10-27 の持ち主の答え（点検8）: 上の空の行は画面で上に見えている行の後ろへ（いちばん上なら頭: ''。block.move の afterId と同じ）
+    const rows = top ? editRows() : [];
+    const i = rows.findIndex((e) => e.dataset.id === b.id);
+    const args = top ? [pid, b.id, text, at, i > 0 ? rows[i - 1].dataset.id : ''] : [pid, b.id, text, at];
+    const out = await editAnswer(pid, () => window.koeApp.blockSplit(...args), (x) => ({ focus: top ? b.id : x.blockId, caret: 0 }));
+    if (!out && el._b === b) { b.text = was; if (pid === curId) txt.textContent = text; }
+    return out;
+  }
+  // 行頭の Backspace（EQ6 (a)）: 型の付いた行はテキストに戻す。テキストの行は今の文ごと前の行につなぐ（block.merge の1つの命令）
+  async function backRow(el) {
+    const pid = curId; const b = el._b; const txt = el._txt;
+    if (isTypedView(b)) return turnRow(el, 'paragraph', undefined, 0);
+    if (curPage.blocks.findIndex((x) => x.id === b.id) <= 0) return null;   // 頭の行はつなぐ先が無い
+    const text = txt.textContent;
+    const was = b.text;
+    b.text = text.trim();
+    const out = await editAnswer(pid, () => window.koeApp.blockMerge(pid, b.id, text), (x) => ({ focus: x.blockId, caret: x.at }));
+    if (!out && el._b === b) b.text = was;
+    return out;
+  }
+  // 型を変える（決めたこと 11: 編集中の文を先に保存してから）。カーソルは caret へ
+  async function turnRow(el, type, level, caret) {
+    const pid = curId; const b = el._b;
+    try { await el._txt._commit(pid); } catch (_) { /* 保存の失敗は _commit の答えで知らせる */ }
+    return editAnswer(pid, () => (level === undefined ? window.koeApp.blockTurnInto(pid, b.id, type) : window.koeApp.blockTurnInto(pid, b.id, type, level)),
+      () => ({ focus: b.id, caret }));
+  }
+  // 行頭の記法（E3）。打った記法の文字を消して型を変える。区切り線は変えた後に下にテキストの行を足す（決めたこと 17）
+  async function mdCheck(el) {
+    const txt = el._txt; const b = el._b;
+    const r = caretRange(txt);
+    if (!r || r[0] !== r[1] || b.type === 'divider') return;
+    const full = txt.textContent.replace(/ /g, ' ');
+    const sc = shortcutFor(full.slice(0, r[0]), { full });
+    if (!sc || (b.type === sc.type && (sc.type !== 'heading' || headingLevel(b) === sc.level))) return;
+    txt.textContent = full.slice(sc.strip);
+    setCaret(txt, 0);
+    const pid = curId;
+    const out = await turnRow(el, sc.type, sc.level, 0);
+    if (out && sc.type === 'divider' && pid === curId) await editAnswer(pid, () => window.koeApp.blockInsert(pid, b.id, 'paragraph'), (x) => ({ focus: x.blockId, caret: 0 }));
+  }
+  // ↑ を行の頭で・↓ を行の終わりで押すと隣の行へ（EQ14 (a)）。動いたら真
+  function stepRow(el, dir) {
+    const txt = el._txt;
+    const r = caretRange(txt);
+    const line = el._b && el._b.type === 'divider';   // 区切り線は文を持たないので、いつも隣へ
+    if (!line && (!r || r[0] !== r[1] || r[0] !== (dir < 0 ? 0 : txt.textContent.length))) return false;
+    const rows = editRows();
+    const to = rows[rows.indexOf(el) + dir];
+    if (!to) return false;
+    to._txt.focus();
+    setCaret(to._txt, dir < 0 ? to._txt.textContent.length : 0);
+    return true;
+  }
+  // 文の欄の受け口（行を作るときに1回だけ付ける。行の今のブロックは el._b を読む: 着せ替えても受け口は同じ）
+  function wireRowText(el, txt) {
+    // 保存は「編集を始めたページ」に対して行う。flushEdits（ページ切替・記録開始）
+    // からも呼ばれるので、pid を引数で受け、別のページへ移った後は画面を触らない。
+    txt._commit = (pid) => {
+      const b = el._b;
+      const v = txt.textContent.trim();
+      if (v === b.text) return undefined;
+      if (txt.textContent === b.text) return undefined;   // 点検5: 画面の文が行の文と同じなら直していない（分けた前の文の終わりの空白を削って送り直さない）
+      b.text = v;
+      if (pid === curId && curPage) curPage.summaryEdited = true;   // 点検4: 要約の欄を直した印（DB も同じ命令で付ける）
+      // 本文を変えたら出典との対応は古くなる。store も stale を付けるが、
+      // 次に pageGet するまでの間も札で示す。
+      if ((b.type === 'bullet' || b.type === 'todo') && b.citeState !== 'manual') { b.citeState = 'stale'; renderCiteBadge(el, b); }
+      return window.koeApp.blockUpdate(pid, b.id, { text: v }).then(() => { if (pid === curId) refreshList(); });
+    };
+    txt.onblur = () => { if (slash && slash.el === el) slashClose(); txt._commit(curId); };
+    txt.onkeydown = (ev) => {
+      if (imeEnter(ev)) return;   // 変換確定の Enter / 変換中の Backspace は編集操作にしない
+      const mod = ev.ctrlKey || ev.altKey || ev.metaKey;
+      // 0.13.0 ED-6・ED-7（決めたこと 24・26〜29）: 近道は要約の欄の行の中だけ（Ctrl+/ は今の行の ⠿ のメニュー）
+      const act = keyAction(ev);
+      if (act) { ev.preventDefault(); slashClose(); rowShortcut(el, act); return; }
+      // / メニューが開いている間: ↑↓ で選び、Enter で決め、Esc で閉じる（/ と語は残す。録音中でもメニューだけ: RF9・決めたこと 30）
+      if (slash && slash.el === el) {
+        if ((ev.key === 'ArrowDown' || ev.key === 'ArrowUp') && !mod) { ev.preventDefault(); slashMove(ev.key === 'ArrowDown' ? 1 : -1); return; }
+        if (ev.key === 'Enter' && !mod && !ev.shiftKey && slash.items.length) { ev.preventDefault(); slashPick(slash.sel); return; }
+        if (ev.key === 'Escape') { ev.preventDefault(); slashClose(true); return; }
+        if (ev.key === 'Tab') slashClose(true);
+      }
+      if (ev.key === 'Enter' && !mod && ev.shiftKey) { ev.preventDefault(); typeAtCaret(txt, '\n'); }   // 行の中の改行（命令は送らない）
+      else if (ev.key === 'Enter' && !mod) { ev.preventDefault(); splitRow(el); }
+      else if (ev.key === 'Backspace' && !mod && !ev.shiftKey && caretAtStart(txt)) { ev.preventDefault(); backRow(el); }
+      else if ((ev.key === 'ArrowUp' || ev.key === 'ArrowDown') && !mod && !ev.shiftKey) { if (stepRow(el, ev.key === 'ArrowUp' ? -1 : 1)) ev.preventDefault(); }
+    };
+    // 行頭の記法は打ったときだけ（貼り付け・変換中は決めない。変換が終わったら決める: F43）
+    txt.oninput = (ev) => {
+      if ((ev && ev.isComposing) || txt._composing) return;   // 変換中の input では記法を決めない
+      mdCheck(el);
+      slashCheck(el);
+    };
+    // 変換の事象は on〜 の受け口を持たない（GlobalEventHandlers に無い）ので addEventListener で付ける
+    txt.addEventListener('compositionstart', () => { txt._composing = true; });
+    txt.addEventListener('compositionend', () => { txt._composing = false; mdCheck(el); slashCheck(el); });
+    // 貼り付けは素の文字だけ（決めたこと 21。HTML は入れない・改行は行の中の改行）
+    txt.onpaste = (ev) => {
+      ev.preventDefault();
+      const cd = ev.clipboardData;
+      const t = cd ? String(cd.getData('text/plain') || '').replace(/\r\n?/g, '\n') : '';
+      if (t) typeAtCaret(txt, t);
+    };
+  }
+  // ---------------- 0.13.0 ED-5（計画の E1・E2・決めたこと 23・30・37〜40・42。EQ7・EQ8・EQ22 (a)）: / メニュー・＋・書き直している途中
+  // / メニューの項目（src/blockEdit.js の VERSION_ROWS の写し: 鍵・型・段・名前・当たる語・記法。test/stage130.edit.app.test.js が照らす）
+  const SLASH_ROWS = [
+    { id: 'text', key: 'paragraph', label: 'テキスト', words: ['てきすと', 'text', 'plain'], md: [] },
+    { id: 'h1', key: 'heading', level: 1, label: '見出し1', words: ['みだし1', '見出し1', 'h1', '#'], md: ['# '] },
+    { id: 'h2', key: 'heading', level: 2, label: '見出し2', words: ['みだし2', 'h2', '##'], md: ['## '] },
+    { id: 'h3', key: 'heading', level: 3, label: '見出し3', words: ['みだし3', 'h3', '###'], md: ['### '] },
+    { id: 'todo', key: 'todo', label: 'ToDo', words: ['とぅーどぅー', 'todo', 'やること', 'チェック'], md: ['[] '] },
+    { id: 'bullet', key: 'bullet', label: '箇条書き', words: ['かじょうがき', 'bullet', 'リスト'], md: ['- ', '* ', '+ '] },
+    { id: 'numbered', key: 'numbered', label: '番号付き', words: ['ばんごう', 'number', 'numbered'], md: ['1. '] },
+    { id: 'quote', key: 'quote', label: '引用', words: ['いんよう', 'quote'], md: ['" '] },
+    { id: 'divider', key: 'divider', label: '区切り線', words: ['くぎり', 'divider', '---'], md: ['---'] },
+    { id: 'callout', key: 'callout', label: 'コールアウト', words: ['こーるあうと', 'callout', 'メモ書き'], md: [] },
+  ];
+  const MENU_KEYS_VIEW = SLASH_ROWS.map((r) => r.id);
+  function slashQuery(before) {
+    const s = String(before ?? '');
+    const i = s.lastIndexOf('/');
+    if (i < 0) return { open: false, query: '' };
+    if (i > 0 && !/\s/.test(s[i - 1])) return { open: false, query: '' };
+    const query = s.slice(i + 1);
+    if (/\s/.test(query)) return { open: false, query: '' };
+    return { open: true, query };
+  }
+  function slashHit(r, q) {
+    const f = q.toLowerCase();
+    return [r.label, ...r.words].some((w) => w.toLowerCase().includes(f));
+  }
+  function slashFilter(query, recent) {
+    const q = String(query ?? '');
+    const rec = recentCheck(recent);
+    if (!q) return [...rec.map((id) => ({ id, group: 'recent' })), ...MENU_KEYS_VIEW.map((id) => ({ id, group: 'types' }))];
+    const found = SLASH_ROWS.filter((r) => slashHit(r, q)).map((r) => r.id);
+    if (!found.length) return q.length >= 3 ? null : [];
+    return [...rec.filter((id) => found.includes(id)), ...found.filter((id) => !rec.includes(id))].map((id) => ({ id, group: '' }));
+  }
+  function recentAdd(recent, key) {
+    const rec = recentCheck(recent);
+    if (!MENU_KEYS_VIEW.includes(key)) return rec;
+    return [key, ...rec.filter((k) => k !== key)].slice(0, 3);
+  }
+  function recentCheck(v) {
+    if (!Array.isArray(v)) return [];
+    const out = [];
+    for (const k of v) if (typeof k === 'string' && MENU_KEYS_VIEW.includes(k) && !out.includes(k)) out.push(k);
+    return out.slice(0, 3);
+  }
+  let slashRecent = [];   // 最近使ったもの（uiState の slashRecent を照らした写し。/ メニューで選んだ鍵だけ・新しい順に3つまで）
+  let slash = null;       // 開いているとき { el: 行, start: / の位置, query, items, sel: 選んでいる番号 }
+  let slashBox = null;    // 浮いた箱（一度だけ作り、閉じたら外す）
+  const SLASH_HEADS = { recent: '最近使ったもの', types: 'ブロックの型' };
+  // 打つたびに見る: カーソルの前が行頭か空白の後の半角の / なら開く（EQ7）。Esc で閉じた / ではもう開かない
+  function slashCheck(el) {
+    const txt = el._txt;
+    const r = caretRange(txt);
+    const q = r && r[0] === r[1] ? slashQuery(txt.textContent.slice(0, r[0])) : { open: false };
+    const start = q.open ? r[0] - q.query.length - 1 : -1;
+    if (!q.open || el._slashOff === start) { if (!q.open) el._slashOff = -1; if (slash && slash.el === el) slashClose(); return; }
+    slashOpen(el, start, q.query);
+  }
+  function slashOpen(el, start, query) {
+    const items = slashFilter(query, slashRecent);
+    if (items === null) { if (slash && slash.el === el) slashClose(); return; }   // 当たりが無いまま3文字（EQ8）
+    const keep = slash && slash.el === el && slash.start === start ? slash.items[slash.sel] : null;
+    const sel = Math.max(0, keep ? items.findIndex((x) => x.id === keep.id && x.group === keep.group) : 0);
+    if (slash && slash.el !== el) slashClose();
+    slash = { el, start, query, items, sel };
+    slashRender();
+  }
+  function slashRender() {
+    const s = slash;
+    if (!slashBox) {
+      slashBox = document.createElement('div');
+      slashBox.className = 'slashmenu'; slashBox.id = 'slashMenu';
+      slashBox.setAttribute('role', 'listbox'); slashBox.setAttribute('aria-label', 'ブロックの型');
+      slashBox.onmousedown = (ev) => ev.preventDefault();   // 押してもフォーカスは行に残す（blur で閉じない）
+    }
+    slashBox.textContent = '';
+    if (!s.items.length) {
+      const n = document.createElement('div'); n.className = 'snone'; n.textContent = '当てはまる型がありません';
+      slashBox.appendChild(n);
+    }
+    let group = '';
+    s.items.forEach((it, i) => {
+      if (it.group && it.group !== group) {
+        group = it.group;
+        const h = document.createElement('div'); h.className = 'shead'; h.setAttribute('role', 'presentation'); h.textContent = SLASH_HEADS[group];
+        slashBox.appendChild(h);
+      }
+      const row = SLASH_ROWS.find((x) => x.id === it.id);
+      const o = document.createElement('div');
+      o.className = 'sopt'; o.id = `slashOpt${i}`; o.setAttribute('role', 'option');
+      o.setAttribute('aria-selected', i === s.sel ? 'true' : 'false');
+      o.dataset.key = it.id;
+      const lb = document.createElement('span'); lb.className = 'slabel'; lb.textContent = row.label;
+      o.appendChild(lb);
+      if (row.md.length) { const md = document.createElement('span'); md.className = 'smd'; md.textContent = row.md[0].trim(); o.appendChild(md); }
+      o.onclick = () => slashPick(i);
+      slashBox.appendChild(o);
+    });
+    const txt = s.el._txt;
+    if (s.items.length) txt.setAttribute('aria-activedescendant', `slashOpt${s.sel}`); else txt.removeAttribute('aria-activedescendant');
+    txt.setAttribute('aria-expanded', 'true');
+    const box = $('pNote');
+    slashBox.style.top = `${(s.el.offsetTop || 0) + (s.el.offsetHeight || 0)}px`;
+    slashBox.style.left = `${(s.el.offsetLeft || 0) + (txt.offsetLeft || 0)}px`;
+    if (slashBox.parentNode !== box) {
+      box.appendChild(slashBox);
+      // 開いたときに箱の全部が見える所まで捲る（行が窓の下の端に近いと、項目が窓の外に出る: ED-5 の撮った画像の確かめ）
+      if (typeof slashBox.scrollIntoView === 'function') slashBox.scrollIntoView({ block: 'nearest' });
+    }
+    const on = slashBox.querySelector('.sopt[aria-selected="true"]');
+    if (on && typeof on.scrollIntoView === 'function') on.scrollIntoView({ block: 'nearest' });
+  }
+  function slashClose(dismiss) {
+    if (!slash) return;
+    const txt = slash.el._txt;
+    if (dismiss) slash.el._slashOff = slash.start;
+    txt.removeAttribute('aria-activedescendant'); txt.removeAttribute('aria-expanded');
+    slash = null;
+    if (slashBox && slashBox.parentNode) slashBox.parentNode.removeChild(slashBox);
+  }
+  function slashMove(d) {
+    const n = slash.items.length;
+    if (!n) return;
+    slash.sel = (slash.sel + d + n) % n;
+    slashRender();
+  }
+  // 選ぶと / と打った語を消し、空の行は型を変え（block.turnInto）、文のある行は下に足す（block.insert）。選んだ鍵だけを覚える（EQ8 (b)）
+  async function slashPick(i) {
+    const s = slash;
+    const it = s && s.items[i];
+    if (!it) { slashClose(true); return null; }
+    slashClose();
+    const row = SLASH_ROWS.find((x) => x.id === it.id);
+    const el = s.el; const txt = el._txt; const b = el._b;
+    const t = txt.textContent;
+    const rest = t.slice(0, s.start) + t.slice(s.start + 1 + s.query.length);
+    txt.textContent = rest;
+    setCaret(txt, s.start);
+    slashRecent = recentAdd(slashRecent, it.id); saveUi({ slashRecent });
+    const pid = curId;
+    const below = (after) => editAnswer(pid, () => (row.level === undefined ? window.koeApp.blockInsert(pid, after, row.key) : window.koeApp.blockInsert(pid, after, row.key, row.level)),
+      (x) => ({ focus: x.blockId, caret: 0 }));
+    let out;
+    if (rest.trim() === '') out = await turnRow(el, row.key, row.level, 0);
+    else {
+      try { await txt._commit(pid); } catch (_) { /* 保存の失敗は _commit の答えで知らせる */ }
+      out = await below(b.id);
+    }
+    // 区切り線は文を持たないので、下にテキストの行を足して続けて打てるようにする（決めたこと 17）
+    if (out && row.key === 'divider' && pid === curId) {
+      const at = out.blockId || b.id;
+      await editAnswer(pid, () => window.koeApp.blockInsert(pid, at, 'paragraph'), (x) => ({ focus: x.blockId, caret: 0 }));
+    }
+    return out;
+  }
+  // ＋: 下にテキストの行を足し、その行で / メニューを開く（E1）
+  async function plusRow(el) {
+    const pid = curId; const b = el._b;
+    try { await el._txt._commit(pid); } catch (_) { /* 保存の失敗は _commit の答えで知らせる */ }
+    const out = await editAnswer(pid, () => window.koeApp.blockInsert(pid, b.id, 'paragraph'), (x) => ({ focus: x.blockId, caret: 0 }));
+    if (!out || pid !== curId) return out;
+    const ne = editRows().find((e) => e.dataset.id === out.blockId);
+    if (!ne) return out;
+    ne._txt.textContent = '/'; setCaret(ne._txt, 1);
+    slashOpen(ne, 0, '');   // 足した行で / メニューを開く
+    return out;
+  }
+  // 要約を書き直している途中か（EQ22 (a)・決めたこと 42）: 要約の欄の行の文にフォーカスがある・メニューが開いている・命令の答えを待っている
+  function summaryBusy() {
+    if (!curPage) return false;
+    if (pendingEdits > 0 || slash || blockMenu) return true;
+    const a = document.activeElement;
+    if (!a || !a.classList || !a.classList.contains('txt')) return false;
+    const box = $('pNote');
+    for (let n = a.parentNode; n; n = n.parentNode) if (n === box) return true;
+    return false;
+  }
+  // 2026-10-26 の持ち主の答え（点検6「書いている間は切り替えない（おすすめ）」）: 録音の前のページのメモ・種類の欄・題名にフォーカスがある
+  function readyBusy() {
+    if (!readyNow() || activeTab !== 'live') return false;
+    const a = document.activeElement;
+    for (let n = a; n; n = n.parentNode) if (n === $('pMemo') || n === $('pTypeRow') || n === $('pTitle')) return true;
+    return false;
+  }
+  // 保存した議事録のタブを、前に出さずに足す（録音中のタブはそのページのタブに替え、録音の前のページは残して末尾に足す）
+  function tabBehind(id) {
+    const key = `page:${id}`;
+    tabsTouched = true;
+    if (!hasTab(key)) {
+      const live = openTabs.findIndex((t) => t.key === 'live');
+      if (live >= 0 && !readyNow() && activeTab !== 'live') openTabs[live] = { key };
+      else openTabs.push({ key });
+    }
+    renderTabs(); saveTabs();
+  }
+  // ---------------- 0.13.0 ED-6（E1・決めたこと 24・EQ16 (a)）: ⠿ のメニュー（［削除］［複製］［変換 ▸］）。キーは「···」のメニュー（#pMenu）と同じ
+  // （↑↓・Home・End・Enter・Esc で ⠿ へ戻る・Tab で閉じる）。変換の中は型の表の名前で、文のある行では区切り線を選べない
+  let blockMenu = null;   // 開いているとき { el: 行, box: 浮いた箱, sub: 変換の箱か null }
+  function menuItems(list) { return [...list.querySelectorAll('.mitem')].filter((x) => x.parentNode === list); }
+  const isIn = (n, root) => { for (let x = n; x; x = x.parentNode) if (x === root) return true; return false; };
+  function menuStep(list, ev) {
+    const items = menuItems(list);
+    const i = items.indexOf(document.activeElement);
+    const j = ev.key === 'ArrowDown' ? (i + 1) % items.length : ev.key === 'ArrowUp' ? (i + items.length - 1) % items.length
+      : ev.key === 'Home' ? 0 : ev.key === 'End' ? items.length - 1 : -1;
+    if (j < 0) return false;
+    ev.preventDefault();
+    items[j].focus();
+    return true;
+  }
+  function menuItem(list, label, run, o = {}) {
+    const b = document.createElement('button');
+    b.type = 'button'; b.className = 'mitem'; b.setAttribute('role', 'menuitem'); b.textContent = label;
+    b.tabIndex = -1;
+    if (o.key) b.dataset.key = o.key;
+    if (o.sub) b.setAttribute('aria-haspopup', 'menu');
+    if (o.off) { b.setAttribute('aria-disabled', 'true'); b.classList.add('off'); b.title = o.off; }
+    b.onclick = () => { if (!o.off) run(); };
+    list.appendChild(b);
+    return b;
+  }
+  function blockMenuOpen(el) {
+    blockMenuClose();
+    if (!el || !el._b || !el._txt || el._txt.contentEditable !== 'true') return;
+    const box = document.createElement('div');
+    box.className = 'blockmenu'; box.setAttribute('role', 'menu'); box.setAttribute('aria-label', 'ブロックのメニュー');
+    blockMenu = { el, box, sub: null };
+    menuItem(box, '削除', () => blockMenuDo('remove'));
+    menuItem(box, '複製', () => blockMenuDo('duplicate'));
+    menuItem(box, '変換 ▸', () => blockMenuSub(true), { sub: true });
+    box.onkeydown = (ev) => {
+      if (imeEnter(ev)) return;
+      const m = blockMenu;
+      if (!m) return;
+      const list = m.sub && isIn(document.activeElement, m.sub) ? m.sub : box;
+      if (menuStep(list, ev)) return;
+      if (ev.key === 'Escape') {
+        ev.preventDefault();
+        if (list === m.sub) { blockMenuSub(false); return; }
+        blockMenuClose(true);
+      } else if (ev.key === 'Tab') blockMenuClose();
+      else if (ev.key === 'ArrowRight' && list === box && document.activeElement === menuItems(box)[2]) { ev.preventDefault(); blockMenuSub(true); }
+      else if (ev.key === 'ArrowLeft' && list === m.sub) { ev.preventDefault(); blockMenuSub(false); }
+      else if ((ev.key === 'Enter' || ev.key === ' ') && document.activeElement && document.activeElement.classList.contains('mitem')) { ev.preventDefault(); document.activeElement.onclick(); }
+    };
+    // 外を押したら閉じる（メニューの中へ移るフォーカスは残す）
+    box.addEventListener('focusout', () => setTimeout(() => { if (blockMenu && blockMenu.box === box && !isIn(document.activeElement, box)) blockMenuClose(); }, 0));
+    const grip = el.querySelector('.grip');
+    if (grip) grip.setAttribute('aria-expanded', 'true');
+    box.style.top = `${(el.offsetTop || 0) + (el.offsetHeight || 0)}px`;
+    box.style.left = `${el.offsetLeft || 0}px`;
+    $('pNote').appendChild(box);
+    if (typeof box.scrollIntoView === 'function') box.scrollIntoView({ block: 'nearest' });   // 箱の全部が見える所まで捲る（slashRender と同じ）
+    menuItems(box)[0].focus();
+  }
+  // 変換の中（型の表の名前）を開く・閉じる
+  function blockMenuSub(on) {
+    const m = blockMenu;
+    if (!m) return;
+    if (!on) { if (m.sub) { m.sub.remove(); m.sub = null; } menuItems(m.box)[2].setAttribute('aria-expanded', 'false'); menuItems(m.box)[2].focus(); return; }
+    if (!m.sub) {
+      const sub = document.createElement('div');
+      sub.className = 'blockmenu sub'; sub.setAttribute('role', 'menu'); sub.setAttribute('aria-label', '変換');
+      const hasText = m.el._txt.textContent.trim() !== '';
+      for (const r of SLASH_ROWS) {
+        menuItem(sub, r.label, () => blockMenuDo('turn', r), { key: r.id, off: r.key === 'divider' && hasText ? '文のある行は区切り線にできません' : '' });
+      }
+      m.box.appendChild(sub);
+      if (typeof sub.scrollIntoView === 'function') sub.scrollIntoView({ block: 'nearest' });
+      m.sub = sub;
+    }
+    menuItems(m.box)[2].setAttribute('aria-expanded', 'true');
+    menuItems(m.sub)[0].focus();
+  }
+  function blockMenuClose(back) {
+    const m = blockMenu;
+    if (!m) return;
+    blockMenu = null;
+    if (m.box.parentNode) m.box.parentNode.removeChild(m.box);
+    const grip = m.el.querySelector('.grip');
+    if (grip) { grip.setAttribute('aria-expanded', 'false'); if (back) grip.focus(); }
+  }
+  async function blockMenuDo(what, row) {
+    const m = blockMenu;
+    if (!m) return null;
+    const el = m.el; const b = el._b; const txt = el._txt;
+    blockMenuClose();
+    const pid = curId;
+    if (what === 'turn') return turnRow(el, row.key, row.level, txt.textContent.length);
+    if (what === 'duplicate') {
+      try { await txt._commit(pid); } catch (_) { /* 保存の失敗は _commit の答えで知らせる */ }
+      return editAnswer(pid, () => window.koeApp.blockDuplicate(pid, b.id), (x) => ({ focus: x.blockId, caret: txt.textContent.length }));
+    }
+    // 削除: フォーカスは上の行の終わり（無ければ下の行の頭）へ
+    const rows = editRows();
+    const i = rows.indexOf(el);
+    const near = rows[i - 1] || rows[i + 1] || null;
+    const where = near ? { focus: near.dataset.id, caret: near === rows[i - 1] ? near._txt.textContent.length : 0 } : null;
+    return editAnswer(pid, () => window.koeApp.blockRemove(pid, b.id), () => where);
+  }
+  // 行の近道（決めたこと 27〜29）: 型の変換・複製・上下へ動かす（ID で: 決めたこと 18）・ToDo のチェック・⠿ のメニュー
+  async function rowShortcut(el, act) {
+    const pid = curId; const b = el._b; const txt = el._txt;
+    const caret = (caretRange(txt) || [txt.textContent.length])[0];
+    if (act === 'menu') { blockMenuOpen(el); return null; }
+    if (act.startsWith('turn:')) {
+      const row = SLASH_ROWS.find((x) => x.id === act.slice(5));
+      if (!row || (b.type === row.key && (row.key !== 'heading' || headingLevel(b) === row.level))) return null;
+      return turnRow(el, row.key, row.level, caret);
+    }
+    if (act === 'ctrlEnter') {
+      if (b.type !== 'todo') return null;   // トグルの開閉は 0.13.1
+      return editAnswer(pid, () => window.koeApp.blockUpdate(pid, b.id, { checked: !b.checked }), () => ({ focus: b.id, caret }));
+    }
+    try { await txt._commit(pid); } catch (_) { /* 保存の失敗は _commit の答えで知らせる */ }
+    if (act === 'duplicate') return editAnswer(pid, () => window.koeApp.blockDuplicate(pid, b.id), (x) => ({ focus: x.blockId, caret }));
+    const rows = editRows();
+    const i = rows.indexOf(el);
+    let afterId = null;
+    if (act === 'moveUp' && i > 0) afterId = i >= 2 ? rows[i - 2].dataset.id : '';   // 1つ上の行の前（＝2つ上の行の後ろ）
+    if (act === 'moveDown' && i >= 0 && i < rows.length - 1) afterId = rows[i + 1].dataset.id;   // 1つ下の行の後ろ
+    if (afterId === null) return null;
+    return editAnswer(pid, () => window.koeApp.blockMove(pid, b.id, { afterId }), () => ({ focus: b.id, caret }));
+  }
+  // 番号付きの番号（描くときに数える: 画面の並びで続いた番号付き。間に別の型が入れば 1 から）。行を足し引きした後も数え直す
+  function renumberRows() {
+    const rows = [...$('pNote').querySelectorAll('.blk')];
+    const nums = numberLabels(rows.map((e) => e._b).filter(Boolean));
+    for (const e of rows) { const n = e.querySelector('.num'); if (n && e._b) n.textContent = nums.get(e._b.id) || '1.'; }
+  }
+  const blockRows = {
+    // 1つの行の要素を作る（文の欄と受け口は1回だけ）。lock は summaryLockView の符号（'' は鍵なし）
+    make(b, lock) {
       const el = document.createElement('div');
-      el.className = `blk ${b.type}` + (b.type === 'todo' && b.checked ? ' done' : '');
+      const txt = document.createElement('div');
+      txt.className = 'txt'; txt.contentEditable = lock ? 'false' : 'true'; txt.spellcheck = false;
+      txt.textContent = b.text;
+      el._txt = txt;
+      el.appendChild(txt);
+      if (!lock) wireRowText(el, txt);
+      blockRows.dress(el, b, lock);
+      return el;
+    },
+    // 型の見た目・つまみ・チェック・担当と期限・出典・削除を着せる（文の欄は替えない）
+    dress(el, b, lock) {
+      const txt = el._txt;
+      el._b = b;
+      // 0.13.0 ED-7（E5・決めたこと 5・6）: 見出しは段の class（段 2 は今の見た目のまま）。知らない型はテキストの見た目（文は出して直せる）
+      const vt = b.type === 'paragraph' || TYPED_VIEW.includes(b.type) ? b.type : 'paragraph';
+      el.className = `blk ${vt}` + (vt === 'heading' ? ` h${headingLevel(b)}` : '') + (b.type === 'todo' && b.checked ? ' done' : '');
+      if (!lock) {   // 区切り線は文の欄を持たない（フォーカスはできる）
+        txt.contentEditable = vt === 'divider' ? 'false' : 'true';
+        if (vt === 'divider') { txt.tabIndex = 0; txt.setAttribute('role', 'separator'); txt.setAttribute('aria-label', '区切り線'); txt.textContent = ''; }
+        else { txt.removeAttribute('tabindex'); txt.removeAttribute('role'); txt.removeAttribute('aria-label'); }
+      }
       el.dataset.id = b.id;
       if (lock) el.dataset.locked = '1';
+      for (const c of [...el.children]) if (c !== txt) el.removeChild(c);
 
       // 並べ替えハンドル。行全体を draggable にすると本文のテキスト選択と
       // 衝突するので、つまみを押している間だけドラッグできるようにする。
       const grip = document.createElement('span');
-      grip.className = 'grip'; grip.textContent = '⠿'; grip.title = 'ドラッグで並べ替え';
+      grip.className = 'grip'; grip.textContent = '⠿'; grip.title = 'ドラッグで並べ替え・押すとメニュー';
+      // 0.13.0 ED-6（決めたこと 24・25）: 押すと ⠿ のメニュー。メニューの Esc で戻れるようにフォーカスはできる（Tab の並びには入れない）
+      grip.tabIndex = -1; grip.setAttribute('role', 'button'); grip.setAttribute('aria-haspopup', 'menu');
+      if (!lock) grip.onclick = () => blockMenuOpen(el);
       grip.onmousedown = () => { el.draggable = true; };
       grip.onmouseup = () => { el.draggable = false; };
       el.ondragstart = (ev) => {
@@ -3113,9 +3869,17 @@
       };
       el.ondragend = () => {
         el.draggable = false; el.classList.remove('dragging');
-        dragBlockId = null; clearDropMarks(box);
+        dragBlockId = null; clearDropMarks($('pNote'));
       };
-      if (!lock) el.appendChild(grip);
+      if (!lock) el.insertBefore(grip, txt);
+      el.oncontextmenu = lock ? null : (ev) => { ev.preventDefault(); blockMenuOpen(el); };   // 右クリックでも同じメニュー
+      if (!lock) {
+        const plus = document.createElement('span');
+        plus.className = 'plus'; plus.textContent = '＋'; plus.title = '下に行を足す（/ で型を選べます）';
+        plus.onmousedown = (ev) => ev.preventDefault();
+        plus.onclick = () => plusRow(el);
+        el.insertBefore(plus, grip);
+      }
 
       if (b.type === 'todo') {
         const cb = document.createElement('input');
@@ -3124,49 +3888,26 @@
         cb.onchange = async () => {
           await window.koeApp.blockUpdate(curId, b.id, { checked: cb.checked });
           b.checked = cb.checked;
+          if (curPage) curPage.summaryEdited = true;   // 点検4: 要約の欄を直した印（DB も同じ命令で付ける）
           el.classList.toggle('done', cb.checked);
           refreshList();
         };
-        el.appendChild(cb);
+        el.insertBefore(cb, txt);
       } else if (b.type === 'bullet') {
         const d = document.createElement('span'); d.className = 'bullet'; d.textContent = '•';
-        el.appendChild(d);
+        el.insertBefore(d, txt);
+      } else if (b.type === 'numbered') {
+        const n = document.createElement('span'); n.className = 'num'; n.textContent = '1.';   // 数えた番号は renumberRows が入れる
+        el.insertBefore(n, txt);
+      } else if (b.type === 'callout') {
+        const ic = document.createElement('span'); ic.className = 'icon'; ic.textContent = CALLOUT_ICON;   // EQ15 (a): 絵文字は 💡 だけ
+        el.insertBefore(ic, txt);
       }
 
-      const txt = document.createElement('div');
-      txt.className = 'txt'; txt.contentEditable = lock ? 'false' : 'true'; txt.spellcheck = false;
-      txt.textContent = b.text;
       if (lock) {
-        el.appendChild(txt);
         renderLockedMeta(el, b);
-        box.appendChild(el);
-        continue;
+        return;
       }
-      // 保存は「編集を始めたページ」に対して行う。flushEdits（ページ切替・記録開始）
-      // からも呼ばれるので、pid を引数で受け、別のページへ移った後は画面を触らない。
-      txt._commit = (pid) => {
-        const v = txt.textContent.trim();
-        if (v === b.text) return;
-        b.text = v;
-        // 本文を変えたら出典との対応は古くなる。store も stale を付けるが、
-        // 次に pageGet するまでの間も札で示す。
-        if ((b.type === 'bullet' || b.type === 'todo') && b.citeState !== 'manual') { b.citeState = 'stale'; renderCiteBadge(el, b); }
-        window.koeApp.blockUpdate(pid, b.id, { text: v }).then(() => { if (pid === curId) refreshList(); });
-      };
-      txt.onblur = () => txt._commit(curId);
-      txt.onkeydown = async (ev) => {
-        if (imeEnter(ev)) return;   // 変換確定の Enter / 変換中の Backspace は編集操作にしない
-        if (ev.key === 'Enter') {
-          ev.preventDefault(); txt.blur();
-          const r = await window.koeApp.blockInsert(curId, b.id, b.type === 'heading' ? 'bullet' : b.type);
-          if (r) { await openPage(curId); focusBlock(r.blockId); }
-        } else if (ev.key === 'Backspace' && txt.textContent.trim() === '') {
-          ev.preventDefault();
-          await window.koeApp.blockRemove(curId, b.id);
-          await openPage(curId);
-        }
-      };
-      el.appendChild(txt);
 
       // 担当・期限（クリックで編集）
       if (b.type === 'todo') {
@@ -3199,9 +3940,61 @@
       del.className = 'del'; del.textContent = '×'; del.title = 'この行を削除';
       del.onclick = async () => { await window.koeApp.blockRemove(curId, b.id); await openPage(curId); };
       el.appendChild(del);
-
-      box.appendChild(el);
+    },
+  };
+  function renderBlocks() {
+    slashClose(); blockMenuClose();
+    const box = $('pNote'); box.textContent = '';
+    box.ondragover = (ev) => {
+      if (!dragBlockId) return;
+      ev.preventDefault();
+      ev.dataTransfer.dropEffect = 'move';
+      clearDropMarks(box);
+      const { idx, els } = dropIndexAt(box, ev.clientY);
+      if (!els.length) return;
+      if (idx < els.length) els[idx].classList.add('dropmark');
+      else els[els.length - 1].classList.add('dropmark-after');
+    };
+    box.ondrop = async (ev) => {
+      if (!dragBlockId) return;
+      ev.preventDefault();
+      const { idx, els } = dropIndexAt(box, ev.clientY);
+      const id = dragBlockId; dragBlockId = null;
+      clearDropMarks(box);
+      // 0.13.0 ED-6（決めたこと 18・F26・F46）: 落とした所の画面で上に見えている行の後ろへ（いちばん上なら頭: ''）。番号でなく行で頼むので、
+      // 0.11.0 の並べ替えて見せる要約でも上の行の節に入る。動かす前に、その行の打った文を保存する（決めたこと 11）
+      const afterId = idx > 0 ? els[idx - 1].dataset.id : '';
+      const pid = curId;
+      const row = [...box.querySelectorAll('.blk')].find((e) => e.dataset.id === id);
+      if (row && row._txt && typeof row._txt._commit === 'function') { try { await row._txt._commit(pid); } catch (_) { /* 保存の失敗は _commit の答えで知らせる */ } }
+      if (ev.altKey) {   // K-21: Alt を押しながら落とすと、その所へ複製（1つの命令）
+        await editAnswer(pid, () => window.koeApp.blockDuplicate(pid, id, afterId), (x) => ({ focus: x.blockId, caret: 0 }));
+        return;
+      }
+      await editAnswer(pid, () => window.koeApp.blockMove(pid, id, { afterId }), null);
+    };
+    // 0.10.0 LS-2: 鍵の間は欄の頭に一言を出し、要約の欄を読むだけにする（つまみ・削除の × を出さず、文・チェック・担当と期限を直せない）。
+    // 鍵の一言が要約待ちの文を含むので、鍵の間は要約の欄の理由（summaryError）を重ねて出さない
+    const lock = summaryLockView(curPage, { live: isLiveCopy(curPage), making: summarizing.has(curId) || mainMaking.has(curId), segments: curSegs });
+    if (lock) {
+      const n = document.createElement('div'); n.className = 'locknote'; n.id = 'sumLock'; n.textContent = SUMMARY_LOCK_VIEW_TEXT[lock];
+      box.appendChild(n);
+    } else if (curPage.summaryError) {
+      const n = document.createElement('div'); n.className = 'note'; n.textContent = curPage.summaryError;
+      box.appendChild(n);
     }
+    if (!curPage.blocks.length) {
+      const d = document.createElement('div'); d.className = 'empty';
+      d.innerHTML = lock ? '<div class="big">要約はまだありません</div>' : '<div class="big">要約はまだありません</div>右上の［要約を生成］で作成できます。';
+      box.appendChild(d); return;
+    }
+    // 水色の案内の帯はやめた（第1b2回 P-2）。案内の文は出典の札の title の最後の行にある
+
+    // 0.11.0 V-2（D48）: 画面の並び（保存の順は変えない）。点のカードは最後（決めたこと 28）
+    for (const b of orderForView(curPage.blocks).map((i) => curPage.blocks[i])) {
+      box.appendChild(blockRows.make(b, lock));
+    }
+    renumberRows();
     renderQualityCard(box);   // 0.11.0 V-2: 点のカードは要約の欄の最後（決めたこと 28）
   }
 
@@ -3345,6 +4138,7 @@
   // 混ざらないよう、各 commit は pid を閉じ込めて呼ぶ。
   function flushEdits() {
     const pid = curId;
+    slashClose(); blockMenuClose();   // 0.13.0 ED-5・ED-6（決めたこと 41）: ページを替える前にメニューを閉じる
     flushSegEdit();
     if (!pid || !curPage) return;
     flushMemo();
@@ -3696,6 +4490,11 @@
     return st.paused ? 'paused' : 'recording';
   }
   let mtSt = { active: false };   // 最後に受け取った会議の状態（記録中のタブを開き直すときに描く）
+  // 0.13.0 RDY-2（計画 docs/plans/2026-10-24-130.md の第2部）: 録音の前のページ（main の prep があって録音していない）。記録中のタブ（鍵 live）を使い回す
+  function readyNow() { return Boolean(mtSt && !mtSt.active && mtSt.prep); }
+  let readyWas = false;        // 最後に描いたとき録音の前のページだった
+  let readyEls = null;         // 録音の前の行の部品 { bar, start, local, note }（一度だけ作る。HTML には無い）
+  let readyStarting = false;   // ［文字起こしを始める］の答えを待っている（答えまで押せない: F81）
   let mtPhase = 'idle';
   let liveMemoWrap = null;        // 記録中のメモ欄（ページのメモ欄と取り違えない）
   let liveMemo = '';              // 記録中のメモの今の文字（タブを行き来して欄を作り直すときに戻す）
@@ -3818,6 +4617,30 @@
       }
     };
   }
+  // 記録中のメモ欄を作る（0.13.0 RDY-2 で drawLive から切り出した。録音の前のページ（drawReady）も同じ欄を使う: RD20）
+  function makeLiveMemo(st) {
+    const memoBox = $('pMemo');
+    memoBox.textContent = '';
+    const wrap = document.createElement('div'); wrap.className = 'field';
+    const l = document.createElement('label');
+    l.textContent = 'メモ・アジェンダ（要約のヒントとして使われます）';
+    const ta = document.createElement('textarea');
+    ta.rows = 10;
+    ta.value = liveMemo;
+    ta.placeholder = '例: 週次定例。議題: 売上見込み / 案件進捗 / 採用状況';
+    liveGuide = makeGuide();   // 0.11.0 V-1: メモ欄の上の手引き（手を付けていないときだけ）
+    fillGuide(liveGuide, liveMemo, $('pType').dataset.for === 'live' ? $('pType').value : (st.meetingType || ''));
+    ta.oninput = () => {
+      liveMemo = ta.value;
+      fillGuide(liveGuide, liveMemo, $('pType').dataset.for === 'live' ? $('pType').value : '');
+      if (!memoUntouched(liveMemo)) $('pTypeLiveHint').hidden = true;   // 人の文が入ったら一言を消す
+      clearTimeout(liveMemoTimer);
+      liveMemoTimer = setTimeout(() => { liveMemoTimer = null; window.koeApp.meetingSetMemo(ta.value); }, 500);
+    };
+    wrap.append(l, liveGuide, ta);
+    memoBox.appendChild(wrap);
+    liveMemoWrap = wrap;
+  }
   // 記録中のページの中身（要約の区画の案内・メモ・流れる文字起こしと印）
   function drawLive(st) {
     lockLiveTitle();
@@ -3826,28 +4649,8 @@
     // 記録中もメモを書けるようにする。ここで書いた内容は
     // 「会議メモ・アジェンダ」として要約のヒントに使われる。
     // 区間ごとに setMeetingUi が呼ばれるので、入力中を壊さないよう一度だけ作る。
-    const memoBox = $('pMemo');
     if (!liveMemoShown()) {
-      memoBox.textContent = '';
-      const wrap = document.createElement('div'); wrap.className = 'field';
-      const l = document.createElement('label');
-      l.textContent = 'メモ・アジェンダ（要約のヒントとして使われます）';
-      const ta = document.createElement('textarea');
-      ta.rows = 10;
-      ta.value = liveMemo;
-      ta.placeholder = '例: 週次定例。議題: 売上見込み / 案件進捗 / 採用状況';
-      liveGuide = makeGuide();   // 0.11.0 V-1: メモ欄の上の手引き（手を付けていないときだけ）
-      fillGuide(liveGuide, liveMemo, $('pType').dataset.for === 'live' ? $('pType').value : (st.meetingType || ''));
-      ta.oninput = () => {
-        liveMemo = ta.value;
-        fillGuide(liveGuide, liveMemo, $('pType').dataset.for === 'live' ? $('pType').value : '');
-        if (!memoUntouched(liveMemo)) $('pTypeLiveHint').hidden = true;   // 人の文が入ったら一言を消す
-        clearTimeout(liveMemoTimer);
-        liveMemoTimer = setTimeout(() => { liveMemoTimer = null; window.koeApp.meetingSetMemo(ta.value); }, 500);
-      };
-      wrap.append(l, liveGuide, ta);
-      memoBox.appendChild(wrap);
-      liveMemoWrap = wrap;
+      makeLiveMemo(st);
       // 文字起こしタブへ切り替えるのは記録中のページを開いたこの1回だけ。
       // 区間が届くたび（meeting:update）に切り替えると、メモを書いている
       // 最中に文字起こしタブへ引き戻されて書けない。
@@ -3904,7 +4707,15 @@
     // （記録中に一覧から過去の議事録を開くのは今までどおりできる。ページは別のタブで開く）
     if (st.active && !mtWasActive) mtLocalOnly = false;   // 新しい会議は送る側から（main の印も会議ごと）
     const started = Boolean(st.active && !mtWasActive);
-    if (started) { liveMemo = st.memo || ''; $('pType').dataset.for = ''; }   // 新しい会議は種類の行を「自動」から作り直す
+    // 0.13.0 RDY-3（RD6・RD8）: 録音の前のページから録音に替わった。メモ欄と種類の行はそのまま使い、欄の今の文が main と違えば送り直す
+    // （0.5 秒の送りの間に main の側から始まっても、打った最後の数文字を落とさない: F85）
+    const fromReady = started && readyWas;
+    const liveTa = liveMemoWrap ? liveMemoWrap.querySelector('textarea') : null;
+    const memoFocused = Boolean(liveTa && document.activeElement === liveTa);
+    if (fromReady) {
+      if (liveTa) liveMemo = liveTa.value;
+      if (liveMemo !== (st.memo || '')) { clearTimeout(liveMemoTimer); liveMemoTimer = null; window.koeApp.meetingSetMemo(liveMemo); }
+    } else if (started) { liveMemo = st.memo || ''; $('pType').dataset.for = ''; }   // 新しい会議は種類の行を「自動」から作り直す
     mtWasActive = Boolean(st.active);
     lockEngineFields(Boolean(st.active));
     // サイドバーの行はほかの行と同じ「アイコンの欄（.ic）＋文字」（文字がそろう）
@@ -3946,8 +4757,8 @@
         $('liveSkipBtn').onclick = skipPending;
         $('meetingLocalOnly').onclick = setLocalOnly;
         $('livePanelShow').onclick = () => { if (typeof window.koeApp.showPanel === 'function') window.koeApp.showPanel(); };
-        $('livePauseBtn').onclick = askPause;
-        $('liveStopBtn').onclick = toggleMeeting;
+        $('livePauseBtn').onclick = () => { if (!readyGuarded()) askPause(); };   // 0.13.0 RDY-3（RD10）: 始めた直後の守りの間は押せない
+        $('liveStopBtn').onclick = () => { if (!readyGuarded()) toggleMeeting(); };
         // 文字起こしの帯（第1d回 A-7・D17）は記録の行と一緒に作り、そのすぐ上に置く（会議が終われば一緒に外す）
         const hold = document.createElement('div');
         hold.innerHTML = '<div class="stt-banner" id="liveSttBanner" role="alert" hidden><span id="liveSttBannerText"></span>'
@@ -3980,6 +4791,10 @@
       if (started) {
         if (!hasTab('live')) openTabs.push({ key: 'live' });
         activateTab('live');   // 開いていたページを確定して閉じ、記録中の描き方で描く（activateTab → showLive）
+        if (fromReady) {
+          if (!memoFocused) setPane('script');   // RD6: メモを書いている途中なら［メモ］のまま（書いていなければ今どおり［文字起こし］へ1回だけ）
+          readyGuard();   // RD10: ［文字起こしを始める］の二度押しの2回目が、替わった記録の行のボタンに当たらない
+        }
       } else {
         if (phaseChanged) renderTabs();   // タブの名前（● 記録中 ／ ⏸ 一時停止中）
         if (liveShown()) drawLive(st);
@@ -3998,12 +4813,16 @@
       if (mtTimer) { clearInterval(mtTimer); mtTimer = null; }
       if (!st.finalizing) $('pProgress').style.display = 'none';
       // 記録中のメモ欄は片付ける。この後、作られたページ側の表示に切り替わる（page:open で記録中のタブをそのページのタブに替える）
-      if (!curId) $('pMemo').textContent = '';
-      liveMemoWrap = null;
+      // 0.13.0 RDY-2: 録音の前のページのメモ欄は残す（［＋ 新しい議事録］を2回押しても・種類を選んでも書いた文が消えない）
+      if (!st.prep) {
+        if (!curId) $('pMemo').textContent = '';
+        liveMemoWrap = null;
+      }
       if (phaseChanged) renderTabs();
       waveState.levels = []; waveState.at = 0;
       renderWave();   // 0.9.3 M-6: 録音が終わったら波を隠す
     }
+    renderReady(st);   // 0.13.0 RDY-2
   }
   // 記録中のタブを選んだ: 開いていたページを確定して閉じ、記録中の描き方で描く
   function showLive() {
@@ -4013,10 +4832,12 @@
       renderList(); renderPage();
     }
     showSection('notes');
-    lockLiveTitle();
+    lockLiveTitle(readyNow() ? '新しい議事録' : undefined);
     const live = $('liveBar');
     if (live) live.hidden = false;
+    if (readyEls) readyEls.bar.hidden = !readyNow();
     if (mtSt.active) drawLive(mtSt);
+    else if (readyNow()) drawReady(mtSt);   // 0.13.0 RDY-2
     renderSttBanner();
     renderQuietAsk();
     renderWave();   // 0.9.3 M-6
@@ -4024,12 +4845,133 @@
   }
   // 記録中のページの題名は「記録中の会議」で編集できない（打った文字は保存先が無く黙って消えるため。G10）。
   // ページに替わると renderPage が live-on を外し、題名を編集できる形に戻す
-  function lockLiveTitle() {
+  // 0.13.0 RDY-2（RD5）: 録音の前のページは同じ関数で「新しい議事録」（直せない）
+  function lockLiveTitle(text = '記録中の会議') {
     const t = $('pTitle');
-    t.textContent = '記録中の会議';
+    t.textContent = text;
     t.setAttribute('contenteditable', 'false');
     $('pIcon').hidden = false;
     $('pageWrap').classList.add('live-on');
+  }
+
+  // ---------------- 0.13.0 RDY-2（計画 docs/plans/2026-10-24-130.md の第2部 RD1・RD2・RD5〜RD7・RD9〜RD11・RD14・RD18・RD20）: 録音の前のページ
+  const READY_GUARD_MS = 1000;   // RD10: 始めた直後に一時停止・停止を押せない間（Windows の既定のダブルクリックの間合い 500 ms の倍）
+  let readyGuardUntil = 0;
+  const readyGuarded = () => Date.now() < readyGuardUntil;
+  // 0.13.0 RDY-3（RD10・F82）: 録音の前のページから始めた直後の 1 秒は［⏸ 一時停止］と［■ 終了して作成］を押せなくする
+  function readyGuard() {
+    readyGuardUntil = Date.now() + READY_GUARD_MS;
+    const set = (on) => { for (const id of ['livePauseBtn', 'liveStopBtn']) { const b = $(id); if (b) b.disabled = on; } };
+    set(true);
+    setTimeout(() => set(false), READY_GUARD_MS);
+  }
+  // RT5・RT6（NQ4 と続きの答え）。案内の文で、法の同意の仕組みではない（RD9）
+  const READY_NOTE = {
+    cloud: '始めると、録音と文字起こしに参加者全員が同意したものとみなされます。音声は文字起こしのため OpenAI に送られます。',
+    local: '始めると、録音と文字起こしに参加者全員が同意したものとみなされます。文字起こしはこの PC の中で行います。',
+  };
+  const READY_SCRIPT_TEXT = '［文字起こしを始める］を押すと、ここに文字起こしが流れます。';   // RT9
+  const READY_CLOSE_ASK = 'この議事録はまだ録音していません。書いたメモは残りません。閉じますか？';   // RT10
+  // 会議のブロックの頭（丸いタブの前）に行を置く（録音の前の行が使う。#liveBar の2行は変えない: RD20）
+  function blockHead(el) {
+    const box = document.querySelector('.mblock');
+    box.insertBefore(el, box.querySelector('.ptabs'));
+  }
+  // サイドバーの［＋ 新しい議事録］: 録音の前のページを開くだけ（録音しない: RD1）。もうあればそのタブへ移るだけ
+  async function openReady() {
+    let r = null;
+    try { r = await window.koeApp.meetingPrepare(); } catch (_) { r = null; }
+    if (!r || r.ok === false) { setMeetingUi(await window.koeApp.meetingStatus()); return; }
+    setMeetingUi(await window.koeApp.meetingStatus());
+    if (!readyNow()) return;
+    tabsTouched = true;
+    if (!hasTab('live')) openTabs.push({ key: 'live' });
+    await activateTab('live');   // 開いていたページを確定して閉じる（showLive の flushEdits）。フォーカスはサイドバーのボタンに残す（F83）
+  }
+  // 録音の前の行（#readyBar。.live と同じ形）: 左に状態の文、右の端に［オフラインモードで始める］（クラウドの PC だけ）と青い［文字起こしを始める］、下に同意と送り先の文
+  // 行は一度だけ作り、録音の前のページでないときは隠す（作り直すと押そうとしたボタンが消える。#liveBar と同じ考え）
+  function renderReady(st) {
+    if (st.active || !st.prep) {
+      if (readyEls) readyEls.bar.hidden = true;
+      readyWas = false;
+      return;
+    }
+    if (!readyWas) { liveMemo = st.prep.memo || ''; $('pType').dataset.for = ''; liveMemoWrap = null; }   // 新しい録音の前のページは空のメモと「自動」から
+    if (!readyEls) {
+      const bar = document.createElement('div'); bar.className = 'live'; bar.id = 'readyBar';
+      bar.innerHTML = '<span id="readyState">録音していません</span>'
+        + '<button class="ghost" id="readyLocalBtn" type="button" hidden>オフラインモードで始める</button>'
+        + '<button class="action" id="readyStartBtn" type="button">文字起こしを始める</button>'
+        + '<div class="desc" id="readyNote"></div>';
+      blockHead(bar);
+      readyEls = { bar, start: bar.querySelector('#readyStartBtn'), local: bar.querySelector('#readyLocalBtn'), note: bar.querySelector('#readyNote') };
+      readyEls.start.onclick = () => startFromPage(false);
+      readyEls.local.onclick = () => startFromPage(true);
+    }
+    readyEls.local.hidden = !st.cloud;
+    readyEls.note.textContent = st.cloud ? READY_NOTE.cloud : READY_NOTE.local;
+    setReadyBusy(readyStarting);
+    readyEls.bar.hidden = !liveShown();
+    const first = !readyWas;
+    readyWas = true;
+    if (first) renderTabs();   // 記録中のタブの名前（新しい議事録）
+    if (liveShown()) drawReady(st);
+  }
+  function setReadyBusy(on) {
+    if (!readyEls) return;
+    readyEls.start.disabled = on;
+    readyEls.local.disabled = on;
+  }
+  // 録音の前のページの中身（記録中のページと同じ部品: 題名・種類の行・メモ欄。RD7・RD20）。［メモ］のタブで開く（RD6）
+  function drawReady(st) {
+    lockLiveTitle('新しい議事録');
+    const p = { meetingType: st.prep ? st.prep.meetingType : null };
+    if ($('pType').dataset.for !== 'live') renderLiveTypeRow(p);
+    $('pNote').innerHTML = '<div class="empty"><div class="big">会議を終えると、ここに要約が入ります。</div></div>';
+    if (!liveMemoShown()) {
+      makeLiveMemo(p);
+      setPane('memo');
+    }
+    curSegs = [];
+    const box = $('pScript'); box.textContent = '';
+    const d = document.createElement('div'); d.className = 'empty'; d.textContent = READY_SCRIPT_TEXT;
+    box.appendChild(d);
+  }
+  // ［文字起こしを始める］・［オフラインモードで始める］: 待っているメモの送りを止めて今の文を先に送り、始めるだけの口を呼ぶ（RD2・RD11）。
+  // 答えまで2つのボタンを押せない（F81）。断られたら左下に出してボタンを戻し、ページはそのまま（RD18）
+  async function startFromPage(pcOnly) {
+    if (readyStarting) return;
+    readyStarting = true;
+    setReadyBusy(true);
+    clearTimeout(liveMemoTimer); liveMemoTimer = null;
+    const ta = liveMemoWrap ? liveMemoWrap.querySelector('textarea') : null;
+    if (ta) liveMemo = ta.value;
+    let r = null;
+    try {
+      await window.koeApp.meetingSetMemo(liveMemo);
+      r = await window.koeApp.meetingStart({ pcOnly: pcOnly === true });
+    } catch (_) { r = null; }
+    readyStarting = false;
+    if (!r || r.ok === false) {
+      setReadyBusy(false);
+      const err = (r && r.error) || '議事録を開始できません';
+      toast(err);
+      if (/未設定/.test(err)) showEngineSettings();
+      return;
+    }
+    setMeetingUi(await window.koeApp.meetingStatus());
+  }
+  // 録音の前のタブを閉じる（RD14・NQ5 (a)）: 手を付けていないメモなら黙って、人の文があれば確かめてから。閉じないなら false
+  function closeReady() {
+    const ta = liveMemoWrap ? liveMemoWrap.querySelector('textarea') : null;
+    if (ta) liveMemo = ta.value;
+    if (!memoUntouched(liveMemo) && !confirm(READY_CLOSE_ASK)) return false;
+    clearTimeout(liveMemoTimer); liveMemoTimer = null;
+    window.koeApp.meetingUnprepare();
+    mtSt = { ...mtSt, prep: null };
+    renderReady(mtSt);
+    liveMemo = ''; liveMemoWrap = null;
+    return true;
   }
 
   // 録音中のページの文字起こしの状態の行と帯（第1d回 A-7・D17）。main の meetingStatus().stt（A-6）をそのまま描く。
@@ -4173,7 +5115,8 @@
     if (r && r.ok === false && r.error) { toast(r.error); if (/未設定/.test(r.error)) showEngineSettings(); }
     setMeetingUi(await window.koeApp.meetingStatus());
   }
-  $('mtToggleBtn').onclick = toggleMeeting;
+  // 0.13.0 RDY-2（RD1）: 録音していないときは録音の前のページを開くだけ（録音中は今どおり［■ 終了して作成］）
+  $('mtToggleBtn').onclick = () => (mtSt && mtSt.active ? toggleMeeting() : openReady());
   $('mtDiscardBtn').onclick = async () => {
     if (!confirm('この議事録の録音を破棄します。よろしいですか？')) return;
     await window.koeApp.meetingDiscard();
@@ -4200,7 +5143,15 @@
   });
   window.koeApp.onPagesUpdated(() => refreshList());
   // main が開かせるページ（会議を終えた・知らせを押した）。記録中のタブがあればそれをページのタブに替え、無ければページのタブで開く
-  window.koeApp.onPageOpen((id) => { openPageTab(id, { replaceLive: true }); });
+  // 0.13.0 RDY-3（RD13）: 受けはこの1か所。記録中のタブが録音の前のページなら置き換えずに新しいタブで開く（次の会議の準備を消さない: F86）
+  function pageOpenFromMain(id, o) {
+    // 0.13.0 ED-5（EQ22 (a)・決めたこと 42）: 保存した印の page:open は、要約を書き直している途中なら前に出さない（タブだけを替える・足す）
+    if (o && o.saved === true && summaryBusy()) { tabBehind(id); return; }
+    if (o && o.saved === true && readyBusy()) { tabBehind(id); return; }   // 点検6: 録音の前のページに書いている間も前に出さない（後ろのタブに足す）
+    if (readyNow()) { openPageTab(id, { newTab: true }); return; }
+    openPageTab(id, { replaceLive: true });
+  }
+  window.koeApp.onPageOpen((id, o) => pageOpenFromMain(id, o));
   // ---------------- 0.10.0 LN-4（D72・決めたこと 145・146）: リンクで開く ----------------
   // できるのはページを開いて捲ることだけ（読む口 pageGet のほかを呼ばない: test/repo.test.js が字面で見る）。録音中は別のタブで開く
   // （録音・要約・下書きには触らない）。無いページ（ゴミ箱・消した・録音中の写し）と印の発言が無いときは左下に知らせる
@@ -5308,6 +6259,11 @@
     await refreshList();
     renderPage();
     setMeetingUi(await window.koeApp.meetingStatus());
+    // 0.13.0 RDY-3（RD15）: 画面を読み直したとき main に録音の前のページがあれば、記録中のタブを録音の前の形で戻す（選ぶのはほかに選んでいるタブが無いときだけ）
+    if (readyNow() && !hasTab('live')) {
+      openTabs.push({ key: 'live' });
+      if (!activeTab) activateTab('live', { save: false }); else renderTabs();
+    }
     // 詳細設定のパスが空でも、取り込んだ文字起こしの組がそろっていれば連れて行かない（そのエンジンを使う。第0b回）。
     // 0.9.0 U-3（F4・D21・決めたこと 9）: オフラインの準備を選んでいない人は連れて行かない。ただしログインしていなければ設定の「アカウント」を開く
     //（中継でしか文字起こしできないので、ログインが唯一の行動。エンジンの文は出さない）。選んだ人（chosen が真か無い）は 0.8.0 のまま

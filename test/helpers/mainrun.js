@@ -169,6 +169,7 @@ const { titleAt } = require('./titles');
 //     --claude-auth=<method> … 偽の claude の auth status が返す authMethod（FAKE_CLAUDE_AUTH。既定 claude.ai）
 //     --set-type-live=<鍵|auto>[,…] … 0.11.0 M-4: 録音中（最初の区間の後）に meeting:set-type を呼ぶ（--live-memo=<文> があれば先に meeting:set-memo）
 //     --quality=<all|on|off> … 0.11.0 Q-3: 設定 qualityScore。--resum-quality=<…> … 要約の後にその設定にして［要約を再生成］（out.qualityBefore・out.resum）
+//     --resum-after-edit … 0.13.0 点検4: 要約の後に画面の役で行を1つ消して［要約を再生成］（out.editedBefore・out.resumEdit・out.editedAfter）
 //     --legacy-general … 0.11.0 P-12: 要約の後、ページを前の版で手で一般・その他を選んだ形（meetingType 'general'・typeAuto 偽）にして［要約を再生成］（out.legacyGeneral）
 //     --claude-stdin … 0.12.0 SP-4: 偽の claude の記録に標準入力の全文（stdinText）を書かせる（--claude と一緒に使う）
 //     --sum-md=<名前> … 0.11.0 M-3: 偽の claude が返す要約の Markdown を test/fixtures/summaries/<名前>.md にする（--claude と一緒に使う）
@@ -398,6 +399,7 @@ const { titleAt } = require('./titles');
 //                        ["dictate"]（音声入力のホットキーで録音を始める）・["dictate-cancel"]（録音バーの取り消し）・["save", 足す設定]（settings:save）・
 //                        ["ipc", 名前, ...引数]（handle なら待って答えを out.ipc に、on なら送るだけ）・["theme", dark]（偽の nativeTheme を変えて updated）・
 //                        ["live", bool]（画面の meeting:live-shown）・["quit"]（before-quit と will-quit）・["snap", 名前]（その時の見張りの数などを out.snaps に）・
+//                        （0.13.0 ED-5: snap に escape（Escape が全体のホットキーか）・["focus-main"]・["blur-main"]（本体の窓の focus・blur））・
 //                        0.9.4 D-1: ["hotkey-meeting"]（会議のホットキー）・["tray-start"]（トレイの［議事録の記録を開始］）・["bar-stop"]（録音バーの［停止］）・["finish"]（止めた後の最後の空の区間を送り、idle に戻るのを待つ）。
 //                        ["wait-show", n]（パネルの窓の showInactive が n 回になるまで待つ）・["cursor", x, y]（偽のカーソル）・["minimize"]（本体の窓を最小化して minimize）。
 //                        snap には録音バーへ聞いた overlay:level-ask の数（asks）も入る（M-5）
@@ -411,6 +413,10 @@ const { titleAt } = require('./titles');
 //     --mic-feed の手順に足す: ["pause", bool]（画面と同じ meeting:set-paused。偽の録音バーが答える）・["click-notice", n]（n 番目に show() した偽の Notification を押す）・
 //                        ["discard"]（画面と同じ meeting:discard）・["db-fail", cmd]（main の客の次の1回のその命令を断る。点検の直し 3）。snap に sentN（本体の窓へ送った数）・notes（偽の Notification の数）。出力に notifications（{ title, body, closed }）・
 //                        notifyClosed・pageDur（ページごとの { id, durationSec, pauses }）を足す
+//   0.13.0 RDY-1（録音の前のページ。計画 docs/plans/2026-10-24-130.md の第2部）
+//     --mic-feed の snap に足す: drafts（下書きのファイルの名前）・draft（最初の下書きの { memo, meetingType }。無ければ null）・dbSent（main の客が
+//                        送った・呼んだ DB の命令の名前。中身は入れない）・status（meeting:status の { active, prep }。prep の欄が無ければ 'none'）。
+//                        出力に pageMemos（ページごとの { id, memo, meetingType }）を足す
 //     --quiet-mic … --quiet-seq の場面でも偽の見張りを起こし、字 T（見張りに mic teams:1）・L（mic -）を足す（どちらも偽の時計を 2 秒進める。Ruling R2）
 //   0.10.0 C-2（Claude デスクトップへの MCP の登録。計画 docs/plans/2026-10-20-100.md）
 //     app.getPath('appData') は一時フォルダ（日本語と 𠮷）の AppData-Roaming。MCP の場面（--claude-config・--mcp-steps）だけ app.getAppPath() がリポジトリの根
@@ -2164,6 +2170,9 @@ process.on('exit', () => {
   // 終わるときは DB の客を閉じてから（子の close でチェックポイントして natsu.db を離す）。結果はもう書いてある
   const exitClean = async (code) => {
     try { if (dbClient) await dbClient.close({ timeoutMs: 2000 }); } catch (_) { /* 閉じられなくても終える */ }
+    // 0.13.0（ED-7 の全体のテストの赤で見つけた: 0.12.0 の SP-3a・F25 の出力の JSON が 120155 文字目で切れた）: 管（pipe）の標準出力は書き切れない分を
+    // 後で書くので、書き終わる前に process.exit すると、親が混んで読むのが遅いときに出力が切れる。先に書いた分が出たのを待ってから終える
+    await new Promise((r) => process.stdout.write('', () => r()));
     process.exit(code);
   };
   // 第2a1回 M-3: 下書きを書くたび・消すたびを trace に残す（main は store.writeDraft・store.clearDraft を呼ぶたびに引く）。
@@ -2475,7 +2484,7 @@ process.on('exit', () => {
       blocks: (page.blocks || []).map((b) => ({ type: b.type, cites: Array.isArray(b.cites) ? b.cites.length : 0 })),
       todos: (page.blocks || []).filter((b) => b.type === 'todo').map((b) => ({ text: b.text, assignee: b.assignee || '', due: b.due || '', dueRaw: b.dueRaw || '' })),
       // 0.11.0 M-3: 要約のブロックの文と印（足すだけ。上の blocks の形は変えない）
-      sumBlocks: (page.blocks || []).map((b) => ({ type: b.type, text: b.text, mark: b.mark, unconfirmed: b.unconfirmed, citeState: b.citeState, cites: Array.isArray(b.cites) ? b.cites.length : 0 })),
+      sumBlocks: (page.blocks || []).map((b) => ({ type: b.type, text: b.text, mark: b.mark, unconfirmed: b.unconfirmed, citeState: b.citeState, cites: Array.isArray(b.cites) ? b.cites.length : 0, ...(b.level !== undefined ? { level: b.level } : {}) })),   // 0.13.0 ED-3: 見出しの段
       autoType: page.autoType, autoSlot: page.autoSlot, quality: page.quality, stateLog: page.stateLog, memo: page.memo,
       // 0.11.0 Q-3: 画面の役で読んだ qualityView（DB が作る欄）・DB の行に qualityView が書かれていないか
       viewQuality: await (async () => { try { const g = await appCall('page.get', { id: p.id }); return g && g.page ? g.page.qualityView : undefined; } catch (_) { return undefined; } })(),
@@ -2995,7 +3004,20 @@ process.on('exit', () => {
       else if (k === 'quit') { appEvents.emit('before-quit', { preventDefault() {} }); appEvents.emit('will-quit', {}); await sleep(30); }
       else if (k === 'wait-show') await waitFor(() => nudgeWins.length > 0 && nudgeWins[0].nudge.calls.filter((c) => c === 'showInactive').length >= a[0], 5000);
       else if (k === 'minimize') { wins[1].minimized = true; wins[1].emit('minimize'); await sleep(15); }
-      else if (k === 'snap') out.snaps[a[0]] = { spawns: micSpawns.length, kills: micKills, active: isActive(), nudgeCalls: nudgeWins.length ? nudgeWins[0].nudge.calls.length : 0, asks: overlayAsks(), sentN: mainSentAll.length, notes: notifications.length };
+      else if (k === 'snap') {
+        out.snaps[a[0]] = { spawns: micSpawns.length, kills: micKills, active: isActive(), nudgeCalls: nudgeWins.length ? nudgeWins[0].nudge.calls.length : 0, asks: overlayAsks(), sentN: mainSentAll.length, notes: notifications.length };
+        // 0.13.0 RDY-1: 下書きのファイルの名前と最初の下書きのメモと種類・DB へ送った命令の名前（中身は入れない）・meeting:status の active と prep
+        const drafts = store.draftFiles();
+        const d0 = drafts.length ? store.readDraftFile(drafts[0]) : null;
+        const dv = d0 && d0.state === 'ok' && d0.value ? d0.value : null;
+        const st = handlers['meeting:status']();
+        Object.assign(out.snaps[a[0]], { drafts, draft: dv ? { memo: dv.memo, meetingType: dv.meetingType === undefined ? null : dv.meetingType } : null,
+          dbSent: trace.filter((t) => t.kind === 'call' || t.kind === 'send').map((t) => t.cmd), status: { active: Boolean(st.active), prep: st.prep === undefined ? 'none' : st.prep } });
+        // 0.13.0 ED-5（RF9・決めたこと 32）: その時に Escape が全体のホットキーに付いているか
+        out.snaps[a[0]].escape = registered.has('Escape');
+      }
+      // 0.13.0 ED-5（RF9）: 本体の窓へ focus・窓から blur（偽の窓の isFocused を合わせてから事象を出す。--main-unfocused と組む）
+      else if (k === 'focus-main' || k === 'blur-main') { const mw = wins[1]; mw.focused = k === 'focus-main'; mw.emit(k === 'focus-main' ? 'focus' : 'blur'); await sleep(15); }
       // 0.12.1 LV-3: 一時停止（画面と同じ meeting:set-paused。偽の録音バーが答える）・n 番目の偽の Windows の知らせを押す
       else if (k === 'pause') { out.ipc.push(['pause', await handlers['meeting:set-paused']({}, Boolean(a[0]))]); await sleep(40); }
       else if (k === 'click-notice') { const n = noticeObjs[a[0]]; if (n) n.emit('click', {}); await sleep(30); }
@@ -3015,6 +3037,8 @@ process.on('exit', () => {
       // 0.12.1 LV-3: 偽の Windows の知らせ（閉じたか）・議事録の所要時間と一時停止の印
       notifications: noticeObjs.map((n) => ({ title: n.o.title, body: n.o.body, closed: Boolean(n.closed) })), notifyClosed,
       pageDur: store.listPages().map((p) => { const pg = store.getPage(p.id) || {}; return { id: p.id, durationSec: pg.durationSec, pauses: pg.pauses || [] }; }),
+      // 0.13.0 RDY-1: 議事録のページのメモと種類
+      pageMemos: store.listPages().map((p) => { const pg = store.getPage(p.id) || {}; return { id: p.id, memo: pg.memo, meetingType: pg.meetingType === undefined ? null : pg.meetingType }; }),
     });
     process.stdout.write(`\n${JSON.stringify(out)}\n`);
     await exitClean(0);
@@ -3503,6 +3527,15 @@ process.on('exit', () => {
     out.qualityBefore = (store.getPage(store.listPages()[0].id) || {}).quality;
     await handlers['settings:save']({}, { qualityScore: flagVal('--resum-quality') });
     out.resum = await handlers['page:summarize']({}, store.listPages()[0].id);
+  }
+  // 0.13.0 点検4（2026-10-26 の持ち主の答え）: 要約の後に画面の役で行を1つ消し（ページの印 summaryEdited が付く）、［要約を再生成］すると印が消える（--resum-after-edit）
+  if (flags.includes('--resum-after-edit') && store.listPages().length) {
+    const id = store.listPages()[0].id;
+    const pg = (await appCall('page.get', { id })).page;
+    await appCall('block.remove', { pageId: id, blockId: pg.blocks[pg.blocks.length - 1].id });
+    out.editedBefore = (await appCall('page.get', { id })).page.summaryEdited;
+    out.resumEdit = await handlers['page:summarize']({}, id);
+    out.editedAfter = (await appCall('page.get', { id })).page.summaryEdited;
   }
   // 0.11.0 P-12（R4）: 前の版で手で一般・その他を選んだページにして（page.put で attrs を書く）、［要約を再生成］（--legacy-general）
   if (flags.includes('--legacy-general') && store.listPages().length) {

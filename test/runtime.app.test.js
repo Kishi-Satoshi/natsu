@@ -326,8 +326,9 @@ test('日本語入力の変換確定 Enter は、要点・担当チップ・タ�
   txt.textContent = '';
   txt.dispatchEvent({ type: 'keydown', key: 'Backspace', keyCode: 229 });
   await l.drain();
-  assert.deepStrictEqual(l.called('blockInsert'), [], '変換確定の Enter で行が追加される');
-  assert.deepStrictEqual(l.called('blockRemove'), [], '変換中の Backspace で行が消える');
+  // 0.13.0 ED-4（意図して変えた）: Enter は blockSplit、行頭の Backspace は blockMerge か blockTurnInto になった。変換中はどれも走らない
+  for (const m of ['blockSplit', 'blockInsert']) assert.deepStrictEqual(l.called(m), [], `変換確定の Enter で行が分かれる（${m}）`);
+  for (const m of ['blockMerge', 'blockTurnInto', 'blockRemove']) assert.deepStrictEqual(l.called(m), [], `変換中の Backspace で行がつながる・消える（${m}）`);
   // 担当チップ: Enter で確定して入力欄がボタンに戻る。変換中は戻らない
   const who = ブロック(l, 't1').querySelector('.atag');
   // 最小DOMに replaceWith が無いので、ここだけ本物と同じ動きを補う
@@ -389,6 +390,12 @@ test('要約の生成中は、page:updated で描き直されてもボタンが�
   const l = await 開いた({ pageSummarize: () => new Promise((r) => { done = r; }) });
   const btn = () => l.byId.get('pActs').querySelectorAll('button').find((b) => /要約/.test(b.textContent) || /生成中/.test(b.textContent));
   btn().dispatchEvent({ type: 'click' });
+  await l.drain();
+  // 0.13.0 ED-8（計画 docs/plans/2026-10-24-130.md の EQ4 (a)・Ruling R33）で意図して変えた: 見本のページの行の型（h2・li・p）は AI の4つの型でないので
+  // 「人が直した行がある要約」として作り直す前に確かめが出る。［作り直す］を押してから二重押しを見る（見たいことは同じ）
+  const ask = l.document.querySelector('.askbox');
+  assert.ok(ask, '書き直した要約なのに確かめが出ない');
+  ask.querySelectorAll('button').find((b) => b.textContent === '作り直す').dispatchEvent({ type: 'click' });
   await l.drain();
   assert.strictEqual(l.called('pageSummarize').length, 1);
   l.fire('onPageUpdated', { page: clone(PAGE), segments: clone(STANDUP_SEGMENTS) });

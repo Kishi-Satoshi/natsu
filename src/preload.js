@@ -8,7 +8,9 @@ const { contextBridge, ipcRenderer } = require('electron');
 // 書く頼みには 'a:' + crypto.randomUUID() の tx を付ける（sandbox の preload は Node のモジュールを読まないので Web の crypto）。
 // 口が来る前の頼みは待たせて、口が来たら送る。口が閉じるか main から 'db:lost' が来たら、送った読む頼みはすぐ retry で返し、
 // 書く頼みは新しい口で同じ tx のまま送り直す（DB が (役, tx) で1回だけ効かせる）。口が無いまま 30 秒たてば retry で返す。
-const APP_COMMANDS = new Set(['pages.list', 'pages.searchFull', 'pages.actionView', 'page.get', 'page.setTitle', 'page.setMemo', 'page.setType', 'page.delete', 'block.update', 'block.insert', 'block.remove', 'block.move', 'block.setAction', 'segment.update']);
+// 0.13.0 ED-2（計画 docs/plans/2026-10-24-130.md の決めたこと 14）: 要約の編集の命令（分割・結合・型の変換・複製）を足した（18）
+const APP_COMMANDS = new Set(['pages.list', 'pages.searchFull', 'pages.actionView', 'page.get', 'page.setTitle', 'page.setMemo', 'page.setType', 'page.delete', 'block.update', 'block.insert', 'block.remove', 'block.move', 'block.setAction', 'segment.update',
+  'block.split', 'block.merge', 'block.turnInto', 'block.duplicate']);
 const DB_READS = new Set(['pages.list', 'pages.searchFull', 'pages.actionView', 'page.get']);
 const DB_WAIT_MS = 30000;
 let dbPort = null;
@@ -182,14 +184,26 @@ contextBridge.exposeInMainWorld('koeApp', {
   pageSetMemo: (id, memo) => dbCall('page.setMemo', { id, memo }),
   pageSummarize: (id) => ipcRenderer.invoke('page:summarize', id),
   blockUpdate: (pageId, blockId, patch) => dbCall('block.update', { pageId, blockId, patch }),
-  blockInsert: (pageId, afterBlockId, type) => dbCall('block.insert', { pageId, afterBlockId, type }),
+  blockInsert: (pageId, afterBlockId, type, level) => dbCall('block.insert', level === undefined ? { pageId, afterBlockId, type } : { pageId, afterBlockId, type, level }),
   blockRemove: (pageId, blockId) => dbCall('block.remove', { pageId, blockId }),
-  blockMove: (pageId, blockId, toIndex) => dbCall('block.move', { pageId, blockId, toIndex }),
+  // 0.13.0 ED-2: 3つ目が { afterId } なら「その行の後ろへ」（'' は頭）、数なら今の toIndex
+  blockMove: (pageId, blockId, to) => dbCall('block.move', to && typeof to === 'object' ? { pageId, blockId, afterId: to.afterId } : { pageId, blockId, toIndex: to }),
+  // 0.13.0 ED-2: 分割（text は画面の今の文・at は分ける位置）・結合（text は今の行の文）・型の変換（level は見出しの段）・複製（afterId は Alt で落とした所）
+  // （点検8）5つ目の afterId は文のある行の頭で上に足す行の置き場（画面で上に見えている行。'' は頭）
+  blockSplit: (pageId, blockId, text, at, afterId) => dbCall('block.split', afterId === undefined ? { pageId, blockId, text, at } : { pageId, blockId, text, at, afterId }),
+  blockMerge: (pageId, blockId, text) => dbCall('block.merge', { pageId, blockId, text }),
+  blockTurnInto: (pageId, blockId, type, level) => dbCall('block.turnInto', level === undefined ? { pageId, blockId, type } : { pageId, blockId, type, level }),
+  blockDuplicate: (pageId, blockId, afterId) => dbCall('block.duplicate', afterId === undefined ? { pageId, blockId } : { pageId, blockId, afterId }),
   hotkeyState: () => ipcRenderer.invoke('hotkey:state'),
   segmentUpdate: (pageId, segId, patch) => dbCall('segment.update', { pageId, segId, patch }),
 
   // 議事録セッション
   meetingToggle: () => ipcRenderer.invoke('meeting:toggle'),
+  // 0.13.0 RDY-2（計画 docs/plans/2026-10-24-130.md の第2部 RD1・RD2・RD14）: 録音の前のページを開く・閉じる・始めるだけ（DB の命令でないので APP_COMMANDS に入れない）。
+  // 始める口は { pcOnly: true } のほかを渡さない（きっかけの符号は main が決める）
+  meetingPrepare: () => ipcRenderer.invoke('meeting:prepare'),
+  meetingUnprepare: () => ipcRenderer.invoke('meeting:unprepare'),
+  meetingStart: (o) => ipcRenderer.invoke('meeting:start', o && o.pcOnly === true ? { pcOnly: true } : {}),
   meetingDiscard: () => ipcRenderer.invoke('meeting:discard'),
   meetingStatus: () => ipcRenderer.invoke('meeting:status'),
   meetingSetMemo: (memo) => ipcRenderer.invoke('meeting:set-memo', memo),
@@ -247,7 +261,11 @@ contextBridge.exposeInMainWorld('koeApp', {
   onMeetingLevel: (cb) => ipcRenderer.on('meeting:level', (_e, p) => cb(p)),
   onMeetingProgress: (cb) => ipcRenderer.on('meeting:progress', (_e, p) => cb(p)),
   onPagesUpdated: (cb) => ipcRenderer.on('pages:updated', (_e, p) => cb(p)),
-  onPageOpen: (cb) => ipcRenderer.on('page:open', (_e, id) => cb(id)),
+  // 0.13.0 ED-5（EQ22 (a)）: ID の文字（前に出す）か { id, saved }（締めの保存の印）。2つ目は照らした真偽の1つだけ。形の違う値は渡さない
+  onPageOpen: (cb) => ipcRenderer.on('page:open', (_e, v) => {
+    if (typeof v === 'string') cb(v, { saved: false });
+    else if (v && typeof v === 'object' && typeof v.id === 'string') cb(v.id, { saved: v.saved === true });
+  }),
   onPageUpdated: (cb) => ipcRenderer.on('page:updated', (_e, p) => cb(p)),
   onEngineFetchProgress: (cb) => ipcRenderer.on('engine:fetch-progress', (_e, s) => cb(s)),
 });
