@@ -1288,3 +1288,27 @@ test('ED-4・点検5: 空白の後ろで Enter（前の文が「来週の 」）
     } finally { l.done(); }
   }
 });
+
+// 点検3（作り手が決めた。文書と作りの食い違い）: 行の頭の記法は、作り（mdCheck・shortcutFor）のとおり文のある行の頭でも変わる。区切り線だけ何も書いていない行
+test('ED-8・点検3: 記事「要約を書き直す」の行の頭の記法は、後ろに文がある行でも変わると書き、区切り線だけ何も書いていない行と書く。画面も文のある行の頭の「- 」で箇条書きになり文は残り、「---」は文のある行では変わらない', T, async () => {
+  const art = fs.readFileSync(path.join(__dirname, '..', 'help', 'articles', 'summary', 'edit-summary.md'), 'utf8');
+  const sec = art.slice(art.indexOf('{#markdown}'), art.indexOf('{#handles}'));
+  assert.ok(!sec.includes('何も書いていない行の頭'), '記法は何も書いていない行だけと書いている（作りは文のある行の頭でも変わる）');
+  assert.ok(sec.includes('後ろに文がある行でも'), sec);
+  assert.ok(sec.includes('| `---` | 区切り線（何も書いていない行だけ。'), sec);
+  const l = await openReal({ pa1: BASE() });
+  try {
+    let t = typeIn(l, 'p1', '- あいうえお', 2);
+    t.dispatchEvent({ type: 'input' });
+    await l.drain();
+    assert.deepStrictEqual(sent(l), [['blockTurnInto', 'pa1', 'p1', 'bullet']]);
+    assert.strictEqual(txtOf(l, 'p1').textContent, 'あいうえお');
+    assert.deepStrictEqual([l.page().blocks[2].type, l.page().blocks[2].text], ['bullet', 'あいうえお']);
+    t = typeIn(l, 'b1', '---来週に出す', 3);
+    t.dispatchEvent({ type: 'input' });
+    await l.drain();
+    assert.deepStrictEqual(sent(l), [['blockTurnInto', 'pa1', 'p1', 'bullet']]);
+    assert.strictEqual(t.textContent, '---来週に出す');
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
