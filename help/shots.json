@@ -11,8 +11,7 @@
     "/release-notes/"
   ],
   "schemes": [
-    "light",
-    "dark"
+    "light"
   ],
   "widths": [
     1280,

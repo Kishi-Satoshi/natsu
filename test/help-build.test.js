@@ -800,10 +800,12 @@ test('R7: help/shots.json の CSS の指紋が、今の help/assets/*.css の指
   }
   assert.ok(Object.keys(now).length >= 2);
   assert.deepStrictEqual(shots.css, now, 'CSS が撮った後に変わった。node tools/help-shots.js で撮り直し、写真を見てから help/shots.json を commit する');
-  // 撮った組: ホーム・分類（record）・記事（record/pc-only）と試験利用の手順 × 明暗 × 1280 と 390
+  // 撮った組: ホーム・分類（record）・記事（record/pc-only）と試験利用の手順 × 明るい版 × 1280 と 390
   // help-relnotes RN-7: リリースノートのページも撮る（5 ページ）
+  // help-light HL-3: ヘルプは明るい版だけなので、暗い配色では撮らない（撮っても明るい版と同じ。5 ページ × 2 幅 = 10 枚）
   assert.deepStrictEqual(shots.pages, ['/', '/record/', '/record/pc-only/', '/start/tester-guide/', '/release-notes/']);
-  assert.deepStrictEqual(shots.schemes, ['light', 'dark']);
+  assert.deepStrictEqual(shots.schemes, ['light']);
+  assert.deepStrictEqual(require('../tools/help-shots').SCHEMES, ['light'], 'help-shots.js が暗い配色でも撮る');
   assert.deepStrictEqual(shots.widths, [1280, 390]);
 });
 
