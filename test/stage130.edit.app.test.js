@@ -338,7 +338,8 @@ test('ED-4: テキストの行の頭で Backspace → blockMerge の1回（前�
     ev = l.key({ key: 'Backspace' }, t);
     await l.drain();
     assert.strictEqual(ev.defaultPrevented, true);
-    assert.deepStrictEqual(sent(l), [['blockMerge', 'pa1', 'p1', 'あいうえおか']]);
+    // 0.13.1 NE-4a で意図して変えた（TQ1: 持ち主の答え「画面で上に見えている行（おすすめ）」）: つなぐ先（画面で上に見えている行）を intoId で送る
+    assert.deepStrictEqual(sent(l), [['blockMerge', 'pa1', 'p1', 'あいうえおか', 'b1']]);
     assert.deepStrictEqual(rowsOf(l).map((e) => e.dataset.id), ['h1', 'b1', 'e1']);
     assert.strictEqual(txtOf(l, 'b1').textContent, '来週に出すあいうえおか');
     assert.strictEqual(l.document.activeElement, txtOf(l, 'b1'));

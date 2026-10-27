@@ -516,11 +516,15 @@
   /* 画面の外のブロックは描かない（2,000 ブロックのページを開く速さ。content-visibility の見積もりは本文1行の約 30px で、一度描いた行は
      auto で本当の高さを覚える）。描くのを省く仕組みは中身を枠で切るので、ボタンの Tab の輪（線 2px＋離れ 2px）が切れないよう切る線を 8px 外へ出す */
   .blk { content-visibility: auto; contain-intrinsic-size: auto 30px; overflow-clip-margin: 8px; }
+  /* 0.13.1 NE-4a（NR15）: 入れ子の行は平らな行の並びのまま、段ごとに左の余白 24px（＋・⠿・文の並びは段を変えても同じ） */
+  #pNote .blk { --depth: 0; margin-left: calc(var(--depth, 0) * 24px); }   /* .blk.callout の margin より強く。--depth は行ごとに描くときに置く */
   /* 点字の6点(U+283F)を使う。「⋮⋮」を字間で詰める方法は環境によって
      3点に見えていた。 */
   .blk .grip { opacity: 0; flex: none; cursor: grab; color: var(--muted); user-select: none;
     line-height: 24px; font-size: 13px; padding: 0 2px; }
   .blk:hover .grip { opacity: .55; }
+  /* 0.13.1 NE-4a（NR17・決めたこと 25）: 行の中の Esc で ⠿ にフォーカスが乗ったら、乗せたときと同じ濃さと枠で見せる */
+  .blk .grip:focus-visible { opacity: .55; outline: 2px solid var(--accent); outline-offset: 1px; border-radius: 4px; }
   .blk.dragging { opacity: .35; }
   /* 落とす位置の線。影は浮く部品だけに使うので、上下の余白 3px のうち 2px を線に替える（高さは変わらない） */
   .blk.dropmark { border-top: 2px solid var(--accent); padding-top: 1px; }
@@ -3156,6 +3160,54 @@
     go(blocks);
     return out;
   }
+  // 0.13.1 NE-4a（計画 docs/plans/2026-10-27-131.md の決めたこと 9・12・NR15）: 木の決まりの写し（src/blockTree.js の kidsCan・isToggle・isOpenStored・
+  // aiSectionHead・locate・canIndent・visibleOrder。test/stage131.nest.app.test.js が同じ表で照らす）
+  function kidsCanView(b) {   // 型の表の「子を持てる」: トグルでない見出しと区切り線は持てない（知らない型はテキストの見た目なので持てる）
+    if (!b || typeof b !== 'object') return true;
+    if (b.type === 'heading') return b.toggle === true;
+    return b.type !== 'divider';
+  }
+  function isToggleView(b) {
+    return Boolean(b) && typeof b === 'object' && (b.type === 'toggle' || (b.type === 'heading' && b.toggle === true));
+  }
+  function isOpenStored(b) {   // TQ4: open の無いトグルは開いている
+    return !isToggleView(b) || b.open !== false;
+  }
+  function aiSectionHead(b) {   // TQ2: AI の節の見出し（citeState の無い、トグルでない見出し）は子にしない
+    return Boolean(b) && typeof b === 'object' && b.type === 'heading' && b.toggle !== true && b.citeState === undefined;
+  }
+  function locate(blocks, id) {
+    const go = (list, parent, depth) => {
+      if (!Array.isArray(list)) return null;
+      for (let index = 0; index < list.length; index++) {
+        const b = list[index];
+        if (!b || typeof b !== 'object') continue;
+        if (b.id === id) return { b, list, index, parent, depth };
+        const r = go(b.children, b, depth + 1);
+        if (r) return r;
+      }
+      return null;
+    };
+    return go(blocks, null, 0);
+  }
+  function canIndent(blocks, id) {
+    const l = locate(blocks, id);
+    if (!l || l.index === 0) return false;
+    if (aiSectionHead(l.b)) return false;
+    return kidsCanView(l.list[l.index - 1]);
+  }
+  function visibleOrder(blocks, openView) {
+    const out = [];
+    const go = (list, depth, parentId) => {
+      for (const b of Array.isArray(list) ? list : []) {
+        if (!b || typeof b !== 'object') continue;
+        out.push({ b, depth, parentId });
+        if (openView(b)) go(b.children, depth + 1, b.id);
+      }
+    };
+    go(blocks, 0, null);
+    return out;
+  }
   // 打ち合わせの質の写しの行（quality.qualityLines の写し。repo が照らす）。view は main の qualityView（照らした写し）だけ
   function qualityLinesView(view) {
     if (!view) return [];
@@ -3330,10 +3382,12 @@
   function applyEditAnswer(pid, page, where) {
     if (pid !== curId || !curPage || !page || page.id !== curId) return;   // 決めたこと 41: 送ったページがもう開いていなければ描かない
     const box = $('pNote');
-    const view = (list) => orderForView(list).map((i) => list[i]);
+    // 0.13.1 NE-4a（NR15）: 見えている行の並び（最上位は画面の順・子は親のすぐ後ろ・閉じたトグルの子は描かない）で比べる
     const blocks = Array.isArray(page.blocks) ? page.blocks : [];
-    const oldView = view(curPage.blocks);
-    const newView = view(blocks);
+    const oldRows = viewRows(curPage.blocks);
+    const newRows = viewRows(blocks);
+    const oldView = oldRows.map((r) => r.b);
+    const newView = newRows.map((r) => r.b);
     curPage.blocks = blocks;
     if (page.summaryEdited === true) curPage.summaryEdited = true;   // 点検4: 要約の欄を直した印（［要約を再生成］の前に確かめる）
     if (page.rev !== undefined) curPage.rev = page.rev;
@@ -3341,19 +3395,23 @@
     const rows = new Map([...box.querySelectorAll('.blk')].map((e) => [e.dataset.id, e]));
     const lock = summaryLockView(curPage, { live: isLiveCopy(curPage), making: summarizing.has(curId) || mainMaking.has(curId), segments: curSegs });
     const focused = [...rows.values()].find((e) => e._txt && e._txt === document.activeElement);
+    // 0.13.1 NE-4a（NR15）: 段か親が変わった行があれば（字下げ・中へ動かす・開け閉め）並びが動いたのと同じ
+    const wasAt = new Map(oldRows.map((r) => [r.b.id, `${r.depth}|${r.parentId || ''}`]));
+    const regrown = newRows.some((r) => wasAt.has(r.b.id) && wasAt.get(r.b.id) !== `${r.depth}|${r.parentId || ''}`);
     // 鍵・空の欄・節が変わる操作（並びが動く）は欄全体を描き直す（0.11.0 の並べ替えて見せる要約）
-    if (lock || !oldView.length || !newView.length || rows.size !== oldView.length || plan.some((o) => o.op === 'move')) {
+    if (lock || !oldView.length || !newView.length || rows.size !== oldView.length || regrown || plan.some((o) => o.op === 'move')) {
       const keep = where || (focused ? { focus: focused.dataset.id, caret: (caretRange(focused._txt) || [0])[0] } : null);
       renderBlocks();
       if (keep) focusRow(keep.focus, keep.caret);
       return;
     }
-    const byId = new Map(blocks.map((b) => [b.id, b]));
+    const byId = new Map(flattenBlocks(blocks).map((b) => [b.id, b]));
+    const placeOf = new Map(newRows.map((r) => [r.b.id, r]));
     for (const o of plan) {
       const el = rows.get(o.id);
       if (o.op === 'remove') { if (el) el.remove(); rows.delete(o.id); }
       else if (o.op === 'add') {
-        const ne = blockRows.make(byId.get(o.id), '');
+        const ne = blockRows.make(byId.get(o.id), '', placeOf.get(o.id).depth, placeOf.get(o.id).parentId);
         box.insertBefore(ne, box.querySelectorAll('.blk')[o.at] || box.querySelector('.qcard'));
         rows.set(o.id, ne);
       } else if (o.op === 'update' && el) {
@@ -3362,7 +3420,7 @@
           blockRows.dress(el, nb, '');
           if (el._txt.textContent !== String(nb.text ?? '')) el._txt.textContent = String(nb.text ?? '');
         } else {
-          const ne = blockRows.make(nb, '');
+          const ne = blockRows.make(nb, '', placeOf.get(o.id).depth, placeOf.get(o.id).parentId);
           box.insertBefore(ne, el); el.remove(); rows.set(o.id, ne);
         }
       }
@@ -3389,6 +3447,50 @@
     const r = caretRange(txt);
     return r ? r[0] === 0 && r[1] === 0 : txt.textContent === '';
   }
+  // ---------------- 0.13.1 NE-4a（計画 docs/plans/2026-10-27-131.md の決めたこと 7・9・12〜14・16。NR8・NR13・NR15・NR17・TQ1・TQ3）
+  // 見えている開け閉め（NE-4b で覗き開きを足す: NR18）
+  function openView(b) {
+    return isOpenStored(b);
+  }
+  // 見えている行の並び → [{ b, depth, parentId }]（最上位は orderForView の順・子は親のすぐ後ろに保存の順・閉じたトグルの子は描かない: NR15）
+  function viewRows(blocks) {
+    const list = Array.isArray(blocks) ? blocks : [];
+    return visibleOrder(orderForView(list).map((i) => list[i]), openView);
+  }
+  const rowDepth = (el) => Number(el && el.dataset.depth) || 0;
+  // 子が見えている行か（TQ3: 開いたトグル・子のある行。終わりの Enter の新しい行は最初の子）
+  function kidsShown(b) {
+    if (!kidsCanView(b) || !openView(b)) return false;
+    return isToggleView(b) || (Array.isArray(b.children) && b.children.length > 0);
+  }
+  // 字下げ（E10・EQ17 (a)）: in は前の兄弟の子の末尾へ・out は親のすぐ後ろへ。できないときは何もしない。打った文を先に保存（決めたこと 11）
+  async function indentRow(el, dir) {
+    const pid = curId; const b = el._b; const txt = el._txt;
+    const l = locate(curPage.blocks, b.id);
+    if (!l || (dir === 'in' ? !canIndent(curPage.blocks, b.id) : !l.parent)) return null;
+    const caret = (caretRange(txt) || [txt.textContent.length])[0];
+    try { await txt._commit(pid); } catch (_) { /* 保存の失敗は _commit の答えで知らせる */ }
+    return editAnswer(pid, () => window.koeApp.blockIndent(pid, b.id, dir), () => ({ focus: b.id, caret }));
+  }
+  // NR17: ⠿ から Tab で、要約の欄の行（.blk）の中を飛ばして、文書の順で次の部品へ。隠れた所（hidden・開いていない pane と tab）は飛ばす
+  function focusAfterRows(from) {
+    const all = [];
+    const hiddenBox = (n) => n.hidden || (n.classList && (n.classList.contains('pane') || n.classList.contains('tab')) && !n.classList.contains('active'))
+      || (typeof n.getClientRects === 'function' && n.getClientRects().length === 0 && n.tagName !== 'BODY');
+    const walk = (n) => { for (const c of n.children || []) { if (hiddenBox(c)) continue; all.push(c); walk(c); } };
+    walk(document.body);
+    const tab = (e) => {
+      if (e.disabled || (e.closest && e.closest('.blk'))) return false;
+      const ti = e.getAttribute && e.getAttribute('tabindex');
+      if (ti !== null && ti !== undefined && Number(ti) < 0) return false;
+      const tag = String(e.tagName || '').toUpperCase();
+      if (['BUTTON', 'INPUT', 'SELECT', 'TEXTAREA'].includes(tag)) return e.tabIndex === undefined || e.tabIndex >= 0;
+      if (tag === 'A' && e.getAttribute('href')) return true;
+      return (ti !== null && ti !== undefined) || e.contentEditable === 'true';
+    };
+    const next = all.slice(all.indexOf(from) + 1).find(tab);
+    if (next) next.focus();
+  }
   // Enter（決めたこと 16・17）: 今の文とカーソルの位置を block.split の1つの命令で送る（EQ5 (a): 空の箇条書き・ToDo・番号付きはテキストに戻す）
   async function splitRow(el) {
     const pid = curId; const b = el._b; const txt = el._txt;
@@ -3397,7 +3499,10 @@
     const r = caretRange(txt);
     if (r && r[1] > r[0]) text = text.slice(0, r[0]) + text.slice(r[1]);
     const at = safeOffset(text, r ? r[0] : text.length);
-    if (['bullet', 'todo', 'numbered'].includes(b.type) && text.trim() === '') return turnRow(el, 'paragraph', undefined, 0);
+    if (['bullet', 'todo', 'numbered'].includes(b.type) && text.trim() === '') {
+      if (rowDepth(el) > 0) return indentRow(el, 'out');   // 0.13.1 EQ5 (a): 字下げされた空のリストは、まず1段戻す
+      return turnRow(el, 'paragraph', undefined, 0);
+    }
     // 答えを待つ間に blur の保存（_commit）が同じ文を重ねて送らないよう、画面は先に分けた前の文にする（断られたら戻す）
     // 2026-10-26 の持ち主の答え（点検1）: 文のある行の頭では DB が上に空の行を足す。今の行の文はそのままで、カーソルも今の行の頭に残す
     const top = at === 0 && text !== '';
@@ -3405,9 +3510,15 @@
     if (!top) txt.textContent = text.slice(0, at);
     b.text = top ? text : text.slice(0, at);   // 点検5: DB と同じく分けた前の文を削らない（削ると、答えの後の blur が削った文を送り直して oplog が2行になる）
     // 2026-10-27 の持ち主の答え（点検8）: 上の空の行は画面で上に見えている行の後ろへ（いちばん上なら頭: ''。block.move の afterId と同じ）
+    // 0.13.1 NR8: 入れ子の行では同じ親の、今の行のすぐ前の兄弟の後ろ（いなければ ''）。最上位は画面で上に見えている最上位の行
     const rows = top ? editRows() : [];
     const i = rows.findIndex((e) => e.dataset.id === b.id);
-    const args = top ? [pid, b.id, text, at, i > 0 ? rows[i - 1].dataset.id : ''] : [pid, b.id, text, at];
+    let afterId = '';
+    if (top && rowDepth(el) > 0) { const l = locate(curPage.blocks, b.id); afterId = l && l.index > 0 ? l.list[l.index - 1].id : ''; }
+    else if (top) { for (let j = i - 1; j >= 0; j--) if (rowDepth(rows[j]) === 0) { afterId = rows[j].dataset.id; break; } }
+    // 0.13.1 TQ3（持ち主の答え「すぐ下に出し、トグルは開いて作る（おすすめ）」）: 子が見えている行では、新しい行は最初の子
+    const inside = !top && kidsShown(b);
+    const args = top ? [pid, b.id, text, at, afterId] : inside ? [pid, b.id, text, at, undefined, true] : [pid, b.id, text, at];
     const out = await editAnswer(pid, () => window.koeApp.blockSplit(...args), (x) => ({ focus: top ? b.id : x.blockId, caret: 0 }));
     if (!out && el._b === b) { b.text = was; if (pid === curId) txt.textContent = text; }
     return out;
@@ -3415,12 +3526,17 @@
   // 行頭の Backspace（EQ6 (a)）: 型の付いた行はテキストに戻す。テキストの行は今の文ごと前の行につなぐ（block.merge の1つの命令）
   async function backRow(el) {
     const pid = curId; const b = el._b; const txt = el._txt;
+    if (rowDepth(el) > 0) return indentRow(el, 'out');   // 0.13.1 EQ6 (a): 字下げされた行は、まず1段戻す（型も文も変えない）
     if (isTypedView(b)) return turnRow(el, 'paragraph', undefined, 0);
-    if (curPage.blocks.findIndex((x) => x.id === b.id) <= 0) return null;   // 頭の行はつなぐ先が無い
+    // 0.13.1 TQ1（持ち主の答え「画面で上に見えている行（おすすめ）」）: 画面で上に見えている行につなぐ。頭の行はつなぐ先が無い
+    const rows = editRows();
+    const i = rows.indexOf(el);
+    if (i <= 0) return null;
+    const intoId = rows[i - 1].dataset.id;
     const text = txt.textContent;
     const was = b.text;
     b.text = text.trim();
-    const out = await editAnswer(pid, () => window.koeApp.blockMerge(pid, b.id, text), (x) => ({ focus: x.blockId, caret: x.at }));
+    const out = await editAnswer(pid, () => window.koeApp.blockMerge(pid, b.id, text, intoId), (x) => ({ focus: x.blockId, caret: x.at }));
     if (!out && el._b === b) b.text = was;
     return out;
   }
@@ -3488,6 +3604,10 @@
         if (ev.key === 'Escape') { ev.preventDefault(); slashClose(true); return; }
         if (ev.key === 'Tab') slashClose(true);
       }
+      // 0.13.1 NE-4a（E10・EQ17 (a)・決めたこと 13）: Tab は字下げ・Shift+Tab は1段戻す。できないときも既定の Tab（次の部品へ）は止める
+      if (ev.key === 'Tab' && !mod) { ev.preventDefault(); indentRow(el, ev.shiftKey ? 'out' : 'in'); return; }
+      // 0.13.1 NR17（決めたこと 25）: Esc で文を確定し、この行の ⠿ へ（そこから Tab で欄の外へ）
+      if (ev.key === 'Escape' && !mod) { ev.preventDefault(); txt._commit(curId); const g = el.querySelector('.grip'); if (g) g.focus(); return; }
       if (ev.key === 'Enter' && !mod && ev.shiftKey) { ev.preventDefault(); typeAtCaret(txt, '\n'); }   // 行の中の改行（命令は送らない）
       else if (ev.key === 'Enter' && !mod) { ev.preventDefault(); splitRow(el); }
       else if (ev.key === 'Backspace' && !mod && !ev.shiftKey && caretAtStart(txt)) { ev.preventDefault(); backRow(el); }
@@ -3833,24 +3953,38 @@
     }
     try { await txt._commit(pid); } catch (_) { /* 保存の失敗は _commit の答えで知らせる */ }
     if (act === 'duplicate') return editAnswer(pid, () => window.koeApp.blockDuplicate(pid, b.id), (x) => ({ focus: x.blockId, caret }));
-    const rows = editRows();
-    const i = rows.indexOf(el);
-    let afterId = null;
-    if (act === 'moveUp' && i > 0) afterId = i >= 2 ? rows[i - 2].dataset.id : '';   // 1つ上の行の前（＝2つ上の行の後ろ）
-    if (act === 'moveDown' && i >= 0 && i < rows.length - 1) afterId = rows[i + 1].dataset.id;   // 1つ下の行の後ろ
-    if (afterId === null) return null;
-    return editAnswer(pid, () => window.koeApp.blockMove(pid, b.id, { afterId }), () => ({ focus: b.id, caret }));
+    // 0.13.1 NR13: 子は同じ親の兄弟の中だけで1つ上・下へ（親の外へ出す・中へ入れるのは Tab と Shift+Tab）。最上位は画面の最上位の並びで（0.13.0 のまま）
+    let to = null;
+    const l = locate(curPage.blocks, b.id);
+    if (l && l.parent) {
+      if (act === 'moveUp' && l.index > 0) to = l.index >= 2 ? { afterId: l.list[l.index - 2].id } : { afterId: '', parentId: l.parent.id };
+      if (act === 'moveDown' && l.index < l.list.length - 1) to = { afterId: l.list[l.index + 1].id };
+    } else {
+      const tops = editRows().filter((e) => rowDepth(e) === 0);
+      const i = tops.indexOf(el);
+      if (act === 'moveUp' && i > 0) to = { afterId: i >= 2 ? tops[i - 2].dataset.id : '' };   // 1つ上の行の前（＝2つ上の行の後ろ）
+      if (act === 'moveDown' && i >= 0 && i < tops.length - 1) to = { afterId: tops[i + 1].dataset.id };   // 1つ下の行の後ろ
+    }
+    if (to === null) return null;
+    return editAnswer(pid, () => window.koeApp.blockMove(pid, b.id, to), () => ({ focus: b.id, caret }));
   }
   // 番号付きの番号（描くときに数える: 画面の並びで続いた番号付き。間に別の型が入れば 1 から）。行を足し引きした後も数え直す
+  // 0.13.1 NE-4a（F50）: 親ごとに数える（同じ data-parent の行が兄弟の並び。閉じたトグルの子は描かないので数えない）
   function renumberRows() {
     const rows = [...$('pNote').querySelectorAll('.blk')];
-    const nums = numberLabels(rows.map((e) => e._b).filter(Boolean));
+    const groups = new Map();
+    for (const e of rows) { const k = e.dataset.parent || ''; if (!groups.has(k)) groups.set(k, []); if (e._b) groups.get(k).push(e._b); }
+    const nums = new Map();
+    for (const list of groups.values()) for (const [k, v] of numberLabels(list)) nums.set(k, v);
     for (const e of rows) { const n = e.querySelector('.num'); if (n && e._b) n.textContent = nums.get(e._b.id) || '1.'; }
   }
   const blockRows = {
     // 1つの行の要素を作る（文の欄と受け口は1回だけ）。lock は summaryLockView の符号（'' は鍵なし）
-    make(b, lock) {
+    // 0.13.1 NE-4a（NR15）: depth・parentId は段と親（data-depth・data-parent と段の左の余白 --depth）
+    make(b, lock, depth = 0, parentId = '') {
       const el = document.createElement('div');
+      el.dataset.depth = String(depth); el.dataset.parent = parentId || '';
+      if (typeof el.style.setProperty === 'function') el.style.setProperty('--depth', String(depth));   // 段の左の余白（style を持たない偽の DOM でも描ける）
       const txt = document.createElement('div');
       txt.className = 'txt'; txt.contentEditable = lock ? 'false' : 'true'; txt.spellcheck = false;
       txt.textContent = b.text;
@@ -3883,6 +4017,13 @@
       // 0.13.0 ED-6（決めたこと 24・25）: 押すと ⠿ のメニュー。メニューの Esc で戻れるようにフォーカスはできる（Tab の並びには入れない）
       grip.tabIndex = -1; grip.setAttribute('role', 'button'); grip.setAttribute('aria-haspopup', 'menu');
       if (!lock) grip.onclick = () => blockMenuOpen(el);
+      // 0.13.1 NR17（決めたこと 25・EQ17 (a)）: ⠿ で Tab は欄の外の次の部品へ（行の文に入らない）・Shift+Tab は［AI 要約］のタブ・Esc は行の文へ・Enter と Space はメニュー
+      if (!lock) grip.onkeydown = (ev) => {
+        if (imeEnter(ev)) return;
+        if (ev.key === 'Tab') { ev.preventDefault(); if (ev.shiftKey) { const t = $('paneBtnNote'); if (t) t.focus(); } else focusAfterRows(grip); return; }
+        if (ev.key === 'Escape') { ev.preventDefault(); el._txt.focus(); return; }
+        if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); blockMenuOpen(el); }
+      };
       grip.onmousedown = () => { el.draggable = true; };
       grip.onmouseup = () => { el.draggable = false; };
       el.ondragstart = (ev) => {
@@ -4015,7 +4156,8 @@
 
     // 0.11.0 V-2（D48）: 画面の並び（保存の順は変えない）。点のカードは最後（決めたこと 28）
     for (const b of orderForView(curPage.blocks).map((i) => curPage.blocks[i])) {
-      box.appendChild(blockRows.make(b, lock));
+      // 0.13.1 NE-4a（NR15）: 子は親のすぐ後ろに段つきで（閉じたトグルの子は描かない）
+      for (const r of visibleOrder([b], openView)) box.appendChild(blockRows.make(r.b, lock, r.depth, r.parentId));
     }
     renumberRows();
     renderQualityCard(box);   // 0.11.0 V-2: 点のカードは要約の欄の最後（決めたこと 28）

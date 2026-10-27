@@ -295,6 +295,11 @@ const SCREENS = [
   { name: 'edit-types-light', page: 'app', theme: 'light', get answers() { return typesAnswers(); }, act: OPEN_TYPES },
   { name: 'edit-types-dark', page: 'app', theme: 'dark', get answers() { return typesAnswers(); }, act: OPEN_TYPES },
   { name: 'edit-types-zoom150-light', page: 'app', theme: 'light', zoom: 1.5, get answers() { return typesAnswers(); }, act: OPEN_TYPES },
+  // 0.13.1 NE-4a（E10・NR15・NR23。計画 docs/plans/2026-10-27-131.md の「取り直す画面（RETAKE）」）: 2段・3段の字下げ（箇条書き・ToDo・番号付きの子。番号は親ごと）の
+  // 明暗と、拡大 200%（深い段の行の ＋・⠿・文が切れない・折り返しが崩れない）。足した画面（まだ基準が無い）
+  { name: 'edit-nested-light', page: 'app', theme: 'light', get answers() { return nestedAnswers(); }, act: OPEN_TYPES },
+  { name: 'edit-nested-dark', page: 'app', theme: 'dark', get answers() { return nestedAnswers(); }, act: OPEN_TYPES },
+  { name: 'edit-nested-zoom200-light', page: 'app', theme: 'light', zoom: 2, get answers() { return nestedAnswers(); }, act: OPEN_TYPES },
 ];
 // 0.9.0 O-3（RP9）: 録音バーの画面（形 → 地 → 拡大率 → 状態の順。撮る道具は形・地・拡大率の組ごとに窓を1つ開いて状態を act で替える）。
 // 録音は始めずに見た目だけを撮る（act は pill-states の見本を録音バーの DOM に当てる。撮るときだけ体の地にデスクトップの色を塗る）。
@@ -386,7 +391,7 @@ const OVL_094 = (states) => PS.FORMS.flatMap((form) => Object.keys(PS.DESKS).fla
 // CI run 40466764263（20ceb94）の artifact 12717370368 の .after.png（21 枚）をバイトのまま基準にし、空に戻した
 // 0.13.1（計画 docs/plans/2026-10-27-131.md の「取り直す画面（RETAKE）」）: NE-1 で / メニューと ⠿ の［変換 ▸］にトグルとトグル見出し1〜3 が増えた
 // （型の表の写しを NE-1 で替えたので、計画の NE-4b でなく NE-1 で入れた: Ruling NR26）。持ち主が見比べを OK と言ったら、版を上げる commit（Task G）で基準にして空に戻す
-const RETAKE = new Set(['edit-slash-light', 'edit-slash-dark', 'edit-slash-recent-light', 'edit-block-menu-light']);
+const RETAKE = new Set(['edit-slash-light', 'edit-slash-dark', 'edit-slash-recent-light', 'edit-block-menu-light', 'edit-nested-light', 'edit-nested-dark', 'edit-nested-zoom200-light']);
 const PERF = [{ name: 'open-2000-blocks', budgetMs: 500 }];   // 3回開いた中央値で見る
 const TIME_ZONE = 'Asia/Tokyo';
 const TOLERANCE = 2;   // 色の差（0〜255）がこれ以下の画素は同じとみなす。CI の機械の CPU ごとの描き方の1段の差を拾わないため（揺れの確かめ judgePair は 0 で見る）
@@ -566,6 +571,25 @@ function typesAnswers() {
     { id: 'e8', type: 'divider', text: '', citeState: 'manual', cites: [] },
     { id: 'e9', type: 'bullet', text: '次回は会議室を替える。', citeState: 'manual', cites: [] },
     { id: 'e10', type: 'paragraph', text: '以上で終わります。', citeState: 'manual', cites: [] },
+  ];
+  return { 'koeApp.pageGet': { page: { ...page, blocks, citeStat: { linked: 0, total: 0 }, actionStat: null }, segments: SEGMENTS } };
+}
+// 0.13.1 NE-4a（NR15）: 入れ子の要約（2段・3段の箇条書き・ToDo・番号付き。番号は親ごと）
+function nestedAnswers() {
+  const page = fixtures()['koeApp.pageGet'].page;
+  const m = (id, type, text, o = {}) => ({ id, type, text, citeState: 'manual', cites: [], ...o });
+  const blocks = [
+    m('n1', 'heading', '進め方を決めた', { level: 2 }),
+    m('n2', 'bullet', '受注の画面は11月15日に出す。', { children: [
+      m('n3', 'bullet', '結合の試験は今週で終わった。', { children: [
+        m('n4', 'todo', '残りの不具合2件の直しを確かめる', { checked: false, assignee: '山田', due: '2026-10-14', dueRaw: '10月14日' }),
+        m('n5', 'bullet', '在庫の取り込みの速さは、索引を足してから測り直す。'),
+      ] }),
+      m('n6', 'numbered', '試験の環境を空ける。'),
+      m('n7', 'numbered', '利用者に知らせる。', { children: [m('n8', 'numbered', '社内の掲示板に書く。'), m('n9', 'numbered', '取引先にはメールで送る。')] }),
+    ] }),
+    m('n10', 'numbered', '次回は会議室を替える。'),
+    m('n11', 'paragraph', '以上で終わります。'),
   ];
   return { 'koeApp.pageGet': { page: { ...page, blocks, citeStat: { linked: 0, total: 0 }, actionStat: null }, segments: SEGMENTS } };
 }

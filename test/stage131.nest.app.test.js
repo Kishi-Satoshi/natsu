@@ -133,3 +133,317 @@ test('NE-3・決めたこと 33: humanEdited は子の行も見る（AI の平�
   assert.strictEqual(app([ai[0], { ...ai[1], children: [{ id: 'k', type: 'bullet', text: '子', citeState: 'manual' }] }]), true, '子の人の行を見ない');
   assert.strictEqual(app([ai[0], { ...ai[1], children: [{ id: 'k', type: 'toggle', text: '子' }] }]), true, '子のトグル（AI の型でない）を見ない');
 });
+
+// ---------------------------------------------------------------- NE-4a: 入れ子の行（字下げ・Esc・Enter と Backspace・動かす）
+const NEST = () => [
+  { id: 'h1', type: 'heading', level: 2, text: '決定事項' },
+  { id: 'a', type: 'bullet', text: '親の行の要点を書いた長めの文です', cites: [], citeState: 'manual', children: [kid('a1'), kid('a2', 'bullet', { children: [kid('a21', 'todo', { checked: false })] }), kid('a3')] },
+  { id: 'n1', type: 'numbered', text: '一つ目', citeState: 'manual', children: [kid('m1', 'numbered'), kid('m2', 'numbered')] },
+  kid('n2', 'numbered'),
+  { id: 'p', type: 'paragraph', text: '本文の行です', citeState: 'manual' },
+  { id: 'v', type: 'divider', text: '', citeState: 'manual' },
+  kid('q'),
+];
+const NEST_ROWS = [['h1', '0'], ['a', '0'], ['a1', '1'], ['a2', '1'], ['a21', '2'], ['a3', '1'], ['n1', '0'], ['m1', '1'], ['m2', '1'], ['n2', '0'], ['p', '0'], ['v', '0'], ['q', '0']];
+const press = (l, el, key, o = {}) => l.key({ key, ...o }, el);
+const at = (l, id) => { const t = txtOf(l, id); t.focus(); l.caret.set(t, 0); return t; };
+const atEnd = (l, id) => { const t = txtOf(l, id); t.focus(); l.caret.set(t, t.textContent.length); return t; };
+
+test('NE-4a: 画面の写し（canIndent・locate・kidsCan・isOpenStored・visibleOrder）は src/blockTree.js と同じ答え', () => {
+  const src = ['flattenBlocks', 'kidsCanView', 'isToggleView', 'isOpenStored', 'aiSectionHead', 'locate', 'canIndent', 'visibleOrder'].map(fnFromApp).join('\n');
+  const app = new Function(`${src}\nreturn { kidsCanView, isOpenStored, aiSectionHead, locate, canIndent, visibleOrder };`)();   // eslint-disable-line no-new-func
+  const blocks = NEST();
+  blocks.push({ id: 't', type: 'toggle', text: 't', open: false, children: [kid('tk')] }, { id: 'th', type: 'heading', toggle: true, level: 1, text: 'th', children: [kid('thk')] }, { id: 'ai', type: 'heading', text: 'AI' });
+  for (const b of BT.flattenBlocks(blocks).concat([{ type: 'video' }, { type: 'heading', toggle: true }, { type: 'divider' }, { type: 'toggle', open: true }])) {
+    assert.strictEqual(app.kidsCanView(b), BT.kidsCan(b), JSON.stringify(b));
+    assert.strictEqual(app.isOpenStored(b), BT.isOpenStored(b), JSON.stringify(b));
+    assert.strictEqual(app.aiSectionHead(b), BT.aiSectionHead(b), JSON.stringify(b));
+    if (b.id) {
+      assert.strictEqual(app.canIndent(blocks, b.id), BT.canIndent(blocks, b.id), b.id);
+      const x = app.locate(blocks, b.id); const y = BT.locate(blocks, b.id);
+      assert.deepStrictEqual([x.b.id, x.index, x.depth, x.parent && x.parent.id], [y.b.id, y.index, y.depth, y.parent && y.parent.id], b.id);
+    }
+  }
+  assert.strictEqual(app.locate(blocks, 'zz'), null);
+  const V = (f) => (bs) => f(bs).map((r) => [r.b.id, r.depth, r.parentId]);
+  assert.deepStrictEqual(V((bs) => app.visibleOrder(bs, app.isOpenStored))(blocks), V((bs) => BT.visibleOrder(bs))(blocks));
+});
+
+test('NE-4a: 子のある要約を開くと、子は親のすぐ後ろに data-depth つきで描かれ、段ごとに左へずれる。番号付きは親ごとに数える', T, async () => {
+  const l = await openReal({ pa1: NEST() });
+  try {
+    assert.deepStrictEqual(rowsOf(l).map((e) => [e.dataset.id, e.dataset.depth]), NEST_ROWS);
+    assert.strictEqual(rowOf(l, 'a21').dataset.parent, 'a2');
+    assert.strictEqual(rowOf(l, 'a').dataset.parent, '');
+    assert.strictEqual(rowOf(l, 'a21').style.getPropertyValue('--depth'), '2');
+    assert.strictEqual(rowOf(l, 'a').style.getPropertyValue('--depth'), '0');
+    assert.match(HTML, /\.blk \{[^}]*margin-left: calc\(var\(--depth, 0\) \* 24px\)/, '段ごとの左の余白（24px）が無い');
+    const num = (id) => rowOf(l, id).querySelector('.num').textContent;
+    assert.deepStrictEqual(['n1', 'm1', 'm2', 'n2'].map(num), ['1.', '1.', '2.', '2.'], '番号を親ごとに数えない（F50）');
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+test('NE-4a・EQ17 (a): Tab → blockIndent in の1回・Shift+Tab → out の1回。字下げできないとき（前に兄弟が無い・前が区切り線）は何も呼ばず、フォーカスは行のまま、既定の Tab は止まる', T, async () => {
+  const l = await openReal({ pa1: NEST() });
+  try {
+    let t = atEnd(l, 'a3');
+    let ev = press(l, t, 'Tab');
+    await l.drain();
+    assert.strictEqual(ev.defaultPrevented, true);
+    assert.deepStrictEqual(sent(l), [['blockIndent', 'pa1', 'a3', 'in']]);
+    assert.deepStrictEqual(shape(l.page().blocks)[1], ['a', ['a1', ['a2', ['a21', 'a3']]]]);
+    l.calls.length = 0;
+    t = atEnd(l, 'a1');
+    ev = press(l, t, 'Tab', { shiftKey: true });
+    await l.drain();
+    assert.strictEqual(ev.defaultPrevented, true);
+    assert.deepStrictEqual(sent(l), [['blockIndent', 'pa1', 'a1', 'out']]);
+    l.calls.length = 0;
+    for (const id of ['a2', 'q', 'h1', 'a']) {
+      t = atEnd(l, id);
+      ev = press(l, t, 'Tab');
+      await l.drain();
+      assert.strictEqual(ev.defaultPrevented, true, `${id}: 既定の Tab が止まらない`);
+      assert.strictEqual(l.document.activeElement, txtOf(l, id), `${id}: フォーカスが行から離れた`);
+    }
+    t = atEnd(l, 'p');
+    ev = press(l, t, 'Tab', { shiftKey: true });
+    assert.strictEqual(ev.defaultPrevented, true);
+    await l.drain();
+    assert.deepStrictEqual(sent(l), [], '字下げできないのに呼んだ');
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+test('NE-4a: Tab の後、欄を描き直しても同じ行にフォーカスとカーソルがある。打っていた文は blockIndent の前に保存される', T, async () => {
+  const l = await openReal({ pa1: NEST() });
+  try {
+    const t = typeIn(l, 'a3', 'a3を書き直した文', 3);
+    press(l, t, 'Tab');
+    await l.drain();
+    assert.deepStrictEqual(sent(l), [['blockUpdate', 'pa1', 'a3', { text: 'a3を書き直した文' }], ['blockIndent', 'pa1', 'a3', 'in']]);
+    assert.strictEqual(rowOf(l, 'a3').dataset.depth, '2');
+    assert.strictEqual(l.document.activeElement, txtOf(l, 'a3'));
+    assert.deepStrictEqual(l.caret.get(txtOf(l, 'a3')), [3, 3]);
+    assert.strictEqual(txtOf(l, 'a3').textContent, 'a3を書き直した文');
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+test('NE-4a・NR17・決めたこと 25: 行で Esc → ⠿ にフォーカス（見える）・一覧の選択は外れない。⠿ で Tab → フォーカスは要約の欄の外（次の行の文に入らない）。Shift+Tab →［AI 要約］のタブ。⠿ で Esc → 行の文へ戻る。/ メニューを開いている間の Esc は今どおりメニューだけを閉じる', T, async () => {
+  const l = await openReal({ pa1: NEST() });
+  try {
+    // 欄の外の次の部品（要約の欄の後ろの［次へ］）
+    const after = l.document.createElement('button'); after.textContent = '欄の外';
+    $(l, 'pNote').parentNode.insertBefore(after, $(l, 'pNote').nextSibling);
+    let t = atEnd(l, 'a1');
+    let ev = press(l, t, 'Escape');
+    assert.strictEqual(ev.defaultPrevented, true, '一覧の選択の Esc まで届く');
+    const grip = rowOf(l, 'a1').querySelector('.grip');
+    assert.strictEqual(l.document.activeElement, grip, 'Esc で ⠿ へ移らない');
+    assert.match(HTML, /\.blk \.grip:focus-visible \{[^}]*opacity: \.55/, '⠿ のフォーカスが見えない');
+    ev = press(l, grip, 'Tab');
+    assert.strictEqual(ev.defaultPrevented, true);
+    assert.strictEqual(l.document.activeElement, after, '⠿ から Tab で欄の外へ出ない（edn-tab-exit）');
+    t = atEnd(l, 'a1'); press(l, t, 'Escape');
+    ev = press(l, grip, 'Tab', { shiftKey: true });
+    assert.strictEqual(ev.defaultPrevented, true);
+    assert.strictEqual(l.document.activeElement, $(l, 'paneBtnNote'), 'Shift+Tab で［AI 要約］のタブへ行かない');
+    t = atEnd(l, 'a1'); press(l, t, 'Escape');
+    press(l, grip, 'Escape');
+    assert.strictEqual(l.document.activeElement, txtOf(l, 'a1'), '⠿ の Esc で行へ戻らない');
+    // / メニューが開いている間の Esc はメニューだけを閉じる（⠿ へ移らない）
+    t = typeIn(l, 'q', '/');
+    t.dispatchEvent({ type: 'input' });
+    assert.ok($(l, 'pNote').querySelector('.slashmenu'));
+    press(l, t, 'Escape');
+    assert.strictEqual($(l, 'pNote').querySelector('.slashmenu'), null);
+    assert.strictEqual(l.document.activeElement, t);
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+test('NE-4a・EQ5 (a)・EQ6 (a): 字下げされた空の箇条書きで Enter → blockIndent out の1回。字下げされた行の頭で Backspace → blockIndent out の1回（型も文も変えない）', T, async () => {
+  const blocks = NEST();
+  blocks[1].children.push(kid('e1', 'bullet', { text: '' }));
+  const l = await openReal({ pa1: blocks });
+  try {
+    let t = at(l, 'e1');
+    let ev = press(l, t, 'Enter');
+    await l.drain();
+    assert.strictEqual(ev.defaultPrevented, true);
+    assert.deepStrictEqual(sent(l), [['blockIndent', 'pa1', 'e1', 'out']], '空の子の箇条書きの Enter が字下げを先に戻さない（edn-enter-outdent）');
+    assert.strictEqual(rowOf(l, 'e1').dataset.depth, '0');
+    assert.strictEqual(l.page().blocks.find((b) => b.id === 'e1').type, 'bullet');
+    l.calls.length = 0;
+    t = at(l, 'a21');
+    press(l, t, 'Backspace');
+    await l.drain();
+    assert.deepStrictEqual(sent(l), [['blockIndent', 'pa1', 'a21', 'out']], '字下げされた行の頭の Backspace が字下げを先に戻さない（edn-bs-outdent）');
+    const a21 = BT.locate(l.page().blocks, 'a21');
+    assert.deepStrictEqual([a21.b.type, a21.b.text, a21.depth], ['todo', 'a21の文', 1]);
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+test('NE-4a・NR8: 子の2つ目の行の頭で Enter（文あり）→ blockSplit の afterId は同じ親の1つ上の兄弟（その兄弟の子でない）。最初の子の頭では afterId は \'\'。最上位の行は 0.13.0 のまま（並べ替えて見せる要約でも上に見えている最上位の行）', T, async () => {
+  const l = await openReal({ pa1: NEST() });
+  try {
+    let t = at(l, 'a3');
+    press(l, t, 'Enter');
+    await l.drain();
+    assert.deepStrictEqual(sent(l), [['blockSplit', 'pa1', 'a3', 'a3の文', 0, 'a2']], 'afterId が画面で1つ上の孫（a21）になった（edn-split-sibling）');
+    const a = BT.locate(l.page().blocks, 'a').b;
+    assert.deepStrictEqual(a.children.map((x) => x.id).slice(0, 2), ['a1', 'a2']);
+    assert.strictEqual(a.children[3].id, 'a3');
+    l.calls.length = 0;
+    t = at(l, 'a1');
+    press(l, t, 'Enter');
+    await l.drain();
+    assert.deepStrictEqual(sent(l), [['blockSplit', 'pa1', 'a1', 'a1の文', 0, '']]);
+    l.calls.length = 0;
+    t = at(l, 'n2');
+    press(l, t, 'Enter');
+    await l.drain();
+    assert.deepStrictEqual(sent(l), [['blockSplit', 'pa1', 'n2', 'n2の文', 0, 'n1']], '最上位の行の afterId が上に見えている最上位の行でない');
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+test('NE-4a・TQ3: 子が見えている行の終わりで Enter → blockSplit の inside が真で、新しい行は最初の子にフォーカス。閉じたトグルの終わりで Enter → 兄弟のトグル', T, async () => {
+  const blocks = NEST();
+  blocks.push({ id: 't', type: 'toggle', text: 'たたんだ話', citeState: 'manual', open: false, children: [kid('tk')] });
+  const l = await openReal({ pa1: blocks });
+  try {
+    let t = atEnd(l, 'a2');
+    press(l, t, 'Enter');
+    await l.drain();
+    assert.deepStrictEqual(sent(l), [['blockSplit', 'pa1', 'a2', 'a2の文', 4, undefined, true]]);
+    const a2 = BT.locate(l.page().blocks, 'a2').b;
+    assert.strictEqual(a2.children.length, 2);
+    assert.strictEqual(l.document.activeElement, txtOf(l, a2.children[0].id), '新しい最初の子にフォーカスが無い');
+    assert.strictEqual(rowOf(l, a2.children[0].id).dataset.depth, '2');
+    l.calls.length = 0;
+    t = atEnd(l, 't');
+    press(l, t, 'Enter');
+    await l.drain();
+    assert.deepStrictEqual(sent(l), [['blockSplit', 'pa1', 't', 'たたんだ話', 5]]);
+    const top = l.page().blocks;
+    assert.strictEqual(top.at(-1).type, 'toggle', '閉じたトグルの後ろが兄弟のトグルでない');
+    assert.strictEqual(l.document.activeElement, txtOf(l, top.at(-1).id));
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+test('NE-4a・TQ1: 前の兄弟が子を持つ最上位のテキストの行の頭で Backspace → blockMerge の intoId は画面で上に見えている孫の行で、カーソルはつないだ所', T, async () => {
+  const blocks = [NEST()[0], { id: 'a', type: 'bullet', text: '親の行の要点を書いた長めの文です', citeState: 'manual', children: [kid('a1', 'bullet', { children: [kid('g1')] })] },
+    { id: 'x', type: 'paragraph', text: '下の行', citeState: 'manual' }];
+  const l = await openReal({ pa1: blocks });
+  try {
+    const t = at(l, 'x');
+    press(l, t, 'Backspace');
+    await l.drain();
+    assert.deepStrictEqual(sent(l), [['blockMerge', 'pa1', 'x', '下の行', 'g1']]);
+    assert.strictEqual(BT.locate(l.page().blocks, 'g1').b.text, 'g1の文下の行');
+    assert.strictEqual(l.document.activeElement, txtOf(l, 'g1'));
+    assert.deepStrictEqual(l.caret.get(txtOf(l, 'g1')), ['g1の文'.length, 'g1の文'.length]);
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+test('NE-4a・NR13: 子の行で Ctrl+Shift+↑ → 同じ親の中で1つ上（afterId は2つ上の兄弟か \'\'）。親の最初の子では何も呼ばない。最上位は 0.13.0 のまま', T, async () => {
+  const l = await openReal({ pa1: NEST() });
+  try {
+    const up = (id) => press(l, atEnd(l, id), 'ArrowUp', { ctrlKey: true, shiftKey: true, code: 'ArrowUp' });
+    up('a3');
+    await l.drain();
+    assert.deepStrictEqual(sent(l), [['blockMove', 'pa1', 'a3', { afterId: 'a1' }]], '前の兄弟の子の中へ入った（edn-move-sibling）');
+    l.calls.length = 0;
+    // 並びは a1・a3・a2
+    up('a3');
+    await l.drain();
+    assert.deepStrictEqual(sent(l), [['blockMove', 'pa1', 'a3', { afterId: '', parentId: 'a' }]]);
+    l.calls.length = 0;
+    up('a3');
+    await l.drain();
+    assert.deepStrictEqual(sent(l), [], '親の最初の子で呼んだ');
+    // 並びは a3・a1・a2
+    press(l, atEnd(l, 'a1'), 'ArrowDown', { ctrlKey: true, shiftKey: true, code: 'ArrowDown' });
+    await l.drain();
+    assert.deepStrictEqual(sent(l), [['blockMove', 'pa1', 'a1', { afterId: 'a2' }]]);
+    l.calls.length = 0;
+    press(l, atEnd(l, 'a1'), 'ArrowDown', { ctrlKey: true, shiftKey: true, code: 'ArrowDown' });
+    await l.drain();
+    assert.deepStrictEqual(sent(l), [], '親の最後の子で呼んだ');
+    assert.deepStrictEqual(BT.locate(l.page().blocks, 'a').b.children.map((x) => x.id), ['a3', 'a2', 'a1']);
+    l.calls.length = 0;
+    up('n2');
+    await l.drain();
+    assert.deepStrictEqual(sent(l), [['blockMove', 'pa1', 'n2', { afterId: 'a' }]], '最上位は画面の最上位の並びで1つ上');
+    assert.deepStrictEqual(shape(l.page().blocks).map((x) => (Array.isArray(x) ? x[0] : x)), ['h1', 'a', 'n2', 'n1', 'p', 'v', 'q']);
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+test('NE-4a: Ctrl+D・⠿ の［複製］→ blockDuplicate の1回で、写しは子ごと元の行の後ろに描かれる。⠿ の［削除］は子ごと消え、フォーカスは上の行へ', T, async () => {
+  const l = await openReal({ pa1: NEST() });
+  try {
+    press(l, atEnd(l, 'a2'), 'd', { ctrlKey: true, code: 'KeyD' });
+    await l.drain();
+    assert.deepStrictEqual(sent(l).map((c) => c.slice(0, 3)), [['blockDuplicate', 'pa1', 'a2']]);
+    const ids = rowsOf(l).map((e) => [e.dataset.id, e.dataset.depth]);
+    const at2 = ids.findIndex((x) => x[0] === 'a21');
+    assert.strictEqual(ids[at2 + 1][1], '1', '写しが元の子の後ろの兄弟でない');
+    assert.strictEqual(ids[at2 + 2][1], '2', '写しの子が描かれない');
+    l.calls.length = 0;
+    const t = atEnd(l, 'a');
+    press(l, t, '/', { ctrlKey: true, code: 'Slash' });
+    const m = $(l, 'pNote').querySelectorAll('.blockmenu').find((x) => !x.classList.contains('sub'));
+    m.querySelectorAll('.mitem')[0].onclick();
+    await l.drain();
+    assert.deepStrictEqual(sent(l), [['blockRemove', 'pa1', 'a']]);
+    assert.ok(!rowsOf(l).some((e) => ['a', 'a1', 'a2', 'a21', 'a3'].includes(e.dataset.id)), '子が残った');
+    assert.strictEqual(l.document.activeElement, txtOf(l, 'h1'));
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+test('NE-4a・決めたこと 26: 文字起こしの行・メモ・題名で Tab・Shift+Tab を押しても何も呼ばれず、Tab は今どおり次の部品へ（既定を止めない）', T, async () => {
+  const l = await openReal({ pa1: NEST() });
+  try {
+    for (const el of [$(l, 'pTitle'), $(l, 'pMemo').querySelector('textarea'), $(l, 'pScript').querySelector('.txt, [contenteditable]')].filter(Boolean)) {
+      for (const shiftKey of [false, true]) {
+        const ev = press(l, el, 'Tab', { shiftKey });
+        assert.strictEqual(ev.defaultPrevented, false, `${el.id || el.className}: 既定の Tab を止めた`);
+      }
+    }
+    await l.drain();
+    assert.deepStrictEqual(sent(l), []);
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+test('NE-4a: 変換中（isComposing・keyCode 229）の Tab・Shift+Tab では何も呼ばれない', T, async () => {
+  const l = await openReal({ pa1: NEST() });
+  try {
+    for (const o of [{ isComposing: true }, { keyCode: 229 }, { isComposing: true, shiftKey: true }]) press(l, atEnd(l, 'a3'), 'Tab', o);
+    await l.drain();
+    assert.deepStrictEqual(sent(l), []);
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+test('NE-4a・F53 のまま: blockIndent の答えを待つ間に印の無い page:open で別のページが前に出ても、答えは描かない', T, async () => {
+  const l = await openReal({ pa1: NEST(), pb2: [kid('z1')] }, { hold: ['blockIndent'] });
+  try {
+    press(l, atEnd(l, 'a3'), 'Tab');
+    await l.drain();
+    l.fire('onPageOpen', 'pb2');
+    await l.drain();
+    l.release();
+    await l.drain();
+    assert.deepStrictEqual(rowsOf(l).map((e) => e.dataset.id), ['z1'], '前のページの答えで描いた');
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
