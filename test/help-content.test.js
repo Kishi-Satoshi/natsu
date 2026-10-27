@@ -352,3 +352,80 @@ test('0.13.0 RDY-5: record/start-stop の頭の NOTE は録音の前のページ
   assert.ok(readme.includes('［＋ 新しい議事録］を押すと録音の前のページが開きます'), 'README の記録中のページが前の形');
   assert.ok(!readme.includes('［＋ 新しい議事録］を押すと記録が始まり'), 'README に前の文が残っている');
 });
+
+// ---------------------------------------------------------------- ヘルプの全体像と図解（計画 docs/plans/2026-10-27-help-overview.md）
+// HO-1（HO2・Review Focus 1〜3）: 記事の画面の写真は、アプリのテストの明るい版の基準の写真（test/shots/win32/）からだけ作り、
+// 元の名前と指紋を help/shots-from-app.json に書く。アプリの基準を撮り直すと赤になり、ヘルプの写真の作り直しを忘れない
+const AS = () => require('../tools/help-appshots');
+
+/** 写しのフォルダ: 表・表の元の基準の写真・help/assets/shots だけ */
+function shotsCopy(t) {
+  const root = tmpDir(t, 'natsu-help-appshots-');
+  const table = JSON.parse(read('help/shots-from-app.json'));
+  fs.mkdirSync(path.join(root, 'test', 'shots', 'win32'), { recursive: true });
+  for (const s of table.shots) fs.cpSync(path.join(ROOT, s.from), path.join(root, s.from));
+  fs.mkdirSync(path.join(root, 'help'), { recursive: true });
+  fs.cpSync(path.join(ROOT, 'help', 'shots-from-app.json'), path.join(root, 'help', 'shots-from-app.json'));
+  fs.cpSync(path.join(ROOT, 'help', 'assets', 'shots'), path.join(root, 'help', 'assets', 'shots'), { recursive: true });
+  return { root, table };
+}
+
+test('HO-1（HO2）: help/shots-from-app.json の写真は、どれもアプリのテストの明るい版の基準の写真（test/shots/win32/）から作り、元の指紋が今の基準と同じ。help/assets/shots/ の PNG は元の写真（の切り抜き）と画素まで同じで、表に無いファイルが無い', { timeout: 10000 }, () => {
+  const { checkShots, MAX_IMAGE_BYTES } = AS();
+  assert.strictEqual(MAX_IMAGE_BYTES, 100000, '画像は1枚 100KB まで');
+  const table = JSON.parse(read('help/shots-from-app.json'));
+  assert.ok(table.shots.length >= 8, '写真が少ない');
+  for (const s of table.shots) {
+    assert.match(s.from, /^test\/shots\/win32\/[a-z0-9-]+\.png$/, s.name);
+    assert.ok(/(?:^|-)light(?:-|$)/.test(path.basename(s.from, '.png')) && !/dark/.test(s.from), `${s.name}: 明るい版の基準だけを使う（${s.from}）`);
+    assert.match(s.fromSha256, /^[A-Za-z0-9_-]{43}$/, `${s.name}: 指紋は SHA-256 の base64url（64 字の16進はゲートが AUD の見かけとして止める）`);
+  }
+  assert.deepStrictEqual(checkShots(ROOT), [], 'node tools/help-appshots.js で作り直し、写真の変わった記事を読み直す');
+});
+
+test('HO-1（Review Focus 1・2）: 元の基準の写真が変わると（切り抜きの外の1画素でも）from-changed、作った写真の画素を変えると pixels-differ、表に無い PNG を help/assets/shots/ に置くと not-in-table、100KB を越える画像は too-big、暗い版の基準を表に書くと not-light', { timeout: 10000 }, (t) => {
+  const { checkShots } = AS();
+  const { decodePng, encodePng } = require('../tools/png');
+  const codes = (root) => checkShots(root).map((p) => p.code);
+  // 切り抜いた写真の元の左上の1画素（切り抜きの外）を変える
+  const a = shotsCopy(t);
+  const cropped = a.table.shots.find((s) => s.crop && (s.crop[0] > 0 || s.crop[1] > 0));
+  assert.ok(cropped, '切り抜いた写真が表に無い');
+  const f = path.join(a.root, cropped.from);
+  const img = decodePng(fs.readFileSync(f));
+  img.data[0] = img.data[0] ^ 0xff;
+  fs.writeFileSync(f, encodePng(img));
+  assert.deepStrictEqual(codes(a.root), ['from-changed'], '基準の写真が変わったのに気づかない');
+  // 表に無い PNG・大きすぎる画像
+  const b = shotsCopy(t);
+  fs.writeFileSync(path.join(b.root, 'help', 'assets', 'shots', 'stray.png'), Buffer.alloc(100001, 1));
+  assert.deepStrictEqual(codes(b.root).sort(), ['not-in-table', 'too-big']);
+  // 作った写真を手で直した（画素が元の切り抜きと違う）
+  const d = shotsCopy(t);
+  const g = path.join(d.root, 'help', 'assets', 'shots', `${d.table.shots[0].name}.png`);
+  const gi = decodePng(fs.readFileSync(g));
+  gi.data[gi.data.length - 4] ^= 0xff;
+  fs.writeFileSync(g, encodePng(gi));
+  assert.deepStrictEqual(codes(d.root), ['pixels-differ'], '作った写真を直しても気づかない');
+  // 暗い版の基準
+  const c = shotsCopy(t);
+  const tab = JSON.parse(fs.readFileSync(path.join(c.root, 'help', 'shots-from-app.json'), 'utf8'));
+  tab.shots[0].from = tab.shots[0].from.replace('light', 'dark');
+  fs.writeFileSync(path.join(c.root, 'help', 'shots-from-app.json'), JSON.stringify(tab));
+  assert.ok(codes(c.root).includes('not-light'), '暗い版の基準を使えてしまう');
+});
+
+test('HO-1（Review Focus 3）: 記事の画像は全部 help/assets/ にあり、1枚 100KB まで。help/assets/shots/ の画像は表に載っている', { timeout: 5000 }, () => {
+  const table = JSON.parse(read('help/shots-from-app.json'));
+  const listed = new Set([...table.shots.map((s) => `shots/${s.name}.png`), ...(table.figures || []).map((g) => `shots/${g.name}.svg`)]);
+  for (const a of articles) {
+    a.text.split('\n').forEach((l, i) => {
+      const m = /^!\[[^\]]+\]\(assets\/([^)]+)\)$/.exec(l);
+      if (!m) return;
+      const p = path.join(ROOT, 'help', 'assets', m[1]);
+      assert.ok(fs.existsSync(p), `${a.file}:${i + 1} ${m[1]} が無い`);
+      assert.ok(fs.statSync(p).size <= 100000, `${a.file}:${i + 1} ${m[1]} が 100KB を越える`);
+      if (m[1].startsWith('shots/')) assert.ok(listed.has(m[1]), `${a.file}:${i + 1} ${m[1]} が help/shots-from-app.json に無い`);
+    });
+  }
+});

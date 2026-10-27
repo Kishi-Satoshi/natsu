@@ -532,6 +532,26 @@ test('G3: help-light の変異が一覧にそろい、IDS_HELP_LIGHT とちょ�
   }
 });
 
+// help-overview（計画 docs/plans/2026-10-27-help-overview.md）: ヘルプの全体像の記事と画面の写真・図の直しを1つずつ戻す変異。
+// 当てるファイルと赤になるテストを決めた表で持つ（多くも少なくもない。ho- の変異はここにある）
+const IDS_HELP_OVERVIEW = {
+  'ho-from-sha': ['tools/help-appshots.js', 'test/help-content.test.js'],
+  'ho-pixels': ['tools/help-appshots.js', 'test/help-content.test.js'],
+  'ho-stray': ['tools/help-appshots.js', 'test/help-content.test.js'],
+  'ho-dark': ['tools/help-appshots.js', 'test/help-content.test.js'],
+  'ho-size': ['tools/help-appshots.js', 'test/help-content.test.js'],
+};
+test('G3: help-overview の変異が一覧にそろい、IDS_HELP_OVERVIEW とちょうど同じ（当てるファイルと赤になるテストも同じ）。ho- の変異は IDS_HELP_OVERVIEW にある', { timeout: 5000 }, () => {
+  const byId = new Map(MUTANTS.map((m) => [m.id, m]));
+  assert.deepStrictEqual(MUTANTS.filter((m) => /^ho-/.test(m.id)).map((m) => m.id).sort(), Object.keys(IDS_HELP_OVERVIEW).sort());
+  for (const [id, [file, t]] of Object.entries(IDS_HELP_OVERVIEW)) {
+    const m = byId.get(id);
+    assert.strictEqual(m.file, file, id);
+    assert.deepStrictEqual(m.tests, [t], id);
+    assert.ok(m.why.startsWith('help-overview HO-'), `${id}: why`);
+  }
+});
+
 // 0.9.0（計画 docs/plans/2026-10-20-090.md の「変異確認」の表）。G-1 は速さの計り直しの4つを入れる。G-2 が残りの全部を足し、
 // この並びが計画の表の id とちょうど同じことを見るテストを足す
 // 0.9.0（G-1 で perf の6つ、G-2 で計画 docs/plans/2026-10-20-090.md の「変異確認」の表の全部）

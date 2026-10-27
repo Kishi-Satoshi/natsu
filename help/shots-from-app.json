@@ -1,0 +1,64 @@
+{
+  "shots": [
+    {
+      "name": "notes-tabs",
+      "from": "test/shots/win32/notes-tabs-light.png",
+      "fromSha256": "AvA0CohNS_LJh65Oh7u3emxkpkoupWVps1aqYHKlCas",
+      "crop": null
+    },
+    {
+      "name": "minutes",
+      "from": "test/shots/win32/notes-page-light.png",
+      "fromSha256": "XjuuP2x5yNvCADk2V_JmgaRKegeMmByGSkuTqh5ux9s",
+      "crop": [300, 320, 760, 460]
+    },
+    {
+      "name": "ready",
+      "from": "test/shots/win32/live-ready-light.png",
+      "fromSha256": "JdHnX5f9ucivkMYjeMwEN5hOqWW70jH9HOV0KtUTGO8",
+      "crop": [300, 250, 780, 320]
+    },
+    {
+      "name": "live",
+      "from": "test/shots/win32/live-light.png",
+      "fromSha256": "QtUqUkbptKQ_fx_3FGnpSinH0IMEabvkWxgi47weaw0",
+      "crop": [0, 0, 1060, 700]
+    },
+    {
+      "name": "bar-rec",
+      "from": "test/shots/win32/overlay-h-light-rec-150.png",
+      "fromSha256": "bbojxyDRNPK7b4tXtEDFWQWrZQyOUaBHPXn_XqHUGjw",
+      "crop": null
+    },
+    {
+      "name": "bar-paused",
+      "from": "test/shots/win32/overlay-h-light-paused-150.png",
+      "fromSha256": "frZbiopqlFHwGneWk2gngmw_KUHSAq9vVhotsOb0UZM",
+      "crop": null
+    },
+    {
+      "name": "status",
+      "from": "test/shots/win32/live-banner-light.png",
+      "fromSha256": "pEG3mU3U4MYVsQYvcqorVwrWjGSf70iw7obzdCoxw8s",
+      "crop": [320, 388, 760, 115]
+    },
+    {
+      "name": "offline",
+      "from": "test/shots/win32/live-offline-light.png",
+      "fromSha256": "1nX1WE_iRLSk6bOINcW0UzhCSE7rDYlu_7mXk-PeaZI",
+      "crop": [310, 388, 760, 125]
+    },
+    {
+      "name": "login",
+      "from": "test/shots/win32/settings-account-light.png",
+      "fromSha256": "vIcjWbsysK7wkKgwYuII7JNiGgCLsKFIetPr9fXjhyw",
+      "crop": [50, 40, 1020, 260]
+    },
+    {
+      "name": "mcp",
+      "from": "test/shots/win32/settings-mcp-light.png",
+      "fromSha256": "l7XOWbASHob31Cl4QqF9cMQztl-sPT7ISDpXG6oHrP8",
+      "crop": [50, 40, 1020, 480]
+    }
+  ]
+}
