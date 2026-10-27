@@ -384,7 +384,8 @@ test('会議の所要時間は開始から停止までで計る', () => {
   // 文字起こし待ちを混ぜると、4分の会議が12分と記録される
   assert.match(main, /meeting\.stoppedAt = Date\.now\(\)/);
   assert.match(main, /m\.stoppedAt \|\| Date\.now\(\)/);
-  assert.ok(appHtml.includes('(mtStoppedAt || Date.now()) - mtStartedAt'));
+  // 0.13.0 CLK-3（2026-10-27 の持ち主の答え）で意図して変えた: 一時停止の間は知らせが届いた時刻（mtPausedAt）で止める。停止の時刻を先に見るのは今のまま
+  assert.ok(appHtml.includes('(mtStoppedAt || mtPausedAt || Date.now()) - mtStartedAt'));
 });
 
 // 0.11.0 P-12（P12・R5）で意図して変えた: 一般・その他は無い。判定材料が無ければ決まらない（''。画面は「自動」と決まらなかった文）
