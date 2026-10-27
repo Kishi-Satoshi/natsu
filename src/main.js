@@ -5826,6 +5826,7 @@ async function doRunSummary(pageId) {
     // 生成物だけを最新のページに載せる。ページが消えていれば生成物は捨てる。
     const latest = await saveIfExists(db, pageId, (saved) => {
       saved.blocks = blocks;
+      delete saved.summaryEdited;   // 0.13.0 点検4: 作り直した要約は人の手直しを持たない（［要約を再生成］の確かめの印を消す）
       // 要約の途中で種類を手で選び直されていたら、その選択を残す（上書きすると、選んだ種類が黙って戻る。
       // mainlib.mergeSummaryType）。この要約は始めたときの種類で作ったものなので、そう書き添える
       const t = mergeSummaryType(saved, page);

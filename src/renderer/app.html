@@ -2948,7 +2948,8 @@
       const pid = curId;
       if (summarizing.has(pid)) return;
       // 0.13.0 ED-8（EQ4 (a)・決めたこと 35）: 人が直した行があるときだけ、作り直す前に確かめる（作り直すと書き直した所は元に戻る）
-      if (curPage && humanEdited(curPage.blocks) && !(await askRegen())) return;
+      // 2026-10-26 の持ち主の答え（点検4「どんな手直しでも確かめる」）: 行を消す・動かす・複製・段・変換・分割・結合などの後も（DB のページの印 summaryEdited）
+      if (curPage && (curPage.summaryEdited === true || humanEdited(curPage.blocks)) && !(await askRegen())) return;
       if (pid !== curId || summarizing.has(pid)) return;
       summarizing.add(pid);
       sumBtn.disabled = true; sumBtn.textContent = '生成中…';
@@ -3316,6 +3317,7 @@
     const oldView = view(curPage.blocks);
     const newView = view(blocks);
     curPage.blocks = blocks;
+    if (page.summaryEdited === true) curPage.summaryEdited = true;   // 点検4: 要約の欄を直した印（［要約を再生成］の前に確かめる）
     if (page.rev !== undefined) curPage.rev = page.rev;
     const plan = patchPlan(oldView, newView);
     const rows = new Map([...box.querySelectorAll('.blk')].map((e) => [e.dataset.id, e]));
@@ -3443,6 +3445,7 @@
       const v = txt.textContent.trim();
       if (v === b.text) return undefined;
       b.text = v;
+      if (pid === curId && curPage) curPage.summaryEdited = true;   // 点検4: 要約の欄を直した印（DB も同じ命令で付ける）
       // 本文を変えたら出典との対応は古くなる。store も stale を付けるが、
       // 次に pageGet するまでの間も札で示す。
       if ((b.type === 'bullet' || b.type === 'todo') && b.citeState !== 'manual') { b.citeState = 'stale'; renderCiteBadge(el, b); }
@@ -3873,6 +3876,7 @@
         cb.onchange = async () => {
           await window.koeApp.blockUpdate(curId, b.id, { checked: cb.checked });
           b.checked = cb.checked;
+          if (curPage) curPage.summaryEdited = true;   // 点検4: 要約の欄を直した印（DB も同じ命令で付ける）
           el.classList.toggle('done', cb.checked);
           refreshList();
         };

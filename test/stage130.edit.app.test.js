@@ -1224,3 +1224,45 @@ test('ED-8（EQ4 (a)・決めたこと 35）: 人が直した行があるとき�
     } finally { l.done(); }
   }
 });
+
+// 2026-10-26 の持ち主の答え（点検4「どんな手直しでも確かめる（おすすめ）」）
+test('ED-8・点検4: AI の型だけの要約でも、行を消す・動かす・複製・見出しの段を変えた後は［要約を再生成］の前に確かめる。作り直した要約が届いた後は聞かない', T, async () => {
+  const AI = [{ id: 'h1', type: 'heading', level: 2, text: '決定事項' }, { id: 'b1', type: 'bullet', text: '来月に出す', cites: ['s2'], citeState: 'linked' },
+    { id: 'p1', type: 'paragraph', text: '本文の行' }, { id: 'b2', type: 'bullet', text: '見積もりを取る', cites: [], citeState: 'linked' }];
+  const acts = {
+    remove: (l) => { rowOf(l, 'p1').querySelector('.grip').dispatchEvent({ type: 'click' }); itemsOf(menuOf(l))[0].dispatchEvent({ type: 'click' }); },
+    move: (l) => { const t = typeIn(l, 'b1', '来月に出す', 0); l.key({ key: 'ArrowDown', code: 'ArrowDown', ctrlKey: true, shiftKey: true }, t); },
+    duplicate: (l) => { const t = typeIn(l, 'b2', '見積もりを取る', 0); l.key({ key: 'd', code: 'KeyD', ctrlKey: true }, t); },
+    level: (l) => { const t = typeIn(l, 'h1', '決定事項', 0); l.key({ key: '#', code: 'Digit3', ctrlKey: true, shiftKey: true }, t); },
+  };
+  for (const [name, act] of Object.entries(acts)) {
+    const l = await openReal({ pa1: AI }, { returns: { pageSummarize: () => ({ ok: true, stat: { linked: 1, total: 1 } }) } });
+    try {
+      const btn = () => $(l, 'pMenu').querySelectorAll('button').find((b) => b.textContent === '要約を再生成');
+      const dlg = () => l.document.querySelector('.askbox');
+      act(l);
+      await l.drain();
+      assert.strictEqual(l.page().summaryEdited, true, `${name}: DB に印が無い`);
+      assert.ok(!l.page().blocks.some((b) => b.citeState === 'manual' || b.citeState === 'stale'), `${name}: 人の行ができた（見本の作りの誤り）`);
+      const p = btn().onclick();
+      await l.drain();
+      assert.ok(dlg(), `${name}: 確かめが出ない`);
+      dlg().querySelectorAll('button')[1].dispatchEvent({ type: 'click' });
+      await p;
+      await l.drain();
+      assert.strictEqual(l.called('pageSummarize').length, 0, name);
+      // 作り直した要約（印の無いページ）が届いたら、次は聞かない
+      const fresh = l.page();
+      delete fresh.summaryEdited;
+      fresh.blocks = AI;
+      l.fire('onPageUpdated', { page: fresh, segments: [] });
+      await l.drain();
+      const p2 = btn().onclick();
+      await l.drain();
+      assert.strictEqual(dlg(), null, `${name}: 作り直した後も聞いた`);
+      await p2;
+      assert.strictEqual(l.called('pageSummarize').length, 1, name);
+      assert.deepStrictEqual(l.errors.map(fmt), []);
+    } finally { l.done(); }
+  }
+});

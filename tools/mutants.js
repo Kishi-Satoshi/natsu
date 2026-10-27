@@ -2411,5 +2411,7 @@ module.exports = [
   // 0.13.0 ED-8: ヘルプ
   {"id":"ed-help-article","file":"src/mainlib.js","from":"'summary/citations', 'summary/edit-summary',","to":"'summary/citations',","tests":["test/stage130.edit.app.test.js","test/help-app.test.js"],"pattern":"^(ED-8: HELP_ARTICLES|I1: HELP_ARTICLES)","why":"0.13.0 ED-8 決めたこと 36: HELP_ARTICLES に summary/edit-summary が無い（画面から記事「要約を書き直す」を開けない）"},
   // 0.13.0 2026-10-26 の持ち主の答え 問1: ［要約を再生成］の確かめ（EQ4 (a)）
-  {"id":"ed-regen-ask","file":"src/renderer/app.html","from":"      if (curPage && humanEdited(curPage.blocks) && !(await askRegen())) return;\n","to":"","tests":["test/stage130.edit.app.test.js"],"pattern":"^ED-8（EQ4 \\(a\\)","why":"0.13.0 ED-8 EQ4 (a)・決めたこと 35: 人が直した行があっても［要約を再生成］の前に確かめない（書き直した行と型が黙って元に戻る）"},
+  {"id":"ed-regen-ask","file":"src/renderer/app.html","from":"      if (curPage && (curPage.summaryEdited === true || humanEdited(curPage.blocks)) && !(await askRegen())) return;\n","to":"","tests":["test/stage130.edit.app.test.js"],"pattern":"^ED-8（EQ4 \\(a\\)","why":"0.13.0 ED-8 EQ4 (a)・決めたこと 35: 人が直した行があっても［要約を再生成］の前に確かめない（書き直した行と型が黙って元に戻る）"},
+  {"id":"ed-regen-struct","file":"src/db/commands.js","from":"  if (summary) w.page.summaryEdited = true;\n","to":"","tests":["test/stage130.edit.db.test.js","test/stage130.edit.app.test.js"],"pattern":"^ED-[28]・点検4","why":"0.13.0 2026-10-26 の持ち主の答え 点検4: 行を消す・動かす・複製・見出しの段を変えるなどの手直しでページに印を付けない（AI の型だけの要約で、手直しが［要約を再生成］で黙って元に戻る）"},
+  {"id":"ed-regen-clear","file":"src/main.js","from":"      delete saved.summaryEdited;   // 0.13.0 点検4: 作り直した要約は人の手直しを持たない（［要約を再生成］の確かめの印を消す）\n","to":"","tests":["test/stage130.edit.main.test.js"],"pattern":"^点検4","why":"0.13.0 2026-10-26 の持ち主の答え 点検4: ［要約を再生成］で作り直しても手直しの印を消さない（作り直した後も、次の再生成のたびに確かめが出る）"},
 ];

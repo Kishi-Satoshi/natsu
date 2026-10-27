@@ -201,6 +201,38 @@ test('ED-2・点検2: AI の見出しをテキストにして見出しに戻す�
   { id: 'h2', type: 'heading', level: 2, text: '決定事項' }, { id: 'b4', type: 'bullet', text: '来月に出す', cites: ['s3'], citeState: 'linked' },
   { id: 'h3', type: 'heading', level: 2, text: '次の一歩' }, { id: 'b6', type: 'bullet', text: '見積もりを取る', cites: [], citeState: 'linked' }] }));
 
+// 2026-10-26 の持ち主の答え（点検4「どんな手直しでも確かめる（おすすめ）」）: 要約の欄を直す命令はどれもページの印 summaryEdited を付ける
+// （［要約を再生成］の確かめの決め手。行を消す・動かす・複製・見出しの段・型の変換・分割・結合も）。作り直した要約の書き戻し（page.put）で消える
+test('ED-2・点検4: 要約の欄を直す命令（消す・動かす・複製・段・変換・分割・結合・足す・文・チェック・担当）はどれもページに summaryEdited を付ける。題名・メモは付けない', T, () => {
+  const AI = [{ id: 'h1', type: 'heading', level: 2, text: '決定事項' }, { id: 'b1', type: 'bullet', text: '来月に出す', cites: ['s2'], citeState: 'linked' },
+    { id: 'p1', type: 'paragraph', text: '本文の行' }, { id: 't1', type: 'todo', text: '見積もりを取る', checked: false, cites: [], citeState: 'linked' }];
+  const cases = [
+    ['block.remove', { blockId: 'p1' }], ['block.move', { blockId: 'b1', afterId: 'p1' }], ['block.duplicate', { blockId: 'h1' }],
+    ['block.turnInto', { blockId: 'h1', type: 'heading', level: 3 }], ['block.turnInto', { blockId: 'b1', type: 'todo' }],
+    ['block.split', { blockId: 'p1', text: '本文の行', at: 2 }], ['block.merge', { blockId: 'p1', text: '' }],
+    ['block.insert', { afterBlockId: 'b1', type: 'bullet' }], ['block.update', { blockId: 'p1', patch: { text: '直した' } }],
+    ['block.update', { blockId: 't1', patch: { checked: true } }], ['block.setAction', { blockId: 't1', assignee: '担当B' }],
+  ];
+  for (const [cmd, args] of cases) {
+    withDb((db) => {
+      assert.strictEqual(get(db).summaryEdited, undefined, '見本のページに印がある');
+      // 利用者が付け直した題名（D77。題名を直しても印が付かないことを見るため）
+      assert.strictEqual(call(db, 'page.setTitle', { id: 'pa1', title: '題名だけ直す' }).ok, true);
+      assert.strictEqual(call(db, 'page.setMemo', { id: 'pa1', memo: 'メモだけ直す' }).ok, true);
+      assert.strictEqual(get(db).summaryEdited, undefined, '題名・メモで印が付いた');
+      const r = call(db, cmd, { pageId: 'pa1', ...args });
+      assert.strictEqual(r.ok, true, `${cmd} ${r.code}`);
+      assert.strictEqual(get(db).summaryEdited, true, `${cmd} ${JSON.stringify(args)}`);
+      // 作り直した要約の書き戻し（main の summarize と同じく印を外して page.put）で消える
+      const p = get(db);
+      const { rev, ...rest } = p;
+      delete rest.summaryEdited;
+      assert.strictEqual(call(db, 'page.put', { page: { ...rest, blocks: AI }, baseRev: rev }, 'main').ok, true);
+      assert.strictEqual(get(db).summaryEdited, undefined);
+    }, { blocks: AI });
+  }
+});
+
 test('ED-2: 画面の役の block.insert・turnInto・update の型は BLOCK_TYPES だけ（numbered は通る・video・../x は bad-args）。main の役の page.put は知らない型も今どおり通す', T, () => withDb((db) => {
   assert.strictEqual(call(db, 'block.insert', { pageId: 'pa1', afterBlockId: 'b1', type: 'numbered' }).ok, true);
   assert.strictEqual(call(db, 'block.insert', { pageId: 'pa1', afterBlockId: 'b1', type: 'heading', level: 1 }).result.page.blocks[1].level, 1);

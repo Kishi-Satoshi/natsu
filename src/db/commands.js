@@ -174,6 +174,8 @@ function editPage(db, id, ctx, fn, { summary = false } = {}) {
   if (!w) return { ops: [], pageIds: [], result: null };
   if (summary && summaryLockedPage(db, w.was.page)) throw refuse('locked');
   if (fn(w.page) === false) return { ops: [], pageIds: [], result: null };
+  // 2026-10-26 の持ち主の答え（点検4「どんな手直しでも確かめる」）: 要約の欄を直した印（［要約を再生成］の前に確かめる。作り直した要約の書き戻しで消える）
+  if (summary) w.page.summaryEdited = true;
   const ops = saveOps(w.was, w.page, ctx.now);
   applyOps(db, ops);
   return { ops, pageIds: [id], result: readPage(db, id) };

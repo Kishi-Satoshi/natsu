@@ -151,3 +151,11 @@ test('ED-5・EQ22 (a): 前回の復旧のページの page:open（窓を作る�
   assert.deepStrictEqual(src.match(/sendToMainWin\('page:open', [^)]*\)/g), ["sendToMainWin('page:open', m.leavePageId)", "sendToMainWin('page:open', id)", "sendToMainWin('page:open', pageId)",
     "sendToMainWin('page:open', { id: page.id, saved: true })"]);
 });
+
+// ---------------------------------------------------------------- 2026-10-26 の持ち主の答え（点検4「どんな手直しでも確かめる（おすすめ）」）
+test('点検4: 要約の後に画面で行を1つ消すとページに summaryEdited が付き、［要約を再生成］で作り直すと消える（次の再生成では確かめない）', { timeout: sceneTimeout(30000) }, async () => {
+  const o = await run(['text', '--sum', '--claude=ok', '--segs=2', '--resum-after-edit']);
+  assert.strictEqual(o.editedBefore, true, '行を消しても印が無い');
+  assert.strictEqual(o.resumEdit && o.resumEdit.ok, true, JSON.stringify(o.resumEdit));
+  assert.strictEqual(o.editedAfter, undefined, '作り直した後も印が残った');
+});

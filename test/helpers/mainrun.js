@@ -169,6 +169,7 @@ const { titleAt } = require('./titles');
 //     --claude-auth=<method> … 偽の claude の auth status が返す authMethod（FAKE_CLAUDE_AUTH。既定 claude.ai）
 //     --set-type-live=<鍵|auto>[,…] … 0.11.0 M-4: 録音中（最初の区間の後）に meeting:set-type を呼ぶ（--live-memo=<文> があれば先に meeting:set-memo）
 //     --quality=<all|on|off> … 0.11.0 Q-3: 設定 qualityScore。--resum-quality=<…> … 要約の後にその設定にして［要約を再生成］（out.qualityBefore・out.resum）
+//     --resum-after-edit … 0.13.0 点検4: 要約の後に画面の役で行を1つ消して［要約を再生成］（out.editedBefore・out.resumEdit・out.editedAfter）
 //     --legacy-general … 0.11.0 P-12: 要約の後、ページを前の版で手で一般・その他を選んだ形（meetingType 'general'・typeAuto 偽）にして［要約を再生成］（out.legacyGeneral）
 //     --claude-stdin … 0.12.0 SP-4: 偽の claude の記録に標準入力の全文（stdinText）を書かせる（--claude と一緒に使う）
 //     --sum-md=<名前> … 0.11.0 M-3: 偽の claude が返す要約の Markdown を test/fixtures/summaries/<名前>.md にする（--claude と一緒に使う）
@@ -3526,6 +3527,15 @@ process.on('exit', () => {
     out.qualityBefore = (store.getPage(store.listPages()[0].id) || {}).quality;
     await handlers['settings:save']({}, { qualityScore: flagVal('--resum-quality') });
     out.resum = await handlers['page:summarize']({}, store.listPages()[0].id);
+  }
+  // 0.13.0 点検4（2026-10-26 の持ち主の答え）: 要約の後に画面の役で行を1つ消し（ページの印 summaryEdited が付く）、［要約を再生成］すると印が消える（--resum-after-edit）
+  if (flags.includes('--resum-after-edit') && store.listPages().length) {
+    const id = store.listPages()[0].id;
+    const pg = (await appCall('page.get', { id })).page;
+    await appCall('block.remove', { pageId: id, blockId: pg.blocks[pg.blocks.length - 1].id });
+    out.editedBefore = (await appCall('page.get', { id })).page.summaryEdited;
+    out.resumEdit = await handlers['page:summarize']({}, id);
+    out.editedAfter = (await appCall('page.get', { id })).page.summaryEdited;
   }
   // 0.11.0 P-12（R4）: 前の版で手で一般・その他を選んだページにして（page.put で attrs を書く）、［要約を再生成］（--legacy-general）
   if (flags.includes('--legacy-general') && store.listPages().length) {
