@@ -983,7 +983,7 @@ const IDS_130 = [
   // 第1部（ed-。ED-1〜ED-8 で作りながら足し、ED-8 で計画の ed- の表の行の順にそろえた）
   'ed-split-surrogate', 'ed-md-midline', 'ed-md-number-text', 'ed-md-zenkaku', 'ed-slash-midword', 'ed-slash-kana', 'ed-slash-zenkaku', 'ed-recent-order',
   'ed-recent-cap', 'ed-recent-check', 'ed-recent-save', 'ed-enter-type', 'ed-empty-enter', 'ed-bs-revert', 'ed-number-restart', 'ed-key-code',
-  'ed-md-copy', 'ed-row-redraw', 'ed-type-any', 'ed-level-range', 'ed-bad-offset', 'ed-split-text', 'ed-split-dup', 'ed-merge-caret',
+  'ed-md-copy', 'ed-row-redraw', 'ed-type-any', 'ed-level-range', 'ed-bad-offset', 'ed-split-text', 'ed-split-dup', 'ed-split-top', 'ed-merge-caret',
   'ed-merge-divider', 'ed-turn-drop', 'ed-divider-text', 'ed-lock-new', 'ed-split-mark', 'ed-turn-manual', 'ed-move-after', 'ed-old-heading',
   'ed-unknown-type', 'ed-md-level', 'ed-mcp-types', 'ed-view-manual-head', 'ed-split-client', 'ed-ime-enter', 'ed-ime-md', 'ed-shift-enter',
   'ed-paste-html', 'ed-slash-esc', 'ed-esc-meeting', 'ed-plus-menu', 'ed-save-no-steal', 'ed-drop-index', 'ed-alt-dup', 'ed-grip-menu',
@@ -999,7 +999,7 @@ test('G3・0.13.0: 0.13.0 の変異が一覧にそろい、IDS_130 はどれも�
   assert.ok(at > 0, '計画の「変異確認」の節が無い');
   const table = plan.slice(at, plan.indexOf('\n## ', at + 5));
   const rows = [...table.matchAll(/^\| ((?:ed|rdy)-[a-z0-9-]*) \|/gm)].map((m) => m[1]);
-  assert.strictEqual(rows.length, 78, '計画の 0.13.0 の表（ed- 54・rdy- 24）が読めない');
+  assert.strictEqual(rows.length, 79, '計画の 0.13.0 の表（ed- 55・rdy- 24）が読めない');
   assert.strictEqual(new Set(rows).size, rows.length, '計画の表に重なり');
   assert.deepStrictEqual(IDS_130.filter((id) => !rows.includes(id)), [], '計画の「変異確認」の表に無い変異');
   for (const id of IDS_130) {
@@ -1010,14 +1010,15 @@ test('G3・0.13.0: 0.13.0 の変異が一覧にそろい、IDS_130 はどれも�
 });
 // 0.13.0 RDY-6: 第2部の変異（rdy-）は、計画の「変異確認」の rdy- の表とちょうど同じ（行の順・24）
 // 2026-10-26 の持ち主の答え（問1「変異の確かめを足す（おすすめ）」）で意図して変えた: ED-8 の［要約を再生成］の確かめを戻す ed-regen-ask を足して ed- 54・78
-test('G3・0.13.0 ED-8: IDS_130 は計画の「変異確認」の 0.13.0 の表（ed- 54・rdy- 24）とちょうど同じ（ed- も rdy- も行の順・78）', { timeout: 5000 }, () => {
+// 2026-10-26 の持ち主の答え（点検1「上に空の行を足す（おすすめ）」）で意図して変えた: 文のある行の頭の Enter を戻す ed-split-top を足して ed- 55・79
+test('G3・0.13.0 ED-8: IDS_130 は計画の「変異確認」の 0.13.0 の表（ed- 55・rdy- 24）とちょうど同じ（ed- も rdy- も行の順・79）', { timeout: 5000 }, () => {
   const plan = fs.readFileSync(path.join(ROOT, 'docs', 'plans', '2026-10-24-130.md'), 'utf8');
   const at = plan.search(/^## 変異確認（直しを1つ戻すと/m);
   const table = plan.slice(at, plan.indexOf('\n## ', at + 5));
   const ed = [...table.matchAll(/^\| (ed-[a-z0-9-]*) \|/gm)].map((m) => m[1]);
-  assert.strictEqual(ed.length, 54);
+  assert.strictEqual(ed.length, 55);
   assert.deepStrictEqual(IDS_130.filter((id) => /^ed-/.test(id)), ed);
-  assert.strictEqual(IDS_130.length, 78);
+  assert.strictEqual(IDS_130.length, 79);
 });
 test('G3・0.13.0 RDY-6: IDS_130 の rdy- は計画の「変異確認」の rdy- の表とちょうど同じ（行の順・24）', { timeout: 5000 }, () => {
   const plan = fs.readFileSync(path.join(ROOT, 'docs', 'plans', '2026-10-24-130.md'), 'utf8');

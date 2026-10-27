@@ -90,6 +90,29 @@ test('ED-2・F41: split・merge・turnInto・duplicate・move（afterId）のど
   }
 }));
 
+// 2026-10-26 の持ち主の答え（点検1「上に空の行を足す（おすすめ）」）: 文のある行の頭（at 0）の Enter は、上に空の行（型は EQ5 (a)）を足し、
+// 今の行は ID・文・担当・期限・チェック・出典・citeState をそのまま残す。空の行の at 0 は今どおり（下に足す）
+test('ED-2・点検1: 文のある行の頭（at 0）で block.split → 上に空の行を足し、今の行は ID・文・担当・期限・チェック・出典・citeState がそのまま。空の行は今どおり下に足す', T, () => withDb((db) => {
+  const keep = (b) => ({ id: b.id, type: b.type, text: b.text, assignee: b.assignee, due: b.due, dueRaw: b.dueRaw, checked: b.checked, cites: b.cites, citeState: b.citeState, mark: b.mark });
+  const was = get(db).blocks.find((b) => b.id === 'b4');
+  const r = call(db, 'block.split', { pageId: 'pa1', blockId: 'b4', text: was.text, at: 0 });
+  assert.strictEqual(r.ok, true, r.code);
+  const ids = r.result.page.blocks.map((b) => b.id);
+  const nb = r.result.page.blocks.find((b) => b.id === r.result.blockId);
+  assert.strictEqual(ids.indexOf(nb.id), ids.indexOf('b4') - 1, '足した行が今の行の上に無い');
+  assert.deepStrictEqual([nb.type, nb.text, nb.checked, nb.citeState, nb.cites, nb.assignee], ['todo', '', false, 'manual', [], undefined]);
+  assert.deepStrictEqual(keep(r.result.page.blocks.find((b) => b.id === 'b4')), keep(was));
+  // 見出しの頭: 上に足す行は EQ5 (a) の型（箇条書き）。見出しはそのまま
+  const h = call(db, 'block.split', { pageId: 'pa1', blockId: 'b1', text: '決めたこと', at: 0 });
+  const hb = h.result.page.blocks;
+  assert.deepStrictEqual([hb[0].id === h.result.blockId, hb[0].type, hb[0].text], [true, 'bullet', '']);
+  assert.deepStrictEqual([hb[1].id, hb[1].type, hb[1].text, hb[1].citeState], ['b1', 'heading', '決めたこと', undefined]);
+  // 空の行の at 0 は今どおり、下に足す
+  const e = call(db, 'block.split', { pageId: 'pa1', blockId: h.result.blockId, text: '', at: 0 });
+  const eb = e.result.page.blocks.map((b) => b.id);
+  assert.strictEqual(eb.indexOf(e.result.blockId), eb.indexOf(h.result.blockId) + 1);
+}, { blocks: samplePage('pa1').page.blocks.map((b) => (b.id === 'b4' ? { ...b, citeState: 'linked', checked: true } : b)) }));
+
 // ---------------------------------------------------------------- 結合
 test('ED-2: merge は今の行の文を前の文のある行の後ろにつなぎ、答えの at がつないだ所。前が区切り線なら区切り線だけを消す。頭の行では何もしない', T, () => withDb((db) => {
   const r = call(db, 'block.merge', { pageId: 'pa1', blockId: 'b3', text: '画面の文' });

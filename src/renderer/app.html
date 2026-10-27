@@ -3379,9 +3379,12 @@
     const at = safeOffset(text, r ? r[0] : text.length);
     if (['bullet', 'todo', 'numbered'].includes(b.type) && text.trim() === '') return turnRow(el, 'paragraph', undefined, 0);
     // 答えを待つ間に blur の保存（_commit）が同じ文を重ねて送らないよう、画面は先に分けた前の文にする（断られたら戻す）
+    // 2026-10-26 の持ち主の答え（点検1）: 文のある行の頭では DB が上に空の行を足す。今の行の文はそのままで、カーソルも今の行の頭に残す
+    const top = at === 0 && text !== '';
     const was = b.text;
-    txt.textContent = text.slice(0, at); b.text = text.slice(0, at).trim();
-    const out = await editAnswer(pid, () => window.koeApp.blockSplit(pid, b.id, text, at), (x) => ({ focus: x.blockId, caret: 0 }));
+    if (!top) txt.textContent = text.slice(0, at);
+    b.text = top ? text : text.slice(0, at).trim();
+    const out = await editAnswer(pid, () => window.koeApp.blockSplit(pid, b.id, text, at), (x) => ({ focus: top ? b.id : x.blockId, caret: 0 }));
     if (!out && el._b === b) { b.text = was; if (pid === curId) txt.textContent = text; }
     return out;
   }

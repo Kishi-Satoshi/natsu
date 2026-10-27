@@ -184,6 +184,31 @@ test('ED-4・F40・F41: 行に打って blur せず、カーソルを途中に�
   } finally { l.done(); }
 });
 
+// 2026-10-26 の持ち主の答え（点検1「上に空の行を足す（おすすめ）」）
+test('ED-4・点検1: 文のある行の頭で Enter → blockSplit（at 0）の1回で上に空の行が入り、今の行は文も出典もそのまま、カーソルは今の行の頭に残る', T, async () => {
+  const l = await openReal({ pa1: BASE() });
+  try {
+    const t = typeIn(l, 'b1', '来週に出す', 0);
+    l.key({ key: 'Enter' }, t);
+    await l.drain();
+    assert.deepStrictEqual(sent(l), [['blockSplit', 'pa1', 'b1', '来週に出す', 0]]);
+    const blocks = l.page().blocks;
+    assert.deepStrictEqual(blocks.slice(0, 3).map((b) => [b.id === 'h1' || b.id === 'b1' ? b.id : 'new', b.type, b.text]),
+      [['h1', 'heading', '決定事項'], ['new', 'bullet', ''], ['b1', 'bullet', '来週に出す']]);
+    assert.deepStrictEqual([blocks[2].cites, blocks[2].citeState], [['s2'], 'linked']);
+    assert.deepStrictEqual(rowsOf(l).map((e) => e.dataset.id), ['h1', blocks[1].id, 'b1', 'p1', 'e1']);
+    assert.strictEqual(txtOf(l, 'b1').textContent, '来週に出す');
+    assert.strictEqual(txtOf(l, blocks[1].id).textContent, '');
+    assert.strictEqual(l.document.activeElement, txtOf(l, 'b1'));
+    assert.deepStrictEqual(l.caret.get(txtOf(l, 'b1')), [0, 0]);
+    // blur しても今の行の文を書き直さない（命令は分割の1つだけ）
+    txtOf(l, 'b1').dispatchEvent({ type: 'blur' });
+    await l.drain();
+    assert.deepStrictEqual(sent(l), [['blockSplit', 'pa1', 'b1', '来週に出す', 0]]);
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
 test('ED-4・F40: カーソルが「𠮷」の途中なら書記素の境に寄せて分ける（文字化けしない）', T, async () => {
   const l = await openReal({ pa1: BASE() });
   try {

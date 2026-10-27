@@ -654,6 +654,7 @@ const DEFS = {
   // ---- 0.13.0 ED-2（計画 docs/plans/2026-10-24-130.md の決めたこと 10〜13。持ち主の試作の「1つの命令＝1つのトランザクション」と「書いている途中の文も
   // 命令と一緒に送る」）: 分割・結合・型の変換・複製。どれも要約の欄の鍵を見る（summary: true）。oplog の1行が第2b回の「元に戻す」の1歩になる
   // 今の行の文を text（画面の今の文）にしてから at で分け、前を今の行・後ろを新しい行（すぐ下。型は EQ5 (a)）にする → { page, blockId: 新しい行 }
+  // （点検1）文のある行の頭（at 0）では、上に空の行（型は EQ5 (a)）を足し、今の行はそのまま残す（空の行の at 0 は今どおり下に足す）
   'block.split': { roles: ['app', 'main'], write: true, args: { pageId: 'id', blockId: 'id', text: 'text', at: 'offset' },
     run: (db, a, ctx) => {
       const blockId = newBlockId(db, ctx.now);
@@ -667,6 +668,14 @@ const DEFS = {
         // 分けた後ろの行は人の行（出典なし・担当と期限なし: 0.11.0 の「要確認」の札が出る）
         const nb = { id: blockId, type: next === 'revert' ? 'paragraph' : next.type, text: tail, cites: [], citeState: 'manual' };
         if (nb.type === 'todo') nb.checked = false;
+        // 2026-10-26 の持ち主の答え（点検1）: 文のある行の頭では、上に空の行を足し、今の行は ID・文・担当・期限・出典をそのまま残す
+        if (a.at === 0 && a.text !== '') {
+          nb.text = '';
+          if (Array.isArray(b.rich) && b.rich.map((r) => r.t).join('') !== a.text) delete b.rich;
+          retext(b, a.text);
+          p.blocks.splice(i, 0, nb);
+          return true;
+        }
         if (Array.isArray(b.rich)) {
           if (b.rich.map((r) => r.t).join('') === a.text) { const [r1, r2] = blockEdit.splitRich(b.rich, a.at); b.rich = r1; nb.rich = r2; } else delete b.rich;
         }
