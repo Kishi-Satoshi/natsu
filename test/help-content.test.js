@@ -476,3 +476,24 @@ test('HO-2（Review Focus 3）: 記事の画像（.body img）は幅 100%・高�
   assert.match(css, /^\.body img \{ width: 100%; height: auto; \}$/m);
   assert.doesNotMatch(css, /\.body img \{[^}]*max-width/, '幅の決まりが max-width のまま');
 });
+
+// HO-3（HO4）: 仕組みの図は手で描く白黒の箱と矢印（DADS の白黒・線の太さで強調）。図の中に文字を書かず、図の下の番号の説明と対にする
+test('HO-3（HO4）: 仕組みの図（help/assets/diagrams/*.svg）は手で描く白黒の箱と矢印。文字（<text>）・script・外の参照が無く、色は黒・白・黄色・罫線の灰色だけ。番号の丸が 1 から順にあり、1枚 100KB まで。help/assets/diagrams/ には SVG だけ', { timeout: 5000 }, () => {
+  const dir = path.join(ROOT, 'help', 'assets', 'diagrams');
+  const files = fs.readdirSync(dir).sort();
+  assert.ok(files.includes('overview-flow.svg'), '全体像の仕組みの図が無い');
+  for (const f of files) {
+    assert.match(f, /^[a-z0-9-]{1,60}\.svg$/, `${f}: 仕組みの図は SVG だけ`);
+    const svg = read(`help/assets/diagrams/${f}`);
+    assert.ok(Buffer.byteLength(svg) <= 100000, `${f}: 100KB を越える`);
+    assert.match(svg, /^<svg xmlns="http:\/\/www\.w3\.org\/2000\/svg" viewBox="0 0 \d+ \d+" width="\d+" height="\d+">/, `${f}: 頭の形`);
+    assert.deepStrictEqual(svgProblems(svg), [], f);
+    assert.ok(!/<image/.test(svg), `${f}: 仕組みの図に写真を入れない（写真は help/assets/shots/）`);
+    const marks = (svg.match(/<g class="mark">/g) || []).length;
+    assert.ok(marks >= 2, `${f}: 番号の丸が無い`);
+    // 番号の丸の数字は figureSvg と同じ線の数字で、1 から順
+    const { DIGITS } = AS();
+    const ds = [...svg.matchAll(/<g class="mark">.*?\sd="([^"]+)"/g)].map((m) => m[1]);
+    assert.deepStrictEqual(ds, Array.from({ length: marks }, (_, i) => DIGITS[i + 1]), `${f}: 番号が 1 から順でない`);
+  }
+});

@@ -244,4 +244,4 @@ function main(root = ROOT) {
 }
 
 if (require.main === module) process.exitCode = main();
-module.exports = { checkShots, figureSvg, deriveShot, cropImage, encodeSmall, fingerprint, isLight, TABLE, SHOTS_DIR, MAX_IMAGE_BYTES };
+module.exports = { checkShots, figureSvg, DIGITS, deriveShot, cropImage, encodeSmall, fingerprint, isLight, TABLE, SHOTS_DIR, MAX_IMAGE_BYTES };
