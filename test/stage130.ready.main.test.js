@@ -168,7 +168,8 @@ test('RDY-1（RD12・RD17）: 録音の前のページを開いていてもパ�
 for (const [name, startStep, by] of [['hotkey-meeting', [['hotkey-meeting']], 'hotkey'], ['tray-start', [['tray-start']], 'tray'],
   ['nudge:start', [...L('mic teams:1'), ...L('mic teams:1'), ['wait-show', 1], ['ipc', 'nudge:start', {}]], 'panel'], ['meeting:toggle', [['start']], 'button']]) {
   test(`RDY-4（F92）: 録音の前のページが無いときの ${name} は 0.12.1 と同じ（経過の頭は「開始」で prep が無い・「録音の前のページで始めた」が無い・下書きのメモは空）`, S, async () => {
-    const o = await run([...startStep, ['snap', 'm'], ['stop']]);
+    // 終わった議事録のページが DB に入るのを待ってから経過を読む（待たないと、負荷の下で stop の直後に 0 件を読んで揺れた。2026-10-27）
+    const o = await run([...startStep, ['snap', 'm'], ['stop'], ['wait-pages', 1]]);
     assert.strictEqual(o.snaps.m.active, true, o.engineLog.join('\n'));
     assert.deepStrictEqual(o.snaps.m.draft, { memo: '', meetingType: null });
     assert.deepStrictEqual(states(o).slice(0, 1), [`start/${by}`], JSON.stringify(o.pageStateLogs));

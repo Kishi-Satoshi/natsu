@@ -75,9 +75,11 @@ test('画面の使いやすさ・F10: 明と暗のすべての「文字 × 地�
 // 0.12.0 SP-2 で意図して変えた: 持ち主の D53・D66（文字起こしの「自分」「相手」・別々に文字起こし）で、<script> の中だけを変えた（マイクと相手の声を
 // 別々の MediaRecorder で録り、流れごとの区間の番号・始まりの時計・最後を送る。main に言われた流れの区間を切る）。見た目（<style>・DOM・点・印）は変えない。
 // その中身で凍結をかけ直した（0.11.1 の値は ac78ef07…）。<script> の外は 0.11.1（bbd8a51）と1バイトも違わないことを下のテストで見る
-test('録音バーは触らない（D25 で 0.9.0 の形にした。変えるのは利用者の決定のときだけ）: overlay.html は 2つの流れの録音（0.12.0 SP-2・D53・D66。<script> の中だけ）で直した中身と1バイトも違わない', () => {
+// 0.13.0 CLK-1 で意図して変えた: 持ち主の答え（2026-10-27「録音バーとページの両方を直す（おすすめ）」）で、<script> の中の時計だけを変えた（250ms の時計を
+// startClock() にまとめ、再開でも動かす）。見た目は変えない（下のテストの <script> の外の値はそのまま）。その中身で凍結をかけ直した（0.12.0 の値は a4d97388…）
+test('録音バーは触らない（D25 で 0.9.0 の形にした。変えるのは利用者の決定のときだけ）: overlay.html は時計のずれの直し（0.13.0 CLK。<script> の中だけ）で直した中身と1バイトも違わない', () => {
   const buf = fs.readFileSync(path.join(__dirname, '..', 'src', 'renderer', 'overlay.html'));
-  assert.strictEqual(require('node:crypto').createHash('sha256').update(buf).digest('hex'), 'a4d973884bbc53efaa047435b3fe94d8ac5b519258d4af4334c883e683a89fed');
+  assert.strictEqual(require('node:crypto').createHash('sha256').update(buf).digest('hex'), 'a6bbc7d62fa48af5c1042281527adffb580be5b73a3a451a3911ef5b19c0ffa7');
 });
 test('0.12.0 SP-2: <script> の中身を除いた overlay.html は 0.11.1（bbd8a51）と1バイトも違わない（見た目を変えない）', () => {
   const src = fs.readFileSync(path.join(__dirname, '..', 'src', 'renderer', 'overlay.html'), 'utf8');

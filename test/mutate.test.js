@@ -1041,18 +1041,20 @@ const IDS_130 = [
   'ed-unknown-type', 'ed-md-level', 'ed-mcp-types', 'ed-view-manual-head', 'ed-split-client', 'ed-split-blur', 'ed-ime-enter', 'ed-ime-md', 'ed-shift-enter',
   'ed-paste-html', 'ed-slash-esc', 'ed-esc-meeting', 'ed-plus-menu', 'ed-save-no-steal', 'ed-drop-index', 'ed-alt-dup', 'ed-grip-menu',
   'ed-zoom-shift0', 'ed-key-scope', 'ed-ctrl-enter', 'ed-help-article', 'ed-regen-ask', 'ed-regen-struct', 'ed-regen-clear', 'ed-regen-noop', 'ed-late-answer',
+  // 時計のずれ（clk-。2026-10-27 の持ち主の答え「録音バーとページの両方を直す（おすすめ）」。CLK-1〜CLK-3 で作りながら足す。計画の clk- の表の行の順）
+  'clk-resume', 'clk-resume-in-pause', 'clk-pause-subtract', 'clk-one-interval',
 ];
-test('G3・0.13.0: 0.13.0 の変異が一覧にそろい、IDS_130 はどれも計画の「変異確認」の表にある。ed-・rdy- の変異は IDS_130 にある。どれも決まったテストのファイルを持ち、why が 0.13.0 で始まる', { timeout: 5000 }, () => {
+test('G3・0.13.0: 0.13.0 の変異が一覧にそろい、IDS_130 はどれも計画の「変異確認」の表にある。ed-・rdy-・clk- の変異は IDS_130 にある。どれも決まったテストのファイルを持ち、why が 0.13.0 で始まる', { timeout: 5000 }, () => {
   const byId = new Map(MUTANTS.map((m) => [m.id, m]));
   assert.deepStrictEqual(IDS_130.filter((id) => !byId.has(id)), [], 'IDS_130 の変異が一覧に無い');
   assert.strictEqual(new Set(IDS_130).size, IDS_130.length, 'IDS_130 に重なり');
-  assert.deepStrictEqual(MUTANTS.filter((m) => /^(ed|rdy)-/.test(m.id) && !IDS_130.includes(m.id)).map((m) => m.id), [], 'IDS_130 に無い ed-・rdy- の変異がある');
+  assert.deepStrictEqual(MUTANTS.filter((m) => /^(ed|rdy|clk)-/.test(m.id) && !IDS_130.includes(m.id)).map((m) => m.id), [], 'IDS_130 に無い ed-・rdy-・clk- の変異がある');
   const plan = fs.readFileSync(path.join(ROOT, 'docs', 'plans', '2026-10-24-130.md'), 'utf8');
   const at = plan.search(/^## 変異確認（直しを1つ戻すと/m);
   assert.ok(at > 0, '計画の「変異確認」の節が無い');
   const table = plan.slice(at, plan.indexOf('\n## ', at + 5));
-  const rows = [...table.matchAll(/^\| ((?:ed|rdy)-[a-z0-9-]*) \|/gm)].map((m) => m[1]);
-  assert.strictEqual(rows.length, 86, '計画の 0.13.0 の表（ed- 61・rdy- 25）が読めない');
+  const rows = [...table.matchAll(/^\| ((?:ed|rdy|clk)-[a-z0-9-]*) \|/gm)].map((m) => m[1]);
+  assert.strictEqual(rows.length, 90, '計画の 0.13.0 の表（ed- 61・rdy- 25・clk- 4）が読めない');
   assert.strictEqual(new Set(rows).size, rows.length, '計画の表に重なり');
   assert.deepStrictEqual(IDS_130.filter((id) => !rows.includes(id)), [], '計画の「変異確認」の表に無い変異');
   for (const id of IDS_130) {
@@ -1070,14 +1072,24 @@ test('G3・0.13.0: 0.13.0 の変異が一覧にそろい、IDS_130 はどれも�
 // 点検5（作り手が決めた。Enter の1回は oplog の1行）で意図して変えた: ed-split-blur を足して ed- 59・84
 // 2026-10-27 の持ち主の答え（点検8「見えている上の行の後ろに足す（おすすめ）」）で意図して変えた: ed-split-view を足して ed- 60・85
 // 点検の見直し（作り手が決めた。R45。何も変えない命令は印を付けない）で意図して変えた: ed-regen-noop を足して ed- 61・86
-test('G3・0.13.0 ED-8: IDS_130 は計画の「変異確認」の 0.13.0 の表（ed- 61・rdy- 25）とちょうど同じ（ed- も rdy- も行の順・86）', { timeout: 5000 }, () => {
+// 2026-10-27 の持ち主の答え（【時計のずれ】「録音バーとページの両方を直す（おすすめ）」）で意図して変えた: CLK-1 の clk- 4 を足して 90
+test('G3・0.13.0 ED-8: IDS_130 は計画の「変異確認」の 0.13.0 の表（ed- 61・rdy- 25・clk- 4）とちょうど同じ（ed- も rdy- も clk- も行の順・90）', { timeout: 5000 }, () => {
   const plan = fs.readFileSync(path.join(ROOT, 'docs', 'plans', '2026-10-24-130.md'), 'utf8');
   const at = plan.search(/^## 変異確認（直しを1つ戻すと/m);
   const table = plan.slice(at, plan.indexOf('\n## ', at + 5));
   const ed = [...table.matchAll(/^\| (ed-[a-z0-9-]*) \|/gm)].map((m) => m[1]);
   assert.strictEqual(ed.length, 61);
   assert.deepStrictEqual(IDS_130.filter((id) => /^ed-/.test(id)), ed);
-  assert.strictEqual(IDS_130.length, 86);
+  assert.strictEqual(IDS_130.length, 90);
+});
+// 0.13.0 CLK（2026-10-27 の持ち主の答え「録音バーとページの両方を直す（おすすめ）」）: 時計のずれの変異（clk-）は、計画の「変異確認」の clk- の表とちょうど同じ（行の順）
+test('G3・0.13.0 CLK: IDS_130 の clk- は計画の「変異確認」の clk- の表とちょうど同じ（行の順・4）', { timeout: 5000 }, () => {
+  const plan = fs.readFileSync(path.join(ROOT, 'docs', 'plans', '2026-10-24-130.md'), 'utf8');
+  const at = plan.search(/^## 変異確認（直しを1つ戻すと/m);
+  const table = plan.slice(at, plan.indexOf('\n## ', at + 5));
+  const rows = [...table.matchAll(/^\| (clk-[a-z0-9-]*) \|/gm)].map((m) => m[1]);
+  assert.strictEqual(rows.length, 4);
+  assert.deepStrictEqual(IDS_130.filter((id) => /^clk-/.test(id)), rows);
 });
 test('G3・0.13.0 RDY-6: IDS_130 の rdy- は計画の「変異確認」の rdy- の表とちょうど同じ（行の順・25）', { timeout: 5000 }, () => {
   const plan = fs.readFileSync(path.join(ROOT, 'docs', 'plans', '2026-10-24-130.md'), 'utf8');

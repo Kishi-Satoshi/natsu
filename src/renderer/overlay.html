@@ -690,6 +690,16 @@
     return rec;
   }
 
+  // 経過時間。一時停止していた時間は会議の長さに含めない。録音の始めと再開で動かし、一時停止・終了は stopMeters が止める
+  // 0.13.0 CLK-1（2026-10-27 の持ち主の答え）: 再開でも動かす。動かさないと初めの一時停止から後ずっと止まり、ページの時計とずれる
+  function startClock() {
+    if (timerId) clearInterval(timerId);   // 2つ走らせない
+    timerId = setInterval(() => {
+      const pause = pausedMs + (paused ? Date.now() - pausedAt : 0);
+      timerEl.textContent = (form === 'v' ? fmtV : fmt)(Date.now() - startedAt - pause);
+    }, 250);
+  }
+
   async function start() {
     cleanup();            // 立っていれば starting もここで倒れる
     starting = true;      // openStream を待っている間の二重起動を止める
@@ -749,11 +759,7 @@
     muteSystemForBeep();
     beep(SND.start);
     startedAt = Date.now();
-    // 一時停止していた時間は会議の長さに含めない
-    timerId = setInterval(() => {
-      const pause = pausedMs + (paused ? Date.now() - pausedAt : 0);
-      timerEl.textContent = (form === 'v' ? fmtV : fmt)(Date.now() - startedAt - pause);
-    }, 250);
+    startClock();
 
     if (mode === 'meeting') startMeetingSegment();
     else startDictation();
@@ -1139,6 +1145,7 @@
     }
     firstSegDone = true;          // 再開後は通常の区間長で刻む
     startMeetingSegment();
+    startClock();                 // 0.13.0 CLK-1: 一時停止で止めた時計を動かし直す
     // 0.12.0 SP-2（決めたこと 122）: 取り込めれば相手の声の流れも始め、取り込めなければその流れを空の最後で閉じる（以後のマイクの区間は ''）
     if (twoEver && sysOn) { sys.first = true; startSysSegment(); } else closeSysEmpty();
     setPhase('recording');
