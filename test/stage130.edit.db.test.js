@@ -274,6 +274,35 @@ test('ED-2・点検4: 要約の欄を直す命令（消す・動かす・複製�
   }
 });
 
+// 点検の見直しの2つ目（作り手が決めた。R39 の「何も変えない命令は付かない」）: 要約の欄を直す命令でも、行を何も変えなかったとき（同じ所への move・
+// 無い行の remove・同じ文や同じチェックの update・同じ担当）はページを書かず、印 summaryEdited も付けない（落とした所が元の所でも［要約を再生成］で聞かない）。
+// oplog の1行は送り直しを1回だけ効かせるために残るが、操作は空（rev も上がらない）
+test('ED-2・点検4: 行を何も変えない要約の欄の命令（同じ所への move・無い行の remove・同じ文・同じチェック・同じ型の update・同じ担当）はページを書かず、summaryEdited を付けない。oplog の操作は空', T, () => {
+  const AI = [{ id: 'h1', type: 'heading', level: 2, text: '決定事項' }, { id: 'b1', type: 'bullet', text: '来月に出す', cites: ['s2'], citeState: 'linked' },
+    { id: 'p1', type: 'paragraph', text: '本文の行' }, { id: 't1', type: 'todo', text: '見積もりを取る', checked: false, assignee: '担当A', cites: [], citeState: 'linked' }];
+  const cases = [
+    ['block.move', { blockId: 'b1', afterId: 'h1' }], ['block.move', { blockId: 'h1', afterId: '' }], ['block.move', { blockId: 'p1', toIndex: 2 }],
+    ['block.remove', { blockId: 'zz' }], ['block.update', { blockId: 'p1', patch: { text: '本文の行' } }],
+    ['block.update', { blockId: 't1', patch: { checked: false } }], ['block.update', { blockId: 't1', patch: { type: 'todo' } }],
+    ['block.setAction', { blockId: 't1', assignee: '担当A' }],
+  ];
+  for (const [cmd, args] of cases) {
+    withDb((db) => {
+      const p0 = get(db);
+      const n0 = oplogN(db);
+      const r = call(db, cmd, { pageId: 'pa1', ...args });
+      assert.strictEqual(r.ok, true, `${cmd} ${r.code}`);
+      assert.strictEqual(r.result && r.result.id, 'pa1', `${cmd}: 答えにページが無い`);
+      const p1 = get(db);
+      assert.strictEqual(p1.summaryEdited, undefined, `${cmd} ${JSON.stringify(args)}: 何も変えないのに印が付いた`);
+      assert.strictEqual(p1.rev, p0.rev, `${cmd} ${JSON.stringify(args)}: 何も変えないのに書いた`);
+      assert.strictEqual(oplogN(db), n0 + 1, cmd);
+      assert.strictEqual(db.prepare('select ops from oplog order by seq desc limit 1').get().ops, '[]', cmd);
+      assert.deepStrictEqual(p1.blocks, p0.blocks, cmd);
+    }, { blocks: AI });
+  }
+});
+
 test('ED-2: 画面の役の block.insert・turnInto・update の型は BLOCK_TYPES だけ（numbered は通る・video・../x は bad-args）。main の役の page.put は知らない型も今どおり通す', T, () => withDb((db) => {
   assert.strictEqual(call(db, 'block.insert', { pageId: 'pa1', afterBlockId: 'b1', type: 'numbered' }).ok, true);
   assert.strictEqual(call(db, 'block.insert', { pageId: 'pa1', afterBlockId: 'b1', type: 'heading', level: 1 }).result.page.blocks[1].level, 1);

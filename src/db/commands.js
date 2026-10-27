@@ -173,7 +173,10 @@ function editPage(db, id, ctx, fn, { summary = false } = {}) {
   const w = forWrite(db, id);
   if (!w) return { ops: [], pageIds: [], result: null };
   if (summary && summaryLockedPage(db, w.was.page)) throw refuse('locked');
+  const before = summary ? JSON.stringify(w.page.blocks) : '';
   if (fn(w.page) === false) return { ops: [], pageIds: [], result: null };
+  // 点検の見直し（R45）: 要約の欄の命令が行を何も変えなければ（同じ所への move・無い行の remove・同じ文の update）書かず、印も付けない（答えは今のページ）
+  if (summary && JSON.stringify(w.page.blocks) === before) return { ops: [], pageIds: [], result: readPage(db, id) };
   // 2026-10-26 の持ち主の答え（点検4「どんな手直しでも確かめる」）: 要約の欄を直した印（［要約を再生成］の前に確かめる。作り直した要約の書き戻しで消える）
   if (summary) w.page.summaryEdited = true;
   const ops = saveOps(w.was, w.page, ctx.now);
