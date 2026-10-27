@@ -3666,6 +3666,13 @@
     for (let n = a.parentNode; n; n = n.parentNode) if (n === box) return true;
     return false;
   }
+  // 2026-10-26 の持ち主の答え（点検6「書いている間は切り替えない（おすすめ）」）: 録音の前のページのメモ・種類の欄・題名にフォーカスがある
+  function readyBusy() {
+    if (!readyNow() || activeTab !== 'live') return false;
+    const a = document.activeElement;
+    for (let n = a; n; n = n.parentNode) if (n === $('pMemo') || n === $('pTypeRow') || n === $('pTitle')) return true;
+    return false;
+  }
   // 保存した議事録のタブを、前に出さずに足す（録音中のタブはそのページのタブに替え、録音の前のページは残して末尾に足す）
   function tabBehind(id) {
     const key = `page:${id}`;
@@ -5135,6 +5142,7 @@
   function pageOpenFromMain(id, o) {
     // 0.13.0 ED-5（EQ22 (a)・決めたこと 42）: 保存した印の page:open は、要約を書き直している途中なら前に出さない（タブだけを替える・足す）
     if (o && o.saved === true && summaryBusy()) { tabBehind(id); return; }
+    if (o && o.saved === true && readyBusy()) { tabBehind(id); return; }   // 点検6: 録音の前のページに書いている間も前に出さない（後ろのタブに足す）
     if (readyNow()) { openPageTab(id, { newTab: true }); return; }
     openPageTab(id, { replaceLive: true });
   }
