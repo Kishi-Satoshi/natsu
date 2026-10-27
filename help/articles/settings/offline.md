@@ -1,9 +1,9 @@
 ---
 title: ローカル AI
 description: ［設定］の「ローカル AI」で、PC の中の文字起こしのエンジンを取り込む（任意）。取り込まないときの動きと、使えるかの確かめ方。要約は Claude Code だけ
-updated: 2026-10-23
+updated: 2026-10-27
 sources: src/renderer/app.html, src/main.js, src/mainlib.js, INSTALL.md, README.md
-related: start/tester-guide, record/pc-only, record/status-line
+related: start/getting-started, record/pc-only, record/status-line
 ---
 
 **ローカル AI**は、PC の上で動く文字起こしの準備です（NaTsu 全体の設定。任意）。

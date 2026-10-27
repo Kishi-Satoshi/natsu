@@ -1,13 +1,19 @@
 ---
 title: 文字起こしの状態と帯
 description: 録音中のページの「文字起こし中（クラウド）」の行と、問題があるときに出る帯・Windows の知らせ
-updated: 2026-10-23
+updated: 2026-10-27
 sources: src/main.js, src/mainlib.js, src/renderer/app.html, src/renderer/overlay.html, README.md, CHANGELOG.md
 related: record/start-stop, record/pc-only, start/login
 ---
 
 録音中のページには、文字起こしがどこで進んでいるかと、最後に文字が出てからの時間が出ます。
 問題があるときは、ページの頭に帯が出ます。
+
+![録音中のページの上の部分の画面。帯・記録の行・状態の行に 1 から 3 の番号が付いている](assets/shots/status.svg)
+
+1. 帯（[帯](#banner)）。この写真は、NaTsu のサーバーにつながらず、この PC で文字起こしを続けているときの帯です。
+2. 記録の行（[記録の行](#title)）
+3. 状態の行（[状態の行](#line)）
 
 ## 記録の行 {#title}
 

@@ -127,7 +127,7 @@ h3 { color: var(--ink); font-weight: 700; }
 .body li { margin: .2em 0; }
 .body li > ul, .body li > ol { margin: .2em 0 .4em; }
 .body figure { margin: 1.4em 0; }
-.body img { max-width: 100%; height: auto; }
+.body img { width: 100%; height: auto; }
 
 /* 文字の大きさは DADS の文字スタイルの段（14・16・17・20px…）。kbd・code は rem の 14px（3回目の審査の指摘 5） */
 /* 順番のある手順だけ大きな数字（3.2rem・細い 300・ink） */

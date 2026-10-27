@@ -1,9 +1,9 @@
 ---
 title: NaTsu でできること
 description: 会議の録音・文字起こし・要約・出典リンクと音声入力。オンラインとオフラインで何が違うか
-updated: 2026-10-26
+updated: 2026-10-27
 sources: README.md, INSTALL.md, src/renderer/app.html, src/main.js, docs/plans/2026-10-24-130.md
-related: start/tester-guide, start/install-update, start/login
+related: start/getting-started, start/install-update, start/login
 ---
 
 NaTsu は、会議を録音して文字起こしし、要約まで作る Windows のアプリです。
@@ -16,6 +16,14 @@ NaTsu は、会議を録音して文字起こしし、要約まで作る Windows
 - 要約の要点には、もとの発言へのリンク（出典）が付きます。発言が見つからない要点には「根拠なし」と出ます。
 - 会議の種類（朝会・1on1・商談など）から、メモの見出しと要約の組み立てが決まります（[会議の種類とメモの型](summary/summary-types.md)）。要約の最後には、会議の進め方の目安（[打ち合わせの質](summary/meeting-quality.md)）が付きます。
 - 議事録は、この PC の中にだけ保存されます。
+
+![議事録のページの画面。［AI 要約］のタブ・要点の出典・項目の出典に 1 から 3 の番号が付いている](assets/shots/minutes.svg)
+
+1. ［AI 要約］ のタブに要約が出ます（［メモ］・［文字起こし］ のタブもあります）。
+2. 要点の右の時刻が出典です。押すと、文字起こしのその発言へ飛びます（[出典リンク](summary/citations.md)）。
+3. 項目の「出典」は、出典の付いた要点の数と、要点の数です。
+
+画面のどこに何があるか、1回の会議の流れ、音声と文字の行き先は、[NaTsu の全体像](start/overview.md) に画面の写真と図でまとめています。
 
 ## 音声入力 {#dictation}
 
