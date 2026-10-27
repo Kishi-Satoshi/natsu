@@ -1559,6 +1559,7 @@
   let mtStartedAt = null;
   let mtStoppedAt = null;
   let mtPausedMs = 0;
+  let mtPausedAt = null;   // 0.13.0 CLK-3: 一時停止の知らせが届いた時刻（止めている間はこの時刻で時計を止める）
   let mtWasActive = false;
   // ［この会議は PC の中だけ］を押した（第1c回 RF28）。会議の間は戻さない（押し間違いで送る側に戻らない）。次の会議の始めに下ろす
   let mtLocalOnly = false;
@@ -4481,7 +4482,8 @@
     // 一時停止していた時間は会議の長さに含めない
     // 停止後は止まった時計を出す。作成中も進み続けると、
     // 会議が実際より長かったように見える。
-    return fmtClock(Math.max(0, (mtStoppedAt || Date.now()) - mtStartedAt - mtPausedMs));
+    // 0.13.0 CLK-3: 一時停止の間も止める（pausedMs は届いた時までの一時停止を含むので、届いた時刻から数えれば動かない）
+    return fmtClock(Math.max(0, (mtStoppedAt || mtPausedAt || Date.now()) - mtStartedAt - mtPausedMs));
   }
   // 会議の段（設計書「保存の土台」の 10 の名前。done は締めの後にページを開くので画面には出ない）
   function meetingPhase(st) {
@@ -4698,6 +4700,7 @@
     mtStartedAt = st.startedAt;
     mtStoppedAt = st.stoppedAt || null;
     mtPausedMs = st.pausedMs || 0;
+    mtPausedAt = st.paused ? Date.now() : null;
     mtSt = st;
     const phase = meetingPhase(st);
     const phaseChanged = phase !== mtPhase;
