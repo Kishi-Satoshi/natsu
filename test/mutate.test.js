@@ -504,6 +504,22 @@ test('G3: help-relnotes の変異が一覧にそろい、IDS_HELP_RELNOTES は�
   }
 });
 
+// help-light（計画 docs/plans/2026-10-27-help-light.md の「変異」）: ヘルプセンターを明るい版だけにした直しを1つずつ戻す変異。
+// 当てるファイルと赤になるテストを決めた表で持つ（多くも少なくもない。hl- の変異はここにある）
+const IDS_HELP_LIGHT = {
+  'hl-gate-dark': ['relay/help-gate.mjs', 'test/help-gate.test.js'],
+};
+test('G3: help-light の変異が一覧にそろい、IDS_HELP_LIGHT とちょうど同じ（当てるファイルと赤になるテストも同じ）。hl- の変異は IDS_HELP_LIGHT にある', { timeout: 5000 }, () => {
+  const byId = new Map(MUTANTS.map((m) => [m.id, m]));
+  assert.deepStrictEqual(MUTANTS.filter((m) => /^hl-/.test(m.id)).map((m) => m.id).sort(), Object.keys(IDS_HELP_LIGHT).sort());
+  for (const [id, [file, t]] of Object.entries(IDS_HELP_LIGHT)) {
+    const m = byId.get(id);
+    assert.strictEqual(m.file, file, id);
+    assert.deepStrictEqual(m.tests, [t], id);
+    assert.ok(m.why.startsWith('help-light HL-'), `${id}: why`);
+  }
+});
+
 // 0.9.0（計画 docs/plans/2026-10-20-090.md の「変異確認」の表）。G-1 は速さの計り直しの4つを入れる。G-2 が残りの全部を足し、
 // この並びが計画の表の id とちょうど同じことを見るテストを足す
 // 0.9.0（G-1 で perf の6つ、G-2 で計画 docs/plans/2026-10-20-090.md の「変異確認」の表の全部）

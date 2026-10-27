@@ -563,35 +563,35 @@ test('0.10.0 LN-5（D78・決めたこと 156）: /open/ と /assets/open.js も
 });
 
 // help-dads HD-6（Q7。計画 docs/plans/2026-10-23-help-dads.md の決めたこと I-30）: 門のページ（ログインできないときだけ出る）も
-// main と h1 を持ち、色はヘルプと同じ値（DADS の札とブランド色）、ログアウトのリンクは青と下線、輪は DADS の形。CSP（GATE_CSP）は変えない
-test('HD-6 Q7: 門のページは <main> の中に <h1>NaTsu ヘルプセンター</h1> と文。<style> の色は DADS の札とブランド色だけ（明: 地 #ffffff・文字 #333333・見出し #000000・理由 #666666、暗はブランド色）。リンクは青と下線（訪問済み・ホバーは @media (hover: hover) の中・押している間）、:focus-visible は黒（暗い版は白）4px＋黄色の縁', { timeout: 5000 }, async () => {
+// main と h1 を持ち、色はヘルプと同じ値（DADS の札）、ログアウトのリンクは青と下線、輪は DADS の形。CSP（GATE_CSP）は変えない。
+// help-light HL-2（計画 docs/plans/2026-10-27-help-light.md の HL1「する」）: 門のページも明るい版だけ。Windows の設定が暗くても白地のまま
+// （暗い版の上書き @media (prefers-color-scheme) を持たない）。色は明るい版の DADS の札だけ（暗い版の灰色・明るい青の段は使わない）
+test('HD-6 Q7・HL-2: 門のページは <main> の中に <h1>NaTsu ヘルプセンター</h1> と文。<style> は明るい版だけ（prefers-color-scheme の上書きが無く、色は明るい版の DADS の札だけ: 地 #ffffff・文字 #333333・見出し #000000・理由 #666666）。リンクは青と下線（訪問済み・ホバーは @media (hover: hover) の中・押している間）、:focus-visible は黒 4px＋黄色の縁', { timeout: 5000 }, async () => {
   const C = require('./helpers/simcss');
   const { gatePage } = await R.load('help-gate.mjs');
-  const brand = [...fs.readFileSync(path.join(__dirname, '..', 'DADS-PROTECT.md'), 'utf8').matchAll(/^- (#[0-9a-f]{6})（/gm)].map((m) => m[1]);
-  const allowed = new Set(['#ffffff', '#000000', '#333333', '#666666', '#00118f', '#0017c1', '#8b008b', '#ac3e00', '#9db7f9', '#7096f8', '#ff8eff', '#ffa66d', '#ffd43d', ...brand]);
-  assert.strictEqual(brand.length, 5);
+  const allowed = new Set(['#ffffff', '#000000', '#333333', '#666666', '#00118f', '#0017c1', '#8b008b', '#ac3e00', '#ffd43d']);
   for (const st of [401, 403, 503]) {
     const text = await gatePage(st, { why: 'cfg-aud' }).text();
     assert.match(text, /<body><main><h1>NaTsu ヘルプセンター<\/h1><p>[\s\S]*<\/main><\/body>/, `${st}: main と h1`);
     assert.strictEqual((text.match(/<h1>/g) || []).length, 1);
     const css = /<style>([\s\S]*)<\/style>/.exec(text)[1];
-    for (const c of css.match(/#[0-9a-fA-F]{3,8}\b|rgba?\([^)]*\)|\b(?:white|black)\b/g) || []) assert.ok(allowed.has(c.toLowerCase()), `${st}: 決まった一覧に無い色 ${c}`);
+    // HL-2: 暗い版の上書きが無い（Windows の設定が暗くても門だけ暗くならない）。@media はホバーの1つだけ
+    assert.doesNotMatch(css, /prefers-color-scheme/, `${st}: 門の style に暗い版の上書きがある`);
+    assert.deepStrictEqual([...css.matchAll(/@media\s*([^{]+)\{/g)].map((m) => m[1].trim()), ['(hover:hover)'], `${st}: ホバーのほかの @media`);
+    for (const c of css.match(/#[0-9a-fA-F]{3,8}\b|rgba?\([^)]*\)|\b(?:white|black)\b/g) || []) assert.ok(allowed.has(c.toLowerCase()), `${st}: 明るい版の札に無い色 ${c}`);
     const rules = C.parse(css);
-    const DARK = '@media (prefers-color-scheme:dark)';
     const d = (sel, at = '') => C.declsFor(rules, sel, { at });
     assert.deepStrictEqual([d('body').color, d('body').background, d('h1').color, d('.why').color], ['#333333', '#ffffff', '#000000', '#666666']);
-    assert.deepStrictEqual([d('body', DARK).color, d('body', DARK).background, d('h1', DARK).color, d('.why', DARK).color], ['#d6d6d6', '#111111', '#ffffff', '#a3a3a3']);
     assert.strictEqual(d('a').color, '#00118f');
     assert.strictEqual(d('a')['text-decoration'], 'underline');
     assert.strictEqual(d('a:visited').color, '#8b008b');
     assert.strictEqual(d('a:hover', '@media (hover:hover)').color, '#0017c1');
     assert.strictEqual(d('a:active').color, '#ac3e00');
-    assert.strictEqual(d('a', DARK).color, '#9db7f9');
     for (const r of rules) if (r.sel.includes(':hover')) assert.ok(r.at.includes('(hover:hover)'), `${r.sel} が @media (hover: hover) の外`);
-    assert.strictEqual(d('a:hover', '@media (prefers-color-scheme:dark) and (hover:hover)').color, '#7096f8', '暗い版のホバー');
+    // HL2「今のまま」: 輪は黒 4px＋黄色の縁だけ（白の輪に替える規則が無い）
     assert.strictEqual(d(':focus-visible').outline, 'calc(4 / 16 * 1rem) solid #000000');
     assert.strictEqual(d(':focus-visible')['box-shadow'], '0 0 0 calc(2 / 16 * 1rem) #ffd43d');
-    assert.strictEqual(d(':focus-visible', DARK).outline, 'calc(4 / 16 * 1rem) solid #ffffff');
+    assert.deepStrictEqual(rules.filter((r) => r.decls.outline !== undefined).map((r) => [r.at, r.sel, r.decls.outline]), [['', ':focus-visible', 'calc(4 / 16 * 1rem) solid #000000']], `${st}: 輪を替える規則`);
     assert.deepStrictEqual([d('a:focus-visible')['background-color'], d('a:focus-visible').color], ['#ffd43d', '#000000']);
   }
 });

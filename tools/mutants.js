@@ -2122,6 +2122,8 @@ module.exports = [
   // help-dads 6回目（横に送れるコードの塊にも tabindex と名前。表と同じ扱い）
   {"id": "hd-pre-tabindex", "file": "help/assets/site.js", "from": "      if (p.scrollWidth > p.clientWidth) {\n", "to": "      if (false) {\n", "tests": ["test/help-build.test.js"], "pattern": "6回目の指摘", "why": "help-dads HD-13 6回目（WCAG 2.1.1）: 横に送れるコードの塊（/admin/stop-person/ の SQL）にキーボードで届かず、名前も無い"},
   // help-relnotes Task RN-1（CHANGELOG の見出しの日付）
+  // help-light（計画 docs/plans/2026-10-27-help-light.md の「変異」。id の一覧は test/mutate.test.js の IDS_HELP_LIGHT）
+  {"id": "hl-gate-dark", "file": "relay/help-gate.mjs", "from": "  + '.why{font-size:.875rem;color:#666666}';", "to": "  + '.why{font-size:.875rem;color:#666666}'\n  + '@media (prefers-color-scheme:dark){body{color:#d6d6d6;background:#111111}h1{color:#ffffff}a{color:#9db7f9}.why{color:#a3a3a3}}';", "tests": ["test/help-gate.test.js"], "pattern": "HL-2", "why": "help-light HL-2（HL1）: 門のページに暗い版の上書きを戻す（Windows の設定が暗いと門だけ暗く出る）"},
   {"id": "hrn-heading-space", "file": "CHANGELOG.md", "from": "## natsu-v0.10.0 （2026-10-23）", "to": "## natsu-v0.10.0（2026-10-23）", "tests": ["test/identity.test.js"], "pattern": "RN-1", "why": "help-relnotes RN-1 RNF1: 見出しの全角の括弧の前に半角の空白が無いと、release.yml が本文を取れず、アプリの［設定］→［更新］に変更点が出ない"},
   {"id": "hrn-body-same", "file": "CHANGELOG.md", "from": "- 要約（Claude Code）の設定のボタンを、説明の下に並べました。", "to": "- 要約（Claude Code）の設定のボタンを、説明の下に並べた。", "tests": ["test/identity.test.js"], "pattern": "RN-1", "why": "help-relnotes RN-1 RN1: 出した版の本文が変わる（アプリに出た文・GitHub のリリース本文と食い違う）"},
   // help-relnotes RN-2（CHANGELOG.md を版の節に分けて、記事と同じ help-md で変換する）
