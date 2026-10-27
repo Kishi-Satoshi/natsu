@@ -265,7 +265,8 @@ test('公開したのに画面から呼ばれない API がない', () => {
   // 0.9.0 O-2 で足した koeOverlay.reportSize・onForm（録音バーの窓の大きさと形）は、録音バーの画面（O-3）が呼び始めたので外して空に戻した
   // 0.13.0 ED-2（計画 docs/plans/2026-10-24-130.md）で足した要約の編集の4つ（blockSplit・blockMerge・blockTurnInto・blockDuplicate）は、
   // 画面の行の編集（ED-4・ED-6）が呼び始めたら外す。blockSplit・blockMerge・blockTurnInto は ED-4 が、blockDuplicate は ED-6 が呼び始めたので外して空に戻した
-  const PENDING_APP = new Set([]);
+  // 0.13.1 NE-2 で意図して変えた（計画 docs/plans/2026-10-27-131.md の「意図して変えるテスト」）: 字下げとトグルの開け閉めの3つ。画面が呼び始める NE-4a・NE-4b で外す
+  const PENDING_APP = new Set(['blockIndent', 'blockSetOpen', 'blockSetOpenAll']);
   for (const [ns, html] of [['koeApp', appHtml], ['koeOverlay', overlayHtml]]) {
     const names = all(/^\s{2}([A-Za-z][\w$]*):/gm, block(ns));
     const used = new Set(all(new RegExp(`${ns}\\.(\\w+)`, 'g'), html));

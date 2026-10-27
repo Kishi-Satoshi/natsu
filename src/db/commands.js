@@ -49,6 +49,8 @@ const quality = require('../quality');
 // 議事録の経過（0.10.0 K-1。決めたこと 116）: 締め・復旧のページの stateLog は表の鍵の項目だけを残す
 const SL = require('../statelog');
 const blockEdit = require('../blockEdit');
+// 0.13.1（計画 docs/plans/2026-10-27-131.md の決めたこと 3・4・7〜11）: 要約のブロックは木（children）。命令は行を locate で探し、置き場は spotOf（NR6）
+const BT = require('../blockTree');
 const { diffPage, diffSegments, applyOps } = require('./ops');
 const S = require('./search');
 
@@ -68,7 +70,7 @@ function refuse(code) {
 const HOT_QUERIES = Object.freeze({
   list: "select rid, id, text, rev, created_at, updated_at, attrs, trashed_at from blocks where type = 'page' order by created_at desc, rid desc",
   pageRow: 'select id, type, text, attrs, rev, created_at, updated_at, trashed_at from blocks where id = ?',
-  pageBlocks: 'select id, type, text, rich, attrs, ord from blocks where page_id = ? and id <> ? order by ord',
+  pageBlocks: 'select id, type, text, rich, attrs, ord, parent_id from blocks where page_id = ? and id <> ? order by ord',
   pageSegments: 'select id, at_ms, duration_ms, text, failed, extra from segments where page_id = ? order by n',
   todoPages: "select distinct page_id from blocks where type = 'todo'",
   oplogTx: 'select seq, role, tx, at, actor, action, page_id, ops from oplog where role = ? and tx = ?',
@@ -87,14 +89,17 @@ function loadPage(db, id, { trashed = false } = {}) {
   if (row.updated_at) page.updatedAt = row.updated_at;
   page.rev = row.rev;
   const ords = {};
-  page.blocks = db.prepare(HOT_QUERIES.pageBlocks).all(id, id).map((b) => {
+  const rows = db.prepare(HOT_QUERIES.pageBlocks).all(id, id).map((b) => {
     ords[b.id] = b.ord;
     const out = { ...JSON.parse(b.attrs || '{}'), id: b.id, type: b.type, text: b.text };
     if (b.rich !== null && b.rich !== undefined) out.rich = JSON.parse(b.rich);
     out.children = [];
-    return out;
+    return { id: b.id, parent_id: b.parent_id, block: out };
   });
-  return { page, ords, trashedAt: row.trashed_at ?? null };
+  // 0.13.1（決めたこと 3・NR1・NR2）: parent_id から children を組み立てる（鍵 ord は兄弟の中の並び）。組めない行は捨てずに最上位の末尾
+  const tree = BT.buildTree(rows, id);
+  page.blocks = tree.blocks;
+  return { page, ords, trashedAt: row.trashed_at ?? null, orphans: tree.orphans };
 }
 
 function readPage(db, id) {
@@ -169,7 +174,8 @@ function summaryLockedPage(db, page) {
   return summaryLock(page, { live, segments: readSegments(db, page.id) }) !== '';
 }
 
-function editPage(db, id, ctx, fn, { summary = false } = {}) {
+// 0.13.1 NR14: view が真の命令（トグルの開け閉め。見た目だけの欄 open）は鍵を見るが、手直しの印（summaryEdited）を付けない
+function editPage(db, id, ctx, fn, { summary = false, view = false } = {}) {
   const w = forWrite(db, id);
   if (!w) return { ops: [], pageIds: [], result: null };
   if (summary && summaryLockedPage(db, w.was.page)) throw refuse('locked');
@@ -178,6 +184,7 @@ function editPage(db, id, ctx, fn, { summary = false } = {}) {
   // 点検の見直し（R45）: 要約の欄の命令が行を何も変えなければ（同じ所への move・無い行の remove・同じ文の update）書かず、印も付けない（答えは今のページ）
   if (summary && JSON.stringify(w.page.blocks) === before) return { ops: [], pageIds: [], result: readPage(db, id) };
   // 2026-10-26 の持ち主の答え（点検4「どんな手直しでも確かめる」）: 要約の欄を直した印（［要約を再生成］の前に確かめる。作り直した要約の書き戻しで消える）
+  if (view) summary = false;   // 0.13.1 NR14: 開け閉めは手直しに数えない（［要約を再生成］の前の確かめを出さない）
   if (summary) w.page.summaryEdited = true;
   const ops = saveOps(w.was, w.page, ctx.now);
   applyOps(db, ops);
@@ -336,8 +343,10 @@ function mergeDup(db, a, row) {
   if (!gone) return { page, blockId: a.blockId, at: 0 };
   const t = ops.find((o) => o && o.op === 'text' && o.id !== a.pageId);
   if (t) return { page, blockId: t.id, at: String(t.old || '').length };
+  // 0.13.1（TQ1）: intoId があればそこ（文の無い行をつないだので、つないだ先の文は変わっていない）
+  if (a.intoId) { const t = BT.locate(page.blocks, a.intoId); if (t) return { page, blockId: a.intoId, at: String(t.b.text || '').length }; }
   const ord = gone.old && typeof gone.old.ord === 'string' ? gone.old.ord : '';
-  const before = page.blocks.filter((b) => typeof l.ords[b.id] === 'string' && l.ords[b.id] < ord).pop();
+  const before = BT.flattenBlocks(page.blocks).filter((b) => typeof l.ords[b.id] === 'string' && l.ords[b.id] < ord).pop();
   return before ? { page, blockId: before.id, at: String(before.text || '').length } : { page, blockId: a.blockId, at: 0 };
 }
 
@@ -559,6 +568,9 @@ const DEFS = {
     run: (db) => ({ result: listedRows(db).filter((r) => r.attrs.summaryWait === true).map((r) => ({ id: r.id, createdAt: r.createdAt || '', summaryWait: true })) }) },
   'page.get': { roles: ['app', 'main'], write: false, args: { id: 'id' },
     run: (db, a, ctx) => {
+      // 0.13.1 NR2: 組めない行を最上位の末尾に並べたら、記録には数だけ（本文・ID は書かない）
+      const l = loadPage(db, a.id);
+      if (l && l.orphans && ctx && typeof ctx.log === 'function') ctx.log(`DB: 親をたどれない要約の行 ${l.orphans} 件を末尾に並べた`);
       const page = readPage(db, a.id);
       return { result: page ? { page: forView(page, ctx.labels), segments: readSegments(db, a.id) } : null };
     } },
@@ -584,8 +596,9 @@ const DEFS = {
     dupResult: (db) => listPages(db) },
   'block.update': { roles: ['app', 'main'], write: true, args: { pageId: 'id', blockId: 'id', patch: 'patch' },
     run: (db, a, ctx) => editPage(db, a.pageId, ctx, (p) => {
-      const b = p.blocks.find((x) => x.id === a.blockId);
-      if (!b) return false;
+      const l = BT.locate(p.blocks, a.blockId);
+      if (!l) return false;
+      const b = l.b;
       const patch = a.patch;
       if (typeof patch.text === 'string' && patch.text !== b.text) {
         // 人が書き換えた要点は出典が元の文に合うか分からない（cites は残し、被覆率の分子から外す。今の store.updateBlock）
@@ -603,16 +616,26 @@ const DEFS = {
     dupResult: reread },
   // afterBlockId が '' か見つからなければ末尾に足す（今の store.insertBlock と同じ）
   // 0.13.0 ED-2: 型は決まった表（blockType）だけ。見出しの段（level）とコールアウトの絵文字（icon）を足した
-  'block.insert': { roles: ['app', 'main'], write: true, args: { pageId: 'id', afterBlockId: 'idOrEmpty', type: 'blockType?', level: 'level?', icon: 'icon?' },
+  // 0.13.1（決めたこと 4・NR6）: parentId があれば置き場の決まり（afterBlockId が行ならその行と同じ親のすぐ後ろ・'' は parentId の子の頭）。toggle は見出しをトグル見出しに。
+  // 足した行に open は書かない（NR4: 書くのは block.setOpen・block.setOpenAll だけ。open の無いトグルは開いている: TQ4）
+  'block.insert': { roles: ['app', 'main'], write: true, args: { pageId: 'id', afterBlockId: 'idOrEmpty', type: 'blockType?', level: 'level?', icon: 'icon?', parentId: 'id?', toggle: 'bool?' },
     run: (db, a, ctx) => {
       const blockId = newBlockId(db, ctx.now);
       const out = editPage(db, a.pageId, ctx, (p) => {
         // 人が足した行。LLM の要約ではないので出典の対象外（被覆率の分母に入れない）
         const block = { id: blockId, type: a.type || 'bullet', text: '', cites: [], citeState: 'manual' };
         if (block.type === 'heading' && a.level) block.level = a.level;
+        if (block.type === 'heading' && a.toggle === true) block.toggle = true;
         if (block.type === 'callout') block.icon = blockEdit.CALLOUT_ICON;
-        const i = p.blocks.findIndex((x) => x.id === a.afterBlockId);
-        if (i >= 0) p.blocks.splice(i + 1, 0, block); else p.blocks.push(block);
+        if (a.parentId !== undefined) {
+          const s = BT.spotOf(p.blocks, a.afterBlockId, a.parentId);
+          if (!s) throw refuse('bad-args');
+          s.list.splice(s.index, 0, block);
+          return;
+        }
+        // 行の後ろ（入れ子ならその行と同じ親の中: NR6）。'' か見つからなければ末尾
+        const l = BT.locate(p.blocks, a.afterBlockId);
+        if (l) l.list.splice(l.index + 1, 0, block); else p.blocks.push(block);
       }, { summary: true });
       return { ...out, result: out.result ? { page: out.result, blockId } : null };
     },
@@ -623,22 +646,32 @@ const DEFS = {
       return { page, blockId: add ? add.id : null };
     } },
   'block.remove': { roles: ['app', 'main'], write: true, args: { pageId: 'id', blockId: 'id' },
-    run: (db, a, ctx) => editPage(db, a.pageId, ctx, (p) => { p.blocks = p.blocks.filter((x) => x.id !== a.blockId); }, { summary: true }),
+    // 0.13.1（決めたこと 3・F49）: 子ごと消す（子孫の行も同じ命令の trash に積む）。無い行は何も変えない
+    run: (db, a, ctx) => editPage(db, a.pageId, ctx, (p) => {
+      const l = BT.locate(p.blocks, a.blockId);
+      if (l) l.list.splice(l.index, 1);
+    }, { summary: true }),
     dupResult: reread },
   // toIndex は「動かす行を抜いたあとの」挿入位置（今の store.moveBlock）
   // 0.13.0 ED-2（決めたこと 18。持ち主の試作の「子は誰の後ろか」）: afterId があれば、その行のすぐ後ろへ（'' は頭）。画面の番号でなく行で頼む
-  'block.move': { roles: ['app', 'main'], write: true, args: { pageId: 'id', blockId: 'id', toIndex: 'num?', afterId: 'idOrEmpty?' },
+  // 0.13.1（決めたこと 4・NR6・NR19）: parentId（'' の afterId と一緒に）でその親の子の頭へ。afterId の行と同じ親へ動く（子だけを動かすと afterId の行と
+  // 同じ親）。子は親と一緒に動く。自分か自分の子孫の中へは bad-args。toIndex（今の形）は最上位の行だけ
+  'block.move': { roles: ['app', 'main'], write: true, args: { pageId: 'id', blockId: 'id', toIndex: 'num?', afterId: 'idOrEmpty?', parentId: 'id?' },
     run: (db, a, ctx) => editPage(db, a.pageId, ctx, (p) => {
-      const from = p.blocks.findIndex((x) => x.id === a.blockId);
-      if (from < 0) return false;
+      const l = BT.locate(p.blocks, a.blockId);
+      if (!l) return false;
       if (a.afterId !== undefined) {
         if (a.afterId === a.blockId) return false;
-        if (a.afterId !== '' && !p.blocks.some((x) => x.id === a.afterId)) throw refuse('bad-args');
-        const [m] = p.blocks.splice(from, 1);
-        p.blocks.splice(a.afterId === '' ? 0 : p.blocks.findIndex((x) => x.id === a.afterId) + 1, 0, m);
+        if (a.afterId !== '' && !BT.locate(p.blocks, a.afterId)) throw refuse('bad-args');
+        if ((a.afterId && BT.within(l.b, a.afterId)) || (a.parentId && BT.within(l.b, a.parentId))) throw refuse('bad-args');
+        const [m] = l.list.splice(l.index, 1);
+        const s = BT.spotOf(p.blocks, a.afterId, a.parentId);
+        if (!s) throw refuse('bad-args');
+        s.list.splice(s.index, 0, m);
         return true;
       }
-      if (a.toIndex === undefined) throw refuse('bad-args');
+      if (a.toIndex === undefined || l.parent) throw refuse('bad-args');
+      const from = l.index;
       const [b] = p.blocks.splice(from, 1);
       const to = Math.max(0, Math.min(Math.trunc(Number(a.toIndex) || 0), p.blocks.length));
       p.blocks.splice(to, 0, b);
@@ -647,8 +680,9 @@ const DEFS = {
     dupResult: reread },
   'block.setAction': { roles: ['app', 'main'], write: true, args: { pageId: 'id', blockId: 'id', assignee: 'short?', dueRaw: 'short?' },
     run: (db, a, ctx) => editPage(db, a.pageId, ctx, (p) => {
-      const b = p.blocks.find((x) => x.id === a.blockId);
-      if (!b) return false;
+      const l = BT.locate(p.blocks, a.blockId);
+      if (!l) return false;
+      const b = l.b;
       if (typeof a.assignee === 'string') b.assignee = a.assignee.trim();
       if (typeof a.dueRaw === 'string') {
         b.dueRaw = a.dueRaw.trim();
@@ -663,19 +697,25 @@ const DEFS = {
   // 今の行の文を text（画面の今の文）にしてから at で分け、前を今の行・後ろを新しい行（すぐ下。型は EQ5 (a)）にする → { page, blockId: 新しい行 }
   // （点検1）文のある行の頭（at 0）では、上に空の行（型は EQ5 (a)）を足し、今の行はそのまま残す（空の行の at 0 は今どおり下に足す）
   // （点検8）そのとき afterId（画面で上に見えている行。'' は頭）があれば、上の空の行はその行のすぐ後ろに入る（block.move と同じ。途中の分割では使わない）
-  'block.split': { roles: ['app', 'main'], write: true, args: { pageId: 'id', blockId: 'id', text: 'text', at: 'offset', afterId: 'idOrEmpty?' },
+  // 0.13.1（NR8）: 入れ子の行の頭の afterId は今の行の兄弟か ''（今の行の親の頭）だけ（画面で1つ上の孫の後ろに入れない）。
+  // （TQ3: 持ち主の答え「すぐ下に出し、トグルは開いて作る（おすすめ）」）inside が真なら新しい行は今の行の最初の子（子を持てない型は bad-args）。
+  // 型は nextTypeOnEnter（開いたトグルの中はテキスト・inside の無いトグルの後ろは同じ型のトグル: NR25）
+  'block.split': { roles: ['app', 'main'], write: true, args: { pageId: 'id', blockId: 'id', text: 'text', at: 'offset', afterId: 'idOrEmpty?', inside: 'bool?' },
     run: (db, a, ctx) => {
       const blockId = newBlockId(db, ctx.now);
       const out = editPage(db, a.pageId, ctx, (p) => {
-        const i = p.blocks.findIndex((x) => x.id === a.blockId);
-        if (i < 0) return false;
+        const l = BT.locate(p.blocks, a.blockId);
+        if (!l) return false;
         if (!splitAtOk(a.text, a.at)) throw refuse('bad-args');
-        if (a.afterId !== undefined && a.afterId !== '' && (a.afterId === a.blockId || !p.blocks.some((x) => x.id === a.afterId))) throw refuse('bad-args');
-        const b = p.blocks[i];
+        if (a.afterId !== undefined && a.afterId !== '' && (a.afterId === a.blockId || !BT.locate(p.blocks, a.afterId))) throw refuse('bad-args');
+        const b = l.b;
+        if (a.inside === true && !BT.kidsCan(b)) throw refuse('bad-args');
         const [head, tail] = [a.text.slice(0, a.at), a.text.slice(a.at)];
-        const next = blockEdit.nextTypeOnEnter(b);
+        const next = blockEdit.nextTypeOnEnter(b, { open: a.inside === true });
         // 分けた後ろの行は人の行（出典なし・担当と期限なし: 0.11.0 の「要確認」の札が出る）
         const nb = { id: blockId, type: next === 'revert' ? 'paragraph' : next.type, text: tail, cites: [], citeState: 'manual' };
+        if (next.level) nb.level = next.level;
+        if (next.toggle === true) nb.toggle = true;
         if (nb.type === 'todo') nb.checked = false;
         // 2026-10-26 の持ち主の答え（点検1）: 文のある行の頭では、上に空の行を足し、今の行は ID・文・担当・期限・出典をそのまま残す
         if (a.at === 0 && a.text !== '') {
@@ -683,15 +723,19 @@ const DEFS = {
           if (Array.isArray(b.rich) && b.rich.map((r) => r.t).join('') !== a.text) delete b.rich;
           retext(b, a.text);
           // 2026-10-27 の持ち主の答え（点検8）: 画面で上に見えている行の後ろに足す（0.11.0 の並べ替えて見せる要約でも今の行のすぐ上に見える）
-          if (a.afterId === undefined) p.blocks.splice(i, 0, nb);
-          else p.blocks.splice(a.afterId === '' ? 0 : p.blocks.findIndex((x) => x.id === a.afterId) + 1, 0, nb);
+          // 0.13.1 NR8: 入れ子では今の行と同じ親の兄弟の並びの中だけ（'' は今の行の親の子の頭）
+          const s = a.afterId === undefined ? null : BT.spotOf(p.blocks, a.afterId, a.afterId === '' && l.parent ? l.parent.id : undefined);
+          if (a.afterId !== undefined && (!s || s.list !== l.list)) throw refuse('bad-args');
+          if (a.afterId === undefined) l.list.splice(l.index, 0, nb);
+          else s.list.splice(s.index, 0, nb);
           return true;
         }
         if (Array.isArray(b.rich)) {
           if (b.rich.map((r) => r.t).join('') === a.text) { const [r1, r2] = blockEdit.splitRich(b.rich, a.at); b.rich = r1; nb.rich = r2; } else delete b.rich;
         }
         retext(b, head);
-        p.blocks.splice(i + 1, 0, nb);
+        if (a.inside === true) { if (!Array.isArray(b.children)) b.children = []; b.children.unshift(nb); }   // TQ3: 最初の子
+        else l.list.splice(l.index + 1, 0, nb);
         return true;
       }, { summary: true });
       return { ...out, result: out.result ? { page: out.result, blockId } : null };
@@ -699,19 +743,34 @@ const DEFS = {
     dupResult: addedDup },
   // 今の行の文を text にしてから、すぐ前の行の後ろにつなぎ、今の行を消す → { page, blockId: つないだ先, at: つないだ所 }。前が区切り線なら
   // 区切り線だけを消す（決めたこと 17）。頭の行では何もしない。出典は前の行のものを残す（文が変わったので stale）
-  'block.merge': { roles: ['app', 'main'], write: true, args: { pageId: 'id', blockId: 'id', text: 'text' },
+  // 0.13.1（TQ1: 持ち主の答え「画面で上に見えている行（おすすめ）」）: intoId（画面で上に見えている行）があればそこへつなぐ（自分か自分の子孫・無い行は bad-args）。
+  // 無ければ平らにした保存の順の前の行（main など）。消した行の子は、つないだ先の子の末尾へ（子を持てない型なら、つないだ先のすぐ後ろの兄弟: EQ6 (a)）
+  'block.merge': { roles: ['app', 'main'], write: true, args: { pageId: 'id', blockId: 'id', text: 'text', intoId: 'id?' },
     run: (db, a, ctx) => {
       let res = { blockId: a.blockId, at: 0 };
       const out = editPage(db, a.pageId, ctx, (p) => {
-        const i = p.blocks.findIndex((x) => x.id === a.blockId);
-        if (i <= 0) return false;
-        const b = p.blocks[i];
-        const prev = p.blocks[i - 1];
-        if (prev.type === 'divider') { p.blocks.splice(i - 1, 1); retext(b, a.text); return true; }
+        const l = BT.locate(p.blocks, a.blockId);
+        if (!l) return false;
+        let pl;
+        if (a.intoId !== undefined) {
+          if (BT.within(l.b, a.intoId)) throw refuse('bad-args');
+          pl = BT.locate(p.blocks, a.intoId);
+          if (!pl) throw refuse('bad-args');
+        } else {
+          const flat = BT.flattenBlocks(p.blocks);
+          const i = flat.indexOf(l.b);
+          if (i <= 0) return false;
+          pl = BT.locate(p.blocks, flat[i - 1].id);
+        }
+        const b = l.b;
+        const prev = pl.b;
+        if (prev.type === 'divider') { pl.list.splice(pl.index, 1); retext(b, a.text); return true; }
         const at = String(prev.text || '').length;
         if (Array.isArray(prev.rich) || Array.isArray(b.rich)) prev.rich = blockEdit.joinRich(Array.isArray(prev.rich) ? prev.rich : [{ t: String(prev.text || '') }], [{ t: a.text }]);
         if (a.text) retext(prev, String(prev.text || '') + a.text);
-        p.blocks.splice(i, 1);
+        const kids = Array.isArray(b.children) ? b.children : [];
+        l.list.splice(l.index, 1);
+        BT.mergeKids(BT.locate(p.blocks, prev.id), kids);
         res = { blockId: prev.id, at };
         return true;
       }, { summary: true });
@@ -721,13 +780,19 @@ const DEFS = {
     dupResult: mergeDup },
   // 型を変える（文・出典・担当・期限・チェック・印は残す。見えなくなるだけ）。区切り線へは文の無い行だけ（EQ16 (a)）。citeState の無い行（AI の
   // 見出し・テキスト）を変えたら manual（人が型を決めた行。見出しの段の付け替えでは付けない: 決めたこと 13）
-  'block.turnInto': { roles: ['app', 'main'], write: true, args: { pageId: 'id', blockId: 'id', type: 'blockType', level: 'level?' },
+  // 0.13.1（決めたこと 8・NR7・NR10・NR11）: toggle は見出しをトグル見出しに（見出しの段の付け替えと同じ扱い）。子のある行は区切り線にできない。
+  // トグル（トグル見出し）をテキストに戻すときと、子を持てない型（トグルでない見出し）へ変えるときは、子をすぐ後ろに元の順で兄弟として並べる。open は書かない（NR4）
+  'block.turnInto': { roles: ['app', 'main'], write: true, args: { pageId: 'id', blockId: 'id', type: 'blockType', level: 'level?', toggle: 'bool?' },
     run: (db, a, ctx) => editPage(db, a.pageId, ctx, (p) => {
-      const b = p.blocks.find((x) => x.id === a.blockId);
-      if (!b) return false;
+      const l = BT.locate(p.blocks, a.blockId);
+      if (!l) return false;
+      const b = l.b;
       if (a.type === 'divider' && String(b.text || '') !== '') throw refuse('bad-args');
+      if (a.type === 'divider' && Array.isArray(b.children) && b.children.length) throw refuse('bad-args');   // NR7（EQ16 (a)）: 子のある行も
       const level = a.type === 'heading' ? (a.level || 2) : 0;
-      if (b.type === a.type && (a.type !== 'heading' || blockEdit.headingLevel(b) === level)) return false;
+      const toggle = a.type === 'heading' && a.toggle === true;
+      if (b.type === a.type && (a.type !== 'heading' || (blockEdit.headingLevel(b) === level && (b.toggle === true) === toggle))) return false;
+      const out = BT.turnMovesKids(b, { type: a.type, level, toggle });
       // 2026-10-26 の持ち主の答え（点検2）: AI の見出しを別の型にしたら印 aiHeading を付け、文を変えずに見出しへ戻したら AI の見出しに戻す
       // （orderForView の節と［コピー］の順が行って戻って同じ）。文を変えると印は消え（retext・block.update）、人の行のまま
       if (b.type === 'heading' && b.citeState === undefined && a.type !== 'heading') b.aiHeading = true;
@@ -735,27 +800,78 @@ const DEFS = {
       if (a.type === 'heading' && b.aiHeading === true) { delete b.citeState; delete b.aiHeading; }
       b.type = a.type;
       if (level) b.level = level; else delete b.level;
+      if (toggle) b.toggle = true; else delete b.toggle;
       if (a.type === 'callout' && !b.icon) b.icon = blockEdit.CALLOUT_ICON;
       if (a.type === 'todo' && typeof b.checked !== 'boolean') b.checked = false;
+      if (out) BT.kidsOut(l.list, l.index);
       return true;
     }, { summary: true }),
     dupResult: reread },
   // すぐ下（afterId があればその行の後ろ・'' は頭）に写しを作る（印ごと写す: 同じ文）→ { page, blockId: 写し }
-  'block.duplicate': { roles: ['app', 'main'], write: true, args: { pageId: 'id', blockId: 'id', afterId: 'idOrEmpty?' },
+  // 0.13.1（決めたこと 10・17）: 子孫も新しい ID で写す（元の行の open も写すだけ: NR4）。parentId は Alt で中へ落とした所（'' の afterId と一緒に。NR6）
+  'block.duplicate': { roles: ['app', 'main'], write: true, args: { pageId: 'id', blockId: 'id', afterId: 'idOrEmpty?', parentId: 'id?' },
     run: (db, a, ctx) => {
       const blockId = newBlockId(db, ctx.now);
       const out = editPage(db, a.pageId, ctx, (p) => {
-        const b = p.blocks.find((x) => x.id === a.blockId);
-        if (!b) return false;
+        const l = BT.locate(p.blocks, a.blockId);
+        if (!l) return false;
         const after = a.afterId === undefined ? a.blockId : a.afterId;
-        if (after !== '' && !p.blocks.some((x) => x.id === after)) throw refuse('bad-args');
-        const copy = { ...clone(b), id: blockId };
-        p.blocks.splice(after === '' ? 0 : p.blocks.findIndex((x) => x.id === after) + 1, 0, copy);
+        if (after !== '' && !BT.locate(p.blocks, after)) throw refuse('bad-args');
+        const copy = { ...clone(l.b), id: blockId };
+        const used = new Set([blockId]);
+        for (const d of BT.flattenBlocks(copy.children)) {
+          let nid = newBlockId(db, ctx.now);
+          while (used.has(nid)) nid = newBlockId(db, ctx.now);
+          used.add(nid); d.id = nid;
+        }
+        const s = BT.spotOf(p.blocks, after, a.parentId);
+        if (!s) throw refuse('bad-args');
+        s.list.splice(s.index, 0, copy);
         return true;
       }, { summary: true });
       return { ...out, result: out.result ? { page: out.result, blockId } : null };
     },
     dupResult: addedDup },
+  // ---- 0.13.1（計画 docs/plans/2026-10-27-131.md の決めたこと 4・6・11・NR14。持ち主の試作の「1つの命令＝1つのトランザクション」）
+  // 字下げ（E10・EQ17 (a)）: in は前の兄弟の子の末尾へ・out は親のすぐ後ろへ（親の後ろの兄弟は付いてこない）。できないときは何も書かない（答えは今のページ）。
+  // 動かした行の1行（move）だけを書く（子は親の ID を指したまま: NR1）→ { page }
+  'block.indent': { roles: ['app', 'main'], write: true, args: { pageId: 'id', blockId: 'id', dir: 'dir' },
+    run: (db, a, ctx) => {
+      const out = editPage(db, a.pageId, ctx, (p) => {
+        const plan = BT.indentPlan(p.blocks, a.blockId, a.dir);
+        if (!plan) return;
+        const l = BT.locate(p.blocks, a.blockId);
+        const [m] = l.list.splice(l.index, 1);
+        const s = BT.spotOf(p.blocks, plan.afterId, plan.parentId === null ? undefined : plan.parentId);
+        s.list.splice(s.index, 0, m);
+      }, { summary: true });
+      return { ...out, result: out.result ? { page: out.result } : null };
+    },
+    dupResult: (db, a) => { const page = readPage(db, a.pageId); return page ? { page } : null; } },
+  // トグルの開け閉め（EQ18 (a)・EQ19 (a)）: open は見た目だけの欄（NR4: 書くのはこの2つだけ）。トグルとトグル見出しだけ・同じ形なら書かない（R45）。
+  // 手直しの印を付けない（NR14）→ { page }
+  'block.setOpen': { roles: ['app', 'main'], write: true, args: { pageId: 'id', blockId: 'id', open: 'bool' },
+    run: (db, a, ctx) => {
+      const out = editPage(db, a.pageId, ctx, (p) => {
+        const l = BT.locate(p.blocks, a.blockId);
+        if (!l || !BT.isToggle(l.b) || BT.isOpenStored(l.b) === a.open) return;
+        l.b.open = a.open;
+      }, { summary: true, view: true });
+      return { ...out, result: out.result ? { page: out.result } : null };
+    },
+    dupResult: (db, a) => { const page = readPage(db, a.pageId); return page ? { page } : null; } },
+  // Ctrl+Alt+T（EQ19 (a)）: ページのトグルを全部 open に（閉じた子の中のトグルも）。oplog の1行
+  'block.setOpenAll': { roles: ['app', 'main'], write: true, args: { pageId: 'id', open: 'bool' },
+    run: (db, a, ctx) => {
+      const out = editPage(db, a.pageId, ctx, (p) => {
+        for (const x of BT.flattenBlocks(p.blocks)) {
+          if (!BT.isToggle(x) || BT.isOpenStored(x) === a.open) continue;
+          x.open = a.open;
+        }
+      }, { summary: true, view: true });
+      return { ...out, result: out.result ? { page: out.result } : null };
+    },
+    dupResult: (db, a) => { const page = readPage(db, a.pageId); return page ? { page } : null; } },
   // 文字起こしの1区間を直す。recite（既定）なら出典を引き直してページも保存する。recite: false は区間だけ（復旧の文字起こしの道）
   'segment.update': { roles: ['app', 'main'], write: true, args: { pageId: 'id', segId: 'id', patch: 'segPatch', recite: 'bool?' },
     run: segmentUpdate,

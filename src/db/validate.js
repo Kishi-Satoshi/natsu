@@ -174,6 +174,8 @@ const TYPES = Object.freeze(Object.assign(Object.create(null), {
   level: (v) => { if (v !== 1 && v !== 2 && v !== 3) throw bad('level'); return v; },
   offset: (v) => { if (!Number.isSafeInteger(v) || v < 0 || v > LIMITS.text) throw bad('offset'); return v; },
   icon: (v) => { if (v !== blockEdit.CALLOUT_ICON) throw bad('icon'); return v; },
+  // 0.13.1（決めたこと 4）: 字下げの向き（in・out だけ）
+  dir: (v) => { if (v !== 'in' && v !== 'out') throw bad('dir'); return v; },
   int: (v) => { if (!Number.isSafeInteger(v)) throw bad('int'); return v; },
   num: (v) => { if (typeof v !== 'number' || !Number.isFinite(v)) throw bad('num'); return v; },
   bool: (v) => { if (typeof v !== 'boolean') throw bad('bool'); return v; },

@@ -1109,6 +1109,9 @@ const IDS_131 = [
   // NE-1: 木と型の表の純粋な部品
   'edn-indent-first', 'edn-indent-type', 'edn-cite-flat', 'edn-copy-kids', 'edn-number-level', 'edn-merge-kids', 'edn-turn-kids', 'edn-kids-out',
   'edn-visible-skip', 'edn-drop-into', 'edn-drop-depth', 'edn-orphan-keep', 'edn-menu-keys', 'edn-enter-outdent', 'edn-ai-head-top', 'edn-toggle-default',
+  // NE-2: DB の木と命令
+  'edn-tree-read', 'edn-parent-op', 'edn-remove-subtree', 'edn-dup-ids', 'edn-put-tree', 'edn-move-one', 'edn-split-sibling', 'edn-enter-child', 'edn-merge-view',
+  'edn-open-noedit', 'edn-open-only', 'edn-divider-kids', 'edn-open-all',
 ];
 test('G3・0.13.1: 0.13.1 の変異が一覧にそろい、IDS_131 はどれも計画の「変異確認」の表にある。edn- の変異は IDS_131 にある。どれも決まったテストのファイルを持ち、why が 0.13.1 で始まる', { timeout: 5000 }, () => {
   const byId = new Map(MUTANTS.map((m) => [m.id, m]));

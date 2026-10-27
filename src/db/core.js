@@ -187,7 +187,8 @@ function call(db, req, ctx = {}) {
   if (def.write && (typeof tx !== 'string' || !V.TX_RE.test(tx))) return fail('bad-args');
 
   const now = typeof ctx.now === 'function' ? ctx.now : () => new Date();
-  const runCtx = { now, labels: isObj(ctx.labels) ? ctx.labels : {}, role, actor, tx: def.write ? tx : undefined };
+  // 0.13.1 NR2: 記録（log。件数だけを書く）も命令に渡す（page.get が組めない行の数を書く）
+  const runCtx = { now, labels: isObj(ctx.labels) ? ctx.labels : {}, role, actor, tx: def.write ? tx : undefined, log: typeof ctx.log === 'function' ? ctx.log : undefined };
   let begun = false;
   try {
     db.exec(def.write ? 'BEGIN IMMEDIATE' : 'BEGIN');
