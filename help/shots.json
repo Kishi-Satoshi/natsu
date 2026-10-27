@@ -5,6 +5,7 @@
   },
   "pages": [
     "/",
+    "/start/overview/",
     "/record/",
     "/record/pc-only/",
     "/start/tester-guide/",

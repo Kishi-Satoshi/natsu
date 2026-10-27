@@ -227,6 +227,21 @@ test('HL-1: 設計書に「利用者が決めたこと（ヘルプセンター�
   assert.doesNotMatch(hc0, /暗い版は白/);
 });
 
+// help-overview HO-6（計画 docs/plans/2026-10-27-help-overview.md）: 持ち主の決定 HO1〜HO6 と図解の決まりを設計書に書き、README に写真の作り方を書く
+test('HO-6: 設計書に「利用者が決めたこと（ヘルプセンターの全体像の記事と図解。2026-10-27）」の HO1〜HO6 があり、HC0 が図解の決まり（画面の写真はアプリのテストの基準から・図の下の番号の説明・ほかの記事は次に直すときに足す）を言う。README のヘルプセンターの節に tools/help-appshots.js の説明がある', { timeout: 5000 }, () => {
+  const d = read('docs/plans/natsu-design.md');
+  const i = d.indexOf('## 利用者が決めたこと（ヘルプセンターの全体像の記事と図解。2026-10-27）');
+  assert.ok(i >= 0, '節が無い');
+  const sec = d.slice(i, d.indexOf('\n## ', i + 1));
+  for (const k of ['HO1', 'HO2', 'HO3', 'HO4', 'HO5', 'HO6']) assert.match(sec, new RegExp(`^\\| ${k} \\|`, 'm'), k);
+  assert.match(sec, /docs\/plans\/2026-10-27-help-overview\.md/);
+  const hc0 = d.split('\n').find((l) => l.startsWith('- **HC0'));
+  for (const w of ['test/shots/win32/', '番号の説明', '次にその記事を直すとき']) assert.ok(hc0.includes(w), `HC0 に「${w}」が無い`);
+  const readme = read('README.md');
+  const h = readme.slice(readme.indexOf('## ヘルプセンター'));
+  for (const w of ['node tools/help-appshots.js', 'help/shots-from-app.json', 'test/shots/win32/']) assert.ok(h.includes(w), `README のヘルプセンターの節に「${w}」が無い`);
+});
+
 // help-relnotes RN-0（計画 docs/plans/2026-10-23-help-relnotes.md）: 持ち主の決定 RN1〜RN4 を設計書に先に書く
 test('RN-0: 設計書に「利用者が決めたこと（ヘルプセンターのリリースノート。2026-10-23）」の RN1〜RN4 があり、HC0 がリリースノートのページ（CHANGELOG.md から作る）を言う', { timeout: 5000 }, () => {
   const d = read('docs/plans/natsu-design.md');

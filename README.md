@@ -340,7 +340,8 @@ NaTsu の使い方の記事を集めた、ログインの要るサイトです�
 - **記事の元:** `help/articles/<分類>/<名前>.md`。分類と並びは `help/site.json`、見た目（白黒・同梱の Noto Sans JP と Noto Sans Mono の書体。リンクと輪はデジタル庁デザインシステムに寄せた: `DADS-PROTECT.md`）は `help/assets/`。リポジトリは公開なので、記事の元は誰でも読めます。会社の固有の情報（人・社名・会社のドメイン・チームの名前）は記事に書きません。
 - **書き方:** 実装計画 `docs/plans/2026-10-20-help.md` の「記事の書き方」。記事の ［…］ は NaTsu の画面の言葉だけで、どれもアプリのコードにちょうどその文字があることを `npm test` が確かめます（ほかの画面のボタンは太字）。
 - **作り方:** `npm run help:build` で `help/dist` にサイトができます（git には入りません）。
-- **見た目を変えたら:** `node tools/help-shots.js` で写真を撮り直します（作業環境の Playwright と Chromium の場所を `HELP_SHOTS_PLAYWRIGHT`・`HELP_SHOTS_CHROMIUM` で渡す）。ホーム・分類・記事・試験利用の手順・リリースノートを明るい版だけで幅 1280・390 で撮り、全部を目で見てから `help/shots.json` を commit します（CSS を変えたのに撮り直していなければ `npm test` が赤になります）。
+- **見た目を変えたら:** `node tools/help-shots.js` で写真を撮り直します（作業環境の Playwright と Chromium の場所を `HELP_SHOTS_PLAYWRIGHT`・`HELP_SHOTS_CHROMIUM` で渡す）。ホーム・全体像・分類・記事・試験利用の手順・リリースノートを明るい版だけで幅 1280・390 で撮り、全部を目で見てから `help/shots.json` を commit します（CSS を変えたのに撮り直していなければ `npm test` が赤になります）。
+- **画面の写真と図:** 記事の画面の写真は、アプリの画像の比べの明るい版の基準の写真（`test/shots/win32/`。作り物の会議のデータ）からだけ作ります。`help/shots-from-app.json` に元の写真・指紋・切り抜き・番号の丸の位置を書き、`node tools/help-appshots.js` で `help/assets/shots/` の写真（PNG）と、番号の丸を重ねた図（SVG）を作り直します。アプリの画面を撮り直すと `npm test` が赤になるので、作り直して写真の変わった記事を読み直します。仕組みの図は `help/assets/diagrams/` に手で描きます（図の中に文字を書かず、記事の図の下に番号の説明を置く）。1枚 100KB までです。
 - **出し方:** GitHub の［Actions］→［help-deploy］→［Run workflow］（main だけ・環境 `relay`）。main に `help/` などの変更が入ったときも自動で出します。最後に、ログインしていない要求で中身が返らないことを確かめ、返れば赤で止まります。
 
 ### 初めて出すとき（利用者の用意）
