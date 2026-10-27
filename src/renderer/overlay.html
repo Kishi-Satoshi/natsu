@@ -240,6 +240,9 @@
   let startedAt = 0;   // セッション開始（表示用）
   let segStart = 0;    // セグメント開始
   let timerId = null;
+  // 0.13.0 CLK-2: 再開でマイクを開き直している間（もう1本は開き直さない）と、一時停止を押した回数（開き直している間に押し直されたかを見る）
+  let reopening = false;
+  let pauseNo = 0;
   let autoStopId = null;
   let audioCtx = null;
   let analyser = null;
@@ -710,6 +713,7 @@
     silentSince = 0;
     micSilentSince = 0;
     paused = false; pausedAt = 0; pausedMs = 0;
+    reopening = false;
     segClosing = null;    // 前回の締めが残っていると、一時停止中の終了が何も送らなくなる
     session++;            // 前の録音の区間（まだ変換待ち）が、この録音のマイクや区間に触らないための印
     // 前の録音の待ち行列は捨てる。前の録音の区間は session の印で空として埋まるが、
@@ -1092,6 +1096,7 @@
     if (paused || mode !== 'meeting' || stopping || cancelled) return;
     paused = true;
     pausedAt = Date.now();
+    pauseNo++;
     pill.classList.add('paused');
     if (autoStopId) { clearTimeout(autoStopId); autoStopId = null; }
     segDeadline = 0;
@@ -1115,7 +1120,7 @@
   }
 
   async function resumeRec() {
-    if (!paused || stopping || cancelled) return;
+    if (!paused || stopping || cancelled || reopening) return;   // 開き直している間の押し直しの後の押し（開き直しを2本走らせない）
     // 一時停止で締めた区間がまだ送り終えていなければ待つ。待たずにマイクを
     // 開き直すと、前の区間の onstop が新しいストリームを解放してしまう。
     if (segClosing) {
@@ -1126,21 +1131,34 @@
       await sys.closing;
       if (!paused || stopping || cancelled) return;
     }
+    // 0.13.0 CLK-2: main は再開を知らせるまで一時停止のまま数える。戻すときは、止めた時刻と合計を押す前に戻す（main の時計と同じ）
+    const was = { at: pausedAt, ms: pausedMs, no: pauseNo };
     pausedMs += Date.now() - pausedAt;
     paused = false;
     pill.classList.remove('paused');
+    let opened = true;
+    reopening = true;
     try {
       await openStream();         // マイクを開き直す
     } catch (e) {
-      paused = true; pausedAt = Date.now(); pill.classList.add('paused');
-      setPhase('recording', 'マイクを開けませんでした。もう一度お試しください');
-      return;
+      opened = false;
     }
+    reopening = false;
     if (stopping || cancelled) {
       // 開き直している間に「終了」が押された。paused を倒した後なので stop() は
       // 何も送っていない。main は最後の区間を待っているので、空で閉じてやる。
+      // 0.13.0 CLK-2: 一時停止し直した後の終了なら、stop() が一時停止中の終了として空の最後を送っている（二度送らない）
       cleanup();
-      if (stopping) { closeSysEmpty(); sendSegmentQueued(new Uint8Array(0), 0, true); }
+      if (stopping && pauseNo === was.no) { closeSysEmpty(); sendSegmentQueued(new Uint8Array(0), 0, true); }
+      return;
+    }
+    // 0.13.0 CLK-2: 開けなかった・開き直している間にもう一度押された（一時停止し直した）。main には再開を知らせず、一時停止のまま。
+    // 見直さずに進むと、録音バーは一時停止の形のまま録り、main は再開と数えて、2つの時計が際限なくずれる
+    if (paused || !opened) {
+      cleanup();                  // 開いた分（相手の声の取り込みも）を手放す
+      paused = true; pausedAt = was.at; pausedMs = was.ms; pill.classList.add('paused');
+      if (opened) showRecording('');
+      else setPhase('recording', 'マイクを開けませんでした。もう一度お試しください');
       return;
     }
     firstSegDone = true;          // 再開後は通常の区間長で刻む
