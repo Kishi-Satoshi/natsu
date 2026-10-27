@@ -76,8 +76,8 @@ $Pins = @{
     # Size と Sha は、その CI が出した数を写す。0 と空のあいだは D・Dn を測らない（取得先がまだ無い）。
     whisperVkZip = @{ Label = "whisper.cpp v1.9.5 の Vulkan 版（NaTsu の CI で作ったもの）"
         Url = "https://github.com/Kishi-Satoshi/natsu/releases/download/whisper-vulkan-d1be6fd/whisper-vulkan-bin-x64-d1be6fd.zip"
-        File = "whisper-vulkan-bin-x64-d1be6fd.zip"; Size = [long]0
-        Sha = "" }
+        File = "whisper-vulkan-bin-x64-d1be6fd.zip"; Size = [long]20440811
+        Sha = "d3d6957113b179667eb770592a544ebc290518c30f29c7952b2b58e8f2614510" }
     turbo = @{ Label = "large-v3-turbo q5_0（今のモデル）"
         Url = "https://huggingface.co/ggerganov/whisper.cpp/resolve/5359861c739e955e79d9a303bcbc70fb988958b1/ggml-large-v3-turbo-q5_0.bin"
         File = "ggml-large-v3-turbo-q5_0.bin"; Size = [long]574041195
