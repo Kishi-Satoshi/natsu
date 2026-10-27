@@ -6,7 +6,8 @@
 //
 // 作業環境に入っている Playwright と Chromium を使う（リポジトリの依存ではない。場所は環境変数で受け、無ければ使い方を出して 1）。
 // help/ から作り直したサイト（help/dist）を 127.0.0.1 で、門と同じ見出し（relay/help-gate.mjs の helpHeaders。CSP も同じ）を付けて出し、
-// ホーム・分類（record）・記事（record/pc-only）・試験利用の手順（start/tester-guide）を、明るい・暗いと、幅 1280・390 で撮る。
+// ホーム・分類（record）・記事（record/pc-only）・試験利用の手順（start/tester-guide）・リリースノートを、幅 1280・390 で撮る。
+// 配色は明るい版だけ（help-light HL-3。ヘルプは Windows の配色に合わせないので、暗い配色で撮っても明るい版と同じ）。
 //   - CSP に断られたものが1つでもあれば NG。ページの JS の誤りも NG。横のはみ出し（scrollWidth > clientWidth）も NG。
 //   - 写真は既定で help/dist/_shots/（git に入らない）。
 //   - 全部が OK のときだけ、撮った CSS の指紋を help/shots.json に書く（CSS を変えたら撮り直す: test/help-build.test.js の R7）。
@@ -20,7 +21,7 @@ const { pathToFileURL } = require('node:url');
 
 const ROOT = path.resolve(__dirname, '..');
 const PAGES = ['/', '/record/', '/record/pc-only/', '/start/tester-guide/', '/release-notes/'];
-const SCHEMES = ['light', 'dark'];
+const SCHEMES = ['light'];
 const WIDTHS = [1280, 390];
 const HEIGHT = 900;
 const TYPES = {

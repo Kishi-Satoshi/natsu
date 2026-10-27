@@ -425,8 +425,8 @@ test('G3: ヘルプセンターの変異が一覧にそろい、IDS_HELP は計�
 // help-dads（計画 docs/plans/2026-10-23-help-dads.md の「変異確認」の表）: ヘルプセンターの DADS の直しを1つずつ戻す変異。
 // タスクを作るたびに足し、HD-7 で表の全部とちょうど同じにそろえた（HD-6 の答えの分 5 つを含む 24。HD-8 で 1 つ足して 25）
 const IDS_HELP_DADS = [
-  'hd-link-color', 'hd-link-underline', 'hd-link-visited', 'hd-link-dark', 'hd-hover-media', 'hd-search-border', 'hd-grey-muted',
-  'hd-focus-ring', 'hd-focus-dark', 'hd-toc-pad',
+  'hd-link-color', 'hd-link-underline', 'hd-link-visited', 'hd-hover-media', 'hd-search-border', 'hd-grey-muted',   // hd-link-dark は help-light HL-1 で外した（GONE_HL）
+  'hd-focus-ring', 'hd-toc-pad',   // hd-focus-dark も同じ
   'hd-rem-body', 'hd-crumbs-size', 'hd-tap-narrow',
   'hd-font-sans',
   'hd-status-count', 'hd-status-cap', 'hd-status-error', 'hd-status-clear', 'hd-status-markup',
@@ -455,15 +455,22 @@ const IDS_HELP_DADS = [
   'hd-search-reopen-plain',
   'hd-pre-tabindex',
 ];
-test('G3: help-dads の変異が一覧にそろい、IDS_HELP_DADS は計画 docs/plans/2026-10-23-help-dads.md の「変異確認」の表の id とちょうど同じで、当てるファイルと赤になるテストが表と同じ。hd- の変異は IDS_HELP_DADS にある', { timeout: 5000 }, () => {
+// help-light HL-1（計画 docs/plans/2026-10-27-help-light.md）で暗い版を外したので、直しそのものが無くなった変異（暗い版のリンクと輪）。
+// help-dads の計画の表には記録として残るが、一覧と IDS_HELP_DADS からは外した
+const GONE_HL = ['hd-link-dark', 'hd-focus-dark'];
+test('G3: help-light HL-1 で外した変異（暗い版のリンクと輪）は一覧に無い', { timeout: 5000 }, () => {
+  const ids = new Set(MUTANTS.map((m) => m.id));
+  assert.deepStrictEqual(GONE_HL.filter((id) => ids.has(id) || IDS_HELP_DADS.includes(id)), []);
+});
+test('G3: help-dads の変異が一覧にそろい、IDS_HELP_DADS は計画 docs/plans/2026-10-23-help-dads.md の「変異確認」の表の id（help-light で外した GONE_HL を除く）とちょうど同じで、当てるファイルと赤になるテストが表と同じ。hd- の変異は IDS_HELP_DADS にある', { timeout: 5000 }, () => {
   const byId = new Map(MUTANTS.map((m) => [m.id, m]));
   assert.deepStrictEqual(IDS_HELP_DADS.filter((id) => !byId.has(id)), [], 'IDS_HELP_DADS の変異が一覧に無い');
   assert.strictEqual(new Set(IDS_HELP_DADS).size, IDS_HELP_DADS.length, 'IDS_HELP_DADS に重なり');
   assert.deepStrictEqual(MUTANTS.filter((m) => /^hd-/.test(m.id) && !IDS_HELP_DADS.includes(m.id)).map((m) => m.id), [], 'IDS_HELP_DADS に無い hd- の変異がある');
   const plan = fs.readFileSync(path.join(ROOT, 'docs', 'plans', '2026-10-23-help-dads.md'), 'utf8');
   const table = plan.slice(plan.indexOf('## 変異確認'), plan.indexOf('## ゲート'));
-  const rows = [...table.matchAll(/^\| (hd-[a-z0-9-]+) \| `([^`]+)` \| [^|]+ \| ([^\n]+) \|$/gm)];
-  assert.strictEqual(rows.length, IDS_HELP_DADS.length, '計画の表の行の数と IDS_HELP_DADS の数');
+  const rows = [...table.matchAll(/^\| (hd-[a-z0-9-]+) \| `([^`]+)` \| [^|]+ \| ([^\n]+) \|$/gm)].filter((x) => !GONE_HL.includes(x[1]));
+  assert.strictEqual(rows.length, IDS_HELP_DADS.length, '計画の表の行の数（GONE_HL を除く）と IDS_HELP_DADS の数');
   assert.strictEqual(new Set(rows.map((x) => x[1])).size, rows.length, '計画の表に重なり');
   const ids = rows.map((x) => x[1]);
   assert.deepStrictEqual(IDS_HELP_DADS.filter((id) => !ids.includes(id)), [], '計画の「変異確認」の表に無い変異');
@@ -504,6 +511,24 @@ test('G3: help-relnotes の変異が一覧にそろい、IDS_HELP_RELNOTES は�
     assert.strictEqual(m.file, file, id);
     assert.deepStrictEqual([...m.tests].sort(), [...tests.matchAll(/`([^`]+)`/g)].map((x) => x[1]).sort(), id);
     assert.ok(m.why.startsWith('help-relnotes RN-'), `${id}: why`);
+  }
+});
+
+// help-light（計画 docs/plans/2026-10-27-help-light.md の「変異」）: ヘルプセンターを明るい版だけにした直しを1つずつ戻す変異。
+// 当てるファイルと赤になるテストを決めた表で持つ（多くも少なくもない。hl- の変異はここにある）
+const IDS_HELP_LIGHT = {
+  'hl-dark-tokens': ['help/assets/help.css', 'test/help-build.test.js'],
+  'hl-color-scheme': ['help/assets/help.css', 'test/help-build.test.js'],
+  'hl-gate-dark': ['relay/help-gate.mjs', 'test/help-gate.test.js'],
+};
+test('G3: help-light の変異が一覧にそろい、IDS_HELP_LIGHT とちょうど同じ（当てるファイルと赤になるテストも同じ）。hl- の変異は IDS_HELP_LIGHT にある', { timeout: 5000 }, () => {
+  const byId = new Map(MUTANTS.map((m) => [m.id, m]));
+  assert.deepStrictEqual(MUTANTS.filter((m) => /^hl-/.test(m.id)).map((m) => m.id).sort(), Object.keys(IDS_HELP_LIGHT).sort());
+  for (const [id, [file, t]] of Object.entries(IDS_HELP_LIGHT)) {
+    const m = byId.get(id);
+    assert.strictEqual(m.file, file, id);
+    assert.deepStrictEqual(m.tests, [t], id);
+    assert.ok(m.why.startsWith('help-light HL-'), `${id}: why`);
   }
 });
 
