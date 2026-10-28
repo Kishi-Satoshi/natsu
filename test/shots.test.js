@@ -990,7 +990,8 @@ test('基準の画像（test/shots/win32）は今の app.html で撮ったもの
   // 2026-10-28 の持ち主の答え 点検 A（「トグル見出しにしても字下げしない（おすすめ）」。計画の Ruling NR38）: aiSectionHead の写しからトグルでないことの照らしを外した（<script> の中だけ。撮る画面は変わらない）。値を今の app.html に合わせた（前の値は d4f6a5be…）
   // 2026-10-28 の点検 1・3（作り手が決めた。計画の Ruling NR39）: ▸ と Ctrl+Alt+T の前に行の文を全部保存し（commitRows）、隠れた行のフォーカスを見えている先祖の行へ（liftFocus。<script> の中だけ。撮る画面は変わらない）。値を今の app.html に合わせた（前の値は 94bb2482…）
   // 2026-10-28 の点検 4（作り手が決めた。計画の Ruling NR40）: ［コピー］の blocksMarkdown の写しで入れ子の見出しを下げず、見出しの後の行は見出しの段から数え直す（<script> の中だけ。撮る画面は変わらない）。値を今の app.html に合わせた（前の値は 9d461b3c…）
-  assert.strictEqual(sha, '151827732121086de97704cde73c1628b11eb2f979d9b41dd65589cd36349e72',
+  // 2026-10-28 の持ち主の答え 点検 B（「少し大きくする（おすすめ）」。計画の Ruling NR45）: トグルの ▸ を 24×24px・印を 16px の線の山形の SVG にした（.blk .tog の CSS と描き方）。変わる画面は NEW_131 の edit-toggle-light（もう取り直し待ち）。値を今の app.html に合わせた（前の値は 15182773…）
+  assert.strictEqual(sha, 'cc24951e2e2fbcad5d0796eba8f2ae423411e8aa7092aa821f7315f11b0dadb7',
     'app.html が基準の画像を撮った時と違う。Windows の CI の画面の比べ（捲り棒のつまみも）を見て、基準を取り直してからこの値を直す');
 });
 

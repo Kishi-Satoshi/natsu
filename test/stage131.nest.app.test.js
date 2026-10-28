@@ -534,6 +534,31 @@ test('NE-4b: トグルの行に ▸（aria-expanded）。押すと blockSetOpen 
   } finally { l.done(); }
 });
 
+// 2026-10-28 の点検 B（持ち主の答え「少し大きくする（おすすめ）」: 押せる所は幅 24px・印は 14〜16px・開いているか閉じているかが見分けやすい。計画の Ruling NR45）
+const cssRule = (sel) => { const at = HTML.indexOf(`  ${sel} {`); assert.ok(at > 0, `CSS の ${sel} が無い`); return HTML.slice(at, HTML.indexOf('}', at)); };
+test('NE-4b（点検 B）: ▸ は押せる所が幅 24px・高さ 24px で、印は 16px の線の山形（SVG）。閉じていれば右向き、開いていれば下向き（90 度回す）。並びは ＋ → ⠿ → ▸ → 文', T, async () => {
+  const tog = cssRule('.blk .tog');
+  assert.match(tog, /width: 24px;/, '▸ の押せる所の幅が 24px でない');
+  assert.match(tog, /height: 24px;/);
+  assert.match(cssRule('.blk .tog svg'), /width: 16px; height: 16px;/, '▸ の印が 16px でない');
+  assert.match(cssRule('.blk .tog.open'), /transform: rotate\(90deg\);/);
+  const l = await openReal({ pa1: TOG() });
+  try {
+    for (const [id, open] of [['t', false], ['u', true]]) {
+      const bt = caretBtn(l, id);
+      const svg = bt.querySelector('svg');
+      assert.ok(svg, `${id}: ▸ に印（svg）が無い`);
+      assert.strictEqual(svg.getAttribute('aria-hidden'), 'true');
+      assert.strictEqual(bt.textContent, '', `${id}: 小さな字の ▸ が残っている`);
+      assert.strictEqual(bt.classList.contains('open'), open);
+      assert.strictEqual(bt.getAttribute('aria-label'), open ? '閉じる' : '開く');
+      const kids = rowOf(l, id).childNodes.filter((n) => n.tagName && !n.tagName.startsWith('#')).map((n) => n.className.split(' ')[0]);
+      assert.deepStrictEqual(kids.slice(0, 4), ['plus', 'grip', 'tog', 'txt'], `${id}: 並び（R36）`);
+    }
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
 test('NE-4b・EQ19 (a): Ctrl+Alt+T → blockSetOpenAll の1回（1つでも閉じていれば open: true、全部開いていれば false）。トグルが無ければ何も呼ばない', T, async () => {
   const l = await openReal({ pa1: TOG(), pb2: [kid('z1')] });
   try {

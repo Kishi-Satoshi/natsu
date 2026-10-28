@@ -534,12 +534,15 @@
   .blk.dropmark.dropshift::before, .blk.dropmark-after.dropshift::after { content: ''; position: absolute; left: var(--dropx, 0px); right: 0; height: 2px; background: var(--accent); color: var(--on-accent); pointer-events: none; }
   .blk.dropmark.dropshift::before { top: -2px; }
   .blk.dropmark-after.dropshift::after { bottom: -2px; }
-  /* 0.13.1 NE-4b（決めたこと 18・E5）: トグルの ▸（開いていれば下向き）。色は地の語だけ（明暗の両方） */
-  .blk .tog { flex: none; width: 20px; height: 24px; padding: 0; border: none; border-radius: 4px; background: none; color: var(--muted);
-    font-size: 12px; line-height: 24px; cursor: pointer; transition: transform .1s; }
+  /* 0.13.1 NE-4b（決めたこと 18・E5）: トグルの ▸（開いていれば下向き）。色は地の語だけ（明暗の両方）。
+     2026-10-28 の持ち主の答え 点検 B（「少し大きくする（おすすめ）」。計画の Ruling NR45）: 押せる所は 24×24px、印は 16px の線の山形（SVG）。
+     閉じていれば右向き・開いていれば下向きで、向きの違いが分かる大きさにした */
+  .blk .tog { flex: none; width: 24px; height: 24px; padding: 0; border: none; border-radius: 4px; background: none; color: var(--muted);
+    display: inline-flex; align-items: center; justify-content: center; cursor: pointer; transition: transform .1s; }
+  .blk .tog svg { width: 16px; height: 16px; display: block; }
   .blk .tog:hover { background: var(--hover); color: var(--text); }
   .blk .tog.open { transform: rotate(90deg); }
-  .blk.heading .tog { height: auto; align-self: center; }
+  .blk.heading .tog { align-self: center; }   /* 点検 B: 見出しの行でも押せる所は 24×24px のまま、行の真ん中に */
   .blk .bullet { color: var(--muted); flex: none; width: 24px; text-align: center; line-height: 24px; user-select: none; }
   .blk .txt { flex: 1; font-size: 16px; line-height: 24px; outline: none; border-radius: 4px; padding: 0 2px; min-width: 0;
     word-break: break-word; white-space: pre-wrap; }   /* 0.13.0 ED-4（決めたこと 16）: Shift+Enter の行の中の改行を見せる */
@@ -4175,7 +4178,9 @@
       if (isToggleView(b)) {
         const open = openView(b);
         const tg = document.createElement('button');
-        tg.type = 'button'; tg.className = 'tog' + (open ? ' open' : ''); tg.textContent = '▸';
+        tg.type = 'button'; tg.className = 'tog' + (open ? ' open' : '');
+        // 点検 B（NR45）: 印は 16px の線の山形（右向き。開いていれば .open で下向き）
+        tg.innerHTML = '<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3.5l4.5 4.5L6 12.5"/></svg>';
         tg.title = open ? '閉じる' : '開く'; tg.setAttribute('aria-label', tg.title); tg.setAttribute('aria-expanded', open ? 'true' : 'false');
         tg.onmousedown = (ev) => ev.preventDefault();   // 押してもフォーカスは行に残す
         tg.onclick = () => toggleRow(el);
