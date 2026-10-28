@@ -328,10 +328,12 @@ test('F6: 要約の途中に画面で直した題名を、要約の書き戻し�
   assert.ok(p.blocks.length > 0, '要約が入らなかった');
 });
 
-test('ST5: main は画面のページの口を中継しない（ipcMain の page:・block:・pages:・segment: は page:summarize だけ）', () => {
+// 0.13.2 LN-5（計画 docs/plans/2026-10-28-132.md の「受け渡す名前と形」）で意図して変えた: 文字起こし待ちの残り（page:pending）と［もう一度文字起こし］
+// （page:retranscribe）を足した。どちらも DB の命令の中継でなく main の待ち行列の口（APP_COMMANDS にも入れない）
+test('ST5: main は画面のページの口を中継しない（ipcMain の page:・block:・pages:・segment: は page:summarize と、main の待ち行列の page:pending・page:retranscribe だけ）', () => {
   const m = read('src/main.js');
   const chans = [...m.matchAll(/ipcMain\.handle\('((?:page|pages|block|segment):[\w-]+)'/g)].map((x) => x[1]);
-  assert.deepStrictEqual(chans, ['page:summarize']);
+  assert.deepStrictEqual(chans, ['page:summarize', 'page:pending', 'page:retranscribe']);
 });
 
 // ---------------------------------------------------------------- M-4（ST10 の配線・ST9 の配線・RF14・F9）: 移行の窓・移行の間の録音・起動のたびの取り込み・毎日の控え

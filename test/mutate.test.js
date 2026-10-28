@@ -1162,6 +1162,7 @@ const IDS_132 = [
   'ln-offline-pc', 'ln-dict-resume', 'ln-progress-each', 'ln-left-count',
   'ln-ban-order', 'ln-ban-unread', 'ln-ban-offline', 'ln-ban-local', 'ln-ban-signin',
   'ln-ask-boot', 'ln-ask-start', 'ln-ask-dict', 'ln-ask-offline', 'ln-ask-noblock', 'ln-ask-focus', 'ln-ask-refocus', 'ln-ask-snooze', 'ln-ask-parent', 'ln-ask-card',
+  'ln-retry-busy', 'ln-retry-held', 'ln-leave-wait',
 ];
 test('G3・0.13.2: 0.13.2 の変異が一覧にそろい、IDS_132 はどれも計画の「変異確認」の表にある。ln- の変異は IDS_132 にある。どれも決まったテストのファイルを持ち、why が 0.13.2 で始まる', { timeout: 5000 }, () => {
   const byId = new Map(MUTANTS.map((m) => [m.id, m]));

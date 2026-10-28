@@ -428,6 +428,8 @@ const { titleAt } = require('./titles');
 //     --mic-feed の手順に足す: ["wait-login", n]（ログインの窓が n 個できるまで待つ）・["wait-login-closed", n]（閉じたログインの窓が n 個になるまで待つ）・
 //                        ["online", bool]（偽の net.isOnline() を替える）・["tick"]（文字起こし待ちの見回りを1回）・["login-close"]（開いているログインの窓を利用者が × で閉じる）。
 //                        snap に logins（作ったログインの窓の数）、出力に loginWins（窓ごとの記録の写し）を足す
+//   0.13.2 LN-5: --mic-feed の手順に ["final-only"]（最後の空の区間を送り、待機に戻るまでだけ待つ）・["wait-finalized"]（締めの答えまで待つ）。
+//     --idle の --extra-queue-late=held（held・失敗・止まった区間と音声の無い区間の待ち行列）と --retranscribe（［もう一度文字起こし］を押す。上の注）
 //   0.13.2 LN-1（LR14。計画 docs/plans/2026-10-28-132.md）
 //     --finalize-delay=<ms> … 偽の DB の締め（meeting.finalize）の答えを ms 遅らせる。--mic-feed の出力に pageFinal（ページごとの { id, title, phase（meeting.phase） }）を足す
 //     --quiet-mic … --quiet-seq の場面でも偽の見張りを起こし、字 T（見張りに mic teams:1）・L（mic -）を足す（どちらも偽の時計を 2 秒進める。Ruling R2）
@@ -630,6 +632,7 @@ const keptTickN = Number(flagVal('--kept-ticks')) || 0;
 const relayReqText = flagVal('--relay-req-text');
 const loginAfter = flags.includes('--login-after');
 const afterDictQueue = flags.includes('--after-dict-queue');   // 0.13.2 LN-2
+const retranscribe = flags.includes('--retranscribe');   // 0.13.2 LN-5
 const localOnlyAfterN = Number(flagVal('--local-only-after')) || 0;   // 第1d2回 M-4
 const localOnlyAtRetryN = Number(flagVal('--local-only-at-retry')) || 0;   // 第1d2回 M-3・M-4 の点検
 // 第1d2回 M-5（音声入力の音声を残す）
@@ -1389,6 +1392,7 @@ process.on('exit', () => {
   const mainSentAll = [];
   // 0.13.2 LN-2（LR10）: 本体の窓へ送った page:pending と、送ったときの recovery.json ごとの区間の数（segbuf の名前の順）
   const pendingSeen = [];
+  let latePageId = '';   // 0.13.2 LN-5: --extra-queue-late で置いたページの ID
   const queueItemCounts = () => {
     const root = path.join(userData, 'data', 'segbuf');
     let names = [];
@@ -2555,10 +2559,42 @@ process.on('exit', () => {
       const wav = path.join(dir, '1.wav');
       fs.writeFileSync(wav, toneWav(3));
       const pageId = `plate${startedAt}`;
+      latePageId = pageId;
       await dbClient.call('meeting.recover', { pageId, segments: [{ id: 's1', atMs: 0, durationMs: 3000, text: '（復旧中: 文字起こし待ち）', failed: true }],
         page: { title: `${titleAt(startedAt)}（復旧）`, date: '2026-10-20', durationSec: 3, memo: '', blocks: [], createdAt: new Date(startedAt).toISOString(), recovered: true,
           route: { stt: { cloud: 0, local: 0, provider: 'openai' }, localOnly: lateLocal }, summaryError: '' } });
       fs.writeFileSync(path.join(dir, 'recovery.json'), JSON.stringify({ pageId, items: [{ id: 's1', wav, durationMs: 3000 }], retry: false, localOnly: lateLocal }));
+    }
+    // 0.13.2 LN-5（PQ4）: --extra-queue-late=held … 3回失敗して自動では試さなくなった区間（held）・失敗した区間（tries 1）・止まった区間と、音声の無い区間の待ち行列
+    if (extraQueueLate === 'held') {
+      const startedAt = Date.now() - 300000;
+      const dir = path.join(userData, 'data', 'segbuf', String(startedAt));
+      fs.mkdirSync(dir, { recursive: true });
+      const w = (n) => { const f = path.join(dir, `${n}.wav`); fs.writeFileSync(f, toneWav(3)); return f; };
+      const pageId = `plate${startedAt}`;
+      latePageId = pageId;
+      const segs = [
+        { id: 's1', atMs: 0, durationMs: 3000, text: '（この区間の認識に失敗: 見本。音声は残してあります）', failed: true },
+        { id: 's2', atMs: 3000, durationMs: 3000, text: '（この区間の認識に失敗: 見本）', failed: true },
+        { id: 's3', atMs: 6000, durationMs: 3000, text: '（音はありましたが、文字になりませんでした）', failed: true },
+      ];
+      await dbClient.call('meeting.recover', { pageId, segments: segs,
+        page: { title: `${titleAt(startedAt)}（復旧）`, date: '2026-10-20', durationSec: 9, memo: '', blocks: [], createdAt: new Date(startedAt).toISOString(), recovered: true,
+          route: { stt: { cloud: 0, local: 0, provider: 'openai' }, localOnly: false }, summaryError: '' } });
+      fs.writeFileSync(path.join(dir, 'recovery.json'), JSON.stringify({ pageId, retry: true, localOnly: false, items: [
+        { id: 's1', wav: w(1), durationMs: 3000, tries: 3, held: true }, { id: 's2', wav: w(2), durationMs: 3000, tries: 1 }, { id: 's3', wav: w(3), durationMs: 3000 },
+        { id: 's4', wav: path.join(dir, 'gone.wav'), durationMs: 3000 }] }));
+    }
+    // 0.13.2 LN-5（LA4・PQ4）: --retranscribe … 置いた待ち行列のページの残り（page:pending）を聞き、［もう一度文字起こし］（page:retranscribe）を押して、
+    // 待ち行列が無くなるか 10 秒まで待ち、out.pendingBefore・out.retranscribe・out.afterRetranscribe（{ pages, engineLog, relayCalls, pending, pendingAfter }）に写す
+    if (retranscribe && latePageId) {
+      out.pendingBefore = await handlers['page:pending']({}, { id: latePageId });
+      out.retranscribe = await handlers['page:retranscribe']({}, { id: latePageId });
+      const qn = () => listFiles(userData).filter((f) => /^data\/segbuf\/[^/]+\/recovery\.json$/.test(f)).length;
+      await waitFor(() => qn() === 0, 10000);
+      await sleep(200);
+      out.afterRetranscribe = { pages: store.listPages().map((p) => ({ id: p.id, segments: store.getTranscript(p.id).map((x) => ({ id: x.id, text: x.text, failed: Boolean(x.failed) })) })),
+        engineLog: engineLogLines(), relayCalls: relayPaths.slice(), pending: pendingSeen.slice(), pendingAfter: await handlers['page:pending']({}, { id: latePageId }), queues: qn() };
     }
     if (keptTickN) {
       // 待ち行列が落ち着く（クラウドで送れる待ち行列の区間が文字になる）まで待つ（PC の中だけの区間は残る）。起動の復旧が回っている間の
@@ -3069,6 +3105,9 @@ process.on('exit', () => {
       else if (k === 'wait-login-closed') { await waitFor(() => loginRecs.filter((r) => r.closed).length >= a[0], 5000); await sleep(50); }
       else if (k === 'online') { netUp = Boolean(a[0]); await sleep(15); }
       else if (k === 'tick') { await keptTick(); await sleep(30); }
+      // 0.13.2 LN-5（LR13）: 止めた後の最後の空の区間を送り、待機に戻るまでだけ待つ（締めの答えは待たない）・締めの答えまで待つ
+      else if (k === 'final-only') { listeners['audio:segment']({}, { buffer: new Uint8Array(0), durationMs: 0, final: true }); await waitFor(() => !isActive(), 15000); }
+      else if (k === 'wait-finalized') { await waitFor(finalized, 15000); await sleep(50); }
       else if (k === 'login-close') { const w = loginWinsList.filter((x) => !x.destroyed).pop(); if (w) w.close(); await sleep(50); }
       else if (k === 'minimize') { wins[1].minimized = true; wins[1].emit('minimize'); await sleep(15); }
       else if (k === 'snap') {

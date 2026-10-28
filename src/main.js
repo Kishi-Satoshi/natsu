@@ -3166,6 +3166,8 @@ function leaveNoticeClick(m) {
   if (mainWin.isMinimized()) mainWin.restore();
   mainWin.show();
   if (m.leavePageId) sendToMainWin('page:open', m.leavePageId);
+  // 0.13.2 LN-5（LR13）: 保存の返事の前（会議は片付いたが、ページの ID をまだ覚えていない）に押した → 押したことを覚え、保存の後に開く
+  else if (finalizingPageIds.has(m.pageId)) m.leaveClickedEarly = true;
 }
 
 // ---------------------------------------------------------------- 会議の検出のパネル（0.9.3 M-3。決めたこと 7〜10。持ち主の答え Q3・Q5）
@@ -4751,6 +4753,7 @@ async function recoverDraftsNow() {
 // 「ページが消された」と決めるのは、保存の側がページの読み（page.get）に null と答えたときだけ。読めなかった（投げた）ときは何も消さずに
 // 止め、待ち行列を残して次の機会（設定の保存・次の起動）に回す（エンジンが無いときと同じ扱い。第2a1回 F12）
 let recoveryRunning = false;
+let recoveryPageNow = '';   // 0.13.2 LN-5: 回している待ち行列のページ（page:pending の running）
 const recoveryEtaTold = new Set();   // 0.9.4 S-4: 目安を知らせた待ち行列（フォルダ）
 // 「復旧の文字起こしを保留」を書いた (フォルダ → 理由)。同じ理由では書き直さない（見回りが毎分書かない。第1d2回 M-3）
 const recoveryHoldNoted = new Map();
@@ -4770,6 +4773,49 @@ function noteRecoveryTrigger(trigger) {
 // 0.13.2 LN-2（LR10）: 待ち行列の残りの区間の数を画面へ（音声の残っている区間の全部: PQ4。running は回している途中か）
 function sendRecoveryPending(pageId, items, running) {
   sendToMainWin('page:pending', { id: pageId, left: lib.pendingLeft(items, (it) => fs.existsSync(it.wav)), running: Boolean(running) });
+}
+// 0.13.2 LN-5（決めたこと 10）: ［もう一度文字起こし］で回した待ち行列が止まったら、残りの数と続け方を知らせる（理由の符号は engine.log だけ）
+function forceStopNotice(q, rest) {
+  if (!q || !q.force) return;
+  const n = lib.pendingLeft(rest, (it) => fs.existsSync(it.wav));
+  sendToMainWin('app:notice', `文字起こしを止めました（残り ${n} 区間）。［もう一度文字起こし］で続きから試せます。`);
+}
+// 0.13.2 LN-5（LA4）: そのページの待ち行列（recovery.json。書けなかった待ち行列も）を読むだけで集める（退けない・消さない）→ [待ち行列]
+function recoveryQueuesOf(pageId) {
+  const out = [];
+  const seen = new Set();
+  let names = [];
+  try { names = fs.readdirSync(segbufRoot()); } catch (_) { names = []; }
+  for (const name of names) {
+    const dir = path.join(segbufRoot(), name);
+    const r = J.readJsonFile(path.join(dir, RECOVERY_FILE), { shape: isRecoveryShape, waits: [] });
+    if (r.state !== 'ok' || r.value.pageId !== pageId) continue;
+    const j = r.value;
+    seen.add(dir);
+    const items = j.items.filter((it) => it && it.wav && fs.existsSync(it.wav));   // 音声の無い区間は試さない（loadSavedRecoveryQueue と同じ）
+    out.push({ pageId: j.pageId, items, dir, retry: Boolean(j.retry), localOnly: Boolean(j.localOnly), ...(j.later === true ? { later: true } : {}), ...(j.slow === true ? { slow: true } : {}) });
+  }
+  for (const [dir, q] of unsavedRecoveryQueues) if (q.pageId === pageId && !seen.has(dir)) out.push(q);
+  return out;
+}
+// 0.13.2 LN-5（LA4・PQ4）: 残りの区間の数（音声の残っている区間の全部）・回している途中か・録音中か（［もう一度文字起こし］を押せない）
+const recordingNow = () => Boolean(meeting) || state !== 'idle';
+function pagePending(pageId) {
+  const left = recoveryQueuesOf(pageId).reduce((n, q) => n + lib.pendingLeft(q.items, (it) => fs.existsSync(it.wav)), 0);
+  return { left, running: Boolean(recoveryRunning && recoveryPageNow === pageId), busy: recordingNow() };
+}
+// 0.13.2 LN-5（LA4・PQ4・決めたこと 9）: ［もう一度文字起こし］。そのページの待ち行列を今すぐ回す（ログインしていてつながっていればクラウド、そうでなければ PC。
+// 押したので PC のエンジンを起こしてよい）。3回失敗して自動では試さなくなった区間（held）も試す（q.force）。録音中は回さない
+function retranscribePage(pageId) {
+  if (recordingNow()) return { ok: false, code: 'busy' };
+  const qs = recoveryQueuesOf(pageId).filter((q) => lib.pendingLeft(q.items, (it) => fs.existsSync(it.wav)) > 0);
+  if (!qs.length) return { ok: false, code: 'none' };
+  const left = qs.reduce((n, q) => n + lib.pendingLeft(q.items, (it) => fs.existsSync(it.wav)), 0);
+  if (recoveryRunning) return { ok: true, left };   // 回している途中（済めば続けてこのページの待ち行列も拾う）
+  recoveryQueue = { ...qs[0], force: true };
+  recoveryTriggerAsk = 'button';
+  transcribeRecovered().catch((e) => engineLog(`復旧の文字起こしに失敗（もう一度文字起こし）: ${logReason(e)}`));
+  return { ok: true, left };
 }
 function transcribeRecoveredCloud() {
   if (recoveryRunning) return Promise.resolve();
@@ -4827,13 +4873,16 @@ async function transcribeRecovered() {
           engineLog(`復旧の文字起こしを保留: ${reason}`);
         }
         retryUnsavedRecovery();
+        forceStopNotice(q, q.items);   // 0.13.2 LN-5: ［もう一度文字起こし］で回せなかった（エンジンが無い・起動しない）
         recoverySkip.add(q.dir);
         if (!held) held = q;
         q = recoveryQueue = loadSavedRecoveryQueue();
         continue;
       }
       recoveryQueue = null;
+      recoveryPageNow = q.pageId;
       const kept = await transcribeRecoveredItems(q, { cloudOnly });
+      recoveryPageNow = '';
       // 0.9.4 S-3（決めたこと 3）: エンジンが誤りを返した区間（3 回まで）と held の区間は音声と待ち行列を残したまま、次の待ち行列へ進む
       // （止めない。残した待ち行列は次の引き金でやり直す: held の区間は送らない）
       if (kept && kept.parked) {
@@ -4854,6 +4903,7 @@ async function transcribeRecovered() {
     }
   } finally {
     recoverySkip = null;
+    recoveryPageNow = '';
     if (held && !recoveryQueue) recoveryQueue = held;   // 進めなかった待ち行列は、次の引き金（取り込んだ組の照らし・設定の保存・起動・見回り）で
     recoveryRunning = false;
     updateTray();
@@ -4866,6 +4916,9 @@ async function transcribeRecovered() {
 // その区間を除いた待ち行列を先へ進めて、最後に { ...q, items: 残した区間, parked: true } を返す（recovery.json に残す）
 const RECOVERY_TRIES_MAX = 3;
 async function transcribeRecoveredItems(q, { cloudOnly = false } = {}) {
+  // 0.13.2 LN-5（持ち主の答え PQ4「音声が残っている行すべて」）: ［もう一度文字起こし］で回すときは、3回失敗して自動では試さなくなった区間（held）も試す
+  // （回数 tries は残す: また失敗すれば held に戻る）
+  if (q.force) q = { ...q, items: q.items.map((it) => (it && it.held === true ? { ...it, held: false } : it)) };
   let done = 0;
   const left = [];   // エンジンが誤りを返して残した区間と held の区間
   const stopAt = (i) => left.concat(q.items.slice(i)).filter((it) => it && it.wav && fs.existsSync(it.wav));
@@ -4884,6 +4937,7 @@ async function transcribeRecoveredItems(q, { cloudOnly = false } = {}) {
       const rest = stopAt(i);
       engineLog(`復旧の文字起こしを止めました（理由: ${errCode(e)}）。残りの ${rest.length} 区間の音声と待ち行列は残します`);
       sendRecoveryPending(q.pageId, rest, false);
+      forceStopNotice(q, rest);
       return { ...q, items: rest };
     }
     if (!alive) { unlinkQuiet(item.wav); continue; }   // ページが消された（DB が null と答えた）
@@ -4905,6 +4959,7 @@ async function transcribeRecoveredItems(q, { cloudOnly = false } = {}) {
           const rest = stopAt(i);
           engineLog(`復旧の文字起こしを止めました（理由: ${e.cloudCode || (kind === 'late' || kind === 'down' ? kind : 'engine')}）。残りの ${rest.length} 区間の音声と待ち行列は残します`);
           sendRecoveryPending(q.pageId, rest, false);
+          forceStopNotice(q, rest);
           return { ...q, items: rest };
         }
         err = (e && e.message) || '不明なエラー';
@@ -5697,6 +5752,9 @@ async function maybeFinalizeMeeting() {
   if (overlayFree()) sendToOverlay('overlay:phase', { phase: 'done', message: '議事録を保存しました' });
   sendToMainWin('pages:updated', await db.call('pages.list', {}));
   sendToMainWin('page:open', { id: page.id, saved: true });   // 0.13.0 ED-5（EQ22 (a)）: 締めの保存の印。書き直している途中の画面は前に出さない
+  // 0.13.2 LN-5（LR13）: 保存の途中に会議を出て止めた知らせを押していた → 保存したそのページを開く（ID の文字のまま＝前に出す: 0.13.0 ED-5・EQ22 (a)）。
+  // 保存に失敗したら上で返っているので何も開かない
+  if (m.leaveClickedEarly) { m.leaveClickedEarly = false; sendToMainWin('page:open', page.id); }
   if (m.autoStopped) quietDoneNotice(m, page.id);   // 0.9.1 Q-4
   // 音声は届いたのに、文字起こしが全部空だった。黙っていると「0 区間」の理由が分からない。
   // 知らせと engine.log に出す。要約の欄には書かない（0.10.0 LS-2・決めたこと 111 の 6: 文字起こしが空のページは欄の鍵のまま、頭の一言が伝える）
@@ -6281,6 +6339,10 @@ function setupIpc() {
 
   // 議事録の画面の口は main を通らない（第2a1回 ST5。preload が DB の口（役 app）へ直に頼む）。要約だけは今どおり main の IPC
   ipcMain.handle('page:summarize', (_e, id) => runSummary(id));
+  // 0.13.2 LN-5（LA4・PQ4）: 議事録のページの「残り n 区間」と［もう一度文字起こし］。引数は { id }（ページの ID の形だけを通す。DB の命令ではない）
+  const pageIdArg = (o) => (o && typeof o === 'object' && typeof o.id === 'string' && /^[A-Za-z0-9_-]{1,64}$/.test(o.id) ? o.id : '');
+  ipcMain.handle('page:pending', (_e, o) => { const id = pageIdArg(o); return id ? pagePending(id) : { left: 0, running: false, busy: recordingNow() }; });
+  ipcMain.handle('page:retranscribe', (_e, o) => { const id = pageIdArg(o); return id ? retranscribePage(id) : { ok: false, code: 'none' }; });
   // 0.11.0 V-1・V-5: 画面は種類の並びを1か所（meetingType.SELECTABLE）から読む（群の見出しは無い）。メモの型の表も
   ipcMain.handle('meta:types', () => typesForView());
   ipcMain.handle('meta:memo-types', () => memoTypes.listMemoTypes());

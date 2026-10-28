@@ -307,6 +307,9 @@ const SCREENS = [
   { name: 'edit-toggle-light', page: 'app', theme: 'light', get answers() { return toggleAnswers(); }, act: OPEN_TYPES },
   // 0.13.2 LN-3（持ち主の答え LA2）: 録音中のページの帯 no-login と［ログイン］。足した画面（まだ基準が無い）
   { name: 'live-banner-signin-light', page: 'app', theme: 'light', answers: liveAnswers(SIGNIN_STT) },
+  // 0.13.2 LN-5（持ち主の答え LA4）: 保存した議事録のページの「文字起こし」の欄の頭の1行（文字起こし待ちと［もう一度文字起こし］・回している途中で押せない形）。足した画面（まだ基準が無い）
+  { name: 'page-pending-light', page: 'app', theme: 'light', answers: { 'koeApp.pagePending': { left: 12, running: false, busy: false } }, act: OPEN_PAGE_SCRIPT },
+  { name: 'page-pending-running-light', page: 'app', theme: 'light', answers: { 'koeApp.pagePending': { left: 5, running: true, busy: false } }, act: OPEN_PAGE_SCRIPT },
 ];
 // 0.9.0 O-3（RP9）: 録音バーの画面（形 → 地 → 拡大率 → 状態の順。撮る道具は形・地・拡大率の組ごとに窓を1つ開いて状態を act で替える）。
 // 録音は始めずに見た目だけを撮る（act は pill-states の見本を録音バーの DOM に当てる。撮るときだけ体の地にデスクトップの色を塗る）。
@@ -402,7 +405,7 @@ const OVL_094 = (states) => PS.FORMS.flatMap((form) => Object.keys(PS.DESKS).fla
 // artifact 12787992574 の .after.png（9 枚）をバイトのまま基準にし、空に戻した
 // 0.13.2（計画 docs/plans/2026-10-28-132.md の「取り直す画面（RETAKE）」）: LN-3 で録音中のページの帯 no-login の画面を足した。LN-5・LN-7 で足す画面と
 // 取り直す画面も入れる。持ち主が見比べを OK と言ったら、版を上げる commit（Task G）で基準にして空に戻す
-const RETAKE = new Set(['live-banner-signin-light']);
+const RETAKE = new Set(['live-banner-signin-light', 'page-pending-light', 'page-pending-running-light']);
 const PERF = [{ name: 'open-2000-blocks', budgetMs: 500 }];   // 3回開いた中央値で見る
 const TIME_ZONE = 'Asia/Tokyo';
 const TOLERANCE = 2;   // 色の差（0〜255）がこれ以下の画素は同じとみなす。CI の機械の CPU ごとの描き方の1段の差を拾わないため（揺れの確かめ judgePair は 0 で見る）

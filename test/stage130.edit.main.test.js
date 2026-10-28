@@ -148,8 +148,10 @@ test('ED-5・EQ22 (a): 前回の復旧のページの page:open（窓を作る�
   const at = src.indexOf('  if (recoveredPageId) {');
   assert.ok(at > 0);
   assert.ok(src.slice(at, src.indexOf('\n  }\n', at)).includes("sendToMainWin('page:open', id);"));
+  // 0.13.2 LN-5（計画 docs/plans/2026-10-28-132.md の LR13）で意図して変えた: 保存の途中に会議を出て止めた知らせを押していたら、保存の後にそのページを
+  // ID の文字のまま（前に出す）開く1行を足した（締めの印 { id, saved: true } の後ろ）
   assert.deepStrictEqual(src.match(/sendToMainWin\('page:open', [^)]*\)/g), ["sendToMainWin('page:open', m.leavePageId)", "sendToMainWin('page:open', id)", "sendToMainWin('page:open', pageId)",
-    "sendToMainWin('page:open', { id: page.id, saved: true })"]);
+    "sendToMainWin('page:open', { id: page.id, saved: true })", "sendToMainWin('page:open', page.id)"]);
 });
 
 // ---------------------------------------------------------------- 2026-10-26 の持ち主の答え（点検4「どんな手直しでも確かめる（おすすめ）」）

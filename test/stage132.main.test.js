@@ -141,6 +141,8 @@ test('LN-3: オフラインで始めた会議・オフラインモードの会�
 // 場面は --mic-feed の手順（録音の前のページ・会議・音声入力・ネットワーク・見回り・ログインの窓）。中継を置かない場面は「オンラインでログインしていない」の形
 const mic = (steps, ...flags) => run(['text', `--mic-feed=${JSON.stringify(steps)}`, ...flags]);
 const ML = (s) => [['line', s], ['clock', 2000]];
+const MLs = (s, n) => Array.from({ length: n }, () => ML(s)).flat();
+const PANEL_LN = (id) => [...ML(`mic ${id}:1`), ...ML(`mic ${id}:1`), ['wait-show', 1], ['ipc', 'nudge:start', {}]];
 const AUTO = (m) => `アカウント: ログインの窓を自動で開いた（${m}）`;
 const NOT_CHOSEN = ['--no-engine=fetchable', '--signed-out'];
 const autoWin = (w) => {
@@ -233,4 +235,55 @@ test('LN-4・LR2・PQ5: ログインして始めた会議の録音中に中継�
   const o = await run(['text', '--relay-seq=cl', '--segs=3']);
   assert.deepStrictEqual(o.loginWins, [], `録音中のログイン切れで窓を開いた（F27・PQ5）: ${o.engineLog.join('\n')}`);
   assert.ok(codes(o).includes('login'), JSON.stringify(o.sttSeen));
+});
+
+// ---------------------------------------------------------------- LN-5（LA4・PQ4・決めたこと 8〜10・LR13）
+test('LN-5: page:retranscribe はログインしていてつながればクラウド、していなければ PC のエンジンを起こして文字にする。押す前の page:pending は { left, running: false, busy: false }', T, async () => {
+  const cloud = await run(['text', '--idle', '--relay=text', '--extra-queue-late=cloud', '--retranscribe']);
+  assert.deepStrictEqual(cloud.pendingBefore, { left: 1, running: false, busy: false }, JSON.stringify(cloud.pendingBefore));
+  assert.deepStrictEqual(cloud.retranscribe, { ok: true, left: 1 }, JSON.stringify(cloud.retranscribe));
+  const a = cloud.afterRetranscribe;
+  assert.strictEqual(a.queues, 0, a.engineLog.join('\n'));
+  assert.ok(a.engineLog.some((l) => /^文字起こしの経路: 復旧 s1 → cloud/.test(l)), a.engineLog.join('\n'));
+  assert.ok(a.engineLog.includes('文字起こし待ち: 始めた（button）'), a.engineLog.join('\n'));
+  assert.deepStrictEqual(a.pendingAfter, { left: 0, running: false, busy: false });
+  const pc = await run(['text', '--idle', '--relay=text', '--signed-out', '--extra-queue-late=cloud', '--retranscribe']);
+  const b = pc.afterRetranscribe;
+  assert.strictEqual(b.queues, 0, b.engineLog.join('\n'));
+  assert.ok(b.engineLog.some((l) => /^文字起こしの経路: 復旧 s1 → local/.test(l)), b.engineLog.join('\n'));
+  assert.strictEqual(sttPosts(b.relayCalls), 0);
+  assert.ok(b.pages.find((p) => p.id.startsWith('plate')).segments.every((s) => !s.failed), JSON.stringify(b.pages));
+});
+
+test('LN-5・PQ4: 押すと、3回失敗して止めた区間（held）・止まった（stall）区間・失敗した区間も試す（持ち主の答え「音声が残っている行すべて」）。音声の無い区間は試さない（残りの数にも入れない）', T, async () => {
+  const o = await run(['text', '--idle', '--relay=text', '--extra-queue-late=held', '--retranscribe']);
+  assert.deepStrictEqual(o.pendingBefore, { left: 3, running: false, busy: false }, '音声の無い区間を数えた・held を数えていない');
+  const a = o.afterRetranscribe;
+  const page = a.pages.find((p) => p.id.startsWith('plate'));
+  assert.deepStrictEqual(page.segments.map((s) => [s.id, s.failed]), [['s1', false], ['s2', false], ['s3', false]], JSON.stringify(page.segments));
+  for (const id of ['s1', 's2', 's3']) assert.ok(a.engineLog.some((l) => new RegExp(`^文字起こしの経路: 復旧 ${id} → cloud`).test(l)), a.engineLog.join('\n'));
+  assert.ok(!a.engineLog.some((l) => /復旧 s4/.test(l)), '音声の無い区間を試した');
+  assert.strictEqual(a.queues, 0);
+  // 区間ごとの残りの数（2・1・0 と、最後に回し終えた印）
+  const pend = a.pending.filter((p) => p.id === page.id);
+  assert.deepStrictEqual(pend.map((p) => [p.left, p.running]), [[2, true], [1, true], [0, true], [0, false]], JSON.stringify(pend));
+});
+
+test('LN-5: 録音中（会議・音声入力）の page:retranscribe は { ok: false, code: \'busy\' }・page:pending の busy は真。待ち行列の無いページは none', T, async () => {
+  const o = await mic([['ipc', 'page:retranscribe', { id: 'p-none' }], ['ipc', 'page:pending', { id: 'p-none' }], ['start'],
+    ['ipc', 'page:retranscribe', { id: 'p-none' }], ['ipc', 'page:pending', { id: 'p-none' }], ['stop'], ['dictate'], ['ipc', 'page:retranscribe', { id: 'p-none' }], ['dictate-cancel']]);
+  const r = o.ipc.filter(([ch]) => ch === 'page:retranscribe' || ch === 'page:pending').map(([, v]) => v);
+  assert.deepStrictEqual(r, [{ ok: false, code: 'none' }, { left: 0, running: false, busy: false }, { ok: false, code: 'busy' }, { left: 0, running: false, busy: true }, { ok: false, code: 'busy' }], JSON.stringify(o.ipc));
+});
+
+test('LN-5・LR13: 会議を出て止めた後、保存の返事の前に知らせを押すと、保存の後に page:open が ID の文字で1回。保存に失敗したら開かない', T, async () => {
+  const LEAVE = [...PANEL_LN('teams'), ...MLs('mic -', 3)];
+  const o = await mic([...LEAVE, ['final-only'], ['click-notice', 0], ['snap', 'c'], ['wait-finalized'], ['sleep', 100]], '--finalize-delay=400');
+  const opens = o.mainSentAll.filter(([ch]) => ch === 'page:open').map(([, p]) => p);
+  const pid = o.pageMemos[0].id;
+  assert.deepStrictEqual(opens, [{ id: pid, saved: true }, pid], JSON.stringify(opens));
+  assert.ok(o.mainWinCalls.includes('show'), '押したのに本体の窓を出していない');
+  // 保存に失敗したら、押していても何も開かない（本体の窓はもう出ている）
+  const f = await mic([...LEAVE, ['db-fail', 'meeting.finalize'], ['final-only'], ['click-notice', 0], ['wait-finalized'], ['sleep', 100]], '--finalize-delay=400');
+  assert.deepStrictEqual(f.mainSentAll.filter(([ch]) => ch === 'page:open'), [], JSON.stringify(f.mainSentAll.filter(([ch]) => ch === 'page:open')));
 });

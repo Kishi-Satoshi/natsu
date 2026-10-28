@@ -718,6 +718,13 @@
   /* 止めていた時間の印（区間の行の間。区間ではない） */
   .pausemark { font-size: 12px; color: var(--muted); padding: 4px 4px 4px 8px; margin: 4px 0; border-left: 2px solid var(--line); }
   .prog { font-size: 12px; color: var(--accent-text); margin-bottom: 10px; }
+  /* 0.13.2 LN-5（持ち主の答え LA4）: 保存した議事録のページの「文字起こし」の欄の頭の1行（「文字起こし待ち: 残り n 区間」と［もう一度文字起こし］）。
+     注意の色にしない（誤りではない。続け方の案内）。地と線は「会議は終わりましたか？」の帯と同じ明暗のトークン */
+  .pendline { display: flex; align-items: center; gap: 6px 10px; flex-wrap: wrap; padding: 6px 10px; margin-bottom: 8px;
+    border: 1px solid var(--line); border-radius: 6px; background: var(--tint); font-size: 13px; color: var(--text); }
+  .pendline span { flex: 1 1 16em; min-width: 0; overflow-wrap: anywhere; }
+  .pendline button.ghost { font-size: 12px; padding: 0 10px; }
+  .pendline[hidden] { display: none; }
 
   /* ---------- 音声入力 ---------- */
   .stats { display: flex; gap: 10px; margin-bottom: 12px; flex-wrap: wrap; }
@@ -922,6 +929,7 @@
             <div class="pcol">
             <div id="pProgress" class="prog" style="display:none"></div>
             <div id="pNote" class="pane active" role="tabpanel" aria-labelledby="paneBtnNote"></div>
+            <div id="pPending" class="pendline" role="status" hidden><span id="pPendingText"></span><button type="button" class="ghost" id="pRetranscribe">もう一度文字起こし</button></div>
             <div id="pScript" class="pane" role="tabpanel" aria-labelledby="paneBtnScript"></div>
             <div id="pMemo" class="pane" role="tabpanel" aria-labelledby="paneBtnMemo"></div>
             </div>
@@ -2768,6 +2776,7 @@
     $('pNote').classList.toggle('active', p === 'note');
     $('pScript').classList.toggle('active', p === 'script');
     $('pMemo').classList.toggle('active', p === 'memo');
+    renderPending();   // 0.13.2 LN-5: 「文字起こし」の欄だけに出す
   }
   $('paneBtnNote').onclick = () => setPane('note');
   $('paneBtnScript').onclick = () => setPane('script');
@@ -3039,6 +3048,7 @@
     setPane(pane);
     renderCrumb();
     syncNoPage();
+    refreshPending();   // 0.13.2 LN-5: 保存したページの文字起こし待ちの残り（main が数える）
   }
   // 何も開いていない（ページも記録中のタブも無い）ときは #pageWrap に nopage を付け、
   // ページのアイコンと丸いタブを隠して空の文だけを出す（第1b2回 P-2）
@@ -5003,6 +5013,9 @@
     box.scrollTop = box.scrollHeight;
   }
   function setMeetingUi(st) {
+    try { setMeetingUiInner(st); } finally { renderPending(); }   // 0.13.2 LN-5: 録音中かで［もう一度文字起こし］の押せる・押せない
+  }
+  function setMeetingUiInner(st) {
     mtStartedAt = st.startedAt;
     mtStoppedAt = st.stoppedAt || null;
     mtPausedMs = st.pausedMs || 0;
@@ -5549,6 +5562,53 @@
     if (act) toast(text, act);
     else toast(text);
   });
+
+  // ================= 0.13.2 LN-5（持ち主の答え LA4・PQ4・決めたこと 8・9）: 議事録のページの「残り n 区間」と［もう一度文字起こし］ =================
+  // 数えるのは main（page:pending の答えと、区間を1つ片付けるたびの知らせ）。画面は数えない。録音中のページ（写し）には出さない（帯と状態の行がある）
+  let pendNow = null;        // { id, left, running, busy }
+  let pendPressing = false;  // ［もう一度文字起こし］の返事を待つ間（2回押しても1回だけ頼む）
+  const pendShowable = () => Boolean(curPage && curPage.id && !$('pageWrap').classList.contains('live-on'));
+  function renderPending() {
+    const box = $('pPending');
+    const p = pendNow && curPage && pendNow.id === curPage.id ? pendNow : null;
+    const show = Boolean(p && p.left > 0 && pendShowable() && pane === 'script');
+    box.hidden = !show;
+    if (!show) return;
+    const busy = Boolean(p.busy || (mtSt && mtSt.active));
+    const text = p.running ? `文字起こししています（残り ${p.left} 区間）` : `文字起こし待ち: 残り ${p.left} 区間`;
+    if ($('pPendingText').textContent !== text) $('pPendingText').textContent = text;
+    const b = $('pRetranscribe');
+    b.disabled = Boolean(p.running || busy || pendPressing);
+    b.title = busy ? '録音が終わってから押してください。' : '';
+  }
+  async function refreshPending() {
+    if (!window.koeApp.pagePending || !pendShowable()) { renderPending(); return; }
+    const id = curPage.id;
+    let r = null;
+    try { r = await window.koeApp.pagePending(id); } catch (_) { r = null; }
+    if (r && typeof r === 'object' && curPage && curPage.id === id) pendNow = { id, left: Number(r.left) || 0, running: Boolean(r.running), busy: Boolean(r.busy) };
+    renderPending();
+  }
+  if (window.koeApp.onPagePending) window.koeApp.onPagePending((p) => {
+    if (!p || typeof p !== 'object' || typeof p.id !== 'string') return;
+    const busy = pendNow && pendNow.id === p.id ? pendNow.busy : false;
+    pendNow = { id: p.id, left: Number(p.left) || 0, running: Boolean(p.running), busy };
+    renderPending();
+  });
+  $('pRetranscribe').onclick = async () => {
+    if (pendPressing || !pendShowable() || !window.koeApp.pageRetranscribe) return;
+    const id = curPage.id;
+    pendPressing = true;
+    renderPending();
+    let r = null;
+    try { r = await window.koeApp.pageRetranscribe(id); } catch (_) { r = null; } finally { pendPressing = false; }
+    if (pendNow && pendNow.id === id) {
+      if (r && r.ok) pendNow = { ...pendNow, left: Number(r.left) || pendNow.left, running: true };
+      else if (r && r.code === 'busy') pendNow = { ...pendNow, busy: true };
+      else if (r && r.code === 'none') pendNow = { ...pendNow, left: 0 };
+    }
+    renderPending();
+  };
 
   // ================= 音声入力 =================
   function fmtChars(n) { return n >= 10000 ? `${(n/10000).toFixed(1)}万` : String(n); }

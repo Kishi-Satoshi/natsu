@@ -183,8 +183,8 @@ const NEW_131 = ['edit-nested-light', 'edit-nested-dark', 'edit-nested-zoom200-l
 // CI run 40623116933（9ede0e7）・artifact 12787992574 の .after.png（9 枚）をバイトのまま基準にし、取り直し待ちを空に戻した
 const ADDED_131 = [...RETAKEN_131, ...NEW_131];
 // 0.13.2（計画 docs/plans/2026-10-28-132.md の「取り直す画面（RETAKE）」）で意図して変えた: 取り直し待ちは 0.13.2 の表の画面だけ（RETAKE_132）。
-// LN-3 で録音中のページの帯 no-login の1枚を足した（NEW_132。足した画面で、まだ基準が無い）
-const NEW_132 = ['live-banner-signin-light'];
+// LN-3 で録音中のページの帯 no-login の1枚を、LN-5 で議事録のページの「残り n 区間」の2枚を足した（NEW_132。足した画面で、まだ基準が無い）
+const NEW_132 = ['live-banner-signin-light', 'page-pending-light', 'page-pending-running-light'];
 const RETAKE_132 = [...NEW_132];
 const img = (w, h, fill = [255, 255, 255, 255]) => ({ width: w, height: h, data: Buffer.from(Array.from({ length: w * h }, () => fill).flat()) });
 // 一時フォルダ（日本語と 𠮷 の名前。RF1 と同じ形）。テストの終わりに消す
@@ -230,7 +230,7 @@ test('G2: 撮る画面は決まった並び（第1b回の 13 と第1b2回の検�
     ...NEW_130,
     // 0.13.1 NE-4a で意図して変えた: 入れ子の明暗と拡大 200% の3枚を足した。NE-4b でトグルの1枚を足した（版を 0.13.1 に上げる commit で基準にした）
     ...NEW_131,
-    // 0.13.2 LN-3 で意図して変えた: 録音中のページの帯 no-login の1枚を足した（取り直し待ち・まだ基準が無い）
+    // 0.13.2 LN-3 で意図して変えた: 録音中のページの帯 no-login の1枚を足した。LN-5 で議事録のページの「残り n 区間」の2枚を足した（取り直し待ち・まだ基準が無い）
     ...NEW_132]);
   assert.deepStrictEqual(SH.SCREENS.filter((s) => s.page === 'overlay').map((s) => s.name), PS.screenNames());
   // 0.9.3 M-7 で意図して変えた: 会議の検出のパネル（page nudge）の5枚を録音バーのあと（いちばん後ろ）に足した
@@ -1012,7 +1012,8 @@ test('基準の画像（test/shots/win32）は今の app.html で撮ったもの
   // 2026-10-28 の点検 2 の続き（計画の Ruling NR46）: 文の右の札（担当・期限・出典）と ✕ を1つの箱 .tail に入れ、箱ごと下の行へ折り返す（鍵の間の行も）。変わる画面は NEW_131 の入れ子の3枚と、画面の外の要約が高くなって捲り棒のつまみが変わる notes-page-zoom200-light（RETAKEN_131 に足した）。値を今の app.html に合わせた（前の値は 753aa2ed…）
   // 0.13.2 LN-3（持ち主の答え LA2・LR8）: 帯の［ログイン］（no-login・kept-login）はログインの窓を直に開く（bannerSignIn。<script> の中だけ）。変わる画面は足した NEW_132 の live-banner-signin-light。値を今の app.html に合わせた（前の値は b04bc5e9…）
   // 0.13.2 LN-4（LR20）: 自動で開いたログインの窓でログインできたら設定の「アカウント」の行を読み直す受け口（onAccountChanged。<script> の中だけ。撮る画面は変わらない）。値を今の app.html に合わせた（前の値は 444d8a14…）
-  assert.strictEqual(sha, '0ea1f255281f20f4a315de0e86d9d0e5cb847e184ecb2f102dc1f0fdc0220050',
+  // 0.13.2 LN-5（持ち主の答え LA4・決めたこと 8・9）: 保存した議事録のページの「文字起こし」の欄の頭の1行（#pPending・CSS の .pendline と描き方）。待ち行列の無いページには出ないので今の撮る画面は変わらない見込みで、変わる画面は足した NEW_132 の page-pending の2枚。値を今の app.html に合わせた（前の値は 0ea1f255…）
+  assert.strictEqual(sha, '05c6bfd495934ebb5f41be7a505aec8611a3d9b3bd76ca2d77ccc9618a9947ee',
     'app.html が基準の画像を撮った時と違う。Windows の CI の画面の比べ（捲り棒のつまみも）を見て、基準を取り直してからこの値を直す');
 });
 

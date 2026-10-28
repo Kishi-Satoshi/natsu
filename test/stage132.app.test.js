@@ -65,3 +65,54 @@ test('LN-4・LR20: onAccountChanged が来ると accountStatus を1回読み直�
   assert.strictEqual($(l, 'accountIn').hidden, false);
   assert.deepStrictEqual(l.errors.map(fmt), []);
 });
+
+// ---------------------------------------------------------------- LN-5（LA4・決めたこと 8・9）
+const { titleAt } = require('./helpers/titles');
+const PAGES = [{ id: 'pa1', title: titleAt('2026-10-28T01:00:00.000Z'), date: '10/28', durationSec: 1800, hasSummary: false }];
+const pageGet = (id) => ({ page: { id, title: titleAt('2026-10-28T01:00:00.000Z'), createdAt: '2026-10-28T01:00:00.000Z', durationSec: 1800, blocks: [], memo: '', meetingType: 'general' },
+  segments: [{ id: 's1', atMs: 0, durationMs: 75000, text: '（文字起こし待ち: 会議の後で文字起こしします）', failed: true }] });
+async function openSaved(returns = {}, before = async () => {}) {
+  const l = await load(APP, { now: T0, returns: { pagesSearch: () => PAGES, pageGet, ...returns } });
+  await l.drain();
+  await before(l);
+  await click(l, 'tabBtnNotes');
+  l.root.querySelector('#plist .pitem').dispatchEvent({ type: 'click' }); await l.drain();
+  await click(l, 'paneBtnScript');
+  return l;
+}
+const lineOf = (l) => ({ hidden: $(l, 'pPending').hidden, text: $(l, 'pPendingText').textContent, disabled: $(l, 'pRetranscribe').disabled, tip: $(l, 'pRetranscribe').title });
+
+test('LN-5・LA4: 待ち行列のある議事録のページの「文字起こし」の欄の頭に「文字起こし待ち: 残り 3 区間」と［もう一度文字起こし］。押すと pageRetranscribe の1回で、onPagePending の数で「文字起こししています（残り 2 区間）」に替わり、0 で行が消える', T, async () => {
+  const l = await openSaved({ pagePending: () => ({ left: 3, running: false, busy: false }), pageRetranscribe: () => ({ ok: true, left: 3 }) });
+  assert.deepStrictEqual(l.called('pagePending').map((c) => c.args[0]), ['pa1']);
+  assert.deepStrictEqual(lineOf(l), { hidden: false, text: '文字起こし待ち: 残り 3 区間', disabled: false, tip: '' });
+  assert.strictEqual($(l, 'pRetranscribe').textContent, 'もう一度文字起こし');
+  // 「AI 要約」の欄には出さない
+  await click(l, 'paneBtnNote');
+  assert.strictEqual($(l, 'pPending').hidden, true, '「AI 要約」の欄に出した');
+  await click(l, 'paneBtnScript');
+  await click(l, 'pRetranscribe');
+  assert.deepStrictEqual(l.called('pageRetranscribe').map((c) => c.args[0]), ['pa1']);
+  assert.strictEqual($(l, 'pRetranscribe').disabled, true, '押した後も押せる（回している間）');
+  l.fire('onPagePending', { id: 'pa1', left: 2, running: true }); await l.drain();
+  assert.deepStrictEqual(lineOf(l), { hidden: false, text: '文字起こししています（残り 2 区間）', disabled: true, tip: '' });
+  // ほかのページの知らせは描かない
+  l.fire('onPagePending', { id: 'pz9', left: 7, running: true }); await l.drain();
+  assert.strictEqual($(l, 'pPendingText').textContent, '文字起こししています（残り 2 区間）');
+  l.fire('onPagePending', { id: 'pa1', left: 0, running: false }); await l.drain();
+  assert.strictEqual($(l, 'pPending').hidden, true, '残りが 0 なのに行が残った');
+  assert.deepStrictEqual(l.errors.map(fmt), []);
+});
+
+test('LN-5: 録音中は［もう一度文字起こし］が押せず title が出る。録音中のページ（写し）には行が無い。待ち行列の無いページにも行は無い', T, async () => {
+  const l = await openSaved({ pagePending: () => ({ left: 2, running: false, busy: true }) }, async (x) => { x.fire('onMeetingUpdate', LIVE()); await x.drain(); });
+  assert.deepStrictEqual(lineOf(l), { hidden: false, text: '文字起こし待ち: 残り 2 区間', disabled: true, tip: '録音が終わってから押してください。' });
+  const liveTab = l.root.querySelectorAll('[data-key]').find((x) => x.dataset.key === 'live');
+  assert.ok(liveTab, '録音中のタブが無い');
+  liveTab.dispatchEvent({ type: 'click' }); await l.drain();
+  assert.strictEqual($(l, 'pPending').hidden, true, '録音中のページ（写し）に行を出した');
+  assert.deepStrictEqual(l.errors.map(fmt), []);
+  const none = await openSaved({ pagePending: () => ({ left: 0, running: false, busy: false }) });
+  assert.strictEqual($(none, 'pPending').hidden, true);
+  assert.deepStrictEqual(none.errors.map(fmt), []);
+});

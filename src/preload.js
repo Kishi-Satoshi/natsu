@@ -284,5 +284,9 @@ contextBridge.exposeInMainWorld('koeApp', {
   onPageUpdated: (cb) => ipcRenderer.on('page:updated', (_e, p) => cb(p)),
   // 0.13.2 LN-2（計画 docs/plans/2026-10-28-132.md の LR10）: 文字起こし待ちの残りの区間の数（main が区間を1つ片付けるたびに送る { id, left, running }）
   onPagePending: (cb) => ipcRenderer.on('page:pending', (_e, p) => cb(p)),
+  // 0.13.2 LN-5（計画 docs/plans/2026-10-28-132.md の LA4・PQ4）: 議事録のページの「残り n 区間」（{ left, running, busy }）と［もう一度文字起こし］（{ ok, left } | { ok: false, code }）。
+  // DB の命令でないので APP_COMMANDS に入れない
+  pagePending: (id) => ipcRenderer.invoke('page:pending', { id }),
+  pageRetranscribe: (id) => ipcRenderer.invoke('page:retranscribe', { id }),
   onEngineFetchProgress: (cb) => ipcRenderer.on('engine:fetch-progress', (_e, s) => cb(s)),
 });
