@@ -59,7 +59,7 @@ test('NE-1・NR2: 親が無い・親が別のページ・輪になる行は最�
 });
 
 // ---------------------------------------------------------------- 字下げ（E10・EQ17 (a)・TQ2）
-test('NE-1・EQ17 (a): canIndent は前の兄弟が無い・前の兄弟が区切り線かトグルでない見出し → 偽。TQ2: AI の節の見出し（citeState の無い最上位の見出し）→ 偽、人の見出し・トグル見出しは真', () => {
+test('NE-1・EQ17 (a): canIndent は前の兄弟が無い・前の兄弟が区切り線かトグルでない見出し → 偽。TQ2: AI の節の見出し（citeState の無い見出し。トグル見出しにしても）→ 偽、人の見出し・人のトグル見出しは真', () => {
   const b = tree([['a'], ['b'], ['v', 'divider'], ['c'], ['h', 'heading', { level: 2, citeState: 'manual' }], ['d'],
     ['th', 'heading', { level: 1, toggle: true }], ['e'], ['ai', 'heading', { level: 2 }], ['hm', 'heading', { level: 3, citeState: 'manual' }],
     ['tha', 'heading', { level: 2, toggle: true }], ['tg', 'toggle', {}, [['k1'], ['k2']]]]);
@@ -78,9 +78,13 @@ test('NE-1・EQ17 (a): canIndent は前の兄弟が無い・前の兄弟が区�
   assert.strictEqual(T('k1'), false, '子の頭');
   assert.strictEqual(T('k2'), true);
   assert.strictEqual(T('zz'), false);
-  const th = tree([['x'], ['ath', 'heading', { level: 2, toggle: true }]]);
-  assert.strictEqual(BT.canIndent(th, 'ath'), true, 'トグル見出しは citeState が無くても子にできる');
-  for (const [blk, want] of [[{ type: 'heading', level: 2 }, true], [{ type: 'heading', toggle: true }, false], [{ type: 'heading', citeState: 'manual' }, false], [{ type: 'bullet' }, false]]) {
+  // 2026-10-28 の点検 A（持ち主の答え「トグル見出しにしても字下げしない（おすすめ）」）: AI の節の見出しはトグル見出しに変えても子にしない。
+  // 人が足したトグル見出し（citeState: 'manual'）は今までどおり子にできる
+  const th = tree([['x'], ['ath', 'heading', { level: 2, toggle: true }], ['hth', 'heading', { level: 2, toggle: true, citeState: 'manual' }]]);
+  assert.strictEqual(BT.canIndent(th, 'ath'), false, 'AI の節の見出しをトグル見出しにすると子にできる（節の行がまとめて別の節へ跳ぶ）');
+  assert.strictEqual(BT.canIndent(th, 'hth'), true, '人が足したトグル見出しは子にできる');
+  for (const [blk, want] of [[{ type: 'heading', level: 2 }, true], [{ type: 'heading', toggle: true }, true], [{ type: 'heading', toggle: true, citeState: 'manual' }, false],
+    [{ type: 'heading', citeState: 'manual' }, false], [{ type: 'bullet' }, false]]) {
     assert.strictEqual(BT.aiSectionHead(blk), want, JSON.stringify(blk));
   }
   for (const [blk, want] of [[{ type: 'paragraph' }, true], [{ type: 'bullet' }, true], [{ type: 'todo' }, true], [{ type: 'numbered' }, true], [{ type: 'toggle' }, true],

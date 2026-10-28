@@ -987,7 +987,8 @@ test('基準の画像（test/shots/win32）は今の app.html で撮ったもの
   // 0.13.1 NE-3（決めたこと 22・33）: ［コピー］の blocksMarkdown の写しが子を下げて写し、flattenBlocks の写しを足し、humanEdited が子も見る（<script> の中だけ。子の無い要約の見た目は変わらない）。値を今の app.html に合わせた（前の値は f820e1d1…）
   // 0.13.1 NE-4a（E10・NR15・NR17・TQ1・TQ3）: 入れ子の行（data-depth・data-parent・段ごとの左の余白 --depth の CSS）・Tab と Shift+Tab の字下げ・Esc で ⠿ へ（.blk .grip:focus-visible）と ⠿ の Tab・入れ子の Enter・Backspace・Ctrl+Shift+↑↓・親ごとの番号・木の決まりの写し。子の無い要約の見た目は変わらない見込みで、変わる画面は足した NEW_131 の入れ子の3枚。値を今の app.html に合わせた（前の値は b69d6b3b…）
   // 0.13.1 NE-4b（E5・E10・決めたこと 18・28・NR12・NR16・NR18）: トグルの ▸（.blk .tog の CSS と描き方）・Ctrl+Enter と Ctrl+Alt+T・画面だけの開け閉め（覗き開き）・横の位置で段を選ぶドラッグ（dropSpot の写しと選んだ段から引く落とす線 .dropshift）・トグル見出しの変換と下に足す置き場（NR22）。トグルの無い要約の見た目は変わらない見込みで、変わる画面は足した NEW_131 の edit-toggle-light。値を今の app.html に合わせた（前の値は 9f84f8b3…）
-  assert.strictEqual(sha, 'd4f6a5be779fccd5f2d9184bc0b97f3a3ab2811006e07b4e6742469c11667f30',
+  // 2026-10-28 の持ち主の答え 点検 A（「トグル見出しにしても字下げしない（おすすめ）」。計画の Ruling NR38）: aiSectionHead の写しからトグルでないことの照らしを外した（<script> の中だけ。撮る画面は変わらない）。値を今の app.html に合わせた（前の値は d4f6a5be…）
+  assert.strictEqual(sha, '94bb2482597aa4daee1f3b126b012f711c7e8c92b76dbf605d9b3ba09133df9e',
     'app.html が基準の画像を撮った時と違う。Windows の CI の画面の比べ（捲り棒のつまみも）を見て、基準を取り直してからこの値を直す');
 });
 

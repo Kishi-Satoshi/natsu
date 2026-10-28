@@ -23,9 +23,9 @@ function isOpenStored(b) {
 function kidsCan(b) {
   return blockEdit.typeOf(b).kids === true;
 }
-// AI の節の見出し（citeState の無い、トグルでない見出し）。TQ2: 子にしない
+// AI の節の見出し（citeState の無い見出し。トグル見出しにしても: 2026-10-28 の点検 A）。TQ2: 子にしない（人が足した見出しは citeState: 'manual'）
 function aiSectionHead(b) {
-  return isObj(b) && b.type === 'heading' && b.toggle !== true && b.citeState === undefined;
+  return isObj(b) && b.type === 'heading' && b.citeState === undefined;
 }
 
 // ---------------------------------------------------------------- 組み立てと平らにする

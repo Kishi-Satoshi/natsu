@@ -676,6 +676,27 @@ test('NE-4b・TQ2: AI の節の見出しを右へずらして落としても子�
   } finally { l.done(); }
 });
 
+test('NE-4b・TQ2（点検 A）: AI の節の見出しをトグル見出しにしても、Tab で字下げせず、右へずらして落としても子にならない。人が足したトグル見出しは Tab で子になる', T, async () => {
+  const blocks = [kid('a'), kid('b'), { id: 'h', type: 'heading', level: 2, toggle: true, text: 'その他の話', children: [kid('h1')] },
+    { id: 'm', type: 'heading', level: 3, toggle: true, text: '人の見出し', citeState: 'manual' }];
+  const l = await openReal({ pa1: blocks });
+  try {
+    const ev = press(l, atEnd(l, 'h'), 'Tab');
+    await l.drain();
+    assert.strictEqual(ev.defaultPrevented, true);
+    assert.deepStrictEqual(sent(l), [], 'AI の節の見出し（トグル見出し）を字下げした');
+    const r = dragTo(l, 'h', 1 * 10 + 8, 124);
+    await r.done; await l.drain();
+    assert.deepStrictEqual(sent(l), [['blockMove', 'pa1', 'h', { afterId: 'b' }]], 'AI の節の見出し（トグル見出し）を右へずらして落とすと子になった');
+    assert.strictEqual(rowOf(l, 'h').dataset.depth, '0');
+    l.calls.length = 0;
+    press(l, atEnd(l, 'm'), 'Tab');
+    await l.drain();
+    assert.deepStrictEqual(sent(l), [['blockIndent', 'pa1', 'm', 'in']], '人が足したトグル見出しを字下げできない');
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
 test('NE-4b・TQ4: 『> 』で作ったトグルは開いていて、終わりで Enter → 最初の子', T, async () => {
   const l = await openReal({ pa1: TOG() });
   try {

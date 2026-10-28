@@ -3216,8 +3216,8 @@
   function isOpenStored(b) {   // TQ4: open の無いトグルは開いている
     return !isToggleView(b) || b.open !== false;
   }
-  function aiSectionHead(b) {   // TQ2: AI の節の見出し（citeState の無い、トグルでない見出し）は子にしない
-    return Boolean(b) && typeof b === 'object' && b.type === 'heading' && b.toggle !== true && b.citeState === undefined;
+  function aiSectionHead(b) {   // TQ2: AI の節の見出し（citeState の無い見出し。トグル見出しにしても: 点検 A）は子にしない
+    return Boolean(b) && typeof b === 'object' && b.type === 'heading' && b.citeState === undefined;
   }
   function locate(blocks, id) {
     const go = (list, parent, depth) => {
