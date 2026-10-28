@@ -111,9 +111,12 @@ test('OF2: keptCodeFor の表（受け渡す名前と形に書いた理由の全
   assert.deepStrictEqual(L.KEPT_CODES, ['kept-local', 'kept-login', 'kept-relay', 'kept-wait']);
 });
 
-test('OF2: PROBLEM_ORDER は login の後・seg-failed の前に kept の4つ。WIN_NOTIFY_CODES は 0.8.0 の4つのまま', T, () => {
+// 0.13.2 LN-3（持ち主の答え LA2・決めたこと 5）で意図して変えた: kept-login はログインに関わる帯なので login のすぐ後（頭の3つ）へ動いた。ほかの kept の3つは
+// 止まりの後・seg-failed の前のまま
+test('OF2: PROBLEM_ORDER は login の後に kept-login、seg-failed の前に残りの kept の3つ。WIN_NOTIFY_CODES は 0.8.0 の4つのまま', T, () => {
   const o = L.PROBLEM_ORDER;
-  assert.deepStrictEqual(o.slice(o.indexOf('login'), o.indexOf('seg-failed') + 1), ['login', 'kept-local', 'kept-login', 'kept-relay', 'kept-wait', 'seg-failed']);
+  assert.deepStrictEqual(o.slice(o.indexOf('login'), o.indexOf('login') + 2), ['login', 'kept-login']);
+  assert.deepStrictEqual(o.slice(o.indexOf('stall'), o.indexOf('seg-failed') + 1), ['stall', 'kept-local', 'kept-relay', 'kept-wait', 'seg-failed']);
   assert.deepStrictEqual(L.WIN_NOTIFY_CODES, ['engine-down', 'stall', 'login', 'seg-failed']);
   for (const c of L.KEPT_CODES) assert.strictEqual(L.notifyGate({ sent: [], lastAt: 0 }, c, 1000).ok, false, `${c} を Windows の知らせにした`);
   // 残した区間の帯は、失敗の区間の帯（B4）より前に出る

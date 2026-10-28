@@ -105,3 +105,34 @@ test('LN-2・LR10: 途中で止まっても running: false と残りが届く（
   // ログインの後: 1つずつ減り、最後は running: false で 0
   assert.deepStrictEqual(before.slice(stop + 1).map((p) => [p.left, p.running]), [[1, true], [0, true], [0, false]], JSON.stringify(before));
 });
+
+// ---------------------------------------------------------------- LN-3（LA2・LR6・決めたこと 4・5）
+const codes = (o) => (o.sttSeen || []).map((s) => (s && s.problem ? s.problem.code : null)).filter((c, i, a) => i === 0 || a[i - 1] !== c);
+const NO_LOGIN = 'ログインしていないため PC で文字起こししています。［ログイン］を押してログインすると、クラウドで文字起こしします。';
+
+test('LN-3・持ち主の報告: 準備を選んだ遅い PC でログインしないで会議を始めると、帯は no-login（kept-late ではない）。ログインすると消え、kept-late が見える', T, async () => {
+  const o = await run(['text', '--relay=text', '--signed-out', SLOW_PACE, '--segs=3', '--relogin-after=1']);
+  const before = (o.sttSeen || []).find((s) => s && s.problem);
+  assert.ok(before, JSON.stringify(o.sttSeen));
+  assert.deepStrictEqual([before.problem.code, before.problem.text, before.problem.action], ['no-login', NO_LOGIN, 'signin']);
+  assert.ok(!codes(o).slice(0, codes(o).indexOf('no-login') + 1).includes('kept-late'), `kept-late が先に出た: ${codes(o)}`);
+  // ログインした直後: no-login が消え、残している区間の帯 kept-late が見える
+  assert.strictEqual(o.relogin.login.ok, true, JSON.stringify(o.relogin));
+  assert.strictEqual(o.reloginStt.problem && o.reloginStt.problem.code, 'kept-late', JSON.stringify(o.reloginStt));
+  assert.ok(o.engineLog.includes('文字起こしの状態: 帯 no-login'), o.engineLog.join('\n'));
+  assert.ok(o.engineLog.includes('文字起こしの状態: 帯を消した no-login'), o.engineLog.join('\n'));
+});
+
+test('LN-3・LR6: しまったログインを復号できない PC の会議で帯 no-login（記録は key-unreadable の符号）', T, async () => {
+  const o = await run(['text', '--relay=text', '--key-unreadable', '--segs=1']);
+  assert.ok(codes(o).includes('no-login'), JSON.stringify(o.sttSeen));
+  assert.ok(o.engineLog.some((l) => l.includes('key-unreadable')), o.engineLog.join('\n'));
+});
+
+test('LN-3: オフラインで始めた会議・オフラインモードの会議では no-login を出さない（ログインしていなくても）', T, async () => {
+  for (const flag of ['--offline', '--local-only']) {
+    const o = await run(['text', '--relay=text', '--signed-out', flag, '--segs=2']);
+    assert.ok(!codes(o).includes('no-login'), `${flag}: ${JSON.stringify(o.sttSeen)}`);
+    assert.ok(!o.engineLog.includes('文字起こしの状態: 帯 no-login'), `${flag}: ${o.engineLog.join('\n')}`);
+  }
+});

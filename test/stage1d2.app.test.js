@@ -148,8 +148,10 @@ test('F5: chosen が真か無く、パスが空で取り込んだ組も無けれ
   }
 });
 
-test('OF2: 帯の action signin は［ログイン］で設定の『アカウント』、offline は［オフラインの準備］で取り込みの欄。知らせの action signin は［ログイン］、account は今どおり［ログインし直す］、offline は［オフラインの準備］', T, async () => {
-  for (const [action, label, sec] of [['signin', 'ログイン', 'account'], ['offline', 'ローカル AI の準備', 'offline'], ['account', 'ログインし直す', 'account']]) {
+// 0.13.2 LN-3（LR8）で意図して変えた: 帯の action signin の［ログイン］は設定の「アカウント」でなく、ログインの窓を直に開く（accountLogin。stage132.app の LN-3）。
+// 知らせの action signin は今どおり設定の「アカウント」
+test('OF2: 帯の action offline は［オフラインの準備］で取り込みの欄、account は［ログインし直す］で設定の『アカウント』（signin の［ログイン］は 0.13.2 からログインの窓）。知らせの action signin は［ログイン］、account は今どおり［ログインし直す］、offline は［オフラインの準備］', T, async () => {
+  for (const [action, label, sec] of [['offline', 'ローカル AI の準備', 'offline'], ['account', 'ログインし直す', 'account']]) {
     const l = await open({}, { now: T0 });
     await l.drain();
     l.fire('onMeetingUpdate', PROB('kept-x', action, '帯の文（見本）')); await l.drain();

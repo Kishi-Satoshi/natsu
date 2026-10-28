@@ -1663,6 +1663,8 @@ const noticeFor = (why, scope) => {
 // 録音中のページの帯（第1d回 A-6・D17。計画「画面と知らせの文」の B1〜B10）。画面は文を作らず、この文をそのまま出す。
 // d は帯の詳しさ（seg-failed の n・stall と wait の sec）、p は送り先（{ホスト} は中継のホストの名前だけ。札・URL の道は入れない）
 const STT_BANNER = {
+  // 0.13.2 LN-3（持ち主の答え LA2。前半は持ち主の答えの文・後半はほかの帯と同じく行動の文）: ログインしていない・しまったログインを読めない間。ボタンは［ログイン］
+  'no-login': () => 'ログインしていないため PC で文字起こししています。［ログイン］を押してログインすると、クラウドで文字起こしします。',
   'engine-down': () => 'PC の中の文字起こしエンジンが動いていません（音声は残してあります）。［エンジンを確かめる］を押してください。',
   stall: (d) => `文字起こしが止まっているかもしれません（音はあるのに、約 ${d.sec} 秒文字が出ていません）。［もう一度］で、その区間を送り直してください。`,
   login: () => 'ログインが切れたため、この PC で文字起こしを続けていますが、精度が落ちます。［ログインし直す］を押して、もう一度ログインしてください。',
@@ -1695,7 +1697,8 @@ const WIN_NOTIFY = {
 };
 // 帯のボタン（画面が付ける。engine は設定の「文字起こし」、retry は meeting:retry、account は設定の「アカウント」）
 // 第1d2回 M-2: signin は［ログイン］（設定の「アカウント」）、offline は［オフラインの準備］（カード「オフライン」の取り込みの欄）
-const STT_BANNER_ACTION = { 'engine-down': 'engine', stall: 'retry', login: 'account', 'seg-failed': 'retry', 'kept-login': 'signin', 'kept-local': 'offline' };
+// 0.13.2 LN-3（LR8）: 帯の signin（no-login・kept-login）の［ログイン］は、画面が設定の［ログイン］と同じログインの窓を直に開く
+const STT_BANNER_ACTION = { 'no-login': 'signin', 'engine-down': 'engine', stall: 'retry', login: 'account', 'seg-failed': 'retry', 'kept-login': 'signin', 'kept-local': 'offline' };
 // 中継の様子の帯。互いに替わる（新しい様子を立てたら前の様子は消す）。クラウドで答えが来た・オフライン・ログインしていない・
 // PC の中だけになったら全部消す（オフラインなどは帯にしない: RF28）
 const RELAY_PROBLEMS = ['relay-off', 'daily-cap', 'relay-blocked', 'relay-down', 'relay-busy'];
@@ -1928,6 +1931,11 @@ async function finishAccessLogin() {
 }
 // 録音中の会議の帯 login は、区間を待たずに消す（第1d回 A-6。A-11 でログインの窓の成功から呼ぶ）
 function clearLoginProblem() {
+  // 0.13.2 LN-3: ログインしていない帯（no-login）も、ログインしたら区間を待たずに消す
+  if (meeting && meeting.problems.has('no-login')) {
+    clearSttProblem(meeting, 'no-login');
+    sendToMainWin('meeting:update', meetingStatus());
+  }
   if (meeting && (meeting.problems.has('login') || meeting.problems.has('kept-login'))) {
     clearSttProblem(meeting, 'login', 'kept-login');   // 第1d2回 M-2: ログインしていないため音声を残している帯（B13）も
     sendToMainWin('meeting:update', meetingStatus());
@@ -4021,6 +4029,10 @@ function clearSttProblem(m, ...codes) {
 // 区間の経路（transcribeAuto の答えか、手元の失敗の Error の sttRoute）から中継の様子の帯を決める。クラウドで答えが来たら（空の文でも
 // 中継は戻っている）中継の帯を全部消す。オフライン・ログインしていない・PC の中だけは帯にせず、立っている中継の帯も消す（RF28）
 function noteSttRoute(m, { route, why, scope } = {}) {
+  // 0.13.2 LN-3（持ち主の答え LA2・LR6。RL14 を改めた）: ログインしていない・ログインの情報を読めない間は帯 no-login（オフライン・オフラインモードでは出さない）。
+  // クラウドで文字になった・オフライン・オフラインモードになったら消す
+  if (lib.loginProblem({ why, online: netOnline(), localOnly: Boolean(m.localOnly) })) setSttProblem(m, 'no-login', {});
+  else if (route === 'cloud' || why === 'offline' || why === 'local-only') clearSttProblem(m, 'no-login');
   // 第1d2回 M-2: 区間が中継で文字になった（中継が戻った・ログインした）ら、音声を残している帯も消す（PC の中だけの B14 は残した区間が無くなるまで）
   if (route === 'cloud') clearSttProblem(m, 'kept-wait', 'kept-relay', 'kept-login');
   // 0.9.0 B-2: クラウドで文字になったらネットワークの帯も消す（オフライン・ログインしていない・PC の中だけの道では消さない: 消すのは見張り）

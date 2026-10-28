@@ -182,6 +182,10 @@ const NEW_131 = ['edit-nested-light', 'edit-nested-dark', 'edit-nested-zoom200-l
 // 「この見た目でよい（おすすめ）」、2026-10-28 に点検の直しの後の画面（notes-page-zoom200-light を含む 9 枚）に「OK（版を 0.13.1 に上げてよい）」と言ったので、
 // CI run 40623116933（9ede0e7）・artifact 12787992574 の .after.png（9 枚）をバイトのまま基準にし、取り直し待ちを空に戻した
 const ADDED_131 = [...RETAKEN_131, ...NEW_131];
+// 0.13.2（計画 docs/plans/2026-10-28-132.md の「取り直す画面（RETAKE）」）で意図して変えた: 取り直し待ちは 0.13.2 の表の画面だけ（RETAKE_132）。
+// LN-3 で録音中のページの帯 no-login の1枚を足した（NEW_132。足した画面で、まだ基準が無い）
+const NEW_132 = ['live-banner-signin-light'];
+const RETAKE_132 = [...NEW_132];
 const img = (w, h, fill = [255, 255, 255, 255]) => ({ width: w, height: h, data: Buffer.from(Array.from({ length: w * h }, () => fill).flat()) });
 // 一時フォルダ（日本語と 𠮷 の名前。RF1 と同じ形）。テストの終わりに消す
 const tmp = (t, name) => {
@@ -225,7 +229,9 @@ test('G2: 撮る画面は決まった並び（第1b回の 13 と第1b2回の検�
     // 0.13.0 RDY-3 で意図して変えた: 録音の前のページの明暗と 200% の3枚を足した。ED-5 で / メニューの明暗と「最近使ったもの」の3枚を、ED-6 で ⠿ のメニューの1枚を、ED-7 で新しい型の明暗と 150% の3枚を足した（版を 0.13.0 に上げる commit で基準にした）
     ...NEW_130,
     // 0.13.1 NE-4a で意図して変えた: 入れ子の明暗と拡大 200% の3枚を足した。NE-4b でトグルの1枚を足した（版を 0.13.1 に上げる commit で基準にした）
-    ...NEW_131]);
+    ...NEW_131,
+    // 0.13.2 LN-3 で意図して変えた: 録音中のページの帯 no-login の1枚を足した（取り直し待ち・まだ基準が無い）
+    ...NEW_132]);
   assert.deepStrictEqual(SH.SCREENS.filter((s) => s.page === 'overlay').map((s) => s.name), PS.screenNames());
   // 0.9.3 M-7 で意図して変えた: 会議の検出のパネル（page nudge）の5枚を録音バーのあと（いちばん後ろ）に足した
   assert.deepStrictEqual(SH.SCREENS.filter((s) => s.page === 'nudge').map((s) => s.name), M7_NUDGE_093);
@@ -709,7 +715,12 @@ test('G2・F14・G-4・0.9.0 G-3・0.9.1・0.9.2・0.9.3・0.9.4・0.10.0・0.10
   // 0.13.0 で意図して変えた（版を 0.13.0 に上げる commit。Task G・RDY-7）: 取り直し待ちを空に戻した（ファイルの頭の注）。0.13.0 の表の画面（ADDED_130）はどれも計画の表にあり、基準がある
   // 0.13.1 NE-1 で意図して変えた: 取り直し待ちは 0.13.1 の表の画面（ファイルの頭の RETAKE_131）とちょうど同じで、どれも計画の「取り直す画面（RETAKE）」の表にある
   // 0.13.1 で意図して変えた（版を 0.13.1 に上げる commit。Task G）: 取り直し待ちを空に戻した（ファイルの頭の注）。0.13.1 の表の画面（ADDED_131）はどれも計画の表にあり、基準がある
-  assert.deepStrictEqual([...SH.RETAKE], []);
+  // 0.13.2 LN-3 で意図して変えた: 取り直し待ちは 0.13.2 の表の画面（ファイルの頭の RETAKE_132）とちょうど同じで、どれも計画の「取り直す画面（RETAKE）」の表にある。
+  // 足した画面（NEW_132）はまだ基準が無い
+  assert.deepStrictEqual([...SH.RETAKE], RETAKE_132);
+  const plan132 = read('docs/plans/2026-10-28-132.md');
+  const table132 = plan132.slice(plan132.indexOf('## 取り直す画面（RETAKE）'), plan132.indexOf('\n## ', plan132.indexOf('## 取り直す画面（RETAKE）') + 5));
+  for (const n of RETAKE_132) assert.ok(table132.includes(`\`${n}\``), `0.13.2 の計画の「取り直す画面」の表に ${n} が無い`);
   const plan131 = read('docs/plans/2026-10-27-131.md');
   const table131 = plan131.slice(plan131.indexOf('## 取り直す画面（RETAKE）'), plan131.indexOf('\n## ', plan131.indexOf('## 取り直す画面（RETAKE）') + 5));
   for (const n of ADDED_131) assert.ok(table131.includes(`\`${n}\``), `0.13.1 の計画の「取り直す画面」の表に ${n} が無い`);
@@ -746,6 +757,7 @@ test('G2・F14・G-4・0.9.0 G-3・0.9.1・0.9.2・0.9.3・0.9.4・0.10.0・0.10
     assert.ok(fs.existsSync(path.join(ROOT, 'test', 'shots', 'win32', `${n}.png`)), `${n} の基準が無い`);
   }
   for (const s of SH.SCREENS) {
+    if (NEW_132.includes(s.name)) continue;   // 0.13.2 で足した画面（取り直し待ち・まだ基準が無い。版を上げる commit で基準にする）
     const f = path.join(ROOT, 'test', 'shots', 'win32', `${s.name}.png`);
     assert.ok(fs.existsSync(f), `${s.name} の基準が無い`);
     if (s.page !== 'app') continue;   // 0.9.3 M-7 で意図して変えた: パネル（nudge）の画面も、録音バーと同じく窓の大きさが中身で決まる
@@ -998,7 +1010,8 @@ test('基準の画像（test/shots/win32）は今の app.html で撮ったもの
   // 2026-10-28 の持ち主の答え 点検 B（「少し大きくする（おすすめ）」。計画の Ruling NR45）: トグルの ▸ を 24×24px・印を 16px の線の山形の SVG にした（.blk .tog の CSS と描き方）。変わる画面は NEW_131 の edit-toggle-light（もう取り直し待ち）。値を今の app.html に合わせた（前の値は 15182773…）
   // 2026-10-28 の点検 2（作り手が決めた。計画の Ruling NR46）: 要約の行の文の欄を 6em より細くせず（.blk .txt の min-width）、入らない札は下の行へ右寄せで折り返し（#pNote .blk の flex-wrap・justify-content）、段の左の余白は欄の 40% まで。札が入る幅の行は変わらない見込みで、変わる画面は NEW_131 の入れ子の3枚（もう取り直し待ち）。値を今の app.html に合わせた（前の値は cc24951e…）
   // 2026-10-28 の点検 2 の続き（計画の Ruling NR46）: 文の右の札（担当・期限・出典）と ✕ を1つの箱 .tail に入れ、箱ごと下の行へ折り返す（鍵の間の行も）。変わる画面は NEW_131 の入れ子の3枚と、画面の外の要約が高くなって捲り棒のつまみが変わる notes-page-zoom200-light（RETAKEN_131 に足した）。値を今の app.html に合わせた（前の値は 753aa2ed…）
-  assert.strictEqual(sha, 'b04bc5e98e2bcb877b27b6506ecfcd797a30bcbfaa550758da25a9383958f9fd',
+  // 0.13.2 LN-3（持ち主の答え LA2・LR8）: 帯の［ログイン］（no-login・kept-login）はログインの窓を直に開く（bannerSignIn。<script> の中だけ）。変わる画面は足した NEW_132 の live-banner-signin-light。値を今の app.html に合わせた（前の値は b04bc5e9…）
+  assert.strictEqual(sha, '444d8a14d21ed818ce7e4d0021bb1c1e7ee065870e00ad84d7320fe06a3193c7',
     'app.html が基準の画像を撮った時と違う。Windows の CI の画面の比べ（捲り棒のつまみも）を見て、基準を取り直してからこの値を直す');
 });
 

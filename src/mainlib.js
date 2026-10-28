@@ -1027,7 +1027,9 @@ function stallStep(run, { text, levelDbfs } = {}) {
 // 第1d2回 M-2: 準備を選んでいない PC で音声を残している帯（kept の4つ。B11〜B14）は、ログインの後・残した失敗の前
 // 0.9.0 B-2: net-offline（B15。ネットワークから外れた・この PC で続けている）は seg-failed の後・中継の帯の前
 // 0.9.4 S-1（決めたこと 18）: PC の文字起こしが間に合わない・遅い PC で音声を残している帯 kept-late を engine-down の後・kept-local の前に
-const PROBLEM_ORDER = ['engine-down', 'kept-late', 'stall', 'login', 'kept-local', 'kept-login', 'kept-relay', 'kept-wait', 'seg-failed', 'net-offline',
+// 0.13.2 LN-3（持ち主の答え LA2「録音中のページの帯に出し続ける」・決めたこと 5）: ログインに関わる帯（ログインしていない no-login・切れた login・準備を
+// 選んでいない PC で音声を残している kept-login）を、ほかの帯（遅い PC の kept-late を含む）より先に出す
+const PROBLEM_ORDER = ['no-login', 'login', 'kept-login', 'engine-down', 'kept-late', 'stall', 'kept-local', 'kept-relay', 'kept-wait', 'seg-failed', 'net-offline',
   'relay-off', 'daily-cap', 'relay-blocked', 'relay-down', 'relay-busy', 'wait'];
 /** problems: Map<符号, 詳しさ（{ n } や { sec }）> → 一番前の { code, ...詳しさ } か null（表に無い符号は見ない） */
 function sttProblemOf(problems) {
@@ -1041,7 +1043,8 @@ function sttProblemOf(problems) {
   return null;
 }
 // 手元に落ちた理由（経路の why・中継の失敗の符号）→ 帯の符号。表に無い中継の失敗（server・bad-reply・too-large・bad-request・
-// 知らない符号）はその区間を PC でやり直したので relay-busy。オフライン・ログインしていない・PC の中だけ・ok は帯にしない（RF28）
+// 知らない符号）はその区間を PC でやり直したので relay-busy。オフライン・ログインしていない・PC の中だけ・ok は中継の帯にしない（RL14。
+// ログインしていないことの帯は、0.13.2 LN-3 から別の部品 loginProblem で決める）
 const PROBLEM_FOR_WHY = {
   unreachable: 'relay-down', net: 'relay-down', timeout: 'relay-down',
   cert: 'relay-blocked', proxy: 'relay-blocked',
@@ -1049,6 +1052,17 @@ const PROBLEM_FOR_WHY = {
   denied: 'relay-off',   // 第1d回 A-11: 止めたメール・会社のドメインでない（L11）
   offline: '', 'signed-out': '', 'local-only': '', ok: '', 'key-unreadable': '',   // key-unreadable（第1d回 A-11・F26）も帯にしない（記録だけ）
 };
+// 0.13.2 LN-3（持ち主の答え LA2・LR6。設計書の RL14「ログインしていない…は帯にしない」を改めた）: ログインしていない（signed-out）・しまったログインを
+// 今は復号できない（key-unreadable）間は、録音中のページの帯 no-login を出す。オフライン（RL14 のまま）・オフラインモードの会議では出さない
+const NO_LOGIN_WHY = new Set(['signed-out', 'key-unreadable']);
+/** ({ why, online, localOnly }) → 'no-login' | '' */
+function loginProblem(a) {
+  const { why, online, localOnly } = a && typeof a === 'object' ? a : {};
+  if (!NO_LOGIN_WHY.has(why)) return '';
+  if (online !== true) return '';
+  if (localOnly) return '';
+  return 'no-login';
+}
 /** → 帯の符号か ''。daily-cap は scope で分ける（1人の上限は daily-cap、全体の上限は relay-off） */
 function problemForRoute({ route, why, scope } = {}) {
   if (route !== 'local') return '';
@@ -2291,7 +2305,7 @@ module.exports = {
   ONLINE_SEGMENT_SEC, OVERLAY_SEG_MIN_MS, SEG_SWITCH_AFTER, STICKY_LOCAL, startSegmentMode, segmentModeNext, segmentBaseMs, liveSegmentMs, nextLiveSegmentMs,
   cloudLikely, offlineChosen, DICTATION_REFUSE_TEXT, startPlan, dictationPlan, KEPT_CODES, keptCodeFor, KEPT_SUMMARY_TEXT,
   SUMMARY_WAIT_TEXT, summaryRetryPick, SUMMARY_LOCK_TEXT, summaryLock,
-  STALL_SPAN_MS, STALL_MIN_DBFS, stallAfter, stallStep, PROBLEM_ORDER, sttProblemOf, problemForRoute,
+  STALL_SPAN_MS, STALL_MIN_DBFS, stallAfter, stallStep, PROBLEM_ORDER, sttProblemOf, problemForRoute, loginProblem,
   WIN_NOTIFY_CODES, WIN_NOTIFY_GAP_MS, notifyGate,
   OFFLINE_SHOW_MS, OFFLINE_CLEAR_MS, offlineBannerStep,
   idleEnginesToStop, silentWav, wavLevelDbfs, mergeSummaryType, typesForView, memoEvidence, buildClaudeInput, routeLabel,

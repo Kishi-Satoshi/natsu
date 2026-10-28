@@ -32,8 +32,10 @@ const dump = (o) => JSON.stringify({ sttSeen: o.sttSeen, sttAt: o.sttAt, engineL
 const lateLine = /^手元の文字起こしの時間切れ: (s\d+)（音声 (\d+) 秒・待ち (\d+) 秒）。エンジンを起こし直します$/;
 
 // ---------------------------------------------------------------- S-2（決めたこと 15〜18）
+// 0.13.2 LN-3 で意図して変えた（計画 docs/plans/2026-10-28-132.md の「意図して変えるテスト」）: 中継の無いこの場面は「ログインしていない」の形で、帯 no-login
+// （ログインに関わる帯はほかの帯より先: 持ち主の答え LA2）が PC の帯を隠すので、ログインに関わらないオフライン（--offline）で PC の帯を見る
 test('S3: 時間切れの区間は kept・文は『（文字起こし待ち: PC の文字起こしが間に合わなかったので、後で文字起こしします）』・帯は kept-late（engine-down でない）。会議の後のやり直しで文字になる', T, async () => {
-  const o = await run(['hang-first', '--segs=2', '--after-retry']);
+  const o = await run(['hang-first', '--segs=2', '--offline', '--after-retry']);
   const at = o.sttAt['kept-late'];
   assert.ok(at, dump(o));
   const s1 = at.find((s) => s.id === 's1');
@@ -64,8 +66,10 @@ test('S11: 時間切れの後は whisper のプロセスを止め、次の区間
   for (const l of lines) assert.ok(!/本日の議題|[\\/]|\.bin/.test(l), l);
 });
 
+// 0.13.2 LN-3 で意図して変えた（計画 docs/plans/2026-10-28-132.md の「意図して変えるテスト」）: 中継の無いこの場面は「ログインしていない」の形で、帯 no-login
+// （ログインに関わる帯はほかの帯より先: 持ち主の答え LA2）が PC の帯を隠すので、ログインに関わらないオフライン（--offline）で PC の帯を見る
 test('S3: 偽のエンジンが止まっている（ECONNREFUSED）区間は kept・文は『…エンジンにつながらなかったので…』・帯は engine-down', T, async () => {
-  const o = await run(['refuse', '--segs=2']);
+  const o = await run(['refuse', '--segs=2', '--offline']);
   const at = o.sttAt['engine-down'];
   assert.ok(at, dump(o));
   const s1 = at.find((s) => s.id === 's1');
@@ -76,8 +80,10 @@ test('S3: 偽のエンジンが止まっている（ECONNREFUSED）区間は kep
   assert.ok(!o.engineLog.some((l) => l.startsWith('手元の文字起こしの時間切れ')), o.engineLog.join('\n'));
 });
 
+// 0.13.2 LN-3 で意図して変えた（計画 docs/plans/2026-10-28-132.md の「意図して変えるテスト」）: 中継の無いこの場面は「ログインしていない」の形で、帯 no-login
+// （ログインに関わる帯はほかの帯より先: 持ち主の答え LA2）が PC の帯を隠すので、ログインに関わらないオフライン（--offline）で PC の帯を見る
 test('エンジンが 500 を返した区間は今の失敗（seg-failed。音声は残す。帯は今どおり engine-down が先）', T, async () => {
-  const o = await run(['err500', '--segs=2']);
+  const o = await run(['err500', '--segs=2', '--offline']);
   const at = o.sttAt['engine-down'];
   assert.ok(at, dump(o));
   assert.deepStrictEqual(at.find((s) => s.id === 's1'), { id: 's1', text: '（この区間の認識に失敗: 文字起こしエンジンエラー (500): boom）', failed: true, wav: true }, dump(o));

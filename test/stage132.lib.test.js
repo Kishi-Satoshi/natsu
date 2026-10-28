@@ -28,3 +28,30 @@ test('LN-2: pendingLeft の表（音声の無い区間は数えない・文字�
   lib.pendingLeft(list);
   assert.strictEqual(JSON.stringify(list), frozen);
 });
+
+// ---------------------------------------------------------------- LN-3（LA2・LR6・決めたこと 4・5）
+test('LN-3: loginProblem の表（signed-out・key-unreadable × オンライン → no-login。オフライン・オフラインモード・ok・login → \'\'）', T, () => {
+  const P = lib.loginProblem;
+  for (const why of ['signed-out', 'key-unreadable']) {
+    assert.strictEqual(P({ why, online: true, localOnly: false }), 'no-login', why);
+    assert.strictEqual(P({ why, online: true }), 'no-login', `${why}（localOnly が無い）`);
+    assert.strictEqual(P({ why, online: false, localOnly: false }), '', `${why}: オフラインで帯にした（RL14）`);
+    assert.strictEqual(P({ why, online: true, localOnly: true }), '', `${why}: オフラインモードの会議で帯にした`);
+  }
+  for (const why of ['ok', 'login', 'offline', 'local-only', 'relay-down', 'daily-cap', '', undefined]) assert.strictEqual(P({ why, online: true, localOnly: false }), '', String(why));
+  assert.strictEqual(P(), '');
+  assert.strictEqual(P(null), '');
+  // 帯にしない理由の表（PROBLEM_FOR_WHY）は変えない（ログインしていないは中継の帯にしない: ra-problem-offline のまま）
+  assert.strictEqual(lib.problemForRoute({ route: 'local', why: 'signed-out' }), '');
+  assert.strictEqual(lib.problemForRoute({ route: 'local', why: 'key-unreadable' }), '');
+});
+
+test('LN-3: PROBLEM_ORDER の頭は no-login・login・kept-login で、kept-late と no-login が両方あれば no-login（帯は1つ）', T, () => {
+  assert.deepStrictEqual(lib.PROBLEM_ORDER.slice(0, 3), ['no-login', 'login', 'kept-login']);
+  assert.deepStrictEqual(lib.PROBLEM_ORDER, ['no-login', 'login', 'kept-login', 'engine-down', 'kept-late', 'stall', 'kept-local', 'kept-relay', 'kept-wait', 'seg-failed', 'net-offline',
+    'relay-off', 'daily-cap', 'relay-blocked', 'relay-down', 'relay-busy', 'wait']);
+  assert.strictEqual(lib.sttProblemOf(new Map([['kept-late', { offline: false }], ['no-login', {}]])).code, 'no-login');
+  assert.strictEqual(lib.sttProblemOf(new Map([['engine-down', {}], ['stall', { sec: 30 }], ['no-login', {}]])).code, 'no-login');
+  assert.strictEqual(lib.sttProblemOf(new Map([['kept-late', {}], ['kept-login', {}]])).code, 'kept-login');
+  assert.strictEqual(lib.sttProblemOf(new Map([['kept-late', {}]])).code, 'kept-late');
+});

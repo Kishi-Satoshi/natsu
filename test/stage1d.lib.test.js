@@ -101,14 +101,17 @@ test('D17: 止まりの見張りは約 45 秒（15 秒なら3区間・75 秒な�
 test('D17: 帯は1つだけで、エンジン → 止まり → ログイン → 音声を残している → 残した失敗 → 中継の順。手元に落ちた理由ごとの符号', { timeout: 5000 }, () => {
   // 0.9.0 B-2（BN2）で意図して変えた: ネットワークから外れた帯 net-offline を seg-failed の後・中継の帯の前に足した
   // 0.9.4 S-1（決めたこと 18）で意図して変えた: PC の文字起こしが間に合わない帯 kept-late を engine-down の後に足した
-  assert.deepStrictEqual(L.PROBLEM_ORDER, ['engine-down', 'kept-late', 'stall', 'login', 'kept-local', 'kept-login', 'kept-relay', 'kept-wait', 'seg-failed', 'net-offline', 'relay-off', 'daily-cap', 'relay-blocked', 'relay-down', 'relay-busy', 'wait']);
+  // 0.13.2 LN-3（持ち主の答え LA2・決めたこと 5）で意図して変えた: ログインに関わる帯（ログインしていない no-login・切れた login・準備を選んでいない PC の
+  // kept-login）を頭に置いた（ほかの帯（kept-late を含む）より先）
+  assert.deepStrictEqual(L.PROBLEM_ORDER, ['no-login', 'login', 'kept-login', 'engine-down', 'kept-late', 'stall', 'kept-local', 'kept-relay', 'kept-wait', 'seg-failed', 'net-offline', 'relay-off', 'daily-cap', 'relay-blocked', 'relay-down', 'relay-busy', 'wait']);
   const m = new Map([['relay-down', {}], ['seg-failed', { n: 2 }], ['wait', { sec: 7 }]]);
   assert.deepStrictEqual(L.sttProblemOf(m), { code: 'seg-failed', n: 2 });
   m.set('engine-down', {});
   assert.strictEqual(L.sttProblemOf(m).code, 'engine-down');
   m.set('stall', { sec: 45 }); m.set('login', {});
-  assert.deepStrictEqual(['engine-down', 'stall', 'login', 'seg-failed', 'relay-down'].map((c) => { const r = L.sttProblemOf(m).code; m.delete(c); return r; }),
-    ['engine-down', 'stall', 'login', 'seg-failed', 'relay-down']);
+  // 0.13.2 LN-3 で意図して変えた: login（ログイン切れ）はエンジン・止まりより先
+  assert.deepStrictEqual(['login', 'engine-down', 'stall', 'seg-failed', 'relay-down'].map((c) => { const r = L.sttProblemOf(m).code; m.delete(c); return r; }),
+    ['login', 'engine-down', 'stall', 'seg-failed', 'relay-down']);
   assert.deepStrictEqual(L.sttProblemOf(m), { code: 'wait', sec: 7 });
   assert.strictEqual(L.sttProblemOf(new Map()), null);
   assert.strictEqual(L.sttProblemOf(new Map([['知らない', {}]])), null, '表に無い符号を帯にした');

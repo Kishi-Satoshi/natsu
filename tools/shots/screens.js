@@ -40,6 +40,9 @@ const OFFLINE_EXTRA = { localOnly: true, systemAudio: true };
 const QUIET_ASK = { text: '10 分ほど話し声がありません。会議は終わりましたか？ このままなら 5 分後に録音を止めて議事録を作ります。' };
 const BANNER_STT = { route: 'local', lastTextAt: FIXED_NOW - 12000, segSec: 15,
   problem: { code: 'relay-down', action: '', text: 'NaTsu のサーバーにつながりません。この PC で文字起こしを続けていますが、精度が落ちます。録音はそのまま続けてください。' } };
+// 0.13.2 LN-3（持ち主の答え LA2）: ログインしていない遅い PC の会議（PC で文字起こし・区切り 75 秒）。帯は no-login と［ログイン］（kept-late より先に出る形）
+const SIGNIN_STT = { route: 'local', lastTextAt: FIXED_NOW - 12000, segSec: 75,
+  problem: { code: 'no-login', action: 'signin', text: 'ログインしていないため PC で文字起こししています。［ログイン］を押してログインすると、クラウドで文字起こしします。' } };
 
 // 一覧の1行目を開く（今の画面と同じ）
 const OPEN_PAGE = "document.getElementById('tabBtnNotes').click(); document.querySelector('#plist .pitem').click()";
@@ -302,6 +305,8 @@ const SCREENS = [
   { name: 'edit-nested-zoom200-light', page: 'app', theme: 'light', zoom: 2, get answers() { return nestedAnswers(); }, act: OPEN_TYPES },
   // 0.13.1 NE-4b（E5・決めたこと 18）: 開いたトグルと閉じたトグル・トグル見出し（▸ の向き）。足した画面（まだ基準が無い）
   { name: 'edit-toggle-light', page: 'app', theme: 'light', get answers() { return toggleAnswers(); }, act: OPEN_TYPES },
+  // 0.13.2 LN-3（持ち主の答え LA2）: 録音中のページの帯 no-login と［ログイン］。足した画面（まだ基準が無い）
+  { name: 'live-banner-signin-light', page: 'app', theme: 'light', answers: liveAnswers(SIGNIN_STT) },
 ];
 // 0.9.0 O-3（RP9）: 録音バーの画面（形 → 地 → 拡大率 → 状態の順。撮る道具は形・地・拡大率の組ごとに窓を1つ開いて状態を act で替える）。
 // 録音は始めずに見た目だけを撮る（act は pill-states の見本を録音バーの DOM に当てる。撮るときだけ体の地にデスクトップの色を塗る）。
@@ -395,7 +400,9 @@ const OVL_094 = (states) => PS.FORMS.flatMap((form) => Object.keys(PS.DESKS).fla
 // / メニューの3枚・⠿ の［変換 ▸］の1枚）に「この見た目でよい（おすすめ）」と答え、2026-10-28 に点検の直しの後の画面（▸ を 24px にした形・拡大 200% で文が
 // 崩れない形。点検 2 で足した notes-page-zoom200-light を含む 9 枚）に「OK（版を 0.13.1 に上げてよい）」と答えたので、CI run 40623116933（9ede0e7）の
 // artifact 12787992574 の .after.png（9 枚）をバイトのまま基準にし、空に戻した
-const RETAKE = new Set([]);
+// 0.13.2（計画 docs/plans/2026-10-28-132.md の「取り直す画面（RETAKE）」）: LN-3 で録音中のページの帯 no-login の画面を足した。LN-5・LN-7 で足す画面と
+// 取り直す画面も入れる。持ち主が見比べを OK と言ったら、版を上げる commit（Task G）で基準にして空に戻す
+const RETAKE = new Set(['live-banner-signin-light']);
 const PERF = [{ name: 'open-2000-blocks', budgetMs: 500 }];   // 3回開いた中央値で見る
 const TIME_ZONE = 'Asia/Tokyo';
 const TOLERANCE = 2;   // 色の差（0〜255）がこれ以下の画素は同じとみなす。CI の機械の CPU ごとの描き方の1段の差を拾わないため（揺れの確かめ judgePair は 0 で見る）

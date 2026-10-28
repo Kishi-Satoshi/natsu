@@ -5333,7 +5333,10 @@
   // 帯のボタン: ［ログインし直す］は知らせのボタンと同じ道（設定の「アカウント」・メールの欄）、［エンジンを確かめる］は「未設定」の知らせと同じ道、
   // ［もう一度］は main の meeting:retry を1回（返事まで押せない。帯は main の meeting:update が描き直す）
   async function sttBannerAct() {
-    if (sttAct === 'account' || sttAct === 'signin') { showAccount(); return; }
+    // 0.13.2 LN-3（LR8）: 帯の［ログイン］（no-login・kept-login）は設定の［ログイン］と同じログインの窓を直に開く（録音中でもモーダルでない: F27）。
+    // ［ログインし直す］（login）は今どおり設定の「アカウント」
+    if (sttAct === 'signin') { await bannerSignIn(); return; }
+    if (sttAct === 'account') { showAccount(); return; }
     if (sttAct === 'engine' || sttAct === 'offline') { showEngineSettings(); return; }
     if (sttAct !== 'retry' || sttRetrying) return;
     sttRetrying = true;
@@ -6231,6 +6234,17 @@
     accountMsg((r && r.message) || (r && r.ok ? '' : 'ログアウトできませんでした。'), Boolean(r && r.ok));
     await refreshAccount();
   };
+  // 0.13.2 LN-3（LR8）: 帯の［ログイン］。返事の前に2回押しても1回だけ頼む（設定の［ログイン］と同じ accountBusy）。文は main が返す message をそのまま
+  // 左下の知らせに出し（ログインできなかった理由も: LR19）、設定の「アカウント」の行を読み直す
+  async function bannerSignIn() {
+    if (accountBusy) return;
+    setAccountBusy(true);
+    let r = null;
+    try { r = await window.koeApp.accountLogin(); } catch (_) { r = null; } finally { setAccountBusy(false); }
+    const msg = (r && r.message) || (r && r.ok ? '' : 'ログインできませんでした。');
+    if (msg) toast(msg);
+    await refreshAccount();
+  }
   // ログイン切れの知らせと帯の［ログインし直す］（F5）: 設定の「アカウント」を開き、［ログイン］へ（窓は自分から開かない: F27）
   async function showAccount() {
     openSettings('account');
