@@ -417,6 +417,8 @@ const { titleAt } = require('./titles');
 //     --mic-feed の snap に足す: drafts（下書きのファイルの名前）・draft（最初の下書きの { memo, meetingType }。無ければ null）・dbSent（main の客が
 //                        送った・呼んだ DB の命令の名前。中身は入れない）・status（meeting:status の { active, prep }。prep の欄が無ければ 'none'）。
 //                        出力に pageMemos（ページごとの { id, memo, meetingType }）を足す
+//   0.13.2 LN-1（LR14。計画 docs/plans/2026-10-28-132.md）
+//     --finalize-delay=<ms> … 偽の DB の締め（meeting.finalize）の答えを ms 遅らせる。--mic-feed の出力に pageFinal（ページごとの { id, title, phase（meeting.phase） }）を足す
 //     --quiet-mic … --quiet-seq の場面でも偽の見張りを起こし、字 T（見張りに mic teams:1）・L（mic -）を足す（どちらも偽の時計を 2 秒進める。Ruling R2）
 //   0.10.0 C-2（Claude デスクトップへの MCP の登録。計画 docs/plans/2026-10-20-100.md）
 //     app.getPath('appData') は一時フォルダ（日本語と 𠮷）の AppData-Roaming。MCP の場面（--claude-config・--mcp-steps）だけ app.getAppPath() がリポジトリの根
@@ -596,6 +598,9 @@ const autoStopMinFlag = Number(flagVal('--auto-stop-min')) || 0;
 const segCount = Number((flags.find((f) => f.startsWith('--segs=')) || `--segs=${relaySeq ? relaySeq.length : 2}`).slice(7)) || 2;
 const managedMode = flags.includes('--managed') ? 'ok' : (flags.includes('--managed-tamper') ? 'tamper' : '');
 const recoverMode = flags.includes('--recover');
+// 0.13.2 LN-1（LR14）: --finalize-delay=<ms> … 偽の DB の締め（meeting.finalize）の答えだけを ms 遅らせる（呼んだ印 call を残した後、DB へ渡す前に待つ。
+// CI が混んで DB の書き込みが遅れた形。試験の台の中だけで、src/ には足さない）
+const finalizeDelayMs = Number(flagVal('--finalize-delay')) || 0;
 const slowAck = (() => { const m = /^([\w.]+):(\d+)$/.exec(flagVal('--slow-ack') || ''); return m ? { cmd: m[1], ms: Number(m[2]) } : null; })();
 const afterRetry = flags.includes('--after-retry');
 const noVcRuntime = flags.includes('--no-vc-runtime');
@@ -2030,6 +2035,7 @@ process.on('exit', () => {
           if (delayMs) await sleep(delayMs);
           trace.push({ kind: 'call', cmd, ...(cmd === 'snapshot.take' && args ? { snap: args.kind } : {}) });
           try {
+            if (finalizeDelayMs && cmd === 'meeting.finalize') await sleep(finalizeDelayMs);   // 0.13.2 LN-1: --finalize-delay
             const r = await c.call(cmd, args, o);
             if (slowAck && slowAck.cmd === cmd) await sleep(slowAck.ms);   // --slow-ack: DB は書き終えた・main はまだ答えを受けていない
             trace.push({ kind: 'ack', cmd });
@@ -2971,6 +2977,10 @@ process.on('exit', () => {
     out.snaps = {};
     const lastKid = () => micKids[micKids.length - 1];
     const isActive = () => Boolean(handlers['meeting:status']().active);
+    // 0.13.2 LN-1（LR14）: 止める・終えるは、待機に戻ったうえで締めの呼び出しの数と答え（ack・fail）の数が同じになるまで待つ。main は締めの返事を
+    // 待たずに待機に戻る（F9）ので、!isActive() だけでは CI が混むと締めの書き込みの前にページを読んでいた。締めを呼ばない場面（取り消し）は 0 と 0
+    const finalizeN = (kinds) => trace.filter((t) => t.cmd === 'meeting.finalize' && kinds.includes(t.kind)).length;
+    const finalized = () => !isActive() && finalizeN(['call']) === finalizeN(['ack', 'fail']);
     const overlayAsks = () => sent.filter(([ch]) => ch === 'overlay:level-ask').length;   // 0.9.3 M-5: 録音バーへ聞いた数
     for (const step of micSteps) {
       const [k, ...a] = step;
@@ -2982,14 +2992,14 @@ process.on('exit', () => {
       else if (k === 'stop') {
         out.ipc.push(['stop', await handlers['meeting:toggle']()]);
         listeners['audio:segment']({}, { buffer: new Uint8Array(0), durationMs: 0, final: true });
-        await waitFor(() => !isActive(), 15000);
+        await waitFor(finalized, 15000);
         await sleep(50);
       } else if (k === 'dictate') { const st = await handlers['settings:get'](); shortcuts[st.hotkey](); await sleep(30); }
       // 0.9.4 D-1: 会議のホットキー（始める・止める）・トレイの［議事録の記録を開始］・録音バーの［停止］（overlay:confirm）
       else if (k === 'hotkey-meeting') { const st = await handlers['settings:get'](); await shortcuts[st.meetingHotkey](); await sleep(30); }
       else if (k === 'tray-start') { const it = trayItems.find((i) => i && i.label === '議事録の記録を開始'); if (it) it.click(); await sleep(30); }
       else if (k === 'bar-stop') { listeners['overlay:confirm']({}); await sleep(30); }
-      else if (k === 'finish') { listeners['audio:segment']({}, { buffer: new Uint8Array(0), durationMs: 0, final: true }); await waitFor(() => !isActive(), 15000); await sleep(50); }
+      else if (k === 'finish') { listeners['audio:segment']({}, { buffer: new Uint8Array(0), durationMs: 0, final: true }); await waitFor(finalized, 15000); await sleep(50); }
       else if (k === 'dictate-cancel') { listeners['overlay:cancel-request']({}); await sleep(30); }
       else if (k === 'save') { const st = await handlers['settings:get'](); out.ipc.push(['save', await handlers['settings:save']({}, { ...st, ...a[0] })]); await sleep(30); }
       else if (k === 'ipc') {
@@ -3041,6 +3051,8 @@ process.on('exit', () => {
       pageDur: store.listPages().map((p) => { const pg = store.getPage(p.id) || {}; return { id: p.id, durationSec: pg.durationSec, pauses: pg.pauses || [] }; }),
       // 0.13.0 RDY-1: 議事録のページのメモと種類
       pageMemos: store.listPages().map((p) => { const pg = store.getPage(p.id) || {}; return { id: p.id, memo: pg.memo, meetingType: pg.meetingType === undefined ? null : pg.meetingType }; }),
+      // 0.13.2 LN-1（LR14）: 締めの後の形（題名・meeting.phase）
+      pageFinal: store.listPages().map((p) => { const pg = store.getPage(p.id) || {}; return { id: p.id, title: pg.title, phase: pg.meeting && pg.meeting.phase ? pg.meeting.phase : null }; }),
     });
     process.stdout.write(`\n${JSON.stringify(out)}\n`);
     await exitClean(0);

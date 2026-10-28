@@ -1154,3 +1154,29 @@ test('NE-5・G3・0.13.1: IDS_131 は計画の「変異確認」の edn- の表�
   assert.deepStrictEqual(IDS_131, rows);
   assert.strictEqual(IDS_131.length, 48);
 });
+
+// 0.13.2（計画 docs/plans/2026-10-28-132.md の「変異確認」の ln- の表）: ログインしていないことに気づける・残った区間が止まらない・パネルの位置・試験の台の
+// 直しを1つずつ戻す変異。タスクを作るたびに表の行の順で足し、LN-6 で表とちょうど同じかを見る。ln- は前の版の照らし（^(ed|rdy|clk)-・^edn-・^lg-・^lv- など）に当たらない
+const IDS_132 = [
+  'ln-harness-final', 'ln-fails-full', 'ln-fails-nested',
+];
+test('G3・0.13.2: 0.13.2 の変異が一覧にそろい、IDS_132 はどれも計画の「変異確認」の表にある。ln- の変異は IDS_132 にある。どれも決まったテストのファイルを持ち、why が 0.13.2 で始まる', { timeout: 5000 }, () => {
+  const byId = new Map(MUTANTS.map((m) => [m.id, m]));
+  assert.deepStrictEqual(IDS_132.filter((id) => !byId.has(id)), [], 'IDS_132 の変異が一覧に無い');
+  assert.strictEqual(new Set(IDS_132).size, IDS_132.length, 'IDS_132 に重なり');
+  assert.deepStrictEqual(MUTANTS.filter((m) => /^ln-/.test(m.id) && !IDS_132.includes(m.id)).map((m) => m.id), [], 'IDS_132 に無い ln- の変異がある');
+  const plan = fs.readFileSync(path.join(ROOT, 'docs', 'plans', '2026-10-28-132.md'), 'utf8');
+  const at = plan.search(/^## 変異確認（直しを1つ戻すと/m);
+  assert.ok(at > 0, '計画の「変異確認」の節が無い');
+  const table = plan.slice(at, plan.indexOf('\n## ', at + 5));
+  const rows = [...table.matchAll(/^\| (ln-[a-z0-9-]*) \|/gm)].map((m) => m[1]);
+  assert.strictEqual(rows.length, 30, '計画の 0.13.2 の表（ln- 30）が読めない');
+  assert.strictEqual(new Set(rows).size, rows.length, '計画の表に重なり');
+  assert.deepStrictEqual(IDS_132.filter((id) => !rows.includes(id)), [], '計画の「変異確認」の表に無い変異');
+  assert.deepStrictEqual(IDS_132, rows.filter((id) => IDS_132.includes(id)), 'IDS_132 が表の行の順でない');
+  for (const id of IDS_132) {
+    const m = byId.get(id);
+    assert.ok(Array.isArray(m.tests) && m.tests.length > 0 && m.tests.every((t) => /^test\/[^/]+\.test\.js$/.test(t)), `${id}: tests`);
+    assert.ok(typeof m.why === 'string' && m.why.startsWith('0.13.2 '), `${id}: why`);
+  }
+});

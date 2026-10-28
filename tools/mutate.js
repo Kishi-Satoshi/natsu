@@ -7,12 +7,16 @@
 //   runAll({ root, mutants, jobs, timeoutMs, baseTimeoutMs })
 //                              → [{ id, status: 'killed' | 'survived' | 'stale' | 'baseline-red', file, why }]
 //   exitCodeOf(results)        … 全部 'killed' なら 0、それ以外は 1
+//   failsOf(tap)               … 0.13.2 LN-1（LR15）: node --test の TAP から赤いテストを [{ name, reason }] で取り出す（入れ子も。子の失敗だけで赤い親
+//                                （failureType: 'subtestsFailed'）と # SKIP・# TODO は外す。reason は YAML の行を 40 行まで）
+//   reportLines(results)       … 結果を出す行（BASELINE-RED の後に赤いテストを「  ✖ 名前」と理由で並べ、最後の出力も残す）
 //
 // 決め方:
 //  - 当たらない変異は 'stale'（黙って殺したと数えない。一覧が古くなったしるし）。
 //  - 写しは root の中を node_modules・dist のほか全部（.git も）写す。テストは README.md・.gitignore・.ps1・ワークフロー・git の履歴も読むので、
 //    一部だけを写すと元のテストが赤くなり、何でも「殺した」に見える。
-//  - 変異を試す前に、一覧のテストの組を写しで元のまま走らせる。赤があれば 'baseline-red' を返して止める。
+//  - 変異を試す前に、一覧のテストの組を写しで元のまま走らせる。赤があれば 'baseline-red' を返して止める。0.13.2 LN-1（LR15）から、元のままの確かめは
+//    TAP を全部受け（最後の 8000 文字には赤いテストの名前が残らないことがあった: 68767ba の CI）、赤いテストを fails に持たせる。変異1つの確かめは今のまま。
 //  - 子は process.execPath で走らせる（Electron の Node で回すときも同じ Node で走る）。env から NODE_TEST_CONTEXT を消し
 //    （npm test の中から呼ばれても入れ子の報告が親に混ざらない）、NATSU_SCENE_CONCURRENCY=1 にする（写しを並べるので場面は1つずつ）。
 //  - root のファイルは変えない（当てるのは写しだけ。1つ試すごとに元に戻す）。
@@ -87,20 +91,45 @@ function childEnv() {
   return env;
 }
 
-// テストのファイルを写しで走らせる → { code, timedOut, output }
-function runTests(cwd, tests, timeoutMs, pattern) {
+// テストのファイルを写しで走らせる → { code, timedOut, output, tap }
+// keepAll が真なら stdout（TAP）を全部 tap に持つ（元のままの確かめ: LR15）。偽なら tap は output と同じ（最後の 8000 文字だけ）
+function runTests(cwd, tests, timeoutMs, pattern, keepAll = false) {
   return new Promise((resolve) => {
     let output = '';
+    const chunks = [];
     const keep = (b) => { output = (output + b.toString('utf8')).slice(-OUTPUT_KEEP); };
     const only = typeof pattern === 'string' ? [`--test-name-pattern=${pattern}`] : [];
     const child = spawn(process.execPath, ['--test', '--test-reporter=tap', ...only, ...tests], { cwd, env: childEnv(), windowsHide: true });
     let timedOut = false;
     const timer = setTimeout(() => { timedOut = true; child.kill('SIGKILL'); }, timeoutMs);
-    child.stdout.on('data', keep);
+    child.stdout.on('data', (b) => { if (keepAll) chunks.push(b); keep(b); });
     child.stderr.on('data', keep);
-    child.on('error', (e) => { clearTimeout(timer); resolve({ code: -1, timedOut, output: output + String(e && e.message) }); });
-    child.on('close', (code) => { clearTimeout(timer); resolve({ code: code === null ? -1 : code, timedOut, output }); });
+    const tapNow = () => (keepAll ? Buffer.concat(chunks).toString('utf8') : output);
+    child.on('error', (e) => { clearTimeout(timer); resolve({ code: -1, timedOut, output: output + String(e && e.message), tap: tapNow() }); });
+    child.on('close', (code) => { clearTimeout(timer); resolve({ code: code === null ? -1 : code, timedOut, output, tap: tapNow() }); });
   });
+}
+
+// 0.13.2 LN-1（LR15）: TAP の赤いテスト。行の頭の空白は入れ子の深さ（node --test は 4 つずつ下げる）。名前の \# と \\ は TAP の書き方を戻す
+const FAIL_LINE = /^(\s*)not ok \d+ - (.*)$/;
+const REASON_MAX = 40;
+function failsOf(tap) {
+  const lines = String(tap || '').split(/\r?\n/);
+  const out = [];
+  for (let i = 0; i < lines.length; i++) {
+    const m = FAIL_LINE.exec(lines[i]);
+    if (!m) continue;
+    let name = m[2];
+    if (/(^|[^\\])#\s*(SKIP|TODO)\b/i.test(name)) continue;
+    name = name.replace(/\\(.)/g, '$1');
+    const yaml = [];
+    if (lines[i + 1] !== undefined && lines[i + 1].trim() === '---') {
+      for (let j = i + 2; j < lines.length && lines[j].trim() !== '...'; j++) yaml.push(lines[j].slice(m[1].length + 2));
+    }
+    if (yaml.some((l) => /^failureType: 'subtestsFailed'$/.test(l.trim()))) continue;   // 子の失敗だけで赤い親
+    out.push({ name, reason: yaml.slice(0, REASON_MAX).join('\n') });
+  }
+  return out;
 }
 
 // 元のままの確かめの見張り。一覧のテストのほぼ全部（ふだん 100〜130 秒）を1回で走らせるので、変異1つの見張り（120 秒）とは分ける
@@ -120,11 +149,11 @@ async function runAll({ root, mutants, jobs = 2, timeoutMs = 120000, baseTimeout
 
     // 元のままで、一覧のテストの組が緑か
     const allTests = [...new Set(todo.flatMap(({ m }) => m.tests))];
-    const base = await runTests(copies[0], allTests, baseTimeoutMs);
+    const base = await runTests(copies[0], allTests, baseTimeoutMs, undefined, true);
     if (base.code !== 0) {
       return [
         ...results.filter((r) => r.status === 'stale'),
-        { id: '(元のまま)', status: 'baseline-red', file: '', why: `元のままで赤いテストがある: ${allTests.join(' ')}`, timedOut: base.timedOut, output: base.output },
+        { id: '(元のまま)', status: 'baseline-red', file: '', why: `元のままで赤いテストがある: ${allTests.join(' ')}`, timedOut: base.timedOut, output: base.output, fails: failsOf(base.tap) },
       ];
     }
 
@@ -165,6 +194,21 @@ function exitCodeOf(results) {
 
 const LABEL = { killed: 'killed', survived: 'SURVIVED', stale: 'STALE', 'baseline-red': 'BASELINE-RED' };
 
+function reportLines(results) {
+  const lines = [];
+  for (const r of results) {
+    lines.push(`${LABEL[r.status].padEnd(12)} ${r.id}  ${r.file}${r.timedOut ? '（時間切れ）' : ''} — ${r.why}`);
+    if (r.status !== 'baseline-red') continue;
+    // 0.13.2 LN-1（LR15）: 赤いテストの名前と理由（最後の出力より先に）
+    for (const f of r.fails || []) {
+      lines.push(`  ✖ ${f.name}`);
+      for (const l of f.reason ? f.reason.split('\n') : []) lines.push(`      ${l}`);
+    }
+    if (r.output) lines.push(r.output);
+  }
+  return lines;
+}
+
 async function main(argv) {
   const arg = (name) => { const i = argv.indexOf(name); return i >= 0 ? argv[i + 1] : undefined; };
   const all = require('./mutants');
@@ -186,10 +230,7 @@ async function main(argv) {
   const jobs = Number(arg('--jobs')) || 2;
   const started = Date.now();
   const results = await runAll({ root: path.join(__dirname, '..'), mutants, jobs });
-  for (const r of results) {
-    console.log(`${LABEL[r.status].padEnd(12)} ${r.id}  ${r.file}${r.timedOut ? '（時間切れ）' : ''} — ${r.why}`);
-    if (r.status === 'baseline-red' && r.output) console.log(r.output);
-  }
+  for (const l of reportLines(results)) console.log(l);
   const count = (s) => results.filter((r) => r.status === s).length;
   console.log(`殺した ${count('killed')} / 生き残り ${count('survived')} / 古い ${count('stale')} / 元のままで赤 ${count('baseline-red')}（${mutants.length} 個・${Math.round((Date.now() - started) / 1000)} 秒）`);
   return exitCodeOf(results);
@@ -199,4 +240,4 @@ if (require.main === module) {
   main(process.argv.slice(2)).then((code) => { process.exitCode = code; }, (e) => { console.error(e && e.stack || e); process.exitCode = 1; });
 }
 
-module.exports = { applyMutant, findStale, runAll, exitCodeOf, copyRepo, partOf, childEnv, BASE_TIMEOUT_MS, CHILD_HEAP_MB };
+module.exports = { applyMutant, findStale, runAll, exitCodeOf, copyRepo, partOf, childEnv, failsOf, reportLines, BASE_TIMEOUT_MS, CHILD_HEAP_MB };
