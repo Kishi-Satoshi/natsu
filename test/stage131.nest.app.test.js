@@ -103,7 +103,9 @@ test('NE-3: 画面の写し（app.html の flattenBlocks・blocksMarkdown）は 
   const app = new Function(`const CALLOUT_ICON = '💡';\n${src}\nreturn { blocksMarkdown, flattenBlocks };`)();   // eslint-disable-line no-new-func
   const tree = [{ id: 'h', type: 'heading', level: 2, text: '決定事項' }, { id: 'b', type: 'bullet', text: '親', children: [kid('c'), kid('n1', 'numbered', { children: [kid('g', 'todo', { checked: true })] }), kid('n2', 'numbered')] },
     { id: 't', type: 'toggle', text: '閉じた', open: false, children: [kid('k', 'paragraph', { text: '中\n二行目' })] }, { id: 'th', type: 'heading', toggle: true, level: 1, text: 'トグル見出し', children: [kid('m')] }];
-  for (const tb of [[], undefined, tree, samplePage('pa1').page.blocks]) {
+  // 点検 4（NR40）: 入れ子の見出し（子の中のトグル見出し・見出しの後の兄弟）も同じ答え
+  const deep = [{ id: 'o', type: 'toggle', text: '外', children: [kid('p', 'bullet', { children: [{ id: 'dh', type: 'heading', toggle: true, level: 3, text: '深い見出し', children: [kid('q', 'bullet', { children: [kid('r')] })] }, kid('s')] }), kid('u')] }];
+  for (const tb of [[], undefined, tree, samplePage('pa1').page.blocks, deep]) {
     assert.strictEqual(app.blocksMarkdown(tb), E.blocksMarkdown(tb), JSON.stringify(tb));
     assert.deepStrictEqual(app.flattenBlocks(tb).map((b) => b.id), BT.flattenBlocks(tb).map((b) => b.id));
   }

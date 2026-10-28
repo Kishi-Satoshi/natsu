@@ -523,7 +523,7 @@ test('NE-3・決めたこと 22: get_meeting に子が2つの空白で下げて�
     '  2. 二つ目の手順',
     '- たたんだ話',
     sum[8],
-    '  ### 中の見出し',
+    '### 中の見出し',   // 2026-10-28 の点検 4（NR40）: 見出しは下げない（意図して変えたテスト。前は '  ### 中の見出し'）
   ]);
   assert.match(sum[8], /^ {2}- \[ \] 閉じた中の ToDo を片付ける（担当: 担当B／期限: 要確認）$/);
   // 子の無い要約は前と同じ（children が空でも無くても）
@@ -531,6 +531,16 @@ test('NE-3・決めたこと 22: get_meeting に子が2つの空白で下げて�
   const a = F.meetingMarkdown({ id: 'pa1', title: titleAt('2026-10-27T01:00:00.000Z'), blocks: flat }, [], { header: false }).text;
   const b = F.meetingMarkdown({ id: 'pa1', title: titleAt('2026-10-27T01:00:00.000Z'), blocks: flat.map((x) => ({ ...x, children: [] })) }, [], { header: false }).text;
   assert.strictEqual(a, b);
+});
+
+test('NE-3（点検 4）: get_meeting の要約で、入れ子の見出しを下げず、見出しの後の行は見出しの段から数え直す（4つ以上の空白で始まる行が見出しの後に来ない）', () => {
+  const deep = [{ id: 'o', type: 'toggle', text: '外', citeState: 'manual', children: [{ id: 'p', type: 'bullet', text: '親', citeState: 'manual', children: [
+    { id: 'dh', type: 'heading', toggle: true, level: 2, text: '深い見出し', citeState: 'manual', children: [{ id: 'q', type: 'bullet', text: '見出しの子', citeState: 'manual', children: [{ id: 'r', type: 'bullet', text: '孫', citeState: 'manual' }] }] },
+    { id: 'h3', type: 'heading', level: 3, text: '子の無い見出し', citeState: 'manual' }, { id: 's', type: 'bullet', text: '見出しの後', citeState: 'manual' }] },
+  { id: 'u', type: 'bullet', text: '外の子', citeState: 'manual' }] }, { id: 'z', type: 'paragraph', text: '終わり', citeState: 'manual' }];
+  const md = F.meetingMarkdown({ id: 'pa1', title: titleAt('2026-10-27T01:00:00.000Z'), blocks: deep }, [], { header: false }).text;
+  const sum = md.slice(md.indexOf('## 要約'), md.indexOf('\n## ', md.indexOf('## 要約') + 3)).split('\n');
+  assert.deepStrictEqual(sum.slice(1), ['- 外', '  - 親', '### 深い見出し', '  - 見出しの子', '    - 孫', '#### 子の無い見出し', '- 見出しの後', '- 外の子', '- 終わり']);
 });
 
 test('NE-3: 一覧のまとめの最初の要点・ToDo の数・『要約がある』・会議の頭の『出典: x/y』が子も数える', () => {

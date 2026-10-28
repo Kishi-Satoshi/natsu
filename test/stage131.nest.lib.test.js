@@ -280,6 +280,19 @@ test('NE-1・EQ5 (a): nextTypeOnEnter は字下げされた空の箇条書き・
   assert.deepStrictEqual(N({ type: 'bullet' }, { open: true }), { type: 'bullet' }, '子の見える箇条書きの最初の子は箇条書き');
 });
 
+// 2026-10-28 の独立した点検 4（作り手が決めた。計画の Ruling NR40）: Markdown の見出しは下げない（4つ以上の空白の行はコードの塊になる）。
+// 見出しの後の行は見出しの段から数え直す（見出しの子は2つの空白・見出しの後の兄弟は下げない）。見出しの無い所の下げ方は今のまま
+const DEEP = () => tree([['t', 'toggle', { text: '外' }, [['b', 'bullet', { text: '親' }, [
+  ['th', 'heading', { level: 2, toggle: true, text: '深い見出し' }, [['c', 'bullet', { text: '見出しの子' }, [['g', 'bullet', { text: '孫' }]]]]],
+  ['h3', 'heading', { level: 3, text: '子の無い見出し\n二行目' }], ['d', 'bullet', { text: '見出しの後' }]]], ['e', 'bullet', { text: '外の子' }]]], ['z', 'paragraph', { text: '終わり' }]]);
+test('NE-1（点検 4）: blocksMarkdown は入れ子の見出しを下げず、見出しの後の行は見出しの段から数え直す（4つ以上の空白で始まる行が見出しの後に来ない）', () => {
+  const md = E.blocksMarkdown(DEEP());
+  assert.strictEqual(md, ['- 外', '  - 親', '\n## 深い見出し', '  - 見出しの子', '    - 孫', '\n### 子の無い見出し\n  二行目', '- 見出しの後', '- 外の子', '終わり'].join('\n'));
+  const lines = md.split('\n');
+  lines.forEach((l, i) => { if (/^\s*#/.test(l)) assert.match(l, /^#/, `見出しを下げた: ${JSON.stringify(l)}`); });
+  lines.forEach((l, i) => { if (i > 0 && /^#/.test(lines[i - 1])) assert.ok(!/^ {4}/.test(l), `見出しの後の行がコードの塊になる: ${JSON.stringify(l)}`); });
+});
+
 test('NE-1・決めたこと 22・NR20: blocksMarkdown は子を段ごとに2つの空白で下げ、閉じたトグルの子も写し、トグルは『- 』。子の無い並びは 0.13.0 の表と1文字も同じ', () => {
   const b = tree([['h', 'heading', { level: 2, text: '決定事項' }], ['b', 'bullet', { text: '親' }, [['c', 'bullet', { text: '子' }, [['g', 'todo', { text: '孫', checked: true }]]], ['n1', 'numbered', { text: '一' }], ['n2', 'numbered', { text: '二\n続き' }]]],
     ['t', 'toggle', { text: '閉じた', open: false }, [['k', 'paragraph', { text: '中' }]]], ['th', 'heading', { level: 3, toggle: true, text: 'トグル見出し' }, [['k2', 'bullet', { text: '下' }]]], ['n3', 'numbered', { text: '三' }]]);

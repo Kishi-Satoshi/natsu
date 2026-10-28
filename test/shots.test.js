@@ -989,7 +989,8 @@ test('基準の画像（test/shots/win32）は今の app.html で撮ったもの
   // 0.13.1 NE-4b（E5・E10・決めたこと 18・28・NR12・NR16・NR18）: トグルの ▸（.blk .tog の CSS と描き方）・Ctrl+Enter と Ctrl+Alt+T・画面だけの開け閉め（覗き開き）・横の位置で段を選ぶドラッグ（dropSpot の写しと選んだ段から引く落とす線 .dropshift）・トグル見出しの変換と下に足す置き場（NR22）。トグルの無い要約の見た目は変わらない見込みで、変わる画面は足した NEW_131 の edit-toggle-light。値を今の app.html に合わせた（前の値は 9f84f8b3…）
   // 2026-10-28 の持ち主の答え 点検 A（「トグル見出しにしても字下げしない（おすすめ）」。計画の Ruling NR38）: aiSectionHead の写しからトグルでないことの照らしを外した（<script> の中だけ。撮る画面は変わらない）。値を今の app.html に合わせた（前の値は d4f6a5be…）
   // 2026-10-28 の点検 1・3（作り手が決めた。計画の Ruling NR39）: ▸ と Ctrl+Alt+T の前に行の文を全部保存し（commitRows）、隠れた行のフォーカスを見えている先祖の行へ（liftFocus。<script> の中だけ。撮る画面は変わらない）。値を今の app.html に合わせた（前の値は 94bb2482…）
-  assert.strictEqual(sha, '9d461b3ce187685c701acbbc8757a5865a0073062028c649baec7e0674a70d90',
+  // 2026-10-28 の点検 4（作り手が決めた。計画の Ruling NR40）: ［コピー］の blocksMarkdown の写しで入れ子の見出しを下げず、見出しの後の行は見出しの段から数え直す（<script> の中だけ。撮る画面は変わらない）。値を今の app.html に合わせた（前の値は 9d461b3c…）
+  assert.strictEqual(sha, '151827732121086de97704cde73c1628b11eb2f979d9b41dd65589cd36349e72',
     'app.html が基準の画像を撮った時と違う。Windows の CI の画面の比べ（捲り棒のつまみも）を見て、基準を取り直してからこの値を直す');
 });
 

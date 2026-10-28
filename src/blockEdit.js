@@ -214,13 +214,13 @@ function keyAction(ev) {
 // ---------------------------------------------------------------- ［コピー］の Markdown（決めたこと 22）
 // 今の4つの型（段の無い見出し・ToDo・箇条書き・テキスト）は 0.11.0 の［コピー］と1文字も同じ（見出しは前に空の行）。
 // 0.13.1（決めたこと 22・NR20）: 子は段ごとに2つの空白で下げる（閉じたトグルの子も写す）。トグルは箇条書きと同じ「- 」、トグル見出しは見出しの段の #。番号は親ごと
-function blocksMarkdown(blocks, depth = 0) {
+// 2026-10-28 の点検 4（NR40）: 見出しは下げない（Markdown の見出しは下げられず、4つ以上の空白の行はコードの塊になる）。見出しの後の行は見出しの段から
+// 数え直す（見出しの子は2つの空白・見出しの後の兄弟は下げない）。at.base は文書の順に見出しの段を運ぶ。見出しの無い所の下げ方は今のまま
+function blocksMarkdown(blocks, depth = 0, at = { base: 0 }) {
   const list = Array.isArray(blocks) ? blocks.filter((b) => b && typeof b === 'object') : [];
   const nums = numberLabels(list);
-  const pad = '  '.repeat(depth);
-  const indent = (t) => String(t ?? '').replace(/\n/g, `\n${pad}  `);
-  const line = (b) => {
-    const t = indent(b.text);
+  const line = (b, pad) => {
+    const t = String(b.text ?? '').replace(/\n/g, `\n${pad}  `);
     if (b.type === 'heading') return `\n${'#'.repeat(headingLevel(b))} ${t}`;
     if (b.type === 'todo') return `- [${b.checked ? 'x' : ' '}] ${t}`;
     if (b.type === 'bullet') return `- ${t}`;
@@ -232,8 +232,10 @@ function blocksMarkdown(blocks, depth = 0) {
     return t;
   };
   return list.map((b) => {
-    const own = pad ? line(b).replace(/^(\n?)/, `$1${pad}`) : line(b);
-    const kids = Array.isArray(b.children) && b.children.length ? blocksMarkdown(b.children, depth + 1) : '';
+    at.base = b.type === 'heading' ? depth : Math.min(at.base, depth);
+    const pad = b.type === 'heading' ? '' : '  '.repeat(depth - at.base);
+    const own = pad ? line(b, pad).replace(/^(\n?)/, `$1${pad}`) : line(b, pad);
+    const kids = Array.isArray(b.children) && b.children.length ? blocksMarkdown(b.children, depth + 1, at) : '';
     return kids ? `${own}\n${kids}` : own;
   }).join('\n');
 }
