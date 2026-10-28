@@ -237,6 +237,8 @@ contextBridge.exposeInMainWorld('koeApp', {
   accountStatus: () => ipcRenderer.invoke('account:status'),
   // 第1d回 A-11: Cloudflare Access のログインの窓を開く（cookie も JWT も画面へ返さない。答えは { ok, email?, code?, message }）
   accountLogin: () => ipcRenderer.invoke('account:login'),
+  // 0.13.2 LN-4（計画 docs/plans/2026-10-28-132.md の LR20）: 自動で開いたログインの窓でログインできた（中身なし。画面は accountStatus を読み直す）
+  onAccountChanged: (cb) => ipcRenderer.on('account:changed', () => cb()),
   accountLogout: () => ipcRenderer.invoke('account:logout'),
   claudeStatus: () => ipcRenderer.invoke('claude:status'),
   claudeTest: () => ipcRenderer.invoke('claude:test'),

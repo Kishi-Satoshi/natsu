@@ -1063,6 +1063,22 @@ function loginProblem(a) {
   if (localOnly) return '';
   return 'no-login';
 }
+// 0.13.2 LN-4（持ち主の答え LA1「起動したとき＋録音や音声入力を始めるとき」・PQ1〜PQ3・LR3）: ログインの窓を自動で開くか。オンラインでログインしていない
+// （切れた・しまったログインを読めない）ときに、起動（boot）・会議の始め（meeting）・音声入力の始め（dictation）で開く。オフライン・オフラインモードの会議・
+// × で閉じた後（その起動の間: snoozed）・もう開いているときは開かない。準備を選んでいない PC の起動は今どおり設定の「アカウント」なので開かない（LR3）
+const LOGIN_ASK_MOMENTS = ['boot', 'meeting', 'dictation'];
+/** ({ moment, online, signedIn, why, snoozed, localOnly, chosen, showing }) → { ask } */
+function loginAskPlan(a) {
+  const { moment, online, signedIn, snoozed, localOnly, chosen, showing } = a && typeof a === 'object' ? a : {};
+  if (!LOGIN_ASK_MOMENTS.includes(moment)) return { ask: false };
+  if (online !== true) return { ask: false };
+  if (signedIn === true) return { ask: false };
+  if (snoozed) return { ask: false };
+  if (localOnly) return { ask: false };
+  if (showing) return { ask: false };
+  if (moment === 'boot' && !chosen) return { ask: false };
+  return { ask: true };
+}
 /** → 帯の符号か ''。daily-cap は scope で分ける（1人の上限は daily-cap、全体の上限は relay-off） */
 function problemForRoute({ route, why, scope } = {}) {
   if (route !== 'local') return '';
@@ -2305,7 +2321,7 @@ module.exports = {
   ONLINE_SEGMENT_SEC, OVERLAY_SEG_MIN_MS, SEG_SWITCH_AFTER, STICKY_LOCAL, startSegmentMode, segmentModeNext, segmentBaseMs, liveSegmentMs, nextLiveSegmentMs,
   cloudLikely, offlineChosen, DICTATION_REFUSE_TEXT, startPlan, dictationPlan, KEPT_CODES, keptCodeFor, KEPT_SUMMARY_TEXT,
   SUMMARY_WAIT_TEXT, summaryRetryPick, SUMMARY_LOCK_TEXT, summaryLock,
-  STALL_SPAN_MS, STALL_MIN_DBFS, stallAfter, stallStep, PROBLEM_ORDER, sttProblemOf, problemForRoute, loginProblem,
+  STALL_SPAN_MS, STALL_MIN_DBFS, stallAfter, stallStep, PROBLEM_ORDER, sttProblemOf, problemForRoute, loginProblem, loginAskPlan,
   WIN_NOTIFY_CODES, WIN_NOTIFY_GAP_MS, notifyGate,
   OFFLINE_SHOW_MS, OFFLINE_CLEAR_MS, offlineBannerStep,
   idleEnginesToStop, silentWav, wavLevelDbfs, mergeSummaryType, typesForView, memoEvidence, buildClaudeInput, routeLabel,

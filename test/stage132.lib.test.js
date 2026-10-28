@@ -55,3 +55,25 @@ test('LN-3: PROBLEM_ORDER の頭は no-login・login・kept-login で、kept-lat
   assert.strictEqual(lib.sttProblemOf(new Map([['kept-late', {}], ['kept-login', {}]])).code, 'kept-login');
   assert.strictEqual(lib.sttProblemOf(new Map([['kept-late', {}]])).code, 'kept-late');
 });
+
+// ---------------------------------------------------------------- LN-4（LA1・PQ1〜PQ3・LR3）
+test('LN-4: loginAskPlan の表（boot・meeting・dictation × オンライン・オフライン × ログインしている・していない・切れた・復号できない × 今はしない × オフラインモード × 準備を選んだ・選んでいない（LR3: boot だけ） × もう開いている）', T, () => {
+  const P = (o) => lib.loginAskPlan({ moment: 'meeting', online: true, signedIn: false, why: 'signed-out', snoozed: false, localOnly: false, chosen: true, showing: false, ...o });
+  for (const moment of ['boot', 'meeting', 'dictation']) {
+    for (const why of ['signed-out', 'login', 'key-unreadable']) assert.deepStrictEqual(P({ moment, why }), { ask: true }, `${moment}・${why}`);
+    assert.deepStrictEqual(P({ moment, online: false }), { ask: false }, `${moment}: オフラインで開いた`);
+    assert.deepStrictEqual(P({ moment, signedIn: true, why: '' }), { ask: false }, `${moment}: ログインしているのに開いた`);
+    assert.deepStrictEqual(P({ moment, snoozed: true }), { ask: false }, `${moment}: × で閉じた後に開いた（PQ3）`);
+    assert.deepStrictEqual(P({ moment, showing: true }), { ask: false }, `${moment}: もう開いているのに開いた`);
+  }
+  // オフラインモードの会議では開かない（会議・音声入力の始め）
+  assert.deepStrictEqual(P({ moment: 'meeting', localOnly: true }), { ask: false });
+  // LR3: 準備を選んでいない PC の起動は今どおり設定の「アカウント」（窓は開かない）。会議・音声入力の始めには開く
+  assert.deepStrictEqual(P({ moment: 'boot', chosen: false }), { ask: false });
+  assert.deepStrictEqual(P({ moment: 'meeting', chosen: false }), { ask: true });
+  assert.deepStrictEqual(P({ moment: 'dictation', chosen: false }), { ask: true });
+  // 知らない時・形の悪い引数は開かない
+  assert.deepStrictEqual(P({ moment: 'patrol' }), { ask: false });
+  assert.deepStrictEqual(lib.loginAskPlan(), { ask: false });
+  assert.deepStrictEqual(lib.loginAskPlan(null), { ask: false });
+});

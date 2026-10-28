@@ -1011,7 +1011,8 @@ test('基準の画像（test/shots/win32）は今の app.html で撮ったもの
   // 2026-10-28 の点検 2（作り手が決めた。計画の Ruling NR46）: 要約の行の文の欄を 6em より細くせず（.blk .txt の min-width）、入らない札は下の行へ右寄せで折り返し（#pNote .blk の flex-wrap・justify-content）、段の左の余白は欄の 40% まで。札が入る幅の行は変わらない見込みで、変わる画面は NEW_131 の入れ子の3枚（もう取り直し待ち）。値を今の app.html に合わせた（前の値は cc24951e…）
   // 2026-10-28 の点検 2 の続き（計画の Ruling NR46）: 文の右の札（担当・期限・出典）と ✕ を1つの箱 .tail に入れ、箱ごと下の行へ折り返す（鍵の間の行も）。変わる画面は NEW_131 の入れ子の3枚と、画面の外の要約が高くなって捲り棒のつまみが変わる notes-page-zoom200-light（RETAKEN_131 に足した）。値を今の app.html に合わせた（前の値は 753aa2ed…）
   // 0.13.2 LN-3（持ち主の答え LA2・LR8）: 帯の［ログイン］（no-login・kept-login）はログインの窓を直に開く（bannerSignIn。<script> の中だけ）。変わる画面は足した NEW_132 の live-banner-signin-light。値を今の app.html に合わせた（前の値は b04bc5e9…）
-  assert.strictEqual(sha, '444d8a14d21ed818ce7e4d0021bb1c1e7ee065870e00ad84d7320fe06a3193c7',
+  // 0.13.2 LN-4（LR20）: 自動で開いたログインの窓でログインできたら設定の「アカウント」の行を読み直す受け口（onAccountChanged。<script> の中だけ。撮る画面は変わらない）。値を今の app.html に合わせた（前の値は 444d8a14…）
+  assert.strictEqual(sha, '0ea1f255281f20f4a315de0e86d9d0e5cb847e184ecb2f102dc1f0fdc0220050',
     'app.html が基準の画像を撮った時と違う。Windows の CI の画面の比べ（捲り棒のつまみも）を見て、基準を取り直してからこの値を直す');
 });
 

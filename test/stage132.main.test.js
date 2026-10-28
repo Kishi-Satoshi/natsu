@@ -136,3 +136,101 @@ test('LN-3: オフラインで始めた会議・オフラインモードの会�
     assert.ok(!o.engineLog.includes('文字起こしの状態: 帯 no-login'), `${flag}: ${o.engineLog.join('\n')}`);
   }
 });
+
+// ---------------------------------------------------------------- LN-4（LA1・PQ1〜PQ3・PQ5・LR1〜LR4・LR16〜LR21）
+// 場面は --mic-feed の手順（録音の前のページ・会議・音声入力・ネットワーク・見回り・ログインの窓）。中継を置かない場面は「オンラインでログインしていない」の形
+const mic = (steps, ...flags) => run(['text', `--mic-feed=${JSON.stringify(steps)}`, ...flags]);
+const ML = (s) => [['line', s], ['clock', 2000]];
+const AUTO = (m) => `アカウント: ログインの窓を自動で開いた（${m}）`;
+const NOT_CHOSEN = ['--no-engine=fetchable', '--signed-out'];
+const autoWin = (w) => {
+  assert.ok(w, 'ログインの窓が無い');
+  assert.deepStrictEqual([w.width, w.height, w.title, w.modal, w.show], [480, 680, 'NaTsu のログイン', false, false], JSON.stringify(w));
+  assert.deepStrictEqual([w.parent, w.inactive, w.shown, w.focused], ['none', 1, false, 0], `自動の窓の出し方が違う: ${JSON.stringify(w)}`);
+};
+
+test('LN-4・LA1・LR1・LR17: 準備を選んだ PC でログインしないで起動すると、ログインの窓が1つ（LOGIN_WIN の大きさ・題『NaTsu のログイン』・modal: false・parent が none・inactive が 1・shown が偽・focused が 0）。engine.log に『アカウント: ログインの窓を自動で開いた（boot）』', T, async () => {
+  const o = await mic([['wait-login', 1], ['sleep', 50]]);
+  assert.strictEqual(o.loginWins.length, 1, JSON.stringify(o.loginWins));
+  autoWin(o.loginWins[0]);
+  assert.strictEqual(o.engineLog.filter((l) => l === AUTO('boot')).length, 1, o.engineLog.join('\n'));
+  assert.ok(!o.engineLog.includes('アカウント: ログインの窓を開いた'), '自動の窓を押して開いた窓の行で書いた');
+  // LR3: 準備を選んでいない PC の起動では開かない（今どおり設定の「アカウント」）
+  const nc = await mic([['sleep', 300]], ...NOT_CHOSEN);
+  assert.deepStrictEqual(nc.loginWins, [], '準備を選んでいない PC の起動でログインの窓を開いた（LR3）');
+});
+
+test('LN-4・決めたこと 1: 準備を選んでいない PC でログインしないで会議を始めると、meeting:toggle の答えは { ok: true } で録音が始まった後に窓が1つ（inactive）。音声入力は断っても、ログインが理由なら窓が1つ', T, async () => {
+  const o = await mic([['start'], ['wait-login', 1], ['snap', 'm']], ...NOT_CHOSEN);
+  assert.deepStrictEqual(o.ipc[0], ['start', { ok: true }], JSON.stringify(o.ipc));
+  assert.strictEqual(o.snaps.m.active, true);
+  assert.strictEqual(o.loginWins.length, 1, JSON.stringify(o.loginWins));
+  autoWin(o.loginWins[0]);
+  const started = o.engineLog.indexOf('会議: 始めた（page）');
+  const opened = o.engineLog.indexOf(AUTO('meeting'));
+  assert.ok(started >= 0 && opened > started, `録音を始める前に窓を開いた: ${o.engineLog.join('\n')}`);
+  const d = await mic([['dictate'], ['wait-login', 1], ['sleep', 50]], ...NOT_CHOSEN);
+  assert.strictEqual(d.loginWins.length, 1, JSON.stringify(d.loginWins));
+  autoWin(d.loginWins[0]);
+  assert.ok(d.engineLog.includes(AUTO('dictation')), d.engineLog.join('\n'));
+});
+
+test('LN-4・PQ2: オフラインで起動し（窓は 0）、途中でつながっても（見回り1回）窓は 0。その後に音声入力を始めると、録音を始めた後に窓が1つ（貼り付け先は変えない: inactive）', T, async () => {
+  const o = await mic([['sleep', 200], ['snap', 'boot'], ['online', true], ['tick'], ['sleep', 100], ['snap', 'back'], ['dictate'], ['wait-login', 1], ['snap', 'd'], ['dictate-cancel']], '--offline');
+  assert.strictEqual(o.snaps.boot.logins, 0, 'オフラインで起動して窓を開いた');
+  assert.strictEqual(o.snaps.back.logins, 0, 'つながった途端に窓を開いた（PQ2）');
+  assert.strictEqual(o.snaps.d.logins, 1, '音声入力の始めに窓を開いていない');
+  autoWin(o.loginWins[0]);
+  assert.ok(o.engineLog.includes(AUTO('dictation')), o.engineLog.join('\n'));
+  assert.ok(!o.engineLog.includes(AUTO('boot')), o.engineLog.join('\n'));
+});
+
+test('LN-4: オフライン（net.isOnline() が偽）では起動・会議・音声入力のどれでも開かない。録音の前のページの［オフラインモードで始める］・パネルの「オフラインモードで始める」でも開かない', T, async () => {
+  const off = await mic([['sleep', 200], ['start'], ['stop'], ['dictate'], ['sleep', 50], ['dictate-cancel'], ['sleep', 50]], '--offline');
+  assert.deepStrictEqual(off.loginWins, [], `オフラインで窓を開いた: ${off.engineLog.join('\n')}`);
+  const page = await mic([['ipc', 'meeting:prepare'], ['ipc', 'meeting:start', { pcOnly: true }], ['sleep', 200]], ...NOT_CHOSEN);
+  assert.deepStrictEqual(page.ipc[1], ['meeting:start', { ok: true, localOnly: true }], JSON.stringify(page.ipc));
+  assert.deepStrictEqual(page.loginWins, [], '［オフラインモードで始める］で窓を開いた');
+  const panel = await mic([...ML('mic teams:1'), ...ML('mic teams:1'), ['wait-show', 1], ['ipc', 'nudge:start', { pcOnly: true }], ['sleep', 200]], ...NOT_CHOSEN);
+  assert.strictEqual(panel.active, true, panel.engineLog.join('\n'));
+  assert.deepStrictEqual(panel.loginWins, [], 'パネルの「オフラインモードで始める」で窓を開いた');
+});
+
+test('LN-4・LR18: 自動の窓が開いたままで音声入力・会議を始めても、窓は増えず、その窓に show・focus を呼ばない', T, async () => {
+  const o = await mic([['wait-login', 1], ['dictate'], ['sleep', 50], ['dictate-cancel'], ['start'], ['sleep', 50]]);
+  assert.strictEqual(o.loginWins.length, 1, JSON.stringify(o.loginWins));
+  autoWin(o.loginWins[0]);
+});
+
+test('LN-4・LR4・PQ3: 自動の窓を × で閉じると、同じ起動の間の会議と音声入力で開かない。記録『アカウント: ログインできませんでした（cancel）』', T, async () => {
+  const o = await mic([['wait-login', 1], ['login-close'], ['wait-login-closed', 1], ['start'], ['stop'], ['dictate'], ['sleep', 50], ['dictate-cancel'], ['sleep', 50]]);
+  assert.strictEqual(o.loginWins.length, 1, `× の後に窓を開いた: ${o.engineLog.join('\n')}`);
+  assert.ok(o.engineLog.includes('アカウント: ログインできませんでした（cancel）'), o.engineLog.join('\n'));
+});
+
+test('LN-4・LR4: 帯の［ログイン］（account:login）で開いた窓を × で閉じた後は、次の会議の始めに自動の窓が開く（押して開いた窓は数えない）', T, async () => {
+  const o = await mic([['ipc', 'account:login'], ['start'], ['wait-login', 2], ['sleep', 50]], ...NOT_CHOSEN, '--access-login=cancel');
+  assert.strictEqual(o.ipc[0][1].ok, false, JSON.stringify(o.ipc));
+  assert.strictEqual(o.loginWins.length, 2, JSON.stringify(o.loginWins));
+  assert.deepStrictEqual([o.loginWins[0].parent, o.loginWins[0].shown, o.loginWins[0].inactive], ['main', true, 0], '押して開いた窓が今の形でない');
+  autoWin(o.loginWins[1]);
+});
+
+test('LN-4・LR19: 自動の窓が denied403 で閉じた後も、同じ起動の間は開かない', T, async () => {
+  const o = await mic([['wait-login', 1], ['wait-login-closed', 1], ['start'], ['stop'], ['sleep', 50]], '--auto-login=denied403');
+  assert.strictEqual(o.loginWins.length, 1, `失敗で閉じた後に窓を開いた: ${o.engineLog.join('\n')}`);
+  assert.ok(o.engineLog.includes('アカウント: ログインできませんでした（denied）'), o.engineLog.join('\n'));
+});
+
+test('LN-4・LR20: 自動の窓で --auto-login=ok → ログインでき、本体の窓に account:changed が1回。次の会議の始めには開かない', T, async () => {
+  const o = await mic([['wait-login', 1], ['wait-login-closed', 1], ['start'], ['sleep', 100]], '--relay=text', '--signed-out', '--auto-login=ok');
+  assert.ok(o.engineLog.includes('アカウント: ログインした'), o.engineLog.join('\n'));
+  assert.strictEqual(o.mainSentAll.filter(([ch]) => ch === 'account:changed').length, 1, JSON.stringify(o.mainSentAll.map(([ch]) => ch)));
+  assert.strictEqual(o.loginWins.length, 1, 'ログインした後の会議で窓を開いた');
+});
+
+test('LN-4・LR2・PQ5: ログインして始めた会議の録音中に中継が 401 を返しても窓は開かない（loginWins が []）。帯 login が先頭', T, async () => {
+  const o = await run(['text', '--relay-seq=cl', '--segs=3']);
+  assert.deepStrictEqual(o.loginWins, [], `録音中のログイン切れで窓を開いた（F27・PQ5）: ${o.engineLog.join('\n')}`);
+  assert.ok(codes(o).includes('login'), JSON.stringify(o.sttSeen));
+});

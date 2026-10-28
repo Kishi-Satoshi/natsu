@@ -44,7 +44,10 @@ const status = (o) => ({ ok: true, signedIn: false, email: '', method: 'access',
 
 test('RL10・F20・F27: account:login は本体の窓を parent にした窓（モーダルにしない）を開き、設定は partition natsu-access（persist: なし）・sandbox・contextIsolation・nodeIntegration: false・webviewTag: false・spellcheck: false。新しい窓は断り、許していないホストへの移動は止めて記録1行（ホストを書かない）', { timeout: sceneTimeout(20000) }, async () => {
   const o = await run(['text', '--json-scene=access-ipc', '--relay=text']);
-  const w = o.loginWin;
+  // 0.13.2 LN-4 で意図して変えた（持ち主の答え LA1・LR8・LR17）: ログインしていない場面なので、起動で自動の窓（本体の窓の子にしない・フォーカスを取らない）が
+  // 1つ開いている。最初の［ログイン］はその窓を前に出して押して開いた窓にする（parent は作ったときの none のまま）。押して作った窓は今どおり本体の窓の子
+  assert.deepStrictEqual([o.loginWins[0].parent, o.loginWins[0].inactive, o.loginWins[0].shown], ['none', 1, true], '起動の自動の窓を［ログイン］で前に出していない');
+  const w = o.loginWins.find((x) => x.inactive === 0);
   assert.ok(w, 'ログインの窓を作っていない');
   assert.deepStrictEqual(pick(w.webPreferences, ['partition', 'sandbox', 'contextIsolation', 'nodeIntegration', 'webviewTag', 'spellcheck']),
     { partition: 'natsu-access', sandbox: true, contextIsolation: true, nodeIntegration: false, webviewTag: false, spellcheck: false });

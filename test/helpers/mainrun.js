@@ -273,6 +273,9 @@ const { titleAt } = require('./titles');
 //     cancel    … 利用者が窓を閉じる（'closed'）
 //     hold      … 何も起こさない（ctx.access.close() で閉じるまで開いたまま）
 //     unreadable … 窓の動きは ok のまま、偽の safeStorage の復号が ctx.access.allowDecrypt() まで失敗する（起動のときに復号できない: F26）
+//   0.13.2 LN-4（LR21 の台の決まり）: 偽の窓は ready-to-show を起こした後、main が show() を呼んだ窓（押して開いた窓）だけを上の動きで進める。
+//   showInactive() だけで出た窓（自動で開いた窓）は --auto-login=<上の動き> が無ければ何もしない（後から show() が来たらそのとき進める）。
+//   loginWins の窓ごとに inactive（showInactive の数）を足した
 //   --relay-expired … 種の cookie の期限が切れている（起動で消して L3・B3: F19）、--old-token … 種が nt1_ の札（起動で消して記録1行）
 //   出力に loginWins（作ったログインの窓ごとに { webPreferences, modal, parent, width, height, title, show, openHandler（新しい窓を頼んだ答え）,
 //   accessFormAllowed, redirectAllowed, wanderPrevented, shown, closed }）・loginWin（最初の1つか null）・cookiesOnDisk（userData の下に Partitions が
@@ -421,6 +424,10 @@ const { titleAt } = require('./titles');
 //     --mic-feed の snap に足す: drafts（下書きのファイルの名前）・draft（最初の下書きの { memo, meetingType }。無ければ null）・dbSent（main の客が
 //                        送った・呼んだ DB の命令の名前。中身は入れない）・status（meeting:status の { active, prep }。prep の欄が無ければ 'none'）。
 //                        出力に pageMemos（ページごとの { id, memo, meetingType }）を足す
+//   0.13.2 LN-4（計画 docs/plans/2026-10-28-132.md）
+//     --mic-feed の手順に足す: ["wait-login", n]（ログインの窓が n 個できるまで待つ）・["wait-login-closed", n]（閉じたログインの窓が n 個になるまで待つ）・
+//                        ["online", bool]（偽の net.isOnline() を替える）・["tick"]（文字起こし待ちの見回りを1回）・["login-close"]（開いているログインの窓を利用者が × で閉じる）。
+//                        snap に logins（作ったログインの窓の数）、出力に loginWins（窓ごとの記録の写し）を足す
 //   0.13.2 LN-1（LR14。計画 docs/plans/2026-10-28-132.md）
 //     --finalize-delay=<ms> … 偽の DB の締め（meeting.finalize）の答えを ms 遅らせる。--mic-feed の出力に pageFinal（ページごとの { id, title, phase（meeting.phase） }）を足す
 //     --quiet-mic … --quiet-seq の場面でも偽の見張りを起こし、字 T（見張りに mic teams:1）・L（mic -）を足す（どちらも偽の時計を 2 秒進める。Ruling R2）
@@ -531,7 +538,8 @@ const relayCert = flags.includes('--relay-cert');
 const keyForFlag = flagVal('--key-for');
 const oldKeys = flags.includes('--old-keys');   // 第1d回 A-4（F11・K2）
 // 第1d回 A-11（RL10・F20・F21・F26・F27）: Cloudflare Access のログインの窓と、しまった cookie の場面
-const accessLoginFlag = flagVal('--access-login');   // 偽のログインの窓の動き（ok・cancel・nocookie・denied・denied403・notready・failload・wander・other-team・hold）か unreadable
+const accessLoginFlag = flagVal('--access-login');
+const autoLoginMode = flagVal('--auto-login');   // 0.13.2 LN-4（LR21）: 自動で開いた窓（showInactive だけ）の動き。無ければ何もしない   // 偽のログインの窓の動き（ok・cancel・nocookie・denied・denied403・notready・failload・wander・other-team・hold）か unreadable
 const relayExpired = flags.includes('--relay-expired');   // 種の cookie の期限が切れている
 const oldToken = flags.includes('--old-token');   // 種が 0.8.0 の前の試しの札（nt1_）
 const SEED_TTL_SEC = 30 * 24 * 3600;   // 種の cookie の長さ（Access の app のログインの長さの上限 1 か月。relay-day の 1 日進めても切れない）
@@ -1497,6 +1505,17 @@ process.on('exit', () => {
     const wc = win.webContents;
     rec.openHandler = typeof wc.openHandler === 'function' ? wc.openHandler({ url: 'https://evil.example/popup' }) : null;
     win.emit('ready-to-show');
+    // 0.13.2 LN-4（LR21 の台の決まり）: showInactive() だけで出た窓（自動で開いた窓）は、場面の --auto-login=<mode> が無ければ何もしない
+    // （利用者がまだ触っていない形。hold と同じ）。後から show() が来たら（帯や設定の［ログイン］）、そのとき loginMode で進める
+    if (!rec.shown && rec.inactive > 0) {
+      if (!autoLoginMode) { rec.waiting = true; return; }
+      mode = autoLoginMode;
+    }
+    await runLoginSteps(win, rec, mode);
+  }
+  async function runLoginSteps(win, rec, mode) {
+    if (win.destroyed) return;
+    const wc = win.webContents;
     const nav = (code) => wc.emit('did-navigate', {}, LOGIN_URL, code, '');
     if (mode === 'hold') return;
     if (mode === 'cancel') { win.close(); return; }
@@ -1529,12 +1548,17 @@ process.on('exit', () => {
     const o = win.opts;
     const rec = { webPreferences: { ...(o.webPreferences || {}) }, modal: o.modal, parent: o.parent && o.parent === wins[1] ? 'main' : (o.parent ? 'other' : 'none'),
       width: o.width, height: o.height, title: o.title, show: o.show, openHandler: null, accessFormAllowed: null, redirectAllowed: null,
-      wanderPrevented: null, otherTeamPrevented: null, shown: false, focused: 0, closed: false };
+      wanderPrevented: null, otherTeamPrevented: null, shown: false, focused: 0, closed: false, inactive: 0 };
     loginRecs.push(rec);
     loginWinsList.push(win);
     win.destroyed = false;
     win.isDestroyed = () => win.destroyed;
-    win.show = () => { rec.shown = true; };
+    win.show = () => {
+      rec.shown = true;
+      // 0.13.2 LN-4: 待っていた自動の窓に show() が来た（押して開いた窓になった）ら、そのとき loginMode で進める
+      if (rec.waiting) { rec.waiting = false; const mode = loginMode; setTimeout(() => { runLoginSteps(win, rec, mode).catch((e) => { rec.error = String((e && e.message) || e); }); }, 0); }
+    };
+    win.showInactive = () => { rec.inactive += 1; };   // 0.13.2 LN-4: 自動で開いた窓（フォーカスを取らずに出す）
     win.focus = () => { rec.focused += 1; };
     win.close = () => { if (win.destroyed) return; win.destroyed = true; rec.closed = true; setImmediate(() => win.emit('closed')); };
     win.loadURL = (url) => {
@@ -3040,9 +3064,16 @@ process.on('exit', () => {
       // 0.13.0（RDY-4 の確かめが負荷の下で揺れた直し）: 議事録のページが n 件 DB に入るまで待つ（締めの書き込みは DB の側で後から終わる。stop の後すぐ読むと 0 件のことがある）
       else if (k === 'wait-pages') await waitFor(() => store.listPages().length >= a[0], 15000);
       else if (k === 'wait-show') await waitFor(() => nudgeWins.length > 0 && nudgeWins[0].nudge.calls.filter((c) => c === 'showInactive').length >= a[0], 5000);
+      // 0.13.2 LN-4: ログインの窓が n 個できるまで待つ・閉じた窓が n 個になるまで待つ・ネットワークを替える・見回りを1回・開いているログインの窓を利用者が × で閉じる
+      else if (k === 'wait-login') { await waitFor(() => loginRecs.length >= a[0], 5000); await sleep(20); }
+      else if (k === 'wait-login-closed') { await waitFor(() => loginRecs.filter((r) => r.closed).length >= a[0], 5000); await sleep(50); }
+      else if (k === 'online') { netUp = Boolean(a[0]); await sleep(15); }
+      else if (k === 'tick') { await keptTick(); await sleep(30); }
+      else if (k === 'login-close') { const w = loginWinsList.filter((x) => !x.destroyed).pop(); if (w) w.close(); await sleep(50); }
       else if (k === 'minimize') { wins[1].minimized = true; wins[1].emit('minimize'); await sleep(15); }
       else if (k === 'snap') {
-        out.snaps[a[0]] = { spawns: micSpawns.length, kills: micKills, active: isActive(), nudgeCalls: nudgeWins.length ? nudgeWins[0].nudge.calls.length : 0, asks: overlayAsks(), sentN: mainSentAll.length, notes: notifications.length };
+        out.snaps[a[0]] = { spawns: micSpawns.length, kills: micKills, active: isActive(), nudgeCalls: nudgeWins.length ? nudgeWins[0].nudge.calls.length : 0, asks: overlayAsks(), sentN: mainSentAll.length, notes: notifications.length,
+          logins: loginRecs.length };   // 0.13.2 LN-4: その時までに作ったログインの窓の数
         // 0.13.0 RDY-1: 下書きのファイルの名前と最初の下書きのメモと種類・DB へ送った命令の名前（中身は入れない）・meeting:status の active と prep
         const drafts = store.draftFiles();
         const d0 = drafts.length ? store.readDraftFile(drafts[0]) : null;
@@ -3074,6 +3105,7 @@ process.on('exit', () => {
       // 0.12.1 LV-3: 偽の Windows の知らせ（閉じたか）・議事録の所要時間と一時停止の印
       notifications: noticeObjs.map((n) => ({ title: n.o.title, body: n.o.body, closed: Boolean(n.closed) })), notifyClosed,
       pageDur: store.listPages().map((p) => { const pg = store.getPage(p.id) || {}; return { id: p.id, durationSec: pg.durationSec, pauses: pg.pauses || [] }; }),
+      loginWins: loginRecs.map((r) => ({ ...r })),   // 0.13.2 LN-4
       // 0.13.0 RDY-1: 議事録のページのメモと種類
       pageMemos: store.listPages().map((p) => { const pg = store.getPage(p.id) || {}; return { id: p.id, memo: pg.memo, meetingType: pg.meetingType === undefined ? null : pg.meetingType }; }),
       // 0.13.2 LN-1（LR14）: 締めの後の形（題名・meeting.phase）

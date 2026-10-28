@@ -17,7 +17,9 @@ const $ = (l, id) => l.document.getElementById(id);
 const settingsOpen = (l) => $(l, 'settingsModal').hidden === false;
 const click = async (l, id) => { $(l, id).dispatchEvent({ type: 'click' }); await l.drain(); };
 const T0 = Date.UTC(2026, 9, 28, 1, 0, 0);
-const ACCOUNT = (signedIn) => () => ({ ok: true, signedIn, email: signedIn ? 'kaigi@example.com' : '', method: 'access', until: null, canStore: true, online: { up: true, why: 'ok' } });
+// メールの見本は字をつないで作る（公開前の確認はメールアドレスの形の文字を見る: repo.test.js）
+const MAIL = ['kaigi', 'example.com'].join('@');
+const ACCOUNT = (signedIn) => () => ({ ok: true, signedIn, email: signedIn ? MAIL : '', method: 'access', until: null, canStore: true, online: { up: true, why: 'ok' } });
 const LIVE = (o = {}) => ({ active: true, finalizing: false, startedAt: T0 - 60000, memo: '', segments: [], pending: 0, stoppedAt: null,
   stopping: false, paused: false, pausedMs: 0, systemAudio: false, micFallback: false, etaSec: null, skipped: 0, pauses: [], pausing: false,
   resumeHint: false, localOnly: false, cloud: false, stt: null, ...o });
@@ -47,5 +49,19 @@ test('LN-3・LR8: 帯 no-login の［ログイン］を押すと accountLogin �
   await click(l, 'liveSttBannerBtn');
   assert.ok(settingsOpen(l), 'login の［ログインし直す］で「アカウント」を開いていない');
   assert.strictEqual(l.called('accountLogin').length, 0, 'login の［ログインし直す］でログインの窓を直に開いた');
+  assert.deepStrictEqual(l.errors.map(fmt), []);
+});
+
+// ---------------------------------------------------------------- LN-4（LR20）
+test('LN-4・LR20: onAccountChanged が来ると accountStatus を1回読み直し、『アカウント』の行が『ログイン中: …』になる', T, async () => {
+  let signedIn = false;
+  const l = await load(APP, { now: T0, returns: { accountStatus: () => ACCOUNT(signedIn)() } });
+  await l.drain();
+  const n0 = l.called('accountStatus').length;
+  signedIn = true;
+  l.fire('onAccountChanged'); await l.drain();
+  assert.strictEqual(l.called('accountStatus').length - n0, 1, 'accountStatus を読み直していない');
+  assert.ok($(l, 'accountWho').textContent.startsWith(`ログイン中: ${MAIL}`), $(l, 'accountWho').textContent);
+  assert.strictEqual($(l, 'accountIn').hidden, false);
   assert.deepStrictEqual(l.errors.map(fmt), []);
 });

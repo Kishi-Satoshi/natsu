@@ -6245,6 +6245,8 @@
     if (msg) toast(msg);
     await refreshAccount();
   }
+  // 0.13.2 LN-4（LR20）: 自動で開いたログインの窓でログインできたら、設定の「アカウント」の行を読み直す（古い preload には無い）
+  if (window.koeApp.onAccountChanged) window.koeApp.onAccountChanged(() => { refreshAccount(); });
   // ログイン切れの知らせと帯の［ログインし直す］（F5）: 設定の「アカウント」を開き、［ログイン］へ（窓は自分から開かない: F27）
   async function showAccount() {
     openSettings('account');

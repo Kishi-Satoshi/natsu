@@ -99,7 +99,9 @@ test('RL11: ログインしていなければ、中継へ1回も送らず（/hea
 });
 
 // 第1d回 A-11 で意図して変えた: 札の取り消し（D1 の revoked_at）を、偽の Access の前での取り消し（Zero Trust の Revoke）に。消すのは cookie
-test('F5・F19: 会議の途中で偽の Access の前がその人を取り消す（Zero Trust の Revoke と同じ）→ その区間から手元でやり直し、全部の区間に文字がある。L3 の知らせは1回で action: account。cookie は secrets.json から消える。次の会議は手元のまま（中継に送らない）。ログインの窓は開かない', T, async () => {
+// 0.13.2 LN-4 で意図して変えた（持ち主の答え LA1・PQ5。計画 docs/plans/2026-10-28-132.md の「意図して変えるテスト」）: 録音中のログイン切れでは窓を開かない（F27 のまま）。
+// ログインの無い2つ目の会議の始めには、ログインの窓を自動で、フォーカスを取らずに1つ開く（題も「録音中は開かない」に直した）
+test('F5・F19: 会議の途中で偽の Access の前がその人を取り消す（Zero Trust の Revoke と同じ）→ その区間から手元でやり直し、全部の区間に文字がある。L3 の知らせは1回で action: account。cookie は secrets.json から消える。次の会議は手元のまま（中継に送らない）。録音中はログインの窓を開かない（次の会議の始めに自動の窓が1つ）', T, async () => {
   const o = await run(['text', '--json-scene=relay-revoke', '--relay=text']);
   assert.strictEqual(o.firstCloud, true, '1つ目の区間が中継で文字にならなかった');
   assert.deepStrictEqual(o.m1.route.stt, { cloud: 1, local: 2, provider: 'openai' });
@@ -122,7 +124,11 @@ test('F5・F19: 会議の途中で偽の Access の前がその人を取り消�
   assert.deepStrictEqual(o.m2.route.stt, { cloud: 0, local: 1, provider: 'openai' });
   assert.ok(allText(o.m2.segments));
   assert.ok(!JSON.stringify([o.engineLog, o.notices]).includes(cookieOf(o.secretsBefore)), 'cookie の文字が記録か知らせにある');
-  assert.deepStrictEqual(o.loginWins, [], 'ログイン切れでログインの窓を開いた（F27）');
+  // 録音中（1つ目の会議）は開かない。2つ目の会議の始めに自動の窓が1つ（前に出さない・本体の窓の子にしない）
+  assert.strictEqual(o.loginWins.length, 1, `ログインの窓の数: ${JSON.stringify(o.loginWins)}`);
+  assert.deepStrictEqual([o.loginWins[0].inactive, o.loginWins[0].shown, o.loginWins[0].focused, o.loginWins[0].parent], [1, false, 0, 'none'], 'ログイン切れで前に出す窓を開いた（F27）');
+  const lg = o.engineLog;
+  assert.ok(lg.indexOf('アカウント: ログインの窓を自動で開いた（meeting）') > lg.lastIndexOf('会議: 始めた（page）'), `録音中に窓を開いた: ${lg.join('\n')}`);
 });
 
 test('F5: 古い cookie の 401 が、送っている間にログインし直した新しい cookie を消さない（送ったときの pack と比べる。次の会議は新しい cookie で中継へ）', T, async () => {
@@ -330,7 +336,8 @@ test('F21: 起動のとき、しまった cookie を partition に戻し、最�
   assert.strictEqual(count(old, L3), 0);
 });
 
-test('F19: しまった cookie が期限切れで起動 → 最初の会議で L3（action: account）と帯 B3（login）。L2 にしない。中継へは送らず、ログインの窓は開かない', T, async () => {
+// 0.13.2 LN-4 で意図して変えた（持ち主の答え LA1）: 期限の切れた起動では、ログインの窓を自動で、フォーカスを取らずに1つ開く（前に出す窓は開かない: F27）
+test('F19: しまった cookie が期限切れで起動 → 最初の会議で L3（action: account）と帯 B3（login）。L2 にしない。中継へは送らず、前に出すログインの窓は開かない（起動の自動の窓が1つ）', T, async () => {
   const o = await run(['text', '--relay=text', '--relay-expired', '--segs=2']);
   assert.deepStrictEqual(o.relayCalls, [], '期限の切れた cookie で中継へ送った');
   assert.deepStrictEqual(o.pages[0].route.stt, { cloud: 0, local: 2, provider: 'openai' });
@@ -340,7 +347,9 @@ test('F19: しまった cookie が期限切れで起動 → 最初の会議で L
   assert.ok(o.sttSeen.some((x) => x.problem && x.problem.code === 'login'), `帯 B3（login）が出ない: ${JSON.stringify(o.sttSeen)}`);
   assert.ok(!JSON.parse(o.secretsRaw).keys.relay, '期限の切れた cookie を残した');
   assert.ok(o.engineLog.includes('アカウント: しまったログインの期限が切れていた'), o.engineLog.join('\n'));
-  assert.deepStrictEqual(o.loginWins, [], 'ログイン切れでログインの窓を開いた（F27）');
+  assert.strictEqual(o.loginWins.length, 1, `ログインの窓の数: ${JSON.stringify(o.loginWins)}`);
+  assert.deepStrictEqual([o.loginWins[0].inactive, o.loginWins[0].shown, o.loginWins[0].focused, o.loginWins[0].parent], [1, false, 0, 'none'], 'ログイン切れで前に出す窓を開いた（F27）');
+  assert.ok(o.engineLog.includes('アカウント: ログインの窓を自動で開いた（boot）'), o.engineLog.join('\n'));
 });
 
 test('L11: 中継が 403 denied（止めたメール）→ その区間から手元・L11 を1回・帯 B5（relay-off）・cookie を消す。次の区間は中継へ送らない。ログインの窓は開かない', T, async () => {
