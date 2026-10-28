@@ -127,3 +127,42 @@ test('LN-7・LR23・LR25: nudge.html の .nz は flex-direction: column-reverse�
   const ids = [...html.matchAll(/<button type="button" class="it" id="(nz\w+)"/g)].map((m) => m[1]);
   assert.deepStrictEqual(ids, ['nzPcOnly', 'nzMute', 'nzSettings'], 'メニューの項目の順が変わった');
 });
+
+// ---------------------------------------------------------------- LN-6: ヘルプ（自動で開くログインの窓・帯・残った区間とやり直し・パネルの位置）
+test('LN-6: 記事『ログインする』に自動で開く窓の節（{#ask}）があり、『押したときだけ開きます』が無い・× で閉じると起動し直すまで開かない・録音の途中で切れても開かない。『会議の検出』の頭と description は『画面の下の中央』で『右上』が無い。『帯ごとの対処』の表の頭に no-login の行。『文字起こしが遅い』の『会議が終わった後』にログインしていればクラウド・［もう一度文字起こし］・残り n 区間。［…］はアプリの文字にある言葉だけ', () => {
+  const fs = require('node:fs');
+  const ROOT = path.join(__dirname, '..');
+  const art = (rel) => fs.readFileSync(path.join(ROOT, 'help', 'articles', `${rel}.md`), 'utf8');
+  const sec = (text, id) => { const at = text.indexOf(`{#${id}}`); assert.ok(at > 0, `{#${id}} の節が無い`); const end = text.indexOf('\n## ', at); return text.slice(at, end > 0 ? end : text.length); };
+  const L = require('../tools/lib/help-labels');
+  const labels = L.appLabelText(ROOT);
+  // ログインする
+  const login = art('start/login');
+  const ask = sec(login, 'ask');
+  for (const w of ['自動で開', '起動', '会議', '音声入力', '×', '起動し直すまで', 'オフライン', 'オフラインモード', '録音の途中', '帯']) assert.ok(ask.includes(w), `{#ask} の節に「${w}」が無い`);
+  assert.ok(!login.includes('押したときだけ開きます'), '「押したときだけ開きます」が残っている');
+  assert.match(sec(login, 'notes'), /録音中にログインが切れても、窓は勝手に開きません/);
+  // 会議の検出
+  const md = art('record/meeting-detect');
+  const head = md.slice(0, md.indexOf('\n## '));
+  assert.ok(/description: [^\n]*画面の下の中央/.test(head), 'description が「画面の下の中央」でない');
+  assert.ok(head.includes('画面の下の中央'), '頭の文が「画面の下の中央」でない');
+  assert.ok(!md.includes('右上'), '「右上」が残っている');
+  assert.ok(md.includes('上に開きます'), '⌄ のメニューが上に開くことが書いていない');
+  // 帯ごとの対処: ボタンのある帯の表の頭の行
+  const rows = [...sec(art('trouble/banners'), 'with-button').matchAll(/^\| ([^|]+) \| ([^|]+) \|$/gm)].map((m) => [m[1].trim(), m[2].trim()]).filter((r) => !/^(帯の文|---)/.test(r[0]));
+  assert.ok(rows[0][0].startsWith('ログインしていないため PC で文字起こししています。'), `表の頭の行: ${rows[0][0]}`);
+  assert.ok(rows[0][1].includes('［ログイン］'), rows[0][1]);
+  // 文字起こしが遅い・文字起こしが止まる・文字起こしの状態と帯
+  const after = sec(art('trouble/slow-pc'), 'after');
+  for (const w of ['ログインしていて', 'クラウド', '［もう一度文字起こし］', '残り', '音声入力']) assert.ok(after.includes(w), `『会議が終わった後』に「${w}」が無い`);
+  const stops = art('trouble/transcription-stops');
+  for (const w of ['［もう一度文字起こし］', '残り']) assert.ok(stops.includes(w), `『文字起こしが止まる』に「${w}」が無い`);
+  const status = sec(art('record/status-line'), 'banner');
+  assert.ok(status.includes('ログインしていないため PC で文字起こししています。'), '『帯』の節に no-login の帯が無い');
+  assert.ok(status.includes('いちばん先'), 'ログインに関わる帯がいちばん先に出ることが書いていない');
+  for (const rel of ['start/login', 'record/meeting-detect', 'trouble/banners', 'trouble/slow-pc', 'trouble/transcription-stops', 'record/status-line']) {
+    assert.deepStrictEqual(L.missingLabels(art(rel), labels), [], `${rel} の［…］にアプリに無い言葉`);
+    assert.match(art(rel), /\nupdated: 2026-10-28\n/, `${rel} の updated`);
+  }
+});
