@@ -556,6 +556,52 @@ test('NE-4b・EQ19 (a): Ctrl+Alt+T → blockSetOpenAll の1回（1つでも閉�
   } finally { l.done(); }
 });
 
+// 2026-10-28 の独立した点検 1・3（作り手が決めた。計画の Ruling NR39）: ▸ と Ctrl+Alt+T は、送る前に行の文を全部保存し（flushEdits と同じ）、
+// 隠れた行にあったフォーカスは、見えているいちばん近い先祖の行（閉じたトグル）の終わりへ移す
+const findB = (bs, id) => BT.locate(bs, id) && BT.locate(bs, id).b;
+test('NE-4b（点検 1）: 子の行に打った文は、▸ でトグルを閉じても消えない（blockSetOpen の前に blockUpdate）。隠れた行にあったフォーカスはトグルの行の終わりへ。開き直すと打った文がある', T, async () => {
+  const l = await openReal({ pa1: TOG() });
+  try {
+    const t = atEnd(l, 'u1');
+    t.textContent += '追記した文';
+    l.caret.set(t, t.textContent.length);
+    caretBtn(l, 'u').onclick();
+    await l.drain();
+    assert.deepStrictEqual(sent(l), [['blockUpdate', 'pa1', 'u1', { text: 'u1の文追記した文' }], ['blockSetOpen', 'pa1', 'u', false]], '閉じる前に子の行の文を保存しない');
+    assert.strictEqual(findB(l.page().blocks, 'u1').text, 'u1の文追記した文');
+    assert.ok(!ids(l).includes('u1'));
+    assert.ok(l.document.activeElement === txtOf(l, 'u'), '隠れた行のフォーカスがトグルの行へ移らない');   // 偽の DOM の要素を比べの文に出さない（大きすぎて答えが返らない）
+    assert.deepStrictEqual(l.caret.get(txtOf(l, 'u')), [4, 4]);
+    caretBtn(l, 'u').onclick();
+    await l.drain();
+    assert.strictEqual(txtOf(l, 'u1').textContent, 'u1の文追記した文', '開き直すと打った文が無い');
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+test('NE-4b（点検 1・3）: Ctrl+Alt+T で全部閉じても、閉じたトグルの中で打った文は消えない（blockSetOpenAll の前に blockUpdate）。隠れた行にあったフォーカスは見えているいちばん近い先祖の行へ', T, async () => {
+  const blocks = TOG();
+  blocks[2].children[0].children = [kid('u11')];   // u > u1 > u11（u1 は箇条書き。閉じると u1 も u11 も隠れる）
+  const l = await openReal({ pa1: blocks });
+  try {
+    press(l, atEnd(l, 'x'), 't', { ctrlKey: true, altKey: true, code: 'KeyT' });
+    await l.drain();
+    assert.deepStrictEqual(ids(l), ['h1', 't', 't1', 't2', 'u', 'u1', 'u11', 'x', 'e']);
+    l.calls.length = 0;
+    const t = atEnd(l, 'u11');
+    t.textContent += 'を直した';
+    l.caret.set(t, t.textContent.length);
+    press(l, t, 't', { ctrlKey: true, altKey: true, code: 'KeyT' });
+    await l.drain();
+    assert.deepStrictEqual(sent(l), [['blockUpdate', 'pa1', 'u11', { text: 'u11の文を直した' }], ['blockSetOpenAll', 'pa1', false]]);
+    assert.strictEqual(findB(l.page().blocks, 'u11').text, 'u11の文を直した');
+    assert.deepStrictEqual(ids(l), ['h1', 't', 'u', 'x', 'e']);
+    assert.ok(l.document.activeElement === txtOf(l, 'u'), 'Ctrl+Alt+T で隠れた行のフォーカスが見えている先祖へ移らない');
+    assert.deepStrictEqual(l.caret.get(txtOf(l, 'u')), [4, 4]);
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
 test('NE-4b・NR14: ▸ を押しても curPage.summaryEdited は付かず、［要約を再生成］で確かめが出ない（ほかに直していない要約のとき）', T, async () => {
   const ai = [{ id: 'h1', type: 'heading', level: 2, text: '決定事項', toggle: true, open: false, children: [{ id: 'b1', type: 'bullet', text: '来週に出す', cites: ['s2'], citeState: 'linked' }] }];
   const l = await openReal({ pa1: ai }, { returns: { pageSummarize: () => ({ ok: true, stat: { linked: 1, total: 1 } }) } });

@@ -1115,6 +1115,8 @@ const IDS_131 = [
   'edn-open-only', 'edn-open-lock', 'edn-peek', 'edn-divider-kids', 'edn-kids-out', 'edn-ai-head-top',
   'edn-toggle-default',
   'edn-ai-head-toggle',
+  'edn-open-flush',
+  'edn-open-focus',
 ];
 test('G3・0.13.1: 0.13.1 の変異が一覧にそろい、IDS_131 はどれも計画の「変異確認」の表にある。edn- の変異は IDS_131 にある。どれも決まったテストのファイルを持ち、why が 0.13.1 で始まる', { timeout: 5000 }, () => {
   const byId = new Map(MUTANTS.map((m) => [m.id, m]));
@@ -1126,7 +1128,7 @@ test('G3・0.13.1: 0.13.1 の変異が一覧にそろい、IDS_131 はどれも�
   assert.ok(at > 0, '計画の「変異確認」の節が無い');
   const table = plan.slice(at, plan.indexOf('\n## ', at + 5));
   const rows = [...table.matchAll(/^\| (edn-[a-z0-9-]*) \|/gm)].map((m) => m[1]);
-  assert.strictEqual(rows.length, 38, '計画の 0.13.1 の表（edn- 38）が読めない');
+  assert.strictEqual(rows.length, 40, '計画の 0.13.1 の表（edn- 40）が読めない');
   assert.strictEqual(new Set(rows).size, rows.length, '計画の表に重なり');
   assert.deepStrictEqual(IDS_131.filter((id) => !rows.includes(id)), [], '計画の「変異確認」の表に無い変異');
   for (const id of IDS_131) {
@@ -1135,12 +1137,12 @@ test('G3・0.13.1: 0.13.1 の変異が一覧にそろい、IDS_131 はどれも�
     assert.ok(typeof m.why === 'string' && m.why.startsWith('0.13.1 '), `${id}: why`);
   }
 });
-// 0.13.1 NE-5（計画の「変異確認」の IDS_131 の決まり）: 作りながら足した IDS_131 は、計画の表の edn- の id とちょうど同じ（行の順・38）
+// 0.13.1 NE-5（計画の「変異確認」の IDS_131 の決まり）: 作りながら足した IDS_131 は、計画の表の edn- の id とちょうど同じ（行の順・40）
 test('NE-5・G3・0.13.1: IDS_131 は計画の「変異確認」の edn- の表とちょうど同じ（行の順）', { timeout: 5000 }, () => {
   const plan = fs.readFileSync(path.join(ROOT, 'docs', 'plans', '2026-10-27-131.md'), 'utf8');
   const at = plan.search(/^## 変異確認（直しを1つ戻すと/m);
   const table = plan.slice(at, plan.indexOf('\n## ', at + 5));
   const rows = [...table.matchAll(/^\| (edn-[a-z0-9-]*) \|/gm)].map((m) => m[1]);
   assert.deepStrictEqual(IDS_131, rows);
-  assert.strictEqual(IDS_131.length, 38);
+  assert.strictEqual(IDS_131.length, 40);
 });

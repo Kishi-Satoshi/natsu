@@ -3442,8 +3442,9 @@
     const wasAt = new Map(oldRows.map((r) => [r.b.id, `${r.depth}|${r.parentId || ''}`]));
     const regrown = newRows.some((r) => wasAt.has(r.b.id) && wasAt.get(r.b.id) !== `${r.depth}|${r.parentId || ''}`);
     // 鍵・空の欄・節が変わる操作（並びが動く）は欄全体を描き直す（0.11.0 の並べ替えて見せる要約）
+    const shown = new Set(newRows.map((r) => r.b.id));
     if (lock || !oldView.length || !newView.length || rows.size !== oldView.length || regrown || plan.some((o) => o.op === 'move')) {
-      const keep = where || (focused ? { focus: focused.dataset.id, caret: (caretRange(focused._txt) || [0])[0] } : null);
+      const keep = liftFocus(blocks, shown, where || (focused ? { focus: focused.dataset.id, caret: (caretRange(focused._txt) || [0])[0] } : null));
       renderBlocks();
       if (keep) focusRow(keep.focus, keep.caret);
       return;
@@ -3470,7 +3471,16 @@
     }
     for (const e of [...box.querySelectorAll('.blk')]) if (byId.has(e.dataset.id)) e._b = byId.get(e.dataset.id);
     renumberRows();
-    if (where) focusRow(where.focus, where.caret);
+    const keep = liftFocus(blocks, shown, where || (focused && !shown.has(focused.dataset.id) ? { focus: focused.dataset.id } : null));
+    if (keep) focusRow(keep.focus, keep.caret);
+  }
+  // 2026-10-28 の点検 1・3（計画の Ruling NR39）: フォーカスを置く行が閉じたトグルの中で隠れたら、見えているいちばん近い先祖の行（閉じたトグル）の終わりへ
+  function liftFocus(blocks, shown, w) {
+    if (!w || shown.has(w.focus)) return w;
+    for (let l = locate(blocks, w.focus); l && l.parent; l = locate(blocks, l.parent.id)) {
+      if (shown.has(l.parent.id)) return { focus: l.parent.id, caret: String(l.parent.text ?? '').length };
+    }
+    return w;
   }
   function focusRow(id, caret) {
     const el = editRows().find((e) => e.dataset.id === id);
@@ -3506,13 +3516,18 @@
     }
     return opened;
   }
+  // 2026-10-28 の点検 1（計画の Ruling NR39）: 開け閉めの前に、要約の欄の行の文を全部保存する（flushEdits と同じ。閉じて隠れる子の行に打った文を落とさない）
+  async function commitRows(pid) {
+    const all = [...$('pNote').querySelectorAll('.blk .txt')].filter((t) => typeof t._commit === 'function');
+    await Promise.all(all.map(async (t) => { try { await t._commit(pid); } catch (_) { /* 保存の失敗は _commit の答えで知らせる */ } }));
+  }
   // ▸ と Ctrl+Enter（決めたこと 18・28）: 見えている形の逆を blockSetOpen で書き、画面だけの開け閉めを消す。鍵の間は画面だけ（NR16）
   async function toggleRow(el, keep) {
     const pid = curId; const b = el._b;
     const now = openView(b);
     if (el.dataset.locked === '1') { peekOpen.set(b.id, !now); renderBlocks(); return null; }   // NR16: 鍵の間は DB が断るので画面だけ
     peekOpen.delete(b.id);
-    try { await el._txt._commit(pid); } catch (_) { /* 保存の失敗は _commit の答えで知らせる */ }
+    await commitRows(pid);   // 点検 1: 子の行に打った文も（▸ はフォーカスを子の行に残す）
     return editAnswer(pid, () => window.koeApp.blockSetOpen(pid, b.id, !now), () => keep || null);
   }
   // 見えている行の並び → [{ b, depth, parentId }]（最上位は orderForView の順・子は親のすぐ後ろに保存の順・閉じたトグルの子は描かない: NR15）
@@ -4035,8 +4050,8 @@
       if (!all.length) return null;
       const open = all.some((x) => !openView(x));
       peekOpen = new Map();
-      try { await txt._commit(pid); } catch (_) { /* 保存の失敗は _commit の答えで知らせる */ }
-      return editAnswer(pid, () => window.koeApp.blockSetOpenAll(pid, open), () => ({ focus: b.id, caret }));
+      await commitRows(pid);   // 点検 1: 行の文を全部（閉じて隠れる行の文も）
+      return editAnswer(pid, () => window.koeApp.blockSetOpenAll(pid, open), () => ({ focus: b.id, caret }));   // 隠れた行のフォーカスは liftFocus が先祖へ（点検 3）
     }
     try { await txt._commit(pid); } catch (_) { /* 保存の失敗は _commit の答えで知らせる */ }
     if (act === 'duplicate') return editAnswer(pid, () => window.koeApp.blockDuplicate(pid, b.id), (x) => ({ focus: x.blockId, caret }));
