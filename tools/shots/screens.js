@@ -582,6 +582,8 @@ function nestedAnswers() {
   const m = (id, type, text, o = {}) => ({ id, type, text, citeState: 'manual', cites: [], ...o });
   const blocks = [
     m('n1', 'heading', '進め方を決めた', { level: 2 }),
+    // 2026-10-28 の点検 2（計画の Ruling NR46）: 段 0 の ToDo（担当・期限の札つき）も拡大 200% で文が細くならないかを見る
+    m('n0', 'todo', '見積書を月末までに先方へ送る', { checked: false, assignee: '佐藤', due: '2026-10-31', dueRaw: '月末' }),
     m('n2', 'bullet', '受注の画面は11月15日に出す。', { children: [
       m('n3', 'bullet', '結合の試験は今週で終わった。', { children: [
         m('n4', 'todo', '残りの不具合2件の直しを確かめる', { checked: false, assignee: '山田', due: '2026-10-14', dueRaw: '10月14日' }),

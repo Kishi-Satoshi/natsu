@@ -517,7 +517,9 @@
      auto で本当の高さを覚える）。描くのを省く仕組みは中身を枠で切るので、ボタンの Tab の輪（線 2px＋離れ 2px）が切れないよう切る線を 8px 外へ出す */
   .blk { content-visibility: auto; contain-intrinsic-size: auto 30px; overflow-clip-margin: 8px; }
   /* 0.13.1 NE-4a（NR15）: 入れ子の行は平らな行の並びのまま、段ごとに左の余白 24px（＋・⠿・文の並びは段を変えても同じ） */
-  #pNote .blk { --depth: 0; --dropx: 0px; margin-left: calc(var(--depth, 0) * 24px); }   /* .blk.callout の margin より強く。--depth は行ごとに描くときに置く */
+  #pNote .blk { --depth: 0; --dropx: 0px; margin-left: min(calc(var(--depth, 0) * 24px), 40%); flex-wrap: wrap; justify-content: flex-end; }   /* .blk.callout の margin より強く。--depth は行ごとに描くときに置く */
+  /* 2026-10-28 の点検 2（計画の Ruling NR46）: 拡大 200% の狭い窓で入れ子の ToDo の文が1字ずつに折れた。文の欄（.txt）は 6em より細くせず、入らない担当・期限・
+     出典の札と ✕ は下の行へ折り返す（文の欄は伸びるので1行目は今のまま。札だけの2行目は右に寄せ、1行目の札と同じ側に置く）。深い段の左の余白は欄の幅の 40% まで */
   /* 点字の6点(U+283F)を使う。「⋮⋮」を字間で詰める方法は環境によって
      3点に見えていた。 */
   .blk .grip { opacity: 0; flex: none; cursor: grab; color: var(--muted); user-select: none;
@@ -544,7 +546,7 @@
   .blk .tog.open { transform: rotate(90deg); }
   .blk.heading .tog { align-self: center; }   /* 点検 B: 見出しの行でも押せる所は 24×24px のまま、行の真ん中に */
   .blk .bullet { color: var(--muted); flex: none; width: 24px; text-align: center; line-height: 24px; user-select: none; }
-  .blk .txt { flex: 1; font-size: 16px; line-height: 24px; outline: none; border-radius: 4px; padding: 0 2px; min-width: 0;
+  .blk .txt { flex: 1; font-size: 16px; line-height: 24px; outline: none; border-radius: 4px; padding: 0 2px; min-width: 6em;
     word-break: break-word; white-space: pre-wrap; }   /* 0.13.0 ED-4（決めたこと 16）: Shift+Enter の行の中の改行を見せる */
   .blk .txt:hover { background: var(--hover); }
   .blk .txt:focus { background: var(--hover); }

@@ -179,7 +179,7 @@ test('NE-4a: 子のある要約を開くと、子は親のすぐ後ろに data-d
     assert.strictEqual(rowOf(l, 'a').dataset.parent, '');
     assert.strictEqual(rowOf(l, 'a21').style.getPropertyValue('--depth'), '2');
     assert.strictEqual(rowOf(l, 'a').style.getPropertyValue('--depth'), '0');
-    assert.match(HTML, /\.blk \{[^}]*margin-left: calc\(var\(--depth, 0\) \* 24px\)/, '段ごとの左の余白（24px）が無い');
+    assert.match(HTML, /\.blk \{[^}]*margin-left: min\(calc\(var\(--depth, 0\) \* 24px\), 40%\)/, '段ごとの左の余白（24px）が無い');   // 点検 2（NR46）で欄の 40% の上限を足した（意図して変えたテスト）
     const num = (id) => rowOf(l, id).querySelector('.num').textContent;
     assert.deepStrictEqual(['n1', 'm1', 'm2', 'n2'].map(num), ['1.', '1.', '2.', '2.'], '番号を親ごとに数えない（F50）');
     assert.deepStrictEqual(l.errors.map(fmt), []);
@@ -557,6 +557,17 @@ test('NE-4b（点検 B）: ▸ は押せる所が幅 24px・高さ 24px で、�
     }
     assert.deepStrictEqual(l.errors.map(fmt), []);
   } finally { l.done(); }
+});
+
+// 2026-10-28 の独立した点検 2（作り手が決めた。計画の Ruling NR46）: 拡大 200% で入れ子の ToDo の文が1字ずつに折れた（edit-nested-zoom200-light）。
+// 文の欄は 6em より細くせず、入らない担当・期限・出典の札は行の下（右寄せ）へ折り返す。深い段の左の余白は欄の幅の 40% まで
+test('NE-4a（点検 2）: 要約の行の文は 6em より細くならず、入らない札は下の行へ右寄せで折り返す。段の左の余白は欄の 40% まで（拡大 200% の狭い窓）', () => {
+  assert.match(cssRule('.blk .txt'), /min-width: 6em;/, '文の欄が細くなる（1字ずつ折れる）');
+  const row = cssRule('#pNote .blk');
+  assert.match(row, /flex-wrap: wrap;/, '入らない札が下へ折り返さない');
+  assert.match(row, /justify-content: flex-end;/, '折り返した札が右に寄らない');
+  assert.match(row, /margin-left: min\(calc\(var\(--depth, 0\) \* 24px\), 40%\);/, '深い段の左の余白に上限が無い');
+  assert.match(cssRule('.blk .txt'), /flex: 1;/, '文の欄が伸びない（折り返した行の頭が右に寄る）');
 });
 
 test('NE-4b・EQ19 (a): Ctrl+Alt+T → blockSetOpenAll の1回（1つでも閉じていれば open: true、全部開いていれば false）。トグルが無ければ何も呼ばない', T, async () => {

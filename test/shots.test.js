@@ -991,7 +991,8 @@ test('基準の画像（test/shots/win32）は今の app.html で撮ったもの
   // 2026-10-28 の点検 1・3（作り手が決めた。計画の Ruling NR39）: ▸ と Ctrl+Alt+T の前に行の文を全部保存し（commitRows）、隠れた行のフォーカスを見えている先祖の行へ（liftFocus。<script> の中だけ。撮る画面は変わらない）。値を今の app.html に合わせた（前の値は 94bb2482…）
   // 2026-10-28 の点検 4（作り手が決めた。計画の Ruling NR40）: ［コピー］の blocksMarkdown の写しで入れ子の見出しを下げず、見出しの後の行は見出しの段から数え直す（<script> の中だけ。撮る画面は変わらない）。値を今の app.html に合わせた（前の値は 9d461b3c…）
   // 2026-10-28 の持ち主の答え 点検 B（「少し大きくする（おすすめ）」。計画の Ruling NR45）: トグルの ▸ を 24×24px・印を 16px の線の山形の SVG にした（.blk .tog の CSS と描き方）。変わる画面は NEW_131 の edit-toggle-light（もう取り直し待ち）。値を今の app.html に合わせた（前の値は 15182773…）
-  assert.strictEqual(sha, 'cc24951e2e2fbcad5d0796eba8f2ae423411e8aa7092aa821f7315f11b0dadb7',
+  // 2026-10-28 の点検 2（作り手が決めた。計画の Ruling NR46）: 要約の行の文の欄を 6em より細くせず（.blk .txt の min-width）、入らない札は下の行へ右寄せで折り返し（#pNote .blk の flex-wrap・justify-content）、段の左の余白は欄の 40% まで。札が入る幅の行は変わらない見込みで、変わる画面は NEW_131 の入れ子の3枚（もう取り直し待ち）。値を今の app.html に合わせた（前の値は cc24951e…）
+  assert.strictEqual(sha, '753aa2edb67f32df9880972b81609061b0165d57e71c3c893884e24da6ab28f7',
     'app.html が基準の画像を撮った時と違う。Windows の CI の画面の比べ（捲り棒のつまみも）を見て、基準を取り直してからこの値を直す');
 });
 
