@@ -2010,6 +2010,15 @@ function afterEtaMin({ audioMs, rtf } = {}) {
   const k = Math.max(Number.isFinite(rtf) ? rtf : 1, 1);
   return Math.ceil(Math.round(a * k) / 60000);
 }
+// 0.13.2 LN-2（PQ4「音声が残っている行すべて」・LR10）: 文字起こし待ちの待ち行列の残りの区間の数。音声の残っている区間の全部を数える
+// （文字起こし待ち・失敗した区間・止まった区間・3回失敗して自動では試さなくなった区間 held も）。音声の無い区間は数えない。
+// hasAudio は音声があるかの見方（main はファイルがあるかで見る。既定は wav の名前があるか）
+const hasWavName = (it) => Boolean(it && typeof it === 'object' && typeof it.wav === 'string' && it.wav);
+/** (items, hasAudio?) → 数 */
+function pendingLeft(items, hasAudio = hasWavName) {
+  if (!Array.isArray(items)) return 0;
+  return items.filter((it) => hasWavName(it) && hasAudio(it)).length;
+}
 // 中継の 5xx（server）が続いたら間を空ける（問い Q8 の既定）。2回続いたら 60 秒、その後も続けば 120・300・600 秒（上限）。
 // クラウドで文字になった（code: 'ok'）ら 0 に戻す。server でない符号は数えない（続きも切らない）
 const RELAY_HOLD_LADDER_MS = Object.freeze([60000, 120000, 300000, 600000]);
@@ -2301,7 +2310,7 @@ module.exports = {
   NUDGE_EDGE, NUDGE_PAD, NUDGE_FIRST, nudgeBounds, LEVEL_ASK_MS, LEVEL_WARNS, levelMsg,
   LEVEL_BAR_W, LEVEL_BAR_SPEED, LEVEL_BAR_PHASE, levelBars,
   // 0.9.4 S-1（文字起こしの安定化）
-  localFailKind, effRtf, PACE, paceStep, paceSaved, localTimeoutMs, LOCAL_SEGMENT_MS_CAP, afterEtaMin, RELAY_TRANSIENT, RELAY_HOLD_LADDER_MS, relayHoldStep,
+  localFailKind, effRtf, PACE, paceStep, paceSaved, localTimeoutMs, LOCAL_SEGMENT_MS_CAP, afterEtaMin, pendingLeft, RELAY_TRANSIENT, RELAY_HOLD_LADDER_MS, relayHoldStep,
   // 0.12.0 SP-1（2つの流れの文字起こし。timeline.js の表と部品を出し直す）
   VOICE_LEVEL, FRAME_MAX_MS, PAUSE_CUT_MS, LONG_PAUSE_MS, MIN_SEG_MS, IDLE_CUT_MS, PRE_ROLL_MS, BLEED_SHARE, BLEED_NEAR_MS,
   checkLevel, checkSegMeta, vadStart, vadStep, vadSummary, wavFrom, segAtOf, clockOf, partsOf, bleedOf, quietUnion, stallStepMs,

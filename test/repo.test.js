@@ -267,7 +267,8 @@ test('公開したのに画面から呼ばれない API がない', () => {
   // 画面の行の編集（ED-4・ED-6）が呼び始めたら外す。blockSplit・blockMerge・blockTurnInto は ED-4 が、blockDuplicate は ED-6 が呼び始めたので外して空に戻した
   // 0.13.1 NE-2（計画 docs/plans/2026-10-27-131.md の「意図して変えるテスト」）で足した字下げとトグルの開け閉めの3つは、blockIndent は NE-4a（Tab と Shift+Tab）が、
   // blockSetOpen・blockSetOpenAll は NE-4b（▸・Ctrl+Enter・Ctrl+Alt+T）が呼び始めたので外して空に戻した
-  const PENDING_APP = new Set([]);
+  // 0.13.2 LN-2（計画 docs/plans/2026-10-28-132.md）で足した onPagePending（文字起こし待ちの残りの区間の数）は、議事録のページの1行（LN-5）が呼び始めたら外す
+  const PENDING_APP = new Set(['onPagePending']);
   for (const [ns, html] of [['koeApp', appHtml], ['koeOverlay', overlayHtml]]) {
     const names = all(/^\s{2}([A-Za-z][\w$]*):/gm, block(ns));
     const used = new Set(all(new RegExp(`${ns}\\.(\\w+)`, 'g'), html));

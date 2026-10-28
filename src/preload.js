@@ -280,5 +280,7 @@ contextBridge.exposeInMainWorld('koeApp', {
     else if (v && typeof v === 'object' && typeof v.id === 'string') cb(v.id, { saved: v.saved === true });
   }),
   onPageUpdated: (cb) => ipcRenderer.on('page:updated', (_e, p) => cb(p)),
+  // 0.13.2 LN-2（計画 docs/plans/2026-10-28-132.md の LR10）: 文字起こし待ちの残りの区間の数（main が区間を1つ片付けるたびに送る { id, left, running }）
+  onPagePending: (cb) => ipcRenderer.on('page:pending', (_e, p) => cb(p)),
   onEngineFetchProgress: (cb) => ipcRenderer.on('engine:fetch-progress', (_e, s) => cb(s)),
 });

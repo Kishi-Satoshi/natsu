@@ -1175,6 +1175,7 @@ async function verifyManagedAtStartup() {
   if (v.bad.length) engineLog(`取り込んだエンジンの照らし: 合わない ${v.bad.map((b) => `${b.file}（${b.why}）`).join('、')}`);
   restartEnginesIfNeeded();
   // 起動のときの復旧の文字起こしは、照らし終わる前に「確かめています」で保留になる。使えるようになった今もう一度試す
+  recoveryTriggerAsk = 'engine';   // 0.13.2 LN-2（LR11）
   if (recoveryQueue && managed.whisper && !manualGroup(whisperEng)) transcribeRecovered().catch((e) => engineLog(`復旧の文字起こしに失敗: ${logReason(e)}`));
   onManagedVerified(v);   // 壊れていた組の案内と取り直し（Task 14）
   // 画面へ今の写しを送る。起動のときに「確かめています」を聞いた画面は、確かめ終えた（checking が偽の）この知らせで
@@ -1335,6 +1336,7 @@ async function applyManagedWhenIdle() {
     if (gotWhisper && !manualGroup(whisperEng)) {
       sendToMainWin('app:notice', '文字起こしが使えるようになりました。');
       // 前にエンジンが無くて残した文字起こし待ちの音声を、今のエンジンで片付ける
+      recoveryTriggerAsk = 'engine';   // 0.13.2 LN-2（LR11）
       if (recoveryQueue) transcribeRecovered().catch((e) => engineLog(`復旧の文字起こしに失敗: ${logReason(e)}`));
     }
     repairManaged(cands, checked);
@@ -1920,6 +1922,7 @@ async function finishAccessLogin() {
   setAccountEmail(me.email);
   online.forget(relay.relayProvider().reachUrl);
   clearLoginProblem();
+  keptTriggerAsk = 'login';   // 0.13.2 LN-2（LR11）
   retryKeptWhenBack();   // 第1d2回 M-3: ログインしたら、見回りを待たずに残した音声を文字起こしする（待たない。投げない）
   return { ok: true, email: me.email };
 }
@@ -2595,8 +2598,9 @@ async function transcribeRouted(wav, tail, durationMs, opts, scope, what) {
   }
 }
 // 復旧の前: q.localOnly でなく、クラウドで処理できるなら true（エンジンを起こさない。知らせは出さない）
-// 0.9.4 S-4F（持ち主の答え Q14「PC で文字起こし」）: 遅い会議の待ち行列（slow）は、オフラインモードの会議と同じく PC だけで文字起こしする
-const recoveryPcOnly = (q) => Boolean(q && (q.localOnly || q.slow));
+// 0.9.4 S-4F（持ち主の答え Q14「PC で文字起こし」）は遅い会議の待ち行列（slow）も PC だけにしていたが、0.13.2 LN-2（持ち主の答え LA3「ログインしていれば
+// クラウドで」）で改めた: PC だけなのはオフラインモードの会議（localOnly。RF47）だけ。遅い会議の待ち行列は、ログインしていてつながればクラウドで文字にする
+const recoveryPcOnly = (q) => Boolean(q && q.localOnly);
 async function recoveryCloudReady(q) {
   if (!q || recoveryPcOnly(q)) return false;
   try {
@@ -3679,6 +3683,14 @@ function cancelRecording() {
   syncEscapeHotkey();
   sendToOverlay('overlay:cancel', {});
   updateTray();
+  resumeRecoveryAfterDictation();
+}
+// 0.13.2 LN-2（決めたこと 7）: 音声入力が終わって待機に戻ったら、録音中（busy）で止めた会議の後の文字起こしを回し直す（会議の終わりの締めと同じ。
+// 次の会議の終わりを待たない）。音声入力の終わりの3か所（貼った・誤りで終えた・取り消した）から呼ぶ
+function resumeRecoveryAfterDictation() {
+  if (meeting || state !== 'idle') return;
+  recoveryTriggerAsk = 'dictation-end';
+  if (recoveryQueue) transcribeRecovered().catch((e) => engineLog(`復旧の文字起こしに失敗（音声入力の後）: ${logReason(e)}`));
 }
 function toggleRecording() {
   if (state === 'idle') startRecording();
@@ -3718,6 +3730,7 @@ async function handleDictationAudio(buffer, durationMs) {
     sendToOverlay('overlay:phase', { phase: 'done', message: preview, procSec: (procMs / 1000).toFixed(1) });
     setTimeout(hideOverlayIfIdle, 1500);
     state = 'idle'; updateTray();
+    resumeRecoveryAfterDictation();
   } catch (e) {
     if (keepsDictation(e)) { await keepDictation(buffer, durationMs, e); return; }
     finishWithError(e.message || '不明なエラー');
@@ -3878,6 +3891,7 @@ function finishWithError(message) {
   state = 'idle'; syncEscapeHotkey(); updateTray();
   sendToOverlay('overlay:phase', { phase: 'error', message });
   setTimeout(hideOverlayIfIdle, 3000);
+  resumeRecoveryAfterDictation();
 }
 function hideOverlayIfIdle() {
   if (state === 'idle' && overlayWin && !overlayWin.isDestroyed()) overlayWin.hide();
@@ -4498,6 +4512,7 @@ async function retryDraftRecovery() {
         engineLog(`文字起こし待ちの記録を読み直しました（${q.items.length} 件）`);
       }
     }
+    recoveryTriggerAsk = 'draft';   // 0.13.2 LN-2（LR11）
     if (recoveryQueue) transcribeRecovered().catch((e) => engineLog(`復旧の文字起こしに失敗: ${logReason(e)}`));
   } catch (e) {
     engineLog(`下書きのやり直しに失敗: ${errCode(e)}`);
@@ -4703,6 +4718,20 @@ const recoveryHoldNoted = new Map();
 // 第1d2回 M-3: 見回りとログインの直後は、クラウドで送れる待ち行列だけを回す（手元のエンジンを起こさない: RF49）。transcribeRecovered は
 // 始めに（await の前に）この頼みを読んで下ろす（引数の無い形は repo・stage2a1 のテストが字面で固定している）
 let recoveryCloudOnlyAsk = false;
+// 0.13.2 LN-2（LR11。持ち主の試作の「状態が変わった引き金を残す」）: 待ち行列を回し始めた引き金の符号（boot・login・button・patrol・meeting-end・dictation-end・
+// settings・engine・draft）。呼ぶ側がこの頼みを置いてから transcribeRecovered を呼び、transcribeRecovered が始めに読んで下ろす（引数の無い形は上と同じ理由で残す）。
+// 回し始めたら engine.log に1行（見回りが続けて回すときは書き直さない: 毎分書かない）
+let recoveryTriggerAsk = '';
+let recoveryTriggerNoted = '';
+function noteRecoveryTrigger(trigger) {
+  if (trigger === 'patrol' && recoveryTriggerNoted === 'patrol') return;
+  recoveryTriggerNoted = trigger;
+  engineLog(`文字起こし待ち: 始めた（${trigger}）`);
+}
+// 0.13.2 LN-2（LR10）: 待ち行列の残りの区間の数を画面へ（音声の残っている区間の全部: PQ4。running は回している途中か）
+function sendRecoveryPending(pageId, items, running) {
+  sendToMainWin('page:pending', { id: pageId, left: lib.pendingLeft(items, (it) => fs.existsSync(it.wav)), running: Boolean(running) });
+}
 function transcribeRecoveredCloud() {
   if (recoveryRunning) return Promise.resolve();
   recoveryCloudOnlyAsk = true;
@@ -4712,10 +4741,13 @@ function transcribeRecoveredCloud() {
 async function transcribeRecovered() {
   const cloudOnly = recoveryCloudOnlyAsk;
   recoveryCloudOnlyAsk = false;
+  const trigger = recoveryTriggerAsk || 'other';
+  recoveryTriggerAsk = '';
   if (recoveryRunning) return;
   let q = recoveryQueue;
   if (!q) return;
   recoveryRunning = true;
+  noteRecoveryTrigger(trigger);
   updateTray();   // 復旧中は「手が塞がっている」（isBusy）。トレイの有効／無効を追随させる
   recoverySkip = new Set();
   let held = null;
@@ -4798,7 +4830,12 @@ async function transcribeRecoveredItems(q, { cloudOnly = false } = {}) {
   let done = 0;
   const left = [];   // エンジンが誤りを返して残した区間と held の区間
   const stopAt = (i) => left.concat(q.items.slice(i)).filter((it) => it && it.wav && fs.existsSync(it.wav));
+  // 0.13.2 LN-2（LR10。持ち主の試作の「1つの命令＝1つのトランザクション」）: 区間を1つ片付ける（文字にする・無音で消す・失敗の文を書く）たびに、
+  // 残りを recovery.json に書き直し（落ちても済んだ区間を送り直さない）、画面へ残りの数を送る（待ち行列の最後まで待たない）
+  let settled = false;
+  const progress = (i) => { const rest = stopAt(i); saveRecoveryQueue({ ...q, items: rest }); sendRecoveryPending(q.pageId, rest, true); };
   for (let i = 0; i < q.items.length; i++) {
+    if (settled) { settled = false; progress(i); }   // 0.13.2 LN-2（LR10）
     const item = q.items[i];
     let alive = null;
     try {
@@ -4807,6 +4844,7 @@ async function transcribeRecoveredItems(q, { cloudOnly = false } = {}) {
       // 読めなかった: 「消された」にしない。この区間から先の音声と待ち行列を残して止める（F12）
       const rest = stopAt(i);
       engineLog(`復旧の文字起こしを止めました（理由: ${errCode(e)}）。残りの ${rest.length} 区間の音声と待ち行列は残します`);
+      sendRecoveryPending(q.pageId, rest, false);
       return { ...q, items: rest };
     }
     if (!alive) { unlinkQuiet(item.wav); continue; }   // ページが消された（DB が null と答えた）
@@ -4827,6 +4865,7 @@ async function transcribeRecoveredItems(q, { cloudOnly = false } = {}) {
         if (e && (e.keepForRetry || e.engineMissing || kind === 'late' || kind === 'down')) {
           const rest = stopAt(i);
           engineLog(`復旧の文字起こしを止めました（理由: ${e.cloudCode || (kind === 'late' || kind === 'down' ? kind : 'engine')}）。残りの ${rest.length} 区間の音声と待ち行列は残します`);
+          sendRecoveryPending(q.pageId, rest, false);
           return { ...q, items: rest };
         }
         err = (e && e.message) || '不明なエラー';
@@ -4840,6 +4879,7 @@ async function transcribeRecoveredItems(q, { cloudOnly = false } = {}) {
       const tries = (Number.isInteger(item.tries) && item.tries > 0 ? item.tries : 0) + 1;
       const held = tries >= RECOVERY_TRIES_MAX;
       await db.call('segment.fail', { pageId: q.pageId, segId: item.id, text: held ? `（この区間の認識に失敗: ${err}。音声は残してあります）` : `（この区間の認識に失敗: ${err}）` });
+      settled = true;
       left.push(held ? { ...item, tries, held: true } : { ...item, tries });
       continue;
     } else if (text) {
@@ -4853,7 +4893,9 @@ async function transcribeRecoveredItems(q, { cloudOnly = false } = {}) {
     }
     // 文字になった・無音だった区間の wav を消す
     unlinkQuiet(item.wav);
+    settled = true;
   }
+  if (settled) progress(q.items.length);
   let parked = null;
   if (left.length) {
     parked = { ...q, items: left, parked: true };
@@ -4865,6 +4907,7 @@ async function transcribeRecoveredItems(q, { cloudOnly = false } = {}) {
     try { fs.unlinkSync(path.join(q.dir, RECOVERY_FILE)); } catch (_) { /* noop */ }
     removeDirIfEmpty(q.dir);
   }
+  sendRecoveryPending(q.pageId, left, false);   // 0.13.2 LN-2（LR10）: 回し終えた（残りは失敗と held の区間）
   const cur = await db.call('page.get', { id: q.pageId });
   if (!cur) return parked;
   // 第1d2回 M-3（決めたこと 7）: 締めで要約を待たせた会議（要約の欄が S3・S3'）は、文字になった区間があれば R1 を出して要約を作る（待たない。
@@ -4908,7 +4951,11 @@ const savedQueueCount = () => {
   try { names = fs.readdirSync(segbufRoot()); } catch (_) { return 0; }
   return names.filter((n) => fs.existsSync(path.join(segbufRoot(), n, RECOVERY_FILE))).length;
 };
+// 0.13.2 LN-2（LR11）: ログインの直後に呼ぶときは、引き金の頼み keptTriggerAsk に login を置く（setInterval からは何も置かない: patrol）
+let keptTriggerAsk = '';
 async function retryKeptWhenBack() {
+  const trigger = keptTriggerAsk || 'patrol';
+  keptTriggerAsk = '';
   try { await retrySummaryWaits(); } catch (e) { engineLog(`要約待ちの見回りに失敗: ${logReason(e)}`); }
   try {
     let why = 'ok';
@@ -4926,6 +4973,7 @@ async function retryKeptWhenBack() {
     }
     if (why !== 'ok') return;
     if (!recoveryQueue) recoveryQueue = loadSavedRecoveryQueue();
+    recoveryTriggerAsk = trigger;
     if (recoveryQueue) await transcribeRecoveredCloud();
     if (dicts > 0) await transcribeDictWaits();
   } catch (e) {
@@ -5624,6 +5672,7 @@ async function maybeFinalizeMeeting() {
   // 待ち行列が済んだら自動で要約する（transcribeRecoveredItems）
   if (keptWhy) engineLog('議事録を保存: 文字起こし待ちの区間があるので、要約は文字起こしが済んでから作ります');
   else await runSummary(page.id);
+  recoveryTriggerAsk = 'meeting-end';   // 0.13.2 LN-2（LR11）
   if (recoveryQueue) transcribeRecovered().catch((e) => engineLog(`retry failed: ${logReason(e)}`));
 }
 
@@ -6168,6 +6217,7 @@ function setupIpc() {
     applyTheme();
     if (!guard.kept.length) restartEnginesIfNeeded();
     // 保留していた復旧（エンジン未設定で止めていた分）を、設定が直った機会にもう一度試す
+    recoveryTriggerAsk = 'settings';   // 0.13.2 LN-2（LR11）
     if (recoveryQueue) transcribeRecovered().catch((e) => engineLog(`復旧の文字起こしに失敗: ${logReason(e)}`));
     if (settings.autoLaunch !== prevAutoLaunch) {
       try { app.setLoginItemSettings({ openAtLogin: settings.autoLaunch }); } catch (_) { /* noop */ }
@@ -6842,6 +6892,7 @@ function applyReloadedSettings(prev, next) {
   applyTheme();
   restartEnginesIfNeeded();
   // 保留していた復旧（起動のときは既定の設定でエンジンが無く止めていた分）を、本当の設定になった機会にもう一度試す
+  recoveryTriggerAsk = 'boot';   // 0.13.2 LN-2（LR11）
   if (recoveryQueue) transcribeRecovered().catch((e) => engineLog(`復旧の文字起こしに失敗: ${logReason(e)}`));
   if (next.autoLaunch !== prev.autoLaunch) {
     try { app.setLoginItemSettings({ openAtLogin: next.autoLaunch }); } catch (_) { /* noop */ }

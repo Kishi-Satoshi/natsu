@@ -306,15 +306,17 @@ test('S5: 遅い PC で中継の間が空いている間の区間は kept', T, a
 });
 
 // ---------------------------------------------------------------- S-4F（3回目の問答 Q14 の直し: 持ち主の答え「PC で文字起こし」）
-// 遅い会議で残した音声は、オフラインモードでない会議でも、会議の後に PC だけで文字起こしする（中継が使えてもクラウドへ送らない）
-test('S-4F: 遅い会議の待ち行列は、中継が使えても会議の後に PC で文字起こしする（偽の中継へは送らず、偽の PC のエンジンに届く）', T, async () => {
-  // 覚えから始めから遅い会議。中継に届かない（n: 一時の失敗）区間は PC に送らず残し、3つ目は中継で文字になる。会議の後も中継は答える（c）
+// 0.13.2 LN-2 で意図して変えた（持ち主の答え LA3「ログインしていればクラウドで（おすすめ）」。計画 docs/plans/2026-10-28-132.md の「意図して変えるテスト」）:
+// 遅い会議で残した音声は、ログインしていて中継が使えれば会議の後にクラウドで文字起こしする（PC へは送らない）。オフラインモードの遅い会議は PC だけ
+// （stage132.main の「LN-2・RF47」に分けた）
+test('S-4F: 遅い会議の待ち行列は、ログインしていて中継が使えれば会議の後にクラウドで文字起こしする（偽の中継に届き、偽の PC のエンジンへは送らない）', T, async () => {
+  // 覚えから始めから遅い会議。中継に届かない（n: 一時の失敗）区間は PC に送らず残し、3つ目は中継で文字になる。会議の後は中継が答える（c）
   const o = await run(['text', '--relay-seq=nnc', `--pace=${JSON.stringify({ schema: 1, model: 'same', rtf: 1.6, slow: true, at: 'now-1', from: 'live' })}`, '--wait-queue-empty'], { scale: '1' });
   for (const id of ['s1', 's2']) assert.ok(o.engineLog.some((l) => l.startsWith(`文字起こしの経路: 区間 ${id} → 遅い PC のため音声を残した（`)), o.engineLog.join('\n'));
   const after = o.afterQueue.log || [];
   for (const id of ['s1', 's2']) {
-    assert.ok(after.some((l) => new RegExp(`^文字起こしの経路: 復旧 ${id} → local`).test(l)), `会議の後に PC で文字起こししていない: ${after.join('\n')}`);
-    assert.ok(!after.some((l) => new RegExp(`^文字起こしの経路: 復旧 ${id} → cloud`).test(l)), `会議の後にクラウドへ送った: ${after.join('\n')}`);
+    assert.ok(after.some((l) => new RegExp(`^文字起こしの経路: 復旧 ${id} → cloud`).test(l)), `会議の後にクラウドで文字起こししていない: ${after.join('\n')}`);
+    assert.ok(!after.some((l) => new RegExp(`^文字起こしの経路: 復旧 ${id} → local`).test(l)), `会議の後に PC へ送った: ${after.join('\n')}`);
   }
   assert.ok(o.afterQueue.pages[0].segments.every((s) => !s.failed), JSON.stringify(o.afterQueue.pages));
 });

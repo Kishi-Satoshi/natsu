@@ -1159,6 +1159,7 @@ test('NE-5・G3・0.13.1: IDS_131 は計画の「変異確認」の edn- の表�
 // 直しを1つずつ戻す変異。タスクを作るたびに表の行の順で足し、LN-6 で表とちょうど同じかを見る。ln- は前の版の照らし（^(ed|rdy|clk)-・^edn-・^lg-・^lv- など）に当たらない
 const IDS_132 = [
   'ln-harness-final', 'ln-fails-full', 'ln-fails-nested',
+  'ln-offline-pc', 'ln-dict-resume', 'ln-progress-each', 'ln-left-count',
 ];
 test('G3・0.13.2: 0.13.2 の変異が一覧にそろい、IDS_132 はどれも計画の「変異確認」の表にある。ln- の変異は IDS_132 にある。どれも決まったテストのファイルを持ち、why が 0.13.2 で始まる', { timeout: 5000 }, () => {
   const byId = new Map(MUTANTS.map((m) => [m.id, m]));

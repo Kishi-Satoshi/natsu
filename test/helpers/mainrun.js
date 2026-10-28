@@ -64,6 +64,10 @@ const { titleAt } = require('./titles');
 //                     （main の DB の客で meeting.recover）を置く
 //     --kept-ticks=<n> … --idle と組む。起動の片付けの後（--extra-queue-late の後）に見回りを n 回呼び、待ち行列が落ち着くのを待つ
 //     --relay-req-text=<c|e の並び> … 中継に届いた文字起こしの要求の i 番目の答えを i 文字目にする（relay-local の setReqText）
+//     （0.13.2 LN-2: out.afterLogin に notices・claudeCalls・pending（page:pending の並び）を足し、待ち行列が済んだら要約が済むまで待つ。
+//     --wait-queue-empty の out.afterQueue に pending・relayCalls を足す。pending の1つずつは page:pending の中身に、送ったときの recovery.json ごとの
+//     区間の数 queueItems（segbuf の名前の順）を足したもの）
+//     --after-dict-queue … 0.13.2 LN-2: 音声入力の後、待ち行列（recovery.json）が無くなるまで待ち、out.afterDictQueue（{ queues, log, pages }）に写す
 //     --login-after … 議事録を写した後、画面と同じ account:login でログインし、待ち行列が済むのを待って out.afterLogin
 //                     （{ login, pages, engineLog, relayCalls, keptTicks（見回りを呼んだ数） }）に写す
 //     （--idle の出力に engineLog・requests（偽の whisper の inference）・stt・relayCalls・files を足す）
@@ -617,6 +621,7 @@ const extraQueueLate = flagVal('--extra-queue-late');
 const keptTickN = Number(flagVal('--kept-ticks')) || 0;
 const relayReqText = flagVal('--relay-req-text');
 const loginAfter = flags.includes('--login-after');
+const afterDictQueue = flags.includes('--after-dict-queue');   // 0.13.2 LN-2
 const localOnlyAfterN = Number(flagVal('--local-only-after')) || 0;   // 第1d2回 M-4
 const localOnlyAtRetryN = Number(flagVal('--local-only-at-retry')) || 0;   // 第1d2回 M-3・M-4 の点検
 // 第1d2回 M-5（音声入力の音声を残す）
@@ -1374,6 +1379,18 @@ process.on('exit', () => {
   let micKills = 0;
   const nudgeWins = [];
   const mainSentAll = [];
+  // 0.13.2 LN-2（LR10）: 本体の窓へ送った page:pending と、送ったときの recovery.json ごとの区間の数（segbuf の名前の順）
+  const pendingSeen = [];
+  const queueItemCounts = () => {
+    const root = path.join(userData, 'data', 'segbuf');
+    let names = [];
+    try { names = fs.readdirSync(root).sort(); } catch (_) { return []; }
+    const out = [];
+    for (const n of names) {
+      try { const j = JSON.parse(fs.readFileSync(path.join(root, n, 'recovery.json'), 'utf8')); out.push(Array.isArray(j.items) ? j.items.length : -1); } catch (_) { /* 無い */ }
+    }
+    return out;
+  };
   const restartDelays = [];
   const notifications = [];   // 第1d回 A-8: 偽の Notification の show() の { title, body }
   let notifyClosed = 0;       // 0.9.1 Q-4: 偽の Notification の close() の数
@@ -1548,6 +1565,7 @@ process.on('exit', () => {
           if (wins.indexOf(this) === 1 && ch === 'meeting:update') watchStt(p);
           if (wins.indexOf(this) >= 2 && this.nudge) this.nudge.sent.push([ch, p]);   // 0.9.3 M-3: パネルの窓へ送ったもの
           if (wins.indexOf(this) === 1) mainSentAll.push([ch, p]);
+          if (wins.indexOf(this) === 1 && ch === 'page:pending') pendingSeen.push({ ...p, queueItems: queueItemCounts() });   // 0.13.2 LN-2（LR10）
           if (wins.indexOf(this) === 1) mainSent.push(ch); if (loading) { lost.push([ch, p]); return; } sent.push([ch, p]); watch(ch, p); },
         isLoading: () => loading,
         setWindowOpenHandler(f) { wc.openHandler = f; }, executeJavaScript: (code) => overlayExec(this, code),
@@ -2815,6 +2833,13 @@ process.on('exit', () => {
       await waitFor(() => (handlers['history:get']() || []).length > hist0 || endPhases() > phases0, 15000);
       await sleep(100);
     }
+    // 0.13.2 LN-2（決めたこと 7）: --after-dict-queue … 音声入力の後、待ち行列（recovery.json）が無くなるまで待ち、out.afterDictQueue に写す
+    if (afterDictQueue) {
+      const qn = () => listFiles(userData).filter((f) => /^data\/segbuf\/[^/]+\/recovery\.json$/.test(f)).length;
+      await waitFor(() => qn() === 0, 15000);
+      await sleep(200);
+      out.afterDictQueue = { queues: qn(), log: elogLines(), pages: store.listPages().map((p) => ({ id: p.id, segments: store.getTranscript(p.id).map((x) => ({ text: x.text, failed: Boolean(x.failed) })) })) };
+    }
     out.history = JSON.parse(JSON.stringify(handlers['history:get']()));   // 写し（後の見回りが同じ行を書き換える）
     out.pastes = clipWrites.slice();   // 第1d2回 M-1
     out.overlayPhases = sent.filter(([ch]) => ch === 'overlay:phase').map(([, p]) => p);   // 第1d2回 M-5
@@ -3683,7 +3708,8 @@ process.on('exit', () => {
     await waitFor(() => store.listPages().every((p) => { const pg = store.getPage(p.id); return !WAIT_RE.test(pg.summaryError || '') && ((pg.blocks || []).length > 0 || pg.summaryError); }), 10000).catch(() => {});
     await waitFor(() => chatCount() > (out.chatsAtFinalize || 0), 1500);   // 待ち行列の後に要約を作ったか（作らない場面は 1.5 秒見る）
     await sleep(300);
-    out.afterQueue = { pages: snapPages(), notices: sent.filter(([ch]) => ch === 'app:notice').map(([, p]) => p), chats: chatCount(), wavs: segWavFiles(), log: elogLines() };
+    out.afterQueue = { pages: snapPages(), notices: sent.filter(([ch]) => ch === 'app:notice').map(([, p]) => p), chats: chatCount(), wavs: segWavFiles(), log: elogLines(),
+      pending: pendingSeen.slice(), relayCalls: relayPaths.slice() };   // 0.13.2 LN-2
   }
   if (fakeStt || relayLocal) {
     // 会議の後の送り直し（失敗した区間の待ち行列）が済むか、残して止まるまで待ってから写す
@@ -3728,8 +3754,11 @@ process.on('exit', () => {
   if (loginAfter) {
     const login = await handlers['account:login']({});
     await waitFor(() => !segbufLeft().queue && pagesNow().every((p) => p.segments.every((x) => !x.failed)), 10000);
+    // 0.13.2 LN-2: 待ち行列が済んだら、要約の欄が S3 から替わり要約が済む（ブロックか理由）まで待つ（待ち行列が残っていれば待たない）
+    if (!segbufLeft().queue) await waitFor(() => pagesNow().every((p) => !S3_RE.test(p.summaryError || '') && (p.blocks > 0 || p.summaryError)), 10000);
     await sleep(200);
-    out.afterLogin = { login, pages: pagesNow(), engineLog: elogLines(), relayCalls: relayPaths.slice(), keptTicks: keptTicksCalled };
+    out.afterLogin = { login, pages: pagesNow(), engineLog: elogLines(), relayCalls: relayPaths.slice(), keptTicks: keptTicksCalled,
+      notices: sent.filter(([ch]) => ch === 'app:notice').map(([, p]) => p), claudeCalls: claudeLines().filter((c) => c.kind === 'p').length, pending: pendingSeen.slice() };
   }
   process.stdout.write(`\n${JSON.stringify(m3Out(out))}\n`);
   await exitClean(0);
