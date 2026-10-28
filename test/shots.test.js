@@ -174,7 +174,8 @@ const RETAKEN_130 = ['notes-page-light', 'notes-page-dark', 'notes-tabs-light', 
 const ADDED_130 = [...NEW_130, ...RETAKEN_130];
 // 0.13.1（計画 docs/plans/2026-10-27-131.md の「取り直す画面（RETAKE）」）で意図して変えた: 取り直し待ちは 0.13.1 の表の画面だけ（RETAKE_131）。
 // NE-1 で / メニューと ⠿ の［変換 ▸］にトグルとトグル見出し1〜3 が増えるので、今の基準がある4枚を取り直す（RETAKEN_131）
-const RETAKEN_131 = ['edit-slash-light', 'edit-slash-dark', 'edit-slash-recent-light', 'edit-block-menu-light'];
+// 2026-10-28 の点検 2（計画の Ruling NR46）: 拡大 200% で札つきの ToDo の札が下の行へ折り返し、画面の外の要約が高くなって捲り棒のつまみが変わる1枚を足した
+const RETAKEN_131 = ['edit-slash-light', 'edit-slash-dark', 'edit-slash-recent-light', 'edit-block-menu-light', 'notes-page-zoom200-light'];
 // NE-4a で入れ子の明暗と拡大 200% の3枚を、NE-4b でトグルの1枚を足した（NEW_131。足した画面で、まだ基準が無い）
 const NEW_131 = ['edit-nested-light', 'edit-nested-dark', 'edit-nested-zoom200-light', 'edit-toggle-light'];
 const RETAKE_131 = [...RETAKEN_131, ...NEW_131];
@@ -992,7 +993,8 @@ test('基準の画像（test/shots/win32）は今の app.html で撮ったもの
   // 2026-10-28 の点検 4（作り手が決めた。計画の Ruling NR40）: ［コピー］の blocksMarkdown の写しで入れ子の見出しを下げず、見出しの後の行は見出しの段から数え直す（<script> の中だけ。撮る画面は変わらない）。値を今の app.html に合わせた（前の値は 9d461b3c…）
   // 2026-10-28 の持ち主の答え 点検 B（「少し大きくする（おすすめ）」。計画の Ruling NR45）: トグルの ▸ を 24×24px・印を 16px の線の山形の SVG にした（.blk .tog の CSS と描き方）。変わる画面は NEW_131 の edit-toggle-light（もう取り直し待ち）。値を今の app.html に合わせた（前の値は 15182773…）
   // 2026-10-28 の点検 2（作り手が決めた。計画の Ruling NR46）: 要約の行の文の欄を 6em より細くせず（.blk .txt の min-width）、入らない札は下の行へ右寄せで折り返し（#pNote .blk の flex-wrap・justify-content）、段の左の余白は欄の 40% まで。札が入る幅の行は変わらない見込みで、変わる画面は NEW_131 の入れ子の3枚（もう取り直し待ち）。値を今の app.html に合わせた（前の値は cc24951e…）
-  assert.strictEqual(sha, '753aa2edb67f32df9880972b81609061b0165d57e71c3c893884e24da6ab28f7',
+  // 2026-10-28 の点検 2 の続き（計画の Ruling NR46）: 文の右の札（担当・期限・出典）と ✕ を1つの箱 .tail に入れ、箱ごと下の行へ折り返す（鍵の間の行も）。変わる画面は NEW_131 の入れ子の3枚と、画面の外の要約が高くなって捲り棒のつまみが変わる notes-page-zoom200-light（RETAKEN_131 に足した）。値を今の app.html に合わせた（前の値は 753aa2ed…）
+  assert.strictEqual(sha, 'b04bc5e98e2bcb877b27b6506ecfcd797a30bcbfaa550758da25a9383958f9fd',
     'app.html が基準の画像を撮った時と違う。Windows の CI の画面の比べ（捲り棒のつまみも）を見て、基準を取り直してからこの値を直す');
 });
 

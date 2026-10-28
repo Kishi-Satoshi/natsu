@@ -546,6 +546,8 @@
   .blk .tog.open { transform: rotate(90deg); }
   .blk.heading .tog { align-self: center; }   /* 点検 B: 見出しの行でも押せる所は 24×24px のまま、行の真ん中に */
   .blk .bullet { color: var(--muted); flex: none; width: 24px; text-align: center; line-height: 24px; user-select: none; }
+  /* 点検 2（NR46）: 文の右の札と ✕ の箱。行が狭いときは箱ごと下の行へ（右寄せ）。中の並びと間は前の .blk の中と同じ（間 8px） */
+  .blk .tail { display: flex; align-items: flex-start; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
   .blk .txt { flex: 1; font-size: 16px; line-height: 24px; outline: none; border-radius: 4px; padding: 0 2px; min-width: 6em;
     word-break: break-word; white-space: pre-wrap; }   /* 0.13.0 ED-4（決めたこと 16）: Shift+Enter の行の中の改行を見せる */
   .blk .txt:hover { background: var(--hover); }
@@ -4194,6 +4196,8 @@
         return;
       }
 
+      // 2026-10-28 の点検 2（NR46）: 文の右の札（担当・期限・出典）と ✕ は1つの箱（.tail）に入れ、入らないときは箱ごと下の行へ折り返す
+      const tail = document.createElement('span'); tail.className = 'tail';
       // 担当・期限（クリックで編集）
       if (b.type === 'todo') {
         const meta = document.createElement('span'); meta.className = 'ameta';
@@ -4211,20 +4215,22 @@
         due.onclick = () => editTag(due, b.dueRaw, '「来週金曜」「8/30」など（空欄で解除）', (v) =>
           window.koeApp.blockSetAction(curId, b.id, undefined, v));
         meta.append(who, due);
-        el.appendChild(meta);
+        tail.appendChild(meta);
       }
 
       // 出典チップ
       if (b.type === 'bullet' || b.type === 'todo') {
         const wrap = document.createElement('span'); wrap.className = 'cites';
-        el.appendChild(wrap);
+        tail.appendChild(wrap);
+        el.appendChild(tail);
         renderCiteBadge(el, b);
       }
 
       const del = document.createElement('button');
       del.className = 'del'; del.textContent = '×'; del.title = 'この行を削除';
       del.onclick = async () => { await window.koeApp.blockRemove(curId, b.id); await openPage(curId); };
-      el.appendChild(del);
+      tail.appendChild(del);
+      el.appendChild(tail);
     },
   };
   function renderBlocks() {
@@ -4299,6 +4305,8 @@
 
   // 鍵の間の ToDo の担当・期限と出典（0.10.0 LS-2）。担当・期限は押せない札で見せる（直す口を持たない）
   function renderLockedMeta(el, b) {
+    const tail = document.createElement('span'); tail.className = 'tail';   // 点検 2（NR46）: 札は1つの箱で折り返す
+    el.appendChild(tail);
     if (b.type === 'todo') {
       const meta = document.createElement('span'); meta.className = 'ameta';
       const di = dueInfo(b.due, b.dueApprox);
@@ -4308,11 +4316,11 @@
         t.type = 'button'; t.className = `atag ${cls}`; t.textContent = text; t.disabled = true;
         meta.appendChild(t);
       }
-      el.appendChild(meta);
+      tail.appendChild(meta);
     }
     if (b.type === 'bullet' || b.type === 'todo') {
       const wrap = document.createElement('span'); wrap.className = 'cites';
-      el.appendChild(wrap);
+      tail.appendChild(wrap);
       renderCiteBadge(el, b);
     }
   }

@@ -393,7 +393,9 @@ const OVL_094 = (states) => PS.FORMS.flatMap((form) => Object.keys(PS.DESKS).fla
 // CI run 40466764263（20ceb94）の artifact 12717370368 の .after.png（21 枚）をバイトのまま基準にし、空に戻した
 // 0.13.1（計画 docs/plans/2026-10-27-131.md の「取り直す画面（RETAKE）」）: NE-1 で / メニューと ⠿ の［変換 ▸］にトグルとトグル見出し1〜3 が増えた
 // （型の表の写しを NE-1 で替えたので、計画の NE-4b でなく NE-1 で入れた: Ruling NR26）。持ち主が見比べを OK と言ったら、版を上げる commit（Task G）で基準にして空に戻す
-const RETAKE = new Set(['edit-slash-light', 'edit-slash-dark', 'edit-slash-recent-light', 'edit-block-menu-light', 'edit-nested-light', 'edit-nested-dark', 'edit-nested-zoom200-light', 'edit-toggle-light']);
+// 2026-10-28 の点検 2（計画の Ruling NR46）: 拡大 200% で札つきの ToDo の札が下の行へ折り返し、画面の外の要約が高くなって捲り棒のつまみが変わる
+// notes-page-zoom200-light を足した（見えている所は変わらない）
+const RETAKE = new Set(['edit-slash-light', 'edit-slash-dark', 'edit-slash-recent-light', 'edit-block-menu-light', 'notes-page-zoom200-light', 'edit-nested-light', 'edit-nested-dark', 'edit-nested-zoom200-light', 'edit-toggle-light']);
 const PERF = [{ name: 'open-2000-blocks', budgetMs: 500 }];   // 3回開いた中央値で見る
 const TIME_ZONE = 'Asia/Tokyo';
 const TOLERANCE = 2;   // 色の差（0〜255）がこれ以下の画素は同じとみなす。CI の機械の CPU ごとの描き方の1段の差を拾わないため（揺れの確かめ judgePair は 0 で見る）

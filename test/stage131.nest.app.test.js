@@ -568,6 +568,31 @@ test('NE-4a（点検 2）: 要約の行の文は 6em より細くならず、入
   assert.match(row, /justify-content: flex-end;/, '折り返した札が右に寄らない');
   assert.match(row, /margin-left: min\(calc\(var\(--depth, 0\) \* 24px\), 40%\);/, '深い段の左の余白に上限が無い');
   assert.match(cssRule('.blk .txt'), /flex: 1;/, '文の欄が伸びない（折り返した行の頭が右に寄る）');
+  // 札（担当・期限・出典）と ✕ は1つの箱 .tail に入り、箱ごと折り返す（出典の札だけが下の行に1つ残らない）
+  assert.match(cssRule('.blk .tail'), /display: flex; align-items: flex-start; gap: 8px;/);
+});
+
+test('NE-4a（点検 2）: ToDo の担当・期限・出典の札と ✕ は、行の中の1つの箱（.tail）に文の後ろの順で入る（鍵の間も）', T, async () => {
+  const blocks = [kid('d', 'todo', { checked: false, assignee: '佐藤', due: '2026-10-31' }), kid('b')];
+  for (const lockIt of [false, true]) {
+    const l = await openReal({ pa1: lockIt ? { blocks, summaryWait: true, summaryError: '要約待ち（つながったら作ります）' } : blocks });
+    try {
+      for (const id of ['d', 'b']) {
+        const row = rowOf(l, id);
+        assert.strictEqual(row.dataset.locked === '1', lockIt, `${id}: 鍵の形が違う`);
+        const tail = row.querySelector('.tail');
+        assert.ok(tail, `${id}: 札の箱が無い`);
+        assert.strictEqual(tail.parentNode, row);
+        const order = row.childNodes.filter((n) => n.tagName && !n.tagName.startsWith('#')).map((n) => n.className.split(' ')[0]);
+        assert.strictEqual(order.indexOf('tail'), order.indexOf('txt') + 1, `${id}: 札の箱が文のすぐ後ろに無い`);
+        for (const c of [...(id === 'd' ? ['.ameta'] : []), '.cites', ...(lockIt ? [] : ['.del'])]) {
+          const x = row.querySelector(c);
+          assert.ok(x && x.parentNode === tail, `${id}: ${c} が札の箱の中に無い`);
+        }
+      }
+      assert.deepStrictEqual(l.errors.map(fmt), []);
+    } finally { l.done(); }
+  }
 });
 
 test('NE-4b・EQ19 (a): Ctrl+Alt+T → blockSetOpenAll の1回（1つでも閉じていれば open: true、全部開いていれば false）。トグルが無ければ何も呼ばない', T, async () => {
