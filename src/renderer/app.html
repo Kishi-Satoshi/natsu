@@ -517,7 +517,7 @@
      auto で本当の高さを覚える）。描くのを省く仕組みは中身を枠で切るので、ボタンの Tab の輪（線 2px＋離れ 2px）が切れないよう切る線を 8px 外へ出す */
   .blk { content-visibility: auto; contain-intrinsic-size: auto 30px; overflow-clip-margin: 8px; }
   /* 0.13.1 NE-4a（NR15）: 入れ子の行は平らな行の並びのまま、段ごとに左の余白 24px（＋・⠿・文の並びは段を変えても同じ） */
-  #pNote .blk { --depth: 0; margin-left: calc(var(--depth, 0) * 24px); }   /* .blk.callout の margin より強く。--depth は行ごとに描くときに置く */
+  #pNote .blk { --depth: 0; --dropx: 0px; margin-left: calc(var(--depth, 0) * 24px); }   /* .blk.callout の margin より強く。--depth は行ごとに描くときに置く */
   /* 点字の6点(U+283F)を使う。「⋮⋮」を字間で詰める方法は環境によって
      3点に見えていた。 */
   .blk .grip { opacity: 0; flex: none; cursor: grab; color: var(--muted); user-select: none;
@@ -529,6 +529,17 @@
   /* 落とす位置の線。影は浮く部品だけに使うので、上下の余白 3px のうち 2px を線に替える（高さは変わらない） */
   .blk.dropmark { border-top: 2px solid var(--accent); padding-top: 1px; }
   .blk.dropmark-after { border-bottom: 2px solid var(--accent); padding-bottom: 1px; }
+  /* 0.13.1 NE-4b（NR12）: 段を選んだ落とし先は、線を選んだ段の左から引く（--dropx は印の行の左からのずれ。行の線は消す） */
+  .blk.dropmark.dropshift, .blk.dropmark-after.dropshift { border-color: transparent; }
+  .blk.dropmark.dropshift::before, .blk.dropmark-after.dropshift::after { content: ''; position: absolute; left: var(--dropx, 0px); right: 0; height: 2px; background: var(--accent); color: var(--on-accent); pointer-events: none; }
+  .blk.dropmark.dropshift::before { top: -2px; }
+  .blk.dropmark-after.dropshift::after { bottom: -2px; }
+  /* 0.13.1 NE-4b（決めたこと 18・E5）: トグルの ▸（開いていれば下向き）。色は地の語だけ（明暗の両方） */
+  .blk .tog { flex: none; width: 20px; height: 24px; padding: 0; border: none; border-radius: 4px; background: none; color: var(--muted);
+    font-size: 12px; line-height: 24px; cursor: pointer; transition: transform .1s; }
+  .blk .tog:hover { background: var(--hover); color: var(--text); }
+  .blk .tog.open { transform: rotate(90deg); }
+  .blk.heading .tog { height: auto; align-self: center; }
   .blk .bullet { color: var(--muted); flex: none; width: 24px; text-align: center; line-height: 24px; user-select: none; }
   .blk .txt { flex: 1; font-size: 16px; line-height: 24px; outline: none; border-radius: 4px; padding: 0 2px; min-width: 0;
     word-break: break-word; white-space: pre-wrap; }   /* 0.13.0 ED-4（決めたこと 16）: Shift+Enter の行の中の改行を見せる */
@@ -1568,6 +1579,7 @@
   // ［この会議は PC の中だけ］を押した（第1c回 RF28）。会議の間は戻さない（押し間違いで送る側に戻らない）。次の会議の始めに下ろす
   let mtLocalOnly = false;
   let dragBlockId = null;   // 並べ替え中のブロック
+  let dragStartX = 0;       // 0.13.1 NR12: つまみを掴んだ所の横の位置（落とす段は掴んだ所からのずれで選ぶ）
   let memoTimer = null;     // メモの遅延保存（500ms）。ページ切替・記録開始の前に flushMemo で確定する
   let memoFlush = null;     // 保留中のメモ保存を即時に走らせる関数
   const summarizing = new Set();   // 要約を生成中のページ id。描き直してもボタンを押せないままにする
@@ -2727,6 +2739,7 @@
       if (r.page && typeof r.page.title === 'string') tabTitles.set(id, r.page.title);
       return false;
     }
+    if (curId !== id) peekOpen = new Map();   // 0.13.1 NR16・NR18: 画面だけの開け閉めはページを替えると消える
     curId = id; curPage = r.page; curSegs = r.segments;
     if (typeof curPage.title === 'string') tabTitles.set(id, curPage.title);
     pane = curPage.blocks.length ? 'note' : 'script';
@@ -3065,7 +3078,12 @@
   // 挿入位置: ドラッグ中の行を除いた並びの中で、カーソルより下にある最初の行の位置。
   // store 側も「抜いてから挿す」ので、この数え方がそのまま挿入位置になる。
   function dropIndexAt(box, clientY) {
-    const els = [...box.querySelectorAll('.blk')].filter((x) => x.dataset.id !== dragBlockId);
+    // 0.13.1: 動かす行とその子孫の行を除く（子は親と一緒に動く）
+    const all = [...box.querySelectorAll('.blk')];
+    const from = all.findIndex((x) => x.dataset.id === dragBlockId);
+    let to = from + 1;
+    while (from >= 0 && to < all.length && (Number(all[to].dataset.depth) || 0) > (Number(all[from].dataset.depth) || 0)) to++;
+    const els = from < 0 ? all : [...all.slice(0, from), ...all.slice(to)];
     for (let i = 0; i < els.length; i++) {
       const r = els[i].getBoundingClientRect();
       if (clientY < r.top + r.height / 2) return { idx: i, els };
@@ -3074,8 +3092,33 @@
   }
   function clearDropMarks(box) {
     for (const e of box.querySelectorAll('.dropmark, .dropmark-after')) {
-      e.classList.remove('dropmark', 'dropmark-after');
+      e.classList.remove('dropmark', 'dropmark-after', 'dropshift');
+      if (typeof e.style.removeProperty === 'function') e.style.removeProperty('--dropx');
     }
+  }
+  // 0.13.1 NE-4b（NR12）: 落とす段（src/blockTree.js の dropSpot の写し。テストが同じ表で照らす）。rows は見えている行 { id, depth, parentId, kids }
+  function dropSpot(rows, idx, shift, o = {}) {
+    const list = Array.isArray(rows) ? rows : [];
+    if (idx <= 0 || !list.length) return { parentId: null, afterId: '' };
+    const above = list[Math.min(idx, list.length) - 1];
+    const below = list[idx] || null;
+    const deep = above.depth + (above.kids ? 1 : 0);
+    const shallow = below ? Math.min(below.depth, deep) : 0;
+    let depth = above.depth + Math.trunc(Number(shift) || 0);
+    depth = Math.max(shallow, Math.min(deep, depth));
+    if (o.top) depth = 0;
+    if (depth > above.depth) return { parentId: above.id, afterId: '' };
+    for (let i = Math.min(idx, list.length) - 1; i >= 0; i--) if (list[i].depth === depth) return { parentId: list[i].parentId, afterId: list[i].id };
+    return { parentId: null, afterId: '' };
+  }
+  // 落とす所の段（横のずれ 24px ごとに1段。AI の節の見出しは最上位のまま: TQ2）→ { parentId, afterId, depth }
+  function dropSpotAt(els, idx, clientX, dragId = dragBlockId) {
+    const rows = els.map((e) => ({ id: e.dataset.id, depth: Number(e.dataset.depth) || 0, parentId: e.dataset.parent || null, kids: kidsCanView(e._b) }));
+    const shift = Number.isFinite(clientX) ? Math.round((clientX - dragStartX) / 24) : 0;
+    const dragged = curPage ? locate(curPage.blocks, dragId) : null;
+    const spot = dropSpot(rows, idx, shift, { top: Boolean(dragged && dragged.depth === 0 && aiSectionHead(dragged.b)) });
+    const p = spot.parentId ? rows.find((r) => r.id === spot.parentId) : null;
+    return { ...spot, depth: p ? p.depth + 1 : 0 };
   }
 
   // ---------------- 画面の並び（0.11.0 V-2。D48・F26・決めたこと 27）。memoTypes の VIEW_HEADS・orderForView の写し（repo が同じ表で照らす）。
@@ -3448,9 +3491,29 @@
     return r ? r[0] === 0 && r[1] === 0 : txt.textContent === '';
   }
   // ---------------- 0.13.1 NE-4a（計画 docs/plans/2026-10-27-131.md の決めたこと 7・9・12〜14・16。NR8・NR13・NR15・NR17・TQ1・TQ3）
-  // 見えている開け閉め（NE-4b で覗き開きを足す: NR18）
+  // 0.13.1 NR16・NR18: 画面だけの開け閉め（覗き開き・鍵の間の ▸）。窓のメモリだけ（DB に書かない・ページを替えると消える）。id → 開いているか
+  let peekOpen = new Map();
+  // 見えている開け閉め（残した値か、画面だけの開け閉め）
   function openView(b) {
+    if (b && peekOpen.has(b.id)) return peekOpen.get(b.id);
     return isOpenStored(b);
+  }
+  // 行が見えるように、閉じて見えている先祖のトグルを画面だけで開く（NR18: リンクで飛んだ先・中へ入れた先）。開いたものがあれば真
+  function peekReveal(id) {
+    let opened = false;
+    for (let l = locate(curPage.blocks, id); l && l.parent; l = locate(curPage.blocks, l.parent.id)) {
+      if (!openView(l.parent)) { peekOpen.set(l.parent.id, true); opened = true; }
+    }
+    return opened;
+  }
+  // ▸ と Ctrl+Enter（決めたこと 18・28）: 見えている形の逆を blockSetOpen で書き、画面だけの開け閉めを消す。鍵の間は画面だけ（NR16）
+  async function toggleRow(el, keep) {
+    const pid = curId; const b = el._b;
+    const now = openView(b);
+    if (el.dataset.locked === '1') { peekOpen.set(b.id, !now); renderBlocks(); return null; }   // NR16: 鍵の間は DB が断るので画面だけ
+    peekOpen.delete(b.id);
+    try { await el._txt._commit(pid); } catch (_) { /* 保存の失敗は _commit の答えで知らせる */ }
+    return editAnswer(pid, () => window.koeApp.blockSetOpen(pid, b.id, !now), () => keep || null);
   }
   // 見えている行の並び → [{ b, depth, parentId }]（最上位は orderForView の順・子は親のすぐ後ろに保存の順・閉じたトグルの子は描かない: NR15）
   function viewRows(blocks) {
@@ -3469,6 +3532,7 @@
     const l = locate(curPage.blocks, b.id);
     if (!l || (dir === 'in' ? !canIndent(curPage.blocks, b.id) : !l.parent)) return null;
     const caret = (caretRange(txt) || [txt.textContent.length])[0];
+    if (dir === 'in' && !openView(l.list[l.index - 1])) peekOpen.set(l.list[l.index - 1].id, true);   // NR18: 閉じたトグルの中へ入れた行も見える
     try { await txt._commit(pid); } catch (_) { /* 保存の失敗は _commit の答えで知らせる */ }
     return editAnswer(pid, () => window.koeApp.blockIndent(pid, b.id, dir), () => ({ focus: b.id, caret }));
   }
@@ -3541,10 +3605,12 @@
     return out;
   }
   // 型を変える（決めたこと 11: 編集中の文を先に保存してから）。カーソルは caret へ
-  async function turnRow(el, type, level, caret) {
+  // 0.13.1: toggle が真ならトグル見出し（NR5・NR11）
+  async function turnRow(el, type, level, caret, toggle) {
     const pid = curId; const b = el._b;
     try { await el._txt._commit(pid); } catch (_) { /* 保存の失敗は _commit の答えで知らせる */ }
-    return editAnswer(pid, () => (level === undefined ? window.koeApp.blockTurnInto(pid, b.id, type) : window.koeApp.blockTurnInto(pid, b.id, type, level)),
+    return editAnswer(pid, () => (level === undefined ? window.koeApp.blockTurnInto(pid, b.id, type)
+      : toggle === true ? window.koeApp.blockTurnInto(pid, b.id, type, level, true) : window.koeApp.blockTurnInto(pid, b.id, type, level)),
       () => ({ focus: b.id, caret }));
   }
   // 行頭の記法（E3）。打った記法の文字を消して型を変える。区切り線は変えた後に下にテキストの行を足す（決めたこと 17）
@@ -3777,10 +3843,17 @@
     setCaret(txt, s.start);
     slashRecent = recentAdd(slashRecent, it.id); saveUi({ slashRecent });
     const pid = curId;
-    const below = (after) => editAnswer(pid, () => (row.level === undefined ? window.koeApp.blockInsert(pid, after, row.key) : window.koeApp.blockInsert(pid, after, row.key, row.level)),
-      (x) => ({ focus: x.blockId, caret: 0 }));
+    // 0.13.1 NR22: 下に足す置き場は Enter と同じ（子が見えている行では最初の子: TQ3）。トグル見出しは toggle を送る
+    const below = (after) => {
+      const inside = kidsShown(b);
+      const args = [pid, inside ? '' : after, row.key];
+      if (row.level !== undefined || inside || row.toggle) args.push(row.level);
+      if (inside || row.toggle) args.push(inside ? b.id : undefined);
+      if (row.toggle) args.push(true);
+      return editAnswer(pid, () => window.koeApp.blockInsert(...args), (x) => ({ focus: x.blockId, caret: 0 }));
+    };
     let out;
-    if (rest.trim() === '') out = await turnRow(el, row.key, row.level, 0);
+    if (rest.trim() === '') out = await turnRow(el, row.key, row.level, 0, row.toggle);
     else {
       try { await txt._commit(pid); } catch (_) { /* 保存の失敗は _commit の答えで知らせる */ }
       out = await below(b.id);
@@ -3796,7 +3869,9 @@
   async function plusRow(el) {
     const pid = curId; const b = el._b;
     try { await el._txt._commit(pid); } catch (_) { /* 保存の失敗は _commit の答えで知らせる */ }
-    const out = await editAnswer(pid, () => window.koeApp.blockInsert(pid, b.id, 'paragraph'), (x) => ({ focus: x.blockId, caret: 0 }));
+    // 0.13.1 NR22: 子が見えている行では最初の子に足す（Enter と同じ置き場）
+    const out = await editAnswer(pid, () => (kidsShown(b) ? window.koeApp.blockInsert(pid, '', 'paragraph', undefined, b.id) : window.koeApp.blockInsert(pid, b.id, 'paragraph')),
+      (x) => ({ focus: x.blockId, caret: 0 }));
     if (!out || pid !== curId) return out;
     const ne = editRows().find((e) => e.dataset.id === out.blockId);
     if (!ne) return out;
@@ -3901,8 +3976,10 @@
       const sub = document.createElement('div');
       sub.className = 'blockmenu sub'; sub.setAttribute('role', 'menu'); sub.setAttribute('aria-label', '変換');
       const hasText = m.el._txt.textContent.trim() !== '';
+      const hasKids = Array.isArray(m.el._b.children) && m.el._b.children.length > 0;   // 0.13.1 NR7（EQ16 (a)）: 子のある行も区切り線にできない
       for (const r of SLASH_ROWS) {
-        menuItem(sub, r.label, () => blockMenuDo('turn', r), { key: r.id, off: r.key === 'divider' && hasText ? '文のある行は区切り線にできません' : '' });
+        const off = r.key !== 'divider' ? '' : hasText ? '文のある行は区切り線にできません' : hasKids ? '中に行のある行は区切り線にできません' : '';
+        menuItem(sub, r.label, () => blockMenuDo('turn', r), { key: r.id, off });
       }
       m.box.appendChild(sub);
       if (typeof sub.scrollIntoView === 'function') sub.scrollIntoView({ block: 'nearest' });
@@ -3925,7 +4002,7 @@
     const el = m.el; const b = el._b; const txt = el._txt;
     blockMenuClose();
     const pid = curId;
-    if (what === 'turn') return turnRow(el, row.key, row.level, txt.textContent.length);
+    if (what === 'turn') return turnRow(el, row.key, row.level, txt.textContent.length, row.toggle);
     if (what === 'duplicate') {
       try { await txt._commit(pid); } catch (_) { /* 保存の失敗は _commit の答えで知らせる */ }
       return editAnswer(pid, () => window.koeApp.blockDuplicate(pid, b.id), (x) => ({ focus: x.blockId, caret: txt.textContent.length }));
@@ -3944,12 +4021,22 @@
     if (act === 'menu') { blockMenuOpen(el); return null; }
     if (act.startsWith('turn:')) {
       const row = SLASH_ROWS.find((x) => x.id === act.slice(5));
-      if (!row || (b.type === row.key && (row.key !== 'heading' || headingLevel(b) === row.level))) return null;
-      return turnRow(el, row.key, row.level, caret);
+      if (!row || (b.type === row.key && (row.key !== 'heading' || (headingLevel(b) === row.level && (b.toggle === true) === (row.toggle === true))))) return null;
+      return turnRow(el, row.key, row.level, caret, row.toggle);
     }
     if (act === 'ctrlEnter') {
-      if (b.type !== 'todo') return null;   // トグルの開閉は 0.13.1
+      if (isToggleView(b)) return toggleRow(el, { focus: b.id, caret });   // 0.13.1 決めたこと 28: トグルの開け閉め
+      if (b.type !== 'todo') return null;
       return editAnswer(pid, () => window.koeApp.blockUpdate(pid, b.id, { checked: !b.checked }), () => ({ focus: b.id, caret }));
+    }
+    // 0.13.1 EQ19 (a)・NR21: Ctrl+Alt+T はページのトグルを、1つでも閉じて見えていれば全部開き、全部開いていれば全部閉じる（画面だけの開け閉めも消す）
+    if (act === 'openAll') {
+      const all = flattenBlocks(curPage.blocks).filter(isToggleView);
+      if (!all.length) return null;
+      const open = all.some((x) => !openView(x));
+      peekOpen = new Map();
+      try { await txt._commit(pid); } catch (_) { /* 保存の失敗は _commit の答えで知らせる */ }
+      return editAnswer(pid, () => window.koeApp.blockSetOpenAll(pid, open), () => ({ focus: b.id, caret }));
     }
     try { await txt._commit(pid); } catch (_) { /* 保存の失敗は _commit の答えで知らせる */ }
     if (act === 'duplicate') return editAnswer(pid, () => window.koeApp.blockDuplicate(pid, b.id), (x) => ({ focus: x.blockId, caret }));
@@ -4028,6 +4115,7 @@
       grip.onmouseup = () => { el.draggable = false; };
       el.ondragstart = (ev) => {
         dragBlockId = b.id; el.classList.add('dragging');
+        dragStartX = Number(ev.clientX) || 0;
         ev.dataTransfer.effectAllowed = 'move';
         try { ev.dataTransfer.setData('text/plain', b.id); } catch (_) { /* noop */ }
       };
@@ -4066,6 +4154,16 @@
       } else if (b.type === 'callout') {
         const ic = document.createElement('span'); ic.className = 'icon'; ic.textContent = CALLOUT_ICON;   // EQ15 (a): 絵文字は 💡 だけ
         el.insertBefore(ic, txt);
+      }
+      // 0.13.1 NE-4b（決めたこと 18・E5）: トグルとトグル見出しは ⠿ と文の間に ▸（押すと開け閉め。鍵の間は画面だけ: NR16）
+      if (isToggleView(b)) {
+        const open = openView(b);
+        const tg = document.createElement('button');
+        tg.type = 'button'; tg.className = 'tog' + (open ? ' open' : ''); tg.textContent = '▸';
+        tg.title = open ? '閉じる' : '開く'; tg.setAttribute('aria-label', tg.title); tg.setAttribute('aria-expanded', open ? 'true' : 'false');
+        tg.onmousedown = (ev) => ev.preventDefault();   // 押してもフォーカスは行に残す
+        tg.onclick = () => toggleRow(el);
+        el.insertBefore(tg, txt);
       }
 
       if (lock) {
@@ -4116,8 +4214,13 @@
       clearDropMarks(box);
       const { idx, els } = dropIndexAt(box, ev.clientY);
       if (!els.length) return;
-      if (idx < els.length) els[idx].classList.add('dropmark');
-      else els[els.length - 1].classList.add('dropmark-after');
+      // 0.13.1 NR12: 落とす線は選んだ段の左から（--dropx は印を付けた行の左からのずれ）
+      const spot = dropSpotAt(els, idx, ev.clientX);
+      const mark = idx < els.length ? els[idx] : els[els.length - 1];
+      mark.classList.add(idx < els.length ? 'dropmark' : 'dropmark-after');
+      const dx = (spot.depth - (Number(mark.dataset.depth) || 0)) * 24;
+      if (dx) mark.classList.add('dropshift');
+      if (typeof mark.style.setProperty === 'function') mark.style.setProperty('--dropx', `${dx}px`);
     };
     box.ondrop = async (ev) => {
       if (!dragBlockId) return;
@@ -4127,12 +4230,20 @@
       clearDropMarks(box);
       // 0.13.0 ED-6（決めたこと 18・F26・F46）: 落とした所の画面で上に見えている行の後ろへ（いちばん上なら頭: ''）。番号でなく行で頼むので、
       // 0.11.0 の並べ替えて見せる要約でも上の行の節に入る。動かす前に、その行の打った文を保存する（決めたこと 11）
-      const afterId = idx > 0 ? els[idx - 1].dataset.id : '';
+      // 0.13.1 NR12: 横の位置で段を選ぶ（右へずらすと上の行の子・左へずらすと浅い段）。子だけを動かすと afterId の行と同じ親へ（NR6）
+      const spot = dropSpotAt(els, idx, ev.clientX, id);
+      const afterId = spot.afterId;
+      const into = afterId === '' && spot.parentId ? spot.parentId : undefined;   // 上の行の子の頭
       const pid = curId;
       const row = [...box.querySelectorAll('.blk')].find((e) => e.dataset.id === id);
       if (row && row._txt && typeof row._txt._commit === 'function') { try { await row._txt._commit(pid); } catch (_) { /* 保存の失敗は _commit の答えで知らせる */ } }
       if (ev.altKey) {   // K-21: Alt を押しながら落とすと、その所へ複製（1つの命令）
-        await editAnswer(pid, () => window.koeApp.blockDuplicate(pid, id, afterId), (x) => ({ focus: x.blockId, caret: 0 }));
+        await editAnswer(pid, () => (into ? window.koeApp.blockDuplicate(pid, id, afterId, into) : window.koeApp.blockDuplicate(pid, id, afterId)), (x) => ({ focus: x.blockId, caret: 0 }));
+        return;
+      }
+      if (into) {
+        if (curPage && !openView(locate(curPage.blocks, into).b)) peekOpen.set(into, true);   // NR18: 閉じたトグルの中へ入れた行も見える
+        await editAnswer(pid, () => window.koeApp.blockMove(pid, id, { afterId, parentId: into }), null);
         return;
       }
       await editAnswer(pid, () => window.koeApp.blockMove(pid, id, { afterId }), null);
@@ -5356,6 +5467,7 @@
       setPane('script');
       els = rows.slice(a, (b >= a ? b : ids.lastIndexOf(from)) + 1);
     } else if (kind === 'b') {
+      if (curPage && peekReveal(rest)) renderBlocks();   // 0.13.1 NR18: 閉じたトグルの中の行なら、親のトグルを画面だけで開く
       const el = [...$('pNote').querySelectorAll('.blk')].find((e) => e.dataset.id === rest);
       if (!el) { toast(LINK_NO_SPOT); return; }
       setPane('note');

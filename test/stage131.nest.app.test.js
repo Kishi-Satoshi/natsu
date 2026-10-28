@@ -447,3 +447,270 @@ test('NE-4a・F53 のまま: blockIndent の答えを待つ間に印の無い pa
     assert.deepStrictEqual(l.errors.map(fmt), []);
   } finally { l.done(); }
 });
+
+// ---------------------------------------------------------------- NE-4b: トグル・Ctrl+Alt+T・中へのドラッグ・覗き開き
+test('NE-4b: 画面の写し（dropSpot）は src/blockTree.js と同じ答え', () => {
+  const app = new Function(`${fnFromApp('dropSpot')}\nreturn dropSpot;`)();   // eslint-disable-line no-new-func
+  const rows = [{ id: 'a', depth: 0, parentId: null, kids: true }, { id: 'a1', depth: 1, parentId: 'a', kids: true }, { id: 'a2', depth: 1, parentId: 'a', kids: true },
+    { id: 'h', depth: 0, parentId: null, kids: false }, { id: 'b', depth: 0, parentId: null, kids: true }];
+  for (let idx = 0; idx <= rows.length; idx++) {
+    for (const shift of [-3, -1, 0, 1, 2, 0.6]) for (const o of [{}, { top: true }]) assert.deepStrictEqual(app(rows, idx, shift, o), BT.dropSpot(rows, idx, shift, o), `${idx} ${shift} ${JSON.stringify(o)}`);
+  }
+  assert.deepStrictEqual(app([], 0, 1), BT.dropSpot([], 0, 1));
+});
+const TOG = () => [
+  { id: 'h1', type: 'heading', level: 2, text: '決定事項' },
+  { id: 't', type: 'toggle', text: 'たたんだ話', citeState: 'manual', open: false, children: [kid('t1', 'todo', { checked: false }), kid('t2')] },
+  { id: 'u', type: 'toggle', text: '開いた話', citeState: 'manual', children: [kid('u1')] },
+  kid('x'),
+  kid('e', 'paragraph', { text: '' }),
+];
+const caretBtn = (l, id) => rowOf(l, id).querySelector('.tog');
+const ids = (l) => rowsOf(l).map((e) => e.dataset.id);
+
+test('NE-4b・EQ10 (a): 空の行の頭で『> 』と打つと blockTurnInto（toggle）の1回で『> 』は消える。Ctrl+Shift+7 でトグル。/ メニューの『とぐる』でトグル、『とぐるみだし』でトグル見出し1〜3', T, async () => {
+  const l = await openReal({ pa1: TOG() });
+  try {
+    let t = typeIn(l, 'e', '> ');
+    t.dispatchEvent({ type: 'input' });
+    await l.drain();
+    assert.deepStrictEqual(sent(l), [['blockTurnInto', 'pa1', 'e', 'toggle']]);
+    assert.strictEqual(txtOf(l, 'e').textContent, '');
+    assert.ok(rowOf(l, 'e').classList.contains('toggle'));
+    l.calls.length = 0;
+    press(l, atEnd(l, 'x'), "'", { ctrlKey: true, shiftKey: true, code: 'Digit7' });
+    await l.drain();
+    assert.deepStrictEqual(sent(l), [['blockTurnInto', 'pa1', 'x', 'toggle']]);
+    l.calls.length = 0;
+    t = typeIn(l, 'u1', '/とぐる');
+    t.dispatchEvent({ type: 'input' });
+    assert.deepStrictEqual($(l, 'pNote').querySelector('.slashmenu').querySelectorAll('.sopt').map((o) => o.dataset.key), ['toggle', 'th1', 'th2', 'th3']);
+    t = typeIn(l, 'u1', 'u1の文 /とぐるみだし');
+    t.dispatchEvent({ type: 'input' });
+    assert.deepStrictEqual($(l, 'pNote').querySelector('.slashmenu').querySelectorAll('.sopt').map((o) => o.dataset.key), ['th1', 'th2', 'th3']);
+    press(l, t, 'ArrowDown');
+    press(l, t, 'Enter');
+    await l.drain();
+    // 文のある行（u1の文）なので下に足す。トグル見出し2（段 2・toggle）。行の文は変わっていないので blockUpdate は送らない
+    assert.deepStrictEqual(sent(l).map((c) => c.slice(0, 1).concat(c.slice(3))), [['blockInsert', 'heading', 2, undefined, true]]);
+    const added = BT.flattenBlocks(l.page().blocks).find((b) => b.type === 'heading' && b.toggle === true);
+    assert.ok(added && added.level === 2, 'トグル見出し2 を足せない');
+    // 最近使ったものに覚えた th2 は、次に起動したときの照らし（winstate.normalize が使う blockEdit.recentCheck）でも残る（NR5・edn-menu-keys）
+    const saved = l.called('uiSave').map((c) => c.args[0]).filter((x) => x && x.slashRecent !== undefined).map((x) => x.slashRecent);
+    assert.deepStrictEqual(saved, [['th2']]);
+    assert.deepStrictEqual(E.recentCheck(saved[0]), ['th2'], '覚えたトグル見出しが次の起動で落ちる');
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+test('NE-4b: トグルの行に ▸（aria-expanded）。押すと blockSetOpen の1回で子が隠れ・出る。Ctrl+Enter も同じ（決めたこと 28）。閉じたトグルの子は DOM に無く、↓ は閉じたトグルの次の兄弟へ（visibleOrder）', T, async () => {
+  const l = await openReal({ pa1: TOG() });
+  try {
+    assert.deepStrictEqual(ids(l), ['h1', 't', 'u', 'u1', 'x', 'e'], '閉じたトグルの子を描いた');
+    const bt = caretBtn(l, 't');
+    assert.ok(bt, 'トグルに ▸ が無い');
+    assert.deepStrictEqual([bt.getAttribute('aria-expanded'), bt.title, bt.getAttribute('aria-label')], ['false', '開く', '開く']);
+    assert.strictEqual(caretBtn(l, 'u').getAttribute('aria-expanded'), 'true');
+    assert.strictEqual(caretBtn(l, 'u').title, '閉じる');
+    assert.strictEqual(caretBtn(l, 'x'), null, 'トグルでない行に ▸');
+    bt.onclick();
+    await l.drain();
+    assert.deepStrictEqual(sent(l), [['blockSetOpen', 'pa1', 't', true]]);
+    assert.deepStrictEqual(ids(l), ['h1', 't', 't1', 't2', 'u', 'u1', 'x', 'e']);
+    assert.strictEqual(caretBtn(l, 't').getAttribute('aria-expanded'), 'true');
+    l.calls.length = 0;
+    press(l, atEnd(l, 'u'), 'Enter', { ctrlKey: true, code: 'Enter' });
+    await l.drain();
+    assert.deepStrictEqual(sent(l), [['blockSetOpen', 'pa1', 'u', false]]);
+    assert.ok(!ids(l).includes('u1'));
+    assert.strictEqual(l.document.activeElement, txtOf(l, 'u'), 'Ctrl+Enter の後に行のフォーカスが無い');
+    // ↓ は閉じたトグルの次の兄弟へ
+    const t = atEnd(l, 'u');
+    press(l, t, 'ArrowDown');
+    assert.strictEqual(l.document.activeElement, txtOf(l, 'x'));
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+test('NE-4b・EQ19 (a): Ctrl+Alt+T → blockSetOpenAll の1回（1つでも閉じていれば open: true、全部開いていれば false）。トグルが無ければ何も呼ばない', T, async () => {
+  const l = await openReal({ pa1: TOG(), pb2: [kid('z1')] });
+  try {
+    const ct = (id) => press(l, atEnd(l, id), 't', { ctrlKey: true, altKey: true, code: 'KeyT' });
+    let ev = ct('x');
+    await l.drain();
+    assert.strictEqual(ev.defaultPrevented, true);
+    assert.deepStrictEqual(sent(l), [['blockSetOpenAll', 'pa1', true]]);
+    assert.deepStrictEqual(ids(l), ['h1', 't', 't1', 't2', 'u', 'u1', 'x', 'e']);
+    l.calls.length = 0;
+    ct('x');
+    await l.drain();
+    assert.deepStrictEqual(sent(l), [['blockSetOpenAll', 'pa1', false]]);
+    assert.deepStrictEqual(ids(l), ['h1', 't', 'u', 'x', 'e']);
+    l.calls.length = 0;
+    l.fire('onPageOpen', 'pb2');
+    await l.drain();
+    ev = ct('z1');
+    await l.drain();
+    assert.deepStrictEqual(sent(l), [], 'トグルが無いのに呼んだ');
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+test('NE-4b・NR14: ▸ を押しても curPage.summaryEdited は付かず、［要約を再生成］で確かめが出ない（ほかに直していない要約のとき）', T, async () => {
+  const ai = [{ id: 'h1', type: 'heading', level: 2, text: '決定事項', toggle: true, open: false, children: [{ id: 'b1', type: 'bullet', text: '来週に出す', cites: ['s2'], citeState: 'linked' }] }];
+  const l = await openReal({ pa1: ai }, { returns: { pageSummarize: () => ({ ok: true, stat: { linked: 1, total: 1 } }) } });
+  try {
+    caretBtn(l, 'h1').onclick();
+    await l.drain();
+    assert.deepStrictEqual(sent(l), [['blockSetOpen', 'pa1', 'h1', true]]);
+    assert.strictEqual(l.page().summaryEdited, undefined, '開け閉めが手直しの印を付けた');
+    const btn = $(l, 'pMenu').querySelectorAll('button').find((b) => b.textContent === '要約を再生成');
+    const run = btn.onclick();
+    await l.drain();
+    assert.strictEqual(l.document.querySelector('.askbox'), null, '開け閉めだけで確かめが出た');
+    await run;
+    assert.strictEqual(l.called('pageSummarize').length, 1);
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+test('NE-4b・NR16: 鍵の間の ▸ は画面だけで開け閉めし、blockSetOpen を呼ばない。ページを替えると戻る', T, async () => {
+  const l = await openReal({ pa1: { blocks: TOG(), summaryWait: true, summaryError: '要約待ち（つながったら作ります）' }, pb2: [kid('z1')] });
+  try {
+    assert.ok($(l, 'sumLock'), '鍵の一言が無い');
+    assert.ok(caretBtn(l, 't'), '鍵の間に ▸ が無い');
+    caretBtn(l, 't').onclick();
+    await l.drain();
+    assert.deepStrictEqual(sent(l), [], '鍵の間に blockSetOpen を呼んだ（edn-open-lock）');
+    assert.deepStrictEqual(ids(l), ['h1', 't', 't1', 't2', 'u', 'u1', 'x', 'e']);
+    l.fire('onPageOpen', 'pb2');
+    await l.drain();
+    l.fire('onPageOpen', 'pa1');
+    await l.drain();
+    assert.deepStrictEqual(ids(l), ['h1', 't', 'u', 'u1', 'x', 'e'], 'ページを替えても画面だけの開け閉めが残った');
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+test('NE-4b・NR18: リンクの印 b:<閉じたトグルの中の行> で開くと、親のトグルが画面だけで開き、その行が光る（blockSetOpen は呼ばない）。Tab で閉じたトグルの中へ入れた行も見える。覗き開きのトグルの ▸ を押すと blockSetOpen(false)', T, async () => {
+  const l = await openReal({ pa1: TOG() });
+  try {
+    l.fire('onOpenLink', { id: 'pa1', anchor: 'b:t2' });
+    await l.drain();
+    assert.ok(ids(l).includes('t2'), '閉じたトグルの中の行が見えない（edn-peek）');
+    assert.ok(rowOf(l, 't2').classList.contains('linkhit'));
+    assert.deepStrictEqual(sent(l), []);
+    assert.strictEqual(caretBtn(l, 't').getAttribute('aria-expanded'), 'true');
+    caretBtn(l, 't').onclick();
+    await l.drain();
+    assert.deepStrictEqual(sent(l), [['blockSetOpen', 'pa1', 't', false]], '覗き開きの ▸ が見えている形の逆を書かない');
+    assert.ok(!ids(l).includes('t2'));
+    l.calls.length = 0;
+    // x を閉じたトグル u の中へ（u を閉じてから Tab）
+    caretBtn(l, 'u').onclick();
+    await l.drain();
+    l.calls.length = 0;
+    press(l, atEnd(l, 'x'), 'Tab');
+    await l.drain();
+    assert.deepStrictEqual(sent(l), [['blockIndent', 'pa1', 'x', 'in']]);
+    assert.ok(ids(l).includes('x'), '閉じたトグルの中へ入れた行が見えない');
+    assert.strictEqual(rowOf(l, 'x').dataset.parent, 'u');
+    assert.strictEqual(l.document.activeElement, txtOf(l, 'x'));
+    assert.strictEqual(BT.locate(l.page().blocks, 'u').b.open, false, '覗き開きを DB に書いた');
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+// ⠿ で引っ張って落とす（行の高さ 10・左の位置を clientX で。dragstart の clientX が掴んだ所）
+function dragTo(l, id, clientY, clientX, o = {}) {
+  const box = $(l, 'pNote');
+  const els = box.querySelectorAll('.blk');
+  els.forEach((e, i) => { e.getBoundingClientRect = () => ({ top: i * 10, height: 10, bottom: i * 10 + 10, left: 0, right: 100, width: 100 }); });
+  els.find((e) => e.dataset.id === id).ondragstart({ dataTransfer: { setData() {}, effectAllowed: '' }, clientX: 100 });
+  box.ondragover({ preventDefault() {}, clientY, clientX, dataTransfer: {} });
+  const line = box.querySelectorAll('.dropmark, .dropmark-after')[0] || null;
+  const shift = line ? line.style.getPropertyValue('--dropx') : null;
+  return { done: box.ondrop({ preventDefault() {}, clientY, clientX, ...o }), line, shift };
+}
+
+test('NE-4b・NR12: ⠿ で引っ張って右へずらして落とすと blockMove の { afterId: \'\', parentId: 上の行 }。ずらさなければ上の行と同じ段（afterId は上の行）。子の後ろで左へずらすと親の段（afterId は親）。いちばん上へ落とすと { afterId: \'\' }（R28）。落とす線は選んだ段から', T, async () => {
+  const blocks = [kid('a', 'bullet', { children: [kid('a1'), kid('a2')] }), kid('b'), kid('c'), kid('d')];
+  const l = await openReal({ pa1: blocks });
+  try {
+    // 見えている行: a a1 a2 b c d。d を c の下（位置 5 の上半分 → idx 4 の後ろ）へ、右へ 24px ずらす → c の子の頭
+    let r = dragTo(l, 'd', 4 * 10 + 8, 124);
+    await r.done; await l.drain();
+    assert.deepStrictEqual(sent(l), [['blockMove', 'pa1', 'd', { afterId: '', parentId: 'c' }]]);
+    assert.strictEqual(rowOf(l, 'd').dataset.parent, 'c');
+    l.calls.length = 0;
+    // b を a2 の下へ、ずらさずに → a2 と同じ段（afterId a2）
+    r = dragTo(l, 'b', 2 * 10 + 8, 100);
+    assert.strictEqual(r.line.dataset.id, 'c', '印は落とす所の下の行');
+    assert.strictEqual(r.shift, '24px', '落とす線が選んだ段（a2 と同じ段 1）から引かれない（c は段 0）');
+    await r.done; await l.drain();
+    assert.deepStrictEqual(sent(l), [['blockMove', 'pa1', 'b', { afterId: 'a2' }]]);
+    l.calls.length = 0;
+    // 見えている行: a a1 a2 b c d。c（と子 d）を外して a a1 a2 b。c を b（a の最後の子）の下へ左へ 24px → 親 a の段（afterId a）
+    r = dragTo(l, 'c', 3 * 10 + 8, 76);
+    await r.done; await l.drain();
+    assert.deepStrictEqual(sent(l), [['blockMove', 'pa1', 'c', { afterId: 'a' }]], '子の後ろに親の段で落とせない（edn-drop-depth）');
+    assert.deepStrictEqual(shape(l.page().blocks), [['a', ['a1', 'a2', 'b']], ['c', ['d']]]);
+    assert.deepStrictEqual(ids(l), ['a', 'a1', 'a2', 'b', 'c', 'd']);
+    l.calls.length = 0;
+    r = dragTo(l, 'c', 0, 150);
+    await r.done; await l.drain();
+    assert.deepStrictEqual(sent(l), [['blockMove', 'pa1', 'c', { afterId: '' }]], 'いちばん上へ落とせない（R28）');
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+test('NE-4b・TQ2: AI の節の見出しを右へずらして落としても子にならない（同じ段）', T, async () => {
+  const blocks = [kid('a'), kid('b'), { id: 'h', type: 'heading', level: 2, text: 'その他の話' }];
+  const l = await openReal({ pa1: blocks });
+  try {
+    const r = dragTo(l, 'h', 1 * 10 + 8, 124);
+    await r.done; await l.drain();
+    assert.deepStrictEqual(sent(l), [['blockMove', 'pa1', 'h', { afterId: 'b' }]]);
+    assert.strictEqual(rowOf(l, 'h').dataset.depth, '0');
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+test('NE-4b・TQ4: 『> 』で作ったトグルは開いていて、終わりで Enter → 最初の子', T, async () => {
+  const l = await openReal({ pa1: TOG() });
+  try {
+    const t = typeIn(l, 'e', '> 議題');
+    l.caret.set(t, 2);
+    t.dispatchEvent({ type: 'input' });
+    await l.drain();
+    assert.strictEqual(caretBtn(l, 'e').getAttribute('aria-expanded'), 'true', '新しいトグルが閉じている（edn-toggle-default）');
+    l.calls.length = 0;
+    press(l, atEnd(l, 'e'), 'Enter');
+    await l.drain();
+    assert.deepStrictEqual(sent(l).map((c) => c.slice(0, 2).concat(c.slice(6))), [['blockSplit', 'pa1', true]]);
+    const e = BT.locate(l.page().blocks, 'e').b;
+    assert.strictEqual(e.children.length, 1);
+    assert.strictEqual(e.children[0].type, 'paragraph');
+    assert.strictEqual(l.document.activeElement, txtOf(l, e.children[0].id));
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+test('NE-4b・NR7: 子のある行の ⠿ の［変換 ▸］で区切り線は灰色（title『中に行のある行は区切り線にできません』）', T, async () => {
+  const l = await openReal({ pa1: [kid('p', 'bullet', { text: '', children: [kid('k')] }), kid('q', 'bullet', { text: '' })] });
+  try {
+    const sub = (id) => {
+      press(l, atEnd(l, id), '/', { ctrlKey: true, code: 'Slash' });
+      const m = $(l, 'pNote').querySelectorAll('.blockmenu').find((x) => !x.classList.contains('sub'));
+      m.querySelectorAll('.mitem')[2].onclick();
+      const s = $(l, 'pNote').querySelectorAll('.blockmenu').find((x) => x.classList.contains('sub'));
+      return s.querySelectorAll('.mitem').find((x) => x.dataset.key === 'divider');
+    };
+    let d = sub('p');
+    assert.deepStrictEqual([d.getAttribute('aria-disabled'), d.title], ['true', '中に行のある行は区切り線にできません']);
+    l.key({ key: 'Escape' }, l.document.activeElement); l.key({ key: 'Escape' }, l.document.activeElement);
+    d = sub('q');
+    assert.strictEqual(d.getAttribute('aria-disabled'), null, '文も子も無い行の区切り線が灰色');
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});

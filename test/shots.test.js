@@ -175,8 +175,8 @@ const ADDED_130 = [...NEW_130, ...RETAKEN_130];
 // 0.13.1（計画 docs/plans/2026-10-27-131.md の「取り直す画面（RETAKE）」）で意図して変えた: 取り直し待ちは 0.13.1 の表の画面だけ（RETAKE_131）。
 // NE-1 で / メニューと ⠿ の［変換 ▸］にトグルとトグル見出し1〜3 が増えるので、今の基準がある4枚を取り直す（RETAKEN_131）
 const RETAKEN_131 = ['edit-slash-light', 'edit-slash-dark', 'edit-slash-recent-light', 'edit-block-menu-light'];
-// NE-4a で入れ子の明暗と拡大 200% の3枚を足した（NEW_131。足した画面で、まだ基準が無い）
-const NEW_131 = ['edit-nested-light', 'edit-nested-dark', 'edit-nested-zoom200-light'];
+// NE-4a で入れ子の明暗と拡大 200% の3枚を、NE-4b でトグルの1枚を足した（NEW_131。足した画面で、まだ基準が無い）
+const NEW_131 = ['edit-nested-light', 'edit-nested-dark', 'edit-nested-zoom200-light', 'edit-toggle-light'];
 const RETAKE_131 = [...RETAKEN_131, ...NEW_131];
 const img = (w, h, fill = [255, 255, 255, 255]) => ({ width: w, height: h, data: Buffer.from(Array.from({ length: w * h }, () => fill).flat()) });
 // 一時フォルダ（日本語と 𠮷 の名前。RF1 と同じ形）。テストの終わりに消す
@@ -220,7 +220,7 @@ test('G2: 撮る画面は決まった並び（第1b回の 13 と第1b2回の検�
     ...NEW_120,
     // 0.13.0 RDY-3 で意図して変えた: 録音の前のページの明暗と 200% の3枚を足した。ED-5 で / メニューの明暗と「最近使ったもの」の3枚を、ED-6 で ⠿ のメニューの1枚を、ED-7 で新しい型の明暗と 150% の3枚を足した（版を 0.13.0 に上げる commit で基準にした）
     ...NEW_130,
-    // 0.13.1 NE-4a で意図して変えた: 入れ子の明暗と拡大 200% の3枚を足した（取り直し待ち・まだ基準が無い）
+    // 0.13.1 NE-4a で意図して変えた: 入れ子の明暗と拡大 200% の3枚を足した。NE-4b でトグルの1枚を足した（取り直し待ち・まだ基準が無い）
     ...NEW_131]);
   assert.deepStrictEqual(SH.SCREENS.filter((s) => s.page === 'overlay').map((s) => s.name), PS.screenNames());
   // 0.9.3 M-7 で意図して変えた: 会議の検出のパネル（page nudge）の5枚を録音バーのあと（いちばん後ろ）に足した
@@ -986,7 +986,8 @@ test('基準の画像（test/shots/win32）は今の app.html で撮ったもの
   // 0.13.1 NE-1（NR5・NR21・EQ10 (a)）: 型の表の写し（SLASH_ROWS にトグルとトグル見出し1〜3・MD_ROWS に「> 」・近道の Ctrl+Shift+7 と Ctrl+Alt+T・TYPED_VIEW にトグル）。変わる画面は / メニューと ⠿ の［変換 ▸］の4枚（RETAKE_131）。値を今の app.html に合わせた（前の値は 4b2c72a2…）
   // 0.13.1 NE-3（決めたこと 22・33）: ［コピー］の blocksMarkdown の写しが子を下げて写し、flattenBlocks の写しを足し、humanEdited が子も見る（<script> の中だけ。子の無い要約の見た目は変わらない）。値を今の app.html に合わせた（前の値は f820e1d1…）
   // 0.13.1 NE-4a（E10・NR15・NR17・TQ1・TQ3）: 入れ子の行（data-depth・data-parent・段ごとの左の余白 --depth の CSS）・Tab と Shift+Tab の字下げ・Esc で ⠿ へ（.blk .grip:focus-visible）と ⠿ の Tab・入れ子の Enter・Backspace・Ctrl+Shift+↑↓・親ごとの番号・木の決まりの写し。子の無い要約の見た目は変わらない見込みで、変わる画面は足した NEW_131 の入れ子の3枚。値を今の app.html に合わせた（前の値は b69d6b3b…）
-  assert.strictEqual(sha, '9f84f8b3a787a725a47af33ab6872c3b62c469d039329e55cfad2f8a55df9db2',
+  // 0.13.1 NE-4b（E5・E10・決めたこと 18・28・NR12・NR16・NR18）: トグルの ▸（.blk .tog の CSS と描き方）・Ctrl+Enter と Ctrl+Alt+T・画面だけの開け閉め（覗き開き）・横の位置で段を選ぶドラッグ（dropSpot の写しと選んだ段から引く落とす線 .dropshift）・トグル見出しの変換と下に足す置き場（NR22）。トグルの無い要約の見た目は変わらない見込みで、変わる画面は足した NEW_131 の edit-toggle-light。値を今の app.html に合わせた（前の値は 9f84f8b3…）
+  assert.strictEqual(sha, 'd4f6a5be779fccd5f2d9184bc0b97f3a3ab2811006e07b4e6742469c11667f30',
     'app.html が基準の画像を撮った時と違う。Windows の CI の画面の比べ（捲り棒のつまみも）を見て、基準を取り直してからこの値を直す');
 });
 

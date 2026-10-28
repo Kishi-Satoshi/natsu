@@ -300,6 +300,8 @@ const SCREENS = [
   { name: 'edit-nested-light', page: 'app', theme: 'light', get answers() { return nestedAnswers(); }, act: OPEN_TYPES },
   { name: 'edit-nested-dark', page: 'app', theme: 'dark', get answers() { return nestedAnswers(); }, act: OPEN_TYPES },
   { name: 'edit-nested-zoom200-light', page: 'app', theme: 'light', zoom: 2, get answers() { return nestedAnswers(); }, act: OPEN_TYPES },
+  // 0.13.1 NE-4b（E5・決めたこと 18）: 開いたトグルと閉じたトグル・トグル見出し（▸ の向き）。足した画面（まだ基準が無い）
+  { name: 'edit-toggle-light', page: 'app', theme: 'light', get answers() { return toggleAnswers(); }, act: OPEN_TYPES },
 ];
 // 0.9.0 O-3（RP9）: 録音バーの画面（形 → 地 → 拡大率 → 状態の順。撮る道具は形・地・拡大率の組ごとに窓を1つ開いて状態を act で替える）。
 // 録音は始めずに見た目だけを撮る（act は pill-states の見本を録音バーの DOM に当てる。撮るときだけ体の地にデスクトップの色を塗る）。
@@ -391,7 +393,7 @@ const OVL_094 = (states) => PS.FORMS.flatMap((form) => Object.keys(PS.DESKS).fla
 // CI run 40466764263（20ceb94）の artifact 12717370368 の .after.png（21 枚）をバイトのまま基準にし、空に戻した
 // 0.13.1（計画 docs/plans/2026-10-27-131.md の「取り直す画面（RETAKE）」）: NE-1 で / メニューと ⠿ の［変換 ▸］にトグルとトグル見出し1〜3 が増えた
 // （型の表の写しを NE-1 で替えたので、計画の NE-4b でなく NE-1 で入れた: Ruling NR26）。持ち主が見比べを OK と言ったら、版を上げる commit（Task G）で基準にして空に戻す
-const RETAKE = new Set(['edit-slash-light', 'edit-slash-dark', 'edit-slash-recent-light', 'edit-block-menu-light', 'edit-nested-light', 'edit-nested-dark', 'edit-nested-zoom200-light']);
+const RETAKE = new Set(['edit-slash-light', 'edit-slash-dark', 'edit-slash-recent-light', 'edit-block-menu-light', 'edit-nested-light', 'edit-nested-dark', 'edit-nested-zoom200-light', 'edit-toggle-light']);
 const PERF = [{ name: 'open-2000-blocks', budgetMs: 500 }];   // 3回開いた中央値で見る
 const TIME_ZONE = 'Asia/Tokyo';
 const TOLERANCE = 2;   // 色の差（0〜255）がこれ以下の画素は同じとみなす。CI の機械の CPU ごとの描き方の1段の差を拾わないため（揺れの確かめ judgePair は 0 で見る）
@@ -590,6 +592,20 @@ function nestedAnswers() {
     ] }),
     m('n10', 'numbered', '次回は会議室を替える。'),
     m('n11', 'paragraph', '以上で終わります。'),
+  ];
+  return { 'koeApp.pageGet': { page: { ...page, blocks, citeStat: { linked: 0, total: 0 }, actionStat: null }, segments: SEGMENTS } };
+}
+// 0.13.1 NE-4b（E5）: 開いたトグル（子が見える）・閉じたトグル（子は描かない）・トグル見出し（開いた・閉じた）
+function toggleAnswers() {
+  const page = fixtures()['koeApp.pageGet'].page;
+  const m = (id, type, text, o = {}) => ({ id, type, text, citeState: 'manual', cites: [], ...o });
+  const blocks = [
+    m('g1', 'heading', '論点ごとの要点', { level: 2, toggle: true, children: [
+      m('g2', 'toggle', '受注の画面', { children: [m('g3', 'bullet', '結合の試験は今週で終わった。'), m('g4', 'bullet', '残りの不具合は2件。')] }),
+      m('g5', 'toggle', '在庫の取り込み', { open: false, children: [m('g6', 'bullet', '索引を足してから測り直す。')] }),
+    ] }),
+    m('g7', 'heading', '持ち越したこと', { level: 3, toggle: true, open: false, children: [m('g8', 'bullet', '価格は次回に決める。')] }),
+    m('g9', 'paragraph', '以上で終わります。'),
   ];
   return { 'koeApp.pageGet': { page: { ...page, blocks, citeStat: { linked: 0, total: 0 }, actionStat: null }, segments: SEGMENTS } };
 }

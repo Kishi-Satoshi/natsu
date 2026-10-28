@@ -1116,6 +1116,8 @@ const IDS_131 = [
   'edn-action-flat', 'edn-mcp-flat', 'edn-order-kids',
   // NE-4a: 画面の入れ子の行
   'edn-tab-exit', 'edn-bs-outdent', 'edn-move-sibling',
+  // NE-4b: トグル・Ctrl+Alt+T・中へのドラッグ・覗き開き
+  'edn-open-lock', 'edn-peek',
 ];
 test('G3・0.13.1: 0.13.1 の変異が一覧にそろい、IDS_131 はどれも計画の「変異確認」の表にある。edn- の変異は IDS_131 にある。どれも決まったテストのファイルを持ち、why が 0.13.1 で始まる', { timeout: 5000 }, () => {
   const byId = new Map(MUTANTS.map((m) => [m.id, m]));
