@@ -138,9 +138,10 @@ function putPageRows(db, page, segments, _opts = {}) {
   return { ops };
 }
 
-// 今の store.savePage と同じに updatedAt と citeStat を作り直して、前の形との差分の操作を返す（当てない）
-function saveOps(was, page, now) {
-  page.updatedAt = now().toISOString();
+// 今の store.savePage と同じに updatedAt と citeStat を作り直して、前の形との差分の操作を返す（当てない）。
+// keepTime（2026-10-28 の点検 8・NR41）: トグルの開け閉め（見た目だけの欄）は中身の直しでないので updatedAt を前のままにする
+function saveOps(was, page, now, keepTime = false) {
+  page.updatedAt = keepTime && was.page.updatedAt ? was.page.updatedAt : now().toISOString();
   page.citeStat = { ...(page.citeStat || {}), ...R.citeStatOf(page.blocks || []) };
   return diffPage(was.page, page, { ords: was.ords });
 }
@@ -186,7 +187,7 @@ function editPage(db, id, ctx, fn, { summary = false, view = false } = {}) {
   // 2026-10-26 の持ち主の答え（点検4「どんな手直しでも確かめる」）: 要約の欄を直した印（［要約を再生成］の前に確かめる。作り直した要約の書き戻しで消える）
   if (view) summary = false;   // 0.13.1 NR14: 開け閉めは手直しに数えない（［要約を再生成］の前の確かめを出さない）
   if (summary) w.page.summaryEdited = true;
-  const ops = saveOps(w.was, w.page, ctx.now);
+  const ops = saveOps(w.was, w.page, ctx.now, view);   // 点検 8（NR41）: 開け閉めは updatedAt を変えない
   applyOps(db, ops);
   return { ops, pageIds: [id], result: readPage(db, id) };
 }

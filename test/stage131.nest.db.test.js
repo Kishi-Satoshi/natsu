@@ -374,6 +374,25 @@ test('NE-2・NR4・NR14: setOpen・setOpenAll は summaryEdited を付けず、�
   }
 });
 
+// 2026-10-28 の独立した点検 8（作り手が決めた。計画の Ruling NR41）: 開け閉めは中身の直しでないので updatedAt を変えない
+test('NE-2（点検 8）: setOpen・setOpenAll は updatedAt を変えず、updatedAt の操作を書かない。文を直す命令は updatedAt を今にする', T, () => withDb((db) => {
+  const at = (cmd, args, iso) => core.call(db, { role: 'app', cmd, args, tx: txOf('app') }, { now: () => new Date(iso), labels: {} });
+  const u0 = get(db).updatedAt;
+  assert.ok(typeof u0 === 'string' && u0 !== '' && u0 < '2026-10-28', u0);
+  let r = at('block.setOpen', { pageId: 'pa1', blockId: 't', open: true }, '2026-10-28T05:00:00.000Z');
+  assert.strictEqual(r.ok, true, r.code);
+  assert.strictEqual(find(get(db), 't').b.open, true);
+  assert.strictEqual(r.result.page.updatedAt, u0, '▸ の開け閉めで updatedAt が変わった');
+  assert.deepStrictEqual(lastOps(db).filter((o) => o.id === 'pa1' && o.key === 'updatedAt'), [], '開け閉めでページの updatedAt の操作を書いた');
+  r = at('block.setOpenAll', { pageId: 'pa1', open: false }, '2026-10-28T06:00:00.000Z');
+  assert.strictEqual(r.ok, true, r.code);
+  assert.strictEqual(find(get(db), 't').b.open, false);
+  assert.strictEqual(get(db).updatedAt, u0, 'Ctrl+Alt+T で updatedAt が変わった');
+  r = at('block.update', { pageId: 'pa1', blockId: 'a', patch: { text: '直した文' } }, '2026-10-28T07:00:00.000Z');
+  assert.strictEqual(r.ok, true, r.code);
+  assert.strictEqual(get(db).updatedAt, '2026-10-28T07:00:00.000Z', '文を直しても updatedAt が今にならない');
+}));
+
 // ---------------------------------------------------------------- main の書き戻し（F54・NR3）
 test('NE-2・F54・NR3: 子のあるページを page.get → page.put（baseRev）で書き戻すと操作は空で子が残る。要約待ちの印だけを変えた page.put でも子が残る。AI の平らな行に置き換えた page.put は子孫を全部 trash する', T, () => withDb((db) => {
   let p = call(db, 'page.get', { id: 'pa1' }, 'main').result.page;
