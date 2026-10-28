@@ -1106,18 +1106,14 @@ test('G3・0.13.0 RDY-6: IDS_130 の rdy- は計画の「変異確認」の rdy-
 // 0.13.1（計画 docs/plans/2026-10-27-131.md の「変異確認」の edn- の表）: 入れ子とトグルの直しを1つずつ戻す変異。タスクを作るたびに足し（0.13.0 の R9・R34 と同じ）、
 // NE-5 で表の行の順にそろえる。edn- は 0.13.0 の照らし ^(ed|rdy|clk)- に当たらない（ed の後が - でない）
 const IDS_131 = [
-  // NE-1: 木と型の表の純粋な部品
-  'edn-indent-first', 'edn-indent-type', 'edn-cite-flat', 'edn-copy-kids', 'edn-number-level', 'edn-merge-kids', 'edn-turn-kids', 'edn-kids-out',
-  'edn-visible-skip', 'edn-drop-into', 'edn-drop-depth', 'edn-orphan-keep', 'edn-menu-keys', 'edn-enter-outdent', 'edn-ai-head-top', 'edn-toggle-default',
-  // NE-2: DB の木と命令
-  'edn-tree-read', 'edn-parent-op', 'edn-remove-subtree', 'edn-dup-ids', 'edn-put-tree', 'edn-move-one', 'edn-split-sibling', 'edn-enter-child', 'edn-merge-view',
-  'edn-open-noedit', 'edn-open-only', 'edn-divider-kids', 'edn-open-all',
-  // NE-3: 読み手は木を平らにしてから
-  'edn-action-flat', 'edn-mcp-flat', 'edn-order-kids',
-  // NE-4a: 画面の入れ子の行
-  'edn-tab-exit', 'edn-bs-outdent', 'edn-move-sibling',
-  // NE-4b: トグル・Ctrl+Alt+T・中へのドラッグ・覗き開き
-  'edn-open-lock', 'edn-peek',
+  // 0.13.1 NE-5: 計画の「変異確認」の表の行の順にそろえた（上の 18 行は 0.13.0 の計画で承認されたもの・下の 19 行はこの計画で足したもの）
+  'edn-tree-read', 'edn-parent-op', 'edn-indent-first', 'edn-indent-type', 'edn-remove-subtree', 'edn-dup-ids',
+  'edn-cite-flat', 'edn-action-flat', 'edn-mcp-flat', 'edn-copy-kids', 'edn-number-level', 'edn-merge-kids',
+  'edn-turn-kids', 'edn-order-kids', 'edn-open-all', 'edn-visible-skip', 'edn-drop-into', 'edn-tab-exit',
+  'edn-put-tree', 'edn-orphan-keep', 'edn-move-one', 'edn-menu-keys', 'edn-split-sibling', 'edn-enter-child',
+  'edn-enter-outdent', 'edn-bs-outdent', 'edn-merge-view', 'edn-move-sibling', 'edn-drop-depth', 'edn-open-noedit',
+  'edn-open-only', 'edn-open-lock', 'edn-peek', 'edn-divider-kids', 'edn-kids-out', 'edn-ai-head-top',
+  'edn-toggle-default',
 ];
 test('G3・0.13.1: 0.13.1 の変異が一覧にそろい、IDS_131 はどれも計画の「変異確認」の表にある。edn- の変異は IDS_131 にある。どれも決まったテストのファイルを持ち、why が 0.13.1 で始まる', { timeout: 5000 }, () => {
   const byId = new Map(MUTANTS.map((m) => [m.id, m]));
@@ -1137,4 +1133,13 @@ test('G3・0.13.1: 0.13.1 の変異が一覧にそろい、IDS_131 はどれも�
     assert.ok(Array.isArray(m.tests) && m.tests.length > 0 && m.tests.every((t) => /^test\/[^/]+\.test\.js$/.test(t)), `${id}: tests`);
     assert.ok(typeof m.why === 'string' && m.why.startsWith('0.13.1 '), `${id}: why`);
   }
+});
+// 0.13.1 NE-5（計画の「変異確認」の IDS_131 の決まり）: 作りながら足した IDS_131 は、計画の表の edn- の id とちょうど同じ（行の順・37）
+test('NE-5・G3・0.13.1: IDS_131 は計画の「変異確認」の edn- の表とちょうど同じ（行の順）', { timeout: 5000 }, () => {
+  const plan = fs.readFileSync(path.join(ROOT, 'docs', 'plans', '2026-10-27-131.md'), 'utf8');
+  const at = plan.search(/^## 変異確認（直しを1つ戻すと/m);
+  const table = plan.slice(at, plan.indexOf('\n## ', at + 5));
+  const rows = [...table.matchAll(/^\| (edn-[a-z0-9-]*) \|/gm)].map((m) => m[1]);
+  assert.deepStrictEqual(IDS_131, rows);
+  assert.strictEqual(IDS_131.length, 37);
 });

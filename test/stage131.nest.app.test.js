@@ -714,3 +714,26 @@ test('NE-4b・NR7: 子のある行の ⠿ の［変換 ▸］で区切り線は�
     assert.deepStrictEqual(l.errors.map(fmt), []);
   } finally { l.done(); }
 });
+
+// ---------------------------------------------------------------- NE-5: ヘルプ
+test('NE-5: 記事「要約を書き直す」に入れ子とトグルの節（{#nest}）があり、近道の表に Ctrl+Shift+7・Tab・Shift+Tab・Ctrl+Alt+T があり、［…］はアプリの文字にある言葉だけ', () => {
+  const ROOT = path.join(__dirname, '..');
+  const art = fs.readFileSync(path.join(ROOT, 'help', 'articles', 'summary', 'edit-summary.md'), 'utf8');
+  assert.ok(art.includes('{#nest}'), '入れ子とトグルの節が無い');
+  const nest = art.slice(art.indexOf('{#nest}'), art.indexOf('\n## ', art.indexOf('{#nest}')));
+  for (const w of ['[[Tab]]', '[[Shift+Tab]]', '[[Esc]]', '⠿', '▸', '`> `', '[[Ctrl+Enter]]', '[[Ctrl+Alt+T]]', 'トグル見出し1', '右へずらして', '［アクション］', '［コピー］']) assert.ok(nest.includes(w), `入れ子とトグルの節に「${w}」が無い`);
+  const keys = art.slice(art.indexOf('{#keys}'), art.indexOf('\n## ', art.indexOf('{#keys}')));
+  const rows = [...keys.matchAll(/^\| ([^|]+) \| ([^|]+) \|$/gm)].map((m) => [m[1].trim(), m[2].trim()]);
+  const row = (k) => rows.find((r) => r[0] === k);
+  assert.deepStrictEqual(row('[[Ctrl+Shift+7]]'), ['[[Ctrl+Shift+7]]', 'トグル']);
+  for (const k of ['[[Tab]]', '[[Shift+Tab]]', '[[Ctrl+Alt+T]]']) assert.ok(row(k), `近道の表に ${k} が無い`);
+  assert.match(row('[[Ctrl+Enter]]')[1], /トグルを開く・閉じる/);
+  assert.ok(keys.includes('全体のホットキーに Ctrl+Alt+T を選んでいると、NaTsu の窓でもそちらが先に効きます。'), 'NR21 の1行が無い');
+  const md = art.slice(art.indexOf('{#markdown}'), art.indexOf('{#handles}'));
+  assert.ok(md.includes('| `> ` | トグル |'), '記法の表に「> 」が無い');
+  const slash = art.slice(art.indexOf('{#slash}'), art.indexOf('{#markdown}'));
+  assert.ok(slash.includes('「トグル」') && slash.includes('「トグル見出し1〜3」'), '/ メニューの節にトグルが無い');
+  const L = require('../tools/lib/help-labels');
+  assert.deepStrictEqual(L.missingLabels(art, L.appLabelText(ROOT)), []);
+  assert.ok(!/<pre|```/.test(art), 'pre の要素を使った');
+});
