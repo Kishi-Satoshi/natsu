@@ -116,3 +116,14 @@ test('LN-5: 録音中は［もう一度文字起こし］が押せず title が�
   assert.strictEqual($(none, 'pPending').hidden, true);
   assert.deepStrictEqual(none.errors.map(fmt), []);
 });
+
+// ---------------------------------------------------------------- LN-7（LR23・LR25）: 会議の知らせのパネルの ⌄ のメニューは上に開く（CSS の2か所だけ）
+test('LN-7・LR23・LR25: nudge.html の .nz は flex-direction: column-reverse（メニューをカードの上に描く）、.menu の余白は下（margin: 0 44px 6px 0）。メニューの項目の順は今のまま', T, () => {
+  const html = require('node:fs').readFileSync(path.join(__dirname, '..', 'src', 'renderer', 'nudge.html'), 'utf8');
+  // その選び手の規則の中身を全部つなぐ（.nz は明暗の色の語の規則と並びの規則の2つがある）
+  const rule = (sel) => [...html.matchAll(new RegExp(`\\n  ${sel.replace('.', '\\.')} \\{([^}]*)\\}`, 'g'))].map((m) => m[1]).join('\n');
+  assert.match(rule('.nz'), /flex-direction: column-reverse;/, '.nz の並びがメニューを下に開く形');
+  assert.match(rule('.menu'), /margin: 0 44px 6px 0;/, '.menu の余白が上のまま');
+  const ids = [...html.matchAll(/<button type="button" class="it" id="(nz\w+)"/g)].map((m) => m[1]);
+  assert.deepStrictEqual(ids, ['nzPcOnly', 'nzMute', 'nzSettings'], 'メニューの項目の順が変わった');
+});

@@ -287,3 +287,28 @@ test('LN-5・LR13: 会議を出て止めた後、保存の返事の前に知ら�
   const f = await mic([...LEAVE, ['db-fail', 'meeting.finalize'], ['final-only'], ['click-notice', 0], ['wait-finalized'], ['sleep', 100]], '--finalize-delay=400');
   assert.deepStrictEqual(f.mainSentAll.filter(([ch]) => ch === 'page:open'), [], JSON.stringify(f.mainSentAll.filter(([ch]) => ch === 'page:open')));
 });
+
+// ---------------------------------------------------------------- LN-7（パネルの位置の答え・LR22）
+const Z2 = [['line', 'mic zoom:1'], ['clock', 2000], ['line', 'mic zoom:1'], ['clock', 2000], ['wait-show', 1]];
+const setBoundsOf = (o) => (o.nudge ? o.nudge.calls : []).filter((c) => Array.isArray(c) && c[0] === 'setBounds').map((c) => c[1]);
+
+test('LN-7: 2つの画面でカーソルが2つ目の画面にあるとき、パネルの窓は2つ目の画面の作業領域の下の中央（画面の四角は作業領域より 40px 高い: タスクバーに重ならない）。大きさが変わると下の端はそのままで上へ伸び、出している間にカーソルを動かしても飛ばない', T, async () => {
+  const o = await mic([['cursor', 2500, 300], ...Z2, ['ipc', 'nudge:size', { w: 520, h: 60 }], ['cursor', 10, 10], ['ipc', 'nudge:size', { w: 520, h: 200 }]],
+    '--displays=0,0,1920,1040;1920,0,1280,984');
+  const b = setBoundsOf(o);
+  assert.ok(b.length >= 3, JSON.stringify(b));
+  const P = 8, E = 12;
+  const closed = b[b.length - 2];
+  const opened = b[b.length - 1];
+  const x = Math.round(1920 + (1280 - (520 + 2 * P)) / 2);
+  assert.deepStrictEqual(closed, { x, y: 984 - (E - P) - (60 + 2 * P), width: 520 + 2 * P, height: 60 + 2 * P });
+  assert.deepStrictEqual(opened, { x, y: 984 - (E - P) - (200 + 2 * P), width: 520 + 2 * P, height: 200 + 2 * P });
+  assert.strictEqual(opened.y + opened.height, closed.y + closed.height, '大きさが変わって下の端が動いた');
+});
+
+test('LN-7・LR22: 設定の録音バーの置き場所（pillSlot）が top-left でも、パネルは下の中央', T, async () => {
+  const o = await mic([['save', { pillSlot: 'top-left' }], ...Z2, ['ipc', 'nudge:size', { w: 400, h: 60 }]]);
+  assert.ok(o.settingsText.includes('"pillSlot": "top-left"') || o.settingsText.includes('"pillSlot":"top-left"'), '前提: 置き場所を top-left にできていない');
+  const last = setBoundsOf(o).pop();
+  assert.deepStrictEqual(last, { x: Math.round((1920 - 416) / 2), y: 1040 - 4 - 76, width: 416, height: 76 }, JSON.stringify(last));
+});

@@ -185,7 +185,9 @@ const ADDED_131 = [...RETAKEN_131, ...NEW_131];
 // 0.13.2（計画 docs/plans/2026-10-28-132.md の「取り直す画面（RETAKE）」）で意図して変えた: 取り直し待ちは 0.13.2 の表の画面だけ（RETAKE_132）。
 // LN-3 で録音中のページの帯 no-login の1枚を、LN-5 で議事録のページの「残り n 区間」の2枚を足した（NEW_132。足した画面で、まだ基準が無い）
 const NEW_132 = ['live-banner-signin-light', 'page-pending-light', 'page-pending-running-light'];
-const RETAKE_132 = [...NEW_132];
+// LN-7 で会議の知らせのパネルを下の中央に置き、⌄ のメニューを上に開くようにしたので、パネルの5枚を取り直す（RETAKEN_132。今の基準がある）
+const RETAKEN_132 = ['nudge-light-100', 'nudge-dark-100', 'nudge-light-150', 'nudge-menu-light-100', 'nudge-menu-dark-100'];
+const RETAKE_132 = [...NEW_132, ...RETAKEN_132];
 const img = (w, h, fill = [255, 255, 255, 255]) => ({ width: w, height: h, data: Buffer.from(Array.from({ length: w * h }, () => fill).flat()) });
 // 一時フォルダ（日本語と 𠮷 の名前。RF1 と同じ形）。テストの終わりに消す
 const tmp = (t, name) => {

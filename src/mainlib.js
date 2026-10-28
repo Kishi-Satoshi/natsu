@@ -1915,9 +1915,11 @@ function nudgeWhy(st) {
   }
   return why;
 }
-// パネルの置き場所（決めたこと 8）。size はパネルの画面が測ったカードの大きさ（CSS の px。有限の正の数でなければ NUDGE_FIRST）。窓はカードの周りに
-// NUDGE_PAD の余白（明るいパネルの影の輪: K9）を足した大きさで、カードの右と上の端が作業領域の右と上の端から NUDGE_EDGE の所に来る。
-// 幅と高さは作業領域 − 2 ×（NUDGE_EDGE − NUDGE_PAD）まで
+// パネルの置き場所（決めたこと 8。0.13.2 LN-7 で持ち主の答え「下の中央、録音バーと同じ高さ」に改めた）。size はパネルの画面が測ったカードの大きさ
+// （CSS の px。有限の正の数でなければ NUDGE_FIRST）。窓はカードの周りに NUDGE_PAD の余白（明るいパネルの影の輪: K9）を足した大きさで、カードの下の端が
+// 作業領域の下の端から NUDGE_EDGE の所、カードの左右の真ん中が作業領域の左右の真ん中に来る（録音バーの bottom-center と同じ線。左右は Math.round で
+// 整数の DIP: 録音バーの panelBounds と同じ丸め）。⌄ のメニューを開いて高くなると、下の端はそのままで上へ伸びる。録音バーの置き場所の設定（pillSlot）は
+// 見ない（LR22）。幅と高さは作業領域 − 2 ×（NUDGE_EDGE − NUDGE_PAD）まで
 const NUDGE_EDGE = 12;
 const NUDGE_PAD = 8;
 const NUDGE_FIRST = { w: 560, h: 60 };
@@ -1927,7 +1929,7 @@ function nudgeBounds({ size, workArea }) {
   const gap = NUDGE_EDGE - NUDGE_PAD;
   const width = Math.min(Math.ceil(s.w) + 2 * NUDGE_PAD, workArea.width - 2 * gap);
   const height = Math.min(Math.ceil(s.h) + 2 * NUDGE_PAD, workArea.height - 2 * gap);
-  return { x: workArea.x + workArea.width - gap - width, y: workArea.y + gap, width, height };
+  return { x: Math.round(workArea.x + (workArea.width - width) / 2), y: workArea.y + workArea.height - gap - height, width, height };
 }
 // 0.9.4 W-1（持ち主の答え「5本がそれぞれ揺れる」）: 録音バーと録音中のページの5本の高さ（px）。無音（0.02 以下・数でない）は同じ 4px の点が5つ。
 // 声は重み（左右対称: 左に寄らない）× 1本ずつ違う速さと位相の揺れ（0.35〜1 倍）で 4〜16px。tMs が数でない（null）は揺らさない止めた形（動きを減らす設定）。

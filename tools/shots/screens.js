@@ -405,7 +405,9 @@ const OVL_094 = (states) => PS.FORMS.flatMap((form) => Object.keys(PS.DESKS).fla
 // artifact 12787992574 の .after.png（9 枚）をバイトのまま基準にし、空に戻した
 // 0.13.2（計画 docs/plans/2026-10-28-132.md の「取り直す画面（RETAKE）」）: LN-3 で録音中のページの帯 no-login の画面を足した。LN-5・LN-7 で足す画面と
 // 取り直す画面も入れる。持ち主が見比べを OK と言ったら、版を上げる commit（Task G）で基準にして空に戻す
-const RETAKE = new Set(['live-banner-signin-light', 'page-pending-light', 'page-pending-running-light']);
+// LN-7 でパネルを下の中央に置き、⌄ のメニューを上に開くようにしたので、パネルの5枚（閉じた3枚は窓だけを撮るので同じ見込み）を取り直し待ちに入れた
+const RETAKE = new Set(['live-banner-signin-light', 'page-pending-light', 'page-pending-running-light',
+  'nudge-light-100', 'nudge-dark-100', 'nudge-light-150', 'nudge-menu-light-100', 'nudge-menu-dark-100']);
 const PERF = [{ name: 'open-2000-blocks', budgetMs: 500 }];   // 3回開いた中央値で見る
 const TIME_ZONE = 'Asia/Tokyo';
 const TOLERANCE = 2;   // 色の差（0〜255）がこれ以下の画素は同じとみなす。CI の機械の CPU ごとの描き方の1段の差を拾わないため（揺れの確かめ judgePair は 0 で見る）

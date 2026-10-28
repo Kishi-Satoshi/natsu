@@ -104,14 +104,16 @@ test('M3・M4: 2回続けて Zoom が見えたら、パネルの窓を作り、n
   assert.deepStrictEqual(o.mainWinCalls, [], 'パネルを出しただけで本体の窓を前に出した');
 });
 
-test('M4: 置き場所はカーソルの画面の作業領域の右上（カードの端が 12px）。パネルが測った大きさで置き直す。出している間はカーソルを動かしても飛ばない', S, async () => {
+// 0.13.2 LN-7（持ち主の答え「下の中央、録音バーと同じ高さ」）で意図して変えた: 右上でなく作業領域の下の中央。大きさが変わると下の端はそのままで上へ伸びる
+test('M4: 置き場所はカーソルの画面の作業領域の下の中央（カードの下の端が 12px）。パネルが測った大きさで置き直す（下の端はそのままで上へ伸びる）。出している間はカーソルを動かしても飛ばない', S, async () => {
   const o = await run([['cursor', 2500, 300], ...Z2, ['ipc', 'nudge:size', { w: 520, h: 60 }], ['cursor', 10, 10], ['ipc', 'nudge:size', { w: 520, h: 200 }]],
     '--displays=0,0,1920,1040;1920,0,1280,984');
   const b = nudgeCalls(o).filter((c) => Array.isArray(c) && c[0] === 'setBounds').map((c) => c[1]);
   assert.ok(b.length >= 3, JSON.stringify(b));
   const P = 8, E = 12;
-  assert.deepStrictEqual(b[b.length - 2], { x: 1920 + 1280 - (E - P) - (520 + 2 * P), y: E - P, width: 520 + 2 * P, height: 60 + 2 * P });
-  assert.deepStrictEqual(b[b.length - 1], { x: 1920 + 1280 - (E - P) - (520 + 2 * P), y: E - P, width: 520 + 2 * P, height: 200 + 2 * P });
+  const x = Math.round(1920 + (1280 - (520 + 2 * P)) / 2);
+  assert.deepStrictEqual(b[b.length - 2], { x, y: 984 - (E - P) - (60 + 2 * P), width: 520 + 2 * P, height: 60 + 2 * P });
+  assert.deepStrictEqual(b[b.length - 1], { x, y: 984 - (E - P) - (200 + 2 * P), width: 520 + 2 * P, height: 200 + 2 * P });
 });
 
 test('M3: 議事録を始めると引っ込め、録音中に Zoom が新しく見えても出さない。マイクを離すとすぐ引っ込める', S, async () => {

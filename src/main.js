@@ -3172,7 +3172,7 @@ function leaveNoticeClick(m) {
 
 // ---------------------------------------------------------------- 会議の検出のパネル（0.9.3 M-3。決めたこと 7〜10。持ち主の答え Q3・Q5）
 // 録音バーと同じ作りの小さな透過の窓（nudge.html）。初めて出すときに作り、使い回す。出すのは showInactive だけ（会議のアプリの入力を奪わない）・
-// 画面の共有と録画に写らない（setContentProtection: K4）・いつも前。置き場所は出す時のカーソルの画面の右上（mainlib.nudgeBounds）。
+// 画面の共有と録画に写らない（setContentProtection: K4）・いつも前。置き場所は出す時のカーソルの画面の下の中央（録音バーと同じ高さ。0.13.2 LN-7: mainlib.nudgeBounds）。
 // 明暗は Windows の明暗（nativeTheme.shouldUseDarkColors。NaTsu の外観で明るい・暗いを選んでいればそれ）で、出している間に変われば送り直す（Q3）
 let nudgeWin = null;
 let nudgeShown = null;       // 出しているアプリ { id, label }（パネルの押した口はこれだけを使う。画面から id を受けない: M7）
