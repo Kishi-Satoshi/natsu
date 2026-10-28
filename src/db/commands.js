@@ -573,7 +573,9 @@ const DEFS = {
       // 0.13.1 NR2: 組めない行を最上位の末尾に並べたら、記録には数だけ（本文・ID は書かない）
       const l = loadPage(db, a.id);
       if (l && l.orphans && ctx && typeof ctx.log === 'function') ctx.log(`DB: 親をたどれない要約の行 ${l.orphans} 件を末尾に並べた`);
-      const page = readPage(db, a.id);
+      // 2026-10-28 の点検 6（NR42）: 読んだページをそのまま使う（readPage と同じ形。読み直さない）
+      const page = l ? l.page : null;
+      if (page) R.markShortBlocks(page.blocks);
       return { result: page ? { page: forView(page, ctx.labels), segments: readSegments(db, a.id) } : null };
     } },
 

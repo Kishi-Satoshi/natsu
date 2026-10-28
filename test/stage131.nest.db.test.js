@@ -393,6 +393,22 @@ test('NE-2（点検 8）: setOpen・setOpenAll は updatedAt を変えず、upda
   assert.strictEqual(get(db).updatedAt, '2026-10-28T07:00:00.000Z', '文を直しても updatedAt が今にならない');
 }));
 
+// 2026-10-28 の独立した点検 6（作り手が決めた。計画の Ruling NR42）: page.get は組めない行の数を見るために読んだページをそのまま使い、読み直さない
+test('NE-2（点検 6）: page.get は要約の行を1回だけ読む（組めない行の数を見た loadPage の答えを使う）。答えは readPage と同じ', T, () => withDb((db) => {
+  const want = call(db, 'page.get', { id: 'pa1' }).result;
+  let reads = 0;
+  const spy = new Proxy(db, { get(o, k) {
+    if (k === 'prepare') return (sql) => { if (sql === require('../src/db/commands').HOT_QUERIES.pageBlocks) reads += 1; return o.prepare(sql); };
+    const v = o[k];
+    return typeof v === 'function' ? v.bind(o) : v;
+  } });
+  const r = core.call(spy, { role: 'app', cmd: 'page.get', args: { id: 'pa1' }, tx: txOf('app') }, { now: NOW, labels: {} });
+  assert.strictEqual(r.ok, true, r.code);
+  assert.strictEqual(reads, 1, `page.get が要約の行を ${reads} 回読んだ`);
+  assert.deepStrictEqual(r.result, want);
+  assert.ok(find(r.result.page, 'a').b.children.length > 0);
+}));
+
 // ---------------------------------------------------------------- main の書き戻し（F54・NR3）
 test('NE-2・F54・NR3: 子のあるページを page.get → page.put（baseRev）で書き戻すと操作は空で子が残る。要約待ちの印だけを変えた page.put でも子が残る。AI の平らな行に置き換えた page.put は子孫を全部 trash する', T, () => withDb((db) => {
   let p = call(db, 'page.get', { id: 'pa1' }, 'main').result.page;
