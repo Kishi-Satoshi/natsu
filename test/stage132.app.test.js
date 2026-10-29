@@ -117,6 +117,27 @@ test('LN-5: 録音中は［もう一度文字起こし］が押せず title が�
   assert.deepStrictEqual(none.errors.map(fmt), []);
 });
 
+// 0.13.2 点検の直し 3（LR38）: 録音が終わったら［もう一度文字起こし］を押せるようにする。busy（録音中）は main に聞き直し、古い busy を持ち越さない
+test('LN-5・点検の直し 3: 録音中に開いた議事録のページの［もう一度文字起こし］は、録音が終わると（会議の状態が active でなくなる）main に聞き直して押せるようになる', T, async () => {
+  let busy = true;
+  const l = await openSaved({ pagePending: () => ({ left: 2, running: false, busy }) }, async (x) => { x.fire('onMeetingUpdate', LIVE()); await x.drain(); });
+  assert.strictEqual(lineOf(l).disabled, true, '録音中に押せる（場面の作り違い）');
+  busy = false;
+  l.fire('onMeetingUpdate', LIVE({ active: false })); await l.drain();
+  assert.deepStrictEqual(lineOf(l), { hidden: false, text: '文字起こし待ち: 残り 2 区間', disabled: false, tip: '' }, '録音が終わっても押せないまま');
+  assert.deepStrictEqual(l.errors.map(fmt), []);
+});
+
+test('LN-5・点検の直し 3: onPagePending は古い busy を持ち越さない（音声入力の間に開いたページで、音声入力が終わった後の知らせが来たら main に聞き直して押せる）', T, async () => {
+  let busy = true;
+  const l = await openSaved({ pagePending: () => ({ left: 3, running: false, busy }) });
+  assert.strictEqual(lineOf(l).disabled, true, '音声入力の間に押せる（場面の作り違い）');
+  busy = false;
+  l.fire('onPagePending', { id: 'pa1', left: 2, running: false }); await l.drain();
+  assert.deepStrictEqual(lineOf(l), { hidden: false, text: '文字起こし待ち: 残り 2 区間', disabled: false, tip: '' }, '古い busy を持ち越した');
+  assert.deepStrictEqual(l.errors.map(fmt), []);
+});
+
 // ---------------------------------------------------------------- LN-7（LR23・LR25）: 会議の知らせのパネルの ⌄ のメニューは上に開く（CSS の2か所だけ）
 test('LN-7・LR23・LR25: nudge.html の .nz は flex-direction: column-reverse（メニューをカードの上に描く）、.menu の余白は下（margin: 0 44px 6px 0）。メニューの項目の順は今のまま', T, () => {
   const html = require('node:fs').readFileSync(path.join(__dirname, '..', 'src', 'renderer', 'nudge.html'), 'utf8');

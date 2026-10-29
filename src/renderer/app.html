@@ -5013,7 +5013,8 @@
     box.scrollTop = box.scrollHeight;
   }
   function setMeetingUi(st) {
-    try { setMeetingUiInner(st); } finally { renderPending(); }   // 0.13.2 LN-5: 録音中かで［もう一度文字起こし］の押せる・押せない
+    // 0.13.2 LN-5: 録音中かで［もう一度文字起こし］の押せる・押せない。点検の直し 3（LR38）: 録音していないときは main に聞き直す（録音中に読んだ busy を持ち越さない）
+    try { setMeetingUiInner(st); } finally { if (st && !st.active) refreshPending(); else renderPending(); }
   }
   function setMeetingUiInner(st) {
     mtStartedAt = st.startedAt;
@@ -5594,7 +5595,14 @@
     const busy = pendNow && pendNow.id === p.id ? pendNow.busy : false;
     pendNow = { id: p.id, left: Number(p.left) || 0, running: Boolean(p.running), busy };
     renderPending();
+    refreshPendingBusy(p.id);   // 0.13.2 点検の直し 3（LR38）: busy は持ち越さず main に聞き直す（数と回っているかは知らせのまま）
   });
+  async function refreshPendingBusy(id) {
+    if (!window.koeApp.pagePending || !curPage || curPage.id !== id) return;
+    let r = null;
+    try { r = await window.koeApp.pagePending(id); } catch (_) { r = null; }
+    if (r && typeof r === 'object' && pendNow && pendNow.id === id) { pendNow = { ...pendNow, busy: Boolean(r.busy) }; renderPending(); }
+  }
   $('pRetranscribe').onclick = async () => {
     if (pendPressing || !pendShowable() || !window.koeApp.pageRetranscribe) return;
     const id = curPage.id;
