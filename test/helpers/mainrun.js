@@ -1383,6 +1383,7 @@ process.on('exit', () => {
   const lost = [];
   const finishLoad = () => { loading = false; for (const cb of loadWaiters.splice(0)) cb(); };
   const wins = [];   // 作った窓の順（createOverlay が先、createMainWindow が後）
+  const appMenuCalls = [];   // 0.14.0 EB-3: Menu.setApplicationMenu の呼び出し（{ menu: null | 'menu', wins: その時の窓の数 }）
   const appEvents = makeEmitter();
   const zooms = [];   // setZoomFactor の値の順（第1b回 Task A-2）
   const portsSent = [];   // webContents.postMessage の窓と channel（第2a1回 M-2b）
@@ -1825,7 +1826,8 @@ process.on('exit', () => {
     // 取り込みの通信は Electron の net.request（第0b回 RF2）。テストでは同じ振る舞いの偽物（127.0.0.1 の偽のサーバーへ）
     net: { request: require('./fake-net').makeFakeRequest({ before, rewrite }), isOnline: () => netUp },
     Tray: FakeTray,
-    Menu: { buildFromTemplate: (items) => ({ items }) },   // 0.9.0 O-4: トレイの項目を読めるように
+    // 0.9.0 O-4: トレイの項目を読めるように。0.14.0 EB-3: アプリのメニューを替えた呼び出しを、その時の窓の数と一緒に覚える（場面の appMenu）
+    Menu: { buildFromTemplate: (items) => ({ items }), setApplicationMenu: (m) => { appMenuCalls.push({ menu: m === null ? null : 'menu', wins: wins.length }); } },
     safeStorage,
     powerSaveBlocker: { start: (type) => { powerId += 1; power.push(['start', type, powerId]); return powerId; }, stop: (id) => { power.push(['stop', id]); }, isStarted: () => false },
     shell: withFallback({ openPath: (p) => { opened.push(p); return Promise.resolve(''); }, openExternal: (u) => { external.push(String(u)); return Promise.resolve(); } }),
@@ -2433,6 +2435,7 @@ process.on('exit', () => {
       loginWin: loginRecs[0] || null,
       cookiesOnDisk: fs.existsSync(path.join(userData, 'Partitions')),
       accessPerms: accessPerms(),
+      appMenu: appMenuCalls.slice(),   // 0.14.0 EB-3
       ...actOut,
     };
     process.stdout.write(`\n${JSON.stringify(result)}\n`);

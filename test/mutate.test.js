@@ -1215,7 +1215,10 @@ const IDS_140 = [
   'eb-invert-move', 'eb-invert-trash', 'eb-book-redo', 'eb-book-open',
   // 0.14.0 EB-2（表の行の順に、EB-1 の行の間に入れた）
   'eb-rich-color-any', 'eb-rich-one-color', 'eb-color-replace', 'eb-rich-code-link', 'eb-rich-save', 'eb-rich-text-only', 'eb-merge-rich', 'eb-split-rich',
-  'eb-revert-check', 'eb-revert-actor', 'eb-revert-page', 'eb-revert-meta', 'eb-revert-lock', 'eb-step-changed', 'eb-regen-flag', 'eb-revert-view',
+  'eb-revert-check', 'eb-revert-actor', 'eb-revert-page', 'eb-revert-meta', 'eb-revert-lock', 'eb-step-changed',
+  // 0.14.0 EB-3（表の行の順に）
+  'eb-step-group', 'eb-type-pause', 'eb-undo-flush', 'eb-undo-literal', 'eb-undo-page', 'eb-undo-scope', 'eb-undo-ime', 'eb-stale-drop', 'eb-regen-clear',
+  'eb-regen-flag', 'eb-revert-view',
   'eb-revert-keys', 'eb-revert-skip', 'eb-dup-changed',
 ];
 test('G3・0.14.0: 0.14.0 の変異が一覧にそろい、IDS_140 はどれも計画の「変異確認」の表に行の順である。eb-・ek-・mo-・dq- の変異は IDS_140 にある。どれも決まったテストのファイルを持ち、why が 0.14.0 で始まる', { timeout: 5000 }, () => {

@@ -6841,6 +6841,9 @@ if (!gotLock) {
   // 最後の守り（同期の書き出しは exit の受け口でも効く）
   process.on('exit', flushAllWriters);
   app.whenReady().then(async () => {
+    // 0.14.0 EB-3（計画 docs/plans/2026-10-26-140.md の決めたこと 35・R24）: Electron の既定のメニューを外す。既定のメニューの「閉じる」（Ctrl+W）・
+    // 「元に戻す」（Ctrl+Z）・「読み直す」（Ctrl+R）が、窓の中の近道と要約の欄の元に戻すを横取りする。窓はメニューの段を出していない（setMenuBarVisibility）
+    Menu.setApplicationMenu(null);
     // 鍵を取った後で、前回残った JSON の一時ファイルを片付ける（JS4。読む前に）
     cleanStartupTemps();
     // スリープ・画面のロック・シャットダウン（powerMonitor は ready の後でしか使えない）

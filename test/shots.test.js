@@ -1019,7 +1019,8 @@ test('基準の画像（test/shots/win32）は今の app.html で撮ったもの
   // 0.13.2 LN-4（LR20）: 自動で開いたログインの窓でログインできたら設定の「アカウント」の行を読み直す受け口（onAccountChanged。<script> の中だけ。撮る画面は変わらない）。値を今の app.html に合わせた（前の値は 444d8a14…）
   // 0.13.2 LN-5（持ち主の答え LA4・決めたこと 8・9）: 保存した議事録のページの「文字起こし」の欄の頭の1行（#pPending・CSS の .pendline と描き方）。待ち行列の無いページには出ないので今の撮る画面は変わらない見込みで、変わる画面は足した NEW_132 の page-pending の2枚。値を今の app.html に合わせた（前の値は 0ea1f255…）
   // 0.13.2 点検の直し 3（計画の Ruling LR38）: 録音が終わったら［もう一度文字起こし］の busy を main に聞き直す（setMeetingUi・onPagePending の refreshPendingBusy。<script> の中だけ。撮る画面は変わらない）。値を今の app.html に合わせた（前の値は 05c6bfd4…）
-  assert.strictEqual(sha, 'e341fb62085fc624d6dfd5d1fb68bbba9ec3e4b48a95255df101ad03a0642625',
+  // 0.14.0 EB-3（計画 docs/plans/2026-10-26-140.md の決めたこと 1〜13）: 要約の欄の元に戻す・やり直す（undoBook の写し・stepGroup・Ctrl+Z と Ctrl+Shift+Z と Ctrl+Y の受け口・打つ手が止まったら保存・再生成の後に列を空に。<script> の中だけ。撮る画面は変わらない）。値を今の app.html に合わせた（前の値は e341fb62…）
+  assert.strictEqual(sha, '8efef989739ee8d60839fbff7c43d364c85a23929cb4be32ec5f401f68c53747',
     'app.html が基準の画像を撮った時と違う。Windows の CI の画面の比べ（捲り棒のつまみも）を見て、基準を取り直してからこの値を直す');
 });
 

@@ -268,9 +268,9 @@ test('公開したのに画面から呼ばれない API がない', () => {
   // 0.13.1 NE-2（計画 docs/plans/2026-10-27-131.md の「意図して変えるテスト」）で足した字下げとトグルの開け閉めの3つは、blockIndent は NE-4a（Tab と Shift+Tab）が、
   // blockSetOpen・blockSetOpenAll は NE-4b（▸・Ctrl+Enter・Ctrl+Alt+T）が呼び始めたので外して空に戻した
   // 0.13.2 LN-2（計画 docs/plans/2026-10-28-132.md）で足した onPagePending（文字起こし待ちの残りの区間の数）は、議事録のページの1行（LN-5）が呼び始めたので外して空に戻した
-  // 0.14.0 EB-2（計画 docs/plans/2026-10-26-140.md の「意図して変えるテスト」）で足した元に戻すの2つ（onEditStep・editRevert）と行の色（blocksSetColor）は、
-  // 画面の元に戻す（EB-3）と色（EB-5）が呼び始めたら外して空に戻す
-  const PENDING_APP = new Set(['onEditStep', 'editRevert', 'blocksSetColor']);
+  // 0.14.0 EB-2（計画 docs/plans/2026-10-26-140.md の Ruling R89）で足した元に戻すの2つ（onEditStep・editRevert）と行の色（blocksSetColor）は、
+  // 画面の元に戻す（EB-3）と色（EB-5）が呼び始めたら外して空に戻す。onEditStep・editRevert は EB-3 が呼び始めたので外した
+  const PENDING_APP = new Set(['blocksSetColor']);
   for (const [ns, html] of [['koeApp', appHtml], ['koeOverlay', overlayHtml]]) {
     const names = all(/^\s{2}([A-Za-z][\w$]*):/gm, block(ns));
     const used = new Set(all(new RegExp(`${ns}\\.(\\w+)`, 'g'), html));
