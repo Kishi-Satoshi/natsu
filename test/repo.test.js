@@ -1760,10 +1760,9 @@ test('EB-6・SEC2: app.html の innerHTML・outerHTML・insertAdjacentHTML に�
 
 test('EB-6・SEC2（決めたこと 34）: src/pasteConvert.js・src/richText.js に innerHTML・DOMParser・document.write・eval が無い', { timeout: 5000 }, () => {
   const WORDS = /innerHTML|outerHTML|insertAdjacentHTML|DOMParser|createContextualFragment|document\.write|(?<![\w$.])eval\s*\(|new Function/;
-  // richText は EB-1 で作った。pasteConvert は EK-1 で作る（無い間は richText だけを見る。作ったら同じ決まりで見る: R116）
-  assert.ok(fs.existsSync(path.join(ROOT, 'src', 'richText.js')), 'src/richText.js が無い');
+  // richText は EB-1、pasteConvert は EK-1 で作った（R116。どちらも無ければ赤: 見ないまま通さない）
   for (const f of ['src/richText.js', 'src/pasteConvert.js']) {
-    if (!fs.existsSync(path.join(ROOT, f))) continue;
+    assert.ok(fs.existsSync(path.join(ROOT, f)), `${f} が無い`);
     const hit = read(f).split('\n').map((l, i) => [i + 1, l]).filter(([, l]) => WORDS.test(l));
     assert.deepStrictEqual(hit.map(([n, l]) => `${f}:${n} ${l.trim()}`), [], `${f} が HTML を要素にする口を使う（字句を読むだけにする）`);
   }

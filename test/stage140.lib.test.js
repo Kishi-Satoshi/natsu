@@ -2,6 +2,8 @@
  * stage140.lib.test.js — 0.14.0「編集の動き その2」の純粋な部品（計画 docs/plans/2026-10-26-140.md の Task EB-1）
  * 文字の飾り（src/richText.js: 付け外す・色・リンクの照らし・打って変える記法・自分の span の木から読み戻す・［コピー］の Markdown）と、
  * 元に戻す（src/db/ops.js の invertOps・opsMatch、src/undoBook.js のページごとの列）。
+ * Task EK-1: 貼り付けの変換（src/pasteConvert.js: Word・Web・Teams の HTML、Markdown、素の文字 → 行と飾り。危ないものは落とし、色は落とし、2,000 行・1MB まで）。
+ * 種の HTML は test/fixtures/paste/ にある（自分で書いた Word・Edge・Teams・Google ドキュメントの形。実在の人名・社名は使わない）。
  */
 'use strict';
 const test = require('node:test');
@@ -11,6 +13,7 @@ const U = require('../src/undoBook.js');
 const O = require('../src/db/ops.js');
 const V = require('../src/db/validate.js');
 const E = require('../src/blockEdit.js');
+const PC = require('../src/pasteConvert.js');
 const natsulink = require('../src/natsulink.js');
 const { tmpDb } = require('./helpers/dbtmp');
 const { titleAt } = require('./helpers/titles');
@@ -557,4 +560,252 @@ test('EB-5 直し（R117）: richMarkdown は Markdown の記号を書く飾り�
   assert.strictEqual(R.richMarkdown([run('a*b', 'u'), run('x', 'b')]), 'a\\*b**x**');
   assert.strictEqual(R.richMarkdown([run('a_b', ['color', 'red']), run('x', 'code')]), 'a\\_b`x`');
   assert.strictEqual(R.richMarkdown([run('a~b', 'u'), run('x', ['link', 'https://example.com/'])]), 'a\\~b[x](https://example.com/)');
+});
+
+// ---------------------------------------------------------------- 貼り付けの変換（Task EK-1。決めたこと 23・24・34・R15〜R17・R66・F102）
+const pasteFx = (name) => require('node:fs').readFileSync(require('node:path').join(__dirname, 'fixtures', 'paste', name), 'utf8');
+const rowText = (b) => (Array.isArray(b.rich) ? b.rich : []).map((r) => r.t).join('');
+// 行の形を短く書く（'bullet:文'・見出しは 'heading2:文'・ToDo は 'todo[x]:文'。子があれば [行, [子…]]）
+function brief(blocks) {
+  return blocks.map((b) => {
+    const head = `${b.type}${b.type === 'heading' ? b.level : ''}${b.type === 'todo' ? (b.checked ? '[x]' : '[ ]') : ''}:${rowText(b)}`;
+    return Array.isArray(b.children) && b.children.length ? [head, brief(b.children)] : head;
+  });
+}
+const briefOf = (r) => { assert.ok(r && Array.isArray(r.blocks), `変換の答えが行の並びでない: ${JSON.stringify(r).slice(0, 200)}`); return brief(r.blocks); };
+// どの行の飾りも決まった飾り（太字・斜体・下線・取り消し・コード・開けるリンク）だけか
+function marksOk(blocks) {
+  for (const b of blocks) {
+    for (const r of b.rich) {
+      for (const mk of r.m) {
+        if (typeof mk === 'string') assert.ok(R.MARKS.includes(mk), `知らない飾り ${mk}`);
+        else assert.ok(Array.isArray(mk) && mk[0] === 'link' && R.linkOk(mk[1]), `色か開けないリンク ${JSON.stringify(mk)}`);
+      }
+    }
+    if (b.children) marksOk(b.children);
+  }
+}
+
+test('EK-1: HTML の表（h1〜h6 → 段 1〜3・ul／ol → 箇条書きと番号（‡131 入れ子は子）・チェックの印 → ToDo・blockquote・hr・p・br・table の行 → 「セル / セル」・太字・斜体・下線・取り消し・コード・リンク）', () => {
+  assert.deepStrictEqual(PC.fromHtml('<h2>題</h2>'), { blocks: [{ type: 'heading', level: 2, rich: [run('題')] }], inline: false });
+  assert.deepStrictEqual(briefOf(PC.fromHtml('<h1>一</h1><h2>二</h2><h3>三</h3><h4>四</h4><h5>五</h5><H6>六</H6>')),
+    ['heading1:一', 'heading2:二', 'heading3:三', 'heading3:四', 'heading3:五', 'heading3:六']);
+  assert.deepStrictEqual(briefOf(PC.fromHtml('<ul><li>a<ul><li>b</li></ul></li><li>c</li></ul><ol><li>d</li><li>e<ol><li>f</li></ol></li></ol>')),
+    [['bullet:a', ['bullet:b']], 'bullet:c', 'numbered:d', ['numbered:e', ['numbered:f']]]);
+  // 閉じる印の無い li（HTML の省略）も1つずつの項目
+  assert.deepStrictEqual(briefOf(PC.fromHtml('<ul><li>一<li>二</ul>')), ['bullet:一', 'bullet:二']);
+  const todo = PC.fromHtml('<ul><li><input type="checkbox" checked>済み</li><li><input type=checkbox>まだ</li><li>[x] 書いた印</li></ul>');
+  assert.deepStrictEqual(briefOf(todo), ['todo[x]:済み', 'todo[ ]:まだ', 'todo[x]:書いた印']);
+  assert.deepStrictEqual(todo.blocks[1], { type: 'todo', checked: false, rich: [run('まだ')] });
+  assert.deepStrictEqual(briefOf(PC.fromHtml('<blockquote><p>引用</p></blockquote><hr><p>一行目<br>二行目</p><div>区画</div>')),
+    ['quote:引用', 'divider:', 'paragraph:一行目', 'paragraph:二行目', 'paragraph:区画']);
+  assert.deepStrictEqual(PC.fromHtml('<hr>').blocks, [{ type: 'divider', rich: [] }]);
+  // 表は1行ずつ「セル / セル」の箇条書き（空のセルは詰める・セルの中の飾りは残る）
+  const table = PC.fromHtml('<table><thead><tr><th>名前</th><th>値</th></tr></thead><tbody><tr><td>a</td><td> </td><td><p><b>c</b></p></td></tr><tr><td></td></tr></tbody></table>');
+  assert.deepStrictEqual(briefOf(table), ['bullet:名前 / 値', 'bullet:a / c']);
+  assert.deepStrictEqual(table.blocks[1].rich, [run('a / '), run('c', 'b')]);
+  // 文中の飾り
+  const marks = PC.fromHtml('<p><b>B</b><strong>S</strong><span style="font-weight:700">W</span><i>I</i><em>E</em><u>U</u><s>X</s><del>D</del><strike>K</strike><code>C</code><a href="https://example.com/a">L</a></p>');
+  assert.deepStrictEqual(marks, { blocks: [{ type: 'paragraph', rich: [run('BSW', 'b'), run('IE', 'i'), run('U', 'u'), run('XDK', 's'), run('C', 'code'), run('L', ['link', 'https://example.com/a'])] }], inline: true });
+  // 重なった飾りは決まった順・空白はつぶす（行の頭と終わりは除く）
+  assert.deepStrictEqual(PC.fromHtml('<p>  a \n  <i><b>x</b></i>   b  </p>').blocks[0].rich, [run('a '), run('x', 'b', 'i'), run(' b')]);
+  // 実体参照を文字に戻す（&nbsp; は空白）
+  assert.deepStrictEqual(briefOf(PC.fromHtml('<p>A&amp;B &lt;x&gt; &#x1F600;&#26085;&nbsp;終</p>')), ['paragraph:A&B <x> 😀日 終']);
+});
+
+test('EK-1: 種の HTML（Word・Edge・Teams・Google ドキュメントの形）を行と飾りにする', () => {
+  const word = PC.fromHtml(pasteFx('word.html'));
+  assert.deepStrictEqual(briefOf(word), [
+    'heading1:議題の整理', 'paragraph:太字の文と色の文', ['bullet:一つ目の項目', ['bullet:子の項目']], 'bullet:二つ目の項目',
+    'numbered:番号の一つ目', 'numbered:番号の二つ目', 'paragraph:議事録の住所と危ない住所', 'bullet:項目 / 担当', 'bullet:資料 / 来週',
+  ]);
+  assert.deepStrictEqual(word.blocks[1].rich, [run('太字の文', 'b'), run('と色の文')]);
+  assert.deepStrictEqual(word.blocks[3].rich, [run('二つ目', 'i'), run('の項目')]);
+  assert.deepStrictEqual(word.blocks[6].rich, [run('議事録の住所', ['link', 'https://example.com/minutes']), run('と危ない住所')]);
+  assert.deepStrictEqual(word.blocks[7].rich, [run('項目', 'b'), run(' / 担当')]);
+  marksOk(word.blocks);
+  const edge = PC.fromHtml(pasteFx('edge.html'));
+  assert.deepStrictEqual(briefOf(edge), [
+    'heading2:ページの見出し', 'paragraph:本文には強い語と斜めの語とコードがあり、資料へ続く。', ['bullet:上の項目', ['bullet:下の項目']],
+    'todo[x]:済んだ作業', 'todo[ ]:まだの作業', 'quote:引用の文', 'divider:', 'paragraph:終わり', 'paragraph:次の行',
+  ]);
+  assert.deepStrictEqual(edge.blocks[1].rich, [run('本文には'), run('強い語', 'b'), run('と'), run('斜めの語', 'i'), run('と'), run('コード', 'code'), run('があり、'), run('資料', ['link', 'https://example.com/docs?a=1&b=2']), run('へ続く。')]);
+  marksOk(edge.blocks);
+  const teams = PC.fromHtml(pasteFx('teams.html'));
+  assert.deepStrictEqual(briefOf(teams), [
+    'paragraph:今日の確認です。', 'paragraph:担当の人 さん、次の点をお願いします。', 'numbered:見積もりを金曜までに', ['numbered:日程の候補', ['numbered:午前']], 'paragraph:以上です。',
+  ]);
+  assert.deepStrictEqual(teams.blocks[2].rich, [run('見積もりを'), run('金曜まで', 'b'), run('に')]);
+  const docs = PC.fromHtml(pasteFx('gdocs.html'));
+  // 全体を包む <b style="font-weight:normal"> は太字にしない。font-weight:700 の span は太字
+  assert.deepStrictEqual(briefOf(docs), [
+    'paragraph:ふつうの文と太い文と斜めの文', ['bullet:一段目', ['bullet:二段目']], 'todo[x]:確認した', 'todo[ ]:まだ見ていない', 'paragraph:消した文下線の文表の住所',
+  ]);
+  assert.deepStrictEqual(docs.blocks[0].rich, [run('ふつうの文と'), run('太い文', 'b'), run('と斜めの文', 'i')]);
+  assert.deepStrictEqual(docs.blocks[4].rich, [run('消した文', 's'), run('下線の文', 'u'), run('表の住所', ['link', 'https://example.com/sheet'])]);
+  marksOk(docs.blocks);
+  // どの種でも、隠れた所（枠の外・Word の設定・画像の題・スクリプト）の文字は入らない
+  for (const r of [word, edge, teams, docs]) assert.ok(!JSON.stringify(r).includes('秘'), JSON.stringify(r).slice(0, 300));
+  // Windows のクリップボードの頭（Version:… StartHTML:…）は文字にしない
+  const cf = `Version:0.9\r\nStartHTML:0000000105\r\nEndHTML:0000000199\r\nStartFragment:0000000141\r\nEndFragment:0000000163\r\n<html><body>\r\n<!--StartFragment--><p>中身</p><!--EndFragment-->\r\n</body></html>`;
+  assert.deepStrictEqual(briefOf(PC.fromHtml(cf)), ['paragraph:中身']);
+});
+
+test('EK-1・F102: 落とすもの（script・style・iframe・template・コメント・<!--[if gte mso 9]>…<![endif]-->・<o:p>・javascript:／data: のリンク・on… の属性）。どれも行に文字が出ない（リンクの文字は残る）', { timeout: 5000 }, () => {
+  const html = [
+    '<p>見える一</p>',
+    '<script>alert("秘1")</script><SCRIPT type="module">秘2</SCRIPT><script/>秘3</script>',
+    '<style>p{color:red} /* 秘4 */</style><iframe srcdoc="&lt;p&gt;秘5">秘6</iframe><template><p>秘7</p></template>',
+    '<noscript>秘8</noscript><object data="x.swf">秘9</object><svg onload="alert(1)"><text>秘10</text></svg><textarea>秘11</textarea>',
+    '<!-- 秘12 --><!--[if gte mso 9]><xml><w:Doc>秘13</w:Doc></xml><![endif]--><![CDATA[秘14]]><?xml version="1.0"?>',
+    '<!--[if gte mso 9]><p>秘25 Word だけに見せる段落</p><![endif]--><!--[if !mso]><span>秘26</span><![endif]-->',
+    '<p>見える二<o:p>秘15</o:p></p>',
+    '<p onclick="alert(\'秘16\')" onmouseover="steal()">見える三<img src="x" onerror="alert(\'秘17\')" alt="秘18"></p>',
+    '<p><a href="javascript:alert(\'秘19\')">文字一</a><a href=" JaVaScRiPt:alert(1)">文字二</a><a href="data:text/html;base64,PHNjcmlwdD4=">文字三</a>',
+    '<a href="vbscript:msgbox(1)">文字四</a><a href="https://example.com/&#x202E;gpj.exe">文字五</a><a href="file:///etc/passwd">文字六</a><a href="  https://example.com/ok  ">文字七</a></p>',
+    '<div style="display:none">秘20</div><p hidden>秘21</p><span style="mso-hide:all">秘22</span>',
+    '<p>見える四</p><!-- 秘23 閉じないコメント <p>秘24</p>',
+  ].join('\n');
+  const r = PC.fromHtml(html);
+  // （文字三と文字四の間の空白は、入力の行の改行）
+  assert.deepStrictEqual(briefOf(r), ['paragraph:見える一', 'paragraph:見える二', 'paragraph:見える三', 'paragraph:文字一文字二文字三 文字四文字五文字六文字七', 'paragraph:見える四']);
+  // リンクは開けるものだけ（前後の空白は除いてから照らす）
+  assert.deepStrictEqual(r.blocks[3].rich, [run('文字一文字二文字三 文字四文字五文字六'), run('文字七', ['link', 'https://example.com/ok'])]);
+  const json = JSON.stringify(r);
+  for (const w of ['秘', 'alert', 'javascript', 'JaVaScRiPt', 'data:', 'vbscript', 'file:', 'steal', 'onclick', 'color']) assert.ok(!json.includes(w), `${w} が行に入った: ${json}`);
+  // Markdown のリンクも同じ（文字だけ残る）
+  const md = PC.pasteBlocks({ text: '[危ない](javascript:alert(1)) と [よい](https://example.com/m) と [データ](data:text/html,x)' });
+  assert.deepStrictEqual(md.blocks[0].rich, [run('危ない と '), run('よい', ['link', 'https://example.com/m']), run(' と データ')]);
+  assert.ok(!JSON.stringify(md).includes('javascript') && !JSON.stringify(md).includes('data:'));
+  // 文字として書かれた <script>（&lt;script&gt;）はただの文字（データ）として残る
+  assert.deepStrictEqual(briefOf(PC.fromHtml('<p>&lt;script&gt;x&lt;/script&gt;</p>')), ['paragraph:<script>x</script>']);
+  // 画像だけ・中身の無い HTML は行が無い（素の文字があれば素の文字で）
+  assert.deepStrictEqual(PC.pasteBlocks({ html: '<img src="x.png">', text: '' }), { blocks: [], inline: false });
+  assert.deepStrictEqual(briefOf(PC.pasteBlocks({ html: '<meta charset="utf-8"><img src="x.png">', text: '絵の文' })), ['paragraph:絵の文']);
+});
+
+test('EK-1: Word の箇条書き（MsoListParagraph と mso-list の段落・頭の「・」「1.」の印 → 箇条書きと番号。印の文字は消える）', () => {
+  const li = (style, body) => `<p class=MsoListParagraph style='${style}'>${body}<o:p></o:p></p>`;
+  const html = [
+    li('mso-list:l0 level1 lfo1', "<![if !supportLists]><span style='mso-list:Ignore'>・<span>&nbsp;&nbsp;</span></span><![endif]>中黒の項目"),
+    li('mso-list:l1 level1 lfo2', "<![if !supportLists]><span style='mso-list:Ignore'>１．<span>&nbsp;</span></span><![endif]>全角の番号"),
+    li('mso-list:l1 level1 lfo2', '<!--[if !supportLists]--><span>(2)<span>&nbsp;</span></span><!--[endif]-->括弧の番号'),
+    li('mso-list:l2 level1 lfo3', "<![if !supportLists]><span style='mso-list:Ignore'>☐<span>&nbsp;</span></span><![endif]>四角の印"),
+    li('', '・印を文字で書いた項目'),
+    "<p class=MsoNormal style='mso-list:l3 level1 lfo4'>1. 番号を文字で書いた項目</p>",
+    "<p class=MsoNormal>・ふつうの段落の中黒</p>",
+    "<p class=MsoListParagraph style='mso-list:l3 level1 lfo4'>12.5% の数は番号にしない</p>",
+  ].join('\n');
+  assert.deepStrictEqual(briefOf(PC.fromHtml(html)), [
+    'bullet:中黒の項目', 'numbered:全角の番号', 'numbered:括弧の番号', 'todo[ ]:四角の印', 'bullet:印を文字で書いた項目', 'numbered:番号を文字で書いた項目',
+    'paragraph:・ふつうの段落の中黒', 'bullet:12.5% の数は番号にしない',
+  ]);
+  // 段（level2）は前の項目の子
+  assert.deepStrictEqual(briefOf(PC.fromHtml(li('mso-list:l0 level1 lfo1', '親') + li('mso-list:l0 level2 lfo1', '子') + li('mso-list:l0 level3 lfo1', '孫') + li('mso-list:l0 level1 lfo1', '次'))),
+    [['bullet:親', [['bullet:子', ['bullet:孫']]]], 'bullet:次']);
+});
+
+test('EK-1: 色を落とす（BQ5 (a)。color・background・font-size・font-family は残らない）', () => {
+  const r = PC.fromHtml('<p><span style="color:#ff0000;background:yellow;font-size:20pt;font-family:\'游ゴシック\'">色の文</span><font color="red" size="7" face="serif">古い色</font><span style="background-color:#00ff00;color:blue">地の色</span><mark>印</mark></p>');
+  assert.deepStrictEqual(r, { blocks: [{ type: 'paragraph', rich: [run('色の文古い色地の色印')] }], inline: true });
+  const all = [r, PC.fromHtml(pasteFx('word.html')), PC.fromHtml(pasteFx('gdocs.html')), PC.fromHtml(pasteFx('edge.html')), PC.fromHtml(pasteFx('teams.html'))];
+  for (const x of all) marksOk(x.blocks);
+  const json = JSON.stringify(all);
+  for (const w of ['"color"', '"bg"', 'ff0000', 'yellow', '20pt', 'serif', 'Arial', '游', 'rgb(']) assert.ok(!json.includes(w), `${w} が残った`);
+  // 色つきの太字は太字だけ
+  assert.deepStrictEqual(PC.fromHtml('<b style="color:red">赤い太字</b>').blocks[0].rich, [run('赤い太字', 'b')]);
+});
+
+test('EK-1: Markdown の表（#〜####・- ・* ・1. ・- [ ]・- [x]・> （引用）・---・囲みのコード（文字の行）・**b**・[t](u)）', () => {
+  const text = [
+    '# 一', '## 二', '### 三', '#### 四', '- 箇条', '* 星', '+ 足し', '1. 番号', '2) 括弧の番号', '- [ ] まだ', '- [x] 済み', '> 引用', '---',
+    '```js', 'const a = 1;', '', '# 見出しでない', '- 箇条でない', '```',
+    '**太い**と[住所](https://example.com/m)と*斜め*と`コード`と~~消し~~と__下線でなく太い__',
+  ].join('\n');
+  const r = PC.pasteBlocks({ text });
+  assert.deepStrictEqual(briefOf(r), [
+    'heading1:一', 'heading2:二', 'heading3:三', 'heading3:四', 'bullet:箇条', 'bullet:星', 'bullet:足し', 'numbered:番号', 'numbered:括弧の番号',
+    'todo[ ]:まだ', 'todo[x]:済み', 'quote:引用', 'divider:', 'paragraph:const a = 1;', 'paragraph:# 見出しでない', 'paragraph:- 箇条でない',
+    'paragraph:太いと住所と斜めとコードと消しと下線でなく太い',
+  ]);
+  assert.deepStrictEqual(r.blocks[16].rich, [run('太い', 'b'), run('と'), run('住所', ['link', 'https://example.com/m']), run('と'), run('斜め', 'i'), run('と'), run('コード', 'code'), run('と'), run('消し', 's'), run('と'), run('下線でなく太い', 'b')]);
+  assert.deepStrictEqual(r.blocks[0], { type: 'heading', level: 1, rich: [run('一')] });
+  // 閉じていない記号・語の途中の * ・逃がした記号は文字のまま
+  assert.deepStrictEqual(PC.pasteBlocks({ text: '- 1*2*3 と **閉じない と \\*逃がした\\* と snake_case_name' }).blocks[0].rich, [run('1*2*3 と **閉じない と *逃がした* と snake_case_name')]);
+  // 表は1行ずつ「セル / セル」の箇条書き（区切りの行は捨てる）
+  assert.deepStrictEqual(briefOf(PC.pasteBlocks({ text: '| 項目 | 値 |\n|---|:-:|\n| **a** | b |' })), ['bullet:項目 / 値', 'bullet:a / b']);
+  // 文中の飾りだけの1行は行の中に入れる（inline）。印の無い文は Markdown として読まない
+  assert.deepStrictEqual(PC.pasteBlocks({ text: '**重要** な点' }), { blocks: [{ type: 'paragraph', rich: [run('重要', 'b'), run(' な点')] }], inline: true });
+  assert.deepStrictEqual(PC.pasteBlocks({ text: '- 一つ' }).inline, false);
+  assert.deepStrictEqual(PC.fromMarkdown('# 題\n本文'), { blocks: [{ type: 'heading', level: 1, rich: [run('題')] }, { type: 'paragraph', rich: [run('本文')] }], inline: false });
+});
+
+test('EK-1: 素の文字（3行 → 3つのテキストの行・空の行は詰める・1行で印が無い → inline）', () => {
+  const r = PC.pasteBlocks({ text: '一\n\n二\r\n   \n三\n' });
+  assert.deepStrictEqual(r, { blocks: [{ type: 'paragraph', rich: [run('一')] }, { type: 'paragraph', rich: [run('二')] }, { type: 'paragraph', rich: [run('三')] }], inline: false });
+  assert.deepStrictEqual(PC.pasteBlocks({ text: 'ひとこと' }), { blocks: [{ type: 'paragraph', rich: [run('ひとこと')] }], inline: true });
+  assert.deepStrictEqual(PC.pasteBlocks({ html: '', text: 'ひとこと' }), PC.fromPlain('ひとこと'));
+  // 素の文字の部品は印を読まない（Markdown かどうかは pasteBlocks が決める）
+  assert.deepStrictEqual(briefOf(PC.fromPlain('# 見出し\n- 箇条\n  字下げ\ta')), ['paragraph:# 見出し', 'paragraph:- 箇条', 'paragraph:  字下げ\ta']);
+  // 制御の文字は落とす
+  assert.deepStrictEqual(briefOf(PC.fromPlain('a\u0000b\u0007c')), ['paragraph:abc']);
+  assert.deepStrictEqual(PC.pasteBlocks({ text: '' }), { blocks: [], inline: false });
+  assert.deepStrictEqual(PC.pasteBlocks({}), { blocks: [], inline: false });
+});
+
+test('EK-1・F102: 2,001 行・1MB を越える → { tooBig: true }（一部だけを返さない）', { timeout: 10000 }, () => {
+  assert.strictEqual(PC.PASTE_ROWS, V.LIMITS.blocks);
+  assert.strictEqual(PC.PASTE_BYTES, V.LIMITS.bytes);
+  const lines = (n, f) => Array.from({ length: n }, (_, i) => f(i)).join('\n');
+  assert.strictEqual(PC.pasteBlocks({ text: lines(2000, (i) => `行${i}`) }).blocks.length, 2000);
+  assert.deepStrictEqual(PC.pasteBlocks({ text: lines(2001, (i) => `行${i}`) }), { tooBig: true });
+  assert.deepStrictEqual(PC.pasteBlocks({ text: lines(2001, (i) => `- 項目${i}`) }), { tooBig: true });
+  assert.strictEqual(PC.fromHtml(lines(2000, (i) => `<p>段${i}</p>`)).blocks.length, 2000);
+  assert.deepStrictEqual(PC.fromHtml(lines(2001, (i) => `<p>段${i}</p>`)), { tooBig: true });
+  assert.deepStrictEqual(PC.pasteBlocks({ html: `<table>${lines(2001, (i) => `<tr><td>${i}</td></tr>`)}</table>`, text: 'x' }), { tooBig: true });
+  // 1MB（UTF-8 の大きさ）を越える: 3 バイトの字 30,000 × 12 行
+  assert.deepStrictEqual(PC.pasteBlocks({ text: lines(12, () => 'あ'.repeat(30000)) }), { tooBig: true });
+  assert.deepStrictEqual(PC.fromHtml(lines(12, () => `<p>${'あ'.repeat(30000)}</p>`)), { tooBig: true });
+  assert.strictEqual(PC.pasteBlocks({ text: lines(10, () => 'a'.repeat(50000)) }).blocks.length, 10);
+  // 1行の文字は 10 万字まで
+  assert.strictEqual(PC.fromPlain('a'.repeat(100000)).blocks.length, 1);
+  assert.deepStrictEqual(PC.fromPlain('a'.repeat(100001)), { tooBig: true });
+  // Word の飾りで大きい HTML でも、文が小さければ通る（3MB の style）。読む HTML は 16MB まで
+  const fat = `style="${'mso-bidi-font-family:x;'.repeat(15000)}"`;
+  assert.deepStrictEqual(briefOf(PC.fromHtml(lines(10, (i) => `<p ${fat}>段${i}</p>`))).length, 10);
+  assert.deepStrictEqual(PC.fromHtml(`<p>${'x'.repeat(16 * 1024 * 1024)}</p>`), { tooBig: true });
+  // 深い入れ子・閉じない属性・崩れた印でも止まらない
+  assert.deepStrictEqual(briefOf(PC.fromHtml(`${'<div>'.repeat(50000)}深い文${'</div>'.repeat(50000)}`)), ['paragraph:深い文']);
+  assert.deepStrictEqual(briefOf(PC.fromHtml('<p>前</p><a href="https://example.com/' + 'x'.repeat(200000))), ['paragraph:前']);
+  assert.deepStrictEqual(briefOf(PC.fromHtml(`<p>${'<'.repeat(99999)}終</p>`)), [`paragraph:${'<'.repeat(99999)}終`]);
+  assert.strictEqual(PC.pasteBlocks({ text: '*a '.repeat(33000) }).blocks.length, 1);
+  assert.strictEqual(PC.pasteBlocks({ text: '['.repeat(50000) + ']('.repeat(20000) }).blocks.length, 1);
+});
+
+test('EK-1・R66（第4版）: Markdown の字下げした - ・1. （2つ・4つの空白・タブ）と HTML の入れ子の ul／ol → 子の行。見出し・区切り線の下に来た子 → その行の後ろの兄弟に上げる。子孫を数えて 2,001 行 → { tooBig: true }', { timeout: 10000 }, () => {
+  const want = [['bullet:a', [['bullet:b', ['bullet:c']]]], 'bullet:d'];
+  assert.deepStrictEqual(briefOf(PC.pasteBlocks({ text: '- a\n  - b\n    - c\n- d' })), want);
+  assert.deepStrictEqual(briefOf(PC.pasteBlocks({ text: '- a\n    - b\n        - c\n- d' })), want);
+  assert.deepStrictEqual(briefOf(PC.pasteBlocks({ text: '- a\n\t- b\n\t\t- c\n- d' })), want);
+  assert.deepStrictEqual(briefOf(PC.pasteBlocks({ text: '1. 一\n   1. 一の一\n   2. 一の二\n2. 二\n  - [x] 二の済み' })),
+    [['numbered:一', ['numbered:一の一', 'numbered:一の二']], ['numbered:二', ['todo[x]:二の済み']]]);
+  // 段を飛ばした字下げは1段下まで・浅く戻ると戻った段
+  assert.deepStrictEqual(briefOf(PC.pasteBlocks({ text: '- a\n      - b\n  - c\n- d' })), [['bullet:a', ['bullet:b', 'bullet:c']], 'bullet:d']);
+  // 文の下の字下げした箇条は、その文の子（テキストは子を持てる）
+  assert.deepStrictEqual(briefOf(PC.pasteBlocks({ text: '説明\n  - a' })), [['paragraph:説明', ['bullet:a']]]);
+  // 見出し・区切り線の下の子は後ろの兄弟に上がる（子の子はそのまま）
+  assert.deepStrictEqual(briefOf(PC.pasteBlocks({ text: '# 見出し\n  - 子\n    - 孫\n---\n  - 線の下' })), ['heading1:見出し', ['bullet:子', ['bullet:孫']], 'divider:', 'bullet:線の下']);
+  assert.deepStrictEqual(briefOf(PC.fromHtml("<h2>題</h2><p class=MsoListParagraph style='mso-list:l0 level2 lfo1'>二段目から</p>")), ['heading2:題', 'bullet:二段目から']);
+  // HTML の入れ子（li の中の ul・ul の中に直に ul）
+  assert.deepStrictEqual(briefOf(PC.fromHtml('<ul><li>a</li><ul><li>b</li><ol><li>c</li></ol></ul><li>d<p>続きの段落</p></li></ul>')),
+    [['bullet:a', [['bullet:b', ['numbered:c']]]], ['bullet:d', ['paragraph:続きの段落']]]);
+  // 子孫も数える: 親1つ＋子 1,999 は 2,000 行で通り、子 2,000 で越える
+  const kids = (n) => '- 親\n' + Array.from({ length: n }, (_, i) => `  - 子${i}`).join('\n');
+  const ok = PC.pasteBlocks({ text: kids(1999) });
+  assert.strictEqual(ok.blocks.length, 1);
+  assert.strictEqual(ok.blocks[0].children.length, 1999);
+  assert.deepStrictEqual(PC.pasteBlocks({ text: kids(2000) }), { tooBig: true });
+  const htmlKids = (n) => `<ul><li>親<ul>${'<li>子</li>'.repeat(n)}</ul></li></ul>`;
+  assert.strictEqual(PC.fromHtml(htmlKids(1999)).blocks[0].children.length, 1999);
+  assert.deepStrictEqual(PC.fromHtml(htmlKids(2000)), { tooBig: true });
 });
