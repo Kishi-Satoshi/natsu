@@ -16,13 +16,16 @@ const ROW_TEXT = 100000;                 // 1行の文字（validate.LIMITS.text
 const HTML_MAX = 16 * 1024 * 1024;       // 読む HTML の長さ（Word の HTML は飾りで文の 10 倍を越える）
 const DEPTH_MAX = 256;                   // 読む要素の入れ子の深さ（これより深い要素は中の文字だけ）
 const ROWS_HARD = PASTE_ROWS * 4;        // ここまで行が増えたら読むのをやめる（どのみち上限を越える）
+const TOKENS_MAX = 400000;               // 読む HTML の字句の数（EK-1 直し: 2,000 行の Word の HTML でも 10 万ほど。越えれば大きすぎる: R124）
+const TEXT_MAX = 3000000;                // 読む HTML の文字の数（実体参照を戻す前。行の 1MB の数倍。越えれば大きすぎる: R124）
 const tooBig = () => ({ tooBig: true });
 class TooBig extends Error {}
 
 const ORDER = Object.freeze([...RT.MARKS, 'color', 'bg', 'link']);
 const nameOf = (mk) => (Array.isArray(mk) ? mk[0] : mk);
 const keyOf = (mk) => (Array.isArray(mk) ? `${mk[0]}\u0000${mk[1]}` : mk);
-const CTRL_RE = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g;   // 落とす制御の文字（改行とタブは残す）
+const CTRL_RE = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f]/g;   // 落とす制御の文字（改行とタブは残す。C1 も: EK-1 直し）
+const CR_RE = /\r\n?/g;   // 改行は「\n」にそろえる（HTML の &#13; も）
 const isSpaceCode = (c) => c === 32 || c === 9 || c === 10 || c === 13 || c === 12;
 
 // UTF-8 の大きさ
@@ -119,7 +122,7 @@ function nest(rows) {
     const b = { type: r.type };
     if (r.type === 'heading') b.level = r.level;
     if (r.type === 'todo') b.checked = r.checked === true;
-    b.rich = tidyRuns(r.runs);
+    b.rich = tidyRuns(r.runs.map((x) => ({ t: x.t.replace(/\u00a0/g, ' '), m: x.m })));   // EK-1 直し: &nbsp; は空白（つぶさずに数を残す）
     if (d === 0) top.push(b);
     else (path[d - 1].children || (path[d - 1].children = [])).push(b);
     path.push(b);
@@ -221,23 +224,29 @@ function readTag(s, i) {
   return { dead: true, end: n };
 }
 
-// HTML → 字句の並び（text・start・end・cond（Word の条件つきの区切り）・raw（捨てる中身））
-function tokenize(s) {
-  const toks = [];
+// HTML → 字句（text・start・end・cond（Word の条件つきの区切り）・raw（捨てる中身））を1つずつ feed に渡す（並びを溜めない: EK-1 直し）
+function tokenize(s, feed) {
   const n = s.length;
-  let i = 0, from = 0;
-  const text = (end) => { if (end > from) toks.push({ type: 'text', text: decode(s.slice(from, end)) }); };
+  let i = 0, from = 0, chars = 0;
+  const text = (end) => {
+    if (end <= from) return;
+    chars += end - from;
+    if (chars > TEXT_MAX) throw new TooBig();   // 戻す前に数える（大きな文字の塊を戻してから断らない）
+    feed({ type: 'text', text: decode(s.slice(from, end)) });
+  };
   while (i < n) {
     i = s.indexOf('<', i);
     if (i < 0) break;
     // コメント（Word の条件つきコメント <!--[if gte mso 9]>…<![endif]--> も、中身ごと1つのコメントとして捨てる）。
-    // <!--[if !supportLists]-->…<!--[endif]--> だけは区切りの印（中は見える文: Word の箇条の印）
+    // <!--[if !supportLists]-->…<!--[endif]--> だけは区切りの印（中は見える文: Word の箇条の印）。<!--> と <!---> は空のコメント（HTML の決まり）
     if (s.startsWith('<!--', i)) {
       text(i);
+      const tiny = s.startsWith('<!-->', i) ? 5 : s.startsWith('<!--->', i) ? 6 : 0;
+      if (tiny) { i = from = i + tiny; continue; }
       const end = s.indexOf('-->', i + 4);
       const body = (end < 0 ? '' : s.slice(i + 4, Math.min(end, i + 4 + 200))).trim();
-      if (/^\[if\s[^\]<>]*\]$/i.test(body)) toks.push({ type: 'cond', open: true });
-      else if (/^\[endif\]$/i.test(body)) toks.push({ type: 'cond', open: false });
+      if (/^\[if\s[^\]<>]*\]$/i.test(body)) feed({ type: 'cond', open: true });
+      else if (/^\[endif\]$/i.test(body)) feed({ type: 'cond', open: false });
       i = from = end < 0 ? n : end + 3;
       continue;
     }
@@ -247,14 +256,15 @@ function tokenize(s) {
       i = from = end < 0 ? n : end + 3;
       continue;
     }
-    // Word の <![if !supportLists]>…<![endif]>（中は見える文。箇条の印として読み、行の文にはしない）
+    // Word の <![if !supportLists]>…<![endif]>（中は見える文。箇条の印として読み、行の文にはしない）。閉じない <![ は文字（後ろを飲み込まない）
     if (s.startsWith('<![', i)) {
-      text(i);
       const end = s.indexOf(']>', i + 3);
-      const body = end < 0 ? '' : s.slice(i + 3, Math.min(end, i + 3 + 200)).trim();
-      if (/^if\b/i.test(body)) toks.push({ type: 'cond', open: true });
-      else if (/^endif$/i.test(body)) toks.push({ type: 'cond', open: false });
-      i = from = end < 0 ? n : end + 2;
+      if (end < 0) { i++; continue; }
+      text(i);
+      const body = s.slice(i + 3, Math.min(end, i + 3 + 200)).trim();
+      if (/^if\b/i.test(body)) feed({ type: 'cond', open: true });
+      else if (/^endif$/i.test(body)) feed({ type: 'cond', open: false });
+      i = from = end + 2;
       continue;
     }
     const c = s[i + 1];
@@ -269,23 +279,22 @@ function tokenize(s) {
     text(i);
     if (tag.dead) { i = from = n; break; }            // 閉じないタグは終わりまで捨てる
     i = from = tag.end;
-    if (tag.close) { toks.push({ type: 'end', name: tag.name }); continue; }
+    if (tag.close) { feed({ type: 'end', name: tag.name }); continue; }
     if (RAW_TEXT.has(tag.name)) {
       // 閉じる印まで中身を読まずに飛ばす（<script/> と書いても中身は捨てる）
       const re = new RegExp(`</${tag.name}(?=[\\s/>])`, 'ig');
       re.lastIndex = i;
       const hit = tag.name === 'plaintext' ? null : re.exec(s);
       const stop = hit ? hit.index : n;
-      toks.push({ type: 'raw', name: tag.name, text: s.slice(i, stop) });
+      feed({ type: 'raw', name: tag.name, text: s.slice(i, stop) });
       if (!hit) { i = from = n; break; }
       const gt = s.indexOf('>', stop);
       i = from = gt < 0 ? n : gt + 1;
       continue;
     }
-    toks.push({ type: 'start', name: tag.name, attrs: tag.attrs, self: tag.self });
+    feed({ type: 'start', name: tag.name, attrs: tag.attrs, self: tag.self });
   }
   text(n);
-  return toks;
 }
 
 // ---------------------------------------------------------------- 字句 → 小さな木（{ tag, attrs, kids } と { text }。DOM の要素ではない）
@@ -296,52 +305,67 @@ const BLOCKS = new Set([
   'figcaption', 'figure', 'footer', 'form', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'header', 'hgroup', 'hr', 'html', 'legend', 'li', 'main', 'menu',
   'nav', 'ol', 'p', 'pre', 'section', 'summary', 'table', 'tbody', 'td', 'tfoot', 'th', 'thead', 'tr', 'ul',
 ]);
-function buildTree(toks) {
+// 字句を1つずつ受けて小さな木を組む（{ feed, root }）。開いた要素の名前ごとに積んだ位置を持ち、閉じる所を上から探さずに決める
+// （EK-1 直し: 開いた要素の並びを1つの字句ごとに読み直すと、深い入れ子と多い字句で O(字句 × 深さ) になって止まる）。
+// 受ける字句は TOKENS_MAX まで（越えれば TooBig: 16MB の悪い HTML でも、読む手間と記憶を決まった所で止める）
+function buildTree() {
   const root = { tag: '#root', attrs: {}, kids: [] };
   const stack = [root];
+  const at = new Map();   // 名前 → 開いている位置の並び（浅い順）
   const skipped = Object.create(null);
+  let count = 0;
   const top = () => stack[stack.length - 1];
-  // 上から探して want の要素まで閉じる（stop の要素に当たったらやめる）
-  const closeTo = (want, stop) => {
-    for (let k = stack.length - 1; k > 0; k--) {
-      const t = stack[k].tag;
-      if (want(t)) { stack.length = k; return true; }
-      if (stop && stop(t)) return false;
-    }
-    return false;
+  const push = (el) => {
+    let list = at.get(el.tag);
+    if (!list) { list = []; at.set(el.tag, list); }
+    list.push(stack.length);
+    stack.push(el);
   };
-  for (const tok of toks) {
-    if (tok.type === 'raw') continue;   // script・style などの中身は文字にしない
-    if (tok.type === 'text') { if (tok.text) top().kids.push({ text: tok.text }); continue; }
+  const popTo = (k) => { while (stack.length > k) at.get(stack.pop().tag).pop(); };
+  const last = (names) => { let k = -1; for (const t of names) { const l = at.get(t); if (l && l.length && l[l.length - 1] > k) k = l[l.length - 1]; } return k; };
+  // want のどれかの要素まで閉じる（stop のどれかの要素がそれより内にあればやめる）
+  const closeTo = (want, stop = []) => {
+    const k = last(want);
+    if (k <= 0 || last(stop) > k) return false;
+    popTo(k);
+    return true;
+  };
+  const LIST_NAMES = [...LISTS];
+  function feed(tok) {
+    if (++count > TOKENS_MAX) throw new TooBig();
+    if (tok.type === 'raw') return;   // script・style などの中身は文字にしない
+    if (tok.type === 'text') { if (tok.text) top().kids.push({ text: tok.text }); return; }
     if (tok.type === 'cond') {
-      if (!tok.open) { closeTo((t) => t === '#cond'); continue; }
-      if (stack.length > DEPTH_MAX) continue;
+      if (!tok.open) { closeTo(['#cond']); return; }
+      if (stack.length > DEPTH_MAX) return;
       const el = { tag: '#cond', attrs: {}, kids: [] };
       top().kids.push(el);
-      stack.push(el);
-      continue;
+      push(el);
+      return;
     }
     const name = tok.name;
     if (tok.type === 'end') {
-      if (name === 'br') { top().kids.push({ tag: 'br', attrs: {}, kids: [] }); continue; }
-      if (skipped[name] > 0) { skipped[name]--; continue; }
-      if (name === 'li') closeTo((t) => t === 'li', (t) => LISTS.has(t));
-      else if (name === 'tr' || name === 'td' || name === 'th') closeTo((t) => t === name, (t) => t === 'table');
-      else closeTo((t) => t === name);
-      continue;
+      if (name === 'br') { top().kids.push({ tag: 'br', attrs: {}, kids: [] }); return; }
+      if (skipped[name] > 0) { skipped[name]--; return; }
+      if (name === 'li') closeTo(['li'], LIST_NAMES);
+      else if (name === 'tr' || name === 'td' || name === 'th') closeTo([name], ['table']);
+      else closeTo([name]);
+      return;
     }
-    // 始まり: 省略された閉じる印を補う（p は塊の前で閉じる・li／tr／td は前の同じ要素を閉じる）
-    if (BLOCKS.has(name) && top().tag === 'p') stack.pop();
-    if (name === 'li') closeTo((t) => t === 'li', (t) => LISTS.has(t));
-    else if (name === 'tr') closeTo((t) => t === 'tr', (t) => t === 'table');
-    else if (name === 'td' || name === 'th') closeTo((t) => t === 'td' || t === 'th', (t) => t === 'tr' || t === 'table');
+    // 始まり: 省略された閉じる印を補う（p は塊の前で閉じる・li／tr／td は前の同じ要素を閉じる）。
+    // Word の条件つきの区切り（箇条の印）は行の中だけなので、閉じないまま塊が来たら閉じる（後ろの文を飲み込まない）
+    if (BLOCKS.has(name)) { const k = last(['#cond']); if (k > 0) popTo(k); }
+    if (BLOCKS.has(name) && top().tag === 'p') popTo(stack.length - 1);
+    if (name === 'li') closeTo(['li'], LIST_NAMES);
+    else if (name === 'tr') closeTo(['tr'], ['table']);
+    else if (name === 'td' || name === 'th') closeTo(['td', 'th'], ['tr', 'table']);
     const leaf = VOID.has(name) || tok.self;
-    if (!leaf && stack.length > DEPTH_MAX) { skipped[name] = (skipped[name] || 0) + 1; continue; }
+    if (!leaf && stack.length > DEPTH_MAX) { skipped[name] = (skipped[name] || 0) + 1; return; }
     const el = { tag: name, attrs: tok.attrs, kids: [] };
     top().kids.push(el);
-    if (!leaf) stack.push(el);
+    if (!leaf) push(el);
   }
-  return root;
+  return { feed, root };
 }
 
 // ---------------------------------------------------------------- 小さな木 → 行
@@ -364,11 +388,11 @@ function styleOf(attrs) {
   return out;
 }
 const isHidden = (attrs, st) => attrs.hidden !== undefined || st.display === 'none' || st.visibility === 'hidden' || st['mso-hide'] === 'all';
-// Word の箇条の段落の段（mso-list の levelN・MsoListParagraph の class）。箇条でなければ 0
-function wordLevel(attrs, st) {
+// Word の箇条の段落の段（mso-list の levelN）。箇条でなければ 0。EK-1 直し（R124）: mso-list の無い MsoListParagraph（Word の「リスト段落」の
+// 字下げだけの段落）は箇条にしない（ふつうの段落）
+function wordLevel(_attrs, st) {
   const m = /\bl\d+\s+level(\d+)/i.exec(st['mso-list'] || '');
-  if (m) return Math.max(1, Math.min(9, Number(m[1])));
-  return /\bMsoListParagraph/i.test(attrs.class || '') ? 1 : 0;
+  return m ? Math.max(1, Math.min(9, Number(m[1]))) : 0;
 }
 // 要素の飾り（タグの名前と style の太さ・斜め・線だけ）
 function elementMarks(tag, attrs, st, marks) {
@@ -458,8 +482,9 @@ function htmlRows(root) {
     }
   }
   function addText(text, ctx) {
-    let t = text.replace(CTRL_RE, '');
-    t = ctx.pre ? t.replace(/ /g, ' ') : t.replace(/[ \t\n\r\f ]+/g, ' ');
+    let t = text.replace(CR_RE, '\n').replace(CTRL_RE, '');
+    // 空白をつぶすのは HTML の空白だけ（&nbsp; は数を残す: nest で空白にする）
+    t = ctx.pre ? t.replace(/ /g, ' ') : t.replace(/[ \t\n\f]+/g, ' ');
     if (!t) return;
     if (cur && cur.frame !== ctx.frame) flush();
     if (!ctx.pre && t[0] === ' ') {
@@ -473,9 +498,10 @@ function htmlRows(root) {
   // 表は1行ずつ「セル / セル」の箇条書き（空のセルは詰める。0.13.0 の tableRowText と同じ考え）
   function tableRows(node, ctx) {
     const trs = [];
+    const gone = (k) => DROP.has(k.tag) || isHidden(k.attrs, styleOf(k.attrs));   // EK-1 直し: 隠した行・セル・行の組も捨てる
     const findRows = (n) => {
       for (const k of n.kids || []) {
-        if (k.text !== undefined || k.tag === 'table') continue;
+        if (k.text !== undefined || k.tag === 'table' || gone(k)) continue;
         if (k.tag === 'tr') trs.push(k);
         else if (k.tag !== 'td' && k.tag !== 'th') findRows(k);
       }
@@ -484,10 +510,10 @@ function htmlRows(root) {
     for (const tr of trs) {
       const row = [];
       for (const cell of tr.kids) {
-        if (cell.tag !== 'td' && cell.tag !== 'th') continue;
+        if ((cell.tag !== 'td' && cell.tag !== 'th') || gone(cell)) continue;
         const sink = [];
         inlineRuns(cell, ctx.marks, sink);
-        const runs = trimRuns(sink.map((r) => ({ t: r.t.replace(/[ \t\n\r\f ]+/g, ' '), m: r.m })), false);
+        const runs = trimRuns(sink.map((r) => ({ t: r.t.replace(/[ \t\n\f]+/g, ' '), m: r.m })), false);
         if (!hasText(runs)) continue;
         if (row.length) row.push({ t: ' / ', m: [] });
         row.push(...runs);
@@ -498,7 +524,7 @@ function htmlRows(root) {
   // 表のセルの中の文字（塊と改行は空白・入れ子の表も文字だけ）
   function inlineRuns(node, marks, sink) {
     for (const k of node.kids) {
-      if (k.text !== undefined) { sink.push({ t: k.text.replace(CTRL_RE, ''), m: marks }); continue; }
+      if (k.text !== undefined) { sink.push({ t: k.text.replace(CR_RE, '\n').replace(CTRL_RE, ''), m: marks }); continue; }
       const st = styleOf(k.attrs);
       if (DROP.has(k.tag) || k.tag.startsWith('v:') || k.tag === '#cond' || st['mso-list'] === 'ignore' || isHidden(k.attrs, st)) continue;
       if (k.tag === 'br' || BLOCKS.has(k.tag)) sink.push({ t: ' ', m: marks });
@@ -535,6 +561,12 @@ function htmlRows(root) {
     if (tag === 'table') { flush(); tableRows(node, ctx); return; }
     const block = BLOCKS.has(tag) || tag === '#root';
     if (block) flush();
+    // EK-1 直し（R124）: 文の無い項目の頭に入れ子の箇条が来たら、その項目を空の行にして子を付ける（前の箇条の最後の項目の子にしない）
+    const fr = ctx.frame;
+    if (LISTS.has(tag) && fr.kind === 'li' && !fr.word && !fr.emitted) {
+      fr.emitted = true;
+      pushRow(rows, { type: fr.todo ? 'todo' : fr.ordered ? 'numbered' : 'bullet', checked: fr.checked, runs: [], depth: fr.depth });
+    }
     const c = { ...ctx, marks: elementMarks(tag, attrs, st, ctx.marks) };
     let m;
     if ((m = /^h([1-6])$/.exec(tag))) c.frame = { kind: 'heading', level: Math.min(Number(m[1]), 3), depth: contDepth(ctx.frame) };
@@ -578,7 +610,9 @@ function fromHtml(html) {
   const s = typeof html === 'string' ? html : '';
   if (s.length > HTML_MAX) return tooBig();
   try {
-    return finish(htmlRows(buildTree(tokenize(fragmentOf(s)))));
+    const tree = buildTree();
+    tokenize(fragmentOf(s), tree.feed);
+    return finish(htmlRows(tree.root));
   } catch (e) {
     if (e instanceof TooBig) return tooBig();
     throw e;
@@ -587,8 +621,9 @@ function fromHtml(html) {
 
 // ---------------------------------------------------------------- Markdown
 const DELIMS = Object.freeze([
-  { sym: '**', mark: 'b', word: false }, { sym: '__', mark: 'b', word: true }, { sym: '~~', mark: 's', word: false },
-  { sym: '*', mark: 'i', word: true }, { sym: '_', mark: 'i', word: true },
+  { sym: '***', marks: ['b', 'i'], word: false }, { sym: '___', marks: ['b', 'i'], word: true },   // EK-1 直し: 太字の斜体
+  { sym: '**', marks: ['b'], word: false }, { sym: '__', marks: ['b'], word: true }, { sym: '~~', marks: ['s'], word: false },
+  { sym: '*', marks: ['i'], word: true }, { sym: '_', marks: ['i'], word: true },
 ]);
 const ESC_RE = /[!-/:-@[-`{-~]/;           // \ で逃がせる ASCII の記号
 const WORD_CH = /[A-Za-z0-9]/;
@@ -661,10 +696,12 @@ function mdInline(s) {
         i += len;
         continue;
       }
-      if (ch === '[' && !marks.some((mk) => nameOf(mk) === 'link')) {
+      if (ch === '[') {
         const k = bracket[i];
         if (k > i && k + 1 < b && s[k + 1] === '(') {
           const p = paren[k + 1];
+          // EK-1 直し: リンクの中のリンク（[[a](u)](v)）は外のリンクの文字だけ（中の記号と住所は落とす）
+          if (p > k + 1 && p < b && marks.some((mk) => nameOf(mk) === 'link')) { put(); parse(i + 1, k, marks); i = p + 1; continue; }
           if (p > k + 1 && p < b) {
             put();
             let url = s.slice(k + 2, p).trim();
@@ -680,12 +717,12 @@ function mdInline(s) {
       let hit = false;
       for (let x = 0; x < DELIMS.length; x++) {
         const d = DELIMS[x];
-        if (marks.includes(d.mark) || !opener(i, d)) continue;
+        if (d.marks.some((mk) => marks.includes(mk)) || !opener(i, d)) continue;
         const len = d.sym.length;
         const j = i + len + 1 <= n ? next[x][i + len + 1] : -1;
         if (j < 0 || j + len > b) continue;
         put();
-        parse(i + len, j, withMarks(marks, [d.mark], []));
+        parse(i + len, j, withMarks(marks, d.marks, []));
         i = j + len;
         hit = true;
         break;
@@ -752,7 +789,8 @@ function fromMarkdown(text) {
       const depth = indents.filter((w) => w < width).length;
       indents.length = depth;
       const f = MD_FENCE.exec(body);
-      if (f) { fence = { mark: f[1][0], len: f[1].length, cut: len, depth }; continue; }
+      // EK-1 直し: 同じ行で閉じる ```…```（` の囲みの頭の文に ` は入らない）は文中のコード
+      if (f && !(f[1][0] === '`' && body.slice(f[1].length).includes('`'))) { fence = { mark: f[1][0], len: f[1].length, cut: len, depth }; continue; }
       indents.push(width);
       let m;
       if (MD_DIVIDER.test(body)) pushRow(rows, { type: 'divider', runs: [], depth });

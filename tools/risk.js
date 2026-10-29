@@ -427,6 +427,20 @@ const SINK_KW = new Set(['return', 'typeof', 'case', 'do', 'else', 'in', 'of', '
 const SINK_PUNCT = ['>>>=', '...', '===', '!==', '**=', '<<=', '>>=', '>>>', '&&=', '||=', '??=', '=>', '==', '!=', '<=', '>=', '&&', '||', '??', '?.',
   '++', '--', '+=', '-=', '*=', '/=', '%=', '&=', '|=', '^=', '**', '<<', '>>'];
 const ID_START = /[\p{L}_$]/u;
+// 文字の中の \ の逃がし（i は \ の所）→ { v: 戻した字, end }。\u・\u{…}・\x を字に戻す（'\u0069nnerHTML' で口の名前を隠させない: EK-1 直し R125）
+const ESC_ONE = { n: '\n', t: '\t', r: '\r', b: '\b', f: '\f', v: '\v', 0: '\0' };
+function escAt(src, i) {
+  const d = src[i + 1];
+  if (d === undefined) return { v: '', end: i + 1 };
+  if (d === '\n') return { v: '', end: i + 2 };
+  if (d === '\r') return { v: '', end: src[i + 2] === '\n' ? i + 3 : i + 2 };
+  let m;
+  if (d === 'u' && (m = /^\{([0-9a-fA-F]{1,6})\}/.exec(src.slice(i + 2, i + 10))) && parseInt(m[1], 16) <= 0x10ffff) return { v: String.fromCodePoint(parseInt(m[1], 16)), end: i + 2 + m[0].length };
+  if (d === 'u' && /^[0-9a-fA-F]{4}$/.test(src.slice(i + 2, i + 6))) return { v: String.fromCharCode(parseInt(src.slice(i + 2, i + 6), 16)), end: i + 6 };
+  if (d === 'x' && /^[0-9a-fA-F]{2}$/.test(src.slice(i + 2, i + 4))) return { v: String.fromCharCode(parseInt(src.slice(i + 2, i + 4), 16)), end: i + 4 };
+  return { v: Object.hasOwn(ESC_ONE, d) && !(d === '0' && /[0-9]/.test(src[i + 2] || '')) ? ESC_ONE[d] : d, end: i + 2 };
+}
+const unesc = (raw) => { let v = ''; for (let i = 0; i < raw.length;) { if (raw[i] === '\\') { const e = escAt(raw, i); v += e.v; i = e.end; } else v += raw[i++]; } return v; };
 const ID_PART = /[\p{L}\p{N}_$‌‍]/u;
 /** JS の字句（{ t: 'id'|'num'|'str'|'tpl'|'re'|'p', v, line, at, end }。`…` は quasis と exprs（中の字句の並び）を持つ） */
 function lexJs(src, start = 0, line = 1, inTpl = false) {
@@ -461,7 +475,7 @@ function lexJs(src, start = 0, line = 1, inTpl = false) {
       let j = i + 1, v = '';
       const l0 = line;
       while (j < src.length && src[j] !== c && src[j] !== '\n') {
-        if (src[j] === '\\') { if (src[j + 1] === '\n') line++; v += src[j + 1] || ''; j += 2; } else v += src[j++];
+        if (src[j] === '\\') { if (src[j + 1] === '\n') line++; const e = escAt(src, j); v += e.v; j = e.end; } else v += src[j++];
       }
       // 閉じない文字（改行で終わる）は改行を残す（次の行の番号がずれない: R121 (5)）
       const closed = src[j] === c;
@@ -643,29 +657,49 @@ const SINK_NAMES = new Set(['innerHTML', 'outerHTML', 'insertAdjacentHTML']);
 const NAME_PIECE = /^(?:inner|outer|HTML|insertAdjacent|Adjacent)$/;
 const SINK_IN_TEXT = /innerHTML|outerHTML|insertAdjacentHTML|srcdoc|setHTML/;
 const DOC_NAMES = ['document', 'ownerDocument', 'contentDocument'];
-const litText = (tk) => (tk.t === 'str' ? tk.v : tk.t === 'tpl' ? tk.quasis.join('') : null);
+const litText = (tk) => (tk.t === 'str' ? tk.v : tk.t === 'tpl' ? unesc(tk.quasis.join('')) : null);
+// EK-1 直し（R125）: 口の名前の切れ端（名前の半分の長さからの頭か終わり。2つに分けたどちらかは必ずその長さになる）と、execCommand の
+// insertHTML（大文字と小文字は同じ。execCommand の命令は決まった文字1つだけなので、切れ端はつなげない）
+const PIECE_OF = ['innerHTML', 'outerHTML', 'insertAdjacentHTML', 'setHTMLUnsafe', 'parseHTMLUnsafe', 'createContextualFragment'];
+const INSERT_HTML = /inserthtml/i;
+const isPiece = (lit) => /^[A-Za-z]+$/.test(lit) && PIECE_OF.some((w) => lit !== w && lit.length >= Math.ceil(w.length / 2) && (w.startsWith(lit) || w.endsWith(lit)));
 /** ts[k] が外れの書き方なら { sink, why }。前の字句が同じ外れの続き（つなぎの2つ目から）なら null */
 function banned(ts, k, g) {
   const tk = ts[k], prev = ts[k - 1], next = ts[k + 1];
   if (tk.t === 'id' && BANNED_IDS.has(tk.v)) return { sink: tk.v, why: `${tk.v} は HTML を要素にする口` };
+  // EK-1 直し（R125）: 名前の \u の逃がし（el.\u0069nnerHTML）・文字を動かす口（eval・Function・文字の setTimeout）・document の別の名前・execCommand の insertHTML
+  if (isP(tk, '\\')) return { sink: '\\u', why: '名前の \\u の逃がし（口の名前を隠せる）' };
+  const prop = isP(prev, '.', '?.');
+  if (tk.t === 'id' && !prop && tk.v === 'eval') return { sink: 'eval', why: 'eval は文字をスクリプトとして動かす' };
+  if (tk.t === 'id' && !prop && tk.v === 'Function' && (isP(next, '(') || isId(prev, 'new'))) return { sink: 'Function', why: 'Function は文字をスクリプトとして動かす' };
+  if (tk.t === 'id' && (tk.v === 'setTimeout' || tk.v === 'setInterval') && isP(next, '(') && ts[k + 2] && (ts[k + 2].t === 'str' || ts[k + 2].t === 'tpl')) return { sink: tk.v, why: `${tk.v} の文字はスクリプトとして動く` };
+  if (tk.t === 'id' && DOC_NAMES.includes(tk.v) && !isP(next, '.', '?.', '[')) return { sink: tk.v, why: `${tk.v} を別の名前に渡す（.write を照らせない）` };
+  if (tk.t === 'id' && tk.v === 'execCommand') {
+    const a = ts[k + 2];
+    if (!isP(next, '(') || !a || a.t !== 'str' || INSERT_HTML.test(a.v) || !isP(ts[k + 3], ',', ')')) return { sink: 'execCommand', why: "execCommand は決まった文字の命令だけ（'insertHTML' は HTML を要素にする口）" };
+  }
   if (tk.t === 'id' && (tk.v === 'write' || tk.v === 'writeln') && isP(prev, '.', '?.') && isId(ts[k - 2], ...DOC_NAMES)) return { sink: 'document.write', why: 'document.write は HTML を要素にする口' };
   if (tk.t === 'id' && SINK_NAMES.has(tk.v) && isP(next, ':') && isP(prev, '{', ',') && isP(ts[g.up[k]], '{')) return { sink: tk.v, why: `物の鍵の ${tk.v}（Object.assign などで HTML の口に入る）` };
   if (tk.t === 'id' && tk.v === 'insertAdjacentHTML' && isP(prev, '.', '?.') && !isP(next, '(')) return { sink: tk.v, why: 'insertAdjacentHTML を呼ばずに取り出す（call・apply・別の名前で呼ぶと、入れる値を照らせない）' };
   const lit = litText(tk);
   if (lit === null) return null;
   if (tk.t === 'str' && (lit === 'write' || lit === 'writeln') && isP(prev, '[') && isId(ts[k - 2], ...DOC_NAMES)) return { sink: 'document.write', why: "document['write'] は HTML を要素にする口" };
+  // EK-1 直し（R125）: 物の鍵の [文字]（{ ['innerHTML']: x }）
+  if (SINK_NAMES.has(lit) && isP(prev, '[') && isP(next, ']') && isP(ts[k + 2], ':') && isP(ts[k - 2], '{', ',') && isP(ts[g.up[k - 1]], '{')) return { sink: lit, why: `物の鍵の [${lit}]（Object.assign などで HTML の口に入る）` };
   // ['innerHTML'] = … と ['innerHTML'](…) の形は口として照らす（htmlSinks）。['insertAdjacentHTML'] を呼ばずに取り出すのは外れ
   if (tk.t === 'str' && SINK_NAMES.has(lit) && isP(prev, '[') && isP(next, ']')) {
     if (lit !== 'insertAdjacentHTML' || isP(ts[k + 2], '(')) return null;
     return { sink: lit, why: 'insertAdjacentHTML を呼ばずに取り出す（call・apply・別の名前で呼ぶと、入れる値を照らせない）' };
   }
   if ((tk.t === 'str' || !tk.exprs.length) && (SINK_NAMES.has(lit) || BANNED_IDS.has(lit) || NAME_PIECE.test(lit))) return { sink: lit, why: `口の名前の文字 '${lit}'（Reflect.set・el[名前] などで HTML の口に入る）` };
-  if (tk.t === 'tpl' && tk.exprs.length && SINK_IN_TEXT.test(lit)) return { sink: lit, why: '`…${…}…` で口の名前を組む' };
+  if ((tk.t === 'str' || !tk.exprs.length) && (INSERT_HTML.test(lit) || isPiece(lit))) return { sink: lit, why: `口の名前の文字か切れ端 '${lit}'（つないで HTML の口の名前になる）` };
+  if (tk.t === 'tpl' && tk.exprs.length && (SINK_IN_TEXT.test(lit) || INSERT_HTML.test(lit))) return { sink: lit, why: '`…${…}…` で口の名前を組む' };
   // 'inner' + 'HTML' のつなぎ（つなぎの頭の字句で1回）
   if (isP(prev, '+') && ts[k - 2] && litText(ts[k - 2]) !== null) return null;
   let joined = lit, j = k;
   while (isP(ts[j + 1], '+') && ts[j + 2] && litText(ts[j + 2]) !== null) { joined += litText(ts[j + 2]); j += 2; }
-  if (j > k && SINK_IN_TEXT.test(joined)) return { sink: joined, why: `文字のつなぎで口の名前を組む（${joined}）` };
+  if (j > k && (SINK_IN_TEXT.test(joined) || INSERT_HTML.test(joined))) return { sink: joined, why: `文字のつなぎで口の名前を組む（${joined}）` };
+  if (j > k && /^write(?:ln)?$/.test(joined) && isP(prev, '[') && isId(ts[k - 2], ...DOC_NAMES)) return { sink: 'document.write', why: `文字のつなぎで document.write を組む（${joined}）` };
   return null;
 }
 /** ファイルの全部の HTML の口（all）と、決まった文字か数でないもの（bad）。どれも { line, sink, text, why } */
@@ -821,7 +855,7 @@ function analyze(base, head) {
 // 出て全否定に読めた（監査 #38）。射程外は npm test が守る（pre-commit もそれを走らせる）。
 const HELP_SEES = 'ヘルプの公開前の確認（help/ の記事・site.json・資産に足した、チームのドメインの字面・64 字の16進・個人の Windows のパス・鍵の見かけ。ヘルプの出し方は中継の出し方と同じ決まり）';
 const RELAY_SEES = '中継と直の送り先（src/ から OpenAI・Groq・Resend へ直に送る行・鍵の見かけの文字・relay/ の console と node: と Buffer・中継と出し方の中で秘密の欄に値を書く行・チームのドメインの字面・Access の秘密の欄に値を書く行）';
-const SINK_SEES = '画面の HTML に入れる文字（SEC2。innerHTML・outerHTML・insertAdjacentHTML に入るのは決まった文字と数だけ・setHTMLUnsafe・DOMParser・document.write・srcdoc などのほかの口と、口の名前を隠す書き方は使わない）';
+const SINK_SEES = '画面の HTML に入れる文字（SEC2。innerHTML・outerHTML・insertAdjacentHTML に入るのは決まった文字と数だけ・setHTMLUnsafe・DOMParser・document.write・srcdoc・execCommand の insertHTML などのほかの口と、口の名前を隠す書き方（切れ端・逃がし・別の名前）・eval・Function・文字の setTimeout は使わない）';
 const SCOPE = {
   sees: [
     'HTML の木の健全さ（閉じ忘れ・相手のいない閉じタグ）',

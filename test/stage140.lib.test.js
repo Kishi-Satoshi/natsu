@@ -697,7 +697,8 @@ test('EK-1: Word の箇条書き（MsoListParagraph と mso-list の段落・頭
     "<p class=MsoListParagraph style='mso-list:l3 level1 lfo4'>12.5% の数は番号にしない</p>",
   ].join('\n');
   assert.deepStrictEqual(briefOf(PC.fromHtml(html)), [
-    'bullet:中黒の項目', 'numbered:全角の番号', 'numbered:括弧の番号', 'todo[ ]:四角の印', 'bullet:印を文字で書いた項目', 'numbered:番号を文字で書いた項目',
+    // EK-1 直し（R124）で意図して直した: mso-list の無い MsoListParagraph（Word の「リスト段落」の字下げだけの段落）はふつうの段落（印の字も残る）
+    'bullet:中黒の項目', 'numbered:全角の番号', 'numbered:括弧の番号', 'todo[ ]:四角の印', 'paragraph:・印を文字で書いた項目', 'numbered:番号を文字で書いた項目',
     'paragraph:・ふつうの段落の中黒', 'bullet:12.5% の数は番号にしない',
   ]);
   // 段（level2）は前の項目の子
@@ -808,4 +809,66 @@ test('EK-1・R66（第4版）: Markdown の字下げした - ・1. （2つ・4�
   const htmlKids = (n) => `<ul><li>親<ul>${'<li>子</li>'.repeat(n)}</ul></li></ul>`;
   assert.strictEqual(PC.fromHtml(htmlKids(1999)).blocks[0].children.length, 1999);
   assert.deepStrictEqual(PC.fromHtml(htmlKids(2000)), { tooBig: true });
+});
+
+// ---------------------------------------------------------------- EK-1 直し（2026-10-29 の点検。R124）
+test('EK-1 直し・F102（R124）: 16MB の悪い HTML（深い入れ子に多いセル・多い br・多い太字・多い項目・多い閉じる印・大きな文字・多い実体参照）でも、すぐに { tooBig: true } で止まる', { timeout: 60000 }, () => {
+  const MB = 16 * 1024 * 1024 - 1000;
+  const fill = (head, unit) => head + unit.repeat(Math.floor((MB - head.length) / unit.length));
+  const cases = {
+    'div256+td': fill('<div>'.repeat(256), '<td>'), br: fill('', '<br>'), 'b+x': fill('', '<b>x'), li: fill('<ul>', '<li>'),
+    'div256+/b': fill('<div>'.repeat(256), '</b>'), 'ul+li+div254+/li': fill('<ul><li><ul>' + '<div>'.repeat(254), '</li>'),
+    'p': fill('', '<p>x</p>'), 'a href': fill('', '<a href="https://example.com/x">x</a>'), div: fill('', '<div>'),
+  };
+  // 文字の塊（実体参照を戻す前に文字の数で止まるので、どれもすぐ）
+  const quick = { text: fill('', 'あいうえお '), amp: fill('<p>', '&amp;'), 'p+text': fill('<p>', 'abc def ') };
+  for (const [name, html] of Object.entries(quick)) {
+    const t0 = process.hrtime.bigint();
+    assert.deepStrictEqual(PC.fromHtml(html), { tooBig: true }, name);
+    const ms = Number(process.hrtime.bigint() - t0) / 1e6;
+    assert.ok(ms < 1000, `${name}: ${Math.round(ms)}ms かかった（文字の数の上限で止まっていない）`);
+  }
+  for (const [name, html] of Object.entries(cases)) {
+    const t0 = process.hrtime.bigint();
+    const r = PC.fromHtml(html);
+    const ms = Number(process.hrtime.bigint() - t0) / 1e6;
+    assert.deepStrictEqual(r, { tooBig: true }, name);
+    assert.ok(ms < 4000, `${name}: ${Math.round(ms)}ms かかった（字句の数・文字の数の上限で止まっていない）`);
+  }
+  // 上限の内側の、ふつうの大きな貼り付け（Word の形の 2,000 行）は読める
+  const row = (k) => `<p class=MsoNormal><span lang=JA style='font-family:"游明朝"'>行の文 ${k}<o:p></o:p></span></p>\r\n`;
+  const big = PC.fromHtml(Array.from({ length: 2000 }, (_, k) => row(k)).join(''));
+  assert.strictEqual(big.blocks.length, 2000);
+});
+
+test('EK-1 直し（R124）: 隠した表の行・セル・行の組は捨てる。\\r と C1 の制御の文字は行に入らない。&nbsp; は空白の数を残す', () => {
+  assert.deepStrictEqual(briefOf(PC.fromHtml('<table><tr><td>a</td><td style="display:none">秘1</td><td hidden>秘2</td><td>b</td></tr><tr hidden><td>秘3</td></tr><tbody style="visibility:hidden"><tr><td>秘4</td></tr></tbody><tr style="mso-hide:all"><td>秘5</td></tr></table>')),
+    ['bullet:a / b']);
+  const ctl = PC.fromHtml('<p>a&#13;b&#x85;c\u0085d</p><pre>e\r\nf\rg&#x9F;h</pre>');
+  assert.ok(!/[\r\u0080-\u009f]/.test(JSON.stringify(ctl)), JSON.stringify(ctl));
+  assert.deepStrictEqual(briefOf(ctl), ['paragraph:a bcd', 'paragraph:e', 'paragraph:f', 'paragraph:gh']);
+  assert.ok(!/[\r\u0080-\u009f]/.test(JSON.stringify(PC.pasteBlocks({ text: 'x\r\ny\u0085z\u009b' }))));
+  assert.deepStrictEqual(briefOf(PC.fromHtml('<p>a&nbsp;&nbsp;&nbsp;b &nbsp; c&nbsp;</p>')), ['paragraph:a   b   c']);
+  assert.deepStrictEqual(PC.fromHtml('<table><tr><td>x&nbsp;&nbsp;y</td></tr></table>').blocks[0].rich, [run('x  y')]);
+});
+
+test('EK-1 直し（R124）: <!--> と <!---> は空のコメント・閉じない <![ は文字・閉じない Word の条件つきの区切りは塊の所で閉じる（後ろを飲み込まない）', () => {
+  assert.deepStrictEqual(briefOf(PC.fromHtml('<p>a<!-->b<!--->c</p><p>d</p>')), ['paragraph:abc', 'paragraph:d']);
+  assert.deepStrictEqual(briefOf(PC.fromHtml('<p>e<![if x</p><p>f</p>')), ['paragraph:e<![if x', 'paragraph:f']);
+  assert.deepStrictEqual(briefOf(PC.fromHtml('<p>g<![if !supportLists]>・<p>h</p><div>i</div>')), ['paragraph:g', 'paragraph:h', 'paragraph:i']);
+  assert.deepStrictEqual(briefOf(PC.fromHtml('<![if !supportLists]>・<ul><li>j</li></ul>')), ['bullet:j']);
+});
+
+test('EK-1 直し（R124）: mso-list の無い MsoListParagraph はふつうの段落。文の無い項目の頭の入れ子の箇条は、その項目（空の行）の子（前の箇条の最後の項目の子にしない）', () => {
+  assert.deepStrictEqual(briefOf(PC.fromHtml("<p class=MsoListParagraphCxSpFirst style='margin-left:36pt'>字下げだけの段落</p>")), ['paragraph:字下げだけの段落']);
+  assert.deepStrictEqual(briefOf(PC.fromHtml('<ul><li>a</li></ul><ul><li><ul><li>b</li></ul></li><li>c</li></ul>')), ['bullet:a', ['bullet:', ['bullet:b']], 'bullet:c']);
+  assert.deepStrictEqual(briefOf(PC.fromHtml('<ol><li><p></p><ol><li>d</li></ol>続き</li></ol>')), [['numbered:', ['numbered:d', 'paragraph:続き']]]);
+});
+
+test('EK-1 直し（R124）: Markdown の ***b i***・___b i___ は太字の斜体。同じ行で閉じる ```…``` は文中のコード。リンクの中のリンクは外のリンクの文字だけ', () => {
+  assert.deepStrictEqual(PC.fromMarkdown('***太斜*** と ___x___ と **b**').blocks[0].rich, [run('太斜', 'b', 'i'), run(' と '), run('x', 'b', 'i'), run(' と '), run('b', 'b')]);
+  assert.deepStrictEqual(briefOf(PC.fromMarkdown('```code``` の文\n次の行')), ['paragraph:code の文', 'paragraph:次の行']);
+  assert.deepStrictEqual(PC.fromMarkdown('```code``` の文').blocks[0].rich, [run('code', 'code'), run(' の文')]);
+  assert.deepStrictEqual(briefOf(PC.fromMarkdown('```js\n- 囲みの中\n```')), ['paragraph:- 囲みの中']);
+  assert.deepStrictEqual(PC.fromMarkdown('[[中](https://a.example/)](https://v.example/) 後').blocks[0].rich, [run('中', ['link', 'https://v.example/']), run(' 後')]);
 });

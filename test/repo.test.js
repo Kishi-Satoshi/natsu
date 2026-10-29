@@ -1931,3 +1931,48 @@ test('EB-6・SEC2: tools/risk.js が変数を innerHTML に入れる行を足す
   assert.ok(src.includes("add('BLOCK', '画面の HTML に他人の文字', f,") && src.includes('htmlSinkFindings(f, at(base, f), at(head, f))'), 'analyze が innerHTML のゲートを呼ばない');
   assert.ok(R.SCOPE.sees.some((s) => s.startsWith('画面の HTML に入れる文字（SEC2')), '射程に載っていない');
 });
+
+test('EK-1 直し・SEC2（R125）: tools/risk.js のゲートは execCommand の insertHTML・物の鍵の [innerHTML]・口の名前の切れ端・\\u の逃がし・document の別の名前・eval・Function・文字の setTimeout も鳴らす', { timeout: 5000 }, () => {
+  const R = require('../tools/risk');
+  const F = 'src/renderer/app.html';
+  const page = (js) => `<!doctype html><html><body>\n<script>\n${js}\n</script></body></html>\n`;
+  const hits = (js) => R.htmlSinkFindings(F, page('const a = 1;'), page(`const a = 1;\n${js}`));
+  const bad = [
+    "document.execCommand('insertHTML', false, html);",
+    "document.execCommand('InsertHtml', false, html);",
+    "document.execCommand(cmd, false, html);",
+    "document.execCommand('insert' + 'HTML', false, html);",
+    "const run = document.execCommand; run('insertText');",
+    "const c = 'insertHTML';",
+    'Object.assign(el, { [\'innerHTML\']: html });',
+    "Object.assign(el, { a: 1, ['outerHTML']: html });",
+    "el['inn' + 'erHTML'] = html;",
+    "const a = 'inn'; const b = 'erHTML'; el[a + b] = html;",
+    "const a = 'innerH'; el[a + t] = html;",
+    "const k = '\\u0069nnerHTML'; el[k] = html;",
+    "const k = '\\x69nnerHTML'; el[k] = html;",
+    "const k = '\\u{69}nnerHTML'; el[k] = html;",
+    'el.\\u0069nnerHTML = html;',
+    'const d = document; d.write(html);',
+    'const d = el.ownerDocument; d.write(html);',
+    "document['wri' + 'te'](html);",
+    'eval(code);',
+    'const f = new Function(code);',
+    'const f = Function(code);',
+    "setTimeout('alert(1)', 10);",
+    'setInterval(`run()`, 10);',
+  ];
+  for (const js of bad) assert.strictEqual(hits(js).length, 1, `鳴らない: ${js}`);
+  const ok = [
+    "document.execCommand('insertText', false, t);",
+    "const s = 'insert'; const t = 'create'; const u = 'parse'; const v = 'html'; const w = 'text/html';",
+    "setTimeout(() => f(), 10); setInterval(run, 10);",
+    "o.eval = 1; x.Function = 2;",
+    'document.body.append(n); const w = el.ownerDocument.defaultView;',
+    "const o = { ['a']: 1 }; const v = el['innerHTML'];",
+    "const k = 'it\\'s'; const n = '\\n';",
+  ];
+  for (const js of ok) assert.deepStrictEqual(hits(js), [], `鳴った: ${js}`);
+  // 文字の逃がしを戻してから照らす（字句の読み手の値）
+  assert.strictEqual(R.lexJs("'\\u0069n\\x6eer\\u{48}TML'").toks[0].v, 'innerHTML');
+});
