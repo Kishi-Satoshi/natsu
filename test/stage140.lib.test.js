@@ -872,3 +872,41 @@ test('EK-1 直し（R124）: Markdown の ***b i***・___b i___ は太字の斜�
   assert.deepStrictEqual(briefOf(PC.fromMarkdown('```js\n- 囲みの中\n```')), ['paragraph:- 囲みの中']);
   assert.deepStrictEqual(PC.fromMarkdown('[[中](https://a.example/)](https://v.example/) 後').blocks[0].rich, [run('中', ['link', 'https://v.example/']), run(' 後')]);
 });
+
+// ---------------------------------------------------------------- EK-2 直し（2026-10-29 の点検。R127〜R131）
+test('EK-2 直し（C1・R127）: Excel の形（StartFragment の印が表の中・<col>・mso の style）の表は、1行ずつ「セル / セル」の箇条書き（セルが1つずつの段落にならない）。201 行 × 10 列も読める', () => {
+  const xl = require('node:fs').readFileSync(require('node:path').join(__dirname, 'fixtures', 'paste', 'excel.html'), 'utf8');
+  assert.deepStrictEqual(PC.pasteBlocks({ html: xl, text: '項目\t担当\t期限' }), { blocks: [
+    { type: 'bullet', rich: [{ t: '項目 / 担当 / 期限', m: [] }] }, { type: 'bullet', rich: [{ t: '見積もり / 営業の係 / 10/31', m: [] }] },
+    { type: 'bullet', rich: [{ t: '資料 / 来週', m: [] }] }], inline: false });
+  const cells = (r) => Array.from({ length: 10 }, (_, c) => `<td class=xl65 style="mso-number-format:General">r${r}c${c}</td>`).join('');
+  const big = `<html><body><table><col width=64 span=10><!--StartFragment-->${Array.from({ length: 201 }, (_, r) => `<tr height=18>${cells(r)}</tr>`).join('')}<!--EndFragment--></table></body></html>`;
+  const got = PC.fromHtml(big);
+  assert.strictEqual(got.blocks.length, 201);
+  assert.ok(got.blocks.every((b) => b.type === 'bullet'), '表の行が箇条書きでない');
+  assert.strictEqual(R.plainOf(got.blocks[200].rich), Array.from({ length: 10 }, (_, c) => `r200c${c}`).join(' / '));
+  // 印の前の箇条（ul・li）も残す。閉じた表・コメントと style の中の字はタグにしない
+  assert.deepStrictEqual(PC.fromHtml('<ul><li>前<!--StartFragment-->貼った項目</li><li>次<!--EndFragment--></li></ul>').blocks.map((b) => [b.type, R.plainOf(b.rich)]),
+    [['bullet', '貼った項目'], ['bullet', '次']]);
+  assert.deepStrictEqual(PC.fromHtml('<table><tr><td>外</td></tr></table><!-- <table> --><style>table{}</style><!--StartFragment--><p>段落</p><!--EndFragment-->').blocks.map((b) => b.type), ['paragraph']);
+  // 悪い頭（印の前に 16MB 近い開く印）でも止まる
+  const t0 = process.hrtime.bigint();
+  const bad = PC.fromHtml(`${'<ul>'.repeat(4000000)}<!--StartFragment-->x<!--EndFragment-->`);
+  assert.ok(bad.tooBig === true || Array.isArray(bad.blocks));
+  assert.ok(Number(process.hrtime.bigint() - t0) / 1e6 < 4000, '印の前の悪い頭で止まらない');
+});
+
+test('EK-2 直し（I1・R128）: keysBetween(a, b, n) は a と b の間に n 個の鍵を等しい間で作る（短い・重ならない・末尾が 0 でない）', () => {
+  const K = require('../src/db/keys');
+  for (const [a, b, n] of [[null, null, 2000], ['a', 'b', 2000], ['ai', null, 5], [null, '1', 3], ['zzzy', 'zzzz', 100], ['a', 'a1', 10], ['8i', 'i', 1]]) {
+    const ks = K.keysBetween(a, b, n);
+    assert.strictEqual(ks.length, n);
+    const all = [a, ...ks, b].filter((x) => x !== null);
+    for (let i = 1; i < all.length; i++) assert.ok(all[i - 1] < all[i], `${a}・${b}・${n}: 順でない ${all[i - 1]} ${all[i]}`);
+    assert.ok(ks.every((k) => /^[0-9a-z]*[1-9a-z]$/.test(k)), '末尾が 0 か形が違う');
+    const longest = Math.max(...ks.map((k) => k.length));
+    assert.ok(longest <= Math.max((a || '').length, (b || '').length) + 4, `${a}・${b}・${n}: 鍵が長い（${longest}）`);
+  }
+  assert.deepStrictEqual(K.keysBetween('a', 'b', 0), []);
+  assert.throws(() => K.keysBetween('b', 'a', 2));
+});

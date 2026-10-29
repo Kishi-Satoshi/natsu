@@ -56,6 +56,7 @@ const { diffPage, diffSegments, applyOps, invertOps, opsMatch } = require('./ops
 const { UNDO_CMDS } = require('../undoBook');
 const RT = require('../richText');
 const S = require('./search');
+const { LIMITS } = require('./validate');
 
 const LIVE_PHASES = ['recording', 'paused', 'finalizing'];
 
@@ -676,6 +677,12 @@ function pasteRows(db, ctx, rows, used) {
   return out;
 }
 const lastOf = (rows) => { const f = BT.flattenBlocks(rows); return f[f.length - 1].id; };
+// 0.14.0 EK-2 直し（I2・M2・R129）: 行を増やす命令（貼り付け・複製）の後のページが、main の page.put が受ける上限（行は子孫も数えて LIMITS.blocks・
+// ページの JSON は LIMITS.bytes）を越えるなら、何も変えずに too-big で断る（越えたページは要約の書き戻しの page.put が bad-args で断られて保存できなくなる）
+function pageFits(p) {
+  if (BT.flattenBlocks(p.blocks).length > LIMITS.blocks) throw refuse('too-big');
+  if (Buffer.byteLength(JSON.stringify(p), 'utf8') > LIMITS.bytes) throw refuse('too-big');
+}
 // 貼り付けの中身（editPage の中）: 今の行を at で分けて、前を今の行・貼った行をすぐ下（inside なら最初の子）・後ろの文を貼った行のさらに下の新しい行にする。
 // 文のある行の頭（at 0）は分けず、貼った行を上（afterId: 画面で上に見えている同じ親の兄弟の後ろ）に足し、今の行は ID・文・担当・期限・出典をそのまま持つ（BQ30 (a)。
 // block.split の点検1・点検8 と同じ）。今の行が空のテキストの行（子も無い）なら、最初に貼った行がその行の型と中身になる（R18）→ 最後に貼った行の ID
@@ -749,6 +756,7 @@ function turnBlock(l, a) {
   // （orderForView の節と［コピー］の順が行って戻って同じ）。文を変えると印は消え（retext・block.update）、人の行のまま
   if (b.type === 'heading' && b.citeState === undefined && a.type !== 'heading') b.aiHeading = true;
   if (b.citeState === undefined && !(b.type === 'heading' && a.type === 'heading')) b.citeState = 'manual';
+  if (a.type === 'heading' && b.aiHeading === true && l.parent) delete b.aiHeading;   // EK-2 直し（I3・R130）: 子の行は AI の節の見出しに戻さない（人の見出しのまま: R65）
   if (a.type === 'heading' && b.aiHeading === true) { delete b.citeState; delete b.aiHeading; }
   b.type = a.type;
   if (level) b.level = level; else delete b.level;
@@ -1034,6 +1042,7 @@ const DEFS = {
         const s = BT.spotOf(p.blocks, after, a.parentId);
         if (!s || headIntoKid([copy], s)) throw refuse('bad-args');   // 0.14.0 EK-2（R65）: AI の節の見出しの写しも子にしない
         s.list.splice(s.index, 0, copy);
+        pageFits(p);
         return true;
       }, { summary: true });
       return { ...out, result: out.result ? { page: out.result, blockId } : null };
@@ -1100,6 +1109,7 @@ const DEFS = {
       let lastId = null;
       const out = editPage(db, a.pageId, ctx, (p) => {
         lastId = pasteInto(db, ctx, p, a);
+        if (lastId !== null) pageFits(p);
         return lastId !== null;
       }, { summary: true });
       return { ...out, result: out.result ? { page: out.result, lastId } : null };
@@ -1137,6 +1147,7 @@ const DEFS = {
         const s = BT.spotOf(p.blocks, after, a.parentId);
         if (!s || headIntoKid(copies, s)) throw refuse('bad-args');
         s.list.splice(s.index, 0, ...copies);
+        pageFits(p);
         made = copies.map((c) => c.id);
       }, { summary: true });
       return { ...out, result: out.result ? { page: out.result, ids: made } : null };

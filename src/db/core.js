@@ -37,7 +37,7 @@ const SCHEMA_VERSION = 1;
 const BUSY_MS = 5000;
 const ROLES = ['app', 'main'];
 const MAIN_ACTORS = ['system', 'recovery', 'migration'];
-const CMD_CODES = ['not-found', 'conflict', 'bad-args', 'locked', 'stale'];   // locked: 要約の欄の鍵（0.10.0 LS-2・O8）。stale: 元に戻す歩みの後に変わった（0.14.0 EB-2）
+const CMD_CODES = ['not-found', 'conflict', 'bad-args', 'locked', 'stale', 'too-big'];   // locked: 要約の欄の鍵（0.10.0 LS-2・O8）。stale: 元に戻す歩みの後に変わった（0.14.0 EB-2）。too-big: 命令の後のページが上限を越える（0.14.0 EK-2 直し: R129）
 
 const COMMANDS = Object.freeze(Object.assign(Object.create(null), commands.COMMANDS));
 const TEST_COMMANDS = Object.create(null);

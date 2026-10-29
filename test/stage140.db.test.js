@@ -777,9 +777,10 @@ test('EK-2・F102: 2,001 行（子孫も数える）・1MB 越え・10 万字の
   }
   assert.strictEqual(JSON.stringify(raw(db)), was, '断った貼り付けで何か変わった');
   assert.strictEqual(oplogN(db), n0, '断った命令が oplog に残った');
-  const ok = paste(db, { blockId: 'b6', rich: [run1('議事録を共有フォルダに置いておく')], at: 16, blocks: [P('toggle', '親', { children: flat(1999) })] });
+  // EK-2 直し（I2・R129）: ページの全部も 2,000 行まで（見本のページは 6 行なので、貼れるのは子孫も数えて 1,994 行。2,000 行の貼り付けは too-big）
+  const ok = paste(db, { blockId: 'b6', rich: [run1('議事録を共有フォルダに置いておく')], at: 16, blocks: [P('toggle', '親', { children: flat(1993) })] });
   assert.strictEqual(ok.ok, true, ok.code);
-  assert.strictEqual(kidIds(get(db), find(get(db), ok.result.lastId).parent.id).length, 1999);
+  assert.strictEqual(kidIds(get(db), find(get(db), ok.result.lastId).parent.id).length, 1993);
 }));
 
 test('EK-2: 鍵の間は locked で何も変えない。同じ tx の2回で1回だけ（送り直しの答えも同じ lastId）。edit.revert の1回で貼り付けが戻る', T, () => withDb((db) => {
@@ -1046,3 +1047,61 @@ test('EK-2: preload の blockPaste・blocksRemove・blocksMove・blocksDuplicate
   const names = [.../const APP_COMMANDS = new Set\(\[([^\]]*)\]\)/.exec(PRELOAD)[1].matchAll(/'([\w.]+)'/g)].map((x) => x[1]);
   for (const c of ['block.paste', 'blocks.remove', 'blocks.move', 'blocks.duplicate', 'blocks.turnInto', 'blocks.setColor']) assert.ok(names.includes(c) && core.COMMANDS[c].roles.includes('app'), c);
 });
+
+
+// ---------------------------------------------------------------- EK-2 直し（2026-10-29 の点検。R128〜R130）
+const maxOrd = (db, id = 'pa1') => db.prepare('select max(length(ord)) as m from blocks where page_id = ? and trashed_at is null').get(id).m;
+test('EK-2 直し（I1・R128）: 2,000 行近い貼り付けでも並びの鍵は短い（等しい間で作る）。同じ所への貼り付けを重ねても鍵は少しずつしか伸びない。oplog の1行も小さい', BIG, () => withDb((db) => {
+  const flat = (k, w) => Array.from({ length: k }, (_, i) => P('bullet', `${w}${i}`));
+  const before = maxOrd(db);
+  const r = paste(db, { blockId: 'b2', rich: [run1('来月の予算案の作成を担当Aが進める')], at: 17, blocks: flat(1994, '行') });
+  assert.strictEqual(r.ok, true, r.code);
+  assert.ok(maxOrd(db) <= before + 4, `鍵が長い（${maxOrd(db)} 字）`);
+  const bytes = db.prepare('select length(ops) as n from oplog where tx = ?').get(r.tx).n;
+  assert.ok(bytes < 700 * 1024, `oplog の1行が大きい（${bytes}）`);
+  // 戻してから、同じ所（b2 の後ろ）に 300 行ずつ5回
+  assert.strictEqual(revert(db, [r.tx]).ok, true);
+  for (let k = 0; k < 5; k++) assert.strictEqual(paste(db, { blockId: 'b2', rich: [run1('来月の予算案の作成を担当Aが進める')], at: 17, blocks: flat(300, `回${k}の`) }).ok, true);
+  assert.ok(maxOrd(db) <= before + 20, `重ねた貼り付けで鍵が伸びすぎる（${maxOrd(db)} 字）`);
+  const ids = flatIds(get(db));
+  assert.strictEqual(ids.length, 6 + 1500);
+  assert.deepStrictEqual(get(db).blocks.slice(2, 4).map((b) => b.text), ['回4の0', '回4の1'], '並びの順が違う');
+}));
+
+test('EK-2 直し（I2・M2・R129）: 命令の後のページが 2,000 行・1MB を越える block.paste・blocks.duplicate・block.duplicate は too-big で何も変えない', BIG, () => withDb((db) => {
+  const flat = (k) => Array.from({ length: k }, (_, i) => P('bullet', `行${i}`));
+  assert.strictEqual(paste(db, { blockId: 'b6', rich: [run1('議事録を共有フォルダに置いておく')], at: 16, blocks: [P('toggle', '親', { children: flat(1099) })] }).ok, true);
+  const was = JSON.stringify(raw(db));
+  const n0 = oplogN(db);
+  const big = paste(db, { blockId: 'b3', rich: [run1('了解')], at: 2, blocks: flat(1001) });
+  assert.deepStrictEqual([big.ok, big.code, big.retry], [false, 'too-big', false]);
+  const head = get(db).blocks.find((b) => b.type === 'toggle').id;
+  for (const r of [call(db, 'blocks.duplicate', { pageId: 'pa1', ids: [head] }), call(db, 'block.duplicate', { pageId: 'pa1', blockId: head })]) {
+    assert.deepStrictEqual([r.ok, r.code], [false, 'too-big']);
+  }
+  assert.strictEqual(JSON.stringify(raw(db)), was, '断った命令で何か変わった');
+  assert.strictEqual(oplogN(db), n0);
+  // ちょうど 2,000 行までは通る（6 + 1100 + 894）
+  assert.strictEqual(paste(db, { blockId: 'b3', rich: [run1('了解')], at: 2, blocks: flat(894) }).ok, true);
+  assert.strictEqual(flatIds(get(db)).length, 2000);
+}));
+
+test('EK-2 直し（I2・R129）: ページの JSON が 1MB を越える貼り付けは too-big（1回の頼みが 1MB の内でも）', BIG, () => withDb((db) => {
+  const row = (i) => P('paragraph', `${i}`.padEnd(90000, 'あ'));
+  assert.strictEqual(paste(db, { blockId: 'b3', rich: [run1('了解')], at: 2, blocks: [row(1), row(2), row(3)] }).ok, true);
+  const r = paste(db, { blockId: 'b3', rich: [run1('了解')], at: 2, blocks: [row(4)] });
+  assert.deepStrictEqual([r.ok, r.code], [false, 'too-big']);
+}));
+
+test('EK-2 直し（I3・R130・R65）: テキストにした AI の節の見出しを子に動かしてから見出しに戻すと、人の見出し（AI の節の見出しの子にはならない）。最上位なら今どおり AI の見出しに戻る', T, () => withDb((db) => {
+  assert.strictEqual(call(db, 'block.turnInto', { pageId: 'pa1', blockId: 'b1', type: 'paragraph' }).ok, true);
+  assert.strictEqual(find(get(db), 'b1').b.aiHeading, true);
+  assert.strictEqual(call(db, 'block.move', { pageId: 'pa1', blockId: 'b1', afterId: '', parentId: 'b2' }).ok, true);
+  for (const r of [call(db, 'blocks.turnInto', { pageId: 'pa1', ids: ['b1'], type: 'heading', level: 2 })]) assert.strictEqual(r.ok, true, r.code);
+  const l = find(get(db), 'b1');
+  assert.deepStrictEqual([l.parent && l.parent.id, l.b.type, l.b.citeState, l.b.aiHeading], ['b2', 'heading', 'manual', undefined]);
+  assert.strictEqual(BT.aiSectionHead(l.b), false, 'AI の節の見出しが子になった');
+  // 外に出して、もう一度テキスト → 見出し（block.turnInto）。最上位なら AI の見出しに戻らない（もう人の見出し）
+  assert.strictEqual(call(db, 'block.turnInto', { pageId: 'pa1', blockId: 'b1', type: 'paragraph' }).ok, true);
+  assert.strictEqual(find(get(db), 'b1').b.aiHeading, undefined, '人の見出しをテキストにして AI の印が付いた');
+}));

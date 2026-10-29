@@ -25,7 +25,7 @@
 
 const { isDeepStrictEqual } = require('node:util');
 const { searchFold } = require('../cite');
-const { evenKeys, keyBetween } = require('./keys');
+const { evenKeys, keyBetween, keysBetween } = require('./keys');
 const { VIEW_KEYS } = require('../blockTree');
 
 const PAGE_FIXED = ['id', 'title', 'blocks', 'createdAt', 'updatedAt', 'children', 'type', 'text', 'rich'];
@@ -164,13 +164,17 @@ function diffPage(oldPage, newPage, { ords } = {}) {
     const keep = stayingSet(survivors.map((b) => oldInfo.get(b.id).i));
     const stays = new Set([...keep].map((i) => survivors[i].id));
     let prevKey = null;
+    let run = [];   // EK-2 直し（I1・R128）: 続けて足した・動かした行の鍵（2つ以上は keysBetween で等しい間に。1つは今どおり keyBetween）
     list.forEach((b, i) => {
       let key;
       if (stays.has(b.id)) key = oldInfo.get(b.id).ord;
+      else if (run.length) key = run.shift();
       else {
         let next = null;
-        for (let j = i + 1; j < list.length; j++) if (stays.has(list[j].id)) { next = oldInfo.get(list[j].id).ord; break; }
-        key = keyBetween(prevKey, next);
+        let j = i + 1;
+        for (; j < list.length; j++) if (stays.has(list[j].id)) { next = oldInfo.get(list[j].id).ord; break; }
+        if (j - i > 1) { run = keysBetween(prevKey, next, j - i); key = run.shift(); }
+        else key = keyBetween(prevKey, next);
       }
       prevKey = key;
       const was = oldInfo.get(b.id);

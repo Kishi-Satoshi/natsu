@@ -1792,7 +1792,7 @@ test('EK-3（R120）: 画面の写し（app.html の pasteConvert）は src/past
   assert.deepStrictEqual([app.PASTE_ROWS, app.PASTE_BYTES], [PC.PASTE_ROWS, PC.PASTE_BYTES]);
   const many = Array.from({ length: 2001 }, (_, i) => `行${i}`).join('\n');
   const deep = ['- 親', ...Array.from({ length: 2000 }, (_, i) => `  - 子${i}`)].join('\n');
-  const inputs = [...['word', 'edge', 'teams', 'gdocs'].map((n) => ({ html: FIX(n), text: 'x' })),
+  const inputs = [...['word', 'edge', 'teams', 'gdocs', 'excel'].map((n) => ({ html: FIX(n), text: 'x' })),
     { html: '<p>あ<img src="x" onerror="y()"><b onclick="z()">太</b><script>秘</script><a href="javascript:alert(1)">リンク</a></p>', text: '' },
     { html: '<h4>四</h4><ul><li>a<ul><li>b</li></ul></li></ul><table><tr><th>項目</th><td>担当</td></tr></table>', text: '' },
     { html: '<img src="x">', text: '画像だけ' }, { text: '# 見出し\n- a\n  - b\n1. c\n- [x] 済み\n> 引用\n---\n```\n# 中\n```\n**太字**と[住所](https://example.com/)' },
@@ -2006,6 +2006,23 @@ test('EK-3・R66・BQ30 (a)（第4版）: 開いたトグルの文の終わり�
     await l.drain();
     assert.strictEqual(pastes(l)[2][5], '');
     assert.deepStrictEqual(l.page().blocks.map((b) => b.text).slice(0, 3), ['頭一', '頭二', '前の文']);
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+// ---------------------------------------------------------------- EK-2 直し（2026-10-29 の点検。R129）
+test('EK-2 直し（I2・R129）: 貼った後のページが上限を越えて DB が too-big で断ると、画面は貼り付けの大きすぎる知らせを出し、行の文は元のまま', T, async () => {
+  const l = await openReal({ pa1: PG3() }, { returns: { blockPaste: () => Promise.reject(new Error('too-big')) } });
+  try {
+    const t = typeIn(l, 'q2', 'あいうえお', 2);
+    pasteIn(t, { 'text/plain': '一\n二' });
+    await l.drain();
+    assert.strictEqual(l.called('blockPaste').length, 1);
+    assert.strictEqual(toastOf(l), PASTE_TOO_BIG);
+    assert.strictEqual(t.textContent, 'あいうえお', '断られた貼り付けで行の文が欠けたまま');
+    t.onblur();
+    await l.drain();
+    assert.deepStrictEqual(updates(l), [], '断られた後に同じ文を保存し直した');
     assert.deepStrictEqual(l.errors.map(fmt), []);
   } finally { l.done(); }
 });

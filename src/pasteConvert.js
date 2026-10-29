@@ -595,13 +595,38 @@ function htmlRows(root) {
   return rows;
 }
 
-// Chromium・Word のクリップボードの HTML の、貼った所だけ（Windows の頭の行・StartFragment の外は読まない）
+// EK-2 直し（C1・R127）: StartFragment の印の前で開いたままの表と箇条の要素（Excel は印を <table …><col …> の後ろ・表の中に書く）。
+// 属性の無い開く印にして、貼った所の頭に足す（足さないと、表のセルが1つずつの段落になる）。字句の読み手で読む（コメント・style の中の字はタグにしない）。
+// 積むのは DEPTH_MAX 段まで・字句は TOKENS_MAX まで（16MB の悪い頭でも止まる）
+const CONTEXT = new Set(['table', 'thead', 'tbody', 'tfoot', 'tr', 'ul', 'ol', 'menu', 'dir', 'li']);
+function openContext(head) {
+  const open = [];
+  const skipped = Object.create(null);
+  let count = 0;
+  tokenize(head, (tok) => {
+    if (++count > TOKENS_MAX) throw new TooBig();
+    if ((tok.type !== 'start' && tok.type !== 'end') || !CONTEXT.has(tok.name)) return;
+    const name = tok.name;
+    if (tok.type === 'end') {
+      if (skipped[name] > 0) { skipped[name]--; return; }
+      const k = open.lastIndexOf(name);
+      if (k >= 0) open.length = k;
+      return;
+    }
+    if (tok.self) return;
+    if ((name === 'li' || name === 'tr') && open[open.length - 1] === name) open.pop();   // 省いた閉じる印
+    if (open.length >= DEPTH_MAX) { skipped[name] = (skipped[name] || 0) + 1; return; }
+    open.push(name);
+  });
+  return open.map((n) => `<${n}>`).join('');
+}
+// Chromium・Word・Excel のクリップボードの HTML の、貼った所だけ（Windows の頭の行・StartFragment の外は読まない。印の前で開いたままの表と箇条は残す）
 function fragmentOf(html) {
   let s = html;
   if (/^Version:\d/.test(s)) { const lt = s.indexOf('<'); s = lt < 0 ? '' : s.slice(lt); }
   const a = s.indexOf('<!--StartFragment-->');
   const b = s.lastIndexOf('<!--EndFragment-->');
-  if (a >= 0 && b > a) s = s.slice(a + '<!--StartFragment-->'.length, b);
+  if (a >= 0 && b > a) s = openContext(s.slice(0, a)) + s.slice(a + '<!--StartFragment-->'.length, b);
   return s;
 }
 

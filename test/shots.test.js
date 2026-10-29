@@ -1043,7 +1043,8 @@ test('基準の画像（test/shots/win32）は今の app.html で撮ったもの
   // 0.14.0 EB-5 直し（R117）: 行の文に落とした素の文字を入れる（dropRowOf・dropPlain・_dropText）・浮いた箱を欄の幅と見えている所に収める（placeAt・boxAt・色のメニュー）・下線と色だけの行の［コピー］で記号を逃がさない・変換中は帯を出さない・消えた行の帯を隠す・リンクの欄の行を id で探し直す・背景の色の行の .linkhit の線。変わる画面は足した NEW_140 の edit-toolbar-zoom200-light と、取り直し待ちの edit-toolbar-light・edit-color-menu-light（帯と色のメニューの置き場の決め方が変わる）。値を今の app.html に合わせた（前の値は b6e477ab…）
   // 0.14.0 EB-6 直し（R121 (2)）: ${total} の名前の右の acts.length を Number(acts.length) で包んだ（<script> の中だけ。撮る画面は変わらない）。値を今の app.html に合わせた（前の値は fec070e9…）
   // 0.14.0 EK-3（決めたこと 23〜27・R126）: 要約の行の貼り付け（pasteConvert の写し・pasteRow・Ctrl+Shift+V の印）。<script> の中だけで、撮る画面は変わらない（RETAKE に足さない）。値を今の app.html に合わせた（前の値は cf0f6781…）
-  assert.strictEqual(sha, '0b014aace400392105eb226b85361056f93d28ab2d30a5b49b47298470447031',
+  // 0.14.0 EK-2 直し（R127・R129）: pasteConvert の写しの Excel の表（openContext）と、DB の too-big で貼り付けの知らせを出す所（<script> の中だけ。撮る画面は変わらない）。値を今の app.html に合わせた（前の値は 0b014aac…）
+  assert.strictEqual(sha, 'e5d1ae1c918bd93d36f24c5804d0b778772ffac2a406295435b18beb1b5c1ab6',
     'app.html が基準の画像を撮った時と違う。Windows の CI の画面の比べ（捲り棒のつまみも）を見て、基準を取り直してからこの値を直す');
 });
 

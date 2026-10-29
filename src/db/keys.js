@@ -58,4 +58,31 @@ function evenKeys(n) {
   return out;
 }
 
-module.exports = { DIGITS, keyBetween, evenKeys };
+// 0.14.0 EK-2 直し（I1・R128）: a と b（null は端）の間に n 個の鍵を等しい間で（続けて足した・動かした行の並び）。
+// keyBetween を1つずつ重ねると、鍵が5行ごとに1桁ずつ伸びる（2,000 行の貼り付けで 401 字）。a と b を同じ m 桁の数にそろえ、間が n+1 より狭ければ
+// 桁を足し、間を n+1 等分して末尾に真ん中の数字 'i' を付ける（evenKeys と同じ形。末尾が '0' にならず、どの隣どうしにも入れられる）
+function keysBetween(a, b, n) {
+  const lo = checkKey(a, 'a');
+  const hi = checkKey(b, 'b');
+  if (lo !== null && hi !== null && lo >= hi) throw new Error('keysBetween: a < b の順になっていない');
+  const count = Math.max(0, Math.trunc(Number(n) || 0));
+  if (count === 0) return [];
+  const big = BigInt(BASE);
+  const num = (k, m) => [...k.padEnd(m, '0')].reduce((v, c) => v * big + BigInt(DIGITS.indexOf(c)), 0n);
+  let m = Math.max((lo || '').length, (hi || '').length, 1);
+  let A = 0n, B = 0n;
+  for (;; m++) {
+    A = lo === null ? 0n : num(lo, m);
+    B = hi === null ? big ** BigInt(m) : num(hi, m);
+    if (B - A >= BigInt(count + 1)) break;
+  }
+  const span = B - A;
+  const out = new Array(count);
+  for (let i = 0; i < count; i++) {
+    const v = A + (span * BigInt(i + 1)) / BigInt(count + 1);
+    out[i] = `${v.toString(BASE).padStart(m, '0')}${DIGITS[BASE / 2]}`;
+  }
+  return out;
+}
+
+module.exports = { DIGITS, keyBetween, keysBetween, evenKeys };
