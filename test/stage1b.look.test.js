@@ -124,8 +124,10 @@ test('N1: 角丸は部品 6px・まとまり 10px・丸いタブ 14px まで（�
 
 test('F10: 規則の文字の色は文字のトークンだけ、地は地のトークンだけ、生の色は書かない（4.5:1 を計った組の外の色を使わせない）', () => {
   // 第1b2回 L-1: 文字に --text-2、地に --scrim（検索の窓の後ろ。飾りの地だけ）を足した
-  const TEXT = /^(var\(--(text|text-2|muted|accent-text|danger|ok|on-accent)\)|inherit|currentcolor|transparent)$/i;
-  const GROUND = /^(var\(--(bg|side|hover|tint|accent|level|line|scrim)\)|transparent|none)$/i;
+  // 0.14.0 EB-4（計画 docs/plans/2026-10-26-140.md の決めたこと 14・21・Ruling R105）で意図して足した: 文字の飾りの9色（文字の色 --mk-*・背景の色 --mkbg-*）。
+  // 4.5:1 は test/stage140.app.test.js の「飾りの9色」が明暗で計る（地・ホバー・薄い強調の上と、背景の色の上の --text・--accent-text）
+  const TEXT = /^(var\(--(text|text-2|muted|accent-text|danger|ok|on-accent|mk-(gray|brown|orange|yellow|green|blue|purple|pink|red))\)|inherit|currentcolor|transparent)$/i;
+  const GROUND = /^(var\(--(bg|side|hover|tint|accent|level|line|scrim|mkbg-(gray|brown|orange|yellow|green|blue|purple|pink|red))\)|transparent|none)$/i;
   const RAW = /#[0-9a-fA-F]{3,8}\b|rgba?\(/;
   // 0.9.3 M-6 で意図して足した: 録音中のページの音の波の棒（#liveWave i。文字を持たない飾り。音のある棒は --level、一時停止は --line）
   const decor = (sel) => sel.split(',').every((s) => /^\.check input/.test(s.trim()) || ['.rec-dot', '#updBadge .dot', '#palette', '#liveWave i', '#liveWave.paused i'].includes(s.trim()));   // 文字を持たない飾り

@@ -484,3 +484,49 @@ test('EB-1 直し・M3・M6: marksAt は前の書記素の頭の字の飾りを�
   for (let e = U.bookTakeRedo(done, kp1); e.entry; e = U.bookTakeRedo(e.book, kp1)) n++;
   assert.strictEqual(n, 100, 'bookDone が 100 歩を越えて積んだ');
 });
+
+// ---------------------------------------------------------------- EB-4（決めたこと 17・18・22・R13）: 行の近道と［コピー］の Markdown
+const K4 = (o) => E.keyAction({ ctrlKey: false, shiftKey: false, altKey: false, metaKey: false, isComposing: false, key: '', code: '', ...o });
+test('EB-4・F101: keyAction の飾りの近道は ev.code で見る（JIS・key が違っても同じ）。Ctrl+B・I・U・Ctrl+Shift+S・Ctrl+E と、Ctrl+K・Ctrl+Shift+H（EB-5 の口）。変換中・Alt つき・Shift の違う組は null', () => {
+  assert.strictEqual(K4({ ctrlKey: true, code: 'KeyB', key: 'b' }), 'mark:b');
+  assert.strictEqual(K4({ ctrlKey: true, code: 'KeyI', key: 'i' }), 'mark:i');
+  assert.strictEqual(K4({ ctrlKey: true, code: 'KeyU', key: 'u' }), 'mark:u');
+  assert.strictEqual(K4({ ctrlKey: true, shiftKey: true, code: 'KeyS', key: 'S' }), 'mark:s');
+  assert.strictEqual(K4({ ctrlKey: true, code: 'KeyE', key: 'e' }), 'mark:code');
+  assert.strictEqual(K4({ ctrlKey: true, code: 'KeyK', key: 'k' }), 'link');
+  assert.strictEqual(K4({ ctrlKey: true, shiftKey: true, code: 'KeyH', key: 'H' }), 'colorAgain');
+  // key でなく code で見る（日本語入力のまま・配列の違い）
+  assert.strictEqual(K4({ ctrlKey: true, code: 'KeyB', key: 'こ' }), 'mark:b');
+  assert.strictEqual(K4({ ctrlKey: true, code: 'KeyI', key: '' }), 'mark:i');
+  for (const o of [{ ctrlKey: true, code: 'KeyB', key: 'b', isComposing: true }, { ctrlKey: true, code: 'KeyB', key: 'b', keyCode: 229 },
+    { ctrlKey: true, shiftKey: true, code: 'KeyB', key: 'B' }, { ctrlKey: true, code: 'KeyS', key: 's' }, { ctrlKey: true, code: 'KeyH', key: 'h' },
+    { ctrlKey: true, shiftKey: true, code: 'KeyE', key: 'E' }, { ctrlKey: true, altKey: true, code: 'KeyB', key: 'b' }, { code: 'KeyB', key: 'b' },
+    { ctrlKey: true, metaKey: true, code: 'KeyB', key: 'b' }, { ctrlKey: true, code: 'KeyZ', key: 'z' }, { ctrlKey: true, code: 'KeyY', key: 'y' }]) {
+    assert.strictEqual(K4(o), null, JSON.stringify(o));
+  }
+});
+test('EB-4・R13（決めたこと 22）: blocksMarkdown は rich の行を richMarkdown で写す（太字・リンク・子の字下げ・見出しは下げない）。飾りの無い行は今と1文字も同じ', () => {
+  const link = ['link', 'https://example.com/a'];
+  const blocks = [
+    { id: 'h', type: 'heading', level: 2, text: '大事な見出し', rich: [run('大事', 'b'), run('な見出し')] },
+    { id: 'b', type: 'bullet', text: '資料を見る', rich: [run('資料', link), run('を見る')], children: [
+      { id: 'c', type: 'todo', text: '下線と赤', checked: false, rich: [run('下線', 'u'), run('と'), run('赤', ['color', 'red'])] },
+      { id: 'd', type: 'paragraph', text: 'コード x と消し', rich: [run('コード '), run('x', 'code'), run(' と'), run('消し', 's')] },
+    ] },
+    { id: 'p', type: 'paragraph', text: '一行目\n二行目', rich: [run('一行目', 'i'), run('\n二行目')] },
+  ];
+  assert.strictEqual(E.blocksMarkdown(blocks), [
+    '\n## **大事**な見出し',
+    '- [資料](https://example.com/a)を見る',
+    '  - [ ] 下線と赤',
+    '  コード `x` と~~消し~~',
+    '*一行目*',
+    '  二行目',
+  ].join('\n'));
+  // 飾りの無い行（rich が無い・null・飾りの無い区切りだけ）は今の blocksMarkdown と1文字も同じ
+  const plain = (bs) => bs.map(({ rich, children, ...b }) => ({ ...b, ...(children ? { children: plain(children) } : {}) }));   // eslint-disable-line no-unused-vars
+  const noKids = plain(blocks).map((b) => ({ ...b, children: undefined }));
+  assert.strictEqual(E.blocksMarkdown(noKids.map((b) => ({ ...b, rich: [run(b.text)] }))), E.blocksMarkdown(noKids));
+  assert.strictEqual(E.blocksMarkdown(noKids.map((b) => ({ ...b, rich: null }))), E.blocksMarkdown(noKids));
+  assert.strictEqual(E.blocksMarkdown(plain(blocks)), '\n## 大事な見出し\n- 資料を見る\n  - [ ] 下線と赤\n  コード x と消し\n一行目\n  二行目');
+});

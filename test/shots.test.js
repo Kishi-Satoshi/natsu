@@ -190,6 +190,10 @@ const RETAKEN_132 = ['nudge-light-100', 'nudge-dark-100', 'nudge-light-150', 'nu
 // 0.13.2 で意図して変えた（版を 0.13.2 に上げる commit。Task G）: 0.13.2 で足した画面と取り直した画面（ADDED_132。前の RETAKE_132）。持ち主が見比べに
 // 「この見た目でよい（おすすめ）」（2026-10-28）と言ったので、CI run 40796780384（80ea908）・artifact 12864058378 の .after.png（5 枚。閉じたパネルの3枚 nudge-light-100・nudge-dark-100・nudge-light-150 は今の基準とバイトが同じで artifact に出なかったので替えていない）をバイトのまま基準にし、取り直し待ちを空に戻した
 const ADDED_132 = [...NEW_132, ...RETAKEN_132];
+// 0.14.0（計画 docs/plans/2026-10-26-140.md の「取り直す画面（RETAKE）」）で意図して変えた: 取り直し待ちは 0.14.0 の表の画面だけ（RETAKE_140）。
+// EB-4 で行の文の飾りと色の明暗の2枚を足した（NEW_140。足した画面で、まだ基準が無い）
+const NEW_140 = ['edit-marks-light', 'edit-marks-dark'];
+const RETAKE_140 = [...NEW_140];
 const img = (w, h, fill = [255, 255, 255, 255]) => ({ width: w, height: h, data: Buffer.from(Array.from({ length: w * h }, () => fill).flat()) });
 // 一時フォルダ（日本語と 𠮷 の名前。RF1 と同じ形）。テストの終わりに消す
 const tmp = (t, name) => {
@@ -235,7 +239,9 @@ test('G2: 撮る画面は決まった並び（第1b回の 13 と第1b2回の検�
     // 0.13.1 NE-4a で意図して変えた: 入れ子の明暗と拡大 200% の3枚を足した。NE-4b でトグルの1枚を足した（版を 0.13.1 に上げる commit で基準にした）
     ...NEW_131,
     // 0.13.2 LN-3 で意図して変えた: 録音中のページの帯 no-login の1枚を足した。LN-5 で議事録のページの「残り n 区間」の2枚を足した（版を 0.13.2 に上げる commit で基準にした）
-    ...NEW_132]);
+    ...NEW_132,
+    // 0.14.0 EB-4 で意図して変えた: 行の文の飾りと色の明暗の2枚を足した（取り直し待ち・まだ基準が無い）
+    ...NEW_140]);
   assert.deepStrictEqual(SH.SCREENS.filter((s) => s.page === 'overlay').map((s) => s.name), PS.screenNames());
   // 0.9.3 M-7 で意図して変えた: 会議の検出のパネル（page nudge）の5枚を録音バーのあと（いちばん後ろ）に足した
   assert.deepStrictEqual(SH.SCREENS.filter((s) => s.page === 'nudge').map((s) => s.name), M7_NUDGE_093);
@@ -723,7 +729,12 @@ test('G2・F14・G-4・0.9.0 G-3・0.9.1・0.9.2・0.9.3・0.9.4・0.10.0・0.10
   // 0.13.2 LN-3 で意図して変えた: 取り直し待ちは 0.13.2 の表の画面（ファイルの頭の RETAKE_132）とちょうど同じで、どれも計画の「取り直す画面（RETAKE）」の表にある。
   // 足した画面（NEW_132）はまだ基準が無い
   // 0.13.2 で意図して変えた（版を 0.13.2 に上げる commit。Task G）: 取り直し待ちを空に戻した（ファイルの頭の注）。0.13.2 の表の画面（ADDED_132）はどれも計画の表にあり、基準がある
-  assert.deepStrictEqual([...SH.RETAKE], []);
+  // 0.14.0 EB-4 で意図して変えた: 取り直し待ちは 0.14.0 の表の画面（ファイルの頭の RETAKE_140）とちょうど同じで、どれも計画の「取り直す画面（RETAKE）」の表にある。
+  // 足した画面（NEW_140）はまだ基準が無い
+  assert.deepStrictEqual([...SH.RETAKE], RETAKE_140);
+  const plan140 = read('docs/plans/2026-10-26-140.md');
+  const table140 = plan140.slice(plan140.indexOf('## 取り直す画面（RETAKE）'), plan140.indexOf('\n## ', plan140.indexOf('## 取り直す画面（RETAKE）') + 5));
+  for (const n of RETAKE_140) assert.ok(table140.includes(`\`${n}\``), `0.14.0 の計画の「取り直す画面」の表に ${n} が無い`);
   const plan132 = read('docs/plans/2026-10-28-132.md');
   const table132 = plan132.slice(plan132.indexOf('## 取り直す画面（RETAKE）'), plan132.indexOf('\n## ', plan132.indexOf('## 取り直す画面（RETAKE）') + 5));
   for (const n of ADDED_132) assert.ok(table132.includes(`\`${n}\``), `0.13.2 の計画の「取り直す画面」の表に ${n} が無い`);
@@ -763,6 +774,7 @@ test('G2・F14・G-4・0.9.0 G-3・0.9.1・0.9.2・0.9.3・0.9.4・0.10.0・0.10
     assert.ok(fs.existsSync(path.join(ROOT, 'test', 'shots', 'win32', `${n}.png`)), `${n} の基準が無い`);
   }
   for (const s of SH.SCREENS) {
+    if (NEW_140.includes(s.name)) continue;   // 0.14.0 で足した画面（取り直し待ち・まだ基準が無い。版を上げる commit で基準にする）
     const f = path.join(ROOT, 'test', 'shots', 'win32', `${s.name}.png`);
     assert.ok(fs.existsSync(f), `${s.name} の基準が無い`);
     if (s.page !== 'app') continue;   // 0.9.3 M-7 で意図して変えた: パネル（nudge）の画面も、録音バーと同じく窓の大きさが中身で決まる
@@ -1020,7 +1032,8 @@ test('基準の画像（test/shots/win32）は今の app.html で撮ったもの
   // 0.13.2 LN-5（持ち主の答え LA4・決めたこと 8・9）: 保存した議事録のページの「文字起こし」の欄の頭の1行（#pPending・CSS の .pendline と描き方）。待ち行列の無いページには出ないので今の撮る画面は変わらない見込みで、変わる画面は足した NEW_132 の page-pending の2枚。値を今の app.html に合わせた（前の値は 0ea1f255…）
   // 0.13.2 点検の直し 3（計画の Ruling LR38）: 録音が終わったら［もう一度文字起こし］の busy を main に聞き直す（setMeetingUi・onPagePending の refreshPendingBusy。<script> の中だけ。撮る画面は変わらない）。値を今の app.html に合わせた（前の値は 05c6bfd4…）
   // 0.14.0 EB-3（計画 docs/plans/2026-10-26-140.md の決めたこと 1〜13）: 要約の欄の元に戻す・やり直す（undoBook の写し・stepGroup・Ctrl+Z と Ctrl+Shift+Z と Ctrl+Y の受け口・打つ手が止まったら保存・再生成の後に列を空に。<script> の中だけ。撮る画面は変わらない）。値を今の app.html に合わせた（前の値は e341fb62…）
-  assert.strictEqual(sha, '8efef989739ee8d60839fbff7c43d364c85a23929cb4be32ec5f401f68c53747',
+  // 0.14.0 EB-4（計画 docs/plans/2026-10-26-140.md の決めたこと 14・17・18・22・R103〜R108）: 行の文の飾り（richText の写し・span で描く・{ rich } で保存・Ctrl+B などの近道・文中の記法・飾りの CSS と9色のトークン）。飾りの無い要約の見た目は変わらない見込みで、変わる画面は足した NEW_140 の2枚。値を今の app.html に合わせた（前の値は 8efef989…）
+  assert.strictEqual(sha, '8e766d9bf9f109a262c9aa979fc7dd60f2d392299f323954281ee4c7fa3d48e4',
     'app.html が基準の画像を撮った時と違う。Windows の CI の画面の比べ（捲り棒のつまみも）を見て、基準を取り直してからこの値を直す');
 });
 

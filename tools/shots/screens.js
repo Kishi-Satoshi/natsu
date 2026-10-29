@@ -310,6 +310,10 @@ const SCREENS = [
   // 0.13.2 LN-5（持ち主の答え LA4）: 保存した議事録のページの「文字起こし」の欄の頭の1行（文字起こし待ちと［もう一度文字起こし］・回している途中で押せない形）。足した画面（まだ基準が無い）
   { name: 'page-pending-light', page: 'app', theme: 'light', answers: { 'koeApp.pagePending': { left: 12, running: false, busy: false } }, act: OPEN_PAGE_SCRIPT },
   { name: 'page-pending-running-light', page: 'app', theme: 'light', answers: { 'koeApp.pagePending': { left: 5, running: true, busy: false } }, act: OPEN_PAGE_SCRIPT },
+  // 0.14.0 EB-4（計画 docs/plans/2026-10-26-140.md の「取り直す画面（RETAKE）」）: 行の文の飾り5つ・文字の色と背景の色の全部（9色ずつ）・リンク（明暗で読めるか）。
+  // 足した画面（まだ基準が無い）
+  { name: 'edit-marks-light', page: 'app', theme: 'light', get answers() { return marksAnswers(); }, act: OPEN_TYPES },
+  { name: 'edit-marks-dark', page: 'app', theme: 'dark', get answers() { return marksAnswers(); }, act: OPEN_TYPES },
 ];
 // 0.9.0 O-3（RP9）: 録音バーの画面（形 → 地 → 拡大率 → 状態の順。撮る道具は形・地・拡大率の組ごとに窓を1つ開いて状態を act で替える）。
 // 録音は始めずに見た目だけを撮る（act は pill-states の見本を録音バーの DOM に当てる。撮るときだけ体の地にデスクトップの色を塗る）。
@@ -406,7 +410,8 @@ const OVL_094 = (states) => PS.FORMS.flatMap((form) => Object.keys(PS.DESKS).fla
 // 0.13.2（版を 0.13.2 に上げる commit。Task G）: 持ち主が取り直しの見比べ（足した 3 枚: 帯 no-login・議事録のページの「残り n 区間」の2枚、取り直した 5 枚:
 // 会議の知らせのパネル）に「この見た目でよい（おすすめ）」（2026-10-28）と答えたので、CI run 40796780384（80ea908）の artifact 12864058378 の .after.png（5 枚。閉じたパネルの3枚は今の基準と
 // バイトが同じで artifact に出なかったので替えていない）をバイトのまま基準にし、空に戻した（基準は 161 枚）
-const RETAKE = new Set([]);
+// 0.14.0（計画 docs/plans/2026-10-26-140.md の「取り直す画面（RETAKE）」）: EB-4 で足した飾りの明暗の2枚（まだ基準が無い）
+const RETAKE = new Set(['edit-marks-light', 'edit-marks-dark']);
 const PERF = [{ name: 'open-2000-blocks', budgetMs: 500 }];   // 3回開いた中央値で見る
 const TIME_ZONE = 'Asia/Tokyo';
 const TOLERANCE = 2;   // 色の差（0〜255）がこれ以下の画素は同じとみなす。CI の機械の CPU ごとの描き方の1段の差を拾わないため（揺れの確かめ judgePair は 0 で見る）
@@ -607,6 +612,24 @@ function nestedAnswers() {
     ] }),
     m('n10', 'numbered', '次回は会議室を替える。'),
     m('n11', 'paragraph', '以上で終わります。'),
+  ];
+  return { 'koeApp.pageGet': { page: { ...page, blocks, citeStat: { linked: 0, total: 0 }, actionStat: null }, segments: SEGMENTS } };
+}
+// 0.14.0 EB-4（決めたこと 14・17・21）: 飾りの行（太字・斜体・下線・取り消し線・コード・リンクと、文字の色・背景の色の9色ずつ）
+function marksAnswers() {
+  const page = fixtures()['koeApp.pageGet'].page;
+  const COLORS = ['gray', 'brown', 'orange', 'yellow', 'green', 'blue', 'purple', 'pink', 'red'];
+  const NAMES = ['灰', '茶', '橙', '黄', '緑', '青', '紫', '桃', '赤'];
+  const r = (t, ...m) => ({ t, m });
+  const m = (id, type, rich, o = {}) => ({ id, type, text: rich.map((x) => x.t).join(''), rich, citeState: 'manual', cites: [], ...o });
+  const join = (kind) => COLORS.flatMap((c, i) => [r(NAMES[i], [kind, c]), ...(i < COLORS.length - 1 ? [r(' ')] : [])]);
+  const blocks = [
+    m('k1', 'heading', [r('飾りの'), r('見本', 'b')], { level: 2 }),
+    m('k2', 'bullet', [r('太字', 'b'), r('・'), r('斜体', 'i'), r('・'), r('下線', 'u'), r('・'), r('取り消し線', 's'), r('・'), r('コード', 'code'), r('・'), r('リンク', ['link', 'https://example.com/'])]),
+    m('k3', 'bullet', [r('太字の斜体', 'b', 'i'), r(' と '), r('下線の取り消し線', 'u', 's'), r(' と '), r('太字のリンク', 'b', ['link', 'https://example.com/'])]),
+    m('k4', 'paragraph', [r('文字の色: '), ...join('color')]),
+    m('k5', 'paragraph', [r('背景の色: '), ...join('bg')]),
+    m('k6', 'todo', [r('見積もりを'), r('金曜まで', 'b', ['color', 'red']), r('に送る')], { checked: false }),
   ];
   return { 'koeApp.pageGet': { page: { ...page, blocks, citeStat: { linked: 0, total: 0 }, actionStat: null }, segments: SEGMENTS } };
 }

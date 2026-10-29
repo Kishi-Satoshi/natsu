@@ -337,6 +337,7 @@ async function load(htmlPath, opt = {}) {
     window.__natsuCaret = {
       range: (el) => (Element.focused === el && at.has(el) ? at.get(el).slice() : null),
       set: (el, n) => { at.set(el, [n, n]); },
+      select: (el, a, b) => { at.set(el, [a, b]); },   // 0.14.0 EB-4: 範囲を選ぶ（飾りを付けた後も選んだ所を残す）
     };
     log.caret = { set: (el, s, e = s) => { at.set(el, [s, e]); }, get: (el) => (at.has(el) ? at.get(el).slice() : null) };
   }

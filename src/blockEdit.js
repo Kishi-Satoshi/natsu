@@ -5,6 +5,8 @@
 // test/repo.test.js が字面で取り出して同じ表で照らす（0.10.0 の summaryLockView と同じ）。
 // 0.14.0 EB-1 直し: 書記素の境（graphemeEnds・safeOffset）だけは src/grapheme.js を読む（richText と同じ1か所。循環して読まない）。
 const { graphemeEnds, safeOffset } = require('./grapheme');
+// 0.14.0 EB-4: ［コピー］の飾りは richText の richMarkdown（richText は grapheme だけを読むので、互いに読み合わない: R95）
+const { richMarkdown } = require('./richText');
 
 // 型の表（計画の「ブロックの型の表」と1行ずつ同じ。test/stage130.edit.lib.test.js が計画の表と照らす）。
 // key は DB の type・id は / メニューと「最近使ったもの」の鍵・words は / で当たる語・md は行頭の記法・code は近道（Ctrl+Shift+ の ev.code）・
@@ -174,7 +176,10 @@ function numberLabels(blocks) {
 
 // ---------------------------------------------------------------- 近道（E11・EQ12。F45）
 const DIGIT_TURN = Object.freeze(Object.fromEntries(VERSION_ROWS.filter((r) => r.code).map((r) => [r.code, r.id])));
-// キーの事象 → 近道の名前（'turn:<鍵>'・'duplicate'・'moveUp'・'moveDown'・'ctrlEnter'・'menu'）か null。数字は ev.code で見る（JIS の Shift+数字）。
+// 0.14.0 EB-4（決めたこと 18）: 文字の飾りの近道（Ctrl+B・I・U・E。Ctrl+Shift+S は取り消し線）。ev.code で見る（JIS・日本語入力のまま）
+const MARK_KEYS = Object.freeze({ KeyB: 'b', KeyI: 'i', KeyU: 'u', KeyE: 'code' });
+// キーの事象 → 近道の名前（'turn:<鍵>'・'duplicate'・'moveUp'・'moveDown'・'ctrlEnter'・'menu'・'openAll'。0.14.0 EB-4 から 'mark:<飾り>'・
+// 'link'（Ctrl+K）・'colorAgain'（Ctrl+Shift+H。どちらも EB-5 の道具の帯で使う））か null。数字は ev.code で見る（JIS の Shift+数字）。
 // 変換中は null。今の近道（Ctrl+P・Ctrl+Shift+P・Ctrl+Shift+L）と 0.14.0 に入る近道（Ctrl+W・Ctrl+Shift+N・Ctrl+Alt+V）は取らない
 function keyAction(ev) {
   if (!ev || ev.isComposing || ev.keyCode === 229) return null;
@@ -186,8 +191,12 @@ function keyAction(ev) {
     if (Object.hasOwn(DIGIT_TURN, code)) return `turn:${DIGIT_TURN[code]}`;
     if (code === 'ArrowUp' || ev.key === 'ArrowUp') return 'moveUp';
     if (code === 'ArrowDown' || ev.key === 'ArrowDown') return 'moveDown';
+    if (code === 'KeyS') return 'mark:s';
+    if (code === 'KeyH') return 'colorAgain';
     return null;
   }
+  if (Object.hasOwn(MARK_KEYS, code)) return `mark:${MARK_KEYS[code]}`;
+  if (code === 'KeyK') return 'link';
   if (code === 'KeyD') return 'duplicate';
   if (code === 'Enter' || code === 'NumpadEnter' || ev.key === 'Enter') return 'ctrlEnter';
   if (code === 'Slash' || ev.key === '/') return 'menu';
@@ -199,11 +208,12 @@ function keyAction(ev) {
 // 0.13.1（決めたこと 22・NR20）: 子は段ごとに2つの空白で下げる（閉じたトグルの子も写す）。トグルは箇条書きと同じ「- 」、トグル見出しは見出しの段の #。番号は親ごと
 // 2026-10-28 の点検 4（NR40）: 見出しは下げない（Markdown の見出しは下げられず、4つ以上の空白の行はコードの塊になる）。見出しの後の行は見出しの段から
 // 数え直す（見出しの子は2つの空白・見出しの後の兄弟は下げない）。at.base は文書の順に見出しの段を運ぶ。見出しの無い所の下げ方は今のまま
+// 0.14.0 EB-4（決めたこと 22・R13）: 飾りのある行（rich）は文の所だけを richMarkdown で写す（飾りの無い行は今と1文字も同じ）
 function blocksMarkdown(blocks, depth = 0, at = { base: 0 }) {
   const list = Array.isArray(blocks) ? blocks.filter((b) => b && typeof b === 'object') : [];
   const nums = numberLabels(list);
   const line = (b, pad) => {
-    const t = String(b.text ?? '').replace(/\n/g, `\n${pad}  `);
+    const t = (Array.isArray(b.rich) && b.rich.length ? richMarkdown(b.rich) : String(b.text ?? '')).replace(/\n/g, `\n${pad}  `);
     if (b.type === 'heading') return `\n${'#'.repeat(headingLevel(b))} ${t}`;
     if (b.type === 'todo') return `- [${b.checked ? 'x' : ' '}] ${t}`;
     if (b.type === 'bullet') return `- ${t}`;

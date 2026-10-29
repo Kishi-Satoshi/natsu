@@ -30,6 +30,25 @@
     --level: #0e8cae;
     --scrim: rgba(15,15,15,.25);
     --shadow: 0 4px 12px rgba(15,15,15,.10);
+    /* 0.14.0 EB-4（決めたこと 14・21）: 文字の飾りの色（文字の色 --mk-* と背景の色 --mkbg-*。NaTsu で決めた9色。暗い配色でも全部上書きする: COLOR-03） */
+    --mk-gray: #6b6965;
+    --mk-brown: #8a5a3c;
+    --mk-orange: #a84f00;
+    --mk-yellow: #836500;
+    --mk-green: #2f7a3e;
+    --mk-blue: #1f62b5;
+    --mk-purple: #7a4bb0;
+    --mk-pink: #b03a7e;
+    --mk-red: #c0392b;
+    --mkbg-gray: #f0efed;
+    --mkbg-brown: #f5ede7;
+    --mkbg-orange: #fcede0;
+    --mkbg-yellow: #fbf4d2;
+    --mkbg-green: #e6f3e8;
+    --mkbg-blue: #e8f0fb;
+    --mkbg-purple: #f1ebf8;
+    --mkbg-pink: #faeaf3;
+    --mkbg-red: #fcebe9;
   }
   /* 書体（第1b2回 L-1）: Segoe UI Variable から。日本語は Segoe UI に無いので、文字ごとに Yu Gothic UI に落ちる。題名だけ Display */
   body {
@@ -552,6 +571,32 @@
     word-break: break-word; white-space: pre-wrap; }   /* 0.13.0 ED-4（決めたこと 16）: Shift+Enter の行の中の改行を見せる */
   .blk .txt:hover { background: var(--hover); }
   .blk .txt:focus { background: var(--hover); }
+  /* 0.14.0 EB-4（決めたこと 14・17・21・22）: 行の文の飾り（画面は rich から span を作る: data-m は飾りの名前・data-color と data-bg は色・data-link は住所） */
+  .blk .txt span[data-m~="b"] { font-weight: 700; }
+  .blk .txt span[data-m~="i"] { font-style: italic; }
+  .blk .txt span[data-m~="u"] { text-decoration: underline; }
+  .blk .txt span[data-m~="s"] { text-decoration: line-through; }
+  .blk .txt span[data-m~="u"][data-m~="s"] { text-decoration: underline line-through; }
+  .blk .txt span[data-m~="code"] { font-family: "Cascadia Mono", Consolas, "BIZ UDGothic", monospace; font-size: .88em; background: var(--tint); border-radius: 4px; padding: 0 3px; }
+  .blk .txt span[data-link] { color: var(--accent-text); text-decoration: underline; text-underline-offset: 2px; }
+  .blk .txt span[data-color="gray"] { color: var(--mk-gray); }
+  .blk .txt span[data-color="brown"] { color: var(--mk-brown); }
+  .blk .txt span[data-color="orange"] { color: var(--mk-orange); }
+  .blk .txt span[data-color="yellow"] { color: var(--mk-yellow); }
+  .blk .txt span[data-color="green"] { color: var(--mk-green); }
+  .blk .txt span[data-color="blue"] { color: var(--mk-blue); }
+  .blk .txt span[data-color="purple"] { color: var(--mk-purple); }
+  .blk .txt span[data-color="pink"] { color: var(--mk-pink); }
+  .blk .txt span[data-color="red"] { color: var(--mk-red); }
+  .blk .txt span[data-bg="gray"] { background: var(--mkbg-gray); border-radius: 3px; }
+  .blk .txt span[data-bg="brown"] { background: var(--mkbg-brown); border-radius: 3px; }
+  .blk .txt span[data-bg="orange"] { background: var(--mkbg-orange); border-radius: 3px; }
+  .blk .txt span[data-bg="yellow"] { background: var(--mkbg-yellow); border-radius: 3px; }
+  .blk .txt span[data-bg="green"] { background: var(--mkbg-green); border-radius: 3px; }
+  .blk .txt span[data-bg="blue"] { background: var(--mkbg-blue); border-radius: 3px; }
+  .blk .txt span[data-bg="purple"] { background: var(--mkbg-purple); border-radius: 3px; }
+  .blk .txt span[data-bg="pink"] { background: var(--mkbg-pink); border-radius: 3px; }
+  .blk .txt span[data-bg="red"] { background: var(--mkbg-red); border-radius: 3px; }
   .blk.heading { margin-top: 22px; }
   .blk.heading:first-child { margin-top: 6px; }
   .blk.heading .txt { font-size: 20px; font-weight: 600; line-height: 26px; }
@@ -845,6 +890,24 @@
       --level: #0e8cae;
       --scrim: rgba(0,0,0,.5);
       --shadow: 0 4px 12px rgba(0,0,0,.40);
+      --mk-gray: #a8a5a0;
+      --mk-brown: #c69c7e;
+      --mk-orange: #e8a05a;
+      --mk-yellow: #dfc25a;
+      --mk-green: #6fc485;
+      --mk-blue: #6eaaf0;
+      --mk-purple: #b896e6;
+      --mk-pink: #e48bbf;
+      --mk-red: #f07f73;
+      --mkbg-gray: #333231;
+      --mkbg-brown: #3a2f27;
+      --mkbg-orange: #40301f;
+      --mkbg-yellow: #3d3619;
+      --mkbg-green: #213628;
+      --mkbg-blue: #1f3550;
+      --mkbg-purple: #3a2c4f;
+      --mkbg-pink: #4a2a3d;
+      --mkbg-red: #4f2a27;
     }
   }
   * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -3191,11 +3254,12 @@
   }
   // 0.13.1（決めたこと 22・NR20）: 子は段ごとに2つの空白で下げる（閉じたトグルの子も）。トグルは「- 」。番号は親ごと
   // 点検 4（NR40）: 見出しは下げず、見出しの後の行は見出しの段から数え直す（at.base は文書の順に見出しの段を運ぶ）
+  // 0.14.0 EB-4（決めたこと 22・R13）: 飾りのある行は文の所だけを richMarkdown（richText の写し）で写す
   function blocksMarkdown(blocks, depth = 0, at = { base: 0 }) {
     const list = Array.isArray(blocks) ? blocks.filter((b) => b && typeof b === 'object') : [];
     const nums = numberLabels(list);
     const line = (b, pad) => {
-      const t = String(b.text ?? '').replace(/\n/g, `\n${pad}  `);
+      const t = (Array.isArray(b.rich) && b.rich.length ? richMarkdown(b.rich) : String(b.text ?? '')).replace(/\n/g, `\n${pad}  `);
       if (b.type === 'heading') return `\n${'#'.repeat(headingLevel(b))} ${t}`;
       if (b.type === 'todo') return `- [${b.checked ? 'x' : ' '}] ${t}`;
       if (b.type === 'bullet') return `- ${t}`;
@@ -3328,6 +3392,20 @@
       if (placed) x.collapse(true); else { x.selectNodeContents(el); x.collapse(false); }
       sel.removeAllRanges(); sel.addRange(x);
     },
+    // 0.14.0 EB-4: [a, b) を選ぶ（飾りを付けた後も選んだ所を残す: 決めたこと 19）
+    select(el, a, b) {
+      const sel = typeof window.getSelection === 'function' ? window.getSelection() : null;
+      if (!sel) return;
+      const at = (n) => {
+        let left = Math.max(0, n);
+        const walk = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+        for (let t = walk.nextNode(); t; t = walk.nextNode()) { if (left <= t.length) return [t, left]; left -= t.length; }
+        return [el, el.childNodes.length];
+      };
+      const x = document.createRange();
+      x.setStart(...at(a)); x.setEnd(...at(b));
+      sel.removeAllRanges(); sel.addRange(x);
+    },
   };
   // → [始め, 終わり]（選んでいなければ同じ）か null（その要素にカーソルが無い・読めない）
   const caretRange = (el) => { try { return caretSeam.range(el); } catch (_) { return null; } };
@@ -3374,8 +3452,13 @@
       if (Object.hasOwn(DIGIT_TURN_VIEW, code)) return `turn:${DIGIT_TURN_VIEW[code]}`;
       if (code === 'ArrowUp' || ev.key === 'ArrowUp') return 'moveUp';
       if (code === 'ArrowDown' || ev.key === 'ArrowDown') return 'moveDown';
+      if (code === 'KeyS') return 'mark:s';
+      if (code === 'KeyH') return 'colorAgain';
       return null;
     }
+    const marks = { KeyB: 'b', KeyI: 'i', KeyU: 'u', KeyE: 'code' };   // 0.14.0 EB-4（決めたこと 18）: 飾りの近道（src/blockEdit.js の MARK_KEYS の写し）
+    if (Object.hasOwn(marks, code)) return `mark:${marks[code]}`;
+    if (code === 'KeyK') return 'link';
     if (code === 'KeyD') return 'duplicate';
     if (code === 'Enter' || code === 'NumpadEnter' || ev.key === 'Enter') return 'ctrlEnter';
     if (code === 'Slash' || ev.key === '/') return 'menu';
@@ -3415,6 +3498,401 @@
     const out = [];
     for (let i = tailIdx[tails.length - 1]; i !== undefined && i >= 0; i = prev[i]) out.unshift(i);
     return out;
+  }
+  // ---------------- 0.14.0 EB-4（計画 docs/plans/2026-10-26-140.md の決めたこと 14・17・18・22・R10・R13）: 行の文の飾り
+  // ---- richText の写し（src/richText.js の MARKS から richMarkdown まで。書記素の境はこの画面の graphemeEnds・safeOffset。test/stage140.app.test.js が同じ答えかを照らす）
+  const MARKS = Object.freeze(['b', 'i', 'u', 's', 'code']);
+  const COLORS = Object.freeze(['gray', 'brown', 'orange', 'yellow', 'green', 'blue', 'purple', 'pink', 'red']);
+  const ORDER = Object.freeze([...MARKS, 'color', 'bg', 'link']);   // 区切りの中の飾りの決まった順
+  const COLOR_KINDS = Object.freeze(['color', 'bg']);
+  const STOP_AT_END = Object.freeze(['code', 'link']);              // 終わりで打った文字に引き継がない飾り
+  // 開けるリンクの頭（http(s)・mailto・NaTsu のリンク。0.10.0 の https のリンクの頭は https:// に入る）
+  const LINK_HEADS = Object.freeze(['https://', 'http://', 'mailto:', 'natsu://page/']);
+  // 頭だけ（https:// など）は開けない（頭の後ろに1文字は要る: 0.14.0 EB-1 直し・R91）
+  const LINK_HEAD_RE = new RegExp(`^(?:${LINK_HEADS.map((h) => h.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&')).join('|')})(?=.)`, 'i');
+  // 制御の文字（C0・DEL・C1）・空白（どこにあっても）・向きを変える見えない文字（U+200E・U+200F・U+202A〜U+202E・U+2066〜U+2069）（R91）
+  const LINK_CTRL_RE = /[\u0000-\u001f\u007f-\u009f\s\u200e\u200f\u202a-\u202e\u2066-\u2069]/;
+  const LINK_MAX = 2048;
+
+  const nameOf = (mk) => (Array.isArray(mk) ? mk[0] : mk);
+  const keyOf = (mk) => (Array.isArray(mk) ? `${mk[0]}\u0000${mk[1]}` : mk);
+  const isRun = (r) => Boolean(r) && typeof r === 'object' && typeof r.t === 'string';
+
+  // 開いてよいリンクか（前後の空白・制御の文字・長すぎるものは偽）
+  function linkOk(url) {
+    if (typeof url !== 'string' || !url || url.length > LINK_MAX) return false;
+    if (url.trim() !== url || LINK_CTRL_RE.test(url)) return false;
+    if (!LINK_HEAD_RE.test(url)) return false;
+    return true;
+  }
+
+  // 飾り1つが決まった形か
+  function markOk(mk) {
+    if (typeof mk === 'string') return MARKS.includes(mk);
+    if (!Array.isArray(mk) || mk.length !== 2) return false;
+    if (COLOR_KINDS.includes(mk[0])) return COLORS.includes(mk[1]);
+    return mk[0] === 'link' && linkOk(mk[1]);   // 開けない住所のリンクは落とす（R92）
+  }
+  // 飾りの並びを整える（知らない飾りを落とす・重なりを1つに・決まった順に）
+  function cleanMarks(m) {
+    const seen = new Set();
+    const out = [];
+    for (const mk of Array.isArray(m) ? m : []) {
+      if (!markOk(mk) || seen.has(keyOf(mk))) continue;
+      seen.add(keyOf(mk));
+      out.push(Array.isArray(mk) ? [mk[0], mk[1]] : mk);
+    }
+    out.sort((x, y) => ORDER.indexOf(nameOf(x)) - ORDER.indexOf(nameOf(y)) || (keyOf(x) < keyOf(y) ? -1 : keyOf(x) > keyOf(y) ? 1 : 0));
+    // DB の照らし（validate.richText）と同じ形にそろえる（R92）: 色は1つだけ（決まった順の最初: 文字の色が背景の色より先）・コードのある区切りのリンクは落とす
+    const code = out.includes('code');
+    let colored = false;
+    return out.filter((mk) => {
+      const n = nameOf(mk);
+      if (n === 'link') return !code;
+      if (!COLOR_KINDS.includes(n)) return true;
+      if (colored) return false;
+      colored = true;
+      return true;
+    });
+  }
+  const sameMarks = (a, b) => a.length === b.length && a.every((mk, i) => keyOf(mk) === keyOf(b[i]));
+
+  // 区切りの並びを整える（空の区切りを落とす・飾りを整える・隣の同じ飾りは1つ）。いつも配列
+  function tidy(rich) {
+    const out = [];
+    for (const run of Array.isArray(rich) ? rich : []) {
+      if (!isRun(run) || run.t === '') continue;
+      const m = cleanMarks(run.m);
+      const last = out[out.length - 1];
+      if (last && sameMarks(last.m, m)) last.t += run.t;
+      else out.push({ t: run.t, m });
+    }
+    return out;
+  }
+  // 行に書く形 → 整えた rich か null（飾りが無ければ null）
+  function normalizeRich(rich) {
+    const out = tidy(rich);
+    return out.some((r) => r.m.length) ? out : null;
+  }
+  // 素の文字（validate.richText と同じ答え）
+  function plainOf(rich) {
+    return (Array.isArray(rich) ? rich : []).map((r) => (isRun(r) ? r.t : '')).join('');
+  }
+  // ブロック → 区切りの並び（rich が無ければ文字1つの区切り）
+  function richOf(block) {
+    const b = block && typeof block === 'object' ? block : {};
+    if (Array.isArray(b.rich)) return tidy(b.rich);
+    return tidy([{ t: typeof b.text === 'string' ? b.text : '', m: [] }]);
+  }
+
+  // 整えた並びと、書記素の境に寄せた範囲（逆さなら入れ替える）
+  function spanOf(rich, s, e) {
+    const runs = tidy(rich);
+    const text = plainOf(runs);
+    const a = safeOffset(text, s);
+    const b = safeOffset(text, e);
+    return { runs, text, a: Math.min(a, b), b: Math.max(a, b) };
+  }
+  // 区切りを [a, b) の前・中・後ろに分ける（写しを返す）
+  function cut(runs, a, b) {
+    const pre = [], mid = [], post = [];
+    let pos = 0;
+    for (const r of runs) {
+      const end = pos + r.t.length;
+      const piece = (x, y) => ({ t: r.t.slice(x - pos, y - pos), m: r.m.slice() });
+      if (end <= a) pre.push(piece(pos, end));
+      else if (pos >= b) post.push(piece(pos, end));
+      else {
+        if (pos < a) pre.push(piece(pos, a));
+        mid.push(piece(Math.max(pos, a), Math.min(end, b)));
+        if (end > b) post.push(piece(b, end));
+      }
+      pos = end;
+    }
+    return { pre, mid, post };
+  }
+
+  // [s, e) が全部その飾りなら外す・どこか無ければ付ける。空の範囲は何もしない
+  function toggleMark(rich, s, e, mark) {
+    if (!MARKS.includes(mark)) throw new Error('toggleMark: 知らない飾り');
+    const { runs, a, b } = spanOf(rich, s, e);
+    if (a >= b) return runs;
+    const { pre, mid, post } = cut(runs, a, b);
+    const all = mid.every((r) => r.m.includes(mark));
+    for (const r of mid) {
+      r.m = r.m.filter((x) => x !== mark);
+      if (all) continue;
+      r.m.push(mark);
+      if (mark === 'code') r.m = r.m.filter((x) => nameOf(x) !== 'link');
+    }
+    return tidy([...pre, ...mid, ...post]);
+  }
+  // [s, e) の色を置き換える（前の文字の色も背景の色も外してから付ける: BQ3）。name が null なら色を全部外す（「既定」）
+  function setColor(rich, s, e, kind, name) {
+    if (!COLOR_KINDS.includes(kind)) throw new Error('setColor: 知らない種類');
+    if (name !== null && !COLORS.includes(name)) throw new Error('setColor: 知らない色');
+    const { runs, a, b } = spanOf(rich, s, e);
+    if (a >= b) return runs;
+    const { pre, mid, post } = cut(runs, a, b);
+    for (const r of mid) {
+      r.m = r.m.filter((x) => !COLOR_KINDS.includes(nameOf(x)));
+      if (name !== null) r.m.push([kind, name]);
+    }
+    return tidy([...pre, ...mid, ...post]);
+  }
+  // [s, e) にリンクを付ける（コードは外れる）。url が null なら外す。開けない住所は投げる
+  function setLink(rich, s, e, url) {
+    if (url !== null && !linkOk(url)) throw new Error('setLink: 開けないリンク');
+    const { runs, a, b } = spanOf(rich, s, e);
+    if (a >= b) return runs;
+    const { pre, mid, post } = cut(runs, a, b);
+    for (const r of mid) {
+      r.m = r.m.filter((x) => nameOf(x) !== 'link');
+      if (url !== null) r.m = [...r.m.filter((x) => x !== 'code'), ['link', url]];
+    }
+    return tidy([...pre, ...mid, ...post]);
+  }
+  // at に piece（区切りの並び。素の文字ならその所で打った文字と同じ飾りを引き継ぐ）を入れる
+  function insertRich(rich, at, piece) {
+    const { runs, a } = spanOf(rich, at, at);
+    const add = typeof piece === 'string' ? [{ t: piece, m: marksAt(runs, a) }] : tidy(piece);
+    const { pre, post } = cut(runs, a, a);
+    return tidy([...pre, ...add, ...post]);
+  }
+  // [s, e) の区切りの並び
+  function sliceRich(rich, s, e) {
+    const { runs, a, b } = spanOf(rich, s, e);
+    return a >= b ? [] : tidy(cut(runs, a, b).mid);
+  }
+  // at で打った文字が引き継ぐ飾り（前の文字の飾り。コードとリンクは、その終わりと頭では引き継がない）
+  function marksAt(rich, at) {
+    const { runs, text, a } = spanOf(rich, at, at);
+    if (!runs.length) return [];
+    const marksOfChar = (i) => {
+      let pos = 0;
+      for (const r of runs) { if (i < pos + r.t.length) return r.m; pos += r.t.length; }
+      return [];
+    };
+    // 前の文字は、カーソルの前の書記素の頭の文字（結合文字だけが別の区切りにあっても、その字の飾りを読む: R93）
+    let start = 0;
+    for (const e of graphemeEnds(text)) { if (e < a) start = e; else break; }
+    const prev = marksOfChar(start);
+    const next = a < text.length ? marksOfChar(a) : [];
+    const has = (list, mk) => list.some((x) => keyOf(x) === keyOf(mk));
+    return prev.filter((mk) => !STOP_AT_END.includes(nameOf(mk)) || (a > 0 && has(next, mk))).map((mk) => (Array.isArray(mk) ? [...mk] : mk));
+  }
+
+  // ---------------------------------------------------------------- 画面の欄の span の木（決めたこと 17）
+  // 区切り1つ → span の印（data-m は MARKS の名前を空白で区切る・色と背景と住所は別の印）
+  function runAttrs(m) {
+    const attrs = {};
+    const names = m.filter((mk) => typeof mk === 'string');
+    if (names.length) attrs['data-m'] = names.join(' ');
+    for (const mk of m) {
+      if (!Array.isArray(mk)) continue;
+      if (mk[0] === 'color') attrs['data-color'] = mk[1];
+      else if (mk[0] === 'bg') attrs['data-bg'] = mk[1];
+      else if (mk[0] === 'link') attrs['data-link'] = mk[1];
+    }
+    return attrs;
+  }
+  // rich → 画面が要素にする木（{ text } か { tag: 'span', attrs, kids }）。画面の richNodes はこれを createElement と textContent で作る
+  function richTree(rich) {
+    return tidy(rich).map((r) => (r.m.length ? { tag: 'span', attrs: runAttrs(r.m), kids: [{ text: r.t }] } : { text: r.t }));
+  }
+  // 自分の span の印 → 飾り（知らない名前・決まっていない色・開けない住所は捨てる）
+  function spanMarks(attrs) {
+    const at = attrs && typeof attrs === 'object' ? attrs : {};
+    const out = String(at['data-m'] ?? '').split(/\s+/).filter((x) => MARKS.includes(x));
+    if (COLORS.includes(at['data-color'])) out.push(['color', at['data-color']]);
+    else if (COLORS.includes(at['data-bg'])) out.push(['bg', at['data-bg']]);
+    if (linkOk(at['data-link'])) out.push(['link', at['data-link']]);
+    return out;
+  }
+  // 内側の飾りを外の飾りに重ねる（内側に色があれば外の色を外す・内側のリンクは外のコードを外す・内側のコードは外のリンクを外す）
+  function layer(outer, own) {
+    const ownNames = own.map(nameOf);
+    const drop = new Set();
+    if (ownNames.some((n) => COLOR_KINDS.includes(n))) COLOR_KINDS.forEach((n) => drop.add(n));
+    if (ownNames.includes('link')) { drop.add('code'); drop.add('link'); }
+    if (ownNames.includes('code')) drop.add('link');
+    const mine = ownNames.includes('code') && ownNames.includes('link') ? own.filter((mk) => nameOf(mk) !== 'link') : own;
+    return [...outer.filter((mk) => !drop.has(nameOf(mk))), ...mine];
+  }
+  // 欄の子の木（{ text } | { tag, attrs, kids }。1つか並び）→ 区切りの並び（知らない要素は文字だけ・br は改行）
+  function richFromNodes(tree) {
+    const out = [];
+    const walk = (node, marks) => {
+      if (Array.isArray(node)) { for (const k of node) walk(k, marks); return; }
+      if (!node || typeof node !== 'object') return;
+      if (typeof node.text === 'string') { out.push({ t: node.text, m: marks }); return; }
+      const tag = String(node.tag ?? '').toLowerCase();
+      if (tag === 'br') { out.push({ t: '\n', m: marks }); return; }
+      const own = tag === 'span' ? spanMarks(node.attrs) : [];
+      walk(Array.isArray(node.kids) ? node.kids : [], layer(marks, own));
+    };
+    walk(tree, []);
+    return tidy(out);
+  }
+
+  // ---------------------------------------------------------------- 打って変える記法（M-10〜M-13。半角だけ: R10）
+  const INLINE = Object.freeze([
+    { mark: 'b', sym: '**' }, { mark: 'i', sym: '*' }, { mark: 'code', sym: '`' }, { mark: 's', sym: '~' },
+  ]);
+  const WORD_RE = /[A-Za-z0-9]/;
+  // before（カーソルの前の文。閉じる記号を打った後）→ { mark, open, close, size } か null。
+  // open は開く記号の頭・close は閉じる記号の頭・size は記号の長さ。中身は空でなく、空白で始まらず終わらず、改行を持たない。
+  // 開く記号の前が英数字（語の途中: 1*2*3）・1文字の記号の隣に同じ記号（** の片方・~~）なら変えない
+  function inlineShortcut(before) {
+    const s = String(before ?? '');
+    const row = INLINE.find((r) => s.endsWith(r.sym));
+    if (!row) return null;
+    const n = row.sym.length;
+    const close = s.length - n;
+    if (n === 1 && s[close - 1] === row.sym) return null;
+    const open = s.lastIndexOf(row.sym, close - n - 1);
+    if (open < 0) return null;
+    const inner = s.slice(open + n, close);
+    if (!inner || /^\s|\s$/.test(inner) || inner.includes('\n')) return null;
+    if (open > 0 && (WORD_RE.test(s[open - 1]) || s[open - 1] === row.sym[0])) return null;
+    return { mark: row.mark, open, close, size: n };
+  }
+
+  // ---------------------------------------------------------------- ［コピー］の Markdown（R13: 下線と色は文字だけ）
+  // 区切りの頭と終わりの空白は記号の外に出す（「**a **」は太字に読まれない）。リンクの住所の括弧と <> は %xx にする（R94。空白のある住所は linkOk が断り、整えた rich に残らない: R102）
+  const mdUrl = (u) => u.replace(/[()<>]/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase().padStart(2, '0')}`);
+  function richMarkdown(rich) {
+    return tidy(rich).map(({ t, m }) => {
+      if (!m.length) return t;
+      const lead = /^\s*/.exec(t)[0];
+      const rest = t.slice(lead.length);
+      const trail = /\s*$/.exec(rest)[0];
+      let s = rest.slice(0, rest.length - trail.length);
+      if (!s) return t;
+      if (m.includes('code')) s = `\`${s}\``;
+      if (m.includes('s')) s = `~~${s}~~`;
+      if (m.includes('i')) s = `*${s}*`;
+      if (m.includes('b')) s = `**${s}**`;
+      const link = m.find((mk) => nameOf(mk) === 'link');
+      if (link) s = `[${s}](${mdUrl(link[1])})`;
+      return lead + s + trail;
+    }).join('');
+  }
+  // ---- richText の写しはここまで
+  // 欄の子 → richFromNodes の木（文字の節は { text }・要素は { tag, attrs, kids }。読むのは自分の span の印だけ）。
+  // br とコメントは文字にしない（textContent とカーソルの位置（caretSeam）と同じ数え方。行の中の改行は Shift+Enter で入れた「\n」の文字: R103）
+  function nodeTree(n) {
+    if (n.nodeType === 3 || n.tagName === '#text') return { text: String(n.textContent ?? '') };
+    const tag = String(n.tagName || '').toLowerCase();
+    if (!tag || tag === 'br') return { text: '' };
+    const attrs = {};
+    for (const k of ['data-m', 'data-color', 'data-bg', 'data-link']) {
+      const v = typeof n.getAttribute === 'function' ? n.getAttribute(k) : null;
+      if (v !== null && v !== undefined) attrs[k] = v;
+    }
+    return { tag, attrs, kids: [...(n.childNodes || [])].map(nodeTree) };
+  }
+  const rowRich = (txt) => richFromNodes([...txt.childNodes].map(nodeTree));   // 欄の今の飾り（整えた区切りの並び）
+  const marksIn = (rich) => Array.isArray(rich) && rich.some((r) => r.m.length > 0);
+  const sameRich = (a, b) => JSON.stringify(normalizeRich(a)) === JSON.stringify(normalizeRich(b));
+  // rich → 欄の子（span は createElement と textContent で作る。innerHTML を使わない: SEC2）
+  function richNodes(rich) {
+    return richTree(rich).map((n) => {
+      if (n.text !== undefined) return document.createTextNode(n.text);
+      const sp = document.createElement('span');
+      for (const [k, v] of Object.entries(n.attrs)) sp.setAttribute(k, v);
+      sp.textContent = n.kids.map((k) => k.text).join('');
+      return sp;
+    });
+  }
+  function paintRich(txt, rich) {
+    txt.textContent = '';
+    for (const n of richNodes(rich)) txt.appendChild(n);
+    txt._rich = marksIn(tidy(rich)) ? tidy(rich) : null;   // 最後に描いた飾り（打った文字の飾りを決める元: typedRich）
+  }
+  // ブロックの文を欄に描く（飾りの無い行は今どおり textContent）
+  function paintBlock(txt, b) {
+    if (Array.isArray(b.rich) && marksIn(tidy(b.rich))) { paintRich(txt, b.rich); return; }
+    txt.textContent = b.text;
+    txt._rich = null;
+  }
+  // 欄の [s, e) を piece（文字）に替える。飾りのある行は飾りを保ち、入れた文字は前の文字の飾りを引き継ぐ（決めたこと 17）
+  function rowReplace(txt, s, e, piece) {
+    const cur = rowRich(txt);
+    if (!marksIn(cur)) { const t = txt.textContent; txt.textContent = t.slice(0, s) + piece + t.slice(e); txt._rich = null; return; }
+    const n = plainOf(cur).length;
+    const base = tidy([...sliceRich(cur, 0, s), ...sliceRich(cur, e, n)]);
+    paintRich(txt, piece ? insertRich(base, s, piece) : base);
+  }
+  // 範囲を選ぶ（継ぎ目に select が無ければ終わりにカーソル）
+  const setSel = (el, a, b) => { try { if (typeof caretSeam.select === 'function') caretSeam.select(el, a, b); else caretSeam.set(el, b); } catch (_) { /* 置けなくても文は残る */ } };
+  // Ctrl+B・I・U・Ctrl+Shift+S・Ctrl+E: 選んだ所に付け外す（全部に付いていれば外す: toggleMark）。選んでいなければ何もしない（R104）。保存は次の区切り
+  function markRow(el, mark) {
+    const txt = el._txt;
+    if (!el._b || el._b.type === 'divider') return;
+    const r = caretRange(txt);
+    if (!r || r[0] === r[1]) return;
+    paintRich(txt, toggleMark(rowRich(txt), r[0], r[1], mark));
+    setSel(txt, r[0], r[1]);
+  }
+  // 打った文字の飾り（F101）: 最後に描いた形 prev と欄の今の形 cur を比べ、入った文字は前の文字の飾りを引き継ぐ（コードとリンクの終わりでは引き継がない: marksAt）。
+  // 入った所はカーソルの前（ただ足しただけのとき）か、前後の同じ所を除いた所
+  function inheritTyped(prev, cur, caret) {
+    const a = plainOf(prev), b = plainOf(cur);
+    if (a === b || b.length < a.length) return cur;
+    const n = b.length - a.length;
+    let p;
+    if (Number.isFinite(caret) && caret >= n && b.slice(0, caret - n) + b.slice(caret) === a) p = caret - n;
+    else {
+      p = 0;
+      while (p < a.length && a[p] === b[p]) p++;
+      let q = 0;
+      while (q < a.length - p && a[a.length - 1 - q] === b[b.length - 1 - q]) q++;
+      if (a.length - q !== p) return cur;   // 置き換えた（選んだ所に打った）ときは欄の形のまま
+    }
+    return insertRich(prev, p, b.slice(p, p + n));
+  }
+  let inlineLit = null;   // 文中の記法で変えた直後の { pid, id, before, after, caret }（Ctrl+Z で記号を戻す: 決めたこと 10）
+  // 打った後（input・compositionend）: 打った文字の飾りを決め、閉じた記号を打ったら文中の記法を飾りに変える（決めたこと 18・R10）
+  function typedRich(el, ev) {
+    const txt = el._txt;
+    if (txt._composing || (ev && ev.isComposing)) return false;   // 変換中は決めない（確定の後に決める: F101）
+    if (!el._b || el._b.type === 'divider') return false;
+    const r = caretRange(txt);
+    const dom = rowRich(txt);
+    let rich = txt._rich ? inheritTyped(txt._rich, dom, r && r[0] === r[1] ? r[0] : NaN) : dom;
+    let caret = null;
+    const sc = r && r[0] === r[1] ? inlineShortcut(plainOf(rich).slice(0, r[0])) : null;
+    if (sc) {
+      const before = rich;
+      const n = plainOf(rich).length;
+      const inner = sliceRich(rich, sc.open + sc.size, sc.close);
+      const marked = inner.every((x) => x.m.includes(sc.mark)) ? inner : toggleMark(inner, 0, plainOf(inner).length, sc.mark);
+      rich = tidy([...sliceRich(rich, 0, sc.open), ...marked, ...sliceRich(rich, sc.close + sc.size, n)]);
+      caret = sc.close - sc.size;
+      inlineLit = { pid: curId, id: el._b.id, before, after: rich, caret: r[0] };
+    }
+    if (sc || JSON.stringify(rich) !== JSON.stringify(dom)) {
+      paintRich(txt, rich);
+      if (caret !== null) setCaret(txt, caret); else if (r) setSel(txt, r[0], r[1]);
+    } else txt._rich = marksIn(rich) ? rich : null;
+    return Boolean(sc);
+  }
+  // 文中の記法で変えた直後（手を付けていない）の行（Ctrl+Z で記号を戻す）
+  function inlineRow(pid) {
+    const u = inlineLit;
+    if (!u || u.pid !== pid) return null;
+    const el = editRows().find((e) => e.dataset.id === u.id);
+    return el && JSON.stringify(rowRich(el._txt)) === JSON.stringify(u.after) ? { el, u } : null;
+  }
+  // 保存する飾り（飾りのある行（画面か保存した行）なら前後の空白を除いた rich・無ければ null）
+  function richPatch(txt, b) {
+    const now = rowRich(txt);
+    if (!marksIn(now) && !(Array.isArray(b.rich) && b.rich.length)) return null;
+    const s = plainOf(now);
+    const lead = s.length - s.trimStart().length;
+    const end = s.trimEnd().length;
+    return lead >= end ? [] : sliceRich(now, lead, end);
   }
   // ---------------- 0.14.0 EB-3（計画 docs/plans/2026-10-26-140.md の決めたこと 1〜13・BQ1 (a)・R6）: 要約の欄の元に戻す・やり直す
   // 列は窓のメモリだけ（ページと欄の鍵。BQ22 (a)）。歩みは preload の onEditStep が渡す tx（戻せる命令が何か変えたときだけ）。
@@ -3541,10 +4019,14 @@
     if (!pid || !curPage) return;
     const key = noteKey(pid);
     // R96: 戻した記号に手を付けていなければ、Ctrl+Z は記号だけを消し（DB に送らない）、やり直すときは記号を消してからやり直す
+    // 0.14.0 EB-4（決めたこと 10）: 文中の記法で変えた直後（手を付けていない）の Ctrl+Z は、記号を戻す（DB に送らない。打った文として次の区切りで保存）
+    const il = inlineRow(pid);
+    inlineLit = null;
+    if (il && dir === 'undo') { paintRich(il.el._txt, il.u.before); setCaret(il.el._txt, il.u.caret); return; }
     const lit = litRow(pid);
     undoLit = null;
     if (lit) {
-      lit._txt.textContent = String(lit._b.text ?? '');
+      paintBlock(lit._txt, lit._b);
       if (dir === 'undo') { setCaret(lit._txt, 0); return; }
     }
     // 決めたこと 9: 行に保存していない文があれば、先に保存する（1歩）。戻すのはその歩み
@@ -3582,7 +4064,7 @@
     if (pid !== curId) return;
     const el = editRows().find((e) => e.dataset.id === m.id);
     if (!el || el._b.type === 'divider') return;
-    el._txt.textContent = m.mark + el._txt.textContent;
+    rowReplace(el._txt, 0, 0, m.mark);   // 0.14.0 EB-4: 飾りのある行は飾りを保つ（戻した記号は飾りを持たない文字）
     el._txt.focus();
     setCaret(el._txt, m.mark.length);
     undoLit = { pid, id: m.id, mark: m.mark };
@@ -3651,7 +4133,7 @@
         const nb = byId.get(o.id);
         if (el === focused) {
           blockRows.dress(el, nb, '');
-          if (el._txt.textContent !== String(nb.text ?? '')) el._txt.textContent = String(nb.text ?? '');
+          if (el._txt.textContent !== String(nb.text ?? '') || !sameRich(rowRich(el._txt), richOf(nb))) paintBlock(el._txt, nb);   // 0.14.0 EB-4: 飾りも
         } else {
           const ne = blockRows.make(nb, '', placeOf.get(o.id).depth, placeOf.get(o.id).parentId);
           box.insertBefore(ne, el); el.remove(); rows.set(o.id, ne);
@@ -3681,7 +4163,7 @@
   function typeAtCaret(txt, s) {
     const t = txt.textContent;
     const r = caretRange(txt) || [t.length, t.length];
-    txt.textContent = t.slice(0, r[0]) + s + t.slice(r[1]);
+    rowReplace(txt, r[0], r[1], s);   // 0.14.0 EB-4: 飾りのある行は飾りを保つ（入れた文字は前の文字の飾りを引き継ぐ）
     setCaret(txt, r[0] + s.length);
   }
   // 行頭か（カーソルが読めないときは空の行だけ行頭とみなす: 前の版の「空の行の Backspace」と同じ）
@@ -3767,7 +4249,11 @@
     if (b.type === 'divider') return editAnswer(pid, () => window.koeApp.blockInsert(pid, b.id, 'paragraph'), (x) => ({ focus: x.blockId, caret: 0 }));
     let text = txt.textContent;
     const r = caretRange(txt);
-    if (r && r[1] > r[0]) text = text.slice(0, r[0]) + text.slice(r[1]);
+    // 0.14.0 EB-4（決めたこと 16・R58）: 飾りのある行（画面か保存した行）は今の rich も送る（DB は同じ位置で分ける）
+    let rich = rowRich(txt);
+    if (r && r[1] > r[0]) { text = text.slice(0, r[0]) + text.slice(r[1]); rich = tidy([...sliceRich(rich, 0, r[0]), ...sliceRich(rich, r[1], plainOf(rich).length)]); }
+    const marked = marksIn(rich) || (Array.isArray(b.rich) && b.rich.length > 0);
+    const wasRich = b.rich;
     const at = safeOffset(text, r ? r[0] : text.length);
     if (['bullet', 'todo', 'numbered'].includes(b.type) && text.trim() === '') {
       if (rowDepth(el) > 0) return indentRow(el, 'out');   // 0.13.1 EQ5 (a): 字下げされた空のリストは、まず1段戻す
@@ -3777,7 +4263,9 @@
     // 2026-10-26 の持ち主の答え（点検1）: 文のある行の頭では DB が上に空の行を足す。今の行の文はそのままで、カーソルも今の行の頭に残す
     const top = at === 0 && text !== '';
     const was = b.text;
-    if (!top) txt.textContent = text.slice(0, at);
+    if (!top && marked) paintRich(txt, sliceRich(rich, 0, at));
+    else if (!top) txt.textContent = text.slice(0, at);
+    if (marked) b.rich = normalizeRich(top ? rich : sliceRich(rich, 0, at));
     b.text = top ? text : text.slice(0, at);   // 点検5: DB と同じく分けた前の文を削らない（削ると、答えの後の blur が削った文を送り直して oplog が2行になる）
     // 2026-10-27 の持ち主の答え（点検8）: 上の空の行は画面で上に見えている行の後ろへ（いちばん上なら頭: ''。block.move の afterId と同じ）
     // 0.13.1 NR8: 入れ子の行では同じ親の、今の行のすぐ前の兄弟の後ろ（いなければ ''）。最上位は画面で上に見えている最上位の行
@@ -3789,8 +4277,9 @@
     // 0.13.1 TQ3（持ち主の答え「すぐ下に出し、トグルは開いて作る（おすすめ）」）: 子が見えている行では、新しい行は最初の子
     const inside = !top && kidsShown(b);
     const args = top ? [pid, b.id, text, at, afterId] : inside ? [pid, b.id, text, at, undefined, true] : [pid, b.id, text, at];
+    if (marked) { while (args.length < 6) args.push(undefined); args.push(rich); }
     const out = await editAnswer(pid, () => window.koeApp.blockSplit(...args), (x) => ({ focus: top ? b.id : x.blockId, caret: 0 }));
-    if (!out && el._b === b) { b.text = was; if (pid === curId) txt.textContent = text; }
+    if (!out && el._b === b) { b.text = was; if (marked) b.rich = wasRich; if (pid === curId) { if (marked) paintRich(txt, rich); else txt.textContent = text; } }
     return out;
   }
   // 行頭の Backspace（EQ6 (a)）: 型の付いた行はテキストに戻す。テキストの行は今の文ごと前の行につなぐ（block.merge の1つの命令）
@@ -3804,9 +4293,12 @@
     if (i <= 0) return null;
     const intoId = rows[i - 1].dataset.id;
     const text = txt.textContent;
+    // 0.14.0 EB-4（決めたこと 16・R58）: 飾りのある行は今の rich も送る（つないだ先の後ろに飾りを残す）
+    const rich = rowRich(txt);
+    const args = marksIn(rich) || (Array.isArray(b.rich) && b.rich.length > 0) ? [pid, b.id, text, intoId, rich] : [pid, b.id, text, intoId];
     const was = b.text;
     b.text = text.trim();
-    const out = await editAnswer(pid, () => window.koeApp.blockMerge(pid, b.id, text, intoId), (x) => ({ focus: x.blockId, caret: x.at }));
+    const out = await editAnswer(pid, () => window.koeApp.blockMerge(...args), (x) => ({ focus: x.blockId, caret: x.at }));
     if (!out && el._b === b) b.text = was;
     return out;
   }
@@ -3831,7 +4323,7 @@
     const full = txt.textContent.replace(/ /g, ' ');
     const sc = shortcutFor(full.slice(0, r[0]), { full });
     if (!sc || (b.type === sc.type && (sc.type !== 'heading' || headingLevel(b) === sc.level))) return;
-    txt.textContent = full.slice(sc.strip);
+    rowReplace(txt, 0, sc.strip, '');   // 0.14.0 EB-4: 飾りのある行は飾りを保つ
     setCaret(txt, 0);
     const pid = curId;
     const out = await turnRow(el, sc.type, sc.level, 0);
@@ -3859,6 +4351,15 @@
       if (txt._pause) { clearTimeout(txt._pause); txt._pause = null; }
       const b = el._b;
       const v = txt.textContent.trim();
+      // 0.14.0 EB-4（決めたこと 16・17）: 飾りのある行（画面か保存した行）は { rich } を送る（文は DB が rich から作る。飾りの無い行は今どおり { text }）
+      const rich = richPatch(txt, b);
+      if (rich) {
+        if ((v === b.text && sameRich(rich, b.rich)) || (txt.textContent === b.text && sameRich(rowRich(txt), b.rich))) return undefined;
+        if (v !== b.text && (b.type === 'bullet' || b.type === 'todo') && b.citeState !== 'manual') { b.citeState = 'stale'; renderCiteBadge(el, b); }
+        b.text = v; b.rich = normalizeRich(rich);
+        if (pid === curId && curPage) curPage.summaryEdited = true;   // 点検4: 要約の欄を直した印
+        return window.koeApp.blockUpdate(pid, b.id, { rich }).then(() => { if (pid === curId) refreshList(); });
+      }
       if (v === b.text) return undefined;
       if (txt.textContent === b.text) return undefined;   // 点検5: 画面の文が行の文と同じなら直していない（分けた前の文の終わりの空白を削って送り直さない）
       b.text = v;
@@ -3874,6 +4375,8 @@
       const mod = ev.ctrlKey || ev.altKey || ev.metaKey;
       // 0.13.0 ED-6・ED-7（決めたこと 24・26〜29）: 近道は要約の欄の行の中だけ（Ctrl+/ は今の行の ⠿ のメニュー）
       const act = keyAction(ev);
+      // 0.14.0 EB-4（決めたこと 17・18・F101）: Ctrl+B・I・U・Ctrl+Shift+S・Ctrl+E は Chromium の既定の飾りを止め、こちらの決まりで付け外す（保存は次の区切り）
+      if (act && act.startsWith('mark:')) { ev.preventDefault(); markRow(el, act.slice(5)); pauseSave(); return; }
       if (act) { ev.preventDefault(); slashClose(); rowShortcut(el, act); return; }
       // / メニューが開いている間: ↑↓ で選び、Enter で決め、Esc で閉じる（/ と語は残す。録音中でもメニューだけ: RF9・決めたこと 30）
       if (slash && slash.el === el) {
@@ -3899,6 +4402,7 @@
     };
     // 行頭の記法は打ったときだけ（貼り付け・変換中は決めない。変換が終わったら決める: F43）
     txt.oninput = (ev) => {
+      typedRich(el, ev);   // 0.14.0 EB-4: 打った文字の飾りと文中の記法（変換中は中で抜ける）
       if ((ev && ev.isComposing) || txt._composing) return;   // 変換中の input では記法を決めない
       pauseSave();
       mdCheck(el);
@@ -3906,7 +4410,7 @@
     };
     // 変換の事象は on〜 の受け口を持たない（GlobalEventHandlers に無い）ので addEventListener で付ける
     txt.addEventListener('compositionstart', () => { txt._composing = true; if (txt._pause) { clearTimeout(txt._pause); txt._pause = null; } });
-    txt.addEventListener('compositionend', () => { txt._composing = false; pauseSave(); mdCheck(el); slashCheck(el); });
+    txt.addEventListener('compositionend', () => { txt._composing = false; typedRich(el); pauseSave(); mdCheck(el); slashCheck(el); });
     // 貼り付けは素の文字だけ（決めたこと 21。HTML は入れない・改行は行の中の改行）
     txt.onpaste = (ev) => {
       ev.preventDefault();
@@ -4058,7 +4562,7 @@
     const el = s.el; const txt = el._txt; const b = el._b;
     const t = txt.textContent;
     const rest = t.slice(0, s.start) + t.slice(s.start + 1 + s.query.length);
-    txt.textContent = rest;
+    rowReplace(txt, s.start, s.start + 1 + s.query.length, '');   // 0.14.0 EB-4: 飾りのある行は飾りを保つ
     setCaret(txt, s.start);
     slashRecent = recentAdd(slashRecent, it.id); saveUi({ slashRecent });
     const pid = curId;
@@ -4244,6 +4748,7 @@
     const pid = curId; const b = el._b; const txt = el._txt;
     const caret = (caretRange(txt) || [txt.textContent.length])[0];
     if (act === 'menu') { blockMenuOpen(el); return null; }
+    if (act === 'link' || act === 'colorAgain') return null;   // 0.14.0 EB-4: Ctrl+K・Ctrl+Shift+H の口（道具の帯は EB-5。既定の動きは止める）
     if (act.startsWith('turn:')) {
       const row = SLASH_ROWS.find((x) => x.id === act.slice(5));
       if (!row || (b.type === row.key && (row.key !== 'heading' || (headingLevel(b) === row.level && (b.toggle === true) === (row.toggle === true))))) return null;
@@ -4299,7 +4804,7 @@
       if (typeof el.style.setProperty === 'function') el.style.setProperty('--depth', String(depth));   // 段の左の余白（style を持たない偽の DOM でも描ける）
       const txt = document.createElement('div');
       txt.className = 'txt'; txt.contentEditable = lock ? 'false' : 'true'; txt.spellcheck = false;
-      txt.textContent = b.text;
+      paintBlock(txt, b);   // 0.14.0 EB-4（決めたこと 17）: 飾りのある行は span で描く
       el._txt = txt;
       el.appendChild(txt);
       if (!lock) wireRowText(el, txt);
