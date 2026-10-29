@@ -25,9 +25,10 @@ const finish = (code) => {
   try { fs.writeFileSync(process.env.NATSU_KEYS_OUT, JSON.stringify(out)); } catch (_) {}
   app.exit(code);
 };
-guard = setTimeout(() => { out.error = 'timeout: ' + step; finish(2); }, 40000);
+let was = null;   // 始める前のクリップボード（終わりと、止まって 40 秒の見張りで終わるときに書き戻す: EB-4 直し・R115）
+const restore = async () => { if (typeof was === 'string') await Promise.race([clipboard.writeText(was), wait(2000)]); };
+guard = setTimeout(async () => { out.error = 'timeout: ' + step; try { await restore(); } catch (_) { /* 書き戻せなくても終える */ } finish(2); }, 40000);
 app.whenReady().then(async () => {
-  let was = null;
   try {
     at('menu');
     Menu.setApplicationMenu(null);   // NaTsu の main と同じ（src/main.js の whenReady の頭）
@@ -75,7 +76,7 @@ app.whenReady().then(async () => {
     out.reloaded = loads !== before;
     out.mark = await js('window.__natsuMark');
   } catch (e) { out.error = step + ': ' + String(e && e.message || e); }
-  try { at('clipboard-restore'); if (typeof was === 'string') await clipboard.writeText(was); } catch (e) { if (!out.error) out.error = step + ': ' + String(e && e.message || e); }
+  try { at('clipboard-restore'); await restore(); } catch (e) { if (!out.error) out.error = step + ': ' + String(e && e.message || e); }
   finish(0);
 });
 `;

@@ -583,7 +583,9 @@ test('EB-4: 画面の写し（app.html の richText・keyAction・blocksMarkdown
   const names = ['normalizeRich', 'plainOf', 'richOf', 'toggleMark', 'insertRich', 'sliceRich', 'marksAt', 'richTree', 'richFromNodes', 'inlineShortcut', 'linkOk', 'richMarkdown'];
   const app = new Function(`${fnApp('graphemeEnds')}\n${fnApp('safeOffset')}\n${HTML.slice(at, end)}\nreturn { ${names.join(', ')} };`)();   // eslint-disable-line no-new-func
   const rs = [[r4('あい'), r4('うえ', 'b'), r4('お')], [r4('𠮷野', 'i', ['color', 'red']), r4('家', 'code')], [r4('資料', LINK), r4(' と '), r4('x', 'u', 's', ['bg', 'yellow'])],
-    [r4('a', 'code', LINK), r4('b', ['link', 'javascript:x'])], [], null, [r4('')]];
+    [r4('a', 'code', LINK), r4('b', ['link', 'javascript:x'])], [], null, [r4('')],
+    // EB-4 直し（M2・R114）: 隣の区切りの同じ飾り・記号の逃がし・コードの ` の囲み
+    [r4('ab', 'b'), r4('cd', 'b', 'i')], [r4('a]b*', LINK), r4('_x_', 'b')], [r4('a`b', 'code'), r4(' 2*3 ')], [r4('`x', 'code'), r4('~y~', 's')]];
   for (const r of rs) {
     for (const n of ['normalizeRich', 'plainOf', 'richMarkdown', 'richTree']) assert.deepStrictEqual(app[n](r), R[n](r), `${n} ${JSON.stringify(r)}`);
     assert.deepStrictEqual(app.richOf({ text: 'x', rich: r }), R.richOf({ text: 'x', rich: r }));
@@ -808,18 +810,28 @@ test('EB-4（決めたこと 14・21）: 飾りの9色は明暗の両方にあ�
   }
   for (const [name, t] of [['明', light], ['暗', dark]]) {
     const bg = C.color(t['--bg']);
-    const grounds = [{ g: bg, why: '地' }, { g: C.over(C.color(t['--hover']), bg), why: 'ホバー' }, { g: C.over(C.color(t['--tint']), bg), why: '薄い強調' }];
+    // EB-4 直し（R113）: 重なった地も計る（フォーカスした行のホバーの上のホバー・コールアウトの薄い強調の上のホバー・行の色の背景の上の文字の色）
+    const hover = C.color(t['--hover']); const tint = C.color(t['--tint']);
+    const grounds = [{ g: bg, why: '地' }, { g: C.over(hover, bg), why: 'ホバー' }, { g: C.over(tint, bg), why: '薄い強調' },
+      { g: C.over(tint, C.over(hover, bg)), why: 'ホバーの上の薄い強調' }, { g: C.over(hover, C.over(hover, bg)), why: 'ホバーの上のホバー' },
+      ...R.COLORS.map((m) => ({ g: C.over(C.color(t[`--mkbg-${m}`]), bg), why: `--mkbg-${m}` }))];
     for (const n of R.COLORS) {
       for (const { g, why } of grounds) {
         const c = C.contrast(C.color(t[`--mk-${n}`]), g);
         assert.ok(c >= 4.5, `${name}: --mk-${n}（${t[`--mk-${n}`]}）が${why}の上で ${c.toFixed(2)}`);
       }
       const ground = C.over(C.color(t[`--mkbg-${n}`]), bg);
-      for (const k of ['--text', '--accent-text']) {
+      // 背景の色の上の文字（ふつうの文字・リンク・済んだ ToDo の灰色の文字）
+      for (const k of ['--text', '--accent-text', '--muted']) {
         const c = C.contrast(C.color(t[k]), ground);
         assert.ok(c >= 4.5, `${name}: ${k} が --mkbg-${n}（${t[`--mkbg-${n}`]}）の上で ${c.toFixed(2)}`);
       }
     }
+  }
+  // 行の背景の色の行は、文の欄のホバーとフォーカスの地を重ねない（背景の色の上にホバーを重ねるとリンクと灰色の文字が 4.5:1 を割る: R113）
+  for (const sel of ['.blk[data-bbg] > .txt:hover', '.blk[data-bbg] > .txt:focus']) {
+    const r = rules.find((x) => x.sel.split(',').map((y) => y.trim()).includes(sel) && !x.at);
+    assert.ok(r && r.decls.background.trim() === 'transparent', `${sel} が背景の色の上にホバーを重ねる`);
   }
 });
 
@@ -1310,4 +1322,161 @@ test('EB-5（決めたこと 21・COLOR-02〜05）: 行の色の CSS は明暗�
     assert.ok(!r.nested && !r.sel.includes('&'), `CSS の入れ子: ${r.sel}`);
     for (const [k, v] of Object.entries(r.decls)) if (/color|background|border/.test(k)) assert.ok(!/#[0-9a-f]{3,8}\b|rgba?\(/i.test(v), `${r.sel} の ${k} が語でない色: ${v}`);
   }
+});
+
+// ---------------------------------------------------------------- EB-4 直し（2026-10-29 の点検。R113〜R115）
+test('EB-4 直し・I1（決めたこと 10・R96・R107・R115）: 記法の直後の印は、ほかの行の Ctrl+Z を横取りしない（押したのがその行のときだけ・行から出ると消える）', T, async () => {
+  const l = await openReal({ pa1: [{ id: 'p1', type: 'paragraph', text: '' }, { id: 'p2', type: 'paragraph', text: 'かき' }, { id: 'p3', type: 'paragraph', text: '' }] });
+  try {
+    // 文中の記法: p1 で「**a**」→ 太字。行から出て保存 → p2 で直して保存 → p2 の Ctrl+Z は p2 の歩みを戻す（p1 の記号は戻さない）
+    const t = txtOf(l, 'p1');
+    t.focus(); t.textContent = '**a**'; l.caret.set(t, 5);
+    t.dispatchEvent({ type: 'input', inputType: 'insertText' });
+    assert.deepStrictEqual(viewOf(t), [{ tag: 'span', m: 'b', t: 'a' }]);
+    t.onblur();
+    await l.drain();
+    const t2 = typeIn(l, 'p2', 'かきく');
+    t2.dispatchEvent({ type: 'input', inputType: 'insertText' });
+    t2.onblur();
+    await l.drain();
+    t2.focus();
+    l.key(Z, t2);
+    await l.drain();
+    assert.deepStrictEqual(revs(l), [['pa1', [l.steps[1].step]]], 'p2 の Ctrl+Z で p2 を戻さない');
+    assert.deepStrictEqual(viewOf(txtOf(l, 'p1')), [{ tag: 'span', m: 'b', t: 'a' }], 'p2 の Ctrl+Z で p1 の記号を戻した');
+    // 行から出ていなくても（偽の DOM の focus は blur を起こさない）、押したのがその行でなければ横取りしない
+    const t3 = txtOf(l, 'p3');
+    t3.focus(); t3.textContent = '*b*'; l.caret.set(t3, 3);
+    t3.dispatchEvent({ type: 'input', inputType: 'insertText' });
+    assert.deepStrictEqual(viewOf(t3), [{ tag: 'span', m: 'i', t: 'b' }]);
+    txtOf(l, 'p2').focus();
+    let n = l.called('editRevert').length;
+    l.key(Z, txtOf(l, 'p2'));
+    await l.drain();
+    // p3 の記号を画面だけで戻さない。p3 の打った文は決めたこと 9 のとおり保存してからその歩みを戻す（DB を通る）
+    assert.strictEqual(l.called('editRevert').length, n + 1, 'p2 の Ctrl+Z が p3 の記号を画面だけで戻した');
+    assert.deepStrictEqual(viewOf(txtOf(l, 'p3')), []);
+    assert.strictEqual(l.page().blocks.find((b) => b.id === 'p3').text, '');
+    // 行から出て保存した後に戻ってきた Ctrl+Z も、記号を画面だけで戻さず、保存の歩みを戻す（行から出ると印は消える）
+    const t4 = txtOf(l, 'p3');
+    t4.focus(); t4.textContent = '*c*'; l.caret.set(t4, 3);
+    t4.dispatchEvent({ type: 'input', inputType: 'insertText' });
+    assert.deepStrictEqual(viewOf(t4), [{ tag: 'span', m: 'i', t: 'c' }]);
+    t4.onblur();
+    await l.drain();
+    t4.focus();
+    n = l.called('editRevert').length;
+    l.key(Z, t4);
+    await l.drain();
+    assert.strictEqual(l.called('editRevert').length, n + 1, '行から出た後の Ctrl+Z が記号を画面だけで戻した');
+    assert.strictEqual(l.page().blocks.find((b) => b.id === 'p3').text, '');
+    // 記法で変えた後にほかの行で打ったら、その行に戻った Ctrl+Z も記号を画面だけで戻さない
+    const t5 = txtOf(l, 'p3');
+    t5.focus(); t5.textContent = '`d`'; l.caret.set(t5, 3);
+    t5.dispatchEvent({ type: 'input', inputType: 'insertText' });
+    assert.deepStrictEqual(viewOf(t5), [{ tag: 'span', m: 'code', t: 'd' }]);
+    const t6 = txtOf(l, 'p2');
+    t6.focus(); t6.textContent = 'かきくけ'; l.caret.set(t6, 4);
+    t6.dispatchEvent({ type: 'input', inputType: 'insertText' });
+    t5.focus();
+    n = l.called('editRevert').length;
+    l.key(Z, t5);
+    await l.drain();
+    assert.strictEqual(l.called('editRevert').length, n + 1, 'ほかの行で打った後の Ctrl+Z が記号を画面だけで戻した');
+    // 行頭の記法の記号（R96）も同じ: p3 を「- 」で箇条書き → Ctrl+Z で記号が戻る → p2 へ移って Ctrl+Z → p3 の記号は残る
+    const l2 = await openReal({ pa1: [{ id: 'q1', type: 'paragraph', text: '' }, { id: 'q2', type: 'paragraph', text: 'さし' }] });
+    try {
+      const q = typeIn(l2, 'q1', '- ');
+      q.dispatchEvent({ type: 'input', inputType: 'insertText' });
+      await l2.drain();
+      assert.strictEqual(l2.page().blocks[0].type, 'bullet');
+      l2.key(Z, txtOf(l2, 'q1'));
+      await l2.drain();
+      assert.strictEqual(txtOf(l2, 'q1').textContent, '- ');
+      txtOf(l2, 'q2').focus();
+      const n = l2.called('editRevert').length;
+      l2.key(Z, txtOf(l2, 'q2'));
+      await l2.drain();
+      // q2 の Ctrl+Z は q1 の記号を画面だけで消さない。戻した記号は打った文なので、決めたこと 9 のとおり保存してからその歩みを戻す（DB を通る）
+      assert.strictEqual(l2.called('editRevert').length, n + 1, 'q2 の Ctrl+Z が q1 の記号を画面だけで消した（DB に送らない）');
+      assert.deepStrictEqual(l2.steps.slice(-2).map((x) => x.cmd), ['block.update', 'edit.revert']);
+      assert.deepStrictEqual(l2.errors.map(fmt), []);
+    } finally { l2.done(); }
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+test('EB-4 直し・I2（決めたこと 17・F101・R115）: 欄に Chromium の既定の飾り（<b>・style の span）が入ったら描き直し、画面の見た目を保存する形にそろえる', T, async () => {
+  const l = await openReal({ pa1: [{ id: 'p1', type: 'paragraph', text: 'あいう' }, { id: 'p2', type: 'paragraph', text: 'かき', rich: [r4('かき', 'b')], citeState: 'manual', cites: [] }] });
+  try {
+    const t = txtOf(l, 'p1');
+    t.focus();
+    const b = l.document.createElement('b');
+    b.appendChild(l.document.createTextNode('え'));
+    t.appendChild(b);
+    l.caret.set(t, 4);
+    t.dispatchEvent({ type: 'input', inputType: 'insertText' });
+    assert.deepStrictEqual(viewOf(t), ['あいうえ'], '<b> が欄に残った（画面は太字・保存は素の文字）');
+    // 自分の span でも、決まった印のほかの属性（style）があれば描き直す
+    const t2 = txtOf(l, 'p2');
+    t2.focus();
+    const sp = l.document.createElement('span');
+    sp.setAttribute('style', 'font-weight: 700; color: rgb(255, 0, 0)');
+    sp.appendChild(l.document.createTextNode('く'));
+    t2.appendChild(sp);
+    l.caret.set(t2, 3);
+    t2.dispatchEvent({ type: 'input', inputType: 'insertText' });
+    assert.deepStrictEqual(viewOf(t2), [{ tag: 'span', m: 'b', t: 'かきく' }]);
+    assert.ok(!t2.childNodes.some((n) => n.getAttribute && n.getAttribute('style') !== null), 'style の span が欄に残った');
+    assert.deepStrictEqual(l.caret.get(t2), [3, 3]);
+    t.onblur(); t2.onblur();
+    await l.drain();
+    assert.deepStrictEqual(updates(l), [['pa1', 'p1', { text: 'あいうえ' }], ['pa1', 'p2', { rich: [r4('かきく', 'b')] }]]);
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+test('EB-4 直し・M1・M4（決めたこと 18・R115）: 文中の記法は文字を足したときだけ変える（消して「**a**」になっても変えない）。コードの中では変えない', T, async () => {
+  const l = await openReal({ pa1: [{ id: 'p1', type: 'paragraph', text: '' }, { id: 'p2', type: 'paragraph', text: 'x *b y', rich: [r4('x *b y', 'code')], citeState: 'manual', cites: [] }] });
+  try {
+    const t = txtOf(l, 'p1');
+    t.focus(); t.textContent = '**a**x'; l.caret.set(t, 6);
+    t.dispatchEvent({ type: 'input', inputType: 'insertText' });
+    assert.deepStrictEqual(viewOf(t), ['**a**x']);
+    t.textContent = '**a**'; l.caret.set(t, 5);
+    t.dispatchEvent({ type: 'input', inputType: 'deleteContentBackward' });
+    assert.deepStrictEqual(viewOf(t), ['**a**'], 'Backspace で太字に変えた');
+    // コードの中で「*」を打っても斜体にしない
+    const t2 = txtOf(l, 'p2');
+    t2.focus();
+    t2.childNodes[0].textContent = 'x *b* y';
+    l.caret.set(t2, 5);
+    t2.dispatchEvent({ type: 'input', inputType: 'insertText' });
+    assert.deepStrictEqual(viewOf(t2), [{ tag: 'span', m: 'code', t: 'x *b* y' }], 'コードの中の記号を斜体に変えた');
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+test('EB-4 直し・M3（R115）: 行の欄に文字を落とさせない（外から引っ張ってきた文字・ファイル）。行の中で選んだ文字を引っ張っても行の並べ替えにしない', T, async () => {
+  const l = await openReal({ pa1: BASE() });
+  try {
+    const box = $(l, 'pNote');
+    let over = false;
+    const dt = { dropEffect: 'copy', getData: () => '<b>太字</b>' };
+    box.ondragover({ preventDefault: () => { over = true; }, dataTransfer: dt, clientY: 5 });
+    assert.strictEqual(over, true, '落とせる形のまま');
+    assert.strictEqual(dt.dropEffect, 'none');
+    let dropped = false;
+    await box.ondrop({ preventDefault: () => { dropped = true; }, dataTransfer: dt, clientY: 5 });
+    assert.strictEqual(dropped, true, '行の欄に文字を落とした（Chromium が HTML のまま入れる）');
+    // 文の欄から始めた引っ張り（選んだ文字）は止め、行の並べ替えを始めない
+    const row = rowOf(l, 'p1');
+    let stopped = false;
+    row.ondragstart({ target: row._txt, preventDefault: () => { stopped = true; }, dataTransfer: { setData() {}, effectAllowed: '' } });
+    assert.strictEqual(stopped, true);
+    await box.ondrop({ preventDefault() {}, clientY: 5 });
+    await l.drain();
+    assert.deepStrictEqual(l.called('blockMove'), [], '文字を引っ張っただけで行を動かした');
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
 });

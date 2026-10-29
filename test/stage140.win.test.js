@@ -58,7 +58,13 @@ test('EB-3・F103（決めたこと 35・R24）: アプリのメニューを外�
   } finally {
     // 子が残っていれば止めてから消す（Windows で掴んだままのファイルを消さない）
     if (child && child.exitCode === null && child.signalCode === null) {
-      await new Promise((resolve) => { child.once('exit', resolve); try { child.kill(); } catch (_) { resolve(); } setTimeout(resolve, 5000); });
+      // EB-4 直し（R115）: 5 秒の待ちは子が終われば消す（テストの終わりを 5 秒引き延ばさない）
+      await new Promise((resolve) => {
+        const h = setTimeout(resolve, 5000);
+        const end = () => { clearTimeout(h); resolve(); };
+        child.once('exit', end);
+        try { child.kill(); } catch (_) { end(); }
+      });
     }
     fs.rmSync(dir, RM);
     if (process.env.APPDATA) fs.rmSync(path.join(process.env.APPDATA, 'natsu-keys'), RM);

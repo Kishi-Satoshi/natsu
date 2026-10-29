@@ -31,15 +31,15 @@
     --scrim: rgba(15,15,15,.25);
     --shadow: 0 4px 12px rgba(15,15,15,.10);
     /* 0.14.0 EB-4（決めたこと 14・21）: 文字の飾りの色（文字の色 --mk-* と背景の色 --mkbg-*。NaTsu で決めた9色。暗い配色でも全部上書きする: COLOR-03） */
-    --mk-gray: #6b6965;
+    --mk-gray: #686662;
     --mk-brown: #8a5a3c;
-    --mk-orange: #a84f00;
-    --mk-yellow: #836500;
-    --mk-green: #2f7a3e;
+    --mk-orange: #a54d00;
+    --mk-yellow: #7f6200;
+    --mk-green: #2d743b;
     --mk-blue: #1f62b5;
     --mk-purple: #7a4bb0;
-    --mk-pink: #b03a7e;
-    --mk-red: #c0392b;
+    --mk-pink: #ac397b;
+    --mk-red: #b83729;
     --mkbg-gray: #f0efed;
     --mkbg-brown: #f5ede7;
     --mkbg-orange: #fcede0;
@@ -707,6 +707,8 @@
   .blk[data-bcolor="pink"] > .txt { color: var(--mk-pink); }
   .blk[data-bcolor="red"] > .txt { color: var(--mk-red); }
   .blk[data-bbg] { border-radius: 4px; }
+  /* 0.14.0 EB-4 直し（R113）: 背景の色の行は、文の欄のホバーとフォーカスの地を重ねない（重ねるとリンクと灰色の文字が 4.5:1 を割る） */
+  .blk[data-bbg] > .txt:hover, .blk[data-bbg] > .txt:focus { background: transparent; }
   .blk[data-bbg="gray"] { background: var(--mkbg-gray); }
   .blk[data-bbg="brown"] { background: var(--mkbg-brown); }
   .blk[data-bbg="orange"] { background: var(--mkbg-orange); }
@@ -959,15 +961,15 @@
       --level: #0e8cae;
       --scrim: rgba(0,0,0,.5);
       --shadow: 0 4px 12px rgba(0,0,0,.40);
-      --mk-gray: #a8a5a0;
-      --mk-brown: #c69c7e;
+      --mk-gray: #aaa7a2;
+      --mk-brown: #c89f82;
       --mk-orange: #e8a05a;
       --mk-yellow: #dfc25a;
       --mk-green: #6fc485;
       --mk-blue: #6eaaf0;
-      --mk-purple: #b896e6;
+      --mk-purple: #b998e7;
       --mk-pink: #e48bbf;
-      --mk-red: #f07f73;
+      --mk-red: #f18b80;
       --mkbg-gray: #333231;
       --mkbg-brown: #3a2f27;
       --mkbg-orange: #40301f;
@@ -3838,23 +3840,68 @@
 
   // ---------------------------------------------------------------- ［コピー］の Markdown（R13: 下線と色は文字だけ）
   // 区切りの頭と終わりの空白は記号の外に出す（「**a **」は太字に読まれない）。リンクの住所の括弧と <> は %xx にする（R94。空白のある住所は linkOk が断り、整えた rich に残らない: R102）
+  // EB-4 直し（R114）: 隣の区切りに続く同じ飾りは1つの記号でまとめて包む（「**ab*****cd***」にしない）。包む順は外からリンク・太字・斜体・取り消しで、コードは区切りごと。
+  // 飾りのある行の中の文字の記号（\ ` * _ ~ [ ]）は \ で逃がし、コードは中の ` の並びより長い ` で囲む。飾りの無い文は1文字も同じ（逃がさない）
   const mdUrl = (u) => u.replace(/[()<>]/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase().padStart(2, '0')}`);
+  const MD_WRAP = Object.freeze(['link', 'b', 'i', 's']);
+  const mdEsc = (t) => t.replace(/[\\`*_~[\]]/g, '\\$&');
+  function mdCode(t) {
+    const fence = '`'.repeat(Math.max(0, ...(t.match(/`+/g) || []).map((x) => x.length)) + 1);
+    const pad = /^`|`$/.test(t) || (/^ /.test(t) && / $/.test(t) && t.trim() !== '') ? ' ' : '';
+    return `${fence}${pad}${t}${pad}${fence}`;
+  }
+  // 包んだ中身 inner の頭と終わりの空白を外に出して、1つの飾り（m の名前か、リンクの住所 url）で包む
+  function mdWrap(inner, m, url) {
+    const lead = /^\s*/.exec(inner)[0];
+    const rest = inner.slice(lead.length);
+    const trail = /\s*$/.exec(rest)[0];
+    let s = rest.slice(0, rest.length - trail.length);
+    if (!s) return inner;
+    if (m.includes('s')) s = `~~${s}~~`;
+    if (m.includes('i')) s = `*${s}*`;
+    if (m.includes('b')) s = `**${s}**`;
+    if (url) s = `[${s}](${mdUrl(url)})`;
+    return lead + s + trail;
+  }
+  // 区切りの並びを飾りでまとめて包む（marks はまだ包んでいない飾り。いちばん長く続く飾りを外にし、内の飾りは残りで）。
+  // 隣どうしの包みの記号が同じ字で触れて4つ以上並ぶときは、間に幅の無い空白（U+200B）を入れて読み違えさせない
+  function mdRuns(runs, marks = MD_WRAP) {
+    const keyIn = (r, k) => {
+      if (k !== 'link') return r.m.includes(k) ? k : '';
+      const l = r.m.find((mk) => nameOf(mk) === 'link');
+      return l ? l[1] : '';
+    };
+    let k = null, best = 0;
+    for (const c of marks) {
+      let len = 0;
+      for (let i = 0; i < runs.length; i++) {
+        if (!keyIn(runs[i], c)) { len = 0; continue; }
+        len = i > 0 && keyIn(runs[i - 1], c) === keyIn(runs[i], c) ? len + runs[i].t.length : runs[i].t.length;
+        if (len > best) { best = len; k = c; }
+      }
+    }
+    if (k === null) return runs.map((r) => (r.m.includes('code') ? mdCode(r.t) : mdEsc(r.t))).join('');
+    const rest = marks.filter((c) => c !== k);
+    let out = '';
+    for (let i = 0; i < runs.length;) {
+      const key = keyIn(runs[i], k);
+      let j = i + 1;
+      while (j < runs.length && keyIn(runs[j], k) === key) j++;
+      const inner = mdRuns(runs.slice(i, j), rest);
+      const piece = !key ? inner : k === 'link' ? mdWrap(inner, [], key) : mdWrap(inner, [k], null);
+      // 包みの記号が触れて同じ字が4つ以上並ぶなら間に U+200B（「**…***」と「*…*」・「~~」と「~~」。逃がした字は数えない）
+      const tail = /([*~])\1*$/.exec(out);
+      const head = /^([*~])\1*/.exec(piece);
+      if (tail && head && tail[1] === head[1] && out[out.length - tail[0].length - 1] !== '\\' && tail[0].length + head[0].length >= 4) out += '\u200b';
+      out += piece;
+      i = j;
+    }
+    return out;
+  }
   function richMarkdown(rich) {
-    return tidy(rich).map(({ t, m }) => {
-      if (!m.length) return t;
-      const lead = /^\s*/.exec(t)[0];
-      const rest = t.slice(lead.length);
-      const trail = /\s*$/.exec(rest)[0];
-      let s = rest.slice(0, rest.length - trail.length);
-      if (!s) return t;
-      if (m.includes('code')) s = `\`${s}\``;
-      if (m.includes('s')) s = `~~${s}~~`;
-      if (m.includes('i')) s = `*${s}*`;
-      if (m.includes('b')) s = `**${s}**`;
-      const link = m.find((mk) => nameOf(mk) === 'link');
-      if (link) s = `[${s}](${mdUrl(link[1])})`;
-      return lead + s + trail;
-    }).join('');
+    const runs = tidy(rich);
+    if (!runs.some((r) => r.m.length)) return runs.map((r) => r.t).join('');
+    return mdRuns(runs);
   }
   // ---- richText の写しはここまで
   // 欄の子 → richFromNodes の木（文字の節は { text }・要素は { tag, attrs, kids }。読むのは自分の span の印だけ）。
@@ -3933,15 +3980,37 @@
   }
   let inlineLit = null;   // 文中の記法で変えた直後の { pid, id, before, after, caret }（Ctrl+Z で記号を戻す: 決めたこと 10）
   // 打った後（input・compositionend）: 打った文字の飾りを決め、閉じた記号を打ったら文中の記法を飾りに変える（決めたこと 18・R10）
+  // EB-4 直し（I2・R115）: 欄に自分の span（決まった印だけ・中は文字だけ）と文字のほかの要素があるか（Chromium の既定の飾りの <b>・<font>・style の span など。
+  // br とコメントは数えない: R103）。あれば描き直して、画面の見た目を保存する形にそろえる
+  const OWN_SPAN_ATTRS = Object.freeze(['data-m', 'data-color', 'data-bg', 'data-link', 'title']);
+  const isTextNode = (n) => n.nodeType === 3 || n.tagName === '#text';
+  function foreignIn(txt) {
+    for (const n of txt.childNodes || []) {
+      if (isTextNode(n) || n.nodeType === 8 || n.tagName === '#comment') continue;
+      const tag = String(n.tagName || '').toLowerCase();
+      if (tag === 'br') continue;
+      if (tag !== 'span') return true;
+      const names = typeof n.getAttributeNames === 'function' ? n.getAttributeNames() : Object.keys(n.attributes || {});
+      if (names.some((k) => !OWN_SPAN_ATTRS.includes(k))) return true;
+      if ([...(n.childNodes || [])].some((k) => !isTextNode(k))) return true;
+    }
+    return false;
+  }
   function typedRich(el, ev) {
     const txt = el._txt;
+    // EB-4 直し（I1・R115）: ほかの行で打ったら、文中の記法と行頭の記法の直後の印を消す（その行の Ctrl+Z だけが記号を戻す）
+    if (inlineLit && el._b && inlineLit.id !== el._b.id) inlineLit = null;
+    if (undoLit && el._b && undoLit.id !== el._b.id) undoLit = null;
     if (txt._composing || (ev && ev.isComposing)) return false;   // 変換中は決めない（確定の後に決める: F101）
     if (!el._b || el._b.type === 'divider') return false;
     const r = caretRange(txt);
     const dom = rowRich(txt);
     let rich = txt._rich ? inheritTyped(txt._rich, dom, r && r[0] === r[1] ? r[0] : NaN) : dom;
     let caret = null;
-    const sc = r && r[0] === r[1] ? inlineShortcut(plainOf(rich).slice(0, r[0])) : null;
+    // EB-4 直し（M1・M4・R115）: 文中の記法は文字を足したときだけ（消して「**a**」になっても変えない）。コードの中では変えない
+    const adding = !ev || ev.inputType === undefined || String(ev.inputType).startsWith('insert');
+    let sc = adding && r && r[0] === r[1] ? inlineShortcut(plainOf(rich).slice(0, r[0])) : null;
+    if (sc && sliceRich(rich, sc.open, sc.close + sc.size).some((x) => x.m.includes('code'))) sc = null;
     if (sc) {
       const before = rich;
       const n = plainOf(rich).length;
@@ -3951,18 +4020,25 @@
       caret = sc.close - sc.size;
       inlineLit = { pid: curId, id: el._b.id, before, after: rich, caret: r[0] };
     }
-    if (sc || JSON.stringify(rich) !== JSON.stringify(dom)) {
+    if (sc || JSON.stringify(rich) !== JSON.stringify(dom) || foreignIn(txt)) {
       paintRich(txt, rich);
       if (caret !== null) setCaret(txt, caret); else if (r) setSel(txt, r[0], r[1]);
     } else txt._rich = marksIn(rich) ? rich : null;
     return Boolean(sc);
+  }
+  // EB-4 直し（I1・R115）: 行から出たら、その行の記法の直後の印（文中の記法・行頭の記法の記号）を消す
+  function litLeave(el) {
+    const id = el && el._b ? el._b.id : null;
+    if (inlineLit && inlineLit.id === id) inlineLit = null;
+    if (undoLit && undoLit.id === id) undoLit = null;
   }
   // 文中の記法で変えた直後（手を付けていない）の行（Ctrl+Z で記号を戻す）
   function inlineRow(pid) {
     const u = inlineLit;
     if (!u || u.pid !== pid) return null;
     const el = editRows().find((e) => e.dataset.id === u.id);
-    return el && JSON.stringify(rowRich(el._txt)) === JSON.stringify(u.after) ? { el, u } : null;
+    if (!el || el._txt !== document.activeElement) return null;   // EB-4 直し（I1）: 押したのがその行のときだけ
+    return JSON.stringify(rowRich(el._txt)) === JSON.stringify(u.after) ? { el, u } : null;
   }
   // 保存する飾り（飾りのある行（画面か保存した行）なら前後の空白を除いた rich・無ければ null）
   function richPatch(txt, b) {
@@ -4396,7 +4472,8 @@
     const u = undoLit;
     if (!u || u.pid !== pid) return null;
     const el = editRows().find((e) => e.dataset.id === u.id);
-    return el && el._txt.textContent === u.mark + String(el._b.text ?? '') ? el : null;
+    if (!el || el._txt !== document.activeElement) return null;   // EB-4 直し（I1）: 押したのがその行のときだけ
+    return el._txt.textContent === u.mark + String(el._b.text ?? '') ? el : null;
   }
   async function undoRun(dir, at) {
     await editsSettled();   // EB-3 直し（R109）: 送った直しの歩みが届いてから（Enter のすぐ後の Ctrl+Z も Enter を戻す）
@@ -4765,7 +4842,7 @@
       return saveRow(window.koeApp.blockUpdate(pid, b.id, { text: v }).then(() => { if (pid === curId) refreshList(); }));
     };
     // 0.14.0 EB-5（決めたこと 19）: 行から出ると道具の帯を隠す（リンクの欄へ移るときは欄が開いてから。帯・色の項目は押してもフォーカスが移らない）
-    txt.onblur = () => { if (slash && slash.el === el) slashClose(); markBarLeave(el); txt._commit(curId); };
+    txt.onblur = () => { if (slash && slash.el === el) slashClose(); markBarLeave(el); litLeave(el); txt._commit(curId); };
     txt.onkeydown = (ev) => {
       if (imeEnter(ev)) return;   // 変換確定の Enter / 変換中の Backspace は編集操作にしない
       const mod = ev.ctrlKey || ev.altKey || ev.metaKey;
@@ -5288,6 +5365,8 @@
       grip.onmousedown = () => { el.draggable = true; };
       grip.onmouseup = () => { el.draggable = false; };
       el.ondragstart = (ev) => {
+        // EB-4 直し（M3・R115）: 行の中で選んだ文字を引っ張るのは行の並べ替えにしない（引っ張れるのは ⠿ からだけ。文字は切り取りと貼り付けで動かす）
+        if (ev && ev.target && ev.target !== el) { if (typeof ev.preventDefault === 'function') ev.preventDefault(); return; }
         dragBlockId = b.id; el.classList.add('dragging');
         dragStartX = Number(ev.clientX) || 0;
         ev.dataTransfer.effectAllowed = 'move';
@@ -5389,7 +5468,8 @@
     inlineClose();   // 0.14.0 EB-5: 帯・リンクの欄・色のメニューも（欄の子を描き直すので）
     const box = $('pNote'); box.textContent = '';
     box.ondragover = (ev) => {
-      if (!dragBlockId) return;
+      // EB-4 直し（M3・R115）: 行の外から引っ張ってきた文字・ファイルは落とさせない（Chromium が HTML のまま行に入れる）
+      if (!dragBlockId) { if (typeof ev.preventDefault === 'function') ev.preventDefault(); if (ev.dataTransfer) ev.dataTransfer.dropEffect = 'none'; return; }
       ev.preventDefault();
       ev.dataTransfer.dropEffect = 'move';
       clearDropMarks(box);
@@ -5404,7 +5484,7 @@
       if (typeof mark.style.setProperty === 'function') mark.style.setProperty('--dropx', `${dx}px`);
     };
     box.ondrop = async (ev) => {
-      if (!dragBlockId) return;
+      if (!dragBlockId) { if (typeof ev.preventDefault === 'function') ev.preventDefault(); return; }   // EB-4 直し（M3）: 行の欄には文字を落とさない
       ev.preventDefault();
       const { idx, els } = dropIndexAt(box, ev.clientY);
       const id = dragBlockId; dragBlockId = null;

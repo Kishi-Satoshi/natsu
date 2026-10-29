@@ -268,23 +268,68 @@ function inlineShortcut(before) {
 
 // ---------------------------------------------------------------- ［コピー］の Markdown（R13: 下線と色は文字だけ）
 // 区切りの頭と終わりの空白は記号の外に出す（「**a **」は太字に読まれない）。リンクの住所の括弧と <> は %xx にする（R94。空白のある住所は linkOk が断り、整えた rich に残らない: R102）
+// EB-4 直し（R114）: 隣の区切りに続く同じ飾りは1つの記号でまとめて包む（「**ab*****cd***」にしない）。包む順は外からリンク・太字・斜体・取り消しで、コードは区切りごと。
+// 飾りのある行の中の文字の記号（\ ` * _ ~ [ ]）は \ で逃がし、コードは中の ` の並びより長い ` で囲む。飾りの無い文は1文字も同じ（逃がさない）
 const mdUrl = (u) => u.replace(/[()<>]/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase().padStart(2, '0')}`);
+const MD_WRAP = Object.freeze(['link', 'b', 'i', 's']);
+const mdEsc = (t) => t.replace(/[\\`*_~[\]]/g, '\\$&');
+function mdCode(t) {
+  const fence = '`'.repeat(Math.max(0, ...(t.match(/`+/g) || []).map((x) => x.length)) + 1);
+  const pad = /^`|`$/.test(t) || (/^ /.test(t) && / $/.test(t) && t.trim() !== '') ? ' ' : '';
+  return `${fence}${pad}${t}${pad}${fence}`;
+}
+// 包んだ中身 inner の頭と終わりの空白を外に出して、1つの飾り（m の名前か、リンクの住所 url）で包む
+function mdWrap(inner, m, url) {
+  const lead = /^\s*/.exec(inner)[0];
+  const rest = inner.slice(lead.length);
+  const trail = /\s*$/.exec(rest)[0];
+  let s = rest.slice(0, rest.length - trail.length);
+  if (!s) return inner;
+  if (m.includes('s')) s = `~~${s}~~`;
+  if (m.includes('i')) s = `*${s}*`;
+  if (m.includes('b')) s = `**${s}**`;
+  if (url) s = `[${s}](${mdUrl(url)})`;
+  return lead + s + trail;
+}
+// 区切りの並びを飾りでまとめて包む（marks はまだ包んでいない飾り。いちばん長く続く飾りを外にし、内の飾りは残りで）。
+// 隣どうしの包みの記号が同じ字で触れて4つ以上並ぶときは、間に幅の無い空白（U+200B）を入れて読み違えさせない
+function mdRuns(runs, marks = MD_WRAP) {
+  const keyIn = (r, k) => {
+    if (k !== 'link') return r.m.includes(k) ? k : '';
+    const l = r.m.find((mk) => nameOf(mk) === 'link');
+    return l ? l[1] : '';
+  };
+  let k = null, best = 0;
+  for (const c of marks) {
+    let len = 0;
+    for (let i = 0; i < runs.length; i++) {
+      if (!keyIn(runs[i], c)) { len = 0; continue; }
+      len = i > 0 && keyIn(runs[i - 1], c) === keyIn(runs[i], c) ? len + runs[i].t.length : runs[i].t.length;
+      if (len > best) { best = len; k = c; }
+    }
+  }
+  if (k === null) return runs.map((r) => (r.m.includes('code') ? mdCode(r.t) : mdEsc(r.t))).join('');
+  const rest = marks.filter((c) => c !== k);
+  let out = '';
+  for (let i = 0; i < runs.length;) {
+    const key = keyIn(runs[i], k);
+    let j = i + 1;
+    while (j < runs.length && keyIn(runs[j], k) === key) j++;
+    const inner = mdRuns(runs.slice(i, j), rest);
+    const piece = !key ? inner : k === 'link' ? mdWrap(inner, [], key) : mdWrap(inner, [k], null);
+    // 包みの記号が触れて同じ字が4つ以上並ぶなら間に U+200B（「**…***」と「*…*」・「~~」と「~~」。逃がした字は数えない）
+    const tail = /([*~])\1*$/.exec(out);
+    const head = /^([*~])\1*/.exec(piece);
+    if (tail && head && tail[1] === head[1] && out[out.length - tail[0].length - 1] !== '\\' && tail[0].length + head[0].length >= 4) out += '\u200b';
+    out += piece;
+    i = j;
+  }
+  return out;
+}
 function richMarkdown(rich) {
-  return tidy(rich).map(({ t, m }) => {
-    if (!m.length) return t;
-    const lead = /^\s*/.exec(t)[0];
-    const rest = t.slice(lead.length);
-    const trail = /\s*$/.exec(rest)[0];
-    let s = rest.slice(0, rest.length - trail.length);
-    if (!s) return t;
-    if (m.includes('code')) s = `\`${s}\``;
-    if (m.includes('s')) s = `~~${s}~~`;
-    if (m.includes('i')) s = `*${s}*`;
-    if (m.includes('b')) s = `**${s}**`;
-    const link = m.find((mk) => nameOf(mk) === 'link');
-    if (link) s = `[${s}](${mdUrl(link[1])})`;
-    return lead + s + trail;
-  }).join('');
+  const runs = tidy(rich);
+  if (!runs.some((r) => r.m.length)) return runs.map((r) => r.t).join('');
+  return mdRuns(runs);
 }
 
 module.exports = {

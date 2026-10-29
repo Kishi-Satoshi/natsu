@@ -460,6 +460,23 @@ test('EB-1 直し・I5: richMarkdown は区切りの頭と終わりの空白を�
   for (const t of [' 前の空白 ', '*そのまま* と `記号`', '　全角の空白　']) assert.strictEqual(R.richMarkdown([run(t)]), t);
 });
 
+test('EB-4 直し・M2（R114）: richMarkdown は隣の区切りに続く同じ飾りを1つの記号で包み、飾りのある行の記号を逃がし、コードは中の ` より長い ` で囲む。飾りの無い文は逃がさない', () => {
+  const L = ['link', 'https://example.com/'];
+  assert.strictEqual(R.richMarkdown([run('ab', 'b'), run('cd', 'b', 'i')]), '**ab*cd***', '同じ太字を2つの記号で包んだ（**ab*****cd***）');
+  assert.strictEqual(R.richMarkdown([run('ab', 'i'), run('cd', 'b', 'i'), run('ef', 'i')]), '*ab**cd**ef*');
+  // 交わる飾り（太字は ab〜cd・斜体は cd〜ef）は包みの記号が4つ並ぶので、間に幅の無い空白（U+200B）を入れる。3つまでは入れない
+  assert.strictEqual(R.richMarkdown([run('ab', 'b'), run('cd', 'b', 'i'), run('ef', 'i')]), '**ab*cd***\u200b*ef*');
+  assert.strictEqual(R.richMarkdown([run('太字', 'b'), run('斜体', 'i')]), '**太字***斜体*');
+  assert.strictEqual(R.richMarkdown([run('資料', L), run('と表', 'b', L)]), '[資料**と表**](https://example.com/)');
+  assert.strictEqual(R.richMarkdown([run('a]b[c', L)]), '[a\\]b\\[c](https://example.com/)');
+  assert.strictEqual(R.richMarkdown([run('x', 'b'), run(' 2*3_4~5 \\ `')]), '**x** 2\\*3\\_4\\~5 \\\\ \\`');
+  assert.strictEqual(R.richMarkdown([run('*大事*', 'b')]), '**\\*大事\\***');
+  assert.strictEqual(R.richMarkdown([run('a`b', 'code')]), '``a`b``');
+  assert.strictEqual(R.richMarkdown([run('`x', 'code')]), '`` `x ``');
+  assert.strictEqual(R.richMarkdown([run('a``b', 'code'), run('c', 'b')]), '```a``b```**c**');
+  assert.strictEqual(R.richMarkdown([run('*そのまま* と `記号` [x](y)')]), '*そのまま* と `記号` [x](y)', '飾りの無い文を逃がした');
+});
+
 test('EB-1 直し・M1: normalizeRich は DB の照らしと同じ形にそろえる（開けないリンク・2つ目の色・コードのある区切りのリンクを落とす）', () => {
   assert.deepStrictEqual(R.normalizeRich([run('a', ['link', 'javascript:alert(1)'], 'b')]), [run('a', 'b')]);
   assert.deepStrictEqual(R.normalizeRich([run('a', ['bg', 'yellow'], ['color', 'red'])]), [run('a', ['color', 'red'])]);

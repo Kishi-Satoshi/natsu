@@ -51,7 +51,7 @@ test('EB-5・SEC2（決めたこと 20・33）: app:open-link は https・http�
 const fs = require('node:fs');
 const os = require('node:os');
 const { MAIN, PAGE } = require('./helpers/keysapp');
-function fakeElectron({ hangRead = false } = {}) {
+function fakeElectron({ hangRead = false, hangMark = false } = {}) {
   const st = { clip: 'もとの文', focused: '', values: { t1: '', t2: '' }, selected: false, menu: undefined, paths: {}, exit: null, writes: [] };
   const clipboard = {
     readText: () => (hangRead ? new Promise(() => {}) : Promise.resolve(st.clip)),
@@ -73,7 +73,7 @@ function fakeElectron({ hangRead = false } = {}) {
       const m = /getElementById\('(t[12])'\)\.(focus|value)/.exec(s);
       if (m && m[2] === 'focus') { st.focused = m[1]; st.selected = false; return Promise.resolve(1); }
       if (m) return Promise.resolve(st.values[m[1]]);
-      if (s.includes('__natsuMark')) return Promise.resolve(1);
+      if (s.includes('__natsuMark')) return hangMark ? new Promise(() => {}) : Promise.resolve(1);
       return Promise.resolve(undefined);
     },
   };
@@ -117,6 +117,13 @@ test('EB-3 直し・R109: stage140.win の小さなアプリは Electron 44 の 
   assert.strictEqual(r.st.paths.userData, path.join(r.dir, 'userData'), 'userData が一時フォルダに無い');
   assert.deepStrictEqual(r.errs, []);
   assert.ok(PAGE.includes('id="t1"') && PAGE.includes('id="t2"') && PAGE.includes('__natsuMark = 1'));
+});
+test('EB-4 直し・R115: 小さなアプリがクリップボードを使った後に止まっても、40 秒の見張りで終える前に元のクリップボードを書き戻す', { timeout: 10000 }, async () => {
+  const r = await runKeys(MAIN, { hangMark: true });
+  assert.strictEqual(r.out && r.out.error, 'timeout: reload');
+  assert.strictEqual(r.st.exit, 2);
+  assert.deepStrictEqual(r.st.writes, ['', 'もとの文'], '空にしてから Ctrl+C で替わり、見張りで元に書き戻す');
+  assert.strictEqual(r.st.clip, 'もとの文', '止まって終えるときに元のクリップボードを書き戻さない');
 });
 test('EB-3 直し・R109: 小さなアプリが止まったときは、待っていた段の名前を書く（timeout: <段>）', { timeout: 10000 }, async () => {
   const r = await runKeys(MAIN, { hangRead: true });
