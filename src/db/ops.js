@@ -18,12 +18,15 @@
  *   { op: 'seg', id, page, n, value, old, oldN }  発言（value・old は発言の形。old が null なら足した、value が null なら消した）
  * 当てたら、検索の欄 fold を作り直し、触れたページの行の rev を1つ上げる（この呼び出しで足した・消したページは除く）。
  * 投げたら、呼び手のトランザクションごと戻す（core.call の中で呼ぶ）。
+ * 0.14.0 EB-1（元に戻す）: invertOps は後ろへ当てる形を新しい操作の列にし（前へ当てれば後ろへ当てたのと同じ）、opsMatch は操作の「後の値」が
+ * 今の表と同じかを見る（後から変わっていたら戻さない: 計画 docs/plans/2026-10-26-140.md の決めたこと 4・5・R60）。
  */
 'use strict';
 
 const { isDeepStrictEqual } = require('node:util');
 const { searchFold } = require('../cite');
 const { evenKeys, keyBetween } = require('./keys');
+const { VIEW_KEYS } = require('../blockTree');
 
 const PAGE_FIXED = ['id', 'title', 'blocks', 'createdAt', 'updatedAt', 'children', 'type', 'text', 'rich'];
 const DB_MADE = ['rev', 'routeText', 'qualityView'];     // DB が作る欄（書くときは黙って捨てる）。0.11.0 Q-3 で qualityView を足した
@@ -327,4 +330,109 @@ function applyOps(db, ops, dir = 'forward') {
   for (const pid of st.touched) if (!st.fresh.has(pid)) db.prepare("update blocks set rev = rev + 1 where id = ? and type = 'page'").run(pid);
 }
 
-module.exports = { diffPage, diffSegments, applyOps, pageRow, blockRow, segRow, pageFold, textFold, foldOfRow };
+// ---------------------------------------------------------------- 元に戻す（0.14.0 EB-1。決めたこと 2〜5・R60。F100）
+// 後ろへ当てる形を、前へ当てる新しい操作の列にする（新しい順に・値と前の値を入れ替え）。edit.revert の oplog の1行になり、もう一度
+// 戻せばやり直し。ページの行の trash・restore・purge・発言（seg）・ページの行の add は戻さない（投げる）。
+// pageId があれば、ページの行の set は memo・memoDoc だけを残す（summaryEdited・updatedAt・citeStat は戻さない: R60）
+const REVERT_PAGE_KEYS = Object.freeze(['memo', 'memoDoc']);
+function invertOps(ops, { pageId } = {}) {
+  if (!Array.isArray(ops)) throw new Error('invertOps: 操作の列が無い');
+  const out = [];
+  for (const o of [...ops].reverse()) {
+    if (!isObj(o) || typeof o.op !== 'string' || typeof o.id !== 'string') throw new Error('invertOps: 操作の形が正しくない');
+    switch (o.op) {
+      case 'add':
+        if (!isObj(o.row) || o.row.type === 'page') throw new Error('invertOps: ページの行は戻さない');
+        out.push({ op: 'trash', id: o.id, old: o.row });
+        break;
+      case 'trash':
+        if (!isObj(o.old)) throw new Error('invertOps: ページの行は戻さない');
+        out.push({ op: 'add', id: o.id, row: o.old });
+        break;
+      case 'move':
+        out.push({ op: 'move', id: o.id, ord: o.old, old: o.ord, ...(typeof o.parent === 'string' ? { parent: o.oldParent, oldParent: o.parent } : {}) });
+        break;
+      case 'set':
+        if (o.id === pageId && !REVERT_PAGE_KEYS.includes(o.key)) break;
+        out.push({ op: 'set', id: o.id, key: o.key, value: o.old, old: o.value });
+        break;
+      case 'text':
+      case 'retype':
+        out.push({ op: o.op, id: o.id, value: o.old, old: o.value });
+        break;
+      default:
+        throw new Error('invertOps: 戻せない操作');
+    }
+  }
+  return out;
+}
+
+// opsMatch(db, ops) → 各操作の「後の値」が今の行と同じか（並べた操作を前から重ねた形と比べる）。
+// 比べない欄: 見た目だけの欄（VIEW_KEYS。add の行の中の欄も: G1）・短い行の印 citeSkip・ページの行の印と時刻と出典の数（R60）
+const NO_MATCH_VIEW = VIEW_KEYS;
+const NO_MATCH_BLOCK = Object.freeze(['citeSkip']);
+const NO_MATCH_PAGE = Object.freeze(['summaryEdited', 'updatedAt', 'citeStat']);
+const skipKey = (isPage, key) => (isPage ? NO_MATCH_PAGE.includes(key) : NO_MATCH_VIEW.includes(key) || NO_MATCH_BLOCK.includes(key));
+const PAGE_COLS = { createdAt: 'created_at', updatedAt: 'updated_at' };
+function opsMatch(db, ops) {
+  if (!Array.isArray(ops)) throw new Error('opsMatch: 操作の列が無い');
+  const want = new Map();   // id → { gone } か { cols, attrs（add の行の全部の欄）か null, sets: Map }
+  const at = (id) => {
+    let w = want.get(id);
+    if (!w || w.gone) { w = { gone: false, cols: {}, attrs: null, sets: new Map() }; want.set(id, w); }
+    return w;
+  };
+  for (const o of ops) {
+    if (!isObj(o) || typeof o.op !== 'string' || typeof o.id !== 'string') throw new Error('opsMatch: 操作の形が正しくない');
+    switch (o.op) {
+      case 'add': {
+        if (!isObj(o.row) || o.row.type === 'page') throw new Error('opsMatch: ページの行は照らさない');
+        const r = o.row;
+        want.set(o.id, { gone: false, cols: { type: r.type, page_id: r.page_id, parent_id: r.parent_id ?? null, ord: r.ord, text: str(r.text), rich: Array.isArray(r.rich) ? r.rich : null },
+          attrs: { ...(isObj(r.attrs) ? r.attrs : {}) }, sets: new Map() });
+        break;
+      }
+      case 'trash':
+        if (!isObj(o.old)) throw new Error('opsMatch: ページの行は照らさない');
+        want.set(o.id, { gone: true });
+        break;
+      case 'move': { const w = at(o.id); w.cols.ord = o.ord; if (typeof o.parent === 'string') w.cols.parent_id = o.parent; break; }
+      case 'text': at(o.id).cols.text = str(o.value); break;
+      case 'retype': at(o.id).cols.type = o.value; break;
+      case 'set': {
+        const w = at(o.id);
+        if (o.key === 'rich') w.cols.rich = Array.isArray(o.value) ? o.value : null;
+        else w.sets.set(o.key, o.value);
+        break;
+      }
+      default:
+        throw new Error('opsMatch: 照らせない操作');
+    }
+  }
+  const read = db.prepare('select type, page_id, parent_id, ord, text, rich, attrs, created_at, updated_at from blocks where id = ?');
+  for (const [id, w] of want) {
+    const r = read.get(id);
+    if (w.gone) { if (r) return false; continue; }
+    if (!r) return false;
+    const isPage = r.type === 'page';
+    const now = { type: r.type, page_id: r.page_id, parent_id: r.parent_id ?? null, ord: r.ord, text: str(r.text), rich: r.rich ? JSON.parse(r.rich) : null };
+    for (const [k, v] of Object.entries(w.cols)) if (!isDeepStrictEqual(now[k], v)) return false;
+    const attrs = JSON.parse(r.attrs || '{}');
+    const expect = w.attrs ? { ...w.attrs } : null;
+    for (const [k, v] of w.sets) {
+      if (isPage && Object.hasOwn(PAGE_COLS, k)) {
+        if (!skipKey(isPage, k) && str(r[PAGE_COLS[k]]) !== str(v)) return false;
+        continue;
+      }
+      if (expect) { if (v === undefined) delete expect[k]; else expect[k] = v; continue; }
+      if (!skipKey(isPage, k) && !isDeepStrictEqual(attrs[k], v)) return false;
+    }
+    if (expect) {
+      const keys = new Set([...Object.keys(expect), ...Object.keys(attrs)]);
+      for (const k of keys) if (!skipKey(isPage, k) && !isDeepStrictEqual(attrs[k], expect[k])) return false;
+    }
+  }
+  return true;
+}
+
+module.exports = { diffPage, diffSegments, applyOps, invertOps, opsMatch, pageRow, blockRow, segRow, pageFold, textFold, foldOfRow };

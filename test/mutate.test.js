@@ -1202,8 +1202,38 @@ test('LN-6・G3・0.13.2: IDS_132 は計画の「変異確認」の ln- の表�
   const rows = [...table.matchAll(/^\| (ln-[a-z0-9-]*) \|/gm)].map((m) => m[1]);
   assert.deepStrictEqual(IDS_132, rows);
   assert.strictEqual(IDS_132.length, 39);
-  for (const re of [/^(ed|rdy|clk)-/, /^edn-/, /^lg-/, /^lv-/, /^(mcp|cfg|lk|ls|stl|nl|pt)-/, /^(ka|pc|lt|wd|sg|rx|bm|ci|dt|wv|pb|rn)-/, /^(eb|ek|mb|dq)-/]) {
+  for (const re of [/^(ed|rdy|clk)-/, /^edn-/, /^lg-/, /^lv-/, /^(mcp|cfg|lk|ls|stl|nl|pt)-/, /^(ka|pc|lt|wd|sg|rx|bm|ci|dt|wv|pb|rn)-/, /^(eb|ek|mo|dq)-/]) {
     assert.deepStrictEqual(IDS_132.filter((id) => re.test(id)), [], `${re} に当たる ln- の id`);
   }
 });
 
+// 0.14.0（計画 docs/plans/2026-10-26-140.md の「変異確認」の eb-・ek-・mo-・dq- の表）: 飾り・元に戻す・貼り付け・複数の行・近道・NaTsu の中の音声入力・
+// メモの行・口述の質の直しを1つずつ戻す変異。タスクを作るたびに表の行の順で足す（EB-1 から。1つの版: BQ12）。頭は前の版の照らしに当たらない
+// （mb は 0.9.x の mb-tabs-keep があるので、メモの行は mo: R57）
+const IDS_140 = [
+  'eb-toggle-mark', 'eb-norm-merge', 'eb-mark-carry', 'eb-nodes-unknown', 'eb-inline-open', 'eb-link-js', 'eb-copy-marks',
+  'eb-invert-move', 'eb-invert-trash', 'eb-book-redo', 'eb-book-open', 'eb-color-replace', 'eb-revert-view',
+];
+test('G3・0.14.0: 0.14.0 の変異が一覧にそろい、IDS_140 はどれも計画の「変異確認」の表に行の順である。eb-・ek-・mo-・dq- の変異は IDS_140 にある。どれも決まったテストのファイルを持ち、why が 0.14.0 で始まる', { timeout: 5000 }, () => {
+  const byId = new Map(MUTANTS.map((m) => [m.id, m]));
+  assert.deepStrictEqual(IDS_140.filter((id) => !byId.has(id)), [], 'IDS_140 の変異が一覧に無い');
+  assert.strictEqual(new Set(IDS_140).size, IDS_140.length, 'IDS_140 に重なり');
+  assert.deepStrictEqual(MUTANTS.filter((m) => /^(eb|ek|mo|dq)-/.test(m.id) && !IDS_140.includes(m.id)).map((m) => m.id), [], 'IDS_140 に無い 0.14.0 の頭の変異がある');
+  const plan = fs.readFileSync(path.join(ROOT, 'docs', 'plans', '2026-10-26-140.md'), 'utf8');
+  const at = plan.search(/^## 変異確認（直しを1つ戻すと/m);
+  assert.ok(at > 0, '計画の「変異確認」の節が無い');
+  const table = plan.slice(at, plan.indexOf('\n## ', at + 5));
+  const rows = [...table.matchAll(/^\| ((?:eb|ek|mo|dq)-[a-z0-9-]*) \|/gm)].map((m) => m[1]);
+  assert.strictEqual(rows.length, 145, '計画の 0.14.0 の表（eb- 47・ek- 49・mo- 27・dq- 22）が読めない');
+  assert.strictEqual(new Set(rows).size, rows.length, '計画の表に重なり');
+  assert.deepStrictEqual(IDS_140.filter((id) => !rows.includes(id)), [], '計画の「変異確認」の表に無い変異');
+  assert.deepStrictEqual(IDS_140, rows.filter((id) => IDS_140.includes(id)), 'IDS_140 が表の行の順でない');
+  for (const re of [/^(ed|rdy|clk)-/, /^edn-/, /^lg-/, /^lv-/, /^ln-/, /^(mcp|cfg|lk|ls|stl|nl|pt)-/, /^(ka|pc|lt|wd|sg|rx|bm|ci|dt|wv|pb|rn)-/]) {
+    assert.deepStrictEqual(IDS_140.filter((id) => re.test(id)), [], `${re} に当たる 0.14.0 の id`);
+  }
+  for (const id of IDS_140) {
+    const m = byId.get(id);
+    assert.ok(Array.isArray(m.tests) && m.tests.length > 0 && m.tests.every((t) => /^test\/[^/]+\.test\.js$/.test(t)), `${id}: tests`);
+    assert.ok(typeof m.why === 'string' && m.why.startsWith('0.14.0 '), `${id}: why`);
+  }
+});

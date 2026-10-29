@@ -10,6 +10,7 @@
 'use strict';
 const mtype = require('../meetingType');
 const blockEdit = require('../blockEdit');
+const RT = require('../richText');   // 0.14.0 EB-1: リンクの頭の表（R73）
 
 const ID_RE = /^[A-Za-z0-9_-]{1,64}$/;      // 今の ID（p…・b…・s<n>・テストの p1）を全部通し、区切り・点・空白は通さない
 const TX_RE = /^[A-Za-z0-9:_.-]{8,120}$/;
@@ -20,7 +21,8 @@ const RESERVED_BLOCK = ['id', 'type', 'text', 'rich', 'children'];
 const RESERVED_PAGE = ['id', 'title', 'blocks', 'createdAt', 'updatedAt', 'children', 'type', 'text', 'rich'];
 const RESERVED_SEG = ['id', 'atMs', 'durationMs', 'text', 'failed'];
 const RICH_MARKS = ['b', 'i', 'u', 's', 'code', 'color', 'bg', 'link'];   // 2b の飾り（2a1 では照らしだけ）
-const LINK_RE = /^(https?:\/\/|mailto:|natsu:\/\/)/i;
+// 0.14.0 EB-1（R73）: リンクの頭は src/richText.js の linkOk と同じ表（http(s)://・mailto:・natsu://page/）。制御の文字と前後の空白は別の条件で断る
+const LINK_RE = RT.LINK_HEAD_RE;
 const NAME_RE = /^[A-Za-z0-9_-]{1,64}$/;   // ブロックの型・会議の種類の名前（知らない型も通す。2a2 で増える）
 const SHORT = 500;                          // 担当・期限の文字・検索の語などの短い文字
 // 0.13.0 ED-2（計画 docs/plans/2026-10-24-130.md の決めたこと 9。持ち主の試作の命令ごとの照らし）: 画面の書く命令（block.*）の型は決まった表
@@ -33,7 +35,7 @@ const isStr = (v, max) => typeof v === 'string' && v.length <= max;
 
 function bad(why) { const e = new Error(why); e.code = 'bad-args'; return e; }
 
-// [{t, m}] → 素の文字。m の1つは飾りの名前か [名前, 値]。知らない飾り・http(s)/mailto/natsu 以外のリンクは投げる
+// [{t, m}] → 素の文字。m の1つは飾りの名前か [名前, 値]。知らない飾り・http(s)/mailto/natsu://page/ 以外のリンクは投げる
 function richText(rich) {
   if (!Array.isArray(rich)) throw bad('rich');
   let out = '';
@@ -46,6 +48,7 @@ function richText(rich) {
       if (typeof name !== 'string' || !RICH_MARKS.includes(name)) throw bad('rich mark');
       if (name === 'link') {
         if (!Array.isArray(mk) || typeof mk[1] !== 'string' || mk[1].length > 2048 || !LINK_RE.test(mk[1])) throw bad('rich link');
+        if (mk[1].trim() !== mk[1] || RT.LINK_CTRL_RE.test(mk[1])) throw bad('rich link');
       } else if (Array.isArray(mk) && (mk.length !== 2 || typeof mk[1] !== 'string' || mk[1].length > 64)) throw bad('rich mark');
     }
     out += run.t;
