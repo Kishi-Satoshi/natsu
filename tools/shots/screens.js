@@ -403,11 +403,10 @@ const OVL_094 = (states) => PS.FORMS.flatMap((form) => Object.keys(PS.DESKS).fla
 // / メニューの3枚・⠿ の［変換 ▸］の1枚）に「この見た目でよい（おすすめ）」と答え、2026-10-28 に点検の直しの後の画面（▸ を 24px にした形・拡大 200% で文が
 // 崩れない形。点検 2 で足した notes-page-zoom200-light を含む 9 枚）に「OK（版を 0.13.1 に上げてよい）」と答えたので、CI run 40623116933（9ede0e7）の
 // artifact 12787992574 の .after.png（9 枚）をバイトのまま基準にし、空に戻した
-// 0.13.2（計画 docs/plans/2026-10-28-132.md の「取り直す画面（RETAKE）」）: LN-3 で録音中のページの帯 no-login の画面を足した。LN-5・LN-7 で足す画面と
-// 取り直す画面も入れる。持ち主が見比べを OK と言ったら、版を上げる commit（Task G）で基準にして空に戻す
-// LN-7 でパネルを下の中央に置き、⌄ のメニューを上に開くようにしたので、パネルの5枚（閉じた3枚は窓だけを撮るので同じ見込み）を取り直し待ちに入れた
-const RETAKE = new Set(['live-banner-signin-light', 'page-pending-light', 'page-pending-running-light',
-  'nudge-light-100', 'nudge-dark-100', 'nudge-light-150', 'nudge-menu-light-100', 'nudge-menu-dark-100']);
+// 0.13.2（版を 0.13.2 に上げる commit。Task G）: 持ち主が取り直しの見比べ（足した 3 枚: 帯 no-login・議事録のページの「残り n 区間」の2枚、取り直した 5 枚:
+// 会議の知らせのパネル）に「この見た目でよい（おすすめ）」（2026-10-28）と答えたので、CI run 40796780384（80ea908）の artifact 12864058378 の .after.png（5 枚。閉じたパネルの3枚は今の基準と
+// バイトが同じで artifact に出なかったので替えていない）をバイトのまま基準にし、空に戻した（基準は 161 枚）
+const RETAKE = new Set([]);
 const PERF = [{ name: 'open-2000-blocks', budgetMs: 500 }];   // 3回開いた中央値で見る
 const TIME_ZONE = 'Asia/Tokyo';
 const TOLERANCE = 2;   // 色の差（0〜255）がこれ以下の画素は同じとみなす。CI の機械の CPU ごとの描き方の1段の差を拾わないため（揺れの確かめ judgePair は 0 で見る）
