@@ -434,12 +434,15 @@ test('ED-4: 変換確定の Enter（isComposing・keyCode 229）と変換中の 
   } finally { l.done(); }
 });
 
-test('ED-4・F43: 貼り付けは text/plain だけを入れ（改行は行の中の改行）、HTML の要素は行に入らず、記法でも変わらない', T, async () => {
+// 0.14.0 EK-3（計画 docs/plans/2026-10-26-140.md の「意図して変えるテスト」）: ふつうの貼り付けは行と飾りに変えるので（決めたこと 23〜25）、
+// 意図（HTML の要素が行の DOM に入らない・記法で変わらない）は残し、Ctrl+Shift+V（決めたこと 26: 素の文字だけ）の場面に替えた
+test('ED-4・F43: 貼り付けは Ctrl+Shift+V なら text/plain だけを入れ（改行は行の中の改行）、HTML の要素は行に入らず、記法でも変わらない', T, async () => {
   const l = await openReal({ pa1: BASE() });
   try {
     const t = typeIn(l, 'e1', '', 0);
     const data = { 'text/plain': '- a\r\nb', 'text/html': '<b>- a</b><br>b' };
     let prevented = false;
+    l.key({ key: 'V', code: 'KeyV', ctrlKey: true, shiftKey: true }, t);
     t.dispatchEvent({ type: 'paste', clipboardData: { getData: (k) => data[k] || '' }, preventDefault() { prevented = true; } });
     await l.drain();
     assert.strictEqual(prevented, true);
@@ -447,8 +450,10 @@ test('ED-4・F43: 貼り付けは text/plain だけを入れ（改行は行の�
     assert.strictEqual(t.children.length, 0);
     assert.deepStrictEqual(l.caret.get(t), [5, 5]);
     assert.deepStrictEqual(sent(l), []);
+    assert.strictEqual(l.called('blockPaste').length, 0, 'Ctrl+Shift+V でも変換した');
     // 選んだ所は置き換える
     l.caret.set(t, 0, 3);
+    l.key({ key: 'V', code: 'KeyV', ctrlKey: true, shiftKey: true }, t);
     t.dispatchEvent({ type: 'paste', clipboardData: { getData: (k) => (k === 'text/plain' ? 'X' : '<i>X</i>') }, preventDefault() {} });
     assert.strictEqual(t.textContent, 'X\nb');
     assert.deepStrictEqual(l.errors.map(fmt), []);

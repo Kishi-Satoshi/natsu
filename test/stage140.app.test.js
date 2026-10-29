@@ -3,6 +3,8 @@
  * 最小 DOM（helpers/simrun.js）の上で app.html の <script> を本当に走らせる。命令は一時の DB（helpers/dbtmp.js）を本当に通す。
  * preload の onEditStep は、この台の命令の口が preload と同じ決まり（戻せる命令が ok で changed のときだけ・答えより先に { cmd, pageId, step: tx }）で起こす。
  * カーソルは simrun の caret の継ぎ目（l.caret）で置く（偽の DOM に getSelection・Range が無い）。
+ * EK-3（E8・F102）: 要約の行に貼ると行と飾りに変える（blockPaste の1回・1歩）。1行の型の無い文は行の中に飾りつきで入れる。Ctrl+Shift+V は素の文字だけ・
+ *       選んだ文字に URL を貼るとリンク・大きすぎる貼り付けは知らせだけ・変換中は変換しない。画面の pasteConvert の写しは src/pasteConvert.js と字も答えも同じ。
  * EB-5（E6・SEC2）: 文字を選ぶと出る道具の帯（飾り・リンク・色）・Ctrl+K のリンクの欄（開けるのは決まった頭だけ・Ctrl+クリックで開く）・行の色（⠿・Ctrl+/・/ の色）。
  * EB-4（E6・F101）: 行の飾りを span で描いて { rich } で保存し、Ctrl+B・I・U・Ctrl+Shift+S・Ctrl+E と「**文字**」などの記法で付ける（変換中は決めない）。
  * EB-3（E7・F100・F103）: 要約の欄の Ctrl+Z・Ctrl+Shift+Z・Ctrl+Y（ページごとの列・1つの動作は1歩・打った文字は手が止まる所で区切る・
@@ -47,6 +49,8 @@ const CMDS = {
   blockSetOpenAll: (pageId, open) => ['block.setOpenAll', { pageId, open }],
   editRevert: (pageId, steps) => ['edit.revert', { pageId, steps }],
   blocksSetColor: (pageId, ids, color) => ['blocks.setColor', { pageId, ids, color }],   // 0.14.0 EB-5: 行の色
+  // 0.14.0 EK-3: 貼り付け（preload と同じく、afterId・inside は無ければ送らない）
+  blockPaste: (pageId, blockId, rich, at, blocks, afterId, inside) => ['block.paste', { pageId, blockId, rich, at, blocks, ...(afterId === undefined ? {} : { afterId }), ...(inside === true ? { inside } : {}) }],
 };
 async function openReal(pages, o = {}) {
   const t = tmpDb();
@@ -1738,4 +1742,270 @@ test('EB-5 直し（R117）: リンクで飛んだ先の印（.blk.linkhit）は
       assert.ok(c >= 3, `${name}: 印の線が --mkbg-${m} の上で ${c.toFixed(2)}`);
     }
   }
+});
+
+// ---------------------------------------------------------------- EK-3（決めたこと 23〜27・R18・R66・BQ5 (a)・BQ30 (a)。E8・F102）: 画面の貼り付け
+const PC = require('../src/pasteConvert');
+const FIX = (n) => fs.readFileSync(path.join(__dirname, 'fixtures', 'paste', `${n}.html`), 'utf8');
+const pastes = (l) => l.called('blockPaste').map((c) => c.args);
+const WRITES = ['blockPaste', 'blockInsert', 'blockSplit', 'blockUpdate', 'blockMerge', 'blockTurnInto', 'blockRemove', 'blockMove', 'blocksSetColor'];
+const writes = (l) => WRITES.flatMap((n) => l.called(n).map(() => n));
+// 行に貼る（本物の paste の事象の形。既定を止めたかを返す）
+function pasteIn(t, data) {
+  let prevented = false;
+  t.dispatchEvent({ type: 'paste', clipboardData: { getData: (k) => (Object.hasOwn(data, k) ? data[k] : '') }, preventDefault() { prevented = true; } });
+  return prevented;
+}
+const PLAIN_V = { key: 'V', code: 'KeyV', ctrlKey: true, shiftKey: true };
+const MANUAL = (id, text, o = {}) => ({ id, type: 'paragraph', text, citeState: 'manual', cites: [], ...o });
+const PG3 = () => [MANUAL('q1', '前の文'), MANUAL('q2', 'あいうえお'), MANUAL('q3', '後の文')];
+// 欄の行の要素が、自分の span（決まった印だけ・中は文字だけ）と文字のほかを持たないか（要素は assert の値に渡さない: R117）
+const OWN_ATTRS = ['data-m', 'data-color', 'data-bg', 'data-link', 'title'];
+function foreignIn(l) {
+  const out = [];
+  for (const t of $(l, 'pNote').querySelectorAll('.txt')) {
+    for (const n of t.childNodes) {
+      if (n.tagName === '#text') continue;
+      if (n.tagName !== 'span') { out.push(`<${n.tagName}>`); continue; }
+      const names = typeof n.getAttributeNames === 'function' ? n.getAttributeNames() : Object.keys(n.attributes || {});
+      for (const k of names) if (!OWN_ATTRS.includes(k)) out.push(`span[${k}]`);
+      if (n.childNodes.some((k) => k.tagName !== '#text')) out.push('span の中の要素');
+    }
+  }
+  return out;
+}
+const PASTE_TOO_BIG = '貼り付けが大きすぎます（2,000 行・1MB まで）。分けて貼ってください。';
+
+test('EK-3（R120）: 画面の写し（app.html の pasteConvert）は src/pasteConvert.js と字も答えも同じ。画面の <script> の中に HTML のコメントの頭と script の印が無い', () => {
+  const at = HTML.indexOf('  // ---- pasteConvert の写し');
+  const end = HTML.indexOf('  // ---- pasteConvert の写しはここまで');
+  assert.ok(at > 0 && end > at, 'app.html に pasteConvert の写しが無い');
+  const seg = HTML.slice(at, end);
+  // 字: PASTE_ROWS から pasteBlocks の終わりまで。行の頭に4つの空白・「<」+「!--」と「<」+「script」の「<」は \x3c（同じ文字の値）
+  const SRC = fs.readFileSync(path.join(__dirname, '..', 'src', 'pasteConvert.js'), 'utf8');
+  const body = SRC.slice(SRC.indexOf('const PASTE_ROWS'), SRC.indexOf('\nmodule.exports')).replace(/\s+$/, '');
+  const want = body.replace(/<!--/g, '\\x3c!--').replace(/<script/gi, '\\x3cscript').split('\n').map((x) => (x ? `    ${x}` : x)).join('\n');
+  assert.ok(seg.includes(want), 'app.html の写しの字が src/pasteConvert.js と違う');
+  // 答え（上の richText の写しの MARKS・linkOk と、木の kidsCanView を使う）
+  const rt = HTML.slice(HTML.indexOf('  // ---- richText の写し'), HTML.indexOf('  // ---- richText の写しはここまで'));
+  const app = new Function(`${fnApp('kidsCanView')}\n${fnApp('graphemeEnds')}\n${fnApp('safeOffset')}\n${rt}\n${seg}\nreturn pasteConvert;`)();   // eslint-disable-line no-new-func
+  assert.deepStrictEqual([app.PASTE_ROWS, app.PASTE_BYTES], [PC.PASTE_ROWS, PC.PASTE_BYTES]);
+  const many = Array.from({ length: 2001 }, (_, i) => `行${i}`).join('\n');
+  const deep = ['- 親', ...Array.from({ length: 2000 }, (_, i) => `  - 子${i}`)].join('\n');
+  const inputs = [...['word', 'edge', 'teams', 'gdocs'].map((n) => ({ html: FIX(n), text: 'x' })),
+    { html: '<p>あ<img src="x" onerror="y()"><b onclick="z()">太</b><script>秘</script><a href="javascript:alert(1)">リンク</a></p>', text: '' },
+    { html: '<h4>四</h4><ul><li>a<ul><li>b</li></ul></li></ul><table><tr><th>項目</th><td>担当</td></tr></table>', text: '' },
+    { html: '<img src="x">', text: '画像だけ' }, { text: '# 見出し\n- a\n  - b\n1. c\n- [x] 済み\n> 引用\n---\n```\n# 中\n```\n**太字**と[住所](https://example.com/)' },
+    { text: '**強い**語' }, { text: '一行\n二行\n\n三行' }, { text: 'ただの文' }, { text: '' }, { text: many }, { text: deep }, { html: '', text: '|a|b|\n|---|---|\n|c|d|' }];
+  for (const x of inputs) assert.deepStrictEqual(app.pasteBlocks(x), PC.pasteBlocks(x), JSON.stringify(x).slice(0, 80));
+  for (const n of ['word', 'teams']) assert.deepStrictEqual(app.fromHtml(FIX(n)), PC.fromHtml(FIX(n)));
+  assert.deepStrictEqual(app.fromMarkdown('- a\n\t- b'), PC.fromMarkdown('- a\n\t- b'));
+  assert.deepStrictEqual(app.fromPlain('a\r\nb'), PC.fromPlain('a\r\nb'));
+  // HTML の決まり: <script> の中の「<」+「!--」と「<」+「script」は、閉じる </script> の読み方を変える（後ろの画面が script の文になる）
+  const script = HTML.slice(HTML.indexOf('<script>') + '<script>'.length, HTML.lastIndexOf('</script>'));
+  assert.ok(!/<!--|<\/?script/i.test(script), '画面の <script> の中に HTML のコメントの頭か script の印がある');
+});
+
+test('EK-3（決めたこと 23・25・BQ5 (a)・E8）: Word の形の HTML を貼る → blockPaste の1回（見出し・箇条書き・太字。色は落ちる）で今の行の後ろに入り、カーソルは最後に貼った行の終わり。Ctrl+Z の1回で戻る', T, async () => {
+  const l = await openReal({ pa1: PG3() });
+  try {
+    const before = body(l.page());
+    const t = typeIn(l, 'q2', 'あいうえお');
+    assert.strictEqual(pasteIn(t, { 'text/html': FIX('word'), 'text/plain': '議題の整理\n太字の文と色の文' }), true, '既定の貼り付けを止めない（HTML のまま入る）');
+    await l.drain();
+    const want = PC.pasteBlocks({ html: FIX('word'), text: '' }).blocks;
+    assert.deepStrictEqual(writes(l), ['blockPaste'], '貼り付けを1つの命令で送らない');
+    const [args] = pastes(l);
+    assert.deepStrictEqual([args[0], args[1], args[3], args.length], ['pa1', 'q2', 5, 5]);
+    assert.strictEqual(R.plainOf(args[2]), 'あいうえお');
+    assert.deepStrictEqual(args[4], want);
+    const p = l.page();
+    assert.deepStrictEqual(p.blocks.map((b) => b.id).slice(0, 2), ['q1', 'q2']);
+    assert.strictEqual(p.blocks[p.blocks.length - 1].id, 'q3');
+    const got = p.blocks.slice(2, -1);
+    assert.deepStrictEqual(got.slice(0, 4).map((b) => [b.type, b.level || 0, b.text]), [['heading', 1, '議題の整理'], ['paragraph', 0, '太字の文と色の文'], ['bullet', 0, '一つ目の項目'], ['bullet', 0, '二つ目の項目']]);
+    assert.deepStrictEqual(got[1].rich, [r4('太字の文', 'b'), r4('と色の文')]);
+    assert.deepStrictEqual(got[2].children.map((b) => [b.type, b.text]), [['bullet', '子の項目']]);
+    assert.ok(!/"(color|bg)"/.test(JSON.stringify(p.blocks)), '色を残した（BQ5 (a)）');
+    // 画面: 貼った行が見えて、飾りは span。カーソルは最後に貼った行の終わり
+    const ids = rowsOf(l).map((e) => e.dataset.id);
+    assert.strictEqual(ids.length, 2 + 10 + 1);
+    assert.deepStrictEqual(viewOf(txtOf(l, got[1].id)), [{ tag: 'span', m: 'b', t: '太字の文' }, 'と色の文']);
+    const last = got[got.length - 1];
+    assert.ok(l.document.activeElement === txtOf(l, last.id), 'カーソルが最後に貼った行に無い');
+    assert.deepStrictEqual(l.caret.get(txtOf(l, last.id)), [last.text.length, last.text.length]);
+    assert.deepStrictEqual(foreignIn(l), []);
+    // Ctrl+Z の1回で、貼る前に戻る
+    press(l, Z);
+    await l.drain();
+    assert.strictEqual(revs(l).length, 1);
+    assert.deepStrictEqual(body(l.page()), before);
+    assert.deepStrictEqual(rowsOf(l).map((e) => e.dataset.id), ['q1', 'q2', 'q3']);
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+test('EK-3（決めたこと 24・R66）: Markdown の文（HTML が無い）→ 行に（見出し・箇条書き・太字・字下げは子・番号）。空のテキストの行に貼ると、最初の行がその行になる（R18）', T, async () => {
+  const l = await openReal({ pa1: [MANUAL('q1', '前の文'), MANUAL('q2', '')] });
+  try {
+    const md = '# 決めた事\n- 一つ目\n- **二つ目**\n  - 子\n1. 番号';
+    const t = typeIn(l, 'q2', '', 0);
+    pasteIn(t, { 'text/plain': md });
+    await l.drain();
+    assert.deepStrictEqual(writes(l), ['blockPaste']);
+    assert.deepStrictEqual(pastes(l)[0][4], PC.fromMarkdown(md).blocks);
+    const p = l.page();
+    assert.deepStrictEqual(p.blocks.map((b) => [b.type, b.text]), [['paragraph', '前の文'], ['heading', '決めた事'], ['bullet', '一つ目'], ['bullet', '二つ目'], ['numbered', '番号']]);
+    assert.strictEqual(p.blocks[1].id, 'q2', '空の行が最初の貼った行にならない（R18）');
+    assert.deepStrictEqual(p.blocks[3].rich, [r4('二つ目', 'b')]);
+    assert.deepStrictEqual(p.blocks[3].children.map((b) => [b.type, b.text]), [['bullet', '子']]);
+    const kid = rowOf(l, p.blocks[3].children[0].id);
+    assert.ok(kid && kid.dataset.parent === p.blocks[3].id, '字下げした箇条が子に見えない');
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+test('EK-3（決めたこと 24）: 1行の型の無い文 → 命令を送らず、行の中のカーソルの所に飾りつきで入る（選んだ所は置き換える）。保存は次の区切りの { rich } の1回', T, async () => {
+  const l = await openReal({ pa1: PG3() });
+  try {
+    const t = typeIn(l, 'q2', 'あいうえお', 2);
+    pasteIn(t, { 'text/html': '<meta charset="utf-8"><b style="color:red">大事</b>', 'text/plain': '大事' });
+    await l.drain();
+    assert.deepStrictEqual(writes(l), [], '1行の文で命令を送った');
+    assert.deepStrictEqual(viewOf(t), ['あい', { tag: 'span', m: 'b', t: '大事' }, 'うえお']);
+    assert.deepStrictEqual(l.caret.get(t), [4, 4]);
+    // Markdown の1行（文中の飾り）も行の中へ。選んだ所は置き換える
+    l.caret.set(t, 6, 7);
+    pasteIn(t, { 'text/plain': '**強い**語' });
+    await l.drain();
+    assert.deepStrictEqual(writes(l), []);
+    assert.deepStrictEqual(viewOf(t), ['あい', { tag: 'span', m: 'b', t: '大事' }, 'うえ', { tag: 'span', m: 'b', t: '強い' }, '語']);
+    assert.deepStrictEqual(l.caret.get(t), [9, 9]);
+    // 素の1行は打った文字と同じ（前の文字の飾りを引き継ぐ）
+    pasteIn(t, { 'text/plain': 'ん' });
+    assert.strictEqual(t.textContent, 'あい大事うえ強い語ん');
+    t.onblur();
+    await l.drain();
+    assert.deepStrictEqual(updates(l), [['pa1', 'q2', { rich: [r4('あい'), r4('大事', 'b'), r4('うえ'), r4('強い', 'b'), r4('語ん')] }]]);
+    assert.deepStrictEqual(writes(l), ['blockUpdate']);
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+test('EK-3（決めたこと 26）: Ctrl+Shift+V → 変換せず素の文字だけ（改行は行の中・HTML と Markdown の印はそのまま）。次のふつうの貼り付けは変換する', T, async () => {
+  const l = await openReal({ pa1: PG3() });
+  try {
+    const t = typeIn(l, 'q2', 'あいうえお');
+    assert.strictEqual(l.key(PLAIN_V, t).defaultPrevented, false, 'Ctrl+Shift+V の既定（貼り付け）を止めた');
+    assert.strictEqual(pasteIn(t, { 'text/plain': '# 見\r\n- a', 'text/html': '<h1>見</h1><ul><li>a</li></ul>' }), true);
+    await l.drain();
+    assert.deepStrictEqual(writes(l), []);
+    assert.strictEqual(t.textContent, 'あいうえお# 見\n- a');
+    assert.deepStrictEqual(viewOf(t), ['あいうえお# 見\n- a']);
+    // 次の Ctrl+V はふつうの貼り付け（変換する）
+    l.key({ key: 'v', code: 'KeyV', ctrlKey: true }, t);
+    pasteIn(t, { 'text/plain': '# 見\n- a' });
+    await l.drain();
+    assert.deepStrictEqual(writes(l), ['blockPaste']);
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+test('EK-3（K-25・R111 (3)）: 選んだ文字の上に URL を貼る → 文字は置き換わらずリンク（HTML のリンクがあっても）。命令は送らない', T, async () => {
+  const l = await openReal({ pa1: PG3() });
+  try {
+    const t = selectIn(l, 'q2', 1, 3);
+    pasteIn(t, { 'text/plain': 'https://example.com/a', 'text/html': '<a href="https://example.com/a">https://example.com/a</a>' });
+    await l.drain();
+    assert.strictEqual(t.textContent, 'あいうえお');
+    assert.deepStrictEqual(viewOf(t), ['あ', { tag: 'span', link: 'https://example.com/a', t: 'いう' }, 'えお']);
+    assert.deepStrictEqual(writes(l), []);
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+test('EK-3（決めたこと 25・F102）: 大きすぎる貼り付け（2,001 行・子孫で 2,001 行）→ 知らせだけで、命令は0・行の文は変わらない', T, async () => {
+  const l = await openReal({ pa1: PG3() });
+  try {
+    const t = typeIn(l, 'q2', 'あいうえお');
+    pasteIn(t, { 'text/plain': Array.from({ length: 2001 }, (_, i) => `行${i}`).join('\n') });
+    await l.drain();
+    assert.strictEqual(toastOf(l), PASTE_TOO_BIG);
+    $(l, 'toast').textContent = '';
+    pasteIn(t, { 'text/plain': ['- 親', ...Array.from({ length: 2000 }, (_, i) => `  - 子${i}`)].join('\n') });
+    await l.drain();
+    assert.strictEqual(toastOf(l), PASTE_TOO_BIG);
+    assert.deepStrictEqual(writes(l), []);
+    assert.strictEqual(t.textContent, 'あいうえお');
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+test('EK-3（決めたこと 24・R126）: 変換中（compositionstart の後）の貼り付けは変換を決めない（命令を送らず、素の文字を行の中に）', T, async () => {
+  const l = await openReal({ pa1: PG3() });
+  try {
+    const t = typeIn(l, 'q2', 'あいうえお');
+    t.dispatchEvent({ type: 'compositionstart' });
+    assert.strictEqual(pasteIn(t, { 'text/plain': '# 見\n- a', 'text/html': '<h1>見</h1><ul><li>a</li></ul>' }), true);
+    await l.drain();
+    assert.deepStrictEqual(writes(l), []);
+    assert.strictEqual(t.textContent, 'あいうえお# 見\n- a');
+    assert.deepStrictEqual(viewOf(t), ['あいうえお# 見\n- a']);
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+test('EK-3・SEC2（F102）: 行の DOM に貼った HTML の要素が無い（img・onerror・onclick・script・iframe・javascript: のリンク。行にしても、1行で行の中に入れても）', T, async () => {
+  const l = await openReal({ pa1: PG3() });
+  try {
+    const bad = '<p>あ<img src="x" onerror="steal()"><b onclick="x()">太</b><script>秘</script><a href="javascript:alert(1)">リンク</a></p><p>二行目<iframe src="https://example.com/f">秘</iframe><svg><circle/></svg><font color="red">赤</font></p>';
+    const t = typeIn(l, 'q2', 'あいうえお');
+    pasteIn(t, { 'text/html': bad, 'text/plain': 'あ太リンク\n二行目赤' });
+    await l.drain();
+    assert.deepStrictEqual(writes(l), ['blockPaste']);
+    assert.deepStrictEqual(foreignIn(l), []);
+    const p = l.page();
+    assert.deepStrictEqual(p.blocks.slice(2, 4).map((b) => b.text), ['あ太リンク', '二行目赤']);
+    assert.ok(!JSON.stringify(p.blocks).includes('秘') && !JSON.stringify(p.blocks).includes('javascript'), '捨てる中身か危ないリンクが入った');
+    assert.ok(!rowsOf(l).some((e) => e.textContent.includes('秘')));
+    // 1行（行の中に入れる）でも
+    const t1 = typeIn(l, 'q1', '前の文');
+    pasteIn(t1, { 'text/html': '<span onclick="x()"><img src="x" onerror="y()">安<b>全</b><a href="javascript:z()">字</a></span>', 'text/plain': '安全字' });
+    await l.drain();
+    assert.deepStrictEqual(writes(l), ['blockPaste']);
+    assert.deepStrictEqual(viewOf(t1), ['前の文安', { tag: 'span', m: 'b', t: '全' }, '字']);
+    assert.deepStrictEqual(foreignIn(l), []);
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+test('EK-3・R66・BQ30 (a)（第4版）: 開いたトグルの文の終わりで Markdown の3行を貼る → blockPaste の inside が真で、貼った行はトグルの中（最初の子）に見える。文のある行の頭で貼る → afterId は画面で上に見えている行で、今の行はそのまま', T, async () => {
+  const l = await openReal({ pa1: [MANUAL('q1', '前の文'), { id: 'tg', type: 'toggle', text: 'トグル', citeState: 'manual', cites: [], children: [MANUAL('k1', '子の文')] }, MANUAL('q2', 'あいうえお')] });
+  try {
+    const t = typeIn(l, 'tg', 'トグル');
+    pasteIn(t, { 'text/plain': '- 一\n- 二\n- 三' });
+    await l.drain();
+    const [a1] = pastes(l);
+    assert.deepStrictEqual([a1[1], a1[3], a1[5], a1[6]], ['tg', 3, undefined, true], 'inside が真でない');
+    const tg = l.page().blocks.find((b) => b.id === 'tg');
+    assert.deepStrictEqual(tg.children.map((b) => b.text), ['一', '二', '三', '子の文']);
+    const kids = rowsOf(l).filter((e) => e.dataset.parent === 'tg').map((e) => e.querySelector('.txt').textContent);
+    assert.deepStrictEqual(kids, ['一', '二', '三', '子の文'], '貼った行がトグルの中に見えない');
+    // 文のある行の頭（BQ30 (a)）
+    const t2 = typeIn(l, 'q2', 'あいうえお', 0);
+    pasteIn(t2, { 'text/plain': '上一\n上二' });
+    await l.drain();
+    const a2 = pastes(l)[1];
+    assert.deepStrictEqual([a2[1], a2[3], a2[5], a2.length], ['q2', 0, 'tg', 6], 'afterId が画面で上に見えている最上位の行でない');
+    const p = l.page();
+    assert.deepStrictEqual(p.blocks.map((b) => b.text), ['前の文', 'トグル', '上一', '上二', 'あいうえお']);
+    assert.strictEqual(p.blocks[4].id, 'q2', '今の行の ID が替わった');
+    // いちばん上の行の頭なら頭（''）
+    const t3 = typeIn(l, 'q1', '前の文', 0);
+    pasteIn(t3, { 'text/plain': '頭一\n頭二' });
+    await l.drain();
+    assert.strictEqual(pastes(l)[2][5], '');
+    assert.deepStrictEqual(l.page().blocks.map((b) => b.text).slice(0, 3), ['頭一', '頭二', '前の文']);
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
 });
