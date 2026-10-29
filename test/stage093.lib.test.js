@@ -208,21 +208,22 @@ test('M2・M3: nudgeStep の表', T, () => {
   assert.strictEqual(JSON.stringify(st0), snap);
 });
 
+// 0.13.2 LN-7（持ち主の答え「下の中央、録音バーと同じ高さ」。計画 docs/plans/2026-10-28-132.md の「意図して変えるテスト」）で意図して変えた: 右上でなく
+// 作業領域の下の中央（カードの下の端が 12px・左右の真ん中は Math.round で整数）。同じ組（左の画面・上の画面・タスクバーが上・大きすぎる・大きさが無い）で書き直した
 test('nudgeBounds の表', T, () => {
   const wa = { x: 0, y: 0, width: 1920, height: 1040 };
   const P = lib.NUDGE_PAD, E = lib.NUDGE_EDGE;
   assert.strictEqual(E, 12);
-  // 右上。カードの端が作業領域の端から 12px（窓はカードの周りに NUDGE_PAD の余白を持つ）
+  // 下の中央。カードの下の端が作業領域の下の端から 12px（窓はカードの周りに NUDGE_PAD の余白を持つ）
   const b = lib.nudgeBounds({ size: { w: 520.4, h: 60 }, workArea: wa });
-  assert.deepStrictEqual(b, { x: 1920 - (E - P) - (521 + 2 * P), y: E - P, width: 521 + 2 * P, height: 60 + 2 * P });
-  assert.strictEqual(b.x + P + 521, 1920 - 12);
-  assert.strictEqual(b.y + P, 12);
+  assert.deepStrictEqual(b, { x: Math.round((1920 - (521 + 2 * P)) / 2), y: 1040 - (E - P) - (60 + 2 * P), width: 521 + 2 * P, height: 60 + 2 * P });
+  assert.strictEqual(b.y + P + 60, 1040 - 12);
   // 左にある画面（x が負）
   const L = { x: -1280, y: 0, width: 1280, height: 984 };
-  assert.deepStrictEqual(lib.nudgeBounds({ size: { w: 400, h: 60 }, workArea: L }), { x: -(E - P) - (400 + 2 * P), y: E - P, width: 400 + 2 * P, height: 60 + 2 * P });
+  assert.deepStrictEqual(lib.nudgeBounds({ size: { w: 400, h: 60 }, workArea: L }), { x: -1280 + (1280 - (400 + 2 * P)) / 2, y: 984 - (E - P) - (60 + 2 * P), width: 400 + 2 * P, height: 60 + 2 * P });
   // 上にある画面（y が負）・作業領域が上にずれている（タスクバーが上）
-  assert.strictEqual(lib.nudgeBounds({ size: { w: 400, h: 60 }, workArea: { x: 0, y: -1080, width: 1920, height: 1040 } }).y, -1080 + E - P);
-  assert.strictEqual(lib.nudgeBounds({ size: { w: 400, h: 60 }, workArea: { x: 0, y: 48, width: 1920, height: 1032 } }).y, 48 + E - P);
+  assert.strictEqual(lib.nudgeBounds({ size: { w: 400, h: 60 }, workArea: { x: 0, y: -1080, width: 1920, height: 1040 } }).y, -1080 + 1040 - (E - P) - (60 + 2 * P));
+  assert.strictEqual(lib.nudgeBounds({ size: { w: 400, h: 60 }, workArea: { x: 0, y: 48, width: 1920, height: 1032 } }).y, 48 + 1032 - (E - P) - (60 + 2 * P));
   // 大きすぎる大きさは作業領域 − 2 × (12 − 余白) で切る
   const small = { x: 0, y: 0, width: 300, height: 100 };
   const c = lib.nudgeBounds({ size: { w: 5000, h: 5000 }, workArea: small });

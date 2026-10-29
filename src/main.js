@@ -1175,6 +1175,7 @@ async function verifyManagedAtStartup() {
   if (v.bad.length) engineLog(`取り込んだエンジンの照らし: 合わない ${v.bad.map((b) => `${b.file}（${b.why}）`).join('、')}`);
   restartEnginesIfNeeded();
   // 起動のときの復旧の文字起こしは、照らし終わる前に「確かめています」で保留になる。使えるようになった今もう一度試す
+  recoveryTriggerAsk = 'engine';   // 0.13.2 LN-2（LR11）
   if (recoveryQueue && managed.whisper && !manualGroup(whisperEng)) transcribeRecovered().catch((e) => engineLog(`復旧の文字起こしに失敗: ${logReason(e)}`));
   onManagedVerified(v);   // 壊れていた組の案内と取り直し（Task 14）
   // 画面へ今の写しを送る。起動のときに「確かめています」を聞いた画面は、確かめ終えた（checking が偽の）この知らせで
@@ -1335,6 +1336,7 @@ async function applyManagedWhenIdle() {
     if (gotWhisper && !manualGroup(whisperEng)) {
       sendToMainWin('app:notice', '文字起こしが使えるようになりました。');
       // 前にエンジンが無くて残した文字起こし待ちの音声を、今のエンジンで片付ける
+      recoveryTriggerAsk = 'engine';   // 0.13.2 LN-2（LR11）
       if (recoveryQueue) transcribeRecovered().catch((e) => engineLog(`復旧の文字起こしに失敗: ${logReason(e)}`));
     }
     repairManaged(cands, checked);
@@ -1661,6 +1663,8 @@ const noticeFor = (why, scope) => {
 // 録音中のページの帯（第1d回 A-6・D17。計画「画面と知らせの文」の B1〜B10）。画面は文を作らず、この文をそのまま出す。
 // d は帯の詳しさ（seg-failed の n・stall と wait の sec）、p は送り先（{ホスト} は中継のホストの名前だけ。札・URL の道は入れない）
 const STT_BANNER = {
+  // 0.13.2 LN-3（持ち主の答え LA2。前半は持ち主の答えの文・後半はほかの帯と同じく行動の文）: ログインしていない・しまったログインを読めない間。ボタンは［ログイン］
+  'no-login': () => 'ログインしていないため PC で文字起こししています。［ログイン］を押してログインすると、クラウドで文字起こしします。',
   'engine-down': () => 'PC の中の文字起こしエンジンが動いていません（音声は残してあります）。［エンジンを確かめる］を押してください。',
   stall: (d) => `文字起こしが止まっているかもしれません（音はあるのに、約 ${d.sec} 秒文字が出ていません）。［もう一度］で、その区間を送り直してください。`,
   login: () => 'ログインが切れたため、この PC で文字起こしを続けていますが、精度が落ちます。［ログインし直す］を押して、もう一度ログインしてください。',
@@ -1693,7 +1697,8 @@ const WIN_NOTIFY = {
 };
 // 帯のボタン（画面が付ける。engine は設定の「文字起こし」、retry は meeting:retry、account は設定の「アカウント」）
 // 第1d2回 M-2: signin は［ログイン］（設定の「アカウント」）、offline は［オフラインの準備］（カード「オフライン」の取り込みの欄）
-const STT_BANNER_ACTION = { 'engine-down': 'engine', stall: 'retry', login: 'account', 'seg-failed': 'retry', 'kept-login': 'signin', 'kept-local': 'offline' };
+// 0.13.2 LN-3（LR8）: 帯の signin（no-login・kept-login）の［ログイン］は、画面が設定の［ログイン］と同じログインの窓を直に開く
+const STT_BANNER_ACTION = { 'no-login': 'signin', 'engine-down': 'engine', stall: 'retry', login: 'account', 'seg-failed': 'retry', 'kept-login': 'signin', 'kept-local': 'offline' };
 // 中継の様子の帯。互いに替わる（新しい様子を立てたら前の様子は消す）。クラウドで答えが来た・オフライン・ログインしていない・
 // PC の中だけになったら全部消す（オフラインなどは帯にしない: RF28）
 const RELAY_PROBLEMS = ['relay-off', 'daily-cap', 'relay-blocked', 'relay-down', 'relay-busy'];
@@ -1864,6 +1869,22 @@ function hasRelayLogin() {
 const LOGIN_WIN = { width: 480, height: 680 };
 const LOGOUT_TIMEOUT_MS = 5000;
 let loginOpen = null;   // { win, promise, pinned, stop(r) } 開いている窓（同時に1つだけ）
+// 0.13.2 LN-4（持ち主の答え PQ3「NaTsu を起動し直すまで出さない」・LR4・LR19。持ち主の試作の「起動のたびに戻す一時の項目」）: 自動で開いた窓をログインせずに
+// 閉じた（× か失敗）。起動の間だけのメモリ（設定にもファイルにも書かない）。ログインすると忘れる
+let loginSnoozed = false;
+// 0.13.2 LN-4（持ち主の答え LA1・PQ1 の B）: ログインしていないときに、起動・会議の始め・音声入力の始めで、今のログインの窓を自動で開く（待たない・投げない。
+// 録音は待たせない: 呼ぶのは始めた後）。開くかは mainlib.loginAskPlan（オフライン・オフラインモードの会議・× の後・もう開いているときは開かない。
+// 準備を選んでいない PC の起動は今どおり設定の「アカウント」: LR3）
+function askLogin(moment, { localOnly = false } = {}) {
+  try {
+    const plan = lib.loginAskPlan({ moment, online: netOnline(), signedIn: hasRelayLogin(), why: cloudNow().why, snoozed: loginSnoozed, localOnly: Boolean(localOnly),
+      recording: recordingNow() || meetingStarting > 0,   // 0.13.2 点検の直し 2（LR37）
+      chosen: isOfflineChosen(), showing: Boolean(loginOpen) });
+    if (plan.ask) openLoginWindow({ auto: moment });
+  } catch (e) {
+    engineLog(`アカウント: ログインの窓を自動で開けません（${errCode(e)}）`);
+  }
+}
 const hostKind = (url) => {
   let host = '';
   try { host = new URL(String(url)).hostname.toLowerCase(); } catch (_) { return 'other'; }
@@ -1920,11 +1941,17 @@ async function finishAccessLogin() {
   setAccountEmail(me.email);
   online.forget(relay.relayProvider().reachUrl);
   clearLoginProblem();
+  keptTriggerAsk = 'login';   // 0.13.2 LN-2（LR11）
   retryKeptWhenBack();   // 第1d2回 M-3: ログインしたら、見回りを待たずに残した音声を文字起こしする（待たない。投げない）
   return { ok: true, email: me.email };
 }
 // 録音中の会議の帯 login は、区間を待たずに消す（第1d回 A-6。A-11 でログインの窓の成功から呼ぶ）
 function clearLoginProblem() {
+  // 0.13.2 LN-3: ログインしていない帯（no-login）も、ログインしたら区間を待たずに消す
+  if (meeting && meeting.problems.has('no-login')) {
+    clearSttProblem(meeting, 'no-login');
+    sendToMainWin('meeting:update', meetingStatus());
+  }
   if (meeting && (meeting.problems.has('login') || meeting.problems.has('kept-login'))) {
     clearSttProblem(meeting, 'login', 'kept-login');   // 第1d2回 M-2: ログインしていないため音声を残している帯（B13）も
     sendToMainWin('meeting:update', meetingStatus());
@@ -1932,8 +1959,14 @@ function clearLoginProblem() {
 }
 // ログインの窓を開く → Promise<{ ok: true, email } | { ok: false, code, host? }>（投げない）。開いている間にもう一度呼ばれたら、
 // 前の窓を前に出して同じ Promise を返す。オフライン（net.isOnline() が false）なら窓を作らずに offline
-function openLoginWindow() {
+// 0.13.2 LN-4（PQ1 の B・LR16〜LR20）: { auto: 'boot' | 'meeting' | 'dictation' } で呼んだときは自動で開いた窓。窓の作り・読む・確かめる・しまうの道は同じで、
+// 違うのは出し方だけ: フォーカスを取らずに出し（showInactive: LR1）、本体の窓の子にしない（本体の窓を最小化していても見える: LR17）。開いている窓に
+// 自動でもう一度来たら何もしない（前に出さない: LR18）。押して（設定・帯の［ログイン］）開いている窓に来たら、その窓は押して開いた窓の扱いになる。
+// 自動の窓がログインせずに閉じたら、その起動の間は自動では開かない（LR4・LR19）。自動の窓でログインできたら本体の窓へ account:changed（LR20）
+function openLoginWindow({ auto = '' } = {}) {
   if (loginOpen) {
+    if (auto) return loginOpen.promise;
+    loginOpen.auto = '';
     try { if (!loginOpen.win.isDestroyed()) { loginOpen.win.show(); loginOpen.win.focus(); } } catch (_) { /* 閉じかけ */ }
     return loginOpen.promise;
   }
@@ -1942,7 +1975,7 @@ function openLoginWindow() {
   let win;
   try {
     win = new BrowserWindow({
-      parent: mainWin && !mainWin.isDestroyed() ? mainWin : undefined, modal: false, ...LOGIN_WIN, title: 'NaTsu のログイン', autoHideMenuBar: true, show: false,
+      parent: !auto && mainWin && !mainWin.isDestroyed() ? mainWin : undefined, modal: false, ...LOGIN_WIN, title: 'NaTsu のログイン', autoHideMenuBar: true, show: false,
       webPreferences: { partition: relay.ACCESS_PARTITION, sandbox: true, contextIsolation: true, nodeIntegration: false, webviewTag: false, spellcheck: false },
     });
   } catch (e) {
@@ -1951,23 +1984,27 @@ function openLoginWindow() {
   }
   let settle;
   const promise = new Promise((r) => { settle = r; });
-  const st = { win, promise, pinned: '', done: false, busy: false };
+  const st = { win, promise, pinned: '', done: false, busy: false, auto };
   // 終える（1回だけ）。失敗なら partition を空にして前のログインを戻す。窓は閉じる
   st.stop = (r) => {
     if (st.done) return;
     st.done = true;
     if (loginOpen === st) loginOpen = null;
+    if (r.ok) loginSnoozed = false;   // 0.13.2 LN-4: ログインしたら「今はしない」を忘れる
+    else if (st.auto) loginSnoozed = true;   // 0.13.2 LN-4（LR4・LR19）: 自動の窓をログインせずに閉じた（× も失敗も）
     try { if (!win.isDestroyed()) win.close(); } catch (_) { /* 閉じた */ }
     const fin = r.ok ? Promise.resolve() : resetAccessCookies();
     fin.catch(() => {}).then(() => {
       engineLog(r.ok ? 'アカウント: ログインした' : `アカウント: ログインできませんでした（${r.code}）`);
+      if (st.auto && r.ok) sendToMainWin('account:changed');   // 0.13.2 LN-4（LR20）: 受ける画面が無いので、設定の「アカウント」を読み直させる
       settle(r);
     });
   };
   loginOpen = st;
-  engineLog('アカウント: ログインの窓を開いた');
+  engineLog(auto ? `アカウント: ログインの窓を自動で開いた（${auto}）` : 'アカウント: ログインの窓を開いた');
   win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
-  win.once('ready-to-show', () => { try { if (!win.isDestroyed()) win.show(); } catch (_) { /* 閉じた */ } });
+  // 0.13.2 LN-4（LR1・LR16）: 自動で開いた窓はフォーカスを取らずに出す（ほかのアプリの入力・音声入力の貼り付け先を変えない）
+  win.once('ready-to-show', () => { try { if (!win.isDestroyed()) { if (st.auto) win.showInactive(); else win.show(); } } catch (_) { /* 閉じた */ } });
   win.on('closed', () => { if (!st.busy) st.stop({ ok: false, code: 'cancel' }); });
   win.webContents.on('did-navigate', (_e, url, httpResponseCode) => {
     let u;
@@ -2595,8 +2632,9 @@ async function transcribeRouted(wav, tail, durationMs, opts, scope, what) {
   }
 }
 // 復旧の前: q.localOnly でなく、クラウドで処理できるなら true（エンジンを起こさない。知らせは出さない）
-// 0.9.4 S-4F（持ち主の答え Q14「PC で文字起こし」）: 遅い会議の待ち行列（slow）は、オフラインモードの会議と同じく PC だけで文字起こしする
-const recoveryPcOnly = (q) => Boolean(q && (q.localOnly || q.slow));
+// 0.9.4 S-4F（持ち主の答え Q14「PC で文字起こし」）は遅い会議の待ち行列（slow）も PC だけにしていたが、0.13.2 LN-2（持ち主の答え LA3「ログインしていれば
+// クラウドで」）で改めた: PC だけなのはオフラインモードの会議（localOnly。RF47）だけ。遅い会議の待ち行列は、ログインしていてつながればクラウドで文字にする
+const recoveryPcOnly = (q) => Boolean(q && q.localOnly);
 async function recoveryCloudReady(q) {
   if (!q || recoveryPcOnly(q)) return false;
   try {
@@ -3129,11 +3167,13 @@ function leaveNoticeClick(m) {
   if (mainWin.isMinimized()) mainWin.restore();
   mainWin.show();
   if (m.leavePageId) sendToMainWin('page:open', m.leavePageId);
+  // 0.13.2 LN-5（LR13）: 保存の返事の前（会議は片付いたが、ページの ID をまだ覚えていない）に押した → 押したことを覚え、保存の後に開く
+  else if (finalizingPageIds.has(m.pageId)) m.leaveClickedEarly = true;
 }
 
 // ---------------------------------------------------------------- 会議の検出のパネル（0.9.3 M-3。決めたこと 7〜10。持ち主の答え Q3・Q5）
 // 録音バーと同じ作りの小さな透過の窓（nudge.html）。初めて出すときに作り、使い回す。出すのは showInactive だけ（会議のアプリの入力を奪わない）・
-// 画面の共有と録画に写らない（setContentProtection: K4）・いつも前。置き場所は出す時のカーソルの画面の右上（mainlib.nudgeBounds）。
+// 画面の共有と録画に写らない（setContentProtection: K4）・いつも前。置き場所は出す時のカーソルの画面の下の中央（録音バーと同じ高さ。0.13.2 LN-7: mainlib.nudgeBounds）。
 // 明暗は Windows の明暗（nativeTheme.shouldUseDarkColors。NaTsu の外観で明るい・暗いを選んでいればそれ）で、出している間に変われば送り直す（Q3）
 let nudgeWin = null;
 let nudgeShown = null;       // 出しているアプリ { id, label }（パネルの押した口はこれだけを使う。画面から id を受けない: M7）
@@ -3639,6 +3679,7 @@ function startRecording() {
   if (!plan.ok) {
     createMainWindow();
     sendToMainWin('app:notice', plan.action ? { text: plan.error, action: plan.action } : plan.error);
+    if (c.why === 'signed-out' || c.why === 'login') askLogin('dictation');   // 0.13.2 LN-4（決めたこと 1）: 断った理由がログインなら開く
     return;
   }
   // 第1d2回 M-5: 始めたときに手元が使えたか（使えずにクラウドで始めた音声入力は、選んだ人でも音声を残す: 決めたこと 14）と、始めた時刻（残す名前）
@@ -3653,6 +3694,7 @@ function startRecording() {
   sendToOverlay('overlay:start', { mode: 'dictation', micId: settings.micId || '', sound: Boolean(settings.soundFeedback), form: overlayForm, keys: panelKeys('hotkey') });
   syncEscapeHotkey();
   updateTray();
+  askLogin('dictation');   // 0.13.2 LN-4（LA1）: 録音を始めた後に（貼り付け先を控えた後・フォーカスを取らない）
 }
 // 0.9.0 U-1（SP2・設計書 RF9・決めたこと 16）: 音声入力の録音中だけ Esc を全体のホットキーにして取り消しに使う。
 // ただし本体の窓にフォーカスがある間は付けない（全体のホットキーは窓より先に取るので、設定のポップアップや検索の窓の Esc が
@@ -3679,6 +3721,14 @@ function cancelRecording() {
   syncEscapeHotkey();
   sendToOverlay('overlay:cancel', {});
   updateTray();
+  resumeRecoveryAfterDictation();
+}
+// 0.13.2 LN-2（決めたこと 7）: 音声入力が終わって待機に戻ったら、録音中（busy）で止めた会議の後の文字起こしを回し直す（会議の終わりの締めと同じ。
+// 次の会議の終わりを待たない）。音声入力の終わりの3か所（貼った・誤りで終えた・取り消した）から呼ぶ
+function resumeRecoveryAfterDictation() {
+  if (meeting || state !== 'idle') return;
+  recoveryTriggerAsk = 'dictation-end';
+  if (recoveryQueue) transcribeRecovered().catch((e) => engineLog(`復旧の文字起こしに失敗（音声入力の後）: ${logReason(e)}`));
 }
 function toggleRecording() {
   if (state === 'idle') startRecording();
@@ -3718,6 +3768,7 @@ async function handleDictationAudio(buffer, durationMs) {
     sendToOverlay('overlay:phase', { phase: 'done', message: preview, procSec: (procMs / 1000).toFixed(1) });
     setTimeout(hideOverlayIfIdle, 1500);
     state = 'idle'; updateTray();
+    resumeRecoveryAfterDictation();
   } catch (e) {
     if (keepsDictation(e)) { await keepDictation(buffer, durationMs, e); return; }
     finishWithError(e.message || '不明なエラー');
@@ -3878,6 +3929,7 @@ function finishWithError(message) {
   state = 'idle'; syncEscapeHotkey(); updateTray();
   sendToOverlay('overlay:phase', { phase: 'error', message });
   setTimeout(hideOverlayIfIdle, 3000);
+  resumeRecoveryAfterDictation();
 }
 function hideOverlayIfIdle() {
   if (state === 'idle' && overlayWin && !overlayWin.isDestroyed()) overlayWin.hide();
@@ -4007,6 +4059,10 @@ function clearSttProblem(m, ...codes) {
 // 区間の経路（transcribeAuto の答えか、手元の失敗の Error の sttRoute）から中継の様子の帯を決める。クラウドで答えが来たら（空の文でも
 // 中継は戻っている）中継の帯を全部消す。オフライン・ログインしていない・PC の中だけは帯にせず、立っている中継の帯も消す（RF28）
 function noteSttRoute(m, { route, why, scope } = {}) {
+  // 0.13.2 LN-3（持ち主の答え LA2・LR6。RL14 を改めた）: ログインしていない・ログインの情報を読めない間は帯 no-login（オフライン・オフラインモードでは出さない）。
+  // クラウドで文字になった・オフライン・オフラインモードになったら消す
+  if (lib.loginProblem({ why, online: netOnline(), localOnly: Boolean(m.localOnly) })) setSttProblem(m, 'no-login', {});
+  else if (route === 'cloud' || why === 'offline' || why === 'local-only') clearSttProblem(m, 'no-login');
   // 第1d2回 M-2: 区間が中継で文字になった（中継が戻った・ログインした）ら、音声を残している帯も消す（PC の中だけの B14 は残した区間が無くなるまで）
   if (route === 'cloud') clearSttProblem(m, 'kept-wait', 'kept-relay', 'kept-login');
   // 0.9.0 B-2: クラウドで文字になったらネットワークの帯も消す（オフライン・ログインしていない・PC の中だけの道では消さない: 消すのは見張り）
@@ -4498,6 +4554,7 @@ async function retryDraftRecovery() {
         engineLog(`文字起こし待ちの記録を読み直しました（${q.items.length} 件）`);
       }
     }
+    recoveryTriggerAsk = 'draft';   // 0.13.2 LN-2（LR11）
     if (recoveryQueue) transcribeRecovered().catch((e) => engineLog(`復旧の文字起こしに失敗: ${logReason(e)}`));
   } catch (e) {
     engineLog(`下書きのやり直しに失敗: ${errCode(e)}`);
@@ -4697,12 +4754,80 @@ async function recoverDraftsNow() {
 // 「ページが消された」と決めるのは、保存の側がページの読み（page.get）に null と答えたときだけ。読めなかった（投げた）ときは何も消さずに
 // 止め、待ち行列を残して次の機会（設定の保存・次の起動）に回す（エンジンが無いときと同じ扱い。第2a1回 F12）
 let recoveryRunning = false;
+let recoveryPageNow = '';   // 0.13.2 LN-5: 回している待ち行列のページ（page:pending の running）
 const recoveryEtaTold = new Set();   // 0.9.4 S-4: 目安を知らせた待ち行列（フォルダ）
 // 「復旧の文字起こしを保留」を書いた (フォルダ → 理由)。同じ理由では書き直さない（見回りが毎分書かない。第1d2回 M-3）
 const recoveryHoldNoted = new Map();
 // 第1d2回 M-3: 見回りとログインの直後は、クラウドで送れる待ち行列だけを回す（手元のエンジンを起こさない: RF49）。transcribeRecovered は
 // 始めに（await の前に）この頼みを読んで下ろす（引数の無い形は repo・stage2a1 のテストが字面で固定している）
 let recoveryCloudOnlyAsk = false;
+// 0.13.2 LN-2（LR11。持ち主の試作の「状態が変わった引き金を残す」）: 待ち行列を回し始めた引き金の符号（boot・login・button・patrol・meeting-end・dictation-end・
+// settings・engine・draft）。呼ぶ側がこの頼みを置いてから transcribeRecovered を呼び、transcribeRecovered が始めに読んで下ろす（引数の無い形は上と同じ理由で残す）。
+// 回し始めたら engine.log に1行（見回りが続けて回すときは書き直さない: 毎分書かない）
+let recoveryTriggerAsk = '';
+let recoveryTriggerNoted = '';
+function noteRecoveryTrigger(trigger) {
+  if (trigger === 'patrol' && recoveryTriggerNoted === 'patrol') return;
+  recoveryTriggerNoted = trigger;
+  engineLog(`文字起こし待ち: 始めた（${trigger}）`);
+}
+// 0.13.2 LN-2（LR10）: 待ち行列の残りの区間の数を画面へ（音声の残っている区間の全部: PQ4。running は回している途中か）
+function sendRecoveryPending(pageId, items, running) {
+  sendToMainWin('page:pending', { id: pageId, left: lib.pendingLeft(items, (it) => fs.existsSync(it.wav)), running: Boolean(running) });
+}
+// 0.13.2 点検の直し（重要 1。LR36）: ［もう一度文字起こし］は一度きりの頼み（recoveryCloudOnlyAsk と同じ形）。押した待ち行列のフォルダを recoveryForceAsk に置き、
+// transcribeRecovered が始めに読んで下ろし、その回の間だけ recoveryForceDir に持つ。待ち行列そのものにも recovery.json にも印を書かない（止まって recoveryQueue に
+// 戻っても、60 秒の見回りが毎分 held を外して 3回失敗した区間を送り直さない・区間の held を書き換えない）
+let recoveryForceAsk = '';
+let recoveryForceDir = '';
+const recoveryForced = (q) => Boolean(q && recoveryForceDir && q.dir === recoveryForceDir);
+// 0.13.2 LN-5（決めたこと 10）: ［もう一度文字起こし］で回した待ち行列が止まったら、残りの数と続け方を知らせる（理由の符号は engine.log だけ）
+function forceStopNotice(q, rest) {
+  if (!recoveryForced(q)) return;
+  const n = lib.pendingLeft(rest, (it) => fs.existsSync(it.wav));
+  sendToMainWin('app:notice', `文字起こしを止めました（残り ${n} 区間）。［もう一度文字起こし］で続きから試せます。`);
+}
+// 0.13.2 LN-5（LA4）: そのページの待ち行列（recovery.json。書けなかった待ち行列も）を読むだけで集める（退けない・消さない）→ [待ち行列]
+function recoveryQueuesOf(pageId) {
+  const out = [];
+  const seen = new Set();
+  let names = [];
+  try { names = fs.readdirSync(segbufRoot()); } catch (_) { names = []; }
+  for (const name of names) {
+    const dir = path.join(segbufRoot(), name);
+    const r = J.readJsonFile(path.join(dir, RECOVERY_FILE), { shape: isRecoveryShape, waits: [] });
+    if (r.state !== 'ok' || r.value.pageId !== pageId) continue;
+    const j = r.value;
+    seen.add(dir);
+    const items = j.items.filter((it) => it && it.wav && fs.existsSync(it.wav));   // 音声の無い区間は試さない（loadSavedRecoveryQueue と同じ）
+    out.push({ pageId: j.pageId, items, dir, retry: Boolean(j.retry), localOnly: Boolean(j.localOnly), ...(j.later === true ? { later: true } : {}), ...(j.slow === true ? { slow: true } : {}) });
+  }
+  for (const [dir, q] of unsavedRecoveryQueues) if (q.pageId === pageId && !seen.has(dir)) out.push(q);
+  return out;
+}
+// 0.13.2 LN-5（LA4・PQ4）: 残りの区間の数（音声の残っている区間の全部）・回している途中か・録音中か（［もう一度文字起こし］を押せない）
+const recordingNow = () => Boolean(meeting) || state !== 'idle';
+function pagePending(pageId) {
+  const left = recoveryQueuesOf(pageId).reduce((n, q) => n + lib.pendingLeft(q.items, (it) => fs.existsSync(it.wav)), 0);
+  return { left, running: Boolean(recoveryRunning && recoveryPageNow === pageId), busy: recordingNow() };
+}
+// 0.13.2 LN-5（LA4・PQ4・決めたこと 9）: ［もう一度文字起こし］。そのページの待ち行列を今すぐ回す（ログインしていてつながっていればクラウド、そうでなければ PC。
+// 押したので PC のエンジンを起こしてよい）。3回失敗して自動では試さなくなった区間（held）も試す（その回だけ: recoveryForceAsk）。録音中は回さない
+// 0.13.2 点検の直し 4（LR39）: 回している途中に押されたページ（押した順・重ならない）。transcribeRecovered がその回の後に retranscribePage で回す
+const retranscribeLater = [];
+function retranscribePage(pageId) {
+  if (recordingNow()) return { ok: false, code: 'busy' };
+  const qs = recoveryQueuesOf(pageId).filter((q) => lib.pendingLeft(q.items, (it) => fs.existsSync(it.wav)) > 0);
+  if (!qs.length) return { ok: false, code: 'none' };
+  const left = qs.reduce((n, q) => n + lib.pendingLeft(q.items, (it) => fs.existsSync(it.wav)), 0);
+  // 回している途中（見回りのクラウドだけの回も）: 黙って捨てずに覚え、その回の後に回す（0.13.2 点検の直し 4。LR39）
+  if (recoveryRunning) { if (!retranscribeLater.includes(pageId)) retranscribeLater.push(pageId); return { ok: true, left }; }
+  recoveryQueue = qs[0];
+  recoveryForceAsk = qs[0].dir;
+  recoveryTriggerAsk = 'button';
+  transcribeRecovered().catch((e) => engineLog(`復旧の文字起こしに失敗（もう一度文字起こし）: ${logReason(e)}`));
+  return { ok: true, left };
+}
 function transcribeRecoveredCloud() {
   if (recoveryRunning) return Promise.resolve();
   recoveryCloudOnlyAsk = true;
@@ -4712,10 +4837,16 @@ function transcribeRecoveredCloud() {
 async function transcribeRecovered() {
   const cloudOnly = recoveryCloudOnlyAsk;
   recoveryCloudOnlyAsk = false;
+  const trigger = recoveryTriggerAsk || 'other';
+  recoveryTriggerAsk = '';
+  const forceDir = recoveryForceAsk;
+  recoveryForceAsk = '';
   if (recoveryRunning) return;
   let q = recoveryQueue;
   if (!q) return;
   recoveryRunning = true;
+  recoveryForceDir = forceDir;
+  noteRecoveryTrigger(trigger);
   updateTray();   // 復旧中は「手が塞がっている」（isBusy）。トレイの有効／無効を追随させる
   recoverySkip = new Set();
   let held = null;
@@ -4744,7 +4875,7 @@ async function transcribeRecovered() {
       // 0.9.4 S-4（決めたこと 13）: 遅い会議の残した音声を PC で文字起こしするときは、かかる時間の目安を知らせる（待ち行列ごとに1回）
       if (ready && !cloudReady && q.slow && !recoveryEtaTold.has(q.dir)) {
         recoveryEtaTold.add(q.dir);
-        const audioMs = q.items.filter((it) => it && it.held !== true).reduce((a, it) => a + (Number(it.durationMs) || 0), 0);
+        const audioMs = q.items.filter((it) => it && (it.held !== true || recoveryForced(q))).reduce((a, it) => a + (Number(it.durationMs) || 0), 0);
         sendToMainWin('app:notice', `残しておいた音声（約 ${Math.max(1, Math.round(audioMs / 60000))} 分）を文字起こししています。この PC では約 ${Math.max(1, lib.afterEtaMin({ audioMs, rtf: pacedRtf() }))} 分かかります。済むと自動で要約を作ります。`);
       }
       if (!ready) {
@@ -4756,13 +4887,16 @@ async function transcribeRecovered() {
           engineLog(`復旧の文字起こしを保留: ${reason}`);
         }
         retryUnsavedRecovery();
+        forceStopNotice(q, q.items);   // 0.13.2 LN-5: ［もう一度文字起こし］で回せなかった（エンジンが無い・起動しない）
         recoverySkip.add(q.dir);
         if (!held) held = q;
         q = recoveryQueue = loadSavedRecoveryQueue();
         continue;
       }
       recoveryQueue = null;
+      recoveryPageNow = q.pageId;
       const kept = await transcribeRecoveredItems(q, { cloudOnly });
+      recoveryPageNow = '';
       // 0.9.4 S-3（決めたこと 3）: エンジンが誤りを返した区間（3 回まで）と held の区間は音声と待ち行列を残したまま、次の待ち行列へ進む
       // （止めない。残した待ち行列は次の引き金でやり直す: held の区間は送らない）
       if (kept && kept.parked) {
@@ -4783,9 +4917,13 @@ async function transcribeRecovered() {
     }
   } finally {
     recoverySkip = null;
+    recoveryPageNow = '';
+    recoveryForceDir = '';
     if (held && !recoveryQueue) recoveryQueue = held;   // 進めなかった待ち行列は、次の引き金（取り込んだ組の照らし・設定の保存・起動・見回り）で
     recoveryRunning = false;
     updateTray();
+    // 0.13.2 点検の直し 4（LR39）: 回している途中に押されたページを、この回の後に押した1回の頼みとして回す（録音が始まっていた・もう残りが無いときは捨てて次へ）
+    while (retranscribeLater.length && !retranscribePage(retranscribeLater.shift()).ok) { /* 次へ */ }
   }
 }
 // → null（済んだ）| 残した待ち行列（文字起こしまで届かなかった区間から先。WAV と recovery.json を消していない）
@@ -4795,11 +4933,19 @@ async function transcribeRecovered() {
 // その区間を除いた待ち行列を先へ進めて、最後に { ...q, items: 残した区間, parked: true } を返す（recovery.json に残す）
 const RECOVERY_TRIES_MAX = 3;
 async function transcribeRecoveredItems(q, { cloudOnly = false } = {}) {
+  // 0.13.2 LN-5（持ち主の答え PQ4「音声が残っている行すべて」）: ［もう一度文字起こし］で回すときは、3回失敗して自動では試さなくなった区間（held）も試す
+  // （回数 tries は残す: また失敗すれば held に戻る）。点検の直し（重要 1）: 待ち行列の区間は書き換えず、その回の間だけ held を飛ばさない（止まっても残りは held のまま書く）
+  const force = recoveryForced(q);
   let done = 0;
   const left = [];   // エンジンが誤りを返して残した区間と held の区間
   const stopAt = (i) => left.concat(q.items.slice(i)).filter((it) => it && it.wav && fs.existsSync(it.wav));
+  // 0.13.2 LN-2（LR10。持ち主の試作の「1つの命令＝1つのトランザクション」）: 区間を1つ片付ける（文字にする・無音で消す・失敗の文を書く）たびに、
+  // 残りを recovery.json に書き直し（落ちても済んだ区間を送り直さない）、画面へ残りの数を送る（待ち行列の最後まで待たない）
+  let settled = false;
+  const progress = (i) => { const rest = stopAt(i); saveRecoveryQueue({ ...q, items: rest }); sendRecoveryPending(q.pageId, rest, true); };
   for (let i = 0; i < q.items.length; i++) {
-    const item = q.items[i];
+    if (settled) { settled = false; progress(i); }   // 0.13.2 LN-2（LR10）
+    const item = force && q.items[i] && q.items[i].held === true ? { ...q.items[i], held: false } : q.items[i];
     let alive = null;
     try {
       alive = await db.call('page.get', { id: q.pageId });
@@ -4807,6 +4953,8 @@ async function transcribeRecoveredItems(q, { cloudOnly = false } = {}) {
       // 読めなかった: 「消された」にしない。この区間から先の音声と待ち行列を残して止める（F12）
       const rest = stopAt(i);
       engineLog(`復旧の文字起こしを止めました（理由: ${errCode(e)}）。残りの ${rest.length} 区間の音声と待ち行列は残します`);
+      sendRecoveryPending(q.pageId, rest, false);
+      forceStopNotice(q, rest);
       return { ...q, items: rest };
     }
     if (!alive) { unlinkQuiet(item.wav); continue; }   // ページが消された（DB が null と答えた）
@@ -4827,6 +4975,8 @@ async function transcribeRecoveredItems(q, { cloudOnly = false } = {}) {
         if (e && (e.keepForRetry || e.engineMissing || kind === 'late' || kind === 'down')) {
           const rest = stopAt(i);
           engineLog(`復旧の文字起こしを止めました（理由: ${e.cloudCode || (kind === 'late' || kind === 'down' ? kind : 'engine')}）。残りの ${rest.length} 区間の音声と待ち行列は残します`);
+          sendRecoveryPending(q.pageId, rest, false);
+          forceStopNotice(q, rest);
           return { ...q, items: rest };
         }
         err = (e && e.message) || '不明なエラー';
@@ -4840,6 +4990,7 @@ async function transcribeRecoveredItems(q, { cloudOnly = false } = {}) {
       const tries = (Number.isInteger(item.tries) && item.tries > 0 ? item.tries : 0) + 1;
       const held = tries >= RECOVERY_TRIES_MAX;
       await db.call('segment.fail', { pageId: q.pageId, segId: item.id, text: held ? `（この区間の認識に失敗: ${err}。音声は残してあります）` : `（この区間の認識に失敗: ${err}）` });
+      settled = true;
       left.push(held ? { ...item, tries, held: true } : { ...item, tries });
       continue;
     } else if (text) {
@@ -4853,7 +5004,9 @@ async function transcribeRecoveredItems(q, { cloudOnly = false } = {}) {
     }
     // 文字になった・無音だった区間の wav を消す
     unlinkQuiet(item.wav);
+    settled = true;
   }
+  if (settled) progress(q.items.length);
   let parked = null;
   if (left.length) {
     parked = { ...q, items: left, parked: true };
@@ -4865,6 +5018,7 @@ async function transcribeRecoveredItems(q, { cloudOnly = false } = {}) {
     try { fs.unlinkSync(path.join(q.dir, RECOVERY_FILE)); } catch (_) { /* noop */ }
     removeDirIfEmpty(q.dir);
   }
+  sendRecoveryPending(q.pageId, left, false);   // 0.13.2 LN-2（LR10）: 回し終えた（残りは失敗と held の区間）
   const cur = await db.call('page.get', { id: q.pageId });
   if (!cur) return parked;
   // 第1d2回 M-3（決めたこと 7）: 締めで要約を待たせた会議（要約の欄が S3・S3'）は、文字になった区間があれば R1 を出して要約を作る（待たない。
@@ -4908,7 +5062,11 @@ const savedQueueCount = () => {
   try { names = fs.readdirSync(segbufRoot()); } catch (_) { return 0; }
   return names.filter((n) => fs.existsSync(path.join(segbufRoot(), n, RECOVERY_FILE))).length;
 };
+// 0.13.2 LN-2（LR11）: ログインの直後に呼ぶときは、引き金の頼み keptTriggerAsk に login を置く（setInterval からは何も置かない: patrol）
+let keptTriggerAsk = '';
 async function retryKeptWhenBack() {
+  const trigger = keptTriggerAsk || 'patrol';
+  keptTriggerAsk = '';
   try { await retrySummaryWaits(); } catch (e) { engineLog(`要約待ちの見回りに失敗: ${logReason(e)}`); }
   try {
     let why = 'ok';
@@ -4926,6 +5084,7 @@ async function retryKeptWhenBack() {
     }
     if (why !== 'ok') return;
     if (!recoveryQueue) recoveryQueue = loadSavedRecoveryQueue();
+    recoveryTriggerAsk = trigger;
     if (recoveryQueue) await transcribeRecoveredCloud();
     if (dicts > 0) await transcribeDictWaits();
   } catch (e) {
@@ -4984,6 +5143,9 @@ async function startMeetingBy(trigger, opts = {}) {
     if (meeting.prepAt) notePrep(meeting);   // 0.13.0 RDY-1（RD4）: 録音の前のページから始めた会議だけ、「開始」の前に「ページを開いた」
     noteMeetingState(meeting, 'start', START_BY[trigger] || 'app');
     if (meeting.prepType) noteMeetingState(meeting, 'type', 'live-page');   // 録音の前のページで種類を選んでいた
+    // 0.13.2 LN-4（LA1）: 録音を始めた後に、ログインしていなければログインの窓を自動で開く（待たない）。オフラインモードで始めた会議（録音の前のページ・
+    // パネルの「オフラインモードで始める」。localOnly はこの後に立つ）では開かない
+    askLogin('meeting', { localOnly: /-offline$/.test(trigger) || Boolean(meeting.localOnly) });
   }
   return r;
 }
@@ -5042,6 +5204,8 @@ function stopMeetingBy(trigger) {
   }
   return r;
 }
+// 0.13.2 点検の直し 2（LR37）: 会議を始めている途中（前の下書きの復旧を待っている間。meeting はまだ無く state は idle）の数。起動の窓（askLogin('boot')）が見る
+let meetingStarting = 0;
 async function startMeeting() {
   // 終了・再起動の途中（quitting。DB を閉じている間など）は始めない（始めると relaunch・終了で録音が切れる。第1d回 A-9 の点検）
   if (state !== 'idle' || quitting) return { ok: false, error: '他の処理を実行中です' };
@@ -5055,7 +5219,8 @@ async function startMeeting() {
   // 待つ間に別の処理が始まっていたら始めない（第2a1回 ST1）。DB の用意の前（移行の窓・移行・起こし直し）は待たない（録音は DB に頼らない:
   // F9）。そのときは回している復旧の下書きを脇へ退けない（下の park）ので、この会議の下書きは draft-<開始時刻>.json になる
   if (store.draftFiles().length && !['starting', 'migrating'].includes(db.state())) {
-    await recoverDraftIfAny();
+    meetingStarting += 1;   // 0.13.2 点検の直し 2（LR37）: 始めている間（起動の窓を開かない）
+    try { await recoverDraftIfAny(); } finally { meetingStarting -= 1; }
     if (state !== 'idle' || quitting) return { ok: false, error: '他の処理を実行中です' };
   }
   const startedAt = Date.now();
@@ -5607,6 +5772,9 @@ async function maybeFinalizeMeeting() {
   if (overlayFree()) sendToOverlay('overlay:phase', { phase: 'done', message: '議事録を保存しました' });
   sendToMainWin('pages:updated', await db.call('pages.list', {}));
   sendToMainWin('page:open', { id: page.id, saved: true });   // 0.13.0 ED-5（EQ22 (a)）: 締めの保存の印。書き直している途中の画面は前に出さない
+  // 0.13.2 LN-5（LR13）: 保存の途中に会議を出て止めた知らせを押していた → 保存したそのページを開く（ID の文字のまま＝前に出す: 0.13.0 ED-5・EQ22 (a)）。
+  // 保存に失敗したら上で返っているので何も開かない
+  if (m.leaveClickedEarly) { m.leaveClickedEarly = false; sendToMainWin('page:open', page.id); }
   if (m.autoStopped) quietDoneNotice(m, page.id);   // 0.9.1 Q-4
   // 音声は届いたのに、文字起こしが全部空だった。黙っていると「0 区間」の理由が分からない。
   // 知らせと engine.log に出す。要約の欄には書かない（0.10.0 LS-2・決めたこと 111 の 6: 文字起こしが空のページは欄の鍵のまま、頭の一言が伝える）
@@ -5624,6 +5792,7 @@ async function maybeFinalizeMeeting() {
   // 待ち行列が済んだら自動で要約する（transcribeRecoveredItems）
   if (keptWhy) engineLog('議事録を保存: 文字起こし待ちの区間があるので、要約は文字起こしが済んでから作ります');
   else await runSummary(page.id);
+  recoveryTriggerAsk = 'meeting-end';   // 0.13.2 LN-2（LR11）
   if (recoveryQueue) transcribeRecovered().catch((e) => engineLog(`retry failed: ${logReason(e)}`));
 }
 
@@ -5826,6 +5995,7 @@ async function doRunSummary(pageId) {
     // 生成物だけを最新のページに載せる。ページが消えていれば生成物は捨てる。
     const latest = await saveIfExists(db, pageId, (saved) => {
       saved.blocks = blocks;
+      delete saved.summaryEdited;   // 0.13.0 点検4: 作り直した要約は人の手直しを持たない（［要約を再生成］の確かめの印を消す）
       // 要約の途中で種類を手で選び直されていたら、その選択を残す（上書きすると、選んだ種類が黙って戻る。
       // mainlib.mergeSummaryType）。この要約は始めたときの種類で作ったものなので、そう書き添える
       const t = mergeSummaryType(saved, page);
@@ -6167,6 +6337,7 @@ function setupIpc() {
     applyTheme();
     if (!guard.kept.length) restartEnginesIfNeeded();
     // 保留していた復旧（エンジン未設定で止めていた分）を、設定が直った機会にもう一度試す
+    recoveryTriggerAsk = 'settings';   // 0.13.2 LN-2（LR11）
     if (recoveryQueue) transcribeRecovered().catch((e) => engineLog(`復旧の文字起こしに失敗: ${logReason(e)}`));
     if (settings.autoLaunch !== prevAutoLaunch) {
       try { app.setLoginItemSettings({ openAtLogin: settings.autoLaunch }); } catch (_) { /* noop */ }
@@ -6188,6 +6359,10 @@ function setupIpc() {
 
   // 議事録の画面の口は main を通らない（第2a1回 ST5。preload が DB の口（役 app）へ直に頼む）。要約だけは今どおり main の IPC
   ipcMain.handle('page:summarize', (_e, id) => runSummary(id));
+  // 0.13.2 LN-5（LA4・PQ4）: 議事録のページの「残り n 区間」と［もう一度文字起こし］。引数は { id }（ページの ID の形だけを通す。DB の命令ではない）
+  const pageIdArg = (o) => (o && typeof o === 'object' && typeof o.id === 'string' && /^[A-Za-z0-9_-]{1,64}$/.test(o.id) ? o.id : '');
+  ipcMain.handle('page:pending', (_e, o) => { const id = pageIdArg(o); return id ? pagePending(id) : { left: 0, running: false, busy: recordingNow() }; });
+  ipcMain.handle('page:retranscribe', (_e, o) => { const id = pageIdArg(o); return id ? retranscribePage(id) : { ok: false, code: 'none' }; });
   // 0.11.0 V-1・V-5: 画面は種類の並びを1か所（meetingType.SELECTABLE）から読む（群の見出しは無い）。メモの型の表も
   ipcMain.handle('meta:types', () => typesForView());
   ipcMain.handle('meta:memo-types', () => memoTypes.listMemoTypes());
@@ -6764,7 +6939,9 @@ if (!gotLock) {
     // 文字起こし待ちの見回り（第1d2回 M-3）: 中継が戻った・オンラインに戻ったら、残した音声を文字起こしする
     setInterval(retryKeptWhenBack, KEPT_CHECK_MS);
     // 復旧ページに文字起こし待ちの音声が残っていれば、エンジンの用意を待って順に片付ける（起動の片付けが済んでから。下の startupWork）
-    startupWork.then(() => transcribeRecovered()).catch((e) => engineLog(`復旧の文字起こしに失敗: ${logReason(e)}`));
+    startupWork.then(() => { recoveryTriggerAsk = 'boot'; return transcribeRecovered(); }).catch((e) => engineLog(`復旧の文字起こしに失敗: ${logReason(e)}`));   // 0.13.2 LN-2（LR11）
+    // 0.13.2 LN-4（LA1）: 起動の仕事が済んだら、ログインしていなければログインの窓を自動で開く（準備を選んでいない PC は今どおり画面が「アカウント」を開く: LR3）
+    startupWork.then(() => askLogin('boot')).catch(() => {});
     ensurePaster();
     createMainWindow();
     // 0.10.0 C-2: Claude デスクトップへの登録を1回だけ確かめる（読むだけ。場所が古い・消えたときだけ知らせる）
@@ -6841,6 +7018,7 @@ function applyReloadedSettings(prev, next) {
   applyTheme();
   restartEnginesIfNeeded();
   // 保留していた復旧（起動のときは既定の設定でエンジンが無く止めていた分）を、本当の設定になった機会にもう一度試す
+  recoveryTriggerAsk = 'settings';   // 0.13.2 LN-2（LR11）
   if (recoveryQueue) transcribeRecovered().catch((e) => engineLog(`復旧の文字起こしに失敗: ${logReason(e)}`));
   if (next.autoLaunch !== prev.autoLaunch) {
     try { app.setLoginItemSettings({ openAtLogin: next.autoLaunch }); } catch (_) { /* noop */ }

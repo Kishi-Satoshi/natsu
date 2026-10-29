@@ -48,7 +48,8 @@ const GATE_TEXT = {
     + '<p>ログアウトすると、NaTsu アプリの文字起こしのログインも、ほかの PC を含めて切れます。</p>',
   503: '<p>NaTsu ヘルプセンターは準備中です。少し待ってから開き直してください。</p>',
 };
-// help-dads HD-6（Q7）: 門のページの色はヘルプと同じ値（DADS の札と DADS-PROTECT.md のブランド色）。リンクは青と下線、輪は DADS の形。
+// help-dads HD-6（Q7）: 門のページの色はヘルプと同じ値（DADS の札）。リンクは青と下線、輪は DADS の形。
+// help-light HL-2（HL1）: ヘルプと同じく明るい版だけ（暗い版の上書き @media (prefers-color-scheme) は持たない）。
 // /assets/ は門の後ろで読めないので、インラインの style の中だけに書く（GATE_CSP は変えない）
 const GATE_STYLE = 'body{font-family:system-ui,sans-serif;margin:2em auto;padding:0 1em;max-width:40em;line-height:1.7;color:#333333;background:#ffffff}'
   + 'h1{font-size:1.5rem;line-height:1.4;color:#000000;margin:0 0 .8em}'
@@ -58,10 +59,7 @@ const GATE_STYLE = 'body{font-family:system-ui,sans-serif;margin:2em auto;paddin
   + 'a:active{color:#ac3e00;text-decoration-thickness:calc(1 / 16 * 1rem)}'
   + ':focus-visible{outline:calc(4 / 16 * 1rem) solid #000000;outline-offset:calc(2 / 16 * 1rem);border-radius:calc(4 / 16 * 1rem);box-shadow:0 0 0 calc(2 / 16 * 1rem) #ffd43d}'
   + 'a:focus-visible{background-color:#ffd43d;color:#000000}'
-  + '.why{font-size:.875rem;color:#666666}'
-  + '@media (prefers-color-scheme:dark){body{color:#d6d6d6;background:#111111}h1{color:#ffffff}a{color:#9db7f9}a:visited{color:#ff8eff}a:active{color:#ffa66d}'
-  + ':focus-visible{outline:calc(4 / 16 * 1rem) solid #ffffff}a:focus-visible{background-color:#ffd43d;color:#000000}.why{color:#a3a3a3}}'
-  + '@media (prefers-color-scheme:dark) and (hover:hover){a:hover{color:#7096f8}}';
+  + '.why{font-size:.875rem;color:#666666}';
 
 export function readOnlyDb(db) {
   return {

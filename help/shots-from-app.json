@@ -1,0 +1,368 @@
+{
+  "shots": [
+    {
+      "name": "notes-tabs",
+      "from": "test/shots/win32/notes-tabs-light.png",
+      "fromSha256": "AvA0CohNS_LJh65Oh7u3emxkpkoupWVps1aqYHKlCas",
+      "crop": null
+    },
+    {
+      "name": "minutes",
+      "from": "test/shots/win32/notes-page-light.png",
+      "fromSha256": "XjuuP2x5yNvCADk2V_JmgaRKegeMmByGSkuTqh5ux9s",
+      "crop": [300, 320, 760, 460]
+    },
+    {
+      "name": "ready",
+      "from": "test/shots/win32/live-ready-light.png",
+      "fromSha256": "JdHnX5f9ucivkMYjeMwEN5hOqWW70jH9HOV0KtUTGO8",
+      "crop": [300, 250, 780, 320]
+    },
+    {
+      "name": "live",
+      "from": "test/shots/win32/live-light.png",
+      "fromSha256": "QtUqUkbptKQ_fx_3FGnpSinH0IMEabvkWxgi47weaw0",
+      "crop": [0, 0, 1060, 700]
+    },
+    {
+      "name": "bar-rec",
+      "from": "test/shots/win32/overlay-h-light-rec-150.png",
+      "fromSha256": "bbojxyDRNPK7b4tXtEDFWQWrZQyOUaBHPXn_XqHUGjw",
+      "crop": null
+    },
+    {
+      "name": "bar-paused",
+      "from": "test/shots/win32/overlay-h-light-paused-150.png",
+      "fromSha256": "frZbiopqlFHwGneWk2gngmw_KUHSAq9vVhotsOb0UZM",
+      "crop": null
+    },
+    {
+      "name": "status",
+      "from": "test/shots/win32/live-banner-light.png",
+      "fromSha256": "pEG3mU3U4MYVsQYvcqorVwrWjGSf70iw7obzdCoxw8s",
+      "crop": [320, 388, 760, 115]
+    },
+    {
+      "name": "offline",
+      "from": "test/shots/win32/live-offline-light.png",
+      "fromSha256": "1nX1WE_iRLSk6bOINcW0UzhCSE7rDYlu_7mXk-PeaZI",
+      "crop": [310, 388, 515, 125]
+    },
+    {
+      "name": "login",
+      "from": "test/shots/win32/settings-account-light.png",
+      "fromSha256": "vIcjWbsysK7wkKgwYuII7JNiGgCLsKFIetPr9fXjhyw",
+      "crop": [50, 40, 1020, 260]
+    },
+    {
+      "name": "mcp",
+      "from": "test/shots/win32/settings-mcp-light.png",
+      "fromSha256": "l7XOWbASHob31Cl4QqF9cMQztl-sPT7ISDpXG6oHrP8",
+      "crop": [50, 40, 1020, 480]
+    },
+    {
+      "name": "settings-summary",
+      "from": "test/shots/win32/settings-summary-light.png",
+      "fromSha256": "eK3aC3uOVTKkW-M64xrO7mndNQ0HwBJGQhpYZY7zx6o",
+      "crop": [50, 40, 1020, 280]
+    },
+    {
+      "name": "settings-record",
+      "from": "test/shots/win32/settings-record-light.png",
+      "fromSha256": "0rm3vmDUmOops0DNYhLd-zKeabctxe9sLf7d-nHwBKg",
+      "crop": [50, 118, 1020, 512]
+    },
+    {
+      "name": "ready-page",
+      "from": "test/shots/win32/live-ready-light.png",
+      "fromSha256": "JdHnX5f9ucivkMYjeMwEN5hOqWW70jH9HOV0KtUTGO8",
+      "crop": [0, 0, 1060, 480]
+    }
+  ],
+  "figures": [
+    {
+      "name": "overview-map",
+      "shot": "notes-tabs",
+      "r": 20,
+      "marks": [
+        {
+          "at": [210, 92],
+          "box": [4, 4, 252, 772]
+        },
+        {
+          "at": [812, 24],
+          "box": [266, 4, 520, 34]
+        },
+        {
+          "at": [1036, 196],
+          "box": [318, 170, 740, 408]
+        },
+        {
+          "at": [560, 626],
+          "box": [336, 606, 198, 40]
+        }
+      ]
+    },
+    {
+      "name": "bar",
+      "shot": "bar-rec",
+      "pad": [56, 160, 12, 160],
+      "marks": [
+        {
+          "at": [97, -28],
+          "to": [97, 22]
+        },
+        {
+          "at": [168, -28],
+          "to": [168, 28]
+        },
+        {
+          "at": [229, -28],
+          "to": [229, 22]
+        },
+        {
+          "at": [271, -28],
+          "to": [271, 22]
+        }
+      ]
+    },
+    {
+      "name": "bar-paused",
+      "shot": "bar-paused",
+      "pad": [56, 160, 12, 160],
+      "marks": [
+        {
+          "at": [132, -28],
+          "to": [132, 28]
+        },
+        {
+          "at": [229, -28],
+          "to": [229, 22]
+        },
+        {
+          "at": [271, -28],
+          "to": [271, 22]
+        }
+      ]
+    },
+    {
+      "name": "ready",
+      "shot": "ready",
+      "marks": [
+        {
+          "at": [668, 140],
+          "box": [606, 164, 124, 36]
+        },
+        {
+          "at": [533, 140],
+          "box": [463, 164, 141, 36]
+        },
+        {
+          "at": [440, 56],
+          "box": [188, 79, 208, 30],
+          "to": [396, 84]
+        }
+      ]
+    },
+    {
+      "name": "live",
+      "shot": "live",
+      "r": 18,
+      "marks": [
+        {
+          "at": [314, 416],
+          "box": [338, 403, 164, 26]
+        },
+        {
+          "at": [595, 378],
+          "box": [504, 400, 182, 32]
+        },
+        {
+          "at": [745, 378],
+          "box": [692, 400, 106, 32]
+        },
+        {
+          "at": [851, 378],
+          "box": [803, 400, 96, 32]
+        },
+        {
+          "at": [1012, 590],
+          "box": [346, 505, 640, 170]
+        },
+        {
+          "at": [178, 107],
+          "box": [10, 78, 146, 58]
+        }
+      ]
+    },
+    {
+      "name": "minutes",
+      "shot": "minutes",
+      "pad": [0, 0, 0, 44],
+      "marks": [
+        {
+          "at": [-22, 304],
+          "box": [34, 286, 76, 36],
+          "to": [34, 304]
+        },
+        {
+          "at": [728, 380],
+          "box": [660, 368, 40, 24]
+        },
+        {
+          "at": [-22, 140],
+          "box": [23, 128, 232, 24],
+          "to": [23, 140]
+        }
+      ]
+    },
+    {
+      "name": "status",
+      "shot": "status",
+      "pad": [0, 0, 0, 44],
+      "r": 12,
+      "marks": [
+        {
+          "at": [-22, 30],
+          "box": [24, 12, 692, 36],
+          "to": [24, 30]
+        },
+        {
+          "at": [-22, 69],
+          "box": [18, 56, 164, 26],
+          "to": [18, 69]
+        },
+        {
+          "at": [-22, 96],
+          "box": [24, 86, 220, 20],
+          "to": [24, 96]
+        }
+      ]
+    },
+    {
+      "name": "offline",
+      "shot": "offline",
+      "pad": [0, 0, 0, 44],
+      "r": 12,
+      "marks": [
+        {
+          "at": [-22, 29],
+          "box": [25, 15, 299, 28],
+          "to": [25, 29]
+        },
+        {
+          "at": [-22, 61],
+          "box": [28, 46, 124, 30],
+          "to": [28, 61]
+        },
+        {
+          "at": [-22, 97],
+          "box": [28, 77, 480, 40],
+          "to": [28, 97]
+        }
+      ]
+    },
+    {
+      "name": "login",
+      "shot": "login",
+      "r": 16,
+      "marks": [
+        {
+          "at": [-22, 65],
+          "box": [10, 48, 176, 34],
+          "to": [10, 65]
+        },
+        {
+          "at": [858, 146],
+          "box": [887, 128, 76, 36]
+        },
+        {
+          "at": [330, 136]
+        }
+      ],
+      "pad": [0, 0, 0, 44]
+    },
+    {
+      "name": "mcp",
+      "shot": "mcp",
+      "r": 16,
+      "marks": [
+        {
+          "at": [-22, 158],
+          "box": [10, 141, 176, 34],
+          "to": [10, 158]
+        },
+        {
+          "at": [500, 308],
+          "box": [235, 294, 232, 28]
+        },
+        {
+          "at": [530, 443],
+          "box": [326, 427, 179, 32]
+        }
+      ],
+      "pad": [0, 0, 0, 44]
+    },
+    {
+      "name": "claude",
+      "shot": "settings-summary",
+      "r": 16,
+      "marks": [
+        {
+          "at": [-22, 158],
+          "box": [10, 141, 176, 34],
+          "to": [10, 158]
+        },
+        {
+          "at": [214, 195],
+          "box": [234, 183, 200, 24]
+        },
+        {
+          "at": [640, 194],
+          "box": [440, 180, 178, 30]
+        }
+      ],
+      "pad": [0, 0, 0, 44]
+    },
+    {
+      "name": "loop",
+      "shot": "settings-record",
+      "r": 16,
+      "marks": [
+        {
+          "at": [-22, 49],
+          "box": [10, 32, 176, 34],
+          "to": [10, 49]
+        },
+        {
+          "at": [892, 475],
+          "box": [922, 462, 42, 26]
+        },
+        {
+          "at": [582, 493],
+          "box": [234, 482, 326, 22]
+        }
+      ],
+      "pad": [0, 0, 0, 44]
+    },
+    {
+      "name": "start",
+      "shot": "ready-page",
+      "r": 18,
+      "marks": [
+        {
+          "at": [282, 92],
+          "box": [6, 76, 248, 32]
+        },
+        {
+          "at": [968, 380],
+          "box": [907, 415, 122, 34]
+        },
+        {
+          "at": [300, 462],
+          "box": [336, 452, 534, 20]
+        }
+      ]
+    }
+  ]
+}

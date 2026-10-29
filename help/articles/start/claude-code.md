@@ -1,9 +1,9 @@
 ---
 title: Claude Code を入れてログインする
 description: 要約に使う Claude Code を、［設定］の「要約」のボタンで入れてログインし、使えるかを確かめる
-updated: 2026-10-21
+updated: 2026-10-27
 sources: README.md, INSTALL.md, src/renderer/app.html, src/main.js, src/claude-cli.js
-related: start/tester-guide, start/what-natsu-does, start/login
+related: start/getting-started, start/what-natsu-does, start/login
 ---
 
 インターネットにつながっているときの要約は、ご自分の Claude Code で作ります。

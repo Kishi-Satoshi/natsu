@@ -90,6 +90,70 @@ test('ED-2・F41: split・merge・turnInto・duplicate・move（afterId）のど
   }
 }));
 
+// 2026-10-26 の持ち主の答え（点検1「上に空の行を足す（おすすめ）」）: 文のある行の頭（at 0）の Enter は、上に空の行（型は EQ5 (a)）を足し、
+// 今の行は ID・文・担当・期限・チェック・出典・citeState をそのまま残す。空の行の at 0 は今どおり（下に足す）
+test('ED-2・点検1: 文のある行の頭（at 0）で block.split → 上に空の行を足し、今の行は ID・文・担当・期限・チェック・出典・citeState がそのまま。空の行は今どおり下に足す', T, () => withDb((db) => {
+  const keep = (b) => ({ id: b.id, type: b.type, text: b.text, assignee: b.assignee, due: b.due, dueRaw: b.dueRaw, checked: b.checked, cites: b.cites, citeState: b.citeState, mark: b.mark });
+  const was = get(db).blocks.find((b) => b.id === 'b4');
+  const r = call(db, 'block.split', { pageId: 'pa1', blockId: 'b4', text: was.text, at: 0 });
+  assert.strictEqual(r.ok, true, r.code);
+  const ids = r.result.page.blocks.map((b) => b.id);
+  const nb = r.result.page.blocks.find((b) => b.id === r.result.blockId);
+  assert.strictEqual(ids.indexOf(nb.id), ids.indexOf('b4') - 1, '足した行が今の行の上に無い');
+  assert.deepStrictEqual([nb.type, nb.text, nb.checked, nb.citeState, nb.cites, nb.assignee], ['todo', '', false, 'manual', [], undefined]);
+  assert.deepStrictEqual(keep(r.result.page.blocks.find((b) => b.id === 'b4')), keep(was));
+  // 見出しの頭: 上に足す行は EQ5 (a) の型（箇条書き）。見出しはそのまま
+  const h = call(db, 'block.split', { pageId: 'pa1', blockId: 'b1', text: '決めたこと', at: 0 });
+  const hb = h.result.page.blocks;
+  assert.deepStrictEqual([hb[0].id === h.result.blockId, hb[0].type, hb[0].text], [true, 'bullet', '']);
+  assert.deepStrictEqual([hb[1].id, hb[1].type, hb[1].text, hb[1].citeState], ['b1', 'heading', '決めたこと', undefined]);
+  // 空の行の at 0 は今どおり、下に足す
+  const e = call(db, 'block.split', { pageId: 'pa1', blockId: h.result.blockId, text: '', at: 0 });
+  const eb = e.result.page.blocks.map((b) => b.id);
+  assert.strictEqual(eb.indexOf(e.result.blockId), eb.indexOf(h.result.blockId) + 1);
+}, { blocks: samplePage('pa1').page.blocks.map((b) => (b.id === 'b4' ? { ...b, citeState: 'linked', checked: true } : b)) }));
+
+// 2026-10-27 の持ち主の答え（点検8「見えている上の行の後ろに足す（おすすめ）」）: 0.11.0 の並べ替えて見せる要約（締めの節が頭）でも、上の空の行は
+// 画面で今の行のすぐ上に見える。画面は上に見えている行を afterId で送る（'' は頭。block.move と同じ）。今の行は ID・文・印がそのまま
+const VIEW8 = [{ id: 'h1', type: 'heading', level: 2, text: '議題' }, { id: 'b2', type: 'bullet', text: '予算の話', cites: ['s2'], citeState: 'linked' },
+  { id: 'h2', type: 'heading', level: 2, text: '決定事項' }, { id: 'b4', type: 'bullet', text: '来月に出す', cites: ['s3'], citeState: 'linked' },
+  { id: 'h3', type: 'heading', level: 2, text: '持ち越し' }, { id: 'b6', type: 'bullet', text: '見積もりを取る', cites: [], citeState: 'linked' }];
+test('ED-2・点検8: 文のある行の頭の block.split に afterId があれば、上の空の行はその行のすぐ後ろに入り、並べ替えて見せる要約でも今の行のすぐ上に見える。無い afterId・今の行の afterId は bad-args', T, () => {
+  const M = require('../src/memoTypes');
+  const view = (blocks, nb) => M.orderForView(blocks).map((i) => (blocks[i].id === nb ? 'new' : blocks[i].id));
+  assert.deepStrictEqual(view(VIEW8), ['h2', 'b4', 'h3', 'b6', 'h1', 'b2'], '締めの節が前に出ていない（見本の作りの誤り）');
+  const cases = [
+    ['h3', 'b4', ['h2', 'b4', 'new', 'h3', 'b6', 'h1', 'b2']],   // 前に出した締めの見出し（2つ目）
+    ['h1', 'b6', ['h2', 'b4', 'h3', 'b6', 'new', 'h1', 'b2']],   // 後ろへ回った型の見出し（afterId が無いと保存の順の頭に入り、画面のいちばん下の節の前に出ない）
+    ['b2', 'h1', ['h2', 'b4', 'h3', 'b6', 'h1', 'new', 'b2']],   // ふつうの行
+    // 画面の頭の行（''）: 保存の頭に入る。並べ替えて見せる要約では、保存の頭の行は締めの節の後に見える（R28 と同じ。afterId で表せる所が無い）
+    ['h2', '', ['h2', 'b4', 'h3', 'b6', 'new', 'h1', 'b2']],
+  ];
+  for (const [id, afterId, want] of cases) {
+    withDb((db) => {
+      const was = get(db).blocks.find((b) => b.id === id);
+      const r = call(db, 'block.split', { pageId: 'pa1', blockId: id, text: was.text, at: 0, afterId });
+      assert.strictEqual(r.ok, true, `${id} ${r.code}`);
+      assert.deepStrictEqual(view(r.result.page.blocks, r.result.blockId), want, id);
+      if (afterId === '') assert.strictEqual(r.result.page.blocks[0].id, r.result.blockId);
+      assert.deepStrictEqual(r.result.page.blocks.find((b) => b.id === id), was, `${id}: 今の行が変わった`);
+      assert.strictEqual(r.result.page.blocks.find((b) => b.id === r.result.blockId).text, '');
+    }, { blocks: VIEW8 });
+  }
+  // afterId は at 0 で文のある行のときだけ使う（途中の分割は今どおり今の行のすぐ下）。無い行・今の行の afterId は断る
+  withDb((db) => {
+    const n0 = oplogN(db);
+    for (const afterId of ['zz', 'h3']) {
+      const bad = call(db, 'block.split', { pageId: 'pa1', blockId: 'h3', text: '持ち越し', at: 0, afterId });
+      assert.deepStrictEqual([bad.ok, bad.code], [false, 'bad-args'], afterId);
+    }
+    assert.strictEqual(oplogN(db), n0, '断った命令が oplog に残った');
+    const mid = call(db, 'block.split', { pageId: 'pa1', blockId: 'b2', text: '予算の話', at: 2, afterId: 'b6' });
+    const ids = mid.result.page.blocks.map((b) => b.id);
+    assert.strictEqual(ids.indexOf(mid.result.blockId), ids.indexOf('b2') + 1);
+  }, { blocks: VIEW8 });
+});
+
 // ---------------------------------------------------------------- 結合
 test('ED-2: merge は今の行の文を前の文のある行の後ろにつなぎ、答えの at がつないだ所。前が区切り線なら区切り線だけを消す。頭の行では何もしない', T, () => withDb((db) => {
   const r = call(db, 'block.merge', { pageId: 'pa1', blockId: 'b3', text: '画面の文' });
@@ -144,10 +208,108 @@ test('ED-2・F46: citeState の無い行（AI のテキストの行・見出し�
 }, { blocks: [...samplePage('pa1').page.blocks, { id: 'bp', type: 'paragraph', text: 'AI の書いた段落' }] }));
 
 // ---------------------------------------------------------------- 型の照らし（決めたこと 9）
+// 2026-10-26 の持ち主の答え（点検2「見出しに戻したら AI の見出しに戻す（おすすめ）」）: AI の見出し（citeState を持たない）を別の型に変えると
+// manual にし、AI の見出しだった印 aiHeading を付ける。文を変えずに見出しへ戻すと AI の見出しに戻る（citeState も印も無い）。文を変えたら人の行のまま
+test('ED-2・点検2: AI の見出しをテキストにして見出しに戻すと、citeState の無い AI の見出しに戻り、orderForView の並びが同じ。間に文を直したら manual のまま', T, () => withDb((db) => {
+  const M = require('../src/memoTypes');
+  const order0 = M.orderForView(get(db).blocks).map((i) => get(db).blocks[i].id);
+  const t = call(db, 'block.turnInto', { pageId: 'pa1', blockId: 'h2', type: 'paragraph' });
+  const p = t.result.blocks.find((b) => b.id === 'h2');
+  assert.deepStrictEqual([p.type, p.citeState, p.aiHeading], ['paragraph', 'manual', true]);
+  // 見出しへ戻す道はどれも block.turnInto（Ctrl+Shift+1〜3・# ・/ メニュー・⠿ の変換）。段 2 で戻す
+  const back = call(db, 'block.turnInto', { pageId: 'pa1', blockId: 'h2', type: 'heading', level: 2 });
+  const h = back.result.blocks.find((b) => b.id === 'h2');
+  assert.deepStrictEqual([h.type, h.level, h.citeState, h.aiHeading], ['heading', 2, undefined, undefined]);
+  assert.deepStrictEqual(M.orderForView(back.result.blocks).map((i) => back.result.blocks[i].id), order0);
+  // 箇条書き → 番号付きと2回変えてから戻しても同じ
+  call(db, 'block.turnInto', { pageId: 'pa1', blockId: 'h2', type: 'bullet' });
+  call(db, 'block.turnInto', { pageId: 'pa1', blockId: 'h2', type: 'numbered' });
+  const back2 = call(db, 'block.turnInto', { pageId: 'pa1', blockId: 'h2', type: 'heading', level: 2 });
+  assert.strictEqual(back2.result.blocks.find((b) => b.id === 'h2').citeState, undefined);
+  // 間に文を直したら、見出しに戻しても人の行（manual。印は消える）
+  call(db, 'block.turnInto', { pageId: 'pa1', blockId: 'h2', type: 'paragraph' });
+  call(db, 'block.update', { pageId: 'pa1', blockId: 'h2', patch: { text: '決定事項（直した）' } });
+  assert.strictEqual(get(db).blocks.find((b) => b.id === 'h2').aiHeading, undefined);
+  const back3 = call(db, 'block.turnInto', { pageId: 'pa1', blockId: 'h2', type: 'heading', level: 2 });
+  assert.strictEqual(back3.result.blocks.find((b) => b.id === 'h2').citeState, 'manual');
+  // 人の行（manual の見出し）は印を持たない: テキストにして戻しても manual のまま
+  const hm = call(db, 'block.insert', { pageId: 'pa1', afterBlockId: 'b2', type: 'heading', level: 2 });
+  call(db, 'block.turnInto', { pageId: 'pa1', blockId: hm.result.blockId, type: 'paragraph' });
+  const hm2 = call(db, 'block.turnInto', { pageId: 'pa1', blockId: hm.result.blockId, type: 'heading', level: 2 });
+  const row = hm2.result.blocks.find((b) => b.id === hm.result.blockId);
+  assert.deepStrictEqual([row.citeState, row.aiHeading], ['manual', undefined]);
+}, { blocks: [{ id: 'h1', type: 'heading', level: 2, text: '議題' }, { id: 'b2', type: 'bullet', text: '予算の話', cites: ['s2'], citeState: 'linked' },
+  { id: 'h2', type: 'heading', level: 2, text: '決定事項' }, { id: 'b4', type: 'bullet', text: '来月に出す', cites: ['s3'], citeState: 'linked' },
+  { id: 'h3', type: 'heading', level: 2, text: '次の一歩' }, { id: 'b6', type: 'bullet', text: '見積もりを取る', cites: [], citeState: 'linked' }] }));
+
+// 2026-10-26 の持ち主の答え（点検4「どんな手直しでも確かめる（おすすめ）」）: 要約の欄を直す命令はどれもページの印 summaryEdited を付ける
+// （［要約を再生成］の確かめの決め手。行を消す・動かす・複製・見出しの段・型の変換・分割・結合も）。作り直した要約の書き戻し（page.put）で消える
+test('ED-2・点検4: 要約の欄を直す命令（消す・動かす・複製・段・変換・分割・結合・足す・文・チェック・担当）はどれもページに summaryEdited を付ける。題名・メモは付けない', T, () => {
+  const AI = [{ id: 'h1', type: 'heading', level: 2, text: '決定事項' }, { id: 'b1', type: 'bullet', text: '来月に出す', cites: ['s2'], citeState: 'linked' },
+    { id: 'p1', type: 'paragraph', text: '本文の行' }, { id: 't1', type: 'todo', text: '見積もりを取る', checked: false, cites: [], citeState: 'linked' }];
+  const cases = [
+    ['block.remove', { blockId: 'p1' }], ['block.move', { blockId: 'b1', afterId: 'p1' }], ['block.duplicate', { blockId: 'h1' }],
+    ['block.turnInto', { blockId: 'h1', type: 'heading', level: 3 }], ['block.turnInto', { blockId: 'b1', type: 'todo' }],
+    ['block.split', { blockId: 'p1', text: '本文の行', at: 2 }], ['block.merge', { blockId: 'p1', text: '' }],
+    ['block.insert', { afterBlockId: 'b1', type: 'bullet' }], ['block.update', { blockId: 'p1', patch: { text: '直した' } }],
+    ['block.update', { blockId: 't1', patch: { checked: true } }], ['block.setAction', { blockId: 't1', assignee: '担当B' }],
+  ];
+  for (const [cmd, args] of cases) {
+    withDb((db) => {
+      assert.strictEqual(get(db).summaryEdited, undefined, '見本のページに印がある');
+      // 利用者が付け直した題名（D77。題名を直しても印が付かないことを見るため）
+      assert.strictEqual(call(db, 'page.setTitle', { id: 'pa1', title: '題名だけ直す' }).ok, true);
+      assert.strictEqual(call(db, 'page.setMemo', { id: 'pa1', memo: 'メモだけ直す' }).ok, true);
+      assert.strictEqual(get(db).summaryEdited, undefined, '題名・メモで印が付いた');
+      const r = call(db, cmd, { pageId: 'pa1', ...args });
+      assert.strictEqual(r.ok, true, `${cmd} ${r.code}`);
+      assert.strictEqual(get(db).summaryEdited, true, `${cmd} ${JSON.stringify(args)}`);
+      // 作り直した要約の書き戻し（main の summarize と同じく印を外して page.put）で消える
+      const p = get(db);
+      const { rev, ...rest } = p;
+      delete rest.summaryEdited;
+      assert.strictEqual(call(db, 'page.put', { page: { ...rest, blocks: AI }, baseRev: rev }, 'main').ok, true);
+      assert.strictEqual(get(db).summaryEdited, undefined);
+    }, { blocks: AI });
+  }
+});
+
+// 点検の見直しの2つ目（作り手が決めた。R39 の「何も変えない命令は付かない」）: 要約の欄を直す命令でも、行を何も変えなかったとき（同じ所への move・
+// 無い行の remove・同じ文や同じチェックの update・同じ担当）はページを書かず、印 summaryEdited も付けない（落とした所が元の所でも［要約を再生成］で聞かない）。
+// oplog の1行は送り直しを1回だけ効かせるために残るが、操作は空（rev も上がらない）
+test('ED-2・点検4: 行を何も変えない要約の欄の命令（同じ所への move・無い行の remove・同じ文・同じチェック・同じ型の update・同じ担当）はページを書かず、summaryEdited を付けない。oplog の操作は空', T, () => {
+  const AI = [{ id: 'h1', type: 'heading', level: 2, text: '決定事項' }, { id: 'b1', type: 'bullet', text: '来月に出す', cites: ['s2'], citeState: 'linked' },
+    { id: 'p1', type: 'paragraph', text: '本文の行' }, { id: 't1', type: 'todo', text: '見積もりを取る', checked: false, assignee: '担当A', cites: [], citeState: 'linked' }];
+  const cases = [
+    ['block.move', { blockId: 'b1', afterId: 'h1' }], ['block.move', { blockId: 'h1', afterId: '' }], ['block.move', { blockId: 'p1', toIndex: 2 }],
+    ['block.remove', { blockId: 'zz' }], ['block.update', { blockId: 'p1', patch: { text: '本文の行' } }],
+    ['block.update', { blockId: 't1', patch: { checked: false } }], ['block.update', { blockId: 't1', patch: { type: 'todo' } }],
+    ['block.setAction', { blockId: 't1', assignee: '担当A' }],
+  ];
+  for (const [cmd, args] of cases) {
+    withDb((db) => {
+      const p0 = get(db);
+      const n0 = oplogN(db);
+      const r = call(db, cmd, { pageId: 'pa1', ...args });
+      assert.strictEqual(r.ok, true, `${cmd} ${r.code}`);
+      assert.strictEqual(r.result && r.result.id, 'pa1', `${cmd}: 答えにページが無い`);
+      const p1 = get(db);
+      assert.strictEqual(p1.summaryEdited, undefined, `${cmd} ${JSON.stringify(args)}: 何も変えないのに印が付いた`);
+      assert.strictEqual(p1.rev, p0.rev, `${cmd} ${JSON.stringify(args)}: 何も変えないのに書いた`);
+      assert.strictEqual(oplogN(db), n0 + 1, cmd);
+      assert.strictEqual(db.prepare('select ops from oplog order by seq desc limit 1').get().ops, '[]', cmd);
+      assert.deepStrictEqual(p1.blocks, p0.blocks, cmd);
+    }, { blocks: AI });
+  }
+});
+
 test('ED-2: 画面の役の block.insert・turnInto・update の型は BLOCK_TYPES だけ（numbered は通る・video・../x は bad-args）。main の役の page.put は知らない型も今どおり通す', T, () => withDb((db) => {
   assert.strictEqual(call(db, 'block.insert', { pageId: 'pa1', afterBlockId: 'b1', type: 'numbered' }).ok, true);
   assert.strictEqual(call(db, 'block.insert', { pageId: 'pa1', afterBlockId: 'b1', type: 'heading', level: 1 }).result.page.blocks[1].level, 1);
-  for (const type of ['video', '../x', 'toggle', 'page']) {
+  // 0.13.1 で意図して変えた（計画 docs/plans/2026-10-27-131.md の「意図して変えるテスト」。計画は NE-2 と書くが、型の表 TYPE_KEYS を NE-1 で変えるので NE-1 で: Ruling NR26）:
+  // toggle は 0.13.1 の型なので通す。video・../x・page は今どおり断る
+  assert.strictEqual(call(db, 'block.insert', { pageId: 'pa1', afterBlockId: 'b1', type: 'toggle' }).ok, true);
+  for (const type of ['video', '../x', 'page']) {
     assert.strictEqual(call(db, 'block.insert', { pageId: 'pa1', afterBlockId: 'b1', type }).code, 'bad-args', `insert ${type}`);
     assert.strictEqual(call(db, 'block.turnInto', { pageId: 'pa1', blockId: 'b2', type }).code, 'bad-args', `turnInto ${type}`);
     assert.strictEqual(call(db, 'block.update', { pageId: 'pa1', blockId: 'b2', patch: { type } }).code, 'bad-args', `update ${type}`);
@@ -233,13 +395,14 @@ test('ED-2: preload の APP_COMMANDS は役 app の命令と同じ集まり・ko
   const port = new EventTarget(); port.postMessage = (msg) => sent.push(structuredClone(msg)); port.start = () => {}; port.close = () => {};
   on['db:port']({ ports: [port] });
   exposed.koeApp.blockSplit('pa1', 'b2', '打った文', 2);
+  exposed.koeApp.blockSplit('pa1', 'b2', '打った文', 0, '');   // 点検8: 上に足す行の置き場（画面で上に見えている行。'' は頭）
   exposed.koeApp.blockMerge('pa1', 'b3', '了解');
   exposed.koeApp.blockTurnInto('pa1', 'b2', 'heading', 3);
   exposed.koeApp.blockDuplicate('pa1', 'b2');
   exposed.koeApp.blockMove('pa1', 'b2', { afterId: 'b4' });
   exposed.koeApp.blockMove('pa1', 'b2', 3);
   assert.deepStrictEqual(sent.map((x) => [x.cmd, x.args]), [
-    ['block.split', { pageId: 'pa1', blockId: 'b2', text: '打った文', at: 2 }], ['block.merge', { pageId: 'pa1', blockId: 'b3', text: '了解' }],
+    ['block.split', { pageId: 'pa1', blockId: 'b2', text: '打った文', at: 2 }], ['block.split', { pageId: 'pa1', blockId: 'b2', text: '打った文', at: 0, afterId: '' }], ['block.merge', { pageId: 'pa1', blockId: 'b3', text: '了解' }],
     ['block.turnInto', { pageId: 'pa1', blockId: 'b2', type: 'heading', level: 3 }], ['block.duplicate', { pageId: 'pa1', blockId: 'b2' }],
     ['block.move', { pageId: 'pa1', blockId: 'b2', afterId: 'b4' }], ['block.move', { pageId: 'pa1', blockId: 'b2', toIndex: 3 }]]);
   assert.ok(sent.every((x) => /^a:/.test(x.tx)), '書く命令に tx が無い');

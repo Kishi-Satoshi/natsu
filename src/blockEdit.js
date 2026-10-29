@@ -21,21 +21,24 @@ const BLOCK_TYPES = Object.freeze([
   { id: 'divider', key: 'divider', label: '区切り線', words: ['くぎり', 'divider', '---'], md: ['---'], kids: false, cite: false, since: '0.13.0' },
   { id: 'callout', key: 'callout', label: 'コールアウト', words: ['こーるあうと', 'callout', 'メモ書き'], md: [], kids: true, cite: false, since: '0.13.0' },
 ].map((r) => Object.freeze({ ...r, words: Object.freeze([...r.words]), md: Object.freeze([...r.md]) })));
-// この版（0.13.0）で使える行（0.13.1 のトグルとトグル見出しは、/ メニュー・記法・近道に出さない）
-const VERSION_ROWS = Object.freeze(BLOCK_TYPES.filter((r) => r.since !== '0.13.1'));
-// / メニューの鍵（「最近使ったもの」に覚える鍵。0.13.1 で toggle・th1〜th3 を足す）
-const MENU_KEYS = Object.freeze(VERSION_ROWS.map((r) => r.id));
+// この版で使える行（0.13.1 から型の表の全部。計画 docs/plans/2026-10-27-131.md の「受け渡す名前と形」）
+const VERSION_ROWS = Object.freeze([...BLOCK_TYPES]);
+// / メニューと ⠿ の［変換 ▸］の項目（0.13.1 NR5: 型の表の1行 th（段を持たない）から、トグル見出し1〜3 の3つの項目 th1〜th3 を作る。型の表は 12 行のまま）
+const MENU_ROWS = Object.freeze(VERSION_ROWS.flatMap((r) => (r.id !== 'th' ? [r]
+  : [1, 2, 3].map((level) => Object.freeze({ ...r, id: `th${level}`, level, label: `トグル見出し${level}` })))));
+// / メニューの鍵（「最近使ったもの」に覚える鍵。0.13.1 で toggle・th1〜th3 を足した 14）
+const MENU_KEYS = Object.freeze(MENU_ROWS.map((r) => r.id));
 const TYPE_KEYS = Object.freeze([...new Set(VERSION_ROWS.map((r) => r.key))]);   // 画面の役の命令が通す型（DB の validate も同じ表）
 const RECENT_MAX = 3;
 const CALLOUT_ICON = '💡';   // EQ15 (a): コールアウトの絵文字は 💡 だけ
 
-const rowById = (id) => BLOCK_TYPES.find((r) => r.id === id) || null;
+const rowById = (id) => MENU_ROWS.find((r) => r.id === id) || null;
 const headingLevel = (b) => (b && (b.level === 1 || b.level === 2 || b.level === 3) ? b.level : 2);   // 段の無い古い見出しは段 2
 
 // ブロック → 型の表の行（知らない型はテキストの見た目・段の無い見出しは段 2）
 function typeOf(block) {
   const b = block && typeof block === 'object' ? block : {};
-  if (b.type === 'heading') return rowById(`h${headingLevel(b)}`);
+  if (b.type === 'heading') return rowById(`${b.toggle === true ? 'th' : 'h'}${headingLevel(b)}`);   // 0.13.1: トグル見出しは th1〜th3
   const r = VERSION_ROWS.find((x) => x.key === b.type && x.key !== 'heading');
   return r || rowById('text');
 }
@@ -135,7 +138,7 @@ function slashFilter(query, recent) {
   const q = String(query ?? '');
   const rec = recentCheck(recent);
   if (!q) return [...rec.map((id) => ({ id, group: 'recent' })), ...MENU_KEYS.map((id) => ({ id, group: 'types' }))];
-  const found = VERSION_ROWS.filter((r) => hits(r, q)).map((r) => r.id);
+  const found = MENU_ROWS.filter((r) => hits(r, q)).map((r) => r.id);
   if (!found.length) return q.length >= 3 ? null : [];
   return [...rec.filter((id) => found.includes(id)), ...found.filter((id) => !rec.includes(id))].map((id) => ({ id, group: '' }));
 }
@@ -155,10 +158,17 @@ function recentCheck(v) {
 
 // ---------------------------------------------------------------- Enter と Backspace（EQ5 (a)・EQ6 (a)）
 const LIST_KEYS = ['bullet', 'todo', 'numbered'];
-// Enter で分けた後ろの行の型 → { type, level? }。空のリストの Enter は 'revert'（テキストに戻す）
-function nextTypeOnEnter(block, { empty = false } = {}) {
+// Enter で分けた後ろの行の型 → { type, level?, toggle? }。空のリストの Enter は 'revert'（テキストに戻す）。
+// 0.13.1: 字下げされた空のリストは 'outdent'（EQ5 (a)。先に1段戻す）。トグルは open（見えている開け閉め）で決める（TQ3: 開いていれば
+// 最初の子のテキスト、閉じていれば子の後ろの兄弟で同じ型。トグル見出しは同じ段のトグル見出し: 計画の Ruling NR25）
+function nextTypeOnEnter(block, { empty = false, depth = 0, open = true } = {}) {
   const r = typeOf(block);
+  if (LIST_KEYS.includes(r.key) && empty && depth > 0) return 'outdent';
   if (LIST_KEYS.includes(r.key)) return empty ? 'revert' : { type: r.key };
+  if (r.toggle === true || r.key === 'toggle') {
+    if (open) return { type: 'paragraph' };
+    return r.key === 'toggle' ? { type: 'toggle' } : { type: 'heading', level: r.level, toggle: true };
+  }
   if (r.key === 'heading') return { type: 'bullet' };
   return { type: 'paragraph' };
 }
@@ -185,8 +195,10 @@ const DIGIT_TURN = Object.freeze(Object.fromEntries(VERSION_ROWS.filter((r) => r
 // 変換中は null。今の近道（Ctrl+P・Ctrl+Shift+P・Ctrl+Shift+L）と 0.14.0 に入る近道（Ctrl+W・Ctrl+Shift+N・Ctrl+Alt+V）は取らない
 function keyAction(ev) {
   if (!ev || ev.isComposing || ev.keyCode === 229) return null;
-  if (!ev.ctrlKey || ev.altKey || ev.metaKey) return null;
+  if (!ev.ctrlKey || ev.metaKey) return null;
   const code = String(ev.code || '');
+  // 0.13.1 NR21: Alt つきは Ctrl+Alt+T（ページのトグルをまとめて開け閉め: EQ19 (a)）だけ。Ctrl+Alt+V（0.14.0 で何もしない）などは取らない
+  if (ev.altKey) return !ev.shiftKey && code === 'KeyT' ? 'openAll' : null;
   if (ev.shiftKey) {
     if (Object.hasOwn(DIGIT_TURN, code)) return `turn:${DIGIT_TURN[code]}`;
     if (code === 'ArrowUp' || ev.key === 'ArrowUp') return 'moveUp';
@@ -200,13 +212,15 @@ function keyAction(ev) {
 }
 
 // ---------------------------------------------------------------- ［コピー］の Markdown（決めたこと 22）
-// 今の4つの型（段の無い見出し・ToDo・箇条書き・テキスト）は 0.11.0 の［コピー］と1文字も同じ（見出しは前に空の行）
-function blocksMarkdown(blocks) {
+// 今の4つの型（段の無い見出し・ToDo・箇条書き・テキスト）は 0.11.0 の［コピー］と1文字も同じ（見出しは前に空の行）。
+// 0.13.1（決めたこと 22・NR20）: 子は段ごとに2つの空白で下げる（閉じたトグルの子も写す）。トグルは箇条書きと同じ「- 」、トグル見出しは見出しの段の #。番号は親ごと
+// 2026-10-28 の点検 4（NR40）: 見出しは下げない（Markdown の見出しは下げられず、4つ以上の空白の行はコードの塊になる）。見出しの後の行は見出しの段から
+// 数え直す（見出しの子は2つの空白・見出しの後の兄弟は下げない）。at.base は文書の順に見出しの段を運ぶ。見出しの無い所の下げ方は今のまま
+function blocksMarkdown(blocks, depth = 0, at = { base: 0 }) {
   const list = Array.isArray(blocks) ? blocks.filter((b) => b && typeof b === 'object') : [];
   const nums = numberLabels(list);
-  const indent = (t) => String(t ?? '').replace(/\n/g, '\n  ');
-  return list.map((b) => {
-    const t = indent(b.text);
+  const line = (b, pad) => {
+    const t = String(b.text ?? '').replace(/\n/g, `\n${pad}  `);
     if (b.type === 'heading') return `\n${'#'.repeat(headingLevel(b))} ${t}`;
     if (b.type === 'todo') return `- [${b.checked ? 'x' : ' '}] ${t}`;
     if (b.type === 'bullet') return `- ${t}`;
@@ -214,7 +228,15 @@ function blocksMarkdown(blocks) {
     if (b.type === 'quote') return `> ${t}`;
     if (b.type === 'divider') return '---';
     if (b.type === 'callout') return `> ${CALLOUT_ICON} ${t}`;
+    if (b.type === 'toggle') return `- ${t}`;
     return t;
+  };
+  return list.map((b) => {
+    at.base = b.type === 'heading' ? depth : Math.min(at.base, depth);
+    const pad = b.type === 'heading' ? '' : '  '.repeat(depth - at.base);
+    const own = pad ? line(b, pad).replace(/^(\n?)/, `$1${pad}`) : line(b, pad);
+    const kids = Array.isArray(b.children) && b.children.length ? blocksMarkdown(b.children, depth + 1, at) : '';
+    return kids ? `${own}\n${kids}` : own;
   }).join('\n');
 }
 
@@ -254,7 +276,7 @@ function lisIndexes(seq) {
 }
 
 module.exports = {
-  BLOCK_TYPES, VERSION_ROWS, MENU_KEYS, TYPE_KEYS, RECENT_MAX, CALLOUT_ICON,
+  BLOCK_TYPES, VERSION_ROWS, MENU_ROWS, MENU_KEYS, TYPE_KEYS, RECENT_MAX, CALLOUT_ICON,
   typeOf, isTyped, headingLevel, safeOffset, splitText, splitRich, joinRich,
   shortcutFor, slashQuery, slashFilter, recentAdd, recentCheck,
   nextTypeOnEnter, backspaceAtStart, numberLabels, keyAction, blocksMarkdown, patchPlan,

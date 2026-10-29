@@ -40,6 +40,9 @@ const OFFLINE_EXTRA = { localOnly: true, systemAudio: true };
 const QUIET_ASK = { text: '10 分ほど話し声がありません。会議は終わりましたか？ このままなら 5 分後に録音を止めて議事録を作ります。' };
 const BANNER_STT = { route: 'local', lastTextAt: FIXED_NOW - 12000, segSec: 15,
   problem: { code: 'relay-down', action: '', text: 'NaTsu のサーバーにつながりません。この PC で文字起こしを続けていますが、精度が落ちます。録音はそのまま続けてください。' } };
+// 0.13.2 LN-3（持ち主の答え LA2）: ログインしていない遅い PC の会議（PC で文字起こし・区切り 75 秒）。帯は no-login と［ログイン］（kept-late より先に出る形）
+const SIGNIN_STT = { route: 'local', lastTextAt: FIXED_NOW - 12000, segSec: 75,
+  problem: { code: 'no-login', action: 'signin', text: 'ログインしていないため PC で文字起こししています。［ログイン］を押してログインすると、クラウドで文字起こしします。' } };
 
 // 一覧の1行目を開く（今の画面と同じ）
 const OPEN_PAGE = "document.getElementById('tabBtnNotes').click(); document.querySelector('#plist .pitem').click()";
@@ -295,6 +298,18 @@ const SCREENS = [
   { name: 'edit-types-light', page: 'app', theme: 'light', get answers() { return typesAnswers(); }, act: OPEN_TYPES },
   { name: 'edit-types-dark', page: 'app', theme: 'dark', get answers() { return typesAnswers(); }, act: OPEN_TYPES },
   { name: 'edit-types-zoom150-light', page: 'app', theme: 'light', zoom: 1.5, get answers() { return typesAnswers(); }, act: OPEN_TYPES },
+  // 0.13.1 NE-4a（E10・NR15・NR23。計画 docs/plans/2026-10-27-131.md の「取り直す画面（RETAKE）」）: 2段・3段の字下げ（箇条書き・ToDo・番号付きの子。番号は親ごと）の
+  // 明暗と、拡大 200%（深い段の行の ＋・⠿・文が切れない・折り返しが崩れない）。足した画面（まだ基準が無い）
+  { name: 'edit-nested-light', page: 'app', theme: 'light', get answers() { return nestedAnswers(); }, act: OPEN_TYPES },
+  { name: 'edit-nested-dark', page: 'app', theme: 'dark', get answers() { return nestedAnswers(); }, act: OPEN_TYPES },
+  { name: 'edit-nested-zoom200-light', page: 'app', theme: 'light', zoom: 2, get answers() { return nestedAnswers(); }, act: OPEN_TYPES },
+  // 0.13.1 NE-4b（E5・決めたこと 18）: 開いたトグルと閉じたトグル・トグル見出し（▸ の向き）。足した画面（まだ基準が無い）
+  { name: 'edit-toggle-light', page: 'app', theme: 'light', get answers() { return toggleAnswers(); }, act: OPEN_TYPES },
+  // 0.13.2 LN-3（持ち主の答え LA2）: 録音中のページの帯 no-login と［ログイン］。足した画面（まだ基準が無い）
+  { name: 'live-banner-signin-light', page: 'app', theme: 'light', answers: liveAnswers(SIGNIN_STT) },
+  // 0.13.2 LN-5（持ち主の答え LA4）: 保存した議事録のページの「文字起こし」の欄の頭の1行（文字起こし待ちと［もう一度文字起こし］・回している途中で押せない形）。足した画面（まだ基準が無い）
+  { name: 'page-pending-light', page: 'app', theme: 'light', answers: { 'koeApp.pagePending': { left: 12, running: false, busy: false } }, act: OPEN_PAGE_SCRIPT },
+  { name: 'page-pending-running-light', page: 'app', theme: 'light', answers: { 'koeApp.pagePending': { left: 5, running: true, busy: false } }, act: OPEN_PAGE_SCRIPT },
 ];
 // 0.9.0 O-3（RP9）: 録音バーの画面（形 → 地 → 拡大率 → 状態の順。撮る道具は形・地・拡大率の組ごとに窓を1つ開いて状態を act で替える）。
 // 録音は始めずに見た目だけを撮る（act は pill-states の見本を録音バーの DOM に当てる。撮るときだけ体の地にデスクトップの色を塗る）。
@@ -381,16 +396,17 @@ const OVL_094 = (states) => PS.FORMS.flatMap((form) => Object.keys(PS.DESKS).fla
 // 0.12.1（版を 0.12.1 に上げる commit。LV-7）: 持ち主が 2026-10-25 に取り直しの見比べ（review-121.html。LV-4 で［設定］→［録音］のカード「会議の検出」に行
 // 「会議を出たら自動で止める」を足して変わった 10 枚）を見て「OK（版を 0.12.1 に上げてよい）」と言ったので、点検の直しの後の CI run 40207175980（ba3387f）の
 // artifact 12604106323 の .after.png をバイトのまま基準にし、空に戻した
-// 0.13.0（計画 docs/plans/2026-10-24-130.md の「取り直す画面（RETAKE）」）: RDY-3 で足した録音の前のページの3枚。持ち主が見比べを OK と言ったら、
-// 版を上げる commit（Task G）で基準にして空に戻す
-const RETAKE = new Set(['live-ready-light', 'live-ready-dark', 'live-ready-zoom200-light', 'edit-slash-light', 'edit-slash-dark', 'edit-slash-recent-light',
-  'edit-block-menu-light', 'edit-types-light', 'edit-types-dark', 'edit-types-zoom150-light',
-  // 2026-10-26 の持ち主の答え（問2「⠿ の左に並べる（Notion と同じ並び）」。計画の Ruling R36）: 行の左の ＋ を行の並びに入れたので、鍵の無い要約の行が
-  // 見える今の画面は要約の文が約 22px 右へずれる。版を上げる commit（Task G）で基準にする
-  'notes-page-light', 'notes-page-dark', 'notes-tabs-light', 'notes-collapsed-light', 'search-palette-light', 'page-menu-link-light', 'page-menu-link-dark',
-  'page-type-undecided-light', 'page-quality-light', 'page-quality-dark',
-  // CI run 40403886281 で見つけた: 拡大 200% は要約の欄が窓に入らないが、要約の行の折り返しが増えてページが伸び、捲り棒のつまみが短くなる（42 画素）
-  'notes-page-zoom200-light']);
+// 0.13.0（版を 0.13.0 に上げる commit。Task G・RDY-7）: 持ち主が 2026-10-27 に取り直しの見比べ（足した 10 枚: 録音の前のページの3枚・/ メニューの3枚・
+// ⠿ のメニューの1枚・新しい型の3枚に「この見た目でよい」、行の左の ＋ で要約の文がずれた今の画面の 11 枚に「この見た目でよい（おすすめ）」）と答えたので、
+// CI run 40466764263（20ceb94）の artifact 12717370368 の .after.png（21 枚）をバイトのまま基準にし、空に戻した
+// 0.13.1（版を 0.13.1 に上げる commit。Task G）: 持ち主が取り直しの見比べの初めの 8 枚（足した 4 枚: 入れ子の明暗と拡大 200%・トグルの1枚、取り直した 4 枚:
+// / メニューの3枚・⠿ の［変換 ▸］の1枚）に「この見た目でよい（おすすめ）」と答え、2026-10-28 に点検の直しの後の画面（▸ を 24px にした形・拡大 200% で文が
+// 崩れない形。点検 2 で足した notes-page-zoom200-light を含む 9 枚）に「OK（版を 0.13.1 に上げてよい）」と答えたので、CI run 40623116933（9ede0e7）の
+// artifact 12787992574 の .after.png（9 枚）をバイトのまま基準にし、空に戻した
+// 0.13.2（版を 0.13.2 に上げる commit。Task G）: 持ち主が取り直しの見比べ（足した 3 枚: 帯 no-login・議事録のページの「残り n 区間」の2枚、取り直した 5 枚:
+// 会議の知らせのパネル）に「この見た目でよい（おすすめ）」（2026-10-28）と答えたので、CI run 40796780384（80ea908）の artifact 12864058378 の .after.png（5 枚。閉じたパネルの3枚は今の基準と
+// バイトが同じで artifact に出なかったので替えていない）をバイトのまま基準にし、空に戻した（基準は 161 枚）
+const RETAKE = new Set([]);
 const PERF = [{ name: 'open-2000-blocks', budgetMs: 500 }];   // 3回開いた中央値で見る
 const TIME_ZONE = 'Asia/Tokyo';
 const TOLERANCE = 2;   // 色の差（0〜255）がこれ以下の画素は同じとみなす。CI の機械の CPU ごとの描き方の1段の差を拾わないため（揺れの確かめ judgePair は 0 で見る）
@@ -570,6 +586,41 @@ function typesAnswers() {
     { id: 'e8', type: 'divider', text: '', citeState: 'manual', cites: [] },
     { id: 'e9', type: 'bullet', text: '次回は会議室を替える。', citeState: 'manual', cites: [] },
     { id: 'e10', type: 'paragraph', text: '以上で終わります。', citeState: 'manual', cites: [] },
+  ];
+  return { 'koeApp.pageGet': { page: { ...page, blocks, citeStat: { linked: 0, total: 0 }, actionStat: null }, segments: SEGMENTS } };
+}
+// 0.13.1 NE-4a（NR15）: 入れ子の要約（2段・3段の箇条書き・ToDo・番号付き。番号は親ごと）
+function nestedAnswers() {
+  const page = fixtures()['koeApp.pageGet'].page;
+  const m = (id, type, text, o = {}) => ({ id, type, text, citeState: 'manual', cites: [], ...o });
+  const blocks = [
+    m('n1', 'heading', '進め方を決めた', { level: 2 }),
+    // 2026-10-28 の点検 2（計画の Ruling NR46）: 段 0 の ToDo（担当・期限の札つき）も拡大 200% で文が細くならないかを見る
+    m('n0', 'todo', '見積書を月末までに先方へ送る', { checked: false, assignee: '佐藤', due: '2026-10-31', dueRaw: '月末' }),
+    m('n2', 'bullet', '受注の画面は11月15日に出す。', { children: [
+      m('n3', 'bullet', '結合の試験は今週で終わった。', { children: [
+        m('n4', 'todo', '残りの不具合2件の直しを確かめる', { checked: false, assignee: '山田', due: '2026-10-14', dueRaw: '10月14日' }),
+        m('n5', 'bullet', '在庫の取り込みの速さは、索引を足してから測り直す。'),
+      ] }),
+      m('n6', 'numbered', '試験の環境を空ける。'),
+      m('n7', 'numbered', '利用者に知らせる。', { children: [m('n8', 'numbered', '社内の掲示板に書く。'), m('n9', 'numbered', '取引先にはメールで送る。')] }),
+    ] }),
+    m('n10', 'numbered', '次回は会議室を替える。'),
+    m('n11', 'paragraph', '以上で終わります。'),
+  ];
+  return { 'koeApp.pageGet': { page: { ...page, blocks, citeStat: { linked: 0, total: 0 }, actionStat: null }, segments: SEGMENTS } };
+}
+// 0.13.1 NE-4b（E5）: 開いたトグル（子が見える）・閉じたトグル（子は描かない）・トグル見出し（開いた・閉じた）
+function toggleAnswers() {
+  const page = fixtures()['koeApp.pageGet'].page;
+  const m = (id, type, text, o = {}) => ({ id, type, text, citeState: 'manual', cites: [], ...o });
+  const blocks = [
+    m('g1', 'heading', '論点ごとの要点', { level: 2, toggle: true, children: [
+      m('g2', 'toggle', '受注の画面', { children: [m('g3', 'bullet', '結合の試験は今週で終わった。'), m('g4', 'bullet', '残りの不具合は2件。')] }),
+      m('g5', 'toggle', '在庫の取り込み', { open: false, children: [m('g6', 'bullet', '索引を足してから測り直す。')] }),
+    ] }),
+    m('g7', 'heading', '持ち越したこと', { level: 3, toggle: true, open: false, children: [m('g8', 'bullet', '価格は次回に決める。')] }),
+    m('g9', 'paragraph', '以上で終わります。'),
   ];
   return { 'koeApp.pageGet': { page: { ...page, blocks, citeStat: { linked: 0, total: 0 }, actionStat: null }, segments: SEGMENTS } };
 }

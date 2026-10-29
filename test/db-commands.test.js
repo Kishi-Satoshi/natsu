@@ -11,8 +11,9 @@ let n = 0;
 const call = (db, cmd, args, role = 'app') => core.call(db, { role, cmd, args, tx: `${role[0]}:t-${String(++n).padStart(6, '0')}` }, { now: NOW, labels: { groq: 'Groq（無料枠）' } });
 // updatedAt・rev・id の作り方の違いと、DB だけが付ける空の children（2a1 は子のない木）だけを落として比べる
 // 0.11.0 M-4 で意図して足した: 経過の項目（{ s, by, at }）の時刻も落とす（json-backend は時計を受けず、今の時刻で積む）
+// 0.13.0 点検4（2026-10-26 の持ち主の答え「どんな手直しでも確かめる」）で意図して足した: DB だけが付ける手直しの印 summaryEdited も落とす（json-backend は 0.13.0 の命令を持たない）
 const plain = (v) => JSON.parse(JSON.stringify(v, function (k, x) {
-  if (['updatedAt', 'rev', 'blockId'].includes(k) || (k === 'children' && Array.isArray(x) && x.length === 0)) return undefined;
+  if (['updatedAt', 'rev', 'blockId', 'summaryEdited'].includes(k) || (k === 'children' && Array.isArray(x) && x.length === 0)) return undefined;
   if (k === 'at' && this && typeof this.s === 'string' && typeof this.by === 'string') return undefined;
   return x;
 }));

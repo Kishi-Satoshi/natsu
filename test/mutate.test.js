@@ -425,8 +425,8 @@ test('G3: ヘルプセンターの変異が一覧にそろい、IDS_HELP は計�
 // help-dads（計画 docs/plans/2026-10-23-help-dads.md の「変異確認」の表）: ヘルプセンターの DADS の直しを1つずつ戻す変異。
 // タスクを作るたびに足し、HD-7 で表の全部とちょうど同じにそろえた（HD-6 の答えの分 5 つを含む 24。HD-8 で 1 つ足して 25）
 const IDS_HELP_DADS = [
-  'hd-link-color', 'hd-link-underline', 'hd-link-visited', 'hd-link-dark', 'hd-hover-media', 'hd-search-border', 'hd-grey-muted',
-  'hd-focus-ring', 'hd-focus-dark', 'hd-toc-pad',
+  'hd-link-color', 'hd-link-underline', 'hd-link-visited', 'hd-hover-media', 'hd-search-border', 'hd-grey-muted',   // hd-link-dark は help-light HL-1 で外した（GONE_HL）
+  'hd-focus-ring', 'hd-toc-pad',   // hd-focus-dark も同じ
   'hd-rem-body', 'hd-crumbs-size', 'hd-tap-narrow',
   'hd-font-sans',
   'hd-status-count', 'hd-status-cap', 'hd-status-error', 'hd-status-clear', 'hd-status-markup',
@@ -455,15 +455,22 @@ const IDS_HELP_DADS = [
   'hd-search-reopen-plain',
   'hd-pre-tabindex',
 ];
-test('G3: help-dads の変異が一覧にそろい、IDS_HELP_DADS は計画 docs/plans/2026-10-23-help-dads.md の「変異確認」の表の id とちょうど同じで、当てるファイルと赤になるテストが表と同じ。hd- の変異は IDS_HELP_DADS にある', { timeout: 5000 }, () => {
+// help-light HL-1（計画 docs/plans/2026-10-27-help-light.md）で暗い版を外したので、直しそのものが無くなった変異（暗い版のリンクと輪）。
+// help-dads の計画の表には記録として残るが、一覧と IDS_HELP_DADS からは外した
+const GONE_HL = ['hd-link-dark', 'hd-focus-dark'];
+test('G3: help-light HL-1 で外した変異（暗い版のリンクと輪）は一覧に無い', { timeout: 5000 }, () => {
+  const ids = new Set(MUTANTS.map((m) => m.id));
+  assert.deepStrictEqual(GONE_HL.filter((id) => ids.has(id) || IDS_HELP_DADS.includes(id)), []);
+});
+test('G3: help-dads の変異が一覧にそろい、IDS_HELP_DADS は計画 docs/plans/2026-10-23-help-dads.md の「変異確認」の表の id（help-light で外した GONE_HL を除く）とちょうど同じで、当てるファイルと赤になるテストが表と同じ。hd- の変異は IDS_HELP_DADS にある', { timeout: 5000 }, () => {
   const byId = new Map(MUTANTS.map((m) => [m.id, m]));
   assert.deepStrictEqual(IDS_HELP_DADS.filter((id) => !byId.has(id)), [], 'IDS_HELP_DADS の変異が一覧に無い');
   assert.strictEqual(new Set(IDS_HELP_DADS).size, IDS_HELP_DADS.length, 'IDS_HELP_DADS に重なり');
   assert.deepStrictEqual(MUTANTS.filter((m) => /^hd-/.test(m.id) && !IDS_HELP_DADS.includes(m.id)).map((m) => m.id), [], 'IDS_HELP_DADS に無い hd- の変異がある');
   const plan = fs.readFileSync(path.join(ROOT, 'docs', 'plans', '2026-10-23-help-dads.md'), 'utf8');
   const table = plan.slice(plan.indexOf('## 変異確認'), plan.indexOf('## ゲート'));
-  const rows = [...table.matchAll(/^\| (hd-[a-z0-9-]+) \| `([^`]+)` \| [^|]+ \| ([^\n]+) \|$/gm)];
-  assert.strictEqual(rows.length, IDS_HELP_DADS.length, '計画の表の行の数と IDS_HELP_DADS の数');
+  const rows = [...table.matchAll(/^\| (hd-[a-z0-9-]+) \| `([^`]+)` \| [^|]+ \| ([^\n]+) \|$/gm)].filter((x) => !GONE_HL.includes(x[1]));
+  assert.strictEqual(rows.length, IDS_HELP_DADS.length, '計画の表の行の数（GONE_HL を除く）と IDS_HELP_DADS の数');
   assert.strictEqual(new Set(rows.map((x) => x[1])).size, rows.length, '計画の表に重なり');
   const ids = rows.map((x) => x[1]);
   assert.deepStrictEqual(IDS_HELP_DADS.filter((id) => !ids.includes(id)), [], '計画の「変異確認」の表に無い変異');
@@ -504,6 +511,55 @@ test('G3: help-relnotes の変異が一覧にそろい、IDS_HELP_RELNOTES は�
     assert.strictEqual(m.file, file, id);
     assert.deepStrictEqual([...m.tests].sort(), [...tests.matchAll(/`([^`]+)`/g)].map((x) => x[1]).sort(), id);
     assert.ok(m.why.startsWith('help-relnotes RN-'), `${id}: why`);
+  }
+});
+
+// help-light（計画 docs/plans/2026-10-27-help-light.md の「変異」）: ヘルプセンターを明るい版だけにした直しを1つずつ戻す変異。
+// 当てるファイルと赤になるテストを決めた表で持つ（多くも少なくもない。hl- の変異はここにある）
+const IDS_HELP_LIGHT = {
+  'hl-dark-tokens': ['help/assets/help.css', 'test/help-build.test.js'],
+  'hl-color-scheme': ['help/assets/help.css', 'test/help-build.test.js'],
+  'hl-gate-dark': ['relay/help-gate.mjs', 'test/help-gate.test.js'],
+};
+test('G3: help-light の変異が一覧にそろい、IDS_HELP_LIGHT とちょうど同じ（当てるファイルと赤になるテストも同じ）。hl- の変異は IDS_HELP_LIGHT にある', { timeout: 5000 }, () => {
+  const byId = new Map(MUTANTS.map((m) => [m.id, m]));
+  assert.deepStrictEqual(MUTANTS.filter((m) => /^hl-/.test(m.id)).map((m) => m.id).sort(), Object.keys(IDS_HELP_LIGHT).sort());
+  for (const [id, [file, t]] of Object.entries(IDS_HELP_LIGHT)) {
+    const m = byId.get(id);
+    assert.strictEqual(m.file, file, id);
+    assert.deepStrictEqual(m.tests, [t], id);
+    assert.ok(m.why.startsWith('help-light HL-'), `${id}: why`);
+  }
+});
+
+// help-overview（計画 docs/plans/2026-10-27-help-overview.md）: ヘルプの全体像の記事と画面の写真・図の直しを1つずつ戻す変異。
+// 当てるファイルと赤になるテストを決めた表で持つ（多くも少なくもない。ho- の変異はここにある）
+const IDS_HELP_OVERVIEW = {
+  'ho-from-sha': ['tools/help-appshots.js', 'test/help-content.test.js'],
+  'ho-pixels': ['tools/help-appshots.js', 'test/help-content.test.js'],
+  'ho-stray': ['tools/help-appshots.js', 'test/help-content.test.js'],
+  'ho-dark': ['tools/help-appshots.js', 'test/help-content.test.js'],
+  'ho-size': ['tools/help-appshots.js', 'test/help-content.test.js'],
+  'ho-embed': ['tools/help-appshots.js', 'test/help-content.test.js'],
+  'ho-figure-check': ['tools/help-appshots.js', 'test/help-content.test.js'],
+  'ho-img-width': ['help/assets/help.css', 'test/help-content.test.js'],
+  'ho-diagram-text': ['help/assets/diagrams/overview-flow.svg', 'test/help-content.test.js'],
+  'ho-overview-first': ['help/site.json', 'test/help-content.test.js'],
+  'ho-featured-first': ['help/site.json', 'test/help-content.test.js'],
+  'ho-explain-count': ['help/articles/start/overview.md', 'test/help-content.test.js'],
+  'ho-article-figure': ['help/articles/start/login.md', 'test/help-content.test.js'],
+  'ho-start-second': ['help/site.json', 'test/help-content.test.js'],
+  'ho-featured-start': ['help/site.json', 'test/help-content.test.js'],
+  'ho-stub-link': ['help/articles/start/tester-guide.md', 'test/help-content.test.js'],
+};
+test('G3: help-overview の変異が一覧にそろい、IDS_HELP_OVERVIEW とちょうど同じ（当てるファイルと赤になるテストも同じ）。ho- の変異は IDS_HELP_OVERVIEW にある', { timeout: 5000 }, () => {
+  const byId = new Map(MUTANTS.map((m) => [m.id, m]));
+  assert.deepStrictEqual(MUTANTS.filter((m) => /^ho-/.test(m.id)).map((m) => m.id).sort(), Object.keys(IDS_HELP_OVERVIEW).sort());
+  for (const [id, [file, t]] of Object.entries(IDS_HELP_OVERVIEW)) {
+    const m = byId.get(id);
+    assert.strictEqual(m.file, file, id);
+    assert.deepStrictEqual(m.tests, [t], id);
+    assert.ok(m.why.startsWith('help-overview HO-'), `${id}: why`);
   }
 });
 
@@ -978,28 +1034,30 @@ test('G3・0.12.1 LV-6: 0.12.1 の変異が一覧にそろい、IDS_121 は計�
 const IDS_130 = [
   // 第2部（rdy-。RDY-1〜RDY-5 で作りながら足し、RDY-6 で計画の rdy- の表の行の順にそろえた）
   'rdy-side-start', 'rdy-side-focus', 'rdy-one-prep', 'rdy-start-toggle', 'rdy-start-busy', 'rdy-guard', 'rdy-prep-draft', 'rdy-prep-db', 'rdy-adopt-memo', 'rdy-adopt-type',
-  'rdy-adopt-late', 'rdy-adopt-clear', 'rdy-memo-prep', 'rdy-type-prep', 'rdy-race', 'rdy-pane', 'rdy-replace-ready', 'rdy-offline', 'rdy-offline-by', 'rdy-consent-route',
+  'rdy-adopt-late', 'rdy-adopt-clear', 'rdy-memo-prep', 'rdy-type-prep', 'rdy-race', 'rdy-pane', 'rdy-replace-ready', 'rdy-write-behind', 'rdy-offline', 'rdy-offline-by', 'rdy-consent-route',
   'rdy-close-confirm', 'rdy-statelog', 'rdy-prep-always', 'rdy-help',
   // 第1部（ed-。ED-1〜ED-8 で作りながら足し、ED-8 で計画の ed- の表の行の順にそろえた）
   'ed-split-surrogate', 'ed-md-midline', 'ed-md-number-text', 'ed-md-zenkaku', 'ed-slash-midword', 'ed-slash-kana', 'ed-slash-zenkaku', 'ed-recent-order',
   'ed-recent-cap', 'ed-recent-check', 'ed-recent-save', 'ed-enter-type', 'ed-empty-enter', 'ed-bs-revert', 'ed-number-restart', 'ed-key-code',
-  'ed-md-copy', 'ed-row-redraw', 'ed-type-any', 'ed-level-range', 'ed-bad-offset', 'ed-split-text', 'ed-split-dup', 'ed-merge-caret',
-  'ed-merge-divider', 'ed-turn-drop', 'ed-divider-text', 'ed-lock-new', 'ed-split-mark', 'ed-turn-manual', 'ed-move-after', 'ed-old-heading',
-  'ed-unknown-type', 'ed-md-level', 'ed-mcp-types', 'ed-view-manual-head', 'ed-split-client', 'ed-ime-enter', 'ed-ime-md', 'ed-shift-enter',
+  'ed-md-copy', 'ed-row-redraw', 'ed-type-any', 'ed-level-range', 'ed-bad-offset', 'ed-split-text', 'ed-split-dup', 'ed-split-top', 'ed-split-view', 'ed-merge-caret',
+  'ed-merge-divider', 'ed-turn-drop', 'ed-divider-text', 'ed-lock-new', 'ed-split-mark', 'ed-turn-manual', 'ed-head-back', 'ed-move-after', 'ed-old-heading',
+  'ed-unknown-type', 'ed-md-level', 'ed-mcp-types', 'ed-view-manual-head', 'ed-split-client', 'ed-split-blur', 'ed-ime-enter', 'ed-ime-md', 'ed-shift-enter',
   'ed-paste-html', 'ed-slash-esc', 'ed-esc-meeting', 'ed-plus-menu', 'ed-save-no-steal', 'ed-drop-index', 'ed-alt-dup', 'ed-grip-menu',
-  'ed-zoom-shift0', 'ed-key-scope', 'ed-ctrl-enter', 'ed-help-article', 'ed-regen-ask', 'ed-late-answer',
+  'ed-zoom-shift0', 'ed-key-scope', 'ed-ctrl-enter', 'ed-help-article', 'ed-regen-ask', 'ed-regen-struct', 'ed-regen-clear', 'ed-regen-noop', 'ed-late-answer',
+  // 時計のずれ（clk-。2026-10-27 の持ち主の答え「録音バーとページの両方を直す（おすすめ）」。CLK-1〜CLK-3 で作りながら足す。計画の clk- の表の行の順）
+  'clk-resume', 'clk-resume-in-pause', 'clk-pause-subtract', 'clk-one-interval', 'clk-reopen-recheck', 'clk-page-paused',
 ];
-test('G3・0.13.0: 0.13.0 の変異が一覧にそろい、IDS_130 はどれも計画の「変異確認」の表にある。ed-・rdy- の変異は IDS_130 にある。どれも決まったテストのファイルを持ち、why が 0.13.0 で始まる', { timeout: 5000 }, () => {
+test('G3・0.13.0: 0.13.0 の変異が一覧にそろい、IDS_130 はどれも計画の「変異確認」の表にある。ed-・rdy-・clk- の変異は IDS_130 にある。どれも決まったテストのファイルを持ち、why が 0.13.0 で始まる', { timeout: 5000 }, () => {
   const byId = new Map(MUTANTS.map((m) => [m.id, m]));
   assert.deepStrictEqual(IDS_130.filter((id) => !byId.has(id)), [], 'IDS_130 の変異が一覧に無い');
   assert.strictEqual(new Set(IDS_130).size, IDS_130.length, 'IDS_130 に重なり');
-  assert.deepStrictEqual(MUTANTS.filter((m) => /^(ed|rdy)-/.test(m.id) && !IDS_130.includes(m.id)).map((m) => m.id), [], 'IDS_130 に無い ed-・rdy- の変異がある');
+  assert.deepStrictEqual(MUTANTS.filter((m) => /^(ed|rdy|clk)-/.test(m.id) && !IDS_130.includes(m.id)).map((m) => m.id), [], 'IDS_130 に無い ed-・rdy-・clk- の変異がある');
   const plan = fs.readFileSync(path.join(ROOT, 'docs', 'plans', '2026-10-24-130.md'), 'utf8');
   const at = plan.search(/^## 変異確認（直しを1つ戻すと/m);
   assert.ok(at > 0, '計画の「変異確認」の節が無い');
   const table = plan.slice(at, plan.indexOf('\n## ', at + 5));
-  const rows = [...table.matchAll(/^\| ((?:ed|rdy)-[a-z0-9-]*) \|/gm)].map((m) => m[1]);
-  assert.strictEqual(rows.length, 78, '計画の 0.13.0 の表（ed- 54・rdy- 24）が読めない');
+  const rows = [...table.matchAll(/^\| ((?:ed|rdy|clk)-[a-z0-9-]*) \|/gm)].map((m) => m[1]);
+  assert.strictEqual(rows.length, 92, '計画の 0.13.0 の表（ed- 61・rdy- 25・clk- 6）が読めない');
   assert.strictEqual(new Set(rows).size, rows.length, '計画の表に重なり');
   assert.deepStrictEqual(IDS_130.filter((id) => !rows.includes(id)), [], '計画の「変異確認」の表に無い変異');
   for (const id of IDS_130) {
@@ -1008,22 +1066,144 @@ test('G3・0.13.0: 0.13.0 の変異が一覧にそろい、IDS_130 はどれも�
     assert.ok(typeof m.why === 'string' && m.why.startsWith('0.13.0 '), `${id}: why`);
   }
 });
-// 0.13.0 RDY-6: 第2部の変異（rdy-）は、計画の「変異確認」の rdy- の表とちょうど同じ（行の順・24）
+// 0.13.0 RDY-6: 第2部の変異（rdy-）は、計画の「変異確認」の rdy- の表とちょうど同じ（行の順・24。点検6 で 25）
 // 2026-10-26 の持ち主の答え（問1「変異の確かめを足す（おすすめ）」）で意図して変えた: ED-8 の［要約を再生成］の確かめを戻す ed-regen-ask を足して ed- 54・78
-test('G3・0.13.0 ED-8: IDS_130 は計画の「変異確認」の 0.13.0 の表（ed- 54・rdy- 24）とちょうど同じ（ed- も rdy- も行の順・78）', { timeout: 5000 }, () => {
+// 2026-10-26 の持ち主の答え（点検1「上に空の行を足す（おすすめ）」）で意図して変えた: 文のある行の頭の Enter を戻す ed-split-top を足して ed- 55・79
+// 2026-10-26 の持ち主の答え（点検2「見出しに戻したら AI の見出しに戻す（おすすめ）」）で意図して変えた: ed-head-back を足して ed- 56・80
+// 2026-10-26 の持ち主の答え（点検4「どんな手直しでも確かめる（おすすめ）」）で意図して変えた: ed-regen-struct・ed-regen-clear を足して ed- 58・82
+// 2026-10-26 の持ち主の答え（点検6「書いている間は切り替えない（おすすめ）」）で意図して変えた: rdy-write-behind を足して rdy- 25・83
+// 点検5（作り手が決めた。Enter の1回は oplog の1行）で意図して変えた: ed-split-blur を足して ed- 59・84
+// 2026-10-27 の持ち主の答え（点検8「見えている上の行の後ろに足す（おすすめ）」）で意図して変えた: ed-split-view を足して ed- 60・85
+// 点検の見直し（作り手が決めた。R45。何も変えない命令は印を付けない）で意図して変えた: ed-regen-noop を足して ed- 61・86
+// 2026-10-27 の持ち主の答え（【時計のずれ】「録音バーとページの両方を直す（おすすめ）」）で意図して変えた: CLK-1 の clk- 4 を足して 90、CLK-2 の clk-reopen-recheck を足して 91、CLK-3 の clk-page-paused を足して 92
+test('G3・0.13.0 ED-8: IDS_130 は計画の「変異確認」の 0.13.0 の表（ed- 61・rdy- 25・clk- 6）とちょうど同じ（ed- も rdy- も clk- も行の順・92）', { timeout: 5000 }, () => {
   const plan = fs.readFileSync(path.join(ROOT, 'docs', 'plans', '2026-10-24-130.md'), 'utf8');
   const at = plan.search(/^## 変異確認（直しを1つ戻すと/m);
   const table = plan.slice(at, plan.indexOf('\n## ', at + 5));
   const ed = [...table.matchAll(/^\| (ed-[a-z0-9-]*) \|/gm)].map((m) => m[1]);
-  assert.strictEqual(ed.length, 54);
+  assert.strictEqual(ed.length, 61);
   assert.deepStrictEqual(IDS_130.filter((id) => /^ed-/.test(id)), ed);
-  assert.strictEqual(IDS_130.length, 78);
+  assert.strictEqual(IDS_130.length, 92);
 });
-test('G3・0.13.0 RDY-6: IDS_130 の rdy- は計画の「変異確認」の rdy- の表とちょうど同じ（行の順・24）', { timeout: 5000 }, () => {
+// 0.13.0 CLK（2026-10-27 の持ち主の答え「録音バーとページの両方を直す（おすすめ）」）: 時計のずれの変異（clk-）は、計画の「変異確認」の clk- の表とちょうど同じ（行の順）
+test('G3・0.13.0 CLK: IDS_130 の clk- は計画の「変異確認」の clk- の表とちょうど同じ（行の順・6）', { timeout: 5000 }, () => {
+  const plan = fs.readFileSync(path.join(ROOT, 'docs', 'plans', '2026-10-24-130.md'), 'utf8');
+  const at = plan.search(/^## 変異確認（直しを1つ戻すと/m);
+  const table = plan.slice(at, plan.indexOf('\n## ', at + 5));
+  const rows = [...table.matchAll(/^\| (clk-[a-z0-9-]*) \|/gm)].map((m) => m[1]);
+  assert.strictEqual(rows.length, 6);
+  assert.deepStrictEqual(IDS_130.filter((id) => /^clk-/.test(id)), rows);
+});
+test('G3・0.13.0 RDY-6: IDS_130 の rdy- は計画の「変異確認」の rdy- の表とちょうど同じ（行の順・25）', { timeout: 5000 }, () => {
   const plan = fs.readFileSync(path.join(ROOT, 'docs', 'plans', '2026-10-24-130.md'), 'utf8');
   const at = plan.search(/^## 変異確認（直しを1つ戻すと/m);
   const table = plan.slice(at, plan.indexOf('\n## ', at + 5));
   const rows = [...table.matchAll(/^\| (rdy-[a-z0-9-]*) \|/gm)].map((m) => m[1]);
-  assert.strictEqual(rows.length, 24);
+  assert.strictEqual(rows.length, 25);
   assert.deepStrictEqual(IDS_130.filter((id) => /^rdy-/.test(id)), rows);
 });
+
+// 0.13.1（計画 docs/plans/2026-10-27-131.md の「変異確認」の edn- の表）: 入れ子とトグルの直しを1つずつ戻す変異。タスクを作るたびに足し（0.13.0 の R9・R34 と同じ）、
+// NE-5 で表の行の順にそろえる。edn- は 0.13.0 の照らし ^(ed|rdy|clk)- に当たらない（ed の後が - でない）
+const IDS_131 = [
+  // 0.13.1 NE-5: 計画の「変異確認」の表の行の順にそろえた（上の 18 行は 0.13.0 の計画で承認されたもの・下の 19 行はこの計画で足したもの）
+  'edn-tree-read', 'edn-parent-op', 'edn-indent-first', 'edn-indent-type', 'edn-remove-subtree', 'edn-dup-ids',
+  'edn-cite-flat', 'edn-action-flat', 'edn-mcp-flat', 'edn-copy-kids', 'edn-number-level', 'edn-merge-kids',
+  'edn-turn-kids', 'edn-order-kids', 'edn-open-all', 'edn-visible-skip', 'edn-drop-into', 'edn-tab-exit',
+  'edn-put-tree', 'edn-orphan-keep', 'edn-move-one', 'edn-menu-keys', 'edn-split-sibling', 'edn-enter-child',
+  'edn-enter-outdent', 'edn-bs-outdent', 'edn-merge-view', 'edn-move-sibling', 'edn-drop-depth', 'edn-open-noedit',
+  'edn-open-only', 'edn-open-lock', 'edn-peek', 'edn-divider-kids', 'edn-kids-out', 'edn-ai-head-top',
+  'edn-toggle-default',
+  'edn-ai-head-toggle',
+  'edn-open-flush',
+  'edn-open-focus',
+  'edn-md-head',
+  'edn-mcp-head',
+  'edn-open-time',
+  'edn-get-once',
+  'edn-tog-size',
+  'edn-zoom-txt',
+  'edn-zoom-wrap',
+  'edn-zoom-tail',
+];
+test('G3・0.13.1: 0.13.1 の変異が一覧にそろい、IDS_131 はどれも計画の「変異確認」の表にある。edn- の変異は IDS_131 にある。どれも決まったテストのファイルを持ち、why が 0.13.1 で始まる', { timeout: 5000 }, () => {
+  const byId = new Map(MUTANTS.map((m) => [m.id, m]));
+  assert.deepStrictEqual(IDS_131.filter((id) => !byId.has(id)), [], 'IDS_131 の変異が一覧に無い');
+  assert.strictEqual(new Set(IDS_131).size, IDS_131.length, 'IDS_131 に重なり');
+  assert.deepStrictEqual(MUTANTS.filter((m) => /^edn-/.test(m.id) && !IDS_131.includes(m.id)).map((m) => m.id), [], 'IDS_131 に無い edn- の変異がある');
+  const plan = fs.readFileSync(path.join(ROOT, 'docs', 'plans', '2026-10-27-131.md'), 'utf8');
+  const at = plan.search(/^## 変異確認（直しを1つ戻すと/m);
+  assert.ok(at > 0, '計画の「変異確認」の節が無い');
+  const table = plan.slice(at, plan.indexOf('\n## ', at + 5));
+  const rows = [...table.matchAll(/^\| (edn-[a-z0-9-]*) \|/gm)].map((m) => m[1]);
+  assert.strictEqual(rows.length, 48, '計画の 0.13.1 の表（edn- 48）が読めない');
+  assert.strictEqual(new Set(rows).size, rows.length, '計画の表に重なり');
+  assert.deepStrictEqual(IDS_131.filter((id) => !rows.includes(id)), [], '計画の「変異確認」の表に無い変異');
+  for (const id of IDS_131) {
+    const m = byId.get(id);
+    assert.ok(Array.isArray(m.tests) && m.tests.length > 0 && m.tests.every((t) => /^test\/[^/]+\.test\.js$/.test(t)), `${id}: tests`);
+    assert.ok(typeof m.why === 'string' && m.why.startsWith('0.13.1 '), `${id}: why`);
+  }
+});
+// 0.13.1 NE-5（計画の「変異確認」の IDS_131 の決まり）: 作りながら足した IDS_131 は、計画の表の edn- の id とちょうど同じ（行の順・48）
+test('NE-5・G3・0.13.1: IDS_131 は計画の「変異確認」の edn- の表とちょうど同じ（行の順）', { timeout: 5000 }, () => {
+  const plan = fs.readFileSync(path.join(ROOT, 'docs', 'plans', '2026-10-27-131.md'), 'utf8');
+  const at = plan.search(/^## 変異確認（直しを1つ戻すと/m);
+  const table = plan.slice(at, plan.indexOf('\n## ', at + 5));
+  const rows = [...table.matchAll(/^\| (edn-[a-z0-9-]*) \|/gm)].map((m) => m[1]);
+  assert.deepStrictEqual(IDS_131, rows);
+  assert.strictEqual(IDS_131.length, 48);
+});
+
+// 0.13.2（計画 docs/plans/2026-10-28-132.md の「変異確認」の ln- の表）: ログインしていないことに気づける・残った区間が止まらない・パネルの位置・試験の台の
+// 直しを1つずつ戻す変異。タスクを作るたびに表の行の順で足し、LN-6 で表とちょうど同じかを見る。ln- は前の版の照らし（^(ed|rdy|clk)-・^edn-・^lg-・^lv- など）に当たらない
+const IDS_132 = [
+  'ln-harness-final', 'ln-fails-full', 'ln-fails-nested',
+  'ln-offline-pc', 'ln-dict-resume', 'ln-progress-each', 'ln-left-count',
+  'ln-ban-order', 'ln-ban-unread', 'ln-ban-offline', 'ln-ban-local', 'ln-ban-signin',
+  'ln-ask-boot', 'ln-ask-start', 'ln-ask-dict', 'ln-ask-offline', 'ln-ask-noblock', 'ln-ask-focus', 'ln-ask-refocus', 'ln-ask-snooze', 'ln-ask-parent', 'ln-ask-card',
+  'ln-retry-busy', 'ln-retry-held', 'ln-leave-wait',
+  'ln-nudge-bottom', 'ln-nudge-center', 'ln-nudge-workarea', 'ln-nudge-slot', 'ln-nudge-menu-up',
+  'ln-force-once',
+  'ln-ask-recording',
+  'ln-ask-starting',
+  'ln-pend-ended',
+  'ln-pend-stale',
+  'ln-retry-later',
+  'ln-harness-delay',
+  'ln-nudge-note',
+  'ln-fails-yaml',
+];
+test('G3・0.13.2: 0.13.2 の変異が一覧にそろい、IDS_132 はどれも計画の「変異確認」の表にある。ln- の変異は IDS_132 にある。どれも決まったテストのファイルを持ち、why が 0.13.2 で始まる', { timeout: 5000 }, () => {
+  const byId = new Map(MUTANTS.map((m) => [m.id, m]));
+  assert.deepStrictEqual(IDS_132.filter((id) => !byId.has(id)), [], 'IDS_132 の変異が一覧に無い');
+  assert.strictEqual(new Set(IDS_132).size, IDS_132.length, 'IDS_132 に重なり');
+  assert.deepStrictEqual(MUTANTS.filter((m) => /^ln-/.test(m.id) && !IDS_132.includes(m.id)).map((m) => m.id), [], 'IDS_132 に無い ln- の変異がある');
+  const plan = fs.readFileSync(path.join(ROOT, 'docs', 'plans', '2026-10-28-132.md'), 'utf8');
+  const at = plan.search(/^## 変異確認（直しを1つ戻すと/m);
+  assert.ok(at > 0, '計画の「変異確認」の節が無い');
+  const table = plan.slice(at, plan.indexOf('\n## ', at + 5));
+  const rows = [...table.matchAll(/^\| (ln-[a-z0-9-]*) \|/gm)].map((m) => m[1]);
+  assert.strictEqual(rows.length, 39, '計画の 0.13.2 の表（ln- 39）が読めない');
+  assert.strictEqual(new Set(rows).size, rows.length, '計画の表に重なり');
+  assert.deepStrictEqual(IDS_132.filter((id) => !rows.includes(id)), [], '計画の「変異確認」の表に無い変異');
+  assert.deepStrictEqual(IDS_132, rows.filter((id) => IDS_132.includes(id)), 'IDS_132 が表の行の順でない');
+  for (const id of IDS_132) {
+    const m = byId.get(id);
+    assert.ok(Array.isArray(m.tests) && m.tests.length > 0 && m.tests.every((t) => /^test\/[^/]+\.test\.js$/.test(t)), `${id}: tests`);
+    assert.ok(typeof m.why === 'string' && m.why.startsWith('0.13.2 '), `${id}: why`);
+  }
+});
+// 0.13.2 LN-6（計画の「変異確認」の IDS_132 の決まり）: 作りながら足した IDS_132 は、計画の表の ln- の id とちょうど同じ（行の順・39）
+test('LN-6・G3・0.13.2: IDS_132 は計画の「変異確認」の ln- の表とちょうど同じ（行の順・39）。68767ba の一覧に ln で始まる id は無く、前の版の照らしにも 0.14.0 の頭にも当たらない', { timeout: 5000 }, () => {
+  const plan = fs.readFileSync(path.join(ROOT, 'docs', 'plans', '2026-10-28-132.md'), 'utf8');
+  const at = plan.search(/^## 変異確認（直しを1つ戻すと/m);
+  const table = plan.slice(at, plan.indexOf('\n## ', at + 5));
+  const rows = [...table.matchAll(/^\| (ln-[a-z0-9-]*) \|/gm)].map((m) => m[1]);
+  assert.deepStrictEqual(IDS_132, rows);
+  assert.strictEqual(IDS_132.length, 39);
+  for (const re of [/^(ed|rdy|clk)-/, /^edn-/, /^lg-/, /^lv-/, /^(mcp|cfg|lk|ls|stl|nl|pt)-/, /^(ka|pc|lt|wd|sg|rx|bm|ci|dt|wv|pb|rn)-/, /^(eb|ek|mb|dq)-/]) {
+    assert.deepStrictEqual(IDS_132.filter((id) => re.test(id)), [], `${re} に当たる ln- の id`);
+  }
+});
+

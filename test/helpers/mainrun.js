@@ -63,7 +63,11 @@ const { titleAt } = require('./titles');
 //     --extra-queue-late=localonly … --idle と組む。起動の片付けが済んだ後に、PC の中だけの待ち行列（WAV 1つと recovery.json）と、そのページ
 //                     （main の DB の客で meeting.recover）を置く
 //     --kept-ticks=<n> … --idle と組む。起動の片付けの後（--extra-queue-late の後）に見回りを n 回呼び、待ち行列が落ち着くのを待つ
-//     --relay-req-text=<c|e の並び> … 中継に届いた文字起こしの要求の i 番目の答えを i 文字目にする（relay-local の setReqText）
+//     --relay-req-text=<c|e|L の並び> … 中継に届いた文字起こしの要求の i 番目の答えを i 文字目にする（relay-local の setReqText。L は 0.13.2 点検の直しで足した 1日の上限の 429）
+//     （0.13.2 LN-2: out.afterLogin に notices・claudeCalls・pending（page:pending の並び）を足し、待ち行列が済んだら要約が済むまで待つ。
+//     --wait-queue-empty の out.afterQueue に pending・relayCalls を足す。pending の1つずつは page:pending の中身に、送ったときの recovery.json ごとの
+//     区間の数 queueItems（segbuf の名前の順）を足したもの）
+//     --after-dict-queue … 0.13.2 LN-2: 音声入力の後、待ち行列（recovery.json）が無くなるまで待ち、out.afterDictQueue（{ queues, log, pages }）に写す
 //     --login-after … 議事録を写した後、画面と同じ account:login でログインし、待ち行列が済むのを待って out.afterLogin
 //                     （{ login, pages, engineLog, relayCalls, keptTicks（見回りを呼んだ数） }）に写す
 //     （--idle の出力に engineLog・requests（偽の whisper の inference）・stt・relayCalls・files を足す）
@@ -169,6 +173,7 @@ const { titleAt } = require('./titles');
 //     --claude-auth=<method> … 偽の claude の auth status が返す authMethod（FAKE_CLAUDE_AUTH。既定 claude.ai）
 //     --set-type-live=<鍵|auto>[,…] … 0.11.0 M-4: 録音中（最初の区間の後）に meeting:set-type を呼ぶ（--live-memo=<文> があれば先に meeting:set-memo）
 //     --quality=<all|on|off> … 0.11.0 Q-3: 設定 qualityScore。--resum-quality=<…> … 要約の後にその設定にして［要約を再生成］（out.qualityBefore・out.resum）
+//     --resum-after-edit … 0.13.0 点検4: 要約の後に画面の役で行を1つ消して［要約を再生成］（out.editedBefore・out.resumEdit・out.editedAfter）
 //     --legacy-general … 0.11.0 P-12: 要約の後、ページを前の版で手で一般・その他を選んだ形（meetingType 'general'・typeAuto 偽）にして［要約を再生成］（out.legacyGeneral）
 //     --claude-stdin … 0.12.0 SP-4: 偽の claude の記録に標準入力の全文（stdinText）を書かせる（--claude と一緒に使う）
 //     --sum-md=<名前> … 0.11.0 M-3: 偽の claude が返す要約の Markdown を test/fixtures/summaries/<名前>.md にする（--claude と一緒に使う）
@@ -268,6 +273,9 @@ const { titleAt } = require('./titles');
 //     cancel    … 利用者が窓を閉じる（'closed'）
 //     hold      … 何も起こさない（ctx.access.close() で閉じるまで開いたまま）
 //     unreadable … 窓の動きは ok のまま、偽の safeStorage の復号が ctx.access.allowDecrypt() まで失敗する（起動のときに復号できない: F26）
+//   0.13.2 LN-4（LR21 の台の決まり）: 偽の窓は ready-to-show を起こした後、main が show() を呼んだ窓（押して開いた窓）だけを上の動きで進める。
+//   showInactive() だけで出た窓（自動で開いた窓）は --auto-login=<上の動き> が無ければ何もしない（後から show() が来たらそのとき進める）。
+//   loginWins の窓ごとに inactive（showInactive の数）を足した
 //   --relay-expired … 種の cookie の期限が切れている（起動で消して L3・B3: F19）、--old-token … 種が nt1_ の札（起動で消して記録1行）
 //   出力に loginWins（作ったログインの窓ごとに { webPreferences, modal, parent, width, height, title, show, openHandler（新しい窓を頼んだ答え）,
 //   accessFormAllowed, redirectAllowed, wanderPrevented, shown, closed }）・loginWin（最初の1つか null）・cookiesOnDisk（userData の下に Partitions が
@@ -416,6 +424,18 @@ const { titleAt } = require('./titles');
 //     --mic-feed の snap に足す: drafts（下書きのファイルの名前）・draft（最初の下書きの { memo, meetingType }。無ければ null）・dbSent（main の客が
 //                        送った・呼んだ DB の命令の名前。中身は入れない）・status（meeting:status の { active, prep }。prep の欄が無ければ 'none'）。
 //                        出力に pageMemos（ページごとの { id, memo, meetingType }）を足す
+//   0.13.2 LN-4（計画 docs/plans/2026-10-28-132.md）
+//     --mic-feed の手順に足す: ["wait-login", n]（ログインの窓が n 個できるまで待つ）・["wait-login-closed", n]（閉じたログインの窓が n 個になるまで待つ）・
+//                        ["online", bool]（偽の net.isOnline() を替える）・["tick"]（文字起こし待ちの見回りを1回）・["login-close"]（開いているログインの窓を利用者が × で閉じる）。
+//                        snap に logins（作ったログインの窓の数）、出力に loginWins（窓ごとの記録の写し）を足す
+//   0.13.2 LN-5: --mic-feed の手順に ["final-only"]（最後の空の区間を送り、待機に戻るまでだけ待つ）・["wait-finalized"]（締めの答えまで待つ）。
+//     --idle の --extra-queue-late=held（held・失敗・止まった区間と音声の無い区間の待ち行列）と --retranscribe（［もう一度文字起こし］を押す。上の注）
+//   0.13.2 点検の直し 5: --db-delay=<ms>（main の db.call の答えを毎回 ms 遅らせる。json-scenes の dbDelayMs と同じ。--mic-feed の場面で使う）
+//   0.13.2 点検の直し 4: --retranscribe-during-tick（見回りの回が区間を送っている途中に［もう一度文字起こし］を押す。上の --retranscribe と組む）
+//   0.13.2 点検の直し 2: --mic-feed の手順に ["wait-settled"]（起動の片付け＝下書きの復旧が済み、meeting.settle を頼むまで待つ）・snap に settled
+//   0.13.2 点検の直し（重要 1）: --extra-queue-late=held-all（3区間とも held の待ち行列）・--retranscribe-ticks=<n>（押した回が止まった後に見回りを n 回。out.afterTicks）
+//   0.13.2 LN-1（LR14。計画 docs/plans/2026-10-28-132.md）
+//     --finalize-delay=<ms> … 偽の DB の締め（meeting.finalize）の答えを ms 遅らせる。--mic-feed の出力に pageFinal（ページごとの { id, title, phase（meeting.phase） }）を足す
 //     --quiet-mic … --quiet-seq の場面でも偽の見張りを起こし、字 T（見張りに mic teams:1）・L（mic -）を足す（どちらも偽の時計を 2 秒進める。Ruling R2）
 //   0.10.0 C-2（Claude デスクトップへの MCP の登録。計画 docs/plans/2026-10-20-100.md）
 //     app.getPath('appData') は一時フォルダ（日本語と 𠮷）の AppData-Roaming。MCP の場面（--claude-config・--mcp-steps）だけ app.getAppPath() がリポジトリの根
@@ -524,7 +544,8 @@ const relayCert = flags.includes('--relay-cert');
 const keyForFlag = flagVal('--key-for');
 const oldKeys = flags.includes('--old-keys');   // 第1d回 A-4（F11・K2）
 // 第1d回 A-11（RL10・F20・F21・F26・F27）: Cloudflare Access のログインの窓と、しまった cookie の場面
-const accessLoginFlag = flagVal('--access-login');   // 偽のログインの窓の動き（ok・cancel・nocookie・denied・denied403・notready・failload・wander・other-team・hold）か unreadable
+const accessLoginFlag = flagVal('--access-login');
+const autoLoginMode = flagVal('--auto-login');   // 0.13.2 LN-4（LR21）: 自動で開いた窓（showInactive だけ）の動き。無ければ何もしない   // 偽のログインの窓の動き（ok・cancel・nocookie・denied・denied403・notready・failload・wander・other-team・hold）か unreadable
 const relayExpired = flags.includes('--relay-expired');   // 種の cookie の期限が切れている
 const oldToken = flags.includes('--old-token');   // 種が 0.8.0 の前の試しの札（nt1_）
 const SEED_TTL_SEC = 30 * 24 * 3600;   // 種の cookie の長さ（Access の app のログインの長さの上限 1 か月。relay-day の 1 日進めても切れない）
@@ -595,6 +616,10 @@ const autoStopMinFlag = Number(flagVal('--auto-stop-min')) || 0;
 const segCount = Number((flags.find((f) => f.startsWith('--segs=')) || `--segs=${relaySeq ? relaySeq.length : 2}`).slice(7)) || 2;
 const managedMode = flags.includes('--managed') ? 'ok' : (flags.includes('--managed-tamper') ? 'tamper' : '');
 const recoverMode = flags.includes('--recover');
+// 0.13.2 LN-1（LR14）: --finalize-delay=<ms> … 偽の DB の締め（meeting.finalize）の答えだけを ms 遅らせる（呼んだ印 call を残した後、DB へ渡す前に待つ。
+// CI が混んで DB の書き込みが遅れた形。試験の台の中だけで、src/ には足さない）
+const finalizeDelayMs = Number(flagVal('--finalize-delay')) || 0;
+const dbDelayFlag = Number(flagVal('--db-delay')) || 0;   // 0.13.2 点検の直し 5: 場面の dbDelayMs と同じ遅らせ方を --mic-feed の場面でも
 const slowAck = (() => { const m = /^([\w.]+):(\d+)$/.exec(flagVal('--slow-ack') || ''); return m ? { cmd: m[1], ms: Number(m[2]) } : null; })();
 const afterRetry = flags.includes('--after-retry');
 const noVcRuntime = flags.includes('--no-vc-runtime');
@@ -611,6 +636,10 @@ const extraQueueLate = flagVal('--extra-queue-late');
 const keptTickN = Number(flagVal('--kept-ticks')) || 0;
 const relayReqText = flagVal('--relay-req-text');
 const loginAfter = flags.includes('--login-after');
+const afterDictQueue = flags.includes('--after-dict-queue');   // 0.13.2 LN-2
+const retranscribe = flags.includes('--retranscribe');   // 0.13.2 LN-5
+const retranscribeTicks = Number(flagVal('--retranscribe-ticks')) || 0;   // 0.13.2 点検の直し（重要 1）
+const retranscribeDuringTick = flags.includes('--retranscribe-during-tick');   // 0.13.2 点検の直し 4
 const localOnlyAfterN = Number(flagVal('--local-only-after')) || 0;   // 第1d2回 M-4
 const localOnlyAtRetryN = Number(flagVal('--local-only-at-retry')) || 0;   // 第1d2回 M-3・M-4 の点検
 // 第1d2回 M-5（音声入力の音声を残す）
@@ -1368,6 +1397,19 @@ process.on('exit', () => {
   let micKills = 0;
   const nudgeWins = [];
   const mainSentAll = [];
+  // 0.13.2 LN-2（LR10）: 本体の窓へ送った page:pending と、送ったときの recovery.json ごとの区間の数（segbuf の名前の順）
+  const pendingSeen = [];
+  let latePageId = '';   // 0.13.2 LN-5: --extra-queue-late で置いたページの ID
+  const queueItemCounts = () => {
+    const root = path.join(userData, 'data', 'segbuf');
+    let names = [];
+    try { names = fs.readdirSync(root).sort(); } catch (_) { return []; }
+    const out = [];
+    for (const n of names) {
+      try { const j = JSON.parse(fs.readFileSync(path.join(root, n, 'recovery.json'), 'utf8')); out.push(Array.isArray(j.items) ? j.items.length : -1); } catch (_) { /* 無い */ }
+    }
+    return out;
+  };
   const restartDelays = [];
   const notifications = [];   // 第1d回 A-8: 偽の Notification の show() の { title, body }
   let notifyClosed = 0;       // 0.9.1 Q-4: 偽の Notification の close() の数
@@ -1474,6 +1516,17 @@ process.on('exit', () => {
     const wc = win.webContents;
     rec.openHandler = typeof wc.openHandler === 'function' ? wc.openHandler({ url: 'https://evil.example/popup' }) : null;
     win.emit('ready-to-show');
+    // 0.13.2 LN-4（LR21 の台の決まり）: showInactive() だけで出た窓（自動で開いた窓）は、場面の --auto-login=<mode> が無ければ何もしない
+    // （利用者がまだ触っていない形。hold と同じ）。後から show() が来たら（帯や設定の［ログイン］）、そのとき loginMode で進める
+    if (!rec.shown && rec.inactive > 0) {
+      if (!autoLoginMode) { rec.waiting = true; return; }
+      mode = autoLoginMode;
+    }
+    await runLoginSteps(win, rec, mode);
+  }
+  async function runLoginSteps(win, rec, mode) {
+    if (win.destroyed) return;
+    const wc = win.webContents;
     const nav = (code) => wc.emit('did-navigate', {}, LOGIN_URL, code, '');
     if (mode === 'hold') return;
     if (mode === 'cancel') { win.close(); return; }
@@ -1506,12 +1559,17 @@ process.on('exit', () => {
     const o = win.opts;
     const rec = { webPreferences: { ...(o.webPreferences || {}) }, modal: o.modal, parent: o.parent && o.parent === wins[1] ? 'main' : (o.parent ? 'other' : 'none'),
       width: o.width, height: o.height, title: o.title, show: o.show, openHandler: null, accessFormAllowed: null, redirectAllowed: null,
-      wanderPrevented: null, otherTeamPrevented: null, shown: false, focused: 0, closed: false };
+      wanderPrevented: null, otherTeamPrevented: null, shown: false, focused: 0, closed: false, inactive: 0 };
     loginRecs.push(rec);
     loginWinsList.push(win);
     win.destroyed = false;
     win.isDestroyed = () => win.destroyed;
-    win.show = () => { rec.shown = true; };
+    win.show = () => {
+      rec.shown = true;
+      // 0.13.2 LN-4: 待っていた自動の窓に show() が来た（押して開いた窓になった）ら、そのとき loginMode で進める
+      if (rec.waiting) { rec.waiting = false; const mode = loginMode; setTimeout(() => { runLoginSteps(win, rec, mode).catch((e) => { rec.error = String((e && e.message) || e); }); }, 0); }
+    };
+    win.showInactive = () => { rec.inactive += 1; };   // 0.13.2 LN-4: 自動で開いた窓（フォーカスを取らずに出す）
     win.focus = () => { rec.focused += 1; };
     win.close = () => { if (win.destroyed) return; win.destroyed = true; rec.closed = true; setImmediate(() => win.emit('closed')); };
     win.loadURL = (url) => {
@@ -1542,6 +1600,7 @@ process.on('exit', () => {
           if (wins.indexOf(this) === 1 && ch === 'meeting:update') watchStt(p);
           if (wins.indexOf(this) >= 2 && this.nudge) this.nudge.sent.push([ch, p]);   // 0.9.3 M-3: パネルの窓へ送ったもの
           if (wins.indexOf(this) === 1) mainSentAll.push([ch, p]);
+          if (wins.indexOf(this) === 1 && ch === 'page:pending') pendingSeen.push({ ...p, queueItems: queueItemCounts() });   // 0.13.2 LN-2（LR10）
           if (wins.indexOf(this) === 1) mainSent.push(ch); if (loading) { lost.push([ch, p]); return; } sent.push([ch, p]); watch(ch, p); },
         isLoading: () => loading,
         setWindowOpenHandler(f) { wc.openHandler = f; }, executeJavaScript: (code) => overlayExec(this, code),
@@ -2023,12 +2082,14 @@ process.on('exit', () => {
       return { ...mod, makeDbClient: (...a) => {
         const c = mod.makeDbClient(...a);
         dbClient = c;
-        const delayMs = scene && scene.dbDelayMs ? scene.dbDelayMs : 0;
+        const delayMs = scene && scene.dbDelayMs ? scene.dbDelayMs : dbDelayFlag;
         // 答えを受けた印（ack）は、main の await が先へ進む前に残る（下書きを消したのが返事の後かを順で見る）
+        // 0.13.2 点検の直し 5（LR40）: 呼び出しの印は遅らせる前に残す（遅らせている間に、締めの待ち（finalized）が「呼び出し 0・答え 0」で済んだと読まない）
         const call = async (cmd, args, o) => {
-          if (delayMs) await sleep(delayMs);
           trace.push({ kind: 'call', cmd, ...(cmd === 'snapshot.take' && args ? { snap: args.kind } : {}) });
+          if (delayMs) await sleep(delayMs);
           try {
+            if (finalizeDelayMs && cmd === 'meeting.finalize') await sleep(finalizeDelayMs);   // 0.13.2 LN-1: --finalize-delay
             const r = await c.call(cmd, args, o);
             if (slowAck && slowAck.cmd === cmd) await sleep(slowAck.ms);   // --slow-ack: DB は書き終えた・main はまだ答えを受けていない
             trace.push({ kind: 'ack', cmd });
@@ -2506,10 +2567,70 @@ process.on('exit', () => {
       const wav = path.join(dir, '1.wav');
       fs.writeFileSync(wav, toneWav(3));
       const pageId = `plate${startedAt}`;
+      latePageId = pageId;
       await dbClient.call('meeting.recover', { pageId, segments: [{ id: 's1', atMs: 0, durationMs: 3000, text: '（復旧中: 文字起こし待ち）', failed: true }],
         page: { title: `${titleAt(startedAt)}（復旧）`, date: '2026-10-20', durationSec: 3, memo: '', blocks: [], createdAt: new Date(startedAt).toISOString(), recovered: true,
           route: { stt: { cloud: 0, local: 0, provider: 'openai' }, localOnly: lateLocal }, summaryError: '' } });
       fs.writeFileSync(path.join(dir, 'recovery.json'), JSON.stringify({ pageId, items: [{ id: 's1', wav, durationMs: 3000 }], retry: false, localOnly: lateLocal }));
+    }
+    // 0.13.2 LN-5（PQ4）: --extra-queue-late=held … 3回失敗して自動では試さなくなった区間（held）・失敗した区間（tries 1）・止まった区間と、音声の無い区間の待ち行列
+    // 0.13.2 点検の直し（重要 1）: --extra-queue-late=held-all … 3つの区間がどれも 3回失敗して自動では試さなくなった（held）待ち行列
+    if (extraQueueLate === 'held' || extraQueueLate === 'held-all') {
+      const all = extraQueueLate === 'held-all';
+      const startedAt = Date.now() - 300000;
+      const dir = path.join(userData, 'data', 'segbuf', String(startedAt));
+      fs.mkdirSync(dir, { recursive: true });
+      const w = (n) => { const f = path.join(dir, `${n}.wav`); fs.writeFileSync(f, toneWav(3)); return f; };
+      const pageId = `plate${startedAt}`;
+      latePageId = pageId;
+      const segs = [
+        { id: 's1', atMs: 0, durationMs: 3000, text: '（この区間の認識に失敗: 見本。音声は残してあります）', failed: true },
+        { id: 's2', atMs: 3000, durationMs: 3000, text: all ? '（この区間の認識に失敗: 見本。音声は残してあります）' : '（この区間の認識に失敗: 見本）', failed: true },
+        { id: 's3', atMs: 6000, durationMs: 3000, text: all ? '（この区間の認識に失敗: 見本。音声は残してあります）' : '（音はありましたが、文字になりませんでした）', failed: true },
+      ];
+      await dbClient.call('meeting.recover', { pageId, segments: segs,
+        page: { title: `${titleAt(startedAt)}（復旧）`, date: '2026-10-20', durationSec: 9, memo: '', blocks: [], createdAt: new Date(startedAt).toISOString(), recovered: true,
+          route: { stt: { cloud: 0, local: 0, provider: 'openai' }, localOnly: false }, summaryError: '' } });
+      const H = { tries: 3, held: true };
+      fs.writeFileSync(path.join(dir, 'recovery.json'), JSON.stringify({ pageId, retry: true, localOnly: false, items: all
+        ? [{ id: 's1', wav: w(1), durationMs: 3000, ...H }, { id: 's2', wav: w(2), durationMs: 3000, ...H }, { id: 's3', wav: w(3), durationMs: 3000, ...H }]
+        : [{ id: 's1', wav: w(1), durationMs: 3000, ...H }, { id: 's2', wav: w(2), durationMs: 3000, tries: 1 }, { id: 's3', wav: w(3), durationMs: 3000 },
+          { id: 's4', wav: path.join(dir, 'gone.wav'), durationMs: 3000 }] }));
+    }
+    // 0.13.2 LN-5（LA4・PQ4）: --retranscribe … 置いた待ち行列のページの残り（page:pending）を聞き、［もう一度文字起こし］（page:retranscribe）を押して、
+    // 待ち行列が無くなるか 10 秒まで待ち、out.pendingBefore・out.retranscribe・out.afterRetranscribe（{ pages, engineLog, relayCalls, pending, pendingAfter }）に写す
+    if (retranscribe && latePageId) {
+      out.pendingBefore = await handlers['page:pending']({}, { id: latePageId });
+      const seen0 = pendingSeen.length;
+      // 0.13.2 点検の直し 4: --retranscribe-during-tick … 見回り（クラウドだけの回）を中継の答えを 300 ミリ秒遅らせて回し始め、その回が区間を送っている途中で押す。
+      // 見回りの済むのを待ってから、中継の答えを元に戻す
+      let tickRun = null;
+      if (retranscribeDuringTick) {
+        relayLocal.setFront('lag-stt');
+        tickRun = keptTick();
+        await waitFor(() => engineLogLines().includes('文字起こし待ち: 始めた（patrol）') && relayPaths.includes('/v1/audio/transcriptions'), 5000);
+      }
+      out.retranscribe = await handlers['page:retranscribe']({}, { id: latePageId });
+      if (tickRun) { await tickRun; relayLocal.setFront(''); }
+      const qn = () => listFiles(userData).filter((f) => /^data\/segbuf\/[^/]+\/recovery\.json$/.test(f)).length;
+      // 0.13.2 点検の直し（重要 1）: --retranscribe-ticks は、押した回が止まる（page:pending の running: false）までを待つ（待ち行列は残る）
+      await waitFor(() => qn() === 0 || (retranscribeTicks > 0 && pendingSeen.slice(seen0).some((p) => p.id === latePageId && !p.running)), 10000);
+      await sleep(200);
+      out.afterRetranscribe = { pages: store.listPages().map((p) => ({ id: p.id, segments: store.getTranscript(p.id).map((x) => ({ id: x.id, text: x.text, failed: Boolean(x.failed) })) })),
+        engineLog: engineLogLines(), relayCalls: relayPaths.slice(), pending: pendingSeen.slice(), pendingAfter: await handlers['page:pending']({}, { id: latePageId }), queues: qn() };
+      // 0.13.2 点検の直し（重要 1）: --retranscribe-ticks=<n> … 押した回が止まった後に見回りを n 回呼び、増えた中継への文字起こしの要求・知らせと、
+      // ディスクの待ち行列（recovery.json の区間の { id, held }）を out.afterTicks に写す（押した印が見回りに残って held を外さないか）
+      if (retranscribeTicks > 0) {
+        const queueNow = () => listFiles(userData).filter((f) => /^data\/segbuf\/[^/]+\/recovery\.json$/.test(f))
+          .map((f) => JSON.parse(readUser(f).toString('utf8')).items.map((it) => ({ id: it.id, held: it.held === true, tries: it.tries })));
+        const r0 = relayPaths.length;
+        const n0 = sent.filter(([ch]) => ch === 'app:notice').length;
+        const queueBefore = queueNow();
+        for (let k = 0; k < retranscribeTicks; k++) { await keptTick(); await sleep(100); }
+        await sleep(200);
+        out.afterTicks = { queueBefore, queue: queueNow(), relayAdded: relayPaths.slice(r0), noticesAdded: sent.filter(([ch]) => ch === 'app:notice').map(([, p]) => p).slice(n0),
+          engineLog: engineLogLines() };
+      }
     }
     if (keptTickN) {
       // 待ち行列が落ち着く（クラウドで送れる待ち行列の区間が文字になる）まで待つ（PC の中だけの区間は残る）。起動の復旧が回っている間の
@@ -2808,6 +2929,13 @@ process.on('exit', () => {
       await waitFor(() => (handlers['history:get']() || []).length > hist0 || endPhases() > phases0, 15000);
       await sleep(100);
     }
+    // 0.13.2 LN-2（決めたこと 7）: --after-dict-queue … 音声入力の後、待ち行列（recovery.json）が無くなるまで待ち、out.afterDictQueue に写す
+    if (afterDictQueue) {
+      const qn = () => listFiles(userData).filter((f) => /^data\/segbuf\/[^/]+\/recovery\.json$/.test(f)).length;
+      await waitFor(() => qn() === 0, 15000);
+      await sleep(200);
+      out.afterDictQueue = { queues: qn(), log: elogLines(), pages: store.listPages().map((p) => ({ id: p.id, segments: store.getTranscript(p.id).map((x) => ({ text: x.text, failed: Boolean(x.failed) })) })) };
+    }
     out.history = JSON.parse(JSON.stringify(handlers['history:get']()));   // 写し（後の見回りが同じ行を書き換える）
     out.pastes = clipWrites.slice();   // 第1d2回 M-1
     out.overlayPhases = sent.filter(([ch]) => ch === 'overlay:phase').map(([, p]) => p);   // 第1d2回 M-5
@@ -2970,7 +3098,13 @@ process.on('exit', () => {
     out.snaps = {};
     const lastKid = () => micKids[micKids.length - 1];
     const isActive = () => Boolean(handlers['meeting:status']().active);
+    // 0.13.2 LN-1（LR14）: 止める・終えるは、待機に戻ったうえで締めの呼び出しの数と答え（ack・fail）の数が同じになるまで待つ。main は締めの返事を
+    // 待たずに待機に戻る（F9）ので、!isActive() だけでは CI が混むと締めの書き込みの前にページを読んでいた。締めを呼ばない場面（取り消し）は 0 と 0
+    const finalizeN = (kinds) => trace.filter((t) => t.cmd === 'meeting.finalize' && kinds.includes(t.kind)).length;
+    const finalized = () => !isActive() && finalizeN(['call']) === finalizeN(['ack', 'fail']);
     const overlayAsks = () => sent.filter(([ch]) => ch === 'overlay:level-ask').length;   // 0.9.3 M-5: 録音バーへ聞いた数
+    // 0.13.2 点検の直し 2: 起動の片付け（startupWork）が済んだか。下書きの復旧（recoverDraftIfAny）が返ると、同じ手番で meeting.settle を頼む
+    const settledNow = () => trace.some((t) => t.kind === 'call' && t.cmd === 'meeting.settle');
     for (const step of micSteps) {
       const [k, ...a] = step;
       if (k === 'line') { const kid = lastKid(); if (kid) kid.stdout.emit('data', Buffer.from(`${a[0]}\n`)); await sleep(15); }
@@ -2981,14 +3115,14 @@ process.on('exit', () => {
       else if (k === 'stop') {
         out.ipc.push(['stop', await handlers['meeting:toggle']()]);
         listeners['audio:segment']({}, { buffer: new Uint8Array(0), durationMs: 0, final: true });
-        await waitFor(() => !isActive(), 15000);
+        await waitFor(finalized, 15000);
         await sleep(50);
       } else if (k === 'dictate') { const st = await handlers['settings:get'](); shortcuts[st.hotkey](); await sleep(30); }
       // 0.9.4 D-1: 会議のホットキー（始める・止める）・トレイの［議事録の記録を開始］・録音バーの［停止］（overlay:confirm）
       else if (k === 'hotkey-meeting') { const st = await handlers['settings:get'](); await shortcuts[st.meetingHotkey](); await sleep(30); }
       else if (k === 'tray-start') { const it = trayItems.find((i) => i && i.label === '議事録の記録を開始'); if (it) it.click(); await sleep(30); }
       else if (k === 'bar-stop') { listeners['overlay:confirm']({}); await sleep(30); }
-      else if (k === 'finish') { listeners['audio:segment']({}, { buffer: new Uint8Array(0), durationMs: 0, final: true }); await waitFor(() => !isActive(), 15000); await sleep(50); }
+      else if (k === 'finish') { listeners['audio:segment']({}, { buffer: new Uint8Array(0), durationMs: 0, final: true }); await waitFor(finalized, 15000); await sleep(50); }
       else if (k === 'dictate-cancel') { listeners['overlay:cancel-request']({}); await sleep(30); }
       else if (k === 'save') { const st = await handlers['settings:get'](); out.ipc.push(['save', await handlers['settings:save']({}, { ...st, ...a[0] })]); await sleep(30); }
       else if (k === 'ipc') {
@@ -3001,10 +3135,24 @@ process.on('exit', () => {
       else if (k === 'live') { listeners['meeting:live-shown']({}, Boolean(a[0])); await sleep(15); }
       else if (k === 'cursor') cursorAt = { x: a[0], y: a[1] };
       else if (k === 'quit') { appEvents.emit('before-quit', { preventDefault() {} }); appEvents.emit('will-quit', {}); await sleep(30); }
+      // 0.13.0（RDY-4 の確かめが負荷の下で揺れた直し）: 議事録のページが n 件 DB に入るまで待つ（締めの書き込みは DB の側で後から終わる。stop の後すぐ読むと 0 件のことがある）
+      else if (k === 'wait-pages') await waitFor(() => store.listPages().length >= a[0], 15000);
       else if (k === 'wait-show') await waitFor(() => nudgeWins.length > 0 && nudgeWins[0].nudge.calls.filter((c) => c === 'showInactive').length >= a[0], 5000);
+      // 0.13.2 LN-4: ログインの窓が n 個できるまで待つ・閉じた窓が n 個になるまで待つ・ネットワークを替える・見回りを1回・開いているログインの窓を利用者が × で閉じる
+      else if (k === 'wait-login') { await waitFor(() => loginRecs.length >= a[0], 5000); await sleep(20); }
+      else if (k === 'wait-login-closed') { await waitFor(() => loginRecs.filter((r) => r.closed).length >= a[0], 5000); await sleep(50); }
+      else if (k === 'online') { netUp = Boolean(a[0]); await sleep(15); }
+      else if (k === 'tick') { await keptTick(); await sleep(30); }
+      // 0.13.2 点検の直し 2: 起動の片付け（下書きの復旧の後の meeting.settle の頼み）まで待つ
+      else if (k === 'wait-settled') { await waitFor(settledNow, 20000); await sleep(30); }
+      // 0.13.2 LN-5（LR13）: 止めた後の最後の空の区間を送り、待機に戻るまでだけ待つ（締めの答えは待たない）・締めの答えまで待つ
+      else if (k === 'final-only') { listeners['audio:segment']({}, { buffer: new Uint8Array(0), durationMs: 0, final: true }); await waitFor(() => !isActive(), 15000); }
+      else if (k === 'wait-finalized') { await waitFor(finalized, 15000); await sleep(50); }
+      else if (k === 'login-close') { const w = loginWinsList.filter((x) => !x.destroyed).pop(); if (w) w.close(); await sleep(50); }
       else if (k === 'minimize') { wins[1].minimized = true; wins[1].emit('minimize'); await sleep(15); }
       else if (k === 'snap') {
-        out.snaps[a[0]] = { spawns: micSpawns.length, kills: micKills, active: isActive(), nudgeCalls: nudgeWins.length ? nudgeWins[0].nudge.calls.length : 0, asks: overlayAsks(), sentN: mainSentAll.length, notes: notifications.length };
+        out.snaps[a[0]] = { spawns: micSpawns.length, kills: micKills, active: isActive(), nudgeCalls: nudgeWins.length ? nudgeWins[0].nudge.calls.length : 0, asks: overlayAsks(), sentN: mainSentAll.length, notes: notifications.length,
+          logins: loginRecs.length, settled: settledNow() };   // 0.13.2 LN-4: その時までに作ったログインの窓の数（点検の直し 2: 起動の片付けが済んだか）
         // 0.13.0 RDY-1: 下書きのファイルの名前と最初の下書きのメモと種類・DB へ送った命令の名前（中身は入れない）・meeting:status の active と prep
         const drafts = store.draftFiles();
         const d0 = drafts.length ? store.readDraftFile(drafts[0]) : null;
@@ -3036,8 +3184,11 @@ process.on('exit', () => {
       // 0.12.1 LV-3: 偽の Windows の知らせ（閉じたか）・議事録の所要時間と一時停止の印
       notifications: noticeObjs.map((n) => ({ title: n.o.title, body: n.o.body, closed: Boolean(n.closed) })), notifyClosed,
       pageDur: store.listPages().map((p) => { const pg = store.getPage(p.id) || {}; return { id: p.id, durationSec: pg.durationSec, pauses: pg.pauses || [] }; }),
+      loginWins: loginRecs.map((r) => ({ ...r })),   // 0.13.2 LN-4
       // 0.13.0 RDY-1: 議事録のページのメモと種類
       pageMemos: store.listPages().map((p) => { const pg = store.getPage(p.id) || {}; return { id: p.id, memo: pg.memo, meetingType: pg.meetingType === undefined ? null : pg.meetingType }; }),
+      // 0.13.2 LN-1（LR14）: 締めの後の形（題名・meeting.phase）
+      pageFinal: store.listPages().map((p) => { const pg = store.getPage(p.id) || {}; return { id: p.id, title: pg.title, phase: pg.meeting && pg.meeting.phase ? pg.meeting.phase : null }; }),
     });
     process.stdout.write(`\n${JSON.stringify(out)}\n`);
     await exitClean(0);
@@ -3527,6 +3678,41 @@ process.on('exit', () => {
     await handlers['settings:save']({}, { qualityScore: flagVal('--resum-quality') });
     out.resum = await handlers['page:summarize']({}, store.listPages()[0].id);
   }
+  // 0.13.0 点検4（2026-10-26 の持ち主の答え）: 要約の後に画面の役で行を1つ消し（ページの印 summaryEdited が付く）、［要約を再生成］すると印が消える（--resum-after-edit）
+  if (flags.includes('--resum-after-edit') && store.listPages().length) {
+    const id = store.listPages()[0].id;
+    const pg = (await appCall('page.get', { id })).page;
+    await appCall('block.remove', { pageId: id, blockId: pg.blocks[pg.blocks.length - 1].id });
+    out.editedBefore = (await appCall('page.get', { id })).page.summaryEdited;
+    out.resumEdit = await handlers['page:summarize']({}, id);
+    out.editedAfter = (await appCall('page.get', { id })).page.summaryEdited;
+  }
+  // 0.13.1 NE-3（計画 docs/plans/2026-10-27-131.md の F54・NR3・決めたこと 35）: 要約の後に画面の役で入れ子とトグルを作り（最後の行の下に子を足し、
+  // 子のあるトグルを足して閉じる）、main の小さな書き戻し（mainlib.saveIfExists。要約待ちの印を付けて外す）の後も子が残るかと、
+  // ［要約を再生成］で子もトグルも消え、summaryEdited も消えるかを見る（--nest-after-sum）。形は [id, [子…]] の木
+  if (flags.includes('--nest-after-sum') && store.listPages().length) {
+    const id = store.listPages()[0].id;
+    const shapeOf = (bs) => (Array.isArray(bs) ? bs : []).map((b) => (b.children && b.children.length ? [b.id, shapeOf(b.children)] : b.id));
+    const pg = (await appCall('page.get', { id })).page;
+    const last = pg.blocks.filter((b) => b.type !== 'heading' && b.type !== 'divider').pop().id;   // 子を持てる最後の行
+    const kidIns = await appCall('block.insert', { pageId: id, afterBlockId: '', type: 'bullet', parentId: last });
+    const tg = await appCall('block.insert', { pageId: id, afterBlockId: last, type: 'toggle' });
+    await appCall('block.insert', { pageId: id, afterBlockId: '', type: 'todo', parentId: tg.blockId });
+    await appCall('block.setOpen', { pageId: id, blockId: tg.blockId, open: false });
+    out.nest = { kid: kidIns.blockId, toggle: tg.blockId, last };
+    out.nest.before = shapeOf((await appCall('page.get', { id })).page.blocks);
+    const { saveIfExists } = require('../../src/mainlib');
+    await saveIfExists(dbClient, id, (p) => { p.summaryWait = true; p.summaryError = '要約待ち（見本）'; });
+    await saveIfExists(dbClient, id, (p) => { p.summaryWait = false; p.summaryError = ''; });
+    const mid = (await appCall('page.get', { id })).page;
+    out.nest.afterWait = shapeOf(mid.blocks);
+    out.nest.editedBefore = mid.summaryEdited;
+    out.nest.resum = await handlers['page:summarize']({}, id);
+    const after = (await appCall('page.get', { id })).page;
+    out.nest.afterResum = shapeOf(after.blocks);
+    out.nest.toggles = JSON.stringify(after.blocks).includes('"toggle"');
+    out.nest.editedAfter = after.summaryEdited;
+  }
   // 0.11.0 P-12（R4）: 前の版で手で一般・その他を選んだページにして（page.put で attrs を書く）、［要約を再生成］（--legacy-general）
   if (flags.includes('--legacy-general') && store.listPages().length) {
     const id = store.listPages()[0].id;
@@ -3633,7 +3819,8 @@ process.on('exit', () => {
     await waitFor(() => store.listPages().every((p) => { const pg = store.getPage(p.id); return !WAIT_RE.test(pg.summaryError || '') && ((pg.blocks || []).length > 0 || pg.summaryError); }), 10000).catch(() => {});
     await waitFor(() => chatCount() > (out.chatsAtFinalize || 0), 1500);   // 待ち行列の後に要約を作ったか（作らない場面は 1.5 秒見る）
     await sleep(300);
-    out.afterQueue = { pages: snapPages(), notices: sent.filter(([ch]) => ch === 'app:notice').map(([, p]) => p), chats: chatCount(), wavs: segWavFiles(), log: elogLines() };
+    out.afterQueue = { pages: snapPages(), notices: sent.filter(([ch]) => ch === 'app:notice').map(([, p]) => p), chats: chatCount(), wavs: segWavFiles(), log: elogLines(),
+      pending: pendingSeen.slice(), relayCalls: relayPaths.slice() };   // 0.13.2 LN-2
   }
   if (fakeStt || relayLocal) {
     // 会議の後の送り直し（失敗した区間の待ち行列）が済むか、残して止まるまで待ってから写す
@@ -3678,8 +3865,11 @@ process.on('exit', () => {
   if (loginAfter) {
     const login = await handlers['account:login']({});
     await waitFor(() => !segbufLeft().queue && pagesNow().every((p) => p.segments.every((x) => !x.failed)), 10000);
+    // 0.13.2 LN-2: 待ち行列が済んだら、要約の欄が S3 から替わり要約が済む（ブロックか理由）まで待つ（待ち行列が残っていれば待たない）
+    if (!segbufLeft().queue) await waitFor(() => pagesNow().every((p) => !S3_RE.test(p.summaryError || '') && (p.blocks > 0 || p.summaryError)), 10000);
     await sleep(200);
-    out.afterLogin = { login, pages: pagesNow(), engineLog: elogLines(), relayCalls: relayPaths.slice(), keptTicks: keptTicksCalled };
+    out.afterLogin = { login, pages: pagesNow(), engineLog: elogLines(), relayCalls: relayPaths.slice(), keptTicks: keptTicksCalled,
+      notices: sent.filter(([ch]) => ch === 'app:notice').map(([, p]) => p), claudeCalls: claudeLines().filter((c) => c.kind === 'p').length, pending: pendingSeen.slice() };
   }
   process.stdout.write(`\n${JSON.stringify(m3Out(out))}\n`);
   await exitClean(0);

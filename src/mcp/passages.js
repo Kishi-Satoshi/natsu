@@ -10,6 +10,8 @@ const { foldWithMap } = require('../pagerules');
 const search = require('../db/search');
 const F = require('./format');
 const memoTypes = require('../memoTypes');
+// 0.13.1: 要約の木を平らにして箇所にする
+const BT = require('../blockTree');
 
 const PASSAGE_MAX = 600;
 const WINDOW_CHARS = 400;
@@ -82,14 +84,15 @@ function chunkSegments(segments) {
 }
 
 // 要約の節（見出しから次の見出しまで。見出しの前のブロックは「（見出しなし）」）→ [{ kind: 'b', blockId, heading, blocks, lines, text }]
+// 0.13.1（決めたこと 23・NR20）: 木を平らにして、子の行も下げずに同じ節に入れる（箇所は抜き出しの窓）。節を始めるのは最上位の見出しだけ
+// （子の中の見出しは文の行として節に入る: 決めたこと 34 と同じ）
 function chunkSummary(blocks) {
   const sections = [];
   let sec = null;
-  for (const b of blocks || []) {
-    if (!b || typeof b !== 'object') continue;
-    if (b.type === 'heading') { sec = { head: b, heading: F.safeLine(b.text) || '（見出しなし）', items: [] }; sections.push(sec); continue; }
+  for (const { b, depth } of BT.walk(blocks || [])) {
+    if (b.type === 'heading' && depth === 0) { sec = { head: b, heading: F.safeLine(b.text) || '（見出しなし）', items: [] }; sections.push(sec); continue; }
     if (!sec) { sec = { head: null, heading: '（見出しなし）', items: [] }; sections.push(sec); }
-    const line = F.blockLine(b);
+    const line = b.type === 'heading' ? (F.safeLine(b.text).trim() ? `- ${F.safeLine(b.text)}` : null) : F.blockLine(b);
     if (line) sec.items.push({ b, line, raw: F.safeLine(b.text) });
   }
   const out = [];

@@ -289,6 +289,33 @@ test('N4c: ページの［一時停止］と Ctrl+Shift+P は main に頼むだ�
   assert.strictEqual(l.called('meetingSetPaused').length, 2, '作成中に頼んだ');
 });
 
+// 0.13.0 CLK-3（2026-10-27 の持ち主の答え「録音バーとページの両方を直す（おすすめ）」）: 録音中のページの時計は Date.now() と最後の meeting:update の
+// pausedMs で数え、st.paused を見ていなかったので、一時停止の間も進んでいた。止めている間は届いた時の値のまま止める
+test('CLK-3: 一時停止の間は録音中のページの時計を止め（時計を進めても #liveTm は変わらない）、再開の後は止めた分を引いた値から進む', async () => {
+  const l = await open();
+  await l.drain();
+  const t0 = l.clock.now;
+  const at = { startedAt: t0 - 33_000 };
+  const tm = () => l.document.getElementById('liveTm').textContent;
+  l.fire('onMeetingUpdate', ST(at));
+  await l.drain();
+  await l.clock.advance(1_000);
+  assert.strictEqual(tm(), '0:34', '録音中の時計が進んでいない（検査が空振り）');
+  l.fire('onMeetingUpdate', ST({ ...at, paused: true, pausedMs: 0 }));   // main: 一時停止した（pausedMs はその時までの一時停止を含む）
+  await l.drain();
+  await l.clock.advance(8_000);
+  assert.strictEqual(tm(), '0:34', '一時停止の間に録音中のページの時計が進んだ');
+  l.fire('onMeetingUpdate', ST({ ...at, paused: true, pausedMs: 8_000 }));   // 一時停止の間に届いた知らせ（止めている時間が伸びた）
+  await l.drain();
+  await l.clock.advance(1_000);
+  assert.strictEqual(tm(), '0:34', '一時停止の間に届いた知らせで時計が動いた');
+  l.fire('onMeetingUpdate', ST({ ...at, paused: false, pausedMs: 9_000 }));   // 再開
+  await l.drain();
+  await l.clock.advance(20_000);
+  assert.strictEqual(tm(), '0:54', '再開の後の時計が、止めていた 9 秒を引いた値から進まない');
+  assert.deepStrictEqual(l.errors.map(fmt), []);
+});
+
 test('RF4: スリープから戻って一時停止のままなら、録音中のページに再開を促す文が出る', async () => {
   const l = await open();
   await l.drain();

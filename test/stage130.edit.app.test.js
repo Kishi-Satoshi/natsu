@@ -83,7 +83,7 @@ const ED4_CMDS = {
   blockUpdate: (pageId, blockId, patch) => ['block.update', { pageId, blockId, patch }],
   blockInsert: (pageId, afterBlockId, type, level) => ['block.insert', level === undefined ? { pageId, afterBlockId, type } : { pageId, afterBlockId, type, level }],
   blockRemove: (pageId, blockId) => ['block.remove', { pageId, blockId }],
-  blockSplit: (pageId, blockId, text, at) => ['block.split', { pageId, blockId, text, at }],
+  blockSplit: (pageId, blockId, text, at, afterId) => ['block.split', afterId === undefined ? { pageId, blockId, text, at } : { pageId, blockId, text, at, afterId }],
   blockMerge: (pageId, blockId, text) => ['block.merge', { pageId, blockId, text }],
   blockTurnInto: (pageId, blockId, type, level) => ['block.turnInto', level === undefined ? { pageId, blockId, type } : { pageId, blockId, type, level }],
   blockSetAction: (pageId, blockId, assignee, dueRaw) => ['block.setAction', { pageId, blockId, assignee, dueRaw }],
@@ -184,6 +184,116 @@ test('ED-4・F40・F41: 行に打って blur せず、カーソルを途中に�
   } finally { l.done(); }
 });
 
+// 2026-10-26 の持ち主の答え（点検1「上に空の行を足す（おすすめ）」）
+test('ED-4・点検1: 文のある行の頭で Enter → blockSplit（at 0）の1回で上に空の行が入り、今の行は文も出典もそのまま、カーソルは今の行の頭に残る', T, async () => {
+  const l = await openReal({ pa1: BASE() });
+  try {
+    const t = typeIn(l, 'b1', '来週に出す', 0);
+    l.key({ key: 'Enter' }, t);
+    await l.drain();
+    assert.deepStrictEqual(sent(l), [['blockSplit', 'pa1', 'b1', '来週に出す', 0, 'h1']]);   // 点検8（意図して変えた）: 画面で上に見えている行も送る
+    const blocks = l.page().blocks;
+    assert.deepStrictEqual(blocks.slice(0, 3).map((b) => [b.id === 'h1' || b.id === 'b1' ? b.id : 'new', b.type, b.text]),
+      [['h1', 'heading', '決定事項'], ['new', 'bullet', ''], ['b1', 'bullet', '来週に出す']]);
+    assert.deepStrictEqual([blocks[2].cites, blocks[2].citeState], [['s2'], 'linked']);
+    assert.deepStrictEqual(rowsOf(l).map((e) => e.dataset.id), ['h1', blocks[1].id, 'b1', 'p1', 'e1']);
+    assert.strictEqual(txtOf(l, 'b1').textContent, '来週に出す');
+    assert.strictEqual(txtOf(l, blocks[1].id).textContent, '');
+    assert.strictEqual(l.document.activeElement, txtOf(l, 'b1'));
+    assert.deepStrictEqual(l.caret.get(txtOf(l, 'b1')), [0, 0]);
+    // blur しても今の行の文を書き直さない（命令は分割の1つだけ）
+    txtOf(l, 'b1').dispatchEvent({ type: 'blur' });
+    await l.drain();
+    assert.deepStrictEqual(sent(l), [['blockSplit', 'pa1', 'b1', '来週に出す', 0, 'h1']]);
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+// 2026-10-27 の持ち主の答え（点検8「見えている上の行の後ろに足す（おすすめ）」）
+test('ED-4・点検8: 並べ替えて見せる要約で、文のある行の頭で Enter → 上の空の行は画面で今の行のすぐ上に出る（afterId は画面で上に見えている行）。今の行は ID・文・出典がそのまま、カーソルは今の行の頭', T, async () => {
+  const blocks = [{ id: 'h1', type: 'heading', level: 2, text: '議題' }, { id: 'b2', type: 'bullet', text: '予算の話', cites: ['s2'], citeState: 'linked' },
+    { id: 'h2', type: 'heading', level: 2, text: '決定事項' }, { id: 'b4', type: 'bullet', text: '来月に出す', cites: ['s2'], citeState: 'linked' },
+    { id: 'h3', type: 'heading', level: 2, text: '持ち越し' }, { id: 'b6', type: 'bullet', text: '見積もりを取る', cites: [], citeState: 'linked' }];
+  const cases = [
+    ['h3', 'b4', ['h2', 'b4', 'new', 'h3', 'b6', 'h1', 'b2']],   // 前に出した締めの見出し
+    ['h1', 'b6', ['h2', 'b4', 'h3', 'b6', 'new', 'h1', 'b2']],   // 後ろへ回った見出し
+    ['b2', 'h1', ['h2', 'b4', 'h3', 'b6', 'h1', 'new', 'b2']],   // ふつうの行
+  ];
+  for (const [id, above, want] of cases) {
+    const l = await openReal({ pa1: blocks });
+    try {
+      assert.deepStrictEqual(rowsOf(l).map((e) => e.dataset.id), ['h2', 'b4', 'h3', 'b6', 'h1', 'b2'], '締めの節が前に出ていない（見本の作りの誤り）');
+      const was = l.page().blocks.find((b) => b.id === id);
+      const t = typeIn(l, id, was.text, 0);
+      l.key({ key: 'Enter' }, t);
+      await l.drain();
+      assert.deepStrictEqual(sent(l), [['blockSplit', 'pa1', id, was.text, 0, above]], id);
+      const nb = l.page().blocks.find((b) => !blocks.some((x) => x.id === b.id));
+      assert.deepStrictEqual(rowsOf(l).map((e) => (e.dataset.id === nb.id ? 'new' : e.dataset.id)), want, id);
+      assert.deepStrictEqual(l.page().blocks.find((b) => b.id === id), was, `${id}: 今の行が変わった`);
+      assert.deepStrictEqual([txtOf(l, id).textContent, txtOf(l, nb.id).textContent], [was.text, '']);
+      assert.strictEqual(l.document.activeElement, txtOf(l, id));
+      assert.deepStrictEqual(l.caret.get(txtOf(l, id)), [0, 0]);
+      assert.deepStrictEqual(l.errors.map(fmt), []);
+    } finally { l.done(); }
+  }
+  // 締めの見出しの無い（並べ替えの無い）要約の頭の行: 上に見えている行が無いので ''（いちばん上に出る）
+  const l = await openReal({ pa1: [blocks[0], blocks[1], { id: 'p1', type: 'paragraph', text: 'あいうえお' }] });
+  try {
+    const t = typeIn(l, 'h1', '議題', 0);
+    l.key({ key: 'Enter' }, t);
+    await l.drain();
+    assert.deepStrictEqual(sent(l), [['blockSplit', 'pa1', 'h1', '議題', 0, '']]);
+    const ids = rowsOf(l).map((e) => e.dataset.id);
+    assert.deepStrictEqual(ids.slice(1), ['h1', 'b2', 'p1']);
+    assert.strictEqual(l.page().blocks[0].id, ids[0]);
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+// 2026-10-26 の持ち主の答え（点検2「見出しに戻したら AI の見出しに戻す（おすすめ）」）
+test('ED-4・点検2: AI の見出しの頭で Backspace（テキストに戻る）→ Ctrl+Shift+2 か「## 」で見出しに戻すと、画面の並びと［コピー］が前と同じ', T, async () => {
+  const blocks = [{ id: 'h1', type: 'heading', level: 2, text: '議題' }, { id: 'b2', type: 'bullet', text: '予算の話', cites: ['s2'], citeState: 'linked' },
+    { id: 'h2', type: 'heading', level: 2, text: '決定事項' }, { id: 'b4', type: 'bullet', text: '来月に出す', cites: ['s2'], citeState: 'linked' }];
+  for (const how of ['ctrl', 'md']) {
+    const l = await openReal({ pa1: blocks }, { returns: { copy: (t) => { l.copied = t; return true; } } });
+    try {
+      const copy = async () => {
+        const btn = $(l, 'pMenu').querySelectorAll('button').find((b) => b.textContent === 'コピー');
+        await btn.onclick();
+        await l.drain();
+        return l.copied;
+      };
+      const order0 = rowsOf(l).map((e) => e.dataset.id);
+      assert.deepStrictEqual(order0, ['h2', 'b4', 'h1', 'b2'], '締めの節が前に出ていない（見本の作りの誤り）');
+      const copy0 = await copy();
+      let t = txtOf(l, 'h2');
+      t.focus();
+      l.caret.set(t, 0);
+      l.key({ key: 'Backspace' }, t);
+      await l.drain();
+      assert.deepStrictEqual([l.page().blocks[2].type, l.page().blocks[2].citeState], ['paragraph', 'manual']);
+      assert.notDeepStrictEqual(rowsOf(l).map((e) => e.dataset.id), order0, 'テキストにしたのに並びが同じ（見本の作りの誤り）');
+      t = txtOf(l, 'h2');
+      t.focus();
+      if (how === 'ctrl') {
+        l.caret.set(t, 0);
+        l.key({ key: '"', code: 'Digit2', ctrlKey: true, shiftKey: true }, t);
+      } else {
+        t.textContent = '## 決定事項';
+        l.caret.set(t, 3);
+        t.dispatchEvent({ type: 'input' });
+      }
+      await l.drain();
+      const h2 = l.page().blocks[2];
+      assert.deepStrictEqual([h2.id, h2.type, h2.text, h2.citeState], ['h2', 'heading', '決定事項', undefined], how);
+      assert.deepStrictEqual(rowsOf(l).map((e) => e.dataset.id), order0, how);
+      assert.strictEqual(await copy(), copy0, how);
+      assert.deepStrictEqual(l.errors.map(fmt), []);
+    } finally { l.done(); }
+  }
+});
+
 test('ED-4・F40: カーソルが「𠮷」の途中なら書記素の境に寄せて分ける（文字化けしない）', T, async () => {
   const l = await openReal({ pa1: BASE() });
   try {
@@ -228,7 +338,8 @@ test('ED-4: テキストの行の頭で Backspace → blockMerge の1回（前�
     ev = l.key({ key: 'Backspace' }, t);
     await l.drain();
     assert.strictEqual(ev.defaultPrevented, true);
-    assert.deepStrictEqual(sent(l), [['blockMerge', 'pa1', 'p1', 'あいうえおか']]);
+    // 0.13.1 NE-4a で意図して変えた（TQ1: 持ち主の答え「画面で上に見えている行（おすすめ）」）: つなぐ先（画面で上に見えている行）を intoId で送る
+    assert.deepStrictEqual(sent(l), [['blockMerge', 'pa1', 'p1', 'あいうえおか', 'b1']]);
     assert.deepStrictEqual(rowsOf(l).map((e) => e.dataset.id), ['h1', 'b1', 'e1']);
     assert.strictEqual(txtOf(l, 'b1').textContent, '来週に出すあいうえおか');
     assert.strictEqual(l.document.activeElement, txtOf(l, 'b1'));
@@ -413,7 +524,8 @@ test('ED-5: / メニューの写し（app.html の SLASH_ROWS・slashQuery・sla
   const rowsSrc = HTML.slice(at, HTML.indexOf('\n  ];\n', at) + 6) + HTML.slice(HTML.indexOf('  const MENU_KEYS_VIEW = '), HTML.indexOf('\n', HTML.indexOf('  const MENU_KEYS_VIEW = ')) + 1);
   const src = ['slashQuery', 'slashHit', 'slashFilter', 'recentAdd', 'recentCheck'].map(fnFromApp).join('\n');
   const app = new Function(`${rowsSrc}${src}\nreturn { SLASH_ROWS, MENU_KEYS_VIEW, slashQuery, slashFilter, recentAdd, recentCheck };`)();   // eslint-disable-line no-new-func
-  assert.deepStrictEqual(app.SLASH_ROWS, E.VERSION_ROWS.map((r) => ({ id: r.id, key: r.key, ...(r.level ? { level: r.level } : {}), label: r.label, words: [...r.words], md: [...r.md] })));
+  // （0.13.1 NE-1 で意図して変えた: 写しは MENU_ROWS。トグル見出し1〜3 は型の表の1行 th から作る: 計画 docs/plans/2026-10-27-131.md の NR5）
+  assert.deepStrictEqual(app.SLASH_ROWS, E.MENU_ROWS.map((r) => ({ id: r.id, key: r.key, ...(r.level ? { level: r.level } : {}), ...(r.toggle ? { toggle: true } : {}), label: r.label, words: [...r.words], md: [...r.md] })));
   assert.deepStrictEqual(app.MENU_KEYS_VIEW, [...E.MENU_KEYS]);
   for (const b of ['/', 'a /', 'a/b', '/みだし', '／', '・', 'x /h a', '/to', '', ' /', 'a  /x']) assert.deepStrictEqual(app.slashQuery(b), E.slashQuery(b), b);
   for (const q of ['', 'みだし', 'h', 'todo', 'とぐる', 'zz', 'zzz', 'リスト', '#', 'TEXT']) {
@@ -434,7 +546,7 @@ test('ED-5: 行頭で / を打つと listbox が出て項目は型の表の順�
     assert.deepStrictEqual(headsOf(l), ['ブロックの型']);
     assert.strictEqual(l.document.activeElement, t, 'フォーカスが行から離れた');
     t = typeInput(l, 'e1', '/みだし');
-    assert.deepStrictEqual(keysOf(l), ['h1', 'h2', 'h3']);
+    assert.deepStrictEqual(keysOf(l), ['h1', 'h2', 'h3', 'th1', 'th2', 'th3']);   // 0.13.1 NE-1 で意図して変えた:「みだし」は「とぐるみだし」にも当たる（NR5）
     assert.deepStrictEqual(headsOf(l), []);
     for (const k of ['ArrowDown', 'ArrowDown']) assert.strictEqual(l.key({ key: k }, t).defaultPrevented, true);
     const ev = l.key({ key: 'Enter' }, t);
@@ -818,7 +930,7 @@ test('ED-6: Ctrl+/ で今の行のメニュー。↓↓ Enter で「変換」の
     menuKey(l, 'Enter');
     const sub = subOf(l);
     assert.ok(sub, '変換の中が開かない');
-    assert.deepStrictEqual(labelsOf(sub), E.VERSION_ROWS.map((r) => r.label));
+    assert.deepStrictEqual(labelsOf(sub), E.MENU_ROWS.map((r) => r.label));   // （0.13.1 NE-1 で意図して変えた: 写しは MENU_ROWS。トグル見出し1〜3 は型の表の1行 th から作る: 計画 docs/plans/2026-10-27-131.md の NR5）
     const div = itemsOf(sub).find((x) => x.dataset.key === 'divider');
     assert.strictEqual(div.getAttribute('aria-disabled'), 'true');
     assert.strictEqual(div.title, '文のある行は区切り線にできません');
@@ -1155,4 +1267,92 @@ test('ED-8（EQ4 (a)・決めたこと 35）: 人が直した行があるとき�
       assert.deepStrictEqual(l.errors.map(fmt), []);
     } finally { l.done(); }
   }
+});
+
+// 2026-10-26 の持ち主の答え（点検4「どんな手直しでも確かめる（おすすめ）」）
+test('ED-8・点検4: AI の型だけの要約でも、行を消す・動かす・複製・見出しの段を変えた後は［要約を再生成］の前に確かめる。作り直した要約が届いた後は聞かない', T, async () => {
+  const AI = [{ id: 'h1', type: 'heading', level: 2, text: '決定事項' }, { id: 'b1', type: 'bullet', text: '来月に出す', cites: ['s2'], citeState: 'linked' },
+    { id: 'p1', type: 'paragraph', text: '本文の行' }, { id: 'b2', type: 'bullet', text: '見積もりを取る', cites: [], citeState: 'linked' }];
+  const acts = {
+    remove: (l) => { rowOf(l, 'p1').querySelector('.grip').dispatchEvent({ type: 'click' }); itemsOf(menuOf(l))[0].dispatchEvent({ type: 'click' }); },
+    move: (l) => { const t = typeIn(l, 'b1', '来月に出す', 0); l.key({ key: 'ArrowDown', code: 'ArrowDown', ctrlKey: true, shiftKey: true }, t); },
+    duplicate: (l) => { const t = typeIn(l, 'b2', '見積もりを取る', 0); l.key({ key: 'd', code: 'KeyD', ctrlKey: true }, t); },
+    level: (l) => { const t = typeIn(l, 'h1', '決定事項', 0); l.key({ key: '#', code: 'Digit3', ctrlKey: true, shiftKey: true }, t); },
+  };
+  for (const [name, act] of Object.entries(acts)) {
+    const l = await openReal({ pa1: AI }, { returns: { pageSummarize: () => ({ ok: true, stat: { linked: 1, total: 1 } }) } });
+    try {
+      const btn = () => $(l, 'pMenu').querySelectorAll('button').find((b) => b.textContent === '要約を再生成');
+      const dlg = () => l.document.querySelector('.askbox');
+      act(l);
+      await l.drain();
+      assert.strictEqual(l.page().summaryEdited, true, `${name}: DB に印が無い`);
+      assert.ok(!l.page().blocks.some((b) => b.citeState === 'manual' || b.citeState === 'stale'), `${name}: 人の行ができた（見本の作りの誤り）`);
+      const p = btn().onclick();
+      await l.drain();
+      assert.ok(dlg(), `${name}: 確かめが出ない`);
+      dlg().querySelectorAll('button')[1].dispatchEvent({ type: 'click' });
+      await p;
+      await l.drain();
+      assert.strictEqual(l.called('pageSummarize').length, 0, name);
+      // 作り直した要約（印の無いページ）が届いたら、次は聞かない
+      const fresh = l.page();
+      delete fresh.summaryEdited;
+      fresh.blocks = AI;
+      l.fire('onPageUpdated', { page: fresh, segments: [] });
+      await l.drain();
+      const p2 = btn().onclick();
+      await l.drain();
+      assert.strictEqual(dlg(), null, `${name}: 作り直した後も聞いた`);
+      await p2;
+      assert.strictEqual(l.called('pageSummarize').length, 1, name);
+      assert.deepStrictEqual(l.errors.map(fmt), []);
+    } finally { l.done(); }
+  }
+});
+
+// 点検5（作り手が決めた。独立した点検の後）: 分けた前の文の終わりに空白があっても、Enter の1回は oplog の1行（blur が同じ文を送り直さない）
+test('ED-4・点検5: 空白の後ろで Enter（前の文が「来週の 」）→ 両方の行の blur の後も送るのは blockSplit の1回だけで oplog は1行。前の行は DB の文のまま', T, async () => {
+  for (const [text, at] of [['来週の 月曜に出す', 4], ['来週に出す ', 6], [' 来週に出す', 1]]) {
+    const l = await openReal({ pa1: BASE() });
+    try {
+      const n0 = l.db.prepare('select count(*) as c from oplog').get().c;
+      const t = typeIn(l, 'b1', text, at);
+      l.key({ key: 'Enter' }, t);
+      await l.drain();
+      const nb = l.page().blocks[2];
+      // 本物ではフォーカスが新しい行へ移ると前の行に blur が来る（偽 DOM は起こさないので受け口を呼ぶ）。新しい行からも離れる
+      txtOf(l, 'b1').onblur();
+      txtOf(l, nb.id).onblur();
+      await l.drain();
+      assert.deepStrictEqual(sent(l), [['blockSplit', 'pa1', 'b1', text, at]], text);
+      assert.strictEqual(l.db.prepare('select count(*) as c from oplog').get().c - n0, 1, `${text}: oplog`);
+      assert.strictEqual(l.page().blocks[1].text, text.slice(0, at), text);
+      assert.deepStrictEqual(l.errors.map(fmt), []);
+    } finally { l.done(); }
+  }
+});
+
+// 点検3（作り手が決めた。文書と作りの食い違い）: 行の頭の記法は、作り（mdCheck・shortcutFor）のとおり文のある行の頭でも変わる。区切り線だけ何も書いていない行
+test('ED-8・点検3: 記事「要約を書き直す」の行の頭の記法は、後ろに文がある行でも変わると書き、区切り線だけ何も書いていない行と書く。画面も文のある行の頭の「- 」で箇条書きになり文は残り、「---」は文のある行では変わらない', T, async () => {
+  const art = fs.readFileSync(path.join(__dirname, '..', 'help', 'articles', 'summary', 'edit-summary.md'), 'utf8');
+  const sec = art.slice(art.indexOf('{#markdown}'), art.indexOf('{#handles}'));
+  assert.ok(!sec.includes('何も書いていない行の頭'), '記法は何も書いていない行だけと書いている（作りは文のある行の頭でも変わる）');
+  assert.ok(sec.includes('後ろに文がある行でも'), sec);
+  assert.ok(sec.includes('| `---` | 区切り線（何も書いていない行だけ。'), sec);
+  const l = await openReal({ pa1: BASE() });
+  try {
+    let t = typeIn(l, 'p1', '- あいうえお', 2);
+    t.dispatchEvent({ type: 'input' });
+    await l.drain();
+    assert.deepStrictEqual(sent(l), [['blockTurnInto', 'pa1', 'p1', 'bullet']]);
+    assert.strictEqual(txtOf(l, 'p1').textContent, 'あいうえお');
+    assert.deepStrictEqual([l.page().blocks[2].type, l.page().blocks[2].text], ['bullet', 'あいうえお']);
+    t = typeIn(l, 'b1', '---来週に出す', 3);
+    t.dispatchEvent({ type: 'input' });
+    await l.drain();
+    assert.deepStrictEqual(sent(l), [['blockTurnInto', 'pa1', 'p1', 'bullet']]);
+    assert.strictEqual(t.textContent, '---来週に出す');
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
 });

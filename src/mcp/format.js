@@ -272,16 +272,27 @@ function propLines(page) {
   lines.push(`- ID: ${page.id}`, ...linkLine(page.id));
   return lines;
 }
+// 0.13.1（決めたこと 22・NR20）: 子は段ごとに2つの空白で下げる（閉じたトグルの子も）。番号は親ごと。トグルは「- 」、トグル見出しは見出しの決まり
 function summaryLines(page) {
   const out = ['## 要約'];
-  const blocks = Array.isArray(page.blocks) ? page.blocks : [];
-  const nums = blockEdit.numberLabels(blocks);
-  for (const b of blocks) {
-    // 0.13.0 ED-3: 段 1・2 は ###、段 3 は ####（段の無い前の版の見出しは段 2）
-    if (b && b.type === 'heading') { const t = safeLine(b.text); if (t.trim()) out.push(`${blockEdit.headingLevel(b) === 3 ? '####' : '###'} ${t}`); continue; }
-    const l = blockLine(b, page.id, b && nums.get(b.id));
-    if (l) out.push(l);
-  }
+  // 2026-10-28 の点検 4（NR40）: 見出しは下げない（4つ以上の空白の行はコードの塊になる）。見出しの後の行は見出しの段から数え直す（blockEdit.blocksMarkdown と同じ）
+  let base = 0;
+  const walk = (blocks, depth) => {
+    const nums = blockEdit.numberLabels(blocks);
+    for (const b of blocks) {
+      if (!b || typeof b !== 'object') continue;
+      base = b.type === 'heading' ? depth : Math.min(base, depth);
+      const pad = '  '.repeat(depth - base);
+      // 0.13.0 ED-3: 段 1・2 は ###、段 3 は ####（段の無い前の版の見出しは段 2）
+      if (b.type === 'heading') { const t = safeLine(b.text); if (t.trim()) out.push(`${blockEdit.headingLevel(b) === 3 ? '####' : '###'} ${t}`); }
+      else {
+        const l = blockLine(b, page.id, nums.get(b.id));
+        if (l) out.push(`${pad}${l}`);
+      }
+      if (Array.isArray(b.children) && b.children.length) walk(b.children, depth + 1);
+    }
+  };
+  walk(Array.isArray(page.blocks) ? page.blocks : [], 0);
   if (out.length === 1) out.push(`要約はまだありません。${typeof page.summaryError === 'string' && page.summaryError.trim() ? `（${safeLine(page.summaryError)}）` : ''}`);
   return out;
 }

@@ -222,7 +222,7 @@ async function startRelayLocal({ stt: sttOpts = {}, env: over = {}, start = Date
         return;
       }
       try {
-        if (isStt && reqText) stt.setMode(reqText[sttRelayed] === 'e' ? 'empty' : 'text');   // 第1d2回 M-3
+        if (isStt && reqText) stt.setMode({ e: 'empty', L: '429-long' }[reqText[sttRelayed]] || 'text');   // 第1d2回 M-3（0.13.2 点検の直し: L は 1日の上限の 429）
         if (isStt) sttRelayed += 1;
         const out = await handler.fetch(toRequest(req, Buffer.concat(chunks), over), env, ctx);
         const headers = {};

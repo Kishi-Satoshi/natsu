@@ -265,6 +265,9 @@ test('公開したのに画面から呼ばれない API がない', () => {
   // 0.9.0 O-2 で足した koeOverlay.reportSize・onForm（録音バーの窓の大きさと形）は、録音バーの画面（O-3）が呼び始めたので外して空に戻した
   // 0.13.0 ED-2（計画 docs/plans/2026-10-24-130.md）で足した要約の編集の4つ（blockSplit・blockMerge・blockTurnInto・blockDuplicate）は、
   // 画面の行の編集（ED-4・ED-6）が呼び始めたら外す。blockSplit・blockMerge・blockTurnInto は ED-4 が、blockDuplicate は ED-6 が呼び始めたので外して空に戻した
+  // 0.13.1 NE-2（計画 docs/plans/2026-10-27-131.md の「意図して変えるテスト」）で足した字下げとトグルの開け閉めの3つは、blockIndent は NE-4a（Tab と Shift+Tab）が、
+  // blockSetOpen・blockSetOpenAll は NE-4b（▸・Ctrl+Enter・Ctrl+Alt+T）が呼び始めたので外して空に戻した
+  // 0.13.2 LN-2（計画 docs/plans/2026-10-28-132.md）で足した onPagePending（文字起こし待ちの残りの区間の数）は、議事録のページの1行（LN-5）が呼び始めたので外して空に戻した
   const PENDING_APP = new Set([]);
   for (const [ns, html] of [['koeApp', appHtml], ['koeOverlay', overlayHtml]]) {
     const names = all(/^\s{2}([A-Za-z][\w$]*):/gm, block(ns));
@@ -384,7 +387,8 @@ test('会議の所要時間は開始から停止までで計る', () => {
   // 文字起こし待ちを混ぜると、4分の会議が12分と記録される
   assert.match(main, /meeting\.stoppedAt = Date\.now\(\)/);
   assert.match(main, /m\.stoppedAt \|\| Date\.now\(\)/);
-  assert.ok(appHtml.includes('(mtStoppedAt || Date.now()) - mtStartedAt'));
+  // 0.13.0 CLK-3（2026-10-27 の持ち主の答え）で意図して変えた: 一時停止の間は知らせが届いた時刻（mtPausedAt）で止める。停止の時刻を先に見るのは今のまま
+  assert.ok(appHtml.includes('(mtStoppedAt || mtPausedAt || Date.now()) - mtStartedAt'));
 });
 
 // 0.11.0 P-12（P12・R5）で意図して変えた: 一般・その他は無い。判定材料が無ければ決まらない（''。画面は「自動」と決まらなかった文）
@@ -623,7 +627,8 @@ test('「すべて」の検索が要約の本文とメモに当たる', () => {
   // タイトルと最初の1行しか見ていなかったため、実機で
   // 「検索が全部壊れている」と報告された
   const st = read('src/store.js');
-  assert.match(read('src/pagerules.js'), /searchText: page\.blocks\.map/);   // 一覧のまとめ summarize は第2a1回 D-1 で pagerules.js へ切り出した
+  // 一覧のまとめ summarize は第2a1回 D-1 で pagerules.js へ切り出した。0.13.1 NE-3 で意図して変えた: 木を平らにした並び（blocks）の本文を見る（子の行も）
+  assert.match(read('src/pagerules.js'), /const blocks = flattenBlocks\(page\.blocks\);[\s\S]*searchText: blocks\.map/);
   const fn = st.slice(st.indexOf('function searchIndex'), st.indexOf('function searchFullText'));
   assert.ok(fn.includes('p.searchText'), '検索が本文を見ていない');
   assert.ok(fn.includes('snippet'), '当たった箇所を見せていない');

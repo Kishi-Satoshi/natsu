@@ -32,8 +32,10 @@ const dump = (o) => JSON.stringify({ sttSeen: o.sttSeen, sttAt: o.sttAt, engineL
 const lateLine = /^手元の文字起こしの時間切れ: (s\d+)（音声 (\d+) 秒・待ち (\d+) 秒）。エンジンを起こし直します$/;
 
 // ---------------------------------------------------------------- S-2（決めたこと 15〜18）
+// 0.13.2 LN-3 で意図して変えた（計画 docs/plans/2026-10-28-132.md の「意図して変えるテスト」）: 中継の無いこの場面は「ログインしていない」の形で、帯 no-login
+// （ログインに関わる帯はほかの帯より先: 持ち主の答え LA2）が PC の帯を隠すので、ログインに関わらないオフライン（--offline）で PC の帯を見る
 test('S3: 時間切れの区間は kept・文は『（文字起こし待ち: PC の文字起こしが間に合わなかったので、後で文字起こしします）』・帯は kept-late（engine-down でない）。会議の後のやり直しで文字になる', T, async () => {
-  const o = await run(['hang-first', '--segs=2', '--after-retry']);
+  const o = await run(['hang-first', '--segs=2', '--offline', '--after-retry']);
   const at = o.sttAt['kept-late'];
   assert.ok(at, dump(o));
   const s1 = at.find((s) => s.id === 's1');
@@ -64,8 +66,10 @@ test('S11: 時間切れの後は whisper のプロセスを止め、次の区間
   for (const l of lines) assert.ok(!/本日の議題|[\\/]|\.bin/.test(l), l);
 });
 
+// 0.13.2 LN-3 で意図して変えた（計画 docs/plans/2026-10-28-132.md の「意図して変えるテスト」）: 中継の無いこの場面は「ログインしていない」の形で、帯 no-login
+// （ログインに関わる帯はほかの帯より先: 持ち主の答え LA2）が PC の帯を隠すので、ログインに関わらないオフライン（--offline）で PC の帯を見る
 test('S3: 偽のエンジンが止まっている（ECONNREFUSED）区間は kept・文は『…エンジンにつながらなかったので…』・帯は engine-down', T, async () => {
-  const o = await run(['refuse', '--segs=2']);
+  const o = await run(['refuse', '--segs=2', '--offline']);
   const at = o.sttAt['engine-down'];
   assert.ok(at, dump(o));
   const s1 = at.find((s) => s.id === 's1');
@@ -76,8 +80,10 @@ test('S3: 偽のエンジンが止まっている（ECONNREFUSED）区間は kep
   assert.ok(!o.engineLog.some((l) => l.startsWith('手元の文字起こしの時間切れ')), o.engineLog.join('\n'));
 });
 
+// 0.13.2 LN-3 で意図して変えた（計画 docs/plans/2026-10-28-132.md の「意図して変えるテスト」）: 中継の無いこの場面は「ログインしていない」の形で、帯 no-login
+// （ログインに関わる帯はほかの帯より先: 持ち主の答え LA2）が PC の帯を隠すので、ログインに関わらないオフライン（--offline）で PC の帯を見る
 test('エンジンが 500 を返した区間は今の失敗（seg-failed。音声は残す。帯は今どおり engine-down が先）', T, async () => {
-  const o = await run(['err500', '--segs=2']);
+  const o = await run(['err500', '--segs=2', '--offline']);
   const at = o.sttAt['engine-down'];
   assert.ok(at, dump(o));
   assert.deepStrictEqual(at.find((s) => s.id === 's1'), { id: 's1', text: '（この区間の認識に失敗: 文字起こしエンジンエラー (500): boom）', failed: true, wav: true }, dump(o));
@@ -306,15 +312,17 @@ test('S5: 遅い PC で中継の間が空いている間の区間は kept', T, a
 });
 
 // ---------------------------------------------------------------- S-4F（3回目の問答 Q14 の直し: 持ち主の答え「PC で文字起こし」）
-// 遅い会議で残した音声は、オフラインモードでない会議でも、会議の後に PC だけで文字起こしする（中継が使えてもクラウドへ送らない）
-test('S-4F: 遅い会議の待ち行列は、中継が使えても会議の後に PC で文字起こしする（偽の中継へは送らず、偽の PC のエンジンに届く）', T, async () => {
-  // 覚えから始めから遅い会議。中継に届かない（n: 一時の失敗）区間は PC に送らず残し、3つ目は中継で文字になる。会議の後も中継は答える（c）
+// 0.13.2 LN-2 で意図して変えた（持ち主の答え LA3「ログインしていればクラウドで（おすすめ）」。計画 docs/plans/2026-10-28-132.md の「意図して変えるテスト」）:
+// 遅い会議で残した音声は、ログインしていて中継が使えれば会議の後にクラウドで文字起こしする（PC へは送らない）。オフラインモードの遅い会議は PC だけ
+// （stage132.main の「LN-2・RF47」に分けた）
+test('S-4F: 遅い会議の待ち行列は、ログインしていて中継が使えれば会議の後にクラウドで文字起こしする（偽の中継に届き、偽の PC のエンジンへは送らない）', T, async () => {
+  // 覚えから始めから遅い会議。中継に届かない（n: 一時の失敗）区間は PC に送らず残し、3つ目は中継で文字になる。会議の後は中継が答える（c）
   const o = await run(['text', '--relay-seq=nnc', `--pace=${JSON.stringify({ schema: 1, model: 'same', rtf: 1.6, slow: true, at: 'now-1', from: 'live' })}`, '--wait-queue-empty'], { scale: '1' });
   for (const id of ['s1', 's2']) assert.ok(o.engineLog.some((l) => l.startsWith(`文字起こしの経路: 区間 ${id} → 遅い PC のため音声を残した（`)), o.engineLog.join('\n'));
   const after = o.afterQueue.log || [];
   for (const id of ['s1', 's2']) {
-    assert.ok(after.some((l) => new RegExp(`^文字起こしの経路: 復旧 ${id} → local`).test(l)), `会議の後に PC で文字起こししていない: ${after.join('\n')}`);
-    assert.ok(!after.some((l) => new RegExp(`^文字起こしの経路: 復旧 ${id} → cloud`).test(l)), `会議の後にクラウドへ送った: ${after.join('\n')}`);
+    assert.ok(after.some((l) => new RegExp(`^文字起こしの経路: 復旧 ${id} → cloud`).test(l)), `会議の後にクラウドで文字起こししていない: ${after.join('\n')}`);
+    assert.ok(!after.some((l) => new RegExp(`^文字起こしの経路: 復旧 ${id} → local`).test(l)), `会議の後に PC へ送った: ${after.join('\n')}`);
   }
   assert.ok(o.afterQueue.pages[0].segments.every((s) => !s.failed), JSON.stringify(o.afterQueue.pages));
 });

@@ -657,3 +657,144 @@ test('区間長は 20〜300 秒に丸め、数でないものは無視する', a
   await log.drain();
   assert.deepStrictEqual(log.errors.map(fmt), [], '例外');
 });
+
+/*
+ * 0.13.0 CLK-1（2026-10-27 の持ち主の答え「録音バーとページの両方を直す（おすすめ）」）: 録音バーの経過時間は一時停止の分を引き、
+ * 再開の後も進む。250ms の時計は start() でだけ作られ、一時停止の stopMeters() が止めたまま再開で作り直されず、
+ * 初めの一時停止から後ずっと止まっていた（持ち主の写しの画面: 録音バー 0:33・ページ 0:54。一時停止は 8 秒の1回）。
+ */
+const 時計の数 = (log) => log.clock.pending().filter((t) => t.every === 250).length;
+const 経過 = (log) => log.byId.get('timer').textContent;
+async function 一時停止を押す(log) { log.byId.get('pauseBtn').click(); await log.drain(); }
+
+test('CLK-1: 33 秒録って 8 秒止め、再開して 21 秒で録音バーは 0:54（止めている間は 0:33 のまま・時計は動かさない。再開の後の 250ms の時計はちょうど1つ）', async () => {
+  const { log } = await 議事録を開始();
+  assert.strictEqual(時計の数(log), 1, '録音の始めに 250ms の時計がちょうど1つでない（検査が空振り）');
+  await log.clock.advance(33_000);
+  assert.strictEqual(経過(log), '0:33');
+  await 一時停止を押す(log);
+  assert.deepStrictEqual(log.called('reportPause').map((c) => c.args[0]), [true]);
+  assert.strictEqual(時計の数(log), 0, '一時停止の間も 250ms の時計が動いている');
+  await log.clock.advance(8_000);
+  assert.strictEqual(経過(log), '0:33', '一時停止の間に経過時間が進んだ');
+  await 一時停止を押す(log);   // 再開
+  assert.deepStrictEqual(log.called('reportPause').map((c) => c.args[0]), [true, false]);
+  assert.strictEqual(時計の数(log), 1, '再開の後の 250ms の時計がちょうど1つでない（動かし直していない／2つ走っている）');
+  await log.clock.advance(21_000);
+  assert.strictEqual(経過(log), '0:54', '再開の後に録音バーの時計が止まったまま／一時停止の分を引いていない');
+  assert.deepStrictEqual(log.errors.map(fmt), [], '例外');
+});
+
+test('CLK-1: 一時停止を2回しても、録音バーの経過時間は止めた分を全部引いて進む（止めている間は時計を動かさない）', async () => {
+  const { log } = await 議事録を開始();
+  await log.clock.advance(10_000);
+  await 一時停止を押す(log);
+  await log.clock.advance(5_000);
+  await 一時停止を押す(log);   // 再開
+  await log.clock.advance(10_000);
+  assert.strictEqual(経過(log), '0:20', '1回目の再開の後に時計が進まない');
+  await 一時停止を押す(log);
+  assert.strictEqual(時計の数(log), 0, '2回目の一時停止の間も 250ms の時計が動いている');
+  await log.clock.advance(7_000);
+  assert.strictEqual(経過(log), '0:20', '2回目の一時停止の間に経過時間が進んだ');
+  await 一時停止を押す(log);   // 再開
+  assert.strictEqual(時計の数(log), 1, '2回目の再開の後の 250ms の時計がちょうど1つでない');
+  await log.clock.advance(15_000);
+  assert.strictEqual(経過(log), '0:35', '2回の一時停止（5 秒と 7 秒）を引いた 35 秒にならない');
+  assert.deepStrictEqual(log.called('reportPause').map((c) => c.args[0]), [true, false, true, false]);
+  assert.deepStrictEqual(log.errors.map(fmt), [], '例外');
+});
+
+test('CLK-1: 再開でマイクを開き直せなかったら一時停止のまま（時計は動かさず、値は止めた時のまま）。もう一度押して開けたら、止めた分を引いて進む', async () => {
+  const { log } = await 議事録を開始();
+  await log.clock.advance(10_000);
+  await 一時停止を押す(log);
+  log.window.navigator.mediaDevices.getUserMedia = () => Promise.reject(new Error('NotFoundError'));
+  await log.clock.advance(2_000);
+  await 一時停止を押す(log);   // 再開 → 開けない
+  assert.ok(log.byId.get('pill').classList.contains('paused'), '開き直せなかったのに一時停止の形でない');
+  assert.deepStrictEqual(log.called('reportPause').map((c) => c.args[0]), [true], '開き直せなかったのに main へ再開を知らせた');
+  assert.strictEqual(時計の数(log), 0, '開き直せなかったのに 250ms の時計が動いている');
+  await log.clock.advance(3_000);
+  assert.strictEqual(経過(log), '0:10', '一時停止のままなのに経過時間が進んだ');
+  マイクを数える(log);
+  await 一時停止を押す(log);   // 再開 → 開ける
+  assert.deepStrictEqual(log.called('reportPause').map((c) => c.args[0]), [true, false]);
+  assert.strictEqual(時計の数(log), 1, '再開の後の 250ms の時計がちょうど1つでない');
+  await log.clock.advance(4_000);
+  assert.strictEqual(経過(log), '0:14', '止めていた 5 秒（開けなかった間も）を引いた 14 秒にならない');
+  assert.deepStrictEqual(log.errors.map(fmt), [], '例外');
+});
+
+test('CLK-1: 縦の形（左右の中央）でも、再開の後の時計は縦の形の書き方（1 時間を越えたら時:分）のまま進む', async () => {
+  const { log } = await 議事録を開始({ start: { form: 'v' } });
+  log.clock.jump(3_585_000);
+  await log.clock.advance(5_000);
+  assert.strictEqual(経過(log), '59:50');
+  await 一時停止を押す(log);
+  await log.clock.advance(8_000);
+  await 一時停止を押す(log);   // 再開
+  await log.clock.advance(21_000);
+  assert.strictEqual(経過(log), '1:00', '縦の形の再開の後の時計が 1 時間 0 分 11 秒を「1:00」と書かない（止まったまま／横の形の書き方）');
+  assert.deepStrictEqual(log.errors.map(fmt), [], '例外');
+});
+
+/*
+ * 0.13.0 CLK-2: 再開でマイクを開き直している間（await openStream()）に録音バーをもう一度押すと、pauseRec が走る。見直さずに
+ * 再開を終えると main に「止めていない」と知らせ、録音バーは一時停止の形のまま録り、2つの時計が際限なくずれていた
+ */
+function 開き直しを待たせる(log) {
+  const gate = { open: null, calls: 0 };
+  log.window.navigator.mediaDevices.getUserMedia = () => { gate.calls++; return new Promise((r) => { gate.open = r; }); };
+  return gate;
+}
+
+test('CLK-2: 再開でマイクを開き直している間にもう一度押すと、一時停止のまま（main へ再開を知らせない・開いたマイクを手放す・区間を始めない・時計は止めた時の値）。もう一度押すと再開でき、止めた分を全部引いて進む', async () => {
+  const { log } = await 議事録を開始();
+  await log.clock.advance(33_000);
+  await 一時停止を押す(log);
+  const recs = log.recorders.length;
+  const gate = 開き直しを待たせる(log);
+  await log.clock.advance(8_000);
+  await 一時停止を押す(log);   // 再開 → getUserMedia 待ちで止まる
+  assert.ok(gate.open, '再開がマイクを開きに行っていない（検査が空振り）');
+  await log.clock.advance(1_000);
+  await 一時停止を押す(log);   // 開き直している間にもう一度押す（一時停止し直す）
+  await 一時停止を押す(log);   // さらに押しても、開き直しをもう1本走らせない
+  assert.strictEqual(gate.calls, 1, '開き直している間の押しで、マイクをもう一度開きに行った');
+  const opened = 偽ストリーム();
+  gate.open(opened);
+  await log.drain();
+  assert.deepStrictEqual(log.errors.map(fmt), [], '例外');
+  assert.ok(log.byId.get('pill').classList.contains('paused'), '一時停止し直したのに一時停止の形でない');
+  assert.deepStrictEqual(log.called('reportPause').map((c) => c.args[0]), [true, true], '一時停止し直したのに main へ再開を知らせた（2つの時計がずれる）');
+  assert.ok(opened.track.stops >= 1, '一時停止し直したのに開き直したマイクが開いたまま');
+  assert.strictEqual(log.recorders.length, recs, '一時停止し直したのに次の区間を録り始めた');
+  assert.strictEqual(時計の数(log), 0, '一時停止し直したのに 250ms の時計が動いている');
+  await log.clock.advance(5_000);
+  assert.strictEqual(経過(log), '0:33', '一時停止のままなのに経過時間が進んだ');
+  マイクを数える(log);
+  await 一時停止を押す(log);   // 再開
+  assert.deepStrictEqual(log.called('reportPause').map((c) => c.args[0]), [true, true, false]);
+  assert.strictEqual(時計の数(log), 1, '再開の後の 250ms の時計がちょうど1つでない');
+  await log.clock.advance(21_000);
+  assert.strictEqual(経過(log), '0:54', '止めていた 14 秒（開き直していた間も。main と同じ）を引いた 54 秒にならない');
+  assert.deepStrictEqual(log.errors.map(fmt), [], '例外');
+});
+
+test('CLK-2: 開き直している間に一時停止し直してから終了しても、最後の区間は1回だけ届き、開いたマイクを手放す', async () => {
+  const { log } = await 議事録を開始();
+  await log.clock.advance(10_000);
+  await 一時停止を押す(log);
+  const gate = 開き直しを待たせる(log);
+  await 一時停止を押す(log);   // 再開 → getUserMedia 待ち
+  await 一時停止を押す(log);   // 一時停止し直す
+  log.fire('onStop');
+  await log.drain();
+  const opened = 偽ストリーム();
+  gate.open(opened);
+  await log.drain();
+  assert.deepStrictEqual(log.errors.map(fmt), [], '例外');
+  assert.deepStrictEqual(log.called('sendSegment').map((c) => c.args[2]), [false, true], '最後の区間が二重に届く／届かない');
+  assert.ok(opened.track.stops >= 1, '終了したのに開き直したマイクが開いたまま');
+});

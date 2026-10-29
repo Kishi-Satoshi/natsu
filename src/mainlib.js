@@ -1027,7 +1027,9 @@ function stallStep(run, { text, levelDbfs } = {}) {
 // 第1d2回 M-2: 準備を選んでいない PC で音声を残している帯（kept の4つ。B11〜B14）は、ログインの後・残した失敗の前
 // 0.9.0 B-2: net-offline（B15。ネットワークから外れた・この PC で続けている）は seg-failed の後・中継の帯の前
 // 0.9.4 S-1（決めたこと 18）: PC の文字起こしが間に合わない・遅い PC で音声を残している帯 kept-late を engine-down の後・kept-local の前に
-const PROBLEM_ORDER = ['engine-down', 'kept-late', 'stall', 'login', 'kept-local', 'kept-login', 'kept-relay', 'kept-wait', 'seg-failed', 'net-offline',
+// 0.13.2 LN-3（持ち主の答え LA2「録音中のページの帯に出し続ける」・決めたこと 5）: ログインに関わる帯（ログインしていない no-login・切れた login・準備を
+// 選んでいない PC で音声を残している kept-login）を、ほかの帯（遅い PC の kept-late を含む）より先に出す
+const PROBLEM_ORDER = ['no-login', 'login', 'kept-login', 'engine-down', 'kept-late', 'stall', 'kept-local', 'kept-relay', 'kept-wait', 'seg-failed', 'net-offline',
   'relay-off', 'daily-cap', 'relay-blocked', 'relay-down', 'relay-busy', 'wait'];
 /** problems: Map<符号, 詳しさ（{ n } や { sec }）> → 一番前の { code, ...詳しさ } か null（表に無い符号は見ない） */
 function sttProblemOf(problems) {
@@ -1041,7 +1043,8 @@ function sttProblemOf(problems) {
   return null;
 }
 // 手元に落ちた理由（経路の why・中継の失敗の符号）→ 帯の符号。表に無い中継の失敗（server・bad-reply・too-large・bad-request・
-// 知らない符号）はその区間を PC でやり直したので relay-busy。オフライン・ログインしていない・PC の中だけ・ok は帯にしない（RF28）
+// 知らない符号）はその区間を PC でやり直したので relay-busy。オフライン・ログインしていない・PC の中だけ・ok は中継の帯にしない（RL14。
+// ログインしていないことの帯は、0.13.2 LN-3 から別の部品 loginProblem で決める）
 const PROBLEM_FOR_WHY = {
   unreachable: 'relay-down', net: 'relay-down', timeout: 'relay-down',
   cert: 'relay-blocked', proxy: 'relay-blocked',
@@ -1049,6 +1052,36 @@ const PROBLEM_FOR_WHY = {
   denied: 'relay-off',   // 第1d回 A-11: 止めたメール・会社のドメインでない（L11）
   offline: '', 'signed-out': '', 'local-only': '', ok: '', 'key-unreadable': '',   // key-unreadable（第1d回 A-11・F26）も帯にしない（記録だけ）
 };
+// 0.13.2 LN-3（持ち主の答え LA2・LR6。設計書の RL14「ログインしていない…は帯にしない」を改めた）: ログインしていない（signed-out）・しまったログインを
+// 今は復号できない（key-unreadable）間は、録音中のページの帯 no-login を出す。オフライン（RL14 のまま）・オフラインモードの会議では出さない
+const NO_LOGIN_WHY = new Set(['signed-out', 'key-unreadable']);
+/** ({ why, online, localOnly }) → 'no-login' | '' */
+function loginProblem(a) {
+  const { why, online, localOnly } = a && typeof a === 'object' ? a : {};
+  if (!NO_LOGIN_WHY.has(why)) return '';
+  if (online !== true) return '';
+  if (localOnly) return '';
+  return 'no-login';
+}
+// 0.13.2 LN-4（持ち主の答え LA1「起動したとき＋録音や音声入力を始めるとき」・PQ1〜PQ3・LR3）: ログインの窓を自動で開くか。オンラインでログインしていない
+// （切れた・しまったログインを読めない）ときに、起動（boot）・会議の始め（meeting）・音声入力の始め（dictation）で開く。オフライン・オフラインモードの会議・
+// × で閉じた後（その起動の間: snoozed）・もう開いているときは開かない。準備を選んでいない PC の起動は今どおり設定の「アカウント」なので開かない（LR3）
+const LOGIN_ASK_MOMENTS = ['boot', 'meeting', 'dictation'];
+// 0.13.2 点検の直し 2（LR37）: 起動（boot）は、起動の片付けが遅れて済んだときに会議・音声入力が動いている・始めている（recording）なら開かない（録音の途中に
+// 開かない。オフラインモードの会議の途中にも）。会議・音声入力の始めは始めた後に呼ぶので recording を見ない
+/** ({ moment, online, signedIn, why, snoozed, localOnly, chosen, showing, recording }) → { ask } */
+function loginAskPlan(a) {
+  const { moment, online, signedIn, snoozed, localOnly, chosen, showing, recording } = a && typeof a === 'object' ? a : {};
+  if (!LOGIN_ASK_MOMENTS.includes(moment)) return { ask: false };
+  if (online !== true) return { ask: false };
+  if (signedIn === true) return { ask: false };
+  if (snoozed) return { ask: false };
+  if (localOnly) return { ask: false };
+  if (showing) return { ask: false };
+  if (moment === 'boot' && !chosen) return { ask: false };
+  if (moment === 'boot' && recording) return { ask: false };
+  return { ask: true };
+}
 /** → 帯の符号か ''。daily-cap は scope で分ける（1人の上限は daily-cap、全体の上限は relay-off） */
 function problemForRoute({ route, why, scope } = {}) {
   if (route !== 'local') return '';
@@ -1639,7 +1672,7 @@ function keyLabel(accel) {
 // 一覧は help/site.json の分類の articles と同じ並び（test/help-app.test.js が照らす。記事を足したらここも直す）。
 // 一覧にちょうどある文字だけ「<記事>/」を返し、ほか（文字でない・空・住所・../・#・前後の空白・大文字）は ''（ヘルプのホーム）
 const HELP_ARTICLES = Object.freeze([
-  'start/what-natsu-does', 'start/install-update', 'start/login', 'start/claude-code', 'start/claude-mcp', 'start/tester-guide',
+  'start/overview', 'start/getting-started', 'start/what-natsu-does', 'start/install-update', 'start/login', 'start/claude-code', 'start/claude-mcp', 'start/tester-guide',
   'record/start-stop', 'record/pause', 'record/pc-only', 'record/status-line', 'record/meeting-detect',
   'summary/how-summaries', 'summary/summary-types', 'summary/meeting-quality', 'summary/citations', 'summary/edit-summary',
   'dictation/dictation',
@@ -1885,9 +1918,11 @@ function nudgeWhy(st) {
   }
   return why;
 }
-// パネルの置き場所（決めたこと 8）。size はパネルの画面が測ったカードの大きさ（CSS の px。有限の正の数でなければ NUDGE_FIRST）。窓はカードの周りに
-// NUDGE_PAD の余白（明るいパネルの影の輪: K9）を足した大きさで、カードの右と上の端が作業領域の右と上の端から NUDGE_EDGE の所に来る。
-// 幅と高さは作業領域 − 2 ×（NUDGE_EDGE − NUDGE_PAD）まで
+// パネルの置き場所（決めたこと 8。0.13.2 LN-7 で持ち主の答え「下の中央、録音バーと同じ高さ」に改めた）。size はパネルの画面が測ったカードの大きさ
+// （CSS の px。有限の正の数でなければ NUDGE_FIRST）。窓はカードの周りに NUDGE_PAD の余白（明るいパネルの影の輪: K9）を足した大きさで、カードの下の端が
+// 作業領域の下の端から NUDGE_EDGE の所、カードの左右の真ん中が作業領域の左右の真ん中に来る（録音バーの bottom-center と同じ線。左右は Math.round で
+// 整数の DIP: 録音バーの panelBounds と同じ丸め）。⌄ のメニューを開いて高くなると、下の端はそのままで上へ伸びる。録音バーの置き場所の設定（pillSlot）は
+// 見ない（LR22）。幅と高さは作業領域 − 2 ×（NUDGE_EDGE − NUDGE_PAD）まで
 const NUDGE_EDGE = 12;
 const NUDGE_PAD = 8;
 const NUDGE_FIRST = { w: 560, h: 60 };
@@ -1897,7 +1932,7 @@ function nudgeBounds({ size, workArea }) {
   const gap = NUDGE_EDGE - NUDGE_PAD;
   const width = Math.min(Math.ceil(s.w) + 2 * NUDGE_PAD, workArea.width - 2 * gap);
   const height = Math.min(Math.ceil(s.h) + 2 * NUDGE_PAD, workArea.height - 2 * gap);
-  return { x: workArea.x + workArea.width - gap - width, y: workArea.y + gap, width, height };
+  return { x: Math.round(workArea.x + (workArea.width - width) / 2), y: workArea.y + workArea.height - gap - height, width, height };
 }
 // 0.9.4 W-1（持ち主の答え「5本がそれぞれ揺れる」）: 録音バーと録音中のページの5本の高さ（px）。無音（0.02 以下・数でない）は同じ 4px の点が5つ。
 // 声は重み（左右対称: 左に寄らない）× 1本ずつ違う速さと位相の揺れ（0.35〜1 倍）で 4〜16px。tMs が数でない（null）は揺らさない止めた形（動きを減らす設定）。
@@ -2009,6 +2044,15 @@ function afterEtaMin({ audioMs, rtf } = {}) {
   const a = Math.max(0, Number.isFinite(audioMs) ? audioMs : 0);
   const k = Math.max(Number.isFinite(rtf) ? rtf : 1, 1);
   return Math.ceil(Math.round(a * k) / 60000);
+}
+// 0.13.2 LN-2（PQ4「音声が残っている行すべて」・LR10）: 文字起こし待ちの待ち行列の残りの区間の数。音声の残っている区間の全部を数える
+// （文字起こし待ち・失敗した区間・止まった区間・3回失敗して自動では試さなくなった区間 held も）。音声の無い区間は数えない。
+// hasAudio は音声があるかの見方（main はファイルがあるかで見る。既定は wav の名前があるか）
+const hasWavName = (it) => Boolean(it && typeof it === 'object' && typeof it.wav === 'string' && it.wav);
+/** (items, hasAudio?) → 数 */
+function pendingLeft(items, hasAudio = hasWavName) {
+  if (!Array.isArray(items)) return 0;
+  return items.filter((it) => hasWavName(it) && hasAudio(it)).length;
 }
 // 中継の 5xx（server）が続いたら間を空ける（問い Q8 の既定）。2回続いたら 60 秒、その後も続けば 120・300・600 秒（上限）。
 // クラウドで文字になった（code: 'ok'）ら 0 に戻す。server でない符号は数えない（続きも切らない）
@@ -2282,7 +2326,7 @@ module.exports = {
   ONLINE_SEGMENT_SEC, OVERLAY_SEG_MIN_MS, SEG_SWITCH_AFTER, STICKY_LOCAL, startSegmentMode, segmentModeNext, segmentBaseMs, liveSegmentMs, nextLiveSegmentMs,
   cloudLikely, offlineChosen, DICTATION_REFUSE_TEXT, startPlan, dictationPlan, KEPT_CODES, keptCodeFor, KEPT_SUMMARY_TEXT,
   SUMMARY_WAIT_TEXT, summaryRetryPick, SUMMARY_LOCK_TEXT, summaryLock,
-  STALL_SPAN_MS, STALL_MIN_DBFS, stallAfter, stallStep, PROBLEM_ORDER, sttProblemOf, problemForRoute,
+  STALL_SPAN_MS, STALL_MIN_DBFS, stallAfter, stallStep, PROBLEM_ORDER, sttProblemOf, problemForRoute, loginProblem, loginAskPlan,
   WIN_NOTIFY_CODES, WIN_NOTIFY_GAP_MS, notifyGate,
   OFFLINE_SHOW_MS, OFFLINE_CLEAR_MS, offlineBannerStep,
   idleEnginesToStop, silentWav, wavLevelDbfs, mergeSummaryType, typesForView, memoEvidence, buildClaudeInput, routeLabel,
@@ -2301,7 +2345,7 @@ module.exports = {
   NUDGE_EDGE, NUDGE_PAD, NUDGE_FIRST, nudgeBounds, LEVEL_ASK_MS, LEVEL_WARNS, levelMsg,
   LEVEL_BAR_W, LEVEL_BAR_SPEED, LEVEL_BAR_PHASE, levelBars,
   // 0.9.4 S-1（文字起こしの安定化）
-  localFailKind, effRtf, PACE, paceStep, paceSaved, localTimeoutMs, LOCAL_SEGMENT_MS_CAP, afterEtaMin, RELAY_TRANSIENT, RELAY_HOLD_LADDER_MS, relayHoldStep,
+  localFailKind, effRtf, PACE, paceStep, paceSaved, localTimeoutMs, LOCAL_SEGMENT_MS_CAP, afterEtaMin, pendingLeft, RELAY_TRANSIENT, RELAY_HOLD_LADDER_MS, relayHoldStep,
   // 0.12.0 SP-1（2つの流れの文字起こし。timeline.js の表と部品を出し直す）
   VOICE_LEVEL, FRAME_MAX_MS, PAUSE_CUT_MS, LONG_PAUSE_MS, MIN_SEG_MS, IDLE_CUT_MS, PRE_ROLL_MS, BLEED_SHARE, BLEED_NEAR_MS,
   checkLevel, checkSegMeta, vadStart, vadStep, vadSummary, wavFrom, segAtOf, clockOf, partsOf, bleedOf, quietUnion, stallStepMs,

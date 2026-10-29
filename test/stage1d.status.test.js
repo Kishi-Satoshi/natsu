@@ -218,10 +218,13 @@ test('F15: 同じ問題が区間ごとに続いても帯は1つで、記録の�
   assert.ok(texts(o.pages[0].segments), JSON.stringify(o.pages[0].segments));
 });
 
-test('RF28: オフライン・ログインしていない・PC の中だけの会議では帯を出さない（route は local）', T, async () => {
+// 0.13.2 LN-3（持ち主の答え LA2。RL14 を改めた）で意図して変えた: ログインしていない会議は帯 no-login だけを出す（中継の帯は今どおり出さない）。
+// オフライン・PC の中だけの会議は今どおり帯を出さない
+test('RF28: オフライン・PC の中だけの会議では帯を出さない。ログインしていない会議は帯 no-login だけ（route は local）', T, async () => {
   const outs = await Promise.all([['--offline'], ['--signed-out'], ['--local-only']].map((f) => run(['text', '--relay=text', ...f, '--segs=2'])));
-  for (const o of outs) {
-    assert.ok(o.sttSeen.every((s) => s.problem === null), JSON.stringify(o.sttSeen));
+  for (const [i, o] of outs.entries()) {
+    if (i === 1) assert.ok(o.sttSeen.every((s) => s.problem === null || s.problem.code === 'no-login') && o.sttSeen.some((s) => s.problem && s.problem.code === 'no-login'), JSON.stringify(o.sttSeen));
+    else assert.ok(o.sttSeen.every((s) => s.problem === null), JSON.stringify(o.sttSeen));
     assert.strictEqual(last(o).route, 'local', JSON.stringify(o.sttSeen));
     assert.ok(texts(o.pages[0].segments), JSON.stringify(o.pages[0].segments));
   }

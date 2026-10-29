@@ -2,7 +2,7 @@
  *
  * テスト用の小さな記事の組（test/fixtures/help/）と本物の help/assets を写したフォルダで作る（リポジトリの help/dist には書かない）。
  * 見た目は利用者の後の指定（白黒。docs/plans/2026-10-20-help.md「見た目」）: 色の札・同梱の書体（HD-4 で Noto Sans JP・Noto Sans Mono に）・ロゴのアイコンなし・
- * 大きな数字は順番のある手順だけ・白黒を反転した暗い版。
+ * 大きな数字は順番のある手順だけ。明るい版だけ（help-light HL-1。2026-10-27 に暗い版を外した）。
  */
 'use strict';
 const test = require('node:test');
@@ -44,7 +44,6 @@ function buildFixture(t, edit) {
 }
 const listFiles = (dir, base = dir) => fs.readdirSync(dir, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? listFiles(path.join(dir, e.name), base) : [path.relative(base, path.join(dir, e.name)).split(path.sep).join('/')]));
 const CSS = () => fs.readFileSync(path.join(ROOT, 'help', 'assets', 'help.css'), 'utf8');
-const DARK = '@media (prefers-color-scheme: dark)';
 
 test('H-3: 作ると、ホーム・分類ごと・記事ごと・404・assets の全部のファイルができる（多くも少なくもない）', { timeout: 5000 }, (t) => {
   const { files, r } = buildFixture(t);
@@ -278,32 +277,24 @@ test('H-1: 書き出す先が元のフォルダ・その中・それを含む所
 });
 
 // help-dads HD-1（HD1・HD7・重要 1・重要 2。計画 docs/plans/2026-10-23-help-dads.md の決めたこと A〜C）: 白黒が基本のまま、色はリンクとキーボードの輪だけ。
-// 色の値は決まった一覧（DADS の札の値と、DADS-PROTECT.md のブランド色）だけを通し、外れた色は「どの規則の、どの値か」を出す（持ち主の試作の state-store.js の SCHEMA の考え）
+// 色の値は決まった一覧（明るい版の DADS の札の値）だけを通し、外れた色は「どの規則の、どの値か」を出す（持ち主の試作の state-store.js の SCHEMA の考え）。
+// help-light HL-1（計画 docs/plans/2026-10-27-help-light.md）: 暗い版を外したので、暗い版の灰色（ブランド色）と暗い地のための明るい青の段は一覧から外した
 const DADS_COLORS = {
   '#ffffff': 'white', '#000000': 'black', '#333333': 'solid-gray-800', '#666666': 'solid-gray-600', '#cccccc': 'solid-gray-200', '#f2f2f2': 'solid-gray-50',
-  '#00118f': 'blue-1000', '#0017c1': 'blue-900', '#8b008b': 'magenta-900', '#ac3e00': 'orange-900',
-  '#9db7f9': 'blue-300', '#7096f8': 'blue-400', '#ff8eff': 'magenta-300', '#ffa66d': 'orange-300', '#ffd43d': 'yellow-300',
+  '#00118f': 'blue-1000', '#0017c1': 'blue-900', '#8b008b': 'magenta-900', '#ac3e00': 'orange-900', '#ffd43d': 'yellow-300',
 };
-const brandColors = () => [...fs.readFileSync(path.join(ROOT, 'DADS-PROTECT.md'), 'utf8').matchAll(/^- (#[0-9a-f]{6})（/gm)].map((m) => m[1]);
 // 文中のリンク（Q1「本文の中のリンクだけ」: 記事の本文・404・パンくず・一覧と関連記事の題名・/open のページの説明の文の中）
 const BODY_LINKS = ['.body a', '.notfound a', '.crumbs a', '.rows li > a', '.open-note a'];
 
-test('HD-1（HD7・HD5）: help.css の色の値は :root と暗い版の :root の札にだけ書き、値は DADS の札の値か DADS-PROTECT.md のブランド色だけ。明るい版の灰色は DADS の札（muted #666666・rule #cccccc・wash #f2f2f2）。グラデーション・text-shadow・filter・入れ子は無い。影と角丸は :focus-visible の決まった値だけ（COLOR-05）', { timeout: 5000 }, () => {
+test('HD-1（HD7・HL-1）: help.css の色の値は :root の札にだけ書き、値は明るい版の DADS の札の値だけ。明るい版の灰色は DADS の札（muted #666666・rule #cccccc・wash #f2f2f2）。グラデーション・text-shadow・filter・入れ子は無い。影と角丸は :focus-visible の決まった値だけ（COLOR-05）', { timeout: 5000 }, () => {
   const css = CSS();
   const rules = C.parse(css);
   const light = C.tokens(rules, '');
   const want = { '--bg': '#ffffff', '--ink': '#000000', '--body': '#333333', '--muted': '#666666', '--rule': '#cccccc', '--wash': '#f2f2f2',
     '--link': '#00118f', '--link-visited': '#8b008b', '--link-hover': '#0017c1', '--link-active': '#ac3e00' };
   for (const [k, v] of Object.entries(want)) assert.strictEqual((light[k] || '').toLowerCase(), v, k);
-  const dark = C.tokens(rules, DARK);
-  for (const k of Object.keys(want)) assert.ok(dark[k], `暗い版に ${k} が無い`);
-  const lum = (v) => C.luminance(C.parseColor(v));
-  assert.strictEqual(dark['--ink'].toLowerCase(), '#ffffff', '暗い版の ink は白');
-  assert.ok(lum(dark['--bg']) < 0.02, '暗い版の地は黒に近い暗い灰');
-  assert.ok(lum(dark['--rule']) < lum(dark['--muted']) && lum(dark['--wash']) < lum(dark['--rule']), '暗い版の並び（地 < 面 < 罫線 < 薄文字）');
-  // 決まった一覧の色だけ（DADS の札・ブランド色）。色の値は :root の札にだけ書く
-  const allowed = new Map([...Object.entries(DADS_COLORS), ...brandColors().map((c) => [c, 'ブランド色'])]);
-  assert.ok(brandColors().length === 5, 'DADS-PROTECT.md のブランド色が読めない');
+  // 決まった一覧の色だけ（明るい版の DADS の札）。色の値は基底の :root の札にだけ書く（HL-1: 暗い版の :root は無い）
+  const allowed = new Map(Object.entries(DADS_COLORS));
   const COLOR = /#[0-9a-fA-F]{3,8}\b|rgba?\([^)]*\)|hsla?\([^)]*\)|\b(?:white|black)\b/g;
   let seen = 0;
   for (const r of rules) {
@@ -311,12 +302,12 @@ test('HD-1（HD7・HD5）: help.css の色の値は :root と暗い版の :root 
       for (const c of String(val).match(COLOR) || []) {
         seen++;
         const where = `${r.at ? `${r.at} ` : ''}${r.sel} の ${k}: ${c}`;
-        assert.ok(r.sel === ':root' && (r.at === '' || r.at === DARK) && k.startsWith('--'), `札の外に色の値: ${where}`);
+        assert.ok(r.sel === ':root' && r.at === '' && k.startsWith('--'), `札の外に色の値: ${where}`);
         assert.ok(allowed.has(c.toLowerCase()), `決まった一覧に無い色: ${where}`);
       }
     }
   }
-  assert.ok(seen >= 20);
+  assert.ok(seen >= 14);   // 明るい版の札（地・文字の4つ・面・罫線・リンクの4つ・輪の4つ）
   const plain = css.replace(/\/\*[\s\S]*?\*\//g, '');
   assert.ok(!/gradient|text-shadow|filter\s*:|backdrop-filter/i.test(plain), 'グラデーション・文字の影・ぼかしを使わない');
   // 影と角丸: :focus-visible の輪（DADS の黄色の縁 2px と角 4px）だけ。ほかの規則は角 0 のまま・影なし
@@ -328,9 +319,27 @@ test('HD-1（HD7・HD5）: help.css の色の値は :root と暗い版の :root 
   assert.ok(!rules.some((r) => r.nested), 'CSS の入れ子');
 });
 
-test('白黒: 文字と地の濃さの差が明暗の両方で 4.5:1 以上（本文・薄文字・見出し・注意の枠・コード・表の頭・選んでいる目次の行。HD-1: リンクの4つの色も地と面の両方で。DF1）。検索の箱の枠（--muted）は地と 3:1 以上', { timeout: 5000 }, () => {
+// help-light HL-1（計画 docs/plans/2026-10-27-help-light.md。持ち主の頼み「ダークモードとWindowsシステムに合わせるはやめて、ライトモードのみにしたい」）:
+// ヘルプセンターは Windows の設定が暗くても白地の明るい版だけ。暗い版の札の上書きを外し、フォームの部品・捲り棒も明るいまま（color-scheme: light）
+test('HL-1: ヘルプは明るい版だけ。:root の color-scheme は light だけ（ほかの規則は color-scheme を書かない）、@media (prefers-color-scheme …) の規則が無い、暗い版の灰色と暗い地のための明るい色の段の値がどこにも無い（注釈を除く）', { timeout: 5000 }, () => {
+  const css = CSS();
+  const rules = C.parse(css);
+  const schemes = rules.filter((r) => r.decls['color-scheme'] !== undefined).map((r) => [r.at, r.sel, r.decls['color-scheme']]);
+  assert.deepStrictEqual(schemes, [['', ':root', 'light']], ':root の color-scheme が light だけでない（Windows が暗いと検索の箱や捲り棒だけ暗くなる）');
+  assert.deepStrictEqual([...new Set(rules.filter((r) => /prefers-color-scheme/.test(r.at)).map((r) => r.at))], [], '暗い版（OS の配色に合わせる）の規則が残っている');
+  const plain = css.replace(/\/\*[\s\S]*?\*\//g, '');
+  assert.doesNotMatch(plain, /prefers-color-scheme/, '注釈の外に prefers-color-scheme がある');
+  for (const c of ['#111111', '#1f1f1f', '#3d3d3d', '#a3a3a3', '#d6d6d6', '#9db7f9', '#7096f8', '#ff8eff', '#ffa66d']) {
+    assert.ok(!plain.toLowerCase().includes(c), `暗い版の色 ${c} が残っている（白地に暗い面や薄い文字が出る）`);
+  }
+  // 色の札（色の値を持つ --）は基底の :root の1か所だけ（上書きの塊が無い。狭い画面の :root は余白の --top-gutter だけ）
+  const colorAt = rules.filter((r) => Object.entries(r.decls).some(([k, v]) => k.startsWith('--') && /#[0-9a-f]{3,8}\b|rgba?\(/i.test(v))).map((r) => `${r.at} ${r.sel}`.trim());
+  assert.deepStrictEqual(colorAt, [':root'], '色の札を上書きする規則がある');
+});
+
+test('白黒: 文字と地の濃さの差が明るい版で 4.5:1 以上（本文・薄文字・見出し・注意の枠・コード・表の頭・選んでいる目次の行。HD-1: リンクの4つの色も地と面の両方で。DF1）。検索の箱の枠（--muted）は地と 3:1 以上', { timeout: 5000 }, () => {
   const rules = C.parse(CSS());
-  for (const at of ['', DARK]) {
+  for (const at of ['']) {
     const v = (name) => C.parseColor(C.resolveVar(rules, `var(${name})`, at));
     const pairs = [['--body', '--bg'], ['--muted', '--bg'], ['--ink', '--bg'], ['--body', '--wash'], ['--muted', '--wash'], ['--ink', '--wash']];
     for (const k of ['--link', '--link-visited', '--link-hover', '--link-active']) pairs.push([k, '--bg'], [k, '--wash']);
@@ -339,7 +348,7 @@ test('白黒: 文字と地の濃さの差が明暗の両方で 4.5:1 以上（�
       assert.ok(r >= 4.5, `${at || '明るい'}: ${fg} と ${bg} が ${r.toFixed(2)}:1`);
     }
     assert.ok(C.contrast(v('--muted'), v('--bg')) >= 3, `${at || '明るい'}: 検索の箱の枠と地が 3:1 に届かない`);
-    // 部品に書いた色が札を通っている（直に色を書くと暗い版で反転しない）
+    // 部品に書いた色が札を通っている（色は :root の札の1か所で持つ）
     for (const r of rules) {
       if (r.sel === ':root' || r.at.startsWith('@font-face')) continue;
       for (const [k, val] of Object.entries(r.decls)) {
@@ -412,25 +421,26 @@ test('画面の使いやすさ: help.css に :focus-visible の輪があり、ou
   assert.ok(/break-word|anywhere/.test(C.declsFor(rules, '.body')['overflow-wrap'] || ''));
 });
 
-test('HD-2（HD2・HD5・DF1）: キーボードの輪は DADS の形（黒 4px・2px 空け・角 4px・yellow-300 の 2px の縁）。暗い版は白＋黄色。リンクは地を黄色・文字を黒に（中の文字も黒）。輪と地は明暗で 3:1 以上・黄色の上の黒は 4.5:1 以上', { timeout: 5000 }, () => {
+test('HD-2（HD2・HL2）: キーボードの輪は DADS の形（黒 4px・2px 空け・角 4px・yellow-300 の 2px の縁）。輪の色を替える上書きは無い（HL2「今のまま」: 明るい版の黒＋黄色だけ）。リンクは地を黄色・文字を黒に（中の文字も黒）。輪と地は 3:1 以上・黄色の上の黒は 4.5:1 以上', { timeout: 5000 }, () => {
   const rules = C.parse(CSS());
   const fv = C.declsFor(rules, ':focus-visible', { at: '' });
   assert.strictEqual(fv.outline, 'calc(4 / 16 * 1rem) solid var(--focus-outline)');
   assert.strictEqual(fv['outline-offset'], 'calc(2 / 16 * 1rem)');
   assert.strictEqual(fv['border-radius'], 'calc(4 / 16 * 1rem)');
   assert.strictEqual(fv['box-shadow'], '0 0 0 calc(2 / 16 * 1rem) var(--focus-ring)');
-  // 文中のリンクの色（.body a:any-link など）より強く効かせる（暗い版の本文の色が黄色の上に残ると読めない）
+  // 文中のリンクの色（.body a:any-link など）より強く効かせる（リンクの青が黄色の上に残ると読みにくい）
   const la = C.declsFor(rules, 'a:focus-visible', { at: '' });
   assert.strictEqual(la['background-color'], 'var(--focus-link-bg) !important');
   assert.strictEqual(la.color, 'var(--focus-link-ink) !important');
   for (const sel of ['.cats a:focus-visible .t', '.cats a:focus-visible .d', '.cats a:focus-visible .c', '.cats a:focus-visible .ic']) assert.strictEqual(C.declsFor(rules, sel, { at: '' }).color, 'var(--focus-link-ink)', sel);
   const light = C.tokens(rules, '');
-  const dark = C.tokens(rules, DARK);
   assert.strictEqual((light['--focus-outline'] || '').toLowerCase(), '#000000');
-  assert.strictEqual((dark['--focus-outline'] || '').toLowerCase(), '#ffffff', '暗い版の輪が白でない');
+  // HL2: 輪の札（--focus-*）を書くのは基底の :root の1か所だけ（暗い版の白の輪に替える上書きが無い）
+  const focusDefs = rules.filter((r) => Object.keys(r.decls).some((k) => k.startsWith('--focus-'))).map((r) => `${r.at} ${r.sel}`.trim());
+  assert.deepStrictEqual(focusDefs, [':root'], '輪の札を上書きする規則がある');
   for (const k of ['--focus-ring', '--focus-link-bg']) assert.strictEqual((light[k] || '').toLowerCase(), '#ffd43d', k);
   assert.strictEqual((light['--focus-link-ink'] || '').toLowerCase(), '#000000');
-  for (const at of ['', DARK]) {
+  for (const at of ['']) {
     const v = (name) => C.parseColor(C.resolveVar(rules, `var(${name})`, at));
     for (const bg of ['--bg', '--wash']) assert.ok(C.contrast(v('--focus-outline'), v(bg)) >= 3, `${at || '明るい'}: 輪と ${bg}`);
     assert.ok(C.contrast(v('--focus-link-ink'), v('--focus-link-bg')) >= 4.5, `${at || '明るい'}: 黄色の上の文字`);
@@ -790,10 +800,15 @@ test('R7: help/shots.json の CSS の指紋が、今の help/assets/*.css の指
   }
   assert.ok(Object.keys(now).length >= 2);
   assert.deepStrictEqual(shots.css, now, 'CSS が撮った後に変わった。node tools/help-shots.js で撮り直し、写真を見てから help/shots.json を commit する');
-  // 撮った組: ホーム・分類（record）・記事（record/pc-only）と試験利用の手順 × 明暗 × 1280 と 390
+  // 撮った組: ホーム・分類（record）・記事（record/pc-only）と試験利用の手順 × 明るい版 × 1280 と 390
   // help-relnotes RN-7: リリースノートのページも撮る（5 ページ）
-  assert.deepStrictEqual(shots.pages, ['/', '/record/', '/record/pc-only/', '/start/tester-guide/', '/release-notes/']);
-  assert.deepStrictEqual(shots.schemes, ['light', 'dark']);
+  // help-light HL-3: ヘルプは明るい版だけなので、暗い配色では撮らない（撮っても明るい版と同じ。5 ページ × 2 幅 = 10 枚）
+  // help-overview HO-6: 全体像の記事も撮る（6 ページ × 2 幅 = 12 枚）
+  // help-overview HO-7: はじめかた（start/getting-started）も撮る。start/tester-guide は移動の知らせ（7 ページ × 2 幅 = 14 枚）
+  assert.deepStrictEqual(shots.pages, ['/', '/start/overview/', '/start/getting-started/', '/record/', '/record/pc-only/', '/start/tester-guide/', '/release-notes/']);
+  assert.deepStrictEqual(require('../tools/help-shots').PAGES, shots.pages, 'help-shots.js の撮るページと help/shots.json が違う');
+  assert.deepStrictEqual(shots.schemes, ['light']);
+  assert.deepStrictEqual(require('../tools/help-shots').SCHEMES, ['light'], 'help-shots.js が暗い配色でも撮る');
   assert.deepStrictEqual(shots.widths, [1280, 390]);
 });
 

@@ -353,7 +353,8 @@ test('RDY-3（RD15）: 画面を読み直したとき main に録音の前のペ
 });
 
 // ---------------------------------------------------------------- RDY-3（撮る画面）
-test('RDY-3: 撮る画面 live-ready-light・live-ready-dark・live-ready-zoom200-light（録音の前のページ。［＋ 新しい議事録］を押す）があり、取り直し待ち', () => {
+// 0.13.0 で意図して変えた（版を 0.13.0 に上げる commit。Task G・RDY-7）: 持ち主が見比べを「この見た目でよい」と言ったので、3枚を基準にして取り直し待ちを空に戻した
+test('RDY-3・RDY-7: 撮る画面 live-ready-light・live-ready-dark・live-ready-zoom200-light（録音の前のページ。［＋ 新しい議事録］を押す）があり、基準がある（取り直し待ちではない）', () => {
   const SH = require('../tools/shots/screens.js');
   for (const [n, theme, zoom] of [['live-ready-light', 'light', undefined], ['live-ready-dark', 'dark', undefined], ['live-ready-zoom200-light', 'light', 2]]) {
     const s = SH.SCREENS.find((x) => x.name === n);
@@ -362,6 +363,36 @@ test('RDY-3: 撮る画面 live-ready-light・live-ready-dark・live-ready-zoom20
     const st = s.answers['koeApp.meetingStatus'];
     assert.deepStrictEqual([st.active, st.prep, st.cloud], [false, { memo: '', meetingType: null }, true], n);
     assert.match(s.act, /mtToggleBtn/);
-    assert.ok(SH.RETAKE.has(n), `${n} が取り直し待ちに無い`);
+    assert.ok(!SH.RETAKE.has(n), `${n} が取り直し待ちに残っている`);
+    assert.ok(fs.existsSync(path.join(__dirname, 'shots', 'win32', `${n}.png`)), `${n} の基準が無い`);
+  }
+});
+
+// ---------------------------------------------------------------- 2026-10-26 の持ち主の答え（点検6「書いている間は切り替えない（おすすめ）」）
+test('RDY-3・点検6: 録音の前のページのメモ・種類の欄に書いている間の保存した onPageOpen(\'pa1\', { saved: true }) は前に出さず、pa1 のタブを後ろに足す（書いた文とフォーカスはそのまま）。書いていない・印の無い page:open は今どおり前に出す', T, async () => {
+  const PAGE = (id) => ({ page: { id, title: titleAt('2026-10-26T01:00:00.000Z'), createdAt: '2026-10-26T01:00:00.000Z', durationSec: 60, blocks: [], memo: '', meetingType: 'general' }, segments: [] });
+  const active = (l) => { const a = $(l, 'tabbar').querySelector('.tabitem.active'); return a ? a.dataset.key : ''; };
+  for (const [name, focus, args, behind] of [
+    ['メモ', (l) => memoTa(l).focus(), ['pa1', { saved: true }], true],
+    ['種類', (l) => $(l, 'pType').focus(), ['pa1', { saved: true }], true],
+    ['書いていない', () => {}, ['pa1', { saved: true }], false],
+    ['メモ・印なし', (l) => memoTa(l).focus(), ['pa1'], false],
+  ]) {
+    const r = await boot({ returns: { pageGet: PAGE } });
+    try {
+      await clickNew(r);
+      await typeIn(r, '次の会議の議題');
+      focus(r);
+      const el = r.document.activeElement;
+      r.fire('onPageOpen', ...args); await r.drain();
+      assert.deepStrictEqual(tabs(r).map((t) => t[0]), ['live', 'page:pa1'], name);
+      assert.strictEqual(active(r), behind ? 'live' : 'page:pa1', name);
+      if (behind) {
+        assert.strictEqual(r.document.activeElement, el, `${name}: フォーカスが動いた`);
+        assert.strictEqual(memoTa(r).value, '次の会議の議題', name);
+        assert.strictEqual(r.called('pageGet').filter((c) => c.args[0] === 'pa1').length, 0, `${name}: 開いた`);
+      }
+      assert.deepStrictEqual(r.errors.map(fmt), []);
+    } finally { if (r.done) r.done(); }
   }
 });

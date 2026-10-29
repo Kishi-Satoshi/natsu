@@ -4,7 +4,7 @@
 <meta charset="UTF-8" />
 <title>NaTsu 会議の検出</title>
 <style>
-  /* 0.9.3 M-3（計画 docs/plans/2026-10-22-093.md の決めたこと 9。持ち主の答え Q3・Q4・D50・D54）: Web 会議が始まったら右上に出す小さなパネル。
+  /* 0.9.3 M-3（計画 docs/plans/2026-10-22-093.md の決めたこと 9。持ち主の答え Q3・Q4・D50・D54）: Web 会議が始まったら出す小さなパネル（0.13.2 LN-7 から画面の下の中央。置き場所は main の nudgeBounds が決める）。
      ロゴ・「AI 議事録を始める」・「文字起こしで NaTsu を開く」・青い［文字起こしを始める］と ⌄・×。⌄ のメニューは「オフラインモードで始める」・
      「<アプリ> では出さない」・「会議の検出の通知の設定…」。種類を選ぶ欄は置かない（D50）。
      明暗は main が Windows の明暗から決めて送る（.nz の light。無ければ録音バーと同じ暗い地）。透過の窓なので外向きの影（box-shadow）は使わない
@@ -39,7 +39,7 @@
     font-family: "Segoe UI Variable Text", "Segoe UI", "Yu Gothic UI", "Hiragino Sans", "Noto Sans JP", sans-serif;
     -webkit-user-select: none; user-select: none;
   }
-  .nz { width: max-content; display: flex; flex-direction: column; align-items: flex-end; color: var(--nz-fg); }
+  .nz { width: max-content; display: flex; flex-direction: column-reverse; align-items: flex-end; color: var(--nz-fg); }
   .card {
     position: relative;
     display: flex; align-items: center; gap: 12px; height: 60px; padding: 0 10px 0 14px; border-radius: 999px;
@@ -68,7 +68,7 @@
   .x svg { width: 12px; height: 12px; fill: none; stroke: var(--nz-dim); stroke-width: 1.8; stroke-linecap: round; }
   .menu {
     position: relative;
-    margin: 6px 44px 0 0; width: 300px; padding: 6px; border-radius: 10px;
+    margin: 0 44px 6px 0; width: 300px; padding: 6px; border-radius: 10px;
     background: var(--nz-bg); border: 1px solid var(--nz-edge); color: var(--nz-fg);
   }
   .menu[hidden] { display: none; }

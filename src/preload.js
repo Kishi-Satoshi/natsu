@@ -9,8 +9,9 @@ const { contextBridge, ipcRenderer } = require('electron');
 // 口が来る前の頼みは待たせて、口が来たら送る。口が閉じるか main から 'db:lost' が来たら、送った読む頼みはすぐ retry で返し、
 // 書く頼みは新しい口で同じ tx のまま送り直す（DB が (役, tx) で1回だけ効かせる）。口が無いまま 30 秒たてば retry で返す。
 // 0.13.0 ED-2（計画 docs/plans/2026-10-24-130.md の決めたこと 14）: 要約の編集の命令（分割・結合・型の変換・複製）を足した（18）
+// 0.13.1（計画 docs/plans/2026-10-27-131.md の決めたこと 10）: 字下げとトグルの開け閉めの3つを足した（21）
 const APP_COMMANDS = new Set(['pages.list', 'pages.searchFull', 'pages.actionView', 'page.get', 'page.setTitle', 'page.setMemo', 'page.setType', 'page.delete', 'block.update', 'block.insert', 'block.remove', 'block.move', 'block.setAction', 'segment.update',
-  'block.split', 'block.merge', 'block.turnInto', 'block.duplicate']);
+  'block.split', 'block.merge', 'block.turnInto', 'block.duplicate', 'block.indent', 'block.setOpen', 'block.setOpenAll']);
 const DB_READS = new Set(['pages.list', 'pages.searchFull', 'pages.actionView', 'page.get']);
 const DB_WAIT_MS = 30000;
 let dbPort = null;
@@ -184,15 +185,28 @@ contextBridge.exposeInMainWorld('koeApp', {
   pageSetMemo: (id, memo) => dbCall('page.setMemo', { id, memo }),
   pageSummarize: (id) => ipcRenderer.invoke('page:summarize', id),
   blockUpdate: (pageId, blockId, patch) => dbCall('block.update', { pageId, blockId, patch }),
-  blockInsert: (pageId, afterBlockId, type, level) => dbCall('block.insert', level === undefined ? { pageId, afterBlockId, type } : { pageId, afterBlockId, type, level }),
+  // 0.13.1: 5つ目の parentId は置き場の親（NR6）・6つ目の toggle はトグル見出し。足した引数が無ければ今の形を送る
+  blockInsert: (pageId, afterBlockId, type, level, parentId, toggle) => dbCall('block.insert', {
+    pageId, afterBlockId, type, ...(level === undefined ? {} : { level }), ...(parentId === undefined ? {} : { parentId }), ...(toggle === true ? { toggle } : {}) }),
   blockRemove: (pageId, blockId) => dbCall('block.remove', { pageId, blockId }),
   // 0.13.0 ED-2: 3つ目が { afterId } なら「その行の後ろへ」（'' は頭）、数なら今の toIndex
-  blockMove: (pageId, blockId, to) => dbCall('block.move', to && typeof to === 'object' ? { pageId, blockId, afterId: to.afterId } : { pageId, blockId, toIndex: to }),
+  // 0.13.1: { afterId, parentId } の parentId は '' の afterId と一緒にその親の子の頭へ（NR6）
+  blockMove: (pageId, blockId, to) => dbCall('block.move', to && typeof to === 'object'
+    ? { pageId, blockId, afterId: to.afterId, ...(to.parentId === undefined ? {} : { parentId: to.parentId }) } : { pageId, blockId, toIndex: to }),
   // 0.13.0 ED-2: 分割（text は画面の今の文・at は分ける位置）・結合（text は今の行の文）・型の変換（level は見出しの段）・複製（afterId は Alt で落とした所）
-  blockSplit: (pageId, blockId, text, at) => dbCall('block.split', { pageId, blockId, text, at }),
-  blockMerge: (pageId, blockId, text) => dbCall('block.merge', { pageId, blockId, text }),
-  blockTurnInto: (pageId, blockId, type, level) => dbCall('block.turnInto', level === undefined ? { pageId, blockId, type } : { pageId, blockId, type, level }),
-  blockDuplicate: (pageId, blockId, afterId) => dbCall('block.duplicate', afterId === undefined ? { pageId, blockId } : { pageId, blockId, afterId }),
+  // （点検8）5つ目の afterId は文のある行の頭で上に足す行の置き場（画面で上に見えている行。'' は頭）
+  // 0.13.1: 6つ目の inside は新しい行を今の行の最初の子に（TQ3）・merge の4つ目の intoId は画面で上に見えている行（TQ1）・turnInto の5つ目の toggle はトグル見出し
+  blockSplit: (pageId, blockId, text, at, afterId, inside) => dbCall('block.split', {
+    pageId, blockId, text, at, ...(afterId === undefined ? {} : { afterId }), ...(inside === true ? { inside } : {}) }),
+  blockMerge: (pageId, blockId, text, intoId) => dbCall('block.merge', intoId === undefined ? { pageId, blockId, text } : { pageId, blockId, text, intoId }),
+  blockTurnInto: (pageId, blockId, type, level, toggle) => dbCall('block.turnInto', {
+    pageId, blockId, type, ...(level === undefined ? {} : { level }), ...(toggle === true ? { toggle } : {}) }),
+  blockDuplicate: (pageId, blockId, afterId, parentId) => dbCall('block.duplicate', {
+    pageId, blockId, ...(afterId === undefined ? {} : { afterId }), ...(parentId === undefined ? {} : { parentId }) }),
+  // 0.13.1（決めたこと 10）: 字下げ（dir は 'in'・'out'）・トグルの開け閉め（1つ・ページの全部）。答えは { page }
+  blockIndent: (pageId, blockId, dir) => dbCall('block.indent', { pageId, blockId, dir }),
+  blockSetOpen: (pageId, blockId, open) => dbCall('block.setOpen', { pageId, blockId, open }),
+  blockSetOpenAll: (pageId, open) => dbCall('block.setOpenAll', { pageId, open }),
   hotkeyState: () => ipcRenderer.invoke('hotkey:state'),
   segmentUpdate: (pageId, segId, patch) => dbCall('segment.update', { pageId, segId, patch }),
 
@@ -223,6 +237,8 @@ contextBridge.exposeInMainWorld('koeApp', {
   accountStatus: () => ipcRenderer.invoke('account:status'),
   // 第1d回 A-11: Cloudflare Access のログインの窓を開く（cookie も JWT も画面へ返さない。答えは { ok, email?, code?, message }）
   accountLogin: () => ipcRenderer.invoke('account:login'),
+  // 0.13.2 LN-4（計画 docs/plans/2026-10-28-132.md の LR20）: 自動で開いたログインの窓でログインできた（中身なし。画面は accountStatus を読み直す）
+  onAccountChanged: (cb) => ipcRenderer.on('account:changed', () => cb()),
   accountLogout: () => ipcRenderer.invoke('account:logout'),
   claudeStatus: () => ipcRenderer.invoke('claude:status'),
   claudeTest: () => ipcRenderer.invoke('claude:test'),
@@ -266,5 +282,11 @@ contextBridge.exposeInMainWorld('koeApp', {
     else if (v && typeof v === 'object' && typeof v.id === 'string') cb(v.id, { saved: v.saved === true });
   }),
   onPageUpdated: (cb) => ipcRenderer.on('page:updated', (_e, p) => cb(p)),
+  // 0.13.2 LN-2（計画 docs/plans/2026-10-28-132.md の LR10）: 文字起こし待ちの残りの区間の数（main が区間を1つ片付けるたびに送る { id, left, running }）
+  onPagePending: (cb) => ipcRenderer.on('page:pending', (_e, p) => cb(p)),
+  // 0.13.2 LN-5（計画 docs/plans/2026-10-28-132.md の LA4・PQ4）: 議事録のページの「残り n 区間」（{ left, running, busy }）と［もう一度文字起こし］（{ ok, left } | { ok: false, code }）。
+  // DB の命令でないので APP_COMMANDS に入れない
+  pagePending: (id) => ipcRenderer.invoke('page:pending', { id }),
+  pageRetranscribe: (id) => ipcRenderer.invoke('page:retranscribe', { id }),
   onEngineFetchProgress: (cb) => ipcRenderer.on('engine:fetch-progress', (_e, s) => cb(s)),
 });

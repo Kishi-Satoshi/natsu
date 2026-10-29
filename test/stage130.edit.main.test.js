@@ -148,6 +148,16 @@ test('ED-5・EQ22 (a): 前回の復旧のページの page:open（窓を作る�
   const at = src.indexOf('  if (recoveredPageId) {');
   assert.ok(at > 0);
   assert.ok(src.slice(at, src.indexOf('\n  }\n', at)).includes("sendToMainWin('page:open', id);"));
+  // 0.13.2 LN-5（計画 docs/plans/2026-10-28-132.md の LR13）で意図して変えた: 保存の途中に会議を出て止めた知らせを押していたら、保存の後にそのページを
+  // ID の文字のまま（前に出す）開く1行を足した（締めの印 { id, saved: true } の後ろ）
   assert.deepStrictEqual(src.match(/sendToMainWin\('page:open', [^)]*\)/g), ["sendToMainWin('page:open', m.leavePageId)", "sendToMainWin('page:open', id)", "sendToMainWin('page:open', pageId)",
-    "sendToMainWin('page:open', { id: page.id, saved: true })"]);
+    "sendToMainWin('page:open', { id: page.id, saved: true })", "sendToMainWin('page:open', page.id)"]);
+});
+
+// ---------------------------------------------------------------- 2026-10-26 の持ち主の答え（点検4「どんな手直しでも確かめる（おすすめ）」）
+test('点検4: 要約の後に画面で行を1つ消すとページに summaryEdited が付き、［要約を再生成］で作り直すと消える（次の再生成では確かめない）', { timeout: sceneTimeout(30000) }, async () => {
+  const o = await run(['text', '--sum', '--claude=ok', '--segs=2', '--resum-after-edit']);
+  assert.strictEqual(o.editedBefore, true, '行を消しても印が無い');
+  assert.strictEqual(o.resumEdit && o.resumEdit.ok, true, JSON.stringify(o.resumEdit));
+  assert.strictEqual(o.editedAfter, undefined, '作り直した後も印が残った');
 });

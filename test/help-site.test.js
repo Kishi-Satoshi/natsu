@@ -177,7 +177,7 @@ test('D22: site.json の形が違えば build は HelpBuildError（code: bad-sit
 
 // help-dads HD-0（HD8・HD6。計画 docs/plans/2026-10-23-help-dads.md の決めたこと G・H と問答の Q15・Q18）:
 // 守るものの宣言（DADS のスキルの references/protect-file.md の書式）と、読み上げの例外を設計書に先に書く
-test('HD-0: リポジトリの直下に DADS-PROTECT.md がある（# 守るもの と決まった4つの見出しを決まった順で）。ブランド色の行は「- #xxxxxx（…）」で、その値は help.css の暗い版の灰色の札（地・面・罫線・補足・本文）とちょうど同じ', { timeout: 5000 }, () => {
+test('HD-0・HL-1: リポジトリの直下に DADS-PROTECT.md がある（# 守るもの と決まった見出しを決まった順で）。ヘルプは明るい版だけなので、暗い版の灰色だった「ブランド色」の節は無く（help.css の色は DADS の札だけ）、メモは「明るい版だけ」と言う', { timeout: 5000 }, () => {
   const C = require('./helpers/simcss');
   assert.ok(fs.existsSync(path.join(ROOT, 'DADS-PROTECT.md')), 'DADS-PROTECT.md が無い');
   const md = read('DADS-PROTECT.md').replace(/\r\n?/g, '\n');
@@ -188,21 +188,19 @@ test('HD-0: リポジトリの直下に DADS-PROTECT.md がある（# 守るも�
   assert.deepStrictEqual(heads, order.filter((h) => heads.includes(h)), '見出しの順が決まりと違う');
   assert.strictEqual(new Set(heads).size, heads.length, '見出しが重なる');
   const sec = (h) => { const i = md.indexOf(`## ${h}\n`); const j = md.indexOf('\n## ', i + 1); return md.slice(i, j < 0 ? md.length : j); };
-  const lines = sec('ブランド色').split('\n').filter((l) => l.startsWith('- '));
-  assert.ok(lines.length > 0);
-  for (const l of lines) assert.match(l, /^- #[0-9a-f]{6}（[^）]+）$/, `ブランド色の行の形: ${l}`);
-  const brand = lines.map((l) => l.slice(2, 9)).sort();
-  const dark = C.tokens(C.parse(read('help/assets/help.css')), '@media (prefers-color-scheme: dark)');
-  const greys = ['--bg', '--wash', '--rule', '--muted', '--body'].map((k) => (dark[k] || '').toLowerCase()).sort();
-  assert.deepStrictEqual(brand, greys, 'ブランド色と暗い版の灰色の札が違う');
+  // help-light HL-1: ブランド色は暗い版の灰色（地・面・罫線・補足・本文）だけだった。暗い版を外したので節ごと無い（色の札が無いのにブランド色を残さない）
+  assert.ok(!heads.includes('ブランド色'), 'ブランド色の節が残っている（暗い版の灰色はもう使わない）');
+  assert.deepStrictEqual([...md.matchAll(/^- (#[0-9a-f]{6})（/gm)].map((m) => m[1]), [], '色の値の行が残っている');
+  assert.deepStrictEqual(C.tokens(C.parse(read('help/assets/help.css')), '@media (prefers-color-scheme: dark)'), {}, 'help.css に暗い版の札がある');
   // 守るファイル: アプリの画面・ロゴ・記事・門・出し方（ヘルプの DADS の直しの外）
   for (const f of ['src/**', 'assets/**', 'help/articles/**', 'relay/**', '.github/**']) assert.ok(sec('守るファイル・フォルダ').includes(`- ${f}（`), f);
-  // メモ: 読み上げの例外（HD6 の検索の件数・0.10.0 の /open の知らせ）と暗い版を残すこと
+  // メモ: 読み上げの例外（HD6 の検索の件数・0.10.0 の /open の知らせ）と、明るい版だけにしたこと（HL。暗い版を残すとは言わない）
   const memo = sec('メモ');
   assert.match(memo, /読み上げソフトへの対応は作らない/);
   assert.match(memo, /検索の件数の知らせ（role="status"）/);
   assert.match(memo, /\/open のページ/);
-  assert.match(memo, /暗い版（OS の設定に従う）は残す/);
+  assert.match(memo, /明るい版だけ/);
+  assert.doesNotMatch(memo, /暗い版（OS の設定に従う）は残す/);
 });
 
 test('HD-0（HD6・Q18）: 設計書の「画面の使いやすさ」の「作らないもの」と「やらないこと」に、読み上げの例外（ヘルプの検索の件数の知らせと /open のページの知らせの role="status"）が書いてある', { timeout: 5000 }, () => {
@@ -214,6 +212,34 @@ test('HD-0（HD6・Q18）: 設計書の「画面の使いやすさ」の「作�
   assert.match(line, /読み上げソフトへの対応（例外: .*検索の件数の知らせ `role="status"`.*HD6.*\/open.*`role="status"`.*D78/);
   const never = part('### やらないこと').split('\n').find((l) => l.includes('**画面と端末:**'));
   assert.match(never, /読み上げソフト（例外は「画面の使いやすさ」の2つ）/);
+});
+
+// help-light HL-1（計画 docs/plans/2026-10-27-help-light.md）: 持ち主の答え HL1〜HL3 を設計書に書き、HC0 は明るい版だけと言う（暗い版の輪の話を残さない）
+test('HL-1: 設計書に「利用者が決めたこと（ヘルプセンターを明るい版だけに。2026-10-27）」の HL1〜HL3 があり、HC0 は明るい版だけ（Windows の設定に合わせない）と言う', { timeout: 5000 }, () => {
+  const d = read('docs/plans/natsu-design.md');
+  const i = d.indexOf('## 利用者が決めたこと（ヘルプセンターを明るい版だけに。2026-10-27）');
+  assert.ok(i >= 0, '節が無い');
+  const sec = d.slice(i, d.indexOf('\n## ', i + 1));
+  for (const k of ['HL1', 'HL2', 'HL3']) assert.match(sec, new RegExp(`^\\| ${k} \\|`, 'm'), k);
+  assert.match(sec, /docs\/plans\/2026-10-27-help-light\.md/);
+  const hc0 = d.split('\n').find((l) => l.startsWith('- **HC0'));
+  assert.match(hc0, /明るい版だけ/);
+  assert.doesNotMatch(hc0, /暗い版は白/);
+});
+
+// help-overview HO-6（計画 docs/plans/2026-10-27-help-overview.md）: 持ち主の決定 HO1〜HO6 と図解の決まりを設計書に書き、README に写真の作り方を書く
+test('HO-6: 設計書に「利用者が決めたこと（ヘルプセンターの全体像の記事と図解。2026-10-27）」の HO1〜HO6 があり、HC0 が図解の決まり（画面の写真はアプリのテストの基準から・図の下の番号の説明・ほかの記事は次に直すときに足す）を言う。README のヘルプセンターの節に tools/help-appshots.js の説明がある', { timeout: 5000 }, () => {
+  const d = read('docs/plans/natsu-design.md');
+  const i = d.indexOf('## 利用者が決めたこと（ヘルプセンターの全体像の記事と図解。2026-10-27）');
+  assert.ok(i >= 0, '節が無い');
+  const sec = d.slice(i, d.indexOf('\n## ', i + 1));
+  for (const k of ['HO1', 'HO2', 'HO3', 'HO4', 'HO5', 'HO6']) assert.match(sec, new RegExp(`^\\| ${k} \\|`, 'm'), k);
+  assert.match(sec, /docs\/plans\/2026-10-27-help-overview\.md/);
+  const hc0 = d.split('\n').find((l) => l.startsWith('- **HC0'));
+  for (const w of ['test/shots/win32/', '番号の説明', '次にその記事を直すとき']) assert.ok(hc0.includes(w), `HC0 に「${w}」が無い`);
+  const readme = read('README.md');
+  const h = readme.slice(readme.indexOf('## ヘルプセンター'));
+  for (const w of ['node tools/help-appshots.js', 'help/shots-from-app.json', 'test/shots/win32/']) assert.ok(h.includes(w), `README のヘルプセンターの節に「${w}」が無い`);
 });
 
 // help-relnotes RN-0（計画 docs/plans/2026-10-23-help-relnotes.md）: 持ち主の決定 RN1〜RN4 を設計書に先に書く

@@ -516,17 +516,39 @@
   /* 画面の外のブロックは描かない（2,000 ブロックのページを開く速さ。content-visibility の見積もりは本文1行の約 30px で、一度描いた行は
      auto で本当の高さを覚える）。描くのを省く仕組みは中身を枠で切るので、ボタンの Tab の輪（線 2px＋離れ 2px）が切れないよう切る線を 8px 外へ出す */
   .blk { content-visibility: auto; contain-intrinsic-size: auto 30px; overflow-clip-margin: 8px; }
+  /* 0.13.1 NE-4a（NR15）: 入れ子の行は平らな行の並びのまま、段ごとに左の余白 24px（＋・⠿・文の並びは段を変えても同じ） */
+  #pNote .blk { --depth: 0; --dropx: 0px; margin-left: min(calc(var(--depth, 0) * 24px), 40%); flex-wrap: wrap; justify-content: flex-end; }   /* .blk.callout の margin より強く。--depth は行ごとに描くときに置く */
+  /* 2026-10-28 の点検 2（計画の Ruling NR46）: 拡大 200% の狭い窓で入れ子の ToDo の文が1字ずつに折れた。文の欄（.txt）は 6em より細くせず、入らない担当・期限・
+     出典の札と ✕ は下の行へ折り返す（文の欄は伸びるので1行目は今のまま。札だけの2行目は右に寄せ、1行目の札と同じ側に置く）。深い段の左の余白は欄の幅の 40% まで */
   /* 点字の6点(U+283F)を使う。「⋮⋮」を字間で詰める方法は環境によって
      3点に見えていた。 */
   .blk .grip { opacity: 0; flex: none; cursor: grab; color: var(--muted); user-select: none;
     line-height: 24px; font-size: 13px; padding: 0 2px; }
   .blk:hover .grip { opacity: .55; }
+  /* 0.13.1 NE-4a（NR17・決めたこと 25）: 行の中の Esc で ⠿ にフォーカスが乗ったら、乗せたときと同じ濃さと枠で見せる */
+  .blk .grip:focus-visible { opacity: .55; outline: 2px solid var(--accent); outline-offset: 1px; border-radius: 4px; }
   .blk.dragging { opacity: .35; }
   /* 落とす位置の線。影は浮く部品だけに使うので、上下の余白 3px のうち 2px を線に替える（高さは変わらない） */
   .blk.dropmark { border-top: 2px solid var(--accent); padding-top: 1px; }
   .blk.dropmark-after { border-bottom: 2px solid var(--accent); padding-bottom: 1px; }
+  /* 0.13.1 NE-4b（NR12）: 段を選んだ落とし先は、線を選んだ段の左から引く（--dropx は印の行の左からのずれ。行の線は消す） */
+  .blk.dropmark.dropshift, .blk.dropmark-after.dropshift { border-color: transparent; }
+  .blk.dropmark.dropshift::before, .blk.dropmark-after.dropshift::after { content: ''; position: absolute; left: var(--dropx, 0px); right: 0; height: 2px; background: var(--accent); color: var(--on-accent); pointer-events: none; }
+  .blk.dropmark.dropshift::before { top: -2px; }
+  .blk.dropmark-after.dropshift::after { bottom: -2px; }
+  /* 0.13.1 NE-4b（決めたこと 18・E5）: トグルの ▸（開いていれば下向き）。色は地の語だけ（明暗の両方）。
+     2026-10-28 の持ち主の答え 点検 B（「少し大きくする（おすすめ）」。計画の Ruling NR45）: 押せる所は 24×24px、印は 16px の線の山形（SVG）。
+     閉じていれば右向き・開いていれば下向きで、向きの違いが分かる大きさにした */
+  .blk .tog { flex: none; width: 24px; height: 24px; padding: 0; border: none; border-radius: 4px; background: none; color: var(--muted);
+    display: inline-flex; align-items: center; justify-content: center; cursor: pointer; transition: transform .1s; }
+  .blk .tog svg { width: 16px; height: 16px; display: block; }
+  .blk .tog:hover { background: var(--hover); color: var(--text); }
+  .blk .tog.open { transform: rotate(90deg); }
+  .blk.heading .tog { align-self: center; }   /* 点検 B: 見出しの行でも押せる所は 24×24px のまま、行の真ん中に */
   .blk .bullet { color: var(--muted); flex: none; width: 24px; text-align: center; line-height: 24px; user-select: none; }
-  .blk .txt { flex: 1; font-size: 16px; line-height: 24px; outline: none; border-radius: 4px; padding: 0 2px; min-width: 0;
+  /* 点検 2（NR46）: 文の右の札と ✕ の箱。行が狭いときは箱ごと下の行へ（右寄せ）。中の並びと間は前の .blk の中と同じ（間 8px） */
+  .blk .tail { display: flex; align-items: flex-start; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+  .blk .txt { flex: 1; font-size: 16px; line-height: 24px; outline: none; border-radius: 4px; padding: 0 2px; min-width: 6em;
     word-break: break-word; white-space: pre-wrap; }   /* 0.13.0 ED-4（決めたこと 16）: Shift+Enter の行の中の改行を見せる */
   .blk .txt:hover { background: var(--hover); }
   .blk .txt:focus { background: var(--hover); }
@@ -696,6 +718,13 @@
   /* 止めていた時間の印（区間の行の間。区間ではない） */
   .pausemark { font-size: 12px; color: var(--muted); padding: 4px 4px 4px 8px; margin: 4px 0; border-left: 2px solid var(--line); }
   .prog { font-size: 12px; color: var(--accent-text); margin-bottom: 10px; }
+  /* 0.13.2 LN-5（持ち主の答え LA4）: 保存した議事録のページの「文字起こし」の欄の頭の1行（「文字起こし待ち: 残り n 区間」と［もう一度文字起こし］）。
+     注意の色にしない（誤りではない。続け方の案内）。地と線は「会議は終わりましたか？」の帯と同じ明暗のトークン */
+  .pendline { display: flex; align-items: center; gap: 6px 10px; flex-wrap: wrap; padding: 6px 10px; margin-bottom: 8px;
+    border: 1px solid var(--line); border-radius: 6px; background: var(--tint); font-size: 13px; color: var(--text); }
+  .pendline span { flex: 1 1 16em; min-width: 0; overflow-wrap: anywhere; }
+  .pendline button.ghost { font-size: 12px; padding: 0 10px; }
+  .pendline[hidden] { display: none; }
 
   /* ---------- 音声入力 ---------- */
   .stats { display: flex; gap: 10px; margin-bottom: 12px; flex-wrap: wrap; }
@@ -900,6 +929,7 @@
             <div class="pcol">
             <div id="pProgress" class="prog" style="display:none"></div>
             <div id="pNote" class="pane active" role="tabpanel" aria-labelledby="paneBtnNote"></div>
+            <div id="pPending" class="pendline" role="status" hidden><span id="pPendingText"></span><button type="button" class="ghost" id="pRetranscribe">もう一度文字起こし</button></div>
             <div id="pScript" class="pane" role="tabpanel" aria-labelledby="paneBtnScript"></div>
             <div id="pMemo" class="pane" role="tabpanel" aria-labelledby="paneBtnMemo"></div>
             </div>
@@ -1559,10 +1589,12 @@
   let mtStartedAt = null;
   let mtStoppedAt = null;
   let mtPausedMs = 0;
+  let mtPausedAt = null;   // 0.13.0 CLK-3: 一時停止の知らせが届いた時刻（止めている間はこの時刻で時計を止める）
   let mtWasActive = false;
   // ［この会議は PC の中だけ］を押した（第1c回 RF28）。会議の間は戻さない（押し間違いで送る側に戻らない）。次の会議の始めに下ろす
   let mtLocalOnly = false;
   let dragBlockId = null;   // 並べ替え中のブロック
+  let dragStartX = 0;       // 0.13.1 NR12: つまみを掴んだ所の横の位置（落とす段は掴んだ所からのずれで選ぶ）
   let memoTimer = null;     // メモの遅延保存（500ms）。ページ切替・記録開始の前に flushMemo で確定する
   let memoFlush = null;     // 保留中のメモ保存を即時に走らせる関数
   const summarizing = new Set();   // 要約を生成中のページ id。描き直してもボタンを押せないままにする
@@ -2722,6 +2754,7 @@
       if (r.page && typeof r.page.title === 'string') tabTitles.set(id, r.page.title);
       return false;
     }
+    if (curId !== id) peekOpen = new Map();   // 0.13.1 NR16・NR18: 画面だけの開け閉めはページを替えると消える
     curId = id; curPage = r.page; curSegs = r.segments;
     if (typeof curPage.title === 'string') tabTitles.set(id, curPage.title);
     pane = curPage.blocks.length ? 'note' : 'script';
@@ -2743,6 +2776,7 @@
     $('pNote').classList.toggle('active', p === 'note');
     $('pScript').classList.toggle('active', p === 'script');
     $('pMemo').classList.toggle('active', p === 'memo');
+    renderPending();   // 0.13.2 LN-5: 「文字起こし」の欄だけに出す
   }
   $('paneBtnNote').onclick = () => setPane('note');
   $('paneBtnScript').onclick = () => setPane('script');
@@ -2813,8 +2847,9 @@
   // 0.13.0 ED-8（EQ4 (a)・決めたこと 35・画面の文）: 人が直した行 = 人が足した・直した行（citeState が manual・stale）と、AI の4つの型でない行。
   // 0.11.0 の印の行（mark。manual だが AI が書いた）は人の行にしない
   const AI_TYPES = ['heading', 'bullet', 'todo', 'paragraph'];
+  // 0.13.1（決めたこと 33）: 子の行も見る（木を平らにしてから）
   function humanEdited(blocks) {
-    return (Array.isArray(blocks) ? blocks : []).some((b) => b && typeof b === 'object' && !b.mark
+    return flattenBlocks(blocks).some((b) => b && typeof b === 'object' && !b.mark
       && (b.citeState === 'manual' || b.citeState === 'stale' || !AI_TYPES.includes(b.type)));
   }
   const REGEN_ASK = '書き直した要約を作り直しますか？ 足した行や変えた型は元に戻ります。';
@@ -2948,7 +2983,8 @@
       const pid = curId;
       if (summarizing.has(pid)) return;
       // 0.13.0 ED-8（EQ4 (a)・決めたこと 35）: 人が直した行があるときだけ、作り直す前に確かめる（作り直すと書き直した所は元に戻る）
-      if (curPage && humanEdited(curPage.blocks) && !(await askRegen())) return;
+      // 2026-10-26 の持ち主の答え（点検4「どんな手直しでも確かめる」）: 行を消す・動かす・複製・段・変換・分割・結合などの後も（DB のページの印 summaryEdited）
+      if (curPage && (curPage.summaryEdited === true || humanEdited(curPage.blocks)) && !(await askRegen())) return;
       if (pid !== curId || summarizing.has(pid)) return;
       summarizing.add(pid);
       sumBtn.disabled = true; sumBtn.textContent = '生成中…';
@@ -3012,6 +3048,7 @@
     setPane(pane);
     renderCrumb();
     syncNoPage();
+    refreshPending();   // 0.13.2 LN-5: 保存したページの文字起こし待ちの残り（main が数える）
   }
   // 何も開いていない（ページも記録中のタブも無い）ときは #pageWrap に nopage を付け、
   // ページのアイコンと丸いタブを隠して空の文だけを出す（第1b2回 P-2）
@@ -3058,7 +3095,12 @@
   // 挿入位置: ドラッグ中の行を除いた並びの中で、カーソルより下にある最初の行の位置。
   // store 側も「抜いてから挿す」ので、この数え方がそのまま挿入位置になる。
   function dropIndexAt(box, clientY) {
-    const els = [...box.querySelectorAll('.blk')].filter((x) => x.dataset.id !== dragBlockId);
+    // 0.13.1: 動かす行とその子孫の行を除く（子は親と一緒に動く）
+    const all = [...box.querySelectorAll('.blk')];
+    const from = all.findIndex((x) => x.dataset.id === dragBlockId);
+    let to = from + 1;
+    while (from >= 0 && to < all.length && (Number(all[to].dataset.depth) || 0) > (Number(all[from].dataset.depth) || 0)) to++;
+    const els = from < 0 ? all : [...all.slice(0, from), ...all.slice(to)];
     for (let i = 0; i < els.length; i++) {
       const r = els[i].getBoundingClientRect();
       if (clientY < r.top + r.height / 2) return { idx: i, els };
@@ -3067,8 +3109,33 @@
   }
   function clearDropMarks(box) {
     for (const e of box.querySelectorAll('.dropmark, .dropmark-after')) {
-      e.classList.remove('dropmark', 'dropmark-after');
+      e.classList.remove('dropmark', 'dropmark-after', 'dropshift');
+      if (typeof e.style.removeProperty === 'function') e.style.removeProperty('--dropx');
     }
+  }
+  // 0.13.1 NE-4b（NR12）: 落とす段（src/blockTree.js の dropSpot の写し。テストが同じ表で照らす）。rows は見えている行 { id, depth, parentId, kids }
+  function dropSpot(rows, idx, shift, o = {}) {
+    const list = Array.isArray(rows) ? rows : [];
+    if (idx <= 0 || !list.length) return { parentId: null, afterId: '' };
+    const above = list[Math.min(idx, list.length) - 1];
+    const below = list[idx] || null;
+    const deep = above.depth + (above.kids ? 1 : 0);
+    const shallow = below ? Math.min(below.depth, deep) : 0;
+    let depth = above.depth + Math.trunc(Number(shift) || 0);
+    depth = Math.max(shallow, Math.min(deep, depth));
+    if (o.top) depth = 0;
+    if (depth > above.depth) return { parentId: above.id, afterId: '' };
+    for (let i = Math.min(idx, list.length) - 1; i >= 0; i--) if (list[i].depth === depth) return { parentId: list[i].parentId, afterId: list[i].id };
+    return { parentId: null, afterId: '' };
+  }
+  // 落とす所の段（横のずれ 24px ごとに1段。AI の節の見出しは最上位のまま: TQ2）→ { parentId, afterId, depth }
+  function dropSpotAt(els, idx, clientX, dragId = dragBlockId) {
+    const rows = els.map((e) => ({ id: e.dataset.id, depth: Number(e.dataset.depth) || 0, parentId: e.dataset.parent || null, kids: kidsCanView(e._b) }));
+    const shift = Number.isFinite(clientX) ? Math.round((clientX - dragStartX) / 24) : 0;
+    const dragged = curPage ? locate(curPage.blocks, dragId) : null;
+    const spot = dropSpot(rows, idx, shift, { top: Boolean(dragged && dragged.depth === 0 && aiSectionHead(dragged.b)) });
+    const p = spot.parentId ? rows.find((r) => r.id === spot.parentId) : null;
+    return { ...spot, depth: p ? p.depth + 1 : 0 };
   }
 
   // ---------------- 画面の並び（0.11.0 V-2。D48・F26・決めたこと 27）。memoTypes の VIEW_HEADS・orderForView の写し（repo が同じ表で照らす）。
@@ -3122,12 +3189,13 @@
     }
     return out;
   }
-  function blocksMarkdown(blocks) {
+  // 0.13.1（決めたこと 22・NR20）: 子は段ごとに2つの空白で下げる（閉じたトグルの子も）。トグルは「- 」。番号は親ごと
+  // 点検 4（NR40）: 見出しは下げず、見出しの後の行は見出しの段から数え直す（at.base は文書の順に見出しの段を運ぶ）
+  function blocksMarkdown(blocks, depth = 0, at = { base: 0 }) {
     const list = Array.isArray(blocks) ? blocks.filter((b) => b && typeof b === 'object') : [];
     const nums = numberLabels(list);
-    const indent = (t) => String(t ?? '').replace(/\n/g, '\n  ');
-    return list.map((b) => {
-      const t = indent(b.text);
+    const line = (b, pad) => {
+      const t = String(b.text ?? '').replace(/\n/g, `\n${pad}  `);
       if (b.type === 'heading') return `\n${'#'.repeat(headingLevel(b))} ${t}`;
       if (b.type === 'todo') return `- [${b.checked ? 'x' : ' '}] ${t}`;
       if (b.type === 'bullet') return `- ${t}`;
@@ -3135,8 +3203,71 @@
       if (b.type === 'quote') return `> ${t}`;
       if (b.type === 'divider') return '---';
       if (b.type === 'callout') return `> ${CALLOUT_ICON} ${t}`;
+      if (b.type === 'toggle') return `- ${t}`;
       return t;
+    };
+    return list.map((b) => {
+      at.base = b.type === 'heading' ? depth : Math.min(at.base, depth);
+      const pad = b.type === 'heading' ? '' : '  '.repeat(depth - at.base);
+      const own = pad ? line(b, pad).replace(/^(\n?)/, `$1${pad}`) : line(b, pad);
+      const kids = Array.isArray(b.children) && b.children.length ? blocksMarkdown(b.children, depth + 1, at) : '';
+      return kids ? `${own}\n${kids}` : own;
     }).join('\n');
+  }
+  // 0.13.1（決めたこと 23・F48）: 木を深さ優先（親の後に子）に平らにした同じ物の並び（src/blockTree.js の flattenBlocks の写し。テストが同じ表で照らす）
+  function flattenBlocks(blocks) {
+    const out = [];
+    const go = (list) => { for (const b of Array.isArray(list) ? list : []) { if (!b || typeof b !== 'object') continue; out.push(b); go(b.children); } };
+    go(blocks);
+    return out;
+  }
+  // 0.13.1 NE-4a（計画 docs/plans/2026-10-27-131.md の決めたこと 9・12・NR15）: 木の決まりの写し（src/blockTree.js の kidsCan・isToggle・isOpenStored・
+  // aiSectionHead・locate・canIndent・visibleOrder。test/stage131.nest.app.test.js が同じ表で照らす）
+  function kidsCanView(b) {   // 型の表の「子を持てる」: トグルでない見出しと区切り線は持てない（知らない型はテキストの見た目なので持てる）
+    if (!b || typeof b !== 'object') return true;
+    if (b.type === 'heading') return b.toggle === true;
+    return b.type !== 'divider';
+  }
+  function isToggleView(b) {
+    return Boolean(b) && typeof b === 'object' && (b.type === 'toggle' || (b.type === 'heading' && b.toggle === true));
+  }
+  function isOpenStored(b) {   // TQ4: open の無いトグルは開いている
+    return !isToggleView(b) || b.open !== false;
+  }
+  function aiSectionHead(b) {   // TQ2: AI の節の見出し（citeState の無い見出し。トグル見出しにしても: 点検 A）は子にしない
+    return Boolean(b) && typeof b === 'object' && b.type === 'heading' && b.citeState === undefined;
+  }
+  function locate(blocks, id) {
+    const go = (list, parent, depth) => {
+      if (!Array.isArray(list)) return null;
+      for (let index = 0; index < list.length; index++) {
+        const b = list[index];
+        if (!b || typeof b !== 'object') continue;
+        if (b.id === id) return { b, list, index, parent, depth };
+        const r = go(b.children, b, depth + 1);
+        if (r) return r;
+      }
+      return null;
+    };
+    return go(blocks, null, 0);
+  }
+  function canIndent(blocks, id) {
+    const l = locate(blocks, id);
+    if (!l || l.index === 0) return false;
+    if (aiSectionHead(l.b)) return false;
+    return kidsCanView(l.list[l.index - 1]);
+  }
+  function visibleOrder(blocks, openView) {
+    const out = [];
+    const go = (list, depth, parentId) => {
+      for (const b of Array.isArray(list) ? list : []) {
+        if (!b || typeof b !== 'object') continue;
+        out.push({ b, depth, parentId });
+        if (openView(b)) go(b.children, depth + 1, b.id);
+      }
+    };
+    go(blocks, 0, null);
+    return out;
   }
   // 打ち合わせの質の写しの行（quality.qualityLines の写し。repo が照らす）。view は main の qualityView（照らした写し）だけ
   function qualityLinesView(view) {
@@ -3220,9 +3351,9 @@
     for (const e of graphemeEnds(s)) if (e >= n) return e;
     return s.length;
   }
-  // 行頭の記法（EQ9〜EQ13。全角の記号と全角の空白も。「ー」と「・」は入れない）。0.13.1 のトグル（> ）はまだ無い
+  // 行頭の記法（EQ9〜EQ13。全角の記号と全角の空白も。「ー」と「・」は入れない）。0.13.1 からトグル（> 。EQ10 (a)）
   const MD_ZEN = { '－': '-', '＊': '*', '＋': '+', '［': '[', '］': ']', '１': '1', '．': '.', '＃': '#', '”': '"', '“': '"', '＂': '"', '＞': '>', '　': ' ' };
-  const MD_ROWS = [['# ', 'heading', 1], ['## ', 'heading', 2], ['### ', 'heading', 3], ['[] ', 'todo'], ['- ', 'bullet'], ['* ', 'bullet'], ['+ ', 'bullet'], ['1. ', 'numbered'], ['" ', 'quote']];
+  const MD_ROWS = [['# ', 'heading', 1], ['## ', 'heading', 2], ['### ', 'heading', 3], ['[] ', 'todo'], ['- ', 'bullet'], ['* ', 'bullet'], ['+ ', 'bullet'], ['1. ', 'numbered'], ['> ', 'toggle'], ['" ', 'quote']];
   function shortcutFor(before, { full } = {}) {
     const raw = String(before ?? '');
     if (!raw || raw.length > 4) return null;
@@ -3233,11 +3364,12 @@
     return hit[2] ? { type: hit[1], level: hit[2], strip: raw.length } : { type: hit[1], strip: raw.length };
   }
   // 0.13.0 ED-7（E11・EQ12・決めたこと 27〜29）: 近道（src/blockEdit.js の keyAction の写し。数字は ev.code で見る: JIS の Shift+数字は key が記号）
-  const DIGIT_TURN_VIEW = { Digit0: 'text', Digit1: 'h1', Digit2: 'h2', Digit3: 'h3', Digit4: 'todo', Digit5: 'bullet', Digit6: 'numbered' };
+  const DIGIT_TURN_VIEW = { Digit0: 'text', Digit1: 'h1', Digit2: 'h2', Digit3: 'h3', Digit4: 'todo', Digit5: 'bullet', Digit6: 'numbered', Digit7: 'toggle' };
   function keyAction(ev) {
     if (!ev || ev.isComposing || ev.keyCode === 229) return null;
-    if (!ev.ctrlKey || ev.altKey || ev.metaKey) return null;
+    if (!ev.ctrlKey || ev.metaKey) return null;
     const code = String(ev.code || '');
+    if (ev.altKey) return !ev.shiftKey && code === 'KeyT' ? 'openAll' : null;   // 0.13.1 NR21: Alt つきは Ctrl+Alt+T だけ
     if (ev.shiftKey) {
       if (Object.hasOwn(DIGIT_TURN_VIEW, code)) return `turn:${DIGIT_TURN_VIEW[code]}`;
       if (code === 'ArrowUp' || ev.key === 'ArrowUp') return 'moveUp';
@@ -3250,7 +3382,7 @@
     return null;
   }
   // テキストでない型か（知らない型はテキストの見た目なので偽）
-  const TYPED_VIEW = ['heading', 'todo', 'bullet', 'numbered', 'quote', 'divider', 'callout'];
+  const TYPED_VIEW = ['heading', 'todo', 'bullet', 'numbered', 'toggle', 'quote', 'divider', 'callout'];
   function isTypedView(b) {
     return Boolean(b && typeof b === 'object' && TYPED_VIEW.includes(b.type));
   }
@@ -3311,29 +3443,37 @@
   function applyEditAnswer(pid, page, where) {
     if (pid !== curId || !curPage || !page || page.id !== curId) return;   // 決めたこと 41: 送ったページがもう開いていなければ描かない
     const box = $('pNote');
-    const view = (list) => orderForView(list).map((i) => list[i]);
+    // 0.13.1 NE-4a（NR15）: 見えている行の並び（最上位は画面の順・子は親のすぐ後ろ・閉じたトグルの子は描かない）で比べる
     const blocks = Array.isArray(page.blocks) ? page.blocks : [];
-    const oldView = view(curPage.blocks);
-    const newView = view(blocks);
+    const oldRows = viewRows(curPage.blocks);
+    const newRows = viewRows(blocks);
+    const oldView = oldRows.map((r) => r.b);
+    const newView = newRows.map((r) => r.b);
     curPage.blocks = blocks;
+    if (page.summaryEdited === true) curPage.summaryEdited = true;   // 点検4: 要約の欄を直した印（［要約を再生成］の前に確かめる）
     if (page.rev !== undefined) curPage.rev = page.rev;
     const plan = patchPlan(oldView, newView);
     const rows = new Map([...box.querySelectorAll('.blk')].map((e) => [e.dataset.id, e]));
     const lock = summaryLockView(curPage, { live: isLiveCopy(curPage), making: summarizing.has(curId) || mainMaking.has(curId), segments: curSegs });
     const focused = [...rows.values()].find((e) => e._txt && e._txt === document.activeElement);
+    // 0.13.1 NE-4a（NR15）: 段か親が変わった行があれば（字下げ・中へ動かす・開け閉め）並びが動いたのと同じ
+    const wasAt = new Map(oldRows.map((r) => [r.b.id, `${r.depth}|${r.parentId || ''}`]));
+    const regrown = newRows.some((r) => wasAt.has(r.b.id) && wasAt.get(r.b.id) !== `${r.depth}|${r.parentId || ''}`);
     // 鍵・空の欄・節が変わる操作（並びが動く）は欄全体を描き直す（0.11.0 の並べ替えて見せる要約）
-    if (lock || !oldView.length || !newView.length || rows.size !== oldView.length || plan.some((o) => o.op === 'move')) {
-      const keep = where || (focused ? { focus: focused.dataset.id, caret: (caretRange(focused._txt) || [0])[0] } : null);
+    const shown = new Set(newRows.map((r) => r.b.id));
+    if (lock || !oldView.length || !newView.length || rows.size !== oldView.length || regrown || plan.some((o) => o.op === 'move')) {
+      const keep = liftFocus(blocks, shown, where || (focused ? { focus: focused.dataset.id, caret: (caretRange(focused._txt) || [0])[0] } : null));
       renderBlocks();
       if (keep) focusRow(keep.focus, keep.caret);
       return;
     }
-    const byId = new Map(blocks.map((b) => [b.id, b]));
+    const byId = new Map(flattenBlocks(blocks).map((b) => [b.id, b]));
+    const placeOf = new Map(newRows.map((r) => [r.b.id, r]));
     for (const o of plan) {
       const el = rows.get(o.id);
       if (o.op === 'remove') { if (el) el.remove(); rows.delete(o.id); }
       else if (o.op === 'add') {
-        const ne = blockRows.make(byId.get(o.id), '');
+        const ne = blockRows.make(byId.get(o.id), '', placeOf.get(o.id).depth, placeOf.get(o.id).parentId);
         box.insertBefore(ne, box.querySelectorAll('.blk')[o.at] || box.querySelector('.qcard'));
         rows.set(o.id, ne);
       } else if (o.op === 'update' && el) {
@@ -3342,14 +3482,23 @@
           blockRows.dress(el, nb, '');
           if (el._txt.textContent !== String(nb.text ?? '')) el._txt.textContent = String(nb.text ?? '');
         } else {
-          const ne = blockRows.make(nb, '');
+          const ne = blockRows.make(nb, '', placeOf.get(o.id).depth, placeOf.get(o.id).parentId);
           box.insertBefore(ne, el); el.remove(); rows.set(o.id, ne);
         }
       }
     }
     for (const e of [...box.querySelectorAll('.blk')]) if (byId.has(e.dataset.id)) e._b = byId.get(e.dataset.id);
     renumberRows();
-    if (where) focusRow(where.focus, where.caret);
+    const keep = liftFocus(blocks, shown, where || (focused && !shown.has(focused.dataset.id) ? { focus: focused.dataset.id } : null));
+    if (keep) focusRow(keep.focus, keep.caret);
+  }
+  // 2026-10-28 の点検 1・3（計画の Ruling NR39）: フォーカスを置く行が閉じたトグルの中で隠れたら、見えているいちばん近い先祖の行（閉じたトグル）の終わりへ
+  function liftFocus(blocks, shown, w) {
+    if (!w || shown.has(w.focus)) return w;
+    for (let l = locate(blocks, w.focus); l && l.parent; l = locate(blocks, l.parent.id)) {
+      if (shown.has(l.parent.id)) return { focus: l.parent.id, caret: String(l.parent.text ?? '').length };
+    }
+    return w;
   }
   function focusRow(id, caret) {
     const el = editRows().find((e) => e.dataset.id === id);
@@ -3369,6 +3518,76 @@
     const r = caretRange(txt);
     return r ? r[0] === 0 && r[1] === 0 : txt.textContent === '';
   }
+  // ---------------- 0.13.1 NE-4a（計画 docs/plans/2026-10-27-131.md の決めたこと 7・9・12〜14・16。NR8・NR13・NR15・NR17・TQ1・TQ3）
+  // 0.13.1 NR16・NR18: 画面だけの開け閉め（覗き開き・鍵の間の ▸）。窓のメモリだけ（DB に書かない・ページを替えると消える）。id → 開いているか
+  let peekOpen = new Map();
+  // 見えている開け閉め（残した値か、画面だけの開け閉め）
+  function openView(b) {
+    if (b && peekOpen.has(b.id)) return peekOpen.get(b.id);
+    return isOpenStored(b);
+  }
+  // 行が見えるように、閉じて見えている先祖のトグルを画面だけで開く（NR18: リンクで飛んだ先・中へ入れた先）。開いたものがあれば真
+  function peekReveal(id) {
+    let opened = false;
+    for (let l = locate(curPage.blocks, id); l && l.parent; l = locate(curPage.blocks, l.parent.id)) {
+      if (!openView(l.parent)) { peekOpen.set(l.parent.id, true); opened = true; }
+    }
+    return opened;
+  }
+  // 2026-10-28 の点検 1（計画の Ruling NR39）: 開け閉めの前に、要約の欄の行の文を全部保存する（flushEdits と同じ。閉じて隠れる子の行に打った文を落とさない）
+  async function commitRows(pid) {
+    const all = [...$('pNote').querySelectorAll('.blk .txt')].filter((t) => typeof t._commit === 'function');
+    await Promise.all(all.map(async (t) => { try { await t._commit(pid); } catch (_) { /* 保存の失敗は _commit の答えで知らせる */ } }));
+  }
+  // ▸ と Ctrl+Enter（決めたこと 18・28）: 見えている形の逆を blockSetOpen で書き、画面だけの開け閉めを消す。鍵の間は画面だけ（NR16）
+  async function toggleRow(el, keep) {
+    const pid = curId; const b = el._b;
+    const now = openView(b);
+    if (el.dataset.locked === '1') { peekOpen.set(b.id, !now); renderBlocks(); return null; }   // NR16: 鍵の間は DB が断るので画面だけ
+    peekOpen.delete(b.id);
+    await commitRows(pid);   // 点検 1: 子の行に打った文も（▸ はフォーカスを子の行に残す）
+    return editAnswer(pid, () => window.koeApp.blockSetOpen(pid, b.id, !now), () => keep || null);
+  }
+  // 見えている行の並び → [{ b, depth, parentId }]（最上位は orderForView の順・子は親のすぐ後ろに保存の順・閉じたトグルの子は描かない: NR15）
+  function viewRows(blocks) {
+    const list = Array.isArray(blocks) ? blocks : [];
+    return visibleOrder(orderForView(list).map((i) => list[i]), openView);
+  }
+  const rowDepth = (el) => Number(el && el.dataset.depth) || 0;
+  // 子が見えている行か（TQ3: 開いたトグル・子のある行。終わりの Enter の新しい行は最初の子）
+  function kidsShown(b) {
+    if (!kidsCanView(b) || !openView(b)) return false;
+    return isToggleView(b) || (Array.isArray(b.children) && b.children.length > 0);
+  }
+  // 字下げ（E10・EQ17 (a)）: in は前の兄弟の子の末尾へ・out は親のすぐ後ろへ。できないときは何もしない。打った文を先に保存（決めたこと 11）
+  async function indentRow(el, dir) {
+    const pid = curId; const b = el._b; const txt = el._txt;
+    const l = locate(curPage.blocks, b.id);
+    if (!l || (dir === 'in' ? !canIndent(curPage.blocks, b.id) : !l.parent)) return null;
+    const caret = (caretRange(txt) || [txt.textContent.length])[0];
+    if (dir === 'in' && !openView(l.list[l.index - 1])) peekOpen.set(l.list[l.index - 1].id, true);   // NR18: 閉じたトグルの中へ入れた行も見える
+    try { await txt._commit(pid); } catch (_) { /* 保存の失敗は _commit の答えで知らせる */ }
+    return editAnswer(pid, () => window.koeApp.blockIndent(pid, b.id, dir), () => ({ focus: b.id, caret }));
+  }
+  // NR17: ⠿ から Tab で、要約の欄の行（.blk）の中を飛ばして、文書の順で次の部品へ。隠れた所（hidden・開いていない pane と tab）は飛ばす
+  function focusAfterRows(from) {
+    const all = [];
+    const hiddenBox = (n) => n.hidden || (n.classList && (n.classList.contains('pane') || n.classList.contains('tab')) && !n.classList.contains('active'))
+      || (typeof n.getClientRects === 'function' && n.getClientRects().length === 0 && n.tagName !== 'BODY');
+    const walk = (n) => { for (const c of n.children || []) { if (hiddenBox(c)) continue; all.push(c); walk(c); } };
+    walk(document.body);
+    const tab = (e) => {
+      if (e.disabled || (e.closest && e.closest('.blk'))) return false;
+      const ti = e.getAttribute && e.getAttribute('tabindex');
+      if (ti !== null && ti !== undefined && Number(ti) < 0) return false;
+      const tag = String(e.tagName || '').toUpperCase();
+      if (['BUTTON', 'INPUT', 'SELECT', 'TEXTAREA'].includes(tag)) return e.tabIndex === undefined || e.tabIndex >= 0;
+      if (tag === 'A' && e.getAttribute('href')) return true;
+      return (ti !== null && ti !== undefined) || e.contentEditable === 'true';
+    };
+    const next = all.slice(all.indexOf(from) + 1).find(tab);
+    if (next) next.focus();
+  }
   // Enter（決めたこと 16・17）: 今の文とカーソルの位置を block.split の1つの命令で送る（EQ5 (a): 空の箇条書き・ToDo・番号付きはテキストに戻す）
   async function splitRow(el) {
     const pid = curId; const b = el._b; const txt = el._txt;
@@ -3377,31 +3596,54 @@
     const r = caretRange(txt);
     if (r && r[1] > r[0]) text = text.slice(0, r[0]) + text.slice(r[1]);
     const at = safeOffset(text, r ? r[0] : text.length);
-    if (['bullet', 'todo', 'numbered'].includes(b.type) && text.trim() === '') return turnRow(el, 'paragraph', undefined, 0);
+    if (['bullet', 'todo', 'numbered'].includes(b.type) && text.trim() === '') {
+      if (rowDepth(el) > 0) return indentRow(el, 'out');   // 0.13.1 EQ5 (a): 字下げされた空のリストは、まず1段戻す
+      return turnRow(el, 'paragraph', undefined, 0);
+    }
     // 答えを待つ間に blur の保存（_commit）が同じ文を重ねて送らないよう、画面は先に分けた前の文にする（断られたら戻す）
+    // 2026-10-26 の持ち主の答え（点検1）: 文のある行の頭では DB が上に空の行を足す。今の行の文はそのままで、カーソルも今の行の頭に残す
+    const top = at === 0 && text !== '';
     const was = b.text;
-    txt.textContent = text.slice(0, at); b.text = text.slice(0, at).trim();
-    const out = await editAnswer(pid, () => window.koeApp.blockSplit(pid, b.id, text, at), (x) => ({ focus: x.blockId, caret: 0 }));
+    if (!top) txt.textContent = text.slice(0, at);
+    b.text = top ? text : text.slice(0, at);   // 点検5: DB と同じく分けた前の文を削らない（削ると、答えの後の blur が削った文を送り直して oplog が2行になる）
+    // 2026-10-27 の持ち主の答え（点検8）: 上の空の行は画面で上に見えている行の後ろへ（いちばん上なら頭: ''。block.move の afterId と同じ）
+    // 0.13.1 NR8: 入れ子の行では同じ親の、今の行のすぐ前の兄弟の後ろ（いなければ ''）。最上位は画面で上に見えている最上位の行
+    const rows = top ? editRows() : [];
+    const i = rows.findIndex((e) => e.dataset.id === b.id);
+    let afterId = '';
+    if (top && rowDepth(el) > 0) { const l = locate(curPage.blocks, b.id); afterId = l && l.index > 0 ? l.list[l.index - 1].id : ''; }
+    else if (top) { for (let j = i - 1; j >= 0; j--) if (rowDepth(rows[j]) === 0) { afterId = rows[j].dataset.id; break; } }
+    // 0.13.1 TQ3（持ち主の答え「すぐ下に出し、トグルは開いて作る（おすすめ）」）: 子が見えている行では、新しい行は最初の子
+    const inside = !top && kidsShown(b);
+    const args = top ? [pid, b.id, text, at, afterId] : inside ? [pid, b.id, text, at, undefined, true] : [pid, b.id, text, at];
+    const out = await editAnswer(pid, () => window.koeApp.blockSplit(...args), (x) => ({ focus: top ? b.id : x.blockId, caret: 0 }));
     if (!out && el._b === b) { b.text = was; if (pid === curId) txt.textContent = text; }
     return out;
   }
   // 行頭の Backspace（EQ6 (a)）: 型の付いた行はテキストに戻す。テキストの行は今の文ごと前の行につなぐ（block.merge の1つの命令）
   async function backRow(el) {
     const pid = curId; const b = el._b; const txt = el._txt;
+    if (rowDepth(el) > 0) return indentRow(el, 'out');   // 0.13.1 EQ6 (a): 字下げされた行は、まず1段戻す（型も文も変えない）
     if (isTypedView(b)) return turnRow(el, 'paragraph', undefined, 0);
-    if (curPage.blocks.findIndex((x) => x.id === b.id) <= 0) return null;   // 頭の行はつなぐ先が無い
+    // 0.13.1 TQ1（持ち主の答え「画面で上に見えている行（おすすめ）」）: 画面で上に見えている行につなぐ。頭の行はつなぐ先が無い
+    const rows = editRows();
+    const i = rows.indexOf(el);
+    if (i <= 0) return null;
+    const intoId = rows[i - 1].dataset.id;
     const text = txt.textContent;
     const was = b.text;
     b.text = text.trim();
-    const out = await editAnswer(pid, () => window.koeApp.blockMerge(pid, b.id, text), (x) => ({ focus: x.blockId, caret: x.at }));
+    const out = await editAnswer(pid, () => window.koeApp.blockMerge(pid, b.id, text, intoId), (x) => ({ focus: x.blockId, caret: x.at }));
     if (!out && el._b === b) b.text = was;
     return out;
   }
   // 型を変える（決めたこと 11: 編集中の文を先に保存してから）。カーソルは caret へ
-  async function turnRow(el, type, level, caret) {
+  // 0.13.1: toggle が真ならトグル見出し（NR5・NR11）
+  async function turnRow(el, type, level, caret, toggle) {
     const pid = curId; const b = el._b;
     try { await el._txt._commit(pid); } catch (_) { /* 保存の失敗は _commit の答えで知らせる */ }
-    return editAnswer(pid, () => (level === undefined ? window.koeApp.blockTurnInto(pid, b.id, type) : window.koeApp.blockTurnInto(pid, b.id, type, level)),
+    return editAnswer(pid, () => (level === undefined ? window.koeApp.blockTurnInto(pid, b.id, type)
+      : toggle === true ? window.koeApp.blockTurnInto(pid, b.id, type, level, true) : window.koeApp.blockTurnInto(pid, b.id, type, level)),
       () => ({ focus: b.id, caret }));
   }
   // 行頭の記法（E3）。打った記法の文字を消して型を変える。区切り線は変えた後に下にテキストの行を足す（決めたこと 17）
@@ -3439,7 +3681,9 @@
       const b = el._b;
       const v = txt.textContent.trim();
       if (v === b.text) return undefined;
+      if (txt.textContent === b.text) return undefined;   // 点検5: 画面の文が行の文と同じなら直していない（分けた前の文の終わりの空白を削って送り直さない）
       b.text = v;
+      if (pid === curId && curPage) curPage.summaryEdited = true;   // 点検4: 要約の欄を直した印（DB も同じ命令で付ける）
       // 本文を変えたら出典との対応は古くなる。store も stale を付けるが、
       // 次に pageGet するまでの間も札で示す。
       if ((b.type === 'bullet' || b.type === 'todo') && b.citeState !== 'manual') { b.citeState = 'stale'; renderCiteBadge(el, b); }
@@ -3459,6 +3703,10 @@
         if (ev.key === 'Escape') { ev.preventDefault(); slashClose(true); return; }
         if (ev.key === 'Tab') slashClose(true);
       }
+      // 0.13.1 NE-4a（E10・EQ17 (a)・決めたこと 13）: Tab は字下げ・Shift+Tab は1段戻す。できないときも既定の Tab（次の部品へ）は止める
+      if (ev.key === 'Tab' && !mod) { ev.preventDefault(); indentRow(el, ev.shiftKey ? 'out' : 'in'); return; }
+      // 0.13.1 NR17（決めたこと 25）: Esc で文を確定し、この行の ⠿ へ（そこから Tab で欄の外へ）
+      if (ev.key === 'Escape' && !mod) { ev.preventDefault(); txt._commit(curId); const g = el.querySelector('.grip'); if (g) g.focus(); return; }
       if (ev.key === 'Enter' && !mod && ev.shiftKey) { ev.preventDefault(); typeAtCaret(txt, '\n'); }   // 行の中の改行（命令は送らない）
       else if (ev.key === 'Enter' && !mod) { ev.preventDefault(); splitRow(el); }
       else if (ev.key === 'Backspace' && !mod && !ev.shiftKey && caretAtStart(txt)) { ev.preventDefault(); backRow(el); }
@@ -3482,7 +3730,8 @@
     };
   }
   // ---------------- 0.13.0 ED-5（計画の E1・E2・決めたこと 23・30・37〜40・42。EQ7・EQ8・EQ22 (a)）: / メニュー・＋・書き直している途中
-  // / メニューの項目（src/blockEdit.js の VERSION_ROWS の写し: 鍵・型・段・名前・当たる語・記法。test/stage130.edit.app.test.js が照らす）
+  // / メニューの項目（src/blockEdit.js の MENU_ROWS の写し: 鍵・型・段・トグル・名前・当たる語・記法。test/stage130.edit.app.test.js が照らす）。
+  // 0.13.1（NR5）: トグルとトグル見出し1〜3（型の表の1行 th から3つの項目）を足した
   const SLASH_ROWS = [
     { id: 'text', key: 'paragraph', label: 'テキスト', words: ['てきすと', 'text', 'plain'], md: [] },
     { id: 'h1', key: 'heading', level: 1, label: '見出し1', words: ['みだし1', '見出し1', 'h1', '#'], md: ['# '] },
@@ -3491,6 +3740,10 @@
     { id: 'todo', key: 'todo', label: 'ToDo', words: ['とぅーどぅー', 'todo', 'やること', 'チェック'], md: ['[] '] },
     { id: 'bullet', key: 'bullet', label: '箇条書き', words: ['かじょうがき', 'bullet', 'リスト'], md: ['- ', '* ', '+ '] },
     { id: 'numbered', key: 'numbered', label: '番号付き', words: ['ばんごう', 'number', 'numbered'], md: ['1. '] },
+    { id: 'toggle', key: 'toggle', label: 'トグル', words: ['とぐる', 'toggle'], md: ['> '] },
+    { id: 'th1', key: 'heading', level: 1, toggle: true, label: 'トグル見出し1', words: ['とぐるみだし', 'toggle heading'], md: [] },
+    { id: 'th2', key: 'heading', level: 2, toggle: true, label: 'トグル見出し2', words: ['とぐるみだし', 'toggle heading'], md: [] },
+    { id: 'th3', key: 'heading', level: 3, toggle: true, label: 'トグル見出し3', words: ['とぐるみだし', 'toggle heading'], md: [] },
     { id: 'quote', key: 'quote', label: '引用', words: ['いんよう', 'quote'], md: ['" '] },
     { id: 'divider', key: 'divider', label: '区切り線', words: ['くぎり', 'divider', '---'], md: ['---'] },
     { id: 'callout', key: 'callout', label: 'コールアウト', words: ['こーるあうと', 'callout', 'メモ書き'], md: [] },
@@ -3623,10 +3876,17 @@
     setCaret(txt, s.start);
     slashRecent = recentAdd(slashRecent, it.id); saveUi({ slashRecent });
     const pid = curId;
-    const below = (after) => editAnswer(pid, () => (row.level === undefined ? window.koeApp.blockInsert(pid, after, row.key) : window.koeApp.blockInsert(pid, after, row.key, row.level)),
-      (x) => ({ focus: x.blockId, caret: 0 }));
+    // 0.13.1 NR22: 下に足す置き場は Enter と同じ（子が見えている行では最初の子: TQ3）。トグル見出しは toggle を送る
+    const below = (after) => {
+      const inside = kidsShown(b);
+      const args = [pid, inside ? '' : after, row.key];
+      if (row.level !== undefined || inside || row.toggle) args.push(row.level);
+      if (inside || row.toggle) args.push(inside ? b.id : undefined);
+      if (row.toggle) args.push(true);
+      return editAnswer(pid, () => window.koeApp.blockInsert(...args), (x) => ({ focus: x.blockId, caret: 0 }));
+    };
     let out;
-    if (rest.trim() === '') out = await turnRow(el, row.key, row.level, 0);
+    if (rest.trim() === '') out = await turnRow(el, row.key, row.level, 0, row.toggle);
     else {
       try { await txt._commit(pid); } catch (_) { /* 保存の失敗は _commit の答えで知らせる */ }
       out = await below(b.id);
@@ -3642,7 +3902,9 @@
   async function plusRow(el) {
     const pid = curId; const b = el._b;
     try { await el._txt._commit(pid); } catch (_) { /* 保存の失敗は _commit の答えで知らせる */ }
-    const out = await editAnswer(pid, () => window.koeApp.blockInsert(pid, b.id, 'paragraph'), (x) => ({ focus: x.blockId, caret: 0 }));
+    // 0.13.1 NR22: 子が見えている行では最初の子に足す（Enter と同じ置き場）
+    const out = await editAnswer(pid, () => (kidsShown(b) ? window.koeApp.blockInsert(pid, '', 'paragraph', undefined, b.id) : window.koeApp.blockInsert(pid, b.id, 'paragraph')),
+      (x) => ({ focus: x.blockId, caret: 0 }));
     if (!out || pid !== curId) return out;
     const ne = editRows().find((e) => e.dataset.id === out.blockId);
     if (!ne) return out;
@@ -3658,6 +3920,13 @@
     if (!a || !a.classList || !a.classList.contains('txt')) return false;
     const box = $('pNote');
     for (let n = a.parentNode; n; n = n.parentNode) if (n === box) return true;
+    return false;
+  }
+  // 2026-10-26 の持ち主の答え（点検6「書いている間は切り替えない（おすすめ）」）: 録音の前のページのメモ・種類の欄・題名にフォーカスがある
+  function readyBusy() {
+    if (!readyNow() || activeTab !== 'live') return false;
+    const a = document.activeElement;
+    for (let n = a; n; n = n.parentNode) if (n === $('pMemo') || n === $('pTypeRow') || n === $('pTitle')) return true;
     return false;
   }
   // 保存した議事録のタブを、前に出さずに足す（録音中のタブはそのページのタブに替え、録音の前のページは残して末尾に足す）
@@ -3740,8 +4009,10 @@
       const sub = document.createElement('div');
       sub.className = 'blockmenu sub'; sub.setAttribute('role', 'menu'); sub.setAttribute('aria-label', '変換');
       const hasText = m.el._txt.textContent.trim() !== '';
+      const hasKids = Array.isArray(m.el._b.children) && m.el._b.children.length > 0;   // 0.13.1 NR7（EQ16 (a)）: 子のある行も区切り線にできない
       for (const r of SLASH_ROWS) {
-        menuItem(sub, r.label, () => blockMenuDo('turn', r), { key: r.id, off: r.key === 'divider' && hasText ? '文のある行は区切り線にできません' : '' });
+        const off = r.key !== 'divider' ? '' : hasText ? '文のある行は区切り線にできません' : hasKids ? '中に行のある行は区切り線にできません' : '';
+        menuItem(sub, r.label, () => blockMenuDo('turn', r), { key: r.id, off });
       }
       m.box.appendChild(sub);
       if (typeof sub.scrollIntoView === 'function') sub.scrollIntoView({ block: 'nearest' });
@@ -3764,7 +4035,7 @@
     const el = m.el; const b = el._b; const txt = el._txt;
     blockMenuClose();
     const pid = curId;
-    if (what === 'turn') return turnRow(el, row.key, row.level, txt.textContent.length);
+    if (what === 'turn') return turnRow(el, row.key, row.level, txt.textContent.length, row.toggle);
     if (what === 'duplicate') {
       try { await txt._commit(pid); } catch (_) { /* 保存の失敗は _commit の答えで知らせる */ }
       return editAnswer(pid, () => window.koeApp.blockDuplicate(pid, b.id), (x) => ({ focus: x.blockId, caret: txt.textContent.length }));
@@ -3783,33 +4054,57 @@
     if (act === 'menu') { blockMenuOpen(el); return null; }
     if (act.startsWith('turn:')) {
       const row = SLASH_ROWS.find((x) => x.id === act.slice(5));
-      if (!row || (b.type === row.key && (row.key !== 'heading' || headingLevel(b) === row.level))) return null;
-      return turnRow(el, row.key, row.level, caret);
+      if (!row || (b.type === row.key && (row.key !== 'heading' || (headingLevel(b) === row.level && (b.toggle === true) === (row.toggle === true))))) return null;
+      return turnRow(el, row.key, row.level, caret, row.toggle);
     }
     if (act === 'ctrlEnter') {
-      if (b.type !== 'todo') return null;   // トグルの開閉は 0.13.1
+      if (isToggleView(b)) return toggleRow(el, { focus: b.id, caret });   // 0.13.1 決めたこと 28: トグルの開け閉め
+      if (b.type !== 'todo') return null;
       return editAnswer(pid, () => window.koeApp.blockUpdate(pid, b.id, { checked: !b.checked }), () => ({ focus: b.id, caret }));
+    }
+    // 0.13.1 EQ19 (a)・NR21: Ctrl+Alt+T はページのトグルを、1つでも閉じて見えていれば全部開き、全部開いていれば全部閉じる（画面だけの開け閉めも消す）
+    if (act === 'openAll') {
+      const all = flattenBlocks(curPage.blocks).filter(isToggleView);
+      if (!all.length) return null;
+      const open = all.some((x) => !openView(x));
+      peekOpen = new Map();
+      await commitRows(pid);   // 点検 1: 行の文を全部（閉じて隠れる行の文も）
+      return editAnswer(pid, () => window.koeApp.blockSetOpenAll(pid, open), () => ({ focus: b.id, caret }));   // 隠れた行のフォーカスは liftFocus が先祖へ（点検 3）
     }
     try { await txt._commit(pid); } catch (_) { /* 保存の失敗は _commit の答えで知らせる */ }
     if (act === 'duplicate') return editAnswer(pid, () => window.koeApp.blockDuplicate(pid, b.id), (x) => ({ focus: x.blockId, caret }));
-    const rows = editRows();
-    const i = rows.indexOf(el);
-    let afterId = null;
-    if (act === 'moveUp' && i > 0) afterId = i >= 2 ? rows[i - 2].dataset.id : '';   // 1つ上の行の前（＝2つ上の行の後ろ）
-    if (act === 'moveDown' && i >= 0 && i < rows.length - 1) afterId = rows[i + 1].dataset.id;   // 1つ下の行の後ろ
-    if (afterId === null) return null;
-    return editAnswer(pid, () => window.koeApp.blockMove(pid, b.id, { afterId }), () => ({ focus: b.id, caret }));
+    // 0.13.1 NR13: 子は同じ親の兄弟の中だけで1つ上・下へ（親の外へ出す・中へ入れるのは Tab と Shift+Tab）。最上位は画面の最上位の並びで（0.13.0 のまま）
+    let to = null;
+    const l = locate(curPage.blocks, b.id);
+    if (l && l.parent) {
+      if (act === 'moveUp' && l.index > 0) to = l.index >= 2 ? { afterId: l.list[l.index - 2].id } : { afterId: '', parentId: l.parent.id };
+      if (act === 'moveDown' && l.index < l.list.length - 1) to = { afterId: l.list[l.index + 1].id };
+    } else {
+      const tops = editRows().filter((e) => rowDepth(e) === 0);
+      const i = tops.indexOf(el);
+      if (act === 'moveUp' && i > 0) to = { afterId: i >= 2 ? tops[i - 2].dataset.id : '' };   // 1つ上の行の前（＝2つ上の行の後ろ）
+      if (act === 'moveDown' && i >= 0 && i < tops.length - 1) to = { afterId: tops[i + 1].dataset.id };   // 1つ下の行の後ろ
+    }
+    if (to === null) return null;
+    return editAnswer(pid, () => window.koeApp.blockMove(pid, b.id, to), () => ({ focus: b.id, caret }));
   }
   // 番号付きの番号（描くときに数える: 画面の並びで続いた番号付き。間に別の型が入れば 1 から）。行を足し引きした後も数え直す
+  // 0.13.1 NE-4a（F50）: 親ごとに数える（同じ data-parent の行が兄弟の並び。閉じたトグルの子は描かないので数えない）
   function renumberRows() {
     const rows = [...$('pNote').querySelectorAll('.blk')];
-    const nums = numberLabels(rows.map((e) => e._b).filter(Boolean));
+    const groups = new Map();
+    for (const e of rows) { const k = e.dataset.parent || ''; if (!groups.has(k)) groups.set(k, []); if (e._b) groups.get(k).push(e._b); }
+    const nums = new Map();
+    for (const list of groups.values()) for (const [k, v] of numberLabels(list)) nums.set(k, v);
     for (const e of rows) { const n = e.querySelector('.num'); if (n && e._b) n.textContent = nums.get(e._b.id) || '1.'; }
   }
   const blockRows = {
     // 1つの行の要素を作る（文の欄と受け口は1回だけ）。lock は summaryLockView の符号（'' は鍵なし）
-    make(b, lock) {
+    // 0.13.1 NE-4a（NR15）: depth・parentId は段と親（data-depth・data-parent と段の左の余白 --depth）
+    make(b, lock, depth = 0, parentId = '') {
       const el = document.createElement('div');
+      el.dataset.depth = String(depth); el.dataset.parent = parentId || '';
+      if (typeof el.style.setProperty === 'function') el.style.setProperty('--depth', String(depth));   // 段の左の余白（style を持たない偽の DOM でも描ける）
       const txt = document.createElement('div');
       txt.className = 'txt'; txt.contentEditable = lock ? 'false' : 'true'; txt.spellcheck = false;
       txt.textContent = b.text;
@@ -3842,10 +4137,18 @@
       // 0.13.0 ED-6（決めたこと 24・25）: 押すと ⠿ のメニュー。メニューの Esc で戻れるようにフォーカスはできる（Tab の並びには入れない）
       grip.tabIndex = -1; grip.setAttribute('role', 'button'); grip.setAttribute('aria-haspopup', 'menu');
       if (!lock) grip.onclick = () => blockMenuOpen(el);
+      // 0.13.1 NR17（決めたこと 25・EQ17 (a)）: ⠿ で Tab は欄の外の次の部品へ（行の文に入らない）・Shift+Tab は［AI 要約］のタブ・Esc は行の文へ・Enter と Space はメニュー
+      if (!lock) grip.onkeydown = (ev) => {
+        if (imeEnter(ev)) return;
+        if (ev.key === 'Tab') { ev.preventDefault(); if (ev.shiftKey) { const t = $('paneBtnNote'); if (t) t.focus(); } else focusAfterRows(grip); return; }
+        if (ev.key === 'Escape') { ev.preventDefault(); el._txt.focus(); return; }
+        if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); blockMenuOpen(el); }
+      };
       grip.onmousedown = () => { el.draggable = true; };
       grip.onmouseup = () => { el.draggable = false; };
       el.ondragstart = (ev) => {
         dragBlockId = b.id; el.classList.add('dragging');
+        dragStartX = Number(ev.clientX) || 0;
         ev.dataTransfer.effectAllowed = 'move';
         try { ev.dataTransfer.setData('text/plain', b.id); } catch (_) { /* noop */ }
       };
@@ -3870,6 +4173,7 @@
         cb.onchange = async () => {
           await window.koeApp.blockUpdate(curId, b.id, { checked: cb.checked });
           b.checked = cb.checked;
+          if (curPage) curPage.summaryEdited = true;   // 点検4: 要約の欄を直した印（DB も同じ命令で付ける）
           el.classList.toggle('done', cb.checked);
           refreshList();
         };
@@ -3884,12 +4188,26 @@
         const ic = document.createElement('span'); ic.className = 'icon'; ic.textContent = CALLOUT_ICON;   // EQ15 (a): 絵文字は 💡 だけ
         el.insertBefore(ic, txt);
       }
+      // 0.13.1 NE-4b（決めたこと 18・E5）: トグルとトグル見出しは ⠿ と文の間に ▸（押すと開け閉め。鍵の間は画面だけ: NR16）
+      if (isToggleView(b)) {
+        const open = openView(b);
+        const tg = document.createElement('button');
+        tg.type = 'button'; tg.className = 'tog' + (open ? ' open' : '');
+        // 点検 B（NR45）: 印は 16px の線の山形（右向き。開いていれば .open で下向き）
+        tg.innerHTML = '<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3.5l4.5 4.5L6 12.5"/></svg>';
+        tg.title = open ? '閉じる' : '開く'; tg.setAttribute('aria-label', tg.title); tg.setAttribute('aria-expanded', open ? 'true' : 'false');
+        tg.onmousedown = (ev) => ev.preventDefault();   // 押してもフォーカスは行に残す
+        tg.onclick = () => toggleRow(el);
+        el.insertBefore(tg, txt);
+      }
 
       if (lock) {
         renderLockedMeta(el, b);
         return;
       }
 
+      // 2026-10-28 の点検 2（NR46）: 文の右の札（担当・期限・出典）と ✕ は1つの箱（.tail）に入れ、入らないときは箱ごと下の行へ折り返す
+      const tail = document.createElement('span'); tail.className = 'tail';
       // 担当・期限（クリックで編集）
       if (b.type === 'todo') {
         const meta = document.createElement('span'); meta.className = 'ameta';
@@ -3907,20 +4225,22 @@
         due.onclick = () => editTag(due, b.dueRaw, '「来週金曜」「8/30」など（空欄で解除）', (v) =>
           window.koeApp.blockSetAction(curId, b.id, undefined, v));
         meta.append(who, due);
-        el.appendChild(meta);
+        tail.appendChild(meta);
       }
 
       // 出典チップ
       if (b.type === 'bullet' || b.type === 'todo') {
         const wrap = document.createElement('span'); wrap.className = 'cites';
-        el.appendChild(wrap);
+        tail.appendChild(wrap);
+        el.appendChild(tail);
         renderCiteBadge(el, b);
       }
 
       const del = document.createElement('button');
       del.className = 'del'; del.textContent = '×'; del.title = 'この行を削除';
       del.onclick = async () => { await window.koeApp.blockRemove(curId, b.id); await openPage(curId); };
-      el.appendChild(del);
+      tail.appendChild(del);
+      el.appendChild(tail);
     },
   };
   function renderBlocks() {
@@ -3933,8 +4253,13 @@
       clearDropMarks(box);
       const { idx, els } = dropIndexAt(box, ev.clientY);
       if (!els.length) return;
-      if (idx < els.length) els[idx].classList.add('dropmark');
-      else els[els.length - 1].classList.add('dropmark-after');
+      // 0.13.1 NR12: 落とす線は選んだ段の左から（--dropx は印を付けた行の左からのずれ）
+      const spot = dropSpotAt(els, idx, ev.clientX);
+      const mark = idx < els.length ? els[idx] : els[els.length - 1];
+      mark.classList.add(idx < els.length ? 'dropmark' : 'dropmark-after');
+      const dx = (spot.depth - (Number(mark.dataset.depth) || 0)) * 24;
+      if (dx) mark.classList.add('dropshift');
+      if (typeof mark.style.setProperty === 'function') mark.style.setProperty('--dropx', `${dx}px`);
     };
     box.ondrop = async (ev) => {
       if (!dragBlockId) return;
@@ -3944,12 +4269,20 @@
       clearDropMarks(box);
       // 0.13.0 ED-6（決めたこと 18・F26・F46）: 落とした所の画面で上に見えている行の後ろへ（いちばん上なら頭: ''）。番号でなく行で頼むので、
       // 0.11.0 の並べ替えて見せる要約でも上の行の節に入る。動かす前に、その行の打った文を保存する（決めたこと 11）
-      const afterId = idx > 0 ? els[idx - 1].dataset.id : '';
+      // 0.13.1 NR12: 横の位置で段を選ぶ（右へずらすと上の行の子・左へずらすと浅い段）。子だけを動かすと afterId の行と同じ親へ（NR6）
+      const spot = dropSpotAt(els, idx, ev.clientX, id);
+      const afterId = spot.afterId;
+      const into = afterId === '' && spot.parentId ? spot.parentId : undefined;   // 上の行の子の頭
       const pid = curId;
       const row = [...box.querySelectorAll('.blk')].find((e) => e.dataset.id === id);
       if (row && row._txt && typeof row._txt._commit === 'function') { try { await row._txt._commit(pid); } catch (_) { /* 保存の失敗は _commit の答えで知らせる */ } }
       if (ev.altKey) {   // K-21: Alt を押しながら落とすと、その所へ複製（1つの命令）
-        await editAnswer(pid, () => window.koeApp.blockDuplicate(pid, id, afterId), (x) => ({ focus: x.blockId, caret: 0 }));
+        await editAnswer(pid, () => (into ? window.koeApp.blockDuplicate(pid, id, afterId, into) : window.koeApp.blockDuplicate(pid, id, afterId)), (x) => ({ focus: x.blockId, caret: 0 }));
+        return;
+      }
+      if (into) {
+        if (curPage && !openView(locate(curPage.blocks, into).b)) peekOpen.set(into, true);   // NR18: 閉じたトグルの中へ入れた行も見える
+        await editAnswer(pid, () => window.koeApp.blockMove(pid, id, { afterId, parentId: into }), null);
         return;
       }
       await editAnswer(pid, () => window.koeApp.blockMove(pid, id, { afterId }), null);
@@ -3973,7 +4306,8 @@
 
     // 0.11.0 V-2（D48）: 画面の並び（保存の順は変えない）。点のカードは最後（決めたこと 28）
     for (const b of orderForView(curPage.blocks).map((i) => curPage.blocks[i])) {
-      box.appendChild(blockRows.make(b, lock));
+      // 0.13.1 NE-4a（NR15）: 子は親のすぐ後ろに段つきで（閉じたトグルの子は描かない）
+      for (const r of visibleOrder([b], openView)) box.appendChild(blockRows.make(r.b, lock, r.depth, r.parentId));
     }
     renumberRows();
     renderQualityCard(box);   // 0.11.0 V-2: 点のカードは要約の欄の最後（決めたこと 28）
@@ -3981,6 +4315,8 @@
 
   // 鍵の間の ToDo の担当・期限と出典（0.10.0 LS-2）。担当・期限は押せない札で見せる（直す口を持たない）
   function renderLockedMeta(el, b) {
+    const tail = document.createElement('span'); tail.className = 'tail';   // 点検 2（NR46）: 札は1つの箱で折り返す
+    el.appendChild(tail);
     if (b.type === 'todo') {
       const meta = document.createElement('span'); meta.className = 'ameta';
       const di = dueInfo(b.due, b.dueApprox);
@@ -3990,11 +4326,11 @@
         t.type = 'button'; t.className = `atag ${cls}`; t.textContent = text; t.disabled = true;
         meta.appendChild(t);
       }
-      el.appendChild(meta);
+      tail.appendChild(meta);
     }
     if (b.type === 'bullet' || b.type === 'todo') {
       const wrap = document.createElement('span'); wrap.className = 'cites';
-      el.appendChild(wrap);
+      tail.appendChild(wrap);
       renderCiteBadge(el, b);
     }
   }
@@ -4462,7 +4798,8 @@
     // 一時停止していた時間は会議の長さに含めない
     // 停止後は止まった時計を出す。作成中も進み続けると、
     // 会議が実際より長かったように見える。
-    return fmtClock(Math.max(0, (mtStoppedAt || Date.now()) - mtStartedAt - mtPausedMs));
+    // 0.13.0 CLK-3: 一時停止の間も止める（pausedMs は届いた時までの一時停止を含むので、届いた時刻から数えれば動かない）
+    return fmtClock(Math.max(0, (mtStoppedAt || mtPausedAt || Date.now()) - mtStartedAt - mtPausedMs));
   }
   // 会議の段（設計書「保存の土台」の 10 の名前。done は締めの後にページを開くので画面には出ない）
   function meetingPhase(st) {
@@ -4676,9 +5013,14 @@
     box.scrollTop = box.scrollHeight;
   }
   function setMeetingUi(st) {
+    // 0.13.2 LN-5: 録音中かで［もう一度文字起こし］の押せる・押せない。点検の直し 3（LR38）: 録音していないときは main に聞き直す（録音中に読んだ busy を持ち越さない）
+    try { setMeetingUiInner(st); } finally { if (st && !st.active) refreshPending(); else renderPending(); }
+  }
+  function setMeetingUiInner(st) {
     mtStartedAt = st.startedAt;
     mtStoppedAt = st.stoppedAt || null;
     mtPausedMs = st.pausedMs || 0;
+    mtPausedAt = st.paused ? Date.now() : null;
     mtSt = st;
     const phase = meetingPhase(st);
     const phaseChanged = phase !== mtPhase;
@@ -5005,7 +5347,10 @@
   // 帯のボタン: ［ログインし直す］は知らせのボタンと同じ道（設定の「アカウント」・メールの欄）、［エンジンを確かめる］は「未設定」の知らせと同じ道、
   // ［もう一度］は main の meeting:retry を1回（返事まで押せない。帯は main の meeting:update が描き直す）
   async function sttBannerAct() {
-    if (sttAct === 'account' || sttAct === 'signin') { showAccount(); return; }
+    // 0.13.2 LN-3（LR8）: 帯の［ログイン］（no-login・kept-login）は設定の［ログイン］と同じログインの窓を直に開く（録音中でもモーダルでない: F27）。
+    // ［ログインし直す］（login）は今どおり設定の「アカウント」
+    if (sttAct === 'signin') { await bannerSignIn(); return; }
+    if (sttAct === 'account') { showAccount(); return; }
     if (sttAct === 'engine' || sttAct === 'offline') { showEngineSettings(); return; }
     if (sttAct !== 'retry' || sttRetrying) return;
     sttRetrying = true;
@@ -5128,6 +5473,7 @@
   function pageOpenFromMain(id, o) {
     // 0.13.0 ED-5（EQ22 (a)・決めたこと 42）: 保存した印の page:open は、要約を書き直している途中なら前に出さない（タブだけを替える・足す）
     if (o && o.saved === true && summaryBusy()) { tabBehind(id); return; }
+    if (o && o.saved === true && readyBusy()) { tabBehind(id); return; }   // 点検6: 録音の前のページに書いている間も前に出さない（後ろのタブに足す）
     if (readyNow()) { openPageTab(id, { newTab: true }); return; }
     openPageTab(id, { replaceLive: true });
   }
@@ -5169,6 +5515,7 @@
       setPane('script');
       els = rows.slice(a, (b >= a ? b : ids.lastIndexOf(from)) + 1);
     } else if (kind === 'b') {
+      if (curPage && peekReveal(rest)) renderBlocks();   // 0.13.1 NR18: 閉じたトグルの中の行なら、親のトグルを画面だけで開く
       const el = [...$('pNote').querySelectorAll('.blk')].find((e) => e.dataset.id === rest);
       if (!el) { toast(LINK_NO_SPOT); return; }
       setPane('note');
@@ -5216,6 +5563,60 @@
     if (act) toast(text, act);
     else toast(text);
   });
+
+  // ================= 0.13.2 LN-5（持ち主の答え LA4・PQ4・決めたこと 8・9）: 議事録のページの「残り n 区間」と［もう一度文字起こし］ =================
+  // 数えるのは main（page:pending の答えと、区間を1つ片付けるたびの知らせ）。画面は数えない。録音中のページ（写し）には出さない（帯と状態の行がある）
+  let pendNow = null;        // { id, left, running, busy }
+  let pendPressing = false;  // ［もう一度文字起こし］の返事を待つ間（2回押しても1回だけ頼む）
+  const pendShowable = () => Boolean(curPage && curPage.id && !$('pageWrap').classList.contains('live-on'));
+  function renderPending() {
+    const box = $('pPending');
+    const p = pendNow && curPage && pendNow.id === curPage.id ? pendNow : null;
+    const show = Boolean(p && p.left > 0 && pendShowable() && pane === 'script');
+    box.hidden = !show;
+    if (!show) return;
+    const busy = Boolean(p.busy || (mtSt && mtSt.active));
+    const text = p.running ? `文字起こししています（残り ${p.left} 区間）` : `文字起こし待ち: 残り ${p.left} 区間`;
+    if ($('pPendingText').textContent !== text) $('pPendingText').textContent = text;
+    const b = $('pRetranscribe');
+    b.disabled = Boolean(p.running || busy || pendPressing);
+    b.title = busy ? '録音が終わってから押してください。' : '';
+  }
+  async function refreshPending() {
+    if (!window.koeApp.pagePending || !pendShowable()) { renderPending(); return; }
+    const id = curPage.id;
+    let r = null;
+    try { r = await window.koeApp.pagePending(id); } catch (_) { r = null; }
+    if (r && typeof r === 'object' && curPage && curPage.id === id) pendNow = { id, left: Number(r.left) || 0, running: Boolean(r.running), busy: Boolean(r.busy) };
+    renderPending();
+  }
+  if (window.koeApp.onPagePending) window.koeApp.onPagePending((p) => {
+    if (!p || typeof p !== 'object' || typeof p.id !== 'string') return;
+    const busy = pendNow && pendNow.id === p.id ? pendNow.busy : false;
+    pendNow = { id: p.id, left: Number(p.left) || 0, running: Boolean(p.running), busy };
+    renderPending();
+    refreshPendingBusy(p.id);   // 0.13.2 点検の直し 3（LR38）: busy は持ち越さず main に聞き直す（数と回っているかは知らせのまま）
+  });
+  async function refreshPendingBusy(id) {
+    if (!window.koeApp.pagePending || !curPage || curPage.id !== id) return;
+    let r = null;
+    try { r = await window.koeApp.pagePending(id); } catch (_) { r = null; }
+    if (r && typeof r === 'object' && pendNow && pendNow.id === id) { pendNow = { ...pendNow, busy: Boolean(r.busy) }; renderPending(); }
+  }
+  $('pRetranscribe').onclick = async () => {
+    if (pendPressing || !pendShowable() || !window.koeApp.pageRetranscribe) return;
+    const id = curPage.id;
+    pendPressing = true;
+    renderPending();
+    let r = null;
+    try { r = await window.koeApp.pageRetranscribe(id); } catch (_) { r = null; } finally { pendPressing = false; }
+    if (pendNow && pendNow.id === id) {
+      if (r && r.ok) pendNow = { ...pendNow, left: Number(r.left) || pendNow.left, running: true };
+      else if (r && r.code === 'busy') pendNow = { ...pendNow, busy: true };
+      else if (r && r.code === 'none') pendNow = { ...pendNow, left: 0 };
+    }
+    renderPending();
+  };
 
   // ================= 音声入力 =================
   function fmtChars(n) { return n >= 10000 ? `${(n/10000).toFixed(1)}万` : String(n); }
@@ -5901,6 +6302,19 @@
     accountMsg((r && r.message) || (r && r.ok ? '' : 'ログアウトできませんでした。'), Boolean(r && r.ok));
     await refreshAccount();
   };
+  // 0.13.2 LN-3（LR8）: 帯の［ログイン］。返事の前に2回押しても1回だけ頼む（設定の［ログイン］と同じ accountBusy）。文は main が返す message をそのまま
+  // 左下の知らせに出し（ログインできなかった理由も: LR19）、設定の「アカウント」の行を読み直す
+  async function bannerSignIn() {
+    if (accountBusy) return;
+    setAccountBusy(true);
+    let r = null;
+    try { r = await window.koeApp.accountLogin(); } catch (_) { r = null; } finally { setAccountBusy(false); }
+    const msg = (r && r.message) || (r && r.ok ? '' : 'ログインできませんでした。');
+    if (msg) toast(msg);
+    await refreshAccount();
+  }
+  // 0.13.2 LN-4（LR20）: 自動で開いたログインの窓でログインできたら、設定の「アカウント」の行を読み直す（古い preload には無い）
+  if (window.koeApp.onAccountChanged) window.koeApp.onAccountChanged(() => { refreshAccount(); });
   // ログイン切れの知らせと帯の［ログインし直す］（F5）: 設定の「アカウント」を開き、［ログイン］へ（窓は自分から開かない: F27）
   async function showAccount() {
     openSettings('account');

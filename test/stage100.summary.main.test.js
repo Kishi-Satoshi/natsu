@@ -32,6 +32,10 @@ function tryEdits(db, pageId, blockId) {
     ['block.turnInto', { pageId, blockId, type: 'numbered' }],
     ['block.duplicate', { pageId, blockId }],
     ['block.move', { pageId, blockId, afterId: '' }],
+    // 0.13.1 NE-2（計画 docs/plans/2026-10-27-131.md の決めたこと 6）で意図して足した: 字下げとトグルの開け閉めも鍵で断る
+    ['block.indent', { pageId, blockId, dir: 'out' }],
+    ['block.setOpen', { pageId, blockId, open: false }],
+    ['block.setOpenAll', { pageId, open: false }],
   ];
   return cmds.map(([cmd, args]) => { const r = call(db, cmd, args); return [cmd, r.ok ? 'ok' : r.code]; });
 }

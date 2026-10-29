@@ -4,7 +4,9 @@
  * 1つの命令 = oplog の1行 = 操作の配列。どの操作も前の値を持つので、後ろへ当てれば元に戻せる（第2b回の「元に戻す」）。
  * 控えに後の oplog を前へ当て直せば今の表になる（D-7）。操作の形（どれも id は blocks の行の id。seg だけ発言の id）:
  *   { op: 'add', id, row }                ブロックかページの行を足す（row は下の blockRow・pageRow の形）。後ろへは消す
- *   { op: 'move', id, ord, old }          並びの鍵を変える
+ *   { op: 'move', id, ord, old }          並びの鍵を変える（鍵は同じ親の兄弟の中の並び: 0.13.1 NR1）
+ *   { op: 'move', id, ord, old, parent, oldParent }  親も変える（0.13.1 決めたこと 7。親が変わったときだけ parent・oldParent を持つ。
+ *                                         後ろへ当てれば前の親と鍵に戻る。子は親の ID を指したままなので書かない）
  *   { op: 'set', id, key, value, old }    欄を変える。ページの行の createdAt・updatedAt は列、rich はどの行でも列、
  *                                         ほかは attrs の欄。value・old が無い（undefined。JSON にすると欄ごと消える）なら欄を消す
  *   { op: 'text', id, value, old }        text を変える（ページの行は題名）
@@ -54,9 +56,10 @@ function pageRow(page, { ord = PAGE_ORD } = {}) {
   };
 }
 
-function blockRow(b, pageId, ord) {
+// parentId は親の行の ID（最上位はページの ID。0.13.1 決めたこと 7: 子は parent_id と兄弟の中の鍵 ord を持つ）
+function blockRow(b, pageId, ord, parentId = pageId) {
   return {
-    id: b.id, type: b.type, page_id: pageId, parent_id: pageId, ord,
+    id: b.id, type: b.type, page_id: pageId, parent_id: parentId, ord,
     text: str(b.text), rich: Array.isArray(b.rich) ? b.rich : null, attrs: pick(b, BLOCK_FIXED),
     rev: 1, created_at: '', updated_at: '', trashed_at: null,
   };
@@ -117,47 +120,69 @@ function colValue(key, v) {
 }
 
 // diffPage(oldPage, newPage, { ords }) → ops。oldPage が null なら新しいページ（行を全部足す）。
-// ords は前のブロックの id → 並びの鍵（DB の今の値）。無ければ前の並びに evenKeys を当てたものとみなす
+// ords は前のブロックの id → 並びの鍵（DB の今の値）。無ければ前の兄弟の並びに evenKeys を当てたものとみなす。
+// 0.13.1（決めたこと 7・NR1）: ブロックは木（children）。木を親ごとの兄弟の並びに分けて比べ、鍵は兄弟の中の並び。
+// 同じ親に残った行のうち、前の並びの順を保ついちばん長い列（LIS）は動かさず、ほかの行（親が変わった行も）だけに新しい鍵を書く
+// （字下げ・動かすは動かした行の1行だけ。子は親の ID を指したままなので書かない）。消した行の子孫も trash（page.put の往復で木を壊さない: F54）
+const kidsOf = (b) => (isObj(b) && Array.isArray(b.children) ? b.children.filter(isObj) : []);
 function diffPage(oldPage, newPage, { ords } = {}) {
   if (!isObj(newPage) || typeof newPage.id !== 'string') throw new Error('diffPage: 新しいページの形が正しくない');
   const pid = newPage.id;
-  const newBlocks = Array.isArray(newPage.blocks) ? newPage.blocks : [];
+  const newBlocks = Array.isArray(newPage.blocks) ? newPage.blocks.filter(isObj) : [];
   if (!oldPage) {
-    const keys = evenKeys(newBlocks.length);
-    return [{ op: 'add', id: pid, row: pageRow(newPage) }, ...newBlocks.map((b, i) => ({ op: 'add', id: b.id, row: blockRow(b, pid, keys[i]) }))];
+    const ops = [{ op: 'add', id: pid, row: pageRow(newPage) }];
+    const addAll = (list, parent) => {
+      const keys = evenKeys(list.length);
+      list.forEach((b, i) => { ops.push({ op: 'add', id: b.id, row: blockRow(b, pid, keys[i], parent) }); addAll(kidsOf(b), b.id); });
+    };
+    addAll(newBlocks, pid);
+    return ops;
   }
   const ops = [];
   // ページの行
   if (str(oldPage.title) !== str(newPage.title)) ops.push({ op: 'text', id: pid, value: str(newPage.title), old: str(oldPage.title) });
   ops.push(...setOps(pid, pick(oldPage, DB_MADE), pick(newPage, DB_MADE), PAGE_FIXED, ['createdAt', 'updatedAt']));
-  // ブロック
-  const oldBlocks = Array.isArray(oldPage.blocks) ? oldPage.blocks : [];
-  const even = evenKeys(oldBlocks.length);
-  const oldOrd = new Map(oldBlocks.map((b, i) => [b.id, isObj(ords) && typeof ords[b.id] === 'string' ? ords[b.id] : even[i]]));
-  const oldById = new Map(oldBlocks.map((b, i) => [b.id, { b, i }]));
-  const newIds = new Set(newBlocks.map((b) => b.id));
-  for (const b of oldBlocks) if (!newIds.has(b.id)) ops.push({ op: 'trash', id: b.id, old: blockRow(b, pid, oldOrd.get(b.id)) });
-  const survivors = newBlocks.filter((b) => oldById.has(b.id));
-  const keep = stayingSet(survivors.map((b) => oldById.get(b.id).i));
-  const stays = new Set([...keep].map((i) => survivors[i].id));
-  let prevKey = null;
-  newBlocks.forEach((b, i) => {
-    let key;
-    if (stays.has(b.id)) key = oldOrd.get(b.id);
-    else {
-      let next = null;
-      for (let j = i + 1; j < newBlocks.length; j++) if (stays.has(newBlocks[j].id)) { next = oldOrd.get(newBlocks[j].id); break; }
-      key = keyBetween(prevKey, next);
-    }
-    prevKey = key;
-    const was = oldById.get(b.id);
-    if (!was) { ops.push({ op: 'add', id: b.id, row: blockRow(b, pid, key) }); return; }
-    const a = was.b;
-    if (str(a.text) !== str(b.text)) ops.push({ op: 'text', id: b.id, value: str(b.text), old: str(a.text) });
-    if (a.type !== b.type) ops.push({ op: 'retype', id: b.id, value: b.type, old: a.type });
-    ops.push(...setOps(b.id, a, b, BLOCK_FIXED, ['rich']));
-    if (!stays.has(b.id)) ops.push({ op: 'move', id: b.id, ord: key, old: oldOrd.get(b.id) });
-  });
+  // ブロック（前の木: id → { b, parent, i（兄弟の中の位置）, ord }）
+  const oldInfo = new Map();
+  const scanOld = (list, parent) => {
+    const even = evenKeys(list.length);
+    list.forEach((b, i) => {
+      oldInfo.set(b.id, { b, parent, i, ord: isObj(ords) && typeof ords[b.id] === 'string' ? ords[b.id] : even[i] });
+      scanOld(kidsOf(b), b.id);
+    });
+  };
+  scanOld(Array.isArray(oldPage.blocks) ? oldPage.blocks.filter(isObj) : [], pid);
+  const newIds = new Set();
+  const scanNew = (list) => { for (const b of list) { newIds.add(b.id); scanNew(kidsOf(b)); } };
+  scanNew(newBlocks);
+  for (const [id, w] of oldInfo) if (!newIds.has(id)) ops.push({ op: 'trash', id, old: blockRow(w.b, pid, w.ord, w.parent) });
+  const walkNew = (list, parent) => {
+    const survivors = list.filter((b) => oldInfo.has(b.id) && oldInfo.get(b.id).parent === parent);
+    const keep = stayingSet(survivors.map((b) => oldInfo.get(b.id).i));
+    const stays = new Set([...keep].map((i) => survivors[i].id));
+    let prevKey = null;
+    list.forEach((b, i) => {
+      let key;
+      if (stays.has(b.id)) key = oldInfo.get(b.id).ord;
+      else {
+        let next = null;
+        for (let j = i + 1; j < list.length; j++) if (stays.has(list[j].id)) { next = oldInfo.get(list[j].id).ord; break; }
+        key = keyBetween(prevKey, next);
+      }
+      prevKey = key;
+      const was = oldInfo.get(b.id);
+      if (!was) ops.push({ op: 'add', id: b.id, row: blockRow(b, pid, key, parent) });
+      else {
+        const a = was.b;
+        if (str(a.text) !== str(b.text)) ops.push({ op: 'text', id: b.id, value: str(b.text), old: str(a.text) });
+        if (a.type !== b.type) ops.push({ op: 'retype', id: b.id, value: b.type, old: a.type });
+        ops.push(...setOps(b.id, a, b, BLOCK_FIXED, ['rich']));
+        if (!stays.has(b.id)) ops.push({ op: 'move', id: b.id, ord: key, old: was.ord, ...(was.parent !== parent ? { parent, oldParent: was.parent } : {}) });
+      }
+      walkNew(kidsOf(b), b.id);
+    });
+  };
+  walkNew(newBlocks, pid);
   return ops;
 }
 
@@ -251,6 +276,8 @@ function applyOne(db, o, back, st) {
     case 'move': {
       const r = rowOf(db, o.id);
       db.prepare('update blocks set ord = ? where id = ?').run(back ? o.old : o.ord, o.id);
+      // 0.13.1（決めたこと 7）: 親が変わった move は parent_id も（後ろへは前の親に）
+      if (typeof o.parent === 'string') db.prepare('update blocks set parent_id = ? where id = ?').run(back ? o.oldParent : o.parent, o.id);
       st.touched.add(r.page_id);
       return;
     }
