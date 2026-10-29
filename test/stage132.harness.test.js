@@ -56,6 +56,13 @@ test('LN-1・LR14: 締めの答えを遅らせても、録音の前のメモと�
   assert.deepStrictEqual(o.pageMemos.map((p) => [p.memo, p.meetingType]), [[MEMO, 'sales']]);
 });
 
+// 0.13.2 点検の直し 5（LR40）: DB の答えを毎回遅らせる場面（dbDelayMs・--db-delay）でも、締めの呼び出しの印を遅らせる前に残す（遅らせている間に
+// 「呼び出し 0・答え 0」で締めの済んだ形と読まない）
+test('LN-1・LR14・点検の直し 5: DB の答えを毎回 400 ミリ秒遅らせた場面（--db-delay=400）でも、stop の後に読んだページは締めの後の形', S, async () => {
+  const o = await run([['hotkey-meeting'], ['stop']], '--db-delay=400');
+  finalized(o);
+});
+
 // ---------------------------------------------------------------- LR15
 const made = [];
 test.after(() => { for (const d of made) { try { fs.rmSync(d, { recursive: true, force: true }); } catch (_) { /* noop */ } } });

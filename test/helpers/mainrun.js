@@ -430,6 +430,7 @@ const { titleAt } = require('./titles');
 //                        snap に logins（作ったログインの窓の数）、出力に loginWins（窓ごとの記録の写し）を足す
 //   0.13.2 LN-5: --mic-feed の手順に ["final-only"]（最後の空の区間を送り、待機に戻るまでだけ待つ）・["wait-finalized"]（締めの答えまで待つ）。
 //     --idle の --extra-queue-late=held（held・失敗・止まった区間と音声の無い区間の待ち行列）と --retranscribe（［もう一度文字起こし］を押す。上の注）
+//   0.13.2 点検の直し 5: --db-delay=<ms>（main の db.call の答えを毎回 ms 遅らせる。json-scenes の dbDelayMs と同じ。--mic-feed の場面で使う）
 //   0.13.2 点検の直し 4: --retranscribe-during-tick（見回りの回が区間を送っている途中に［もう一度文字起こし］を押す。上の --retranscribe と組む）
 //   0.13.2 点検の直し 2: --mic-feed の手順に ["wait-settled"]（起動の片付け＝下書きの復旧が済み、meeting.settle を頼むまで待つ）・snap に settled
 //   0.13.2 点検の直し（重要 1）: --extra-queue-late=held-all（3区間とも held の待ち行列）・--retranscribe-ticks=<n>（押した回が止まった後に見回りを n 回。out.afterTicks）
@@ -618,6 +619,7 @@ const recoverMode = flags.includes('--recover');
 // 0.13.2 LN-1（LR14）: --finalize-delay=<ms> … 偽の DB の締め（meeting.finalize）の答えだけを ms 遅らせる（呼んだ印 call を残した後、DB へ渡す前に待つ。
 // CI が混んで DB の書き込みが遅れた形。試験の台の中だけで、src/ には足さない）
 const finalizeDelayMs = Number(flagVal('--finalize-delay')) || 0;
+const dbDelayFlag = Number(flagVal('--db-delay')) || 0;   // 0.13.2 点検の直し 5: 場面の dbDelayMs と同じ遅らせ方を --mic-feed の場面でも
 const slowAck = (() => { const m = /^([\w.]+):(\d+)$/.exec(flagVal('--slow-ack') || ''); return m ? { cmd: m[1], ms: Number(m[2]) } : null; })();
 const afterRetry = flags.includes('--after-retry');
 const noVcRuntime = flags.includes('--no-vc-runtime');
@@ -2080,11 +2082,12 @@ process.on('exit', () => {
       return { ...mod, makeDbClient: (...a) => {
         const c = mod.makeDbClient(...a);
         dbClient = c;
-        const delayMs = scene && scene.dbDelayMs ? scene.dbDelayMs : 0;
+        const delayMs = scene && scene.dbDelayMs ? scene.dbDelayMs : dbDelayFlag;
         // 答えを受けた印（ack）は、main の await が先へ進む前に残る（下書きを消したのが返事の後かを順で見る）
+        // 0.13.2 点検の直し 5（LR40）: 呼び出しの印は遅らせる前に残す（遅らせている間に、締めの待ち（finalized）が「呼び出し 0・答え 0」で済んだと読まない）
         const call = async (cmd, args, o) => {
-          if (delayMs) await sleep(delayMs);
           trace.push({ kind: 'call', cmd, ...(cmd === 'snapshot.take' && args ? { snap: args.kind } : {}) });
+          if (delayMs) await sleep(delayMs);
           try {
             if (finalizeDelayMs && cmd === 'meeting.finalize') await sleep(finalizeDelayMs);   // 0.13.2 LN-1: --finalize-delay
             const r = await c.call(cmd, args, o);
