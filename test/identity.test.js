@@ -702,12 +702,12 @@ test('0.13.1: CHANGELOG の 0.13.1 の節（計画の下書きから移した）
 });
 
 // 0.13.2（計画 docs/plans/2026-10-28-132.md の「CHANGELOG の 0.13.2 の節（下書き）」。Task G）: 版を 0.13.2 に上げる commit で、下書きを日付つきの見出し
-// （## natsu-v0.13.2 （2026-10-28））で CHANGELOG.md の頭（0.13.1 の節の上）へ移した。持ち主が読む言葉で、自動で開くログインの窓・帯・残った区間をログインしていれば
+// （## natsu-v0.13.2 （2026-10-29））で CHANGELOG.md の頭（0.13.1 の節の上）へ移した。持ち主が読む言葉で、自動で開くログインの窓・帯・残った区間をログインしていれば
 // クラウドで・［もう一度文字起こし］と「残り n 区間」・パネルを下の中央に・会議を出て止めた知らせを書く。計画には「移した」の1行だけを残す
 test('0.13.2: CHANGELOG の 0.13.2 の節（計画の下書きから移した）は日付つきの見出しで CHANGELOG の頭（0.13.1 の節の上）にあり、ログインの窓・帯・残った区間をクラウドで・［もう一度文字起こし］と残り n 区間・パネルを下の中央に・会議を出た知らせを書き、引いた［…］はどれも src/ にある', () => {
   const cl = read('CHANGELOG.md');
   const lines = cl.replace(/\r\n?/g, '\n').split('\n');
-  assert.ok(lines.includes('## natsu-v0.13.2 （2026-10-28）'), 'CHANGELOG.md に「## natsu-v0.13.2 （2026-10-28）」の見出しが無い');
+  assert.ok(lines.includes('## natsu-v0.13.2 （2026-10-29）'), 'CHANGELOG.md に「## natsu-v0.13.2 （2026-10-29）」の見出しが無い');
   assert.ok(cl.indexOf('## natsu-v0.13.2') < cl.indexOf('## natsu-v0.13.1'), '0.13.2 の節が 0.13.1 の節の上に無い');
   assert.ok(cl.indexOf('\n## natsu-v') === cl.indexOf('\n## natsu-v0.13.2'), '0.13.2 の節が CHANGELOG の頭に無い');
   const sec = secOf(cl, '## natsu-v0.13.2');
