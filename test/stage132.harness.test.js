@@ -99,6 +99,48 @@ test('LN-1・LR15: failsOf は TAP の中の赤いテスト（入れ子も）の
   assert.deepStrictEqual(M.failsOf(undefined), []);
 });
 
+// 0.13.2 点検の直し 7（LR42）: YAML の塊（--- から ...）の中の字下げした「not ok N - 」（理由の文に写った別の TAP など）を赤いテストと読まない
+test('LN-1・LR15・点検の直し 7: failsOf は YAML の塊の中の字下げした not ok の行を数えない（塊の外の入れ子の赤いテストは今どおり数える）', { timeout: 5000 }, () => {
+  const tap = [
+    'TAP version 13',
+    '# Subtest: 親',
+    '    # Subtest: 子が赤',
+    '    not ok 1 - 子が赤',
+    '      ---',
+    '      duration_ms: 1',
+    "      failureType: 'testCodeFailure'",
+    '      error: |-',
+    '        写った別の出力:',
+    '        not ok 7 - 幽霊',
+    '          not ok 8 - 幽霊の子',
+    '      ...',
+    '    1..1',
+    'not ok 1 - 親',
+    '  ---',
+    "  failureType: 'subtestsFailed'",
+    '  ...',
+    '# Subtest: 本物',
+    'not ok 2 - 本物',
+    '  ---',
+    "  failureType: 'testCodeFailure'",
+    '  error: |-',
+    '    子の TAP:',
+    '    not ok 3 - 理由の中の幽霊',
+    '  ...',
+    '# Subtest: 緑',
+    'ok 3 - 緑',
+    '  ---',
+    '  duration_ms: 1',
+    '  stdout: |-',
+    '      not ok 5 - 緑の中の幽霊',
+    '  ...',
+    '1..3',
+  ].join('\n');
+  const fails = M.failsOf(tap);
+  assert.deepStrictEqual(fails.map((f) => f.name), ['子が赤', '本物'], JSON.stringify(fails));
+  assert.match(fails[0].reason, /幽霊/, '理由の文が失われた');
+});
+
 test('LN-1・LR15: 赤いテストが最初にあり、その後に 8000 文字より長い緑の出力が続く写しで runAll を回すと、baseline-red の fails に赤いテストの名前がある。報告に ✖ <名前> が出る', { timeout: 30000 }, async () => {
   const root = tmpDir();
   for (const d of ['src', 'test', 'tools']) fs.mkdirSync(path.join(root, d));

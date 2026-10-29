@@ -112,11 +112,17 @@ function runTests(cwd, tests, timeoutMs, pattern, keepAll = false) {
 
 // 0.13.2 LN-1（LR15）: TAP の赤いテスト。行の頭の空白は入れ子の深さ（node --test は 4 つずつ下げる）。名前の \# と \\ は TAP の書き方を戻す
 const FAIL_LINE = /^(\s*)not ok \d+ - (.*)$/;
+const TEST_LINE = /^\s*(not )?ok \d+ - /;   // 0.13.2 点検の直し 7: YAML の塊の前のテストの行
 const REASON_MAX = 40;
 function failsOf(tap) {
   const lines = String(tap || '').split(/\r?\n/);
   const out = [];
+  // 0.13.2 点検の直し 7（LR42）: テストの行（ok・not ok）の直後の --- から ... までは YAML の塊。塊の中の字下げした「not ok N - 」（理由の文に写った別の TAP）は数えない
+  let inYaml = false;
   for (let i = 0; i < lines.length; i++) {
+    const t = lines[i].trim();
+    if (inYaml) { if (t === '...') inYaml = false; continue; }
+    if (t === '---' && i > 0 && TEST_LINE.test(lines[i - 1])) { inYaml = true; continue; }
     const m = FAIL_LINE.exec(lines[i]);
     if (!m) continue;
     let name = m[2];
