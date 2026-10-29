@@ -267,8 +267,8 @@ function inlineShortcut(before) {
 }
 
 // ---------------------------------------------------------------- ［コピー］の Markdown（R13: 下線と色は文字だけ）
-// 区切りの頭と終わりの空白は記号の外に出す（「**a **」は太字に読まれない）。リンクの住所の空白・括弧は %xx にする（R94）
-const mdUrl = (u) => u.replace(/[\s()<>]/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase().padStart(2, '0')}`);
+// 区切りの頭と終わりの空白は記号の外に出す（「**a **」は太字に読まれない）。リンクの住所の括弧と <> は %xx にする（R94。空白のある住所は linkOk が断り、整えた rich に残らない: R102）
+const mdUrl = (u) => u.replace(/[()<>]/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase().padStart(2, '0')}`);
 function richMarkdown(rich) {
   return tidy(rich).map(({ t, m }) => {
     if (!m.length) return t;

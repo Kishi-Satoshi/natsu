@@ -613,6 +613,7 @@ function editRevert(db, a, ctx) {
     applyOps(db, back);
     fits = placesFit(db, a.pageId, back);
     const w = loadPage(db, a.pageId);
+    if (w.orphans > l.orphans) fits = false;   // EB-2 直し（R90）: 戻すと親の輪・親の無い子が増える（後からほかの書き手が木を変えた）
     const next = clone(w.page);
     const retexted = new Set(back.filter((o) => o.op === 'text').map((o) => o.id));
     for (const x of BT.flattenBlocks(next.blocks)) if (retexted.has(x.id)) { if (isCitable(x.text)) delete x.citeSkip; else x.citeSkip = true; }

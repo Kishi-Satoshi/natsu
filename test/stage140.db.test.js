@@ -582,3 +582,123 @@ test('EB-1 直し・I4（R90）: 戻すと前の親がもう無い・前の並�
     assert.strictEqual(JSON.stringify(raw(db)), was);
   });
 });
+
+// ---------------------------------------------------------------- EB-2 直し（2026-10-29 の点検）
+const kid2 = (id, o = {}) => ({ id, type: 'bullet', text: `${id}の行の文です`, citeState: 'manual', cites: [], ...o });
+const orphansOf = (db) => BT.buildTree(db.prepare('select id, parent_id from blocks where page_id = ? and id <> ?').all('pa1', 'pa1').map((r) => ({ id: r.id, parent_id: r.parent_id, block: {} })), 'pa1').orphans;   // 親の無い子と輪の中の行の数
+
+test('EB-2 直し・R90: 戻すと親の輪ができる歩み（a1 を外に出した後に、ほかの書き手が a を a1 の子にした）は stale で、何も変わらない', T, () => withDb((db) => {
+  const s = call(db, 'block.indent', { pageId: 'pa1', blockId: 'a1', dir: 'out' });
+  assert.strictEqual(s.ok, true, s.code);
+  const m = call(db, 'block.move', { pageId: 'pa1', blockId: 'a', afterId: '', parentId: 'a1' }, 'main');
+  assert.strictEqual(m.ok, true, m.code);
+  assert.strictEqual(orphansOf(db), 0);
+  const was = JSON.stringify(raw(db));
+  const r = revert(db, [s.tx]);
+  assert.deepStrictEqual([r.ok, r.code], [false, 'stale'], '戻して a と a1 が互いの親になった');
+  assert.strictEqual(JSON.stringify(raw(db)), was);
+  assert.strictEqual(orphansOf(db), 0);
+}, { blocks: [kid2('x'), kid2('a', { children: [kid2('a1')] }), kid2('y')] }));
+
+test('EB-2 直し・R90: 戻すと親の無い子ができる歩み（足した行の子に、ほかの書き手が行を入れた）は stale で、何も変わらない', T, () => withDb((db) => {
+  const s = call(db, 'block.insert', { pageId: 'pa1', afterBlockId: 'x', type: 'bullet' });
+  assert.strictEqual(s.ok, true, s.code);
+  const n = s.result.blockId;
+  const m = call(db, 'block.move', { pageId: 'pa1', blockId: 'y', afterId: '', parentId: n }, 'main');
+  assert.strictEqual(m.ok, true, m.code);
+  const was = JSON.stringify(raw(db));
+  const r = revert(db, [s.tx]);
+  assert.deepStrictEqual([r.ok, r.code], [false, 'stale'], '戻して y が消えた行を親に持った');
+  assert.strictEqual(JSON.stringify(raw(db)), was);
+  assert.strictEqual(orphansOf(db), 0);
+}, { blocks: [kid2('x'), kid2('y')] }));
+
+test('EB-2 直し: 歩みの tx を古い順でなく渡しても、oplog の順（seq）に重ねて戻す（stale にならない）', T, () => withDb((db) => {
+  const before = get(db);
+  const s1 = call(db, 'block.update', { pageId: 'pa1', blockId: 'b2', patch: { text: '一度目に直した文です' } });
+  const s2 = call(db, 'block.update', { pageId: 'pa1', blockId: 'b2', patch: { text: '二度目に直した文です' } });
+  assert.ok(s1.ok && s2.ok);
+  const r = revert(db, [s2.tx, s1.tx]);
+  assert.strictEqual(r.ok, true, r.code);
+  assert.deepStrictEqual(body(get(db)), body(before));
+}));
+
+test('EB-2 直し: 同じ歩みの中で足してから動かした行は、戻すと消える（置き場の照らしで stale にしない）', T, () => withDb((db) => {
+  const before = get(db);
+  const ins = call(db, 'block.insert', { pageId: 'pa1', afterBlockId: 'b1', type: 'bullet' });
+  assert.strictEqual(ins.ok, true, ins.code);
+  const mv = call(db, 'block.move', { pageId: 'pa1', blockId: ins.result.blockId, afterId: 'b4' });
+  assert.strictEqual(mv.ok, true, mv.code);
+  const r = revert(db, [ins.tx, mv.tx]);
+  assert.strictEqual(r.ok, true, r.code);
+  assert.deepStrictEqual(body(get(db)), body(before));
+}));
+
+test('EB-2 直し: 操作の無い歩み（何も変えない命令の oplog の空の行）を戻しても、何も書かず（updatedAt も）、答えに changed が無い', T, () => withDb((db) => {
+  const p0 = get(db);
+  const same = call(db, 'block.move', { pageId: 'pa1', blockId: 'b2', afterId: p0.blocks[0].id });
+  assert.strictEqual(same.ok, true, same.code);
+  assert.deepStrictEqual(opsOf(db, same.tx), [], '前提: 何も変えない命令');
+  tick();
+  const before = raw(db);
+  const r = revert(db, [same.tx]);
+  assert.strictEqual(r.ok, true, r.code);
+  assert.strictEqual(r.changed, undefined, '何も戻していないのに changed');
+  assert.deepStrictEqual(opsOf(db, r.tx), []);
+  assert.deepStrictEqual(raw(db), before, 'updatedAt などを書いた');
+}));
+
+test('EB-2 直し: ゴミ箱のページの歩みは bad-args（戻さない）', T, () => withDb((db) => {
+  const s = call(db, 'block.update', { pageId: 'pa1', blockId: 'b2', patch: { text: '人が直した要点の文です' } });
+  assert.strictEqual(s.ok, true, s.code);
+  assert.strictEqual(call(db, 'page.delete', { id: 'pa1' }).ok, true);
+  const r = revert(db, [s.tx]);
+  assert.deepStrictEqual([r.ok, r.code], [false, 'bad-args']);
+}));
+
+test('EB-2 直し: 1回の edit.revert の tx は 50 まで（本物の 51 の歩みは bad-args・新しい 50 は戻せる）', T, () => withDb((db) => {
+  const txs = [];
+  for (let i = 0; i < 51; i++) {
+    const s = call(db, 'block.update', { pageId: 'pa1', blockId: 'b2', patch: { text: `直した文 ${i} 回目の要点です` } });
+    assert.strictEqual(s.ok, true, s.code);
+    txs.push(s.tx);
+  }
+  assert.deepStrictEqual([revert(db, txs).ok, revert(db, txs).code], [false, 'bad-args']);
+  const r = revert(db, txs.slice(1));
+  assert.strictEqual(r.ok, true, r.code);
+  assert.strictEqual(find(get(db), 'b2').b.text, '直した文 0 回目の要点です');
+}));
+
+test('EB-2 直し・R85: rich の行に text だけの直しは、文が同じでも bad-args', T, () => withDb((db) => {
+  const rich = [{ t: '来月の', m: ['b'] }, { t: '予算', m: [] }];
+  assert.strictEqual(call(db, 'block.update', { pageId: 'pa1', blockId: 'b2', patch: { rich } }).ok, true);
+  const text = find(get(db), 'b2').b.text;
+  assert.strictEqual(text, '来月の予算');
+  const r = call(db, 'block.update', { pageId: 'pa1', blockId: 'b2', patch: { text } });
+  assert.deepStrictEqual([r.ok, r.code], [false, 'bad-args']);
+}));
+
+test('EB-2 直し: rich を送らない古い画面の block.merge で、今の行の文が保存した飾りと違えば、飾りを捨てて文でつなぐ（文と飾りが食い違わない）', T, () => withDb((db) => {
+  assert.strictEqual(call(db, 'block.update', { pageId: 'pa1', blockId: 'b2', patch: { rich: [{ t: '太字', m: ['b'] }, { t: 'の行', m: [] }] } }).ok, true);
+  const prevId = get(db).blocks[0].id;
+  const prevText = get(db).blocks[0].text;
+  const r = call(db, 'block.merge', { pageId: 'pa1', blockId: 'b2', text: '太字の行に足した' });
+  assert.strictEqual(r.ok, true, r.code);
+  const b = find(get(db), prevId).b;
+  assert.strictEqual(b.text, `${prevText}太字の行に足した`);
+  assert.ok(!Array.isArray(b.rich) || b.rich.map((x) => x.t).join('') === b.text, `飾りと文が食い違う: ${JSON.stringify(b.rich)}`);
+}));
+
+test('EB-2 直し・R87: 戻す操作はページの行の memo・memoDoc のほかを後ろへ当てない（summaryEdited・updatedAt・citeStat は saveOps と R72 だけが書く）', T, () => withDb((db) => {
+  const s = call(db, 'block.update', { pageId: 'pa1', blockId: 'b2', patch: { text: '人が直した要点の文です' } });
+  assert.strictEqual(s.ok, true, s.code);
+  assert.ok(opsOf(db, s.tx).some((o) => o.op === 'set' && o.id === 'pa1' && o.key === 'summaryEdited'), '前提: 直しの歩みがページの印を立てる');
+  tick();
+  const r = revert(db, [s.tx]);
+  assert.strictEqual(r.ok, true, r.code);
+  const page = opsOf(db, r.tx).filter((o) => o.id === 'pa1');
+  assert.deepStrictEqual(page.filter((o) => o.key === 'summaryEdited'), [], '印を後ろへ当てた（立てたままの印を外してから立て直した）');
+  assert.strictEqual(page.filter((o) => o.key === 'updatedAt').length, 1, 'updatedAt を2回書いた（前の値へ戻してから今にした）');
+  assert.ok(page.every((o) => o.op === 'set' && ['updatedAt', 'citeStat'].includes(o.key)), JSON.stringify(page));
+  assert.strictEqual(get(db).summaryEdited, true);
+}));
