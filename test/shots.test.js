@@ -1033,7 +1033,8 @@ test('基準の画像（test/shots/win32）は今の app.html で撮ったもの
   // 0.13.2 点検の直し 3（計画の Ruling LR38）: 録音が終わったら［もう一度文字起こし］の busy を main に聞き直す（setMeetingUi・onPagePending の refreshPendingBusy。<script> の中だけ。撮る画面は変わらない）。値を今の app.html に合わせた（前の値は 05c6bfd4…）
   // 0.14.0 EB-3（計画 docs/plans/2026-10-26-140.md の決めたこと 1〜13）: 要約の欄の元に戻す・やり直す（undoBook の写し・stepGroup・Ctrl+Z と Ctrl+Shift+Z と Ctrl+Y の受け口・打つ手が止まったら保存・再生成の後に列を空に。<script> の中だけ。撮る画面は変わらない）。値を今の app.html に合わせた（前の値は e341fb62…）
   // 0.14.0 EB-4（計画 docs/plans/2026-10-26-140.md の決めたこと 14・17・18・22・R103〜R108）: 行の文の飾り（richText の写し・span で描く・{ rich } で保存・Ctrl+B などの近道・文中の記法・飾りの CSS と9色のトークン）。飾りの無い要約の見た目は変わらない見込みで、変わる画面は足した NEW_140 の2枚。値を今の app.html に合わせた（前の値は 8efef989…）
-  assert.strictEqual(sha, '8e766d9bf9f109a262c9aa979fc7dd60f2d392299f323954281ee4c7fa3d48e4',
+  // 0.14.0 EB-3 直し（R109）: 元に戻すの画面の直し（断りの符号を message から読む・/ メニューの選びを1歩に・待っている直しの後に列を取る・戻している間は打たせない・押したページ・断られた歩みを戻す・保存の断りを知らせる。<script> の中だけ。撮る画面は変わらない）。値を今の app.html に合わせた（前の値は 8e766d9b…）
+  assert.strictEqual(sha, '99b7970caa35249677ba8ef197b82d34ee3434e75eba476580c3860eae025f89',
     'app.html が基準の画像を撮った時と違う。Windows の CI の画面の比べ（捲り棒のつまみも）を見て、基準を取り直してからこの値を直す');
 });
 

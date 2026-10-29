@@ -59,7 +59,8 @@ async function openReal(pages, o = {}) {
   const call = (cmd, args, role = 'app') => {
     const tx = `${role[0]}:eb3-${String(++txn).padStart(6, '0')}`;
     const r = core.call(db, { role, cmd, args, tx }, { now: NOW, labels: {} });
-    if (!r.ok) throw Object.assign(new Error(r.code), { code: r.code, retry: Boolean(r.retry) });
+    // EB-3 直し（R109）: contextBridge を越えた Error は message だけが残る（preload の dbError の code・retry は画面に届かない）
+    if (!r.ok) throw new Error(r.code);
     // preload と同じ: 戻せる命令が ok で changed のときだけ、答えより先に画面の受け口へ（R59・R75）
     if (role === 'app' && (r.changed || r.dupChanged) && U.UNDO_CMDS.has(cmd)) {
       const s = { cmd, pageId: typeof args.pageId === 'string' ? args.pageId : args.id, step: tx };
@@ -75,10 +76,26 @@ async function openReal(pages, o = {}) {
     copy: () => true,
     ...(o.returns || {}),
   };
-  for (const [name, f] of Object.entries(CMDS)) if (!(o.returns && o.returns[name])) returns[name] = wrap((...a) => call(...f(...a)));
+  // EB-3 直し: l.hold(名前) の間、その命令の答えを l.release(名前, 断りの符号?) まで止める（DB へは release で送る）
+  const holdOn = new Map();
+  for (const [name, f] of Object.entries(CMDS)) {
+    if (o.returns && o.returns[name]) continue;
+    returns[name] = wrap((...a) => {
+      const q = holdOn.get(name);
+      if (!q) return call(...f(...a));
+      return new Promise((res, rej) => q.push({ run: () => call(...f(...a)), res, rej }));
+    });
+  }
   const l = await load(APP, { caret: true, returns });
   L = l;
   l.t = t; l.db = db; l.call = call; l.steps = steps;
+  l.hold = (name) => { holdOn.set(name, []); };
+  l.release = (name, fail) => {
+    const q = holdOn.get(name) || [];
+    holdOn.delete(name);
+    for (const it of q) { if (fail) it.rej(new Error(fail)); else { try { it.res(it.run()); } catch (e) { it.rej(e); } } }
+    return q.length;
+  };
   l.page = (id = 'pa1') => call('page.get', { id }).page;
   l.done = () => t.done();
   await l.drain();
@@ -802,4 +819,173 @@ test('EB-4（決めたこと 14・21）: 飾りの9色は明暗の両方にあ�
       }
     }
   }
+});
+
+// ---------------------------------------------------------------- EB-3 直し（2026-10-29 の点検。R109）
+test('EB-3 直し・I1（決めたこと 2・R98）: 空の行の「/区切り線」（型の変換と下の行）は Ctrl+Z の1回で両方戻る', T, async () => {
+  const l = await openReal({ pa1: BASE() });
+  try {
+    const t = typeIn(l, 'e1', '/くぎり');
+    t.dispatchEvent({ type: 'input' });
+    await l.drain();
+    l.key({ key: 'Enter' }, t);
+    await l.drain();
+    assert.deepStrictEqual(l.steps.map((x) => x.cmd), ['block.turnInto', 'block.insert']);
+    assert.strictEqual(l.page().blocks.find((b) => b.id === 'e1').type, 'divider');
+    press(l, Z);
+    await l.drain();
+    assert.deepStrictEqual(revs(l), [['pa1', l.steps.slice(0, 2).map((x) => x.step)]], '2回の Ctrl+Z が要る');
+    assert.deepStrictEqual(l.page().blocks.map((b) => [b.id, b.type]), BASE().map((b) => [b.id, b.type]));
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+test('EB-3 直し・I2・M2(a): Enter のすぐ後の Ctrl+Z（分割の答えを待っている間）は、答えが来てから分割を戻す。戻している間は打たせない（beforeinput を止める）', T, async () => {
+  const l = await openReal({ pa1: BASE() });
+  try {
+    const before = l.page().blocks.map((b) => [b.id, b.text]);
+    l.hold('blockSplit');
+    l.key({ key: 'Enter' }, typeIn(l, 'p1', 'あいうえお', 2));
+    await l.drain();
+    press(l, Z);
+    await l.drain();
+    assert.deepStrictEqual(revs(l), [], '分割の歩みが届く前に列を取った');
+    assert.strictEqual(toastOf(l).includes('これ以上は戻せません'), false);
+    l.hold('editRevert');
+    assert.strictEqual(l.release('blockSplit'), 1);
+    await l.drain();
+    assert.deepStrictEqual(revs(l), [['pa1', [l.steps[0].step]]]);
+    // 戻している間（edit.revert の答えを待つ間）は打たせない
+    const t = txtOf(l, 'p1');
+    const ev = { type: 'beforeinput', cancelable: true, prevented: false, preventDefault() { this.prevented = true; } };
+    for (const fn of t._listeners.beforeinput) fn.call(t, ev);
+    assert.strictEqual(ev.prevented, true, '戻している間に打てる');
+    l.release('editRevert');
+    await l.drain();
+    assert.deepStrictEqual(l.page().blocks.map((b) => [b.id, b.text]), before, '分割が戻らない');
+    const ev2 = { type: 'beforeinput', cancelable: true, prevented: false, preventDefault() { this.prevented = true; } };
+    for (const fn of txtOf(l, 'p1')._listeners.beforeinput) fn.call(txtOf(l, 'p1'), ev2);
+    assert.strictEqual(ev2.prevented, false, '戻した後も打てない');
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+test('EB-3 直し・M2(b)・M3: 続けて押した Ctrl+Z は押した順に1つずつ（新しい歩みから）。待っている間にページを替えたら、前のページで押した Ctrl+Z はほかのページを戻さない', T, async () => {
+  const l = await openReal({ pa1: BASE(), pb1: BASE('b') }, { open: 'pb1' });
+  try {
+    const turn = (id, d) => { const t = txtOf(l, id); t.focus(); l.caret.set(t, 0); l.key({ key: '', code: `Digit${d}`, ctrlKey: true, shiftKey: true }, t); };
+    turn('p1b', 5);
+    await l.drain();
+    l.fire('onPageOpen', 'pa1');
+    await l.drain();
+    turn('p1', 5);
+    await l.drain();
+    turn('p1', 4);
+    await l.drain();
+    assert.strictEqual(l.steps.length, 3);
+    // 続けて2回（間に何も進めない）→ 新しい歩みから順に
+    press(l, Z); press(l, Z);
+    await l.drain(80);
+    assert.deepStrictEqual(revs(l), [['pa1', [l.steps[2].step]], ['pa1', [l.steps[1].step]]]);
+    assert.strictEqual(l.page('pa1').blocks.find((b) => b.id === 'p1').type, 'paragraph');
+    // やり直しと戻すを続けて。1回目の答えを待っている間にページを替える → 2回目は捨てる（pb1 の歩みを戻さない）
+    l.hold('editRevert');
+    press(l, Y); press(l, Z);
+    await l.drain();
+    l.fire('onPageOpen', 'pb1');
+    await l.drain();
+    l.release('editRevert');
+    await l.drain(80);
+    assert.strictEqual(revs(l).length, 3, '前のページで押した Ctrl+Z が今のページで動いた');
+    assert.strictEqual(l.page('pb1').blocks.find((b) => b.id === 'p1b').type, 'bullet', 'ほかのページを戻した');
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+test('EB-3 直し・M2(c)・M3: locked で断られた歩みは知らせずに取った所へ戻す（待つ間に積まれた歩みの下へ）', T, async () => {
+  const l = await openReal({ pa1: BASE() });
+  try {
+    const t = txtOf(l, 'p1'); t.focus(); l.caret.set(t, 0);
+    l.key({ key: '', code: 'Digit5', ctrlKey: true, shiftKey: true }, t);   // 歩み A
+    await l.drain();
+    l.hold('editRevert');
+    press(l, Z);
+    await l.drain();
+    assert.strictEqual(revs(l).length, 1);
+    const cb = rowOf(l, 't1').querySelector('input');   // 待つ間に歩み B（ToDo のチェック）
+    cb.checked = true; cb.onchange();
+    await l.drain();
+    assert.strictEqual(l.steps.length, 2);
+    l.release('editRevert', 'locked');
+    await l.drain();
+    assert.ok(!/保存できませんでした|戻せませんでした/.test(toastOf(l)), `locked で知らせた: ${toastOf(l)}`);
+    press(l, Z);
+    await l.drain();
+    press(l, Z);
+    await l.drain();
+    assert.deepStrictEqual(revs(l).slice(1), [['pa1', [l.steps[1].step]], ['pa1', [l.steps[0].step]]], '断られた歩みが消えた・順が違う');
+    const p = l.page();
+    assert.deepStrictEqual([p.blocks.find((b) => b.id === 'p1').type, p.blocks.find((b) => b.id === 't1').checked], ['paragraph', false]);
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+test('EB-3 直し・M3（R98・P3・R99）: 打った文の後の複製（Ctrl+D）・⠿ の複製・ドラッグは1歩。Enter の後の blur は歩みを増やさない。フォーカスの行が消えたら上の行の終わりへ', T, async () => {
+  for (const [name, act] of [['Ctrl+D', (l, t) => l.key({ key: 'd', code: 'KeyD', ctrlKey: true }, t)], ['⠿ の複製', (l) => menuPick(l, 'p1', '複製')], ['ドラッグ', (l) => dragTo(l, 'p1', 45)]]) {
+    const l = await openReal({ pa1: BASE() });
+    try {
+      const before = l.page().blocks.map((b) => [b.id, b.text]);
+      const t = typeIn(l, 'p1', 'あいうえおか');
+      await act(l, t);
+      await l.drain();
+      assert.strictEqual(l.steps.length, 2, `${name}: 打った文の保存と命令が無い`);
+      const two = l.steps.map((x) => x.step);
+      press(l, Z);
+      await l.drain();
+      assert.deepStrictEqual(revs(l), [['pa1', two]], `${name}: 1歩でない`);
+      assert.deepStrictEqual(l.page().blocks.map((b) => [b.id, b.text]), before, name);
+      assert.deepStrictEqual(l.errors.map(fmt), [], name);
+    } finally { l.done(); }
+  }
+  const l = await openReal({ pa1: BASE() });
+  try {
+    const t = typeIn(l, 'p1', 'あいうえお', 5);
+    l.key({ key: 'Enter' }, t);
+    await l.drain();
+    t.onblur();   // 偽の DOM は blur を起こさないので、ここで起こす（P3）
+    await l.drain();
+    assert.strictEqual(l.steps.length, 1, 'Enter の後の blur が歩みを足した');
+    assert.deepStrictEqual(updates(l), []);
+    // 足した行（フォーカスがある）を戻す → フォーカスは上の行の終わり
+    const added = l.page().blocks.find((b) => !BASE().some((x) => x.id === b.id));
+    assert.strictEqual(l.document.activeElement, txtOf(l, added.id));
+    press(l, Z);
+    await l.drain();
+    assert.strictEqual(l.document.activeElement, txtOf(l, 'p1'), '消えた行のフォーカスが上の行へ行かない');
+    assert.deepStrictEqual(l.caret.get(txtOf(l, 'p1')), [5, 5]);
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+test('EB-3 直し・M5: blur と手が 2 秒止まったときの保存が断られたら「変更を保存できませんでした」と知らせる（受け手の無い断りを残さない）', T, async () => {
+  const l = await openReal({ pa1: BASE() });
+  try {
+    l.hold('blockUpdate');
+    const t = typeIn(l, 'p1', 'あいうえおか');
+    t.onblur();
+    await l.drain();
+    l.release('blockUpdate', 'internal');
+    await l.drain(60);
+    assert.strictEqual(toastOf(l), '変更を保存できませんでした: internal');
+    $(l, 'toast').textContent = '';
+    l.hold('blockUpdate');
+    typeIn(l, 'p1', 'あいうえおかき');
+    txtOf(l, 'p1').dispatchEvent({ type: 'input' });
+    await l.clock.advance(2000);
+    await l.drain();
+    assert.strictEqual(l.release('blockUpdate', 'retry'), 1, '2 秒で保存しない');
+    await l.drain(60);
+    assert.strictEqual(toastOf(l), '変更を保存できませんでした: retry');
+    assert.deepStrictEqual(l.errors.map(fmt), [], '受け手の無い断りが残った');
+  } finally { l.done(); }
 });

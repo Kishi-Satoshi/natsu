@@ -3140,7 +3140,7 @@
       inp.replaceWith(btn);
       if (!save || v === (current || '')) return;
       try {
-        await commit(v);
+        await inFlight(commit(v));   // EB-3 直し（R109）: 答えを待つ間は Ctrl+Z が待つ
         await openPage(curId);
         refreshList();
       } catch (e) {
@@ -3948,6 +3948,31 @@
   let undoChain = Promise.resolve();   // Ctrl+Z を押した順に1つずつ
   const stepMarks = new Map();   // 歩みの tx → 戻したときに行の頭へ戻す記号 { id, mark }（R6）
   const noteKey = (pid) => bookKey(pid, 'note');
+  // EB-3 直し（R109）: 送って答えを待っている書く命令と、走っている stepGroup。Ctrl+Z はこれが全部済んで（歩みが onEditStep で届いて）から列を取る
+  const editsInFlight = new Set();
+  function inFlight(p) {
+    const q = Promise.resolve(p);
+    editsInFlight.add(q);
+    const done = () => { editsInFlight.delete(q); };
+    q.then(done, done);
+    return p;
+  }
+  async function editsSettled() { while (editsInFlight.size) await Promise.allSettled([...editsInFlight]); }
+  // 列のどこにも無い歩みの記号を捨てる（stepMarks を太らせない: R109）
+  function pruneMarks() {
+    if (!stepMarks.size) return;
+    const live = new Set();
+    for (const v of Object.values(undoBk)) for (const e of [...v.undo, ...v.redo]) for (const t of e.steps || []) live.add(t);
+    for (const t of [...stepMarks.keys()]) if (!live.has(t)) stepMarks.delete(t);
+  }
+  // 断られた歩みを取った所に戻す（取った後に新しい歩みが積まれていても、その下へ。やり直しの歩みは新しい歩みが来たら捨てる: R109）
+  function putBack(book, key, dir, entry, at, undoLen) {
+    const sl = Object.hasOwn(book, key) ? book[key] : { undo: [], redo: [] };
+    const list = sl[dir].slice();
+    if (dir === 'redo' && sl.undo.length > undoLen) return book;   // 新しい歩みが積まれた（やり直しは空になった）
+    list.splice(Math.min(at, list.length), 0, entry);
+    return { ...book, [key]: { ...sl, [dir]: list.length > UNDO_MAX ? list.slice(list.length - UNDO_MAX) : list } };
+  }
   // preload の受け口（戻せる命令の答えが ok で changed のときだけ、答えより先に来る）。メモの欄の歩み（MB）はここでは積まない
   window.koeApp.onEditStep((s) => {
     if (!s || typeof s.step !== 'string' || typeof s.pageId !== 'string') return;
@@ -3955,10 +3980,14 @@
     if (!/^blocks?\./.test(String(s.cmd))) return;
     if (stepBox && stepBox.pid === s.pageId) { stepBox.steps.push(s.step); return; }
     undoBk = bookPush(undoBk, noteKey(s.pageId), [s.step]);
+    pruneMarks();
   });
   // 1つの動作で送る命令を1歩にまとめる（入れ子は外の歩みに入る）。fn は box を受け、box.mark に戻すときの記号を置ける
-  async function stepGroup(fn) {
+  function stepGroup(fn) {
     if (stepBox) return fn(stepBox);
+    return inFlight(stepGroupRun(fn));   // EB-3 直し（R109）: 走っている間は Ctrl+Z が待つ
+  }
+  async function stepGroupRun(fn) {
     const box = { pid: curId, steps: [], mark: null };
     stepBox = box;
     try { return await fn(box); } finally {
@@ -3966,6 +3995,7 @@
       if (box.steps.length) {
         undoBk = bookPush(undoBk, noteKey(box.pid), box.steps);
         if (box.mark) stepMarks.set(box.steps[0], box.mark);
+        pruneMarks();
       }
     }
   }
@@ -3987,7 +4017,8 @@
     const dir = undoKey(ev);
     if (!dir || !undoScope(ev.target)) return;
     ev.preventDefault();   // Chromium の行の中の戻しと二重に効かせない
-    undoChain = undoChain.then(() => undoRun(dir)).catch(() => {});
+    const at = curId;   // EB-3 直し（R109）: 押したページ（待っている間にページが替わったら、その Ctrl+Z は捨てる）
+    undoChain = undoChain.then(() => undoRun(dir, at)).catch(() => {});
   });
   // 戻した後のフォーカス: 今の行が残っていればそこ、消えたら画面で上に見えていた行の終わり（無ければ下の行の頭）
   function revertFocus() {
@@ -4014,9 +4045,10 @@
     const el = editRows().find((e) => e.dataset.id === u.id);
     return el && el._txt.textContent === u.mark + String(el._b.text ?? '') ? el : null;
   }
-  async function undoRun(dir) {
+  async function undoRun(dir, at) {
+    await editsSettled();   // EB-3 直し（R109）: 送った直しの歩みが届いてから（Enter のすぐ後の Ctrl+Z も Enter を戻す）
     const pid = curId;
-    if (!pid || !curPage) return;
+    if (!pid || !curPage || at !== pid) return;
     const key = noteKey(pid);
     // R96: 戻した記号に手を付けていなければ、Ctrl+Z は記号だけを消し（DB に送らない）、やり直すときは記号を消してからやり直す
     // 0.14.0 EB-4（決めたこと 10）: 文中の記法で変えた直後（手を付けていない）の Ctrl+Z は、記号を戻す（DB に送らない。打った文として次の区切りで保存）
@@ -4034,7 +4066,8 @@
     if (pid !== curId) return;
     const got = dir === 'undo' ? bookTakeUndo(undoBk, key) : bookTakeRedo(undoBk, key);
     if (!got.entry) { toast(dir === 'undo' ? 'これ以上は戻せません' : 'やり直せるものはありません'); return; }
-    const was = undoBk;
+    const slotNow = Object.hasOwn(got.book, key) ? got.book[key] : { undo: [], redo: [] };
+    const takenAt = slotNow[dir].length;   // 取った所（断られたら戻す: R109）
     undoBk = got.book;
     const entry = got.entry;
     const mark = entry.steps.map((t) => stepMarks.get(t)).find(Boolean) || null;
@@ -4043,13 +4076,14 @@
     let code = '';
     const out = await editAnswer(pid, async () => {
       try { return await window.koeApp.editRevert(pid, entry.steps); }
-      catch (e) { code = String((e && e.code) || 'internal'); return null; }
+      // EB-3 直し（R109）: contextBridge を越えた Error は message だけが残る（preload の dbError は message も符号）
+      catch (e) { code = String((e && (e.code || e.message)) || 'internal'); return null; }
       finally { if (reverting === run) reverting = null; }
     }, revertFocus());
     if (!out) {
       // 後から変わっていた（stale）・控えを回して歩みの行が消えていた（bad-args: R97）は、その欄の列を空にする（中途半端に戻さない）
       if (code === 'stale' || code === 'bad-args') { undoBk = bookDrop(undoBk, key); toast('ほかの所で変わったので、元に戻せませんでした'); return; }
-      if (undoBk === got.book) undoBk = was;   // 鍵の間（locked）・DB が止まっているなどは歩みを残す
+      undoBk = putBack(undoBk, key, dir, entry, takenAt, slotNow.undo.length);   // 鍵の間（locked）・DB が止まっているなどは歩みを取った所に戻す（間に積まれた歩みは残す）
       if (code !== 'locked') toast(`変更を保存できませんでした: ${code}`);
       return;
     }
@@ -4057,6 +4091,7 @@
       undoBk = bookDone(undoBk, key, dir, run.tx);
       if (mark) stepMarks.set(run.tx, mark);
     }
+    pruneMarks();
     if (mark && dir === 'undo') restoreMark(pid, mark);
   }
   // R6（決めたこと 10）: 記法で変えた直後の Ctrl+Z は、打った記号を行の頭に戻す（打った文として次の区切りで保存）
@@ -4072,7 +4107,8 @@
   let pendingEdits = 0;   // 分割・結合・変換・足すの答えを待っている数（ED-5 の summaryBusy が読む）
   const editRows = () => [...$('pNote').querySelectorAll('.blk')].filter((e) => e._txt && e.dataset.locked !== '1');   // 鍵の無い行（区切り線も）
   // 命令を送り、答えのページを今のページに当てる（where(答え) → { focus: 行の ID, caret }）。断られたら知らせ、何も描かない
-  async function editAnswer(pid, send, where) {
+  function editAnswer(pid, send, where) { return inFlight(editAnswerRun(pid, send, where)); }   // EB-3 直し（R109）: 答えを待つ間は Ctrl+Z が待つ
+  async function editAnswerRun(pid, send, where) {
     pendingEdits += 1;
     let r = null;
     try { r = await send(); } catch (e) {
@@ -4343,6 +4379,12 @@
     setCaret(to._txt, dir < 0 ? to._txt.textContent.length : 0);
     return true;
   }
+  // EB-3 直し（R109）: 行の文の保存（blur・2 秒止まる・構造の命令の前）。答えを待つ間は Ctrl+Z が待ち、断られたら知らせる（待つ側は今どおり失敗を飲み込める）
+  function saveRow(p) {
+    inFlight(p);
+    p.catch((e) => toast(`変更を保存できませんでした: ${e && e.message ? e.message : e}`));
+    return p;
+  }
   // 文の欄の受け口（行を作るときに1回だけ付ける。行の今のブロックは el._b を読む: 着せ替えても受け口は同じ）
   function wireRowText(el, txt) {
     // 保存は「編集を始めたページ」に対して行う。flushEdits（ページ切替・記録開始）
@@ -4358,7 +4400,7 @@
         if (v !== b.text && (b.type === 'bullet' || b.type === 'todo') && b.citeState !== 'manual') { b.citeState = 'stale'; renderCiteBadge(el, b); }
         b.text = v; b.rich = normalizeRich(rich);
         if (pid === curId && curPage) curPage.summaryEdited = true;   // 点検4: 要約の欄を直した印
-        return window.koeApp.blockUpdate(pid, b.id, { rich }).then(() => { if (pid === curId) refreshList(); });
+        return saveRow(window.koeApp.blockUpdate(pid, b.id, { rich }).then(() => { if (pid === curId) refreshList(); }));
       }
       if (v === b.text) return undefined;
       if (txt.textContent === b.text) return undefined;   // 点検5: 画面の文が行の文と同じなら直していない（分けた前の文の終わりの空白を削って送り直さない）
@@ -4367,7 +4409,7 @@
       // 本文を変えたら出典との対応は古くなる。store も stale を付けるが、
       // 次に pageGet するまでの間も札で示す。
       if ((b.type === 'bullet' || b.type === 'todo') && b.citeState !== 'manual') { b.citeState = 'stale'; renderCiteBadge(el, b); }
-      return window.koeApp.blockUpdate(pid, b.id, { text: v }).then(() => { if (pid === curId) refreshList(); });
+      return saveRow(window.koeApp.blockUpdate(pid, b.id, { text: v }).then(() => { if (pid === curId) refreshList(); }));
     };
     txt.onblur = () => { if (slash && slash.el === el) slashClose(); txt._commit(curId); };
     txt.onkeydown = (ev) => {
@@ -4408,6 +4450,8 @@
       mdCheck(el);
       slashCheck(el);
     };
+    // EB-3 直し（R109）: 戻している間（edit.revert の答えを待つ間）は打たせない（答えの描き直しで打った文が消えないように）。変換の文字は止められない
+    txt.addEventListener('beforeinput', (ev) => { if (reverting && reverting.pid === curId && ev.cancelable !== false) ev.preventDefault(); });
     // 変換の事象は on〜 の受け口を持たない（GlobalEventHandlers に無い）ので addEventListener で付ける
     txt.addEventListener('compositionstart', () => { txt._composing = true; if (txt._pause) { clearTimeout(txt._pause); txt._pause = null; } });
     txt.addEventListener('compositionend', () => { txt._composing = false; typedRich(el); pauseSave(); mdCheck(el); slashCheck(el); });
@@ -4553,7 +4597,9 @@
     slashRender();
   }
   // 選ぶと / と打った語を消し、空の行は型を変え（block.turnInto）、文のある行は下に足す（block.insert）。選んだ鍵だけを覚える（EQ8 (b)）
-  async function slashPick(i) {
+  // EB-3 直し（R109・R98）: 1つの動作で送る命令（空の行の型の変換と区切り線の下の行・文のある行の打った文の保存と下に足す行）を1歩に
+  function slashPick(i) { return stepGroup(() => slashPickRun(i)); }
+  async function slashPickRun(i) {
     const s = slash;
     const it = s && s.items[i];
     if (!it) { slashClose(true); return null; }
@@ -4868,7 +4914,7 @@
         cb.type = 'checkbox'; cb.checked = Boolean(b.checked);
         cb.disabled = Boolean(lock);
         cb.onchange = async () => {
-          await window.koeApp.blockUpdate(curId, b.id, { checked: cb.checked });
+          await inFlight(window.koeApp.blockUpdate(curId, b.id, { checked: cb.checked }));   // EB-3 直し（R109）
           b.checked = cb.checked;
           if (curPage) curPage.summaryEdited = true;   // 点検4: 要約の欄を直した印（DB も同じ命令で付ける）
           el.classList.toggle('done', cb.checked);
