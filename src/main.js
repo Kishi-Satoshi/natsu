@@ -4813,12 +4813,15 @@ function pagePending(pageId) {
 }
 // 0.13.2 LN-5（LA4・PQ4・決めたこと 9）: ［もう一度文字起こし］。そのページの待ち行列を今すぐ回す（ログインしていてつながっていればクラウド、そうでなければ PC。
 // 押したので PC のエンジンを起こしてよい）。3回失敗して自動では試さなくなった区間（held）も試す（その回だけ: recoveryForceAsk）。録音中は回さない
+// 0.13.2 点検の直し 4（LR39）: 回している途中に押されたページ（押した順・重ならない）。transcribeRecovered がその回の後に retranscribePage で回す
+const retranscribeLater = [];
 function retranscribePage(pageId) {
   if (recordingNow()) return { ok: false, code: 'busy' };
   const qs = recoveryQueuesOf(pageId).filter((q) => lib.pendingLeft(q.items, (it) => fs.existsSync(it.wav)) > 0);
   if (!qs.length) return { ok: false, code: 'none' };
   const left = qs.reduce((n, q) => n + lib.pendingLeft(q.items, (it) => fs.existsSync(it.wav)), 0);
-  if (recoveryRunning) return { ok: true, left };   // 回している途中（済めば続けてこのページの待ち行列も拾う）
+  // 回している途中（見回りのクラウドだけの回も）: 黙って捨てずに覚え、その回の後に回す（0.13.2 点検の直し 4。LR39）
+  if (recoveryRunning) { if (!retranscribeLater.includes(pageId)) retranscribeLater.push(pageId); return { ok: true, left }; }
   recoveryQueue = qs[0];
   recoveryForceAsk = qs[0].dir;
   recoveryTriggerAsk = 'button';
@@ -4919,6 +4922,8 @@ async function transcribeRecovered() {
     if (held && !recoveryQueue) recoveryQueue = held;   // 進めなかった待ち行列は、次の引き金（取り込んだ組の照らし・設定の保存・起動・見回り）で
     recoveryRunning = false;
     updateTray();
+    // 0.13.2 点検の直し 4（LR39）: 回している途中に押されたページを、この回の後に押した1回の頼みとして回す（録音が始まっていた・もう残りが無いときは捨てて次へ）
+    while (retranscribeLater.length && !retranscribePage(retranscribeLater.shift()).ok) { /* 次へ */ }
   }
 }
 // → null（済んだ）| 残した待ち行列（文字起こしまで届かなかった区間から先。WAV と recovery.json を消していない）

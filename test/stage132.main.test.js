@@ -296,6 +296,20 @@ test('LN-5・点検の直し 1: ［もう一度文字起こし］で止まった
   assert.deepStrictEqual(t.queue, [[{ id: 's2', held: true, tries: 3 }, { id: 's3', held: true, tries: 3 }]], JSON.stringify(t.queue));
 });
 
+// 0.13.2 点検の直し 4（LR39）: ほかの回（見回りのクラウドだけの回も）が回っている途中に押した［もう一度文字起こし］は、黙って捨てずに覚え、その回の後に回す
+test('LN-5・点検の直し 4: 見回り（クラウドだけの回）が回している途中に押すと、その回の後に押したページの待ち行列を回し、3回失敗して止めた区間（held）も文字にする', T, async () => {
+  const o = await run(['text', '--idle', '--relay=text', '--extra-queue-late=held', '--retranscribe', '--retranscribe-during-tick']);
+  assert.strictEqual(o.retranscribe.ok, true, JSON.stringify(o.retranscribe));
+  const a = o.afterRetranscribe;
+  const log = a.engineLog;
+  const patrol = log.indexOf('文字起こし待ち: 始めた（patrol）');
+  const button = log.indexOf('文字起こし待ち: 始めた（button）');
+  assert.ok(patrol >= 0 && button > patrol, `押した頼みを見回りの後に回していない: ${log.join('\n')}`);
+  const page = a.pages.find((p) => p.id.startsWith('plate'));
+  assert.deepStrictEqual(page.segments.map((s) => [s.id, s.failed]), [['s1', false], ['s2', false], ['s3', false]], JSON.stringify(page.segments));
+  assert.strictEqual(a.queues, 0, log.join('\n'));
+});
+
 test('LN-5: 録音中（会議・音声入力）の page:retranscribe は { ok: false, code: \'busy\' }・page:pending の busy は真。待ち行列の無いページは none', T, async () => {
   const o = await mic([['ipc', 'page:retranscribe', { id: 'p-none' }], ['ipc', 'page:pending', { id: 'p-none' }], ['start'],
     ['ipc', 'page:retranscribe', { id: 'p-none' }], ['ipc', 'page:pending', { id: 'p-none' }], ['stop'], ['dictate'], ['ipc', 'page:retranscribe', { id: 'p-none' }], ['dictate-cancel']]);

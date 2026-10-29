@@ -430,6 +430,7 @@ const { titleAt } = require('./titles');
 //                        snap に logins（作ったログインの窓の数）、出力に loginWins（窓ごとの記録の写し）を足す
 //   0.13.2 LN-5: --mic-feed の手順に ["final-only"]（最後の空の区間を送り、待機に戻るまでだけ待つ）・["wait-finalized"]（締めの答えまで待つ）。
 //     --idle の --extra-queue-late=held（held・失敗・止まった区間と音声の無い区間の待ち行列）と --retranscribe（［もう一度文字起こし］を押す。上の注）
+//   0.13.2 点検の直し 4: --retranscribe-during-tick（見回りの回が区間を送っている途中に［もう一度文字起こし］を押す。上の --retranscribe と組む）
 //   0.13.2 点検の直し 2: --mic-feed の手順に ["wait-settled"]（起動の片付け＝下書きの復旧が済み、meeting.settle を頼むまで待つ）・snap に settled
 //   0.13.2 点検の直し（重要 1）: --extra-queue-late=held-all（3区間とも held の待ち行列）・--retranscribe-ticks=<n>（押した回が止まった後に見回りを n 回。out.afterTicks）
 //   0.13.2 LN-1（LR14。計画 docs/plans/2026-10-28-132.md）
@@ -636,6 +637,7 @@ const loginAfter = flags.includes('--login-after');
 const afterDictQueue = flags.includes('--after-dict-queue');   // 0.13.2 LN-2
 const retranscribe = flags.includes('--retranscribe');   // 0.13.2 LN-5
 const retranscribeTicks = Number(flagVal('--retranscribe-ticks')) || 0;   // 0.13.2 点検の直し（重要 1）
+const retranscribeDuringTick = flags.includes('--retranscribe-during-tick');   // 0.13.2 点検の直し 4
 const localOnlyAfterN = Number(flagVal('--local-only-after')) || 0;   // 第1d2回 M-4
 const localOnlyAtRetryN = Number(flagVal('--local-only-at-retry')) || 0;   // 第1d2回 M-3・M-4 の点検
 // 第1d2回 M-5（音声入力の音声を残す）
@@ -2597,7 +2599,16 @@ process.on('exit', () => {
     if (retranscribe && latePageId) {
       out.pendingBefore = await handlers['page:pending']({}, { id: latePageId });
       const seen0 = pendingSeen.length;
+      // 0.13.2 点検の直し 4: --retranscribe-during-tick … 見回り（クラウドだけの回）を中継の答えを 300 ミリ秒遅らせて回し始め、その回が区間を送っている途中で押す。
+      // 見回りの済むのを待ってから、中継の答えを元に戻す
+      let tickRun = null;
+      if (retranscribeDuringTick) {
+        relayLocal.setFront('lag-stt');
+        tickRun = keptTick();
+        await waitFor(() => engineLogLines().includes('文字起こし待ち: 始めた（patrol）') && relayPaths.includes('/v1/audio/transcriptions'), 5000);
+      }
       out.retranscribe = await handlers['page:retranscribe']({}, { id: latePageId });
+      if (tickRun) { await tickRun; relayLocal.setFront(''); }
       const qn = () => listFiles(userData).filter((f) => /^data\/segbuf\/[^/]+\/recovery\.json$/.test(f)).length;
       // 0.13.2 点検の直し（重要 1）: --retranscribe-ticks は、押した回が止まる（page:pending の running: false）までを待つ（待ち行列は残る）
       await waitFor(() => qn() === 0 || (retranscribeTicks > 0 && pendingSeen.slice(seen0).some((p) => p.id === latePageId && !p.running)), 10000);
