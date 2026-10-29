@@ -2,6 +2,8 @@
  * stage140.main.test.js — 0.14.0 の main の場面（計画 docs/plans/2026-10-26-140.md の Task EB-3〜）
  * 偽の Electron の上で main.js を本当に動かして確かめる（helpers/mainrun.js）。
  * EB-3（決めたこと 35・R24・F103）: 起きたときに Electron の既定のメニューを外す（Ctrl+W・Ctrl+Z・Ctrl+R を既定のメニューに横取りさせない）。
+ * EB-5（決めたこと 20・33・SEC2）: 画面の行のリンクを開く口 app:open-link（開くのは https・http・mailto だけ・NaTsu のリンクはページを開く・
+ *       ほかは開かずに記録に符号だけ。住所は書かない）。
  */
 'use strict';
 
@@ -23,6 +25,25 @@ test('EB-3・F103（決めたこと 35・R24）: main は起きたときに、�
   const r = await run(['text', '--json-scene=plain']);
   assert.ok(r.windows >= 2, '前提: 録音バーと本体の窓ができる');
   assert.deepStrictEqual(r.appMenu, [{ menu: null, wins: 0 }]);
+});
+
+// ---------------------------------------------------------------- EB-5（決めたこと 20・33・SEC2）
+const NL = require('../src/natsulink');
+test('EB-5・SEC2（決めたこと 20・33）: app:open-link は https・http・mailto だけ shell.openExternal、NaTsu のリンクはページを開く、javascript:・file: などは開かず記録に符号だけ（住所は書かない）', T, async () => {
+  const CASES = [
+    ['https://example.com/a?b=1', 'ext'], ['mailto:someone', 'ext'], ['HTTP://example.com/', 'ext'],
+    ['natsu://page/pm1#b:x1', 'page'], [`${NL.LINK_ORIGIN}/open#p=pm2`, 'page'],
+    ['javascript:alert(1)', 'no'], ['JaVaScRiPt:alert(1)', 'no'], ['file:///c:/windows/x', 'no'], ['data:text/html,x', 'no'], ['vbscript:x', 'no'],
+    [' https://example.com/', 'no'], ['https://example.com/\u0000x', 'no'], ['natsu://page/p!1', 'no'], ['natsu://settings', 'no'], [`https://example.com/${'a'.repeat(2049)}`, 'no'], [5, 'no'], [null, 'no'],
+  ];
+  const r = await run(['text', `--open-link=${JSON.stringify(CASES.map((c) => c[0]))}`]);
+  assert.deepStrictEqual(r.openLink, CASES.map((c) => c[1] !== 'no'), '答え（開いたか）');
+  assert.deepStrictEqual(r.external, CASES.filter((c) => c[1] === 'ext').map((c) => c[0]), 'shell.openExternal に渡した住所');
+  assert.deepStrictEqual(r.linkSent, [{ id: 'pm1', anchor: 'b:x1' }, { id: 'pm2', anchor: '' }], 'NaTsu のリンクでページを開かない');
+  const logs = r.engineLog.filter((x) => x.startsWith('リンク: 開かなかった'));
+  assert.strictEqual(logs.length, CASES.filter((c) => c[1] === 'no').length, '開かなかったリンクの記録の数');
+  for (const x of logs) assert.match(x, /^リンク: 開かなかった（[a-z]+）$/, '記録は符号だけ');
+  for (const x of r.engineLog) assert.ok(!/example|javascript|alert|windows|vbscript|pm1|pm2|natsu:/i.test(x), `記録に住所: ${x}`);
 });
 
 // ---------------------------------------------------------------- EB-3 直し（R109）: stage140.win の小さなアプリを、偽の electron（Electron 44 と同じく Promise のクリップボード）で走らせる

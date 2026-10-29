@@ -3,6 +3,7 @@
  * 最小 DOM（helpers/simrun.js）の上で app.html の <script> を本当に走らせる。命令は一時の DB（helpers/dbtmp.js）を本当に通す。
  * preload の onEditStep は、この台の命令の口が preload と同じ決まり（戻せる命令が ok で changed のときだけ・答えより先に { cmd, pageId, step: tx }）で起こす。
  * カーソルは simrun の caret の継ぎ目（l.caret）で置く（偽の DOM に getSelection・Range が無い）。
+ * EB-5（E6・SEC2）: 文字を選ぶと出る道具の帯（飾り・リンク・色）・Ctrl+K のリンクの欄（開けるのは決まった頭だけ・Ctrl+クリックで開く）・行の色（⠿・Ctrl+/・/ の色）。
  * EB-4（E6・F101）: 行の飾りを span で描いて { rich } で保存し、Ctrl+B・I・U・Ctrl+Shift+S・Ctrl+E と「**文字**」などの記法で付ける（変換中は決めない）。
  * EB-3（E7・F100・F103）: 要約の欄の Ctrl+Z・Ctrl+Shift+Z・Ctrl+Y（ページごとの列・1つの動作は1歩・打った文字は手が止まる所で区切る・
  *       打っている途中の Ctrl+Z は保存してから戻す・記法の直後は記号を戻す・後から変わっていたら戻さない・再生成の後は列を空に・題名などは欄の中の戻し）。
@@ -45,6 +46,7 @@ const CMDS = {
   blockSetOpen: (pageId, blockId, open) => ['block.setOpen', { pageId, blockId, open }],
   blockSetOpenAll: (pageId, open) => ['block.setOpenAll', { pageId, open }],
   editRevert: (pageId, steps) => ['edit.revert', { pageId, steps }],
+  blocksSetColor: (pageId, ids, color) => ['blocks.setColor', { pageId, ids, color }],   // 0.14.0 EB-5: 行の色
 };
 async function openReal(pages, o = {}) {
   const t = tmpDb();
@@ -988,4 +990,324 @@ test('EB-3 直し・M5: blur と手が 2 秒止まったときの保存が断ら
     assert.strictEqual(toastOf(l), '変更を保存できませんでした: retry');
     assert.deepStrictEqual(l.errors.map(fmt), [], '受け手の無い断りが残った');
   } finally { l.done(); }
+});
+
+// ---------------------------------------------------------------- EB-5（決めたこと 19〜21・33・44・R11・R12・R37・R64。E6・SEC2）
+const barOf = (l) => $(l, 'pNote').querySelector('#markBar');
+const popOf = (l) => $(l, 'pNote').querySelector('#linkPop');
+const cmenuOf = (l) => $(l, 'pNote').querySelector('#colorMenu');
+const BAR_TITLES = ['太字（Ctrl+B）', '斜体（Ctrl+I）', '下線（Ctrl+U）', '取り消し線（Ctrl+Shift+S）', 'コード（Ctrl+E）', 'リンク（Ctrl+K）', '色'];
+const COLOR_NAMES = ['既定', '灰', '茶', '橙', '黄', '緑', '青', '紫', '桃', '赤'];
+const barBtn = (l, title) => {
+  const b = barOf(l).querySelectorAll('button').find((x) => x.title === title);
+  assert.ok(b, `帯に ${title} が無い`);
+  return b;
+};
+// 帯・色の項目を押す（本物は mousedown → click）。mousedown の既定を止めたか（フォーカスと選んだ所を行に残すか）を返す
+function pushBtn(b) {
+  let stopped = false;
+  b.dispatchEvent({ type: 'mousedown', preventDefault: () => { stopped = true; } });
+  b.dispatchEvent({ type: 'click' });
+  return stopped;
+}
+// 行の文字を選ぶ（本物はマウスを離した時・キーを離した時・selectionchange で帯を出す）
+function selectIn(l, id, s, e) {
+  const t = txtOf(l, id);
+  t.focus();
+  l.caret.set(t, s, e);
+  t.dispatchEvent({ type: 'mouseup' });
+  return t;
+}
+const colorItem = (l, key) => {
+  const b = cmenuOf(l).querySelectorAll('button').find((x) => x.dataset.key === key);
+  assert.ok(b, `色のメニューに ${key} が無い`);
+  return b;
+};
+
+test('EB-5（決めたこと 19・R64）: 行の文字を選ぶと #markBar（role="toolbar"）が出て、押してもフォーカスと選んだ所は行に残る。選びを外す・行から出ると消える。AI の項目は無い', T, async () => {
+  const l = await openReal({ pa1: [{ id: 'p1', type: 'paragraph', text: 'あいうえお' }, { id: 'p2', type: 'paragraph', text: 'かきく' }] });
+  try {
+    // カーソルだけ（選んでいない）では出ない
+    let t = selectIn(l, 'p1', 2, 2);
+    assert.strictEqual(barOf(l), null, '選んでいないのに帯が出た');
+    t = selectIn(l, 'p1', 1, 3);
+    const bar = barOf(l);
+    assert.ok(bar, '文字を選んでも帯が出ない');
+    assert.strictEqual(bar.getAttribute('role'), 'toolbar');
+    assert.strictEqual(bar.getAttribute('aria-label'), '文字の飾り');
+    const btns = bar.querySelectorAll('button');
+    assert.deepStrictEqual(btns.map((b) => b.title), BAR_TITLES);
+    assert.deepStrictEqual(btns.map((b) => b.getAttribute('aria-keyshortcuts')), ['Control+B', 'Control+I', 'Control+U', 'Control+Shift+S', 'Control+E', 'Control+K', null]);
+    assert.ok(!btns.some((b) => /AI|整え/.test(b.textContent + b.title)), '帯に AI の項目がある（BQ4 (a)）');
+    // 押す: mousedown の既定を止め（フォーカスと選んだ所は行に残る）、選んだ所が太字になり、帯は残る
+    assert.strictEqual(pushBtn(barBtn(l, '太字（Ctrl+B）')), true, '帯を押すとフォーカスが行から外れる');
+    assert.strictEqual(l.document.activeElement, t);
+    assert.deepStrictEqual(l.caret.get(t), [1, 3]);
+    assert.deepStrictEqual(viewOf(t), ['あ', { tag: 'span', m: 'b', t: 'いう' }, 'えお']);
+    assert.ok(barOf(l), '押した後に帯が消えた');
+    pushBtn(barBtn(l, 'コード（Ctrl+E）'));
+    assert.deepStrictEqual(viewOf(t), ['あ', { tag: 'span', m: 'b code', t: 'いう' }, 'えお']);
+    // 保存は次の区切り（手が 2 秒止まる）で1回
+    await l.drain();
+    assert.deepStrictEqual(updates(l), []);
+    await l.clock.advance(2000);
+    await l.drain();
+    assert.deepStrictEqual(updates(l), [['pa1', 'p1', { rich: [r4('あ'), r4('いう', 'b', 'code'), r4('えお')] }]]);
+    // 選びを外す（カーソルだけにする）と消える
+    l.caret.set(t, 2);
+    t.dispatchEvent({ type: 'keyup', key: 'ArrowLeft' });
+    assert.strictEqual(barOf(l), null, '選びを外しても帯が残る');
+    // もう一度選ぶと出て、Esc は帯だけを閉じる（R64。行の ⠿ へは行かない）。もう一度 Esc で ⠿ へ
+    t = selectIn(l, 'p1', 0, 2);
+    assert.ok(barOf(l));
+    const esc = l.key({ key: 'Escape' }, t);
+    assert.strictEqual(esc.defaultPrevented, true);
+    assert.strictEqual(barOf(l), null, 'Esc で帯が閉じない');
+    assert.strictEqual(l.document.activeElement, t, 'Esc で帯と一緒に行から出た');
+    t.dispatchEvent({ type: 'keyup', key: 'Escape' });
+    assert.strictEqual(barOf(l), null, '閉じた帯が同じ選びでまた出た');
+    l.key({ key: 'Escape' }, t);
+    assert.strictEqual(l.document.activeElement, rowOf(l, 'p1').querySelector('.grip'));
+    // 行から出ると消える
+    t = selectIn(l, 'p1', 0, 2);
+    assert.ok(barOf(l));
+    txtOf(l, 'p2').focus();
+    t.onblur();
+    assert.strictEqual(barOf(l), null, '行から出ても帯が残る');
+    // 文字起こしの行・区切り線では出ない（行をまたいだ選びは R22: EK-4）
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+test('EB-5（決めたこと 20・R12・K-25・SEC2）: Ctrl+K → #linkPop。https://example.invalid/ で Enter → rich に link。javascript:alert(1) → 断りの文・rich は変わらない。選んだ所に URL を貼るとリンク', T, async () => {
+  const l = await openReal({ pa1: [{ id: 'p1', type: 'paragraph', text: 'あいうえお' }], pb2: [{ id: 'q1', type: 'paragraph', text: 'べつ' }] });
+  try {
+    // 選んでいないときの Ctrl+K は何もしない（既定の動きは止める: R12・R104）
+    let t = selectIn(l, 'p1', 2, 2);
+    assert.strictEqual(l.key({ key: 'k', code: 'KeyK', ctrlKey: true }, t).defaultPrevented, true);
+    assert.strictEqual(popOf(l), null, '選んでいないのにリンクの欄が出た');
+    // 変換中の Ctrl+K も何もしない
+    t = selectIn(l, 'p1', 0, 2);
+    assert.strictEqual(l.key({ key: 'k', code: 'KeyK', ctrlKey: true, isComposing: true }, t).defaultPrevented, false);
+    assert.strictEqual(popOf(l), null);
+    assert.strictEqual(l.key({ key: 'k', code: 'KeyK', ctrlKey: true }, t).defaultPrevented, true);
+    const pop = popOf(l);
+    assert.ok(pop, 'Ctrl+K でリンクの欄が出ない');
+    const inp = pop.querySelector('input');
+    assert.strictEqual(inp.getAttribute('placeholder'), 'https://… を貼る');
+    assert.strictEqual(l.document.activeElement, inp, 'リンクの欄にフォーカスが無い');
+    assert.deepStrictEqual(pop.querySelectorAll('button').map((b) => b.textContent), ['リンクを付ける', '外す']);
+    // 書いている途中（EQ22 (a)・決めたこと 44）: リンクの欄に打っている間は、保存した議事録を前に出さない
+    l.fire('onPageOpen', 'pb2', { saved: true });
+    await l.drain();
+    assert.ok(rowOf(l, 'p1'), 'リンクの欄に打っている間に保存した議事録が前に出た');
+    // 開けない頭 → 断りの文・欄は開いたまま・rich は変わらない
+    inp.value = 'javascript:alert(1)';
+    l.key({ key: 'Enter' }, inp);
+    assert.strictEqual(pop.querySelector('.lmsg').textContent, '開けるのは https・http・mailto と NaTsu のリンクだけです');
+    assert.ok(popOf(l));
+    assert.deepStrictEqual(viewOf(t), ['あいうえお']);
+    // 変換確定の Enter は決めない（IME）
+    inp.value = 'https://example.invalid/';
+    l.key({ key: 'Enter', isComposing: true }, inp);
+    assert.ok(popOf(l), '変換確定の Enter でリンクを付けた');
+    l.key({ key: 'Enter' }, inp);
+    assert.strictEqual(popOf(l), null, 'Enter で欄が閉じない');
+    assert.deepStrictEqual(viewOf(t), [{ tag: 'span', link: 'https://example.invalid/', t: 'あい' }, 'うえお']);
+    assert.strictEqual(t.childNodes[0].getAttribute('title'), 'Ctrl+クリックで開く: https://example.invalid/');
+    assert.strictEqual(l.document.activeElement, t, 'リンクを付けた後にフォーカスが行に戻らない');
+    assert.deepStrictEqual(l.caret.get(t), [0, 2]);
+    t.onblur();
+    await l.drain();
+    assert.deepStrictEqual(updates(l), [['pa1', 'p1', { rich: [r4('あい', ['link', 'https://example.invalid/']), r4('うえお')] }]]);
+    // 帯の［リンク］でも同じ欄。今のリンクの住所が入っていて、［外す］で外す
+    t = selectIn(l, 'p1', 0, 2);
+    pushBtn(barBtn(l, 'リンク（Ctrl+K）'));
+    assert.strictEqual(popOf(l).querySelector('input').value, 'https://example.invalid/');
+    popOf(l).querySelectorAll('button').find((b) => b.textContent === '外す').onclick();
+    assert.strictEqual(popOf(l), null);
+    assert.deepStrictEqual(viewOf(t), ['あいうえお']);
+    // Esc は欄だけを閉じて行へ戻る（R64）
+    t = selectIn(l, 'p1', 1, 2);
+    l.key({ key: 'k', code: 'KeyK', ctrlKey: true }, t);
+    l.key({ key: 'Escape' }, popOf(l).querySelector('input'));
+    assert.strictEqual(popOf(l), null);
+    assert.strictEqual(l.document.activeElement, t);
+    // 選んだ所に URL を貼るとリンク（文字は変わらない: K-25）。URL でない文字は今どおり置き換える
+    t = selectIn(l, 'p1', 3, 5);
+    t.onpaste({ preventDefault() {}, clipboardData: { getData: (k) => (k === 'text/plain' ? 'https://example.com/x\n' : '') } });
+    assert.deepStrictEqual(viewOf(t), ['あいう', { tag: 'span', link: 'https://example.com/x', t: 'えお' }]);
+    l.caret.set(t, 0, 1);
+    t.onpaste({ preventDefault() {}, clipboardData: { getData: (k) => (k === 'text/plain' ? 'javascript:x' : '') } });
+    assert.strictEqual(t.textContent, 'javascript:xいうえお', '開けない頭の文字をリンクにした');
+    assert.ok(!viewOf(t).some((x) => x.link === 'javascript:x'));
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+test('EB-5（決めたこと 20・R11）: リンクの文字をふつうにクリック → openLink は呼ばれない。Ctrl+クリック → openLink の1回', T, async () => {
+  const RICH = [r4('資料', ['link', 'https://example.com/a']), r4('を見る')];
+  const l = await openReal({ pa1: [{ id: 'p1', type: 'paragraph', text: '資料を見る', rich: RICH, citeState: 'manual', cites: [] }] });
+  try {
+    const t = txtOf(l, 'p1');
+    const span = t.childNodes[0];
+    assert.strictEqual(span.getAttribute('title'), 'Ctrl+クリックで開く: https://example.com/a');
+    t.focus();
+    t.dispatchEvent({ type: 'click', target: span, ctrlKey: false });
+    assert.deepStrictEqual(l.called('openLink'), [], 'ふつうのクリックでリンクを開いた');
+    let prevented = false;
+    t.dispatchEvent({ type: 'click', target: span, ctrlKey: true, preventDefault: () => { prevented = true; } });
+    assert.deepStrictEqual(l.called('openLink').map((c) => c.args), [['https://example.com/a']]);
+    assert.strictEqual(prevented, true);
+    // リンクでない文字の Ctrl+クリックは何もしない
+    t.dispatchEvent({ type: 'click', target: t.childNodes[1], ctrlKey: true });
+    t.dispatchEvent({ type: 'click', target: t, ctrlKey: true });
+    assert.strictEqual(l.called('openLink').length, 1);
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+test('EB-5（決めたこと 21・BQ3・R37）: 帯の［色］で文字の色・背景の色（既定と9色の2列）。選ぶと置き換え、既定で外す。Ctrl+Shift+H は最後の色', T, async () => {
+  const l = await openReal({ pa1: [{ id: 'p1', type: 'paragraph', text: 'あいうえお' }] });
+  try {
+    // まだ色を使っていない: Ctrl+Shift+H は何もしない
+    let t = selectIn(l, 'p1', 0, 5);
+    assert.strictEqual(l.key({ key: 'H', code: 'KeyH', ctrlKey: true, shiftKey: true }, t).defaultPrevented, true);
+    assert.deepStrictEqual(viewOf(t), ['あいうえお']);
+    t = selectIn(l, 'p1', 1, 3);
+    assert.strictEqual(pushBtn(barBtn(l, '色')), true);
+    const menu = cmenuOf(l);
+    assert.ok(menu, '［色］でメニューが出ない');
+    assert.deepStrictEqual(menu.querySelectorAll('.chead').map((h) => h.textContent), ['文字の色', '背景の色']);
+    for (const kind of ['color', 'bg']) {
+      assert.deepStrictEqual(menu.querySelectorAll('button').filter((b) => b.dataset.key.startsWith(`${kind}:`)).map((b) => b.textContent), COLOR_NAMES);
+    }
+    // 文字の色の赤 → 選んだ所が赤。メニューは閉じ、フォーカスと選んだ所は行に残る
+    assert.strictEqual(pushBtn(colorItem(l, 'color:red')), true, '色の項目を押すとフォーカスが行から外れる');
+    assert.strictEqual(cmenuOf(l), null);
+    assert.strictEqual(l.document.activeElement, t);
+    assert.deepStrictEqual(l.caret.get(t), [1, 3]);
+    assert.deepStrictEqual(viewOf(t), ['あ', { tag: 'span', color: 'red', t: 'いう' }, 'えお']);
+    // 背景の色の黄を一部赤い所に → その所は黄の背景だけ（赤い字は外れる: BQ3）
+    t = selectIn(l, 'p1', 2, 4);
+    pushBtn(barBtn(l, '色'));
+    pushBtn(colorItem(l, 'bg:yellow'));
+    assert.deepStrictEqual(viewOf(t), ['あ', { tag: 'span', color: 'red', t: 'い' }, { tag: 'span', bg: 'yellow', t: 'うえ' }, 'お']);
+    // Ctrl+Shift+H は最後の色（黄の背景）をもう一度付ける
+    t = selectIn(l, 'p1', 0, 1);
+    l.key({ key: 'H', code: 'KeyH', ctrlKey: true, shiftKey: true }, t);
+    assert.deepStrictEqual(viewOf(t), [{ tag: 'span', bg: 'yellow', t: 'あ' }, { tag: 'span', color: 'red', t: 'い' }, { tag: 'span', bg: 'yellow', t: 'うえ' }, 'お']);
+    // 既定 → その範囲の色を全部外す（最後の色は替えない）
+    t = selectIn(l, 'p1', 0, 3);
+    pushBtn(barBtn(l, '色'));
+    pushBtn(colorItem(l, 'color:'));
+    assert.deepStrictEqual(viewOf(t), ['あいう', { tag: 'span', bg: 'yellow', t: 'え' }, 'お']);
+    t = selectIn(l, 'p1', 4, 5);
+    l.key({ key: 'H', code: 'KeyH', ctrlKey: true, shiftKey: true }, t);
+    assert.deepStrictEqual(viewOf(t), ['あいう', { tag: 'span', bg: 'yellow', t: 'えお' }]);
+    // Esc は色のメニューだけを閉じる（帯は残る: R64）
+    t = selectIn(l, 'p1', 0, 1);
+    pushBtn(barBtn(l, '色'));
+    l.key({ key: 'Escape' }, t);
+    assert.strictEqual(cmenuOf(l), null);
+    assert.ok(barOf(l), '色のメニューの Esc で帯まで閉じた');
+    t.onblur();
+    await l.drain();
+    assert.deepStrictEqual(updates(l), [['pa1', 'p1', { rich: [r4('あいう'), r4('えお', ['bg', 'yellow'])] }]]);
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+test('EB-5（決めたこと 21・S-03）: ⠿ のメニューの［色 ▸］・Ctrl+/・/あか で blocksSetColor の1回（1歩）。行は色で描く', T, async () => {
+  const l = await openReal({ pa1: BASE() });
+  try {
+    // ⠿ → ［色 ▸］ → 背景の色の赤
+    rowOf(l, 'p1').querySelector('.grip').onclick();
+    const m = $(l, 'pNote').querySelector('.blockmenu');
+    const items = m.querySelectorAll('.mitem').filter((x) => x.parentNode === m);
+    assert.deepStrictEqual(items.map((x) => x.textContent), ['削除', '複製', '変換 ▸', '色 ▸']);
+    items[3].onclick();
+    const sub = $(l, 'pNote').querySelectorAll('.blockmenu').find((x) => x.classList.contains('sub'));
+    assert.ok(sub, '［色 ▸］の中が開かない');
+    assert.deepStrictEqual(sub.querySelectorAll('.chead').map((h) => h.textContent), ['文字の色', '背景の色']);
+    const subItems = sub.querySelectorAll('.mitem');
+    assert.deepStrictEqual(subItems.map((x) => x.textContent), [...COLOR_NAMES, ...COLOR_NAMES]);
+    assert.strictEqual(l.document.activeElement, subItems[0]);
+    subItems.find((x) => x.dataset.key === 'red_bg').onclick();
+    await l.drain();
+    assert.deepStrictEqual(l.called('blocksSetColor').map((c) => c.args), [['pa1', ['p1'], 'red_bg']]);
+    assert.strictEqual(l.page().blocks.find((b) => b.id === 'p1').color, 'red_bg');
+    assert.strictEqual(rowOf(l, 'p1').getAttribute('data-bbg'), 'red');
+    assert.strictEqual(rowOf(l, 'p1').getAttribute('data-bcolor'), null);
+    assert.strictEqual(l.steps.length, 1);
+    // Ctrl+/ → ↓↓↓ で［色 ▸］ → Enter → 中の ↓ で灰 → Enter
+    const t = typeIn(l, 'b1', '来週に出す', 1);
+    l.key({ key: '/', code: 'Slash', ctrlKey: true }, t);
+    const box = $(l, 'pNote').querySelector('.blockmenu');
+    for (let i = 0; i < 3; i++) l.key({ key: 'ArrowDown' }, box);
+    assert.strictEqual(l.document.activeElement.textContent, '色 ▸');
+    l.key({ key: 'Enter' }, box);
+    l.key({ key: 'ArrowDown' }, box);
+    assert.strictEqual(l.document.activeElement.dataset.key, 'gray');
+    l.key({ key: 'Enter' }, box);
+    await l.drain();
+    assert.deepStrictEqual(l.called('blocksSetColor').map((c) => c.args).slice(1), [['pa1', ['b1'], 'gray']]);
+    assert.strictEqual(rowOf(l, 'b1').getAttribute('data-bcolor'), 'gray');
+    // 既定で外す
+    rowOf(l, 'p1').querySelector('.grip').onclick();
+    $(l, 'pNote').querySelector('.blockmenu').querySelectorAll('.mitem')[3].onclick();
+    $(l, 'pNote').querySelectorAll('.blockmenu').find((x) => x.classList.contains('sub')).querySelectorAll('.mitem')[0].onclick();
+    await l.drain();
+    assert.deepStrictEqual(l.called('blocksSetColor').map((c) => c.args).slice(2), [['pa1', ['p1'], '']]);
+    assert.strictEqual(rowOf(l, 'p1').getAttribute('data-bbg'), null);
+    // / メニューの色: 空の行で「/あか」→ 文字の色と背景の色の赤が出て、Enter（文字の色の赤）で blocksSetColor の1回・打った語は消える・1歩
+    const n = l.steps.length;
+    const e = typeIn(l, 'e1', '/あか');
+    e.dispatchEvent({ type: 'input' });
+    const sm = $(l, 'pNote').querySelector('#slashMenu');
+    assert.ok(sm, '「/あか」で / メニューが出ない');
+    assert.deepStrictEqual(sm.querySelectorAll('.shead').map((h) => h.textContent), ['文字の色', '背景の色']);
+    assert.deepStrictEqual(sm.querySelectorAll('.sopt').map((o) => [o.dataset.key, o.textContent]), [['color:red', '赤'], ['bg:red', '赤']]);
+    l.key({ key: 'Enter' }, e);
+    await l.drain();
+    assert.deepStrictEqual(l.called('blocksSetColor').map((c) => c.args).slice(3), [['pa1', ['e1'], 'red']]);
+    assert.strictEqual(txtOf(l, 'e1').textContent, '');
+    assert.strictEqual(rowOf(l, 'e1').getAttribute('data-bcolor'), 'red');
+    assert.strictEqual(l.steps.length, n + 1);
+    // 文のある行で「/あかいはいけい」→ 背景の色の赤だけ。打った語を除いた文を保存してから色（2つの命令で1歩）
+    const p = typeIn(l, 'p1', 'あいうえお /あかいはいけい');
+    p.dispatchEvent({ type: 'input' });
+    assert.deepStrictEqual($(l, 'pNote').querySelector('#slashMenu').querySelectorAll('.sopt').map((o) => o.dataset.key), ['bg:red']);
+    l.key({ key: 'Enter' }, p);
+    await l.drain();
+    assert.deepStrictEqual(l.called('blocksSetColor').map((c) => c.args).slice(4), [['pa1', ['p1'], 'red_bg']]);
+    assert.strictEqual(l.page().blocks.find((b) => b.id === 'p1').text, 'あいうえお');
+    // Ctrl+Z の1回で文と色の両方が戻る
+    press(l, Z);
+    await l.drain();
+    const back = l.page().blocks.find((b) => b.id === 'p1');
+    assert.deepStrictEqual([back.text, back.color], ['あいうえお', undefined]);
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+test('EB-5（決めたこと 21・COLOR-02〜05）: 行の色の CSS は明暗の両方にある9色の語だけを使い、CSS の入れ子は無い。帯・リンクの欄・色のメニューの CSS も決まった語だけ', () => {
+  const { parseHTML } = require('./helpers/simdom');
+  const S = require('./helpers/simcss');
+  const styles = parseHTML(HTML).root.querySelectorAll('style').map((s) => s._raw).join('\n');
+  const rules = S.parse(styles);
+  for (const n of R.COLORS) {
+    const fg = rules.find((r) => r.sel === `.blk[data-bcolor="${n}"] > .txt` && !r.at);
+    const bg = rules.find((r) => r.sel === `.blk[data-bbg="${n}"]` && !r.at);
+    assert.ok(fg && bg, `行の色 ${n} の CSS が無い`);
+    assert.strictEqual(fg.decls.color.trim(), `var(--mk-${n})`);
+    assert.strictEqual(bg.decls.background.trim(), `var(--mkbg-${n})`);
+    for (const k of ['data-color', 'data-bg']) assert.ok(rules.some((r) => r.sel === `.colorlist .sw[${k}="${n}"]` && !r.at), `色の見本 ${k}=${n} の CSS が無い`);
+  }
+  const mine = rules.filter((r) => /markbar|linkpop|colorlist|data-bcolor|data-bbg/.test(r.sel));
+  assert.ok(mine.length > 0);
+  for (const r of mine) {
+    assert.ok(!r.nested && !r.sel.includes('&'), `CSS の入れ子: ${r.sel}`);
+    for (const [k, v] of Object.entries(r.decls)) if (/color|background|border/.test(k)) assert.ok(!/#[0-9a-f]{3,8}\b|rgba?\(/i.test(v), `${r.sel} の ${k} が語でない色: ${v}`);
+  }
 });

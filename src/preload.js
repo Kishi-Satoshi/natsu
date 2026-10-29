@@ -274,6 +274,8 @@ contextBridge.exposeInMainWorld('koeApp', {
   // 0.10.0 LN-4: 検索の窓に貼ったリンクの照らし（main で。→ { id, anchor } か null）と、リンクで起こされたときに開くページ（{ id, anchor }）
   parseLink: (s) => ipcRenderer.invoke('app:parse-link', s),
   onOpenLink: (cb) => ipcRenderer.on('page:open-link', (_e, p) => cb(p)),
+  // 0.14.0 EB-5（計画 docs/plans/2026-10-26-140.md の決めたこと 20・33）: 行の飾りのリンクを開く（Ctrl+クリック）。main が照らし直す。答えは開いたか
+  openLink: (url) => ipcRenderer.invoke('app:open-link', typeof url === 'string' ? url : ''),
   // 0.10.0 LS-2: main が今作っている要約のページの ID の並び（要約の欄の鍵の making）
   onSummaryRunning: (cb) => ipcRenderer.on('summary:running', (_e, ids) => cb(ids)),
 

@@ -12,6 +12,8 @@ const { titleAt } = require('./titles');
 //                     （短い小さな発言。区間全体の RMS は -55 dBFS より小さい）。--recover の下書きの音声と音声入力の音声（3 秒）にも効く
 //     --vad         … VAD のモデル（偽物）をモデルの隣に置く（エンジンが --vad 付きで起動する）
 //     --open-help=<JSON> … 0.9.2 I-1: 起動の後に app:open-help を引数の並びの並び（例 [[],["record/pause"]]）で順に呼び、out.openHelp・out.external（shell.openExternal の住所）を書いて終わる
+//     --open-link=<JSON> … 0.14.0 EB-5: 起動の後に app:open-link をこの JSON の並びの値で1つずつ順に呼び、out.openLink（答え）・out.external（shell.openExternal の住所）・
+//                     out.linkSent（本体の窓へ送った page:open-link の中身）・out.engineLog を書いて終わる
 //     --segs=N      … 送る区間の数（既定 2。1 つ目は 3 秒、2 つ目からは 2 秒）
 //     --kotoba      … 偽のモデルの名前を kotoba-whisper のものにする（認識ヒントを渡さない場面）
 //     --port=N      … 文字起こしエンジンのポート（並べて走らせるとき、呼ぶ側が重ならないように決めて渡す）
@@ -561,6 +563,8 @@ const FAKE_SUM = path.join(__dirname, 'fake-llama.js');
 const blipSec = Number(flagVal('--blip-sec')) || 15;   // 0.9.1 Q-2
 // 0.9.2 I-1: 起動の後に app:open-help を、この JSON の引数の並びの並びで順に呼び、答え（out.openHelp）と shell.openExternal の住所（out.external）を書いて終わる
 const openHelpCalls = flagVal('--open-help') ? JSON.parse(flagVal('--open-help')) : null;
+// 0.14.0 EB-5: 起動の後に app:open-link を、この JSON の並びの値で順に呼ぶ（画面の行のリンクを開く口）
+const openLinkCalls = flagVal('--open-link') ? JSON.parse(flagVal('--open-link')) : null;
 // 0.9.3 M-2〜M-5: 会議の検出の場面（頭の注釈）
 const micSteps = flagVal('--mic-feed') ? JSON.parse(flagVal('--mic-feed')) : null;
 if (micSteps) process.env.NATSU_TEST_MIC_WATCH = '1';
@@ -3081,6 +3085,17 @@ process.on('exit', () => {
       mainSent: sent.filter(([ch]) => ch === 'page:open-link'), mainWinCalls: mainWinCalls.slice(),
     });
     for (const dir of Object.values(claudeDirs)) { try { for (const n of fs.readdirSync(dir)) fs.chmodSync(path.join(dir, n), 0o644); } catch (_) { /* 無ければ飛ばす */ } }
+    process.stdout.write(`\n${JSON.stringify(out)}\n`);
+    await exitClean(0);
+  }
+  // 0.14.0 EB-5: 場面 open-link（画面の行のリンクを開く口。開くのは決まった頭だけ・NaTsu のリンクはページを開く・開かなければ記録に符号だけ）
+  if (openLinkCalls) {
+    out.openLink = [];
+    for (const url of openLinkCalls) out.openLink.push(await handlers['app:open-link']({}, url));
+    await sleep(50);
+    out.external = external.slice();
+    out.linkSent = sent.filter(([ch]) => ch === 'page:open-link').map(([, p]) => p);
+    out.engineLog = engineLogLines();
     process.stdout.write(`\n${JSON.stringify(out)}\n`);
     await exitClean(0);
   }

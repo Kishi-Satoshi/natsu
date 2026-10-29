@@ -120,6 +120,25 @@ const OPEN_BLOCK_MENU = `(async () => {
   [...document.querySelectorAll('#pNote .blockmenu .mitem')].find((b) => b.textContent === '変換 ▸').click();
   return 1;
 })()`;
+// 0.14.0 EB-5（計画 docs/plans/2026-10-26-140.md の決めたこと 19〜21）: 行 b2 の頭の4文字を選んで道具の帯を出し、then を続ける（リンクの欄・色のメニュー）
+const SELECT_MARKS = (then) => `(async () => {
+  document.getElementById('tabBtnNotes').click(); document.querySelector('#plist .pitem').click();
+  await new Promise((r) => setTimeout(r, 300));
+  document.getElementById('paneBtnNote').click();
+  const t = [...document.querySelectorAll('#pNote .blk')].find((e) => e.dataset.id === 'b2').querySelector('.txt');
+  t.focus();
+  const n = document.createTreeWalker(t, NodeFilter.SHOW_TEXT).nextNode();
+  const r = document.createRange(); r.setStart(n, 0); r.setEnd(n, Math.min(4, n.length));
+  const sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(r);
+  t.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+  ${then}
+  await new Promise((r2) => setTimeout(r2, 50));
+  return 1;
+})()`;
+const LINK_REFUSED = `t.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', code: 'KeyK', ctrlKey: true, bubbles: true }));
+  const i = document.querySelector('#linkPop input'); i.value = 'javascript:alert(1)';
+  i.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));`;
+const COLOR_OPEN = "document.querySelector('#markBar .mb-color').click();";
 // 0.13.0 ED-7（E5）: ページを開いて［AI 要約］の欄の頭まで捲る（新しい型の行が全部見えるように。撮った画像の確かめで、欄が窓の下に切れていた）
 const OPEN_TYPES = `(async () => {
   document.getElementById('tabBtnNotes').click(); document.querySelector('#plist .pitem').click();
@@ -314,6 +333,11 @@ const SCREENS = [
   // 足した画面（まだ基準が無い）
   { name: 'edit-marks-light', page: 'app', theme: 'light', get answers() { return marksAnswers(); }, act: OPEN_TYPES },
   { name: 'edit-marks-dark', page: 'app', theme: 'dark', get answers() { return marksAnswers(); }, act: OPEN_TYPES },
+  // 0.14.0 EB-5（計画の「取り直す画面（RETAKE）」）: 文字を選んで出た道具の帯・Ctrl+K のリンクの欄（開けない頭の断りの文）・帯の［色 ▸］の2列。足した画面（まだ基準が無い）。
+  // ⠿ のメニューの画面 edit-block-menu-light は［色 ▸］が増えるので取り直す
+  { name: 'edit-toolbar-light', page: 'app', theme: 'light', act: SELECT_MARKS('') },
+  { name: 'edit-link-light', page: 'app', theme: 'light', act: SELECT_MARKS(LINK_REFUSED) },
+  { name: 'edit-color-menu-light', page: 'app', theme: 'light', act: SELECT_MARKS(COLOR_OPEN) },
 ];
 // 0.9.0 O-3（RP9）: 録音バーの画面（形 → 地 → 拡大率 → 状態の順。撮る道具は形・地・拡大率の組ごとに窓を1つ開いて状態を act で替える）。
 // 録音は始めずに見た目だけを撮る（act は pill-states の見本を録音バーの DOM に当てる。撮るときだけ体の地にデスクトップの色を塗る）。
@@ -410,8 +434,9 @@ const OVL_094 = (states) => PS.FORMS.flatMap((form) => Object.keys(PS.DESKS).fla
 // 0.13.2（版を 0.13.2 に上げる commit。Task G）: 持ち主が取り直しの見比べ（足した 3 枚: 帯 no-login・議事録のページの「残り n 区間」の2枚、取り直した 5 枚:
 // 会議の知らせのパネル）に「この見た目でよい（おすすめ）」（2026-10-28）と答えたので、CI run 40796780384（80ea908）の artifact 12864058378 の .after.png（5 枚。閉じたパネルの3枚は今の基準と
 // バイトが同じで artifact に出なかったので替えていない）をバイトのまま基準にし、空に戻した（基準は 161 枚）
-// 0.14.0（計画 docs/plans/2026-10-26-140.md の「取り直す画面（RETAKE）」）: EB-4 で足した飾りの明暗の2枚（まだ基準が無い）
-const RETAKE = new Set(['edit-marks-light', 'edit-marks-dark']);
+// 0.14.0（計画 docs/plans/2026-10-26-140.md の「取り直す画面（RETAKE）」）: EB-4 で足した飾りの明暗の2枚と、EB-5 で足した道具の帯・リンクの欄・色のメニューの3枚（まだ基準が無い）。
+// EB-5 で ⠿ のメニューに［色 ▸］が増えた edit-block-menu-light（今の基準がある）
+const RETAKE = new Set(['edit-marks-light', 'edit-marks-dark', 'edit-toolbar-light', 'edit-link-light', 'edit-color-menu-light', 'edit-block-menu-light']);
 const PERF = [{ name: 'open-2000-blocks', budgetMs: 500 }];   // 3回開いた中央値で見る
 const TIME_ZONE = 'Asia/Tokyo';
 const TOLERANCE = 2;   // 色の差（0〜255）がこれ以下の画素は同じとみなす。CI の機械の CPU ごとの描き方の1段の差を拾わないため（揺れの確かめ judgePair は 0 で見る）

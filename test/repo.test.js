@@ -211,10 +211,13 @@ test('外部URLを開くのはコード内で組み立てたものだけ', () =>
   //   - REPO 定数から組み立てたリリースページ
   //   - Windows のサウンド設定（固定のURI）
   //   - （0.9.2 I-1 で意図して足した）HELP_URL の定数と、決まった記事の一覧で照らした道（lib.helpPath。一覧に無ければ ''）
+  //   - （0.14.0 EB-5 で意図して足した: 計画 docs/plans/2026-10-26-140.md の決めたこと 20・33・R110）行の飾りのリンク（openRowLink の linkChecked）。
+  //     main が行の飾りと同じ決まり（RT.linkOk）で照らし直し、NaTsu のリンクでなく https・http・mailto の頭のものだけ
   const ALLOWED = [
     /^`https:\/\/github\.com\/\$\{updater\.REPO\}/,
     /^'ms-settings:[a-z]+'$/,
     /^`\$\{HELP_URL\}\$\{lib\.helpPath\(article$/,
+    /^linkChecked$/,
   ];
   const calls = [...main.matchAll(/shell\.openExternal\(([^)]*)\)/g)].map((m) => m[1].trim());
   assert.ok(calls.length > 0, 'openExternal の呼び出しが見つからない');
@@ -222,6 +225,13 @@ test('外部URLを開くのはコード内で組み立てたものだけ', () =>
     assert.ok(ALLOWED.some((re) => re.test(c)),
       `画面から受け取ったURLを開いていないか: ${c}`);
   }
+  // linkChecked は openRowLink の中だけにあり、照らし（RT.linkOk・NaTsu のリンク・決まった頭）の後で開く
+  const at = main.indexOf('function openRowLink(');
+  assert.ok(at > 0, 'main に openRowLink が無い');
+  const fn = main.slice(at, main.indexOf('\n}\n', at));
+  assert.strictEqual(main.split('linkChecked').length - 1, fn.split('linkChecked').length - 1, 'linkChecked が openRowLink の外にある');
+  const order = ['RT.linkOk(url)', 'natsulink.parseAnyLink(url)', '/^(?:https?:\\/\\/|mailto:)/i.test(url)', 'shell.openExternal(linkChecked)'].map((w) => fn.indexOf(w));
+  assert.ok(order.every((i, k) => i > 0 && (k === 0 || i > order[k - 1])), `openRowLink の照らしの順: ${order}`);
 });
 
 test('録音されるスピーカーは表示だけで、選ばせない', () => {
@@ -269,8 +279,8 @@ test('公開したのに画面から呼ばれない API がない', () => {
   // blockSetOpen・blockSetOpenAll は NE-4b（▸・Ctrl+Enter・Ctrl+Alt+T）が呼び始めたので外して空に戻した
   // 0.13.2 LN-2（計画 docs/plans/2026-10-28-132.md）で足した onPagePending（文字起こし待ちの残りの区間の数）は、議事録のページの1行（LN-5）が呼び始めたので外して空に戻した
   // 0.14.0 EB-2（計画 docs/plans/2026-10-26-140.md の Ruling R89）で足した元に戻すの2つ（onEditStep・editRevert）と行の色（blocksSetColor）は、
-  // 画面の元に戻す（EB-3）と色（EB-5）が呼び始めたら外して空に戻す。onEditStep・editRevert は EB-3 が呼び始めたので外した
-  const PENDING_APP = new Set(['blocksSetColor']);
+  // 画面の元に戻す（EB-3）と色（EB-5）が呼び始めたら外して空に戻す。onEditStep・editRevert は EB-3 が、blocksSetColor は EB-5（⠿・Ctrl+/・/ の行の色）が呼び始めたので外して空に戻した
+  const PENDING_APP = new Set([]);
   for (const [ns, html] of [['koeApp', appHtml], ['koeOverlay', overlayHtml]]) {
     const names = all(/^\s{2}([A-Za-z][\w$]*):/gm, block(ns));
     const used = new Set(all(new RegExp(`${ns}\\.(\\w+)`, 'g'), html));

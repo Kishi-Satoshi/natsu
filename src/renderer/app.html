@@ -647,6 +647,75 @@
     padding: 6px 10px; border-radius: 4px; cursor: pointer; }
   .blockmenu .mitem:hover, .blockmenu .mitem:focus { background: var(--hover); outline: none; }
   .blockmenu .mitem.off { color: var(--muted); cursor: default; }
+  /* 0.14.0 EB-5（決めたこと 19〜21）: 文字を選ぶと出る道具の帯・リンクの欄・色の一覧（押してもフォーカスは行に残す）と、行の色（明暗の両方にある9色の語だけ） */
+  .markbar { position: absolute; z-index: 7; display: flex; align-items: center; gap: 2px; padding: 3px;
+    background: var(--bg); border: 1px solid var(--line); border-radius: 6px; box-shadow: var(--shadow); }
+  .markbar button { background: transparent; border: none; color: var(--text); font: inherit; font-size: 14px; line-height: 1;
+    min-width: 30px; height: 28px; padding: 0 7px; border-radius: 4px; cursor: pointer; }
+  .markbar button:hover { background: var(--hover); }
+  .markbar .mb-b { font-weight: 700; }
+  .markbar .mb-i { font-style: italic; font-family: Georgia, "Times New Roman", serif; }
+  .markbar .mb-u { text-decoration: underline; }
+  .markbar .mb-s { text-decoration: line-through; }
+  .markbar .mb-code { font-family: "Cascadia Mono", Consolas, monospace; font-size: 13px; }
+  .markbar .mb-color { border-left: 1px solid var(--line); border-radius: 0 4px 4px 0; margin-left: 2px; }
+  .linkpop { position: absolute; z-index: 7; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 8px; width: 380px; max-width: calc(100% - 8px);
+    background: var(--bg); border: 1px solid var(--line); border-radius: 6px; box-shadow: var(--shadow); }
+  .linkpop input { flex: 1; min-width: 160px; font: inherit; font-size: 13px; color: var(--text); background: var(--bg);
+    border: 1px solid var(--line); border-radius: 4px; padding: 5px 8px; }
+  .linkpop input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+  .linkpop button { font: inherit; font-size: 13px; color: var(--text); background: transparent; border: 1px solid var(--line);
+    border-radius: 4px; padding: 4px 10px; cursor: pointer; }
+  .linkpop button:hover { background: var(--hover); }
+  .linkpop .lmsg { flex-basis: 100%; color: var(--danger); font-size: 12px; }
+  .linkpop .lmsg:empty { display: none; }
+  .colormenu { position: absolute; z-index: 8; padding: 4px; background: var(--bg); border: 1px solid var(--line); border-radius: 6px; box-shadow: var(--shadow); }
+  .colorlist { display: grid; grid-template-columns: auto auto; grid-template-rows: repeat(11, auto); grid-auto-flow: column; column-gap: 8px; }
+  .blockmenu.sub.colorlist { display: grid; }
+  .colorlist .chead { color: var(--muted); font-size: 12px; padding: 6px 10px 2px; }
+  .colormenu button { display: flex; align-items: center; background: transparent; border: none; color: var(--text); font: inherit; font-size: 13px;
+    text-align: left; padding: 4px 10px; border-radius: 4px; cursor: pointer; }
+  .colormenu button:hover { background: var(--hover); }
+  .colorlist .sw { display: inline-block; flex: none; width: 20px; height: 20px; margin-right: 8px; border: 1px solid var(--line); border-radius: 4px;
+    color: var(--text); font-size: 13px; font-weight: 700; line-height: 18px; text-align: center; vertical-align: middle; }
+  .colorlist .sw::before { content: "A"; }
+  .colorlist .sw[data-color="gray"] { color: var(--mk-gray); }
+  .colorlist .sw[data-color="brown"] { color: var(--mk-brown); }
+  .colorlist .sw[data-color="orange"] { color: var(--mk-orange); }
+  .colorlist .sw[data-color="yellow"] { color: var(--mk-yellow); }
+  .colorlist .sw[data-color="green"] { color: var(--mk-green); }
+  .colorlist .sw[data-color="blue"] { color: var(--mk-blue); }
+  .colorlist .sw[data-color="purple"] { color: var(--mk-purple); }
+  .colorlist .sw[data-color="pink"] { color: var(--mk-pink); }
+  .colorlist .sw[data-color="red"] { color: var(--mk-red); }
+  .colorlist .sw[data-bg="gray"] { background: var(--mkbg-gray); }
+  .colorlist .sw[data-bg="brown"] { background: var(--mkbg-brown); }
+  .colorlist .sw[data-bg="orange"] { background: var(--mkbg-orange); }
+  .colorlist .sw[data-bg="yellow"] { background: var(--mkbg-yellow); }
+  .colorlist .sw[data-bg="green"] { background: var(--mkbg-green); }
+  .colorlist .sw[data-bg="blue"] { background: var(--mkbg-blue); }
+  .colorlist .sw[data-bg="purple"] { background: var(--mkbg-purple); }
+  .colorlist .sw[data-bg="pink"] { background: var(--mkbg-pink); }
+  .colorlist .sw[data-bg="red"] { background: var(--mkbg-red); }
+  .blk[data-bcolor="gray"] > .txt { color: var(--mk-gray); }
+  .blk[data-bcolor="brown"] > .txt { color: var(--mk-brown); }
+  .blk[data-bcolor="orange"] > .txt { color: var(--mk-orange); }
+  .blk[data-bcolor="yellow"] > .txt { color: var(--mk-yellow); }
+  .blk[data-bcolor="green"] > .txt { color: var(--mk-green); }
+  .blk[data-bcolor="blue"] > .txt { color: var(--mk-blue); }
+  .blk[data-bcolor="purple"] > .txt { color: var(--mk-purple); }
+  .blk[data-bcolor="pink"] > .txt { color: var(--mk-pink); }
+  .blk[data-bcolor="red"] > .txt { color: var(--mk-red); }
+  .blk[data-bbg] { border-radius: 4px; }
+  .blk[data-bbg="gray"] { background: var(--mkbg-gray); }
+  .blk[data-bbg="brown"] { background: var(--mkbg-brown); }
+  .blk[data-bbg="orange"] { background: var(--mkbg-orange); }
+  .blk[data-bbg="yellow"] { background: var(--mkbg-yellow); }
+  .blk[data-bbg="green"] { background: var(--mkbg-green); }
+  .blk[data-bbg="blue"] { background: var(--mkbg-blue); }
+  .blk[data-bbg="purple"] { background: var(--mkbg-purple); }
+  .blk[data-bbg="pink"] { background: var(--mkbg-pink); }
+  .blk[data-bbg="red"] { background: var(--mkbg-red); }
 
   /* 会議タイプ */
   /* 要約タイプは灰色の札の形（第1b2回 P-2。appearance は変えない） */
@@ -3406,6 +3475,15 @@
       x.setStart(...at(a)); x.setEnd(...at(b));
       sel.removeAllRanges(); sel.addRange(x);
     },
+    // 0.14.0 EB-5: 選んだ所の矩形（道具の帯とリンクの欄を選んだ所の上下に置く）。読めなければ null
+    rect(el) {
+      const sel = typeof window.getSelection === 'function' ? window.getSelection() : null;
+      if (!sel || !sel.rangeCount) return null;
+      const r = sel.getRangeAt(0);
+      if (!el.contains(r.startContainer) || !el.contains(r.endContainer)) return null;
+      const b = r.getBoundingClientRect();
+      return b && (b.width || b.height) ? b : null;
+    },
   };
   // → [始め, 終わり]（選んでいなければ同じ）か null（その要素にカーソルが無い・読めない）
   const caretRange = (el) => { try { return caretSeam.range(el); } catch (_) { return null; } };
@@ -3801,6 +3879,7 @@
       if (n.text !== undefined) return document.createTextNode(n.text);
       const sp = document.createElement('span');
       for (const [k, v] of Object.entries(n.attrs)) sp.setAttribute(k, v);
+      if (n.attrs['data-link']) sp.setAttribute('title', `Ctrl+クリックで開く: ${n.attrs['data-link']}`);   // 0.14.0 EB-5（決めたこと 20・R11）: 乗せると住所と開き方
       sp.textContent = n.kids.map((k) => k.text).join('');
       return sp;
     });
@@ -3894,6 +3973,280 @@
     const end = s.trimEnd().length;
     return lead >= end ? [] : sliceRich(now, lead, end);
   }
+  // ---------------- 0.14.0 EB-5（計画 docs/plans/2026-10-26-140.md の決めたこと 19〜21・33・44・R11・R12・R37・R64）: 道具の帯・リンクの欄・色
+  // 1つの行の中で文字を選ぶと、選んだ所の上に帯（role="toolbar"）。押してもフォーカスと選んだ所は行に残す（mousedown を止める）。
+  // キーボードの人は近道を使う（ボタンに aria-keyshortcuts）。AI の項目は置かない（BQ4 (a)）
+  const MARK_BTNS = Object.freeze([
+    { mark: 'b', label: 'B', title: '太字（Ctrl+B）', keys: 'Control+B' },
+    { mark: 'i', label: 'I', title: '斜体（Ctrl+I）', keys: 'Control+I' },
+    { mark: 'u', label: 'U', title: '下線（Ctrl+U）', keys: 'Control+U' },
+    { mark: 's', label: 'S', title: '取り消し線（Ctrl+Shift+S）', keys: 'Control+Shift+S' },
+    { mark: 'code', label: '<>', title: 'コード（Ctrl+E）', keys: 'Control+E' },
+    { act: 'link', label: '🔗', title: 'リンク（Ctrl+K）', keys: 'Control+K' },
+    { act: 'color', label: '色 ▸', title: '色' },
+  ]);
+  const COLOR_LABELS = Object.freeze({ gray: '灰', brown: '茶', orange: '橙', yellow: '黄', green: '緑', blue: '青', purple: '紫', pink: '桃', red: '赤' });
+  const COLOR_HEADS = Object.freeze({ color: '文字の色', bg: '背景の色' });
+  const LINK_REFUSE = '開けるのは https・http・mailto と NaTsu のリンクだけです';
+  let markBar = null;     // 出ているとき { el: 行 }
+  let markBarEl = null;   // 帯の要素（一度だけ作り、隠すときは外す）
+  let markBarOff = null;  // Esc で閉じた選び { el, s, e }（同じ選びのままではまた出さない。選び直すと消える: R64）
+  let linkPop = null;     // 開いているとき { el, pid, s, e, box, input, msg }
+  let colorMenu = null;   // 開いているとき { el, s, e, box }
+  let lastColor = null;   // 最後に使った色 { kind, name }（Ctrl+Shift+H で付け直す: R37。「既定」は覚えない）
+  // 飾りを付けられる行か（区切り線・鍵の間の行は付けない）
+  const rowCanMark = (el) => Boolean(el && el._b && el._txt && el._b.type !== 'divider' && el._txt.contentEditable === 'true' && isIn(el, $('pNote')));
+  // 行の中で選んだ所 [始め, 終わり]（選んでいなければ null）
+  function selRange(el) {
+    const r = el && el._txt ? caretRange(el._txt) : null;
+    if (!r || r[0] === r[1]) return null;
+    return [Math.min(r[0], r[1]), Math.max(r[0], r[1])];
+  }
+  // 文の欄 → その行（要約の欄の行の文でなければ null）
+  const rowOfTxt = (t) => (t && t.classList && t.classList.contains('txt') && t.parentNode && t.parentNode._txt === t ? t.parentNode : null);
+  // 浮いた箱を、選んだ所の上（入らなければ下）に置く。本物は選んだ所の矩形、読めなければ行の上
+  function placeAt(box, el, below) {
+    const note = $('pNote');
+    let rect = null;
+    try { rect = typeof caretSeam.rect === 'function' ? caretSeam.rect(el._txt) : null; } catch (_) { rect = null; }
+    let top = below ? (el.offsetTop || 0) + (el.offsetHeight || 0) + 4 : (el.offsetTop || 0) - 40;
+    let left = (el.offsetLeft || 0) + (el._txt.offsetLeft || 0);
+    if (rect) {
+      const nr = note.getBoundingClientRect();
+      const st = note.scrollTop || 0;
+      top = below || rect.top - nr.top + st - 40 < 0 ? rect.bottom - nr.top + st + 6 : rect.top - nr.top + st - 40;
+      left = rect.left - nr.left;
+    }
+    box.style.top = `${Math.max(0, Math.round(top))}px`;
+    box.style.left = `${Math.max(0, Math.round(left))}px`;
+  }
+  function markBarBox() {
+    const box = document.createElement('div');
+    box.className = 'markbar'; box.id = 'markBar';
+    box.setAttribute('role', 'toolbar'); box.setAttribute('aria-label', '文字の飾り');
+    for (const it of MARK_BTNS) {
+      const b = document.createElement('button');
+      b.type = 'button'; b.className = `mb-${it.mark || it.act}`; b.textContent = it.label; b.title = it.title; b.tabIndex = -1;
+      b.setAttribute('aria-label', it.title);
+      if (it.keys) b.setAttribute('aria-keyshortcuts', it.keys);
+      b.onmousedown = (ev) => ev.preventDefault();   // 押してもフォーカスと選んだ所は行に残す（決めたこと 19）
+      b.onclick = () => markBarDo(it);
+      box.appendChild(b);
+    }
+    return box;
+  }
+  // 選びに合わせて帯を出す・隠す（selectionchange・マウスやキーを離した時・飾りを付けた後）
+  function markBarSync(el) {
+    if (linkPop) return;   // リンクの欄が開いている間は替えない
+    const r = rowCanMark(el) ? selRange(el) : null;
+    if (colorMenu && (!r || colorMenu.el !== el || colorMenu.s !== r[0] || colorMenu.e !== r[1])) colorMenuClose();
+    if (!r || (markBarOff && markBarOff.el === el && markBarOff.s === r[0] && markBarOff.e === r[1])) { markBarHide(); return; }
+    markBarOff = null;
+    if (!markBarEl) markBarEl = markBarBox();
+    markBar = { el };
+    placeAt(markBarEl, el, false);
+    if (markBarEl.parentNode !== $('pNote')) $('pNote').appendChild(markBarEl);
+  }
+  function markBarHide() {
+    colorMenuClose();
+    markBar = null;
+    if (markBarEl && markBarEl.parentNode) markBarEl.parentNode.removeChild(markBarEl);
+  }
+  function markBarDo(it) {
+    const el = markBar && markBar.el;
+    if (!rowCanMark(el)) return;
+    if (it.mark) { markRow(el, it.mark); if (typeof el._txt._pauseSave === 'function') el._txt._pauseSave(); markBarSync(el); return; }
+    if (it.act === 'link') { linkPopOpen(el); return; }
+    if (colorMenu) colorMenuClose(); else colorMenuOpen(el);
+  }
+  // Esc（R64 (2)）: 色のメニューが開いていればそれだけ、無ければ帯だけを閉じる（選んだ所とフォーカスは行に残す）
+  function markBarEsc(el) {
+    if (colorMenu) { colorMenuClose(); return; }
+    const r = selRange(el);
+    markBarOff = r ? { el, s: r[0], e: r[1] } : null;
+    markBarHide();
+  }
+  // 行から出た（blur）: その行の帯を隠す（リンクの欄が開いている間は欄が持つ）
+  function markBarLeave(el) {
+    markBarOff = null;
+    if (!linkPop && markBar && markBar.el === el) markBarHide();
+  }
+  // 帯・リンクの欄・色のメニューを全部閉じる（ページを替える・要約を描き直す）
+  function inlineClose() {
+    linkPopClose(); markBarHide(); markBarOff = null;
+  }
+
+  // ---- リンク（決めたこと 20・R12・K-25）: Ctrl+K（文字を選んでいるとき）か帯の［リンク］で、選んだ所の下に小さな欄
+  function linkPopOpen(el) {
+    const r = rowCanMark(el) ? selRange(el) : null;
+    if (!r) return;
+    linkPopClose(); markBarHide();
+    const txt = el._txt;
+    const mid = sliceRich(rowRich(txt), r[0], r[1]);
+    const urls = mid.map((x) => x.m.find((mk) => nameOf(mk) === 'link')).map((mk) => (mk ? mk[1] : ''));
+    const box = document.createElement('div');
+    box.className = 'linkpop'; box.id = 'linkPop';
+    box.setAttribute('role', 'dialog'); box.setAttribute('aria-label', 'リンク');
+    const input = document.createElement('input');
+    input.type = 'text'; input.setAttribute('placeholder', 'https://… を貼る'); input.setAttribute('aria-label', 'リンクの住所'); input.spellcheck = false;
+    input.value = urls.length && urls.every((u) => u && u === urls[0]) ? urls[0] : '';
+    const ok = document.createElement('button'); ok.type = 'button'; ok.textContent = 'リンクを付ける';
+    const off = document.createElement('button'); off.type = 'button'; off.textContent = '外す';
+    const msg = document.createElement('div'); msg.className = 'lmsg'; msg.setAttribute('role', 'alert');
+    for (const b of [ok, off]) b.onmousedown = (ev) => ev.preventDefault();   // 押しても欄のフォーカスは残す
+    ok.onclick = () => linkApply(input.value);
+    off.onclick = () => linkApply(null);
+    input.onkeydown = (ev) => {
+      if (imeEnter(ev)) return;   // 変換確定の Enter は決めない
+      if (ev.key === 'Enter') { ev.preventDefault(); linkApply(input.value); } else if (ev.key === 'Escape') { ev.preventDefault(); linkPopClose(true); }
+    };
+    box.append(input, ok, off, msg);
+    // 外を押したら閉じる（欄の中へ移るフォーカスは残す）
+    box.addEventListener('focusout', () => setTimeout(() => { if (linkPop && linkPop.box === box && !isIn(document.activeElement, box)) linkPopClose(); }, 0));
+    linkPop = { el, pid: curId, s: r[0], e: r[1], box, input, msg };
+    placeAt(box, el, true);
+    $('pNote').appendChild(box);
+    if (typeof box.scrollIntoView === 'function') box.scrollIntoView({ block: 'nearest' });
+    input.focus();
+  }
+  // 付ける（url は前後の空白を除いて照らす。開けない頭は断りの文を出して欄は開いたまま）・外す（null）
+  function linkApply(raw) {
+    const p = linkPop;
+    if (!p) return;
+    const url = raw === null ? null : String(raw ?? '').trim();
+    if (url !== null && !linkOk(url)) { p.msg.textContent = LINK_REFUSE; return; }
+    if (p.pid !== curId || !rowCanMark(p.el)) { linkPopClose(); return; }
+    const txt = p.el._txt;
+    paintRich(txt, setLink(rowRich(txt), p.s, p.e, url));
+    linkPopClose(true);
+    if (typeof txt._pauseSave === 'function') txt._pauseSave();   // 保存は次の区切り
+  }
+  function linkPopClose(back) {
+    const p = linkPop;
+    if (!p) return;
+    linkPop = null;
+    if (p.box.parentNode) p.box.parentNode.removeChild(p.box);
+    if (back && p.pid === curId && rowCanMark(p.el)) { p.el._txt.focus(); setSel(p.el._txt, p.s, p.e); markBarSync(p.el); }
+  }
+  // 選んだ文字の上に開ける住所を貼ると、文字はそのままでリンクにする（K-25）。リンクにしたら真
+  function linkPaste(el, text) {
+    const u = String(text ?? '').trim();
+    const r = rowCanMark(el) ? selRange(el) : null;
+    if (!r || !linkOk(u)) return false;
+    const txt = el._txt;
+    paintRich(txt, setLink(rowRich(txt), r[0], r[1], u));
+    setSel(txt, r[0], r[1]);
+    if (typeof txt._pauseSave === 'function') txt._pauseSave();
+    return true;
+  }
+  // リンクの文字は Ctrl を押しながらクリックで開く（ふつうのクリックはカーソルを置く: R11）。開く口は koeApp.openLink だけ（main が照らし直す: 決めたこと 33）
+  function linkClick(txt, ev) {
+    if (!ev || !ev.ctrlKey) return;
+    let url = null;
+    for (let n = ev.target; n && n !== txt; n = n.parentNode) {
+      const v = typeof n.getAttribute === 'function' ? n.getAttribute('data-link') : null;
+      if (v) { url = v; break; }
+    }
+    if (!url || !linkOk(url)) return;
+    if (typeof ev.preventDefault === 'function') ev.preventDefault();
+    Promise.resolve(window.koeApp.openLink(url)).catch(() => {});
+  }
+
+  // ---- 色（決めたこと 21・BQ3・R37）: 帯の［色 ▸］で文字の色と背景の色（「既定」と9色の2列）。選ぶと選んだ所の色を置き換える
+  const colorName = (name) => (name ? COLOR_LABELS[name] : '既定');
+  function colorSwatch(kind, name) {
+    const sw = document.createElement('span');
+    sw.className = 'sw'; sw.setAttribute('aria-hidden', 'true');
+    if (name) sw.setAttribute(kind === 'bg' ? 'data-bg' : 'data-color', name);
+    return sw;
+  }
+  // 色の一覧（見出しと「既定」と9色を2つの種類で）。item(kind, name) が1つの項目を作る
+  function colorListFill(list, item) {
+    for (const kind of ['color', 'bg']) {
+      const h = document.createElement('div'); h.className = 'chead'; h.setAttribute('role', 'presentation'); h.textContent = COLOR_HEADS[kind];
+      list.appendChild(h);
+      for (const name of [null, ...COLORS]) list.appendChild(item(kind, name));
+    }
+  }
+  function colorMenuOpen(el) {
+    const r = rowCanMark(el) ? selRange(el) : null;
+    if (!r) return;
+    colorMenuClose();
+    const box = document.createElement('div');
+    box.className = 'colormenu colorlist'; box.id = 'colorMenu';
+    box.setAttribute('role', 'menu'); box.setAttribute('aria-label', '色');
+    colorListFill(box, (kind, name) => {
+      const b = document.createElement('button');
+      b.type = 'button'; b.setAttribute('role', 'menuitem'); b.tabIndex = -1; b.dataset.key = `${kind}:${name || ''}`;
+      const lb = document.createElement('span'); lb.textContent = colorName(name);
+      b.append(colorSwatch(kind, name), lb);
+      b.onmousedown = (ev) => { ev.preventDefault(); };   // 色を押してもフォーカスと選んだ所は行に残す（帯と同じ）
+      b.onclick = () => colorPick(kind, name);
+      return b;
+    });
+    colorMenu = { el, s: r[0], e: r[1], box };
+    const bar = markBarEl && markBarEl.parentNode ? markBarEl : null;
+    const btn = bar ? bar.querySelector('.mb-color') : null;
+    box.style.top = `${(bar ? bar.offsetTop || 0 : el.offsetTop || 0) + (bar ? bar.offsetHeight || 36 : 0) + 4}px`;
+    box.style.left = `${(bar ? bar.offsetLeft || 0 : 0) + (btn ? btn.offsetLeft || 0 : 0)}px`;
+    $('pNote').appendChild(box);
+    if (typeof box.scrollIntoView === 'function') box.scrollIntoView({ block: 'nearest' });
+  }
+  function colorMenuClose() {
+    const m = colorMenu;
+    if (!m) return;
+    colorMenu = null;
+    if (m.box.parentNode) m.box.parentNode.removeChild(m.box);
+  }
+  function colorPick(kind, name) {
+    const m = colorMenu;
+    if (!m) return;
+    colorMenuClose();
+    if (!rowCanMark(m.el)) return;
+    paintColor(m.el, [m.s, m.e], kind, name);
+  }
+  // [s, e) の色を置き換える（setColor。name が null なら色を全部外す）。保存は次の区切り
+  function paintColor(el, r, kind, name) {
+    const txt = el._txt;
+    paintRich(txt, setColor(rowRich(txt), r[0], r[1], kind, name));
+    setSel(txt, r[0], r[1]);
+    if (name !== null) lastColor = { kind, name };
+    if (typeof txt._pauseSave === 'function') txt._pauseSave();
+    markBarSync(el);
+  }
+  // Ctrl+Shift+H: 最後に使った色（文字の色か背景の色の1つ）をもう一度付ける（K-20・R37）。選んでいない・まだ色を使っていなければ何もしない
+  function colorAgain(el) {
+    const r = rowCanMark(el) ? selRange(el) : null;
+    if (!r || !lastColor) return;
+    paintColor(el, r, lastColor.kind, lastColor.name);
+  }
+  // 行（ブロック）の色の値（'red' は文字の色・'red_bg' は背景の色・'' で外す）
+  const blockColorValue = (kind, name) => (name ? (kind === 'bg' ? `${name}_bg` : name) : '');
+  // / メニューの色の項目（S-03。「/あか」「/red」「/あかいはいけい」など。型の項目の写し SLASH_ROWS とは別の表）
+  const COLOR_WORDS = Object.freeze({
+    gray: ['はいいろ', 'ぐれー', 'gray', 'grey'], brown: ['ちゃいろ', 'brown'], orange: ['おれんじ', 'だいだい', 'orange'], yellow: ['きいろ', 'yellow'],
+    green: ['みどり', 'green'], blue: ['あお', 'blue'], purple: ['むらさき', 'purple'], pink: ['ぴんく', 'もも', 'pink'], red: ['あか', 'red'],
+  });
+  const BG_JOIN = Object.freeze({ gray: 'の', brown: 'い', orange: 'の', yellow: 'い', green: 'の', blue: 'い', purple: 'の', pink: 'の', red: 'い' });
+  const SLASH_COLORS = Object.freeze([
+    { id: 'color:', kind: 'color', value: '', label: '既定', md: [], words: ['きてい', 'いろなし', 'default'] },
+    ...COLORS.map((n) => ({ id: `color:${n}`, kind: 'color', value: n, label: COLOR_LABELS[n], md: [], words: COLOR_WORDS[n] })),
+    ...COLORS.map((n) => ({ id: `bg:${n}`, kind: 'bg', value: `${n}_bg`, label: COLOR_LABELS[n], md: [],
+      words: [`${COLOR_WORDS[n][0]}${BG_JOIN[n]}はいけい`, `${COLOR_WORDS[n][0]}のはいけい`, `${n} background`, 'はいけい', 'background'] })),
+  ]);
+  // 語を打ったときだけ色の項目を出す（空の / では型だけ）
+  const slashColorHits = (q) => (q ? SLASH_COLORS.filter((r) => slashHit(r, q)).map((r) => ({ id: r.id, group: r.kind })) : []);
+  // / メニューの色を選ぶ: / と打った語を消し、打った文を保存してから行の色を付ける（stepGroup の中: 1歩）
+  async function slashColorPick(s, crow) {
+    const el = s.el; const txt = el._txt; const b = el._b;
+    rowReplace(txt, s.start, s.start + 1 + s.query.length, '');
+    setCaret(txt, s.start);
+    const pid = curId;
+    try { await txt._commit(pid); } catch (_) { /* 保存の失敗は _commit の答えで知らせる */ }
+    return editAnswer(pid, () => window.koeApp.blocksSetColor(pid, [b.id], crow.value), () => ({ focus: b.id, caret: s.start }));
+  }
+  // 本物の選びの変わり目（キーボードで選び広げた・ダブルクリックなど）でも帯を合わせる
+  document.addEventListener('selectionchange', () => { const el = rowOfTxt(document.activeElement); if (el) markBarSync(el); });
   // ---------------- 0.14.0 EB-3（計画 docs/plans/2026-10-26-140.md の決めたこと 1〜13・BQ1 (a)・R6）: 要約の欄の元に戻す・やり直す
   // 列は窓のメモリだけ（ページと欄の鍵。BQ22 (a)）。歩みは preload の onEditStep が渡す tx（戻せる命令が何か変えたときだけ）。
   // 1つの動作で続けて送った命令（型を変える前の打った文の保存・記法の --- の「変換＋下に行を足す」）は stepGroup で1歩にまとめる。
@@ -4411,7 +4764,8 @@
       if ((b.type === 'bullet' || b.type === 'todo') && b.citeState !== 'manual') { b.citeState = 'stale'; renderCiteBadge(el, b); }
       return saveRow(window.koeApp.blockUpdate(pid, b.id, { text: v }).then(() => { if (pid === curId) refreshList(); }));
     };
-    txt.onblur = () => { if (slash && slash.el === el) slashClose(); txt._commit(curId); };
+    // 0.14.0 EB-5（決めたこと 19）: 行から出ると道具の帯を隠す（リンクの欄へ移るときは欄が開いてから。帯・色の項目は押してもフォーカスが移らない）
+    txt.onblur = () => { if (slash && slash.el === el) slashClose(); markBarLeave(el); txt._commit(curId); };
     txt.onkeydown = (ev) => {
       if (imeEnter(ev)) return;   // 変換確定の Enter / 変換中の Backspace は編集操作にしない
       const mod = ev.ctrlKey || ev.altKey || ev.metaKey;
@@ -4419,6 +4773,8 @@
       const act = keyAction(ev);
       // 0.14.0 EB-4（決めたこと 17・18・F101）: Ctrl+B・I・U・Ctrl+Shift+S・Ctrl+E は Chromium の既定の飾りを止め、こちらの決まりで付け外す（保存は次の区切り）
       if (act && act.startsWith('mark:')) { ev.preventDefault(); markRow(el, act.slice(5)); pauseSave(); return; }
+      // 0.14.0 EB-5（決めたこと 20・21・R12・R37）: Ctrl+K は選んだ所のリンクの欄・Ctrl+Shift+H は最後の色（どちらも選んでいなければ何もしない。既定の動きは止める）
+      if (act === 'link' || act === 'colorAgain') { ev.preventDefault(); slashClose(); if (act === 'link') linkPopOpen(el); else colorAgain(el); return; }
       if (act) { ev.preventDefault(); slashClose(); rowShortcut(el, act); return; }
       // / メニューが開いている間: ↑↓ で選び、Enter で決め、Esc で閉じる（/ と語は残す。録音中でもメニューだけ: RF9・決めたこと 30）
       if (slash && slash.el === el) {
@@ -4427,6 +4783,8 @@
         if (ev.key === 'Escape') { ev.preventDefault(); slashClose(true); return; }
         if (ev.key === 'Tab') slashClose(true);
       }
+      // 0.14.0 EB-5（R64 (2)）: Esc は開いている色のメニューか道具の帯だけを閉じる（行の ⠿ へは次の Esc で）
+      if (ev.key === 'Escape' && !mod && (colorMenu || (markBar && markBar.el === el))) { ev.preventDefault(); markBarEsc(el); return; }
       // 0.13.1 NE-4a（E10・EQ17 (a)・決めたこと 13）: Tab は字下げ・Shift+Tab は1段戻す。できないときも既定の Tab（次の部品へ）は止める
       if (ev.key === 'Tab' && !mod) { ev.preventDefault(); indentRow(el, ev.shiftKey ? 'out' : 'in'); return; }
       // 0.13.1 NR17（決めたこと 25）: Esc で文を確定し、この行の ⠿ へ（そこから Tab で欄の外へ）
@@ -4442,6 +4800,10 @@
       const pid = curId;
       txt._pause = setTimeout(() => { txt._pause = null; if (pid === curId && isIn(txt, $('pNote'))) txt._commit(pid); }, TYPE_PAUSE_MS);
     };
+    txt._pauseSave = pauseSave;   // 0.14.0 EB-5: 道具の帯・リンクの欄・色の直しも、次の区切りで保存する
+    // 0.14.0 EB-5（決めたこと 19）: 文字を選んだら道具の帯（マウスやキーを離した時。selectionchange でも見る）。選び直したら Esc で閉じた印を消す
+    txt.addEventListener('mouseup', () => { markBarOff = null; markBarSync(el); });
+    txt.addEventListener('keyup', () => markBarSync(el));
     // 行頭の記法は打ったときだけ（貼り付け・変換中は決めない。変換が終わったら決める: F43）
     txt.oninput = (ev) => {
       typedRich(el, ev);   // 0.14.0 EB-4: 打った文字の飾りと文中の記法（変換中は中で抜ける）
@@ -4460,6 +4822,7 @@
       ev.preventDefault();
       const cd = ev.clipboardData;
       const t = cd ? String(cd.getData('text/plain') || '').replace(/\r\n?/g, '\n') : '';
+      if (t && linkPaste(el, t)) return;   // 0.14.0 EB-5（K-25）: 選んだ文字の上に開ける住所を貼ると、文字はそのままでリンク
       if (t) typeAtCaret(txt, t);
     };
   }
@@ -4518,7 +4881,7 @@
   let slashRecent = [];   // 最近使ったもの（uiState の slashRecent を照らした写し。/ メニューで選んだ鍵だけ・新しい順に3つまで）
   let slash = null;       // 開いているとき { el: 行, start: / の位置, query, items, sel: 選んでいる番号 }
   let slashBox = null;    // 浮いた箱（一度だけ作り、閉じたら外す）
-  const SLASH_HEADS = { recent: '最近使ったもの', types: 'ブロックの型' };
+  const SLASH_HEADS = { recent: '最近使ったもの', types: 'ブロックの型', color: '文字の色', bg: '背景の色' };
   // 打つたびに見る: カーソルの前が行頭か空白の後の半角の / なら開く（EQ7）。Esc で閉じた / ではもう開かない
   function slashCheck(el) {
     const txt = el._txt;
@@ -4529,8 +4892,10 @@
     slashOpen(el, start, q.query);
   }
   function slashOpen(el, start, query) {
-    const items = slashFilter(query, slashRecent);
-    if (items === null) { if (slash && slash.el === el) slashClose(); return; }   // 当たりが無いまま3文字（EQ8）
+    const types = slashFilter(query, slashRecent);
+    const colors = slashColorHits(query);   // 0.14.0 EB-5（決めたこと 21・S-03）: 語を打ったら色の項目も（型の後ろ）
+    if (types === null && !colors.length) { if (slash && slash.el === el) slashClose(); return; }   // 当たりが無いまま3文字（EQ8）
+    const items = [...(types || []), ...colors];
     const keep = slash && slash.el === el && slash.start === start ? slash.items[slash.sel] : null;
     const sel = Math.max(0, keep ? items.findIndex((x) => x.id === keep.id && x.group === keep.group) : 0);
     if (slash && slash.el !== el) slashClose();
@@ -4557,7 +4922,7 @@
         const h = document.createElement('div'); h.className = 'shead'; h.setAttribute('role', 'presentation'); h.textContent = SLASH_HEADS[group];
         slashBox.appendChild(h);
       }
-      const row = SLASH_ROWS.find((x) => x.id === it.id);
+      const row = SLASH_ROWS.find((x) => x.id === it.id) || SLASH_COLORS.find((x) => x.id === it.id);
       const o = document.createElement('div');
       o.className = 'sopt'; o.id = `slashOpt${i}`; o.setAttribute('role', 'option');
       o.setAttribute('aria-selected', i === s.sel ? 'true' : 'false');
@@ -4604,6 +4969,8 @@
     const it = s && s.items[i];
     if (!it) { slashClose(true); return null; }
     slashClose();
+    const crow = SLASH_COLORS.find((x) => x.id === it.id);
+    if (crow) return slashColorPick(s, crow);   // 0.14.0 EB-5（決めたこと 21・S-03）: 行の色
     const row = SLASH_ROWS.find((x) => x.id === it.id);
     const el = s.el; const txt = el._txt; const b = el._b;
     const t = txt.textContent;
@@ -4654,6 +5021,7 @@
   function summaryBusy() {
     if (!curPage) return false;
     if (pendingEdits > 0 || slash || blockMenu) return true;
+    if (linkPop || colorMenu || markBar) return true;   // 0.14.0 EB-5（決めたこと 44）: 道具の帯・リンクの欄・色のメニュー
     const a = document.activeElement;
     if (!a || !a.classList || !a.classList.contains('txt')) return false;
     const box = $('pNote');
@@ -4713,6 +5081,7 @@
     menuItem(box, '削除', () => blockMenuDo('remove'));
     menuItem(box, '複製', () => blockMenuDo('duplicate'));
     menuItem(box, '変換 ▸', () => blockMenuSub(true), { sub: true });
+    menuItem(box, '色 ▸', () => blockMenuSub(true, 3), { sub: true });   // 0.14.0 EB-5（決めたこと 21）: 行の色
     box.onkeydown = (ev) => {
       if (imeEnter(ev)) return;
       const m = blockMenu;
@@ -4724,7 +5093,7 @@
         if (list === m.sub) { blockMenuSub(false); return; }
         blockMenuClose(true);
       } else if (ev.key === 'Tab') blockMenuClose();
-      else if (ev.key === 'ArrowRight' && list === box && document.activeElement === menuItems(box)[2]) { ev.preventDefault(); blockMenuSub(true); }
+      else if (ev.key === 'ArrowRight' && list === box && [2, 3].includes(menuItems(box).indexOf(document.activeElement))) { ev.preventDefault(); blockMenuSub(true, menuItems(box).indexOf(document.activeElement)); }
       else if (ev.key === 'ArrowLeft' && list === m.sub) { ev.preventDefault(); blockMenuSub(false); }
       else if ((ev.key === 'Enter' || ev.key === ' ') && document.activeElement && document.activeElement.classList.contains('mitem')) { ev.preventDefault(); document.activeElement.onclick(); }
     };
@@ -4739,10 +5108,29 @@
     menuItems(box)[0].focus();
   }
   // 変換の中（型の表の名前）を開く・閉じる
-  function blockMenuSub(on) {
+  // 0.14.0 EB-5（決めたこと 21）: at は ⠿ のメニューの項目の番号（2 は変換・3 は色）。色の中は「文字の色」「背景の色」の2列（既定と9色）
+  function blockMenuSub(on, at = 2) {
     const m = blockMenu;
     if (!m) return;
-    if (!on) { if (m.sub) { m.sub.remove(); m.sub = null; } menuItems(m.box)[2].setAttribute('aria-expanded', 'false'); menuItems(m.box)[2].focus(); return; }
+    const was = m.sub ? m.subAt : at;
+    if (!on || (m.sub && m.subAt !== at)) {
+      if (m.sub) { m.sub.remove(); m.sub = null; }
+      menuItems(m.box)[was].setAttribute('aria-expanded', 'false');
+      if (!on) { menuItems(m.box)[was].focus(); return; }
+    }
+    if (!m.sub && at === 3) {
+      const sub = document.createElement('div');
+      sub.className = 'blockmenu sub colorlist'; sub.setAttribute('role', 'menu'); sub.setAttribute('aria-label', '色');
+      colorListFill(sub, (kind, name) => {
+        const v = blockColorValue(kind, name);
+        const b = menuItem(sub, colorName(name), () => blockMenuDo('color', v), { key: v || (kind === 'bg' ? 'default_bg' : 'default') });
+        b.prepend(colorSwatch(kind, name));
+        return b;
+      });
+      m.box.appendChild(sub);
+      if (typeof sub.scrollIntoView === 'function') sub.scrollIntoView({ block: 'nearest' });
+      m.sub = sub; m.subAt = 3;
+    }
     if (!m.sub) {
       const sub = document.createElement('div');
       sub.className = 'blockmenu sub'; sub.setAttribute('role', 'menu'); sub.setAttribute('aria-label', '変換');
@@ -4754,9 +5142,9 @@
       }
       m.box.appendChild(sub);
       if (typeof sub.scrollIntoView === 'function') sub.scrollIntoView({ block: 'nearest' });
-      m.sub = sub;
+      m.sub = sub; m.subAt = 2;
     }
-    menuItems(m.box)[2].setAttribute('aria-expanded', 'true');
+    menuItems(m.box)[at].setAttribute('aria-expanded', 'true');
     menuItems(m.sub)[0].focus();
   }
   function blockMenuClose(back) {
@@ -4776,6 +5164,11 @@
     blockMenuClose();
     const pid = curId;
     if (what === 'turn') return turnRow(el, row.key, row.level, txt.textContent.length, row.toggle);
+    // 0.14.0 EB-5（決めたこと 21）: 行の色（打った文を保存してから blocks.setColor の1回。row は 'red'・'red_bg'・''）
+    if (what === 'color') {
+      try { await txt._commit(pid); } catch (_) { /* 保存の失敗は _commit の答えで知らせる */ }
+      return editAnswer(pid, () => window.koeApp.blocksSetColor(pid, [b.id], row), () => ({ focus: b.id, caret: txt.textContent.length }));
+    }
     if (what === 'duplicate') {
       try { await txt._commit(pid); } catch (_) { /* 保存の失敗は _commit の答えで知らせる */ }
       return editAnswer(pid, () => window.koeApp.blockDuplicate(pid, b.id), (x) => ({ focus: x.blockId, caret: txt.textContent.length }));
@@ -4794,7 +5187,6 @@
     const pid = curId; const b = el._b; const txt = el._txt;
     const caret = (caretRange(txt) || [txt.textContent.length])[0];
     if (act === 'menu') { blockMenuOpen(el); return null; }
-    if (act === 'link' || act === 'colorAgain') return null;   // 0.14.0 EB-4: Ctrl+K・Ctrl+Shift+H の口（道具の帯は EB-5。既定の動きは止める）
     if (act.startsWith('turn:')) {
       const row = SLASH_ROWS.find((x) => x.id === act.slice(5));
       if (!row || (b.type === row.key && (row.key !== 'heading' || (headingLevel(b) === row.level && (b.toggle === true) === (row.toggle === true))))) return null;
@@ -4851,6 +5243,7 @@
       const txt = document.createElement('div');
       txt.className = 'txt'; txt.contentEditable = lock ? 'false' : 'true'; txt.spellcheck = false;
       paintBlock(txt, b);   // 0.14.0 EB-4（決めたこと 17）: 飾りのある行は span で描く
+      txt.onclick = (ev) => linkClick(txt, ev);   // 0.14.0 EB-5（決めたこと 20・R11）: リンクは Ctrl+クリックで開く（鍵の間の行でも）
       el._txt = txt;
       el.appendChild(txt);
       if (!lock) wireRowText(el, txt);
@@ -4864,6 +5257,11 @@
       // 0.13.0 ED-7（E5・決めたこと 5・6）: 見出しは段の class（段 2 は今の見た目のまま）。知らない型はテキストの見た目（文は出して直せる）
       const vt = b.type === 'paragraph' || TYPED_VIEW.includes(b.type) ? b.type : 'paragraph';
       el.className = `blk ${vt}` + (vt === 'heading' ? ` h${headingLevel(b)}` : '') + (b.type === 'todo' && b.checked ? ' done' : '');
+      // 0.14.0 EB-5（決めたこと 21）: 行の色（'red' は文字の色・'red_bg' は背景の色。決まった9色のほかは描かない）
+      const bc = typeof b.color === 'string' ? b.color : '';
+      const bcName = bc.replace(/_bg$/, '');
+      if (COLORS.includes(bcName) && bc === bcName) el.setAttribute('data-bcolor', bcName); else el.removeAttribute('data-bcolor');
+      if (COLORS.includes(bcName) && bc !== bcName) el.setAttribute('data-bbg', bcName); else el.removeAttribute('data-bbg');
       if (!lock) {   // 区切り線は文の欄を持たない（フォーカスはできる）
         txt.contentEditable = vt === 'divider' ? 'false' : 'true';
         if (vt === 'divider') { txt.tabIndex = 0; txt.setAttribute('role', 'separator'); txt.setAttribute('aria-label', '区切り線'); txt.textContent = ''; }
@@ -4988,6 +5386,7 @@
   };
   function renderBlocks() {
     slashClose(); blockMenuClose();
+    inlineClose();   // 0.14.0 EB-5: 帯・リンクの欄・色のメニューも（欄の子を描き直すので）
     const box = $('pNote'); box.textContent = '';
     box.ondragover = (ev) => {
       if (!dragBlockId) return;
@@ -5200,6 +5599,7 @@
   function flushEdits() {
     const pid = curId;
     slashClose(); blockMenuClose();   // 0.13.0 ED-5・ED-6（決めたこと 41）: ページを替える前にメニューを閉じる
+    inlineClose();   // 0.14.0 EB-5（決めたこと 44）: 道具の帯・リンクの欄・色のメニューも
     flushSegEdit();
     if (!pid || !curPage) return;
     flushMemo();

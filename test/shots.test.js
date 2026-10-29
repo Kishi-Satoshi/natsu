@@ -191,9 +191,11 @@ const RETAKEN_132 = ['nudge-light-100', 'nudge-dark-100', 'nudge-light-150', 'nu
 // 「この見た目でよい（おすすめ）」（2026-10-28）と言ったので、CI run 40796780384（80ea908）・artifact 12864058378 の .after.png（5 枚。閉じたパネルの3枚 nudge-light-100・nudge-dark-100・nudge-light-150 は今の基準とバイトが同じで artifact に出なかったので替えていない）をバイトのまま基準にし、取り直し待ちを空に戻した
 const ADDED_132 = [...NEW_132, ...RETAKEN_132];
 // 0.14.0（計画 docs/plans/2026-10-26-140.md の「取り直す画面（RETAKE）」）で意図して変えた: 取り直し待ちは 0.14.0 の表の画面だけ（RETAKE_140）。
-// EB-4 で行の文の飾りと色の明暗の2枚を足した（NEW_140。足した画面で、まだ基準が無い）
-const NEW_140 = ['edit-marks-light', 'edit-marks-dark'];
-const RETAKE_140 = [...NEW_140];
+// EB-4 で行の文の飾りと色の明暗の2枚を、EB-5 で道具の帯・リンクの欄・色のメニューの3枚を足した（NEW_140。足した画面で、まだ基準が無い）
+const NEW_140 = ['edit-marks-light', 'edit-marks-dark', 'edit-toolbar-light', 'edit-link-light', 'edit-color-menu-light'];
+// EB-5 で ⠿ のメニューに［色 ▸］が増えるので、今の基準がある1枚を取り直す（RETAKEN_140）
+const RETAKEN_140 = ['edit-block-menu-light'];
+const RETAKE_140 = [...NEW_140, ...RETAKEN_140];
 const img = (w, h, fill = [255, 255, 255, 255]) => ({ width: w, height: h, data: Buffer.from(Array.from({ length: w * h }, () => fill).flat()) });
 // 一時フォルダ（日本語と 𠮷 の名前。RF1 と同じ形）。テストの終わりに消す
 const tmp = (t, name) => {
@@ -240,7 +242,7 @@ test('G2: 撮る画面は決まった並び（第1b回の 13 と第1b2回の検�
     ...NEW_131,
     // 0.13.2 LN-3 で意図して変えた: 録音中のページの帯 no-login の1枚を足した。LN-5 で議事録のページの「残り n 区間」の2枚を足した（版を 0.13.2 に上げる commit で基準にした）
     ...NEW_132,
-    // 0.14.0 EB-4 で意図して変えた: 行の文の飾りと色の明暗の2枚を足した（取り直し待ち・まだ基準が無い）
+    // 0.14.0 EB-4 で意図して変えた: 行の文の飾りと色の明暗の2枚を足した（取り直し待ち・まだ基準が無い）。EB-5 で道具の帯・リンクの欄・色のメニューの3枚を足した
     ...NEW_140]);
   assert.deepStrictEqual(SH.SCREENS.filter((s) => s.page === 'overlay').map((s) => s.name), PS.screenNames());
   // 0.9.3 M-7 で意図して変えた: 会議の検出のパネル（page nudge）の5枚を録音バーのあと（いちばん後ろ）に足した
@@ -1034,7 +1036,8 @@ test('基準の画像（test/shots/win32）は今の app.html で撮ったもの
   // 0.14.0 EB-3（計画 docs/plans/2026-10-26-140.md の決めたこと 1〜13）: 要約の欄の元に戻す・やり直す（undoBook の写し・stepGroup・Ctrl+Z と Ctrl+Shift+Z と Ctrl+Y の受け口・打つ手が止まったら保存・再生成の後に列を空に。<script> の中だけ。撮る画面は変わらない）。値を今の app.html に合わせた（前の値は e341fb62…）
   // 0.14.0 EB-4（計画 docs/plans/2026-10-26-140.md の決めたこと 14・17・18・22・R103〜R108）: 行の文の飾り（richText の写し・span で描く・{ rich } で保存・Ctrl+B などの近道・文中の記法・飾りの CSS と9色のトークン）。飾りの無い要約の見た目は変わらない見込みで、変わる画面は足した NEW_140 の2枚。値を今の app.html に合わせた（前の値は 8efef989…）
   // 0.14.0 EB-3 直し（R109）: 元に戻すの画面の直し（断りの符号を message から読む・/ メニューの選びを1歩に・待っている直しの後に列を取る・戻している間は打たせない・押したページ・断られた歩みを戻す・保存の断りを知らせる。<script> の中だけ。撮る画面は変わらない）。値を今の app.html に合わせた（前の値は 8e766d9b…）
-  assert.strictEqual(sha, '99b7970caa35249677ba8ef197b82d34ee3434e75eba476580c3860eae025f89',
+  // 0.14.0 EB-5（計画 docs/plans/2026-10-26-140.md の決めたこと 19〜21・33・44・R110〜R112）: 道具の帯・リンクの欄・色のメニュー・行の色（⠿ の［色 ▸］・/ の色）と、その CSS。変わる画面は足した NEW_140 の3枚と取り直す RETAKEN_140 の edit-block-menu-light（ほかの撮る画面は行の色も帯も出さない）。値を今の app.html に合わせた（前の値は 99b7970c…）
+  assert.strictEqual(sha, 'e3a437b3f7e9e7bbded7a6c2ba3b410e64b95367b96a22a201f0734e028dfa8d',
     'app.html が基準の画像を撮った時と違う。Windows の CI の画面の比べ（捲り棒のつまみも）を見て、基準を取り直してからこの値を直す');
 });
 

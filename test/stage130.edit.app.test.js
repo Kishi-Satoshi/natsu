@@ -883,7 +883,7 @@ test('ED-6: ⠿ を押すとメニュー（削除・複製・変換 ▸）で最
     const m = menuOf(l);
     assert.ok(m, '⠿ でメニューが出ない');
     assert.strictEqual(m.getAttribute('role'), 'menu');
-    assert.deepStrictEqual(labelsOf(m), ['削除', '複製', '変換 ▸']);
+    assert.deepStrictEqual(labelsOf(m), ['削除', '複製', '変換 ▸', '色 ▸']);   // 0.14.0 EB-5 で意図して変えた: ［色 ▸］を足した（計画 docs/plans/2026-10-26-140.md の「意図して変えるテスト」）
     assert.ok(itemsOf(m).every((x) => x.getAttribute('role') === 'menuitem'));
     assert.strictEqual(l.document.activeElement, itemsOf(m)[0]);
     assert.strictEqual(grip.getAttribute('aria-expanded'), 'true');
@@ -906,7 +906,7 @@ test('ED-6: 複製 → 打った文を保存してから blockDuplicate の1回�
     rowOf(l, 'b1').dispatchEvent({ type: 'contextmenu', preventDefault() { prevented = true; } });
     assert.strictEqual(prevented, true);
     const m = menuOf(l);
-    assert.deepStrictEqual(labelsOf(m), ['削除', '複製', '変換 ▸']);
+    assert.deepStrictEqual(labelsOf(m), ['削除', '複製', '変換 ▸', '色 ▸']);   // 0.14.0 EB-5 で意図して変えた: ［色 ▸］を足した（計画 docs/plans/2026-10-26-140.md の「意図して変えるテスト」）
     itemsOf(m)[1].dispatchEvent({ type: 'click' });
     await l.drain();
     const blocks = l.page().blocks;
@@ -954,11 +954,12 @@ test('ED-6: メニューは ↑↓（回る）・Home・End・Esc（変換の中
     const m = menuOf(l);
     const it = itemsOf(m);
     const at = () => it.indexOf(l.document.activeElement);
-    menuKey(l, 'ArrowUp'); assert.strictEqual(at(), 2);
+    // 0.14.0 EB-5 で意図して変えた: ［色 ▸］が4つ目に入ったので、回る先と End は4つ目。変換の中は End の1つ上（3つ目）で → を押して開く
+    menuKey(l, 'ArrowUp'); assert.strictEqual(at(), 3);
     menuKey(l, 'ArrowDown'); assert.strictEqual(at(), 0);
-    menuKey(l, 'End'); assert.strictEqual(at(), 2);
+    menuKey(l, 'End'); assert.strictEqual(at(), 3);
     menuKey(l, 'Home'); assert.strictEqual(at(), 0);
-    menuKey(l, 'End');
+    menuKey(l, 'End'); menuKey(l, 'ArrowUp');
     menuKey(l, 'ArrowRight');
     const sub = subOf(l);
     assert.ok(sub);

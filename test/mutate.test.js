@@ -1221,6 +1221,8 @@ const IDS_140 = [
   'eb-regen-flag',
   // 0.14.0 EB-4（表の行の順に）
   'eb-native-bold', 'eb-inline-ime',
+  // 0.14.0 EB-5（表の行の順に）
+  'eb-bar-focus', 'eb-link-click', 'eb-link-open', 'eb-last-color',
   'eb-revert-view',
   'eb-revert-keys', 'eb-revert-skip', 'eb-dup-changed',
 ];

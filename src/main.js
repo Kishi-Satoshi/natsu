@@ -112,6 +112,8 @@ const {
 const lib = require('./mainlib');
 // 議事録のリンクの形と照らし（0.10.0 LN-1。純粋。住所の頭 LINK_ORIGIN の1か所: 決めたこと 154）
 const natsulink = require('./natsulink');
+// 0.14.0 EB-5（計画 docs/plans/2026-10-26-140.md の決めたこと 20・33）: 行の飾りのリンクの照らし（純粋。画面と DB と同じ linkOk）
+const RT = require('./richText');
 // 0.12.1 LV-2（計画 docs/plans/2026-10-24-121.md）: 会議を出たかの判断（純粋。leaveInit・leaveStep・LEAVE_IDS）
 const ML = require('./meetleave');
 // 0.9.2 I-1（ヘルプの計画の H-12）: NaTsu ヘルプセンター（Access の後ろ。中継と同じ natsu-code の workers.dev）。住所は main だけが持ち、
@@ -2372,6 +2374,20 @@ function openLinkFromArgv(argv) {
   const p = { id: l.id, anchor: l.anchor };
   if (mainWin.webContents.isLoading()) mainWin.webContents.once('did-finish-load', () => sendToMainWin('page:open-link', p));
   else sendToMainWin('page:open-link', p);
+}
+
+// ---------------------------------------------------------------- 0.14.0 EB-5（計画 docs/plans/2026-10-26-140.md の決めたこと 20・33・SEC2）: 行の飾りのリンクを開く
+// 画面からは koeApp.openLink(住所) だけ（Ctrl+クリック）。画面を信じず、行の飾りと同じ決まり（RT.linkOk: 決まった頭・空白と制御の文字・長さ）で照らし直す。
+// NaTsu のリンク（natsu://page/… と 0.10.0 の https の住所）は、リンクで起こされたときと同じ page:open-link でページを開く（書く・消す口は持たない）。
+// ほかは https・http・mailto の頭のものだけを既定のブラウザやメールで開く。開かないものは知らせも出さず、記録に符号だけ（住所は書かない）
+function openRowLink(url) {
+  if (!RT.linkOk(url)) { engineLog('リンク: 開かなかった（head）'); return false; }
+  const page = natsulink.parseAnyLink(url);
+  if (page) { sendToMainWin('page:open-link', { id: page.id, anchor: page.anchor }); return true; }
+  if (!/^(?:https?:\/\/|mailto:)/i.test(url)) { engineLog('リンク: 開かなかった（page）'); return false; }
+  const linkChecked = url;
+  shell.openExternal(linkChecked).catch(() => {});
+  return true;
 }
 
 // 起動の後（窓が出てから）に1回。読めなければ何もしない。投げない。
@@ -6503,6 +6519,8 @@ function setupIpc() {
     shell.openExternal(`${HELP_URL}${lib.helpPath(article)}`).catch(() => {});
     return true;
   });
+  // 0.14.0 EB-5（決めたこと 20・33）: 行の飾りのリンクを開く（照らし直してから。答えは開いたか）
+  ipcMain.handle('app:open-link', (_e, url) => openRowLink(url));
   ipcMain.handle('app:version', () => ({ version: app.getVersion(), repo: updater.REPO }));
   ipcMain.handle('update:check', async () => {
     const r = await updater.check(app.getVersion(), app.getPath('userData'));

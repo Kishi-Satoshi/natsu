@@ -736,7 +736,8 @@ test('SP6・F15: HELP_SITE_LIVE が真で openHelp があれば出て、押す�
 });
 test('F15: app.html にヘルプのサイトの住所を書かない（https://natsu-help の字面が無い。http の住所は 0.8.0 の Claude Code の入れ方の1つだけ）', T, () => {
   assert.ok(!/natsu-help/i.test(html), 'app.html にヘルプのサイトの住所がある（URL は main だけが持つ）');
-  assert.deepStrictEqual([...new Set(html.match(/https?:\/\/[^\s"'<>）]+/g) || [])], ['https://claude.ai/install.ps1']);
+  // 0.14.0 EB-5 で意図して変えた（計画 docs/plans/2026-10-26-140.md の画面の文・R111）: リンクの欄の案内「https://… を貼る」は住所でない（… の字だけ）
+  assert.deepStrictEqual([...new Set(html.match(/https?:\/\/[^\s"'<>）]+/g) || [])], ['https://claude.ai/install.ps1', 'https://…']);
 });
 test('SP7: 左の列の下に「NaTsu {版}」（appVersion の答え）。答えが無ければ空', T, async () => {
   const l = await open();
