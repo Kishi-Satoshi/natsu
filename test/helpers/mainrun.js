@@ -430,6 +430,7 @@ const { titleAt } = require('./titles');
 //                        snap に logins（作ったログインの窓の数）、出力に loginWins（窓ごとの記録の写し）を足す
 //   0.13.2 LN-5: --mic-feed の手順に ["final-only"]（最後の空の区間を送り、待機に戻るまでだけ待つ）・["wait-finalized"]（締めの答えまで待つ）。
 //     --idle の --extra-queue-late=held（held・失敗・止まった区間と音声の無い区間の待ち行列）と --retranscribe（［もう一度文字起こし］を押す。上の注）
+//   0.13.2 点検の直し 2: --mic-feed の手順に ["wait-settled"]（起動の片付け＝下書きの復旧が済み、meeting.settle を頼むまで待つ）・snap に settled
 //   0.13.2 点検の直し（重要 1）: --extra-queue-late=held-all（3区間とも held の待ち行列）・--retranscribe-ticks=<n>（押した回が止まった後に見回りを n 回。out.afterTicks）
 //   0.13.2 LN-1（LR14。計画 docs/plans/2026-10-28-132.md）
 //     --finalize-delay=<ms> … 偽の DB の締め（meeting.finalize）の答えを ms 遅らせる。--mic-feed の出力に pageFinal（ページごとの { id, title, phase（meeting.phase） }）を足す
@@ -3088,6 +3089,8 @@ process.on('exit', () => {
     const finalizeN = (kinds) => trace.filter((t) => t.cmd === 'meeting.finalize' && kinds.includes(t.kind)).length;
     const finalized = () => !isActive() && finalizeN(['call']) === finalizeN(['ack', 'fail']);
     const overlayAsks = () => sent.filter(([ch]) => ch === 'overlay:level-ask').length;   // 0.9.3 M-5: 録音バーへ聞いた数
+    // 0.13.2 点検の直し 2: 起動の片付け（startupWork）が済んだか。下書きの復旧（recoverDraftIfAny）が返ると、同じ手番で meeting.settle を頼む
+    const settledNow = () => trace.some((t) => t.kind === 'call' && t.cmd === 'meeting.settle');
     for (const step of micSteps) {
       const [k, ...a] = step;
       if (k === 'line') { const kid = lastKid(); if (kid) kid.stdout.emit('data', Buffer.from(`${a[0]}\n`)); await sleep(15); }
@@ -3126,6 +3129,8 @@ process.on('exit', () => {
       else if (k === 'wait-login-closed') { await waitFor(() => loginRecs.filter((r) => r.closed).length >= a[0], 5000); await sleep(50); }
       else if (k === 'online') { netUp = Boolean(a[0]); await sleep(15); }
       else if (k === 'tick') { await keptTick(); await sleep(30); }
+      // 0.13.2 点検の直し 2: 起動の片付け（下書きの復旧の後の meeting.settle の頼み）まで待つ
+      else if (k === 'wait-settled') { await waitFor(settledNow, 20000); await sleep(30); }
       // 0.13.2 LN-5（LR13）: 止めた後の最後の空の区間を送り、待機に戻るまでだけ待つ（締めの答えは待たない）・締めの答えまで待つ
       else if (k === 'final-only') { listeners['audio:segment']({}, { buffer: new Uint8Array(0), durationMs: 0, final: true }); await waitFor(() => !isActive(), 15000); }
       else if (k === 'wait-finalized') { await waitFor(finalized, 15000); await sleep(50); }
@@ -3133,7 +3138,7 @@ process.on('exit', () => {
       else if (k === 'minimize') { wins[1].minimized = true; wins[1].emit('minimize'); await sleep(15); }
       else if (k === 'snap') {
         out.snaps[a[0]] = { spawns: micSpawns.length, kills: micKills, active: isActive(), nudgeCalls: nudgeWins.length ? nudgeWins[0].nudge.calls.length : 0, asks: overlayAsks(), sentN: mainSentAll.length, notes: notifications.length,
-          logins: loginRecs.length };   // 0.13.2 LN-4: その時までに作ったログインの窓の数
+          logins: loginRecs.length, settled: settledNow() };   // 0.13.2 LN-4: その時までに作ったログインの窓の数（点検の直し 2: 起動の片付けが済んだか）
         // 0.13.0 RDY-1: 下書きのファイルの名前と最初の下書きのメモと種類・DB へ送った命令の名前（中身は入れない）・meeting:status の active と prep
         const drafts = store.draftFiles();
         const d0 = drafts.length ? store.readDraftFile(drafts[0]) : null;

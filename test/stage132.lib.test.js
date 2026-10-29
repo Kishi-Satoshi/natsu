@@ -78,6 +78,16 @@ test('LN-4: loginAskPlan の表（boot・meeting・dictation × オンライン�
   assert.deepStrictEqual(lib.loginAskPlan(null), { ask: false });
 });
 
+// 0.13.2 点検の直し 2（LR37）: 起動の仕事（startupWork）が遅れて済んだとき、会議か音声入力が動いている・始まっている（recording）なら、起動の窓は開かない
+// （録音の途中に開かない。オフラインモードの会議の途中にも）。会議・音声入力の始めの窓は今どおり（recording はその後に真になる）
+test('LN-4・点検の直し 2: loginAskPlan は、録音中（recording）の boot では開かない。録音していない boot と、meeting・dictation は recording に関わらず今どおり', T, () => {
+  const P = (o) => lib.loginAskPlan({ moment: 'boot', online: true, signedIn: false, why: 'signed-out', snoozed: false, localOnly: false, chosen: true, showing: false, ...o });
+  assert.deepStrictEqual(P({ recording: true }), { ask: false }, '録音中に起動の窓を開いた');
+  assert.deepStrictEqual(P({ recording: false }), { ask: true });
+  assert.deepStrictEqual(P({}), { ask: true });
+  for (const moment of ['meeting', 'dictation']) assert.deepStrictEqual(P({ moment, recording: true }), { ask: true }, `${moment}: 始めた後の窓を止めた`);
+});
+
 // ---------------------------------------------------------------- LN-7（パネルの位置の答え「下の中央、録音バーと同じ高さ」・LR22）
 test('LN-7: nudgeBounds の表（作業領域の下の中央・カードの下の端が 12px・左右の真ん中・整数。左と上の画面・タスクバーが上と左・メニューを開くと上へ伸びる・大きすぎる・大きさが無い）', T, () => {
   const P = lib.NUDGE_PAD, E = lib.NUDGE_EDGE;

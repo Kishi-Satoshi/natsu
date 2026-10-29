@@ -1878,6 +1878,7 @@ let loginSnoozed = false;
 function askLogin(moment, { localOnly = false } = {}) {
   try {
     const plan = lib.loginAskPlan({ moment, online: netOnline(), signedIn: hasRelayLogin(), why: cloudNow().why, snoozed: loginSnoozed, localOnly: Boolean(localOnly),
+      recording: recordingNow() || meetingStarting > 0,   // 0.13.2 点検の直し 2（LR37）
       chosen: isOfflineChosen(), showing: Boolean(loginOpen) });
     if (plan.ask) openLoginWindow({ auto: moment });
   } catch (e) {
@@ -5198,6 +5199,8 @@ function stopMeetingBy(trigger) {
   }
   return r;
 }
+// 0.13.2 点検の直し 2（LR37）: 会議を始めている途中（前の下書きの復旧を待っている間。meeting はまだ無く state は idle）の数。起動の窓（askLogin('boot')）が見る
+let meetingStarting = 0;
 async function startMeeting() {
   // 終了・再起動の途中（quitting。DB を閉じている間など）は始めない（始めると relaunch・終了で録音が切れる。第1d回 A-9 の点検）
   if (state !== 'idle' || quitting) return { ok: false, error: '他の処理を実行中です' };
@@ -5211,7 +5214,8 @@ async function startMeeting() {
   // 待つ間に別の処理が始まっていたら始めない（第2a1回 ST1）。DB の用意の前（移行の窓・移行・起こし直し）は待たない（録音は DB に頼らない:
   // F9）。そのときは回している復旧の下書きを脇へ退けない（下の park）ので、この会議の下書きは draft-<開始時刻>.json になる
   if (store.draftFiles().length && !['starting', 'migrating'].includes(db.state())) {
-    await recoverDraftIfAny();
+    meetingStarting += 1;   // 0.13.2 点検の直し 2（LR37）: 始めている間（起動の窓を開かない）
+    try { await recoverDraftIfAny(); } finally { meetingStarting -= 1; }
     if (state !== 'idle' || quitting) return { ok: false, error: '他の処理を実行中です' };
   }
   const startedAt = Date.now();

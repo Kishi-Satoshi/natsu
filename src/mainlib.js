@@ -1067,9 +1067,11 @@ function loginProblem(a) {
 // （切れた・しまったログインを読めない）ときに、起動（boot）・会議の始め（meeting）・音声入力の始め（dictation）で開く。オフライン・オフラインモードの会議・
 // × で閉じた後（その起動の間: snoozed）・もう開いているときは開かない。準備を選んでいない PC の起動は今どおり設定の「アカウント」なので開かない（LR3）
 const LOGIN_ASK_MOMENTS = ['boot', 'meeting', 'dictation'];
-/** ({ moment, online, signedIn, why, snoozed, localOnly, chosen, showing }) → { ask } */
+// 0.13.2 点検の直し 2（LR37）: 起動（boot）は、起動の片付けが遅れて済んだときに会議・音声入力が動いている・始めている（recording）なら開かない（録音の途中に
+// 開かない。オフラインモードの会議の途中にも）。会議・音声入力の始めは始めた後に呼ぶので recording を見ない
+/** ({ moment, online, signedIn, why, snoozed, localOnly, chosen, showing, recording }) → { ask } */
 function loginAskPlan(a) {
-  const { moment, online, signedIn, snoozed, localOnly, chosen, showing } = a && typeof a === 'object' ? a : {};
+  const { moment, online, signedIn, snoozed, localOnly, chosen, showing, recording } = a && typeof a === 'object' ? a : {};
   if (!LOGIN_ASK_MOMENTS.includes(moment)) return { ask: false };
   if (online !== true) return { ask: false };
   if (signedIn === true) return { ask: false };
@@ -1077,6 +1079,7 @@ function loginAskPlan(a) {
   if (localOnly) return { ask: false };
   if (showing) return { ask: false };
   if (moment === 'boot' && !chosen) return { ask: false };
+  if (moment === 'boot' && recording) return { ask: false };
   return { ask: true };
 }
 /** → 帯の符号か ''。daily-cap は scope で分ける（1人の上限は daily-cap、全体の上限は relay-off） */

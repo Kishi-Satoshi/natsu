@@ -231,6 +231,18 @@ test('LN-4・LR20: 自動の窓で --auto-login=ok → ログインでき、本�
   assert.strictEqual(o.loginWins.length, 1, 'ログインした後の会議で窓を開いた');
 });
 
+// 0.13.2 点検の直し 2（LR37）: 起動の片付け（startupWork）が遅れて（DB の答えが遅い・移行の窓）会議の後に済んでも、録音中には起動の窓を開かない
+test('LN-4・点検の直し 2: 起動の片付けが遅れて（前回の下書きの復旧で DB の meeting.recover の答えが 4 秒遅い）オフラインモードの会議の途中に済んでも、ログインの窓は開かない（起動の窓を録音中に開かない）', T, async () => {
+  // 録音の前のページの［オフラインモードで始める］を押したのは起動の片付けの途中（会議は前の下書きの復旧を待ってから始まる: 始めている間）
+  const o = await mic([['ipc', 'meeting:prepare'], ['snap', 'press'], ['ipc', 'meeting:start', { pcOnly: true }], ['wait-settled'], ['sleep', 200], ['snap', 'm'], ['stop']],
+    '--extra-queue=localonly', '--slow-ack=meeting.recover:4000');
+  assert.strictEqual(o.snaps.press.settled, false, '会議を始める前に起動の片付けが済んだ（場面の作り違い）');
+  assert.deepStrictEqual(o.ipc[1], ['meeting:start', { ok: true, localOnly: true }], JSON.stringify(o.ipc));
+  assert.strictEqual(o.snaps.m.active, true, o.engineLog.join('\n'));
+  assert.deepStrictEqual(o.loginWins, [], `録音中に起動の窓を開いた: ${o.engineLog.join('\n')}`);
+  assert.ok(!o.engineLog.includes(AUTO('boot')), o.engineLog.join('\n'));
+});
+
 test('LN-4・LR2・PQ5: ログインして始めた会議の録音中に中継が 401 を返しても窓は開かない（loginWins が []）。帯 login が先頭', T, async () => {
   const o = await run(['text', '--relay-seq=cl', '--segs=3']);
   assert.deepStrictEqual(o.loginWins, [], `録音中のログイン切れで窓を開いた（F27・PQ5）: ${o.engineLog.join('\n')}`);
