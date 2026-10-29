@@ -1735,3 +1735,107 @@ test('0.12.0 SP-4: SOURCE_NAMES（app.html）と SOURCE_LABELS が同じ。timel
   // 札の title（決めたこと 139）
   assert.ok(appHtml.includes("const SOURCE_TITLES = { mic: 'マイクから録った声です（同じ部屋の人の声も入ります）', loopback: 'PC から流れた相手の声です' };"));
 });
+
+// 0.14.0 EB-6（計画 docs/plans/2026-10-26-140.md の決めたこと 32・34・R68・SEC2・F102）: 画面の HTML に入れるのは決まった文字か数だけ。
+// 他人の文字（貼った HTML・設定の文字・リンク）は innerHTML に入れない。ゲートの本体は tools/risk.js の htmlSinks（BLOCK にも同じ決まり）
+const HTML_SINK_RE = /\.(?:innerHTML|outerHTML)\s*(?:\+=|=(?![=>]))|\.insertAdjacentHTML\s*\(/g;
+test('EB-6・SEC2: app.html の innerHTML・outerHTML・insertAdjacentHTML に入るのは決まった文字か数だけ（${…} の中は数の名前だけ）', { timeout: 5000 }, () => {
+  const R = require('../tools/risk');
+  for (const f of ['src/renderer/app.html', 'src/renderer/nudge.html', 'src/renderer/overlay.html']) {
+    const src = read(f);
+    const s = R.htmlSinks(src, f);
+    assert.deepStrictEqual(s.bad.map((b) => `${f}:${b.line} ${b.why}: ${b.text}`), [], `${f} に決まった文字でないものを入れる HTML の口がある`);
+    // 口を数え落としていない（注釈と文字の中のほかは、字の上の口が全部ゲートに見えている）
+    const scripts = [...src.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/gi)].map((m) => m[1]).join('\n');
+    assert.strictEqual(s.all.length, (scripts.match(HTML_SINK_RE) || []).length, `${f}: ゲートが見た口の数が字の上の数と違う`);
+  }
+  // 今の app.html の口（12 か所: 決まった文と、数の名前 ${total} の1つ）を全部見ている
+  const app = R.htmlSinks(appHtml, 'src/renderer/app.html');
+  assert.ok(app.all.length >= 12, `app.html の口が少なすぎる（${app.all.length}。ゲートが空振りしている）`);
+  assert.ok(app.all.some((x) => x.text.includes('${total}')), '数の名前の口（${total}）が見えていない');
+  // R68: 数の式・設定の文字は HTML に入れない（textContent と createElement で組む）
+  assert.ok(!/innerHTML = [^;]*\$\{fmtChars\(/.test(appHtml) && !/innerHTML = [^;]*toFixed\(/.test(appHtml) && !/innerHTML = [^;]*Math\.round\(saved\)/.test(appHtml), '数の欄を innerHTML で入れている');
+  assert.ok(!/innerHTML = [^;]*settings\.hotkey/.test(appHtml), '設定のホットキーの文字を innerHTML で入れている');
+});
+
+test('EB-6・SEC2（決めたこと 34）: src/pasteConvert.js・src/richText.js に innerHTML・DOMParser・document.write・eval が無い', { timeout: 5000 }, () => {
+  const WORDS = /innerHTML|outerHTML|insertAdjacentHTML|DOMParser|createContextualFragment|document\.write|(?<![\w$.])eval\s*\(|new Function/;
+  // richText は EB-1 で作った。pasteConvert は EK-1 で作る（無い間は richText だけを見る。作ったら同じ決まりで見る: R116）
+  assert.ok(fs.existsSync(path.join(ROOT, 'src', 'richText.js')), 'src/richText.js が無い');
+  for (const f of ['src/richText.js', 'src/pasteConvert.js']) {
+    if (!fs.existsSync(path.join(ROOT, f))) continue;
+    const hit = read(f).split('\n').map((l, i) => [i + 1, l]).filter(([, l]) => WORDS.test(l));
+    assert.deepStrictEqual(hit.map(([n, l]) => `${f}:${n} ${l.trim()}`), [], `${f} が HTML を要素にする口を使う（字句を読むだけにする）`);
+  }
+});
+
+test('EB-6・SEC2: tools/risk.js が変数を innerHTML に入れる行を足すと BLOCK（決まった文字・数の名前・注釈・前からある行は通す）', { timeout: 5000 }, () => {
+  const R = require('../tools/risk');
+  const F = 'src/renderer/app.html';
+  const page = (js) => `<!doctype html><html><body><div id="a"></div>\n<script>\n${js}\n</script></body></html>\n`;
+  const base = 'const a = 1;';
+  const hits = (js) => R.htmlSinkFindings(F, page(base), page(`${base}\n${js}`));
+  // 鳴る（他人の文字が入りうる形）
+  const bad = [
+    'el.innerHTML = name;',
+    'el.innerHTML = `<b>${userText}</b>`;',
+    "el.innerHTML = '<b>' + userText + '</b>';",
+    'el.innerHTML = `<kbd>${settings ? settings.hotkey : "Ctrl+Shift+Space"}</kbd>`;',
+    'el.innerHTML = `<kbd>${settings.hotkey}</kbd>`;',
+    'const n = 3; el.innerHTML = `${fmtChars(n)}<small>字</small>`;',
+    'const s = 3; el.innerHTML = `${(s/60).toFixed(1)}<small>時間</small>`;',
+    "el.innerHTML = ok ? '<b>x</b>' : msg;",
+    "el.innerHTML += '<b>' + t;",
+    'el.outerHTML = html;',
+    "el.insertAdjacentHTML('beforeend', html);",
+    "el.insertAdjacentHTML('beforeend', `<i>${t}</i>`);",
+    "el.innerHTML = String(n);",
+    'el.innerHTML = x ?? "";',
+    // 名前1つでも、数と決まっていないもの（引数・取り出し・繰り返し・数でない代入・宣言の無い名前）
+    'function f(total) { el.innerHTML = `${total} 件`; }',
+    'const f = (total) => { el.innerHTML = `${total} 件`; };',
+    'for (const total of list) el.innerHTML = `${total} 件`;',
+    'const { total } = r; el.innerHTML = `${total} 件`;',
+    'const [total] = r; el.innerHTML = `${total} 件`;',
+    'let total = 0; total = r.name; el.innerHTML = `${total} 件`;',
+    "let total = 0; total += r.name; el.innerHTML = `${total} 件`;",
+    'const total = r.name; el.innerHTML = `${total} 件`;',
+    'const total = r && r.total; el.innerHTML = `${total} 件`;',
+    'el.innerHTML = `${undeclared} 件`;',
+  ];
+  for (const js of bad) assert.strictEqual(hits(js).length, 1, `鳴らない: ${js}`);
+  // 鳴らない（決まった文字か数だけ）
+  const ok = [
+    "el.innerHTML = '<div class=\"big\">議事録はありません</div>';",
+    'el.innerHTML = `<b>決まった文</b>`;',
+    "el.innerHTML = '<b>a</b>'\n  // 注釈の行\n  + '<i>b</i>';",
+    "el.innerHTML = $('q').value.trim() ? '<b>当たりません</b>' : '<b>ありません</b>';",
+    'const total = r && Number.isFinite(Number(r.total)) ? Number(r.total) : acts.length;\nel.innerHTML = total > 0 ? `全部で ${total} 件` : \'<b>無し</b>\';',
+    'let tc = 0, tch = 0; tc++; tch += h.chars || 0; el.innerHTML = `${tc}<small>回</small>`;',
+    'const n = Number(s.totalBytes) || 0; el.innerHTML = `${n}`;',
+    'const n = Math.round(x); el.innerHTML = `${n}`;',
+    '// el.innerHTML = name;',
+    '/* el.innerHTML = name; */',
+    "const s = 'el.innerHTML = name;';",
+    'const h = el.innerHTML;',
+    'if (el.innerHTML === name) f();',
+    "el.textContent = name;",
+    'el.innerHTML = 5;',
+    "el.innerHTML = '';",
+  ];
+  for (const js of ok) assert.deepStrictEqual(hits(js), [], `鳴った: ${js}`);
+  // 前からある行は鳴らさない（新しく足したものだけ）。同じ行を増やすと鳴る
+  const old = 'el.innerHTML = name;';
+  assert.deepStrictEqual(R.htmlSinkFindings(F, page(old), page(`${old}\nconst b = 2;`)), [], '前からある行で鳴った');
+  assert.strictEqual(R.htmlSinkFindings(F, page(old), page(`${old}\n${old}`)).length, 1, '同じ行を足しても鳴らない');
+  assert.deepStrictEqual(R.htmlSinkFindings(F, page(old), page(base)), [], '消したら鳴った');
+  // src の JS（main・preload・部品）も同じ決まり。ほかのファイルは見ない
+  assert.strictEqual(R.htmlSinkFindings('src/pasteConvert.js', '', 'el.innerHTML = html;\n').length, 1);
+  assert.deepStrictEqual(R.htmlSinkFindings('test/x.test.js', '', 'el.innerHTML = html;\n'), []);
+  // 今の app.html の口は鳴らない（前の版が無くても: リリースの前の --base でも同じ）
+  assert.deepStrictEqual(R.htmlSinkFindings(F, null, appHtml), []);
+  // analyze が呼び、BLOCK の名前は「画面の HTML に他人の文字」・チェックリストと射程に載る
+  const src = read('tools/risk.js');
+  assert.ok(src.includes("add('BLOCK', '画面の HTML に他人の文字', f,") && src.includes('htmlSinkFindings(f, at(base, f), at(head, f))'), 'analyze が innerHTML のゲートを呼ばない');
+  assert.ok(R.SCOPE.sees.some((s) => s.startsWith('画面の HTML に入れる文字（SEC2')), '射程に載っていない');
+});

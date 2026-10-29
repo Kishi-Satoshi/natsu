@@ -1480,3 +1480,59 @@ test('EB-4 直し・M3（R115）: 行の欄に文字を落とさせない（外�
     assert.deepStrictEqual(l.errors.map(fmt), []);
   } finally { l.done(); }
 });
+
+// ---------------------------------------------------------------- EB-6（SEC2・F102・決めたこと 32・R68）: 画面の HTML に入れるのは決まった文字だけ
+// 要素の形（名前と文字の並び）。前の innerHTML の文を偽の DOM で読んだ形と比べて、見た目が同じことを見る
+const shape = (n) => (n.tagName === '#text' ? ['#text', n.textContent] : [n.tagName.toLowerCase(), n.className || '', ...n.childNodes.map(shape)]);
+test('EB-6・SEC2: 音声入力の履歴が空のとき、設定のホットキーの文字は <kbd> の文字として入る（HTML にならない）', T, async () => {
+  const { RETURNS } = require('./helpers/simrun.js');
+  const { parseHTML } = require('./helpers/simdom');
+  const hotkey = '<img src=x onerror="alert(1)">Ctrl+<b>Q</b>';
+  const l = await load(APP, { returns: { getSettings: () => ({ ...RETURNS.getSettings(), hotkey }), getHistory: () => [] } });
+  try {
+    await l.drain();
+    const box = $(l, 'histList');
+    assert.deepStrictEqual(box.querySelectorAll('img').length + box.querySelectorAll('b').length, 0, 'ホットキーの文字が要素になった');
+    const kbd = box.querySelectorAll('kbd');
+    assert.strictEqual(kbd.length, 1);
+    assert.strictEqual(kbd[0].textContent, hotkey, 'ホットキーの文字がそのまま出ない');
+    const d = box.querySelectorAll('.empty')[0];
+    assert.ok(d && d._html === undefined, 'innerHTML で入れた');
+    // 見た目は前と同じ（ふつうのホットキーなら前の文と同じ形）
+    const l2 = await load(APP, { returns: { getHistory: () => [] } });
+    try {
+      await l2.drain();
+      const d2 = $(l2, 'histList').querySelectorAll('.empty')[0];
+      const want = parseHTML('<div class="big">まだ履歴がありません</div>どのアプリでも <kbd>Control+Shift+Space</kbd> を押して話しかけてください。').root;
+      assert.deepStrictEqual(d2.childNodes.map(shape), want.childNodes.map(shape));
+      assert.deepStrictEqual(l2.errors.map(fmt), []);
+    } finally { if (l2.done) l2.done(); }
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { if (l.done) l.done(); }
+});
+
+test('EB-6・R68: 音声入力の数の欄（今日・累計・節約時間）は数と単位の small を要素で組む（innerHTML を使わない・見た目は前と同じ）', T, async () => {
+  const { parseHTML } = require('./helpers/simdom');
+  const now = new Date().toISOString();
+  const old = '2020-01-01T00:00:00.000Z';
+  const cases = [
+    // [履歴, 今日, 累計, 節約]（前の文: `${tc}<small>回</small> ${fmtChars(tch)}<small>字</small>` と `${(saved/60).toFixed(1)}<small>時間</small>`・`${Math.round(saved)}<small>分</small>`）
+    [[{ id: 'h1', text: 'あ', createdAt: now, durationSec: 6, chars: 140 }, { id: 'h2', text: 'い', createdAt: old, durationSec: 0, chars: 70 }],
+      '1<small>回</small> 140<small>字</small>', '2<small>回</small> 210<small>字</small>', '3<small>分</small>'],
+    [[{ id: 'h1', text: 'う', createdAt: now, durationSec: 0, chars: 12345 }, { id: 'h2', text: 'え', createdAt: now, durationSec: 0, chars: 0 }],
+      '2<small>回</small> 1.2万<small>字</small>', '2<small>回</small> 1.2万<small>字</small>', '2.9<small>時間</small>'],
+    [[], '0<small>回</small> 0<small>字</small>', '0<small>回</small> 0<small>字</small>', '0<small>分</small>'],
+  ];
+  for (const [hist, today, total, saved] of cases) {
+    const l = await load(APP, { returns: { getHistory: () => hist } });
+    try {
+      await l.drain();
+      for (const [id, html] of [['stToday', today], ['stTotal', total], ['stSaved', saved]]) {
+        const el = $(l, id);
+        assert.strictEqual(el._html, undefined, `${id} を innerHTML で入れた`);
+        assert.deepStrictEqual(el.childNodes.map(shape), parseHTML(html).root.childNodes.map(shape), `${id} の形が前と違う（${JSON.stringify(hist.map((h) => h.chars))}）`);
+      }
+      assert.deepStrictEqual(l.errors.map(fmt), []);
+    } finally { if (l.done) l.done(); }
+  }
+});

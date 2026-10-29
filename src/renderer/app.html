@@ -6844,6 +6844,14 @@
 
   // ================= 音声入力 =================
   function fmtChars(n) { return n >= 10000 ? `${(n/10000).toFixed(1)}万` : String(n); }
+  // parts は [数, 単位, 数, 単位…]。数は文字、単位は <small> の文字（0.14.0 EB-6・R68）
+  function numUnits(el, parts) {
+    el.textContent = '';
+    parts.forEach((p, i) => {
+      if (i % 2 === 0) { el.append(String(p)); return; }
+      const s = document.createElement('small'); s.textContent = p; el.appendChild(s);
+    });
+  }
   function renderHistory() {
     const today = new Date(); today.setHours(0,0,0,0);
     let tc=0, tch=0, ac=0, ach=0, saved=0;
@@ -6852,9 +6860,10 @@
       if (new Date(h.createdAt) >= today) { tc++; tch += h.chars || 0; }
       saved += Math.max(0, (h.chars||0)/70 - (h.durationSec||0)/60);
     }
-    $('stToday').innerHTML = `${tc}<small>回</small> ${fmtChars(tch)}<small>字</small>`;
-    $('stTotal').innerHTML = `${ac}<small>回</small> ${fmtChars(ach)}<small>字</small>`;
-    $('stSaved').innerHTML = saved >= 60 ? `${(saved/60).toFixed(1)}<small>時間</small>` : `${Math.round(saved)}<small>分</small>`;
+    // 0.14.0 EB-6（SEC2・R68）: 数と単位の small は要素で組む（HTML に式を入れない。見た目は前の「数<small>単位</small>」と同じ）
+    numUnits($('stToday'), [tc, '回', ` ${fmtChars(tch)}`, '字']);
+    numUnits($('stTotal'), [ac, '回', ` ${fmtChars(ach)}`, '字']);
+    numUnits($('stSaved'), saved >= 60 ? [(saved/60).toFixed(1), '時間'] : [Math.round(saved), '分']);
 
     const q = $('histSearch').value.trim();
     const fq = fold(q);
@@ -6862,9 +6871,13 @@
     const box = $('histList'); box.textContent = '';
     if (!list.length) {
       const d = document.createElement('div'); d.className = 'empty';
-      d.innerHTML = history.length
-        ? '検索に一致する履歴がありません'
-        : `<div class="big">まだ履歴がありません</div>どのアプリでも <kbd>${settings ? settings.hotkey : 'Ctrl+Shift+Space'}</kbd> を押して話しかけてください。`;
+      if (history.length) d.textContent = '検索に一致する履歴がありません';
+      else {
+        // 0.14.0 EB-6（SEC2・決めたこと 32）: 設定のホットキーの文字は <kbd> の文字として入れる（手で直した settings.json の文字を HTML にしない）
+        const big = document.createElement('div'); big.className = 'big'; big.textContent = 'まだ履歴がありません';
+        const kbd = document.createElement('kbd'); kbd.textContent = settings ? settings.hotkey : 'Ctrl+Shift+Space';
+        d.append(big, 'どのアプリでも ', kbd, ' を押して話しかけてください。');
+      }
       box.appendChild(d); return;
     }
     for (const h of list) {

@@ -413,6 +413,259 @@ function relayFindings(file, before, after) {
   return [...a].filter(([k, x]) => x.n > ((b.get(k) || {}).n || 0)).map(([k, x]) => `${k.slice(k.indexOf('\t') + 1)} — ${x.why}`);
 }
 
+// ---------- 画面の HTML に入れる文字（0.14.0 EB-6・SEC2・F102・決めたこと 32・R68） ----------
+// 他人の文字（貼った HTML・設定の文字・リンク）を innerHTML に入れない。innerHTML・outerHTML（= と +=）・insertAdjacentHTML の
+// 2つ目の引数に入るのは、決まった文字（'…'・"…"・`…`）と数（数の字・${名前} の名前1つ）を + と ?: でつないだものだけ
+// （?: の条件は入らないので何でもよい）。${…} の中は名前1つで、その名前のファイルの中の宣言と代入が全部数（数の字・Number()・
+// parseInt()・parseFloat()・Math.…()・….length と、それを + - * / % || ?: でつないだもの）で、引数・取り出し・繰り返しの名前でも
+// ないものだけ。式・関数の呼び出し・設定の文字は通さない（R68）。字は JS の字句で読む（注釈と文字の中の字は口にしない）。
+const SINK_KW = new Set(['return', 'typeof', 'case', 'do', 'else', 'in', 'of', 'new', 'delete', 'void', 'throw', 'instanceof', 'yield', 'await']);
+const SINK_PUNCT = ['>>>=', '...', '===', '!==', '**=', '<<=', '>>=', '>>>', '&&=', '||=', '??=', '=>', '==', '!=', '<=', '>=', '&&', '||', '??', '?.',
+  '++', '--', '+=', '-=', '*=', '/=', '%=', '&=', '|=', '^=', '**', '<<', '>>'];
+const ID_START = /[\p{L}_$]/u;
+const ID_PART = /[\p{L}\p{N}_$‌‍]/u;
+/** JS の字句（{ t: 'id'|'num'|'str'|'tpl'|'re'|'p', v, line, at, end }。`…` は quasis と exprs（中の字句の並び）を持つ） */
+function lexJs(src, start = 0, line = 1, inTpl = false) {
+  const toks = [];
+  let i = start, depth = 0;
+  const regexOk = () => {
+    const p = toks[toks.length - 1];
+    if (!p) return true;
+    if (p.t === 'id') return SINK_KW.has(p.v);
+    return p.t === 'p' && ![')', ']', '}'].includes(p.v);
+  };
+  while (i < src.length) {
+    const c = src[i];
+    if (c === '\n') { line++; i++; continue; }
+    if (/\s/.test(c)) { i++; continue; }
+    if (c === '/' && src[i + 1] === '/') { while (i < src.length && src[i] !== '\n') i++; continue; }
+    if (c === '/' && src[i + 1] === '*') {
+      const e = src.indexOf('*/', i + 2), end = e < 0 ? src.length : e + 2;
+      for (let j = i; j < end; j++) if (src[j] === '\n') line++;
+      i = end; continue;
+    }
+    if (c === "'" || c === '"') {
+      let j = i + 1, v = '';
+      const l0 = line;
+      while (j < src.length && src[j] !== c && src[j] !== '\n') {
+        if (src[j] === '\\') { if (src[j + 1] === '\n') line++; v += src[j + 1] || ''; j += 2; } else v += src[j++];
+      }
+      toks.push({ t: 'str', v, line: l0, at: i, end: j + 1 }); i = j + 1; continue;
+    }
+    if (c === '`') {
+      const tok = { t: 'tpl', quasis: [], exprs: [], line, at: i };
+      let j = i + 1, q = '';
+      while (j < src.length && src[j] !== '`') {
+        if (src[j] === '\\') { if (src[j + 1] === '\n') line++; q += src.slice(j, j + 2); j += 2; continue; }
+        if (src[j] === '$' && src[j + 1] === '{') {
+          tok.quasis.push(q); q = '';
+          const r = lexJs(src, j + 2, line, true);
+          tok.exprs.push(r.toks); line = r.line; j = r.end; continue;
+        }
+        if (src[j] === '\n') line++;
+        q += src[j++];
+      }
+      tok.quasis.push(q); tok.end = j + 1; toks.push(tok); i = j + 1; continue;
+    }
+    if (c === '/' && regexOk()) {
+      let j = i + 1, cls = false;
+      while (j < src.length && src[j] !== '\n') {
+        const d = src[j];
+        if (d === '\\') { j += 2; continue; }
+        if (d === '[') cls = true; else if (d === ']') cls = false; else if (d === '/' && !cls) break;
+        j++;
+      }
+      j++;
+      while (j < src.length && ID_PART.test(src[j])) j++;
+      toks.push({ t: 're', v: src.slice(i, j), line, at: i, end: j }); i = j; continue;
+    }
+    if (/[0-9]/.test(c) || (c === '.' && /[0-9]/.test(src[i + 1] || ''))) {
+      let j = i + 1;
+      while (j < src.length && /[\w.]/.test(src[j])) j++;
+      toks.push({ t: 'num', v: src.slice(i, j), line, at: i, end: j }); i = j; continue;
+    }
+    if (ID_START.test(c)) {
+      let j = i + 1;
+      while (j < src.length && ID_PART.test(src[j])) j++;
+      toks.push({ t: 'id', v: src.slice(i, j), line, at: i, end: j }); i = j; continue;
+    }
+    if (inTpl && c === '{') depth++;
+    if (inTpl && c === '}') { if (depth === 0) return { toks, end: i + 1, line }; depth--; }
+    const p = SINK_PUNCT.find((s) => src.startsWith(s, i)) || c;
+    toks.push({ t: 'p', v: p, line, at: i, end: i + p.length }); i += p.length;
+  }
+  return { toks, end: i, line };
+}
+const isP = (tk, ...vs) => !!tk && tk.t === 'p' && vs.includes(tk.v);
+const isId = (tk, ...vs) => !!tk && tk.t === 'id' && (!vs.length || vs.includes(tk.v));
+/** 括弧の組（open[k] = 閉じの位置・close[k] = 開きの位置・up[k] = いちばん内の開きの位置） */
+function groupsOf(ts) {
+  const open = new Map(), close = new Map(), up = new Array(ts.length).fill(-1), st = [];
+  ts.forEach((tk, k) => {
+    up[k] = st.length ? st[st.length - 1] : -1;
+    if (isP(tk, '(', '[', '{')) st.push(k);
+    else if (isP(tk, ')', ']', '}') && st.length) { const o = st.pop(); open.set(o, k); close.set(k, o); up[k] = st.length ? st[st.length - 1] : -1; }
+  });
+  return { open, close, up };
+}
+/** a から、深さ 0 の ; か ,（stopComma のとき）か、外の閉じ括弧の手前まで */
+function exprEnd(ts, a, stopComma = true) {
+  let d = 0, j = a;
+  for (; j < ts.length; j++) {
+    const tk = ts[j];
+    if (isP(tk, '(', '[', '{')) d++;
+    else if (isP(tk, ')', ']', '}')) { if (d === 0) break; d--; }
+    else if (d === 0 && (isP(tk, ';') || (stopComma && isP(tk, ',')))) break;
+  }
+  return j;
+}
+/** [a, b) を深さ 0 の ? : で分ける（無ければ null） */
+function splitTernary(ts, a, b) {
+  let d = 0, q = -1, n = 0;
+  for (let j = a; j < b; j++) {
+    const tk = ts[j];
+    if (isP(tk, '(', '[', '{')) d++;
+    else if (isP(tk, ')', ']', '}')) d--;
+    else if (d !== 0) continue;
+    else if (isP(tk, '?')) { if (q < 0) q = j; else n++; }
+    else if (isP(tk, ':') && q >= 0) { if (n === 0) return { q, c: j }; n--; }
+  }
+  return q < 0 ? null : { q, c: -1 };
+}
+/** [a, b) を深さ 0 の ops で分けた区切り（[x, y) の並び）。頭の単項の + - は区切りにしない */
+function splitOps(ts, a, b, ops) {
+  const out = [];
+  let d = 0, x = a;
+  for (let j = a; j < b; j++) {
+    const tk = ts[j];
+    if (isP(tk, '(', '[', '{')) d++;
+    else if (isP(tk, ')', ']', '}')) d--;
+    else if (d === 0 && j > x && isP(tk, ...ops)) { out.push([x, j]); x = j + 1; }
+  }
+  out.push([x, b]);
+  return out;
+}
+/** [a, b) が数の式か（数の名前の宣言と代入の右） */
+function numericExpr(ts, a, b, g) {
+  if (a >= b) return false;
+  const t3 = splitTernary(ts, a, b);
+  if (t3) return t3.c > 0 && numericExpr(ts, t3.q + 1, t3.c, g) && numericExpr(ts, t3.c + 1, b, g);
+  return splitOps(ts, a, b, ['+', '-', '*', '/', '%', '**', '||']).every(([x, y]) => {
+    if (x >= y) return false;
+    if (isP(ts[x], '-', '+') && y - x >= 2) return numericExpr(ts, x + 1, y, g);
+    if (y - x === 1) return ts[x].t === 'num';
+    if (isP(ts[x], '(') && g.open.get(x) === y - 1) return numericExpr(ts, x + 1, y - 1, g);
+    if (isId(ts[y - 1], 'length') && isP(ts[y - 2], '.', '?.')) return true;
+    const call = (k) => isP(ts[k], '(') && g.open.get(k) === y - 1;
+    if (isId(ts[x], 'Number', 'parseInt', 'parseFloat') && call(x + 1)) return true;
+    return isId(ts[x], 'Math') && isP(ts[x + 1], '.') && isId(ts[x + 2]) && call(x + 3);
+  });
+}
+const NOT_CALL = new Set(['if', 'for', 'while', 'switch', 'with', 'catch', 'function', 'return', 'typeof', 'await', 'in', 'of', 'new', 'else', 'do', 'case', 'void', 'delete', 'throw']);
+/** 名前 name の、ファイルの中の宣言と代入が全部数か（lists は全部の字句の並び） */
+function numericName(name, lists) {
+  let decl = 0;
+  for (const { ts, g } of lists) {
+    for (let k = 0; k < ts.length; k++) {
+      if (!isId(ts[k], name)) continue;
+      const prev = ts[k - 1], next = ts[k + 1];
+      if (isP(prev, '.', '?.')) continue;   // 欄の名前
+      if (isP(next, ':') && isP(prev, '{', ',') && isP(ts[g.up[k]], '{')) continue;   // 物の鍵
+      if (isP(next, '=>') || isId(prev, 'function', 'class')) return false;
+      if (isId(prev, 'const', 'let', 'var')) { decl++; if (isId(next, 'of', 'in')) return false; }
+      // 取り出し（{ name } = …・[name] = …・const { name }）と引数（function (name)・(name) =>・catch (name)・m(name) {）
+      let o = g.up[k];
+      while (o >= 0 && isP(ts[o], '{', '[')) {
+        const c = g.open.get(o);
+        if ((c !== undefined && isP(ts[c + 1], '=')) || isId(ts[o - 1], 'const', 'let', 'var')) return false;
+        o = g.up[o];
+      }
+      if (o >= 0 && isP(ts[o], '(')) {
+        const c = g.open.get(o), before = ts[o - 1];
+        if (c !== undefined && isP(ts[c + 1], '=>')) return false;
+        if (isId(before, 'function', 'catch') || (isId(before) && isId(ts[o - 2], 'function'))) return false;
+        if (isId(before) && !NOT_CALL.has(before.v) && c !== undefined && isP(ts[c + 1], '{')) return false;
+      }
+      if (isP(next, '=', '+=', '&&=', '||=', '??=')) {
+        const e = exprEnd(ts, k + 2);
+        if (!numericExpr(ts, k + 2, e, g)) return false;
+      }
+    }
+  }
+  return decl > 0;
+}
+/** [a, b) が決まった文字か数か（違えば理由の文字） */
+function sinkValue(ts, a, b, g, lists) {
+  if (a >= b) return '空の値';
+  const t3 = splitTernary(ts, a, b);
+  if (t3) return t3.c < 0 ? '読めない ?:' : (sinkValue(ts, t3.q + 1, t3.c, g, lists) || sinkValue(ts, t3.c + 1, b, g, lists));
+  for (const [x, y] of splitOps(ts, a, b, ['+'])) {
+    if (x >= y) return '読めない +';
+    if (isP(ts[x], '(') && g.open.get(x) === y - 1) { const w = sinkValue(ts, x + 1, y - 1, g, lists); if (w) return w; continue; }
+    if (y - x !== 1) return '決まった文字でない式';
+    const tk = ts[x];
+    if (tk.t === 'str' || tk.t === 'num') continue;
+    if (tk.t !== 'tpl') return '決まった文字でない名前';
+    for (const ex of tk.exprs) {
+      if (ex.length !== 1 || ex[0].t !== 'id') return '${…} の中が名前1つでない';
+      if (!numericName(ex[0].v, lists)) return `\${${ex[0].v}} が数の名前でない`;
+    }
+  }
+  return null;
+}
+/** ファイルの全部の HTML の口（all）と、決まった文字か数でないもの（bad）。どれも { line, sink, text, why } */
+function htmlSinks(src, file = '') {
+  const parts = [];
+  if (src == null) return { all: [], bad: [] };
+  if (/\.html?$/.test(file)) {
+    for (const m of src.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/gi)) {
+      const at = m.index + m[0].indexOf('>') + 1;
+      parts.push({ code: m[1], line: src.slice(0, at).split('\n').length });
+    }
+  } else parts.push({ code: src, line: 1 });
+  const lists = [];
+  const addList = (ts, part) => { lists.push({ ts, g: groupsOf(ts), part }); for (const tk of ts) if (tk.t === 'tpl') for (const ex of tk.exprs) addList(ex, part); };
+  for (const part of parts) addList(lexJs(part.code).toks, part);
+  const all = [], bad = [];
+  for (const { ts, g, part } of lists) {
+    for (let k = 0; k < ts.length; k++) {
+      let sink = null, a = -1, b = -1;
+      const prop = isP(ts[k], '.') && isId(ts[k + 1]) ? ts[k + 1].v
+        : isP(ts[k], '[') && ts[k + 1] && ts[k + 1].t === 'str' && isP(ts[k + 2], ']') ? ts[k + 1].v : null;
+      const after = isP(ts[k], '.') ? k + 2 : k + 3;
+      if ((prop === 'innerHTML' || prop === 'outerHTML') && isP(ts[after], '=', '+=')) {
+        sink = prop; a = after + 1; b = exprEnd(ts, a);
+      } else if (prop === 'insertAdjacentHTML' && isP(ts[after], '(')) {
+        sink = prop;
+        const c = g.open.get(after);
+        const args = splitOps(ts, after + 1, c === undefined ? ts.length : c, [',']);
+        if (args.length >= 2) [a, b] = args[1]; else a = b = after + 1;
+      }
+      if (!sink) continue;
+      const head = part.code.lastIndexOf('\n', ts[k].at) + 1;
+      const last = ts[Math.max(a, b - 1)] || ts[k + 1];
+      const text = part.code.slice(head, last.end).replace(/\s+/g, ' ').trim();
+      const x = { line: part.line + ts[k].line - 1, sink, text };
+      all.push(x);
+      const why = sinkValue(ts, a, b, g, lists);
+      if (why) bad.push({ ...x, why });
+    }
+  }
+  return { all, bad };
+}
+const sinkTarget = (f) => /^src\/renderer\/[^/]+\.html$/.test(f) || /^src\/.*\.js$/.test(f);
+/** 前の版より数が増えた、決まった文字か数でない HTML の口（1つの行ごとに1件。'行 — 理由' の文字） */
+function htmlSinkFindings(file, before, after) {
+  if (!sinkTarget(file) || after == null) return [];
+  const count = (src) => {
+    const m = new Map();
+    for (const x of htmlSinks(src, file).bad) { const cur = m.get(x.text); m.set(x.text, { n: (cur ? cur.n : 0) + 1, why: x.why, line: x.line }); }
+    return m;
+  };
+  const b = count(before), a = count(after);
+  return [...a].filter(([t, x]) => x.n > ((b.get(t) || {}).n || 0)).map(([t, x]) => `${file}:${x.line} ${t} — ${x.why}`);
+}
+
 function analyze(base, head) {
   F = [];
   const changed = new Set(
@@ -479,6 +732,12 @@ function analyze(base, head) {
       add('BLOCK', '中継と直の送り先', f, `決まりに触れる行を足した: ${line}`, '文字起こしと確認コードは src/relay.js（中継）を通す・鍵は Worker の秘密の欄だけ・中継の記録は relay/log.mjs・秘密の欄は Cloudflare の画面で入れる・チームの名前と Access の秘密の値はリポジトリに書かない');
   }
 
+  // 画面の HTML に他人の文字（新しく足した口だけ。0.14.0 EB-6・SEC2）
+  for (const f of [...changed].filter(sinkTarget)) {
+    for (const line of htmlSinkFindings(f, at(base, f), at(head, f)))
+      add('BLOCK', '画面の HTML に他人の文字', f, `innerHTML・outerHTML・insertAdjacentHTML に決まった文字か数でないものを入れる行を足した: ${line}\n      理由: 貼った文字・設定の文字・リンクが要素になり、スクリプトが走る（SEC2）`, 'textContent と createElement で組む（入れてよいのは決まった文字と、数と決まった名前1つの ${…} だけ）');
+  }
+
   // 実機確認が要る変更の判定
   const needs = [];
   if ([...changed].some((f) => f.includes('overlay.html'))) needs.push('録音バーの透過（ピルの外に矩形が出ていないか）と、暗い地の上で波形・文字が読めるか');
@@ -496,6 +755,7 @@ function analyze(base, head) {
 // 出て全否定に読めた（監査 #38）。射程外は npm test が守る（pre-commit もそれを走らせる）。
 const HELP_SEES = 'ヘルプの公開前の確認（help/ の記事・site.json・資産に足した、チームのドメインの字面・64 字の16進・個人の Windows のパス・鍵の見かけ。ヘルプの出し方は中継の出し方と同じ決まり）';
 const RELAY_SEES = '中継と直の送り先（src/ から OpenAI・Groq・Resend へ直に送る行・鍵の見かけの文字・relay/ の console と node: と Buffer・中継と出し方の中で秘密の欄に値を書く行・チームのドメインの字面・Access の秘密の欄に値を書く行）';
+const SINK_SEES = '画面の HTML に入れる文字（SEC2。innerHTML・outerHTML・insertAdjacentHTML に入るのは決まった文字と数だけ）';
 const SCOPE = {
   sees: [
     'HTML の木の健全さ（閉じ忘れ・相手のいない閉じタグ）',
@@ -509,6 +769,7 @@ const SCOPE = {
     'Claude Code の呼び方と鍵のしまい方（--bare・.credentials.json・同期の safeStorage・claude-cli.js のほかでの claude の起動）',
     RELAY_SEES,
     HELP_SEES,
+    SINK_SEES,
   ],
   blind: ['src/cite.js', 'src/store.js', 'src/minutes.js', 'src/actions.js'],
 };
@@ -567,6 +828,7 @@ function main(argv) {
     line('Claude Code の呼び方と鍵のしまい方（--bare・.credentials.json・同期の safeStorage・claude-cli.js のほかでの claude の起動）', blocks.filter((b) => b.rule === '外への送り方と Claude Code の呼び方').length),
     line(RELAY_SEES, blocks.filter((b) => b.rule === '中継と直の送り先' && !inHelp(b.file)).length),
     line(HELP_SEES, blocks.filter((b) => b.rule === '中継と直の送り先' && inHelp(b.file)).length),
+    line(SINK_SEES, blocks.filter((b) => b.rule === '画面の HTML に他人の文字').length),
     '', `このゲートが見ていないもの: ${SCOPE.blind.join(' / ')} のロジック — npm test が守る（リリース前に必ず通す）`);
   const out = arg('--checklist');
   if (out) { fs.writeFileSync(out, md.join('\n') + '\n'); console.log('チェックリストを書き出した: ' + out); }
@@ -575,4 +837,4 @@ function main(argv) {
   return blocks.length ? 1 : 0;
 }
 if (require.main === module) process.exit(main(process.argv.slice(2)));
-module.exports = { analyze, checkHtml, htmlFindings, windows, mineHits, inkFindings, refIds, fetchFindings, jsonWriteFindings, onlineFindings, relayFindings, relayTarget, SCOPE, scopeNote };
+module.exports = { analyze, htmlSinks, htmlSinkFindings, lexJs, checkHtml, htmlFindings, windows, mineHits, inkFindings, refIds, fetchFindings, jsonWriteFindings, onlineFindings, relayFindings, relayTarget, SCOPE, scopeNote };
