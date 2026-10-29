@@ -1,8 +1,9 @@
 /*
- * stage140.db.test.js — 0.14.0 の DB の命令と照らし（計画 docs/plans/2026-10-26-140.md の Task EB-2）
+ * stage140.db.test.js — 0.14.0 の DB の命令と照らし（計画 docs/plans/2026-10-26-140.md の Task EB-2・EK-2）
  * 自分の操作を後ろから当てて戻す命令 edit.revert（後から変わっていたら stale・main の行とほかのページの行は戻さない・鍵の間は locked・
  * ページの行は memo・memoDoc だけ戻す: R60）・文字の飾り rich の保存と照らし（色は決まった9色で1つの区切りに1つ・リンクは決まった頭・
  * コードとリンクは同じ区切りに持てない）・口の答えの changed（変えたときだけ・送り直しも: R59・R75）・preload の onEditStep。
+ * EK-2: 貼り付けの命令 block.paste（1つの命令・2,000 行まで・頭で貼ると上に足す: BQ30 (a)・入れ子: R66）と blocks.remove・move・duplicate・turnInto・setColor（R65）。
  * 一時の DB（helpers/dbtmp.js）で core.call を本当に呼ぶ。口の答えは server.js を本当に起こして見る。
  */
 'use strict';
@@ -19,6 +20,7 @@ const C = require('../src/db/commands');
 const { applyOps } = require('../src/db/ops');
 const R = require('../src/pagerules');
 const BT = require('../src/blockTree');
+const RT = require('../src/richText');
 
 // 時計は命令ごとに進める（戻した後の updatedAt が「今」かを見る）
 let clock = Date.parse('2026-10-29T01:00:00.000Z');
@@ -702,3 +704,345 @@ test('EB-2 直し・R87: 戻す操作はページの行の memo・memoDoc のほ
   assert.ok(page.every((o) => o.op === 'set' && ['updatedAt', 'citeStat'].includes(o.key)), JSON.stringify(page));
   assert.strictEqual(get(db).summaryEdited, true);
 }));
+
+// ================================================================ 0.14.0 EK-2（計画 docs/plans/2026-10-26-140.md の決めたこと 25・30・31・R65・R66・BQ30 (a)）
+// 貼り付けの命令 block.paste と、選んだ行をまとめて扱う blocks.remove・move・duplicate・turnInto・setColor（どれも1つの命令＝ oplog の1行＝元に戻すの1歩）
+const run1 = (t, m = []) => ({ t, m });
+const P = (type, t, o = {}) => ({ type, rich: [run1(t)], ...(type === 'todo' ? { checked: false } : {}), ...o });
+const paste = (db, args, role = 'app', tx) => call(db, 'block.paste', { pageId: 'pa1', ...args }, role, tx);
+const flatIds = (page) => BT.flattenBlocks(page.blocks).map((b) => b.id);
+const kidIds = (page, id) => find(page, id).b.children.map((b) => b.id);
+const kid3 = (id, o = {}) => ({ id, type: 'bullet', text: `${id}の行の文です`, citeState: 'manual', cites: [], ...o });
+const BIG = { timeout: 30000 };
+
+test('EK-2: block.paste は今の行を at で分け、貼った行をすぐ下に、後ろを最後に（oplog 1行・前と後ろの飾りも分ける）。答えは { page, lastId }', T, () => withDb((db) => {
+  const n0 = oplogN(db);
+  const rich = [run1('来月の予算', ['b']), run1('案の作成を担当Aが進める')];
+  const r = paste(db, { blockId: 'b2', rich, at: 3, blocks: [P('heading', '貼った見出し', { level: 3 }), { type: 'bullet', rich: [run1('太字', ['b']), run1('の箇条')] }, P('todo', '貼ったやること', { checked: true })] });
+  assert.strictEqual(r.ok, true, r.code);
+  assert.strictEqual(oplogN(db), n0 + 1, 'oplog が1行でない');
+  const page = get(db);
+  const ids = flatIds(page);
+  const at = ids.indexOf('b2');
+  const [x1, x2, x3, tail] = ids.slice(at + 1, at + 5).map((id) => find(page, id).b);
+  assert.strictEqual(ids[at + 5], 'b3', '後ろの行の後に前の続きの行が無い');
+  const b2 = find(page, 'b2').b;
+  assert.deepStrictEqual([b2.text, RT.plainOf(b2.rich), b2.rich[0].m], ['来月の', '来月の', ['b']], '前の行の文と飾り');
+  assert.deepStrictEqual([x1.type, x1.level, x1.text, x1.citeState, x1.cites], ['heading', 3, '貼った見出し', 'manual', []]);
+  assert.deepStrictEqual([x2.type, x2.text, x2.rich[0].t, x2.rich[0].m], ['bullet', '太字の箇条', '太字', ['b']]);
+  assert.deepStrictEqual([x3.type, x3.text, x3.checked], ['todo', '貼ったやること', true]);
+  assert.deepStrictEqual([tail.type, tail.text, tail.rich[0].t, tail.rich[0].m, tail.citeState], ['bullet', '予算案の作成を担当Aが進める', '予算', ['b'], 'manual'], '後ろの文の行');
+  assert.deepStrictEqual([r.result.lastId, r.result.page.id], [x3.id, 'pa1'], 'カーソルは最後に貼った行');
+  assert.ok(r.changed, '貼り付けに changed が無い');
+}));
+
+test('EK-2: 文の終わりで貼ると後ろの行は作らない。空のテキストの行なら最初に貼った行がその行の型と中身になる（R18）', T, () => withDb((db) => {
+  const end = paste(db, { blockId: 'b3', rich: [run1('了解')], at: 2, blocks: [P('bullet', '終わりに貼った')] });
+  assert.strictEqual(end.ok, true, end.code);
+  const ids = flatIds(get(db));
+  assert.deepStrictEqual(ids.slice(ids.indexOf('b3'), ids.indexOf('b3') + 3), ['b3', end.result.lastId, 'b4'], '空の後ろの行を作った');
+  const e = call(db, 'block.insert', { pageId: 'pa1', afterBlockId: 'b6', type: 'paragraph' }).result.blockId;
+  const n = flatIds(get(db)).length;
+  const r = paste(db, { blockId: e, rich: [], at: 0, blocks: [P('heading', '空の行に貼った見出し', { level: 1 }), P('bullet', '次の行', { children: [P('bullet', '子の行')] })] });
+  assert.strictEqual(r.ok, true, r.code);
+  const page = get(db);
+  const row = find(page, e).b;
+  assert.deepStrictEqual([row.type, row.level, row.text], ['heading', 1, '空の行に貼った見出し'], '空の行が貼った行にならない');
+  assert.strictEqual(flatIds(page).length, n + 2, '空の行が残った');
+  const next = find(page, e).list[find(page, e).index + 1];
+  assert.deepStrictEqual([next.text, next.children.map((c) => c.text)], ['次の行', ['子の行']]);
+  assert.strictEqual(r.result.lastId, next.children[0].id, 'カーソルは最後に貼った行（子）');
+  const e2 = call(db, 'block.insert', { pageId: 'pa1', afterBlockId: 'b6', type: 'paragraph' }).result.blockId;
+  const one = paste(db, { blockId: e2, rich: [], at: 0, blocks: [P('quote', '1行の引用')] });
+  assert.strictEqual(one.ok, true, one.code);
+  assert.deepStrictEqual([find(get(db), e2).b.type, find(get(db), e2).b.text, one.result.lastId], ['quote', '1行の引用', e2]);
+}));
+
+test('EK-2・F102: 2,001 行（子孫も数える）・1MB 越え・10 万字の行・形の悪い行 → bad-args で何も足さない。2,000 行は通る', BIG, () => withDb((db) => {
+  const was = JSON.stringify(raw(db));
+  const n0 = oplogN(db);
+  const flat = (k) => Array.from({ length: k }, (_, i) => P('bullet', `行${i}`));
+  const bad = [
+    flat(2001),
+    [P('toggle', '親', { children: flat(2000) })],                              // 子孫で 2,001 行（R66）
+    Array.from({ length: 12 }, (_, i) => P('paragraph', `${i}`.padEnd(90000, 'あ'))),   // 1MB 越え
+    [P('paragraph', 'あ'.repeat(100001))],
+    [], 'nope', [{ type: 'bullet' }], [{ type: 'nope', rich: [run1('x')] }], [P('bullet', 'x', { level: 2 })], [P('paragraph', 'x', { checked: true })],
+    [P('divider', 'x')], [P('bullet', 'x', { id: 'b9' })], [P('bullet', 'x', { cites: ['s2'] })], [{ type: 'bullet', rich: [run1('x', [['link', 'javascript:alert(1)']])] }],
+    [P('heading', 'x', { level: 4 })], [P('bullet', 'x', { children: 'x' })],
+  ];
+  for (const blocks of bad) {
+    const r = paste(db, { blockId: 'b2', rich: [run1('来月の予算案の作成を担当Aが進める')], at: 2, blocks });
+    assert.deepStrictEqual([r.ok, r.code], [false, 'bad-args'], JSON.stringify(blocks).slice(0, 80));
+  }
+  assert.strictEqual(JSON.stringify(raw(db)), was, '断った貼り付けで何か変わった');
+  assert.strictEqual(oplogN(db), n0, '断った命令が oplog に残った');
+  const ok = paste(db, { blockId: 'b6', rich: [run1('議事録を共有フォルダに置いておく')], at: 16, blocks: [P('toggle', '親', { children: flat(1999) })] });
+  assert.strictEqual(ok.ok, true, ok.code);
+  assert.strictEqual(kidIds(get(db), find(get(db), ok.result.lastId).parent.id).length, 1999);
+}));
+
+test('EK-2: 鍵の間は locked で何も変えない。同じ tx の2回で1回だけ（送り直しの答えも同じ lastId）。edit.revert の1回で貼り付けが戻る', T, () => withDb((db) => {
+  const before = get(db);
+  const tx = txOf('app');
+  const args = { blockId: 'b2', rich: [run1('来月の予算案の作成を担当Aが進める')], at: 5, blocks: [P('bullet', '一つ目'), P('bullet', '二つ目', { children: [P('todo', '孫')] })] };
+  const r1 = paste(db, args, 'app', tx);
+  const n1 = oplogN(db);
+  const r2 = paste(db, args, 'app', tx);
+  assert.deepStrictEqual([r1.ok, r2.ok, r2.dup], [true, true, true]);
+  assert.strictEqual(oplogN(db), n1, '送り直しが新しい命令として効いた');
+  assert.strictEqual(r2.result.lastId, r1.result.lastId, '送り直しの答えの lastId が違う');
+  assert.strictEqual(flatIds(get(db)).length, before.blocks.length + 4);
+  const back = revert(db, [r1.tx]);
+  assert.strictEqual(back.ok, true, back.code);
+  assert.deepStrictEqual(body(get(db)), body(before), '1回の edit.revert で戻らない');
+  const p = get(db);
+  assert.strictEqual(call(db, 'page.put', { page: { ...p, summaryWait: true }, baseRev: p.rev }, 'main').ok, true);
+  const was = JSON.stringify(raw(db));
+  const l = paste(db, args);
+  assert.deepStrictEqual([l.ok, l.code], [false, 'locked']);
+  assert.strictEqual(JSON.stringify(raw(db)), was);
+}));
+
+test('EK-2・BQ30 (a): 文のある行の頭（at 0）の block.paste は貼った行を上に足し、今の行は ID・文・担当・期限・出典をそのまま持つ。edit.revert の1回で貼った行だけが消える', T, () => withDb((db) => {
+  const before = get(db);
+  const b4 = find(before, 'b4').b;
+  const r = paste(db, { blockId: 'b4', rich: [run1(b4.text)], at: 0, afterId: 'b3', blocks: [P('bullet', '上に貼った1'), P('bullet', '上に貼った2')] });
+  assert.strictEqual(r.ok, true, r.code);
+  const page = get(db);
+  const ids = flatIds(page);
+  assert.deepStrictEqual(ids.slice(ids.indexOf('b3'), ids.indexOf('b3') + 4).map((id) => find(page, id).b.text), ['了解', '上に貼った1', '上に貼った2', b4.text]);
+  const now4 = find(page, 'b4').b;
+  for (const k of ['type', 'text', 'checked', 'assignee', 'dueRaw', 'due', 'dueApprox', 'cites', 'citeState']) assert.deepStrictEqual(now4[k], b4[k], `今の行の ${k}`);
+  assert.strictEqual(find(page, r.result.lastId).b.text, '上に貼った2');
+  const t5 = find(page, 'b5').b.text;
+  const plain = paste(db, { blockId: 'b5', rich: [run1(t5.slice(0, 2), ['b']), run1(t5.slice(2))], at: 0, blocks: [P('paragraph', 'afterId の無い頭')] });
+  assert.strictEqual(plain.ok, true, plain.code);
+  const ids2 = flatIds(get(db));
+  assert.strictEqual(ids2[ids2.indexOf('b5') - 1], plain.result.lastId, 'afterId が無ければ今の行のすぐ上');
+  assert.deepStrictEqual([find(get(db), 'b5').b.text, find(get(db), 'b5').b.rich[0].m], [t5, ['b']], '今の行の画面の飾りを残さない');
+  assert.strictEqual(revert(db, [plain.tx]).ok, true);
+  assert.strictEqual(revert(db, [r.tx]).ok, true);
+  assert.deepStrictEqual(body(get(db)), body(before));
+}));
+
+test('EK-2・BQ30 (a)・NR8: 入れ子の行の頭で貼ると afterId は同じ親の兄弟の中だけ（空の afterId は親の子の頭・ほかの並びの行は bad-args）', T, () => withDb((db) => {
+  const r = paste(db, { blockId: 'c2', rich: [run1('c2の行の文です')], at: 0, afterId: 'c1', blocks: [P('bullet', '兄弟の間')] });
+  assert.strictEqual(r.ok, true, r.code);
+  assert.deepStrictEqual(kidIds(get(db), 't').map((id) => find(get(db), id).b.text), ['c1の行の文です', '兄弟の間', 'c2の行の文です']);
+  const head = paste(db, { blockId: 'c1', rich: [run1('c1の行の文です')], at: 0, afterId: '', blocks: [P('bullet', '親の子の頭')] });
+  assert.strictEqual(head.ok, true, head.code);
+  assert.strictEqual(find(get(db), kidIds(get(db), 't')[0]).b.text, '親の子の頭');
+  const was = JSON.stringify(raw(db));
+  for (const afterId of ['x', 'nope', 'c1']) {   // ほかの並びの行・無い行・今の行
+    const b = paste(db, { blockId: 'c1', rich: [run1('c1の行の文です')], at: 0, afterId, blocks: [P('bullet', '外')] });
+    assert.deepStrictEqual([b.ok, b.code], [false, 'bad-args'], afterId);
+  }
+  assert.strictEqual(JSON.stringify(raw(db)), was);
+}, { blocks: [kid3('x'), kid3('t', { type: 'toggle', children: [kid3('c1'), kid3('c2')] })] }));
+
+test('EK-2・R66: 子の見えている行の文の終わりの block.paste（inside）→ 貼った行は最初の子。子のある行の途中で貼ると、子は今の行に残る。見出しの下の子は上がる', T, () => withDb((db) => {
+  const t = paste(db, { blockId: 't', rich: [run1('tの行の文です')], at: 7, inside: true, blocks: [P('paragraph', '中1'), P('paragraph', '中2')] });
+  assert.strictEqual(t.ok, true, t.code);
+  assert.deepStrictEqual(kidIds(get(db), 't').map((id) => find(get(db), id).b.text), ['中1', '中2', 'c1の行の文です'], '貼った行がトグルの中の頭に無い');
+  const was = JSON.stringify(raw(db));
+  for (const [blockId, at] of [['h', 3], ['t', 2]]) {   // 子を持てない型・文の途中の inside
+    const b = paste(db, { blockId, rich: [run1(find(get(db), blockId).b.text)], at, inside: true, blocks: [P('bullet', '外')] });
+    assert.deepStrictEqual([b.ok, b.code], [false, 'bad-args'], blockId);
+  }
+  assert.strictEqual(JSON.stringify(raw(db)), was);
+  const mid = paste(db, { blockId: 'a', rich: [run1('aの行の文です')], at: 2, blocks: [P('bullet', '途中に貼った')] });
+  assert.strictEqual(mid.ok, true, mid.code);
+  const page = get(db);
+  assert.deepStrictEqual(kidIds(page, 'a'), ['a1'], '子が今の行に残らない');
+  const la = find(page, 'a');
+  assert.deepStrictEqual(la.list.slice(la.index, la.index + 3).map((b) => b.text), ['aの', '途中に貼った', '行の文です']);
+  const lift = paste(db, { blockId: 'x', rich: [run1('xの行の文です')], at: 7, blocks: [{ type: 'heading', level: 2, rich: [run1('貼った見出し')], children: [P('bullet', '見出しの子', { children: [P('bullet', '孫')] })] }, { type: 'divider', rich: [], children: [P('bullet', '線の子')] }] });
+  assert.strictEqual(lift.ok, true, lift.code);
+  const p2 = get(db);
+  const lx = find(p2, 'x');
+  const after = lx.list.slice(lx.index + 1, lx.index + 5);
+  assert.deepStrictEqual(after.map((b) => [b.type, b.text, b.children.map((c) => c.text)]),
+    [['heading', '貼った見出し', []], ['bullet', '見出しの子', ['孫']], ['divider', '', []], ['bullet', '線の子', []]], '見出し・区切り線の下の子が上がらない');
+}, { blocks: [kid3('x'), kid3('t', { type: 'toggle', children: [kid3('c1')] }), kid3('a', { children: [kid3('a1')] }), kid3('h', { type: 'heading', level: 2 })] }));
+
+// ---------------------------------------------------------------- blocks.*（決めたこと 30・31・R65）
+const NEST = [kid3('x'), kid3('a', { children: [kid3('a1'), kid3('a2', { children: [kid3('a21')] })] }), kid3('y'), kid3('z'), kid3('t', { type: 'toggle', children: [kid3('tc')] }), kid3('e', { text: '' })];
+test('EK-2: blocks.remove・move・duplicate・turnInto・setColor がそれぞれ oplog 1行・edit.revert の1回で戻る', T, () => {
+  const cases = [
+    ['blocks.remove', { ids: ['x', 'y'] }, (p) => assert.deepStrictEqual(p.blocks.map((b) => b.id), ['a', 'z', 't', 'e'])],
+    ['blocks.move', { ids: ['x', 'y'], afterId: 'z' }, (p) => assert.deepStrictEqual(p.blocks.map((b) => b.id), ['a', 'z', 'x', 'y', 't', 'e'])],
+    ['blocks.duplicate', { ids: ['x', 'y'] }, (p, r) => { assert.deepStrictEqual(p.blocks.map((b) => b.id), ['x', 'a', 'y', ...r.result.ids, 'z', 't', 'e']); assert.deepStrictEqual(r.result.ids.map((id) => find(p, id).b.text), ['xの行の文です', 'yの行の文です']); }],
+    ['blocks.turnInto', { ids: ['x', 'y'], type: 'quote' }, (p) => assert.deepStrictEqual(['x', 'y', 'z'].map((id) => find(p, id).b.type), ['quote', 'quote', 'bullet'])],
+    ['blocks.setColor', { ids: ['x', 'y'], color: 'blue_bg' }, (p) => assert.deepStrictEqual(['x', 'y', 'z'].map((id) => find(p, id).b.color), ['blue_bg', 'blue_bg', undefined])],
+  ];
+  for (const [cmd, args, check] of cases) withDb((db) => {
+    const before = get(db);
+    const n0 = oplogN(db);
+    const r = call(db, cmd, { pageId: 'pa1', ...args });
+    assert.strictEqual(r.ok, true, `${cmd} ${r.code}`);
+    assert.ok(r.changed, `${cmd}: changed が無い`);
+    assert.strictEqual(oplogN(db), n0 + 1, `${cmd}: oplog が1行でない`);
+    check(get(db), r);
+    const back = revert(db, [r.tx]);
+    assert.strictEqual(back.ok, true, `${cmd}: ${back.code}`);
+    assert.deepStrictEqual(body(get(db)), body(before), `${cmd}: 1回で戻らない`);
+  }, { blocks: NEST });
+});
+
+test('EK-2: blocks.move は画面の順を保つ（ids の順に並べる）。afterId・parentId が選んだ行の中なら bad-args。無い行・空の ids も bad-args', T, () => withDb((db) => {
+  const r = call(db, 'blocks.move', { pageId: 'pa1', ids: ['z', 'x'], afterId: 't' });
+  assert.strictEqual(r.ok, true, r.code);
+  assert.deepStrictEqual(get(db).blocks.map((b) => b.id), ['a', 'y', 't', 'z', 'x', 'e'], '選んだ行の順が崩れた');
+  const was = JSON.stringify(raw(db));
+  for (const args of [{ ids: ['a', 'y'], afterId: 'a2' }, { ids: ['a', 'y'], afterId: 'y' }, { ids: ['a'], afterId: '', parentId: 'a21' }, { ids: ['a', 'nope'], afterId: 'y' }, { ids: [], afterId: 'y' }, { ids: ['a'], afterId: 'nope' }]) {
+    const b = call(db, 'blocks.move', { pageId: 'pa1', ...args });
+    assert.deepStrictEqual([b.ok, b.code], [false, 'bad-args'], JSON.stringify(args));
+  }
+  assert.strictEqual(JSON.stringify(raw(db)), was);
+  const into = call(db, 'blocks.move', { pageId: 'pa1', ids: ['y', 'z'], afterId: '', parentId: 't' });   // Alt で中へ（0.13.1 の block.move と同じ）
+  assert.strictEqual(into.ok, true, into.code);
+  assert.deepStrictEqual(kidIds(get(db), 't'), ['y', 'z', 'tc']);
+  const kid = call(db, 'blocks.move', { pageId: 'pa1', ids: ['a21'], afterId: 'x' });   // 子だけを動かすと afterId の行と同じ親へ
+  assert.strictEqual(kid.ok, true, kid.code);
+  assert.deepStrictEqual([find(get(db), 'a21').parent, kidIds(get(db), 'a2')], [null, []]);
+}, { blocks: NEST }));
+
+test('EK-2 ‡131: 親を選ぶと子もいっしょ・子孫を重ねて数えない（remove・move・duplicate・setColor）', T, () => withDb((db) => {
+  const n = flatIds(get(db)).length;
+  const d = call(db, 'blocks.duplicate', { pageId: 'pa1', ids: ['a', 'a2', 'a21'] });
+  assert.strictEqual(d.ok, true, d.code);
+  assert.strictEqual(d.result.ids.length, 1, '子を親と別に写した');
+  assert.strictEqual(flatIds(get(db)).length, n + 4, '子孫を重ねて写した');
+  assert.deepStrictEqual(BT.flattenBlocks([find(get(db), d.result.ids[0]).b]).map((b) => b.text), ['aの行の文です', 'a1の行の文です', 'a2の行の文です', 'a21の行の文です']);
+  const m = call(db, 'blocks.move', { pageId: 'pa1', ids: ['a', 'a1'], afterId: 'z' });
+  assert.strictEqual(m.ok, true, m.code);
+  assert.deepStrictEqual(kidIds(get(db), 'a'), ['a1', 'a2'], '子を親から外して動かした');
+  assert.strictEqual(find(get(db), 'a').list[find(get(db), 'a').index - 1].id, 'z');
+  const c = call(db, 'blocks.setColor', { pageId: 'pa1', ids: ['a'], color: 'red' });
+  assert.strictEqual(c.ok, true, c.code);
+  assert.deepStrictEqual(BT.flattenBlocks([find(get(db), 'a').b]).map((b) => b.color), ['red', 'red', 'red', 'red'], '親の色が子に付かない（決めたこと 31: 色は子ごと）');
+  const r = call(db, 'blocks.remove', { pageId: 'pa1', ids: ['a', 'a21', 'a1'] });
+  assert.strictEqual(r.ok, true, r.code);
+  const trash = opsOf(db, r.tx).filter((o) => o.op === 'trash');
+  assert.deepStrictEqual(trash.map((o) => o.id).sort(), ['a', 'a1', 'a2', 'a21'], '子孫を重ねて消した・残した');
+  assert.strictEqual(find(get(db), 'a'), null);
+}, { blocks: NEST }));
+
+test('EK-2・R65: blocks.turnInto の区切り線は文のある行か子のある行が1つでもあれば bad-args。トグルをテキストにすると子は後ろへ（turnMovesKids）', T, () => withDb((db) => {
+  const was = JSON.stringify(raw(db));
+  for (const ids of [['e', 'x'], ['e', 'k'], ['k']]) {   // 文のある行・文の無い子のある行
+    const b = call(db, 'blocks.turnInto', { pageId: 'pa1', ids, type: 'divider' });
+    assert.deepStrictEqual([b.ok, b.code], [false, 'bad-args'], ids.join(','));
+  }
+  assert.strictEqual(JSON.stringify(raw(db)), was, '断った変換で何か変わった');
+  const e2 = call(db, 'block.insert', { pageId: 'pa1', afterBlockId: 'e', type: 'paragraph' }).result.blockId;
+  const div = call(db, 'blocks.turnInto', { pageId: 'pa1', ids: ['e', e2], type: 'divider' });
+  assert.strictEqual(div.ok, true, div.code);
+  assert.deepStrictEqual([find(get(db), 'e').b.type, find(get(db), e2).b.type], ['divider', 'divider']);
+  const p = call(db, 'blocks.turnInto', { pageId: 'pa1', ids: ['t', 'x'], type: 'paragraph' });
+  assert.strictEqual(p.ok, true, p.code);
+  const page = get(db);
+  assert.deepStrictEqual([find(page, 't').b.type, kidIds(page, 't'), find(page, 'tc').parent, find(page, 'x').b.type], ['paragraph', [], null, 'paragraph']);
+  assert.strictEqual(find(page, 't').list[find(page, 't').index + 1].id, 'tc', 'トグルの子が後ろに出ない');
+  const h = call(db, 'blocks.turnInto', { pageId: 'pa1', ids: ['a', 'y'], type: 'heading', level: 3 });
+  assert.strictEqual(h.ok, true, h.code);
+  assert.deepStrictEqual([find(get(db), 'a').b.level, kidIds(get(db), 'a'), find(get(db), 'a1').parent], [3, [], null], '見出しにした行の子が後ろに出ない');
+  const tg = call(db, 'blocks.turnInto', { pageId: 'pa1', ids: ['y'], type: 'heading', level: 2, toggle: true });
+  assert.deepStrictEqual([tg.ok, find(get(db), 'y').b.toggle], [true, true]);
+}, { blocks: [...NEST, kid3('k', { type: 'toggle', text: '', children: [kid3('kc')] })] }));
+
+test('EK-2・R65: block.move・blocks.move・parentId のある block.duplicate・blocks.duplicate で AI の節の見出しを子にする → bad-args。人の見出し（citeState: manual）は子にできる', T, () => {
+  const blocks = [...samplePage('pa1').page.blocks, kid3('tg', { type: 'toggle', children: [kid3('tc')] }), kid3('mh', { type: 'heading', level: 2, text: '人の見出し' })];
+  withDb((db) => {
+    const was = JSON.stringify(raw(db));
+    const bad = [
+      ['block.move', { blockId: 'b1', afterId: '', parentId: 'tg' }], ['block.move', { blockId: 'b1', afterId: 'tc' }],
+      ['blocks.move', { ids: ['b1', 'b2'], afterId: 'tc' }], ['blocks.move', { ids: ['b1'], afterId: '', parentId: 'tg' }],
+      ['block.duplicate', { blockId: 'b1', afterId: '', parentId: 'tg' }], ['blocks.duplicate', { ids: ['b1'], afterId: '', parentId: 'tg' }], ['blocks.duplicate', { ids: ['b1'], afterId: 'tc' }],
+    ];
+    for (const [cmd, args] of bad) {
+      const r = call(db, cmd, { pageId: 'pa1', ...args });
+      assert.deepStrictEqual([r.ok, r.code], [false, 'bad-args'], `${cmd} ${JSON.stringify(args)}`);
+    }
+    assert.strictEqual(JSON.stringify(raw(db)), was, '断った命令で何か変わった');
+    for (const [cmd, args] of [['block.move', { blockId: 'mh', afterId: 'tc' }], ['blocks.move', { ids: ['mh', 'b2'], afterId: '', parentId: 'tg' }], ['block.duplicate', { blockId: 'mh', afterId: '', parentId: 'tg' }], ['blocks.duplicate', { ids: ['mh'], afterId: 'tc' }], ['block.move', { blockId: 'b1', afterId: 'b6' }]]) {
+      const r = call(db, cmd, { pageId: 'pa1', ...args });
+      assert.strictEqual(r.ok, true, `${cmd} ${JSON.stringify(args)} ${r.code}`);
+    }
+    assert.strictEqual(find(get(db), 'mh').parent.id, 'tg');
+  }, { blocks });
+});
+
+test('EK-2: blocks.duplicate は最後に選んだ行の後ろへ写す（afterId・parentId で置き場を選べる）。答えの ids は写しの行で、送り直しでも同じ', T, () => withDb((db) => {
+  const tx = txOf('app');
+  const r = call(db, 'blocks.duplicate', { pageId: 'pa1', ids: ['y', 'a'], afterId: '', parentId: 't' }, 'app', tx);
+  assert.strictEqual(r.ok, true, r.code);
+  assert.deepStrictEqual(kidIds(get(db), 't'), [...r.result.ids, 'tc']);
+  assert.deepStrictEqual(r.result.ids.map((id) => find(get(db), id).b.text), ['yの行の文です', 'aの行の文です'], '写しが画面の順でない');
+  assert.strictEqual(find(get(db), r.result.ids[1]).b.children.length, 2, '子孫を写していない');
+  const again = call(db, 'blocks.duplicate', { pageId: 'pa1', ids: ['y', 'a'], afterId: '', parentId: 't' }, 'app', tx);
+  assert.deepStrictEqual([again.dup, again.result.ids], [true, r.result.ids]);
+  const bad = call(db, 'blocks.duplicate', { pageId: 'pa1', ids: ['y'], afterId: 'nope' });
+  assert.deepStrictEqual([bad.ok, bad.code], [false, 'bad-args']);
+}, { blocks: NEST }));
+
+test('EK-2: T4b: 控えに block.paste・blocks.* の oplog を前へ当て直すと今の表と同じ', T, async () => {
+  const t = tmpDb();
+  try {
+    const { db } = t.open();
+    const { page, segments } = samplePage('pa1');
+    t.seed({ ...page, blocks: [...page.blocks, ...structuredClone(NEST)] }, segments);
+    const to = path.join(t.dir, 'copy-ek2.db');
+    await sqlite.backup(db, to);
+    const copy = new sqlite.DatabaseSync(to);
+    try {
+      const k = db.prepare('select coalesce(max(seq), 0) s from oplog').get().s;
+      const p1 = call(db, 'block.paste', { pageId: 'pa1', blockId: 'b2', rich: [run1('来月の予算案の作成を担当Aが進める')], at: 4, blocks: [P('bullet', '貼った', { children: [P('todo', '子')] })] });
+      const steps = [p1,
+        call(db, 'blocks.move', { pageId: 'pa1', ids: ['a', 'x'], afterId: 'b6' }),
+        call(db, 'blocks.duplicate', { pageId: 'pa1', ids: ['y', 'z'] }),
+        call(db, 'blocks.turnInto', { pageId: 'pa1', ids: ['t'], type: 'paragraph' }),
+        call(db, 'blocks.setColor', { pageId: 'pa1', ids: ['a'], color: 'green' }),
+        call(db, 'blocks.remove', { pageId: 'pa1', ids: ['z', 'y'] })];
+      for (const s of steps) assert.strictEqual(s.ok, true, s.code);
+      assert.strictEqual(revert(db, [steps[1].tx]).ok, true);
+      const rows = db.prepare('select ops from oplog where seq > ? order by seq').all(k).map((r) => JSON.parse(r.ops));
+      for (const o of rows) applyOps(copy, o, 'forward');
+      const dump = (c) => c.prepare('select id, type, page_id, parent_id, ord, text, rich, attrs, fold, rev, created_at, updated_at, trashed_at from blocks order by id').all().map((r) => ({ ...r }));
+      assert.deepStrictEqual(dump(copy), dump(db));
+    } finally { copy.close(); }
+  } finally { t.done(); }
+});
+
+test('EK-2: preload の blockPaste・blocksRemove・blocksMove・blocksDuplicate・blocksTurnInto は dbCall の1回で tx が付く（無い引数は送らない）', T, () => {
+  const { k, givePort } = loadPreload();
+  const p = givePort();
+  const rich = [{ t: '文', m: [] }];
+  const blocks = [{ type: 'bullet', rich }];
+  k.blockPaste('pa1', 'b2', rich, 1, blocks);
+  k.blockPaste('pa1', 'b2', rich, 0, blocks, 'b1');
+  k.blockPaste('pa1', 'b2', rich, 1, blocks, undefined, true);
+  k.blocksRemove('pa1', ['b2', 'b3']);
+  k.blocksMove('pa1', ['b2'], 'b4');
+  k.blocksMove('pa1', ['b2'], '', 'a');
+  k.blocksDuplicate('pa1', ['b2']);
+  k.blocksDuplicate('pa1', ['b2'], '', 'a');
+  k.blocksTurnInto('pa1', ['b2'], 'quote');
+  k.blocksTurnInto('pa1', ['b2'], 'heading', 2, true);
+  assert.deepStrictEqual(p.sent.map((m) => [m.cmd, m.args]), [
+    ['block.paste', { pageId: 'pa1', blockId: 'b2', rich, at: 1, blocks }],
+    ['block.paste', { pageId: 'pa1', blockId: 'b2', rich, at: 0, blocks, afterId: 'b1' }],
+    ['block.paste', { pageId: 'pa1', blockId: 'b2', rich, at: 1, blocks, inside: true }],
+    ['blocks.remove', { pageId: 'pa1', ids: ['b2', 'b3'] }],
+    ['blocks.move', { pageId: 'pa1', ids: ['b2'], afterId: 'b4' }],
+    ['blocks.move', { pageId: 'pa1', ids: ['b2'], afterId: '', parentId: 'a' }],
+    ['blocks.duplicate', { pageId: 'pa1', ids: ['b2'] }],
+    ['blocks.duplicate', { pageId: 'pa1', ids: ['b2'], afterId: '', parentId: 'a' }],
+    ['blocks.turnInto', { pageId: 'pa1', ids: ['b2'], type: 'quote' }],
+    ['blocks.turnInto', { pageId: 'pa1', ids: ['b2'], type: 'heading', level: 2, toggle: true }],
+  ]);
+  assert.ok(p.sent.every((m) => /^a:[0-9a-f-]{36}$/.test(m.tx)), '書く頼みに tx が無い');
+  const names = [.../const APP_COMMANDS = new Set\(\[([^\]]*)\]\)/.exec(PRELOAD)[1].matchAll(/'([\w.]+)'/g)].map((x) => x[1]);
+  for (const c of ['block.paste', 'blocks.remove', 'blocks.move', 'blocks.duplicate', 'blocks.turnInto', 'blocks.setColor']) assert.ok(names.includes(c) && core.COMMANDS[c].roles.includes('app'), c);
+});

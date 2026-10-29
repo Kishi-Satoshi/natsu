@@ -11,8 +11,10 @@ const { contextBridge, ipcRenderer } = require('electron');
 // 0.13.0 ED-2（計画 docs/plans/2026-10-24-130.md の決めたこと 14）: 要約の編集の命令（分割・結合・型の変換・複製）を足した（18）
 // 0.13.1（計画 docs/plans/2026-10-27-131.md の決めたこと 10）: 字下げとトグルの開け閉めの3つを足した（21）
 // 0.14.0 EB-2（計画 docs/plans/2026-10-26-140.md の決めたこと 2・6・21）: 元に戻す edit.revert と行の色 blocks.setColor を足した（23）
+// 0.14.0 EK-2（決めたこと 25・30）: 貼り付け block.paste と、選んだ行の blocks.remove・blocks.move・blocks.duplicate・blocks.turnInto を足した（28）
 const APP_COMMANDS = new Set(['pages.list', 'pages.searchFull', 'pages.actionView', 'page.get', 'page.setTitle', 'page.setMemo', 'page.setType', 'page.delete', 'block.update', 'block.insert', 'block.remove', 'block.move', 'block.setAction', 'segment.update',
-  'block.split', 'block.merge', 'block.turnInto', 'block.duplicate', 'block.indent', 'block.setOpen', 'block.setOpenAll', 'edit.revert', 'blocks.setColor']);
+  'block.split', 'block.merge', 'block.turnInto', 'block.duplicate', 'block.indent', 'block.setOpen', 'block.setOpenAll', 'edit.revert', 'blocks.setColor',
+  'block.paste', 'blocks.remove', 'blocks.move', 'blocks.duplicate', 'blocks.turnInto']);
 // 0.14.0 EB-2（決めたこと 6・R1）: 元に戻すの1歩にする命令（src/undoBook.js の UNDO_CMDS と同じ表。sandbox の preload は src を読めないので写す:
 // test/stage140.db.test.js が同じ表かを見る）。答えが ok で changed のときだけ、答えより先に画面の受け口へ { cmd, pageId, step: tx } を渡す
 const UNDO_CMDS = new Set([
@@ -227,6 +229,16 @@ contextBridge.exposeInMainWorld('koeApp', {
   onEditStep: (cb) => { if (typeof cb === 'function') editSteps.push(cb); },
   editRevert: (pageId, steps) => dbCall('edit.revert', { pageId, steps }),
   blocksSetColor: (pageId, ids, color) => dbCall('blocks.setColor', { pageId, ids, color }),
+  // 0.14.0 EK-2（決めたこと 25・30）: 貼り付けは1つの命令（afterId は文のある行の頭のときの、画面で上に見えている行・inside は子の見えている行の文の終わり）。
+  // 選んだ行の操作も1つの命令（ids は画面の順）。無い引数は送らない（block.* と同じ形）
+  blockPaste: (pageId, blockId, rich, at, blocks, afterId, inside) => dbCall('block.paste', {
+    pageId, blockId, rich, at, blocks, ...(afterId === undefined ? {} : { afterId }), ...(inside === true ? { inside } : {}) }),
+  blocksRemove: (pageId, ids) => dbCall('blocks.remove', { pageId, ids }),
+  blocksMove: (pageId, ids, afterId, parentId) => dbCall('blocks.move', { pageId, ids, afterId, ...(parentId === undefined ? {} : { parentId }) }),
+  blocksDuplicate: (pageId, ids, afterId, parentId) => dbCall('blocks.duplicate', {
+    pageId, ids, ...(afterId === undefined ? {} : { afterId }), ...(parentId === undefined ? {} : { parentId }) }),
+  blocksTurnInto: (pageId, ids, type, level, toggle) => dbCall('blocks.turnInto', {
+    pageId, ids, type, ...(level === undefined ? {} : { level }), ...(toggle === true ? { toggle } : {}) }),
   hotkeyState: () => ipcRenderer.invoke('hotkey:state'),
   segmentUpdate: (pageId, segId, patch) => dbCall('segment.update', { pageId, segId, patch }),
 

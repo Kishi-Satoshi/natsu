@@ -629,6 +629,136 @@ function editRevert(db, a, ctx) {
   return { ops, pageIds: [a.pageId], result: { page: readPage(db, a.pageId) } };
 }
 
+// ---------------------------------------------------------------- 0.14.0 EK-2: 貼り付けと、選んだ行をまとめて扱う命令の部品（計画 docs/plans/2026-10-26-140.md の決めたこと 25・30・31・R65・R66・BQ30 (a)）
+// AI の節の見出し（aiSectionHead）を子にする置き場か（s は spotOf の答え。最上位の並びでなければ子になる: R65。人の見出しは citeState: 'manual' で子にできる）
+const headIntoKid = (rows, s) => Boolean(s.parent) && rows.some((b) => BT.aiSectionHead(b));
+// 選んだ行（ids は画面の順）→ ほかの選んだ行の子孫を除いた行の並び（子孫は親と一緒に扱い、重ねて数えない: 決めたこと 31）。無い行・空の ids は bad-args
+function pickRoots(blocks, ids) {
+  if (!ids.length) throw refuse('bad-args');
+  const at = new Map(BT.walk(blocks).map((w) => [w.b.id, w]));
+  const want = new Set(ids);
+  const roots = [];
+  for (const id of want) {
+    const w = at.get(id);
+    if (!w) throw refuse('bad-args');
+    let up = w.parentId;
+    while (up !== null && !want.has(up)) up = at.get(up).parentId;
+    if (up === null) roots.push(w.b);
+  }
+  return roots;
+}
+// 行を外す（子孫ごと。居場所はその時に探す）
+function takeOut(blocks, rows) {
+  for (const b of rows) { const w = BT.locate(blocks, b.id); w.list.splice(w.index, 1); }
+}
+// 新しい ID（同じ命令の中で重ならない）
+function freshId(db, ctx, used) {
+  let id = newBlockId(db, ctx.now);
+  while (used.has(id)) id = newBlockId(db, ctx.now);
+  used.add(id);
+  return id;
+}
+// 貼る行（validate の pasteBlocks の写し）→ 要約の行（新しい ID・人の行・出典なし）。子を持てない型（トグルでない見出し・区切り線）の下の子は、
+// その行の後ろの兄弟に上げる（R66。src/pasteConvert.js と同じ決まりを DB でも当てる: 古い画面・後の MCP の貼り付けでも見出しに子が付かない）
+function pasteRows(db, ctx, rows, used) {
+  const out = [];
+  for (const r of rows) {
+    const b = { id: freshId(db, ctx, used), type: r.type, text: RT.plainOf(r.rich), cites: [], citeState: 'manual' };
+    if (r.type === 'heading' && r.level) b.level = r.level;
+    if (r.type === 'todo') b.checked = r.checked === true;
+    if (r.type === 'callout') b.icon = blockEdit.CALLOUT_ICON;
+    putRich(b, r.rich);
+    const kids = pasteRows(db, ctx, r.children || [], used);
+    out.push(b);
+    if (!kids.length) continue;
+    if (BT.kidsCan(b)) b.children = kids; else out.push(...kids);
+  }
+  return out;
+}
+const lastOf = (rows) => { const f = BT.flattenBlocks(rows); return f[f.length - 1].id; };
+// 貼り付けの中身（editPage の中）: 今の行を at で分けて、前を今の行・貼った行をすぐ下（inside なら最初の子）・後ろの文を貼った行のさらに下の新しい行にする。
+// 文のある行の頭（at 0）は分けず、貼った行を上（afterId: 画面で上に見えている同じ親の兄弟の後ろ）に足し、今の行は ID・文・担当・期限・出典をそのまま持つ（BQ30 (a)。
+// block.split の点検1・点検8 と同じ）。今の行が空のテキストの行（子も無い）なら、最初に貼った行がその行の型と中身になる（R18）→ 最後に貼った行の ID
+function pasteInto(db, ctx, p, a) {
+  const l = BT.locate(p.blocks, a.blockId);
+  if (!l) return null;
+  const b = l.b;
+  const text = RT.plainOf(a.rich);
+  if (!splitAtOk(text, a.at)) throw refuse('bad-args');
+  if (a.inside === true && (a.at !== text.length || !BT.kidsCan(b))) throw refuse('bad-args');   // inside は子の見えている行の文の終わりだけ（R66・TQ3）
+  const rows = pasteRows(db, ctx, a.blocks, new Set());
+  if (a.at === 0 && text !== '') {
+    putRich(b, a.rich);
+    retext(b, text);
+    if (a.afterId === a.blockId) throw refuse('bad-args');
+    const s = a.afterId === undefined ? { list: l.list, index: l.index } : BT.spotOf(p.blocks, a.afterId, a.afterId === '' && l.parent ? l.parent.id : undefined);
+    if (!s || s.list !== l.list) throw refuse('bad-args');   // NR8: 同じ親の兄弟の並びの中だけ
+    s.list.splice(s.index, 0, ...rows);
+    return lastOf(rows);
+  }
+  if (b.type === 'paragraph' && text === '' && !(Array.isArray(b.children) && b.children.length)) {
+    const [first, ...rest] = rows;
+    b.type = first.type;
+    if (first.level) b.level = first.level; else delete b.level;
+    delete b.toggle;
+    if (first.type === 'todo') b.checked = first.checked;
+    if (first.type === 'callout' && !b.icon) b.icon = blockEdit.CALLOUT_ICON;
+    if (b.citeState === undefined) b.citeState = 'manual';
+    putRich(b, first.rich || [{ t: first.text }]);
+    retext(b, first.text);
+    if (first.children) b.children = first.children;
+    l.list.splice(l.index + 1, 0, ...rest);
+    return lastOf([b, ...rest]);
+  }
+  const [r1, r2] = blockEdit.splitRich(a.rich, a.at);
+  putRich(b, r1);
+  retext(b, text.slice(0, a.at));
+  const after = [...rows];
+  const tail = text.slice(a.at);
+  if (tail !== '') {
+    // 後ろの文の行は今の行と同じ型（飾りも続きのまま。人の行・出典なし・担当と期限なし）
+    const nb = { id: freshId(db, ctx, new Set(BT.flattenBlocks(rows).map((x) => x.id))), type: b.type, text: tail, cites: [], citeState: 'manual' };
+    if (b.type === 'heading') { nb.level = blockEdit.headingLevel(b); if (b.toggle === true) nb.toggle = true; }
+    if (b.type === 'todo') nb.checked = false;
+    if (b.type === 'callout') nb.icon = b.icon || blockEdit.CALLOUT_ICON;
+    putRich(nb, r2);
+    after.push(nb);
+  }
+  if (a.inside === true) { if (!Array.isArray(b.children)) b.children = []; b.children.splice(0, 0, ...after); }   // R66: 子の見えている行の文の終わりは最初の子
+  else l.list.splice(l.index + 1, 0, ...after);
+  return lastOf(rows);
+}
+// 貼り付けの送り直し: oplog の1行の add の行のうち、画面の順で最後に貼った行（後ろの文の行を作ったときは、その1つ前）。足した行が無ければ今の行
+function pasteDup(db, a, row) {
+  const page = readPage(db, a.pageId);
+  if (!page) return null;
+  const added = new Set(JSON.parse(row.ops || '[]').filter((o) => o && o.op === 'add' && o.row && o.row.type !== 'page').map((o) => o.id));
+  const order = BT.flattenBlocks(page.blocks).map((b) => b.id).filter((id) => added.has(id));
+  const text = RT.plainOf(a.rich);
+  if (a.at > 0 && a.at < text.length) order.pop();
+  return { page, lastId: order.length ? order[order.length - 1] : a.blockId };
+}
+// 型を変える1行（block.turnInto・blocks.turnInto。区切り線の断りは呼ぶ側）。同じ型なら false
+function turnBlock(l, a) {
+  const b = l.b;
+  const level = a.type === 'heading' ? (a.level || 2) : 0;
+  const toggle = a.type === 'heading' && a.toggle === true;
+  if (b.type === a.type && (a.type !== 'heading' || (blockEdit.headingLevel(b) === level && (b.toggle === true) === toggle))) return false;
+  const out = BT.turnMovesKids(b, { type: a.type, level, toggle });
+  // 2026-10-26 の持ち主の答え（点検2）: AI の見出しを別の型にしたら印 aiHeading を付け、文を変えずに見出しへ戻したら AI の見出しに戻す
+  // （orderForView の節と［コピー］の順が行って戻って同じ）。文を変えると印は消え（retext・block.update）、人の行のまま
+  if (b.type === 'heading' && b.citeState === undefined && a.type !== 'heading') b.aiHeading = true;
+  if (b.citeState === undefined && !(b.type === 'heading' && a.type === 'heading')) b.citeState = 'manual';
+  if (a.type === 'heading' && b.aiHeading === true) { delete b.citeState; delete b.aiHeading; }
+  b.type = a.type;
+  if (level) b.level = level; else delete b.level;
+  if (toggle) b.toggle = true; else delete b.toggle;
+  if (a.type === 'callout' && !b.icon) b.icon = blockEdit.CALLOUT_ICON;
+  if (a.type === 'todo' && typeof b.checked !== 'boolean') b.checked = false;
+  if (out) BT.kidsOut(l.list, l.index);
+  return true;
+}
+
 const DEFS = {
   // ---- 読む（app と main）
   'pages.list': { roles: ['app', 'main'], write: false, args: { q: 'text?' },
@@ -751,6 +881,7 @@ const DEFS = {
         const [m] = l.list.splice(l.index, 1);
         const s = BT.spotOf(p.blocks, a.afterId, a.parentId);
         if (!s) throw refuse('bad-args');
+        if (headIntoKid([m], s)) throw refuse('bad-args');   // 0.14.0 EK-2（R65）: AI の節の見出しは子にしない（画面の dropSpot だけでなく DB でも）
         s.list.splice(s.index, 0, m);
         return true;
       }
@@ -880,22 +1011,7 @@ const DEFS = {
       const b = l.b;
       if (a.type === 'divider' && String(b.text || '') !== '') throw refuse('bad-args');
       if (a.type === 'divider' && Array.isArray(b.children) && b.children.length) throw refuse('bad-args');   // NR7（EQ16 (a)）: 子のある行も
-      const level = a.type === 'heading' ? (a.level || 2) : 0;
-      const toggle = a.type === 'heading' && a.toggle === true;
-      if (b.type === a.type && (a.type !== 'heading' || (blockEdit.headingLevel(b) === level && (b.toggle === true) === toggle))) return false;
-      const out = BT.turnMovesKids(b, { type: a.type, level, toggle });
-      // 2026-10-26 の持ち主の答え（点検2）: AI の見出しを別の型にしたら印 aiHeading を付け、文を変えずに見出しへ戻したら AI の見出しに戻す
-      // （orderForView の節と［コピー］の順が行って戻って同じ）。文を変えると印は消え（retext・block.update）、人の行のまま
-      if (b.type === 'heading' && b.citeState === undefined && a.type !== 'heading') b.aiHeading = true;
-      if (b.citeState === undefined && !(b.type === 'heading' && a.type === 'heading')) b.citeState = 'manual';
-      if (a.type === 'heading' && b.aiHeading === true) { delete b.citeState; delete b.aiHeading; }
-      b.type = a.type;
-      if (level) b.level = level; else delete b.level;
-      if (toggle) b.toggle = true; else delete b.toggle;
-      if (a.type === 'callout' && !b.icon) b.icon = blockEdit.CALLOUT_ICON;
-      if (a.type === 'todo' && typeof b.checked !== 'boolean') b.checked = false;
-      if (out) BT.kidsOut(l.list, l.index);
-      return true;
+      return turnBlock(l, a);   // 0.14.0 EK-2: blocks.turnInto と同じ部品（R65）
     }, { summary: true }),
     dupResult: reread },
   // すぐ下（afterId があればその行の後ろ・'' は頭）に写しを作る（印ごと写す: 同じ文）→ { page, blockId: 写し }
@@ -916,7 +1032,7 @@ const DEFS = {
           used.add(nid); d.id = nid;
         }
         const s = BT.spotOf(p.blocks, after, a.parentId);
-        if (!s) throw refuse('bad-args');
+        if (!s || headIntoKid([copy], s)) throw refuse('bad-args');   // 0.14.0 EK-2（R65）: AI の節の見出しの写しも子にしない
         s.list.splice(s.index, 0, copy);
         return true;
       }, { summary: true });
@@ -969,14 +1085,76 @@ const DEFS = {
     run: editRevert,
     dupResult: (db, a) => { const page = readPage(db, a.pageId); return page ? { page } : null; } },
   // 行（ブロック）の色（'red' か 'red_bg'。'' で外す。1つの行でも）。無い行があれば bad-args → page
+  // 0.14.0 EK-2（決めたこと 31・R122）: 親の行の色は子孫の行にも付ける・外す（親を選ぶと子も選んだものとして扱う）
   'blocks.setColor': { roles: ['app', 'main'], write: true, args: { pageId: 'id', ids: 'ids', color: 'blockColor' },
     run: (db, a, ctx) => editPage(db, a.pageId, ctx, (p) => {
-      if (!a.ids.length) throw refuse('bad-args');
-      for (const id of a.ids) {
-        const l = BT.locate(p.blocks, id);
-        if (!l) throw refuse('bad-args');
-        if (a.color) l.b.color = a.color; else delete l.b.color;
+      for (const top of pickRoots(p.blocks, a.ids)) {
+        for (const x of BT.flattenBlocks([top])) { if (a.color) x.color = a.color; else delete x.color; }
       }
+    }, { summary: true }),
+    dupResult: reread },
+  // ---- 0.14.0 EK-2（計画 docs/plans/2026-10-26-140.md の決めたこと 25・30・31・R65・R66・BQ30 (a)）: どれも1つの命令＝ oplog の1行＝元に戻すの1歩
+  // 貼り付け（pasteInto）。rich は画面の今の行の飾り（文はそこから作る）。貼る行は子孫も数えて 2,000 行まで（validate の pasteBlocks）→ { page, lastId }
+  'block.paste': { roles: ['app', 'main'], write: true, args: { pageId: 'id', blockId: 'id', rich: 'richArg', at: 'offset', blocks: 'pasteBlocks', afterId: 'idOrEmpty?', inside: 'bool?' },
+    run: (db, a, ctx) => {
+      let lastId = null;
+      const out = editPage(db, a.pageId, ctx, (p) => {
+        lastId = pasteInto(db, ctx, p, a);
+        return lastId !== null;
+      }, { summary: true });
+      return { ...out, result: out.result ? { page: out.result, lastId } : null };
+    },
+    dupResult: pasteDup },
+  // 選んだ行を子孫ごと消す（ほかの選んだ行の子孫は重ねない）→ page
+  'blocks.remove': { roles: ['app', 'main'], write: true, args: { pageId: 'id', ids: 'ids' },
+    run: (db, a, ctx) => editPage(db, a.pageId, ctx, (p) => { takeOut(p.blocks, pickRoots(p.blocks, a.ids)); }, { summary: true }),
+    dupResult: reread },
+  // 選んだ行を afterId の行の後ろ（'' は頭・parentId があればその子の頭。0.13.1 の block.move と同じ置き場）へ、画面の順（ids の順）のまま動かす。
+  // 選んだ行を外してから置き場を探すので、afterId・parentId が選んだ行（とその子孫）の中・無い行なら置き場が無く bad-args。AI の節の見出しは子にしない（R65）→ page
+  'blocks.move': { roles: ['app', 'main'], write: true, args: { pageId: 'id', ids: 'ids', afterId: 'idOrEmpty', parentId: 'id?' },
+    run: (db, a, ctx) => editPage(db, a.pageId, ctx, (p) => {
+      const roots = pickRoots(p.blocks, a.ids);
+      takeOut(p.blocks, roots);
+      const s = BT.spotOf(p.blocks, a.afterId, a.parentId);
+      if (!s || headIntoKid(roots, s)) throw refuse('bad-args');
+      s.list.splice(s.index, 0, ...roots);
+    }, { summary: true }),
+    dupResult: reread },
+  // 選んだ行を子孫ごと新しい ID で写す（既定は最後に選んだ行の後ろ。afterId・parentId は block.duplicate と同じ）→ { page, ids: [写しの行（画面の順）] }
+  'blocks.duplicate': { roles: ['app', 'main'], write: true, args: { pageId: 'id', ids: 'ids', afterId: 'idOrEmpty?', parentId: 'id?' },
+    run: (db, a, ctx) => {
+      let made = [];
+      const out = editPage(db, a.pageId, ctx, (p) => {
+        const roots = pickRoots(p.blocks, a.ids);
+        const after = a.afterId === undefined ? roots[roots.length - 1].id : a.afterId;
+        if (after !== '' && !BT.locate(p.blocks, after)) throw refuse('bad-args');
+        const used = new Set();
+        const copies = roots.map((b) => {
+          const c = clone(b);
+          for (const d of BT.flattenBlocks([c])) d.id = freshId(db, ctx, used);
+          return c;
+        });
+        const s = BT.spotOf(p.blocks, after, a.parentId);
+        if (!s || headIntoKid(copies, s)) throw refuse('bad-args');
+        s.list.splice(s.index, 0, ...copies);
+        made = copies.map((c) => c.id);
+      }, { summary: true });
+      return { ...out, result: out.result ? { page: out.result, ids: made } : null };
+    },
+    dupResult: (db, a, row) => {
+      const page = readPage(db, a.pageId);
+      if (!page) return null;
+      const added = new Set(JSON.parse(row.ops || '[]').filter((o) => o && o.op === 'add' && o.row && o.row.type !== 'page').map((o) => o.id));
+      return { page, ids: BT.walk(page.blocks).filter((w) => added.has(w.b.id) && !(w.parentId !== null && added.has(w.parentId))).map((w) => w.b.id) };
+    } },
+  // 選んだ行の型を変える（行ごとは block.turnInto と同じ: turnBlock）。区切り線へは文も子も無い行だけ（1つでもあれば全部を断る: EQ16 (a)・NR7・R65）→ page
+  'blocks.turnInto': { roles: ['app', 'main'], write: true, args: { pageId: 'id', ids: 'ids', type: 'blockType', level: 'level?', toggle: 'bool?' },
+    run: (db, a, ctx) => editPage(db, a.pageId, ctx, (p) => {
+      if (!a.ids.length) throw refuse('bad-args');
+      const rows = [...new Set(a.ids)].map((id) => { const l = BT.locate(p.blocks, id); if (!l) throw refuse('bad-args'); return l.b; });
+      if (a.type === 'divider' && rows.some((b) => String(b.text || '') !== '')) throw refuse('bad-args');
+      if (a.type === 'divider' && rows.some((b) => Array.isArray(b.children) && b.children.length > 0)) throw refuse('bad-args');
+      for (const b of rows) turnBlock(BT.locate(p.blocks, b.id), a);
     }, { summary: true }),
     dupResult: reread },
   // 文字起こしの1区間を直す。recite（既定）なら出典を引き直してページも保存する。recite: false は区間だけ（復旧の文字起こしの道）

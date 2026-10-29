@@ -142,6 +142,33 @@ function checkPatch(p) {
   return normalizeBlock(p);
 }
 
+// 0.14.0 EK-2（計画 docs/plans/2026-10-26-140.md の決めたこと 25・R66・R118）: 貼る行の並び（src/pasteConvert.js の行の形 { type, level?, checked?, rich, children? }）。
+// 行の数は子孫も数えて 2,000 まで（LIMITS.blocks。頼みの全部の 1MB は checkArgs）。型は画面の型の表・段は見出しだけ（1〜3）・チェックは ToDo だけ・
+// 区切り線は文を持たない・飾りとリンクは richText で照らす。ほかの欄（id・出典・担当など）は断る（新しい行の ID と人の行の印は DB が付ける）
+const PASTE_KEYS = ['type', 'level', 'checked', 'rich', 'children'];
+function checkPasteRow(b, count) {
+  if (!isObj(b) || Object.keys(b).some((k) => !PASTE_KEYS.includes(k))) throw bad('paste');
+  count.n += 1;
+  if (count.n > LIMITS.blocks) throw bad('paste rows');
+  if (!isBlockType(b.type)) throw bad('paste.type');
+  if (b.level !== undefined && (b.type !== 'heading' || ![1, 2, 3].includes(b.level))) throw bad('paste.level');
+  if (b.checked !== undefined && (b.type !== 'todo' || typeof b.checked !== 'boolean')) throw bad('paste.checked');
+  if (richText(b.rich) !== '' && b.type === 'divider') throw bad('paste.divider');
+  const out = { type: b.type, rich: structuredClone(b.rich) };
+  if (b.level !== undefined) out.level = b.level;
+  if (b.checked !== undefined) out.checked = b.checked;
+  if (b.children !== undefined) {
+    if (!Array.isArray(b.children)) throw bad('paste.children');
+    out.children = b.children.map((c) => checkPasteRow(c, count));
+  }
+  return out;
+}
+function checkPasteBlocks(list) {
+  if (!Array.isArray(list) || !list.length) throw bad('paste');
+  const count = { n: 0 };   // 子孫も同じ数えに足す（R66）
+  return list.map((b) => checkPasteRow(b, count));
+}
+
 // 発言の直し（segment.update の patch。text と、0.12.0 SP-3b の parts（PC の側の文の頭: 決めたこと 144））。
 // parts は形だけを照らす（2〜200 個・{ ms, at } の 0 以上の整数・最初は 0・0・どちらも増える）。文と合うかは読む側（timeline.checkParts）が見る
 const PARTS_MAX = 200;
@@ -203,6 +230,7 @@ const TYPES = Object.freeze(Object.assign(Object.create(null), {
     return [...v];
   },
   richArg: (v) => { richText(v); return structuredClone(v); },
+  pasteBlocks: checkPasteBlocks,   // 0.14.0 EK-2: block.paste の貼る行
   blockColor: (v) => { if (v !== '' && !(typeof v === 'string' && RT.COLORS.includes(v.replace(/_bg$/, '')))) throw bad('color'); return v; },
 }));
 
