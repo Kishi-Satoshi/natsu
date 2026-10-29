@@ -150,6 +150,17 @@ test('LN-7・LR23・LR25: nudge.html の .nz は flex-direction: column-reverse�
 });
 
 // ---------------------------------------------------------------- LN-6: ヘルプ（自動で開くログインの窓・帯・残った区間とやり直し・パネルの位置）
+// 0.13.2 点検の直し 6（LR41）: パネルを下の中央に置いた後も「右上」と言う古い注を直した（nudge.html の頭の注・変異 rv-help-panel の why）
+test('LN-7・点検の直し 6: nudge.html の頭の注と変異 rv-help-panel の why は、パネルの置き場所を「右上」と言わず「下の中央」と言う', T, () => {
+  const html = require('node:fs').readFileSync(path.join(__dirname, '..', 'src', 'renderer', 'nudge.html'), 'utf8');
+  const head = html.slice(html.indexOf('<style>'), html.indexOf('*/', html.indexOf('<style>')));
+  assert.ok(!head.includes('右上'), `nudge.html の頭の注が右上と言う: ${head.slice(0, 200)}`);
+  assert.match(head, /下の中央/);
+  const m = require('../tools/mutants').find((x) => x.id === 'rv-help-panel');
+  assert.ok(m && !m.why.includes('右上'), m && m.why);
+  assert.match(m.why, /下の中央/);
+});
+
 test('LN-6: 記事『ログインする』に自動で開く窓の節（{#ask}）があり、『押したときだけ開きます』が無い・× で閉じると起動し直すまで開かない・録音の途中で切れても開かない。『会議の検出』の頭と description は『画面の下の中央』で『右上』が無い。『帯ごとの対処』の表の頭に no-login の行。『文字起こしが遅い』の『会議が終わった後』にログインしていればクラウド・［もう一度文字起こし］・残り n 区間。［…］はアプリの文字にある言葉だけ', () => {
   const fs = require('node:fs');
   const ROOT = path.join(__dirname, '..');
