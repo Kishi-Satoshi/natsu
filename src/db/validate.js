@@ -23,7 +23,9 @@ const RESERVED_SEG = ['id', 'atMs', 'durationMs', 'text', 'failed'];
 const RICH_MARKS = ['b', 'i', 'u', 's', 'code', 'color', 'bg', 'link'];   // 2b の飾り（2a1 では照らしだけ）
 // 0.14.0 EB-1（R73）: リンクの頭は src/richText.js の linkOk と同じ表（http(s)://・mailto:・natsu://page/）。制御の文字と前後の空白は別の条件で断る
 const LINK_RE = RT.LINK_HEAD_RE;
+const COLOR_KINDS = ['color', 'bg'];   // 0.14.0 EB-2: 値が richText.COLORS の飾り
 const NAME_RE = /^[A-Za-z0-9_-]{1,64}$/;   // ブロックの型・会議の種類の名前（知らない型も通す。2a2 で増える）
+const TXS_MAX = 50;                         // 0.14.0 EB-2: 1回の edit.revert に渡す歩みの tx の数
 const SHORT = 500;                          // 担当・期限の文字・検索の語などの短い文字
 // 0.13.0 ED-2（計画 docs/plans/2026-10-24-130.md の決めたこと 9。持ち主の試作の命令ごとの照らし）: 画面の書く命令（block.*）の型は決まった表
 // （blockEdit.TYPE_KEYS）だけ。main の page.put・meeting.* は今の NAME_RE のまま（新しい版の型を古い版で壊さない）
@@ -50,7 +52,12 @@ function richText(rich) {
         if (!Array.isArray(mk) || typeof mk[1] !== 'string' || mk[1].length > 2048 || !LINK_RE.test(mk[1])) throw bad('rich link');
         if (mk[1].trim() !== mk[1] || RT.LINK_CTRL_RE.test(mk[1])) throw bad('rich link');
       } else if (Array.isArray(mk) && (mk.length !== 2 || typeof mk[1] !== 'string' || mk[1].length > 64)) throw bad('rich mark');
+      if (COLOR_KINDS.includes(name) && !(Array.isArray(mk) && RT.COLORS.includes(mk[1]))) throw bad('rich color');   // 0.14.0 EB-2: 色は決まった9色だけ
     }
+    // 0.14.0 EB-2（BQ3・決めたこと 15）: 1つの区切りが持てる色は1つ（文字の色か背景の色のどちらか）。コードの中のリンクは開かないので同じ区切りに持てない
+    const kinds = marks.map((mk) => (Array.isArray(mk) ? mk[0] : mk));
+    if (kinds.filter((k) => COLOR_KINDS.includes(k)).length > 1) throw bad('rich color');
+    if (kinds.includes('code') && kinds.includes('link')) throw bad('rich mark');
     out += run.t;
   }
   if (out.length > LIMITS.text) throw bad('rich');
@@ -190,6 +197,13 @@ const TYPES = Object.freeze(Object.assign(Object.create(null), {
   patch: checkPatch,
   segPatch: checkSegPatch,
   object: (v) => { if (!isObj(v)) throw bad('object'); return v; },
+  // 0.14.0 EB-2（決めたこと 2・14・16・21）: 戻す歩みの tx の並び（1〜50 個・重なりなし）・画面の今の飾り（block.split・block.merge）・行の色（'' は外す）
+  txs: (v) => {
+    if (!Array.isArray(v) || v.length < 1 || v.length > TXS_MAX || !v.every((x) => typeof x === 'string' && TX_RE.test(x)) || new Set(v).size !== v.length) throw bad('steps');
+    return [...v];
+  },
+  richArg: (v) => { richText(v); return structuredClone(v); },
+  blockColor: (v) => { if (v !== '' && !(typeof v === 'string' && RT.COLORS.includes(v.replace(/_bg$/, '')))) throw bad('color'); return v; },
 }));
 
 function checkArgs(spec, args) {

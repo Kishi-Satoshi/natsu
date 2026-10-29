@@ -51,7 +51,10 @@ const SL = require('../statelog');
 const blockEdit = require('../blockEdit');
 // 0.13.1（計画 docs/plans/2026-10-27-131.md の決めたこと 3・4・7〜11）: 要約のブロックは木（children）。命令は行を locate で探し、置き場は spotOf（NR6）
 const BT = require('../blockTree');
-const { diffPage, diffSegments, applyOps } = require('./ops');
+const { diffPage, diffSegments, applyOps, invertOps, opsMatch } = require('./ops');
+// 0.14.0 EB-2（計画 docs/plans/2026-10-26-140.md の決めたこと 1〜6・14〜16・R60・R72）: 戻せる命令の表（画面の元に戻すの列と同じ）と飾りの整え
+const { UNDO_CMDS } = require('../undoBook');
+const RT = require('../richText');
 const S = require('./search');
 
 const LIVE_PHASES = ['recording', 'paused', 'finalizing'];
@@ -320,6 +323,11 @@ function retext(blk, text) {
   delete blk.aiHeading;   // 2026-10-26 の点検2: 文を変えた元の AI の見出しは、見出しへ戻しても人の行
   blk.text = text;
 }
+// 0.14.0 EB-2（決めたこと 14）: 行の飾りを整えて持つ（飾りの無い行は rich を持たない）
+function putRich(blk, rich) {
+  const r = RT.normalizeRich(rich);
+  if (r) blk.rich = r; else delete blk.rich;
+}
 // 分ける位置: 文の長さの中で、サロゲートペアの間でない（画面は書記素の境に寄せて送る: blockEdit.safeOffset）
 const isHighSur = (c) => c >= 0xd800 && c <= 0xdbff;
 const isLowSur = (c) => c >= 0xdc00 && c <= 0xdfff;
@@ -552,6 +560,55 @@ function segmentRemove(db, { pageId, segId }) {
 
 const resegments = (db, a) => readSegments(db, a.pageId);
 
+// ---------------------------------------------------------------- 0.14.0 EB-2: 元に戻す（計画 docs/plans/2026-10-26-140.md の決めたこと 2〜5・R2・R3・R60・R72）
+// 渡された tx の行（自分の役・自分の操作・このページ・戻せる命令だけ）の操作を古い順に重ね、その「後の値」が今の表と同じなら
+// 新しい順に後ろから当てる（invertOps）。1つでも違えば何も変えずに stale（中途半端に戻さない）。ページの行は memo・memoDoc だけ戻し、
+// 直した時刻と出典の数は作り直し、手直しの印は立てる（要約の歩みのとき）。ブロックの短い行の印 citeSkip は戻さず、戻して文が変わった行だけ
+// retext と同じ決まりで作り直す（ほかの行の印は、付いたままが正しい値）。oplog の1行になり、その tx をもう一度戻せばやり直し
+const keepOnRevert = (pageId) => (o) => !(o.op === 'set' && o.key === 'citeSkip' && o.id !== pageId);
+function editRevert(db, a, ctx) {
+  const rows = a.steps.map((tx) => {
+    const r = db.prepare(HOT_QUERIES.oplogTx).get(ctx.role, tx);
+    if (!r) throw refuse('bad-args');
+    if (r.actor !== 'me') throw refuse('bad-args');                // main・Claude の行は戻さない（決めたこと 3）
+    if (r.page_id !== a.pageId) throw refuse('bad-args');          // ほかのページの歩み
+    if (!UNDO_CMDS.has(r.action)) throw refuse('bad-args');        // 戻せる命令（要約の欄とメモの欄の操作）だけ
+    return r;
+  });
+  rows.sort((x, y) => x.seq - y.seq);
+  const fwd = rows.flatMap((r) => JSON.parse(r.ops || '[]'));
+  const l = loadPage(db, a.pageId);
+  if (!l) throw refuse('bad-args');   // 無い・ゴミ箱のページ
+  if (!fwd.length) return { ops: [], pageIds: [], result: { page: readPage(db, a.pageId) } };
+  const summary = fwd.some((o) => o && o.id !== a.pageId);   // 要約の行に触れた歩み（鍵と印。メモだけの歩みは見ない: R76）
+  if (summary && summaryLockedPage(db, l.page)) throw refuse('locked');
+  let back;
+  let same;
+  try {
+    back = invertOps(fwd, { pageId: a.pageId }).filter(keepOnRevert(a.pageId));
+    same = opsMatch(db, fwd);
+  } catch (_) { throw refuse('bad-args'); }   // 戻せない操作（ページの行の削除・発言など）
+  if (!same) throw refuse('stale');
+  // 後ろへ当てた形を一度試しに当てて、直した時刻・出典の数・印の操作を作る（当てるのは1回だけ: T4b の rev の上がり方を同じにする）
+  let meta;
+  db.exec('SAVEPOINT natsu_revert');
+  try {
+    applyOps(db, back);
+    const w = loadPage(db, a.pageId);
+    const next = clone(w.page);
+    const retexted = new Set(back.filter((o) => o.op === 'text').map((o) => o.id));
+    for (const x of BT.flattenBlocks(next.blocks)) if (retexted.has(x.id)) { if (isCitable(x.text)) delete x.citeSkip; else x.citeSkip = true; }
+    if (summary) next.summaryEdited = true;   // R72: 戻した直しも手直し（［要約を再生成］の前に確かめる）
+    meta = saveOps(w, next, ctx.now);
+  } finally {
+    db.exec('ROLLBACK TO natsu_revert');
+    db.exec('RELEASE natsu_revert');
+  }
+  const ops = [...back, ...meta];
+  applyOps(db, ops);
+  return { ops, pageIds: [a.pageId], result: { page: readPage(db, a.pageId) } };
+}
+
 const DEFS = {
   // ---- 読む（app と main）
   'pages.list': { roles: ['app', 'main'], write: false, args: { q: 'text?' },
@@ -604,6 +661,8 @@ const DEFS = {
       if (!l) return false;
       const b = l.b;
       const patch = a.patch;
+      // 0.14.0 EB-2（決めたこと 16）: 飾りのある行に文だけの直しは断る（黙って飾りを捨てない・ずらさない。画面はいつも rich を送る）
+      if (patch.rich === undefined && typeof patch.text === 'string' && Array.isArray(b.rich)) throw refuse('bad-args');
       if (typeof patch.text === 'string' && patch.text !== b.text) {
         // 人が書き換えた要点は出典が元の文に合うか分からない（cites は残し、被覆率の分子から外す。今の store.updateBlock）
         if (b.citeState !== 'manual') b.citeState = 'stale';
@@ -615,6 +674,7 @@ const DEFS = {
       }
       if (typeof patch.checked === 'boolean') b.checked = patch.checked;
       if (typeof patch.type === 'string') b.type = patch.type;
+      if (patch.rich !== undefined) putRich(b, patch.rich);   // 0.14.0 EB-2: 文は validate が rich から作った（normalizeBlock）
       return true;
     }, { summary: true }),
     dupResult: reread },
@@ -704,7 +764,8 @@ const DEFS = {
   // 0.13.1（NR8）: 入れ子の行の頭の afterId は今の行の兄弟か ''（今の行の親の頭）だけ（画面で1つ上の孫の後ろに入れない）。
   // （TQ3: 持ち主の答え「すぐ下に出し、トグルは開いて作る（おすすめ）」）inside が真なら新しい行は今の行の最初の子（子を持てない型は bad-args）。
   // 型は nextTypeOnEnter（開いたトグルの中はテキスト・inside の無いトグルの後ろは同じ型のトグル: NR25）
-  'block.split': { roles: ['app', 'main'], write: true, args: { pageId: 'id', blockId: 'id', text: 'text', at: 'offset', afterId: 'idOrEmpty?', inside: 'bool?' },
+  // 0.14.0 EB-2（決めたこと 16・R58）: rich は画面の今の飾り（文は text と同じ。違えば bad-args）。あればそれで分ける
+  'block.split': { roles: ['app', 'main'], write: true, args: { pageId: 'id', blockId: 'id', text: 'text', at: 'offset', afterId: 'idOrEmpty?', inside: 'bool?', rich: 'richArg?' },
     run: (db, a, ctx) => {
       const blockId = newBlockId(db, ctx.now);
       const out = editPage(db, a.pageId, ctx, (p) => {
@@ -714,6 +775,8 @@ const DEFS = {
         if (a.afterId !== undefined && a.afterId !== '' && (a.afterId === a.blockId || !BT.locate(p.blocks, a.afterId))) throw refuse('bad-args');
         const b = l.b;
         if (a.inside === true && !BT.kidsCan(b)) throw refuse('bad-args');
+        if (a.rich !== undefined && RT.plainOf(a.rich) !== a.text) throw refuse('bad-args');
+        if (a.rich !== undefined) putRich(b, a.rich);   // 分ける前の今の行の飾り（画面の今の形）
         const [head, tail] = [a.text.slice(0, a.at), a.text.slice(a.at)];
         const next = blockEdit.nextTypeOnEnter(b, { open: a.inside === true });
         // 分けた後ろの行は人の行（出典なし・担当と期限なし: 0.11.0 の「要確認」の札が出る）
@@ -735,7 +798,7 @@ const DEFS = {
           return true;
         }
         if (Array.isArray(b.rich)) {
-          if (b.rich.map((r) => r.t).join('') === a.text) { const [r1, r2] = blockEdit.splitRich(b.rich, a.at); b.rich = r1; nb.rich = r2; } else delete b.rich;
+          if (b.rich.map((r) => r.t).join('') === a.text) { const [r1, r2] = blockEdit.splitRich(b.rich, a.at); putRich(b, r1); putRich(nb, r2); } else delete b.rich;
         }
         retext(b, head);
         if (a.inside === true) { if (!Array.isArray(b.children)) b.children = []; b.children.unshift(nb); }   // TQ3: 最初の子
@@ -749,7 +812,8 @@ const DEFS = {
   // 区切り線だけを消す（決めたこと 17）。頭の行では何もしない。出典は前の行のものを残す（文が変わったので stale）
   // 0.13.1（TQ1: 持ち主の答え「画面で上に見えている行（おすすめ）」）: intoId（画面で上に見えている行）があればそこへつなぐ（自分か自分の子孫・無い行は bad-args）。
   // 無ければ平らにした保存の順の前の行（main など）。消した行の子は、つないだ先の子の末尾へ（子を持てない型なら、つないだ先のすぐ後ろの兄弟: EQ6 (a)）
-  'block.merge': { roles: ['app', 'main'], write: true, args: { pageId: 'id', blockId: 'id', text: 'text', intoId: 'id?' },
+  // 0.14.0 EB-2（決めたこと 16・R58）: rich は今の行の画面の今の飾り（文は text と同じ。違えば bad-args）。つないだ先の後ろに残す
+  'block.merge': { roles: ['app', 'main'], write: true, args: { pageId: 'id', blockId: 'id', text: 'text', intoId: 'id?', rich: 'richArg?' },
     run: (db, a, ctx) => {
       let res = { blockId: a.blockId, at: 0 };
       const out = editPage(db, a.pageId, ctx, (p) => {
@@ -768,9 +832,12 @@ const DEFS = {
         }
         const b = l.b;
         const prev = pl.b;
+        if (a.rich !== undefined && RT.plainOf(a.rich) !== a.text) throw refuse('bad-args');
+        if (a.rich !== undefined) putRich(b, a.rich);   // つなぐ今の行の飾り（画面の今の形）
         if (prev.type === 'divider') { pl.list.splice(pl.index, 1); retext(b, a.text); return true; }
         const at = String(prev.text || '').length;
-        if (Array.isArray(prev.rich) || Array.isArray(b.rich)) prev.rich = blockEdit.joinRich(Array.isArray(prev.rich) ? prev.rich : [{ t: String(prev.text || '') }], [{ t: a.text }]);
+        const tail = Array.isArray(b.rich) && RT.plainOf(b.rich) === a.text ? b.rich : [{ t: a.text }];   // 今の行の飾りを捨てない（0.14.0 EB-2）
+        if (Array.isArray(prev.rich) || Array.isArray(b.rich)) putRich(prev, blockEdit.joinRich(Array.isArray(prev.rich) ? prev.rich : [{ t: String(prev.text || '') }], tail));
         if (a.text) retext(prev, String(prev.text || '') + a.text);
         const kids = Array.isArray(b.children) ? b.children : [];
         l.list.splice(l.index, 1);
@@ -876,6 +943,22 @@ const DEFS = {
       return { ...out, result: out.result ? { page: out.result } : null };
     },
     dupResult: (db, a) => { const page = readPage(db, a.pageId); return page ? { page } : null; } },
+  // ---- 0.14.0 EB-2（計画 docs/plans/2026-10-26-140.md の決めたこと 2〜6・21）
+  // 自分の歩み（steps は tx の並び）を後ろから当てて戻す（editRevert）。役 app だけ → { page }
+  'edit.revert': { roles: ['app'], write: true, args: { pageId: 'id', steps: 'txs' },
+    run: editRevert,
+    dupResult: (db, a) => { const page = readPage(db, a.pageId); return page ? { page } : null; } },
+  // 行（ブロック）の色（'red' か 'red_bg'。'' で外す。1つの行でも）。無い行があれば bad-args → page
+  'blocks.setColor': { roles: ['app', 'main'], write: true, args: { pageId: 'id', ids: 'ids', color: 'blockColor' },
+    run: (db, a, ctx) => editPage(db, a.pageId, ctx, (p) => {
+      if (!a.ids.length) throw refuse('bad-args');
+      for (const id of a.ids) {
+        const l = BT.locate(p.blocks, id);
+        if (!l) throw refuse('bad-args');
+        if (a.color) l.b.color = a.color; else delete l.b.color;
+      }
+    }, { summary: true }),
+    dupResult: reread },
   // 文字起こしの1区間を直す。recite（既定）なら出典を引き直してページも保存する。recite: false は区間だけ（復旧の文字起こしの道）
   'segment.update': { roles: ['app', 'main'], write: true, args: { pageId: 'id', segId: 'id', patch: 'segPatch', recite: 'bool?' },
     run: segmentUpdate,

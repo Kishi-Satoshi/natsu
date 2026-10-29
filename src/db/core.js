@@ -11,7 +11,8 @@
  *   user_version が SCHEMA_VERSION より大きい（新しい版の NaTsu で作った）なら、読み取り専用で開き直して state 'newer'。
  *   開けない・確かめが通らない・版を上げられないなら state 'failed'（接続は閉じて db は null）。
  *
- * call(db, { role, cmd, args, tx }, ctx) → { ok: true, result, changed?, dup? } | { ok: false, code, retry }
+ * call(db, { role, cmd, args, tx }, ctx) → { ok: true, result, changed?, dup?, dupChanged? } | { ok: false, code, retry }
+ *   （0.14.0 EB-2: dupChanged は、送り直しの1回目の oplog の行に操作があったとき。R75）
  *   順: 名前（凍らせた COMMANDS を Object.hasOwn で引く）→ 役 → 書けるか（newer なら read-only）→ 引数の照らし →
  *   tx（書く命令だけ）→ BEGIN IMMEDIATE → 送り直しの表引き（oplog の (role, tx)。同じ action・page_id なら dup、違えば tx-mismatch）→
  *   本体 → oplog の1行 → COMMIT。本体が投げたら ROLLBACK して internal、SQLITE_BUSY なら busy（retry: true）。
@@ -36,7 +37,7 @@ const SCHEMA_VERSION = 1;
 const BUSY_MS = 5000;
 const ROLES = ['app', 'main'];
 const MAIN_ACTORS = ['system', 'recovery', 'migration'];
-const CMD_CODES = ['not-found', 'conflict', 'bad-args', 'locked'];   // locked: 要約の欄の鍵（0.10.0 LS-2・O8）
+const CMD_CODES = ['not-found', 'conflict', 'bad-args', 'locked', 'stale'];   // locked: 要約の欄の鍵（0.10.0 LS-2・O8）。stale: 元に戻す歩みの後に変わった（0.14.0 EB-2）
 
 const COMMANDS = Object.freeze(Object.assign(Object.create(null), commands.COMMANDS));
 const TEST_COMMANDS = Object.create(null);
@@ -204,7 +205,9 @@ function call(db, req, ctx = {}) {
       if (prev.action !== cmd || (prev.page_id ?? null) !== (pageId ?? null)) { db.exec('ROLLBACK'); return fail('tx-mismatch'); }
       const result = typeof def.dupResult === 'function' ? def.dupResult(db, a, { ...prev }, runCtx) : null;
       db.exec('COMMIT');
-      return { ok: true, result, dup: true };
+      const again = { ok: true, result, dup: true };
+      if (JSON.parse(prev.ops || '[]').length) again.dupChanged = true;   // 0.14.0 EB-2（R75）: 1回目が何か変えた送り直し（口が答えに changed を付ける）
+      return again;
     }
     const out = def.run(db, a, runCtx) || {};
     const pageIds = Array.isArray(out.pageIds) ? out.pageIds.filter((x) => typeof x === 'string') : [];

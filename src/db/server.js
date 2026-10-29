@@ -150,7 +150,8 @@ function startServer({ parentPort, sqlite, now = () => new Date(), runCheck = S.
     }
     const r = core.call(db, { role, cmd: data.cmd, args: data.args, tx: data.tx }, { now, labels, log });
     if (!r.ok) { reply(port, id, failOut(r.code, r.retry === true)); return; }
-    reply(port, id, { ok: true, result: r.result });
+    // 0.14.0 EB-2（決めたこと 6・R59・R75）: 何か変えた命令（と、その送り直し）の答えだけに changed（画面の元に戻すの1歩）
+    reply(port, id, r.changed || r.dupChanged ? { ok: true, result: r.result, changed: true } : { ok: true, result: r.result });
     if (r.changed) broadcast({ event: 'changed', pageIds: r.changed.pageIds, actor: r.changed.actor });
   }
 

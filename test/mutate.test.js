@@ -1212,7 +1212,11 @@ test('LN-6・G3・0.13.2: IDS_132 は計画の「変異確認」の ln- の表�
 // （mb は 0.9.x の mb-tabs-keep があるので、メモの行は mo: R57）
 const IDS_140 = [
   'eb-toggle-mark', 'eb-norm-merge', 'eb-mark-carry', 'eb-nodes-unknown', 'eb-inline-open', 'eb-link-js', 'eb-copy-marks',
-  'eb-invert-move', 'eb-invert-trash', 'eb-book-redo', 'eb-book-open', 'eb-color-replace', 'eb-revert-view',
+  'eb-invert-move', 'eb-invert-trash', 'eb-book-redo', 'eb-book-open',
+  // 0.14.0 EB-2（表の行の順に、EB-1 の行の間に入れた）
+  'eb-rich-color-any', 'eb-rich-one-color', 'eb-color-replace', 'eb-rich-code-link', 'eb-rich-save', 'eb-rich-text-only', 'eb-merge-rich', 'eb-split-rich',
+  'eb-revert-check', 'eb-revert-actor', 'eb-revert-page', 'eb-revert-meta', 'eb-revert-lock', 'eb-step-changed', 'eb-regen-flag', 'eb-revert-view',
+  'eb-revert-keys', 'eb-revert-skip', 'eb-dup-changed',
 ];
 test('G3・0.14.0: 0.14.0 の変異が一覧にそろい、IDS_140 はどれも計画の「変異確認」の表に行の順である。eb-・ek-・mo-・dq- の変異は IDS_140 にある。どれも決まったテストのファイルを持ち、why が 0.14.0 で始まる', { timeout: 5000 }, () => {
   const byId = new Map(MUTANTS.map((m) => [m.id, m]));

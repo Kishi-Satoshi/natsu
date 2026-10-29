@@ -10,8 +10,21 @@ const { contextBridge, ipcRenderer } = require('electron');
 // 書く頼みは新しい口で同じ tx のまま送り直す（DB が (役, tx) で1回だけ効かせる）。口が無いまま 30 秒たてば retry で返す。
 // 0.13.0 ED-2（計画 docs/plans/2026-10-24-130.md の決めたこと 14）: 要約の編集の命令（分割・結合・型の変換・複製）を足した（18）
 // 0.13.1（計画 docs/plans/2026-10-27-131.md の決めたこと 10）: 字下げとトグルの開け閉めの3つを足した（21）
+// 0.14.0 EB-2（計画 docs/plans/2026-10-26-140.md の決めたこと 2・6・21）: 元に戻す edit.revert と行の色 blocks.setColor を足した（23）
 const APP_COMMANDS = new Set(['pages.list', 'pages.searchFull', 'pages.actionView', 'page.get', 'page.setTitle', 'page.setMemo', 'page.setType', 'page.delete', 'block.update', 'block.insert', 'block.remove', 'block.move', 'block.setAction', 'segment.update',
-  'block.split', 'block.merge', 'block.turnInto', 'block.duplicate', 'block.indent', 'block.setOpen', 'block.setOpenAll']);
+  'block.split', 'block.merge', 'block.turnInto', 'block.duplicate', 'block.indent', 'block.setOpen', 'block.setOpenAll', 'edit.revert', 'blocks.setColor']);
+// 0.14.0 EB-2（決めたこと 6・R1）: 元に戻すの1歩にする命令（src/undoBook.js の UNDO_CMDS と同じ表。sandbox の preload は src を読めないので写す:
+// test/stage140.db.test.js が同じ表かを見る）。答えが ok で changed のときだけ、答えより先に画面の受け口へ { cmd, pageId, step: tx } を渡す
+const UNDO_CMDS = new Set([
+  'block.update', 'block.insert', 'block.remove', 'block.move', 'block.setAction', 'block.split', 'block.merge', 'block.turnInto', 'block.duplicate',
+  'block.indent', 'block.paste', 'blocks.remove', 'blocks.move', 'blocks.duplicate', 'blocks.turnInto', 'blocks.setColor', 'page.setMemoDoc', 'edit.revert',
+]);
+const editSteps = [];
+function editStep(req) {
+  const a = req.args || {};
+  const step = { cmd: req.cmd, pageId: typeof a.pageId === 'string' ? a.pageId : a.id, step: req.tx };
+  for (const cb of editSteps) { try { cb(step); } catch (_) { /* 画面の受け口の誤りで答えを止めない */ } }
+}
 const DB_READS = new Set(['pages.list', 'pages.searchFull', 'pages.actionView', 'page.get']);
 const DB_WAIT_MS = 30000;
 let dbPort = null;
@@ -80,6 +93,7 @@ function dbAdopt(port) {
     if (!m || typeof m.id !== 'number') return;   // changed の知らせ（2a1 の画面は pages:updated のまま）
     const req = dbWaiting.get(m.id);
     if (!req || req.port !== port) return;        // 古い口の遅い返事は使わない（送り直した頼みを二重に決めない）
+    if (m.ok && m.changed === true && UNDO_CMDS.has(req.cmd)) editStep(req);   // 何も変えなかった命令は歩みにしない（R59）
     if (m.ok) dbSettle(req, req.resolve, m.result);
     else dbSettle(req, req.reject, dbError(String(m.code || 'internal'), m.retry));
   };
@@ -196,9 +210,11 @@ contextBridge.exposeInMainWorld('koeApp', {
   // 0.13.0 ED-2: 分割（text は画面の今の文・at は分ける位置）・結合（text は今の行の文）・型の変換（level は見出しの段）・複製（afterId は Alt で落とした所）
   // （点検8）5つ目の afterId は文のある行の頭で上に足す行の置き場（画面で上に見えている行。'' は頭）
   // 0.13.1: 6つ目の inside は新しい行を今の行の最初の子に（TQ3）・merge の4つ目の intoId は画面で上に見えている行（TQ1）・turnInto の5つ目の toggle はトグル見出し
-  blockSplit: (pageId, blockId, text, at, afterId, inside) => dbCall('block.split', {
-    pageId, blockId, text, at, ...(afterId === undefined ? {} : { afterId }), ...(inside === true ? { inside } : {}) }),
-  blockMerge: (pageId, blockId, text, intoId) => dbCall('block.merge', intoId === undefined ? { pageId, blockId, text } : { pageId, blockId, text, intoId }),
+  // 0.14.0 EB-2（R58）: 最後の rich は画面の今の飾り（無ければ送らない）
+  blockSplit: (pageId, blockId, text, at, afterId, inside, rich) => dbCall('block.split', {
+    pageId, blockId, text, at, ...(afterId === undefined ? {} : { afterId }), ...(inside === true ? { inside } : {}), ...(rich === undefined ? {} : { rich }) }),
+  blockMerge: (pageId, blockId, text, intoId, rich) => dbCall('block.merge', {
+    pageId, blockId, text, ...(intoId === undefined ? {} : { intoId }), ...(rich === undefined ? {} : { rich }) }),
   blockTurnInto: (pageId, blockId, type, level, toggle) => dbCall('block.turnInto', {
     pageId, blockId, type, ...(level === undefined ? {} : { level }), ...(toggle === true ? { toggle } : {}) }),
   blockDuplicate: (pageId, blockId, afterId, parentId) => dbCall('block.duplicate', {
@@ -207,6 +223,10 @@ contextBridge.exposeInMainWorld('koeApp', {
   blockIndent: (pageId, blockId, dir) => dbCall('block.indent', { pageId, blockId, dir }),
   blockSetOpen: (pageId, blockId, open) => dbCall('block.setOpen', { pageId, blockId, open }),
   blockSetOpenAll: (pageId, open) => dbCall('block.setOpenAll', { pageId, open }),
+  // 0.14.0 EB-2（決めたこと 2・6・21）: 元に戻すの歩みの受け口（cb({ cmd, pageId, step })）・自分の歩みを戻す（steps は tx の並び）・行の色（'' で外す）
+  onEditStep: (cb) => { if (typeof cb === 'function') editSteps.push(cb); },
+  editRevert: (pageId, steps) => dbCall('edit.revert', { pageId, steps }),
+  blocksSetColor: (pageId, ids, color) => dbCall('blocks.setColor', { pageId, ids, color }),
   hotkeyState: () => ipcRenderer.invoke('hotkey:state'),
   segmentUpdate: (pageId, segId, patch) => dbCall('segment.update', { pageId, segId, patch }),
 

@@ -62,7 +62,7 @@ test('EB-1: setColor・setLink・insertRich・sliceRich・marksAt の表（コ�
   assert.throws(() => R.setColor([run('abc')], 0, 1, 'font', 'red'));
   // setLink（linkOk でなければ投げる・null で外す・コードの所にリンクを付けるとコードは外れる）
   assert.deepStrictEqual(R.setLink([run('abc')], 0, 2, 'https://example.com/'), [run('ab', ['link', 'https://example.com/']), run('c')]);
-  assert.deepStrictEqual(R.setLink([run('ab', ['link', 'https://example.com/']), run('c')], 0, 3, 'mailto:x@example.com'), [run('abc', ['link', 'mailto:x@example.com'])]);
+  assert.deepStrictEqual(R.setLink([run('ab', ['link', 'https://example.com/']), run('c')], 0, 3, 'mailto:someone'), [run('abc', ['link', 'mailto:someone'])]);
   assert.deepStrictEqual(R.setLink([run('ab', 'b', ['link', 'https://example.com/'])], 0, 2, null), [run('ab', 'b')]);
   assert.deepStrictEqual(R.setLink([run('ab', 'code')], 0, 2, 'https://example.com/'), [run('ab', ['link', 'https://example.com/'])]);
   assert.throws(() => R.setLink([run('abc')], 0, 2, 'javascript:alert(1)'));
@@ -147,7 +147,7 @@ test('EB-1: inlineShortcut の表（閉じた半角の記号だけ・全角と�
 
 // ---------------------------------------------------------------- リンクの照らし（決めたこと 15・20・33。SEC2・R73）
 const LINK_TABLE = [
-  ['https://example.com/a?b=1#c', true], ['http://example.com/', true], ['HTTPS://EXAMPLE.COM/', true], ['mailto:someone@example.com', true],
+  ['https://example.com/a?b=1#c', true], ['http://example.com/', true], ['HTTPS://EXAMPLE.COM/', true], ['mailto:someone', true],
   ['natsu://page/p1', true], ['natsu://page/p1#b:b1', true], [natsulink.natsuLink('p1', 't:s1-s2'), true], [natsulink.openUrl('p1', 'b:b2'), true],
   ['javascript:alert(1)', false], ['JavaScript:alert(1)', false], ['JaVaScRiPt:alert(1)', false], [' https://example.com/', false], ['https://example.com/ ', false],
   ['\u3000https://example.com/', false], ['\u0001https://example.com/', false], ['https://exa\u0000mple.com/', false], ['https://example.com/\n', false],

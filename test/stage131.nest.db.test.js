@@ -468,10 +468,11 @@ function loadPreload() {
   on['db:port']({ ports: [p] });
   return { exposed, p, SRC };
 }
-test('NE-2: preload の APP_COMMANDS（21）は役 app の命令と同じ集まり。koeApp.blockIndent などは dbCall の1回で tx が付く。足した引数が無ければ今の形を送る。json-backend に block.indent は unknown-cmd', T, async () => {
+// 0.14.0 EB-2 で意図して直した: edit.revert と blocks.setColor を足して 23（照らしは同じ: 計画 docs/plans/2026-10-26-140.md の「意図して変えるテスト」）
+test('NE-2: preload の APP_COMMANDS（23）は役 app の命令と同じ集まり。koeApp.blockIndent などは dbCall の1回で tx が付く。足した引数が無ければ今の形を送る。json-backend に block.indent は unknown-cmd', T, async () => {
   const { exposed, p, SRC } = loadPreload();
   const names = [.../const APP_COMMANDS = new Set\(\[([^\]]*)\]\)/.exec(SRC)[1].matchAll(/'([\w.]+)'/g)].map((x) => x[1]);
-  assert.strictEqual(names.length, 21);
+  assert.strictEqual(names.length, 23);
   assert.deepStrictEqual(names.sort(), Object.keys(core.COMMANDS).filter((k) => core.COMMANDS[k].roles.includes('app')).sort());
   const k = exposed.koeApp;
   k.blockIndent('pa1', 'b2', 'in'); k.blockSetOpen('pa1', 't', false); k.blockSetOpenAll('pa1', true);

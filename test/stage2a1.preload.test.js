@@ -25,7 +25,8 @@ function load(timers = { setTimeout, clearTimeout }) {
 
 // 0.13.0 ED-2 で意図して直した: 名前は 0.11.0 の page.setType を含む 14 に、要約の編集の4つを足して 18（照らしは同じ）
 // 0.13.1 NE-2 で意図して直した: 字下げとトグルの開け閉めの3つを足して 21（照らしは同じ。数は test/stage131.nest.db.test.js が見る）
-test('ST5: ページの 21 の名前は口に頼み、返事をそのまま返す（今の IPC と同じ引数の形）', { timeout: 5000 }, async () => {
+// 0.14.0 EB-2 で意図して直した: 元に戻す edit.revert と行の色 blocks.setColor を足して 23（照らしは同じ）
+test('ST5: ページの 23 の名前は口に頼み、返事をそのまま返す（今の IPC と同じ引数の形）', { timeout: 5000 }, async () => {
   const l = load(); const p = l.givePort();
   const pr = l.exposed.koeApp.blockInsert('pa1', 'b2', 'todo');
   const m = p.sent[0];
