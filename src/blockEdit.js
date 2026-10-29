@@ -3,6 +3,8 @@
 // 型の表（BLOCK_TYPES。1か所）・書記素の境で分ける・行頭の記法・/ の絞り込みと「最近使ったもの」・Enter と Backspace の決まり・
 // 番号・近道・［コピー］の Markdown・行だけの描き直しの計画。画面（app.html）は部品を読めないので、使う関数を写し、
 // test/repo.test.js が字面で取り出して同じ表で照らす（0.10.0 の summaryLockView と同じ）。
+// 0.14.0 EB-1 直し: 書記素の境（graphemeEnds・safeOffset）だけは src/grapheme.js を読む（richText と同じ1か所。循環して読まない）。
+const { graphemeEnds, safeOffset } = require('./grapheme');
 
 // 型の表（計画の「ブロックの型の表」と1行ずつ同じ。test/stage130.edit.lib.test.js が計画の表と照らす）。
 // key は DB の type・id は / メニューと「最近使ったもの」の鍵・words は / で当たる語・md は行頭の記法・code は近道（Ctrl+Shift+ の ev.code）・
@@ -48,26 +50,7 @@ function isTyped(block) {
 }
 
 // ---------------------------------------------------------------- 書記素の境で分ける（F40）
-function graphemeEnds(text) {
-  const s = String(text);
-  const out = [0];
-  if (typeof Intl === 'object' && typeof Intl.Segmenter === 'function') {
-    const seg = new Intl.Segmenter('ja', { granularity: 'grapheme' });
-    for (const g of seg.segment(s)) out.push(g.index + g.segment.length);
-  } else {
-    for (let i = 0; i < s.length;) { const c = s.codePointAt(i); i += c > 0xffff ? 2 : 1; out.push(i); }
-  }
-  return out;
-}
-// 位置（UTF-16）を書記素の境に寄せる。途中なら次の境へ・負は 0・長さより大は長さ
-function safeOffset(text, at) {
-  const s = String(text ?? '');
-  const n = Number.isFinite(at) ? Math.trunc(at) : 0;
-  if (n <= 0) return 0;
-  if (n >= s.length) return s.length;
-  for (const e of graphemeEnds(s)) if (e >= n) return e;
-  return s.length;
-}
+// 書記素の境の決まりは src/grapheme.js の1か所（0.14.0 EB-1 直し: richText も同じ部品を読む。blockEdit と richText が互いに読まない）
 function splitText(text, at) {
   const s = String(text ?? '');
   const a = safeOffset(s, at);

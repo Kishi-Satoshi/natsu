@@ -565,7 +565,23 @@ const resegments = (db, a) => readSegments(db, a.pageId);
 // 新しい順に後ろから当てる（invertOps）。1つでも違えば何も変えずに stale（中途半端に戻さない）。ページの行は memo・memoDoc だけ戻し、
 // 直した時刻と出典の数は作り直し、手直しの印は立てる（要約の歩みのとき）。ブロックの短い行の印 citeSkip は戻さず、戻して文が変わった行だけ
 // retext と同じ決まりで作り直す（ほかの行の印は、付いたままが正しい値）。oplog の1行になり、その tx をもう一度戻せばやり直し
-const keepOnRevert = (pageId) => (o) => !(o.op === 'set' && o.key === 'citeSkip' && o.id !== pageId);
+// 戻して置き直した行（足し直した・動かし直した行）の置き場が今も成り立つか（0.14.0 EB-1 直し・R90）: 前の親が今もこのページにある
+// （かページそのもの）・同じ親の兄弟に同じ並びの鍵の行が無い。成り立たなければ stale（後から親が消えた・ほかの行がその鍵に入った）
+function placesFit(db, pageId, ops) {
+  const ids = new Set(ops.filter((o) => o.op === 'add' || o.op === 'move').map((o) => o.id));
+  const row = db.prepare('select id, page_id, parent_id, ord from blocks where id = ?');
+  const twin = db.prepare('select count(*) as c from blocks where page_id = ? and parent_id = ? and ord = ? and id <> ?');
+  for (const id of ids) {
+    const r = row.get(id);
+    if (!r) continue;   // 同じ歩みの中で後から消した行
+    if (r.parent_id !== pageId) {
+      const p = row.get(r.parent_id);
+      if (!p || p.page_id !== pageId) return false;
+    }
+    if (twin.get(pageId, r.parent_id, r.ord, id).c > 0) return false;
+  }
+  return true;
+}
 function editRevert(db, a, ctx) {
   const rows = a.steps.map((tx) => {
     const r = db.prepare(HOT_QUERIES.oplogTx).get(ctx.role, tx);
@@ -585,15 +601,17 @@ function editRevert(db, a, ctx) {
   let back;
   let same;
   try {
-    back = invertOps(fwd, { pageId: a.pageId }).filter(keepOnRevert(a.pageId));
+    back = invertOps(fwd, { pageId: a.pageId });
     same = opsMatch(db, fwd);
   } catch (_) { throw refuse('bad-args'); }   // 戻せない操作（ページの行の削除・発言など）
   if (!same) throw refuse('stale');
   // 後ろへ当てた形を一度試しに当てて、直した時刻・出典の数・印の操作を作る（当てるのは1回だけ: T4b の rev の上がり方を同じにする）
   let meta;
+  let fits = true;
   db.exec('SAVEPOINT natsu_revert');
   try {
     applyOps(db, back);
+    fits = placesFit(db, a.pageId, back);
     const w = loadPage(db, a.pageId);
     const next = clone(w.page);
     const retexted = new Set(back.filter((o) => o.op === 'text').map((o) => o.id));
@@ -604,6 +622,7 @@ function editRevert(db, a, ctx) {
     db.exec('ROLLBACK TO natsu_revert');
     db.exec('RELEASE natsu_revert');
   }
+  if (!fits) throw refuse('stale');
   const ops = [...back, ...meta];
   applyOps(db, ops);
   return { ops, pageIds: [a.pageId], result: { page: readPage(db, a.pageId) } };

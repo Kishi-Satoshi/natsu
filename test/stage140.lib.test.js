@@ -140,7 +140,7 @@ test('EB-1: inlineShortcut の表（閉じた半角の記号だけ・全角と�
   assert.deepStrictEqual(R.inlineShortcut('値は `x`'), { mark: 'code', open: 3, close: 5, size: 1 });
   assert.deepStrictEqual(R.inlineShortcut('~y~'), { mark: 's', open: 0, close: 2, size: 1 });
   assert.deepStrictEqual(R.inlineShortcut('`a*b*`'), { mark: 'code', open: 0, close: 5, size: 1 });
-  for (const s of ['**大事', '大事**', '**大事*', '*大事**', '**', '****', '* a*', '*a *', '＊＊大事＊＊', '＊a＊', '1*2*', '1*2*3', 'a**b**', '*一\n二*', '~~y~~', '', null]) {
+  for (const s of ['**大事', '大事**', '**大事*', '*大事**', '**', '****', '* a*', '*a *', '＊＊大事＊＊', '＊a＊', '1*2*', '1*2*3', 'a**b**', '*一\n二*', '~~y~~', '~y~~', '', null]) {
     assert.strictEqual(R.inlineShortcut(s), null, JSON.stringify(s));
   }
 });
@@ -152,6 +152,10 @@ const LINK_TABLE = [
   ['javascript:alert(1)', false], ['JavaScript:alert(1)', false], ['JaVaScRiPt:alert(1)', false], [' https://example.com/', false], ['https://example.com/ ', false],
   ['\u3000https://example.com/', false], ['\u0001https://example.com/', false], ['https://exa\u0000mple.com/', false], ['https://example.com/\n', false],
   ['https://example.com/\u007f', false], ['https://example.com/\u0085', false], ['file:///C:/x', false], ['data:text/html,x', false], ['vbscript:x', false],
+  // 0.14.0 EB-1 直し（R91）: 途中の空白・向きを変える見えない文字・頭だけは偽
+  ['https://exa mple.com/', false], ['https://example.com/a\tb', false], ['https://example.com/\u200e', false], ['https://example.com/\u200f', false],
+  ['https://\u202eexample.com/', false], ['https://example.com/\u2066x', false], ['https://example.com/\u2069', false], ['https://', false], ['HTTP://', false],
+  ['mailto:', false], ['natsu://page/', false],
   ['natsu://settings', false], ['natsu:page/p1', false], ['//example.com/', false], ['', false], [`https://example.com/${'a'.repeat(2049 - 20)}`, false],
   [`https://example.com/${'a'.repeat(2048 - 20)}`, true],
 ];
@@ -371,4 +375,112 @@ test('EB-1: undoBook の表（ページごと・欄ごと・100 歩まで・新�
   // 元の book は変えない（純粋）
   assert.deepStrictEqual(U.bookTakeUndo(book, k1).entry, { steps: ['a:tx5'] });
   assert.strictEqual(U.bookTakeUndo({}, k1).entry, null);
+});
+
+// ---------------------------------------------------------------- 0.14.0 EB-1 直し（2026-10-29 の点検。R90〜R95）
+test('EB-1 直し・I1: richText・blockEdit・grapheme は互いに循環して読まない（書記素の境は src/grapheme.js の1か所）', () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const src = (f) => fs.readFileSync(path.join(__dirname, '..', 'src', f), 'utf8');
+  assert.ok(!/require\(/.test(src('grapheme.js')), 'grapheme.js が何かを読む');
+  assert.ok(!/require\('\.\/blockEdit'\)/.test(src('richText.js')), 'richText が blockEdit を読む（blockEdit が richText を読むと循環する）');
+  assert.ok(/require\('\.\/grapheme'\)/.test(src('richText.js')) && /require\('\.\/grapheme'\)/.test(src('blockEdit.js')));
+  const { spawnSync } = require('node:child_process');
+  for (const order of [['blockEdit', 'richText'], ['richText', 'blockEdit'], ['db/validate', 'richText']]) {
+    const code = `${order.map((m) => `require('./src/${m}')`).join(';')};const R=require('./src/richText');process.stdout.write(JSON.stringify(R.toggleMark([{t:'𠮷野',m:[]}],1,3,'b')))`;
+    const r = spawnSync(process.execPath, ['-e', code], { cwd: path.join(__dirname, '..'), encoding: 'utf8' });
+    assert.strictEqual(r.stdout, '[{"t":"𠮷","m":[]},{"t":"野","m":["b"]}]', `${order.join(' → ')}: ${r.stderr}`);
+  }
+  assert.strictEqual(E.safeOffset, require('../src/grapheme.js').safeOffset);
+});
+
+test('EB-1 直し・I2: invertOps はブロックの行の citeSkip と見た目だけの欄 open の set を戻さない（ページの行の memo は戻す）', () => {
+  const ops = [
+    { op: 'text', id: 'b1', value: '直した', old: '前' },
+    { op: 'set', id: 'b1', key: 'citeSkip', value: true },
+    { op: 'set', id: 'b3', key: 'citeSkip', value: undefined, old: true },
+    { op: 'set', id: 'b2', key: 'open', value: false, old: true },
+    { op: 'set', id: 'b2', key: 'assignee', value: '担当', old: '' },
+    { op: 'set', id: P, key: 'memo', value: '後', old: '前' },
+  ];
+  for (const pageId of [P, undefined]) {
+    const inv = O.invertOps(ops, { pageId });
+    assert.deepStrictEqual(inv.filter((o) => o.op === 'set').map((o) => `${o.id}:${o.key}`), [`${P}:memo`, 'b2:assignee'], String(pageId));
+    assert.deepStrictEqual(inv[inv.length - 1], { op: 'text', id: 'b1', value: '前', old: '直した' });
+  }
+});
+
+test('EB-1 直し・I3: opsMatch は、消した行が戻っている・直した行が後から消えた・親の変わる move の親・同じ行に足してから直した欄・ページの createdAt を見る', { timeout: 5000 }, () => {
+  const t = tmpDb();
+  try {
+    const { db } = t.open();
+    O.applyOps(db, O.diffPage(null, pageOf([{ id: 'b1', type: 'bullet', text: '一' }, { id: 'b2', type: 'bullet', text: '二' }, { id: 'p', type: 'toggle', text: '親' }])));
+    const row = (id) => ({ ...db.prepare('select id, type, page_id, parent_id, ord, text, rich, attrs, created_at, updated_at, trashed_at, rev from blocks where id = ?').get(id) });
+    // (a) 消した行が後から戻った（同じ ID の行がある）→ 合わない（当てると ID が重なる）
+    const b2 = row('b2'); b2.attrs = JSON.parse(b2.attrs);
+    const del = [{ op: 'trash', id: 'b2', old: b2 }];
+    O.applyOps(db, del);
+    assert.strictEqual(O.opsMatch(db, del), true);
+    O.applyOps(db, [{ op: 'add', id: 'b2', row: b2 }]);
+    assert.strictEqual(O.opsMatch(db, del), false, '消した行が戻っているのに合う');
+    // (b) 直した行が後から消えた → 合わない
+    const fix = [{ op: 'text', id: 'b2', value: '二を直した', old: '二' }];
+    O.applyOps(db, fix);
+    assert.strictEqual(O.opsMatch(db, fix), true);
+    O.applyOps(db, del.map((o) => ({ ...o, old: { ...b2, text: '二を直した' } })));
+    assert.strictEqual(O.opsMatch(db, fix), false, '後から消えた行に合う');
+    // (c) 親の変わる move: 鍵が同じでも親が違えば合わない
+    const ord1 = row('b1').ord;
+    const into = [{ op: 'move', id: 'b1', ord: 'm', old: ord1, parent: 'p', oldParent: P }];
+    O.applyOps(db, into);
+    assert.strictEqual(O.opsMatch(db, into), true);
+    db.prepare("update blocks set parent_id = ? where id = 'b1'").run(P);
+    assert.strictEqual(O.opsMatch(db, into), false, '親が戻っているのに合う');
+    // (d) 同じ歩みで足してから欄を直した行は、足した行の欄に直しを重ねて比べる
+    const nb = O.blockRow({ id: 'b9', type: 'todo', text: '足した', cites: [] }, P, 'w');
+    const addFix = [{ op: 'add', id: 'b9', row: nb }, { op: 'set', id: 'b9', key: 'assignee', value: '担当' }, { op: 'set', id: 'b9', key: 'cites', value: undefined, old: [] }];
+    O.applyOps(db, addFix);
+    assert.strictEqual(O.opsMatch(db, addFix), true, '足してから直した行に合わない');
+    O.applyOps(db, [{ op: 'set', id: 'b9', key: 'assignee', value: 'ほか', old: '担当' }]);
+    assert.strictEqual(O.opsMatch(db, addFix), false);
+    // (e) ページの行の createdAt（列）は比べる
+    const created = [{ op: 'set', id: P, key: 'createdAt', value: '2026-10-29T05:00:00.000Z', old: '2026-10-29T00:00:00.000Z' }];
+    O.applyOps(db, created);
+    assert.strictEqual(O.opsMatch(db, created), true);
+    O.applyOps(db, [{ op: 'set', id: P, key: 'createdAt', value: '2026-10-29T06:00:00.000Z', old: '2026-10-29T05:00:00.000Z' }]);
+    assert.strictEqual(O.opsMatch(db, created), false, 'ほかで変わった作った時刻に合う');
+  } finally { t.done(); }
+});
+
+test('EB-1 直し・I5: richMarkdown は区切りの頭と終わりの空白を記号の外に出し、リンクの住所の括弧・空白を %xx にする。飾りの無い文は1文字も同じ', () => {
+  assert.strictEqual(R.richMarkdown([run('a ', 'b'), run('b')]), '**a** b');
+  assert.strictEqual(R.richMarkdown([run(' 大事 ', 'i', 's'), run('な話')]), ' *~~大事~~* な話');
+  assert.strictEqual(R.richMarkdown([run('  ', 'b'), run('x')]), '  x', '空白だけの区切りに記号を付けた');
+  assert.strictEqual(R.richMarkdown([run('資料', ['link', 'https://example.com/a_(b)'])]), '[資料](https://example.com/a_%28b%29)');
+  for (const t of [' 前の空白 ', '*そのまま* と `記号`', '　全角の空白　']) assert.strictEqual(R.richMarkdown([run(t)]), t);
+});
+
+test('EB-1 直し・M1: normalizeRich は DB の照らしと同じ形にそろえる（開けないリンク・2つ目の色・コードのある区切りのリンクを落とす）', () => {
+  assert.deepStrictEqual(R.normalizeRich([run('a', ['link', 'javascript:alert(1)'], 'b')]), [run('a', 'b')]);
+  assert.deepStrictEqual(R.normalizeRich([run('a', ['bg', 'yellow'], ['color', 'red'])]), [run('a', ['color', 'red'])]);
+  assert.deepStrictEqual(R.normalizeRich([run('a', ['color', 'red'], ['color', 'blue'])]), [run('a', ['color', 'blue'])]);
+  assert.deepStrictEqual(R.normalizeRich([run('a', 'code', ['link', 'https://example.com/'])]), [run('a', 'code')]);
+  for (const r of [[run('a', ['link', 'javascript:x'], 'b')], [run('a', ['bg', 'yellow'], ['color', 'red'])], [run('a', 'code', ['link', 'https://example.com/'])]]) {
+    assert.doesNotThrow(() => V.richText(R.normalizeRich(r)), JSON.stringify(r));
+  }
+});
+
+test('EB-1 直し・M3・M6: marksAt は前の書記素の頭の字の飾りを読む。spanMarks は文字の色と背景の色が両方あっても1つ。bookDrop の p1 は p10 を消さない。bookDone も 100 歩まで', () => {
+  assert.deepStrictEqual(R.marksAt([run('か', 'b'), run('゙')], 2), ['b'], '結合文字だけの区切りの飾りを読んだ');
+  assert.deepStrictEqual(R.richFromNodes({ tag: 'span', attrs: { 'data-color': 'red', 'data-bg': 'yellow' }, kids: [{ text: 'x' }] }), [run('x', ['color', 'red'])]);
+  const kp1 = U.bookKey('p1', 'note'); const kp10 = U.bookKey('p10', 'note');
+  let book = U.bookPush(U.bookPush({}, kp1, ['a:tx1']), kp10, ['a:tx2']);
+  book = U.bookDrop(book, 'p1');
+  assert.strictEqual(U.bookTakeUndo(book, kp1).entry, null);
+  assert.deepStrictEqual(U.bookTakeUndo(book, kp10).entry, { steps: ['a:tx2'] }, 'p1 で p10 の列も消えた');
+  let done = {};
+  for (let i = 1; i <= 105; i++) done = U.bookDone(done, kp1, 'undo', `a:rv${i}`);
+  let n = 0;
+  for (let e = U.bookTakeRedo(done, kp1); e.entry; e = U.bookTakeRedo(e.book, kp1)) n++;
+  assert.strictEqual(n, 100, 'bookDone が 100 歩を越えて積んだ');
 });

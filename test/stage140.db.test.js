@@ -552,3 +552,33 @@ test('EB-2・R58: preload の blockSplit(…, afterId, inside, rich)・blockMerg
     ['blocks.setColor', { pageId: 'pa1', ids: ['b2', 'b3'], color: 'red_bg' }],
   ]);
 });
+
+// ---------------------------------------------------------------- 0.14.0 EB-1 直し・I4（R90）: 戻す置き場が成り立たなければ stale
+test('EB-1 直し・I4（R90）: 戻すと前の親がもう無い・前の並びの鍵にほかの行が入っている → stale で何も変えない', T, () => {
+  const kid = (id, o = {}) => ({ id, type: 'bullet', text: `${id}の行の文です`, citeState: 'manual', cites: [], ...o });
+  withDb((db) => {
+    // 子 a1 を外に出した後、元の親 a を消した → 外に出した歩みを戻すと、a1 は無い親の子になる
+    const out = call(db, 'block.indent', { pageId: 'pa1', blockId: 'a1', dir: 'out' });
+    assert.strictEqual(out.ok, true, out.code);
+    assert.strictEqual(find(get(db), 'a1').parent, null);
+    assert.strictEqual(call(db, 'block.remove', { pageId: 'pa1', blockId: 'a' }).ok, true);
+    const was = JSON.stringify(raw(db));
+    const r = revert(db, [out.tx]);
+    assert.deepStrictEqual([r.ok, r.code], [false, 'stale'], '無い親の子に戻した');
+    assert.strictEqual(JSON.stringify(raw(db)), was);
+  }, { blocks: [kid('x'), kid('a', { children: [kid('a1')] }), kid('y')] });
+  withDb((db) => {
+    // b3 を消した後、ほかの書き手が b4 を b3 の前の並びの鍵へ動かした → 消した歩みを戻すと、同じ鍵の兄弟が2つになる
+    const ord3 = db.prepare("select ord from blocks where id = 'b3'").get().ord;
+    const del = call(db, 'block.remove', { pageId: 'pa1', blockId: 'b3' });
+    assert.strictEqual(del.ok, true, del.code);
+    const ord4 = db.prepare("select ord from blocks where id = 'b4'").get().ord;
+    db.exec('BEGIN IMMEDIATE');
+    applyOps(db, [{ op: 'move', id: 'b4', ord: ord3, old: ord4 }]);
+    db.exec('COMMIT');
+    const was = JSON.stringify(raw(db));
+    const r = revert(db, [del.tx]);
+    assert.deepStrictEqual([r.ok, r.code], [false, 'stale'], '同じ並びの鍵の兄弟を作った');
+    assert.strictEqual(JSON.stringify(raw(db)), was);
+  });
+});

@@ -334,7 +334,10 @@ function applyOps(db, ops, dir = 'forward') {
 // 後ろへ当てる形を、前へ当てる新しい操作の列にする（新しい順に・値と前の値を入れ替え）。edit.revert の oplog の1行になり、もう一度
 // 戻せばやり直し。ページの行の trash・restore・purge・発言（seg）・ページの行の add は戻さない（投げる）。
 // pageId があれば、ページの行の set は memo・memoDoc だけを残す（summaryEdited・updatedAt・citeStat は戻さない: R60）
+// ブロックの行の set のうち、短い行の印 citeSkip と見た目だけの欄（VIEW_KEYS。open）は戻さない（決めたこと 5・G1・R70。
+// citeSkip は書くたびの markShortBlocks が関係の無い行にも付ける印で、戻した後の文から作り直す: edit.revert）
 const REVERT_PAGE_KEYS = Object.freeze(['memo', 'memoDoc']);
+const NO_REVERT_BLOCK = Object.freeze(['citeSkip', ...VIEW_KEYS]);
 function invertOps(ops, { pageId } = {}) {
   if (!Array.isArray(ops)) throw new Error('invertOps: 操作の列が無い');
   const out = [];
@@ -354,6 +357,7 @@ function invertOps(ops, { pageId } = {}) {
         break;
       case 'set':
         if (o.id === pageId && !REVERT_PAGE_KEYS.includes(o.key)) break;
+        if (o.id !== pageId && NO_REVERT_BLOCK.includes(o.key)) break;
         out.push({ op: 'set', id: o.id, key: o.key, value: o.old, old: o.value });
         break;
       case 'text':

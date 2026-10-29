@@ -49,7 +49,7 @@ function richText(rich) {
       const name = Array.isArray(mk) ? mk[0] : mk;
       if (typeof name !== 'string' || !RICH_MARKS.includes(name)) throw bad('rich mark');
       if (name === 'link') {
-        if (!Array.isArray(mk) || typeof mk[1] !== 'string' || mk[1].length > 2048 || !LINK_RE.test(mk[1])) throw bad('rich link');
+        if (!Array.isArray(mk) || typeof mk[1] !== 'string' || mk[1].length > RT.LINK_MAX || !LINK_RE.test(mk[1])) throw bad('rich link');
         if (mk[1].trim() !== mk[1] || RT.LINK_CTRL_RE.test(mk[1])) throw bad('rich link');
       } else if (Array.isArray(mk) && (mk.length !== 2 || typeof mk[1] !== 'string' || mk[1].length > 64)) throw bad('rich mark');
       if (COLOR_KINDS.includes(name) && !(Array.isArray(mk) && RT.COLORS.includes(mk[1]))) throw bad('rich color');   // 0.14.0 EB-2: 色は決まった9色だけ

@@ -1,13 +1,13 @@
 'use strict';
 // 文字の飾りの純粋な部品（0.14.0 Task EB-1。計画 docs/plans/2026-10-26-140.md の決めたこと 14〜22・BQ3・R9〜R13・R73）。
-// 書記素の境は src/blockEdit.js の safeOffset だけを読む（境の決まりを2つにしない。blockEdit も何も読まない）。
+// 書記素の境は src/grapheme.js だけを読む（境の決まりを2つにしない。blockEdit も同じ部品を読むので、richText と blockEdit は互いに読まない）。
 // rich の形: [{ t: 文字, m: [飾り] }]。飾りは 'b'・'i'・'u'・'s'・'code' と ['color', 色]・['bg', 色]・['link', 住所]。
 // 1つの区切りが持てる色は1つ（文字の色か背景の色のどちらか: BQ3）。code と link は同じ区切りに持てない（コードの中のリンクは開かない）。
 // 範囲 [s, e) の位置は UTF-16 で、どれも書記素の境に寄せる。範囲を変える関数は、整えた区切りの並び（飾りが無くても配列）を返す。
 // 行に書くときは normalizeRich で整え、飾りが無ければ null（飾りの無い行は rich を持たない）。
 // DB の照らし（src/db/validate.js の richText）はリンクの頭の表 LINK_HEAD_RE と LINK_CTRL_RE をここから読む（R73）。
 // 画面（app.html）は使う関数を写す（0.13.0 の blockEdit と同じ形）。
-const { safeOffset } = require('./blockEdit');
+const { graphemeEnds, safeOffset } = require('./grapheme');
 
 const MARKS = Object.freeze(['b', 'i', 'u', 's', 'code']);
 const COLORS = Object.freeze(['gray', 'brown', 'orange', 'yellow', 'green', 'blue', 'purple', 'pink', 'red']);
@@ -16,8 +16,10 @@ const COLOR_KINDS = Object.freeze(['color', 'bg']);
 const STOP_AT_END = Object.freeze(['code', 'link']);              // 終わりで打った文字に引き継がない飾り
 // 開けるリンクの頭（http(s)・mailto・NaTsu のリンク。0.10.0 の https のリンクの頭は https:// に入る）
 const LINK_HEADS = Object.freeze(['https://', 'http://', 'mailto:', 'natsu://page/']);
-const LINK_HEAD_RE = new RegExp(`^(?:${LINK_HEADS.map((h) => h.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&')).join('|')})`, 'i');
-const LINK_CTRL_RE = /[\u0000-\u001f\u007f-\u009f]/;              // 制御の文字（C0・DEL・C1）
+// 頭だけ（https:// など）は開けない（頭の後ろに1文字は要る: 0.14.0 EB-1 直し・R91）
+const LINK_HEAD_RE = new RegExp(`^(?:${LINK_HEADS.map((h) => h.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&')).join('|')})(?=.)`, 'i');
+// 制御の文字（C0・DEL・C1）・空白（どこにあっても）・向きを変える見えない文字（U+200E・U+200F・U+202A〜U+202E・U+2066〜U+2069）（R91）
+const LINK_CTRL_RE = /[\u0000-\u001f\u007f-\u009f\s\u200e\u200f\u202a-\u202e\u2066-\u2069]/;
 const LINK_MAX = 2048;
 
 const nameOf = (mk) => (Array.isArray(mk) ? mk[0] : mk);
@@ -37,7 +39,7 @@ function markOk(mk) {
   if (typeof mk === 'string') return MARKS.includes(mk);
   if (!Array.isArray(mk) || mk.length !== 2) return false;
   if (COLOR_KINDS.includes(mk[0])) return COLORS.includes(mk[1]);
-  return mk[0] === 'link' && typeof mk[1] === 'string';
+  return mk[0] === 'link' && linkOk(mk[1]);   // 開けない住所のリンクは落とす（R92）
 }
 // 飾りの並びを整える（知らない飾りを落とす・重なりを1つに・決まった順に）
 function cleanMarks(m) {
@@ -48,7 +50,18 @@ function cleanMarks(m) {
     seen.add(keyOf(mk));
     out.push(Array.isArray(mk) ? [mk[0], mk[1]] : mk);
   }
-  return out.sort((x, y) => ORDER.indexOf(nameOf(x)) - ORDER.indexOf(nameOf(y)) || (keyOf(x) < keyOf(y) ? -1 : keyOf(x) > keyOf(y) ? 1 : 0));
+  out.sort((x, y) => ORDER.indexOf(nameOf(x)) - ORDER.indexOf(nameOf(y)) || (keyOf(x) < keyOf(y) ? -1 : keyOf(x) > keyOf(y) ? 1 : 0));
+  // DB の照らし（validate.richText）と同じ形にそろえる（R92）: 色は1つだけ（決まった順の最初: 文字の色が背景の色より先）・コードのある区切りのリンクは落とす
+  const code = out.includes('code');
+  let colored = false;
+  return out.filter((mk) => {
+    const n = nameOf(mk);
+    if (n === 'link') return !code;
+    if (!COLOR_KINDS.includes(n)) return true;
+    if (colored) return false;
+    colored = true;
+    return true;
+  });
 }
 const sameMarks = (a, b) => a.length === b.length && a.every((mk, i) => keyOf(mk) === keyOf(b[i]));
 
@@ -168,7 +181,10 @@ function marksAt(rich, at) {
     for (const r of runs) { if (i < pos + r.t.length) return r.m; pos += r.t.length; }
     return [];
   };
-  const prev = marksOfChar(a > 0 ? a - 1 : 0);
+  // 前の文字は、カーソルの前の書記素の頭の文字（結合文字だけが別の区切りにあっても、その字の飾りを読む: R93）
+  let start = 0;
+  for (const e of graphemeEnds(text)) { if (e < a) start = e; else break; }
+  const prev = marksOfChar(start);
   const next = a < text.length ? marksOfChar(a) : [];
   const has = (list, mk) => list.some((x) => keyOf(x) === keyOf(mk));
   return prev.filter((mk) => !STOP_AT_END.includes(nameOf(mk)) || (a > 0 && has(next, mk))).map((mk) => (Array.isArray(mk) ? [...mk] : mk));
@@ -244,7 +260,6 @@ function inlineShortcut(before) {
   if (n === 1 && s[close - 1] === row.sym) return null;
   const open = s.lastIndexOf(row.sym, close - n - 1);
   if (open < 0) return null;
-  if (n === 1 && (s[open - 1] === row.sym || s[open + 1] === row.sym)) return null;
   const inner = s.slice(open + n, close);
   if (!inner || /^\s|\s$/.test(inner) || inner.includes('\n')) return null;
   if (open > 0 && (WORD_RE.test(s[open - 1]) || s[open - 1] === row.sym[0])) return null;
@@ -252,16 +267,23 @@ function inlineShortcut(before) {
 }
 
 // ---------------------------------------------------------------- ［コピー］の Markdown（R13: 下線と色は文字だけ）
+// 区切りの頭と終わりの空白は記号の外に出す（「**a **」は太字に読まれない）。リンクの住所の空白・括弧は %xx にする（R94）
+const mdUrl = (u) => u.replace(/[\s()<>]/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase().padStart(2, '0')}`);
 function richMarkdown(rich) {
   return tidy(rich).map(({ t, m }) => {
-    let s = t;
+    if (!m.length) return t;
+    const lead = /^\s*/.exec(t)[0];
+    const rest = t.slice(lead.length);
+    const trail = /\s*$/.exec(rest)[0];
+    let s = rest.slice(0, rest.length - trail.length);
+    if (!s) return t;
     if (m.includes('code')) s = `\`${s}\``;
     if (m.includes('s')) s = `~~${s}~~`;
     if (m.includes('i')) s = `*${s}*`;
     if (m.includes('b')) s = `**${s}**`;
     const link = m.find((mk) => nameOf(mk) === 'link');
-    if (link) s = `[${s}](${link[1]})`;
-    return s;
+    if (link) s = `[${s}](${mdUrl(link[1])})`;
+    return lead + s + trail;
   }).join('');
 }
 
