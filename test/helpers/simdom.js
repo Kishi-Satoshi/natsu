@@ -254,7 +254,8 @@ class Element {
   getBoundingClientRect() {
     const r = this._rect || {};
     const w = Number(r.width) || 0, h = Number(r.height) || 0;
-    return { top: 0, left: 0, right: w, bottom: h, width: w, height: h, x: 0, y: 0 };
+    const t = Number(r.top) || 0, x = Number(r.left) || 0;   // 0.14.0 EB-5 直し: top・left も置ける（置かなければ 0。浮いた箱の置き場を見る）
+    return { top: t, left: x, right: x + w, bottom: t + h, width: w, height: h, x, y: t };
   }
   getContext() { return canvas2d(this); }
   add(opt) { this.appendChild(opt); }          // select.add()

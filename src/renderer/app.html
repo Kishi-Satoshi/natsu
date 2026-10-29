@@ -718,6 +718,9 @@
   .blk[data-bbg="purple"] { background: var(--mkbg-purple); }
   .blk[data-bbg="pink"] { background: var(--mkbg-pink); }
   .blk[data-bbg="red"] { background: var(--mkbg-red); }
+  /* EB-5 直し（R117）: リンクで飛んだ先の一瞬の印（.linkhit）は、背景の色の行では内側の線で見せる（.blk[data-bbg=…] より強い）。
+     背景の色の上に --tint を重ねると、暗い地でリンクと灰色の文字が 4.5:1 を割るので地は変えない。線の --accent-text は背景の色の上で 4.5:1 以上（R113 のテスト） */
+  .blk.linkhit[data-bbg] { outline: 2px solid var(--accent-text); outline-offset: -2px; }
 
   /* 会議タイプ */
   /* 要約タイプは灰色の札の形（第1b2回 P-2。appearance は変えない） */
@@ -3486,6 +3489,13 @@
       const b = r.getBoundingClientRect();
       return b && (b.width || b.height) ? b : null;
     },
+    // 0.14.0 EB-5 直し（R117）: 画面の (x, y) に落としたときの文の位置。その要素の上でなければ null
+    point(el, x, y) {
+      const r = typeof document.caretRangeFromPoint === 'function' ? document.caretRangeFromPoint(x, y) : null;
+      if (!r || !el.contains(r.startContainer)) return null;
+      const w = document.createRange(); w.selectNodeContents(el); w.setEnd(r.startContainer, r.startOffset);
+      return w.toString().length;
+    },
   };
   // → [始め, 終わり]（選んでいなければ同じ）か null（その要素にカーソルが無い・読めない）
   const caretRange = (el) => { try { return caretSeam.range(el); } catch (_) { return null; } };
@@ -3898,9 +3908,11 @@
     }
     return out;
   }
+  // EB-5 直し（R117）: 記号を逃がすのは Markdown の記号を書く飾り（太字・斜体・取り消し・コード・リンク）がある行だけ。下線と色だけの行は記号を書かないので（R13）、飾りの無い行と1字も同じ
+  const MD_SYNTAX = Object.freeze([...MD_WRAP, 'code']);
   function richMarkdown(rich) {
     const runs = tidy(rich);
-    if (!runs.some((r) => r.m.length)) return runs.map((r) => r.t).join('');
+    if (!runs.some((r) => r.m.some((mk) => MD_SYNTAX.includes(nameOf(mk))))) return runs.map((r) => r.t).join('');
     return mdRuns(runs);
   }
   // ---- richText の写しはここまで
@@ -4080,21 +4092,44 @@
   }
   // 文の欄 → その行（要約の欄の行の文でなければ null）
   const rowOfTxt = (t) => (t && t.classList && t.classList.contains('txt') && t.parentNode && t.parentNode._txt === t ? t.parentNode : null);
-  // 浮いた箱を、選んだ所の上（入らなければ下）に置く。本物は選んだ所の矩形、読めなければ行の上
+  // 0.14.0 EB-5 直し（R117）: 落とした先の行（行の文の上で、直せる行だけ）
+  function dropRowOf(ev) {
+    for (let n = ev && ev.target; n && n !== $('pNote'); n = n.parentNode) {
+      const row = rowOfTxt(n);
+      if (row) return rowCanMark(row) && typeof row._txt._dropText === 'function' ? row : null;
+    }
+    return null;
+  }
+  // 落とした素の文字（ファイルを含む・文字の無いものは null。HTML は読まない）
+  function dropPlain(dt) {
+    if (!dt || typeof dt.getData !== 'function') return null;
+    const types = Array.from(dt.types || []);
+    if (types.includes('Files') || (dt.files && dt.files.length)) return null;
+    const t = String(dt.getData('text/plain') || '').replace(/\r\n?/g, '\n');
+    return t ? t : null;
+  }
+  // 浮いた箱を、選んだ所の上（入らなければ下）に置く。本物は選んだ所の矩形、読めなければ行の文の矩形。
+  // EB-5 直し: 上か下かは見えている所（.page の窓）で決め（捲った欄のいちばん上の行でも見える）、左は欄の幅から箱の幅を引いた所まで（拡大 150〜200% で右へはみ出さない）。
+  // 箱の大きさを測るので、先に欄に入れる
   function placeAt(box, el, below) {
     const note = $('pNote');
+    if (box.parentNode !== note) note.appendChild(box);
     let rect = null;
     try { rect = typeof caretSeam.rect === 'function' ? caretSeam.rect(el._txt) : null; } catch (_) { rect = null; }
-    let top = below ? (el.offsetTop || 0) + (el.offsetHeight || 0) + 4 : (el.offsetTop || 0) - 40;
-    let left = (el.offsetLeft || 0) + (el._txt.offsetLeft || 0);
-    if (rect) {
-      const nr = note.getBoundingClientRect();
-      const st = note.scrollTop || 0;
-      top = below || rect.top - nr.top + st - 40 < 0 ? rect.bottom - nr.top + st + 6 : rect.top - nr.top + st - 40;
-      left = rect.left - nr.left;
-    }
+    if (!rect) rect = el._txt.getBoundingClientRect();
+    const nr = note.getBoundingClientRect();
+    const view = $('pageWrap').getBoundingClientRect();
+    const h = box.offsetHeight || 36;
+    const up = rect.top - h - 6;
+    const y = below || up < view.top ? rect.bottom + 6 : up;
+    boxAt(box, y - nr.top + (note.scrollTop || 0), rect.left - nr.left);
+  }
+  // 欄の中の (top, left) に置く（左は 0 から「欄の幅 - 箱の幅」まで）
+  function boxAt(box, top, left) {
+    const note = $('pNote');
+    const room = (note.clientWidth || 0) - (box.offsetWidth || 0);
     box.style.top = `${Math.max(0, Math.round(top))}px`;
-    box.style.left = `${Math.max(0, Math.round(left))}px`;
+    box.style.left = `${Math.max(0, Math.round(note.clientWidth ? Math.min(left, room) : left))}px`;
   }
   function markBarBox() {
     const box = document.createElement('div');
@@ -4114,6 +4149,7 @@
   // 選びに合わせて帯を出す・隠す（selectionchange・マウスやキーを離した時・飾りを付けた後）
   function markBarSync(el) {
     if (linkPop) return;   // リンクの欄が開いている間は替えない
+    if (el && el._txt && el._txt._composing) { markBarHide(); return; }   // EB-5 直し: 変換中は出さない（変換の文字を選んでいても）
     const r = rowCanMark(el) ? selRange(el) : null;
     if (colorMenu && (!r || colorMenu.el !== el || colorMenu.s !== r[0] || colorMenu.e !== r[1])) colorMenuClose();
     if (!r || (markBarOff && markBarOff.el === el && markBarOff.s === r[0] && markBarOff.e === r[1])) { markBarHide(); return; }
@@ -4179,9 +4215,8 @@
     box.append(input, ok, off, msg);
     // 外を押したら閉じる（欄の中へ移るフォーカスは残す）
     box.addEventListener('focusout', () => setTimeout(() => { if (linkPop && linkPop.box === box && !isIn(document.activeElement, box)) linkPopClose(); }, 0));
-    linkPop = { el, pid: curId, s: r[0], e: r[1], box, input, msg };
+    linkPop = { el, id: el.dataset.id, text: txt.textContent, pid: curId, s: r[0], e: r[1], box, input, msg };
     placeAt(box, el, true);
-    $('pNote').appendChild(box);
     if (typeof box.scrollIntoView === 'function') box.scrollIntoView({ block: 'nearest' });
     input.focus();
   }
@@ -4191,7 +4226,15 @@
     if (!p) return;
     const url = raw === null ? null : String(raw ?? '').trim();
     if (url !== null && !linkOk(url)) { p.msg.textContent = LINK_REFUSE; return; }
-    if (p.pid !== curId || !rowCanMark(p.el)) { linkPopClose(); return; }
+    if (p.pid !== curId) { linkPopClose(); return; }
+    // EB-5 直し: 開いている間に命令の答えで行が描き直されたら、同じ id の行に付ける。行が消えた・文が変わったら付けずに閉じ、行があればそこへフォーカスを戻す
+    const el = rowCanMark(p.el) ? p.el : [...$('pNote').querySelectorAll('.blk')].find((e) => e.dataset.id === p.id && rowCanMark(e));
+    if (!el || el._txt.textContent !== p.text) {
+      linkPopClose();
+      if (el) { el._txt.focus(); setCaret(el._txt, Math.min(p.s, el._txt.textContent.length)); }
+      return;
+    }
+    p.el = el;
     const txt = p.el._txt;
     paintRich(txt, setLink(rowRich(txt), p.s, p.e, url));
     linkPopClose(true);
@@ -4263,9 +4306,19 @@
     colorMenu = { el, s: r[0], e: r[1], box };
     const bar = markBarEl && markBarEl.parentNode ? markBarEl : null;
     const btn = bar ? bar.querySelector('.mb-color') : null;
-    box.style.top = `${(bar ? bar.offsetTop || 0 : el.offsetTop || 0) + (bar ? bar.offsetHeight || 36 : 0) + 4}px`;
-    box.style.left = `${(bar ? bar.offsetLeft || 0 : 0) + (btn ? btn.offsetLeft || 0 : 0)}px`;
-    $('pNote').appendChild(box);
+    // EB-5 直し: 帯の［色］の下（窓の下へはみ出し、帯の上に入るなら上）。左は欄の幅に収める
+    const note = $('pNote');
+    note.appendChild(box);
+    const barTop = bar ? parseFloat(bar.style.top) || 0 : el.offsetTop || 0;
+    const barH = bar ? bar.offsetHeight || 36 : 0;
+    const h = box.offsetHeight || 0;
+    const nr = note.getBoundingClientRect();
+    const view = $('pageWrap').getBoundingClientRect();
+    const st = note.scrollTop || 0;
+    const downTop = barTop + barH + 4, upTop = barTop - 4 - h;
+    const fitsDown = nr.top + downTop - st + h <= view.bottom;
+    const fitsUp = nr.top + upTop - st >= view.top;
+    boxAt(box, !fitsDown && fitsUp ? upTop : downTop, (bar ? parseFloat(bar.style.left) || 0 : 0) + (btn ? btn.offsetLeft || 0 : 0));
     if (typeof box.scrollIntoView === 'function') box.scrollIntoView({ block: 'nearest' });
   }
   function colorMenuClose() {
@@ -4607,6 +4660,8 @@
       }
     }
     for (const e of [...box.querySelectorAll('.blk')]) if (byId.has(e.dataset.id)) e._b = byId.get(e.dataset.id);
+    // EB-5 直し: 帯・色のメニューを出していた行が消えた・替わったら隠す（書いている途中のまま残さない。リンクの欄は linkApply が同じ id の行を探す）
+    if (markBar && !isIn(markBar.el, box)) markBarHide();
     renumberRows();
     const keep = liftFocus(blocks, shown, where || (focused && !shown.has(focused.dataset.id) ? { focus: focused.dataset.id } : null));
     if (keep) focusRow(keep.focus, keep.caret);
@@ -4901,6 +4956,18 @@
       const t = cd ? String(cd.getData('text/plain') || '').replace(/\r\n?/g, '\n') : '';
       if (t && linkPaste(el, t)) return;   // 0.14.0 EB-5（K-25）: 選んだ文字の上に開ける住所を貼ると、文字はそのままでリンク
       if (t) typeAtCaret(txt, t);
+    };
+    // 0.14.0 EB-5 直し（R117）: 落とした文字（ほかのアプリ・文字起こしの欄から）は、貼り付けと同じく素の文字だけを落とした所へ入れ、すぐ保存する（1歩）
+    txt._dropText = async (ev) => {
+      const t = dropPlain(ev.dataTransfer);
+      if (t === null || (reverting && reverting.pid === curId)) return;
+      let at = null;
+      try { at = typeof caretSeam.point === 'function' ? caretSeam.point(txt, ev.clientX, ev.clientY) : null; } catch (_) { at = null; }
+      txt.focus();
+      setCaret(txt, at === null ? txt.textContent.length : at);
+      typeAtCaret(txt, t);
+      const pid = curId;
+      try { await txt._commit(pid); } catch (_) { /* 保存の失敗は saveRow が知らせる */ }
     };
   }
   // ---------------- 0.13.0 ED-5（計画の E1・E2・決めたこと 23・30・37〜40・42。EQ7・EQ8・EQ22 (a)）: / メニュー・＋・書き直している途中
@@ -5468,8 +5535,13 @@
     inlineClose();   // 0.14.0 EB-5: 帯・リンクの欄・色のメニューも（欄の子を描き直すので）
     const box = $('pNote'); box.textContent = '';
     box.ondragover = (ev) => {
-      // EB-4 直し（M3・R115）: 行の外から引っ張ってきた文字・ファイルは落とさせない（Chromium が HTML のまま行に入れる）
-      if (!dragBlockId) { if (typeof ev.preventDefault === 'function') ev.preventDefault(); if (ev.dataTransfer) ev.dataTransfer.dropEffect = 'none'; return; }
+      // EB-4 直し（M3・R115）: 外から引っ張ってきたものは既定の落としを止める（Chromium が HTML のまま行に入れる）。
+      // EB-5 直し（R117）: 行の文の上の素の文字だけは落とせる（ondrop が素の文字を落とした所へ入れる）。ファイル・行の外は落とせない形
+      if (!dragBlockId) {
+        if (typeof ev.preventDefault === 'function') ev.preventDefault();
+        if (ev.dataTransfer) ev.dataTransfer.dropEffect = dropRowOf(ev) && dropPlain(ev.dataTransfer) !== null ? 'copy' : 'none';
+        return;
+      }
       ev.preventDefault();
       ev.dataTransfer.dropEffect = 'move';
       clearDropMarks(box);
@@ -5484,7 +5556,12 @@
       if (typeof mark.style.setProperty === 'function') mark.style.setProperty('--dropx', `${dx}px`);
     };
     box.ondrop = async (ev) => {
-      if (!dragBlockId) { if (typeof ev.preventDefault === 'function') ev.preventDefault(); return; }   // EB-4 直し（M3）: 行の欄には文字を落とさない
+      if (!dragBlockId) {   // EB-4 直し（M3）: 既定の落としは止める。EB-5 直し（R117）: 行の文の上の素の文字だけを入れる
+        if (typeof ev.preventDefault === 'function') ev.preventDefault();
+        const row = dropRowOf(ev);
+        if (row) await row._txt._dropText(ev);
+        return;
+      }
       ev.preventDefault();
       const { idx, els } = dropIndexAt(box, ev.clientY);
       const id = dragBlockId; dragBlockId = null;
@@ -5509,7 +5586,7 @@
       }
       await editAnswer(pid, () => window.koeApp.blockMove(pid, id, { afterId }), null);
     };
-    { const drop = box.ondrop; box.ondrop = (ev) => stepGroup(() => drop(ev)); }   // 0.14.0 EB-3（決めたこと 2）: 先に保存する打った文と動かす・複製を1歩に
+    { const drop = box.ondrop; box.ondrop = (ev) => (dragBlockId ? stepGroup(() => drop(ev)) : drop(ev)); }   // 0.14.0 EB-3（決めたこと 2）: 先に保存する打った文と動かす・複製を1歩に（落とした文字は、ほかの行の保存と分けて1歩: R117）
     // 0.10.0 LS-2: 鍵の間は欄の頭に一言を出し、要約の欄を読むだけにする（つまみ・削除の × を出さず、文・チェック・担当と期限を直せない）。
     // 鍵の一言が要約待ちの文を含むので、鍵の間は要約の欄の理由（summaryError）を重ねて出さない
     const lock = summaryLockView(curPage, { live: isLiveCopy(curPage), making: summarizing.has(curId) || mainMaking.has(curId), segments: curSegs });

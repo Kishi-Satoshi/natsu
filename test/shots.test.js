@@ -191,8 +191,9 @@ const RETAKEN_132 = ['nudge-light-100', 'nudge-dark-100', 'nudge-light-150', 'nu
 // 「この見た目でよい（おすすめ）」（2026-10-28）と言ったので、CI run 40796780384（80ea908）・artifact 12864058378 の .after.png（5 枚。閉じたパネルの3枚 nudge-light-100・nudge-dark-100・nudge-light-150 は今の基準とバイトが同じで artifact に出なかったので替えていない）をバイトのまま基準にし、取り直し待ちを空に戻した
 const ADDED_132 = [...NEW_132, ...RETAKEN_132];
 // 0.14.0（計画 docs/plans/2026-10-26-140.md の「取り直す画面（RETAKE）」）で意図して変えた: 取り直し待ちは 0.14.0 の表の画面だけ（RETAKE_140）。
-// EB-4 で行の文の飾りと色の明暗の2枚を、EB-5 で道具の帯・リンクの欄・色のメニューの3枚を足した（NEW_140。足した画面で、まだ基準が無い）
-const NEW_140 = ['edit-marks-light', 'edit-marks-dark', 'edit-toolbar-light', 'edit-link-light', 'edit-color-menu-light'];
+// EB-4 で行の文の飾りと色の明暗の2枚を、EB-5 で道具の帯・リンクの欄・色のメニューの3枚を足した（NEW_140。足した画面で、まだ基準が無い）。
+// EB-5 直しで拡大 200% の帯と色のメニューの1枚を足した
+const NEW_140 = ['edit-marks-light', 'edit-marks-dark', 'edit-toolbar-light', 'edit-link-light', 'edit-color-menu-light', 'edit-toolbar-zoom200-light'];
 // EB-5 で ⠿ のメニューに［色 ▸］が増えるので、今の基準がある1枚を取り直す（RETAKEN_140）
 const RETAKEN_140 = ['edit-block-menu-light'];
 const RETAKE_140 = [...NEW_140, ...RETAKEN_140];
@@ -253,7 +254,7 @@ test('G2: 撮る画面は決まった並び（第1b回の 13 と第1b2回の検�
   for (const s of SH.SCREENS) assert.ok(['app', 'overlay', 'nudge'].includes(s.page) && ['light', 'dark'].includes(s.theme), s.name);
   assert.deepStrictEqual(SH.SCREENS.filter((s) => s.zoom).map((s) => [s.name, s.zoom]), [['notes-page-zoom200-light', 2], ['settings-zoom200-dark', 2], ['live-banner-zoom200-dark', 2],
     ['settings-record-zoom200-light', 2], ['settings-info-zoom200-light', 2], ['live-late-zoom200-light', 2], ['live-ready-zoom200-light', 2],
-    ['edit-types-zoom150-light', 1.5], ['edit-nested-zoom200-light', 2]]);   // 0.9.2 I-4・0.9.4 S-8・0.13.0 RDY-3・ED-7・0.13.1 NE-4a で意図して足した
+    ['edit-types-zoom150-light', 1.5], ['edit-nested-zoom200-light', 2], ['edit-toolbar-zoom200-light', 2]]);   // 0.9.2 I-4・0.9.4 S-8・0.13.0 RDY-3・ED-7・0.13.1 NE-4a・0.14.0 EB-5 直しで意図して足した
   const live = SH.SCREENS.find((s) => s.name === 'live-light');
   const st = live.answers['koeApp.meetingStatus'];
   assert.ok(st.active && st.cloud && st.pauses.length === 1, '記録中の画面に一時停止の印か［PC の中だけ］が出ない');
@@ -1039,7 +1040,8 @@ test('基準の画像（test/shots/win32）は今の app.html で撮ったもの
   // 0.14.0 EB-5（計画 docs/plans/2026-10-26-140.md の決めたこと 19〜21・33・44・R110〜R112）: 道具の帯・リンクの欄・色のメニュー・行の色（⠿ の［色 ▸］・/ の色）と、その CSS。変わる画面は足した NEW_140 の3枚と取り直す RETAKEN_140 の edit-block-menu-light（ほかの撮る画面は行の色も帯も出さない）。値を今の app.html に合わせた（前の値は 99b7970c…）
   // 0.14.0 EB-4 直し（R113〜R115）: 飾りの文字の色の値（重なった地で 4.5:1）・背景の色の行のホバーとフォーカスの地・［コピー］の Markdown の写し・打った文字の飾りと記法と引っ張りの直し。変わる画面は取り直し待ちの edit-marks の2枚（ほかの撮る画面は飾りの色も背景の色の行も出さない）。値を今の app.html に合わせた（前の値は e3a437b3…）
   // 0.14.0 EB-6（計画 docs/plans/2026-10-26-140.md の決めたこと 32・R68・SEC2）: 音声入力の数の欄を数と単位の small の要素で組み（numUnits）、履歴が空のときのホットキーを <kbd> の文字で入れる（<script> の中だけ。要素の形は前の innerHTML の文と同じで、撮る画面 dictation-light は変わらない見込み: R116）。値を今の app.html に合わせた（前の値は 6a1c5c72…）
-  assert.strictEqual(sha, 'b6e477ab5e1a0a3352360eebbedb27c0027875222c18ca8a12012a199eed5376',
+  // 0.14.0 EB-5 直し（R117）: 行の文に落とした素の文字を入れる（dropRowOf・dropPlain・_dropText）・浮いた箱を欄の幅と見えている所に収める（placeAt・boxAt・色のメニュー）・下線と色だけの行の［コピー］で記号を逃がさない・変換中は帯を出さない・消えた行の帯を隠す・リンクの欄の行を id で探し直す・背景の色の行の .linkhit の線。変わる画面は足した NEW_140 の edit-toolbar-zoom200-light と、取り直し待ちの edit-toolbar-light・edit-color-menu-light（帯と色のメニューの置き場の決め方が変わる）。値を今の app.html に合わせた（前の値は b6e477ab…）
+  assert.strictEqual(sha, 'fec070e9c4a3607d3ca357f138c22f930eb7b90a3e6f26e3cc1eb6f025960212',
     'app.html が基準の画像を撮った時と違う。Windows の CI の画面の比べ（捲り棒のつまみも）を見て、基準を取り直してからこの値を直す');
 });
 

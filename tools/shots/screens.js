@@ -121,14 +121,15 @@ const OPEN_BLOCK_MENU = `(async () => {
   return 1;
 })()`;
 // 0.14.0 EB-5（計画 docs/plans/2026-10-26-140.md の決めたこと 19〜21）: 行 b2 の頭の4文字を選んで道具の帯を出し、then を続ける（リンクの欄・色のメニュー）
-const SELECT_MARKS = (then) => `(async () => {
+// EB-5 直し: tail なら行の文の終わりの4字を選ぶ（拡大 200% で右へ寄った選びの帯と色のメニューが欄の幅に収まるかを撮る）
+const SELECT_MARKS = (then, tail = false) => `(async () => {
   document.getElementById('tabBtnNotes').click(); document.querySelector('#plist .pitem').click();
   await new Promise((r) => setTimeout(r, 300));
   document.getElementById('paneBtnNote').click();
   const t = [...document.querySelectorAll('#pNote .blk')].find((e) => e.dataset.id === 'b2').querySelector('.txt');
   t.focus();
   const n = document.createTreeWalker(t, NodeFilter.SHOW_TEXT).nextNode();
-  const r = document.createRange(); r.setStart(n, 0); r.setEnd(n, Math.min(4, n.length));
+  const r = document.createRange(); ${tail ? 'r.setStart(n, Math.max(0, n.length - 4)); r.setEnd(n, n.length);' : 'r.setStart(n, 0); r.setEnd(n, Math.min(4, n.length));'}
   const sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(r);
   t.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
   ${then}
@@ -338,6 +339,8 @@ const SCREENS = [
   { name: 'edit-toolbar-light', page: 'app', theme: 'light', act: SELECT_MARKS('') },
   { name: 'edit-link-light', page: 'app', theme: 'light', act: SELECT_MARKS(LINK_REFUSED) },
   { name: 'edit-color-menu-light', page: 'app', theme: 'light', act: SELECT_MARKS(COLOR_OPEN) },
+  // 0.14.0 EB-5 直し: 拡大 200% で行の文の終わりを選んだ帯と［色 ▸］のメニュー（欄の幅に収まり、横の捲り棒が出ない）。足した画面（まだ基準が無い）
+  { name: 'edit-toolbar-zoom200-light', page: 'app', theme: 'light', zoom: 2, act: SELECT_MARKS(COLOR_OPEN, true) },
 ];
 // 0.9.0 O-3（RP9）: 録音バーの画面（形 → 地 → 拡大率 → 状態の順。撮る道具は形・地・拡大率の組ごとに窓を1つ開いて状態を act で替える）。
 // 録音は始めずに見た目だけを撮る（act は pill-states の見本を録音バーの DOM に当てる。撮るときだけ体の地にデスクトップの色を塗る）。
@@ -436,7 +439,7 @@ const OVL_094 = (states) => PS.FORMS.flatMap((form) => Object.keys(PS.DESKS).fla
 // バイトが同じで artifact に出なかったので替えていない）をバイトのまま基準にし、空に戻した（基準は 161 枚）
 // 0.14.0（計画 docs/plans/2026-10-26-140.md の「取り直す画面（RETAKE）」）: EB-4 で足した飾りの明暗の2枚と、EB-5 で足した道具の帯・リンクの欄・色のメニューの3枚（まだ基準が無い）。
 // EB-5 で ⠿ のメニューに［色 ▸］が増えた edit-block-menu-light（今の基準がある）
-const RETAKE = new Set(['edit-marks-light', 'edit-marks-dark', 'edit-toolbar-light', 'edit-link-light', 'edit-color-menu-light', 'edit-block-menu-light']);
+const RETAKE = new Set(['edit-marks-light', 'edit-marks-dark', 'edit-toolbar-light', 'edit-link-light', 'edit-color-menu-light', 'edit-toolbar-zoom200-light', 'edit-block-menu-light']);
 const PERF = [{ name: 'open-2000-blocks', budgetMs: 500 }];   // 3回開いた中央値で見る
 const TIME_ZONE = 'Asia/Tokyo';
 const TOLERANCE = 2;   // 色の差（0〜255）がこれ以下の画素は同じとみなす。CI の機械の CPU ごとの描き方の1段の差を拾わないため（揺れの確かめ judgePair は 0 で見る）

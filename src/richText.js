@@ -326,9 +326,11 @@ function mdRuns(runs, marks = MD_WRAP) {
   }
   return out;
 }
+// EB-5 直し（R117）: 記号を逃がすのは Markdown の記号を書く飾り（太字・斜体・取り消し・コード・リンク）がある行だけ。下線と色だけの行は記号を書かないので（R13）、飾りの無い行と1字も同じ
+const MD_SYNTAX = Object.freeze([...MD_WRAP, 'code']);
 function richMarkdown(rich) {
   const runs = tidy(rich);
-  if (!runs.some((r) => r.m.length)) return runs.map((r) => r.t).join('');
+  if (!runs.some((r) => r.m.some((mk) => MD_SYNTAX.includes(nameOf(mk))))) return runs.map((r) => r.t).join('');
   return mdRuns(runs);
 }
 

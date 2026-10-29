@@ -547,3 +547,14 @@ test('EB-4・R13（決めたこと 22）: blocksMarkdown は rich の行を rich
   assert.strictEqual(E.blocksMarkdown(noKids.map((b) => ({ ...b, rich: null }))), E.blocksMarkdown(noKids));
   assert.strictEqual(E.blocksMarkdown(plain(blocks)), '\n## 大事な見出し\n- 資料を見る\n  - [ ] 下線と赤\n  コード x と消し\n一行目\n  二行目');
 });
+
+test('EB-5 直し（R117）: richMarkdown は Markdown の記号を書く飾り（太字・斜体・取り消し・コード・リンク）のある行だけ記号を逃がす。下線だけ・色だけの行は飾りの無い行と1字も同じ', () => {
+  const t = 'a*b_c~d[e]f\\g`h';
+  for (const rich of [[run(t, 'u')], [run(t, ['color', 'red'])], [run(t, ['bg', 'yellow'])], [run('a*b', 'u'), run('_c', ['color', 'blue']), run('~d')]]) {
+    assert.strictEqual(R.richMarkdown(rich), rich.map((x) => x.t).join(''), `記号を逃がした: ${JSON.stringify(rich)}`);
+  }
+  // 記号を書く飾りが1つでもあれば今どおり逃がす（下線の区切りの記号も）
+  assert.strictEqual(R.richMarkdown([run('a*b', 'u'), run('x', 'b')]), 'a\\*b**x**');
+  assert.strictEqual(R.richMarkdown([run('a_b', ['color', 'red']), run('x', 'code')]), 'a\\_b`x`');
+  assert.strictEqual(R.richMarkdown([run('a~b', 'u'), run('x', ['link', 'https://example.com/'])]), 'a\\~b[x](https://example.com/)');
+});

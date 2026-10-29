@@ -585,7 +585,9 @@ test('EB-4: 画面の写し（app.html の richText・keyAction・blocksMarkdown
   const rs = [[r4('あい'), r4('うえ', 'b'), r4('お')], [r4('𠮷野', 'i', ['color', 'red']), r4('家', 'code')], [r4('資料', LINK), r4(' と '), r4('x', 'u', 's', ['bg', 'yellow'])],
     [r4('a', 'code', LINK), r4('b', ['link', 'javascript:x'])], [], null, [r4('')],
     // EB-4 直し（M2・R114）: 隣の区切りの同じ飾り・記号の逃がし・コードの ` の囲み
-    [r4('ab', 'b'), r4('cd', 'b', 'i')], [r4('a]b*', LINK), r4('_x_', 'b')], [r4('a`b', 'code'), r4(' 2*3 ')], [r4('`x', 'code'), r4('~y~', 's')]];
+    [r4('ab', 'b'), r4('cd', 'b', 'i')], [r4('a]b*', LINK), r4('_x_', 'b')], [r4('a`b', 'code'), r4(' 2*3 ')], [r4('`x', 'code'), r4('~y~', 's')],
+    // EB-5 直し（R117）: 下線だけ・色だけの行は記号を逃がさない
+    [r4('a*b_[c]', 'u')], [r4('~x~', ['color', 'red']), r4('\\`')], [r4('a*b', 'u'), r4('x', 'i')]];
   for (const r of rs) {
     for (const n of ['normalizeRich', 'plainOf', 'richMarkdown', 'richTree']) assert.deepStrictEqual(app[n](r), R[n](r), `${n} ${JSON.stringify(r)}`);
     assert.deepStrictEqual(app.richOf({ text: 'x', rich: r }), R.richOf({ text: 'x', rich: r }));
@@ -1457,7 +1459,7 @@ test('EB-4 直し・M1・M4（決めたこと 18・R115）: 文中の記法は�
   } finally { l.done(); }
 });
 
-test('EB-4 直し・M3（R115）: 行の欄に文字を落とさせない（外から引っ張ってきた文字・ファイル）。行の中で選んだ文字を引っ張っても行の並べ替えにしない', T, async () => {
+test('EB-4 直し・M3（R115。EB-5 直しで R117）: 行の文の外に落としたものは入れない（Chromium が HTML のまま入れる。行の文の上の素の文字は R117 の場面）。行の中で選んだ文字を引っ張っても行の並べ替えにしない', T, async () => {
   const l = await openReal({ pa1: BASE() });
   try {
     const box = $(l, 'pNote');
@@ -1534,5 +1536,206 @@ test('EB-6・R68: 音声入力の数の欄（今日・累計・節約時間）�
       }
       assert.deepStrictEqual(l.errors.map(fmt), []);
     } finally { if (l.done) l.done(); }
+  }
+});
+
+// ---------------------------------------------------------------- EB-5 直し（2026-10-29 の点検。R117）
+test('EB-5 直し（R117。R115 で止めた落とす動きを戻した）: ほかのアプリ・文字起こしの欄から行の文に落とした文字は、素の文字だけを落とした所へ入れ、1歩で保存する。ファイル・文字の無いもの・行の外は入れない', T, async () => {
+  const l = await openReal({ pa1: BASE() });
+  try {
+    const box = $(l, 'pNote');
+    const t = txtOf(l, 'p1');
+    const dt = (o = {}) => ({ dropEffect: 'copy', types: o.types || ['text/html', 'text/plain'], files: o.files || [],
+      getData: (k) => (k === 'text/plain' ? (o.plain ?? 'X<b>Y</b>\r\nZ') : '<b>太字</b><script>x()</script>') });
+    // 行の文の上: 落とせる（copy）
+    let over = false;
+    const d1 = dt();
+    box.ondragover({ preventDefault: () => { over = true; }, dataTransfer: d1, target: t, clientX: 5, clientY: 25 });
+    assert.strictEqual(over, true);
+    assert.strictEqual(d1.dropEffect, 'copy', '行の文の上で落とせない');
+    // 落とした所（2文字目の後ろ）へ素の文字だけ・改行は行の中の改行
+    l.caret.point(t, 2);
+    let stopped = false;
+    await box.ondrop({ preventDefault: () => { stopped = true; }, dataTransfer: d1, target: t, clientX: 5, clientY: 25 });
+    await l.drain();
+    assert.strictEqual(stopped, true, '既定の落とし（Chromium が HTML のまま入れる）を止めない');
+    assert.strictEqual(t.textContent, 'あいX<b>Y</b>\nZうえお');
+    assert.deepStrictEqual(t.querySelectorAll('b').length + t.querySelectorAll('script').length, 0, 'HTML が要素になった');
+    assert.strictEqual(l.page().blocks.find((b) => b.id === 'p1').text, 'あいX<b>Y</b>\nZうえお', '落とした文字を保存しない');
+    assert.strictEqual(updates(l).length, 1);
+    assert.strictEqual(l.steps.length, 1, '1歩にならない');
+    // Ctrl+Z の1回で戻る
+    press(l, Z);
+    await l.drain();
+    assert.strictEqual(l.page().blocks.find((b) => b.id === 'p1').text, 'あいうえお');
+    // ファイル・文字の無いもの・行の外・区切り線は落とさない（落とせない形にし、既定の落としも止める）
+    const t2 = txtOf(l, 'b1');
+    for (const [d, target, why] of [[dt({ types: ['Files'], files: [{ name: 'a.png' }] }), t2, 'ファイル'], [dt({ plain: '' }), t2, '文字の無いもの'],
+      [dt(), box, '行の外']]) {
+      over = false; stopped = false;
+      box.ondragover({ preventDefault: () => { over = true; }, dataTransfer: d, target, clientY: 5 });
+      assert.strictEqual(over, true, why);
+      assert.strictEqual(d.dropEffect, 'none', `${why}を落とせる形`);
+      await box.ondrop({ preventDefault: () => { stopped = true; }, dataTransfer: d, target, clientY: 5 });
+      await l.drain();
+      assert.strictEqual(stopped, true, why);
+      assert.strictEqual(t2.textContent, '来週に出す', `${why}を入れた`);
+    }
+    assert.strictEqual(updates(l).length, 1);
+    // 行の並べ替えは今どおり（⠿ から引っ張る）
+    await dragTo(l, 'p1', 0);
+    await l.drain();
+    assert.strictEqual(l.called('blockMove').length, 1, '行の並べ替えができない');
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+// 浮いた箱の大きさ（偽の DOM は大きさを持たないので、組の名前ごとに置く）
+function withSizes(sizes, fn) {
+  const { Element } = require('./helpers/simdom');
+  const old = { w: Object.getOwnPropertyDescriptor(Element.prototype, 'offsetWidth'), h: Object.getOwnPropertyDescriptor(Element.prototype, 'offsetHeight') };
+  const of = (e) => sizes[String(e.className || '').split(' ')[0]] || [0, 0];
+  Object.defineProperty(Element.prototype, 'offsetWidth', { configurable: true, get() { return of(this)[0]; } });
+  Object.defineProperty(Element.prototype, 'offsetHeight', { configurable: true, get() { return of(this)[1]; } });
+  const back = () => {
+    if (old.w) Object.defineProperty(Element.prototype, 'offsetWidth', old.w); else delete Element.prototype.offsetWidth;
+    Object.defineProperty(Element.prototype, 'offsetHeight', old.h);
+  };
+  return Promise.resolve().then(fn).finally(back);
+}
+test('EB-5 直し: 道具の帯・リンクの欄・色のメニューは要約の欄の幅に収め（拡大 200% で右へはみ出さない）、上か下かは見えている所で決める（捲った欄のいちばん上の行の選びでも見える）', T, async () => {
+  const l = await openReal({ pa1: [{ id: 'p1', type: 'paragraph', text: 'あいうえおかきくけこ' }] });
+  try {
+    await withSizes({ markbar: [220, 36], linkpop: [380, 80], colormenu: [200, 300] }, async () => {
+      const note = $(l, 'pNote');
+      // 窓（.page）は画面の 100〜500px。欄は 200px 捲られて頭が -200px・幅 400px
+      $(l, 'pageWrap')._rect = { top: 100, left: 0, width: 600, height: 400 };
+      note._rect = { top: -200, left: 20, width: 400, height: 2000 };
+      note.clientWidth = 400;
+      let sel = { top: 110, bottom: 130, left: 350, right: 380, width: 30, height: 20 };
+      l.window.__natsuCaret.rect = () => sel;
+      // 見えている所のいちばん上の選び: 上（110 - 36 - 6 = 68）は窓の外なので下へ。右の端は欄の幅 - 帯の幅（400 - 220）
+      selectIn(l, 'p1', 6, 8);
+      const bar = barOf(l);
+      assert.ok(bar);
+      assert.strictEqual(bar.style.top, `${130 + 6 + 200}px`, '見えている所の上へ置いた');
+      assert.strictEqual(bar.style.left, '180px', '帯が欄の右へはみ出す');
+      // 窓の中ほどの選び: 上へ・選んだ所の左
+      sel = { top: 300, bottom: 320, left: 60, right: 90, width: 30, height: 20 };
+      selectIn(l, 'p1', 1, 3);
+      assert.strictEqual(barOf(l).style.top, `${300 - 36 - 6 + 200}px`);
+      assert.strictEqual(barOf(l).style.left, '40px');
+      // 色のメニュー: 帯の［色］の下。下が窓の外（帯は 450 - 42 + 200 = 608。608 + 36 + 4 + 300 - 200 > 500）で帯の上に入るなら上へ。右の端は欄の幅 - メニューの幅
+      sel = { top: 450, bottom: 470, left: 390, right: 395, width: 5, height: 20 };
+      selectIn(l, 'p1', 1, 3);
+      pushBtn(barBtn(l, '色'));
+      const cm = cmenuOf(l);
+      assert.ok(cm, '色のメニューが出ない');
+      assert.ok(parseFloat(cm.style.left) <= 200 && parseFloat(cm.style.left) >= 0, `色のメニューが欄の右へはみ出す（${cm.style.left}）`);
+      assert.strictEqual(cm.style.top, `${608 - 4 - 300}px`, '色のメニューが窓の下へはみ出す');
+      // リンクの欄: 選んだ所の下・右の端は 400 - 380
+      l.key({ key: 'k', code: 'KeyK', ctrlKey: true }, txtOf(l, 'p1'));
+      const pop = popOf(l);
+      assert.ok(pop);
+      assert.strictEqual(pop.style.left, '20px', 'リンクの欄が欄の右へはみ出す');
+      assert.strictEqual(pop.style.top, `${470 + 6 + 200}px`);
+    });
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+test('EB-5 直し: 変換中は道具の帯を出さない。帯を出した行が命令の答えで消えたら帯も消す（書いている途中のまま残さない）', T, async () => {
+  const l = await openReal({ pa1: BASE() });
+  try {
+    // 変換中の選び（変換の文字を選んでいる）では出さず、出ていた帯は隠す
+    let t = selectIn(l, 'p1', 1, 3);
+    assert.ok(barOf(l));
+    t.dispatchEvent({ type: 'compositionstart' });
+    t.dispatchEvent({ type: 'keyup' });
+    assert.ok(!barOf(l), '変換中に帯が残る');
+    t.dispatchEvent({ type: 'compositionend' });
+    t = selectIn(l, 'p1', 1, 3);
+    assert.ok(barOf(l), '変換が終わっても帯が出ない');
+    t.dispatchEvent({ type: 'compositionstart' });
+    l.caret.set(t, 0, 2);
+    t.dispatchEvent({ type: 'mouseup' });
+    assert.ok(!barOf(l), '変換中に帯が出た');
+    t.dispatchEvent({ type: 'compositionend' });
+    // 帯を出した行（b1）を ⠿ の［削除］で消す → 答えの描き直しで帯も消え、書いている途中でなくなる
+    selectIn(l, 'b1', 0, 2);
+    assert.ok(barOf(l));
+    rowOf(l, 'b1').querySelector('.grip').onclick();
+    const m = $(l, 'pNote').querySelector('.blockmenu');
+    m.querySelectorAll('.mitem').find((x) => x.textContent === '削除').onclick();
+    await l.drain();
+    assert.ok(!rowOf(l, 'b1'), '前提: 行が消えない');
+    assert.ok(!barOf(l), '消えた行の帯が残る');
+    // 書いている途中でないので、保存した議事録を前に出せる
+    l.document.activeElement && l.document.activeElement.blur();
+    l.fire('onPageOpen', 'pa1', { saved: true });
+    await l.drain();
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+test('EB-5 直し: リンクの欄を開いている間に行が描き直されても、同じ id の行に付ける（黙って閉じてフォーカスを失わない）', T, async () => {
+  const l = await openReal({ pa1: BASE() });
+  try {
+    const t = selectIn(l, 'p1', 1, 3);
+    l.key({ key: 'k', code: 'KeyK', ctrlKey: true }, t);
+    const pop = popOf(l);
+    assert.ok(pop);
+    // 開いている間に、⠿ の［色 ▸］で行の色を変える（答えで p1 の行の要素が替わる。フォーカスはリンクの欄）
+    rowOf(l, 'p1').querySelector('.grip').onclick();
+    const m = $(l, 'pNote').querySelector('.blockmenu');
+    m.querySelectorAll('.mitem').filter((x) => x.parentNode === m)[3].onclick();
+    $(l, 'pNote').querySelectorAll('.blockmenu').find((x) => x.classList.contains('sub')).querySelectorAll('.mitem').find((x) => x.dataset.key === 'red').onclick();
+    await l.drain();
+    assert.ok(txtOf(l, 'p1') !== t, '前提: 行の要素が替わらない');
+    pop.querySelector('input').value = 'https://example.invalid/';
+    l.key({ key: 'Enter' }, pop.querySelector('input'));
+    await l.drain();
+    const t2 = txtOf(l, 'p1');
+    assert.deepStrictEqual(viewOf(t2), ['あ', { tag: 'span', link: 'https://example.invalid/', t: 'いう' }, 'えお'], '描き直した行にリンクが付かない');
+    assert.ok(l.document.activeElement === t2, 'フォーカスが行に戻らない');
+    assert.ok(!popOf(l));
+    // 行の文が変わっていたら付けずに閉じ、行へフォーカスを戻す
+    selectIn(l, 'p1', 0, 1);
+    l.key({ key: 'k', code: 'KeyK', ctrlKey: true }, txtOf(l, 'p1'));
+    const pop2 = popOf(l);
+    l.call('page.put', { page: { ...l.page(), blocks: l.page().blocks.map((b) => (b.id === 'p1' ? { ...b, text: '別の文', rich: undefined } : b)) }, baseRev: l.page().rev }, 'main');
+    rowOf(l, 't1').querySelector('.grip').onclick();
+    const m2 = $(l, 'pNote').querySelector('.blockmenu');
+    m2.querySelectorAll('.mitem').find((x) => x.textContent === '複製').onclick();
+    await l.drain();
+    pop2.querySelector('input').value = 'https://example.invalid/b';
+    l.key({ key: 'Enter' }, pop2.querySelector('input'));
+    await l.drain();
+    assert.ok(!popOf(l));
+    assert.ok(l.document.activeElement === txtOf(l, 'p1'), 'フォーカスを失った');
+    assert.ok(!JSON.stringify(l.page().blocks.find((b) => b.id === 'p1').rich || null).includes('example.invalid/b'), '変わった文にリンクを付けた');
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+test('EB-5 直し（R117）: リンクで飛んだ先の印（.blk.linkhit）は背景の色の行でも見える（地は変えず内側の線。線は背景の色の上で 3:1 以上・その上の文字は今の 4.5:1 のまま）', () => {
+  const { parseHTML } = require('./helpers/simdom');
+  const S = require('./helpers/simcss');
+  const C = require('./helpers/css');
+  const rules = S.parse(parseHTML(HTML).root.querySelectorAll('style').map((s) => s._raw).join('\n'));
+  const at = (sel) => rules.findIndex((r) => r.sel.split(',').map((x) => x.trim()).includes(sel) && !r.at);
+  const hit = at('.blk.linkhit[data-bbg]');
+  assert.ok(hit >= 0, '背景の色の行の .linkhit の CSS が無い（.blk[data-bbg=…] の地に負けて見えない）');
+  assert.strictEqual(rules[hit].decls.outline.trim(), '2px solid var(--accent-text)');
+  assert.strictEqual(rules[hit].decls['outline-offset'].trim(), '-2px');
+  assert.strictEqual(rules[hit].decls.background, undefined, '背景の色の行の地を変えた（文字が 4.5:1 を割る）');
+  const light = S.tokens(rules, '');
+  const dark = { ...light, ...S.tokens(rules, '@media (prefers-color-scheme: dark)') };
+  for (const [name, t] of [['明', light], ['暗', dark]]) {
+    const bg = C.color(t['--bg']);
+    for (const m of R.COLORS) {
+      const c = C.contrast(C.color(t['--accent-text']), C.over(C.color(t[`--mkbg-${m}`]), bg));
+      assert.ok(c >= 3, `${name}: 印の線が --mkbg-${m} の上で ${c.toFixed(2)}`);
+    }
   }
 });

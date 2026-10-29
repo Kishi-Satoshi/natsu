@@ -338,8 +338,10 @@ async function load(htmlPath, opt = {}) {
       range: (el) => (Element.focused === el && at.has(el) ? at.get(el).slice() : null),
       set: (el, n) => { at.set(el, [n, n]); },
       select: (el, a, b) => { at.set(el, [a, b]); },   // 0.14.0 EB-4: 範囲を選ぶ（飾りを付けた後も選んだ所を残す）
+      point: (el) => (pt.has(el) ? pt.get(el) : null),   // 0.14.0 EB-5 直し: 落とした所（本物は caretRangeFromPoint）。l.caret.point(el, n) で置く
     };
-    log.caret = { set: (el, s, e = s) => { at.set(el, [s, e]); }, get: (el) => (at.has(el) ? at.get(el).slice() : null) };
+    const pt = new Map();
+    log.caret = { set: (el, s, e = s) => { at.set(el, [s, e]); }, get: (el) => (at.has(el) ? at.get(el).slice() : null), point: (el, n) => { pt.set(el, n); } };
   }
   const console2 = { log: noop, warn: noop, info: noop, debug: noop, error: (...a) => log.consoleErrors.push(a.map((x) => (x && x.message) || String(x)).join(' ')) };
 
