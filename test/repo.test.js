@@ -1738,17 +1738,47 @@ test('0.12.0 SP-4: SOURCE_NAMES（app.html）と SOURCE_LABELS が同じ。timel
 
 // 0.14.0 EB-6（計画 docs/plans/2026-10-26-140.md の決めたこと 32・34・R68・SEC2・F102）: 画面の HTML に入れるのは決まった文字か数だけ。
 // 他人の文字（貼った HTML・設定の文字・リンク）は innerHTML に入れない。ゲートの本体は tools/risk.js の htmlSinks（BLOCK にも同じ決まり）
-const HTML_SINK_RE = /\.(?:innerHTML|outerHTML)\s*(?:\+=|=(?![=>]))|\.insertAdjacentHTML\s*\(/g;
-test('EB-6・SEC2: app.html の innerHTML・outerHTML・insertAdjacentHTML に入るのは決まった文字か数だけ（${…} の中は数の名前だけ）', { timeout: 5000 }, () => {
+const HTML_SINK_RE = /\.(?:innerHTML|outerHTML)\s*(?:\+=|\|\|=|&&=|\?\?=|=(?![=>]))|\.insertAdjacentHTML\s*\(/g;
+// EB-6 直し（R121 (4)）: 字の上の口の数は、注釈と1行の文字（'…'・"…"）を除いて数える。risk.js の字句の読み手とは別の作り
+// （正規表現の字句を読まない）なので、読み手が正規表現と割り算を取り違えて口を飲み込むと数が食い違って見つかる
+function rawSinkCount(code) {
+  let out = '';
+  for (let i = 0; i < code.length;) {
+    const c = code[i];
+    if (c === '/' && code[i + 1] === '/') { while (i < code.length && code[i] !== '\n') i++; continue; }
+    if (c === '/' && code[i + 1] === '*') { const e = code.indexOf('*/', i + 2); i = e < 0 ? code.length : e + 2; out += ' '; continue; }
+    if (c === "'" || c === '"') {
+      let j = i + 1;
+      while (j < code.length && code[j] !== c && code[j] !== '\n') j += code[j] === '\\' ? 2 : 1;
+      i = j + 1; out += '""'; continue;
+    }
+    out += c; i++;
+  }
+  return (out.match(HTML_SINK_RE) || []).length;
+}
+// EB-6 直し（R121 (3)）: src の全部の画面と JS（git ls-files src の .html・.js・.mjs。preload も部品も main も）
+function srcCodeFiles() {
+  const files = trackedFiles() || [];
+  return files.filter((f) => f.startsWith('src/') && /\.(?:html?|m?js)$/.test(f) && fs.existsSync(path.join(ROOT, f)));
+}
+test('EB-6・SEC2: src の画面と JS の innerHTML・outerHTML・insertAdjacentHTML に入るのは決まった文字か数だけ（${…} の中は数の名前だけ）。HTML を要素にするほかの口（setHTMLUnsafe・DOMParser・document.write・srcdoc など）も無い', { timeout: 20000 }, () => {
   const R = require('../tools/risk');
-  for (const f of ['src/renderer/app.html', 'src/renderer/nudge.html', 'src/renderer/overlay.html']) {
+  const files = srcCodeFiles();
+  for (const f of ['src/renderer/app.html', 'src/renderer/nudge.html', 'src/renderer/overlay.html', 'src/preload.js', 'src/main.js', 'src/pasteConvert.js', 'src/db/commands.js']) {
+    assert.ok(files.includes(f), `${f} を見ていない`);
+  }
+  for (const f of files) {
     const src = read(f);
     const s = R.htmlSinks(src, f);
     assert.deepStrictEqual(s.bad.map((b) => `${f}:${b.line} ${b.why}: ${b.text}`), [], `${f} に決まった文字でないものを入れる HTML の口がある`);
     // 口を数え落としていない（注釈と文字の中のほかは、字の上の口が全部ゲートに見えている）
-    const scripts = [...src.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/gi)].map((m) => m[1]).join('\n');
-    assert.strictEqual(s.all.length, (scripts.match(HTML_SINK_RE) || []).length, `${f}: ゲートが見た口の数が字の上の数と違う`);
+    const code = /\.html?$/.test(f) ? [...src.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/gi)].map((m) => m[1]).join('\n') : src;
+    assert.strictEqual(s.all.length, rawSinkCount(code), `${f}: ゲートが見た口の数が字の上の数と違う`);
   }
+  // 注釈と文字の中の口の字は数えない（「// el.innerHTML = x は使わない」と書いても赤くならない）
+  const noted = '// el.innerHTML = x は使わない\n/* el.outerHTML = y */\nconst s = "el.innerHTML = z";\nel.innerHTML = \'\';\n';
+  assert.strictEqual(rawSinkCount(noted), 1);
+  assert.strictEqual(R.htmlSinks(noted, 'src/x.js').all.length, 1);
   // 今の app.html の口（12 か所: 決まった文と、数の名前 ${total} の1つ）を全部見ている
   const app = R.htmlSinks(appHtml, 'src/renderer/app.html');
   assert.ok(app.all.length >= 12, `app.html の口が少なすぎる（${app.all.length}。ゲートが空振りしている）`);
@@ -1801,6 +1831,46 @@ test('EB-6・SEC2: tools/risk.js が変数を innerHTML に入れる行を足す
     'const total = r.name; el.innerHTML = `${total} 件`;',
     'const total = r && r.total; el.innerHTML = `${total} 件`;',
     'el.innerHTML = `${undeclared} 件`;',
+    // EB-6 直し（R121 (1)）: HTML を要素にするほかの口と、口の名前を隠す書き方
+    'el.setHTMLUnsafe(html);',
+    'el.setHTML(html);',
+    'const d = new DOMParser().parseFromString(html, "text/html");',
+    'const doc = Document.parseHTMLUnsafe(html);',
+    'const f = range.createContextualFragment(html);',
+    'document.write(html);',
+    'document.writeln(html);',
+    "document['write'](html);",
+    'frame.contentDocument.write(html);',
+    'frame.srcdoc = html;',
+    "frame.setAttribute('srcdoc', html);",
+    'Object.assign(el, { innerHTML: html });',
+    "Object.assign(el, { 'outerHTML': html });",
+    "Reflect.set(el, 'innerHTML', html);",
+    "el.insertAdjacentHTML.call(el, 'beforeend', html);",
+    "el.insertAdjacentHTML.apply(el, ['beforeend', html]);",
+    "const put = el.insertAdjacentHTML; put('beforeend', html);",
+    "el['insertAdjacentHTML'].call(el, 'beforeend', html);",
+    "el['inner' + 'HTML'] = html;",
+    "const k = 'innerHTML'; el[k] = html;",
+    "const a = 'inner'; el[a + b] = html;",
+    'el[`inner${""}HTML`] = html;',
+    'el.innerHTML ||= html;',
+    'el.innerHTML &&= html;',
+    'el.innerHTML ??= html;',
+    // EB-6 直し（R121 (2)）: .length は数と見なさない（物の length は何でも入る）・宣言のほかの書き込み
+    'const n = s.length; el.innerHTML = `${n}`;',
+    'const n = 0 + list.length; el.innerHTML = `${n}`;',
+    'let n = 0; for (n in o) {} el.innerHTML = `${n}`;',
+    'let n = 0; for (n of l) {} el.innerHTML = `${n}`;',
+    'let n = 0; for ([n] of l) {} el.innerHTML = `${n}`;',
+    'let n = 0; (n) = s; el.innerHTML = `${n}`;',
+    'let n = 0; window.n = s; el.innerHTML = `${n}`;',
+    'let n = 0; globalThis.n = s; el.innerHTML = `${n}`;',
+    "let n = 0; self['n'] = s; el.innerHTML = `${n}`;",
+    // EB-6 直し（R121 (5)）: if (…) の後の / は正規表現（割り算と読んで口を飲み込まない）・文の頭の } の後も
+    "if (a) /'/.test(b); el.innerHTML = x;",
+    "while (a) /\"/.test(b); el.innerHTML = x;",
+    "function f() { g(); } /'/.test(b); el.innerHTML = x;",
   ];
   for (const js of bad) assert.strictEqual(hits(js).length, 1, `鳴らない: ${js}`);
   // 鳴らない（決まった文字か数だけ）
@@ -1809,7 +1879,7 @@ test('EB-6・SEC2: tools/risk.js が変数を innerHTML に入れる行を足す
     'el.innerHTML = `<b>決まった文</b>`;',
     "el.innerHTML = '<b>a</b>'\n  // 注釈の行\n  + '<i>b</i>';",
     "el.innerHTML = $('q').value.trim() ? '<b>当たりません</b>' : '<b>ありません</b>';",
-    'const total = r && Number.isFinite(Number(r.total)) ? Number(r.total) : acts.length;\nel.innerHTML = total > 0 ? `全部で ${total} 件` : \'<b>無し</b>\';',
+    'const total = r && Number.isFinite(Number(r.total)) ? Number(r.total) : Number(acts.length);\nel.innerHTML = total > 0 ? `全部で ${total} 件` : \'<b>無し</b>\';',
     'let tc = 0, tch = 0; tc++; tch += h.chars || 0; el.innerHTML = `${tc}<small>回</small>`;',
     'const n = Number(s.totalBytes) || 0; el.innerHTML = `${n}`;',
     'const n = Math.round(x); el.innerHTML = `${n}`;',
@@ -1821,13 +1891,34 @@ test('EB-6・SEC2: tools/risk.js が変数を innerHTML に入れる行を足す
     "el.textContent = name;",
     'el.innerHTML = 5;',
     "el.innerHTML = '';",
+    // EB-6 直し: ほかの口に似た名前・決まった文字の ||=・数と決まった length・割り算
+    "el.innerHTML ||= '<b>決まった文</b>';",
+    'const n = Number(s.length); el.innerHTML = `${n}`;',
+    'let n = 0; n++; n -= 1; o.n = s; el.innerHTML = `${n}`;',
+    'const h = document.createElement("div"); h.textContent = t;',
+    'out.write(chunk); stream.writeln(x);',
+    "el.setAttribute('title', t); el.insertAdjacentText('beforeend', t); el.insertAdjacentElement('beforeend', node);",
+    "const o = { inner: 1, html: 2 }; const s = 'innerText';",
+    'const h = el.innerHTML.trim(); const w = el.outerHTML.length;',
+    'const r = (1) / 2 / 3; el.innerHTML = `${r}`;',
+    'const o = { a: 1 }; const q = (o.a) / 2;',
   ];
   for (const js of ok) assert.deepStrictEqual(hits(js), [], `鳴った: ${js}`);
+  // 字句の読み手: 閉じない文字・正規表現の改行も行に数える（口の行の番号がずれない）
+  assert.deepStrictEqual(R.htmlSinks("const s = 'abc\nel.innerHTML = name;\n", 'src/x.js').bad.map((x) => x.line), [2]);
+  assert.deepStrictEqual(R.htmlSinks('const r = /abc\nel.innerHTML = name;\n', 'src/x.js').bad.map((x) => x.line), [2]);
+  assert.deepStrictEqual(R.htmlSinks("const a = 1;\nif (a) /'/.test(b);\nel.innerHTML = name;\n", 'src/x.js').bad.map((x) => x.line), [3]);
   // 前からある行は鳴らさない（新しく足したものだけ）。同じ行を増やすと鳴る
   const old = 'el.innerHTML = name;';
   assert.deepStrictEqual(R.htmlSinkFindings(F, page(old), page(`${old}\nconst b = 2;`)), [], '前からある行で鳴った');
   assert.strictEqual(R.htmlSinkFindings(F, page(old), page(`${old}\n${old}`)).length, 1, '同じ行を足しても鳴らない');
   assert.deepStrictEqual(R.htmlSinkFindings(F, page(old), page(base)), [], '消したら鳴った');
+  // EB-6 直し（R121 (6)）: 同じ字の行を動かしただけは鳴らず、動かして増やすと鳴り、知らせは今の全部の行の番号を持つ
+  assert.deepStrictEqual(R.htmlSinkFindings(F, page(`${old}\nconst b = 2;`), page(`const b = 2;\n${old}`)), [], '動かしただけで鳴った');
+  const moved = R.htmlSinkFindings(F, page(`${old}\nconst b = 2;`), page(`const b = 2;\n${old}\nconst c = 3;\n${old}`));
+  assert.strictEqual(moved.length, 1, '動かして増やしても鳴らない');
+  assert.match(moved[0], /^src\/renderer\/app\.html:4,6 /, moved[0]);
+  assert.match(moved[0], /前 1 → 今 2/, moved[0]);
   // src の JS（main・preload・部品）も同じ決まり。ほかのファイルは見ない
   assert.strictEqual(R.htmlSinkFindings('src/pasteConvert.js', '', 'el.innerHTML = html;\n').length, 1);
   assert.deepStrictEqual(R.htmlSinkFindings('test/x.test.js', '', 'el.innerHTML = html;\n'), []);

@@ -2533,7 +2533,7 @@
     }
     const acts = r && Array.isArray(r.actions) ? r.actions : [];
     const people = r && Array.isArray(r.people) ? r.people : [];
-    const total = r && Number.isFinite(Number(r.total)) ? Number(r.total) : acts.length;
+    const total = r && Number.isFinite(Number(r.total)) ? Number(r.total) : Number(acts.length);
 
     // 担当者での絞り込みチップ
     if (people.length) {
