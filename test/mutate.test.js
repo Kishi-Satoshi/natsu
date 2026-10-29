@@ -1164,6 +1164,7 @@ const IDS_132 = [
   'ln-ask-boot', 'ln-ask-start', 'ln-ask-dict', 'ln-ask-offline', 'ln-ask-noblock', 'ln-ask-focus', 'ln-ask-refocus', 'ln-ask-snooze', 'ln-ask-parent', 'ln-ask-card',
   'ln-retry-busy', 'ln-retry-held', 'ln-leave-wait',
   'ln-nudge-bottom', 'ln-nudge-center', 'ln-nudge-workarea', 'ln-nudge-slot', 'ln-nudge-menu-up',
+  'ln-force-once',
 ];
 test('G3・0.13.2: 0.13.2 の変異が一覧にそろい、IDS_132 はどれも計画の「変異確認」の表にある。ln- の変異は IDS_132 にある。どれも決まったテストのファイルを持ち、why が 0.13.2 で始まる', { timeout: 5000 }, () => {
   const byId = new Map(MUTANTS.map((m) => [m.id, m]));
@@ -1175,7 +1176,7 @@ test('G3・0.13.2: 0.13.2 の変異が一覧にそろい、IDS_132 はどれも�
   assert.ok(at > 0, '計画の「変異確認」の節が無い');
   const table = plan.slice(at, plan.indexOf('\n## ', at + 5));
   const rows = [...table.matchAll(/^\| (ln-[a-z0-9-]*) \|/gm)].map((m) => m[1]);
-  assert.strictEqual(rows.length, 30, '計画の 0.13.2 の表（ln- 30）が読めない');
+  assert.strictEqual(rows.length, 31, '計画の 0.13.2 の表（ln- 31）が読めない');
   assert.strictEqual(new Set(rows).size, rows.length, '計画の表に重なり');
   assert.deepStrictEqual(IDS_132.filter((id) => !rows.includes(id)), [], '計画の「変異確認」の表に無い変異');
   assert.deepStrictEqual(IDS_132, rows.filter((id) => IDS_132.includes(id)), 'IDS_132 が表の行の順でない');
@@ -1185,14 +1186,14 @@ test('G3・0.13.2: 0.13.2 の変異が一覧にそろい、IDS_132 はどれも�
     assert.ok(typeof m.why === 'string' && m.why.startsWith('0.13.2 '), `${id}: why`);
   }
 });
-// 0.13.2 LN-6（計画の「変異確認」の IDS_132 の決まり）: 作りながら足した IDS_132 は、計画の表の ln- の id とちょうど同じ（行の順・30）
-test('LN-6・G3・0.13.2: IDS_132 は計画の「変異確認」の ln- の表とちょうど同じ（行の順・30）。68767ba の一覧に ln で始まる id は無く、前の版の照らしにも 0.14.0 の頭にも当たらない', { timeout: 5000 }, () => {
+// 0.13.2 LN-6（計画の「変異確認」の IDS_132 の決まり）: 作りながら足した IDS_132 は、計画の表の ln- の id とちょうど同じ（行の順・31）
+test('LN-6・G3・0.13.2: IDS_132 は計画の「変異確認」の ln- の表とちょうど同じ（行の順・31）。68767ba の一覧に ln で始まる id は無く、前の版の照らしにも 0.14.0 の頭にも当たらない', { timeout: 5000 }, () => {
   const plan = fs.readFileSync(path.join(ROOT, 'docs', 'plans', '2026-10-28-132.md'), 'utf8');
   const at = plan.search(/^## 変異確認（直しを1つ戻すと/m);
   const table = plan.slice(at, plan.indexOf('\n## ', at + 5));
   const rows = [...table.matchAll(/^\| (ln-[a-z0-9-]*) \|/gm)].map((m) => m[1]);
   assert.deepStrictEqual(IDS_132, rows);
-  assert.strictEqual(IDS_132.length, 30);
+  assert.strictEqual(IDS_132.length, 31);
   for (const re of [/^(ed|rdy|clk)-/, /^edn-/, /^lg-/, /^lv-/, /^(mcp|cfg|lk|ls|stl|nl|pt)-/, /^(ka|pc|lt|wd|sg|rx|bm|ci|dt|wv|pb|rn)-/, /^(eb|ek|mb|dq)-/]) {
     assert.deepStrictEqual(IDS_132.filter((id) => re.test(id)), [], `${re} に当たる ln- の id`);
   }

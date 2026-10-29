@@ -4774,9 +4774,15 @@ function noteRecoveryTrigger(trigger) {
 function sendRecoveryPending(pageId, items, running) {
   sendToMainWin('page:pending', { id: pageId, left: lib.pendingLeft(items, (it) => fs.existsSync(it.wav)), running: Boolean(running) });
 }
+// 0.13.2 点検の直し（重要 1。LR36）: ［もう一度文字起こし］は一度きりの頼み（recoveryCloudOnlyAsk と同じ形）。押した待ち行列のフォルダを recoveryForceAsk に置き、
+// transcribeRecovered が始めに読んで下ろし、その回の間だけ recoveryForceDir に持つ。待ち行列そのものにも recovery.json にも印を書かない（止まって recoveryQueue に
+// 戻っても、60 秒の見回りが毎分 held を外して 3回失敗した区間を送り直さない・区間の held を書き換えない）
+let recoveryForceAsk = '';
+let recoveryForceDir = '';
+const recoveryForced = (q) => Boolean(q && recoveryForceDir && q.dir === recoveryForceDir);
 // 0.13.2 LN-5（決めたこと 10）: ［もう一度文字起こし］で回した待ち行列が止まったら、残りの数と続け方を知らせる（理由の符号は engine.log だけ）
 function forceStopNotice(q, rest) {
-  if (!q || !q.force) return;
+  if (!recoveryForced(q)) return;
   const n = lib.pendingLeft(rest, (it) => fs.existsSync(it.wav));
   sendToMainWin('app:notice', `文字起こしを止めました（残り ${n} 区間）。［もう一度文字起こし］で続きから試せます。`);
 }
@@ -4805,14 +4811,15 @@ function pagePending(pageId) {
   return { left, running: Boolean(recoveryRunning && recoveryPageNow === pageId), busy: recordingNow() };
 }
 // 0.13.2 LN-5（LA4・PQ4・決めたこと 9）: ［もう一度文字起こし］。そのページの待ち行列を今すぐ回す（ログインしていてつながっていればクラウド、そうでなければ PC。
-// 押したので PC のエンジンを起こしてよい）。3回失敗して自動では試さなくなった区間（held）も試す（q.force）。録音中は回さない
+// 押したので PC のエンジンを起こしてよい）。3回失敗して自動では試さなくなった区間（held）も試す（その回だけ: recoveryForceAsk）。録音中は回さない
 function retranscribePage(pageId) {
   if (recordingNow()) return { ok: false, code: 'busy' };
   const qs = recoveryQueuesOf(pageId).filter((q) => lib.pendingLeft(q.items, (it) => fs.existsSync(it.wav)) > 0);
   if (!qs.length) return { ok: false, code: 'none' };
   const left = qs.reduce((n, q) => n + lib.pendingLeft(q.items, (it) => fs.existsSync(it.wav)), 0);
   if (recoveryRunning) return { ok: true, left };   // 回している途中（済めば続けてこのページの待ち行列も拾う）
-  recoveryQueue = { ...qs[0], force: true };
+  recoveryQueue = qs[0];
+  recoveryForceAsk = qs[0].dir;
   recoveryTriggerAsk = 'button';
   transcribeRecovered().catch((e) => engineLog(`復旧の文字起こしに失敗（もう一度文字起こし）: ${logReason(e)}`));
   return { ok: true, left };
@@ -4828,10 +4835,13 @@ async function transcribeRecovered() {
   recoveryCloudOnlyAsk = false;
   const trigger = recoveryTriggerAsk || 'other';
   recoveryTriggerAsk = '';
+  const forceDir = recoveryForceAsk;
+  recoveryForceAsk = '';
   if (recoveryRunning) return;
   let q = recoveryQueue;
   if (!q) return;
   recoveryRunning = true;
+  recoveryForceDir = forceDir;
   noteRecoveryTrigger(trigger);
   updateTray();   // 復旧中は「手が塞がっている」（isBusy）。トレイの有効／無効を追随させる
   recoverySkip = new Set();
@@ -4861,7 +4871,7 @@ async function transcribeRecovered() {
       // 0.9.4 S-4（決めたこと 13）: 遅い会議の残した音声を PC で文字起こしするときは、かかる時間の目安を知らせる（待ち行列ごとに1回）
       if (ready && !cloudReady && q.slow && !recoveryEtaTold.has(q.dir)) {
         recoveryEtaTold.add(q.dir);
-        const audioMs = q.items.filter((it) => it && it.held !== true).reduce((a, it) => a + (Number(it.durationMs) || 0), 0);
+        const audioMs = q.items.filter((it) => it && (it.held !== true || recoveryForced(q))).reduce((a, it) => a + (Number(it.durationMs) || 0), 0);
         sendToMainWin('app:notice', `残しておいた音声（約 ${Math.max(1, Math.round(audioMs / 60000))} 分）を文字起こししています。この PC では約 ${Math.max(1, lib.afterEtaMin({ audioMs, rtf: pacedRtf() }))} 分かかります。済むと自動で要約を作ります。`);
       }
       if (!ready) {
@@ -4904,6 +4914,7 @@ async function transcribeRecovered() {
   } finally {
     recoverySkip = null;
     recoveryPageNow = '';
+    recoveryForceDir = '';
     if (held && !recoveryQueue) recoveryQueue = held;   // 進めなかった待ち行列は、次の引き金（取り込んだ組の照らし・設定の保存・起動・見回り）で
     recoveryRunning = false;
     updateTray();
@@ -4917,8 +4928,8 @@ async function transcribeRecovered() {
 const RECOVERY_TRIES_MAX = 3;
 async function transcribeRecoveredItems(q, { cloudOnly = false } = {}) {
   // 0.13.2 LN-5（持ち主の答え PQ4「音声が残っている行すべて」）: ［もう一度文字起こし］で回すときは、3回失敗して自動では試さなくなった区間（held）も試す
-  // （回数 tries は残す: また失敗すれば held に戻る）
-  if (q.force) q = { ...q, items: q.items.map((it) => (it && it.held === true ? { ...it, held: false } : it)) };
+  // （回数 tries は残す: また失敗すれば held に戻る）。点検の直し（重要 1）: 待ち行列の区間は書き換えず、その回の間だけ held を飛ばさない（止まっても残りは held のまま書く）
+  const force = recoveryForced(q);
   let done = 0;
   const left = [];   // エンジンが誤りを返して残した区間と held の区間
   const stopAt = (i) => left.concat(q.items.slice(i)).filter((it) => it && it.wav && fs.existsSync(it.wav));
@@ -4928,7 +4939,7 @@ async function transcribeRecoveredItems(q, { cloudOnly = false } = {}) {
   const progress = (i) => { const rest = stopAt(i); saveRecoveryQueue({ ...q, items: rest }); sendRecoveryPending(q.pageId, rest, true); };
   for (let i = 0; i < q.items.length; i++) {
     if (settled) { settled = false; progress(i); }   // 0.13.2 LN-2（LR10）
-    const item = q.items[i];
+    const item = force && q.items[i] && q.items[i].held === true ? { ...q.items[i], held: false } : q.items[i];
     let alive = null;
     try {
       alive = await db.call('page.get', { id: q.pageId });

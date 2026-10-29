@@ -63,7 +63,7 @@ const { titleAt } = require('./titles');
 //     --extra-queue-late=localonly … --idle と組む。起動の片付けが済んだ後に、PC の中だけの待ち行列（WAV 1つと recovery.json）と、そのページ
 //                     （main の DB の客で meeting.recover）を置く
 //     --kept-ticks=<n> … --idle と組む。起動の片付けの後（--extra-queue-late の後）に見回りを n 回呼び、待ち行列が落ち着くのを待つ
-//     --relay-req-text=<c|e の並び> … 中継に届いた文字起こしの要求の i 番目の答えを i 文字目にする（relay-local の setReqText）
+//     --relay-req-text=<c|e|L の並び> … 中継に届いた文字起こしの要求の i 番目の答えを i 文字目にする（relay-local の setReqText。L は 0.13.2 点検の直しで足した 1日の上限の 429）
 //     （0.13.2 LN-2: out.afterLogin に notices・claudeCalls・pending（page:pending の並び）を足し、待ち行列が済んだら要約が済むまで待つ。
 //     --wait-queue-empty の out.afterQueue に pending・relayCalls を足す。pending の1つずつは page:pending の中身に、送ったときの recovery.json ごとの
 //     区間の数 queueItems（segbuf の名前の順）を足したもの）
@@ -430,6 +430,7 @@ const { titleAt } = require('./titles');
 //                        snap に logins（作ったログインの窓の数）、出力に loginWins（窓ごとの記録の写し）を足す
 //   0.13.2 LN-5: --mic-feed の手順に ["final-only"]（最後の空の区間を送り、待機に戻るまでだけ待つ）・["wait-finalized"]（締めの答えまで待つ）。
 //     --idle の --extra-queue-late=held（held・失敗・止まった区間と音声の無い区間の待ち行列）と --retranscribe（［もう一度文字起こし］を押す。上の注）
+//   0.13.2 点検の直し（重要 1）: --extra-queue-late=held-all（3区間とも held の待ち行列）・--retranscribe-ticks=<n>（押した回が止まった後に見回りを n 回。out.afterTicks）
 //   0.13.2 LN-1（LR14。計画 docs/plans/2026-10-28-132.md）
 //     --finalize-delay=<ms> … 偽の DB の締め（meeting.finalize）の答えを ms 遅らせる。--mic-feed の出力に pageFinal（ページごとの { id, title, phase（meeting.phase） }）を足す
 //     --quiet-mic … --quiet-seq の場面でも偽の見張りを起こし、字 T（見張りに mic teams:1）・L（mic -）を足す（どちらも偽の時計を 2 秒進める。Ruling R2）
@@ -633,6 +634,7 @@ const relayReqText = flagVal('--relay-req-text');
 const loginAfter = flags.includes('--login-after');
 const afterDictQueue = flags.includes('--after-dict-queue');   // 0.13.2 LN-2
 const retranscribe = flags.includes('--retranscribe');   // 0.13.2 LN-5
+const retranscribeTicks = Number(flagVal('--retranscribe-ticks')) || 0;   // 0.13.2 点検の直し（重要 1）
 const localOnlyAfterN = Number(flagVal('--local-only-after')) || 0;   // 第1d2回 M-4
 const localOnlyAtRetryN = Number(flagVal('--local-only-at-retry')) || 0;   // 第1d2回 M-3・M-4 の点検
 // 第1d2回 M-5（音声入力の音声を残す）
@@ -2566,7 +2568,9 @@ process.on('exit', () => {
       fs.writeFileSync(path.join(dir, 'recovery.json'), JSON.stringify({ pageId, items: [{ id: 's1', wav, durationMs: 3000 }], retry: false, localOnly: lateLocal }));
     }
     // 0.13.2 LN-5（PQ4）: --extra-queue-late=held … 3回失敗して自動では試さなくなった区間（held）・失敗した区間（tries 1）・止まった区間と、音声の無い区間の待ち行列
-    if (extraQueueLate === 'held') {
+    // 0.13.2 点検の直し（重要 1）: --extra-queue-late=held-all … 3つの区間がどれも 3回失敗して自動では試さなくなった（held）待ち行列
+    if (extraQueueLate === 'held' || extraQueueLate === 'held-all') {
+      const all = extraQueueLate === 'held-all';
       const startedAt = Date.now() - 300000;
       const dir = path.join(userData, 'data', 'segbuf', String(startedAt));
       fs.mkdirSync(dir, { recursive: true });
@@ -2575,26 +2579,43 @@ process.on('exit', () => {
       latePageId = pageId;
       const segs = [
         { id: 's1', atMs: 0, durationMs: 3000, text: '（この区間の認識に失敗: 見本。音声は残してあります）', failed: true },
-        { id: 's2', atMs: 3000, durationMs: 3000, text: '（この区間の認識に失敗: 見本）', failed: true },
-        { id: 's3', atMs: 6000, durationMs: 3000, text: '（音はありましたが、文字になりませんでした）', failed: true },
+        { id: 's2', atMs: 3000, durationMs: 3000, text: all ? '（この区間の認識に失敗: 見本。音声は残してあります）' : '（この区間の認識に失敗: 見本）', failed: true },
+        { id: 's3', atMs: 6000, durationMs: 3000, text: all ? '（この区間の認識に失敗: 見本。音声は残してあります）' : '（音はありましたが、文字になりませんでした）', failed: true },
       ];
       await dbClient.call('meeting.recover', { pageId, segments: segs,
         page: { title: `${titleAt(startedAt)}（復旧）`, date: '2026-10-20', durationSec: 9, memo: '', blocks: [], createdAt: new Date(startedAt).toISOString(), recovered: true,
           route: { stt: { cloud: 0, local: 0, provider: 'openai' }, localOnly: false }, summaryError: '' } });
-      fs.writeFileSync(path.join(dir, 'recovery.json'), JSON.stringify({ pageId, retry: true, localOnly: false, items: [
-        { id: 's1', wav: w(1), durationMs: 3000, tries: 3, held: true }, { id: 's2', wav: w(2), durationMs: 3000, tries: 1 }, { id: 's3', wav: w(3), durationMs: 3000 },
-        { id: 's4', wav: path.join(dir, 'gone.wav'), durationMs: 3000 }] }));
+      const H = { tries: 3, held: true };
+      fs.writeFileSync(path.join(dir, 'recovery.json'), JSON.stringify({ pageId, retry: true, localOnly: false, items: all
+        ? [{ id: 's1', wav: w(1), durationMs: 3000, ...H }, { id: 's2', wav: w(2), durationMs: 3000, ...H }, { id: 's3', wav: w(3), durationMs: 3000, ...H }]
+        : [{ id: 's1', wav: w(1), durationMs: 3000, ...H }, { id: 's2', wav: w(2), durationMs: 3000, tries: 1 }, { id: 's3', wav: w(3), durationMs: 3000 },
+          { id: 's4', wav: path.join(dir, 'gone.wav'), durationMs: 3000 }] }));
     }
     // 0.13.2 LN-5（LA4・PQ4）: --retranscribe … 置いた待ち行列のページの残り（page:pending）を聞き、［もう一度文字起こし］（page:retranscribe）を押して、
     // 待ち行列が無くなるか 10 秒まで待ち、out.pendingBefore・out.retranscribe・out.afterRetranscribe（{ pages, engineLog, relayCalls, pending, pendingAfter }）に写す
     if (retranscribe && latePageId) {
       out.pendingBefore = await handlers['page:pending']({}, { id: latePageId });
+      const seen0 = pendingSeen.length;
       out.retranscribe = await handlers['page:retranscribe']({}, { id: latePageId });
       const qn = () => listFiles(userData).filter((f) => /^data\/segbuf\/[^/]+\/recovery\.json$/.test(f)).length;
-      await waitFor(() => qn() === 0, 10000);
+      // 0.13.2 点検の直し（重要 1）: --retranscribe-ticks は、押した回が止まる（page:pending の running: false）までを待つ（待ち行列は残る）
+      await waitFor(() => qn() === 0 || (retranscribeTicks > 0 && pendingSeen.slice(seen0).some((p) => p.id === latePageId && !p.running)), 10000);
       await sleep(200);
       out.afterRetranscribe = { pages: store.listPages().map((p) => ({ id: p.id, segments: store.getTranscript(p.id).map((x) => ({ id: x.id, text: x.text, failed: Boolean(x.failed) })) })),
         engineLog: engineLogLines(), relayCalls: relayPaths.slice(), pending: pendingSeen.slice(), pendingAfter: await handlers['page:pending']({}, { id: latePageId }), queues: qn() };
+      // 0.13.2 点検の直し（重要 1）: --retranscribe-ticks=<n> … 押した回が止まった後に見回りを n 回呼び、増えた中継への文字起こしの要求・知らせと、
+      // ディスクの待ち行列（recovery.json の区間の { id, held }）を out.afterTicks に写す（押した印が見回りに残って held を外さないか）
+      if (retranscribeTicks > 0) {
+        const queueNow = () => listFiles(userData).filter((f) => /^data\/segbuf\/[^/]+\/recovery\.json$/.test(f))
+          .map((f) => JSON.parse(readUser(f).toString('utf8')).items.map((it) => ({ id: it.id, held: it.held === true, tries: it.tries })));
+        const r0 = relayPaths.length;
+        const n0 = sent.filter(([ch]) => ch === 'app:notice').length;
+        const queueBefore = queueNow();
+        for (let k = 0; k < retranscribeTicks; k++) { await keptTick(); await sleep(100); }
+        await sleep(200);
+        out.afterTicks = { queueBefore, queue: queueNow(), relayAdded: relayPaths.slice(r0), noticesAdded: sent.filter(([ch]) => ch === 'app:notice').map(([, p]) => p).slice(n0),
+          engineLog: engineLogLines() };
+      }
     }
     if (keptTickN) {
       // 待ち行列が落ち着く（クラウドで送れる待ち行列の区間が文字になる）まで待つ（PC の中だけの区間は残る）。起動の復旧が回っている間の

@@ -269,6 +269,21 @@ test('LN-5・PQ4: 押すと、3回失敗して止めた区間（held）・止ま
   assert.deepStrictEqual(pend.map((p) => [p.left, p.running]), [[2, true], [1, true], [0, true], [0, false]], JSON.stringify(pend));
 });
 
+// 0.13.2 点検の直し（重要 1。作ったときに合わせたこと LR36）: ［もう一度文字起こし］の force は押した1回だけ。止まった待ち行列に印が残ると、60 秒の見回りが
+// 毎分 held を外して 3回失敗した区間を送り直し、「文字起こしを止めました」を出し直す。押した回で止まっても、ディスクの held の区間は held のまま
+test('LN-5・点検の直し 1: ［もう一度文字起こし］で止まった（1日の上限）後の見回り2回は、held の区間を送らず（中継への文字起こしの要求 0）、「文字起こしを止めました」を出し直さない。ディスクの held の区間は held のまま', T, async () => {
+  const o = await run(['text', '--idle', '--relay=text', '--extra-queue-late=held-all', '--relay-req-text=cLLLLL', '--retranscribe', '--retranscribe-ticks=2']);
+  assert.deepStrictEqual(o.retranscribe, { ok: true, left: 3 }, JSON.stringify(o.retranscribe));
+  const a = o.afterRetranscribe;
+  assert.ok(a.engineLog.some((l) => /^文字起こしの経路: 復旧 s1 → cloud/.test(l)), a.engineLog.join('\n'));
+  const t = o.afterTicks;
+  // 押した回: s1 は文字になり、s2 で 1日の上限で止まった。残りの s2・s3 はディスクで held のまま（押した回の印を書かない）
+  assert.deepStrictEqual(t.queueBefore, [[{ id: 's2', held: true, tries: 3 }, { id: 's3', held: true, tries: 3 }]], JSON.stringify(t.queueBefore));
+  assert.strictEqual(sttPosts(t.relayAdded), 0, `見回りが held の区間を送り直した: ${t.engineLog.join('\n')}`);
+  assert.deepStrictEqual(t.noticesAdded.filter((n) => /文字起こしを止めました/.test(n)), [], JSON.stringify(t.noticesAdded));
+  assert.deepStrictEqual(t.queue, [[{ id: 's2', held: true, tries: 3 }, { id: 's3', held: true, tries: 3 }]], JSON.stringify(t.queue));
+});
+
 test('LN-5: 録音中（会議・音声入力）の page:retranscribe は { ok: false, code: \'busy\' }・page:pending の busy は真。待ち行列の無いページは none', T, async () => {
   const o = await mic([['ipc', 'page:retranscribe', { id: 'p-none' }], ['ipc', 'page:pending', { id: 'p-none' }], ['start'],
     ['ipc', 'page:retranscribe', { id: 'p-none' }], ['ipc', 'page:pending', { id: 'p-none' }], ['stop'], ['dictate'], ['ipc', 'page:retranscribe', { id: 'p-none' }], ['dictate-cancel']]);
