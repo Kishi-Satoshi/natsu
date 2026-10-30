@@ -229,7 +229,7 @@ contextBridge.exposeInMainWorld('koeApp', {
   onEditStep: (cb) => { if (typeof cb === 'function') editSteps.push(cb); },
   editRevert: (pageId, steps) => dbCall('edit.revert', { pageId, steps }),
   blocksSetColor: (pageId, ids, color) => dbCall('blocks.setColor', { pageId, ids, color }),
-  // 0.14.0 EK-2（決めたこと 25・30）: 貼り付けは1つの命令（afterId は文のある行の頭のときの、画面で上に見えている行・inside は子の見えている行の文の終わり）。
+  // 0.14.0 EK-2（決めたこと 25・30）: 貼り付けは1つの命令（afterId は文のある行の頭のときの、画面で上に見えている行・inside は子の見えている行（文の終わりでも途中でも: BQ31）。
   // 選んだ行の操作も1つの命令（ids は画面の順）。無い引数は送らない（block.* と同じ形）
   blockPaste: (pageId, blockId, rich, at, blocks, afterId, inside) => dbCall('block.paste', {
     pageId, blockId, rich, at, blocks, ...(afterId === undefined ? {} : { afterId }), ...(inside === true ? { inside } : {}) }),

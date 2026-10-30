@@ -1044,7 +1044,8 @@ test('基準の画像（test/shots/win32）は今の app.html で撮ったもの
   // 0.14.0 EB-6 直し（R121 (2)）: ${total} の名前の右の acts.length を Number(acts.length) で包んだ（<script> の中だけ。撮る画面は変わらない）。値を今の app.html に合わせた（前の値は fec070e9…）
   // 0.14.0 EK-3（決めたこと 23〜27・R126）: 要約の行の貼り付け（pasteConvert の写し・pasteRow・Ctrl+Shift+V の印）。<script> の中だけで、撮る画面は変わらない（RETAKE に足さない）。値を今の app.html に合わせた（前の値は cf0f6781…）
   // 0.14.0 EK-2 直し（R127・R129）: pasteConvert の写しの Excel の表（openContext）と、DB の too-big で貼り付けの知らせを出す所（<script> の中だけ。撮る画面は変わらない）。値を今の app.html に合わせた（前の値は 0b014aac…）
-  assert.strictEqual(sha, 'e5d1ae1c918bd93d36f24c5804d0b778772ffac2a406295435b18beb1b5c1ab6',
+  // 0.14.0 BQ31・BQ32（2026-10-30 の持ち主の答え。R131）: 子の見えている行の文の途中の貼り付けも inside を送る（<script> の中だけ。撮る画面は変わらない）。値を今の app.html に合わせた（前の値は e5d1ae1c…）
+  assert.strictEqual(sha, '031da8c6b96509dfa09e59f830828b2079ab9bc08d58cc9144accd3238002657',
     'app.html が基準の画像を撮った時と違う。Windows の CI の画面の比べ（捲り棒のつまみも）を見て、基準を取り直してからこの値を直す');
 });
 

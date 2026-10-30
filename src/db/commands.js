@@ -692,7 +692,9 @@ function pasteInto(db, ctx, p, a) {
   const b = l.b;
   const text = RT.plainOf(a.rich);
   if (!splitAtOk(text, a.at)) throw refuse('bad-args');
-  if (a.inside === true && (a.at !== text.length || !BT.kidsCan(b))) throw refuse('bad-args');   // inside は子の見えている行の文の終わりだけ（R66・TQ3）
+  // inside は子の見えている行だけ（R66・TQ3）。0.14.0 の BQ31（2026-10-30 の持ち主の答え「すぐ下（子の先頭）に入れる」）で文の途中も通す（Enter と同じ）。
+  // 文のある行の頭は上に足す形（BQ30 (a)）なので inside は断る
+  if (a.inside === true && (!BT.kidsCan(b) || (a.at === 0 && text !== ''))) throw refuse('bad-args');
   const rows = pasteRows(db, ctx, a.blocks, new Set());
   if (a.at === 0 && text !== '') {
     putRich(b, a.rich);
@@ -723,11 +725,13 @@ function pasteInto(db, ctx, p, a) {
   const after = [...rows];
   const tail = text.slice(a.at);
   if (tail !== '') {
-    // 後ろの文の行は今の行と同じ型（飾りも続きのまま。人の行・出典なし・担当と期限なし）
-    const nb = { id: freshId(db, ctx, new Set(BT.flattenBlocks(rows).map((x) => x.id))), type: b.type, text: tail, cites: [], citeState: 'manual' };
-    if (b.type === 'heading') { nb.level = blockEdit.headingLevel(b); if (b.toggle === true) nb.toggle = true; }
-    if (b.type === 'todo') nb.checked = false;
-    if (b.type === 'callout') nb.icon = b.icon || blockEdit.CALLOUT_ICON;
+    // 後ろの文の行の型は Enter と同じ nextTypeOnEnter（0.14.0 の BQ32: 2026-10-30 の持ち主の答え「Enter と同じにする」。見出しの後ろは箇条書き・
+    // 引用とコールアウトの後ろはテキスト・開いたトグルの中はテキスト・閉じたトグルの後ろはトグル）。飾りは続きのまま。人の行・出典なし・担当と期限なし
+    const nt = blockEdit.nextTypeOnEnter(b, { open: a.inside === true });
+    const nb = { id: freshId(db, ctx, new Set(BT.flattenBlocks(rows).map((x) => x.id))), type: nt.type, text: tail, cites: [], citeState: 'manual' };
+    if (nt.level) nb.level = nt.level;
+    if (nt.toggle === true) nb.toggle = true;
+    if (nt.type === 'todo') nb.checked = false;
     putRich(nb, r2);
     after.push(nb);
   }

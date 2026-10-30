@@ -2010,6 +2010,35 @@ test('EK-3・R66・BQ30 (a)（第4版）: 開いたトグルの文の終わり�
   } finally { l.done(); }
 });
 
+test('EK-3・BQ31・BQ32（2026-10-30 の持ち主の答え）: 開いたトグルの文の途中で Markdown の2行を貼る → blockPaste の inside が真で、貼った行と後ろの文の行（テキスト）がトグルの最初の子に見える。子のある箇条書きの途中も子の頭。見出しの文の途中で貼る → 後ろの文の行は箇条書き（Enter と同じ）', T, async () => {
+  const l = await openReal({ pa1: [MANUAL('q1', '前の文'), { id: 'tg', type: 'toggle', text: 'トグル文', citeState: 'manual', cites: [], children: [MANUAL('k1', '子の文')] }, MANUAL('hd', '見出しの文', { type: 'heading', level: 2 }), MANUAL('bp', '親の文', { type: 'bullet', children: [MANUAL('k2', '孫の文')] })] });
+  try {
+    const t = typeIn(l, 'tg', 'トグル文', 3);
+    pasteIn(t, { 'text/plain': '- 一\n- 二' });
+    await l.drain();
+    const [a1] = pastes(l);
+    assert.deepStrictEqual([a1[1], a1[3], a1[5], a1[6]], ['tg', 3, undefined, true], '文の途中で inside が真でない');
+    const tg = l.page().blocks.find((b) => b.id === 'tg');
+    assert.deepStrictEqual([tg.text, ...tg.children.map((b) => `${b.type}:${b.text}`)], ['トグル', 'bullet:一', 'bullet:二', 'paragraph:文', 'paragraph:子の文']);
+    const kids = rowsOf(l).filter((e) => e.dataset.parent === 'tg').map((e) => e.querySelector('.txt').textContent);
+    assert.deepStrictEqual(kids, ['一', '二', '文', '子の文'], '貼った行と後ろの文の行がトグルの中に見えない');
+    // 子のある箇条書きの文の途中: 貼った行と後ろの文の行（箇条書き）が子の頭
+    const c = typeIn(l, 'bp', '親の文', 1);
+    pasteIn(c, { 'text/plain': '貼一\n貼二' });
+    await l.drain();
+    assert.deepStrictEqual([pastes(l)[1][1], pastes(l)[1][6]], ['bp', true], '子のある行の文の途中で inside が真でない');
+    const bp = l.page().blocks.find((b) => b.id === 'bp');
+    assert.deepStrictEqual([bp.text, ...bp.children.map((b) => `${b.type}:${b.text}`)], ['親', 'paragraph:貼一', 'paragraph:貼二', 'bullet:の文', 'paragraph:孫の文']);
+    const h = typeIn(l, 'hd', '見出しの文', 3);
+    pasteIn(h, { 'text/plain': '上一\n上二' });
+    await l.drain();
+    const a2 = pastes(l)[2];
+    assert.deepStrictEqual([a2[1], a2[3], a2.length], ['hd', 3, 5], '子の無い見出しで afterId か inside を送った');
+    assert.deepStrictEqual(l.page().blocks.slice(2, 6).map((b) => `${b.type}:${b.text}`), ['heading:見出し', 'paragraph:上一', 'paragraph:上二', 'bullet:の文']);
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
 // ---------------------------------------------------------------- EK-2 直し（2026-10-29 の点検。R129）
 test('EK-2 直し（I2・R129）: 貼った後のページが上限を越えて DB が too-big で断ると、画面は貼り付けの大きすぎる知らせを出し、行の文は元のまま', T, async () => {
   const l = await openReal({ pa1: PG3() }, { returns: { blockPaste: () => Promise.reject(new Error('too-big')) } });

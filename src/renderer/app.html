@@ -5610,7 +5610,7 @@
     return '';
   }
   // 行に分ける貼り付けは block.paste の1つの命令（1歩: 決めたこと 25）。今の行の文と飾りも一緒に送り、DB がカーソルの所で分ける。
-  // 文のある行の頭は分けずに上へ（afterId: BQ30 (a)）・子の見えている行の文の終わりは最初の子（inside: R66・TQ3）・空のテキストの行は最初の貼った行になる（R18。DB が決める）。
+  // 文のある行の頭は分けずに上へ（afterId: BQ30 (a)）・子の見えている行は文の終わりでも途中でも最初の子（inside: R66・TQ3・BQ31）・空のテキストの行は最初の貼った行になる（R18。DB が決める）。
   // カーソルは最後に貼った行の終わり
   async function pasteRows(el, blocks) {
     const pid = curId; const b = el._b; const txt = el._txt;
@@ -5624,7 +5624,7 @@
     const head = at === 0 && text !== '';
     const args = [pid, b.id, rich, at, blocks];
     if (head) args.push(pasteAboveId(el, b));
-    else if (at === text.length && kidsShown(b)) args.push(undefined, true);
+    else if (kidsShown(b)) args.push(undefined, true);   // BQ31（2026-10-30）: 文の途中でも最初の子（Enter の inside と同じ）
     // 答えを待つ間に blur の保存（_commit）が今の行の全部の文を重ねて送らないよう、画面は先に残る文にする（断られたら戻す: splitRow と同じ）
     const keep = head ? rich : sliceRich(rich, 0, at);
     const was = [b.text, b.rich];

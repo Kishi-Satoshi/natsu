@@ -842,12 +842,13 @@ test('EK-2・BQ30 (a)・NR8: 入れ子の行の頭で貼ると afterId は同じ
   assert.strictEqual(JSON.stringify(raw(db)), was);
 }, { blocks: [kid3('x'), kid3('t', { type: 'toggle', children: [kid3('c1'), kid3('c2')] })] }));
 
-test('EK-2・R66: 子の見えている行の文の終わりの block.paste（inside）→ 貼った行は最初の子。子のある行の途中で貼ると、子は今の行に残る。見出しの下の子は上がる', T, () => withDb((db) => {
+test('EK-2・R66: 子の見えている行の文の終わりの block.paste（inside）→ 貼った行は最初の子。子のある行の途中で inside を送らずに貼ると、子は今の行に残る。見出しの下の子は上がる', T, () => withDb((db) => {
   const t = paste(db, { blockId: 't', rich: [run1('tの行の文です')], at: 7, inside: true, blocks: [P('paragraph', '中1'), P('paragraph', '中2')] });
   assert.strictEqual(t.ok, true, t.code);
   assert.deepStrictEqual(kidIds(get(db), 't').map((id) => find(get(db), id).b.text), ['中1', '中2', 'c1の行の文です'], '貼った行がトグルの中の頭に無い');
   const was = JSON.stringify(raw(db));
-  for (const [blockId, at] of [['h', 3], ['t', 2]]) {   // 子を持てない型・文の途中の inside
+  // 子を持てない型・文のある行の頭（BQ30 (a) の上に足す形）の inside。文の途中の inside は BQ31（2026-10-30）で通す（下の「EK-2・BQ31」）ので外した
+  for (const [blockId, at] of [['h', 3], ['t', 0]]) {
     const b = paste(db, { blockId, rich: [run1(find(get(db), blockId).b.text)], at, inside: true, blocks: [P('bullet', '外')] });
     assert.deepStrictEqual([b.ok, b.code], [false, 'bad-args'], blockId);
   }
@@ -866,6 +867,47 @@ test('EK-2・R66: 子の見えている行の文の終わりの block.paste（in
   assert.deepStrictEqual(after.map((b) => [b.type, b.text, b.children.map((c) => c.text)]),
     [['heading', '貼った見出し', []], ['bullet', '見出しの子', ['孫']], ['divider', '', []], ['bullet', '線の子', []]], '見出し・区切り線の下の子が上がらない');
 }, { blocks: [kid3('x'), kid3('t', { type: 'toggle', children: [kid3('c1')] }), kid3('a', { children: [kid3('a1')] }), kid3('h', { type: 'heading', level: 2 })] }));
+
+test('EK-2・BQ31（2026-10-30 の持ち主の答え）: 子の見えている行の文の途中の block.paste（inside）→ 貼った行は最初の子・後ろの文の行はその次の子（前からの子の前）。edit.revert の1回ずつで戻る', T, () => withDb((db) => {
+  const before = get(db);
+  const t = paste(db, { blockId: 't', rich: [run1('tの行', ['b']), run1('の文です')], at: 2, inside: true, blocks: [P('bullet', '中1'), P('bullet', '中2')] });
+  assert.strictEqual(t.ok, true, t.code);
+  let page = get(db);
+  const tb = find(page, 't').b;
+  assert.deepStrictEqual([tb.text, tb.rich[0].m], ['tの', ['b']], '前の行の文と飾り');
+  assert.deepStrictEqual(tb.children.map((b) => b.text), ['中1', '中2', '行の文です', 'c1の行の文です'], '貼った行と後ろの文の行がトグルの子の頭に無い');
+  const tail = tb.children[2];
+  assert.deepStrictEqual([tail.type, tail.rich.map((r) => [r.t, r.m]), tail.citeState], ['paragraph', [['行', ['b']], ['の文です', []]], 'manual'], '開いたトグルの後ろの文は Enter と同じくテキストの子');
+  assert.strictEqual(t.result.lastId, tb.children[1].id, 'カーソルは最後に貼った行');
+  const tx = txOf('app');
+  const aArgs = { blockId: 'a', rich: [run1('aの行の文です')], at: 2, inside: true, blocks: [P('paragraph', '途中に貼った')] };
+  const a = paste(db, aArgs, 'app', tx);
+  assert.strictEqual(a.ok, true, a.code);
+  const again = paste(db, aArgs, 'app', tx);   // 送り直し（pasteDup）: 同じ lastId（後ろの文の子は数えない）
+  assert.deepStrictEqual([again.ok, again.dup, again.result.lastId], [true, true, a.result.lastId], '文の途中の inside の送り直しの答え');
+  page = get(db);
+  assert.strictEqual(a.result.lastId, find(page, 'a').b.children[0].id, 'カーソルは貼った行（後ろの文の子でない）');
+  assert.deepStrictEqual(find(page, 'a').b.children.map((b) => [b.type, b.text]), [['paragraph', '途中に貼った'], ['bullet', '行の文です'], ['bullet', 'a1の行の文です']], '子のある箇条書きの途中: 後ろの文は箇条書きの子');
+  assert.strictEqual(revert(db, [a.tx]).ok, true);
+  assert.strictEqual(revert(db, [t.tx]).ok, true);
+  assert.deepStrictEqual(body(get(db)), body(before), '1回ずつで戻らない');
+}, { blocks: [kid3('x'), kid3('t', { type: 'toggle', children: [kid3('c1')] }), kid3('a', { children: [kid3('a1')] })] }));
+
+test('EK-2・BQ32（2026-10-30 の持ち主の答え）: 文の途中で貼った後ろの文の行の型は Enter と同じ（nextTypeOnEnter: 見出し → 箇条書き・引用とコールアウト → テキスト・閉じたトグル → トグル・ToDo は済んでいない ToDo）', T, () => withDb((db) => {
+  // [型, 段, トグル, チェック]
+  const want = {
+    h: ['bullet'], q: ['paragraph'], co: ['paragraph'], tc: ['toggle'], th: ['heading', 3, true], td: ['todo', undefined, undefined, false], n: ['numbered'], p: ['paragraph'], bu: ['bullet'],
+  };
+  for (const [id, w] of Object.entries(want)) {
+    const r = paste(db, { blockId: id, rich: [run1(`${id}の行の文です`)], at: id.length + 1, blocks: [P('paragraph', `${id}に貼った`)] });
+    assert.strictEqual(r.ok, true, `${id} ${r.code}`);
+    const l = find(get(db), id);
+    const [x, tail] = l.list.slice(l.index + 1, l.index + 3);
+    assert.strictEqual(x.text, `${id}に貼った`, id);
+    assert.deepStrictEqual([tail.type, tail.level, tail.toggle, tail.checked, tail.text], [w[0], w[1], w[2], w[3], '行の文です'], id);
+    assert.strictEqual(tail.icon, undefined, `${id}: 後ろの文の行に絵文字`);
+  }
+}, { blocks: [kid3('h', { type: 'heading', level: 2 }), kid3('q', { type: 'quote' }), kid3('co', { type: 'callout', icon: '💡' }), kid3('tc', { type: 'toggle' }), kid3('th', { type: 'heading', level: 3, toggle: true }), kid3('td', { type: 'todo', checked: true }), kid3('n', { type: 'numbered' }), kid3('p', { type: 'paragraph' }), kid3('bu')] }));
 
 // ---------------------------------------------------------------- blocks.*（決めたこと 30・31・R65）
 const NEST = [kid3('x'), kid3('a', { children: [kid3('a1'), kid3('a2', { children: [kid3('a21')] })] }), kid3('y'), kid3('z'), kid3('t', { type: 'toggle', children: [kid3('tc')] }), kid3('e', { text: '' })];
