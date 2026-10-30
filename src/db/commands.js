@@ -679,9 +679,13 @@ function pasteRows(db, ctx, rows, used) {
 const lastOf = (rows) => { const f = BT.flattenBlocks(rows); return f[f.length - 1].id; };
 // 0.14.0 EK-2 直し（I2・M2・R129）: 行を増やす命令（貼り付け・複製）の後のページが、main の page.put が受ける上限（行は子孫も数えて LIMITS.blocks・
 // ページの JSON は LIMITS.bytes）を越えるなら、何も変えずに too-big で断る（越えたページは要約の書き戻しの page.put が bad-args で断られて保存できなくなる）
-function pageFits(p) {
+// EK-3 直し（R143）: 大きさは main が次に送り直す形で見る（saveIfExists は page.get の答え（routeText・qualityView を添え、rev・citeStat を持つ）を
+// { page, baseRev } に包んで page.put で送る）。saveOps が後で作る時刻・印と、main の小さな書き戻し（経路の数など）の分に FIT_RESERVE を残す
+const FIT_RESERVE = 4096;
+function pageFits(p, ctx) {
   if (BT.flattenBlocks(p.blocks).length > LIMITS.blocks) throw refuse('too-big');
-  if (Buffer.byteLength(JSON.stringify(p), 'utf8') > LIMITS.bytes) throw refuse('too-big');
+  const wire = { page: { ...forView(p, ctx && ctx.labels), rev: Number.MAX_SAFE_INTEGER }, baseRev: Number.MAX_SAFE_INTEGER };
+  if (Buffer.byteLength(JSON.stringify(wire), 'utf8') + FIT_RESERVE > LIMITS.bytes) throw refuse('too-big');
 }
 // 貼り付けの中身（editPage の中）: 今の行を at で分けて、前を今の行・貼った行をすぐ下（inside なら最初の子）・後ろの文を貼った行のさらに下の新しい行にする。
 // 文のある行の頭（at 0）は分けず、貼った行を上（afterId: 画面で上に見えている同じ親の兄弟の後ろ）に足し、今の行は ID・文・担当・期限・出典をそのまま持つ（BQ30 (a)。
@@ -1046,7 +1050,7 @@ const DEFS = {
         const s = BT.spotOf(p.blocks, after, a.parentId);
         if (!s || headIntoKid([copy], s)) throw refuse('bad-args');   // 0.14.0 EK-2（R65）: AI の節の見出しの写しも子にしない
         s.list.splice(s.index, 0, copy);
-        pageFits(p);
+        pageFits(p, ctx);
         return true;
       }, { summary: true });
       return { ...out, result: out.result ? { page: out.result, blockId } : null };
@@ -1113,7 +1117,7 @@ const DEFS = {
       let lastId = null;
       const out = editPage(db, a.pageId, ctx, (p) => {
         lastId = pasteInto(db, ctx, p, a);
-        if (lastId !== null) pageFits(p);
+        if (lastId !== null) pageFits(p, ctx);
         return lastId !== null;
       }, { summary: true });
       return { ...out, result: out.result ? { page: out.result, lastId } : null };
@@ -1151,7 +1155,7 @@ const DEFS = {
         const s = BT.spotOf(p.blocks, after, a.parentId);
         if (!s || headIntoKid(copies, s)) throw refuse('bad-args');
         s.list.splice(s.index, 0, ...copies);
-        pageFits(p);
+        pageFits(p, ctx);
         made = copies.map((c) => c.id);
       }, { summary: true });
       return { ...out, result: out.result ? { page: out.result, ids: made } : null };

@@ -2385,3 +2385,95 @@ test('EK-4（決めたこと 30・31・R65）: 選んだ行の ⠿ を引っ張�
     assert.deepStrictEqual(l.errors.map(fmt), []);
   } finally { l.done(); }
 });
+
+// ---------------------------------------------------------------- EK-3 直し（2026-10-30 の点検。R138・R139・R141・R142）
+test('EK-3 直し（R138・決めたこと 26）: Ctrl+Shift+V は素の文字だけ。URL を選んだ文字に貼っても、リンクにせず文字を置き換える（ふつうの貼り付けは今どおりリンク）', T, async () => {
+  const l = await openReal({ pa1: PG3() });
+  try {
+    let t = typeIn(l, 'q2', 'あいうえお', 0, 2);
+    l.key(PLAIN_V, t);
+    pasteIn(t, { 'text/plain': 'https://example.invalid/a' });
+    assert.deepStrictEqual(viewOf(t), ['https://example.invalid/aうえお'], 'Ctrl+Shift+V で URL を選んだ文字に貼るとリンクになった');
+    t = typeIn(l, 'q3', '後の文', 0, 1);
+    pasteIn(t, { 'text/plain': 'https://example.invalid/b' });
+    assert.deepStrictEqual(viewOf(t), [{ tag: 'span', link: 'https://example.invalid/b', t: '後' }, 'の文']);
+    assert.deepStrictEqual(writes(l), []);
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+test('EK-3 直し（R138・R126 (5)）: 区切り線の行で Ctrl+Shift+V → 下に素の文字の行（改行は行の中のまま）を blockPaste の1回で足す', T, async () => {
+  const l = await openReal({ pa1: [MANUAL('q1', '前の文'), { id: 'dv', type: 'divider', text: '', citeState: 'manual', cites: [] }, MANUAL('q3', '後の文')] });
+  try {
+    const t = txtOf(l, 'dv');
+    t.focus();
+    l.key(PLAIN_V, t);
+    pasteIn(t, { 'text/plain': '- 一\n二' });
+    await l.drain();
+    assert.deepStrictEqual(pastes(l).map((a) => [a[1], a[3], a[4]]), [['dv', 0, [{ type: 'paragraph', rich: [{ t: '- 一\n二', m: [] }] }]]]);
+    assert.deepStrictEqual(l.page().blocks.map((b) => [b.type, b.text]), [['paragraph', '前の文'], ['divider', ''], ['paragraph', '- 一\n二'], ['paragraph', '後の文']]);
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+test('EK-3 直し（R139）: 素の文字・空白だけ・1行の飾りの文・変換中の貼り付けで、行の文が 10 万字を越えるなら入れずに大きすぎる知らせ（収まれば今どおり入る）', T, async () => {
+  const big = 'あ'.repeat(99990);
+  const l = await openReal({ pa1: [MANUAL('q1', big), MANUAL('q2', '短い文')] });
+  try {
+    let t = typeIn(l, 'q1', big, 5);
+    l.key(PLAIN_V, t);
+    pasteIn(t, { 'text/plain': 'x'.repeat(11) });
+    assert.strictEqual(toastOf(l), PASTE_TOO_BIG, 'Ctrl+Shift+V で上限を越えた');
+    assert.strictEqual(t.textContent.length, 99990);
+    pasteIn(t, { 'text/plain': ' '.repeat(11) });   // 行にならない文（空白だけ）
+    assert.strictEqual(t.textContent.length, 99990, '空白だけの貼り付けで上限を越えた');
+    pasteIn(t, { 'text/plain': '**太字の文が入るところ**ですよ' });   // 1行の飾りの文（13 字）
+    assert.strictEqual(t.textContent.length, 99990, '1行の飾りの文で上限を越えた');
+    t._composing = true;
+    pasteIn(t, { 'text/plain': 'y'.repeat(11) });
+    t._composing = false;
+    assert.strictEqual(t.textContent.length, 99990, '変換中の貼り付けで上限を越えた');
+    l.caret.set(t, 0, 3);   // 選んだ所は置き換わるので、その分は入る
+    l.key(PLAIN_V, t);
+    pasteIn(t, { 'text/plain': 'z'.repeat(13) });
+    assert.strictEqual(t.textContent.length, 100000, '収まる貼り付けが入らない');
+    t = typeIn(l, 'q2', '短い文', 3);
+    pasteIn(t, { 'text/plain': 'ふつうの文' });
+    assert.strictEqual(t.textContent, '短い文ふつうの文');
+    assert.deepStrictEqual(writes(l), []);
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+test('EK-3 直し（R141）: 貼る行は 1MB に収まっても、今の行の飾りを含む頼みの全部が 1MB を越えるなら、送らずに大きすぎる知らせ（変更を保存できませんでした: bad-args にしない）', T, async () => {
+  const cur = 'あ'.repeat(100000);
+  const l = await openReal({ pa1: [MANUAL('q1', cur), MANUAL('q2', '後の文')] });
+  try {
+    const t = typeIn(l, 'q1', cur, 50000);
+    const lines = Array.from({ length: 8 }, (_, i) => `${i}${'a'.repeat(99990)}`).join('\n');
+    assert.strictEqual(PC.pasteBlocks({ text: lines }).tooBig, undefined, '貼る行だけで大きすぎる見本');
+    pasteIn(t, { 'text/plain': lines });
+    await l.drain();
+    assert.deepStrictEqual(writes(l), [], '頼みの全部が 1MB を越える貼り付けを送った');
+    assert.strictEqual(toastOf(l), PASTE_TOO_BIG);
+    assert.strictEqual(t.textContent.length, 100000);
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+test('EK-3 直し（R142）: 貼り付けが断られたら、行の文と押したときのカーソル（選んだ所）を戻す', T, async () => {
+  const l = await openReal({ pa1: PG3() });
+  try {
+    l.hold('blockPaste');
+    const t = typeIn(l, 'q2', 'あいうえお', 1, 3);
+    pasteIn(t, { 'text/plain': '一\n二' });
+    await l.drain();
+    assert.strictEqual(t.textContent, 'あ', '答えを待つ間の行の文');
+    l.caret.set(t, 1);   // 描き直しでカーソルが動いた形
+    l.release('blockPaste', 'locked');
+    await l.drain();
+    assert.strictEqual(t.textContent, 'あいうえお');
+    assert.deepStrictEqual(l.caret.get(t), [1, 3], '断られた後にカーソルと選んだ所が戻らない');
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});

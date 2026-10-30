@@ -910,3 +910,12 @@ test('EK-2 直し（I1・R128）: keysBetween(a, b, n) は a と b の間に n �
   assert.deepStrictEqual(K.keysBetween('a', 'b', 0), []);
   assert.throws(() => K.keysBetween('b', 'a', 2));
 });
+
+// ---------------------------------------------------------------- EK-3 直し（2026-10-30 の点検。R140）
+test('EK-3 直し（R140）: 要素の印の無い HTML（素の文字を text/html にも置くアプリ）は、文字の方に文があれば文字で読む（改行がつぶれない）。印のある HTML・文字が空なら今どおり HTML', () => {
+  const t = '一行目\n二行目\n- 三行目';
+  assert.deepStrictEqual(PC.pasteBlocks({ html: t, text: t }), PC.pasteBlocks({ text: t }), '印の無い HTML を HTML として読んだ');
+  assert.deepStrictEqual(briefOf(PC.pasteBlocks({ html: t, text: t })), ['paragraph:一行目', 'paragraph:二行目', 'bullet:三行目']);
+  assert.deepStrictEqual(briefOf(PC.pasteBlocks({ html: '<p>見出しでない</p><p>二つ目</p>', text: '別の文' })), ['paragraph:見出しでない', 'paragraph:二つ目'], '印のある HTML を読まない');
+  assert.deepStrictEqual(briefOf(PC.pasteBlocks({ html: 'a &amp; b', text: '' })), ['paragraph:a & b'], '文字が空のとき印の無い HTML を読まない');
+});

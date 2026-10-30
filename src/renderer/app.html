@@ -4784,9 +4784,11 @@
     }
 
     // どれで変換するかを決める（HTML があれば HTML。無ければ Markdown の印か文中の飾りがあれば Markdown、どちらでもなければ素の文字: 決めたこと 24）
+    // EK-3 直し（R140）: 要素の印（<名前）の無い HTML（素の文字を text/html にも置くアプリ）は、文字の方に文があれば文字で読む（HTML の空白の決まりで改行がつぶれない）
     function pasteBlocks(input) {
       const { html, text } = input && typeof input === 'object' ? input : {};
-      if (typeof html === 'string' && html.trim()) {
+      const plainToo = typeof text === 'string' && text.trim() !== '';
+      if (typeof html === 'string' && html.trim() && (/<[A-Za-z]/.test(html) || !plainToo)) {
         const r = fromHtml(html);
         if (r.tooBig || r.blocks.length) return r;   // 画像だけの HTML などで行が無ければ素の文字を読む
       }
@@ -5589,9 +5591,10 @@
     const line = el._b.type === 'divider';
     const cd = ev.clipboardData;
     const t = cd ? String(cd.getData('text/plain') || '').replace(/\r\n?/g, '\n') : '';
+    // 決めたこと 26: Ctrl+Shift+V は素の文字だけ（改行は行の中の改行）。R126: 変換中（IME）の貼り付けも変換を決めない（素の文字を行の中に）。
+    // EK-3 直し（R138）: リンクにする前に見る（Ctrl+Shift+V で URL を選んだ文字に貼っても、リンクにせず文字を置き換える）。区切り線の行は下に文の行として足す（R126 (5) と同じ）
+    if (plain || txt._composing || ev.isComposing) { if (t && line) { if (t.length > ROW_TEXT_MAX) toast(PASTE_TOO_BIG); else pasteRows(el, [{ type: 'paragraph', rich: [{ t, m: [] }] }]); } else if (t) pasteText(txt, t); return; }
     if (t && linkPaste(el, t)) return;   // 0.14.0 EB-5（K-25）: 選んだ文字の上に開ける住所を貼ると、文字はそのままでリンク
-    // 決めたこと 26: Ctrl+Shift+V は素の文字だけ（改行は行の中の改行）。R126: 変換中（IME）の貼り付けも変換を決めない（素の文字を行の中に）
-    if (plain || txt._composing || ev.isComposing) { if (t && !line) pasteText(txt, t); return; }
     const html = cd ? String(cd.getData('text/html') || '') : '';
     const out = pasteConvert.pasteBlocks({ html, text: t });
     if (out.tooBig) { toast(PASTE_TOO_BIG); return; }   // 決めたこと 25: 先に数えて断る（命令は送らない）
@@ -5600,14 +5603,26 @@
     if (out.inline && !line) { pasteInline(txt, out.blocks[0].rich); return; }
     pasteRows(el, out.blocks);
   }
+  // EK-3 直し（R139）: 行の文の上限（validate.LIMITS.text と同じ 10 万字）。素の文字・1行の文の貼り付けで越えるなら、入れずに大きすぎる知らせ
+  // （入れると保存が bad-args で断られ続け、区切りのたびに知らせが出る）
+  const ROW_TEXT_MAX = 100000;
+  function rowRoom(txt, add) {
+    const n = txt.textContent.length;
+    const r = caretRange(txt) || [n, n];
+    if (n - (r[1] - r[0]) + add <= ROW_TEXT_MAX) return true;
+    toast(PASTE_TOO_BIG);
+    return false;
+  }
   // 素の文字をカーソルの所へ（打った文字と同じく前の文字の飾りを引き継ぐ。保存は次の区切り）
   function pasteText(txt, t) {
+    if (!rowRoom(txt, t.length)) return;
     typeAtCaret(txt, t);
     if (typeof txt._pauseSave === 'function') txt._pauseSave();
   }
   // 1行の文をカーソルの所へ（選んだ所は置き換える）。飾りのある文は貼った飾りのまま、飾りの無い文は打った文字と同じ。保存は次の区切り
   function pasteInline(txt, piece) {
     if (!marksIn(piece)) { pasteText(txt, plainOf(piece)); return; }
+    if (!rowRoom(txt, plainOf(piece).length)) return;
     const cur = rowRich(txt);
     const n = plainOf(cur).length;
     const r = caretRange(txt) || [n, n];
@@ -5638,6 +5653,7 @@
     const args = [pid, b.id, rich, at, blocks];
     if (head) args.push(pasteAboveId(el, b));
     else if (kidsShown(b)) args.push(undefined, true);   // BQ31（2026-10-30）: 文の途中でも最初の子（Enter の inside と同じ）
+    if (!pasteFits(args)) { toast(PASTE_TOO_BIG); return null; }   // EK-3 直し（R141）: 頼みの全部（今の行の飾りも）が 1MB を越えれば送らない
     // 答えを待つ間に blur の保存（_commit）が今の行の全部の文を重ねて送らないよう、画面は先に残る文にする（断られたら戻す: splitRow と同じ）
     const keep = head ? rich : sliceRich(rich, 0, at);
     const was = [b.text, b.rich];
@@ -5654,9 +5670,27 @@
       const lc = x && x.page ? locate(x.page.blocks, x.lastId) : null;
       return lc ? { focus: x.lastId, caret: String(lc.b.text ?? '').length } : null;
     });
-    if (!out && el._b === b) { [b.text, b.rich] = was; if (pid === curId && b.type !== 'divider') paintRich(txt, shown); }
+    if (!out && el._b === b) {
+      [b.text, b.rich] = was;
+      // EK-3 直し（R142）: 断られたら行の文と、押したときのカーソル（選んだ所）を戻す
+      if (pid === curId && b.type !== 'divider') { paintRich(txt, shown); if (r) setSel(txt, r[0], r[1]); }
+    }
     if (full) toast(PASTE_TOO_BIG);
     return out;
+  }
+  // EK-3 直し（R141）: block.paste の頼み（preload が送る形）が DB の頼みの上限（validate.LIMITS.bytes の 1MB。UTF-8 の JSON）に収まるか
+  function pasteFits(args) {
+    const [pageId, blockId, rich, at, blocks, afterId, inside] = args;
+    const s = JSON.stringify({ pageId, blockId, rich, at, blocks, ...(afterId === undefined ? {} : { afterId }), ...(inside === true ? { inside } : {}) });
+    let n = 0;
+    for (let i = 0; i < s.length; i++) {
+      const c = s.charCodeAt(i);
+      if (c < 0x80) n += 1;
+      else if (c < 0x800) n += 2;
+      else if (c >= 0xd800 && c <= 0xdbff && i + 1 < s.length) { n += 4; i += 1; }
+      else n += 3;
+    }
+    return n <= 1024 * 1024;
   }
   // ---------------- 0.13.1 NE-4a（計画 docs/plans/2026-10-27-131.md の決めたこと 7・9・12〜14・16。NR8・NR13・NR15・NR17・TQ1・TQ3）
   // 0.13.1 NR16・NR18: 画面だけの開け閉め（覗き開き・鍵の間の ▸）。窓のメモリだけ（DB に書かない・ページを替えると消える）。id → 開いているか
@@ -6387,6 +6421,7 @@
     if (!l) return;
     const pid = curId; const b = l.b;
     const rich = b.type === 'divider' ? [] : richOf(b);
+    if (!pasteFits([pid, b.id, rich, plainOf(rich).length, out.blocks])) { toast(PASTE_TOO_BIG); return; }   // EK-3 直し（R141）
     selClear();
     let full = false;
     const send = async () => {

@@ -859,9 +859,11 @@ function fromPlain(text) {
 }
 
 // どれで変換するかを決める（HTML があれば HTML。無ければ Markdown の印か文中の飾りがあれば Markdown、どちらでもなければ素の文字: 決めたこと 24）
+// EK-3 直し（R140）: 要素の印（<名前）の無い HTML（素の文字を text/html にも置くアプリ）は、文字の方に文があれば文字で読む（HTML の空白の決まりで改行がつぶれない）
 function pasteBlocks(input) {
   const { html, text } = input && typeof input === 'object' ? input : {};
-  if (typeof html === 'string' && html.trim()) {
+  const plainToo = typeof text === 'string' && text.trim() !== '';
+  if (typeof html === 'string' && html.trim() && (/<[A-Za-z]/.test(html) || !plainToo)) {
     const r = fromHtml(html);
     if (r.tooBig || r.blocks.length) return r;   // 画像だけの HTML などで行が無ければ素の文字を読む
   }

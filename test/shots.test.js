@@ -1046,7 +1046,8 @@ test('基準の画像（test/shots/win32）は今の app.html で撮ったもの
   // 0.14.0 EK-2 直し（R127・R129）: pasteConvert の写しの Excel の表（openContext）と、DB の too-big で貼り付けの知らせを出す所（<script> の中だけ。撮る画面は変わらない）。値を今の app.html に合わせた（前の値は 0b014aac…）
   // 0.14.0 BQ31・BQ32（2026-10-30 の持ち主の答え。R131）: 子の見えている行の文の途中の貼り付けも inside を送る（<script> の中だけ。撮る画面は変わらない）。値を今の app.html に合わせた（前の値は e5d1ae1c…）
   // 0.14.0 EK-4（計画 docs/plans/2026-10-26-140.md の決めたこと 28〜31・R132〜R137）: 要約の行を選ぶ（blockSel・箱の鍵・Shift+クリック・引っ張り・選んだ行の命令とメニュー・写す・貼る）と、選んだ行の地の CSS（.blk.sel）。変わる画面は足した NEW_140 の edit-select の2枚（ほかの撮る画面は行を選ばない）。値を今の app.html に合わせた（前の値は 031da8c6…）
-  assert.strictEqual(sha, '3e3a12dd56f435c88e631de5c9f22bcfb3f1764f40005812ff0b42691155b1a3',
+  // 0.14.0 EK-3 直し（R138〜R142）: Ctrl+Shift+V はリンクにしない・区切り線の行の素の貼り付け・行の上限・頼みの全部の 1MB・断られた貼り付けのカーソル・pasteConvert の写しの要素の印の無い HTML（<script> の中だけ。撮る画面は変わらない）。値を今の app.html に合わせた（前の値は 3e3a12dd…）
+  assert.strictEqual(sha, '5c9ab75e6e4061535d0631332d500559eaf74edae55130d8d6a9c018b56cf5e5',
     'app.html が基準の画像を撮った時と違う。Windows の CI の画面の比べ（捲り棒のつまみも）を見て、基準を取り直してからこの値を直す');
 });
 

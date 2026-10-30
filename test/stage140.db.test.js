@@ -1147,3 +1147,26 @@ test('EK-2 直し（I3・R130・R65）: テキストにした AI の節の見出
   assert.strictEqual(call(db, 'block.turnInto', { pageId: 'pa1', blockId: 'b1', type: 'paragraph' }).ok, true);
   assert.strictEqual(find(get(db), 'b1').b.aiHeading, undefined, '人の見出しをテキストにして AI の印が付いた');
 }));
+
+// ---------------------------------------------------------------- EK-3 直し（2026-10-30 の点検。R143）
+test('EK-3 直し（R143）: 貼り付けの後のページは、main が送り直す形（page.get の答え＋{ page, baseRev }）と残り（FIT_RESERVE）で 1MB を見る。通った貼り付けの後は main の page.put が通り、ぎりぎりで越えるものは too-big で何も変えない', BIG, () => withDb((db) => {
+  const L = 1024 * 1024;
+  const wire = () => { const g = call(db, 'page.get', { id: 'pa1' }, 'main').result.page; return Buffer.byteLength(JSON.stringify({ page: g, baseRev: g.rev }), 'utf8'); };
+  const putOk = () => { const g = call(db, 'page.get', { id: 'pa1' }, 'main').result.page; return call(db, 'page.put', { page: g, baseRev: g.rev }, 'main'); };
+  // 文の合わせて n 字ほど（1行は 9 万字まで。行ごとの欄の字の分を 120 として引く）
+  const fill = (n) => { const out = []; for (let left = n; left > 0; left -= 90000 + 120) out.push(P('paragraph', 'x'.repeat(Math.max(1, Math.min(90000, left - 120))))); return out; };
+  const w0 = wire();
+  // 1つ目: 送り直す形で L - 8,000 ほどまで（通る）
+  const a = paste(db, { blockId: 'b6', rich: [run1('議事録を共有フォルダに置いておく')], at: 16, blocks: fill(L - 8000 - w0) });
+  assert.strictEqual(a.ok, true, a.code);
+  const p1 = putOk();
+  assert.strictEqual(p1.ok, true, `通った貼り付けの後の main の page.put が ${p1.code}`);
+  const w1 = wire();
+  assert.ok(w1 < L - 4096 && w1 > L - 12000, `w1=${w1}`);
+  // 2つ目: 送り直す形で L - 1,000 ほど（ページの素の JSON では収まるが、main の page.put の残りが無い）→ too-big
+  const was = JSON.stringify(raw(db));
+  const b = paste(db, { blockId: 'b6', rich: [run1('議事録を共有フォルダに置いておく')], at: 16, blocks: fill(L - 1000 - w1) });
+  assert.deepStrictEqual([b.ok, b.code], [false, 'too-big'], '送り直す形の残りの無い貼り付けを通した');
+  assert.strictEqual(JSON.stringify(raw(db)), was, '断った貼り付けで何かが変わった');
+  assert.strictEqual(putOk().ok, true);
+}, { blocks: [...samplePage('pa1').page.blocks, ...Array.from({ length: 8 }, (_, i) => ({ id: `f${i}`, type: 'paragraph', text: 'y'.repeat(100000), citeState: 'manual', cites: [] }))] }));
