@@ -378,6 +378,15 @@
   .hkcaps { position: absolute; inset: 0; display: flex; align-items: center; gap: 4px; padding: 0 6px; overflow: hidden; pointer-events: none; }
   .hkcaps kbd { font-family: inherit; font-size: 12px; line-height: 18px; color: var(--text); background: var(--bg); border: 1px solid var(--line);
     border-bottom-width: 2px; border-radius: 4px; padding: 0 7px; white-space: nowrap; }
+  /* 0.14.0 EK-5（決めたこと 38）: 「ホットキー」の下の窓の中の近道の表（読むだけ）。効く所の見出しの行で区切り、キーは <kbd>。狭い窓でも横に捲らない（折り返す） */
+  #tabSettings .schead { font-size: 14px; font-weight: 600; color: var(--text); margin: 16px 0 6px; }
+  #tabSettings .sctable { width: 100%; border-collapse: collapse; font-size: 13px; line-height: 1.5; color: var(--text); table-layout: fixed; }
+  #tabSettings .sctable th, #tabSettings .sctable td { text-align: left; vertical-align: top; padding: 5px 8px 5px 0; border-bottom: 1px solid var(--line); overflow-wrap: anywhere; }
+  #tabSettings .sctable thead th { font-size: 12px; font-weight: 600; color: var(--muted); }
+  #tabSettings .sctable thead th:first-child { width: 42%; }
+  #tabSettings .sctable tbody th { padding-top: 12px; font-size: 12px; font-weight: 600; color: var(--muted); }
+  #tabSettings .sctable kbd { font-family: inherit; font-size: 12px; line-height: 18px; padding: 0 6px; white-space: nowrap; }
+  #tabSettings .scnote { font-size: 12px; color: var(--muted); line-height: 1.5; margin-top: 8px; }
   .setclose { position: absolute; top: 12px; right: 12px; z-index: 1; width: 28px; height: 28px; display: flex; align-items: center;
     justify-content: center; border: none; border-radius: 6px; background: transparent; color: var(--muted); font: inherit; font-size: 18px; cursor: pointer; }
   .setclose:hover { background: var(--hover); color: var(--text); }
@@ -1220,6 +1229,14 @@
               </div>
               <div class="hkbox"><input type="text" id="meetingHotkey" readonly /><span class="hkcaps" id="meetingHotkeyCaps" aria-hidden="true"></span></div>
             </div>
+            <!-- 0.14.0 EK-5（計画 docs/plans/2026-10-26-140.md の決めたこと 38・U3）: 窓の中の近道（読むだけ）。行は src/shortcuts.js の SHORTCUTS の写しから描く（renderShortcuts）。
+                 全体の音声入力のキーは上の欄なので表に入れず、表の下に一言 -->
+            <h3 class="schead" id="shortcutTitle">NaTsu の窓の中の近道</h3>
+            <table class="sctable" id="shortcutTable" aria-labelledby="shortcutTitle">
+              <thead><tr><th scope="col">キー</th><th scope="col">動き</th></tr></thead>
+              <tbody id="shortcutRows"></tbody>
+            </table>
+            <div class="scnote" id="shortcutNote">音声入力のキー（上の［音声入力ホットキー］）は、NaTsu の文字の欄でも使えます</div>
           </div>
           <div class="card" data-sec="general">
             <h2>起動と終了</h2>
@@ -1765,6 +1782,77 @@
   $('tabBtnDictation').onclick = () => showTab('dictation');
   // 設定を開くたびに認識ヒントの状態を聞き直す（記録の途中で main がヒントを止めることがある。0.1.1）。聞き直しは openSettings の中
   $('tabBtnSettings').onclick = () => showTab('settings');
+
+  // ---------------- 0.14.0 EK-5（計画 docs/plans/2026-10-26-140.md の決めたこと 38・U3・R70 (G4)）: 窓の中の近道の表 ----------------
+  // src/shortcuts.js の SHORTCUTS の写し（test/stage140.app.test.js が字も行も同じかを照らす）。設定の［一般］の「ホットキー」の下の表はここから描く
+  const SHORTCUTS = Object.freeze([
+    { keys: 'Ctrl+W', what: '選んでいるタブを閉じる（窓は閉じません）', where: '窓のどこでも', codes: [] },
+    { keys: 'Ctrl+Tab・Ctrl+Shift+Tab', what: '次・前のタブへ', where: '窓のどこでも', codes: [] },
+    { keys: 'Ctrl+P', what: '検索の窓を開く', where: '窓のどこでも', codes: [] },
+    { keys: 'Ctrl+Shift+P', what: '録音の一時停止・再開', where: '窓のどこでも', codes: [] },
+    { keys: 'Ctrl+\\', what: 'サイドバーを畳む・出す', where: '窓のどこでも', codes: [] },
+    { keys: 'Ctrl+Shift+L', what: 'ライトとダークを切り替える', where: '窓のどこでも', codes: [] },
+    { keys: 'Ctrl+＋・Ctrl+－・Ctrl+0', what: '拡大・縮小・元の大きさ（200% まで）', where: '窓のどこでも', codes: [] },
+    { keys: 'Esc', what: '設定を閉じる（設定の検索の欄に文字があるときは、文字を消す）', where: '設定', codes: [] },
+    { keys: 'Ctrl+Z', what: '元に戻す', where: '要約の行を直しているとき', codes: [] },
+    { keys: 'Ctrl+Shift+Z・Ctrl+Y', what: 'やり直す', where: '要約の行を直しているとき', codes: [] },
+    { keys: 'Ctrl+B・Ctrl+I・Ctrl+U・Ctrl+Shift+S・Ctrl+E', what: '選んだ文字を太字・斜体・下線・取り消し線・コードにする（もう一度押すと外す）', where: '要約の行を直しているとき', codes: ['Ctrl+KeyB', 'Ctrl+KeyI', 'Ctrl+KeyU', 'Ctrl+Shift+KeyS', 'Ctrl+KeyE'] },
+    { keys: 'Ctrl+K', what: '選んだ文字にリンクを付ける', where: '要約の行を直しているとき', codes: ['Ctrl+KeyK'] },
+    { keys: 'Ctrl+Shift+H', what: '選んだ文字に、最後に使った色を付ける', where: '要約の行を直しているとき', codes: ['Ctrl+Shift+KeyH'] },
+    { keys: 'Ctrl+Shift+V', what: '文字だけを貼り付ける（行や飾りに変えない）', where: '要約の行を直しているとき', codes: [] },
+    { keys: 'Ctrl+Shift+0〜6', what: '行の型を変える（0 テキスト・1〜3 見出し1〜3・4 ToDo・5 箇条書き・6 番号付き）', where: '要約の行を直しているとき', codes: ['Ctrl+Shift+Digit0', 'Ctrl+Shift+Digit1', 'Ctrl+Shift+Digit2', 'Ctrl+Shift+Digit3', 'Ctrl+Shift+Digit4', 'Ctrl+Shift+Digit5', 'Ctrl+Shift+Digit6'] },
+    { keys: 'Ctrl+D', what: '行を複製する', where: '要約の行を直しているとき', codes: ['Ctrl+KeyD'] },
+    { keys: 'Ctrl+Shift+↑・Ctrl+Shift+↓', what: '行を上・下へ動かす', where: '要約の行を直しているとき', codes: ['Ctrl+Shift+ArrowUp', 'Ctrl+Shift+ArrowDown'] },
+    { keys: 'Ctrl+/', what: '行のメニューを開く', where: '要約の行を直しているとき', codes: ['Ctrl+Slash'] },
+    // 0.13.1 の近道（字下げ・開け閉め・トグル: G4）
+    { keys: 'Tab', what: '行を上の行の中に入れる（字下げ）', where: '要約の行を直しているとき', codes: [] },
+    { keys: 'Shift+Tab', what: '字下げを1段戻す', where: '要約の行を直しているとき', codes: [] },
+    { keys: 'Ctrl+Enter', what: 'ToDo のチェックを付ける・外す。トグルを開く・閉じる', where: '要約の行を直しているとき', codes: ['Ctrl+Enter', 'Ctrl+NumpadEnter'] },
+    { keys: 'Ctrl+Alt+T', what: 'ページのトグルをまとめて開く・閉じる', where: '要約の行を直しているとき', codes: ['Ctrl+Alt+KeyT'] },
+    { keys: 'Ctrl+Shift+7', what: '行をトグルにする', where: '要約の行を直しているとき', codes: ['Ctrl+Shift+Digit7'] },
+    // 0.14.0 の行の選び（E9）
+    { keys: 'Esc', what: '行を選ぶ（もう一度押すと選びを外して ⠿ へ）', where: '要約の行を直しているとき', codes: [] },
+    { keys: 'Ctrl+A', what: '行の文字を全部選ぶ（もう一度押すとその行を選び、さらにもう一度でページの行を全部選ぶ）', where: '要約の行を直しているとき', codes: [] },
+    { keys: 'Shift+↑・Shift+↓', what: '選ぶ行を広げる・狭める', where: '要約の行を選んでいるとき', codes: [] },
+    { keys: 'Backspace・Delete', what: '選んだ行を消す', where: '要約の行を選んでいるとき', codes: [] },
+    { keys: 'Ctrl+C・Ctrl+X・Ctrl+V', what: '選んだ行を写す・切り取る・後ろに貼り付ける', where: '要約の行を選んでいるとき', codes: [] },
+    { keys: 'Ctrl+D', what: '選んだ行を複製する', where: '要約の行を選んでいるとき', codes: ['Ctrl+KeyD'] },
+    { keys: 'Ctrl+Shift+↑・Ctrl+Shift+↓', what: '選んだ行を上・下へ動かす', where: '要約の行を選んでいるとき', codes: ['Ctrl+Shift+ArrowUp', 'Ctrl+Shift+ArrowDown'] },
+    { keys: 'Ctrl+Shift+0〜7', what: '選んだ行の型をまとめて変える', where: '要約の行を選んでいるとき', codes: ['Ctrl+Shift+Digit0', 'Ctrl+Shift+Digit1', 'Ctrl+Shift+Digit2', 'Ctrl+Shift+Digit3', 'Ctrl+Shift+Digit4', 'Ctrl+Shift+Digit5', 'Ctrl+Shift+Digit6', 'Ctrl+Shift+Digit7'] },
+    { keys: 'Ctrl+/', what: '選んだ行のメニューを開く（削除・複製・変換・色）', where: '要約の行を選んでいるとき', codes: ['Ctrl+Slash'] },
+    { keys: 'Ctrl+A', what: 'ページの行を全部選ぶ', where: '要約の行を選んでいるとき', codes: [] },
+    { keys: 'Enter', what: '選んだ行の文に戻って直す', where: '要約の行を選んでいるとき', codes: [] },
+    { keys: 'Esc', what: '選びを外して ⠿ へ', where: '要約の行を選んでいるとき', codes: [] },
+  ].map((r) => Object.freeze({ ...r, codes: Object.freeze(r.codes) })));
+  // 効く所が替わる所に見出しの行（th colspan=2）を入れ、キーは「・」で区切った1つずつを <kbd> で（文字は textContent で入れる）
+  function renderShortcuts() {
+    const box = $('shortcutRows');
+    if (!box) return;
+    box.textContent = '';
+    let where = '';
+    for (const r of SHORTCUTS) {
+      if (r.where !== where) {
+        where = r.where;
+        const tr = document.createElement('tr');
+        const th = document.createElement('th');
+        th.setAttribute('colspan', '2'); th.setAttribute('scope', 'colgroup');
+        th.textContent = where;
+        tr.append(th);
+        box.append(tr);
+      }
+      const tr = document.createElement('tr');
+      const k = document.createElement('td');
+      r.keys.split('・').forEach((x, i) => {
+        if (i) k.append('・');
+        const kbd = document.createElement('kbd'); kbd.textContent = x;
+        k.append(kbd);
+      });
+      const w = document.createElement('td'); w.textContent = r.what;
+      tr.append(k, w);
+      box.append(tr);
+    }
+  }
+  renderShortcuts();
 
   // ---------------- 設定のポップアップ（0.9.0 U-1。SP1〜SP3・設計書 D24 の案C・決めたこと 15〜17） ----------------
   // 開く道（サイドバー・showAccount・showEngineSettings・帯と知らせのボタン・起動の連れて行き）は、どれも openSettings を通る。
@@ -7904,6 +7992,21 @@
     liveMemo = ''; liveMemoWrap = null;
     return true;
   }
+  // 0.14.0 EK-5（計画 docs/plans/2026-10-26-140.md の決めたこと 36・BQ7 (a)・R62・R67）: Ctrl+W は選んでいるタブを閉じる（closeTab。1つだけなら閉じて
+  // 空のページ。窓は閉じない: 既定のメニューは EB-3 で外した）。録音中のタブと、［文字起こしを始める］の答えを待っている間の録音の前のタブは閉じずに
+  // 左下に一言（始めた会議のメモを消さない）。設定のポップアップの間と変換中は何もしない
+  const LIVE_CLOSE_NO = '録音中のページは閉じられません（［■ 終了して作成］で止めます）';
+  document.addEventListener('keydown', (ev) => {
+    if (imeEnter(ev) || settingsOpen()) return;
+    if (!ev.ctrlKey || ev.altKey || ev.shiftKey || ev.metaKey) return;   // Shift・Alt・Meta つきは Ctrl+W でない（pal-ctrlp-shift の字を写さない）
+    if (!(ev.code === 'KeyW' || String(ev.key).toLowerCase() === 'w')) return;
+    ev.preventDefault();
+    const key = activeTab;
+    if (!hasTab(key)) return;
+    if (key === 'live' && mtWasActive) { toast(LIVE_CLOSE_NO); return; }
+    if (key === 'live' && readyStarting) { toast(LIVE_CLOSE_NO); return; }   // R62: 会議を始めている途中
+    closeTab(key);
+  });
 
   // 録音中のページの文字起こしの状態の行と帯（第1d回 A-7・D17）。main の meetingStatus().stt（A-6）をそのまま描く。
   // 帯の文は main の stt.problem.text をそのまま出す（画面は文を作らない）。ボタンは action ごとに1つ（'' なら出さない）

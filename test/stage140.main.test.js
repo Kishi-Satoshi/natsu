@@ -78,10 +78,12 @@ function fakeElectron({ hangRead = false, hangMark = false } = {}) {
     },
   };
   function BrowserWindow() { this.webContents = wc; }
+  BrowserWindow.prototype.on = () => {};
+  BrowserWindow.prototype.isDestroyed = () => false;
   BrowserWindow.prototype.loadFile = () => Promise.resolve();
   BrowserWindow.prototype.show = () => {};
   BrowserWindow.prototype.focus = () => {};
-  const app = { setPath: (k, v) => { st.paths[k] = v; }, whenReady: () => Promise.resolve(), exit: (c) => { st.exit = c; } };
+  const app = { setPath: (k, v) => { st.paths[k] = v; }, on: () => {}, whenReady: () => Promise.resolve(), exit: (c) => { st.exit = c; } };
   const Menu = { setApplicationMenu: (m) => { st.menu = m; }, getApplicationMenu: () => st.menu };
   return { st, electron: { app, BrowserWindow, Menu, clipboard } };
 }
@@ -111,7 +113,7 @@ async function runKeys(main, opt) {
 }
 test('EB-3 直し・R109: stage140.win の小さなアプリは Electron 44 の Promise のクリップボードを待って最後まで走り、元のクリップボードを書き戻し、userData を一時フォルダに置く', { timeout: 10000 }, async () => {
   const r = await runKeys(MAIN);
-  assert.deepStrictEqual(r.out, { menu: true, typed: 'abc', undone: '', copied: 'xyz', pasted: 'xyz', reloaded: false, mark: 1 });
+  assert.deepStrictEqual(r.out, { menu: true, typed: 'abc', undone: '', copied: 'xyz', pasted: 'xyz', reloaded: false, mark: 1, closed: false });   // EK-5 で closed を足した
   assert.strictEqual(r.st.exit, 0);
   assert.strictEqual(r.st.clip, 'もとの文', '元のクリップボードを書き戻さない');
   assert.strictEqual(r.st.paths.userData, path.join(r.dir, 'userData'), 'userData が一時フォルダに無い');

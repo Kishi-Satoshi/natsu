@@ -2,7 +2,7 @@
  * stage140.win.test.js — 0.14.0 の Windows だけの確かめ（計画 docs/plans/2026-10-26-140.md の Task EB-3・EK-5。決めたこと 35・R24・F103）
  * 本物の Electron（node_modules の electron.exe。CI の electron-smoke のジョブが入れ、テスト全部をその Node で回す）で、NaTsu の main と同じく
  * アプリのメニューを外した（Menu.setApplicationMenu(null)）窓に本物のキー（sendInputEvent）を送り、メニューが無くても入力の欄の
- * Ctrl+Z（欄の中の戻し）・Ctrl+C／Ctrl+V が効き、Ctrl+R で読み直さないことを見る。main.js が起きたときにメニューを外すことは
+ * Ctrl+Z（欄の中の戻し）・Ctrl+C／Ctrl+V が効き、Ctrl+R で読み直さず、Ctrl+W で窓が閉じない（EK-5）ことを見る。main.js が起きたときにメニューを外すことは
  * stage140.main.test.js が偽の Electron で見る。
  * Windows でないとき・Electron の本体が無いとき（CI の test のジョブは npm install をしない）は、ファイルの頭で抜ける（test.skip にしない。
  * ci.yml は飛ばしたテストを Linux で 0 件・Windows で 1 件しか許さない）。
@@ -25,7 +25,7 @@ if (!fs.existsSync(EXE)) return;
 const { MAIN, PAGE } = require('./helpers/keysapp');
 const RM = { recursive: true, force: true, maxRetries: 5, retryDelay: 200 };
 
-test('EB-3・F103（決めたこと 35・R24）: アプリのメニューを外した窓で、入力の欄の Ctrl+Z は欄の中で戻り、Ctrl+C／Ctrl+V が効き、Ctrl+R で読み直さない', { timeout: 60000 }, async () => {
+test('EB-3・EK-5・F103（決めたこと 35・36・R24）: アプリのメニューを外した窓で、入力の欄の Ctrl+Z は欄の中で戻り、Ctrl+C／Ctrl+V が効き、Ctrl+R で読み直さず、Ctrl+W で窓が閉じない', { timeout: 60000 }, async () => {
   // EB-3 直し（R109）: 前の版の小さなアプリが %APPDATA% に残した設定のフォルダを消す（この版からは userData を一時フォルダに置く）
   if (process.env.APPDATA) fs.rmSync(path.join(process.env.APPDATA, 'natsu-keys'), RM);
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'natsu-keys-議事録𠮷-'));
@@ -54,6 +54,8 @@ test('EB-3・F103（決めたこと 35・R24）: アプリのメニューを外�
     assert.strictEqual(o.pasted, 'xyz', `Ctrl+V が効かない: ${JSON.stringify(o)}`);
     assert.strictEqual(o.reloaded, false, 'Ctrl+R で読み直した');
     assert.strictEqual(o.mark, 1, 'Ctrl+R で読み直した（印が消えた）');
+    // EK-5（決めたこと 35・36・F103）: メニューが無いので Ctrl+W で窓は閉じない（既定のメニューの「閉じる」が無い）
+    assert.strictEqual(o.closed, false, 'EK-5: Ctrl+W で窓が閉じた');
     assert.strictEqual(code, 0);
   } finally {
     // 子が残っていれば止めてから消す（Windows で掴んだままのファイルを消さない）

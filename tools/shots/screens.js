@@ -357,6 +357,9 @@ const SCREENS = [
   // 0.14.0 EK-4（計画の「取り直す画面（RETAKE）」）: 要約の3行を選んだ形（選んだ行の地の色の明暗）。足した画面（まだ基準が無い）
   { name: 'edit-select-light', page: 'app', theme: 'light', act: SELECT_ROWS },
   { name: 'edit-select-dark', page: 'app', theme: 'dark', act: SELECT_ROWS },
+  // 0.14.0 EK-5（計画の「取り直す画面（RETAKE）」）: 設定の［一般］の「ホットキー」の下の窓の中の近道の表（Ctrl+Shift+N の行は無い）と音声入力のキーの一言（表の見出しまで捲った形）。
+  // 足した画面（まだ基準が無い）。表で「ホットキー」のカードが伸びる settings-light・settings-dark・settings-zoom200-dark は取り直す
+  { name: 'settings-shortcuts-light', page: 'app', theme: 'light', act: `${OPEN_SETTINGS}; document.getElementById('shortcutTitle').scrollIntoView({ block: 'start' })` },
 ];
 // 0.9.0 O-3（RP9）: 録音バーの画面（形 → 地 → 拡大率 → 状態の順。撮る道具は形・地・拡大率の組ごとに窓を1つ開いて状態を act で替える）。
 // 録音は始めずに見た目だけを撮る（act は pill-states の見本を録音バーの DOM に当てる。撮るときだけ体の地にデスクトップの色を塗る）。
@@ -454,8 +457,10 @@ const OVL_094 = (states) => PS.FORMS.flatMap((form) => Object.keys(PS.DESKS).fla
 // 会議の知らせのパネル）に「この見た目でよい（おすすめ）」（2026-10-28）と答えたので、CI run 40796780384（80ea908）の artifact 12864058378 の .after.png（5 枚。閉じたパネルの3枚は今の基準と
 // バイトが同じで artifact に出なかったので替えていない）をバイトのまま基準にし、空に戻した（基準は 161 枚）
 // 0.14.0（計画 docs/plans/2026-10-26-140.md の「取り直す画面（RETAKE）」）: EB-4 で足した飾りの明暗の2枚と、EB-5 で足した道具の帯・リンクの欄・色のメニューの3枚（まだ基準が無い）。
-// EB-5 で ⠿ のメニューに［色 ▸］が増えた edit-block-menu-light（今の基準がある）。EK-4 で足した選んだ行の明暗の2枚（まだ基準が無い）
-const RETAKE = new Set(['edit-marks-light', 'edit-marks-dark', 'edit-toolbar-light', 'edit-link-light', 'edit-color-menu-light', 'edit-toolbar-zoom200-light', 'edit-select-light', 'edit-select-dark', 'edit-block-menu-light']);
+// EB-5 で ⠿ のメニューに［色 ▸］が増えた edit-block-menu-light（今の基準がある）。EK-4 で足した選んだ行の明暗の2枚（まだ基準が無い）。
+// EK-5 で足した設定の近道の表の1枚（まだ基準が無い）と、表で「ホットキー」のカードが伸びる設定の［一般］の3枚（今の基準がある）
+const RETAKE = new Set(['edit-marks-light', 'edit-marks-dark', 'edit-toolbar-light', 'edit-link-light', 'edit-color-menu-light', 'edit-toolbar-zoom200-light', 'edit-select-light', 'edit-select-dark', 'settings-shortcuts-light',
+  'edit-block-menu-light', 'settings-light', 'settings-dark', 'settings-zoom200-dark']);
 const PERF = [{ name: 'open-2000-blocks', budgetMs: 500 }];   // 3回開いた中央値で見る
 const TIME_ZONE = 'Asia/Tokyo';
 const TOLERANCE = 2;   // 色の差（0〜255）がこれ以下の画素は同じとみなす。CI の機械の CPU ごとの描き方の1段の差を拾わないため（揺れの確かめ judgePair は 0 で見る）

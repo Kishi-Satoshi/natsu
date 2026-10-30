@@ -919,3 +919,51 @@ test('EK-3 直し（R140）: 要素の印の無い HTML（素の文字を text/h
   assert.deepStrictEqual(briefOf(PC.pasteBlocks({ html: '<p>見出しでない</p><p>二つ目</p>', text: '別の文' })), ['paragraph:見出しでない', 'paragraph:二つ目'], '印のある HTML を読まない');
   assert.deepStrictEqual(briefOf(PC.pasteBlocks({ html: 'a &amp; b', text: '' })), ['paragraph:a & b'], '文字が空のとき印の無い HTML を読まない');
 });
+
+// ---------------------------------------------------------------- EK-5（U3・決めたこと 37・38・R70 (G4)・BQ8）: 窓の中の近道の表
+const SC = require('../src/shortcuts.js');
+// keyAction が受けるキーを全部さがす（Ctrl と Shift・Alt の組 × ev.code）。答えは「Ctrl+Shift+Digit7」の形
+const SCAN_CODES = [...'ABCDEFGHIJKLMNOPQRSTUVWXYZ'].map((c) => `Key${c}`).concat([...'0123456789'].map((d) => `Digit${d}`),
+  ['Enter', 'NumpadEnter', 'Slash', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Tab', 'Escape', 'Backspace', 'Delete', 'Space', 'Backslash', 'IntlYen', 'Equal', 'Minus', 'Comma', 'Period', 'Home', 'End']);
+const keyActionCodes = () => {
+  const out = [];
+  for (const shiftKey of [false, true]) for (const altKey of [false, true]) for (const code of SCAN_CODES) {
+    const ev = { ctrlKey: true, shiftKey, altKey, metaKey: false, isComposing: false, key: '', code };
+    if (E.keyAction(ev) !== null) out.push(`Ctrl+${altKey ? 'Alt+' : ''}${shiftKey ? 'Shift+' : ''}${code}`);
+  }
+  return out.sort();
+};
+test('EK-5（決めたこと 38・R70 (G4)）: keyAction と SHORTCUTS が同じキー（keyAction の受けるキーは全部どれかの行にあり、行の codes は全部 keyAction が受ける）。0.13.1 の近道（Tab・Shift+Tab・Ctrl+Enter・Ctrl+Alt+T・Ctrl+Shift+7）と Esc（行を選ぶ）の行がある', () => {
+  const rows = SC.SHORTCUTS;
+  assert.ok(Array.isArray(rows) && rows.length > 0 && Object.isFrozen(rows));
+  for (const r of rows) {
+    assert.deepStrictEqual(Object.keys(r), ['keys', 'what', 'where', 'codes'], JSON.stringify(r));
+    assert.ok(typeof r.keys === 'string' && r.keys && typeof r.what === 'string' && r.what && typeof r.where === 'string' && r.where, JSON.stringify(r));
+    assert.ok(Object.isFrozen(r) && Object.isFrozen(r.codes) && r.codes.every((c) => typeof c === 'string'), JSON.stringify(r));
+  }
+  const fromRows = [...new Set(rows.flatMap((r) => r.codes))].sort();
+  assert.deepStrictEqual(fromRows, keyActionCodes(), 'keyAction の受けるキーと SHORTCUTS の codes が違う');
+  // 0.13.1 の近道と、0.14.0 の Esc（行を選ぶ。0.13.1 の「Esc で ⠿ へ」を替えた: EK-4）
+  const has = (keys, re, where = '要約の行を直しているとき') => rows.some((r) => r.keys === keys && r.where === where && re.test(r.what));
+  assert.ok(has('Tab', /字下げ/), 'Tab の行が無い');
+  assert.ok(has('Shift+Tab', /字下げを1段戻す/), 'Shift+Tab の行が無い');
+  assert.ok(has('Ctrl+Enter', /トグルを開く・閉じる/) && rows.find((r) => r.keys === 'Ctrl+Enter').codes.includes('Ctrl+Enter'), 'Ctrl+Enter の行が無い');
+  assert.ok(has('Ctrl+Alt+T', /まとめて開く・閉じる/), 'Ctrl+Alt+T の行が無い');
+  assert.ok(has('Ctrl+Shift+7', /トグル/), 'Ctrl+Shift+7 の行が無い');
+  assert.ok(has('Esc', /^行を選ぶ/), 'Esc（行を選ぶ）の行が無い');
+  assert.ok(has('Ctrl+Shift+0〜7', /まとめて/, '要約の行を選んでいるとき'), '選んだ行の Ctrl+Shift+0〜7 の行が無い');
+  assert.ok(has('Ctrl+W', /タブを閉じる/, '窓のどこでも'), 'Ctrl+W の行が無い');
+  // 効く所ごとに続けて並ぶ（設定の表は効く所の見出しで区切る）
+  const groups = rows.map((r) => r.where).filter((w, i, a) => i === 0 || a[i - 1] !== w);
+  assert.strictEqual(new Set(groups).size, groups.length, '同じ効く所が離れて並ぶ');
+});
+
+test('EK-5（決めたこと 37・BQ8）: Ctrl+Shift+N は入れない（keyAction は null・SHORTCUTS に行が無い）。全体の音声入力のキーも表に入れない', () => {
+  const K = (o) => E.keyAction({ ctrlKey: false, shiftKey: false, altKey: false, metaKey: false, isComposing: false, key: '', code: '', ...o });
+  assert.strictEqual(K({ ctrlKey: true, shiftKey: true, code: 'KeyN', key: 'N' }), null);
+  assert.strictEqual(K({ ctrlKey: true, code: 'KeyW', key: 'w' }), null, 'Ctrl+W は行の近道でない（窓の受け口）');
+  for (const r of SC.SHORTCUTS) {
+    assert.ok(!/Ctrl\+Shift\+N\b/.test(r.keys), `Ctrl+Shift+N の行: ${r.keys}`);
+    assert.ok(!/Space/.test(r.keys) && !/音声入力/.test(r.what), `音声入力のキーの行: ${r.keys}`);
+  }
+});

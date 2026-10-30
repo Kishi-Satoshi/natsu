@@ -4,6 +4,7 @@
  * Electron 44 の main では clipboard.readText()／writeText() が Promise を返す（設計書の EL1）ので、全部を待つ。
  * 止まったときは、待っていた段の名前を error に書く（「timeout: <段>」）。設定と控え（userData）は一時フォルダの中に置く（%APPDATA% に残さない）。
  * test/stage140.main.test.js が偽の electron（Promise のクリップボード）で、Linux でも最後まで走ることを見る。
+ * EK-5: 最後に Ctrl+W を送り、窓が閉じないこと（closed が偽）を書く。
  */
 'use strict';
 
@@ -28,6 +29,7 @@ const finish = (code) => {
 let was = null;   // 始める前のクリップボード（終わりと、止まって 40 秒の見張りで終わるときに書き戻す: EB-4 直し・R115）
 const restore = async () => { if (typeof was === 'string') await Promise.race([clipboard.writeText(was), wait(2000)]); };
 guard = setTimeout(async () => { out.error = 'timeout: ' + step; try { await restore(); } catch (_) { /* 書き戻せなくても終える */ } finish(2); }, 40000);
+app.on('window-all-closed', () => {});   // 窓が閉じても結果を書いてから終える（既定はここでアプリが終わる）
 app.whenReady().then(async () => {
   try {
     at('menu');
@@ -36,6 +38,8 @@ app.whenReady().then(async () => {
     at('window');
     const w = new BrowserWindow({ show: true, width: 480, height: 320, webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false } });
     const wc = w.webContents;
+    let closed = false;
+    w.on('closed', () => { closed = true; });
     let loads = 0;
     wc.on('did-start-loading', () => { loads += 1; });
     at('load');
@@ -75,6 +79,11 @@ app.whenReady().then(async () => {
     await wait(1200);
     out.reloaded = loads !== before;
     out.mark = await js('window.__natsuMark');
+    // 0.14.0 EK-5（決めたこと 35・36・F103）: メニューが無ければ Ctrl+W で窓は閉じない（NaTsu の画面が受けてタブを閉じる）
+    at('close');
+    await key('W', ['control']);
+    await wait(800);
+    out.closed = closed || w.isDestroyed();
   } catch (e) { out.error = step + ': ' + String(e && e.message || e); }
   try { at('clipboard-restore'); await restore(); } catch (e) { if (!out.error) out.error = step + ': ' + String(e && e.message || e); }
   finish(0);

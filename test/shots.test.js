@@ -192,10 +192,11 @@ const RETAKEN_132 = ['nudge-light-100', 'nudge-dark-100', 'nudge-light-150', 'nu
 const ADDED_132 = [...NEW_132, ...RETAKEN_132];
 // 0.14.0（計画 docs/plans/2026-10-26-140.md の「取り直す画面（RETAKE）」）で意図して変えた: 取り直し待ちは 0.14.0 の表の画面だけ（RETAKE_140）。
 // EB-4 で行の文の飾りと色の明暗の2枚を、EB-5 で道具の帯・リンクの欄・色のメニューの3枚を足した（NEW_140。足した画面で、まだ基準が無い）。
-// EB-5 直しで拡大 200% の帯と色のメニューの1枚を、EK-4 で選んだ行の明暗の2枚を足した
-const NEW_140 = ['edit-marks-light', 'edit-marks-dark', 'edit-toolbar-light', 'edit-link-light', 'edit-color-menu-light', 'edit-toolbar-zoom200-light', 'edit-select-light', 'edit-select-dark'];
-// EB-5 で ⠿ のメニューに［色 ▸］が増えるので、今の基準がある1枚を取り直す（RETAKEN_140）
-const RETAKEN_140 = ['edit-block-menu-light'];
+// EB-5 直しで拡大 200% の帯と色のメニューの1枚を、EK-4 で選んだ行の明暗の2枚を、EK-5 で設定の近道の表の1枚を足した
+const NEW_140 = ['edit-marks-light', 'edit-marks-dark', 'edit-toolbar-light', 'edit-link-light', 'edit-color-menu-light', 'edit-toolbar-zoom200-light', 'edit-select-light', 'edit-select-dark', 'settings-shortcuts-light'];
+// EB-5 で ⠿ のメニューに［色 ▸］が増えるので、今の基準がある1枚を取り直す（RETAKEN_140）。EK-5 で設定の「ホットキー」のカードに近道の表が入って伸びるので、
+// 設定の［一般］を開く3枚も取り直す（R145）
+const RETAKEN_140 = ['edit-block-menu-light', 'settings-light', 'settings-dark', 'settings-zoom200-dark'];
 const RETAKE_140 = [...NEW_140, ...RETAKEN_140];
 const img = (w, h, fill = [255, 255, 255, 255]) => ({ width: w, height: h, data: Buffer.from(Array.from({ length: w * h }, () => fill).flat()) });
 // 一時フォルダ（日本語と 𠮷 の名前。RF1 と同じ形）。テストの終わりに消す
@@ -1047,7 +1048,8 @@ test('基準の画像（test/shots/win32）は今の app.html で撮ったもの
   // 0.14.0 BQ31・BQ32（2026-10-30 の持ち主の答え。R131）: 子の見えている行の文の途中の貼り付けも inside を送る（<script> の中だけ。撮る画面は変わらない）。値を今の app.html に合わせた（前の値は e5d1ae1c…）
   // 0.14.0 EK-4（計画 docs/plans/2026-10-26-140.md の決めたこと 28〜31・R132〜R137）: 要約の行を選ぶ（blockSel・箱の鍵・Shift+クリック・引っ張り・選んだ行の命令とメニュー・写す・貼る）と、選んだ行の地の CSS（.blk.sel）。変わる画面は足した NEW_140 の edit-select の2枚（ほかの撮る画面は行を選ばない）。値を今の app.html に合わせた（前の値は 031da8c6…）
   // 0.14.0 EK-3 直し（R138〜R142）: Ctrl+Shift+V はリンクにしない・区切り線の行の素の貼り付け・行の上限・頼みの全部の 1MB・断られた貼り付けのカーソル・pasteConvert の写しの要素の印の無い HTML（<script> の中だけ。撮る画面は変わらない）。値を今の app.html に合わせた（前の値は 3e3a12dd…）
-  assert.strictEqual(sha, '5c9ab75e6e4061535d0631332d500559eaf74edae55130d8d6a9c018b56cf5e5',
+  // 0.14.0 EK-5（計画 docs/plans/2026-10-26-140.md の決めたこと 36・38・R145・R146）: 設定の「ホットキー」のカードの中の窓の中の近道の表（SHORTCUTS の写し・renderShortcuts・.sctable の CSS）と Ctrl+W の受け口。変わる画面は足した NEW_140 の settings-shortcuts-light と、カードが伸びる RETAKEN_140 の settings-light・settings-dark・settings-zoom200-dark。値を今の app.html に合わせた（前の値は 5c9ab75e…）
+  assert.strictEqual(sha, '7a40de06ce30d2d036bbd51468c7ad34767917866cc5cf8988b870cf425cb416',
     'app.html が基準の画像を撮った時と違う。Windows の CI の画面の比べ（捲り棒のつまみも）を見て、基準を取り直してからこの値を直す');
 });
 

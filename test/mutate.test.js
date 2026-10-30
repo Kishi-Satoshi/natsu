@@ -1237,6 +1237,9 @@ const IDS_140 = [
   'ek-many-order', 'ek-many-divider',
   // 0.14.0 EK-4（表の行の順に、EK-2 の行の間に入れた）
   'ek-multi-cmd', 'ek-sel-esc', 'ek-sel-exit', 'ek-sel-type', 'ek-sel-busy',
+  // 0.14.0 EK-5（表の行の順に、EK-4 の行の後と EK-2 の行の間に入れた）
+  'ek-menu-default', 'ek-ctrl-w-live', 'ek-ctrl-w-last', 'ek-shortcut-table',
+  'ek-ctrl-w-starting', 'ek-shortcut-131',
   // 0.14.0 EK-2 の続き
   'ek-move-ai-head', 'ek-many-divider-kids', 'ek-paste-top', 'ek-paste-inside',
   'ek-paste-kids', 'ek-md-nest', 'ek-paste-deep-limit',

@@ -2477,3 +2477,154 @@ test('EK-3 直し（R142）: 貼り付けが断られたら、行の文と押し
     assert.deepStrictEqual(l.errors.map(fmt), []);
   } finally { l.done(); }
 });
+
+// ---------------------------------------------------------------- EK-5（U3・F103・決めたこと 36〜38・BQ7 (a)・BQ8・R62・R67・R70 (G4)）: Ctrl+W・近道の一覧
+const SC = require('../src/shortcuts.js');
+const CW = { key: 'w', code: 'KeyW', ctrlKey: true };
+const LIVE_NO = '録音中のページは閉じられません（［■ 終了して作成］で止めます）';
+const SC_NOTE = '音声入力のキー（上の［音声入力ホットキー］）は、NaTsu の文字の欄でも使えます';
+const W_LIST = [{ id: 'pk1', title: T1, date: '10/29', durationSec: 600, hasSummary: true }, { id: 'pk2', title: titleAt('2026-10-28T01:00:00.000Z'), date: '10/28', durationSec: 600, hasSummary: true }];
+// 状態を持つ偽の main（ページ2つ・録音の前のページ・会議）。stage130.ready.app の fakeMain と同じ形
+async function bootW(o = {}) {
+  const s = { prep: null, active: false, calls: [], hold: null };
+  const status = () => (s.active
+    ? { active: true, finalizing: false, startedAt: Date.now() - 1000, memo: '', meetingType: null, segments: [], pending: 0, pauses: [], cloud: true, prep: null,
+      stt: { route: 'cloud', lastTextAt: null, segSec: 15, problem: null } }
+    : { active: false, finalizing: false, memo: '', segments: [], pending: 0, cloud: true, prep: s.prep ? { ...s.prep } : null });
+  const returns = {
+    meetingTypes: () => lib.typesForView(), memoTypes: () => M.listMemoTypes(),
+    pagesSearch: () => W_LIST,
+    pageGet: (id) => ({ page: { id, title: W_LIST.find((p) => p.id === id).title, createdAt: '2026-10-29T01:00:00.000Z', durationSec: 600, blocks: [], memo: '', meetingType: 'general' }, segments: [] }),
+    uiState: () => ({ sidebar: { width: 260, collapsed: false }, tabs: o.tabs || { open: [], active: '' } }),
+    meetingStatus: () => status(),
+    meetingPrepare: () => { s.calls.push('meetingPrepare'); if (!s.prep) s.prep = { memo: '', meetingType: null }; return { ok: true }; },
+    meetingUnprepare: () => { s.calls.push('meetingUnprepare'); s.prep = null; return { ok: true }; },
+    meetingSetMemo: () => true,
+    meetingStart: () => {
+      s.calls.push('meetingStart');
+      const go = () => { s.active = true; s.prep = null; return { ok: true, localOnly: false }; };
+      if (!o.holdStart) return go();
+      return new Promise((r) => { s.hold = () => r(go()); });
+    },
+    meetingToggle: () => { s.calls.push('meetingToggle'); return { ok: true }; },
+  };
+  const l = await load(APP, { returns });
+  await l.drain();
+  l.s = s;
+  return l;
+}
+const tabKeys = (l) => $(l, 'tabbar').querySelectorAll('.tabitem').map((t) => t.dataset.key);
+const activeTabKey = (l) => { const t = $(l, 'tabbar').querySelector('.tabitem.active'); return t ? t.dataset.key : ''; };
+
+test('EK-5（決めたこと 36・BQ7 (a)）: Ctrl+W → 選んでいるタブを閉じて隣へ移る・1つだけなら閉じて空のページ（窓は閉じない）。設定の間と変換中は何もしない。Ctrl+Shift+N は何もしない（BQ8）', T, async () => {
+  const l = await bootW({ tabs: { open: ['page:pk1', 'page:pk2', 'dictation'], active: 'page:pk1' } });
+  assert.deepStrictEqual([tabKeys(l), activeTabKey(l)], [['page:pk1', 'page:pk2', 'dictation'], 'page:pk1'], '前提: 覚えたタブ');
+  // 設定のポップアップの間は何もしない（後ろのタブを替えない）
+  $(l, 'tabBtnSettings').dispatchEvent({ type: 'click' }); await l.drain();
+  let ev = l.key(CW); await l.drain();
+  assert.deepStrictEqual(tabKeys(l), ['page:pk1', 'page:pk2', 'dictation'], '設定の間にタブを閉じた');
+  assert.strictEqual(ev.defaultPrevented, false);
+  l.key({ key: 'Escape' }); await l.drain();
+  assert.strictEqual($(l, 'settingsModal').hidden, true, '前提: 設定を閉じた');
+  // 変換中（IME）は何もしない
+  l.key({ ...CW, isComposing: true }); l.key({ ...CW, keyCode: 229 }); await l.drain();
+  assert.deepStrictEqual(tabKeys(l), ['page:pk1', 'page:pk2', 'dictation'], '変換中にタブを閉じた');
+  // ほかの修飾キーつきは Ctrl+W でない
+  l.key({ ...CW, shiftKey: true }); l.key({ ...CW, altKey: true }); await l.drain();
+  assert.deepStrictEqual(tabKeys(l), ['page:pk1', 'page:pk2', 'dictation']);
+  // Ctrl+W: 選んでいるタブを閉じ、隣（右）へ移る。既定の動き（窓を閉じる）は止める
+  ev = l.key(CW); await l.drain();
+  assert.strictEqual(ev.defaultPrevented, true, 'Ctrl+W の既定を止めない');
+  assert.deepStrictEqual([tabKeys(l), activeTabKey(l)], [['page:pk2', 'dictation'], 'page:pk2']);
+  l.key({ key: 'W', code: 'KeyW', ctrlKey: true }); await l.drain();   // Caps Lock の大文字でも同じ
+  assert.deepStrictEqual([tabKeys(l), activeTabKey(l)], [['dictation'], 'dictation']);
+  // 1つだけ: 閉じて「左の一覧から議事録を選んでください」（BQ7 (a)。窓は閉じない）
+  l.key(CW); await l.drain();
+  assert.deepStrictEqual([tabKeys(l), activeTabKey(l)], [[], '']);
+  assert.match($(l, 'pNote').textContent, /左の一覧から議事録を選んでください/);
+  ev = l.key(CW); await l.drain();   // タブが無ければ何もしない
+  assert.deepStrictEqual(tabKeys(l), []);
+  // Ctrl+Shift+N は何もしない（BQ8: 録音の前のページを開かない・録音を始めない）
+  ev = l.key({ key: 'N', code: 'KeyN', ctrlKey: true, shiftKey: true }); await l.drain();
+  assert.deepStrictEqual(l.s.calls.filter((c) => /^meeting(Prepare|Start|Toggle)$/.test(c)), [], 'Ctrl+Shift+N で会議の口を呼んだ');
+  assert.deepStrictEqual(tabKeys(l), [], 'Ctrl+Shift+N でタブができた');
+  assert.deepStrictEqual(l.errors.map(fmt), []);
+});
+
+test('EK-5・R67・R62（第4版）: 録音中のタブで Ctrl+W → 閉じずに左下に一言。［文字起こしを始める］の答えを待っている間の録音の前のタブも閉じずに同じ一言（meetingUnprepare を呼ばない）。待っていない録音の前のページは RD14 のとおり閉じる', T, async () => {
+  const l = await bootW({ holdStart: true });
+  // 待っていない録音の前のページ（手を付けていないメモ）: 確かめずに閉じる（RD14）
+  $(l, 'mtToggleBtn').dispatchEvent({ type: 'click' }); await l.drain();
+  assert.deepStrictEqual([tabKeys(l), activeTabKey(l)], [['live'], 'live'], '前提: 録音の前のページ');
+  l.key(CW); await l.drain();
+  assert.deepStrictEqual([tabKeys(l), l.s.calls.filter((c) => c === 'meetingUnprepare').length], [[], 1]);
+  // ［文字起こしを始める］の答えを待っている間: 閉じない・meetingUnprepare を呼ばない・一言（R62）
+  $(l, 'mtToggleBtn').dispatchEvent({ type: 'click' }); await l.drain();
+  $(l, 'readyStartBtn').dispatchEvent({ type: 'click' }); await l.drain();
+  assert.ok(l.s.hold, '前提: meetingStart の答えを待っている');
+  let asked = 0;
+  l.window.confirm = () => { asked += 1; return true; };
+  const ev = l.key(CW); await l.drain();
+  assert.strictEqual(ev.defaultPrevented, true);
+  assert.deepStrictEqual(tabKeys(l), ['live'], '答えを待っている間に録音の前のタブを閉じた');
+  assert.strictEqual(l.s.calls.filter((c) => c === 'meetingUnprepare').length, 1, '答えを待っている間に meetingUnprepare を呼んだ');
+  assert.strictEqual(asked, 0, '答えを待っている間に確かめを出した');
+  assert.strictEqual($(l, 'toast').textContent, LIVE_NO);
+  // 始まった（録音中）: 閉じずに一言（R67。今までは黙って閉じなかった）
+  l.s.hold(); await l.drain();
+  assert.strictEqual($(l, 'liveBar').hidden, false, '前提: 録音中のページ');
+  $(l, 'toast').textContent = '';
+  l.key(CW); await l.drain();
+  assert.deepStrictEqual([tabKeys(l), activeTabKey(l)], [['live'], 'live'], '録音中のタブを閉じた');
+  assert.strictEqual($(l, 'toast').textContent, LIVE_NO);
+  assert.strictEqual(l.s.calls.filter((c) => c === 'meetingUnprepare').length, 1);
+  assert.deepStrictEqual(l.errors.map(fmt), []);
+});
+
+const scRowsWant = () => {
+  const out = [];
+  let where = '';
+  for (const r of SC.SHORTCUTS) {
+    if (r.where !== where) { where = r.where; out.push(['', where]); }
+    out.push([r.keys, r.what]);
+  }
+  return out;
+};
+test('EK-5（決めたこと 38・U3）: 設定の［一般］の「ホットキー」の下に「NaTsu の窓の中の近道」の表があり、SHORTCUTS と同じ行（効く所の見出しで区切る・キーは <kbd>）。Ctrl+Shift+N の行は無く、表の下に音声入力のキーの一言', T, async () => {
+  const l = await bootW();
+  $(l, 'tabBtnSettings').dispatchEvent({ type: 'click' }); await l.drain();
+  const card = $(l, 'shortcutTable').closest('.card');
+  assert.strictEqual(card.dataset.sec, 'general');
+  assert.strictEqual(card.querySelector('h2').textContent, 'ホットキー', '「ホットキー」のカードの中に無い');
+  assert.strictEqual($(l, 'shortcutTitle').textContent, 'NaTsu の窓の中の近道');
+  assert.strictEqual($(l, 'shortcutTable').getAttribute('aria-labelledby'), 'shortcutTitle');
+  const kids = card.children;
+  assert.ok(kids.indexOf($(l, 'shortcutTitle')) > kids.findIndex((n) => n.dataset && n.dataset.row === '議事録ホットキー'), '表が2つのホットキーの欄の下に無い');
+  assert.deepStrictEqual($(l, 'shortcutTable').querySelectorAll('thead th').map((th) => th.textContent), ['キー', '動き']);
+  const got = $(l, 'shortcutTable').querySelectorAll('tbody tr').map((tr) => {
+    const th = tr.querySelector('th');
+    return th ? ['', th.textContent] : tr.querySelectorAll('td').map((td) => td.textContent);
+  });
+  assert.deepStrictEqual(got, scRowsWant(), '設定の表が SHORTCUTS と違う');
+  for (const tr of $(l, 'shortcutTable').querySelectorAll('tbody tr')) {
+    const th = tr.querySelector('th');
+    if (th) { assert.deepStrictEqual([th.getAttribute('colspan'), th.getAttribute('scope')], ['2', 'colgroup']); continue; }
+    const td = tr.querySelector('td');
+    assert.strictEqual(td.querySelectorAll('kbd').map((k) => k.textContent).join('・'), td.textContent, 'キーが <kbd> でない');
+  }
+  assert.ok(!/Ctrl\+Shift\+N/.test($(l, 'shortcutTable').textContent), 'Ctrl+Shift+N の行がある');
+  const note = $(l, 'shortcutNote');
+  assert.strictEqual(note.textContent, SC_NOTE);
+  assert.strictEqual(kids.indexOf(note), kids.indexOf($(l, 'shortcutTable')) + 1, '一言が表のすぐ下に無い');
+  assert.deepStrictEqual(l.errors.map(fmt), []);
+});
+
+test('EK-5（決めたこと 38）: 画面の写し（app.html の SHORTCUTS）は src/shortcuts.js と字も行も同じ', () => {
+  const SRC = fs.readFileSync(path.join(__dirname, '..', 'src', 'shortcuts.js'), 'utf8');
+  const body = SRC.slice(SRC.indexOf('const SHORTCUTS = '), SRC.indexOf('\nmodule.exports')).replace(/\s+$/, '');
+  const want = body.split('\n').map((x) => (x ? `  ${x}` : x)).join('\n');
+  assert.ok(HTML.includes(want), 'app.html の SHORTCUTS の写しの字が src/shortcuts.js と違う');
+  const at = HTML.indexOf('  const SHORTCUTS = ');
+  const app = new Function(`${HTML.slice(at, at + want.length)}\nreturn SHORTCUTS;`)();   // eslint-disable-line no-new-func
+  assert.deepStrictEqual(app, SC.SHORTCUTS);
+});
