@@ -281,8 +281,8 @@ test('公開したのに画面から呼ばれない API がない', () => {
   // 0.14.0 EB-2（計画 docs/plans/2026-10-26-140.md の Ruling R89）で足した元に戻すの2つ（onEditStep・editRevert）と行の色（blocksSetColor）は、
   // 画面の元に戻す（EB-3）と色（EB-5）が呼び始めたら外して空に戻す。onEditStep・editRevert は EB-3 が、blocksSetColor は EB-5（⠿・Ctrl+/・/ の行の色）が呼び始めたので外して空に戻した
   // 0.14.0 EK-2（計画 docs/plans/2026-10-26-140.md の Ruling R122）で足した貼り付け（blockPaste）と選んだ行の4つ（blocksRemove・blocksMove・blocksDuplicate・
-  // blocksTurnInto）は、画面の貼り付け（EK-3）と複数の行の選択（EK-4）が呼び始めたら外して空に戻す。blockPaste は EK-3 が呼び始めたので外した
-  const PENDING_APP = new Set(['blocksRemove', 'blocksMove', 'blocksDuplicate', 'blocksTurnInto']);
+  // blocksTurnInto）は、画面の貼り付け（EK-3）と複数の行の選択（EK-4）が呼び始めたら外して空に戻す。blockPaste は EK-3 が、選んだ行の4つは EK-4 が呼び始めたので外して空に戻した
+  const PENDING_APP = new Set([]);
   for (const [ns, html] of [['koeApp', appHtml], ['koeOverlay', overlayHtml]]) {
     const names = all(/^\s{2}([A-Za-z][\w$]*):/gm, block(ns));
     const used = new Set(all(new RegExp(`${ns}\\.(\\w+)`, 'g'), html));

@@ -233,35 +233,46 @@ test('NE-4a: Tab の後、欄を描き直しても同じ行にフォーカスと
   } finally { l.done(); }
 });
 
-test('NE-4a・NR17・決めたこと 25: 行で Esc → ⠿ にフォーカス（見える）・一覧の選択は外れない。⠿ で Tab → フォーカスは要約の欄の外（次の行の文に入らない）。Shift+Tab →［AI 要約］のタブ。⠿ で Esc → 行の文へ戻る。/ メニューを開いている間の Esc は今どおりメニューだけを閉じる', T, async () => {
+// 0.14.0 EK-4 で意図して直した（計画 docs/plans/2026-10-26-140.md の「意図して変えるテスト」・R64・G2）: 行の Esc は行を選び、もう1回の Esc で選びを外して ⠿ へ。
+// 意図（キーボードの人が ⠿ の受け口から欄の外へ出られる・Shift+Tab で欄のタブ・⠿ の Esc で行の文へ・/ メニューの Esc はメニューだけ）は同じ。要素は assert の値に渡さない
+test('NE-4a・NR17・決めたこと 25（0.14.0 EK-4・R64・G2 で直した）: 行で Esc → その行を選ぶ・もう1回 Esc → 選びを外して ⠿ にフォーカス（見える）・一覧の選択は外れない。⠿ で Tab → フォーカスは要約の欄の外（次の行の文に入らない）。Shift+Tab →［AI 要約］のタブ。⠿ で Esc → 行の文へ戻る。/ メニューを開いている間の Esc は今どおりメニューだけを閉じる', T, async () => {
   const l = await openReal({ pa1: NEST() });
   try {
     // 欄の外の次の部品（要約の欄の後ろの［次へ］）
     const after = l.document.createElement('button'); after.textContent = '欄の外';
     $(l, 'pNote').parentNode.insertBefore(after, $(l, 'pNote').nextSibling);
-    let t = atEnd(l, 'a1');
-    let ev = press(l, t, 'Escape');
-    assert.strictEqual(ev.defaultPrevented, true, '一覧の選択の Esc まで届く');
     const grip = rowOf(l, 'a1').querySelector('.grip');
-    assert.strictEqual(l.document.activeElement, grip, 'Esc で ⠿ へ移らない');
+    const escEsc = () => {
+      const t = atEnd(l, 'a1');
+      const e1 = press(l, t, 'Escape');
+      assert.strictEqual(e1.defaultPrevented, true, '一覧の選択の Esc まで届く');
+      assert.strictEqual(rowOf(l, 'a1').getAttribute('aria-selected'), 'true', '行の Esc で行が選ばれない');
+      assert.ok(l.document.activeElement === $(l, 'pNote'), '選んだときのフォーカスが要約の欄の箱でない');
+      const e2 = press(l, $(l, 'pNote'), 'Escape');
+      assert.strictEqual(e2.defaultPrevented, true);
+      assert.strictEqual(rowOf(l, 'a1').getAttribute('aria-selected'), null, 'もう1回の Esc で選びが外れない');
+    };
+    escEsc();
+    assert.ok(l.document.activeElement === grip, '2回目の Esc で ⠿ へ移らない');
     assert.match(HTML, /\.blk \.grip:focus-visible \{[^}]*opacity: \.55/, '⠿ のフォーカスが見えない');
-    ev = press(l, grip, 'Tab');
+    let ev = press(l, grip, 'Tab');
     assert.strictEqual(ev.defaultPrevented, true);
-    assert.strictEqual(l.document.activeElement, after, '⠿ から Tab で欄の外へ出ない（edn-tab-exit）');
-    t = atEnd(l, 'a1'); press(l, t, 'Escape');
+    assert.ok(l.document.activeElement === after, '⠿ から Tab で欄の外へ出ない（edn-tab-exit）');
+    escEsc();
     ev = press(l, grip, 'Tab', { shiftKey: true });
     assert.strictEqual(ev.defaultPrevented, true);
-    assert.strictEqual(l.document.activeElement, $(l, 'paneBtnNote'), 'Shift+Tab で［AI 要約］のタブへ行かない');
-    t = atEnd(l, 'a1'); press(l, t, 'Escape');
+    assert.ok(l.document.activeElement === $(l, 'paneBtnNote'), 'Shift+Tab で［AI 要約］のタブへ行かない');
+    escEsc();
     press(l, grip, 'Escape');
-    assert.strictEqual(l.document.activeElement, txtOf(l, 'a1'), '⠿ の Esc で行へ戻らない');
-    // / メニューが開いている間の Esc はメニューだけを閉じる（⠿ へ移らない）
-    t = typeIn(l, 'q', '/');
+    assert.ok(l.document.activeElement === txtOf(l, 'a1'), '⠿ の Esc で行へ戻らない');
+    // / メニューが開いている間の Esc はメニューだけを閉じる（行を選ばない）
+    const t = typeIn(l, 'q', '/');
     t.dispatchEvent({ type: 'input' });
     assert.ok($(l, 'pNote').querySelector('.slashmenu'));
     press(l, t, 'Escape');
     assert.strictEqual($(l, 'pNote').querySelector('.slashmenu'), null);
-    assert.strictEqual(l.document.activeElement, t);
+    assert.ok(l.document.activeElement === t, '/ メニューの Esc で行から出た');
+    assert.strictEqual(rowOf(l, 'q').getAttribute('aria-selected'), null, '/ メニューの Esc で行を選んだ');
     assert.deepStrictEqual(l.errors.map(fmt), []);
   } finally { l.done(); }
 });

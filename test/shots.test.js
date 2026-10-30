@@ -192,8 +192,8 @@ const RETAKEN_132 = ['nudge-light-100', 'nudge-dark-100', 'nudge-light-150', 'nu
 const ADDED_132 = [...NEW_132, ...RETAKEN_132];
 // 0.14.0（計画 docs/plans/2026-10-26-140.md の「取り直す画面（RETAKE）」）で意図して変えた: 取り直し待ちは 0.14.0 の表の画面だけ（RETAKE_140）。
 // EB-4 で行の文の飾りと色の明暗の2枚を、EB-5 で道具の帯・リンクの欄・色のメニューの3枚を足した（NEW_140。足した画面で、まだ基準が無い）。
-// EB-5 直しで拡大 200% の帯と色のメニューの1枚を足した
-const NEW_140 = ['edit-marks-light', 'edit-marks-dark', 'edit-toolbar-light', 'edit-link-light', 'edit-color-menu-light', 'edit-toolbar-zoom200-light'];
+// EB-5 直しで拡大 200% の帯と色のメニューの1枚を、EK-4 で選んだ行の明暗の2枚を足した
+const NEW_140 = ['edit-marks-light', 'edit-marks-dark', 'edit-toolbar-light', 'edit-link-light', 'edit-color-menu-light', 'edit-toolbar-zoom200-light', 'edit-select-light', 'edit-select-dark'];
 // EB-5 で ⠿ のメニューに［色 ▸］が増えるので、今の基準がある1枚を取り直す（RETAKEN_140）
 const RETAKEN_140 = ['edit-block-menu-light'];
 const RETAKE_140 = [...NEW_140, ...RETAKEN_140];
@@ -1045,7 +1045,8 @@ test('基準の画像（test/shots/win32）は今の app.html で撮ったもの
   // 0.14.0 EK-3（決めたこと 23〜27・R126）: 要約の行の貼り付け（pasteConvert の写し・pasteRow・Ctrl+Shift+V の印）。<script> の中だけで、撮る画面は変わらない（RETAKE に足さない）。値を今の app.html に合わせた（前の値は cf0f6781…）
   // 0.14.0 EK-2 直し（R127・R129）: pasteConvert の写しの Excel の表（openContext）と、DB の too-big で貼り付けの知らせを出す所（<script> の中だけ。撮る画面は変わらない）。値を今の app.html に合わせた（前の値は 0b014aac…）
   // 0.14.0 BQ31・BQ32（2026-10-30 の持ち主の答え。R131）: 子の見えている行の文の途中の貼り付けも inside を送る（<script> の中だけ。撮る画面は変わらない）。値を今の app.html に合わせた（前の値は e5d1ae1c…）
-  assert.strictEqual(sha, '031da8c6b96509dfa09e59f830828b2079ab9bc08d58cc9144accd3238002657',
+  // 0.14.0 EK-4（計画 docs/plans/2026-10-26-140.md の決めたこと 28〜31・R132〜R137）: 要約の行を選ぶ（blockSel・箱の鍵・Shift+クリック・引っ張り・選んだ行の命令とメニュー・写す・貼る）と、選んだ行の地の CSS（.blk.sel）。変わる画面は足した NEW_140 の edit-select の2枚（ほかの撮る画面は行を選ばない）。値を今の app.html に合わせた（前の値は 031da8c6…）
+  assert.strictEqual(sha, '3e3a12dd56f435c88e631de5c9f22bcfb3f1764f40005812ff0b42691155b1a3',
     'app.html が基準の画像を撮った時と違う。Windows の CI の画面の比べ（捲り棒のつまみも）を見て、基準を取り直してからこの値を直す');
 });
 

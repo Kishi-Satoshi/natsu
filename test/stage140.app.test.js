@@ -3,6 +3,8 @@
  * 最小 DOM（helpers/simrun.js）の上で app.html の <script> を本当に走らせる。命令は一時の DB（helpers/dbtmp.js）を本当に通す。
  * preload の onEditStep は、この台の命令の口が preload と同じ決まり（戻せる命令が ok で changed のときだけ・答えより先に { cmd, pageId, step: tx }）で起こす。
  * カーソルは simrun の caret の継ぎ目（l.caret）で置く（偽の DOM に getSelection・Range が無い）。
+ * EK-4（E9）: 要約の行を Esc・Shift+↑↓・Shift+クリック・Alt+Shift+クリック・余白から引っ張って選び、まとめて消す・動かす・複製する・型を変える・色を付ける・写す・貼る
+ *       （どれも1つの命令＝1歩。選んでいる間は打っても何もしない・保存した議事録を前に出さない。Esc の順は R64）。
  * EK-3（E8・F102）: 要約の行に貼ると行と飾りに変える（blockPaste の1回・1歩）。1行の型の無い文は行の中に飾りつきで入れる。Ctrl+Shift+V は素の文字だけ・
  *       選んだ文字に URL を貼るとリンク・大きすぎる貼り付けは知らせだけ・変換中は変換しない。画面の pasteConvert の写しは src/pasteConvert.js と字も答えも同じ。
  * EB-5（E6・SEC2）: 文字を選ぶと出る道具の帯（飾り・リンク・色）・Ctrl+K のリンクの欄（開けるのは決まった頭だけ・Ctrl+クリックで開く）・行の色（⠿・Ctrl+/・/ の色）。
@@ -51,6 +53,11 @@ const CMDS = {
   blocksSetColor: (pageId, ids, color) => ['blocks.setColor', { pageId, ids, color }],   // 0.14.0 EB-5: 行の色
   // 0.14.0 EK-3: 貼り付け（preload と同じく、afterId・inside は無ければ送らない）
   blockPaste: (pageId, blockId, rich, at, blocks, afterId, inside) => ['block.paste', { pageId, blockId, rich, at, blocks, ...(afterId === undefined ? {} : { afterId }), ...(inside === true ? { inside } : {}) }],
+  // 0.14.0 EK-4: 選んだ行の命令（preload と同じく、無い引数は送らない）
+  blocksRemove: (pageId, ids) => ['blocks.remove', { pageId, ids }],
+  blocksMove: (pageId, ids, afterId, parentId) => ['blocks.move', { pageId, ids, afterId, ...(parentId === undefined ? {} : { parentId }) }],
+  blocksDuplicate: (pageId, ids, afterId, parentId) => ['blocks.duplicate', { pageId, ids, ...(afterId === undefined ? {} : { afterId }), ...(parentId === undefined ? {} : { parentId }) }],
+  blocksTurnInto: (pageId, ids, type, level, toggle) => ['blocks.turnInto', { pageId, ids, type, ...(level === undefined ? {} : { level }), ...(toggle === true ? { toggle } : {}) }],
 };
 async function openReal(pages, o = {}) {
   const t = tmpDb();
@@ -1075,7 +1082,7 @@ test('EB-5（決めたこと 19・R64）: 行の文字を選ぶと #markBar（ro
     l.caret.set(t, 2);
     t.dispatchEvent({ type: 'keyup', key: 'ArrowLeft' });
     assert.strictEqual(barOf(l), null, '選びを外しても帯が残る');
-    // もう一度選ぶと出て、Esc は帯だけを閉じる（R64。行の ⠿ へは行かない）。もう一度 Esc で ⠿ へ
+    // もう一度選ぶと出て、Esc は帯だけを閉じる（R64。行の ⠿ へは行かない）。もう一度 Esc でその行を選ぶ（EK-4 で意図して直した: 前は ⠿ へ。R64 (5)）
     t = selectIn(l, 'p1', 0, 2);
     assert.ok(barOf(l));
     const esc = l.key({ key: 'Escape' }, t);
@@ -1085,7 +1092,9 @@ test('EB-5（決めたこと 19・R64）: 行の文字を選ぶと #markBar（ro
     t.dispatchEvent({ type: 'keyup', key: 'Escape' });
     assert.strictEqual(barOf(l), null, '閉じた帯が同じ選びでまた出た');
     l.key({ key: 'Escape' }, t);
-    assert.strictEqual(l.document.activeElement, rowOf(l, 'p1').querySelector('.grip'));
+    assert.strictEqual(rowOf(l, 'p1').getAttribute('aria-selected'), 'true', '帯を閉じた後の Esc で行を選ばない');
+    l.key({ key: 'Escape' }, $(l, 'pNote'));   // 選びを外して ⠿ へ（R64 (4)）
+    assert.ok(l.document.activeElement === rowOf(l, 'p1').querySelector('.grip'));
     // 行から出ると消える
     t = selectIn(l, 'p1', 0, 2);
     assert.ok(barOf(l));
@@ -2052,6 +2061,327 @@ test('EK-2 直し（I2・R129）: 貼った後のページが上限を越えて 
     t.onblur();
     await l.drain();
     assert.deepStrictEqual(updates(l), [], '断られた後に同じ文を保存し直した');
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+// ---------------------------------------------------------------- EK-4（決めたこと 28〜31・R19〜R22・R64・R65・G2・G4。E9）: 複数の行の選択
+const selIds = (l) => rowsOf(l).filter((e) => e.getAttribute('aria-selected') === 'true').map((e) => e.dataset.id);
+const boxKey = (l, o) => l.key(o, $(l, 'pNote'));
+const isBox = (l) => l.document.activeElement === $(l, 'pNote');
+const rowEsc = (l, id) => { const t = txtOf(l, id); t.focus(); l.caret.set(t, t.textContent.length); return l.key({ key: 'Escape' }, t); };
+const ids = (l) => rowsOf(l).map((e) => e.dataset.id);
+const MANYW = ['blocksRemove', 'blocksMove', 'blocksDuplicate', 'blocksTurnInto', 'blocksSetColor', 'blockPaste', 'blockRemove', 'blockMove', 'blockDuplicate', 'blockTurnInto', 'blockUpdate', 'blockInsert'];
+const manyW = (l) => MANYW.flatMap((n) => l.called(n).map(() => n));
+const PG5 = () => [MANUAL('p1', '一の行'), MANUAL('p2', '二の行'), MANUAL('p3', '三の行'),
+  { id: 'tg', type: 'toggle', text: '閉じたトグル', citeState: 'manual', cites: [], open: false, children: [MANUAL('k1', '隠れた子')] }, MANUAL('p4', '四の行')];
+
+test('EK-4（決めたこと 28・29・R19・R64）: 行で Esc → その行が選ばれ（aria-selected・フォーカスは欄の箱）、Shift+↓ で広がる（閉じたトグルの中は飛ばす）・↑↓ で替える・Esc で外れて ⠿ へ・Enter で編集に戻る・Tab で欄の外の次の部品へ・Shift+Tab で［AI 要約］のタブ', T, async () => {
+  const l = await openReal({ pa1: PG5() });
+  try {
+    const after = l.document.createElement('button'); after.textContent = '欄の外';
+    $(l, 'pNote').parentNode.insertBefore(after, $(l, 'pNote').nextSibling);
+    const e1 = rowEsc(l, 'p2');
+    assert.strictEqual(e1.defaultPrevented, true);
+    assert.deepStrictEqual(selIds(l), ['p2'], '行の Esc で行が選ばれない（ek-sel-esc）');
+    assert.ok(isBox(l), '選んだときのフォーカスが欄の箱でない');
+    for (let i = 0; i < 3; i++) assert.strictEqual(boxKey(l, { key: 'ArrowDown', shiftKey: true }).defaultPrevented, true);
+    assert.deepStrictEqual(selIds(l), ['p2', 'p3', 'tg', 'p4'], 'Shift+↓ で閉じたトグルの中を飛ばして広がらない');
+    boxKey(l, { key: 'ArrowUp', shiftKey: true });
+    assert.deepStrictEqual(selIds(l), ['p2', 'p3', 'tg']);
+    boxKey(l, { key: 'ArrowUp' });
+    assert.deepStrictEqual(selIds(l), ['p3'], '↑ で選ぶ行が替わらない');
+    boxKey(l, { key: 'Enter' });
+    assert.deepStrictEqual(selIds(l), []);
+    assert.ok(l.document.activeElement === txtOf(l, 'p3'), 'Enter で行の編集に戻らない');
+    assert.deepStrictEqual(l.caret.get(txtOf(l, 'p3')), [3, 3]);
+    rowEsc(l, 'p1');
+    boxKey(l, { key: 'ArrowDown', shiftKey: true });
+    const e2 = boxKey(l, { key: 'Escape' });
+    assert.strictEqual(e2.defaultPrevented, true, '一覧の選択の Esc まで届く');
+    assert.deepStrictEqual(selIds(l), [], 'Esc で選びが外れない');
+    assert.ok(l.document.activeElement === rowOf(l, 'p1').querySelector('.grip'), 'Esc で選んでいた最初の行の ⠿ へ移らない（R64 (4)）');
+    rowEsc(l, 'p2');
+    const tab = boxKey(l, { key: 'Tab' });
+    assert.strictEqual(tab.defaultPrevented, true);
+    assert.ok(l.document.activeElement === after, '選んでいるときの Tab で欄の外へ出ない（R19・ek-sel-exit）');
+    assert.deepStrictEqual(selIds(l), []);
+    rowEsc(l, 'p2');
+    boxKey(l, { key: 'Tab', shiftKey: true });
+    assert.ok(l.document.activeElement === $(l, 'paneBtnNote'), 'Shift+Tab で［AI 要約］のタブへ行かない');
+    assert.deepStrictEqual(manyW(l), [], '選ぶだけで命令を送った');
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+test('EK-4（K-14）: Shift+クリックで編集していた行（選んでいれば anchor）から範囲を選ぶ・Alt+Shift+クリックで1つずつ足す・外す。同じ行の中の Shift+クリックは文字の選びのまま', T, async () => {
+  const l = await openReal({ pa1: PG5() });
+  try {
+    const down = (id, o) => { const r = { defaultPrevented: false }; $(l, 'pNote').dispatchEvent({ type: 'mousedown', target: txtOf(l, id), shiftKey: true, preventDefault() { r.defaultPrevented = true; }, ...o }); return r; };
+    typeIn(l, 'p1', '一の行を直した');
+    assert.strictEqual(down('p1').defaultPrevented, false, '同じ行の中の Shift+クリックを止めた');
+    assert.deepStrictEqual(selIds(l), []);
+    assert.strictEqual(down('p3').defaultPrevented, true);
+    assert.deepStrictEqual(selIds(l), ['p1', 'p2', 'p3']);
+    await l.drain();
+    assert.deepStrictEqual(updates(l), [['pa1', 'p1', { text: '一の行を直した' }]], '選ぶ前に打った文を保存しない');
+    down('p2', { altKey: true });
+    assert.deepStrictEqual(selIds(l), ['p1', 'p3'], 'Alt+Shift+クリックで外れない');
+    down('p4', { altKey: true });
+    assert.deepStrictEqual(selIds(l), ['p1', 'p3', 'p4'], 'Alt+Shift+クリックで足せない');
+    down('tg');
+    assert.deepStrictEqual(selIds(l), ['p1', 'p2', 'p3', 'tg'], 'Shift+クリックの範囲が anchor から');
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+test('EK-4（P-01・R22）: 行の外の余白から引っ張ると通った行を選ぶ（座標の継ぎ目）。行の文から引っ張っても同じ行の中は文字の選び、別の行へ出ると行の選びに替わる（打った文は保存）', T, async () => {
+  const l = await openReal({ pa1: PG5() });
+  try {
+    const box = $(l, 'pNote');
+    rowsOf(l).forEach((e, i) => { e._rect = { top: i * 10, height: 10, left: 40, width: 200 }; });
+    const ptr = (type, target, y) => box.dispatchEvent({ type, target, clientY: y, button: 0, buttons: type === 'pointerup' ? 0 : 1 });
+    ptr('pointerdown', box, 15);
+    assert.deepStrictEqual(selIds(l), [], '押しただけで選んだ');
+    ptr('pointermove', box, 25);
+    ptr('pointermove', box, 35);
+    assert.deepStrictEqual(selIds(l), ['p2', 'p3', 'tg'], '余白から引っ張って通った行が選ばれない');
+    ptr('pointerup', box, 35);
+    ptr('pointermove', box, 45);
+    assert.deepStrictEqual(selIds(l), ['p2', 'p3', 'tg'], '離した後も選びが動く');
+    const t = typeIn(l, 'p1', '一の行に打った');
+    ptr('pointerdown', t, 5);
+    assert.deepStrictEqual(selIds(l), [], '行を押すと前の選びが外れない');
+    ptr('pointermove', t, 8);
+    assert.deepStrictEqual(selIds(l), [], '1つの行の中の引っ張りで行を選んだ');
+    ptr('pointermove', t, 22);
+    assert.deepStrictEqual(selIds(l), ['p1', 'p2', 'p3'], '別の行へ出ても行の選びに替わらない（R22）');
+    await l.drain();
+    assert.deepStrictEqual(updates(l), [['pa1', 'p1', { text: '一の行に打った' }]]);
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+test('EK-4（決めたこと 30・BQ6 (a)）: 選んで Backspace → blocksRemove の1回（確かめない・blockRemove は0）。フォーカスは上の行の終わり。Ctrl+Z の1回で戻る。Delete も同じ', T, async () => {
+  const l = await openReal({ pa1: PG5() });
+  try {
+    const before = l.page();
+    rowEsc(l, 'p2');
+    boxKey(l, { key: 'ArrowDown', shiftKey: true });
+    const ev = boxKey(l, { key: 'Backspace' });
+    await l.drain();
+    assert.strictEqual(ev.defaultPrevented, true);
+    assert.deepStrictEqual(manyW(l), ['blocksRemove'], '1回の blocksRemove でない（ek-multi-cmd）');
+    assert.deepStrictEqual(l.called('blocksRemove')[0].args, ['pa1', ['p2', 'p3']]);
+    assert.deepStrictEqual(ids(l), ['p1', 'tg', 'p4']);
+    assert.ok(l.document.activeElement === txtOf(l, 'p1'), 'フォーカスが上の行へ行かない');
+    assert.deepStrictEqual(selIds(l), []);
+    press(l, Z);
+    await l.drain();
+    assert.strictEqual(revs(l).length, 1, 'Ctrl+Z が1回の editRevert でない');
+    assert.deepStrictEqual(body(l.page()), body(before), 'Ctrl+Z の1回で戻らない');
+    rowEsc(l, 'p4');
+    boxKey(l, { key: 'Delete' });
+    await l.drain();
+    assert.deepStrictEqual(ids(l), ['p1', 'p2', 'p3', 'tg']);
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+test('EK-4（決めたこと 30・G4）: 選んで Ctrl+D・Ctrl+Shift+↓・Ctrl+Shift+2・Ctrl+Shift+7・Ctrl+/ の［色 ▸］がそれぞれ1つの命令（1歩）。答えの後も同じ行（複製は写し）を選んだまま', T, async () => {
+  const l = await openReal({ pa1: PG5() });
+  try {
+    rowEsc(l, 'p2');
+    boxKey(l, { key: 'ArrowDown', shiftKey: true });
+    let n = l.steps.length;
+    boxKey(l, { key: 'd', code: 'KeyD', ctrlKey: true });
+    await l.drain();
+    const dup = l.called('blocksDuplicate');
+    assert.deepStrictEqual([dup.length, dup[0].args], [1, ['pa1', ['p2', 'p3']]]);
+    const copies = ids(l).slice(3, 5);
+    assert.deepStrictEqual(copies.map((id) => txtOf(l, id).textContent), ['二の行', '三の行'], '写しが選んだ行の後ろに無い');
+    assert.deepStrictEqual(selIds(l), copies, '複製の後に写しを選んでいない');
+    assert.strictEqual(l.steps.length, n + 1);
+    boxKey(l, { key: 'Backspace' });
+    await l.drain();
+    rowEsc(l, 'p2');
+    boxKey(l, { key: 'ArrowDown', shiftKey: true });
+    n = l.steps.length;
+    boxKey(l, { key: 'ArrowDown', code: 'ArrowDown', ctrlKey: true, shiftKey: true });
+    await l.drain();
+    assert.deepStrictEqual(l.called('blocksMove').map((c) => c.args), [['pa1', ['p2', 'p3'], 'tg', undefined]]);
+    assert.deepStrictEqual(l.page().blocks.map((b) => b.id), ['p1', 'tg', 'p2', 'p3', 'p4']);
+    assert.deepStrictEqual(selIds(l), ['p2', 'p3'], '動かした後に選びが外れた');
+    boxKey(l, { key: 'ArrowUp', code: 'ArrowUp', ctrlKey: true, shiftKey: true });
+    await l.drain();
+    assert.deepStrictEqual(l.page().blocks.map((b) => b.id), ['p1', 'p2', 'p3', 'tg', 'p4']);
+    boxKey(l, { key: '"', code: 'Digit2', ctrlKey: true, shiftKey: true });
+    await l.drain();
+    assert.deepStrictEqual(l.called('blocksTurnInto').map((c) => c.args), [['pa1', ['p2', 'p3'], 'heading', 2, undefined]]);
+    assert.deepStrictEqual(['p2', 'p3'].map((id) => [rowOf(l, id)._b.type, rowOf(l, id)._b.level]), [['heading', 2], ['heading', 2]]);
+    boxKey(l, { key: "'", code: 'Digit7', ctrlKey: true, shiftKey: true });
+    await l.drain();
+    assert.deepStrictEqual(l.called('blocksTurnInto')[1].args, ['pa1', ['p2', 'p3'], 'toggle', undefined, undefined], 'Ctrl+Shift+7 でまとめてトグルにならない（G4）');
+    // Ctrl+/ → 選んだ行のメニュー → ［色 ▸］ → 赤
+    boxKey(l, { key: '/', code: 'Slash', ctrlKey: true });
+    const menu = $(l, 'pNote').querySelector('.blockmenu');
+    assert.ok(menu, 'Ctrl+/ で選んだ行のメニューが出ない');
+    menu.querySelectorAll('.mitem').find((x) => x.textContent === '色 ▸').onclick();
+    $(l, 'pNote').querySelectorAll('.blockmenu.sub .mitem').find((x) => x.dataset.key === 'red').onclick();
+    await l.drain();
+    assert.deepStrictEqual(l.called('blocksSetColor').map((c) => c.args), [['pa1', ['p2', 'p3'], 'red']]);
+    assert.deepStrictEqual(['p2', 'p3', 'p1'].map((id) => rowOf(l, id).getAttribute('data-bcolor')), ['red', 'red', null]);
+    assert.strictEqual(l.steps.length, n + 5, 'どの操作も1歩でない');
+    // ［変換 ▸］の区切り線は、文のある行を選んでいれば灰色
+    boxKey(l, { key: '/', code: 'Slash', ctrlKey: true });
+    $(l, 'pNote').querySelector('.blockmenu').querySelectorAll('.mitem').find((x) => x.textContent === '変換 ▸').onclick();
+    const d = $(l, 'pNote').querySelectorAll('.blockmenu.sub .mitem').find((x) => x.dataset.key === 'divider');
+    assert.strictEqual(d.getAttribute('aria-disabled'), 'true');
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+test('EK-4（R20）: 選んでいる間に文字・空白を打っても何もしない（既定を止め、命令は0・行はそのまま）', T, async () => {
+  const l = await openReal({ pa1: PG5() });
+  try {
+    rowEsc(l, 'p2');
+    for (const key of ['a', 'あ', ' ', 'x']) assert.strictEqual(boxKey(l, { key, code: 'KeyA' === key ? 'KeyA' : '' }).defaultPrevented, true, key);
+    await l.drain();
+    assert.deepStrictEqual(manyW(l), [], '選んで打つと命令を送った（ek-sel-type）');
+    assert.deepStrictEqual(ids(l), ['p1', 'p2', 'p3', 'tg', 'p4']);
+    assert.deepStrictEqual(selIds(l), ['p2']);
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+test('EK-4（決めたこと 30・SEC2）: 選んで Ctrl+C → text/plain は blocksMarkdown（子も）・text/html は決まった形で文字が逃がしてある。Ctrl+X は置いてから blocksRemove の1回。行の文の写しは今のまま', T, async () => {
+  const blocks = [{ id: 'h', type: 'heading', level: 2, text: '見出し<b>&', citeState: 'manual', cites: [] },
+    { id: 'u', type: 'bullet', text: '太字と<script>', rich: [{ t: '太字', m: ['b'] }, { t: 'と<script>', m: [] }], citeState: 'manual', cites: [], children: [MANUAL('c', '子の"行"')] }, MANUAL('z', '残る行')];
+  const l = await openReal({ pa1: blocks });
+  try {
+    rowEsc(l, 'h');
+    boxKey(l, { key: 'ArrowDown', shiftKey: true });
+    assert.deepStrictEqual(selIds(l), ['h', 'u', 'c']);
+    const put = {};
+    const ev = l.key({ type: 'copy', clipboardData: { setData: (k, v) => { put[k] = v; } } }, $(l, 'pNote'));
+    assert.strictEqual(ev.defaultPrevented, true);
+    const page = l.page();
+    assert.strictEqual(put['text/plain'], E.blocksMarkdown(page.blocks.slice(0, 2)).replace(/^\n+/, ''));
+    assert.match(put['text/plain'], /^## 見出し<b>&\n- \*\*太字\*\*と<script>\n  子の"行"$/);
+    assert.strictEqual(put['text/html'], '<h2>見出し&lt;b&gt;&amp;</h2><ul><li><b>太字</b>と&lt;script&gt;<p>子の&quot;行&quot;</p></li></ul>');
+    assert.deepStrictEqual(manyW(l), [], '写すだけで命令を送った');
+    // 貼り戻すと同じ形（pasteConvert の写しで読める）
+    const back = PC.pasteBlocks({ html: put['text/html'], text: put['text/plain'] });
+    assert.deepStrictEqual(back.blocks.map((b) => [b.type, (b.children || []).length]), [['heading', 0], ['bullet', 1]]);
+    const cut = {};
+    l.key({ type: 'cut', clipboardData: { setData: (k, v) => { cut[k] = v; } } }, $(l, 'pNote'));
+    await l.drain();
+    assert.strictEqual(cut['text/plain'], put['text/plain']);
+    assert.deepStrictEqual(l.called('blocksRemove').map((c) => c.args), [['pa1', ['h', 'u']]]);
+    assert.deepStrictEqual(ids(l), ['z']);
+    // 行の文にフォーカスがあるときの写しは受けない（既定のまま）
+    const t = typeIn(l, 'z', '残る行', 0, 2);
+    const own = {};
+    const e2 = l.key({ type: 'copy', clipboardData: { setData: (k, v) => { own[k] = v; } } }, t);
+    assert.deepStrictEqual([e2.defaultPrevented, Object.keys(own)], [false, []]);
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+test('EK-4（決めたこと 30・27）: 選んで Ctrl+V → 選んだ最後の行の後ろへ blockPaste の1回（文の終わり・子の中には入れない）。カーソルは最後に貼った行', T, async () => {
+  const l = await openReal({ pa1: [MANUAL('p1', '一の行'), MANUAL('p2', '二の行', { children: [MANUAL('k', '子')] }), MANUAL('p3', '三の行')] });
+  try {
+    rowEsc(l, 'p1');
+    boxKey(l, { key: 'ArrowDown', shiftKey: true });
+    assert.deepStrictEqual(selIds(l), ['p1', 'p2', 'k']);
+    const ev = l.key({ type: 'paste', clipboardData: { getData: (k) => (k === 'text/plain' ? '- 貼一\n- 貼二' : '') } }, $(l, 'pNote'));
+    await l.drain();
+    assert.strictEqual(ev.defaultPrevented, true);
+    const [a] = pastes(l);
+    assert.deepStrictEqual([pastes(l).length, a[1], a[3], a[5], a[6]], [1, 'p2', 3, undefined, undefined], '選んだ最後の行の文の終わりに、子の外へ貼らない');
+    assert.deepStrictEqual(l.page().blocks.map((b) => b.text), ['一の行', '二の行', '貼一', '貼二', '三の行']);
+    assert.ok(l.document.activeElement === txtOf(l, l.page().blocks[3].id), 'カーソルが最後に貼った行に無い');
+    assert.deepStrictEqual(selIds(l), []);
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+test('EK-4（決めたこと 28・44・EQ22 (a)）: 選んでいる間の保存の page:open は前に出さない（ek-sel-busy）。ページを替えると選びが外れる', T, async () => {
+  const l = await openReal({ pa1: PG5(), pb2: [MANUAL('x1', '別のページの行')] });
+  try {
+    rowEsc(l, 'p2');
+    l.fire('onPageOpen', 'pb2', { saved: true });
+    await l.drain();
+    const active = $(l, 'tabbar').querySelector('.tabitem.active');
+    assert.strictEqual(active ? active.getAttribute('data-key') : '', 'page:pa1', '選んでいる間に保存した議事録が前に出た');
+    assert.deepStrictEqual(selIds(l), ['p2']);
+    l.fire('onPageOpen', 'pb2');
+    await l.drain();
+    assert.deepStrictEqual(ids(l), ['x1']);
+    l.fire('onPageOpen', 'pa1');
+    await l.drain();
+    assert.deepStrictEqual(selIds(l), [], 'ページを替えても選びが残った');
+    boxKey(l, { key: 'Backspace' });
+    await l.drain();
+    assert.deepStrictEqual(manyW(l), [], '外れた選びで命令を送った');
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+test('EK-4（R21）: Ctrl+A は1回目は行の文字（既定のまま）・文字が全部選ばれている・空の行ではその行を選ぶ・もう1回でページの全部の行', T, async () => {
+  const l = await openReal({ pa1: [...PG5(), MANUAL('e', '')] });
+  try {
+    const A = { key: 'a', code: 'KeyA', ctrlKey: true };
+    let t = typeIn(l, 'p2', '二の行', 1);
+    assert.strictEqual(l.key(A, t).defaultPrevented, false, '1回目の Ctrl+A を止めた');
+    assert.deepStrictEqual(selIds(l), []);
+    t = typeIn(l, 'p2', '二の行', 0, 3);
+    assert.strictEqual(l.key(A, t).defaultPrevented, true);
+    assert.deepStrictEqual(selIds(l), ['p2'], '文字が全部選ばれた行の Ctrl+A で行を選ばない');
+    assert.strictEqual(boxKey(l, A).defaultPrevented, true);
+    assert.deepStrictEqual(selIds(l), ['p1', 'p2', 'p3', 'tg', 'p4', 'e'], 'もう1回の Ctrl+A で全部の行を選ばない');
+    boxKey(l, { key: 'Escape' });
+    t = typeIn(l, 'e', '');
+    l.key(A, t);
+    assert.deepStrictEqual(selIds(l), ['e'], '空の行の Ctrl+A で行を選ばない');
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+// ⠿ で引っ張って落とす（stage131.nest.app の dragTo と同じ形: 行の高さ 10・掴んだ所の clientX は 100）
+function dragRow(l, id, clientY, clientX, o = {}) {
+  const box = $(l, 'pNote');
+  rowsOf(l).forEach((e, i) => { e.getBoundingClientRect = () => ({ top: i * 10, height: 10, bottom: i * 10 + 10, left: 0, right: 100, width: 100 }); });
+  rowOf(l, id).ondragstart({ dataTransfer: { setData() {}, effectAllowed: '' }, clientX: 100 });
+  box.ondragover({ preventDefault() {}, clientY, clientX, dataTransfer: {} });
+  return box.ondrop({ preventDefault() {}, clientY, clientX, ...o });
+}
+
+test('EK-4（決めたこと 30・31・R65）: 選んだ行の ⠿ を引っ張ると blocksMove の1回（画面の順のまま・選んだまま）。Alt なら blocksDuplicate。AI の節の見出しを選んで子の所へ引っ張っても子にならない', T, async () => {
+  const head = { id: 'h', type: 'heading', level: 2, text: 'その他の話', cites: [] };
+  const l = await openReal({ pa1: [MANUAL('p1', '一の行'), MANUAL('p2', '二の行'), MANUAL('p3', '三の行'), MANUAL('p4', '四の行'), head] });
+  try {
+    rowEsc(l, 'p1');
+    boxKey(l, { key: 'ArrowDown', shiftKey: true });
+    // 見えている行: p1 p2 p3 p4 h（行の上端 0・10・20・30・40）。選んだ p1・p2 を外すと p3 p4 h。p4 の下（h の上半分）へ
+    await dragRow(l, 'p1', 4 * 10 + 2, 100);
+    await l.drain();
+    assert.deepStrictEqual(l.called('blocksMove').map((c) => c.args), [['pa1', ['p1', 'p2'], 'p4', undefined]]);
+    assert.deepStrictEqual(l.page().blocks.map((b) => b.id), ['p3', 'p4', 'p1', 'p2', 'h']);
+    assert.deepStrictEqual(selIds(l), ['p1', 'p2']);
+    await dragRow(l, 'p2', 0, 100, { altKey: true });
+    await l.drain();
+    assert.deepStrictEqual(l.called('blocksDuplicate').map((c) => c.args), [['pa1', ['p1', 'p2'], '', undefined]]);
+    boxKey(l, { key: 'Escape' });
+    // AI の節の見出し h を選び、p1 の下へ右へずらして落とす → 子にならない（afterId だけ）
+    rowEsc(l, 'h');
+    l.calls.length = 0;
+    const at = ids(l).indexOf('p1');   // h を外した並びで p1 の次の行の上半分（その行の上端は at + 1 番目）
+    await dragRow(l, 'h', (at + 1) * 10 + 2, 124);
+    await l.drain();
+    const mv = l.called('blocksMove').map((c) => c.args);
+    assert.deepStrictEqual(mv, [['pa1', ['h'], 'p1', undefined]], 'AI の節の見出しを子にする置き場を送った');
+    assert.strictEqual(rowOf(l, 'h').dataset.depth, '0');
     assert.deepStrictEqual(l.errors.map(fmt), []);
   } finally { l.done(); }
 });

@@ -140,6 +140,19 @@ const LINK_REFUSED = `t.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', c
   const i = document.querySelector('#linkPop input'); i.value = 'javascript:alert(1)';
   i.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));`;
 const COLOR_OPEN = "document.querySelector('#markBar .mb-color').click();";
+// 0.14.0 EK-4（計画 docs/plans/2026-10-26-140.md の決めたこと 28）: 行 b2 で Esc を押して行を選び、Shift+↓ を2回で3行を選んだ形（選んだ行の地の色）
+const SELECT_ROWS = `(async () => {
+  document.getElementById('tabBtnNotes').click(); document.querySelector('#plist .pitem').click();
+  await new Promise((r) => setTimeout(r, 300));
+  document.getElementById('paneBtnNote').click();
+  const t = [...document.querySelectorAll('#pNote .blk')].find((e) => e.dataset.id === 'b2').querySelector('.txt');
+  t.focus();
+  t.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+  const box = document.getElementById('pNote');
+  for (let i = 0; i < 2; i++) box.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', shiftKey: true, bubbles: true }));
+  await new Promise((r2) => setTimeout(r2, 50));
+  return 1;
+})()`;
 // 0.13.0 ED-7（E5）: ページを開いて［AI 要約］の欄の頭まで捲る（新しい型の行が全部見えるように。撮った画像の確かめで、欄が窓の下に切れていた）
 const OPEN_TYPES = `(async () => {
   document.getElementById('tabBtnNotes').click(); document.querySelector('#plist .pitem').click();
@@ -341,6 +354,9 @@ const SCREENS = [
   { name: 'edit-color-menu-light', page: 'app', theme: 'light', act: SELECT_MARKS(COLOR_OPEN) },
   // 0.14.0 EB-5 直し: 拡大 200% で行の文の終わりを選んだ帯と［色 ▸］のメニュー（欄の幅に収まり、横の捲り棒が出ない）。足した画面（まだ基準が無い）
   { name: 'edit-toolbar-zoom200-light', page: 'app', theme: 'light', zoom: 2, act: SELECT_MARKS(COLOR_OPEN, true) },
+  // 0.14.0 EK-4（計画の「取り直す画面（RETAKE）」）: 要約の3行を選んだ形（選んだ行の地の色の明暗）。足した画面（まだ基準が無い）
+  { name: 'edit-select-light', page: 'app', theme: 'light', act: SELECT_ROWS },
+  { name: 'edit-select-dark', page: 'app', theme: 'dark', act: SELECT_ROWS },
 ];
 // 0.9.0 O-3（RP9）: 録音バーの画面（形 → 地 → 拡大率 → 状態の順。撮る道具は形・地・拡大率の組ごとに窓を1つ開いて状態を act で替える）。
 // 録音は始めずに見た目だけを撮る（act は pill-states の見本を録音バーの DOM に当てる。撮るときだけ体の地にデスクトップの色を塗る）。
@@ -438,8 +454,8 @@ const OVL_094 = (states) => PS.FORMS.flatMap((form) => Object.keys(PS.DESKS).fla
 // 会議の知らせのパネル）に「この見た目でよい（おすすめ）」（2026-10-28）と答えたので、CI run 40796780384（80ea908）の artifact 12864058378 の .after.png（5 枚。閉じたパネルの3枚は今の基準と
 // バイトが同じで artifact に出なかったので替えていない）をバイトのまま基準にし、空に戻した（基準は 161 枚）
 // 0.14.0（計画 docs/plans/2026-10-26-140.md の「取り直す画面（RETAKE）」）: EB-4 で足した飾りの明暗の2枚と、EB-5 で足した道具の帯・リンクの欄・色のメニューの3枚（まだ基準が無い）。
-// EB-5 で ⠿ のメニューに［色 ▸］が増えた edit-block-menu-light（今の基準がある）
-const RETAKE = new Set(['edit-marks-light', 'edit-marks-dark', 'edit-toolbar-light', 'edit-link-light', 'edit-color-menu-light', 'edit-toolbar-zoom200-light', 'edit-block-menu-light']);
+// EB-5 で ⠿ のメニューに［色 ▸］が増えた edit-block-menu-light（今の基準がある）。EK-4 で足した選んだ行の明暗の2枚（まだ基準が無い）
+const RETAKE = new Set(['edit-marks-light', 'edit-marks-dark', 'edit-toolbar-light', 'edit-link-light', 'edit-color-menu-light', 'edit-toolbar-zoom200-light', 'edit-select-light', 'edit-select-dark', 'edit-block-menu-light']);
 const PERF = [{ name: 'open-2000-blocks', budgetMs: 500 }];   // 3回開いた中央値で見る
 const TIME_ZONE = 'Asia/Tokyo';
 const TOLERANCE = 2;   // 色の差（0〜255）がこれ以下の画素は同じとみなす。CI の機械の CPU ごとの描き方の1段の差を拾わないため（揺れの確かめ judgePair は 0 で見る）

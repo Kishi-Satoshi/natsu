@@ -1234,7 +1234,11 @@ const IDS_140 = [
   // 0.14.0 EK-3（表の行の順に、EK-2 の行の間に入れた）
   'ek-paste-one', 'ek-paste-plain', 'ek-url-link',
   // 0.14.0 EK-2 の続き
-  'ek-many-order', 'ek-many-divider', 'ek-move-ai-head', 'ek-many-divider-kids', 'ek-paste-top', 'ek-paste-inside',
+  'ek-many-order', 'ek-many-divider',
+  // 0.14.0 EK-4（表の行の順に、EK-2 の行の間に入れた）
+  'ek-multi-cmd', 'ek-sel-esc', 'ek-sel-exit', 'ek-sel-type', 'ek-sel-busy',
+  // 0.14.0 EK-2 の続き
+  'ek-move-ai-head', 'ek-many-divider-kids', 'ek-paste-top', 'ek-paste-inside',
   'ek-paste-kids', 'ek-md-nest', 'ek-paste-deep-limit',
 ];
 test('G3・0.14.0: 0.14.0 の変異が一覧にそろい、IDS_140 はどれも計画の「変異確認」の表に行の順である。eb-・ek-・mo-・dq- の変異は IDS_140 にある。どれも決まったテストのファイルを持ち、why が 0.14.0 で始まる', { timeout: 5000 }, () => {
