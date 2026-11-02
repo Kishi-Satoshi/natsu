@@ -3743,3 +3743,46 @@ test('DQ-3・BQ19 (a)（決めたこと 55）: 履歴の行で raw と text が�
     assert.deepStrictEqual(l.errors.map(fmt), []);
   } finally { if (l.done) l.done(); }
 });
+
+// ---------------------------------------------------------------- DQ-4（BQ9-2・BQ17・決めたこと 42・50・R182 (4)）: 話した箇条を NaTsu の中で箇条書き・番号の行に
+// main は AI の整えで2つ以上の行のときだけ lines を送る（ほかは null）。画面は block.paste（メモは page.setMemoDoc）の1回で行にする（pasteConvert を通さない）
+test('DQ-4: NaTsu の要約の行 → blockPaste の1回で箇条書きの3行（EK-6 の入れ方）・番号は「1. 」から（段落の後の番号の行）・Ctrl+Z の1回で消える。メモの行 → pageSetMemoDoc の1回で番号の行。lines が無い → 1つの文（blockUpdate の1回）', T, async () => {
+  const l = await openReal({ pa1: MPAGE() });
+  try {
+    const before = body(l.page());
+    typeIn(l, 'p1', 'あいうえお', 5);
+    assert.deepStrictEqual(whereOf(l, 1), { ok: true });
+    await dictText(l, '明日の会議は\n1. 資料を見てから\n2. 決めます', [{ kind: 'p', t: '明日の会議は' }, { kind: 'number', t: '資料を見てから' }, { kind: 'number', t: '決めます' }], 1);
+    assert.strictEqual(l.called('blockPaste').length, 1, `blockPaste の1回でない: ${JSON.stringify(writes(l))}`);
+    assert.deepStrictEqual(pastes(l)[0][4], [{ type: 'paragraph', rich: [{ t: '明日の会議は', m: [] }] }, { type: 'numbered', rich: [{ t: '資料を見てから', m: [] }] }, { type: 'numbered', rich: [{ t: '決めます', m: [] }] }]);
+    const bl = l.page().blocks;
+    const at = bl.findIndex((b) => b.text === '明日の会議は');
+    assert.deepStrictEqual(bl.slice(at, at + 3).map((b) => [b.type, b.text]), [['paragraph', '明日の会議は'], ['numbered', '資料を見てから'], ['numbered', '決めます']]);
+    // 画面の番号は「1.」から
+    const nums = ['資料を見てから', '決めます'].map((t) => rowOf(l, bl.find((b) => b.text === t).id).textContent);
+    assert.ok(nums[0].includes('1.') && nums[1].includes('2.'), `番号が「1.」から始まらない: ${JSON.stringify(nums)}`);
+    assert.strictEqual(l.steps.length, 1);
+    press(l, Z);
+    await l.drain();
+    assert.deepStrictEqual(body(l.page()), before, 'Ctrl+Z の1回で全部消えない');
+    // lines が無い（main は0〜1行・決まりの整えで null）→ 1つの文
+    typeIn(l, 'e1', '', 0);
+    assert.deepStrictEqual(whereOf(l, 2), { ok: true });
+    const n0 = l.called('blockPaste').length;
+    await dictText(l, '明日の会議は、資料を見てから決めます', null, 2);
+    assert.strictEqual(l.called('blockPaste').length, n0, '1つの文を block.paste にした');
+    assert.deepStrictEqual(updates(l).slice(-1), [['pa1', 'e1', { text: '明日の会議は、資料を見てから決めます' }]]);
+    // メモの行（pageSetMemoDoc の1回）
+    await memoPane(l);
+    mIn(l, 'm2', '売上の確認', 5);
+    assert.deepStrictEqual(whereOf(l, 3), { ok: true });
+    const d0 = setDocs(l).length;
+    await dictText(l, '・ 一つ目\n・ 二つ目\n・ 三つ目', [{ kind: 'bullet', t: '一つ目' }, { kind: 'bullet', t: '二つ目' }, { kind: 'bullet', t: '三つ目' }], 3);
+    assert.strictEqual(setDocs(l).length, d0 + 1, 'メモの行が1回の pageSetMemoDoc でない');
+    assert.deepStrictEqual(l.called('blockPaste').length, n0, 'メモの行に要約の命令を送った');
+    const doc = setDocs(l).slice(-1)[0][1];
+    assert.deepStrictEqual(doc.filter((b) => b.type === 'bullet').map((b) => b.text), ['一つ目', '二つ目', '三つ目'], JSON.stringify(doc));
+    assert.deepStrictEqual(l.called('copy'), [], 'クリップボードを使った');
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});

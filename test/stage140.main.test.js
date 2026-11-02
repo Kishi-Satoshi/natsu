@@ -767,3 +767,49 @@ test('DQ-3 直し2・R202: relay.tidyText の約束が断られたら、2 秒を
     process.off('unhandledRejection', onRej);
   }
 });
+
+// ---------------------------------------------------------------- DQ-4（BQ9-2・BQ17・決めたこと 42・49・50・R52・R182 (4)）: 話した箇条を箇条書きに
+// 偽の整えの口の答えに lines（箇条）。AI の整えで2つ以上の行のときだけ箇条にする（決まりの整えだけ・0〜1行は1つの文）。
+// ほかのアプリは linesToText の文を deliverText で1回、NaTsu の中は dictation:text に lines（画面が block.paste か page.setMemoDoc の1回で行にする）。
+// 履歴の text は入れた文（箇条なら linesToText の文: R204）。文はどれも作った文
+const DQ4_STEPS = (n) => [
+  // 1. 箇条書き3つ（text は印の無い形）
+  { text: `明日の会議は資料を見てから決めます。区間${n}`, lines: [{ kind: 'bullet', t: '明日の会議は' }, { kind: 'bullet', t: '資料を見てから' }, { kind: 'bullet', t: `決めます。区間${n}` }] },
+  // 2. 段落の後の番号（番号は「1. 」から）
+  { text: `明日の会議は\n1. 資料を見てから\n2. 決めます。区間${n + 1}`, lines: [{ kind: 'p', t: '明日の会議は' }, { kind: 'number', t: '資料を見てから' }, { kind: 'number', t: `決めます。区間${n + 1}` }] },
+  // 3. 行が1つ → 1つの文
+  { text: `明日の会議は、資料を見てから決めます。区間${n + 2}`, lines: [{ kind: 'bullet', t: `明日の会議は、資料を見てから決めます。区間${n + 2}` }] },
+  // 4. 照らしに外れる（決まりの整えだけ）→ 箇条にしない
+  { text: 'The meeting tomorrow. Check the materials.', lines: [{ kind: 'bullet', t: 'The meeting tomorrow.' }, { kind: 'bullet', t: 'Check the materials.' }] },
+];
+const DQ4_WANT = [
+  ['・ 明日の会議は\n・ 資料を見てから\n・ 決めます。区間1', [{ kind: 'bullet', t: '明日の会議は' }, { kind: 'bullet', t: '資料を見てから' }, { kind: 'bullet', t: '決めます。区間1' }], 'ai'],
+  ['明日の会議は\n1. 資料を見てから\n2. 決めます。区間2', [{ kind: 'p', t: '明日の会議は' }, { kind: 'number', t: '資料を見てから' }, { kind: 'number', t: '決めます。区間2' }], 'ai'],
+  ['明日の会議は、資料を見てから決めます。区間3', null, 'ai'],
+  [RULES1.replace('区間1', '区間4'), null, 'rules'],
+];
+test('DQ-4: 整えの答えに lines（箇条書き3つ）→ NaTsu の中は dictation:text に lines（箇条書きの3行）と「・ 」の文。番号は「1. 」から。lines が1つ → 1つの文（lines は null）。決まりの整えだけのときは箇条にしない。クリップボードは0・履歴の text は入れた文', { timeout: sceneTimeout(60000) }, async () => {
+  const steps = [['sleep', 100]];
+  for (const r of DQ4_STEPS(1)) steps.push(['tidy', r], ['dictate-in-natsu', { where: 'ok' }]);
+  const o = await mic(steps, ...RELAY);
+  assert.strictEqual(o.tidy.requests.length, 4, tidyDump(o));
+  const w = dsent(o, 'dictation:where').map((x) => x.seq);
+  assert.deepStrictEqual(dsent(o, 'dictation:text'), DQ4_WANT.map(([text, lines], i) => ({ seq: w[i], text, lines })), `箇条を1つの行の文にした（dq-lines-natsu）: ${tidyDump(o)}`);
+  assert.deepStrictEqual(o.dict.pastes, [], 'NaTsu の中の箇条がクリップボードを通った');
+  assert.strictEqual(o.dict.pasteSims, 0);
+  // 履歴は新しい順
+  assert.deepStrictEqual(o.dict.history.map((h) => [h.text, h.raw, h.tidy, h.chars]).reverse(),
+    DQ4_WANT.map(([text, , tidy], i) => [text, RAW1.replace('区間1', `区間${i + 1}`), tidy, text.length]), tidyDump(o));
+  assert.deepStrictEqual(tidyLog(o), ['整え: AI', '整え: AI', '整え: AI', '整え: 決まり（guard）'], tidyDump(o));
+});
+
+test('DQ-4: 整えの答えに lines（箇条書き3つ）→ NaTsu の外は deliverText に「・ a\\n・ b\\n・ c」の1回（番号は「1. 」から・段落はそのまま）。lines が1つ・決まりの整えだけ → 1つの文', { timeout: sceneTimeout(60000) }, async () => {
+  const steps = [['sleep', 100]];
+  for (const r of DQ4_STEPS(1)) steps.push(['tidy', r], ['dictate-in-natsu', { where: 'ok' }]);
+  const u = await mic(steps, ...RELAY, '--main-unfocused');
+  assert.deepStrictEqual(dsent(u, 'dictation:where'), [], tidyDump(u));
+  assert.deepStrictEqual(dsent(u, 'dictation:text'), []);
+  assert.deepStrictEqual(u.dict.pastes, DQ4_WANT.map(([text]) => text), `ほかのアプリへ箇条の文を1回ずつ貼っていない（dq-lines-text）: ${tidyDump(u)}`);
+  assert.strictEqual(u.dict.pasteSims, 4, tidyDump(u));
+  assert.deepStrictEqual(u.dict.history.map((h) => h.text).reverse(), DQ4_WANT.map(([text]) => text));
+});

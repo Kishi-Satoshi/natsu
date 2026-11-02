@@ -1271,6 +1271,7 @@ const IDS_140 = [
   'dq-relay-blank',   // 0.14.0 DQ-3 直し2（R202。DQ-2 直しの R199 の変異）
   // 0.14.0 DQ-3（表の行の順に。dq-long-send は DQ-1 直しで作った: R195）
   'dq-local-send', 'dq-off-send', 'dq-long-send', 'dq-wait', 'dq-late-swap', 'dq-fallback', 'dq-meeting', 'dq-log-text', 'dq-history-raw', 'dq-filler-off',
+  'dq-lines-natsu',   // 0.14.0 DQ-4
   'dq-tidy-login', 'dq-tidy-hold',
   'dq-tidy-reject',   // 0.14.0 DQ-3 直し2（R202）
 ];

@@ -3785,12 +3785,13 @@ function dictEnded() {
   w.then((r) => { sendToMainWin('dictation:end', { seq: r.seq }); flushDictLogin(); });
 }
 // 文字起こしの文の渡し方（決めたこと 42）。履歴には recordDictation が入れてある
-async function deliverDictation(text) {
+// 0.14.0 DQ-4（決めたこと 50）: lines は AI の整えの2つ以上の箇条（ほかは null）。text はそのときは linesToText の文（ほかのアプリへはこの文を1回貼る）
+async function deliverDictation(text, lines = null) {
   const w = dictWhere;
   if (!w) return deliverText(text);   // ほかのアプリ: 今どおり（クリップボードと貼り付け）
   const r = await w;
   if (dictWhere === w) dictWhere = null;
-  if (r.ok) sendToMainWin('dictation:text', { seq: r.seq, text, lines: null });   // クリップボードを通さない
+  if (r.ok) sendToMainWin('dictation:text', { seq: r.seq, text, lines });   // クリップボードを通さない。箇条は画面が1命令で行にする
   else { sendToMainWin('app:notice', DICT_NOWHERE); sendToMainWin('dictation:end', { seq: r.seq }); }
   flushDictLogin();
   return undefined;
@@ -3854,6 +3855,11 @@ async function tidyDictation(raw, route) {
   return { text: g.text, tidy: 'ai', lines: g.lines };
 }
 
+// 0.14.0 DQ-4: 整えの答えの箇条（tidyDictation の lines）を、入れる形にする。AI の整えで2つ以上の行のときだけ箇条（ほかは null: 1つの文）
+function dictLines(said) {
+  return said && said.tidy === 'ai' && Array.isArray(said.lines) && said.lines.length > 1 ? said.lines : null;
+}
+
 async function handleDictationAudio(buffer, durationMs) {
   // 取り消し後に届いた録音を処理しない。
   // Escape で取り消しても、録音側の停止処理が終わってから音声が届くことがあり、
@@ -3866,7 +3872,11 @@ async function handleDictationAudio(buffer, durationMs) {
     const t0 = Date.now();
     const { text: raw, route } = await transcribeAuto(buffer, '', durationMs, { dictation: true });
     if (!raw) throw new Error('音声を認識できませんでした');
-    const { text, tidy } = await tidyDictation(raw, route);   // 0.14.0 DQ-3
+    const said = await tidyDictation(raw, route);   // 0.14.0 DQ-3
+    const tidy = said.tidy;
+    // 0.14.0 DQ-4（決めたこと 49・50・R204）: 箇条にするのは AI の整えで2つ以上の行のときだけ。入れる文（履歴の text も）は「・ 」「1. 」の行の文
+    const lines = dictLines(said);
+    const text = lines ? dictTidy.linesToText(lines) : said.text;
     const procMs = Date.now() - t0;
     // 保存 → 画面へ → 貼る（判断は mainlib.recordDictation）。履歴を保存できなくても口述した文字は貼る（JS5）
     const rec = await lib.recordDictation({
@@ -3879,7 +3889,7 @@ async function handleDictationAudio(buffer, durationMs) {
       max: settings.maxHistory,
       save: () => historyWriter.now(history),
       notify: (h) => sendToMainWin('history:updated', h),
-      deliver: (t) => deliverDictation(t),
+      deliver: (t) => deliverDictation(t, lines),
     });
     if (!rec.saved) engineLog('履歴: 口述の履歴を保存できませんでした（文字は貼り付けに回しました）');
     const preview = text.length > 24 ? `${text.slice(0, 24)}…` : text;
