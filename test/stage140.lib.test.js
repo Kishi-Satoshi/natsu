@@ -4,6 +4,8 @@
  * 元に戻す（src/db/ops.js の invertOps・opsMatch、src/undoBook.js のページごとの列）。
  * Task EK-1: 貼り付けの変換（src/pasteConvert.js: Word・Web・Teams の HTML、Markdown、素の文字 → 行と飾り。危ないものは落とし、色は落とし、2,000 行・1MB まで）。
  * 種の HTML は test/fixtures/paste/ にある（自分で書いた Word・Edge・Teams・Google ドキュメントの形。実在の人名・社名は使わない）。
+ * Task MB-1: メモの行（src/memoDoc.js: 今のメモの文を行にする・行から素の文字に戻す（往復で1文字も変わらない）・要約の命令と同じ直し方
+ * （一時の DB の命令と同じ答え）・大きさと形の照らし・どの行も人の行の印: R69）。
  */
 'use strict';
 const test = require('node:test');
@@ -966,4 +968,329 @@ test('EK-5（決めたこと 37・BQ8）: Ctrl+Shift+N は入れない（keyActi
     assert.ok(!/Ctrl\+Shift\+N\b/.test(r.keys), `Ctrl+Shift+N の行: ${r.keys}`);
     assert.ok(!/Space/.test(r.keys) && !/音声入力/.test(r.what), `音声入力のキーの行: ${r.keys}`);
   }
+});
+
+// ---------------------------------------------------------------- 0.14.0 MB-1: メモの行の純粋な部品（決めたこと 59〜61・63・R41・R42・R69・BQ23 (a)・BQ25 (a)・F106）
+const MD = require('../src/memoDoc.js');
+const MT = require('../src/memoTypes.js');
+const mtype = require('../src/meetingType.js');
+const BT = require('../src/blockTree.js');
+const core = require('../src/db/core.js');
+const { samplePage } = require('./helpers/dbtmp');
+
+const mrow = (id, type, text, more = {}) => ({ id, type, text, citeState: 'manual', ...more });
+// 改行を \n にそろえ、終わりの改行を1つにした文（空なら空: 決めたこと 60）
+const memoNorm = (t) => { const s = String(t).replace(/\r\n?/g, '\n').replace(/\n+$/, ''); return s ? `${s}\n` : ''; };
+const throwsCode = (fn, code, msg) => assert.throws(fn, (e) => e && e.code === code, msg);
+
+test('MB-1・F106: memoFromText の表（空 → 空のテキストの行1つ・雛形 → 見出し3・空の行・見出し3・「- a」「1. b」はテキストの行のまま（BQ23 (a)）・\\r\\n と \\r もそろう）', () => {
+  assert.deepStrictEqual(MD.memoFromText(''), [mrow('m1', 'paragraph', '')]);
+  assert.deepStrictEqual(MD.memoFromText(undefined), [mrow('m1', 'paragraph', '')]);
+  assert.strictEqual(MT.memoPreset('points'), '■ 目的\n\n■ 論点ごとの要点\n');
+  assert.deepStrictEqual(MD.memoFromText(MT.memoPreset('points')), [
+    mrow('m1', 'heading', '目的', { level: 3 }), mrow('m2', 'paragraph', ''), mrow('m3', 'heading', '論点ごとの要点', { level: 3 }),
+  ]);
+  // 記法として読まない（頭が「■ 」の行だけが見出し）
+  assert.deepStrictEqual(MD.memoFromText('- a\n1. b\n> c\n---\n■見出しでない\n ■ 前に空白\n[] d'), [
+    mrow('m1', 'paragraph', '- a'), mrow('m2', 'paragraph', '1. b'), mrow('m3', 'paragraph', '> c'), mrow('m4', 'paragraph', '---'),
+    mrow('m5', 'paragraph', '■見出しでない'), mrow('m6', 'paragraph', ' ■ 前に空白'), mrow('m7', 'paragraph', '[] d'),
+  ]);
+  assert.deepStrictEqual(MD.memoFromText('あ\r\nい\rう\n\n'), [mrow('m1', 'paragraph', 'あ'), mrow('m2', 'paragraph', 'い'), mrow('m3', 'paragraph', 'う')]);
+  assert.deepStrictEqual(MD.memoFromText('■ '), [mrow('m1', 'heading', '', { level: 3 })]);
+  // 行の ID は m で始まり重ならない（validateMemoDoc を通る）
+  const d = MD.memoFromText(Array.from({ length: 40 }, (_, i) => `行${i}`).join('\n'));
+  assert.strictEqual(new Set(d.map((b) => b.id)).size, 40);
+  assert.ok(d.every((b) => /^m[0-9a-z]+$/.test(b.id)), JSON.stringify(d.map((b) => b.id)));
+  assert.deepStrictEqual(MD.validateMemoDoc(d), d);
+});
+
+test('MB-1・F106: memoPlain の往復（6つの型の雛形・0.11.0 の前のアジェンダの雛形・日本語と 𠮷 と絵文字の 50 行の種で memoPlain(memoFromText(t)) が改行をそろえた t と同じ。雛形は手を付けていないメモのまま）', () => {
+  const seeds = [];
+  for (const k of ['points', 'report', 'present', 'bantc', 'grow', 'star']) seeds.push(MT.memoPreset(k));
+  const agendas = mtype.listTypes().map((x) => x.agenda).filter(Boolean);
+  assert.ok(agendas.length >= 5, 'アジェンダの雛形が読めない');
+  seeds.push(...agendas);
+  const parts = ['■ 論点', '- 箇条の形', '1. 番号の形', '> 引用の形', '---', '', '𠮷野さんの件（仮の名）', '👍🏽 絵文字の行', '　全角の空白で始まる', '■ ', '- [ ] ToDo の形', 'タブ\tの行', '💡 囲みの形'];
+  const fifty = Array.from({ length: 50 }, (_, i) => `${parts[i % parts.length]}${i % 3 === 0 ? '' : ` ${i}`}`);
+  seeds.push(fifty.join('\n'), fifty.join('\r\n'), `${fifty.join('\n')}\n\n\n`, fifty.join('\r'), '\n\n先頭の空の行\n', 'ひとこと');
+  for (const t of seeds) {
+    assert.strictEqual(MD.memoPlain(MD.memoFromText(t)), memoNorm(t), JSON.stringify(t).slice(0, 80));
+  }
+  assert.strictEqual(MD.memoPlain(MD.memoFromText('')), '');
+  for (const k of ['points', 'report', 'present', 'bantc', 'grow', 'star']) {
+    assert.strictEqual(MT.isUntouchedMemo(MD.memoPlain(MD.memoFromText(MT.memoPreset(k)))), true, k);
+  }
+  // 2,000 行を越える今のメモ（10 万字まで）も行の形にでき（2,000 行目に残りをまとめる）、往復で1文字も変わらない（R147）
+  const many = Array.from({ length: 2600 }, (_, i) => (i % 7 === 0 ? `■ 節${i}` : `行${i}`)).join('\n');
+  const md = MD.memoFromText(many);
+  assert.strictEqual(md.length, 2000);
+  assert.strictEqual(MD.memoPlain(md), memoNorm(many));
+  assert.doesNotThrow(() => MD.validateMemoDoc(md));
+});
+
+test('MB-1: memoPlain の型の表（見出しは段を問わず「■ 」・箇条書き「- 」・番号は親ごとに「1. 2. 」・ToDo「- [ ] 」「- [x] 」・引用「> 」・区切り線「---」・コールアウト・‡131 子は2つの空白・太字とリンクは文字だけ）', () => {
+  const doc = [
+    mrow('m1', 'heading', '段1', { level: 1 }), mrow('m2', 'heading', '段2', { level: 2 }), mrow('m3', 'heading', '段3', { level: 3 }),
+    mrow('m4', 'bullet', '箇条'),
+    mrow('m5', 'numbered', '一'), mrow('m6', 'numbered', '二', { children: [mrow('m7', 'numbered', '子の一')] }), mrow('m8', 'paragraph', '間の文'), mrow('m9', 'numbered', '三'),
+    mrow('ma', 'todo', 'まだ', { checked: false }), mrow('mb', 'todo', '済み', { checked: true }),
+    mrow('mc', 'quote', '引用'), mrow('md', 'divider', ''), mrow('me', 'callout', '囲み', { icon: '💡' }),
+    mrow('mf', 'paragraph', '飾りの行', { rich: [run('太字', 'b'), run('と'), run('リンク', ['link', 'https://example.com/memo']), run('の行')], text: '太字とリンクの行' }),
+    mrow('mg', 'toggle', '開閉', { children: [mrow('mh', 'paragraph', '子', { children: [mrow('mi', 'bullet', '孫')] })] }),
+    mrow('mj', 'heading', '見出しの開閉', { level: 2, toggle: true, children: [mrow('mk', 'todo', '見出しの子', { checked: true })] }),
+  ];
+  assert.strictEqual(MD.memoPlain(doc), [
+    '■ 段1', '■ 段2', '■ 段3', '- 箇条', '1. 一', '2. 二', '  1. 子の一', '間の文', '1. 三', '- [ ] まだ', '- [x] 済み', '> 引用', '---', '💡 囲み',
+    '太字とリンクの行', '- 開閉', '  子', '    - 孫', '■ 見出しの開閉', '  - [x] 見出しの子',
+  ].join('\n') + '\n');
+  assert.ok(!MD.memoPlain(doc).includes('example.com'), 'リンクの住所が出た');
+  assert.strictEqual(MD.memoPlain([]), '');
+  assert.strictEqual(MD.memoPlain([mrow('m1', 'paragraph', '')]), '');
+});
+
+// 要約の命令と memoEdit の比べの種（メモの行。どれも人の行）
+const PARITY_DOC = () => [
+  mrow('m1', 'heading', '目的', { level: 3 }),
+  mrow('m2', 'paragraph', '来週までに案を出す'),
+  mrow('m3', 'bullet', '太字とリンクの行', { rich: [run('太字', 'b'), run('と'), run('リンク', ['link', 'https://example.com/a']), run('の行')] }),
+  mrow('m4', 'toggle', '開いたトグル', { children: [mrow('m5', 'paragraph', '子の文'), mrow('m6', 'todo', '子の ToDo', { checked: true })] }),
+  mrow('m7', 'numbered', '一つ目'),
+  mrow('m8', 'numbered', '二つ目'),
+  mrow('m9', 'divider', ''),
+  mrow('ma', 'quote', '引用の文'),
+  mrow('mb', 'callout', '囲みの文', { icon: '💡' }),
+  mrow('mc', 'heading', 'トグル見出し', { level: 2, toggle: true, children: [mrow('md', 'bullet', '見出しの子')] }),
+  mrow('me', 'paragraph', ''),
+];
+const PASTE_TWO = [{ type: 'bullet', rich: [run('貼った1')] }, { type: 'heading', level: 2, rich: [run('貼った見出し', 'b')], children: [{ type: 'paragraph', rich: [run('上がる子')] }] }];
+const M3_RICH = [run('太字', 'b'), run('と'), run('リンク', ['link', 'https://example.com/a']), run('の行')];
+const PARITY_CASES = [
+  ['block.update', { blockId: 'm2', patch: { text: '書き換えた文' } }],
+  ['block.update', { blockId: 'm3', patch: { rich: [run('太字だけ', 'b')] } }],
+  ['block.update', { blockId: 'm6', patch: { checked: false } }],
+  ['block.split', { blockId: 'm2', text: '来週までに案を出す', at: 5 }],
+  ['block.split', { blockId: 'm3', text: '太字とリンクの行', at: 4, rich: M3_RICH }],
+  ['block.split', { blockId: 'm2', text: '来週までに案を出す', at: 0, afterId: 'm1' }],
+  ['block.split', { blockId: 'm4', text: '開いたトグル', at: 3, inside: true }],
+  ['block.split', { blockId: 'm1', text: '目的', at: 2 }],
+  ['block.split', { blockId: 'mc', text: 'トグル見出し', at: 6 }],
+  ['block.split', { blockId: 'ma', text: '引用の文', at: 2 }],
+  ['block.merge', { blockId: 'm2', text: '来週までに案を出す' }],
+  ['block.merge', { blockId: 'ma', text: '引用の文' }],
+  ['block.merge', { blockId: 'm7', text: '一つ目', intoId: 'm6' }],
+  ['block.merge', { blockId: 'm4', text: '開いたトグル', rich: [run('開いた', 'i'), run('トグル')] }],
+  ['block.insert', { afterBlockId: 'm3', type: 'todo' }],
+  ['block.insert', { afterBlockId: '', parentId: 'm4', type: 'heading', level: 1, toggle: true }],
+  ['block.insert', { afterBlockId: '' }],
+  ['block.insert', { afterBlockId: 'm5', type: 'callout', icon: '💡' }],
+  ['block.remove', { blockId: 'm4' }],
+  ['block.remove', { blockId: 'mz' }],
+  ['block.move', { blockId: 'm8', afterId: '' }],
+  ['block.move', { blockId: 'm2', afterId: '', parentId: 'mc' }],
+  ['block.move', { blockId: 'm9', toIndex: 1 }],
+  ['block.move', { blockId: 'm5', afterId: 'mb' }],
+  ['block.turnInto', { blockId: 'm4', type: 'paragraph' }],
+  ['block.turnInto', { blockId: 'm3', type: 'heading', level: 1 }],
+  ['block.turnInto', { blockId: 'm6', type: 'bullet' }],
+  ['block.turnInto', { blockId: 'm2', type: 'callout' }],
+  ['block.turnInto', { blockId: 'mc', type: 'heading', level: 2 }],
+  ['block.turnInto', { blockId: 'm1', type: 'paragraph' }],
+  ['block.turnInto', { blockId: 'me', type: 'divider' }],
+  ['block.duplicate', { blockId: 'm4' }],
+  ['block.duplicate', { blockId: 'm2', afterId: '', parentId: 'm4' }],
+  ['block.indent', { blockId: 'm3', dir: 'in' }],
+  ['block.indent', { blockId: 'm6', dir: 'out' }],
+  ['block.indent', { blockId: 'm1', dir: 'in' }],
+  ['block.paste', { blockId: 'm2', rich: [run('来週までに案を出す')], at: 5, blocks: PASTE_TWO }],
+  ['block.paste', { blockId: 'm2', rich: [run('来週までに案を出す')], at: 0, blocks: PASTE_TWO, afterId: 'm1' }],
+  ['block.paste', { blockId: 'me', rich: [], at: 0, blocks: [{ type: 'todo', checked: true, rich: [run('空の行に')] }, { type: 'bullet', rich: [run('次')] }] }],
+  ['block.paste', { blockId: 'm4', rich: [run('開いたトグル')], at: 3, inside: true, blocks: PASTE_TWO }],
+  ['block.paste', { blockId: 'm4', rich: [run('開いたトグル')], at: 6, inside: true, blocks: PASTE_TWO }],
+  ['block.paste', { blockId: 'm1', rich: [run('目的')], at: 1, blocks: PASTE_TWO }],
+  ['block.paste', { blockId: 'ma', rich: [run('引用の文')], at: 2, blocks: PASTE_TWO }],
+  ['block.paste', { blockId: 'm3', rich: M3_RICH, at: 4, blocks: [{ type: 'quote', rich: [run('貼った引用')] }] }],
+  ['blocks.setColor', { ids: ['m4', 'm7'], color: 'red_bg' }],
+  ['blocks.remove', { ids: ['m5', 'm4', 'm8'] }],
+  ['blocks.move', { ids: ['m7', 'm2'], afterId: 'mb' }],
+  ['blocks.move', { ids: ['m2', 'm3'], afterId: '', parentId: 'm4' }],
+  ['blocks.duplicate', { ids: ['m2', 'm4'] }],
+  ['blocks.duplicate', { ids: ['m7'], afterId: '', parentId: 'mc' }],
+  ['blocks.turnInto', { ids: ['m2', 'm4', 'ma'], type: 'todo' }],
+  ['blocks.turnInto', { ids: ['m4', 'mc'], type: 'paragraph' }],
+  // どちらも bad-args
+  ['block.split', { blockId: 'm2', text: '𠮷', at: 1 }],
+  ['block.split', { blockId: 'm1', text: '目的', at: 1, inside: true }],
+  ['block.merge', { blockId: 'm4', text: '開いたトグル', intoId: 'm5' }],
+  ['block.update', { blockId: 'm3', patch: { text: '文だけの直し' } }],
+  ['block.turnInto', { blockId: 'm2', type: 'divider' }],
+  ['blocks.turnInto', { ids: ['me', 'm4'], type: 'divider' }],
+  ['block.paste', { blockId: 'm4', rich: [run('開いたトグル')], at: 0, inside: true, blocks: PASTE_TWO }],
+  ['block.paste', { blockId: 'm1', rich: [run('目的')], at: 1, inside: true, blocks: PASTE_TWO }],
+  ['block.move', { blockId: 'm4', afterId: 'm5' }],
+  ['block.move', { blockId: 'm5', toIndex: 0 }],
+  ['blocks.move', { ids: ['m4'], afterId: 'm6' }],
+  ['blocks.remove', { ids: [] }],
+  ['block.insert', { afterBlockId: 'm1', parentId: 'm4' }],
+];
+// 比べる形: 深さ優先の行ごとの型・段・トグル・チェック・絵文字・色・文・飾り（担当・期限・出典の欄は比べない）。前からの行は ID も、足した行は '+'
+function parityView(blocks, known) {
+  return BT.walk(blocks).map(({ b, depth }) => {
+    const o = { depth, id: known.has(b.id) ? b.id : '+', type: b.type, text: String(b.text ?? '') };
+    if (b.level !== undefined) o.level = b.level;
+    if (b.toggle === true) o.toggle = true;
+    if (typeof b.checked === 'boolean') o.checked = b.checked;
+    if (b.icon) o.icon = b.icon;
+    if (b.color) o.color = b.color;
+    if (Array.isArray(b.rich)) o.rich = b.rich;
+    return o;
+  });
+}
+// 命令の答えの行の居場所（深さ優先の何番目か）。ID は DB と memoEdit で違うので居場所で比べる
+function parityFocus(blocks, f) {
+  if (!f) return null;
+  const at = (id) => BT.walk(blocks).findIndex((w) => w.b.id === id);
+  const o = {};
+  if (f.blockId !== undefined) o.blockId = at(f.blockId);
+  if (f.at !== undefined) o.at = f.at;
+  if (f.lastId !== undefined) o.lastId = at(f.lastId);
+  if (Array.isArray(f.ids)) o.ids = f.ids.map(at);
+  return o;
+}
+
+test('MB-1・F106: memoEdit は要約の命令と同じ（分ける・つなぐ・足す・消す・動かす・型を変える・複製・字下げ・貼る（BQ30・BQ31・BQ32）・色・まとめた操作を、同じ行の並びに一時の DB の命令と memoEdit で当てて、行の型・文・飾り・並びと答えの行が同じ。断るものも同じ）', { timeout: 20000 }, () => {
+  const t = tmpDb();
+  try {
+    const { db } = t.open();
+    const known = new Set(BT.flattenBlocks(PARITY_DOC()).map((b) => b.id));
+    let seq = 0;
+    PARITY_CASES.forEach(([cmd, args], i) => {
+      const pageId = `pm${i}`;
+      // DB の行の ID は表の全部で重ならないので、ページごとに後ろに _<番号> を付けて入れ、比べる前に外す
+      const sfx = `_${i}`;
+      const toDb = (id) => (known.has(id) ? `${id}${sfx}` : id);
+      const fromDb = (blocks) => { for (const b of BT.flattenBlocks(blocks)) if (b.id.endsWith(sfx)) b.id = b.id.slice(0, -sfx.length); return blocks; };
+      const dbDoc = PARITY_DOC();
+      for (const b of BT.flattenBlocks(dbDoc)) b.id = toDb(b.id);
+      const dbArgs = { ...args };
+      for (const k of ['blockId', 'afterId', 'afterBlockId', 'parentId', 'intoId']) if (typeof dbArgs[k] === 'string') dbArgs[k] = toDb(dbArgs[k]);
+      if (Array.isArray(dbArgs.ids)) dbArgs.ids = dbArgs.ids.map(toDb);
+      t.seed({ ...samplePage(pageId).page, blocks: dbDoc }, []);
+      const r = core.call(db, { role: 'app', cmd, args: { pageId, ...dbArgs }, tx: `a:mb1-${String(++seq).padStart(6, '0')}` }, { now: () => new Date('2026-11-01T00:00:00.000Z'), labels: {} });
+      const label = `${cmd} ${JSON.stringify(args).slice(0, 90)}`;
+      let mine = null;
+      let err = null;
+      try { mine = MD.memoEdit(PARITY_DOC(), cmd, args); } catch (e) { err = e; }
+      if (!r.ok) {
+        assert.ok(err, `${label}: DB は ${r.code} で断ったのに memoEdit が通した`);
+        assert.strictEqual(err.code, r.code, label);
+        return;
+      }
+      assert.strictEqual(err, null, `${label}: DB は通したのに memoEdit が投げた（${err && err.message}）`);
+      const page = Array.isArray(r.result.blocks) ? r.result : r.result.page;
+      fromDb(page.blocks);
+      assert.deepStrictEqual(parityView(mine.doc, known), parityView(page.blocks, known), label);
+      const { page: _p, ...rest } = Array.isArray(r.result.blocks) ? {} : r.result;
+      for (const k of ['blockId', 'lastId']) if (typeof rest[k] === 'string' && rest[k].endsWith(sfx)) rest[k] = rest[k].slice(0, -sfx.length);
+      assert.deepStrictEqual(parityFocus(mine.doc, mine.focus), parityFocus(page.blocks, Object.keys(rest).length ? rest : null), `${label}: 答えの行`);
+      for (const b of BT.flattenBlocks(mine.doc)) {
+        assert.strictEqual(b.citeState, 'manual', `${label}: 人の行の印が無い行`);
+        assert.ok(/^m[0-9A-Za-z_-]*$/.test(b.id), `${label}: m で始まらない ID ${b.id}`);
+      }
+      assert.strictEqual(new Set(BT.flattenBlocks(mine.doc).map((b) => b.id)).size, BT.flattenBlocks(mine.doc).length, `${label}: ID が重なる`);
+    });
+  } finally { t.done(); }
+  // 元の行の並びは変えない（新しい doc を返す）
+  const before = PARITY_DOC();
+  const keep = structuredClone(before);
+  MD.memoEdit(before, 'block.split', { blockId: 'm2', text: '来週までに案を出す', at: 5 });
+  assert.deepStrictEqual(before, keep, '渡した doc が変わった');
+});
+
+test('MB-1: validateMemoDoc（2,001 行・1MB 越え・知らない型・照らしに外れる rich・memoPlain が 10 万字越え・m で始まらない ID・重なる ID → 投げる）と、memoEdit の命令の表を持ち物で引く（toString・__proto__・constructor と DB だけの命令は投げる）', { timeout: 10000 }, () => {
+  const rows = (n) => Array.from({ length: n }, (_, i) => mrow(`m${(i + 1).toString(36)}`, 'paragraph', 'a'));
+  assert.doesNotThrow(() => MD.validateMemoDoc(rows(2000)));
+  throwsCode(() => MD.validateMemoDoc(rows(2001)), 'too-big', '2,001 行を通した');
+  // 子孫も数える
+  throwsCode(() => MD.validateMemoDoc([mrow('m0', 'toggle', '親', { children: rows(2000) })]), 'too-big', '子孫で 2,001 行を通した');
+  // 1MB（リンクの住所は素の文字に出ないので、素の文字が短くても大きい）
+  const link = `https://example.com/${'x'.repeat(2000)}`;
+  const big = [mrow('m1', 'paragraph', '', { rich: Array.from({ length: 600 }, (_, i) => run(i % 2 ? 'あ' : 'い', ['link', `${link}${i}`])) })];
+  throwsCode(() => MD.validateMemoDoc(big), 'too-big', '1MB を越えた doc を通した');
+  // 素の文字が 10 万字を越える
+  throwsCode(() => MD.validateMemoDoc([mrow('m1', 'paragraph', 'あ'.repeat(60000)), mrow('m2', 'paragraph', 'い'.repeat(60000))]), 'too-big', 'memoPlain が 10 万字を越えた');
+  throwsCode(() => MD.validateMemoDoc([mrow('m1', 'paragraph', 'あ'.repeat(100001))]), 'bad-args', '1行が 10 万字を越えた');
+  // 形
+  for (const [bad, what] of [
+    [[mrow('m1', 'table', 'x')], '知らない型'],
+    [[mrow('m1', 'paragraph', 'ab', { rich: [run('ab', ['color', 'red'], ['bg', 'blue'])] })], '色が2つ'],
+    [[mrow('m1', 'paragraph', 'ab', { rich: [run('ab', ['link', 'javascript:alert(1)'])] })], 'javascript: のリンク'],
+    [[mrow('m1', 'paragraph', 'ab', { rich: [run('ab', ['link', 'JavaScript:alert(1)'])] })], '大文字の JavaScript: のリンク'],
+    [[mrow('b1', 'paragraph', 'x')], 'm で始まらない ID'],
+    [[mrow('m1', 'paragraph', 'x'), mrow('m1', 'paragraph', 'y')], '重なる ID'],
+    [[mrow('m1', 'heading', 'x', { level: 4 })], '段 4'],
+    [[mrow('m1', 'bullet', 'x', { level: 2 })], '見出しでない段'],
+    [[mrow('m1', 'divider', 'x')], '文のある区切り線'],
+    [[mrow('m1', 'heading', 'x', { level: 2, children: [mrow('m2', 'paragraph', 'y')] })], '子を持てない型の子'],
+    [[mrow('m1', 'paragraph', 'x', { citeState: 'stale' })], '人の行でない印'],
+    [[mrow('m1', 'paragraph', 'x', { open: false })], '開け閉めの欄（R44）'],
+    [[mrow('m1', 'paragraph', 'x', { color: 'teal' })], '知らない色'],
+    [['m1'], '行でない'],
+    [{ blocks: [] }, '配列でない'],
+  ]) throwsCode(() => MD.validateMemoDoc(bad), 'bad-args', what);
+  // 照らしは渡した doc を変えない（新しい doc を返す）
+  const given = [mrow('m1', 'paragraph', '')];
+  delete given[0].citeState;
+  const out = MD.validateMemoDoc(given);
+  assert.strictEqual(given[0].citeState, undefined);
+  assert.strictEqual(out[0].citeState, 'manual');
+  // 命令の表は持ち物で引く（どの物にも生えている名前で関数を呼ばない）
+  for (const cmd of ['toString', '__proto__', 'constructor', 'hasOwnProperty', 'valueOf', 'block.setAction', 'block.setOpen', 'block.setOpenAll', 'edit.revert', 'page.setMemo', 'page.setMemoDoc', '', 'block.nothing']) {
+    throwsCode(() => MD.memoEdit(PARITY_DOC(), cmd, { blockId: 'm2' }), 'bad-args', `命令の名前 ${JSON.stringify(cmd)}`);
+  }
+  throwsCode(() => MD.memoEdit(PARITY_DOC(), 1, {}), 'bad-args', '文字でない命令の名前');
+  // 引数も DB と同じ型の表で照らす（知らない引数・pageId は断る）
+  throwsCode(() => MD.memoEdit(PARITY_DOC(), 'block.remove', { blockId: 'm2', pageId: 'p1' }), 'bad-args', 'pageId');
+  throwsCode(() => MD.memoEdit(PARITY_DOC(), 'block.remove', { blockId: 'm 2' }), 'bad-args', '形の悪い ID');
+  // 行を増やす命令で 2,000 行を越えるなら too-big（DB の pageFits と同じ）
+  throwsCode(() => MD.memoEdit(rows(2000), 'block.duplicate', { blockId: 'm1' }), 'too-big', '2,001 行になる複製');
+  assert.strictEqual(MD.MEMO_COMMANDS.includes('block.paste') && !MD.MEMO_COMMANDS.includes('block.setAction'), true);
+});
+
+test('MB-1・R69（第4版）: memoFromText と memoEdit の行はどれも citeState: manual・見出しの行は aiSectionHead が偽で canIndent が真・memoEdit の turnInto で aiHeading が付かない・validateMemoDoc は出典と印の欄を断り citeState が無ければ manual を付ける。memoPlain のトグルは「- 」・トグル見出しは「■ 」', () => {
+  const doc = MD.memoFromText('前の文\n■ 目的\n\n■ 論点ごとの要点');
+  for (const b of doc) assert.strictEqual(b.citeState, 'manual', JSON.stringify(b));
+  const heads = doc.filter((b) => b.type === 'heading');
+  assert.strictEqual(heads.length, 2);
+  for (const h of heads) {
+    assert.strictEqual(BT.aiSectionHead(h), false, `AI の節の見出しになった: ${h.text}`);
+    assert.strictEqual(BT.canIndent(doc, h.id), true, `字下げできない: ${h.text}`);
+  }
+  assert.strictEqual(BT.indentPlan(doc, heads[0].id, 'in').parentId, doc[0].id);
+  // 型を変えても aiHeading が付かず、見出しに戻しても人の見出し
+  let d = MD.memoEdit(doc, 'block.turnInto', { blockId: heads[0].id, type: 'paragraph' }).doc;
+  d = MD.memoEdit(d, 'block.turnInto', { blockId: heads[0].id, type: 'heading', level: 3 }).doc;
+  d = MD.memoEdit(d, 'blocks.turnInto', { ids: [heads[1].id], type: 'bullet' }).doc;
+  for (const b of BT.flattenBlocks(d)) {
+    assert.strictEqual(b.aiHeading, undefined, JSON.stringify(b));
+    assert.strictEqual(b.citeState, 'manual', JSON.stringify(b));
+  }
+  // 足した・分けた・貼った行も人の行
+  d = MD.memoEdit(d, 'block.insert', { afterBlockId: '', type: 'heading', level: 2 }).doc;
+  d = MD.memoEdit(d, 'block.split', { blockId: doc[0].id, text: '前の文', at: 1 }).doc;
+  d = MD.memoEdit(d, 'block.paste', { blockId: doc[0].id, rich: [run('前')], at: 1, blocks: [{ type: 'heading', level: 1, rich: [run('貼った見出し')] }] }).doc;
+  for (const b of BT.flattenBlocks(d)) {
+    assert.strictEqual(b.citeState, 'manual', JSON.stringify(b));
+    if (b.type === 'heading') assert.strictEqual(BT.aiSectionHead(b), false, JSON.stringify(b));
+  }
+  // validateMemoDoc は出典と印の欄を断る
+  for (const k of ['cites', 'assignee', 'due', 'aiHeading', 'mark', 'citeSkip']) {
+    const val = k === 'cites' ? ['s1'] : k === 'aiHeading' || k === 'citeSkip' ? true : 'x';
+    throwsCode(() => MD.validateMemoDoc([mrow('m1', 'bullet', 'x', { [k]: val })]), 'bad-args', `${k} を通した`);
+  }
+  const plain = [{ id: 'm1', type: 'heading', level: 3, text: '目的' }];
+  const v = MD.validateMemoDoc(plain);
+  assert.strictEqual(v[0].citeState, 'manual');
+  assert.strictEqual(BT.aiSectionHead(v[0]), false);
+  // トグルは「- 」・トグル見出しは「■ 」
+  assert.strictEqual(MD.memoPlain([mrow('m1', 'toggle', '開閉'), mrow('m2', 'heading', '見出しの開閉', { level: 1, toggle: true })]), '- 開閉\n■ 見出しの開閉\n');
 });
