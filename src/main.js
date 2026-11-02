@@ -36,6 +36,7 @@ const attachAcross = cite.attachCitationsAcross || ((b, f) => attachCitations(b,
 const mtype = require('./meetingType');
 const memoTypes = require('./memoTypes');
 const memoDoc = require('./memoDoc');   // 0.14.0 MB-3: メモの行（照らし・素の文字・雛形の行）
+const dictTidy = require('./dictTidy');   // 0.14.0 DQ-1: 口述の整え（つなぎ言葉の決まり・繰り返し・AI の答えの照らし）
 const quality = require('./quality');
 const { enrichActionBlocks, groundActionFields } = require('./actions');
 const updater = require('./updater');
@@ -754,20 +755,7 @@ function loadStores() {
 const dataRoot = () => store.root();
 
 // ---------------------------------------------------------------- テキスト整形
-function removeFillersRule(text) {
-  let t = text;
-  const patterns = [
-    /(?:えー+っ?と+|えっ?と+|ええと+|ええっと+)[、,。.\s]*/g,
-    /(?:えー+|えぇ+ー*)[、,\s]*/g,
-    /(?:あのー+|あのう+|そのー+|そのう+)[、,\s]*/g,
-    /(?:うー+ん(?:と+)?|んー+と?)[、,\s]*/g,
-    /\b(?:u+m+|u+h+|erm+|hm+)\b[,\s]*/gi,
-  ];
-  for (const p of patterns) t = t.replace(p, '');
-  return t.replace(/、{2,}/g, '、').replace(/。{2,}/g, '。')
-    .replace(/(^|。)、+/g, '$1').replace(/[ \t]{2,}/g, ' ')
-    .trim();
-}
+// つなぎ言葉を除く決まりは src/dictTidy.js の dropFillers（0.14.0 DQ-1 で同じ字のまま移した。会議の区間の文も同じ答え）
 
 // 業務日本語でよく化ける語。固有名詞ではないのでユーザーに登録させる筋ではなく、
 // 既定で渡す。実機で「不具合→風買い」「改修→回収」「今週→本週」が出たことによる。
@@ -2841,7 +2829,7 @@ async function probeInference() {
 // 0.12.0 SP-3b: whisper の文1つに区間の文と同じ直し（cleanWhisperText と、設定がオンならつなぎ言葉の除き）をかける（partsOf が区間の文の中を探す）
 function cleanSentence(raw) {
   const t = cleanWhisperText(raw);
-  return settings.removeFillers ? removeFillersRule(t) : t;
+  return settings.removeFillers ? dictTidy.dropFillers(t) : t;
 }
 function cleanWhisperText(raw) {
   return String(raw || '')
@@ -3834,7 +3822,7 @@ async function handleDictationAudio(buffer, durationMs) {
     const t0 = Date.now();
     const { text: raw } = await transcribeAuto(buffer, '', durationMs, { dictation: true });
     if (!raw) throw new Error('音声を認識できませんでした');
-    let text = settings.removeFillers ? removeFillersRule(raw) : raw;
+    let text = settings.removeFillers ? dictTidy.dropFillers(raw) : raw;
     if (!text) text = raw;
     const procMs = Date.now() - t0;
     // 保存 → 画面へ → 貼る（判断は mainlib.recordDictation）。履歴を保存できなくても口述した文字は貼る（JS5）
@@ -3964,7 +3952,7 @@ async function transcribeDictWaits() {
         unlinkQuiet(file);
         continue;
       }
-      let text = failText || (settings.removeFillers ? removeFillersRule(raw) : raw);
+      let text = failText || (settings.removeFillers ? dictTidy.dropFillers(raw) : raw);
       if (!text) text = raw;
       let added = null;
       if (row) {
@@ -4417,7 +4405,7 @@ function retryFailedSegments({ only = '', max = 0 } = {}) {
       clearSttProblem(m, 'wait');
       // 0.9.1 Q-2: 無音の答えの経路（none）は帯に渡さない（失敗・残した区間は無音の判定を通った音声なので、ふつうは来ない）
       if (!r.silent) noteSttRoute(m, r);
-      const text = settings.removeFillers ? removeFillersRule(r.text) : r.text;
+      const text = settings.removeFillers ? dictTidy.dropFillers(r.text) : r.text;
       if (!text) {
         // 第1d2回 M-3: 自動で並べ直した残した区間の空の答えは、区間ごと消す（人が押した［もう一度］の空は今どおり失敗のまま）
         if (auto && seg.kept) settleSegment(m, seg, null);
@@ -5064,7 +5052,7 @@ async function transcribeRecoveredItems(q, { cloudOnly = false } = {}) {
       try {
         ({ text, route } = await transcribeAuto(fs.readFileSync(item.wav), '', item.durationMs, { localOnly: recoveryPcOnly(q), cloudOnly, what: `復旧 ${item.id}`, seg: item.id,
           busyStop: () => state !== 'idle', verbose: twoPage, onSentences: (x) => { sentences = x; } }));
-        if (settings.removeFillers) text = removeFillersRule(text);
+        if (settings.removeFillers) text = dictTidy.dropFillers(text);
       } catch (e) {
         const kind = e && !e.refused && e.sttRoute && e.sttRoute.route === 'local' ? lib.localFailKind(e) : '';
         if (e && (e.keepForRetry || e.engineMissing || kind === 'late' || kind === 'down')) {
@@ -5611,7 +5599,7 @@ function onMeetingSegment(buffer, durationMs, isFinal, metaIn) {
       const sp = speedLine('whisper', { audioMs: durationMs, procMs: pm }); if (sp) engineLog(sp);
       if (Number.isFinite(procMs) && durationMs >= 10000) paceEvent(m, { kind: 'sample', audioMs: durationMs, procMs });
     }
-    if (settings.removeFillers) text = removeFillersRule(text);
+    if (settings.removeFillers) text = dictTidy.dropFillers(text);
     // 空・直前と同じ（繰り返しハルシネーション）は区間ごと消す
     // 0.9.1 Q-2（決めたこと 4）: 話し声の大きさより小さな区間（一番大きい窓が SPEECH_DBFS より小さい）では、直前の2つの済んだ区間のどちらかと同じ文
     // （交互の作り話 A・B・A・B）も消す。この会議で認識ヒントの繰り返しとして除いた答えと同じ文も消す
