@@ -10,6 +10,8 @@
 //     （第1d回 W-6。前は /auth/start が「2 日より古い窓」を片付けていた。消す行が無ければ D1 の書きは増えない）
 //   refundUsage(db, { userKey, day, sec }) → OpenAI が 200 を返さなかった区間の秒を戻す（同じ日の行だけ。0 より下げない）
 //   日の窓の win は「日の番号 × 86400」（日付の始まりを UTC の形で書いた秒）。
+// 0.14.0 DQ-2: reserveUsage・refundUsage は全体の鍵 allKey（既定 ALL_USAGE_KEY）を受ける。口述の整えの回数（tidy.mjs）は同じ表に
+//   1人 a:t:u:<…>・全体 a:t:all で数える（sec の欄に 1 回を渡す。鍵の頭が a: なので、表の形の流し直しの片付け（a: のほかを消す）で消えない）
 // 第1d回 W-6 で、/auth/start と /auth/verify の窓の数え（hits・hit・windowStart・release）を消した（使う所が無い）。
 
 const READ_SQL = 'SELECT n FROM counters WHERE key = ?1';
@@ -30,23 +32,23 @@ export async function usage(db, key, day) {
   return Number(await db.prepare('SELECT n FROM counters WHERE key = ?1 AND win = ?2').bind(key, day * DAY).first('n')) || 0;
 }
 
-export async function reserveUsage(db, { userKey, day, sec, userMax, allMax }) {
+export async function reserveUsage(db, { userKey, day, sec, userMax, allMax, allKey = ALL_USAGE_KEY }) {
   const win = day * DAY;
   const res = await db.batch([
     db.prepare(ADD_SQL).bind(userKey, win, sec),
-    db.prepare(ADD_SQL).bind(ALL_USAGE_KEY, win, sec),
+    db.prepare(ADD_SQL).bind(allKey, win, sec),
     db.prepare(READ_SQL).bind(userKey),
-    db.prepare(READ_SQL).bind(ALL_USAGE_KEY),
+    db.prepare(READ_SQL).bind(allKey),
     db.prepare('DELETE FROM counters WHERE win < ?1').bind((day - 2) * DAY),
   ]);
   const user = nOf(res[2]);
   const all = nOf(res[3]);
   if (user <= userMax && all <= allMax) return { ok: true };
-  await refundUsage(db, { userKey, day, sec });
+  await refundUsage(db, { userKey, day, sec, allKey });
   return { ok: false, scope: user > userMax ? 'user' : 'all' };
 }
 
-export async function refundUsage(db, { userKey, day, sec }) {
+export async function refundUsage(db, { userKey, day, sec, allKey = ALL_USAGE_KEY }) {
   const win = day * DAY;
-  await db.batch([db.prepare(SUB_SQL).bind(userKey, win, sec), db.prepare(SUB_SQL).bind(ALL_USAGE_KEY, win, sec)]);
+  await db.batch([db.prepare(SUB_SQL).bind(userKey, win, sec), db.prepare(SUB_SQL).bind(allKey, win, sec)]);
 }

@@ -277,10 +277,11 @@ test('RL2: RESEND_API_KEY・MAIL_FROM・MAIL_DAILY_MAX を入れても ready に
   const { readConfig, DEFAULTS } = await R.load('config.mjs');
   const old = { RESEND_API_KEY: 're_test_must_not_show_1', MAIL_FROM: 'NaTsu <' + R.mail('login') + '>', MAIL_DAILY_MAX: '77', RESEND_BASE: 'http://127.0.0.1:4011' };
   const c = readConfig({ OPENAI_API_KEY: 'k', ALLOWED_EMAIL_DOMAINS: 'example.com', ...old });
-  assert.deepStrictEqual(Object.keys(c).sort(), ['certsBase', 'dailyAllSec', 'dailyUserSec', 'dayOffsetMin', 'domains', 'maxAudioBytes', 'model',
-    'openaiBase', 'openaiKey', 'policyAud', 'ready', 'teamDomain']);
+  // 0.14.0 DQ-2（R196）で意図して変えた: 口述の整えの口の TIDY_MODEL（tidyModel）と1日の回数（dailyUserTidy・dailyAllTidy）を足した
+  assert.deepStrictEqual(Object.keys(c).sort(), ['certsBase', 'dailyAllSec', 'dailyAllTidy', 'dailyUserSec', 'dailyUserTidy', 'dayOffsetMin', 'domains', 'maxAudioBytes', 'model',
+    'openaiBase', 'openaiKey', 'policyAud', 'ready', 'teamDomain', 'tidyModel']);
   assert.deepStrictEqual(Object.keys(c.ready).sort(), ['access', 'domains', 'openai']);
-  assert.deepStrictEqual(Object.keys(DEFAULTS).sort(), ['dailyAllSec', 'dailyUserSec', 'dayOffsetMin', 'maxAudioBytes', 'model', 'openaiBase']);
+  assert.deepStrictEqual(Object.keys(DEFAULTS).sort(), ['dailyAllSec', 'dailyAllTidy', 'dailyUserSec', 'dailyUserTidy', 'dayOffsetMin', 'maxAudioBytes', 'model', 'openaiBase', 'tidyModel']);
   assert.ok(!JSON.stringify(c, (k, v) => (v instanceof Set ? [...v] : v)).match(/re_test|login|4011|77/), '読んだ値に Resend とメールの欄');
   await R.withRelay({ env: old }, async ({ call, logs }) => {
     const res = await call('GET', '/health');

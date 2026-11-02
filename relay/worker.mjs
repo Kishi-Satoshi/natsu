@@ -9,6 +9,7 @@
 //   GET /auth/done → 人の JWT で 200 の小さな HTML（ログインの窓が着くページ。script なし・外の物を読まない・クエリを読まない）（W-5）
 //   GET /v1/me → 人の JWT で 200 { email, exp, via }（email は小文字・exp は JWT の exp・via は 'hdr'|'cookie'）（W-5）
 //   POST /v1/audio/transcriptions → stt.mjs の handleTranscribe（W-4。ログインした人の WAV を送り、文字だけを返す。認めは Access の JWT だけ: W-6）
+//   POST /v1/text/tidy → tidy.mjs の handleTidy（0.14.0 DQ-2。ログインした人の口述の文を整えて { text, lines } だけを返す。認めは Access の人の JWT だけ）
 // どの道も Location の見出しと Access-Control-Allow-* を返さない（OPTIONS は道に無いので 405）。
 
 import { json } from './http.mjs';
@@ -16,6 +17,7 @@ import { readConfig } from './config.mjs';
 import { logEvent } from './log.mjs';
 import { SCHEMA_VERSION } from './schema.mjs';
 import { handleTranscribe } from './stt.mjs';
+import { handleTidy } from './tidy.mjs';
 import { requireAccess, accessError } from './access.mjs';
 
 const DONE_HTML = '<!doctype html><html lang="ja"><head><meta charset="utf-8"><title>NaTsu</title>'
@@ -73,6 +75,7 @@ const ROUTES = new Map([
   ['/auth/done', { GET: authDone }],
   ['/v1/me', { GET: me }],
   ['/v1/audio/transcriptions', { POST: handleTranscribe }],
+  ['/v1/text/tidy', { POST: handleTidy }],
 ]);
 
 export function makeHandler({ now = () => Date.now() } = {}) {

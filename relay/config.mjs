@@ -8,6 +8,8 @@
 // ready.access は TEAM_DOMAIN と POLICY_AUD がそろったか。チームの名前はリポジトリに書かない（Worker の秘密の欄にだけ置く）。
 // 第1d回 W-6: 自前のログイン（確認コードのメール）を消したので、Resend とメールの欄（RESEND_API_KEY・MAIL_FROM・RESEND_BASE・
 // MAIL_DAILY_MAX）は読まない（入れてあっても ready にも答えにも出ない）。
+// 0.14.0 DQ-2（計画 docs/plans/2026-10-26-140.md の決めたこと 53・R47・R50・2026-11-02 の P10・BQ33）: 口述の整えの口のモデル TIDY_MODEL（STT_MODEL と
+// 同じ形の照らし。無いか形が違えば既定の gpt-6-luna）と1日の回数 DAILY_USER_TIDY（1人。既定 2,000 回）・DAILY_ALL_TIDY（全体。既定 50,000 回）。
 
 const TEST_BASE = /^http:\/\/127\.0\.0\.1:\d{2,5}(\/[A-Za-z0-9/_-]*)?$/;
 const MODEL = /^[a-z0-9][a-z0-9.-]{1,63}$/;
@@ -18,11 +20,14 @@ const DOMAIN = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0
 
 export const DEFAULTS = Object.freeze({
   model: 'gpt-4o-transcribe',
+  tidyModel: 'gpt-6-luna',      // 口述の整え（BQ33。2026-11-02 の持ち主の答え）
   openaiBase: 'https://api.openai.com/v1',
   dailyUserSec: 14400,          // 1人 1日 4 時間
   dailyAllSec: 360000,          // 全体 1日 100 時間
   maxAudioBytes: 25 * 1024 * 1024 - 4096,   // OpenAI の 25MB の内（multipart の欄の分を残す）
   dayOffsetMin: 540,            // 日本の日付で数える
+  dailyUserTidy: 2000,          // 整えの 1人 1日の回数（BQ20 (a)）
+  dailyAllTidy: 50000,          // 整えの全体 1日の回数（R50）
 });
 
 const text = (v) => (typeof v === 'string' ? v.trim() : '');
@@ -48,6 +53,7 @@ export function readConfig(env = {}) {
   const domains = new Set(text(e.ALLOWED_EMAIL_DOMAINS).split(',').map((d) => d.trim().toLowerCase()).filter((d) => DOMAIN.test(d)));
   const openaiKey = text(e.OPENAI_API_KEY);
   const model = MODEL.test(text(e.STT_MODEL)) ? text(e.STT_MODEL) : DEFAULTS.model;
+  const tidyModel = MODEL.test(text(e.TIDY_MODEL)) ? text(e.TIDY_MODEL) : DEFAULTS.tidyModel;
   const teamDomain = TEAM_RE.test(text(e.TEAM_DOMAIN)) ? text(e.TEAM_DOMAIN) : '';
   const policyAud = AUD_RE.test(text(e.POLICY_AUD)) ? text(e.POLICY_AUD) : '';
   const certsBase = teamDomain && typeof e.ACCESS_CERTS_BASE === 'string' && CERTS_TEST_BASE.test(e.ACCESS_CERTS_BASE) ? e.ACCESS_CERTS_BASE : teamDomain;
@@ -55,6 +61,7 @@ export function readConfig(env = {}) {
     domains,
     openaiKey,
     model,
+    tidyModel,
     teamDomain,
     policyAud,
     certsBase,
@@ -63,6 +70,8 @@ export function readConfig(env = {}) {
     dailyAllSec: posInt(e.DAILY_ALL_SEC, DEFAULTS.dailyAllSec),
     maxAudioBytes: posInt(e.MAX_AUDIO_BYTES, DEFAULTS.maxAudioBytes, DEFAULTS.maxAudioBytes),
     dayOffsetMin: offsetMin(e.DAY_OFFSET_MIN, DEFAULTS.dayOffsetMin),
+    dailyUserTidy: posInt(e.DAILY_USER_TIDY, DEFAULTS.dailyUserTidy),
+    dailyAllTidy: posInt(e.DAILY_ALL_TIDY, DEFAULTS.dailyAllTidy),
     ready: { openai: Boolean(openaiKey), domains: domains.size > 0, access: Boolean(teamDomain && policyAud) },
   };
 }
