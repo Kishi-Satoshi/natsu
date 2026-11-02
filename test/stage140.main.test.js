@@ -397,6 +397,17 @@ test('EK-6・F104（決めたこと 40〜42）: NaTsu の窓にフォーカス�
   assert.strictEqual(u.dict.pasteSims, 1, 'ほかのアプリへの音声入力で貼り付けの真似をしていない');
 });
 
+test('EK-6・R194（直し）: dictation:where-answer は本体の窓から来た答えだけを受ける（録音バーの窓からの ok では入れ先が決まらず、答えが無いのと同じに履歴だけ・知らせ）。dictation:cancel も本体の窓からだけ', T, async () => {
+  const o = await mic([['sleep', 100], ['dictate-in-natsu', { where: 'foreign' }]]);
+  assert.strictEqual(o.dict.history.length, 1, dictDump(o));
+  assert.deepStrictEqual(dsent(o, 'dictation:text'), [], 'ほかの窓からの答えで入れ先を決めた');
+  assert.deepStrictEqual(o.dict.pastes, []);
+  assert.strictEqual(o.notices.map(noticeText).filter((t) => t === DICT_NOWHERE).length, 1, dictDump(o));
+  const src = fs.readFileSync(path.join(__dirname, '..', 'src', 'main.js'), 'utf8');
+  assert.ok(src.includes("ipcMain.handle('dictation:cancel', (e) => { if (!fromMainWin(e)) return false; cancelRecording(); return true; });"), 'dictation:cancel が送り手を見ない');
+  assert.ok(src.includes('e.sender === mainWin.webContents'), 'fromMainWin が本体の窓の webContents と比べない');
+});
+
 test('EK-6・R27: 画面が { ok: false }・300ms 答えない → クリップボードも dictation:text も0・履歴に1件・知らせ「ここには音声入力で入れられないので…」・dictation:end が1回（R61）', T, async () => {
   for (const where of ['no', 'none']) {
     const o = await mic([['sleep', 100], ['dictate-in-natsu', { where }]]);

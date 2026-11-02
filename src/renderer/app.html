@@ -2952,7 +2952,8 @@
   });
   document.addEventListener('keydown', (ev) => {
     if (!palOpen) return;
-    if (ev.key === 'Escape') { closePalette(); return; }
+    // 0.14.0 EK-6 直し（R194）: 窓を閉じた Esc は preventDefault する（NaTsu の中の音声入力の Esc の受け口が、同じ Esc で取り消さない: R64）
+    if (ev.key === 'Escape') { if (typeof ev.preventDefault === 'function') ev.preventDefault(); closePalette(); return; }
     if (ev.key !== 'Tab' || ev.ctrlKey || ev.altKey || ev.metaKey) return;
     const items = palTabbables();
     if (!items.length) return;
@@ -6762,13 +6763,13 @@
     const box = dictTag(a) === 'input' || dictTag(a) === 'textarea';
     const n = box ? String(a.value).length : a.textContent.length;
     const r = box ? [Number.isInteger(a.selectionStart) ? a.selectionStart : n, Number.isInteger(a.selectionEnd) ? a.selectionEnd : n] : (caretRange(a) || [n, n]);
-    if (!a._dictIme && typeof a.addEventListener === 'function') {   // 欄の変換中を覚える（行の欄は自分で _composing を持つ）
-      a._dictIme = true;
-      a.addEventListener('compositionstart', () => { a._composing = true; });
-      a.addEventListener('compositionend', () => { a._composing = false; });
-    }
     return { field: a, box, pageId: a === $('pTitle') ? curId : null, s: r[0], e: r[1] };
   }
+  // 欄の変換中を覚える（行の欄は自分で _composing を持つ）。0.14.0 EK-6 直し（R194）: 覚えた後に受け口を付けると、キーを押す前から
+  // 変換していた欄で変換中が分からないので、document で（変換の事象は泡立つ。先に受けるように捕まえる側で）いつも覚える
+  const dictImeMark = (ev) => { const t = ev && ev.target; if (t && t.tagName && !dictRowOf(t)) t._composing = ev.type === 'compositionstart'; };
+  document.addEventListener('compositionstart', dictImeMark, true);
+  document.addEventListener('compositionend', dictImeMark, true);
   // dictation:where の答え（番号は main が決める。答えは preload が { seq, ok } で返す）
   function dictWhereAnswer(seq) {
     dictAt = null;

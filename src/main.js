@@ -2952,7 +2952,7 @@ function simulatePaste(hwnd) {
   return new Promise((resolve) => {
     if (process.platform === 'win32') {
       const p = ensurePaster();
-      if (p && p.stdin.writable) {
+      if (p && p.stdin && p.stdin.writable) {   // 0.14.0 EK-6 直し（R193）: 常駐の口と同じ守り（stdin が無ければ下の SendKeys）
         askPaster(hwnd ? `paste ${hwnd}` : 'paste', PASTE_REPLY_MS).then((r) => resolve(r && r.kind !== 'hwnd' ? r.kind : 'unknown'));
         return;
       }
@@ -6478,8 +6478,10 @@ function setupIpc() {
   ipcMain.handle('history:clear', () => { dropDictWaits(history, true); history = []; saveHistoryOrNotice(); return history; });
   ipcMain.handle('app:toggle-recording', () => { toggleRecording(); return state; });
   // 0.14.0 EK-6: NaTsu の中の音声入力の入れ先の答え（R55）・画面の Esc で取り消す（決めたこと 43・R64 (3)）
-  ipcMain.on('dictation:where-answer', (_e, p) => onWhereAnswer(p));
-  ipcMain.handle('dictation:cancel', () => { cancelRecording(); return true; });
+  // 0.14.0 EK-6 直し（R194）: どちらも本体の窓の画面から来たときだけ受ける（録音バー・ログインの窓・ヘルプの窓からは入れ先も取り消しも決めさせない）
+  const fromMainWin = (e) => Boolean(mainWin && !mainWin.isDestroyed() && e && e.sender === mainWin.webContents);
+  ipcMain.on('dictation:where-answer', (e, p) => { if (fromMainWin(e)) onWhereAnswer(p); });
+  ipcMain.handle('dictation:cancel', (e) => { if (!fromMainWin(e)) return false; cancelRecording(); return true; });
 
   // 議事録の画面の口は main を通らない（第2a1回 ST5。preload が DB の口（役 app）へ直に頼む）。要約だけは今どおり main の IPC
   ipcMain.handle('page:summarize', (_e, id) => runSummary(id));

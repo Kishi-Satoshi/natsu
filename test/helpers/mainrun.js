@@ -1410,17 +1410,21 @@ process.on('exit', () => {
   let micKills = 0;
   const nudgeWins = [];
   const mainSentAll = [];
-  // 0.14.0 EK-6: 偽の画面が main の dictation:where に答える形（ok: 入れてよい・no: 入れてはいけない・none: 答えない・stale: 前の番号で ok）。
-  // 本体の窓へ送った dictation:where の番号ごとに、場面の手順 ["dictate-in-natsu", { where }] が決めた形で dictation:where-answer を送る
+  // 0.14.0 EK-6: 偽の画面が main の dictation:where に答える形（ok: 入れてよい・no: 入れてはいけない・none: 答えない・stale: 前の番号で ok・
+  // foreign: 録音バーの窓から同じ番号で ok（0.14.0 EK-6 直し R194: main は本体の窓から来た答えだけを受ける））。
+  // 本体の窓へ送った dictation:where の番号ごとに、場面の手順 ["dictate-in-natsu", { where }] が決めた形で dictation:where-answer を送る（送り手は本体の窓の webContents）
   let whereMode = 'none';
   let mainLoading = false;
   const whereAsk = (p) => {
     const seq = p && p.seq;
     if (whereMode === 'none' || !listeners['dictation:where-answer']) return;
-    const ans = whereMode === 'stale' ? { seq: seq - 1, ok: true } : { seq, ok: whereMode === 'ok' };
-    setImmediate(() => listeners['dictation:where-answer']({}, ans));
+    const ans = whereMode === 'stale' ? { seq: seq - 1, ok: true } : { seq, ok: whereMode === 'ok' || whereMode === 'foreign' };
+    const from = whereMode === 'foreign' ? wins[0] : wins[1];
+    setImmediate(() => listeners['dictation:where-answer']({ sender: from && from.webContents }, ans));
   };
-  const pasteSims = [];   // 0.14.0 EK-6: 貼り付けの真似（Windows の外の simulatePaste は xdotool を execFile で呼ぶ）
+  // 0.14.0 EK-6: 貼り付けの真似（simulatePaste）。Linux は xdotool、Windows は常駐の PowerShell が書けないときの SendKeys の PowerShell を
+  // execFile で呼ぶ（0.14.0 EK-6 直し: 常駐の偽の子は stdin が書けない形なので、Windows でも execFile の道を通る。R193）
+  const pasteSims = [];
   const loginSentAt = [];   // 0.14.0 EK-6: ログインの窓を作ったときに本体の窓へ送ってあった dictation: の知らせの数
   // 0.13.2 LN-2（LR10）: 本体の窓へ送った page:pending と、送ったときの recovery.json ごとの区間の数（segbuf の名前の順）
   const pendingSeen = [];
@@ -1876,6 +1880,15 @@ process.on('exit', () => {
   const childProcess = {
     ...cp,
     spawn(cmd, args, opts) {
+      // 0.14.0 EK-6 直し（R193）: Windows の貼り付けの常駐 PowerShell（-Command の中身が mainlib.pasterScript）は本当には起こさず、stdin が
+      // 書けない偽の子を返す（常駐が起動中・居ないときの形）。前は下の偽の子（stdin が null）で、main の simulatePaste の p.stdin.writable が
+      // 投げ、貼り付けの真似（SendKeys の execFile）まで行かなかった（Windows の CI だけ pasteSims が 0）
+      if (/(^|[\\/])powershell\.exe$/i.test(String(cmd)) && Array.isArray(args) && String(args[args.length - 1]).includes('KoeFg')) {
+        const EventEmitter = require('events');
+        const p = new EventEmitter();
+        p.stdin = { writable: false, write() { return false; }, end() {} }; p.stdout = new EventEmitter(); p.stderr = null; p.kill = () => {};
+        return p;
+      }
       // 0.9.3 M-2: 会議の検出の見張り（本当には起こさない。場面が stdout に行を書く）
       if ((micSteps || quietMic) && /(^|[\\/])powershell\.exe$/i.test(String(cmd)) && Array.isArray(args) && String(args[args.length - 1]).includes('CapabilityAccessManager')) {
         const EventEmitter = require('events');
@@ -1958,7 +1971,14 @@ process.on('exit', () => {
     },
     execFile(_cmd, _args, _opts, cb) {
       const done = typeof _opts === 'function' ? _opts : cb;
-      if (/(^|[\\/])xdotool$/.test(String(_cmd))) pasteSims.push(_args);   // 0.14.0 EK-6: 貼り付けの真似
+      if (/(^|[\\/])xdotool$/.test(String(_cmd))) pasteSims.push(_args);   // 0.14.0 EK-6: 貼り付けの真似（Linux）
+      if (/(^|[\\/])osascript$/.test(String(_cmd)) && Array.isArray(_args) && String(_args[_args.length - 1]).includes('keystroke "v"')) pasteSims.push(_args);   // 同じ（macOS）
+      // 0.14.0 EK-6 直し（R193）: Windows の貼り付けの真似（常駐が書けないときの SendKeys の PowerShell）。本物と同じく誤り無しで答える（'ok'）
+      if (/(^|[\\/])powershell\.exe$/i.test(String(_cmd)) && Array.isArray(_args) && String(_args[_args.length - 1]).includes("SendWait('^v')")) {
+        pasteSims.push(_args);
+        if (done) setImmediate(() => done(null, '', ''));
+        return anyProxy();
+      }
       // 0.10.0 C-2: --tasklist のときは tasklist.exe に答える（頭の注釈）。0.10.1 CD-3 で意図して変えた: MCP の場面では旗が無ければ stopped。
       // 「a,b,c」なら呼ばれるたびに順に答え、尽きたら最後の答えのまま
       if (tasklistPlan.length && /(^|[\\/])tasklist\.exe$/i.test(String(_cmd))) {

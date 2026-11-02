@@ -3429,6 +3429,40 @@ test('EK-6・R28: 変換中に文が届いたら compositionend の後に入る'
   } finally { l.done(); }
 });
 
+test('EK-6・R28 直し（R194）: 題名で変換を始めた後に音声入力のキーを押しても（覚える前からの変換中）、文は compositionend の後に insertText で入る', T, async () => {
+  const l = await openReal({ pa1: BASE() });
+  try {
+    const calls = execSpy(l);
+    const ti = $(l, 'pTitle');
+    ti.focus(); l.caret.set(ti, 0);
+    l.key({ type: 'compositionstart' }, ti);   // 覚える前から変換している
+    assert.deepStrictEqual(whereOf(l, 1), { ok: true });
+    await dictText(l, 'かきく', null, 1);
+    assert.deepStrictEqual(calls, [], '覚える前からの変換中に入れた');
+    l.key({ type: 'compositionend' }, ti);
+    await l.drain();
+    assert.deepStrictEqual(calls, [['insertText', false, 'かきく']]);
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+test('EK-6・R64 直し（R194）: 音声入力の録音中に検索の窓を開き、入力の欄でない所（絞り込み）で Esc → 窓だけ閉じ、音声入力は取り消さない', T, async () => {
+  const l = await openReal({ pa1: BASE() });
+  try {
+    $(l, 'pTitle').focus();
+    assert.deepStrictEqual(whereOf(l, 1), { ok: true });
+    $(l, 'sideSearch').onclick();
+    await l.drain();
+    const chip = $(l, 'fltActions');
+    chip.focus();
+    const ev = l.key({ key: 'Escape' }, chip);
+    await l.drain();
+    assert.strictEqual(ev.defaultPrevented, true, '検索の窓の Esc が preventDefault していない');
+    assert.strictEqual(l.called('dictationCancel').length, 0, '検索の窓を閉じる Esc で音声入力まで取り消した');
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
 test('EK-6・R61（第4版）: dictation:end（同じ番号）で覚えた所を捨て、summaryBusy() が偽に戻る（保存の page:open が前に出る）。番号の違う dictation:end は捨てる。覚えている間は前に出さない', T, async () => {
   const l = await openReal({ pa1: BASE(), pb2: [MANUAL('x1', '別のページの行')] });
   try {

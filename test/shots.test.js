@@ -1063,7 +1063,8 @@ test('基準の画像（test/shots/win32）は今の app.html で撮ったもの
   // summaryBusy の dictAt・pasteRows の覚えた所。<script> の中だけ。撮る画面は変わらない）。値を今の app.html に合わせた（前の値は 5375f6c2…）
   // 0.14.0 MB-4 直し（R190）: 録音中のメモの戻しで liveDoc を戻す・メモの行の文中の記法の Ctrl+Z・0.5 秒の下書きへの送り・メモの行の頭の空白・戻している間の守りを欄の鍵で
   // （<script> の中だけ。撮る画面は変わらない）。値を今の app.html に合わせた（前の値は e1bb7990…）
-  assert.strictEqual(sha, '21c7b2dd45a7b236bc607fa08dc5e339cbb0b9996d1a8a34f6835928dfc86310',
+  // 0.14.0 EK-6 直し（R194）: 検索の窓の Esc の preventDefault・欄の変換中を document で覚える（<script> の中だけ。撮る画面は変わらない）。値を今の app.html に合わせた（前の値は 21c7b2dd…）
+  assert.strictEqual(sha, 'bb05491ed52b7fba9fa093989e93445bda7955c4e29029d2cc924cc2bc30ea02',
     'app.html が基準の画像を撮った時と違う。Windows の CI の画面の比べ（捲り棒のつまみも）を見て、基準を取り直してからこの値を直す');
 });
 
