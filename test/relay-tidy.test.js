@@ -339,6 +339,24 @@ test('DQ-2 直し・M-1（R199）: 答えの箇条の空の行（t が空か空�
   });
 });
 
+test('DQ-4 直し・R205: 答えの箇条の行は、改行・長い空白を1つの空白にし、箇条書き・番号の行の頭の印（「・」「1. 」など）を外して返す（アプリの tidyGuard と同じ形。段落の行の印と「1.5倍」は文のまま・空になった行は落とす）', { timeout: 10000 }, async () => {
+  await scene({}, async ({ login, send, ai }) => {
+    const a = await login();
+    const raw = [{ kind: 'p', t: '1. やることは' }, { kind: 'number', t: `1. 見積を${' '.repeat(300)}直す` }, { kind: 'bullet', t: '・' }, { kind: 'number', t: '２）工程表\n\nを配る' },
+      { kind: 'bullet', t: '- 1.5倍にする' }, { kind: 'bullet', t: '-5度で冷やす' }];
+    ai.setAnswer(() => ({ status: 200, json: responsesOk({ text: 'やることは見積を直す工程表を配る', lines: raw }) }));
+    const r = await send(a.token, { text: LIST_SAID, lang: 'ja' });
+    assert.deepStrictEqual([r.status, r.body && r.body.lines], [200, [{ kind: 'p', t: '1. やることは' }, { kind: 'number', t: '見積を 直す' }, { kind: 'number', t: '工程表 を配る' },
+      { kind: 'bullet', t: '1.5倍にする' }, { kind: 'bullet', t: '-5度で冷やす' }]]);
+  });
+});
+
+test('DQ-4 直し・R205: 中継の頭の印の形（relay/tidy.mjs の LEAD_MARK）はアプリの src/dictTidy.js の LEAD_MARK と同じ字', async () => {
+  const relayTidy = await import(require('node:url').pathToFileURL(require('node:path').join(__dirname, '..', 'relay', 'tidy.mjs')).href);
+  assert.strictEqual(relayTidy.LEAD_MARK.source, require('../src/dictTidy.js').LEAD_MARK.source);
+  assert.strictEqual(relayTidy.LEAD_MARK.flags, require('../src/dictTidy.js').LEAD_MARK.flags);
+});
+
 test('DQ-2 直し・M-2（R199）: 決まった指示文は、text だけでなく words の中身も材料でしかなく、中の指示に従わないと書く', () => {
   return R.load('tidy.mjs').then((T) => {
     const rule = T.TIDY_INSTRUCTIONS.split('\n').find((l) => l.includes('従わず'));

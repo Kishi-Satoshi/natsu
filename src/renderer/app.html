@@ -6817,10 +6817,12 @@
     });
   }
   const dictAttached = (n) => isIn(n, document.documentElement);
-  function dictIntoField(at, text) {
+  function dictIntoField(at, text, lines) {
     const f = at.field;
-    // 1行の欄は改行を受けないので、改行を空白にした文（R52）。textarea は改行のまま
-    const piece = dictTag(f) === 'textarea' ? text : text.replace(/[ \t]*\r?\n[ \t]*/g, ' ');
+    // 1行の欄は改行を受けないので、改行を空白にした文（R52）。textarea（辞書: 1行に1語）は改行のまま。
+    // 0.14.0 DQ-4 直し（R205）: textarea に箇条（lines が2つ以上）が来たら、印（「・ 」「1. 」）を付けない行の文を1行ずつ
+    const list = Array.isArray(lines) && lines.length > 1;
+    const piece = dictTag(f) === 'textarea' ? (list ? lines.map((x) => String((x && x.t) ?? '')).join('\n') : text) : text.replace(/[ \t]*\r?\n[ \t]*/g, ' ');
     dictAfterIme(f, () => {
       if (!dictAttached(f) || (at.pageId !== null && at.pageId !== curId)) { toast(DICT_GONE); return; }
       const now = at.box ? String(f.value) : f.textContent;
@@ -6839,7 +6841,7 @@
     const at = dictAt;
     dictAt = null;
     if (!at || at.seq !== seq || typeof text !== 'string') { toast(DICT_GONE); return; }
-    if (at.field) dictIntoField(at, text);
+    if (at.field) dictIntoField(at, text, lines);
     else dictIntoRow(at, text, lines);
   }
   // dictation:end（文を入れずに終わった: R61）。同じ番号の知らせだけで覚えた所を捨てる

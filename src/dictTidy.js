@@ -59,6 +59,16 @@ function overlap(raw, out) {
 }
 const noSpace = (s) => s.replace(/\s+/g, '');
 const SHORT_MIN = 0.5;
+// 0.14.0 DQ-4 直し（R205）: 箇条書き・番号の行の頭の印。行には linesToText と画面の型が印を付けるので、答えの行の印は外す（「1. 1. 」にしない）。
+// 「・」「•」「●」は空白が無くても、「-」「*」「+」は後ろに空白があるときだけ（「-5度」は文）、数は「.」「)」の後に数が続かないときだけ（「1.5倍」は文）
+const LEAD_MARK = /^(?:[・•●]\s*|[-*+]\s+|[0-9０-９]{1,3}[.)．）](?![0-9０-９])\s*)+/;
+// 行の文: 改行・長い空白は1つの空白に（入れる行に改行と大きな空白を持ち込まない）。箇条書き・番号の行は頭の印を外す。段落の行の印は文のまま
+// 行ごとに頭の印を外し、空白を除いた文（text と箇条の行を、印の違い（「•」と「・ 」）を見ずに合わせる）
+const unmark = (s) => noSpace(s.split('\n').map((x) => x.trim().replace(LEAD_MARK, '')).join(''));
+function lineText(kind, t) {
+  const v = t.replace(/\s+/g, ' ').trim();
+  return kind === 'p' ? v : v.replace(LEAD_MARK, '').trim();
+}
 function tidyGuard(raw, reply) {
   if (typeof raw !== 'string' || !raw.trim() || !isPlain(reply)) return null;
   const text = own(reply, 'text');
@@ -70,13 +80,17 @@ function tidyGuard(raw, reply) {
     const kind = own(l, 'kind');
     const t = own(l, 't');
     if (!LINE_KINDS.has(kind) || typeof t !== 'string') return null;
-    if (!t.trim()) continue;   // 空の行は落とす（中継の tidyAnswer と同じ扱い。空の行1つで良い整えを捨てない: R199）
-    out.push({ kind, t });
+    const v = lineText(kind, t);   // DQ-4 直し（R205）: 空白を1つに・頭の印を外す
+    if (!v) continue;   // 空の行は落とす（中継の tidyAnswer と同じ扱い。空の行1つで良い整えを捨てない: R199）
+    out.push({ kind, t: v });
   }
-  // 箇条の行の文は text と同じ文（印の無い形か、linesToText の形）。空白は見ない
-  if (out.length && noSpace(text) !== noSpace(out.map((l) => l.t).join('')) && noSpace(text) !== noSpace(linesToText(out))) return null;
+  // 箇条の行の文は text と同じ文（印の無い形か、linesToText の形か、行ごとの頭の印だけが違う形: DQ-4 直し・R205）。空白は見ない
+  if (out.length && noSpace(text) !== noSpace(out.map((l) => l.t).join('')) && noSpace(text) !== noSpace(linesToText(out))
+    && unmark(text) !== unmark(out.map((l) => l.t).join('\n'))) return null;
   // 長すぎる・元の文に無い文字が多い（答え・訳・作り話の見込み）
   if (chars(text).length > chars(raw).length * 1.3 + 20 || overlap(raw, text) < 0.6) return null;
+  // DQ-4 直し（R205）: 入れるのは箇条の行の文（linesToText）なので、その長さも同じ上限で照らす
+  if (chars(linesToText(out)).length > chars(raw).length * 1.3 + 20) return null;
   // 短すぎる（中身を落とした・まとめた答えの見込み）: 決まりの整え（つなぎ言葉・繰り返しを除いた）文の半分に満たなければ外す（R195）
   if (bare(text).length < bare(tidyRules(raw, { fillers: true })).length * SHORT_MIN) return null;
   return { text, lines: out };
@@ -121,4 +135,4 @@ function tidyBody(raw, { lang, words } = {}) {
   return body;
 }
 
-module.exports = { dropFillers, tidyRules, tidyGuard, linesToText, tidyBody, TIDY_MAX_CHARS, WORDS_MAX, WORD_MAX };
+module.exports = { dropFillers, tidyRules, tidyGuard, linesToText, tidyBody, TIDY_MAX_CHARS, WORDS_MAX, WORD_MAX, LEAD_MARK };

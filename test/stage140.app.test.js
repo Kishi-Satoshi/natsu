@@ -3786,3 +3786,38 @@ test('DQ-4: NaTsu の要約の行 → blockPaste の1回で箇条書きの3行�
     assert.deepStrictEqual(l.errors.map(fmt), []);
   } finally { l.done(); }
 });
+
+// 0.14.0 DQ-4 直し（R205）: 今の画面の形を留める（直す所ではない）。番号の行のすぐ後の空の行に話した番号の箇条は、画面では続けて数える（2. 3.）。
+// ほかのアプリと履歴（linesToText）は 1. 2. のまま
+test('DQ-4 直し・R205: 番号の行のすぐ後に話した番号の箇条は、画面の番号が前の行から続く（2.・3.）。行は numbered の2つ', T, async () => {
+  const l = await openReal({ pa1: { blocks: [{ id: 'n0', type: 'numbered', text: '前からある行', citeState: 'manual', cites: [] }, { id: 'e9', type: 'paragraph', text: '' }] } });
+  try {
+    typeIn(l, 'e9', '', 0);
+    assert.deepStrictEqual(whereOf(l, 1), { ok: true });
+    await dictText(l, '1. 見積を直す\n2. 工程表を配る', [{ kind: 'number', t: '見積を直す' }, { kind: 'number', t: '工程表を配る' }], 1);
+    assert.strictEqual(l.called('blockPaste').length, 1);
+    const bl = l.page().blocks;
+    assert.deepStrictEqual(bl.map((b) => [b.type, b.text]), [['numbered', '前からある行'], ['numbered', '見積を直す'], ['numbered', '工程表を配る']]);
+    const shown = bl.map((b) => rowOf(l, b.id).textContent);
+    assert.ok(shown[0].includes('1.') && shown[1].includes('2.') && shown[2].includes('3.'), `画面の番号が続かない: ${JSON.stringify(shown)}`);
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+// 0.14.0 DQ-4 直し（R205）: 設定の辞書（textarea。1行に1語）に話した箇条は、印を付けずに行の文を1行ずつ（「・ 」の付いた語にしない）。箇条でない文は今どおり
+test('DQ-4 直し・R205: 辞書の欄（textarea）に lines が3つ → 印の無い行の文を改行でつないだ文が insertText の1回。lines が無い → 届いた文のまま', T, async () => {
+  const l = await openReal({ pa1: BASE() });
+  try {
+    const calls = execSpy(l);
+    const d = $(l, 'dictionary');
+    d.focus(); d.value = ''; l.caret.set(d, 0);
+    assert.deepStrictEqual(whereOf(l, 1), { ok: true });
+    await dictText(l, '・ 見積書\n・ 工程表\n1. 発注書', [{ kind: 'bullet', t: '見積書' }, { kind: 'bullet', t: '工程表' }, { kind: 'number', t: '発注書' }], 1);
+    assert.deepStrictEqual(calls, [['insertText', false, '見積書\n工程表\n発注書']], `辞書に印の付いた語を入れた: ${JSON.stringify(calls)}`);
+    d.focus();
+    assert.deepStrictEqual(whereOf(l, 2), { ok: true });
+    await dictText(l, '納品書', null, 2);
+    assert.deepStrictEqual(calls[1], ['insertText', false, '納品書']);
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});

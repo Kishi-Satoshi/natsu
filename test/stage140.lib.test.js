@@ -1584,3 +1584,45 @@ test('DQ-2 直し・M-1（R199）: tidyGuard は箇条の空の行（t が空か
   assert.strictEqual(DT.tidyGuard(raw, { text, lines: [...lines, { kind: 'heading', t: 'a' }] }), null);
   assert.strictEqual(DT.tidyGuard(raw, { text, lines: [...lines, { kind: 'p', t: 3 }] }), null);
 });
+
+// 0.14.0 DQ-4 直し（R205）: DQ-4 から箇条の行そのものを入れるので、tidyGuard は行の文も照らす（空白を1つに・頭の印を外す・linesToText の長さ）
+test('DQ-4 直し・R205: tidyGuard は箇条の行の文の空白（改行・長い空白）を1つの空白にして空になった行を落とし、linesToText の文が元の文の 1.3 倍＋20 字を越える答えを外す', () => {
+  const raw = 'えーと、やることは、1つ目は見積を直す、2つ目は工程表を配る、です。';
+  const text = 'やることは見積を直す工程表を配る';
+  // 5,000 の空白・改行だけの行・行の中の改行
+  const lines = [{ kind: 'p', t: 'やることは' }, { kind: 'number', t: `見積を直す${' '.repeat(5000)}` }, { kind: 'bullet', t: '\n\n\n' }, { kind: 'number', t: '工程表\n\n\nを配る' }];
+  const g = DT.tidyGuard(raw, { text, lines });
+  assert.ok(g, '空白を1つにすれば通る答えを外した');
+  assert.deepStrictEqual(g.lines, [{ kind: 'p', t: 'やることは' }, { kind: 'number', t: '見積を直す' }, { kind: 'number', t: '工程表 を配る' }], `行の空白を1つにしていない（dq-guard-ws）: ${JSON.stringify(g.lines).slice(0, 200)}`);
+  assert.strictEqual(DT.linesToText(g.lines), 'やることは\n1. 見積を直す\n2. 工程表 を配る');
+  // 行の文（linesToText）が長すぎる: 2 字の行を 20 に分けた答え（text は元の文と同じ 40 字・linesToText は 99 字 > 40×1.3＋20）
+  const r40 = 'あいうえおかきくけこさしすせそたちつてと'.repeat(2);
+  const many = Array.from({ length: 20 }, (_, i) => ({ kind: 'bullet', t: r40.slice(i * 2, i * 2 + 2) }));
+  assert.strictEqual(DT.linesToText(many).length, 99, '前提');
+  assert.strictEqual(DT.tidyGuard(r40, { text: r40, lines: many }), null, '箇条の文の長さを照らしていない（dq-guard-lines-len）');
+  assert.ok(DT.tidyGuard(r40, { text: r40, lines: many.slice(0, 2).map((l, i) => ({ ...l, t: i ? r40.slice(2) : r40.slice(0, 2) })) }), '短い箇条を外した');
+});
+
+test('DQ-4 直し・R205: tidyGuard は箇条書き・番号の行の頭の印（「・」「•」「- 」「* 」「+ 」「1. 」「2)」「１．」）を外す（「1. 1. 」にしない）。段落の行の印と「1.5倍」は外さない', () => {
+  const raw = 'えーと、やることは、1つ目は見積を直す、2つ目は工程表を配る、です。';
+  const num = DT.tidyGuard(raw, { text: '1. 見積を直す\n2. 工程表を配る', lines: [{ kind: 'number', t: '1. 見積を直す' }, { kind: 'number', t: '2. 工程表を配る' }] });
+  assert.ok(num, '印の付いた答えを外した');
+  assert.deepStrictEqual(num.lines, [{ kind: 'number', t: '見積を直す' }, { kind: 'number', t: '工程表を配る' }], `頭の印を外していない（dq-guard-mark）: ${JSON.stringify(num.lines)}`);
+  assert.strictEqual(DT.linesToText(num.lines), '1. 見積を直す\n2. 工程表を配る', '「1. 1. 」になった');
+  const CASES = [['bullet', '・見積を直す'], ['bullet', '• 見積を直す'], ['bullet', '- 見積を直す'], ['bullet', '* 見積を直す'], ['bullet', '+ 見積を直す'],
+    ['number', '1.見積を直す'], ['number', '2) 見積を直す'], ['number', '１．見積を直す'], ['number', '12. 見積を直す'], ['bullet', '・ 1. 見積を直す']];
+  const raw3 = 'えーと、見積を直す、工程表を配る。';
+  for (const [kind, t] of CASES) {
+    const g = DT.tidyGuard(raw3, { text: `${t}\n工程表を配る`, lines: [{ kind, t }, { kind: 'p', t: '工程表を配る' }] });
+    assert.ok(g, t);
+    assert.strictEqual(g.lines[0].t, '見積を直す', `${t}: ${JSON.stringify(g.lines)}`);
+  }
+  // 段落の行の印は文のまま（記法として読まない: EK-6）・「1.5倍」の数は印でない・「-」の後に空白の無い文は外さない
+  const raw2 = 'やることは、1.5倍の見積を直す、-5度で冷やす、です。';
+  const keep = DT.tidyGuard(raw2, { text: '1. やることは\n1.5倍の見積を直す\n-5度で冷やす', lines: [{ kind: 'p', t: '1. やることは' }, { kind: 'number', t: '1.5倍の見積を直す' }, { kind: 'bullet', t: '-5度で冷やす' }] });
+  assert.ok(keep);
+  assert.deepStrictEqual(keep.lines.map((l) => l.t), ['1. やることは', '1.5倍の見積を直す', '-5度で冷やす']);
+  // 印だけの行は空になるので落とす
+  const only = DT.tidyGuard(raw3, { text: '見積を直す工程表を配る', lines: [{ kind: 'bullet', t: '・' }, { kind: 'number', t: '見積を直す' }, { kind: 'number', t: '工程表を配る' }] });
+  assert.deepStrictEqual(only && only.lines.map((l) => l.t), ['見積を直す', '工程表を配る']);
+});

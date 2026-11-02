@@ -19,7 +19,8 @@
 //     中継は自分の上限（4,000 字）で照らす
 //   tidyRequest(cfg, { text, lang, words }) → OpenAI へ送る本文（欄は決まっている: model・instructions・input・text.format・store: false・
 //     reasoning.effort none・prompt_cache_options.mode explicit・service_tier fast・max_output_tokens）
-//   tidyAnswer(j) → { text, lines } | null（Responses の答えの output の output_text を JSON として読み、形を照らす。t が空か空白だけの行は落とす: R199）
+//   tidyAnswer(j) → { text, lines } | null（Responses の答えの output の output_text を JSON として読み、形を照らす。t が空か空白だけの行は落とす: R199。
+//     行の文は空白を1つにし、箇条書き・番号の行の頭の印を外す: R205）
 
 import { json, readCapped, sha256hex } from './http.mjs';
 import { requireAccess, accessError } from './access.mjs';
@@ -118,6 +119,14 @@ export function tidyRequest(cfg, { text, lang, words }) {
   };
 }
 
+// 0.14.0 DQ-4 直し（R205）: 箇条の行の文。改行・長い空白は1つの空白に、箇条書き・番号の行は頭の印を外す（アプリが「・ 」「1. 」を付けるので「1. 1. 」にしない）。
+// 段落の行の印は文のまま。印の形はアプリの src/dictTidy.js の LEAD_MARK と同じ字（test/relay-tidy.test.js が照らす）
+export const LEAD_MARK = /^(?:[・•●]\s*|[-*+]\s+|[0-9０-９]{1,3}[.)．）](?![0-9０-９])\s*)+/;
+function lineText(kind, t) {
+  const v = t.replace(/\s+/g, ' ').trim();
+  return kind === 'p' ? v : v.replace(LEAD_MARK, '').trim();
+}
+
 export function tidyAnswer(j) {
   if (!isPlain(j) || own(j, 'status') !== 'completed' || !Array.isArray(own(j, 'output'))) return null;
   let out = '';
@@ -143,8 +152,9 @@ export function tidyAnswer(j) {
     const kind = own(l, 'kind');
     const t = own(l, 't');
     if (!KINDS.includes(kind) || typeof t !== 'string') return null;
-    if (!t.trim()) continue;   // 空の行は落とす（アプリの tidyGuard と同じ扱い: R199）
-    rows.push({ kind, t });
+    const v = lineText(kind, t);   // 空白を1つに・頭の印を外す（アプリの tidyGuard と同じ形: R205）
+    if (!v) continue;   // 空の行は落とす（アプリの tidyGuard と同じ扱い: R199）
+    rows.push({ kind, t: v });
   }
   return { text, lines: rows };
 }

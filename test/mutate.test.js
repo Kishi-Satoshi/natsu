@@ -1265,13 +1265,16 @@ const IDS_140 = [
   'dq-filler-same', 'dq-repeat', 'dq-repeat-word', 'dq-guard',
   'dq-guard-short',   // 0.14.0 DQ-1 直し（R195）
   'dq-guard-half', 'dq-guard-cp',   // 0.14.0 DQ-1 直し2（R198）
+  'dq-guard-ws', 'dq-guard-mark', 'dq-guard-lines-len',   // 0.14.0 DQ-4 直し（R205）
   'dq-lines-text',
   // 0.14.0 DQ-2（表の行の順に。dq-relay-store は 2026-11-02 の P10 で足した: R192）
   'dq-relay-auth', 'dq-relay-prompt', 'dq-relay-store', 'dq-relay-size', 'dq-relay-cap', 'dq-relay-log',
   'dq-relay-blank',   // 0.14.0 DQ-3 直し2（R202。DQ-2 直しの R199 の変異）
+  'dq-relay-mark',   // 0.14.0 DQ-4 直し（R205）
   // 0.14.0 DQ-3（表の行の順に。dq-long-send は DQ-1 直しで作った: R195）
   'dq-local-send', 'dq-off-send', 'dq-long-send', 'dq-wait', 'dq-late-swap', 'dq-fallback', 'dq-meeting', 'dq-log-text', 'dq-history-raw', 'dq-filler-off',
   'dq-lines-natsu',   // 0.14.0 DQ-4
+  'dq-lines-ai',   // 0.14.0 DQ-4 直し（R205）
   'dq-tidy-login', 'dq-tidy-hold',
   'dq-tidy-reject',   // 0.14.0 DQ-3 直し2（R202）
 ];
@@ -1288,7 +1291,8 @@ test('G3・0.14.0: 0.14.0 の変異が一覧にそろい、IDS_140 はどれも�
   // 0.14.0 DQ-1 直し（R195）で dq-guard-short・dq-long-send の2行を足した（145 → 147）。DQ-2 で dq-relay-store（R192）を足した（148）
   // 0.14.0 DQ-1 直し2（R198）で dq-guard-half・dq-guard-cp を足した（150）
   // 0.14.0 DQ-3 直し2（R202）で ek-cancel-sender・ek-ime-blur・dq-relay-blank・dq-tidy-reject を足した（154）
-  assert.strictEqual(rows.length, 154, '計画の 0.14.0 の表（eb- 47・ek- 51・mo- 27・dq- 29）が読めない');
+  // 0.14.0 DQ-4 直し（R205）で dq-guard-ws・dq-guard-mark・dq-guard-lines-len・dq-relay-mark・dq-lines-ai を足した（159）
+  assert.strictEqual(rows.length, 159, '計画の 0.14.0 の表（eb- 47・ek- 51・mo- 27・dq- 34）が読めない');
   assert.strictEqual(new Set(rows).size, rows.length, '計画の表に重なり');
   assert.deepStrictEqual(IDS_140.filter((id) => !rows.includes(id)), [], '計画の「変異確認」の表に無い変異');
   assert.deepStrictEqual(IDS_140, rows.filter((id) => IDS_140.includes(id)), 'IDS_140 が表の行の順でない');
