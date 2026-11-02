@@ -1546,3 +1546,54 @@ test('MB-3（R165）: 締め（meeting.finalize）と復旧（meeting.recover）
     assert.deepStrictEqual(ML.fitMemoDoc({ pageId: 'pf5', segments: segs, page: { memo } }), { args: { pageId: 'pf5', segments: segs, page: { memo } }, dropped: false });
   } finally { t.done(); }
 });
+
+// ---------------------------------------------------------------- MB-2 直し（2026-11-02 の点検。R166・R167）
+test('MB-2 直し（R166・BQ22 (a)）: 最初のメモの歩みが関係の無い短い要約の行に印 citeSkip を付けても、その行を後で消す・［要約を再生成］で行が替わっても、メモの edit.revert は stale にならずに戻る（要約の行は変えない）', BIG, async () => {
+  for (const after of ['remove', 'regen']) {
+    const t = tmpDb();
+    try {
+      const { db } = t.open();
+      const { page, segments } = samplePage('pa1');
+      t.seed(page, segments);
+      const m = call(db, 'page.setMemoDoc', { id: 'pa1', doc: MEMO_DOC });
+      assert.strictEqual(m.ok, true, m.code);
+      assert.ok(opsOf(db, m.tx).some((o) => o.op === 'set' && o.id === 'b3' && o.key === 'citeSkip'), '前提: 最初のメモの歩みが b3 に印を付ける');
+      if (after === 'remove') assert.strictEqual(call(db, 'block.remove', { pageId: 'pa1', blockId: 'b3' }).ok, true);
+      else assert.ok(await ML.saveIfExists(mainDb(db), 'pa1', (p) => { p.blocks = summaryRows(3); }), '前提: 要約を作り直せない');
+      const blocks = JSON.stringify(get(db).blocks);
+      const r = revert(db, [m.tx]);
+      assert.strictEqual(r.ok, true, `${after}: ${r.code}`);
+      assert.deepStrictEqual([raw(db).memoDoc, raw(db).memo], [undefined, page.memo], after);
+      assert.strictEqual(JSON.stringify(get(db).blocks), blocks, `${after}: 要約の行が変わった`);
+      // 後からメモが変わっていれば今どおり stale
+      const m2 = call(db, 'page.setMemoDoc', { id: 'pa1', doc: MEMO_DOC });
+      assert.strictEqual(call(db, 'page.setMemoDoc', { id: 'pa1', doc: MEMO_DOC2 }).ok, true);
+      assert.strictEqual(revert(db, [m2.tx]).code, 'stale', after);
+    } finally { t.done(); }
+  }
+});
+
+test('MB-2 直し（R167）: page.put に照らしに外れる memoDoc が来たら締めと同じく捨てて memo だけ、合えば整えた行と memoPlain の memo を持つ。json-backend も同じ答え', T, async () => {
+  const { jsonTwin } = require('./helpers/dbtmp');
+  const t = tmpDb(); const j = jsonTwin();
+  try {
+    const { db } = t.open();
+    const { page, segments } = samplePage('pa1');
+    t.seed(page, segments); await j.seed(page, segments);
+    const put = async (extra) => {
+      const g = get(db); const r = call(db, 'page.put', { page: { ...g, ...extra }, baseRev: g.rev }, 'main');
+      assert.strictEqual(r.ok, true, r.code);
+      const jg = (await j.call('page.get', { id: 'pa1' })).page;
+      const jr = await j.call('page.put', { page: { ...jg, ...extra } });
+      return [raw(db), jr];
+    };
+    for (const [d, jr] of [await put({ memo: '素の文字', memoDoc: [{ id: 'x1', type: 'paragraph', text: '壊れた行' }] })]) {
+      assert.deepStrictEqual([d.memoDoc, d.memo], [undefined, '素の文字'], '壊れた行の形を持った');
+      assert.deepStrictEqual([jr.memoDoc, jr.memo], [undefined, '素の文字'], 'json-backend');
+    }
+    for (const [d, jr] of [await put({ memo: '食い違う素の文字', memoDoc: MEMO_DOC })]) {
+      assert.deepStrictEqual([d.memoDoc, d.memo], [MD.validateMemoDoc(MEMO_DOC), MEMO_PLAIN]);
+      assert.deepStrictEqual([jr.memoDoc, jr.memo], [MD.validateMemoDoc(MEMO_DOC), MEMO_PLAIN], 'json-backend');
+    }
+  } finally { t.done(); j.done(); }
+});

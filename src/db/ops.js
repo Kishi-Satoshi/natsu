@@ -421,7 +421,9 @@ function opsMatch(db, ops) {
   for (const [id, w] of want) {
     const r = read.get(id);
     if (w.gone) { if (r) return false; continue; }
-    if (!r) return false;
+    // 0.14.0 MB-2 直し（R166）: 比べない欄（短い行の印 citeSkip・見た目だけの欄）だけを書いた行は、無くてもよい（戻すときに当てない欄なので、
+    // 後から消えた・作り直された関係の無い要約の行のせいでメモの歩みを stale にしない: BQ22 (a)）
+    if (!r) { if (!w.attrs && !Object.keys(w.cols).length && [...w.sets.keys()].every((k) => skipKey(false, k))) continue; return false; }
     const isPage = r.type === 'page';
     const now = { type: r.type, page_id: r.page_id, parent_id: r.parent_id ?? null, ord: r.ord, text: str(r.text), rich: r.rich ? JSON.parse(r.rich) : null };
     for (const [k, v] of Object.entries(w.cols)) if (!isDeepStrictEqual(now[k], v)) return false;

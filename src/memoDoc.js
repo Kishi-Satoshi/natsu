@@ -137,7 +137,10 @@ function idMaker(doc, floor = 1) {
   return {
     nid: () => {
       let id;
-      do { n += 1; id = `m${n.toString(36)}`; } while (used.has(id));
+      do {
+        if (n + 1 >= NEXT_MAX) throw fail('too-big', 'ids');   // MB-2 直し（R168）: 36 進の 8 字を越える ID と、上限を越える next を作らない
+        n += 1; id = `m${n.toString(36)}`;
+      } while (used.has(id));
       used.add(id);
       return id;
     },

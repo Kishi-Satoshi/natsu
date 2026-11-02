@@ -1365,3 +1365,12 @@ test('EK-4 直し（R155・決めたこと 38）: SHORTCUTS の「要約の行�
     assert.ok(has(keys, what), `前からの行の文が変わった: ${keys}`);
   }
 });
+
+test('MB-2 直し（R168）: memoEdit の next が上限（36^8）に届いたら、上限を越える ID も next も作らずに too-big で断る（next の上限の手前までは作れる）', () => {
+  const d0 = MD.memoFromText('a');
+  const last = MD.memoEdit(d0, 'block.insert', { afterBlockId: 'm1', type: 'paragraph' }, { next: 36 ** 8 - 1 });
+  assert.deepStrictEqual([last.focus.blockId, last.next], [`m${(36 ** 8 - 1).toString(36)}`, 36 ** 8]);
+  throwsCode(() => MD.memoEdit(last.doc, 'block.insert', { afterBlockId: 'm1', type: 'paragraph' }, { next: last.next }), 'too-big', '上限を越える ID を作った');
+  throwsCode(() => MD.memoEdit(d0, 'block.insert', { afterBlockId: 'm1', type: 'paragraph' }, { next: 36 ** 8 }), 'too-big', '上限の next で ID を作った');
+  assert.strictEqual(MD.memoEdit(d0, 'block.update', { blockId: 'm1', patch: { text: 'c' } }, { next: 36 ** 8 }).next, 36 ** 8, 'ID を作らない命令は上限の next でも通る');
+});

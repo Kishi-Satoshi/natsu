@@ -411,8 +411,12 @@ function localDate(d) {
 
 // 0.14.0 MB-3（R165）: page.put の引数がメモを持たなければ、保存してあるメモのまま（main の書き戻しはメモを送らない。memoDoc を送らないときは
 // memo も保存してある方にして、行と素の文字を食い違わせない）。json-backend も同じ部品 → page（直した写し）
+// 0.14.0 MB-2 直し（R167）: 引数がメモの行を持てば、締めと同じく照らして、合えば整えた行と memoPlain の memo、外れれば行を捨てて memo だけ
 function keepStoredMemo(was, page) {
-  if (!Object.hasOwn(page, 'memoDoc') && Array.isArray(was.memoDoc)) { page.memoDoc = clone(was.memoDoc); page.memo = was.memo; }
+  if (Object.hasOwn(page, 'memoDoc')) {
+    const doc = memoDocOr(page.memoDoc);
+    if (doc) { page.memoDoc = doc; page.memo = MD.memoPlain(doc); } else delete page.memoDoc;
+  } else if (Array.isArray(was.memoDoc)) { page.memoDoc = clone(was.memoDoc); page.memo = was.memo; }
   else if (!Object.hasOwn(page, 'memo') && Object.hasOwn(was, 'memo')) page.memo = was.memo;
   return page;
 }
