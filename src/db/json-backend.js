@@ -5,6 +5,7 @@
  * 受け口と同じ store の呼び方に置き換えるだけで、答えの形も今の IPC と同じにする（page.get と segment.update は
  * 経路の行 routeText を添える）。DB に替えた後も消さず、「今の保存の答え」として DB の命令と比べるテストの相手に使う。
  *
+ *   - page.setMemoDoc はメモの行を照らして持ち、memo を memoPlain で作り直す。行のあるページへの page.setMemo は bad-args（0.14.0 MB-2）
  *   - page.put は store.savePage。rev は見ない（今の JSON に rev は無い）。DB が作る欄（rev・routeText）は捨てて書き、
  *     無いページは作らずに null を返す（要約の途中で消したページを戻さない）
  *   - meeting.finalize は store.createPage（pageId は無視して store が ID を作る: 今の動き）。meeting.recover も
@@ -22,6 +23,7 @@ const { routeLabel } = require('../mainlib');
 const mtype = require('../meetingType');
 const quality = require('../quality');
 const { setTypePage } = require('./commands');   // 0.11.0 M-4: page.setType の中身は DB と同じ部品
+const MD = require('../memoDoc');   // 0.14.0 MB-2: メモの行（DB の page.setMemoDoc と同じ照らしと素の文字）
 
 const isObj = (v) => Boolean(v) && typeof v === 'object' && !Array.isArray(v);
 
@@ -45,6 +47,12 @@ function createArgs(page, segments) {
   };
 }
 
+// 照らしに合うメモの行の並び（整えた写し）か null
+function memoDocOr(v) {
+  if (v === undefined) return null;
+  try { return MD.validateMemoDoc(v); } catch (_) { return null; }
+}
+
 function makeJsonBackend(store, { labels = {} } = {}) {
   // 画面に渡すページ（第1c回 OL6）: 経路の行を routeText に添えた写し。送り先の名前は、そのページを文字起こしした送り先のもの
   const forView = (page) => {
@@ -62,6 +70,9 @@ function makeJsonBackend(store, { labels = {} } = {}) {
     }
     // 0.11.0 M-4: 録音中に選んだ種類（DB の meetingPage と同じ）
     if (isObj(page) && mtype.isSelectable(page.meetingType)) { p.meetingType = page.meetingType; p.typeAuto = false; store.savePage(p); }
+    // 0.14.0 MB-2: 下書きのメモの行（DB の meetingPage と同じ。照らしに外れれば memo だけ）
+    const doc = isObj(page) ? memoDocOr(page.memoDoc) : null;
+    if (doc) { p.memoDoc = doc; p.memo = MD.memoPlain(doc); store.savePage(p); }
     return p;
   };
 
@@ -79,7 +90,15 @@ function makeJsonBackend(store, { labels = {} } = {}) {
     'page.setTitle': ({ id, title } = {}) => store.setTitle(id, title),
     'page.setMemo': ({ id, memo } = {}) => {
       const p = store.getPage(id); if (!p) return null;
+      if (Array.isArray(p.memoDoc)) throw fail('bad-args');   // 0.14.0 MB-2: 行のあるメモを素の文字だけで上書きしない（DB と同じ）
       p.memo = String(memo || ''); return store.savePage(p);
+    },
+    // 0.14.0 MB-2: メモの行を保存し、素の文字のメモを作り直す（DB の page.setMemoDoc と同じ答え。照らしに外れれば bad-args）
+    'page.setMemoDoc': ({ id, doc } = {}) => {
+      const d = memoDocOr(doc);
+      if (!d) throw fail('bad-args');
+      const p = store.getPage(id); if (!p) return null;
+      p.memoDoc = d; p.memo = MD.memoPlain(d); return store.savePage(p);
     },
     'page.setType': ({ id, type, preset } = {}) => {
       const p = store.getPage(id); if (!p) return null;

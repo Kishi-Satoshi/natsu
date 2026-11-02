@@ -1226,7 +1226,7 @@ const IDS_140 = [
   // 0.14.0 EB-6（表の行の順に）
   'eb-innerhtml-gate',
   'eb-revert-view',
-  'eb-revert-keys', 'eb-revert-skip', 'eb-dup-changed',
+  'eb-revert-keys', 'eb-revert-skip', 'eb-revert-memo', 'eb-dup-changed',
   // 0.14.0 EK-1（表の行の順に）
   'ek-html-script', 'ek-html-js-link', 'ek-word-cond', 'ek-word-list', 'ek-paste-colors', 'ek-md-paste', 'ek-plain-lines', 'ek-paste-limit',
   // 0.14.0 EK-2（表の行の順に、EK-1 の行の間に入れた）
@@ -1244,7 +1244,9 @@ const IDS_140 = [
   'ek-move-ai-head', 'ek-many-divider-kids', 'ek-paste-top', 'ek-paste-inside',
   'ek-paste-kids', 'ek-md-nest', 'ek-paste-deep-limit',
   // 0.14.0 MB-1（表の行の順に）
-  'mo-plain-same', 'mo-from-markup', 'mo-edit-parity', 'mo-doc-limit', 'mo-heading-marker',
+  'mo-plain-same', 'mo-from-markup', 'mo-edit-parity', 'mo-doc-limit',
+  // 0.14.0 MB-2（表の行の順に、MB-1 の行の間と eb- の行の間に入れた）
+  'mo-derive', 'mo-fold', 'mo-mcp-plain', 'mo-text-only', 'mo-template', 'mo-heading-marker', 'mo-setdoc-lock',
 ];
 test('G3・0.14.0: 0.14.0 の変異が一覧にそろい、IDS_140 はどれも計画の「変異確認」の表に行の順である。eb-・ek-・mo-・dq- の変異は IDS_140 にある。どれも決まったテストのファイルを持ち、why が 0.14.0 で始まる', { timeout: 5000 }, () => {
   const byId = new Map(MUTANTS.map((m) => [m.id, m]));

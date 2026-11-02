@@ -39,6 +39,7 @@
 'use strict';
 
 const crypto = require('node:crypto');
+const { isDeepStrictEqual } = require('node:util');
 const { isCitable, refreshCitations, searchFold } = require('../cite');
 const { parseDue } = require('../actions');
 const { routeLabel, summaryLock } = require('../mainlib');
@@ -57,6 +58,8 @@ const { UNDO_CMDS } = require('../undoBook');
 const RT = require('../richText');
 const S = require('./search');
 const { LIMITS } = require('./validate');
+// 0.14.0 MB-2（決めたこと 59〜64・R74・R76）: メモの行（素の文字のメモ memo は memoPlain(memoDoc) で作り直す）
+const MD = require('../memoDoc');
 
 const LIVE_PHASES = ['recording', 'paused', 'finalizing'];
 
@@ -166,6 +169,8 @@ function setTypePage(p, { type, preset }, at) {
   else {
     p.meetingType = type; p.typeAuto = false;
     if (preset === true && memoTypes.isUntouchedMemo(p.memo, LEGACY_AGENDAS)) p.memo = memoTypes.memoPreset(memoTypes.memoTypeOf(type));
+    // 0.14.0 MB-2（決めたこと 64）: 雛形を入れたら、メモの行も同じ文から作る（手を付けていないかは今どおり memo で見る。memo は memoDoc から作った文と同じ）
+    if (preset === true && p.memo === memoTypes.memoPreset(memoTypes.memoTypeOf(type))) p.memoDoc = MD.memoFromText(p.memo);
   }
   p.stateLog = SL.stateLogAdd(p.stateLog, { s: 'type', by: 'page', at: at.toISOString() });
 }
@@ -404,6 +409,12 @@ function localDate(d) {
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
 }
 
+// 0.14.0 MB-2: 照らしに合うメモの行の並び（整えた写し）か null（無い・外れる）
+function memoDocOr(v) {
+  if (v === undefined) return null;
+  try { return MD.validateMemoDoc(v); } catch (_) { return null; }
+}
+
 // 締め・復旧のページ: 今の store.createPage と同じ欄と既定（json-backend の create と同じ答え）に、会議の印 meeting を足す
 function meetingPage(pageId, src, now, { recovered }) {
   const p = isObj(src) ? src : {};
@@ -430,6 +441,9 @@ function meetingPage(pageId, src, now, { recovered }) {
     page.summaryError = p.summaryError;
     page.citeStat = { ...R.citeStatOf(page.blocks) };
   }
+  // 0.14.0 MB-2（決めたこと 65）: 下書きのメモの行（memoDoc）は照らしに合えば持ち、memo はそこから作り直す。無いか外れれば memo だけ（壊れた行の形は使わない）
+  const doc = memoDocOr(p.memoDoc);
+  if (doc) { page.memoDoc = doc; page.memo = MD.memoPlain(doc); }
   page.meeting = { phase: 'done', recovered: Boolean(recovered) };
   return page;
 }
@@ -561,6 +575,29 @@ function segmentRemove(db, { pageId, segId }) {
 
 const resegments = (db, a) => readSegments(db, a.pageId);
 
+// ---------------------------------------------------------------- 0.14.0 MB-2: メモの行（計画 docs/plans/2026-10-26-140.md の決めたこと 59〜61・R74・BQ28 (a)）
+// doc は照らした写し（validate の memoDoc）。editPage を summary なしで通る（要約の欄の鍵を見ず、手直しの印 summaryEdited を付けず、要約の行が
+// 同じでもメモの直しを捨てない）。今と同じ doc なら何も書かない（答えは今のページ・changed なし: 元に戻すの1歩にならない）
+function setMemoDoc(db, a, ctx) {
+  const l = loadPage(db, a.id);
+  if (!l) return { ops: [], pageIds: [], result: null };
+  const memo = MD.memoPlain(a.doc);
+  if (isDeepStrictEqual(l.page.memoDoc, a.doc) && l.page.memo === memo) return { ops: [], pageIds: [], result: readPage(db, a.id) };
+  return editPage(db, a.id, ctx, (p) => {
+    p.memoDoc = a.doc;
+    p.memo = memo;   // 素の文字のメモは行から作り直す（食い違ったまま保存しない。読む所は全部これを読む）
+  });
+}
+
+// メモの歩み（ページの行だけに触れる）か要約の歩み（ほかの行に触れる）か（R76・R84）。戻すときに当てる操作（invertOps が残すもの）で見る:
+// 書くたびの forWrite が関係の無い短い行に付ける印 citeSkip（メモの最初の保存でも付く）と開け閉め open は、ブロックの行でも数えない。何も戻さない歩みはどちらでもない
+function paneOfStep(ops, pageId) {
+  let back;
+  try { back = invertOps(ops, { pageId }); } catch (_) { back = ops; }   // 戻せない操作は下の invertOps が bad-args で断る
+  if (back.some((o) => o && o.id !== pageId)) return 'note';
+  return back.length ? 'memo' : '';
+}
+
 // ---------------------------------------------------------------- 0.14.0 EB-2: 元に戻す（計画 docs/plans/2026-10-26-140.md の決めたこと 2〜5・R2・R3・R60・R72）
 // 渡された tx の行（自分の役・自分の操作・このページ・戻せる命令だけ）の操作を古い順に重ね、その「後の値」が今の表と同じなら
 // 新しい順に後ろから当てる（invertOps）。1つでも違えば何も変えずに stale（中途半端に戻さない）。ページの行は memo・memoDoc だけ戻し、
@@ -593,11 +630,14 @@ function editRevert(db, a, ctx) {
     return r;
   });
   rows.sort((x, y) => x.seq - y.seq);
+  // 0.14.0 MB-2（R76）: 1回に戻すのは1つの欄の歩みだけ（メモの歩みと要約の歩みを混ぜたら断る。列は欄ごと: BQ22 (a)）
+  const panes = new Set(rows.map((r) => paneOfStep(JSON.parse(r.ops || '[]'), a.pageId)).filter(Boolean));
+  if (panes.size > 1) throw refuse('bad-args');
   const fwd = rows.flatMap((r) => JSON.parse(r.ops || '[]'));
   const l = loadPage(db, a.pageId);
   if (!l) throw refuse('bad-args');   // 無い・ゴミ箱のページ
   if (!fwd.length) return { ops: [], pageIds: [], result: { page: readPage(db, a.pageId) } };
-  const summary = fwd.some((o) => o && o.id !== a.pageId);   // 要約の行に触れた歩み（鍵と印。メモだけの歩みは見ない: R76）
+  const summary = panes.has('note');   // 要約の行に触れた歩み（鍵と印。メモだけの歩みは見ない: R76・BQ28 (a)）
   if (summary && summaryLockedPage(db, l.page)) throw refuse('locked');
   let back;
   let same;
@@ -806,7 +846,12 @@ const DEFS = {
   'page.setTitle': { roles: ['app', 'main'], write: true, args: { id: 'id', title: 'title' },
     run: (db, a, ctx) => editPage(db, a.id, ctx, (p) => { p.title = a.title; }), dupResult: reread },
   'page.setMemo': { roles: ['app', 'main'], write: true, args: { id: 'id', memo: 'text?' },
-    run: (db, a, ctx) => editPage(db, a.id, ctx, (p) => { p.memo = String(a.memo || ''); }), dupResult: reread },
+    run: (db, a, ctx) => editPage(db, a.id, ctx, (p) => {
+      if (Array.isArray(p.memoDoc)) throw refuse('bad-args');   // 0.14.0 MB-2（決めたこと 70）: 行のあるメモを素の文字だけで上書きしない（行と飾りを黙って捨てない）
+      p.memo = String(a.memo || '');
+    }), dupResult: reread },
+  // 0.14.0 MB-2（決めたこと 59・61・R74・BQ28 (a)）: メモの行を保存し、素の文字のメモ memo（と検索の欄 fold）を memoPlain で作り直す。要約の欄の命令ではない
+  'page.setMemoDoc': { roles: ['app'], write: true, args: { id: 'id', doc: 'memoDoc' }, run: setMemoDoc, dupResult: reread },
   // 0.11.0 M-4（決めたこと 8・12。持ち主の試作の「1つの命令＝1つのトランザクション」）: 種類を書き（auto なら自動に戻す）、preset が真なら
   // DB にある今のメモが手を付けていないときだけ新しい型の雛形に替え、経過に1件積む（setTypePage）
   'page.setType': { roles: ['app', 'main'], write: true, args: { id: 'id', type: 'meetingTypeArg', preset: 'bool?' },

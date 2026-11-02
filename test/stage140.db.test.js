@@ -1,9 +1,11 @@
 /*
- * stage140.db.test.js — 0.14.0 の DB の命令と照らし（計画 docs/plans/2026-10-26-140.md の Task EB-2・EK-2）
+ * stage140.db.test.js — 0.14.0 の DB の命令と照らし（計画 docs/plans/2026-10-26-140.md の Task EB-2・EK-2・MB-2）
  * 自分の操作を後ろから当てて戻す命令 edit.revert（後から変わっていたら stale・main の行とほかのページの行は戻さない・鍵の間は locked・
  * ページの行は memo・memoDoc だけ戻す: R60）・文字の飾り rich の保存と照らし（色は決まった9色で1つの区切りに1つ・リンクは決まった頭・
  * コードとリンクは同じ区切りに持てない）・口の答えの changed（変えたときだけ・送り直しも: R59・R75）・preload の onEditStep。
  * EK-2: 貼り付けの命令 block.paste（1つの命令・2,000 行まで・頭で貼ると上に足す: BQ30 (a)・入れ子: R66）と blocks.remove・move・duplicate・turnInto・setColor（R65）。
+ * MB-2: メモの行を保存する命令 page.setMemoDoc（memo と fold を memoPlain で作り直す・1回で元に戻る・要約の欄の命令にしない: R74）・page.setMemo の断り・
+ *   雛形と締めの memoDoc・メモと要約の歩みを混ぜた edit.revert の断り（R76）・読む所（MCP・検索・書き出し）は同じ素の文字。
  * 一時の DB（helpers/dbtmp.js）で core.call を本当に呼ぶ。口の答えは server.js を本当に起こして見る。
  */
 'use strict';
@@ -1170,3 +1172,304 @@ test('EK-3 直し（R143）: 貼り付けの後のページは、main が送り�
   assert.strictEqual(JSON.stringify(raw(db)), was, '断った貼り付けで何かが変わった');
   assert.strictEqual(putOk().ok, true);
 }, { blocks: [...samplePage('pa1').page.blocks, ...Array.from({ length: 8 }, (_, i) => ({ id: `f${i}`, type: 'paragraph', text: 'y'.repeat(100000), citeState: 'manual', cites: [] }))] }));
+
+// ================================================================ 0.14.0 MB-2（計画 docs/plans/2026-10-26-140.md の決めたこと 59〜64・69・70・R60・R74・R75・R76・BQ28 (a)・F106）
+// メモの行を保存する命令 page.setMemoDoc（素の文字のメモ memo と検索の欄 fold を memoPlain で作り直す・1回で元に戻る・要約の欄の命令にしない）・
+// 古い素の文字の口 page.setMemo の断り・雛形（page.setType）と締め（meeting.finalize・meeting.recover）も行で・読む所（MCP・検索・一覧・書き出し）は同じ素の文字
+const MD = require('../src/memoDoc');
+const minutes = require('../src/minutes');
+const { pageFold } = require('../src/db/ops');
+const MEMO_DOC = [
+  { id: 'm1', type: 'heading', level: 3, text: '目的', citeState: 'manual' },
+  { id: 'm2', type: 'bullet', text: '値引きの上限を決める', rich: [{ t: '値引きの', m: ['b'] }, { t: '上限', m: [['link', 'https://example.invalid/a']] }, { t: 'を決める' }], citeState: 'manual' },
+  { id: 'm3', type: 'bullet', text: '会場を押さえる', citeState: 'manual', children: [{ id: 'm4', type: 'paragraph', text: '子の行の文', citeState: 'manual' }] },
+];
+const MEMO_PLAIN = '■ 目的\n- 値引きの上限を決める\n- 会場を押さえる\n  子の行の文\n';
+const MEMO_DOC2 = [{ id: 'm1', type: 'paragraph', text: '別の語で書き直したメモ', citeState: 'manual' }];
+const memoRow = (db, id = 'pa1') => db.prepare('select text, attrs, fold from blocks where id = ?').get(id);
+// json-backend との比べ（db-commands.test.js と同じ: 時刻・rev・DB だけの印 summaryEdited・空の children・経過の時刻を落とす）
+const plainCmp = (v) => JSON.parse(JSON.stringify(v, function (k, x) {
+  if (['updatedAt', 'rev', 'blockId', 'summaryEdited'].includes(k) || (k === 'children' && Array.isArray(x) && x.length === 0)) return undefined;
+  if (k === 'at' && this && typeof this.s === 'string' && typeof this.by === 'string') return undefined;
+  return x;
+}));
+
+test('MB-2・F106: page.setMemoDoc で memoDoc が入り、memo は memoPlain・ページの行の fold はその memo から（検索でメモの語が引ける）・oplog 1行・同じ tx の2回で1回だけ', T, () => withDb((db) => {
+  assert.strictEqual(MD.memoPlain(MEMO_DOC), MEMO_PLAIN, '前提: 種の素の文字');
+  assert.deepStrictEqual(call(db, 'pages.list', { q: '値引きの上限' }).result, [], '前提: 書く前は当たらない');
+  const n0 = oplogN(db);
+  const tx = txOf('app');
+  const r = call(db, 'page.setMemoDoc', { id: 'pa1', doc: MEMO_DOC }, 'app', tx);
+  assert.strictEqual(r.ok, true, r.code);
+  assert.ok(r.changed, '書いた命令に changed が無い');
+  assert.strictEqual(oplogN(db), n0 + 1);
+  assert.deepStrictEqual(get(db).memoDoc, MD.validateMemoDoc(MEMO_DOC));
+  assert.strictEqual(get(db).memo, MEMO_PLAIN);
+  assert.strictEqual(r.result.memo, MEMO_PLAIN);
+  const row = memoRow(db);
+  assert.strictEqual(row.fold, pageFold(row.text, MEMO_PLAIN), 'ページの行の fold がメモの素の文字から作り直されていない');
+  assert.deepStrictEqual(call(db, 'pages.list', { q: '値引きの上限' }).result.map((e) => e.id), ['pa1'], '検索でメモの語が引けない');
+  assert.deepStrictEqual(call(db, 'pages.list', { q: '子の行の文' }).result.map((e) => e.id), ['pa1']);
+  // 同じ tx の送り直しは1回だけ（間に別の直しが入っても上書きしない）
+  assert.strictEqual(call(db, 'page.setMemoDoc', { id: 'pa1', doc: MEMO_DOC2 }).ok, true);
+  const n1 = oplogN(db);
+  const again = call(db, 'page.setMemoDoc', { id: 'pa1', doc: MEMO_DOC }, 'app', tx);
+  assert.deepStrictEqual([again.ok, again.dup, again.dupChanged], [true, true, true]);
+  assert.strictEqual(oplogN(db), n1, '送り直しが新しい命令として効いた');
+  assert.strictEqual(get(db).memo, '別の語で書き直したメモ\n');
+  // 役 main は呼べない（画面の命令）
+  assert.strictEqual(call(db, 'page.setMemoDoc', { id: 'pa1', doc: MEMO_DOC }, 'main').code, 'forbidden');
+}));
+
+test('MB-2・F106: edit.revert で前の memoDoc と memo と fold に戻る・後から別の page.setMemoDoc が入っていれば stale', T, () => withDb((db) => {
+  const a = call(db, 'page.setMemoDoc', { id: 'pa1', doc: MEMO_DOC });
+  tick();
+  const b = call(db, 'page.setMemoDoc', { id: 'pa1', doc: MEMO_DOC2 });
+  assert.deepStrictEqual([a.ok, b.ok], [true, true]);
+  assert.deepStrictEqual(call(db, 'pages.list', { q: '値引きの上限' }).result, []);
+  const at = tick();
+  const r = revert(db, [b.tx]);
+  assert.strictEqual(r.ok, true, r.code);
+  assert.deepStrictEqual(get(db).memoDoc, MD.validateMemoDoc(MEMO_DOC));
+  assert.strictEqual(get(db).memo, MEMO_PLAIN);
+  assert.strictEqual(get(db).updatedAt, at, '直した時刻が今でない');
+  const row = memoRow(db);
+  assert.strictEqual(row.fold, pageFold(row.text, MEMO_PLAIN));
+  assert.deepStrictEqual(call(db, 'pages.list', { q: '値引きの上限' }).result.map((e) => e.id), ['pa1']);
+  assert.deepStrictEqual(call(db, 'pages.list', { q: '別の語で書き直' }).result, []);
+  // やり直し（戻した行をもう一度戻す）
+  assert.strictEqual(revert(db, [r.tx]).ok, true);
+  assert.strictEqual(get(db).memo, '別の語で書き直したメモ\n');
+  // 後から別の page.setMemoDoc が入った後の古い歩みは stale で何も変えない
+  const was = JSON.stringify(raw(db));
+  const s = revert(db, [a.tx]);
+  assert.deepStrictEqual([s.ok, s.code], [false, 'stale']);
+  assert.strictEqual(JSON.stringify(raw(db)), was);
+  // 最初の page.setMemoDoc を戻すと memoDoc の無いページ（memo は前の素の文字）に戻る
+  const c = call(db, 'page.setMemoDoc', { id: 'pa1', doc: MEMO_DOC }, 'app');
+  assert.strictEqual(revert(db, [c.tx]).ok, true);
+  assert.strictEqual(get(db).memo, '別の語で書き直したメモ\n');
+}, {}, []));
+
+test('MB-2・F106: memoDoc のないページの最初の page.setMemoDoc を戻すと memoDoc が消え、memo と fold も前の素の文字', T, () => withDb((db) => {
+  const before = get(db);
+  const a = call(db, 'page.setMemoDoc', { id: 'pa1', doc: MEMO_DOC });
+  assert.strictEqual(a.ok, true, a.code);
+  const r = revert(db, [a.tx]);
+  assert.strictEqual(r.ok, true, r.code);
+  assert.strictEqual(Object.hasOwn(raw(db), 'memoDoc'), false, '戻しても memoDoc が残った');
+  assert.strictEqual(get(db).memo, before.memo);
+  assert.strictEqual(memoRow(db).fold, pageFold(memoRow(db).text, before.memo));
+}, { memo: '前からの素の文字のメモ' }));
+
+test('MB-2・F106: 2,001 行・1MB 越え・10 万字を越える memo・照らしに外れる行 → bad-args で何も変えない', BIG, () => withDb((db) => {
+  const rows = (n, text) => Array.from({ length: n }, (_, i) => ({ id: `m${i + 1}`, type: 'paragraph', text, citeState: 'manual' }));
+  const bads = [
+    rows(2001, 'a'),
+    rows(1500, 'あ'.repeat(300)),                                                     // 頼みの全部が 1MB を越える
+    rows(2000, 'い'.repeat(60)),                                                      // memoPlain が 10 万字を越える
+    [{ id: 'b1', type: 'paragraph', text: 'ID の頭が m でない' }],
+    [{ id: 'm1', type: 'paragraph', text: '出典', cites: ['s2'] }],
+    [{ id: 'm1', type: 'bullet', text: '担当', assignee: '担当A' }],
+    [{ id: 'm1', type: 'paragraph', text: '', rich: [{ t: '色が二つ', m: [['color', 'red'], ['bg', 'blue']] }] }],
+    [{ id: 'm1', type: 'paragraph', text: '', rich: [{ t: '開けない', m: [['link', 'javascript:alert(1)']] }] }],
+    [{ id: 'm1', type: 'nothing', text: '知らない型' }],
+    [{ id: 'm1', type: 'paragraph', text: 'a' }, { id: 'm1', type: 'paragraph', text: '重なる ID' }],
+    'メモの文',
+  ];
+  const was = JSON.stringify(raw(db));
+  const n0 = oplogN(db);
+  for (const [i, doc] of bads.entries()) {
+    const r = call(db, 'page.setMemoDoc', { id: 'pa1', doc });
+    assert.deepStrictEqual([r.ok, r.code], [false, 'bad-args'], `${i}`);
+  }
+  assert.strictEqual(JSON.stringify(raw(db)), was, '断った頼みで何かが変わった');
+  assert.strictEqual(oplogN(db), n0);
+  assert.strictEqual(call(db, 'page.setMemoDoc', { id: 'pa1', doc: rows(2000, 'う') }).ok, true, '2,000 行は通る');
+}));
+
+test('MB-2・F106: memoDoc のあるページに page.setMemo（素の文字）→ bad-args（行と飾りを黙って捨てない）・無いページは今どおり', T, () => withDb((db) => {
+  const m = call(db, 'page.setMemo', { id: 'pa1', memo: '素の文字のメモ' });
+  assert.deepStrictEqual([m.ok, m.result.memo], [true, '素の文字のメモ']);
+  assert.strictEqual(call(db, 'page.setMemoDoc', { id: 'pa1', doc: MEMO_DOC }).ok, true);
+  const was = JSON.stringify(raw(db));
+  for (const role of ['app', 'main']) {
+    const r = call(db, 'page.setMemo', { id: 'pa1', memo: '行を捨てる素の文字' }, role);
+    assert.deepStrictEqual([r.ok, r.code], [false, 'bad-args'], role);
+  }
+  assert.strictEqual(JSON.stringify(raw(db)), was);
+}));
+
+test('MB-2・F106: page.setType の雛形は memo と memoDoc の両方（手を付けていないときだけ）。json-backend も同じ答え', T, async () => {
+  const M = require('../src/memoTypes');
+  const { jsonTwin } = require('./helpers/dbtmp');
+  const t = tmpDb(); const j = jsonTwin();
+  try {
+    const { db } = t.open();
+    const seed = async (id, patch) => { const { page, segments } = samplePage(id); page.blocks = page.blocks.map((b) => ({ ...b, id: `${id}${b.id}` })); Object.assign(page, patch); t.seed(page, segments); await j.seed(page, segments); };
+    await seed('pt1', { memo: '' });
+    await seed('pt2', { memo: '予算の相談をする' });
+    await seed('pt3', { memo: M.memoPreset('points'), memoDoc: MD.memoFromText(M.memoPreset('points')) });
+    await seed('pt4', { memo: MEMO_PLAIN, memoDoc: MD.validateMemoDoc(MEMO_DOC) });
+    for (const id of ['pt1', 'pt2', 'pt3', 'pt4']) {
+      const args = { id, type: 'sales', preset: true };
+      const r = call(db, 'page.setType', args);
+      assert.strictEqual(r.ok, true, id);
+      assert.deepStrictEqual(plainCmp(r.result), plainCmp(await j.call('page.setType', args)), id);
+      const p = get(db, id);
+      assert.strictEqual(MD.memoPlain(p.memoDoc || []) || p.memo, p.memo, `${id}: memo と memoDoc が食い違う`);
+    }
+    assert.deepStrictEqual(get(db, 'pt1').memoDoc, MD.memoFromText(M.memoPreset('bantc')), '手を付けていないメモに雛形の行が入らない');
+    assert.strictEqual(get(db, 'pt1').memo, M.memoPreset('bantc'));
+    assert.deepStrictEqual(get(db, 'pt3').memoDoc, MD.memoFromText(M.memoPreset('bantc')), '雛形の行のままのメモが新しい雛形にならない');
+    assert.strictEqual(get(db, 'pt2').memoDoc, undefined, '人の文のメモに行を作った');
+    assert.strictEqual(get(db, 'pt2').memo, '予算の相談をする');
+    assert.deepStrictEqual(get(db, 'pt4').memoDoc, MD.validateMemoDoc(MEMO_DOC), '人の行のメモを雛形で上書きした');
+    assert.strictEqual(get(db, 'pt4').memo, MEMO_PLAIN);
+  } finally { t.done(); j.done(); }
+});
+
+test('MB-2・F106: 締め（meeting.finalize）と復旧（meeting.recover）に memoDoc を渡すとそれを持ち（memo は memoPlain）、無いか照らしに外れれば memo だけ（今と同じ）', T, () => {
+  const t = tmpDb();
+  try {
+    const { db } = t.open();
+    const page = (extra) => ({ title: '', memo: '下書きの素の文字', blocks: [], createdAt: '2026-10-19T00:00:00.000Z', ...extra });
+    const fin = (pageId, extra) => call(db, 'meeting.finalize', { pageId, segments: [], page: page(extra) }, 'main');
+    let r = fin('pf1', { memoDoc: MEMO_DOC });
+    assert.strictEqual(r.ok, true, r.code);
+    assert.deepStrictEqual([r.result.memoDoc, r.result.memo], [MD.validateMemoDoc(MEMO_DOC), MEMO_PLAIN]);
+    assert.strictEqual(memoRow(db, 'pf1').fold, pageFold('', MEMO_PLAIN));
+    r = fin('pf2', {});
+    assert.deepStrictEqual([r.result.memoDoc, r.result.memo], [undefined, '下書きの素の文字']);
+    r = fin('pf3', { memoDoc: [{ id: 'x1', type: 'paragraph', text: '壊れた行の形' }] });
+    assert.deepStrictEqual([r.ok, r.result.memoDoc, r.result.memo], [true, undefined, '下書きの素の文字'], '照らしに外れる行の形を持った・締めを断った');
+    const rec = call(db, 'meeting.recover', { pageId: 'pf4', segments: [], page: page({ recovered: true, memoDoc: MEMO_DOC }) }, 'main');
+    assert.deepStrictEqual([rec.ok, rec.result.page.memoDoc, rec.result.page.memo], [true, MD.validateMemoDoc(MEMO_DOC), MEMO_PLAIN]);
+    const rec2 = call(db, 'meeting.recover', { pageId: 'pf5', segments: [], page: page({ recovered: true, memoDoc: 'メモ' }) }, 'main');
+    assert.deepStrictEqual([rec2.ok, rec2.result.page.memoDoc, rec2.result.page.memo], [true, undefined, '下書きの素の文字']);
+  } finally { t.done(); }
+});
+
+test('MB-2・F106・決めたこと 69: MCP の get_meeting のメモは memo と同じ素の文字（** や見出しの # やリンクの住所が出ない）・chunkMemo と箇所の検索も同じ。一覧の検索の文・議事録の書き出しも memoPlain', T, () => {
+  const { mcpDb } = require('./helpers/mcpdb');
+  const tools = require('../src/mcp/tools');
+  const P = require('../src/mcp/passages');
+  const m = mcpDb({ only: ['plain1'] });
+  try {
+    const id = m.ids.plain1;
+    m.call('app', 'page.setMemoDoc', { id, doc: MEMO_DOC });
+    const page = m.call('app', 'page.get', { id }).page;
+    assert.strictEqual(page.memo, MEMO_PLAIN);
+    m.close();
+    const mcp = (name, args) => tools.callTool(name, args, { sqlite, dataDir: m.dataDir, now: () => new Date('2026-10-21T03:00:00.000Z') });
+    const g = mcp('get_meeting', { id });
+    assert.strictEqual(g.isError, false);
+    assert.ok(g.text.includes('## メモ\n> ■ 目的\n> - 値引きの上限を決める\n> - 会場を押さえる\n>   子の行の文\n'), g.text);
+    const memoSec = g.text.slice(g.text.indexOf('## メモ\n'), g.text.indexOf('\n## 文字起こし'));
+    for (const w of ['**', '#', 'example.invalid', '](']) assert.ok(!memoSec.slice(3).includes(w), `MCP のメモに ${w}: ${memoSec}`);
+    assert.ok(!g.text.includes('example.invalid'), 'MCP の答えにメモのリンクの住所');
+    assert.deepStrictEqual(P.chunkMemo(page.memo), P.chunkMemo(MEMO_PLAIN));
+    const s = mcp('search_passages', { query: '値引きの上限' });
+    assert.ok(/場所: \[メモ/.test(s.text), s.text);
+    for (const w of ['**', 'example.invalid']) assert.ok(!s.text.includes(w), `箇所の検索に ${w}`);
+    // 一覧の検索の文（memoText）・議事録の書き出し（Markdown）は素の文字のメモ
+    assert.strictEqual(R.summarize(page).memoText, MEMO_PLAIN);
+    assert.ok(minutes.blocksToMarkdown(page, []).includes(`## メモ・アジェンダ\n${MEMO_PLAIN.trim()}\n\n`));
+  } finally { m.done(); }
+});
+
+test('MB-2・F106: json-backend の page.setMemoDoc・page.setMemo の断りは DB と同じ答え', T, async () => {
+  const { jsonTwin } = require('./helpers/dbtmp');
+  const t = tmpDb(); const j = jsonTwin();
+  try {
+    const { db } = t.open();
+    const { page, segments } = samplePage('pa1');
+    t.seed(page, segments); await j.seed(page, segments);
+    for (const doc of [MEMO_DOC, MEMO_DOC2, MEMO_DOC2]) {
+      const r = call(db, 'page.setMemoDoc', { id: 'pa1', doc });
+      assert.strictEqual(r.ok, true, r.code);
+      assert.deepStrictEqual(plainCmp(r.result), plainCmp(await j.call('page.setMemoDoc', { id: 'pa1', doc })));
+    }
+    assert.strictEqual(call(db, 'page.setMemo', { id: 'pa1', memo: 'x' }).code, 'bad-args');
+    await assert.rejects(j.call('page.setMemo', { id: 'pa1', memo: 'x' }), (e) => e.message === 'bad-args' && e.code === 'bad-args');
+    await assert.rejects(j.call('page.setMemoDoc', { id: 'pa1', doc: [{ id: 'b1', type: 'paragraph', text: 'x' }] }), (e) => e.code === 'bad-args');
+    assert.strictEqual(await j.call('page.setMemoDoc', { id: 'nope', doc: MEMO_DOC }), null);
+    assert.strictEqual(call(db, 'page.setMemoDoc', { id: 'nope', doc: MEMO_DOC }).result, null);
+  } finally { t.done(); j.done(); }
+});
+
+test('MB-2: preload の APP_COMMANDS（29）は役 app の命令と同じ集まり。koeApp.pageSetMemoDoc は dbCall の1回で tx が付き、ok で changed なら onEditStep に { cmd, pageId: id, step }', T, async () => {
+  const names = [.../const APP_COMMANDS = new Set\(\[([^\]]*)\]\)/.exec(PRELOAD)[1].matchAll(/'([\w.]+)'/g)].map((x) => x[1]);
+  assert.strictEqual(names.length, 29);
+  assert.deepStrictEqual(names.sort(), Object.keys(core.COMMANDS).filter((k) => core.COMMANDS[k].roles.includes('app')).sort());
+  assert.deepStrictEqual(core.COMMANDS['page.setMemoDoc'].roles, ['app']);
+  const { k, givePort } = loadPreload();
+  const p = givePort();
+  const seen = [];
+  k.onEditStep((s) => seen.push(structuredClone(s)));
+  const w = k.pageSetMemoDoc('pa1', MEMO_DOC);
+  const msg = p.sent[0];
+  assert.deepStrictEqual([msg.cmd, msg.args], ['page.setMemoDoc', { id: 'pa1', doc: MEMO_DOC }]);
+  assert.match(msg.tx, /^a:[0-9a-f-]{36}$/);
+  p.reply(msg.id, { ok: true, result: { id: 'pa1' }, changed: true });
+  await w;
+  assert.deepStrictEqual(seen, [{ cmd: 'page.setMemoDoc', pageId: 'pa1', step: msg.tx }]);
+});
+
+test('MB-2・R74・BQ28 (a): page.setMemoDoc は録音中の写しのページ（要約の欄の鍵）でも書け、summaryEdited を付けない。同じ doc なら操作の空の行で changed が無い（答えは今のページ）。要約の行を変えずにメモの文だけ直した doc も書かれる', T, () => {
+  // 鍵の無いページ: 要約の行は変えずにメモだけ
+  withDb((db) => {
+    const r = call(db, 'page.setMemoDoc', { id: 'pa1', doc: MEMO_DOC });
+    assert.strictEqual(r.ok, true, r.code);
+    assert.strictEqual(get(db).memo, MEMO_PLAIN, '要約の行が同じなのでメモの直しを捨てた（R45 を通した）');
+    assert.strictEqual(raw(db).summaryEdited, undefined, 'メモの直しに手直しの印を付けた');
+    const same = call(db, 'page.setMemoDoc', { id: 'pa1', doc: MEMO_DOC });
+    assert.deepStrictEqual([same.ok, same.changed], [true, undefined], '同じ doc で changed が付いた');
+    assert.deepStrictEqual(opsOf(db, same.tx), []);
+    assert.strictEqual(same.result.memo, MEMO_PLAIN, '同じ doc の答えが今のページでない');
+  });
+  // 録音中の写し（要約の欄の鍵）
+  withDb((db) => {
+    assert.strictEqual(call(db, 'block.update', { pageId: 'pa1', blockId: 'b2', patch: { text: '鍵の間の直し' } }).code, 'locked', '前提: 要約の欄の鍵');
+    const r = call(db, 'page.setMemoDoc', { id: 'pa1', doc: MEMO_DOC });
+    assert.strictEqual(r.ok, true, r.code);
+    assert.strictEqual(get(db).memo, MEMO_PLAIN);
+    assert.strictEqual(raw(db).summaryEdited, undefined);
+  }, { meeting: { phase: 'recording', recovered: false } });
+});
+
+test('MB-2・R76: メモの歩みと要約の歩みを混ぜた edit.revert → bad-args。メモだけの edit.revert は鍵の間でも戻り、summaryEdited を立てない。memo・memoDoc・fold は戻り、updatedAt は今', T, () => {
+  withDb((db) => {
+    const s = call(db, 'block.update', { pageId: 'pa1', blockId: 'b2', patch: { text: '直した要点の文をここに書いた' } });
+    const m = call(db, 'page.setMemoDoc', { id: 'pa1', doc: MEMO_DOC });
+    assert.deepStrictEqual([s.ok, m.ok], [true, true]);
+    const was = JSON.stringify(raw(db));
+    for (const steps of [[s.tx, m.tx], [m.tx, s.tx]]) {
+      const r = revert(db, steps);
+      assert.deepStrictEqual([r.ok, r.code], [false, 'bad-args'], JSON.stringify(steps));
+    }
+    assert.strictEqual(JSON.stringify(raw(db)), was, '混ぜた歩みで何かが変わった');
+    // 戻した行（edit.revert の行）も、メモの歩みと要約の歩みは混ぜられない
+    const rm = revert(db, [m.tx]);
+    assert.strictEqual(rm.ok, true, rm.code);
+    assert.deepStrictEqual([revert(db, [rm.tx, s.tx]).code], ['bad-args']);
+    assert.strictEqual(revert(db, [s.tx]).ok, true, '要約だけの歩みは戻る');
+  });
+  withDb((db) => {
+    const a = call(db, 'page.setMemoDoc', { id: 'pa1', doc: MEMO_DOC });
+    const b = call(db, 'page.setMemoDoc', { id: 'pa1', doc: MEMO_DOC2 });
+    assert.deepStrictEqual([a.ok, b.ok], [true, true]);
+    const at = tick();
+    const r = revert(db, [b.tx]);
+    assert.strictEqual(r.ok, true, `鍵の間のメモの歩みが戻らない: ${r.code}`);
+    const p = raw(db);
+    assert.deepStrictEqual([p.memoDoc, p.memo, p.updatedAt], [MD.validateMemoDoc(MEMO_DOC), MEMO_PLAIN, at]);
+    assert.strictEqual(p.summaryEdited, undefined, 'メモの歩みを戻して手直しの印を立てた');
+    assert.strictEqual(memoRow(db).fold, pageFold(memoRow(db).text, MEMO_PLAIN));
+    // 最初の保存の歩みは、書くたびの短い行の印（citeSkip）をブロックの行に付けるが、それでもメモの歩み（鍵を見ない・印を立てない）
+    assert.ok(opsOf(db, a.tx).some((o) => o.id !== 'pa1' && o.key === 'citeSkip'), '前提: 最初の保存が短い行の印を付ける');
+    const r2 = revert(db, [a.tx]);
+    assert.strictEqual(r2.ok, true, `最初のメモの歩みが要約の歩みとして断られた: ${r2.code}`);
+    assert.deepStrictEqual([raw(db).memoDoc, raw(db).memo, raw(db).summaryEdited], [undefined, '', undefined]);
+  }, { meeting: { phase: 'recording', recovered: false } });
+});

@@ -232,6 +232,9 @@ const TYPES = Object.freeze(Object.assign(Object.create(null), {
   richArg: (v) => { richText(v); return structuredClone(v); },
   pasteBlocks: checkPasteBlocks,   // 0.14.0 EK-2: block.paste の貼る行
   blockColor: (v) => { if (v !== '' && !(typeof v === 'string' && RT.COLORS.includes(v.replace(/_bg$/, '')))) throw bad('color'); return v; },
+  // 0.14.0 MB-2（計画 docs/plans/2026-10-26-140.md の決めたこと 59・R69・R151）: メモの行の並び（page.setMemoDoc）。照らしは src/memoDoc.js の validateMemoDoc
+  // （2,000 行・1MB・memoPlain の 10 万字・型と飾りの照らし・出典と印の欄は断る）で、整えた写しを保存する。memoDoc.js がこの部品を読むので、ここでは呼ぶときに読む
+  memoDoc: (v) => require('../memoDoc').validateMemoDoc(v),
 }));
 
 function checkArgs(spec, args) {

@@ -12,9 +12,10 @@ const { contextBridge, ipcRenderer } = require('electron');
 // 0.13.1（計画 docs/plans/2026-10-27-131.md の決めたこと 10）: 字下げとトグルの開け閉めの3つを足した（21）
 // 0.14.0 EB-2（計画 docs/plans/2026-10-26-140.md の決めたこと 2・6・21）: 元に戻す edit.revert と行の色 blocks.setColor を足した（23）
 // 0.14.0 EK-2（決めたこと 25・30）: 貼り付け block.paste と、選んだ行の blocks.remove・blocks.move・blocks.duplicate・blocks.turnInto を足した（28）
+// 0.14.0 MB-2（決めたこと 61）: メモの行を保存する page.setMemoDoc を足した（29）
 const APP_COMMANDS = new Set(['pages.list', 'pages.searchFull', 'pages.actionView', 'page.get', 'page.setTitle', 'page.setMemo', 'page.setType', 'page.delete', 'block.update', 'block.insert', 'block.remove', 'block.move', 'block.setAction', 'segment.update',
   'block.split', 'block.merge', 'block.turnInto', 'block.duplicate', 'block.indent', 'block.setOpen', 'block.setOpenAll', 'edit.revert', 'blocks.setColor',
-  'block.paste', 'blocks.remove', 'blocks.move', 'blocks.duplicate', 'blocks.turnInto']);
+  'block.paste', 'blocks.remove', 'blocks.move', 'blocks.duplicate', 'blocks.turnInto', 'page.setMemoDoc']);
 // 0.14.0 EB-2（決めたこと 6・R1）: 元に戻すの1歩にする命令（src/undoBook.js の UNDO_CMDS と同じ表。sandbox の preload は src を読めないので写す:
 // test/stage140.db.test.js が同じ表かを見る）。答えが ok で changed のときだけ、答えより先に画面の受け口へ { cmd, pageId, step: tx } を渡す
 const UNDO_CMDS = new Set([
@@ -201,6 +202,8 @@ contextBridge.exposeInMainWorld('koeApp', {
   pageDelete: (id) => dbCall('page.delete', { id }),
   pageSetTitle: (id, title) => dbCall('page.setTitle', { id, title }),
   pageSetMemo: (id, memo) => dbCall('page.setMemo', { id, memo }),
+  // 0.14.0 MB-2（決めたこと 61・R74）: メモの行（doc は行の並び）。1回が元に戻すの1歩（onEditStep の pageId は id）
+  pageSetMemoDoc: (id, doc) => dbCall('page.setMemoDoc', { id, doc }),
   pageSummarize: (id) => ipcRenderer.invoke('page:summarize', id),
   blockUpdate: (pageId, blockId, patch) => dbCall('block.update', { pageId, blockId, patch }),
   // 0.13.1: 5つ目の parentId は置き場の親（NR6）・6つ目の toggle はトグル見出し。足した引数が無ければ今の形を送る
