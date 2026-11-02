@@ -37,6 +37,9 @@
  *
  * 0.9.1 Q-3（設計書 D29。計画 docs/plans/2026-10-21-091.md の決めたこと 12）で、話し声が無いときに自動で止めるかの autoStopQuiet（既定オン。
  * useBuiltinTerms と同じく「false でなければオン」）と、知らせるまでの分 autoStopMin（AUTO_STOP_CHOICES のどれか。既定 10。新しい kind pick）を足した（33 のキー）。
+ *
+ * 0.14.0 DQ-3（計画 docs/plans/2026-10-26-140.md の決めたこと 56・BQ18 (a)・BQ24 (a)）で、口述の文を AI で整えるかの aiTidy（既定オン。「false でなければオン」）を
+ * 足した（34 のキー）。settings.json に aiTidy が無く、removeFillers が false（フィラー除去を自分で切った人）なら、aiTidy も切った形で読む。
  */
 'use strict';
 
@@ -108,6 +111,8 @@ function defaultSettings(cpuCount) {
     pillSlot: 'bottom-center',
     autoPaste: true,
     removeFillers: true,
+    // 0.14.0 DQ-3（決めたこと 56・BQ18 (a)）: 口述の文を AI で整える（音声を中継で文字起こししたときだけ。既定オン。フィラー除去を切った人は readSettings が切った形で読む: BQ24 (a)）
+    aiTidy: true,
     soundFeedback: true,
     autoLaunch: false,
     // 外観（画面の配色。0.7.0 U-2 で設定のいちばん上の「外観」へ）。system は Windows の設定に追従する
@@ -202,6 +207,8 @@ const SETTING_RULES = {
   retiredSumNotified: { label: '要約用の AI を消した知らせ', kind: 'bool' },
   // 0.11.0 Q-2（QM6・P11）
   qualityScore: { label: '打ち合わせの質の点数', kind: 'enum', values: ['all', 'on', 'off'] },
+  // 0.14.0 DQ-3（決めたこと 56）。表の最後に置く（readSettings が removeFillers を先に読む: BQ24 (a)。前のキーの並びの番号を変えない）
+  aiTidy: { label: '口述の文を AI で整える', kind: 'bool', notFalse: true },
 };
 const SETTING_KEYS = Object.keys(SETTING_RULES);
 // 会議の検出の一覧の id（src/mainlib.js の MEET_APPS と同じ並び。settings.js は mainlib を読まないので写しを持つ: test/stage093.lib が照らす）
@@ -293,6 +300,8 @@ function readSettings(raw, defaults) {
     if (!Object.hasOwn(raw, key) || raw[key] === undefined) {
       // 無いキーは黙って既定（int・words は normalizeSettings が既定から整えた値）
       settings[key] = (rule.kind === 'int' || rule.kind === 'words') ? norm[key] : cloneDefault(d[key]);
+      // 0.14.0 DQ-3（BQ24 (a)）: aiTidy がまだ無く、フィラー除去を自分で切った人は、AI の整えも切った形で読む（removeFillers は表で aiTidy より前。aiTidy は表の最後）
+      if (key === 'aiTidy' && settings.removeFillers === false) settings[key] = false;
       continue;
     }
     const v = raw[key];

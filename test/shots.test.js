@@ -195,12 +195,16 @@ const ADDED_132 = [...NEW_132, ...RETAKEN_132];
 // EB-5 直しで拡大 200% の帯と色のメニューの1枚を、EK-4 で選んだ行の明暗の2枚を、EK-5 で設定の近道の表の1枚を足した
 // MB-4 で保存したページと録音中のページのメモの行の3枚を足した
 const NEW_140 = ['edit-marks-light', 'edit-marks-dark', 'edit-toolbar-light', 'edit-link-light', 'edit-color-menu-light', 'edit-toolbar-zoom200-light', 'edit-select-light', 'edit-select-dark', 'settings-shortcuts-light',
-  'memo-blocks-light', 'memo-blocks-dark', 'live-memo-blocks-light'];
+  'memo-blocks-light', 'memo-blocks-dark', 'live-memo-blocks-light',
+  // DQ-3 で設定の「口述の文を AI で整える」の1枚と、履歴の［元の文をコピー］の1枚を足した
+  'settings-dictation-light', 'history-tidy-light'];
 // EB-5 で ⠿ のメニューに［色 ▸］が増えるので、今の基準がある1枚を取り直す（RETAKEN_140）。EK-5 で設定の「ホットキー」のカードに近道の表が入って伸びるので、
 // 設定の［一般］を開く3枚も取り直す（R145）
 // MB-4 でメモの欄が textarea から行になるので、録音の前のページの3枚・録音中の種類の1枚・保存したページの種類の2枚も取り直す（live-ready-light はヘルプの写真の元: R71）
 const RETAKEN_140 = ['edit-block-menu-light', 'settings-light', 'settings-dark', 'settings-zoom200-dark',
-  'live-ready-light', 'live-ready-dark', 'live-ready-zoom200-light', 'live-type-light', 'page-type-light', 'page-type-dark'];
+  'live-ready-light', 'live-ready-dark', 'live-ready-zoom200-light', 'live-type-light', 'page-type-light', 'page-type-dark',
+  // DQ-3（BQ27 (a)）で［録音］の「文字起こし」のカードの「フィラー除去」の下に1行増えるので、録音の3枚も取り直す（settings-record-light はヘルプの写真の元: R71）
+  'settings-record-light', 'settings-record-dark', 'settings-record-zoom200-light'];
 const RETAKE_140 = [...NEW_140, ...RETAKEN_140];
 const img = (w, h, fill = [255, 255, 255, 255]) => ({ width: w, height: h, data: Buffer.from(Array.from({ length: w * h }, () => fill).flat()) });
 // 一時フォルダ（日本語と 𠮷 の名前。RF1 と同じ形）。テストの終わりに消す
@@ -1064,7 +1068,9 @@ test('基準の画像（test/shots/win32）は今の app.html で撮ったもの
   // 0.14.0 MB-4 直し（R190）: 録音中のメモの戻しで liveDoc を戻す・メモの行の文中の記法の Ctrl+Z・0.5 秒の下書きへの送り・メモの行の頭の空白・戻している間の守りを欄の鍵で
   // （<script> の中だけ。撮る画面は変わらない）。値を今の app.html に合わせた（前の値は e1bb7990…）
   // 0.14.0 EK-6 直し（R194）: 検索の窓の Esc の preventDefault・欄の変換中を document で覚える（<script> の中だけ。撮る画面は変わらない）。値を今の app.html に合わせた（前の値は 21c7b2dd…）
-  assert.strictEqual(sha, 'bb05491ed52b7fba9fa093989e93445bda7955c4e29029d2cc924cc2bc30ea02',
+  // 0.14.0 DQ-3（決めたこと 55・56・BQ27 (a)）: 設定の［録音］の「フィラー除去」の下の「口述の文を AI で整える」（#aiTidy・読み書き）と、履歴の行の［元の文をコピー］。
+  // 変わる画面は足した NEW_140 の settings-dictation-light・history-tidy-light と、取り直す RETAKEN_140 の settings-record の3枚。値を今の app.html に合わせた（前の値は bb05491e…）
+  assert.strictEqual(sha, '5d7e72ff61aa416e03b2debfc54350ca6ea83403fe8a3cf4b8a125f90a587038',
     'app.html が基準の画像を撮った時と違う。Windows の CI の画面の比べ（捲り棒のつまみも）を見て、基準を取り直してからこの値を直す');
 });
 

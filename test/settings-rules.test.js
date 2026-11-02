@@ -49,15 +49,19 @@ Object.assign(TODAY, { qualityScore: 'all' });
 // 画面は LV-4 で［設定］→［録音］のカード「会議の検出」から送る
 Object.assign(TODAY, { autoStopLeave: true });
 Object.assign(UI, { meetingDetect: false, meetingDetectMute: ['zoom', 'chrome'] });
+// 0.14.0 DQ-3（計画 docs/plans/2026-10-26-140.md の決めたこと 56・BQ18 (a)）で意図して変えた: 口述の文を AI で整える aiTidy（既定 true）を表の最後に足した（34 のキー）。
+// 画面は［設定］→［録音］の「フィラー除去」の下から送る（既定でない値で往復することを見る）
+Object.assign(TODAY, { aiTidy: true });
+Object.assign(UI, { aiTidy: false });
 // 第1c回 Task C-2: 画面のカード「オンライン」が送るキー（0.7.0 U-1 で claudeExe だけ。30 のキー）。既定でない値で往復することを見る
 Object.assign(UI, { claudeExe: 'C:\\c\\claude.exe' });
 const legacy = (raw) => S.normalizeSettings({ ...D, ...raw }, D);
 const ON = (key, v) => (key === 'useBuiltinTerms' ? v !== false : Boolean(v));
 const BOOLS = ['useVad', 'suppressNst', 'autoPaste', 'removeFillers', 'soundFeedback', 'autoLaunch', 'stayInTray', 'useBuiltinTerms', 'useSystemAudio'];
 
-test('JS6: 決まりの表のキーは既定の 33 のキーとちょうど同じ。どれにも画面の名前がある', { timeout: 5000 }, () => {
+test('JS6: 決まりの表のキーは既定の 34 のキーとちょうど同じ。どれにも画面の名前がある', { timeout: 5000 }, () => {
   assert.deepStrictEqual(D, TODAY);
-  assert.strictEqual(S.SETTING_KEYS.length, 33);   // 0.10.0 LS-3 で要約の5つを外し（35 → 30）、LS-4 で retiredSumNotified を足した（31）。0.11.0 Q-2 で qualityScore を足した（32。意図して変えた）。0.12.1 LV-2 で autoStopLeave を足した（33。意図して変えた）
+  assert.strictEqual(S.SETTING_KEYS.length, 34);   // 0.10.0 LS-3 で要約の5つを外し（35 → 30）、LS-4 で retiredSumNotified を足した（31）。0.11.0 Q-2 で qualityScore を足した（32。意図して変えた）。0.12.1 LV-2 で autoStopLeave を足した（33。意図して変えた）。0.14.0 DQ-3 で aiTidy を足した（34。意図して変えた）
   assert.deepStrictEqual([...S.SETTING_KEYS].sort(), Object.keys(TODAY).sort());
   for (const k of S.SETTING_KEYS) assert.ok(typeof S.SETTING_RULES[k].label === 'string' && S.SETTING_RULES[k].label.length > 1, k);
   assert.strictEqual(S.defaultSettings(2).localThreads, 4);
@@ -270,4 +274,20 @@ test('0.11.0 Q-2（QM6・P11）: qualityScore は all・on・off の enum で既
   }
   assert.deepStrictEqual(S.readSettings({}, D).settings.qualityScore, 'all', '前の版の settings.json（キーが無い）は既定の all');
   assert.strictEqual(S.pickSavable({ qualityScore: 'off' }).qualityScore, 'off');
+});
+
+// 0.14.0 DQ-3（計画 docs/plans/2026-10-26-140.md の決めたこと 56・BQ18 (a)・BQ24 (a)）: 口述の文を AI で整える aiTidy（bool・notFalse。既定オン）
+test('DQ-3・決めたこと 56: aiTidy の照らし（壊れた値は既定のオン。false だけがオフ）。aiTidy が無く removeFillers が false なら切った形で読む（BQ24 (a)）', { timeout: 5000 }, () => {
+  assert.strictEqual(S.SETTING_RULES.aiTidy.kind, 'bool');
+  assert.strictEqual(S.SETTING_RULES.aiTidy.label, '口述の文を AI で整える');
+  assert.strictEqual(D.aiTidy, true);
+  for (const [v, want, why] of [[true, true, null], [false, false, null], ['x', true, 'type'], [0, true, 'type'], [null, true, 'type'], [{}, true, 'type']]) {
+    const r = S.readSettings({ aiTidy: v }, D);
+    assert.strictEqual(r.settings.aiTidy, want, JSON.stringify(v));
+    assert.deepStrictEqual(r.repaired.filter((x) => x.key === 'aiTidy').map((x) => x.why), why ? [why] : [], JSON.stringify(v));
+  }
+  assert.strictEqual(S.readSettings({ removeFillers: false }, D).settings.aiTidy, false);
+  assert.strictEqual(S.readSettings({ removeFillers: false, aiTidy: true }, D).settings.aiTidy, true);
+  assert.strictEqual(S.readSettings({ removeFillers: 'yes' }, D).settings.aiTidy, true);
+  assert.ok(Object.hasOwn(S.pickSavable({ aiTidy: false }), 'aiTidy'), '画面から保存できない');
 });

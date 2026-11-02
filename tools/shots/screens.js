@@ -374,6 +374,10 @@ const SCREENS = [
   { name: 'memo-blocks-light', page: 'app', theme: 'light', get answers() { return memoBlocksAnswers(); }, act: OPEN_MEMO(true) },
   { name: 'memo-blocks-dark', page: 'app', theme: 'dark', get answers() { return memoBlocksAnswers(); }, act: OPEN_MEMO(true) },
   { name: 'live-memo-blocks-light', page: 'app', theme: 'light', get answers() { return liveMemoAnswers(); }, act: OPEN_MEMO(false) },
+  // 0.14.0 DQ-3（計画の「取り直す画面（RETAKE）」・BQ27 (a)）: 設定の［録音］の「文字起こし」のカードまで捲った形（「フィラー除去」の下の「口述の文を AI で整える」）と、
+  // 音声入力の履歴の［元の文をコピー］のある行。足した画面（まだ基準が無い）。カードに1行増える settings-record-light・settings-record-dark・settings-record-zoom200-light は取り直す
+  { name: 'settings-dictation-light', page: 'app', theme: 'light', act: `${OPEN_SETTINGS}; ${NAV('setNavRecord')}; document.getElementById('aiTidy').closest('.card').scrollIntoView({ block: 'start' })` },
+  { name: 'history-tidy-light', page: 'app', theme: 'light', get answers() { return { 'koeApp.getHistory': HISTORY_TIDY }; }, act: "document.getElementById('tabBtnDictation').click()" },
 ];
 // 0.9.0 O-3（RP9）: 録音バーの画面（形 → 地 → 拡大率 → 状態の順。撮る道具は形・地・拡大率の組ごとに窓を1つ開いて状態を act で替える）。
 // 録音は始めずに見た目だけを撮る（act は pill-states の見本を録音バーの DOM に当てる。撮るときだけ体の地にデスクトップの色を塗る）。
@@ -475,10 +479,13 @@ const OVL_094 = (states) => PS.FORMS.flatMap((form) => Object.keys(PS.DESKS).fla
 // EK-5 で足した設定の近道の表の1枚（まだ基準が無い）と、表で「ホットキー」のカードが伸びる設定の［一般］の3枚（今の基準がある）
 // MB-4 で足した保存したページと録音中のページのメモの行の3枚（まだ基準が無い）と、メモの欄が textarea から行になる録音の前のページの3枚・録音中の種類の1枚・
 // 保存したページの種類の2枚（今の基準がある。live-ready-light はヘルプの写真の元: R71。基準を替えたら Task G で tools/help-appshots.js を回す）
+// DQ-3 で足した設定の「口述の文を AI で整える」の1枚と履歴の［元の文をコピー］の1枚（まだ基準が無い）と、BQ27 (a) で［録音］の「文字起こし」のカードに1行増える
+// settings-record の3枚（今の基準がある。settings-record-light はヘルプの写真の元: R71）
 const RETAKE = new Set(['edit-marks-light', 'edit-marks-dark', 'edit-toolbar-light', 'edit-link-light', 'edit-color-menu-light', 'edit-toolbar-zoom200-light', 'edit-select-light', 'edit-select-dark', 'settings-shortcuts-light',
-  'memo-blocks-light', 'memo-blocks-dark', 'live-memo-blocks-light',
+  'memo-blocks-light', 'memo-blocks-dark', 'live-memo-blocks-light', 'settings-dictation-light', 'history-tidy-light',
   'edit-block-menu-light', 'settings-light', 'settings-dark', 'settings-zoom200-dark',
-  'live-ready-light', 'live-ready-dark', 'live-ready-zoom200-light', 'live-type-light', 'page-type-light', 'page-type-dark']);
+  'live-ready-light', 'live-ready-dark', 'live-ready-zoom200-light', 'live-type-light', 'page-type-light', 'page-type-dark',
+  'settings-record-light', 'settings-record-dark', 'settings-record-zoom200-light']);
 const PERF = [{ name: 'open-2000-blocks', budgetMs: 500 }];   // 3回開いた中央値で見る
 const TIME_ZONE = 'Asia/Tokyo';
 const TOLERANCE = 2;   // 色の差（0〜255）がこれ以下の画素は同じとみなす。CI の機械の CPU ごとの描き方の1段の差を拾わないため（揺れの確かめ judgePair は 0 で見る）
@@ -559,6 +566,12 @@ const HISTORY = [
   { id: 'h1', text: '明日の打ち合わせは10時からに変更になりました。資料は前日までに共有します。', createdAt: '2026-10-17T23:30:00.000Z', durationSec: 9, chars: 38, procMs: 1400 },
   { id: 'h2', text: '見積もりの件、承知しました。来週の水曜までにお送りします。', createdAt: '2026-10-16T06:12:00.000Z', durationSec: 7, chars: 29, procMs: 1100 },
   { id: 'h3', text: '会議室の予約をお願いします。', createdAt: '2026-10-01T02:05:00.000Z', durationSec: 3, chars: 13, procMs: 800 },
+];
+// 0.14.0 DQ-3（決めたこと 55）: いちばん上の行は AI で整えた口述（raw は文字起こしのまま）。［元の文をコピー］が出る。ほかは今の見本のまま（raw の無い行）
+const HISTORY_TIDY = [
+  { id: 'h0', text: '明日の会議は、資料を見てから決めます。', raw: 'えーと、明日の会議は、あの、あの、資料を見てから決めます。', tidy: 'ai',
+    createdAt: '2026-10-17T23:50:00.000Z', durationSec: 5, chars: 19, procMs: 1600 },
+  ...HISTORY,
 ];
 
 /**

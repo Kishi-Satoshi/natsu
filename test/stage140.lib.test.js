@@ -1419,7 +1419,7 @@ const MEETING_SEEDS = (() => {
   return out.concat(['[BLANK_AUDIO]えーと、始めます。', '(音楽) あのー、続けます。', '(笑) それでは\n次へ進みます。', 'えー(拍手)以上です。', '[MUSIC] um, okay.']);
 })();
 
-test('DQ-1・F105: dropFillers は今の removeFillersRule と同じ（つなぎ言葉の 30 の文と会議の区間の文の種で1文字も同じ。main.js の cleanSentence の答えも同じ。main.js は古い関数を持たず dropFillers を6か所で呼ぶ）', () => {
+test('DQ-1・F105: dropFillers は今の removeFillersRule と同じ（つなぎ言葉の 30 の文と会議の区間の文の種で1文字も同じ。main.js の cleanSentence の答えも同じ。main.js は古い関数を持たず dropFillers を4か所・口述の tidyRules を1か所で呼ぶ）', () => {
   assert.strictEqual(FILLER_SEEDS.length, 30);
   assert.ok(MEETING_SEEDS.length >= 20, '会議の区間の文の種が読めない');
   for (const s of FILLER_SEEDS.concat(MEETING_SEEDS)) assert.strictEqual(DT.dropFillers(s), seedRemoveFillers(s), JSON.stringify(s));
@@ -1439,7 +1439,10 @@ test('DQ-1・F105: dropFillers は今の removeFillersRule と同じ（つなぎ
     }
   }
   assert.ok(!/removeFillersRule/.test(MAIN), 'main.js に古い removeFillersRule が残っている');
-  assert.strictEqual((MAIN.match(/dictTidy\.dropFillers\(/g) || []).length, 6, 'main.js の6か所（会議の文・音声入力・残した音声・会議の区間・復旧）が dropFillers を呼ばない');
+  // 0.14.0 DQ-3 で意図して変えた（R197）: 音声入力と残した音声の2か所は決まりの整え tidyRules（tidyRulesOnly。つなぎ言葉は同じ dropFillers）を通すので、
+  // dropFillers を直に呼ぶのは会議の文・会議の区間・復旧の4か所、tidyRules は tidyRulesOnly の1か所
+  assert.strictEqual((MAIN.match(/dictTidy\.dropFillers\(/g) || []).length, 4, 'main.js の4か所（会議の文・会議の区間・復旧）が dropFillers を呼ばない');
+  assert.strictEqual((MAIN.match(/dictTidy\.tidyRules\(/g) || []).length, 1, 'main.js の口述（音声入力・残した音声）が tidyRules を通らない');
 });
 
 test('DQ-1・R45: tidyRules の表（「ですです」「あの、あの、」→1つ・区切りの無い「確認確認」は変えない・長い語の頭の同じ字は変えない・数の並びは変えない・fillers が偽ならつなぎ言葉は残し、繰り返しはいつも1つに）', () => {

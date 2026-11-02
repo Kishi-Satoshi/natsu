@@ -102,7 +102,12 @@ test('LV-4・LV-7: 計画の「取り直す画面（RETAKE）」の表の画面�
   assert.ok(rows.length >= 7, table);
   // 0.13.0 RDY-3（計画 docs/plans/2026-10-24-130.md）で意図して直した: 0.13.0 の取り直し待ち（録音の前のページの画面）が入ったので、0.12.1 の表の画面が
   // 取り直し待ちに残っていないことを見る（意図は同じ: 0.12.1 の画面は基準にした）
-  assert.deepStrictEqual([...SH.RETAKE].filter((n) => rows.includes(n)), []);
+  // 0.14.0 DQ-3（計画 docs/plans/2026-10-26-140.md の BQ27 (a)）で意図して直した: 0.14.0 の表で取り直す画面（settings-record の3枚。「フィラー除去」の下に1行増える）は除いて見る
+  // （意図は同じ: 0.12.1 の画面は基準にし、0.14.0 の取り直しのほかに取り直し待ちに残っていない）
+  const plan140 = fs.readFileSync(path.join(ROOT, 'docs', 'plans', '2026-10-26-140.md'), 'utf8');
+  const i140 = plan140.indexOf('## 取り直す画面（RETAKE');
+  const table140 = plan140.slice(i140, plan140.indexOf('\n## ', i140 + 5));
+  assert.deepStrictEqual([...SH.RETAKE].filter((n) => rows.includes(n) && !table140.includes(`\`${n}\``)), []);
   for (const n of rows) {
     assert.ok(SH.SCREENS.some((s) => s.name === n), `${n} が撮る画面に無い`);
     assert.ok(fs.existsSync(path.join(ROOT, 'test', 'shots', 'win32', `${n}.png`)), `${n} の基準が無い`);

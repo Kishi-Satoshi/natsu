@@ -3643,3 +3643,64 @@ test('MB-4 直し・M3（守り。R190）: 録音の前のページから録音�
   assert.deepStrictEqual(last[0].rich, [{ t: 'abc', m: ['b'] }], JSON.stringify(last));
   assert.deepStrictEqual(r.errors.map(fmt), []);
 });
+
+// ---------------------------------------------------------------- DQ-3（BQ18 (a)・BQ19 (a)・BQ27 (a)・決めたこと 55・56）: 設定の「口述の文を AI で整える」と履歴の［元の文をコピー］
+test('DQ-3・BQ27 (a): 設定の［録音］の「文字起こし」のカードの「フィラー除去」のすぐ下に「口述の文を AI で整える」（既定オン）・説明の文・切り替えると自動の保存で aiTidy', T, async () => {
+  const { RETURNS } = require('./helpers/simrun.js');
+  const l = await load(APP);
+  try {
+    await l.drain();
+    const lab = $(l, 'removeFillers').closest('label');
+    const kids = lab.parentNode.children;
+    const next = kids[kids.indexOf(lab) + 1];
+    assert.ok(next && next.querySelector('#aiTidy'), '「フィラー除去」のすぐ下に「口述の文を AI で整える」が無い');
+    assert.strictEqual(next.dataset.row, '口述の文を AI で整える');
+    assert.match(next.textContent, /口述の文を AI で整える/);
+    assert.strictEqual($(l, 'aiTidyDesc').textContent, '言い直し・繰り返しを除き、箇条を整えます。');
+    assert.strictEqual($(l, 'aiTidyWarn').textContent, '音声をクラウドで文字起こししたときだけ使います。');
+    assert.ok($(l, 'aiTidyWarn').closest('label') === next, '注意の1行が切り替えの行の中に無い');
+    assert.strictEqual(lab.closest('.card').dataset.sec, 'record');
+    assert.strictEqual($(l, 'aiTidy').checked, true, 'aiTidy の無い設定で既定のオンでない');
+    $(l, 'aiTidy').checked = false;
+    l.byId.get('tabSettings').dispatchEvent({ type: 'change', target: $(l, 'aiTidy') });
+    await l.drain();
+    const saved = l.called('saveSettings');
+    assert.strictEqual(saved.length, 1);
+    assert.strictEqual(saved[0].args[0].aiTidy, false);
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { if (l.done) l.done(); }
+  const off = await load(APP, { returns: { getSettings: () => ({ ...RETURNS.getSettings(), aiTidy: false }) } });
+  try {
+    await off.drain();
+    assert.strictEqual($(off, 'aiTidy').checked, false, 'aiTidy: false がオフで出ない');
+  } finally { if (off.done) off.done(); }
+});
+
+test('DQ-3・BQ19 (a)（決めたこと 55）: 履歴の行で raw と text が違えば［元の文をコピー］→ copy(raw) と「元の文をコピーしました」。同じ・raw の無い行には出ない。［コピー］は今どおり text', T, async () => {
+  const at = new Date().toISOString();
+  const HIST = [
+    { id: 'h1', text: '明日の会議は、資料を見てから決めます。', raw: 'えーと、明日の会議は、あの、資料を見てから決めます。', tidy: 'ai', createdAt: at, durationSec: 4, chars: 19, procMs: 900 },
+    { id: 'h2', text: '会議室の予約をお願いします。', raw: '会議室の予約をお願いします。', tidy: 'rules', createdAt: at, durationSec: 3, chars: 14, procMs: 700 },
+    { id: 'h3', text: '見積もりを送ります。', createdAt: at, durationSec: 2, chars: 10, procMs: 600 },
+  ];
+  const l = await load(APP, { returns: { getHistory: () => HIST } });
+  try {
+    await l.drain();
+    const rows = $(l, 'histList').querySelectorAll('.entry');
+    assert.strictEqual(rows.length, 3);
+    const btns = (r) => r.querySelectorAll('button').map((b) => b.textContent);
+    assert.deepStrictEqual(btns(rows[0]), ['コピー', '元の文をコピー', '削除']);
+    assert.deepStrictEqual(btns(rows[1]), ['コピー', '削除']);
+    assert.deepStrictEqual(btns(rows[2]), ['コピー', '削除']);
+    assert.strictEqual(rows[0].querySelector('.text').textContent, HIST[0].text, '行に出すのは入れた文');
+    const raw = rows[0].querySelectorAll('button').find((b) => b.textContent === '元の文をコピー');
+    raw.dispatchEvent({ type: 'click' });
+    await l.drain();
+    assert.deepStrictEqual(l.called('copy').map((c) => c.args[0]), [HIST[0].raw]);
+    assert.strictEqual(toastOf(l), '元の文をコピーしました');
+    rows[0].querySelectorAll('button')[0].dispatchEvent({ type: 'click' });
+    await l.drain();
+    assert.deepStrictEqual(l.called('copy').map((c) => c.args[0]), [HIST[0].raw, HIST[0].text]);
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { if (l.done) l.done(); }
+});

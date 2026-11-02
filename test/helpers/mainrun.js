@@ -443,6 +443,16 @@ const { titleAt } = require('./titles');
 //                        答え方 ok・no・none・stale を決め、全体のキーか app:toggle-recording で始め、音声を送って録音バーの終わりの合図を待つ）・["relay-answer", 字]・
 //                        ["loading", bool]（本体の窓の画面が読み込み中）・["ipc-later", 名前, …引数]（答えを待たずに呼ぶ。答えは out.ipcLater）。出力に dict（{ pastes, pasteSims, history }）・
 //                        loginSentAt（ログインの窓を作ったときに本体の窓へ送ってあった dictation: の知らせの数）を足す。snap: 名前 で音声を送る前に snaps[名前] = { logins }
+//   0.14.0 DQ-3（口述の整え。計画の決めたこと 47・52・55〜57・R63・BQ24 (a)・BQ35）: --relay の場面は、中継の整えの口 POST /v1/text/tidy を本物の中継へ渡さず、
+//                        ここの偽の整えの口（127.0.0.1 の小さなサーバー。偽の Access の前は通らない）へ書き換える（relayPaths・order には数えない）。答え方は
+//                        --tidy=<答え方>（既定 404 = 整えの口の無い前の版の中継）と、--mic-feed の手順 ["tidy", 答え方]（{ text, lines } の物は 200 でその答え。
+//                        '401' login・'403' denied・'404'・'429' busy・'cap' 429 daily-cap・'503' not-ready・'502' upstream・'drop' 切る・'hold' 答えずに持つ）・
+//                        ["tidy-release", 答え方]（持っている要求にその答え方で答える）・["wait-tidy", n]（整えの口が n 回受けるまで待つ）・
+//                        ["tidy-time-up"]（main の 2 秒の待ちの時計 tidyTimeUp を今すぐ鳴らす。偽の時計: --relay の --mic-feed の場面は tidyTimeUp を走らせずに覚える。
+//                        ほかの --relay の場面は本当の時計で鳴らす）・["wait-dict-end"]（["dictate-in-natsu", { hold: true }] で待たなかった終わりの合図を待つ）。
+//                        出力（--mic-feed と sttOut）に tidy（{ requests: [{ body, cookie, xrw, type }], waits: [tidyTimeUp の ms] }）と、--mic-feed に overlayPhases を足す。
+//                        --relay-text=<文> … 中継の後ろの偽の OpenAI が返す文字起こしの文（既定は fake-stt の文。後ろに「区間<n>」が付く）。
+//                        --settings-add=<JSON> … 置く settings.json に重ねる（aiTidy・removeFillers など）。キーに null を渡すと、そのキーを書かない
 //   0.13.2 LN-1（LR14。計画 docs/plans/2026-10-28-132.md）
 //     --finalize-delay=<ms> … 偽の DB の締め（meeting.finalize）の答えを ms 遅らせる。--mic-feed の出力に pageFinal（ページごとの { id, title, phase（meeting.phase） }）を足す
 //     --quiet-mic … --quiet-seq の場面でも偽の見張りを起こし、字 T（見張りに mic teams:1）・L（mic -）を足す（どちらも偽の時計を 2 秒進める。Ruling R2）
@@ -649,6 +659,9 @@ const keptTickN = Number(flagVal('--kept-ticks')) || 0;
 const relayReqText = flagVal('--relay-req-text');
 const loginAfter = flags.includes('--login-after');
 const afterDictQueue = flags.includes('--after-dict-queue');   // 0.13.2 LN-2
+const tidyFlag = /^\{/.test(flagVal('--tidy') || '') ? JSON.parse(flagVal('--tidy')) : (flagVal('--tidy') || '404');   // 0.14.0 DQ-3: 偽の整えの口の始めの答え方（{ で始まれば答えの JSON）
+const relayTextFlag = flagVal('--relay-text');   // 0.14.0 DQ-3: 偽の OpenAI の文字起こしの文
+const settingsAdd = flagVal('--settings-add') ? JSON.parse(flagVal('--settings-add')) : null;   // 0.14.0 DQ-3
 const retranscribe = flags.includes('--retranscribe');   // 0.13.2 LN-5
 const retranscribeTicks = Number(flagVal('--retranscribe-ticks')) || 0;   // 0.13.2 点検の直し（重要 1）
 const retranscribeDuringTick = flags.includes('--retranscribe-during-tick');   // 0.13.2 点検の直し 4
@@ -795,6 +808,45 @@ const freePort = async () => {
   throw new Error('mainrun: 空いたポートが見つからない');
 };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+// 0.14.0 DQ-3: 偽の中継の整えの口（POST /v1/text/tidy。頭の注）。受けた要求の本文（JSON）・Cookie に CF_Authorization があったか・X-Requested-With・Content-Type を覚える
+async function startFakeTidy(mode0) {
+  const http = require('node:http');
+  let mode = mode0;
+  const requests = [];
+  const held = [];
+  const answer = (res, m) => {
+    if (res.destroyed || res.writableEnded) return;
+    const send = (st, body, h = {}) => { res.writeHead(st, { 'content-type': 'application/json', ...h }); res.end(JSON.stringify(body)); };
+    if (m && typeof m === 'object') send(200, m);
+    else if (m === '401') send(401, { error: 'login' });
+    else if (m === '403') send(403, { error: 'denied' });
+    else if (m === '404') send(404, { error: 'not-found' });
+    else if (m === '429') send(429, { error: 'busy', retryAfter: 2 }, { 'retry-after': '2' });
+    else if (m === 'cap') send(429, { error: 'daily-cap', scope: 'user', retryAfter: 3600 }, { 'retry-after': '3600' });
+    else if (m === '503') send(503, { error: 'not-ready' });
+    else if (m === '502') send(502, { error: 'upstream' });
+    else if (m === 'drop') res.socket.destroy();
+    else throw new Error(`mainrun: 偽の整えの口の答え方 ${JSON.stringify(m)} が読めない`);
+  };
+  const server = http.createServer((req, res) => {
+    const chunks = [];
+    req.on('data', (d) => chunks.push(d));
+    req.on('end', () => {
+      let body = null;
+      try { body = JSON.parse(Buffer.concat(chunks).toString('utf8')); } catch (_) { body = null; }
+      requests.push({ path: req.url, body, cookie: /(?:^|;\s*)CF_Authorization=/.test(String(req.headers.cookie || '')), xrw: String(req.headers['x-requested-with'] || ''),
+        type: String(req.headers['content-type'] || '') });
+      if (mode === 'hold') held.push(res); else answer(res, mode);
+    });
+  });
+  await new Promise((r) => server.listen(0, '127.0.0.1', r));
+  server.unref();
+  return {
+    base: `http://127.0.0.1:${server.address().port}`, requests,
+    set(m) { mode = m; },
+    release(m) { for (const res of held.splice(0)) answer(res, m); },
+  };
+}
 // 場面が「終わった」と言える条件を待つ上限。条件が揃えばすぐ進むので、通る場面は速いまま。上限は、負荷のある遅い機械
 // （Windows の CI で、他の場面・他のテストのファイルと CPU を取り合う）でも届く長さにする。固定の短い上限（4 秒）では、
 // 51MB の偽のモデルの取り込みと照らしが間に合わず、場面が途中の写しを返していた（文字起こしの組までしか取れていない）
@@ -905,7 +957,11 @@ process.on('exit', () => {
   const claudeReach = claudeMode && !sttMode && !relayMode ? await require('./fake-stt').startFakeStt({ mode: 'text', key: STT_KEY }) : null;
   const fakeEnc = (s) => Buffer.from(`ENC1:${Buffer.from(s, 'utf8').toString('hex')}`);
   // 本物の中継のコードを 127.0.0.1 で（--relay。第1d回 A-2）。終わるときに閉じなくても、process.exit で消える
-  const relayLocal = relayMode ? await require('./relay-local').startRelayLocal({ stt: { mode: relaySttMode, ...(relayMode === 'tagged' ? { textOf: streamTextOf } : {}) }, env: RELAY_ENV[relayMode] || {}, access: true }) : null;
+  const relayLocal = relayMode ? await require('./relay-local').startRelayLocal({ stt: { mode: relaySttMode, ...(relayMode === 'tagged' ? { textOf: streamTextOf } : {}), ...(relayTextFlag ? { text: relayTextFlag } : {}) }, env: RELAY_ENV[relayMode] || {}, access: true }) : null;
+  // 0.14.0 DQ-3: 偽の中継の整えの口（頭の注。--relay の場面だけ）
+  const tidyFake = relayLocal ? await startFakeTidy(tidyFlag) : null;
+  const tidyWaits = [];   // main の tidyTimeUp の時計に渡した ms
+  const tidyTimers = [];   // --mic-feed の場面で走らせずに覚えた tidyTimeUp（["tidy-time-up"] で鳴らす）
   const { RELAY_BASE, ACCESS_PARTITION, LOGIN_URL, packCookies } = require(path.join(ROOT, 'src', 'relay.js'));
   const RELAY_HOST = new URL(RELAY_BASE).hostname;
   // rl.cookieFor の形（cookies.set に渡す形）→ cookies.get が返す形（packCookies が読む）
@@ -1330,7 +1386,8 @@ process.on('exit', () => {
       ...(mcpGoneFlag ? { mcpRegisteredFor: { files: 1, version: '0.9.4' } } : {}),   // 0.10.0 C-2
       claudeExe,
       ...(pillSettings || {}),
-    }));
+      ...(settingsAdd || {}),   // 0.14.0 DQ-3
+    }, (k, v) => (v === null && settingsAdd && Object.hasOwn(settingsAdd, k) ? undefined : v)));
   }
   const settingsBefore = pillSettings ? JSON.parse(fs.readFileSync(path.join(userData, 'settings.json'), 'utf8')) : null;
 
@@ -1768,6 +1825,7 @@ process.on('exit', () => {
   const rewrite = (u) => {
     const s = String(u);
     try { netHosts.push(new URL(s).host); } catch (_) { netHosts.push(''); }
+    if (tidyFake && s === `${RELAY_BASE}/v1/text/tidy`) return `${tidyFake.base}/v1/text/tidy`;   // 0.14.0 DQ-3: 偽の整えの口（relayPaths に数えない）
     if (relayLocal && s.startsWith(`${RELAY_BASE}/`)) { relayPaths.push(s.slice(RELAY_BASE.length)); order.push(`relay ${s.slice(RELAY_BASE.length)}`); return relayTarget + s.slice(RELAY_BASE.length); }
     if (openAiBase && s.startsWith(`${OPENAI_BASE}/`)) return `${openAiBase}${s.slice(OPENAI_BASE.length)}`;
     const anth = fakeStt || (relayLocal && relayLocal.stt) || claudeReach;   // 第1d回 A-3: --relay の場面は中継の後ろの偽の OpenAI の /anthropic
@@ -2216,6 +2274,25 @@ process.on('exit', () => {
     global.setTimeout = function (fn, ms, ...a) {
       if (fn && fn.name === 'restartMicWatch') { restartDelays.push(ms); return st0.call(this, fn, 5, ...a); }
       return st0.call(this, fn, ms, ...a);
+    };
+  }
+  // 0.14.0 DQ-3: main の整えの 2 秒の待ち（tidyTimeUp）の偽の時計。--mic-feed の場面は走らせずに覚え（["tidy-time-up"] で鳴らす）、ほかは本当の時計（ms を覚えるだけ）
+  if (tidyFake) {
+    const st2 = global.setTimeout;
+    global.setTimeout = function (fn, ms, ...a) {
+      if (fn && fn.name === 'tidyTimeUp') {
+        tidyWaits.push(ms);
+        if (!micSteps) return st2.call(this, fn, ms, ...a);
+        const h = st2.call(this, () => {}, 600000);
+        tidyTimers.push({ fn, h, args: a, cleared: false });
+        return h;
+      }
+      return st2.call(this, fn, ms, ...a);
+    };
+    const ct2 = global.clearTimeout;
+    global.clearTimeout = function (h) {
+      for (const t of tidyTimers) if (t.h === h) t.cleared = true;
+      return ct2.call(this, h);
     };
   }
   const jsonfile = require(path.join(ROOT, 'src', 'jsonfile.js'));
@@ -2785,6 +2862,7 @@ process.on('exit', () => {
       out.loginWins = loginRecs.slice();
     }
     out.netHosts = netHosts.slice();
+    if (tidyFake) out.tidy = { requests: tidyFake.requests.slice(), waits: tidyWaits.slice() };   // 0.14.0 DQ-3
     out.balloons = balloons.slice();
     out.decrypts = decrypts;
     const sec = readUser('secrets.json');
@@ -3169,6 +3247,9 @@ process.on('exit', () => {
     // 0.13.2 点検の直し 2: 起動の片付け（startupWork）が済んだか。下書きの復旧（recoverDraftIfAny）が返ると、同じ手番で meeting.settle を頼む
     const settledNow = () => trace.some((t) => t.kind === 'call' && t.cmd === 'meeting.settle');
     const laterCalls = [];   // 0.14.0 EK-6: ["ipc-later", …] の答え
+    // 0.14.0 DQ-3: 録音バーの終わりの合図（done・error）の数と、["dictate-in-natsu"] を始めた時の数
+    const dictEnds = () => sent.filter(([ch, p]) => ch === 'overlay:phase' && p && (p.phase === 'done' || p.phase === 'error')).length;
+    let dictEndsAt = 0;
     for (const step of micSteps) {
       const [k, ...a] = step;
       if (k === 'line') { const kid = lastKid(); if (kid) kid.stdout.emit('data', Buffer.from(`${a[0]}\n`)); await sleep(15); }
@@ -3217,22 +3298,35 @@ process.on('exit', () => {
       // 0.14.0 EK-6: 音声入力を1回（{ where: 偽の画面の答え方, by: 'key'（全体のキー）| 'button'（app:toggle-recording）, audio: 音声を送るか, ms: 音声の長さ }）。
       // 録音を始めたら音声を送り、録音バーの終わりの合図（done・error）を待つ
       else if (k === 'dictate-in-natsu') {
-        const o = { where: 'ok', by: 'key', audio: true, ms: 3000, ...(a[0] || {}) };
+        // 0.14.0 DQ-3: hold: true なら音声を送った後に終わりの合図を待たない（["wait-dict-end"] で待つ）
+        const o = { where: 'ok', by: 'key', audio: true, ms: 3000, hold: false, ...(a[0] || {}) };
         whereMode = o.where;
         const starts = () => sent.filter(([ch]) => ch === 'overlay:start').length;
-        const ends = () => sent.filter(([ch, p]) => ch === 'overlay:phase' && p && (p.phase === 'done' || p.phase === 'error')).length;
+        const ends = dictEnds;
         const s0 = starts(); const e0 = ends();
+        dictEndsAt = e0;
         if (o.by === 'button') await handlers['app:toggle-recording']();
         else { const st = await handlers['settings:get'](); shortcuts[st.hotkey](); }
         await sleep(40);
         if (o.snap) out.snaps[o.snap] = { logins: loginRecs.length, starts: starts() - s0 };
         if (o.audio && starts() > s0) {
           listeners['audio:done']({}, { buffer: new Uint8Array(o.ms >= 1000 ? audioWav(o.ms / 1000) : 10), durationMs: o.ms });
-          await waitFor(() => ends() > e0, 15000);
-          await sleep(60);
+          if (o.hold) await sleep(30);
+          else {
+            await waitFor(() => ends() > e0, 15000);
+            await sleep(60);
+          }
         }
       }
       else if (k === 'relay-answer') { if (relayLocal) await relayLocal.setAnswer(a[0]); }   // 0.14.0 EK-6: 中継の答え方
+      // 0.14.0 DQ-3: 偽の整えの口の答え方・持っている要求に答える・n 回受けるまで待つ・2 秒の待ちの時計を鳴らす・待たなかった音声入力の終わりを待つ
+      else if (k === 'tidy') tidyFake.set(a[0]);
+      else if (k === 'tidy-release') { tidyFake.release(a[0]); await sleep(60); }
+      else if (k === 'wait-tidy') await waitFor(() => tidyFake.requests.length >= a[0], 5000);
+      else if (k === 'tidy-time-up') {
+        for (const t of tidyTimers.splice(0)) { if (!t.cleared) { clearTimeout(t.h); t.fn(...t.args); } }
+        await sleep(30);
+      } else if (k === 'wait-dict-end') { await waitFor(() => dictEnds() > dictEndsAt, 15000); await sleep(60); }
       else if (k === 'loading') { mainLoading = Boolean(a[0]); await sleep(15); }   // 0.14.0 EK-6: 本体の窓の画面が読み込み中か（isLoading だけ。送った物は今どおり届く）
       // 0.14.0 EK-6: 答えを待たずに呼ぶ（答えは終わりに out.ipcLater へ）
       else if (k === 'ipc-later') { const [ch, ...args] = a; laterCalls.push(Promise.resolve(handlers[ch]({}, ...args)).then((r) => [ch, r])); await sleep(30); }
@@ -3274,6 +3368,8 @@ process.on('exit', () => {
       loginWins: loginRecs.map((r) => ({ ...r })),   // 0.13.2 LN-4
       // 0.14.0 EK-6: クリップボードへ書いた文・貼り付けの真似・履歴・ログインの窓を作ったときの dictation: の知らせの数・["ipc-later"] の答え
       dict: { pastes: clipWrites.slice(), pasteSims: pasteSims.length, history: handlers['history:get']() }, loginSentAt: loginSentAt.slice(), ipcLater: await Promise.all(laterCalls),
+      // 0.14.0 DQ-3: 偽の整えの口が受けた要求・main の整えの待ちの時計の ms・録音バーへ送った overlay:phase
+      tidy: tidyFake ? { requests: tidyFake.requests.slice(), waits: tidyWaits.slice(), sttPosts: relayPaths.filter((x) => x === '/v1/audio/transcriptions').length } : null, overlayPhases: sent.filter(([ch]) => ch === 'overlay:phase').map(([, p]) => p),
       // 0.13.0 RDY-1: 議事録のページのメモと種類
       pageMemos: store.listPages().map((p) => { const pg = store.getPage(p.id) || {}; return { id: p.id, memo: pg.memo, meetingType: pg.meetingType === undefined ? null : pg.meetingType, ...(pg.memoDoc !== undefined ? { memoDoc: pg.memoDoc } : {}) }; }),   // 0.14.0 MB-3: メモの行
       // 0.13.2 LN-1（LR14）: 締めの後の形（題名・meeting.phase）

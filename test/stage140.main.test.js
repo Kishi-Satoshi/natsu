@@ -529,3 +529,191 @@ test('MB-4 直し・M5（守り。R190）: 照らしに合わないメモの行�
     assert.ok(!o.dataFiles.includes('draft.json'), '写しを残したのに下書きが残った');
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
+
+// ---------------------------------------------------------------- DQ-3（BQ9-2・F105・RF28・決めたこと 45〜57・R63・BQ24 (a)・BQ35）: アプリの口述の整え
+// 偽の中継（--relay）の後ろの偽の OpenAI が SAID を文字起こしの文として返し（後ろに「区間<n>」が付く）、偽の整えの口（helpers/mainrun.js の --tidy・["tidy", …]）が答える。
+// 文はどれも作った文（実在の人・会議の文ではない）
+const SAID = 'えーと、明日の会議は、あの、あの、資料を見てから決めます。';
+const RAW1 = `${SAID}区間1`;
+const RULES1 = '明日の会議は、あの、資料を見てから決めます。区間1';          // 決まりの整え（フィラー除去オン: つなぎ言葉と同じ語の繰り返し）
+const RULES1_NOFILL = 'えーと、明日の会議は、あの、資料を見てから決めます。区間1';  // フィラー除去オフ（繰り返しだけ1つに）
+const AI1 = '明日の会議は、資料を見てから決めます。区間1';
+const AI_REPLY = { text: AI1, lines: [] };
+const tidyLog = (o) => o.engineLog.filter((l) => l.startsWith('整え: '));
+const sttPosts = (o) => o.tidy.sttPosts;
+const tidyDump = (o) => JSON.stringify({ tidy: o.tidy, dict: o.dict, sent: o.mainSentAll.filter(([c]) => /^(dictation:|app:notice)/.test(c)), log: o.engineLog.slice(-14) });
+const noDictText = (log) => !log.some((l) => /明日|会議は|資料|決めます|えーと|meeting|資料の確認/.test(l));
+const RELAY = ['--relay=text', `--relay-text=${SAID}`];
+
+test('DQ-3・F105・RF28: 中継で文字起こしした口述 → 偽の中継の整えの口に1回（文字起こしのままの文・言語・辞書の語。ログインの cookie で JSON）・入る文は整えた文・履歴の text は整えた文・raw は文字起こしのまま・tidy は ai・録音バーは「整えています…」', T, async () => {
+  const o = await mic([['sleep', 100], ['tidy', AI_REPLY], ['dictate-in-natsu', { where: 'ok' }]], ...RELAY);
+  assert.strictEqual(o.tidy.requests.length, 1, tidyDump(o));
+  const q = o.tidy.requests[0];
+  assert.deepStrictEqual(q.body, { text: RAW1, lang: 'ja', words: [] }, tidyDump(o));
+  assert.ok(q.cookie, '整えの口へ Access の cookie で送っていない');
+  assert.strictEqual(q.xrw, 'XMLHttpRequest');
+  assert.match(q.type, /^application\/json/);
+  const w = dsent(o, 'dictation:where');
+  assert.deepStrictEqual(dsent(o, 'dictation:text'), [{ seq: w[0].seq, text: AI1, lines: null }], tidyDump(o));
+  const h = o.dict.history[0];
+  assert.deepStrictEqual([h.text, h.raw, h.tidy], [AI1, RAW1, 'ai'], tidyDump(o));
+  assert.deepStrictEqual(o.tidy.waits, [2000], '待つのは 2 秒（TIDY_WAIT_MS）');
+  assert.ok(o.overlayPhases.some((p) => p.phase === 'processing' && p.message === '整えています…'), JSON.stringify(o.overlayPhases));
+  assert.deepStrictEqual(tidyLog(o), ['整え: AI'], tidyDump(o));
+  // ほかのアプリ（NaTsu の窓が前でない）: 整えた文を今どおり貼る
+  const u = await mic([['sleep', 100], ['tidy', AI_REPLY], ['dictate-in-natsu', { where: 'ok' }]], ...RELAY, '--main-unfocused');
+  assert.deepStrictEqual(u.dict.pastes, [AI1], tidyDump(u));
+  assert.deepStrictEqual(u.dict.history[0].raw, RAW1);
+});
+
+test('DQ-3・F105・RF28: 手元の whisper で文字起こしした口述（オフライン・ログインしていない・中継が文字起こしに失敗して PC へ戻した）・設定 aiTidy がオフ → 整えの口に要求が1回も来ない・決まりの整えの文・tidy は rules（フィラー除去もオフなら off）', { timeout: sceneTimeout(120000) }, async () => {
+  const CASES = [
+    ['オフライン', ['--offline'], [['sleep', 200]], 'local', RULES1, 'rules'],
+    ['ログインしていない', ['--signed-out'], [['sleep', 100]], 'local', RULES1, 'rules'],
+    ['中継が失敗して PC へ', [], [['sleep', 100], ['relay-answer', '5']], 'local', RULES1, 'rules'],
+    ['aiTidy がオフ', ['--settings-add={"aiTidy":false}'], [['sleep', 100]], 'off', RULES1, 'rules'],
+    ['aiTidy もフィラー除去もオフ', ['--settings-add={"aiTidy":false,"removeFillers":false}'], [['sleep', 100]], 'off', RULES1_NOFILL, 'off'],
+  ];
+  for (const [name, flags, boot, code, text, tidy] of CASES) {
+    const o = await mic([...boot, ['tidy', AI_REPLY], ['dictate-in-natsu', { where: 'ok' }]], ...RELAY, ...flags);
+    assert.strictEqual(o.tidy.requests.length, 0, `${name}: 整えの口へ送った ${tidyDump(o)}`);
+    const h = o.dict.history[0];
+    assert.ok(h, `${name}: 履歴が無い ${tidyDump(o)}`);
+    // 手元の偽の whisper の文は別の文なので、中継の文のときだけ文を見る
+    if (code === 'off') assert.deepStrictEqual([h.text, h.raw, h.tidy], [text, RAW1, tidy], `${name}: ${tidyDump(o)}`);
+    else assert.strictEqual(h.tidy, tidy, `${name}: ${tidyDump(o)}`);
+    assert.deepStrictEqual(tidyLog(o), [`整え: 決まり（${code}）`], `${name}: ${tidyDump(o)}`);
+    assert.deepStrictEqual(o.tidy.waits, [], `${name}: 待った`);
+  }
+});
+
+test('DQ-3・F105・R49: 残した音声を後で文字起こしした行は整えの口へ送らない（決まりの整えだけ・tidy は rules）', { timeout: sceneTimeout(60000) }, async () => {
+  const args = ['text', '--dictate', '--relay-seq=n', '--no-engine=fetchable', '--dict-back', `--tidy=${JSON.stringify(AI_REPLY)}`];
+  const o = await new Promise((resolve, reject) => {
+    execScene(process.execPath, [RUN, ...args], { env: { ...process.env, NATSU_TEST_STT_SLEEP_SCALE: '0.01', NATSU_TEST_ONLINE_MEMO_SCALE: '0.001' }, maxBuffer: 1 << 24, timeout: 30000 },
+      (err, stdout, stderr) => (err ? reject(new Error(`${err.message}\n${stderr}`)) : resolve(JSON.parse(stdout.trim().split('\n').pop()))));
+  });
+  const row = o.dictBack.history.find((x) => x && !x.wait);
+  assert.ok(row, JSON.stringify(o.dictBack.history));
+  assert.strictEqual(row.tidy, 'rules', JSON.stringify(row));
+  assert.strictEqual(o.tidy.requests.length, 0, JSON.stringify(o.tidy));
+});
+
+test('DQ-3・F105（決めたこと 47）: 整えの口が 2 秒答えない（偽の時計）→ 決まりの整えの文がすぐ入る・遅れて来た答えで文が差し替わらない（入れたのは1回・履歴も決まりの整えの文）', T, async () => {
+  const o = await mic([['sleep', 100], ['tidy', 'hold'], ['dictate-in-natsu', { where: 'ok', hold: true }], ['wait-tidy', 1], ['snap', 'held'], ['tidy-time-up'], ['wait-dict-end'],
+    ['tidy-release', AI_REPLY], ['sleep', 150]], ...RELAY);
+  assert.deepStrictEqual(o.tidy.waits, [2000], tidyDump(o));
+  const w = dsent(o, 'dictation:where');
+  assert.deepStrictEqual(dsent(o, 'dictation:text'), [{ seq: w[0].seq, text: RULES1, lines: null }], tidyDump(o));
+  assert.deepStrictEqual(o.dict.pastes, [], `遅れて来た答えを貼った: ${tidyDump(o)}`);
+  assert.strictEqual(o.dict.history.length, 1, tidyDump(o));
+  assert.deepStrictEqual([o.dict.history[0].text, o.dict.history[0].raw, o.dict.history[0].tidy], [RULES1, RAW1, 'rules'], tidyDump(o));
+  assert.deepStrictEqual(tidyLog(o), ['整え: 決まり（timeout）', '整え: 遅れて来た答えを捨てた'], tidyDump(o));
+});
+
+test('DQ-3・F105（決めたこと 48・53・R48）: 答えが照らしに外れる（英訳・長すぎる）・429・1日の上限・404（前の版の中継）・502・切れた → 決まりの整えの文・知らせない', { timeout: sceneTimeout(60000) }, async () => {
+  const MODES = [
+    [{ text: 'The meeting tomorrow will be decided after checking the materials.', lines: [] }, 'guard'],
+    [{ text: AI1.repeat(3), lines: [] }, 'guard'],
+    ['429', 'busy'], ['cap', 'cap'], ['404', 'relay-old'], ['502', 'server'], ['drop', 'net'],
+  ];
+  const steps = [['sleep', 100]];
+  for (const [m] of MODES) steps.push(['tidy', m], ['dictate-in-natsu', { where: 'ok' }]);
+  const o = await mic(steps, ...RELAY);
+  assert.strictEqual(o.tidy.requests.length, MODES.length, tidyDump(o));
+  const texts = dsent(o, 'dictation:text').map((x) => x.text);
+  assert.deepStrictEqual(texts, MODES.map((_, i) => RULES1.replace('区間1', `区間${i + 1}`)), tidyDump(o));
+  assert.deepStrictEqual(o.dict.history.map((h) => h.tidy), MODES.map(() => 'rules'));
+  assert.deepStrictEqual(tidyLog(o), MODES.map(([, c]) => `整え: 決まり（${c}）`), tidyDump(o));
+  assert.deepStrictEqual(o.notices.map(noticeText), [], '整えの失敗を知らせた');
+  assert.strictEqual(o.loginWins.length, 0, 'ログインの窓を開いた');
+});
+
+test('DQ-3・F105（決めたこと 57）: engine.log に口述の文も整えた文も無く、符号（整え: AI・整え: 決まり（guard）など）だけ', T, async () => {
+  const o = await mic([['sleep', 100], ['tidy', AI_REPLY], ['dictate-in-natsu', { where: 'ok' }], ['tidy', { text: 'The meeting tomorrow will be decided after checking the materials.', lines: [] }],
+    ['dictate-in-natsu', { where: 'ok' }]], ...RELAY);
+  assert.deepStrictEqual(tidyLog(o), ['整え: AI', '整え: 決まり（guard）'], tidyDump(o));
+  assert.ok(noDictText(o.engineLog), `記録に口述の文: ${o.engineLog.join('\n')}`);
+});
+
+test('DQ-3・F105（決めたこと 45）: 会議の区間の文は整えの口に送らない（会議を1つ録って偽の中継の整えの口の要求が0）', { timeout: sceneTimeout(60000) }, async () => {
+  const o = await sceneRun(['text', '--relay=text', `--tidy=${JSON.stringify(AI_REPLY)}`]);
+  assert.ok(o.relayCalls.filter((x) => x === '/v1/audio/transcriptions').length >= 1, `前提: 区間を中継へ送っていない ${JSON.stringify(o.relayCalls)}`);
+  assert.strictEqual(o.tidy.requests.length, 0, JSON.stringify(o.tidy));
+});
+
+// 符号位置（Array.from の数）で n 字の、つなぎ言葉も繰り返しも無い作った文
+const cp = (s) => Array.from(s).length;
+const saidOf = (n) => { const base = '資料の確認をお願いします。'; let t = ''; while (cp(t) + cp(base) <= n) t += base; return t + '確'.repeat(n - cp(t)); };
+test('DQ-3・BQ35（2026-11-02）: 整えの前の文が 300 字を越える口述（中継で文字起こしした・設定オン・ログインしている）→ 整えの口に要求が来ない・決まりの整えの文がすぐ入る（2 秒待たない）・tidy は rules・記録の符号 long。ちょうど 300 字なら送る', { timeout: sceneTimeout(60000) }, async () => {
+  const long = saidOf(298);   // 後ろの「区間1」で 301 字
+  const o = await mic([['sleep', 100], ['tidy', 'hold'], ['dictate-in-natsu', { where: 'ok' }]], '--relay=text', `--relay-text=${long}`);
+  assert.strictEqual(cp(o.dict.history[0].raw), 301, tidyDump(o));
+  assert.strictEqual(o.tidy.requests.length, 0, tidyDump(o));
+  assert.deepStrictEqual(o.tidy.waits, [], '300 字を越える口述で待った');
+  assert.deepStrictEqual([o.dict.history[0].text, o.dict.history[0].tidy], [`${long}区間1`, 'rules']);
+  assert.strictEqual(dsent(o, 'dictation:text').length, 1, tidyDump(o));
+  assert.deepStrictEqual(tidyLog(o), ['整え: 決まり（long）']);
+  const just = saidOf(297);   // 300 字
+  const e = await mic([['sleep', 100], ['tidy', { text: `${just}区間1`, lines: [] }], ['dictate-in-natsu', { where: 'ok' }]], '--relay=text', `--relay-text=${just}`);
+  assert.strictEqual(e.tidy.requests.length, 1, tidyDump(e));
+  assert.strictEqual(cp(e.tidy.requests[0].body.text), 300);
+  assert.strictEqual(e.dict.history[0].tidy, 'ai');
+});
+
+test('DQ-3・BQ24 (a): settings.json に aiTidy が無く removeFillers: false → 整えの口に要求が来ない・tidy は off（保存すると aiTidy: false を書く）。aiTidy: true を入れれば整える。aiTidy が無く removeFillers がオン・settings.json が無い → 既定でオン', { timeout: sceneTimeout(60000) }, async () => {
+  const S = require('../src/settings');
+  const D = S.defaultSettings(4);
+  assert.strictEqual(S.readSettings({}, D).settings.aiTidy, true, 'settings.json が無い（空）');
+  assert.strictEqual(S.readSettings({ removeFillers: true }, D).settings.aiTidy, true);
+  assert.strictEqual(S.readSettings({ removeFillers: false }, D).settings.aiTidy, false);
+  assert.strictEqual(S.readSettings({ removeFillers: false, aiTidy: true }, D).settings.aiTidy, true);
+  const o = await mic([['sleep', 100], ['tidy', AI_REPLY], ['dictate-in-natsu', { where: 'ok' }], ['save', {}]], ...RELAY, '--settings-add={"removeFillers":false}');
+  assert.strictEqual(o.tidy.requests.length, 0, tidyDump(o));
+  assert.deepStrictEqual([o.dict.history[0].text, o.dict.history[0].tidy], [RULES1_NOFILL, 'off'], tidyDump(o));
+  assert.strictEqual(JSON.parse(o.settingsText).aiTidy, false, o.settingsText);
+  const on = await mic([['sleep', 100], ['tidy', AI_REPLY], ['dictate-in-natsu', { where: 'ok' }]], ...RELAY, '--settings-add={"removeFillers":false,"aiTidy":true}');
+  assert.strictEqual(on.tidy.requests.length, 1, tidyDump(on));
+  assert.strictEqual(on.dict.history[0].tidy, 'ai');
+});
+
+test('DQ-3・R63（第4版）: 整えの口が 401 → 決まりの整えの文がすぐ入る・しまったログインを消す（文字起こしの 401 と同じ記録）。送った後にログインし直していれば消さない', { timeout: sceneTimeout(60000) }, async () => {
+  const o = await mic([['sleep', 100], ['tidy', '401'], ['dictate-in-natsu', { where: 'ok' }], ['tidy', AI_REPLY], ['dictate-in-natsu', { where: 'ok' }]], ...RELAY);
+  assert.strictEqual(dsent(o, 'dictation:text')[0].text, RULES1, tidyDump(o));
+  assert.ok(o.engineLog.includes('アカウント: 中継が login。ログインを消した'), tidyDump(o));
+  assert.strictEqual(tidyLog(o)[0], '整え: 決まり（login）', tidyDump(o));
+  // ログインを消したので、次の口述は PC の中で文字起こしし、整えの口へ送らない
+  assert.strictEqual(o.tidy.requests.length, 1, tidyDump(o));
+  assert.strictEqual(tidyLog(o)[1], '整え: 決まり（local）', tidyDump(o));
+  const r = await mic([['sleep', 100], ['tidy', 'hold'], ['dictate-in-natsu', { where: 'ok', hold: true }], ['wait-tidy', 1], ['ipc', 'account:login'], ['tidy-release', '401'], ['wait-dict-end']], ...RELAY);
+  assert.deepStrictEqual(ipcOf(r, 'account:login').map((x) => x && x.ok), [true], tidyDump(r));
+  assert.ok(r.engineLog.includes('アカウント: 中継が login。送った後にログインし直していたので、今のログインは消さない'), tidyDump(r));
+  assert.ok(!r.engineLog.includes('アカウント: 中継が login。ログインを消した'), tidyDump(r));
+  assert.strictEqual(dsent(r, 'dictation:text')[0].text, RULES1, tidyDump(r));
+});
+
+test('DQ-3・R63（第4版）: 整えの口が 503 を3回・429 の1日の上限 → relayHold・sttHold は進まず、次の口述の文字起こしは中継へ行く', { timeout: sceneTimeout(60000) }, async () => {
+  const steps = [['sleep', 100], ['tidy', '503']];
+  for (let i = 0; i < 3; i++) steps.push(['dictate-in-natsu', { where: 'ok' }]);
+  steps.push(['tidy', 'cap'], ['dictate-in-natsu', { where: 'ok' }], ['tidy', AI_REPLY], ['dictate-in-natsu', { where: 'ok' }]);
+  const o = await mic(steps, ...RELAY);
+  assert.strictEqual(sttPosts(o), 5, `文字起こしが中継へ行かなかった: ${tidyDump(o)}`);
+  assert.strictEqual(o.engineLog.filter((l) => /^文字起こしの経路: 音声入力 → cloud\(relay\)/.test(l)).length, 5, tidyDump(o));
+  assert.ok(!o.engineLog.some((l) => /秒の間は中継へ送りません/.test(l)), tidyDump(o));
+  assert.deepStrictEqual(tidyLog(o), ['整え: 決まり（server）', '整え: 決まり（server）', '整え: 決まり（server）', '整え: 決まり（cap）', '整え: AI'], tidyDump(o));
+});
+
+test('DQ-3・R63（第4版）: 整えを待つ間に、止めていた会議の後の文字起こしの回し直しは始まらず、待機に戻ってから始まる', { timeout: sceneTimeout(60000) }, async () => {
+  const o = await new Promise((resolve, reject) => {
+    execScene(process.execPath, [RUN, 'slow', '--relay=text', `--relay-text=${SAID}`, '--extra-queue=localonly3', '--dictate', '--after-dict-queue', '--tidy=hold'],
+      { env: { ...process.env, NATSU_TEST_STT_SLEEP_SCALE: '0.01', NATSU_TEST_LOCAL_TIME_SCALE: '0.02' }, maxBuffer: 1 << 24, timeout: 50000 },
+      (err, stdout, stderr) => (err ? reject(new Error(`${err.message}\n${stderr}`)) : resolve(JSON.parse(stdout.trim().split('\n').pop()))));
+  });
+  const log = o.afterDictQueue.log;
+  const busy = log.findIndex((l) => /^復旧の文字起こしを止めました（理由: busy）/.test(l));
+  const timeUp = log.indexOf('整え: 決まり（timeout）');
+  const again = log.indexOf('文字起こし待ち: 始めた（dictation-end）');
+  assert.ok(busy >= 0 && timeUp > busy, log.join('\n'));
+  assert.ok(again > timeUp, `整えを待つ間に回し直した: ${log.join('\n')}`);
+  assert.strictEqual(o.afterDictQueue.queues, 0, log.join('\n'));
+});

@@ -2471,9 +2471,11 @@ function logAccessAnswer(e, code) {
 // しまったログイン（secrets・partition・accountEmail）を消す（送っている間にログアウト・ログインし直したなら今のログインは消さない）。
 // L3（［ログインし直す］付き）・L11 は消したときだけ。どちらもログインの窓は開かない（F27）。同じ会議では L2 を重ねない。daily-cap: 日の替わりまで hold。
 // quota・upstream-auth: 10 分の hold。通信の符号と server: 届いた結果の覚えを捨て、次の区間は届くかを確かめ直す
-async function relayFallback(e, scope, provider, sentPack) {
+// 0.14.0 DQ-3（R63）: 整えの口の login・denied も呼ぶ（tidy: true。最初の1行だけ「整えの口で失敗」にする。ほかは同じ道）
+async function relayFallback(e, scope, provider, sentPack, { tidy = false } = {}) {
   const code = e instanceof sttCloud.CloudSttError && typeof e.code === 'string' ? e.code : 'server';
-  engineLog(`文字起こしの経路: 中継で失敗（${code}${e && e.status ? ` ${e.status}` : ''}）。この区間は PC で文字起こしします`);
+  if (tidy) engineLog(`整えの口: 中継で失敗（${code}${e && e.status ? ` ${e.status}` : ''}）`);
+  else engineLog(`文字起こしの経路: 中継で失敗（${code}${e && e.status ? ` ${e.status}` : ''}）。この区間は PC で文字起こしします`);
   if (code === 'login' || code === 'denied') {
     logAccessAnswer(e, code);
     const current = accessState.state === 'restored' ? accessState.pack : '';
@@ -3810,6 +3812,47 @@ function onDictationKey() {
   if (w && state === 'idle') dictEnded();   // 始めを断った（R61）
 }
 
+// ---------------- 0.14.0 DQ-3（計画 docs/plans/2026-10-26-140.md の決めたこと 45〜57・R49・R63・BQ24 (a)・BQ35。BQ9-2・F105・RF28）
+// 口述の文の整え。決まりの整え（dictTidy.tidyRules: つなぎ言葉は設定「フィラー除去」がオンのとき・同じ語の繰り返しはいつも）はいつも通し、AI の整え（中継の
+// POST /v1/text/tidy）は (1) 設定 aiTidy がオン (2) その口述の音声を中継で文字起こしした（transcribeAuto の route が cloud） (3) 今オンラインでログインしている
+// (4) 整えの前の文が 300 字まで（tidyBody が null でない: BQ35）のときだけ。待つのは TIDY_WAIT_MS（2 秒）まで。来ない・照らしに外れる・失敗なら決まりの整えの文。
+// 遅れて来た答えは捨てる（入れた文を差し替えない）。記録は符号だけ（口述の文も整えた文も書かない: 決めたこと 57）。
+// 整えの口の 401・403 は文字起こしと同じログイン切れの道（relayFallback の login・denied の枝）、ほかの失敗は文字起こしの間引き（relayHold・sttHold）に触らない（R63）。
+// → { text, tidy: 'ai'|'rules'|'off', lines }（tidy: 決まりの整えだけのとき、フィラー除去がオフなら 'off'）
+const TIDY_WAIT_MS = relay.TIDY_WAIT_MS;
+function tidyRulesOnly(raw) {
+  return { text: dictTidy.tidyRules(raw, { fillers: settings.removeFillers }) || raw, tidy: settings.removeFillers ? 'rules' : 'off', lines: null };
+}
+function tidyWithin(sent, ms) {
+  return new Promise((resolve) => {
+    const timer = setTimeout(function tidyTimeUp() { resolve({ ok: false, code: 'timeout' }); }, ms);
+    sent.then((r) => { clearTimeout(timer); resolve(r); });
+  });
+}
+async function tidyDictation(raw, route) {
+  const plain = tidyRulesOnly(raw);
+  const skip = (code) => { engineLog(`整え: 決まり（${code}）`); return plain; };
+  if (settings.aiTidy === false) return skip('off');
+  if (route !== 'cloud') return skip('local');
+  if (!hasRelayLogin() || !netOnline()) return skip('offline');
+  const body = dictTidy.tidyBody(raw, { lang: settings.language, words: settings.dictionary });
+  if (!body) return skip('long');
+  sendToOverlay('overlay:phase', { phase: 'processing', message: '整えています…' });
+  const pack = accessState.pack;
+  const sent = relay.tidyText(body, { request: relayRequest, session: accessSession() });
+  const got = await tidyWithin(sent, TIDY_WAIT_MS);
+  if (got.code === 'timeout') sent.then((late) => { if (late.ok) engineLog('整え: 遅れて来た答えを捨てた'); });   // 入れた文は差し替えない（決めたこと 47）
+  if (!got.ok) {
+    // R63: ログイン切れ・止めたメールは文字起こしと同じ道（送った後にログインし直していれば消さない）。ほかは間引きに触らない
+    if (got.code === 'login' || got.code === 'denied') await relayFallback(got.err, null, sttProvider(), pack, { tidy: true });
+    return skip(got.code);
+  }
+  const g = dictTidy.tidyGuard(raw, got.reply);
+  if (!g) return skip('guard');
+  engineLog('整え: AI');
+  return { text: g.text, tidy: 'ai', lines: g.lines };
+}
+
 async function handleDictationAudio(buffer, durationMs) {
   // 取り消し後に届いた録音を処理しない。
   // Escape で取り消しても、録音側の停止処理が終わってから音声が届くことがあり、
@@ -3820,16 +3863,15 @@ async function handleDictationAudio(buffer, durationMs) {
   sendToOverlay('overlay:phase', { phase: 'processing', message: '文字起こし中…' });
   try {
     const t0 = Date.now();
-    const { text: raw } = await transcribeAuto(buffer, '', durationMs, { dictation: true });
+    const { text: raw, route } = await transcribeAuto(buffer, '', durationMs, { dictation: true });
     if (!raw) throw new Error('音声を認識できませんでした');
-    let text = settings.removeFillers ? dictTidy.dropFillers(raw) : raw;
-    if (!text) text = raw;
+    const { text, tidy } = await tidyDictation(raw, route);   // 0.14.0 DQ-3
     const procMs = Date.now() - t0;
     // 保存 → 画面へ → 貼る（判断は mainlib.recordDictation）。履歴を保存できなくても口述した文字は貼る（JS5）
     const rec = await lib.recordDictation({
       history,
       entry: {
-        id: store.newId('h'), text, raw,
+        id: store.newId('h'), text, raw, tidy,
         createdAt: new Date().toISOString(),
         durationSec: Math.round(durationMs / 1000), procMs, chars: text.length,
       },
@@ -3952,17 +3994,20 @@ async function transcribeDictWaits() {
         unlinkQuiet(file);
         continue;
       }
-      let text = failText || (settings.removeFillers ? dictTidy.dropFillers(raw) : raw);
-      if (!text) text = raw;
+      // 0.14.0 DQ-3（R49）: 残した音声の行は AI で整えない（決まりの整えだけ）
+      const tidied = failText ? null : tidyRulesOnly(raw);
+      const text = failText || tidied.text;
+      const tidyOf = tidied ? { tidy: tidied.tidy } : {};
       let added = null;
       if (row) {
         row.text = text; row.raw = raw; row.chars = failText ? 0 : text.length;
+        Object.assign(row, tidyOf);
         delete row.wait;
       } else {
         const createdAt = new Date(Number(ms)).toISOString();
         let i = history.findIndex((h) => h && String(h.createdAt) < createdAt);
         if (i < 0) i = history.length;
-        added = { id, text, raw, createdAt, durationSec: Math.round(durationMs / 1000), procMs: 0, chars: failText ? 0 : text.length };
+        added = { id, text, raw, ...tidyOf, createdAt, durationSec: Math.round(durationMs / 1000), procMs: 0, chars: failText ? 0 : text.length };
         history.splice(i, 0, added);
       }
       const w = historyWriter.now(history);

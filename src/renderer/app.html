@@ -1449,6 +1449,11 @@
               <span>文字起こし後、カーソル位置へ自動貼り付け</span></label>
             <label class="check" data-row="フィラー除去"><input type="checkbox" id="removeFillers" />
               <span>フィラー除去（えー、あのー 等）</span></label>
+            <!-- 0.14.0 DQ-3（決めたこと 56・BQ18 (a)・BQ27 (a)）: 口述の文を AI で整える（フィラー除去のすぐ下） -->
+            <label class="check" data-row="口述の文を AI で整える"><input type="checkbox" id="aiTidy" aria-describedby="aiTidyDesc aiTidyWarn" />
+              <span>口述の文を AI で整える<br />
+                <span class="d" id="aiTidyDesc">言い直し・繰り返しを除き、箇条を整えます。</span><br />
+                <span class="d warn" id="aiTidyWarn">音声をクラウドで文字起こししたときだけ使います。</span></span></label>
           </div>
           <div class="card" data-sec="record">
             <h2>ユーザー辞書（認識ヒント）</h2>
@@ -9573,9 +9578,16 @@
       const sp = document.createElement('span'); sp.className = 'sp';
       const cp = document.createElement('button'); cp.textContent = 'コピー';
       cp.onclick = async () => { await window.koeApp.copy(h.text); toast('コピーしました'); };
+      // 0.14.0 DQ-3（BQ19 (a)・決めたこと 55）: 入れた文が文字起こしのままの文と違う行だけ［元の文をコピー］（今の copy の道。main に新しい書き口を作らない）
+      const rawBtn = [];
+      if (typeof h.raw === 'string' && h.raw && h.raw !== h.text) {
+        const rb = document.createElement('button'); rb.textContent = '元の文をコピー';
+        rb.onclick = async () => { await window.koeApp.copy(h.raw); toast('元の文をコピーしました'); };
+        rawBtn.push(rb);
+      }
       const dl = document.createElement('button'); dl.className = 'danger'; dl.textContent = '削除';
       dl.onclick = async () => { history = await window.koeApp.deleteHistory(h.id); renderHistory(); };
-      m.append(i, sp, cp, dl); c.append(t, m); box.appendChild(c);
+      m.append(i, sp, cp, ...rawBtn, dl); c.append(t, m); box.appendChild(c);
     }
   }
   $('histSearch').oninput = renderHistory;
@@ -9684,6 +9696,7 @@
     $('language').value = s.language || 'ja';
     $('autoPaste').checked = s.autoPaste !== false;
     $('removeFillers').checked = s.removeFillers !== false;
+    $('aiTidy').checked = s.aiTidy !== false;   // 0.14.0 DQ-3: 既定オン（BQ24 (a) の読みは main の readSettings）
     $('soundFeedback').checked = s.soundFeedback !== false;
     $('autoLaunch').checked = Boolean(s.autoLaunch);
     $('dictionary').value = (s.dictionary || []).join('\n');
@@ -10085,6 +10098,7 @@
       language: $('language').value,
       autoPaste: $('autoPaste').checked,
       removeFillers: $('removeFillers').checked,
+      aiTidy: $('aiTidy').checked,   // 0.14.0 DQ-3
       soundFeedback: $('soundFeedback').checked,
       autoLaunch: $('autoLaunch').checked,
       dictionary: $('dictionary').value.split('\n').map((s) => s.trim()).filter(Boolean),

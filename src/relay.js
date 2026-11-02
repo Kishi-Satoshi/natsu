@@ -13,6 +13,10 @@
  *  - loginNavAllowed  ログインの窓が行ってよい所か（https の中継のホストか <チーム>.cloudflareaccess.com。窓の間は最初の Access のホストに留められる）
  *  - makeAccessApi    me()（cookie で GET /v1/me。ログインの直後の確かめと期限）。投げない
  *  - packCookies・unpackCookies  中継のホストちょうどの CF_Authorization（と CF_Binding）だけを、secrets にしまう文字にする・戻す
+ *  0.14.0 DQ-3（計画 docs/plans/2026-10-26-140.md の決めたこと 47・53・54・R48・R63）:
+ *  - TIDY_WAIT_MS     口述の整えの答えを待つ長さ（2 秒。待つのは main の tidyDictation。ここの送りの上限 TIDY_SEND_MS は中継の 10 秒より長くし、
+ *                    遅れて来た答えは main が読んで捨てる）
+ *  - tidyText         中継の整えの口 POST /v1/text/tidy へ口述の文（dictTidy.tidyBody の本文）を JSON で送り、答えを読む。投げない
  *
  * 決まり:
  *  - Electron のモジュールは読み込まない。通信は呼ぶ側から request（本番は net.request）と session をもらう（RF2）。
@@ -25,6 +29,7 @@
 'use strict';
 
 const { postForm, CloudSttError, relayErrorCode, isAccessHost, classifyAuth } = require('./stt-cloud');
+const { hget } = require('./engine-fetch');
 
 // 中継の住所（第1d回 A-10。利用者が、会社の PC から Zscaler を通って届くことを確かめた workers.dev の住所。会社名を含まない）。
 // 仮の値のまま版を上げると test/relay-base.test.js が赤になる
@@ -35,6 +40,8 @@ const LOGIN_URL = `${RELAY_BASE}/auth/done`;
 const LOGOUT_URL = `${RELAY_BASE}/cdn-cgi/access/logout`;
 
 const ACCOUNT_TIMEOUT_MS = 15000;
+const TIDY_WAIT_MS = 2000;     // 決めたこと 47（BQ14 (a)・BQ34）
+const TIDY_SEND_MS = 12000;    // 送りの上限（中継の OpenAI への時間切れ 10 秒より長く。待つのは main の TIDY_WAIT_MS まで）
 
 function relayProvider() {
   return { id: 'openai', label: 'OpenAI', base: RELAY_BASE, host: new URL(RELAY_BASE).hostname, reachUrl: `${RELAY_BASE}/health` };
@@ -88,6 +95,48 @@ function makeAccessApi({ request, session, base = RELAY_BASE, timeoutMs = ACCOUN
       return { ok: false, code: 'server' };
     },
   };
+}
+
+/**
+ * tidyText(body, { request, session, base = RELAY_BASE, timeoutMs = TIDY_SEND_MS }) → Promise<{ ok: true, reply } | { ok: false, code, err }>
+ * 中継の整えの口 POST {base}/v1/text/tidy へ body（{ text, lang?, words }）を JSON で送る（Access の cookie: postForm の session・redirect: 'manual'）。
+ * 投げない。reply は 200 の本文の JSON の物（形の照らしは呼び手の dictTidy.tidyGuard）。失敗の code（記録に書く符号。文は持たない）:
+ *  - classifyAuth の 'login'・'denied'・'server'（3xx・401・403。ログイン切れは文字起こしと同じ分け方: R63）
+ *  - 'relay-old'（404。整えの口の無い前の版の中継: R48）・'cap'（429 daily-cap）・'busy'（ほかの 429）・'server'（ほかの答え）・
+ *    'bad-reply'（200 で JSON の物でない）・届かなければ通信の符号（offline・cert・proxy・timeout・net）
+ * err は同じ符号の CloudSttError（main の relayFallback に渡せる形。status・hint・retryAfter・scope を持つ。'cap' の err だけは文字起こしと同じ 'daily-cap'）
+ */
+async function tidyText(body, { request, session, base = RELAY_BASE, timeoutMs = TIDY_SEND_MS } = {}) {
+  const fail = (code, extra = {}) => ({ ok: false, code, err: new CloudSttError(code, extra) });
+  let res;
+  try {
+    res = await postForm({ request, session, url: `${base}/v1/text/tidy`, headers: { 'Content-Type': 'application/json' },
+      body: Buffer.from(JSON.stringify(body), 'utf8'), redirect: 'manual', timeoutMs });
+  } catch (e) {
+    if (e instanceof CloudSttError) return { ok: false, code: e.code, err: e };
+    return fail('net');
+  }
+  const st = res.status;
+  if (st === 200) {
+    let j = null;
+    try { j = JSON.parse(res.body.toString('utf8')); } catch (_) { j = null; }
+    if (!j || typeof j !== 'object' || Array.isArray(j)) return fail('bad-reply', { status: st });
+    return { ok: true, reply: j };
+  }
+  const auth = classifyAuth({ status: st, headers: res.headers, body: res.body });
+  if (auth) return fail(auth, { status: st, hint: { cfRay: hget(res.headers || {}, 'cf-ray') != null, dest: '' } });
+  const code = relayErrorCode(res.body);
+  if (st === 404) return fail('relay-old', { status: st });
+  if (st === 429 && code === 'daily-cap') {
+    let j = null;
+    try { j = JSON.parse(res.body.toString('utf8')); } catch (_) { j = null; }
+    const retryAfter = j && Number.isInteger(j.retryAfter) && j.retryAfter > 0 ? j.retryAfter : undefined;
+    const scope = j && (j.scope === 'user' || j.scope === 'all') ? j.scope : undefined;
+    // 符号は 'cap'、err は文字起こしと同じ 'daily-cap'（中継の答えの分け方をそろえる。main は relayFallback に渡さない: R63）
+    return { ok: false, code: 'cap', err: new CloudSttError('daily-cap', { status: st, retryAfter, scope }) };
+  }
+  if (st === 429) return fail('busy', { status: st });
+  return fail('server', { status: st });
 }
 
 const COOKIE_NAMES = new Set(['CF_Authorization', 'CF_Binding']);
@@ -153,4 +202,4 @@ function unpackCookies(text, nowSec) {
 }
 
 module.exports = { RELAY_BASE, ACCESS_PARTITION, LOGIN_URL, LOGOUT_URL, relayProvider, makeAccessApi,
-  isAccessHost, classifyAuth, loginNavAllowed, packCookies, unpackCookies };
+  isAccessHost, classifyAuth, loginNavAllowed, packCookies, unpackCookies, TIDY_WAIT_MS, TIDY_SEND_MS, tidyText };

@@ -1266,7 +1266,9 @@ const IDS_140 = [
   'dq-lines-text',
   // 0.14.0 DQ-2（表の行の順に。dq-relay-store は 2026-11-02 の P10 で足した: R192）
   'dq-relay-auth', 'dq-relay-prompt', 'dq-relay-store', 'dq-relay-size', 'dq-relay-cap', 'dq-relay-log',
-  'dq-long-send',   // 0.14.0 DQ-1 直し（BQ35・R195。表では dq-off-send の次）
+  // 0.14.0 DQ-3（表の行の順に。dq-long-send は DQ-1 直しで作った: R195）
+  'dq-local-send', 'dq-off-send', 'dq-long-send', 'dq-wait', 'dq-late-swap', 'dq-fallback', 'dq-meeting', 'dq-log-text', 'dq-history-raw', 'dq-filler-off',
+  'dq-tidy-login', 'dq-tidy-hold',
 ];
 test('G3・0.14.0: 0.14.0 の変異が一覧にそろい、IDS_140 はどれも計画の「変異確認」の表に行の順である。eb-・ek-・mo-・dq- の変異は IDS_140 にある。どれも決まったテストのファイルを持ち、why が 0.14.0 で始まる', { timeout: 5000 }, () => {
   const byId = new Map(MUTANTS.map((m) => [m.id, m]));
