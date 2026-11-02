@@ -1263,6 +1263,7 @@ const IDS_140 = [
   // 0.14.0 DQ-1（表の行の順に）
   'dq-filler-same', 'dq-repeat', 'dq-repeat-word', 'dq-guard',
   'dq-guard-short',   // 0.14.0 DQ-1 直し（R195）
+  'dq-guard-half', 'dq-guard-cp',   // 0.14.0 DQ-1 直し2（R198）
   'dq-lines-text',
   // 0.14.0 DQ-2（表の行の順に。dq-relay-store は 2026-11-02 の P10 で足した: R192）
   'dq-relay-auth', 'dq-relay-prompt', 'dq-relay-store', 'dq-relay-size', 'dq-relay-cap', 'dq-relay-log',
@@ -1281,7 +1282,8 @@ test('G3・0.14.0: 0.14.0 の変異が一覧にそろい、IDS_140 はどれも�
   const table = plan.slice(at, plan.indexOf('\n## ', at + 5));
   const rows = [...table.matchAll(/^\| ((?:eb|ek|mo|dq)-[a-z0-9-]*) \|/gm)].map((m) => m[1]);
   // 0.14.0 DQ-1 直し（R195）で dq-guard-short・dq-long-send の2行を足した（145 → 147）。DQ-2 で dq-relay-store（R192）を足した（148）
-  assert.strictEqual(rows.length, 148, '計画の 0.14.0 の表（eb- 47・ek- 49・mo- 27・dq- 25）が読めない');
+  // 0.14.0 DQ-1 直し2（R198）で dq-guard-half・dq-guard-cp を足した（150）
+  assert.strictEqual(rows.length, 150, '計画の 0.14.0 の表（eb- 47・ek- 49・mo- 27・dq- 27）が読めない');
   assert.strictEqual(new Set(rows).size, rows.length, '計画の表に重なり');
   assert.deepStrictEqual(IDS_140.filter((id) => !rows.includes(id)), [], '計画の「変異確認」の表に無い変異');
   assert.deepStrictEqual(IDS_140, rows.filter((id) => IDS_140.includes(id)), 'IDS_140 が表の行の順でない');

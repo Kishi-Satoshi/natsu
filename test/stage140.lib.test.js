@@ -1534,9 +1534,14 @@ test('DQ-1 直し・R195: tidyGuard は中身を落とした短すぎる答え�
   const rep = 'えーと、えーと、あのー、確認です、確認です。';
   assert.deepStrictEqual(DT.tidyGuard(rep, { text: '確認です。', lines: [] }), { text: '確認です。', lines: [] });
   // 半分ちょうどは通り、それより短いと外す（字数は符号位置。𠮷 は1字）
-  const r20 = '𠮷田さんに資料を送って見積を頼んでおく';   // 記号を除いて 20 字
-  assert.ok(DT.tidyGuard(r20, { text: '𠮷田さんに資料を送る', lines: [] }), '10 字（半分ちょうど）が外れた');
-  assert.strictEqual(DT.tidyGuard(r20, { text: '𠮷田さんに資料を', lines: [] }), null);
+  // 0.14.0 DQ-1 直し2（R198）で意図して直した: 前の元の文は 19 字（UTF-16 では 20）で、`<` を `<=` にしても、UTF-16 で数えても答えが変わらなかった。
+  // 元の文は符号位置でちょうど 20 字（UTF-16 では 23。𠮷 が3つ）にし、10 字は通り・9 字は外れ、UTF-16 で数えると答えが逆になる組を入れる
+  const r20 = '𠮷田と𠮷川に𠮷野の資料を送って見積を頼む';
+  assert.deepStrictEqual([Array.from(r20).length, r20.length], [20, 23], '前提: 符号位置で 20 字・UTF-16 で 23');
+  assert.strictEqual(DT.tidyRules(r20, { fillers: true }), r20, '前提: 決まりの整えで変わらない');
+  assert.ok(DT.tidyGuard(r20, { text: '𠮷田と𠮷川に𠮷野の資', lines: [] }), '10 字（半分ちょうど）が外れた（dq-guard-half）');
+  assert.strictEqual(DT.tidyGuard(r20, { text: '𠮷田と𠮷川に𠮷野の', lines: [] }), null, '9 字（UTF-16 では 12）が通った（dq-guard-cp）');
+  assert.ok(DT.tidyGuard(r20, { text: '料を送って見積を頼む', lines: [] }), '𠮷 の無い 10 字（UTF-16 でも 10 で、元の文の 23 の半分に満たない）が外れた（dq-guard-cp）');
 });
 
 test('DQ-1: linesToText の表（bullet →「・ 」・number →「1. 」「2. 」・p はそのまま・改行でつなぐ。番号は p か bullet をはさむと 1 から）', () => {
