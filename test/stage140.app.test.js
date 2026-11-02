@@ -3484,3 +3484,128 @@ test('EK-6・決めたこと 43・R64（第4版）: Esc の順。/ メニュー�
     assert.deepStrictEqual(l.errors.map(fmt), []);
   } finally { l.done(); }
 });
+
+// ---------------------------------------------------------------- MB-4 直し（2026-11-02 の点検 I1〜I3・M1・M2・M3。R190）
+test('MB-4 直し・I1: 録音の前のページのメモで打って Enter・Ctrl+Z の後に種類を選ぶと、main に送るのは戻した行で、雛形が入る（戻した行を録音中のメモの今の行にする）', T, async () => {
+  const r = await bootLive();
+  $(r, 'mtToggleBtn').dispatchEvent({ type: 'click' });
+  await r.drain();
+  const id = mIds(r)[0];
+  const t = mIn(r, id, 'abc');
+  t.dispatchEvent({ type: 'input' });
+  r.key({ key: 'Enter' }, t);
+  await r.drain();
+  assert.strictEqual(r.s.prep.memo, 'abc\n', '前提: Enter で main にメモが届かない');
+  r.key(Z, r.document.activeElement);
+  await r.drain();
+  assert.strictEqual(r.s.prep.memo, '', '前提: Ctrl+Z で main のメモが戻らない');
+  const sel = $(r, 'pType'); sel.value = 'sales'; await sel.onchange(); await r.drain();
+  const preset = M.memoPreset(M.memoTypeOf('sales'));
+  assert.strictEqual(r.s.prep.memo, preset, `戻した後に種類を選ぶと古い行を送り直した: ${JSON.stringify(r.s.prep.memo)}`);
+  assert.ok(mRows(r).some((e) => e._b.type === 'heading'), '雛形の行が欄に無い');
+  assert.deepStrictEqual(r.errors.map(fmt), []);
+});
+
+test('MB-4 直し・I2（決めたこと 10）: メモの行でも文中の記法（**大事**）の直後の Ctrl+Z は記号を戻す（要約の行と同じ。DB に送らない）', T, async () => {
+  const l = await openReal({ pa1: MPAGE() });
+  try {
+    await memoPane(l);
+    const t = mIn(l, 'm2', '売上**大事**');
+    t.dispatchEvent({ type: 'input', inputType: 'insertText' });
+    assert.deepStrictEqual(viewOf(t), ['売上', { tag: 'span', m: 'b', t: '大事' }]);
+    l.key(Z, t);
+    await l.drain();
+    assert.deepStrictEqual(viewOf(t), ['売上**大事**'], 'メモの行の Ctrl+Z で記号が戻らない');
+    assert.deepStrictEqual(setDocs(l), [], 'メモの記号の戻しで DB に送った');
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+test('MB-4 直し・I3（R177・録音の守り）: 録音中のメモを 1 秒ずつ空けて打つと、止めるたびに 0.5 秒で下書きへ届く（meetingSetMemo の行）。元に戻すの1歩は今どおり 2 秒止まってから（Ctrl+Z の1回で打つ前に戻る）', T, async () => {
+  const l = await bootLive();
+  l.s.active = true; l.s.memo = MEMO1; l.s.memoDoc = MD.memoFromText(MEMO1);
+  l.fire('onMeetingUpdate', l.s.status());
+  await l.drain();
+  await memoPane(l);
+  const t = mTxt(l, 'm2');
+  t.focus();
+  for (const s of ['売上の確認を', '売上の確認をす', '売上の確認をする']) {
+    t.textContent = s; l.caret.set(t, s.length);
+    t.dispatchEvent({ type: 'input' });
+    await l.clock.advance(499);
+    await l.drain();
+    assert.notStrictEqual(l.s.memo, `■ 目的\n${s}\n`, `${s}: 0.5 秒より前に送った`);
+    await l.clock.advance(1);
+    await l.drain();
+    assert.strictEqual(l.s.memo, `■ 目的\n${s}\n`, `${s}: 止めて 0.5 秒で下書きへ届かない`);
+    await l.clock.advance(500);
+    await l.drain();
+  }
+  await l.clock.advance(2000);
+  await l.drain();
+  l.key(Z, t);
+  await l.drain();
+  assert.deepStrictEqual(memoSets(l)[memoSets(l).length - 1], MD.memoFromText(MEMO1), 'Ctrl+Z の1回で打つ前に戻らない（下書きへの送りが歩みになった）');
+  assert.strictEqual(l.s.memo, MEMO1);
+  assert.deepStrictEqual(l.errors.map(fmt), []);
+});
+
+test('MB-4 直し・M1: メモの行の頭の空白は保存で削らない（前の版の「  - 小項目」の字下げが素の文字のメモから消えない）。要約の行は今どおり削る', T, async () => {
+  const l = await openReal({ pa1: MPAGE({ memo: '■ 目的\n  - 小項目\n' }) });
+  try {
+    await memoPane(l);
+    const t = mIn(l, 'm2', '  - 小項目です');
+    t.onblur();
+    await l.drain();
+    assert.strictEqual(l.page().memo, '■ 目的\n  - 小項目です\n', `頭の空白を削った: ${JSON.stringify(l.page().memo)}`);
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+test('MB-4 直し・M2: 録音中のメモの Ctrl+Z の答えを待つ間は、メモの行に打たせない（beforeinput を止める）', T, async () => {
+  const l = await bootLive();
+  l.s.active = true; l.s.memo = MEMO1; l.s.memoDoc = MD.memoFromText(MEMO1);
+  l.fire('onMeetingUpdate', l.s.status());
+  await l.drain();
+  await memoPane(l);
+  const t = mTxt(l, 'm2');
+  t.focus(); l.caret.set(t, t.textContent.length);
+  l.key({ key: 'Enter' }, t);
+  await l.drain();
+  const orig = l.s.returns.meetingSetMemo;
+  const q = [];
+  l.s.returns.meetingSetMemo = (m) => new Promise((res) => q.push(() => res(orig(m))));
+  const u = mTxt(l, 'm2');
+  u.focus();
+  l.key(Z, u);
+  await l.drain();
+  assert.strictEqual(q.length, 1, '前提: 戻す答えを待っていない');
+  let stopped = false;
+  u.dispatchEvent({ type: 'beforeinput', cancelable: true, preventDefault() { stopped = true; } });
+  assert.strictEqual(stopped, true, '録音中のメモを戻している間に打てた');
+  l.s.returns.meetingSetMemo = orig;
+  q.shift()();
+  await l.drain();
+  assert.deepStrictEqual(l.errors.map(fmt), []);
+});
+
+test('MB-4 直し・M3（守り。R190）: 録音の前のページから録音に替わったとき、文字が同じで飾りだけ違う行も main へ届く（録音中のタブを開くときの flushEdits がメモの行を送る）', T, async () => {
+  const r = await bootLive();
+  $(r, 'mtToggleBtn').dispatchEvent({ type: 'click' });
+  await r.drain();
+  const id = mIds(r)[0];
+  const t = mIn(r, id, 'abc');
+  r.key({ key: 'Enter' }, t);
+  await r.drain();
+  const x = mTxt(r, id);
+  x.focus(); r.caret.set(x, 0, 3);
+  r.key({ key: 'b', code: 'KeyB', ctrlKey: true }, x);   // 太字にした（打った文と同じく次の区切りまで送らない）
+  const n = memoSets(r).length;
+  r.s.returns.meetingStart();   // main の側から録音が始まった（送る前）
+  r.fire('onMeetingUpdate', r.s.status());
+  await r.drain();
+  assert.ok(memoSets(r).length > n, '飾りだけ違う行を録音の始めに送り直さない');
+  const last = memoSets(r)[memoSets(r).length - 1];
+  assert.deepStrictEqual(last[0].rich, [{ t: 'abc', m: ['b'] }], JSON.stringify(last));
+  assert.deepStrictEqual(r.errors.map(fmt), []);
+});

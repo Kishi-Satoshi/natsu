@@ -1061,7 +1061,9 @@ test('基準の画像（test/shots/win32）は今の app.html で撮ったもの
   // （ほかの撮る画面はメモのタブを開かない）。値を今の app.html に合わせた（前の値は ef68f9a6…）
   // 0.14.0 EK-6（計画 docs/plans/2026-10-26-140.md の決めたこと 40〜44・R182〜R187）: NaTsu の中の音声入力の入れ先（dictAt・dictWhereAnswer・dictInsert・dictEnd・Esc の document の受け口・
   // summaryBusy の dictAt・pasteRows の覚えた所。<script> の中だけ。撮る画面は変わらない）。値を今の app.html に合わせた（前の値は 5375f6c2…）
-  assert.strictEqual(sha, 'e1bb799042ac1340e5b1e363644b8b322e8b07f827c2fc140e367d8b7a28d7e1',
+  // 0.14.0 MB-4 直し（R190）: 録音中のメモの戻しで liveDoc を戻す・メモの行の文中の記法の Ctrl+Z・0.5 秒の下書きへの送り・メモの行の頭の空白・戻している間の守りを欄の鍵で
+  // （<script> の中だけ。撮る画面は変わらない）。値を今の app.html に合わせた（前の値は e1bb7990…）
+  assert.strictEqual(sha, '21c7b2dd45a7b236bc607fa08dc5e339cbb0b9996d1a8a34f6835928dfc86310',
     'app.html が基準の画像を撮った時と違う。Windows の CI の画面の比べ（捲り棒のつまみも）を見て、基準を取り直してからこの値を直す');
 });
 

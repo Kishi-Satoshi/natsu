@@ -5717,6 +5717,18 @@
     blocksDuplicate: (ids, afterId, parentId) => ['blocks.duplicate', optional({ ids, afterId, parentId })],
     blocksTurnInto: (ids, type, level, toggle) => ['blocks.turnInto', optional({ ids, type, level, toggle: toggle === true ? true : undefined })],
   });
+  // MB-4 直し（I3・R190）: 録音中と録音の前のメモは、打つ手が LIVE_DRAFT_MS 止まったら今の行を main へ送る（下書きに書くだけ。tg.doc は動かさず、元に戻すの歩みにしない。
+  // 歩みの区切りは今どおり 2 秒: R177）。落ちても 0.13 と同じく 0.5 秒より前の文字は下書きに残る
+  const LIVE_DRAFT_MS = 500;
+  let liveDraftT = null;
+  function liveDraftLater(tg) {
+    if (liveDraftT) clearTimeout(liveDraftT);
+    liveDraftT = setTimeout(() => {
+      liveDraftT = null;
+      if (tg.pageId || memoTgOf(tg.key) !== tg) return;
+      try { Promise.resolve(window.koeApp.meetingSetMemo(memoNowDoc(tg))).catch(() => {}); } catch (_) { /* 次の区切りで送る */ }
+    }, LIVE_DRAFT_MS);
+  }
   // 窓のメモリの1歩（録音中と録音の前のメモ）。1つの動作の中なら、その歩みにまとめる（前は最初の前・後は最後の後）
   function memoLiteral(key, before, after) {
     if (stepBox && (stepBox.key === null || stepBox.key === key) && !stepBox.steps.length) {
@@ -5734,6 +5746,7 @@
       if (got && got.id === tg.pageId && curPage && curPage.id === tg.pageId) { curPage.memo = got.memo; curPage.memoDoc = got.memoDoc; }
       return doc;
     }
+    if (liveDraftT) { clearTimeout(liveDraftT); liveDraftT = null; }   // MB-4 直し（I3）: 歩みとして送るので、下書きだけの送りは要らない
     const ok = await window.koeApp.meetingSetMemo(doc);
     if (ok === false) throw new Error('bad-args');   // main が照らしで受けなかった（前のまま）
     memoLiteral(tg.key, before, doc);
@@ -5781,6 +5794,7 @@
     const ok = await window.koeApp.meetingSetMemo(lit.before);
     if (ok === false) throw new Error('bad-args');
     tg.doc = lit.before;
+    liveDoc = lit.before; liveMemo = memoDocView.memoPlain(lit.before);   // MB-4 直し（I1）: 戻した行が録音中のメモの今の行（種類を選ぶ前・欄を作り直すときに古い行を送らない）
     for (const b of flattenBlocks(lit.before)) tg.rows.add(b);
     return { page: { id: k, blocks: structuredClone(lit.before) }, literal: { before: lit.after, after: lit.before, ...(lit.mark ? { mark: lit.mark } : {}) } };
   }
@@ -5917,7 +5931,7 @@
   function inlineRow(pid) {
     const u = inlineLit;
     if (!u || u.pid !== pid) return null;
-    const el = editRows().find((e) => e.dataset.id === u.id);
+    const el = editRows(boxOfKey(pid)).find((e) => e.dataset.id === u.id);   // MB-4 直し（I2）: その欄の行（メモの欄も: litRow と同じ）
     if (!el || el._txt !== document.activeElement) return null;   // EB-4 直し（I1）: 押したのがその行のときだけ
     return JSON.stringify(rowRich(el._txt)) === JSON.stringify(u.after) ? { el, u } : null;
   }
@@ -5926,7 +5940,8 @@
     const now = rowRich(txt);
     if (!marksIn(now) && !(Array.isArray(b.rich) && b.rich.length)) return null;
     const s = plainOf(now);
-    const lead = s.length - s.trimStart().length;
+    const memoRow = Boolean(rowsBoxOf(txt) && rowsBoxOf(txt)._memoTg);
+    const lead = memoRow ? 0 : s.length - s.trimStart().length;   // MB-4 直し（M1）: メモの行は頭の空白を削らない
     const end = s.trimEnd().length;
     return lead >= end ? [] : sliceRich(now, lead, end);
   }
@@ -6295,6 +6310,8 @@
   let undoBk = {};               // 窓のメモリの列（NaTsu を終える・画面を読み直すと消える）
   let stepBox = null;            // stepGroup の間の { key（最初の歩みの列。0.14.0 MB-4: 要約かメモか）, steps, mark, lit（録音中と録音の前のメモの前と後）}
   let reverting = null;          // edit.revert を送っている間の { pid, tx }（答えの前に onEditStep が戻した行の tx を入れる）
+  // MB-4 直し（M2）: その欄を戻している間か（要約と保存したページのメモはページの ID・録音中と録音の前のメモは欄の鍵）
+  const revertingAt = (k) => Boolean(reverting && (reverting.pid === curId || reverting.pid === k));
   let undoLit = null;            // 記法の直後の Ctrl+Z で行の頭に戻した記号 { pid, id, mark }（手を付けていない間だけ: R96）
   let undoChain = Promise.resolve();   // Ctrl+Z を押した順に1つずつ
   const stepMarks = new Map();   // 歩みの tx → 戻したときに行の頭へ戻す記号 { id, mark }（R6）
@@ -6603,7 +6620,7 @@
     const txt = el._txt;
     const plain = plainPasteAt === txt;
     plainPasteAt = null;
-    if (reverting && reverting.pid === curId) return;   // EB-3 直し（R109 (4)）と同じ: 戻している間は打たせない
+    if (revertingAt(keyOfEl(el))) return;   // EB-3 直し（R109 (4)）と同じ: 戻している間は打たせない
     const line = el._b.type === 'divider';
     const cd = ev.clipboardData;
     const t = cd ? String(cd.getData('text/plain') || '').replace(/\r\n?/g, '\n') : '';
@@ -7014,7 +7031,8 @@
       if (txt._pause) { clearTimeout(txt._pause); txt._pause = null; }
       if (rowsBoxOf(el) && keyOfEl(el) !== pid) return undefined;   // 0.14.0 MB-4: 別の欄の鍵では保存しない（メモの行を要約の命令で送らない）
       const b = el._b;
-      const v = txt.textContent.trim();
+      const memoRow = Boolean(rowsBoxOf(el) && rowsBoxOf(el)._memoTg);
+      const v = memoRow ? txt.textContent.trimEnd() : txt.textContent.trim();   // MB-4 直し（M1）: メモの行は頭の空白（前の版の字下げ）を削らない
       // 0.14.0 EB-4（決めたこと 16・17）: 飾りのある行（画面か保存した行）は { rich } を送る（文は DB が rich から作る。飾りの無い行は今どおり { text }）
       const rich = richPatch(txt, b);
       if (rich) {
@@ -7088,13 +7106,14 @@
       typedRich(el, ev);   // 0.14.0 EB-4: 打った文字の飾りと文中の記法（変換中は中で抜ける）
       const mb = rowsBoxOf(el);
       if (mb && mb._memoTg) memoTyped(mb._memoTg);   // 0.14.0 MB-4: メモの手引きと録音中の一言（memoPlain で見る）
+      if (mb && mb._memoTg && !mb._memoTg.pageId) liveDraftLater(mb._memoTg);   // MB-4 直し（I3）: 変換中も 0.5 秒止まれば下書きへ
       if ((ev && ev.isComposing) || txt._composing) return;   // 変換中の input では記法を決めない
       pauseSave();
       mdCheck(el);
       slashCheck(el);
     };
     // EB-3 直し（R109）: 戻している間（edit.revert の答えを待つ間）は打たせない（答えの描き直しで打った文が消えないように）。変換の文字は止められない
-    txt.addEventListener('beforeinput', (ev) => { if (reverting && reverting.pid === curId && ev.cancelable !== false) ev.preventDefault(); });
+    txt.addEventListener('beforeinput', (ev) => { if (revertingAt(keyOfEl(el)) && ev.cancelable !== false) ev.preventDefault(); });
     // 変換の事象は on〜 の受け口を持たない（GlobalEventHandlers に無い）ので addEventListener で付ける
     txt.addEventListener('compositionstart', () => { txt._composing = true; if (txt._pause) { clearTimeout(txt._pause); txt._pause = null; } });
     txt.addEventListener('compositionend', () => { txt._composing = false; typedRich(el); pauseSave(); mdCheck(el); slashCheck(el); });
@@ -7103,7 +7122,7 @@
     // 0.14.0 EB-5 直し（R117）: 落とした文字（ほかのアプリ・文字起こしの欄から）は、貼り付けと同じく素の文字だけを落とした所へ入れ、すぐ保存する（1歩）
     txt._dropText = async (ev) => {
       const t = dropPlain(ev.dataTransfer);
-      if (t === null || (reverting && reverting.pid === curId)) return;
+      if (t === null || revertingAt(keyOfEl(el))) return;
       let at = null;
       try { at = typeof caretSeam.point === 'function' ? caretSeam.point(txt, ev.clientX, ev.clientY) : null; } catch (_) { at = null; }
       txt.focus();
@@ -7613,7 +7632,7 @@
   }
   // 選んでいて Ctrl+V・Shift+Insert・Ctrl+Shift+V: 読む間にページか選びが替わったら貼らない
   async function selClipPaste(plain) {
-    if (!selHere() || (reverting && reverting.pid === curId)) return null;
+    if (!selHere() || revertingAt(blockSel.pageId)) return null;
     const pid = blockSel.pageId; const want = blockSel.ids.join('\u0001');
     const c = await clipRead();
     if (!c || !boxOfKey(pid) || !selHere() || blockSel.ids.join('\u0001') !== want) return null;
@@ -7638,7 +7657,7 @@
   function selPaste(ev) {
     if (!selHere()) return;
     if (typeof ev.preventDefault === 'function') ev.preventDefault();
-    if (reverting && reverting.pid === curId) return;
+    if (revertingAt(blockSel.pageId)) return;
     const cd = ev.clipboardData;
     const clip = (kind) => (cd ? String(cd.getData(`text/${kind}`) || '') : '');   // 行の貼り付け（pasteRow）と同じ2つを読む
     const out = ev.natsuPlain ? plainRows(clip('plain')) : pasteConvert.pasteBlocks({ html: clip('html'), text: clip('plain').replace(/\r\n?/g, '\n') });   // EK-4 直し（R153）: Ctrl+Shift+V は文字だけ

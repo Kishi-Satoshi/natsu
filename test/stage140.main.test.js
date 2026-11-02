@@ -497,3 +497,24 @@ test('EK-6・BQ26 (a)（第4版）: ログインしていないとき、NaTsu �
   assert.strictEqual(u.snaps.start.logins, 1, 'ほかのアプリへの音声入力の始めに窓を開いていない（0.13.2 のまま）');
   assert.deepStrictEqual(u.loginSentAt, [0]);
 });
+
+test('MB-4 直し・M5（守り。R190）: 照らしに合わないメモの行で復旧の頼みも 1MB を越える下書きでも、写し（.broken-）は1つ（2回目の写しは jsonfile.quarantine が同じ中身の写しを使い回す）', { timeout: sceneTimeout(60000) }, async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'natsu-壊れた大きなメモ𠮷-'));
+  try {
+    const data = path.join(dir, 'data');
+    fs.mkdirSync(data, { recursive: true });
+    const good = bigMemoDoc();
+    const doc = good.map((x, i) => (i === 0 ? { ...x, cites: [1] } : x));   // 出典の欄はメモの行に無い（R69）: 照らしに合わない
+    const memo = MD.memoPlain(good);
+    const at = Date.now() - 600000;
+    const raw = JSON.stringify({ pageId: 'pmbbad1', startedAt: at, memo, memoDoc: doc, offsetMs: 3000, savedAt: at + 3000, segments: [{ id: 's1', atMs: 0, durationMs: 3000, text: '壊れたメモの会議です' }] });
+    assert.ok(Buffer.byteLength(raw) > 1024 * 1024, '種の前提: 復旧の頼みが 1MB を越える');
+    fs.writeFileSync(path.join(data, 'draft.json'), raw);
+    const o = await sceneRun(['text', '--idle', `--keep-user-data=${dir}`], 60000);
+    assert.strictEqual(o.pages.length, 1, JSON.stringify(o.engineLog));
+    assert.deepStrictEqual([o.pages[0].id, o.pages[0].memo === memo, o.pages[0].memoDoc], ['pmbbad1', true, undefined]);
+    const kept = o.dataFiles.filter((n) => n.startsWith('draft.json.broken-'));
+    assert.strictEqual(kept.length, 1, `写しが1つでない: ${o.dataFiles.join(',')}`);
+    assert.ok(!o.dataFiles.includes('draft.json'), '写しを残したのに下書きが残った');
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
