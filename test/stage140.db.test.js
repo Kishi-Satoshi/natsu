@@ -1597,3 +1597,25 @@ test('MB-2 直し（R167）: page.put に照らしに外れる memoDoc が来た
     }
   } finally { t.done(); j.done(); }
 });
+
+test('MB-3 直し（小さな頼み 2・R180）: page.put に照らしに外れる memoDoc だけ（memo なし）が来たら、保存してあるメモの行と素の文字のメモのまま（外れた行で消さない）。json-backend も同じ答え', T, async () => {
+  const { jsonTwin } = require('./helpers/dbtmp');
+  const t = tmpDb(); const j = jsonTwin();
+  try {
+    const { db } = t.open();
+    const { page, segments } = samplePage('pa1');
+    const stored = { ...page, memo: MEMO_PLAIN, memoDoc: MD.validateMemoDoc(MEMO_DOC) };
+    t.seed(stored, segments); await j.seed(stored, segments);
+    const g = get(db);
+    const { memo, memoDoc, ...rest } = g;   // eslint-disable-line no-unused-vars
+    const bad = [{ id: 'x1', type: 'paragraph', text: '壊れた行' }];
+    const r = call(db, 'page.put', { page: { ...rest, memoDoc: bad, durationSec: 4321 }, baseRev: g.rev }, 'main');
+    assert.strictEqual(r.ok, true, r.code);
+    const d = raw(db);
+    assert.deepStrictEqual([d.durationSec, d.memoDoc, d.memo], [4321, MD.validateMemoDoc(MEMO_DOC), MEMO_PLAIN], '外れた行で保存してあるメモが消えた');
+    const jg = (await j.call('page.get', { id: 'pa1' })).page;
+    const { memo: jm, memoDoc: jd, ...jrest } = jg;   // eslint-disable-line no-unused-vars
+    const jr = await j.call('page.put', { page: { ...jrest, memoDoc: bad, durationSec: 4321 } });
+    assert.deepStrictEqual([jr.durationSec, jr.memoDoc, jr.memo], [4321, MD.validateMemoDoc(MEMO_DOC), MEMO_PLAIN], 'json-backend');
+  } finally { t.done(); j.done(); }
+});

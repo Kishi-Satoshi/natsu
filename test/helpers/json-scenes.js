@@ -308,6 +308,19 @@ module.exports = {
     } },
   // 下書きから復旧したページを保存できない。下書きは消さず、記録には理由の符号だけを書く。第2a1回 M-2b から議事録は DB のプロセスが
   // 書くので、main の fs の失敗（ページの一時ファイルを開けない）の代わりに、DB を使えない（--db-down）で保存できなくする
+  // 0.14.0 MB-3 直し（R181）: 復旧する下書きのメモの行が照らしに合わず、写し（.broken-）も作れない（copy が EACCES）→ ページは memo だけで作り、下書きは消さずに残す
+  'mb-copy-fail': { files: { 'settings.json': pretty(TYPICAL), 'data/draft.json': JSON.stringify({ ...OLD_DRAFT, pageId: 'pmbcopy1', memo: '素の文字のメモ', memoDoc: [{ id: 'm1', type: 'paragraph', text: '壊れた行の文', cites: [1] }] }) },
+    faults: [{ op: 'copy', match: /\.broken-/, code: 'EACCES', times: Infinity }],
+    act: async (c) => {
+      await c.waitFor(() => c.store.listPages().length >= 1, 10000);
+      await c.sleep(300);
+      const pg = c.store.getPage(c.store.listPages()[0].id);
+      c.out.page = { id: pg.id, memo: pg.memo, memoDoc: pg.memoDoc === undefined ? null : pg.memoDoc };
+      c.out.drafts = c.store.draftFiles();
+      c.out.dataFiles = require('node:fs').readdirSync(require('node:path').join(c.userData, 'data')).sort();
+      const t = c.read('engine.log');
+      c.out.log = t ? t.toString('utf8').split('\n').filter(Boolean).map((l) => l.replace(/^\[[^\]]+\] /, '')) : [];
+    } },
   'draft-page-fail': { dbDown: true, files: { 'settings.json': pretty(TYPICAL), 'data/draft.json': JSON.stringify(OLD_DRAFT) } },
   'draft-broken': { files: { 'settings.json': pretty(TYPICAL), 'data/draft.json': '{"startedAt":1760000000000,"segme' } },
   // 0.10.0 K-1（決めたこと 116）: 経過を持った下書きから戻すと、ページの経過の最後に「戻した（アプリ）」が積まれる（表に無い項目は落とす）

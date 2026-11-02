@@ -847,7 +847,7 @@ module.exports = [
     tests: ['test/stage2a1.main.test.js'], pattern: '^RF14・F9: 移行の間に', why: 'M-4 ST6: meeting.settle の keep に今録音中の会議を入れる' },
   { id: 'mr-no-relay', file: 'src/main.js', from: '  ipcMain.handle(\'page:summarize\', (_e, id) => runSummary(id));', to: '  ipcMain.handle(\'page:summarize\', (_e, id) => runSummary(id));\n  ipcMain.handle(\'page:get\', (_e, id) => db.call(\'page.get\', { id }));',
     tests: ['test/stage2a1.main.test.js'], pattern: '^ST5: main は画面のページの口を中継しない', why: 'M-3 ST5: main は画面のページの口を中継しない' },
-  { id: 'mr-already-clear', file: 'src/main.js', from: '      store.clearDraft(name);\n      if (already) {', to: '      if (!already) store.clearDraft(name);\n      if (already) {',
+  { id: 'mr-already-clear', file: 'src/main.js', from: '      if (!fit.keepDraft) store.clearDraft(name);   // 0.14.0 MB-3 直し（R179・R181）: メモの行の写しを残せなかった下書きは消さない\n      if (already) {', to: '      if (!fit.keepDraft && !already) store.clearDraft(name);\n      if (already) {',
     tests: ['test/stage2a1.main.test.js'], pattern: '^F11: 締めた後に下書きを消せず', why: 'M-3 F11: 復旧の答えが already でも下書きを消す' },
   { id: 'mr-empty-draft-purge', file: 'src/main.js', from: '      if (draftId) startPurge(draftId).catch(() => {});   // purgeMeeting は投げない\n', to: '',
     tests: ['test/stage2a1.main.test.js'], pattern: '^ST6: 録音を始めた直後', why: 'M-3 の点検: 発言の無い下書きの空の写しを消す（空の「（復旧）」のページを作らない）' },

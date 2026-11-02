@@ -415,8 +415,12 @@ function localDate(d) {
 function keepStoredMemo(was, page) {
   if (Object.hasOwn(page, 'memoDoc')) {
     const doc = memoDocOr(page.memoDoc);
-    if (doc) { page.memoDoc = doc; page.memo = MD.memoPlain(doc); } else delete page.memoDoc;
-  } else if (Array.isArray(was.memoDoc)) { page.memoDoc = clone(was.memoDoc); page.memo = was.memo; }
+    if (doc) { page.memoDoc = doc; page.memo = MD.memoPlain(doc); return page; }
+    delete page.memoDoc;
+    // 0.14.0 MB-3 直し（R180）: 外れた行と一緒に素の文字のメモを渡していればそれだけ。渡していなければ保存してあるメモのまま（外れた行で消さない）
+    if (Object.hasOwn(page, 'memo')) return page;
+  }
+  if (Array.isArray(was.memoDoc)) { page.memoDoc = clone(was.memoDoc); page.memo = was.memo; }
   else if (!Object.hasOwn(page, 'memo') && Object.hasOwn(was, 'memo')) page.memo = was.memo;
   return page;
 }

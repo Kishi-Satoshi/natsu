@@ -231,6 +231,21 @@ function isReadOnly(file, fs = require('fs')) {
 const readOnlyError = () => Object.assign(new Error('読み取り専用'), { code: 'EPERM', readOnly: true });
 const tmpNameOf = (file) => `${file}.${process.pid}-${Math.floor(Math.random() * 36 ** 6).toString(36).padStart(6, '0')}.tmp`;
 
+// 0.14.0 MB-3 直し（I1・R178）: opts.compact が真なら字下げの無い JSON。opts.bigKey の欄（大きな配列。下書きの memoDoc）は、同じ物の間は前に作った文字を使う
+// （区間のたびに書く下書きで、変わらない大きなメモの行を毎回文字にしない）。その欄の物は書いた後に中を直さない（直すときは新しい物にする: main の memoDoc は受けるたびに新しい写し）
+const bigTexts = new WeakMap();
+function jsonText(value, opts) {
+  if (opts.compact !== true) return JSON.stringify(value, null, 2);
+  const key = typeof opts.bigKey === 'string' ? opts.bigKey : '';
+  const big = key && value && typeof value === 'object' && !Array.isArray(value) && Object.hasOwn(value, key) && value[key] && typeof value[key] === 'object' ? value[key] : null;
+  if (!big) return JSON.stringify(value);
+  let t = bigTexts.get(big);
+  if (t === undefined) { t = JSON.stringify(big); bigTexts.set(big, t); }
+  const rest = { ...value };
+  delete rest[key];
+  const head = JSON.stringify(rest);
+  return head === '{}' ? `{${JSON.stringify(key)}:${t}}` : `${head.slice(0, -1)},${JSON.stringify(key)}:${t}}`;
+}
 // → { written: true, text } | { written: false, text }（prevText と同じ中身なら書かない）。だめなら投げる（e.code はもとの符号）
 function writeJsonFile(file, value, opts = {}) {
   const fs = fsOf(opts);
@@ -241,7 +256,7 @@ function writeJsonFile(file, value, opts = {}) {
   const onFsyncUnsupported = typeof opts.onFsyncUnsupported === 'function' ? opts.onFsyncUnsupported : () => {};
   const path = require('path');
 
-  const text = JSON.stringify(value, null, 2);
+  const text = jsonText(value, opts);
   if (opts.prevText === text) return { written: false, text };
   // Windows では読み取り専用のファイルへの名前の変更が失敗し、Linux では通ってしまうので、両方で先に見る
   if (isReadOnly(file, fs)) throw readOnlyError();

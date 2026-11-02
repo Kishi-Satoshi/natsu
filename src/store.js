@@ -437,8 +437,9 @@ function readDraftFile(name) {
 }
 
 // fsync は main が決める（既定は今と同じ、fsync なし）
+// 0.14.0 MB-3 直し（I1・R178）: 区間のたびに書くので字下げの無い JSON にし、メモの行（memoDoc）は変わらない間は前に作った文字を使う
 function writeDraft(d, name = 'draft.json', opts = {}) {
-  writeJson(draftPath(name), d, { fsync: opts.fsync === true });
+  writeJson(draftPath(name), d, { fsync: opts.fsync === true, compact: true, bigKey: 'memoDoc' });
 }
 
 // 0.14.0 MB-3（R164）: 下書きの写しを同じフォルダの <名前>.broken-<時刻> に残す（中身は1バイトも変えない。下書きの名前の形でないので復旧しない）

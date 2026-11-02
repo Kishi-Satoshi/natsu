@@ -289,3 +289,85 @@ test('MB-3（R165）: main の締め（meeting.finalize）と復旧（meeting.re
   const s = lib.slice(lib.indexOf('async function saveIfExists('), lib.indexOf('\n}\n', lib.indexOf('async function saveIfExists(')));
   assert.ok(s.indexOf('delete saved.memo; delete saved.memoDoc;') > s.indexOf('apply(saved);') && s.indexOf('delete saved.memo;') < s.indexOf("db.call('page.put'"), '書き戻しがメモを送る');
 });
+
+// ---------------------------------------------------------------- MB-3 直し（2026-11-02 の点検の I1・I2・小さな頼み。R178〜R181）
+// 大きなメモの行の下書き（2,000 行・1 行 45 字の日本語の太字と色。memoDoc は JSON で約 0.8MB・memoPlain は 10 万字の内で、memo と合わせると 1MB を越える）
+const bigMemoDoc = () => MD.validateMemoDoc(Array.from({ length: 2000 }, (_, i) => ({ id: `m${(i + 1).toString(36)}`, type: 'bullet', text: '', rich: [{ t: '大事な議題の確認と次の打ち手の相談'.repeat(2), m: ['b'] }, { t: '・期限を決める予定です', m: [['color', 'blue']] }] })));
+const freshStore = () => {
+  const p = require.resolve('../src/store');
+  const saved = require.cache[p];
+  delete require.cache[p];
+  const s = require('../src/store');
+  delete require.cache[p];
+  if (saved) require.cache[p] = saved;
+  return s;
+};
+
+test('MB-3 直し（I1・R178）: 下書きは字下げの無い JSON で書き、メモの行は変わらない間は前に作った文字を使う（区間のたびの fsync の書き込みが大きなメモの行で重くならない）', { timeout: 30000 }, () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'natsu-下書きの大きさ𠮷-'));
+  try {
+    const S = freshStore();
+    S.initDrafts(dir);
+    const doc = bigMemoDoc();
+    assert.ok(MD.memoPlain(doc).length <= 100000, '種の前提: memoPlain が 10 万字の内');
+    let serialized = 0;
+    Object.defineProperty(doc, 'toJSON', { value() { serialized += 1; return Array.from(this); }, enumerable: false });
+    const plainDoc = Array.from(doc);
+    const draft = (n) => ({ pageId: 'pbig1', startedAt: 1760000000000, memo: MD.memoPlain(doc), memoDoc: doc, segments: Array.from({ length: n }, (_, i) => ({ id: `s${i + 1}`, atMs: i * 15000, durationMs: 15000, text: `発言の${i + 1}` })), offsetMs: n * 15000, savedAt: 1760000000000 + n });
+    const file = path.join(dir, 'data', 'draft.json');
+    const t0 = process.hrtime.bigint();
+    for (let n = 1; n <= 10; n++) S.writeDraft(draft(n), 'draft.json', { fsync: true });
+    const ms = Number(process.hrtime.bigint() - t0) / 1e6;
+    assert.strictEqual(serialized, 1, `メモの行を書き込みのたびに文字にした（${serialized} 回）`);
+    const text = fs.readFileSync(file, 'utf8');
+    assert.ok(!text.includes('\n'), '下書きが字下げのある JSON（大きくなる）');
+    const back = JSON.parse(text);
+    assert.deepStrictEqual(back, { ...draft(10), memoDoc: plainDoc }, '詰めて書いた下書きが元と違う');
+    const pretty = Buffer.byteLength(JSON.stringify({ ...draft(10), memoDoc: plainDoc }, null, 2));
+    assert.ok(Buffer.byteLength(text) < pretty * 0.8, `詰めて書いても小さくならない（${Buffer.byteLength(text)} / ${pretty}）`);
+    assert.ok(ms < 8000, `大きなメモの行の下書きの 10 回の書き込み（fsync つき）が遅すぎる: ${ms.toFixed(0)}ms`);   // 広い上限（CI の遅い機械でも）。いまの手元は 1 回 10ms ほど
+    // 行が替われば（新しい物）文字にし直す
+    const doc2 = MD.validateMemoDoc([{ id: 'm1', type: 'paragraph', text: '替えた行' }]);
+    S.writeDraft({ ...draft(11), memo: MD.memoPlain(doc2), memoDoc: doc2 }, 'draft.json', { fsync: true });
+    assert.deepStrictEqual(JSON.parse(fs.readFileSync(file, 'utf8')).memoDoc, doc2);
+    // 行の無い下書き（前の版と同じ形）も詰めて書く
+    S.writeDraft({ startedAt: 1, memo: 'a', segments: [] }, 'draft.json', { fsync: true });
+    assert.strictEqual(fs.readFileSync(file, 'utf8'), '{"startedAt":1,"memo":"a","segments":[]}');
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('MB-3 直し（I2・R179・小さな頼み 3）: 照らしに合うメモの行でも、復旧の頼みが 1MB を越えて行を外すときは、下書きの写し（.broken-）を残してから memo だけのページにする（場面: main の fitLiveMemoDoc）', { timeout: sceneTimeout(60000) }, async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'natsu-大きなメモの復旧𠮷-'));
+  try {
+    const data = path.join(dir, 'data');
+    fs.mkdirSync(data, { recursive: true });
+    const doc = bigMemoDoc();
+    const at = Date.now() - 600000;
+    const raw = JSON.stringify({ pageId: 'pmbbig1', startedAt: at, memo: MD.memoPlain(doc), memoDoc: doc, offsetMs: 3000, savedAt: at + 3000, segments: [{ id: 's1', atMs: 0, durationMs: 3000, text: '大きなメモの会議です' }] });
+    assert.ok(Buffer.byteLength(raw) > 1024 * 1024, '種の前提: 復旧の頼みが 1MB を越える');
+    fs.writeFileSync(path.join(data, 'draft.json'), raw);
+    const o = await sceneRun(['text', '--idle', `--keep-user-data=${dir}`], 60000);
+    assert.strictEqual(o.pages.length, 1, JSON.stringify(o.engineLog));
+    assert.deepStrictEqual([o.pages[0].id, o.pages[0].memo, o.pages[0].memoDoc, o.pages[0].recovered], ['pmbbig1', MD.memoPlain(doc), undefined, true]);
+    const kept = o.dataFiles.filter((n) => n.startsWith('draft.json.broken-'));
+    assert.strictEqual(kept.length, 1, `外したメモの行の下書きの写しが無い: ${o.dataFiles.join(',')}`);
+    assert.strictEqual(fs.readFileSync(path.join(data, kept[0]), 'utf8'), raw, '写しが元の下書きと違う');
+    assert.ok(!o.dataFiles.includes('draft.json'), '写しを残したのに下書きが残った');
+    assert.ok(o.engineLog.includes('メモ: 議事録の頼みが大きすぎるので、メモの行を外して素の文字のメモで保存します（下書きの写しを残しました）'), o.engineLog.join('\n'));
+    assert.ok(!o.engineLog.some((l) => /大事な議題|会議です/.test(l)), '記録にメモか発言の文を書いた');
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('MB-3 直し（小さな頼み 1・R181）: 照らしに合わないメモの行の下書きの写しを作れない（copy が EACCES）なら、ページは memo だけで作り、下書きは消さずに残す', T, async () => {
+  const o = await run(['text', '--json-scene=mb-copy-fail']);
+  assert.deepStrictEqual(o.page, { id: 'pmbcopy1', memo: '素の文字のメモ', memoDoc: null });
+  assert.deepStrictEqual(o.drafts, ['draft.json'], '写しを残せなかったのに下書きを消した');
+  assert.ok(!o.dataFiles.some((n) => n.includes('.broken-')), o.dataFiles.join(','));
+  assert.ok(o.log.includes('下書き（draft.json）のメモの行は形が合わないので、行の無いメモで戻します（bad-args。写しを残せませんでした: EACCES。下書きを残します）'), o.log.join('\n'));
+});
+
+test('MB-3 直し（小さな頼み 3）: 締めた後の要約の書き戻し（main の saveIfExists → page.put）は、メモの行と素の文字のメモを保存してあるままにする（場面）', { timeout: sceneTimeout(30000) }, async () => {
+  const o = await sceneRun(['text', '--sum', '--claude=ok', '--segs=2', `--live-memo-doc=${JSON.stringify(MB_DOC)}`]);
+  assert.ok(o.pages[0].blocks && o.pages[0].blocks.length > 0, '場面の前提: 要約を書き戻した');
+  assert.deepStrictEqual([o.pages[0].memo, o.pages[0].memoDoc], [MB_PLAIN, MB_VALID], '要約の書き戻しでメモの行が消えた・変わった');
+});

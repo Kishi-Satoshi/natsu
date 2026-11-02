@@ -4709,7 +4709,7 @@ async function recoverDraftsNow() {
       continue;
     }
     if (draftId) keep.push(draftId);
-    keepBrokenMemoDraft(name, d);   // 0.14.0 MB-3（R164）
+    const fit = { keepDraft: !keepBrokenMemoDraft(name, d) };   // 0.14.0 MB-3（R164）。写せなければ下書きを残す（R181）
     try {
       const dt = new Date(d.startedAt || Date.now());
       // 文字起こしが終わっていなかった区間（pending）は失敗扱いでページに載せ、wav が残っていれば
@@ -4738,8 +4738,8 @@ async function recoverDraftsNow() {
         summaryError: rec.todo.length
           ? '録音が中断されたため要約は未生成です。残っていた音声の文字起こしを続けています。終わったら「要約を生成」で作成できます。'
           : '録音が中断されたため要約は未生成です。「要約を生成」で作成できます。',
-      } }));
-      store.clearDraft(name);
+      } }, name, fit));
+      if (!fit.keepDraft) store.clearDraft(name);   // 0.14.0 MB-3 直し（R179・R181）: メモの行の写しを残せなかった下書きは消さない
       if (already) {
         // 締め済みのページ（後からの要約と直しは DB が残した）か、取り消した会議。知らせない
         engineLog(`下書き（${name}）は締め済みか取り消した会議のものだったので片付けました`);
@@ -5204,18 +5204,25 @@ function setLiveMemoDoc(doc) {
 }
 // 0.14.0 MB-3（R165）: 締めと復旧の頼みがメモの行のせいで DB の引数の上限（1MB）を越えるなら、行を外して素の文字のメモだけで頼む
 // （メモの大きさで締めと復旧を断られない。記録に符号だけ）→ 頼みの引数
-function fitLiveMemoDoc(args) {
+// 0.14.0 MB-3 直し（I2・R179）: 行を外すときは、下書き（draftName）の写しを残してから頼む（照らしに合う行の形も写しに残る）。写せなければ out.keepDraft を立て、
+// 呼び手は頼みが通っても下書きを消さない（決めたこと 65「下書きのファイルは消えない」。次の起動でもう一度写してから片付ける）
+function fitLiveMemoDoc(args, draftName, out = {}) {
   const r = fitMemoDoc(args);
-  if (r.dropped) engineLog('メモ: 議事録の頼みが大きすぎるので、メモの行を外して素の文字のメモで保存します');
+  if (!r.dropped) return r.args;
+  const kept = draftName ? store.keepDraftCopy(draftName) : { ok: false, code: 'none' };
+  if (!kept.ok) out.keepDraft = true;
+  engineLog(`メモ: 議事録の頼みが大きすぎるので、メモの行を外して素の文字のメモで保存します（${kept.ok ? '下書きの写しを残しました' : `写しを残せませんでした: ${kept.code}。下書きを残します`}）`);
   return r.args;
 }
 // 0.14.0 MB-3（決めたこと 65・R164）: 復旧する下書きのメモの行が照らしに合わなければ、下書きの写しを消さずに残す（ページは DB が memo だけで作り、
 // 下書きは今どおり戻した後に消す。壊れた形も写しに残る: 試作の「破損時は削除せず」）。写せなくても復旧は止めない。記録に符号だけ
+// 0.14.0 MB-3 直し（R181）: 写せなかったら false（呼び手は戻した後も下書きを消さない。次の起動でもう一度写してから片付ける）
 function keepBrokenMemoDraft(name, d) {
-  if (d.memoDoc === undefined) return;
-  try { memoDoc.validateMemoDoc(d.memoDoc); return; } catch (e) {
+  if (d.memoDoc === undefined) return true;
+  try { memoDoc.validateMemoDoc(d.memoDoc); return true; } catch (e) {
     const kept = store.keepDraftCopy(name);
-    engineLog(`下書き（${name}）のメモの行は形が合わないので、行の無いメモで戻します（${errCode(e)}。${kept.ok ? '下書きの写しを残しました' : `写しを残せませんでした: ${kept.code}`}）`);
+    engineLog(`下書き（${name}）のメモの行は形が合わないので、行の無いメモで戻します（${errCode(e)}。${kept.ok ? '下書きの写しを残しました' : `写しを残せませんでした: ${kept.code}。下書きを残します`}）`);
+    return kept.ok;
   }
 }
 // 0.13.0 RDY-1（RD1・RD19）: ［＋ 新しい議事録］ → 録音の前のページを1つ作る（あればそのまま）。録音・下書き・DB の写し・録音バーは始めない。
@@ -5778,6 +5785,7 @@ async function maybeFinalizeMeeting() {
   const overlayFree = () => !meeting && state === 'idle';
 
   let page = null;
+  const fit = {};   // 0.14.0 MB-3 直し（R179）: 締めの頼みでメモの行を外したときの下書きの扱い
   try {
     // 議事録を締める（第2a1回 ST6: await db.call。中身は議事録の DB のプロセス）。「書けた」と返ってから下書きを消す。
     // 締めの tx は会議の開始時刻（送り直しても1回だけ効く）
@@ -5797,8 +5805,8 @@ async function maybeFinalizeMeeting() {
         ...(mtype.isSelectable(m.meetingType) ? { meetingType: m.meetingType, typeAuto: false } : {}),   // 0.11.0 M-4（決めたこと 11・F27）
         recovered: false, summaryError: keptWhy, meeting: { phase: 'done' },
       },
-    }), { tx: `meeting:${m.startedAt}` });
-    store.clearDraft(m.draftName);
+    }, m.draftName, fit), { tx: `meeting:${m.startedAt}` });
+    if (!fit.keepDraft) store.clearDraft(m.draftName);   // 0.14.0 MB-3 直し（R179）: 外したメモの行の写しを残せなかった下書きは消さない（次の起動で写してから片付ける）
     // 認識に失敗した区間の wav は残してある（settleSegment）。復旧と同じ待ち行列に載せ、
     // 要約のあとでもう一度文字起こしする。途中で落ちても recovery.json から次の起動で続く
     const retry = m.segments.filter((s) => s.failed && s.wav && fs.existsSync(s.wav))
