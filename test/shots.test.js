@@ -204,7 +204,9 @@ const NEW_140 = ['edit-marks-light', 'edit-marks-dark', 'edit-toolbar-light', 'e
 const RETAKEN_140 = ['edit-block-menu-light', 'settings-light', 'settings-dark', 'settings-zoom200-dark',
   'live-ready-light', 'live-ready-dark', 'live-ready-zoom200-light', 'live-type-light', 'page-type-light', 'page-type-dark',
   // DQ-3（BQ27 (a)）で［録音］の「文字起こし」のカードの「フィラー除去」の下に1行増えるので、録音の3枚も取り直す（settings-record-light はヘルプの写真の元: R71）
-  'settings-record-light', 'settings-record-dark', 'settings-record-zoom200-light'];
+  'settings-record-light', 'settings-record-dark', 'settings-record-zoom200-light',
+  // DQ-3 直し（R200）: 同じ［録音］を開く ⓘ の吹き出しの3枚と「会議の検出」の2枚も、項目が1行伸びて捲り棒のつまみと吹き出しの下の行が変わる（CI run 41476058092 の electron-smoke で NG）
+  'settings-info-loop-light', 'settings-info-stt-dark', 'settings-info-zoom200-light', 'settings-detect-light', 'settings-detect-dark'];
 const RETAKE_140 = [...NEW_140, ...RETAKEN_140];
 const img = (w, h, fill = [255, 255, 255, 255]) => ({ width: w, height: h, data: Buffer.from(Array.from({ length: w * h }, () => fill).flat()) });
 // 一時フォルダ（日本語と 𠮷 の名前。RF1 と同じ形）。テストの終わりに消す
