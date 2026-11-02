@@ -371,3 +371,129 @@ test('MB-3 直し（小さな頼み 3）: 締めた後の要約の書き戻し�
   assert.ok(o.pages[0].blocks && o.pages[0].blocks.length > 0, '場面の前提: 要約を書き戻した');
   assert.deepStrictEqual([o.pages[0].memo, o.pages[0].memoDoc], [MB_PLAIN, MB_VALID], '要約の書き戻しでメモの行が消えた・変わった');
 });
+
+// ---------------------------------------------------------------- EK-6（U4・F104・F107・F108。決めたこと 39〜44・74・75・79。BQ9-1・BQ10 (a)・BQ21 (a)・BQ26 (a)・R27・R55・R61・R62）
+// 今の音声入力のキーを NaTsu の文字の欄で押すと、押した所へ直に入れる（場面: helpers/mainrun.js の ["dictate-in-natsu", { where, by, audio }]。偽の画面が dictation:where に答える）
+const dsent = (o, ch) => o.mainSentAll.filter(([c]) => c === ch).map(([, p]) => p);
+const noticeText = (m) => (m && typeof m === 'object' ? m.text : m);
+const DICT_NOWHERE = 'ここには音声入力で入れられないので、履歴に残しました';
+const DICT_MEETING = '議事録の録音中は、音声入力は使えません';
+const dictDump = (o) => JSON.stringify({ sent: o.mainSentAll.filter(([c]) => /^(dictation:|app:notice)/.test(c)), dict: o.dict, log: o.engineLog.slice(-12) });
+
+test('EK-6・F104（決めたこと 40〜42）: NaTsu の窓にフォーカスがあり画面が { ok: true } → 全体のキー → 録音 → 文字起こし → dictation:text が1回（同じ番号）・クリップボードと貼り付けの真似は0・履歴に1件。フォーカスが無ければ今どおり deliverText（クリップボードと貼り付けの真似が1回ずつ）・dictation:where も dictation:text も0', T, async () => {
+  const o = await mic([['sleep', 100], ['dictate-in-natsu', { where: 'ok' }]]);
+  assert.strictEqual(o.dict.history.length, 1, dictDump(o));
+  const w = dsent(o, 'dictation:where');
+  assert.strictEqual(w.length, 1, dictDump(o));
+  assert.deepStrictEqual(dsent(o, 'dictation:text'), [{ seq: w[0].seq, text: o.dict.history[0].text, lines: null }], dictDump(o));
+  assert.deepStrictEqual(o.dict.pastes, [], 'NaTsu の中の音声入力でクリップボードに書いた（Win+V の履歴に残る）');
+  assert.strictEqual(o.dict.pasteSims, 0);
+  assert.deepStrictEqual(dsent(o, 'dictation:end'), []);
+  const u = await mic([['sleep', 100], ['dictate-in-natsu', { where: 'ok' }]], '--main-unfocused');
+  assert.strictEqual(u.dict.history.length, 1, dictDump(u));
+  assert.deepStrictEqual(dsent(u, 'dictation:where'), [], 'NaTsu の窓が前でないのに画面に聞いた');
+  assert.deepStrictEqual(dsent(u, 'dictation:text'), []);
+  assert.deepStrictEqual(u.dict.pastes, [u.dict.history[0].text], 'ほかのアプリへの音声入力がクリップボードを通っていない');
+  assert.strictEqual(u.dict.pasteSims, 1, 'ほかのアプリへの音声入力で貼り付けの真似をしていない');
+});
+
+test('EK-6・R27: 画面が { ok: false }・300ms 答えない → クリップボードも dictation:text も0・履歴に1件・知らせ「ここには音声入力で入れられないので…」・dictation:end が1回（R61）', T, async () => {
+  for (const where of ['no', 'none']) {
+    const o = await mic([['sleep', 100], ['dictate-in-natsu', { where }]]);
+    assert.strictEqual(o.dict.history.length, 1, `${where}: ${dictDump(o)}`);
+    assert.deepStrictEqual(o.dict.pastes, [], `${where}: クリップボードで NaTsu へ貼った`);
+    assert.strictEqual(o.dict.pasteSims, 0, where);
+    assert.deepStrictEqual(dsent(o, 'dictation:text'), [], where);
+    assert.strictEqual(o.notices.map(noticeText).filter((t) => t === DICT_NOWHERE).length, 1, `${where}: ${dictDump(o)}`);
+    const w = dsent(o, 'dictation:where');
+    assert.deepStrictEqual(dsent(o, 'dictation:end'), [{ seq: w[0].seq }], `${where}: ${dictDump(o)}`);
+  }
+});
+
+test('EK-6・R40: NaTsu の中の音声入力の後、次の音声入力（画面の［録音］ボタン・NaTsu の窓が前でない）は今どおり貼り付ける（入れ先を戻している）', T, async () => {
+  const o = await mic([['sleep', 100], ['focus-main'], ['dictate-in-natsu', { where: 'ok' }], ['blur-main'], ['dictate-in-natsu', { where: 'ok', by: 'button' }]], '--main-unfocused');
+  assert.strictEqual(o.dict.history.length, 2, dictDump(o));
+  assert.strictEqual(dsent(o, 'dictation:text').length, 1, dictDump(o));
+  assert.deepStrictEqual(o.dict.pastes, [o.dict.history[0].text], `2回目が貼り付けに回っていない: ${dictDump(o)}`);
+});
+
+test('EK-6・R55: 前の口述の dictation:where に遅れて来た答え（番号が違う）では入れ先が決まらない（履歴だけ）。本体の窓の画面が読み込み中なら聞かずに履歴だけ', T, async () => {
+  const o = await mic([['sleep', 100], ['dictate-in-natsu', { where: 'none' }], ['dictate-in-natsu', { where: 'stale' }]]);
+  assert.strictEqual(o.dict.history.length, 2, dictDump(o));
+  assert.deepStrictEqual(dsent(o, 'dictation:where').map((p) => p.seq), [1, 2]);
+  assert.deepStrictEqual(dsent(o, 'dictation:text'), [], `番号の違う答えで入れ先が決まった: ${dictDump(o)}`);
+  assert.deepStrictEqual(o.dict.pastes, []);
+  const l = await mic([['sleep', 100], ['loading', true], ['dictate-in-natsu', { where: 'ok' }], ['loading', false]]);
+  assert.strictEqual(l.dict.history.length, 1, dictDump(l));
+  assert.deepStrictEqual(dsent(l, 'dictation:where'), [], '読み込み中の画面に聞いた');
+  assert.deepStrictEqual(dsent(l, 'dictation:text'), []);
+  assert.deepStrictEqual(l.dict.pastes, []);
+});
+
+test('EK-6・BQ10 (a): 議事録の録音中に NaTsu の窓でキー → 音声入力は始まらず「議事録の録音中は、音声入力は使えません」。窓の外では知らせも無い。録音の前のページを開いていても使える', T, async () => {
+  const o = await mic([['sleep', 100], ['start'], ['dictate-in-natsu', { audio: false, snap: 'm' }], ['stop']]);
+  assert.strictEqual(o.snaps.m.starts, 0, '議事録の録音中に音声入力を始めた');
+  assert.strictEqual(o.notices.map(noticeText).filter((t) => t === DICT_MEETING).length, 1, dictDump(o));
+  assert.deepStrictEqual(dsent(o, 'dictation:where'), []);
+  const u = await mic([['sleep', 100], ['start'], ['dictate-in-natsu', { audio: false, snap: 'm' }], ['stop']], '--main-unfocused');
+  assert.strictEqual(u.snaps.m.starts, 0);
+  assert.ok(!u.notices.map(noticeText).includes(DICT_MEETING), '窓の外で知らせた');
+  const r = await mic([['sleep', 100], ['ipc', 'meeting:prepare'], ['dictate-in-natsu', { where: 'ok' }]]);
+  assert.strictEqual(dsent(r, 'dictation:text').length, 1, `録音の前のページで使えない: ${dictDump(r)}`);
+});
+
+test('EK-6・R62（第4版）: 会議を始めている途中（前の下書きの復旧を待つ間: meetingStarting）に NaTsu の窓でキー → 音声入力は始まらず「議事録の録音中は、音声入力は使えません」。会議は始まる', { timeout: sceneTimeout(60000) }, async () => {
+  // 押したのは起動の片付け（前の下書きの復旧）の途中で、会議は復旧を待ってから始まる（0.13.2 の LN-4・点検の直し 2 と同じ形）
+  const o = await mic([['ipc', 'meeting:prepare'], ['snap', 'press'], ['ipc-later', 'meeting:start', { pcOnly: true }], ['dictate-in-natsu', { audio: false, snap: 's' }], ['snap', 'q'], ['wait-settled'], ['sleep', 300], ['stop']],
+    '--extra-queue=localonly', '--slow-ack=meeting.recover:4000');
+  assert.strictEqual(o.snaps.press.settled, false, '会議を始める前に起動の片付けが済んだ（場面の作り違い）');
+  assert.strictEqual(o.snaps.q.active, false, 'キーを押した時にもう会議が始まっていた（場面の作り違い）');
+  assert.strictEqual(o.snaps.s.starts, 0, `会議を始めている途中に音声入力を始めた: ${dictDump(o)}`);
+  assert.strictEqual(o.notices.map(noticeText).filter((t) => t === DICT_MEETING).length, 1, dictDump(o));
+  assert.deepStrictEqual(o.ipcLater, [['meeting:start', { ok: true, localOnly: true }]], JSON.stringify(o.ipcLater));
+});
+
+test('EK-6（決めたこと 41）: startRecording・toggleRecording の字は今と同じ（test/stage3.main.test.js:262）。全体の音声入力のキーの受け口は onDictationKey', () => {
+  const src = fs.readFileSync(path.join(__dirname, '..', 'src', 'main.js'), 'utf8');
+  assert.ok(src.includes("function toggleRecording() {\n  if (state === 'idle') startRecording();\n  else if (state === 'recording') stopRecording();\n}"), 'toggleRecording が変わった');
+  const at = src.indexOf('function startRecording() {\n');
+  assert.ok(at > 0);
+  const start = src.slice(at, src.indexOf('\n}\n', at));
+  assert.ok(start.startsWith("function startRecording() {\n  if (state !== 'idle' || quitting) return;"), start.slice(0, 120));
+  assert.ok(!/dictWhere|dictation:/.test(start), 'startRecording が入れ先を決めている（onDictationKey で決める）');
+  assert.ok(src.includes("{ label: '音声入力', accel: hk, handler: onDictationKey }"), '全体のキーの受け口が onDictationKey でない');
+});
+
+test('EK-6・R61（第4版）: NaTsu の中の音声入力が文字を入れずに終わると（取り消した・短すぎ・誤り・音声を残した・始めを断った）dictation:end が1回（dictation:where と同じ番号）・dictation:text は0', { timeout: sceneTimeout(90000) }, async () => {
+  const CASES = [
+    ['取り消した', ['text'], [['sleep', 100], ['dictate-in-natsu', { audio: false }], ['dictate-cancel'], ['sleep', 60]]],
+    ['短すぎ', ['text'], [['sleep', 100], ['dictate-in-natsu', { ms: 200 }]]],
+    ['誤り', ['empty'], [['sleep', 100], ['dictate-in-natsu', {}]]],
+    ['音声を残した', ['text', '--relay=text', '--no-engine=fetchable'], [['sleep', 100], ['relay-answer', 'n'], ['dictate-in-natsu', {}]]],
+    ['始めを断った', ['text', '--relay=text', '--offline', '--no-engine=fetchable'], [['sleep', 100], ['dictate-in-natsu', { snap: 'r' }], ['sleep', 60]]],
+  ];
+  for (const [name, args, steps] of CASES) {
+    const o = await sceneRun([args[0], `--mic-feed=${JSON.stringify(steps)}`, ...args.slice(1)]);
+    const w = dsent(o, 'dictation:where');
+    assert.strictEqual(w.length, 1, `${name}: ${dictDump(o)}`);
+    assert.deepStrictEqual(dsent(o, 'dictation:end'), [{ seq: w[0].seq }], `${name}: ${dictDump(o)}`);
+    assert.deepStrictEqual(dsent(o, 'dictation:text'), [], name);
+    assert.deepStrictEqual(o.dict.pastes, [], name);
+    if (name === '始めを断った') assert.strictEqual(o.snaps.r.starts, 0, `${name}: 場面の作り違い（始まった）`);
+  }
+});
+
+test('EK-6・BQ26 (a)（第4版）: ログインしていないとき、NaTsu の中の音声入力ではログインの窓は dictation:text の後に1つ（始めた直後は0）。取り消すと dictation:end の後に1つ。ほかのアプリへの音声入力は 0.13.2 のまま始めた直後に1つ', { timeout: sceneTimeout(90000) }, async () => {
+  const BOOT = [['sleep', 200], ['online', true], ['sleep', 50]];
+  const o = await mic([...BOOT, ['dictate-in-natsu', { where: 'ok', snap: 'start' }], ['sleep', 100]], '--offline');
+  assert.strictEqual(o.snaps.start.logins, 0, `NaTsu の中の音声入力の始めにログインの窓を開いた: ${dictDump(o)}`);
+  assert.strictEqual(dsent(o, 'dictation:text').length, 1, dictDump(o));
+  assert.deepStrictEqual(o.loginSentAt, [2], `窓は dictation:where と dictation:text の後に1つ: ${JSON.stringify(o.loginSentAt)}`);
+  const c = await mic([...BOOT, ['dictate-in-natsu', { where: 'ok', audio: false, snap: 'start' }], ['dictate-cancel'], ['sleep', 100]], '--offline');
+  assert.strictEqual(c.snaps.start.logins, 0, dictDump(c));
+  assert.strictEqual(dsent(c, 'dictation:end').length, 1, dictDump(c));
+  assert.deepStrictEqual(c.loginSentAt, [2], `取り消した後に窓が1つでない: ${JSON.stringify(c.loginSentAt)}`);
+  const u = await mic([...BOOT, ['dictate-in-natsu', { where: 'ok', snap: 'start' }], ['sleep', 100]], '--offline', '--main-unfocused');
+  assert.strictEqual(u.snaps.start.logins, 1, 'ほかのアプリへの音声入力の始めに窓を開いていない（0.13.2 のまま）');
+  assert.deepStrictEqual(u.loginSentAt, [0]);
+});

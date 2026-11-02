@@ -1239,6 +1239,9 @@ const IDS_140 = [
   'ek-multi-cmd', 'ek-sel-esc', 'ek-sel-exit', 'ek-sel-type', 'ek-sel-busy',
   // 0.14.0 EK-5（表の行の順に、EK-4 の行の後と EK-2 の行の間に入れた）
   'ek-menu-default', 'ek-ctrl-w-live', 'ek-ctrl-w-last', 'ek-shortcut-table',
+  // 0.14.0 EK-6（表の行の順に、EK-5 の行の間に入れた）
+  'ek-dict-ime', 'ek-dict-clip', 'ek-dict-target', 'ek-dict-meeting', 'ek-dict-esc', 'ek-dict-reset', 'ek-dict-other', 'ek-dict-nowhere',
+  'ek-dict-transcript', 'ek-dict-markup', 'ek-dict-one-step', 'ek-dict-seq', 'ek-esc-order', 'ek-dict-end', 'ek-dict-starting', 'ek-dict-login',
   'ek-ctrl-w-starting', 'ek-shortcut-131',
   // 0.14.0 EK-2 の続き
   'ek-move-ai-head', 'ek-many-divider-kids', 'ek-paste-top', 'ek-paste-inside',

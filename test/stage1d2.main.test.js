@@ -115,7 +115,8 @@ test('D21・決めたこと 5: オフラインでエンジンが無いと音声�
 });
 
 test('D21: エンジンの無い PC でもログインしてオンラインなら音声入力が中継で文字になり、貼り付けに回る', T, async () => {
-  const o = await run(['text', '--dictate', '--relay=text', '--no-engine=fetchable']);
+  // 0.14.0 EK-6 で意図して直した（R189）: 場面はほかのアプリへの音声入力なので、本体の窓は前にない（前にあると NaTsu の中の音声入力になり、クリップボードを通さない）
+  const o = await run(['text', '--dictate', '--relay=text', '--no-engine=fetchable', '--main-unfocused']);
   assert.strictEqual(o.overlayStarts, 1);
   assert.strictEqual(o.history.length, 1, dump(o));
   assert.match(o.history[0].text, /^本日の議題は進捗の確認です/);

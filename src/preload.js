@@ -185,6 +185,17 @@ contextBridge.exposeInMainWorld('koeApp', {
   deleteHistory: (id) => ipcRenderer.invoke('history:delete', id),
   clearHistory: () => ipcRenderer.invoke('history:clear'),
   toggleRecording: () => ipcRenderer.invoke('app:toggle-recording'),
+  // 0.14.0 EK-6（計画 docs/plans/2026-10-26-140.md の決めたこと 40〜44・R55・R61）: NaTsu の中の音声入力。main の dictation:where { seq } に cb(seq) の答え { ok } を
+  // { seq, ok } で返す（番号は main が決め、そのまま返す。300ms で main が諦める）・文（cb(text, lines, seq)。クリップボードを通さない）・文を入れずに終わった（cb(seq)）・取り消す
+  onDictationWhere: (cb) => ipcRenderer.on('dictation:where', (_e, p) => {
+    if (!p || !Number.isInteger(p.seq)) return;
+    let ok = false;
+    try { const r = cb(p.seq); ok = Boolean(r && r.ok === true); } catch (_) { ok = false; }
+    ipcRenderer.send('dictation:where-answer', { seq: p.seq, ok });
+  }),
+  onDictationText: (cb) => ipcRenderer.on('dictation:text', (_e, p) => { if (p && typeof p.text === 'string') cb(p.text, Array.isArray(p.lines) ? p.lines : null, Number.isInteger(p.seq) ? p.seq : 0); }),
+  onDictationEnd: (cb) => ipcRenderer.on('dictation:end', (_e, p) => { if (p && Number.isInteger(p.seq)) cb(p.seq); }),
+  dictationCancel: () => ipcRenderer.invoke('dictation:cancel'),
 
   // ページ（議事録）。14 の名前は DB の口へ（第2a1回 ST5。名前・引数・返す形は今の IPC と同じ）。要約と会議の型は今どおり main
   pagesSearch: (q) => dbCall('pages.list', { q: q || '' }),

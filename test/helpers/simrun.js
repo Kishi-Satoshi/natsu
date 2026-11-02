@@ -168,6 +168,8 @@ async function load(htmlPath, opt = {}) {
   log.apis = apis;
   /** メイン側から送られてくるイベント（onStart など）を発火する */
   log.fire = (name, ...a) => { const l = cbs[name] || []; for (const cb of l) cb(...a); return l.length; };
+  /** 0.14.0 EK-6: メイン側からのイベントを発火し、受け口の答え（返した値）を並びで返す（onDictationWhere の { ok } を preload が main へ返す形） */
+  log.answer = (name, ...a) => (cbs[name] || []).map((cb) => cb(...a));
   log.called = (m) => log.calls.filter((c) => c.method === m);
   /**
    * キーの事象を起こす。target があればその要素の受け口を先に、次に document の受け口を呼ぶ

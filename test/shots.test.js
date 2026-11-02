@@ -1059,7 +1059,9 @@ test('基準の画像（test/shots/win32）は今の app.html で撮ったもの
   // 0.14.0 MB-4（計画 docs/plans/2026-10-26-140.md の決めたこと 59〜68・R169〜R177）: メモの欄の textarea をやめ、要約と同じ行の部品にした（memoDoc の写し・editTarget・memoApi・
   // 行の欄の鍵・.memorows の CSS）。変わる画面は足した NEW_140 の memo-blocks の2枚と live-memo-blocks-light と、取り直す RETAKEN_140 の live-ready の3枚・live-type-light・page-type の2枚
   // （ほかの撮る画面はメモのタブを開かない）。値を今の app.html に合わせた（前の値は ef68f9a6…）
-  assert.strictEqual(sha, '5375f6c2826ccb525f0ab8c12ad298ac7c00e494f39d9dad5803ff0626803ba0',
+  // 0.14.0 EK-6（計画 docs/plans/2026-10-26-140.md の決めたこと 40〜44・R182〜R187）: NaTsu の中の音声入力の入れ先（dictAt・dictWhereAnswer・dictInsert・dictEnd・Esc の document の受け口・
+  // summaryBusy の dictAt・pasteRows の覚えた所。<script> の中だけ。撮る画面は変わらない）。値を今の app.html に合わせた（前の値は 5375f6c2…）
+  assert.strictEqual(sha, 'e1bb799042ac1340e5b1e363644b8b322e8b07f827c2fc140e367d8b7a28d7e1',
     'app.html が基準の画像を撮った時と違う。Windows の CI の画面の比べ（捲り棒のつまみも）を見て、基準を取り直してからこの値を直す');
 });
 

@@ -439,6 +439,10 @@ const { titleAt } = require('./titles');
 //   0.13.2 点検の直し 4: --retranscribe-during-tick（見回りの回が区間を送っている途中に［もう一度文字起こし］を押す。上の --retranscribe と組む）
 //   0.13.2 点検の直し 2: --mic-feed の手順に ["wait-settled"]（起動の片付け＝下書きの復旧が済み、meeting.settle を頼むまで待つ）・snap に settled
 //   0.13.2 点検の直し（重要 1）: --extra-queue-late=held-all（3区間とも held の待ち行列）・--retranscribe-ticks=<n>（押した回が止まった後に見回りを n 回。out.afterTicks）
+//   0.14.0 EK-6（NaTsu の中の音声入力。計画 docs/plans/2026-10-26-140.md）: --mic-feed の手順に ["dictate-in-natsu", { where, by, audio, ms }]（偽の画面の dictation:where の
+//                        答え方 ok・no・none・stale を決め、全体のキーか app:toggle-recording で始め、音声を送って録音バーの終わりの合図を待つ）・["relay-answer", 字]・
+//                        ["loading", bool]（本体の窓の画面が読み込み中）・["ipc-later", 名前, …引数]（答えを待たずに呼ぶ。答えは out.ipcLater）。出力に dict（{ pastes, pasteSims, history }）・
+//                        loginSentAt（ログインの窓を作ったときに本体の窓へ送ってあった dictation: の知らせの数）を足す。snap: 名前 で音声を送る前に snaps[名前] = { logins }
 //   0.13.2 LN-1（LR14。計画 docs/plans/2026-10-28-132.md）
 //     --finalize-delay=<ms> … 偽の DB の締め（meeting.finalize）の答えを ms 遅らせる。--mic-feed の出力に pageFinal（ページごとの { id, title, phase（meeting.phase） }）を足す
 //     --quiet-mic … --quiet-seq の場面でも偽の見張りを起こし、字 T（見張りに mic teams:1）・L（mic -）を足す（どちらも偽の時計を 2 秒進める。Ruling R2）
@@ -1406,6 +1410,18 @@ process.on('exit', () => {
   let micKills = 0;
   const nudgeWins = [];
   const mainSentAll = [];
+  // 0.14.0 EK-6: 偽の画面が main の dictation:where に答える形（ok: 入れてよい・no: 入れてはいけない・none: 答えない・stale: 前の番号で ok）。
+  // 本体の窓へ送った dictation:where の番号ごとに、場面の手順 ["dictate-in-natsu", { where }] が決めた形で dictation:where-answer を送る
+  let whereMode = 'none';
+  let mainLoading = false;
+  const whereAsk = (p) => {
+    const seq = p && p.seq;
+    if (whereMode === 'none' || !listeners['dictation:where-answer']) return;
+    const ans = whereMode === 'stale' ? { seq: seq - 1, ok: true } : { seq, ok: whereMode === 'ok' };
+    setImmediate(() => listeners['dictation:where-answer']({}, ans));
+  };
+  const pasteSims = [];   // 0.14.0 EK-6: 貼り付けの真似（Windows の外の simulatePaste は xdotool を execFile で呼ぶ）
+  const loginSentAt = [];   // 0.14.0 EK-6: ログインの窓を作ったときに本体の窓へ送ってあった dictation: の知らせの数
   // 0.13.2 LN-2（LR10）: 本体の窓へ送った page:pending と、送ったときの recovery.json ごとの区間の数（segbuf の名前の順）
   const pendingSeen = [];
   let latePageId = '';   // 0.13.2 LN-5: --extra-queue-late で置いたページの ID
@@ -1570,6 +1586,7 @@ process.on('exit', () => {
       width: o.width, height: o.height, title: o.title, show: o.show, openHandler: null, accessFormAllowed: null, redirectAllowed: null,
       wanderPrevented: null, otherTeamPrevented: null, shown: false, focused: 0, closed: false, inactive: 0 };
     loginRecs.push(rec);
+    loginSentAt.push(mainSentAll.filter(([ch]) => /^dictation:/.test(ch)).length);   // 0.14.0 EK-6
     loginWinsList.push(win);
     win.destroyed = false;
     win.isDestroyed = () => win.destroyed;
@@ -1609,9 +1626,10 @@ process.on('exit', () => {
           if (wins.indexOf(this) === 1 && ch === 'meeting:update') watchStt(p);
           if (wins.indexOf(this) >= 2 && this.nudge) this.nudge.sent.push([ch, p]);   // 0.9.3 M-3: パネルの窓へ送ったもの
           if (wins.indexOf(this) === 1) mainSentAll.push([ch, p]);
+          if (wins.indexOf(this) === 1 && ch === 'dictation:where') whereAsk(p);   // 0.14.0 EK-6
           if (wins.indexOf(this) === 1 && ch === 'page:pending') pendingSeen.push({ ...p, queueItems: queueItemCounts() });   // 0.13.2 LN-2（LR10）
           if (wins.indexOf(this) === 1) mainSent.push(ch); if (loading) { lost.push([ch, p]); return; } sent.push([ch, p]); watch(ch, p); },
-        isLoading: () => loading,
+        isLoading: () => loading || (mainLoading && wins.indexOf(this) === 1),   // 0.14.0 EK-6: ["loading", bool] は本体の窓の isLoading だけ
         setWindowOpenHandler(f) { wc.openHandler = f; }, executeJavaScript: (code) => overlayExec(this, code),
         setZoomFactor: (z) => { zooms.push(z); this.zoom = z; },
         // 第2a1回 M-2b: DB の口を渡した窓と channel（口はこの台では誰も使わない）
@@ -1940,6 +1958,7 @@ process.on('exit', () => {
     },
     execFile(_cmd, _args, _opts, cb) {
       const done = typeof _opts === 'function' ? _opts : cb;
+      if (/(^|[\\/])xdotool$/.test(String(_cmd))) pasteSims.push(_args);   // 0.14.0 EK-6: 貼り付けの真似
       // 0.10.0 C-2: --tasklist のときは tasklist.exe に答える（頭の注釈）。0.10.1 CD-3 で意図して変えた: MCP の場面では旗が無ければ stopped。
       // 「a,b,c」なら呼ばれるたびに順に答え、尽きたら最後の答えのまま
       if (tasklistPlan.length && /(^|[\\/])tasklist\.exe$/i.test(String(_cmd))) {
@@ -3129,6 +3148,7 @@ process.on('exit', () => {
     const overlayAsks = () => sent.filter(([ch]) => ch === 'overlay:level-ask').length;   // 0.9.3 M-5: 録音バーへ聞いた数
     // 0.13.2 点検の直し 2: 起動の片付け（startupWork）が済んだか。下書きの復旧（recoverDraftIfAny）が返ると、同じ手番で meeting.settle を頼む
     const settledNow = () => trace.some((t) => t.kind === 'call' && t.cmd === 'meeting.settle');
+    const laterCalls = [];   // 0.14.0 EK-6: ["ipc-later", …] の答え
     for (const step of micSteps) {
       const [k, ...a] = step;
       if (k === 'line') { const kid = lastKid(); if (kid) kid.stdout.emit('data', Buffer.from(`${a[0]}\n`)); await sleep(15); }
@@ -3174,6 +3194,28 @@ process.on('exit', () => {
       else if (k === 'wait-finalized') { await waitFor(finalized, 15000); await sleep(50); }
       else if (k === 'login-close') { const w = loginWinsList.filter((x) => !x.destroyed).pop(); if (w) w.close(); await sleep(50); }
       else if (k === 'minimize') { wins[1].minimized = true; wins[1].emit('minimize'); await sleep(15); }
+      // 0.14.0 EK-6: 音声入力を1回（{ where: 偽の画面の答え方, by: 'key'（全体のキー）| 'button'（app:toggle-recording）, audio: 音声を送るか, ms: 音声の長さ }）。
+      // 録音を始めたら音声を送り、録音バーの終わりの合図（done・error）を待つ
+      else if (k === 'dictate-in-natsu') {
+        const o = { where: 'ok', by: 'key', audio: true, ms: 3000, ...(a[0] || {}) };
+        whereMode = o.where;
+        const starts = () => sent.filter(([ch]) => ch === 'overlay:start').length;
+        const ends = () => sent.filter(([ch, p]) => ch === 'overlay:phase' && p && (p.phase === 'done' || p.phase === 'error')).length;
+        const s0 = starts(); const e0 = ends();
+        if (o.by === 'button') await handlers['app:toggle-recording']();
+        else { const st = await handlers['settings:get'](); shortcuts[st.hotkey](); }
+        await sleep(40);
+        if (o.snap) out.snaps[o.snap] = { logins: loginRecs.length, starts: starts() - s0 };
+        if (o.audio && starts() > s0) {
+          listeners['audio:done']({}, { buffer: new Uint8Array(o.ms >= 1000 ? audioWav(o.ms / 1000) : 10), durationMs: o.ms });
+          await waitFor(() => ends() > e0, 15000);
+          await sleep(60);
+        }
+      }
+      else if (k === 'relay-answer') { if (relayLocal) await relayLocal.setAnswer(a[0]); }   // 0.14.0 EK-6: 中継の答え方
+      else if (k === 'loading') { mainLoading = Boolean(a[0]); await sleep(15); }   // 0.14.0 EK-6: 本体の窓の画面が読み込み中か（isLoading だけ。送った物は今どおり届く）
+      // 0.14.0 EK-6: 答えを待たずに呼ぶ（答えは終わりに out.ipcLater へ）
+      else if (k === 'ipc-later') { const [ch, ...args] = a; laterCalls.push(Promise.resolve(handlers[ch]({}, ...args)).then((r) => [ch, r])); await sleep(30); }
       else if (k === 'snap') {
         out.snaps[a[0]] = { spawns: micSpawns.length, kills: micKills, active: isActive(), nudgeCalls: nudgeWins.length ? nudgeWins[0].nudge.calls.length : 0, asks: overlayAsks(), sentN: mainSentAll.length, notes: notifications.length,
           logins: loginRecs.length, settled: settledNow() };   // 0.13.2 LN-4: その時までに作ったログインの窓の数（点検の直し 2: 起動の片付けが済んだか）
@@ -3210,6 +3252,8 @@ process.on('exit', () => {
       notifications: noticeObjs.map((n) => ({ title: n.o.title, body: n.o.body, closed: Boolean(n.closed) })), notifyClosed,
       pageDur: store.listPages().map((p) => { const pg = store.getPage(p.id) || {}; return { id: p.id, durationSec: pg.durationSec, pauses: pg.pauses || [] }; }),
       loginWins: loginRecs.map((r) => ({ ...r })),   // 0.13.2 LN-4
+      // 0.14.0 EK-6: クリップボードへ書いた文・貼り付けの真似・履歴・ログインの窓を作ったときの dictation: の知らせの数・["ipc-later"] の答え
+      dict: { pastes: clipWrites.slice(), pasteSims: pasteSims.length, history: handlers['history:get']() }, loginSentAt: loginSentAt.slice(), ipcLater: await Promise.all(laterCalls),
       // 0.13.0 RDY-1: 議事録のページのメモと種類
       pageMemos: store.listPages().map((p) => { const pg = store.getPage(p.id) || {}; return { id: p.id, memo: pg.memo, meetingType: pg.meetingType === undefined ? null : pg.meetingType, ...(pg.memoDoc !== undefined ? { memoDoc: pg.memoDoc } : {}) }; }),   // 0.14.0 MB-3: メモの行
       // 0.13.2 LN-1（LR14）: 締めの後の形（題名・meeting.phase）

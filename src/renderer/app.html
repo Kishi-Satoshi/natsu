@@ -6656,11 +6656,12 @@
   // 行に分ける貼り付けは block.paste の1つの命令（1歩: 決めたこと 25）。今の行の文と飾りも一緒に送り、DB がカーソルの所で分ける。
   // 文のある行の頭は分けずに上へ（afterId: BQ30 (a)）・子の見えている行は文の終わりでも途中でも最初の子（inside: R66・TQ3・BQ31）・空のテキストの行は最初の貼った行になる（R18。DB が決める）。
   // カーソルは最後に貼った行の終わり
-  async function pasteRows(el, blocks) {
+  // 0.14.0 EK-6: 3つ目は NaTsu の中の音声入力の覚えた所 [始め, 終わり]（無ければ今のカーソル）
+  async function pasteRows(el, blocks, spot) {
     const pid = keyOfEl(el); const b = el._b; const txt = el._txt;
     if (txt._pause) { clearTimeout(txt._pause); txt._pause = null; }
     const shown = b.type === 'divider' ? [] : rowRich(txt);
-    const r = b.type === 'divider' ? null : caretRange(txt);
+    const r = b.type === 'divider' ? null : (spot || caretRange(txt));
     const len = plainOf(shown).length;
     const rich = r && r[1] > r[0] ? tidy([...sliceRich(shown, 0, r[0]), ...sliceRich(shown, r[1], len)]) : shown;   // 選んだ所は貼った行に置き換える
     const text = plainOf(rich);
@@ -6708,6 +6709,118 @@
     }
     return n <= 1024 * 1024;
   }
+  // ---------------- 0.14.0 EK-6（計画 docs/plans/2026-10-26-140.md の決めたこと 40〜44・R27・R28・R52・R53・R55・R61・R64。U4・F104）: NaTsu の中の音声入力
+  // main が dictation:where で聞いたとき、フォーカスのある所が入れてよい欄（要約とメモの行・題名・検索と設定の文字の欄: BQ21 (a)）なら、その所（行の ID と位置か、
+  // 欄と選んだ所）を覚えて { ok: true }。文字起こしの行・区切り線・鍵の間の要約・パスワードの欄・ホットキーを受ける欄（readonly）・文字の欄でない所は { ok: false }。
+  // 文（dictation:text）は覚えた所に1歩で入れる: 行は1行なら打った文として保存（block.update か page.setMemoDoc の1回）、箇条（lines）なら block.paste の1回。
+  // どちらも pasteConvert を通さない（口述の「# 」「- 」を記法として読まない）。欄は insertText（欄の中の戻しの1歩）。覚えた所は文か dictation:end で必ず消す（R61）
+  const DICT_GONE = '入れる所が無くなったので、音声入力の履歴に残しました';
+  let dictAt = null;   // 覚えた入れ先 { seq, key, id, s, e }（行）か { seq, field, box（input・textarea か）, pageId（題名だけ）, s, e }（欄）
+  const dictInScript = (a) => isIn(a, $('pScript'));
+  function dictRowOf(a) { for (let n = a; n; n = n.parentNode) if (n._txt === a && n._b) return n; return null; }
+  const dictTag = (a) => String((a && a.tagName) || '').toLowerCase();
+  const dictReadOnly = (a) => Boolean(a.readOnly || a.disabled || (typeof a.hasAttribute === 'function' && a.hasAttribute('readonly')));
+  function dictFieldOk(a) {
+    const tag = dictTag(a);
+    if (tag === 'textarea') return !dictReadOnly(a);
+    if (tag === 'input') {
+      const ty = String((typeof a.getAttribute === 'function' && a.getAttribute('type')) || 'text').toLowerCase();
+      return (ty === 'text' || ty === 'search') && !dictReadOnly(a);   // パスワードの欄・ホットキーを受ける欄（readonly）には入れない（R53）
+    }
+    return a.contentEditable === 'true' || (typeof a.getAttribute === 'function' && a.getAttribute('contenteditable') === 'true');
+  }
+  function dictSpot() {
+    const a = document.activeElement;
+    if (!a || !a.tagName) return null;
+    const el = dictRowOf(a);
+    if (el && rowsBoxOf(el)) {
+      // 要約とメモの行。区切り線と鍵の間の要約には入れない（出典の照らしを崩さない）
+      if (el._b.type === 'divider' || el.dataset.locked === '1' || !boxOfKey(keyOfEl(el))) return null;
+      const n = a.textContent.length;
+      const r = caretRange(a) || [n, n];
+      return { key: keyOfEl(el), id: el._b.id, s: r[0], e: r[1] };
+    }
+    if (dictInScript(a)) return null;   // 文字起こしの行には入れない（BQ21 (a)。出典の照らしと発言の文）
+    if (!dictFieldOk(a)) return null;
+    const box = dictTag(a) === 'input' || dictTag(a) === 'textarea';
+    const n = box ? String(a.value).length : a.textContent.length;
+    const r = box ? [Number.isInteger(a.selectionStart) ? a.selectionStart : n, Number.isInteger(a.selectionEnd) ? a.selectionEnd : n] : (caretRange(a) || [n, n]);
+    if (!a._dictIme && typeof a.addEventListener === 'function') {   // 欄の変換中を覚える（行の欄は自分で _composing を持つ）
+      a._dictIme = true;
+      a.addEventListener('compositionstart', () => { a._composing = true; });
+      a.addEventListener('compositionend', () => { a._composing = false; });
+    }
+    return { field: a, box, pageId: a === $('pTitle') ? curId : null, s: r[0], e: r[1] };
+  }
+  // dictation:where の答え（番号は main が決める。答えは preload が { seq, ok } で返す）
+  function dictWhereAnswer(seq) {
+    dictAt = null;
+    const at = dictSpot();
+    if (!at) return { ok: false };
+    dictAt = { seq, ...at };
+    return { ok: true };
+  }
+  // 変換中なら確定（compositionend）の後に入れる（R28）
+  function dictAfterIme(dt, go) {
+    if (!dt || !dt._composing) { go(); return; }
+    const done = () => { dt.removeEventListener('compositionend', done); go(); };
+    dt.addEventListener('compositionend', done);
+  }
+  const DICT_KIND = { bullet: 'bullet', number: 'numbered', p: 'paragraph' };
+  // 口述の箇条（DQ の lines: [{ kind, t }]）→ block.paste の行（文は文字のまま。記法として読まない）
+  const dictRows = (lines) => lines.map((x) => {
+    const t = String((x && x.t) ?? '');
+    return { type: DICT_KIND[x && x.kind] || 'paragraph', rich: t ? [{ t, m: [] }] : [] };
+  });
+  function dictIntoRow(at, text, lines) {
+    const box0 = boxOfKey(at.key);
+    const el = box0 ? [...box0.querySelectorAll('.blk')].find((e) => e._b && e._b.id === at.id && e._txt) : null;
+    if (!el || el.dataset.locked === '1' || el._b.type === 'divider') { toast(DICT_GONE); return; }
+    const txt = el._txt;
+    dictAfterIme(txt, () => {
+      if (!boxOfKey(at.key) || !isIn(el, boxOfKey(at.key))) { toast(DICT_GONE); return; }
+      const n = txt.textContent.length;
+      const s = Math.min(at.s, n), e = Math.min(Math.max(at.e, at.s), n);   // 覚えた所（止めるまでにカーソルを動かしても）
+      if (Array.isArray(lines) && lines.length > 1) { pasteRows(el, dictRows(lines), [s, e]); return; }   // 箇条は block.paste の1命令（1歩）
+      rowReplace(txt, s, e, text);
+      txt._commit(at.key);   // 1回の保存（block.update か page.setMemoDoc）が1歩
+    });
+  }
+  const dictAttached = (n) => isIn(n, document.documentElement);
+  function dictIntoField(at, text) {
+    const f = at.field;
+    // 1行の欄は改行を受けないので、改行を空白にした文（R52）。textarea は改行のまま
+    const piece = dictTag(f) === 'textarea' ? text : text.replace(/[ \t]*\r?\n[ \t]*/g, ' ');
+    dictAfterIme(f, () => {
+      if (!dictAttached(f) || (at.pageId !== null && at.pageId !== curId)) { toast(DICT_GONE); return; }
+      const now = at.box ? String(f.value) : f.textContent;
+      const s = Math.min(at.s, now.length), e = Math.min(Math.max(at.e, at.s), now.length);
+      f.focus();
+      if (at.box) { try { f.setSelectionRange(s, e); } catch (_) { /* 選べなくても入れる */ } } else setSel(f, s, e);
+      let ok = false;
+      try { ok = document.execCommand('insertText', false, piece) === true; } catch (_) { ok = false; }
+      if (ok) return;
+      if (at.box && typeof f.setRangeText === 'function') f.setRangeText(piece, s, e, 'end');
+      else if (!at.box) f.textContent = now.slice(0, s) + piece + now.slice(e);
+    });
+  }
+  // dictation:text（main は答えた番号と同じ番号で送る）。覚えた所が無い・番号が違う・入れる所が無くなったら入れずに知らせ（履歴には main が入れてある: R27）
+  function dictInsert(text, lines, seq) {
+    const at = dictAt;
+    dictAt = null;
+    if (!at || at.seq !== seq || typeof text !== 'string') { toast(DICT_GONE); return; }
+    if (at.field) dictIntoField(at, text);
+    else dictIntoRow(at, text, lines);
+  }
+  // dictation:end（文を入れずに終わった: R61）。同じ番号の知らせだけで覚えた所を捨てる
+  function dictEnd(seq) { if (dictAt && dictAt.seq === seq) dictAt = null; }
+  // R64 (3): 何も開いていない Esc は NaTsu の中の音声入力を取り消す。開いているメニュー・帯・リンクの欄の Esc は、それぞれの受け口が先にそれだけを閉じて
+  // preventDefault する（そのときは取り消さない）。変換中の Esc は何もしない
+  document.addEventListener('keydown', (ev) => {
+    if (ev.key !== 'Escape' || imeEnter(ev) || ev.ctrlKey || ev.altKey || ev.metaKey || ev.defaultPrevented || !dictAt) return;
+    ev.preventDefault();
+    window.koeApp.dictationCancel();
+  });
   // ---------------- 0.13.1 NE-4a（計画 docs/plans/2026-10-27-131.md の決めたこと 7・9・12〜14・16。NR8・NR13・NR15・NR17・TQ1・TQ3）
   // 0.13.1 NR16・NR18: 画面だけの開け閉め（覗き開き・鍵の間の ▸）。窓のメモリだけ（DB に書かない・ページを替えると消える）。id → 開いているか
   let peekOpen = new Map();
@@ -6947,6 +7060,7 @@
       // 0.13.1 NE-4a（E10・EQ17 (a)・決めたこと 13）: Tab は字下げ・Shift+Tab は1段戻す。できないときも既定の Tab（次の部品へ）は止める
       if (ev.key === 'Tab' && !mod) { ev.preventDefault(); indentRow(el, ev.shiftKey ? 'out' : 'in'); return; }
       // 0.14.0 EK-4（R64 (5)・K-11。0.13.1 NR17 の「Esc で ⠿ へ」を替えた: P7）: Esc で文を確定し、この行を選ぶ（もう1回 Esc で ⠿ へ: selExit）
+      if (ev.key === 'Escape' && !mod && dictAt) return;   // 0.14.0 EK-6（R64 (3)）: NaTsu の中の音声入力の間は行を選ばない（document の受け口が取り消す）
       if (ev.key === 'Escape' && !mod) { ev.preventDefault(); selRowStart(el); return; }
       // 0.14.0 EK-4（R21）: Ctrl+A は1回目は行の文字を全部選ぶ（既定のまま）。文字が全部選ばれている・空の行で押すと、その行を選ぶ（もう1回で全部の行: selKey）
       if (ev.ctrlKey && !ev.altKey && !ev.metaKey && !ev.shiftKey && ev.code === 'KeyA') {
@@ -7196,6 +7310,7 @@
     if (pendingEdits > 0 || slash || blockMenu) return true;
     if (linkPop || colorMenu || markBar) return true;   // 0.14.0 EB-5（決めたこと 44）: 道具の帯・リンクの欄・色のメニュー
     if (selOn()) return true;   // 0.14.0 EK-4（決めたこと 44・EQ22 (a)）: 行を選んでいる
+    if (dictAt) return true;   // 0.14.0 EK-6（決めたこと 44）: NaTsu の中の音声入力が入る所を覚えている（dictation:text か dictation:end で消える: R61）
     const a = document.activeElement;
     if (!a || !a.classList || !a.classList.contains('txt')) return false;
     const box = $('pNote');
@@ -7343,6 +7458,7 @@
     if (!box || ev.target !== box || !selOn(keyOfBox(box)) || imeEnter(ev)) return;
     const mod = ev.ctrlKey || ev.altKey || ev.metaKey;
     const k = ev.key;
+    if (k === 'Escape' && !mod && dictAt) return;   // 0.14.0 EK-6（R64 (3)）: 選びを外すより先に、document の受け口が音声入力を取り消す
     if (k === 'Escape' && !mod) { ev.preventDefault(); selExit(); return; }
     // R19（EQ17 (a) の意図）: Tab は欄の外の次の部品へ・Shift+Tab は［AI 要約］のタブへ（⠿ の受け口と同じ行き先）
     if (k === 'Tab' && !mod) { ev.preventDefault(); selClear(); if (ev.shiftKey) { const t = $(paneTabOf(box)); if (t) t.focus(); } else focusAfterRows(box); return; }
@@ -9450,6 +9566,10 @@
     history = await window.koeApp.clearHistory(); renderHistory();
   };
   window.koeApp.onHistoryUpdated((h) => { history = h; renderHistory(); });
+  // 0.14.0 EK-6: NaTsu の中の音声入力（入れる所を答える・覚えた所に入れる・文を入れずに終わった）
+  window.koeApp.onDictationWhere((seq) => dictWhereAnswer(seq));
+  window.koeApp.onDictationText((text, lines, seq) => dictInsert(text, lines, seq));
+  window.koeApp.onDictationEnd((seq) => dictEnd(seq));
 
   // ================= 設定 =================
   async function loadMics(sel) {

@@ -206,6 +206,9 @@ const pasterWaiters = [];
 // 音声入力を始めたときの前面ウィンドウ（HWND）。貼り付け先が変わっていれば貼らない（#54）
 let dictationFg = Promise.resolve('');
 const FG_REPLY_MS = 300;      // fg の応答待ち。常駐が起動中なら間に合わず ''（従来どおり確認なしで貼る）
+// 0.14.0 EK-6（決めたこと 40〜42・79）: NaTsu の中の音声入力の入れ先を画面に聞いた答え（Promise<{ ok, seq }>。null はほかのアプリ: 今の道）と、後に回したログインの窓
+let dictWhere = null;
+let dictLoginLater = false;
 const PASTE_REPLY_MS = 1500;  // paste の応答待ち。無応答なら貼れたものとして扱う（unknown）
 let programmaticMove = false;
 let recoveredPageId = null;
@@ -1878,7 +1881,9 @@ let loginSnoozed = false;
 // 0.13.2 LN-4（持ち主の答え LA1・PQ1 の B）: ログインしていないときに、起動・会議の始め・音声入力の始めで、今のログインの窓を自動で開く（待たない・投げない。
 // 録音は待たせない: 呼ぶのは始めた後）。開くかは mainlib.loginAskPlan（オフライン・オフラインモードの会議・× の後・もう開いているときは開かない。
 // 準備を選んでいない PC の起動は今どおり設定の「アカウント」: LR3）
-function askLogin(moment, { localOnly = false } = {}) {
+function askLogin(moment, { localOnly = false, now = false } = {}) {
+  // 0.14.0 EK-6（決めたこと 79・BQ26 (a)）: NaTsu の中の音声入力の間は、文字を入れ終わるまで後に回す（窓がフォーカスを取ると、行の保存と Esc の決まりが崩れる）
+  if (moment === 'dictation' && dictWhere && !now) { dictLoginLater = true; return; }
   try {
     const plan = lib.loginAskPlan({ moment, online: netOnline(), signedIn: hasRelayLogin(), why: cloudNow().why, snoozed: loginSnoozed, localOnly: Boolean(localOnly),
       recording: recordingNow() || meetingStarting > 0,   // 0.13.2 点検の直し 2（LR37）
@@ -3738,6 +3743,7 @@ function cancelRecording() {
   syncEscapeHotkey();
   sendToOverlay('overlay:cancel', {});
   updateTray();
+  dictEnded();   // 0.14.0 EK-6（R61）
   resumeRecoveryAfterDictation();
 }
 // 0.13.2 LN-2（決めたこと 7）: 音声入力が終わって待機に戻ったら、録音中（busy）で止めた会議の後の文字起こしを回し直す（会議の終わりの締めと同じ。
@@ -3750,6 +3756,70 @@ function resumeRecoveryAfterDictation() {
 function toggleRecording() {
   if (state === 'idle') startRecording();
   else if (state === 'recording') stopRecording();
+}
+// ---------------- 0.14.0 EK-6（計画 docs/plans/2026-10-26-140.md の決めたこと 39〜44・74・75・79。BQ9-1・BQ10 (a)・BQ21 (a)・BQ26 (a)・R27・R40・R55・R61・R62。U4・F104）
+// 今の音声入力のキー1つで、NaTsu の文字の欄にも直に入れる。キーを押したときに本体の窓が前なら、画面に入れる所を聞き（dictation:where。番号つき・300ms まで）、
+// 答えが { ok: true } なら文字起こしの文をクリップボードを通さずに dictation:text で画面へ送る（画面が覚えた所に1歩で入れる）。答えが無い・入れてはいけない所なら
+// クリップボードにも貼り付けにも回さず履歴だけ（R27）。窓が前でなければ今どおり deliverText。文字を入れずに終わったら、どの終わり方でも dictation:end（R61）
+const DICT_IN_MEETING = '議事録の録音中は、音声入力は使えません';
+const DICT_NOWHERE = 'ここには音声入力で入れられないので、履歴に残しました';
+let dictSeqNow = 0;     // 聞くたびに上げる番号（R55）
+let dictAsk = null;     // 答えを待っている問い { seq, settle(ok) }
+const mainFocusedNow = () => Boolean(mainWin && !mainWin.isDestroyed() && mainWin.isFocused());
+function askWhere() {
+  const seq = ++dictSeqNow;
+  // 本体の窓の画面が読み込み中なら聞かずに「無い」（R55）
+  if (!mainWin || mainWin.isDestroyed() || mainWin.webContents.isLoading()) return Promise.resolve({ ok: false, seq });
+  return new Promise((resolve) => {
+    const settle = (ok) => { clearTimeout(timer); if (dictAsk && dictAsk.seq === seq) dictAsk = null; resolve({ ok, seq }); };
+    const timer = setTimeout(() => settle(false), FG_REPLY_MS);
+    dictAsk = { seq, settle };
+    sendToMainWin('dictation:where', { seq });
+  });
+}
+// 画面の答え { seq, ok }。番号の違う答え（前の口述への遅れた答え）は捨てる（R55）
+function onWhereAnswer(p) {
+  if (!p || typeof p !== 'object' || !dictAsk || p.seq !== dictAsk.seq) return;
+  dictAsk.settle(p.ok === true);
+}
+function flushDictLogin() {
+  if (!dictLoginLater) return;
+  dictLoginLater = false;
+  askLogin('dictation', { now: true });
+}
+// NaTsu の中の音声入力が文字を入れずに終わった（始めを断った・取り消した・誤り・短すぎ・音声を残した: R61）。画面が覚えた所を捨てる知らせの後に、後に回したログインの窓
+function dictEnded() {
+  const w = dictWhere;
+  dictWhere = null;
+  if (!w) return;
+  w.then((r) => { sendToMainWin('dictation:end', { seq: r.seq }); flushDictLogin(); });
+}
+// 文字起こしの文の渡し方（決めたこと 42）。履歴には recordDictation が入れてある
+async function deliverDictation(text) {
+  const w = dictWhere;
+  if (!w) return deliverText(text);   // ほかのアプリ: 今どおり（クリップボードと貼り付け）
+  const r = await w;
+  if (dictWhere === w) dictWhere = null;
+  if (r.ok) sendToMainWin('dictation:text', { seq: r.seq, text, lines: null });   // クリップボードを通さない
+  else { sendToMainWin('app:notice', DICT_NOWHERE); sendToMainWin('dictation:end', { seq: r.seq }); }
+  flushDictLogin();
+  return undefined;
+}
+// 全体の音声入力のキー（applyHotkeys）。トレイと画面の［録音］ボタンは今どおり toggleRecording（R40）
+function onDictationKey() {
+  const focused = mainFocusedNow();
+  // 議事録の録音中と会議を始めている途中は始めない（BQ10 (a)・R62）。知らせは NaTsu の窓が前のときだけ
+  if (meeting || state === 'meeting' || state === 'meeting-finalizing' || meetingStarting > 0) {
+    if (focused) sendToMainWin('app:notice', DICT_IN_MEETING);
+    return;
+  }
+  if (state !== 'idle') { toggleRecording(); return; }
+  const w = focused && !quitting ? askWhere() : null;
+  dictWhere = w;
+  // 入れてはいけない所なら、後に回したログインの窓は答えが来た時に（0.13.2 の始めた直後に近い時）
+  if (w) w.then((r) => { if (!r.ok && dictWhere === w) flushDictLogin(); });
+  toggleRecording();
+  if (w && state === 'idle') dictEnded();   // 始めを断った（R61）
 }
 
 async function handleDictationAudio(buffer, durationMs) {
@@ -3778,7 +3848,7 @@ async function handleDictationAudio(buffer, durationMs) {
       max: settings.maxHistory,
       save: () => historyWriter.now(history),
       notify: (h) => sendToMainWin('history:updated', h),
-      deliver: (t) => deliverText(t),
+      deliver: (t) => deliverDictation(t),
     });
     if (!rec.saved) engineLog('履歴: 口述の履歴を保存できませんでした（文字は貼り付けに回しました）');
     const preview = text.length > 24 ? `${text.slice(0, 24)}…` : text;
@@ -3946,6 +4016,7 @@ function finishWithError(message) {
   state = 'idle'; syncEscapeHotkey(); updateTray();
   sendToOverlay('overlay:phase', { phase: 'error', message });
   setTimeout(hideOverlayIfIdle, 3000);
+  dictEnded();   // 0.14.0 EK-6（R61）: 誤り・短すぎ・音声を残した
   resumeRecoveryAfterDictation();
 }
 function hideOverlayIfIdle() {
@@ -6150,7 +6221,7 @@ let activeHotkeys = { hotkey: '', meetingHotkey: '' };
 function applyHotkeys(hk, mhk) {
   globalShortcut.unregisterAll();
   return registerHotkeys([
-    { label: '音声入力', accel: hk, handler: toggleRecording },
+    { label: '音声入力', accel: hk, handler: onDictationKey },
     { label: '議事録', accel: mhk, handler: () => toggleMeetingByHotkey().catch((e) => engineLog(`議事録のホットキーを処理できません: ${errCode(e)}`)) },
   ], (accel, handler) => globalShortcut.register(accel, handler));
 }
@@ -6418,6 +6489,9 @@ function setupIpc() {
   ipcMain.handle('history:delete', (_e, id) => { dropDictWaits(history.filter((h) => h.id === id)); history = history.filter((h) => h.id !== id); saveHistoryOrNotice(); return history; });
   ipcMain.handle('history:clear', () => { dropDictWaits(history, true); history = []; saveHistoryOrNotice(); return history; });
   ipcMain.handle('app:toggle-recording', () => { toggleRecording(); return state; });
+  // 0.14.0 EK-6: NaTsu の中の音声入力の入れ先の答え（R55）・画面の Esc で取り消す（決めたこと 43・R64 (3)）
+  ipcMain.on('dictation:where-answer', (_e, p) => onWhereAnswer(p));
+  ipcMain.handle('dictation:cancel', () => { cancelRecording(); return true; });
 
   // 議事録の画面の口は main を通らない（第2a1回 ST5。preload が DB の口（役 app）へ直に頼む）。要約だけは今どおり main の IPC
   ipcMain.handle('page:summarize', (_e, id) => runSummary(id));
