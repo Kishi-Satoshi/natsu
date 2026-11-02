@@ -69,7 +69,8 @@ function tidyGuard(raw, reply) {
     if (!isPlain(l)) return null;
     const kind = own(l, 'kind');
     const t = own(l, 't');
-    if (!LINE_KINDS.has(kind) || typeof t !== 'string' || !t.trim()) return null;
+    if (!LINE_KINDS.has(kind) || typeof t !== 'string') return null;
+    if (!t.trim()) continue;   // 空の行は落とす（中継の tidyAnswer と同じ扱い。空の行1つで良い整えを捨てない: R199）
     out.push({ kind, t });
   }
   // 箇条の行の文は text と同じ文（印の無い形か、linesToText の形）。空白は見ない
