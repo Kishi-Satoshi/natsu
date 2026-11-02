@@ -1243,6 +1243,7 @@ const IDS_140 = [
   'ek-dict-ime', 'ek-dict-clip', 'ek-dict-target', 'ek-dict-meeting', 'ek-dict-esc', 'ek-dict-reset', 'ek-dict-other', 'ek-dict-nowhere',
   'ek-dict-transcript', 'ek-dict-markup', 'ek-dict-one-step', 'ek-dict-seq', 'ek-esc-order', 'ek-dict-end', 'ek-dict-starting', 'ek-dict-login',
   'ek-ctrl-w-starting', 'ek-shortcut-131',
+  'ek-cancel-sender', 'ek-ime-blur',   // 0.14.0 DQ-3 直し2（R202。EK-6 直し2 の R201 の変異）
   // 0.14.0 EK-2 の続き
   'ek-move-ai-head', 'ek-many-divider-kids', 'ek-paste-top', 'ek-paste-inside',
   'ek-paste-kids', 'ek-md-nest', 'ek-paste-deep-limit',
@@ -1267,9 +1268,11 @@ const IDS_140 = [
   'dq-lines-text',
   // 0.14.0 DQ-2（表の行の順に。dq-relay-store は 2026-11-02 の P10 で足した: R192）
   'dq-relay-auth', 'dq-relay-prompt', 'dq-relay-store', 'dq-relay-size', 'dq-relay-cap', 'dq-relay-log',
+  'dq-relay-blank',   // 0.14.0 DQ-3 直し2（R202。DQ-2 直しの R199 の変異）
   // 0.14.0 DQ-3（表の行の順に。dq-long-send は DQ-1 直しで作った: R195）
   'dq-local-send', 'dq-off-send', 'dq-long-send', 'dq-wait', 'dq-late-swap', 'dq-fallback', 'dq-meeting', 'dq-log-text', 'dq-history-raw', 'dq-filler-off',
   'dq-tidy-login', 'dq-tidy-hold',
+  'dq-tidy-reject',   // 0.14.0 DQ-3 直し2（R202）
 ];
 test('G3・0.14.0: 0.14.0 の変異が一覧にそろい、IDS_140 はどれも計画の「変異確認」の表に行の順である。eb-・ek-・mo-・dq- の変異は IDS_140 にある。どれも決まったテストのファイルを持ち、why が 0.14.0 で始まる', { timeout: 5000 }, () => {
   const byId = new Map(MUTANTS.map((m) => [m.id, m]));
@@ -1283,7 +1286,8 @@ test('G3・0.14.0: 0.14.0 の変異が一覧にそろい、IDS_140 はどれも�
   const rows = [...table.matchAll(/^\| ((?:eb|ek|mo|dq)-[a-z0-9-]*) \|/gm)].map((m) => m[1]);
   // 0.14.0 DQ-1 直し（R195）で dq-guard-short・dq-long-send の2行を足した（145 → 147）。DQ-2 で dq-relay-store（R192）を足した（148）
   // 0.14.0 DQ-1 直し2（R198）で dq-guard-half・dq-guard-cp を足した（150）
-  assert.strictEqual(rows.length, 150, '計画の 0.14.0 の表（eb- 47・ek- 49・mo- 27・dq- 27）が読めない');
+  // 0.14.0 DQ-3 直し2（R202）で ek-cancel-sender・ek-ime-blur・dq-relay-blank・dq-tidy-reject を足した（154）
+  assert.strictEqual(rows.length, 154, '計画の 0.14.0 の表（eb- 47・ek- 51・mo- 27・dq- 29）が読めない');
   assert.strictEqual(new Set(rows).size, rows.length, '計画の表に重なり');
   assert.deepStrictEqual(IDS_140.filter((id) => !rows.includes(id)), [], '計画の「変異確認」の表に無い変異');
   assert.deepStrictEqual(IDS_140, rows.filter((id) => IDS_140.includes(id)), 'IDS_140 が表の行の順でない');

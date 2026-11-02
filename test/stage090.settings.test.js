@@ -468,7 +468,8 @@ test('SP4: カードの data-sec と見出しの並びが「設定の項目と�
 // 0.11.0 V-3（QM6）で意図して変えた: カード「打ち合わせの質」の行の名前の label を1つ（33 → 34。前の値は df736405…）と、説明を2つ（頭の1行・行の1行。18 → 20）足した
 // 0.12.1 LV-4（決めたこと L15）で意図して変えた: カード「会議の検出」に行「会議を出たら自動で止める」の label を2つ（名前の label for・トグルを包む label.check）足した（34 → 36。前の値は 87f6c483…）
 // 0.14.0 DQ-3（決めたこと 56・BQ27 (a)）で意図して変えた: 「フィラー除去」の下に行「口述の文を AI で整える」の label.check を1つ足した（36 → 37。説明は .check の中の .d なので 20 のまま。前の値は 47951f58…）
-const TEXTS_080 = { labels: [37, '7d0c5cdc6c4e70a9239af180aaae248f4f8abdc1f5bb60b51c893cebcae193d5'], descs: [20, '465336df080b0cffd78a1a5effa11c325cda3c37e989c1cd44d8317e639d25ca'] };   // 説明 21 → 18（LS-3 の前の値は aed31061…）。0.11.0 V-3 で 18 → 20（前の値は 5bc6662f…）
+// 0.14.0 DQ-3 直し2（R202）で意図して変えた: その行を説明と注意のあるトグルの行の形（名前の label for と、トグルだけを包む文の無い label.check）にした（37 → 38。前の値は 7d0c5cdc…）
+const TEXTS_080 = { labels: [38, 'a73bf4cc61a2257f17205e42096c65500cc2f4b829ed19cf862eacf50a1c6367'], descs: [20, '465336df080b0cffd78a1a5effa11c325cda3c37e989c1cd44d8317e639d25ca'] };   // 説明 21 → 18（LS-3 の前の値は aed31061…）。0.11.0 V-3 で 18 → 20（前の値は 5bc6662f…）
 test('SP4: 動かした入力の id が全部あり、その行の中にある。文が 0.8.0 と同じ（label の文・.check の文・説明の文）', T, () => {
   const sec = doc.querySelector('#tabSettings');
   for (const [name, ids] of Object.entries(ROW_IDS)) {

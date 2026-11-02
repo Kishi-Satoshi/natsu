@@ -3826,7 +3826,8 @@ function tidyRulesOnly(raw) {
 function tidyWithin(sent, ms) {
   return new Promise((resolve) => {
     const timer = setTimeout(function tidyTimeUp() { resolve({ ok: false, code: 'timeout' }); }, ms);
-    sent.then((r) => { clearTimeout(timer); resolve(r); });
+    // DQ-3 直し2（R202）: 約束が断られても（tidyText は投げないが、思わぬ例外）待ち続けず、断りを放っておかない
+    sent.then((r) => { clearTimeout(timer); resolve(r); }, () => { clearTimeout(timer); resolve({ ok: false, code: 'net' }); });
   });
 }
 async function tidyDictation(raw, route) {
@@ -3841,7 +3842,7 @@ async function tidyDictation(raw, route) {
   const pack = accessState.pack;
   const sent = relay.tidyText(body, { request: relayRequest, session: accessSession() });
   const got = await tidyWithin(sent, TIDY_WAIT_MS);
-  if (got.code === 'timeout') sent.then((late) => { if (late.ok) engineLog('整え: 遅れて来た答えを捨てた'); });   // 入れた文は差し替えない（決めたこと 47）
+  if (got.code === 'timeout') sent.then((late) => { if (late.ok) engineLog('整え: 遅れて来た答えを捨てた'); }).catch(() => {});   // 入れた文は差し替えない（決めたこと 47）。遅れた断りも放っておかない（R202）
   if (!got.ok) {
     // R63: ログイン切れ・止めたメールは文字起こしと同じ道（送った後にログインし直していれば消さない）。ほかは間引きに触らない
     if (got.code === 'login' || got.code === 'denied') await relayFallback(got.err, null, sttProvider(), pack, { tidy: true });

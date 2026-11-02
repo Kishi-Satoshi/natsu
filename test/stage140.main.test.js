@@ -725,3 +725,45 @@ test('DQ-3・R63（第4版）: 整えを待つ間に、止めていた会議の�
   assert.ok(again > timeUp, `整えを待つ間に回し直した: ${log.join('\n')}`);
   assert.strictEqual(o.afterDictQueue.queues, 0, log.join('\n'));
 });
+
+// ---------------------------------------------------------------- DQ-3 直し2（R202）: 整えの送りが投げても（約束が断られても）待ち続けず、断りを放っておかない
+// main.js の tidyRulesOnly・tidyWithin・tidyDictation を取り出し、偽の relay.tidyText（断る約束を返す）の上で走らせる
+const dqVm = require('node:vm');
+function tidyBox({ waitMs = 2000, tidyText }) {
+  const MAIN = fs.readFileSync(path.join(__dirname, '..', 'src', 'main.js'), 'utf8');
+  const fnSrc = (head) => {
+    const at = MAIN.indexOf(`\n${head}(`);
+    assert.ok(at >= 0, `main.js に ${head} が無い`);
+    return MAIN.slice(at, MAIN.indexOf('\n}\n', at) + 3);
+  };
+  const logs = [];
+  const ctx = {
+    settings: { aiTidy: true, removeFillers: true, language: 'ja', dictionary: [] }, dictTidy: require('../src/dictTidy'),
+    relay: { tidyText }, TIDY_WAIT_MS: waitMs, engineLog: (l) => logs.push(l), hasRelayLogin: () => true, netOnline: () => true,
+    sendToOverlay: () => {}, accessState: { pack: 'p' }, relayRequest: null, accessSession: () => null, relayFallback: async () => '', sttProvider: () => ({}),
+    setTimeout, clearTimeout,
+  };
+  const box = dqVm.runInNewContext(`${fnSrc('function tidyRulesOnly')}${fnSrc('function tidyWithin')}${fnSrc('async function tidyDictation')}({ tidyDictation });`, ctx);
+  return { tidyDictation: box.tidyDictation, logs };
+}
+test('DQ-3 直し2・R202: relay.tidyText の約束が断られたら、2 秒を待たずに決まりの整えの文（記録は net）。待ちの後に断られても、放っておいた断り（unhandledRejection）を出さない', { timeout: 10000 }, async () => {
+  const unhandled = [];
+  const onRej = (e) => unhandled.push(String(e && e.message));
+  process.on('unhandledRejection', onRej);
+  try {
+    const a = tidyBox({ tidyText: () => Promise.reject(new Error('思わぬ断り')) });
+    const t0 = Date.now();
+    const r = await Promise.race([a.tidyDictation(RAW1, 'cloud'), new Promise((res) => setTimeout(() => res('待ち続けた'), 1500))]);
+    assert.ok(Date.now() - t0 < 1500, '断られたのに待ち続けた');
+    assert.deepStrictEqual(r && { text: r.text, tidy: r.tidy }, { text: RULES1, tidy: 'rules' });
+    assert.deepStrictEqual(a.logs, ['整え: 決まり（net）']);
+    const b = tidyBox({ waitMs: 20, tidyText: () => new Promise((_, rej) => setTimeout(() => rej(new Error('遅れた断り')), 60)) });
+    const rb = await b.tidyDictation(RAW1, 'cloud');
+    assert.deepStrictEqual({ text: rb.text, tidy: rb.tidy }, { text: RULES1, tidy: 'rules' });
+    await new Promise((res) => setTimeout(res, 150));
+    assert.deepStrictEqual(b.logs, ['整え: 決まり（timeout）']);
+    assert.deepStrictEqual(unhandled, [], '断りを放っておいた');
+  } finally {
+    process.off('unhandledRejection', onRej);
+  }
+});

@@ -3674,7 +3674,7 @@ test('DQ-3・BQ27 (a): 設定の［録音］の「文字起こし」のカード
     assert.match(next.textContent, /口述の文を AI で整える/);
     assert.strictEqual($(l, 'aiTidyDesc').textContent, '言い直し・繰り返しを除き、箇条を整えます。');
     assert.strictEqual($(l, 'aiTidyWarn').textContent, '音声をクラウドで文字起こししたときだけ使います。');
-    assert.ok($(l, 'aiTidyWarn').closest('label') === next, '注意の1行が切り替えの行の中に無い');
+    assert.ok($(l, 'aiTidyWarn').closest('.checkrow') === next, '注意の1行が切り替えの行の中に無い');
     assert.strictEqual(lab.closest('.card').dataset.sec, 'record');
     assert.strictEqual($(l, 'aiTidy').checked, true, 'aiTidy の無い設定で既定のオンでない');
     $(l, 'aiTidy').checked = false;
@@ -3690,6 +3690,29 @@ test('DQ-3・BQ27 (a): 設定の［録音］の「文字起こし」のカード
     await off.drain();
     assert.strictEqual($(off, 'aiTidy').checked, false, 'aiTidy: false がオフで出ない');
   } finally { if (off.done) off.done(); }
+});
+
+test('DQ-3 直し2（R202）: 「口述の文を AI で整える」の行は説明と注意のあるトグルの行と同じ形（div.checkrow・.ctext に名前の label for と .d の説明と .d.warn の注意・label.check はトグルだけを包む・ⓘ は無い）', T, async () => {
+  const l = await load(APP);
+  try {
+    await l.drain();
+    const row = $(l, 'aiTidy').closest('[data-row]');
+    assert.ok(row.classList.contains('checkrow') && row.tagName.toLowerCase() === 'div', `行が div.checkrow でない: ${row.tagName}.${row.className}`);
+    const box = $(l, 'aiTidy').parentNode;
+    assert.ok(box.tagName.toLowerCase() === 'label' && box.classList.contains('check') && box.children.length === 1, 'label.check がトグルのほかも包む（説明を押すと切り替わる・名前に説明が入る）');
+    const ct = row.querySelector('.ctext');
+    assert.ok(ct, '.ctext が無い');
+    const name = ct.querySelectorAll('label').find((x) => x.getAttribute('for') === 'aiTidy');
+    assert.ok(name && name.textContent === '口述の文を AI で整える', '名前の label for が無い・説明を含む');
+    for (const id of ['aiTidyDesc', 'aiTidyWarn']) {
+      assert.strictEqual($(l, id).closest('.ctext'), ct, `${id} が .ctext の中に無い（.ctext .d.warn の色が当たらない）`);
+      assert.strictEqual($(l, id).closest('label'), null, `${id} が label の中（押すと切り替わる）`);
+    }
+    assert.ok($(l, 'aiTidyWarn').classList.contains('d') && $(l, 'aiTidyWarn').classList.contains('warn'));
+    assert.strictEqual(row.querySelectorAll('.setinfo').length, 0, 'ⓘ がある');
+    assert.strictEqual($(l, 'aiTidy').getAttribute('aria-describedby'), 'aiTidyDesc aiTidyWarn');
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { if (l.done) l.done(); }
 });
 
 test('DQ-3・BQ19 (a)（決めたこと 55）: 履歴の行で raw と text が違えば［元の文をコピー］→ copy(raw) と「元の文をコピーしました」。同じ・raw の無い行には出ない。［コピー］は今どおり text', T, async () => {

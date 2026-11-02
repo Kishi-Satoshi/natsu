@@ -1449,11 +1449,16 @@
               <span>文字起こし後、カーソル位置へ自動貼り付け</span></label>
             <label class="check" data-row="フィラー除去"><input type="checkbox" id="removeFillers" />
               <span>フィラー除去（えー、あのー 等）</span></label>
-            <!-- 0.14.0 DQ-3（決めたこと 56・BQ18 (a)・BQ27 (a)）: 口述の文を AI で整える（フィラー除去のすぐ下） -->
-            <label class="check" data-row="口述の文を AI で整える"><input type="checkbox" id="aiTidy" aria-describedby="aiTidyDesc aiTidyWarn" />
-              <span>口述の文を AI で整える<br />
-                <span class="d" id="aiTidyDesc">言い直し・繰り返しを除き、箇条を整えます。</span><br />
-                <span class="d warn" id="aiTidyWarn">音声をクラウドで文字起こししたときだけ使います。</span></span></label>
+            <!-- 0.14.0 DQ-3（決めたこと 56・BQ18 (a)・BQ27 (a)）: 口述の文を AI で整える（フィラー除去のすぐ下）。DQ-3 直し2（R202）: 説明と注意のある
+                 トグルの行と同じ形（0.9.2 I-2 の div.checkrow。名前は label for、説明と注意は .ctext の中でラベルの外、label.check はトグルだけ。ⓘ は無い） -->
+            <div class="checkrow" data-row="口述の文を AI で整える">
+              <span class="ctext">
+                <span class="fname"><label for="aiTidy">口述の文を AI で整える</label></span>
+                <span class="d" id="aiTidyDesc">言い直し・繰り返しを除き、箇条を整えます。</span>
+                <span class="d warn" id="aiTidyWarn">音声をクラウドで文字起こししたときだけ使います。</span>
+              </span>
+              <label class="check"><input type="checkbox" id="aiTidy" aria-describedby="aiTidyDesc aiTidyWarn" /></label>
+            </div>
           </div>
           <div class="card" data-sec="record">
             <h2>ユーザー辞書（認識ヒント）</h2>

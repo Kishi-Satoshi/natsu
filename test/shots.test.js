@@ -1073,7 +1073,8 @@ test('基準の画像（test/shots/win32）は今の app.html で撮ったもの
   // 0.14.0 DQ-3（決めたこと 55・56・BQ27 (a)）: 設定の［録音］の「フィラー除去」の下の「口述の文を AI で整える」（#aiTidy・読み書き）と、履歴の行の［元の文をコピー］。
   // 変わる画面は足した NEW_140 の settings-dictation-light・history-tidy-light と、取り直す RETAKEN_140 の settings-record の3枚。値を今の app.html に合わせた（前の値は bb05491e…）
   // 0.14.0 EK-6 直し2（R201）: 確定の事象が来ないまま欄を離れたら変換中の印を外す document の focusout の受け口（<script> の中だけ。撮る画面は変わらない）。値を今の app.html に合わせた（前の値は 5d7e72ff…）
-  assert.strictEqual(sha, '6c4823ab448ea81000b90c34814b79a407dfe8e366bf2cbdc9c8a2a5f1aca8c8',
+  // 0.14.0 DQ-3 直し2（R202）: 「口述の文を AI で整える」の行を div.checkrow の形にした。変わる画面は RETAKE にある settings-dictation-light と settings-record・settings-info・settings-detect の8枚。値を今の app.html に合わせた（前の値は 6c4823ab…）
+  assert.strictEqual(sha, '64feeb89781d6675e501e62f9998ae08678e43dbf69f1ccc066f7667b0c14a50',
     'app.html が基準の画像を撮った時と違う。Windows の CI の画面の比べ（捲り棒のつまみも）を見て、基準を取り直してからこの値を直す');
 });
 
