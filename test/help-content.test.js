@@ -626,3 +626,144 @@ test('HO-7（R-HO5）: 設定の基準（settings-…）から作る写真は切
     assert.ok(!(x < vx + vw && vx < x + w && y < vy + vh && vy < y + h), `${s.name}: 切り抜き [${s.crop.join(', ')}] が版の字の所に掛かる`);
   }
 });
+
+// ---------------------------------------------------------------- 0.14.0 EK-7（計画 docs/plans/2026-10-26-140.md の Task EK-7・決めたこと 38・BQ24 (a)・R206）
+// 文字の飾り・元に戻す・貼り付け・行の選び方・窓の中の近道・NaTsu の中の音声入力・口述の整え・メモの行。近道の表は src/shortcuts.js の SHORTCUTS と照らす
+const { SHORTCUTS } = require('../src/shortcuts');
+const EK7_REFS = ['summary/edit-summary', 'summary/summary-types', 'settings/hotkeys', 'dictation/dictation', 'admin/relay-limits'];
+/** 見出しの {#id} から次の ## の見出しの前まで */
+const ek7Sec = (t, id) => {
+  const i = t.indexOf(`{#${id}}`);
+  assert.ok(i >= 0, `{#${id}} の節が無い`);
+  const j = t.indexOf('\n## ', i);
+  return t.slice(i, j < 0 ? t.length : j);
+};
+/** 表の本文の行（頭の行と --- の行は除く）を [見出し（### の文。無ければ ''）, 左の列, 右の列] で */
+const tableRows = (sec) => {
+  const out = [];
+  let head = '';
+  for (const line of sec.split('\n')) {
+    const h = /^### (.+)$/.exec(line);
+    if (h) { head = h[1].replace(/ *\{#[^}]*\}$/, ''); continue; }
+    const m = /^\| (.+?) \| (.+?) \|$/.exec(line);
+    if (!m || /^-+$/.test(m[1]) || m[1] === 'キー') continue;
+    out.push([head, m[1], m[2]]);
+  }
+  return out;
+};
+/** SHORTCUTS のキー（「・」で区切る）を記事の形（1つずつ [[…]]）に */
+const keyCell = (keys) => keys.split('・').map((k) => `[[${k}]]`).join('・');
+/** 記事のキーの欄・SHORTCUTS のキーを1つずつのキーにほどく（「Ctrl+Shift+0〜6」は 0 から 6 の1つずつ） */
+const oneKeys = (cell) => cell.replace(/\[\[([^\]]+)\]\]/g, '$1').split('・').flatMap((k) => {
+  const r = /^(.*?)(\d)〜(\d)$/.exec(k);
+  if (!r) return [k];
+  const out = [];
+  for (let d = Number(r[2]); d <= Number(r[3]); d++) out.push(`${r[1]}${d}`);
+  return out;
+});
+
+test('EK-7: 直した記事（要約を書き直す・会議の種類とメモの型・ホットキー・音声入力・中継の1日の上限）の ［…］ はアプリにある文字だけで、updated は 2026-11-02 から。pre は使わない。site.json の音声入力と要約の分類の説明に新しい働きがある', { timeout: 5000 }, () => {
+  const app = L.appLabelText(ROOT);
+  for (const ref of EK7_REFS) {
+    const a = articles.find((x) => x.ref === ref);
+    assert.ok(a, `${ref} の記事が無い`);
+    assert.deepStrictEqual(L.missingLabels(a.text, app), [], `${ref}: アプリに無い ［…］`);
+    assert.ok(metaOf(a).updated >= '2026-11-02', `${ref}: updated を直した日にしていない`);
+    assert.ok(!/<pre|```/.test(a.text), `${ref}: pre の要素を使った`);
+  }
+  // 新しく書いた画面の言葉（アプリの文字にあることは上で見る）
+  const es = read(fileOf('summary/edit-summary'));
+  for (const w of ['［色 ▸］', '［リンクを付ける］', '［外す］', '［削除］', '［複製］', '［変換 ▸］']) assert.ok(es.includes(w), `summary/edit-summary に ${w} が無い`);
+  assert.ok(read(fileOf('dictation/dictation')).includes('［元の文をコピー］'), 'dictation/dictation に ［元の文をコピー］ が無い');
+  const cat = (id) => site.categories.find((c) => c.id === id).description;
+  assert.match(cat('dictation'), /NaTsu の中/);
+  assert.match(cat('dictation'), /整え/);
+  assert.match(cat('summary'), /メモ/);
+});
+
+test('EK-7・U3（決めたこと 38）: settings/hotkeys の「NaTsu の窓の中だけで効くキー」の表は、効く所の見出しごとに SHORTCUTS と一字ずつ同じ（並びも）。Ctrl+Shift+N の行は無い。表の下に音声入力のキーの一言と Ctrl+W の決まり', { timeout: 5000 }, () => {
+  const t = read(fileOf('settings/hotkeys'));
+  const sec = ek7Sec(t, 'in-app');
+  const got = tableRows(sec);
+  const want = SHORTCUTS.map((r) => [r.where, keyCell(r.keys), r.what]);
+  assert.deepStrictEqual(got, want, '近道の表が SHORTCUTS と違う（src/shortcuts.js の表を写す）');
+  assert.ok(!/Ctrl\+Shift\+N/.test(t), 'Ctrl+Shift+N の行がある（BQ8: 0.15.0 で決める）');
+  assert.ok(sec.includes('NaTsu の文字の欄でも使えます'), '音声入力のキーの一言が無い');
+  assert.ok(sec.includes('](dictation/dictation.md#in-natsu)'), 'NaTsu の中の音声入力の節へのリンクが無い');
+  for (const w of ['録音中のページは閉じられません（［■ 終了して作成］で止めます）', '窓は閉じません', '空のページ']) assert.ok(sec.includes(w), `Ctrl+W の決まりに「${w}」が無い`);
+  // 照らしの形そのものが当たること（空振りしない）: 1行を消すと違う
+  assert.notDeepStrictEqual(tableRows(sec.replace(/^\| \[\[Ctrl\+W\]\] \|.*\n/m, '')), want);
+});
+
+test('EK-7・U3: summary/edit-summary の近道の表のキーは、SHORTCUTS の「要約の行を直しているとき」のキーと同じ集まり。行の選び方の表は「要約の行を選んでいるとき」の行と一字ずつ同じ。Ctrl+Shift+N は無い', { timeout: 5000 }, () => {
+  const t = read(fileOf('summary/edit-summary'));
+  const keys = tableRows(ek7Sec(t, 'keys'));
+  const got = [...new Set(keys.flatMap((r) => oneKeys(r[1])))].sort();
+  const want = [...new Set(SHORTCUTS.filter((r) => r.where === '要約の行を直しているとき').flatMap((r) => oneKeys(r.keys)))].sort();
+  assert.deepStrictEqual(got, want, '近道の表のキーが SHORTCUTS の要約の行のキーと違う');
+  const sel = tableRows(ek7Sec(t, 'select')).map((r) => [r[1], r[2]]);
+  assert.deepStrictEqual(sel, SHORTCUTS.filter((r) => r.where === '要約の行を選んでいるとき').map((r) => [keyCell(r.keys), r.what]), '行の選び方の表が SHORTCUTS と違う');
+  assert.ok(!/Ctrl\+Shift\+N/.test(t), 'Ctrl+Shift+N がある');
+});
+
+test('EK-7（E6・E7・E8・E9）: summary/edit-summary に文字の飾り・元に戻す・貼り付け・行の選び方の節がある。元に戻すは NaTsu を終えると消え、［要約を再生成］は戻せない。Ctrl+Shift+V。前の版の「貼り付けは文字だけ」「Esc で ⠿ へ」は無い', { timeout: 5000 }, () => {
+  const t = read(fileOf('summary/edit-summary'));
+  const marks = ek7Sec(t, 'marks');
+  for (const w of ['[[Ctrl+B]]', '[[Ctrl+I]]', '[[Ctrl+U]]', '[[Ctrl+Shift+S]]', '[[Ctrl+E]]', '[[Ctrl+K]]', '[[Ctrl+Shift+H]]', '`**文字**`', '`*文字*`', '`~文字~`', '［色 ▸］', '文字の色', '背景の色', '既定',
+    '開けるのは https・http・mailto と NaTsu のリンクだけです', '［リンクを付ける］', '［外す］', '[[Ctrl]] を押しながら', '/あか', '［コピー］']) assert.ok(marks.includes(w), `飾りの節に「${w}」が無い`);
+  const undo = ek7Sec(t, 'undo');
+  for (const w of ['[[Ctrl+Z]]', '[[Ctrl+Shift+Z]]', '[[Ctrl+Y]]', 'NaTsu を終えると消えます', 'これ以上は戻せません', 'やり直せるものはありません', 'ほかの所で変わったので、元に戻せませんでした', '100', '2 秒', 'ページごと', 'メモ']) {
+    assert.ok(undo.includes(w), `元に戻すの節に「${w}」が無い`);
+  }
+  assert.ok(undo.split('\n').some((l) => l.includes('［要約を再生成］') && l.includes('元に戻せません')), '［要約を再生成］は元に戻せないことが無い（BQ2 (a)）');
+  assert.ok(ek7Sec(t, 'regenerate').includes('元に戻せません'), '作り直しの節に「元に戻せません」が無い');
+  const paste = ek7Sec(t, 'paste');
+  for (const w of ['[[Ctrl+Shift+V]]', 'Word', 'Markdown', '貼り付けが大きすぎます（2,000 行・1MB まで）。分けて貼ってください。', '[[Ctrl+Z]] の1回', '色', 'URL']) assert.ok(paste.includes(w), `貼り付けの節に「${w}」が無い`);
+  const sel = ek7Sec(t, 'select');
+  for (const w of ['[[Esc]]', '[[Shift+↑]]', '[[Shift]] を押しながらクリック', '[[Alt+Shift]] を押しながらクリック', '余白', '[[Ctrl+A]]']) assert.ok(sel.includes(w), `行の選び方の節に「${w}」が無い`);
+  assert.ok(!t.includes('文字だけが入ります（飾りや表は入りません）'), '前の版の「貼り付けは文字だけ」が残っている');
+  assert.ok(!t.includes('メモと文字起こしの直し方は今までどおりです'), '前の版の「メモの直し方は今までどおり」が残っている');
+  assert.ok(!t.includes('行の中で [[Esc]] を押すと、左の ⠿ に移ります'), '前の版の「Esc で ⠿ へ」が残っている（0.14.0 は行を選ぶ）');
+});
+
+test('EK-7（BQ11・BQ22・BQ23・BQ25・BQ29）: メモの欄も行の欄だと書く。今までのメモは「■」の行だけ見出しになり、開いただけでは変わらない。Claude に渡る文と［コピー］は今と同じ形。元に戻すは要約と別', { timeout: 5000 }, () => {
+  const t = read(fileOf('summary/edit-summary'));
+  const memo = ek7Sec(t, 'memo');
+  for (const w of ['［メモ］', '「■ 」', '見出し', '開いただけでは', '［コピー］', 'Claude', '書いた順', '別々']) assert.ok(memo.includes(w), `メモの節に「${w}」が無い`);
+  const st = read(fileOf('summary/summary-types'));
+  assert.ok(st.includes('](summary/edit-summary.md#memo)'), 'summary/summary-types からメモの行の節へのリンクが無い');
+  assert.ok(!st.includes('選んだ型の見出し（「■ 課題・要望（N）」など）がメモに入ります'), '前の版の「■ の文がメモに入る」が残っている（0.14.0 は見出しの行）');
+});
+
+test('EK-7（U4・BQ9-1・BQ10・BQ21・R27・R64）: dictation/dictation に NaTsu の中の音声入力の節。押した所へ直に入れ、クリップボードを通しません。Ctrl+Z の1回。入れられない所と議事録の録音中の知らせ。ほかのアプリは今どおり', { timeout: 5000 }, () => {
+  const t = read(fileOf('dictation/dictation'));
+  const sec = ek7Sec(t, 'in-natsu');
+  for (const w of ['クリップボードを通しません', '[[Ctrl+Z]] の1回', '要約', 'メモ', '題名', '文字起こしの行', 'ここには音声入力で入れられないので、履歴に残しました', '入れる所が無くなったので、音声入力の履歴に残しました',
+    '議事録の録音中は、音声入力は使えません', '[[Esc]]', '[[Ctrl+Shift+Space]]']) assert.ok(sec.includes(w), `NaTsu の中の音声入力の節に「${w}」が無い`);
+  assert.ok(ek7Sec(t, 'clipboard').includes('ほかのアプリ'), 'クリップボードの節が、ほかのアプリのときの話だと分からない');
+});
+
+test('EK-7（BQ9-2・BQ13〜BQ19・BQ24 (a)・BQ35・RF28）: dictation/dictation に口述の整えの節。音声をクラウドで文字起こししたときだけ・PC の中で文字起こししたときは送りません・辞書の語も渡します・2 秒・300 字・送らないとき・会議の文は整えない・設定の場所と「フィラー除去」を切っていた人・履歴の元の文', { timeout: 5000 }, () => {
+  const t = read(fileOf('dictation/dictation'));
+  const sec = ek7Sec(t, 'tidy');
+  for (const w of ['音声をクラウドで文字起こししたときだけ', 'PC の中で文字起こししたときは送りません', '辞書の語も渡します', '2 秒', '300 字', '整えています…', 'オフライン', 'ログインしていない', '残した音声',
+    '会議の文字起こしは整えません', '訳さず', 'です・ます', '「・ 」', '「1. 」', '［設定］→［録音］', '「文字起こし」', '「口述の文を AI で整える」', '言い直し・繰り返しを除き、箇条を整えます。',
+    '「フィラー除去」を切っていた人は、「口述の文を AI で整える」も切れたまま始まります']) assert.ok(sec.includes(w), `口述の整えの節に「${w}」が無い`);
+  const hist = ek7Sec(t, 'history');
+  assert.ok(hist.includes('［元の文をコピー］') && hist.includes('元の文をコピーしました'), '履歴の節に ［元の文をコピー］ が無い');
+});
+
+test('EK-7（DQ-2・BQ20 (a)・R50）: admin/relay-limits に整えの1日の回数（1人 2,000 回・全員 50,000 回）と秘密の欄（relay/config.mjs の名前と既定）がある', { timeout: 5000 }, () => {
+  const cfg = read('relay/config.mjs');
+  for (const [env, key, n] of [['DAILY_USER_TIDY', 'dailyUserTidy', 2000], ['DAILY_ALL_TIDY', 'dailyAllTidy', 50000]]) {
+    assert.ok(cfg.includes(`e.${env}`), `relay/config.mjs に ${env} が無い（このテストの前提が崩れた）`);
+    assert.match(cfg, new RegExp(`^  ${key}: ${n},`, 'm'), `relay/config.mjs の ${key} の既定が ${n} でない（このテストの前提が崩れた）`);
+  }
+  const t = read(fileOf('admin/relay-limits'));
+  for (const w of ['2,000 回', '50,000 回', '`DAILY_USER_TIDY`', '`DAILY_ALL_TIDY`', '`2000`', '`50000`', '口述']) assert.ok(t.includes(w), `admin/relay-limits に「${w}」が無い`);
+});
+
+test('EK-7: 記事に Aqua Voice・Typeless の名前が無く、直した記事に Notion の名前も無い（ほかのアプリの説明の文を写さない）', { timeout: 5000 }, () => {
+  for (const a of articles) assert.ok(!/aqua\s*voice|typeless/i.test(a.text), `${a.ref}: ほかの製品の名前がある`);
+  for (const ref of EK7_REFS) assert.ok(!/notion/i.test(read(fileOf(ref))), `${ref}: Notion の名前がある`);
+});

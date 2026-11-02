@@ -1,8 +1,8 @@
 ---
 title: 会議の種類とメモの型
 description: 会議の種類から、メモの見出しと要約の組み立て（メモの型）が決まる。自動の判定・手で選ぶとき・録音中に選ぶとき
-updated: 2026-10-24
-sources: src/meetingType.js, src/memoTypes.js, src/renderer/app.html, src/main.js
+updated: 2026-11-02
+sources: src/meetingType.js, src/memoTypes.js, src/memoDoc.js, src/renderer/app.html, src/main.js
 related: summary/how-summaries, summary/meeting-quality, record/start-stop
 ---
 
@@ -34,7 +34,8 @@ related: summary/how-summaries, summary/meeting-quality, record/start-stop
 ## 手で選ぶ {#choose}
 
 - ページの上の「会議の種類」で選び直せます。手で選んだ種類は、自動の判定より先に効きます。「自動」に戻すと、次の要約で判定し直します。
-- メモが空か、型の見出しのままなら、選んだ型の見出し（「■ 課題・要望（N）」など）がメモに入ります。自分で書いたメモは上書きしません。
+- メモが空か、型の見出しのままなら、選んだ型の見出し（「課題・要望（N）」など）が見出しの行でメモに入ります。自分で書いたメモは上書きしません。メモの行の書き方は [メモも行で書く](summary/edit-summary.md#memo) を見てください。
+- Claude に渡すメモでは、見出しの行は今までどおり「■ 課題・要望（N）」の形の行になります。
 - メモの上に、見出しごとの書き方の手引きが灰色で出ます（メモに書き始めると隠れます）。
 - 選び直した後は、「···」の ［要約を再生成］ で要約に反映します。
 

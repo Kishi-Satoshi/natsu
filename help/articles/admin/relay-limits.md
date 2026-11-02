@@ -1,8 +1,8 @@
 ---
 title: 中継の1日の上限
-description: 管理者向け。文字起こしの中継の1日の上限（1人 4 時間・全体 100 時間）の数え方と、上限に達したときの動き、変え方
-updated: 2026-10-23
-sources: relay/config.mjs, relay/stt.mjs, README.md, src/main.js
+description: 管理者向け。文字起こしの中継の1日の上限（音声は1人 4 時間・全体 100 時間、口述の整えは1人 2,000 回・全体 50,000 回）の数え方と、上限に達したときの動き、変え方
+updated: 2026-11-02
+sources: relay/config.mjs, relay/stt.mjs, relay/tidy.mjs, relay/limits.mjs, README.md, src/main.js
 related: admin/stop-person, admin/seats, trouble/banners
 ---
 
@@ -14,9 +14,12 @@ related: admin/stop-person, admin/seats, trouble/banners
 | --- | --- |
 | 1人の1日の音声 | 4 時間 |
 | 全員の1日の音声 | 100 時間 |
+| 1人の1日の口述の整え | 2,000 回 |
+| 全員の1日の口述の整え | 50,000 回 |
 
 - 日本の日付で数えます。日付が変わると戻ります。
-- 数えるのは送った音声の秒です。送る前に取り置き、文字起こしに失敗した分は戻します。
+- 音声は、送った音声の秒を数えます。送る前に取り置き、文字起こしに失敗した分は戻します。
+- 口述の整え（音声入力の口述を AI で整えること。[口述を整える](dictation/dictation.md#tidy)）は、整えを頼んだ回数を数えます。音声の時間とは別に数えます。送る前に1回を取り置き、整えに失敗した分は戻します。
 
 ## 上限に達したとき {#reached}
 
@@ -24,6 +27,7 @@ related: admin/stop-person, admin/seats, trouble/banners
 - 全体の上限: 全員に「文字起こしの中継が今は使えないため、この PC で文字起こしを続けていますが、精度が落ちます。続くときは管理者に知らせてください。」と出ます。
 - ローカル AI の準備をしていない PC では、どちらでも「文字起こしの中継が今は使えないため、音声を残しています。…」と出て、音声を残し、使えるようになると自動で文字起こしします。
 - どちらでも、録音はそのまま続きます。
+- 口述の整えの上限（1人・全体のどちらでも）: 知らせは出さず、AI で整えずに PC の中で整えた文を入れます。音声入力の文字起こしは、音声の上限まではそのまま中継で行います。
 
 ## 変える {#change}
 
@@ -31,6 +35,8 @@ related: admin/stop-person, admin/seats, trouble/banners
 2. 種類は「Secret」にします（「Text」にすると、次の出し直しで消えます）。
    - `DAILY_USER_SEC` … 1人の1日の秒（既定 `14400`＝4 時間）
    - `DAILY_ALL_SEC` … 全員の1日の秒（既定 `360000`＝100 時間）
+   - `DAILY_USER_TIDY` … 1人の1日の口述の整えの回数（既定 `2000`）
+   - `DAILY_ALL_TIDY` … 全員の1日の口述の整えの回数（既定 `50000`）
 3. **Deploy** を押します。
 
 正の整数でない値は使わず、既定のままになります。

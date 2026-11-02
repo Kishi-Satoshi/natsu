@@ -1,9 +1,9 @@
 ---
 title: ホットキー
-description: 音声入力と議事録のホットキーを変える。ほかのアプリと重なったとき。NaTsu の窓の中だけで効くキー
-updated: 2026-10-21
-sources: README.md, src/renderer/app.html, src/main.js, src/mainlib.js, src/settings.js
-related: dictation/dictation, record/start-stop, settings/appearance
+description: 音声入力と議事録のホットキーを変える。ほかのアプリと重なったとき。NaTsu の窓の中だけで効くキー（Ctrl+W・要約とメモの行の近道）の一覧
+updated: 2026-11-02
+sources: README.md, src/renderer/app.html, src/main.js, src/mainlib.js, src/settings.js, src/shortcuts.js
+related: dictation/dictation, summary/edit-summary, record/start-stop
 ---
 
 ## どこでも効くキー {#global}
@@ -37,12 +37,69 @@ related: dictation/dictation, record/start-stop, settings/appearance
 
 ## NaTsu の窓の中だけで効くキー {#in-app}
 
+NaTsu の窓が前にあるときだけ効くキーです。同じ一覧は ［設定］→［一般］の「NaTsu の窓の中の近道」にも出ます。
+### 窓のどこでも
+
 | キー | 動き |
 | --- | --- |
+| [[Ctrl+W]] | 選んでいるタブを閉じる（窓は閉じません） |
+| [[Ctrl+Tab]]・[[Ctrl+Shift+Tab]] | 次・前のタブへ |
 | [[Ctrl+P]] | 検索の窓を開く |
 | [[Ctrl+Shift+P]] | 録音の一時停止・再開 |
-| `Ctrl+\` | サイドバーを畳む・出す |
+| [[Ctrl+\]] | サイドバーを畳む・出す |
 | [[Ctrl+Shift+L]] | ライトとダークを切り替える |
+| [[Ctrl+＋]]・[[Ctrl+－]]・[[Ctrl+0]] | 拡大・縮小・元の大きさ（200% まで） |
+
+### 設定
+
+| キー | 動き |
+| --- | --- |
 | [[Esc]] | 設定を閉じる（設定の検索の欄に文字があるときは、文字を消す） |
-| [[Ctrl+Tab]]・[[Ctrl+Shift+Tab]] | 次・前のタブへ |
-| `Ctrl+＋`・`Ctrl+－`・`Ctrl+0` | 拡大・縮小・元の大きさ（200% まで） |
+
+### 要約の行を直しているとき
+
+| キー | 動き |
+| --- | --- |
+| [[Ctrl+Z]] | 元に戻す |
+| [[Ctrl+Shift+Z]]・[[Ctrl+Y]] | やり直す |
+| [[Ctrl+B]]・[[Ctrl+I]]・[[Ctrl+U]]・[[Ctrl+Shift+S]]・[[Ctrl+E]] | 選んだ文字を太字・斜体・下線・取り消し線・コードにする（もう一度押すと外す） |
+| [[Ctrl+K]] | 選んだ文字にリンクを付ける |
+| [[Ctrl+Shift+H]] | 選んだ文字に、最後に使った色を付ける |
+| [[Ctrl+Shift+V]] | 文字だけを貼り付ける（行や飾りに変えない） |
+| [[Ctrl+Shift+0〜6]] | 行の型を変える（0 テキスト・1〜3 見出し1〜3・4 ToDo・5 箇条書き・6 番号付き） |
+| [[Ctrl+D]] | 行を複製する |
+| [[Ctrl+Shift+↑]]・[[Ctrl+Shift+↓]] | 行を上・下へ動かす |
+| [[Ctrl+/]] | 行のメニューを開く |
+| [[Tab]] | 行を上の行の中に入れる（字下げ） |
+| [[Shift+Tab]] | 字下げを1段戻す |
+| [[Ctrl+Enter]] | ToDo のチェックを付ける・外す。トグルを開く・閉じる |
+| [[Ctrl+Alt+T]] | ページのトグルをまとめて開く・閉じる |
+| [[Ctrl+Shift+7]] | 行をトグルにする |
+| [[Esc]] | 行を選ぶ（もう一度押すと選びを外して ⠿ へ） |
+| [[Ctrl+A]] | 行の文字を全部選ぶ（もう一度押すとその行を選び、さらにもう一度でページの行を全部選ぶ） |
+
+### 要約の行を選んでいるとき
+
+| キー | 動き |
+| --- | --- |
+| [[↑]]・[[↓]] | 選ぶ行を替える |
+| [[Shift+↑]]・[[Shift+↓]] | 選ぶ行を広げる・狭める |
+| [[Backspace]]・[[Delete]] | 選んだ行を消す |
+| [[Ctrl+C]]・[[Ctrl+X]]・[[Ctrl+V]] | 選んだ行を写す・切り取る・後ろに貼り付ける |
+| [[Ctrl+D]] | 選んだ行を複製する |
+| [[Ctrl+Shift+↑]]・[[Ctrl+Shift+↓]] | 選んだ行を上・下へ動かす |
+| [[Ctrl+Shift+0〜7]] | 選んだ行の型をまとめて変える |
+| [[Ctrl+/]] | 選んだ行のメニューを開く（削除・複製・変換・色） |
+| [[Ctrl+A]] | ページの行を全部選ぶ |
+| [[Ctrl+Z]] | 元に戻す |
+| [[Ctrl+Shift+Z]]・[[Ctrl+Y]] | やり直す |
+| [[Enter]] | 選んだ行の文に戻って直す |
+| [[Tab]] | 選びを外して、欄の外の次の部品へ |
+| [[Shift+Tab]] | 選びを外して、［AI 要約］のタブへ |
+| [[Esc]] | 選びを外して ⠿ へ |
+
+- [[Ctrl+W]] で閉じるのはタブだけで、窓は閉じません。タブが1つだけのときは、閉じて空のページになります。
+- 録音中のタブは [[Ctrl+W]] で閉じません。「録音中のページは閉じられません（［■ 終了して作成］で止めます）」と出ます。［文字起こしを始める］ を押して録音が始まるのを待っている間の、録音の前のタブも同じです。
+- 録音の前のページのタブは、メモを書いていれば閉じる前に確かめます（× で閉じるときと同じ）。
+- 「要約の行」のキーは、メモの行でも同じに効きます（[要約を書き直す](summary/edit-summary.md#memo)）。
+- 音声入力のキー（上の「音声入力ホットキー」）は、NaTsu の文字の欄でも使えます。押した所へ直に入れます（[NaTsu の中で音声入力する](dictation/dictation.md#in-natsu)）。
