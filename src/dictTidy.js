@@ -2,9 +2,10 @@
 // 口述の整えの純粋な部品（0.14.0 DQ-1。計画 docs/plans/2026-10-26-140.md の決めたこと 45〜51・R45・R46）
 //   dropFillers  … つなぎ言葉を除く決まり（0.13.x までの main.js の決まりを同じ字のまま移した。会議の区間の文もこれを通るので、答えは1文字も変えない）
 //   tidyRules    … 決まりの整え（PC の中・すぐ）。つなぎ言葉は設定「フィラー除去」がオンのときだけ、同じ語のすぐの繰り返しはいつも1つに
-//   tidyGuard    … AI の整えの答えの照らし（形・長さ・元の文に無い文字が多い答えを外す）
+//   tidyGuard    … AI の整えの答えの照らし（形・長さ・元の文に無い文字が多い答え・中身を落とした短すぎる答えを外す）
 //   linesToText  … 箇条の行を「・ 」「1. 」で始まる行の文にする（NaTsu の外のアプリへ貼る文）
-//   tidyBody     … 中継の整えの口へ送る本文（文・言語・辞書の語。大きさを決まりの中に切る）
+//   tidyBody     … 中継の整えの口へ送る本文（文・言語・辞書の語）。文が空か 300 字（TIDY_MAX_CHARS）を越えれば null（送らない。文は切らない: BQ35）
+// 字数はどれも符号位置（Array.from の数。𠮷 は1字）で数える（R195）
 // どれも通信もファイルも触らない。
 
 // ---------------------------------------------------------------- つなぎ言葉（決めたこと 45。ただの「あの」「その」は除かない）
@@ -57,6 +58,7 @@ function overlap(raw, out) {
   return hit / (b.length - 1);
 }
 const noSpace = (s) => s.replace(/\s+/g, '');
+const SHORT_MIN = 0.5;
 function tidyGuard(raw, reply) {
   if (typeof raw !== 'string' || !raw.trim() || !isPlain(reply)) return null;
   const text = own(reply, 'text');
@@ -74,6 +76,8 @@ function tidyGuard(raw, reply) {
   if (out.length && noSpace(text) !== noSpace(out.map((l) => l.t).join('')) && noSpace(text) !== noSpace(linesToText(out))) return null;
   // 長すぎる・元の文に無い文字が多い（答え・訳・作り話の見込み）
   if (chars(text).length > chars(raw).length * 1.3 + 20 || overlap(raw, text) < 0.6) return null;
+  // 短すぎる（中身を落とした・まとめた答えの見込み）: 決まりの整え（つなぎ言葉・繰り返しを除いた）文の半分に満たなければ外す（R195）
+  if (bare(text).length < bare(tidyRules(raw, { fillers: true })).length * SHORT_MIN) return null;
   return { text, lines: out };
 }
 
@@ -93,20 +97,16 @@ function linesToText(lines) {
 }
 
 // ---------------------------------------------------------------- 中継へ送る本文（決めたこと 51・53）
-const TEXT_MAX = 4000;
+// 2026-11-02 の BQ35: 整えの前の文がこれを越える口述は整えの口へ送らない（はじめから決まりの整えの文をすぐ入れる。文は切らない）
+const TIDY_MAX_CHARS = 300;
 const WORDS_MAX = 50;
 const WORD_MAX = 40;
-// 文字の数（UTF-16 の長さ）が max を越えない所で切る。サロゲートの対（𠮷）は割らない
-function cut(s, max) {
-  let out = '';
-  for (const c of s) {
-    if (out.length + c.length > max) break;
-    out += c;
-  }
-  return out;
-}
+// 辞書の語を max 字（符号位置）までに切る（𠮷 は割らない）
+const cut = (s, max) => chars(s).slice(0, max).join('');
 function tidyBody(raw, { lang, words } = {}) {
-  const body = { text: cut(typeof raw === 'string' ? raw : '', TEXT_MAX) };
+  if (typeof raw !== 'string' || !raw.trim()) return null;
+  if (chars(raw).length > TIDY_MAX_CHARS) return null;   // 長い口述は送らない（BQ35。切って送ると後ろが消える）
+  const body = { text: raw };
   // 言語は settings.language。auto（決めない）と形の違う値は送らない（中継が決める）
   if (typeof lang === 'string' && lang !== 'auto' && /^[a-z]{2,3}$/.test(lang)) body.lang = lang;
   const list = [];
@@ -120,4 +120,4 @@ function tidyBody(raw, { lang, words } = {}) {
   return body;
 }
 
-module.exports = { dropFillers, tidyRules, tidyGuard, linesToText, tidyBody, TEXT_MAX, WORDS_MAX, WORD_MAX };
+module.exports = { dropFillers, tidyRules, tidyGuard, linesToText, tidyBody, TIDY_MAX_CHARS, WORDS_MAX, WORD_MAX };

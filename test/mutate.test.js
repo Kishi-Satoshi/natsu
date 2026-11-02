@@ -1261,7 +1261,10 @@ const IDS_140 = [
   'mo-setdoc-lock',
   'mo-copy-plain',
   // 0.14.0 DQ-1（表の行の順に）
-  'dq-filler-same', 'dq-repeat', 'dq-repeat-word', 'dq-guard', 'dq-lines-text',
+  'dq-filler-same', 'dq-repeat', 'dq-repeat-word', 'dq-guard',
+  'dq-guard-short',   // 0.14.0 DQ-1 直し（R195）
+  'dq-lines-text',
+  'dq-long-send',   // 0.14.0 DQ-1 直し（BQ35・R195。表では dq-off-send の次）
 ];
 test('G3・0.14.0: 0.14.0 の変異が一覧にそろい、IDS_140 はどれも計画の「変異確認」の表に行の順である。eb-・ek-・mo-・dq- の変異は IDS_140 にある。どれも決まったテストのファイルを持ち、why が 0.14.0 で始まる', { timeout: 5000 }, () => {
   const byId = new Map(MUTANTS.map((m) => [m.id, m]));
@@ -1273,7 +1276,8 @@ test('G3・0.14.0: 0.14.0 の変異が一覧にそろい、IDS_140 はどれも�
   assert.ok(at > 0, '計画の「変異確認」の節が無い');
   const table = plan.slice(at, plan.indexOf('\n## ', at + 5));
   const rows = [...table.matchAll(/^\| ((?:eb|ek|mo|dq)-[a-z0-9-]*) \|/gm)].map((m) => m[1]);
-  assert.strictEqual(rows.length, 145, '計画の 0.14.0 の表（eb- 47・ek- 49・mo- 27・dq- 22）が読めない');
+  // 0.14.0 DQ-1 直し（R195）で dq-guard-short・dq-long-send の2行を足した（145 → 147）
+  assert.strictEqual(rows.length, 147, '計画の 0.14.0 の表（eb- 47・ek- 49・mo- 27・dq- 24）が読めない');
   assert.strictEqual(new Set(rows).size, rows.length, '計画の表に重なり');
   assert.deepStrictEqual(IDS_140.filter((id) => !rows.includes(id)), [], '計画の「変異確認」の表に無い変異');
   assert.deepStrictEqual(IDS_140, rows.filter((id) => IDS_140.includes(id)), 'IDS_140 が表の行の順でない');

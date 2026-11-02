@@ -1516,6 +1516,26 @@ test('DQ-1・F105・R46: tidyGuard の表（正しい { text, lines } はその�
   assert.strictEqual(DT.tidyGuard(raw, { ...good, lines: good.lines.slice(1) }), null);
 });
 
+test('DQ-1 直し・R195: tidyGuard は中身を落とした短すぎる答え（決まりの整えの文の半分に満たない）を外す。つなぎ言葉・繰り返し・言い直しを除いただけの答えは通す', () => {
+  const raw = 'えーと、来週の打ち合わせでは、まず予算の見直しをして、それから新しい工程表を配って、最後に担当を決めたいと思います。';
+  // まとめた・落とした答え
+  assert.strictEqual(DT.tidyGuard(raw, { text: 'まず予算', lines: [] }), null);
+  assert.strictEqual(DT.tidyGuard(raw, { text: '来週は予算の見直しをします。', lines: [] }), null);
+  // つなぎ言葉を除いただけ・ほぼ同じ
+  const tidy = '来週の打ち合わせでは、まず予算の見直しをして、それから新しい工程表を配って、最後に担当を決めたいと思います。';
+  assert.deepStrictEqual(DT.tidyGuard(raw, { text: tidy, lines: [] }), { text: tidy, lines: [] });
+  // 言い直しの前の言い方を除いた（BQ17 (a)）
+  const said = '明日、いや、明後日の十時に、あの、会議室に集まりましょう。';
+  assert.deepStrictEqual(DT.tidyGuard(said, { text: '明後日の十時に会議室に集まりましょう。', lines: [] }), { text: '明後日の十時に会議室に集まりましょう。', lines: [] });
+  // 繰り返しとつなぎ言葉ばかりの元の文: 決まりの整えの文で比べるので、短い答えも通る
+  const rep = 'えーと、えーと、あのー、確認です、確認です。';
+  assert.deepStrictEqual(DT.tidyGuard(rep, { text: '確認です。', lines: [] }), { text: '確認です。', lines: [] });
+  // 半分ちょうどは通り、それより短いと外す（字数は符号位置。𠮷 は1字）
+  const r20 = '𠮷田さんに資料を送って見積を頼んでおく';   // 記号を除いて 20 字
+  assert.ok(DT.tidyGuard(r20, { text: '𠮷田さんに資料を送る', lines: [] }), '10 字（半分ちょうど）が外れた');
+  assert.strictEqual(DT.tidyGuard(r20, { text: '𠮷田さんに資料を', lines: [] }), null);
+});
+
 test('DQ-1: linesToText の表（bullet →「・ 」・number →「1. 」「2. 」・p はそのまま・改行でつなぐ。番号は p か bullet をはさむと 1 から）', () => {
   assert.strictEqual(DT.linesToText([
     { kind: 'p', t: 'やることは' }, { kind: 'number', t: '資料を直す' }, { kind: 'number', t: '見積を送る' }, { kind: 'bullet', t: '日程' }, { kind: 'bullet', t: '担当' },
@@ -1526,18 +1546,21 @@ test('DQ-1: linesToText の表（bullet →「・ 」・number →「1. 」「2.
   assert.strictEqual(DT.linesToText(null), '');
 });
 
-test('DQ-1: tidyBody（4,000 字で切る（𠮷 を割らない）・words は 50 語・語は 40 字まで・空の語は送らない・言語は settings.language（auto と形の違う値は送らない））', () => {
+test('DQ-1・BQ35（DQ-1 直し・R195）: tidyBody（文は切らない。空か 300 字（符号位置。𠮷 は1字）を越えれば null で送らない・words は 50 語・語は 40 字まで・空の語は送らない・言語は settings.language（auto と形の違う値は送らない））', () => {
   assert.deepStrictEqual(DT.tidyBody('えーと、明日の会議です。', { lang: 'ja', words: ['見積書', '  ', 3, '工程表'] }),
     { text: 'えーと、明日の会議です。', lang: 'ja', words: ['見積書', '工程表'] });
-  const b = DT.tidyBody('あ'.repeat(4100), { lang: 'ja', words: [] });
-  assert.strictEqual(b.text, 'あ'.repeat(4000));
-  assert.strictEqual(DT.tidyBody('𠮷'.repeat(2001), {}).text, '𠮷'.repeat(2000));
-  assert.strictEqual(DT.tidyBody(`a${'𠮷'.repeat(2000)}`, {}).text, `a${'𠮷'.repeat(1999)}`);
+  assert.strictEqual(DT.TIDY_MAX_CHARS, 300);
+  assert.strictEqual(DT.tidyBody('あ'.repeat(300), { lang: 'ja', words: [] }).text, 'あ'.repeat(300), '300 字ちょうどは送る');
+  assert.strictEqual(DT.tidyBody('あ'.repeat(301), { lang: 'ja', words: [] }), null, '300 字を越える口述を送る（dq-long-send）');
+  assert.strictEqual(DT.tidyBody('あ'.repeat(4100), {}), null, '長い口述を切って送った（後ろが消える）');
+  assert.strictEqual(DT.tidyBody('𠮷'.repeat(300), {}).text, '𠮷'.repeat(300), '𠮷 を2字に数えた');
+  assert.strictEqual(DT.tidyBody('𠮷'.repeat(301), {}), null);
+  for (const empty of ['', '  \n ', null, undefined, 3]) assert.strictEqual(DT.tidyBody(empty, {}), null, String(empty));
   const words = Array.from({ length: 60 }, (_, i) => `語${i}`);
   assert.deepStrictEqual(DT.tidyBody('x', { words }).words, words.slice(0, 50));
-  assert.deepStrictEqual(DT.tidyBody('x', { words: ['い'.repeat(45), `${'う'.repeat(39)}𠮷`] }).words, ['い'.repeat(40), 'う'.repeat(39)]);
+  // 語は 40 字（符号位置）まで。𠮷 は1字で、割らない
+  assert.deepStrictEqual(DT.tidyBody('x', { words: ['い'.repeat(45), `${'う'.repeat(39)}𠮷`, `${'え'.repeat(40)}𠮷`] }).words, ['い'.repeat(40), `${'う'.repeat(39)}𠮷`, 'え'.repeat(40)]);
   for (const lang of ['auto', undefined, '', 'JA', 'ja-JP', 'japanese', 3]) assert.ok(!('lang' in DT.tidyBody('x', { lang, words: [] })), String(lang));
   assert.strictEqual(DT.tidyBody('x', { lang: 'en' }).lang, 'en');
   assert.deepStrictEqual(DT.tidyBody('x', {}).words, []);
-  assert.deepStrictEqual(DT.tidyBody(null), { text: '', words: [] });
 });
