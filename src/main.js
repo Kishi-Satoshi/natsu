@@ -6919,7 +6919,11 @@ function setupIpc() {
     if (state === 'recording') stopRecording();
     else if (state === 'meeting') stopMeetingBy('bar');
   });
-  ipcMain.on('overlay:cancel-request', () => { if (state === 'recording') cancelRecording(); });
+  // 0.14.0 EK-6 直し2（R201）: 録音バーの［取り消し］は録音バーの窓から来たときだけ受ける（本体の窓は dictation:cancel、ほかの窓は取り消させない）
+  ipcMain.on('overlay:cancel-request', (e) => {
+    if (!(overlayWin && !overlayWin.isDestroyed() && e && e.sender === overlayWin.webContents)) return;
+    if (state === 'recording') cancelRecording();
+  });
   ipcMain.on('audio:done', (_e, { buffer, durationMs }) => handleDictationAudio(Buffer.from(buffer), durationMs));
   // 0.12.0 SP-3a: 2つの流れの議事録は4つ目 meta（main が checkSegMeta で照らす）
   ipcMain.on('audio:segment', (_e, { buffer, durationMs, final, meta }) => onMeetingSegment(Buffer.from(buffer), durationMs, Boolean(final), meta));

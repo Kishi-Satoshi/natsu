@@ -1072,7 +1072,8 @@ test('基準の画像（test/shots/win32）は今の app.html で撮ったもの
   // 0.14.0 EK-6 直し（R194）: 検索の窓の Esc の preventDefault・欄の変換中を document で覚える（<script> の中だけ。撮る画面は変わらない）。値を今の app.html に合わせた（前の値は 21c7b2dd…）
   // 0.14.0 DQ-3（決めたこと 55・56・BQ27 (a)）: 設定の［録音］の「フィラー除去」の下の「口述の文を AI で整える」（#aiTidy・読み書き）と、履歴の行の［元の文をコピー］。
   // 変わる画面は足した NEW_140 の settings-dictation-light・history-tidy-light と、取り直す RETAKEN_140 の settings-record の3枚。値を今の app.html に合わせた（前の値は bb05491e…）
-  assert.strictEqual(sha, '5d7e72ff61aa416e03b2debfc54350ca6ea83403fe8a3cf4b8a125f90a587038',
+  // 0.14.0 EK-6 直し2（R201）: 確定の事象が来ないまま欄を離れたら変換中の印を外す document の focusout の受け口（<script> の中だけ。撮る画面は変わらない）。値を今の app.html に合わせた（前の値は 5d7e72ff…）
+  assert.strictEqual(sha, '6c4823ab448ea81000b90c34814b79a407dfe8e366bf2cbdc9c8a2a5f1aca8c8',
     'app.html が基準の画像を撮った時と違う。Windows の CI の画面の比べ（捲り棒のつまみも）を見て、基準を取り直してからこの値を直す');
 });
 

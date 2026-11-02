@@ -213,7 +213,7 @@ module.exports = {
       c.out.retriesDuring2 = c.timers.retrySettingsRead.length;
       c.out.themeDuring = (await c.handlers['settings:get']()).theme;
       c.out.pendingDuring = pending();
-      c.listeners['overlay:cancel-request']();   // 音声入力を取り消す（idle に戻る）
+      c.listeners['overlay:cancel-request']({ sender: c.wins[0] && c.wins[0].webContents });   // 音声入力を取り消す（idle に戻る。0.14.0 EK-6 直し2: 録音バーの窓から）
       c.timers.retrySettingsRead[c.timers.retrySettingsRead.length - 1]();
       c.out.themeAfter = (await c.handlers['settings:get']()).theme;
       c.out.pendingAfter = pending();

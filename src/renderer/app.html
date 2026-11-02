@@ -6775,6 +6775,8 @@
   const dictImeMark = (ev) => { const t = ev && ev.target; if (t && t.tagName && !dictRowOf(t)) t._composing = ev.type === 'compositionstart'; };
   document.addEventListener('compositionstart', dictImeMark, true);
   document.addEventListener('compositionend', dictImeMark, true);
+  // 0.14.0 EK-6 直し2（R201）: 確定の事象が来ないまま欄を離れた（IME の不具合など）ら印を外す（次の音声入力が確定を待ち続けない）
+  document.addEventListener('focusout', (ev) => { const t = ev && ev.target; if (t && t.tagName && !dictRowOf(t) && t._composing) t._composing = false; }, true);
   // dictation:where の答え（番号は main が決める。答えは preload が { seq, ok } で返す）
   function dictWhereAnswer(seq) {
     dictAt = null;

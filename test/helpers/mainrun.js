@@ -450,6 +450,8 @@ const { titleAt } = require('./titles');
 //                        ["tidy-release", 答え方]（持っている要求にその答え方で答える）・["wait-tidy", n]（整えの口が n 回受けるまで待つ）・
 //                        ["tidy-time-up"]（main の 2 秒の待ちの時計 tidyTimeUp を今すぐ鳴らす。偽の時計: --relay の --mic-feed の場面は tidyTimeUp を走らせずに覚える。
 //                        ほかの --relay の場面は本当の時計で鳴らす）・["wait-dict-end"]（["dictate-in-natsu", { hold: true }] で待たなかった終わりの合図を待つ）。
+//   0.14.0 EK-6 直し2（R201）: --mic-feed の手順に ["ipc-from", 'overlay'|'main', 名前, …引数]（送り手の窓を決めて IPC を呼ぶ）。["dictate-cancel"] は録音バーの窓から送る。
+//                        snap に dictEnds（本体の窓へ送った dictation:end の数）・overlayCancels（録音バーへ送った overlay:cancel の数）を足す
 //                        出力（--mic-feed と sttOut）に tidy（{ requests: [{ body, cookie, xrw, type }], waits: [tidyTimeUp の ms] }）と、--mic-feed に overlayPhases を足す。
 //                        --relay-text=<文> … 中継の後ろの偽の OpenAI が返す文字起こしの文（既定は fake-stt の文。後ろに「区間<n>」が付く）。
 //                        --settings-add=<JSON> … 置く settings.json に重ねる（aiTidy・removeFillers など）。キーに null を渡すと、そのキーを書かない
@@ -2988,7 +2990,7 @@ process.on('exit', () => {
         process.stdout.write(`\n${JSON.stringify(out)}\n`);
         await exitClean(0);
       } else if (hidePanelMode === 'next') {
-        listeners['overlay:cancel-request']({});
+        listeners['overlay:cancel-request']({ sender: wins[0] && wins[0].webContents });   // 0.14.0 EK-6 直し2（R201）: 録音バーの窓から
         await sleep(20);
         h.afterCancel = snap();   // G-2（統合）: 録音していない間の meeting:status の panelHidden
         shortcuts[(await handlers['settings:get']()).hotkey]();
@@ -3268,7 +3270,18 @@ process.on('exit', () => {
       else if (k === 'tray-start') { const it = trayItems.find((i) => i && i.label === '議事録の記録を開始'); if (it) it.click(); await sleep(30); }
       else if (k === 'bar-stop') { listeners['overlay:confirm']({}); await sleep(30); }
       else if (k === 'finish') { listeners['audio:segment']({}, { buffer: new Uint8Array(0), durationMs: 0, final: true }); await waitFor(finalized, 15000); await sleep(50); }
-      else if (k === 'dictate-cancel') { listeners['overlay:cancel-request']({}); await sleep(30); }
+      // 0.14.0 EK-6 直し2（R201）: 録音バーの［取り消し］は録音バーの窓から送る（main は録音バーの窓の webContents から来たときだけ受ける）
+      else if (k === 'dictate-cancel') { listeners['overlay:cancel-request']({ sender: wins[0] && wins[0].webContents }); await sleep(30); }
+      // 0.14.0 EK-6 直し2（R201）: 送り手の窓を決めて IPC を呼ぶ（'overlay' 録音バー・'main' 本体の窓）。答えは out.ipc へ
+      else if (k === 'ipc-from') {
+        const [who, ch, ...args] = a;
+        const w = who === 'overlay' ? wins[0] : wins[1];
+        const ev = { sender: w && w.webContents };
+        if (handlers[ch]) out.ipc.push([ch, await handlers[ch](ev, ...args)]);
+        else if (listeners[ch]) { listeners[ch](ev, ...args); out.ipc.push([ch, 'sent']); }
+        else out.ipc.push([ch, 'no-such-channel']);
+        await sleep(30);
+      }
       else if (k === 'save') { const st = await handlers['settings:get'](); out.ipc.push(['save', await handlers['settings:save']({}, { ...st, ...a[0] })]); await sleep(30); }
       else if (k === 'ipc') {
         const [ch, ...args] = a;
@@ -3332,7 +3345,9 @@ process.on('exit', () => {
       else if (k === 'ipc-later') { const [ch, ...args] = a; laterCalls.push(Promise.resolve(handlers[ch]({}, ...args)).then((r) => [ch, r])); await sleep(30); }
       else if (k === 'snap') {
         out.snaps[a[0]] = { spawns: micSpawns.length, kills: micKills, active: isActive(), nudgeCalls: nudgeWins.length ? nudgeWins[0].nudge.calls.length : 0, asks: overlayAsks(), sentN: mainSentAll.length, notes: notifications.length,
-          logins: loginRecs.length, settled: settledNow() };   // 0.13.2 LN-4: その時までに作ったログインの窓の数（点検の直し 2: 起動の片付けが済んだか）
+          logins: loginRecs.length, settled: settledNow(),
+          // 0.14.0 EK-6 直し2（R201）: 本体の窓へ送った dictation:end と録音バーへ送った overlay:cancel の数
+          dictEnds: mainSentAll.filter(([ch]) => ch === 'dictation:end').length, overlayCancels: sent.filter(([ch]) => ch === 'overlay:cancel').length };   // 0.13.2 LN-4: その時までに作ったログインの窓の数（点検の直し 2: 起動の片付けが済んだか）
         // 0.13.0 RDY-1: 下書きのファイルの名前と最初の下書きのメモと種類・DB へ送った命令の名前（中身は入れない）・meeting:status の active と prep
         const drafts = store.draftFiles();
         const d0 = drafts.length ? store.readDraftFile(drafts[0]) : null;

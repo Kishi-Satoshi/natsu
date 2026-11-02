@@ -3446,6 +3446,22 @@ test('EK-6・R28 直し（R194）: 題名で変換を始めた後に音声入力
   } finally { l.done(); }
 });
 
+test('EK-6 直し2・M-7（R201）: 欄の変換中の印は、compositionend が来ないまま欄からフォーカスが外れたら外す（次の音声入力が確定を待ち続けない）', T, async () => {
+  const l = await openReal({ pa1: BASE() });
+  try {
+    const calls = execSpy(l);
+    const ti = $(l, 'pTitle');
+    ti.focus(); l.caret.set(ti, 0);
+    l.key({ type: 'compositionstart' }, ti);
+    l.key({ type: 'focusout' }, ti);   // 確定の事象が来ないまま欄を離れた
+    ti.focus(); l.caret.set(ti, 0);
+    assert.deepStrictEqual(whereOf(l, 1), { ok: true });
+    await dictText(l, 'かきく', null, 1);
+    assert.deepStrictEqual(calls, [['insertText', false, 'かきく']], '変換中の印が残って確定を待ち続けた');
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
 test('EK-6・R64 直し（R194）: 音声入力の録音中に検索の窓を開き、入力の欄でない所（絞り込み）で Esc → 窓だけ閉じ、音声入力は取り消さない', T, async () => {
   const l = await openReal({ pa1: BASE() });
   try {

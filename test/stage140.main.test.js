@@ -403,9 +403,17 @@ test('EK-6・R194（直し）: dictation:where-answer は本体の窓から来�
   assert.deepStrictEqual(dsent(o, 'dictation:text'), [], 'ほかの窓からの答えで入れ先を決めた');
   assert.deepStrictEqual(o.dict.pastes, []);
   assert.strictEqual(o.notices.map(noticeText).filter((t) => t === DICT_NOWHERE).length, 1, dictDump(o));
-  const src = fs.readFileSync(path.join(__dirname, '..', 'src', 'main.js'), 'utf8');
-  assert.ok(src.includes("ipcMain.handle('dictation:cancel', (e) => { if (!fromMainWin(e)) return false; cancelRecording(); return true; });"), 'dictation:cancel が送り手を見ない');
-  assert.ok(src.includes('e.sender === mainWin.webContents'), 'fromMainWin が本体の窓の webContents と比べない');
+  // 0.14.0 EK-6 直し2（M-5・R201）で意図して変えた: dictation:cancel の送り手の照らしは字でなく動きで見る（下の「EK-6 直し2・M-5・M-6」）
+});
+
+test('EK-6 直し2・M-5・M-6（R201）: 録音中の dictation:cancel は本体の窓から来たときだけ取り消す（録音バーの窓からは false で取り消さない）。overlay:cancel-request は録音バーの窓から来たときだけ取り消す（本体の窓からは何もしない）', T, async () => {
+  const o = await mic([['sleep', 100], ['dictate-in-natsu', { where: 'ok', audio: false }], ['ipc-from', 'overlay', 'dictation:cancel'], ['ipc-from', 'main', 'overlay:cancel-request'],
+    ['snap', 'foreign'], ['ipc-from', 'main', 'dictation:cancel'], ['snap', 'main'], ['dictate-in-natsu', { where: 'ok', audio: false }], ['ipc-from', 'overlay', 'overlay:cancel-request'], ['snap', 'bar']]);
+  assert.deepStrictEqual(o.ipc.map(([c, r]) => [c, r]), [['dictation:cancel', false], ['overlay:cancel-request', 'sent'], ['dictation:cancel', true], ['overlay:cancel-request', 'sent']], dictDump(o));
+  assert.deepStrictEqual([o.snaps.foreign.dictEnds, o.snaps.foreign.overlayCancels], [0, 0], `ほかの窓からの取り消しで取り消した: ${dictDump(o)}`);
+  assert.deepStrictEqual([o.snaps.main.dictEnds, o.snaps.main.overlayCancels], [1, 1], `本体の窓の dictation:cancel で取り消さない: ${dictDump(o)}`);
+  assert.deepStrictEqual([o.snaps.bar.dictEnds, o.snaps.bar.overlayCancels], [2, 2], `録音バーの［取り消し］で取り消さない: ${dictDump(o)}`);
+  assert.deepStrictEqual(o.dict.history, [], '取り消した音声入力が履歴に入った');
 });
 
 test('EK-6・R27: 画面が { ok: false }・300ms 答えない → クリップボードも dictation:text も0・履歴に1件・知らせ「ここには音声入力で入れられないので…」・dictation:end が1回（R61）', T, async () => {
