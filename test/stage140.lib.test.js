@@ -1295,6 +1295,64 @@ test('MB-1・R69（第4版）: memoFromText と memoEdit の行はどれも cite
   assert.strictEqual(MD.memoPlain([mrow('m1', 'toggle', '開閉'), mrow('m2', 'heading', '見出しの開閉', { level: 1, toggle: true })]), '- 開閉\n■ 見出しの開閉\n');
 });
 
+// ---------------------------------------------------------------- MB-1 直し（2026-11-02 の点検。R161〜R163）
+test('MB-1 直し（I1・R161）: 消した一番大きな ID を使い回さない。memoEdit の答えの next（窓のメモリに持つ高い水の印）を次の memoEdit に渡すと、消した行の ID より後から作る。渡さなければ今の doc から（同じ入力なら同じ答え）。next は doc の中の一番大きな数より小さくならない。形の悪い next は bad-args', () => {
+  const d0 = MD.memoFromText('a\nb');
+  const rm = MD.memoEdit(d0, 'blocks.remove', { ids: ['m2'] });
+  assert.deepStrictEqual(rm.doc.map((b) => b.id), ['m1']);
+  assert.strictEqual(rm.next, 3, '消した行の数より後を next にしていない');
+  const ins = MD.memoEdit(rm.doc, 'block.insert', { afterBlockId: 'm1', type: 'paragraph' }, { next: rm.next });
+  assert.deepStrictEqual([ins.focus.blockId, ins.next], ['m3', 4], '消した行の ID を使い回した');
+  // 渡さなければ今の doc から（純粋: 同じ入力なら同じ答え）
+  assert.strictEqual(MD.memoEdit(rm.doc, 'block.insert', { afterBlockId: 'm1', type: 'paragraph' }).focus.blockId, 'm2');
+  // 小さな next は doc の中の一番大きな数に負けない・何も足さない命令でも next は下がらない
+  assert.strictEqual(MD.memoEdit(d0, 'block.insert', { afterBlockId: '' }, { next: 1 }).focus.blockId, 'm3');
+  assert.strictEqual(MD.memoEdit(d0, 'block.update', { blockId: 'm1', patch: { text: 'c' } }, { next: 40 }).next, 40);
+  // 複製・貼り付け・分割の新しい行も next から
+  const dup = MD.memoEdit(rm.doc, 'block.duplicate', { blockId: 'm1' }, { next: 9 });
+  assert.deepStrictEqual([dup.focus.blockId, dup.next], ['m9', 10]);
+  for (const bad of [0, -1, 1.5, '3', null, 36 ** 8 + 1]) throwsCode(() => MD.memoEdit(d0, 'block.insert', { afterBlockId: '' }, { next: bad }), 'bad-args', `next ${bad}`);
+});
+
+test('MB-1 直し（I2・R162）: 10 万字ちょうどの今のメモ（終わりの改行なし）を行にしても照らしに通り、memoPlain は元の文のまま（10 万字を越える改行は足さない）。99,999 字は改行1つで 10 万字。10 万字の文と改行も通る。10 万 1 字の行は too-big', () => {
+  const L = 100000;
+  const edge = 'x'.repeat(L);
+  const d = MD.memoFromText(edge);
+  assert.strictEqual(MD.memoPlain(d), edge, '10 万字の文に改行を足した（10 万 1 字になる）');
+  assert.doesNotThrow(() => MD.validateMemoDoc(d), '10 万字ちょうどの今のメモを行にすると照らしに外れる（直せない）');
+  assert.strictEqual(MD.memoEdit(d, 'block.update', { blockId: 'm1', patch: { text: 'x'.repeat(L - 1) } }).doc[0].text.length, L - 1, '直せない');
+  assert.strictEqual(MD.memoPlain(MD.memoFromText('x'.repeat(L - 1))), `${'x'.repeat(L - 1)}\n`);
+  assert.strictEqual(MD.memoPlain(MD.memoFromText(`${edge}\n`)), edge);
+  const two = MD.memoFromText(`${'y'.repeat(L / 2 - 1)}\n${'z'.repeat(L / 2)}`);   // 改行を含めて 10 万字
+  assert.strictEqual(MD.memoPlain(two).length, L);
+  assert.doesNotThrow(() => MD.validateMemoDoc(two));
+  throwsCode(() => MD.validateMemoDoc([mrow('m1', 'paragraph', 'x'.repeat(L - 1)), mrow('m2', 'paragraph', 'y')]), 'too-big', '10 万 1 字を通した');
+  assert.strictEqual(MD.memoPlain([mrow('m1', 'paragraph', edge), mrow('m2', 'paragraph', '')]), edge, '終わりの空の行は出さない（R148）');
+  throwsCode(() => MD.validateMemoDoc([mrow('m1', 'paragraph', 'x'.repeat(L)), mrow('m2', 'paragraph', 'y')]), 'too-big', '10 万 2 字を通した');
+});
+
+test('MB-1 直し（M1・R163）: memoEdit の block.update の patch.type は DB と同じ型にし、見出しでなくなった行の段とトグルの印は持たない（DB では効かない残り）。区切り線に文・子を持てない型に子は、行の形に持てないので bad-args（画面は型の変換に turnInto を使う）', () => {
+  const t = tmpDb();
+  try {
+    const { db } = t.open();
+    t.seed({ ...samplePage('pu1').page, blocks: PARITY_DOC() }, []);
+    const up = (blockId, type) => core.call(db, { role: 'app', cmd: 'block.update', args: { pageId: 'pu1', blockId, patch: { type } }, tx: `a:mb1fix-${blockId}-${type}` }, { now: () => new Date('2026-11-02T00:00:00.000Z'), labels: {} });
+    const known = new Set(BT.flattenBlocks(PARITY_DOC()).map((b) => b.id));
+    const noLeft = (blocks) => { for (const b of BT.flattenBlocks(blocks)) if (b.type !== 'heading') { delete b.level; delete b.toggle; } return blocks; };
+    let mine = PARITY_DOC();
+    for (const [id, type] of [['m3', 'todo'], ['m2', 'heading'], ['me', 'divider'], ['m1', 'paragraph'], ['mc', 'quote'], ['m7', 'callout']]) {
+      const r = up(id, type);
+      assert.strictEqual(r.ok, true, `${id}→${type} ${r.code}`);
+      mine = MD.memoEdit(mine, 'block.update', { blockId: id, patch: { type } }).doc;
+      assert.deepStrictEqual(parityView(mine, known), parityView(noLeft(r.result.blocks), known), `${id}→${type}`);
+    }
+    for (const b of BT.flattenBlocks(mine)) if (b.type !== 'heading') assert.ok(b.level === undefined && b.toggle === undefined, JSON.stringify(b));
+  } finally { t.done(); }
+  throwsCode(() => MD.memoEdit(PARITY_DOC(), 'block.update', { blockId: 'm2', patch: { type: 'divider' } }), 'bad-args', '文のある行を区切り線にした');
+  throwsCode(() => MD.memoEdit(PARITY_DOC(), 'block.update', { blockId: 'm4', patch: { type: 'divider' } }), 'bad-args', '子のある行を区切り線にした');
+  throwsCode(() => MD.memoEdit(PARITY_DOC(), 'block.update', { blockId: 'm4', patch: { type: 'heading' } }), 'bad-args', '子のある行を子を持てない見出しにした');
+});
+
 test('EK-4 直し（R155・決めたこと 38）: SHORTCUTS の「要約の行を選んでいるとき」に ↑↓（選ぶ行を替える）・Tab・Shift+Tab（選びを外して欄から出る）・Ctrl+Z・Ctrl+Shift+Z・Ctrl+Y（元に戻す・やり直す）の行がある。前からの行の文は変えない', () => {
   const SC = require('../src/shortcuts.js');
   const sel = SC.SHORTCUTS.filter((r) => r.where === '要約の行を選んでいるとき');

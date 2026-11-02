@@ -40,7 +40,7 @@ function lineRow(line, id) {
 // ---------------------------------------------------------------- 行 → 素の文字（決めたこと 60）
 // 1行1行を改行でつなぐ。見出しは段を問わず「■ 」（トグル見出しも）・箇条書きとトグルは「- 」・番号は親ごとの並びの数・ToDo は「- [ ] 」「- [x] 」・
 // 引用は「> 」・区切り線は「---」・コールアウトは絵文字と空白・‡131 子は段ごとに2つの空白。飾りは文字だけ（リンクの住所は出さない）。
-// 終わりの改行は1つ（中身が無ければ空）。memoPlain(memoFromText(t)) は改行をそろえ終わりの改行を1つにした t と同じ
+// 終わりの改行は1つ（中身が無ければ空・付けると 10 万字を越えるなら付けない: R162）。memoPlain(memoFromText(t)) は改行をそろえ終わりの改行を1つにした t と同じ
 function memoPlain(doc) {
   const list = Array.isArray(doc) ? doc : [];
   const nums = BT.numberLabelsTree(list);
@@ -55,7 +55,8 @@ function memoPlain(doc) {
   };
   go(list, 0);
   const s = lines.join('\n').replace(/\n+$/, '');
-  return s ? `${s}\n` : '';
+  // 終わりの改行は、付けると 10 万字（LIMITS.text）を越えるときは付けない（MB-1 直し・R162: 10 万字ちょうどの今のメモを行にしても直せ、memo は今の上限の内）
+  return s && s.length < V.LIMITS.text ? `${s}\n` : s;
 }
 function plainLine(b, nums) {
   const t = Array.isArray(b.rich) ? RT.plainOf(b.rich) : String(b.text ?? '');
@@ -126,16 +127,21 @@ function checkRow(b, st) {
 }
 
 // ---------------------------------------------------------------- 直し方（決めたこと 61・R42。要約の命令と同じ名前・同じ意味）
-// 新しい行の ID（doc の中で重ならない。m に 36 進の数。今の一番大きな数の次から: 消した行の ID を使い回さない）
-function idMaker(doc) {
+// 新しい行の ID（doc の中で重ならない。m に 36 進の数。今の一番大きな数の次から）。next（呼び手が窓のメモリに持つ高い水の印: MB-1 直し・R161）が
+// あれば、それより小さな数は使わない（同じ窓で消した行の ID を使い回さない）。→ { nid（新しい ID を1つ）, next（次に使ってよい一番小さな数） }
+const NEXT_MAX = 36 ** 8;   // ID の数の上限（m に 36 進の 8 字まで）
+function idMaker(doc, floor = 1) {
   const used = new Set(BT.flattenBlocks(doc).map((b) => b.id));
-  let n = 0;
+  let n = floor - 1;
   for (const id of used) { const m = /^m([0-9a-z]{1,8})$/.exec(id); if (m) n = Math.max(n, parseInt(m[1], 36)); }
-  return () => {
-    let id;
-    do { n += 1; id = `m${n.toString(36)}`; } while (used.has(id));
-    used.add(id);
-    return id;
+  return {
+    nid: () => {
+      let id;
+      do { n += 1; id = `m${n.toString(36)}`; } while (used.has(id));
+      used.add(id);
+      return id;
+    },
+    next: () => n + 1,
   };
 }
 function putRich(b, rich) {
@@ -261,6 +267,8 @@ const CMDS = Object.freeze(Object.assign(Object.create(null), {
       if (typeof patch.text === 'string') b.text = patch.text;
       if (typeof patch.checked === 'boolean') b.checked = patch.checked;
       if (typeof patch.type === 'string') b.type = patch.type;
+      // MB-1 直し（R163）: 見出しでなくなった行の段とトグルの印は持たない（DB の行では効かない残り）。区切り線の文・子を持てない型の子は照らしが断る
+      if (b.type !== 'heading') { delete b.level; delete b.toggle; }
       if (patch.rich !== undefined) putRich(b, patch.rich);
       return null;
     } },
@@ -457,16 +465,19 @@ const CMDS = Object.freeze(Object.assign(Object.create(null), {
 }));
 const MEMO_COMMANDS = Object.freeze(Object.keys(CMDS));
 
-// doc に命令 cmd（要約の命令と同じ名前）を当てる → { doc: 新しい doc, focus: 答えの行（DB の答えから page を除いた形）か null }。
+// doc に命令 cmd（要約の命令と同じ名前）を当てる → { doc: 新しい doc, focus: 答えの行（DB の答えから page を除いた形）か null, next: 次に使ってよい ID の数 }。
+// opts.next は前の答えの next（窓のメモリ。消した行の ID を使い回さない: R161）。
 // 渡した doc は変えない。知らない命令・引数の形の悪いもの・断る直しは bad-args、上限（2,000 行・1MB・10 万字）を越えれば too-big で投げる
-function memoEdit(doc, cmd, args) {
+function memoEdit(doc, cmd, args, { next } = {}) {
   if (typeof cmd !== 'string' || !Object.hasOwn(CMDS, cmd)) throw bad('cmd');
+  if (next !== undefined && !(Number.isSafeInteger(next) && next >= 1 && next <= NEXT_MAX)) throw bad('next');
   const def = CMDS[cmd];
   const chk = V.checkArgs(def.args, args);
   if (!chk.ok) throw bad(`args ${chk.field}`);
   const d = validateMemoDoc(doc);
-  const focus = def.run(d, chk.args, idMaker(d));
-  return { doc: validateMemoDoc(d), focus };
+  const ids = idMaker(d, next);
+  const focus = def.run(d, chk.args, ids.nid);
+  return { doc: validateMemoDoc(d), focus, next: ids.next() };
 }
 
 module.exports = { MEMO_COMMANDS, memoFromText, memoPlain, memoEdit, validateMemoDoc };
