@@ -193,10 +193,14 @@ const ADDED_132 = [...NEW_132, ...RETAKEN_132];
 // 0.14.0（計画 docs/plans/2026-10-26-140.md の「取り直す画面（RETAKE）」）で意図して変えた: 取り直し待ちは 0.14.0 の表の画面だけ（RETAKE_140）。
 // EB-4 で行の文の飾りと色の明暗の2枚を、EB-5 で道具の帯・リンクの欄・色のメニューの3枚を足した（NEW_140。足した画面で、まだ基準が無い）。
 // EB-5 直しで拡大 200% の帯と色のメニューの1枚を、EK-4 で選んだ行の明暗の2枚を、EK-5 で設定の近道の表の1枚を足した
-const NEW_140 = ['edit-marks-light', 'edit-marks-dark', 'edit-toolbar-light', 'edit-link-light', 'edit-color-menu-light', 'edit-toolbar-zoom200-light', 'edit-select-light', 'edit-select-dark', 'settings-shortcuts-light'];
+// MB-4 で保存したページと録音中のページのメモの行の3枚を足した
+const NEW_140 = ['edit-marks-light', 'edit-marks-dark', 'edit-toolbar-light', 'edit-link-light', 'edit-color-menu-light', 'edit-toolbar-zoom200-light', 'edit-select-light', 'edit-select-dark', 'settings-shortcuts-light',
+  'memo-blocks-light', 'memo-blocks-dark', 'live-memo-blocks-light'];
 // EB-5 で ⠿ のメニューに［色 ▸］が増えるので、今の基準がある1枚を取り直す（RETAKEN_140）。EK-5 で設定の「ホットキー」のカードに近道の表が入って伸びるので、
 // 設定の［一般］を開く3枚も取り直す（R145）
-const RETAKEN_140 = ['edit-block-menu-light', 'settings-light', 'settings-dark', 'settings-zoom200-dark'];
+// MB-4 でメモの欄が textarea から行になるので、録音の前のページの3枚・録音中の種類の1枚・保存したページの種類の2枚も取り直す（live-ready-light はヘルプの写真の元: R71）
+const RETAKEN_140 = ['edit-block-menu-light', 'settings-light', 'settings-dark', 'settings-zoom200-dark',
+  'live-ready-light', 'live-ready-dark', 'live-ready-zoom200-light', 'live-type-light', 'page-type-light', 'page-type-dark'];
 const RETAKE_140 = [...NEW_140, ...RETAKEN_140];
 const img = (w, h, fill = [255, 255, 255, 255]) => ({ width: w, height: h, data: Buffer.from(Array.from({ length: w * h }, () => fill).flat()) });
 // 一時フォルダ（日本語と 𠮷 の名前。RF1 と同じ形）。テストの終わりに消す
@@ -1052,7 +1056,10 @@ test('基準の画像（test/shots/win32）は今の app.html で撮ったもの
   // 0.14.0 EK-4 直し（R153〜R155）: 選んだ行と区切り線の行の写す・切り取る・貼るをキーで受ける（clipKey・selClipCopy・selClipPaste・rowClipPaste）・選んだまま戻すと選び直す・
   // 選んだ親の子の ⠿・余白の引っ張りの selectstart・検索の窓と確かめの間の Ctrl+W・Ctrl+Tab（<script> の中）と、SHORTCUTS の写しに「要約の行を選んでいるとき」の5行を足した
   // （設定の近道の表が伸びる画面 settings-shortcuts-light・settings-light・settings-dark・settings-zoom200-dark は、もう RETAKE にある）。値を今の app.html に合わせた（前の値は 7a40de06…）
-  assert.strictEqual(sha, 'ef68f9a6cd6e9fce7db1c434210a53a211cbe2ae86561e76ad5d480db740a9d2',
+  // 0.14.0 MB-4（計画 docs/plans/2026-10-26-140.md の決めたこと 59〜68・R169〜R177）: メモの欄の textarea をやめ、要約と同じ行の部品にした（memoDoc の写し・editTarget・memoApi・
+  // 行の欄の鍵・.memorows の CSS）。変わる画面は足した NEW_140 の memo-blocks の2枚と live-memo-blocks-light と、取り直す RETAKEN_140 の live-ready の3枚・live-type-light・page-type の2枚
+  // （ほかの撮る画面はメモのタブを開かない）。値を今の app.html に合わせた（前の値は ef68f9a6…）
+  assert.strictEqual(sha, '5375f6c2826ccb525f0ab8c12ad298ac7c00e494f39d9dad5803ff0626803ba0',
     'app.html が基準の画像を撮った時と違う。Windows の CI の画面の比べ（捲り棒のつまみも）を見て、基準を取り直してからこの値を直す');
 });
 

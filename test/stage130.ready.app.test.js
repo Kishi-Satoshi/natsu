@@ -12,6 +12,7 @@ const { load } = require('./helpers/simrun.js');
 const lib = require('../src/mainlib');
 const M = require('../src/memoTypes');
 const mtype = require('../src/meetingType');
+const MD = require('../src/memoDoc');
 const MUTANTS = require('../tools/mutants.js');
 const { applyMutant } = require('../tools/mutate.js');
 const { titleAt } = require('./helpers/titles');
@@ -43,7 +44,8 @@ function fakeMain(o = {}) {
     meetingStatus: () => status(),
     meetingPrepare: () => { s.calls.push(['meetingPrepare']); if (s.active) return { ok: false }; if (!s.prep) s.prep = { memo: '', meetingType: null }; return { ok: true }; },
     meetingUnprepare: () => { s.calls.push(['meetingUnprepare']); s.prep = null; return { ok: true }; },
-    meetingSetMemo: (m) => { s.calls.push(['meetingSetMemo', m]); if (s.active) s.memo = m; else if (s.prep) s.prep.memo = m; return true; },
+    // 0.14.0 MB-4 で意図して変えた: 画面はメモの行（memoDoc）を送る。main と同じく memo は memoPlain から
+    meetingSetMemo: (m) => { s.calls.push(['meetingSetMemo', m]); const v = Array.isArray(m) ? MD.memoPlain(m) : m; if (s.active) s.memo = v; else if (s.prep) s.prep.memo = v; return true; },
     meetingSetType: (key) => {
       s.calls.push(['meetingSetType', key]);
       const t = s.active ? s : s.prep;
@@ -74,9 +76,13 @@ async function boot(o = {}) {
 }
 const clickNew = async (l) => { $(l, 'mtToggleBtn').dispatchEvent({ type: 'click' }); await l.drain(); };
 const tabs = (l) => $(l, 'tabbar').querySelectorAll('.tabitem').map((t) => [t.dataset.key, t.querySelector('.tt').textContent]);
-const memoTa = (l) => $(l, 'pMemo').querySelector('textarea');
+// 0.14.0 MB-4 で意図して変えた: メモの欄は textarea でなく行の部品（.memorows）。欄の文は行の今の文の memoPlain（終わりの改行は除いて比べる）
+const memoBox = (l) => $(l, 'pMemo').querySelector('.memorows');
+const memoVal = (l) => MD.memoPlain(memoBox(l).querySelectorAll('.blk').map((e) => ({ id: e._b.id, type: e._b.type, level: e._b.level, text: e.querySelector('.txt').textContent }))).replace(/\n$/, '');
+const memoRow0 = (l) => memoBox(l).querySelector('.blk .txt');
+const plainOf = (m) => (Array.isArray(m) ? MD.memoPlain(m).replace(/\n$/, '') : m);
 const callNames = (l) => l.s.calls.map((c) => c[0]);
-const typeIn = async (l, text) => { const ta = memoTa(l); ta.value = text; ta.oninput(); await l.drain(); };
+const typeIn = async (l, text) => { const t = memoRow0(l); t.focus(); t.textContent = text; t.dispatchEvent({ type: 'input' }); t.blur(); await l.drain(); };   // 打った後はフォーカスを外す（前の textarea の oninput と同じ）
 
 // ---------------------------------------------------------------- RDY-2（RD1・RD5〜RD7・RD9・RD10・RD16。F83・F89）
 test('RDY-2（RD1・RD5〜RD7・F83）: ［＋ 新しい議事録］は meetingPrepare だけ（録音しない）。タブは1つで RT1、題名 RT2 は直せない、［メモ］のタブ、種類は「自動」と一言、［文字起こし］の欄は RT9。フォーカスはサイドバーのボタン', T, async () => {
@@ -95,7 +101,7 @@ test('RDY-2（RD1・RD5〜RD7・F83）: ［＋ 新しい議事録］は meetingP
   assert.notStrictEqual($(l, 'pTypeRow').style.display, 'none');
   assert.strictEqual($(l, 'pType').value, '');
   assert.strictEqual($(l, 'pTypeLiveHint').hidden, false);
-  assert.ok(memoTa(l), 'メモ欄が無い');
+  assert.ok(memoBox(l), 'メモ欄が無い');
   assert.strictEqual($(l, 'pScript').textContent, RT9);
   assert.strictEqual($(l, 'readyStartBtn').textContent, RT3);
   assert.ok($(l, 'readyStartBtn').className.split(' ').includes('action'));
@@ -114,7 +120,7 @@ test('RDY-2（RD1・RD5〜RD7・F83）: ［＋ 新しい議事録］は meetingP
   await typeIn(l, '議題: 予算');
   await clickNew(l);
   assert.deepStrictEqual(tabs(l), [['live', RT1]]);
-  assert.strictEqual(memoTa(l).value, '議題: 予算');
+  assert.strictEqual(memoVal(l), '議題: 予算');
   assert.deepStrictEqual(l.errors.map(fmt), []);
 });
 
@@ -136,13 +142,13 @@ test('RDY-2（RD2・F81）: ［文字起こしを始める］は今のメモを�
   let release;
   const l = await boot({ start: (a, s) => new Promise((r) => { release = () => { s.active = true; s.memo = s.prep.memo; s.prep = null; r({ ok: true, localOnly: false }); }; }) });
   await clickNew(l);
-  const ta = memoTa(l);
-  ta.value = '予算の相談'; ta.oninput();   // 0.5 秒の送りを待たない
+  const ta = memoRow0(l);
+  ta.focus(); ta.textContent = '予算の相談'; ta.dispatchEvent({ type: 'input' });   // 保存の区切りを待たない
   $(l, 'readyStartBtn').dispatchEvent({ type: 'click' }); await l.drain();
   $(l, 'readyStartBtn').dispatchEvent({ type: 'click' }); await l.drain();
   assert.strictEqual(l.called('meetingStart').length, 1, '答えを待つ間に2回目を送った');
   assert.deepStrictEqual(l.s.calls.filter((c) => c[0] === 'meetingSetMemo' || c[0] === 'meetingStart').map((c) => c[0]), ['meetingSetMemo', 'meetingStart']);
-  assert.deepStrictEqual(l.s.calls.find((c) => c[0] === 'meetingSetMemo'), ['meetingSetMemo', '予算の相談']);
+  assert.deepStrictEqual(plainOf(l.s.calls.find((c) => c[0] === 'meetingSetMemo')[1]), '予算の相談');
   assert.deepStrictEqual([$(l, 'readyStartBtn').disabled, $(l, 'readyLocalBtn').disabled], [true, true]);
   release(); await l.drain();
   assert.strictEqual($(l, 'readyBar').hidden, true, '始めた後も録音の前の行が見える');
@@ -166,7 +172,7 @@ test('RDY-2（RD18・F91）: 断られたら左下に出してボタンを戻し
   assert.strictEqual($(l, 'toast').textContent, '他の処理を実行中です');
   assert.deepStrictEqual([$(l, 'readyStartBtn').disabled, $(l, 'readyLocalBtn').disabled], [false, false]);
   assert.deepStrictEqual(tabs(l), [['live', RT1]]);
-  assert.strictEqual(memoTa(l).value, '議題: 採用');
+  assert.strictEqual(memoVal(l), '議題: 採用');
   // もう一度押せる
   $(l, 'readyStartBtn').dispatchEvent({ type: 'click' }); await l.drain();
   assert.strictEqual(l.called('meetingStart').length, 2);
@@ -176,11 +182,11 @@ test('RDY-2（RD18・F91）: 断られたら左下に出してボタンを戻し
 test('RDY-2（RD7）: 録音の前のページで種類を選ぶと、待っているメモを送ってから meetingSetType。雛形が入り、一言が消える', T, async () => {
   const l = await boot();
   await clickNew(l);
-  const ta = memoTa(l);
+  const ta = memoBox(l);
   const sel = $(l, 'pType'); sel.value = 'sales'; await sel.onchange(); await l.drain();
   assert.deepStrictEqual(l.s.calls.slice(-2).map((c) => c[0]), ['meetingSetMemo', 'meetingSetType']);
-  assert.strictEqual(memoTa(l), ta, 'メモ欄を作り直した');
-  assert.strictEqual(ta.value, M.memoPreset(M.memoTypeOf('sales')));
+  assert.strictEqual(memoBox(l), ta, 'メモ欄を作り直した');
+  assert.strictEqual(memoVal(l), M.memoPreset(M.memoTypeOf('sales')).replace(/\n$/, ''));
   assert.strictEqual($(l, 'pTypeLiveHint').hidden, true);
   assert.deepStrictEqual(l.errors.map(fmt), []);
 });
@@ -216,14 +222,14 @@ test('RDY-2（RD14・F90）: 録音の前のタブの × は、手を付けて�
   assert.deepStrictEqual(asked, [RT10]);
   assert.strictEqual(b.called('meetingUnprepare').length, 0);
   assert.deepStrictEqual(tabs(b), [['live', RT1]]);
-  assert.strictEqual(memoTa(b).value, '議題: 予算');
+  assert.strictEqual(memoVal(b), '議題: 予算');
   b.window.confirm = (m) => { asked.push(m); return true; };
   x(b).dispatchEvent({ type: 'click' }); await b.drain();
   assert.strictEqual(b.called('meetingUnprepare').length, 1);
   assert.deepStrictEqual(tabs(b), []);
   // 閉じた後にもう一度開くと、メモは空から
   await clickNew(b);
-  assert.strictEqual(memoTa(b).value, '');
+  assert.strictEqual(memoVal(b), '');
   assert.deepStrictEqual(b.errors.map(fmt), []);
 });
 
@@ -249,15 +255,15 @@ const RECORDING = (s, o = {}) => { s.active = true; s.memo = o.memo === undefine
 test('RDY-3（RD8・F85）: 録音の前に打って 500 ms 待たずに main の側から録音が始まっても（main のメモは古い）、欄の今の文が残り meetingSetMemo で送り直す。欄を作り直さない。録音の前の行は隠れ、記録の行・「● 記録中」', T, async () => {
   const l = await boot();
   await clickNew(l);
-  const ta = memoTa(l);
-  ta.value = '議題: 予算と採用'; ta.oninput();   // 送りは 0.5 秒後（まだ送っていない）
+  const ta = memoBox(l);
+  const t0 = memoRow0(l); t0.focus(); t0.textContent = '議題: 予算と採用'; t0.dispatchEvent({ type: 'input' });   // 送りは打つ手が止まって 2 秒後（まだ送っていない）
   await l.drain();
   const sent0 = l.called('meetingSetMemo').length;
   RECORDING(l.s, { memo: '' });   // 例: Alt+M で始まった（main は空のメモを持っている）
   l.fire('onMeetingUpdate', l.s.status()); await l.drain();
-  assert.strictEqual(memoTa(l), ta, 'メモ欄を作り直した');
-  assert.strictEqual(ta.value, '議題: 予算と採用');
-  assert.deepStrictEqual(l.called('meetingSetMemo').slice(sent0).map((c) => c.args[0]), ['議題: 予算と採用']);
+  assert.strictEqual(memoBox(l), ta, 'メモ欄を作り直した');
+  assert.strictEqual(memoVal(l), '議題: 予算と採用');
+  assert.deepStrictEqual(l.called('meetingSetMemo').slice(sent0).map((c) => plainOf(c.args[0])), ['議題: 予算と採用']);
   assert.strictEqual($(l, 'readyBar').hidden, true);
   assert.ok($(l, 'liveBar') && !$(l, 'liveBar').hidden);
   assert.deepStrictEqual(tabs(l), [['live', '● 記録中']]);
@@ -269,7 +275,7 @@ test('RDY-3（RD6）: 録音が始まったとき、メモ欄にフォーカス�
   const a = await boot();
   await clickNew(a);
   const sel = $(a, 'pType'); sel.value = 'sales'; await sel.onchange(); await a.drain();
-  memoTa(a).focus();
+  memoRow0(a).focus();
   RECORDING(a.s);
   a.fire('onMeetingUpdate', a.s.status()); await a.drain();
   assert.strictEqual($(a, 'paneBtnMemo').getAttribute('aria-selected'), 'true', 'メモを書いている途中で文字起こしのタブへ引き戻した');
@@ -319,7 +325,7 @@ test('RDY-3（RD13・F86）: 締め・知らせのページ（onPageOpen）は�
   assert.strictEqual(tabs(r)[0][1], RT1);
   // 録音の前のタブへ戻ると書いた文がそのまま
   $(r, 'tabbar').querySelector('.tabitem').dispatchEvent({ type: 'click' }); await r.drain();
-  assert.strictEqual(memoTa(r).value, '次の会議の議題');
+  assert.strictEqual(memoVal(r), '次の会議の議題');
   const c = await boot({ returns: { pageGet: PAGE } });
   RECORDING(c.s);
   c.fire('onMeetingUpdate', c.s.status()); await c.drain();
@@ -341,7 +347,7 @@ test('RDY-3（RD15）: 画面を読み直したとき main に録音の前のペ
   const prep = { memo: '議題: 読み直し', meetingType: 'sales' };
   const a = await boot({ returns: { meetingStatus: () => ({ active: false, finalizing: false, segments: [], pending: 0, cloud: true, prep }) } });
   assert.deepStrictEqual(tabs(a), [['live', RT1]]);
-  assert.strictEqual(memoTa(a).value, '議題: 読み直し');
+  assert.strictEqual(memoVal(a), '議題: 読み直し');
   assert.strictEqual($(a, 'pType').value, 'sales');
   assert.ok(!$(a, 'readyBar').hidden);
   const PAGE = (id) => ({ page: { id, title: titleAt('2026-10-26T02:00:00.000Z'), createdAt: '2026-10-26T01:00:00.000Z', durationSec: 60, blocks: [], memo: '', meetingType: 'general' }, segments: [] });
@@ -363,7 +369,8 @@ test('RDY-3・RDY-7: 撮る画面 live-ready-light・live-ready-dark・live-read
     const st = s.answers['koeApp.meetingStatus'];
     assert.deepStrictEqual([st.active, st.prep, st.cloud], [false, { memo: '', meetingType: null }, true], n);
     assert.match(s.act, /mtToggleBtn/);
-    assert.ok(!SH.RETAKE.has(n), `${n} が取り直し待ちに残っている`);
+    // 0.14.0 MB-4 で意図して変えた: メモの欄が textarea から行になるので、3枚とも 0.14.0 の取り直し待ち（基準は 0.13.0 のまま残す）
+    assert.ok(SH.RETAKE.has(n), `${n} が 0.14.0 の取り直し待ちに無い`);
     assert.ok(fs.existsSync(path.join(__dirname, 'shots', 'win32', `${n}.png`)), `${n} の基準が無い`);
   }
 });
@@ -373,10 +380,10 @@ test('RDY-3・点検6: 録音の前のページのメモ・種類の欄に書い
   const PAGE = (id) => ({ page: { id, title: titleAt('2026-10-26T01:00:00.000Z'), createdAt: '2026-10-26T01:00:00.000Z', durationSec: 60, blocks: [], memo: '', meetingType: 'general' }, segments: [] });
   const active = (l) => { const a = $(l, 'tabbar').querySelector('.tabitem.active'); return a ? a.dataset.key : ''; };
   for (const [name, focus, args, behind] of [
-    ['メモ', (l) => memoTa(l).focus(), ['pa1', { saved: true }], true],
+    ['メモ', (l) => memoRow0(l).focus(), ['pa1', { saved: true }], true],
     ['種類', (l) => $(l, 'pType').focus(), ['pa1', { saved: true }], true],
     ['書いていない', () => {}, ['pa1', { saved: true }], false],
-    ['メモ・印なし', (l) => memoTa(l).focus(), ['pa1'], false],
+    ['メモ・印なし', (l) => memoRow0(l).focus(), ['pa1'], false],
   ]) {
     const r = await boot({ returns: { pageGet: PAGE } });
     try {
@@ -389,7 +396,7 @@ test('RDY-3・点検6: 録音の前のページのメモ・種類の欄に書い
       assert.strictEqual(active(r), behind ? 'live' : 'page:pa1', name);
       if (behind) {
         assert.strictEqual(r.document.activeElement, el, `${name}: フォーカスが動いた`);
-        assert.strictEqual(memoTa(r).value, '次の会議の議題', name);
+        assert.strictEqual(memoVal(r), '次の会議の議題', name);
         assert.strictEqual(r.called('pageGet').filter((c) => c.args[0] === 'pa1').length, 0, `${name}: 開いた`);
       }
       assert.deepStrictEqual(r.errors.map(fmt), []);

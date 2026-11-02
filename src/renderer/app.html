@@ -732,6 +732,11 @@
   .blk.linkhit[data-bbg] { outline: 2px solid var(--accent-text); outline-offset: -2px; }
   /* 0.14.0 EK-4（決めたこと 28）: 選んだ行は地の色（--tint。明暗の語）。背景の色の行は地を変えず内側の線（.linkhit と同じ理由: R117）。箱のフォーカスの線は出さない（選んだ行の地で分かる） */
   #pNote:focus { outline: none; }
+  /* 0.14.0 MB-4（決めたこと 66）: メモの欄の行（要約の欄と同じ部品。段の左の余白・浮いた箱の置き場・選んだ箱は枠を描かない・空のメモの例の文） */
+  .memorows { position: relative; min-height: 40px; }
+  .memorows:focus { outline: none; }
+  .memorows .blk { --depth: 0; --dropx: 0px; margin-left: min(calc(var(--depth, 0) * 24px), 40%); }
+  .memorows .txt[data-ph]:empty::before { content: attr(data-ph); color: var(--muted); }
   .blk.sel:not([data-bbg]) { background: var(--tint); border-radius: 4px; }
   .blk.sel[data-bbg] { outline: 2px solid var(--accent-text); outline-offset: -2px; }
 
@@ -1739,7 +1744,6 @@
   let mtypes = [];
   let mselectable = []; // 0.11.0 V-5: プルダウンの種類の並び（main の meetingType.SELECTABLE。群の見出しは作らない）
   let memoKinds = [];   // 0.11.0 V-1: メモの型の表 [{ key, label, headings, preset }]（main の memoTypes.listMemoTypes）
-  let liveMemoTimer = null;   // 録音中のメモの送りの時限（種類を選ぶときに止めて今の文を送る: 決めたこと 10）
   let liveGuide = null;       // 録音中のメモ欄の上の手引き
   let assigneeFilter = '';
   let pane = 'note';
@@ -1754,8 +1758,6 @@
   let dragBlockId = null;   // 並べ替え中のブロック
   let dragIds = null;       // 0.14.0 EK-4: 選んだ行を引っ張っているとき、選んだ行（先祖を選んでいない行。画面の順）
   let dragStartX = 0;       // 0.13.1 NR12: つまみを掴んだ所の横の位置（落とす段は掴んだ所からのずれで選ぶ）
-  let memoTimer = null;     // メモの遅延保存（500ms）。ページ切替・記録開始の前に flushMemo で確定する
-  let memoFlush = null;     // 保留中のメモ保存を即時に走らせる関数
   const summarizing = new Set();   // 要約を生成中のページ id。描き直してもボタンを押せないままにする
   // 日本語入力の変換確定 Enter。Chromium は isComposing、古い IME 経路は keyCode 229 で来る。
   // どの編集欄でも「確定して抜ける」にしてはいけない。
@@ -3248,8 +3250,9 @@
       } else if (pane === 'memo') {
         // 保存は500ms遅れで走るので、書いた直後に押すと保存前の古い値を
         // 写してしまう。画面の入力欄にある「今の文字」をそのまま使う。
-        const ta = $('pMemo').querySelector('textarea');
-        text = ta ? ta.value : String(curPage.memo || '');
+        // 0.14.0 MB-4（BQ25 (a)・決めたこと 67）: 欄の今の行（打ってまだ保存していない文も）を素の文字のメモと同じ形で（見出しは「■ 」・飾りは文字だけ）
+        const tg = memoTgOf(memoKeyOf(curId));
+        text = tg ? memoDocView.memoPlain(memoNowDoc(tg)) : String(curPage.memo || '');
         what = 'メモ';
       } else {
         // 0.11.0 V-2（D48）: 画面と同じ順。点があれば最後に打ち合わせの質の行
@@ -4897,6 +4900,891 @@
     return Object.freeze({ PASTE_ROWS, PASTE_BYTES, fromHtml, fromMarkdown, fromPlain, pasteBlocks });
   })();
   // ---- pasteConvert の写しはここまで
+  // ---------------- 0.14.0 MB-4（計画 docs/plans/2026-10-26-140.md の決めたこと 59〜61・R150）: メモの行の純粋な部品
+  // ---- memoDoc の写し（src/memoDoc.js の HEAD から memoEdit まで。字は同じで、行の頭に4つの空白を足した。読む部品（blockEdit・blockTree・richText・
+  // validate）は関数の中の同じ名前の小さな表にした（この画面の木と飾りの写しと、下の validate の照らしの写し。checkArgs の頼みの大きさは画面で使える
+  // TextEncoder で数える: R150）。名前がぶつからないよう関数の中に閉じる。test/stage140.app.test.js が字と答えを照らす）
+  const memoDocView = (() => {
+    const TYPE_ROWS = Object.freeze({ paragraph: true, heading: false, todo: true, bullet: true, numbered: true, toggle: true, quote: true, divider: false, callout: true });
+    const blockEdit = Object.freeze({
+      TYPE_KEYS: Object.freeze(Object.keys(TYPE_ROWS)),
+      CALLOUT_ICON,
+      headingLevel,
+      // Enter で分けた後ろの行の型（src/blockEdit.js の nextTypeOnEnter と同じ決まり。empty・depth はメモの命令では使わない）
+      nextTypeOnEnter(b, { open = true } = {}) {
+        const key = b && Object.hasOwn(TYPE_ROWS, b.type) ? b.type : 'paragraph';
+        if (key === 'bullet' || key === 'todo' || key === 'numbered') return { type: key };
+        if (key === 'toggle' || (key === 'heading' && b.toggle === true)) {
+          if (open) return { type: 'paragraph' };
+          return key === 'toggle' ? { type: 'toggle' } : { type: 'heading', level: headingLevel(b), toggle: true };
+        }
+        if (key === 'heading') return { type: 'bullet' };
+        return { type: 'paragraph' };
+      },
+      splitRich(rich, at) {
+        const a = [], b = [];
+        let pos = 0;
+        for (const run of Array.isArray(rich) ? rich : []) {
+          const t = String(run && run.t != null ? run.t : '');
+          const m = run && Array.isArray(run.m) ? run.m : undefined;
+          const mk = (s) => (m ? { t: s, m: m.slice() } : { t: s });
+          if (pos + t.length <= at) a.push(mk(t));
+          else if (pos >= at) b.push(mk(t));
+          else { a.push(mk(t.slice(0, at - pos))); b.push(mk(t.slice(at - pos))); }
+          pos += t.length;
+        }
+        return [a.filter((r) => r.t !== ''), b.filter((r) => r.t !== '')];
+      },
+      joinRich(x, y) {
+        const same = (p, q) => JSON.stringify(p.m || []) === JSON.stringify(q.m || []);
+        const merged = [];
+        for (const r of [...(Array.isArray(x) ? x : []), ...(Array.isArray(y) ? y : [])].map((v) => ({ ...v }))) {
+          const last = merged[merged.length - 1];
+          if (last && same(last, r)) last.t += r.t; else merged.push(r);
+        }
+        return merged;
+      },
+    });
+    // 木の部品（src/blockTree.js と同じ決まり。kidsCan・locate・flattenBlocks・canIndent はこの画面の写し）
+    const BT = Object.freeze({
+      kidsCan: kidsCanView,
+      flattenBlocks,
+      locate,
+      walk(blocks) {
+        const out = [];
+        const go = (list, depth, parentId) => {
+          if (!Array.isArray(list)) return;
+          list.forEach((b, index) => { if (!b || typeof b !== 'object') return; out.push({ b, depth, parentId, list, index }); go(b.children, depth + 1, b.id); });
+        };
+        go(blocks, 0, null);
+        return out;
+      },
+      within: (b, id) => flattenBlocks([b]).some((x) => x.id === id),
+      indentPlan(blocks, id, dir) {
+        const l = locate(blocks, id);
+        if (!l) return null;
+        if (dir === 'in') {
+          if (!canIndent(blocks, id)) return null;
+          const prev = l.list[l.index - 1];
+          const kids = Array.isArray(prev.children) ? prev.children : [];
+          return { parentId: prev.id, afterId: kids.length ? kids[kids.length - 1].id : '' };
+        }
+        if (dir === 'out') {
+          if (!l.parent) return null;
+          const up = locate(blocks, l.parent.id);
+          return { parentId: up.parent ? up.parent.id : null, afterId: l.parent.id };
+        }
+        return null;
+      },
+      spotOf(blocks, afterId, parentId) {
+        if (afterId) {
+          const l = locate(blocks, afterId);
+          if (!l) return null;
+          if (parentId !== undefined && parentId !== null && (!l.parent || l.parent.id !== parentId)) return null;
+          return { list: l.list, index: l.index + 1, parent: l.parent };
+        }
+        if (parentId === undefined || parentId === null) return { list: blocks, index: 0, parent: null };
+        const p = locate(blocks, parentId);
+        if (!p || !kidsCanView(p.b)) return null;
+        if (!Array.isArray(p.b.children)) p.b.children = [];
+        return { list: p.b.children, index: 0, parent: p.b };
+      },
+      numberLabelsTree(blocks) {
+        const out = new Map();
+        const go = (list) => {
+          if (!Array.isArray(list)) return;
+          for (const [k, v] of numberLabels(list)) out.set(k, v);
+          for (const b of list) if (b && typeof b === 'object') go(b.children);
+        };
+        go(blocks);
+        return out;
+      },
+      mergeKids(target, kids) {
+        const list = Array.isArray(kids) ? kids : [];
+        if (!list.length || !target) return;
+        if (kidsCanView(target.b)) { if (!Array.isArray(target.b.children)) target.b.children = []; target.b.children.push(...list); return; }
+        target.list.splice(target.index + 1, 0, ...list);
+      },
+      kidsOut(list, index) {
+        const b = list[index];
+        const kids = b && Array.isArray(b.children) ? b.children : [];
+        if (!kids.length) return [];
+        b.children = [];
+        list.splice(index + 1, 0, ...kids);
+        return kids;
+      },
+      turnMovesKids(b, to) {
+        if (isToggleView(b) && to.type === 'paragraph') return true;
+        return !kidsCanView(to);
+      },
+    });
+    const RT = Object.freeze({ plainOf, normalizeRich, COLORS });
+    // 照らしの部品（src/db/validate.js の LIMITS・richText・checkArgs と、メモの命令が使う型だけ。同じ決まり）
+    const V = (() => {
+      const LIMITS = Object.freeze({ blocks: 2000, segments: 5000, bytes: 1024 * 1024, text: 100000, title: 500 });
+      const ID_RE = /^[A-Za-z0-9_-]{1,64}$/;
+      const RICH_MARKS = ['b', 'i', 'u', 's', 'code', 'color', 'bg', 'link'];
+      const isObj = (v) => Boolean(v) && typeof v === 'object' && !Array.isArray(v) && (Object.getPrototypeOf(v) === Object.prototype || Object.getPrototypeOf(v) === null);
+      const isStr = (v, max) => typeof v === 'string' && v.length <= max;
+      const isBlockType = (v) => typeof v === 'string' && Object.hasOwn(TYPE_ROWS, v);
+      const no = (why) => { const e = new Error(why); e.code = 'bad-args'; return e; };
+      function richText(rich) {
+        if (!Array.isArray(rich)) throw no('rich');
+        let out = '';
+        for (const run of rich) {
+          if (!isObj(run) || typeof run.t !== 'string') throw no('rich');
+          const marks = run.m === undefined ? [] : run.m;
+          if (!Array.isArray(marks)) throw no('rich');
+          for (const mk of marks) {
+            const name = Array.isArray(mk) ? mk[0] : mk;
+            if (typeof name !== 'string' || !RICH_MARKS.includes(name)) throw no('rich mark');
+            if (name === 'link') {
+              if (!Array.isArray(mk) || typeof mk[1] !== 'string' || mk[1].length > LINK_MAX || !LINK_HEAD_RE.test(mk[1])) throw no('rich link');
+              if (mk[1].trim() !== mk[1] || LINK_CTRL_RE.test(mk[1])) throw no('rich link');
+            } else if (Array.isArray(mk) && (mk.length !== 2 || typeof mk[1] !== 'string' || mk[1].length > 64)) throw no('rich mark');
+            if (COLOR_KINDS.includes(name) && !(Array.isArray(mk) && COLORS.includes(mk[1]))) throw no('rich color');
+          }
+          const kinds = marks.map((mk) => (Array.isArray(mk) ? mk[0] : mk));
+          if (kinds.filter((k) => COLOR_KINDS.includes(k)).length > 1) throw no('rich color');
+          if (kinds.includes('code') && kinds.includes('link')) throw no('rich mark');
+          out += run.t;
+        }
+        if (out.length > LIMITS.text) throw no('rich');
+        return out;
+      }
+      const withText = (b) => (Array.isArray(b.rich) ? { ...b, text: richText(b.rich) } : { ...b });
+      function checkPatch(p) {
+        if (!isObj(p)) throw no('patch');
+        for (const k of Object.keys(p)) {
+          if (k === 'text') { if (!isStr(p.text, LIMITS.text)) throw no('patch.text'); }
+          else if (k === 'checked') { if (typeof p.checked !== 'boolean') throw no('patch.checked'); }
+          else if (k === 'type') { if (!isBlockType(p.type)) throw no('patch.type'); }
+          else if (k === 'rich') { richText(p.rich); }
+          else throw no('patch');
+        }
+        return withText(p);
+      }
+      const PASTE_KEYS = ['type', 'level', 'checked', 'rich', 'children'];
+      function checkPasteRow(b, count) {
+        if (!isObj(b) || Object.keys(b).some((k) => !PASTE_KEYS.includes(k))) throw no('paste');
+        count.n += 1;
+        if (count.n > LIMITS.blocks) throw no('paste rows');
+        if (!isBlockType(b.type)) throw no('paste.type');
+        if (b.level !== undefined && (b.type !== 'heading' || ![1, 2, 3].includes(b.level))) throw no('paste.level');
+        if (b.checked !== undefined && (b.type !== 'todo' || typeof b.checked !== 'boolean')) throw no('paste.checked');
+        if (richText(b.rich) !== '' && b.type === 'divider') throw no('paste.divider');
+        const out = { type: b.type, rich: structuredClone(b.rich) };
+        if (b.level !== undefined) out.level = b.level;
+        if (b.checked !== undefined) out.checked = b.checked;
+        if (b.children !== undefined) {
+          if (!Array.isArray(b.children)) throw no('paste.children');
+          out.children = b.children.map((c) => checkPasteRow(c, count));
+        }
+        return out;
+      }
+      const TYPES = Object.freeze(Object.assign(Object.create(null), {
+        id: (v) => { if (typeof v !== 'string' || !ID_RE.test(v)) throw no('id'); return v; },
+        ids: (v) => { if (!Array.isArray(v) || v.length > LIMITS.blocks || !v.every((x) => typeof x === 'string' && ID_RE.test(x))) throw no('ids'); return [...v]; },
+        idOrEmpty: (v) => { if (v !== '' && (typeof v !== 'string' || !ID_RE.test(v))) throw no('id'); return v; },
+        text: (v) => { if (!isStr(v, LIMITS.text)) throw no('text'); return v; },
+        blockType: (v) => { if (!isBlockType(v)) throw no('type'); return v; },
+        level: (v) => { if (v !== 1 && v !== 2 && v !== 3) throw no('level'); return v; },
+        offset: (v) => { if (!Number.isSafeInteger(v) || v < 0 || v > LIMITS.text) throw no('offset'); return v; },
+        icon: (v) => { if (v !== CALLOUT_ICON) throw no('icon'); return v; },
+        dir: (v) => { if (v !== 'in' && v !== 'out') throw no('dir'); return v; },
+        num: (v) => { if (typeof v !== 'number' || !Number.isFinite(v)) throw no('num'); return v; },
+        bool: (v) => { if (typeof v !== 'boolean') throw no('bool'); return v; },
+        patch: checkPatch,
+        richArg: (v) => { richText(v); return structuredClone(v); },
+        pasteBlocks: (list) => { if (!Array.isArray(list) || !list.length) throw no('paste'); const count = { n: 0 }; return list.map((b) => checkPasteRow(b, count)); },
+        blockColor: (v) => { if (v !== '' && !(typeof v === 'string' && COLORS.includes(v.replace(/_bg$/, '')))) throw no('color'); return v; },
+      }));
+      function checkArgs(spec, args) {
+        if (!isObj(spec) || !isObj(args)) return { ok: false, field: '' };
+        let size;
+        try { size = new TextEncoder().encode(JSON.stringify(args)).length; } catch (_) { return { ok: false, field: '' }; }
+        if (size > LIMITS.bytes) return { ok: false, field: '' };
+        for (const k of Object.keys(args)) if (!Object.hasOwn(spec, k)) return { ok: false, field: k };
+        const out = {};
+        for (const [k, t] of Object.entries(spec)) {
+          const optional = typeof t === 'string' && t.endsWith('?');
+          const name = optional ? t.slice(0, -1) : t;
+          if (!Object.hasOwn(args, k) || args[k] === undefined) {
+            if (optional) continue;
+            return { ok: false, field: k };
+          }
+          try {
+            if (!Object.hasOwn(TYPES, name)) return { ok: false, field: k };
+            out[k] = TYPES[name](args[k]);
+          } catch (_) {
+            return { ok: false, field: k };
+          }
+        }
+        return { ok: true, args: out };
+      }
+      return Object.freeze({ LIMITS, richText, checkArgs });
+    })();
+
+    const HEAD = '■ ';                                // 0.11.0 の雛形の見出しの頭（memoPreset と同じ）
+    const MEMO_ID_RE = /^m[A-Za-z0-9_-]{0,63}$/;      // 行の ID（validate の ID の形で、頭が m）
+    // 行が持てる欄（ほかは断る。出典・担当・期限・印（cites・assignee・due・aiHeading・mark・citeSkip）と開け閉め open（R44）も入らない）
+    const ROW_KEYS = Object.freeze(['id', 'type', 'level', 'toggle', 'text', 'rich', 'checked', 'icon', 'color', 'citeState', 'children']);
+
+    const isObj = (v) => Boolean(v) && typeof v === 'object' && !Array.isArray(v) &&
+      (Object.getPrototypeOf(v) === Object.prototype || Object.getPrototypeOf(v) === null);
+    function fail(code, why) { const e = new Error(why); e.code = code; return e; }
+    const bad = (why) => fail('bad-args', why);
+    const clone = (v) => structuredClone(v);
+    const utf8Len = (s) => new TextEncoder().encode(s).length;
+
+    // ---------------------------------------------------------------- 今のメモの文 → 行（決めたこと 63・BQ23 (a)）
+    // 1行1行をテキストの行に。頭が「■ 」の行だけを見出し3に（記法として読まない）。空の行は空のテキストの行。改行は \n にそろえ、終わりの改行は捨てる。
+    // 2,000 行（LIMITS.blocks）を越える文は、2,000 行目に残りの行を改行のまま入れる（往復で1文字も変わらない: R147）
+    function memoFromText(text) {
+      const s = String(text ?? '').replace(/\r\n?/g, '\n').replace(/\n+$/, '');
+      const lines = s.split('\n');
+      if (lines.length > V.LIMITS.blocks) lines.splice(V.LIMITS.blocks - 1, lines.length, lines.slice(V.LIMITS.blocks - 1).join('\n'));
+      return lines.map((line, i) => lineRow(line, `m${(i + 1).toString(36)}`));
+    }
+    function lineRow(line, id) {
+      if (line.startsWith(HEAD)) return { id, type: 'heading', level: 3, text: line.slice(HEAD.length), citeState: 'manual' };
+      return { id, type: 'paragraph', text: line, citeState: 'manual' };
+    }
+
+    // ---------------------------------------------------------------- 行 → 素の文字（決めたこと 60）
+    // 1行1行を改行でつなぐ。見出しは段を問わず「■ 」（トグル見出しも）・箇条書きとトグルは「- 」・番号は親ごとの並びの数・ToDo は「- [ ] 」「- [x] 」・
+    // 引用は「> 」・区切り線は「---」・コールアウトは絵文字と空白・‡131 子は段ごとに2つの空白。飾りは文字だけ（リンクの住所は出さない）。
+    // 終わりの改行は1つ（中身が無ければ空・付けると 10 万字を越えるなら付けない: R162）。memoPlain(memoFromText(t)) は改行をそろえ終わりの改行を1つにした t と同じ
+    function memoPlain(doc) {
+      const list = Array.isArray(doc) ? doc : [];
+      const nums = BT.numberLabelsTree(list);
+      const lines = [];
+      const go = (rows, depth) => {
+        for (const b of Array.isArray(rows) ? rows : []) {
+          if (!isObj(b)) continue;
+          const pad = '  '.repeat(depth);
+          lines.push(pad + plainLine(b, nums).replace(/\n/g, `\n${pad}`));
+          go(b.children, depth + 1);
+        }
+      };
+      go(list, 0);
+      const s = lines.join('\n').replace(/\n+$/, '');
+      // 終わりの改行は、付けると 10 万字（LIMITS.text）を越えるときは付けない（MB-1 直し・R162: 10 万字ちょうどの今のメモを行にしても直せ、memo は今の上限の内）
+      return s && s.length < V.LIMITS.text ? `${s}\n` : s;
+    }
+    function plainLine(b, nums) {
+      const t = Array.isArray(b.rich) ? RT.plainOf(b.rich) : String(b.text ?? '');
+      if (b.type === 'heading') return `■ ${t}`;
+      if (b.type === 'bullet' || b.type === 'toggle') return `- ${t}`;
+      if (b.type === 'numbered') return `${nums.get(b.id) || '1.'} ${t}`;
+      if (b.type === 'todo') return `- [${b.checked === true ? 'x' : ' '}] ${t}`;
+      if (b.type === 'quote') return `> ${t}`;
+      if (b.type === 'divider') return '---';
+      if (b.type === 'callout') return `${b.icon || blockEdit.CALLOUT_ICON} ${t}`;
+      return t;
+    }
+
+    // ---------------------------------------------------------------- 照らし（決めたこと 59・R69）
+    // → 整えた新しい doc（渡した doc は変えない）か投げる（形は bad-args・大きさは too-big）。2,000 行（子孫も数える）・1MB（JSON の UTF-8）・
+    // memoPlain が 10 万字まで。型は画面の型の表・段は見出しだけ・飾りは DB と同じ照らし（色は1つ・開けるリンクだけ）。文は飾りから作り直す。
+    // citeState が無ければ 'manual' を付け、ほかの値と出典・印の欄は断る
+    function validateMemoDoc(doc) {
+      if (!Array.isArray(doc)) throw bad('memoDoc');
+      const st = { n: 0, ids: new Set() };
+      const out = doc.map((b) => checkRow(b, st));
+      if (utf8Len(JSON.stringify(out)) > V.LIMITS.bytes) throw fail('too-big', 'memoDoc bytes');
+      if (memoPlain(out).length > V.LIMITS.text) throw fail('too-big', 'memo text');
+      return out;
+    }
+    function checkRow(b, st) {
+      if (!isObj(b)) throw bad('row');
+      if (++st.n > V.LIMITS.blocks) throw fail('too-big', 'rows');
+      for (const k of Object.keys(b)) if (!ROW_KEYS.includes(k)) throw bad('row key');
+      if (typeof b.id !== 'string' || !MEMO_ID_RE.test(b.id) || st.ids.has(b.id)) throw bad('row id');
+      st.ids.add(b.id);
+      if (!blockEdit.TYPE_KEYS.includes(b.type)) throw bad('row type');
+      const out = { id: b.id, type: b.type };
+      if (b.level !== undefined) {
+        if (b.type !== 'heading' || ![1, 2, 3].includes(b.level)) throw bad('row level');
+        out.level = b.level;
+      }
+      if (b.toggle !== undefined) {
+        if (b.type !== 'heading' || b.toggle !== true) throw bad('row toggle');
+        out.toggle = true;
+      }
+      let text = b.text === undefined ? '' : b.text;
+      if (typeof text !== 'string' || text.length > V.LIMITS.text) throw bad('row text');
+      let rich = null;
+      if (b.rich !== undefined && b.rich !== null) {
+        text = V.richText(b.rich);   // DB と同じ照らし（知らない飾り・2つの色・開けないリンク・コードの中のリンクは投げる）
+        rich = RT.normalizeRich(b.rich);
+      }
+      if (b.type === 'divider' && text !== '') throw bad('row divider');
+      out.text = text;
+      if (rich) out.rich = rich;
+      // 型を変えても残る欄（DB の block.turnInto と同じく、ToDo のチェックとコールアウトの絵文字は見えなくなるだけ）
+      if (b.checked !== undefined) { if (typeof b.checked !== 'boolean') throw bad('row checked'); out.checked = b.checked; }
+      if (b.icon !== undefined) { if (b.icon !== blockEdit.CALLOUT_ICON) throw bad('row icon'); out.icon = b.icon; }
+      if (b.color !== undefined) {
+        if (typeof b.color !== 'string' || !RT.COLORS.includes(b.color.replace(/_bg$/, ''))) throw bad('row color');
+        out.color = b.color;
+      }
+      if (b.citeState !== undefined && b.citeState !== 'manual') throw bad('row citeState');
+      out.citeState = 'manual';
+      if (b.children !== undefined) {
+        if (!Array.isArray(b.children)) throw bad('row children');
+        const kids = b.children.map((c) => checkRow(c, st));
+        if (kids.length && !BT.kidsCan(out)) throw bad('row children');
+        if (kids.length) out.children = kids;
+      }
+      return out;
+    }
+
+    // ---------------------------------------------------------------- 直し方（決めたこと 61・R42。要約の命令と同じ名前・同じ意味）
+    // 新しい行の ID（doc の中で重ならない。m に 36 進の数。今の一番大きな数の次から）。next（呼び手が窓のメモリに持つ高い水の印: MB-1 直し・R161）が
+    // あれば、それより小さな数は使わない（同じ窓で消した行の ID を使い回さない）。→ { nid（新しい ID を1つ）, next（次に使ってよい一番小さな数） }
+    const NEXT_MAX = 36 ** 8;   // ID の数の上限（m に 36 進の 8 字まで）
+    function idMaker(doc, floor = 1) {
+      const used = new Set(BT.flattenBlocks(doc).map((b) => b.id));
+      let n = floor - 1;
+      for (const id of used) { const m = /^m([0-9a-z]{1,8})$/.exec(id); if (m) n = Math.max(n, parseInt(m[1], 36)); }
+      return {
+        nid: () => {
+          let id;
+          do {
+            if (n + 1 >= NEXT_MAX) throw fail('too-big', 'ids');   // MB-2 直し（R168）: 36 進の 8 字を越える ID と、上限を越える next を作らない
+            n += 1; id = `m${n.toString(36)}`;
+          } while (used.has(id));
+          used.add(id);
+          return id;
+        },
+        next: () => n + 1,
+      };
+    }
+    function putRich(b, rich) {
+      const r = RT.normalizeRich(rich);
+      if (r) b.rich = r; else delete b.rich;
+    }
+    // 分ける位置: 文の長さの中で、サロゲートの対の間でない（DB の splitAtOk と同じ）
+    function splitAtOk(text, at) {
+      if (!(at <= text.length)) return false;
+      const hi = text.charCodeAt(at - 1), lo = text.charCodeAt(at);
+      return !(at > 0 && at < text.length && hi >= 0xd800 && hi <= 0xdbff && lo >= 0xdc00 && lo <= 0xdfff);
+    }
+    // 選んだ行（ids）→ ほかの選んだ行の子孫を除いた行（DB の pickRoots と同じ）
+    function pickRoots(doc, ids) {
+      if (!ids.length) throw bad('ids');
+      const at = new Map(BT.walk(doc).map((w) => [w.b.id, w]));
+      const want = new Set(ids);
+      const roots = [];
+      for (const id of want) {
+        const w = at.get(id);
+        if (!w) throw bad('ids');
+        let up = w.parentId;
+        while (up !== null && !want.has(up)) up = at.get(up).parentId;
+        if (up === null) roots.push(w.b);
+      }
+      return roots;
+    }
+    function takeOut(doc, rows) {
+      for (const b of rows) { const w = BT.locate(doc, b.id); w.list.splice(w.index, 1); }
+    }
+    // 型を変える1行（DB の turnBlock と同じ。メモの行はどれも人の行なので、AI の見出しの印 aiHeading は付けない: R69）。同じ型なら false
+    function turnRow(l, a) {
+      const b = l.b;
+      const level = a.type === 'heading' ? (a.level || 2) : 0;
+      const toggle = a.type === 'heading' && a.toggle === true;
+      if (b.type === a.type && (a.type !== 'heading' || (blockEdit.headingLevel(b) === level && (b.toggle === true) === toggle))) return false;
+      const out = BT.turnMovesKids(b, { type: a.type, level, toggle });
+      b.type = a.type;
+      if (level) b.level = level; else delete b.level;
+      if (toggle) b.toggle = true; else delete b.toggle;
+      if (a.type === 'callout' && !b.icon) b.icon = blockEdit.CALLOUT_ICON;
+      if (a.type === 'todo' && typeof b.checked !== 'boolean') b.checked = false;
+      if (out) BT.kidsOut(l.list, l.index);
+      return true;
+    }
+    // 貼る行（validate の pasteBlocks の写し）→ メモの行（新しい ID・人の行）。子を持てない型の下の子は後ろの兄弟に上げる（R66）
+    function pasteRows(rows, nid) {
+      const out = [];
+      for (const r of rows) {
+        const b = { id: nid(), type: r.type, text: RT.plainOf(r.rich), citeState: 'manual' };
+        if (r.type === 'heading' && r.level) b.level = r.level;
+        if (r.type === 'todo') b.checked = r.checked === true;
+        if (r.type === 'callout') b.icon = blockEdit.CALLOUT_ICON;
+        putRich(b, r.rich);
+        const kids = pasteRows(r.children || [], nid);
+        out.push(b);
+        if (!kids.length) continue;
+        if (BT.kidsCan(b)) b.children = kids; else out.push(...kids);
+      }
+      return out;
+    }
+    const lastOf = (rows) => { const f = BT.flattenBlocks(rows); return f[f.length - 1].id; };
+    // 貼り付け（DB の pasteInto と同じ: 文のある行の頭は上に足す BQ30 (a)・子の見えている行は文の途中でも最初の子 BQ31・後ろの文の行の型は Enter と同じ BQ32・
+    // 空のテキストの行は最初に貼った行がその行になる R18）→ 最後に貼った行の ID か null
+    function pasteInto(d, a, nid) {
+      const l = BT.locate(d, a.blockId);
+      if (!l) return null;
+      const b = l.b;
+      const text = RT.plainOf(a.rich);
+      if (!splitAtOk(text, a.at)) throw bad('at');
+      if (a.inside === true && (!BT.kidsCan(b) || (a.at === 0 && text !== ''))) throw bad('inside');
+      const rows = pasteRows(a.blocks, nid);
+      if (a.at === 0 && text !== '') {
+        putRich(b, a.rich);
+        b.text = text;
+        if (a.afterId === a.blockId) throw bad('afterId');
+        const s = a.afterId === undefined ? { list: l.list, index: l.index } : BT.spotOf(d, a.afterId, a.afterId === '' && l.parent ? l.parent.id : undefined);
+        if (!s || s.list !== l.list) throw bad('afterId');
+        s.list.splice(s.index, 0, ...rows);
+        return lastOf(rows);
+      }
+      if (b.type === 'paragraph' && text === '' && !(Array.isArray(b.children) && b.children.length)) {
+        const [first, ...more] = rows;
+        b.type = first.type;
+        if (first.level) b.level = first.level; else delete b.level;
+        delete b.toggle;
+        if (first.type === 'todo') b.checked = first.checked;
+        if (first.type === 'callout' && !b.icon) b.icon = blockEdit.CALLOUT_ICON;
+        putRich(b, first.rich || [{ t: first.text }]);
+        b.text = first.text;
+        if (first.children) b.children = first.children;
+        l.list.splice(l.index + 1, 0, ...more);
+        return lastOf([b, ...more]);
+      }
+      const [r1, r2] = blockEdit.splitRich(a.rich, a.at);
+      putRich(b, r1);
+      b.text = text.slice(0, a.at);
+      const after = [...rows];
+      const tailText = text.slice(a.at);
+      if (tailText !== '') {
+        const nt = blockEdit.nextTypeOnEnter(b, { open: a.inside === true });
+        const nb = { id: nid(), type: nt.type, text: tailText, citeState: 'manual' };
+        if (nt.level) nb.level = nt.level;
+        if (nt.toggle === true) nb.toggle = true;
+        if (nt.type === 'todo') nb.checked = false;
+        putRich(nb, r2);
+        after.push(nb);
+      }
+      if (a.inside === true) { if (!Array.isArray(b.children)) b.children = []; b.children.splice(0, 0, ...after); }
+      else l.list.splice(l.index + 1, 0, ...after);
+      return lastOf(rows);
+    }
+
+    // 命令の表（引数の型は DB の命令の表から pageId を除いたもの。run(doc, args, nid) は doc を直し、答えの行（DB の答えから page を除いた形）か null を返す）
+    const CMDS = Object.freeze(Object.assign(Object.create(null), {
+      'block.update': { args: { blockId: 'id', patch: 'patch' },
+        run: (d, a) => {
+          const l = BT.locate(d, a.blockId);
+          if (!l) return null;
+          const b = l.b;
+          const patch = a.patch;
+          if (patch.rich === undefined && typeof patch.text === 'string' && Array.isArray(b.rich)) throw bad('rich');   // 飾りを黙って捨てない（決めたこと 16）
+          if (typeof patch.text === 'string') b.text = patch.text;
+          if (typeof patch.checked === 'boolean') b.checked = patch.checked;
+          if (typeof patch.type === 'string') b.type = patch.type;
+          // MB-1 直し（R163）: 見出しでなくなった行の段とトグルの印は持たない（DB の行では効かない残り）。区切り線の文・子を持てない型の子は照らしが断る
+          if (b.type !== 'heading') { delete b.level; delete b.toggle; }
+          if (patch.rich !== undefined) putRich(b, patch.rich);
+          return null;
+        } },
+      'block.insert': { args: { afterBlockId: 'idOrEmpty', type: 'blockType?', level: 'level?', icon: 'icon?', parentId: 'id?', toggle: 'bool?' },
+        run: (d, a, nid) => {
+          const block = { id: nid(), type: a.type || 'bullet', text: '', citeState: 'manual' };
+          if (block.type === 'heading' && a.level) block.level = a.level;
+          if (block.type === 'heading' && a.toggle === true) block.toggle = true;
+          if (block.type === 'callout') block.icon = blockEdit.CALLOUT_ICON;
+          if (a.parentId !== undefined) {
+            const s = BT.spotOf(d, a.afterBlockId, a.parentId);
+            if (!s) throw bad('parentId');
+            s.list.splice(s.index, 0, block);
+          } else {
+            const l = BT.locate(d, a.afterBlockId);
+            if (l) l.list.splice(l.index + 1, 0, block); else d.push(block);
+          }
+          return { blockId: block.id };
+        } },
+      'block.remove': { args: { blockId: 'id' },
+        run: (d, a) => {
+          const l = BT.locate(d, a.blockId);
+          if (l) l.list.splice(l.index, 1);
+          return null;
+        } },
+      'block.move': { args: { blockId: 'id', toIndex: 'num?', afterId: 'idOrEmpty?', parentId: 'id?' },
+        run: (d, a) => {
+          const l = BT.locate(d, a.blockId);
+          if (!l) return null;
+          if (a.afterId !== undefined) {
+            if (a.afterId === a.blockId) return null;
+            if (a.afterId !== '' && !BT.locate(d, a.afterId)) throw bad('afterId');
+            if ((a.afterId && BT.within(l.b, a.afterId)) || (a.parentId && BT.within(l.b, a.parentId))) throw bad('afterId');
+            const [m] = l.list.splice(l.index, 1);
+            const s = BT.spotOf(d, a.afterId, a.parentId);
+            if (!s) throw bad('afterId');
+            s.list.splice(s.index, 0, m);
+            return null;
+          }
+          if (a.toIndex === undefined || l.parent) throw bad('toIndex');
+          const [b] = d.splice(l.index, 1);
+          d.splice(Math.max(0, Math.min(Math.trunc(Number(a.toIndex) || 0), d.length)), 0, b);
+          return null;
+        } },
+      // 今の行の文を text にしてから at で分ける（文のある行の頭は上に空の行・inside は最初の子・後ろの行の型は nextTypeOnEnter）→ { blockId: 新しい行 }
+      'block.split': { args: { blockId: 'id', text: 'text', at: 'offset', afterId: 'idOrEmpty?', inside: 'bool?', rich: 'richArg?' },
+        run: (d, a, nid) => {
+          const l = BT.locate(d, a.blockId);
+          if (!l) return null;
+          if (!splitAtOk(a.text, a.at)) throw bad('at');
+          if (a.afterId !== undefined && a.afterId !== '' && (a.afterId === a.blockId || !BT.locate(d, a.afterId))) throw bad('afterId');
+          const b = l.b;
+          if (a.inside === true && !BT.kidsCan(b)) throw bad('inside');
+          if (a.rich !== undefined && RT.plainOf(a.rich) !== a.text) throw bad('rich');
+          if (a.rich !== undefined) putRich(b, a.rich);
+          const [head, tail] = [a.text.slice(0, a.at), a.text.slice(a.at)];
+          const next = blockEdit.nextTypeOnEnter(b, { open: a.inside === true });
+          const nb = { id: nid(), type: next === 'revert' ? 'paragraph' : next.type, text: tail, citeState: 'manual' };
+          if (next.level) nb.level = next.level;
+          if (next.toggle === true) nb.toggle = true;
+          if (nb.type === 'todo') nb.checked = false;
+          if (a.at === 0 && a.text !== '') {
+            nb.text = '';
+            if (Array.isArray(b.rich) && RT.plainOf(b.rich) !== a.text) delete b.rich;
+            b.text = a.text;
+            const s = a.afterId === undefined ? null : BT.spotOf(d, a.afterId, a.afterId === '' && l.parent ? l.parent.id : undefined);
+            if (a.afterId !== undefined && (!s || s.list !== l.list)) throw bad('afterId');
+            if (a.afterId === undefined) l.list.splice(l.index, 0, nb);
+            else s.list.splice(s.index, 0, nb);
+            return { blockId: nb.id };
+          }
+          if (Array.isArray(b.rich)) {
+            if (RT.plainOf(b.rich) === a.text) { const [r1, r2] = blockEdit.splitRich(b.rich, a.at); putRich(b, r1); putRich(nb, r2); } else delete b.rich;
+          }
+          b.text = head;
+          if (a.inside === true) { if (!Array.isArray(b.children)) b.children = []; b.children.unshift(nb); }
+          else l.list.splice(l.index + 1, 0, nb);
+          return { blockId: nb.id };
+        } },
+      // 今の行の文を text にしてから、前の行（intoId か平らにした並びの前）の後ろにつなぐ。前が区切り線なら区切り線だけを消す → { blockId, at }
+      'block.merge': { args: { blockId: 'id', text: 'text', intoId: 'id?', rich: 'richArg?' },
+        run: (d, a) => {
+          const l = BT.locate(d, a.blockId);
+          if (!l) return null;
+          let pl;
+          if (a.intoId !== undefined) {
+            if (BT.within(l.b, a.intoId)) throw bad('intoId');
+            pl = BT.locate(d, a.intoId);
+            if (!pl) throw bad('intoId');
+          } else {
+            const flat = BT.flattenBlocks(d);
+            const i = flat.indexOf(l.b);
+            if (i <= 0) return { blockId: a.blockId, at: 0 };
+            pl = BT.locate(d, flat[i - 1].id);
+          }
+          const b = l.b;
+          const prev = pl.b;
+          if (a.rich !== undefined && RT.plainOf(a.rich) !== a.text) throw bad('rich');
+          if (a.rich !== undefined) putRich(b, a.rich);
+          if (prev.type === 'divider') { pl.list.splice(pl.index, 1); b.text = a.text; return { blockId: a.blockId, at: 0 }; }
+          const at = String(prev.text || '').length;
+          const tail = Array.isArray(b.rich) && RT.plainOf(b.rich) === a.text ? b.rich : [{ t: a.text }];
+          if (Array.isArray(prev.rich) || Array.isArray(b.rich)) putRich(prev, blockEdit.joinRich(Array.isArray(prev.rich) ? prev.rich : [{ t: String(prev.text || '') }], tail));
+          if (a.text) prev.text = String(prev.text || '') + a.text;
+          const kids = Array.isArray(b.children) ? b.children : [];
+          l.list.splice(l.index, 1);
+          BT.mergeKids(BT.locate(d, prev.id), kids);
+          return { blockId: prev.id, at };
+        } },
+      'block.turnInto': { args: { blockId: 'id', type: 'blockType', level: 'level?', toggle: 'bool?' },
+        run: (d, a) => {
+          const l = BT.locate(d, a.blockId);
+          if (!l) return null;
+          if (a.type === 'divider' && String(l.b.text || '') !== '') throw bad('divider');
+          if (a.type === 'divider' && Array.isArray(l.b.children) && l.b.children.length) throw bad('divider');
+          turnRow(l, a);
+          return null;
+        } },
+      // すぐ下（afterId があればその行の後ろ・'' は頭・parentId は Alt で中へ）に子孫ごと新しい ID で写す → { blockId: 写し }
+      'block.duplicate': { args: { blockId: 'id', afterId: 'idOrEmpty?', parentId: 'id?' },
+        run: (d, a, nid) => {
+          const l = BT.locate(d, a.blockId);
+          if (!l) return null;
+          const after = a.afterId === undefined ? a.blockId : a.afterId;
+          if (after !== '' && !BT.locate(d, after)) throw bad('afterId');
+          const copy = { ...clone(l.b), id: nid() };
+          for (const x of BT.flattenBlocks(copy.children)) x.id = nid();
+          const s = BT.spotOf(d, after, a.parentId);
+          if (!s) throw bad('afterId');
+          s.list.splice(s.index, 0, copy);
+          return { blockId: copy.id };
+        } },
+      // ‡131 字下げ（in は前の兄弟の子の末尾へ・out は親のすぐ後ろへ。できなければ何もしない）
+      'block.indent': { args: { blockId: 'id', dir: 'dir' },
+        run: (d, a) => {
+          const plan = BT.indentPlan(d, a.blockId, a.dir);
+          if (!plan) return null;
+          const l = BT.locate(d, a.blockId);
+          const [m] = l.list.splice(l.index, 1);
+          const s = BT.spotOf(d, plan.afterId, plan.parentId === null ? undefined : plan.parentId);
+          s.list.splice(s.index, 0, m);
+          return null;
+        } },
+      'block.paste': { args: { blockId: 'id', rich: 'richArg', at: 'offset', blocks: 'pasteBlocks', afterId: 'idOrEmpty?', inside: 'bool?' },
+        run: (d, a, nid) => {
+          const lastId = pasteInto(d, a, nid);
+          return lastId === null ? null : { lastId };
+        } },
+      // 行（ブロック）の色（親の色は子孫にも付ける・外す）
+      'blocks.setColor': { args: { ids: 'ids', color: 'blockColor' },
+        run: (d, a) => {
+          for (const top of pickRoots(d, a.ids)) {
+            for (const x of BT.flattenBlocks([top])) { if (a.color) x.color = a.color; else delete x.color; }
+          }
+          return null;
+        } },
+      'blocks.remove': { args: { ids: 'ids' },
+        run: (d, a) => { takeOut(d, pickRoots(d, a.ids)); return null; } },
+      'blocks.move': { args: { ids: 'ids', afterId: 'idOrEmpty', parentId: 'id?' },
+        run: (d, a) => {
+          const roots = pickRoots(d, a.ids);
+          takeOut(d, roots);
+          const s = BT.spotOf(d, a.afterId, a.parentId);
+          if (!s) throw bad('afterId');
+          s.list.splice(s.index, 0, ...roots);
+          return null;
+        } },
+      // 選んだ行を子孫ごと新しい ID で写す（既定は最後に選んだ行の後ろ）→ { ids: [写しの行] }
+      'blocks.duplicate': { args: { ids: 'ids', afterId: 'idOrEmpty?', parentId: 'id?' },
+        run: (d, a, nid) => {
+          const roots = pickRoots(d, a.ids);
+          const after = a.afterId === undefined ? roots[roots.length - 1].id : a.afterId;
+          if (after !== '' && !BT.locate(d, after)) throw bad('afterId');
+          const copies = roots.map((b) => {
+            const c = clone(b);
+            for (const x of BT.flattenBlocks([c])) x.id = nid();
+            return c;
+          });
+          const s = BT.spotOf(d, after, a.parentId);
+          if (!s) throw bad('afterId');
+          s.list.splice(s.index, 0, ...copies);
+          return { ids: copies.map((c) => c.id) };
+        } },
+      // 選んだ行の型を変える（区切り線へは文も子も無い行だけ。1つでもあれば全部を断る）
+      'blocks.turnInto': { args: { ids: 'ids', type: 'blockType', level: 'level?', toggle: 'bool?' },
+        run: (d, a) => {
+          if (!a.ids.length) throw bad('ids');
+          const rows = [...new Set(a.ids)].map((id) => { const l = BT.locate(d, id); if (!l) throw bad('ids'); return l.b; });
+          if (a.type === 'divider' && rows.some((b) => String(b.text || '') !== '')) throw bad('divider');
+          if (a.type === 'divider' && rows.some((b) => Array.isArray(b.children) && b.children.length > 0)) throw bad('divider');
+          for (const b of rows) turnRow(BT.locate(d, b.id), a);
+          return null;
+        } },
+    }));
+    const MEMO_COMMANDS = Object.freeze(Object.keys(CMDS));
+
+    // doc に命令 cmd（要約の命令と同じ名前）を当てる → { doc: 新しい doc, focus: 答えの行（DB の答えから page を除いた形）か null, next: 次に使ってよい ID の数 }。
+    // opts.next は前の答えの next（窓のメモリ。消した行の ID を使い回さない: R161）。
+    // 渡した doc は変えない。知らない命令・引数の形の悪いもの・断る直しは bad-args、上限（2,000 行・1MB・10 万字）を越えれば too-big で投げる
+    function memoEdit(doc, cmd, args, { next } = {}) {
+      if (typeof cmd !== 'string' || !Object.hasOwn(CMDS, cmd)) throw bad('cmd');
+      if (next !== undefined && !(Number.isSafeInteger(next) && next >= 1 && next <= NEXT_MAX)) throw bad('next');
+      const def = CMDS[cmd];
+      const chk = V.checkArgs(def.args, args);
+      if (!chk.ok) throw bad(`args ${chk.field}`);
+      const d = validateMemoDoc(doc);
+      const ids = idMaker(d, next);
+      const focus = def.run(d, chk.args, ids.nid);
+      return { doc: validateMemoDoc(d), focus, next: ids.next() };
+    }
+    return Object.freeze({ MEMO_COMMANDS, memoFromText, memoPlain, memoEdit, validateMemoDoc });
+  })();
+  // ---- memoDoc の写しはここまで
+  // ---------------- 0.14.0 MB-4（決めたこと 59〜68・BQ22 (a)・BQ23 (a)・BQ29 (a)・G2・G3・R69）: メモの欄を要約と同じ行の部品にする（editTarget）
+  // 行の欄は2つ: 要約の欄（#pNote。鍵は開いているページの ID で、DB の block.* の命令）とメモの欄（#pMemo の .memorows。鍵は「<ページの ID か live・ready>\u0001memo」）。
+  // 行の部品（blockRows・caretSeam・/ メニュー・⠿ と ＋・道具の帯・貼り付け・選択・元に戻す）は同じで、送り先だけを鍵で替える（rowApi）。メモの直しは
+  // memoApi が要約の命令と同じ名前・同じ並びの引数で受け、memoDocView.memoEdit で新しい行を作って、保存したページは pageSetMemoDoc（1回が1歩: DB の tx）、
+  // 録音中と録音の前は meetingSetMemo（DB に頼らない。1歩は窓のメモリの前と後の行: literal）で送る。メモの見出しは書いた順のまま（orderForView を通さない: BQ29 (a)）、
+  // 開け閉めは窓のメモリだけ（memoOpen。開いた形で開く: G3・R44）、出典・担当・期限の札は出さない（R69）
+  const MEMO_PANE = 'memo';
+  const memoKeyOf = (scope) => bookKey(scope, MEMO_PANE);
+  const isMemoKey = (k) => typeof k === 'string' && k.endsWith(`${SEP}${MEMO_PANE}`);
+  const isMemoRow = (b) => Boolean(memoTg && b && memoTg.rows.has(b));
+  // 閉じたトグルの中へ入れた行が見えるように開く（要約の欄は画面だけの開け閉め: NR18・メモの欄は窓のメモリ: G3）
+  function revealRow(k, id) { const t = memoTgOf(k); if (t) t.open.set(id, true); else peekOpen.set(id, true); }
+  const memoNext = new Map();   // 鍵 → 次に使ってよい行の ID の数（タブを行き来しても消した行の ID を使い回さない: R161）
+  // 描いているメモの欄 { key, pageId（保存したページ。録音中と録音の前は null）, doc（送った行。次の直しの元）, shown（描いた行。行の要素の _b はこの写しの物）,
+  // next（消した行の ID を使い回さない数: R161）, open（窓のメモリの開け閉め: id → 開いているか）, rows（メモの行の物: openView が見分ける）, box }
+  let memoTg = null;
+  const isRowsBox = (n) => Boolean(n) && (n === $('pNote') || Boolean(n._memoTg));
+  function rowsBoxOf(n) { for (let x = n; x; x = x.parentNode) if (isRowsBox(x)) return x; return null; }
+  const keyOfBox = (box) => (box && box._memoTg ? box._memoTg.key : curId);
+  const keyOfEl = (n) => keyOfBox(rowsBoxOf(n));
+  const memoTgOf = (k) => (isMemoKey(k) && memoTg && memoTg.key === k && memoTg.box && isIn(memoTg.box, $('pMemo')) ? memoTg : null);
+  // 鍵の欄の箱（もう描いていなければ null: 決めたこと 41 と同じく、送った欄が無ければ答えを描かない）
+  function boxOfKey(k) {
+    if (isMemoKey(k)) { const t = memoTgOf(k); return t ? t.box : null; }
+    return k && k === curId && curPage ? $('pNote') : null;
+  }
+  // 鍵の欄の描いている行（要約は開いているページの行・メモは描いた写し）
+  function blocksOfKey(k) {
+    if (isMemoKey(k)) { const t = memoTgOf(k); return t ? t.shown : []; }
+    return curPage ? curPage.blocks : [];
+  }
+  // 浮いた箱（帯・リンクの欄・色の・/ と ⠿ のメニュー）は行の欄の中に置く（録音の前のページのメモで打っている間を readyBusy が数える: 決めたこと 66）
+  const popHost = (el) => rowsBoxOf(el) || $('pNote');
+  const rowApi = (k) => (isMemoKey(k) ? memoApi : window.koeApp);
+  // ⠿ の Shift+Tab と選んだ行の Shift+Tab の行き先（G2: メモの欄は［メモ］のタブ）
+  const paneTabOf = (n) => (rowsBoxOf(n) && rowsBoxOf(n)._memoTg ? 'paneBtnMemo' : 'paneBtnNote');
+  // 保存した議事録の見せるメモの行（memoDoc が無い・前の版が素の文字だけを直して memoPlain と食い違うときは、今のメモの文から行にする: BQ23 (a)。DB には書かない）
+  function memoDocOfPage(p) {
+    const memo = String((p && p.memo) || '');
+    if (p && Array.isArray(p.memoDoc)) {
+      try { const d = memoDocView.validateMemoDoc(p.memoDoc); if (memoDocView.memoPlain(d) === memo) return d; } catch (_) { /* 行から作り直す */ }
+    }
+    return memoDocView.memoFromText(memo);
+  }
+  // 描いた行を覚える（行の要素の _b は写しの物: 打った文の保存が送る前の行を書き換えない）
+  function memoShow(tg, blocks) {
+    tg.shown = blocks;
+    for (const b of flattenBlocks(blocks)) tg.rows.add(b);
+  }
+  function memoTarget(key, pageId, doc) {
+    const keep = memoTg && memoTg.key === key ? memoTg : null;
+    const tg = { key, pageId, doc, shown: [], next: memoNext.get(key), open: keep ? keep.open : new Map(), rows: new WeakSet(), box: null };
+    for (const b of flattenBlocks(doc)) tg.rows.add(b);
+    memoShow(tg, structuredClone(doc));
+    memoTg = tg;
+    return tg;
+  }
+  // メモの行の欄を作る（label の下・手引きの下）。行は書いた順で、見えている子は親のすぐ後ろ（閉じたトグルの子は描かない）
+  function makeMemoRows(tg) {
+    const box = document.createElement('div');
+    box.className = 'memorows'; box.id = 'pMemoRows';
+    box.setAttribute('role', 'group'); box.setAttribute('aria-label', 'メモ・アジェンダ');
+    box._memoTg = tg;
+    tg.box = box;
+    wireRowsBox(box);
+    return box;
+  }
+  function renderMemoRows(tg) {
+    const box = tg.box;
+    if (!box) return;
+    if (slash && isIn(slash.el, box)) slashClose();
+    if (blockMenu && isIn(blockMenu.el, box)) blockMenuClose();
+    if ((markBar && isIn(markBar.el, box)) || (linkPop && isIn(linkPop.el, box))) inlineClose();
+    if (blockSel && blockSel.pageId === tg.key) { blockSel = null; selDrag = null; }
+    box.textContent = '';
+    wireDrop(box);
+    for (const r of viewRows(tg.shown, true)) box.appendChild(blockRows.make(r.b, '', r.depth, r.parentId));
+    renumberRows(box);
+    memoHint(tg);
+  }
+  // 空のメモは最初の行に今の欄の例の文（灰色。打つと消える）
+  const MEMO_EXAMPLE = '例: 週次定例。議題: 売上見込み / 案件進捗 / 採用状況';
+  function memoHint(tg) {
+    const rows = editRows(tg.box);
+    rows.forEach((e, i) => { if (i === 0 && memoDocView.memoPlain(tg.shown) === '') e._txt.setAttribute('data-ph', MEMO_EXAMPLE); else e._txt.removeAttribute('data-ph'); });
+  }
+  // 欄の今の行（打ってまだ保存していない文も入れた写し。［コピー］・閉じる確かめ・種類の手引きが読む）
+  function memoNowDoc(tg) {
+    const doc = structuredClone(tg.shown);
+    for (const e of editRows(tg.box)) {
+      const l = locate(doc, e.dataset.id);
+      if (!l || !e._txt || l.b.type === 'divider') continue;
+      const rich = rowRich(e._txt);
+      l.b.text = plainOf(rich);
+      if (marksIn(rich)) l.b.rich = rich; else delete l.b.rich;
+    }
+    return doc;
+  }
+  const memoNowPlain = (tg) => memoDocView.memoPlain(memoNowDoc(tg));
+  // ---- 送り先（要約の命令の口と同じ名前・同じ並びの引数。無い引数は渡さない）
+  const optional = (o) => Object.fromEntries(Object.entries(o).filter(([, v]) => v !== undefined));
+  const MEMO_ARGS = Object.freeze({
+    blockUpdate: (blockId, patch) => ['block.update', { blockId, patch }],
+    blockInsert: (afterBlockId, type, level, parentId, toggle) => ['block.insert', optional({ afterBlockId, type, level, parentId, toggle: toggle === true ? true : undefined })],
+    blockRemove: (blockId) => ['block.remove', { blockId }],
+    blockMove: (blockId, to) => ['block.move', to && typeof to === 'object' ? optional({ blockId, afterId: to.afterId, parentId: to.parentId }) : { blockId, toIndex: to }],
+    blockSplit: (blockId, text, at, afterId, inside, rich) => ['block.split', optional({ blockId, text, at, afterId, inside: inside === true ? true : undefined, rich })],
+    blockMerge: (blockId, text, intoId, rich) => ['block.merge', optional({ blockId, text, intoId, rich })],
+    blockTurnInto: (blockId, type, level, toggle) => ['block.turnInto', optional({ blockId, type, level, toggle: toggle === true ? true : undefined })],
+    blockDuplicate: (blockId, afterId, parentId) => ['block.duplicate', optional({ blockId, afterId, parentId })],
+    blockIndent: (blockId, dir) => ['block.indent', { blockId, dir }],
+    blockPaste: (blockId, rich, at, blocks, afterId, inside) => ['block.paste', optional({ blockId, rich, at, blocks, afterId, inside: inside === true ? true : undefined })],
+    blocksSetColor: (ids, color) => ['blocks.setColor', { ids, color }],
+    blocksRemove: (ids) => ['blocks.remove', { ids }],
+    blocksMove: (ids, afterId, parentId) => ['blocks.move', optional({ ids, afterId, parentId })],
+    blocksDuplicate: (ids, afterId, parentId) => ['blocks.duplicate', optional({ ids, afterId, parentId })],
+    blocksTurnInto: (ids, type, level, toggle) => ['blocks.turnInto', optional({ ids, type, level, toggle: toggle === true ? true : undefined })],
+  });
+  // 窓のメモリの1歩（録音中と録音の前のメモ）。1つの動作の中なら、その歩みにまとめる（前は最初の前・後は最後の後）
+  function memoLiteral(key, before, after) {
+    if (stepBox && (stepBox.key === null || stepBox.key === key) && !stepBox.steps.length) {
+      stepBox.key = key;
+      stepBox.lit = { before: stepBox.lit ? stepBox.lit.before : before, after };
+      return;
+    }
+    undoBk = bookPush(undoBk, key, [], { literal: { before, after } });
+  }
+  // 送る（保存したページは DB の page.setMemoDoc・録音中と録音の前は main のメモリと下書き）→ 送った後の行
+  async function memoSend(tg, doc, before) {
+    if (tg.pageId) {
+      const p = await window.koeApp.pageSetMemoDoc(tg.pageId, doc);
+      const got = p && p.page ? p.page : p;
+      if (got && got.id === tg.pageId && curPage && curPage.id === tg.pageId) { curPage.memo = got.memo; curPage.memoDoc = got.memoDoc; }
+      return doc;
+    }
+    const ok = await window.koeApp.meetingSetMemo(doc);
+    if (ok === false) throw new Error('bad-args');   // main が照らしで受けなかった（前のまま）
+    memoLiteral(tg.key, before, doc);
+    liveDoc = doc; liveMemo = memoDocView.memoPlain(doc);
+    return doc;
+  }
+  async function memoRun(k, cmd, args) {
+    const tg = memoTgOf(k);
+    if (!tg) throw new Error('internal');
+    let r;
+    try { r = memoDocView.memoEdit(tg.doc, cmd, args, { next: tg.next }); } catch (e) { throw new Error(String((e && e.code) || 'bad-args')); }
+    let doc = r.doc; let next = r.next;
+    // 行が全部消えたら空のテキストの行を1つ残す（メモの書く所を無くさない。memoPlain は同じ空の文: R169）
+    if (!doc.length) { doc = [{ id: `m${next.toString(36)}`, type: 'paragraph', text: '', citeState: 'manual' }]; next += 1; }
+    tg.next = next; memoNext.set(k, next);
+    const focus = r.focus || {};
+    if (JSON.stringify(doc) === JSON.stringify(tg.doc)) return { page: { id: k, blocks: structuredClone(tg.shown) }, ...focus };   // 何も変えない直しは送らない（歩みにしない: R59 と同じ）
+    const before = tg.doc;
+    tg.doc = doc;   // 続けて来た直し（打った文の保存と Enter など）は、答えを待たずにこの行の上に作る
+    for (const b of flattenBlocks(doc)) tg.rows.add(b);
+    // 保存したページはページの写しのメモも先に（答えの前に page:updated が来ても、書いた文で描き直す: 前の textarea の保存と同じ）
+    const page = tg.pageId && curPage && curPage.id === tg.pageId ? curPage : null;
+    const was = page ? [page.memo, page.memoDoc] : null;
+    if (page) { page.memo = memoDocView.memoPlain(doc); page.memoDoc = doc; }
+    try { await memoSend(tg, doc, before); } catch (e) {
+      if (tg.doc === doc) { tg.doc = before; if (page && page.memoDoc === doc) [page.memo, page.memoDoc] = was; }
+      throw e;
+    }
+    return { page: { id: k, blocks: structuredClone(doc) }, ...focus };
+  }
+  // 元に戻す・やり直す（保存したページは edit.revert。録音中と録音の前は窓のメモリの前の行を送る: 今の行が「後」と違えば stale と同じ）
+  async function memoRevert(k, entry) {
+    const tg = memoTgOf(k);
+    if (!tg) throw new Error('internal');
+    if (tg.pageId) {
+      const p = await window.koeApp.editRevert(tg.pageId, entry.steps);
+      const got = p && p.page ? p.page : p;
+      const doc = memoDocOfPage(got);
+      tg.doc = doc;
+      if (got && curPage && curPage.id === tg.pageId) { curPage.memo = got.memo; curPage.memoDoc = got.memoDoc; }
+      return { page: { id: k, blocks: structuredClone(doc) } };
+    }
+    const lit = entry.literal;
+    if (!lit || JSON.stringify(tg.doc) !== JSON.stringify(lit.after)) throw new Error('stale');
+    const ok = await window.koeApp.meetingSetMemo(lit.before);
+    if (ok === false) throw new Error('bad-args');
+    tg.doc = lit.before;
+    for (const b of flattenBlocks(lit.before)) tg.rows.add(b);
+    return { page: { id: k, blocks: structuredClone(lit.before) }, literal: { before: lit.after, after: lit.before, ...(lit.mark ? { mark: lit.mark } : {}) } };
+  }
+  const memoApi = Object.freeze(Object.fromEntries(Object.entries(MEMO_ARGS).map(([name, f]) => [name, (k, ...a) => memoRun(k, ...f(...a))])));
   // 欄の子 → richFromNodes の木（文字の節は { text }・要素は { tag, attrs, kids }。読むのは自分の span の印だけ）。
   // br とコメントは文字にしない（textContent とカーソルの位置（caretSeam）と同じ数え方。行の中の改行は Shift+Enter で入れた「\n」の文字: R103）
   function nodeTree(n) {
@@ -5011,7 +5899,7 @@
       const marked = inner.every((x) => x.m.includes(sc.mark)) ? inner : toggleMark(inner, 0, plainOf(inner).length, sc.mark);
       rich = tidy([...sliceRich(rich, 0, sc.open), ...marked, ...sliceRich(rich, sc.close + sc.size, n)]);
       caret = sc.close - sc.size;
-      inlineLit = { pid: curId, id: el._b.id, before, after: rich, caret: r[0] };
+      inlineLit = { pid: keyOfEl(el), id: el._b.id, before, after: rich, caret: r[0] };
     }
     if (sc || JSON.stringify(rich) !== JSON.stringify(dom) || foreignIn(txt)) {
       paintRich(txt, rich);
@@ -5064,7 +5952,7 @@
   let colorMenu = null;   // 開いているとき { el, s, e, box }
   let lastColor = null;   // 最後に使った色 { kind, name }（Ctrl+Shift+H で付け直す: R37。「既定」は覚えない）
   // 飾りを付けられる行か（区切り線・鍵の間の行は付けない）
-  const rowCanMark = (el) => Boolean(el && el._b && el._txt && el._b.type !== 'divider' && el._txt.contentEditable === 'true' && isIn(el, $('pNote')));
+  const rowCanMark = (el) => Boolean(el && el._b && el._txt && el._b.type !== 'divider' && el._txt.contentEditable === 'true' && Boolean(rowsBoxOf(el)));   // 0.14.0 MB-4: メモの欄の行も
   // 行の中で選んだ所 [始め, 終わり]（選んでいなければ null）
   function selRange(el) {
     const r = el && el._txt ? caretRange(el._txt) : null;
@@ -5075,7 +5963,7 @@
   const rowOfTxt = (t) => (t && t.classList && t.classList.contains('txt') && t.parentNode && t.parentNode._txt === t ? t.parentNode : null);
   // 0.14.0 EB-5 直し（R117）: 落とした先の行（行の文の上で、直せる行だけ）
   function dropRowOf(ev) {
-    for (let n = ev && ev.target; n && n !== $('pNote'); n = n.parentNode) {
+    for (let n = ev && ev.target; n && !isRowsBox(n); n = n.parentNode) {
       const row = rowOfTxt(n);
       if (row) return rowCanMark(row) && typeof row._txt._dropText === 'function' ? row : null;
     }
@@ -5093,7 +5981,7 @@
   // EB-5 直し: 上か下かは見えている所（.page の窓）で決め（捲った欄のいちばん上の行でも見える）、左は欄の幅から箱の幅を引いた所まで（拡大 150〜200% で右へはみ出さない）。
   // 箱の大きさを測るので、先に欄に入れる
   function placeAt(box, el, below) {
-    const note = $('pNote');
+    const note = popHost(el);   // 0.14.0 MB-4: 行の欄の中（メモの欄ならメモの欄）
     if (box.parentNode !== note) note.appendChild(box);
     let rect = null;
     try { rect = typeof caretSeam.rect === 'function' ? caretSeam.rect(el._txt) : null; } catch (_) { rect = null; }
@@ -5107,7 +5995,7 @@
   }
   // 欄の中の (top, left) に置く（左は 0 から「欄の幅 - 箱の幅」まで）
   function boxAt(box, top, left) {
-    const note = $('pNote');
+    const note = box.parentNode || $('pNote');
     const room = (note.clientWidth || 0) - (box.offsetWidth || 0);
     box.style.top = `${Math.max(0, Math.round(top))}px`;
     box.style.left = `${Math.max(0, Math.round(note.clientWidth ? Math.min(left, room) : left))}px`;
@@ -5138,7 +6026,7 @@
     if (!markBarEl) markBarEl = markBarBox();
     markBar = { el };
     placeAt(markBarEl, el, false);
-    if (markBarEl.parentNode !== $('pNote')) $('pNote').appendChild(markBarEl);
+    if (markBarEl.parentNode !== popHost(el)) popHost(el).appendChild(markBarEl);
   }
   function markBarHide() {
     colorMenuClose();
@@ -5196,7 +6084,7 @@
     box.append(input, ok, off, msg);
     // 外を押したら閉じる（欄の中へ移るフォーカスは残す）
     box.addEventListener('focusout', () => setTimeout(() => { if (linkPop && linkPop.box === box && !isIn(document.activeElement, box)) linkPopClose(); }, 0));
-    linkPop = { el, id: el.dataset.id, text: txt.textContent, pid: curId, s: r[0], e: r[1], box, input, msg };
+    linkPop = { el, id: el.dataset.id, text: txt.textContent, pid: keyOfEl(el), s: r[0], e: r[1], box, input, msg };
     placeAt(box, el, true);
     if (typeof box.scrollIntoView === 'function') box.scrollIntoView({ block: 'nearest' });
     input.focus();
@@ -5207,9 +6095,9 @@
     if (!p) return;
     const url = raw === null ? null : String(raw ?? '').trim();
     if (url !== null && !linkOk(url)) { p.msg.textContent = LINK_REFUSE; return; }
-    if (p.pid !== curId) { linkPopClose(); return; }
+    if (!boxOfKey(p.pid)) { linkPopClose(); return; }
     // EB-5 直し: 開いている間に命令の答えで行が描き直されたら、同じ id の行に付ける。行が消えた・文が変わったら付けずに閉じ、行があればそこへフォーカスを戻す
-    const el = rowCanMark(p.el) ? p.el : [...$('pNote').querySelectorAll('.blk')].find((e) => e.dataset.id === p.id && rowCanMark(e));
+    const el = rowCanMark(p.el) ? p.el : [...boxOfKey(p.pid).querySelectorAll('.blk')].find((e) => e.dataset.id === p.id && rowCanMark(e));
     if (!el || el._txt.textContent !== p.text) {
       linkPopClose();
       if (el) { el._txt.focus(); setCaret(el._txt, Math.min(p.s, el._txt.textContent.length)); }
@@ -5226,7 +6114,7 @@
     if (!p) return;
     linkPop = null;
     if (p.box.parentNode) p.box.parentNode.removeChild(p.box);
-    if (back && p.pid === curId && rowCanMark(p.el)) { p.el._txt.focus(); setSel(p.el._txt, p.s, p.e); markBarSync(p.el); }
+    if (back && boxOfKey(p.pid) && rowCanMark(p.el)) { p.el._txt.focus(); setSel(p.el._txt, p.s, p.e); markBarSync(p.el); }
   }
   // 選んだ文字の上に開ける住所を貼ると、文字はそのままでリンクにする（K-25）。リンクにしたら真
   function linkPaste(el, text) {
@@ -5288,7 +6176,7 @@
     const bar = markBarEl && markBarEl.parentNode ? markBarEl : null;
     const btn = bar ? bar.querySelector('.mb-color') : null;
     // EB-5 直し: 帯の［色］の下（窓の下へはみ出し、帯の上に入るなら上）。左は欄の幅に収める
-    const note = $('pNote');
+    const note = popHost(el);
     note.appendChild(box);
     const barTop = bar ? parseFloat(bar.style.top) || 0 : el.offsetTop || 0;
     const barH = bar ? bar.offsetHeight || 36 : 0;
@@ -5351,9 +6239,9 @@
     const el = s.el; const txt = el._txt; const b = el._b;
     rowReplace(txt, s.start, s.start + 1 + s.query.length, '');
     setCaret(txt, s.start);
-    const pid = curId;
+    const pid = keyOfEl(el);
     try { await txt._commit(pid); } catch (_) { /* 保存の失敗は _commit の答えで知らせる */ }
-    return editAnswer(pid, () => window.koeApp.blocksSetColor(pid, [b.id], crow.value), () => ({ focus: b.id, caret: s.start }));
+    return editAnswer(pid, () => rowApi(pid).blocksSetColor(pid, [b.id], crow.value), () => ({ focus: b.id, caret: s.start }));
   }
   // 本物の選びの変わり目（キーボードで選び広げた・ダブルクリックなど）でも帯を合わせる
   document.addEventListener('selectionchange', () => { const el = rowOfTxt(document.activeElement); if (el) markBarSync(el); });
@@ -5405,7 +6293,7 @@
   }
   // ---- undoBook の写しはここまで
   let undoBk = {};               // 窓のメモリの列（NaTsu を終える・画面を読み直すと消える）
-  let stepBox = null;            // stepGroup の間の { pid, steps, mark }
+  let stepBox = null;            // stepGroup の間の { key（最初の歩みの列。0.14.0 MB-4: 要約かメモか）, steps, mark, lit（録音中と録音の前のメモの前と後）}
   let reverting = null;          // edit.revert を送っている間の { pid, tx }（答えの前に onEditStep が戻した行の tx を入れる）
   let undoLit = null;            // 記法の直後の Ctrl+Z で行の頭に戻した記号 { pid, id, mark }（手を付けていない間だけ: R96）
   let undoChain = Promise.resolve();   // Ctrl+Z を押した順に1つずつ
@@ -5436,13 +6324,14 @@
     list.splice(Math.min(at, list.length), 0, entry);
     return { ...book, [key]: { ...sl, [dir]: list.length > UNDO_MAX ? list.slice(list.length - UNDO_MAX) : list } };
   }
-  // preload の受け口（戻せる命令の答えが ok で changed のときだけ、答えより先に来る）。メモの欄の歩み（MB）はここでは積まない
+  // preload の受け口（戻せる命令の答えが ok で changed のときだけ、答えより先に来る）。0.14.0 MB-4（BQ22 (a)）: page.setMemoDoc の歩みはそのページのメモの列へ
   window.koeApp.onEditStep((s) => {
     if (!s || typeof s.step !== 'string' || typeof s.pageId !== 'string') return;
     if (s.cmd === 'edit.revert') { if (reverting && reverting.pid === s.pageId) reverting.tx = s.step; return; }
-    if (!/^blocks?\./.test(String(s.cmd))) return;
-    if (stepBox && stepBox.pid === s.pageId) { stepBox.steps.push(s.step); return; }
-    undoBk = bookPush(undoBk, noteKey(s.pageId), [s.step]);
+    const key = s.cmd === 'page.setMemoDoc' ? memoKeyOf(s.pageId) : /^blocks?\./.test(String(s.cmd)) ? noteKey(s.pageId) : '';
+    if (!key) return;
+    if (stepBox && (stepBox.key === null || stepBox.key === key) && !stepBox.lit) { stepBox.key = key; stepBox.steps.push(s.step); return; }
+    undoBk = bookPush(undoBk, key, [s.step]);
     pruneMarks();
   });
   // 1つの動作で送る命令を1歩にまとめる（入れ子は外の歩みに入る）。fn は box を受け、box.mark に戻すときの記号を置ける
@@ -5451,15 +6340,15 @@
     return inFlight(stepGroupRun(fn));   // EB-3 直し（R109）: 走っている間は Ctrl+Z が待つ
   }
   async function stepGroupRun(fn) {
-    const box = { pid: curId, steps: [], mark: null };
+    const box = { key: null, steps: [], mark: null, lit: null };
     stepBox = box;
     try { return await fn(box); } finally {
       if (stepBox === box) stepBox = null;
       if (box.steps.length) {
-        undoBk = bookPush(undoBk, noteKey(box.pid), box.steps);
+        undoBk = bookPush(undoBk, box.key, box.steps);
         if (box.mark) stepMarks.set(box.steps[0], box.mark);
         pruneMarks();
-      }
+      } else if (box.lit) undoBk = bookPush(undoBk, box.key, [], { literal: box.mark ? { ...box.lit, mark: box.mark } : box.lit });
     }
   }
   // Ctrl+Z は戻す、Ctrl+Shift+Z と Ctrl+Y はやり直す（決めたこと 11）。変換中は何もしない
@@ -5473,7 +6362,9 @@
   }
   // 受けるのは開いているページの要約の欄の行（文・⠿）だけ。題名・文字起こし・メモ・設定・検索は入力の欄の中の戻しのまま（F103）
   function undoScope(t) {
-    if (t && t === $('pNote') && selOn()) return true;   // 0.14.0 EK-4: 行を選んでいる箱（選んだ行の操作も1歩）
+    if (t && isRowsBox(t) && selOn(keyOfBox(t))) return true;   // 0.14.0 EK-4: 行を選んでいる箱（選んだ行の操作も1歩）
+    // 0.14.0 MB-4（BQ22 (a)）: メモの欄の行の文・⠿ はメモの列（要約の列とは別）
+    if (t && t.classList && rowsBoxOf(t) && rowsBoxOf(t)._memoTg) return t.classList.contains('txt') || t.classList.contains('grip');
     if (!curPage || !t || !t.classList || !(t.classList.contains('txt') || t.classList.contains('grip'))) return false;
     return isIn(t, $('pNote'));
   }
@@ -5481,19 +6372,19 @@
     const dir = undoKey(ev);
     if (!dir || !undoScope(ev.target)) return;
     ev.preventDefault();   // Chromium の行の中の戻しと二重に効かせない
-    const at = curId;   // EB-3 直し（R109）: 押したページ（待っている間にページが替わったら、その Ctrl+Z は捨てる）
+    const at = keyOfEl(ev.target);   // EB-3 直し（R109）: 押したページ（待っている間にページが替わったら、その Ctrl+Z は捨てる）。0.14.0 MB-4: 欄の鍵
     undoChain = undoChain.then(() => undoRun(dir, at)).catch(() => {});
   });
   // 戻した後のフォーカス: 今の行が残っていればそこ、消えたら画面で上に見えていた行の終わり（無ければ下の行の頭）
-  function revertFocus() {
+  function revertFocus(box) {
     const a = document.activeElement;
-    const rows = editRows();
+    const rows = editRows(box);
     const el = rows.find((e) => e._txt === a || e.querySelector('.grip') === a);
     const order = rows.map((e) => e.dataset.id);
     const id = el ? el.dataset.id : '';
     const caret = el && el._txt === a ? (caretRange(a) || [0])[0] : 0;
     // EK-4 直し（R154）: 行を選んだまま（箱にフォーカス）戻すと、残った選んだ行を選び直す（フォーカスは箱のまま）。全部消えたら、上に見えていた行の文へ
-    const sel = a === $('pNote') && selOn() ? { ids: [...blockSel.ids], anchor: blockSel.anchor, head: blockSel.head } : null;
+    const sel = a === box && selOn(keyOfBox(box)) ? { ids: [...blockSel.ids], anchor: blockSel.anchor, head: blockSel.head } : null;
     return (x) => {
       const blocks = x && x.page && Array.isArray(x.page.blocks) ? x.page.blocks : [];
       const has = (i) => Boolean(locate(blocks, i));
@@ -5513,15 +6404,16 @@
   function litRow(pid) {
     const u = undoLit;
     if (!u || u.pid !== pid) return null;
-    const el = editRows().find((e) => e.dataset.id === u.id);
+    const el = editRows(boxOfKey(pid)).find((e) => e.dataset.id === u.id);
     if (!el || el._txt !== document.activeElement) return null;   // EB-4 直し（I1）: 押したのがその行のときだけ
     return el._txt.textContent === u.mark + String(el._b.text ?? '') ? el : null;
   }
   async function undoRun(dir, at) {
     await editsSettled();   // EB-3 直し（R109）: 送った直しの歩みが届いてから（Enter のすぐ後の Ctrl+Z も Enter を戻す）
-    const pid = curId;
-    if (!pid || !curPage || at !== pid) return;
-    const key = noteKey(pid);
+    const memo = isMemoKey(at);   // 0.14.0 MB-4（BQ22 (a)）: メモの欄の Ctrl+Z はメモの列だけ
+    const pid = memo ? at : curId;
+    if (memo ? !boxOfKey(pid) : (!pid || !curPage || at !== pid)) return;
+    const key = memo ? pid : noteKey(pid);
     // R96: 戻した記号に手を付けていなければ、Ctrl+Z は記号だけを消し（DB に送らない）、やり直すときは記号を消してからやり直す
     // 0.14.0 EB-4（決めたこと 10）: 文中の記法で変えた直後（手を付けていない）の Ctrl+Z は、記号を戻す（DB に送らない。打った文として次の区切りで保存）
     const il = inlineRow(pid);
@@ -5535,23 +6427,23 @@
     }
     // 決めたこと 9: 行に保存していない文があれば、先に保存する（1歩）。戻すのはその歩み
     await commitRows(pid);
-    if (pid !== curId) return;
+    if (!boxOfKey(pid)) return;
     const got = dir === 'undo' ? bookTakeUndo(undoBk, key) : bookTakeRedo(undoBk, key);
     if (!got.entry) { toast(dir === 'undo' ? 'これ以上は戻せません' : 'やり直せるものはありません'); return; }
     const slotNow = Object.hasOwn(got.book, key) ? got.book[key] : { undo: [], redo: [] };
     const takenAt = slotNow[dir].length;   // 取った所（断られたら戻す: R109）
     undoBk = got.book;
     const entry = got.entry;
-    const mark = entry.steps.map((t) => stepMarks.get(t)).find(Boolean) || null;
-    const run = { pid, tx: null };
+    const mark = (entry.literal && entry.literal.mark) || entry.steps.map((t) => stepMarks.get(t)).find(Boolean) || null;
+    const run = { pid: memo ? memoTgOf(pid).pageId || pid : pid, tx: null };   // 0.14.0 MB-4: 歩みの受け口が見るのはページの ID
     reverting = run;
     let code = '';
     const out = await editAnswer(pid, async () => {
-      try { return await window.koeApp.editRevert(pid, entry.steps); }
+      try { return await (memo ? memoRevert(pid, entry) : window.koeApp.editRevert(pid, entry.steps)); }
       // EB-3 直し（R109）: contextBridge を越えた Error は message だけが残る（preload の dbError は message も符号）
       catch (e) { code = String((e && (e.code || e.message)) || 'internal'); return null; }
       finally { if (reverting === run) reverting = null; }
-    }, revertFocus());
+    }, revertFocus(boxOfKey(pid)));
     if (!out) {
       // 後から変わっていた（stale）・控えを回して歩みの行が消えていた（bad-args: R97）は、その欄の列を空にする（中途半端に戻さない）
       if (code === 'stale' || code === 'bad-args') { undoBk = bookDrop(undoBk, key); toast('ほかの所で変わったので、元に戻せませんでした'); return; }
@@ -5562,14 +6454,14 @@
     if (run.tx) {
       undoBk = bookDone(undoBk, key, dir, run.tx);
       if (mark) stepMarks.set(run.tx, mark);
-    }
+    } else if (out.literal) undoBk = bookDone(undoBk, key, dir, { literal: out.literal });   // 0.14.0 MB-4: 録音中と録音の前のメモ（窓のメモリ）
     pruneMarks();
     if (mark && dir === 'undo') restoreMark(pid, mark);
   }
   // R6（決めたこと 10）: 記法で変えた直後の Ctrl+Z は、打った記号を行の頭に戻す（打った文として次の区切りで保存）
   function restoreMark(pid, m) {
-    if (pid !== curId) return;
-    const el = editRows().find((e) => e.dataset.id === m.id);
+    if (!boxOfKey(pid)) return;
+    const el = editRows(boxOfKey(pid)).find((e) => e.dataset.id === m.id);
     if (!el || el._b.type === 'divider') return;
     rowReplace(el._txt, 0, 0, m.mark);   // 0.14.0 EB-4: 飾りのある行は飾りを保つ（戻した記号は飾りを持たない文字）
     el._txt.focus();
@@ -5577,7 +6469,7 @@
     undoLit = { pid, id: m.id, mark: m.mark };
   }
   let pendingEdits = 0;   // 分割・結合・変換・足すの答えを待っている数（ED-5 の summaryBusy が読む）
-  const editRows = () => [...$('pNote').querySelectorAll('.blk')].filter((e) => e._txt && e.dataset.locked !== '1');   // 鍵の無い行（区切り線も）
+  const editRows = (box = $('pNote')) => (box ? [...box.querySelectorAll('.blk')].filter((e) => e._txt && e.dataset.locked !== '1') : []);   // 鍵の無い行（区切り線も）。0.14.0 MB-4: 欄の箱ごと
   // 命令を送り、答えのページを今のページに当てる（where(答え) → { focus: 行の ID, caret }）。断られたら知らせ、何も描かない
   function editAnswer(pid, send, where) { return inFlight(editAnswerRun(pid, send, where)); }   // EB-3 直し（R109）: 答えを待つ間は Ctrl+Z が待つ
   async function editAnswerRun(pid, send, where) {
@@ -5602,20 +6494,38 @@
   }
   // 答えのページを描く。描き直すのは変わった行だけ（E4）。フォーカス中の行は要素を替えずに中身を直す（blur が来ない問題を作らない）
   function applyEditAnswer(pid, page, where) {
+    // 0.14.0 MB-4: メモの欄の答え（送った欄がもう描かれていなければ描かない）
+    if (isMemoKey(pid)) {
+      const tg = memoTgOf(pid);
+      if (!tg || !page || page.id !== pid) return;
+      applyRows({ key: pid, box: tg.box, memo: true, old: tg.shown, lock: '', set: (blocks) => memoShow(tg, blocks), redraw: () => renderMemoRows(tg), after: () => memoAfter(tg) }, page, where);
+      return;
+    }
     if (pid !== curId || !curPage || !page || page.id !== curId) return;   // 決めたこと 41: 送ったページがもう開いていなければ描かない
-    const box = $('pNote');
+    applyRows({
+      key: pid, box: $('pNote'), memo: false, old: curPage.blocks,
+      lock: summaryLockView(curPage, { live: isLiveCopy(curPage), making: summarizing.has(curId) || mainMaking.has(curId), segments: curSegs }),
+      set: (blocks) => {
+        curPage.blocks = blocks;
+        if (page.summaryEdited === true) curPage.summaryEdited = true;   // 点検4: 要約の欄を直した印（［要約を再生成］の前に確かめる）
+        if (page.rev !== undefined) curPage.rev = page.rev;
+      },
+      redraw: renderBlocks, after: () => {},
+    }, page, where);
+  }
+  // 0.14.0 MB-4: 行の欄に答えを当てる（R は { key, box, memo（メモの欄: 書いた順）, old（描いていた行）, lock, set（描く行を覚える）, redraw（欄全体）, after }）
+  function applyRows(R, page, where) {
+    const box = R.box;
     // 0.13.1 NE-4a（NR15）: 見えている行の並び（最上位は画面の順・子は親のすぐ後ろ・閉じたトグルの子は描かない）で比べる
     const blocks = Array.isArray(page.blocks) ? page.blocks : [];
-    const oldRows = viewRows(curPage.blocks);
-    const newRows = viewRows(blocks);
+    const oldRows = viewRows(R.old, R.memo);
+    const newRows = viewRows(blocks, R.memo);
     const oldView = oldRows.map((r) => r.b);
     const newView = newRows.map((r) => r.b);
-    curPage.blocks = blocks;
-    if (page.summaryEdited === true) curPage.summaryEdited = true;   // 点検4: 要約の欄を直した印（［要約を再生成］の前に確かめる）
-    if (page.rev !== undefined) curPage.rev = page.rev;
+    R.set(blocks);
     const plan = patchPlan(oldView, newView);
     const rows = new Map([...box.querySelectorAll('.blk')].map((e) => [e.dataset.id, e]));
-    const lock = summaryLockView(curPage, { live: isLiveCopy(curPage), making: summarizing.has(curId) || mainMaking.has(curId), segments: curSegs });
+    const lock = R.lock;
     const focused = [...rows.values()].find((e) => e._txt && e._txt === document.activeElement);
     // 0.13.1 NE-4a（NR15）: 段か親が変わった行があれば（字下げ・中へ動かす・開け閉め）並びが動いたのと同じ
     const wasAt = new Map(oldRows.map((r) => [r.b.id, `${r.depth}|${r.parentId || ''}`]));
@@ -5624,8 +6534,9 @@
     const shown = new Set(newRows.map((r) => r.b.id));
     if (lock || !oldView.length || !newView.length || rows.size !== oldView.length || regrown || plan.some((o) => o.op === 'move')) {
       const keep = liftFocus(blocks, shown, where || (focused ? { focus: focused.dataset.id, caret: (caretRange(focused._txt) || [0])[0] } : null));
-      renderBlocks();
-      if (!selAfter(keep) && keep) focusRow(keep.focus, keep.caret);   // 0.14.0 EK-4: 選んだ行の操作は同じ行を選び直す
+      R.redraw();
+      if (!selAfter(keep, R.key) && keep) focusRow(keep.focus, keep.caret, box);   // 0.14.0 EK-4: 選んだ行の操作は同じ行を選び直す
+      R.after();
       return;
     }
     const byId = new Map(flattenBlocks(blocks).map((b) => [b.id, b]));
@@ -5651,9 +6562,10 @@
     for (const e of [...box.querySelectorAll('.blk')]) if (byId.has(e.dataset.id)) e._b = byId.get(e.dataset.id);
     // EB-5 直し: 帯・色のメニューを出していた行が消えた・替わったら隠す（書いている途中のまま残さない。リンクの欄は linkApply が同じ id の行を探す）
     if (markBar && !isIn(markBar.el, box)) markBarHide();
-    renumberRows();
+    renumberRows(box);
     const keep = liftFocus(blocks, shown, where || (focused && !shown.has(focused.dataset.id) ? { focus: focused.dataset.id } : null));
-    if (!selAfter(keep) && keep) focusRow(keep.focus, keep.caret);
+    if (!selAfter(keep, R.key) && keep) focusRow(keep.focus, keep.caret, box);
+    R.after();
   }
   // 2026-10-28 の点検 1・3（計画の Ruling NR39）: フォーカスを置く行が閉じたトグルの中で隠れたら、見えているいちばん近い先祖の行（閉じたトグル）の終わりへ
   function liftFocus(blocks, shown, w) {
@@ -5663,8 +6575,8 @@
     }
     return w;
   }
-  function focusRow(id, caret) {
-    const el = editRows().find((e) => e.dataset.id === id);
+  function focusRow(id, caret, box) {
+    const el = editRows(box).find((e) => e.dataset.id === id);
     if (!el) return;
     el._txt.focus();
     setCaret(el._txt, Math.max(0, Math.min(Number(caret) || 0, el._txt.textContent.length)));
@@ -5736,8 +6648,8 @@
   }
   // 頭に貼った行の置き場（BQ30 (a)・NR8）: 入れ子の行は同じ親の、今の行のすぐ前の兄弟の後ろ（いなければ ''）。最上位は画面で上に見えている最上位の行（無ければ ''）
   function pasteAboveId(el, b) {
-    if (rowDepth(el) > 0) { const lc = locate(curPage.blocks, b.id); return lc && lc.index > 0 ? lc.list[lc.index - 1].id : ''; }
-    const rows = editRows();
+    if (rowDepth(el) > 0) { const lc = locate(blocksOfKey(keyOfEl(el)), b.id); return lc && lc.index > 0 ? lc.list[lc.index - 1].id : ''; }
+    const rows = editRows(rowsBoxOf(el));
     for (let j = rows.indexOf(el) - 1; j >= 0; j--) if (rowDepth(rows[j]) === 0) return rows[j].dataset.id;
     return '';
   }
@@ -5745,7 +6657,7 @@
   // 文のある行の頭は分けずに上へ（afterId: BQ30 (a)）・子の見えている行は文の終わりでも途中でも最初の子（inside: R66・TQ3・BQ31）・空のテキストの行は最初の貼った行になる（R18。DB が決める）。
   // カーソルは最後に貼った行の終わり
   async function pasteRows(el, blocks) {
-    const pid = curId; const b = el._b; const txt = el._txt;
+    const pid = keyOfEl(el); const b = el._b; const txt = el._txt;
     if (txt._pause) { clearTimeout(txt._pause); txt._pause = null; }
     const shown = b.type === 'divider' ? [] : rowRich(txt);
     const r = b.type === 'divider' ? null : caretRange(txt);
@@ -5768,7 +6680,7 @@
     // （contextBridge を越えた Error は message だけが残る: R109）
     let full = false;
     const send = async () => {
-      try { return await window.koeApp.blockPaste(...args); } catch (e) { if (String((e && (e.code || e.message)) || '') !== 'too-big') throw e; full = true; return null; }
+      try { return await rowApi(pid).blockPaste(...args); } catch (e) { if (String((e && (e.code || e.message)) || '') !== 'too-big') throw e; full = true; return null; }
     };
     const out = await editAnswer(pid, send, (x) => {
       const lc = x && x.page ? locate(x.page.blocks, x.lastId) : null;
@@ -5777,7 +6689,7 @@
     if (!out && el._b === b) {
       [b.text, b.rich] = was;
       // EK-3 直し（R142）: 断られたら行の文と、押したときのカーソル（選んだ所）を戻す
-      if (pid === curId && b.type !== 'divider') { paintRich(txt, shown); if (r) setSel(txt, r[0], r[1]); }
+      if (boxOfKey(pid) && b.type !== 'divider') { paintRich(txt, shown); if (r) setSel(txt, r[0], r[1]); }
     }
     if (full) toast(PASTE_TOO_BIG);
     return out;
@@ -5801,6 +6713,7 @@
   let peekOpen = new Map();
   // 見えている開け閉め（残した値か、画面だけの開け閉め）
   function openView(b) {
+    if (memoTg && b && memoTg.rows.has(b)) return memoTg.open.has(b.id) ? memoTg.open.get(b.id) : true;   // 0.14.0 MB-4（G3・R44）: メモの行は窓のメモリだけ（開いた形で開く）
     if (b && peekOpen.has(b.id)) return peekOpen.get(b.id);
     return isOpenStored(b);
   }
@@ -5814,22 +6727,28 @@
   }
   // 2026-10-28 の点検 1（計画の Ruling NR39）: 開け閉めの前に、要約の欄の行の文を全部保存する（flushEdits と同じ。閉じて隠れる子の行に打った文を落とさない）
   async function commitRows(pid) {
-    const all = [...$('pNote').querySelectorAll('.blk .txt')].filter((t) => typeof t._commit === 'function');
+    const box = boxOfKey(pid);   // 0.14.0 MB-4: その欄の行だけ
+    const all = box ? [...box.querySelectorAll('.blk .txt')].filter((t) => typeof t._commit === 'function') : [];
     await Promise.all(all.map(async (t) => { try { await t._commit(pid); } catch (_) { /* 保存の失敗は _commit の答えで知らせる */ } }));
   }
   // ▸ と Ctrl+Enter（決めたこと 18・28）: 見えている形の逆を blockSetOpen で書き、画面だけの開け閉めを消す。鍵の間は画面だけ（NR16）
   async function toggleRow(el, keep) {
-    const pid = curId; const b = el._b;
+    const pid = keyOfEl(el); const b = el._b;
     const now = openView(b);
+    // 0.14.0 MB-4（G3・決めたこと 68）: メモの欄の開け閉めは窓のメモリだけ（pageSetMemoDoc・blockSetOpen を送らない。歩みにもならない）
+    const tg = memoTgOf(pid);
+    if (tg) { await commitRows(pid); tg.open.set(b.id, !now); renderMemoRows(tg); if (keep) focusRow(keep.focus, keep.caret, tg.box); return null; }
     if (el.dataset.locked === '1') { peekOpen.set(b.id, !now); renderBlocks(); return null; }   // NR16: 鍵の間は DB が断るので画面だけ
     peekOpen.delete(b.id);
     await commitRows(pid);   // 点検 1: 子の行に打った文も（▸ はフォーカスを子の行に残す）
     return editAnswer(pid, () => window.koeApp.blockSetOpen(pid, b.id, !now), () => keep || null);
   }
   // 見えている行の並び → [{ b, depth, parentId }]（最上位は orderForView の順・子は親のすぐ後ろに保存の順・閉じたトグルの子は描かない: NR15）
-  function viewRows(blocks) {
+  // 0.14.0 MB-4（BQ29 (a)）: メモの欄（memo）は書いた順のまま（orderForView を通さない）
+  function viewRows(blocks, memo) {
     const list = Array.isArray(blocks) ? blocks : [];
-    return visibleOrder(orderForView(list).map((i) => list[i]), openView);
+    const top = memo ? list : orderForView(list).map((i) => list[i]);
+    return visibleOrder(top, openView);
   }
   const rowDepth = (el) => Number(el && el.dataset.depth) || 0;
   // 子が見えている行か（TQ3: 開いたトグル・子のある行。終わりの Enter の新しい行は最初の子）
@@ -5841,13 +6760,13 @@
   // 0.14.0 EB-3（決めたこと 2）: 1つの動作で送る命令（先に保存する打った文も）を1歩に
   function indentRow(el, dir) { return stepGroup(() => indentRowRun(el, dir)); }
   async function indentRowRun(el, dir) {
-    const pid = curId; const b = el._b; const txt = el._txt;
-    const l = locate(curPage.blocks, b.id);
-    if (!l || (dir === 'in' ? !canIndent(curPage.blocks, b.id) : !l.parent)) return null;
+    const pid = keyOfEl(el); const b = el._b; const txt = el._txt;
+    const l = locate(blocksOfKey(pid), b.id);
+    if (!l || (dir === 'in' ? !canIndent(blocksOfKey(pid), b.id) : !l.parent)) return null;
     const caret = (caretRange(txt) || [txt.textContent.length])[0];
-    if (dir === 'in' && !openView(l.list[l.index - 1])) peekOpen.set(l.list[l.index - 1].id, true);   // NR18: 閉じたトグルの中へ入れた行も見える
+    if (dir === 'in' && !openView(l.list[l.index - 1])) revealRow(pid, l.list[l.index - 1].id);   // NR18: 閉じたトグルの中へ入れた行も見える
     try { await txt._commit(pid); } catch (_) { /* 保存の失敗は _commit の答えで知らせる */ }
-    return editAnswer(pid, () => window.koeApp.blockIndent(pid, b.id, dir), () => ({ focus: b.id, caret }));
+    return editAnswer(pid, () => rowApi(pid).blockIndent(pid, b.id, dir), () => ({ focus: b.id, caret }));
   }
   // NR17: ⠿ から Tab で、要約の欄の行（.blk）の中を飛ばして、文書の順で次の部品へ。隠れた所（hidden・開いていない pane と tab）は飛ばす
   function focusAfterRows(from) {
@@ -5870,8 +6789,8 @@
   }
   // Enter（決めたこと 16・17）: 今の文とカーソルの位置を block.split の1つの命令で送る（EQ5 (a): 空の箇条書き・ToDo・番号付きはテキストに戻す）
   async function splitRow(el) {
-    const pid = curId; const b = el._b; const txt = el._txt;
-    if (b.type === 'divider') return editAnswer(pid, () => window.koeApp.blockInsert(pid, b.id, 'paragraph'), (x) => ({ focus: x.blockId, caret: 0 }));
+    const pid = keyOfEl(el); const b = el._b; const txt = el._txt;
+    if (b.type === 'divider') return editAnswer(pid, () => rowApi(pid).blockInsert(pid, b.id, 'paragraph'), (x) => ({ focus: x.blockId, caret: 0 }));
     let text = txt.textContent;
     const r = caretRange(txt);
     // 0.14.0 EB-4（決めたこと 16・R58）: 飾りのある行（画面か保存した行）は今の rich も送る（DB は同じ位置で分ける）
@@ -5894,26 +6813,26 @@
     b.text = top ? text : text.slice(0, at);   // 点検5: DB と同じく分けた前の文を削らない（削ると、答えの後の blur が削った文を送り直して oplog が2行になる）
     // 2026-10-27 の持ち主の答え（点検8）: 上の空の行は画面で上に見えている行の後ろへ（いちばん上なら頭: ''。block.move の afterId と同じ）
     // 0.13.1 NR8: 入れ子の行では同じ親の、今の行のすぐ前の兄弟の後ろ（いなければ ''）。最上位は画面で上に見えている最上位の行
-    const rows = top ? editRows() : [];
+    const rows = top ? editRows(rowsBoxOf(el)) : [];
     const i = rows.findIndex((e) => e.dataset.id === b.id);
     let afterId = '';
-    if (top && rowDepth(el) > 0) { const l = locate(curPage.blocks, b.id); afterId = l && l.index > 0 ? l.list[l.index - 1].id : ''; }
+    if (top && rowDepth(el) > 0) { const l = locate(blocksOfKey(pid), b.id); afterId = l && l.index > 0 ? l.list[l.index - 1].id : ''; }
     else if (top) { for (let j = i - 1; j >= 0; j--) if (rowDepth(rows[j]) === 0) { afterId = rows[j].dataset.id; break; } }
     // 0.13.1 TQ3（持ち主の答え「すぐ下に出し、トグルは開いて作る（おすすめ）」）: 子が見えている行では、新しい行は最初の子
     const inside = !top && kidsShown(b);
     const args = top ? [pid, b.id, text, at, afterId] : inside ? [pid, b.id, text, at, undefined, true] : [pid, b.id, text, at];
     if (marked) { while (args.length < 6) args.push(undefined); args.push(rich); }
-    const out = await editAnswer(pid, () => window.koeApp.blockSplit(...args), (x) => ({ focus: top ? b.id : x.blockId, caret: 0 }));
-    if (!out && el._b === b) { b.text = was; if (marked) b.rich = wasRich; if (pid === curId) { if (marked) paintRich(txt, rich); else txt.textContent = text; } }
+    const out = await editAnswer(pid, () => rowApi(pid).blockSplit(...args), (x) => ({ focus: top ? b.id : x.blockId, caret: 0 }));
+    if (!out && el._b === b) { b.text = was; if (marked) b.rich = wasRich; if (boxOfKey(pid)) { if (marked) paintRich(txt, rich); else txt.textContent = text; } }
     return out;
   }
   // 行頭の Backspace（EQ6 (a)）: 型の付いた行はテキストに戻す。テキストの行は今の文ごと前の行につなぐ（block.merge の1つの命令）
   async function backRow(el) {
-    const pid = curId; const b = el._b; const txt = el._txt;
+    const pid = keyOfEl(el); const b = el._b; const txt = el._txt;
     if (rowDepth(el) > 0) return indentRow(el, 'out');   // 0.13.1 EQ6 (a): 字下げされた行は、まず1段戻す（型も文も変えない）
     if (isTypedView(b)) return turnRow(el, 'paragraph', undefined, 0);
     // 0.13.1 TQ1（持ち主の答え「画面で上に見えている行（おすすめ）」）: 画面で上に見えている行につなぐ。頭の行はつなぐ先が無い
-    const rows = editRows();
+    const rows = editRows(rowsBoxOf(el));
     const i = rows.indexOf(el);
     if (i <= 0) return null;
     const intoId = rows[i - 1].dataset.id;
@@ -5923,7 +6842,7 @@
     const args = marksIn(rich) || (Array.isArray(b.rich) && b.rich.length > 0) ? [pid, b.id, text, intoId, rich] : [pid, b.id, text, intoId];
     const was = b.text;
     b.text = text.trim();
-    const out = await editAnswer(pid, () => window.koeApp.blockMerge(...args), (x) => ({ focus: x.blockId, caret: x.at }));
+    const out = await editAnswer(pid, () => rowApi(pid).blockMerge(...args), (x) => ({ focus: x.blockId, caret: x.at }));
     if (!out && el._b === b) b.text = was;
     return out;
   }
@@ -5932,10 +6851,10 @@
   // 0.14.0 EB-3（決めたこと 2）: 1つの動作で送る命令（先に保存する打った文も）を1歩に
   function turnRow(el, type, level, caret, toggle) { return stepGroup(() => turnRowRun(el, type, level, caret, toggle)); }
   async function turnRowRun(el, type, level, caret, toggle) {
-    const pid = curId; const b = el._b;
+    const pid = keyOfEl(el); const b = el._b;
     try { await el._txt._commit(pid); } catch (_) { /* 保存の失敗は _commit の答えで知らせる */ }
-    return editAnswer(pid, () => (level === undefined ? window.koeApp.blockTurnInto(pid, b.id, type)
-      : toggle === true ? window.koeApp.blockTurnInto(pid, b.id, type, level, true) : window.koeApp.blockTurnInto(pid, b.id, type, level)),
+    return editAnswer(pid, () => (level === undefined ? rowApi(pid).blockTurnInto(pid, b.id, type)
+      : toggle === true ? rowApi(pid).blockTurnInto(pid, b.id, type, level, true) : rowApi(pid).blockTurnInto(pid, b.id, type, level)),
       () => ({ focus: b.id, caret }));
   }
   // 行頭の記法（E3）。打った記法の文字を消して型を変える。区切り線は変えた後に下にテキストの行を足す（決めたこと 17）
@@ -5950,10 +6869,10 @@
     if (!sc || (b.type === sc.type && (sc.type !== 'heading' || headingLevel(b) === sc.level))) return;
     rowReplace(txt, 0, sc.strip, '');   // 0.14.0 EB-4: 飾りのある行は飾りを保つ
     setCaret(txt, 0);
-    const pid = curId;
+    const pid = keyOfEl(el);
     const out = await turnRow(el, sc.type, sc.level, 0);
     if (out && box) box.mark = { id: b.id, mark: full.slice(0, sc.strip) };
-    if (out && sc.type === 'divider' && pid === curId) await editAnswer(pid, () => window.koeApp.blockInsert(pid, b.id, 'paragraph'), (x) => ({ focus: x.blockId, caret: 0 }));
+    if (out && sc.type === 'divider' && boxOfKey(pid)) await editAnswer(pid, () => rowApi(pid).blockInsert(pid, b.id, 'paragraph'), (x) => ({ focus: x.blockId, caret: 0 }));
   }
   // ↑ を行の頭で・↓ を行の終わりで押すと隣の行へ（EQ14 (a)）。動いたら真
   function stepRow(el, dir) {
@@ -5961,7 +6880,7 @@
     const r = caretRange(txt);
     const line = el._b && el._b.type === 'divider';   // 区切り線は文を持たないので、いつも隣へ
     if (!line && (!r || r[0] !== r[1] || r[0] !== (dir < 0 ? 0 : txt.textContent.length))) return false;
-    const rows = editRows();
+    const rows = editRows(rowsBoxOf(el));
     const to = rows[rows.indexOf(el) + dir];
     if (!to) return false;
     to._txt.focus();
@@ -5980,6 +6899,7 @@
     // からも呼ばれるので、pid を引数で受け、別のページへ移った後は画面を触らない。
     txt._commit = (pid) => {
       if (txt._pause) { clearTimeout(txt._pause); txt._pause = null; }
+      if (rowsBoxOf(el) && keyOfEl(el) !== pid) return undefined;   // 0.14.0 MB-4: 別の欄の鍵では保存しない（メモの行を要約の命令で送らない）
       const b = el._b;
       const v = txt.textContent.trim();
       // 0.14.0 EB-4（決めたこと 16・17）: 飾りのある行（画面か保存した行）は { rich } を送る（文は DB が rich から作る。飾りの無い行は今どおり { text }）
@@ -5989,7 +6909,7 @@
         if (v !== b.text && (b.type === 'bullet' || b.type === 'todo') && b.citeState !== 'manual') { b.citeState = 'stale'; renderCiteBadge(el, b); }
         b.text = v; b.rich = normalizeRich(rich);
         if (pid === curId && curPage) curPage.summaryEdited = true;   // 点検4: 要約の欄を直した印
-        return saveRow(window.koeApp.blockUpdate(pid, b.id, { rich }).then(() => { if (pid === curId) refreshList(); }));
+        return saveRow(rowApi(pid).blockUpdate(pid, b.id, { rich }).then(() => { if (pid === curId) refreshList(); }));
       }
       if (v === b.text) return undefined;
       if (txt.textContent === b.text) return undefined;   // 点検5: 画面の文が行の文と同じなら直していない（分けた前の文の終わりの空白を削って送り直さない）
@@ -5998,10 +6918,10 @@
       // 本文を変えたら出典との対応は古くなる。store も stale を付けるが、
       // 次に pageGet するまでの間も札で示す。
       if ((b.type === 'bullet' || b.type === 'todo') && b.citeState !== 'manual') { b.citeState = 'stale'; renderCiteBadge(el, b); }
-      return saveRow(window.koeApp.blockUpdate(pid, b.id, { text: v }).then(() => { if (pid === curId) refreshList(); }));
+      return saveRow(rowApi(pid).blockUpdate(pid, b.id, { text: v }).then(() => { if (pid === curId) refreshList(); }));
     };
     // 0.14.0 EB-5（決めたこと 19）: 行から出ると道具の帯を隠す（リンクの欄へ移るときは欄が開いてから。帯・色の項目は押してもフォーカスが移らない）
-    txt.onblur = () => { if (slash && slash.el === el) slashClose(); markBarLeave(el); litLeave(el); txt._commit(curId); };
+    txt.onblur = () => { if (slash && slash.el === el) slashClose(); markBarLeave(el); litLeave(el); if (rowsBoxOf(el)) txt._commit(keyOfEl(el)); };
     txt.onkeydown = (ev) => {
       if (imeEnter(ev)) return;   // 変換確定の Enter / 変換中の Backspace は編集操作にしない
       const mod = ev.ctrlKey || ev.altKey || ev.metaKey;
@@ -6042,8 +6962,8 @@
     // 0.14.0 EB-3（決めたこと 8）: 打つ手が TYPE_PAUSE_MS 止まったら保存する（1回の保存が1歩）。変換中は数えない（確定してから数える）
     const pauseSave = () => {
       if (txt._pause) clearTimeout(txt._pause);
-      const pid = curId;
-      txt._pause = setTimeout(() => { txt._pause = null; if (pid === curId && isIn(txt, $('pNote'))) txt._commit(pid); }, TYPE_PAUSE_MS);
+      const pid = keyOfEl(el);
+      txt._pause = setTimeout(() => { txt._pause = null; if (boxOfKey(pid) && isIn(txt, boxOfKey(pid))) txt._commit(pid); }, TYPE_PAUSE_MS);
     };
     txt._pauseSave = pauseSave;   // 0.14.0 EB-5: 道具の帯・リンクの欄・色の直しも、次の区切りで保存する
     // 0.14.0 EB-5（決めたこと 19）: 文字を選んだら道具の帯（マウスやキーを離した時。selectionchange でも見る）。選び直したら Esc で閉じた印を消す
@@ -6052,6 +6972,8 @@
     // 行頭の記法は打ったときだけ（貼り付け・変換中は決めない。変換が終わったら決める: F43）
     txt.oninput = (ev) => {
       typedRich(el, ev);   // 0.14.0 EB-4: 打った文字の飾りと文中の記法（変換中は中で抜ける）
+      const mb = rowsBoxOf(el);
+      if (mb && mb._memoTg) memoTyped(mb._memoTg);   // 0.14.0 MB-4: メモの手引きと録音中の一言（memoPlain で見る）
       if ((ev && ev.isComposing) || txt._composing) return;   // 変換中の input では記法を決めない
       pauseSave();
       mdCheck(el);
@@ -6073,7 +6995,7 @@
       txt.focus();
       setCaret(txt, at === null ? txt.textContent.length : at);
       typeAtCaret(txt, t);
-      const pid = curId;
+      const pid = keyOfEl(el);
       try { await txt._commit(pid); } catch (_) { /* 保存の失敗は saveRow が知らせる */ }
     };
   }
@@ -6187,7 +7109,7 @@
     const txt = s.el._txt;
     if (s.items.length) txt.setAttribute('aria-activedescendant', `slashOpt${s.sel}`); else txt.removeAttribute('aria-activedescendant');
     txt.setAttribute('aria-expanded', 'true');
-    const box = $('pNote');
+    const box = popHost(s.el);   // 0.14.0 MB-4: 行の欄の中
     slashBox.style.top = `${(s.el.offsetTop || 0) + (s.el.offsetHeight || 0)}px`;
     slashBox.style.left = `${(s.el.offsetLeft || 0) + (txt.offsetLeft || 0)}px`;
     if (slashBox.parentNode !== box) {
@@ -6229,7 +7151,7 @@
     rowReplace(txt, s.start, s.start + 1 + s.query.length, '');   // 0.14.0 EB-4: 飾りのある行は飾りを保つ
     setCaret(txt, s.start);
     slashRecent = recentAdd(slashRecent, it.id); saveUi({ slashRecent });
-    const pid = curId;
+    const pid = keyOfEl(el);
     // 0.13.1 NR22: 下に足す置き場は Enter と同じ（子が見えている行では最初の子: TQ3）。トグル見出しは toggle を送る
     const below = (after) => {
       const inside = kidsShown(b);
@@ -6237,7 +7159,7 @@
       if (row.level !== undefined || inside || row.toggle) args.push(row.level);
       if (inside || row.toggle) args.push(inside ? b.id : undefined);
       if (row.toggle) args.push(true);
-      return editAnswer(pid, () => window.koeApp.blockInsert(...args), (x) => ({ focus: x.blockId, caret: 0 }));
+      return editAnswer(pid, () => rowApi(pid).blockInsert(...args), (x) => ({ focus: x.blockId, caret: 0 }));
     };
     let out;
     if (rest.trim() === '') out = await turnRow(el, row.key, row.level, 0, row.toggle);
@@ -6246,9 +7168,9 @@
       out = await below(b.id);
     }
     // 区切り線は文を持たないので、下にテキストの行を足して続けて打てるようにする（決めたこと 17）
-    if (out && row.key === 'divider' && pid === curId) {
+    if (out && row.key === 'divider' && boxOfKey(pid)) {
       const at = out.blockId || b.id;
-      await editAnswer(pid, () => window.koeApp.blockInsert(pid, at, 'paragraph'), (x) => ({ focus: x.blockId, caret: 0 }));
+      await editAnswer(pid, () => rowApi(pid).blockInsert(pid, at, 'paragraph'), (x) => ({ focus: x.blockId, caret: 0 }));
     }
     return out;
   }
@@ -6256,13 +7178,13 @@
   // 0.14.0 EB-3（決めたこと 2）: 1つの動作で送る命令（先に保存する打った文も）を1歩に
   function plusRow(el) { return stepGroup(() => plusRowRun(el)); }
   async function plusRowRun(el) {
-    const pid = curId; const b = el._b;
+    const pid = keyOfEl(el); const b = el._b;
     try { await el._txt._commit(pid); } catch (_) { /* 保存の失敗は _commit の答えで知らせる */ }
     // 0.13.1 NR22: 子が見えている行では最初の子に足す（Enter と同じ置き場）
-    const out = await editAnswer(pid, () => (kidsShown(b) ? window.koeApp.blockInsert(pid, '', 'paragraph', undefined, b.id) : window.koeApp.blockInsert(pid, b.id, 'paragraph')),
+    const out = await editAnswer(pid, () => (kidsShown(b) ? rowApi(pid).blockInsert(pid, '', 'paragraph', undefined, b.id) : rowApi(pid).blockInsert(pid, b.id, 'paragraph')),
       (x) => ({ focus: x.blockId, caret: 0 }));
-    if (!out || pid !== curId) return out;
-    const ne = editRows().find((e) => e.dataset.id === out.blockId);
+    if (!out || !boxOfKey(pid)) return out;
+    const ne = editRows(boxOfKey(pid)).find((e) => e.dataset.id === out.blockId);
     if (!ne) return out;
     ne._txt.textContent = '/'; setCaret(ne._txt, 1);
     slashOpen(ne, 0, '');   // 足した行で / メニューを開く
@@ -6293,8 +7215,9 @@
   let blockSel = null;
   let selDrag = null;   // 引っ張っている間 { from: 始めた行の ID, text: 行の文から始めたか }（P-01・R22）
   let selAt = -1;       // EK-4 直し（R155）: 最後に塗った選びの最初の行の、編集できる行の中の位置（選んでいなければ -1）
-  const selRows = () => editRows();   // 選べる行（鍵の無い・見えている行。閉じたトグルの子は描かないので Shift+↑↓ でも飛ぶ）
-  const selOn = () => Boolean(blockSel && blockSel.pageId === curId && blockSel.ids.length);
+  // 0.14.0 MB-4: 選びの pageId は欄の鍵（要約はページの ID・メモは「…\u0001memo」）。k を渡せばその欄の選びか、渡さなければ描いている欄の選びか
+  const selRows = (k = blockSel ? blockSel.pageId : curId) => editRows(boxOfKey(k));   // 選べる行（鍵の無い・見えている行。閉じたトグルの子は描かないので Shift+↑↓ でも飛ぶ）
+  const selOn = (k) => Boolean(blockSel && blockSel.ids.length && (k === undefined ? boxOfKey(blockSel.pageId) : blockSel.pageId === k));
   const rowById = (id) => selRows().find((e) => e.dataset.id === id) || null;
   // 選んだ行の中で、先祖を選んでいない行（画面の順）
   function selRootIds() {
@@ -6307,37 +7230,39 @@
   // 選んだ行か、選んだ行の子孫か（決めたこと 31: 親を選ぶと子も選んだものとして扱う）
   function selCovers(id) {
     if (!selOn()) return false;
-    for (let l = locate(curPage.blocks, id); l; l = l.parent ? locate(curPage.blocks, l.parent.id) : null) if (blockSel.ids.includes(l.b.id)) return true;
+    const all = blocksOfKey(blockSel.pageId);
+    for (let l = locate(all, id); l; l = l.parent ? locate(all, l.parent.id) : null) if (blockSel.ids.includes(l.b.id)) return true;
     return false;
   }
   // 選んだ行と、その子孫に印（.sel・aria-selected）
   function selPaint() {
     const on = selOn() ? new Set(blockSel.ids) : new Set();
-    const rows = [...$('pNote').querySelectorAll('.blk')];
+    const selBox = blockSel ? boxOfKey(blockSel.pageId) : null;
+    const rows = [$('pNote'), memoTg && memoTg.box].filter(Boolean).flatMap((x) => [...x.querySelectorAll('.blk')]);   // 0.14.0 MB-4: 両方の欄の印を塗り直す
     const par = new Map(rows.map((e) => [e.dataset.id, e.dataset.parent || '']));
     for (const e of rows) {
-      let hit = on.has(e.dataset.id);
-      for (let p = par.get(e.dataset.id); !hit && p; p = par.get(p)) hit = on.has(p);
+      let hit = on.has(e.dataset.id) && isIn(e, selBox);
+      for (let p = par.get(e.dataset.id); !hit && p && isIn(e, selBox); p = par.get(p)) hit = on.has(p);
       e.classList.toggle('sel', hit);
       if (hit) e.setAttribute('aria-selected', 'true'); else e.removeAttribute('aria-selected');
     }
-    selAt = on.size ? editRows().findIndex((e) => e.classList.contains('sel')) : -1;   // EK-4 直し（R155）: 選びが消えたときにフォーカスを置く所
+    selAt = on.size ? selRows().findIndex((e) => e.classList.contains('sel')) : -1;   // EK-4 直し（R155）: 選びが消えたときにフォーカスを置く所
   }
-  function selSet(ids, anchor, head) {
+  function selSet(ids, anchor, head, k = blockSel ? blockSel.pageId : curId) {
     const want = new Set(ids);
-    const list = selRows().map((e) => e.dataset.id).filter((id) => want.has(id));
-    blockSel = list.length ? { pageId: curId, ids: list, anchor: list.includes(anchor) ? anchor : list[0], head: list.includes(head) ? head : list[list.length - 1] } : null;
+    const list = selRows(k).map((e) => e.dataset.id).filter((id) => want.has(id));
+    blockSel = list.length ? { pageId: k, ids: list, anchor: list.includes(anchor) ? anchor : list[0], head: list.includes(head) ? head : list[list.length - 1] } : null;
     selPaint();
-    const box = $('pNote');
-    if (blockSel && document.activeElement !== box) box.focus();
+    const box = boxOfKey(k);
+    if (blockSel && box && document.activeElement !== box) box.focus();
   }
   // anchor から head までの見えている行を選ぶ
-  function rowsRange(anchor, head) {
-    const order = selRows().map((e) => e.dataset.id);
+  function rowsRange(anchor, head, k = blockSel ? blockSel.pageId : curId) {
+    const order = selRows(k).map((e) => e.dataset.id);
     let i = order.indexOf(anchor); let j = order.indexOf(head);
     if (i < 0 || j < 0) return;
     if (i > j) [i, j] = [j, i];
-    selSet(order.slice(i, j + 1), anchor, head);
+    selSet(order.slice(i, j + 1), anchor, head, k);
   }
   function selClear() {
     if (!blockSel) return;
@@ -6346,8 +7271,8 @@
   }
   // 行の中の Esc（R64 (5)・K-11）と Ctrl+A（R21）: 打った文を保存してから、その行を選ぶ
   function selRowStart(el) {
-    if (typeof el._txt._commit === 'function') el._txt._commit(curId);
-    selSet([el.dataset.id], el.dataset.id, el.dataset.id);
+    if (typeof el._txt._commit === 'function') el._txt._commit(keyOfEl(el));
+    selSet([el.dataset.id], el.dataset.id, el.dataset.id, keyOfEl(el));
   }
   // 選んでいて Esc（R64 (4)・G2）: 選びを外し、フォーカスは選んでいた最初の行の ⠿ へ（そこから 0.13.1 の ⠿ の受け口: Tab で欄の外・Shift+Tab で欄のタブ・Esc で行の文へ）
   function selExit() {
@@ -6366,7 +7291,7 @@
   }
   // 選んだ行をまとめて消す（BQ6 (a): 確かめない。1つの命令＝1歩）。フォーカスは上に見えていた行の終わり（無ければ下の行の頭）
   function selRemove() {
-    const pid = curId; const ids = [...blockSel.ids];
+    const pid = blockSel.pageId; const ids = [...blockSel.ids];
     const gone = new Set(selRows().filter((e) => e.classList.contains('sel')).map((e) => e.dataset.id));
     const rows = selRows();
     const first = rows.findIndex((e) => gone.has(e.dataset.id));
@@ -6374,16 +7299,16 @@
     for (let j = first - 1; j >= 0 && !near; j--) if (!gone.has(rows[j].dataset.id)) near = { focus: rows[j].dataset.id, caret: rows[j]._txt.textContent.length };
     for (let j = first + 1; j < rows.length && !near; j++) if (!gone.has(rows[j].dataset.id)) near = { focus: rows[j].dataset.id, caret: 0 };
     selClear();
-    return editAnswer(pid, () => window.koeApp.blocksRemove(pid, ids), () => near);
+    return editAnswer(pid, () => rowApi(pid).blocksRemove(pid, ids), () => near);
   }
   // 選んだ行の1つ上・下の置き場（rowShortcut の1つの行と同じ: 子は同じ親の兄弟の中・最上位は画面の最上位の並び）→ { afterId, parentId? } か null
   function selMoveSpot(dir) {
     const roots = selRootIds();
     // EK-4 直し（R155）: 違う親の行をまとめて選んでいたら動かさない（1つの親の並びへ寄せて木を組み替えない。知らせも出さない）
-    const pars = new Set(roots.map((id) => { const lc = locate(curPage.blocks, id); return lc && lc.parent ? lc.parent.id : ''; }));
+    const pars = new Set(roots.map((id) => { const lc = locate(blocksOfKey(blockSel.pageId), id); return lc && lc.parent ? lc.parent.id : ''; }));
     if (pars.size > 1) return null;
     const id = dir < 0 ? roots[0] : roots[roots.length - 1];
-    const l = locate(curPage.blocks, id);
+    const l = locate(blocksOfKey(blockSel.pageId), id);
     if (!l) return null;
     if (l.parent) {
       if (dir < 0) return l.index > 0 ? (l.index >= 2 ? { afterId: l.list[l.index - 2].id } : { afterId: '', parentId: l.parent.id }) : null;
@@ -6396,31 +7321,31 @@
   }
   // 選んだ行への近道（決めたこと 30）: 複製・上下へ動かす・型の変換・⠿ のメニュー。どれも1つの命令＝1歩で、答えの後も同じ行（複製は写し）を選ぶ
   function selDo(act) {
-    const pid = curId; const ids = [...blockSel.ids];
+    const pid = blockSel.pageId; const ids = [...blockSel.ids];
     const keep = (x) => ({ select: x && Array.isArray(x.ids) ? x.ids : ids });
     if (act === 'menu') { blockMenuOpen(rowById(ids[0]), { ids }); return null; }
-    if (act === 'duplicate') return editAnswer(pid, () => window.koeApp.blocksDuplicate(pid, ids), keep);
+    if (act === 'duplicate') return editAnswer(pid, () => rowApi(pid).blocksDuplicate(pid, ids), keep);
     if (act === 'moveUp' || act === 'moveDown') {
       const to = selMoveSpot(act === 'moveUp' ? -1 : 1);
       if (!to) return null;
-      return editAnswer(pid, () => window.koeApp.blocksMove(pid, ids, to.afterId, to.parentId), keep);
+      return editAnswer(pid, () => rowApi(pid).blocksMove(pid, ids, to.afterId, to.parentId), keep);
     }
     const row = SLASH_ROWS.find((x) => x.id === act.slice(5));
     if (!row || (row.key === 'divider' && !selDividerOk(ids))) return null;   // 区切り線は文も子も無い行だけ（EQ16 (a)・NR7・R65）
-    return editAnswer(pid, () => window.koeApp.blocksTurnInto(pid, ids, row.key, row.level, row.toggle), keep);
+    return editAnswer(pid, () => rowApi(pid).blocksTurnInto(pid, ids, row.key, row.level, row.toggle), keep);
   }
-  function selDividerOk(ids) {
-    return ids.every((id) => { const l = locate(curPage.blocks, id); return l && String(l.b.text ?? '') === '' && !(Array.isArray(l.b.children) && l.b.children.length); });
+  function selDividerOk(ids, k = blockSel ? blockSel.pageId : curId) {
+    return ids.every((id) => { const l = locate(blocksOfKey(k), id); return l && String(l.b.text ?? '') === '' && !(Array.isArray(l.b.children) && l.b.children.length); });
   }
   // 箱（#pNote）のキー。行の文・⠿ から上がってきたキーは受けない（それぞれの受け口が受ける）
   function selKey(ev) {
-    const box = $('pNote');
-    if (ev.target !== box || !selOn() || imeEnter(ev)) return;
+    const box = rowsBoxOf(ev.target);   // 0.14.0 MB-4: 要約の欄かメモの欄の箱
+    if (!box || ev.target !== box || !selOn(keyOfBox(box)) || imeEnter(ev)) return;
     const mod = ev.ctrlKey || ev.altKey || ev.metaKey;
     const k = ev.key;
     if (k === 'Escape' && !mod) { ev.preventDefault(); selExit(); return; }
     // R19（EQ17 (a) の意図）: Tab は欄の外の次の部品へ・Shift+Tab は［AI 要約］のタブへ（⠿ の受け口と同じ行き先）
-    if (k === 'Tab' && !mod) { ev.preventDefault(); selClear(); if (ev.shiftKey) { const t = $('paneBtnNote'); if (t) t.focus(); } else focusAfterRows(box); return; }
+    if (k === 'Tab' && !mod) { ev.preventDefault(); selClear(); if (ev.shiftKey) { const t = $(paneTabOf(box)); if (t) t.focus(); } else focusAfterRows(box); return; }
     if (k === 'Enter' && !mod && !ev.shiftKey) {   // K-17: 動く端の行の編集に戻る
       ev.preventDefault();
       const el = rowById(blockSel.head);
@@ -6446,54 +7371,58 @@
     const row = ev.target && typeof ev.target.closest === 'function' ? ev.target.closest('.blk') : null;
     if (!row || !row._txt || row.dataset.locked === '1') return;
     const id = row.dataset.id;
+    const k = keyOfEl(row);   // 0.14.0 MB-4: 押した欄
+    if (blockSel && blockSel.pageId !== k) selClear();
     const a = document.activeElement;
-    const editing = selRows().find((e) => e._txt === a);
+    const editing = selRows(k).find((e) => e._txt === a);
     if (ev.altKey) {
       ev.preventDefault();
       const now = selOn() ? [...blockSel.ids] : editing ? [editing.dataset.id] : [];
-      if (editing && !selOn()) editing._txt._commit(curId);
-      selSet(now.includes(id) ? now.filter((x) => x !== id) : [...now, id], selOn() ? blockSel.anchor : id, id);
+      if (editing && !selOn()) editing._txt._commit(k);
+      selSet(now.includes(id) ? now.filter((x) => x !== id) : [...now, id], selOn() ? blockSel.anchor : id, id, k);
       return;
     }
     const from = selOn() ? blockSel.anchor : editing ? editing.dataset.id : '';
     if (!from || (from === id && !selOn())) return;   // 同じ行の中は文字の選び（既定のまま）
     ev.preventDefault();
-    if (editing && !selOn()) editing._txt._commit(curId);
-    rowsRange(from, id);
+    if (editing && !selOn()) editing._txt._commit(k);
+    rowsRange(from, id, k);
   }
   // 引っ張って選ぶ: 行の外の左右の余白から引っ張ると通った行（P-01）、行の文から別の行へ引っ張ると行の選びに替える（R22）
-  function rowAtY(y) {
-    const rows = selRows();
+  function rowAtY(y, k) {
+    const rows = selRows(k);
     for (const e of rows) { const r = e.getBoundingClientRect(); if (y < r.bottom) return e.dataset.id; }
     return rows.length ? rows[rows.length - 1].dataset.id : '';
   }
   function selDown(ev) {
     selDrag = null;
     if (ev.shiftKey || (ev.button !== undefined && ev.button !== 0)) return;
-    const box = $('pNote');
+    const box = rowsBoxOf(ev.target);   // 0.14.0 MB-4: 要約の欄かメモの欄
+    if (!box) return;
+    const k = keyOfBox(box);
     const t = ev.target;
     const row = t && typeof t.closest === 'function' ? t.closest('.blk') : null;
     const inText = Boolean(row && row._txt && isIn(t, row._txt) && row.dataset.locked !== '1');
     if (!inText && t !== box && t !== row) return;   // ⠿・▸・札などは今の受け口のまま
     if (row && row.dataset.locked === '1') return;
     selClear();
-    if (!selRows().length) return;
-    selDrag = { from: inText ? row.dataset.id : rowAtY(Number(ev.clientY) || 0), text: inText };
+    if (!selRows(k).length) return;
+    selDrag = { from: inText ? row.dataset.id : rowAtY(Number(ev.clientY) || 0, k), text: inText, key: k };
     if (!inText && typeof ev.preventDefault === 'function') ev.preventDefault();   // 余白から始めた引っ張りは文字を選ばない
   }
   function selMove(ev) {
     const d = selDrag;
     if (!d) return;
     if (ev.buttons === 0) { selDrag = null; return; }
-    const id = rowAtY(Number(ev.clientY) || 0);
+    const id = rowAtY(Number(ev.clientY) || 0, d.key);
     if (!id || (d.text && id === d.from && !selOn())) return;   // 1つの行の中は文字の選び（道具の帯）
     if (typeof window.getSelection === 'function') { const s = window.getSelection(); if (s && typeof s.removeAllRanges === 'function') s.removeAllRanges(); }   // EK-4 直し（R155）: 余白からも
-    if (d.text && !selOn()) { const el = rowById(d.from); if (el) el._txt._commit(curId); }
-    rowsRange(d.from, id);
+    if (d.text && !selOn()) { const el = selRows(d.key).find((e) => e.dataset.id === d.from); if (el) el._txt._commit(d.key); }
+    rowsRange(d.from, id, d.key);
   }
   // 写す（Ctrl+C・Ctrl+X）: text/plain は blocksMarkdown（頭の空の行は除く）、text/html は決まった形の HTML（文字は逃がす: SEC2）。切り取りは置いてから消す
   // 選んだ行の写し・貼り付けは、箱にフォーカスがあるときだけ（行の文の写し・貼り付けは今の受け口のまま）。箱には文字の選びが無いので beforecopy などを止めて事象を受ける
-  const selHere = () => selOn() && document.activeElement === $('pNote');
+  const selHere = () => selOn() && document.activeElement === boxOfKey(blockSel.pageId);
   const htmlEsc = (s) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
   function selRichHtml(b) {
     return richOf(b).map((r) => {
@@ -6519,9 +7448,9 @@
     }).join('');
   }
   function selCopy(ev, cut) {
-    if (!selHere() || !curPage) return;
+    if (!selHere()) return;
     if (typeof ev.preventDefault === 'function') ev.preventDefault();
-    const blocks = selRootIds().map((id) => locate(curPage.blocks, id)).filter(Boolean).map((l) => l.b);
+    const blocks = selRootIds().map((id) => locate(blocksOfKey(blockSel.pageId), id)).filter(Boolean).map((l) => l.b);
     const cd = ev.clipboardData;
     if (cd) { cd.setData('text/plain', blocksMarkdown(blocks).replace(/^\n+/, '')); cd.setData('text/html', selHtml(blocks)); }
     selCopied = Boolean(cd);
@@ -6544,7 +7473,7 @@
   }
   // 選んだ行を写す（切り取りは、書けたときだけ消す。書けなければ消さずに知らせる）
   function selClipCopy(cut) {
-    if (!selHere() || !curPage) return;
+    if (!selHere()) return;
     selCopied = false;
     let ran = false;
     try { ran = document.execCommand('copy') === true; } catch (_) { ran = false; }   // 無い・投げたら写せない
@@ -6568,17 +7497,17 @@
   }
   // 選んでいて Ctrl+V・Shift+Insert・Ctrl+Shift+V: 読む間にページか選びが替わったら貼らない
   async function selClipPaste(plain) {
-    if (!selHere() || !curPage || (reverting && reverting.pid === curId)) return null;
-    const pid = curId; const want = blockSel.ids.join('\u0001');
+    if (!selHere() || (reverting && reverting.pid === curId)) return null;
+    const pid = blockSel.pageId; const want = blockSel.ids.join('\u0001');
     const c = await clipRead();
-    if (!c || pid !== curId || !selHere() || blockSel.ids.join('\u0001') !== want) return null;
+    if (!c || !boxOfKey(pid) || !selHere() || blockSel.ids.join('\u0001') !== want) return null;
     return selPaste(clipEvent(c, plain));
   }
   // 区切り線の行（文の欄でない）の Ctrl+V・Shift+Insert・Ctrl+Shift+V: 今の行の貼り付け（pasteRow）に渡す（R126 (5)・R138: 下に行として足す）
   async function rowClipPaste(el, plain) {
-    const pid = curId; const b = el._b;
+    const pid = keyOfEl(el); const b = el._b;
     const c = await clipRead();
-    if (!c || pid !== curId || el._b !== b || !isIn(el, $('pNote'))) return;
+    if (!c || !boxOfKey(pid) || el._b !== b || !isIn(el, boxOfKey(pid))) return;
     plainPasteAt = plain ? el._txt : null;
     pasteRow(el, clipEvent(c, plain));
   }
@@ -6591,7 +7520,7 @@
   }
   // 選んでいて Ctrl+V（決めたこと 30）: 選んだ最後の行の後ろへ block.paste の1回（今の行の文の終わりで貼るのと同じ。子の中には入れない）
   function selPaste(ev) {
-    if (!selHere() || !curPage) return;
+    if (!selHere()) return;
     if (typeof ev.preventDefault === 'function') ev.preventDefault();
     if (reverting && reverting.pid === curId) return;
     const cd = ev.clipboardData;
@@ -6600,15 +7529,15 @@
     if (out.tooBig) { toast(PASTE_TOO_BIG); return; }
     if (!out.blocks.length) return;
     const roots = selRootIds();
-    const l = locate(curPage.blocks, roots[roots.length - 1]);
+    const l = locate(blocksOfKey(blockSel.pageId), roots[roots.length - 1]);
     if (!l) return;
-    const pid = curId; const b = l.b;
+    const pid = blockSel.pageId; const b = l.b;
     const rich = b.type === 'divider' ? [] : richOf(b);
     if (!pasteFits([pid, b.id, rich, plainOf(rich).length, out.blocks])) { toast(PASTE_TOO_BIG); return; }   // EK-3 直し（R141）
     selClear();
     let full = false;
     const send = async () => {
-      try { return await window.koeApp.blockPaste(pid, b.id, rich, plainOf(rich).length, out.blocks); } catch (e) { if (String((e && (e.code || e.message)) || '') !== 'too-big') throw e; full = true; return null; }
+      try { return await rowApi(pid).blockPaste(pid, b.id, rich, plainOf(rich).length, out.blocks); } catch (e) { if (String((e && (e.code || e.message)) || '') !== 'too-big') throw e; full = true; return null; }
     };
     return editAnswer(pid, send, (x) => {
       const lc = x && x.page ? locate(x.page.blocks, x.lastId) : null;
@@ -6618,25 +7547,25 @@
   // 答えを描いた後: select があればその行を選び直す（選んだ行の操作）。無ければ、今の選びから消えた行を外す
   // EK-4 直し（R154・R155）: 選び直すときは anchor・head も（無い行は外す）。行の文へフォーカスを移すなら古い選びの印を残さない。
   // 描き直しで選びが消えて箱にフォーカスが残ったら（箱は枠を描かない）、選んでいた所にいちばん近い行の文へ
-  function selAfter(keep) {
+  function selAfter(keep, key = curId) {
     const at = selAt;
-    if (keep && Array.isArray(keep.select)) { selSet(keep.select, keep.anchor, keep.head); return true; }
+    if (keep && Array.isArray(keep.select)) { selSet(keep.select, keep.anchor, keep.head, key); return true; }
     if (keep && keep.focus) { selClear(); return false; }
     if (blockSel) {
       const have = new Set(selRows().map((e) => e.dataset.id));
       const ids = blockSel.ids.filter((id) => have.has(id));
-      if (ids.length && blockSel.pageId === curId) { selSet(ids, blockSel.anchor, blockSel.head); return false; }   // 無い anchor・head は selSet が外す
+      if (ids.length && boxOfKey(blockSel.pageId)) { selSet(ids, blockSel.anchor, blockSel.head); return false; }   // 無い anchor・head は selSet が外す
       selClear();
     }
-    if (at >= 0 && document.activeElement === $('pNote')) {
-      const rows = editRows();
+    if (at >= 0 && document.activeElement === boxOfKey(key)) {
+      const rows = editRows(boxOfKey(key));
       const near = rows[Math.min(at, rows.length - 1)];
       if (near) { near._txt.focus(); setCaret(near._txt, near._txt.textContent.length); return true; }
     }
     return false;
   }
-  {
-    const box = $('pNote');
+  // 0.14.0 MB-4: 行の欄の箱の受け口（要約の欄とメモの欄で同じ）
+  function wireRowsBox(box) {
     box.setAttribute('tabindex', '-1');
     box.addEventListener('keydown', selKey);
     box.addEventListener('mousedown', selClick);
@@ -6646,7 +7575,10 @@
     box.addEventListener('selectstart', (ev) => { if (selDrag && !selDrag.text && typeof ev.preventDefault === 'function') ev.preventDefault(); });   // EK-4 直し（R155）: 余白からの引っ張りは文字を選ばない
     box.addEventListener('pointercancel', () => { selDrag = null; });
     // 欄の外へフォーカスが出たら選びを外す（⠿ のメニューは欄の中に描く）
-    box.addEventListener('focusout', () => setTimeout(() => { if (blockSel && !isIn(document.activeElement, box)) selClear(); }, 0));
+    box.addEventListener('focusout', () => setTimeout(() => { if (blockSel && blockSel.pageId === keyOfBox(box) && !isIn(document.activeElement, box)) selClear(); }, 0));
+  }
+  {
+    wireRowsBox($('pNote'));
     for (const t of ['beforecopy', 'beforecut', 'beforepaste']) document.addEventListener(t, (ev) => { if (selHere() && typeof ev.preventDefault === 'function') ev.preventDefault(); });
     document.addEventListener('copy', (ev) => selCopy(ev, false));
     document.addEventListener('cut', (ev) => selCopy(ev, true));
@@ -6722,7 +7654,7 @@
     if (grip) grip.setAttribute('aria-expanded', 'true');
     box.style.top = `${(el.offsetTop || 0) + (el.offsetHeight || 0)}px`;
     box.style.left = `${el.offsetLeft || 0}px`;
-    $('pNote').appendChild(box);
+    popHost(el).appendChild(box);
     if (typeof box.scrollIntoView === 'function') box.scrollIntoView({ block: 'nearest' });   // 箱の全部が見える所まで捲る（slashRender と同じ）
     menuItems(box)[0].focus();
   }
@@ -6753,7 +7685,7 @@
     if (!m.sub) {
       const sub = document.createElement('div');
       sub.className = 'blockmenu sub'; sub.setAttribute('role', 'menu'); sub.setAttribute('aria-label', '変換');
-      const many = (m.ids || [m.el.dataset.id]).map((id) => (m.ids ? (locate(curPage.blocks, id) || {}).b : m.el._b)).filter(Boolean);
+      const many = (m.ids || [m.el.dataset.id]).map((id) => (m.ids ? (locate(blocksOfKey(keyOfEl(m.el)), id) || {}).b : m.el._b)).filter(Boolean);
       const hasText = m.ids ? many.some((b) => String(b.text ?? '').trim() !== '') : m.el._txt.textContent.trim() !== '';
       const hasKids = many.some((b) => Array.isArray(b.children) && b.children.length > 0);   // 0.13.1 NR7（EQ16 (a)）: 子のある行も区切り線にできない（EK-4: 選んだ行のどれか1つでも）
       for (const r of SLASH_ROWS) {
@@ -6774,7 +7706,7 @@
     if (m.box.parentNode) m.box.parentNode.removeChild(m.box);
     const grip = m.el.querySelector('.grip');
     if (grip) grip.setAttribute('aria-expanded', 'false');
-    if (back && m.ids && selOn()) $('pNote').focus();   // 0.14.0 EK-4: 選んだ行のメニューの Esc は選んだ行へ戻る（R64 (2) の後は (4)）
+    if (back && m.ids && selOn()) boxOfKey(blockSel.pageId).focus();   // 0.14.0 EK-4: 選んだ行のメニューの Esc は選んだ行へ戻る（R64 (2) の後は (4)）
     else if (grip && back) grip.focus();
   }
   // 0.14.0 EB-3（決めたこと 2）: 1つの動作で送る命令（先に保存する打った文も）を1歩に
@@ -6784,40 +7716,39 @@
     if (!m) return null;
     const el = m.el; const b = el._b; const txt = el._txt;
     blockMenuClose();
-    const pid = curId;
-    if (m.ids) return blockMenuMany(what, row, m.ids);
+    const pid = keyOfEl(el);
+    if (m.ids) return blockMenuMany(what, row, m.ids, pid);
     if (what === 'turn') return turnRow(el, row.key, row.level, txt.textContent.length, row.toggle);
     // 0.14.0 EB-5（決めたこと 21）: 行の色（打った文を保存してから blocks.setColor の1回。row は 'red'・'red_bg'・''）
     if (what === 'color') {
       try { await txt._commit(pid); } catch (_) { /* 保存の失敗は _commit の答えで知らせる */ }
-      return editAnswer(pid, () => window.koeApp.blocksSetColor(pid, [b.id], row), () => ({ focus: b.id, caret: txt.textContent.length }));
+      return editAnswer(pid, () => rowApi(pid).blocksSetColor(pid, [b.id], row), () => ({ focus: b.id, caret: txt.textContent.length }));
     }
     if (what === 'duplicate') {
       try { await txt._commit(pid); } catch (_) { /* 保存の失敗は _commit の答えで知らせる */ }
-      return editAnswer(pid, () => window.koeApp.blockDuplicate(pid, b.id), (x) => ({ focus: x.blockId, caret: txt.textContent.length }));
+      return editAnswer(pid, () => rowApi(pid).blockDuplicate(pid, b.id), (x) => ({ focus: x.blockId, caret: txt.textContent.length }));
     }
     // 削除: フォーカスは上の行の終わり（無ければ下の行の頭）へ
-    const rows = editRows();
+    const rows = editRows(rowsBoxOf(el));
     const i = rows.indexOf(el);
     const near = rows[i - 1] || rows[i + 1] || null;
     const where = near ? { focus: near.dataset.id, caret: near === rows[i - 1] ? near._txt.textContent.length : 0 } : null;
-    return editAnswer(pid, () => window.koeApp.blockRemove(pid, b.id), () => where);
+    return editAnswer(pid, () => rowApi(pid).blockRemove(pid, b.id), () => where);
   }
   // 0.14.0 EK-4（決めたこと 30）: 選んだ行のメニューの項目（削除・複製・変換・色）。どれも1つの命令＝1歩
-  function blockMenuMany(what, row, ids) {
-    const pid = curId;
-    if (what === 'remove') { if (selOn()) return selRemove(); return editAnswer(pid, () => window.koeApp.blocksRemove(pid, ids), null); }
+  function blockMenuMany(what, row, ids, pid) {
+    if (what === 'remove') { if (selOn()) return selRemove(); return editAnswer(pid, () => rowApi(pid).blocksRemove(pid, ids), null); }
     const keep = (x) => ({ select: x && Array.isArray(x.ids) ? x.ids : ids });
-    if (what === 'duplicate') return editAnswer(pid, () => window.koeApp.blocksDuplicate(pid, ids), keep);
-    if (what === 'color') return editAnswer(pid, () => window.koeApp.blocksSetColor(pid, ids, row), keep);
-    if (row.key === 'divider' && !selDividerOk(ids)) return null;
-    return editAnswer(pid, () => window.koeApp.blocksTurnInto(pid, ids, row.key, row.level, row.toggle), keep);
+    if (what === 'duplicate') return editAnswer(pid, () => rowApi(pid).blocksDuplicate(pid, ids), keep);
+    if (what === 'color') return editAnswer(pid, () => rowApi(pid).blocksSetColor(pid, ids, row), keep);
+    if (row.key === 'divider' && !selDividerOk(ids, pid)) return null;
+    return editAnswer(pid, () => rowApi(pid).blocksTurnInto(pid, ids, row.key, row.level, row.toggle), keep);
   }
   // 行の近道（決めたこと 27〜29）: 型の変換・複製・上下へ動かす（ID で: 決めたこと 18）・ToDo のチェック・⠿ のメニュー
   // 0.14.0 EB-3（決めたこと 2）: 1つの動作で送る命令（先に保存する打った文も）を1歩に
   function rowShortcut(el, act) { return stepGroup(() => rowShortcutRun(el, act)); }
   async function rowShortcutRun(el, act) {
-    const pid = curId; const b = el._b; const txt = el._txt;
+    const pid = keyOfEl(el); const b = el._b; const txt = el._txt;
     const caret = (caretRange(txt) || [txt.textContent.length])[0];
     if (act === 'menu') { blockMenuOpen(el); return null; }
     if (act.startsWith('turn:')) {
@@ -6828,38 +7759,40 @@
     if (act === 'ctrlEnter') {
       if (isToggleView(b)) return toggleRow(el, { focus: b.id, caret });   // 0.13.1 決めたこと 28: トグルの開け閉め
       if (b.type !== 'todo') return null;
-      return editAnswer(pid, () => window.koeApp.blockUpdate(pid, b.id, { checked: !b.checked }), () => ({ focus: b.id, caret }));
+      return editAnswer(pid, () => rowApi(pid).blockUpdate(pid, b.id, { checked: !b.checked }), () => ({ focus: b.id, caret }));
     }
     // 0.13.1 EQ19 (a)・NR21: Ctrl+Alt+T はページのトグルを、1つでも閉じて見えていれば全部開き、全部開いていれば全部閉じる（画面だけの開け閉めも消す）
     if (act === 'openAll') {
-      const all = flattenBlocks(curPage.blocks).filter(isToggleView);
+      const all = flattenBlocks(blocksOfKey(pid)).filter(isToggleView);
       if (!all.length) return null;
       const open = all.some((x) => !openView(x));
+      const tg = memoTgOf(pid);   // 0.14.0 MB-4（G3）: メモの欄は窓のメモリだけ
+      if (tg) { await commitRows(pid); for (const x of all) tg.open.set(x.id, open); renderMemoRows(tg); focusRow(b.id, caret, tg.box); return null; }
       peekOpen = new Map();
       await commitRows(pid);   // 点検 1: 行の文を全部（閉じて隠れる行の文も）
       return editAnswer(pid, () => window.koeApp.blockSetOpenAll(pid, open), () => ({ focus: b.id, caret }));   // 隠れた行のフォーカスは liftFocus が先祖へ（点検 3）
     }
     try { await txt._commit(pid); } catch (_) { /* 保存の失敗は _commit の答えで知らせる */ }
-    if (act === 'duplicate') return editAnswer(pid, () => window.koeApp.blockDuplicate(pid, b.id), (x) => ({ focus: x.blockId, caret }));
+    if (act === 'duplicate') return editAnswer(pid, () => rowApi(pid).blockDuplicate(pid, b.id), (x) => ({ focus: x.blockId, caret }));
     // 0.13.1 NR13: 子は同じ親の兄弟の中だけで1つ上・下へ（親の外へ出す・中へ入れるのは Tab と Shift+Tab）。最上位は画面の最上位の並びで（0.13.0 のまま）
     let to = null;
-    const l = locate(curPage.blocks, b.id);
+    const l = locate(blocksOfKey(pid), b.id);
     if (l && l.parent) {
       if (act === 'moveUp' && l.index > 0) to = l.index >= 2 ? { afterId: l.list[l.index - 2].id } : { afterId: '', parentId: l.parent.id };
       if (act === 'moveDown' && l.index < l.list.length - 1) to = { afterId: l.list[l.index + 1].id };
     } else {
-      const tops = editRows().filter((e) => rowDepth(e) === 0);
+      const tops = editRows(boxOfKey(pid)).filter((e) => rowDepth(e) === 0);
       const i = tops.indexOf(el);
       if (act === 'moveUp' && i > 0) to = { afterId: i >= 2 ? tops[i - 2].dataset.id : '' };   // 1つ上の行の前（＝2つ上の行の後ろ）
       if (act === 'moveDown' && i >= 0 && i < tops.length - 1) to = { afterId: tops[i + 1].dataset.id };   // 1つ下の行の後ろ
     }
     if (to === null) return null;
-    return editAnswer(pid, () => window.koeApp.blockMove(pid, b.id, to), () => ({ focus: b.id, caret }));
+    return editAnswer(pid, () => rowApi(pid).blockMove(pid, b.id, to), () => ({ focus: b.id, caret }));
   }
   // 番号付きの番号（描くときに数える: 画面の並びで続いた番号付き。間に別の型が入れば 1 から）。行を足し引きした後も数え直す
   // 0.13.1 NE-4a（F50）: 親ごとに数える（同じ data-parent の行が兄弟の並び。閉じたトグルの子は描かないので数えない）
-  function renumberRows() {
-    const rows = [...$('pNote').querySelectorAll('.blk')];
+  function renumberRows(box = $('pNote')) {
+    const rows = [...box.querySelectorAll('.blk')];
     const groups = new Map();
     for (const e of rows) { const k = e.dataset.parent || ''; if (!groups.has(k)) groups.set(k, []); if (e._b) groups.get(k).push(e._b); }
     const nums = new Map();
@@ -6914,7 +7847,7 @@
       // 0.13.1 NR17（決めたこと 25・EQ17 (a)）: ⠿ で Tab は欄の外の次の部品へ（行の文に入らない）・Shift+Tab は［AI 要約］のタブ・Esc は行の文へ・Enter と Space はメニュー
       if (!lock) grip.onkeydown = (ev) => {
         if (imeEnter(ev)) return;
-        if (ev.key === 'Tab') { ev.preventDefault(); if (ev.shiftKey) { const t = $('paneBtnNote'); if (t) t.focus(); } else focusAfterRows(grip); return; }
+        if (ev.key === 'Tab') { ev.preventDefault(); if (ev.shiftKey) { const t = $(paneTabOf(el)); if (t) t.focus(); } else focusAfterRows(grip); return; }
         if (ev.key === 'Escape') { ev.preventDefault(); el._txt.focus(); return; }
         if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); blockMenuOpen(el); }
       };
@@ -6925,7 +7858,7 @@
         if (ev && ev.target && ev.target !== el) { if (typeof ev.preventDefault === 'function') ev.preventDefault(); return; }
         dragBlockId = b.id; el.classList.add('dragging');
         // 0.14.0 EK-4（決めたこと 30）: 選んだ行の ⠿ を引っ張ると、選んだ行の全部を動かす（blocks.move の1回）。ほかの行の ⠿ なら選びを外す
-        dragIds = selOn() && selCovers(b.id) ? selRootIds() : null;   // EK-4 直し（R155）: 選んだ親の子の ⠿ も選んだ行（決めたこと 31）
+        dragIds = selOn(keyOfEl(el)) && selCovers(b.id) ? selRootIds() : null;   // EK-4 直し（R155）: 選んだ親の子の ⠿ も選んだ行（決めたこと 31）
         if (!dragIds) selClear();
         dragStartX = Number(ev.clientX) || 0;
         ev.dataTransfer.effectAllowed = 'move';
@@ -6933,7 +7866,7 @@
       };
       el.ondragend = () => {
         el.draggable = false; el.classList.remove('dragging');
-        dragBlockId = null; dragIds = null; clearDropMarks($('pNote'));
+        dragBlockId = null; dragIds = null; clearDropMarks(rowsBoxOf(el) || $('pNote'));
       };
       if (!lock) el.insertBefore(grip, txt);
       el.oncontextmenu = lock ? null : (ev) => { ev.preventDefault(); blockMenuOpen(el); };   // 右クリックでも同じメニュー
@@ -6950,9 +7883,10 @@
         cb.type = 'checkbox'; cb.checked = Boolean(b.checked);
         cb.disabled = Boolean(lock);
         cb.onchange = async () => {
-          await inFlight(window.koeApp.blockUpdate(curId, b.id, { checked: cb.checked }));   // EB-3 直し（R109）
+          const k = keyOfEl(el);   // 0.14.0 MB-4: メモの行のチェックはメモの口へ
+          await inFlight(rowApi(k).blockUpdate(k, b.id, { checked: cb.checked }));   // EB-3 直し（R109）
           b.checked = cb.checked;
-          if (curPage) curPage.summaryEdited = true;   // 点検4: 要約の欄を直した印（DB も同じ命令で付ける）
+          if (curPage && k === curId) curPage.summaryEdited = true;   // 点検4: 要約の欄を直した印（DB も同じ命令で付ける）
           el.classList.toggle('done', cb.checked);
           refreshList();
         };
@@ -6984,6 +7918,7 @@
         renderLockedMeta(el, b);
         return;
       }
+      if (isMemoRow(b)) return;   // 0.14.0 MB-4（R69）: メモの行は出典・担当・期限の札と × を出さない（消すのは ⠿ のメニュー）
 
       // 2026-10-28 の点検 2（NR46）: 文の右の札（担当・期限・出典）と ✕ は1つの箱（.tail）に入れ、入らないときは箱ごと下の行へ折り返す
       const tail = document.createElement('span'); tail.className = 'tail';
@@ -7022,11 +7957,8 @@
       el.appendChild(tail);
     },
   };
-  function renderBlocks() {
-    slashClose(); blockMenuClose();
-    inlineClose();   // 0.14.0 EB-5: 帯・リンクの欄・色のメニューも（欄の子を描き直すので）
-    blockSel = null; selDrag = null;   // 0.14.0 EK-4（決めたこと 28）: 描き直すと選びを外す（選んだ行の操作の答えは selAfter が選び直す）
-    const box = $('pNote'); box.textContent = '';
+  // 0.14.0 MB-4: 行の欄の引っ張って落とす受け口（要約の欄とメモの欄で同じ。動かす・複製は欄の鍵の口へ）
+  function wireDrop(box) {
     box.ondragover = (ev) => {
       // EB-4 直し（M3・R115）: 外から引っ張ってきたものは既定の落としを止める（Chromium が HTML のまま行に入れる）。
       // EB-5 直し（R117）: 行の文の上の素の文字だけは落とせる（ondrop が素の文字を落とした所へ入れる）。ファイル・行の外は落とせない形
@@ -7066,28 +7998,36 @@
       const spot = dropSpotAt(els, idx, ev.clientX, id, many);
       const afterId = spot.afterId;
       const into = afterId === '' && spot.parentId ? spot.parentId : undefined;   // 上の行の子の頭
-      const pid = curId;
+      const pid = keyOfBox(box);
       // 0.14.0 EK-4（決めたこと 30・31）: 選んだ行は blocks.move（Alt で落とすと blocks.duplicate）の1回。並びは画面の順のまま、答えの後も選んだまま
       if (many) {
-        if (into && curPage && !openView(locate(curPage.blocks, into).b)) peekOpen.set(into, true);
+        if (into && !openView(locate(blocksOfKey(pid), into).b)) revealRow(pid, into);
         const keep = (x) => ({ select: x && Array.isArray(x.ids) ? x.ids : many });
-        if (ev.altKey) return editAnswer(pid, () => window.koeApp.blocksDuplicate(pid, many, afterId, into), keep);
-        return editAnswer(pid, () => window.koeApp.blocksMove(pid, many, afterId, into), keep);
+        if (ev.altKey) return editAnswer(pid, () => rowApi(pid).blocksDuplicate(pid, many, afterId, into), keep);
+        return editAnswer(pid, () => rowApi(pid).blocksMove(pid, many, afterId, into), keep);
       }
       const row = [...box.querySelectorAll('.blk')].find((e) => e.dataset.id === id);
       if (row && row._txt && typeof row._txt._commit === 'function') { try { await row._txt._commit(pid); } catch (_) { /* 保存の失敗は _commit の答えで知らせる */ } }
       if (ev.altKey) {   // K-21: Alt を押しながら落とすと、その所へ複製（1つの命令）
-        await editAnswer(pid, () => (into ? window.koeApp.blockDuplicate(pid, id, afterId, into) : window.koeApp.blockDuplicate(pid, id, afterId)), (x) => ({ focus: x.blockId, caret: 0 }));
+        await editAnswer(pid, () => (into ? rowApi(pid).blockDuplicate(pid, id, afterId, into) : rowApi(pid).blockDuplicate(pid, id, afterId)), (x) => ({ focus: x.blockId, caret: 0 }));
         return;
       }
       if (into) {
-        if (curPage && !openView(locate(curPage.blocks, into).b)) peekOpen.set(into, true);   // NR18: 閉じたトグルの中へ入れた行も見える
-        await editAnswer(pid, () => window.koeApp.blockMove(pid, id, { afterId, parentId: into }), null);
+        if (!openView(locate(blocksOfKey(pid), into).b)) revealRow(pid, into);   // NR18: 閉じたトグルの中へ入れた行も見える
+        await editAnswer(pid, () => rowApi(pid).blockMove(pid, id, { afterId, parentId: into }), null);
         return;
       }
-      await editAnswer(pid, () => window.koeApp.blockMove(pid, id, { afterId }), null);
+      await editAnswer(pid, () => rowApi(pid).blockMove(pid, id, { afterId }), null);
     };
     { const drop = box.ondrop; box.ondrop = (ev) => (dragBlockId ? stepGroup(() => drop(ev)) : drop(ev)); }   // 0.14.0 EB-3（決めたこと 2）: 先に保存する打った文と動かす・複製を1歩に（落とした文字は、ほかの行の保存と分けて1歩: R117）
+  }
+  function renderBlocks() {
+    slashClose(); blockMenuClose();
+    inlineClose();   // 0.14.0 EB-5: 帯・リンクの欄・色のメニューも（欄の子を描き直すので）
+    if (blockSel && !isMemoKey(blockSel.pageId)) blockSel = null;   // 0.14.0 EK-4（決めたこと 28）: 描き直すと選びを外す（選んだ行の操作の答えは selAfter が選び直す）
+    selDrag = null;
+    const box = $('pNote'); box.textContent = '';
+    wireDrop(box);
     // 0.10.0 LS-2: 鍵の間は欄の頭に一言を出し、要約の欄を読むだけにする（つまみ・削除の × を出さず、文・チェック・担当と期限を直せない）。
     // 鍵の一言が要約待ちの文を含むので、鍵の間は要約の欄の理由（summaryError）を重ねて出さない
     const lock = summaryLockView(curPage, { live: isLiveCopy(curPage), making: summarizing.has(curId) || mainMaking.has(curId), segments: curSegs });
@@ -7260,18 +8200,17 @@
     inlineClose();   // 0.14.0 EB-5（決めたこと 44）: 道具の帯・リンクの欄・色のメニューも
     selClear();   // 0.14.0 EK-4（決めたこと 28・44）: 選んだ行も
     flushSegEdit();
+    flushMemo();   // 0.14.0 MB-4: メモの行（録音中と録音の前の欄も）
     if (!pid || !curPage) return;
-    flushMemo();
     commitTitle(pid);
     for (const t of $('pNote').querySelectorAll('.blk .txt')) if (typeof t._commit === 'function') t._commit(pid);
   }
 
   // 保留中のメモ保存（500ms の遅延）を今すぐ走らせる
   function flushMemo() {
-    if (!memoTimer) return;
-    clearTimeout(memoTimer); memoTimer = null;
-    const f = memoFlush; memoFlush = null;
-    if (f) f();
+    // 0.14.0 MB-4: メモの行に打ってまだ保存していない文を、その欄の口で送る（保存したページは pageSetMemoDoc・録音中と録音の前は meetingSetMemo）
+    if (!memoTg || !memoTg.box) return;
+    for (const t of memoTg.box.querySelectorAll('.blk .txt')) if (typeof t._commit === 'function') t._commit(memoTg.key);
   }
 
   // タイトルを保存する。変わっていなければ何もしない。別ページへ移った後は画面を触らない。
@@ -7508,8 +8447,7 @@
     sel.onchange = async () => {
       const pid = curId; const v = sel.value;
       // 待っているメモの保存を先に書き終えてから種類を書く（決めたこと 8。DB が今のメモで雛形に替えるかを決める）
-      clearTimeout(memoTimer); memoTimer = null;
-      const f = memoFlush; memoFlush = null;
+      const f = memoSaveNow;   // 0.14.0 MB-4: メモの行に打ってまだ保存していない文と、送っている直しを先に書き終える
       if (f) await f();
       if (v === '') {
         // 「自動」に戻す（typeAuto 真。種類は次の要約で判定し直す。メモは変えない: P16）
@@ -7523,7 +8461,7 @@
       const r = await window.koeApp.pageSetType(pid, v, true);
       if (pid !== curId || !curPage) return;
       const got = r && r.page ? r.page : r;
-      if (got && typeof got === 'object' && got.id === pid) Object.assign(curPage, { meetingType: got.meetingType, typeAuto: got.typeAuto, memo: got.memo, stateLog: got.stateLog });
+      if (got && typeof got === 'object' && got.id === pid) { Object.assign(curPage, { meetingType: got.meetingType, typeAuto: got.typeAuto, memo: got.memo, stateLog: got.stateLog }); curPage.memoDoc = got.memoDoc; }   // 0.14.0 MB-4: 雛形の行も
       else Object.assign(curPage, { meetingType: v, typeAuto: false });
       const kind = memoKindOf(v);
       const name = kind ? kind.label : (typeDef(v) || {}).label || '';
@@ -7543,27 +8481,30 @@
     const label = document.createElement('div');
     label.className = 'field';
     const l = document.createElement('label'); l.textContent = 'メモ・アジェンダ（要約のヒントとして使われます）';
-    const ta = document.createElement('textarea');
-    ta.rows = 10; ta.value = curPage.memo || '';
-    ta.placeholder = '例: 週次定例。議題: 売上見込み / 案件進捗 / 採用状況';
     const guide = makeGuide();   // 0.11.0 V-1: メモ欄の上の手引き（手を付けていないときだけ）
-    fillGuide(guide, ta.value, pageMemoTypeKey(curPage));
-    ta.oninput = () => {
-      // 保存先は「書いたときのページ」。500ms の間にページを切り替えると、
-      // 発火時の curId は次のページになっていて、そちらのメモを上書きしてしまう。
-      const pid = curId;
-      const typeKey = pageMemoTypeKey(curPage);
-      fillGuide(guide, ta.value, typeKey);   // 人の文が入ったら隠す（入力のたびに見直す）
-      clearTimeout(memoTimer);
-      // 0.11.0 V-1（決めたこと 8）: 種類を替えるときは、これを走らせて保存を書き終えるのを待つ（答えの約束を返す）
-      memoFlush = () => {
-        const v = ta.value;
-        if (pid === curId && curPage) curPage.memo = v;
-        return window.koeApp.pageSetMemo(pid, v);
-      };
-      memoTimer = setTimeout(() => { memoTimer = null; const f = memoFlush; memoFlush = null; if (f) f(); }, 500);
-    };
-    label.append(l, guide, ta); box.appendChild(label);
+    // 0.14.0 MB-4（決めたこと 63・66）: メモの欄は要約と同じ行の部品。memoDoc の無いページは今のメモの文から行にして見せるだけ（開いただけでは書かない: BQ23 (a)）。
+    // 直すたびに pageSetMemoDoc の1回（DB が素の文字のメモと検索の欄を作り直す）
+    const tg = memoTarget(memoKeyOf(curId), curId, memoDocOfPage(curPage));
+    tg.guide = guide; tg.typeKey = () => pageMemoTypeKey(curPage);
+    label.append(l, guide, makeMemoRows(tg)); box.appendChild(label);
+    renderMemoRows(tg);
+    fillGuide(guide, memoNowPlain(tg), pageMemoTypeKey(curPage));   // 人の文が入ったら隠す（memoPlain で見る）
+  }
+  // 0.14.0 MB-4: 種類を替える前に、保存したページのメモの行の打った文と送っている直しを書き終える（決めたこと 8）
+  async function memoSaveNow() {
+    if (memoTg && memoTg.pageId && memoTg.pageId === curId) await commitRows(memoTg.key);
+    await editsSettled();
+  }
+  // メモの行を打ったとき（手引き・録音中の一言を memoPlain で見直す）
+  function memoTyped(tg) {
+    const plain = memoNowPlain(tg);
+    if (tg.guide) fillGuide(tg.guide, plain, tg.typeKey());
+    if (!tg.pageId) { liveMemo = plain; if (!memoUntouched(plain)) $('pTypeLiveHint').hidden = true; }   // 人の文が入ったら一言を消す
+  }
+  // メモの欄に答えを描いた後
+  function memoAfter(tg) {
+    memoHint(tg);
+    memoTyped(tg);
   }
 
   function jumpToSegment(sid) {
@@ -7619,6 +8560,8 @@
   let mtPhase = 'idle';
   let liveMemoWrap = null;        // 記録中のメモ欄（ページのメモ欄と取り違えない）
   let liveMemo = '';              // 記録中のメモの今の文字（タブを行き来して欄を作り直すときに戻す）
+  let liveDoc = memoDocView.memoFromText('');   // 0.14.0 MB-4: 記録中のメモの今の行（main に送った行。欄を作り直すときに戻す）
+  const LIVE_MEMO = memoKeyOf('live');            // 録音中と録音の前のメモの欄の鍵（録音の前の欄がそのまま録音中の欄になるので1つ: R170）
   const liveMemoShown = () => Boolean(liveMemoWrap && [...$('pMemo').children].includes(liveMemoWrap));
   // 記録中のタブを選んでいて、ページを開いていない（記録中の描き方を使う）
   const liveShown = () => activeTab === 'live' && !curId;
@@ -7719,14 +8662,11 @@
     sel.onchange = async () => {
       const v = sel.value;
       // 待っているメモの送りを止めて、今の文を先に送る（main が今のメモで雛形に替えるかを決める）
-      clearTimeout(liveMemoTimer); liveMemoTimer = null;
-      const ta = liveMemoWrap ? liveMemoWrap.querySelector('textarea') : null;
-      if (ta) liveMemo = ta.value;
-      await window.koeApp.meetingSetMemo(liveMemo);
+      await liveMemoSave();   // 0.14.0 MB-4: メモの行に打ってまだ送っていない文と送っている直しを送り終え、今の行を送る
       let r = null;
       try { r = await window.koeApp.meetingSetType(v === '' ? 'auto' : v); } catch (_) { r = null; }
       if (!r || r.ok === false) return;
-      if (r.inserted && typeof r.memo === 'string') { liveMemo = r.memo; if (ta) ta.value = r.memo; }
+      if (r.inserted && typeof r.memo === 'string') { liveMemo = r.memo; liveDocSet(Array.isArray(r.memoDoc) ? r.memoDoc : memoDocView.memoFromText(r.memo)); }
       liveTypeHints(v);
       fillGuide(liveGuide, liveMemo, v);
       if (v === '') return;   // 「自動」に戻したときはタブを替えない
@@ -7745,22 +8685,35 @@
     const wrap = document.createElement('div'); wrap.className = 'field';
     const l = document.createElement('label');
     l.textContent = 'メモ・アジェンダ（要約のヒントとして使われます）';
-    const ta = document.createElement('textarea');
-    ta.rows = 10;
-    ta.value = liveMemo;
-    ta.placeholder = '例: 週次定例。議題: 売上見込み / 案件進捗 / 採用状況';
     liveGuide = makeGuide();   // 0.11.0 V-1: メモ欄の上の手引き（手を付けていないときだけ）
-    fillGuide(liveGuide, liveMemo, $('pType').dataset.for === 'live' ? $('pType').value : (st.meetingType || ''));
-    ta.oninput = () => {
-      liveMemo = ta.value;
-      fillGuide(liveGuide, liveMemo, $('pType').dataset.for === 'live' ? $('pType').value : '');
-      if (!memoUntouched(liveMemo)) $('pTypeLiveHint').hidden = true;   // 人の文が入ったら一言を消す
-      clearTimeout(liveMemoTimer);
-      liveMemoTimer = setTimeout(() => { liveMemoTimer = null; window.koeApp.meetingSetMemo(ta.value); }, 500);
-    };
-    wrap.append(l, liveGuide, ta);
+    // 0.14.0 MB-4（決めたこと 61・62・65・録音の守り）: 録音中と録音の前のメモも行の部品。直しは meetingSetMemo（DB に頼らない）・元に戻すは窓のメモリ
+    const tg = memoTarget(LIVE_MEMO, null, liveDoc);
+    tg.guide = liveGuide; tg.typeKey = () => ($('pType').dataset.for === 'live' ? $('pType').value : '');
+    wrap.append(l, liveGuide, makeMemoRows(tg));
     memoBox.appendChild(wrap);
     liveMemoWrap = wrap;
+    renderMemoRows(tg);
+    fillGuide(liveGuide, memoNowPlain(tg), $('pType').dataset.for === 'live' ? $('pType').value : (st.meetingType || ''));
+  }
+  // 録音中・録音の前のメモの欄（描いていれば）
+  const liveMemoTg = () => (memoTg && !memoTg.pageId && memoTgOf(memoTg.key) ? memoTg : null);
+  // main から来た行（種類の雛形）を欄に入れる（元に戻すの列は空に: 窓のメモリの歩みは main の書いた行に付け替えない）
+  function liveDocSet(doc) {
+    liveDoc = memoDocOfPage({ memo: memoDocView.memoPlain(doc), memoDoc: doc });
+    liveMemo = memoDocView.memoPlain(liveDoc);
+    undoBk = bookDrop(undoBk, LIVE_MEMO);
+    const tg = liveMemoTg();
+    if (!tg) return;
+    tg.doc = liveDoc;
+    memoShow(tg, structuredClone(liveDoc));
+    renderMemoRows(tg);
+  }
+  // 種類を選ぶ前・始める前: 打ってまだ送っていない文と送っている直しを送り終え、今の行を送る（main が今のメモで雛形に替えるかを決める）
+  async function liveMemoSave() {
+    const tg = liveMemoTg();
+    const was = liveDoc;
+    if (tg) { await commitRows(tg.key); await editsSettled(); }
+    if (liveDoc === was) await window.koeApp.meetingSetMemo(liveDoc);   // 打った文を送っていなければ今の行を送る（同じ行を2回送らない）
   }
   // 記録中のページの中身（要約の区画の案内・メモ・流れる文字起こしと印）
   function drawLive(st) {
@@ -7836,12 +8789,13 @@
     // 0.13.0 RDY-3（RD6・RD8）: 録音の前のページから録音に替わった。メモ欄と種類の行はそのまま使い、欄の今の文が main と違えば送り直す
     // （0.5 秒の送りの間に main の側から始まっても、打った最後の数文字を落とさない: F85）
     const fromReady = started && readyWas;
-    const liveTa = liveMemoWrap ? liveMemoWrap.querySelector('textarea') : null;
-    const memoFocused = Boolean(liveTa && document.activeElement === liveTa);
+    // 0.14.0 MB-4: 録音の前の欄はそのまま録音中の欄（鍵も元に戻すの列も同じ）。RD6 はメモの欄（行の文・⠿・選んだ箱・帯・リンクの欄）にフォーカスがあるか
+    const liveTg = liveMemoWrap ? liveMemoTg() : null;
+    const memoFocused = Boolean(liveTg && isIn(document.activeElement, liveTg.box));
     if (fromReady) {
-      if (liveTa) liveMemo = liveTa.value;
-      if (liveMemo !== (st.memo || '')) { clearTimeout(liveMemoTimer); liveMemoTimer = null; window.koeApp.meetingSetMemo(liveMemo); }
-    } else if (started) { liveMemo = st.memo || ''; $('pType').dataset.for = ''; }   // 新しい会議は種類の行を「自動」から作り直す
+      if (liveTg) { liveTg.doc = memoNowDoc(liveTg); liveDoc = liveTg.doc; liveMemo = memoDocView.memoPlain(liveDoc); }
+      if (liveMemo !== (st.memo || '')) window.koeApp.meetingSetMemo(liveDoc);
+    } else if (started) { liveMemo = st.memo || ''; liveDoc = memoDocOfPage(st); undoBk = bookDrop(undoBk, LIVE_MEMO); $('pType').dataset.for = ''; }   // 新しい会議は種類の行を「自動」から作り直す
     mtWasActive = Boolean(st.active);
     lockEngineFields(Boolean(st.active));
     // サイドバーの行はほかの行と同じ「アイコンの欄（.ic）＋文字」（文字がそろう）
@@ -7943,6 +8897,7 @@
       if (!st.prep) {
         if (!curId) $('pMemo').textContent = '';
         liveMemoWrap = null;
+        undoBk = bookDrop(undoBk, LIVE_MEMO);   // 0.14.0 MB-4（決めたこと 62）: 締めたらメモの列は空（窓のメモリの歩みを DB の tx に付け替えない）
       }
       if (phaseChanged) renderTabs();
       waveState.levels = []; waveState.at = 0;
@@ -8022,7 +8977,7 @@
       readyWas = false;
       return;
     }
-    if (!readyWas) { liveMemo = st.prep.memo || ''; $('pType').dataset.for = ''; liveMemoWrap = null; }   // 新しい録音の前のページは空のメモと「自動」から
+    if (!readyWas) { liveMemo = st.prep.memo || ''; liveDoc = memoDocOfPage(st.prep); undoBk = bookDrop(undoBk, LIVE_MEMO); $('pType').dataset.for = ''; liveMemoWrap = null; }   // 新しい録音の前のページは空のメモと「自動」から
     if (!readyEls) {
       const bar = document.createElement('div'); bar.className = 'live'; bar.id = 'readyBar';
       bar.innerHTML = '<span id="readyState">録音していません</span>'
@@ -8069,12 +9024,9 @@
     if (readyStarting) return;
     readyStarting = true;
     setReadyBusy(true);
-    clearTimeout(liveMemoTimer); liveMemoTimer = null;
-    const ta = liveMemoWrap ? liveMemoWrap.querySelector('textarea') : null;
-    if (ta) liveMemo = ta.value;
     let r = null;
     try {
-      await window.koeApp.meetingSetMemo(liveMemo);
+      await liveMemoSave();   // 0.14.0 MB-4: 打ってまだ送っていない文も
       r = await window.koeApp.meetingStart({ pcOnly: pcOnly === true });
     } catch (_) { r = null; }
     readyStarting = false;
@@ -8089,14 +9041,14 @@
   }
   // 録音の前のタブを閉じる（RD14・NQ5 (a)）: 手を付けていないメモなら黙って、人の文があれば確かめてから。閉じないなら false
   function closeReady() {
-    const ta = liveMemoWrap ? liveMemoWrap.querySelector('textarea') : null;
-    if (ta) liveMemo = ta.value;
+    const tg = liveMemoTg();
+    if (tg) liveMemo = memoNowPlain(tg);   // 0.14.0 MB-4（決めたこと 64）: 打ってまだ送っていない文も入れた素の文字のメモで見る
     if (!memoUntouched(liveMemo) && !confirm(READY_CLOSE_ASK)) return false;
-    clearTimeout(liveMemoTimer); liveMemoTimer = null;
+    undoBk = bookDrop(undoBk, LIVE_MEMO);
     window.koeApp.meetingUnprepare();
     mtSt = { ...mtSt, prep: null };
     renderReady(mtSt);
-    liveMemo = ''; liveMemoWrap = null;
+    liveMemo = ''; liveDoc = memoDocView.memoFromText(''); liveMemoWrap = null;
     return true;
   }
   // 0.14.0 EK-5（計画 docs/plans/2026-10-26-140.md の決めたこと 36・BQ7 (a)・R62・R67）: Ctrl+W は選んでいるタブを閉じる（closeTab。1つだけなら閉じて
@@ -8365,6 +9317,7 @@
       commitTitle(curId);
       page.title = curPage.title;
       page.memo = curPage.memo;
+      page.memoDoc = curPage.memoDoc;   // 0.14.0 MB-4: メモの行も
     }
     curPage = page; curSegs = segments; renderPage();
     if (typeof page.title === 'string') { tabTitles.set(page.id, page.title); renderTabs(); }

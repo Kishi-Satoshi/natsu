@@ -63,7 +63,8 @@ test('D63: 鍵の間は要約の欄が読むだけ（文を直せない・つま
   assert.ok(todo.querySelectorAll('.atag').length > 0 && todo.querySelectorAll('.atag').every((t) => t.disabled === true), '担当・期限を押せる');
   assert.strictEqual(todo.querySelector('.atag').textContent, '担当A');
   // メモの欄は鍵を見ない
-  assert.ok(l.byId.get('pMemo').querySelector('textarea'), 'メモの欄が無い');
+  const mt = l.byId.get('pMemo').querySelector('.memorows .blk .txt');
+  assert.ok(mt && mt.contentEditable === 'true', 'メモの欄が無い');   // 0.14.0 MB-4 で意図して変えた: メモの欄は行の部品（鍵を見ずに直せる）
   assert.deepStrictEqual(l.errors.map(fmt), []);
 });
 

@@ -1249,9 +1249,14 @@ const IDS_140 = [
   'mo-derive', 'mo-fold', 'mo-mcp-plain', 'mo-text-only', 'mo-template',
   // 0.14.0 MB-3（表の行の順に、MB-2 の行の間に入れた）
   'mo-draft-doc', 'mo-live-db', 'mo-live-bad', 'mo-old-draft', 'mo-recover-check', 'mo-prep-adopt',
+  // 0.14.0 MB-4（表の行の順に、MB-1〜MB-3 の行の間に入れた）
+  'mo-migrate-lazy', 'mo-undo-pane', 'mo-live-undo', 'mo-untouched-plain',
   'mo-heading-marker',
+  'mo-order',
   'mo-status-doc',
+  'mo-ready-busy', 'mo-grip-tab', 'mo-open-save',
   'mo-setdoc-lock',
+  'mo-copy-plain',
 ];
 test('G3・0.14.0: 0.14.0 の変異が一覧にそろい、IDS_140 はどれも計画の「変異確認」の表に行の順である。eb-・ek-・mo-・dq- の変異は IDS_140 にある。どれも決まったテストのファイルを持ち、why が 0.14.0 で始まる', { timeout: 5000 }, () => {
   const byId = new Map(MUTANTS.map((m) => [m.id, m]));

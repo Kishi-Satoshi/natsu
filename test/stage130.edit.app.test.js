@@ -765,7 +765,7 @@ test('ED-5・EQ22 (a): 何も直していなければ onPageOpen(\'pb2\', { save
   for (const memo of [false, true]) {
     const l = await liveThenPage();
     try {
-      if (memo) { const ta = $(l, 'pMemo').querySelector('textarea'); ta.focus(); }
+      if (memo) { const ta = $(l, 'pMemo').querySelector('.memorows .blk .txt'); ta.focus(); }   // 0.14.0 MB-4 で意図して変えた: メモの欄は行の部品（要約の欄ではないので前に出る）
       l.fire('onPageOpen', 'pb2', { saved: true });
       await l.drain();
       assert.strictEqual(activeKey(l), 'page:pb2', `memo=${memo}`);
@@ -1168,21 +1168,22 @@ test('ED-7: Ctrl+D → blockDuplicate、Ctrl+Shift+↑ → blockMove（afterId �
   } finally { l.done(); }
 });
 
-test('ED-7・F45: 文字起こしの行・メモの欄・題名・会議の種類の行・録音の前のページの種類の行とメモ欄で Ctrl+D・Ctrl+Shift+1・Ctrl+/ を押しても何も呼ばれない', T, async () => {
+// 0.14.0 MB-4（決めたこと 66）で意図して変えた: メモの欄は要約と同じ行の部品になり、行の近道が効く（メモの口へ送る: test/stage140.app.test.js の MB-4）。ここではメモの欄を外した
+test('ED-7・F45: 文字起こしの行・題名・会議の種類の行・録音の前のページの種類の行で Ctrl+D・Ctrl+Shift+1・Ctrl+/ を押しても何も呼ばれない', T, async () => {
   let status = { active: false };
   const l = await openReal({ pa1: BASE() }, {
     returns: { meetingStatus: () => status, meetingPrepare: () => { status = { active: false, prep: { memo: '', meetingType: null } }; return { ok: true }; } },
   });
   try {
     const keys = [{ key: 'd', code: 'KeyD', ctrlKey: true }, { key: '!', code: 'Digit1', ctrlKey: true, shiftKey: true }, { key: '/', code: 'Slash', ctrlKey: true }];
-    const where = () => [$(l, 'pTitle'), $(l, 'pType'), $(l, 'pMemo').querySelector('textarea'), ...$(l, 'pScript').querySelectorAll('.seg .txt')].filter(Boolean);
+    const where = () => [$(l, 'pTitle'), $(l, 'pType'), ...$(l, 'pScript').querySelectorAll('.seg .txt')].filter(Boolean);
     const page = where();
-    assert.ok(page.length >= 4, `場所が足りない: ${page.length}`);
+    assert.ok(page.length >= 3, `場所が足りない: ${page.length}`);
     for (const el of page) for (const k of keys) l.key(k, el);
     await $(l, 'mtToggleBtn').onclick();
     await l.drain();
-    const ready = [$(l, 'pType'), $(l, 'pMemo').querySelector('textarea')].filter(Boolean);
-    assert.strictEqual(ready.length, 2);
+    const ready = [$(l, 'pType')].filter(Boolean);
+    assert.strictEqual(ready.length, 1);
     for (const el of ready) for (const k of keys) l.key(k, el);
     await l.drain();
     assert.deepStrictEqual(sent(l).filter((c) => c[0] !== 'blockUpdate'), []);

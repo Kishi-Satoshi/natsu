@@ -489,15 +489,14 @@ test('EB-3・P4: 人の行を消しただけ・動かしただけ・型を変え
   }
 });
 
-test('EB-3・F103（決めたこと 11）: 題名・文字起こしの行・メモの欄・設定の窓での Ctrl+Z は editRevert を呼ばず、既定の戻しを止めない。変換中の Ctrl+Z も呼ばない。要約の行では呼ぶ', T, async () => {
+test('EB-3・F103（決めたこと 11）: 題名・文字起こしの行・設定の窓での Ctrl+Z は editRevert を呼ばず（メモの欄はメモの列）、既定の戻しを止めない。変換中の Ctrl+Z も呼ばない。要約の行では呼ぶ', T, async () => {
   const l = await openReal({ pa1: BASE() });
   try {
     l.key({ key: 'Enter' }, typeIn(l, 'p1', 'あいうえお', 2));
     await l.drain();
     assert.strictEqual(l.steps.length, 1);
-    const memo = $(l, 'pMemo').querySelector('textarea');
     const seg = $(l, 'pScript').querySelector('.txt');
-    const places = [['題名', $(l, 'pTitle')], ['メモの欄', memo], ['文字起こしの行', seg], ['設定の検索', $(l, 'setSearch')]];
+    const places = [['題名', $(l, 'pTitle')], ['文字起こしの行', seg], ['設定の検索', $(l, 'setSearch')]];
     for (const [name, el] of places) {
       assert.ok(el, `${name} が無い（見本の作りの誤り）`);
       el.focus();
@@ -508,6 +507,13 @@ test('EB-3・F103（決めたこと 11）: 題名・文字起こしの行・メ�
       }
       assert.deepStrictEqual(revs(l), [], `${name}: 要約の歩みを戻した`);
     }
+    // 0.14.0 MB-4（BQ22 (a)）で意図して変えた: メモの欄は行の部品になり、Ctrl+Z はメモの列（歩みが無ければ戻さない）。要約の歩みは戻さない
+    const memo = $(l, 'pMemo').querySelector('.memorows .blk .txt');
+    memo.focus();
+    l.key(Z, memo);
+    await l.drain();
+    assert.deepStrictEqual(revs(l), [], 'メモの欄の Ctrl+Z で要約の歩みを戻した');
+    assert.strictEqual(toastOf(l), 'これ以上は戻せません');
     // 変換中（isComposing・keyCode 229）は何もしない（IME の確定や候補の操作）
     const t = txtOf(l, 'p1');
     t.focus();
@@ -2879,4 +2885,393 @@ test('EK-4 直し（R155）: 描き直しで選びが消えて欄の箱にフォ
     assert.ok(rowsOf(l).some((e) => l.document.activeElement === e.querySelector('.txt')), 'フォーカスが行の文に無い');
     assert.deepStrictEqual(l.errors.map(fmt), []);
   } finally { l.done(); }
+});
+
+// ---------------------------------------------------------------- MB-4（BQ11・F106・F109。決めたこと 59〜68・BQ22 (a)・BQ23 (a)・BQ25 (a)・BQ29 (a)・G2・G3・R69）: 画面のメモの行
+const MD = require('../src/memoDoc');
+CMDS.pageSetMemoDoc = (id, doc) => ['page.setMemoDoc', { id, doc }];
+CMDS.pageSetType = (id, type, preset) => ['page.setType', preset === true ? { id, type, preset: true } : { id, type }];
+const mBox = (l) => $(l, 'pMemo').querySelector('.memorows');
+const mRows = (l) => (mBox(l) ? mBox(l).querySelectorAll('.blk') : []);
+const mRow = (l, id) => mRows(l).find((e) => e.dataset.id === id);
+const mTxt = (l, id) => mRow(l, id).querySelector('.txt');
+const mIds = (l) => mRows(l).map((e) => e.dataset.id);
+const mIn = (l, id, text, at = text.length, end = at) => { const t = mTxt(l, id); t.focus(); t.textContent = text; l.caret.set(t, at, end); return t; };
+const setDocs = (l) => l.called('pageSetMemoDoc').map((c) => c.args);
+const memoPane = async (l) => { $(l, 'paneBtnMemo').onclick(); await l.drain(); };
+const MEMO1 = '■ 目的\n売上の確認\n';
+const MPAGE = (o = {}) => ({ blocks: BASE(), memo: MEMO1, ...o });
+
+test('MB-4・F106・BQ23 (a): 保存したページのメモの欄は行（見出し3・テキスト。⠿ と ＋・札は無い）。memoDoc の無いページを開いただけでは pageSetMemoDoc も pageSetMemo も呼ばない・最初の直しで1回。打って 2 秒・Enter・型の変換がそれぞれ1回', T, async () => {
+  const l = await openReal({ pa1: MPAGE() });
+  try {
+    await memoPane(l);
+    assert.ok(mBox(l), 'メモの欄が行の箱でない');
+    assert.strictEqual($(l, 'pMemo').querySelector('textarea'), null, 'メモの欄に textarea が残っている');
+    assert.deepStrictEqual(mRows(l).map((e) => [e.dataset.id, e.className, e.querySelector('.txt').textContent]), [['m1', 'blk heading h3', '目的'], ['m2', 'blk paragraph', '売上の確認']]);
+    assert.ok(mRows(l).every((e) => e.querySelector('.grip') && e.querySelector('.plus')), '⠿ と ＋ が無い');
+    assert.ok(mRows(l).every((e) => !e.querySelector('.tail') && !e.querySelector('.cites')), 'メモの行に札がある');
+    assert.deepStrictEqual([setDocs(l), l.called('pageSetMemo')], [[], []], '開いただけで書いた（mo-migrate-lazy）');
+    assert.strictEqual(l.page().memoDoc, undefined);
+    // 打って 2 秒で1回（最初の直しで memoDoc ができる）
+    const t = mIn(l, 'm2', '売上の確認をする');
+    t.dispatchEvent({ type: 'input' });
+    await l.clock.advance(2000);
+    await l.drain();
+    assert.strictEqual(setDocs(l).length, 1);
+    assert.strictEqual(setDocs(l)[0][0], 'pa1');
+    assert.strictEqual(l.page().memo, '■ 目的\n売上の確認をする\n');
+    assert.deepStrictEqual(l.page().memoDoc.map((b) => [b.id, b.type, b.text]), [['m1', 'heading', '目的'], ['m2', 'paragraph', '売上の確認をする']]);
+    // Enter で1回（新しい行にフォーカス）
+    l.caret.set(t, t.textContent.length);
+    l.key({ key: 'Enter' }, t);
+    await l.drain();
+    assert.strictEqual(setDocs(l).length, 2);
+    const nid = mIds(l)[2];
+    assert.ok(nid && l.document.activeElement === mTxt(l, nid), 'Enter の後のフォーカスが新しい行に無い');
+    // 行頭の記法「- 」で箇条書き（1回）
+    const n = mIn(l, nid, '- ');
+    n.dispatchEvent({ type: 'input' });
+    await l.drain();
+    assert.strictEqual(setDocs(l).length, 3);
+    assert.strictEqual(l.page().memoDoc[2].type, 'bullet');
+    assert.strictEqual(l.page().memo, '■ 目的\n売上の確認をする\n- \n'.replace('- \n', '- \n'));
+    // 要約の欄の命令は送らない
+    assert.deepStrictEqual(writes(l), []);
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+test('MB-4・F106: メモの行でも Ctrl+B（選んだ所を太字・次の区切りで rich）・/ メニュー（メモの欄の中に開く）・貼り付けの変換（1回）・行の選択（Esc で選び Backspace で消す: 1回）', T, async () => {
+  const l = await openReal({ pa1: MPAGE() });
+  try {
+    await memoPane(l);
+    const t = mTxt(l, 'm2');
+    t.focus(); l.caret.set(t, 0, 2);
+    const ev = l.key({ key: 'b', code: 'KeyB', ctrlKey: true }, t);
+    assert.strictEqual(ev.defaultPrevented, true);
+    assert.ok(t.querySelector('span[data-m="b"]'), '太字にならない');
+    t.onblur();
+    await l.drain();
+    assert.deepStrictEqual(l.page().memoDoc[1].rich, [{ t: '売上', m: ['b'] }, { t: 'の確認', m: [] }]);
+    assert.strictEqual(l.page().memo, '■ 目的\n売上の確認\n', '飾りが素の文字のメモに漏れる');
+    // / メニュー
+    const s = mIn(l, 'm2', '売上の確認 /');
+    s.dispatchEvent({ type: 'input' });
+    assert.ok(mBox(l).querySelector('#slashMenu'), '/ メニューがメモの欄に開かない');
+    l.key({ key: 'Escape' }, s);
+    s.textContent = '売上の確認'; l.caret.set(s, 5);
+    s.onblur();
+    await l.drain();
+    // 貼り付け（Word の HTML → 行と飾り。1回）
+    const before = setDocs(l).length;
+    const p = mIn(l, 'm2', '売上の確認');
+    assert.strictEqual(pasteIn(p, { 'text/html': FIX('word'), 'text/plain': '議題の整理' }), true);
+    await l.drain();
+    assert.strictEqual(setDocs(l).length, before + 1, '貼り付けが1回でない');
+    assert.ok(l.page().memoDoc.length > 2, '貼った行が無い');
+    assert.ok(l.page().memoDoc.every((b) => b.citeState === 'manual'));
+    // 行の選択: Esc で選び、Backspace で消す（1回）
+    const k = setDocs(l).length;
+    const q = mTxt(l, 'm1');
+    q.focus(); l.caret.set(q, 0);
+    l.key({ key: 'Escape' }, q);
+    assert.deepStrictEqual(mRows(l).filter((e) => e.getAttribute('aria-selected') === 'true').map((e) => e.dataset.id), ['m1']);
+    assert.ok(l.document.activeElement === mBox(l), '選んだのにフォーカスがメモの欄の箱に無い');
+    l.key({ key: 'Backspace' }, mBox(l));
+    await l.drain();
+    assert.strictEqual(setDocs(l).length, k + 1);
+    assert.ok(!l.page().memoDoc.some((b) => b.id === 'm1'), '選んだ行が消えない');
+    assert.deepStrictEqual(writes(l), [], '要約の命令を送った');
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+test('MB-4・BQ22 (a): メモで Ctrl+Z → メモの歩みだけが戻る（要約の歩みは残る）。要約で Ctrl+Z → 要約の歩みだけ', T, async () => {
+  const l = await openReal({ pa1: MPAGE() });
+  try {
+    // 要約の欄で Enter（1歩）
+    const p = typeIn(l, 'p1', 'あいうえお', 2);
+    l.key({ key: 'Enter' }, p);
+    await l.drain();
+    const sumAfter = l.page().blocks.length;
+    // メモの欄で Enter（1歩）
+    await memoPane(l);
+    const t = mTxt(l, 'm2');
+    t.focus(); l.caret.set(t, t.textContent.length);
+    l.key({ key: 'Enter' }, t);
+    await l.drain();
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+    assert.strictEqual(l.page().memoDoc.length, 3);
+    const memoStep = l.steps.find((s) => s.cmd === 'page.setMemoDoc').step;
+    // メモで Ctrl+Z
+    l.key(Z, l.document.activeElement);
+    await l.drain();
+    assert.deepStrictEqual(revs(l), [['pa1', [memoStep]]], 'メモの Ctrl+Z がメモの歩みだけを戻さない（mo-undo-pane）');
+    assert.strictEqual(l.page().memoDoc, undefined, '最初のメモの直しを戻すと memoDoc の無いページに戻らない');
+    assert.strictEqual(l.page().blocks.length, sumAfter, 'メモの Ctrl+Z で要約が戻った');
+    assert.deepStrictEqual(mIds(l), ['m1', 'm2']);
+    // 要約で Ctrl+Z
+    $(l, 'paneBtnNote').onclick();
+    const q = txtOf(l, 'p1'); q.focus(); l.caret.set(q, 0);
+    l.key(Z, q);
+    await l.drain();
+    assert.strictEqual(revs(l).length, 2);
+    assert.ok(revs(l)[1][1].every((x) => l.steps.find((s) => s.step === x).cmd.startsWith('block')), '要約の Ctrl+Z がメモの歩みを戻した');
+    assert.strictEqual(l.page().blocks.length, sumAfter - 1);
+    assert.deepStrictEqual([l.page().memo, l.page().memoDoc], [MEMO1, undefined]);
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+// 録音中と録音の前の偽の main（メモは文字か行の並び。行なら main と同じく照らして memo を作り直す: MB-3）
+function liveMain(o = {}) {
+  const s = { prep: null, active: false, memo: '', memoDoc: null, meetingType: null, calls: [] };
+  const doc = (t) => (t.memoDoc ? { memoDoc: t.memoDoc } : {});
+  const status = () => (s.active
+    ? { active: true, finalizing: false, startedAt: Date.now() - 1000, memo: s.memo, ...doc(s), meetingType: s.meetingType, segments: [], pending: 0, pauses: [], cloud: true, prep: null,
+      stt: { route: 'cloud', lastTextAt: null, segSec: 15, problem: null } }
+    : { active: false, finalizing: false, memo: '', segments: [], pending: 0, cloud: true, prep: s.prep ? { memo: s.prep.memo, ...doc(s.prep), meetingType: s.prep.meetingType } : null });
+  s.status = status;
+  s.returns = {
+    meetingTypes: () => lib.typesForView(), memoTypes: () => M.listMemoTypes(),
+    meetingStatus: () => status(),
+    meetingPrepare: () => { s.calls.push(['meetingPrepare']); if (!s.prep) s.prep = { memo: '', memoDoc: null, meetingType: null }; return { ok: true }; },
+    meetingUnprepare: () => { s.calls.push(['meetingUnprepare']); s.prep = null; return { ok: true }; },
+    meetingSetMemo: (m) => {
+      s.calls.push(['meetingSetMemo', m]);
+      const t = s.active ? s : s.prep;
+      if (!t) return true;
+      if (Array.isArray(m)) { let v; try { v = MD.validateMemoDoc(m); } catch (_) { return false; } t.memoDoc = v; t.memo = MD.memoPlain(v); } else { t.memo = String(m); t.memoDoc = null; }
+      return true;
+    },
+    meetingSetType: (key) => {
+      s.calls.push(['meetingSetType', key]);
+      const t = s.active ? s : s.prep;
+      t.meetingType = key === 'auto' ? null : key;
+      let inserted = false;
+      if (key !== 'auto' && M.isUntouchedMemo(t.memo, [])) { t.memo = M.memoPreset(M.memoTypeOf(key)); t.memoDoc = MD.memoFromText(t.memo); inserted = true; }
+      return { ok: true, memo: t.memo, ...doc(t), inserted, meetingType: t.meetingType };
+    },
+    meetingStart: () => { s.calls.push(['meetingStart']); s.active = true; s.memo = s.prep ? s.prep.memo : ''; s.memoDoc = s.prep ? s.prep.memoDoc : null; s.prep = null; return { ok: true }; },
+    meetingToggle: () => { s.calls.push(['meetingToggle']); return { ok: true }; },
+    ...(o.returns || {}),
+  };
+  return s;
+}
+async function bootLive(o = {}) {
+  const s = liveMain(o);
+  const l = await load(APP, { caret: true, returns: s.returns });
+  await l.drain();
+  l.s = s;
+  return l;
+}
+const memoSets = (l) => l.s.calls.filter((c) => c[0] === 'meetingSetMemo').map((c) => c[1]);
+
+test('MB-4・録音の守り: 録音中のページのメモも行。直しは meetingSetMemo(doc)（DB の命令は0）・Ctrl+Z は窓のメモリの前の doc を送る（editRevert を呼ばない）・締めの後はそのページのメモの列が空', T, async () => {
+  const l = await bootLive();
+  l.s.active = true; l.s.memo = MEMO1; l.s.memoDoc = MD.memoFromText(MEMO1);
+  l.fire('onMeetingUpdate', l.s.status());
+  await l.drain();
+  await memoPane(l);
+  assert.deepStrictEqual(mIds(l), ['m1', 'm2'], '録音中のメモが行でない');
+  const t = mTxt(l, 'm2');
+  t.focus(); l.caret.set(t, t.textContent.length);
+  l.key({ key: 'Enter' }, t);
+  await l.drain();
+  assert.strictEqual(memoSets(l).length, 1);
+  assert.ok(Array.isArray(memoSets(l)[0]), 'meetingSetMemo に行を送らない');
+  assert.strictEqual(memoSets(l)[0].length, 3);
+  assert.deepStrictEqual([l.called('pageSetMemoDoc').length, l.called('editRevert').length], [0, 0], '録音中のメモが DB に頼る（mo-live-db）');
+  // Ctrl+Z は前の doc を送る
+  l.key(Z, l.document.activeElement);
+  await l.drain();
+  assert.strictEqual(l.called('editRevert').length, 0, '録音中のメモの Ctrl+Z で editRevert を呼んだ（mo-live-undo）');
+  assert.deepStrictEqual(memoSets(l)[1], MD.memoFromText(MEMO1), '前の doc を送らない');
+  assert.deepStrictEqual(mIds(l), ['m1', 'm2']);
+  // やり直しも窓のメモリ
+  l.key(SZ, l.document.activeElement);
+  await l.drain();
+  assert.strictEqual(memoSets(l)[2].length, 3);
+  // 締めの後はそのページのメモの列が空（窓のメモリの歩みを DB の tx に付け替えない）
+  l.s.active = false;
+  l.fire('onMeetingUpdate', l.s.status());
+  await l.drain();
+  l.s.active = true; l.s.memo = MEMO1; l.s.memoDoc = MD.memoFromText(MEMO1);
+  l.fire('onMeetingUpdate', l.s.status());
+  await l.drain();
+  await memoPane(l);
+  const u = mTxt(l, 'm2'); u.focus(); l.caret.set(u, 0);
+  const n = memoSets(l).length;
+  l.key(Z, u);
+  await l.drain();
+  assert.strictEqual(memoSets(l).length, n, '締めの後に前の会議のメモの歩みが戻った');
+  assert.strictEqual(toastOf(l), 'これ以上は戻せません');
+  assert.deepStrictEqual(l.errors.map(fmt), []);
+});
+
+test('MB-4・決めたこと 64（0.11.0 の雛形）: 手を付けていないメモで種類を選ぶと雛形の行（見出し3）・人が1字打つと手引きが消える（memoPlain で見る）・録音の前のページを閉じる確かめは memoPlain が手を付けていないかで決まる・メモの行にフォーカスがあれば録音が始まっても［メモ］のまま（RD6）', T, async () => {
+  // 保存したページ
+  const l = await openReal({ pa1: MPAGE({ memo: '' }) });
+  try {
+    await memoPane(l);
+    const sel = $(l, 'pType'); sel.value = 'sales'; await sel.onchange(); await l.drain();
+    const preset = M.memoPreset(M.memoTypeOf('sales'));
+    assert.strictEqual(l.page().memo, preset);
+    assert.ok(Array.isArray(l.page().memoDoc), '雛形の行が DB に無い（mo-template）');
+    assert.deepStrictEqual(mRows(l).filter((e) => e._b.type === 'heading').map((e) => e.className), MD.memoFromText(preset).filter((b) => b.type === 'heading').map(() => 'blk heading h3'));
+    const guide = () => { const g = $(l, 'pMemo').querySelector('.memoguide'); return Boolean(g && !g.hidden); };
+    assert.strictEqual(guide(), true, '雛形の手引きが無い');
+    const last = mIds(l)[mIds(l).length - 1];
+    const t = mIn(l, last, mTxt(l, last).textContent + 'あ');
+    t.dispatchEvent({ type: 'input' });
+    assert.strictEqual(guide(), false, '人が打っても手引きが消えない（mo-untouched-plain）');
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+  // 録音の前のページ: 雛形の行だけなら確かめずに閉じ、1字打つと確かめる
+  const r = await bootLive();
+  let asked = 0;
+  r.window.confirm = () => { asked += 1; return false; };
+  $(r, 'mtToggleBtn').dispatchEvent({ type: 'click' });
+  await r.drain();
+  const sel = $(r, 'pType'); sel.value = 'sales'; await sel.onchange(); await r.drain();
+  assert.ok(mRows(r).length > 1, '録音の前のページに雛形の行が無い');
+  const x = mRows(r)[1].querySelector('.txt');
+  x.focus(); x.textContent = x.textContent + 'い'; r.caret.set(x, x.textContent.length);
+  x.dispatchEvent({ type: 'input' });
+  r.key({ key: 'w', code: 'KeyW', ctrlKey: true });
+  await r.drain();
+  assert.strictEqual(asked, 1, '人の文があるのに閉じる確かめが出ない');
+  // 録音が始まったとき、メモの行にフォーカスがあれば［メモ］のまま
+  x.focus();
+  r.s.active = true; r.s.memo = r.s.prep.memo; r.s.memoDoc = r.s.prep.memoDoc; r.s.prep = null;
+  r.fire('onMeetingUpdate', r.s.status());
+  await r.drain();
+  assert.strictEqual($(r, 'paneBtnMemo').getAttribute('aria-selected'), 'true', 'メモの行を書いている途中に［文字起こし］へ引き戻した');
+  assert.deepStrictEqual(r.errors.map(fmt), []);
+});
+
+test('MB-4・BQ25 (a): ［コピー］のメモの枝は memoPlain。今のメモ（行にしただけ）の［コピー］は今と1文字も同じ（「■ 見出し」）。太字は文字だけ', T, async () => {
+  const doc = [{ id: 'm1', type: 'heading', level: 3, text: '目的', citeState: 'manual' }, { id: 'm2', type: 'bullet', text: '太字の文', rich: [{ t: '太字', m: ['b'] }, { t: 'の文', m: [] }], citeState: 'manual' }];
+  const l = await openReal({ pa1: MPAGE({ memo: '■ 目的\n本文の行' }), pb1: MPAGE({ blocks: BASE('b'), memo: MD.memoPlain(doc), memoDoc: doc }) });
+  try {
+    await memoPane(l);
+    const copy = () => $(l, 'pMenu').querySelectorAll('button').find((b) => b.textContent === 'コピー').onclick();
+    await copy(); await l.drain();
+    assert.deepStrictEqual(l.called('copy').map((c) => c.args[0]), ['■ 目的\n本文の行']);
+    l.fire('onPageOpen', 'pb1'); await l.drain();
+    await memoPane(l);
+    await copy(); await l.drain();
+    assert.strictEqual(l.called('copy')[1].args[0], '■ 目的\n- 太字の文', 'メモの［コピー］が memoPlain でない（mo-copy-plain）');
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+test('MB-4・BQ29 (a)・R69: 要約の決まった見出しと同じ名前のメモの見出しは書いた順のまま・見出しも見出しの下の行も Tab で字下げできる・出典の札も「根拠なし」も出ない', T, async () => {
+  const l = await openReal({ pa1: MPAGE({ memo: '前置き\n■ ToDo\nあ\nい\n■ 決定事項\nう\n' }) });
+  try {
+    await memoPane(l);
+    assert.deepStrictEqual(mRows(l).map((e) => e.querySelector('.txt').textContent), ['前置き', 'ToDo', 'あ', 'い', '決定事項', 'う'], 'メモの見出しが並べ替わった（mo-order）');
+    assert.ok(!$(l, 'pMemo').querySelector('.cites, .badge, .atag'), 'メモの行に札がある');
+    assert.ok(!/根拠なし/.test($(l, 'pMemo').textContent));
+    // 見出しの下の行（い）を Tab で「あ」の子に
+    const t = mTxt(l, 'm4'); t.focus(); l.caret.set(t, 0);
+    l.key({ key: 'Tab' }, t);
+    await l.drain();
+    assert.deepStrictEqual(l.page().memoDoc[2].children.map((b) => b.id), ['m4']);
+    // 見出し（ToDo）も Tab で前の行の子に（AI の節の見出しでない: mo-heading-marker）
+    const h = mTxt(l, 'm2'); h.focus(); l.caret.set(h, 0);
+    l.key({ key: 'Tab' }, h);
+    await l.drain();
+    assert.deepStrictEqual(l.page().memoDoc[0].children.map((b) => b.id), ['m2']);
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+test('MB-4・G2・G3: メモの欄の ⠿ で Shift+Tab →［メモ］のタブ・Tab → 欄の外。▸・Ctrl+Enter・Ctrl+Alt+T は pageSetMemoDoc も blockSetOpen も呼ばず、ページを替えて戻ると開いた形', T, async () => {
+  const doc = [{ id: 'm1', type: 'toggle', text: '開く行', citeState: 'manual', children: [{ id: 'm2', type: 'paragraph', text: '中の行', citeState: 'manual' }] },
+    { id: 'm3', type: 'paragraph', text: '下の行', citeState: 'manual' }];
+  const l = await openReal({ pa1: MPAGE({ memo: MD.memoPlain(doc), memoDoc: doc }), pb1: BASE('b') });
+  try {
+    await memoPane(l);
+    const g = mRow(l, 'm3').querySelector('.grip');
+    g.focus();
+    l.key({ key: 'Tab', shiftKey: true }, g);
+    assert.ok(l.document.activeElement === $(l, 'paneBtnMemo'), '⠿ の Shift+Tab が［メモ］のタブへ行かない（mo-grip-tab）');
+    g.focus();
+    l.key({ key: 'Tab' }, g);
+    assert.ok(!mRows(l).some((e) => l.document.activeElement === e.querySelector('.txt')), '⠿ の Tab が行の文に入った');
+    // ▸ で閉じる（画面だけ）
+    assert.deepStrictEqual(mIds(l), ['m1', 'm2', 'm3']);
+    mRow(l, 'm1').querySelector('.tog').onclick();
+    await l.drain();
+    assert.deepStrictEqual(mIds(l), ['m1', 'm3'], '▸ で閉じない');
+    // Ctrl+Enter で開く・Ctrl+Alt+T で全部
+    const t = mTxt(l, 'm1'); t.focus(); l.caret.set(t, 0);
+    l.key({ key: 'Enter', code: 'Enter', ctrlKey: true }, t);
+    await l.drain();
+    assert.deepStrictEqual(mIds(l), ['m1', 'm2', 'm3']);
+    const t2 = mTxt(l, 'm1'); t2.focus(); l.caret.set(t2, 0);
+    l.key({ key: 't', code: 'KeyT', ctrlKey: true, altKey: true }, t2);
+    await l.drain();
+    assert.deepStrictEqual(mIds(l), ['m1', 'm3'], 'Ctrl+Alt+T で閉じない');
+    assert.deepStrictEqual([setDocs(l).length, l.called('blockSetOpen').length, l.called('blockSetOpenAll').length], [0, 0, 0], 'メモの開け閉めを書いた（mo-open-save）');
+    // ページを替えて戻ると開いた形
+    l.fire('onPageOpen', 'pb1'); await l.drain();
+    l.fire('onPageOpen', 'pa1'); await l.drain();
+    await memoPane(l);
+    assert.deepStrictEqual(mIds(l), ['m1', 'm2', 'm3']);
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+test('MB-4・決めたこと 66: 録音の前のページで、メモのリンクの欄・色のメニューにフォーカスがある間に保存の page:open が来ても前に出ない（readyBusy）', T, async () => {
+  const l = await bootLive({ returns: { pageGet: (id) => ({ page: { id, title: T1, createdAt: '2026-10-29T01:00:00.000Z', durationSec: 60, blocks: [], memo: '' }, segments: [] }), pagesSearch: () => [] } });
+  $(l, 'mtToggleBtn').dispatchEvent({ type: 'click' });
+  await l.drain();
+  const t = mRows(l)[0].querySelector('.txt');
+  t.focus(); t.textContent = 'リンクの文'; l.caret.set(t, 0, 3);
+  l.key({ key: 'k', code: 'KeyK', ctrlKey: true }, t);
+  const pop = $(l, 'pMemo').querySelector('#linkPop');
+  assert.ok(pop, 'リンクの欄がメモの欄に開かない（mo-ready-busy）');
+  assert.ok(l.document.activeElement === pop.querySelector('input'));
+  l.fire('onPageOpen', 'pz1', { saved: true });
+  await l.drain();
+  const act = $(l, 'tabbar').querySelector('.tabitem.active');
+  assert.strictEqual(act && act.dataset.key, 'live', 'リンクの欄に打っている間に保存した議事録が前に出た');
+  assert.deepStrictEqual(l.errors.map(fmt), []);
+});
+
+test('MB-4（R150）: 画面の写し（app.html の memoDoc）は src/memoDoc.js と字も答えも同じ（memoFromText・memoPlain・validateMemoDoc・memoEdit の表）', () => {
+  const at = HTML.indexOf('  // ---- memoDoc の写し');
+  const end = HTML.indexOf('  // ---- memoDoc の写しはここまで');
+  assert.ok(at > 0 && end > at, 'app.html に memoDoc の写しが無い');
+  const seg = HTML.slice(at, end);
+  const SRC = fs.readFileSync(path.join(__dirname, '..', 'src', 'memoDoc.js'), 'utf8');
+  const bodySrc = SRC.slice(SRC.indexOf('const HEAD'), SRC.indexOf('\nmodule.exports')).replace(/\s+$/, '');
+  assert.ok(seg.includes(bodySrc.split('\n').map((x) => (x ? `    ${x}` : x)).join('\n')), 'app.html の写しの字が src/memoDoc.js と違う');
+  assert.ok(!/Buffer/.test(seg), '画面の写しが Buffer を使う（R150）');
+  const rt = HTML.slice(HTML.indexOf('  // ---- richText の写し'), HTML.indexOf('  // ---- richText の写しはここまで'));
+  const tree = ['kidsCanView', 'isToggleView', 'aiSectionHead', 'locate', 'canIndent', 'flattenBlocks', 'headingLevel', 'numberLabels'].map(fnApp).join('\n');
+  const app = new Function(`const CALLOUT_ICON = '💡';\n${tree}\n${fnApp('graphemeEnds')}\n${fnApp('safeOffset')}\n${rt}\n${seg}\nreturn memoDocView;`)();   // eslint-disable-line no-new-func
+  const same = (f) => { let a, b; try { a = { ok: f(MD) }; } catch (e) { a = { code: e.code }; } try { b = { ok: f(app) }; } catch (e) { b = { code: e.code }; } assert.deepStrictEqual(b, a); };
+  assert.deepStrictEqual([...app.MEMO_COMMANDS], [...MD.MEMO_COMMANDS]);
+  const texts = ['', MEMO1, '■ 目的\r\n- a\r\n1. b\n\n■ \n', M.memoPreset('bantc'), Array.from({ length: 2100 }, (_, i) => `行${i}`).join('\n'), 'x'.repeat(100000)];
+  for (const t of texts) { same((x) => x.memoFromText(t)); same((x) => x.memoPlain(x.memoFromText(t))); }
+  const doc = [{ id: 'm1', type: 'heading', level: 3, text: '目的', citeState: 'manual' },
+    { id: 'm2', type: 'toggle', text: 'あいう', rich: [{ t: 'あ', m: ['b'] }, { t: 'いう', m: [['color', 'red']] }], citeState: 'manual', children: [{ id: 'm3', type: 'numbered', text: '中', citeState: 'manual' }] },
+    { id: 'm4', type: 'todo', text: '済み', checked: true, citeState: 'manual' }, { id: 'm5', type: 'divider', text: '', citeState: 'manual' }, { id: 'm6', type: 'paragraph', text: '', citeState: 'manual' }];
+  same((x) => x.memoPlain(doc));
+  for (const bad of [[{ id: 'b1', type: 'paragraph', text: '' }], [{ id: 'm1', type: 'x', text: '' }], [{ id: 'm1', type: 'paragraph', text: '', cites: [] }], [{ id: 'm1', type: 'paragraph', rich: [{ t: 'a', m: [['color', 'red'], ['bg', 'red']] }] }],
+    [{ id: 'm1', type: 'paragraph', rich: [{ t: 'a', m: [['link', 'javascript:x']] }] }], Array.from({ length: 2001 }, (_, i) => ({ id: `m${i + 1}`, type: 'paragraph', text: '' })), [{ id: 'm1', type: 'paragraph' }]]) same((x) => x.validateMemoDoc(bad));
+  const cmds = [['block.update', { blockId: 'm4', patch: { text: '直した' } }], ['block.update', { blockId: 'm2', patch: { text: 'x' } }], ['block.update', { blockId: 'm1', patch: { type: 'paragraph' } }],
+    ['block.insert', { afterBlockId: 'm1', type: 'paragraph' }], ['block.insert', { afterBlockId: '', type: 'heading', level: 1, parentId: 'm2', toggle: true }],
+    ['block.remove', { blockId: 'm3' }], ['block.move', { blockId: 'm4', afterId: '' }], ['block.move', { blockId: 'm4', afterId: '', parentId: 'm2' }],
+    ['block.split', { blockId: 'm2', text: 'あいう', at: 1, rich: [{ t: 'あ', m: ['b'] }, { t: 'いう', m: [['color', 'red']] }] }], ['block.split', { blockId: 'm4', text: '済み', at: 0, afterId: 'm2' }], ['block.split', { blockId: 'm2', text: 'あいう', at: 3, inside: true }],
+    ['block.merge', { blockId: 'm4', text: '済み', intoId: 'm3' }], ['block.merge', { blockId: 'm6', text: '' }], ['block.turnInto', { blockId: 'm2', type: 'paragraph' }], ['block.turnInto', { blockId: 'm4', type: 'divider' }],
+    ['block.duplicate', { blockId: 'm2' }], ['block.indent', { blockId: 'm4', dir: 'in' }], ['block.indent', { blockId: 'm3', dir: 'out' }],
+    ['block.paste', { blockId: 'm6', rich: [], at: 0, blocks: PC.pasteBlocks({ text: '# 見出し\n- a\n  - b\n**太**' }).blocks }], ['block.paste', { blockId: 'm4', rich: [{ t: '済み', m: [] }], at: 1, blocks: [{ type: 'bullet', rich: [{ t: 'z', m: [] }] }] }],
+    ['blocks.setColor', { ids: ['m2', 'm4'], color: 'blue_bg' }], ['blocks.remove', { ids: ['m2', 'm3'] }], ['blocks.move', { ids: ['m4', 'm1'], afterId: 'm6' }], ['blocks.duplicate', { ids: ['m2'] }],
+    ['blocks.turnInto', { ids: ['m1', 'm4'], type: 'bullet' }], ['block.setAction', { blockId: 'm4' }], ['toString', {}], ['block.update', { blockId: 'm4', patch: { text: 'a' }, pageId: 'p1' }]];
+  for (const [c, a] of cmds) for (const next of [undefined, 40]) same((x) => x.memoEdit(doc, c, a, { next }));
 });

@@ -24,6 +24,7 @@ const mtype = require('../../src/meetingType');
 const { MANIFEST } = require('../../src/engine-manifest');
 const lib = require('../../src/mainlib');
 const memoTypes = require('../../src/memoTypes');
+const memoDoc = require('../../src/memoDoc');
 const PS = require('./pill-states');
 
 const SIZE = { width: 1120, height: 780 };         // 本体の窓の既定（main.js の createMainWindow）
@@ -159,6 +160,14 @@ const OPEN_TYPES = `(async () => {
   await new Promise((r) => setTimeout(r, 300));
   document.getElementById('paneBtnNote').click();
   document.querySelector('#pNote .blk').scrollIntoView({ block: 'start' });
+  return 1;
+})()`;
+// 0.14.0 MB-4: ページ（か録音中のページ）を開いてメモのタブにし、メモの行の頭まで捲る
+const OPEN_MEMO = (page) => `(async () => {
+  ${page ? "document.getElementById('tabBtnNotes').click(); document.querySelector('#plist .pitem').click();" : ''}
+  await new Promise((r) => setTimeout(r, 300));
+  document.getElementById('paneBtnMemo').click();
+  const b = document.querySelector('#pMemo .memorows'); if (b) b.scrollIntoView({ block: 'center' });
   return 1;
 })()`;
 // 0.11.0 V-2: ページを開き、打ち合わせの質のカードまで捲る
@@ -360,6 +369,11 @@ const SCREENS = [
   // 0.14.0 EK-5（計画の「取り直す画面（RETAKE）」）: 設定の［一般］の「ホットキー」の下の窓の中の近道の表（Ctrl+Shift+N の行は無い）と音声入力のキーの一言（表の見出しまで捲った形）。
   // 足した画面（まだ基準が無い）。表で「ホットキー」のカードが伸びる settings-light・settings-dark・settings-zoom200-dark は取り直す
   { name: 'settings-shortcuts-light', page: 'app', theme: 'light', act: `${OPEN_SETTINGS}; document.getElementById('shortcutTitle').scrollIntoView({ block: 'start' })` },
+  // 0.14.0 MB-4（計画の「取り直す画面（RETAKE）」）: 保存したページのメモの行（雛形の見出し3・箇条書き・太字・色）の明暗と、録音中のページのメモの行。足した画面（まだ基準が無い）。
+  // メモの欄が textarea から行になる live-ready-*・live-type-light・page-type-* は取り直す
+  { name: 'memo-blocks-light', page: 'app', theme: 'light', get answers() { return memoBlocksAnswers(); }, act: OPEN_MEMO(true) },
+  { name: 'memo-blocks-dark', page: 'app', theme: 'dark', get answers() { return memoBlocksAnswers(); }, act: OPEN_MEMO(true) },
+  { name: 'live-memo-blocks-light', page: 'app', theme: 'light', get answers() { return liveMemoAnswers(); }, act: OPEN_MEMO(false) },
 ];
 // 0.9.0 O-3（RP9）: 録音バーの画面（形 → 地 → 拡大率 → 状態の順。撮る道具は形・地・拡大率の組ごとに窓を1つ開いて状態を act で替える）。
 // 録音は始めずに見た目だけを撮る（act は pill-states の見本を録音バーの DOM に当てる。撮るときだけ体の地にデスクトップの色を塗る）。
@@ -459,8 +473,12 @@ const OVL_094 = (states) => PS.FORMS.flatMap((form) => Object.keys(PS.DESKS).fla
 // 0.14.0（計画 docs/plans/2026-10-26-140.md の「取り直す画面（RETAKE）」）: EB-4 で足した飾りの明暗の2枚と、EB-5 で足した道具の帯・リンクの欄・色のメニューの3枚（まだ基準が無い）。
 // EB-5 で ⠿ のメニューに［色 ▸］が増えた edit-block-menu-light（今の基準がある）。EK-4 で足した選んだ行の明暗の2枚（まだ基準が無い）。
 // EK-5 で足した設定の近道の表の1枚（まだ基準が無い）と、表で「ホットキー」のカードが伸びる設定の［一般］の3枚（今の基準がある）
+// MB-4 で足した保存したページと録音中のページのメモの行の3枚（まだ基準が無い）と、メモの欄が textarea から行になる録音の前のページの3枚・録音中の種類の1枚・
+// 保存したページの種類の2枚（今の基準がある。live-ready-light はヘルプの写真の元: R71。基準を替えたら Task G で tools/help-appshots.js を回す）
 const RETAKE = new Set(['edit-marks-light', 'edit-marks-dark', 'edit-toolbar-light', 'edit-link-light', 'edit-color-menu-light', 'edit-toolbar-zoom200-light', 'edit-select-light', 'edit-select-dark', 'settings-shortcuts-light',
-  'edit-block-menu-light', 'settings-light', 'settings-dark', 'settings-zoom200-dark']);
+  'memo-blocks-light', 'memo-blocks-dark', 'live-memo-blocks-light',
+  'edit-block-menu-light', 'settings-light', 'settings-dark', 'settings-zoom200-dark',
+  'live-ready-light', 'live-ready-dark', 'live-ready-zoom200-light', 'live-type-light', 'page-type-light', 'page-type-dark']);
 const PERF = [{ name: 'open-2000-blocks', budgetMs: 500 }];   // 3回開いた中央値で見る
 const TIME_ZONE = 'Asia/Tokyo';
 const TOLERANCE = 2;   // 色の差（0〜255）がこれ以下の画素は同じとみなす。CI の機械の CPU ごとの描き方の1段の差を拾わないため（揺れの確かめ judgePair は 0 で見る）
@@ -625,6 +643,32 @@ function undecidedAnswers() {
 function liveTypeAnswers() {
   return { ...liveAnswers(), 'koeApp.meetingSetMemo': { ok: true },
     'koeApp.meetingSetType': { ok: true, memo: memoTypes.memoPreset('bantc'), inserted: true, meetingType: 'sales' } };
+}
+// 0.14.0 MB-4: メモの行（商談の雛形の見出し3に、箇条書き・太字・色・ToDo を書いた形。memo は memoPlain から: 決めたこと 59）
+function memoRowsDoc() {
+  const r = (t, ...m) => ({ t, m });
+  const doc = memoDoc.memoFromText(memoTypes.memoPreset('bantc'));
+  const heads = doc.filter((b) => b.type === 'heading');
+  let n = 100;
+  const row = (type, rich, o = {}) => ({ id: `m${(n++).toString(36)}`, type, text: rich.map((x) => x.t).join(''), rich, citeState: 'manual', ...o });
+  const out = [];
+  for (const h of heads) {
+    out.push(h);
+    if (out.length === 1) out.push(row('bullet', [r('年間の予算は'), r('800万円', 'b'), r('の見込み')]), row('bullet', [r('稟議は'), r('来月の役員会', ['color', 'red']), r('で通す')]));
+    else if (out.length === 4) out.push(row('todo', [r('決裁者を先方に確かめる')], { checked: false }), row('paragraph', [r('購買部の'), r('担当者', ['bg', 'yellow']), r('も同席する')]));
+  }
+  return out;
+}
+function memoBlocksAnswers() {
+  const page = fixtures()['koeApp.pageGet'].page;
+  const doc = memoRowsDoc();
+  return { 'koeApp.pageGet': { page: { ...page, meetingType: 'sales', typeAuto: false, autoType: 'sales', memo: memoDoc.memoPlain(doc), memoDoc: doc }, segments: SEGMENTS } };
+}
+function liveMemoAnswers() {
+  const a = liveAnswers();
+  const doc = memoRowsDoc();
+  a['koeApp.meetingStatus'] = { ...a['koeApp.meetingStatus'], memo: memoDoc.memoPlain(doc), memoDoc: doc, meetingType: 'sales' };
+  return a;
 }
 // 0.13.0 ED-7（E5）: 人が書き直した要約（新しい型の全部。一覧の1行目 p1 の会議の要約だけを替える: 0.11.0 の qualityAnswers と同じ形）
 function typesAnswers() {

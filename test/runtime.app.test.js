@@ -272,20 +272,23 @@ test('空にした行はコピーに含めない', async () => {
 // ================= 編集中の内容を失わない（メモ・要点・タイトル） =================
 // 保存は「発火したときのページ」に対して行い、ページ切替・記録開始の前には
 // 保留中の編集を確定させる。監査で見つかった取りこぼしをここに移した。
-const メモ欄 = (l) => l.byId.get('pMemo').querySelector('textarea');
+// 0.14.0 MB-4 で意図して変えた: メモの欄は行の部品（.memorows）。最初の行の文に打ち、保存は pageSetMemoDoc（素の文字のメモは memoPlain）
+const MD = require('../src/memoDoc');
+const メモ欄 = (l) => { const b = l.byId.get('pMemo').querySelector('.memorows'); return b ? b.querySelector('.blk .txt') : null; };
+const メモに打つ = (t, text) => { t.focus(); t.textContent = text; t.dispatchEvent({ type: 'input' }); };
 const ブロック = (l, id) => l.byId.get('pNote').querySelectorAll('.blk').find((e) => e.dataset.id === id);
 
 test('メモの遅延保存は、書いたときに開いていたページへ書く（切替後の別ページに書かない）', async () => {
   const l = await 開いた();
   const ta = メモ欄(l);
   assert.ok(ta, 'メモ欄が無い');
-  ta.value = '前のページに書いたメモ';
-  ta.dispatchEvent({ type: 'input' });
+  メモに打つ(ta, '前のページに書いたメモ');
   l.fire('onPageOpen', 'p2');            // 保存が走る前にページ切替
   await l.drain();
-  const calls = l.called('pageSetMemo');
+  const calls = l.called('pageSetMemoDoc');
   assert.strictEqual(calls.length, 1, '切替の前に保留中のメモが確定されない');
-  assert.deepStrictEqual(calls[0].args, ['p1', '前のページに書いたメモ']);
+  assert.deepStrictEqual([calls[0].args[0], MD.memoPlain(calls[0].args[1])], ['p1', '前のページに書いたメモ\n']);
+  assert.strictEqual(l.called('pageSetMemo').length, 0);
   assert.strictEqual(l.byId.get('pTitle').textContent, '二つ目の議事録');
   assert.deepStrictEqual(l.errors.map(fmt), []);
 });
@@ -527,16 +530,14 @@ test('手書きの行は本文を直しても「手書き」のまま（store �
 test('要約完了の page:updated が、打ち替え中のタイトルと書きかけのメモを捨てない', async () => {
   const l = await 開いた();
   l.byId.get('pTitle').textContent = '打ち替えた題';
-  const ta = メモ欄(l);
-  ta.value = '書きかけのメモ';
-  ta.dispatchEvent({ type: 'input' });
-  // blur も 500ms も来ないうちに要約が終わって届く（main は古い題・古いメモを持っている）
+  メモに打つ(メモ欄(l), '書きかけのメモ');
+  // blur も 2 秒の区切りも来ないうちに要約が終わって届く（main は古い題・古いメモを持っている）
   l.fire('onPageUpdated', { page: Object.assign(clone(PAGE), { id: 'p1' }), segments: clone(STANDUP_SEGMENTS) });
   await l.drain();
   assert.strictEqual(l.byId.get('pTitle').textContent, '打ち替えた題', '届いたページの古い題に戻された');
   assert.deepStrictEqual(l.called('pageSetTitle').map((c) => c.args), [['p1', '打ち替えた題']], '打ち替えた題が保存されない');
-  assert.deepStrictEqual(l.called('pageSetMemo').map((c) => c.args), [['p1', '書きかけのメモ']], '書きかけのメモが保存されない');
-  assert.strictEqual(メモ欄(l).value, '書きかけのメモ', 'メモ欄が古い値で作り直された');
+  assert.deepStrictEqual(l.called('pageSetMemoDoc').map((c) => [c.args[0], MD.memoPlain(c.args[1])]), [['p1', '書きかけのメモ\n']], '書きかけのメモが保存されない');
+  assert.strictEqual(メモ欄(l).textContent, '書きかけのメモ', 'メモ欄が古い値で作り直された');
   assert.deepStrictEqual(l.errors.map(fmt), []);
 });
 

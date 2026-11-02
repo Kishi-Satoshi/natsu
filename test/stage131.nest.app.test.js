@@ -425,7 +425,8 @@ test('NE-4a: Ctrl+D・⠿ の［複製］→ blockDuplicate の1回で、写し�
 test('NE-4a・決めたこと 26: 文字起こしの行・メモ・題名で Tab・Shift+Tab を押しても何も呼ばれず、Tab は今どおり次の部品へ（既定を止めない）', T, async () => {
   const l = await openReal({ pa1: NEST() });
   try {
-    for (const el of [$(l, 'pTitle'), $(l, 'pMemo').querySelector('textarea'), $(l, 'pScript').querySelector('.txt, [contenteditable]')].filter(Boolean)) {
+    // 0.14.0 MB-4 で意図して変えた: メモの欄は行の部品になり Tab は字下げ（test/stage140.app.test.js の MB-4）。ここではメモを外した
+    for (const el of [$(l, 'pTitle'), $(l, 'pScript').querySelector('.txt, [contenteditable]')].filter(Boolean)) {
       for (const shiftKey of [false, true]) {
         const ev = press(l, el, 'Tab', { shiftKey });
         assert.strictEqual(ev.defaultPrevented, false, `${el.id || el.className}: 既定の Tab を止めた`);

@@ -257,7 +257,7 @@ test('N4b: 記録を始めると記録中のタブが開いて移り（開いて
   assert.strictEqual(tabs(l)[1].getAttribute('aria-selected'), 'true');
   for (const id of ['liveTm', 'livePauseBtn', 'liveStopBtn']) assert.ok(l.document.getElementById(id), id);
   assert.strictEqual(l.byId.get('pScript').querySelectorAll('.seg').length, 2);
-  assert.ok(l.byId.get('pMemo').querySelector('textarea'), 'メモが無い');
+  assert.ok(l.byId.get('pMemo').querySelector('.memorows .blk .txt'), 'メモが無い');   // 0.14.0 MB-4 で意図して変えた: メモの欄は行の部品
   assert.match(l.byId.get('pNote').textContent, /会議を終えると、ここに要約が入ります。/);
   for (const s of saves(l)) if (s.tabs) assert.ok(!s.tabs.open.includes('live') && s.tabs.active !== 'live', '録音中のタブを覚えさせた（N6）');
   assert.ok(saves(l).some((s) => s.tabs && s.tabs.active === 'page:pa1'), '前提: タブの覚え書きを送っている');
@@ -363,8 +363,9 @@ test('N4b（足した守り）: 記録中に一覧から開いたページは別
   await l.drain();
   l.fire('onMeetingUpdate', st);
   await l.drain();
-  const ta = l.byId.get('pMemo').querySelector('textarea');
-  ta.value = '書きかけのメモ';
+  // 0.14.0 MB-4 で意図して変えた: メモの欄は行の部品（打った文はタブを替える前に meetingSetMemo の行で送る）
+  const ta = l.byId.get('pMemo').querySelector('.memorows .blk .txt');
+  ta.focus(); ta.textContent = '書きかけのメモ';
   ta.dispatchEvent({ type: 'input' });
   row(l, 0).dispatchEvent({ type: 'click' });
   await l.drain();
@@ -376,7 +377,7 @@ test('N4b（足した守り）: 記録中に一覧から開いたページは別
   tabs(l)[0].dispatchEvent({ type: 'click' });
   await l.drain();
   assert.strictEqual(l.document.getElementById('liveBar').hidden, false);
-  assert.strictEqual(l.byId.get('pMemo').querySelector('textarea').value, '書きかけのメモ', 'タブを行き来したらメモの書きかけが消えた');
+  assert.strictEqual(l.byId.get('pMemo').querySelector('.memorows .blk .txt').textContent, '書きかけのメモ', 'タブを行き来したらメモの書きかけが消えた');
   assert.strictEqual(l.byId.get('pScript').querySelectorAll('.seg').length, 2);
   assert.strictEqual(tabs(l)[0].querySelector('button'), null, '会議の間に記録中のタブを閉じられる');
   tabs(l)[0].dispatchEvent({ type: 'auxclick', button: 1 });

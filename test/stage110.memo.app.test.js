@@ -13,6 +13,7 @@ const { load } = require('./helpers/simrun.js');
 const mtype = require('../src/meetingType');
 const M = require('../src/memoTypes');
 const lib = require('../src/mainlib');
+const MD = require('../src/memoDoc');
 
 const APP = path.join(__dirname, '..', 'src', 'renderer', 'app.html');
 const PRELOAD = fs.readFileSync(path.join(__dirname, '..', 'src', 'preload.js'), 'utf8');
@@ -37,6 +38,8 @@ async function openPage(page, o = {}) {
       meetingTypes: TYPES, memoTypes: MEMOS, pagesSearch: list, pagesList: list,
       pageGet: () => ({ page: JSON.parse(JSON.stringify(cur)), segments: SEGS }),
       pageSetMemo: (id, memo) => { calls.push(['pageSetMemo', id, memo]); cur = { ...cur, memo }; return { page: cur }; },
+      // 0.14.0 MB-4: メモの行（DB と同じく memo は memoPlain から）
+      pageSetMemoDoc: (id, doc) => { calls.push(['pageSetMemoDoc', id, doc]); cur = { ...cur, memoDoc: MD.validateMemoDoc(doc), memo: MD.memoPlain(doc) }; return JSON.parse(JSON.stringify(cur)); },
       pageSetType: (id, type, preset) => {
         calls.push(['pageSetType', id, type, preset]);
         const p = JSON.parse(JSON.stringify(cur));
@@ -57,7 +60,11 @@ const $ = (l, id) => l.byId.get(id);
 const choose = async (l, v) => { const s = $(l, 'pType'); s.value = v; await s.onchange(); await l.drain(); };
 const opts = (l) => $(l, 'pType').children;
 const guide = (l) => { const g = $(l, 'pMemo').querySelector('.memoguide'); return g && !g.hidden ? g.children.map((c) => c.textContent) : []; };
-const memoTa = (l) => $(l, 'pMemo').querySelector('textarea');
+// 0.14.0 MB-4 で意図して変えた: メモの欄は textarea でなく行の部品（.memorows）。欄の文は行の今の文から memoPlain で作る（Claude に渡る素の文字のメモと同じ形）
+const memoBox = (l) => $(l, 'pMemo').querySelector('.memorows');
+const memoText = (l) => (memoBox(l) ? MD.memoPlain(memoBox(l).querySelectorAll('.blk').map((e) => ({ id: e._b.id, type: e._b.type, level: e._b.level, checked: e._b.checked, text: e.querySelector('.txt').textContent }))) : null);
+// 最後の行の終わりに打つ（打った文の保存は2秒の区切りか、種類を替える前）
+const memoAdd = async (l, more) => { const rows = memoBox(l).querySelectorAll('.blk'); const t = rows[rows.length - 1].querySelector('.txt'); t.focus(); t.textContent += more; t.dispatchEvent({ type: 'input' }); await l.drain(); };
 const toastText = (l) => $(l, 'toast').textContent;
 // 要素どうしは assert.ok(a === b) で比べる（strictEqual だと赤のときに報告が最小 DOM の木を丸ごと書き出し、写しで数 GB の記憶を使う: R22）
 
@@ -109,17 +116,14 @@ test('0.11.0 V-1（決めたこと 8・9・P18 (a)）: 空のメモで商談を�
   const l = await openPage({ meetingType: 'standup', typeAuto: true, autoType: 'standup', blocks: [{ id: 'b1', type: 'bullet', text: '要点', cites: ['s1'] }] });
   await choose(l, 'sales');
   assert.deepStrictEqual(l.calls110.filter((c) => c[0] === 'pageSetType'), [['pageSetType', 'pa1', 'sales', true]]);
-  assert.strictEqual(memoTa(l).value, BANTC);
+  assert.strictEqual(memoText(l), BANTC);
   const heads = M.MEMO_TYPES.bantc.headings;
   assert.deepStrictEqual(guide(l), heads.map((h) => `■ ${h.name} ── ${h.hint}`));
   assert.strictEqual(guide(l).length, 5);
   assert.strictEqual(toastText(l), `メモに「${LABEL('bantc')}」の見出しを入れました（［要約を再生成］で要約にも反映されます）`);
   assert.strictEqual($(l, 'paneBtnNote').getAttribute('aria-selected'), 'true', '保存したページでタブを替えた');
   assert.strictEqual($(l, 'pMemoType').textContent, `メモの型: ${LABEL('bantc')}`);
-  const ta = memoTa(l);
-  ta.value = `${BANTC}予`;
-  ta.oninput();
-  await l.drain();
+  await memoAdd(l, '予');
   assert.deepStrictEqual(guide(l), [], '人の文が入っても手引きが出ている');
   assert.deepStrictEqual(l.errors.map(fmt), []);
 });
@@ -134,7 +138,7 @@ test('0.11.0 V-1（MQ2・要約の無いページ）: 要約の無いページ�
 test('0.11.0 V-1（F14・MQ3）: 人の文のメモで種類を替えると MQ3 でメモ欄は1文字も変わらない（要約の有無で後ろが違う）', T, async () => {
   let l = await openPage({ memo: '予算の相談をする', blocks: [{ id: 'b1', type: 'bullet', text: '要点', cites: ['s1'] }] });
   await choose(l, 'sales');
-  assert.strictEqual(memoTa(l).value, '予算の相談をする');
+  assert.strictEqual(memoText(l), '予算の相談をする\n');
   assert.strictEqual(toastText(l), `メモに書いた内容はそのまま残しました。要約は「${LABEL('bantc')}」の見出しで作ります（［要約を再生成］で反映されます）`);
   assert.deepStrictEqual(guide(l), []);
   l = await openPage({ memo: '予算の相談をする' });
@@ -143,18 +147,17 @@ test('0.11.0 V-1（F14・MQ3）: 人の文のメモで種類を替えると MQ3 
   assert.deepStrictEqual(l.errors.map(fmt), []);
 });
 
-test('0.11.0 V-1（決めたこと 8）: メモを書いて 500ms たたないうちに種類を替えると、pageSetMemo（人の文）の後に pageSetType を呼ぶ', T, async () => {
+// 0.14.0 MB-4 で意図して変えた: 打った文の保存は pageSetMemoDoc（メモの行）。区切りは要約と同じ 2 秒（決めたこと 61）
+test('0.11.0 V-1（決めたこと 8）: メモを書いて保存の区切りの前に種類を替えると、pageSetMemoDoc（人の文）の後に pageSetType を呼ぶ', T, async () => {
   const l = await openPage({});
-  const ta = memoTa(l);
-  ta.value = '見積の話';
-  ta.oninput();
+  await memoAdd(l, '見積の話');
   await choose(l, 'sales');
   const order = l.calls110.map((c) => c[0]);
-  assert.deepStrictEqual(order, ['pageSetMemo', 'pageSetType'], JSON.stringify(l.calls110));
-  assert.strictEqual(l.calls110[0][2], '見積の話');
-  assert.strictEqual(memoTa(l).value, '見積の話', '人の文を雛形で上書きした');
-  await l.clock.advance(1000);
-  assert.strictEqual(l.calls110.filter((c) => c[0] === 'pageSetMemo').length, 1, '待っていた保存を2回送った');
+  assert.deepStrictEqual(order, ['pageSetMemoDoc', 'pageSetType'], JSON.stringify(l.calls110));
+  assert.strictEqual(MD.memoPlain(l.calls110[0][2]), '見積の話\n');
+  assert.strictEqual(memoText(l), '見積の話\n', '人の文を雛形で上書きした');
+  await l.clock.advance(2500);
+  assert.strictEqual(l.calls110.filter((c) => c[0] === 'pageSetMemoDoc').length, 1, '待っていた保存を2回送った');
   assert.deepStrictEqual(l.errors.map(fmt), []);
 });
 
@@ -162,7 +165,7 @@ test('0.11.0 V-1（P16）: 「自動」に戻すと pageSetType(id, auto)。メ�
   const l = await openPage({ meetingType: 'sales', typeAuto: false, autoType: 'sales', memo: BANTC });
   await choose(l, '');
   assert.deepStrictEqual(l.calls110.map((c) => c.slice(0, 3)), [['pageSetType', 'pa1', 'auto']]);
-  assert.strictEqual(memoTa(l).value, BANTC);
+  assert.strictEqual(memoText(l), BANTC);
   assert.deepStrictEqual(l.errors.map(fmt), []);
 });
 
@@ -184,7 +187,7 @@ async function openLive(o = {}) {
     preloadSrc: PRELOAD,
     returns: {
       meetingTypes: TYPES, memoTypes: MEMOS,
-      meetingSetMemo: (m) => { calls.push(['meetingSetMemo', m]); memo = m; return { ok: true }; },
+      meetingSetMemo: (m) => { calls.push(['meetingSetMemo', m]); memo = Array.isArray(m) ? MD.memoPlain(m) : m; return { ok: true }; },   // 0.14.0 MB-4: 行なら memoPlain（main と同じ）
       meetingSetType: (key) => {
         calls.push(['meetingSetType', key]);
         let inserted = false;
@@ -220,15 +223,15 @@ test('0.11.0 V-1（決めたこと 10・P10）: 録音中のページにも種�
 
 test('0.11.0 V-1（P17・R3）: 録音中に商談を選ぶと、待っていたメモを送ってから meetingSetType。メモのタブに替わり、見出しを入れたので知らせは無く、焦点は種類の欄のまま。一言は消える', T, async () => {
   const l = await openLive();
-  const ta = memoTa(l);
+  const ta = memoBox(l);
   assert.strictEqual($(l, 'paneBtnScript').getAttribute('aria-selected'), 'true');
   const sel = $(l, 'pType');
   sel.focus();
   const toastBefore = toastText(l);
   await choose(l, 'sales');
   assert.deepStrictEqual(l.calls110.map((c) => c[0]), ['meetingSetMemo', 'meetingSetType']);
-  assert.ok(memoTa(l) === ta, 'メモ欄を作り直した');
-  assert.strictEqual(ta.value, BANTC);
+  assert.ok(memoBox(l) === ta, 'メモ欄を作り直した');
+  assert.strictEqual(memoText(l), BANTC);
   assert.strictEqual($(l, 'paneBtnMemo').getAttribute('aria-selected'), 'true', 'メモのタブに替わらない');
   assert.ok($(l, 'pMemo').classList.contains('active'));
   assert.strictEqual(toastText(l), toastBefore, '見出しを入れたのに知らせを出した');
@@ -239,7 +242,7 @@ test('0.11.0 V-1（P17・R3）: 録音中に商談を選ぶと、待っていた
   const g = $(l, 'pMemo').querySelector('.memoguide');
   l.fire('onMeetingUpdate', LIVE({ memo: BANTC, segments: [{ id: 's1', atMs: 0, text: '本日の議題です。' }, { id: 's2', atMs: 15000, text: '次です。' }] }));
   await l.drain();
-  assert.ok(memoTa(l) === ta, 'メモ欄を作り直した');
+  assert.ok(memoBox(l) === ta, 'メモ欄を作り直した');
   assert.ok($(l, 'pMemo').querySelector('.memoguide') === g, '手引きを作り直した');
   assert.strictEqual($(l, 'pType').value, 'sales');
   assert.strictEqual($(l, 'paneBtnMemo').getAttribute('aria-selected'), 'true', '区間が届いて文字起こしのタブへ戻った');
@@ -248,14 +251,11 @@ test('0.11.0 V-1（P17・R3）: 録音中に商談を選ぶと、待っていた
 
 test('0.11.0 V-1（R3）: 録音中に人の文のメモで選ぶと、メモは変えず短い知らせ。「自動」に戻してもタブは替わらない', T, async () => {
   const l = await openLive();
-  const ta = memoTa(l);
-  ta.value = '予算の相談';
-  ta.oninput();
-  await l.drain();
+  await memoAdd(l, '予算の相談');
   assert.strictEqual(liveHint(l), '', 'メモに書いても一言が消えない');
   await choose(l, 'sales');
-  assert.deepStrictEqual(l.calls110.map((c) => c.slice(0, 2)), [['meetingSetMemo', '予算の相談'], ['meetingSetType', 'sales']]);
-  assert.strictEqual(ta.value, '予算の相談');
+  assert.deepStrictEqual(l.calls110.map((c) => [c[0], Array.isArray(c[1]) ? MD.memoPlain(c[1]) : c[1]]), [['meetingSetMemo', '予算の相談\n'], ['meetingSetType', 'sales']]);
+  assert.strictEqual(memoText(l), '予算の相談\n');
   assert.strictEqual(toastText(l), `書いたメモはそのまま残しました（要約のときに「${LABEL('bantc')}」の見出しを使います）`);
   $(l, 'paneBtnScript').click();
   await choose(l, '');

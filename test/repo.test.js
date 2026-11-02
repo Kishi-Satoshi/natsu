@@ -282,12 +282,17 @@ test('公開したのに画面から呼ばれない API がない', () => {
   // 画面の元に戻す（EB-3）と色（EB-5）が呼び始めたら外して空に戻す。onEditStep・editRevert は EB-3 が、blocksSetColor は EB-5（⠿・Ctrl+/・/ の行の色）が呼び始めたので外して空に戻した
   // 0.14.0 EK-2（計画 docs/plans/2026-10-26-140.md の Ruling R122）で足した貼り付け（blockPaste）と選んだ行の4つ（blocksRemove・blocksMove・blocksDuplicate・
   // blocksTurnInto）は、画面の貼り付け（EK-3）と複数の行の選択（EK-4）が呼び始めたら外して空に戻す。blockPaste は EK-3 が、選んだ行の4つは EK-4 が呼び始めたので外して空に戻した
-  // 0.14.0 MB-2: pageSetMemoDoc は MB-4 で画面が呼び始める（そのときに外す）
-  const PENDING_APP = new Set(['pageSetMemoDoc']);
+  // 0.14.0 MB-2: pageSetMemoDoc は MB-4 で画面が呼び始める（そのときに外す）。MB-4 のメモの行の欄が呼び始めたので外して空に戻した
+  const PENDING_APP = new Set([]);
+  // 0.14.0 MB-4（計画の決めたこと 70・R171）: 素の文字のメモの口 pageSetMemo は、画面がメモの行（pageSetMemoDoc）を送るようになって呼ばなくなったが、
+  // 古い画面の口として残す（DB は memoDoc のあるページへの素の文字だけの直しを断る）。呼ばれなくても死んだ口と数えない
+  const KEPT_APP = new Set(['pageSetMemo']);
   for (const [ns, html] of [['koeApp', appHtml], ['koeOverlay', overlayHtml]]) {
     const names = all(/^\s{2}([A-Za-z][\w$]*):/gm, block(ns));
     const used = new Set(all(new RegExp(`${ns}\\.(\\w+)`, 'g'), html));
-    const dead = names.filter((n) => !used.has(n) && !PENDING_APP.has(n));
+    // 0.14.0 MB-4（決めたこと 66）: 行の欄の命令は rowApi(鍵).名前 で送る（要約の欄は koeApp、メモの欄は同じ名前の memoApi）。rowApi の要約の側は koeApp なので、呼んでいると数える
+    if (ns === 'koeApp' && /const rowApi = \(k\) => \(isMemoKey\(k\) \? memoApi : window\.koeApp\);/.test(html)) for (const n of all(/rowApi\([^)]*\)\.(\w+)/g, html)) used.add(n);
+    const dead = names.filter((n) => !used.has(n) && !PENDING_APP.has(n) && !KEPT_APP.has(n));
     assert.deepStrictEqual(dead, [], `${ns} に呼ばれていない API がある`);
     // 画面が呼び始めた名前は PENDING_APP から外す（残すと、後で呼ばれなくなっても気づけない）
     const stale = names.filter((n) => used.has(n) && PENDING_APP.has(n));
@@ -588,9 +593,9 @@ test('区切りの保険は遅延中のタイマーを必ず消してから切�
 });
 
 test('メモのコピーは画面の入力欄の今の文字を写す', () => {
-  // 保存は500ms遅れで走る。書いた直後に押すと保存前の古い値が写る
+  // 保存は区切りで走る。書いた直後に押すと保存前の古い値が写る。0.14.0 MB-4 で意図して変えた: メモの欄は行の部品なので、欄の今の行（打った文も）を memoPlain で写す（BQ25 (a)）
   const cp = appHtml.slice(appHtml.indexOf("mk('コピー'"));
-  assert.ok(cp.includes("$('pMemo').querySelector('textarea')"));
+  assert.ok(cp.includes('memoDocView.memoPlain(memoNowDoc(tg))'));
 });
 
 test('一覧の「要約なし」はタイプ章より左にある（右端で見切れない）', () => {
