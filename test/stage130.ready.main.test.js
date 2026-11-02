@@ -69,8 +69,10 @@ test('RDY-1（RD7）: 録音の前のページで種類を選ぶと 0.11.0 と�
   const o = await run([['ipc', 'meeting:prepare'], ['ipc', 'meeting:set-type', 'sales'], ['snap', 'a'], ['ipc', 'meeting:set-memo', MEMO], ['ipc', 'meeting:set-type', 'auto'], ['snap', 'b'],
     ['ipc', 'meeting:set-type', 'standup'], ['snap', 'c'], ['ipc', 'meeting:set-type', 'nope']]);
   const r = ipcOf(o, 'meeting:set-type');
-  assert.deepStrictEqual(r[0], { ok: true, memo: SALES_PRESET, inserted: true, meetingType: 'sales' });
-  assert.deepStrictEqual(o.snaps.a.status.prep, { memo: SALES_PRESET, meetingType: 'sales' });
+  // 0.14.0 MB-3（決めたこと 64）で意図して変えた: 雛形を入れると、メモの行（memoDoc）も同じ文から作って返す
+  const SALES_DOC = require('../src/memoDoc.js').memoFromText(SALES_PRESET);
+  assert.deepStrictEqual(r[0], { ok: true, memo: SALES_PRESET, memoDoc: SALES_DOC, inserted: true, meetingType: 'sales' });
+  assert.deepStrictEqual(o.snaps.a.status.prep, { memo: SALES_PRESET, memoDoc: SALES_DOC, meetingType: 'sales' });
   assert.deepStrictEqual(r[1], { ok: true, memo: MEMO, inserted: false, meetingType: null });
   assert.deepStrictEqual(r[2], { ok: true, memo: MEMO, inserted: false, meetingType: 'standup' }, '人の文のメモを雛形に替えた');
   assert.deepStrictEqual(r[3], { ok: false });

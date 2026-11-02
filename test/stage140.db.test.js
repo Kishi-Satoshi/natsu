@@ -1473,3 +1473,76 @@ test('MB-2・R76: メモの歩みと要約の歩みを混ぜた edit.revert → 
     assert.deepStrictEqual([raw(db).memoDoc, raw(db).memo, raw(db).summaryEdited], [undefined, '', undefined]);
   }, { meeting: { phase: 'recording', recovered: false } });
 });
+
+// ---------------------------------------------------------------- MB-3（R165）: メモの行の大きさで、main の要約の書き戻しと締め・復旧が断られない
+const ML = require('../src/mainlib');
+// 2,000 行の太字の箇条書き（memoDoc の JSON は 1MB の内・memo は 10 万字の内）
+const BIG_MEMO = Array.from({ length: 2000 }, (_, i) => ({ id: `m${(i + 1).toString(36)}`, type: 'bullet', text: 'あ'.repeat(45), rich: [{ t: 'あ'.repeat(45), m: ['b'] }] }));
+// main の客と同じ形（答えか、符号の付いた失敗を投げる）
+const mainDb = (db, role = 'main') => ({ call: async (cmd, args) => { const r = call(db, cmd, args, role); if (!r.ok) throw Object.assign(new Error(r.code), { code: r.code }); return r.result; } });
+const summaryRows = (n) => Array.from({ length: n }, (_, i) => ({ id: `bs${i + 1}`, type: 'bullet', text: '要約の行の文'.repeat(20) }));
+
+test('MB-3（R165）: 大きなメモの行のページでも、main の要約の書き戻し（saveIfExists → page.put）はメモを送らずに書け、保存してあるメモの行と memo のまま（メモを送ると上限で断られる形の再現も見る）', BIG, async () => {
+  const t = tmpDb();
+  try {
+    const { db } = t.open();
+    const { page, segments } = samplePage('pa1');
+    t.seed(page, segments);
+    t.seed({ ...samplePage('pb1').page, id: 'pb1', blocks: [], memo: 'もとのメモ' }, []);
+    const set = call(db, 'page.setMemoDoc', { id: 'pa1', doc: BIG_MEMO });
+    assert.strictEqual(set.ok, true, set.code);
+    const memo = raw(db).memo;
+    const g = get(db);
+    g.blocks = summaryRows(300);
+    assert.strictEqual(call(db, 'page.put', { page: g, baseRev: g.rev }, 'main').code, 'bad-args', '前提: メモの行を載せた書き戻しは上限を越える');
+    const saved = await ML.saveIfExists(mainDb(db), 'pa1', (p) => { p.blocks = summaryRows(300); p.summaryError = ''; });
+    assert.ok(saved && saved.blocks.length === 300, '要約を書き戻せない');
+    assert.deepStrictEqual([raw(db).memoDoc, raw(db).memo], [MD.validateMemoDoc(BIG_MEMO), memo], '書き戻しでメモが変わった');
+    // page.put がメモの行を持たなければ、memo も保存してある方（行と素の文字を食い違わせない）
+    const g2 = get(db); delete g2.memoDoc; g2.memo = '古い写しの素の文字';
+    assert.strictEqual(call(db, 'page.put', { page: g2, baseRev: g2.rev }, 'main').ok, true);
+    assert.deepStrictEqual([raw(db).memoDoc, raw(db).memo], [MD.validateMemoDoc(BIG_MEMO), memo], '行のあるページに古い素の文字だけが入った');
+    // memoDoc の無いページも、memo を持たない書き戻しは保存してあるメモのまま
+    const g3 = get(db, 'pb1'); delete g3.memo; g3.title = '題名を直した';
+    assert.strictEqual(call(db, 'page.put', { page: g3, baseRev: g3.rev }, 'main').ok, true);
+    assert.deepStrictEqual([raw(db, 'pb1').title, raw(db, 'pb1').memo, raw(db, 'pb1').memoDoc], ['題名を直した', 'もとのメモ', undefined]);
+  } finally { t.done(); }
+});
+
+test('MB-3（R165）: json-backend の page.put もメモを持たなければ保存してあるメモのまま', T, async () => {
+  const { jsonTwin } = require('./helpers/dbtmp');
+  const j = jsonTwin();
+  try {
+    const { page, segments } = samplePage('pa1');
+    await j.seed({ ...page, memo: MEMO_PLAIN, memoDoc: MD.validateMemoDoc(MEMO_DOC) }, segments);
+    const g = (await j.call('page.get', { id: 'pa1' })).page;
+    delete g.memo; delete g.memoDoc; g.title = '題名を直した';
+    const r = await j.call('page.put', { page: g });
+    assert.deepStrictEqual([r.title, r.memo, r.memoDoc], ['題名を直した', MEMO_PLAIN, MD.validateMemoDoc(MEMO_DOC)]);
+  } finally { j.done(); }
+});
+
+test('MB-3（R165）: 締め（meeting.finalize）と復旧（meeting.recover）は、メモの行で引数が上限を越えても fitMemoDoc で行を外して保存できる（memo は残る）。越えなければ行のまま', BIG, () => {
+  const t = tmpDb();
+  try {
+    const { db } = t.open();
+    const doc = MD.validateMemoDoc(BIG_MEMO);
+    const memo = MD.memoPlain(doc);
+    const segs = Array.from({ length: 800 }, (_, i) => ({ id: `s${i + 1}`, atMs: i * 3000, durationMs: 3000, text: `はい、${i + 1} 番目の発言です` }));
+    const args = (pageId, extra) => ({ pageId, segments: segs, page: { title: '', memo, memoDoc: doc, blocks: [], createdAt: '2026-10-19T00:00:00.000Z', ...extra } });
+    assert.strictEqual(call(db, 'meeting.finalize', args('pf1'), 'main').code, 'bad-args', '前提: メモの行を載せた締めは上限を越える');
+    for (const [cmd, extra] of [['meeting.finalize', {}], ['meeting.recover', { recovered: true }]]) {
+      const pageId = cmd === 'meeting.finalize' ? 'pf2' : 'pf3';
+      const f = ML.fitMemoDoc(args(pageId, extra));
+      assert.strictEqual(f.dropped, true, cmd);
+      assert.strictEqual(f.args.page.memoDoc, undefined);
+      const r = call(db, cmd, f.args, 'main');
+      assert.strictEqual(r.ok, true, `${cmd}: ${r.code}`);
+      assert.deepStrictEqual([raw(db, pageId).memo, raw(db, pageId).memoDoc, raw(db, pageId).memo.length > 90000], [memo, undefined, true]);
+    }
+    const small = { pageId: 'pf4', segments: segs.slice(0, 2), page: { title: '', memo: MEMO_PLAIN, memoDoc: MEMO_DOC, blocks: [] } };
+    const s = ML.fitMemoDoc(small);
+    assert.deepStrictEqual([s.dropped, s.args], [false, small], '上限の内の頼みを変えた');
+    assert.deepStrictEqual(ML.fitMemoDoc({ pageId: 'pf5', segments: segs, page: { memo } }), { args: { pageId: 'pf5', segments: segs, page: { memo } }, dropped: false });
+  } finally { t.done(); }
+});

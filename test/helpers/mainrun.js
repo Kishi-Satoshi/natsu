@@ -178,6 +178,7 @@ const { titleAt } = require('./titles');
 //     --resum-after-edit … 0.13.0 点検4: 要約の後に画面の役で行を1つ消して［要約を再生成］（out.editedBefore・out.resumEdit・out.editedAfter）
 //     --legacy-general … 0.11.0 P-12: 要約の後、ページを前の版で手で一般・その他を選んだ形（meetingType 'general'・typeAuto 偽）にして［要約を再生成］（out.legacyGeneral）
 //     --claude-stdin … 0.12.0 SP-4: 偽の claude の記録に標準入力の全文（stdinText）を書かせる（--claude と一緒に使う）
+//     --live-memo-doc=<JSON> … 0.14.0 MB-3: 録音中（最初の区間の後）に meeting:set-memo へメモの行の並び（memoDoc）を送る（答えは out.liveMemoDoc。--live-memo の後）
 //     --sum-md=<名前> … 0.11.0 M-3: 偽の claude が返す要約の Markdown を test/fixtures/summaries/<名前>.md にする（--claude と一緒に使う）
 //     --db-down     … 第2a1回 M-2b: 議事録の DB のプロセス（偽の utilityProcess の中の本物の server.js）の SQLite が trigram を持たない
 //                     （helpers/no-trigram.js を子の中で先に読む）。自分の確かめが通らず、DB は「使えない」で起きる。場面の dbDown でも同じ
@@ -426,6 +427,8 @@ const { titleAt } = require('./titles');
 //     --mic-feed の snap に足す: drafts（下書きのファイルの名前）・draft（最初の下書きの { memo, meetingType }。無ければ null）・dbSent（main の客が
 //                        送った・呼んだ DB の命令の名前。中身は入れない）・status（meeting:status の { active, prep }。prep の欄が無ければ 'none'）。
 //                        出力に pageMemos（ページごとの { id, memo, meetingType }）を足す
+//   0.14.0 MB-3: snap の draft に memoDoc（下書きにあるときだけ）・snap に liveMemo（meeting:status の { memo, memoDoc }）・pageMemos に memoDoc（あるときだけ）。
+//                        --idle の出力に dataFiles（data の直下の名前）・ページの形に memoDoc
 //   0.13.2 LN-4（計画 docs/plans/2026-10-28-132.md）
 //     --mic-feed の手順に足す: ["wait-login", n]（ログインの窓が n 個できるまで待つ）・["wait-login-closed", n]（閉じたログインの窓が n 個になるまで待つ）・
 //                        ["online", bool]（偽の net.isOnline() を替える）・["tick"]（文字起こし待ちの見回りを1回）・["login-close"]（開いているログインの窓を利用者が × で閉じる）。
@@ -504,6 +507,7 @@ const flagVal = (name) => { const f = flags.find((x) => x.startsWith(`${name}=`)
 // 0.11.0 M-4: 録音中（最初の区間の後）に meeting:set-memo と meeting:set-type を呼ぶ（--set-type-live は , で区切って続けて選べる）
 const setTypeLive = flagVal('--set-type-live') ? flagVal('--set-type-live').split(',') : [];
 const liveMemo = flags.some((x) => x.startsWith('--live-memo=')) ? flagVal('--live-memo') : null;
+const liveMemoDoc = flagVal('--live-memo-doc') ? JSON.parse(flagVal('--live-memo-doc')) : null;   // 0.14.0 MB-3
 // 第2a1回 M-3: 録音と DB のつなぎの場面
 const killDbDuring = flags.includes('--kill-db-during');
 const killMainDuring = flags.includes('--kill-main-during');
@@ -2553,6 +2557,7 @@ process.on('exit', () => {
       // 0.11.0 M-3: 要約のブロックの文と印（足すだけ。上の blocks の形は変えない）
       sumBlocks: (page.blocks || []).map((b) => ({ type: b.type, text: b.text, mark: b.mark, unconfirmed: b.unconfirmed, citeState: b.citeState, cites: Array.isArray(b.cites) ? b.cites.length : 0, ...(b.level !== undefined ? { level: b.level } : {}) })),   // 0.13.0 ED-3: 見出しの段
       autoType: page.autoType, autoSlot: page.autoSlot, quality: page.quality, stateLog: page.stateLog, memo: page.memo,
+      memoDoc: page.memoDoc,   // 0.14.0 MB-3: メモの行（無ければ出ない）
       // 0.11.0 Q-3: 画面の役で読んだ qualityView（DB が作る欄）・DB の行に qualityView が書かれていないか
       viewQuality: await (async () => { try { const g = await appCall('page.get', { id: p.id }); return g && g.page ? g.page.qualityView : undefined; } catch (_) { return undefined; } })(),
       rawHasQualityView: (() => { const raw = store.rawPage(p.id); return Boolean(raw && Object.hasOwn(raw, 'qualityView')); })(),
@@ -2659,6 +2664,7 @@ process.on('exit', () => {
       await sleep(200);
     }
     out.pages = await Promise.all(store.listPages().map(pageOut));
+    out.dataFiles = (() => { try { return fs.readdirSync(path.join(userData, 'data')).sort(); } catch (_) { return []; } })();   // 0.14.0 MB-3: data の直下の名前
     out.notices = sent.filter(([ch]) => ch === 'app:notice').map(([, p]) => p);
     out.engineLog = engineLogLines();
     out.requests = fs.readFileSync(flog, 'utf8').split('\n').filter((l) => l.startsWith('inference'));
@@ -3176,8 +3182,9 @@ process.on('exit', () => {
         const d0 = drafts.length ? store.readDraftFile(drafts[0]) : null;
         const dv = d0 && d0.state === 'ok' && d0.value ? d0.value : null;
         const st = handlers['meeting:status']();
-        Object.assign(out.snaps[a[0]], { drafts, draft: dv ? { memo: dv.memo, meetingType: dv.meetingType === undefined ? null : dv.meetingType } : null,
-          dbSent: trace.filter((t) => t.kind === 'call' || t.kind === 'send').map((t) => t.cmd), status: { active: Boolean(st.active), prep: st.prep === undefined ? 'none' : st.prep } });
+        Object.assign(out.snaps[a[0]], { drafts, draft: dv ? { memo: dv.memo, meetingType: dv.meetingType === undefined ? null : dv.meetingType, ...(dv.memoDoc !== undefined ? { memoDoc: dv.memoDoc } : {}) } : null,
+          dbSent: trace.filter((t) => t.kind === 'call' || t.kind === 'send').map((t) => t.cmd), status: { active: Boolean(st.active), prep: st.prep === undefined ? 'none' : st.prep },
+          liveMemo: { memo: st.memo, memoDoc: st.memoDoc } });   // 0.14.0 MB-3: 下書きのメモの行（あるときだけ）・meeting:status の録音中のメモ
         // 0.13.0 ED-5（RF9・決めたこと 32）: その時に Escape が全体のホットキーに付いているか
         out.snaps[a[0]].escape = registered.has('Escape');
       }
@@ -3204,7 +3211,7 @@ process.on('exit', () => {
       pageDur: store.listPages().map((p) => { const pg = store.getPage(p.id) || {}; return { id: p.id, durationSec: pg.durationSec, pauses: pg.pauses || [] }; }),
       loginWins: loginRecs.map((r) => ({ ...r })),   // 0.13.2 LN-4
       // 0.13.0 RDY-1: 議事録のページのメモと種類
-      pageMemos: store.listPages().map((p) => { const pg = store.getPage(p.id) || {}; return { id: p.id, memo: pg.memo, meetingType: pg.meetingType === undefined ? null : pg.meetingType }; }),
+      pageMemos: store.listPages().map((p) => { const pg = store.getPage(p.id) || {}; return { id: p.id, memo: pg.memo, meetingType: pg.meetingType === undefined ? null : pg.meetingType, ...(pg.memoDoc !== undefined ? { memoDoc: pg.memoDoc } : {}) }; }),   // 0.14.0 MB-3: メモの行
       // 0.13.2 LN-1（LR14）: 締めの後の形（題名・meeting.phase）
       pageFinal: store.listPages().map((p) => { const pg = store.getPage(p.id) || {}; return { id: p.id, title: pg.title, phase: pg.meeting && pg.meeting.phase ? pg.meeting.phase : null }; }),
     });
@@ -3631,6 +3638,7 @@ process.on('exit', () => {
       netSegs.push({ s: netSec - 1, problem: netNote(netSec - 1) });
     }
     if (i === 0 && liveMemo !== null) out.liveMemo = await handlers['meeting:set-memo']({}, liveMemo);
+    if (i === 0 && liveMemoDoc !== null) out.liveMemoDoc = await handlers['meeting:set-memo']({}, liveMemoDoc);   // 0.14.0 MB-3
     if (i === 0 && setTypeLive.length) { out.setTypeLive = []; for (const k of setTypeLive) out.setTypeLive.push(await handlers['meeting:set-type']({}, k)); out.liveStatusType = handlers['meeting:status']().meetingType; }
     if (i === 0 && testDuring) out.testDuring = await handlers['app:test']();
     // 第1d回 A-9: 会議の録音中に再起動と取り込みを頼む（断られて、録音はそのまま続く）

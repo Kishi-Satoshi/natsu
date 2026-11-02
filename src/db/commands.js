@@ -409,6 +409,14 @@ function localDate(d) {
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
 }
 
+// 0.14.0 MB-3（R165）: page.put の引数がメモを持たなければ、保存してあるメモのまま（main の書き戻しはメモを送らない。memoDoc を送らないときは
+// memo も保存してある方にして、行と素の文字を食い違わせない）。json-backend も同じ部品 → page（直した写し）
+function keepStoredMemo(was, page) {
+  if (!Object.hasOwn(page, 'memoDoc') && Array.isArray(was.memoDoc)) { page.memoDoc = clone(was.memoDoc); page.memo = was.memo; }
+  else if (!Object.hasOwn(page, 'memo') && Object.hasOwn(was, 'memo')) page.memo = was.memo;
+  return page;
+}
+
 // 0.14.0 MB-2: 照らしに合うメモの行の並び（整えた写し）か null（無い・外れる）
 function memoDocOr(v) {
   if (v === undefined) return null;
@@ -1239,6 +1247,7 @@ const DEFS = {
       if (!was) return { ops: [], pageIds: [], result: null };
       if (was.page.rev !== a.baseRev) throw refuse('conflict');
       const page = clone(a.page);
+      keepStoredMemo(was.page, page);   // 0.14.0 MB-3（R165）: メモを送らない書き戻しは保存してあるメモのまま
       if (!Array.isArray(page.blocks)) page.blocks = [];
       const ops = saveOps(was, page, ctx.now);
       applyOps(db, ops);
@@ -1269,4 +1278,4 @@ const DEFS = {
 const COMMANDS = Object.freeze(Object.assign(Object.create(null),
   Object.fromEntries(Object.entries(DEFS).map(([k, v]) => [k, Object.freeze(v)]))));
 
-module.exports = { COMMANDS, HOT_QUERIES, putPageRows, readPage, readRawPage, readSegments, listPages, isPurged, listedRows, actionView, entryOf, setTypePage };
+module.exports = { COMMANDS, HOT_QUERIES, putPageRows, readPage, readRawPage, readSegments, listPages, isPurged, listedRows, actionView, entryOf, setTypePage, keepStoredMemo };

@@ -22,7 +22,7 @@ const { parseDue } = require('../actions');
 const { routeLabel } = require('../mainlib');
 const mtype = require('../meetingType');
 const quality = require('../quality');
-const { setTypePage } = require('./commands');   // 0.11.0 M-4: page.setType の中身は DB と同じ部品
+const { setTypePage, keepStoredMemo } = require('./commands');   // 0.11.0 M-4: page.setType の中身は DB と同じ部品
 const MD = require('../memoDoc');   // 0.14.0 MB-2: メモの行（DB の page.setMemoDoc と同じ照らしと素の文字）
 
 const isObj = (v) => Boolean(v) && typeof v === 'object' && !Array.isArray(v);
@@ -136,8 +136,9 @@ function makeJsonBackend(store, { labels = {} } = {}) {
     },
     // ---- main だけ
     'page.put': ({ page } = {}) => {
-      if (!isObj(page) || typeof page.id !== 'string' || !store.getPage(page.id)) return null;
-      const p = { ...page };
+      const was = isObj(page) && typeof page.id === 'string' ? store.getPage(page.id) : null;
+      if (!was) return null;
+      const p = keepStoredMemo(was, { ...page });   // 0.14.0 MB-3（R165）: メモを送らない書き戻しは保存してあるメモのまま
       for (const k of DB_MADE) delete p[k];
       return store.savePage(p);
     },

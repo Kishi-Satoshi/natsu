@@ -35,6 +35,7 @@ const { attachCitations } = cite;
 const attachAcross = cite.attachCitationsAcross || ((b, f) => attachCitations(b, f.filter((s) => !s.failed)));
 const mtype = require('./meetingType');
 const memoTypes = require('./memoTypes');
+const memoDoc = require('./memoDoc');   // 0.14.0 MB-3: メモの行（照らし・素の文字・雛形の行）
 const quality = require('./quality');
 const { enrichActionBlocks, groundActionFields } = require('./actions');
 const updater = require('./updater');
@@ -92,7 +93,7 @@ const { MANIFEST } = require('./engine-manifest');
 const localhttp = require('./localhttp');
 const { localDateISO } = require('./dates');
 const {
-  saveIfExists, meetingDurationSec, promptTail,
+  saveIfExists, fitMemoDoc, meetingDurationSec, promptTail,
   registerHotkeys, resolveStartupHotkeys, saveHotkeys, makeSummaryRunner, tickStep,
   pasterScript, parsePasterLine,
   engineFileIssue, engineIssueMessage, engineInAppDir, engineDirWarning, portInUseError, guardEngineSettings, keptDifferent, closeConfirm, restartBlock, logReason,
@@ -4381,15 +4382,18 @@ function etaSecOf(m) {
 }
 
 // ---------------------------------------------------------------- 議事録
+// 0.14.0 MB-3（決めたこと 65・F109）: 録音中か録音の前のメモの行（memoDoc）。あるときだけ欄を足す（無ければ前の版と同じ答え。画面は memo から行にする）
+function liveMemoDocOf(t) { return t && Array.isArray(t.memoDoc) ? { memoDoc: t.memoDoc } : {}; }
 function meetingStatus() {
   return {
     active: state === 'meeting' || state === 'meeting-finalizing',
     finalizing: state === 'meeting-finalizing',
     startedAt: meeting ? meeting.startedAt : null,
     memo: meeting ? meeting.memo : '',
+    ...liveMemoDocOf(meeting),   // 0.14.0 MB-3: 録音中のメモの行（あるときだけ）
     meetingType: meeting && mtype.isSelectable(meeting.meetingType) ? meeting.meetingType : null,   // 0.11.0 M-4: 録音中のページの種類の欄を戻す
     // 0.13.0 RDY-1（RD15）: 録音の前のページ（会議が無いときだけ。画面を読み直したら戻す）
-    prep: !meeting && prep ? { memo: prep.memo, meetingType: mtype.isSelectable(prep.meetingType) ? prep.meetingType : null } : null,
+    prep: !meeting && prep ? { memo: prep.memo, ...liveMemoDocOf(prep), meetingType: mtype.isSelectable(prep.meetingType) ? prep.meetingType : null } : null,
     segments: meeting ? publicSegments(meeting.segments) : [],   // wav（パス）は外す。待ちは pending: true
     pending: pendingSegs,
     stoppedAt: meeting && meeting.stoppedAt ? meeting.stoppedAt : null,
@@ -4435,6 +4439,7 @@ function writeDraft() {
     store.writeDraft({
       pageId: meeting.pageId,   // 会議のページの ID（締め・復旧が同じ ID に書く。第2a1回 ST6）
       startedAt: meeting.startedAt, memo: meeting.memo,
+      ...(meeting.memoDoc ? { memoDoc: meeting.memoDoc } : {}),   // 0.14.0 MB-3（決めたこと 65）: メモの行（memo も今どおり書く。前の版で戻しても素の文字のメモは残る）
       segments: meeting.segments, offsetMs: meeting.offsetMs, savedAt: Date.now(),
       localOnly: Boolean(meeting.localOnly),   // ［この会議は PC の中だけ］（復旧した会議の送り直しも手元。第1c回 RF28）
       pauses: meeting.pauses || [],   // 止めていた時間の印（落ちて復旧したページにも残す。第1b回 N4c）
@@ -4704,6 +4709,7 @@ async function recoverDraftsNow() {
       continue;
     }
     if (draftId) keep.push(draftId);
+    keepBrokenMemoDraft(name, d);   // 0.14.0 MB-3（R164）
     try {
       const dt = new Date(d.startedAt || Date.now());
       // 文字起こしが終わっていなかった区間（pending）は失敗扱いでページに載せ、wav が残っていれば
@@ -4711,12 +4717,14 @@ async function recoverDraftsNow() {
       // エンジンの起動を待たずに復旧した本文を開けるようにするため
       const rec = recoverSegments(d.segments, (f) => fs.existsSync(f));
       // 要約の欄の文（summaryError）も同じ1回の頼みで入れる（今の「作ってから保存し直す」と同じ中身）
-      const { page, already } = await db.call('meeting.recover', { pageId: draftId || store.newId('p'), segments: rec.segments, page: {
+      const { page, already } = await db.call('meeting.recover', fitLiveMemoDoc({ pageId: draftId || store.newId('p'), segments: rec.segments, page: {
         title: `${dt.getFullYear()}/${dt.getMonth() + 1}/${dt.getDate()} ${String(dt.getHours()).padStart(2, '0')}:${String(dt.getMinutes()).padStart(2, '0')} の議事録（復旧）`,
         // 日付はローカルの暦日（#51。UTC で作ると日本の朝の会議が前日になる）
         date: localDateISO(dt),
         durationSec: Math.round((d.offsetMs || 0) / 1000),
         memo: d.memo || '',
+        // 0.14.0 MB-3（決めたこと 65・R158）: 下書きのメモの行は DB の meetingPage が照らして持つ（外れれば memo だけのページ）。前の版の下書き（memo だけ）は今と同じ
+        ...(d.memoDoc === undefined ? {} : { memoDoc: d.memoDoc }),
         blocks: [],
         createdAt: new Date(d.startedAt || Date.now()).toISOString(),
         recovered: true,
@@ -4730,7 +4738,7 @@ async function recoverDraftsNow() {
         summaryError: rec.todo.length
           ? '録音が中断されたため要約は未生成です。残っていた音声の文字起こしを続けています。終わったら「要約を生成」で作成できます。'
           : '録音が中断されたため要約は未生成です。「要約を生成」で作成できます。',
-      } });
+      } }));
       store.clearDraft(name);
       if (already) {
         // 締め済みのページ（後からの要約と直しは DB が残した）か、取り消した会議。知らせない
@@ -5177,9 +5185,38 @@ function notePrep(m) {
 function takePrep(m) {
   if (!prep) return;
   m.memo = prep.memo;
+  if (prep.memoDoc) m.memoDoc = prep.memoDoc;   // 0.14.0 MB-3（決めたこと 65）: メモの行も移す
   if (mtype.isSelectable(prep.meetingType)) { m.meetingType = prep.meetingType; m.prepType = true; }
   m.prepAt = prep.openedAt;
   prep = null;
+}
+// 0.14.0 MB-3（決めたこと 61・65・録音の守り）: 録音中と録音の前のメモの行。照らしに合えば、行と素の文字（memoPlain）を main のメモリに持ち、
+// 録音中は下書きに書く（DB に頼らない）。外れれば受けずに前のまま（録音は止めない・投げない。記録に符号だけ・文は書かない）→ 受けたか
+function setLiveMemoDoc(doc) {
+  const t = meeting || prep;
+  if (!t) return true;
+  let v = null;
+  try { v = memoDoc.validateMemoDoc(doc); } catch (e) { engineLog(`メモ: 行の形が合わないので受けなかった（${errCode(e)}）。前のメモのまま`); }
+  if (!v) return false;   // 受けずに前のまま
+  t.memoDoc = v; t.memo = memoDoc.memoPlain(v);
+  if (t === meeting) writeDraft();
+  return true;
+}
+// 0.14.0 MB-3（R165）: 締めと復旧の頼みがメモの行のせいで DB の引数の上限（1MB）を越えるなら、行を外して素の文字のメモだけで頼む
+// （メモの大きさで締めと復旧を断られない。記録に符号だけ）→ 頼みの引数
+function fitLiveMemoDoc(args) {
+  const r = fitMemoDoc(args);
+  if (r.dropped) engineLog('メモ: 議事録の頼みが大きすぎるので、メモの行を外して素の文字のメモで保存します');
+  return r.args;
+}
+// 0.14.0 MB-3（決めたこと 65・R164）: 復旧する下書きのメモの行が照らしに合わなければ、下書きの写しを消さずに残す（ページは DB が memo だけで作り、
+// 下書きは今どおり戻した後に消す。壊れた形も写しに残る: 試作の「破損時は削除せず」）。写せなくても復旧は止めない。記録に符号だけ
+function keepBrokenMemoDraft(name, d) {
+  if (d.memoDoc === undefined) return;
+  try { memoDoc.validateMemoDoc(d.memoDoc); return; } catch (e) {
+    const kept = store.keepDraftCopy(name);
+    engineLog(`下書き（${name}）のメモの行は形が合わないので、行の無いメモで戻します（${errCode(e)}。${kept.ok ? '下書きの写しを残しました' : `写しを残せませんでした: ${kept.code}`}）`);
+  }
 }
 // 0.13.0 RDY-1（RD1・RD19）: ［＋ 新しい議事録］ → 録音の前のページを1つ作る（あればそのまま）。録音・下書き・DB の写し・録音バーは始めない。
 // 録音中・作成中（会議がある）は断る
@@ -5744,13 +5781,14 @@ async function maybeFinalizeMeeting() {
   try {
     // 議事録を締める（第2a1回 ST6: await db.call。中身は議事録の DB のプロセス）。「書けた」と返ってから下書きを消す。
     // 締めの tx は会議の開始時刻（送り直しても1回だけ効く）
-    page = await db.call('meeting.finalize', {
+    page = await db.call('meeting.finalize', fitLiveMemoDoc({
       pageId,
       segments: settledSegments(m.segments),   // 待ちの区間（本文なし）と wav のパスは載せない
       page: {
         title: fallbackTitle,
         date: localDateISO(dt),   // ローカルの暦日（#51）
         durationSec, memo: m.memo, blocks: [],
+        ...(m.memoDoc ? { memoDoc: m.memoDoc } : {}),   // 0.14.0 MB-3（決めたこと 65）: 録音中のメモの行（受けたときに照らした写し）
         createdAt: dt.toISOString(),
         // 文字起こしの経路と、会議の印（要約の経路が見る: C10）
         route: { stt: { ...m.route, provider: sttProvider().id }, localOnly: Boolean(m.localOnly) },
@@ -5759,7 +5797,7 @@ async function maybeFinalizeMeeting() {
         ...(mtype.isSelectable(m.meetingType) ? { meetingType: m.meetingType, typeAuto: false } : {}),   // 0.11.0 M-4（決めたこと 11・F27）
         recovered: false, summaryError: keptWhy, meeting: { phase: 'done' },
       },
-    }, { tx: `meeting:${m.startedAt}` });
+    }), { tx: `meeting:${m.startedAt}` });
     store.clearDraft(m.draftName);
     // 認識に失敗した区間の wav は残してある（settleSegment）。復旧と同じ待ち行列に載せ、
     // 要約のあとでもう一度文字起こしする。途中で落ちても recovery.json から次の起動で続く
@@ -6406,7 +6444,12 @@ function setupIpc() {
   ipcMain.handle('meeting:keep-going', () => keepGoingQuiet());   // 0.9.1 Q-4: 帯の［続ける］
   // 第1d回 A-8（D17）: 画面が「録音中のページを開いていて、窓が隠れていない」かを知らせる（変わったときだけ送ってくる）
   ipcMain.on('meeting:live-shown', (_e, on) => { liveShownByUi = on === true; syncLevelAsk(); });
-  ipcMain.handle('meeting:set-memo', (_e, memo) => { if (meeting) { meeting.memo = String(memo || ''); writeDraft(); } else if (prep) prep.memo = String(memo || ''); return true; });   // 0.13.0 RDY-1（RD7）: 録音の前は prep に
+  // 0.14.0 MB-3（決めたこと 61・65）: メモは文字か行の並び（memoDoc）。行は照らして main のメモリと下書きに持つ（DB の命令は送らない）→ 受けたか
+  ipcMain.handle('meeting:set-memo', (_e, memo) => {
+    if (Array.isArray(memo)) return setLiveMemoDoc(memo);
+    if (meeting || prep) delete (meeting || prep).memoDoc;   // 文字のメモ（前の画面の口）は行の形を持たない（文字と行を食い違わせない: R164）
+    if (meeting) { meeting.memo = String(memo || ''); writeDraft(); } else if (prep) prep.memo = String(memo || ''); return true;   // 0.13.0 RDY-1（RD7）: 録音の前は prep に
+  });
   // 0.11.0 M-4（D50・決めたこと 10・11）: 録音中のページで種類を選ぶ（auto は自動に戻す）。メモが手を付けていなければ新しい型の雛形に替え、
   // 下書きに書き、経過に1件積む。画面は先に待っているメモを meeting:set-memo で送ってから呼ぶ → { ok, memo, inserted, meetingType }
   // 0.13.0 RDY-1（RD7）: 会議が無くて録音の前のページがあれば、同じ決まりで prep に書く（下書きには書かず、経過は始めたときに積む: RD4）
@@ -6418,10 +6461,11 @@ function setupIpc() {
     let inserted = false;
     if (key !== 'auto' && memoTypes.isUntouchedMemo(t.memo, mtype.listTypes().map((x) => x.agenda).filter(Boolean))) {
       t.memo = memoTypes.memoPreset(memoTypes.memoTypeOf(key));
+      t.memoDoc = memoDoc.memoFromText(t.memo);   // 0.14.0 MB-3（決めたこと 64）: 雛形の行（見出し3）も同じ文から
       inserted = true;
     }
     if (t === meeting) noteMeetingState(meeting, 'type', 'live-page');   // 下書きにも書く
-    return { ok: true, memo: t.memo, inserted, meetingType: t.meetingType };
+    return { ok: true, memo: t.memo, ...(t.memoDoc ? { memoDoc: t.memoDoc } : {}), inserted, meetingType: t.meetingType };   // 0.14.0 MB-3: 行があれば行も返す
   });
   // 終了後の文字起こし待ちを後回しにする（#42。0.9.4 S-3 で打ち切りから替えた: ［文字起こしを後回しにして要約］）。記録中（終了前）は押せない。
   // 待ちの区間は「文字起こし待ち」（kept）で WAV を残す（mainlib.skipPendingSegments。消さない）。締めは要約を待たせずに今ある分で作り（m.later）、

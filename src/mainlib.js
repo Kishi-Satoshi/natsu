@@ -34,6 +34,8 @@ async function saveIfExists(db, pageId, apply) {
     if (!got || !got.page) return null;
     const saved = got.page;
     apply(saved);
+    // 0.14.0 MB-3（R165）: メモ（memo・memoDoc）は送らない（page.put は保存してあるメモのまま。書き戻しの引数がメモの行の大きさで上限を越えない）
+    delete saved.memo; delete saved.memoDoc;
     try {
       return await db.call('page.put', { page: saved, baseRev: saved.rev });
     } catch (e) {
@@ -42,6 +44,18 @@ async function saveIfExists(db, pageId, apply) {
     }
   }
   throw last;
+}
+
+// 0.14.0 MB-3（R165）: 締め（meeting.finalize）と復旧（meeting.recover）の引数が DB の上限（validate の LIMITS.bytes）を越えるとき、メモの行（page.memoDoc）を
+// 外した写しにする（素の文字のメモ memo は残る。メモの大きさで締めと復旧を断られない）。越えなければ渡したまま → { args, dropped }
+function fitMemoDoc(args, limit = require('./db/validate').LIMITS.bytes) {
+  const page = args && args.page;
+  if (!page || typeof page !== 'object' || page.memoDoc === undefined) return { args, dropped: false };
+  let size = Infinity;
+  try { size = Buffer.byteLength(JSON.stringify(args), 'utf8'); } catch (_) { /* 数えられなければ外す */ }
+  if (size <= limit) return { args, dropped: false };
+  const { memoDoc: _drop, ...rest } = page;
+  return { args: { ...args, page: rest }, dropped: true };
 }
 
 // ---------------------------------------------------------------- 会議の長さ
@@ -2331,7 +2345,7 @@ module.exports = {
   PROTOCOL, protocolPlan, linkFromArgv, linkRate,
   STATE_NAMES: SL.STATE_NAMES, BY_NAMES: SL.BY_NAMES, stateLogAdd: SL.stateLogAdd, cleanStateLog: SL.cleanStateLog, stateLogLine: SL.stateLogLine,
   meetingTitleAt,
-  saveIfExists, meetingDurationSec, promptTail,
+  saveIfExists, fitMemoDoc, meetingDurationSec, promptTail,
   registerHotkeys, hotkeyFailureMessage, hotkeyStatus, resolveStartupHotkeys, saveHotkeys,
   makeSummaryRunner, tickStep,
   pasterScript, copyCommand, restoreAfterPaste, parsePasterLine,

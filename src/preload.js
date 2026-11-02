@@ -256,8 +256,9 @@ contextBridge.exposeInMainWorld('koeApp', {
   meetingStart: (o) => ipcRenderer.invoke('meeting:start', o && o.pcOnly === true ? { pcOnly: true } : {}),
   meetingDiscard: () => ipcRenderer.invoke('meeting:discard'),
   meetingStatus: () => ipcRenderer.invoke('meeting:status'),
-  meetingSetMemo: (memo) => ipcRenderer.invoke('meeting:set-memo', memo),
-  // 0.11.0 V-1（決めたこと 10）: 録音中のページで種類を選ぶ（key は選べる鍵か auto）。答えは { ok, memo, inserted, meetingType }
+  // 0.14.0 MB-3（決めたこと 61・65）: 録音中と録音の前のメモ。文字（今どおり）かメモの行の並び（memoDoc。main が照らし、外れれば受けずに false）
+  meetingSetMemo: (memoOrDoc) => ipcRenderer.invoke('meeting:set-memo', memoOrDoc),
+  // 0.11.0 V-1（決めたこと 10）: 録音中のページで種類を選ぶ（key は選べる鍵か auto）。答えは { ok, memo, memoDoc?（0.14.0 MB-3: 行があれば）, inserted, meetingType }
   meetingSetType: (key) => ipcRenderer.invoke('meeting:set-type', key),
   meetingSkipPending: () => ipcRenderer.invoke('meeting:skipPending'),
   meetingSetLocalOnly: (on) => ipcRenderer.invoke('meeting:set-local-only', on),

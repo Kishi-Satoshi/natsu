@@ -141,3 +141,151 @@ test('EB-3 直し・R109: 小さなアプリが止まったときは、待って
   assert.strictEqual(r.out && r.out.error, 'timeout: clipboard-read');
   assert.strictEqual(r.st.exit, 2);
 });
+
+// ---------------------------------------------------------------- MB-3（BQ11・F106・決めたこと 61・64・65・録音の守り）: 録音中と録音の前のメモの行と下書き
+// 録音中と録音の前のメモの行（memoDoc）は main のメモリと draft.json に持つ（DB の命令は送らない）。照らしに外れる行は受けずに前のまま。
+// 締めと復旧は下書きの行を DB の meetingPage が照らして持つ（外れれば memo だけ）。前の版の下書き（memo だけ）は今と同じ
+const MD = require('../src/memoDoc');
+const MT = require('../src/memoTypes');
+const sceneRun = (args, timeout = 30000) => new Promise((resolve, reject) => {
+  execScene(process.execPath, [RUN, ...args], { env: { ...process.env, NATSU_TEST_STT_SLEEP_SCALE: '0.01' }, maxBuffer: 1 << 24, timeout },
+    (err, stdout, stderr) => {
+      if (err) { reject(new Error(`mainrun ${args.join(' ')} が失敗: ${err.message}\n${stderr}`)); return; }
+      resolve(JSON.parse(stdout.trim().split('\n').pop()));
+    });
+});
+const mic = (steps, ...flags) => sceneRun(['text', `--mic-feed=${JSON.stringify(steps)}`, ...flags]);
+const ipcOf = (o, ch) => o.ipc.filter(([c]) => c === ch).map(([, r]) => r);
+const MB_DOC = [
+  { id: 'm1', type: 'heading', level: 3, text: '目的' },
+  { id: 'm2', type: 'paragraph', text: '予算を決める', rich: [{ t: '予算', m: ['b'] }, { t: 'を決める' }] },
+  { id: 'm3', type: 'bullet', text: '見積の確認', children: [{ id: 'm4', type: 'todo', text: '比較表', checked: true }] },
+];
+const MB_VALID = MD.validateMemoDoc(MB_DOC);
+const MB_PLAIN = MD.memoPlain(MB_VALID);
+const MB_BAD = [{ id: 'm1', type: 'paragraph', text: '壊れた行の文', cites: [1] }];   // 出典の欄はメモの行に無い（R69）
+const MB_BAD2 = [{ id: 'x1', type: 'paragraph', text: '頭の違う行の文' }];          // 行の ID は m で始まる（R151）
+const MB_REFUSED = 'メモ: 行の形が合わないので受けなかった（bad-args）。前のメモのまま';
+const noMemoText = (log) => !log.some((l) => /目的|予算|見積|比較表|壊れた行|頭の違う行/.test(l));
+
+test('MB-3・F106: 前提（場面の行の形）: 照らした行は citeState を持ち、素の文字は見出しが「■ 」・太字は文字だけ・子は2つの空白。外れる行は bad-args', () => {
+  assert.strictEqual(MB_PLAIN, '■ 目的\n予算を決める\n- 見積の確認\n  - [x] 比較表\n');
+  assert.ok(MB_VALID.every((b) => b.citeState === 'manual'));
+  for (const bad of [MB_BAD, MB_BAD2]) assert.throws(() => MD.validateMemoDoc(bad), (e) => e.code === 'bad-args');
+});
+
+test('MB-3・F106: 録音中に meeting:set-memo に行（doc）→ draft.json に memoDoc と memo（memoPlain）・meeting:status も同じ・DB の命令は0。締めのページは memoDoc と memo。DB を止めても書ける', T, async () => {
+  const o = await mic([['start'], ['snap', 's'], ['ipc', 'meeting:set-memo', MB_DOC], ['snap', 'a'], ['stop'], ['wait-pages', 1]]);
+  assert.deepStrictEqual(ipcOf(o, 'meeting:set-memo'), [true]);
+  assert.deepStrictEqual(o.snaps.a.draft, { memo: MB_PLAIN, meetingType: null, memoDoc: MB_VALID });
+  assert.deepStrictEqual(o.snaps.a.liveMemo, { memo: MB_PLAIN, memoDoc: MB_VALID }, 'meeting:status が行を返さない（画面を読み直すと行の形が消える）');
+  assert.deepStrictEqual(o.snaps.a.dbSent.slice(o.snaps.s.dbSent.length).filter((c) => /^page\./.test(c)), [], '録音中のメモの直しを DB に送った');
+  assert.deepStrictEqual(o.pageMemos.map((p) => [p.memo, p.memoDoc]), [[MB_PLAIN, MB_VALID]]);
+  assert.ok(noMemoText(o.engineLog), o.engineLog.join('\n'));
+  const d = await mic([['start'], ['ipc', 'meeting:set-memo', MB_DOC], ['snap', 'a']], '--db-down');
+  assert.deepStrictEqual(ipcOf(d, 'meeting:set-memo'), [true]);
+  assert.strictEqual(d.snaps.a.active, true, 'DB が止まっていて録音が止まった');
+  assert.deepStrictEqual(d.snaps.a.draft, { memo: MB_PLAIN, meetingType: null, memoDoc: MB_VALID }, 'DB が止まっていると下書きに行が残らない');
+});
+
+test('MB-3・F106（決めたこと 65）: 照らしに外れる doc は受けず前のまま（答えは false）・録音は続く・記録に符号だけ（文を書かない）。録音の前のページでも同じ。文字のメモが来たら行の形は持たない（R164）', T, async () => {
+  const o = await mic([['start'], ['ipc', 'meeting:set-memo', MB_DOC], ['ipc', 'meeting:set-memo', MB_BAD], ['ipc', 'meeting:set-memo', MB_BAD2], ['snap', 'b'],
+    ['ipc', 'meeting:set-memo', 'あとで文字だけ'], ['snap', 'c'], ['stop'], ['wait-pages', 1]]);
+  assert.deepStrictEqual(ipcOf(o, 'meeting:set-memo'), [true, false, false, true]);
+  assert.strictEqual(o.snaps.b.active, true, '録音が止まった');
+  assert.deepStrictEqual(o.snaps.b.draft, { memo: MB_PLAIN, meetingType: null, memoDoc: MB_VALID }, '外れる行で前のメモを捨てた');
+  assert.deepStrictEqual(o.snaps.b.liveMemo, { memo: MB_PLAIN, memoDoc: MB_VALID });
+  assert.deepStrictEqual(o.snaps.c.draft, { memo: 'あとで文字だけ', meetingType: null }, '文字のメモの後に古い行の形が下書きに残った');
+  assert.deepStrictEqual(o.pageMemos.map((p) => [p.memo, p.memoDoc]), [['あとで文字だけ', undefined]]);
+  assert.strictEqual(o.engineLog.filter((l) => l === MB_REFUSED).length, 2, o.engineLog.join('\n'));
+  assert.ok(noMemoText(o.engineLog), o.engineLog.join('\n'));
+  const p = await mic([['ipc', 'meeting:prepare'], ['ipc', 'meeting:set-memo', MB_DOC], ['ipc', 'meeting:set-memo', MB_BAD], ['snap', 'p']]);
+  assert.deepStrictEqual(ipcOf(p, 'meeting:set-memo'), [true, false]);
+  assert.deepStrictEqual(p.snaps.p.status.prep, { memo: MB_PLAIN, memoDoc: MB_VALID, meetingType: null });
+  assert.ok(noMemoText(p.engineLog), p.engineLog.join('\n'));
+});
+
+test('MB-3（第4版）: 録音の前のページの doc は meeting:status が返し（画面を読み直すと行の形のまま）、録音を始めると会議に移る（最初の下書き・最初の meeting:update・締めのページ）。下書きは始めるまで書かない', T, async () => {
+  const o = await mic([['ipc', 'meeting:prepare'], ['ipc', 'meeting:set-memo', MB_DOC], ['snap', 'p'], ['ipc', 'meeting:start'], ['snap', 'm'], ['stop'], ['wait-pages', 1], ['ipc', 'meeting:prepare'], ['snap', 'n']]);
+  assert.deepStrictEqual(o.snaps.p.status.prep, { memo: MB_PLAIN, memoDoc: MB_VALID, meetingType: null }, 'meeting:status が録音の前の行を返さない');
+  assert.deepStrictEqual(o.snaps.p.drafts, []);
+  assert.deepStrictEqual(o.snaps.m.draft, { memo: MB_PLAIN, meetingType: null, memoDoc: MB_VALID }, '録音の前の行が会議に移らない');
+  assert.deepStrictEqual(o.snaps.m.liveMemo, { memo: MB_PLAIN, memoDoc: MB_VALID });
+  const u = (o.mainSentAll.find(([ch, x]) => ch === 'meeting:update' && x && x.active) || [])[1];
+  assert.deepStrictEqual([u.memo, u.memoDoc], [MB_PLAIN, MB_VALID], '最初の meeting:update に行が無い');
+  assert.deepStrictEqual(o.pageMemos.map((p) => [p.memo, p.memoDoc]), [[MB_PLAIN, MB_VALID]]);
+  assert.deepStrictEqual(o.snaps.n.status.prep, { memo: '', meetingType: null }, '次の録音の前のページに前の行が残った');
+});
+
+test('MB-3（決めたこと 64）: meeting:set-type の雛形は memo と memoDoc（手を付けていないときだけ。録音の前のページと会議の両方）。人の文の行なら行はそのまま', T, async () => {
+  const SALES = MT.memoPreset(MT.memoTypeOf('sales'));
+  const STANDUP = MT.memoPreset(MT.memoTypeOf('standup'));
+  const o = await mic([['ipc', 'meeting:prepare'], ['ipc', 'meeting:set-type', 'sales'], ['snap', 'a'], ['ipc', 'meeting:set-memo', MB_DOC], ['ipc', 'meeting:set-type', 'standup'], ['snap', 'b'],
+    ['ipc', 'meeting:start'], ['ipc', 'meeting:set-memo', MD.memoFromText('')], ['ipc', 'meeting:set-type', 'standup'], ['snap', 'c'], ['stop'], ['wait-pages', 1]]);
+  const r = ipcOf(o, 'meeting:set-type');
+  assert.deepStrictEqual(r[0], { ok: true, memo: SALES, memoDoc: MD.memoFromText(SALES), inserted: true, meetingType: 'sales' });
+  assert.deepStrictEqual(o.snaps.a.status.prep, { memo: SALES, memoDoc: MD.memoFromText(SALES), meetingType: 'sales' });
+  assert.deepStrictEqual(r[1], { ok: true, memo: MB_PLAIN, memoDoc: MB_VALID, inserted: false, meetingType: 'standup' }, '人の文の行を雛形に替えた');
+  assert.deepStrictEqual(r[2], { ok: true, memo: STANDUP, memoDoc: MD.memoFromText(STANDUP), inserted: true, meetingType: 'standup' });
+  assert.deepStrictEqual(o.snaps.c.draft, { memo: STANDUP, meetingType: 'standup', memoDoc: MD.memoFromText(STANDUP) });
+  assert.deepStrictEqual(o.pageMemos.map((p) => [p.memo, p.memoDoc]), [[STANDUP, MD.memoFromText(STANDUP)]]);
+});
+
+test('MB-3・F106: 締めの後の要約の入力は今と同じ memo の文（偽の claude の標準入力。見出しは「■ 」・太字の記号は出ない）', { timeout: sceneTimeout(30000) }, async () => {
+  const o = await sceneRun(['text', '--sum', '--claude=ok', '--segs=2', '--claude-stdin', `--live-memo-doc=${JSON.stringify(MB_DOC)}`]);
+  assert.strictEqual(o.liveMemoDoc, true);
+  assert.deepStrictEqual([o.pages[0].memo, o.pages[0].memoDoc], [MB_PLAIN, MB_VALID]);
+  const p = o.claude.filter((l) => l.kind === 'p');
+  assert.strictEqual(p.length, 1);
+  assert.ok(p[0].stdinText.startsWith(`【会議メモ・アジェンダ（要約のヒント）】\n${MT.fenceLines(MB_PLAIN.trim())}\n\n【会議の文字起こし】\n`), p[0].stdinText.slice(0, 300));
+  const memoPart = p[0].stdinText.slice(0, p[0].stdinText.indexOf('【会議の文字起こし】'));
+  assert.ok(memoPart.includes('■ 目的') && memoPart.includes('予算を決める') && !memoPart.includes('**') && !memoPart.includes('## '), `要約の入力のメモに行の飾りの記号が出た: ${memoPart}`);
+});
+
+test('MB-3・F106: 録音中に行を直してから main ごと落ちても、下書きから戻したページは memoDoc のまま（memo は memoPlain）', { timeout: sceneTimeout(60000) }, async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'natsu-メモの行𠮷-'));
+  try {
+    const crashed = await new Promise((resolve) => {
+      execScene(process.execPath, [RUN, 'text', '--segs=3', `--live-memo-doc=${JSON.stringify(MB_DOC)}`, '--kill-main-during', `--keep-user-data=${dir}`],
+        { env: { ...process.env, NATSU_TEST_STT_SLEEP_SCALE: '0.01' }, maxBuffer: 1 << 24, timeout: 30000 }, (err) => resolve(err));
+    });
+    assert.ok(crashed && crashed.code !== 0, '場面の前提: main ごと落ちていない');
+    const o = await sceneRun(['text', '--recover', `--keep-user-data=${dir}`]);
+    assert.strictEqual(o.pages.length, 1);
+    assert.deepStrictEqual([o.pages[0].recovered, o.pages[0].memo, o.pages[0].memoDoc], [true, MB_PLAIN, MB_VALID]);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('MB-3・F106（決めたこと 65・R158・R164）: 前の版の下書き（memo だけ）から戻すと memo だけのページ（今と同じ）。下書きの memoDoc が照らしに外れる（手で壊した）と memo だけのページで、下書きの写しを消さずに残す', { timeout: sceneTimeout(30000) }, async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'natsu-前の下書き𠮷-'));
+  try {
+    const data = path.join(dir, 'data');
+    fs.mkdirSync(data, { recursive: true });
+    const at = Date.now() - 600000;
+    const seg = (id, text) => [{ id, atMs: 0, durationMs: 3000, text }];
+    fs.writeFileSync(path.join(data, 'draft.json'), JSON.stringify({ pageId: 'pmbold1', startedAt: at, memo: '前の版のメモ\n- 素の文字', offsetMs: 3000, savedAt: at + 3000, segments: seg('s1', '前の版の会議です') }));
+    const bad = JSON.stringify({ pageId: 'pmbbad1', startedAt: at + 1000, memo: '素の文字のメモ', memoDoc: MB_BAD, offsetMs: 3000, savedAt: at + 4000, segments: seg('s1', '壊れた行の会議です') });
+    fs.writeFileSync(path.join(data, `draft-${at + 1000}.json`), bad);
+    const o = await sceneRun(['text', '--idle', `--keep-user-data=${dir}`]);
+    const byId = new Map(o.pages.map((p) => [p.id, p]));
+    assert.deepStrictEqual([...byId.keys()].sort(), ['pmbbad1', 'pmbold1'], JSON.stringify(o.engineLog));
+    assert.deepStrictEqual([byId.get('pmbold1').memo, byId.get('pmbold1').memoDoc, byId.get('pmbold1').recovered], ['前の版のメモ\n- 素の文字', undefined, true]);
+    assert.deepStrictEqual([byId.get('pmbbad1').memo, byId.get('pmbbad1').memoDoc, byId.get('pmbbad1').recovered], ['素の文字のメモ', undefined, true], '壊れた行の形でページを作った');
+    assert.deepStrictEqual(o.dataFiles.filter((n) => /^draft/.test(n) && n.endsWith('.json')), [], '戻した下書きが残った');
+    const kept = o.dataFiles.filter((n) => n.startsWith(`draft-${at + 1000}.json.broken-`));
+    assert.strictEqual(kept.length, 1, `壊れた行の下書きの写しが無い: ${o.dataFiles.join(',')}`);
+    assert.strictEqual(fs.readFileSync(path.join(data, kept[0]), 'utf8'), bad, '写しが元の下書きと違う');
+    assert.ok(!o.dataFiles.some((n) => n.startsWith('draft.json.broken-')), '前の版の下書きの写しを作った');
+    assert.ok(o.engineLog.includes(`下書き（draft-${at + 1000}.json）のメモの行は形が合わないので、行の無いメモで戻します（bad-args。下書きの写しを残しました）`), o.engineLog.join('\n'));
+    assert.ok(noMemoText(o.engineLog) && !o.engineLog.some((l) => /前の版のメモ|素の文字|会議です/.test(l)), o.engineLog.join('\n'));
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('MB-3（R165）: main の締め（meeting.finalize）と復旧（meeting.recover）の頼みは fitLiveMemoDoc（mainlib.fitMemoDoc）を通り、要約の書き戻し（saveIfExists）はメモを送らない', () => {
+  const m = fs.readFileSync(path.join(__dirname, '..', 'src', 'main.js'), 'utf8');
+  assert.strictEqual((m.match(/await db\.call\('meeting\.(finalize|recover)', fitLiveMemoDoc\(\{/g) || []).length, 2);
+  assert.strictEqual((m.match(/db\.call\('meeting\.(finalize|recover)',/g) || []).length, 2, '締めか復旧の頼みがほかにもある');
+  const lib = fs.readFileSync(path.join(__dirname, '..', 'src', 'mainlib.js'), 'utf8');
+  const s = lib.slice(lib.indexOf('async function saveIfExists('), lib.indexOf('\n}\n', lib.indexOf('async function saveIfExists(')));
+  assert.ok(s.indexOf('delete saved.memo; delete saved.memoDoc;') > s.indexOf('apply(saved);') && s.indexOf('delete saved.memo;') < s.indexOf("db.call('page.put'"), '書き戻しがメモを送る');
+});

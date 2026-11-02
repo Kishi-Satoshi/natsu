@@ -32,7 +32,7 @@ function runScene(scene) {
 
 test('ST1: main は下書きと newId のほかに store を直に呼ばない。ページの読み書きは await db.call を通る', () => {
   const m = read('src/main.js');
-  const direct = [...m.matchAll(/store\.(\w+)\(/g)].map((x) => x[1]).filter((n) => !['writeDraft', 'clearDraft', 'draftFiles', 'readDraftFile', 'parkDraft', 'newId', 'init', 'initDrafts', 'setReporter', 'root'].includes(n));
+  const direct = [...m.matchAll(/store\.(\w+)\(/g)].map((x) => x[1]).filter((n) => !['writeDraft', 'clearDraft', 'draftFiles', 'readDraftFile', 'parkDraft', 'keepDraftCopy', 'newId', 'init', 'initDrafts', 'setReporter', 'root'].includes(n));
   assert.deepStrictEqual([...new Set(direct)], []);
   assert.ok((m.match(/await db\.call\('/g) || []).length >= 20);
   // 返事を待たない書き込みは db.send（M-3 の写し）だけ。db.call は必ず await する

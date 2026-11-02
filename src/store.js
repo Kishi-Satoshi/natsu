@@ -441,6 +441,12 @@ function writeDraft(d, name = 'draft.json', opts = {}) {
   writeJson(draftPath(name), d, { fsync: opts.fsync === true });
 }
 
+// 0.14.0 MB-3（R164）: 下書きの写しを同じフォルダの <名前>.broken-<時刻> に残す（中身は1バイトも変えない。下書きの名前の形でないので復旧しない）
+// → jsonfile.quarantine の答え（{ ok, to } | { ok: false, code }。投げない）
+function keepDraftCopy(name) {
+  try { return J.quarantine(draftPath(name), { copy: true }); } catch (e) { return { ok: false, code: (e && e.code) || 'UNKNOWN' }; }
+}
+
 function clearDraft(name = 'draft.json') {
   try { fs.unlinkSync(draftPath(name)); } catch (_) { /* noop */ }
 }
@@ -471,5 +477,5 @@ module.exports = {
   updateBlock, updateSegment, insertBlock, removeBlock, moveBlock, setTitle,
   searchIndex, searchFullText, actionView, openActions, assigneeList,
   writeDraft, clearDraft,
-  setReporter, draftFiles, readDraftFile, parkDraft,
+  setReporter, draftFiles, readDraftFile, parkDraft, keepDraftCopy,
 };
