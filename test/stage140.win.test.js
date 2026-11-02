@@ -25,7 +25,7 @@ if (!fs.existsSync(EXE)) return;
 const { MAIN, PAGE } = require('./helpers/keysapp');
 const RM = { recursive: true, force: true, maxRetries: 5, retryDelay: 200 };
 
-test('EB-3・EK-5・F103（決めたこと 35・36・R24）: アプリのメニューを外した窓で、入力の欄の Ctrl+Z は欄の中で戻り、Ctrl+C／Ctrl+V が効き、Ctrl+R で読み直さず、Ctrl+W で窓が閉じない', { timeout: 60000 }, async () => {
+test('EB-3・EK-5・F103（決めたこと 35・36・R24）・EK-4 直し（R153）: アプリのメニューを外した窓で、入力の欄の Ctrl+Z は欄の中で戻り、Ctrl+C／Ctrl+V が効き、文の欄でない箱でキーで受けた Ctrl+C・Ctrl+X が写せ、Ctrl+R で読み直さず、Ctrl+W で窓が閉じない', { timeout: 60000 }, async () => {
   // EB-3 直し（R109）: 前の版の小さなアプリが %APPDATA% に残した設定のフォルダを消す（この版からは userData を一時フォルダに置く）
   if (process.env.APPDATA) fs.rmSync(path.join(process.env.APPDATA, 'natsu-keys'), RM);
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'natsu-keys-議事録𠮷-'));
@@ -35,7 +35,7 @@ test('EB-3・EK-5・F103（決めたこと 35・36・R24）: アプリのメニ�
     fs.writeFileSync(path.join(dir, 'main.js'), MAIN);
     fs.writeFileSync(path.join(dir, 'page.html'), PAGE);
     const outFile = path.join(dir, 'out.json');
-    const env = { ...process.env, NATSU_KEYS_OUT: outFile };
+    const env = { ...process.env, NATSU_KEYS_OUT: outFile, NATSU_MAINLIB: path.join(ROOT, 'src', 'mainlib.js') };   // EK-4 直し（R153）: 読み返しは NaTsu の mainlib
     delete env.ELECTRON_RUN_AS_NODE;   // electron-smoke はテストを ELECTRON_RUN_AS_NODE=1 で回す（子は本物のアプリとして起こす）
     let err = '';
     const code = await new Promise((resolve) => {
@@ -52,6 +52,11 @@ test('EB-3・EK-5・F103（決めたこと 35・36・R24）: アプリのメニ�
     assert.ok(o.undone.length < 3 && 'abc'.startsWith(o.undone), `Ctrl+Z が欄の中で戻らない: ${JSON.stringify(o)}`);
     assert.strictEqual(o.copied, 'xyz', `Ctrl+C が効かない: ${JSON.stringify(o)}`);
     assert.strictEqual(o.pasted, 'xyz', `Ctrl+V が効かない: ${JSON.stringify(o)}`);
+    // EK-4 直し（R153）: 文の欄でない箱（カーソルは中の文の欄）で、キーで受けた Ctrl+C・Ctrl+X が execCommand('copy') で書け（文字と HTML）、Ctrl+V が箱に届く
+    assert.strictEqual(o.boxCopied, '選んだ行', `箱の Ctrl+C で写せない: ${JSON.stringify(o)}`);
+    assert.strictEqual(o.boxHtml, true, `箱の写しの HTML を mainlib.readClipRows で読めない: ${JSON.stringify(o)}`);
+    assert.strictEqual(o.boxCut, '選んだ行', `箱の Ctrl+X で写せない: ${JSON.stringify(o)}`);
+    assert.deepStrictEqual([o.boxCopies, o.boxPasteKeys], [2, 1], `箱の写す・貼るのキーの数: ${JSON.stringify(o)}`);
     assert.strictEqual(o.reloaded, false, 'Ctrl+R で読み直した');
     assert.strictEqual(o.mark, 1, 'Ctrl+R で読み直した（印が消えた）');
     // EK-5（決めたこと 35・36・F103）: メニューが無いので Ctrl+W で窓は閉じない（既定のメニューの「閉じる」が無い）

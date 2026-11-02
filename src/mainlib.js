@@ -347,6 +347,27 @@ async function copyPrivate(text, d) {
   await d.clip.writeText(t);
   return 'electron';
 }
+// 0.14.0 EK-4 直し（計画 docs/plans/2026-10-26-140.md の R153）: 画面の要約の欄で選んだ行への貼り付け（Ctrl+V など）と区切り線の行の貼り付けのために、
+// クリップボードの文字と HTML を読む（Chromium は文の欄でない所では paste の事象を出さないので、画面はキーで受けて main に読ませる）。読むだけで書かない（#27）。
+// 文字でない答え・読めない・断られた Promise は空。大きすぎる（貼り付けの変換が読まない大きさ: 文字 1MB・HTML 16MB）なら中身を渡さず { tooBig: true }
+const CLIP_ROWS_TEXT_MAX = 1024 * 1024;
+const CLIP_ROWS_HTML_MAX = 16 * 1024 * 1024;
+async function readClipRows(clip) {
+  const text = (await readClip(clip)) ?? '';
+  let html = '';
+  try {
+    const items = typeof clip.read === 'function' ? await clip.read() : [];
+    for (const it of Array.isArray(items) ? items : []) {
+      if (!it || !Array.isArray(it.types) || !it.types.includes('text/html') || typeof it.getType !== 'function') continue;
+      const v = await it.getType('text/html');
+      const h = typeof v === 'string' ? v : (v && typeof v.text === 'function' ? await v.text() : '');
+      html = typeof h === 'string' ? h : '';
+      break;
+    }
+  } catch (_) { html = ''; }
+  if (text.length > CLIP_ROWS_TEXT_MAX || html.length > CLIP_ROWS_HTML_MAX) return { tooBig: true };
+  return { text, html };
+}
 // 自動貼り付けのあとは元のクリップボードを戻す（短い文字列だったときだけ・できる範囲で。
 // 判断は restoreAfterPaste）。音声入力は「いま書いている場所へ入れる」道具なので、
 // 貼り付けた本文がクリップボードに残り続けると、直前にコピーしていたものが失われる。
@@ -2314,7 +2335,7 @@ module.exports = {
   registerHotkeys, hotkeyFailureMessage, hotkeyStatus, resolveStartupHotkeys, saveHotkeys,
   makeSummaryRunner, tickStep,
   pasterScript, copyCommand, restoreAfterPaste, parsePasterLine,
-  COPY_SETTLE_MS, RESTORE_DELAY_MS, readClip, clipEquals, copyPrivate, deliverText,
+  COPY_SETTLE_MS, RESTORE_DELAY_MS, readClip, clipEquals, copyPrivate, deliverText, readClipRows, CLIP_ROWS_TEXT_MAX, CLIP_ROWS_HTML_MAX,
   engineFileIssue, engineIssueMessage, engineInAppDir, engineDirWarning, portInUseError,
   isAscii, engineSpawnPlan,
   peFileVersion, vcRuntimeVersions, vcRuntimeIssue, runtimeGate, engineExitHint, spawnErrorHint, speedLine,

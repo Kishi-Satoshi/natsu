@@ -1049,7 +1049,10 @@ test('基準の画像（test/shots/win32）は今の app.html で撮ったもの
   // 0.14.0 EK-4（計画 docs/plans/2026-10-26-140.md の決めたこと 28〜31・R132〜R137）: 要約の行を選ぶ（blockSel・箱の鍵・Shift+クリック・引っ張り・選んだ行の命令とメニュー・写す・貼る）と、選んだ行の地の CSS（.blk.sel）。変わる画面は足した NEW_140 の edit-select の2枚（ほかの撮る画面は行を選ばない）。値を今の app.html に合わせた（前の値は 031da8c6…）
   // 0.14.0 EK-3 直し（R138〜R142）: Ctrl+Shift+V はリンクにしない・区切り線の行の素の貼り付け・行の上限・頼みの全部の 1MB・断られた貼り付けのカーソル・pasteConvert の写しの要素の印の無い HTML（<script> の中だけ。撮る画面は変わらない）。値を今の app.html に合わせた（前の値は 3e3a12dd…）
   // 0.14.0 EK-5（計画 docs/plans/2026-10-26-140.md の決めたこと 36・38・R145・R146）: 設定の「ホットキー」のカードの中の窓の中の近道の表（SHORTCUTS の写し・renderShortcuts・.sctable の CSS）と Ctrl+W の受け口。変わる画面は足した NEW_140 の settings-shortcuts-light と、カードが伸びる RETAKEN_140 の settings-light・settings-dark・settings-zoom200-dark。値を今の app.html に合わせた（前の値は 5c9ab75e…）
-  assert.strictEqual(sha, '7a40de06ce30d2d036bbd51468c7ad34767917866cc5cf8988b870cf425cb416',
+  // 0.14.0 EK-4 直し（R153〜R155）: 選んだ行と区切り線の行の写す・切り取る・貼るをキーで受ける（clipKey・selClipCopy・selClipPaste・rowClipPaste）・選んだまま戻すと選び直す・
+  // 選んだ親の子の ⠿・余白の引っ張りの selectstart・検索の窓と確かめの間の Ctrl+W・Ctrl+Tab（<script> の中）と、SHORTCUTS の写しに「要約の行を選んでいるとき」の5行を足した
+  // （設定の近道の表が伸びる画面 settings-shortcuts-light・settings-light・settings-dark・settings-zoom200-dark は、もう RETAKE にある）。値を今の app.html に合わせた（前の値は 7a40de06…）
+  assert.strictEqual(sha, 'ef68f9a6cd6e9fce7db1c434210a53a211cbe2ae86561e76ad5d480db740a9d2',
     'app.html が基準の画像を撮った時と違う。Windows の CI の画面の比べ（捲り棒のつまみも）を見て、基準を取り直してからこの値を直す');
 });
 

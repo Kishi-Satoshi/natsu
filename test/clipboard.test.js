@@ -113,3 +113,53 @@ test('main.js: clipboard の readText／writeText を直に呼ばず、mainlib �
   assert.match(m, /const copyPrivate = \(text\) => lib\.copyPrivate\(text, clipDeps\(\)\);/);
   assert.match(m, /const deliverText = \(text\) => lib\.deliverText\(text, clipDeps\(\)\);/);
 });
+
+// ---------------------------------------------------------------- 0.14.0 EK-4 直し（計画 docs/plans/2026-10-26-140.md の R153）: 要約の欄の選んだ行・区切り線の行への貼り付けで読むクリップボード
+// Electron 44 の clipboard.read() は ClipboardItem の並び（types と getType(mime) → Blob）を返す
+const htmlItem = (html) => ({ types: ['text/plain', 'text/html'], getType: async (t) => (t === 'text/html' ? { text: async () => html } : { text: async () => '' }) });
+test('EK-4 直し（R153）: readClipRows は文字と HTML を読む（44 の形の ClipboardItem・Blob）。読むだけで書かない', async () => {
+  const c = fakeClip('- 一\n- 二');
+  c.read = async () => [htmlItem('<ul><li>一</li></ul>')];
+  assert.deepStrictEqual(await lib.readClipRows(c), { text: '- 一\n- 二', html: '<ul><li>一</li></ul>' });
+  assert.deepStrictEqual(c.electron, [], '読むだけなのに書いた');
+  // HTML が無い・read が無い（31 の形）・getType が文字を返す
+  const p = fakeClip('文字だけ');
+  p.read = async () => [{ types: ['text/plain'], getType: async () => ({ text: async () => 'x' }) }];
+  assert.deepStrictEqual(await lib.readClipRows(p), { text: '文字だけ', html: '' });
+  assert.deepStrictEqual(await lib.readClipRows(fakeClip('31')), { text: '31', html: '' });
+  const s = fakeClip('');
+  s.read = async () => [{ types: ['text/html'], getType: async () => '<p>文字の答え</p>' }];
+  assert.deepStrictEqual(await lib.readClipRows(s), { text: '', html: '<p>文字の答え</p>' });
+});
+test('EK-4 直し（R153）: readClipRows は形の違う答え・読めない・断られた Promise を空にし、大きすぎる中身（文字 1MB・HTML 16MB を越える）は渡さず tooBig', async () => {
+  const bad = fakeClip('', { readFails: true });
+  bad.read = async () => { throw new Error('読めない'); };
+  assert.deepStrictEqual(await lib.readClipRows(bad), { text: '', html: '' });
+  const odd = fakeClip('');
+  odd.readText = async () => 123;
+  odd.read = async () => [null, { types: 'text/html' }, { types: ['text/html'], getType: async () => ({ text: async () => 5 }) }];
+  assert.deepStrictEqual(await lib.readClipRows(odd), { text: '', html: '' });
+  const rej = fakeClip('x');
+  rej.read = () => Promise.reject(new Error('断られた'));
+  assert.deepStrictEqual(await lib.readClipRows(rej), { text: 'x', html: '' });
+  const bigT = fakeClip('a'.repeat(lib.CLIP_ROWS_TEXT_MAX + 1));
+  assert.deepStrictEqual(await lib.readClipRows(bigT), { tooBig: true });
+  const okT = fakeClip('a'.repeat(lib.CLIP_ROWS_TEXT_MAX));
+  assert.strictEqual((await lib.readClipRows(okT)).text.length, lib.CLIP_ROWS_TEXT_MAX);
+  const bigH = fakeClip('');
+  bigH.read = async () => [htmlItem('b'.repeat(lib.CLIP_ROWS_HTML_MAX + 1))];
+  assert.deepStrictEqual(await lib.readClipRows(bigH), { tooBig: true });
+  assert.strictEqual(lib.CLIP_ROWS_TEXT_MAX, 1024 * 1024);
+  assert.strictEqual(lib.CLIP_ROWS_HTML_MAX, 16 * 1024 * 1024);
+});
+test('EK-4 直し（R153）: main の clipboard:read-rows は本体の窓（送り手とフォーカス）のときだけ mainlib.readClipRows で読み、preload は clipReadRows で呼ぶ。書く入口は今も copyPrivate だけ（#27）', () => {
+  const m = fs.readFileSync(path.join(__dirname, '..', 'src', 'main.js'), 'utf8').replace(/^[ \t]*\/\/.*$/gm, '').replace(/\/\*[\s\S]*?\*\//g, '');
+  const at = m.indexOf("ipcMain.handle('clipboard:read-rows'");
+  assert.ok(at > 0, 'clipboard:read-rows の受け口が無い');
+  const body = m.slice(at, m.indexOf('\n  });', at));
+  assert.ok(body.includes('e.sender !== mainWin.webContents') && body.includes('!mainWin.isFocused()'), '送り手と窓のフォーカスを見ていない');
+  assert.ok(body.includes('return lib.readClipRows(clipboard);'), 'mainlib.readClipRows で読んでいない');
+  assert.ok(!/clipboard\.(write|writeText|writeHTML)\(/.test(m), 'main.js が clipboard に直に書いている');
+  const pre = fs.readFileSync(path.join(__dirname, '..', 'src', 'preload.js'), 'utf8');
+  assert.ok(pre.includes("  clipReadRows: () => ipcRenderer.invoke('clipboard:read-rows'),"), 'preload の clipReadRows が無い');
+});

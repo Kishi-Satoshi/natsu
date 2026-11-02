@@ -1294,3 +1294,16 @@ test('MB-1・R69（第4版）: memoFromText と memoEdit の行はどれも cite
   // トグルは「- 」・トグル見出しは「■ 」
   assert.strictEqual(MD.memoPlain([mrow('m1', 'toggle', '開閉'), mrow('m2', 'heading', '見出しの開閉', { level: 1, toggle: true })]), '- 開閉\n■ 見出しの開閉\n');
 });
+
+test('EK-4 直し（R155・決めたこと 38）: SHORTCUTS の「要約の行を選んでいるとき」に ↑↓（選ぶ行を替える）・Tab・Shift+Tab（選びを外して欄から出る）・Ctrl+Z・Ctrl+Shift+Z・Ctrl+Y（元に戻す・やり直す）の行がある。前からの行の文は変えない', () => {
+  const SC = require('../src/shortcuts.js');
+  const sel = SC.SHORTCUTS.filter((r) => r.where === '要約の行を選んでいるとき');
+  const has = (keys, what) => sel.some((r) => r.keys === keys && r.what === what);
+  assert.ok(has('↑・↓', '選ぶ行を替える'), '↑↓ の行が無い');
+  assert.ok(has('Tab', '選びを外して、欄の外の次の部品へ'), 'Tab の行が無い');
+  assert.ok(has('Shift+Tab', '選びを外して、［AI 要約］のタブへ'), 'Shift+Tab の行が無い');
+  assert.ok(has('Ctrl+Z', '元に戻す') && has('Ctrl+Shift+Z・Ctrl+Y', 'やり直す'), '元に戻す・やり直すの行が無い');
+  for (const [keys, what] of [['Shift+↑・Shift+↓', '選ぶ行を広げる・狭める'], ['Ctrl+C・Ctrl+X・Ctrl+V', '選んだ行を写す・切り取る・後ろに貼り付ける'], ['Esc', '選びを外して ⠿ へ']]) {
+    assert.ok(has(keys, what), `前からの行の文が変わった: ${keys}`);
+  }
+});

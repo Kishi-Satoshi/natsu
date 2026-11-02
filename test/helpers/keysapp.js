@@ -5,6 +5,9 @@
  * 止まったときは、待っていた段の名前を error に書く（「timeout: <段>」）。設定と控え（userData）は一時フォルダの中に置く（%APPDATA% に残さない）。
  * test/stage140.main.test.js が偽の electron（Promise のクリップボード）で、Linux でも最後まで走ることを見る。
  * EK-5: 最後に Ctrl+W を送り、窓が閉じないこと（closed が偽）を書く。
+ * EK-4 直し（R153）: 文の欄でない箱（tabindex=-1。カーソルは中の文の欄に残したまま、箱にフォーカス: 要約の欄で行を選んだ形）に本物の Ctrl+C・Ctrl+X・Ctrl+V を送る。
+ * 箱はキーで受けて execCommand('copy') で copy の事象を起こして写し（NaTsu の画面の selClipCopy と同じ道）、書けた文字と HTML を NaTsu の
+ * mainlib.readClipRows（本物の Electron 44 の clipboard.read() の形。NATSU_MAINLIB のファイル）で読み返す。Ctrl+V は箱の受け口に届くことを見る。
  */
 'use strict';
 
@@ -73,6 +76,24 @@ app.whenReady().then(async () => {
     await js("document.getElementById('t2').focus(), 1");
     await key('V', ['control']);
     out.pasted = await js("document.getElementById('t2').value");
+    // EK-4 直し（R153）: 選んだ行の箱の写す・切り取る（execCommand('copy')）・貼る（キーが箱に届く）
+    at('box-copy');
+    const lib = require(process.env.NATSU_MAINLIB);
+    await js("(() => { const ed = document.getElementById('ed'); ed.focus(); const r = document.createRange(); r.setStart(ed.firstChild, 1); r.collapse(true); const s = getSelection(); s.removeAllRanges(); s.addRange(r); document.getElementById('box').focus(); return 1; })()");
+    await clipboard.writeText('');
+    await key('C', ['control']);
+    out.boxCopied = await clipboard.readText();
+    at('box-html');
+    out.boxHtml = (await lib.readClipRows(clipboard)).html.includes('選んだ行');
+    at('box-cut');
+    await clipboard.writeText('');
+    await key('X', ['control']);
+    out.boxCut = await clipboard.readText();
+    at('box-paste');
+    await key('V', ['control']);
+    const n = JSON.parse(await js('JSON.stringify(window.__natsuBox)'));
+    out.boxCopies = n.copied;
+    out.boxPasteKeys = n.pasteKeys;
     at('reload');
     const before = loads;
     await key('R', ['control']);
@@ -89,6 +110,18 @@ app.whenReady().then(async () => {
   finish(0);
 });
 `;
-const PAGE = '<!doctype html><meta charset="utf-8"><title>keys</title><input id="t1"><input id="t2"><script>window.__natsuMark = 1;</script>';
+// EK-4 直し（R153）: #box は要約の欄（#pNote）と同じく tabindex=-1 の文の欄でない箱。中の #ed は行の文の欄（カーソルを残す所）
+const PAGE = '<!doctype html><meta charset="utf-8"><title>keys</title><input id="t1"><input id="t2">'
+  + '<div id="box" tabindex="-1"><div id="ed" contenteditable="true">行の文</div></div>'
+  + '<script>window.__natsuMark = 1;'
+  + 'window.__natsuBox = { copied: 0, pasteKeys: 0 };'
+  + 'const box = document.getElementById("box");'
+  + 'box.addEventListener("keydown", (ev) => { if (ev.target !== box || !ev.ctrlKey) return;'
+  + ' if (ev.code === "KeyC" || ev.code === "KeyX") { ev.preventDefault(); document.execCommand("copy"); }'
+  + ' else if (ev.code === "KeyV") { ev.preventDefault(); window.__natsuBox.pasteKeys += 1; } });'
+  + 'document.addEventListener("beforecopy", (ev) => { if (document.activeElement === box) ev.preventDefault(); });'
+  + 'document.addEventListener("copy", (ev) => { if (document.activeElement !== box) return; ev.preventDefault();'
+  + ' ev.clipboardData.setData("text/plain", "選んだ行"); ev.clipboardData.setData("text/html", "<p>選んだ行</p>"); window.__natsuBox.copied += 1; });'
+  + '</script>';
 
 module.exports = { MAIN, PAGE };

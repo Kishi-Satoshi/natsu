@@ -52,17 +52,23 @@ const fs = require('node:fs');
 const os = require('node:os');
 const { MAIN, PAGE } = require('./helpers/keysapp');
 function fakeElectron({ hangRead = false, hangMark = false } = {}) {
-  const st = { clip: 'もとの文', focused: '', values: { t1: '', t2: '' }, selected: false, menu: undefined, paths: {}, exit: null, writes: [] };
+  const st = { clip: 'もとの文', html: '', focused: '', values: { t1: '', t2: '' }, selected: false, menu: undefined, paths: {}, exit: null, writes: [], box: { copied: 0, pasteKeys: 0 } };
   const clipboard = {
     readText: () => (hangRead ? new Promise(() => {}) : Promise.resolve(st.clip)),
-    writeText: (v) => { if (typeof v !== 'string') throw new TypeError('writeText: 文字でない'); st.writes.push(v); st.clip = v; return Promise.resolve(); },
+    writeText: (v) => { if (typeof v !== 'string') throw new TypeError('writeText: 文字でない'); st.writes.push(v); st.clip = v; st.html = ''; return Promise.resolve(); },
+    // EK-4 直し（R153）: Electron 44 の read()（ClipboardItem の並び。getType は Blob）
+    read: () => Promise.resolve(st.html ? [{ types: ['text/plain', 'text/html'], getType: (t) => Promise.resolve({ text: () => Promise.resolve(t === 'text/html' ? st.html : st.clip) }) }] : []),
   };
   const wc = {
     on() {}, focus() {}, debugger: { attach() { throw new Error('無い'); } },
     sendInputEvent(e) {
       const f = st.focused;
       if (e.type === 'char') st.values[f] += e.keyCode;
-      else if (e.type === 'keyDown' && e.modifiers.includes('control')) {
+      else if (e.type === 'keyDown' && e.modifiers.includes('control') && f === 'box') {
+        // 箱の受け口（PAGE の script）と同じ: Ctrl+C・Ctrl+X は copy の事象で文字と HTML を書き、Ctrl+V は数えるだけ
+        if (e.keyCode === 'C' || e.keyCode === 'X') { st.clip = '選んだ行'; st.html = '<p>選んだ行</p>'; st.box.copied += 1; }
+        if (e.keyCode === 'V') st.box.pasteKeys += 1;
+      } else if (e.type === 'keyDown' && e.modifiers.includes('control')) {
         if (e.keyCode === 'Z') st.values[f] = '';
         if (e.keyCode === 'C' && st.selected) st.clip = st.values[f];
         if (e.keyCode === 'V') st.values[f] += st.clip;
@@ -70,6 +76,8 @@ function fakeElectron({ hangRead = false, hangMark = false } = {}) {
     },
     executeJavaScript(s) {
       if (s.includes("t.value = 'xyz'")) { st.values.t1 = 'xyz'; st.focused = 't1'; st.selected = true; return Promise.resolve(1); }
+      if (s.includes("getElementById('box').focus()")) { st.focused = 'box'; st.selected = false; return Promise.resolve(1); }
+      if (s.includes('window.__natsuBox')) return Promise.resolve(JSON.stringify(st.box));
       const m = /getElementById\('(t[12])'\)\.(focus|value)/.exec(s);
       if (m && m[2] === 'focus') { st.focused = m[1]; st.selected = false; return Promise.resolve(1); }
       if (m) return Promise.resolve(st.values[m[1]]);
@@ -96,7 +104,7 @@ async function runKeys(main, opt) {
   const fastClear = (h) => { timers.delete(h); clearTimeout(h); };
   const req = (n) => (n === 'electron' ? electron : require(n));
   const outFile = path.join(dir, 'out.json');
-  const proc = { env: { NATSU_KEYS_OUT: outFile } };
+  const proc = { env: { NATSU_KEYS_OUT: outFile, NATSU_MAINLIB: path.join(__dirname, '..', 'src', 'mainlib.js') } };
   const errs = [];
   const onRej = (e) => { errs.push(String(e && e.message || e)); };
   process.on('unhandledRejection', onRej);
@@ -113,18 +121,19 @@ async function runKeys(main, opt) {
 }
 test('EB-3 直し・R109: stage140.win の小さなアプリは Electron 44 の Promise のクリップボードを待って最後まで走り、元のクリップボードを書き戻し、userData を一時フォルダに置く', { timeout: 10000 }, async () => {
   const r = await runKeys(MAIN);
-  assert.deepStrictEqual(r.out, { menu: true, typed: 'abc', undone: '', copied: 'xyz', pasted: 'xyz', reloaded: false, mark: 1, closed: false });   // EK-5 で closed を足した
+  assert.deepStrictEqual(r.out, { menu: true, typed: 'abc', undone: '', copied: 'xyz', pasted: 'xyz', boxCopied: '選んだ行', boxHtml: true, boxCut: '選んだ行', boxCopies: 2, boxPasteKeys: 1, reloaded: false, mark: 1, closed: false });   // EK-5 で closed を、EK-4 直し（R153）で box… を足した
   assert.strictEqual(r.st.exit, 0);
   assert.strictEqual(r.st.clip, 'もとの文', '元のクリップボードを書き戻さない');
   assert.strictEqual(r.st.paths.userData, path.join(r.dir, 'userData'), 'userData が一時フォルダに無い');
   assert.deepStrictEqual(r.errs, []);
   assert.ok(PAGE.includes('id="t1"') && PAGE.includes('id="t2"') && PAGE.includes('__natsuMark = 1'));
+  assert.ok(PAGE.includes('<div id="box" tabindex="-1"><div id="ed" contenteditable="true">') && PAGE.includes('document.execCommand("copy")'), 'EK-4 直し: 箱が文の欄でない・execCommand で写していない');
 });
 test('EB-4 直し・R115: 小さなアプリがクリップボードを使った後に止まっても、40 秒の見張りで終える前に元のクリップボードを書き戻す', { timeout: 10000 }, async () => {
   const r = await runKeys(MAIN, { hangMark: true });
   assert.strictEqual(r.out && r.out.error, 'timeout: reload');
   assert.strictEqual(r.st.exit, 2);
-  assert.deepStrictEqual(r.st.writes, ['', 'もとの文'], '空にしてから Ctrl+C で替わり、見張りで元に書き戻す');
+  assert.deepStrictEqual(r.st.writes, ['', '', '', 'もとの文'], '空にしてから Ctrl+C で替わり（EK-4 直し: 箱の写す・切り取るの前にも空にする）、見張りで元に書き戻す');
   assert.strictEqual(r.st.clip, 'もとの文', '止まって終えるときに元のクリップボードを書き戻さない');
 });
 test('EB-3 直し・R109: 小さなアプリが止まったときは、待っていた段の名前を書く（timeout: <段>）', { timeout: 10000 }, async () => {

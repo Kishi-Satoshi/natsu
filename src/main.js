@@ -6455,6 +6455,11 @@ function setupIpc() {
   });
 
   ipcMain.handle('clipboard:copy', async (_e, t) => { await copyPrivate(String(t ?? '')); return true; });
+  // 0.14.0 EK-4 直し（R153）: 要約の欄の選んだ行・区切り線の行への貼り付けのために、クリップボードの文字と HTML を読む（読むだけ。本体の窓にフォーカスがあるときだけ答える）
+  ipcMain.handle('clipboard:read-rows', async (e) => {
+    if (!mainWin || mainWin.isDestroyed() || e.sender !== mainWin.webContents || !mainWin.isFocused()) return { text: '', html: '' };
+    return lib.readClipRows(clipboard);
+  });
   ipcMain.handle('app:test', async () => {
     forgetRuntimeIssues();   // ランタイムを入れた後の押し直しで読み直す（RF4）
     // 置き場所の注意は、動いていても動いていなくても添える（原因の説明にも予防にもなる）

@@ -1813,6 +1813,7 @@
     // 0.14.0 の行の選び（E9）
     { keys: 'Esc', what: '行を選ぶ（もう一度押すと選びを外して ⠿ へ）', where: '要約の行を直しているとき', codes: [] },
     { keys: 'Ctrl+A', what: '行の文字を全部選ぶ（もう一度押すとその行を選び、さらにもう一度でページの行を全部選ぶ）', where: '要約の行を直しているとき', codes: [] },
+    { keys: '↑・↓', what: '選ぶ行を替える', where: '要約の行を選んでいるとき', codes: [] },
     { keys: 'Shift+↑・Shift+↓', what: '選ぶ行を広げる・狭める', where: '要約の行を選んでいるとき', codes: [] },
     { keys: 'Backspace・Delete', what: '選んだ行を消す', where: '要約の行を選んでいるとき', codes: [] },
     { keys: 'Ctrl+C・Ctrl+X・Ctrl+V', what: '選んだ行を写す・切り取る・後ろに貼り付ける', where: '要約の行を選んでいるとき', codes: [] },
@@ -1821,7 +1822,11 @@
     { keys: 'Ctrl+Shift+0〜7', what: '選んだ行の型をまとめて変える', where: '要約の行を選んでいるとき', codes: ['Ctrl+Shift+Digit0', 'Ctrl+Shift+Digit1', 'Ctrl+Shift+Digit2', 'Ctrl+Shift+Digit3', 'Ctrl+Shift+Digit4', 'Ctrl+Shift+Digit5', 'Ctrl+Shift+Digit6', 'Ctrl+Shift+Digit7'] },
     { keys: 'Ctrl+/', what: '選んだ行のメニューを開く（削除・複製・変換・色）', where: '要約の行を選んでいるとき', codes: ['Ctrl+Slash'] },
     { keys: 'Ctrl+A', what: 'ページの行を全部選ぶ', where: '要約の行を選んでいるとき', codes: [] },
+    { keys: 'Ctrl+Z', what: '元に戻す', where: '要約の行を選んでいるとき', codes: [] },
+    { keys: 'Ctrl+Shift+Z・Ctrl+Y', what: 'やり直す', where: '要約の行を選んでいるとき', codes: [] },
     { keys: 'Enter', what: '選んだ行の文に戻って直す', where: '要約の行を選んでいるとき', codes: [] },
+    { keys: 'Tab', what: '選びを外して、欄の外の次の部品へ', where: '要約の行を選んでいるとき', codes: [] },
+    { keys: 'Shift+Tab', what: '選びを外して、［AI 要約］のタブへ', where: '要約の行を選んでいるとき', codes: [] },
     { keys: 'Esc', what: '選びを外して ⠿ へ', where: '要約の行を選んでいるとき', codes: [] },
   ].map((r) => Object.freeze({ ...r, codes: Object.freeze(r.codes) })));
   // 効く所が替わる所に見出しの行（th colspan=2）を入れ、キーは「・」で区切った1つずつを <kbd> で（文字は textContent で入れる）
@@ -2445,6 +2450,7 @@
   document.addEventListener('keydown', (ev) => {
     if (!ev.ctrlKey || ev.altKey || ev.metaKey || ev.key !== 'Tab' || !openTabs.length) return;
     if (settingsOpen()) return;   // 設定のポップアップの間は後ろのタブを替えない（0.9.0 U-1・SP2）
+    if (palOpen || regenAsking) return;   // 0.14.0 EK-4 直し（R155）: 検索の窓・［要約を再生成］の確かめの間も
     if (typeof ev.preventDefault === 'function') ev.preventDefault();
     const i = openTabs.findIndex((t) => t.key === activeTab), n = openTabs.length;
     const j = i < 0 ? 0 : (i + (ev.shiftKey ? -1 : 1) + n) % n;
@@ -3084,8 +3090,10 @@
   }
   const REGEN_ASK = '書き直した要約を作り直しますか？ 足した行や変えた型は元に戻ります。';
   // 確かめの小さな窓（［作り直す］［やめる］。初めのフォーカスは［やめる］・Esc は［やめる］・Tab は2つの間を回る）。答えは真偽
+  let regenAsking = false;   // 0.14.0 EK-4 直し（R155）: 確かめの窓が開いている（Ctrl+W・Ctrl+Tab は後ろのタブを動かさない）
   function askRegen() {
     return new Promise((resolve) => {
+      regenAsking = true;
       const back = document.activeElement;
       const wrap = document.createElement('div'); wrap.className = 'setmodal askwrap';
       const box = document.createElement('div'); box.className = 'askbox';
@@ -3098,6 +3106,7 @@
       const end = (v) => {
         if (done) return;
         done = true;
+        regenAsking = false;
         if (wrap.parentNode) wrap.parentNode.removeChild(wrap);
         if (back && typeof back.focus === 'function') back.focus();
         resolve(v);
@@ -5483,11 +5492,18 @@
     const order = rows.map((e) => e.dataset.id);
     const id = el ? el.dataset.id : '';
     const caret = el && el._txt === a ? (caretRange(a) || [0])[0] : 0;
+    // EK-4 直し（R154）: 行を選んだまま（箱にフォーカス）戻すと、残った選んだ行を選び直す（フォーカスは箱のまま）。全部消えたら、上に見えていた行の文へ
+    const sel = a === $('pNote') && selOn() ? { ids: [...blockSel.ids], anchor: blockSel.anchor, head: blockSel.head } : null;
     return (x) => {
       const blocks = x && x.page && Array.isArray(x.page.blocks) ? x.page.blocks : [];
       const has = (i) => Boolean(locate(blocks, i));
-      if (id && has(id)) return { focus: id, caret };
-      const i = order.indexOf(id);
+      if (sel) {
+        const live = sel.ids.filter(has);
+        if (live.length) return { select: live, anchor: sel.anchor, head: sel.head };
+      }
+      const from = sel ? sel.ids[0] : id;
+      if (!sel && id && has(id)) return { focus: id, caret };
+      const i = order.indexOf(from);
       for (let j = i - 1; j >= 0; j--) if (has(order[j])) return { focus: order[j], caret: String(locate(blocks, order[j]).b.text ?? '').length };
       for (let j = i + 1; j < order.length; j++) if (has(order[j])) return { focus: order[j], caret: 0 };
       return null;
@@ -5990,6 +6006,8 @@
       if (imeEnter(ev)) return;   // 変換確定の Enter / 変換中の Backspace は編集操作にしない
       const mod = ev.ctrlKey || ev.altKey || ev.metaKey;
       plainPasteAt = plainPasteKey(ev) ? txt : null;   // 0.14.0 EK-3（決めたこと 26）: Ctrl+Shift+V の次の paste は素の文字だけ（既定の貼り付けは止めない）
+      // EK-4 直し（R153）: 区切り線の行は文の欄でないので、Chromium は Ctrl+V で paste の事象を出さない。キーで受け、main に読ませて貼る
+      if (el._b.type === 'divider') { const ck = clipKey(ev); if (ck === 'paste' || ck === 'plain') { ev.preventDefault(); rowClipPaste(el, ck === 'plain'); return; } }
       // 0.13.0 ED-6・ED-7（決めたこと 24・26〜29）: 近道は要約の欄の行の中だけ（Ctrl+/ は今の行の ⠿ のメニュー）
       const act = keyAction(ev);
       // 0.14.0 EB-4（決めたこと 17・18・F101）: Ctrl+B・I・U・Ctrl+Shift+S・Ctrl+E は Chromium の既定の飾りを止め、こちらの決まりで付け外す（保存は次の区切り）
@@ -6274,6 +6292,7 @@
   // 親を選ぶと子も選んだものとして描く（決めたこと 31。命令の ids は選んだ行だけで、DB が子孫を重ねずに扱う）。ページが替わる・要約を描き直すと外す
   let blockSel = null;
   let selDrag = null;   // 引っ張っている間 { from: 始めた行の ID, text: 行の文から始めたか }（P-01・R22）
+  let selAt = -1;       // EK-4 直し（R155）: 最後に塗った選びの最初の行の、編集できる行の中の位置（選んでいなければ -1）
   const selRows = () => editRows();   // 選べる行（鍵の無い・見えている行。閉じたトグルの子は描かないので Shift+↑↓ でも飛ぶ）
   const selOn = () => Boolean(blockSel && blockSel.pageId === curId && blockSel.ids.length);
   const rowById = (id) => selRows().find((e) => e.dataset.id === id) || null;
@@ -6284,6 +6303,12 @@
     const par = new Map(selRows().map((e) => [e.dataset.id, e.dataset.parent || '']));
     const under = (id) => { for (let p = par.get(id); p; p = par.get(p)) if (on.has(p)) return true; return false; };
     return blockSel.ids.filter((id) => !under(id));
+  }
+  // 選んだ行か、選んだ行の子孫か（決めたこと 31: 親を選ぶと子も選んだものとして扱う）
+  function selCovers(id) {
+    if (!selOn()) return false;
+    for (let l = locate(curPage.blocks, id); l; l = l.parent ? locate(curPage.blocks, l.parent.id) : null) if (blockSel.ids.includes(l.b.id)) return true;
+    return false;
   }
   // 選んだ行と、その子孫に印（.sel・aria-selected）
   function selPaint() {
@@ -6296,6 +6321,7 @@
       e.classList.toggle('sel', hit);
       if (hit) e.setAttribute('aria-selected', 'true'); else e.removeAttribute('aria-selected');
     }
+    selAt = on.size ? editRows().findIndex((e) => e.classList.contains('sel')) : -1;   // EK-4 直し（R155）: 選びが消えたときにフォーカスを置く所
   }
   function selSet(ids, anchor, head) {
     const want = new Set(ids);
@@ -6353,6 +6379,9 @@
   // 選んだ行の1つ上・下の置き場（rowShortcut の1つの行と同じ: 子は同じ親の兄弟の中・最上位は画面の最上位の並び）→ { afterId, parentId? } か null
   function selMoveSpot(dir) {
     const roots = selRootIds();
+    // EK-4 直し（R155）: 違う親の行をまとめて選んでいたら動かさない（1つの親の並びへ寄せて木を組み替えない。知らせも出さない）
+    const pars = new Set(roots.map((id) => { const lc = locate(curPage.blocks, id); return lc && lc.parent ? lc.parent.id : ''; }));
+    if (pars.size > 1) return null;
     const id = dir < 0 ? roots[0] : roots[roots.length - 1];
     const l = locate(curPage.blocks, id);
     if (!l) return null;
@@ -6399,6 +6428,9 @@
       if (el) { el._txt.focus(); setCaret(el._txt, el._txt.textContent.length); }
       return;
     }
+    // EK-4 直し（R153）: 写す・切り取る・貼るはキーで受ける（Chromium は文の欄でない箱では cut・paste の事象を出さない）。Shift+Delete は消すより先に見る
+    const ck = clipKey(ev);
+    if (ck) { ev.preventDefault(); if (ck === 'copy' || ck === 'cut') selClipCopy(ck === 'cut'); else selClipPaste(ck === 'plain'); return; }
     if ((k === 'ArrowUp' || k === 'ArrowDown') && !mod) { ev.preventDefault(); rowsStep(k === 'ArrowUp' ? -1 : 1, ev.shiftKey); return; }
     if ((k === 'Backspace' || k === 'Delete') && !mod) { ev.preventDefault(); selRemove(); return; }
     if (ev.ctrlKey && !ev.altKey && !ev.metaKey && !ev.shiftKey && ev.code === 'KeyA') { ev.preventDefault(); selSet(selRows().map((e) => e.dataset.id), blockSel.anchor, blockSel.head); return; }   // R21: ページの全部の行
@@ -6455,7 +6487,7 @@
     if (ev.buttons === 0) { selDrag = null; return; }
     const id = rowAtY(Number(ev.clientY) || 0);
     if (!id || (d.text && id === d.from && !selOn())) return;   // 1つの行の中は文字の選び（道具の帯）
-    if (d.text && typeof window.getSelection === 'function') { const s = window.getSelection(); if (s && typeof s.removeAllRanges === 'function') s.removeAllRanges(); }
+    if (typeof window.getSelection === 'function') { const s = window.getSelection(); if (s && typeof s.removeAllRanges === 'function') s.removeAllRanges(); }   // EK-4 直し（R155）: 余白からも
     if (d.text && !selOn()) { const el = rowById(d.from); if (el) el._txt._commit(curId); }
     rowsRange(d.from, id);
   }
@@ -6492,7 +6524,70 @@
     const blocks = selRootIds().map((id) => locate(curPage.blocks, id)).filter(Boolean).map((l) => l.b);
     const cd = ev.clipboardData;
     if (cd) { cd.setData('text/plain', blocksMarkdown(blocks).replace(/^\n+/, '')); cd.setData('text/html', selHtml(blocks)); }
+    selCopied = Boolean(cd);
     if (cut) selRemove();
+  }
+  // ---- 0.14.0 EK-4 直し（計画 docs/plans/2026-10-26-140.md の R153）: 本物の Chromium は、フォーカスが文の欄でない所（選んだ行の箱・区切り線の行）にあると、
+  // Ctrl+X・Ctrl+V で cut・paste の事象を出さない（切り取り・貼り付けは文の欄の選びにフォーカスがあるときだけ有効）。だからキーで受ける。
+  // 写す・切り取るは execCommand('copy')（キーの間は許される。上の copy の受け口が書く: クリップボードへは Chromium が書き、main は書かない: #27）。
+  // 貼るは main が読んだクリップボード（clipReadRows。読むだけ）を、今の貼り付けの受け口（selPaste・pasteRow）に渡す
+  const CLIP_NO = 'クリップボードに書けなかったので、写せませんでした（行はそのままです）';
+  let selCopied = false;   // 上の copy の受け口が書いた（execCommand の後に見る）
+  // キー → 'copy'（Ctrl+C・Ctrl+Insert）・'cut'（Ctrl+X・Shift+Delete）・'paste'（Ctrl+V・Shift+Insert）・'plain'（Ctrl+Shift+V）か ''。key でなく code で見る（JIS・IME）
+  function clipKey(ev) {
+    if (!ev || ev.altKey || ev.metaKey) return '';
+    const c = String(ev.code || '');
+    if (ev.ctrlKey && !ev.shiftKey) return c === 'KeyC' || c === 'Insert' ? 'copy' : c === 'KeyX' ? 'cut' : c === 'KeyV' ? 'paste' : '';
+    if (ev.ctrlKey) return c === 'KeyV' ? 'plain' : '';
+    if (ev.shiftKey) return c === 'Delete' ? 'cut' : c === 'Insert' ? 'paste' : '';
+    return '';
+  }
+  // 選んだ行を写す（切り取りは、書けたときだけ消す。書けなければ消さずに知らせる）
+  function selClipCopy(cut) {
+    if (!selHere() || !curPage) return;
+    selCopied = false;
+    let ran = false;
+    try { ran = document.execCommand('copy') === true; } catch (_) { ran = false; }   // 無い・投げたら写せない
+    const ok = ran && selCopied;
+    selCopied = false;
+    if (!ok) { toast(CLIP_NO); return; }
+    if (cut && selHere()) selRemove();
+  }
+  // 貼り付けの受け口に渡す形（clipboardData の getData だけ）。plain は Ctrl+Shift+V（文字だけ）
+  const clipEvent = (c, plain) => {
+    const text = c && typeof c.text === 'string' ? c.text : '';
+    const html = !plain && c && typeof c.html === 'string' ? c.html : '';
+    return { natsuPlain: plain, preventDefault() {}, clipboardData: { getData: (k) => (k === 'text/plain' ? text : k === 'text/html' ? html : '') } };
+  };
+  // main にクリップボードを読ませる（読めない・大きすぎるときは null。大きすぎれば知らせる）
+  async function clipRead() {
+    let c = null;
+    try { c = await window.koeApp.clipReadRows(); } catch (_) { c = null; }
+    if (c && c.tooBig) { toast(PASTE_TOO_BIG); return null; }
+    return c && typeof c === 'object' ? c : null;
+  }
+  // 選んでいて Ctrl+V・Shift+Insert・Ctrl+Shift+V: 読む間にページか選びが替わったら貼らない
+  async function selClipPaste(plain) {
+    if (!selHere() || !curPage || (reverting && reverting.pid === curId)) return null;
+    const pid = curId; const want = blockSel.ids.join('\u0001');
+    const c = await clipRead();
+    if (!c || pid !== curId || !selHere() || blockSel.ids.join('\u0001') !== want) return null;
+    return selPaste(clipEvent(c, plain));
+  }
+  // 区切り線の行（文の欄でない）の Ctrl+V・Shift+Insert・Ctrl+Shift+V: 今の行の貼り付け（pasteRow）に渡す（R126 (5)・R138: 下に行として足す）
+  async function rowClipPaste(el, plain) {
+    const pid = curId; const b = el._b;
+    const c = await clipRead();
+    if (!c || pid !== curId || el._b !== b || !isIn(el, $('pNote'))) return;
+    plainPasteAt = plain ? el._txt : null;
+    pasteRow(el, clipEvent(c, plain));
+  }
+  // 文字だけの貼り付け（Ctrl+Shift+V）の行: 改行のまま1つのテキストの行（区切り線の行の素の貼り付けと同じ: R138）。行の上限を越えれば大きすぎる
+  function plainRows(t) {
+    const s = String(t || '').replace(/\r\n?/g, '\n');
+    if (!s) return { blocks: [] };
+    if (s.length > ROW_TEXT_MAX) return { tooBig: true };
+    return { blocks: [{ type: 'paragraph', rich: [{ t: s, m: [] }] }] };
   }
   // 選んでいて Ctrl+V（決めたこと 30）: 選んだ最後の行の後ろへ block.paste の1回（今の行の文の終わりで貼るのと同じ。子の中には入れない）
   function selPaste(ev) {
@@ -6501,7 +6596,7 @@
     if (reverting && reverting.pid === curId) return;
     const cd = ev.clipboardData;
     const clip = (kind) => (cd ? String(cd.getData(`text/${kind}`) || '') : '');   // 行の貼り付け（pasteRow）と同じ2つを読む
-    const out = pasteConvert.pasteBlocks({ html: clip('html'), text: clip('plain').replace(/\r\n?/g, '\n') });
+    const out = ev.natsuPlain ? plainRows(clip('plain')) : pasteConvert.pasteBlocks({ html: clip('html'), text: clip('plain').replace(/\r\n?/g, '\n') });   // EK-4 直し（R153）: Ctrl+Shift+V は文字だけ
     if (out.tooBig) { toast(PASTE_TOO_BIG); return; }
     if (!out.blocks.length) return;
     const roots = selRootIds();
@@ -6521,12 +6616,23 @@
     }).then((r) => { if (full) toast(PASTE_TOO_BIG); return r; });
   }
   // 答えを描いた後: select があればその行を選び直す（選んだ行の操作）。無ければ、今の選びから消えた行を外す
+  // EK-4 直し（R154・R155）: 選び直すときは anchor・head も（無い行は外す）。行の文へフォーカスを移すなら古い選びの印を残さない。
+  // 描き直しで選びが消えて箱にフォーカスが残ったら（箱は枠を描かない）、選んでいた所にいちばん近い行の文へ
   function selAfter(keep) {
-    if (keep && Array.isArray(keep.select)) { selSet(keep.select); return true; }
-    if (!blockSel) return false;
-    const have = new Set(selRows().map((e) => e.dataset.id));
-    const ids = blockSel.ids.filter((id) => have.has(id));
-    if (ids.length && blockSel.pageId === curId) { blockSel.ids = ids; selPaint(); } else selClear();
+    const at = selAt;
+    if (keep && Array.isArray(keep.select)) { selSet(keep.select, keep.anchor, keep.head); return true; }
+    if (keep && keep.focus) { selClear(); return false; }
+    if (blockSel) {
+      const have = new Set(selRows().map((e) => e.dataset.id));
+      const ids = blockSel.ids.filter((id) => have.has(id));
+      if (ids.length && blockSel.pageId === curId) { selSet(ids, blockSel.anchor, blockSel.head); return false; }   // 無い anchor・head は selSet が外す
+      selClear();
+    }
+    if (at >= 0 && document.activeElement === $('pNote')) {
+      const rows = editRows();
+      const near = rows[Math.min(at, rows.length - 1)];
+      if (near) { near._txt.focus(); setCaret(near._txt, near._txt.textContent.length); return true; }
+    }
     return false;
   }
   {
@@ -6537,6 +6643,7 @@
     box.addEventListener('pointerdown', selDown);
     box.addEventListener('pointermove', selMove);
     box.addEventListener('pointerup', () => { selDrag = null; });
+    box.addEventListener('selectstart', (ev) => { if (selDrag && !selDrag.text && typeof ev.preventDefault === 'function') ev.preventDefault(); });   // EK-4 直し（R155）: 余白からの引っ張りは文字を選ばない
     box.addEventListener('pointercancel', () => { selDrag = null; });
     // 欄の外へフォーカスが出たら選びを外す（⠿ のメニューは欄の中に描く）
     box.addEventListener('focusout', () => setTimeout(() => { if (blockSel && !isIn(document.activeElement, box)) selClear(); }, 0));
@@ -6818,7 +6925,7 @@
         if (ev && ev.target && ev.target !== el) { if (typeof ev.preventDefault === 'function') ev.preventDefault(); return; }
         dragBlockId = b.id; el.classList.add('dragging');
         // 0.14.0 EK-4（決めたこと 30）: 選んだ行の ⠿ を引っ張ると、選んだ行の全部を動かす（blocks.move の1回）。ほかの行の ⠿ なら選びを外す
-        dragIds = selOn() && blockSel.ids.includes(b.id) ? selRootIds() : null;
+        dragIds = selOn() && selCovers(b.id) ? selRootIds() : null;   // EK-4 直し（R155）: 選んだ親の子の ⠿ も選んだ行（決めたこと 31）
         if (!dragIds) selClear();
         dragStartX = Number(ev.clientX) || 0;
         ev.dataTransfer.effectAllowed = 'move';
@@ -7998,6 +8105,7 @@
   const LIVE_CLOSE_NO = '録音中のページは閉じられません（［■ 終了して作成］で止めます）';
   document.addEventListener('keydown', (ev) => {
     if (imeEnter(ev) || settingsOpen()) return;
+    if (palOpen || regenAsking) return;   // EK-4 直し（R155）: 検索の窓・［要約を再生成］の確かめの後ろのタブは閉じない
     if (!ev.ctrlKey || ev.altKey || ev.shiftKey || ev.metaKey) return;   // Shift・Alt・Meta つきは Ctrl+W でない（pal-ctrlp-shift の字を写さない）
     if (!(ev.code === 'KeyW' || String(ev.key).toLowerCase() === 'w')) return;
     ev.preventDefault();

@@ -176,6 +176,8 @@ contextBridge.exposeInMainWorld('koeApp', {
   onUpdateAvailable: (cb) => ipcRenderer.on('update:available', (_e, r) => cb(r)),
   onUpdateProgress: (cb) => ipcRenderer.on('update:progress', (_e, p) => cb(p)),
   copy: (text) => ipcRenderer.invoke('clipboard:copy', text),
+  // 0.14.0 EK-4 直し（R153）: 要約の欄の選んだ行・区切り線の行への貼り付け（Ctrl+V・Ctrl+Shift+V・Shift+Insert）で読むクリップボード → { text, html } か { tooBig: true }
+  clipReadRows: () => ipcRenderer.invoke('clipboard:read-rows'),
 
   // 音声入力
   getHistory: () => ipcRenderer.invoke('history:get'),

@@ -34,6 +34,7 @@ const SHORTCUTS = Object.freeze([
   // 0.14.0 の行の選び（E9）
   { keys: 'Esc', what: '行を選ぶ（もう一度押すと選びを外して ⠿ へ）', where: '要約の行を直しているとき', codes: [] },
   { keys: 'Ctrl+A', what: '行の文字を全部選ぶ（もう一度押すとその行を選び、さらにもう一度でページの行を全部選ぶ）', where: '要約の行を直しているとき', codes: [] },
+  { keys: '↑・↓', what: '選ぶ行を替える', where: '要約の行を選んでいるとき', codes: [] },
   { keys: 'Shift+↑・Shift+↓', what: '選ぶ行を広げる・狭める', where: '要約の行を選んでいるとき', codes: [] },
   { keys: 'Backspace・Delete', what: '選んだ行を消す', where: '要約の行を選んでいるとき', codes: [] },
   { keys: 'Ctrl+C・Ctrl+X・Ctrl+V', what: '選んだ行を写す・切り取る・後ろに貼り付ける', where: '要約の行を選んでいるとき', codes: [] },
@@ -42,7 +43,11 @@ const SHORTCUTS = Object.freeze([
   { keys: 'Ctrl+Shift+0〜7', what: '選んだ行の型をまとめて変える', where: '要約の行を選んでいるとき', codes: ['Ctrl+Shift+Digit0', 'Ctrl+Shift+Digit1', 'Ctrl+Shift+Digit2', 'Ctrl+Shift+Digit3', 'Ctrl+Shift+Digit4', 'Ctrl+Shift+Digit5', 'Ctrl+Shift+Digit6', 'Ctrl+Shift+Digit7'] },
   { keys: 'Ctrl+/', what: '選んだ行のメニューを開く（削除・複製・変換・色）', where: '要約の行を選んでいるとき', codes: ['Ctrl+Slash'] },
   { keys: 'Ctrl+A', what: 'ページの行を全部選ぶ', where: '要約の行を選んでいるとき', codes: [] },
+  { keys: 'Ctrl+Z', what: '元に戻す', where: '要約の行を選んでいるとき', codes: [] },
+  { keys: 'Ctrl+Shift+Z・Ctrl+Y', what: 'やり直す', where: '要約の行を選んでいるとき', codes: [] },
   { keys: 'Enter', what: '選んだ行の文に戻って直す', where: '要約の行を選んでいるとき', codes: [] },
+  { keys: 'Tab', what: '選びを外して、欄の外の次の部品へ', where: '要約の行を選んでいるとき', codes: [] },
+  { keys: 'Shift+Tab', what: '選びを外して、［AI 要約］のタブへ', where: '要約の行を選んでいるとき', codes: [] },
   { keys: 'Esc', what: '選びを外して ⠿ へ', where: '要約の行を選んでいるとき', codes: [] },
 ].map((r) => Object.freeze({ ...r, codes: Object.freeze(r.codes) })));
 
