@@ -14,6 +14,8 @@
  *   - 覚えるのは getNormalBounds（最小化中の -32000 や、最大化中の大きさを残さない）
  *   - 拡大は決まった段の上だけ（200% で止まる）。JIS の Ctrl+；（＋の刻印のキー）も拡大
  *   - タブは形の正しい鍵だけ。録音中のページ（live）は覚えない。無いページは外す
+ *   - 0.15.0 PH-1（計画 docs/plans/2026-11-03-150.md の決めたこと 19）: サイドバーの木の開いている行（tree.open）は、ページの ID の形の
+ *     ものだけを重なり無しで 500 まで（無いページは main の ui:get が落とす）
  *   - 0.9.0 U-1（SP3・D24）: 設定はタブでなくポップアップで開くので、前の版が覚えた settings は黙って落とす
  *     （無いページとして数えない。数えると main が「無いページのタブを N 個外した」と事実と違う記録を書く）
  *
@@ -36,6 +38,9 @@ const MAX_TABS = 20;
 const TAB_PAGE_RE = /^page:p[a-z0-9]{1,40}$/;
 const TAB_FIXED = ['dictation'];
 const TAB_RETIRED = 'settings';   // 0.8.0 までの設定のタブ（読むときに黙って落とす）
+// 0.15.0 PH-1（決めたこと 19）: サイドバーの木で開いている行の ID（ページの ID の形。タブの鍵の page: の後ろと同じ形）と、覚える数の上限
+const TREE_ID_RE = /^p[a-z0-9]{1,40}$/;
+const TREE_MAX = 500;
 
 function isObj(v) {
   if (v === null || typeof v !== 'object' || Array.isArray(v)) return false;
@@ -60,6 +65,7 @@ function defaults() {
     sidebar: { width: SIDEBAR.width, collapsed: false },
     tabs: { open: [], active: '' },
     slashRecent: [],   // 0.13.0 ED-5（決めたこと 37〜40）: / メニューで選んだ鍵だけ（新しい順に3つまで。会議の題名・行の文・ID は持たない）
+    tree: { open: [] },   // 0.15.0 PH-1（決めたこと 19）: サイドバーの木で開いている行のページの ID（題名は持たない）
   };
 }
 
@@ -135,6 +141,26 @@ function keepTabs(tabs, exists) {
   return filterTabs(tabs, typeof exists === 'function' ? exists : () => false);
 }
 
+// 0.15.0 PH-1（決めたこと 19・F118）: 木の開け閉め。形の悪い ID・重なり・501 個目からは落とす（ほかの項目は残す）
+function normTree(t) {
+  if (!isObj(t) || !Array.isArray(t.open)) return { open: [] };
+  const open = [];
+  const seen = new Set();
+  for (const id of t.open) {
+    if (typeof id !== 'string' || !TREE_ID_RE.test(id)) continue;
+    if (seen.has(id)) continue;
+    if (open.length >= TREE_MAX) break;
+    seen.add(id);
+    open.push(id);
+  }
+  return { open };
+}
+
+function sameTree(a, raw) {
+  return isObj(raw) && Array.isArray(raw.open) && Object.keys(raw).length === 1
+    && raw.open.length === a.open.length && raw.open.every((k, i) => k === a.open[i]);
+}
+
 function sameSidebar(a, raw) {
   return isObj(raw) && raw.width === a.width && raw.collapsed === a.collapsed;
 }
@@ -174,6 +200,10 @@ function normalize(raw, displays) {
   if (raw.slashRecent !== undefined) {
     state.slashRecent = blockEdit.recentCheck(raw.slashRecent);
     if (JSON.stringify(state.slashRecent) !== JSON.stringify(raw.slashRecent)) repaired.push('slashRecent');
+  }
+  if (raw.tree !== undefined) {
+    state.tree = normTree(raw.tree);
+    if (!sameTree(state.tree, raw.tree)) repaired.push('tree');
   }
   return { state, repaired };
 }
@@ -220,11 +250,12 @@ function applyUi(state, patch) {
     next.tabs = filterTabs(patch.tabs, null).tabs;
   }
   if (patch.slashRecent !== undefined) next.slashRecent = blockEdit.recentCheck(patch.slashRecent);
+  if (isObj(patch.tree) && Array.isArray(patch.tree.open)) next.tree = normTree(patch.tree);   // 0.15.0 PH-1: 画面から来た開け閉めも同じ照らし
   return next;
 }
 
 module.exports = {
-  DEFAULT_SIZE, MIN_SIZE, MAX_EDGE, VISIBLE_MIN, ZOOM_STEPS, SIDEBAR, MAX_TABS,
+  DEFAULT_SIZE, MIN_SIZE, MAX_EDGE, VISIBLE_MIN, ZOOM_STEPS, SIDEBAR, MAX_TABS, TREE_MAX,
   statePath, defaults, shapeOk, normalize, onScreen, boundsOf,
   zoomDir, stepZoom, tabKeyOk, keepTabs, applyUi,
 };

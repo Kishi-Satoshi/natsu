@@ -12,7 +12,8 @@ const D1 = [{ id: 1, bounds: { x: 0, y: 0, width: 1920, height: 1080 }, workArea
 const D2 = [...D1, { id: 2, bounds: { x: 1920, y: 0, width: 1280, height: 1024 }, workArea: { x: 1920, y: 0, width: 1280, height: 984 } }];
 // 0.9.0 U-1（SP3）で意図して変えた: 設定はタブで開かない（settings は読むときに落とす）ので、見本の固定のタブは dictation にした
 // 0.13.0 ED-5（計画 docs/plans/2026-10-24-130.md の決めたこと 39）で意図して変えた: 正しい覚え書きに / メニューの「最近使ったもの」（slashRecent）がある
-const good = (o = {}) => ({ v: 1, bounds: { x: 100, y: 80, width: 1200, height: 800 }, maximized: false, zoom: 1.25, sidebar: { width: 300, collapsed: false }, tabs: { open: ['page:pa1', 'dictation'], active: 'dictation' }, slashRecent: ['h2'], ...o });
+// 0.15.0 PH-1（計画 docs/plans/2026-11-03-150.md の決めたこと 19・R2）で意図して変えた: 正しい覚え書きにサイドバーの木の開け閉め（tree）がある
+const good = (o = {}) => ({ v: 1, bounds: { x: 100, y: 80, width: 1200, height: 800 }, maximized: false, zoom: 1.25, sidebar: { width: 300, collapsed: false }, tabs: { open: ['page:pa1', 'dictation'], active: 'dictation' }, slashRecent: ['h2'], tree: { open: ['pa1'] }, ...o });
 
 test('N6: 置き場所は %LOCALAPPDATA%\\natsu\\window-state.json（Roaming の userData ではない）。無ければ userData', () => {
   const local = path.join(path.parse(process.cwd()).root, 'Local');

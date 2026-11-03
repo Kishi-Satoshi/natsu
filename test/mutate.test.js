@@ -1303,12 +1303,60 @@ test('G3・0.14.0: 0.14.0 の変異が一覧にそろい、IDS_140 は計画の�
   assert.deepStrictEqual(IDS_140.filter((id) => !rows.includes(id)), [], '計画の「変異確認」の表に無い変異');
   // 0.14.0 EK-7 直し（R208）: IDS_140 は表の行とちょうど同じ（行の順）。前は表の行の一部でも通り、表の ek-help-article が変異に無いのを見落とした
   assert.deepStrictEqual(IDS_140, rows, 'IDS_140 が表の行とちょうど同じでない（表の行の変異が無い・行の順でない）');
-  for (const re of [/^(ed|rdy|clk)-/, /^edn-/, /^lg-/, /^lv-/, /^ln-/, /^(mcp|cfg|lk|ls|stl|nl|pt)-/, /^(ka|pc|lt|wd|sg|rx|bm|ci|dt|wv|pb|rn)-/]) {
+  // 0.15.0 PH-1（計画 docs/plans/2026-11-03-150.md の「意図して変えるテスト」）で意図して変えた: 0.15.0 の頭（ph・pl）にも当たらない
+  for (const re of [/^(ed|rdy|clk)-/, /^edn-/, /^lg-/, /^lv-/, /^ln-/, /^(mcp|cfg|lk|ls|stl|nl|pt)-/, /^(ka|pc|lt|wd|sg|rx|bm|ci|dt|wv|pb|rn)-/, /^(ph|pl)-/]) {
     assert.deepStrictEqual(IDS_140.filter((id) => re.test(id)), [], `${re} に当たる 0.14.0 の id`);
   }
   for (const id of IDS_140) {
     const m = byId.get(id);
     assert.ok(Array.isArray(m.tests) && m.tests.length > 0 && m.tests.every((t) => /^test\/[^/]+\.test\.js$/.test(t)), `${id}: tests`);
     assert.ok(typeof m.why === 'string' && m.why.startsWith('0.14.0 '), `${id}: why`);
+  }
+});
+
+// 0.15.0（計画 docs/plans/2026-11-03-150.md の「変異の表」の ph-・pl- の表）: ページの階層・白紙のページ・本文の子ページの行・ゴミ箱・検索と MCP（ph-）と、
+// ページの見た目（pl-）の直しを1つずつ戻す変異。タスクを作るたびに表の行の順で足す（PH-1 から。1つの版: BQ1）。頭は前の版の照らしに当たらない
+const IDS_150 = [
+  // 0.15.0 PH-1（表の行の順に）
+  'ph-tree-cycle', 'ph-tree-orphan', 'ph-tree-top-order', 'ph-tree-kid-order', 'ph-desc-self', 'ph-move-self', 'ph-move-cycle',
+  'ph-trash-group', 'ph-restore-group', 'ph-visible-closed', 'ph-sibling-key', 'ph-drop-spot', 'ph-ws-tree-id', 'ph-ws-tree-max',
+];
+// 作ったタスクの表の行の範囲（はじめの id・終わりの id。表の続いた行）。タスクを作るたびに足す
+const BUILT_150 = [
+  ['ph-tree-cycle', 'ph-ws-tree-max'],   // PH-1
+];
+// 表の ph-・pl- の行（作りながら足すので、IDS_150 は今まで作ったタスクの行だけ: R1。表の全部とちょうど同じかは Task G で見る）
+function planRows150() {
+  const plan = fs.readFileSync(path.join(ROOT, 'docs', 'plans', '2026-11-03-150.md'), 'utf8');
+  const at = plan.search(/^## 変異の表（直しを1つ戻すと/m);
+  assert.ok(at > 0, '計画の「変異の表」の節が無い');
+  const table = plan.slice(at, plan.indexOf('\n## ', at + 5));
+  return [...table.matchAll(/^\| ((?:ph|pl)-[a-z0-9-]*) \|/gm)].map((m) => m[1]);
+}
+test('G3・0.15.0: 0.15.0 の変異が一覧にそろい、IDS_150 は計画の「変異の表」の行の順で、作ったタスクの行とちょうど同じ。ph-・pl- の変異は IDS_150 にある。どれも決まったテストのファイルを持ち、why が 0.15.0 で始まる', { timeout: 5000 }, () => {
+  const byId = new Map(MUTANTS.map((m) => [m.id, m]));
+  assert.deepStrictEqual(IDS_150.filter((id) => !byId.has(id)), [], 'IDS_150 の変異が一覧に無い');
+  assert.strictEqual(new Set(IDS_150).size, IDS_150.length, 'IDS_150 に重なり');
+  assert.deepStrictEqual(MUTANTS.filter((m) => /^(ph|pl)-/.test(m.id) && !IDS_150.includes(m.id)).map((m) => m.id), [], 'IDS_150 に無い 0.15.0 の頭の変異がある');
+  const rows = planRows150();
+  assert.strictEqual(rows.length, 93, '計画の 0.15.0 の表（ph- 75・pl- 18）が読めない');
+  assert.strictEqual(new Set(rows).size, rows.length, '計画の表に重なり');
+  assert.deepStrictEqual(IDS_150.filter((id) => !rows.includes(id)), [], '計画の「変異の表」に無い変異');
+  assert.deepStrictEqual(IDS_150, rows.filter((id) => IDS_150.includes(id)), 'IDS_150 が表の行の順でない');
+  // 作ったタスクの表の行（BUILT_150 の範囲。どれも表の続いた行）とちょうど同じ（R1。範囲の外の行は足していない・範囲の中の行は全部ある）
+  const built = BUILT_150.flatMap(([from, to]) => {
+    const i = rows.indexOf(from); const j = rows.indexOf(to);
+    assert.ok(i >= 0 && j >= i, `作ったタスクの範囲 ${from}〜${to} が表に無い`);
+    return rows.slice(i, j + 1);
+  });
+  assert.deepStrictEqual(IDS_150, rows.filter((id) => built.includes(id)), 'IDS_150 が作ったタスクの表の行とちょうど同じでない');
+  for (const re of [/^(ed|rdy|clk)-/, /^edn-/, /^lg-/, /^lv-/, /^ln-/, /^(mcp|cfg|lk|ls|stl|nl|pt)-/, /^(ka|pc|lt|wd|sg|rx|bm|ci|dt|wv|pb|rn)-/, /^(eb|ek|mo|dq)-/]) {
+    assert.deepStrictEqual(IDS_150.filter((id) => re.test(id)), [], `${re} に当たる 0.15.0 の id`);
+  }
+  for (const ids of [IDS_132, IDS_140]) assert.deepStrictEqual(ids.filter((id) => /^(ph|pl)-/.test(id)), [], '前の版の IDS に 0.15.0 の頭');
+  for (const id of IDS_150) {
+    const m = byId.get(id);
+    assert.ok(Array.isArray(m.tests) && m.tests.length > 0 && m.tests.every((t) => /^test\/[^/]+\.test\.js$/.test(t)), `${id}: tests`);
+    assert.ok(typeof m.why === 'string' && m.why.startsWith('0.15.0 '), `${id}: why`);
   }
 });
