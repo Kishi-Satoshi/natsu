@@ -62,11 +62,15 @@ const OPEN_THREE_TABS = `(async () => {
   document.getElementById('tabBtnNotes').click(); item().click(); await w();
   return 1;
 })()`;
-// 0.15.0 PH-3: 1行目のページを開いて（非同期なので少し待つ）、子のある閉じた行（p2）にフォーカスする（アイコンの所が ▸）
+// 0.15.0 PH-3: 1行目のページを開いて（非同期なので少し待つ）、子のある閉じた行（p2）のアイコンの所を ▸ にした形。
+// PH-3 直し（R26）: 撮る窓は見せない窓（show: false）でフォーカスを持たず :focus も :hover も当たらない（CI run 41705176203 の画像で ▸ が出なかった）ので、
+// 乗せた・フォーカスした行の CSS（.pitem.kids:hover .pe・.tw）と同じ形を行の style で当てる（focus() で一覧を捲らない）
 const FOCUS_TREE = `(async () => {
   document.getElementById('tabBtnNotes').click(); document.querySelector('#plist .pitem').click();
   await new Promise((r) => setTimeout(r, 300));
-  document.querySelector('#plist .pitem[data-pid="p2"]').focus();
+  const row = document.querySelector('#plist .pitem.kids[data-pid="p2"]');
+  row.querySelector('.pe').style.visibility = 'hidden';
+  row.querySelector('.tw').style.display = 'flex';
   return 1;
 })()`;
 // 0.10.0 L-1: 1行目のページを開いて（非同期なので少し待つ）、「···」のメニュー（［コピー］［リンクを写す］［削除］）を開く
