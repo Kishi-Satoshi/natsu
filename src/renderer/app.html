@@ -275,6 +275,7 @@
     border: none; border-radius: 4px; background: transparent; color: var(--text-2); font: inherit; font-size: 14px; line-height: 1; cursor: pointer; }
   .pitem:hover .padd { display: inline-flex; }
   .pitem .padd:hover { background: var(--tint); color: var(--text); }
+  .pitem .ptw { flex: none; width: 12px; margin: 0 -4px 0 -2px; text-align: center; color: var(--text-2); font-size: 12px; cursor: pointer; }   /* PH-3 直し（R28 (3)）: 選ぶ形の ▸ */
   .pitem.dragging { opacity: .5; }
   .pitem.dropin { outline: 2px solid var(--accent); outline-offset: -2px; }
   .pitem.dropbefore, .pitem.dropafter { position: relative; }
@@ -2523,7 +2524,7 @@
       slashRecent = recentCheck(st && st.slashRecent);   // 0.13.0 ED-5（決めたこと 39）: 壊れていれば空（メニューは決まった並びだけ）
       // 0.15.0 PH-3（決めたこと 19）: サイドバーの木の開け閉め（main が今あるページだけに絞って渡す）。届く前に開け閉めしていたら上書きしない
       const to = st && st.tree && Array.isArray(st.tree.open) ? st.tree.open : null;
-      if (to && !treeTouched) { treeOpen = new Set(to.filter((id) => typeof id === 'string').slice(0, TREE_OPEN_MAX)); renderList(); }
+      if (to && !treeTouched) { treeOpen = new Set(to.filter((id) => typeof id === 'string').slice(-TREE_OPEN_MAX)); renderList(); }   // PH-3 直し（R28 (2)）: 新しい 500 個
       const sb = st && st.sidebar;
       if (!sb || sideTouched) return;
       sideState.width = clampSide(sb.width);
@@ -3003,9 +3004,10 @@
   // 見えている行（閉じた行の子は出さない: F115）
   const treeRows = () => pageTreeView.visibleRows(treeNow(), treeOpen);
   const treeRowEl = (id) => [...$('plist').children].find((e) => e.dataset && e.dataset.pid === id) || null;
+  // PH-3 直し（R28 (2)）: 覚えるのは今子のある行だけで、新しく開いた順の新しい 500 個（Set は足した順なので後ろが新しい。前は先の 500 個で、501 個目から覚えなかった）
   function saveTree() {
-    const ids = treeNow().byId;
-    saveUi({ tree: { open: [...treeOpen].filter((id) => ids.has(id)).slice(0, TREE_OPEN_MAX) } });
+    const kids = treeNow().kids;
+    saveUi({ tree: { open: [...treeOpen].filter((id) => kids.has(id)).slice(-TREE_OPEN_MAX) } });
   }
   // 開け閉めを替えて覚える（替えたら真）
   function setTreeOpen(id, on) {
@@ -3098,6 +3100,14 @@
         // 0.10.0 L-2: 選ぶ形の間は 🎙️ の代わりにチェックボックス。押すと付け外し（ページは開かない）
         ic = document.createElement('span'); ic.className = 'pchk'; ic.setAttribute('role', 'checkbox');
         ic.setAttribute('aria-checked', listSel.ids.includes(p.id) ? 'true' : 'false');
+        // PH-3 直し（R28 (3)・決めたこと 23）: 選ぶ形でも子のある行は、チェックボックスの隣の小さな ▸ で開け閉めできる（選びは変えない・ページは開かない）
+        if (r.hasKids) {
+          const tw = document.createElement('span'); tw.className = 'ptw'; tw.setAttribute('aria-hidden', 'true'); tw.textContent = r.open ? '▾' : '▸';
+          tw.title = r.open ? '閉じる' : '開く';
+          tw.onclick = (ev) => { if (ev && typeof ev.stopPropagation === 'function') ev.stopPropagation(); toggleTreeRow(p.id); };
+          el.append(ic);
+          ic = tw;
+        }
       } else if (r.hasKids) {
         // 子のある行は、乗せる・フォーカスでアイコンの所が ▸（開いていれば ▾）になり、押すと開け閉め（決めたこと 18。子の無い行は今と同じ形）
         ic = document.createElement('span'); ic.className = 'pi';
@@ -3139,8 +3149,8 @@
     let r = null;
     try { r = await (parentId ? window.koeApp.pageCreate(parentId) : window.koeApp.pageCreate()); } catch (_) { r = null; }
     if (!r || typeof r.id !== 'string') { toast('ページを作れませんでした。'); return null; }
-    if (parentId) setTreeOpen(parentId, true);
     await refreshList();
+    if (parentId) setTreeOpen(parentId, true);   // PH-3 直し（R28 (2)）: 覚えるのは子のある行だけなので、作った子が一覧に入ってから開く
     const ok = await openPageTab(r.id);
     if (ok && curId === r.id) $('pTitle').focus();   // 0.15.0 PH-4（決めたこと 25・N-11）: 作るとすぐ題名から書ける
     return r.id;
@@ -3174,19 +3184,27 @@
     };
     box.addEventListener('focusout', () => setTimeout(() => { if (treeMenu && treeMenu.box === box && !isIn(document.activeElement, box)) closeTreeMenu(); }, 0));
     const rc = row.getBoundingClientRect();
-    box.style.top = `${Math.round(rc.bottom || 0)}px`;
     box.style.left = `${Math.round((rc.left || 0) + 8)}px`;
     document.body.appendChild(box);
+    // PH-3 直し（R28 (4)）: 窓の下に入らなければ行の上に開く（箱の高さは置いてから測る。測れなければ項目の数から見積もる）
+    const h = box.offsetHeight || menuItems(box).length * 30 + 8;
+    const vh = Number(window.innerHeight) || 0;
+    const below = Math.round(rc.bottom || 0);
+    box.style.top = `${vh && below + h > vh ? Math.max(0, Math.round((rc.top || 0) - h)) : below}px`;
     menuItems(box)[0].focus();
   }
   // 引っ張って動かす（決めたこと 21）: 行の真ん中へ落とすとその中（最後の子）へ・上か下の4分の1はその前か後ろ。自分と子孫の上では印を出さず、
   // 落としても何もしない。Esc でやめる。落とす所は pageTreeView.pageDropSpot（要約の行の dropSpot とは別の部品）
   let pageDrag = null;   // 引っ張っているページの ID
+  const PAGE_DRAG_TYPE = 'application/x-natsu-page';   // 引っ張りの印（この形だけ。text/plain は置かない）
+  // PH-3 直し（R28 (1)）: アプリのページの印のある引っ張りか（引っ張っている間も types は読める）。一覧を描き直して元の行が替わると dragend が
+  // 来ないことがあり、後から本文の文字（text/plain）を行に落としたときに前のページを動かさない
+  const isPageDrag = (ev) => { const dt = ev && ev.dataTransfer; return Boolean(dt && dt.types) && Array.from(dt.types).includes(PAGE_DRAG_TYPE); };
   function clearTreeDrop() {
     for (const e of $('plist').querySelectorAll('.dropin, .dropbefore, .dropafter')) e.classList.remove('dropin', 'dropbefore', 'dropafter');
   }
   function treeSpot(el, ev) {
-    if (!pageDrag) return null;
+    if (!pageDrag || !isPageDrag(ev)) return null;
     const rows = treeRows();
     const idx = rows.findIndex((r) => r.id === el.dataset.pid);
     const rc = el.getBoundingClientRect();
@@ -3198,7 +3216,7 @@
       if (listSel.on) return;
       pageDrag = id; el.classList.add('dragging');
       const dt = ev && ev.dataTransfer;
-      if (dt) { try { dt.effectAllowed = 'move'; dt.setData('application/x-natsu-page', id); } catch (_) { /* 印を置けなくても引っ張れる */ } }
+      if (dt) { try { dt.effectAllowed = 'move'; dt.setData(PAGE_DRAG_TYPE, id); } catch (_) { /* 印を置けなくても引っ張れる */ } }
     };
     el.ondragend = () => { pageDrag = null; el.classList.remove('dragging'); clearTreeDrop(); };
     el.ondragover = (ev) => {
@@ -3221,6 +3239,12 @@
   document.addEventListener('keydown', (ev) => {
     if (pageDrag && ev.key === 'Escape') { pageDrag = null; clearTreeDrop(); }
   });
+  // PH-3 直し（R28 (1)）: 引っ張りの始まり（先に document の捕まえる段で前の引っ張りを忘れ、行の dragstart が新しく覚える）・終わり（元の行が
+  // 外れていなければ document へ届く）・落とした後（行の受け口の後）で忘れる
+  const forgetPageDrag = () => { if (pageDrag) { pageDrag = null; clearTreeDrop(); } };
+  document.addEventListener('dragstart', forgetPageDrag, true);
+  document.addEventListener('dragend', forgetPageDrag, true);
+  document.addEventListener('drop', forgetPageDrag);
   async function movePageTo(id, parentId, afterId) {
     let bad = '';
     try { await window.koeApp.pageMove(id, parentId, afterId); } catch (e) { bad = (e && (e.code || e.message)) || 'error'; }
@@ -8922,7 +8946,8 @@
   }
   // 0.11.0 V-4（P15 (a)・D79）: 自動のページで題名を直したら main に判定を聞き、今の種類と違えば種類の横に一言（種類も要約も変えない）
   async function askTitleType(pid, title) {
-    if (!curPage || pid !== curId || pageTypeKey(curPage) || typeof window.koeApp.metaDetectType !== 'function') return;
+    // PH-4 直し（R29 (2)・BQ2 (a)）: 白紙のページに会議の種類は無いので聞かない
+    if (!curPage || isBlankPage(curPage) || pid !== curId || pageTypeKey(curPage) || typeof window.koeApp.metaDetectType !== 'function') return;
     let r = null;
     try { r = await window.koeApp.metaDetectType(pid, title); } catch (_) { r = null; }
     if (!curPage || pid !== curId || pageTypeKey(curPage)) return;

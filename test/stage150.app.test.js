@@ -98,8 +98,9 @@ test('PH-3・F115: 子のある行は閉じて描く（3 段の木で描いた�
 test('PH-3: 子の無い最上位の行は今と同じ形（▸ の場所が無い）。子のある行は乗せる・フォーカスでアイコンの所が ▸（開いていれば ▾）。子の行は段ごとに 14px 字下げ（8 段で止める）', T, async () => {
   const l = await boot();
   const flat = rowOf(l, 'pa3');
-  assert.deepStrictEqual([flat.className, flat.querySelector('.pi').textContent, flat.querySelector('.tw'), flat.style.paddingLeft, flat.getAttribute('aria-expanded')],
-    ['pitem', '🎙️', null, undefined, null], '子の無い行の形が変わった');
+  // PH-3 直し（R28 (5)）: 比べの値に偽の DOM の要素を入れない（外れたときに要素を書き出して答えが返らない: stage131.nest.app の注）
+  assert.deepStrictEqual([flat.className, flat.querySelector('.pi').textContent, flat.querySelector('.tw') === null, flat.style.paddingLeft, flat.getAttribute('aria-expanded')],
+    ['pitem', '🎙️', true, undefined, null], '子の無い行の形が変わった');
   const kid = rowOf(l, 'pa2');
   assert.ok(kid.classList.contains('kids'));
   assert.deepStrictEqual([kid.querySelector('.pe').textContent, kid.querySelector('.tw').textContent, kid.getAttribute('aria-expanded')], ['🎙️', '▸', 'false']);
@@ -193,7 +194,11 @@ test('PH-3・F118: 開け閉めを uiSave({ tree }) で覚え、uiState の tree
 });
 
 test('PH-3: 行の［＋］→ pageCreate(行の id) の1回で、作ったページを今のタブで開き、親の行は開く。行のメニュー（右クリック・Shift+F10）は［中にページを作る］［新しいタブで開く］［削除］', T, async () => {
-  const l = await boot();
+  // PH-3 直し（R28 (2)）で意図して変えた: 覚えるのは子のある行だけなので、作った後の一覧（DB の pages.list と同じ）に作った子を入れる
+  let made = '';
+  const l = await boot({ returns: {
+    pagesSearch: () => (made ? [...LIST(), ROW('pnew1', AT('23T00:00:00'), { parentId: made, kind: 'blank' })] : LIST()),
+    pageCreate: (parentId) => { made = parentId || ''; return { id: 'pnew1', page: NEWPAGE().page }; } } });
   const add = rowOf(l, 'pa1').querySelector('.padd');
   assert.ok(add, '行の［＋］が無い');
   assert.deepStrictEqual([add.textContent, add.title, add.getAttribute('aria-label'), add.tabIndex], ['＋', 'この中にページを作る', 'この中にページを作る', -1]);
@@ -211,18 +216,18 @@ test('PH-3: 行の［＋］→ pageCreate(行の id) の1回で、作ったペ�
   assert.strictEqual(menuOf().getAttribute('role'), 'menu');
   assert.deepStrictEqual(menuOf().querySelectorAll('.mitem').map((b) => [b.textContent, b.getAttribute('role')]),
     [['中にページを作る', 'menuitem'], ['新しいタブで開く', 'menuitem'], ['削除', 'menuitem']]);
-  assert.strictEqual(l.document.activeElement, menuOf().querySelectorAll('.mitem')[0], 'メニューの1つ目にフォーカスが無い');
+  assert.ok(l.document.activeElement === menuOf().querySelectorAll('.mitem')[0], 'メニューの1つ目にフォーカスが無い');
   l.key({ key: 'ArrowDown' }, menuOf());
   assert.strictEqual(l.document.activeElement.textContent, '新しいタブで開く');
   l.key({ key: 'Escape' }, menuOf());
   await l.drain();
-  assert.deepStrictEqual([menuOf(), focused(l)], [null, 'pa2'], 'Esc で閉じて行へ戻らない');
+  assert.deepStrictEqual([menuOf() === null, focused(l)], [true, 'pa2'], 'Esc で閉じて行へ戻らない');
   await key(l, 'pa2', { key: 'F10', shiftKey: true });
   assert.ok(menuOf(), 'Shift+F10 で行のメニューが出ない');
   menuOf().querySelectorAll('.mitem')[0].dispatchEvent({ type: 'click' });
   await l.drain();
   assert.deepStrictEqual(l.called('pageCreate').map((c) => c.args), [['pa1'], ['pa2']], '［中にページを作る］が行の中に作らない');
-  assert.strictEqual(menuOf(), null);
+  assert.ok(menuOf() === null, '［中にページを作る］の後もメニューが残る');
   await key(l, 'pa3', { key: 'ContextMenu' });
   menuOf().querySelectorAll('.mitem')[1].dispatchEvent({ type: 'click' });
   await l.drain();
@@ -242,8 +247,9 @@ test('PH-3: 引っ張る（真ん中へ落とす → pageMove(id, 行の id)・�
   for (const r of rows(l)) r._rect = { top: 0, height: 30 };
   const dt = () => ({ effectAllowed: '', setData() {} });
   const drag = (id) => rowOf(l, id).dispatchEvent({ type: 'dragstart', target: rowOf(l, id), dataTransfer: dt() });
-  const over = (id, y) => { let prevented = false; rowOf(l, id).dispatchEvent({ type: 'dragover', clientY: y, preventDefault() { prevented = true; } }); return prevented; };
-  const drop = (id, y) => rowOf(l, id).dispatchEvent({ type: 'drop', clientY: y, preventDefault() {} });
+  // PH-3 直し（R28 (1)）で意図して変えた: dragover・drop の事象にアプリのページの印（dataTransfer.types）を持たせる（本物の窓でも引っ張っている間は types が読める）
+  const over = (id, y) => { let prevented = false; rowOf(l, id).dispatchEvent({ type: 'dragover', clientY: y, dataTransfer: { types: ['application/x-natsu-page'] }, preventDefault() { prevented = true; } }); return prevented; };
+  const drop = (id, y) => rowOf(l, id).dispatchEvent({ type: 'drop', clientY: y, dataTransfer: { types: ['application/x-natsu-page'] }, preventDefault() {} });
   assert.ok(rows(l).every((r) => r.draggable === true));
   drag('k2');
   assert.strictEqual(over('pa1', 15), true, '真ん中に落とす所が無い');
@@ -303,6 +309,108 @@ test('PH-3・F117: 選ぶ形（0.10.0 L-2）も木のまま。Shift の範囲は
   await l.drain();
   assert.deepStrictEqual(rows(l).filter((r) => r.querySelector('.pchk').getAttribute('aria-checked') === 'true').map((r) => r.dataset.pid), ['pa3', 'pa2', 'k1', 'k2']);
   assert.deepStrictEqual(l.called('pageGet'), [], '選ぶ形で押した行を開いた');
+  assert.deepStrictEqual(l.errors.map(fmt), []);
+});
+
+// ---------------------------------------------------------------- 0.15.0 PH-3 直し・PH-4 直し（2026-11-03 の点検の Minor。計画の R28・R29）
+const PAGE_TYPE = 'application/x-natsu-page';
+test('PH-3 直し・R28 (1): 木の落とす所はアプリのページの印（application/x-natsu-page）のある引っ張りだけ。一覧を描き直して元の行が替わっても、本文から引っ張った文字（text/plain だけ）を行に落とすと何もしない。document の dragend・dragstart で引っ張りを忘れる', T, async () => {
+  const l = await boot({ returns: { uiState: () => ({ tree: { open: ['pa2'] } }) } });
+  const rect = () => { for (const r of rows(l)) r._rect = { top: 0, height: 30 }; };
+  rect();
+  const dt = () => ({ effectAllowed: '', setData() {} });
+  const drag = (id) => rowOf(l, id).dispatchEvent({ type: 'dragstart', target: rowOf(l, id), dataTransfer: dt() });
+  const over = (id, types) => { let prevented = false; rowOf(l, id).dispatchEvent({ type: 'dragover', clientY: 15, dataTransfer: { types }, preventDefault() { prevented = true; } }); return prevented; };
+  const drop = (id, types) => rowOf(l, id).dispatchEvent({ type: 'drop', clientY: 15, dataTransfer: { types }, preventDefault() {} });
+  drag('k2');
+  // 引っ張っている間に一覧を描き直す（pa2 を閉じて開く: 元の行 k2 は替わり、その行の dragend は来ない）
+  rowOf(l, 'pa2').querySelector('.pi').dispatchEvent({ type: 'click' });
+  await l.drain();
+  rowOf(l, 'pa2').querySelector('.pi').dispatchEvent({ type: 'click' });
+  await l.drain();
+  rect();
+  assert.strictEqual(over('pa1', ['text/plain']), false, '文字だけの引っ張りに落とす所を出した');
+  assert.ok(!rows(l).some((r) => /drop(in|before|after)/.test(r.className)), '文字だけの引っ張りに印を出した');
+  assert.strictEqual(over('pa1', [PAGE_TYPE]), true, 'ページの印のある引っ張りに落とす所が無い');
+  drop('pa1', ['text/plain']);
+  await l.drain();
+  assert.deepStrictEqual(l.called('pageMove'), [], '文字だけの引っ張りで前のページを動かした');
+  // document の dragend（元の行が外れていても、窓の外へ落としても）で忘れる
+  drag('k2');
+  assert.strictEqual(over('pa1', [PAGE_TYPE]), true);
+  l.key({ type: 'dragend' });
+  assert.ok(!rows(l).some((r) => /drop(in|before|after)/.test(r.className)), 'dragend で印が消えない');
+  assert.strictEqual(over('pa1', [PAGE_TYPE]), false, 'dragend の後も落とす所を出す');
+  // document の dragstart（ほかの所から引っ張り始めた）でも忘れる
+  drag('k2');
+  l.key({ type: 'dragstart' });
+  assert.strictEqual(over('pa1', [PAGE_TYPE]), false, 'ほかの引っ張りが始まった後も前のページの落とす所を出す');
+  drop('pa1', [PAGE_TYPE]);
+  await l.drain();
+  assert.deepStrictEqual(l.called('pageMove'), []);
+  assert.deepStrictEqual(l.errors.map(fmt), []);
+});
+
+test('PH-3 直し・R28 (2): 開け閉めの覚え書きは子のある行だけを、新しく開いた順の新しい 500 個まで（501 個目に開いた行も覚える）', T, async () => {
+  const many = [];
+  for (let i = 0; i < 501; i++) {
+    many.push(ROW(`q${i}`, `2026-09-01T00:${String(Math.floor(i / 60)).padStart(2, '0')}:${String(i % 60).padStart(2, '0')}.000Z`));
+    many.push(ROW(`c${i}`, `2026-09-02T00:${String(Math.floor(i / 60)).padStart(2, '0')}:${String(i % 60).padStart(2, '0')}.000Z`, { parentId: `q${i}` }));
+  }
+  many.push(ROW('leaf', '2026-09-03T00:00:00.000Z'));
+  const open = ['leaf', ...Array.from({ length: 500 }, (_, i) => `q${i}`)];
+  const l = await boot({ returns: { pagesSearch: () => many, uiState: () => ({ tree: { open } }) } });
+  assert.ok(ids(l).includes('c0') && ids(l).includes('c499'), '覚えた 500 個の開け閉めが戻らない');
+  rowOf(l, 'q500').querySelector('.pi').dispatchEvent({ type: 'click' });
+  await l.drain();
+  const saved = saves(l).pop().tree.open;
+  assert.strictEqual(saved.length, 500);
+  assert.ok(saved.includes('q500'), '501 個目に開いた行を覚えない');
+  assert.ok(!saved.includes('q0'), 'いちばん古い行を落とさない');
+  assert.ok(!saved.includes('leaf'), '子の無い行を覚えた');
+  assert.strictEqual(saved[saved.length - 1], 'q500', '開いた行が新しい側に無い');
+  assert.deepStrictEqual(l.errors.map(fmt), []);
+});
+
+test('PH-3 直し・R28 (3): 選ぶ形でも子のある行はチェックボックスの隣の ▸ で開け閉めできる（選びは変わらず、ページは開かない）。子の無い行には ▸ が無い', T, async () => {
+  const l = await boot();
+  $(l, 'listSelect').dispatchEvent({ type: 'click' });
+  await l.drain();
+  assert.strictEqual(rowOf(l, 'pa3').querySelector('.ptw') === null, true, '子の無い行に ▸ がある');
+  const tw = rowOf(l, 'pa2').querySelector('.ptw');
+  assert.ok(tw, '選ぶ形で子のある行に ▸ が無い');
+  assert.deepStrictEqual([tw.textContent, tw.title, tw.getAttribute('aria-hidden')], ['▸', '開く', 'true']);
+  assert.ok(rowOf(l, 'pa2').querySelector('.pchk'), 'チェックボックスが消えた');
+  tw.dispatchEvent({ type: 'click' });
+  await l.drain();
+  assert.deepStrictEqual(ids(l), ['pa3', 'pa2', 'k1', 'k2', 'pa1'], '選ぶ形の ▸ で開かない');
+  assert.strictEqual(rowOf(l, 'pa2').querySelector('.ptw').textContent, '▾');
+  assert.ok(rows(l).every((r) => r.querySelector('.pchk').getAttribute('aria-checked') === 'false'), '▸ で選びが変わった');
+  assert.deepStrictEqual(l.called('pageGet'), [], '▸ でページを開いた');
+  assert.deepStrictEqual(saves(l).pop(), { tree: { open: ['pa2'] } });
+  rowOf(l, 'pa2').querySelector('.ptw').dispatchEvent({ type: 'click' });
+  await l.drain();
+  assert.deepStrictEqual(ids(l), ['pa3', 'pa2', 'pa1'], '選ぶ形の ▾ で閉じない');
+  const rules = S.parse(parseHTML(HTML).root.querySelectorAll('style').map((s) => s._raw).join('\n'));
+  assert.strictEqual(S.declsFor(rules, '.pitem .ptw', { at: '' }).flex, 'none');
+  assert.deepStrictEqual(l.errors.map(fmt), []);
+});
+
+test('PH-3 直し・R28 (4): 行のメニューは窓の下に入らなければ行の上に開く（入れば行の下）', T, async () => {
+  const l = await boot();
+  l.window.innerHeight = 300;
+  const top = () => Number.parseInt(l.document.querySelector('.treemenu').style.top, 10);
+  rowOf(l, 'pa3')._rect = { top: 40, height: 30 };
+  rowOf(l, 'pa3').dispatchEvent({ type: 'contextmenu', preventDefault() {} });
+  await l.drain();
+  assert.strictEqual(top(), 70, '入るのに行の下に開かない');
+  l.key({ key: 'Escape' }, l.document.querySelector('.treemenu'));
+  await l.drain();
+  rowOf(l, 'pa1')._rect = { top: 270, height: 30 };
+  rowOf(l, 'pa1').dispatchEvent({ type: 'contextmenu', preventDefault() {} });
+  await l.drain();
+  const t = top();
+  assert.ok(t >= 0 && t < 270, `窓の下に入らないのに行の上に開かない（top ${t}）`);
   assert.deepStrictEqual(l.errors.map(fmt), []);
 });
 
@@ -377,7 +485,7 @@ test('PH-4・BQ2 (a)・F116: 白紙のページの形（会議の種類の行・
     assert.deepStrictEqual([$(l, 'pTitle').textContent, $(l, 'pTitle').getAttribute('data-ph')], ['', '無題のページ']);
     assert.deepStrictEqual(noteRows(l).map((e) => e.dataset.id), ['q1', 'q2', 'q3', 'q4', 'q5', 'q6'], '本文の行が無いか、書いた順でない');
     assert.strictEqual($(l, 'pNote').classList.contains('active'), true);
-    assert.strictEqual($(l, 'sumLock'), null, '白紙のページの本文に要約の鍵の一言が出る');
+    assert.ok($(l, 'sumLock') === null, '白紙のページの本文に要約の鍵の一言が出る');
     // 議事録は今の形のまま
     l.fire('onPageOpen', 'pa1');
     await l.drain();
@@ -434,12 +542,15 @@ test('PH-4: 空の白紙のページの本文は「ここに書く（/ で行の
     const ph = $(l, 'pNote').querySelector('.bodyph');
     assert.ok(ph, '空の本文の手引きが無い');
     assert.deepStrictEqual([ph.textContent, ph.tabIndex, ph.getAttribute('role')], ['ここに書く（/ で行の型を選べます）', 0, 'button']);
+    // PH-4 直し（R29 (3)）: 押す・Enter の前は何も書かない（開いただけでは書かない: R25）
+    assert.deepStrictEqual(Object.keys(CMDS).filter((name) => l.called(name).length), [], '空の白紙のページを開いただけで書く命令を送った');
+    assert.deepStrictEqual([l.page('pb2').blocks, l.page('pb2').updatedAt], [[], '2026-11-02T00:00:00.000Z'], '空の白紙のページを開いただけで書いた');
     ph.dispatchEvent({ type: 'click' });
     await l.drain();
     assert.deepStrictEqual(l.called('blockInsert').map((c) => c.args.slice(0, 3)), [['pb2', '', 'paragraph']]);
     assert.strictEqual(l.page('pb2').blocks.length, 1, 'DB が空の白紙のページの本文に行を足さない（要約の鍵）');
     assert.strictEqual(noteRows(l).length, 1);
-    assert.strictEqual(l.document.activeElement, noteRows(l)[0].querySelector('.txt'), '足した行にフォーカスが無い');
+    assert.ok(l.document.activeElement === noteRows(l)[0].querySelector('.txt'), '足した行にフォーカスが無い');
     assert.deepStrictEqual(l.errors.map(fmt), []);
   } finally { l.done(); }
 });
@@ -457,13 +568,13 @@ test('PH-4: 見出し「議事録」の行の［＋］・行の［＋］・/ペ�
     const id1 = l.called('pageGet').pop().args[0];
     assert.match(id1, /^p[a-z0-9]+$/);
     assert.strictEqual(l.page(id1).kind, 'blank');
-    assert.strictEqual(l.document.activeElement, $(l, 'pTitle'), '作ったページの題名にフォーカスが無い');
+    assert.ok(l.document.activeElement === $(l, 'pTitle'), '作ったページの題名にフォーカスが無い');
     assert.deepStrictEqual([$(l, 'pTitle').textContent, $(l, 'pTitle').getAttribute('data-ph')], ['', '無題のページ']);
     // 行の［＋］（議事録 pa1 の中）
     rowOf(l, 'pa1').querySelector('.padd').dispatchEvent({ type: 'click' });
     await l.drain();
     assert.deepStrictEqual(l.called('pageCreate').map((c) => c.args)[1], ['pa1']);
-    assert.strictEqual(l.document.activeElement, $(l, 'pTitle'), '行の［＋］で作ったページの題名にフォーカスが無い');
+    assert.ok(l.document.activeElement === $(l, 'pTitle'), '行の［＋］で作ったページの題名にフォーカスが無い');
     // /ページ（議事録の［AI 要約］の欄）→ 打った /ページ の文字は消えて保存され、pa1 の中に作る
     l.fire('onPageOpen', 'pa1');
     await l.drain();
@@ -481,7 +592,7 @@ test('PH-4: 見出し「議事録」の行の［＋］・行の［＋］・/ペ�
     await l.drain(); await l.drain();
     assert.deepStrictEqual(l.called('pageCreate').map((c) => c.args)[2], ['pa1'], '/ページ が開いているページの中に作らない');
     assert.strictEqual(l.page('pa1').blocks.find((b) => b.id === 'b2').text, was, '/ページ の文字が消えない');
-    assert.strictEqual(l.document.activeElement, $(l, 'pTitle'));
+    assert.ok(l.document.activeElement === $(l, 'pTitle'), '/ページ で作ったページの題名にフォーカスが無い');
     // 白紙のページの本文の /ページ も開いているページの中
     l.fire('onPageOpen', 'pb1');
     await l.drain();
@@ -508,6 +619,54 @@ test('PH-4・F116: 無題の白紙のページはサイドバー・タブ・検�
     assert.deepStrictEqual(l.call('pages.list', { q: '無題のページ' }).map((p) => p.id), ['pb1'], '検索で「無題のページ」が当たらない');
     l.call('page.setTitle', { id: 'pa1', title: '' }, 'main');
     assert.strictEqual(l.call('pages.list', { q: '' }).find((p) => p.id === 'pa1').title, '(無題の議事録)');
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+// ---------------------------------------------------------------- 0.15.0 PH-4 直し（2026-11-03 の点検の Minor。計画の R29）
+test('PH-4 直し・R29 (1): ［ページ］はメモの欄の / メニューに出ない（ページの本文の欄だけ）。選んでも「最近使ったもの」に入れない', T, async () => {
+  const l = await openDb({ open: 'pa1' });
+  try {
+    const m = $(l, 'pMemo').querySelector('.memorows .blk .txt');
+    assert.ok(m, 'メモの行が無い');
+    m.focus();
+    m.textContent = '/';
+    l.caret.set(m, 1);
+    m.dispatchEvent({ type: 'input' });
+    await l.drain();
+    const menu = $(l, 'pMemo').querySelector('.slashmenu');
+    assert.ok(menu, 'メモの欄の / メニューが開かない');
+    const opts = menu.querySelectorAll('.sopt').map((o) => o.textContent);
+    assert.ok(opts.length > 0 && !opts.includes('ページ'), `メモの欄の / メニューに［ページ］がある: ${opts.join('・')}`);
+    l.key({ key: 'Escape' }, m);
+    await l.drain();
+    // ページの本文の欄で［ページ］を選んでも、uiSave の slashRecent に page を入れない
+    const t = noteTxt(l, 'b2');
+    t.focus();
+    t.textContent = `${t.textContent} /ぺーじ`;
+    l.caret.set(t, t.textContent.length);
+    t.dispatchEvent({ type: 'input' });
+    await l.drain();
+    l.key({ key: 'Enter', code: 'Enter' }, t);
+    await l.drain(); await l.drain();
+    assert.strictEqual(l.called('pageCreate').length, 1, '［ページ］を選べない');
+    const recents = l.called('uiSave').map((c) => c.args[0]).filter((x) => x && Array.isArray(x.slashRecent));
+    assert.ok(!recents.some((x) => x.slashRecent.includes('page')), '［ページ］を「最近使ったもの」に入れた');
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+test('PH-4 直し・R29 (2): 白紙のページの題名を直しても、会議の種類の判定（metaDetectType）を聞かない。題名は保存する', T, async () => {
+  const asked = [];
+  const l = await openDb({ blanks: [BLANK('pb1', '', BODY())], open: 'pb1', returns: { metaDetectType: (...a) => { asked.push(a); return { type: 'sales' }; } } });
+  try {
+    const el = $(l, 'pTitle');
+    el.textContent = '週の予定';
+    el.onblur();
+    await l.drain();
+    assert.deepStrictEqual(l.called('pageSetTitle').map((c) => c.args), [['pb1', '週の予定']], '白紙のページの題名を保存しない');
+    assert.deepStrictEqual(asked, [], '白紙のページで会議の種類の判定を聞いた');
+    assert.strictEqual($(l, 'pTitleTypeHint').hidden, true);
     assert.deepStrictEqual(l.errors.map(fmt), []);
   } finally { l.done(); }
 });

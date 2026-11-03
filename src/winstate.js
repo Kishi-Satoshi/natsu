@@ -141,7 +141,8 @@ function keepTabs(tabs, exists) {
   return filterTabs(tabs, typeof exists === 'function' ? exists : () => false);
 }
 
-// 0.15.0 PH-1（決めたこと 19・F118）: 木の開け閉め。形の悪い ID・重なり・501 個目からは落とす（ほかの項目は残す）
+// 0.15.0 PH-1（決めたこと 19・F118）: 木の開け閉め。形の悪い ID・重なりは落とす（ほかの項目は残す）
+// PH-3 直し（R28 (2)）: 並びは開いた順（後ろが新しい）なので、500 個を越えたら古い（先の）方を落として新しい 500 個を残す
 function normTree(t) {
   if (!isObj(t) || !Array.isArray(t.open)) return { open: [] };
   const open = [];
@@ -149,11 +150,10 @@ function normTree(t) {
   for (const id of t.open) {
     if (typeof id !== 'string' || !TREE_ID_RE.test(id)) continue;
     if (seen.has(id)) continue;
-    if (open.length >= TREE_MAX) break;
     seen.add(id);
     open.push(id);
   }
-  return { open };
+  return { open: open.slice(-TREE_MAX) };
 }
 
 function sameTree(a, raw) {

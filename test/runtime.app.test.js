@@ -594,7 +594,7 @@ test('議事録の一覧は tree で、行は Tab と ↑↓ で辿れ Enter / S
   for (const r of rows) assert.strictEqual(r.getAttribute('role'), 'treeitem', `${r.textContent} に treeitem の役割が無い`);
   rows[0].focus();
   rows[0].dispatchEvent({ type: 'keydown', key: 'ArrowDown', preventDefault() {} });
-  assert.strictEqual(l.document.activeElement, rows[1], '↓ で次の行へ移らない');
+  assert.ok(l.document.activeElement === rows[1], '↓ で次の行へ移らない');   // 0.15.0 PH-3 直し（R28 (5)）: 比べの値に偽の DOM の要素を入れない
   assert.strictEqual(rows[0].getAttribute('aria-selected'), 'true', '開いているページが選択中と示されない');
   assert.strictEqual(rows[1].getAttribute('aria-selected'), 'false', '開いていないページが選択中になっている');
   const n0 = 行を開く(l).length;

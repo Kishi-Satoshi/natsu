@@ -210,7 +210,8 @@ test('PH-1・F118: winstate の tree.open（形の悪い ID・重なり・501 �
   for (const [v, want] of [
     [{ open: ['pa1', 'pa1', 'PA2', 'x', `p${'a'.repeat(41)}`, 3, null, 'page:pa3', 'pb2', 'p'] }, ['pa1', 'pb2']],
     [{ open: 'pa1' }, []], ['pa1', []], [null, []], [[], []], [{}, []], [{ open: ['pa1'], extra: 1 }, ['pa1']],
-    [{ open: Array.from({ length: 501 }, (_, i) => `p${i}`) }, Array.from({ length: 500 }, (_, i) => `p${i}`)],
+    // PH-3 直し（R28 (2)）で意図して変えた: 501 個目からは、古い（先の）方を落として新しい 500 個を残す（開いた順に並ぶので、新しく開いた行を覚え続ける）
+    [{ open: Array.from({ length: 501 }, (_, i) => `p${i}`) }, Array.from({ length: 500 }, (_, i) => `p${i + 1}`)],
   ]) {
     const r = W.normalize(good({ tree: v }), D1);
     assert.deepStrictEqual(r.state.tree, { open: want }, JSON.stringify(v).slice(0, 80));
@@ -222,6 +223,8 @@ test('PH-1・F118: winstate の tree.open（形の悪い ID・重なり・501 �
   // applyUi（画面から来た値）も同じ照らし。tree を送らなければ今のまま
   assert.deepStrictEqual(W.applyUi(good(), { tree: { open: ['pc3', 'pc3', 'bad', 'page:pa1'] } }).tree, { open: ['pc3'] });
   assert.deepStrictEqual(W.applyUi(good(), { tree: { open: [...many, 'p999'] } }).tree.open.length, 500);
+  assert.deepStrictEqual(W.applyUi(good(), { tree: { open: [...many, 'p999'] } }).tree.open.slice(-2), ['p499', 'p999'], '501 個目に開いた行を落とした');
+  assert.deepStrictEqual(W.applyUi(good(), { tree: { open: [...many, 'p999'] } }).tree.open[0], 'p1', 'いちばん古い行を落とさない');
   assert.deepStrictEqual(W.applyUi(good(), { sidebar: { width: 320 } }).tree, { open: ['pa1', 'pb2'] }, '別の項目を送ると開け閉めが消えた');
   assert.deepStrictEqual(W.applyUi(good(), { tree: 'x' }).tree, { open: ['pa1', 'pb2'] }, '形の悪い値で今の開け閉めを消した');
   assert.deepStrictEqual(W.applyUi(W.defaults(), { tree: { open: ['pa1'] } }).tree, { open: ['pa1'] });
