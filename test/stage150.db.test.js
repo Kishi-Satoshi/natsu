@@ -398,7 +398,7 @@ test('PH-2 直し・R12: 木を歩くページの行は attrs の全部を読ま
   assert.match(sql, /json_extract\(attrs, '\$\.meeting\.phase'\)/);
 });
 
-test('PH-2 直し・R11・R12: 5,000 ページ（1KB のメモ・1,000 段の子孫）で pages.trash（頭 300）・page.move・子孫 1,000 の page.delete・page.restore が目安以内（3 回の中央値。読む命令は一覧の目安。書く命令は答えの一覧を作る分（同じ時に計った pages.list）を除いて、書き込みの目安の 2 倍。子孫 1,000 の削除と戻すは 1,000 行を書き、一覧に戻る 1,000 行を読み直すので一覧の目安）', { timeout: 120000 }, (tc) => {
+test('PH-2 直し・R11・R12: 5,000 ページ（1KB のメモ・1,000 段の子孫）で pages.trash（頭 300）・page.move・子孫 1,000 の page.delete・page.restore が目安以内（3 回の中央値。pages.trash は一覧の目安。書く命令は答えの一覧を作る分（同じ時に計った pages.list）を除いて、1 ページは一覧の目安・子孫 1,000 は一覧の目安の 2 倍: R22）', { timeout: 120000 }, (tc) => {
   const t = tmpDb();
   try {
     const { db } = t.open();
@@ -443,9 +443,11 @@ test('PH-2 直し・R11・R12: 5,000 ページ（1KB のメモ・1,000 段の子
     db.exec('COMMIT');
     const trash = [];
     for (let k = 0; k < 3; k++) { const [x, xr] = timed(() => call(db, 'pages.trash', {})); assert.strictEqual(xr.result.length, 200); trash.push(x); }
-    const write = budget['write-commit'] * 2;
-    // 子孫 1,000 の書き込みは台の書き込みの速さで決まる。Windows の目安は CI で計った中央値の 2 倍（R21。tools/perf.js の BUDGETS_WIN と同じ考え）
-    const big = process.platform === 'win32' ? 800 : budget.list;
+    // R22: 一覧を引いた値は一覧の速さの揺れ（CI の台で ±50 ミリ秒ほど）を含むので、1 ページの命令は一覧の目安、子孫 1,000 の書き込み（台の書き込みの
+    // 速さで決まる）は一覧の目安の 2 倍（Windows は CI で計った中央値の 2 倍の 800: R21。tools/perf.js の BUDGETS_WIN と同じ考え）。
+    // メモを読まないこと（R12）は上の SQL の試験が、木を1回だけ作ること（R11）は pages.trash の目安が見る（直す前は 927 ミリ秒）
+    const write = budget.list;
+    const big = process.platform === 'win32' ? 800 : budget.list * 2;
     tc.diagnostic(`pages.trash ${median(trash).toFixed(1)}・page.move ${median(moves).toFixed(1)}・page.delete ${median(dels).toFixed(1)}・page.restore（1,000）${median(rests).toFixed(1)}・page.delete（1）${median(oneDel).toFixed(1)}・page.restore（1）${median(one).toFixed(1)} ミリ秒（書く命令は一覧の分を引いた値）`);
     assert.ok(median(trash) < budget.list, `pages.trash ${median(trash).toFixed(1)} ミリ秒`);
     assert.ok(median(moves) < write, `page.move ${median(moves).toFixed(1)} ミリ秒`);
